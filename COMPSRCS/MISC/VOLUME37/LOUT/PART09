@@ -1,0 +1,2104 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v37i107:  lout - Lout document formatting system, v2, Part09/30
+Message-ID: <1993Jun1.051815.25628@sparky.imd.sterling.com>
+X-Md4-Signature: cc8037361e136d80f39b82ccd6440738
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 1 Jun 1993 05:18:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 37, Issue 107
+Archive-name: lout/part09
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lout/z14.c lout/z19.c lout/z23.c
+# Wrapped by kent@sparky on Sun May 30 19:43:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 30)."'
+if test -f 'lout/z14.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z14.c'\"
+else
+  echo shar: Extracting \"'lout/z14.c'\" \(27879 characters\)
+  sed "s/^X//" >'lout/z14.c' <<'END_OF_FILE'
+X/*@z14.c:Fill Service:FillObject()@*******************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z14.c                                                      */
+X/*  MODULE:       Fill Service                                               */
+X/*  EXTERNS:      FillObject()                                               */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#define TOO_TIGHT_BAD	1048576	/* 2^20; badness of a too tight line         */
+X#define TOO_LOOSE_BAD	65536	/* 2^16; the max badness of a too loose line */
+X#define	TIGHT_BAD	4096	/* 2^12; the max badness of a tight line     */
+X#define	LOOSE_BAD	4096	/* 2^12; the max badness of a loose line     */
+X#define	HYPH_BAD	2048	/* 2^11; threshold for calling hyphenation   */
+X#define SQRT_TOO_LOOSE	256	/* 2^ 8; sqrt(TOO_LOOSE_BAD)                 */
+X#define	SQRT_TIGHT_BAD	64	/* 2^ 6; sqrt(TIGHT_BAD)                     */
+X#define	SQRT_LOOSE_BAD	64	/* 2^ 6; sqrt(LOOSE_BAD)                     */
+X#define MAX_EXPAND	1
+X#define MAX_SHRINK	3
+X
+X
+Xtypedef struct {
+X  OBJECT llink;			/* link to gap before left end of interval   */
+X  OBJECT rlink;			/* link to gap before right end of interval  */
+X  LENGTH nat_width;		/* natural width of interval                 */
+X  LENGTH space_width;		/* natural width of spaces in the interval   */
+X  int	 badness;		/* badness of this interval		     */
+X  unsigned char   class;	/* badness class of this interval	     */
+X  unsigned char	 tab_count;	/* number of gaps with tab mode in interval  */
+X  LENGTH tab_pos;		/* if tab_count > 0, this holds the position */
+X				/* of the left edge of the object following  */
+X				/* the rightmost tab gap in the interval     */
+X  LENGTH width_to_tab;		/* if tab_count > 0, the interval's width up */
+X				/* to but not including the rightmost tab    */
+X} INTERVAL;
+X
+X#define unbreakable(g, hyph_allowed)					\
+X(width(g)==0 && (!hyph_allowed || (mode(g)!=HYPH_MODE && mode(g)!=ADD_HYPH)))
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  Badness classes                                                          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define TOO_LOOSE	0	/* interval is too loose		     */
+X#define LOOSE		1	/* interval is loose but not too loose	     */
+X#define TIGHT		2	/* interval is tight but not too tight	     */
+X#define TOO_TIGHT	3	/* interval is too tight 		     */
+X#define TAB_OVERLAP	4	/* interval has a tab and left part overlaps */
+X#define AT_END		5	/* interval ends at right end of paragraph   */
+X#define ZERO_AT_LEFT	6	/* interval has a zero-width gap at left     */
+X#define ZERO_AT_RIGHT	7	/* interval has a zero-width gap at right    */
+X#define EMPTY_INTERVAL	8	/* interval is empty                         */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  SetIntervalBadness(I)                                                    */
+X/*                                                                           */
+X/*  Private, calculates the badness and badness class of an interval.        */
+X/*  Does not take into account any zero-width gap at either end.             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define SetIntervalBadness(I, max_width, etc_width)			\
+X{ OBJECT g; int badness;						\
+X  LENGTH col_width;							\
+X  if( I.llink == x )							\
+X  { col_width = max_width;						\
+X    I.badness = 0;							\
+X  }									\
+X  else									\
+X  { col_width = etc_width;						\
+X    Child(g, I.llink);							\
+X    I.badness = save_badness(g);					\
+X  }									\
+X									\
+X  if( I.tab_count > 0 && I.width_to_tab > I.tab_pos )			\
+X  { I.class = TAB_OVERLAP;						\
+X    I.badness += TOO_TIGHT_BAD;						\
+X  }									\
+X  else if( MAX_EXPAND*(col_width-I.nat_width) > 2*I.space_width )	\
+X  { I.class = I.tab_count > 0 ? LOOSE : TOO_LOOSE;			\
+X    badness = (SQRT_TOO_LOOSE*(col_width - I.nat_width)) / col_width;	\
+X    I.badness += badness * badness;					\
+X  }									\
+X  else if( I.nat_width <= col_width )					\
+X  { I.class = LOOSE;							\
+X    badness = (SQRT_LOOSE_BAD*(col_width - I.nat_width)) / col_width;	\
+X    I.badness += badness * badness;					\
+X  }									\
+X  else if( MAX_SHRINK*(I.nat_width-col_width) <= I.space_width )	\
+X  { I.class = TIGHT;							\
+X    badness = (SQRT_TIGHT_BAD*(col_width - I.nat_width)) / col_width;	\
+X    I.badness += badness * badness;					\
+X  }									\
+X  else									\
+X  { I.class = TOO_TIGHT;						\
+X    I.badness += TOO_TIGHT_BAD;						\
+X  }									\
+X} /* end macro SetIntervalBadness */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  CorrectOversizeError(x, link, y, etc_width)                              */
+X/*                                                                           */
+X/*  Child y of x, whose link is link, has caused an oversize error, either   */
+X/*  because it is wider than etc_width, or because it is joined by zero-     */
+X/*  width gaps on the left to other objects with oversize total size.        */
+X/*  In the first case, the correction is to replace the object by an         */
+X/*  empty object; in the second case, the correction is to widen the gap.    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic CorrectOversizeError(x, link, y, etc_width, hyph_allowed)
+XOBJECT x, link, y;  LENGTH etc_width;  BOOLEAN hyph_allowed;
+X{ OBJECT tmp, g;  BOOLEAN done;
+X
+X  /* if there is a preceding unbreakable gap, make it breakable */
+X  done = FALSE;
+X  if( PrevDown(link) != x )
+X  { Child(g, PrevDown(link));
+X    assert( type(g) == GAP_OBJ, "CorrectOversizeError: left gap!" );
+X    if( unbreakable(gap(g), hyph_allowed) )
+X    { SetGap(gap(g), FALSE, TRUE, FIXED_UNIT, EDGE_MODE, 1);
+X      Error(WARN, &fpos(g), "line break may occur here due to wide object");
+X      done = TRUE;
+X    }
+X  }
+X
+X  /* else replace the wide object by an empty object */
+X  if( !done )
+X  { Error(WARN, &fpos(y), "%s object deleted (too wide for %s paragraph)",
+X		EchoLength(size(y, COL)), EchoLength(etc_width));
+X    tmp = MakeWord("", &fpos(x));
+X    back(tmp, COL) = fwd(tmp, COL) = 0;
+X    back(tmp, ROW) = fwd(tmp, ROW) = 0;
+X    word_font(tmp) = 0;
+X    Link(link, tmp);
+X    DisposeChild(link);
+X  }
+X
+X} /* end CorrectOversizeError */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  MoveRightToGap(I, x, rlink, right, max_width, etc_width, hyph_word)      */
+X/*                                                                           */
+X/*  Private.  Shared by IntervalInit and IntervalShiftRightEnd, for moving   */
+X/*  to the next gap to the right, setting save_space(newg), checking for     */
+X/*  hyphenation case, and setting the interval badness.                      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define MoveRightToGap(I,x,rlink,right,max_width,etc_width,hyph_word)	\
+X{ OBJECT newg, foll;							\
+X  BOOLEAN zero_at_right = FALSE;					\
+X									\
+X  /* search onwards to find newg, the next true breakpoint */		\
+X  NextDefiniteWithGap(x, rlink, foll, newg);				\
+X									\
+X  /* set right link and calculate badness of the new interval */	\
+X  if( rlink != x )							\
+X  { 									\
+X    /* set save_space(newg) now so that it's OK to forget right */	\
+X    if( mode(gap(newg)) == TAB_MODE )					\
+X    { save_space(newg) = ActualGap(0, back(foll,COL), fwd(foll,COL),	\
+X	  &gap(newg), etc_width, 0) - back(foll, COL);			\
+X    }									\
+X    else								\
+X    { save_space(newg) = ActualGap(fwd(right, COL), back(foll, COL),	\
+X	  fwd(foll,COL), &gap(newg), etc_width,				\
+X	  I.nat_width - fwd(right,COL))					\
+X	  - back(foll, COL) - fwd(right, COL);				\
+X    }									\
+X									\
+X    /* if interval ends with hyphen, add hyph_word to nat_width */	\
+X    /* NB ADD_HYPH is possible after a restart                  */	\
+X    if( hyph_allowed &&							\
+X	(mode(gap(newg)) == HYPH_MODE || mode(gap(newg)) == ADD_HYPH) )	\
+X    { if( type(right) == WORD && 					\
+X		!(string(right)[strlen(string(right))-1] == '-' ||	\
+X		(string(right)[strlen(string(right))-1] == '"' &&	\
+X		 string(right)[strlen(string(right))-2] == '-' )) )	\
+X      {									\
+X	/* make sure hyph_word exists and is of the right font */	\
+X	if( hyph_word == nil )						\
+X	{ hyph_word = MakeWord("-", &fpos(x));				\
+X	  word_font(hyph_word) = 0;					\
+X	}								\
+X	if( word_font(hyph_word) != font(save_style(x)) )		\
+X	{ word_font(hyph_word) = font(save_style(x));			\
+X	  FposCopy(fpos(hyph_word), fpos(x));				\
+X	  FontAtomSize(hyph_word);					\
+X	}								\
+X									\
+X	mode(gap(newg)) = ADD_HYPH;					\
+X	I.nat_width += size(hyph_word, COL);				\
+X	debug0(DOF, DD, "   adding hyph_word from nat_width\n");	\
+X      }									\
+X    }									\
+X    else if( unbreakable(gap(newg), hyph_allowed) ) zero_at_right=TRUE;	\
+X									\
+X    I.rlink = Up(newg);							\
+X  }									\
+X  else I.rlink = x;							\
+X  SetIntervalBadness(I, max_width, etc_width);				\
+X  if( zero_at_right )  I.class = ZERO_AT_RIGHT;				\
+X}
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  IntervalInit(I, x, max_width, etc_width, hyph_word)                      */
+X/*                                                                           */
+X/*  Set I to the first interval of x.                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define IntervalInit(I, x, max_width, etc_width, hyph_word)		\
+X{ OBJECT rlink, right, newg, foll;					\
+X  I.llink = x;								\
+X									\
+X  FirstDefinite(x, rlink, right);					\
+X  if( rlink == x )  I.class = AT_END, I.rlink = x;			\
+X  else									\
+X  { 									\
+X    /* have first definite object, so set interval width etc. */	\
+X    I.nat_width = size(right, COL);					\
+X    I.space_width = 0;							\
+X    I.tab_count = 0;							\
+X									\
+X    /* move to gap, check hyphenation there etc. */			\
+X    MoveRightToGap(I,x,rlink,right,max_width,etc_width,hyph_word); 	\
+X  }									\
+X} /* end macro IntervalInit */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  IntervalShiftRightEnd(I, x, hyph_word, max_width, etc_width)             */
+X/*                                                                           */
+X/*  Shift the right end of interval I one place to the right.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define IntervalShiftRightEnd(I, x, hyph_word, max_width, etc_width) 	\
+X{ OBJECT rlink, g, right;						\
+X  assert( I.class != AT_END, "IntervalShiftRightEnd: AT_END!" );	\
+X  rlink = I.rlink;							\
+X  if( rlink == x ) I.class = AT_END;					\
+X  else									\
+X  {									\
+X    /* I is optimal here so save its badness and left endpoint */	\
+X    Child(g, rlink);							\
+X    assert( type(g) == GAP_OBJ, "IntervalShiftRightEnd: type(g)!" );	\
+X    save_badness(g) = I.badness;					\
+X    save_prev(g) = I.llink;						\
+X									\
+X    /* if hyphenation case, must take away width of hyph_word */	\
+X    if( mode(gap(g)) == ADD_HYPH )					\
+X    { I.nat_width -= size(hyph_word,COL);				\
+X      debug0(DOF, DD, "   subtracting hyph_word from nat_width");	\
+X    }									\
+X									\
+X    /* find definite object which must lie just to the right of g */	\
+X    NextDefinite(x, rlink, right);					\
+X    assert( rlink != x, "IntervalShiftRightEnd: rlink == x!" );		\
+X									\
+X    /* modify I to reflect the addition of g and right */		\
+X    if( mode(gap(g)) == TAB_MODE )					\
+X    { I.tab_count++;							\
+X      I.tab_pos = save_space(g);					\
+X      I.width_to_tab = I.nat_width;					\
+X      I.nat_width = save_space(g) + size(right, COL);			\
+X      I.space_width = 0;						\
+X    }									\
+X    else								\
+X    { I.nat_width += save_space(g) + size(right, COL);			\
+X      I.space_width += save_space(g);					\
+X    }									\
+X									\
+X    /* now shift one step to the right */				\
+X    MoveRightToGap(I, x, rlink, right, max_width, etc_width,hyph_word);	\
+X  }									\
+X} /* end macro IntervalShiftRightEnd */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  IntervalShiftLeftEnd(I, x, max_width, etc_width)                         */
+X/*                                                                           */
+X/*  Shift the left end of interval I one place to the right.                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define IntervalShiftLeftEnd(I, x, max_width, etc_width)		\
+X{ OBJECT llink, left, lgap, y;						\
+X  debug1(DOF, DDD, "IntervalShiftLeftEnd(%s)", IntervalPrint(I, x));	\
+X  assert( I.class != AT_END, "IntervalShiftLeftEnd: AT_END!" );		\
+X									\
+X  /* find left, the leftmost definite object of I */			\
+X  llink = I.llink;							\
+X  NextDefinite(x, llink, left);						\
+X  assert( llink != x, "IntervalShiftLeftEnd: llink == x!" );		\
+X									\
+X  /* find lgap, the first true breakpoint following left */		\
+X  NextDefiniteWithGap(x, llink, y, lgap);				\
+X  assert( llink != x, "IntervalShiftLeftEnd: llink == x!" );		\
+X									\
+X  /* calculate width and badness of interval minus left and lgap */	\
+X  if( mode(gap(lgap)) == TAB_MODE )					\
+X  { assert( I.tab_count > 0 || Up(lgap) == I.rlink,			\
+X			"IntervalShiftLeftEnd: tab_count <= 0!" );	\
+X    I.tab_count--;							\
+X    if( I.tab_count == 0 )  I.nat_width -= save_space(lgap);		\
+X  }									\
+X  else /* take from nat_width, or if tab, from width_to_tab */		\
+X  { if( I.tab_count == 0 )						\
+X    { I.nat_width -= save_space(lgap) + size(left, COL);		\
+X      I.space_width -= save_space(lgap);				\
+X    }									\
+X    else if( I.tab_count == 1 )						\
+X    { I.width_to_tab -= save_space(lgap) + size(left, COL);		\
+X    }									\
+X    /* else no changes since tabs hide them */				\
+X  }									\
+X  I.llink = Up(lgap);							\
+X  if( I.llink == I.rlink )  I.class = EMPTY_INTERVAL;			\
+X  else									\
+X  { SetIntervalBadness(I, max_width, etc_width);			\
+X    if( unbreakable(gap(lgap), hyph_allowed) )  I.class = ZERO_AT_LEFT;	\
+X  }									\
+X  debug1(DOF, DDD, "IShiftLeftEnd returning %s", IntervalPrint(I, x));	\
+X} /* end macro IntervalShiftLeftEnd */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  IntervalBadness(I)                                                       */
+X/*                                                                           */
+X/*  Return the badness of interval I.                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define IntervalBadness(I)	(I.badness)
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  IntervalClass(I)                                                         */
+X/*                                                                           */
+X/*  Return the badness class of interval I.                                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define IntervalClass(I)	(I.class)
+X
+X
+X#if DEBUG_ON
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  IntervalPrint(I, x)                                                      */
+X/*                                                                           */
+X/*  Return string image of the contents of interval I of ACAT x.             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xunsigned char *IntervalPrint(I, x)
+XINTERVAL I;  OBJECT x;
+X{ static char *class_name[] =
+X    { "TOO_LOOSE", "LOOSE", "TIGHT", "TOO_TIGHT", "TAB_OVERLAP", "AT_END",
+X      "ZERO_AT_LEFT", "ZERO_AT_RIGHT" };
+X  unsigned char buff[100]; static unsigned char res[300];
+X  OBJECT link, y, g, prev, z; int i;
+X  if( I.llink == I.rlink )  return (unsigned char *) "[]";
+X  strcpy(res, "[");
+X  g = nil;
+X  for( link = NextDown(I.llink);  link != I.rlink;  link = NextDown(link) )
+X  { assert(link != x, "IntervalPrint: link == x!");
+X    Child(y, link);
+X    assert(y != x, "IntervalPrint: y == x!");
+X    if( type(y) == GAP_OBJ )
+X    { g = y;
+X      if( Down(g) != g )
+X      {	Child(z, Down(g));
+X	sprintf(buff, " %s%s ", EchoCatOp(ACAT, mark(gap(g)), join(gap(g))),
+X	     type(z) == WORD ? string(z) : Image(type(z)));
+X      }
+X      else sprintf(buff, "%*s", hspace(g) + vspace(g), "");
+X      strcat(res, buff);
+X    }
+X    else strcat(res, type(y) == WORD ? string(y) : Image(type(y)));
+X  }
+X  sprintf(buff, "] n%s, s%s (%s %d)", EchoLength(I.nat_width),
+X	EchoLength(I.space_width), class_name[I.class], I.badness);
+X  strcat(res, buff);
+X  if( I.tab_count > 0 )
+X  { sprintf(buff, " <%d %s:%s>", I.tab_count,
+X	EchoLength(I.width_to_tab), EchoLength(I.tab_pos));
+X    strcat(res, buff);
+X  }
+X  return res;
+X} /* end IntervalPrint */
+X#endif
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  FillObject(x, c)                                                         */
+X/*                                                                           */
+X/*  Break ACAT x into lines using optimal breakpoints.                       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT FillObject(x, c)
+XOBJECT x;  CONSTRAINT *c;
+X{ INTERVAL I, BestI;  OBJECT res, gp, tmp, z, y, link, prev;
+X  LENGTH max_width, etc_width, outdent_margin, f;
+X  static OBJECT hyph_word = nil;
+X  BOOLEAN can_hyphenate;    /* TRUE when it is possible to call Hyphenate() */
+X  BOOLEAN hyph_allowed;	    /* TRUE when hyphenation of words is permitted  */
+X
+X  assert( type(x) == ACAT, "FillObject: type(x) != ACAT!" );
+X
+X  /* set max_width (width of 1st line) and etc_width (width of later lines) */
+X  max_width = min(fc(*c), bfc(*c));
+X  if( display_style(save_style(x)) == DISPLAY_OUTDENT )
+X  { outdent_margin = 2 * FontSize(font(save_style(x)), x);
+X    etc_width = max_width - outdent_margin;
+X  }
+X  else etc_width = max_width;
+X  assert( size(x, COL) > max_width, "FillObject: initial size!" );
+X
+X  /* add &1rt {} to end of paragraph */
+X  gp = New(GAP_OBJ);
+X  hspace(gp) = 1;  vspace(gp) = 0;
+X  SetGap(gap(gp), FALSE, TRUE, AVAIL_UNIT, TAB_MODE, 1*FR);
+X  tmp = MakeWord("1rt", &fpos(x));
+X  Link(gp, tmp);
+X  Link(x, gp);
+X  tmp = MakeWord("", &fpos(x));
+X  back(tmp, COL) = fwd(tmp, COL) = 0;
+X  back(tmp, ROW) = fwd(tmp, ROW) = 0;
+X  word_font(tmp) = 0;
+X  Link(x, tmp);
+X  debug2(DOF, D, "FillObject(x, %s); %s",
+X	EchoConstraint(c), EchoStyle(&save_style(x)));
+X  ifdebug(DOF, DD, EchoObject(stderr, x); fprintf(stderr, "\n\n") );
+X
+X  /* initially we can hyphenate if hyphenation is on, but not first pass */
+X  if( hyph_style(save_style(x)) == HYPH_UNDEF )
+X    Error(FATAL, &fpos(x), "hyphen or nohyphen option missing");
+X  can_hyphenate = (hyph_style(save_style(x)) == HYPH_ON);
+X  hyph_allowed = FALSE;
+X
+X  /* initialize I to first interval, BestI to best ending here, and run */
+X  RESTART:
+X  IntervalInit(I, x, max_width, etc_width, hyph_word);
+X  BestI = I;
+X  while( IntervalClass(I) != AT_END )
+X  {
+X    debug1(DOF, D, "loop:  %s", IntervalPrint(I, x));
+X    switch( IntervalClass(I) )
+X    {
+X
+X      case TOO_LOOSE:
+X      
+X	/* too loose, so save best and shift right end */
+X	if( IntervalBadness(BestI) < IntervalBadness(I) )  I = BestI;
+X	debug1(DOF, D, "BestI: %s\n", IntervalPrint(I, x));
+X	/* NB no break */
+X
+X
+X      case ZERO_AT_RIGHT:
+X
+X	IntervalShiftRightEnd(I, x, hyph_word, max_width, etc_width);
+X	BestI = I;
+X	break;
+X
+X
+X      case LOOSE:
+X      case TIGHT:
+X      
+X	/* reasonable, so check best and shift left end */
+X	if( IntervalBadness(I) < IntervalBadness(BestI) )  BestI = I;
+X	/* NB no break */
+X
+X
+X      case ZERO_AT_LEFT:
+X      case TAB_OVERLAP:
+X      case TOO_TIGHT:
+X      
+X	/* too tight, or zero-width gap at left end, so shift left end */
+X	IntervalShiftLeftEnd(I, x, max_width, etc_width);
+X	break;
+X
+X
+X      case EMPTY_INTERVAL:
+X
+X	PrevDefinite(x, I.llink, y);
+X	if( can_hyphenate )
+X	{ x = Hyphenate(x);
+X	  can_hyphenate = FALSE;
+X	  hyph_allowed = TRUE;
+X	}
+X	else
+X	  CorrectOversizeError(x, I.llink, y, etc_width, hyph_allowed);
+X	goto RESTART;
+X	break;
+X
+X
+X      default:
+X      
+X	Error(INTERN, &fpos(x), "FillObject: unknown interval class!");
+X	break;
+X
+X    }
+X  }
+X
+X  /* do end processing */
+X  ifdebug(DOF, D,
+X    debug0(DOF, D, "final result:");
+X    debug1(DOF, D, "%s", IntervalPrint(BestI, x));
+X    while( BestI.llink != x )
+X    { BestI.rlink = BestI.llink;
+X      Child(gp, BestI.rlink);
+X      BestI.llink = save_prev(gp);
+X      debug1(DOF, D, "%s", IntervalPrint(BestI, x));
+X    }
+X  );
+X
+X  if( I.llink == x )
+X  { /* since line did not fit initally, this must mean either that a large  */
+X    /* word was discarded, or else that the line was only slightly tight    */
+X    res = x;
+X    back(res, COL) = 0;
+X    fwd(res, COL) = max_width;
+X  }
+X  else if( can_hyphenate && IntervalBadness(BestI) > HYPH_BAD )
+X  { x = Hyphenate(x);
+X    can_hyphenate = FALSE;
+X    hyph_allowed = TRUE;
+X    goto RESTART;
+X  }
+X  else
+X  { OBJECT lgap, llink;
+X    res = New(VCAT);
+X    back(res, COL) = 0;
+X    fwd(res, COL) = max_width;
+X    ReplaceNode(res, x);
+X    llink = I.llink;
+X
+X    /* break the lines of x */
+X    while( llink != x )
+X    { y = New(ACAT);
+X      FposCopy(fpos(y), fpos(x));
+X      StyleCopy(save_style(y), save_style(x));
+X      if( Down(res) != res &&
+X		(display_style(save_style(y)) == DISPLAY_ADJUST ||
+X		 display_style(save_style(y)) == DISPLAY_OUTDENT) )
+X	 display_style(save_style(y)) = DO_ADJUST;
+X      back(y, COL) = 0;
+X      fwd(y, COL) = max_width;
+X
+X      /* if outdented paragraphs, add 2.0f @Wide & to front of new line */
+X      if( display_style(save_style(x)) == DISPLAY_OUTDENT )
+X      {
+X	OBJECT t1, t2, z;
+X	t1 = MakeWord("", &fpos(x));
+X	back(t1, COL) = fwd(t1, COL) = 0;
+X	back(t1, ROW) = fwd(t1, ROW) = 0;
+X	word_font(t1) = 0;
+X	t2 = New(WIDE);
+X	SetConstraint(constraint(t2), MAX_LEN, outdent_margin, MAX_LEN);
+X	back(t2, COL) = 0;  fwd(t2, COL) = outdent_margin;
+X	Link(t2, t1);
+X	Link(y, t2);
+X	z = New(GAP_OBJ);
+X	hspace(z) = vspace(z) = 0;
+X	SetGap(gap(z), FALSE, TRUE, FIXED_UNIT, EDGE_MODE, 0);
+X	Link(y, z);
+X      }
+X
+X      /* move the line to below y */
+X      TransferLinks(NextDown(llink), x, y);
+X
+X      /* add hyphen to end of previous line, if lgap is ADD_HYPH */
+X      Child(lgap, llink);
+X      if( mode(gap(lgap)) == ADD_HYPH )
+X      {
+X	OBJECT z = New(GAP_OBJ);
+X	debug0(DOF, DD, "   adding hyphen\n");
+X	hspace(z) = vspace(z) = 0;
+X	SetGap(gap(z), FALSE, TRUE, FIXED_UNIT, EDGE_MODE, 0);
+X	Link(x, z);
+X	z = MakeWord("-", &fpos(y));
+X	word_font(z) = font(save_style(x));
+X	FontAtomSize(z);
+X	Link(x, z);
+X      }
+X
+X      /* attach y to res, recycle lgap for gap separating the two lines */
+X      Link(NextDown(res), y);
+X      MoveLink(llink, NextDown(res), PARENT);
+X      hspace(lgap) = 0;
+X      vspace(lgap) = 1;
+X      GapCopy(gap(lgap), line_gap(save_style(x)));
+X
+X      /* move on to previous line */
+X      llink = save_prev(lgap);
+X    }
+X
+X    /* attach first line, x, to res */
+X    Link(NextDown(res), x);
+X    back(x, COL) = 0;
+X    fwd(x, COL) = max_width;
+X    if( display_style(save_style(x)) == DISPLAY_ADJUST ||
+X	display_style(save_style(x)) == DISPLAY_OUTDENT )
+X	  display_style(save_style(x)) = DO_ADJUST;
+X
+X    /* delete the final &1rt {} from the last line, to help clines */
+X    Child(y, LastDown(res));
+X    assert( Down(y) != LastDown(y), "FillObject: empty last line!" );
+X    Child(z, LastDown(y));
+X    assert( type(z)==WORD && string(z)[0] == '\0', "FillObject: last word!" );
+X    DisposeChild(LastDown(y));
+X    Child(z, LastDown(y));
+X    assert( type(z) == GAP_OBJ, "FillObject: last gap_obj!" );
+X    DisposeChild(LastDown(y));
+X
+X    /* recalculate the width of the last line, since it's smaller */
+X    FirstDefinite(y, link, z);
+X    assert( link != y, "FillObject: last line is empty!" );
+X    f = back(z, COL);  prev = z;
+X    NextDefiniteWithGap(y, link, z, gp);
+X    while( link != y )
+X    {
+X      f += MinGap(fwd(prev, COL), back(y, COL), fwd(y, COL), &gap(gp));
+X      prev = z;
+X      NextDefiniteWithGap(y, link, z, gp);
+X    }
+X    fwd(y, COL) = f + fwd(prev, COL);
+X
+X    /* make last line DO_ADJUST if it's oversize */
+X    if( size(y, COL) > max_width )  display_style(save_style(y)) = DO_ADJUST;
+X  }
+X
+X  debug0(DOF, D, "FillObject exiting");
+X  return res;
+X} /* end FillObject */
+END_OF_FILE
+  if test 27879 -ne `wc -c <'lout/z14.c'`; then
+    echo shar: \"'lout/z14.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z14.c'
+fi
+if test -f 'lout/z19.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z19.c'\"
+else
+  echo shar: Extracting \"'lout/z19.c'\" \(22219 characters\)
+  sed "s/^X//" >'lout/z19.c' <<'END_OF_FILE'
+X/*@z19.c:Galley Attaching:AttachGalley(), DetachGalley()@*********************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z19.c                                                      */
+X/*  MODULE:       Galley Attaching                                           */
+X/*  EXTERNS:      AttachGalley(), DetachGalley()                             */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT SearchGalley(start, sym, forwards, subgalleys, closures, input)   */
+X/*                                                                           */
+X/*  Search a galley and its sub-galleys for a target which uses sym.  The    */
+X/*  meanings of the flags are as follows:                                    */
+X/*                                                                           */
+X/*    forwards     If TRUE, search forwards from just after start, else      */
+X/*                 search backwards from just before start                   */
+X/*    subgalleys   If TRUE, search down into sub-galleys of this galley      */
+X/*    closures     If TRUE, closures in this galley are acceptable results   */
+X/*    input        If TRUE, InputSym is an acceptable result                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT SearchGalley(start, sym, forwards, subgalleys, closures, input)
+XOBJECT start, sym;  BOOLEAN forwards, subgalleys, closures, input;
+X{ OBJECT y, res, z, zlink, link;
+X  debug5(DGA, D, "[SearchGalley( start, %s, %s, %s, %s, %s )", SymName(sym),
+X	forwards ? "fwd" : "back", subgalleys ? "subgalleys" : "nosubgalleys",
+X	closures ? "closures" : "noclosures", input ? "input" : "noinput");
+X  assert( type(start) == LINK || type(start) == HEAD, "SearchGalley: start!" );
+X
+X  link = forwards ? NextDown(start) : PrevDown(start);
+X  res = nil;
+X  while( res == nil && type(link) != HEAD )
+X  { Child(y, link);
+X    debug1(DGA, DD, "  examining %s", EchoObject(null, y));
+X    switch( type(y) )
+X    {
+X      case UNATTACHED:
+X      case RECEIVING:
+X	
+X	if( subgalleys )
+X	for( zlink = Down(y); zlink!=y && res==nil;  zlink = NextDown(zlink) )
+X	{ Child(z, zlink);
+X	  res = SearchGalley(z, sym, TRUE, TRUE, TRUE, input);
+X	}
+X	if( !res && input && type(y)==RECEIVING && actual(actual(y))==InputSym )
+X	  res = y;
+X	break;
+X
+X
+X      case RECEPTIVE:
+X	
+X	if( closures && type(actual(y)) == CLOSURE
+X		     && SearchUses(actual(actual(y)), sym) )  res = y;
+X	else if( input && actual(actual(y)) == InputSym )  res = y;
+X	break;
+X
+X
+X      default:
+X	
+X	break;
+X
+X    }
+X    link = forwards ? NextDown(link) : PrevDown(link);
+X  }
+X  debug1(DGA, D, "]SearchGalley returning %s", EchoObject(null, res));
+X  return res;
+X} /* end SearchGalley */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  AttachGalley(hd, inners)                                                 */
+X/*                                                                           */
+X/*  Attach galley hd, which may be unsized, to a destination.  This involves */
+X/*  searching for a destination forward or back from hd's attachment point,  */
+X/*  and promoting up to and including the first definite component of hd.    */
+X/*                                                                           */
+X/*  Although AttachGalley never flushes any galleys, it may identify some    */
+X/*  galleys which should be flushed, even if the attach is itself not        */
+X/*  successful.  These are returned in *inners, or nil if none.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XAttachGalley(hd, inners)
+XOBJECT hd, *inners;
+X{ OBJECT index;			/* the index of hd in the enclosing galley   */
+X  OBJECT hd_inners;		/* inner galleys of hd, if unsized           */
+X  OBJECT dest;			/* the target @Galley hd empties into        */
+X  OBJECT dest_index;		/* the index of dest                         */
+X  OBJECT target;		/* the target indefinite containing dest     */
+X  OBJECT target_index;		/* the index of target                       */
+X  OBJECT target_galley;		/* the body of target, made into a galley    */
+X  OBJECT tg_inners;		/* inner galleys of target_galley            */
+X  BOOLEAN need_precedes;	/* true if destination lies before galley    */
+X  OBJECT recs;			/* list of recursive definite objects        */
+X  OBJECT link, y;		/* for scanning through the components of hd */
+X  CONSTRAINT c;			/* temporary variable holding a constraint   */
+X  OBJECT env, n1, tmp, zlink, z, sym;	/* placeholders and temporaries	     */
+X  BOOLEAN was_sized;		/* true if sized(hd) initially               */
+X
+X  debug2(DGA, D, "[AttachGalley(Galley %s into %s)",
+X	SymName(actual(hd)), SymName(whereto(hd)));
+X  ifdebug(DGA, DD, EchoObject(stderr, hd));
+X  assert( Up(hd) != hd, "AttachGalley: no index!" );
+X  Parent(index, Up(hd));
+X  assert( type(index) == UNATTACHED, "AttachGalley: not UNATTACHED!" );
+X  *inners = hd_inners = tg_inners = nil;
+X  was_sized = sized(hd);
+X
+X  for(;;)
+X  {
+X    /*************************************************************************/
+X    /*                                                                       */
+X    /*  Search for a destination for hd.  If hd is unsized, search for       */
+X    /*  inner galleys preceding it first of all, then for receptive objects  */
+X    /*  following it, possibly in inner galleys.  If no luck, exit.          */
+X    /*  If hd is sized, search only for receptive objects in the current     */
+X    /*  galley below the current spot, and fail if can't find any.           */
+X    /*                                                                       */
+X    /*************************************************************************/
+X
+X    sym = whereto(hd);
+X    if( sized(hd) )
+X    {
+X      /* sized galley case: search on from current spot */
+X      target_index = SearchGalley(Up(index), sym, TRUE, FALSE, TRUE, TRUE);
+X      if( target_index == nil )
+X      {	
+X	/* search failed to find any new target, so kill the galley */
+X	for( link = Down(hd); link != hd; link = NextDown(link) )
+X	{ Child(y, link);
+X	  if( type(y) == SPLIT )  Child(y, DownDim(y, ROW));
+X	  if( is_definite(type(y)) )  break;
+X	}
+X	if( link != hd )
+X	    Error(WARN, &fpos(y), "galley %s deleted from here: no target",
+X		SymName(actual(hd)));
+X	debug0(DGA, D, "calling KillGalley from AttachGalley (a)");
+X	KillGalley(hd);
+X	debug0(DGA, D, "]AttachGalley returning: no target for sized galley");
+X	return;
+X      }
+X      else if( actual(actual(target_index)) == InputSym )
+X      {
+X	/* search found input object, so suspend on that */
+X	DeleteNode(index);
+X	Link(target_index, hd);
+X	debug0(DGA, D, "]AttachGalley returning: InputSym");
+X	return;
+X      }
+X
+X    }
+X    else /* unsized galley, either backwards or normal */
+X    {
+X      if( backward(hd) )
+X      {	target_index= SearchGalley(Up(index), sym, FALSE, TRUE, TRUE, FALSE);
+X	need_precedes = FALSE;
+X      }
+X      else
+X      {	target_index = SearchGalley(Up(index), sym, FALSE, TRUE, FALSE, FALSE);
+X	need_precedes = (target_index != nil);
+X	if( target_index == nil )
+X	  target_index = SearchGalley(Up(index), sym, TRUE, TRUE, TRUE, FALSE);
+X      }
+X
+X      /* if no luck, exit without error */
+X      if( target_index == nil )
+X      {	debug0(DGA, D, "]AttachGalley returning: no target for unsized galley");
+X	return;
+X      }
+X    }
+X    assert( type(target_index) == RECEPTIVE, "AttachGalley: target_index!" );
+X    target = actual(target_index);
+X    assert( type(target) == CLOSURE, "AttachGalley: target!" );
+X
+X    /* set target_galley to the expanded value of target */
+X    EnterErrorBlock(FALSE);
+X    target_galley = New(HEAD);
+X    FposCopy(fpos(target_galley), fpos(target));
+X    actual(target_galley) = actual(target);
+X    whereto(target_galley) = ready_galls(target_galley) = nil;
+X    backward(target_galley) = must_expand(target_galley) = FALSE;
+X    sized(target_galley) = FALSE;
+X    Constrained(target, &c, COL);
+X    if( !constrained(c) )  Error(FATAL, &fpos(target),
+X       "receptive symbol %s has unconstrained width", SymName(actual(target)));
+X    debug2(DSC, D, "Constrained( %s, COL ) = %s",
+X	EchoObject(null, target), EchoConstraint(&c));
+X    debug1(DGA, DD, "  expanding %s", EchoObject(null, target));
+X    tmp = CopyObject(target, no_fpos);
+X    Link(target_galley, tmp);
+X    if( !FitsConstraint(0, 0, c) )
+X    { debug0(DGA, D, "  reject: target_galley horizontal constraint is -1");
+X      goto REJECT;
+X    }
+X    env = DetachEnv(tmp);
+X    SizeGalley(target_galley, env, external(target), threaded(target),
+X	non_blocking(target_index), trigger_externs(target_index),
+X	&save_style(target), &c, whereto(hd), &dest_index, &recs, &tg_inners);
+X    if( recs != nil )  ExpandRecursives(recs);
+X    dest = actual(dest_index);
+X
+X    /* verify that hd satisfies any horizontal constraint on dest */
+X    debug1(DGA, DD, "  checking COL fit of hd in %s", SymName(actual(dest)));
+X    Constrained(dest, &c, COL);
+X    debug2(DSC, D, "Constrained( %s, COL ) = %s",
+X	EchoObject(null, dest), EchoConstraint(&c));
+X    assert( constrained(c), "AttachGalley: dest unconstrained!" );
+X    if( !sized(hd) )
+X    { EnterErrorBlock(TRUE);
+X      if( !FitsConstraint(0, 0, c) )
+X      {	debug0(DGA, D, "  reject: hd horizontal constraint is -1");
+X	goto REJECT;
+X      }
+X      n1 = nil;
+X      Child(y, Down(hd));
+X      env = DetachEnv(y);
+X      /*** to set non_blocking() to FALSE seems doubtful!
+X      SizeGalley(hd, env, TRUE, threaded(dest), FALSE, TRUE,
+X		&save_style(dest), &c, nil, &n1, &recs, &hd_inners);
+X      *** */
+X      SizeGalley(hd, env, TRUE, threaded(dest), non_blocking(target_index),
+X	TRUE, &save_style(dest), &c, nil, &n1, &recs, &hd_inners);
+X      if( recs != nil )  ExpandRecursives(recs);
+X      if( need_precedes )		/* need an ordering constraint */
+X      {	OBJECT index1 = New(PRECEDES);
+X	OBJECT index2 = New(FOLLOWS);
+X	blocked(index2) = FALSE;
+X	tmp = MakeWord("", no_fpos);
+X	Link(index1, tmp);  Link(index2, tmp);
+X	Link(Up(index), index1);
+X	Link(Down(hd), index2);
+X	debug0(DGA, D, "  inserting PRECEDES and FOLLOWS");
+X      }
+X      LeaveErrorBlock(TRUE);
+X    }
+X    if( !FitsConstraint(back(hd, COL), fwd(hd, COL), c) )
+X    { debug3(DGA, D, "  reject: hd %s,%s does not fit target_galley %s",
+X	EchoLength(back(hd, COL)), EchoLength(fwd(hd, COL)),
+X	EchoConstraint(&c));
+X      Error(WARN, &fpos(hd),"too little horizontal space for galley %s at %s",
+X	SymName(actual(hd)), SymName(actual(dest)));
+X      goto REJECT;
+X    }
+X
+X    /* check status of first component of hd */
+X    debug0(DGA, DD, "  now ready to attach; hd =");
+X    ifdebug(DGA, DD, EchoObject(stderr, hd));
+X    for( link = Down(hd);  link != hd;  link = NextDown(link) )
+X    {
+X      Child(y, link);
+X      debug1(DGA, DD, "  examining %s", EchoObject(null, y));
+X      if( type(y) == SPLIT )  Child(y, DownDim(y, ROW));
+X      switch( type(y) )
+X      {
+X
+X	case EXPAND_IND:
+X	case GALL_PREC:
+X	case GALL_FOLL:
+X	case GALL_TARG:
+X	case CROSS_PREC:
+X	case CROSS_FOLL:
+X	case CROSS_TARG:
+X	    
+X	  break;
+X
+X
+X	case PRECEDES:
+X	case UNATTACHED:
+X	    
+X	  if( was_sized )
+X	  { /* SizeGalley was not called, so hd_inners was not set by it */
+X	    if( hd_inners == nil )  hd_inners = New(ACAT);
+X	    Link(hd_inners, y);
+X	  }
+X	  break;
+X
+X
+X	case RECEPTIVE:
+X
+X	  if( non_blocking(y) )
+X	  { link = PrevDown(link);
+X	    DeleteNode(y);
+X	  }
+X	  else goto SUSPEND;
+X	  break;
+X
+X
+X	case RECEIVING:
+X	    
+X	  if( non_blocking(y) )
+X	  { while( Down(y) != y )
+X	    { Child(z, Down(y));
+X	      DetachGalley(z);
+X	      KillGalley(z);
+X	    }
+X	    link = PrevDown(link);
+X	    DeleteNode(y);
+X	  }
+X	  else goto SUSPEND;
+X	  break;
+X
+X
+X	case FOLLOWS:
+X	    
+X	  Child(tmp, Down(y));
+X	  if( Up(tmp) == LastUp(tmp) )
+X	  { link = pred(link, CHILD);
+X	    debug0(DGA, DD, "  disposing FOLLOWS");
+X	    DisposeChild(NextDown(link));
+X	    break;
+X	  }
+X	  Parent(tmp, Up(tmp));
+X	  assert(type(tmp) == PRECEDES, "Attach: PRECEDES!");
+X	  switch( CheckConstraint(tmp, target_index) )
+X	  {
+X	    case CLEAR:		DeleteNode(tmp);
+X				link = pred(link, CHILD);
+X				DisposeChild(NextDown(link));
+X				break;
+X
+X	    case PROMOTE:	break;
+X
+X	    case BLOCK:		debug0(DGA, DD, "CheckContraint: BLOCK");
+X				goto SUSPEND;
+X
+X	    case CLOSE:		debug0(DGA, D, "  reject: CheckContraint");
+X				goto REJECT;
+X	  }
+X	  break;
+X
+X
+X	case GAP_OBJ:
+X
+X	  if( !join(gap(y)) )  seen_nojoin(hd) = TRUE;
+X	  break;
+X
+X
+X	case CLOSURE:
+X	case NULL_CLOS:
+X	case CROSS:
+X
+X	  break;
+X
+X
+X	case WORD:
+X	case ONE_COL:
+X	case ONE_ROW:
+X	case WIDE:
+X	case HIGH:
+X	case HSCALE:
+X	case VSCALE:
+X	case HCONTRACT:
+X	case VCONTRACT:
+X	case HEXPAND:
+X	case VEXPAND:
+X	case PADJUST:
+X	case HADJUST:
+X	case VADJUST:
+X	case ROTATE:
+X	case SCALE:
+X	case INCGRAPHIC:
+X	case SINCGRAPHIC:
+X	case GRAPHIC:
+X	case ACAT:
+X	case HCAT:
+X	case ROW_THR:
+X	    
+X	  /* make sure y is not joined to a target below */
+X	  for( zlink = NextDown(link);  zlink != hd;  zlink = NextDown(zlink) )
+X	  { Child(z, zlink);
+X	    switch( type(z) )
+X	    {
+X	      case RECEPTIVE:	if( non_blocking(z) )
+X				{ zlink = PrevDown(zlink);
+X				  DeleteNode(z);
+X				}
+X				else
+X				{ y = z;
+X				  goto SUSPEND;
+X				}
+X				break;
+X
+X	      case RECEIVING:	if( non_blocking(z) )
+X				{ zlink = PrevDown(zlink);
+X				  while( Down(z) != z )
+X				  { Child(tmp, Down(y));
+X				    DetachGalley(tmp);
+X				    KillGalley(tmp);
+X				  }
+X				  DeleteNode(z);
+X				}
+X				else
+X				{ y = z;
+X				  goto SUSPEND;
+X				}
+X				break;
+X
+X	      case GAP_OBJ:	if( !join(gap(z)) )  zlink = PrevDown(hd);
+X				break;
+X
+X	      default:		break;
+X	    }
+X	  }
+X
+X	  /* check availability of vertical space for the first component */
+X	  if( !external(dest) )
+X	  { Constrained(dest, &c, ROW);
+X	    debug2(DSC, D, "Constrained( %s, ROW ) = %s",
+X			EchoObject(null, dest), EchoConstraint(&c));
+X	    if( !FitsConstraint(back(y, ROW), fwd(y, ROW), c) )
+X	    { Error(WARN, &fpos(y),
+X		"insufficient vertical space for this component of %s in %s",
+X		SymName(actual(hd)), SymName(actual(dest)));
+X	      debug3(DGA, D, "  reject: vsize %s,%s in %s; y=",
+X		EchoLength(back(y, ROW)), EchoLength(fwd(y, ROW)),
+X		EchoConstraint(&c));
+X	      ifdebug(DGA, D, EchoObject(stderr, y));
+X	      goto REJECT;
+X	    }
+X	    debug0(DSA, D, "calling AdjustSize from AttachGalley (a)");
+X	    AdjustSize(dest, back(y, ROW), fwd(y, ROW), ROW);
+X	  }
+X	  if( !external(target) )
+X	  { Constrained(target, &c, ROW);
+X	    debug2(DSC, D, "Constrained( %s, ROW ) = %s",
+X			EchoObject(null, target), EchoConstraint(&c));
+X	    Child(z, LastDown(target_galley));
+X	    assert( !is_index(type(z)), "AttachGalley: is_index(z)!" );
+X	    assert( back(z, ROW) >= 0 && fwd(z, ROW) >= 0,
+X			"AttachGalley: negative z sizes!" );
+X	    if( !FitsConstraint(back(z, ROW), fwd(z, ROW), c) )
+X	    { Error(WARN, &fpos(y),
+X		"insufficient vertical space for this component of %s in %s",
+X		SymName(actual(hd)), SymName(actual(target)));
+X	      debug3(DGA, D, "  reject: size was %s,%s in %s; y =",
+X		EchoLength(back(z, ROW)), EchoLength(fwd(z, ROW)),
+X		EchoConstraint(&c));
+X	      ifdebug(DGA, D, EchoObject(stderr, y));
+X	      goto REJECT;
+X	    }
+X	    debug0(DSA, D, "calling AdjustSize from AttachGalley (b)");
+X	    AdjustSize(target, back(z, ROW), fwd(z, ROW), ROW);
+X	  }
+X	  goto ACCEPT;
+X
+X
+X	default:
+X	    
+X	  Error(INTERN, &fpos(y), "AttachGalley: %s", Image(type(y)));
+X	  break;
+X
+X      } /* end switch */
+X    } /* end for */
+X
+X    /* empty galley; promote any indexes, kill the galley, and exit */
+X    /* this bypasses target_galley, which is not expanded in the empty case */
+X    debug0(DGA, D, "  empty galley");
+X    if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X    DisposeObject(target_galley);
+X    LeaveErrorBlock(FALSE);
+X    if( LastDown(hd) != hd )  Promote(hd, hd, target_index);
+X    debug0(DGA, D, "calling KillGalley from AttachGalley (b)");
+X    KillGalley(hd);
+X
+X    /* return; only hd_inners needs to be flushed now */
+X    *inners = hd_inners;
+X    debug0(DGA, D, "]AttachGalley returning killed: empty galley");
+X    return;
+X
+X
+X    REJECT:
+X	
+X      /* reject first component */
+X      LeaveErrorBlock(TRUE);
+X      if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X      DisposeObject(target_galley);
+X      if( backward(hd) && !sized(hd) )
+X      {
+X	/* move to just before the failed target */
+X	MoveLink(Up(index), Up(target_index), PARENT);
+X      }
+X      else
+X      {
+X	/* move to just after the failed target */
+X	MoveLink(Up(index), NextDown(Up(target_index)), PARENT);
+X      }
+X      continue;
+X
+X
+X    SUSPEND:
+X	
+X      /* suspend at first component */
+X      debug1(DGA, D, "  suspend %s", EchoObject(null, y));
+X      blocked(y) = TRUE;
+X      LeaveErrorBlock(FALSE);
+X      if( tg_inners != nil )  DisposeObject(tg_inners), tg_inners = nil;
+X      DisposeObject(target_galley);
+X      MoveLink(Up(index), Up(target_index), PARENT);
+X      if( was_sized )
+X      { /* nothing new to flush if suspending and already sized */
+X	if( hd_inners != nil )  DisposeObject(hd_inners), hd_inners = nil;
+X      }
+X      else
+X      { /* flush newly discovered inners if not sized before */
+X	*inners = hd_inners;
+X      }
+X      debug0(DGA, D, "]AttachGalley returning: suspending.");
+X      return;
+X
+X
+X    ACCEPT:
+X	
+X      /* accept first component; now committed to the attach */
+X      debug1(DGA, D, "  accept %s", EchoObject(null, y));
+X      LeaveErrorBlock(TRUE);
+X
+X      /* adjust horizontal sizes */
+X      debug0(DSA, D, "calling AdjustSize from AttachGalley (c)");
+X      AdjustSize(dest, back(hd, COL), fwd(hd, COL), COL);
+X      debug0(DSA, D, "calling AdjustSize from AttachGalley (d)");
+X      AdjustSize(target, back(target_galley, COL),
+X				fwd(target_galley, COL), COL);
+X		
+X      /* attach hd to dest */
+X      MoveLink(Up(hd), dest_index, PARENT);
+X      assert( type(index) == UNATTACHED, "AttachGalley: type(index)!" );
+X      DeleteNode(index);
+X
+X      /* move first component of hd into dest */
+X      /* nb Interpose must be done after all AdjustSize calls */
+X      if( !external(dest) )   Interpose(dest, VCAT, hd, y);
+X      Promote(hd, NextDown(link), dest_index);
+X
+X      /* move target_galley into target */
+X      /* nb Interpose must be done after all AdjustSize calls */
+X      if( !external(target) )
+X      {	Child(z, LastDown(target_galley));
+X	Interpose(target, VCAT, z, z);
+X      }
+X      Promote(target_galley, target_galley, target_index);
+X      DeleteNode(target_galley);
+X      assert(Down(target_index)==target_index, "AttachGalley: target_ind");
+X      if( blocked(target_index) )  blocked(dest_index) = TRUE;
+X      DeleteNode(target_index);
+X
+X      /* return; both tg_inners and hd_inners need to be flushed now;        */
+X      /* if was_sized, hd_inners contains the inners of the first component; */
+X      /* otherwise it contains the inners of all components, from SizeGalley */
+X      if( tg_inners == nil ) *inners = hd_inners;
+X      else if( hd_inners == nil ) *inners = tg_inners;
+X      else
+X      {	TransferLinks(Down(hd_inners), hd_inners, tg_inners);
+X	DeleteNode(hd_inners);
+X	*inners = tg_inners;
+X      }
+X      debug0(DGA, D, "]AttachGalley returning (accept)");
+X      return;
+X
+X  } /* end for */
+X} /* end AttachGalley */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DetachGalley(hd)                                                         */
+X/*                                                                           */
+X/*  Detach galley hd from its target.                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDetachGalley(hd)
+XOBJECT hd;
+X{ OBJECT prnt, index;
+X  debug1(DGA, D, "DetachGalley( %s )", EchoObject(null, hd));
+X  assert( type(hd) == HEAD && Up(hd) != hd, "DetachGalley: precondition!" );
+X  Parent(prnt, Up(hd));
+X  assert( Up(prnt) != prnt, "DetachGalley: parent!" );
+X  index = New(UNATTACHED);
+X  MoveLink(Up(hd), index, PARENT);
+X  Link(NextDown(Up(prnt)), index);
+X  debug0(DGA, D, "DetachGalley returning.");
+X} /* end DetachGalley */
+END_OF_FILE
+  if test 22219 -ne `wc -c <'lout/z19.c'`; then
+    echo shar: \"'lout/z19.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z19.c'
+fi
+if test -f 'lout/z23.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z23.c'\"
+else
+  echo shar: Extracting \"'lout/z23.c'\" \(28465 characters\)
+  sed "s/^X//" >'lout/z23.c' <<'END_OF_FILE'
+X/*@z23.c:Galley Printer:FixAndPrintObject@************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z23.c                                                      */
+X/*  MODULE:       Galley Printer                                             */
+X/*  EXTERNS:      FixAndPrintObject()                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#define	NO_SUPPRESS	FALSE
+X#define	SUPPRESS	TRUE
+X#define	ALL_ADJUST	2
+X#define	LAST_ADJUST	1
+X#define	ALL_ADJUST	2
+X
+X#define CountChild(y, link, i)						\
+Xfor( y=pred(link, PARENT), i=1; type(y)==LINK;  y = pred(y, PARENT), i++ )
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static float ScaleFactor(avail_size, inner_size)                         */
+X/*                                                                           */
+X/*  Return the scale factor for this scaling, or 0 if impossible.            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic float ScaleFactor(avail_size, inner_size)
+XLENGTH avail_size, inner_size;
+X{ float scale_factor;
+X  scale_factor = avail_size <= 0 ? 0 :
+X		 inner_size <= 0 ? 0 : (float) avail_size / inner_size;
+X  return scale_factor;
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static LENGTH FindAdjustIncrement(x, frame_size, dim)                    */
+X/*                                                                           */
+X/*  Find the amount by which to increase the width of the subobjects of      */
+X/*  concatenation object x so that it is adjusted to fill size frame_size.   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic LENGTH FindAdjustIncrement(x, frame_size, dim)
+XOBJECT x;  LENGTH frame_size;  int dim;
+X{ OBJECT y, link, prev, g;
+X  int adjustable_gaps;
+X  LENGTH inc, mk, actual_size;
+X
+X  debug2(DGP, D, "FindAdjustIncrement(x, %s, %s)",
+X	EchoLength(frame_size), dimen(dim));
+X  FirstDefinite(x, link, prev);
+X  if( link != x )
+X  { adjustable_gaps = 0;
+X    mk = back(prev, dim);
+X    NextDefiniteWithGap(x, link, y, g);
+X    while( link != x )
+X    { if ( mode(gap(g)) == TAB_MODE || units(gap(g)) == AVAIL_UNIT
+X				    || units(gap(g)) == FRAME_UNIT )
+X      {	debug0(DGP, D, "FindAdjustIncrement returning 0 (tab gap)");
+X	return 0;
+X      }
+X      mk += ActualGap(fwd(prev, dim), back(y, dim), fwd(y, dim), &gap(g),
+X		frame_size, mk);
+X      prev = y;
+X      adjustable_gaps++;
+X      NextDefiniteWithGap(x, link, y, g);
+X    }
+X    actual_size = mk + fwd(prev, dim);
+X    debug2(DGP, DD, "  actual_size = %s, adjustable_gaps = %d",
+X	EchoLength(actual_size), adjustable_gaps);
+X    inc = adjustable_gaps==0 ? 0 : (frame_size - actual_size) / adjustable_gaps;
+X  }
+X  else inc = 0;
+X  debug1(DGP, D, "FindAdjustIncrement returning %s", EchoLength(inc));
+X  return inc;
+X} /* end FindAdjustIncrement *.
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  FixAndPrintObject(x, xmk, xb, xf, dim, adjust, suppress, padj, pg,count) */
+X/*                                                                           */
+X/*  Fix the absolute position of object x in dimension dim, in such a way    */
+X/*  that the principal mark of x has coordinate xmk, and x has actual size   */
+X/*  (xb, xf), where xb >= back(x, dim) and xf >= fwd(x, dim).                */
+X/*                                                                           */
+X/*  Actually, in the case where x includes an object lying on a thread       */
+X/*  leading outside x, the final size of x may be different.  Because        */
+X/*  of this, the procedure sets back(x, dim) and fwd(x, dim) to the actual   */
+X/*  size of x upon return.  The caller assumes that x will exactly occupy    */
+X/*  this space back(x, dim), fwd(x, dim).                                    */
+X/*                                                                           */
+X/*  If x does not fill the forward part of the space allocated to it, the    */
+X/*  adjust parameter determines what, if anything, to do about this.  The    */
+X/*  two possible values of this parameter are:                               */
+X/*                                                                           */
+X/*    LAST_ADJUST        Adjust x to fill the forward space available to     */
+X/*                       it, by adjusting the last component if x is a       */
+X/*                       CAT object, or adjusting the child otherwise.       */
+X/*                                                                           */
+X/*    ALL_ADJUST         Adjust x to fill the forward space available to     */
+X/*                       it, by adjusting all the components if x is a       */
+X/*                       CAT object, or adjusting the child otherwise.       */
+X/*                                                                           */
+X/*  The suppress parameter is true if a temporary suppression of adjustment  */
+X/*  is in effect (because a neighbouring adjustment has already been done).  */
+X/*                                                                           */
+X/*  The padj parameter is analogous to the adjust parameter, but it          */
+X/*  applies only to & adjustment, not to | or / adjustment.                  */
+X/*                                                                           */
+X/*  If dim == COL, the coordinate information is merely stored; but if       */
+X/*  dim == ROW, it is used to generate PostScript for printing x.            */
+X/*                                                                           */
+X/*  Parameter pg records the height of the current page.  This is used       */
+X/*  to correct for the fact that Lout's origin is at the top left, while     */
+X/*  PostScript's is at the bottom left.  This correction cannot be made by   */
+X/*  transforming user space.                                                 */
+X/*                                                                           */
+X/*  x is the count'th child of its parent (used by COL_THR and ROW_THR only) */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFixAndPrintObject(x, xmk, xb, xf, dim, adjust, suppress, padj, pg, count)
+XOBJECT x;  LENGTH xmk, xb, xf; int dim, adjust;  BOOLEAN suppress;
+Xint padj;  LENGTH pg;  int count;
+X{ OBJECT y, link, prev, g, uplink, z, p;
+X  LENGTH mk, frame_size, back_edge, tb, tf, yb, yf, inc;
+X  int i; float scale_factor;
+X  debug8(DGP, D, "[ FixAndPrintObject(%s, %s, %s,%s, %s, %s, %s, %s, pg ), x =",
+X    Image(type(x)), EchoLength(xmk), EchoLength(xb), EchoLength(xf), dimen(dim),
+X    (adjust == LAST_ADJUST ? "last_adjust" : "all_adjust"),
+X    (suppress == SUPPRESS ? "suppress" : "no_suppress"),
+X    (padj   == LAST_ADJUST ? "last_adjust" : "all_adjust"));
+X  ifdebug(DGP, DD, EchoObject(stderr, x));
+X
+X  switch( type(x) )
+X  {
+X
+X    case CLOSURE:
+X    case NULL_CLOS:
+X    case CROSS:
+X    
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case WORD:
+X    
+X      if( dim == COL )  word_save_mark(x) = xmk;
+X      else if( string(x)[0] != '\0' )  PrintAtom(x, word_save_mark(x), pg-xmk);
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case WIDE:
+X    case HIGH:
+X    
+X      CountChild(y, Down(x), count);
+X      if( (dim == COL) == (type(x) == WIDE) )
+X      { yf = bfc(constraint(x)) - back(y, dim);
+X        FixAndPrintObject(y, xmk, back(y,dim), yf, dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, pg, count);
+X        back(x, dim) = xb;  fwd(x, dim) = xf;
+X      }
+X      else
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress,
+X	  padj, pg, count);
+X	back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      }
+X      break;
+X
+X
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    
+X      CountChild(y, Down(x), count);
+X      if( (dim == COL) == (type(x) == HCONTRACT) )
+X      {	FixAndPrintObject(y, xmk, back(y,dim), fwd(y,dim), dim, LAST_ADJUST,
+X	  NO_SUPPRESS, padj, pg, count);
+X        back(x, dim) = xb;  fwd(x, dim) = xf;
+X      }
+X      else
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress, padj,pg,count);
+X        back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      }
+X      break;
+X
+X
+X    case ONE_COL:
+X    case ONE_ROW:
+X    case HEXPAND:
+X    case VEXPAND:
+X    
+X      CountChild(y, Down(x), count);
+X      if( (dim == COL) == (type(x) == ONE_COL || type(x) == HEXPAND) )
+X      { FixAndPrintObject(y, xmk, xb, xf, dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, pg, count);
+X        back(x, dim) = xb;  fwd(x, dim) = xf;
+X      }
+X      else
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress, padj,pg,count);
+X	back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      }
+X      break;
+X
+X
+X    case PADJUST:
+X    
+X      CountChild(y, Down(x), count);
+X      FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress,
+X	ALL_ADJUST, pg, count);
+X      back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      break;
+X
+X
+X    case HADJUST:
+X    case VADJUST:
+X    
+X      CountChild(y, Down(x), count);
+X      if( (dim == COL) == (type(x) == HADJUST) )
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, ALL_ADJUST, suppress,
+X	  padj, pg, count);
+X        back(x, dim) = xb;  fwd(x, dim) = xf;
+X      }
+X      else
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress,
+X	  padj, pg, count);
+X	back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      }
+X      break;
+X
+X
+X    case VSCALE:
+X
+X      debug0(DRS, D, "FixAndPrintObject at VSCALE");
+X      CountChild(y, Down(x), count);
+X      if( dim == COL )
+X      {	FixAndPrintObject(y, xmk, xb, xf, dim, LAST_ADJUST, NO_SUPPRESS,
+X		padj,pg,count);
+X      }
+X      else if( (scale_factor = ScaleFactor(xb+xf, size(y, ROW))) > 0 )
+X      {	SaveGraphicState();
+X	CoordTranslate(0, pg - (xmk-xb + (LENGTH) (back(y, ROW)*scale_factor)));
+X	CoordScale(1.0, scale_factor);
+X        FixAndPrintObject(y, 0, back(y, ROW), fwd(y, ROW), dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, 0, count);
+X	RestoreGraphicState();
+X      }
+X      else if( type(y) != WORD || string(y)[0] != '\0' )
+X      {	Error(WARN, &fpos(x), "object deleted: cannot %s", KW_VSCALE);
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case HSCALE:
+X    
+X      debug0(DRS, DD, "FixAndPrintObject at HSCALE");
+X      CountChild(y, Down(x), count);
+X      if( dim == COL )
+X      {	save_mark(x) = xmk;
+X	bc(constraint(x)) = xb;
+X	fc(constraint(x)) = xf;
+X        if( (scale_factor = ScaleFactor(xb+xf, size(y, COL))) > 0 )
+X	  FixAndPrintObject(y, 0, back(y, COL), fwd(y, COL), dim, LAST_ADJUST,
+X		NO_SUPPRESS, LAST_ADJUST, pg, count);
+X        else if( type(y) != WORD || string(y)[0] != '\0' )
+X	  Error(WARN, &fpos(y), "object deleted: cannot %s", KW_HSCALE);
+X      }
+X      else if( (scale_factor =
+X	ScaleFactor(bc(constraint(x))+fc(constraint(x)), size(y, COL))) > 0 )
+X      {	SaveGraphicState();
+X	CoordTranslate(save_mark(x) - bc(constraint(x))
+X	   + (LENGTH) (back(y, COL)*scale_factor), 0);
+X	CoordScale(scale_factor, 1.0);
+X        FixAndPrintObject(y, xmk, xb, xf, dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, pg, count);
+X	RestoreGraphicState();
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case SCALE:
+X
+X      CountChild(y, Down(x), count);
+X      if( dim == COL )
+X      {
+X	assert( bc(constraint(x)) > 0, "FAPO: horizontal scale factor!" );
+X	save_mark(x) = xmk;
+X	yb = xb * SF / bc(constraint(x));
+X	yf = xf * SF / bc(constraint(x));
+X        FixAndPrintObject(y, 0, yb, yf, dim, LAST_ADJUST, NO_SUPPRESS,
+X		padj, pg, count);
+X      }
+X      else
+X      {
+X	assert( fc(constraint(x)) > 0, "FAPO: vertical scale factor!" );
+X	yb = xb * SF / fc(constraint(x));
+X	yf = xf * SF / fc(constraint(x));
+X	SaveGraphicState();
+X	CoordTranslate(save_mark(x), pg - xmk);
+X	CoordScale( (float) bc(constraint(x))/SF, (float) fc(constraint(x))/SF);
+X        FixAndPrintObject(y, 0, yb, yf, dim, LAST_ADJUST, NO_SUPPRESS,
+X		padj,0,count);
+X	RestoreGraphicState();
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case ROTATE:
+X    
+X      CountChild(y, Down(x), count);
+X      if( dim == COL )
+X      {	save_mark(x) = xmk;
+X	back(x, dim) = xb;
+X	fwd(x, dim)  = xf;
+X      }
+X      else
+X      {
+X	CONSTRAINT colc, rowc, yc;
+X	back(x, dim) = xb;
+X	fwd(x, dim)  = xf;
+X	SetConstraint(colc, back(x,COL), MAX_LEN, fwd(x,COL));
+X	SetConstraint(rowc, back(x,ROW), MAX_LEN, fwd(x,ROW));
+X	RotateConstraint(&yc, y, sparec(constraint(x)), &colc, &rowc, COL);
+X	FixAndPrintObject(y, 0, bc(yc), fc(yc), COL, LAST_ADJUST,
+X		NO_SUPPRESS, padj, pg, count);
+X	SaveGraphicState();
+X	CoordTranslate(save_mark(x), pg - xmk);
+X	CoordRotate(sparec(constraint(x)));
+X	RotateConstraint(&yc, y, sparec(constraint(x)), &colc, &rowc, ROW);
+X	FixAndPrintObject(y, 0, bc(yc), fc(yc), ROW, LAST_ADJUST,
+X		NO_SUPPRESS, padj, 0, count);
+X	RestoreGraphicState();
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case GRAPHIC:
+X    
+X      CountChild(y, LastDown(x), count);
+X      if( dim == COL )
+X      {
+X	back(x, dim) = xb;
+X	fwd(x, dim)  = xf;
+X	debug2(DGP, DD, "GRAPHIC COL storing size %s, %s",
+X	  EchoLength(back(x, dim)), EchoLength(fwd(x, dim)));
+X	save_mark(x) = xmk - back(x, COL);
+X        FixAndPrintObject(y, xb, xb, xf, dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, pg, count);
+X      }
+X      else
+X      { OBJECT tmp, pre, post;
+X        Child(tmp, Down(x));
+X        if( type(tmp) == VCAT )
+X        { Child(pre, Down(tmp));
+X          Child(post, LastDown(tmp));
+X        }
+X        else pre = tmp, post = nil;
+X	back(x, dim) = xb;
+X	fwd(x, dim)  = xf;
+X        SaveGraphicState();
+X        CoordTranslate(save_mark(x), pg - (xmk + fwd(x, ROW)));
+X	debug4(DGP, DD, "GRAPHIC ROW calling %s,%s %s,%s",
+X	  EchoLength(back(x, COL)), EchoLength(fwd(x, COL)),
+X	  EchoLength(back(x, ROW)), EchoLength(fwd(x, ROW)));
+X        DefineGraphicNames(x);
+X        SaveGraphicState();
+X        PrintGraphicObject(pre);
+X        RestoreGraphicState();
+X        FixAndPrintObject(y, xb, xb, xf, dim, LAST_ADJUST,
+X		NO_SUPPRESS, padj, xb + xf, count);
+X        if( post != nil )  PrintGraphicObject(post);
+X        RestoreGraphicState();
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X
+X      CountChild(y, Down(x), count);
+X      if( dim == COL )
+X      {	save_mark(x) = xmk;
+X      }
+X      else if( sparec(constraint(x)) )
+X      {
+X	PrintGraphicInclude(x, save_mark(x), pg - xmk);
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case SPLIT:
+X    
+X      link = DownDim(x, dim);  CountChild(y, link, count);
+X      FixAndPrintObject(y, xmk, xb, xf, dim, adjust, suppress, padj, pg, count);
+X      back(x, dim) = back(y, dim);  fwd(x, dim) = fwd(y, dim);
+X      break;
+X
+X
+X    case VCAT:
+X    case HCAT:
+X
+X      if( (type(x) == VCAT) == (dim == ROW) )
+X      { 
+X	/* find adjustment increment if required */
+X	frame_size = xb + xf;
+X	if( adjust == ALL_ADJUST && !suppress )
+X	  inc = FindAdjustIncrement(x, frame_size, dim);
+X	else inc = 0;
+X
+X	FirstDefinite(x, link, prev);
+X	if( link != x )
+X	{ back_edge = xmk - back(x, dim);
+X	  mk = back_edge + back(prev, dim);
+X	  NextDefiniteWithGap(x, link, y, g);
+X	  while( link != x )
+X	  {
+X	    FixAndPrintObject(prev, mk, back(prev, dim), fwd(prev, dim) + inc,
+X	      dim, adjust, NO_SUPPRESS, padj, pg, count);
+X	    /* NB fwd(prev, dim) may be changed by the call to FAPO */
+X	    mk += ActualGap(fwd(prev, dim), back(y, dim), fwd(y, dim), &gap(g),
+X		    frame_size, mk - back_edge);
+X	    prev = y;
+X	    NextDefiniteWithGap(x, link, y, g);
+X	  }
+X	  if( suppress )
+X	    FixAndPrintObject(prev, mk, back(prev, dim), fwd(prev, dim),
+X	      dim, adjust, NO_SUPPRESS, padj, pg, count);
+X	  else
+X	    FixAndPrintObject(prev, mk, back(prev,dim),
+X	      max(fwd(prev, dim), back_edge+frame_size-mk),
+X	      dim, adjust, NO_SUPPRESS, padj, pg, count);
+X	  back(x, dim) = max(back(x, dim), xb);
+X	  fwd(x, dim) = mk + fwd(prev, dim) - back_edge - back(x, dim);
+X	}
+X	else back(x, dim) = xb, fwd(x, dim) = xf;
+X      }
+X      else
+X      { OBJECT start_group, zlink, m;  BOOLEAN dble_found;  LENGTH b, f, dlen;
+X	start_group = nil;  dble_found = FALSE;  dlen = 0;
+X	debug0(DGP, DD, "  groups beginning.");
+X	for( link = Down(x);  link != x;  link = NextDown(link) )
+X	{
+X	  Child(y, link);
+X	  debug1(DGP, DD, "  examining %s", EchoObject(null, y));
+X	  if( is_index(type(y)) )  continue;
+X	  if( type(y) == GAP_OBJ )
+X	  { 
+X	    assert( start_group != nil, "FAPO: start_group!" );
+X	    if( !join(gap(y)) )
+X	    { 
+X	      /* finish off and fix this group */
+X	      debug2(DGP, DD, "  finishing group: b = %s, f = %s",
+X	        EchoLength(b), EchoLength(f));
+X	      FixAndPrintObject(m, xmk+b, b, xf-b, dim, adjust,
+X		      NO_SUPPRESS, padj, pg, count);
+X	      b = back(m, dim);  f = fwd(m, dim);
+X	      for( zlink = start_group;  zlink != link;  zlink=NextDown(zlink) )
+X	      {	CountChild(z, zlink, count);
+X		if( !is_definite(type(z)) || z == m )  continue;
+X		FixAndPrintObject(z, xmk + b, b, xf - b, dim,
+X		      adjust, SUPPRESS, padj, pg, count);
+X		b = max(b, back(z, dim));  f = max(f, fwd(z, dim));
+X	      }
+X	      dlen = max(dlen, b + f);
+X	      dble_found = TRUE;
+X	      start_group = nil;
+X	    }
+X	  }
+X	  else if( start_group == nil )
+X	  {
+X	    /* start new group */
+X	    b = back(y, dim);
+X	    f = fwd(y, dim);
+X	    m = y;
+X	    start_group = link;
+X	    debug2(DGP, DD, "  starting group: b = %s, f = %s",
+X	      EchoLength(b), EchoLength(f));
+X	  }
+X	  else
+X	  {
+X	    /* continue with current group */
+X	    b = max(b, back(y, dim));
+X	    f = max(f, fwd(y, dim));
+X	    if( fwd(y, dim) > fwd(m, dim) )  m = y;
+X	    debug2(DGP, DD, "  continuing group: b = %s, f = %s",
+X	      EchoLength(b), EchoLength(f));
+X	  }
+X	}
+X	assert( start_group != nil, "FAPO: final start_group!" );
+X
+X	if( dble_found )
+X	{
+X	  /* finish off and fix this last group */
+X	  debug2(DGP, DD, "  finishing last group: b = %s, f = %s",
+X	      EchoLength(b), EchoLength(f));
+X	  FixAndPrintObject(m, xmk + b, b, xf - b, dim, adjust,
+X		NO_SUPPRESS, padj, pg, count);
+X	  b = back(m, dim);  f = fwd(m, dim);
+X	  for( zlink = start_group;  zlink != link;  zlink = NextDown(zlink) )
+X	  { CountChild(z, zlink, count);
+X	    if( !is_definite(type(z)) || z == m )  continue;
+X	    FixAndPrintObject(z, xmk + b, b, xf - b, dim, adjust,
+X		SUPPRESS, padj, pg, count);
+X	    b = max(b, back(z, dim));  f = max(f, fwd(z, dim));
+X	  }
+X	  dlen = max(dlen, b + f);
+X	  back(x, dim) = 0;  fwd(x, dim) = dlen;
+X	}
+X	else
+X	{
+X	  /* finish off and fix this last and only group */
+X	  debug2(DGP, DD, "  finishing last and only group: b = %s, f = %s",
+X	      EchoLength(b), EchoLength(f));
+X	  FixAndPrintObject(m, xmk, xb, xf, dim, adjust,
+X		 NO_SUPPRESS, padj, pg, count);
+X	  b = back(m, dim);  f = fwd(m, dim);
+X	  for( zlink = start_group;  zlink != link;  zlink = NextDown(zlink) )
+X	  { CountChild(z, zlink, count);
+X	    if( !is_definite(type(z)) || z == m )  continue;
+X	    FixAndPrintObject(z, xmk, xb, xf, dim, adjust,
+X		SUPPRESS, padj, pg, count);
+X	    b = max(b, back(z, dim));  f = max(f, fwd(z, dim));
+X	  }
+X	  back(x, dim) = b;  fwd(x, dim) = f;
+X	}
+X      }
+X      break;
+X
+X
+X    case ACAT:
+X
+X      if( dim == COL )
+X      { BOOLEAN bad_gap;
+X	LENGTH actual_size,
+X	adjust_indent, frame_size, back_edge, adjust_inc, inc;
+X	int adjustable_gaps;
+X      
+X
+X	/*********************************************************************/
+X	/*                                                                   */
+X	/*  The first step is to calculate the following values:             */
+X	/*                                                                   */
+X	/*    bad_gap          TRUE if an adjust-preventing gap is found     */
+X	/*                                                                   */
+X	/*    actual_size      the actual size of x;                         */
+X	/*                                                                   */
+X	/*    adjustable_gaps  the number of gaps to the right of the        */
+X	/*                     right-most tab gap.                           */
+X	/*                                                                   */
+X	/*  These make it easy to perform adjustment on a second pass, if    */
+X	/*  required.                                                        */
+X	/*                                                                   */
+X	/*********************************************************************/
+X
+X	FirstDefinite(x, link, y);
+X	if( link == x )  break;  /* no definite children, nothing to print */
+X	bad_gap = FALSE;
+X	adjustable_gaps = 0;
+X	back_edge = xmk - xb;
+X	mk = back_edge + back(y, dim);
+X	frame_size = xb + xf;
+X	prev = y;
+X	NextDefiniteWithGap(x, link, y, g);
+X	while( link != x )
+X	{
+X	  save_actual_gap(g) = ActualGap(fwd(prev, dim), back(y, dim),
+X		fwd(y, dim), &gap(g), frame_size, mk - back_edge);
+X	  mk += save_actual_gap(g);
+X	  if( mode(gap(g)) == TAB_MODE || units(gap(g)) == AVAIL_UNIT
+X				       || units(gap(g)) == FRAME_UNIT )
+X	  { bad_gap = TRUE;
+X	  }
+X	  else if( width(gap(g)) > 0 )  adjustable_gaps += 1;
+X	  prev = y;
+X	  NextDefiniteWithGap(x, link, y, g);
+X	}
+X	actual_size = mk + fwd(prev, dim) - back_edge;
+X
+X	/*********************************************************************/
+X	/*                                                                   */
+X	/*  The second step is to work out whether adjusting is required     */
+X	/*  or not, and if so by how much, using the following variables:    */
+X	/*                                                                   */
+X	/*    adjust_inc       The amount of adjustment to apply initially.  */
+X	/*                                                                   */
+X	/*    adjust_indent    initial indent for centring etc.              */
+X	/*                                                                   */
+X	/*  NB adjust_inc may be negative, if the optimal paragraph          */
+X	/*  breaker has chosen to shrink some gaps.                          */
+X	/*                                                                   */
+X	/*********************************************************************/
+X
+X	adjust_indent = 0;
+X	switch( display_style(save_style(x)) )
+X	{
+X	  case DO_ADJUST:	padj = ALL_ADJUST;
+X				break;
+X	
+X	  case DISPLAY_CENTRE:	if( actual_size <= frame_size )
+X				{ adjust_indent = (frame_size - actual_size)/2;
+X				  padj = LAST_ADJUST;
+X				}
+X				else padj = ALL_ADJUST;
+X				debug1(DGP,DD, "cdisp %s", EchoObject(null,x));
+X				break;
+X
+X	  case DISPLAY_RIGHT:	if( actual_size <= frame_size )
+X				{ adjust_indent = frame_size - actual_size;
+X				  padj = LAST_ADJUST;
+X				}
+X				else padj = ALL_ADJUST;
+X				debug1(DGP,DD, "rdisp %s", EchoObject(null,x));
+X				break;
+X	}
+X
+X	if( padj == ALL_ADJUST && adjustable_gaps > 0 && !bad_gap )
+X	{ adjust_inc = (frame_size - actual_size) / adjustable_gaps;
+X	  inc = max(adjust_inc, 0);
+X	}
+X	else adjust_inc = inc = 0;
+X
+X	debug2(DGP, DD, "ACAT %s %s",
+X	  EchoStyle(&save_style(x)), EchoObject(null, x));
+X	debug3(DGP,DD,"frame_size = %s, actual_size = %s, adjustable_gaps = %d",
+X	  EchoLength(frame_size), EchoLength(actual_size), adjustable_gaps);
+X	debug2(DGP,DD,"bad_gap = %s, adjust_inc = %s",
+X	  bool(bad_gap), EchoLength(adjust_inc));
+X
+X	/*********************************************************************/
+X	/*                                                                   */
+X	/*  The third and final step is to traverse x, fixing subobjects.    */
+X	/*                                                                   */
+X	/*********************************************************************/
+X
+X	FirstDefinite(x, link, y);
+X	prev = y;
+X	mk = xmk - back(x, dim) + back(y, dim) + adjust_indent;
+X	NextDefiniteWithGap(x, link, y, g);
+X	while( link != x )
+X	{
+X	  /* fix previous definite now we know it isn't the last one  */
+X	  if( width(gap(g)) > 0 )
+X	  { FixAndPrintObject(prev, mk, back(prev, dim), fwd(prev, dim) + inc,
+X	      dim, adjust, NO_SUPPRESS, LAST_ADJUST, pg, count);
+X	    mk += save_actual_gap(g) + adjust_inc;
+X	  }
+X	  else
+X	  { FixAndPrintObject(prev, mk, back(prev, dim), fwd(prev, dim),
+X	      dim, adjust, NO_SUPPRESS, LAST_ADJUST, pg, count);
+X	    mk += save_actual_gap(g);
+X	  }
+X
+X	  /* move on to next subobject */
+X	  prev = y;
+X	  NextDefiniteWithGap(x, link, y, g);
+X	}
+X
+X	/* fix the last definite subobject, prev, which must exist */
+X	FixAndPrintObject(prev, mk, back(prev, dim),
+X	  frame_size - (mk - xmk) - back(x, dim),
+X	  dim, adjust, NO_SUPPRESS, LAST_ADJUST, pg, count);
+X      }
+X      else for( link = Down(x);  link != x;  link = NextDown(link) )
+X      {	Child(y, link);
+X	if( !is_definite(type(y)) )  continue;
+X	FixAndPrintObject(y, xmk, xb, xf, dim, adjust, NO_SUPPRESS,
+X		padj,pg,count);
+X      }
+X      back(x, dim) = xb;  fwd(x, dim) = xf;
+X      break;
+X
+X
+X    case COL_THR:
+X    case ROW_THR:
+X
+X      /* find and delete the count'th child y */
+X      assert( (type(x) == COL_THR) == (dim == COL), "FixAndPrintObject: thr!" );
+X      for( link = Down(x), uplink = Up(x), i = 1;
+X	link != x && uplink != x && i < count;
+X	link = NextDown(link), uplink = NextUp(uplink), i++ );
+X      assert( link != x && uplink != x, "FixAndPrintObject: link or uplink!" );
+X      CountChild(y, link, count);
+X      MoveLink(uplink, link, CHILD);  DeleteLink(link);  /* IMPORTANT!!! */
+X      assert( type(y) != GAP_OBJ, "FAPO: THR!");
+X
+X      /* assign size if not done previously */
+X      if( thr_state(x) != FINALSIZE )
+X      {	back(x, dim) = xb;  fwd(x, dim) = xf;
+X	thr_state(x) = FINALSIZE;
+X      }
+X
+X      /* *** else been here before, size is already decided; do nothing
+X      {	if( back(x, dim) > xb || fwd(x, dim) > xf )
+X	{ Error(WARN, &fpos(y), "wrong %s chosen (sorry!)",
+X		dim == COL ? "column width" : "row height");
+X	  if( back(x, dim) > xb )  back(x, dim) = xb;
+X	  if( fwd(x, dim)  > xf )  fwd(x, dim)  = xf;
+X	}
+X      }
+X      *** */
+X
+X      /* fix y */
+X      FixAndPrintObject(y, xmk, back(x, dim), fwd(x, dim), dim, LAST_ADJUST,
+X	NO_SUPPRESS, padj, pg, count);
+X      if( Up(x) == x )  Dispose(x);
+X      break;
+X
+X
+X    default:
+X    
+X      Error(INTERN, no_fpos, "FixAndPrint: found %s", Image(type(x)));
+X      break;
+X
+X  } /* end switch */
+X  debug2(DGP, D, "] FixAndPrintObject returning (size now %s,%s).",
+X	EchoLength(back(x, dim)), EchoLength(fwd(x, dim)));
+X} /* end FixAndPrintObject */
+END_OF_FILE
+  if test 28465 -ne `wc -c <'lout/z23.c'`; then
+    echo shar: \"'lout/z23.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z23.c'
+fi
+echo shar: End of archive 9 \(of 30\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 30 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

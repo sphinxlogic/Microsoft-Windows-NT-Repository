@@ -1,0 +1,1771 @@
+Newsgroups: comp.sources.x
+Path: uunet!darwin.sura.net!mips!msi!dcmartin
+From: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Subject: v18i050: olvwm 3.0, Patch2, Part03/04
+Message-ID: <1992Jul22.152842.19295@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i048-olvwm-3.0@uunet.UU.NET>
+Date: Wed, 22 Jul 1992 15:28:42 GMT
+Approved: dcmartin@msi.com
+Lines: 1758
+
+Submitted-by: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Posting-number: Volume 18, Issue 50
+Archive-name: olvwm-3.0/patch2.03
+Patch-To: olvwm-3.0: Volume 15, Issue 167
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file olvwm3.Patch02 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping olvwm3.Patch02'
+else
+echo 'x - continuing file olvwm3.Patch02'
+sed 's/^X//' << 'SHAR_EOF' >> 'olvwm3.Patch02' &&
+***************
+*** 880,886 ****
+--- 1013,1023 ----
+X      menu->btnPerCol = 0;
+X      menu->maxLabWidth = 0;
+X      menu->prefColSize = columns;
++ 
++     findClient_rootid = winInfo->core.client->screen;
+X      ListApply(ActiveClientList, addButton, menu);
++     if (GRV.VirtualMenuSort == SortAlpha)
++         qsort(menu->buttons, menu->buttonCount, sizeof(Button *), cmpButton);
+X  
+X      menuInfo->buttons[bindex].subMenu =
+X  			MenuInfoCreate(cache, winInfo, menu, depth);
+*** BUILD/olwm.c	Sat Jun 13 15:50:21 1992
+--- src/olwm.c	Sat Jun 13 15:43:26 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)olwm.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)olwm.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 196,202 ****
+X  	char **argv;
+X  {
+X  	int			ErrorHandler();
+! 	int			ExitOLWM();
+X  	XrmDatabase		commandlineDB = NULL;
+X  	char			*dpystr;
+X  
+--- 196,202 ----
+X  	char **argv;
+X  {
+X  	int			ErrorHandler();
+! 	int			ExitOLWM(), RestartOLWM();
+X  	XrmDatabase		commandlineDB = NULL;
+X  	char			*dpystr;
+X  
+***************
+*** 264,269 ****
+--- 264,270 ----
+X  	signal(SIGINT, (VoidFunc)ExitOLWM);
+X  	signal(SIGTERM, (VoidFunc)ExitOLWM);
+X  	signal(SIGCHLD, HandleChildSignal);
++ 	signal(SIGUSR1, RestartOLWM);
+X  
+X  	/* initialize the resource manager */
+X  	XrmInitialize();
+***************
+*** 434,444 ****
+X  	/* check to see if there are any arguments left unparsed */
+X  	if ( *argc != 1 )
+X  	{
+X  		/* check to see if it's -help */
+X  		if ( argv[1][0] == '-' && argv[1][1] == 'h' )
+X  			usage(gettext("Command line arguments accepted"),gettext("are:"));
+X  		else
+! 			usage(gettext("Unknown argument(s)"), gettext("encountered"));
+X  	}
+X  }
+X  
+--- 435,451 ----
+X  	/* check to see if there are any arguments left unparsed */
+X  	if ( *argc != 1 )
+X  	{
++ 	
++ 	    if (!strcmp(argv[1], "-allowSynthetic"))
++ 	            GRV.AllowSyntheticEvents = True;
++ 	    else {
++ 		GRV.AllowSyntheticEvents = False;
+X  		/* check to see if it's -help */
+X  		if ( argv[1][0] == '-' && argv[1][1] == 'h' )
+X  			usage(gettext("Command line arguments accepted"),gettext("are:"));
+X  		else
+! 		 	usage(gettext("Unknown argument(s)"), gettext("encountered"));
+! 	    }
+X  	}
+X  }
+X  
+*** BUILD/olwm.h	Sat Jun 13 15:50:01 1992
+--- src/olwm.h	Sat Jun 13 15:43:26 1992
+***************
+*** 133,138 ****
+--- 133,139 ----
+X  extern void IconShow();
+X  extern void IconHide();
+X  extern void IconSetPos();
++ extern void IconUnparent();
+X  
+X  /* icon pane functions */
+X  extern struct _winiconpane *MakeIconPane();
+*** BUILD/parse.l	Sat Jun 13 15:51:04 1992
+--- src/parse.l	Sat Jun 13 15:43:26 1992
+***************
+*** 4,15 ****
+X   *      See LEGAL_NOTICE file for terms of the license.
+X   */
+X  
+! #ident  "@(#)parse.l	1.2 olvwm version 1/27/92"
+X  %}
+X  %%
+X  
+X  Warp	{ yylval.ival = Warp; return WARP; }
+X  Open	{ yylval.ival = Open; return OPEN; }
+X  Raise	{ yylval.ival = Raise; return RAISE; }
+X  Execute	{ yylval.ival = Execute; return EXECUTE; }
+X  Goto	{ yylval.ival = Goto; return GOTO; }
+--- 4,17 ----
+X   *      See LEGAL_NOTICE file for terms of the license.
+X   */
+X  
+! #ident  "@(#)parse.l	1.3 olvwm version 6/13/92"
+X  %}
+X  %%
+X  
+X  Warp	{ yylval.ival = Warp; return WARP; }
+X  Open	{ yylval.ival = Open; return OPEN; }
++ RaiseLower { yylval.ival = RaiseLower; return RAISELOWER; }
++ Lower	{ yylval.ival = Lower; return LOWER; }
+X  Raise	{ yylval.ival = Raise; return RAISE; }
+X  Execute	{ yylval.ival = Execute; return EXECUTE; }
+X  Goto	{ yylval.ival = Goto; return GOTO; }
+*** BUILD/resources.c	Sat Jun 13 15:51:05 1992
+--- src/resources.c	Sat Jun 13 15:43:27 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident "@(#)resources.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   *
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident "@(#)resources.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   *
+***************
+*** 60,65 ****
+--- 60,67 ----
+X  static Bool cvtStringList();
+X  static Bool cvtGridEnum();
+X  static Bool cvtImageType();
++ static Bool cvtSortType();
++ static Bool cvtNoop();
+X  
+X  /* internationalization stuff */
+X  
+***************
+*** 75,80 ****
+--- 77,83 ----
+X  /* updaters */
+X  
+X  static void updButtonFont();
++ static void updCursors();
+X         void UpdFocusStyle();			/* yes, this one's global */
+X  static void updGlyphFont();
+X  static void updIconFont();
+***************
+*** 381,390 ****
+X      &(GRV.UseImageMenu),	cvtImageType,		NULL		},
+X  {   "virtualMoveGroup",		"VirtualMoveGroup",	"True",
+X      &(GRV.VirtualMoveGroups),	cvtBoolean,		NULL		},
+! {   "pointerWorkspace",		"PointerWorkspace",	"False",
+X      &(GRV.PointerWorkspace),	cvtBoolean,		NULL		},
+X  {   "saveWorkspaceCmd",		"SaveWorkspaceCmd",	NULL,
+X      &(GRV.SaveWorkspaceCmd),	cvtString,		NULL		},
+X  };
+X  
+X  #define NRESOURCEITEMS (sizeof(ResourceTable)/sizeof(ResourceItem))
+--- 384,437 ----
+X      &(GRV.UseImageMenu),	cvtImageType,		NULL		},
+X  {   "virtualMoveGroup",		"VirtualMoveGroup",	"True",
+X      &(GRV.VirtualMoveGroups),	cvtBoolean,		NULL		},
+! {   "pointerWorkspace",		"PointerWorkspace",	"True",
+X      &(GRV.PointerWorkspace),	cvtBoolean,		NULL		},
+X  {   "saveWorkspaceCmd",		"SaveWorkspaceCmd",	NULL,
+X      &(GRV.SaveWorkspaceCmd),	cvtString,		NULL		},
++ {   "sortMenuType",		"SortMenuType",		"Alphabetic",
++     &(GRV.VirtualMenuSort),	cvtSortType,		NULL		},
++ {   "sortDirType",		"SortDirType",		"Alphabetic",
++     &(GRV.VirtualDirSort),	cvtSortType,		NULL		},
++ 
++ {   "cursorSpecialResize",    "CursorSpecialResize",  "False",
++     &(GRV.SpecialResizePointerData), cvtString,         updCursors    },
++ {   "cursorBasic",            "CursorBasic",          "OLC_basic",
++     &(GRV.BasicPointerData),  cvtString,              updCursors      },
++ {   "cursorMove",             "CursorMove",           "OLC_basic",
++     &(GRV.MovePointerData),   cvtString,              updCursors      },
++ {   "cursorBusy",             "CursorBusy",           "OLC_busy",
++     &(GRV.BusyPointerData),   cvtString,              updCursors      },
++ {   "cursorIcon",             "CursorIcon",           "OLC_basic",
++     &(GRV.IconPointerData),   cvtString,              updCursors      },
++ {   "cursorResize",           "CursorResize",         "OLC_beye",
++     &(GRV.ResizePointerData), cvtString,              updCursors      },
++ {   "cursorMenu",             "CursorMenu",           "OLC_basic",
++     &(GRV.MenuPointerData),   cvtString,              updCursors      },
++ {   "cursorQuestion",         "CursorQuestion",       "OLC_basic",
++     &(GRV.QuestionPointerData),       cvtString,      updCursors      },
++ {   "cursorTarget",           "CursorTarget",         "OLC_basic",
++     &(GRV.TargetPointerData), cvtString,              updCursors      },
++ {   "cursorPan",              "CursorPan",            "OLC_basic",
++     &(GRV.PanPointerData),    cvtString,              updCursors      },
++ {   "cursorCloseUp",          "CursorCloseUp",        "OLC_basic",
++     &(GRV.CloseUpPointerData),        cvtString,      updCursors      },
++ {   "cursorCloseDown",        "CursorCloseDown",      "OLC_basic",
++     &(GRV.CloseDownPointerData),cvtString,            updCursors      },
++ 
++ {   "virtualReRead",          "VirtualReRead",        "True",
++     &(GRV.VirtualReRead),     cvtBoolean,             NULL            },
++ {   "SyntheticEvents",        "SyntheticEvents",      "False",
++     &(GRV.SyntheticEvents),    cvtBoolean,            NULL            },
++ {   "allowSyntheticsEvents",  "AllowSyntheticEvents","False",
++     &(GRV.AllowSyntheticEvents),cvtNoop,              NULL            },
++ {   "noVirtualKey",           "NoVirtualKey",         "",
++     &(GRV.NoVirtualKey),      cvtStringList,          NULL,           },
++ {   "noVirtualFKey",          "NoVirtualFKey",        "",
++     &(GRV.NoVirtualFKey),     cvtStringList,          NULL,           },
++ {   "noVirtualLKey",          "NoVirtualLKey",        "",
++     &(GRV.NoVirtualLKey),     cvtStringList,          NULL,           },
++ {   "noVirtualRKey",          "NoVirtualRKey",        "",
++     &(GRV.NoVirtualRKey),     cvtStringList,          NULL,           },
+X  };
+X  
+X  #define NRESOURCEITEMS (sizeof(ResourceTable)/sizeof(ResourceItem))
+***************
+*** 396,402 ****
+X  /*
+X   * Copy a string, converting it to lower case.
+X   */
+! static void
+X  strnlower(dest, src, n)
+X      char *dest;
+X      char *src;
+--- 443,449 ----
+X  /*
+X   * Copy a string, converting it to lower case.
+X   */
+! void
+X  strnlower(dest, src, n)
+X      char *dest;
+X      char *src;
+***************
+*** 436,442 ****
+X   * true, false.  Pass back the boolean matched in ret, and return True.  
+X   * Otherwise, return False.  Matches are case-insensitive.
+X   */
+! static Bool
+X  matchBool(value, ret)
+X      char *value;
+X      Bool *ret;
+--- 483,489 ----
+X   * true, false.  Pass back the boolean matched in ret, and return True.  
+X   * Otherwise, return False.  Matches are case-insensitive.
+X   */
+! Bool
+X  matchBool(value, ret)
+X      char *value;
+X      Bool *ret;
+***************
+*** 809,814 ****
+--- 856,864 ----
+X   *
+X   * REMIND: this appears to have a resource leak, in that cursorFont is loaded 
+X   * but never unloaded.
++  *
++  * This function became obsolete in version 3.2 of olvwm, when all cursors
++  * started to be defined in initCursor in cursor.c
+X   */
+X  static Bool
+X  cvtCursorFont(dpy, item, string, addr)
+***************
+*** 817,822 ****
+--- 867,873 ----
+X      char	    *string;
+X      void	    *addr;
+X  {
++ #ifdef not
+X      Font	    cursorFont;
+X      int		    ii;
+X      Cursor	    *tmpVariable;
+***************
+*** 916,922 ****
+X  #endif
+X  	}
+X      }
+! 
+X      return True;
+X  }
+X  
+--- 967,973 ----
+X  #endif
+X  	}
+X      }
+! #endif
+X      return True;
+X  }
+X  
+***************
+*** 1483,1489 ****
+--- 1534,1542 ----
+X      char buf[1000];
+X      Bool	found;
+X  
++     found = GRV.AllowSyntheticEvents;
+X      (void) memset((char *) &GRV, 0, sizeof(GRV));
++     GRV.AllowSyntheticEvents = found;
+X  
+X  #ifdef OW_I18N_L3
+X      GRVLCInit();
+***************
+*** 1937,1942 ****
+--- 1990,2016 ----
+X  
+X  static Bool
+X  /* ARGSUSED */
++ cvtSortType(dpy, item, value, ret)
++     Display	    *dpy;
++     ResourceItem    *item;
++     char	    *value;
++     VirtualGridType *ret;
++ {
++ 	if (MatchString(value,"alphabetic"))
++ 	{
++ 	    *ret = SortAlpha;
++ 	    return True;
++ 	}
++ 	if (MatchString(value,"youngest"))
++ 	{
++ 	    *ret = SortYounger;
++ 	    return True;
++ 	}
++ 	return False;
++ }
++ 
++ static Bool
++ /* ARGSUSED */
+X  cvtImageType(dpy, item, value, ret)
+X      Display	    *dpy;
+X      ResourceItem    *item;
+***************
+*** 1959,1962 ****
+--- 2033,2057 ----
+X  	    return True;
+X  	}
+X  	return False;
++ }
++ 
++ static Bool
++ /* ARGSUSED */
++ cvtNoop(dpy, item, value, ret)
++     Display	    *dpy;
++     ResourceItem    *item;
++     char	    *value;
++     void 	    *ret;
++ {
++     return False;
++ }
++ 
++ static void
++ updCursors(dpy, item, cur, new)
++     Display		*dpy;
++     ResourceItem	*item;
++     char		**cur, **new;
++ {
++     /* free the new string, as the cursors never update */
++     MemFree(*new);
+X  }
+*** BUILD/resources.h	Sat Jun 13 15:49:51 1992
+--- src/resources.h	Sat Jun 13 15:43:27 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident  "@(#)resources.h	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident  "@(#)resources.h	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 40,45 ****
+--- 40,47 ----
+X  
+X  extern void InitGlobals();
+X  extern void UpdateGlobals();
++ 
++ extern Bool matchBool();
+X  
+X  #ifdef OW_I18N_L3
+X  extern void EffectOLLC();
+*** BUILD/screen.c	Sat Jun 13 15:51:06 1992
+--- src/screen.c	Sat Jun 13 15:43:27 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)screen.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)screen.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 36,41 ****
+--- 36,42 ----
+X  #include "menu.h"
+X  #include "slots.h"
+X  #include "virtual.h"
++ #include "cursors.h"
+X  
+X  #include "iconimage.h"
+X  #include "iconmask.h"
+***************
+*** 1363,1369 ****
+X  	XGCValues       values;
+X  static	char		dashList[2] = { 1, 1 };
+X  	Window		rootwin = scrInfo->rootid;
+- 	int		screen = scrInfo->screen;
+X  	unsigned long	valuemask;
+X  	char		*resString;
+X  
+--- 1364,1369 ----
+***************
+*** 1510,1519 ****
+X  	values.foreground = values.background = scrInfo->colorInfo.inputBg1Color;
+X  	values.graphics_exposures = False;
+X  	values.function = GXcopy;
+X  	scrInfo->gc[INPUTFOCUS_GC] = XCreateGC(dpy,
+X  			scrInfo->pixmap[PROTO_DRAWABLE],
+X  			( GCFunction | GCForeground | GCBackground |
+! 		  	  GCGraphicsExposures ),
+X  		 	&values);
+X  	
+X  	/*
+--- 1510,1520 ----
+X  	values.foreground = values.background = scrInfo->colorInfo.inputBg1Color;
+X  	values.graphics_exposures = False;
+X  	values.function = GXcopy;
++         values.font = GRV.TitleFontInfo->fid;
+X  	scrInfo->gc[INPUTFOCUS_GC] = XCreateGC(dpy,
+X  			scrInfo->pixmap[PROTO_DRAWABLE],
+X  			( GCFunction | GCForeground | GCBackground |
+! 		  	  GCGraphicsExposures | GCFont ),
+X  		 	&values);
+X  	
+X  	/*
+***************
+*** 2009,2015 ****
+X   	 * w/h of resize corner glyph.  Set if unset (ie 0)
+X  	 */
+X  	if (Resize_width == 0 && Resize_height == 0) {
+! 		char 		s[2];
+X  		XCharStruct	xcs;
+X  		int 		i1,i2;
+X  
+--- 2010,2016 ----
+X   	 * w/h of resize corner glyph.  Set if unset (ie 0)
+X  	 */
+X  	if (Resize_width == 0 && Resize_height == 0) {
+! 		unsigned char 		s[2];
+X  		XCharStruct	xcs;
+X  		int 		i1,i2;
+X  
+***************
+*** 2120,2127 ****
+X  {
+X  	ScreenInfo	*scrInfo;
+X  	Client		*client;
+- 	char		*s;
+- 	VirtualResources	*resources;
+X  
+X  	/*
+X           *	Create a new ScreenInfo and minimally initialize it
+--- 2121,2126 ----
+***************
+*** 2150,2155 ****
+--- 2149,2155 ----
+X  	initGCs(dpy,scrInfo);
+X  	initOLGX(dpy,scrInfo);
+X  	initFonts(dpy,scrInfo);
++ 	InitCursors(dpy,scrInfo);
+X  
+X  	/*
+X  	 *	Initialize the screen dependent parts of menus
+***************
+*** 2175,2186 ****
+X  	 */
+X  	ColorFocusInit(dpy,scrInfo->rootwin);
+X  
+X  	/*
+X   	 *	Set the cursor for that screen's root window
+X  	 */
+! 	if (!GRV.PointerWorkspace)
+X  	    XDefineCursor(dpy,scrInfo->rootid,GRV.BasicPointer);
+X  
+X  	/*
+X  	 * Create VDM for screen
+X  	 */
+--- 2175,2198 ----
+X  	 */
+X  	ColorFocusInit(dpy,scrInfo->rootwin);
+X  
++ 	initVDM(dpy, scrInfo, client);
++ 
+X  	/*
+X   	 *	Set the cursor for that screen's root window
+X  	 */
+! 	if (GRV.PointerWorkspace)
+X  	    XDefineCursor(dpy,scrInfo->rootid,GRV.BasicPointer);
+X  
++ }
++ 
++ initVDM(dpy, scrInfo, client)
++     Display	*dpy;
++     ScreenInfo	*scrInfo;
++     Client	*client;
++ {
++ 	char		*s;
++ 	VirtualResources	*resources;
++ 
+X  	/*
+X  	 * Create VDM for screen
+X  	 */
+***************
+*** 2291,2303 ****
+X   	 */
+X  	for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+X  
+- 		(*(WinFunc(si->rootwin,core.destroyfunc)))(dpy,si->rootwin);
+X  
+! 		InstallDefaultColormap(dpy,si->rootwin,False);
+X  
+! 		XSetWindowBackgroundPixmap(dpy,si->rootid,None);
+! 		XClearWindow(dpy,si->rootid);
+! 
+X  		XSetInputFocus(dpy,PointerRoot,RevertToPointerRoot,CurrentTime);
+X  	}
+X  }
+--- 2303,2319 ----
+X   	 */
+X  	for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+X  
+X  
+! 		/*
+! 		 * Should only do this if we painted it in the first place
+! 		 */
+! 		if (GRV.PaintWorkspace) {
+! 		    InstallDefaultColormap(dpy,si->rootwin,False);
+! 		    XSetWindowBackgroundPixmap(dpy,si->rootid,None);
+! 		    XClearWindow(dpy,si->rootid);
+! 		}
+X  
+! 		(*(WinFunc(si->rootwin,core.destroyfunc)))(dpy,si->rootwin);
+X  		XSetInputFocus(dpy,PointerRoot,RevertToPointerRoot,CurrentTime);
+X  	}
+X  }
+***************
+*** 2600,2606 ****
+X      ScreenInfo	*si;
+X  {
+X  MenuInfo	*info;
+- WinPinMenu	*win;
+X  XEvent		ev;
+X  extern MenuInfo	*FindMenuInfo();
+X  
+--- 2616,2621 ----
+***************
+*** 2609,2615 ****
+X  	return;
+X      info->menuX = GRV.AutoRootMenuX;
+X      info->menuY = GRV.AutoRootMenuY;
+!     win = MakePinMenu(dpy, si->rootwin, info);
+X  }
+X  
+X  int
+--- 2624,2630 ----
+X  	return;
+X      info->menuX = GRV.AutoRootMenuX;
+X      info->menuY = GRV.AutoRootMenuY;
+!     (void) MakePinMenu(dpy, si->rootwin, info);
+X  }
+X  
+X  int
+*** BUILD/slots.c	Sat Jun 13 15:50:18 1992
+--- src/slots.c	Sat Jun 13 15:43:28 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)slots.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)slots.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 272,280 ****
+X  	    y = iconGrid->pixvert - slot->mi*ICON_GRID_HEIGHT - win->core.height;
+X  	}
+X      }
+- 
+-     x += slot->off_x;
+-     y += slot->off_y;
+X      (WinFunc(win,core.newposfunc))(win, x, y);
+X  }
+X  
+--- 272,277 ----
+***************
+*** 420,448 ****
+X      int		scr_x, scr_y;
+X      int		dw, dh;
+X  
+X      iconGrid->iconList = ListCons(winicon, iconGrid->iconList);
+X  
+X      if (positioned)
+X      {
+! 	dw = DisplayWidth(winicon->core.client->dpy,
+! 						winicon->core.client->screen);
+! 	dh = DisplayHeight(winicon->core.client->dpy,
+! 						winicon->core.client->screen);
+! 	scr_x = abs((winicon->core.x + ICON_HORZBORDER) % dw);
+! 	scr_y = abs((winicon->core.y + ICON_VERTBORDER) % dh);
+! 	slot = incrPositionedSlots(iconGrid, scr_x, scr_y,
+X  		winicon->core.width, winicon->core.height, snaptogrid);
+- 	if (winicon->core.x > 0)
+- 	    slot->off_x = ((winicon->core.x + ICON_HORZBORDER) / dw) * dw;
+- 	else slot->off_x = ((winicon->core.x + ICON_HORZBORDER - dw) / dw) * dw;
+- 	if (winicon->core.y > 0)
+- 	    slot->off_y = ((winicon->core.y + ICON_VERTBORDER) / dh) * dh;
+- 	else slot->off_y = ((winicon->core.y + ICON_VERTBORDER - dh) / dh) * dh;
+X  	winicon->iconslot = slot;
+X  	if (snaptogrid)
+X  	    setIconPos(winicon, slot);
+X  	else
+! 	    (WinFunc(winicon,core.newposfunc))(winicon,winicon->core.x,winicon->core.y);
+X      }
+X      else
+X      {
+--- 417,444 ----
+X      int		scr_x, scr_y;
+X      int		dw, dh;
+X  
++     dw = DisplayWidth(winicon->core.client->dpy, winicon->core.client->screen);
++     dh = DisplayHeight(winicon->core.client->dpy, winicon->core.client->screen);
++     scr_x = (winicon->core.x + ICON_HORZBORDER) / dw;
++     scr_y = (winicon->core.y + ICON_VERTBORDER) / dh;
++     if (winicon->core.x < -ICON_HORZBORDER)
++ 	scr_x--;
++     if (winicon->core.y < -ICON_VERTBORDER)
++ 	scr_y--;
++     winicon->core.x -= scr_x * dw;
++     winicon->core.y -= scr_y * dh;
++ 
+X      iconGrid->iconList = ListCons(winicon, iconGrid->iconList);
+X  
+X      if (positioned)
+X      {
+! 	slot = incrPositionedSlots(iconGrid, winicon->core.x, winicon->core.y,
+X  		winicon->core.width, winicon->core.height, snaptogrid);
+X  	winicon->iconslot = slot;
+X  	if (snaptogrid)
+X  	    setIconPos(winicon, slot);
+X  	else
+! 	    (WinFunc(winicon,core.newposfunc))(winicon,winicon->core.x, winicon->core.y);
+X      }
+X      else
+X      {
+***************
+*** 450,461 ****
+X          nvert = ROUNDUP(winicon->core.height, ICON_GRID_HEIGHT);
+X  	setMajorMinor(iconGrid, nvert, nhoriz, &nmajor, &nminor);
+X  	slot = incrDynamicSlots(iconGrid, nmajor, nminor);
+- 	slot->off_x = winicon->core.x + ICON_HORZBORDER;
+- 	slot->off_y = winicon->core.y + ICON_VERTBORDER;
+X  	winicon->iconslot = slot;
+X  	setIconPos(winicon,slot);
+X      }
+! 
+X      return slot;
+X  }
+X  
+--- 446,459 ----
+X          nvert = ROUNDUP(winicon->core.height, ICON_GRID_HEIGHT);
+X  	setMajorMinor(iconGrid, nvert, nhoriz, &nmajor, &nminor);
+X  	slot = incrDynamicSlots(iconGrid, nmajor, nminor);
+X  	winicon->iconslot = slot;
+X  	setIconPos(winicon,slot);
+X      }
+!     if (scr_x || scr_y) {
+!         (WinFunc(winicon,core.newposfunc))(winicon,
+! 					   winicon->core.x + scr_x * dw,
+! 					   winicon->core.y + scr_y * dh);
+!     }
+X      return slot;
+X  }
+X  
+*** BUILD/states.c	Sat Jun 13 15:51:08 1992
+--- src/states.c	Sat Jun 13 15:43:28 1992
+***************
+*** 7,13 ****
+X   *	(Normal, Iconic, Withdrawn)
+X   */
+X  
+! #ident	"@(#)states.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 7,13 ----
+X   *	(Normal, Iconic, Withdrawn)
+X   */
+X  
+! #ident	"@(#)states.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 21,26 ****
+--- 21,27 ----
+X  #include <X11/Xlib.h>
+X  #include <X11/Xutil.h>
+X  #include <X11/Xatom.h>
++ #include <X11/keysym.h>
+X  
+X  #include "i18n.h"
+X  #include "ollocale.h"
+***************
+*** 68,73 ****
+--- 69,76 ----
+X  extern	void	IconPaneSetPixmap();
+X  extern	void	IconPaneSetMask();
+X  
++ static void	checkGroupBinding();
++ 
+X  /***************************************************************************
+X  * private data
+X  ***************************************************************************/
+***************
+*** 854,860 ****
+X  	if (!XFetchName(dpy, window, &mc.name))
+X  	    mc.name = NULL;
+X  	icon_x = icon_y = 0;
+! 	if (cli->groupmask != GROUP_DEPENDENT)
+X  	    if (cli->wmHints)
+X  	        if (cli->wmHints->flags & IconPositionHint)
+X  	            SearchProgString(dpy, cli->scrInfo, mc.name,
+--- 857,863 ----
+X  	if (!XFetchName(dpy, window, &mc.name))
+X  	    mc.name = NULL;
+X  	icon_x = icon_y = 0;
+! 	if (cli->groupmask != GROUP_DEPENDENT || !GroupLeader(cli->groupid))
+X  	    if (cli->wmHints)
+X  	        if (cli->wmHints->flags & IconPositionHint)
+X  	            SearchProgString(dpy, cli->scrInfo, mc.name,
+***************
+*** 877,892 ****
+X  	    int	dh = DisplayHeight(dpy, screen);
+X  
+X  	    if (leader != NULL) {
+! 		curScreen = leader->framewin->core.x / dw;
+! 		if (leader->framewin->core.x < 0)
+X  		    curScreen--;
+X  		if (paneAttr.x + (int) paneAttr.width < 0)
+X  		    paneAttr.x = dw + (paneAttr.x % dw) + (curScreen * dw);
+X  		else paneAttr.x = (paneAttr.x % dw) + (curScreen * dw);
+! 		curScreen = leader->framewin->core.y / dh;
+! 		if (leader->framewin->core.y < 0)
+X  		    curScreen--;
+! 		if (paneAttr.y + (int) paneAttr.width < 0)
+X  		    paneAttr.y = dh + (paneAttr.y % dh) + (curScreen * dh);
+X  		else paneAttr.y = (paneAttr.y % dh) + (curScreen * dh);
+X  	    }
+--- 880,899 ----
+X  	    int	dh = DisplayHeight(dpy, screen);
+X  
+X  	    if (leader != NULL) {
+! 		curScreen = (leader->framewin->core.x +
+! 				(leader->framewin->core.width / 2)) / dw;
+! 		if (leader->framewin->core.x +
+! 				(leader->framewin->core.width / 2) < 0)
+X  		    curScreen--;
+X  		if (paneAttr.x + (int) paneAttr.width < 0)
+X  		    paneAttr.x = dw + (paneAttr.x % dw) + (curScreen * dw);
+X  		else paneAttr.x = (paneAttr.x % dw) + (curScreen * dw);
+! 		curScreen = (leader->framewin->core.y +
+! 				(leader->framewin->core.height / 2)) / dh;
+! 		if (leader->framewin->core.y +
+! 				(leader->framewin->core.height / 2) < 0)
+X  		    curScreen--;
+! 		if (paneAttr.y + (int) paneAttr.height < 0)
+X  		    paneAttr.y = dh + (paneAttr.y % dh) + (curScreen * dh);
+X  		else paneAttr.y = (paneAttr.y % dh) + (curScreen * dh);
+X  	    }
+***************
+*** 936,944 ****
+X          /*
+X  	 * We manually move the icon pane window, since all the configuration
+X  	 * has been done with the icon pane parented to root.
+! 	 */
+X          WinRootPos(winIconPane, &tmpx, &tmpy);
+X          XMoveWindow(dpy, winIconPane->core.self, tmpx, tmpy);
+X  
+X  	/*
+X  	 * Set the sticky bit according to the sticky list.  We check the
+--- 943,954 ----
+X          /*
+X  	 * We manually move the icon pane window, since all the configuration
+X  	 * has been done with the icon pane parented to root.
+! 	 *
+! 	 * No longer true, since we always have a parented icon frame
+! 	 * now; see winipane.c
+X          WinRootPos(winIconPane, &tmpx, &tmpy);
+X          XMoveWindow(dpy, winIconPane->core.self, tmpx, tmpy);
++ 	 */
+X  
+X  	/*
+X  	 * Set the sticky bit according to the sticky list.  We check the
+***************
+*** 1319,1322 ****
+--- 1329,1395 ----
+X  	XPropertyEvent	*event;
+X  {
+X  	/* REMIND - this needs to be implemented */
++ }
++ 
++ /*
++  * Check to see if a given focus action requires any change to the
++  * key bindings
++  */
++ 
++ typedef struct {
++     List **list;
++     KeySym start_sym;
++     KeySym end_sym;
++     unsigned int modstate;
++     Boolean  state;
++     char *desc;
++ } FocusClosure;
++ 
++ /*
++  * Check the binding state for a given key group
++  */
++ static void
++ checkGroupBinding(dpy, mc, focus, fcl)
++     Display *dpy;
++     minimalclosure *mc;
++     Boolean focus;
++     FocusClosure *fcl;
++ {
++     List *list = *(fcl->list);
++     Boolean newstate = fcl->state;
++ 
++     newstate = focus ? (ListApply(list, matchInstClass, mc) != NULL) : False;
++ 
++     if (newstate != fcl->state) {
++       fcl->state = newstate;
++       GrabVKeys(dpy, False, True);
++       SetProgKeys(dpy, fcl->start_sym, fcl->end_sym, fcl->modstate, fcl->state);
++       GrabVKeys(dpy, True, True);
++     }
++ }
++ 
++ /*
++  * Whenever the focus changes, see if we need to enable/disable certain
++  * function keys
++  */
++ CheckBindingState(win, focus)
++       WinGenericFrame *win;
++       Boolean focus;
++ {
++       int i;
++       minimalclosure mc;
++ 
++       static FocusClosure fcl[] = {
++           { &GRV.NoVirtualKey, NoSymbol, NoSymbol, 0L, False, "All" },
++           { &GRV.NoVirtualFKey, XK_F1, XK_F12, 0L, False, "F" },
++           { &GRV.NoVirtualLKey, XK_L1, XK_L10, 0L, False, "L" },
++           { &GRV.NoVirtualRKey, XK_R1, XK_R15, 0L, False, "R" }
++       };
++ 
++       mc.name = win->fcore.name;
++       mc.instance = win->core.client->wmInstance;
++       mc.class = win->core.client->wmClass;
++ 
++       for ( i = 0; i < sizeof(fcl) / sizeof(fcl[0]); i++)
++           checkGroupBinding(win->core.client->dpy, &mc, focus, &fcl[i]);
+X  }
+*** BUILD/usermenu.c	Sat Jun 13 15:51:09 1992
+--- src/usermenu.c	Sat Jun 13 15:43:29 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)usermenu.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)usermenu.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 175,181 ****
+X   *	local forward declarations
+X   * ---------------------------------------------------------------------
+X   */
+- static Bool checkFile();
+X  static int  menuFromFile();
+X  static int  parseMenu();
+X  static void fillMenuStruct();
+--- 175,180 ----
+***************
+*** 601,608 ****
+X   * $(OPENWINHOME)/include:${MUBMEL}/include:$FOOBLES/include
+X   */
+X  
+! static char *
+! expandPath(pin, messages)
+X      char *pin;
+X      Bool messages;
+X  {
+--- 600,607 ----
+X   * $(OPENWINHOME)/include:${MUBMEL}/include:$FOOBLES/include
+X   */
+X  
+! char *
+! ExpandPath(pin, messages)
+X      char *pin;
+X      Bool messages;
+X  {
+***************
+*** 826,832 ****
+X      int         rval;
+X  
+X      /* expand any environment vars in path */
+!     if ((new = expandPath(file, messages)) != NULL)
+X  	file = new;
+X  
+X      if ((stream = fopen(file, "r")) == NULL) {
+--- 825,831 ----
+X      int         rval;
+X  
+X      /* expand any environment vars in path */
+!     if ((new = ExpandPath(file, messages)) != NULL)
+X  	file = new;
+X  
+X      if ((stream = fopen(file, "r")) == NULL) {
+***************
+*** 1646,1652 ****
+X   */
+X  static char *windowTitle = "Window";
+X  static char *frameHelpString = "window:FrameMenu";
+- static char *iconHelpString = "window:IconMenu";
+X  
+X  extern Button *MakeOpenButton(), *MakeOwnerButton(), *MakeFullSizeButton(),
+X  	      *MakePropertiesButton(), *MakeBackButton(),
+--- 1645,1650 ----
+***************
+*** 1751,1756 ****
+--- 1749,1755 ----
+X  		CreateMenu(windowTitle,
+X  			   scrInfo->menuButtons.frameDismissButtons, 
+X  			   limit_ctbuttons, False, frameHelpString));
++     InitVDMMenu(dpy, scrInfo);
+X  
+X      /* this sets ROOT_MENU */
+X      InitUserMenu(dpy, scrInfo);
+*** BUILD/virtual.c	Sat Jun 13 15:51:09 1992
+--- src/virtual.c	Sat Jun 13 15:43:31 1992
+***************
+*** 6,11 ****
+--- 6,12 ----
+X  #include <stdio.h>
+X  #include <string.h>
+X  #include <dirent.h>
++ #include <sys/param.h>
+X  #include <X11/Xos.h>
+X  #include <X11/Xlib.h>
+X  #include <X11/Xutil.h>
+***************
+*** 28,34 ****
+X  #include "vdm.icon"
+X  #include "vdm.mask"
+X  
+! #ident "@(#)virtual.c	1.2 olvwm version 1/27/92"
+X  
+X  /* Class Function Vector; a virtual pane is the VDM window in which all
+X   * the little virtual windows appear (and to which said windows are
+--- 29,35 ----
+X  #include "vdm.icon"
+X  #include "vdm.mask"
+X  
+! #ident "@(#)virtual.c	1.3 olvwm version 6/13/92"
+X  
+X  /* Class Function Vector; a virtual pane is the VDM window in which all
+X   * the little virtual windows appear (and to which said windows are
+***************
+*** 172,186 ****
+X  	 */
+X  	if (cli->framewin)
+X  	    XMoveWindow(cli->dpy, cli->framewin->core.virtual,
+! 	        (cli->framewin->core.x) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenX,
+! 	        (cli->framewin->core.y) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenY);
+X  	if (cli->iconwin)
+X  	    XMoveWindow(cli->dpy, cli->iconwin->core.virtual,
+! 	        (cli->iconwin->core.x) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenX,
+! 	        (cli->iconwin->core.y) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenY);
+X      }
+X      return NULL;
+--- 173,187 ----
+X  	 */
+X  	if (cli->framewin)
+X  	    XMoveWindow(cli->dpy, cli->framewin->core.virtual,
+! 		(cli->framewin->core.x) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenX,
+! 		(cli->framewin->core.y) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenY);
+X  	if (cli->iconwin)
+X  	    XMoveWindow(cli->dpy, cli->iconwin->core.virtual,
+! 		(cli->iconwin->core.x) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenX,
+! 		(cli->iconwin->core.y) / cli->scrInfo->vdm->resources->scale +
+X  				cli->scrInfo->vdm->screenY);
+X      }
+X      return NULL;
+***************
+*** 278,289 ****
+X  	    deltas.delta_x = dw * .5;
+X  	    break;
+X  	case ACTION_UPLEFT:
+- 	case ACTION_ROW_START:
+X  	    deltas.delta_x = -dw;
+X  	    deltas.delta_y = -dh;
+X  	    break;
+X  	case ACTION_JUMP_UPLEFT:
+- 	case ACTION_DATA_START:
+X  	    deltas.delta_x = -dw * 20;
+X  	    deltas.delta_y = -dh * 20;
+X  	    break;
+--- 279,288 ----
+***************
+*** 308,319 ****
+X  	    deltas.delta_y = vdm->offsetY;
+X  	    break;
+X  	case ACTION_DOWNLEFT:
+- 	case ACTION_ROW_END:
+X  	    deltas.delta_x = -dw;
+X  	    deltas.delta_y = dh;
+X  	    break;
+X  	case ACTION_JUMP_DOWNLEFT:
+- 	case ACTION_DATA_END:
+X  	    deltas.delta_x = -dw * 20;
+X  	    deltas.delta_y = dh * 20;
+X  	    break;
+--- 307,316 ----
+***************
+*** 406,412 ****
+X  
+X      sscanf(v->resources->size, "%dx%d", &width, &height);
+X      if (width < dw)
+!         v->columns = width;
+X      else v->columns = CEIL(width, dw);
+X      if (height < dh)
+X  	v->rows = height;
+--- 403,409 ----
+X  
+X      sscanf(v->resources->size, "%dx%d", &width, &height);
+X      if (width < dw)
+! 	v->columns = width;
+X      else v->columns = CEIL(width, dw);
+X      if (height < dh)
+X  	v->rows = height;
+***************
+*** 418,425 ****
+X      v->screenWidth = dw / v->resources->scale;
+X      v->screenHeight = dh / v->resources->scale;
+X      if (v->resources->grid) {
+!         v->width = v->columns * v->screenWidth;
+!         v->height = v->rows * v->screenHeight;
+X      }
+X      else {
+X  	v->width = v->absoluteWidth / v->resources->scale;
+--- 415,422 ----
+X      v->screenWidth = dw / v->resources->scale;
+X      v->screenHeight = dh / v->resources->scale;
+X      if (v->resources->grid) {
+! 	v->width = v->columns * v->screenWidth;
+! 	v->height = v->rows * v->screenHeight;
+X      }
+X      else {
+X  	v->width = v->absoluteWidth / v->resources->scale;
+***************
+*** 581,588 ****
+X  	case MotionNotify:
+X  	    if (!event->xmotion.same_screen)
+X  		break;
+! 	    if (XEventsQueued(dpy, QueuedAfterReading) > 0 &&
+! 		XPeekEvent(dpy, &nextevent), nextevent.type == MotionNotify)
+X  		/* Ignore this event, there's another one coming */
+X  		break;
+X  	    vdmMoveUpdate(event, stuff);
+--- 578,585 ----
+X  	case MotionNotify:
+X  	    if (!event->xmotion.same_screen)
+X  		break;
+! 	    if ((XEventsQueued(dpy, QueuedAfterReading) > 0) &&
+! 		(XPeekEvent(dpy, &nextevent), nextevent.type == MotionNotify))
+X  		/* Ignore this event, there's another one coming */
+X  		break;
+X  	    vdmMoveUpdate(event, stuff);
+***************
+*** 841,853 ****
+X  {
+X  }
+X  
+- static
+- winIntNullFunc()
+- {
+-     fprintf(stderr, "WinIntNULL!\n");
+- }
+- 
+-  
+X  /*
+X   * setsizePane - set the pane to a particular size, and initiate a reconfigure
+X   */
+--- 838,843 ----
+***************
+*** 967,974 ****
+X      int	win;
+X      WinVirtual		*w;
+X      VirtualDesktop	*v;
+-     char	title[20];
+-     Button	*vdmButtons[9];
+X  
+X      v = allocVirtualDesktop(dpy, scrInfo->screen, rsc);
+X      w = MemNew(WinVirtual);
+--- 957,962 ----
+***************
+*** 981,988 ****
+X      sizeHints->min_height = v->screenHeight;
+X      if (rsc->grid) {
+X  	sizeHints->flags = PMinSize | PResizeInc;
+!         sizeHints->width_inc = v->screenWidth;
+!         sizeHints->height_inc = v->screenHeight;
+X      }
+X      else sizeHints->flags = PMinSize;
+X  
+--- 969,976 ----
+X      sizeHints->min_height = v->screenHeight;
+X      if (rsc->grid) {
+X  	sizeHints->flags = PMinSize | PResizeInc;
+! 	sizeHints->width_inc = v->screenWidth;
+! 	sizeHints->height_inc = v->screenHeight;
+X      }
+X      else sizeHints->flags = PMinSize;
+X  
+***************
+*** 1005,1013 ****
+X   
+X      attrMask = CWEventMask;
+X  
+!     if (DefaultDepth(dpy, scrInfo->screen) == 1) {
+!         attrMask |= CWBackPixmap;
+!         attr.background_pixmap = XCreatePixmapFromBitmapData(dpy,
+X  			RootWindow(dpy, scrInfo->screen),
+X  			pixdata, 8, 2,
+X  			scrInfo->colorInfo.fgColor, scrInfo->colorInfo.bgColor,
+--- 993,1001 ----
+X   
+X      attrMask = CWEventMask;
+X  
+!     if ((DefaultDepth(dpy, scrInfo->screen) == 1) && !rsc->background) {
+! 	attrMask |= CWBackPixmap;
+! 	attr.background_pixmap = XCreatePixmapFromBitmapData(dpy,
+X  			RootWindow(dpy, scrInfo->screen),
+X  			pixdata, 8, 2,
+X  			scrInfo->colorInfo.fgColor, scrInfo->colorInfo.bgColor,
+***************
+*** 1014,1021 ****
+X  			1);
+X      }
+X      else if (!rsc->background) {
+!         attrMask |= CWBackPixel;
+!         attr.background_pixel = scrInfo->colorInfo.virtualBgColor;
+X      }
+X      else {
+X  	attrMask |= CWBackPixmap;
+--- 1002,1009 ----
+X  			1);
+X      }
+X      else if (!rsc->background) {
+! 	attrMask |= CWBackPixel;
+! 	attr.background_pixel = scrInfo->colorInfo.virtualBgColor;
+X      }
+X      else {
+X  	attrMask |= CWBackPixmap;
+***************
+*** 1039,1054 ****
+X  
+X      w->core.self = XCreateWindow(dpy, RootWindow(dpy, scrInfo->screen),
+X  	    			sizeHints->x, sizeHints->y,
+!             			sizeHints->base_width, sizeHints->base_height,
+X  				0,
+X  			/* REMIND olwm visual affects this? */
+!             			DefaultDepth(dpy, scrInfo->screen), InputOutput,
+!             			CopyFromParent, attrMask, &attr);
+X      XSetWMProperties(dpy, w->core.self, &wName, &iName, NULL, 0,
+!         	     sizeHints, wmHints, classHints);
+X  
+X      WIInstallInfo((WinGeneric *)w);
+X      scrInfo->vdm = v;
+X      v->client = StateNew(dpy, RootWindow(dpy, scrInfo->screen), w->core.self, False, w);
+X      /*
+X       * Sigh -- the call back was called before the icon frame was created
+--- 1027,1043 ----
+X  
+X      w->core.self = XCreateWindow(dpy, RootWindow(dpy, scrInfo->screen),
+X  	    			sizeHints->x, sizeHints->y,
+! 	    			sizeHints->base_width, sizeHints->base_height,
+X  				0,
+X  			/* REMIND olwm visual affects this? */
+! 	    			DefaultDepth(dpy, scrInfo->screen), InputOutput,
+! 	    			CopyFromParent, attrMask, &attr);
+X      XSetWMProperties(dpy, w->core.self, &wName, &iName, NULL, 0,
+! 		     sizeHints, wmHints, classHints);
+X  
+X      WIInstallInfo((WinGeneric *)w);
+X      scrInfo->vdm = v;
++ 
+X      v->client = StateNew(dpy, RootWindow(dpy, scrInfo->screen), w->core.self, False, w);
+X      /*
+X       * Sigh -- the call back was called before the icon frame was created
+***************
+*** 1064,1069 ****
+--- 1053,1070 ----
+X      VirtualSetGeometry(v->client->iconwin,
+X  		       v->client->scrInfo->vdm->resources->iconGeometry);
+X  
++     XFree(sizeHints);
++     XFree(wmHints);
++     XFree(classHints);
++ }
++ 
++ 
++ InitVDMMenu(dpy, scrInfo)
++     Display	*dpy;
++     ScreenInfo	*scrInfo;
++ {
++     char	title[20];
++     Button	*vdmButtons[9];
+X      /*
+X       * Make the VDMs menu
+X       */
+***************
+*** 1082,1093 ****
+X  				True, "olvwm:MotionMenu");
+X      scrInfo->menuTable[MENU_VDM]->prefColSize = 3;
+X      scrInfo->menuTable[MENU_VDM]->buttonDefault = 4;
+-     (void) MenuInfoCreate(scrInfo->menuCache, scrInfo->rootwin,
+- 			      scrInfo->menuTable[MENU_VDM], 1);
+- 
+-     XFree(sizeHints);
+-     XFree(wmHints);
+-     XFree(classHints);
+X  }
+X  
+X  /*
+--- 1083,1088 ----
+***************
+*** 1121,1127 ****
+X  		x, y, width, height, 1, cli->scrInfo->colorInfo.borderColor,
+X  		cli->scrInfo->colorInfo.virtualFgColor);
+X      if (PANEWINOFCLIENT(cli) != PANEWINOFCLIENT(cli->scrInfo->vdm->client))
+!         XSelectInput(cli->dpy, virtual, VDMSelectMask);
+X      else XSelectInput(cli->dpy, virtual, ExposureMask);
+X      cli->framewin->core.virtual = virtual;
+X      VInstallInfo(cli->framewin);
+--- 1116,1122 ----
+X  		x, y, width, height, 1, cli->scrInfo->colorInfo.borderColor,
+X  		cli->scrInfo->colorInfo.virtualFgColor);
+X      if (PANEWINOFCLIENT(cli) != PANEWINOFCLIENT(cli->scrInfo->vdm->client))
+! 	XSelectInput(cli->dpy, virtual, VDMSelectMask);
+X      else XSelectInput(cli->dpy, virtual, ExposureMask);
+X      cli->framewin->core.virtual = virtual;
+X      VInstallInfo(cli->framewin);
+***************
+*** 1186,1191 ****
+--- 1181,1187 ----
+X  			       win->core.client->scrInfo->gc[VDM_GC],
+X  		     1, win->core.client->scrInfo->vdm->max_ascent + 1,
+X  		     win->fcore.name, length);
++     CheckBindingState(win, focus);
+X  }
+X  
+X  /*
+***************
+*** 1261,1267 ****
+X  		 * So for this one we pretend it's a double click in the
+X  		 * VDM itself
+X  		 */
+! 	        translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				&event->xmotion.x_root, &event->xmotion.y_root,
+X  				&event->xmotion.x, &event->xmotion.y);
+X  		VDMMoveTo(win->core.client->dpy, win->core.client,
+--- 1257,1263 ----
+X  		 * So for this one we pretend it's a double click in the
+X  		 * VDM itself
+X  		 */
+! 		translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				&event->xmotion.x_root, &event->xmotion.y_root,
+X  				&event->xmotion.x, &event->xmotion.y);
+X  		VDMMoveTo(win->core.client->dpy, win->core.client,
+***************
+*** 1269,1275 ****
+X  		return True;
+X  	    }
+X  	    if (currentVDMAction == ACTION_MENU)
+! 	        translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				       NULL, NULL,
+X  				       &event->xmotion.x, &event->xmotion.y);
+X  	    else translateVirtualCoords(win->core.client->scrInfo->vdm,
+--- 1265,1271 ----
+X  		return True;
+X  	    }
+X  	    if (currentVDMAction == ACTION_MENU)
+! 		translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				       NULL, NULL,
+X  				       &event->xmotion.x, &event->xmotion.y);
+X  	    else translateVirtualCoords(win->core.client->scrInfo->vdm,
+***************
+*** 1289,1295 ****
+X  	    if (currentVDMAction == ACTION_NONE)
+X  		return True;
+X  	    if (currentVDMAction == ACTION_MENU)
+! 	        translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				       NULL, NULL,
+X  				       &event->xmotion.x, &event->xmotion.y);
+X  	    else translateVirtualCoords(win->core.client->scrInfo->vdm,
+--- 1285,1291 ----
+X  	    if (currentVDMAction == ACTION_NONE)
+X  		return True;
+X  	    if (currentVDMAction == ACTION_MENU)
+! 		translateVirtualCoords(win->core.client->scrInfo->vdm,
+X  				       NULL, NULL,
+X  				       &event->xmotion.x, &event->xmotion.y);
+X  	    else translateVirtualCoords(win->core.client->scrInfo->vdm,
+***************
+*** 1313,1327 ****
+X      Bool	sticky;
+X  
+X  {
+! int	dw, dh, x, y;
+X      /*
+X       * Can't unstick the VDM
+X       */
+!     if (cli->groupid == PANEWINOFCLIENT(cli->scrInfo->vdm->client) && !sticky)
+X  	return !NULL;
+X      cli->sticky = sticky;
+-     dw = DisplayWidth(cli->dpy, cli->screen);
+-     dh = DisplayHeight(cli->dpy, cli->screen);
+X      if (cli->sticky) {
+X  	x = cli->framewin->core.x;
+X  	y = cli->framewin->core.y;
+--- 1309,1324 ----
+X      Bool	sticky;
+X  
+X  {
+! int	x, y;
+X      /*
+X       * Can't unstick the VDM
+X       */
+!     if (cli->groupid == PANEWINOFCLIENT(cli->scrInfo->vdm->client) && !sticky) {
+! 	if (GRV.Beep == BeepAlways)
+! 	    XBell(cli->dpy, 100);
+X  	return !NULL;
++     }
+X      cli->sticky = sticky;
+X      if (cli->sticky) {
+X  	x = cli->framewin->core.x;
+X  	y = cli->framewin->core.y;
+***************
+*** 1355,1369 ****
+X  
+X      root = WIGetInfo(ev->xkey.root);
+X      if (!root) {
+! 	fprintf(stderr, "NO ROOT\n");
+X  	return False;
+X      }
+X      if (!root->core.client) {
+- 	fprintf(stderr, "NO CLIENT\n");
+X  	return False;
+X      }
+X      if (!root->core.client->scrInfo) {
+- 	fprintf(stderr, "NO SCRINFO\n");
+X  	return False;
+X      }
+X      vdm = root->core.client->scrInfo->vdm;
+--- 1352,1364 ----
+X  
+X      root = WIGetInfo(ev->xkey.root);
+X      if (!root) {
+! 	/* root is not managed by this wm, running in -single mode */
+X  	return False;
+X      }
+X      if (!root->core.client) {
+X  	return False;
+X      }
+X      if (!root->core.client->scrInfo) {
+X  	return False;
+X      }
+X      vdm = root->core.client->scrInfo->vdm;
+***************
+*** 1404,1414 ****
+X  List		*l = ScreenInfoList;
+X  
+X      for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+!         si->vdm->saveX = si->vdm->offsetX;
+!         si->vdm->saveY = si->vdm->offsetY;
+!         deltas.delta_x = si->vdm->offsetX - x;
+!         deltas.delta_y = si->vdm->offsetY - y;
+!         moveDesktop(dpy, &deltas, si->vdm);
+X      }
+X  }
+X  
+--- 1399,1409 ----
+X  List		*l = ScreenInfoList;
+X  
+X      for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+! 	si->vdm->saveX = si->vdm->offsetX;
+! 	si->vdm->saveY = si->vdm->offsetY;
+! 	deltas.delta_x = si->vdm->offsetX - x;
+! 	deltas.delta_y = si->vdm->offsetY - y;
+! 	moveDesktop(dpy, &deltas, si->vdm);
+X      }
+X  }
+X  
+***************
+*** 1420,1428 ****
+X  List		*l = ScreenInfoList;
+X  
+X      for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+!         deltas.delta_x = -si->vdm->saveX;
+!         deltas.delta_y = -si->vdm->saveY;
+!         moveDesktop(dpy, &deltas, si->vdm);
+X      }
+X  }
+X  
+--- 1415,1423 ----
+X  List		*l = ScreenInfoList;
+X  
+X      for (si = ListEnum(&l); si; si = ListEnum(&l)) {
+! 	deltas.delta_x = -si->vdm->saveX;
+! 	deltas.delta_y = -si->vdm->saveY;
+! 	moveDesktop(dpy, &deltas, si->vdm);
+X      }
+X  }
+X  
+***************
+*** 1476,1482 ****
+X      return NULL;
+X  }
+X  
+! static void *
+X  updateVirtualWindow(cli)
+X      Client	*cli;
+X  
+--- 1471,1477 ----
+X      return NULL;
+X  }
+X  
+! static void
+X  updateVirtualWindow(cli)
+X      Client	*cli;
+X  
+***************
+*** 1512,1520 ****
+X      win = (WinGenericFrame *) vdm->client->framewin;
+X      GFrameSetConfig(win, win->core.x, win->core.y,
+X  		vdm->width + (WinFunc(win,fcore.widthleft))(win) +
+! 		             (WinFunc(win,fcore.widthright))(win),
+X  		vdm->height + (WinFunc(win,fcore.heighttop))(win) +
+! 		              (WinFunc(win,fcore.heightbottom))(win));
+X      ListApply(ActiveClientList, remakeVirtual, 0);
+X  }
+X  
+--- 1507,1515 ----
+X      win = (WinGenericFrame *) vdm->client->framewin;
+X      GFrameSetConfig(win, win->core.x, win->core.y,
+X  		vdm->width + (WinFunc(win,fcore.widthleft))(win) +
+! 			     (WinFunc(win,fcore.widthright))(win),
+X  		vdm->height + (WinFunc(win,fcore.heighttop))(win) +
+! 			      (WinFunc(win,fcore.heightbottom))(win));
+X      ListApply(ActiveClientList, remakeVirtual, 0);
+X  }
+X  
+***************
+*** 1537,1562 ****
+X  Display	*dpy = win->core.client->dpy;
+X  ScreenInfo	*scrInfo = win->core.client->scrInfo;
+X  
+!         changed = XParseGeometry(geom, &x, &y, &w, &h);
+!         if (changed & (XValue | YValue)) {
+!             if (changed & XValue)
+!                 if (changed & XNegative)
+!                     newx = DisplayWidth(dpy, scrInfo->screen) + x;
+!                 else newx = x;
+!             else newx = win->core.x;
+X  	    w = win->core.width;
+!             if (newx > DisplayWidth(dpy, scrInfo->screen) - w)
+!                 newx = DisplayWidth(dpy, scrInfo->screen) - w;
+!             if (changed & YValue)
+!                 if (changed & YNegative)
+!                     newy = DisplayHeight(dpy, scrInfo->screen) + y;
+!                 else newy = y;
+!             else newy = win->core.y;
+X  	    h = win->core.height;
+!             if (newy > DisplayHeight(dpy, scrInfo->screen) - h)
+!                 newy = DisplayHeight(dpy, scrInfo->screen) - h;
+!             GFrameSetConfig(win, newx, newy, win->core.width, win->core.height);           
+!         }
+X  }
+X  
+X  /*
+--- 1532,1557 ----
+X  Display	*dpy = win->core.client->dpy;
+X  ScreenInfo	*scrInfo = win->core.client->scrInfo;
+X  
+! 	changed = XParseGeometry(geom, &x, &y, &w, &h);
+! 	if (changed & (XValue | YValue)) {
+! 	    if (changed & XValue)
+! 		if (changed & XNegative)
+! 		    newx = DisplayWidth(dpy, scrInfo->screen) + x;
+! 		else newx = x;
+! 	    else newx = win->core.x;
+X  	    w = win->core.width;
+! 	    if (newx > DisplayWidth(dpy, scrInfo->screen) - w)
+! 		newx = DisplayWidth(dpy, scrInfo->screen) - w;
+! 	    if (changed & YValue)
+! 		if (changed & YNegative)
+! 		    newy = DisplayHeight(dpy, scrInfo->screen) + y;
+! 		else newy = y;
+! 	    else newy = win->core.y;
+X  	    h = win->core.height;
+! 	    if (newy > DisplayHeight(dpy, scrInfo->screen) - h)
+! 		newy = DisplayHeight(dpy, scrInfo->screen) - h;
+! 	    GFrameSetConfig(win, newx, newy, win->core.width, win->core.height);	   
+! 	}
+X  }
+X  
+X  /*
+***************
+*** 1717,1723 ****
+X      XDestroyWindow(win->core.client->dpy, win->core.self);
+X      WIUninstallInfo(win->core.self);
+X      if (win->core.virtual)
+!         XDestroyWindow(win->core.client->dpy, win->core.virtual);
+X  }
+X  
+X  DeleteProperty(dpy, win, atom)
+--- 1712,1718 ----
+X      XDestroyWindow(win->core.client->dpy, win->core.self);
+X      WIUninstallInfo(win->core.self);
+X      if (win->core.virtual)
+! 	XDestroyWindow(win->core.client->dpy, win->core.virtual);
+X  }
+X  
+X  DeleteProperty(dpy, win, atom)
+***************
+*** 1728,1734 ****
+X  {
+X      XDeleteProperty(dpy, win->core.self, atom);
+X      if (win->core.virtual)
+!         XDeleteProperty(dpy, win->core.virtual, atom);
+X  }
+X  
+X  ChangeProperty(dpy, win, property, type, format, mode, data, nelements)
+--- 1723,1729 ----
+X  {
+X      XDeleteProperty(dpy, win->core.self, atom);
+X      if (win->core.virtual)
+! 	XDeleteProperty(dpy, win->core.virtual, atom);
+X  }
+X  
+X  ChangeProperty(dpy, win, property, type, format, mode, data, nelements)
+***************
+*** 1743,1749 ****
+X      XChangeProperty(dpy, win->core.self, property, type, format,
+X  		    mode, data, nelements);
+X      if (win->core.virtual)
+!         XChangeProperty(dpy, win->core.virtual, property, type, format,
+X  		    mode, data, nelements);
+X  }
+X  
+--- 1738,1744 ----
+X      XChangeProperty(dpy, win->core.self, property, type, format,
+X  		    mode, data, nelements);
+X      if (win->core.virtual)
+! 	XChangeProperty(dpy, win->core.virtual, property, type, format,
+X  		    mode, data, nelements);
+X  }
+X  
+***************
+*** 1754,1770 ****
+X      XWindowChanges	*values;
+X  
+X  {
+! int	scale;
+X  WinGeneric	*tmp;
+X  
+X      XConfigureWindow(dpy, win->core.self, mask, values);
+-     scale = win->core.client->scrInfo->vdm->resources->scale;
+X      if (mask & CWX)
+! 	values->x = (win->core.x - win->core.client->scrInfo->vdm->offsetX) /
+! 			scale;
+X      if (mask & CWY)
+! 	values->y = (win->core.y - win->core.client->scrInfo->vdm->offsetY) /
+! 			scale;
+X      if (mask & CWWidth)
+X  	values->width = win->core.width / scale;
+X      if (mask & CWHeight)
+--- 1749,1785 ----
+X      XWindowChanges	*values;
+X  
+X  {
+! int		scale;
+X  WinGeneric	*tmp;
++ VirtualDesktop	*vdm;
+X  
++     vdm = win->core.client->scrInfo->vdm;
++     /*
++      * Make sure the window is somewhere on the visible desktop
++      */
++     if (win->core.x + (int) win->core.width < vdm->offsetX) {
++         win->core.x = vdm->offsetX;
++         win->core.dirtyconfig |= CWX;
++     }
++     else if (win->core.x > vdm->absoluteWidth + vdm->offsetX) {
++         win->core.x = vdm->absoluteWidth + vdm->offsetX - win->core.width;
++         win->core.dirtyconfig |= CWX;
++     }
++     if (win->core.y + (int) win->core.height < vdm->offsetY) {
++         win->core.y = vdm->offsetY;
++         win->core.dirtyconfig |= CWY;
++     }
++     else if (win->core.y > vdm->absoluteHeight + vdm->offsetY) {
++         win->core.y = vdm->absoluteHeight + vdm->offsetY - win->core.height;
++         win->core.dirtyconfig |= CWY;
++     }      
++ 
++     scale = vdm->resources->scale;
+X      XConfigureWindow(dpy, win->core.self, mask, values);
+X      if (mask & CWX)
+! 	values->x = (win->core.x - vdm->offsetX) / scale;
+X      if (mask & CWY)
+! 	values->y = (win->core.y - vdm->offsetY) / scale;
+X      if (mask & CWWidth)
+X  	values->width = win->core.width / scale;
+X      if (mask & CWHeight)
+***************
+*** 1777,1786 ****
+X      }
+X      XConfigureWindow(dpy, win->core.virtual, mask, values);
+X      if (GRV.VirtualRaiseVDM)
+! 	RaiseWindow(win->core.client->scrInfo->vdm->client->framewin);
+X  }
+X  
+X  /*
+X   * Menu generation function for DIRMENU
+X   *
+X   */
+--- 1792,1815 ----
+X      }
+X      XConfigureWindow(dpy, win->core.virtual, mask, values);
+SHAR_EOF
+true || echo 'restore of olvwm3.Patch02 failed'
+fi
+echo 'End of  part 3'
+echo 'File olvwm3.Patch02 is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

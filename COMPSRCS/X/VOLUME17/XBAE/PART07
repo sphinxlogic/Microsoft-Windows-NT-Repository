@@ -1,0 +1,1927 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i034: Xbae widgets (MOTIF), Part07/12
+Message-ID: <1992Mar23.180124.16162@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i028-xbae@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 18:01:24 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 34
+Archive-name: xbae/part07
+
+Submitted-by: aw@jello
+Archive-name: Xbae/part07
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is Xbae.shar.07 (part 7 of Xbae)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Xbae/src/Matrix.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 7; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Xbae/src/Matrix.c'
+else
+echo 'x - continuing file Xbae/src/Matrix.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Xbae/src/Matrix.c' &&
+X	    new->matrix.column_label_lines = NULL;
+X	    new->matrix.column_label_maxlines = 0;
+X	}
+X
+X	/*
+X	 * If the number of lines in column labels changed, we need to relayout
+X	 */
+X	if (current->matrix.column_label_maxlines !=
+X	    new->matrix.column_label_maxlines)
+X	    relayout = True;
+X	else
+X	    redisplay = True;
+X    }
+X    if (NE(matrix.column_max_lengths)) {
+X	FreeColumnMaxLengths(current);
+X	if (new->matrix.column_max_lengths)
+X	    CopyColumnMaxLengths(new);
+X	redisplay = True;
+X    }
+X    if (NE(matrix.column_alignments)) {
+X	FreeColumnAlignments(current);
+X	if (new->matrix.column_alignments)
+X	    CopyColumnAlignments(new);
+X	redisplay = True;
+X    }
+X    if (NE(matrix.column_label_alignments)) {
+X	FreeColumnLabelAlignments(current);
+X	if (new->matrix.column_label_alignments)
+X	    CopyColumnLabelAlignments(new);
+X	redisplay = True;
+X    }
+X    if (NE(matrix.colors)) {
+X	FreeColors(current);
+X	if (new->matrix.colors)
+X	    CopyColors(new);
+X	redisplay = True;
+X    }
+X    else if(new->matrix.colors && (NE(matrix.rows) || NE(matrix.columns)))
+X	ResizeColors(current, new);
+X    if (NE(matrix.column_widths)) {
+X	FreeColumnWidths(current);
+X	CopyColumnWidths(new);
+X	relayout = True;
+X	new_column_widths = True;
+X    }
+X    if (NE(matrix.selected_cells)) {
+X	FreeSelectedCells(current);
+X	CopySelectedCells(new);
+X	redisplay = True;
+X    }
+X    else if (NE(matrix.rows) || NE(matrix.columns))
+X	ResizeSelectedCells(current, new);
+X
+X    /*
+X     * If traversal changes, pass through to Clip and textField children.
+X     */
+X    if (NE(manager.traversal_on)) {
+X	XtVaSetValues(ClipChild(new),
+X		      XmNtraversalOn,	new->manager.traversal_on,
+X		      NULL);
+X    }
+X
+X    /*
+X     * Pass through primitive/manager resources to our children
+X     */
+X    n = 0;
+X    if (NE(core.background_pixel)) {
+X	XtVaSetValues(ClipChild(new),
+X		      XmNbackground,		new->core.background_pixel,
+X		      NULL);
+X	XtSetArg(wargs[n], XmNbackground, new->core.background_pixel); n++;
+X    }
+X    if (NE(manager.foreground)) {
+X	XtSetArg(wargs[n], XmNforeground, new->manager.foreground); n++;
+X    }
+X    if (NE(manager.bottom_shadow_color)) {
+X	XtSetArg(wargs[n], XmNbottomShadowColor,
+X		 new->manager.bottom_shadow_color); n++;
+X    }
+X    if (NE(manager.bottom_shadow_pixmap)) {
+X	XtSetArg(wargs[n], XmNbottomShadowPixmap,
+X		 new->manager.bottom_shadow_pixmap); n++;
+X    }
+X    if (NE(manager.highlight_color)) {
+X	XtSetArg(wargs[n], XmNhighlightColor,
+X		 new->manager.highlight_color); n++;
+X    }
+X    if (NE(manager.highlight_pixmap)) {
+X	XtSetArg(wargs[n], XmNhighlightPixmap,
+X		 new->manager.highlight_pixmap); n++;
+X    }
+X    if (NE(manager.top_shadow_color)) {
+X	XtSetArg(wargs[n], XmNtopShadowColor,
+X		 new->manager.top_shadow_color); n++;
+X    }
+X    if (NE(manager.top_shadow_pixmap)) {
+X	XtSetArg(wargs[n], XmNtopShadowPixmap,
+X		 new->manager.top_shadow_pixmap); n++;
+X    }
+X    if (n) {
+X	XtSetValues(VertScrollChild(new), wargs, n);
+X	XtSetValues(HorizScrollChild(new), wargs, n);
+X	XtSetValues(TextChild(new), wargs, n);
+X    }
+X
+X
+X    /*
+X     * Get a new XFontStruct and copy the fontList if it changed
+X     * and pass it to the textField.
+X     * Reset the HSB increment.
+X     * redisplay and relayout will be set below.
+X     */
+X    if (NE(matrix.font_list)) {
+X	XmFontListFree(current->matrix.font_list);
+X	NewFont(new);
+X	XtVaSetValues(TextChild(new),
+X		      XmNfontList,	new->matrix.font_list,
+X		      NULL);
+X	XtVaSetValues(HorizScrollChild(new),
+X		      XmNincrement,	FONT_WIDTH(new),
+X		      NULL);
+X    }
+X
+X    /*
+X     * Pass the cell resources on to the textField.
+X     * Both redisplay and relayout will be set below.
+X     * XXX XmTextField has a bug where it will not recompute it's size when
+X     * XmNshadowThickness changes.
+X     */
+X    if (NE(matrix.cell_margin_width) ||
+X	NE(matrix.cell_margin_height) ||
+X	NE(matrix.cell_shadow_thickness) ||
+X	NE(matrix.cell_highlight_thickness)) {
+X	XtVaSetValues(TextChild(new),
+X		      XmNmarginWidth,	new->matrix.cell_margin_width,
+X		      XmNmarginHeight,	new->matrix.cell_margin_height,
+X		      XmNshadowThickness, new->matrix.cell_shadow_thickness,
+X		      XmNhighlightThickness,
+X				new->matrix.cell_highlight_thickness,
+X		      NULL);
+X    }
+X
+X    /*
+X     * If anything changed which affects text offsets, recalc them
+X     */
+X    if (NE(matrix.font->fid) || NE(matrix.cell_margin_width) ||
+X	NE(matrix.cell_margin_height) ||
+X	NE(matrix.cell_shadow_thickness) ||
+X	NE(matrix.cell_highlight_thickness)) {
+X
+X	new->matrix.text_baseline =
+X	    XmTextFieldGetBaseline(TextChild(new));
+X	relayout = True;
+X    }
+X	
+X    /*
+X     * If anything changed to affect cell total width or column positions,
+X     * recalc them
+X     */
+X    if (new_cells || NE(matrix.font->fid) ||
+X	NE(matrix.cell_margin_width) ||
+X	NE(matrix.cell_margin_height) ||
+X	NE(matrix.cell_shadow_thickness) ||
+X	NE(matrix.cell_highlight_thickness) ||
+X	NE(matrix.fixed_columns) ||
+X	new_column_widths) {
+X
+X	GetCellTotalWidth(new);
+X
+X	/*
+X	 * Reset the HSB maximum.  sliderSize will be reset later in Resize.
+X	 */
+X	XtVaSetValues(HorizScrollChild(new),
+X		      XmNmaximum,	CELL_TOTAL_WIDTH(new),
+X		      XmNvalue,		0,
+X		      XmNsliderSize,	1,
+X		      NULL);
+X	HORIZ_ORIGIN(new) = 0;
+X
+X	/*
+X	 * If the number of columns changed, we need to allocate a new array.
+X	 */
+X	if (NE(matrix.columns)) {
+X	    FreeColumnPositions(current);
+X	    new->matrix.column_positions = CreateColumnPositions(new);
+X	}
+X
+X	/*
+X	 * If anything but fixed_columns changed, we need to recalc
+X	 * column positions.
+X	 */
+X	if (new_cells || NE(matrix.font->fid) ||
+X	    NE(matrix.cell_margin_width) ||
+X	    NE(matrix.cell_margin_height) ||
+X	    NE(matrix.cell_shadow_thickness) ||
+X	    NE(matrix.cell_highlight_thickness) ||
+X	    new_column_widths)
+X	    GetColumnPositions(new);
+X
+X	relayout = True;
+X    }
+X
+X    /*
+X     * Install text_translations on textField
+X     */
+X    if (NE(matrix.text_translations))
+X	XtVaSetValues(TextChild(new),
+X		      XmNtranslations,	new->matrix.text_translations,
+X		      NULL);
+X
+X    /*
+X     * If row_label_width was set to 0, calculate it.
+X     * Otherwise if it was changed, set flags.
+X     */
+X    if (new->matrix.row_label_width == 0 && new->matrix.row_labels) {
+X	new->matrix.row_label_width = MaxRowLabel(new);
+X	relayout = True;
+X    }
+X    else if (NE(matrix.row_label_width))
+X	relayout = True;
+X
+X
+X    /*
+X     * Get new cached GC if needed
+X     */
+X    if (NE(core.background_pixel) || NE(matrix.font->fid)) {
+X	XtReleaseGC((Widget)new, new->matrix.inverse_gc);
+X	GetInverseGC(new);
+X	redisplay = True;
+X    }
+X
+X    /*
+X     * Change created GCs if needed
+X     */
+X
+X    if (NE(manager.foreground)) {
+X	/*
+X	 * We don't need to put the new foreground in draw_gc or
+X	 * draw_clip_gc because they get a new foreground when they are used.
+X	 */
+X
+X	XSetForeground(XtDisplay(new), new->matrix.cell_top_shadow_clip_gc,
+X		       new->manager.foreground);
+X	XSetBackground(XtDisplay(new), new->matrix.cell_bottom_shadow_clip_gc,
+X		       new->manager.foreground);
+X	redisplay = True;
+X    }
+X    if (NE(core.background_pixel)) {
+X	XSetForeground(XtDisplay(new), new->matrix.inverse_clip_gc,
+X		       new->core.background_pixel);
+X	redisplay = True;
+X    }
+X    if (NE(manager.top_shadow_color)) {
+X	XSetForeground(XtDisplay(new), new->matrix.cell_top_shadow_clip_gc,
+X		       new->manager.top_shadow_color);
+X	redisplay = True;
+X    }
+X    if (NE(manager.top_shadow_pixmap)) {
+X	XSetTile(XtDisplay(new), new->matrix.cell_top_shadow_clip_gc,
+X		 new->manager.top_shadow_pixmap);
+X	redisplay = True;
+X    }
+X    if (NE(manager.bottom_shadow_color)) {
+X	XSetForeground(XtDisplay(new), new->matrix.cell_bottom_shadow_clip_gc,
+X		       new->manager.bottom_shadow_color);
+X	redisplay = True;
+X    }
+X    if (NE(manager.bottom_shadow_pixmap)) {
+X	XSetTile(XtDisplay(new), new->matrix.cell_bottom_shadow_clip_gc,
+X		 new->manager.bottom_shadow_pixmap);
+X	redisplay = True;
+X    }
+X    if (NE(matrix.font->fid)) {
+X	XSetFont(XtDisplay(new), new->matrix.draw_gc, new->matrix.font->fid);
+X	XSetFont(XtDisplay(new), new->matrix.draw_clip_gc,
+X		 new->matrix.font->fid);
+X	XSetFont(XtDisplay(new), new->matrix.inverse_clip_gc,
+X		 new->matrix.font->fid);
+X	redisplay = True;
+X    }
+X
+X    /*
+X     * See if any other resources changed which will require a relayout
+X     */
+X    if (NE(matrix.space) || NE(matrix.cell_shadow_thickness) ||
+X	NE(manager.shadow_thickness))
+X	relayout = True;
+X
+X    /*
+X     * If bold_labels changed, and we have labels, we must redisplay
+X     */
+X    if (NE(matrix.bold_labels) &&
+X	(new->matrix.row_labels || new->matrix.column_labels))
+X	redisplay = True;
+X
+X    /*
+X     * Compute a new size if:
+X     *	 visible_rows or visible_columns changed.
+X     *	 user set our width or height to zero.
+X     */
+X    if (NE(matrix.visible_rows) || NE(matrix.visible_columns) ||
+X	request->core.height == 0 || request->core.width == 0)
+X	ComputeSize(new, request->core.width == 0, request->core.height == 0);
+X
+X    /*
+X     * If our size didn't change, but we need to layout, call Resize.
+X     * If our size did change, then Xt will call our Resize method for us.
+X     * If our size did change, but the new size is later refused,
+X     *	 then SetValuesAlmost will call Resize to layout.
+X     */
+X    if (EQ(core.width) && EQ(core.height) && relayout)
+X	Resize(new);
+X
+X    /*
+X     * The user forced a new top_row or something changed to force
+X     * us to recheck the current top_row.
+X     */
+X    if (NE(matrix.top_row) || do_top_row) {
+X	AdjustTopRow(new);
+X	XtVaSetValues(VertScrollChild(new),
+X		      XmNvalue,	VERT_ORIGIN(new),
+X		      NULL);
+X	redisplay = True;
+X    }
+X
+X    /*
+X     * Cancel any current edit.
+X     * Force the Clip widget to redisplay.  Note: this may generate an
+X     * expose event for the current size of the Clip widget, and the Clip
+X     * widget may be sized smaller in set_values_almost.  The ClipRedisplay
+X     * function can handle this case.
+X     * XXX If the Clip widget has been/will be resized, then we don't need
+X     * to force a redraw.  But how can set_values_almost for XtGeometryAlmost
+X     * determine if Resize will really resize the Clip widget?
+X     */
+X    if (redisplay || relayout) {
+X	(*((XbaeMatrixWidgetClass) XtClass(new))->matrix_class.cancel_edit)
+X	    (new, True);
+X
+X	XbaeClipRedraw(ClipChild(new));
+X    }
+X
+X    /*
+X     * We want to return True when we need to redisplay or relayout.
+X     */
+X    return redisplay || relayout;
+X
+#undef NE
+#undef EQ
+}
+X
+/* ARGSUSED */
+static void
+SetValuesAlmost(old, new, request, reply)
+XXbaeMatrixWidget old;
+XXbaeMatrixWidget new;
+XXtWidgetGeometry *request;
+XXtWidgetGeometry *reply;
+{
+X    /*
+X     * If XtGeometryAlmost, accept compromize - Resize will take care of it
+X     */
+X    if (reply->request_mode)
+X	*request = *reply;
+X
+X    /*
+X     * If XtGeometryNo, call Resize to relayout if it was a size change
+X     * that was denied.
+X     * Accept the original geometry.
+X     * (we need to call Resize even though the size
+X     * didn't change to force a relayout - set_values relies on this)
+X     */
+X    else {
+X        if ((request->request_mode & CWWidth ||
+X             request->request_mode & CWHeight))
+X	    Resize(new);
+X
+X	request->request_mode = 0;
+X    }
+}
+X
+static void
+ComputeSize(mw, compute_width, compute_height)
+XXbaeMatrixWidget mw;
+Boolean compute_width, compute_height;
+{
+X    unsigned long full_width = CELL_TOTAL_WIDTH(mw) + FIXED_COLUMN_WIDTH(mw) +
+X	ROW_LABEL_WIDTH(mw) + 2 * mw->manager.shadow_thickness;
+X    unsigned long full_height = CELL_TOTAL_HEIGHT(mw) + FIXED_ROW_HEIGHT(mw) +
+X	COLUMN_LABEL_HEIGHT(mw) + 2 * mw->manager.shadow_thickness;
+X    unsigned long width, height;
+X
+X    /*
+X     * Calculate our width.
+X     * If visible_columns is set, then base it on that.
+X     * Otherwise, if the compute_width flag is set, then we are full width.
+X     * Otherwise we keep whatever width we are.
+X     */
+X    if (mw->matrix.visible_columns)
+X	width = ROW_LABEL_WIDTH(mw) + 2 * mw->manager.shadow_thickness +
+X	    mw->matrix.column_positions[mw->matrix.fixed_columns +
+X					mw->matrix.visible_columns];
+X    else if (compute_width)
+X	width = full_width;
+X    else
+X	width = mw->core.width;
+X
+X    /*
+X     * Calculate our height.
+X     * If visible_rows is set, then base it on that.
+X     * Otherwise, if the compute_height flag is set, then we are full height.
+X     * Otherwise we keep whatever height we are.
+X     */
+X    if (mw->matrix.visible_rows)
+X	height = mw->matrix.visible_rows * ROW_HEIGHT(mw) +
+X	    FIXED_ROW_HEIGHT(mw) + COLUMN_LABEL_HEIGHT(mw) +
+X		2 * mw->manager.shadow_thickness;
+X    else if (compute_height)
+X	height = full_height;
+X    else
+X	height = mw->core.height;
+X
+X    /*
+X     * Store our calculated size.
+X     */
+X    mw->core.width = width;
+X    mw->core.height = height;
+X
+X    /*
+X     * If we are less than full width, then we need an HSB, so increment
+X     * our height by the size of the HSB (if we are allowed to modify our
+X     * height).
+X     */
+X    if (width < full_width)
+X	if (compute_height || mw->matrix.visible_rows)
+X	    mw->core.height += HSCROLL_HEIGHT(mw);
+X
+X    /*
+X     * If we are less than full height, then we need a VSB, so increment
+X     * our width by the size of the VSB (if we are allowed to modify our
+X     * width).
+X     */
+X    if (height < full_height)
+X	if (compute_width || mw->matrix.visible_columns)
+X	    mw->core.width += VSCROLL_WIDTH(mw);
+X
+X    /*
+X     * Save our calculated size for use in our query_geometry method.
+X     * This is the size we really want to be (not necessarily the size
+X     * we will end up being).
+X     */
+X    mw->matrix.desired_width = mw->core.width;
+X    mw->matrix.desired_height = mw->core.height;
+}
+X
+X
+static void
+Destroy(mw)
+XXbaeMatrixWidget mw;
+{
+X    XtReleaseGC((Widget)mw, mw->matrix.inverse_gc);
+X
+X    XFreeGC(XtDisplay(mw), mw->matrix.draw_gc);
+X    XFreeGC(XtDisplay(mw), mw->matrix.draw_clip_gc);
+X    XFreeGC(XtDisplay(mw), mw->matrix.inverse_clip_gc);
+X    XFreeGC(XtDisplay(mw), mw->matrix.cell_top_shadow_clip_gc);
+X    XFreeGC(XtDisplay(mw), mw->matrix.cell_bottom_shadow_clip_gc);
+X
+X    FreeCells(mw);
+X    FreeRowLabels(mw);
+X    FreeColumnLabels(mw);
+X    FreeColumnWidths(mw);
+X    FreeColumnMaxLengths(mw);
+X    FreeColumnPositions(mw);
+X    FreeColumnAlignments(mw);
+X    FreeColumnLabelAlignments(mw);
+X    FreeColors(mw);
+X    FreeSelectedCells(mw);
+X
+X    XmFontListFree(mw->matrix.font_list);
+X
+X    SmDestroyScrollMgr(mw->matrix.matrix_scroll_mgr);
+X    SmDestroyScrollMgr(mw->matrix.clip_scroll_mgr);
+}
+X
+X
+/*
+X * Position and size the scrollbars and clip widget for our new size.
+X */
+static void
+Resize(mw)
+XXbaeMatrixWidget mw;
+{
+X    int cell_width, cell_height, rows_visible;
+X    Boolean has_horiz, has_vert;
+X    int width = mw->core.width;
+X    int height = mw->core.height;
+X
+X    /*
+X     * Full size of widget (no SBs needed) - may be very large
+X     */
+X    long int full_width = CELL_TOTAL_WIDTH(mw) + FIXED_COLUMN_WIDTH(mw) +
+X	ROW_LABEL_WIDTH(mw) + 2 * mw->manager.shadow_thickness;
+X    long int full_height = CELL_TOTAL_HEIGHT(mw) + FIXED_ROW_HEIGHT(mw) +
+X	COLUMN_LABEL_HEIGHT(mw) + 2 * mw->manager.shadow_thickness;
+X
+X    /*
+X     * Portion of cells which are visible in clip widget
+X     */
+X    int horiz_visible = CELL_TOTAL_WIDTH(mw) - HORIZ_ORIGIN(mw);
+X    int vert_visible = CELL_TOTAL_HEIGHT(mw) -
+X	VERT_ORIGIN(mw) * ROW_HEIGHT(mw);
+X
+X
+X    /*
+X     * If matrix is bigger in both dimensions, then we don't need either
+X     * SB. If both dimensions are smaller than matrix, then we need both
+X     * SBs. Otherwise, only one or the other dimension must be too small:
+X     *	- Get the dimensions assuming both SBs are mapped (subtract size
+X     *	  of SBs)
+X     *	- Flag both SBs as mapped
+X     *	- If the full_width is small enough that we won't need a HSB even
+X     *	  if the VSB is mapped, then unflag the HSB and reset the height
+X     *	- Next compare the full_height to the height just computed and decide
+X     *	  if we need a VSB (if we didn't need a HSB above, then we had reset
+X     *	  the height to not count the HSB)
+X     *
+X     * The whole point is, if we map one SB then we may need to map the
+X     * other one because of the space taken by the first one
+X     */
+X    if (mw->core.width >= full_width && mw->core.height >= full_height)
+X	has_horiz = has_vert = False;
+X    else if (mw->core.width < full_width && mw->core.height < full_height)
+X	has_horiz = has_vert = True;
+X    else {
+X	height -= HSCROLL_HEIGHT(mw);
+X	width -= VSCROLL_WIDTH(mw);
+X
+X	has_horiz = has_vert = True;
+X	if (full_width <= width) {
+X	    height = mw->core.height;
+X	    has_horiz = False;
+X	}
+X	if (full_height <= height)
+X	    has_vert = False;
+X    }
+X
+X
+X    /*
+X     * If widget is smaller than full size, move/resize the scrollbar and
+X     * set sliderSize, also if cell_width/cell_height is greater than
+X     * the amount of cell area visible, then we need to drag the cells
+X     * back into the visible part of the clip widget and set the
+X     * scrollbar value.
+X     *
+X     * Otherwise, the widget is larger than full size, so set
+X     * cell_width/cell_height to size of cells and set origin to 0
+X     * to force full cell area to be displayed
+X     *
+X     * We also need to move the textField correspondingly
+X     */
+X
+X    /*
+X     * We were resized smaller than our max width.
+X     */
+X    if (width < full_width) {
+X
+X	/*
+X	 * Calculate the width of the non-fixed visible cells.
+X	 */
+X	cell_width = mw->core.width -
+X	    (FIXED_COLUMN_WIDTH(mw) + ROW_LABEL_WIDTH(mw) +
+X	     2 * mw->manager.shadow_thickness);
+X
+X	/*
+X	 * Subtract the VSB if we have one.
+X	 */
+X	if (has_vert)
+X	    cell_width -= VSCROLL_WIDTH(mw);
+X
+X	if (cell_width <= 0)
+X	    cell_width = 1;
+X
+X	/*
+X	 * If the window is not full height, then place the HSB at the edge
+X	 * of the window.  Is the window is larger than full height, then
+X	 * place the HSB immediately below the cell region.
+X	 */
+X	XtConfigureWidget(HorizScrollChild(mw),
+X			  FIXED_COLUMN_LABEL_OFFSET(mw),
+X			  height < full_height
+X			  ? (Position)(mw->core.height -
+X				       (HorizScrollChild(mw)->core.height +
+X					2 * HorizScrollChild(mw)->
+X						core.border_width))
+X			  : (Position) (full_height + mw->matrix.space),
+X			  cell_width,
+X			  HorizScrollChild(mw)->core.height,
+X			  HorizScrollChild(mw)->core.border_width);
+X
+X	/*
+X	 * If the cells are scrolled off to the left, then drag them
+X	 * back onto the screen.
+X	 */
+X	if (cell_width > horiz_visible) {
+X	    HORIZ_ORIGIN(mw) -= (cell_width - horiz_visible);
+X
+X	    if (XtIsManaged(TextChild(mw)))
+X		XtMoveWidget(TextChild(mw),
+X			     TextChild(mw)->core.x +
+X				(cell_width - horiz_visible),
+X			     TextChild(mw)->core.y);
+X	}
+X
+X	/*
+X	 * Setup the HSB to reflect our new size.
+X	 */
+X	XtVaSetValues(HorizScrollChild(mw),
+X		      XmNpageIncrement,	cell_width,
+X		      XmNsliderSize,	cell_width,
+X		      XmNvalue,		HORIZ_ORIGIN(mw),
+X		      NULL);
+X    }
+X
+X    /*
+X     * We were resized larger than the our max width.  Drag the cells back
+X     * onto the screen if they were scrolled off to the left.
+X     */
+X    else {
+X	if (XtIsManaged(TextChild(mw)))
+X	    XtMoveWidget(TextChild(mw),
+X			 TextChild(mw)->core.x + HORIZ_ORIGIN(mw),
+X			 TextChild(mw)->core.y);
+X
+X	cell_width = CELL_TOTAL_WIDTH(mw);
+X	HORIZ_ORIGIN(mw) = 0;
+X    }
+X
+X    /*
+X     * We were resized smaller than our max height.
+X     */
+X    if (height < full_height) {
+X
+X	/*
+X	 * Calculate the height of the non-fixed visible cells.
+X	 */
+X	cell_height = mw->core.height -
+X	    (FIXED_ROW_HEIGHT(mw) + COLUMN_LABEL_HEIGHT(mw) +
+X	     2 * mw->manager.shadow_thickness);
+X
+X	/*
+X	 * Subtract the HSB if we have one.
+X	 */
+X	if (has_horiz)
+X	    cell_height -= HSCROLL_HEIGHT(mw);
+X
+X	if (cell_height <= 0)
+X	    cell_height = 1;
+X
+X	/*
+X	 * If the window is not full width, then place the VSB at the edge
+X	 * of the window.  Is the window is larger than full width, then
+X	 * place the VSB immediately to the right of the cell region.
+X	 */
+X	XtConfigureWidget(VertScrollChild(mw),
+X			  width < full_width
+X			  ? (Position)(mw->core.width -
+X				       (VertScrollChild(mw)->core.width +
+X					2 * VertScrollChild(mw)->
+X						core.border_width))
+X			  : (Position) full_width + mw->matrix.space,
+X			  FIXED_ROW_LABEL_OFFSET(mw),
+X			  VertScrollChild(mw)->core.width,
+X			  cell_height,
+X			  VertScrollChild(mw)->core.border_width);
+X
+X	/*
+X	 * If the cells are scrolled off the top, then drag them
+X	 * back onto the screen.
+X	 */
+X	if (cell_height > vert_visible) {
+X	    int rows = (cell_height - vert_visible) / ROW_HEIGHT(mw);
+X
+X	    VERT_ORIGIN(mw) -= rows;
+X
+X	    if (XtIsManaged(TextChild(mw)))
+X		XtMoveWidget(TextChild(mw),
+X			     TextChild(mw)->core.x,
+X			     TextChild(mw)->core.y + rows * ROW_HEIGHT(mw));
+X	}
+X
+X	/*
+X	 * Setup the VSB to reflect our new size.
+X	 */
+X	rows_visible = cell_height / ROW_HEIGHT(mw);
+X	XtVaSetValues(VertScrollChild(mw),
+X		      XmNpageIncrement,	rows_visible <= 0 ? 1 : rows_visible,
+X		      XmNsliderSize,	rows_visible <= 0 ? 1 : rows_visible,
+X		      XmNvalue,		VERT_ORIGIN(mw),
+X		      NULL);
+X    }
+X
+X    /*
+X     * We were resized larger than the our max height.	Drag the cells back
+X     * onto the screen if they were scrolled off the top.
+X     */
+X    else {
+X	if (XtIsManaged(TextChild(mw)))
+X	    XtMoveWidget(TextChild(mw),
+X			 TextChild(mw)->core.x,
+X			 TextChild(mw)->core.y +
+X			     VERT_ORIGIN(mw) * ROW_HEIGHT(mw));
+X
+X	cell_height = CELL_TOTAL_HEIGHT(mw);
+X	rows_visible = mw->matrix.rows - mw->matrix.fixed_rows;
+X	VERT_ORIGIN(mw) = 0;
+X    }
+X
+X    /*
+X     * Map/unmap scrollbars based on flags set above
+X     */
+X    if (has_horiz)
+X	XtManageChild(HorizScrollChild(mw));
+X    else
+X	XtUnmanageChild(HorizScrollChild(mw));
+X
+X    if (has_vert)
+X	XtManageChild(VertScrollChild(mw));
+X    else
+X	XtUnmanageChild(VertScrollChild(mw));
+X
+X    /*
+X     * Now that we have cell_width & cell_height,
+X     * make the clip widget this size.	Height is truncated to the
+X     * nearest row.
+X     */
+X    XtConfigureWidget(ClipChild(mw),
+X		      FIXED_COLUMN_LABEL_OFFSET(mw),
+X		      FIXED_ROW_LABEL_OFFSET(mw),
+X		      cell_width,
+X		      rows_visible <= 0
+X			? cell_height
+X			: rows_visible * ROW_HEIGHT(mw),
+X		      0);
+X
+X    /*
+X     * Save the non-truncated height.  We need this so we can draw
+X     * the shadow correctly.
+X     */
+X    mw->matrix.cell_visible_height = cell_height;
+X
+X    /*
+X     * Set the clip_mask in our clipping GCs.  This function relies on
+X     * the Clip widget being the correct size (above).
+X     */
+X    SetClipMask(mw);
+}
+X
+/*
+X * Since we totally control our childrens geometry, allow anything.
+X */
+/* ARGSUSED */
+static XtGeometryResult
+GeometryManager(w, desired, allowed)
+Widget w;
+XXtWidgetGeometry *desired, *allowed;
+{
+#define Wants(flag) (desired->request_mode & flag)
+X
+X    if (Wants(XtCWQueryOnly))
+X	return(XtGeometryYes);
+X
+X    if (Wants(CWWidth))
+X	w->core.width = desired->width;
+X    if (Wants(CWHeight))
+X	w->core.height = desired->height;
+X    if (Wants(CWX))
+X	w->core.x = desired->x;
+X    if (Wants(CWY))
+X	w->core.y = desired->y;
+X    if (Wants(CWBorderWidth))
+X	w->core.border_width = desired->border_width;
+X
+X    return(XtGeometryYes);
+X
+#undef Wants
+}
+X
+/*
+X * We would prefer to be the size calculated in ComputeSize and saved in
+X * desired_width/height
+X */
+static XtGeometryResult
+QueryGeometry(mw, proposed, desired)
+XXbaeMatrixWidget mw;
+XXtWidgetGeometry *proposed, *desired;
+{
+#define Set(bit) (proposed->request_mode & bit)
+X
+X    desired->width = mw->matrix.desired_width;
+X    desired->height = mw->matrix.desired_height;
+X    desired->request_mode = CWWidth | CWHeight;
+X
+X    if (Set(CWWidth) && proposed->width == desired->width &&
+X	Set(CWHeight) && proposed->height == desired->height)
+X	return(XtGeometryYes);
+X
+X    if (desired->width == mw->core.width && desired->height == mw->core.height)
+X	return(XtGeometryNo);
+X
+X    return(XtGeometryAlmost);
+X
+#undef Set
+}
+X
+/*
+X * Callback for vertical scrollbar
+X */
+/* ARGSUSED */
+static void
+ScrollVertCB(w, client_data, call_data)
+Widget w;
+XXtPointer client_data;
+XXmScrollBarCallbackStruct *call_data;
+{
+X    XbaeMatrixWidget mw = (XbaeMatrixWidget)XtParent(w);
+X    int src_y, dest_y, height;
+X
+X    /*
+X     * Didn't scroll
+X     */
+X    if (call_data->value == VERT_ORIGIN(mw))
+X	return;
+X
+X    /*
+X     * Scrolled forward. We want to copy a chunk starting at src_y up
+X     * to the top (dest_y=0)
+X     */
+X    else if (call_data->value > VERT_ORIGIN(mw)) {
+X	dest_y = 0;
+X	src_y = (call_data->value - VERT_ORIGIN(mw)) * ROW_HEIGHT(mw);
+X	height = ClipChild(mw)->core.height - src_y;
+X    }
+X
+X    /*
+X     * Scrolled backward. We want to copy a chunk starting at the top
+X     * (src_y=0) down to dest_y.
+X     */
+X    else {
+X	dest_y = (VERT_ORIGIN(mw) - call_data->value) * ROW_HEIGHT(mw);
+X	src_y = 0;
+X	height = ClipChild(mw)->core.height - dest_y;
+X    }
+X
+X    /*
+X     * The textField needs to scroll along with the cells.
+X     */
+X    if (XtIsManaged(TextChild(mw)))
+X	XtMoveWidget(TextChild(mw),
+X		     TextChild(mw)->core.x,
+X		     TextChild(mw)->core.y +
+X		     (VERT_ORIGIN(mw) - call_data->value) * ROW_HEIGHT(mw));
+X
+X    /*
+X     * Now we can adjust our vertical origin
+X     */
+X    VERT_ORIGIN(mw) = call_data->value;
+X
+X    /*
+X     * If we scrolled more than a screenful, just clear and
+X     * redraw the whole thing
+X     */
+X    if (height <= 0) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Clear the whole clip window.
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(ClipChild(mw)),
+X		   0, 0,
+X		   0 /*Full Width*/, 0 /*Full Height*/,
+X		   False);
+X
+X	/*
+X	 * Redraw all the non-fixed cells in the clip window
+X	 */
+X	SETRECT(rect,
+X		0, 0,
+X		ClipChild(mw)->core.width - 1,
+X		ClipChild(mw)->core.height - 1);
+X	RedrawCells(mw, &rect);
+X
+X	/*
+X	 * Clear the non-fixed row labels and the cells in fixed columns
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(mw),
+X		   0, FIXED_ROW_LABEL_OFFSET(mw),
+X		   FIXED_COLUMN_LABEL_OFFSET(mw), 0 /*Full Height*/,
+X		   False);
+X
+X	/*
+X	 * Redraw non-fixed row labels and cells in fixed columns
+X	 */
+X	SETRECT(rect,
+X		0, FIXED_ROW_LABEL_OFFSET(mw),
+X		FIXED_COLUMN_LABEL_OFFSET(mw), mw->core.height);
+X	RedrawLabelsAndFixed(mw, &rect);
+X    }
+X
+X    /*
+X     * If we scrolled less than a screenful, we want to copy as many
+X     * pixels as we can and then clear and redraw the newly scrolled data.
+X     */
+X    else {
+X	Rectangle rect;
+X	int y_clear = src_y > dest_y ? height : 0;
+X
+X	/*
+X	 * Queue this scroll with the ScrollMgr
+X	 */
+X	SmAddScroll(mw->matrix.clip_scroll_mgr, 0, dest_y - src_y);
+X
+X	/*
+X	 * Copy the non-fixed cells in the clip widget
+X	 */
+X	XCopyArea(XtDisplay(mw),
+X		  XtWindow(ClipChild(mw)), XtWindow(ClipChild(mw)),
+X		  mw->matrix.draw_gc,
+X		  0, src_y,
+X		  ClipChild(mw)->core.width, height,
+X		  0, dest_y);
+X
+X	/*
+X	 * Clear the newly scrolled chunk of the clip widget
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(ClipChild(mw)),
+X		   0, y_clear,
+X		   0 /*Full Width*/, ClipChild(mw)->core.height - height,
+X		   False);
+X
+X	/*
+X	 * Redraw the non-fixed cells into the new chunk
+X	 */
+X	SETRECT(rect,
+X		0, y_clear,
+X		ClipChild(mw)->core.width - 1,
+X		(y_clear + (ClipChild(mw)->core.height - height)) - 1);
+X	RedrawCells(mw, &rect);
+X
+X	/*
+X	 * Translate coordinates for fixed columns and row labels.
+X	 */
+X	src_y += FIXED_ROW_LABEL_OFFSET(mw);
+X	dest_y += FIXED_ROW_LABEL_OFFSET(mw);
+X	y_clear += FIXED_ROW_LABEL_OFFSET(mw);
+X
+X	/*
+X	 * Queue this scroll with the ScrollMgr
+X	 */
+X	SmAddScroll(mw->matrix.matrix_scroll_mgr, 0, dest_y - src_y);
+X
+X	/*
+X	 * Copy the fixed columns and row labels
+X	 */
+X	XCopyArea(XtDisplay(mw),
+X		  XtWindow(mw), XtWindow(mw),
+X		  mw->matrix.draw_gc,
+X		  0, src_y,
+X		  FIXED_COLUMN_LABEL_OFFSET(mw), height,
+X		  0, dest_y);
+X
+X	/*
+X	 * Clear the newly scrolled chunk of fixed columns and row labels
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(mw),
+X		   0, y_clear,
+X		   FIXED_COLUMN_LABEL_OFFSET(mw),
+X		   ClipChild(mw)->core.height - height,
+X		   False);
+X
+X	/*
+X	 * Redraw the new chunk of fixed columns and row labels
+X	 */
+X	SETRECT(rect,
+X		0, y_clear,
+X		FIXED_COLUMN_LABEL_OFFSET(mw) - 1,
+X		(y_clear + (ClipChild(mw)->core.height - height)) - 1);
+X	RedrawLabelsAndFixed(mw, &rect);
+X    }
+}
+X
+/*
+X * Callback for horizontal scrollbar
+X */
+/* ARGSUSED */
+static void
+ScrollHorizCB(w, client_data, call_data)
+Widget w;
+XXtPointer client_data;
+XXmScrollBarCallbackStruct *call_data;
+{
+X    XbaeMatrixWidget mw = (XbaeMatrixWidget)XtParent(w);
+X    int src_x, dest_x, width;
+X
+X    /*
+X     * Didn't scroll
+X     */
+X    if (call_data->value == HORIZ_ORIGIN(mw))
+X	return;
+X
+X    /*
+X     * Scrolled right. We want to copy a chunk starting at src_x over to
+X     * the left (dest_x=0)
+X     */
+X    else if (call_data->value > HORIZ_ORIGIN(mw)) {
+X	dest_x = 0;
+X	src_x = call_data->value - HORIZ_ORIGIN(mw);
+X	width = ClipChild(mw)->core.width - src_x;
+X    }
+X
+X    /*
+X     * Scrolled left. We want to copy a chunk starting at the left (src_x=0)
+X     * over to the right to dest_x
+X     */
+X    else {
+X	dest_x = HORIZ_ORIGIN(mw) - call_data->value;
+X	src_x = 0;
+X	width = ClipChild(mw)->core.width - dest_x;
+X    }
+X
+X    /*
+X     * The textField needs to scroll along with the cells.
+X     */
+X    if (XtIsManaged(TextChild(mw)))
+X	XtMoveWidget(TextChild(mw),
+X		     TextChild(mw)->core.x + (HORIZ_ORIGIN(mw) -
+X					      call_data->value),
+X		     TextChild(mw)->core.y);
+X
+X    /*
+X     * Now we can adjust our horizontal origin
+X     */
+X    HORIZ_ORIGIN(mw) = call_data->value;
+X
+X    /*
+X     * If we scrolled more than a screenful, just clear and
+X     * redraw the whole thing
+X     */
+X    if (width <= 0) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Clear the whole clip window
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(ClipChild(mw)),
+X		   0, 0,
+X		   0 /*Full Width*/, 0 /*Full Height*/,
+X		   False);
+X
+X	/*
+X	 * Redraw all the non-fixed cells in the clip window
+X	 */
+X	SETRECT(rect,
+X		0, 0,
+X		ClipChild(mw)->core.width - 1,
+X		ClipChild(mw)->core.height - 1);
+X	RedrawCells(mw, &rect);
+X
+X	/*
+X	 * Clear the non-fixed column labels and the cells in fixed rows
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(mw),
+X		   FIXED_COLUMN_LABEL_OFFSET(mw), 0,
+X		   0 /*Full Width*/, FIXED_ROW_LABEL_OFFSET(mw), False);
+X
+X	/*
+X	 * Redraw non-fixed column labels and cells in fixed rows
+X	 */
+X	SETRECT(rect,
+X		FIXED_COLUMN_LABEL_OFFSET(mw), 0,
+X		mw->core.width, FIXED_ROW_LABEL_OFFSET(mw));
+X	RedrawLabelsAndFixed(mw, &rect);
+X    }
+X
+X    /*
+X     * If we scrolled less than a screenful, we want to copy as many
+X     * pixels as we can and then clear and redraw the newly scrolled data.
+X     */
+X    else {
+X	Rectangle rect;
+X	int x_clear = src_x > dest_x ? width : 0;
+X
+X	/*
+X	 * Queue this scroll with the ScrollMgr
+X	 */
+X	SmAddScroll(mw->matrix.clip_scroll_mgr, dest_x - src_x, 0);
+X
+X	/*
+X	 * Copy the non-fixed cells in the clip widget
+X	 */
+X	XCopyArea(XtDisplay(mw),
+X		  XtWindow(ClipChild(mw)), XtWindow(ClipChild(mw)),
+X		  mw->matrix.draw_gc,
+X		  src_x, 0,
+X		  width, ClipChild(mw)->core.height,
+X		  dest_x, 0);
+X
+X	/*
+X	 * Clear the newly scrolled chunk of the clip widget
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(ClipChild(mw)),
+X		   x_clear, 0,
+X		   ClipChild(mw)->core.width - width, 0 /*Full Height*/,
+X		   False);
+X
+X	/*
+X	 * Redraw the non-fixed cells into the new chunk
+X	 */
+X	SETRECT(rect,
+X		x_clear, 0,
+X		(x_clear + (ClipChild(mw)->core.width - width)) - 1,
+X		ClipChild(mw)->core.height - 1);
+X	RedrawCells(mw, &rect);
+X
+X	/*
+X	 * Translate coordinates for fixed rows and column labels.
+X	 */
+X	src_x += FIXED_COLUMN_LABEL_OFFSET(mw);
+X	dest_x += FIXED_COLUMN_LABEL_OFFSET(mw);
+X	x_clear += FIXED_COLUMN_LABEL_OFFSET(mw);
+X
+X	/*
+X	 * Queue this scroll with the ScrollMgr
+X	 */
+X	SmAddScroll(mw->matrix.matrix_scroll_mgr, dest_x - src_x, 0);
+X
+X	/*
+X	 * Copy the fixed rows and column labels
+X	 */
+X	XCopyArea(XtDisplay(mw),
+X		  XtWindow(mw), XtWindow(mw),
+X		  mw->matrix.draw_gc,
+X		  src_x, 0,
+X		  width, FIXED_ROW_LABEL_OFFSET(mw),
+X		  dest_x, 0);
+X
+X	/*
+X	 * Clear the newly scrolled chunk of fixed rows and column labels
+X	 */
+X	XClearArea(XtDisplay(mw), XtWindow(mw),
+X		   x_clear, 0,
+X		   ClipChild(mw)->core.width - width,
+X		   FIXED_ROW_LABEL_OFFSET(mw),
+X		   False);
+X
+X	/*
+X	 * Redraw the new chunk of fixed rows and column labels
+X	 */
+X	SETRECT(rect,
+X		x_clear, 0,
+X		(x_clear + (ClipChild(mw)->core.width - width)) - 1,
+X		FIXED_ROW_LABEL_OFFSET(mw) - 1);
+X	RedrawLabelsAndFixed(mw, &rect);
+X    }
+}
+X
+/*
+X * This is the modifyVerifyCallback we added to textField. We need to
+X * call Matrixs modifyVerifyCallback list with the textField info
+X * and the row/col that is changing.
+X */
+/* ARGSUSED */
+static void
+ModifyVerifyCB(w, mw, verify)
+Widget w;
+XXbaeMatrixWidget mw;
+XXmTextVerifyCallbackStruct *verify;
+{
+X    XbaeMatrixModifyVerifyCallbackStruct call_data;
+X
+X    if (mw->matrix.modify_verify_callback == NULL)
+X	return;
+X
+X    call_data.reason = XbaeModifyVerifyReason;
+X    call_data.row = mw->matrix.current_row;
+X    call_data.column = mw->matrix.current_column;
+X    call_data.verify = verify;
+X
+X    XtCallCallbackList((Widget)mw, mw->matrix.modify_verify_callback,
+X		       (XtPointer) &call_data);
+}
+X
+/*
+X * This is the Clip widgets focusCallback. We want to give the focus to
+X * the textField if a cell is being edited.  If no cells are being edited,
+X * force an edit on the top left most visible cell.
+X */
+/* ARGSUSED */
+static void
+TraverseInCB(w, mw, call_data)
+Widget w;
+XXbaeMatrixWidget mw;
+XXtPointer call_data;
+{
+X    /*
+X     * If the traversing flag is set, then Clip got the focus because
+X     * textField was trying to traverse out of mw.  We'll help it along.
+X     * Sickening.
+X     */
+X    if (mw->matrix.traversing != NOT_TRAVERSING) {
+X	XmProcessTraversal(w, mw->matrix.traversing);
+X	return;
+X    }
+X
+X    /*
+X     * If the textField is managed and not visible, scroll it onto the screen
+X     * and traverse to it.
+X     */
+X    if (XtIsManaged(TextChild(mw))) {
+X	if (!IsCellVisible(mw,
+X			   mw->matrix.current_row, mw->matrix.current_column))
+X	    MakeCellVisible(mw,
+X			    mw->matrix.current_row, mw->matrix.current_column);
+X	XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+X    }
+X
+X    /*
+X     * Otherwise, no cell is being edited.  Force an edit on the top-left
+X     * most visible cell.
+X     */
+X    else {
+X	int column = XtoCol(mw, FIXED_COLUMN_WIDTH(mw) +  HORIZ_ORIGIN(mw));
+X
+X	(*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.edit_cell)
+X	    (mw, VERT_ORIGIN(mw) + mw->matrix.fixed_rows, column);
+X
+X	XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+X    }
+}
+X
+static void
+CopyCells(mw)
+XXbaeMatrixWidget mw;
+{
+X    String **copy;
+X    int i, j;
+X
+X    /*
+X     * Malloc an array of row pointers
+X     */
+X    copy = (String **) XtMalloc(mw->matrix.rows * sizeof(String *));
+X
+X    /*
+X     * Malloc an array of Strings for each row pointer
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	copy[i] = (String *) XtMalloc(mw->matrix.columns * sizeof(String));
+X
+X    /*
+X     * Create a bunch of "" cells if cells was NULL
+X     */
+X    if (!mw->matrix.cells) {
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++)
+X		copy[i][j] = XtNewString("");
+X    }
+X
+X    /*
+X     * Otherwise copy the table passed in
+X     */
+X    else {
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++) {
+X		if (!mw->matrix.cells[i][j]) {
+X		    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X				    "copyCells", "badValue", "XbaeMatrix",
+X				    "XbaeMatrix: NULL entry found in cell table",
+X				    NULL, 0);
+X		    copy[i][j] = XtNewString("");
+X		}
+X		else
+X		    copy[i][j] = XtNewString(mw->matrix.cells[i][j]);
+X	    }
+X    }
+X
+X    mw->matrix.cells = copy;
+}
+X
+static void
+CopyRowLabels(mw)
+XXbaeMatrixWidget mw;
+{
+X    String *copy;
+X    int i;
+X
+X    copy = (String *) XtMalloc(mw->matrix.rows * sizeof(String));
+X
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	if (!mw->matrix.row_labels[i]) {
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyRowLabels", "badValue", "XbaeMatrix",
+X			    "XbaeMatrix: NULL entry found in rowLabels array",
+X			    NULL, 0);
+X	    copy[i] = XtNewString("");
+X	}
+X	else
+X	    copy[i] = XtNewString(mw->matrix.row_labels[i]);
+X
+X    mw->matrix.row_labels = copy;
+}
+X
+static void
+CopyColumnLabels(mw)
+XXbaeMatrixWidget mw;
+{
+X    String *copy;
+X    int i;
+X
+X    copy = (String *) XtMalloc(mw->matrix.columns * sizeof(String));
+X
+X    mw->matrix.column_label_lines = (ColumnLabelLines)
+X	XtMalloc(mw->matrix.columns * sizeof(ColumnLabelLinesRec));
+X
+X    for (i = 0; i < mw->matrix.columns; i++)
+X	if (!mw->matrix.column_labels[i]) {
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyColumnLabels", "badValue", "XbaeMatrix",
+X			    "XbaeMatrix: NULL entry found in columnLabels array",
+X			    NULL, 0);
+X	    copy[i] = XtNewString("");
+X	    ParseColumnLabel(copy[i], &mw->matrix.column_label_lines[i]);
+X	}
+X	else {
+X	    copy[i] = XtNewString(mw->matrix.column_labels[i]);
+X	    ParseColumnLabel(mw->matrix.column_labels[i],
+X			     &mw->matrix.column_label_lines[i]);
+X	}
+X
+X    /*
+X     * Determine max number of lines in column labels
+X     */
+X    mw->matrix.column_label_maxlines = mw->matrix.column_label_lines[0].lines;
+X    for (i = 1; i < mw->matrix.columns; i++)
+X	if (mw->matrix.column_label_lines[i].lines >
+X	    mw->matrix.column_label_maxlines)
+X	    mw->matrix.column_label_maxlines =
+X		mw->matrix.column_label_lines[i].lines;
+X
+X    mw->matrix.column_labels = copy;
+}
+X
+static void
+CopyColumnWidths(mw)
+XXbaeMatrixWidget mw;
+{
+X    short *copy;
+X    int i;
+X    Boolean bad = False;
+X
+X    copy = (short *) XtMalloc(mw->matrix.columns * sizeof(short));
+X
+X    for (i = 0; i < mw->matrix.columns; i++) {
+X	if (!bad && mw->matrix.column_widths[i] == BAD_WIDTH) {
+X	    bad = True;
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyColumnWidths", "tooShort", "XbaeMatrix",
+X			    "XbaeMatrix: Column widths array is too short",
+X			    NULL, 0);
+X	    copy[i] = 1;
+X	}
+X	else if (bad)
+X	    copy[i] = 1;
+X	else
+X	    copy[i] = mw->matrix.column_widths[i];
+X    }
+X
+X    mw->matrix.column_widths = copy;
+}
+X
+static void
+CopyColumnMaxLengths(mw)
+XXbaeMatrixWidget mw;
+{
+X    int *copy;
+X    int i;
+X    Boolean bad = False;
+X
+X    copy = (int *) XtMalloc(mw->matrix.columns * sizeof(int));
+X
+X    for (i = 0; i < mw->matrix.columns; i++) {
+X	if (!bad && mw->matrix.column_max_lengths[i] == BAD_MAXLENGTH) {
+X	    bad = True;
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyColumnMaxLengths", "tooShort", "XbaeMatrix",
+X			    "XbaeMatrix: Column max lengths array is too short",
+X			    NULL, 0);
+X	    copy[i] = 1;
+X	}
+X	else if (bad)
+X	    copy[i] = 1;
+X	else
+X	    copy[i] = mw->matrix.column_max_lengths[i];
+X    }
+X
+X    mw->matrix.column_max_lengths = copy;
+}
+X
+static void
+CopyColumnAlignments(mw)
+XXbaeMatrixWidget mw;
+{
+X    unsigned char *copy;
+X    int i;
+X    Boolean bad = False;
+X
+X    copy = (unsigned char *) XtMalloc(mw->matrix.columns *
+X				      sizeof(unsigned char));
+X
+X    for (i = 0; i < mw->matrix.columns; i++) {
+X	if (!bad && mw->matrix.column_alignments[i] == BAD_ALIGNMENT) {
+X	    bad = True;
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyColumnAlignments", "tooShort", "XbaeMatrix",
+X			    "XbaeMatrix: Column alignments array is too short",
+X			    NULL, 0);
+X	    copy[i] = XmALIGNMENT_BEGINNING;
+X	}
+X	else if (bad)
+X	    copy[i] = XmALIGNMENT_BEGINNING;
+X	else
+X	    copy[i] = mw->matrix.column_alignments[i];
+X    }
+X
+X    mw->matrix.column_alignments = copy;
+}
+X
+static void
+CopyColumnLabelAlignments(mw)
+XXbaeMatrixWidget mw;
+{
+X    unsigned char *copy;
+X    int i;
+X    Boolean bad = False;
+X
+X    copy = (unsigned char *) XtMalloc(mw->matrix.columns *
+X				      sizeof(unsigned char));
+X
+X    for (i = 0; i < mw->matrix.columns; i++) {
+X	if (!bad &&
+X	    mw->matrix.column_label_alignments[i] == BAD_ALIGNMENT) {
+X	    bad = True;
+X	    XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			    "copyColumnLabelAlignments", "tooShort",
+X			    "XbaeMatrix",
+X			    "XbaeMatrix: Column label alignments array is too short",
+X			    NULL, 0);
+X	    copy[i] = XmALIGNMENT_BEGINNING;
+X	}
+X	else if (bad)
+X	    copy[i] = XmALIGNMENT_BEGINNING;
+X	else
+X	    copy[i] = mw->matrix.column_label_alignments[i];
+X    }
+X
+X    mw->matrix.column_label_alignments = copy;
+}
+X
+static void
+CopyColors(mw)
+XXbaeMatrixWidget mw;
+{
+X    Pixel **copy;
+X    int i, j;
+X
+X    /*
+X     * Malloc an array of row pointers
+X     */
+X    copy = (Pixel **) XtMalloc(mw->matrix.rows * sizeof(Pixel *));
+X
+X    /*
+X     * Malloc an array of Pixels for each row pointer
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	copy[i] = (Pixel *) XtMalloc(mw->matrix.columns * sizeof(Pixel));
+X
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	for (j = 0; j < mw->matrix.columns; j++)
+X	    copy[i][j] = mw->matrix.colors[i][j];
+X
+X    mw->matrix.colors = copy;
+}
+X
+/*
+X * Copy the selectedCells resource. Create a 2D array of Booleans to
+X * represent selected cells if it is NULL.
+X */
+static void
+CopySelectedCells(mw)
+XXbaeMatrixWidget mw;
+{
+X    Boolean **copy;
+X    int i, j;
+X
+X    /*
+X     * Malloc an array of row pointers
+X     */
+X     copy = (Boolean **) XtMalloc(mw->matrix.rows * sizeof(Boolean *));
+X
+X    /*
+X     * Malloc an array of Booleans for each row pointer
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	copy[i] = (Boolean *) XtCalloc(mw->matrix.columns, sizeof(Boolean));
+X
+X    /*
+X     * If selected_cells is not NULL, copy the table passed in
+X     */
+X    if (mw->matrix.selected_cells)
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++)
+X		copy[i][j] = mw->matrix.selected_cells[i][j];
+X
+X    mw->matrix.selected_cells = copy;
+}
+X
+static void
+ParseColumnLabel(label, lines)
+String label;
+ColumnLabelLines lines;
+{
+X    char *nl;
+X
+X    /*
+X     * First count the number of lines in the label
+X     */
+X    lines->lines = 1;
+X    nl = label;
+X    while ((nl = index(nl, '\n')) != NULL) {
+X	nl++;
+X	lines->lines++;
+X    }
+X
+X    /*
+X     * Now malloc a lengths array of the correct size.
+X     */
+X    lines->lengths = (int *) XtMalloc(lines->lines * sizeof(int));
+X
+X    /*
+X     * An entry in the lengths array is the length of that line (substring).
+X     */
+X
+X    /*
+X     * Handle the case of one line (no index() needed)
+X     */
+X    if (lines->lines == 1)
+X	lines->lengths[0] = strlen(label);
+X    else {
+X	int i;
+X
+X	nl = label;
+X	i = 0;
+X	while ((nl = index(nl, '\n')) != NULL) {
+X	    lines->lengths[i] = nl - label;
+X	    nl++;
+X	    label = nl;
+X	    i++;
+X	}
+X	lines->lengths[i] = strlen(label);
+X    }
+}
+X
+static void
+FreeCells(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i, j;
+X
+X    if (!mw->matrix.cells)
+X	return;
+X
+X    /*
+X     * Free each cell in a row, then free the row and go to the next one
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++) {
+X	for (j = 0; j < mw->matrix.columns; j++)
+X	    XtFree((XtPointer) mw->matrix.cells[i][j]);
+X	XtFree((XtPointer) mw->matrix.cells[i]);
+X    }
+X
+X    /*
+X     * Free the array of row pointers
+X     */
+X    XtFree((XtPointer) mw->matrix.cells);
+}
+X
+static void
+FreeRowLabels(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    if (!mw->matrix.row_labels)
+X	return;
+X
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	XtFree((XtPointer)mw->matrix.row_labels[i]);
+X
+X    XtFree((XtPointer)mw->matrix.row_labels);
+}
+X
+static void
+FreeColumnLabels(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    if (!mw->matrix.column_labels)
+X	return;
+X
+X    for (i = 0; i < mw->matrix.columns; i++) {
+X	XtFree((XtPointer)mw->matrix.column_labels[i]);
+X	XtFree((XtPointer)mw->matrix.column_label_lines[i].lengths);
+X    }
+X
+X    XtFree((XtPointer)mw->matrix.column_label_lines);
+X    XtFree((XtPointer)mw->matrix.column_labels);
+}
+X
+X
+static void
+FreeColors(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    if (!mw->matrix.colors)
+X	return;
+X
+X    /*
+X     * Free each row of Pixels
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	XtFree((XtPointer) mw->matrix.colors[i]);
+X
+X    /*
+X     * Free the array of row pointers
+X     */
+X    XtFree((XtPointer) mw->matrix.colors);
+}
+X
+static void
+FreeSelectedCells(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    /*
+X     * Free each row of Booleans
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	XtFree((XtPointer) mw->matrix.selected_cells[i]);
+X
+X    /*
+X     * Free the array of row pointers
+X     */
+X    XtFree((XtPointer) mw->matrix.selected_cells);
+}
+X
+/*
+X * Create a matrix of Pixels
+X */
+static void
+CreateColors(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    /*
+X     * Malloc an array of row pointers
+X     */
+X    mw->matrix.colors = (Pixel **) XtMalloc(mw->matrix.rows * sizeof(Pixel *));
+X
+X    /*
+X     * Malloc an array of Pixels for each row pointer
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	mw->matrix.colors[i] = (Pixel *) XtMalloc(mw->matrix.columns *
+X						      sizeof(Pixel));
+}
+X
+/*
+X * Add rows/columns of cells when set_values changes our rows/columns
+X */
+static void
+ResizeCells(current, new)
+XXbaeMatrixWidget current;
+XXbaeMatrixWidget new;
+{
+X    int i, j;
+X    int safe_rows;
+X
+X    if (new->matrix.rows == current->matrix.rows)
+X	safe_rows = new->matrix.rows;
+X
+X    /*
+X     * Adding rows
+X     */
+X    if (new->matrix.rows > current->matrix.rows) {
+X	/*
+X	 * Realloc a larger array of row pointers
+X	 */
+X	new->matrix.cells =
+X	    (String **) XtRealloc((char *)new->matrix.cells,
+X				   new->matrix.rows * sizeof(String *));
+X
+X	/*
+X	 * Malloc a new row array for each row. Initialize it with
+X	 * NULL Strings. Use the new column size.
+X	 */
+X	for (i = current->matrix.rows; i < new->matrix.rows; i++) {
+X	    new->matrix.cells[i] =
+X		(String *) XtMalloc(new->matrix.columns * sizeof(String));
+X	    for (j = 0; j < new->matrix.columns; j++)
+X		new->matrix.cells[i][j] = XtNewString("");
+X	}
+X
+X	safe_rows = current->matrix.rows;
+X    }
+X
+X    /*
+X     * Deleting rows
+X     */
+X    if (new->matrix.rows < current->matrix.rows) {
+X	/*
+X	 * Free the cells in the rows being deleted and the rows themselves
+X	 */
+X	for (i = new->matrix.rows; i < current->matrix.rows; i++) {
+X	    for (j = 0; j < current->matrix.columns; j++)
+X		XtFree((XtPointer) new->matrix.cells[i][j]);
+X	    XtFree((XtPointer) new->matrix.cells[i]);
+X	}
+X
+X	safe_rows = new->matrix.rows;
+X    }
+X
+X    /*
+X     * Adding columns
+X     */
+X    if (new->matrix.columns > current->matrix.columns) {
+X	/*
+X	 * Realloc each row array. Do not touch any rows added/deleted above
+X	 * (use safe_rows)
+X	 */
+X	for (i = 0; i < safe_rows; i++) {
+X	    new->matrix.cells[i] =
+X		(String *) XtRealloc((char *)new->matrix.cells[i],
+X				     new->matrix.columns * sizeof(String));
+X	    for (j = current->matrix.columns; j < new->matrix.columns; j++)
+X		new->matrix.cells[i][j] = XtNewString("");
+X	}
+X    }
+X
+X    /*
+X     * Deleting columns
+X     */
+X    if (new->matrix.columns < current->matrix.columns) {
+X	/*
+X	 * Free all the cells in the deleted columns. Do not touch any
+X	 * rows added/deleted above (use safe_rows).
+X	 * We don't bother to realloc each row, just leave some wasted space.
+X	 * XXX is this a problem?
+X	 */
+X	for (i = 0; i < safe_rows; i++)
+X	    for (j = new->matrix.columns; j < current->matrix.columns; j++)
+X		XtFree((XtPointer) new->matrix.cells[i][j]);
+X    }
+}
+X
+/*
+X * Add rows/columns of selected flags when set_values changes our rows/columns
+X */
+static void
+ResizeSelectedCells(current, new)
+XXbaeMatrixWidget current;
+XXbaeMatrixWidget new;
+{
+X    int i;
+X    int safe_rows;
+X
+X    if (new->matrix.rows == current->matrix.rows)
+X	safe_rows = new->matrix.rows;
+X
+X    /*
+X     * Adding rows
+X     */
+X    if (new->matrix.rows > current->matrix.rows) {
+X	/*
+X	 * Realloc a larger array of row pointers
+X	 */
+X	new->matrix.selected_cells =
+X	    (Boolean **) XtRealloc((char *)new->matrix.selected_cells,
+X				   new->matrix.rows * sizeof(Boolean *));
+X
+X	/*
+X	 * Calloc a new row array for each row. Use the new column size.
+X	 */
+X	for (i = current->matrix.rows; i < new->matrix.rows; i++)
+X	    new->matrix.selected_cells[i] =
+X		(Boolean *) XtCalloc(new->matrix.columns, sizeof(Boolean));
+X
+X	safe_rows = current->matrix.rows;
+X    }
+X
+X    /*
+X     * Deleting rows
+X     */
+X    if (new->matrix.rows < current->matrix.rows) {
+X	for (i = new->matrix.rows; i < current->matrix.rows; i++)
+X	    XtFree((XtPointer) new->matrix.selected_cells[i]);
+X	safe_rows = new->matrix.rows;
+X    }
+X
+X    /*
+X     * Adding columns
+X     */
+X    if (new->matrix.columns > current->matrix.columns) {
+X	/*
+X	 * Realloc each row array. Do not touch any rows added/deleted above
+X	 * (use safe_rows)
+X	 */
+X	for (i = 0; i < safe_rows; i++) {
+X	    int j;
+X
+X	    new->matrix.selected_cells[i] =
+X		(Boolean *) XtRealloc((char *)new->matrix.selected_cells[i],
+X				      new->matrix.columns * sizeof(Boolean));
+X	    for (j = current->matrix.columns; j < new->matrix.columns; j++)
+X		new->matrix.selected_cells[i][j] = False;
+X	}
+X    }
+X
+X    /*
+X     * Deleting columns
+X     *   if (new->matrix.columns < current->matrix.columns)
+X     * We don't bother to realloc, just leave some wasted space.
+X     * XXX is this a problem?
+X     */
+}
+X
+/*
+X * Add rows/columns of colors when set_values changes our rows/columns
+X */
+static void
+ResizeColors(current, new)
+XXbaeMatrixWidget current;
+XXbaeMatrixWidget new;
+{
+X    int i, j;
+X    int safe_rows;
+X
+X    if (new->matrix.rows == current->matrix.rows)
+X	safe_rows = new->matrix.rows;
+X
+X    /*
+X     * Adding rows
+X     */
+X    if (new->matrix.rows > current->matrix.rows) {
+X	/*
+X	 * Realloc a larger array of row pointers
+X	 */
+X	new->matrix.colors =
+X	    (Pixel **) XtRealloc((char *)new->matrix.colors,
+X				 new->matrix.rows * sizeof(Pixel *));
+SHAR_EOF
+true || echo 'restore of Xbae/src/Matrix.c failed'
+fi
+echo 'End of Xbae part 7'
+echo 'File Xbae/src/Matrix.c is continued in part 8'
+echo 8 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

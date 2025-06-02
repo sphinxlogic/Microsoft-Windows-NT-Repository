@@ -1,0 +1,1874 @@
+Path: uunet!dtix!darwin.sura.net!mips!msi!dcmartin
+From: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Newsgroups: comp.sources.x
+Subject: v18i043: X11R5 public fix #13, Part02/05
+Message-ID: <1992Jul22.150635.18675@msi.com>
+Date: 22 Jul 92 15:06:35 GMT
+References: <csx-18i042-X11R5-fix13@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1861
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Posting-number: Volume 18, Issue 43
+Archive-name: X11R5-fix13/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fix-13 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fix-13'
+else
+echo 'x - continuing file fix-13'
+sed 's/^X//' << 'SHAR_EOF' >> 'fix-13' &&
++ 
+X  extern int  errno;
+X  
+X  
+***************
+*** 61,67 ****
+X  static int  fs_font_type;
+X  extern unsigned long fs_fd_mask[];
+X  
+! static int  fs_block_handler();
+X  static int  fs_wakeup();
+X  
+X  static FSFpePtr awaiting_reconnect;
+--- 66,72 ----
+X  static int  fs_font_type;
+X  extern unsigned long fs_fd_mask[];
+X  
+! static void fs_block_handler();
+X  static int  fs_wakeup();
+X  
+X  static FSFpePtr awaiting_reconnect;
+***************
+*** 117,123 ****
+X  fs_name_check(name)
+X      char       *name;
+X  {
+!     return (!strncmp(name, "tcp/", MIN(4, strlen(name))));
+X  }
+X  
+X  /*
+--- 122,128 ----
+X  fs_name_check(name)
+X      char       *name;
+X  {
+!     return (!strncmp(name, "tcp/", MIN(4, (int) strlen(name))));
+X  }
+X  
+X  /*
+***************
+*** 254,259 ****
+--- 259,287 ----
+X      return err;
+X  }
+X  
++ /* 
++  * close font server and remove any state associated with
++  * this connection - this includes any client records.
++  */
++ 
++ static void
++ fs_close_conn(conn)
++     FSFpePtr	conn;
++ {
++     FSClientPtr	client, nclient;
++ 
++     (void) close(conn->fs_fd);
++ 
++     _fs_bit_clear(fs_fd_mask, conn->fs_fd);
++ 
++     for (client = conn->clients; client; client = nclient) 
++     {
++ 	nclient = client->next;
++ 	xfree (client);
++     }
++     conn->clients = NULL;
++ }
++ 
+X  /*
+X   * the wakeup handlers have to be set when the FPE is open, and not
+X   * removed until it is freed, in order to handle unexpected data, like
+***************
+*** 285,294 ****
+X  	fpe->private = (pointer) conn;
+X  	err = fs_send_init_packets(conn);
+X  	if (err != Successful) {
+! 	    (void) close(conn->fs_fd);
+! 	    xfree(conn->servername);
+! 	    xfree(conn->alts);
+! 	    xfree(conn);
+X  	    return err;
+X  	}
+X  	if (init_fs_handlers(fpe, fs_block_handler) != Successful)
+--- 313,322 ----
+X  	fpe->private = (pointer) conn;
+X  	err = fs_send_init_packets(conn);
+X  	if (err != Successful) {
+! 	    fs_close_conn(conn);
+!     	    xfree(conn->servername);
+!     	    xfree(conn->alts);
+!     	    xfree(conn);
+X  	    return err;
+X  	}
+X  	if (init_fs_handlers(fpe, fs_block_handler) != Successful)
+***************
+*** 335,343 ****
+X      FSFpePtr    conn = (FSFpePtr) fpe->private;
+X      FSFpePtr    recon,
+X                 *prev;
+- 
+X      prev = &awaiting_reconnect;
+!     while (recon = *prev) {
+X  	if (conn == recon) {
+X  	    *prev = recon->next_reconnect;
+X  	    break;
+--- 363,371 ----
+X      FSFpePtr    conn = (FSFpePtr) fpe->private;
+X      FSFpePtr    recon,
+X                 *prev;
+X      prev = &awaiting_reconnect;
+!     while (*prev) {
+! 	recon = *prev;
+X  	if (conn == recon) {
+X  	    *prev = recon->next_reconnect;
+X  	    break;
+***************
+*** 345,355 ****
+X  	prev = &recon->next_reconnect;
+X      }
+X  
+!     /* close font server */
+!     (void) close(conn->fs_fd);
+X  
+!     _fs_bit_clear(fs_fd_mask, conn->fs_fd);
+!     remove_fs_handlers(fpe, fs_block_handler, !_fs_any_bit_set(fs_fd_mask));
+X  
+X      xfree(conn->alts);
+X      xfree(conn->servername);
+--- 373,382 ----
+X  	prev = &recon->next_reconnect;
+X      }
+X  
+!     fs_close_conn(conn);
+X  
+!     remove_fs_handlers(fpe, fs_block_handler,
+! 		       !_fs_any_bit_set(fs_fd_mask) && !awaiting_reconnect);
+X  
+X      xfree(conn->alts);
+X      xfree(conn->servername);
+***************
+*** 578,584 ****
+X  	return StillWorking;
+X      }
+X      /* move the data over */
+!     (void) fs_convert_header(&rep.header, &bfont->pfont->info);
+X      if (bfont->pfont->info.terminalFont)
+X      {
+X  	bfont->format =
+--- 605,611 ----
+X  	return StillWorking;
+X      }
+X      /* move the data over */
+!     (void) fs_convert_header(conn, &rep.header, &bfont->pfont->info);
+X      if (bfont->pfont->info.terminalFont)
+X      {
+X  	bfont->format =
+***************
+*** 609,615 ****
+X  	fs_free_font(bfont);
+X  	return StillWorking;
+X      }
+!     (void) fs_convert_props(&pi, po, pd, &bfont->pfont->info);
+X      xfree(po);
+X      xfree(pd);
+X  
+--- 636,648 ----
+X  	fs_free_font(bfont);
+X  	return StillWorking;
+X      }
+!     if (fs_convert_props(&pi, po, pd, &bfont->pfont->info) == -1)
+!     {
+!     	xfree(po);
+!     	xfree(pd);
+! 	(void) fs_cleanup_font(bfont);
+! 	return AllocError;
+!     }
+X      xfree(po);
+X      xfree(pd);
+X  
+***************
+*** 628,633 ****
+--- 661,668 ----
+X      FSFpePtr    conn = (FSFpePtr) fpe->private;
+X      fsQueryXExtents8Reply rep;
+X      int         i;
++     int		numInfos;
++     Bool	haveInk = FALSE; /* need separate ink metrics? */
+X      CharInfoPtr ci,
+X                  pCI;
+X      FSFontPtr   fsfont = (FSFontPtr) bfont->pfont->fontPrivate;
+***************
+*** 642,648 ****
+X  	return StillWorking;
+X      }
+X      /* move the data over */
+!     ci = pCI = (CharInfoPtr) xalloc(sizeof(CharInfoRec) * rep.num_extents);
+X  /* XXX this could be done with an ALLOCATE_LOCAL */
+X      fsci = (fsCharInfo *) xalloc(sizeof(fsCharInfo) * rep.num_extents);
+X      if (!pCI || !fsci) {
+--- 677,690 ----
+X  	return StillWorking;
+X      }
+X      /* move the data over */
+!     /* need separate inkMetrics for fixed font server protocol version */
+!     numInfos =  rep.num_extents;
+!     if (bfont->pfont->info.terminalFont && conn->fsMajorVersion > 1)
+!     {
+! 	numInfos *= 2;
+! 	haveInk = TRUE;
+!     }
+!     ci = pCI = (CharInfoPtr) xalloc(sizeof(CharInfoRec) * numInfos);
+X  /* XXX this could be done with an ALLOCATE_LOCAL */
+X      fsci = (fsCharInfo *) xalloc(sizeof(fsCharInfo) * rep.num_extents);
+X      if (!pCI || !fsci) {
+***************
+*** 654,661 ****
+X  	return AllocError;
+X      }
+X      fsfont->encoding = pCI;
+! /* XXX - hack - use real default char */
+!     fsfont->pDefault = &pCI[0];
+X  
+X      if (_fs_read_pad(conn, (char *) fsci,
+X  		     sizeof(fsCharInfo) * rep.num_extents) == -1) {
+--- 696,705 ----
+X  	return AllocError;
+X      }
+X      fsfont->encoding = pCI;
+!     if (haveInk)
+! 	fsfont->inkMetrics = pCI + rep.num_extents;
+!     else
+!         fsfont->inkMetrics = pCI;
+X  
+X      if (_fs_read_pad(conn, (char *) fsci,
+X  		     sizeof(fsCharInfo) * rep.num_extents) == -1) {
+***************
+*** 662,672 ****
+--- 706,767 ----
+X  	fs_free_font(bfont);
+X  	return StillWorking;
+X      }
++     ci = fsfont->inkMetrics;
+X      for (i = 0, fscip = fsci; i < rep.num_extents; i++, ci++, fscip++) {
+X  	fs_convert_char_info(fscip, ci);
+X      }
+X  
+X      xfree(fsci);
++ 
++     /* build bitmap metrics, ImageRectMax style */
++     if (haveInk)
++     {
++ 	FontInfoRec *fi = &bfont->pfont->info;
++ 	CharInfoPtr ii;
++ 
++ 	ci = fsfont->encoding;
++ 	ii = fsfont->inkMetrics;
++ 	for (i = 0; i < rep.num_extents; i++, ci++, ii++)
++ 	{
++ 	    if (NONZEROMETRICS(&ii->metrics))
++ 	    {
++ 		ci->metrics.leftSideBearing = FONT_MIN_LEFT(fi);
++ 		ci->metrics.rightSideBearing = FONT_MAX_RIGHT(fi);
++ 		ci->metrics.ascent = FONT_MAX_ASCENT(fi);
++ 		ci->metrics.descent = FONT_MAX_DESCENT(fi);
++ 		ci->metrics.characterWidth = FONT_MAX_WIDTH(fi);
++ 		ci->metrics.attributes = ii->metrics.attributes;
++ 	    }
++ 	    else
++ 	    {
++ 		ci->metrics = ii->metrics;
++ 	    }
++ 	}
++     }
++     {
++ 	unsigned int r, c, numCols, firstCol;
++ 
++ 	firstCol = bfont->pfont->info.firstCol;
++ 	numCols = bfont->pfont->info.lastCol - firstCol + 1;
++ 	c = bfont->pfont->info.defaultCh;
++ 	fsfont->pDefault = 0;
++ 	if (bfont->pfont->info.lastRow)
++ 	{
++ 	    r = c >> 8;
++ 	    r -= bfont->pfont->info.firstRow;
++ 	    c &= 0xff;
++ 	    c -= firstCol;
++ 	    if (r < bfont->pfont->info.lastRow-bfont->pfont->info.firstRow+1 &&
++ 		c < numCols)
++ 		fsfont->pDefault = &pCI[r * numCols + c];
++ 	}
++ 	else
++ 	{
++ 	    c -= firstCol;
++ 	    if (c < numCols)
++ 		fsfont->pDefault = &pCI[c];
++ 	}
++     }
+X      bfont->state = FS_GLYPHS_REPLY;
+X  
+X      if (bfont->flags & FontLoadBitmaps) {
+***************
+*** 787,793 ****
+X  }
+X  
+X  /* ARGSUSED */
+! static int
+X  fs_block_handler(data, wt, LastSelectMask)
+X      pointer     data;
+X      struct timeval **wt;
+--- 882,888 ----
+X  }
+X  
+X  /* ARGSUSED */
+! static void
+X  fs_block_handler(data, wt, LastSelectMask)
+X      pointer     data;
+X      struct timeval **wt;
+***************
+*** 817,823 ****
+X  	    **wt = recon_timeout;
+X  	}
+X      }
+-     return Successful;
+X  }
+X  
+X  static void
+--- 912,917 ----
+***************
+*** 932,939 ****
+X      if (!conn->attemptReconnect)
+X  	return;
+X      conn->attemptReconnect = FALSE;
+!     _fs_bit_clear(fs_fd_mask, conn->fs_fd);
+!     close(conn->fs_fd);
+X      conn->time_to_try = time((long *) 0) + FS_RECONNECT_WAIT;
+X      conn->reconnect_delay = FS_RECONNECT_WAIT;
+X      conn->fs_fd = -1;
+--- 1026,1032 ----
+X      if (!conn->attemptReconnect)
+X  	return;
+X      conn->attemptReconnect = FALSE;
+!     fs_close_conn(conn);
+X      conn->time_to_try = time((long *) 0) + FS_RECONNECT_WAIT;
+X      conn->reconnect_delay = FS_RECONNECT_WAIT;
+X      conn->fs_fd = -1;
+***************
+*** 1318,1328 ****
+X      }
+X      /* adjust them */
+X      for (i = 0; i < rep.num_chars; i++) {
+! 	if (ppbits[i].length)
+X  	    bits = (char *) pbitmaps + ppbits[i].position;
+X  	else
+X  	    bits = 0;
+X  	fsdata->encoding[i].bits = bits;
+X      }
+X  
+X      /* read glyphs according to the range */
+--- 1411,1423 ----
+X      }
+X      /* adjust them */
+X      for (i = 0; i < rep.num_chars; i++) {
+! 	if (ppbits[i].length || NONZEROMETRICS(&fsdata->encoding[i].metrics))
+X  	    bits = (char *) pbitmaps + ppbits[i].position;
+X  	else
+X  	    bits = 0;
+X  	fsdata->encoding[i].bits = bits;
++ 	/* copy the pointer into inkMetrics so _fs_get_metrics can use it */
++ 	fsdata->inkMetrics[i].bits = bits;
+X      }
+X  
+X      /* read glyphs according to the range */
+***************
+*** 1376,1381 ****
+--- 1471,1477 ----
+X      blockedglyph = (FSBlockedGlyphPtr) blockrec->data;
+X      blockedglyph->pfont = pfont;
+X      blockedglyph->expected_range = range;
++     blockedglyph->done = FALSE;
+X  
+X      /* send the request */
+X      req.reqType = FS_QueryXBitmaps8;
+***************
+*** 1474,1562 ****
+X      return Successful;
+X  }
+X  
+- static int
+- fs_send_load_extents(client, pfont, flags, nranges, range)
+-     pointer     client;
+-     FontPtr     pfont;
+-     int         nranges;
+-     fsRange    *range;
+- {
+-     FSBlockDataPtr blockrec;
+-     FSBlockedExtentPtr blockedextent;
+-     int         res;
+-     fsQueryXBitmaps8Req req;
+-     FSFontDataPtr fsd = (FSFontDataPtr) (pfont->fpePrivate);
+-     FontPathElementPtr fpe = fsd->fpe;
+-     FSFpePtr    conn = (FSFpePtr) fpe->private;
+X  
+-     /* make a new block record, and add it to the end of the list */
+-     blockrec = fs_new_block_rec(fpe, client, FS_LOAD_EXTENTS);
+-     if (!blockrec)
+- 	return AllocError;
+-     blockedextent = (FSBlockedExtentPtr) blockrec->data;
+-     blockedextent->pfont = pfont;
+-     blockedextent->expected_ranges = range;
+-     blockedextent->nranges = nranges;
+- 
+-     /*
+-      * see if the desired extents already exist, and return Successful if they
+-      * do, otherwise build up character range/character string
+-      */
+-     res = fs_check_extents(pfont, flags, nranges, range, blockrec);
+-     if (res == AccessDone)
+- 	return Successful;
+- 
+-     /* send the request */
+-     req.reqType = FS_QueryXExtents8;
+-     req.fid = ((FSFontDataPtr) pfont->fpePrivate)->fontid;
+-     req.range = TRUE;
+-     req.length = (sizeof(fsQueryXExtents8Req) + sizeof(fsRange) * nranges) >> 2;
+-     req.num_ranges = nranges;
+-     _fs_add_req_log(conn, FS_QueryXExtents8);
+-     _fs_write(conn, (char *) &req, sizeof(fsQueryXExtents8Req));
+-     if (nranges)
+- 	_fs_write(conn, (char *) range, sizeof(fsRange) * nranges);
+- 
+-     return Suspended;
+- }
+- 
+- int
+- fs_load_extents(client, pfont, flags, nranges, range,
+- 		nextents, extents)
+-     pointer     client;
+-     FontPtr     pfont;
+-     int         nranges;
+-     fsRange    *range;
+-     unsigned long *nextents;
+-     fsCharInfo **extents;
+- {
+-     FSBlockDataPtr blockrec;
+-     FSBlockedExtentPtr blockedextent;
+-     FSFpePtr    conn = (FSFpePtr) pfont->fpe->private;
+- 
+-     /* see if the result is already there */
+-     blockrec = (FSBlockDataPtr) conn->blocked_requests;
+-     while (blockrec) {
+- 	if (blockrec->type == FS_LOAD_EXTENTS && blockrec->client == client) {
+- 	    blockedextent = (FSBlockedExtentPtr) blockrec->data;
+- 	    if (blockedextent->pfont == pfont && blockedextent->done) {
+- 
+- 		/* copy the data */
+- 		*nextents = blockedextent->nextents;
+- 		*extents = blockedextent->extents;
+- 
+- 		fs_remove_blockrec(conn, blockrec);
+- 		return Successful;
+- 	    }
+- 	}
+- 	blockrec = blockrec->next;
+-     }
+- 
+-     /* didn't find waiting record, so send a new one */
+-     return fs_send_load_extents(client, pfont, flags, nranges, range);
+- }
+- 
+- 
+X  /*
+X   * almost identical to the above, but meant for FS chaining
+X   */
+--- 1570,1576 ----
+***************
+*** 1619,1712 ****
+X  }
+X  
+X  static int
+- fs_send_load_bitmaps(client, pfont, format, flags, nranges, range)
+-     pointer     client;
+-     FontPtr     pfont;
+-     fsBitmapFormat format;
+-     int         nranges;
+-     fsRange    *range;
+- {
+-     FSBlockDataPtr blockrec;
+-     FSBlockedBitmapPtr blockedbitmap;
+-     int         res;
+-     fsQueryXBitmaps8Req req;
+-     FSFontDataPtr fsd = (FSFontDataPtr) (pfont->fpePrivate);
+-     FontPathElementPtr fpe = fsd->fpe;
+-     FSFpePtr    conn = (FSFpePtr) fpe->private;
+- 
+-     /* make a new block record, and add it to the end of the list */
+-     blockrec = fs_new_block_rec(fpe, client, FS_LOAD_BITMAPS);
+-     if (!blockrec)
+- 	return AllocError;
+-     blockedbitmap = (FSBlockedBitmapPtr) blockrec->data;
+-     blockedbitmap->pfont = pfont;
+-     blockedbitmap->expected_ranges = range;
+-     blockedbitmap->nranges = nranges;
+- 
+-     /*
+-      * see if the desired glyphs already exist, and return Successful if they
+-      * do, otherwise build up character range/character string
+-      */
+-     res = fs_check_bitmaps(pfont, format, flags, nranges, range, blockrec);
+-     if (res == AccessDone)
+- 	return Successful;
+- 
+-     /* send the request */
+-     req.reqType = FS_QueryXBitmaps8;
+-     req.fid = ((FSFontDataPtr) pfont->fpePrivate)->fontid;
+-     req.format = format;
+-     req.range = TRUE;
+-     req.length = (sizeof(fsQueryXBitmaps8Req) + sizeof(fsRange) * nranges) >> 2;
+-     req.num_ranges = nranges;
+-     _fs_add_req_log(conn, FS_QueryXBitmaps8);
+-     _fs_write(conn, (char *) &req, sizeof(fsQueryXBitmaps8Req));
+-     _fs_write(conn, (char *) range, sizeof(fsRange) * nranges);
+- 
+-     return Suspended;
+- }
+- 
+- int
+- fs_load_bitmaps(client, pfont, format, flags, nranges, range,
+- 		size, nglyphs, offsets, gdata)
+-     pointer     client;
+-     FontPtr     pfont;
+-     fsBitmapFormat format;
+-     int         nranges;
+-     fsRange    *range;
+-     unsigned long *size;
+-     unsigned long *nglyphs;
+-     fsOffset  **offsets;
+-     pointer    *gdata;
+- {
+-     FSBlockDataPtr blockrec;
+-     FSBlockedBitmapPtr blockedbitmap;
+-     FSFpePtr    conn = (FSFpePtr) pfont->fpe->private;
+- 
+-     /* see if the result is already there */
+-     blockrec = (FSBlockDataPtr) conn->blocked_requests;
+-     while (blockrec) {
+- 	if (blockrec->type == FS_LOAD_BITMAPS && blockrec->client == client) {
+- 	    blockedbitmap = (FSBlockedBitmapPtr) blockrec->data;
+- 	    if (blockedbitmap->pfont == pfont && blockedbitmap->done) {
+- 
+- 		/* copy the data */
+- 		*size = blockedbitmap->size;
+- 		*nglyphs = blockedbitmap->nglyphs;
+- 		*offsets = blockedbitmap->offsets;
+- 		*gdata = blockedbitmap->gdata;
+- 
+- 		fs_remove_blockrec(conn, blockrec);
+- 		return Successful;
+- 	    }
+- 	}
+- 	blockrec = blockrec->next;
+-     }
+- 
+-     /* didn't find waiting record, so send a new one */
+-     return fs_send_load_bitmaps(client, pfont, format, flags, nranges, range);
+- }
+- 
+- static int
+X  fs_read_list(fpe, blockrec)
+X      FontPathElementPtr fpe;
+X      FSBlockDataPtr blockrec;
+--- 1633,1638 ----
+***************
+*** 1840,1845 ****
+--- 1766,1773 ----
+X      return fs_send_list_fonts(client, fpe, pattern, patlen, maxnames, newnames);
+X  }
+X  
++ static int  padlength[4] = {0, 3, 2, 1};
++ 
+X  static int
+X  fs_read_list_info(fpe, blockrec)
+X      FontPathElementPtr fpe;
+***************
+*** 1852,1863 ****
+X      fsPropOffset *po;
+X      char       *name;
+X      pointer     pd;
+X  
+X      /* clean up anything from the last trip */
+!     if (binfo->pfi) {
+X  	xfree(binfo->name);
+X  	xfree(binfo->pfi->isStringProp);
+X  	xfree(binfo->pfi->props);
+X      }
+X      /* get reply header */
+X      bcopy((char *) &blockrec->header, (char *) &rep, sizeof(fsReplyHeader));
+--- 1780,1798 ----
+X      fsPropOffset *po;
+X      char       *name;
+X      pointer     pd;
++     int		err;
+X  
+X      /* clean up anything from the last trip */
+!     if (binfo->name)
+!     {
+X  	xfree(binfo->name);
++ 	binfo->name = NULL;
++     }
++     if (binfo->pfi) {
+X  	xfree(binfo->pfi->isStringProp);
+X  	xfree(binfo->pfi->props);
++ 	xfree(binfo->pfi);
++ 	binfo->pfi = NULL;
+X      }
+X      /* get reply header */
+X      bcopy((char *) &blockrec->header, (char *) &rep, sizeof(fsReplyHeader));
+***************
+*** 1867,1872 ****
+--- 1802,1811 ----
+X  	binfo->errcode = AllocError;
+X  	return AllocError;
+X      }
++     if (conn->fsMajorVersion > 1)
++ 	if (rep.nameLength == 0)
++ 	    goto done;
++     /* old protocol sent a full-length reply even for the last one */
+X      if (_fs_read(conn, (char *) &rep + sizeof(fsReplyHeader),
+X  	  sizeof(fsListFontsWithXInfoReply) - sizeof(fsReplyHeader)) == -1) {
+X  	goto done;
+***************
+*** 1880,1885 ****
+--- 1819,1825 ----
+X      if (!name || !binfo->pfi) {
+X  	xfree(name);
+X  	xfree(binfo->pfi);
++ 	binfo->pfi = NULL;
+X  	_fs_drain_bytes(conn,
+X  			rep.length - (sizeof(fsListFontsWithXInfoReply) -
+X  				      sizeof(fsReplyHeader)));
+***************
+*** 1886,1895 ****
+X  	binfo->errcode = AllocError;
+X  	return AllocError;
+X      }
+!     if (_fs_read_pad(conn, name, rep.nameLength) == -1 ||
+! 	    _fs_read_pad(conn, (char *) &pi, sizeof(fsPropInfo)) == -1) {
+! 	goto done;
+!     }
+X      po = (fsPropOffset *) xalloc(sizeof(fsPropOffset) * pi.num_offsets);
+X      pd = (pointer) xalloc(pi.data_len);
+X      if (!po || !pd) {
+--- 1826,1837 ----
+X  	binfo->errcode = AllocError;
+X  	return AllocError;
+X      }
+!     if (conn->fsMajorVersion == 1)
+! 	if (_fs_read_pad(conn, name, rep.nameLength) == -1)
+! 	    goto done;
+!     if (_fs_read_pad(conn, (char *) &pi, sizeof(fsPropInfo)) == -1)
+! 	    goto done;
+! 
+X      po = (fsPropOffset *) xalloc(sizeof(fsPropOffset) * pi.num_offsets);
+X      pd = (pointer) xalloc(pi.data_len);
+X      if (!po || !pd) {
+***************
+*** 1896,1913 ****
+X  	xfree(name);
+X  	xfree(po);
+X  	xfree(pd);
+X  	binfo->errcode = AllocError;
+X  	return AllocError;
+X      }
+!     if (_fs_read_pad(conn, (char *) po,
+! 		     (pi.num_offsets * sizeof(fsPropOffset))) == -1 ||
+! 	    _fs_read_pad(conn, (char *) pd, pi.data_len) == -1) {
+X  	xfree(name);
+X  	xfree(po);
+X  	xfree(pd);
+X  	goto done;
+X      }
+!     fs_convert_lfwi_reply(binfo->pfi, &rep, &pi, po, pd);
+X      xfree(po);
+X      xfree(pd);
+X      binfo->name = name;
+--- 1838,1882 ----
+X  	xfree(name);
+X  	xfree(po);
+X  	xfree(pd);
++ 	xfree (binfo->pfi);
++ 	binfo->pfi = NULL;
+X  	binfo->errcode = AllocError;
+X  	return AllocError;
+X      }
+!     err = _fs_read_pad(conn, (char *) po,
+! 		       (pi.num_offsets * sizeof(fsPropOffset)));
+!     if (err != -1)
+!     {
+! 	if (conn->fsMajorVersion > 1)
+! 	    err = _fs_read(conn, (char *) pd, pi.data_len);
+! 	else
+! 	    err = _fs_read_pad(conn, (char *) pd, pi.data_len);
+!     }
+!     if (err != -1  &&  conn->fsMajorVersion != 1)
+!     {
+! 	err = _fs_read(conn, name, rep.nameLength);
+! 	if (err != -1)
+! 	    err = _fs_drain_bytes(conn, padlength[(pi.data_len+rep.nameLength)&3]);
+!     }
+! 
+!     if (err == -1) {
+X  	xfree(name);
+X  	xfree(po);
+X  	xfree(pd);
++ 	xfree (binfo->pfi);
++ 	binfo->pfi = NULL;
+X  	goto done;
+X      }
+! 
+!     if (fs_convert_lfwi_reply(conn, binfo->pfi, &rep, &pi, po, pd) != Successful)
+!     {
+! 	xfree(name);
+! 	xfree(po);
+! 	xfree(pd);
+! 	xfree (binfo->pfi);
+! 	binfo->pfi = NULL;
+! 	goto done;
+!     }
+X      xfree(po);
+X      xfree(pd);
+X      binfo->name = name;
+***************
+*** 2067,2076 ****
+X  	return;
+X      if (blockrec->type == FS_LIST_WITH_INFO)
+X      {
+! 	FSBlockedListInfoPtr blockedinfo;
+! 	blockedinfo = (FSBlockedListInfoPtr) blockrec->data;
+! 	if (blockedinfo->status == FS_LFWI_REPLY)
+X  	    _fs_set_bit(fs_fd_mask, conn->fs_fd);
+X      }
+X      /* replace the client pointers in this block rec with the chained one */
+X      if (depending = blockrec->depending) {
+--- 2036,2057 ----
+X  	return;
+X      if (blockrec->type == FS_LIST_WITH_INFO)
+X      {
+! 	FSBlockedListInfoPtr binfo;
+! 	binfo = (FSBlockedListInfoPtr) blockrec->data;
+! 	if (binfo->status == FS_LFWI_REPLY)
+X  	    _fs_set_bit(fs_fd_mask, conn->fs_fd);
++     	if (binfo->name)
++ 	{
++ 	    xfree(binfo->name);
++ 	    binfo->name = NULL;
++ 	}
++     	if (binfo->pfi) 
++ 	{
++ 	    xfree(binfo->pfi->isStringProp);
++ 	    xfree(binfo->pfi->props);
++ 	    xfree(binfo->pfi);
++ 	    binfo->pfi = NULL;
++     	}
+X      }
+X      /* replace the client pointers in this block rec with the chained one */
+X      if (depending = blockrec->depending) {
+*** /tmp/da26726	Tue Jul 14 18:05:08 1992
+--- mit/fonts/lib/font/fc/fsconvert.c	Tue Jul 14 18:05:08 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: fsconvert.c,v 1.7 91/07/16 20:17:05 keith Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+--- 1,4 ----
+! /* $XConsortium: fsconvert.c,v 1.9 92/05/12 18:07:31 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+***************
+*** 22,32 ****
+X   * OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+-  *
+-  *	@(#)fsconvert.c	4.2	91/05/14
+-  *
+-  * $NCDId: @(#)fsconvert.c,v 1.3 1991/06/10 13:21:52 lemke Exp $
+-  *
+X   */
+X  /*
+X   * FS data conversion
+--- 22,27 ----
+***************
+*** 59,65 ****
+X  }
+X  
+X  int
+! fs_convert_header(hdr, pfi)
+X      fsFontHeader *hdr;
+X      FontInfoPtr pfi;
+X  {
+--- 54,61 ----
+X  }
+X  
+X  int
+! fs_convert_header(conn, hdr, pfi)
+!     FSFpePtr    conn;
+X      fsFontHeader *hdr;
+X      FontInfoPtr pfi;
+X  {
+***************
+*** 69,80 ****
+X      pfi->drawDirection = (hdr->draw_direction == LeftToRightDrawDirection) ?
+X  	LeftToRight : RightToLeft;
+X      pfi->inkInside = (hdr->flags & FontInfoInkInside) != 0;
+-     pfi->firstCol = hdr->char_range.min_char.low;
+-     pfi->firstRow = hdr->char_range.min_char.high;
+-     pfi->lastCol = hdr->char_range.max_char.low;
+-     pfi->lastRow = hdr->char_range.max_char.high;
+X  
+!     pfi->defaultCh = hdr->default_char.low + (hdr->default_char.high << 8);
+X  
+X      pfi->fontDescent = hdr->font_descent;
+X      pfi->fontAscent = hdr->font_ascent;
+--- 65,84 ----
+X      pfi->drawDirection = (hdr->draw_direction == LeftToRightDrawDirection) ?
+X  	LeftToRight : RightToLeft;
+X      pfi->inkInside = (hdr->flags & FontInfoInkInside) != 0;
+X  
+!     if (conn->fsMajorVersion > 1) {
+! 	pfi->firstCol = hdr->char_range.min_char.low;
+! 	pfi->firstRow = hdr->char_range.min_char.high;
+! 	pfi->lastCol = hdr->char_range.max_char.low;
+! 	pfi->lastRow = hdr->char_range.max_char.high;
+! 	pfi->defaultCh = hdr->default_char.low + (hdr->default_char.high << 8);
+!     } else {
+! 	pfi->firstCol = hdr->char_range.min_char.high;
+! 	pfi->firstRow = hdr->char_range.min_char.low;
+! 	pfi->lastCol = hdr->char_range.max_char.high;
+! 	pfi->lastRow = hdr->char_range.max_char.low;
+! 	pfi->defaultCh = hdr->default_char.high + (hdr->default_char.low << 8);
+!     }
+X  
+X      pfi->fontDescent = hdr->font_descent;
+X      pfi->fontAscent = hdr->font_ascent;
+***************
+*** 112,117 ****
+--- 116,124 ----
+X                  nprops;
+X      char       *is_str;
+X  
++ /* stolen from server/include/resource.h */
++ #define BAD_RESOURCE 0xe0000000
++ 
+X      nprops = pfi->nprops = pi->num_offsets;
+X  
+X      dprop = (FontPropPtr) xalloc(sizeof(FontPropRec) * nprops);
+***************
+*** 133,138 ****
+--- 140,153 ----
+X  	    *is_str = TRUE;
+X  	    dprop->value = (INT32) MakeAtom(&pd[po->value.position],
+X  					    po->value.length, 1);
++ 	    if (dprop->value == BAD_RESOURCE)
++ 	    {
++ 		xfree (pfi->props);
++ 		xfree (pfi->isStringProp);
++ 		pfi->props = 0;
++ 		pfi->isStringProp = 0;
++ 		return -1;
++ 	    }
+X  	}
+X      }
+X  
+***************
+*** 140,146 ****
+X  }
+X  
+X  int
+! fs_convert_lfwi_reply(pfi, fsrep, pi, po, pd)
+X      FontInfoPtr pfi;
+X      fsListFontsWithXInfoReply *fsrep;
+X      fsPropInfo *pi;
+--- 155,162 ----
+X  }
+X  
+X  int
+! fs_convert_lfwi_reply(conn, pfi, fsrep, pi, po, pd)
+!     FSFpePtr    conn;
+X      FontInfoPtr pfi;
+X      fsListFontsWithXInfoReply *fsrep;
+X      fsPropInfo *pi;
+***************
+*** 149,156 ****
+X  {
+X      fsFontHeader *hdr = &fsrep->header;
+X  
+!     fs_convert_header(hdr, pfi);
+!     fs_convert_props(pi, po, pd, pfi);
+X  
+X      return Successful;
+X  }
+--- 165,173 ----
+X  {
+X      fsFontHeader *hdr = &fsrep->header;
+X  
+!     fs_convert_header(conn, hdr, pfi);
+!     if (fs_convert_props(pi, po, pd, pfi) == -1)
+! 	return AllocError;
+X  
+X      return Successful;
+X  }
+***************
+*** 325,331 ****
+X      return Successful;
+X  }
+X  
+! CharInfoRec junkDefault;
+X  
+X  static int
+X  _fs_get_metrics(pFont, count, chars, charEncoding, glyphCount, glyphs)
+--- 342,348 ----
+X      return Successful;
+X  }
+X  
+! static CharInfoRec junkDefault;
+X  
+X  static int
+X  _fs_get_metrics(pFont, count, chars, charEncoding, glyphCount, glyphs)
+***************
+*** 339,350 ****
+X      int         ret;
+X      FSFontPtr   fsfont;
+X      int         i;
+! 
+X      fsfont = (FSFontPtr) pFont->fontPrivate;
+X      if (!fsfont->pDefault)
+X  	fsfont->pDefault = &junkDefault;
+X      ret = _fs_get_glyphs(pFont, count, chars, charEncoding,
+X  			 glyphCount, (CharInfoPtr *) glyphs);
+X  
+X      if (ret == Successful) {
+X  	if (fsfont->pDefault == &junkDefault) {
+--- 356,373 ----
+X      int         ret;
+X      FSFontPtr   fsfont;
+X      int         i;
+!     CharInfoPtr encoding;
+!     
+X      fsfont = (FSFontPtr) pFont->fontPrivate;
+X      if (!fsfont->pDefault)
+X  	fsfont->pDefault = &junkDefault;
++ 
++     /* sleeze - smash the encoding so we get ink metrics */
++     encoding = fsfont->encoding;
++     fsfont->encoding = fsfont->inkMetrics;
+X      ret = _fs_get_glyphs(pFont, count, chars, charEncoding,
+X  			 glyphCount, (CharInfoPtr *) glyphs);
++     fsfont->encoding = encoding;
+X  
+X      if (ret == Successful) {
+X  	if (fsfont->pDefault == &junkDefault) {
+***************
+*** 377,388 ****
+X      FontPtr     pfont;
+X  {
+X      /* set font function pointers */
+-     extern int  fs_load_bitmaps();
+-     extern int  fs_load_extents();
+- 
+X      pfont->get_glyphs = _fs_get_glyphs;
+X      pfont->get_metrics = _fs_get_metrics;
+-     pfont->get_bitmaps = fs_load_bitmaps;
+-     pfont->get_extents = fs_load_extents;
+X      pfont->unload_font = fs_unload_font;
+X  }
+--- 400,406 ----
+*** /tmp/da26769	Tue Jul 14 18:05:13 1992
+--- mit/fonts/lib/font/fc/fsio.c	Tue Jul 14 18:05:12 1992
+***************
+*** 1,6 ****
+! /* $XConsortium: fsio.c,v 1.21 91/07/19 20:55:30 rws Exp $ */
+X  /*
+-  *
+X   * Copyright 1990 Network Computing Devices
+X   *
+X   * Permission to use, copy, modify, distribute, and sell this software and its
+--- 1,5 ----
+! /* $XConsortium: fsio.c,v 1.23 92/05/14 16:52:27 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+X   * Permission to use, copy, modify, distribute, and sell this software and its
+***************
+*** 23,30 ****
+X   * OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+-  *
+-  * $NCDId: @(#)fsio.c,v 1.7 1991/07/02 13:13:43 lemke Exp $
+X   */
+X  /*
+X   * font server i/o routines
+--- 22,27 ----
+***************
+*** 213,220 ****
+X      conn->fs_fd = _fs_connect(servername, 5);
+X      if (conn->fs_fd < 0)
+X  	return FALSE;
+-     conn->servername = (char *) xalloc(strlen(servername) + 1);
+-     strcpy(conn->servername, servername);
+X  
+X      conn->generation = ++generationCount;
+X  
+--- 210,215 ----
+***************
+*** 239,244 ****
+--- 234,243 ----
+X      if (_fs_read(conn, (char *) &rep, sizeof(fsConnSetup)) == -1)
+X  	return FALSE;
+X  
++     conn->fsMajorVersion = rep.major_version;
++     if (rep.major_version > FS_PROTOCOL)
++ 	return FALSE;
++ 
+X      alts = 0;
+X      /* parse alternate list */
+X      if (nalts = rep.num_alternates) {
+***************
+*** 308,313 ****
+--- 307,317 ----
+X      xfree(auth_data);
+X      xfree(vendor_string);
+X  
++     conn->servername = (char *) xalloc(strlen(servername) + 1);
++     if (conn->servername == NULL)
++ 	return FALSE;
++     strcpy(conn->servername, servername);
++ 
+X      return TRUE;
+X  }
+X  
+***************
+*** 392,397 ****
+--- 396,402 ----
+X  		errno = EPIPE;
+X  		return -1;
+X  	    }
++ 	    errno = 0;
+X  	} else if (errno == EINTR) {
+X  	    continue;
+X  	} else {		/* something bad happened */
+*** /tmp/da26791	Tue Jul 14 18:05:15 1992
+--- mit/fonts/lib/font/fc/fservestr.h	Tue Jul 14 18:05:14 1992
+***************
+*** 1,10 ****
+! /* $XConsortium: fservestr.h,v 1.6 91/06/21 18:15:45 keith Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and its
+!  * documentation for any purpose is hereby granted without fee, provided that
+!  * the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the name of Network Computing Devices not be
+X   * used in advertising or publicity pertaining to distribution of the
+--- 1,10 ----
+! /* $XConsortium: fservestr.h,v 1.8 92/07/09 16:11:10 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+!  * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the name of Network Computing Devices not be
+X   * used in advertising or publicity pertaining to distribution of the
+***************
+*** 22,29 ****
+X   * OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+-  *
+-  * $NCDId: @(#)fservestr.h,v 1.2 1991/05/24 15:03:06 lemke Exp $
+X   */
+X  
+X  #ifndef _FSERVESTR_H_
+--- 22,27 ----
+***************
+*** 48,53 ****
+--- 46,52 ----
+X  typedef struct _fs_font {
+X      CharInfoPtr pDefault;
+X      CharInfoPtr encoding;
++     CharInfoPtr inkMetrics;
+X      pointer     bitmaps;
+X  }           FSFontRec, *FSFontPtr;
+X  
+*** /tmp/da26813	Tue Jul 14 18:05:17 1992
+--- mit/fonts/lib/font/fc/fsio.h	Tue Jul 14 18:05:16 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: fsio.h,v 1.9 91/07/18 22:40:50 keith Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+--- 1,4 ----
+! /* $XConsortium: fsio.h,v 1.10 92/05/12 18:07:38 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+***************
+*** 22,29 ****
+X   * OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+-  *
+-  * $NCDId: @(#)fsio.h,v 1.4 1991/07/03 17:52:30 lemke Exp $
+X   */
+X  
+X  #ifndef	_FSIO_H_
+--- 22,27 ----
+***************
+*** 56,61 ****
+--- 54,60 ----
+X  
+X      int         generation;
+X      int         numAlts;
++     int		fsMajorVersion; /* font server major version number */
+X      FSFpeAltPtr alts;
+X  
+X      FSClientPtr	clients;
+*** /tmp/da11492	Mon Jul 20 16:43:04 1992
+--- mit/fonts/lib/font/Speedo/spfont.c	Mon Jul 20 16:43:03 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: spfont.c,v 1.13 91/09/16 11:42:28 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: spfont.c,v 1.16 92/05/12 18:07:52 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 22,30 ****
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author: Dave Lemke, Network Computing Devices Inc
+-  *
+-  * $NCDId: @(#)spfont.c,v 4.9 1991/07/02 17:01:30 lemke Exp $
+-  *
+X   */
+X  
+X  /*
+--- 22,27 ----
+***************
+*** 47,55 ****
+X  
+X  extern void SpeedoCloseFont();
+X  static int  get_sp_glyphs(),
+!             get_sp_bitmaps(),
+!             get_sp_metrics(),
+!             get_sp_extents();
+X  static int load_sp_font();
+X  
+X  static CharInfoRec junkDefault;
+--- 44,50 ----
+X  
+X  extern void SpeedoCloseFont();
+X  static int  get_sp_glyphs(),
+!             get_sp_metrics();
+X  static int load_sp_font();
+X  
+X  static CharInfoRec junkDefault;
+***************
+*** 69,455 ****
+X      dst->attributes = 0;
+X  }
+X  
+- /* XXX -- may have to add in some work for setting default metrics values */
+- 
+- /* ARGSUSED */
+X  static int
+- get_sp_extents(client, pfont, flags, num_ranges, range, num_extents, data)
+-     pointer     client;
+-     FontPtr     pfont;
+-     Mask        flags;
+-     unsigned long num_ranges;
+-     fsRange    *range;
+-     unsigned long *num_extents;
+-     fsCharInfo **data;
+- {
+-     int         start,
+-                 end,
+-                 i,
+-                 j;
+-     unsigned long size;
+-     fsCharInfo *ci,
+-                *pci;
+-     fsRange    *rp;
+-     FontInfoPtr pinfo;
+-     SpeedoFontPtr spf;
+-     SpeedoMasterFontPtr master;
+-     CharInfoRec src;
+-     int		firstChar;
+- 
+-     assert(pfont);
+-     pinfo = &pfont->info;
+-     spf = (SpeedoFontPtr) pfont->fontPrivate;
+-     master = spf->master;
+- 
+-     firstChar = master->first_char_id;
+-     if (flags & LoadAll) {
+- 	start = master->first_char_id;
+- 	end = master->max_id;
+- 
+- 	*num_extents = end - start + 1;
+- 	size = sizeof(fsCharInfo) * (*num_extents);
+- 	pci = ci = (fsCharInfo *) xalloc(size);
+- 	if (!ci)
+- 	    return AllocError;
+- 
+- 	/* copy all the extents */
+- 	for (i = start; i <= end; i++) {
+- 	    src = spf->encoding[i - firstChar];
+- 	    CopyCharInfo(&src, pci);
+- 	    pci++;
+- 	}
+- 
+- 	/* make sure it didn't go off the end */
+- 	assert(pci == (fsCharInfo *) ((char *) ci + size));
+- 	assert(pci == (ci + (end - start + 1)));
+- 
+- 	*data = ci;
+- 	return Successful;
+-     }
+-     /* normal case */
+-     /* figure out how big everything has to be */
+-     *num_extents = 0;
+-     for (i = 0, rp = range; i < num_ranges; i++, rp++) {
+- 	start = (rp->min_char.high << 8) + rp->min_char.low;
+- 	end = (rp->max_char.high << 8) + rp->max_char.low;
+- 
+- 	/* range check */
+- 	if (end < start ||
+- 		(end > (pinfo->lastRow << 8) + pinfo->lastCol)
+- 		|| (end < (pinfo->firstRow << 8) + pinfo->firstCol)
+- 		|| (start > (pinfo->lastRow << 8) + pinfo->lastCol)
+- 		|| (start < (pinfo->firstRow << 8) + pinfo->firstCol))
+- 	    return BadCharRange;
+- 
+- 	*num_extents += end - start + 1;
+-     }
+- 
+-     size = sizeof(fsCharInfo) * (*num_extents);
+-     pci = ci = (fsCharInfo *) xalloc(size);
+-     if (!ci)
+- 	return AllocError;
+- 
+-     /* copy all the extents */
+-     for (i = 0, rp = range; i < num_ranges; i++, rp++) {
+- 	start = (rp->min_char.high << 8) + rp->min_char.low;
+- 	end = (rp->max_char.high << 8) + rp->max_char.low;
+- 
+- 	/* copy all the extents */
+- 	for (j = start; j <= end; j++) {
+- 	    src = spf->encoding[j - firstChar];
+- 	    CopyCharInfo(&src, pci);
+- 	    pci++;
+- 	}
+- 
+- 	/* make sure it didn't go off the end */
+- 	assert(pci == (fsCharInfo *) ((char *) ci + size));
+- 	assert(pci == (ci + (end - start + 1)));
+-     }
+- 
+-     *data = ci;
+- 
+-     return Successful;
+- }
+- 
+- /*
+-  * packs up the glyphs as requested by the format
+-  */
+- 
+- static int
+- pack_sp_glyphs(pfont, format, flags, num_ranges, range, tsize, num_glyphs,
+- 	       offsets, data, freeData)
+-     FontPtr     pfont;
+-     int         format;
+-     Mask        flags;
+-     unsigned long num_ranges;
+-     fsRange    *range;
+-     unsigned long *tsize;
+-     unsigned long *num_glyphs;
+-     fsOffset  **offsets;
+-     pointer    *data;
+-     int		*freeData;
+- {
+-     unsigned long start,
+-                 end;
+-     int         i;
+-     fsOffset   *lengths = (fsOffset *) 0,
+-                *l;
+-     unsigned long size = 0;
+-     pointer     gdata,
+-                 gd;
+-     unsigned long ch;
+-     int         bitorder,
+-                 byteorder,
+-                 scanlinepad,
+-                 scanlineunit,
+-                 mappad;
+-     int         bpr,
+-                 skiprows = 0;
+-     fsRange    *rp;
+-     FontInfoPtr pinfo = &pfont->info;
+-     SpeedoFontPtr spf = (SpeedoFontPtr) pfont->fontPrivate;
+-     SpeedoMasterFontPtr master = spf->master;
+-     int         err;
+-     int         src_glyph_pad;
+-     int         src_bit_order;
+-     int         src_byte_order;
+-     int		firstChar;
+-     int         max_ascent, max_descent;
+-     int         min_left, max_right;
+- 	
+-     err = CheckFSFormat(format, (fsBitmapFormatMask) ~ 0,
+- 		&bitorder, &byteorder, &scanlineunit, &scanlinepad, &mappad);
+-     if (err != Successful)
+- 	return err;
+-     (void) CheckFSFormat(pfont->format, (fsBitmapFormatMask) ~ 0,
+- 		&src_bit_order, &src_byte_order, &err, &src_glyph_pad, &err);
+- 
+-     if (!spf->pDefault)
+- 	spf->pDefault = &junkDefault;
+- 
+-     *freeData = TRUE;
+-     firstChar = master->first_char_id;
+-     /* special case for all glyphs first */
+-     if (flags & LoadAll) {
+- 	start = master->first_char_id;
+- 	end = master->max_id;
+- 	*num_glyphs = end - start + 1;
+- 	size = compute_sp_data_size(pfont, mappad, scanlinepad, start, end);;
+- 	num_ranges = 1;
+-     } else {
+- 	*num_glyphs = 0;
+- 	for (i = 0, rp = range; i < num_ranges; i++, rp++) {
+- 	    start = (rp->min_char.high << 8) + rp->min_char.low;
+- 	    end = (rp->max_char.high << 8) + rp->max_char.low;
+- 
+- 	    /* range check */
+- 	    if (end < start ||
+- 		    (end > (pinfo->lastRow << 8) + pinfo->lastCol)
+- 		    || (end < (pinfo->firstRow << 8) + pinfo->firstCol)
+- 		    || (start > (pinfo->lastRow << 8) + pinfo->lastCol)
+- 		    || (start < (pinfo->firstRow << 8) + pinfo->firstCol))
+- 		return BadCharRange;
+- 
+- 	    *num_glyphs += end - start + 1;
+- 	    size += compute_sp_data_size(pfont, mappad, scanlinepad, start, end);
+- 	}
+-     }
+- 
+-     gd = gdata = (pointer) xalloc(size);
+-     if (!gdata)
+- 	return AllocError;
+-     if (mappad == BitmapFormatImageRectMax)
+- 	bzero((char *) gdata, size);
+- 
+-     /* get space for glyph offsets */
+-     l = lengths = (fsOffset *) xalloc(sizeof(fsOffset) *
+- 				      *num_glyphs);
+-     if (!lengths) {
+- 	xfree((char *) gdata);
+- 	return AllocError;
+-     }
+-     /* compute bpr for padded out fonts */
+-     switch (mappad)
+-     {
+-     case BitmapFormatImageRectMax:
+- 	max_ascent = FONT_MAX_ASCENT(pinfo);
+- 	max_descent = FONT_MAX_DESCENT(pinfo);
+- 	/* fall through */
+-     case BitmapFormatImageRectMaxWidth:
+- 	min_left = FONT_MIN_LEFT(pinfo);
+- 	max_right = FONT_MAX_RIGHT(pinfo);
+- 	bpr = GLWIDTHBYTESPADDED(max_right - min_left, scanlinepad);
+- 	break;
+-     case BitmapFormatImageRectMin:
+- 	break;
+-     }
+-     /* finally do the work */
+-     for (i = 0, rp = range; i < num_ranges; i++, rp++) {
+- 	/*
+- 	 * compute start & end.  if all_glyphs is set, we still have them
+- 	 * laying around
+- 	 */
+- 	if (!(flags & LoadAll)) {
+- 	    start = (rp->min_char.high << 8) + rp->min_char.low;
+- 	    end = (rp->max_char.high << 8) + rp->max_char.low;
+- 	}
+- 	for (ch = start; ch <= end; ch++) {
+- 	    CharInfoPtr ci;
+- 	    xCharInfo  *cim;
+- 	    int         srcbpr;
+- 	    unsigned char	*src, *dst;
+- 	    unsigned int	bits1, bits2;
+- 	    int         r,
+- 			lshift = 0,
+- 			rshift = 0,
+- 			width,
+- 			w,
+- 			src_extra,
+- 			dst_extra;
+- 
+- 	    l->position = gd - gdata;
+- 	    ci = &spf->encoding[ch - firstChar];
+- 
+- 	    /* ignore missing chars */
+- 	    if (!ci) 
+- 	    {
+- 		l->length = 0;
+- 		l++;
+- 		continue;
+- 	    }
+- 
+- 	    cim = &ci->metrics;
+- 
+- 	    /* sanity check */
+- 	    assert((cim->rightSideBearing - cim->leftSideBearing) <= (pinfo->maxbounds.rightSideBearing - pinfo->minbounds.leftSideBearing));
+- 
+- 	    srcbpr = GLWIDTHBYTESPADDED(cim->rightSideBearing -
+- 					cim->leftSideBearing, src_glyph_pad);
+- 
+- 
+- 	    /*
+- 	     * caculate bytes-per-row for PadNone (others done in allocation
+- 	     * phase), what (if anything) to ignore or add as padding
+- 	     */
+- 	    switch (mappad) {
+- 	    case BitmapFormatImageRectMin:
+- 		bpr = GLYPH_SIZE(ci, scanlinepad);
+- 		break;
+- 	    case BitmapFormatImageRectMax:
+- 		/* leave the first padded rows blank */
+- 		gd += bpr * (max_ascent - cim->ascent);
+- 		skiprows = bpr * (max_descent - cim->descent);
+- 		/* fall thru */
+- 	    case BitmapFormatImageRectMaxWidth:
+- 		rshift = cim->leftSideBearing - min_left;
+- 		lshift = 8 - lshift;
+- 		break;
+- 	    }
+- 	    src = (unsigned char *) ci->bits;
+- 	    dst = gd;
+- 
+- 	    width = srcbpr;
+- 	    if (srcbpr > bpr)
+- 		width = bpr;
+- 	    src_extra = srcbpr - width;
+- 	    dst_extra = bpr - width;
+- 
+- #if (DEFAULTBITORDER == MSBFirst)
+- #define BitLeft(b,c)	((b) << (c))
+- #define BitRight(b,c)	((b) >> (c))
+- #else
+- #define BitLeft(b,c)	((b) >> (c))
+- #define BitRight(b,c)	((b) << (c))
+- #endif
+- 
+- 	    if (!rshift)
+- 	    {
+- 		if (srcbpr == bpr)
+- 		{
+- 		    r = (cim->ascent + cim->descent) * width;
+- 		    bcopy (src, dst, r);
+- 		    dst += r;
+- 		}
+- 		else
+- 		{
+- 		    for (r = cim->ascent + cim->descent; r; r--)
+- 		    {
+- 			for (w = width; w; w--)
+- 			    *dst++ = *src++;
+- 			dst += dst_extra;
+- 			src += src_extra;
+- 		    }
+- 		}
+- 	    }
+- 	    else
+- 	    {
+- 		for (r = cim->ascent + cim->descent; r; r--)
+- 		{
+- 		    bits2 = 0;
+- 		    for (w = width; w; w--)
+- 		    {
+- 			bits1 = *src++;
+- 			*dst++ = BitRight(bits1, rshift) |
+- 				 BitLeft (bits2, lshift);
+- 			bits2 = bits1;
+- 		    }
+- 		    dst += dst_extra;
+- 		    src += src_extra;
+- 		}
+- 	    }
+- 	    dst += skiprows;
+- 	    l->length = dst - gd;
+- 	    gd = dst;
+- 	    l++;
+- 	}
+-     }
+- 
+- 
+-     bitorder = (bitorder == BitmapFormatBitOrderLSB) ?
+- 	LSBFirst : MSBFirst;
+-     byteorder = (byteorder == BitmapFormatByteOrderLSB) ?
+- 	LSBFirst : MSBFirst;
+- 
+-     /* now do the bit, byte, word swapping */
+-     if (bitorder != src_bit_order)
+- 	BitOrderInvert(gdata, size);
+-     if (byteorder != src_byte_order) {
+- 	if (scanlineunit == 2)
+- 	    TwoByteSwap(gdata, size);
+- 	else if (scanlineunit == 4)
+- 	    FourByteSwap(gdata, size);
+-     }
+-     *data = gdata;
+-     *tsize = size;
+-     *offsets = lengths;
+- 
+-     return Successful;
+- }
+- 
+- /* ARGSUSED */
+- static int
+- get_sp_bitmaps(client, pfont, format, flags, num_ranges, range,
+- 	       size, num_glyphs, offsets, data, freeData)
+-     pointer     client;
+-     FontPtr     pfont;
+-     fsBitmapFormat format;
+-     Mask        flags;
+-     unsigned long num_ranges;
+-     fsRange    *range;
+-     unsigned long *size;
+-     unsigned long *num_glyphs;
+-     fsOffset  **offsets;
+-     pointer    *data;
+-     int		*freeData;
+- {
+-     *size = 0;
+-     *data = (pointer) 0;
+-     *num_glyphs = 0;
+-     return pack_sp_glyphs(pfont, format, flags,
+- 		  num_ranges, range, size, num_glyphs, offsets, data, freeData);
+- }
+- 
+- static int
+X  get_sp_glyphs(pFont, count, chars, charEncoding, glyphCount, glyphs)
+X      FontPtr     pFont;
+X      unsigned long count;
+--- 64,70 ----
+***************
+*** 626,632 ****
+X  {
+X      SpeedoFontPtr spf;
+X      SpeedoMasterFontPtr spmf;
+-     FontPtr     mpfont;
+X      int         ret;
+X      char        tmpname[MAXFONTNAMELEN];
+X      specs_t     specs;
+--- 241,246 ----
+***************
+*** 633,660 ****
+X      FontScalableRec vals;
+X      double      pointsize;
+X  
+!     /* make a master if we don't have one */
+!     if (entry) {
+! 	mpfont = (FontPtr) entry->u.scalable.extra->private;
+! 	if (!mpfont) {
+! 	    mpfont = (FontPtr) xalloc(sizeof(FontRec));
+! 	    if (!mpfont)
+! 		return AllocError;
+! 	    flags |= FontLoadBitmaps;	/* make sure a master is all there */
+! 	    ret = load_sp_font(entry->name.name, filename, (FontEntryPtr) 0,
+! 			       format, fmask, mpfont, flags);
+! 	    if (ret != Successful) {
+! 		xfree(mpfont);
+! 		return ret;
+! 	    }
+! 	    entry->u.scalable.extra->private = (pointer) mpfont;
+! 	}
+! 	spf = (SpeedoFontPtr) mpfont->fontPrivate;
+! 	spmf = spf->master;
+!     } else {
+X  	ret = open_master(filename, &spmf);
+X  	if (ret != Successful)
+X  	    return ret;
+X      }
+X  
+X      spf = (SpeedoFontPtr) xalloc(sizeof(SpeedoFontRec));
+--- 247,261 ----
+X      FontScalableRec vals;
+X      double      pointsize;
+X  
+!     /* find a master (create it if necessary) */
+!     spmf = (SpeedoMasterFontPtr) entry->u.scalable.extra->private;
+!     if (!spmf)
+!     {
+X  	ret = open_master(filename, &spmf);
+X  	if (ret != Successful)
+X  	    return ret;
++ 	entry->u.scalable.extra->private = (pointer) spmf;
++ 	spmf->entry = entry;
+X      }
+X  
+X      spf = (SpeedoFontPtr) xalloc(sizeof(SpeedoFontRec));
+***************
+*** 663,675 ****
+--- 264,281 ----
+X      bzero((char *) spf, sizeof(SpeedoFontRec));
+X  
+X      spf->master = spmf;
++     spf->entry = entry;
+X      spmf->refcount++;
+X      sp_reset_master(spmf);
++     /* now we've done enough that if we bail out we must call close_sp_font */
+X  
+X      /* tear apart name to get sizes */
+X      strcpy(tmpname, fontname);
+X      if (!FontParseXLFDName(tmpname, &vals, FONT_XLFD_REPLACE_NONE))
++     {
++ 	close_sp_font(spf);
+X  	return BadFontName;
++     }
+X  
+X      fixup_vals(&vals);
+X      if (vals.point > 0)
+***************
+*** 697,709 ****
+X      specs.flags = MODE_SCREEN;
+X      specs.out_info = NULL;
+X  
+X      if (!sp_set_specs(&specs))
+X  	return BadFontName;
+X  
+X      spf->specs = specs;
+X  
+X      *spfont = spf;
+- 
+X      return Successful;
+X  }
+X  
+--- 303,334 ----
+X      specs.flags = MODE_SCREEN;
+X      specs.out_info = NULL;
+X  
++     /* When Speedo tries to generate a very small font bitmap, it
++        often crashes or goes into an infinite loop.
++        Don't know why this is so, but until we can fix it properly,
++        return BadFontName for anything smaller than 4 pixels.
++        */
++ #define TINY_FACTOR (4 << 16)
++     /* XXX may have to do more tweaking for ROTATED_TEXT */
++     if (specs.xxmult < TINY_FACTOR  ||  specs.yymult < TINY_FACTOR)
++     {
++ 	close_sp_font(spf);
++ 	return BadFontName;
++     }
++ 
++     /* clobber global state to avoid wrecking future obliqued fonts */
++     bzero ((char *) &sp_globals, sizeof(sp_globals));
++ 
+X      if (!sp_set_specs(&specs))
++     {
++ 	close_sp_font(spf);
+X  	return BadFontName;
++     }
+X  
+X      spf->specs = specs;
++     spf->master = spmf;
+X  
+X      *spfont = spf;
+X      return Successful;
+X  }
+X  
+***************
+*** 724,729 ****
+--- 349,357 ----
+X  
+X      ret = open_sp_font(fontname, filename, entry, format, fmask, flags, &spf);
+X  
++     if (ret != Successful)
++ 	return ret;
++ 
+X      spmf = spf->master;
+X      sp_reset_master(spmf);
+X      esize = sizeof(CharInfoRec) * (spmf->max_id - spmf->first_char_id + 1);
+***************
+*** 759,773 ****
+X  
+X      pfont->format = format;
+X  
+-     pfont->get_bitmaps = get_sp_bitmaps;
+X      pfont->get_metrics = get_sp_metrics;
+X      pfont->get_glyphs = get_sp_glyphs;
+-     pfont->get_extents = get_sp_extents;
+X      pfont->unload_font = SpeedoCloseFont;
+X      pfont->refcnt = 0;
+X      pfont->maxPrivate = -1;
+X      pfont->devPrivates = (pointer *) 0;
+X  
+X      close_master_file(spmf);
+X  
+X      return ret;
+--- 387,400 ----
+X  
+X      pfont->format = format;
+X  
+X      pfont->get_metrics = get_sp_metrics;
+X      pfont->get_glyphs = get_sp_glyphs;
+X      pfont->unload_font = SpeedoCloseFont;
+X      pfont->refcnt = 0;
+X      pfont->maxPrivate = -1;
+X      pfont->devPrivates = (pointer *) 0;
+X  
++     /* have to hold on to master for min/max id */
+X      close_master_file(spmf);
+X  
+X      return ret;
+***************
+*** 794,800 ****
+X  
+X      if (ret == Successful)
+X  	*ppfont = pfont;
+! 
+X      return ret;
+X  }
+X  
+--- 421,429 ----
+X  
+X      if (ret == Successful)
+X  	*ppfont = pfont;
+!     else
+! 	xfree (pfont);
+!     
+X      return ret;
+X  }
+X  
+***************
+*** 805,817 ****
+X      SpeedoMasterFontPtr spmf;
+X  
+X      spmf = spf->master;
+!     if (--spmf->refcount == 0) {
+! 	if (spmf->state & MasterFileOpen) {
+! 	    (void) fclose(spmf->fp);
+! 	    xfree(spmf->f_buffer);
+! 	    xfree(spmf->c_buffer);
+! 	}
+!     }
+X      xfree(spf->encoding);
+X      xfree(spf->bitmaps);
+X      xfree(spf);
+--- 434,442 ----
+X      SpeedoMasterFontPtr spmf;
+X  
+X      spmf = spf->master;
+!     --spmf->refcount;
+!     if (spmf->refcount == 0)
+! 	close_master_font (spmf);
+X      xfree(spf->encoding);
+X      xfree(spf->bitmaps);
+X      xfree(spf);
+*** /tmp/da11514	Mon Jul 20 16:43:06 1992
+--- mit/fonts/lib/font/Speedo/spfuncs.c	Mon Jul 20 16:43:06 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: spfuncs.c,v 1.5 91/09/16 11:42:30 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: spfuncs.c,v 1.7 92/04/15 14:35:48 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 22,30 ****
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author: Dave Lemke, Network Computing Devices, Inc
+-  *
+-  * $NCDId: @(#)spfuncs.c,v 4.8 1991/07/02 17:01:44 lemke Exp $
+-  *
+X   */
+X  
+X  #include	<X11/Xos.h>
+--- 22,27 ----
+***************
+*** 72,79 ****
+X  
+X      err = open_sp_font(fontname, filename, entry,
+X  	       (fsBitmapFormat) 0, (fsBitmapFormatMask) 0, (unsigned long) 0,
+! 		       spfont);
+!     spf = *spfont;
+X  
+X      if (err != Successful)
+X  	return err;
+--- 69,75 ----
+X  
+X      err = open_sp_font(fontname, filename, entry,
+X  	       (fsBitmapFormat) 0, (fsBitmapFormatMask) 0, (unsigned long) 0,
+! 		       &spf);
+X  
+X      if (err != Successful)
+X  	return err;
+***************
+*** 90,95 ****
+SHAR_EOF
+true || echo 'restore of fix-13 failed'
+fi
+echo 'End of  part 2'
+echo 'File fix-13 is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

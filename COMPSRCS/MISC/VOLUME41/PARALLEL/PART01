@@ -1,0 +1,486 @@
+Newsgroups: comp.sources.misc
+From: rlarkin@laurel.ocs.mq.edu.au (Rick Larkin)
+Subject: v41i049:  parallel - Parallelising routines, Part01/01
+Message-ID: <1993Dec19.220118.7050@sparky.sterling.com>
+X-Md4-Signature: 6b2a83eca73c642cd6bdab218b0a6792
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Macquarie University, Sydney Australia
+Date: Sun, 19 Dec 1993 22:01:18 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: rlarkin@laurel.ocs.mq.edu.au (Rick Larkin)
+Posting-number: Volume 41, Issue 49
+Archive-name: parallel/part01
+Environment: SunOS, MSDOS
+
+Below are parallel.c, parallel.h and ptp.c.  They allow easy parallelisation 
+of loops on multiprocessor hardware.  Increases loop speed by up to 3 times 
+on a 4 processor SUN galaxy.
+
+Works on SUNOS based SUNs and MSDOS PCs, don't know about any others.
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile parallel.c parallel.h ptp.c
+# Wrapped by kent@sparky on Sun Dec 19 15:55:57 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(164 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X#  Makefile file for parallel
+X#
+X#  Works on SUNOS based SUNs and MSDOS PCs, don't know about any others.
+X#
+X
+Xall: ptp
+X
+Xptp:
+X	gcc -o ptp ptp.c parallel.c -DSUN -lm
+END_OF_FILE
+  if test 164 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'parallel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parallel.c'\"
+else
+  echo shar: Extracting \"'parallel.c'\" \(6118 characters\)
+  sed "s/^X//" >'parallel.c' <<'END_OF_FILE'
+X/***************************************************************************
+X The following is...
+X      Copyright (C) 1993 by Macquarie University
+X      Released without ANY warranty to the public domain.
+X      Written by Richard Larkin. rlarkin@zen.efs.mq.edu.au
+X
+X      Thanks go to Mark Hahn for help with <sys/mman.h> functions.
+X
+X parallel.c - Code to achieve parallelism on multiprocessor architectures.
+X ***************************************************************************/
+X
+X#include "parallel.h"
+X
+X#ifndef MSDOS
+X
+X/***************************************************************************
+X Internally used structures.
+X ***************************************************************************/
+Xtypedef struct
+X{
+X  void *P;
+X  long int Size;
+X} PMAInfo;
+X
+X
+X/***************************************************************************
+X NumberProc number of processors available.
+X NumberProcUsed number of processors in use after last split.
+X ParentProcess true in the parent process.
+X ***************************************************************************/
+Xstatic long int NumberProc = 1;
+Xstatic long int NumberProcUsed = 1;
+Xstatic int ParentProcess = TRUE;
+X
+X
+X/***************************************************************************
+X Parallel memory details.
+X ***************************************************************************/
+Xstatic PMAInfo *PMA = NULL;
+Xstatic long int PMACnt = 0;
+X
+X
+X/***************************************************************************
+X ParallelProcessors tell parallel routines how many processors to assume.
+X Pre : none.
+X Post: Internal knowledge of number of processors set to maximum of N and 1.
+X ***************************************************************************/
+Xvoid ParallelProcessors(long int N)
+X{
+X  NumberProc = N < 1 ? 1 : N;
+X}
+X
+X
+X/***************************************************************************
+X ParallelSplit split into useful number of processes and return
+X interval of relevance to each process.
+X Calls to ParallelSplit cannot be nested.
+X Pre : Min, Max not NULL. NumberProcUsed == 1.
+X Post: NumberProcUsed is number of active processes.
+X       [Min..Max) will be interval of Range to use for each process.
+X ***************************************************************************/
+Xvoid ParallelSplit(long int Range, long int *Min, long int *Max)
+X{
+X  NumberProcUsed = Range < NumberProc ? Range : NumberProc;
+X
+X  /* Do we need to split?                                                  */
+X  if (NumberProcUsed > 1)
+X  {
+X    long int i;
+X
+X    /* Split into seperate processes.                                      */
+X    for (i = 0; i < NumberProcUsed - 1; i++)
+X      if (fork() == 0) break;                     /*ERROR fork() checks... */
+X
+X    /* Parent is only process that makes it through entire loop.           */
+X    ParentProcess = (i == NumberProcUsed-1);
+X
+X    /* Select the range for this process.                                  */
+X    *Min = i * (Range / NumberProcUsed);
+X    *Max = ParentProcess ? Range : (i+1) * (Range / NumberProcUsed);
+X  }
+X  else
+X  {
+X    /* Trivial range or number of processors.                              */
+X    *Min = 0; *Max = Range;
+X  }
+X}
+X
+X
+X/***************************************************************************
+X ParallelRegroup children all return to their parent who waits for them.
+X Pre : NumberProcUsed is number of active processes.
+X Post: One parent process. NumberProcUsed = 1;
+X ***************************************************************************/
+Xvoid ParallelRegroup(void)
+X{
+X  /* Nontrivial regroup?                                                   */
+X  if (NumberProcUsed > 1)
+X  {
+X    /* Children GO HOME!                                                   */
+X    if (!ParentProcess) exit(0);
+X
+X    /* Patient parent waits for children to arrive.                        */
+X    while (NumberProcUsed-- > 1) wait(NULL);
+X  }
+X}
+X
+X
+X/***************************************************************************
+X ParallelCalloc allocated a piece of memory to be globally accessible
+X throughout all processors.
+X Pre : none.
+X Post: Returns pointer to memory mapped parallel array file or
+X       in case of trivial processors returns normal Calloc result.
+X       Null returned on failure.
+X ***************************************************************************/
+Xvoid *ParallelCalloc(size_t nitems, size_t size)
+X{
+X  void *P;
+X
+X  if (NumberProc > 1)
+X  {
+X    PMA = Realloc(PMA, (PMACnt+1) * sizeof(PMA[0]));
+X    PMA[PMACnt].Size = nitems * size;
+X
+X    /* Set up the disk file to map into memory.                            */
+X    /* Map array and file together.                                        */
+X#ifdef SUN
+X    {
+X      int fd;
+X      if ((fd = open("/dev/zero", O_RDWR)) == -1) {/*ERROR*/};
+X
+X      P = mmap(0, PMA[PMACnt].Size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+X      close(fd);      /*ERROR check P != -1 */
+X    }
+X#else
+X    P = mmap(0, PMA[PMACnt].Size, PROT_READ|PROT_WRITE, 
+X                MAP_SHARED|MAP_ANONYMOUS, fd, 0);
+X#endif
+X
+X    madvise(P, PMA[PMACnt].Size, MADV_WILLNEED);
+X
+X    /* Store so we can tidy up later.                                      */
+X    PMA[PMACnt].P = P;
+X    PMACnt++;
+X  }
+X  else
+X  {
+X    P = calloc(nitems, size);
+X  }
+X
+X  return P;
+X}
+X
+X/***************************************************************************
+X ParallelFree frees a piece of memory associated with a ParallelCalloc.
+X Pre : *P is pointer return from ParallelCalloc().
+X Post: Memory and possible file are freed.
+X ***************************************************************************/
+Xvoid _ParallelFree(void *P)
+X{
+X  if (NumberProc > 1 && P != NULL)
+X  {
+X    long int PMAi;
+X    int Last = TRUE;
+X
+X    for (PMAi = 0; PMAi < PMACnt; PMAi++)
+X    {
+X      if (PMA[PMAi].P == P)
+X      {
+X        munmap((caddr_t) P, PMA[PMAi].Size);
+X        PMA[PMAi].P = NULL;
+X      }
+X
+X      Last = Last && (PMA[PMAi].P == NULL);
+X    }
+X
+X    if (Last) {free(PMA); PMACnt = 0;}
+X  }
+X  else
+X    free(P);
+X}
+X
+X#endif 
+X
+X/***************************************************************************
+X End of parallel.c
+X ***************************************************************************/
+END_OF_FILE
+  if test 6118 -ne `wc -c <'parallel.c'`; then
+    echo shar: \"'parallel.c'\" unpacked with wrong size!
+  fi
+  # end of 'parallel.c'
+fi
+if test -f 'parallel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parallel.h'\"
+else
+  echo shar: Extracting \"'parallel.h'\" \(5398 characters\)
+  sed "s/^X//" >'parallel.h' <<'END_OF_FILE'
+X/***************************************************************************
+X The following is...
+X      Copyright (C) 1993 by Macquarie University
+X      Released without ANY warranty to the public domain.
+X      Written by Richard Larkin. rlarkin@zen.efs.mq.edu.au
+X
+X      Thanks go to Mark Hahn for help with <sys/mman.h> functions.
+X
+X parallel.h header for parallel.c
+X
+X Basic idea...
+X -------------
+X Somewhere call
+X ParallelProcessors(N)
+X with N the number of processors you have.
+X
+X For arrays that have to be globally written to within parallel loops,
+X use ParallelCalloc()/ParallelFree() instead of calloc()/free().
+X Also use for huge (non written) arrays to save on memory usage.
+X
+X For loops to parallelise of the form...
+X {Only nonrecurrent loops can be parallelised.}
+X        for (i = 0; i < MAXIMUM; i++) {do_somethings};
+X Change to...
+X        ParallelSplit(MAXIMUM, &min, &max);
+X        for (i = min; i < max; i++) {do_somethings};
+X        ParallelRegroup();
+X
+X NOTES: All variables that are not Parallelled,
+X        will be local to each processor.
+X
+X        Nested parallelising is not supported.
+X
+X        ParallelCalloc()/ParallelFree() should not be used within
+X        parallelled sections of code.
+X
+X Overheads: If do_somethings takes time enough to warrant being
+X            parallelised, the overheads are not worth mentioning.
+X
+X            Under MS-DOS the overhead is 2 redundant stores.
+X
+X            Any single processor machine will use normal calloc'ed
+X            memory and do approximately 4 simple conditional calculations
+X            and 2 redundant stores per Split/Regroup.
+X ***************************************************************************/
+X
+X#ifndef __PARALLEL_HEADER
+X#define __PARALLEL_HEADER
+X
+X#ifndef MSDOS
+X
+X#include <stddef.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <sys/wait.h>
+X#include <sys/types.h>
+X#include <sys/mman.h>
+X
+X/* Until I find where they should be !!!! */
+X#define NULL  0
+X#define TRUE  (0==0)
+X#define FALSE (0!=0)
+X#define Realloc(P, s)  (P == NULL ? malloc((s)) : realloc((P), (size_t) (s)))
+Xint write(int fd, char *buf, int nbyte);
+Xint close (int fd);
+Xint fork(void);
+Xint munmap(caddr_t addr, int len);
+Xint madvise(caddr_t addr, size_t len, int advice);
+Xint unlink(char *path);
+Xvoid *malloc(size_t S);
+Xvoid *calloc(size_t N, size_t S);
+Xvoid *realloc(void *P, size_t S);
+X
+X/***************************************************************************
+X ParallelProcessors tell parallel routines how many processors to assume.
+X Pre : none.
+X Post: Internal knowledge of number of processors set to maximum of N and 1.
+X ***************************************************************************/
+Xvoid ParallelProcessors(long int N);
+X
+X
+X/***************************************************************************
+X ParallelSplit split into useful number of processes and return
+X interval of relevance to each process.
+X Calls to ParallelSplit cannot be nested.
+X Pre : Min, Max not NULL. NumberProcUsed == 1.
+X Post: NumberProcUsed is number of active processes.
+X       [Min..Max) will be interval of Range to use for each process.
+X ***************************************************************************/
+Xvoid ParallelSplit(long int Range, long int *Min, long int *Max);
+X
+X
+X/***************************************************************************
+X ParallelRegroup children all return to their parent who waits for them.
+X Pre : NumberProcUsed is number of active processes.
+X Post: One parent process. NumberProcUsed = 1;
+X ***************************************************************************/
+Xvoid ParallelRegroup(void);
+X
+X
+X/***************************************************************************
+X ParallelCalloc allocated a piece of memory to be globally accessible
+X throughout all processors.
+X Pre : none.
+X Post: Returns pointer to memory mapped parallel array file or
+X       in case of trivial processors returns normal Calloc result.
+X       Null returned on failure.
+X ***************************************************************************/
+Xvoid *ParallelCalloc(size_t nitems, size_t size);
+X
+X/***************************************************************************
+X ParallelFree frees a piece of memory associated with a ParallelCalloc.
+X Pre : P is pointer return from ParallelCalloc().
+X Post: Memory and possible file are freed.
+X ***************************************************************************/
+Xvoid _ParallelFree(void *P);
+X#define ParallelFree(P)           _ParallelFree((void *) P)
+X
+X#else
+X
+X/* Dummies for MSDOS                                                       */
+X#define ParallelProcessors(N)             {}
+X#define ParallelSplit(Range, Min, Max)    {*Min = 0; *Max = Range;}
+X#define ParallelRegroup()                 {}
+X#define ParallelCalloc(nitems, size)      calloc(nitems, size)
+X#define ParallelFree(P)                   free(P)
+X
+X#endif 
+X
+X/* Better access to parallel memory allocation.                            */
+X#define ParallelTypeMalloc(T, n)                                            \
+X          (T *) (ParallelCalloc((size_t)(n)*sizeof(T)), 1)
+X#define ParallelTypeCalloc(T, n)                                            \
+X          (T *) (ParallelCalloc((size_t)(n), sizeof(T)))
+X
+X#endif /* __PARALLEL_HEADER */
+X
+X/***************************************************************************
+X End of parallel.h
+X ***************************************************************************/
+END_OF_FILE
+  if test 5398 -ne `wc -c <'parallel.h'`; then
+    echo shar: \"'parallel.h'\" unpacked with wrong size!
+  fi
+  # end of 'parallel.h'
+fi
+if test -f 'ptp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ptp.c'\"
+else
+  echo shar: Extracting \"'ptp.c'\" \(1397 characters\)
+  sed "s/^X//" >'ptp.c' <<'END_OF_FILE'
+X/*
+X	ptp.c Parallel Test Program 
+X	(C) 1993 Macquarie University
+X	Released without ANY warranty to the public domain.
+X	Written by Richard Larkin. rlarkin@zen.efs.mq.edu.au
+X
+X	Demonstration of pseudo(?) parallel processing.
+X
+X	Calculates a total using however many processes are requested
+X	on the command line.
+X
+X	e.g
+X
+X	ptp, ptp 0	Crash and dump core.
+X	ptp 1		Use a single process.
+X			Does not use mapped file.
+X	ptp 2		2 processes used. This may make use of
+X			2 processors as well if the machine is parallel.
+X	ptp 128		Wish I had that many processors.
+X
+X	To compile...
+X			gcc -o ptp ptp.c parallel.c -DSUN -lm
+X
+X	Portability...
+X	Works on SUNOS based SUNs and MSDOS PCs, don't know about any others.
+X*/
+X
+X#include "parallel.h"
+X
+X#define ARRAYSIZE     80000
+X
+Xvoid main(int argc, char *argv[])
+X{
+X  long int i, Min, Max;
+X  float *t, s;
+X
+X  ParallelProcessors(atol(argv[1]));			
+X
+X  t = ParallelTypeCalloc(float, ARRAYSIZE);	
+X
+X  ParallelSplit(ARRAYSIZE, &Min, &Max);	
+X  puts("Processing");
+X  for (i = Min; i < Max; i++)
+X  {
+X    /* Nonsense calculation.                                               */
+X    s = (float) i / 10000.0 + 1.0;
+X    t[i] = log(abs(log((double) s) * log((double) s * s) + 1.0)) * 
+X           log(abs(log((double) s + 1.0) * log((double) s * s + 1.0) + 2.0));
+X  }
+X  ParallelRegroup();
+X
+X  for (i = 0, s = 0.0; i < ARRAYSIZE; s+=t[i++]);
+X  printf("Total is %f\n", s);
+X
+X  ParallelFree(t);
+X}
+X
+END_OF_FILE
+  if test 1397 -ne `wc -c <'ptp.c'`; then
+    echo shar: \"'ptp.c'\" unpacked with wrong size!
+  fi
+  # end of 'ptp.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

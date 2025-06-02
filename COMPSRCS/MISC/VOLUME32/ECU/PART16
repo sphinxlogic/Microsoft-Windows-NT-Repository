@@ -1,0 +1,2564 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i051:  ecu - ECU Asynchronous Communications v3.20, Part16/40
+Message-ID: <1992Sep13.153623.5576@sparky.imd.sterling.com>
+X-Md4-Signature: 771020a5e60609547dc6deacc2689351
+Date: Sun, 13 Sep 1992 15:36:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 51
+Archive-name: ecu/part16
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.16 (part 16 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fasiintf.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 16; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fasiintf.c'
+else
+echo 'x - continuing file fasiintf.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'fasiintf.c' &&
+X	return(txt);
+X
+X}	/* end of msr_text */
+X
+X/*+-------------------------------------------------------------------------
+X	mcr_text(mcr)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xmcr_text(mcr)
+Xuchar mcr;
+X{
+X	static char txt[32];
+X
+X	txt[0] = '*';
+X	txt[1] = 0;
+X	if(!mcr)
+X	{
+X		strcat(txt,"NULL*");
+X		return(txt);
+X	}
+X	if(mcr & MC_SET_DTR) strcat(txt,"DTR*");
+X	if(mcr & MC_SET_RTS) strcat(txt,"RTS*");
+X	if(mcr & MC_SET_OUT1) strcat(txt,"OUT1*");
+X	if(mcr & MC_SET_OUT2) strcat(txt,"OUT2*");
+X	if(mcr & MC_SET_LOOPBACK) strcat(txt,"LOOPBACK*");
+X	return(txt);
+X
+X}	/* end of mcr_text */
+X
+X/*+-------------------------------------------------------------------------
+X	lcr_text(lcr)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xlcr_text(lcr)
+Xuchar lcr;
+X{
+X	static char txt[64];
+X
+X	sprintf(txt,"*%ddb*",(lcr & LC_WORDLEN_MASK) + 5);
+X	strcat(txt,(lcr & LC_STOPBITS_LONG) ? "2" : "1");
+X	strcat(txt,"sb*");
+X	if(lcr & LC_ENABLE_PARITY)
+X	{
+X		strcat(txt,"PARITY*");
+X		if(lcr & LC_STICK_PARITY)
+X			strcat(txt,(lcr & LC_EVEN_PARITY) ? "MARK*" : "SPACE*");
+X		else
+X			strcat(txt,(lcr & LC_EVEN_PARITY) ? "EVEN*" : "ODD*" );
+X	}
+X	else
+X		strcat(txt,"NOPAR*");
+X	if(lcr & LC_SET_BREAK_LEVEL)
+X		strcat(txt,"SETBREAK*");
+X	if(lcr & LC_ENABLE_DIVISOR)
+X		strcat(txt,"ENABDIV*");
+X	return(txt);
+X
+X}	/* end of lcr_text */
+X
+X/*+-------------------------------------------------------------------------
+X	ier_text(ier)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xier_text(ier)
+Xuchar ier;
+X{
+X	static char txt[32];
+X
+X	txt[0] = '*';
+X	txt[1] = 0;
+X	if(!ier)
+X	{
+X		strcat(txt,"NULL*");
+X		return(txt);
+X	}
+X	if(ier & IE_RECV_DATA_AVAILABLE) strcat(txt,"RDAV*");
+X	if(ier & IE_XMIT_HOLDING_BUFFER_EMPTY) strcat(txt,"TBMT*");
+X	if(ier & IE_LINE_STATUS) strcat(txt,"LS*");
+X	if(ier & IE_MODEM_STATUS) strcat(txt,"MS*");
+X	return(txt);
+X
+X}	/* end of ier_text */
+X
+X/*+-------------------------------------------------------------------------
+X	display_fasi(fip)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_fasi(fip)
+Xstruct fas_info *fip;
+X{
+X
+X	pprintf("base address: %04x irq=%u ",fip->port_0.addr,fip->vec);
+X	pputs("device is ");
+X	if(fip->device_flags.s & DF_DEVICE_IS_NS16550A)
+X		pputs("16550\n");
+X	else if(fip->device_flags.s & DF_DEVICE_IS_I82510)
+X		pputs("82510\n");
+X	else
+X		pputs("16450\n");
+X	pprintf("MSR=%s   ",msr_text(fip->msr));
+X	pprintf("MCR=%s\n",mcr_text(fip->mcr));
+X	pprintf("LCR=%s   ",lcr_text(fip->lcr));
+X	pprintf("IER=%s\n",ier_text(fip->ier));
+X	pprintf("recv ring cnt=%u  ",fip->recv_ring_cnt);
+X	pprintf("xmit ring cnt=%u  ",fip->xmit_ring_cnt);
+X	pprintf("xmit fifo size=%u\n",fip->xmit_fifo_size);
+X	pprintf("characters received    =%12lu\n",fip->characters_received);
+X	pprintf("characters transmitted =%12lu\n",fip->characters_transmitted);
+X	pprintf("modem status events    =%12lu\n",fip->modem_status_events);
+X	pprintf("overrun errors=%lu  ",fip->overrun_errors);
+X	pprintf("framing errors=%lu  ",fip->framing_errors);
+X	pprintf("parity errors=%lu\n",fip->parity_errors);
+X	pprintf("rings detected=%lu  ",fip->rings_detected);
+X	pprintf("breaks detected=%lu\n",fip->breaks_detected);
+X	pprintf("xmtr flow off XON/XOFF=%lu  RTS/CTS=%lu\n",
+X		fip->xmtr_sw_flow_count,fip->xmtr_hw_flow_count);
+X	pprintf("rcvr flow off XON/XOFF=%lu  RTS/CTS=%lu\n",
+X		fip->rcvr_sw_flow_count,fip->rcvr_hw_flow_count);
+X
+X}	/* end of display_fasi */
+X
+X/*+-------------------------------------------------------------------------
+X	fasi_msr() - return modem status register contents
+X--------------------------------------------------------------------------*/
+Xuchar
+Xfasi_msr()
+X{
+X	ulong ltmp = 0;
+X
+X	return((uchar)ioctl(shm->Liofd,FASIC_MCR,(char *)&ltmp));
+X	return(ltmp);
+X}	/* end of fasi_msr */
+X
+X/*+-------------------------------------------------------------------------
+X	fasi_line_errors() - return UART error count
+X--------------------------------------------------------------------------*/
+Xulong
+Xfasi_line_errors()
+X{
+X	struct fas_info finfo,*fip = &finfo;
+X
+X	memset((char *)fip,0,sizeof(*fip));
+X
+X	if((ioctl(shm->Liofd,FASIC_SIP,(char *)fip)) < 0)
+X		return(0);
+X	return(fip->parity_errors + fip->framing_errors + fip->overrun_errors);
+X
+X}	/* end of fasi_line_errors */
+X
+X/*+-------------------------------------------------------------------------
+X	fasi_rings_detected() - return number of RI trailing edges
+X--------------------------------------------------------------------------*/
+Xulong
+Xfasi_rings_detected()
+X{
+X	struct fas_info finfo,*fip = &finfo;
+X
+X	memset((char *)fip,0,sizeof(*fip));
+X
+X	if((ioctl(shm->Liofd,FASIC_SIP,(char *)fip)) < 0)
+X		return(0);
+X	return(fip->rings_detected);
+X
+X}	/* end of fasi_rings_detected */
+X
+X/*+-------------------------------------------------------------------------
+X	fasi_breaks_detected() - return number of BREAKs detected
+X--------------------------------------------------------------------------*/
+Xulong
+Xfasi_breaks_detected()
+X{
+X	struct fas_info finfo,*fip = &finfo;
+X
+X	memset((char *)fip,0,sizeof(*fip));
+X
+X	if((ioctl(shm->Liofd,FASIC_SIP,(char *)fip)) < 0)
+X		return(0);
+X	return(fip->breaks_detected);
+X
+X}	/* end of fasi_breaks_detected */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fasi(param)
+Xfasi [-switches] <str-cmd>>
+X
+Xwhere <str-cmd> is 'd[isplay]'
+X                or 'r[eset]'
+X
+Xfasi 'd'
+Xfasi 'r'
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fasi(param)
+XESD *param;
+X{
+X	int erc;
+X	char switches[8];
+X	ESD *tesd = (ESD *)0;
+X	struct fas_info finfo,*fip = &finfo;
+X	char ident_str[128];
+X
+X	memset((char *)fip,0,sizeof(*fip));
+X
+X	get_switches(param,switches,sizeof(switches));
+X	if(!(tesd = esdalloc(64)))
+X		return(eNoMemory);
+X	if(!(erc = gstr(param,tesd,1)))
+X	{
+X		skip_cmd_break(tesd);
+X		switch(to_lower(*(tesd->pb + tesd->index)))
+X		{
+X			case 'd':	/* display */
+X				if((ioctl(shm->Liofd,FASIC_SIP,(char *)fip)) < 0)
+X				{
+X					pperror("ioctl FASIC_SIP");
+X					erc = eFATAL_ALREADY;
+X				}
+X				else
+X					display_fasi(fip);
+X				if((ioctl(shm->Liofd,FASIC_DVR_IDENT,ident_str)) < 0)
+X				{
+X					pperror("ioctl FASIC_DVR_IDENT");
+X					erc = eFATAL_ALREADY;
+X				}
+X				else
+X					pprintf("driver:  '%s'\n",ident_str);
+X				if((ioctl(shm->Liofd,FASIC_SPACE_IDENT,ident_str)) < 0)
+X				{
+X					pperror("ioctl FASIC_SPACE_IDENT");
+X					erc = eFATAL_ALREADY;
+X				}
+X				else
+X					pprintf("space.c: '%s'\n",ident_str);
+X				break;
+X
+X			case 'r':	/* reset */
+X				if((ioctl(shm->Liofd,FASIC_RESET_STAT,(char *)0)) < 0)
+X				{
+X					pperror("ioctl FASIC_RESET_STAT");
+X					erc = eFATAL_ALREADY;
+X				}
+X				else if(proctrace)
+X					pputs("statistics reset\n");
+X				break;
+X
+X			default:
+X				pputs("invalid subcommand '");
+X				pputs(tesd->pb);
+X				pputs("'\n");
+X				erc = eFATAL_ALREADY;
+X				break;
+X		}
+X	}
+X
+X	if(tesd)
+X		esdfree(tesd);
+X	return(erc);
+X
+X}	/* end of pcmd_fasi */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_fasi(narg,arg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xicmd_fasi(narg,arg)
+Xint narg;
+Xchar **arg;
+X{
+X	struct fas_info finfo,*fip = &finfo;
+X	char ident_str[128];
+X
+X	memset((char *)fip,0,sizeof(*fip));
+X
+X	if((narg > 1) && (to_lower(*arg[1]) == 'r'))
+X	{
+X		if((ioctl(shm->Liofd,FASIC_RESET_STAT,(char *)0)) < 0)
+X		{
+X			pperror("   ioctl FASIC_RESET_STAT");
+X			return;
+X		}
+X		ff(se,"  fasi statistics reset\r\n");
+X	}
+X	else
+X	{
+X		if((ioctl(shm->Liofd,FASIC_SIP,(char *)fip)) < 0)
+X		{
+X			pperror("   ioctl FASIC_SIP");
+X			return;
+X		}
+X		ff(se,"\r\n");
+X		display_fasi(fip);
+X		if((ioctl(shm->Liofd,FASIC_DVR_IDENT,ident_str)) < 0)
+X			pperror("ioctl FASIC_DVR_IDENT");
+X		else
+X			pprintf("driver:  '%s'\n",ident_str);
+X		if((ioctl(shm->Liofd,FASIC_SPACE_IDENT,ident_str)) < 0)
+X			pperror("ioctl FASIC_SPACE_IDENT");
+X		else
+X			pprintf("space.c: '%s'\n",ident_str);
+X	}
+X
+X}	/* end of icmd_fasi */
+X
+X#endif /* FASI */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of fasiintf.c */
+SHAR_EOF
+echo 'File fasiintf.c is complete' &&
+chmod 0644 fasiintf.c ||
+echo 'restore of fasiintf.c failed'
+Wc_c="`wc -c < 'fasiintf.c'`"
+test 9450 -eq "$Wc_c" ||
+	echo 'fasiintf.c: original size 9450, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= feval.c ==============
+if test -f 'feval.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping feval.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting feval.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'feval.c' &&
+X/*+-------------------------------------------------------------------------
+X    feval.c - integer and string function evaluation
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X    feval_int(param,&int_returned) where 'int' here means long ECU $i int
+X    feval_str(param,&esd_to_be_plugged)
+X
+X  These routines are called with param.index as follows:
+X
+X         !nnnnn       nnn is name of function
+X          ^
+X          |
+X
+X  Defined functions:
+X	feval_int(param,value)
+X	feval_str(param,result_esd)
+X	strfunc_left(param,scratch_esd,result_esd)
+X	strfunc_right(param,scratch_esd,result_esd)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-07-1992-15:04-wht@n4hgf-bug in FIconn code */
+X/*:04-25-1992-14:28-wht@n4hgf-%conn returns -1 if no line open */
+X/*:04-25-1992-13:19-wht@n4hgf-%line succeeds even if line not open */
+X/*:03-01-1992-13:28-wht@n4hgf-come up to modern times ... enum for FI/FS  */
+X/*:02-14-1992-16:37-wht@n4hgf-add uname */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:06-29-1991-16:33-wht@n4hgf-use cuserid() instead of getlogin() */
+X/*:03-16-1991-15:23-wht@n4hgf-add %nice */
+X/*:01-31-1991-16:10-wht@n4hgf-was freeing tesd1 twice in feval_str */
+X/*:12-24-1990-04:31-wht@n4hgf-experimental fasi driver functions */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "proc.h"
+X#include "var.h"
+X#include "ecutty.h"
+X#include <sys/utsname.h>
+X
+X#if defined(FASI)
+Xchar *msr_text();
+X#endif
+X
+Xenum FI_codes
+X{
+X	FIZERO,
+X	FIargc,
+X	FIbaud,
+X	FIbrdet,
+X	FIcolors,
+X	FIcols,
+X	FIconn,
+X	FIcsec,
+X	FIctoi,
+X	FIcurx,
+X	FIcury,
+X	FIesecs,
+X	FIfasi,
+X	FIfatime,
+X	FIfmode,
+X	FIfmtime,
+X	FIfsize,
+X	FIftell,
+X	FIgid,
+X	FIinstr,
+X	FIisalnum,
+X	FIisalpha,
+X	FIisascii,
+X	FIischr,
+X	FIiscntrl,
+X	FIisdigit,
+X	FIisdir,
+X	FIisgraph,
+X	FIislower,
+X	FIisprint,
+X	FIispunct,
+X	FIisreg,
+X	FIisspace,
+X	FIisupper,
+X	FIisxdigit,
+X	FIlen,
+X	FIlgetc,
+X	FIlines,
+X	FIlnerr,
+X	FImatch,
+X	FImhack,
+X	FImsr,
+X	FInice,
+X	FIpid,
+X	FIrchr,
+X	FIrchrc,
+X	FIridet,
+X	FIrinstr,
+X	FIshmid,
+X	FIstoi,
+X	FIuid,
+X	FIxchr,
+X	FIxchrc,
+X	FI____end
+X};
+X
+XKEYTAB feval_int_tbl[] =
+X{
+X	{"argc",FIargc},
+X	{"baud",FIbaud},
+X#if defined(FASI)
+X	{"brdet",FIbrdet},
+X#endif
+X	{"colors",FIcolors},
+X	{"cols",FIcols},
+X	{"conn",FIconn},
+X	{"csec",FIcsec},
+X	{"ctoi",FIctoi},
+X	{"curx",FIcurx},
+X	{"cury",FIcury},
+X	{"esecs",FIesecs},
+X	{"fasi",FIfasi},
+X	{"fatime",FIfatime},
+X	{"fmode",FIfmode},
+X	{"fmtime",FIfmtime},
+X	{"fsize",FIfsize},
+X	{"ftell",FIftell},
+X	{"gid",FIgid},
+X	{"instr",FIinstr},
+X	{"isalnum",FIisalnum},
+X	{"isalpha",FIisalpha},
+X	{"isalpha",FIisalpha},
+X	{"isascii",FIisascii},
+X	{"ischr",FIischr},
+X	{"iscntrl",FIiscntrl},
+X	{"isdigit",FIisdigit},
+X	{"isdir",FIisdir},
+X	{"isgraph",FIisgraph},
+X	{"islower",FIislower},
+X	{"isprint",FIisprint},
+X	{"ispunct",FIispunct},
+X	{"isreg",FIisreg},
+X	{"isspace",FIisspace},
+X	{"isupper",FIisupper},
+X	{"isxdigit",FIisxdigit},
+X	{"len",FIlen},
+X#if defined(FASI)
+X	{"lnerr",FIlnerr},
+X#endif
+X	{"lgetc",FIlgetc},
+X	{"lines",FIlines},
+X	{"match",FImatch},
+X	{"mhack",FImhack},
+X#if defined(FASI)
+X	{"msr",FImsr},
+X#endif
+X	{"nice",FInice},
+X	{"pid",FIpid},
+X	{"rchr",FIrchr},
+X	{"rchrc",FIrchrc},
+X#if defined(FASI)
+X	{"ridet",FIridet},
+X#endif
+X	{"rinstr",FIrinstr},
+X	{"shmid",FIshmid},
+X	{"stoi",FIstoi},
+X	{"uid",FIuid},
+X	{"xchr",FIxchr},
+X	{"xchrc",FIxchrc},
+X	{(char *)0,0}
+X};
+X
+Xenum FS_codes
+X{
+X	FSZERO,
+X	FSargv,
+X	FSbasename,
+X	FScgetc,
+X	FScgets,
+X	FSchr,
+X	FSdate,
+X	FSdatez,
+X	FSday,
+X	FSdayz,
+X	FSdir,
+X	FSdirpart,
+X	FSedate,
+X	FSenvvar,
+X	FSerrstr,
+X	FSetime,
+X	FSfilepart,
+X	FSfmodestr,
+X	FSitos,
+X	FSleft,
+X	FSline,
+X	FSlogname,
+X	FSmid,
+X	FSmonth,
+X	FSmonthz,
+X	FSmsrtext,
+X	FSrdesc,
+X	FSright,
+X	FSrname,
+X	FSrtel,
+X	FSscreen,
+X	FStime,
+X	FStimes,
+X	FStimez,
+X	FStimezs,
+X	FStty,
+X	FSuname,
+X	FS____end
+X};
+X
+XKEYTAB feval_str_tbl[] =
+X{
+X	{"argv",FSargv},
+X	{"basename",FSbasename},
+X	{"cgetc",FScgetc},
+X	{"cgets",FScgets},
+X	{"chr",FSchr},
+X	{"date",FSdate},
+X	{"datez",FSdatez},
+X	{"day",FSday},
+X	{"dir",FSdir},
+X	{"dirpart",FSdirpart},
+X	{"edate",FSedate},
+X	{"envvar",FSenvvar},
+X	{"errstr",FSerrstr},
+X	{"etime",FSetime},
+X	{"filepart",FSfilepart},
+X	{"fmodestr",FSfmodestr},
+X	{"getenv",FSenvvar},
+X	{"itos",FSitos},
+X	{"left",FSleft},
+X	{"line",FSline},
+X	{"logname",FSlogname},
+X	{"mid",FSmid},
+X	{"month",FSmonth},
+X#if defined(FASI)
+X	{"msrtext",FSmsrtext},
+X#endif
+X	{"rdesc",FSrdesc},
+X	{"right",FSright},
+X	{"rname",FSrname},
+X	{"rtelno",FSrtel},
+X	{"screen",FSscreen},
+X	{"time",FStime},
+X	{"times",FStimes},
+X	{"timez",FStimez},
+X	{"timezs",FStimezs},
+X	{"tty",FStty},
+X	{"uname",FSuname},
+X	{(char *)0,0}
+X};
+X
+Xextern char curr_dir[];
+Xextern int proctrace;
+Xextern PCB *pcb_stack[];
+Xextern struct timeb starting_timeb;
+Xextern uint tcap_LINES;
+Xextern uint tcap_COLS;
+X
+Xextern int shm_shmid;
+X
+Xchar *day_of_week_list = "SunMonTueWedThuFriSat";
+Xchar *month_name_list = "JanFebMarAprMayJunJulAugSepOctNovDec";
+X
+X/*+-------------------------------------------------------------------------
+X    erc = feval_int(param,&int_returned);
+XFunctions (parameter types are expressed by the usage of variables)
+X--------------------------------------------------------------------------*/
+Xfeval_int(param,value)
+XESD *param;
+Xlong *value;
+X{
+Xregister erc;
+Xregister keyword_token;
+XESD *tesd1 = (ESD *)0;
+XESD *tesd2 = (ESD *)0;
+Xulong int1;
+Xchar s32[32];
+Xstruct timeb now_timeb;
+Xint nice();
+X
+X	if(erc = get_alphanum_zstr(param,s32,sizeof(s32)))
+X	{
+X		erc = eInvalidFunction;
+X		goto RETURN;
+X	}
+X
+X	keyword_token = keyword_lookup(feval_int_tbl,s32);
+X	switch(keyword_token)
+X	{
+X/* LEN($S0)         length of $S0 */
+X	case FIlen:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X		*value = (long)tesd1->cb;
+X		break;
+X
+X/* INSTR($S0,$S1)   index of first occurrence of $S1 in $S0, -1 if none */
+X	case FIinstr:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(!(tesd2 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_comma(param))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd2,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X
+X		*value = (long)ulindex(tesd1->pb,tesd2->pb);
+X		break;
+X
+X/* RINSTR($S0,$S1)   index of last occurrence of $S1 in $S0, -1 if none */
+X	case FIrinstr:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(!(tesd2 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_comma(param))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd2,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X
+X		*value = (long)ulrindex(tesd1->pb,tesd2->pb);
+X		break;
+X
+X	case FImatch:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(!(tesd2 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_comma(param))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd2,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X
+X		erc = regexp_operation(tesd1->pb,tesd2->pb,value);
+X		break;
+X
+X	case FImhack:
+X		ftime(&now_timeb);
+X		*value = ((now_timeb.time - starting_timeb.time) * 1000) +
+X				(now_timeb.millitm - starting_timeb.millitm);
+X		erc = 0;
+X		break;
+X
+X	case FIesecs:
+X		ftime(&now_timeb);
+X		*value = now_timeb.time;
+X		erc = 0;
+X		break;
+X
+X	case FIargc:
+X		if(!proc_level)
+X		{
+X			pputs("not executing procedure\n");
+X			erc = eFATAL_ALREADY;
+X			break;
+X		}
+X		*value = (long)pcb_stack[proc_level - 1]->argc;
+X		break;
+X
+X	case FIcolors:
+X		if(erc = ifunc_colors(value))
+X			goto RETURN;
+X		break;
+X
+X	case FIftell:
+X		if(erc = ifunc_ftell(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIfmode:
+X		if(erc = ifunc_fmode(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIfsize:
+X		if(erc = ifunc_fsize(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIfmtime:
+X		if(erc = ifunc_fmtime(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIfatime:
+X		if(erc = ifunc_fatime(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIischr:
+X		if(erc = ifunc_ischr(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIisdir:
+X		if(erc = ifunc_isdir(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIisreg:
+X		if(erc = ifunc_isreg(param,value))
+X			goto RETURN;
+X		break;
+X
+X	case FIbaud:
+X		*value = (long)shm->Lbaud;
+X		erc = 0;
+X		break;
+X
+X	case FIpid:
+X		*value = (long)getpid();
+X		erc = 0;
+X		break;
+X
+X	case FIcsec:
+X		*value = (shm->Lconnected) ? shm->Loff_hook_time : -1;
+X		erc = 0;
+X		break;
+X
+X	case FIconn:
+X		if(shm->Liofd < 0)
+X			*value = -1;
+X		else
+X			*value = (long)(shm->Lconnected) ? (long)shm->Liofd : 0;
+X		erc = 0;
+X		break;
+X
+X	case FIxchr:
+X		*value = shm->xmit_chars;
+X		erc = 0;
+X		break;
+X
+X	case FIxchrc:
+X		*value = shm->xmit_chars_this_connect;
+X		erc = 0;
+X		break;
+X
+X	case FIrchr:
+X		*value = shm->rcvd_chars;
+X		erc = 0;
+X		break;
+X
+X	case FIrchrc:
+X		*value = shm->rcvd_chars_this_connect;
+X		erc = 0;
+X		break;
+X
+X/* LGETC($I0) get char from line, waiting for $I0 msec
+Xreturns  character read or -1 if none read in time */
+X	case FIlgetc:
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gint(param,&int1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X		*value = (long)lgetc_timeout(int1);
+X		if(zero_length_read_detected)
+X		{
+X			zero_length_read_detected = 0;
+X			erc = eProcAttn_DCDloss;
+X		}
+X		break;
+X
+X	case FIctoi:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X		if(tesd1->cb == 0)
+X			*value = -1;
+X		else
+X			*value = (long)((unsigned)0xFF & (unsigned)tesd1->pb[0]);
+X		break;
+X
+X	case FIstoi:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X
+X		tesd1->index = 0;
+X		skip_cmd_break(tesd1);
+X		*value = 0;
+X		gint_constant(tesd1,value);
+X		break;
+X
+X	case FIcurx:
+X		*value = (long)shm->cursor_x;
+X		break;
+X
+X	case FIcury:
+X		*value = (long)shm->cursor_y;
+X		break;
+X
+X	case FIshmid:
+X		*value = (long)shm_shmid;
+X		break;
+X
+X	case FIisalpha:
+X	case FIisupper:
+X	case FIislower:
+X	case FIisdigit:
+X	case FIisxdigit:
+X	case FIisspace:
+X	case FIispunct:
+X	case FIisalnum:
+X	case FIisprint:
+X	case FIisgraph:
+X	case FIiscntrl:
+X	case FIisascii:
+X		if(!(tesd1 = esdalloc(256)))
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = skip_paren(param,1))
+X			goto RETURN;
+X		if(erc = gstr(param,tesd1,1))
+X			goto RETURN;
+X		if(erc = skip_paren(param,0))
+X			goto RETURN;
+X		if(!tesd1->cb)
+X		{
+X			*value = 0;
+X			goto RETURN;
+X		}
+X		switch(keyword_token)
+X		{
+X			case FIisalpha:
+X				*value = !!isalpha(*tesd1->pb);
+X				break;
+X			case FIisupper:
+X				*value = !!isupper(*tesd1->pb);
+X				break;
+X			case FIislower:
+X				*value = !!islower(*tesd1->pb);
+X				break;
+X			case FIisdigit:
+X				*value = !!isdigit(*tesd1->pb);
+X				break;
+X			case FIisxdigit:
+X				*value = !!isxdigit(*tesd1->pb);
+X				break;
+X			case FIisspace:
+X				*value = !!isspace(*tesd1->pb);
+X				break;
+X			case FIispunct:
+X				*value = !!ispunct(*tesd1->pb);
+X				break;
+X			case FIisalnum:
+X				*value = !!isalnum(*tesd1->pb);
+X				break;
+X			case FIisprint:
+X				*value = !!isprint(*tesd1->pb);
+X				break;
+X			case FIisgraph:
+X				*value = !!isgraph(*tesd1->pb);
+X				break;
+X			case FIiscntrl:
+X				*value = !!iscntrl(*tesd1->pb);
+X				break;
+X			case FIisascii:
+X				*value = !!isascii(*tesd1->pb);
+X				break;
+X		}
+X		break;
+X
+X	case FIlines:
+X		*value = (long)tcap_LINES;
+X		break;
+X
+X	case FIcols:
+X		*value = (long)tcap_COLS;
+X		break;
+X
+X#if defined(FASI)
+X	case FIfasi:
+X		*value = 1;
+X		break;
+X	case FImsr:
+X		*value = (long)fasi_msr();
+X		break;
+X	case FIlnerr:
+X		*value = (long)fasi_line_errors();
+X		break;
+X	case FIridet:
+X		*value = (long)fasi_rings_detected();
+X		break;
+X	case FIbrdet:
+X		*value = (long)fasi_breaks_detected();
+X		break;
+X#else
+X	case FIfasi:
+X		*value = 0;
+X		break;
+X#endif
+X
+X	case FInice:
+X		*value = (long)nice(0) + 20;
+X		erc = 0;
+X		break;
+X
+X	case FIuid:
+X		*value = (long)getuid();
+X		erc = 0;
+X		break;
+X
+X	case FIgid:
+X		*value = (long)getgid();
+X		erc = 0;
+X		break;
+X
+X	default:
+X		erc = eInvalidFunction;
+X	}   /* end of keyword lookup erc switch statement */
+X
+XRETURN:
+X	if(tesd1)
+X		esdfree(tesd1);
+X	if(tesd2)
+X		esdfree(tesd2);
+X	return(erc);
+X
+X}   /* end of feval_int() */
+X
+X/*+------------------------------------------------------------------
+X    strfunc_left(param,&scratch_esd,&result_esd)
+X-------------------------------------------------------------------*/
+Xint
+Xstrfunc_left(param,scratch_esd,result_esd)
+XESD *param;
+XESD *scratch_esd;
+XESD *result_esd;
+X{
+Xregister erc;
+Xint itmp;
+Xlong ltmp;
+X
+X	if(erc = skip_paren(param,1))
+X		return(erc);
+X	if(erc = gstr(param,scratch_esd,1))
+X		return(erc);
+X	if(erc = skip_comma(param))
+X		return(erc);
+X	if(erc = gint(param,&ltmp))
+X		return(erc);
+X	itmp = (int)ltmp;
+X	if(itmp < 0)
+X		return(eBadParameter);
+X	if(erc = skip_paren(param,0))
+X		return(erc);
+X	/* take min of param and .cb */
+X	itmp = (itmp < scratch_esd->cb) ? itmp : scratch_esd->cb;
+X	if(itmp > (result_esd->maxcb - result_esd->cb) )
+X		return(eBufferTooSmall);
+X	memcpy(&result_esd->pb[result_esd->cb],
+X	    scratch_esd->pb,itmp);
+X	result_esd->cb += itmp;
+X	return(erc);
+X}   /* end of strfunc_left() */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = strfunc_right(param,&scratch_esd,&result_esd)
+X--------------------------------------------------------------------------*/
+Xint
+Xstrfunc_right(param,scratch_esd,result_esd)
+XESD *param;
+XESD *scratch_esd;
+XESD *result_esd;
+X{
+Xregister erc;
+Xint itmp;
+Xlong ltmp;
+X
+X	if(erc = skip_paren(param,1))
+X		return(erc);
+X	if(erc = gstr(param,scratch_esd,1))
+X		return(erc);
+X	if(erc = skip_comma(param))
+X		return(erc);
+X	if(erc = gint(param,&ltmp))
+X		return(erc);
+X	itmp = (int)ltmp;
+X	if(itmp < 0)
+X		return(eBadParameter);
+X	if(erc = skip_paren(param,0))
+X		return(erc);
+X
+X/* take min of param and .cb */
+X	itmp = (itmp < scratch_esd->cb) ? itmp : scratch_esd->cb;
+X	if(itmp > (result_esd->maxcb - result_esd->cb) )
+X		return(eBufferTooSmall);
+X	memcpy(&result_esd->pb[result_esd->cb],
+X	    &scratch_esd->pb[scratch_esd->cb - itmp],itmp);
+X	result_esd->cb += itmp;
+X	return(0);
+X
+X}   /* end of strfunc_right() */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = feval_str(param,&esd_to_be_plugged);
+X    results are APPENDED to 'result_esd'
+X--------------------------------------------------------------------------*/
+Xfeval_str(param,result_esd)
+XESD *param;
+XESD *result_esd;
+X{
+Xregister erc;
+Xregister itmp;
+Xint int1,int2;
+Xchar s64[64];
+Xchar *cptr;
+Xlong ltmp;
+Xlong ltmp2;
+Xlong ltmp3;
+XESD *tesd1;
+XESD *tesd2 = (ESD *)0;
+Xchar *get_ttyname();
+Xchar *getenv();
+Xchar *cuserid();
+Xchar *get_elapsed_time();
+Xchar *mode_map();
+X
+X	if(!(tesd1 = esdalloc(128)))
+X		return(eNoMemory);
+X
+X	if(erc = get_alphanum_zstr(param,s64,sizeof(s64)-1))
+X	{
+X		esdfree(tesd1);
+X		return(eInvalidFunction);
+X	}
+X
+X	erc = 0;
+X	itmp=keyword_lookup(feval_str_tbl,s64);
+X	switch(itmp)
+X	{
+X/* LEFT($S0,$I0)   return leftmost $I0 characters of $S0 */
+X	case FSleft:
+X		erc = strfunc_left(param,tesd1,result_esd);
+X		break;
+X
+X/* RIGHT($S0,$I0)   return rightmost $I0 characters of $S0 */
+X	case FSright:
+X		erc = strfunc_right(param,tesd1,result_esd);
+X		break;
+X
+X/* MID($S0,$I0,$I1)   return middle $I1 chars of $S0 starting at $I0 */
+X	case FSmid:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gstr(param,tesd1,1))
+X			break;
+X		if(erc = skip_comma(param))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		int1 = (int)ltmp;
+X		if(int1 < 0)
+X		{
+X			erc = eBadParameter;
+X			break;
+X		}
+X		if(erc = skip_cmd_break(param))
+X			break;
+X		if(param->pb[param->index] == ')') /* if we find a ')' instead of ... */
+X		{                                  /* 2nd int param, default to max */
+X			++param->index;
+X			int2 = 256;
+X		}
+X		else
+X		{
+X			if(erc = skip_comma(param))
+X				break;
+X			if(erc = gint(param,&ltmp))
+X				break;
+X			int2 = (int)ltmp;
+X			if(int2 < 0)
+X			{
+X				erc = eBadParameter;
+X				break;
+X			}
+X			if(erc = skip_paren(param,0))
+X				break;
+X		}
+X
+X		if(int1 >= tesd1->cb) /* if initial index past end of string */
+X			break;
+X		itmp = tesd1->cb - int1;
+X		itmp = (int2 < itmp) ? int2 : itmp;
+X		cptr = tesd1->pb + int1;
+X		goto CPTR_ITMP_COMMON;
+X
+X/* ARGV($I0) */
+X	case FSargv:
+X		if(!proc_level)
+X		{
+X			pputs("not executing procedure\n");
+X			erc = eFATAL_ALREADY;
+X			break;
+X		}
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		itmp = (long)pcb_stack[proc_level - 1]->argc; /* arg count */
+X		if((int)ltmp > itmp - 1)
+X		{
+X			if(proctrace)
+X			{
+X				pprintf("WARNING: %%argc=%d, %%argv(%ld) null\n",
+X					itmp,ltmp);
+X			}
+X			break;
+X		}
+X		cptr = (pcb_stack[proc_level - 1])->argv[(int)ltmp];
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSdir:
+X		cptr = curr_dir;
+X		itmp = strlen(curr_dir);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSetime:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		cptr = get_elapsed_time(ltmp);
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSerrstr:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		cptr = errno_text((int)ltmp);
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSenvvar:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gstr(param,tesd1,1))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		if(!(cptr = getenv(tesd1->pb)))
+X			break;
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSlogname:
+X		if(!(cptr = cuserid((char *)0)))
+X			break;
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSfmodestr:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		cptr = mode_map((ushort)ltmp,(char *)0);
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FStty:
+X		cptr = get_ttyname();
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSuname:
+X	{
+X		struct utsname utsn;
+X#ifdef M_SYSV /* SCO */
+X		FILE *fp = fopen("/etc/systemid","r");
+X		if(fp)
+X		{
+X			s64[0] = 0;
+X			fgets(s64,sizeof(s64),fp);
+X			fclose(fp);
+X			if(itmp = strlen(s64))
+X			{
+X				if(*(cptr = s64 + itmp - 1) == '\n')
+X					*cptr = 0,itmp--;
+X				strip_trail_break(s64);
+X				cptr = s64;
+X				itmp = strlen(cptr);
+X				goto CPTR_ITMP_COMMON;
+X			}
+X		}
+X#endif
+X		if(uname(&utsn) == -1)
+X		{
+X			pperror("uname");
+X			erc = eFATAL_ALREADY;
+X			break;
+X		}
+X		cptr = utsn.sysname;
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X	} /* end of case FSuname */
+X
+X	case FSrname:
+X		if(!shm->Lconnected)
+X			break;
+X		cptr = shm->Lrname;
+X		itmp = strlen(shm->Lrname);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSrdesc:
+X		if(!shm->Lconnected)
+X			break;
+X		cptr = shm->Ldescr;
+X		itmp = strlen(shm->Ldescr);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSrtel:
+X		if(!shm->Lconnected)
+X			break;
+X		cptr = shm->Ltelno;
+X		itmp = strlen(shm->Ltelno);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSline:
+X		cptr = shm->Lline;
+X		itmp = strlen(shm->Lline);
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSmonth:
+X	case FSmonthz:
+X	    cptr = &month_name_list[(get_month(itmp == FSmonthz) - 1) * 3];
+X		itmp = 3;
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSday:
+X	case FSdayz:
+X		cptr = &day_of_week_list[get_day(itmp == FSdayz) * 3];
+X		itmp = 3;
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSscreen:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))		/* y */
+X			break;
+X		if(ltmp > 42)
+X		{
+X			erc = eBadParameter;
+X			break;
+X		}
+X		if(erc = skip_comma(param))
+X			break;
+X		if(erc = gint(param,&ltmp2))	/* x */
+X			break;
+X		if(ltmp2 > 79)
+X		{
+X			erc = eBadParameter;
+X			break;
+X		}
+X		if(erc = skip_comma(param))
+X			break;
+X		if(erc = gint(param,&ltmp3))	/* len */
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X
+X		int1 = ((int)ltmp * 80) + (int)ltmp2;	/* screen position */
+X		itmp = (int)ltmp3;						/* length */
+X		int2 = sizeof(shm->screen) - int1;		/* size from y,x to end */
+X		if(itmp > int2)
+X			itmp = int2;
+X		cptr = ((char *)shm->screen) + int1;
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSbasename:
+X		if(!(tesd2 = esdalloc(32)))
+X			return(eNoMemory);
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gstr(param,tesd1,1))
+X			break;
+X		if(erc = skip_comma(param))
+X			break;
+X		if(erc = gstr(param,tesd2,1))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		cptr = tesd1->pb;
+X		itmp = tesd1->cb;
+X		if((tesd1->cb >= tesd2->cb) &&
+X			!strcmp(cptr + tesd1->cb - tesd2->cb,tesd2->pb))
+X		{
+X			itmp -= tesd2->cb;
+X		}
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSdirpart:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gstr(param,tesd1,1))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		if(cptr = strrchr(tesd1->pb,'/'))
+X			itmp = cptr - tesd1->pb;
+X		else
+X			itmp = tesd1->cb;
+X		cptr = tesd1->pb;
+X		goto CPTR_ITMP_COMMON;
+X
+X	case FSfilepart:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gstr(param,tesd1,1))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		if(cptr = strrchr(tesd1->pb,'/'))
+X			itmp = strlen(++cptr);
+X		else
+X		{
+X			cptr = tesd1->pb;
+X			itmp = tesd1->cb;
+X		}
+X		goto CPTR_ITMP_COMMON;
+X
+X#if defined(FASI)
+X	case FSmsrtext:
+X		cptr = msr_text(fasi_msr());
+X		itmp = strlen(cptr);
+X		goto CPTR_ITMP_COMMON;
+X#endif
+X
+XCPTR_ITMP_COMMON:
+X		if( itmp > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		memcpy(&result_esd->pb[result_esd->cb],cptr,itmp);
+X		result_esd->cb += itmp;
+X		break;
+X
+X	case FSedate:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(erc = skip_paren(param,0))
+X			break;
+X		if(19 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		epoch_secs_to_str(ltmp,3,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 19;
+X		break;
+X
+X	case FStime:
+X		if(5 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(0,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 5;
+X		break;
+X
+X	case FStimes:
+X		if(8 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(1,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 8;
+X		break;
+X
+X	case FStimez:
+X		if(5 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(6,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 5;
+X		break;
+X
+X	case FStimezs:
+X		if(8 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(7,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 8;
+X		break;
+X
+X	case FSdate:
+X		if(10 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(5,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 10;
+X		break;
+X
+X	case FSdatez:
+X		if(10 > (result_esd->maxcb - result_esd->cb))
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		get_tod(8,&result_esd->pb[result_esd->cb]);
+X		result_esd->cb += 10;
+X		break;
+X
+X	case FScgets:
+X		erc = ttygets_esd(result_esd,TG_CRLF,1);
+X		break;
+X
+X	case FScgetc:
+X		if(result_esd->cb == result_esd->maxcb)
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		result_esd->pb[result_esd->cb] = ttygetc(0);
+X		result_esd->cb++;
+X		break;
+X
+X	case FSchr:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		if(!ltmp)
+X		{
+X			pputs("cannot use %chr(0)\n");
+X			return(eFATAL_ALREADY);
+X		}
+X		if(erc = skip_paren(param,0))
+X			break;
+X		if(result_esd->cb == result_esd->maxcb )
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		result_esd->pb[result_esd->cb] = (char)ltmp;
+X		result_esd->cb++;
+X		break;
+X
+X	case FSitos:
+X		if(erc = skip_paren(param,1))
+X			break;
+X		if(erc = gint(param,&ltmp))
+X			break;
+X		s64[0] = 0;
+X		if(!skip_comma(param))
+X		{
+X			if(erc = get_numeric_zstr(param,s64 + 1,sizeof(s64) - 4))
+X				strcpy(s64 + 1,"1");
+X			if(((itmp = atoi(s64 + 1)) < 0) ||
+X				(itmp > (result_esd->maxcb - result_esd->cb)))
+X			{
+X				erc = eBufferTooSmall;
+X				break;
+X			}
+X			s64[0] = '%';
+X			if(ulindex(param->pb + param->index,"x") == 0)
+X			{
+X				param->index++;
+X				strcat(s64,"lx");
+X			}
+X			else if(ulindex(param->pb + param->index,"o") == 0)
+X			{
+X				param->index++;
+X				strcat(s64,"lo");
+X			}
+X			else if(ulindex(param->pb + param->index,"d") == 0)
+X			{
+X				param->index++;
+X				strcat(s64,"ld");
+X			}
+X			else if(erc)
+X				break;
+X			else
+X				strcat(s64,"ld");
+X		}
+X		if(erc = skip_paren(param,0))
+X			break;
+X		sprintf(tesd1->pb,s64[0] ? s64 : "%ld",ltmp);
+X		tesd1->cb = strlen(tesd1->pb);
+X		if(result_esd->maxcb - result_esd->cb < tesd1->cb)
+X		{
+X			erc = eBufferTooSmall;
+X			break;
+X		}
+X		strcpy(&result_esd->pb[result_esd->cb],tesd1->pb);
+X		result_esd->cb += tesd1->cb;
+X		break;
+X
+X
+X	default:
+X		erc = eInvalidFunction;
+X		break;
+X	}   /* end of keyword lookup erc switch statement */
+X
+X	esd_null_terminate(result_esd);
+X	esdfree(tesd1);
+X	if(tesd2)
+X		esdfree(tesd2);
+X	return(erc);
+X
+X}   /* end of feval_str() */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of feval.c */
+SHAR_EOF
+chmod 0644 feval.c ||
+echo 'restore of feval.c failed'
+Wc_c="`wc -c < 'feval.c'`"
+test 25046 -eq "$Wc_c" ||
+	echo 'feval.c: original size 25046, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= feval.h ==============
+if test -f 'feval.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping feval.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting feval.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'feval.h' &&
+X/*+-------------------------------------------------------------------------
+X	feval.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _feval_h
+X#define _feval_h
+X
+X#define FIinstr		1
+X#define FIlen		2
+X#define FIstoi		3
+X#define FIctoi		4
+X#define FIbaud		5
+X#define FIconn		6
+X#define FIcsec		7
+X#define FIpid		8
+X#define FIrchr		9
+X#define FIrchrc		10
+X#define FIxchr		11
+X#define FIxchrc		12
+X#define FIlgetc		13
+X#define FIargc		14
+X#define FIftell		15
+X#define FIfmode		16
+X#define FIisdir		17
+X#define FIisreg		18
+X#define FIischr		19
+X#define FIfatime	20
+X#define FIfmtime	21
+X#define FIfsize		22
+X#define FIcolors	23
+X
+X
+XKEYTAB feval_int_tbl[] =
+X{
+X	{"argc",FIargc},
+X	{"baud",FIbaud},
+X	{"colors",FIcolors},
+X	{"conn",FIconn},
+X	{"csec",FIcsec},
+X	{"ctoi",FIctoi},
+X	{"fatime",FIfatime},
+X	{"fmode",FIfmode},
+X	{"fmtime",FIfmtime},
+X	{"fsize",FIfsize},
+X	{"ftell",FIftell},
+X	{"instr",FIinstr},
+X	{"ischr",FIischr},
+X	{"isdir",FIisdir},
+X	{"isreg",FIisreg},
+X	{"len",FIlen},
+X	{"lgetc",FIlgetc},
+X	{"pid",FIpid},
+X	{"rchr",FIrchr},
+X	{"rchrc",FIrchrc},
+X	{"stoi",FIstoi},
+X	{"xchr",FIxchr},
+X	{"xchrc",FIxchrc},
+X	{(char *)0,0}
+X};
+X
+X#define FSleft		2
+X#define FSright		3
+X#define FSmid		4
+X#define FSdate		5
+X#define FSmonth		6
+X#define FSday		7
+X#define FScgets		9
+X#define FScgetc		10
+X#define FSitos		11
+X#define FSchr		12
+X#define FSdir		13
+X#define FStty		14
+X#define FSrdesc		15
+X#define FSrname		16
+X#define FSline		17
+X#define FSrtel		18
+X#define FSargv		19
+X#define FStime		20
+X#define FStimes		21
+X#define FSedate		22
+X#define FSetime		23
+X#define FSgetenv	24
+X#define FSgetlogin	25
+X
+X
+XKEYTAB feval_str_tbl[] =
+X{
+X	{"argv",FSargv},
+X	{"cgetc",FScgetc},
+X	{"cgets",FScgets},
+X	{"chr",FSchr},
+X	{"date",FSdate},
+X	{"day",FSday},
+X	{"dir",FSdir},
+X	{"edate",FSedate},
+X	{"etime",FSetime},
+X	{"getenv",FSgetenv},
+X	{"getlogin",FSgetlogin},
+X	{"itos",FSitos},
+X	{"left",FSleft},
+X	{"line",FSline},
+X	{"mid",FSmid},
+X	{"month",FSmonth},
+X	{"rdesc",FSrdesc},
+X	{"right",FSright},
+X	{"rname",FSrname},
+X	{"rtelno",FSrtel},
+X	{"time",FStime},
+X	{"times",FStimes},
+X	{"tty",FStty},
+X	{(char *)0,0}
+X};
+X
+X#endif /* _feval_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of feval.h */
+SHAR_EOF
+chmod 0644 feval.h ||
+echo 'restore of feval.h failed'
+Wc_c="`wc -c < 'feval.h'`"
+test 2461 -eq "$Wc_c" ||
+	echo 'feval.h: original size 2461, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= funckeymap.c ==============
+if test -f 'funckeymap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping funckeymap.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting funckeymap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'funckeymap.c' &&
+X/* #define NONANSI_DEBUG */
+X/*+-----------------------------------------------------------------
+X	funckeymap.c - keyboard function key -> ECU internal
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	fkmap_command(argc,argv)
+X	funckeymap(buf,buflen)
+X	funckeymap_define(bufptr)
+X	funckeymap_display(fp)
+X	funckeymap_display_single(tkde,fp)
+X	funckeymap_init()
+X	funckeymap_read(name)
+X
+X------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-30-1992-23:06-wht@n4hgf-add fkmap_command */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-28-1991-14:51-wht@n4hgf2-look correctly for funckeymap in ECULIBDIR */
+X/*:08-26-1991-05:45-wht@n4hgf2-# got included in key def */
+X/*:08-06-1991-13:19-wht@n4hgf-allow any code as first in key sequence */
+X/*:08-03-1991-14:44-wht@n4hgf-look for funckeymap in ECULIBDIR too */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:03-20-1991-03:06-root@n4hgf-no Metro Link problems here */
+X/*:03-20-1991-01:04-root@n4hgf-diagnose Metro Link xterm differences */
+X/*:01-10-1991-23:15-wht@n4hgf-string overflow rptd by spooley@compulink.co.uk */
+X/*:12-01-1990-12:51-wht@n4hgf-creation, borrowing from and using ecufkey.c */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "ecukey.h"
+X#include "ecufkey.h"
+X#include "ecuxkey.h"
+X#include "ecufork.h"
+X
+Xextern int tty_not_char_special;
+Xextern char *dash_f_funckeytype;
+X
+XKDE funckeymap_table[KDE_COUNT];
+Xchar funckeymap_name[32] = "";
+X#if defined(NONANSI_DEBUG)
+Xstatic FILE *nadbg = (FILE *)0;
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap_init() - initialize function key mapping (recognition)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfunckeymap_init()
+X{
+X	register itmp;
+X	register KDE *tkde;
+X	char *make_char_graphic();
+X
+X	for(itmp = 0; itmp < KDE_COUNT; itmp++)
+X	{
+X		tkde = &funckeymap_table[itmp];
+X		tkde->logical[0] = 0;
+X		tkde->count = 0;
+X		tkde->ikde = 0;
+X	}
+X
+X	funckeymap_name[0] = 0;
+X
+X}	/* end of funckeymap_init */
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap_define(bufptr) - use funckeymap line to define a mapping
+X
+X  returns 0 good keydef
+X         -1 if syntax error
+X--------------------------------------------------------------------------*/
+Xint
+Xfunckeymap_define(bufptr)
+Xregister char *bufptr;
+X{
+X	register itmp;
+X	register token_number = 0;
+X	KDE *tkde = (KDE *)0;
+X	int ikde = 0;
+X	int octothorpe = 0;
+X	char *token;
+X	char *arg_token();
+X	char *str_token();
+X	char *skip_ld_break();
+X
+X	while(!octothorpe &&
+X	   (token = (token_number < 2) ? str_token(bufptr,":")
+X	                               : arg_token(bufptr," \t")))
+X	{
+X		bufptr = (char *)0;	/* further calls to arg_token need NULL */
+X		token = skip_ld_break(token);
+X		strip_trail_break(token);
+X
+X		switch(token_number)
+X		{
+X			case 0:		/* first field is key identifier */
+X				if((ikde = kde_name_to_ikde(token)) < 0)
+X				{
+X					pprintf("  %s is not a legal key identifier\r\n",token);
+X					return(-1);
+X				}
+X				tkde = &funckeymap_table[ikde];
+X				tkde->logical[0] = 0;
+X				tkde->count = 0;
+X				tkde->ikde = ikde;
+X				break;
+X
+X			case 1:		/* second field is logical key name */
+X				if(*token == '#')
+X					goto MISSING_LABEL;
+X				strncpy(tkde->logical,token,sizeof(tkde->logical));
+X				tkde->logical[sizeof(tkde->logical) - 1] = 0;
+X				break;
+X
+X			case 2:		/* third field is first token of sequence */
+X				if(*token == '#')
+X					goto MISSING_SEQUENCE;
+X
+X			default:	/* third and subsequent to define key */
+X				if(*token == '#')
+X				{
+X					octothorpe = 1;
+X					break;
+X				}
+X				if(tkde->count == sizeof(tkde->str))
+X				{
+X					pprintf("  %s: output count too long",
+X						keyset_idstr(ikde));
+X					return(-1);
+X				}
+X				if((itmp = ascii_to_hex(token)) < 0)
+X				{
+X					pprintf("  %s: '%s' invalid\r\n",
+X						keyset_idstr(ikde),token);
+X					return(-1);
+X				}
+X				tkde->str[tkde->count] = itmp;
+X				tkde->count++;
+X				break;
+X		}	/* end of switch(token_number) */
+X
+X		if(octothorpe)
+X			break;
+X
+X		token_number++;
+X
+X	}		/* end while not end of record */
+X
+X	switch(token_number)
+X	{
+X		case 0:
+X			pprintf("funckeymap_define logic error\n");
+X			termecu(TERMECU_LOGIC_ERROR);
+X			break;
+X
+X		case 1:
+XMISSING_LABEL:
+X			pprintf("%s: missing key label\r\n",keyset_idstr(ikde));
+X			break;
+X
+X		case 2:
+XMISSING_SEQUENCE:
+X			pprintf("%s: missing char sequence\r\n",keyset_idstr(ikde));
+X			break;
+X		default:
+X			/* special init string entry */
+X			if(ikde == IKDE_InitStr)
+X				fwrite(tkde->str,1,tkde->count,stderr);
+X			else if(tkde->count)
+X			{
+X				uchar ch = tkde->str[0];
+X				extern uchar kbdeof;		/* current input EOF */
+X				extern uchar kbdeol2;		/* current secondary input EOL */
+X				extern uchar kbdeol;		/* current input EOL */
+X				extern uchar kbderase;		/* current input ERASE */
+X				extern uchar kbdintr;		/* current input INTR */
+X				extern uchar kbdkill;		/* current input KILL */
+X				extern uchar kbdquit;		/* current input QUIT */
+X
+X				if(	(ch == kbdeof) || (ch == kbdeol2) ||
+X					(ch == kbdeol) || (ch == kbderase) ||
+X					(ch == kbdintr) || (ch == kbdkill) ||
+X					(ch == kbdquit) )
+X				{
+X					pprintf(
+X						"%s: 1st char cannot be input control character\r\n",
+X						keyset_idstr(ikde));
+X					break;
+X				}
+X			}
+X			return(0);
+X	}
+X
+X	return(-1);		/* error */
+X
+X}	/* end of funckeymap_define */
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap_read(name) - read key-sequence-to-fkey map from funckeymap
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfunckeymap_read(name)
+Xchar *name;
+X{
+X	register itmp;
+X	char buf[128];
+X	FILE *fp_keys;
+X	int errstat = 0;
+X	static char ecukeys_name[128];
+X
+X#if defined(NONANSI_DEBUG)
+X	if(!nadbg)
+X	{
+X		nadbg = fopen("/tmp/nadbg.log","w");
+X		setbuf(nadbg,NULL);
+X	}
+X#endif
+X
+X	funckeymap_init();	/* clear any previous key defns */
+X
+X	if(!ecukeys_name[0])
+X	{
+X		get_home_dir(ecukeys_name);
+X		strcat(ecukeys_name,"/.ecu/funckeymap");
+X	}
+X
+X	if(!(fp_keys = fopen(ecukeys_name,"r")))
+X	{
+X		strcpy(ecukeys_name,eculibdir);
+X		strcat(ecukeys_name,"/funckeymap");
+X		if(!(fp_keys = fopen(ecukeys_name,"r")))
+X		{
+X			ff(stderr,"'funckeymap' not in ~/.ecu or %s; unable to proceed\r\n",
+X				eculibdir);
+X			termecu(TERMECU_CONFIG_ERROR);
+X		}
+X	}
+X
+X/* find funckeymap name */
+X	errstat = 1;
+X	while((itmp = kde_fgets(buf,sizeof(buf),fp_keys)) != KDETYPE_EOF)
+X	{
+X		if((itmp == KDETYPE_COMMENT) || (itmp == KDETYPE_ENTRY))
+X			continue;
+X		if(!strcmp(buf,name))
+X		{
+X			errstat = 0;		/* indicate success */
+X			break;
+X		}
+X	}
+X	if(errstat)
+X	{
+X		ff(stderr,"terminal type '%s'\r\n",name);
+X		ff(stderr,"not found in %s; unable to proceed\r\n",ecukeys_name);
+X		termecu(TERMECU_CONFIG_ERROR);
+X	}
+X
+X/* read past any other funckeymap names matching this set */
+X	errstat = 1;
+X	while((itmp = kde_fgets(buf,sizeof(buf),fp_keys)) != KDETYPE_EOF)
+X	{
+X		if(itmp == KDETYPE_ENTRY)
+X		{
+X			errstat = 0;		/* indicate success */
+X			break;
+X		}
+X	}
+X	if(errstat)
+X	{
+X		ff(stderr,
+X			"terminal type '%s' has null entry in %s; unable to proceed\r\n",
+X			name,ecukeys_name);
+X		termecu(TERMECU_CONFIG_ERROR);
+X	}
+X
+X/* we found the definition ... process it */
+X	errstat = 0;
+X	itmp = KDETYPE_ENTRY;
+X	do {
+X		if(itmp == KDETYPE_NAME)
+X			break;
+X		else if(itmp == KDETYPE_ENTRY)
+X		{
+X			if(funckeymap_define(buf))
+X				errstat = 1;
+X		}
+X	} while((itmp = kde_fgets(buf,sizeof(buf),fp_keys)) != KDETYPE_EOF);
+X
+X/* finish up */
+X	strncpy(funckeymap_name,name,sizeof(funckeymap_name));
+X	funckeymap_name[sizeof(funckeymap_name) - 1] = 0;
+X	fclose(fp_keys);
+X
+X	if(!funckeymap_table[IKDE_HOME].count)
+X	{
+X		ff(stderr,"You MUST have a 'Home' key defined\r\n");
+X		errstat = 2;
+X	}
+X	if(!funckeymap_table[IKDE_END].count)
+X	{
+X		ff(stderr,"You MUST have a 'End' key defined\r\n");
+X		errstat = 2;
+X	}
+X	if((errstat == 2) || (errstat && tty_not_char_special))
+X		termecu(TERMECU_CONFIG_ERROR);
+X
+X	if(errstat)
+X	{
+X		ff(stderr,
+X			"WARNING: key mapping syntax errors\r\nContinue anyway (y,[n])? ");
+X		if((itmp = ttygetc(0)) == 'Y' || (itmp == 'y'))
+X		{
+X			ff(stderr,"YES\r\n");
+X			return;
+X		}
+X		ff(stderr,"NO\r\n");
+X		termecu(TERMECU_CONFIG_ERROR);
+X		/*NOTREACHED*/
+X	}
+X
+X}	/* end of funckeymap_read */
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap(buf,buflen) - map char sequence to ikde code
+X
+Xreturn XF_ code or XF_not_yet if no match yet, XF_no_way if no match possible
+X--------------------------------------------------------------------------*/
+Xuchar
+Xfunckeymap(buf,buflen)
+Xuchar *buf;
+Xint buflen;
+X{
+X	register ikde;
+X	register KDE *tkde;
+X	int err_rtn = XF_no_way;
+X
+X	if(!buflen)
+X		return(XF_not_yet);
+X
+X#if defined(NONANSI_DEBUG)
+X	if(nadbg)
+X		hex_dump_fp(nadbg,buf,-buflen,"mapna",1);
+X#endif
+X
+X	for(ikde = 0,tkde = funckeymap_table; ikde <= IKDE_lastKey;
+X		ikde++,tkde++)
+X	{
+X#if defined(NONANSI_DEBUG)
+X			if(nadbg)
+X				fprintf(nadbg,"--> %s ",tkde->logical);
+X#endif
+X		if((tkde->count == buflen) && !memcmp(tkde->str,buf,buflen))
+X		{
+X#if defined(NONANSI_DEBUG)
+X			if(nadbg)
+X				fprintf(nadbg,"yes\n");
+X#endif
+X			return(tkde->ikde);
+X		}
+X#if defined(NONANSI_DEBUG)
+X		if(nadbg)
+X			fprintf(nadbg,"no\n");
+X#endif
+X		if((tkde->count > buflen) &&
+X			((uchar)*(tkde->str + buflen) == *(buf + buflen)))
+X		{
+X			err_rtn = XF_not_yet;
+X		}
+X	}
+X	return(err_rtn);
+X}	/* end of funckeymap */
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap_display_single(tkde,fp) - display single mapping on FILE fp
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfunckeymap_display_single(ikde,fp)
+Xint ikde;
+XFILE *fp;
+X{
+X	int keys_left;
+X	char *keys;
+X	char s64[64];
+X	KDE *tkde;
+X
+X	if((unsigned)ikde > IKDE_lastKey)
+X		return;
+X
+X	tkde = &funckeymap_table[ikde];
+X	sprintf(s64," %s:%s:                   ",
+X		keyset_idstr(ikde),tkde->logical);
+X	s64[16] = 0;
+X	if(fp == stderr)
+X		pputs(s64);
+X	else
+X		fputs(s64,fp);
+X	keys_left = tkde->count;
+X	keys = tkde->str;
+X	while(keys_left--)
+X	{
+X		if(fp == stderr)
+X		{
+X			pprintf("%s%s",
+X				make_char_graphic(*keys++,0),
+X				(keys_left) ? " " : "");
+X		}
+X		else
+X		{
+X			fprintf(fp,"%s%s",
+X				make_char_graphic(*keys++,0),
+X				(keys_left) ? " " : "");
+X		}
+X	}
+X	if(fp == stderr)
+X		pputs("\n");
+X	else
+X		fputs("\n",fp);
+X
+X}	/* end of funckeymap_display_single */
+X
+X/*+-------------------------------------------------------------------------
+X	funckeymap_display(fp) - display function key table of FILE fp
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfunckeymap_display(fp)
+XFILE *fp;
+X{
+X	int ikde;
+X	char *ftype = 0;
+X
+X	if(dash_f_funckeytype)
+X		ftype =	dash_f_funckeytype;
+X	else
+X		ftype = getenv("ECUFUNCKEY");
+X
+X	if(ttype && ftype)
+X	{
+X		fprintf(fp,"#$TERM=%s -F/$ECUFUNCKEY=%s",ftype,ttype);
+X		if(fp == stderr)
+X			fputs("\r\n",fp);
+X		else
+X			fputs("\n",fp);
+X	}
+X
+X	if(ttype || ftype)
+X	{
+X		fputs((ftype) ? ftype : ttype,fp);
+X		if(fp == stderr)
+X			fputs("\r\n",fp);
+X		else
+X			fputs("\n",fp);
+X	}
+X
+X	for(ikde = 0; ikde <= IKDE_lastKey; ikde++)
+X		funckeymap_display_single(ikde,fp);
+X
+X}	/* end of funckeymap_display */
+X
+X/*+-------------------------------------------------------------------------
+X	fkmap_command(argc,argv) - common interactive and procedure 'fkmap' cmd
+X
+Xreturn procedure error codes
+X--------------------------------------------------------------------------*/
+Xint
+Xfkmap_command(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	register itmp;
+X	int err = 0;
+X	char *ftype = 0;
+X	int iargv = 1;
+X	char *arg;
+X	char fkcmd[512 + 1];
+X	char *fkcptr = fkcmd;
+X	int fkclen = 0;
+X	int ikde;
+X	KDE save;
+X	FILE *fp;
+X	
+X	while((iargv < argc) && (*(arg = argv[iargv]) == '-'))
+X	{
+X		switch(*++arg)
+X		{
+X			case 'r': /* reset */
+X				if(err)
+X					break;
+X				if(dash_f_funckeytype)
+X					ftype =	dash_f_funckeytype;
+X				else
+X					ftype = getenv("ECUFUNCKEY");
+X				if(ttype || ftype)
+X					funckeymap_read((ftype) ? ftype : ttype);
+X				if(!proc_level || proctrace)
+X					pputs("funckeymap reset to startup configuration\n");
+X				if(iargv != (argc - 1))
+X					pputs("extra arguments ignored\n");
+X				return(0);
+X
+X			case 's': /* save in file */
+X				if(err)
+X					break;
+X				if(iargv != (argc - 2))
+X				{
+X					pputs("exactly one argument required for -s\n");
+X					return(eFATAL_ALREADY);
+X				}
+X				iargv++;
+X				if(!(fp = fopen(argv[iargv],"a")))
+X				{
+X					pperror(argv[iargv]);
+X					return(eFATAL_ALREADY);
+X				}
+X				funckeymap_display(fp);
+X				fclose(fp);
+X				if(!proc_level || proctrace)
+X					pprintf("current mapping saved in %s\n",argv[iargv]);
+X				return(0);
+X
+X			default:
+X				pprintf("unknown switch -%c\n",*arg);
+X				err = 1;
+X		}
+X		iargv++;
+X	}
+X
+X	if(err)
+X		return(eFATAL_ALREADY);
+X
+X	if(iargv == argc)
+X	{
+X		funckeymap_display(stderr);
+X		return(0);
+X	}
+X
+X	arg = argv[iargv++];
+X	if((ikde = kde_name_to_ikde(arg)) < 0)
+X	{
+X		pprintf("key name '%s' not recognized\n",arg);
+X		return(eFATAL_ALREADY);
+X	}
+X	sprintf(fkcptr," %s:%s: ",keyset_idstr(ikde),keyset_idstr(ikde));
+X	fkcptr += (itmp = strlen(fkcptr));
+X	fkclen += itmp;
+X
+X	if(iargv == argc)
+X	{
+X		funckeymap_display_single(&funckeymap_table[ikde],stderr);
+X		return(0);
+X	}
+X
+X	while(iargv < argc)
+X	{
+X		arg = argv[iargv++];
+X		itmp = strlen(arg);
+X		if((fkclen + itmp + 2) > sizeof(fkcmd))
+X		{
+X			pprintf("fkmap command may be no longer than %d characters\n",
+X				sizeof(fkcmd) - 1);
+X			return(eFATAL_ALREADY);
+X		}
+X		strcpy(fkcptr,arg);
+X		fkcptr += itmp;
+X		fkclen += itmp;
+X		if(iargv != argc)
+X		{
+X			*fkcptr++ = ' ';
+X			*fkcptr = 0;
+X			fkclen++;
+X		}
+X	}
+X
+X	save = funckeymap_table[ikde];
+X	if(err = funckeymap_define(fkcmd))
+X		funckeymap_table[ikde] = save;
+X
+X	if(!err && (!proc_level || proctrace))
+X		funckeymap_display_single(ikde,stderr);
+X
+X	return((err) ? eFATAL_ALREADY : 0);
+X
+X}	/* end of fkmap_command */
+X
+X/* end of funckeymap.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 funckeymap.c ||
+echo 'restore of funckeymap.c failed'
+Wc_c="`wc -c < 'funckeymap.c'`"
+test 13650 -eq "$Wc_c" ||
+	echo 'funckeymap.c: original size 13650, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gint.c ==============
+if test -f 'gint.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gint.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gint.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gint.c' &&
+X/*+-------------------------------------------------------------------------
+X    gint.c - ecu get integer parameter functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	gcol_range(param,col1,col2)
+X	gint(param,int_returned)
+X	gint_base(param,value)
+X	gint_constant(param,value)
+X	gintop(param,intop)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:01-31-1991-16:50-wht@n4hgf-reinstate octal with 0o prefix */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X
+X#define OP_ADD      1
+X#define OP_SUB      2
+X#define OP_MUL      3
+X#define OP_DIV      4
+X#define OP_XOR      5
+X#define OP_MOD      6
+X#define OP_OR       7
+X#define OP_AND      8
+X
+X#define BASE_DEC	1
+X#define BASE_OCT	2
+X#define BASE_HEX  	3
+X
+X
+X/*+-------------------------------------------------------------------------
+X    gint_constant(param,int_returned) - evaluate integer constant
+X--------------------------------------------------------------------------*/
+Xint
+Xgint_constant(param,value)
+XESD *param;
+Xlong *value;
+X{
+Xregister itmp;
+Xint base = BASE_DEC;
+Xint erc;
+Xlong new_value;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X	esd_null_terminate(param);
+X
+X/* get integer from string */
+X	if((!strncmp(param->pb + param->index,"0x",2)) ||
+X		(!strncmp(param->pb + param->index,"0X",2)))
+X	{
+X		base = BASE_HEX;
+X		param->index += 2;
+X	}
+X	else if((!strncmp(param->pb + param->index,"0o",2)) ||
+X		(!strncmp(param->pb + param->index,"0O",2)))
+X	{
+X		base = BASE_OCT;
+X		param->index += 2;
+X	}
+X
+X	param->old_index = param->index;
+X	switch(base)
+X	{
+X		case BASE_HEX:
+X			sscanf(param->pb + param->index,"%lx",&new_value);
+X			itmp = param->index + strspn(param->pb + param->index,
+X				"0123456789ABCDEFabcdef");
+X			erc = eInvalidHexNumber;
+X			break;
+X		case BASE_DEC:
+X			sscanf(param->pb + param->index,"%ld",&new_value);
+X			itmp = param->index + strspn(param->pb + param->index,"0123456789");
+X			erc = eInvalidDecNumber;
+X			break;
+X		case BASE_OCT:
+X			sscanf(param->pb + param->index,"%lo",&new_value);
+X			itmp = param->index + strspn(param->pb + param->index,"01234567");
+X			erc = eInvalidOctNumber;
+X			break;
+X		default:
+X			return(eInternalLogicError);
+X	}
+X
+X	param->index = itmp;
+X	if(isalnum(*(param->pb + itmp)))
+X		param->old_index = itmp;
+X
+X	if(param->old_index != param->index)
+X	{
+X		*value = new_value;
+X		return(0);
+X	}
+X	return(erc);
+X
+X}   /* end of gint_constant */
+X
+X/*+-------------------------------------------------------------------------
+X    gint_base(param,value) - evaluate integer constant, variable or function
+X--------------------------------------------------------------------------*/
+Xint
+Xgint_base(param,value)
+XESD *param;
+Xlong *value;
+X{
+Xregister erc;
+Xlong *varptr;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X
+X	switch(param->pb[param->index])		/* look at first character */
+X	{
+X		case '$':		/* '$i...' variable reference? */
+X			if(param->index >= param->cb-2)
+X				return(eSyntaxError);
+X			param->old_index = ++param->index;
+X			if(to_lower(param->pb[param->index++]) != 'i')
+X				return(eIllegalVarType);
+X			if(erc = get_ivptr(param,&varptr,0))
+X				return(erc);
+X			*value = *varptr;	
+X			return(0);
+X
+X		case '%':		/* '%...' function reference? */
+X			param->index++;
+X			if(erc = feval_int(param,value))
+X				return(erc);
+X			return(0);
+SHAR_EOF
+true || echo 'restore of gint.c failed'
+fi
+echo 'End of ecu320 part 16'
+echo 'File gint.c is continued in part 17'
+echo 17 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

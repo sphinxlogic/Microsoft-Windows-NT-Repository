@@ -1,0 +1,192 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i028:  mailagent - Flexible mail filtering and processing package, v3.0, Patch02
+Message-ID: <1993Dec4.172905.14701@sparky.sterling.com>
+X-Md4-Signature: a40d4801a5f15125e47d3c1aba71f00c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France
+Date: Sat, 4 Dec 1993 17:29:05 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 28
+Archive-name: mailagent/patch02
+Environment: UNIX, Perl
+Patch-To: mailagent: Volume 41, Issue 1-26
+
+[The latest patch for mailagent version 3.0 is #2.]
+
+System: mailagent version 3.0
+Patch #: 2
+Priority: HIGH
+Subject: Bad RCS headers need to be fixed for subsequent patches
+Date: Mon Nov 29 17:45:04 MET 1993
+From: Raphael Manfredi <ram@acri.fr>
+
+NOTE:
+	THIS PATCH FILE CANNOT BE FED DIRECTLY TO THE PATCH PROGRAM.
+	PLEASE READ THE INSTRUCTIONS CAREFULLY BEFORE PROCEEDING.
+
+Description:
+	I have not properly stripped the locker mark in the RCS headers,
+	and unfortunately, that will cause subsequent patches to fail on
+	those RCS $Id: lines.
+
+	The easiest way to fix that was to write a quick perl script to
+	post-process each of the source files from your distribution. Issuing
+	a regular patch would have been too much of a trouble for everyone.
+
+	If you applied patch #1 already, you know what I mean... If you
+	did not apply it yet, do so now, and ignore the error message from
+	patch (make sure that Configure.rej file lists only the hunk related
+	to the $Id: line).
+
+Fix:
+	Unshar this patch file in your mailagent directory, at the top-level.
+	This will create a single file named rcs_fix.
+
+	Run it:
+		./rcs_fix
+	
+	It's a perl script, so you need perl in your path. Since mailagent
+	is written in perl, if you don't have perl, then the whole distribution
+	is useless to you anyway ;-)
+
+	The script will fix all the files listed in MANIFEST, then it will
+	fix your Configure script to correct the problem raised by patch #1,
+	so that future patches on that file may apply smoothly.
+
+	All the original files are renamed into .bak files before being
+	updated, so you may revert to the original "easily" if something
+	goes wrong. Your patchlevel.h file will be updated by the script
+	itself.
+
+	After having run rcs_fix:
+		Configure -ders
+		make depend
+		make
+
+	If all is ok at this point, you may issue:
+		rm rcs_fix
+		find . -name "*.bak" | xargs rm -f
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@acri.fr>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 3.0 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  rcs_fix
+# Wrapped by ram@soft208 on Fri Dec  3 10:36:13 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'rcs_fix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rcs_fix'\"
+else
+  echo shar: Extracting \"'rcs_fix'\" \(1270 characters\)
+  sed "s/^X//" >'rcs_fix' <<'END_OF_FILE'
+X: # feed this into perl
+Xeval 'exec perl -i.bak -S $0 "$@"'
+X	if $running_under_some_shell;
+X
+Xopen(MANIFEST, 'MANIFEST') || die "Can't open MANIFEST: $!\n";
+Xopen(TTY, '>/dev/tty') || die "Can't open tty: $!\n";
+X
+X@ARGV = ('patchlevel.h');
+Xwhile (<>) {
+X	if (/PATCHLEVEL\s+(\d+)/) {
+X		if ($1 != 1) {
+X			close $ARGV;
+X			rename('patchlevel.h.bak', 'patchlevel.h');
+X			die "Wrong patch level $1, expected 1\n";
+X		}
+X		s/PATCHLEVEL(\s+)\d+/PATCHLEVEL 2/;
+X	}
+X	print;
+X}
+X
+X@ARGV = ();
+X
+Xwhile (<MANIFEST>) {
+X	($file, $comment) = split;
+X	next if -d $file;
+X	push(@ARGV, $file);
+X}
+X
+Xclose MANIFEST;
+X
+X$SIG{'INT'} = 'cleanup';
+X
+Xwhile (<>) {
+X	s/Exp ram \$/Exp $/ if /\$Id:/;
+X} continue {
+X	print;
+X	if ($ARGV ne $oldargv) {
+X		print TTY "Fixing $ARGV...\n";
+X		$oldargv = $ARGV;
+X	}
+X}
+X
+Xprint TTY "Making sure Configure is OK after failed patch #1.\n";
+X
+X@ARGV = ('Configure');
+X$fixed = 0;
+X
+Xwhile (<>) {
+X	if ($fixed || !/\$Id:/) {
+X		print;
+X		next;
+X	}
+X	scalar(<>);
+X	scalar(<>);
+X	print <<'EOM';
+X# $Id: Configure,v 3.0.1.1 1993/11/29 16:43:28 ram Exp $
+X#
+X# Generated on Mon Nov 29 17:39:26 MET 1993 [metaconfig 3.0 PL14]
+XEOM
+X	$fixed = 1;
+X}
+X
+X
+X$SIG{'INT'} = 'DEFAULT';
+X
+Xsub cleanup {
+X	print TTY "Warning: restoring $ARGV\n";
+X	rename("$ARGV.bak", $ARGV) || warn "Couldn't restore $ARGV: $!\n";
+X	exit 1;
+X}
+X
+END_OF_FILE
+  if test 1270 -ne `wc -c <'rcs_fix'`; then
+    echo shar: \"'rcs_fix'\" unpacked with wrong size!
+  fi
+  chmod +x 'rcs_fix'
+  # end of 'rcs_fix'
+fi
+echo shar: End of archive.
+exit 0
+*** End of Patch 2 ***
+
+exit 0 # Just in case...

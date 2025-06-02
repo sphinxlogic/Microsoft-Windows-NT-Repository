@@ -1,0 +1,138 @@
+Newsgroups: comp.sources.x
+From: leres@hot.ee.lbl.gov (Craig Leres)
+Subject: v21i090:  walls - horizontal walls for multiheaded Suns under X11R5, Part01/01
+Message-ID: <1994Jan12.185806.15300@sparky.sterling.com>
+X-Md4-Signature: 995dd95e231b642dd016d40e4c314067
+Sender: chris@sparky.sterling.com (Chris Olson)
+Reply-To: leres@ee.lbl.gov (ucbvax!leres for uucp weenies)
+Organization: Lawrence Berkeley Laboratory, Berkeley CA
+Date: Wed, 12 Jan 1994 18:58:06 GMT
+Approved: chris@sterling.com
+
+Submitted-by: leres@hot.ee.lbl.gov (Craig Leres)
+Posting-number: Volume 21, Issue 90
+Archive-name: walls/part01
+Environment: X11R5, untested
+
+[ I was not able to test this patch, as I have no multi-headed suns ]
+[ avaliable to me						    ]
+[		Chris						    ]
+
+Appended are context diffs that implement horizontal walls for
+multiheaded Suns. You specify the layout with flag to the server:
+
+    -screenzero l
+
+or:
+
+    -screenzero r
+
+Note that due to the way that the Sun server searches for frame
+buffers, the color monitor is usually screen zero.
+
+		Craig
+------
+RCS file: RCS/sun.h,v
+retrieving revision 1.1
+diff -c -r1.1 sun.h
+*** /tmp/,RCSt1a11013	Mon Dec 20 19:23:48 1993
+--- sun.h	Mon Dec 20 19:21:04 1993
+***************
+*** 159,164 ****
+--- 159,165 ----
+  } CrPrivRec, *CrPrivPtr;
+  
+  extern int  sunScreenIndex;
++ extern char sunScreenZero;
+  
+  typedef struct {
+      int		    width, height;
+RCS file: RCS/sunIo.c,v
+retrieving revision 1.1
+diff -c -r1.1 sunIo.c
+*** /tmp/,RCSt1a11023	Mon Dec 20 19:24:03 1993
+--- sunIo.c	Mon Dec 20 19:21:06 1993
+***************
+*** 359,364 ****
+--- 359,369 ----
+  	FlipPixels = TRUE;
+  	return 1;
+      }
++     if (strcmp (argv[i], "-screenzero") == 0) {	/* -screenzero [l|r] */
++ 	if (++i >= argc) UseMsg ();
++ 	sunScreenZero = *argv[i];
++ 	return 2;
++     }
+      return 0;
+  }
+  
+***************
+*** 370,374 ****
+--- 375,380 ----
+      ErrorF("-debug                 disable non-blocking console mode\n");
+      ErrorF("-dev filename          name of device to open\n");
+      ErrorF("-mono                  force monochrome-only screen\n");
++     ErrorF("-screenzero [l|r]      screen zero is l(eft) or r(ight)\n");
+      ErrorF("-zaphod                disable active Zaphod mode\n");
+  }
+RCS file: RCS/sunMouse.c,v
+retrieving revision 1.2
+diff -c -r1.2 sunMouse.c
+*** /tmp/,RCSt1a11032	Mon Dec 20 19:24:22 1993
+--- sunMouse.c	Mon Dec 20 19:21:08 1993
+***************
+*** 53,58 ****
+--- 53,59 ----
+  #include    "mipointer.h"
+  
+  Bool ActiveZaphod = TRUE;
++ char sunScreenZero;
+  
+  static Bool sunCursorOffScreen();
+  static void sunCrossScreen();
+***************
+*** 392,400 ****
+--- 393,412 ----
+      if (ActiveZaphod &&
+  	screenInfo.numScreens > 1 && (*x >= (*pScreen)->width || *x < 0))
+      {
++ 	/*
++ 	 * Implement horizontal walls; sunScreenZero tells us where
++ 	 * screen zero is
++ 	 */
+  	index = (*pScreen)->myNum;
+  	if (*x < 0)
+  	{
++ 	    if ((sunScreenZero == 'l' && index == 0) ||
++ 		(sunScreenZero == 'r' && index == screenInfo.numScreens - 1))
++ 		{ /* Implement wall - don't let the mouse escape this way. */
++ 		*x = 0;
++ 		return FALSE;
++ 		}
++ 
+  	    index = (index ? index : screenInfo.numScreens) - 1;
+  	    *pScreen = screenInfo.screens[index];
+  	    *x += (*pScreen)->width;
+***************
+*** 401,406 ****
+--- 413,425 ----
+  	}
+  	else
+  	{
++ 	    if ((sunScreenZero == 'r' && index == 0) ||
++ 		(sunScreenZero == 'l' && index == screenInfo.numScreens - 1))
++ 		{ /* Implement wall - don't let the mouse escape this way. */
++ 		*x = (*pScreen)->width - 1;
++ 		return FALSE;
++ 		}
++ 
+  	    *x -= (*pScreen)->width;
+  	    index = (index + 1) % screenInfo.numScreens;
+  	    *pScreen = screenInfo.screens[index];
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

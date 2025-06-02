@@ -1,0 +1,252 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject: v35i035:  mailagent - Rule Based Mail Filtering, Patch19
+Message-ID: <1993Feb5.030749.856@sparky.imd.sterling.com>
+X-Md4-Signature: b14b77a43f775197f3c9b0b633ac97c6
+Date: Fri, 5 Feb 1993 03:07:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 35, Issue 35
+Archive-name: mailagent/patch19
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[The latest patch for mailagent version 2.9 is #19.]
+
+System: mailagent version 2.9
+Patch #: 19
+Priority: HIGH
+Subject: undo fix made by previous patch: '-' is NOT allowed
+Subject: any '-' in the hostname is now translated into '_' for perl
+Subject: documents translation of '-' into '_' within host name
+Subject: make sure host name does not have any '-' in it
+Date: Wed Feb  3 09:27:01 PST 1993
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	Undo fix made by previous patch: '-' is NOT allowed in a perl
+	variable name, so it is incorrect to allow it in the ~/.mailagent.
+	The problem is that some machine name do bear '-' in them. So
+	now the filter translates any '-' into '_' and machine specific
+	paths must be sepcified with that translation in mind. This
+	means if your machine name is 'the-ring', then you must specify
+	the PATH for that machine in variable 'p_the_ring'.
+
+	Note that only the filter program was modified by this patch.
+	Therefore, there is no need to let 'make' perform the full test
+	suite if it already passed at patch #18.
+
+Repeat-By:
+
+	If you machine had a '-' into it, then it did not pass the test
+	suite, failing at basic/config for PL < 17 and failing in
+	basic/mailagent for PL 18.
+
+	Once this patch has been applied, it should pass all the tests.
+	Do NOT forget to update the filter program if you had a private
+	setuid copy in your own account.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -d
+		make depend
+		make
+		make install
+		make install.man
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 18
+4c4
+< #define PATCHLEVEL 18
+---
+> #define PATCHLEVEL 19
+
+Index: agent/filter/parser.c
+Prereq: 2.9.1.4
+*** agent/filter/parser.c.old	Wed Feb  3 09:26:43 1993
+--- agent/filter/parser.c	Wed Feb  3 09:26:44 1993
+***************
+*** 11,17 ****
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.4 93/02/01 09:54:21 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+--- 11,17 ----
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.5 93/02/03 09:22:58 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+***************
+*** 19,24 ****
+--- 19,28 ----
+   *  Licence as specified in the README file that comes with dist.
+   *
+   * $Log:	parser.c,v $
++  * Revision 2.9.1.5  93/02/03  09:22:58  ram
++  * patch19: undo fix made by previous patch: '-' is NOT allowed
++  * patch19: any '-' in the hostname is now translated into '_' for perl
++  * 
+   * Revision 2.9.1.4  93/02/01  09:54:21  ram
+   * patch17: configuration variables may now have '-' in them
+   * 
+***************
+*** 398,405 ****
+  		return;							/* Ignore it */
+  
+  	while (*nptr++ = *path) {			/* Copy everything until non alphanum */
+! 		if (*path == '_' || *path == '-') {
+! 			/* Valid variable characters, although not 'isalnum' */
+  			path++;
+  			continue;
+  		} else if (!isalnum(*path++))	/* Reached a non-alphanumeric char */
+--- 402,409 ----
+  		return;							/* Ignore it */
+  
+  	while (*nptr++ = *path) {			/* Copy everything until non alphanum */
+! 		if (*path == '_') {
+! 			/* Valid variable character, although not 'isalnum' */
+  			path++;
+  			continue;
+  		} else if (!isalnum(*path++))	/* Reached a non-alphanumeric char */
+***************
+*** 515,520 ****
+--- 519,526 ----
+  {
+  	/* Return a freshly allocated string containing the host name. The string
+  	 * is lower-cased and the domain part is removed from the name.
++ 	 * If any '-' is found in the hostname, it is translated into a '_', since
++ 	 * it would not otherwise be a valid variable name for perl.
+  	 */
+  	
+  	char name[MAX_STRING + 1];		/* Constructed name */
+***************
+*** 527,534 ****
+  	while (c = *host) {				/* Lower-case name */
+  		if (isupper(c))
+  			*ptr = tolower(c);
+! 		else
+  			*ptr = c;
+  		if (c != '.') {				/* Found a domain delimiter? */
+  			host++;					/* No, continue */
+  			ptr++;
+--- 533,543 ----
+  	while (c = *host) {				/* Lower-case name */
+  		if (isupper(c))
+  			*ptr = tolower(c);
+! 		else {
+! 			if (c == '-')			/* Although '-' is a valid hostname char */
+! 				c = '_';			/* It's not a valid perl variable char */
+  			*ptr = c;
++ 		}
+  		if (c != '.') {				/* Found a domain delimiter? */
+  			host++;					/* No, continue */
+  			ptr++;
+
+Index: agent/man/mailagent.SH
+Prereq: 2.9.1.9
+*** agent/man/mailagent.SH.old	Wed Feb  3 09:26:52 1993
+--- agent/man/mailagent.SH	Wed Feb  3 09:26:55 1993
+***************
+*** 18,24 ****
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.9 93/02/01 10:05:03 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+--- 18,24 ----
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.10 93/02/03 09:26:22 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+***************
+*** 26,31 ****
+--- 26,34 ----
+  '''  License as specified in the README file that comes with dist.
+  '''
+  ''' $Log:	mailagent.SH,v $
++ ''' Revision 2.9.1.10  93/02/03  09:26:22  ram
++ ''' patch19: documents translation of '-' into '_' within host name
++ ''' 
+  ''' Revision 2.9.1.9  93/02/01  10:05:03  ram
+  ''' patch17: new configuration variable 'newcmd' for command extensions
+  ''' patch17: NOTIFY may now accept a list of addresses instead of just one
+***************
+*** 276,282 ****
+  be \fIprepended\fR to the default \fIPATH\fR variable supplied by other
+  programs. (suggested: /bin:/usr/bin:/usr/ucb). Note that the host name
+  must be specified without any domain name appended to it (e.g. for
+! an host name of \fIlyon.eiffel.com\fR, use variable \fIp_lyon\fR).
+  .TP
+  .I plsave
+  Name of the file used to save the patchlevels for archived distributions.
+--- 279,287 ----
+  be \fIprepended\fR to the default \fIPATH\fR variable supplied by other
+  programs. (suggested: /bin:/usr/bin:/usr/ucb). Note that the host name
+  must be specified without any domain name appended to it (e.g. for
+! an host name of \fIlyon.eiffel.com\fR, use variable \fIp_lyon\fR). If your
+! host name contains an '-' in it, you must write it as a '_', since '-' is
+! not a valid character for a \fIperl\fR variable name.
+  .TP
+  .I plsave
+  Name of the file used to save the patchlevels for archived distributions.
+
+Index: agent/test/basic/config.t
+*** agent/test/basic/config.t.old	Wed Feb  3 09:26:59 1993
+--- agent/test/basic/config.t	Wed Feb  3 09:26:59 1993
+***************
+*** 5,10 ****
+--- 5,11 ----
+  chop($pwd = `pwd`);
+  $path = $ENV{'PATH'};
+  $host = $ENV{'HOST'};
++ $host =~ s/-/_/g;		# Filter translates '-' into '_' in hostnames
+  $user = $ENV{'USER'};
+  open(CONFIG, ">.mailagent") || print "1\n";
+  print CONFIG <<EOF;
+
+*** End of Patch 19 ***
+
+exit 0 # Just in case...

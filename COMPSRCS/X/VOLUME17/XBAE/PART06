@@ -1,0 +1,1811 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i033: Xbae widgets (MOTIF), Part06/12
+Message-ID: <1992Mar23.180106.16103@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i028-xbae@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 18:01:06 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 33
+Archive-name: xbae/part06
+
+Submitted-by: aw@jello
+Archive-name: Xbae/part06
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is Xbae.shar.06 (part 6 of Xbae)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Xbae/src/Matrix.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Xbae/src/Matrix.c'
+else
+echo 'x - continuing file Xbae/src/Matrix.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Xbae/src/Matrix.c' &&
+X     */
+X    values.foreground = mw->manager.top_shadow_color;
+X    values.background = mw->manager.foreground;
+X
+X    if (mw->manager.top_shadow_pixmap != XmUNSPECIFIED_PIXMAP) {
+X	mask |= GCFillStyle | GCTile;
+X	values.fill_style = FillTiled;
+X	values.tile = mw->manager.top_shadow_pixmap;
+X    }
+X    mw->matrix.cell_top_shadow_clip_gc =
+X	XCreateGC(XtDisplay(mw),
+X		  RootWindowOfScreen(XtScreen(mw)),
+X		  mask, &values);
+}
+X
+static void
+CreateBottomShadowClipGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    XtGCMask mask = GCForeground | GCBackground;
+X
+X    /*
+X     * GC for drawing bottom shadow inside cells with clipping.
+X     */
+X    values.foreground = mw->manager.bottom_shadow_color;
+X    values.background = mw->manager.foreground;
+X
+X    if (mw->manager.bottom_shadow_pixmap != XmUNSPECIFIED_PIXMAP) {
+X	mask |= GCFillStyle | GCTile;
+X	values.fill_style = FillTiled;
+X	values.tile = mw->manager.bottom_shadow_pixmap;
+X    }
+X    mw->matrix.cell_bottom_shadow_clip_gc =
+X	XCreateGC(XtDisplay(mw),
+X		  RootWindowOfScreen(XtScreen(mw)),
+X		  mask, &values);
+}
+X
+/*
+X * Set the clip_mask in our draw and shadow GCs.  This is necessary for
+X * drawing non-fixed column labels and fixed rows.
+X */
+static void
+SetClipMask(mw)
+XXbaeMatrixWidget mw;
+{
+X    XRectangle r;
+X
+X    /*
+X     * XRectangle enclosing column labels and fixed rows
+X     */
+X    r.x = FIXED_COLUMN_LABEL_OFFSET(mw);
+X    r.y = 0;
+X    r.width = ClipChild(mw)->core.width;
+X    r.height = FIXED_ROW_LABEL_OFFSET(mw);
+X
+X    /*
+X     * Reset the clip_mask in our clipping GCs
+X     */
+X    XSetClipRectangles(XtDisplay(mw), mw->matrix.draw_clip_gc,
+X		       0, 0, &r, 1, Unsorted);
+X    XSetClipRectangles(XtDisplay(mw), mw->matrix.inverse_clip_gc,
+X		       0, 0, &r, 1, Unsorted);
+X    XSetClipRectangles(XtDisplay(mw), mw->matrix.cell_top_shadow_clip_gc,
+X		       0, 0, &r, 1, Unsorted);
+X    XSetClipRectangles(XtDisplay(mw), mw->matrix.cell_bottom_shadow_clip_gc,
+X		       0, 0, &r, 1, Unsorted);
+}
+X
+static void
+NewFont(mw)
+XXbaeMatrixWidget mw;
+{
+X    XmFontContext context;
+X    XmStringCharSet charset;
+X    XFontStruct *font;
+X
+X    /*
+X     * Make a private copy of the FontList
+X     */
+X    mw->matrix.font_list = XmFontListCopy(mw->matrix.font_list);
+X
+X    /*
+X     * Get XFontStruct from FontList
+X     */
+X
+X    if (!XmFontListInitFontContext(&context, mw->matrix.font_list))
+X	XtAppErrorMsg(XtWidgetToApplicationContext((Widget)mw),
+X		      "newFont", "badFont", "XbaeMatrix",
+X		      "XbaeMatrix: XmFontListInitFontContext failed, bad fontList",
+X		      NULL, 0);
+X
+X    if (!XmFontListGetNextFont(context, &charset, &font))
+X	XtAppErrorMsg(XtWidgetToApplicationContext((Widget)mw),
+X		      "newFont", "badFont", "XbaeMatrix",
+X		      "XbaeMatrix: XmFontListGetNextFont failed, cannot get font from fontList",
+X		      NULL, 0);
+X
+X    XtFree(charset);
+X    XmFontListFreeFontContext(context);
+X
+X    mw->matrix.font = font;
+}
+X
+/*
+X * Return the length of the longest row label
+X */
+static short
+MaxRowLabel(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X    short max = 0, len;
+X
+X    /*
+X     * Determine the length of the longest row label
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++) {
+X	len = strlen(mw->matrix.row_labels[i]);
+X	if (len > max)
+X	    max = len;
+X    }
+X    return max;
+}
+X
+/*
+X * Get the total pixel width of the non-fixed cell area
+X */
+static void
+GetCellTotalWidth(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i;
+X
+X    /*
+X     * Calculate width of non-fixed cell area.
+X     */
+X    for (i = mw->matrix.fixed_columns, mw->matrix.cell_total_width = 0;
+X	 i < mw->matrix.columns;
+X	 i++)
+X	mw->matrix.cell_total_width += COLUMN_WIDTH(mw, i);
+}
+X
+/*
+X * Cache the pixel position of each column
+X */
+static void
+GetColumnPositions(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i, x;
+X
+X    for (i = 0, x = 0;
+X	 i < mw->matrix.columns;
+X	 x += COLUMN_WIDTH(mw, i), i++)
+X	mw->matrix.column_positions[i] = x;
+}
+X
+X
+/*
+X * Callbacks for our scrollbars.
+X */
+static XtCallbackRec VSCallback[] =
+{
+X    {(XtCallbackProc) ScrollVertCB, (XtPointer) NULL},
+X    {(XtCallbackProc) NULL, NULL}
+};
+static XtCallbackRec HSCallback[] =
+{
+X    {(XtCallbackProc) ScrollHorizCB, (XtPointer) NULL},
+X    {(XtCallbackProc) NULL, NULL}
+};
+X
+/* ARGSUSED */
+static void
+Initialize(request, new, args, num_args)
+XXbaeMatrixWidget request, new;
+ArgList args;
+Cardinal *num_args;
+{
+X    /*
+X     * Check rows/cols set by resources for consistency/validity
+X     */
+X    if (new->matrix.rows == 0 || new->matrix.columns == 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"initialize", "badSize", "XbaeMatrix",
+X			"XbaeMatrix: Number of rows or columns is zero",
+X			(String *) NULL, (Cardinal *) NULL);
+X	if (!new->matrix.rows)
+X	    new->matrix.rows = 1;
+X	if (!new->matrix.columns)
+X	    new->matrix.columns = 1;
+X    }
+X
+X    /*
+X     * Make sure column_widths were specified
+X     */
+X    if (new->matrix.column_widths == NULL)
+X	XtAppErrorMsg(XtWidgetToApplicationContext((Widget)new),
+X		      "initialize", "noColumnWidths", "XbaeMatrix",
+X		      "XbaeMatrix: No columnWidths specified",
+X		      (String *) NULL, (Cardinal *) NULL);
+X
+X    /*
+X     * Only one of fixed_rows/fixed_columns may be specified
+X     */
+X    if (new->matrix.fixed_rows && new->matrix.fixed_columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X		      "initialize", "bothFixed", "XbaeMatrix",
+X		      "XbaeMatrix: Cannot specify both fixedRows and fixedColumns",
+X		      (String *) NULL, (Cardinal *) NULL);
+X	new->matrix.fixed_rows = 0;
+X	new->matrix.fixed_columns = 0;
+X    }
+X
+X
+X    /*
+X     * We must have at least one non-fixed row/column
+X     */
+X    if ((new->matrix.fixed_rows &&
+X	 new->matrix.fixed_rows >= new->matrix.rows) ||
+X	(new->matrix.fixed_columns &&
+X	 new->matrix.fixed_columns >= new->matrix.columns)) {
+X	String params[1];
+X	Cardinal num_params = 1;
+X	params[0] = new->matrix.fixed_rows ? "row" : "column";
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"initialize", "tooManyFixed", "XbaeMatrix",
+X			"XbaeMatrix: At least one %s must not be fixed",
+X			(String *) params, (Cardinal *) &num_params);
+X	if (new->matrix.fixed_rows)
+X	    new->matrix.fixed_rows = 0;
+X	else if (new->matrix.fixed_columns)
+X	    new->matrix.fixed_columns = 0;
+X    }
+X
+X    /*
+X     * We can't have too many visible rows
+X     */
+X    if (new->matrix.visible_rows > new->matrix.rows - new->matrix.fixed_rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"initialize", "tooManyVisibleRows", "XbaeMatrix",
+X			"XbaeMatrix: Too many visible rows",
+X			(String *) NULL, (Cardinal *) NULL);
+X	new->matrix.visible_rows = 0;
+X    }
+X
+X    /*
+X     * We can't have too many visible columns
+X     */
+X    if (new->matrix.visible_columns >
+X	new->matrix.columns - new->matrix.fixed_columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"initialize", "tooManyVisibleColumns", "XbaeMatrix",
+X			"XbaeMatrix: Too many visible columns",
+X			(String *) NULL, (Cardinal *) NULL);
+X	new->matrix.visible_columns = 0;
+X    }
+X
+X    /*
+X     * Copy the pointed to resources.
+X     * If cells is NULL, we create an array of "" strings.
+X     */
+X
+X    CopyCells(new);
+X
+X    if (new->matrix.row_labels)
+X	CopyRowLabels(new);
+X    if (new->matrix.column_labels)
+X	CopyColumnLabels(new);
+X    else {
+X	new->matrix.column_label_lines = NULL;
+X	new->matrix.column_label_maxlines = 0;
+X    }
+X
+X    CopyColumnWidths(new);
+X
+X    if (new->matrix.column_max_lengths)
+X	CopyColumnMaxLengths(new);
+X
+X    if (new->matrix.column_alignments)
+X	CopyColumnAlignments(new);
+X    if (new->matrix.column_label_alignments)
+X	CopyColumnLabelAlignments(new);
+X
+X    if (new->matrix.colors)
+X	CopyColors(new);
+X
+X    CopySelectedCells(new);
+X
+X    /*
+X     * If user didn't specify a rowLabelWidth, then calculate one based on
+X     * the widest label
+X     */
+X    if (new->matrix.row_label_width == 0 && new->matrix.row_labels)
+X	new->matrix.row_label_width = MaxRowLabel(new);
+X
+X    /*
+X     * Copy the fontList. Get fontStruct from fontList.
+X     */
+X    NewFont(new);
+X
+X    /*
+X     * Create our 4 children (SBs and textField are unmanaged for now)
+X     * they must be created in this order so our macros work
+X     * (horiz scroll, vert scroll and then clip and textField).
+X     * We scroll horizontally by pixels, vertically by rows.
+X     */
+X
+X    (void) XtVaCreateWidget("horizScroll",
+X			    xmScrollBarWidgetClass, new,
+X			    XmNorientation,	XmHORIZONTAL,
+X			    XmNdragCallback,	HSCallback,
+X			    XmNvalueChangedCallback, HSCallback,
+X			    XmNincrement,	FONT_WIDTH(new),
+X			    XmNsliderSize,	1,
+X			    XmNbackground,	new->core.background_pixel,
+X			    XmNforeground,	new->manager.foreground,
+X			    XmNbottomShadowColor,
+X				new->manager.bottom_shadow_color,
+X			    XmNbottomShadowPixmap,
+X				new->manager.bottom_shadow_pixmap,
+X			    XmNhighlightColor,	new->manager.highlight_color,
+X			    XmNhighlightPixmap,	new->manager.highlight_pixmap,
+X			    XmNshadowThickness,	new->manager.shadow_thickness,
+X			    XmNtopShadowColor,	new->manager.top_shadow_color,
+X			    XmNtopShadowPixmap, new->manager.top_shadow_pixmap,
+X			    NULL);
+X    HORIZ_ORIGIN(new) = 0;
+X
+X    (void) XtVaCreateWidget("vertScroll",
+X			    xmScrollBarWidgetClass, new,
+X			    XmNorientation,		XmVERTICAL,
+X			    XmNdragCallback,		VSCallback,
+X			    XmNvalueChangedCallback,	VSCallback,
+X			    XmNincrement,	1,
+X			    XmNminimum,		0,
+X			    XmNmaximum,		(new->matrix.rows -
+X						 (int) new->matrix.fixed_rows),
+X			    XmNsliderSize,	1,
+X			    XmNbackground,	new->core.background_pixel,
+X			    XmNforeground,	new->manager.foreground,
+X			    XmNbottomShadowColor,
+X				new->manager.bottom_shadow_color,
+X			    XmNbottomShadowPixmap,
+X				new->manager.bottom_shadow_pixmap,
+X			    XmNhighlightColor,	new->manager.highlight_color,
+X			    XmNhighlightPixmap,	new->manager.highlight_pixmap,
+X			    XmNshadowThickness,	new->manager.shadow_thickness,
+X			    XmNtopShadowColor,	new->manager.top_shadow_color,
+X			    XmNtopShadowPixmap, new->manager.top_shadow_pixmap,
+X			    NULL);
+X
+X    /*
+X     * Create the Clip widget managed so we can use it for traversal
+X     */
+X    (void) XtVaCreateManagedWidget("clip",
+X				   xbaeClipWidgetClass, new,
+X				   XmNexposeProc,	ClipRedisplay,
+X				   XmNtraversalOn,
+X				   	new->manager.traversal_on,
+X				   XmNbackground,
+X					new->core.background_pixel,
+X				   NULL);
+X
+X    /*
+X     * Add a callback to the Clip widget so we know when it gets the focus
+X     * and can use it in traversal.
+X     */
+X    XtAddCallback(ClipChild(new), XmNfocusCallback, TraverseInCB,
+X		  (XtPointer)new);
+X
+X    /*
+X     * Create text field (unmanaged for now) - its window will be reparented
+X     * in Realize to be a subwindow of Clip
+X     */
+X    (void) XtVaCreateWidget("textField",
+X			    xmTextFieldWidgetClass,  new,
+X			    XmNmarginWidth,	new->matrix.cell_margin_width,
+X			    XmNmarginHeight,	new->matrix.cell_margin_height,
+X			    XmNtranslations,	new->matrix.text_translations,
+X			    XmNfontList,	new->matrix.font_list,
+X			    XmNshadowThickness,
+X					new->matrix.cell_shadow_thickness,
+X			    XmNhighlightThickness,
+X					new->matrix.cell_highlight_thickness,
+X			    XmNbackground,	new->core.background_pixel,
+X			    XmNforeground,	new->manager.foreground,
+X			    XmNbottomShadowColor,
+X					new->manager.bottom_shadow_color,
+X			    XmNbottomShadowPixmap,
+X					new->manager.bottom_shadow_pixmap,
+X			    XmNhighlightColor,	new->manager.highlight_color,
+X			    XmNhighlightPixmap,	new->manager.highlight_pixmap,
+X			    XmNtopShadowColor,	new->manager.top_shadow_color,
+X			    XmNtopShadowPixmap,	new->manager.top_shadow_pixmap,
+X			    NULL);
+X
+X    /*
+X     * We need a hook onto textField for the modifyVerifyCallback
+X     * XXX we always have a modifyVerifyCallback even if the user
+X     * doesn't want one - how else can we tell when we need to
+X     * reinstall callbacks on the textField?
+X     */
+X    XtAddCallback(TextChild(new), XmNmodifyVerifyCallback, ModifyVerifyCB,
+X		  (XtPointer)new);
+X
+X    /*
+X     * Compute cell text baseline based on TextField widget
+X     */
+X    new->matrix.text_baseline = XmTextFieldGetBaseline(TextChild(new));
+X
+X    /*
+X     * Calculate total pixel width of cell area
+X     */
+X    GetCellTotalWidth(new);
+X
+X    /*
+X     * Cache the pixel position of each column
+X     */
+X    new->matrix.column_positions = CreateColumnPositions(new);
+X    GetColumnPositions(new);
+X
+X    /*
+X     * Now we can set the VSB maximum (relies on data from
+X     * GetCellTotalWidth above)
+X     */
+X    XtVaSetValues(HorizScrollChild(new),
+X		  XmNmaximum,	CELL_TOTAL_WIDTH(new),
+X		  NULL);
+X
+X    /*
+X     * Current position starts at the top left editable cell.
+X     */
+X    new->matrix.current_row = new->matrix.fixed_rows;
+X    new->matrix.current_column = new->matrix.fixed_columns;
+X
+X    /*
+X     * We aren't trying to traverse out
+X     */
+X    new->matrix.traversing = NOT_TRAVERSING;
+X
+X    /*
+X     * Get/create our GCs
+X     */
+X    CreateDrawGC(new);
+X    GetInverseGC(new);
+X    CreateDrawClipGC(new);
+X    CreateInverseClipGC(new);
+X    CreateTopShadowClipGC(new);
+X    CreateBottomShadowClipGC(new);
+X
+X    /*
+X     * Create ScrollMgrs to manage scrolling events
+X     */
+X    new->matrix.matrix_scroll_mgr = SmCreateScrollMgr();
+X    new->matrix.clip_scroll_mgr = SmCreateScrollMgr();
+X
+X    /*
+X     * Compute our size.  If either dimension was explicitly set to 0,
+X     * then that dimension is computed.
+X     * Use request because superclasses modify width/height.
+X     */
+X    if (request->core.width == 0 || request->core.height == 0)
+X	ComputeSize(new, request->core.width == 0, request->core.height == 0);
+X
+X    /*
+X     * Make sure top_row is sensible before we call Resize
+X     */
+X    if (VERT_ORIGIN(new) < 0)
+X	VERT_ORIGIN(new) = 0;
+X    else if (VERT_ORIGIN(new) > new->matrix.rows)
+X	VERT_ORIGIN(new) = new->matrix.rows;
+X
+X    /*
+X     * Tweak top_row to make sure it is valid before calling Resize
+X     */
+X    if (VERT_ORIGIN(new))
+X	AdjustTopRow(new);
+X
+X    /*
+X     * Layout the scrollbars and clip widget based on our size
+X     */
+X    Resize(new);
+}
+X
+static void
+Realize(mw, valueMask, attributes)
+XXbaeMatrixWidget mw;
+XXtValueMask *valueMask;
+XXSetWindowAttributes *attributes;
+{
+X    *valueMask |= CWDontPropagate;
+X    attributes->do_not_propagate_mask =
+X	ButtonPressMask | ButtonReleaseMask |
+X	KeyPressMask | KeyReleaseMask | PointerMotionMask;
+X
+X    /*
+X     * Don't call our superclasses realize method, because Manager sets
+X     * bit_gravity
+X     */
+X    XtCreateWindow((Widget)mw, InputOutput, CopyFromParent,
+X		   *valueMask, attributes);
+X
+X    /*
+X     * Reparent the textFields window to be a subwindow of Clip widget
+X     * (we need to realize them first)
+X     */
+X    XtRealizeWidget(TextChild(mw));
+X    XtRealizeWidget(ClipChild(mw));
+X    XReparentWindow(XtDisplay(mw), XtWindow(TextChild(mw)),
+X		    XtWindow(ClipChild(mw)), 0, 0);
+}
+X
+static void
+InsertChild(w)
+Widget w;
+{
+X    if (((CompositeWidget)XtParent(w))->composite.num_children > 3) {
+X	String params[1];
+X	Cardinal num_params = 1;
+X        params[0] = XtClass(XtParent(w))->core_class.class_name;
+X        XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X                        "insertChild", "badChild", "XbaeMatrix",
+X                        "XbaeMatrix: Applications cannot add children to %s widgets",
+X                        params, &num_params);
+X        return;
+X    }
+X
+X    (*((XmManagerWidgetClass)
+X       (xbaeMatrixWidgetClass->core_class.superclass))->composite_class.
+X     insert_child) (w);
+}
+X
+/*
+X * Convert a pixel position to the column it is contained in.
+X */
+static int
+XXtoCol(mw, x)
+XXbaeMatrixWidget mw;
+int x;
+{
+X    int i;
+X
+X    for (i = 1; i < mw->matrix.columns; i++)
+X	if (mw->matrix.column_positions[i] > x)
+X	    return i-1;
+X
+X    return i-1;
+}
+X
+/*
+X * Convert a row/column cell position to the x/y of its upper left corner
+X * wrt the window it will be drawn in (either the matrix window for
+X * fixed cells, or the clip window for non-fixed).
+X */
+static void
+RowColToXY(mw, row, column, x, y)
+XXbaeMatrixWidget mw;
+int row, column;
+int *x, *y;
+{
+X    /*
+X     * If we are in a fixed cell, calculate x/y relative to Matrixs
+X     * window (take into account labels etc)
+X     */
+X    if (column < mw->matrix.fixed_columns || row < mw->matrix.fixed_rows) {
+X
+X	/*
+X	 * Ignore horiz_origin if we are in a fixed column
+X	 */
+X	if (column < mw->matrix.fixed_columns)
+X	    *x = COLUMN_LABEL_OFFSET(mw) + mw->matrix.column_positions[column];
+X	else
+X	    *x = COLUMN_LABEL_OFFSET(mw) +
+X		mw->matrix.column_positions[column] - HORIZ_ORIGIN(mw);
+X
+X	/*
+X	 * Ignore vert_origin if we are in a fixed row
+X	 */
+X	if (row < mw->matrix.fixed_rows)
+X	    *y = ROW_LABEL_OFFSET(mw) + ROW_HEIGHT(mw) * row;
+X	else
+X	    *y = ROW_LABEL_OFFSET(mw) + ROW_HEIGHT(mw) *
+X		(row - VERT_ORIGIN(mw));
+X    }
+X
+X    /*
+X     * If we are not fixed we must account for fixed rows/columns
+X     * and scrolling origins.
+X     */
+X    else {
+X	*x = (mw->matrix.column_positions[column] -
+X	      mw->matrix.column_positions[mw->matrix.fixed_columns]) -
+X		  HORIZ_ORIGIN(mw);
+X	*y = ROW_HEIGHT(mw) * ((row - (int)mw->matrix.fixed_rows) -
+X			       VERT_ORIGIN(mw));
+X    }
+}
+X
+/*
+X * Convert an x/y pixel position to the row/column cell position it picks.
+X * 'cell' specifies whether the x/y coord is relative to the fixed cells
+X * window or the non-fixed cells window.
+X * The coords x,y are adjusted so they are relative to the origin of the
+X * picked cell.
+X */
+static Boolean
+XXYToRowCol(mw, x, y, row, column, cell)
+XXbaeMatrixWidget mw;
+int *x, *y;
+int *row, *column;
+CellType cell;
+{
+X    Rectangle rect;
+X
+X    switch (cell) {
+X
+X    case FixedCell:
+X
+X	/*
+X	 * Get the Rectangle enclosing the cells in fixed rows or columns.
+X	 * If we don't have fixed rows or columns, then we didn't hit a cell.
+X	 */
+X	if (mw->matrix.fixed_columns) {
+X	    SETRECT(rect,
+X		    COLUMN_LABEL_OFFSET(mw), ROW_LABEL_OFFSET(mw),
+X		    FIXED_COLUMN_LABEL_OFFSET(mw) - 1,
+X		    ROW_LABEL_OFFSET(mw) + VISIBLE_HEIGHT(mw) - 1);
+X	}
+X	else if (mw->matrix.fixed_rows) {
+X	    SETRECT(rect,
+X		    COLUMN_LABEL_OFFSET(mw), ROW_LABEL_OFFSET(mw),
+X		    COLUMN_LABEL_OFFSET(mw) + VISIBLE_WIDTH(mw) - 1,
+X		    FIXED_ROW_LABEL_OFFSET(mw) - 1);
+X	}
+X	else
+X	    return False;
+X
+X	/*
+X	 * If the point is in this rectangle, calculate the row/column
+X	 * it hits. Otherwise we didn't hit a cell.
+X	 */
+X	if (INBOX(rect, *x, *y)) {
+X
+X	    /*
+X	     * Translate the point to rect's coord system
+X	     */
+X	    *x -= rect.x1;
+X	    *y -= rect.y1;
+X
+X	    /*
+X	     * Convert this point to a row/column. We only take into
+X	     * account the scrolling origins if we are not fixed in that
+X	     * dimension.
+X	     */
+X	    *row = YtoRow(mw, *y) + (mw->matrix.fixed_rows
+X				     ? 0
+X				     : VERT_ORIGIN(mw));
+X	    *column = XtoCol(mw, *x + (mw->matrix.fixed_columns
+X				       ? 0
+X				       : HORIZ_ORIGIN(mw)));
+X
+X	    /*
+X	     * Sanity check the result
+X	     */
+X	    if ((mw->matrix.fixed_rows && *row >= mw->matrix.fixed_rows) ||
+X		(mw->matrix.fixed_columns && *column >=
+X		 mw->matrix.fixed_columns) ||
+X		*row < 0 || *column < 0)
+X		return False;
+X
+X	    /*
+X	     * Adjust x,y so they are relative to this cells origin.
+X	     */
+X	    *x -= mw->matrix.column_positions[*column] -
+X		(mw->matrix.fixed_columns
+X		 ? 0
+X		 : HORIZ_ORIGIN(mw));
+X	    *y %= ROW_HEIGHT(mw);
+X
+X	    return True;
+X	}
+X	else
+X	    return False;
+X
+X	/* NOTREACHED */
+X	break;
+X
+X    case NonFixedCell:
+X
+X	/*
+X	 * Translate the point to take into account fixed rows or columns.
+X	 */
+X	*x += FIXED_COLUMN_WIDTH(mw);
+X	*y += FIXED_ROW_HEIGHT(mw);
+X
+X	/*
+X	 * Convert the new point to a row/column position
+X	 */
+X	*row = YtoRow(mw, *y) + VERT_ORIGIN(mw);
+X	*column = XtoCol(mw, *x + HORIZ_ORIGIN(mw));
+X
+X	/*
+X	 * Sanity check the result
+X	 */
+X	if (*row >= mw->matrix.rows || *column >= mw->matrix.columns ||
+X	    *row < 0 || *column < 0)
+X	    return False;
+X
+X	/*
+X	 * Adjust x,y so they are relative to this cells origin.
+X	 */
+X	*x -= mw->matrix.column_positions[*column] - HORIZ_ORIGIN(mw);
+X	*y %= ROW_HEIGHT(mw);
+X
+X	return True;
+X		
+X	/* NOTREACHED */
+X	break;
+X
+X    default:
+X	return False;
+X    }
+}
+X
+/*
+X * Width in pixels of a character in a given font
+X */
+#define charWidth(fs,c) ((fs)->per_char\
+X                         ? (fs)->per_char[(unsigned char)(c) -\
+X                                          (fs)->min_char_or_byte2].width\
+X                         : (fs)->min_bounds.width)
+X
+X
+/*
+X * Draw a string with specified attributes. We want to avoid having to
+X * use a GC clip_mask, so we clip by characters. This complicates the code.
+X */
+static void
+DrawString(mw, win, string, length, x, y, maxlen, alignment, highlight,
+X	   bold, clip, color)
+XXbaeMatrixWidget mw;
+Window win;
+String string;
+int length;
+int x, y;
+int maxlen;
+unsigned char alignment;
+Boolean highlight;
+Boolean bold;
+Boolean clip;
+Pixel color;
+{
+X    int start, width, maxwidth;
+X    GC gc;
+X
+X    /*
+X     * Initialize starting character in string
+X     */
+X    start = 0;
+X
+X    /*
+X     * Calculate max width in pixels and actual pixel width of string.
+X     * XXX XTextWidth only sums the width of each char.	 A char could
+X     * have an rbearing greater than the width.	 So we might not clip
+X     * a char which really should be.
+X     */
+X    maxwidth = maxlen * FONT_WIDTH(mw);
+X    width = XTextWidth(mw->matrix.font, string, length);
+X
+X    /*
+X     * If the width of the string is greater than the width of this cell,
+X     * we need to clip. We don't want to use the server to clip because
+X     * it is slow, so we truncate characters if we exceed a cells pixel width.
+X     */
+X    if (width > maxwidth) {
+X	
+X	switch (alignment) {
+X
+X	case XmALIGNMENT_CENTER: {
+X	    int startx = x;
+X	    int endx = x + maxwidth - 1;
+X	    int newendx;
+X
+X	    /*
+X	     * Figure out our x for the centered string.  Then loop and chop
+X	     * characters off the front until we are within the cell.
+X	     * Adjust x, the starting character and the length of the string
+X	     * for each char.
+X	     */
+X	    x += maxwidth / 2 - width / 2;
+X	    while (x < startx) {
+X		int cw = charWidth(mw->matrix.font, string[start]);
+X		x += cw;
+X		width -= cw;
+X		length--;
+X		start++;
+X	    }
+X
+X	    /*
+X	     * Now figure out the end x of the string.	Then loop and chop
+X	     * characters off the end until we are within the cell.
+X	     */
+X	    newendx = x + width - 1;
+X	    while (newendx > endx) {
+X		newendx -= charWidth(mw->matrix.font,
+X				     string[start + length - 1]);
+X		length--;
+X	    }
+X
+X	    break;
+X	}
+X
+X	case XmALIGNMENT_END: {
+X
+X	    /*
+X	     * Figure out our x for the right justified string.
+X	     * Then loop and chop characters off the front until we fit.
+X	     * Adjust x for each char lopped off. Also adjust the starting
+X	     * character and length of the string for each char.
+X	     */
+X	    x += maxwidth - width;
+X	    while (width > maxwidth) {
+X		int cw = charWidth(mw->matrix.font, string[start]);
+X		width -= cw;
+X		x += cw;
+X		length--;
+X		start++;
+X	    }
+X	    break;
+X	}
+X
+X	case XmALIGNMENT_BEGINNING:
+X	default:
+X	    /*
+X	     * Leave x alone, but chop characters off the end until we fit
+X	     */
+X	    while (width > maxwidth) {
+X		width -= charWidth(mw->matrix.font, string[length - 1]);
+X		length--;
+X	    }
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * We fit inside our cell, so just compute the x of the start of our string
+X     */
+X    else {
+X	switch (alignment) {
+X
+X	case XmALIGNMENT_CENTER:
+X	    x += maxwidth / 2 - width / 2;
+X	    break;
+X
+X	case XmALIGNMENT_END:
+X	    x += maxwidth - width;
+X	    break;
+X
+X	case XmALIGNMENT_BEGINNING:
+X	default:
+X	    /*
+X	     * Leave x alone
+X	     */
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * Figure out which GC to use
+X     */
+X    if (highlight) {
+X	if (clip)
+X	    gc = mw->matrix.inverse_clip_gc;
+X	else
+X	    gc = mw->matrix.inverse_gc;
+X    }
+X    else {
+X	if (clip)
+X	    gc = mw->matrix.draw_clip_gc;
+X	else
+X	    gc = mw->matrix.draw_gc;
+X    }
+X
+X    /*
+X     * Don't worry, XSetForeground is smart about avoiding unnecessary
+X     * protocol requests.
+X     */
+X    if (!highlight)
+X	XSetForeground(XtDisplay(mw), gc, color);
+X
+X    /*
+X     * Now draw the string at x starting at char 'start' and of length 'length'
+X     */
+X    XDrawString(XtDisplay(mw), win, gc, x, y, &string[start], length);
+X
+X    /*
+X     * If bold is on, draw the string again offset by 1 pixel (overstrike)
+X     */
+X    if (bold)
+X	XDrawString(XtDisplay(mw), win, gc, x - 1, y, &string[start], length);
+}
+X
+/*
+X * Draw the column label for the specified column.  Handles labels in
+X * fixed and non-fixed columns.
+X */
+static void
+DrawColumnLabel(mw, column)
+XXbaeMatrixWidget mw;
+int column;
+{
+X    String label;
+X    int x, y, i;
+X
+X    if (mw->matrix.column_labels[column][0] == '\0')
+X	return;
+X
+X    /*
+X     * If the column label is in a fixed column, we don't need to account
+X     * for the horiz_origin
+X     */
+X    if (column < mw->matrix.fixed_columns)
+X	x = COLUMN_LABEL_OFFSET(mw) + mw->matrix.column_positions[column] +
+X	    TEXT_X_OFFSET(mw);
+X    else
+X	x = COLUMN_LABEL_OFFSET(mw) + (mw->matrix.column_positions[column] -
+X				       HORIZ_ORIGIN(mw)) + TEXT_X_OFFSET(mw);
+X
+X    /*
+X     * Set our y to the baseline of the first line in this column
+X     */
+X    y = TEXT_Y_OFFSET(mw) + (mw->matrix.column_label_maxlines -
+X			     mw->matrix.column_label_lines[column].lines) *
+X				 TEXT_HEIGHT(mw);
+X
+X    label = mw->matrix.column_labels[column];
+X    for (i = 0; i < mw->matrix.column_label_lines[column].lines; i++) {
+X	DrawString(mw, XtWindow(mw),
+X		   label, mw->matrix.column_label_lines[column].lengths[i],
+X		   x, y,
+X		   mw->matrix.column_widths[column],
+X		   mw->matrix.column_label_alignments
+X		   ? mw->matrix.column_label_alignments[column]
+X		   : XmALIGNMENT_BEGINNING,
+X		   False,
+X		   mw->matrix.bold_labels,
+X		   column >= mw->matrix.fixed_columns,
+X		   mw->manager.foreground);
+X	y += TEXT_HEIGHT(mw);
+X	label += mw->matrix.column_label_lines[column].lengths[i] + 1;
+X    }
+}
+X
+/*
+X * Draw the row label for the specified row. Handles labels in fixed and
+X * non-fixed rows.
+X */
+static void
+DrawRowLabel(mw, row)
+XXbaeMatrixWidget mw;
+int row;
+{
+X    int y;
+X
+X    if (mw->matrix.row_labels[row][0] == '\0')
+X	return;
+X
+X    /*
+X     * If the row label is in a fixed row we don't need to account
+X     * for the vert_origin
+X     */
+X    if (row < mw->matrix.fixed_rows)
+X	y = ROW_LABEL_OFFSET(mw) + ROW_HEIGHT(mw) * row + TEXT_Y_OFFSET(mw);
+X    else
+X	y = ROW_LABEL_OFFSET(mw) + ROW_HEIGHT(mw) * (row - VERT_ORIGIN(mw)) +
+X	    TEXT_Y_OFFSET(mw);
+X
+X    DrawString(mw, XtWindow(mw),
+X	       mw->matrix.row_labels[row],
+X	       strlen(mw->matrix.row_labels[row]),
+X	       TEXT_X_OFFSET(mw), y,
+X	       mw->matrix.row_label_width,
+X	       mw->matrix.row_label_alignment,
+X	       False,
+X	       mw->matrix.bold_labels,
+X	       False,
+X	       mw->manager.foreground);
+}
+X
+/*
+X * Draw a fixed or non-fixed cell. The coordinates are calculated relative
+X * to the correct window and the cell is drawn in that window.
+X */
+static void
+DrawCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    int x, y;
+X    Pixel color;
+X    Window win = CELL_WINDOW(mw, row, column);
+X    Boolean clipped = row < mw->matrix.fixed_rows;
+X
+X    if (!win)
+X	return;
+X
+X    /*
+X     * Convert the row/column to the coordinates relative to the correct
+X     * window
+X     */
+X    RowColToXY(mw, row, column, &x, &y);
+X
+X    /*
+X     * Figure out what color this cell is
+X     */
+X    if (mw->matrix.colors)
+X	color = mw->matrix.colors[row][column];
+X    else
+X	color = mw->manager.foreground;
+X
+X    /*
+X     * If this cell is selected, fill the cell with the foreground color
+X     */
+X    if (mw->matrix.selected_cells[row][column]) {
+X	GC gc = (clipped
+X		 ? mw->matrix.draw_clip_gc
+X		 : mw->matrix.draw_gc);
+X
+X	/*
+X	 * Don't worry, XSetForeground is smart about avoiding
+X	 * unnecessary protocol requests.
+X	 */
+X	XSetForeground(XtDisplay(mw), gc, color);
+X
+X	XFillRectangle(XtDisplay(mw), win,
+X		       gc,
+X		       x + (mw->matrix.cell_highlight_thickness +
+X			    mw->matrix.cell_shadow_thickness),
+X		       y + (mw->matrix.cell_highlight_thickness +
+X			    mw->matrix.cell_shadow_thickness),
+X		       COLUMN_WIDTH(mw, column) -
+X				(mw->matrix.cell_highlight_thickness +
+X				 mw->matrix.cell_shadow_thickness) * 2,
+X		       ROW_HEIGHT(mw) -
+X				(mw->matrix.cell_highlight_thickness +
+X				 mw->matrix.cell_shadow_thickness) * 2);
+X    }
+X
+X    /*
+X     * Draw the string in the cell.
+X     */
+X    if (*mw->matrix.cells[row][column] != '\0') {
+X	DrawString(mw, win,
+X		   mw->matrix.cells[row][column],
+X		   strlen(mw->matrix.cells[row][column]),
+X		   x + TEXT_X_OFFSET(mw), y + TEXT_Y_OFFSET(mw),
+X		   mw->matrix.column_widths[column],
+X		   mw->matrix.column_alignments
+X		   ? mw->matrix.column_alignments[column]
+X		   : XmALIGNMENT_BEGINNING,
+X		   mw->matrix.selected_cells[row][column],
+X		   False, clipped, color);
+X    }
+X
+X    /*
+X     * Surround the cell with a shadow.
+X     */
+X    if (mw->matrix.cell_shadow_thickness) {
+X	if (clipped)
+X	    _XmDrawShadow(XtDisplay(mw), win,
+X			  mw->matrix.cell_bottom_shadow_clip_gc,
+X			  mw->matrix.cell_top_shadow_clip_gc,
+X			  mw->matrix.cell_shadow_thickness,
+X			  x + (int)mw->matrix.cell_highlight_thickness,
+X			  y + (int)mw->matrix.cell_highlight_thickness,
+X			  COLUMN_WIDTH(mw, column) -
+X				2 * mw->matrix.cell_highlight_thickness,
+X			  ROW_HEIGHT(mw) -
+X				2 * mw->matrix.cell_highlight_thickness);
+X	else
+X	    _XmDrawShadow(XtDisplay(mw), win,
+X			  mw->manager.bottom_shadow_GC,
+X			  mw->manager.top_shadow_GC,
+X			  mw->matrix.cell_shadow_thickness,
+X			  x + (int)mw->matrix.cell_highlight_thickness,
+X			  y + (int)mw->matrix.cell_highlight_thickness,
+X			  COLUMN_WIDTH(mw, column) -
+X				2 * mw->matrix.cell_highlight_thickness,
+X			  ROW_HEIGHT(mw) -
+X				2 * mw->matrix.cell_highlight_thickness);
+X    }
+}
+X
+/*
+X * Redraw the row and column labels and the cells in fixed rows/columns
+X * that are overlapped by the Rectangle argument.
+X */
+static void
+RedrawLabelsAndFixed(mw, expose)
+XXbaeMatrixWidget mw;
+Rectangle *expose;
+{
+X    /*
+X     * Handle the row labels that are in fixed rows
+X     */
+X    if (mw->matrix.fixed_rows && mw->matrix.row_labels) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Get the Rectangle enclosing the fixed row labels
+X	 */
+X	SETRECT(rect,
+X		0, ROW_LABEL_OFFSET(mw),
+X		ROW_LABEL_WIDTH(mw) - 1, FIXED_ROW_LABEL_OFFSET(mw) - 1);
+X
+X	/*
+X	 * If the expose Rectangle overlaps, then some labels must be redrawn
+X	 */
+X	if (OVERLAP(*expose, rect)) {
+X	    Rectangle intersect;
+X	    int endRow, i;
+X
+X	    /*
+X	     * Intersect the fixed-row-labels Rectangle with the expose
+X	     * Rectangle along the Y axis.  The resulting Rectangle will
+X	     * be in 'rect's coordinate system.
+X	     */
+X	    Y_INTERSECT(rect, *expose, intersect);
+X
+X	    /*
+X	     * Redraw each label that was intersected
+X	     */
+X	    endRow = YtoRow(mw, intersect.y2);
+X	    for (i = YtoRow(mw, intersect.y1); i <= endRow; i++)
+X		DrawRowLabel(mw, i);
+X	}
+X    }
+X
+X    /*
+X     * Handle row labels that aren't in fixed rows
+X     */
+X    if (mw->matrix.row_labels) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Get the Rectangle enclosing the non-fixed row labels
+X	 */
+X	SETRECT(rect,
+X		0, FIXED_ROW_LABEL_OFFSET(mw),
+X		ROW_LABEL_WIDTH(mw) - 1,
+X		FIXED_ROW_LABEL_OFFSET(mw) + VISIBLE_HEIGHT(mw) - 1);
+X
+X	/*
+X	 * If the expose Rectangle overlaps, then some labels must be redrawn
+X	 */
+X	if (OVERLAP(*expose, rect)) {
+X	    Rectangle intersect;
+X	    int endRow, i;
+X
+X	    /*
+X	     * Intersect the fixed-row-labels Rectangle with the expose
+X	     * Rectangle along the Y axis.  The resulting Rectangle will
+X	     * be in 'rect's coordinate system.
+X	     */
+X	    Y_INTERSECT(rect, *expose, intersect);
+X
+X	    /*
+X	     * Translate 'intersect' to take into account any fixed rows.
+X	     * This gets it back into the coord system expected by YtoRow().
+X	     */
+X	    intersect.y1 += FIXED_ROW_HEIGHT(mw);
+X	    intersect.y2 += FIXED_ROW_HEIGHT(mw);
+X	
+X	    /*
+X	     * Redraw each label that was intersected
+X	     */
+X	    endRow = YtoRow(mw, intersect.y2) + VERT_ORIGIN(mw);
+X	    for (i = YtoRow(mw, intersect.y1) + VERT_ORIGIN(mw);
+X		 i <= endRow;
+X		 i++)
+X		DrawRowLabel(mw, i);
+X	}
+X    }
+X
+X    /*
+X     * Handle the column labels that are in fixed columns
+X     */
+X    if (mw->matrix.fixed_columns && mw->matrix.column_labels) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Get the Rectangle enclosing the portion of the column labels
+X	 * that are in fixed columns
+X	 */
+X	SETRECT(rect,
+X		COLUMN_LABEL_OFFSET(mw), 0,
+X		FIXED_COLUMN_LABEL_OFFSET(mw) - 1,
+X		COLUMN_LABEL_HEIGHT(mw) - 1);
+X
+X	/*
+X	 * If the expose Rectangle overlaps, then some labels must be redrawn
+X	 */
+X	if (OVERLAP(*expose, rect)) {
+X	    Rectangle intersect;
+X	    int endCol, i;
+X
+X	    /*
+X	     * Intersect the fixed-column-labels Rectangle with the expose
+X	     * Rectangle along the X axis.  The resulting Rectangle will
+X	     * be in 'rect's coordinate system.
+X	     */
+X	    X_INTERSECT(rect, *expose, intersect);
+X
+X	    /*
+X	     * Redraw each label that was intersected
+X	     */
+X	    endCol = XtoCol(mw, intersect.x2);
+X	    for (i = XtoCol(mw, intersect.x1); i <= endCol; i++)
+X		DrawColumnLabel(mw, i);
+X	}
+X    }
+X
+X    /*
+X     * Handle column labels that aren't in fixed columns
+X     */
+X    if (mw->matrix.column_labels) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Get the Rectangle enclosing the non-fixed column labels
+X	 */
+X	SETRECT(rect,
+X		FIXED_COLUMN_LABEL_OFFSET(mw), 0,
+X		FIXED_COLUMN_LABEL_OFFSET(mw) + VISIBLE_WIDTH(mw) - 1,
+X		COLUMN_LABEL_HEIGHT(mw) - 1);
+X
+X	/*
+X	 * If the expose Rectangle overlaps, then some labels must be redrawn
+X	 */
+X	if (OVERLAP(*expose, rect)) {
+X	    Rectangle intersect;
+X	    int endCol, i;
+X
+X	    /*
+X	     * Intersect the non-fixed-column-labels Rectangle with the expose
+X	     * Rectangle along the X axis.  The resulting Rectangle will
+X	     * be in 'rect's coordinate system.
+X	     */
+X	    X_INTERSECT(rect, *expose, intersect);
+X
+X	    /*
+X	     * Translate 'intersect' to take into account any fixed columns.
+X	     * This gets it back into the coord system expected by XtoCol().
+X	     */
+X	    intersect.x1 += FIXED_COLUMN_WIDTH(mw);
+X	    intersect.x2 += FIXED_COLUMN_WIDTH(mw);
+X
+X	    /*
+X	     * Redraw each label that was intersected
+X	     */
+X	    endCol = XtoCol(mw, intersect.x2 + HORIZ_ORIGIN(mw));
+X	    for (i = XtoCol(mw, intersect.x1 + HORIZ_ORIGIN(mw));
+X		 i <= endCol;
+X		 i++)
+X		DrawColumnLabel(mw, i);
+X	}
+X    }
+X
+X    /*
+X     * Handle cells in fixed rows or fixed columns
+X     */
+X    if (mw->matrix.fixed_rows || mw->matrix.fixed_columns) {
+X	Rectangle rect;
+X
+X	/*
+X	 * Get the Rectangle enclosing the cells in fixed rows or columns
+X	 */
+X	if (mw->matrix.fixed_columns) {
+X	    SETRECT(rect,
+X		    COLUMN_LABEL_OFFSET(mw), ROW_LABEL_OFFSET(mw),
+X		    FIXED_COLUMN_LABEL_OFFSET(mw) - 1,
+X		    ROW_LABEL_OFFSET(mw) + VISIBLE_HEIGHT(mw) - 1);
+X	}
+X	else if (mw->matrix.fixed_rows) {
+X	    SETRECT(rect,
+X		    COLUMN_LABEL_OFFSET(mw), ROW_LABEL_OFFSET(mw),
+X		    COLUMN_LABEL_OFFSET(mw) + VISIBLE_WIDTH(mw) - 1,
+X		    FIXED_ROW_LABEL_OFFSET(mw) - 1);
+X	}
+X
+X	/*
+X	 * If the expose Rectangle overlaps, then some cells must be redrawn
+X	 */
+X	if (OVERLAP(*expose, rect)) {
+X	    Rectangle intersect;
+X	    int startCol, endCol, startRow, endRow, i, j;
+X
+X	    /*
+X	     * Intersect the fixed-cells Rectangle with the expose
+X	     * Rectangle along the X and Y axis.  The resulting Rectangle will
+X	     * be in 'rect's coordinate system.
+X	     */
+X	    INTERSECT(rect, *expose, intersect);
+X
+X	    /*
+X	     * Get starting and ending rows/columns.  We only take into
+X	     * account the scrolling origins if we are not fixed in that
+X	     * dimension.
+X	     */
+X	    startCol = XtoCol(mw, intersect.x1 +
+X			      (mw->matrix.fixed_columns
+X			       ? 0
+X			       : HORIZ_ORIGIN(mw)));
+X	    endCol = XtoCol(mw, intersect.x2 +
+X			    (mw->matrix.fixed_columns
+X			     ? 0
+X			     : HORIZ_ORIGIN(mw)));
+X	    startRow = YtoRow(mw, intersect.y1) +
+X		(mw->matrix.fixed_rows
+X		 ? 0
+X		 : VERT_ORIGIN(mw));
+X	    endRow = YtoRow(mw, intersect.y2) +
+X		(mw->matrix.fixed_rows
+X		 ? 0
+X		 : VERT_ORIGIN(mw));
+X
+X	    /*
+X	     * Redraw each cell that was intersected
+X	     */
+X	    for (i = startRow; i <= endRow; i++)
+X		for (j = startCol; j <= endCol; j++)
+X		    DrawCell(mw, i, j);
+X	}
+X    }
+X
+X    /*
+X     * Draw a shadow just inside row/column labels and around outer edge
+X     * of clip widget.	We can't use height of clip widget because it is
+X     * truncated to nearest row.  We use cell_visible_height instead.
+X     */
+X    if (mw->manager.shadow_thickness)
+X	_XmDrawShadow(XtDisplay(mw), XtWindow(mw),
+X		      mw->manager.bottom_shadow_GC,
+X		      mw->manager.top_shadow_GC,
+X		      mw->manager.shadow_thickness,
+X		      ROW_LABEL_WIDTH(mw),
+X		      COLUMN_LABEL_HEIGHT(mw),
+X		      ClipChild(mw)->core.width + FIXED_COLUMN_WIDTH(mw) +
+X			  2 * mw->manager.shadow_thickness,
+X		      mw->matrix.cell_visible_height + FIXED_ROW_HEIGHT(mw) +
+X			  2 * mw->manager.shadow_thickness);
+}
+X
+/*
+X * This is the expose method for the Matrix widget.
+X * It redraws the row and column labels, the cells in fixed rows and columns
+X * and the clip window shadow.
+X */
+/* ARGSUSED */
+static void
+Redisplay(mw, event, region)
+XXbaeMatrixWidget mw;
+XXEvent *event;
+Region region;
+{
+X    Rectangle expose;
+X
+X    /*
+X     * Send our events to the mw ScrollMgr to be adjusted.
+X     */
+X    switch (event->type) {
+X
+X    case Expose:
+X	/*
+X	 * The Expose event will be translated into our scrolled
+X	 * coordinate system.  Then it is put in a Rectangle.
+X	 */
+X	SmScrollEvent(mw->matrix.matrix_scroll_mgr, event);
+X	SETRECT(expose,
+X		event->xexpose.x, event->xexpose.y,
+X		event->xexpose.x + event->xexpose.width,
+X		event->xexpose.y + event->xexpose.height);
+X	break;
+X
+X    case GraphicsExpose:
+X	/*
+X	 * The GraphicsExpose event will cause a scroll to be removed
+X	 * from the managers queue, then the event will be translated
+X	 * into our scrolled coordinate system.	 Then it is put in a Rectangle.
+X	 */
+X	SmScrollEvent(mw->matrix.matrix_scroll_mgr, event);
+X	SETRECT(expose,
+X		event->xgraphicsexpose.x, event->xgraphicsexpose.y,
+X		event->xgraphicsexpose.x + event->xgraphicsexpose.width,
+X		event->xgraphicsexpose.y + event->xgraphicsexpose.height);
+X	break;
+X
+X    case NoExpose:
+X	/*
+X	 * The NoExpose event means we won't be getting any GraphicsExpose
+X	 * events, so the scroll well be removed from the queue and
+X	 * we are done.
+X	 */
+X	SmScrollEvent(mw->matrix.matrix_scroll_mgr, event);
+X	return;
+X
+X    default:
+X	return;
+X    }
+X
+X    /*
+X     * Redraw the row/column labels and fixed rows/columns which are
+X     * overlapped by the expose Rectangle.
+X     */
+X    RedrawLabelsAndFixed(mw, &expose);
+}
+X
+/*
+X * Redraw all cells in the clip widget damaged by the passed Rectangle.
+X * The Rectangle must be within the bounds of the cells. These are the
+X * non-fixed cells.
+X */
+static void
+RedrawCells(mw, expose)
+XXbaeMatrixWidget mw;
+Rectangle *expose;
+{
+X    int startCol, endCol, startRow, endRow, i, j;
+X    Rectangle rect;
+X
+X    /*
+X     * Translate the 'expose' Rectangle to take into account the
+X     * fixed rows or columns.
+X     */
+X    SETRECT(rect,
+X	    expose->x1 + FIXED_COLUMN_WIDTH(mw),
+X	    expose->y1 + FIXED_ROW_HEIGHT(mw),
+X	    expose->x2 + FIXED_COLUMN_WIDTH(mw),
+X	    expose->y2 + FIXED_ROW_HEIGHT(mw));
+X
+X    /*
+X     * Calculate the starting and ending rows/columns of the cells
+X     * which must be redrawn.
+X     */
+X    startCol = XtoCol(mw, rect.x1 + HORIZ_ORIGIN(mw));
+X    endCol = XtoCol(mw, rect.x2 + HORIZ_ORIGIN(mw));
+X    startRow = YtoRow(mw, rect.y1) + VERT_ORIGIN(mw);
+X    endRow = YtoRow(mw, rect.y2) + VERT_ORIGIN(mw);
+X
+X    /*
+X     * Redraw all cells which were exposed.
+X     */
+X    for (i = startRow; i <= endRow; i++)
+X	for (j = startCol; j <= endCol; j++)
+X	    DrawCell(mw, i, j);
+}
+X
+/*
+X * This is the exposeProc function for the Clip widget.
+X * It handles expose events for the Clip widget by redrawing those
+X * non-fixed cells which were damaged.
+X * It recieves Expose, GraphicsExpose and NoExpose events.
+X */
+/* ARGSUSED */
+static void
+ClipRedisplay(w, event, region)
+Widget w;
+XXEvent *event;
+Region region;
+{
+X    XbaeMatrixWidget mw = (XbaeMatrixWidget) XtParent(w);
+X    Rectangle expose, clip, intersect;
+X
+X    /*
+X     * Send our events to the clip ScrollMgr to be adjusted.
+X     */
+X    switch (event->type) {
+X
+X    case Expose:
+X	/*
+X	 * The Expose event will be translated into our scrolled
+X	 * coordinate system.  Then it is put in a Rectangle.
+X	 */
+X	SmScrollEvent(mw->matrix.clip_scroll_mgr, event);
+X	SETRECT(expose,
+X		event->xexpose.x, event->xexpose.y,
+X		event->xexpose.x + event->xexpose.width - 1,
+X		event->xexpose.y + event->xexpose.height - 1);
+X	break;
+X
+X    case GraphicsExpose:
+X	/*
+X	 * The GraphicsExpose event will cause a scroll to be removed
+X	 * from the managers queue, then the event will be translated
+X	 * into our scrolled coordinate system.	 Then it is put in a Rectangle.
+X	 */
+X	SmScrollEvent(mw->matrix.clip_scroll_mgr, event);
+X	SETRECT(expose,
+X		event->xgraphicsexpose.x, event->xgraphicsexpose.y,
+X		event->xgraphicsexpose.x + event->xgraphicsexpose.width - 1,
+X		event->xgraphicsexpose.y + event->xgraphicsexpose.height - 1);
+X	break;
+X
+X    case NoExpose:
+X	/*
+X	 * The NoExpose event means we won't be getting any GraphicsExpose
+X	 * events, so the scroll well be removed from the queue and
+X	 * we are done.
+X	 */
+X	SmScrollEvent(mw->matrix.clip_scroll_mgr, event);
+X	return;
+X
+X    default:
+X	return;
+X    }
+X
+X    /*
+X     * We may get an expose event larger than the size of the Clip widget.
+X     * This is because in set_values we may clear the Clip widget
+X     * before it gets resized smaller (maybe in set_values_almost).
+X     * So here we intersect the expose event with the clip widget
+X     * to ensure the expose Rectangle is not larger than the Clip widget.
+X     */
+X    SETRECT(clip,
+X	    0, 0,
+X	    w->core.width - 1, w->core.height - 1);
+X    INTERSECT(clip, expose, intersect);
+X
+X    /*
+X     * Redraw those cells which overlap the intersect Rectangle.
+X     */
+X    RedrawCells(mw, &intersect);
+}
+X
+X
+/* ARGSUSED */
+static Boolean
+SetValues(current, request, new, args, num_args)
+XXbaeMatrixWidget current, request, new;
+ArgList args;
+Cardinal *num_args;
+{
+X    Boolean redisplay = False;		/* need to redraw */
+X    Boolean relayout = False;		/* need to layout, but same size */
+X    Boolean new_column_widths = False;	/* column widths changed */
+X    Boolean new_cells = False;		/* cells changed */
+X    Boolean do_top_row = False;		/* reset top_row */
+X    int n;
+X    Arg wargs[9];
+X
+#define NE(field)	(current->field != new->field)
+#define EQ(field)	(current->field == new->field)
+X
+X
+X
+X    /*
+X     * If rows changed, then:
+X     *	row_labels must change or be NULL
+X     */
+X    if (NE(matrix.rows) &&
+X	 (new->matrix.row_labels && EQ(matrix.row_labels))) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "rows",
+X			"XbaeMatrix",
+X			"XbaeMatrix: Number of rows changed but dependent resources did not",
+X			NULL, 0);
+X	new->matrix.rows = current->matrix.rows;
+X	new->matrix.row_labels = current->matrix.row_labels;
+X    }
+X
+X    /*
+X     * If columns changed, then:
+X     *	column_widths must change
+X     *	column_max_lengths must change or be NULL
+X     *	column_labels must change or be NULL
+X     *	column_alignments must change or be NULL
+X     *	column_label_alignments must change or be NULL
+X     */
+X    if (NE(matrix.columns) &&
+X	 ((new->matrix.column_labels && EQ(matrix.column_labels)) ||
+X	  (new->matrix.column_max_lengths && EQ(matrix.column_max_lengths)) ||
+X	  (new->matrix.column_alignments && EQ(matrix.column_alignments)) ||
+X	  (new->matrix.column_label_alignments &&
+X	   EQ(matrix.column_label_alignments)) ||
+X	  EQ(matrix.column_widths))) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "columns", "XbaeMatrix",
+X			"XbaeMatrix: Number of columns changed but dependent resources did not",
+X			NULL, 0);
+X	new->matrix.columns = current->matrix.columns;
+X	new->matrix.column_widths = current->matrix.column_widths;
+X	new->matrix.column_max_lengths = current->matrix.column_max_lengths;
+X	new->matrix.column_labels = current->matrix.column_labels;
+X	new->matrix.column_alignments = current->matrix.column_alignments;
+X	new->matrix.column_label_alignments =
+X	    current->matrix.column_label_alignments;
+X    }
+X
+X    /*
+X     * Make sure we have at least one row/column.
+X     */
+X    if (new->matrix.columns <= 0 || new->matrix.rows <= 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "size", "XbaeMatrix",
+X			"XbaeMatrix: Must have at least one row and column",
+X			NULL, 0);
+X	if (new->matrix.columns <= 0)
+X	    new->matrix.columns = current->matrix.columns;
+X	if (new->matrix.rows <= 0)
+X	    new->matrix.rows = current->matrix.rows;
+X    }
+X
+X    /*
+X     * We cannot have both fixed rows and fixed columns
+X     */
+X    if (new->matrix.fixed_rows && new->matrix.fixed_columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "bothFixed", "XbaeMatrix",
+X			"XbaeMatrix: Cannot have both fixed rows and columns",
+X			NULL, 0);
+X	if (NE(matrix.fixed_rows))
+X	    new->matrix.fixed_rows = current->matrix.fixed_rows;
+X	if (NE(matrix.fixed_columns))
+X	    new->matrix.fixed_columns = current->matrix.fixed_columns;
+X    }
+X
+X    /*
+X     * We must have at least one non-fixed row/column.
+X     * This could be caused by fixed_rows/columns or rows/columns changing.
+X     */
+X    if ((new->matrix.fixed_rows &&
+X	 new->matrix.fixed_rows >= new->matrix.rows) ||
+X	(new->matrix.fixed_columns &&
+X	 new->matrix.fixed_columns >= new->matrix.columns)) {
+X	String params[1];
+X	Cardinal num_params = 1;
+X	params[0] = new->matrix.fixed_rows ? "row" : "column";
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "tooManyFixed", "XbaeMatrix",
+X			"XbaeMatrix: At least one %s must not be fixed",
+X			(String *) params, (Cardinal *) &num_params);
+X	if (new->matrix.fixed_rows) {
+X	    if (NE(matrix.fixed_rows))
+X		new->matrix.fixed_rows = current->matrix.fixed_rows;
+X	    if (NE(matrix.rows))
+X		new->matrix.rows = current->matrix.rows;
+X	}
+X	else if (new->matrix.fixed_columns) {
+X	    if (NE(matrix.fixed_columns))
+X		new->matrix.fixed_columns = current->matrix.fixed_columns;
+X	    if (NE(matrix.columns))
+X		new->matrix.columns = current->matrix.columns;
+X	}
+X    }
+X
+X    /*
+X     * We can't have too many visible rows.
+X     * This could be caused by visible_rows or rows or fixed_rows changing.
+X     */
+X    if (new->matrix.visible_rows >
+X	new->matrix.rows - new->matrix.fixed_rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X		      "setValues", "tooManyVisibleRows", "XbaeMatrix",
+X		      "XbaeMatrix: visibleRows must not be greater than (rows - fixedRows)",
+X		      (String *) NULL, (Cardinal *) NULL);
+X	if (NE(matrix.visible_rows))
+X	    new->matrix.visible_rows = current->matrix.visible_rows;
+X	if (NE(matrix.rows))
+X	    new->matrix.rows = current->matrix.rows;
+X	if (NE(matrix.fixed_rows))
+X	    new->matrix.fixed_rows = current->matrix.fixed_rows;
+X    }
+X
+X    /*
+X     * We can't have too many visible columns.
+X     * This could be caused by visible_columns or columns or fixed_columns
+X     * changing.
+X     */
+X    if (new->matrix.visible_columns >
+X	new->matrix.columns - new->matrix.fixed_columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X		      "setValues", "tooManyVisibleColumns", "XbaeMatrix",
+X		      "XbaeMatrix: visibleColumns must not be greater than (columns - fixedColumns)",
+X		      (String *) NULL, (Cardinal *) NULL);
+X	if (NE(matrix.visible_columns))
+X	    new->matrix.visible_columns = current->matrix.visible_columns;
+X	if (NE(matrix.columns))
+X	    new->matrix.columns = current->matrix.columns;
+X	if (NE(matrix.fixed_columns))
+X	    new->matrix.fixed_columns = current->matrix.fixed_columns;
+X    }
+X
+X    /*
+X     * Make sure we have column_widths
+X     */
+X    if (new->matrix.column_widths == NULL) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)new),
+X			"setValues", "columnWidths", "XbaeMatrix",
+X			"XbaeMatrix: Must specify columnWidths",
+X			NULL, 0);
+X	new->matrix.column_widths = current->matrix.column_widths;
+X    }
+X
+X
+X    /*
+X     * If rows or columns or fixed rows/columns changed,
+X     * then we need to relayout.
+X     */
+X    if (NE(matrix.rows) || NE(matrix.fixed_rows)) {
+X	/*
+X	 * Reset VSB maximum. sliderSize will be reset later in Resize.
+X	 */
+X	XtVaSetValues(VertScrollChild(new),
+X		      XmNmaximum,	(new->matrix.rows -
+X					 (int) new->matrix.fixed_rows),
+X		      XmNvalue,		0,
+X		      XmNsliderSize,	1,
+X		      NULL);
+X	do_top_row = True;
+X	relayout = True;
+X    }
+X    if (NE(matrix.columns) || NE(matrix.fixed_columns))
+X	relayout = True;
+X
+X    /*
+X     * Copy any pointed to resources if they changed
+X     */
+X
+X    if (NE(matrix.cells)) {
+X	FreeCells(current);
+X	CopyCells(new);
+X	redisplay = True;
+X	new_cells = True;
+X    }
+X    else if (NE(matrix.rows) || NE(matrix.columns))
+X	ResizeCells(current, new);
+X    if (NE(matrix.row_labels)) {
+X	/*
+X	 * If we added or deleted row_labels, we need to layout.
+X	 */
+X	if (!current->matrix.row_labels || !new->matrix.row_labels)
+X	    relayout = True;
+X	else
+X	    redisplay = True;
+X
+X	FreeRowLabels(current);
+X	if (new->matrix.row_labels)
+X	    CopyRowLabels(new);
+X    }
+X    if (NE(matrix.column_labels)) {
+X	FreeColumnLabels(current);
+X	if (new->matrix.column_labels)
+X	    CopyColumnLabels(new);
+X	else {
+SHAR_EOF
+true || echo 'restore of Xbae/src/Matrix.c failed'
+fi
+echo 'End of Xbae part 6'
+echo 'File Xbae/src/Matrix.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

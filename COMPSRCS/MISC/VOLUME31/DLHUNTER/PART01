@@ -1,0 +1,1401 @@
+Newsgroups: comp.sources.misc
+From: middle@cse.uta.edu  (William Middleton)
+Subject:  v31i070:  dlhunter - news binary extraction utility v2.02, Part01/01
+Message-ID: <1992Aug2.025304.9353@sparky.imd.sterling.com>
+X-Md4-Signature: 31f01253e66c626d7d097e87421466c0
+Date: Sun, 2 Aug 1992 02:53:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: middle@cse.uta.edu  (William Middleton)
+Posting-number: Volume 31, Issue 70
+Archive-name: dlhunter/part01
+Environment: perl, news
+
+dlhunter is an automated news binary extraction utility.  
+
+dlhunter is designed to run as a bckgd process, preferably daily by cron.
+It hunts for uuencoded files in the binary news directories that you specify.
+It uses (preferably) links, in its own queue directory.  When a given picture 
+or tool has all parts posted, it attempts to assemble it, if successful the 
+complete binary is placed in a download directory.  A short blurb, with the 
+info from part 01, is placed in a blurb directory when a binary is successfully
+decoded.  All directories are expired according to your specification. Note 
+that the download directory should have lots of space available.  
+
+This version has a -i flag which starts dlhunter in interactive mode, to allow
+the admin (user) to manually assemble postings with ungrokkable subject lines.
+
+You (admin preferably) MUST edit the configuration area in the script.  You 
+MUST also create the relevant directories. I've tried to make it as easy as 
+possible.  Send me mail if you have trouble.  Alternatively, learn perl.
+
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README dlhunter dlhunter.1 myuud.c
+# Wrapped by kent@sparky on Sat Aug  1 21:34:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1913 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+XDLHUNTER - 
+X  dlhunter is designed to run as a bckgd process, preferably daily
+Xby cron.  It hunts for uuencoded files in the binary news directories
+Xthat you specify.  It uses (preferably) links, in its own queue directory.
+XWhen a given picture/tool has all parts posted, it attempts to
+Xassemble it, if successful the complete binary is placed in a download
+Xdirectory.  A short blurb, with the info from part 01, is placed in a
+Xblurb directory when a binary is successfully decoded.  All directories
+Xare expired according to your specification. Note that the download
+Xdirectory should have lots of space available.  And watch the errors
+Xfiles, they grow.
+X  This second version has a -i flag which starts dlhunter in interactive 
+Xmode, to allow the admin (user) to manually assemble postings with un-
+Xgrokkable subject lines.
+X  You (admin preferably) MUST edit the configuration area in the script.  
+XYou MUST also create the relevant directories. I've tried
+Xto make it as easy as possible.  Send me mail if you have trouble.
+XAlternatively, learn perl.
+X
+X
+X Update : July 17,1992
+X    You must now specify your own decoder in the configuration area.
+X
+X Update : July 22, 1992
+X    myuud.c is now bundled with the release.  
+X
+XTODO: 
+X*  someone has already started to hack this thing to work across NNTP
+X
+X*  noone has beat my regexp match for parsing subject lines, yet.
+X   Of course, that'd save more time in interactive mode.
+X
+X*  do an analogous thing for the news sources directories, unpacking and
+X   tarzeeing them.  volunteers?  I'm gettin kinda bored.
+X
+X  Enjoy, and save disk space.  Hack at will, but let me know.
+X  If you do hack you gotta share.
+X
+XThanks to:  
+X     6o25@sdf.lonestar.org  ( Stephen Jones, the man with the idea )
+X     sbw@naucse.cse.nau.edu ( Steve Wampler, turned me on to perl )
+X            
+X
+XbILL
+Xwjm@sdf.lonestar.org, middle@cse.uta.edu, wjmi@lightnin.lonestar.org
+Xperl, what else?  hmmm?
+X
+END_OF_FILE
+  if test 1913 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'dlhunter' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dlhunter'\"
+else
+  echo shar: Extracting \"'dlhunter'\" \(17539 characters\)
+  sed "s/^X//" >'dlhunter' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#eval 'exec /usr/local/bin/perl -S $0 ${1+"$@"}'
+X#if 0;
+X#
+X# July 4, 1992 - First release ( version 1.00 ) 
+X#
+X# July 7, 1992  -  First revision, ( version 1.01 ) 
+X# repair an expire bug that deleted all
+X# the files once the script completed.
+X#
+X# July 13, 1992 -  Second Revision, ( version 2.00 ) 
+X# added several new features, including interactive mode
+X# to allow the admin ( or his DA ) to easily grok through the
+X# remaining links in the queue, assembling binaries with 
+X# un-grokkable subject lines, or other things the daemon doesn't like. 
+X# You can also (optionally) use a subdirectory structure for downloads.
+X# Further, dlhunter has a better decoder now. 
+X#  
+X# July 16, 1992  - third revision,  (version 2.01)
+X# well, i'm sick of try_to_decode screwing up, so i've decided to
+X# use a user supplied routine as the exec.  you must now edit the 
+X# configuration area to specify the path to the uudecoder of your preference.
+X# dlhunter will pass all parts thereto, and use the return value of 0
+X# as an indication of success.  there are many decoders out there, this
+X# version is released with a call to uud.  ( maman@cosinus.inria.fr )
+X# which works pretty good. The decoder must be of the type that will
+X# strip all necessary junk.
+X# 
+X# July 22, 1992  - fourth revision  (version 2.02)
+X# now includes a man page and README.  small bugs taken out of
+X# sub hunt (interactive mode), which printed zero-length blurbs.
+X# and died on expired links.  Now includes myuud, by permission.
+X# added one more regexp to try to grok subject lines, and took
+X# a little rigor out of the parts verification.
+X# 
+X#
+X# 
+X# --------------------------------------------------------------------- 
+X# General Info:
+X# dlhunter is designed to run as a bckgd process, by cron. 
+X#
+X# But it now has an interactive mode, invoked as dlhunter -i.  
+X# you will see the older links in the queue printed on the screen,
+X# with their corresponding subject lines.  These are the ones that dlhunter,
+X# or try_to_decode couldnt handle.  You must give filenumbers to the prompt
+X# after the listing.  It will then try to do its regular thing with them.
+X# If successful, the links will be removed from the queue. 
+X#
+X# You must edit the following variables.   MUST!
+X# You must create relevant directories if necessary.  MUST!
+X# Your queue must be on the same fs as news. 
+X# if you insist on using symlinks, clear the queue before each run.
+X#
+X# dlhunter will find binaries in any dir you care to give it.
+X# 
+X#***************************  Edit these   ***********************************
+X#******************* and create relevant directories!!! ***********************
+X#
+X#  Which decoder do you wanna use?  It's got to be the kind that will
+X# strip off all the junk!  the myuud bundled is good, use the -v option.
+X$usr_decode = '/usr/local/bin/myuud  -v ';
+X
+X#  where are the binaries directories, the news directories where
+X#  binary files are posted 
+X@tooldirs =(
+X         '/var/spool/news/alt/binaries/pictures',
+X         '/var/spool/news/alt/binaries/pictures/erotica',
+X         '/var/spool/news/alt/binaries/pictures/misc',
+X         '/var/spool/news/alt/binaries/pictures/utilities',
+X         '/var/spool/news/comp/binaries/os2',
+X         '/var/spool/news/comp/binaries/ibm/pc'
+X           );
+X
+X# we need an extension for each tooldir, to assure uniqueness in the queue
+X@exts = ('.pc1','.ero','.misc','.util','.os2','.ibm');
+X
+X# Next, by special request, we include an optional associative array to
+X# allow dlhunter to put the binaries in a sub directory structure below  
+X# the actual download directory.  If you wish to use this feature, you must
+X# uncomment and edit the following lines, which define the associative array.
+X# Then, create the download dirs corresponding to the exts.  dlhunter will then
+X# automatically dump the binaries in the associated subdir.  Remember to also
+X# create the blurb directories, beneath each respective download directory.
+X# To edit this array declaration, be sure to associate your download/blurb dir
+X# with its corresponding extension (key). Separate the download dir from its
+X# corresponding blurb dir with a colon.  Send me mail at cse with questions.
+X#                     
+X# %dldirs = (
+X#         '.pc1' , '/tmp/downloads/pictures:/tmp/downloads/pictures/blurbs' ,
+X#          '.ero' , '/tmp/downloads/erot:/tmp/downloads/erot/blurbs' ,
+X#          '.misc' , '/tmp/downloads/misc:/tmp/downloads/misc/blurbs' ,
+X#          '.util' , '/tmp/downloads/util:/tmp/downloads/util/blurbs' ,
+X#          '.os2' , '/tmp/downloads/os2:/tmp/downloads/os2/blurbs' ,
+X#          '.ibm' , '/tmp/downloads/ibm:/tmp/downloads/ibm/blurbs'
+X#           );
+X#
+X# The queue directory, for links to uu postings, until all parts have arrived.
+X#  IMPORTANT!!  This directory MUST be on the same filesystem as the news
+X# directories. (@tooldirs)  For a number of good reasons...
+X$quedir = '/var/spool/news/dl_hunter/queue';
+X
+X# Now, where are the assembled tools/pictures to go?  This is 
+X# still the default location for the extracted binaries.
+X$dloaddir = '/tmp/downloads';
+X
+X# We also need an associated blurb directory.  This is also the default.
+X$blurbdir = '/tmp/downloads/blurbs';
+X
+X# Expire times correspond to number of days since created, for the queue,
+X# and number of days since last accessed, for the downloads (binaries).
+X$qkill = 3;    # queue
+X$dlkill = 3;  # downloads
+X
+X###################  END OF CONFIGURATION   ##############################
+X
+X#  First, if we are running in interactive mode, 
+X#  just call the hunt routine and exit.
+X#
+Xif (@ARGV[0] eq "-i"){
+X&hunt();
+Xexit(0);
+X}
+X
+X# Next, link (copy) the new postings that are (probably) uuencoded to the queue
+X# Pass 1 
+X
+XT1: for (0 .. $#tooldirs){          
+X      $i = $_;
+X      opendir(TOOLS,$tooldirs[$i]);
+X      @uufiles =grep(!/^\.\.?$/ , readdir(TOOLS)); # get all current postings 
+X      closedir(TOOLS);
+XM1:   foreach $file (@uufiles){
+X        open(CURR,"$tooldirs[$i]/$file")||next M1;      
+X        $count = 0;
+XL1:       while(<CURR>){    #  check to see if its a uuencoded file
+X          if($count > 3){ 
+X            close CURR; 
+X
+X# IMPORTANT : use link here, ( DONT USE SYMLINKS ) otherwise, you must
+X# ^^^^^^^^^   hack a copy in here if your queue is not on the same fs as news 
+X#             if you can only use symlinks, clear the queue before each run
+X
+X             if( !(-e "$quedir/$file$exts[$i]")){
+X              link ("$tooldirs[$i]/$file","$quedir/$file$exts[$i]") ||
+X                die " You cant use hard links in this queue directory.\n";}
+X            next M1;}
+X            next L1 if /[a-z]/;
+X            next L1 unless /(^M.*$)|(^X.*$)/;# if there are 3 lines that beginh
+X            $count++;                 # with an M or an X, count it as a encode
+X          }                           # or shar, respectively
+X        next M1;
+X         }
+X     next T1;
+X      } 
+X
+X# Now hunt through the files in the queue, build an assoc array
+X# of filenames in the queue, keyed on title of the tool/picture
+X# (*.zip, *.zoo, *.jpg, *.gif, etc.) given in the Subject: line.
+X# Now, this is trivial for moderated groups, but not so easy for alt. 
+X# Also, obtain the part number, (m of n, m/n, m|n, etc.) and the total
+X# number of parts.  
+X# Pass 2
+X
+Xopendir(UUS,$quedir)||die ("cant open directory $dir");
+X@allfiles = grep(!/^\.\.?$/ , readdir(UUS));   
+Xclosedir(UUS);
+XT2: foreach $file (@allfiles) {
+X      open(CURR,"$quedir/$file")||warn "cant open file $file";
+XM2:  while (<CURR>){
+X        study;
+X        next M2 unless 
+X#  try to find the standard "name.ext" followed
+X#  by the word "part" then the numbers.
+X# try to beat the number of matches i get from these by twiddlin the regexps.
+X# let me know how it turns out.  always use the part keyword in subject!
+X
+X(/^Subject:.*\s(\S+\.\S+).*[Pp][Aa][Rr][Tt]\D*[0]*([1-9][0-9]?)\D+[0]?([1-9][0-9]?).+$/) 
+X
+X# maybe we can match the whole line, followed by the part keyword.
+X||(/^Subject:(.*)[Pp][Aa][Rr][Tt]\D*[0]*([1-9][0-9]?)\D+[0]?([1-9][0-9]?).+$/) 
+X
+X# oh well, default match
+X|| /^Subject:.*\s(\S+\.\S+)\s*[,]*\D*[0]?([1-9][0-9]?)\D+[0]?([1-9][0-9]?).+$/;
+X
+X        $name=$1;$part=$2;$total=$3;
+X        $titles{$name} .= "$quedir/$file"." "."$part"." "."$total"." ".":";
+X        next T2;
+X     }
+X    }
+X 
+X# ok, now work the assoc array. For each title (key) in the associative array 
+X# that we filled in the last loop, verify all parts are in, then check
+X# to see if the file has already been decoded, try to decode and, if successful,
+X# move to download directory.  Then add a blurb file to blurb dir, telling
+X# about the new tool or picture.  Make the blurb world writable for comments.
+X# Pass 3
+X
+Xopen(TEST,"> tst.out");            # when done, tst.out tells you how it went.
+X@uu_tools = sort(keys(%titles));   # i like things sorted.
+XT3: foreach $tool (@uu_tools){
+X      @order = "";     # clear the ordered array. 
+X      @parts = "";
+X      @rel_files = split(/:/,$titles{$tool});   # relevant files to each title
+X      print TEST "$tool \n";
+X      foreach $tmp2 (@rel_files) {print TEST "$tmp2\n";}
+X       print TEST "\n\n I chose this order for them....\n";
+XM3A:  foreach $part (@rel_files){
+X         @tmp = split(/\s/,$part);
+X         $parts[$tmp[1]] = $tmp[2];               # save the total parts
+X         if(defined $order[$tmp[1]]){           # may be a repost, use new one 
+X          if (-M $tmp[0] < -M $order[$tmp[1]]){
+X           unlink $order[$tmp[1]];               # and get rid of the old.
+X           $order[$tmp[1]] = $tmp[0]; 
+X           }} 
+X         else{                                
+X           $order[$tmp[1]] = $tmp[0];  }
+X      }
+X# Now test the order array to make sure all parts are available.
+X
+X      foreach $tmp2 (@order) {print TEST "$tmp2\n";}
+X       print TEST "\n\n";
+X       $ck = $#order;   
+XM3B:  for (1..$#order){
+X        next T3 unless defined $order[$_];
+X#        next T3 unless $parts[$_] == $ck ;  
+X      }
+X
+X# If we make it this far, we might have a complete encode.  
+X# First check to see if the encode is already available,     
+X# then try to decode it if not.  If successful, mv and write a blurb.
+X
+Xif (&dont_have($dloaddir,$order[1])){         # if no got, try to decode
+X  if ($new = &try_to_decode(@order)){        # returns the decode's name or 0
+X      &write_blurb($new,$blurbdir,$order[1]);# a short blurb written out
+X      unlink @order;                        # remove the queue links
+X}}                                   
+Xelse{
+X   unlink @order;}         # unlink the queue links if already decoded.
+X
+X}    # end of third pass
+X
+X# Finally, expire the old stuff.  We use last modification dates for the queue,
+X# and last-access dates for the download directory, and blurb directory. 
+X
+Xif(defined (%dldirs)){      # if using the option...
+X  foreach $ext (@exts){
+X   ($dir1,$dir2) = split(/:/,$dldirs{$ext});
+X   &expire($dir1,$dlkill,'-A');
+X   &expire($dir2,$dlkill,'-A');
+X  }
+X   &expire($quedir,$qkill,'-M');
+X}
+Xelse{                          # the one dir approach.
+X&expire($quedir,$qkill,'-M');
+X&expire($dloaddir,$dlkill,'-A');  
+X&expire($blurbdir,$dlkill,'-M');
+X}
+Xclose(TEST);
+Xexit(0);      # thats it, nice job.
+X
+X##########################################################################
+X
+Xsub dont_have{          # checks if the decoded file already exists
+X  local ($name) = $_[1];
+X  local($dir,$junk) = &which_dir( $name);
+X  open (CK, "$name")||die "couldnt open the file $_[1]";
+X  while(<CK>){          # find the begin line and name
+X    next unless
+X     /^begin\s*\d*\s*(\S*)/;
+X     if (-e "$dir/$1"){ return 0;}   # already exists
+X     else{ return 1;}
+X  }
+Xreturn 0;        # begin not found
+X}
+X
+X############################################################################
+X
+Xsub try_to_decode{       # a semi-bulletproof decoder.
+X   local($cur) = `pwd`;  # now calls myuud  (Thanks Maman!)
+X   local($tmpf) = 'tmp';
+X   local(@files) = @_;
+X   local($dl,$junk) = &which_dir($files[1]); # for the optional download sub-dir
+X   chdir $dl;
+X   open(BEGIN,"<$files[1]");
+X   open(ENCODE,">$tmpf");
+X   $_ = <BEGIN> until ($mode,$file) = /^begin\s*(\d*)\s*(\S*)/i;
+X   for (1..$#files){        #build up a temporary file from the parts
+X    $val = open(IN,"< $files[$_]");
+X    if(! $val){ warn "couldnt open $files[$_]"; return 0;}
+X    while(<IN>){ next unless /^\s*$/;last;}  # skip the header.
+X    while (<IN>){
+X      print ENCODE $_;
+X   }}
+X  close(ENCODE);
+X# implicit child, to handle errors from uudecode, as recommended by lwall.
+X  $pid = open(PIPE, "|-");
+X   die "Fork failure" unless defined $pid;
+X   if(!$pid){
+X    exec "$usr_decode $tmpf >> errors  2>> errors";  # spawn it on the child.
+X   }
+X  close (PIPE);
+X  if($?){unlink($tmpf,$file);           # uudecode didnt like it.
+X        system "echo $file >>errors";   # a line to the errors file
+X        chdir $cur;
+X        return 0;} # error in the decoding, rm and return
+X  chmod 0644, $file;
+X  unlink ($tmpf);
+X  chdir $cur;
+X  return $file;                        # return the name.
+X}                 
+X
+X#########################################################################
+X
+Xsub write_blurb{   # makes a file with the info on the tool/picture
+X  local($name,$dir,$file) = @_;
+X  local($junk) = 0;
+X  ($junk,$dir) = &which_dir($file);
+X  open(BLURB,"> $dir/$name")||die "couldnt open blurb $name";
+X  open(IN, "< $file");  # stuff from part 1 up to the begin line
+X   while(<IN>){
+X    last if /^begin/;
+X    print BLURB $_;}
+X close BLURB;   
+X chmod 0666, "$dir/$name";   # make it available to comments
+X}
+X########################################################################## 
+X
+Xsub expire{                # delete old files from the downloads, blurbs,
+X  local($dir,$days,$how) = @_; # and queue directories. $how is the method. 
+X  opendir(UL,$dir);
+X  local(@allfiles) = grep(!/^\.\.?$/ , readdir(UL));   
+X  closedir(UL);
+X  local($file) = "";
+X  foreach $file (@allfiles){
+X  if ( $how eq '-A'){
+X   unlink "$dir/$file" unless  (-A "$dir/$file" < $days);}
+X  elsif ( $how eq '-M'){
+X   unlink "$dir/$file" unless  (-M "$dir/$file" < $days);}
+X  elsif ($how eq '-C'){
+X   unlink "$dir/$file" unless  (-C "$dir/$file" < $days);}
+X  }
+X  } 
+X ##########################################################################
+X
+Xsub hunt
+X# hunt for and manually assemble the older links in the queue.
+X# open the queue directory, and report on the articles
+X# that have not been deleted, and are greater than 1 day
+X# old. Then give the user the opportunity to assemble
+X# uuencoded binaries from the various articles. 
+X{
+Xlocal($ldir,$file,$ans,$tmp,$subject,$wait,$tmpo) = (0,0,0,0,0,0,0);
+Xlocal(@allfiles)=();
+Xlocal(@order) = ();
+Xlocal(@number) = ();
+Xlocal(@forder) = ();
+X$= = 22;          # a screenful at a time
+XT: while (1) 
+X{
+X  system "clear";
+X  $- = 0;
+X  opendir(QUEUE,$quedir);
+X  @allfiles = grep(!/^\.\.?$/ , readdir(QUEUE)); # get all the current postings 
+X  closedir(QUEUE);
+X  $i = 0;
+XMID: foreach $file (@allfiles) {
+X      next MID unless -M "$quedir/$file" > 1;   # dont bother with the new ones
+X      open(CURR,"$quedir/$file");
+XLOW:  while (<CURR>){
+X        next LOW unless /^Subject:(.*$)/;
+X        $subject = $1;
+X        $number[$i] = "$quedir/$file";
+X        #feed a screenful at a time.  crude.
+X        if($- == 0){ print "<CR> to continue...";chop($wait=<STDIN>);write;}
+X        else{write;}
+X        $i++;
+X        next MID; 
+X  }
+X }    # still in the T loop...
+X    print "\nEnter the article numbers which make up the tool/pict\n";
+X    print "\n             IN THE CORRECT ORDER \n\n";
+X    print "     separated by a space, and followed by a <CR>.\n";
+X    print "     Or just enter a carriage return to quit.\n ";
+X     chop($tmp =<STDIN>);
+X     if ($tmp eq ""){ return;}
+X     @order = split(/ /,$tmp);        
+X     $i=1;
+X     foreach $tmpo (@order){ $forder[$i] = $number[$tmpo];
+X                            print $forder[$i],"\n"; $i++;} #whew
+X
+X     if(!&dont_have(0,$forder[1])){
+X       print "already got that one, deleting links\n"; 
+X       print "<CR> to continue...";chop($wait=<STDIN>);
+X       unlink @forder;
+X       next T;}
+X     else{          # if the tool/picture is not already present
+X       if ($name = &try_to_decode(@forder)){    # try to decode it
+X         print " successful decode, new file is named $name\n" ;
+X         print " writing a new blurb now\n";
+X         print "<CR> to continue...";chop($wait=<STDIN>);
+X         &write_blurb($name,$ldir,$forder[1]);
+X         unlink @forder;
+X         next T;}
+X       else{
+X         print " decoding unsuccessful, try to find out what the prob is.";
+X         print "\n<CR> to continue...";chop($wait=<STDIN>);
+X         next T;}
+X }
+X}
+X} 
+X###########################################################################
+Xsub which_dir{   # determine which dir to dump binaries in.
+X                
+Xlocal($name,$ext) = (@_[0],0);
+X$name =~ /.*(\..*\b).*/;
+X$ext = $1;
+Xif(defined $dldirs{$ext}){    #  if the option is in use.
+X  ($dl,$bl) = split(/:/,$dldirs{$ext});
+X  return ($dl,$bl);}
+Xelse{
+X  return ($dloaddir,$blurbdir);}
+X}
+X#########################################################################
+Xformat STDOUT_TOP =
+XThese are the current postings in @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< 
+X$quedir
+Xwhich MAY be tools/picts.  You must give me the article 
+Xnumbers, in the CORRECT order, for me to feed to uudecode.
+XFirst I will list them for you. 
+X
+XARTICLE 
+XNUMBER     SUBJECT
+X------   ----------------------------------------------------------------------
+X. 
+Xformat STDOUT =
+X@>>>    @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$i, $subject
+X. 
+X
+X #  Bill Middleton
+X #  wjm@sdf.lonestar.org, middle@cse.uta.edu
+X #  let me know what you think...
+X
+X
+X
+END_OF_FILE
+  if test 17539 -ne `wc -c <'dlhunter'`; then
+    echo shar: \"'dlhunter'\" unpacked with wrong size!
+  fi
+  chmod +x 'dlhunter'
+  # end of 'dlhunter'
+fi
+if test -f 'dlhunter.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dlhunter.1'\"
+else
+  echo shar: Extracting \"'dlhunter.1'\" \(1318 characters\)
+  sed "s/^X//" >'dlhunter.1' <<'END_OF_FILE'
+X.TH dlhunter 1
+X.SH Name
+Xdlhunter \- automated news binary extraction utility. 
+X.SH Syntax
+X.B dlhunter
+X[\fB\-i\fR]
+X.SH Description
+X.PN dlhunter 
+Xis designed to run as a background process, by cron.  It will find 
+Xand extract uuencoded binaries in the news directories where they
+Xare posted. In fact, it will find uuencoded files in any directory, and 
+Xassemble them if the Subject lines give the correct part numbers.
+XThe command,
+X.PN  dlhunter 
+X\fB\-i\fR, starts 
+Xdlhunter in interactive mode, allowing the user to assemble those postings 
+Xwhich had Subject lines which 
+X.PN dlhunter 
+Xcould not grok.  All directories are expired according to the 
+Xuser-defined variables.  The code is
+X.PN perl
+Xand the script must be edited to suit the individual site.
+X.PN dlhunter
+Xuses hard links to the files it thinks are uuencoded.  And thus,
+Xthe queue directory, where the links are created, 
+X.PN must 
+Xbe on the
+Xsame fs as news.  
+X.PP
+X.PN dlhunter
+Xrequires a SMART uudecoder.  There are many available.
+X.PN myuud
+Xis bundled with version 2.02.
+XWhen you edit the configuration variables, you must specify
+Xthe path to one.
+X.PN
+X.PN  NOTE:  
+Xdlhunter is designed to save disk space and time.
+XThus, it should be run by 
+X.PN ONE 
+Xuser, and the binaries placed in a 
+X.PN PUBLIC 
+Xdirectory.  
+X.PN DONT
+X.PN BE
+X.PN A
+X.PN DISK
+X.PN HOG!
+X.PP
+END_OF_FILE
+  if test 1318 -ne `wc -c <'dlhunter.1'`; then
+    echo shar: \"'dlhunter.1'\" unpacked with wrong size!
+  fi
+  # end of 'dlhunter.1'
+fi
+if test -f 'myuud.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'myuud.c'\"
+else
+  echo shar: Extracting \"'myuud.c'\" \(16085 characters\)
+  sed "s/^X//" >'myuud.c' <<'END_OF_FILE'
+X/*
+X * Uud -- decode a uuencoded file back to binary form.
+X *
+X * From the Berkeley original, modified by MSD, RDR, JPHD & WLS.
+X * The Atari GEMDOS version compiled with MWC 2.x.
+X * The MSDOS version with TurboC.
+X * The Unix version with cc.
+X * this version is made: 25 Nov 1988.
+X *
+X * $Id: myuud.c,v 1.1 92/05/06 22:48:06 maman Exp Locker: maman $
+X *
+X * Mods :
+X * ------ 16 May 1991 ------ maman@cosinus.inria.fr ------
+X *    Table is reinitialised at the end of files in order to
+X *    avoid a table modification effect for next files.
+X * ------ 21 Feb 1991 ------ maman@cosinus.inria.fr ------
+X *    Now if the file is unwritable, opens /dev/null instead
+X *    to avoid breaking a multiple files run.
+X * ------ 14 Feb 1991 ------ maman@cosinus.inria.fr ------
+X *    (-c) dochmod added for UNIX.
+X * ------ 24 Jan 1991 ------ maman@cosinus.inria.fr ------
+X *    No use of ceil. (cdlen[] is already there).
+X *    valid_char, valid_length and valid_chars used.
+X *    (-v) verify flag added for more tests and more verbose,
+X *    exactly the way I like it ;-)
+X * ------ 23 Jan 1991 ------ maman@cosinus.inria.fr ------
+X *    I've taken this from ftp at sics.se:/mailserver/uudecode.shar
+X *    It was said Wrapped by Edwin Kremer <edwin@zlotty> on \
+X *    Wed Dec 20 17:06:37 1989
+X *
+X *    Checks the declared length and the effective length
+X *    in order to skip the header/signature of different
+X *    files and test the range validity of one character
+X *    in the middle of the buffer.
+X *    Works almost all the time.
+X *    Tolerate one more byte at the end for another count
+X *    (should be given as a parameter ?).
+X *    UNIX compilation: cc [-O] -o uud uud.c
+X */
+X
+X/*
+X * Be sure to have the proper symbol at this point. (GEMDOS, MSDOS, UNIX...)
+X */
+X/*
+X#ifndef GEMDOS
+X#define GEMDOS 1
+X#endif
+X */
+X#ifndef UNIX
+X#define UNIX 1
+X#endif
+X/*
+X#ifndef MSDOS
+X#define MSDOS 1
+X#endif
+X */
+X
+X#undef GWMDOS
+X#undef MSDOS
+X
+X#ifdef GEMDOS
+X#define SYSNAME "gemdos"
+X#define SMALL 1
+X#endif
+X#ifdef MSDOS
+X#define SYSNAME "msdos"
+X#define SMALL 1
+X#endif
+X#ifdef UNIX
+X#define SYSNAME "unix"
+X#define format printf
+X#define TEST_LENGTH
+X#endif
+X
+X#include <stdio.h>
+X
+X#ifdef GEMDOS
+X#include <osbind.h>
+X#define Error(n)  { Bconin(2); exit(n); }
+X#define WRITE	  "wb"
+X#else
+X#define Error(n)  exit(n)
+X#define WRITE	  "w"
+X#endif
+X
+X#define loop	while (1)
+X
+Xextern FILE *fopen();
+Xextern char *strcpy();
+Xextern char *strcat();
+X
+Xchar *getnword();
+X
+X#define MAXCHAR 256
+X#define LINELEN 256
+X#define FILELEN 64
+X#define NORMLEN 60	/* allows for 80 encoded chars per line */
+X
+X#define SEQMAX 'z'
+X#define SEQMIN 'a'
+Xchar seqc;
+Xint first, secnd, check, numl;
+X#ifdef TEST_LENGTH
+Xint numlbad = -1;
+X#endif
+X
+XFILE *in, *out;
+Xchar *pos;
+Xchar ifname[FILELEN], ofname[FILELEN];
+Xchar *source = NULL, *target = NULL;
+Xchar blank, part = '\0';
+Xint partn, lens;
+Xint debug = 0, nochk = 0, onedone = 0, verify = 0;
+X#ifdef UNIX
+Xint dochmod = 1;
+X#endif
+Xint chtbl[MAXCHAR], cdlen[NORMLEN + 3];
+X
+Xmain(argc, argv) int argc; char *argv[];
+X{
+X	int mode;
+X	register int i, j;
+X	char *curarg;
+X	char dest[FILELEN], buf[LINELEN];
+X
+X	if (argc < 2) {
+X		format("Almost foolproof uudecode v3.4.2 (%s) 14-Feb-91\n",
+X			SYSNAME);
+X		format("\n");
+X#ifdef UNIX
+X		format("Usage: uud [-n] [-d] [-v] [-c] %s\n",
+X		       "[-s dir] [-t dir] input-file");
+X#else
+X		format("Usage: uud [-n] [-d] [-v] %s\n",
+X		       "[-s dir] [-t dir] input-file");
+X#endif
+X		format("\n");
+X		format("Option: -n -> No line sequence check\n");
+X		format("Option: -d -> Debug/verbose mode\n");
+X		format("Option: -v -> Verify all chars\n");
+X#ifdef UNIX
+X		format("Option: -c -> chmod not performed (umask used)\n");
+X#endif
+X		format("Option: -s + Source directory for all input files\n");
+X		format("  (MUST be terminated by directory separator)\n");
+X		format("Option: -t + Target directory for all output files\n");
+X		format("  (MUST be terminated by directory separator)\n");
+X		format("If input-file is - then stdin is used as input-file\n");
+X		Error(1);
+X	}
+X
+X	curarg = argv[1];
+X	
+X	while (curarg[0] == '-') {
+X		if (((curarg[1] == 'd') || (curarg[1] == 'D')) &&
+X		    (curarg[2] == '\0')) {
+X			debug = 1;
+X#ifdef UNIX
+X		} else if (((curarg[1] == 'c') || (curarg[1] == 'C')) &&
+X			   (curarg[2] == '\0')) {
+X			dochmod = 0;
+X#endif
+X		} else if (((curarg[1] == 'v') || (curarg[1] == 'V')) &&
+X			   (curarg[2] == '\0')) {
+X			verify = 1;
+X		} else if (((curarg[1] == 'n') || (curarg[1] == 'N')) &&
+X			   (curarg[2] == '\0')) {
+X			nochk = 1;
+X		} else if (((curarg[1] == 't') || (curarg[1] == 'T')) &&
+X			   (curarg[2] == '\0')) {
+X			argv++;
+X			argc--;
+X			if (argc < 2) {
+X				format("uud: Missing target directory.\n");
+X				Error(15);
+X			}
+X			target = argv[1];
+X			if (debug||verify)
+X				format("Target dir = %s\n",target);
+X		} else if (((curarg[1] == 's') || (curarg[1] == 'S')) &&
+X			   (curarg[2] == '\0')) {
+X			argv++;
+X			argc--;
+X			if (argc < 2) {
+X				format("uud: Missing source directory.\n");
+X				Error(15);
+X			}
+X			source = argv[1];
+X			if (debug||verify)
+X				format("Source dir = %s\n",source);
+X		} else if (curarg[1] != '\0') {
+X			format("uud: Unknown option <%s>\n", curarg);
+X			Error(15);
+X		} else
+X			break;
+X		argv++;
+X		argc--;
+X		if (argc < 2) {
+X			format("uud: Missing file name.\n");
+X			Error(15);
+X		}
+X		curarg = argv[1];
+X	}
+X
+X	if ((curarg[0] == '-') && (curarg[1] == '\0')) {
+X		in = stdin;
+X		strcpy(ifname, "<stdin>");
+X	} else {
+X		if (source != NULL) {
+X			strcpy(ifname, source);
+X			strcat(ifname, curarg);
+X		} else
+X			strcpy(ifname, curarg);
+X		if ((in = fopen(ifname, "r")) == NULL) {
+X			format("uud: Can't open %s\n", ifname);
+X			Error(2);
+X		}
+X		numl = 0;
+X	}
+X
+X	settable();
+X
+X/*
+X * set up the line length table, to avoid computing lotsa * and / ...
+X */
+X	cdlen[0] = 1;
+X	for (i = 1, j = 5; i <= NORMLEN; i += 3, j += 4)
+X		cdlen[i] = (cdlen[i + 1] = (cdlen[i + 2] = j));
+X/*
+X * search for header or translation table line.
+X */
+X	loop {	/* master loop for multiple decodes in one file */
+X		partn = 'a';
+X		loop {
+X			if (fgets(buf, sizeof buf, in) == NULL) {
+X				if (onedone) {
+X					if (debug||verify)
+X					   format("End of file.\n");
+X					exit(0);
+X				} else {
+X					format("uud: No begin line.\n");
+X					Error(3);
+X				}
+X			}
+X			numl++;
+X			if (strncmp(buf, "table", 5) == 0 &&
+X			    buf[5] == '\n' ) {
+X				gettable();
+X				continue;
+X			}
+X			if (strncmp(buf, "begin ", 6) == 0) {
+X				break;
+X			}
+X		}
+X		lens = strlen(buf);
+X		if (lens) buf[--lens] = '\0';
+X#ifdef SMALL
+X		if ((pos = getnword(buf, 3))) {
+X			strcpy(dest, pos);
+X		} else
+X#else
+X		if(sscanf(buf,"begin%o%s", &mode, dest) != 2)
+X#endif
+X		{
+X			format("uud: Missing filename in begin line.\n");
+X			Error(10);
+X		}
+X
+X		if (target != NULL) {
+X			strcpy(ofname, target);
+X			strcat(ofname, dest);
+X		} else
+X			strcpy(ofname, dest);
+X
+X		if((out = fopen(ofname, WRITE)) == NULL) {
+X			format("uud: Cannot open output file: %s\n", ofname);
+X			format("uud: Sending to /dev/null.\n");
+X			strcpy(ofname, "/dev/null");
+X			out = fopen(ofname, WRITE);
+X		}
+X		if (debug||verify) format("Begin uudecoding: %s\n", ofname);
+X		seqc = SEQMAX;
+X		check = nochk ? 0 : 1;
+X		first = 1;
+X		secnd = 0;
+X		decode();
+X		fclose(out);
+X#ifdef UNIX
+X		if(dochmod) chmod(ofname, mode);
+X#endif
+X		onedone = 1;
+X		if (debug||verify) format("End uudecoding: %s\n", ofname);
+X		settable();
+X	}	/* master loop for multiple decodes in one file */
+X}
+X
+X/*
+X * Bring back a pointer to the start of the nth word.
+X */
+Xchar *getnword(str, n) register char *str; register int n;
+X{
+X	while((*str == '\t') || (*str == ' ')) str++;
+X	if (! *str) return NULL;
+X	while(--n) {
+X		while ((*str != '\t') && (*str != ' ') && (*str)) str++;
+X		if (! *str) return NULL;
+X		while((*str == '\t') || (*str == ' ')) str++;
+X		if (! *str) return NULL;
+X	}
+X	return str;
+X}
+X
+X/*
+X * Install the table in memory for later use.
+X */
+Xgettable()
+X{
+X	char buf[LINELEN];
+X	register int c, n = 0;
+X	register char *cpt;
+X
+X	if(debug) format("Getting new table.\n");
+X
+X	for (c = 0; c <= MAXCHAR; c++) chtbl[c] = -1;
+X
+Xagain:	if (fgets(buf, sizeof buf, in) == NULL) {
+X		format("uud: EOF while in translation table.\n");
+X		Error(5);
+X	}
+X	numl++;
+X	if (strncmp(buf, "begin", 5) == 0) {
+X		format("uud: Incomplete translation table.\n");
+X		format("uud: Using default one.\n");
+X		settable();
+X		return;
+X	}
+X	cpt = buf + strlen(buf) - 1;
+X	*cpt = ' ';
+X	while (*(cpt) == ' ') {
+X		*cpt = 0;
+X		cpt--;
+X	}
+X	cpt = buf;
+X	while (c = *cpt) {
+X		if (chtbl[c] != -1) {
+X			format("uud: Duplicate char in translation table.\n");
+X			format("uud: Using default one.\n");
+X			settable();
+X			return;
+X		}
+X		if (n == 0) blank = c;
+X		chtbl[c] = n++;
+X		if (n >= 64)
+X		{
+X		    if(debug) format("End of getting table.\n");
+X		    return;
+X		}
+X		cpt++;
+X	}
+X	goto again;
+X}
+X
+X/*
+X * Set up the default translation table.
+X */
+Xsettable()
+X{
+X    int i, j;
+X
+X    for (i = 0; i < ' '; i++) chtbl[i] = -1;
+X    for (i = ' ', j = 0; i < ' ' + 64; i++, j++) chtbl[i] = j;
+X    for (i = ' ' + 64; i < MAXCHAR; i++) chtbl[i] = -1;
+X    chtbl['`'] = chtbl[' '];	/* common mutation */
+X    chtbl['~'] = chtbl['^'];	/* an other common mutation */
+X    blank = ' ';
+X}
+X
+X/*
+X * Testing functions
+X */
+X
+X#ifdef TEST_LENGTH
+Xvalid_length(l,n)
+X     int l,n;
+X{
+X    int k, resp;
+X    k = cdlen[n];
+X    /*    k = n % 3;
+X     *    k = ( n + (k ? 3-k : 0) )*4/3;
+X     */
+X    resp = ( (l-k >= 0) && (l-k <= 1) );
+X    if(debug && !resp && !verify)
+X    format("Bad length at line %d\n", numl);
+X    return(resp);
+X}
+X
+Xvalid_char(c)
+X     char c;
+X{
+X    int resp;
+X    resp = ( (chtbl[c]<0) ? 0 : 1 );
+X    if(debug && !resp && !verify)
+X    format("Bad char <%c> at line %d\n", c, numl);
+X    return(resp);
+X}
+X#endif
+X
+Xvalid_chars(s,l)
+X     char *s;
+X     int l;
+X{
+X    int resp, k = 0;
+X    while( (k<l) && valid_char(s[k]) ) k++;
+X    resp = (k==l);
+X    return( resp );
+X}
+X
+X/*
+X * copy from in to out, decoding as you go along.
+X */
+X
+Xdecode()
+X{
+X	char buf[LINELEN], outl[LINELEN];
+X	register char *bp, *ut;
+X	register int *trtbl = chtbl;
+X	register int n, c, rlen;
+X	register unsigned int len;
+X#ifdef TEST_LENGTH
+X	int efflen;
+X#endif
+X
+X	loop {
+X		if (fgets(buf, sizeof buf, in) == NULL) {
+X			format("uud: EOF before end.\n");
+X			fclose(out);
+X			Error(8);
+X		}
+X		numl++;
+X		len = strlen(buf);
+X		if (len) buf[--len] = '\0';
+X/*
+X * Is it an unprotected empty line before the end line ?
+X */
+X		if (len == 0) continue;
+X/*
+X * Get the binary line length.
+X */
+X		n = trtbl[buf[0]];
+X/*
+X * end of uuencoded file ?
+X */
+X		if (strncmp(buf, "end", 3) == 0) return;
+X		if (   (strncmp(buf, "begin ", 6) == 0)
+X		    || (strncmp(buf, "table", 5) == 0) )
+X		{
+X		    format("uud: BEGIN or TABLE before END.\n");
+X		    /* puts back the line */
+X		    fseek(in,(long) - (strlen(buf)+1) , 1);
+X		    return;
+X		}
+X/*
+X * end of current file ? : get next one.
+X */
+X		if (strncmp(buf, "include", 7) == 0) {
+X			getfile(buf);
+X			continue;
+X		}
+X#ifdef TEST_LENGTH
+X/*
+X * good length ?
+X */
+X		efflen = len;
+X
+X		/* Suppress bad chars at the end */
+X		while(   (n >= 0)
+X		      && (efflen > 0)
+X		      && ! valid_char(buf[efflen-1])
+X		      ) efflen--;
+X
+X		if(   (n >= 0)
+X		   && (efflen > 0)
+X		   && valid_length(efflen,n)
+X		   && ((debug||verify)
+X		       ? valid_chars(buf,efflen)
+X		       : valid_char(buf[efflen/2]))
+X		   )
+X		{
+X		    if (debug||verify) {
+X			if((numlbad!=-1) && (numlbad<numl-1))
+X			{
+X			    format("Bad lines %d--%d\n",
+X				   numlbad, numl-1);
+X			}
+X		    }
+X		    numlbad = -1;
+X		    goto decod;
+X		}
+X
+X		if(numlbad<0) {
+X		    numlbad = numl;
+X		    if (debug)
+X		    {
+X			format("Bad line %d =%s\n", numl, buf);
+X			format("n=%d --> %d, len=%d\n", n, cdlen[n], len);
+X		    }
+X		}
+X		continue;
+X#else /* !TEST_LENGTH */
+X		if (n >= 0) goto decod;
+X		format("uud: Bad prefix line %d in file: %s\n",numl, ifname);
+X		if (debug) format("Bad line =%s\n",buf);
+X		Error(11);
+X#endif /* TEST_LENGTH */
+X/*
+X * Sequence checking ?
+X */
+Xdecod:		rlen = cdlen[n];
+X/*
+X * Is it the empty line before the end line ?
+X */
+X		if (n == 0) continue;
+X/*
+X * Pad with blanks.
+X */
+X		for (bp = &buf[c = len];
+X			c < rlen; c++, bp++) *bp = blank;
+X
+X#if  !defined(TEST_LENGTH)
+X/*
+X * Verify if asked for.
+X */
+X		if (debug||verify) {
+X			for (len = 0, bp = buf; len < rlen; len++) {
+X				if (trtbl[*bp] < 0) {
+X					format(
+X	"Non uuencoded char <%c>, line %d in file: %s\n", *bp, numl, ifname);
+X					format("Bad line =%s\n",buf);
+X					Error(16);
+X				}
+X				bp++;
+X			}
+X		}
+X#endif
+X
+X/*
+X * All this just to check for uuencodes that append a 'z' to each line....
+X */
+X		if (secnd && check) {
+X			secnd = 0;
+X			if (buf[rlen] == SEQMAX) {
+X				check = 0;
+X				if (debug) format("Sequence check turned off (2).\n");
+X			} else
+X				if (debug) format("Sequence check on (2).\n");
+X		} else if (first && check) {
+X			first = 0;
+X			secnd = 1;
+X			if (buf[rlen] != SEQMAX) {
+X				check = 0;
+X				if (debug) format("No sequence check (1).\n");
+X			} else
+X				if (debug) format("Sequence check on (1).\n");
+X		}
+X/*
+X * There we check.
+X */
+X		if (check) {
+X			if (buf[rlen] != seqc) {
+X				format("uud: Wrong sequence line %d in %s\n",
+X					numl, ifname);
+X				if (debug)
+X					format(
+X	"Sequence char is <%c> instead of <%c>.\n", buf[rlen], seqc);
+X				Error(18);
+X			}
+X			seqc--;
+X			if (seqc < SEQMIN) seqc = SEQMAX;
+X		}
+X/*
+X * output a group of 3 bytes (4 input characters).
+X * the input chars are pointed to by p, they are to
+X * be output to file f.n is used to tell us not to
+X * output all of them at the end of the file.
+X */
+X		ut = outl;
+X		len = n;
+X		bp = &buf[1];
+X		while (n > 0) {
+X			*(ut++) = trtbl[*bp] << 2 | trtbl[bp[1]] >> 4;
+X			n--;
+X			if (n) {
+X				*(ut++) = (trtbl[bp[1]] << 4) |
+X					  (trtbl[bp[2]] >> 2);
+X				n--;
+X			}
+X			if (n) {
+X				*(ut++) = trtbl[bp[2]] << 6 | trtbl[bp[3]];
+X				n--;
+X			}
+X			bp += 4;
+X		}
+X		if ((n = fwrite(outl, 1, len, out)) <= 0) {
+X			format("uud: Error on writing decoded file.\n");
+X			Error(18);
+X		}
+X	}
+X}
+X
+X/*
+X * Find the next needed file, if existing, otherwise try further
+X * on next file.
+X */
+Xgetfile(buf) register char *buf;
+X{
+X	if ((pos = getnword(buf, 2)) == NULL) {
+X		format("uud: Missing include file name.\n");
+X		Error(17);
+X	} else
+X		if (source != NULL) {
+X			strcpy(ifname, source);
+X			strcat(ifname, pos);
+X		} else
+X			strcpy(ifname, pos);
+X#ifdef GEMDOS
+X	if (Fattrib(ifname, 0, 0) < 0)
+X#else
+X	if (access(ifname, 04))
+X#endif
+X	{
+X		if (debug) {
+X			format("Cant find: %s\n", ifname);
+X			format("Continuing to read same file.\n");
+X		}
+X	}
+X	else {
+X		if (freopen(ifname, "r", in) == in) {
+X			numl = 0;
+X			if (debug||verify) 
+X				format("Reading next section from: %s\n", ifname);
+X		} else {
+X			format("uud: Freopen abort: %s\n", ifname);
+X			Error(9);
+X		}
+X	}
+X	loop {
+X		if (fgets(buf, LINELEN, in) == NULL) {
+X			format("uud: No begin line after include: %s\n", ifname);
+X			Error(12);
+X		}
+X		numl++;
+X		if (strncmp(buf, "table", 5) == 0) {
+X			gettable();
+X			continue;
+X		}
+X		if (strncmp(buf, "begin", 5) == 0) break;
+X	}
+X	lens = strlen(buf);
+X	if (lens) buf[--lens] = '\0';
+X/*
+X * Check the part suffix.
+X */
+X	if ((pos = getnword(buf, 3)) == NULL ) {
+X		format("uud: Missing part name, in included file: %s\n", ifname);
+X		Error(13);
+X	} else {
+X		part = *pos;
+X		partn++;
+X		if (partn > 'z') partn = 'a';
+X		if (part != partn) {
+X			format("uud: Part suffix mismatch: <%c> instead of <%c>.\n",
+X				part, partn);
+X			Error(14);
+X		}
+X		if (debug||verify) format("Reading part %c\n", *pos);
+X	}
+X}
+X
+X#ifndef UNIX
+X/*
+X * Printf style formatting. (Borrowed from MicroEmacs by Dave Conroy.) 
+X * A lot smaller than the full fledged printf.
+X */
+X/* VARARGS1 */
+Xformat(fp, args) char *fp;
+X{
+X	doprnt(fp, (char *)&args);
+X}
+X
+Xdoprnt(fp, ap)
+Xregister char	*fp;
+Xregister char	*ap;
+X{
+X	register int	c, k;
+X	register char	*s;
+X
+X	while ((c = *fp++) != '\0') {
+X		if (c != '%')
+X			outc(c);
+X		else {
+X			c = *fp++;
+X			switch (c) {
+X			case 'd':
+X				puti(*(int *)ap, 10);
+X				ap += sizeof(int);
+X				break;
+X
+X			case 's':
+X				s = *(char **)ap;
+X				while ((k = *s++) != '\0')
+X					outc(k);
+X				ap += sizeof(char *);
+X				break;
+X
+X			case 'c':
+X				outc(*(int *)ap);
+X				ap += sizeof(int);
+X				break;
+X
+X			default:
+X				outc(c);
+X			}
+X		}
+X	}
+X}
+X
+X/*
+X * Put integer, in radix "r".
+X */
+Xputi(i, r)
+Xregister unsigned int	i;
+Xregister unsigned int	r;
+X{
+X	register unsigned int	q, s;
+X
+X	if ((q = i / r) != 0)
+X		puti(q, r);
+X	s = i % r;
+X	if (s <= 9)
+X		outc(s + '0');
+X	else
+X		outc(s - 10 + 'A');
+X}
+Xoutc(c) register char c;
+X{
+X#ifdef GEMDOS
+X	if (c == '\n') Bconout(2, '\r');
+X	Bconout(2, c);
+X#else
+X	putchar(c);
+X#endif
+X}
+X
+X#endif
+END_OF_FILE
+  if test 16085 -ne `wc -c <'myuud.c'`; then
+    echo shar: \"'myuud.c'\" unpacked with wrong size!
+  fi
+  # end of 'myuud.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

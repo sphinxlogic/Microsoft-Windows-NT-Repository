@@ -1,0 +1,1873 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i006: point text editor (TCL and TK), Part05/16
+Message-ID: <1992Mar18.141413.26708@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:14:13 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 6
+Archive-name: tcl-editor/part05
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 15)."
+# Contents:  buffers.c options.c point.c select.c
+#   tclLib/browserMenu.tcl
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:38 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'buffers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'buffers.c'\"
+else
+echo shar: Extracting \"'buffers.c'\" \(10361 characters\)
+sed "s/^X//" >'buffers.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/buffers.c,v 1.6 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <stdio.h>
+X#include "pt.h"
+X
+X#define hashFn(x,y,z) ((13*(x)+(int)((y)&0x7FFF))%(z))
+X
+X/* the file block buffers */
+struct diskBuffer sBuffers[NBUFFERS];
+struct diskBuffer *buffers = sBuffers;
+char *bufferSpace;
+int nextBuffer;		/* the next buffer to reuse */
+X
+X/* buffer hash tables */
+struct diskBuffer *bufHash[NBUFHASH];
+X
+void
+unlink1(bp)
+X	register struct diskBuffer *bp;
+X{
+X	extern struct diskBuffer *bufHash[];
+X	
+X	int h2;
+X	
+X	/* unlink it from its old hash chain */
+X	if( bp->forwardHash != NULL )
+X		bp->forwardHash->backwardHash = bp->backwardHash;
+X	if( bp->backwardHash != NULL )
+X		bp->backwardHash->forwardHash = bp->forwardHash;
+X	else {	/* first in the hash chain */
+X		h2 = hashFn(bp->handle, bp->blockNumber, NBUFHASH);
+X		bufHash[h2] = bp->forwardHash;
+X	}
+X}
+X
+struct diskBuffer *
+getBuffer(handle, blockNumber)
+X	int handle;
+X	int blockNumber;
+X{
+X	extern char msgBuffer[];
+X	extern struct diskBuffer *buffers;
+X	extern struct diskBuffer *bufHash[];
+X	extern int nextBuffer;
+X	extern struct openFile *files;
+X	extern int nBuffers;
+X	extern int addHandle;
+X	extern int debug;
+X	extern int maxFiles;
+X	extern int hashChainBuffersScanned;
+X	extern int buffersRequested;
+X	extern int buffersNotFound;
+X	extern int buffersInUse;
+X	extern int buffersWritten;
+X
+X	register int i;
+X	register struct diskBuffer *bp;
+X	int h;
+X	unsigned char *fp;
+X	unsigned int bufferBits, fileBits;
+X
+X
+X	/* see if the block is already in a buffer */
+X	h = hashFn(handle, blockNumber, NBUFHASH);
+X	bp = bufHash[h];
+X
+X	while( bp != NULL ) {
+X++hashChainBuffersScanned;
+X		if( bp->handle==handle && bp->blockNumber==blockNumber ) {
+X			break;
+X		}
+X		bp = bp->forwardHash;
+X	}
+X
+X++buffersRequested;
+X	if( bp == NULL ) {
+X++buffersNotFound;
+X
+X		/* if not, assign it a buffer and fill it with data */
+X/* LATER: use LRU buffer replacment instead of FIFO */
+X		if( ++nextBuffer >= nBuffers )
+X			nextBuffer = 0;
+X		bp = &buffers[nextBuffer];
+X
+X		if( bp->handle != -1 ) {	/* is the buffer in use? */
+X++buffersInUse;
+X
+X			/* unlink it from its old hash chain */
+X			unlink1(bp);
+X
+X			/* Invalidate any possible buffer caches. */
+X			bufferBits = (unsigned int)bp->bufferAddress
+X							>> BUFFERSHIFT;
+X			for(i = 0; i < maxFiles; i++) {
+X				/* get the buffer block number */
+X				fileBits = (unsigned int)files[i].logBuf
+X							>> BUFFERSHIFT;
+X				/* see if the block numbers match */
+X				if( bufferBits == fileBits ) {
+X					/* if so invalidate the cache */
+X					files[i].hiLogBuffer = -1;
+X				}
+X			}
+X
+X			/* write the buffer out to disk */
+X			if( bp->written ) {
+X++buffersWritten;
+X				i = lseek(bp->handle,
+X					(bp->blockNumber)<<BUFFERSHIFT, 0);
+X 				i = write(bp->handle, bp->bufferAddress,
+X					BUFFERSIZE);
+X				if( i < BUFFERSIZE ) {
+X					perror("getBuffer");
+X				}
+X			}
+X		}
+X		bp->handle = handle;
+X		bp->blockNumber = blockNumber;
+X		bp->written = 0;
+X
+X		/* read in the new buffer contents */
+X		lseek(handle, blockNumber<<BUFFERSHIFT, 0);
+X		i = read(handle, (char *)(bp->bufferAddress), BUFFERSIZE);
+X		/* read zeros for non-existing chararacters */
+X		/* this will occur in the add file only */
+X		if( i <= 0 ) {
+X			if( i < 0 ) {
+X				sprintf(msgBuffer,
+X"getBuffer: read error, ret=%d, handle=%d", i, handle);
+X				msg(msgBuffer, 1);
+X			}
+X			/* zero out the buffer */
+X			fp = bp->bufferAddress;
+X			for(i = 0; i < BUFFERSIZE; ++i)
+X				*fp++ = '\0';
+X		}
+X
+X		bp->backwardHash = NULL;
+X		bp->forwardHash = bufHash[h];
+X		if( bufHash[h] != NULL )
+X			bufHash[h]->backwardHash = bp;
+X		bufHash[h] = bp;
+X	}
+X#ifdef SELF_ORGANIZING
+X	else if( bp->backwardHash != NULL ) {
+X		/* make the hash lists self-organizing by moving this */
+X		/* buffer header to the front of the list */
+X		unlink1( bp );
+X		bp->backwardHash = NULL;
+X		bp->forwardHash = bufHash[h];
+X		if( bufHash[h] != NULL )
+X			bufHash[h]->backwardHash = bp;
+X		bufHash[h] = bp;
+X	}
+X#endif
+X	return bp;
+X}
+X
+X/*ARGSUSED*/
+void
+fidInvalid(handle, fid)
+X	int handle;
+X	int fid;
+X{
+X	extern struct diskBuffer *buffers;
+X	extern int nBuffers;
+X	
+X	int i;
+X
+X	/* invalidate the buffer cache */
+X	for(i = 0; i < nBuffers; i++)
+X		if( buffers[i].handle == handle ) {
+X			unlink1(&buffers[i]);
+X			buffers[i].handle = -1;
+X		}
+X}
+X
+int
+getFileByte( fileId, logicalByte )
+X	int fileId;
+X	Offset logicalByte;
+X{
+X	extern int getSpanSize;
+X	extern int fileBytesRequested;
+X	extern char msgBuffer[];
+X
+X	int n;
+X	unsigned char *firstByte, *lastByte;
+X
+X++fileBytesRequested;
+X	n = getSpan(fileId, logicalByte, &firstByte, &lastByte, 0);
+X++getSpanSize;
+X	if( n != 0 ) {
+X		return BLOCK_EOF;
+X	} else {
+X		return *firstByte;
+X	}
+X}
+X
+static unsigned char *firstByte = (unsigned char *)1;
+static unsigned char *lastByte = 0;
+static Offset logFirstByte = 1;
+static int logLength = -1;
+static int logN;
+X
+void
+ClearByteCache()
+X{
+X	logLength = -1;
+X}
+X
+int
+getCachedFileByte( fileId, logicalByte )
+X	int fileId;
+X	Offset logicalByte;
+X{
+X	extern int getSpanSize;
+X	extern int fileBytesRequested;
+X	extern char msgBuffer[];
+X
+X	unsigned char *addr;
+X	int offset =  logicalByte - logFirstByte;
+X
+X	if( offset < logLength ) {
+X		addr = firstByte + offset;
+X	} else {
+X		logN = getSpan(fileId, logicalByte, &firstByte, &lastByte, 0);
+X		if( logN ) {
+X			logLength = -1;
+X			return BLOCK_EOF;
+X		}
+X		logFirstByte = logicalByte;
+X		logLength = lastByte - firstByte + 1;
+X		addr = firstByte;
+X	}
+X	return *addr;
+X}
+X
+int
+getSpan( fileId, logicalByte, firstByte, lastByte, reversed )
+X	int fileId, reversed;
+X	Offset logicalByte;
+X	unsigned char * *firstByte;
+X	unsigned char * *lastByte;
+X{
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern int debug;
+X	extern int addHandle;
+X	extern int getSpansRequested;
+X	extern int spansOutOfRange;
+X	extern int spansInBufferCache;
+X	extern int spansInPieceCache;
+X	extern int cacheBufferSizes;
+X	extern int trace_file;
+X
+register struct openFile *ff;
+X	struct diskBuffer *buf;
+X	Offset physicalByte, blockNumber, nn, bp;
+X	int handle;
+X	Offset offset;
+X	Piece pp;
+X
+X++getSpansRequested;
+X	/* for efficiency, keep some addresses */
+X	ff = &files[fileId];
+X
+X	/* if file is not open print an error message */
+X	if( fileId == -1 || ff->origHandle == -1 ) {
+X		sprintf(msgBuffer, "getSpan: file %d is not open", fileId);
+X		msg(msgBuffer, 1);
+X		return 1;
+X	}
+X
+X	/* see if the logical byte number is invalid */
+X	if( logicalByte < 0 || logicalByte >= ff->fileSize  ) {
+X++spansOutOfRange;
+X		return 1;
+X	}
+X
+X	/* check for optimized special cases */
+X	if( ff->loLogBuffer<=logicalByte && logicalByte<=ff->hiLogBuffer ) {
+X		unsigned char *temp;
+X
+X++spansInBufferCache;
+X		/* if this logical byte is in the buffer cache then set up */
+X		/* the addresses using the saved segment and offset fields */
+X		temp = ff->logBuf+(unsigned int)(logicalByte-ff->loLogBuffer);
+X		if( reversed ) {
+X			*firstByte = ff->logBuf;
+X			*lastByte = temp;
+X		} else {
+X			*firstByte = temp;
+X			*lastByte = ff->logBuf
+X			  + (unsigned int)(ff->hiLogBuffer - ff->loLogBuffer);
+X		}
+X		if( trace_file > 0 ) {
+X			sprintf( msgBuffer, "S %2d %5d %5d\n",
+X				fileId, logicalByte, *lastByte - *firstByte + 1 );
+X			write( trace_file, msgBuffer, strlen(msgBuffer) );
+X		}
+X
+X		return 0;
+X	}
+X
+X	/* see if we already know what piece it is in */
+X	/* findPiece checks this but for speed we do it here anyway */
+X	/* since getFileByte is on the critical path of performance */
+X	if( ff->loLogPiece<=logicalByte && logicalByte<=ff->hiLogPiece ) {
+X++spansInPieceCache;
+X		pp = ff->logPiece;
+X		physicalByte = pp->position + logicalByte - ff->loLogPiece;
+X	} else {
+X		pp = findPiece(logicalByte, ff, &nn);
+X		physicalByte = pp->position + logicalByte - nn;
+X		/* remember this piece as the cached piece */
+X		ff->logPiece = pp;
+X		ff->loLogPiece = nn;
+X		ff->hiLogPiece = nn + pp->length - 1;
+X	}
+X
+X	/* get the physical file block containing this character */
+X	blockNumber = physicalByte>>BUFFERSHIFT;
+X
+X	/* use the appropriate handle */
+X	handle = pp->file;
+X
+X	/* get the buffer that this character is in */
+X	buf = getBuffer(handle, blockNumber);
+X
+X	/* figure out how many bytes into the buffer logicalByte is */
+X	offset = physicalByte - (blockNumber<<BUFFERSHIFT);
+X	*firstByte = buf->bufferAddress + offset;
+X
+X	/* Remember the logical byte limits in this buffer. */
+X
+X	/* Is the beginning of the buffer still in this piece? */
+X	bp = logicalByte - offset;
+X
+X	/* bp = logical byte number of the first physical byte in buffer */
+X	/* "buf" ASSUMING all of this buffer is in piece "pp".  Now we */
+X	/* check this assumption and adjust things if it is false */
+X
+X	if( bp >= ff->loLogPiece ) {
+X		/* the first byte in this buffer is still in the piece */
+X		ff->loLogBuffer = bp;
+X		ff->logBuf = buf->bufferAddress;
+X	} else {
+X		/* the piece begins inside the buffer */
+X		ff->loLogBuffer = ff->loLogPiece;
+X		ff->logBuf = buf->bufferAddress + (ff->loLogPiece - bp);
+X	}
+X
+X	/* Now check if the last physical byte in this buffer is still */
+X	/* in piece "pp" */
+X
+X	/* bp: logical byte at the end of the buffer */
+X	bp += (BUFFERSIZE - 1);
+X	if( bp <= ff->hiLogPiece ) {
+X		/* the last byte of the buffer is in the piece */
+X		ff->hiLogBuffer = bp;
+X	} else {
+X		/* piece ends before the end of the buffer */
+X		ff->hiLogBuffer = ff->hiLogPiece;
+X	}
+X
+X	/* handle the special case of reversed spans to support searching */
+X	/* backwards */
+X	if( reversed ) {
+X		/* lastByte points to the logical character argument */
+X		*lastByte = *firstByte;
+X		/* firstByte points to the beginning of the buffer */
+X		*firstByte = ff->logBuf;
+X	} else {
+X		*lastByte = *firstByte
+X			+ (unsigned int)(ff->hiLogBuffer - logicalByte);
+X	}
+cacheBufferSizes += *lastByte - *firstByte + 1;
+X
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "S %2d %5d %5d\n", fileId, logicalByte,
+X					*lastByte - *firstByte + 1 );
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X
+X	return 0;
+X}
+X
+void
+writeChar(ch, physicalByte)
+X	int ch;
+X	Offset physicalByte;
+X{
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern int addHandle;
+X	extern int charsWritten;
+X
+X	struct diskBuffer *buf;
+X	int blockNumber;
+X	int offset;
+X
+X++charsWritten;
+X	/* get the physical file block containing this character */
+X	blockNumber = physicalByte>>BUFFERSHIFT;
+X	buf = getBuffer(addHandle, blockNumber);
+X
+X	/* mark this buffer as written so it will be flushed before */
+X	/* it is reused */
+X	buf->written = 1;
+X
+X	/* figure out how many bytes into the buffer physicalByte is */
+X	offset = (int)( physicalByte - (blockNumber<<BUFFERSHIFT) );
+X
+X	/* now store the byte */
+X	*(buf->bufferAddress+offset) = (unsigned char)ch;
+X}
+END_OF_FILE
+if test 10361 -ne `wc -c <'buffers.c'`; then
+    echo shar: \"'buffers.c'\" unpacked with wrong size!
+fi
+# end of 'buffers.c'
+fi
+if test -f 'options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.c'\"
+else
+echo shar: Extracting \"'options.c'\" \(10886 characters\)
+sed "s/^X//" >'options.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/options.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <string.h>
+X#include <stdlib.h>
+X#include <sys/types.h>
+X#include <sys/dir.h>
+X#include <setjmp.h>
+X#include "pt.h"
+X
+unsigned char beginMarkerChar = 0xFF;
+unsigned char endMarkerChar = 0xFE;
+X
+X/* some option flags */
+int    autoIndent = 1;
+int    autoZoom = 0;
+int    backupByCopy = 1;
+int    backupDepth = 1;
+char * backupNameFormat = NULL;
+char * browserFont = NULL;
+char * browserGeometry = NULL;
+char * thinBrowserGeometry = NULL;
+int    button1ScrollsDown = 0;
+char * copySpriteName = NULL;
+char * databaseName = NULL;
+int    debug = 0;
+int    eofChar = '\1';
+char * filePattern = NULL;
+int    findWholeWords = 0;
+int    helpMode = 0;
+int    hypertextOn = 0;
+char * iconFormat = NULL;
+int    ignoreCase = 1;
+int    insertReplaces = 0;
+char * keywordPattern = NULL;
+int    linesOverFind = 999;
+int    maxFiles = 200;
+int    menuDelay = 600;
+int    menuTolerance = 10;
+int    messageFlags = LINE_MSGS;
+int    mouseSpriteMenu = 0;
+struct mmData mm1Data[5];
+struct mmData mm2Data[5];
+char * mouseMenuFont = NULL;
+int    nBuffers = 100;
+int    noBrowser = 0;
+int    thinBrowser = 1;
+int    overType = 0;
+int    pathNames = 0;
+int    readOnly = 0;
+char * returnString = NULL;
+int    rightMargin = 999;
+int    showPartialLines = 0;
+char * selectedTextBackground = NULL;
+char * selectedTextForeground = NULL;
+int    showDirsFirst = 1;
+int    showSizes = 0;
+char * spriteBackground = NULL;
+char * spriteForeground = NULL;
+char * spriteName = NULL;
+int    tabWidth = 8;
+char * textBackground = NULL;
+char * textFont = NULL;
+char * textForeground = NULL;
+char * textGeometry = NULL;
+char * titleFormat = NULL;
+int    tkScrolling = 0;
+int    underlineSelection = 0;
+int    undoMotion = 0;
+int    undoSize = NHISTORY;
+int    wrapAroundSearches = 0;
+X
+X/* option name and type table */
+int optionTableSize;
+struct optionTableEntry optionTable[] = {
+X	{"autoIndent",		(char *)&autoIndent,	T_BOOLEAN},
+X	{"autoZoom",		(char *)&autoZoom,	T_BOOLEAN},
+X	{"backupByCopy",	(char *)&backupByCopy,	T_BOOLEAN},
+X	{"backupDepth",		(char *)&backupDepth,	T_INTEGER},
+X	{"backupNameFormat",	(char *)&backupNameFormat,T_STRING},
+X	{"browserFont",		(char *)&browserFont,	T_STRING},
+X	{"browserGeometry",	(char *)&browserGeometry,T_STRING},
+X	{"thinBrowserGeometry",	(char *)&thinBrowserGeometry,T_STRING},
+X	{"button1ScrollsDown",	(char *)&button1ScrollsDown,T_BOOLEAN},
+X	{"spriteBackground",	(char *)&spriteBackground,T_STRING},
+X	{"spriteForeground",	(char *)&spriteForeground,T_STRING},
+X	{"copySpriteName",	(char *)&copySpriteName,T_STRING},
+X	{"spriteName",		(char *)&spriteName,	T_STRING},
+X	{"databaseName",	(char *)&databaseName,	T_STRING},
+X	{"debug",		(char *)&debug,		T_INTEGER},
+X	{"eofChar",		(char *)&eofChar,	T_INTEGER},
+X	{"filePattern",		(char *)&filePattern,	T_STRING},
+X	{"findWholeWords",	(char *)&findWholeWords,T_BOOLEAN},
+X	{"helpMode",		(char *)&helpMode,	T_INTEGER},
+X	{"hypertextOn",		(char *)&hypertextOn,	T_BOOLEAN},
+X	{"iconFormat",		(char *)&iconFormat,	T_STRING},
+X	{"ignoreCase",		(char *)&ignoreCase,	T_BOOLEAN},
+X	{"insertReplaces",	(char *)&insertReplaces,T_BOOLEAN},
+X	{"keywordPattern",	(char *)&keywordPattern,T_STRING},
+X	{"linesOverFind",	(char *)&linesOverFind,	T_INTEGER},
+X	{"maxFiles",		(char *)&maxFiles,	T_INTEGER},
+X	{"menuDelay",		(char *)&menuDelay,	T_INTEGER},
+X	{"menuTolerance",	(char *)&menuTolerance,	T_INTEGER},
+X	{"messageFlags",	(char *)&messageFlags,	T_INTEGER},
+X	{"mouseSpriteMenu",	(char *)&mouseSpriteMenu,T_BOOLEAN},
+X	{"lmm1",		(char *)&(mm1Data[0].label),T_STRING},
+X	{"lmm1n",		(char *)&(mm1Data[1].label),T_STRING},
+X	{"lmm1e",		(char *)&(mm1Data[2].label),T_STRING},
+X	{"lmm1s",		(char *)&(mm1Data[3].label),T_STRING},
+X	{"lmm1w",		(char *)&(mm1Data[4].label),T_STRING},
+X	{"lmm2",		(char *)&(mm2Data[0].label),T_STRING},
+X	{"lmm2n",		(char *)&(mm2Data[1].label),T_STRING},
+X	{"lmm2e",		(char *)&(mm2Data[2].label),T_STRING},
+X	{"lmm2s",		(char *)&(mm2Data[3].label),T_STRING},
+X	{"lmm2w",		(char *)&(mm2Data[4].label),T_STRING},
+X	{"cmm1",		(char *)&(mm1Data[0].tcl_command),T_STRING},
+X	{"cmm1n",		(char *)&(mm1Data[1].tcl_command),T_STRING},
+X	{"cmm1e",		(char *)&(mm1Data[2].tcl_command),T_STRING},
+X	{"cmm1s",		(char *)&(mm1Data[3].tcl_command),T_STRING},
+X	{"cmm1w",		(char *)&(mm1Data[4].tcl_command),T_STRING},
+X	{"cmm2",		(char *)&(mm2Data[0].tcl_command),T_STRING},
+X	{"cmm2n",		(char *)&(mm2Data[1].tcl_command),T_STRING},
+X	{"cmm2e",		(char *)&(mm2Data[2].tcl_command),T_STRING},
+X	{"cmm2s",		(char *)&(mm2Data[3].tcl_command),T_STRING},
+X	{"cmm2w",		(char *)&(mm2Data[4].tcl_command),T_STRING},
+X	{"mouseMenuFont",	(char *)&mouseMenuFont,	T_STRING},
+X	{"nBuffers",		(char *)&nBuffers,	T_INTEGER},
+X	{"noBrowser",		(char *)&noBrowser,	T_BOOLEAN},
+X	{"thinBrowser",		(char *)&thinBrowser,	T_BOOLEAN},
+X	{"overType",		(char *)&overType,	T_BOOLEAN},
+X	{"pathNames",		(char *)&pathNames,	T_BOOLEAN},
+X	{"readOnly",		(char *)&readOnly,	T_BOOLEAN},
+X	{"returnString",        (char *)&returnString,  T_STRING},
+X	{"rightMargin",		(char *)&rightMargin,	T_INTEGER},
+X	{"selectedTextBackground",(char *)&selectedTextBackground,T_STRING},
+X	{"selectedTextForeground",(char *)&selectedTextForeground,T_STRING},
+X	{"showDirsFirst",	(char *)&showDirsFirst,	T_BOOLEAN},
+X	{"showPartialLines",	(char *)&showPartialLines,T_BOOLEAN},
+X	{"showSizes",		(char *)&showSizes,	T_BOOLEAN},
+X	{"tabWidth",		(char *)&tabWidth,	T_INTEGER},
+X	{"textBackground",	(char *)&textBackground,T_STRING},
+X	{"textForeground",	(char *)&textForeground,T_STRING},
+X	{"textFont",		(char *)&textFont,	T_STRING},
+X	{"textGeometry",	(char *)&textGeometry,	T_STRING},
+X	{"titleFormat",		(char *)&titleFormat,	T_STRING},
+X	{"tkScrolling",		(char *)&tkScrolling,	T_BOOLEAN},
+X	{"underlineSelection",	(char *)&underlineSelection,T_INTEGER},
+X	{"undoMotion",		(char *)&undoMotion,	T_BOOLEAN},
+X	{"undoSize",		(char *)&undoSize,	T_INTEGER},
+X	{"wrapAroundSearches",	(char *)&wrapAroundSearches,T_BOOLEAN},
+X	{"zzzzzzzz",		NULL,			T_END_OF_TABLE}
+X};
+X
+static int
+XFindOptionInTable( s )
+X	char *s;
+X{
+X	extern struct optionTableEntry optionTable[];
+X	extern int optionTableSize;
+X
+X	int i, low, high, mid;
+X
+X	/* use a binary search on the option table */
+X	low = 0;
+X	high = optionTableSize - 1;
+X	while( low <= high ) {
+X		/* item in range low..high or not in optionTable */
+X		mid = (high+low)/2;
+X		i = striccmp( optionTable[mid].option_name, s );
+X		if( i == 0 )
+X			return mid;
+X		if( i < 0 )
+X			low = mid + 1;
+X		else
+X			high = mid - 1;
+X	}
+X	return -1;	/* failure return */
+X}
+X
+char *
+GetPointOption( name )
+X	char * name;
+X{
+X	extern char msgBuffer[];
+X
+X	int i;
+X
+X	i = FindOptionInTable( name );
+X
+X	if( i == -1 ) {
+X		printf("GetPointOption: (%s) is not a known Point option\n",
+X								name);
+X		sprintf( msgBuffer, "UnknownPointOption(%s)", name);
+X		return msgBuffer;
+X	}
+X
+X	switch( optionTable[i].option_type ) {
+X	case T_END_OF_TABLE:
+X		printf("%s is not a valid point option\n", name);
+X		break;
+X	case T_STRING:
+X		sprintf( msgBuffer, "%s",
+X				*(char **)optionTable[i].option_address );
+X		return msgBuffer;
+X	case T_BOOLEAN:
+X	case T_INTEGER:
+X		sprintf( msgBuffer, "%d",
+X				*(int *)(optionTable[i].option_address) );
+X		return msgBuffer;
+X	}
+X}
+X
+X
+void
+SetPointOption( name, value )
+X	char * name;
+X	char * value;
+X{
+X	extern BrowserData *activeBrowser;
+X
+X	int i, n;
+X	char * p;
+X	char * option_address;
+X
+X	i = FindOptionInTable( name );
+X	if( i == -1 ) {
+X		printf("SetPointOption: (%s) is not a known Point option\n",
+X							name);
+X		return;
+X	}
+X
+X	option_address = optionTable[i].option_address;
+X
+X	switch( optionTable[i].option_type ) {
+X	case T_END_OF_TABLE:
+X		printf("%s is not a valid point option\n", name);
+X		break;
+X	case T_STRING:
+X		p = (char *)PtMalloc( strlen(value)+1, "option string" );
+X		if( p == NULL ) { printf("OUT OF SPACE!!\n"); break; }
+X		strcpy( p, value );
+X		PtFree( *(char **)option_address );
+X		*(char **)option_address = p;
+X		break;
+X	case T_BOOLEAN:
+X		n = atoi( value );
+X		if( striccmp(value,"true")==0 )
+X			n = 1;
+X		*(int *)option_address = n;
+X		break;
+X	case T_INTEGER:
+X		*(int *)option_address = atoi( value );
+X		break;
+X	}
+X	
+X	/* special processing is required for some changes */
+X	if( strcmp(optionTable[i].option_name,"filePattern")==0 ) {
+X		NewFilelist( activeBrowser );
+X	}
+X}
+X
+static int
+optionTableCompare( i, j )
+X        char *i, *j;
+X{
+X        return striccmp( ((struct optionTableEntry *)i)->option_name,
+X        			((struct optionTableEntry *)j)->option_name );
+X}
+X
+X/*SUPPRESS 544*/ /*SUPPRESS 68*/
+X
+void
+InitOptions()
+X{
+X        /* sort the options table for easy lookup */
+X        /* first see how big it is */
+X        for( optionTableSize = 0;
+X                optionTable[optionTableSize].option_type != T_END_OF_TABLE;
+X                ++optionTableSize)
+X                        /*EMPTY*/
+X                        ;
+X
+X        /* then sort it with qsort */
+X        qsort( (char *)optionTable, optionTableSize,
+X        	sizeof(struct optionTableEntry), 
+X        	optionTableCompare);
+X
+X	if( nBuffers < 25 )
+X		nBuffers = 25;
+X	else if( nBuffers > NBUFFERS )
+X		nBuffers = NBUFFERS;
+X
+X	SetPointOption( "backupNameFormat",	"%n.%v" );
+X	SetPointOption( "browserFont",		"fixed" );
+X	SetPointOption( "spriteBackground",	"white" );
+X	SetPointOption( "spriteForeground",	"black" );
+X	SetPointOption( "spriteName",		"left_ptr" );
+X	SetPointOption( "copySpriteName",	"hand1" );
+X	SetPointOption( "databaseName",		"anadoc" );
+X	SetPointOption( "textFont",		"fixed" );
+X	SetPointOption( "textGeometry",		"500x400+0+0" );
+X	SetPointOption( "titleFormat",
+X		"%n%r. readOnly. [%l-%L]%c. (modified)." );
+X	SetPointOption( "iconFormat", "File: %n" );
+X	SetPointOption( "browserGeometry",	"490x415+656+0" );
+X	SetPointOption( "thinBrowserGeometry",	"140x415+0+0" );
+X	SetPointOption( "filePattern",		"*" );
+X	SetPointOption( "keywordPattern",	"*.c *.h" );
+X
+X	SetPointOption( "lmm1",  " Ext" );
+X	SetPointOption( "cmm1",  "ExtendSelection" );
+X	SetPointOption( "lmm1n", " << " );
+X	SetPointOption( "cmm1n", "Search [selection get] backward" );
+X	SetPointOption( "lmm1e", "Undo" );
+X	SetPointOption( "cmm1e", "Undo" );
+X	SetPointOption( "lmm1s", " >> " );
+X	SetPointOption( "cmm1s", "Search [selection get] forward" );
+X	SetPointOption( "lmm1w", "Again" );
+X	SetPointOption( "cmm1w", "Again" );
+X
+X	SetPointOption( "lmm2",  "Dup " );
+X	SetPointOption( "cmm2",  "CopyToHereMode" );
+X	SetPointOption( "lmm2n", "Del " );
+X	SetPointOption( "cmm2n", "DeleteToScrap" );
+X	SetPointOption( "lmm2e", "Copy" );
+X	SetPointOption( "cmm2e", "CopySelToMouse" );
+X	SetPointOption( "lmm2s", "Ins " );
+X	SetPointOption( "cmm2s", "InsertFromScrap" );
+X	SetPointOption( "lmm2w", "Move" );
+X	SetPointOption( "cmm2w", "MoveSelToMouse" );
+X
+X	SetPointOption( "mouseMenuFont",	  "fixed" );
+X	SetPointOption( "selectedTextForeground", "white" );
+X	SetPointOption( "selectedTextBackground", "black" );
+X	SetPointOption( "textBackground",	  "white" );
+X	SetPointOption( "textForeground",	  "black" );
+X	SetPointOption( "returnString",		  "" );
+X}
+END_OF_FILE
+if test 10886 -ne `wc -c <'options.c'`; then
+    echo shar: \"'options.c'\" unpacked with wrong size!
+fi
+# end of 'options.c'
+fi
+if test -f 'point.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'point.c'\"
+else
+echo shar: Extracting \"'point.c'\" \(9314 characters\)
+sed "s/^X//" >'point.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/point.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <setjmp.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X#include <string.h>
+X#include <time.h>
+X#include "pt.h"
+X#include <X11/StringDefs.h>
+X#include <X11/Xutil.h>
+X#include <X11/cursorfont.h>
+X#include <X11/Xatom.h>
+X#include <stdio.h>
+X#ifdef uts
+X#include <fcntl.h>
+X#endif /* uts */
+X#include "tkInt.h"
+X#include "tcl.h"
+X
+X/*SUPPRESS 592*/
+static char rcsid[] =
+X"$Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/point.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $";
+X
+X/* X stuff */
+Display *MainDisplay;
+Window MainWindow;
+Pixel ptWhitePixel, ptBlackPixel;
+Cursor mainCursor;
+Cursor dupCursor;
+Cursor currentCursor;
+Pixmap active_background, inactive_background;
+X
+X/* display sizes */
+int display_width, display_height;
+X
+X/* to support automatic saving */
+long timeOfLastSave;
+X
+X/* remember directories during getFileName */
+char startDirectory[FILENAMESIZE];
+char currentDirectory[FILENAMESIZE];
+char homeDirectory[FILENAMESIZE];
+X
+X/* file id for the "pt.msg" command descriptions file */
+int descrFileId = -1;
+X
+X/* text line buffer */
+char textBuffer[MSGBUFFERSIZE];
+X
+X/* message buffer */
+char msgBuffer[MSGBUFFERSIZE];
+X
+int eventCounter = 0;
+extern Tcl_Interp * interp;
+extern Tk_Window TkMainWindow;
+X
+int
+main(argc, argv)
+X	unsigned int argc;
+X	char **argv;
+X{
+X/**************************************************************************/
+X/*   Declare the external variables                                       */
+X/**************************************************************************/
+X	extern struct window *windowList;
+X	extern char startDirectory[];
+X	extern char currentDirectory[];
+X	extern char homeDirectory[];
+X	extern struct window *selWindow;
+X	extern int addHandle;
+X	extern Offset addPosition;
+X	extern char backupDir[];
+X	extern int descrFileId;
+X	extern jmp_buf breakEnv;
+X	extern struct menuBlock *menus[];
+X	extern int maxFiles;
+X	extern struct openFile *files;
+X	extern long timeOfLastSave;
+X	extern char *tmpnam();
+X	extern char *getenv();
+X	extern char msgBuffer[];
+X	extern struct window *windowList;
+X	extern struct window *activeWindow;
+X	extern int readOnly;
+X	extern int display_width, display_height;
+X	extern int debug;
+X	extern Pixel ptWhitePixel, ptBlackPixel;
+X	extern Cursor currentCursor;
+X	extern Cursor mainCursor;
+X	extern Cursor dupCursor;
+X	extern BrowserData *mainBrowser;
+X	extern Display *MainDisplay;
+X	extern Window MainWindow;
+X	extern int hypertextOn;
+X	extern int trace_file;
+X	extern char * spriteBackground;
+X	extern char * spriteForeground;
+X	extern char * copySpriteName;
+X	extern char * spriteName;
+X	extern char * textGeometry;
+X	extern int noBrowser;
+X	extern char * returnString;
+X
+X/**************************************************************************/
+X/*   Declare the local variables                                          */
+X/**************************************************************************/
+X	char *p;
+X	char *add_file;
+X	int i, k;
+X
+X	/*********************************************************************/
+X	/* Get the current directory and drive so we can restore then on exit*/
+X	/*********************************************************************/
+X	(void)getcwd(startDirectory, FILENAMESIZE);
+X/* LATER: find the length anc PtMalloc the space */
+X	strcpy(currentDirectory, startDirectory);
+X	p = getenv("HOME");
+X	if( p == NULL ) {
+X		printf("Cannot find $HOME in the environment\n");
+X		homeDirectory[0] = '\0';
+X	} else
+X		strcpy( homeDirectory, p );
+X
+X	/*********************************************************************/
+X	/*   See if "pt.msg" (the command descriptions file) is present.     */
+X	/*********************************************************************/
+X
+X	p = findFile("pt.msg");
+X	if( p == NULL )
+X		descrFileId = -1;
+X	else
+X		descrFileId = getFileId(p);
+X
+X	/*********************************************************************/
+X	/*   create the additions file                                       */
+X	/*********************************************************************/
+X
+X	add_file = tmpnam( NULL );
+X	addPosition = 0;
+X	addHandle = open(add_file, O_RDWR | O_CREAT, 0644);
+X	if( addHandle < 0 ) {
+X		printf("Create of %s failed\n", add_file);
+X		exit(1);
+X	}
+X
+X	selWindow = NULL;
+X
+X	/* initialize the timeOfLastSave variable */
+X	timeOfLastSave = time(NULL);
+X
+X	/* get application resources from the resource database */
+X	InitCommands();
+X	InitOptions();
+X
+X	/*********************************************************************/
+X	/*   allocate the window structures                                  */
+X	/*********************************************************************/
+X/* LATER -- allocate these as needed */
+X	/* allocate an extra file structure for use in copymove.c (insScrap) */
+X	files = (struct openFile *)PtMalloc(
+X				(maxFiles+1) * sizeof(struct openFile),
+X				"open file structures");
+X	if( files == NULL ) {
+X		printf("Too many files (out of memory). Reduce maxFiles\n");
+X		exit(1);
+X	}
+X
+X	/*********************************************************************/
+X	/*   call various initialization routines                            */
+X	/*********************************************************************/
+X
+X	InitMouse();
+X	initWindows();
+X	initFileio();
+X	initChanges();
+X
+X	/********************************************************************/
+X	/*   Process the command line options and arguments		    */
+X	/********************************************************************/
+X
+for(i = 1; i < argc; i++) {
+X	if( argv[i][0] == '-' ) {
+X		if( strcmp(argv[i],"-nb")==0
+X					|| strcmp(argv[i],"-nobrowser")==0 ) {
+X			noBrowser = 1;
+X		} else if( strcmp(argv[i],"-debug")==0 ) {
+X			debug = atoi( argv[++i] );
+X			printf("debug = %d\n", debug );
+X		}
+X	}
+X	else	/* the end of the comamnd line options */
+X		break;
+X}
+X
+X	/* create the file list window */
+X	CreateFilelist();
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn )
+X		InitHypertext();
+X#endif
+X	/* Initialize  */
+X	MainDisplay = Tk_Display( mainBrowser->tk_toplevel );
+X	MainWindow = Tk_WindowId( mainBrowser->tk_toplevel );
+X	
+X	/* get the size of the screen */
+X	display_width = DisplayWidth(MainDisplay, MainDisplay->default_screen);
+X	display_height = DisplayHeight(MainDisplay,MainDisplay->default_screen);
+X
+X	/* get some screen information */
+X	ptBlackPixel = BlackPixel( MainDisplay, MainDisplay->default_screen );
+X	ptWhitePixel = WhitePixel( MainDisplay, MainDisplay->default_screen );
+X
+X	/* create the necessary cursors */
+X	sprintf( msgBuffer, "%s %s %s", spriteName, spriteForeground,
+X							spriteBackground );
+X	mainCursor = Tk_GetCursor(interp, mainBrowser->tk_toplevel,
+X							Tk_GetUid(msgBuffer) );
+X	currentCursor = mainCursor;
+X	sprintf( msgBuffer, "%s %s %s", copySpriteName, spriteForeground,
+X							spriteBackground );
+X	dupCursor = Tk_GetCursor( interp, mainBrowser->tk_toplevel,
+X							Tk_GetUid(msgBuffer) );
+X	
+X	MakeMouseMenuCursors();
+X	
+X	/* create the selection handler */
+X	Tk_CreateSelHandler( mainBrowser->tk_toplevel, XA_STRING,
+X					SupplySelectionToX, 0, XA_STRING );
+X
+X	/********************************************************************/
+X	/*   create the initial windows                                     */
+X	/********************************************************************/
+X
+X	for(k = i; k < argc; k++) {
+X		if( access(argv[k], 0) == -1) {
+X			sprintf( msgBuffer,
+X				"MakeModalYesNo {%s} {%s %s %s} {%s} {%s}",
+X				"Create file?",
+X				"File", argv[k], "does not exist.",
+X				"Create it",
+X				"Skip this file name" );
+X			(void)ExecTclCommand( msgBuffer );
+X			command( FWAITFORRETURNSTRING, "","","","","","");
+X			if( returnString[0] != 'y' ) {
+X				continue;
+X			}
+X			close(open(argv[k], O_CREAT, 0644));
+X		}
+X		(void)createWindow( NULL, argv[k], textGeometry );
+X	}
+X
+X	/* the top window is the first active window */
+X	MakeWindowActive( windowList );
+X
+X	/* start the main processing loop */
+X	Tk_MainLoop();
+X	
+X	/* TCL/TK CLEANUP */
+X	Tk_DestroyWindow( TkMainWindow );
+X	Tcl_DeleteInterp( interp );
+X};
+X
+int msgInTitleLine = 0;
+X
+X/*ARGSUSED*/
+void
+msg(s, putInPopup)
+X	char *s;
+X	int putInPopup;
+X{
+X	extern struct window *activeWindow;
+X	extern int messageFlags;
+X	extern Display *MainDisplay;
+X	extern BrowserData *browserList;
+X	extern char msgBuffer[];
+X	
+X	char buffer[MSGBUFFERSIZE];
+X	char *from, *to;
+X
+X	/* put the message into the popup shell */
+X
+X	if( messageFlags & LINE_MSGS ) {
+X		/* put the message in the browser message line */
+X		BrowserData *browser = browserList;
+X		for( browser = browserList; browser != NULL;
+X					browser = browser->nextBrowser) {
+X			if( browser->tk_pathname[0] == '\0' )
+X				continue;
+X			sprintf( buffer,
+X				"%s.msg delete 0 end;%s.msg insert 0 {",
+X				browser->tk_pathname, browser->tk_pathname);
+X			/* copy in string and escape braces */
+X			from = s;
+X			to = buffer + strlen(buffer);
+X			while( 1 ) {
+X				char ch = *from++;
+X				if( ch == '\0' )
+X					break;
+X				if( ch == '{' || ch == '}' )
+X					*to++ = '\\';
+X				*to++ = ch;
+X			}
+X			*to++ = '}';
+X			*to = '\0';
+X			(void)ExecTclCommand( buffer );
+X		}
+X	}
+X	
+X	if( messageFlags & WINDOW_MSGS ) {
+X		if( activeWindow!=NULL ) {
+X			printf("Put message <%s> in title bar\n", s);
+X		}
+X		/* also put the message in the title bar of the active window */
+X		if( activeWindow != NULL ) {
+X			printf("Put message <%s> in title bar\n", s);
+X		}
+X		msgInTitleLine = 1;
+X	}
+X
+X	if( messageFlags & PRINTF_MSGS ) {
+X		printf( "%s\n", s );
+X	}
+X	
+X}
+END_OF_FILE
+if test 9314 -ne `wc -c <'point.c'`; then
+    echo shar: \"'point.c'\" unpacked with wrong size!
+fi
+# end of 'point.c'
+fi
+if test -f 'select.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'select.c'\"
+else
+echo shar: Extracting \"'select.c'\" \(9696 characters\)
+sed "s/^X//" >'select.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/select.c,v 1.5 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include "pt.h"
+X#include <X11/Xatom.h>
+X
+X/* the globals selection */
+struct window *selWindow = NULL;
+Offset selBegin, selEnd;
+Offset selBeginCp;
+int selMode;
+X
+int ptOwnsSelection = 0;
+X
+void 
+XExtendSelection( cp, row, col, beginRowCp )
+X	Offset cp, beginRowCp;
+X	int row, col;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	int saveSelBegin = selBegin;
+X	int saveSelEnd = selEnd;
+X	Offset begin, end;
+X
+X	/* extend according to the selection mode */
+X	modeExtend( selWindow, cp, row, col, beginRowCp );
+X		/* this call sets selBegin and selEnd */
+X
+X	/* figure out what we have to redraw */
+X	if( saveSelBegin <= selBegin && selEnd < saveSelEnd ) {
+X		/* the selection is being contracted */
+X		begin = selEnd + 1;
+X		end = saveSelEnd;
+X		selBegin = saveSelBegin;
+X	} else if( selBegin < saveSelBegin ) {
+X		/* the selection is being extended to the left */
+X		begin = selBegin;
+X		end = saveSelBegin - 1;
+X		selEnd = saveSelEnd;
+X	} else {
+X		/* the selection is being entended to the right */
+X		begin = saveSelEnd + 1;
+X		end = selEnd;
+X		selBegin = saveSelBegin;
+X	}
+X
+X	if( begin < selWindow->posTopline )
+X		begin = selWindow->posTopline;
+X	if( end >= selWindow->posBotline )
+X		end = selWindow->posBotline - 1;
+X	if( begin <= end ) {
+X		int row1, col1, row2, col2;
+X		int n = -1;
+X		beginRowCp = prevLine( selWindow->fileId, begin, &n );
+X		OffsetToXY( selWindow, begin, &row1, &col1 );
+X		OffsetToXY( selWindow, end, &row2, &col2 );
+X		DrawSection( selWindow, beginRowCp, row1, col1, row2, col2 );
+X	}
+X}
+X
+void
+drawSelection( erase )
+X	int erase;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	Offset saveSelBegin;
+X	Offset saveSelEnd;
+X	Offset begin = selBegin;
+X	Offset end = selEnd;
+X
+X	if( selWindow == NULL )
+X		return;	/* there is no selection to erase */
+X
+X	/* Turn off the selection, then draw the area.  This will erase */
+X	/* the selection.  Then restore selBegin. */
+X	if( erase ) {
+X		saveSelBegin = selBegin;
+X		saveSelEnd = selEnd;
+X		selBegin = 1;	/* so no selection will draw */
+X		selEnd = 0;
+X	}
+X
+X	if( begin < selWindow->posTopline )
+X		begin = selWindow->posTopline;
+X
+X	if( end >= selWindow->posBotline )
+X		end = selWindow->posBotline - 1;
+X
+X	if( begin <= end ) {
+X		/* some of the selection is showing in the window */
+X		int n = -1;
+X		Offset beginCp = prevLine( selWindow->fileId, begin, &n );
+X		int row1, col1, row2, col2;
+X
+X		OffsetToXY( selWindow, begin, &row1, &col1 );
+X		OffsetToXY( selWindow, end, &row2, &col2 );
+X		DrawSection( selWindow, beginCp, row1, col1, row2, col2);
+X	}
+X
+X	if( erase ) {
+X		selBegin = saveSelBegin;
+X		selEnd = saveSelEnd;
+X	}
+X}	
+X
+X
+void
+DrawSection( w, beginRowCp, beginRow, beginCol, endRow, endCol )
+X	struct window *w;
+X	Offset beginRowCp;
+X	int beginRow, beginCol, endRow, endCol;
+X{
+X	int row, col, y;
+X	Offset cp;
+X
+X	/* if the selection is below the window then do nothing */
+X	if( beginRow >= w->nRows )
+X		return;
+X
+X	/* if the selection is above the window then do nothing */
+X	if( endRow < 0 )
+X		return;
+X
+X	/* if part of the selection is above the window, adjust for it */
+X	if( beginRow < 0 ) {
+X		beginRow = 0;
+X		beginCol = 0;
+X	}
+X
+X	/* if part of the selection is below the window, adjust for it */
+X	if( endRow >= w->nRows ) {
+X		endRow = w->nRows - 1;
+X		endCol = w->nCols;
+X	}
+X	
+X	/* At this point the entire section (to draw) is in the window */
+X	/* draw draw the section */
+X
+X	y = w->topMargin + (w->font).ascent + beginRow * ((w->font).height);
+X	cp = beginRowCp;
+X
+X	/* determine the boundaries to draw text in */
+X	if( beginRow == endRow )
+X		col = endCol;
+X	else
+X		col = w->nCols;
+X	cp = fillLine( w, cp, beginRow, beginCol, col, y, 0 );
+X	for( row = beginRow + 1; row < endRow; ++row ) {
+X		y += (w->font).height;
+X		cp = fillLine( w, cp, row, 0, w->nCols, y, 0 );
+X	}
+X	if( beginRow < endRow ) {
+X		y += (w->font).height;
+X		cp = fillLine( w, cp, row, 0, endCol, y, 0 );
+X	}
+X}
+X
+X/*ARGSUSED*/
+void
+modeExtend(w, cp, row, col, beginRowCp )
+X	struct window *w;
+X	Offset cp;
+X	int row, col;
+X	Offset beginRowCp;
+X{
+X	extern int selMode;
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	int uch;
+X	int n;
+X	Offset cpLine;
+X	int fid = w->fileId;
+X
+X	/* determine the initial selection */
+X	switch( selMode ) {
+X
+X	case SELCHAR:
+X		selBegin = cp;
+X		selEnd = cp;
+X		break;
+X
+X	case SELWORD:
+X	{	Offset cpLow, cpHigh;
+X
+X		/* test for the special case of the first character of the */
+X		/* selection not being a digit, letter or '_' */
+X		uch = getFileByte( fid, cp );
+X		if(uch==BLOCK_EOF || !isalnum((char)uch)&&((char)uch != '_')){
+X			selBegin = selEnd = cp;
+X			break;
+X		}
+X		cpLow = cp;
+X		while( 1 ) {
+X			uch = getFileByte( fid, cpLow-- );
+X			/* stop when you: */
+X			/* 1. go past the beginning of the file */
+X			if( uch == BLOCK_EOF )
+X				break;
+X			/* 2. read a non-word character */
+X			if( !isalnum((char)uch) && ((char)uch != '_') )
+X				break;
+X		}
+X		/* we went two too far */
+X		selBegin = cpLow + 2;
+X
+X		cpHigh = cp;
+X		while( 1 ) {
+X			uch = getFileByte( fid, cpHigh++ );
+X			/* stop when you: */
+X			/* 1. go past the beginning of the file */
+X			if( uch == BLOCK_EOF )
+X				break;
+X			/* 2. read a non-word character */
+X			if( !isalnum((char)uch) && ((char)uch != '_') )
+X				break;
+X		}
+X		selEnd = cpHigh - 2;
+X		break;
+X	}
+X
+X	case SELLINE:
+X		/* find the beginning of the line */
+X		cpLine = cp;
+X		n = -1;
+X		cpLine = prevLine( fid, cpLine, &n );
+X		selBegin = cpLine;
+X
+X		/* find the end of the line */
+X		cpLine = cp;
+X		n = 1;
+X		cpLine = nextLine( fid, cpLine, &n );
+X		selEnd = cpLine - 1;
+X		break;
+X
+X	case SELBLOCK:
+X		/* find the beginning of the block */
+X	/* DO NOT DO THIS YET */
+X		selBegin = cp;
+X		selEnd = cp;
+X		break;
+X	}
+X}
+X
+int
+indentToShowSelection(selCol)
+X	int selCol;	/* the column where the first character of */
+X			/* the selection is */
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	int dummy, col, windowWidth, indent, endIndent;
+X	int originalIndent;
+X
+X	originalIndent = selWindow->indent;
+X
+X	/* find the column the selection starts in */
+X	if( selCol == -1 )
+X		OffsetToXY( selWindow, selBegin, &dummy, &col );
+X	else
+X		col = selCol;
+X
+X	/* sourceToXY subtracts the current indent so add it back in */
+X	col += selWindow->indent;
+X	windowWidth = selWindow->nCols;
+X
+X	/* if the selection is right of the window, change the indent */
+X	if( col > (windowWidth + selWindow->indent) ) {
+X		indent = col - (windowWidth>>1);
+X		/* figure the column of the end of the selection */
+X		/* 	add window width / 2 to put it in the  */
+X		/*	middle of the window */
+X		endIndent = (selEnd - selBegin) + indent;
+X		if( endIndent < col )
+X			selWindow->indent = endIndent;
+X		else
+X			selWindow->indent = indent;
+X	} else if( col < selWindow->indent ) {
+X		/* if the selection is left of the window change the indent */
+X		/* change the indent back to zero if this will still leave */
+X		/* the beginning of the selection in the left half of the */
+X		/* window */
+X		indent = col - (windowWidth>>1);
+X		if( indent < 0 )
+X			indent = 0;
+X		selWindow->indent = indent;
+X	}
+X	/* indicate on return whether you actually changed the indent */
+X	return (originalIndent != selWindow->indent);
+X}
+X
+Offset
+adjustSelMode( cp )
+X	Offset cp;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern int selMode;
+X	
+X	int uch, n;
+X	int fid = selWindow->fileId;
+X
+X	switch( selMode ) {
+X	case SELBLOCK:
+X		break;
+X	case SELLINE:
+X		n = -1;
+X		cp = prevLine( fid, cp, &n );
+X		break;
+X	case SELWORD:
+X		/* only search if cp is inside a word */
+X		uch = getFileByte( fid, cp );
+X		if( isalnum((char)uch) || (char)uch == '_' ) {
+X			while( 1 ) {
+X				uch = getFileByte( fid, --cp );
+X				if( !isalnum((char)uch) && (char)uch != '_' )
+X					break;
+X			}
+X			++cp;
+X		}
+X		break;
+X	case SELCHAR:
+X		/* nothing to adjust in char mode */
+X		break;
+X	}
+X	return cp;
+X}
+X
+X/*ARGSUSED*/
+int
+SupplySelectionToX( clientData, offset, buffer, maxBytes )
+X	ClientData clientData;
+X	int offset;
+X	char * buffer;
+X	int maxBytes;
+X{
+X	extern int ptOwnsSelection;
+X
+X	ptOwnsSelection = 1;	/* to be safe */
+X	(void) getSelection( buffer, offset, maxBytes );
+X	return strlen( buffer );
+X}
+X
+X/*ARGSUSED*/
+static void
+LoseXSelection( clientData )
+X	ClientData clientData;
+X{
+X	extern int ptOwnsSelection;
+X
+X	ptOwnsSelection = 0;
+X}
+X
+void
+AssertSelectionOwnership()
+X{
+X	extern int ptOwnsSelection;
+X	extern BrowserData * mainBrowser;
+X
+X	if( !ptOwnsSelection ) {
+X		ptOwnsSelection = 1;
+X		Tk_OwnSelection( mainBrowser->tk_toplevel, LoseXSelection, 0 );
+X	}
+X}
+X
+static int selLength;
+static char * selString;
+X
+X/*ARGSUSED*/
+static int
+ReceiveXSelection( clientData, interp, portion )
+X	ClientData clientData;
+X	Tcl_Interp * interp;
+X	char * portion;
+X{
+X	char ch;
+X
+X	while( (ch = *portion++) != '\0' ) {
+X		if( --selLength <= 0 )
+X			break;
+X		*selString++ = ch;
+X	}
+X	return TCL_OK;
+X}
+X
+int
+getSelection(s, offset, length)
+X	char *s;
+X	int offset;
+X	int length;
+X{
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X	extern int ptOwnsSelection;
+X	extern BrowserData * mainBrowser;
+X	extern Tcl_Interp * interp;
+X
+X	char *p;
+X	int fid;
+X
+X	/* If we own the selection then get it */
+X	if( ptOwnsSelection ) {
+X		Offset cp = selBegin + offset;
+X
+X		p = s;
+X		if( selWindow != NULL )
+X			fid = selWindow->fileId;
+X		else {
+X			msg("No selection, using ~.", 1);
+X			s[0] = '~';
+X			s[1] = '\0';
+X			return 1;
+X		}
+X		while( cp <= selEnd ) {
+X			*p++ = (char)getFileByte( fid, cp++ );
+X			/* check for string overflow */
+X			if( p-s >= length ) {
+X				--p;
+X				break;
+X			}
+X		}
+X		*p = '\0';
+X		return 1;
+X	}
+X
+X	/* else get it from X */
+X	selString = s;
+X	selLength = length;
+X	fid = Tk_GetSelection( interp, mainBrowser->tk_toplevel,
+X		XA_STRING, ReceiveXSelection, 0 );
+X	*selString = '\0';
+X	/* did we overflow the space alloted? */
+X	return (selLength > 0);
+X}
+X
+X
+END_OF_FILE
+if test 9696 -ne `wc -c <'select.c'`; then
+    echo shar: \"'select.c'\" unpacked with wrong size!
+fi
+# end of 'select.c'
+fi
+if test -f 'tclLib/browserMenu.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/browserMenu.tcl'\"
+else
+echo shar: Extracting \"'tclLib/browserMenu.tcl'\" \(10008 characters\)
+sed "s/^X//" >'tclLib/browserMenu.tcl' <<'END_OF_FILE'
+X#
+X#
+X# The browser menu bar specification
+X#
+X#
+set PREFS {
+X	{check "Ignore case in searches" ignoreCase \
+X		{Option set ignoreCase $ignoreCase}}
+X	{check "Find whole words only in searches" findWholeWords \
+X		{Option set findWholeWords $findWholeWords}}
+X	{check "Typed characters replace the selection" insertReplaces \
+X		{Option set insertReplaces $insertReplaces}}
+X	{check "Show the sizes of files in browser list" showSizes \
+X		{Option set showSizes $showSizes;CD .}}
+X	{check "Use standard Tk style scroll bars" tkScrolling \
+X		{Option set tkScrolling $tkScrolling}}
+X	{check "Automatic indenting" autoIndent \
+X		{Option set autoIndent $autoIndent}}
+X	{check "Show full path names in window titles" pathNames \
+X		{Option set pathNames $pathNames;Redraw}}
+X	{cascade "Search Options =>" {
+X		{command "Other search options ..." {MakeSearchOptionsBox}}
+X		{check "Ignore case in searches" ignoreCase \
+X			{Option set ignoreCase $ignoreCase}}
+X		{check "Find whole words only in searches" findWholeWords \
+X			{Option set findWholeWords $findWholeWords}}
+X		{check "Wrap around to beginning in searches" \
+X			wrapAroundSearches \
+X			{Option set wrapAroundSearches $wrapAroundSearches}}
+X		{cascade "Placement of found strings =>" {
+X			{radio "Center found strings in the window" \
+X				linesOverFind 999 \
+X				{Option set linesOverFind $linesOverFind}}
+X			{radio "Place found strings at top of window" \
+X				linesOverFind 0 \
+X				{Option set linesOverFind $linesOverFind}}
+X			{radio "Place found strings 2 lines from top of window"\
+X				linesOverFind 2 \
+X				{Option set linesOverFind $linesOverFind}}
+X			{radio "Place found strings 5 lines from top of window"\
+X				linesOverFind 5 \
+X				{Option set linesOverFind $linesOverFind}}
+X		    {radio "Place found strings 10 lines from top of window" \
+X				linesOverFind 10 \
+X				{Option set linesOverFind $linesOverFind}}
+X		}}
+X	}}
+X	{cascade "Other boolean options =>" {
+X		{check "Undo motion as well as edits" undoMotion \
+X			{Option set undoMotion $undoMotion}}
+X		{check "Make one column directory browsers" thinBrowser \
+X			{Option set thinBrowser $thinBrowser}}
+X		{check "Use mouse cursor to show mouse menu items" \
+X			mouseSpriteMenu \
+X			{Option set mouseSpriteMenu $mouseSpriteMenu}}
+X		{check "Left button scrolls down" button1ScrollsDown \
+X			{Option set button1ScrollsDown $button1ScrollsDown}}
+X		{separator}
+X		{check "Type over existing characters when inserting" overType \
+X			{Option set overType $overType}}
+X		{check "Show partial line at bottom of text windows" \
+X			showPartialLines \
+X			{Option set showPartialLines $showPartialLines;Redraw}}
+X		{separator}
+X		{check "Show directories before files in browser list" \
+X			showDirsFirst \
+X			{Option set showDirsFirst $showDirsFirst}}
+X		{separator}
+X		{check "Backup with a copy (not a move)" backupByCopy \
+X			{Option set backupByCopy $backupByCopy}}
+X		{check "Make new windows read only" readOnly \
+X			{Option set readOnly $readOnly}}
+X	}}
+X	{command "String valued options ..." {MakeOtherOptionsBox}}
+X	{cascade "Set text colors =>" {
+X	    {cascade "Normal foreground color =>" {
+X	        {command "Blue" {SetTextColor Blue}}
+X	        {command "Black" {SetTextColor Black}}
+X	        {command "White" {SetTextColor White}}
+X	        {command "Red" {SetTextColor Red}}
+X	        {command "Yellow" {SetTextColor Yellow}}
+X	        {command "Cyan" {SetTextColor Cyan}}
+X	        {command "Magenta" {SetTextColor Magenta}}
+X	    }}
+X	    {cascade "Normal background color =>" {
+X	        {command "Blue" {SetTextColor Blue normal background}}
+X	        {command "Black" {SetTextColor Black normal background}}
+X	        {command "White" {SetTextColor White normal background}}
+X	        {command "Red" {SetTextColor Red normal background}}
+X	        {command "Yellow" {SetTextColor Yellow normal background}}
+X	        {command "Cyan" {SetTextColor Cyan normal background}}
+X	        {command "Magenta" {SetTextColor Magenta normal background}}
+X	    }}
+X	    {cascade "Selected foreground color =>" {
+X	        {command "Blue" {SetTextColor Blue selected}}
+X	        {command "Black" {SetTextColor Black selected}}
+X	        {command "White" {SetTextColor White selected }}
+X	        {command "Red" {SetTextColor Red selected}}
+X	        {command "Yellow" {SetTextColor Yellow selected}}
+X	        {command "Cyan" {SetTextColor Cyan selected}}
+X	        {command "Magenta" {SetTextColor Magenta selected}}
+X	    }}
+X	    {cascade "Selected background color =>" {
+X	        {command "85% Grey" {SetTextColor grey85 selected background}}
+X	        {command "Blue" {SetTextColor Blue selected background}}
+X	        {command "Black" {SetTextColor Black selected background}}
+X	        {command "White" {SetTextColor White selected background}}
+X	        {command "Red" {SetTextColor Red selected background}}
+X	        {command "Yellow" {SetTextColor Yellow selected background}}
+X	        {command "Cyan" {SetTextColor Cyan selected background}}
+X	        {command "Magenta" {SetTextColor Magenta selected background}}
+X	    }}
+X	}}
+X	{cascade "Number of backups kept =>" {
+X	{radio "None" backupDepth 0 {Option set backupDepth $backupDepth}}
+X	{radio "1" backupDepth 1 {Option set backupDepth $backupDepth}}
+X	{radio "2" backupDepth 2 {Option set backupDepth $backupDepth}}
+X	{radio "3" backupDepth 3 {Option set backupDepth $backupDepth}}
+X	{radio "4" backupDepth 4 {Option set backupDepth $backupDepth}}
+X	{radio "5" backupDepth 5 {Option set backupDepth $backupDepth}}
+X	{radio "6" backupDepth 6 {Option set backupDepth $backupDepth}}
+X	}}
+X	{cascade "Width of a tab =>" {
+X	{radio "1" tabWidth 1 {Option set tabWidth $tabWidth}}
+X	{radio "2" tabWidth 2 {Option set tabWidth $tabWidth}}
+X	{radio "3" tabWidth 3 {Option set tabWidth $tabWidth}}
+X	{radio "4" tabWidth 4 {Option set tabWidth $tabWidth}}
+X	{radio "5" tabWidth 5 {Option set tabWidth $tabWidth}}
+X	{radio "6" tabWidth 6 {Option set tabWidth $tabWidth}}
+X	{radio "8" tabWidth 8 {Option set tabWidth $tabWidth}}
+X	{radio "10" tabWidth 10 {Option set tabWidth $tabWidth}}
+X	{radio "15" tabWidth 15 {Option set tabWidth $tabWidth}}
+X	}}
+X	{cascade "Right margin for automatic CRs =>" {
+X	{radio "None" rightMargin 999 {Option set rightMargin $rightMargin}}
+X	{radio "40" rightMargin 40 {Option set rightMargin $rightMargin}}
+X	{radio "50" rightMargin 50 {Option set rightMargin $rightMargin}}
+X	{radio "60" rightMargin 60 {Option set rightMargin $rightMargin}}
+X	{radio "70" rightMargin 70 {Option set rightMargin $rightMargin}}
+X	{radio "72" rightMargin 72 {Option set rightMargin $rightMargin}}
+X	{radio "74" rightMargin 74 {Option set rightMargin $rightMargin}}
+X	{radio "76" rightMargin 76 {Option set rightMargin $rightMargin}}
+X	{radio "78" rightMargin 78 {Option set rightMargin $rightMargin}}
+X	{radio "80" rightMargin 80 {Option set rightMargin $rightMargin}}
+X	{radio "90" rightMargin 90 {Option set rightMargin $rightMargin}}
+X	{radio "100" rightMargin 100 {Option set rightMargin $rightMargin}}
+X	}}
+X	{cascade "Selection style =>" {
+X	{radio "Show selection in the selected text colors" underlineSelection \
+X		0 {Option set underlineSelection $underlineSelection}}
+X	{radio "Underline the selection with one line" underlineSelection \
+X		1 {Option set underlineSelection $underlineSelection}}
+X	{radio "Underline the selection with two lines" underlineSelection \
+X		2 {Option set underlineSelection $underlineSelection}}
+X	}}
+X}
+X
+set MISC {
+X	{command "Load bugs list" {OpenWindow bugs $location1}}
+X	{command "Load scratch file" {OpenWindow scratch $location1}}
+X	{command "About Point ..." {MakeAboutBox}}
+X	{command "Cancel copy mode" {CancelModes}}
+X	{command "Print Statistics" {PrintStats}}
+X	{separator}
+X	{command "Delete File" {exec rm -f [selection get]}}
+X	{command "Insert ASCII ..." {MakeAsciiBox}}
+X	{command "Save All Unsaved Files" {SaveAllFiles}}
+X	{command "Set debug ..." {MakeDebugBox}}
+X	{command "Information" \
+X			{puts stdout "Selection bounds: [Sel get]"}}
+X	{separator}
+X	{command "6x13" {BrowserFont 6x13}}
+X	{command "6x13bold" {BrowserFont 6x13bold}}
+X	{command "5x8" {BrowserFont 5x8}}
+X	{command "*clean-medium-r*6*50*" {BrowserFont *clean-medium-r*6*50*}}
+X	{command "8x13" {BrowserFont 8x13}}
+X}
+X
+set DIRS {
+X	{command "~"			{CD ~}}
+X	{command "~/bin"		{CD ~/bin}}
+X	{command "~/Mail"		{CD ~/Mail}}
+X	{command "~/News"		{CD ~/News}}
+X	{command "~/src"		{CD ~/src}}
+X	{separator}
+X	{command "/nfs/unmvax/src/X11R4/mit" {CD /nfs/unmvax/src/X11R4/mit}}
+X	{command "/usr/include"		{CD /usr/include}}
+X	{command "/usr/include/sys"	{CD /usr/include/sys}}
+X	{command "/usr/include/X11"	{CD /usr/include/X11}}
+X	{command "CD to selection"	{CD [selection get]}}
+X}
+X
+set BrowserMenuSpec {
+X	{menu   PREFS "PREFS" PREFS}
+X	{button New "  New  " {
+X		{OpenFileOrCD 1}
+X		{OpenFileOrCD 2}
+X		{OpenFileOrCD 3}
+X	}}
+X	{menu   DIRS "DIRS"   DIRS}
+X	{menu   MISC "MISC"   MISC}
+X	{button Star  "   *   "   {{Option set filePattern "*"}
+X		{puts stderr \Cg nonewline} {puts stderr \Cg nonewline} } }
+X	{button Browser " New Browser " {
+X		{global browserBig;Browser $browserBig big}
+X		{global browserBig;Browser $browserBig big}
+X		{global browser1;Browser $browser1 small}
+X	}}
+X	{button DelFile "Del File" {
+X		{exec rm -f [selection get];Option set filePattern "*"}
+X		{puts stderr \Cg nonewline}
+X		{puts stderr \Cg nonewline}
+X	}}
+X	{button Close "  Close  " {
+X		CloseBrowser
+X		{puts stderr \Cg nonewline}
+X		{puts stderr \Cg nonewline}
+X	}}
+X	{menu   QUIT "QUIT"   QuitMenu}
+X}
+X
+set ThinBrowserMenuSpec {
+X	{menu ThinBrowserMenu "MENU" ThinBrowserMenu}
+X	{menu DIRS "DIRS" DIRS}
+X	{button New "New" {
+X		{global browser1;Browser $browser1 small}
+X		{global browser2;Browser $browser2 small}
+X		{global browser3;Browser $browser3 small}
+X	}}
+X}
+X
+set ThinBrowserMenu {
+X	{cascade "PREFS" PREFS}
+X	{command "New" {OpenFileOrCD 1}}
+X	{cascade "DIRS"	DIRS}
+X	{cascade "MISC"	MISC}
+X	{command "*" {Option set filePattern "*"}}
+X	{command "New Browser" {global browser2;Browser $browser2 small}}
+X	{command "Del File" \
+X		{exec rm -f [selection get];Option set filePattern "*"}}
+X	{command "Close" {CloseBrowser}}
+X	{cascade "QUIT" QuitMenu}
+X}
+X
+proc BrowserMenuBindings {w} {
+X}
+X
+END_OF_FILE
+if test 10008 -ne `wc -c <'tclLib/browserMenu.tcl'`; then
+    echo shar: \"'tclLib/browserMenu.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/browserMenu.tcl'
+fi
+echo shar: End of archive 4 \(of 15\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

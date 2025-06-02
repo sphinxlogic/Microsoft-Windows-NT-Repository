@@ -1,0 +1,962 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i077:  ncftp - Alternative User Interface for FTP, v1.5.0, Patch03
+Message-ID: <1993Sep8.114930.18854@sparky.sterling.com>
+X-Md4-Signature: c1d38f095c57cc6d89b1f5b4ac18fe70
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Wed, 8 Sep 1993 11:49:30 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 77
+Archive-name: ncftp/patch03
+Environment: UNIX, ANSI-C, !SVR4
+Patch-To: ncftp: Volume 39, Issue 53-57
+
+This is the third official patch to ncftp 1.5.
+
+/*  Changed 'sig_t' to 'Sig_t.'  Fixed another error in the termcap crap.
+ *  Made having mktime() optional, at the expense of setting file dates
+ *  to the same as the remote file.  Fixed an error during 'account'
+ *  validation.  Added a warning about a bug I haven't fixed yet with
+ *  non-UNIX systems hanging after listings.  Fixed bug where colon-mode
+ *  sitenames weren't expanded.  Fixed a tip.  Using <readline/readline.h>
+ *  and <getline/getline.h> instead of <readline.h> etc.  Fixed daylight
+ *  savings time bug.  LocalPath checks $HOME now.
+ */
+
+NcFTP 1.5.0 was posted at the end of August to comp.sources.misc; you'll need
+that code with patch 1 and 2 applied for this patch to work.
+
+diff -c ./Makefile ../ncftp153/Makefile
+*** ./Makefile	Tue Sep  7 23:29:25 1993
+--- ../ncftp153/Makefile	Tue Sep  7 23:25:50 1993
+***************
+*** 13,23 ****
+  
+  # Program definitions.  See the README, part C.
+  #--------------------------------------------------------------------------
+! #PDEFS =
+  #PDEFS = -DGETLINE
+  #PDEFS = -DREADLINE -DCURSES
+  #PDEFS = -DSOCKS
+! PDEFS = -DDEBUG -DDB_ERRS
+  
+  
+  # Choose your compiler and flags below.  Make sure you use an ANSI compiler
+--- 13,23 ----
+  
+  # Program definitions.  See the README, part C.
+  #--------------------------------------------------------------------------
+! PDEFS =
+  #PDEFS = -DGETLINE
+  #PDEFS = -DREADLINE -DCURSES
+  #PDEFS = -DSOCKS
+! #PDEFS = -DDEBUG -DDB_ERRS
+  
+  
+  # Choose your compiler and flags below.  Make sure you use an ANSI compiler
+***************
+*** 27,36 ****
+  #CC = gcc
+  
+  #CFLAGS = -O
+! CFLAGS = -g
+  
+! #LFLAGS = -s
+! LFLAGS =
+  
+  
+  # Additional libraries and/or object files.
+--- 27,37 ----
+  #CC = gcc
+  
+  #CFLAGS = -O
+! CFLAGS = -O2
+! #CFLAGS = -g
+  
+! LFLAGS = -s
+! #LFLAGS =
+  
+  
+  # Additional libraries and/or object files.
+***************
+*** 46,55 ****
+  #   want to use the GNU Readline library.
+  # You'll need -lgetline (compile it as a library) if you want to use
+  #   getline.
+  # You'll need to know where the Rconnect.o object file is if you want
+  #   to use Socks.
+  #--------------------------------------------------------------------------
+! #LIBS =
+  #LIBS = -ldbmalloc
+  #LIBS = -lgetline
+  #LIBS = -lreadline -lcurses
+--- 47,58 ----
+  #   want to use the GNU Readline library.
+  # You'll need -lgetline (compile it as a library) if you want to use
+  #   getline.
++ # If your system is running Yellow Pages, you'll need to add the library
++ #   that has the YP/NIS version of getpwuid() in it (Important!)
+  # You'll need to know where the Rconnect.o object file is if you want
+  #   to use Socks.
+  #--------------------------------------------------------------------------
+! LIBS =
+  #LIBS = -ldbmalloc
+  #LIBS = -lgetline
+  #LIBS = -lreadline -lcurses
+***************
+*** 60,79 ****
+  # getline or readline and they aren't installed system-wide, add the
+  # extra directories to look in here, using -L's.
+  #--------------------------------------------------------------------------
+! #LIBDIRS =
+! LIBDIRS = -L$(HOME)/src
+! #LIBDIRS = -L./getline
+! #LIBDIRS = -L./readline
+  
+  
+  # Additional headers.
+  # If you defined READLINE or GETLINE, you have to tell where it's header
+  # file can be found.
+  #--------------------------------------------------------------------------
+! #HDRDIRS = -I.
+! HDRDIRS = -I$(HOME)/src
+! #HDRDIRS = -I./getline
+! #HDRDIRS = -I./readline
+  
+  
+  # If you want to 'make install,' edit these variables, otherwise don't
+--- 63,86 ----
+  # getline or readline and they aren't installed system-wide, add the
+  # extra directories to look in here, using -L's.
+  #--------------------------------------------------------------------------
+! LIBDIRS =
+! #LIBDIRS = -L../getline
+! #LIBDIRS = -L../readline
+  
+  
+  # Additional headers.
++ #
+  # If you defined READLINE or GETLINE, you have to tell where it's header
+  # file can be found.
++ #
++ # For READLINE, provide a path which would find <readline/readline.h>,
++ #   so you would put the parent directory of the readline directory below.
++ #   If you had '/usr/local/readline' you would use -I/usr/local.
++ # For GETLINE, the same thing for <getline/getline.h>
+  #--------------------------------------------------------------------------
+! HDRDIRS =
+! #HDRDIRS = -I..   # I have ../getline and ../readline directories.
+! #HDRDIRS = -I.    # Maybe you have ./getline and ./readline directories.
+  
+  
+  # If you want to 'make install,' edit these variables, otherwise don't
+***************
+*** 91,105 ****
+  
+  DEFS = $(PDEFS) $(SDEFS)
+  MK = $(CC) $(CFLAGS) $(DEFS) $(HDRDIRS) $(LFLAGS) $(LIBDIRS) $(LIBS)
+- 
+- NAME = ncftp
+- MAN = ncftp.1
+- ALL = $(SRCS) $(HEADERS) patchlevel.h Blurb README Makefile $(MAN) \
+- v2_Note
+- 
+- VERS=150
+- PKGNAME = ncftp$(VERS)
+- TARNAME = $(PKGNAME).tar
+   
+  SRCS = cmds.c cmdtab.c ftp.c ftprc.c getpass.c glob.c main.c open.c set.c \
+  tips.c util.c
+--- 98,103 ----
+***************
+*** 110,115 ****
+--- 108,118 ----
+  OBJS = cmds.o cmdtab.o ftp.o ftprc.o getpass.o glob.o main.o open.o set.o \
+  tips.o util.o
+  
++ NAME = ncftp
++ MAN = ncftp.1
++ ALL = $(SRCS) $(HEADERS) patchlevel.h Blurb README Makefile $(MAN) \
++ v2_Note
++ 
+  C_COMPILE = $(CC) $(CFLAGS) $(DEFS) $(HDRDIRS)
+  C_COMPILE2 = $(CC) $(CFLAGS) $(DEFS) -DMK='"$(MK)"' $(HDRDIRS)
+  
+***************
+*** 132,254 ****
+  .c.o:
+  	$(C_COMPILE) -c $<
+  
+- clean:
+- 	rm -f $(OBJS) core $(NAME)
+- 
+- SGI_CFLAGS = -prototypes -xansi -fullwarn -woff 211,269,270,303,309,24,51
+- FTPDIR=/usr/people/ftp/pub/mgleason
+- 
+- shared: $(OBJS)
+- 	 $(CC) $(OBJS)  $(LIBDIRS) -o $(NAME) -lc_s $(LIBS) -s
+- 	 -@ls -l $(NAME)
+- 
+- lint: $(SRCS)
+- 	lint $(SRCS) $(CFLAGS) $(DEFS) > './Junk/lint'
+- 
+- tags:
+- 	ctags -x $(SRCS) $(HEADERS) | sort -f > tags
+- 	
+- tar:
+- 	tar cvf - $(ALL) | compress > $(TARNAME).Z
+- 	ls -l $(TARNAME).Z
+- 
+- gz:
+- 	tar cvf - $(ALL) | gzip > $(TARNAME).z
+- 	ls -l $(TARNAME).z
+- 
+- shar2:
+- 	shar $(ALL) > $(NAME).shar
+- 
+- shar:
+- 	shar $(ALL) | cat Blurb - > $(NAME).shar
+- 
+  done: $(NAME)
+  	-@ls -l $(NAME)
+  	-@echo 'Done.'
+- 
+- 
+- pixie: $(NAME) $(NAME).Counts $(NAME).Addrs
+- 	prof -pixie $(NAME) $(NAME).Addrs $(NAME).Counts -feedback Feedback
+- 
+- $(NAME).Addrs: $(NAME)
+- 	pixie -o $(NAME).pixie $(NAME)
+- 
+- $(NAME).Counts: ftp $(NAME).Addrs
+- 	$(NAME).pixie
+- 
+- profile:
+- 	rm -f *.[ou]
+- 	cc $(SGI_CFLAGS) $(SRCS) $(DEFS)  -g -p -o ncftp.prof
+- 	ncftp.prof
+- 	prof ncftp.prof mon.out
+- 
+- rmobjs:
+- 	-@rm -f *.[ou]
+- 
+- freshdebug: rmobjs
+- 	pmake "CFLAGS=$(SGI_CFLAGS) -g" LFLAGS=-g
+- 
+- debug:
+- 	pmake "CFLAGS=$(SGI_CFLAGS) -g" LFLAGS=-g
+- 
+- opt: rmobjs
+- 	pmake "CFLAGS=-O2 $(SGI_CFLAGS)" LFLAGS=-s
+- 	-@ls -l $(NAME)
+- 
+- shopt: opt shared
+- 
+- gopt: rmobjs
+- 	pmake CC=gcc "CFLAGS=-O2 $(SGI_CFLAGS)" LFLAGS=-s
+- 	-@ls -l $(NAME)
+- 
+- JUNK = ~/N/Junk
+- 
+- mantst: ncftp.1
+- 	nroff -man ncftp.1 > $(JUNK)/ncftp.man
+- 	less $(JUNK)/ncftp.man
+- 
+- sz:
+- 	sz -e $(ALL)
+- 
+- getline:
+- 	-rm util.o cmds.o tips.o
+- 	make PDEFS=-DGETLINE LIBS=-lgetline LIBDIRS=-L$(HOME)/src/ncftp/getline \
+- 		HDRDIRS=-I$(HOME)/src/ncftp/getline
+- 
+- finst:
+- 	-@mkdir /tmp/$(PKGNAME)
+- 	cp -r $(ALL) /tmp/$(PKGNAME)
+- 	(cd /tmp ; tar cvf - $(PKGNAME) | gzip -f > $(FTPDIR)/$(TARNAME).z )
+- 	chmod 644 $(FTPDIR)/$(TARNAME).z
+- 	-@ls -l $(FTPDIR)/$(TARNAME).z
+- 	-@rm -rf /tmp/$(PKGNAME)
+- 
+- depend:
+- 	cc -M $(SRCS) | grep -v '/' >> Makefile
+- 
+- protos:
+- 	apply "mkptypes -x -A %1 > %1.pr" $(SRCS)
+- 	-@echo 'Done.'
+- 
+- patch:
+- 	-rm -rf /tmp/old /tmp/new
+- 	-mkdir /tmp/old /tmp/new
+- 	cp ~/ncftp.shar /tmp/old/oldncftp.shar
+- 	(cd /tmp/old ; unshar -n oldncftp.shar )
+- 	make shar
+- 	cp ncftp.shar /tmp/new
+- 	(cd /tmp/new; unshar -n ncftp.shar )
+- 	rm /tmp/new/ncftp.shar /tmp/old/oldncftp.shar
+- 	(cd /tmp/old ; diff -c . ../new > ../pch)
+- 
+- coall:
+- 	co -u -f $(SRCS) $(HEADERS)
+- 
+- newver:
+- 	ci -Nv$(VERS) -f "-mv$(VERS) release" -M -u $(SRCS) $(HEADERS)
+- 
+- ciall:
+- 	ci -q -M -u $(SRCS) $(HEADERS)
+  
+  # Dependencies:
+  cmds.o: cmds.c 
+--- 135,143 ----
+Only in ../ncftp153: NcMakefile
+diff -c ./README ../ncftp153/README
+*** ./README	Tue Sep  7 23:33:35 1993
+--- ../ncftp153/README	Tue Sep  7 23:25:50 1993
+***************
+*** 82,87 ****
+--- 82,93 ----
+  
+  Otherwise you will have to configure ncftp manually.
+  
++ Important for "Yellow Pages" users:  Don't forget to link the library
++ that includes the YP/NIS version of getpwuid(), etc.  Otherwise the program
++ won't be able to expand ~username/path/name type pathnames, and maybe even
++ ~/path/name types of pathnames.  If you're wondering why the program isn't
++ opening your rc file, this could be the cause.
++ 
+  You will need to add these things to the SDEFS line in the Makefile
+  as applicable.  As an example, if I say 'add -DFoobar to SDEFS,' find
+  the line in the Makefile that reads 'SDEFS=' (or 'SDEFS=-DFoo2') and
+***************
+*** 125,130 ****
+--- 131,139 ----
+  will know if you need to add this if the compiler spits out errors saying
+  it doesn't know what 'const' is.
+  
++ *  As I said above, you will need to link special libraries if your system
++ is running Yellow Pages.
++ 
+  *  Add -DSYSSELECTH if you need <sys/select.h> included for definitions
+  of fd_set, etc.
+  
+***************
+*** 136,141 ****
+--- 145,155 ----
+  
+  *  Add -DNO_UTIMEH if you don't have <utime.h>.  If the compiler complains
+  about not being able to open <utime.h> add this.
++ 
++ *  Add -DNO_MKTIME if you don't have the mktime() system call, and don't
++ feel like getting the source for it and compiling it in with the program.
++ If you define this, the program will not set the file modification times
++ to match the ones on the remote host (no big deal).
+  
+  *  Add -DGETPASS if you would rather use the standard getpass() system
+  call, instead of our version, Getpass(), which takes more than 8
+diff -c ./cmds.c ../ncftp153/cmds.c
+*** ./cmds.c	Tue Sep  7 23:33:13 1993
+--- ../ncftp153/cmds.c	Tue Sep  7 23:25:50 1993
+***************
+*** 301,307 ****
+  int mput(int argc, char **argv)
+  {
+  	register int i;
+! 	sig_t oldintr;
+  	char *tp;
+  
+  	if (argc < 2)
+--- 301,307 ----
+  int mput(int argc, char **argv)
+  {
+  	register int i;
+! 	Sig_t oldintr;
+  	char *tp;
+  
+  	if (argc < 2)
+***************
+*** 486,492 ****
+  {
+  	char *cp;
+  	longstring local;
+! 	sig_t oldintr;
+  
+  	if (argc < 2)
+  		argv = re_makeargv("(remote-files) ", &argc);
+--- 486,492 ----
+  {
+  	char *cp;
+  	longstring local;
+! 	Sig_t oldintr;
+  
+  	if (argc < 2)
+  		argv = re_makeargv("(remote-files) ", &argc);
+***************
+*** 749,755 ****
+  int mdelete(int argc, char **argv)
+  {
+  	char *cp;
+! 	sig_t oldintr;
+  	string str;
+  
+  	if (argc < 2)
+--- 749,755 ----
+  int mdelete(int argc, char **argv)
+  {
+  	char *cp;
+! 	Sig_t oldintr;
+  	string str;
+  
+  	if (argc < 2)
+***************
+*** 943,949 ****
+  int shell(int argc, char **argv)
+  {
+  	int				pid;
+! 	sig_t			old1, old2;
+  	char			*theShell, *namep;
+  #ifndef U_WAIT
+  	int				Status;
+--- 943,949 ----
+  int shell(int argc, char **argv)
+  {
+  	int				pid;
+! 	Sig_t			old1, old2;
+  	char			*theShell, *namep;
+  #ifndef U_WAIT
+  	int				Status;
+***************
+*** 1808,1813 ****
+--- 1808,1816 ----
+  #ifdef NO_VARARGS 
+  	DStrs[nDStrs++] = "NO_VARARGS";
+  #endif
++ #ifdef NO_MKTIME
++ 	DStrs[nDStrs++] = "NO_MKTIME";
++ #endif
+  #ifdef TRY_ABOR
+  	DStrs[nDStrs++] = "TRY_ABOR";
+  #endif
+***************
+*** 1884,1890 ****
+  	register struct lslist *a = lshead;
+  	int pagemode;
+  	FILE *fp;
+! 	sig_t oldintp;
+  
+  	if (a == NULL)
+  		return CMDERR;
+--- 1887,1893 ----
+  	register struct lslist *a = lshead;
+  	int pagemode;
+  	FILE *fp;
+! 	Sig_t oldintp;
+  
+  	if (a == NULL)
+  		return CMDERR;
+diff -c ./ftp.c ../ncftp153/ftp.c
+*** ./ftp.c	Tue Sep  7 23:33:13 1993
+--- ../ncftp153/ftp.c	Tue Sep  7 23:25:51 1993
+***************
+*** 287,295 ****
+  		n = command(str);
+  		if (n == CONTINUE) {
+  			/* The remote site is requesting us to send the account now. */
+! 			(void) sprintf(str, "ACCT %s", Getpass("Account:"));
+  			++sentAcct;	/* Keep track that we've sent the account already. */
+- 			++userWasPrompted;
+  			n = command(str);
+  		}
+  	}
+--- 287,300 ----
+  		n = command(str);
+  		if (n == CONTINUE) {
+  			/* The remote site is requesting us to send the account now. */
+! 			if (accountPtr == NULL) {
+! 				/* Prompt for a username. */
+! 				(void) sprintf(str, "ACCT %s", Getpass("Account:"));
+! 				++userWasPrompted;
+! 			} else {
+! 				(void) sprintf(str, "ACCT %s", accountPtr);
+! 			}
+  			++sentAcct;	/* Keep track that we've sent the account already. */
+  			n = command(str);
+  		}
+  	}
+***************
+*** 372,378 ****
+  int command(char *cmd)
+  {
+  	int r;
+! 	sig_t oldintr;
+  	string str;
+  
+  	abrtflag = 0;
+--- 377,383 ----
+  int command(char *cmd)
+  {
+  	int r;
+! 	Sig_t oldintr;
+  	string str;
+  
+  	abrtflag = 0;
+***************
+*** 446,452 ****
+  	int dig;
+  	char *cp, *end, *dp;
+  	int thiscode, originalcode = 0, continuation = 0;
+! 	sig_t oldintr;
+  
+  	if (cin == NULL)
+  		return (-1);
+--- 451,457 ----
+  	int dig;
+  	char *cp, *end, *dp;
+  	int thiscode, originalcode = 0, continuation = 0;
+! 	Sig_t oldintr;
+  
+  	if (cin == NULL)
+  		return (-1);
+***************
+*** 583,590 ****
+  			lostpeer(0);
+  		if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN && oldintr)
+  			(*oldintr)(0);
+! 		return (n - '0');
+  	}	/* end for(;;) #1 */
+  }	/* getreply */
+  
+  
+--- 588,596 ----
+  			lostpeer(0);
+  		if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN && oldintr)
+  			(*oldintr)(0);
+! 		break;
+  	}	/* end for(;;) #1 */
++ 	return (n - '0');
+  }	/* getreply */
+  
+  
+***************
+*** 819,825 ****
+  int sendrequest(char *cmd, char *local, char *remote)
+  {
+  	FILE					*fin, *dout = NULL;
+! 	sig_t					oldintr, oldintp;
+  	string					str;
+  	register int			c, d;
+  	struct stat				st;
+--- 825,831 ----
+  int sendrequest(char *cmd, char *local, char *remote)
+  {
+  	FILE					*fin, *dout = NULL;
+! 	Sig_t					oldintr, oldintp;
+  	string					str;
+  	register int			c, d;
+  	struct stat				st;
+***************
+*** 1123,1129 ****
+  
+  
+  
+! FILE *OpenOutputFile(int filetype, char *local, char *mode, sig_t *oldintp)
+  {
+  	FILE *fout;
+  
+--- 1129,1135 ----
+  
+  
+  
+! FILE *OpenOutputFile(int filetype, char *local, char *mode, Sig_t *oldintp)
+  {
+  	FILE *fout;
+  
+***************
+*** 1371,1377 ****
+  int recvrequest(char *cmd, char *local, char *remote, char *mode)
+  {
+  	FILE						*fout = NULL, *din = NULL;
+! 	sig_t						oldintr = NULL, oldintp = NULL;
+  	int							oldtype = 0, is_retr;
+  	int							nfnd;
+  	char						msg;
+--- 1377,1383 ----
+  int recvrequest(char *cmd, char *local, char *remote, char *mode)
+  {
+  	FILE						*fout = NULL, *din = NULL;
+! 	Sig_t						oldintr = NULL, oldintp = NULL;
+  	int							oldtype = 0, is_retr;
+  	int							nfnd;
+  	char						msg;
+***************
+*** 1511,1517 ****
+  	int					result, len, tmpno = 0;
+  	int					on = 1, rval;
+  	string				str;
+! 	sig_t				oldintr;
+  
+  	oldintr = Signal(SIGINT, SIG_IGN);
+  noport:
+--- 1517,1523 ----
+  	int					result, len, tmpno = 0;
+  	int					on = 1, rval;
+  	string				str;
+! 	Sig_t				oldintr;
+  
+  	oldintr = Signal(SIGINT, SIG_IGN);
+  noport:
+diff -c ./ftp.h ../ncftp153/ftp.h
+*** ./ftp.h	Tue Sep  7 23:29:25 1993
+--- ../ncftp153/ftp.h	Tue Sep  7 23:25:52 1993
+***************
+*** 38,44 ****
+  int AdjustLocalFileName(char *);
+  int SetToAsciiForLS(int, int);
+  int IssueCommand(char *, char *);
+! FILE *OpenOutputFile(int, char *, char *, sig_t *);
+  void ReceiveBinary(FILE *, FILE *, int *, char *);
+  void AddRedirLine(char *);
+  void ReceiveAscii(FILE *, FILE *, int *, char *, int);
+--- 38,44 ----
+  int AdjustLocalFileName(char *);
+  int SetToAsciiForLS(int, int);
+  int IssueCommand(char *, char *);
+! FILE *OpenOutputFile(int, char *, char *, Sig_t *);
+  void ReceiveBinary(FILE *, FILE *, int *, char *);
+  void AddRedirLine(char *);
+  void ReceiveAscii(FILE *, FILE *, int *, char *, int);
+diff -c ./getpass.c ../ncftp153/getpass.c
+*** ./getpass.c	Tue Sep  7 23:33:14 1993
+--- ../ncftp153/getpass.c	Tue Sep  7 23:25:52 1993
+***************
+*** 118,124 ****
+  	register int ch;
+  	register char *p;
+  	FILE *fp, *outfp;
+! 	sig_t oldintr;
+  	static char buf[kMaxPassLen + 1];
+  
+  	/*
+--- 118,124 ----
+  	register int ch;
+  	register char *p;
+  	FILE *fp, *outfp;
+! 	Sig_t oldintr;
+  	static char buf[kMaxPassLen + 1];
+  
+  	/*
+diff -c ./main.c ../ncftp153/main.c
+*** ./main.c	Tue Sep  7 23:33:36 1993
+--- ../ncftp153/main.c	Tue Sep  7 23:25:53 1993
+***************
+*** 8,14 ****
+  #define _main_c_
+  
+  #define FTP_VERSION \
+! "NcFTP 1.5.2 (Aug 30, 1993) by Mike Gleason, NCEMRSoft."
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+--- 8,14 ----
+  #define _main_c_
+  
+  #define FTP_VERSION \
+! "NcFTP 1.5.3 (September 2, 1993) by Mike Gleason, NCEMRSoft."
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+***************
+*** 979,997 ****
+  void termcap_get(char **dest, char *attr)
+  {
+  	static char area[1024];
+! 	static char *s = area;
+  	char buf[64];
+  	int foo;
+  
+! 	(void) Strncpy(buf, tgetstr(attr, &s));
+  	if (buf[0]) {
+   		for (foo = 0; (buf[foo] <= '9') && (buf[foo] >= '0'); foo++); 
+   		if ((*dest = (char *)malloc(strlen(&(buf[foo])) + 1)) == NULL) 
+!  			**dest = 0;
+   		else 
+   			(void) strcpy(*dest, &(buf[foo]));
+   	} else 
+!  		**dest = 0;
+  }	/* termcap_get */
+  
+  
+--- 979,1001 ----
+  void termcap_get(char **dest, char *attr)
+  {
+  	static char area[1024];
+! 	static char *s = area, *t;
+  	char buf[64];
+  	int foo;
+  
+! 	t = tgetstr(attr, &s);
+! 	if (t)
+! 		(void) Strncpy(buf, t);
+! 	else
+! 		buf[0] = '\0';
+  	if (buf[0]) {
+   		for (foo = 0; (buf[foo] <= '9') && (buf[foo] >= '0'); foo++); 
+   		if ((*dest = (char *)malloc(strlen(&(buf[foo])) + 1)) == NULL) 
+!  			*dest = "";
+   		else 
+   			(void) strcpy(*dest, &(buf[foo]));
+   	} else 
+!  		*dest = "";
+  }	/* termcap_get */
+  
+  
+diff -c ./open.c ../ncftp153/open.c
+*** ./open.c	Tue Sep  7 23:33:36 1993
+--- ../ncftp153/open.c	Tue Sep  7 23:25:54 1993
+***************
+*** 328,333 ****
+--- 328,338 ----
+  				*cp = c;
+  		}
+  		remote_is_unix = !strncmp(reply_string + 4, "UNIX", (size_t) 4);
++ 		if (!remote_is_unix) 
++ 			(void) printf("\n\
++ WARNING:  Due to a bug in the program, ncftp may hang while connected to\n\
++ a non-UNIX system.  You probably should use the regular 'ftp' program\n\
++ for those sites until this is fixed.\n\n");
+  	}
+  
+  	/* Set to binary mode if any of the following are true:
+***************
+*** 436,441 ****
+--- 441,454 ----
+  	char *user, *pass, *acct;	
+  	int					login_verbosity;
+  
++ 	/* If the hostname supplied is in the form host.name.str:/path/file,
++ 	 * then colon mode was used, and we need to fix the hostname to be
++ 	 * just the hostname, copy the /path/file to colonmode path, and init
++ 	 * the login_verbosity variable.
++ 	 */
++ 	if (CheckForColonMode(openopt, &login_verbosity) == USAGE)
++ 		return USAGE;
++ 
+  	/* If the hostname supplied was an abbreviation, such as just
+  	 * "wu" (wuarchive.wustl.edu), look through the list of sites
+  	 * we know about and get the whole name.  We also would like
+***************
+*** 477,491 ****
+  			}
+  		}		
+  	}
+- 
+- 
+- 	/* If the hostname supplied is in the form host.name.str:/path/file,
+- 	 * then colon mode was used, and we need to fix the hostname to be
+- 	 * just the hostname, copy the /path/file to colonmode path, and init
+- 	 * the login_verbosity variable.
+- 	 */
+- 	if (CheckForColonMode(openopt, &login_verbosity) == USAGE)
+- 		return USAGE;
+  
+  	for (
+  			dials = 0;
+--- 490,495 ----
+diff -c ./patchlevel.h ../ncftp153/patchlevel.h
+*** ./patchlevel.h	Tue Sep  7 23:33:36 1993
+--- ../ncftp153/patchlevel.h	Tue Sep  7 23:25:55 1993
+***************
+*** 111,119 ****
+   *  DYNIX entry.  Hacks added for SCO322.  Shortened bargraph prog meter
+   *  by one char.  Better compat with getline.  Man page fixed by DWS again :)
+   *
+!  * v1.5.1 - August 30, 1993.
+   *  Back to using "me" instead of "se" to for termcap_normal.  Fixed Netrc
+   *  site abbrev problem in a different way (by getting the fullsite name
+   *  before calling ruserpass2).
+   */
+  
+--- 111,129 ----
+   *  DYNIX entry.  Hacks added for SCO322.  Shortened bargraph prog meter
+   *  by one char.  Better compat with getline.  Man page fixed by DWS again :)
+   *
+!  * v1.5.2 - August 30, 1993.
+   *  Back to using "me" instead of "se" to for termcap_normal.  Fixed Netrc
+   *  site abbrev problem in a different way (by getting the fullsite name
+   *  before calling ruserpass2).
++  *
++  * v1.5.3 - September 2, 1993.
++  *  Changed 'sig_t' to 'Sig_t.'  Fixed another error in the termcap crap.
++  *  Made having mktime() optional, at the expense of setting file dates
++  *  to the same as the remote file.  Fixed an error during 'account'
++  *  validation.  Added a warning about a bug I haven't fixed yet with
++  *  non-UNIX systems hanging after listings.  Fixed bug where colon-mode
++  *  sitenames weren't expanded.  Fixed a tip.  Using <readline/readline.h>
++  *  and <getline/getline.h> instead of <readline.h> etc.  Fixed daylight
++  *  savings time bug.  LocalPath checks $HOME now.
+   */
+  
+Only in .: pch1
+Only in .: pch2
+diff -c ./tips.c ../ncftp153/tips.c
+*** ./tips.c	Tue Sep  7 23:33:16 1993
+--- ../ncftp153/tips.c	Tue Sep  7 23:25:55 1993
+***************
+*** 107,113 ****
+  
+      "Don't put a site in your .ncftprc unless you want an 'init' macro.  The \n\
+       recent-file saves sites with the last directory you were in, unlike \n\
+!      the rc file, while still letting you use sitename abbreviations."
+  
+      "Sick and tired of these tips?  Put '#unset tips' in your .ncftprc."
+  };
+--- 107,113 ----
+  
+      "Don't put a site in your .ncftprc unless you want an 'init' macro.  The \n\
+       recent-file saves sites with the last directory you were in, unlike \n\
+!      the rc file, while still letting you use sitename abbreviations.",
+  
+      "Sick and tired of these tips?  Put '#unset tips' in your .ncftprc."
+  };
+diff -c ./util.c ../ncftp153/util.c
+*** ./util.c	Tue Sep  7 23:33:17 1993
+--- ../ncftp153/util.c	Tue Sep  7 23:25:56 1993
+***************
+*** 23,33 ****
+  #endif
+  
+  #ifdef READLINE
+! #	include <readline.h>
+  #endif /* READLINE */
+  
+  #ifdef GETLINE
+! #	include <getline.h>
+  #endif
+  
+  #include "util.h"
+--- 23,33 ----
+  #endif
+  
+  #ifdef READLINE
+! #	include <readline/readline.h>
+  #endif /* READLINE */
+  
+  #ifdef GETLINE
+! #	include <getline/getline.h>
+  #endif
+  
+  #include "util.h"
+***************
+*** 54,59 ****
+--- 54,60 ----
+  extern int			debug, mprompt, activemcmd;
+  extern string		progname;
+  extern struct cmd	cmdtab[];
++ extern struct userinfo uinfo;
+  
+  #ifndef NO_VARARGS
+  void dbprintf(char *fmt, ...)
+***************
+*** 241,246 ****
+--- 242,250 ----
+   */
+  unsigned long UnLSDate(char *dstr)
+  {
++ #ifdef NO_MKTIME
++ 	return (0);
++ #else
+  	char *cp = dstr;
+  	int long mon, day, year, hr, min;
+  	time_t now;
+***************
+*** 299,313 ****
+  		(void) sscanf(cp, "%ld", &year);
+  		year -= 1900;
+  	}
+! 	ut.tm_sec = 0;
+  	ut.tm_min = min;
+  	ut.tm_hour = hr;
+  	ut.tm_mday = day;
+  	ut.tm_mon = mon;
+  	ut.tm_year = year;
+! 	ut.tm_isdst = 0;
+  	ut.tm_wday = ut.tm_yday = 0;
+  	return ((unsigned long) mktime(&ut));
+  }	/* UnLSDate */
+  
+  
+--- 303,318 ----
+  		(void) sscanf(cp, "%ld", &year);
+  		year -= 1900;
+  	}
+! 	ut.tm_sec = 1;
+  	ut.tm_min = min;
+  	ut.tm_hour = hr;
+  	ut.tm_mday = day;
+  	ut.tm_mon = mon;
+  	ut.tm_year = year;
+! 	ut.tm_isdst = t->tm_isdst;
+  	ut.tm_wday = ut.tm_yday = 0;
+  	return ((unsigned long) mktime(&ut));
++ #endif	/* NO_MKTIME */
+  }	/* UnLSDate */
+  
+  
+***************
+*** 708,719 ****
+  		rest = cp + 1;
+  		if (orig[0] == '~') {
+  			if (orig[1] == 0) {
+! 				pw = getpwuid(getuid());
+  			} else {
+  				pw = getpwnam(orig + 1);
+  			}
+- 			if (pw != NULL)
+- 				firstent = pw->pw_dir;
+  		} else if (orig[0] == '$') {
+  			cp = orig + 1;
+  			dp = orig + strlen(orig) - 1;
+--- 713,724 ----
+  		rest = cp + 1;
+  		if (orig[0] == '~') {
+  			if (orig[1] == 0) {
+! 				firstent = uinfo.homedir;
+  			} else {
+  				pw = getpwnam(orig + 1);
++ 				if (pw != NULL)
++ 					firstent = pw->pw_dir;
+  			}
+  		} else if (orig[0] == '$') {
+  			cp = orig + 1;
+  			dp = orig + strlen(orig) - 1;
+diff -c ./util.h ../ncftp153/util.h
+*** ./util.h	Tue Sep  7 23:29:28 1993
+--- ../ncftp153/util.h	Tue Sep  7 23:25:56 1993
+***************
+*** 55,63 ****
+  #ifndef SIG_PARAMS
+  #define SIG_PARAMS (int sig)
+  #endif
+! typedef void (*sig_t) SIG_PARAMS;
+  
+! #define Signal(a,proc) signal((a), (sig_t)(proc))
+  
+  /* Protos. */
+  char *_Strncat(char *dst, char *src, register size_t n);
+--- 55,63 ----
+  #ifndef SIG_PARAMS
+  #define SIG_PARAMS (int sig)
+  #endif
+! typedef void (*Sig_t) SIG_PARAMS;
+  
+! #define Signal(a,proc) signal((a), (Sig_t)(proc))
+  
+  /* Protos. */
+  char *_Strncat(char *dst, char *src, register size_t n);
+--
+______________________________________________________________________________
+mike gleason                 mgleason@cse.unl.edu             NCEMRSoft, baby!
+
+exit 0 # Just in case...

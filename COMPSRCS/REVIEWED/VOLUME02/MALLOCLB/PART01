@@ -1,0 +1,2000 @@
+From: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Subject: v02i002: malloclib - Malloc Debugging Library, Part01/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Posting-number: Volume 2, Issue 2
+Archive-name: malloclib/part01
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 5)."
+# Contents:  README CHANGES MANIFEST CHECKSUMS PROBLEMS Makefile
+#   Buildpatch calloc.c debug.h dump.c leak.c patchlevel tostring.h
+# Wrapped by cpcahil@virtech on Tue Jan 28 16:46:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(9797 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X# (c) Copyright 1990,1991 Conor P. Cahill. (uunet!virtech!cpcahil) 
+X# You may copy, distribute, and use this software as long as this
+X# copyright statement is not removed.
+X
+XThis package is a collection of routines which are a drop-in replacement
+Xfor the malloc(3), memory(3), string(3), and bstring(3) library functions.
+XThese replacement modules are different from the original modules in that
+Xthey provide a full set of debugging features which detect malloc 
+Xmemory overruns and other types of misuse.
+X
+XThe software has been developed for UNIX systems and should be somewhat
+Xportable amongst them.  Your milage will vary on other architectures. 
+X
+X
+X--------------------------------------------------------------------------
+XPORTING NOTES:
+X
+X1. Edit the makefile and set the appropriate flags for the compilations
+X
+X2. Review the settings for DATATYPE, SIZETYPE, and VOIDTYPE in malloc.h
+X   to make sure they conform to your system's requirements.  SIZETYPE will
+X   typically need to match what is used as an argument to malloc and/or
+X   what is returned by functions like strlen(). This will usually be
+X   one of the following:
+X
+X		int,  unsigned long, unsigned int, size_t
+X
+X   DATATYPE should match the type of pointer that is taken as an argument
+X   to memcpy, or what is returned by malloc() itself.  The pointer will 
+X   usually be char *, or void *.  Therefore DATATYPE will usually be 
+X   char or void.
+X
+X   VOIDTYPE will be void if your compiler supports the type void and int
+X   otherwise.
+X
+X3. Type make (See the PROBLEMS file if you have a problem compiling)
+X
+X4. Type make runtests to build and runt the tests (some of which will take
+X   a long time and some which will abort).  See the notes below for 
+X   more info on the tests and the expected output
+X
+X5. Install libdbmalloc.a and malloc.h somewhere where users can get
+X   to them by using make install (make sure INSTDIR is set correctly
+X   in the makefile)
+X
+X--------------------------------------------------------------------------
+XUSAGE:
+X
+XTo use the library, include the malloc.h header included with this
+Xlibrary ( this is not entirely necessary, but the identification of where
+Xthe problems originated will be much better if it is), compile the 
+Xobject files, and link with the libdbmalloc.a (make sure it is before
+Xthe libc.a on the link command - this is the default if you don't specifically
+Xinclude libc.a on your link).
+X
+XFor more info on how to use the library, see the man page in
+Xmalloc.3 ([nt]roff source) or malloc.man (already nroffed).
+X
+X--------------------------------------------------------------------------
+XTEST PROGRAMS
+X
+XThe library comes with several test programs that should be run before
+Xit is installed on the system.  There are three test programs:
+X
+Xtestmalloc - this program runs through zillions of mallocs/reallocs and frees
+Xin order to exercise the malloc system.  The output from this program will
+Xlook something like the following:
+X
+X	MAXITER 1000000 MAXOBJS 1000 BIGOBJ 90000, TINYOBJ 80, nbig/ntiny 1/100
+X	Memory use at start: 20140 bytes
+X	Starting the test...
+X	0 iterations
+X	10000 iterations
+X	20000 iterations
+X	....(lots of iterations skipped)....
+X	980000 iterations
+X	990000 iterations
+X
+X	Did 1000000 iterations, 999 objects, 515733 mallocs, 484267 reallocs
+X	Memory use at end: 1617580 bytes
+X	Memory use after free: 1617580 bytes
+X
+X	************************************************************...
+X				     FREE     FREE                 ...
+X	  PTR      NEXT     PREV     NEXT     PREV      FLAGS     ...
+X	-------- -------- -------- -------- -------- ---------- -...
+X	0x403C30 0x407510 0x000000 0x000000 0x000000 0x00000000  ...
+X	0x407510 0x407640 0x403C30 0x000000 0x000000 0x03156111  ...
+X	0x407640 0x000000 0x407510 0x000000 0x000000 0x03156100  ...
+X	Malloc start:      0x403C30
+X	Malloc end:        0x407640
+X	Malloc data start: 0x407510
+X	Malloc data end:   0x58F510
+X	Malloc free list:  0x407640
+X
+X	startsize 20140 != endsize 1617580
+X
+XThis is normal output.  If it doesn't get to 1000000 iterations or if there
+Xare any allocations still in effect that were initiated by testmalloc.c,
+Xsomething went wrong (the library didn't pass the test).
+X
+XNote that there may be several entries in the malloc chain if the C startup
+Xfunction has allocated data before the main gets called.  The key is that
+Xthere are no allocated entries (those with the 1 bit on in the flags field)
+Xleft that are identified as being allocated within the testmalloc.c file.
+XIn the example above, the middle entry does in fact have the 1 bit on, but
+Xin the info that was cut-off, there was no indication that it was allocated
+Xwithin testmalloc.c, therefore it must have been allocated somewhere else.
+XThe last line in the chain will usually say it was allocated within testmalloc.c;
+Xhowever, as in this case, it will also indicate that it is not in use (the 1 
+Xbit will be off in the flags field).
+X
+XMost likely, if the program ran to completion (processed 1000000 iterations),
+Xthe test was successful.
+X
+XAlso note that this program does alot of allocations and will likely take
+Xa long time to run.  To decrease the amount of time it takes, set the 
+Xenvironment variable MALLOC_FILLAREA to 0 and run the test.  With this setting,
+Xthe test takes around 50 seconds on a 33MHZ 486.  Another way to speed up
+Xthe test is to decrease the number of itereations.  I won't do this on my
+Xsystem (or in the default) because I want to be sure that the malloc
+Xfunctions are well exercised.
+X
+Xtestmem - this program tests many of the string and memory functions to verify
+Xthat they work as they are supposed to.  You should get no output from this
+Xtest.  If you do, something is wrong.
+X
+Xtesterr - this program tests several malloc related program errors (to make
+Xsure that the library is correctly identifying the problems).  The output
+Xfrom the test goes to stderr and should be similar to the following (although
+Xbecause of machine architectures the error messages may be slightly different):
+X
+X	-------------------------------------
+X	Error from strcpy() - out of bounds
+X	MALLOC Warning from strncpy() (called from testerr.c line 27):
+X	Pointer within malloc region, but outside of malloc data bounds
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 23.
+X		This was the 2nd call to malloc.
+X
+X	-------------------------------------
+X	Error from memset() - out of bounds
+X	MALLOC Warning from memset() (called from testerr.c line 31):
+X	Pointer within malloc region, but outside of malloc data bounds
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 20 bytes in testerr.c on line 21.
+X		This was the 1st call to malloc.
+X
+X	-------------------------------------
+X	Error from free() - overrun
+X	MALLOC Warning from free() (called from testerr.c line 35):
+X	Data has overrun beyond requested number of bytes
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 20 bytes in testerr.c on line 21.
+X		This was the 1st call to malloc.
+X
+X	MALLOC Warning from free() (called from testerr.c line 35):
+X	Data has overrun beyond requested number of bytes
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 20 bytes in testerr.c on line 21.
+X		This was the 1st call to malloc.
+X
+X	-------------------------------------
+X	NO error from bzero
+X	-------------------------------------
+X	Error from bzero() - out of bounds
+X	MALLOC Warning from bzero() (called from testerr.c line 43):
+X	Pointer within malloc region, but outside of malloc data bounds
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 23.
+X		This was the 2nd call to malloc.
+X
+X	-------------------------------------
+X	Error from free() - overrun
+X	MALLOC Warning from free() (called from testerr.c line 47):
+X	Data has overrun beyond requested number of bytes
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 23.
+X		This was the 2nd call to malloc.
+X
+X	MALLOC Warning from free() (called from testerr.c line 47):
+X	Data has overrun beyond requested number of bytes
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 23.
+X		This was the 2nd call to malloc.
+X
+X	-------------------------------------
+X	Error from free() - invalid magic
+X	MALLOC Warning from free() (called from testerr.c line 51):
+X	Malloc region does not have valid magic number in header
+X	-------------------------------------
+X	Error from memset() - out of bounds
+X	MALLOC Warning from memset() (called from testerr.c line 58):
+X	Pointer within malloc region, but outside of malloc data bounds
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 53.
+X		This was the 3rd call to malloc.
+X
+X	-------------------------------------
+X	Error from malloc() - chain broken
+X	MALLOC Warning from malloc() (called from testerr.c line 62):
+X	Pointers between this segment and ajoining segments are invalid
+X	This error is *probably* associated with the following allocation:
+X
+X		A call to malloc for 10 bytes in testerr.c on line 53.
+X		This was the 3rd call to malloc.
+X
+X	MALLOC Warning from malloc() (called from testerr.c line 62):
+X	Malloc region does not have valid magic number in header
+X	MALLOC Fatal error from malloc() (called from testerr.c line 62):
+X	Pointer is not within malloc area
+X
+Xabort-core dumped (or something about SIGIOT) can be expected at the end
+Xof the test because of a purposefull overwrite of memory.  Depending upon the
+Xarchitecture, the purposful overwrite may actually cause some other form
+Xof core dump.  If it dumps somewhere in the last error, you can *probably*
+Xconsider it normal.
+X
+END_OF_FILE
+if test 9797 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+echo shar: Extracting \"'CHANGES'\" \(3311 characters\)
+sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+X$Id: CHANGES,v 1.8 1992/01/28 21:42:25 cpcahil Exp $
+X
+Xpatchlevel 7
+X
+X	- general
+X		- added support for overriding the use of void for systems
+X		  that do not support it
+X		- added more info to the PROBLEMS and README files
+X	- free.c
+X		- added call to MALLOC_INIT to initialize the malloc subsystem
+X		  when free is the first entry point.
+X	- malloc.c
+X		- fixed typo which resulted in truncation of error message
+X		- increased size of error string buffers and added
+X		  overflow checks
+X	- malloc.h
+X		- added code so that it could be included by c++ programs
+X		- added additional info on setting SIZETYPE and DATATYPE
+X		- added code to prevent inclusions of string.h and memory.h
+X		  after malloc.h has been included (since they conflict)
+X		- added prototypes for malloc_dump and malloc_list
+X		- added #ifdefs to get the code to compile outof the box for 
+X		  known systems (hpux,IBMRS6000, and ISC UNIX)
+X	- memory.c
+X		- changed memccpy to only check the number of chars it is
+X		  going to copy (some stdio implementations use memccpy with
+X		  a source string that may not be the full length).
+X	- malloc.3
+X		- reformatted the SYNOPSIS section and cleaned up some other
+X		  parts of the doc.
+X		- added more warnings about potential problems
+X	- Buildpatch
+X		- changed to build the patch based upon the old shar files,
+X		  as opposed to the information in the RCS files
+X		- added verification of successful patch
+X	- Makefile
+X		- misc cleanups for making patch releases
+X		- removed \c escape sequende from test run script
+X
+Xpatchlevel 6
+X
+X	- README file updated with expanded porting/usage/test program info
+X	- PROBLEM file added to mention typical porting problems
+X	- CHECKSUMS file added to allow verification of proper transmission
+X	- NAME change - default library name changed to libdbmalloc.a so that
+X	  it doesn't conflict with system libmalloc.a files.
+X	- performance enhancments 
+X		- selected use of registers for pointers referenced frequently
+X		- addition of free list chain, so allocations just search a
+X		  list of available blocks
+X		- portable optimization of the malloc_memset function so that
+X		  it is much faster when filling malloc'd areas
+X		- added ability to turn off pre/post-filling of malloced 
+X		  areas via an environment variable and/or mallopt()
+X		- added option to override first fit algorithm with best fit
+X		  algorithm (should reduce memory fragmentation)
+X	- use #if __STDC__ instead of #ifdef, so if the symbol is defined, but
+X	  is not set to a 1, it is not interpreted as an ANSI C compiler
+X	- cleanup of some warnings from gcc -Wall
+X	- makefile changes
+X		- addition of manual page installation
+X		- added frcinstall target which forces installation
+X		- added DESTDIR (eqivalent to INSTDIR) which defaults to
+X		  /usr/local
+X		- added targets to build and run tests and removed test
+X		  building from the all target
+X		- documented usefull targets
+X		- changed to using cshar to generate shar files with MANIFEST
+X		- added building of CHECKSUMS file
+X	- manual page changes
+X		- minor changes to make it compatible with groff
+X		- fixed bug in eX macro which was causing fixed font output to
+X		  be extremely wide
+X		- changed references to malloc_opt to mallopt and updated to 
+X		  the correct usage (using the union malloptarg)
+X		- documented new environment variable to control fragmentation
+X
+X
+END_OF_FILE
+if test 3311 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+fi
+# end of 'CHANGES'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(1848 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X README                     1	READ THIS FIRST
+X CHANGES                    1	List of changes
+X MANIFEST                   1	This shipping list
+X CHECKSUMS                  1	Checksums (BSD and SYSV) for each file
+X PROBLEMS                   1	List of typical porting/use problems
+X Makefile                   1	
+X Buildpatch                 1	Shell to build patch file
+X calloc.c                   1	calloc and related functions
+X debug.h                    1	debugging output header
+X dump.c                     1	malloc chain dumper
+X free.c                     2	free and related functions
+X leak.c                     1	memory leak detection stuff
+X m_init.c                   2	malloclib initializations
+X m_perror.c                 2	malloc error printer
+X malloc.3                   2	malloc man page ([nt]roff source)
+X malloc.c                   3	malloc and related functions
+X malloc.h                   2	include files for programs using the library
+X malloc.man                 4	nroff'd version of the manual page
+X malloc_chk.c               3	error checking modules
+X malloc_chn.c               3	chain checking modules
+X mallocint.h                3	internal header file
+X mallopt.c                  3	mallopt and related stuff
+X memory.c                   4	mem* and b* functions
+X patchlevel                 1	current patch level
+X prototypes.h               4	functional prototypes 
+X realloc.c                  4	realloc and related functions.
+X string.c                   5	str* functions
+X testerr.c                  3	error test program
+X testmalloc.c               5	malloc exerciser
+X testmem.c                  5	mem*/str*/b* exerciser
+X tostring.c                 3	numeric to string converter
+X tostring.h                 1	header for numeric converter
+END_OF_FILE
+if test 1848 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'CHECKSUMS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHECKSUMS'\"
+else
+echo shar: Extracting \"'CHECKSUMS'\" \(1302 characters\)
+sed "s/^X//" >'CHECKSUMS' <<'END_OF_FILE'
+XSYSV sums:
+X
+X62610 4 MANIFEST
+X1187 1 patchlevel
+X27235 20 README
+X10037 12 PROBLEMS
+X23200 7 CHANGES
+X62145 7 Buildpatch
+X34105 13 Makefile
+X13678 55 malloc.3
+X16766 56 malloc.man
+X33884 54 malloc.c
+X19053 13 free.c
+X504 14 realloc.c
+X4903 7 calloc.c
+X45253 32 string.c
+X8370 16 malloc_chk.c
+X37030 12 malloc_chn.c
+X13781 16 memory.c
+X8736 6 tostring.c
+X59423 5 m_perror.c
+X64059 6 m_init.c
+X62288 6 mallopt.c
+X23987 19 dump.c
+X32181 6 leak.c
+X42372 9 testmalloc.c
+X24534 42 testmem.c
+X43850 3 testerr.c
+X48611 28 malloc.h
+X24913 8 mallocint.h
+X51173 6 debug.h
+X44284 2 tostring.h
+X20904 17 prototypes.h
+X
+XBSD sums (generated using sum -r on SYSV system):
+X
+X42144     4 MANIFEST
+X06674     1 patchlevel
+X41108    20 README
+X45711    12 PROBLEMS
+X07903     7 CHANGES
+X48438     7 Buildpatch
+X05384    13 Makefile
+X16416    55 malloc.3
+X41089    56 malloc.man
+X60527    54 malloc.c
+X34447    13 free.c
+X60381    14 realloc.c
+X16679     7 calloc.c
+X39948    32 string.c
+X19377    16 malloc_chk.c
+X16676    12 malloc_chn.c
+X25862    16 memory.c
+X50374     6 tostring.c
+X17174     5 m_perror.c
+X58901     6 m_init.c
+X13692     6 mallopt.c
+X53612    19 dump.c
+X63148     6 leak.c
+X11858     9 testmalloc.c
+X06136    42 testmem.c
+X04806     3 testerr.c
+X45851    28 malloc.h
+X01105     8 mallocint.h
+X41836     6 debug.h
+X19119     2 tostring.h
+X27295    17 prototypes.h
+END_OF_FILE
+if test 1302 -ne `wc -c <'CHECKSUMS'`; then
+    echo shar: \"'CHECKSUMS'\" unpacked with wrong size!
+fi
+# end of 'CHECKSUMS'
+fi
+if test -f 'PROBLEMS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PROBLEMS'\"
+else
+echo shar: Extracting \"'PROBLEMS'\" \(5936 characters\)
+sed "s/^X//" >'PROBLEMS' <<'END_OF_FILE'
+X
+XThis file documents the problems that have been found when the library
+Xis ported to different machines.  Where posible, a generic solution
+Xhas been added to the library so that the problem is not re-occuring.
+X
+X0. Compilation problems with the library itself.
+X
+X	This is a fairly common problem and is most often associated with
+X	the settings for SIZETYPE and DATATYPE.  If you get any compilation
+X	errors for modules within this library, the first thing you should
+X	do is verify that you are using the correct settings for these
+X	typedefs.  Review the description on what they should be set to and 
+X	review the original settings.
+X
+X	Another common problem is attempting to compile the library and/or
+X	test with a strict ANSI-C compiler.  Since ANSI reserves symbols
+X	like malloc, memcpy, strcpy, etc you can expect to have alot of
+X	problems.  This is especially so if the ANSI is very strict 
+X	because the library does make use of UNIX functionality like fork,
+X	wait, open, write, etc.
+X
+X	If you have access to an standard K&R compiler (or a more relaxed 
+X	ANSI compiler, especially one that uses the system K&R style header
+X	files (i.e. gcc without -pedantic on a system with a non-ANSI cc)
+X	you should use it to compile the library.  Once the library is
+X	compiled, you should be able to use it with code compiled under
+X	other compilers (assuming, of course, that they are compatible).
+X	
+X
+X1. Conflicts with system provided string.h/memory.h includes
+X
+X	The library provides its own versions of these functions, but includes
+X	the system header files so that if it compiles with no errors, you
+X	will know that the two agree exactly.  If they fail because there
+X	is a difference, either the SIZETYPE and/or DATATYPE definitions in
+X	malloc.h need to be changed, or you need to check to verify that 
+X	the malloclib versions are not incompatible with the system
+X	versions.  
+X
+X	If everything looks ok, you can remove the string.h/memory.h
+X	inclusions from the mallocint.h header file.
+X
+X2. Duplicate symbols from libc.a (or its equivalent shared library)
+X
+X	This is most often caused by one of the system library functions
+X	including an additional function/variable definition in one of the
+X	memory/string library modules. (i.e. some systems have a cfree()
+X	call that is in the calloc.o library module).
+X
+X	There are several ways to get around this problem.  The best way
+X	would be to duplicate the functionaly of the extra reference 
+X	whereever it is appropriate in the malloc library (similarly to
+X	the addition of cfree in the calloc.c module).   If you do this,
+X	please send me the new function and a description of the system and/or
+X	compiler so that I can determine if it should go into the standard
+X	distribution.
+X
+X	Another, less desirable way would be to disable the offending function
+X	in this library.  This option is less desirable because the disabled
+X	function would no longer provide any error checking (which is 
+X	supposed to be the purpose of this library).
+X
+X	With shared libraries, there are some formats (perhaps all) that
+X	have explicit references to functions in the shared library that
+X	are duplicated in the debug library.  On these systems, the
+X	only way around the problem is to not use the shared library 
+X	when linking the test version of the software.
+X
+X3. Compilation errors in string.c and/or memory.c
+X
+X	There are several compilers that provide in-line expansion of
+X	routines like strcpy.  This can cause real problems when we 
+X	try to compile our own version.  If you can disable the in-line
+X	expansion, that is the best way to go.  This should only be
+X	needed for the malloc library itself.  The source you are debugging
+X	should include the malloc.h file and therefore won't be calling
+X	strcpy, but instead will be calling DBstrcpy (because of a macro
+X	in malloc.h).
+X
+X	Disabling the in-lining of functions is usually accomplished by
+X	setting a compiler flag, or sometimes by predefining some #def
+X	that is used by system include files.
+X
+X	If you can't disable the in-line expansion, you will have to 
+X	disable the debug versions of the offending functions in the
+X	malloc library by adding a #ifdef around the code.  Be sure to
+X	just disable the functions that are giving you problems (i.e. don't
+X	disable all of string.c and don't disable the DB functions, because
+X	any code that includes malloc.h will attempt to use them).
+X
+X4. Conflicts/problems with prototypes.h
+X
+X	Prototypes.h is a generated file that has zillions of function
+X	prototypes for the malloc library.  You should not need to remake
+X	this module.  If, however, you have made changes to the calling
+X	arguements for some of the functions due to conflicts with system
+X	headers, you may have to modify or rebuild this file.
+X
+X	To rebuild the file using the makefile targets you must have the
+X	cproto prototype generator (available in comp.sources.misc, vols 17
+X	and 18).
+X
+X5. Argument mis-matches and syntax errors when including malloc.h
+X
+X	This is usually the result of including malloc.h before string.h
+X	and/or memory.h which causes lots of problems.  malloc.h attempts
+X	to avoid this problem by #defining a bunch of typical symbols used
+X	to preclude multiple inclusions of these files, but some systems do
+X	not have this multiple inclusion protection, or use a slightly 
+X	different symbol for the protection.
+X
+X	To get around this problem you could do one of the following:
+X
+X		1. change the code so that it includes malloc.h last.
+X		2. add multiple inclusion protection to the system include
+X		   files.
+X		3. remove the #defines from malloc.h (which decreases the
+X		   ability for the debug library to identify the source of
+X		   the problems).
+X
+X	Another similar problem is the use of standard symbols for variable
+X	and/or structure element names.  This happens most often with the
+X	variable index. 
+X
+X	To fix this, you can change the name of the variable, #undef index
+X	after including the malloc library, or remove the #define index
+X	line from malloc.h
+X		
+END_OF_FILE
+if test 5936 -ne `wc -c <'PROBLEMS'`; then
+    echo shar: \"'PROBLEMS'\" unpacked with wrong size!
+fi
+# end of 'PROBLEMS'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(6187 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X# You may copy, distribute, and use this software as long as this
+X# copyright statement is not removed.
+X#
+X# $Id: Makefile,v 1.20 1992/01/28 18:05:37 cpcahil Exp $
+X#
+X# This is the Makefile for the malloc debugging library
+X#
+X# NOTE: while most porting changes are made here, the malloc.h file
+X#       may require hand editing (mostly the DATATYPE and SIZETYPE
+X#	typedefs) because of system wierdities.
+X#
+X# Usefull targets:
+X#
+X#	all		make all programs/libs in the local directory
+X#	install		install updated programs/libs
+X#	frcinstall	install all programs/libs
+X#	tests		build tests
+X#	runtests	build and run all tests
+X#	clean		clean up after yourself
+X#
+X# NOTE: there are several other targets used by myself for souce code
+X# maintenance related functions.  These are probably specific to my system
+X# and may not do what they are supposed to do in a different environment.
+X# Therefore, unless you know what you are doing, I would suggest not running
+X# them (hence why they are not documented here).
+X#
+X# And now, onto a few definitions that you may need to alter
+X#
+X# The following defines may be added as necessary to the CFLAGS definition:
+X#
+X# -DNO_ANSI_NULLS 	if you have and ANSI-C compiler, but still
+X#			wish to be warned about calls to free and/or
+X#			realloc that pass a NULL pointer.
+X# -DHAS_VADVISE 	if your system supports this call.
+X# -DUSE_SETENV		if you system has setenv instead of putenv
+X#
+X#
+XCFLAGS=-g
+X#
+X# Where the code will be installed
+X#
+X#	DESTDIR		root for installation directory
+X#	INSTDIR 	installation directory
+X#	LIBINSTDIR	install directory for library
+X#	INCINSTDIR	install directory for include files
+X#	MANINSTDIR	manual installation directory
+X#	MANINSTNAME	name to install the manual as
+X#	MANINSTVER	manual install version (use malloc.3 for troff/nroff
+X#			source and malloc.man for pre-formatted)
+X#
+XDESTDIR=
+XINSTDIR=$(DESTDIR)/usr/local
+XLIBINSTDIR=$(INSTDIR)/lib
+XINCINSTDIR=$(INSTDIR)/include
+XMANINSTDIR=$(INSTDIR)/man/man3
+XMANINSTNAME=dbmalloc.3
+XMANINSTVER=malloc.3
+X
+X#
+X# miscellaneous commands
+X#
+X# NOTE: if you change CC to a non-K&R compiler be sure to read the 
+X#       PROBLEMS file first.
+X#
+XCC=cc
+XCPROTO=/usr/local/bin/cproto
+XLINT=lint
+XNROFF=nroff
+XSHARCMD=makekit -p -m -nmallocshar.
+XSHELL=/bin/sh
+X
+XLIB=libdbmalloc.a
+X
+X#
+X# You shouldn't have to modify anything below this line
+X#
+XLIBSRCS=	malloc.c	\
+X		free.c		\
+X		realloc.c	\
+X		calloc.c	\
+X		string.c	\
+X		malloc_chk.c	\
+X		malloc_chn.c	\
+X		memory.c	\
+X		tostring.c	\
+X		m_perror.c	\
+X		m_init.c	\
+X		mallopt.c	\
+X		dump.c 		\
+X		leak.c	
+X
+XLIBOBJS=	malloc.o	\
+X		free.o		\
+X		realloc.o	\
+X		calloc.o	\
+X		string.o	\
+X		malloc_chk.o	\
+X		malloc_chn.o	\
+X		memory.o	\
+X		tostring.o	\
+X		m_perror.o	\
+X		m_init.o	\
+X		mallopt.o	\
+X		dump.o 		\
+X		leak.o	
+X
+XSRCS=$(LIBSRCS) testmalloc.c testmem.c testerr.c
+XHDRS= malloc.h mallocint.h debug.h tostring.h
+X
+XBUILDFILES=malloc.man prototypes.h 
+X
+XMANSRCFILES=patchlevel README PROBLEMS CHANGES Buildpatch Makefile \
+X	malloc.3 malloc.man $(SRCS) $(HDRS) prototypes.h
+XSRCFILES=MANIFEST $(MANSRCFILES)
+X
+XTESTS=testmalloc testmem testerr
+X
+Xall:	$(LIB)
+X
+Xinstall: $(LIBINSTDIR)/$(LIB) $(INCINSTDIR)/malloc.h \
+X	$(MANINSTDIR)/$(MANINSTNAME)
+X
+Xfrcinstall: rminstall install
+X
+Xrminstall:
+X	rm -f $(LIBINSTDIR)/$(LIB) $(INCINSTDIR)/malloc.h \
+X	$(MANINSTDIR)/$(MANINSTNAME)
+X
+X$(LIBINSTDIR)/$(LIB): $(LIB)
+X	-rm -f $@.old
+X	-mv -f $@ $@.old
+X	cp $? $@
+X	-chmod 644 $@
+X	-rm -f $@.old
+X
+X$(INCINSTDIR)/malloc.h: malloc.h
+X	-rm -f $@.old
+X	-mv -f $@ $@.old
+X	cp $? $@
+X	-chmod 644 $@
+X	-rm -f $@.old
+X	
+X$(MANINSTDIR)/$(MANINSTNAME): $(MANINSTVER)
+X	-rm -f $@.old
+X	-mv -f $@ $@.old
+X	cp $? $@
+X	-chmod 644 $@
+X	-rm -f $@.old
+X
+Xtests:	$(TESTS)
+X
+X#
+X# runtests - target for building and running the tests.  Note that we 
+X# run testmalloc with fill_area disabled.  This is because testmalloc is
+X# a malloc exerciser and we just want to see if we broke malloc, not verify
+X# that the test doesn't overwrite memory (since it doesn't).
+X#
+Xruntests: tests
+X	@echo "Running tests.  See the readme for info on what is expected" \
+X		"from each test"
+X	@echo "Running testmem.  This should have no output"
+X	testmem
+X	@echo "Running testmalloc, this will take a while."
+X	MALLOC_FILLAREA=0 testmalloc
+X	@echo "Running testerr.  This should abort"
+X	-testerr
+X
+Xclean:  
+X	rm -f $(TESTS) pgm $(LIB) *.o *.ln
+X
+Xsharfile: $(SRCFILES) CHECKSUMS
+X	$(SHARCMD)
+X
+XCHECKSUMS: $(SRCFILES)
+X	echo "SYSV sums:\n" > CHECKSUMS
+X	sum $(SRCFILES) >> CHECKSUMS
+X	echo "\nBSD sums (generated using sum -r on SYSV system):\n" >>CHECKSUMS
+X	sum -r $(SRCFILES) >> CHECKSUMS
+X
+XMANIFEST: $(MANSRCFILES)	
+X	$(SHARCMD) -x
+X	chmod -w MANIFEST
+X	
+X$(LIB): $(LIBOBJS)
+X	ar ru $(LIB) $(LIBOBJS)
+X	-if test -s /bin/ranlib; then /bin/ranlib $(LIB); else exit 0; fi
+X	-if test -s /usr/bin/ranlib; then /usr/bin/ranlib $(LIB); else exit 0;fi
+X
+X#
+X# stuff for building the nroffed version of the manual page
+X#
+Xman:	malloc.man
+X
+Xmalloc.man: malloc.3
+X	rm -f malloc.man
+X	$(NROFF) -man malloc.3 | col -b > malloc.man
+X
+X#
+X# stuff for building the test programs
+X#
+Xtestmalloc:	$(LIB) testmalloc.o
+X	$(CC) $(CFLAGS) -o $@ testmalloc.o $(LIB)
+X
+Xtestmem:	$(LIB) testmem.o
+X	$(CC) $(CFLAGS) -o $@ testmem.o $(LIB)
+X
+Xtesterr:	$(LIB) testerr.o
+X	$(CC) $(CFLAGS) -o $@ testerr.o $(LIB)
+X
+X#
+X# misc stuff for source code maintenance
+X#
+Xlint:	
+X	$(LINT) $(CFLAGS) $(SRCS)
+X
+Xproto:
+X	rm -f prototypes.h
+X	make prototypes.h
+X
+Xprototypes.h: $(LIBSRCS) $(HDRS)
+X	@if [ ! -s $(CPROTO) ]; then \
+X		echo "Need cproto to rebuild prototypes file";\
+X		exit 1; \
+X	fi
+X	-rm -f prototypes.h
+X	cp /dev/null prototypes.h
+X	$(CPROTO) -D__STDC__ -m__stdcargs -f4 $(LIBSRCS) > prototypes.new
+X	mv prototypes.new prototypes.h
+X	chmod -w prototypes.h
+X	
+Xpatch: $(SRCFILES)
+X	sh Buildpatch $(SRCFILES)
+X
+Xrcsclean: $(BUILDFILES)
+X	-rcsclean -q $(SRCFILES)
+X	-ls $(SRCFILES) 2>/dev/null > files.list
+X	-rcs -i -t/dev/null `cat files.list` 2>/dev/null
+X	@set -e; \
+X	echo "files to be checked in: `cat files.list`"; \
+X	echo "\n\tMessage: \c"; \
+X	read message; \
+X	echo ""; \
+X	rcs -q -l `cat files.list`; \
+X	ci -m"$$message" `cat files.list`; \
+X	co -u $(SRCFILES)
+X
+X#
+X# include file dependencies
+X#
+X$(LIBOBJS):	malloc.h mallocint.h
+X
+Xtesterr.o testmalloc.o testmem.o:	malloc.h
+X
+Xtostring.o malloc.o dump.o:	tostring.h
+END_OF_FILE
+if test 6187 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'Buildpatch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Buildpatch'\"
+else
+echo shar: Extracting \"'Buildpatch'\" \(3293 characters\)
+sed "s/^X//" >'Buildpatch' <<'END_OF_FILE'
+X#
+X# Buildpatch - shell script for automatically building patch files
+X#
+X# $Id: Buildpatch,v 1.6 1992/01/28 18:05:37 cpcahil Exp $
+X#
+Xif [ $# = 0 ]; then
+X	echo "usage: Buildpatch srcfiles..."
+X	exit 1
+Xfi
+X
+X#
+X# see if any files are still locked.  If so, we cannot proceed (they must be
+X# unlocked before a patch file can be built
+X#
+Xif rlog $* 2>rlog.err |egrep "^locks:[ 	]*[a-z][a-z]*:" >/dev/null; then
+X	echo "all files must be checked in before a patch file can be built"
+X	exit 1
+Xfi
+X
+Xif [ -s rlog.err ]; then
+X	echo "all files must be checked in before a patch file can be built"
+X	exit 1
+Xfi
+X
+Xrm -f rlog.err
+X
+X#
+X# determine the old and new patch levels and name the patchfile
+X#
+Xrm -f patchlevel	2> /dev/null
+Xco -q patchlevel 	2> /dev/null
+X
+Xread title oldlevel < patchlevel
+Xlevel=`expr "$oldlevel" + 1`
+X
+Xif [ "$level" -lt 10 ]; then
+X	PATCH=patch.0$level
+Xelse
+X	PATCH=patch.$level
+Xfi
+X	
+X
+X#
+X# check out current version of all files
+X#
+Xco -q -u $*
+X
+X#
+X# create the new patchlevel file
+X#
+Xecho "Buillding patch number $level..."
+Xco -q -l patchlevel
+Xecho "$title $level" > patchlevel 
+Xci -u -q -m"patch number $level" -t/dev/null patchlevel
+X
+X#
+X# create a new, empty patch file and empty directory for old versions of files
+X#
+X> $PATCH
+X
+Xif [ -d old ]; then
+X	rm -rf old
+Xfi
+Xmkdir old
+X
+X#
+X# Unpack the old shar files into the old directory
+X#
+X(
+X	echo "Building old directory for diff base"
+X
+X	cd old
+X	if [ "$oldlevel" -lt 10 ]; then
+X		oldlevel=0$oldlevel
+X	fi
+X	unshar -h /dev/null ../oldshars/$oldlevel/* > /dev/null 2>&1
+X)
+X
+X#
+X# process each source file
+X#
+Xecho "Generating diffs"
+Xfor i in $*
+Xdo
+X	#
+X	# if the file exists (then it has been changed and must be part of
+X	# the patch file
+X	#
+X	if [ -s $i ]; then
+X
+X		#
+X		# if the file hasn't changed, skip it
+X		#
+X		if cmp -s $i old/$i ; then
+X			continue;
+X		fi
+X
+X		#
+X		# name the file
+X		#
+X		echo "\nIndex: $i" >> $PATCH
+X
+X		#
+X		# if there is an old version, add the prerequisite
+X		#
+X		if [ -s old/$i ]; then
+X			
+X			#
+X			# get old rcs id
+X			#
+X			PREREQ="`rlog -rpatchlevel_$oldlevel $i |
+X				 grep '^revision' | cut -f2 -d' ' 2>/dev/null`"
+X
+X			#
+X			# if the id is in the file, add the prereq line
+X			#
+X			if fgrep "$PREREQ" old/$i > /dev/null 2>&1; then
+X
+X				echo "Prereq: $PREREQ" >> $PATCH
+X
+X			elif [ "$i" = "patchlevel" ]; then
+X
+X				echo "Prereq: $oldlevel" >> $PATCH
+X
+X			fi
+X		else
+X			> old/$i
+X		fi
+X
+X		# 
+X		# diff the file to generate the patch stuff
+X		#
+X		diff -c old/$i $i >> $PATCH
+X
+X	fi
+X
+Xdone
+X
+X#
+X# and now to check to verify that the patchfile correctly updates the
+X# old code to the current version.  First apply the patch to the old
+X# code and then see if there are any differences between the files.
+X#
+Xecho "Verifying patch..."
+X(
+X	cd old
+X	patch < ../$PATCH > /dev/null 2>&1
+X)
+X
+Xecho "ready: \c" 
+Xread junk
+XFILES="`
+Xfor i in $*
+Xdo
+X	if cmp -s $i old/$i; then
+X		continue;
+X	fi
+X
+X	echo file $i did not patch correctly > /dev/tty
+X	echo $i
+Xdone `"
+X
+Xif [ ! -z "$FILES" ]; then
+X
+X	echo "patch file did not build correctly($FILES)."
+X	exit 1
+X
+Xfi
+X
+Xrm -rf old
+X
+Xecho "Verification complete"
+X
+X#
+X# and now freeze all the files at this patchlevel, and checkout the current
+X# versions of the files
+X#
+X
+Xecho "freezing source at patch level $level"
+Xecho "." | rcsfreeze patchlevel_$level  > /dev/null 2>&1 
+X
+Xecho "checking out current version (unlocked)"
+Xco -q -u -rpatchlevel_$level $*
+X
+Xexit 0
+END_OF_FILE
+if test 3293 -ne `wc -c <'Buildpatch'`; then
+    echo shar: \"'Buildpatch'\" unpacked with wrong size!
+fi
+# end of 'Buildpatch'
+fi
+if test -f 'calloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'calloc.c'\"
+else
+echo shar: Extracting \"'calloc.c'\" \(3469 characters\)
+sed "s/^X//" >'calloc.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include <stdio.h>
+X
+X#include "mallocint.h"
+X
+X#ifndef lint
+Xstatic char rcs_header[] = "$Id: calloc.c,v 1.11 1992/01/10 17:28:03 cpcahil Exp $";
+X#endif
+X
+X/*
+X * Function:	calloc()
+X *
+X * Purpose:	to call debug_calloc to do the allocation
+X *
+X * Arguments:	nelem	- number of elements
+X *		elsize	- size of each element
+X *
+X * Returns:	whatever debug_calloc returns
+X *
+X * Narrative:	call debug_calloc and return it's return
+X */
+XDATATYPE *
+Xcalloc(nelem,elsize)
+X	SIZETYPE 	  nelem;
+X	SIZETYPE	  elsize;
+X{
+X	return( debug_calloc((char *)NULL,(int)-1,nelem,elsize) );
+X}
+X
+X/*
+X * Function:	debug_calloc()
+X *
+X * Purpose:	to allocate and nullify a data area
+X *
+X * Arguments:	nelem	- number of elements
+X *		elsize	- size of each element
+X *
+X * Returns:	NULL	- if malloc fails
+X *		or pointer to allocated space
+X *
+X * Narrative:	determine size of area to malloc
+X *		malloc area.
+X *		if malloc succeeds
+X *		    fill area with nulls
+X *		return ptr to malloc'd region
+X */
+X
+XDATATYPE *
+Xdebug_calloc(file,line,nelem,elsize)
+X	const char	* file;
+X	int		  line;
+X	SIZETYPE 	  nelem;
+X	SIZETYPE 	  elsize;
+X{
+X	static IDTYPE	  call_counter;
+X	struct mlist	* mptr;
+X	DATATYPE	* ptr;
+X	SIZETYPE	  size;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * increment the call counter
+X	 */
+X	call_counter++;
+X
+X	/*
+X	 * calculate the size to allocate
+X	 */
+X	size = elsize * nelem;
+X
+X	if( (ptr = debug_malloc(file,line,size)) != NULL)
+X	{
+X		/*
+X		 * change the id information put in by malloc so that the 
+X		 * record appears like it got added by calloc
+X		 */
+X		mptr = (struct mlist *) (((char *)ptr) - M_SIZE);
+X		mptr->id = call_counter;
+X		SETTYPE(mptr,M_T_CALLOC);
+X
+X		/*
+X		 * clear the area that was allocated
+X		 */
+X		VOIDCAST memset(ptr,'\0',size);
+X	}
+X
+X	return(ptr);
+X
+X} /* debug_calloc(... */
+X
+X/*
+X * Function:	cfree()
+X *
+X * Purpose:	to free an area allocated by calloc (actually frees any
+X *		allocated area)
+X *
+X * Arguments:	cptr	- pointer to area to be freed
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	just call the appropriate function to perform the free
+X *
+X * Note:	most systems do not have such a call, but for the few that do,
+X *		it is here.
+X */
+XVOIDTYPE
+Xcfree( cptr )
+X	DATATYPE	* cptr;
+X{
+X	debug_cfree((const char *)NULL,(int)-1, cptr);
+X}
+X
+XVOIDTYPE
+Xdebug_cfree(file,line,cptr)
+X	const char	* file;
+X	int		  line;
+X	DATATYPE	* cptr;
+X{
+X	DBFfree("cfree",file,line,cptr);
+X}
+X
+X/*
+X * $Log: calloc.c,v $
+X * Revision 1.11  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.10  1991/12/06  17:58:42  cpcahil
+X * added cfree() for compatibility with some wierd systems
+X *
+X * Revision 1.9  91/12/02  19:10:08  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.8  91/11/25  14:41:51  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.7  91/11/24  00:49:21  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.6  90/05/11  00:13:07  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.5  90/02/24  20:41:57  cpcahil
+X * lint changes.
+X * 
+X * Revision 1.4  90/02/24  17:25:47  cpcahil
+X * changed $header to $id so full path isn't included.
+X * 
+X * Revision 1.3  90/02/24  13:32:24  cpcahil
+X * added function header.  moved log to end of file.
+X * 
+X * Revision 1.2  90/02/22  23:08:26  cpcahil
+X * fixed rcs_header line
+X * 
+X * Revision 1.1  90/02/22  23:07:38  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 3469 -ne `wc -c <'calloc.c'`; then
+    echo shar: \"'calloc.c'\" unpacked with wrong size!
+fi
+# end of 'calloc.c'
+fi
+if test -f 'debug.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'debug.h'\"
+else
+echo shar: Extracting \"'debug.h'\" \(2738 characters\)
+sed "s/^X//" >'debug.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X/************************************************************************/
+X/*									*/
+X/* this include sets up some macro functions which can be used while	*/
+X/* debugging the program, and then left in the code, but turned of by	*/
+X/* just not defining "DEBUG".  This way your production version of 	*/
+X/* the program will not be filled with bunches of debugging junk	*/
+X/*									*/
+X/************************************************************************/
+X/*
+X * $Id: debug.h,v 1.3 1991/11/25 14:41:51 cpcahil Exp $
+X */
+X
+X#ifdef DEBUG
+X
+X#if DEBUG == 1			/* if default level			*/
+X#undef DEBUG
+X#define DEBUG	100		/*   use level 100			*/
+X#endif
+X
+X#include <stdio.h>
+X
+X#define DEBUG0(val,str)\
+X				{\
+X				  if( DEBUG > val ) \
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,str);\
+X				}
+X#define DEBUG1(val,str,a1)\
+X			        {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG2(val,str,a1,a2)\
+X			        {\
+X				 char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG3(val,str,a1,a2,a3)\
+X			        {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG4(val,str,a1,a2,a3,a4)\
+X			         {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3,a4);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG5(val,str,a1,a2,a3,a4,a5)\
+X			         {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3,a4,a5);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#else
+X
+X#define DEBUG0(val,s)
+X#define DEBUG1(val,s,a1)
+X#define DEBUG2(val,s,a1,a2)
+X#define DEBUG3(val,s,a1,a2,a3)
+X#define DEBUG4(val,s,a1,a2,a3,a4)
+X#define DEBUG5(val,s,a1,a2,a3,a4,a5)
+X
+X#endif /* DEBUG */
+X
+X
+X/*
+X * $Log: debug.h,v $
+X * Revision 1.3  1991/11/25  14:41:51  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.2  90/05/11  00:13:08  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.1  90/02/23  07:09:01  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 2738 -ne `wc -c <'debug.h'`; then
+    echo shar: \"'debug.h'\" unpacked with wrong size!
+fi
+# end of 'debug.h'
+fi
+if test -f 'dump.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dump.c'\"
+else
+echo shar: Extracting \"'dump.c'\" \(9467 characters\)
+sed "s/^X//" >'dump.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include <stdio.h>
+X#include "mallocint.h"
+X#include "tostring.h"
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: dump.c,v 1.9 1992/01/10 17:28:03 cpcahil Exp $";
+X#endif
+X
+X/*
+X * various macro definitions used within this module.
+X */
+X
+X#define WRITEOUT(fd,str,len)	if( write(fd,str,(unsigned)(len)) != (len) ) \
+X				{ \
+X					VOIDCAST write(2,ERRSTR,\
+X						     (unsigned)strlen(ERRSTR));\
+X					exit(120); \
+X				}
+X
+X#define DETAIL_NONE 		0
+X#define DETAIL_NOT_SET_YET	-1
+X#define DETAIL_ST_COL		(sizeof(DETAIL_HDR_3)-1)
+X#define ERRSTR	"I/O Error on malloc dump file descriptor\n"
+X#define FILE_LEN		20
+X#define LIST_ALL		1
+X#define LIST_SOME		2
+X#define NUM_BYTES		7
+X#define TITLE			" Dump of Malloc Chain "
+X
+X#define DETAIL_HDR_1 \
+X     "                             FREE     FREE                  ACTUAL SIZE    "
+X#define DETAIL_HDR_2 \
+X     "  PTR      NEXT     PREV     NEXT     PREV      FLAGS       INT    HEX     "
+X#define DETAIL_HDR_3 \
+X     "-------- -------- -------- -------- -------- ---------- -------- --------- "
+X
+X#define NORMAL_HDR_1 \
+X "POINTER     FILE  WHERE         LINE      ALLOC        DATA     HEX DUMP   \n"
+X#define NORMAL_HDR_2 \
+X "TO DATA      ALLOCATED         NUMBER     FUNCT       LENGTH  OF BYTES 1-7 \n"
+X#define NORMAL_HDR_3 \
+X "-------- -------------------- ------- -------------- ------- --------------\n"
+X
+X#define THISBUFSIZE (sizeof(NORMAL_HDR_3)+sizeof(DETAIL_HDR_3))
+X
+X
+X/*
+X * Function:	malloc_dump()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	- file descriptor to write data to
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just print out all the junk
+X *
+X */
+XVOIDTYPE
+Xmalloc_dump(fd)
+X	int		fd;
+X{
+X	malloc_list_items(fd,LIST_ALL,0L,0L);
+X}
+X
+X/*
+X * Function:	malloc_list()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	- file descriptor to write data to
+X *		histid1 - id of the first record to display
+X *		histid2 - id one above the last record to display
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just call malloc_list_items to display the junk
+X *
+X */
+XVOIDTYPE
+Xmalloc_list(fd,histid1,histid2)
+X	int		fd;
+X	IDTYPE		histid1;
+X	IDTYPE		histid2;
+X{
+X	malloc_list_items(fd, LIST_SOME, histid1, histid2);
+X}
+X
+X/*
+X * Function:	malloc_list_items()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	  - file descriptor to write data to
+X *		list_type - type of list (all records, or a selected list)
+X *		histid1	  - first id to list (if type is some)
+X *		histid2   - one above last id to list
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just print out all the junk
+X *
+X * Notes:	This function is implemented using low level calls because
+X * 		of the likelyhood that the malloc tree is damaged when it
+X *		is called.  (Lots of things in the c library use malloc and
+X *		we don't want to get into a catch-22).
+X *
+X */
+XVOIDTYPE
+Xmalloc_list_items(fd,list_type,histid1,histid2)
+X	int			  fd;
+X	int			  list_type;
+X	IDTYPE			  histid1;
+X	IDTYPE			  histid2;
+X{
+X	char			  buffer[THISBUFSIZE];
+X	static int		  detail = DETAIL_NOT_SET_YET;
+X	VOIDTYPE			  exit();
+X	char			* func;
+X	int			  i;
+X	int			  loc;
+X	struct mlist 		* ptr;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * See if they want full detail (includes internal pointer info)
+X	 */
+X	if( detail == DETAIL_NOT_SET_YET)
+X	{
+X		if( getenv("MALLOC_DETAIL") != NULL )
+X		{
+X			detail = DETAIL_ST_COL;
+X		}
+X		else
+X		{
+X			detail = DETAIL_NONE;
+X		}
+X	}
+X
+X	/*
+X	 * fill the title line with asterisks
+X	 */
+X	for(i=0; i < (detail + sizeof(NORMAL_HDR_3)-1); i++)
+X	{
+X		buffer[i] = '*';
+X	}
+X	buffer[i] = '\n';
+X	buffer[i+1] = EOS;
+X
+X	/*
+X	 * add in the title  (centered, of course)
+X	 */
+X	loc = (i - sizeof(TITLE)) / 2;
+X	for(i=0; i < (sizeof(TITLE)-1); i++)
+X	{
+X		buffer[loc+i] = TITLE[i];
+X	}
+X
+X	/*
+X	 * and write it out
+X	 */
+X	WRITEOUT(fd,buffer,strlen(buffer));
+X
+X	/*
+X	 * write out the column headers
+X	 */
+X	if( detail != DETAIL_NONE )
+X	{
+X		WRITEOUT(fd,DETAIL_HDR_1,sizeof(DETAIL_HDR_1)-1);
+X		WRITEOUT(fd,NORMAL_HDR_1,sizeof(NORMAL_HDR_1)-1);
+X		WRITEOUT(fd,DETAIL_HDR_2,sizeof(DETAIL_HDR_2)-1);
+X		WRITEOUT(fd,NORMAL_HDR_2,sizeof(NORMAL_HDR_2)-1);
+X		WRITEOUT(fd,DETAIL_HDR_3,sizeof(DETAIL_HDR_3)-1);
+X		WRITEOUT(fd,NORMAL_HDR_3,sizeof(NORMAL_HDR_3)-1);
+X	}
+X	else
+X	{
+X		WRITEOUT(fd,NORMAL_HDR_1,sizeof(NORMAL_HDR_1)-1);
+X		WRITEOUT(fd,NORMAL_HDR_2,sizeof(NORMAL_HDR_2)-1);
+X		WRITEOUT(fd,NORMAL_HDR_3,sizeof(NORMAL_HDR_3)-1);
+X	}
+X
+X	/*
+X	 * for each element in the trace
+X	 */
+X	for(ptr = &malloc_start; ptr; ptr = ptr->next)
+X	{
+X		/*
+X		 * if this item is not in use and we are not in detail mode or
+X		 * we are not in list-all mode.
+X		 */
+X		if(    ((ptr->flag & M_INUSE) == 0)
+X		    && ((detail == DETAIL_NONE) || (list_type != LIST_ALL)) )
+X		{
+X			continue;
+X		}
+X		/*
+X		 * else if we are only listing a range of items, check to see
+X		 * if this item is in the correct range.  if not, skip it
+X	 	 */
+X		else if(   (list_type == LIST_SOME)
+X			&& (    (ptr->hist_id < histid1)
+X			     || (ptr->hist_id >= histid2)) )
+X		{
+X			continue;
+X		}
+X
+X		/*
+X		 * fill in the string with blanks
+X		 */
+X		for(i=0; i < (sizeof(DETAIL_HDR_3)+sizeof(NORMAL_HDR_3)); i++)
+X		{
+X			buffer[i] = ' ';
+X		}
+X
+X		/*
+X	 	 * handle detail output
+X		 */
+X		if( detail != DETAIL_NONE )
+X		{
+X			VOIDCAST tostring(buffer,
+X					(long)ptr,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+9,
+X					(long)ptr->next,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+18,
+X					(long)ptr->prev,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+27,
+X					(long)ptr->freenext,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+36,
+X					(long)ptr->freeprev,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+45,
+X					(long)ptr->flag,10,B_HEX,'0');
+X			VOIDCAST tostring(buffer+56,
+X					(long)ptr->s.size,8,B_DEC,' ');
+X			VOIDCAST tostring(buffer+65,
+X					(long)ptr->s.size,8,B_HEX,'0');
+X			buffer[64] = '(';
+X			buffer[74] = ')';
+X		}
+X
+X		/*
+X		 * and now add in the normal stuff
+X		 */
+X	 	VOIDCAST tostring(buffer+detail,
+X				(long) ptr->data, 8, B_HEX, '0');
+X
+X		/*
+X		 * if a file has been specified
+X		 */
+X		if( (ptr->file != NULL)	 && (ptr->file[0] != EOS) )
+X		{
+X
+X			for(i=0; (i < FILE_LEN) && (ptr->file[i] != EOS); i++)
+X			{
+X				buffer[detail+9+i] = ptr->file[i];
+X			}
+X
+X			VOIDCAST tostring(buffer+detail+30,
+X						(long)ptr->line,7,B_DEC, ' ');
+X		}
+X		else
+X		{
+X			for(i=0; i < (sizeof("unknown")-1); i++)
+X			{
+X				buffer[detail+9+i] = "unknown"[i];
+X			}
+X		}
+X			
+X		/*
+X		 * determine name of function to use 
+X		 */
+X		switch( GETTYPE(ptr) )
+X		{
+X			case M_T_MALLOC:
+X				func = "malloc";
+X				break;
+X	
+X			case M_T_REALLOC:
+X				func = "realloc";
+X				break;
+X	
+X			case M_T_CALLOC:
+X				func = "calloc";
+X				break;
+X
+X			default:
+X				func = "unknown";
+X				break;
+X		}
+X
+X		/*
+X		 * copy the function name into the string.
+X		 */
+X		for( i=0; func[i] != EOS; i++)
+X		{
+X			buffer[detail+38+i] = func[i];
+X		}
+X
+X		/*
+X		 * add the call number
+X		 */
+X		buffer[detail+38+ i++] = '(';
+X		i += tostring(buffer+detail+38+i,(long)ptr->id,0,B_DEC,' ');
+X		buffer[detail+38+i] = ')';
+X	
+X		/*
+X		 * display the length of the segment
+X		 */
+X		VOIDCAST tostring(buffer+detail+53,
+X				(long)ptr->r_size,7,B_DEC,' ');
+X
+X		/* 
+X		 * display the first seven bytes of data
+X		 */
+X		for( i=0; (i < NUM_BYTES) && (i < ptr->r_size); i++)
+X		{
+X			VOIDCAST tostring(buffer+detail + 61 + (i * 2),
+X					(long)ptr->data[i], 2, B_HEX, '0');
+X		}
+X
+X		buffer[detail + sizeof(NORMAL_HDR_3)] = '\n';
+X		WRITEOUT(fd,buffer,detail+sizeof(NORMAL_HDR_3)+1);
+X	}
+X
+X	if( detail != DETAIL_NONE )
+X	{
+X		WRITEOUT(fd,"Malloc start:      ",19);
+X		VOIDCAST tostring(buffer, (long) &malloc_start, 8, B_HEX, '0');
+X		buffer[8] = '\n';
+X		WRITEOUT(fd,buffer,9);
+X
+X		WRITEOUT(fd,"Malloc end:        ", 19);
+X		VOIDCAST tostring(buffer, (long) malloc_end, 8, B_HEX, '0');
+X		buffer[8] = '\n';
+X		WRITEOUT(fd,buffer,9);
+X
+X		WRITEOUT(fd,"Malloc data start: ", 19);
+X		VOIDCAST tostring(buffer,(long) malloc_data_start,8,B_HEX,'0');
+X		buffer[8] = '\n';
+X		WRITEOUT(fd,buffer,9);
+X
+X		WRITEOUT(fd,"Malloc data end:   ", 19);
+X		VOIDCAST tostring(buffer,(long) malloc_data_end, 8, B_HEX, '0');
+X		buffer[8] = '\n';
+X		WRITEOUT(fd,buffer,9);
+X
+X		WRITEOUT(fd,"Malloc free list:  ", 19);
+X		VOIDCAST tostring(buffer, (long) malloc_freelist, 8,B_HEX,'0');
+X		buffer[8] = '\n';
+X		WRITEOUT(fd,buffer,9);
+X
+X		for( ptr=malloc_freelist->freenext; ptr != NULL; ptr = ptr->freenext)
+X		{
+X			WRITEOUT(fd,"                -> ", 19);
+X			VOIDCAST tostring(buffer, (long) ptr, 8, B_HEX, '0');
+X			buffer[8] = '\n';
+X			WRITEOUT(fd,buffer,9);
+X		}
+X
+X	}
+X
+X	WRITEOUT(fd,"\n",1);
+X	
+X} /* malloc_dump(... */
+X
+X
+X/*
+X * $Log: dump.c,v $
+X * Revision 1.9  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.8  1991/12/04  09:23:36  cpcahil
+X * several performance enhancements including addition of free list
+X *
+X * Revision 1.7  91/11/25  14:41:52  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.6  91/11/24  00:49:25  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.5  90/08/29  21:22:37  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.4  90/05/11  00:13:08  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:07  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:27:48  cpcahil
+X * changed $header to $Id to remove full path from rcs id string
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 9467 -ne `wc -c <'dump.c'`; then
+    echo shar: \"'dump.c'\" unpacked with wrong size!
+fi
+# end of 'dump.c'
+fi
+if test -f 'leak.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'leak.c'\"
+else
+echo shar: Extracting \"'leak.c'\" \(3013 characters\)
+sed "s/^X//" >'leak.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: leak.c,v 1.4 1992/01/10 17:28:03 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X
+X#include "mallocint.h"
+X
+X/*
+X * Function:	malloc_size()
+X *
+X * Purpose:	to determine the amount of memory in use
+X *
+X * Arguments:	histidptr - pointer to hist id area
+X *
+X * Returns:	Number of bytes currently in use
+X *
+X * Narrative:	make sure the malloc chain is ok
+X *		for each element in the malloc chain
+X *		    if it is in use
+X *		        add size to total size
+X * 		if hist id is wanted
+X *                  set it
+X *		return total in-use size
+X *		
+X */
+X
+Xunsigned long
+Xmalloc_size(histptr)
+X	unsigned long		* histptr;
+X{
+X	return( DBmalloc_size((char *)NULL,0,histptr) );
+X}
+X
+Xunsigned long
+XDBmalloc_size(file,line,histptr)
+X	const char		* file;
+X	int	 		  line;
+X	unsigned long		* histptr;
+X{
+X	unsigned long		  size = 0;
+X	struct mlist		* ptr;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * make sure the chain is ok (otherwise we will have a problem
+X	 * parsing through it
+X	 */
+X	VOIDCAST DBFmalloc_chain_check("malloc_size",file,line,1);
+X
+X	/*
+X	 * for each element in the malloc chain
+X	 */
+X	for(ptr = &malloc_start; ptr; ptr = ptr->next)
+X	{
+X		/*
+X		 * if the element is in use
+X		 */
+X		if( (ptr->flag&M_INUSE) == M_INUSE)
+X		{
+X			/* 
+X			 * add its requested size into the total size
+X			 */
+X			size += ptr->r_size;
+X		}
+X	}
+X
+X	/*
+X	 * if the hist id is desired, give it to em.
+X	 */
+X	if( histptr != NULL )
+X	{
+X		*histptr = malloc_hist_id;
+X	}
+X
+X	/*
+X	 * return the size
+X	 */
+X	return(size);
+X
+X} /* malloc_size(... */
+X
+X
+X/*
+X * $Log: leak.c,v $
+X * Revision 1.4  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.3  1991/12/02  19:10:09  cpcahil
+X * changes for patch release 5
+X *
+X * Revision 1.2  91/11/25  14:41:54  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.1  91/11/24  00:49:26  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.9  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.8  90/08/29  21:22:52  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.7  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.6  90/02/25  11:01:20  cpcahil
+X * added support for malloc chain checking.
+X * 
+X * Revision 1.5  90/02/24  21:50:31  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.4  90/02/24  17:29:39  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.3  90/02/24  17:20:00  cpcahil
+X * attempt to get rid of full path in rcs header.
+X * 
+X * Revision 1.2  90/02/24  15:14:20  cpcahil
+X * 1. added function header 
+X * 2. changed calls to malloc_warning to conform to new usage
+X * 3. added setting of malloc_errno
+X *  4. broke up bad pointer determination so that errno's would be more
+X *    descriptive
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 3013 -ne `wc -c <'leak.c'`; then
+    echo shar: \"'leak.c'\" unpacked with wrong size!
+fi
+# end of 'leak.c'
+fi
+if test -f 'patchlevel' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel'\"
+else
+echo shar: Extracting \"'patchlevel'\" \(14 characters\)
+sed "s/^X//" >'patchlevel' <<'END_OF_FILE'
+XPatchlevel: 7
+END_OF_FILE
+if test 14 -ne `wc -c <'patchlevel'`; then
+    echo shar: \"'patchlevel'\" unpacked with wrong size!
+fi
+# end of 'patchlevel'
+fi
+if test -f 'tostring.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tostring.h'\"
+else
+echo shar: Extracting \"'tostring.h'\" \(601 characters\)
+sed "s/^X//" >'tostring.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X/*
+X * $Id: tostring.h,v 1.3 1991/11/25 14:42:07 cpcahil Exp $
+X */
+X#define B_BIN	 2
+X#define B_DEC	10
+X#define B_HEX	16
+X#define B_OCTAL	 8
+X
+X/* 
+X * $Log: tostring.h,v $
+X * Revision 1.3  1991/11/25  14:42:07  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.2  90/05/11  00:13:11  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.1  90/02/23  07:09:05  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 601 -ne `wc -c <'tostring.h'`; then
+    echo shar: \"'tostring.h'\" unpacked with wrong size!
+fi
+# end of 'tostring.h'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

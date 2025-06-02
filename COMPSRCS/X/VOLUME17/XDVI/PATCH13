@@ -1,0 +1,1597 @@
+Newsgroups: comp.sources.x
+Path: uunet!haven.umd.edu!darwin.sura.net!mips!msi!dcmartin
+From: vojta@math.berkeley.edu (Paul Vojta)
+Subject: v17i053: xdvi, Patch13, Part01/01
+Message-ID: <1992Apr8.163536.16361@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i053-xdvi/patch13@uunet.UU.NET>
+Date: Wed, 8 Apr 1992 16:35:36 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: vojta@math.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 53
+Archive-name: xdvi/patch13
+Patch-To: xdvi: Volume 17, Issues 23, 24, 25, 40, 41, 27
+
+     This patch implements the standard TeXXeT .dvi op codes to accommodate
+right-to-left languages (Hebrew, Arabic, etc.).  It also fixes some bugs,
+including one concerned with changing the shrink factor.
+
+     Many thanks to Michael Pak <misha@cs.huji.ac.il> for help with this.
+
+--Paul Vojta, vojta@math.berkeley.edu
+
+-- cut here --
+diff -cr xdvi_old/README xdvi_new/README
+*** xdvi_old/README	Tue Mar 17 17:03:10 1992
+--- xdvi_new/README	Fri Mar 27 21:03:14 1992
+***************
+*** 77,82 ****
+--- 77,84 ----
+  	A4		(xdvi.c)  Use European size paper by default.
+  	NOQUERY		(xdvi.c)  Set this if you have trouble compiling the
+  			definition of drawingWidgetClass.
++ 	TEXXET		(everything)  Enables op-codes 250 and 251 (used for
++ 			right-to-left languages).
+  
+  All flags should be set in the appropriate Makefile via the variable ``DEFS''.
+  
+***************
+*** 239,244 ****
+  --  Patchlevel 12: --
+     29.  Implemented virtual fonts (this does not include built-in
+  	Postscript<tm> fonts!!!).
+!    30.	Numerous bug fixes, and X11R5 support.
+  
+  Paul Vojta, vojta@math.berkeley.edu
+--- 241,248 ----
+  --  Patchlevel 12: --
+     29.  Implemented virtual fonts (this does not include built-in
+  	Postscript<tm> fonts!!!).
+!    30.	X11R5 support, and numerous bug fixes.
+! --  Patchlevel 13: --
+!    31.  Added support for TeXXeT.
+  
+  Paul Vojta, vojta@math.berkeley.edu
+diff -cr xdvi_old/dvi.h xdvi_new/dvi.h
+*** xdvi_old/dvi.h	Sun Jan 19 14:41:15 1992
+--- xdvi_new/dvi.h	Fri Mar 27 12:27:15 1992
+***************
+*** 56,60 ****
+--- 56,62 ----
+  #define	PRE		247
+  #define	POST		248
+  #define	POSTPOST	249
++ #define	SREFL		250
++ #define	EREFL		251
+  
+  #define	TRAILER		223	/* Trailing bytes at end of file */
+diff -cr xdvi_old/dvi_draw.c xdvi_new/dvi_draw.c
+*** xdvi_old/dvi_draw.c	Tue Feb 11 13:22:33 1992
+--- xdvi_new/dvi_draw.c	Sat Mar 28 13:00:26 1992
+***************
+*** 13,18 ****
+--- 13,19 ----
+   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
++  * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 25,30 ****
+--- 26,32 ----
+   *	BMLONG	store bitmaps in longs instead of bytes
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
++  *	TEXXET	support reflection dvi codes (right-to-left typesetting)
+   */
+  
+  #include <ctype.h>
+***************
+*** 36,41 ****
+--- 38,46 ----
+  #endif
+  
+  static	struct frame	frame0;		/* dummy head of list */
++ #ifdef	TEXXET
++ static	struct frame	*scan_frame;	/* head frame for scanning */
++ #endif
+  
+  #ifndef	DVI_BUFFER_LEN
+  #define	DVI_BUFFER_LEN	512
+***************
+*** 44,49 ****
+--- 49,60 ----
+  static	ubyte	dvi_buffer[DVI_BUFFER_LEN];
+  static	struct frame	*current_frame;
+  
++ #ifndef	TEXXET
++ #define	DIR	1
++ #else
++ #define	DIR	currinf.dir
++ #endif
++ 
+  /*
+   *	Explanation of the following constant:
+   *	offset_[xy]   << 16:	margin (defaults to one inch)
+***************
+*** 84,96 ****
+  #endif	/* BMLONG */
+  
+  extern	char	*xmalloc();
+- extern	volatile void	exit();
+  
+  #ifndef VMS
+  extern	off_t	lseek();
+  #else
+! extern  int     lseek();
+  #endif
+  
+  #ifndef	SEEK_SET	/* if <unistd.h> is not provided (or for <X11R5) */
+  #define	SEEK_SET	0
+--- 95,107 ----
+  #endif	/* BMLONG */
+  
+  extern	char	*xmalloc();
+  
+  #ifndef VMS
+  extern	off_t	lseek();
+  #else
+! extern	int	lseek();
+  #endif
++ extern	long	tell();
+  
+  #ifndef	SEEK_SET	/* if <unistd.h> is not provided (or for <X11R5) */
+  #define	SEEK_SET	0
+***************
+*** 148,154 ****
+  static	_Xconst	char	*dvi_table2[] = {
+  	"FNT1", "FNT2", "FNT3", "FNT4", "XXX1", "XXX2", "XXX3", "XXX4",
+  	"FNTDEF1", "FNTDEF2", "FNTDEF3", "FNTDEF4", "PRE", "POST", "POSTPOST",
+! 	NULL, NULL, NULL, NULL, NULL, NULL};
+  
+  static	void
+  print_dvi(ch)
+--- 159,165 ----
+  static	_Xconst	char	*dvi_table2[] = {
+  	"FNT1", "FNT2", "FNT3", "FNT4", "XXX1", "XXX2", "XXX3", "XXX4",
+  	"FNTDEF1", "FNTDEF2", "FNTDEF3", "FNTDEF4", "PRE", "POST", "POSTPOST",
+! 	"SREFL", "EREFL", NULL, NULL, NULL, NULL};
+  
+  static	void
+  print_dvi(ch)
+***************
+*** 169,177 ****
+  	    Printf("FNTNUM%d\n", ch - FNTNUM0);
+  	    return;
+  	}
+! 	else s = dvi_table2[ch - (FNTNUM0+64)];
+  	if (s) puts(s);
+! 	else oops("Unknown op-code %d, offset %d", ch, ftell(dvi_file) - 1);
+  }
+  
+  /*
+--- 180,193 ----
+  	    Printf("FNTNUM%d\n", ch - FNTNUM0);
+  	    return;
+  	}
+! 	else s = dvi_table2[ch - (FNTNUM0 + 64)];
+  	if (s) puts(s);
+! 	else
+! 	    if (currinf.virtual)
+! 		oops("Unknown op-code %d in virtual font", ch);
+! 	    else
+! 		oops("Unknown op-code %d, offset %d", ch,
+! 		    tell(fileno(dvi_file)) - (currinf.end - currinf.pos + 1));
+  }
+  
+  /*
+***************
+*** 186,192 ****
+  	    return EOP;
+  	}
+  	currinf.end = dvi_buffer +
+! 	    read(fileno(dvi_file), (_Xconst char *) (currinf.pos = dvi_buffer),
+  		DVI_BUFFER_LEN);
+  	return currinf.end > dvi_buffer ? *(currinf.pos)++ : EOF;
+  }
+--- 202,208 ----
+  	    return EOP;
+  	}
+  	currinf.end = dvi_buffer +
+! 	    read(fileno(dvi_file), (char *) (currinf.pos = dvi_buffer),
+  		DVI_BUFFER_LEN);
+  	return currinf.end > dvi_buffer ? *(currinf.pos)++ : EOF;
+  }
+***************
+*** 402,412 ****
+  	}
+  }
+  
+  long
+  set_char(ch)
+! 	ubyte ch;
+  {
+  	register struct glyph *g;
+  
+  	if (ch > maxchar) realloc_font(currinf.fontp, ch);
+  	if ((g = &currinf.fontp->glyph[ch])->bitmap.bits == NULL) {
+--- 418,448 ----
+  	}
+  }
+  
++ 
++ /*
++  *	Routines to print characters.
++  */
++ 
++ #ifndef	TEXXET
++ #define	ERRVAL	0L
++ #else
++ #define	ERRVAL
++ #endif
++ 
++ #ifndef	TEXXET
+  long
+  set_char(ch)
+! #else
+! void
+! set_char(cmd, ch)
+! 	ubyte	cmd;
+! #endif
+! 	ubyte	ch;
+  {
+  	register struct glyph *g;
++ #ifdef	TEXXET
++ 	long	dvi_h_sav;
++ #endif
+  
+  	if (ch > maxchar) realloc_font(currinf.fontp, ch);
+  	if ((g = &currinf.fontp->glyph[ch])->bitmap.bits == NULL) {
+***************
+*** 415,423 ****
+  		    Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+  			currinf.fontp->fontname);
+  		g->addr = -1;
+! 		return 0L;
+  	    }
+! 	    if (g->addr == -1) return 0L; /* previously flagged missing char */
+  	    open_font_file(currinf.fontp);
+  	    Fseek(currinf.fontp->file, g->addr, 0);
+  	    (*currinf.fontp->read_char)(currinf.fontp, ch);
+--- 451,460 ----
+  		    Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+  			currinf.fontp->fontname);
+  		g->addr = -1;
+! 		return ERRVAL;
+  	    }
+! 	    if (g->addr == -1)
+! 		return ERRVAL;	/* previously flagged missing char */
+  	    open_font_file(currinf.fontp);
+  	    Fseek(currinf.fontp->file, g->addr, 0);
+  	    (*currinf.fontp->read_char)(currinf.fontp, ch);
+***************
+*** 425,463 ****
+  	    currinf.fontp->timestamp = ++current_timestamp;
+  	}
+  
+! 	if (shrink_factor == 1)
+! 	    put_bitmap(&g->bitmap, PXL_H - g->x, PXL_V - g->y);
+! 	else {
+! 	    if (g->bitmap2.bits == NULL) {
+! 		shrink_glyph(g);
+  	    }
+! 	    put_bitmap(&g->bitmap2, PXL_H - g->x2, PXL_V - g->y2);
+! 	}
+  	return g->dvi_adv;
+  }
+  
+  
+! static	long
+! set_first_font_char(ch)
+! 	ubyte	ch;
+! {
+! 	currinf.fontp = currinf.fontp->first_font;
+! 	if (currinf.fontp == NULL) oops("Non-existent font");
+! 	if (!(currinf.fontp->flags & FONT_LOADED))
+! 	    load_font(currinf.fontp);
+! 	maxchar = currinf.fontp->maxchar;
+! 	currinf.set_char_p = currinf.fontp->set_char_p;
+! 	return (*currinf.set_char_p)(ch);
+! }
+! 
+! 
+  long
+  set_vf_char(ch)
+  	ubyte	ch;
+  {
+  	register struct macro *m;
+  	struct drawinf	oldinfo;
+  	static	ubyte	c;
+  
+  	if (ch > maxchar) realloc_virtual_font(currinf.fontp, ch);
+  	if ((m = &currinf.fontp->macro[ch])->pos == NULL) {
+--- 462,509 ----
+  	    currinf.fontp->timestamp = ++current_timestamp;
+  	}
+  
+! #ifdef	TEXXET
+! 	dvi_h_sav = DVI_H;
+! 	if (currinf.dir < 0) DVI_H -= g->dvi_adv;
+! 	if (scan_frame == NULL) {
+! #endif
+! 	    if (shrink_factor == 1)
+! 		put_bitmap(&g->bitmap, PXL_H - g->x, PXL_V - g->y);
+! 	    else {
+! 		if (g->bitmap2.bits == NULL) {
+! 		    shrink_glyph(g);
+! 		}
+! 		put_bitmap(&g->bitmap2, PXL_H - g->x2, PXL_V - g->y2);
+  	    }
+! #ifndef	TEXXET
+  	return g->dvi_adv;
++ #else
++ 	}
++ 	if (cmd == PUT1)
++ 	    DVI_H = dvi_h_sav;
++ 	else
++ 	    if (currinf.dir > 0) DVI_H += g->dvi_adv;
++ #endif
+  }
+  
+  
+! #ifndef	TEXXET
+  long
+  set_vf_char(ch)
++ #else
++ void
++ set_vf_char(cmd, ch)
++ 	ubyte	cmd;
++ #endif
+  	ubyte	ch;
+  {
+  	register struct macro *m;
+  	struct drawinf	oldinfo;
++ 	ubyte	oldmaxchar;
+  	static	ubyte	c;
++ #ifdef	TEXXET
++ 	long	dvi_h_sav;
++ #endif
+  
+  	if (ch > maxchar) realloc_virtual_font(currinf.fontp, ch);
+  	if ((m = &currinf.fontp->macro[ch])->pos == NULL) {
+***************
+*** 465,495 ****
+  		Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+  		    currinf.fontp->fontname);
+  	    m->pos = m->end = &c;
+! 	    return 0L;
+  	}
+! 	oldinfo = currinf;
+! 	WW = XX = YY = ZZ = 0;
+! 	currinf.tn_head = currinf.fontp->vf_chain;
+! 	currinf.set_char_p = set_first_font_char;
+! 	currinf.pos = m->pos;
+! 	currinf.end = m->end;
+! 	currinf.virtual = True;
+! 	draw_part(current_frame, currinf.fontp->dimconv);
+! 	if (currinf.pos != currinf.end + 1)
+! 	    oops("Virtual character macro does not end correctly.");
+! 	currinf = oldinfo;
+  	return m->dvi_adv;
+  }
+  
+! /*ARGSUSED*/
+! static	long
+  set_no_char(ch)
+  	ubyte	ch;
+  {
+  	oops("Dvi file or vf macro sets character of unknown font.");
+  	/* NOTREACHED */
+  }
+  
+  /*
+   *	Set rule.  Arguments are coordinates of lower left corner.
+   */
+--- 511,577 ----
+  		Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+  		    currinf.fontp->fontname);
+  	    m->pos = m->end = &c;
+! 	    return ERRVAL;
+  	}
+! #ifdef	TEXXET
+! 	dvi_h_sav = DVI_H;
+! 	if (currinf.dir < 0) DVI_H -= m->dvi_adv;
+! 	if (scan_frame == NULL) {
+! #endif
+! 	    oldinfo = currinf;
+! 	    oldmaxchar = maxchar;
+! 	    WW = XX = YY = ZZ = 0;
+! 	    currinf.tn_head = currinf.fontp->vf_chain;
+! 	    currinf.pos = m->pos;
+! 	    currinf.end = m->end;
+! 	    currinf.virtual = True;
+! 	    draw_part(current_frame, currinf.fontp->dimconv);
+! 	    if (currinf.pos != currinf.end + 1)
+! 		oops("Virtual character macro does not end correctly.");
+! 	    currinf = oldinfo;
+! 	    maxchar = oldmaxchar;
+! #ifndef	TEXXET
+  	return m->dvi_adv;
++ #else
++ 	}
++ 	if (cmd == PUT1)
++ 	    DVI_H = dvi_h_sav;
++ 	else
++ 	    if (currinf.dir > 0) DVI_H += m->dvi_adv;
++ #endif
+  }
+  
+! 
+! #ifndef	TEXXET
+! long
+  set_no_char(ch)
++ #else
++ void
++ set_no_char(cmd, ch)
++ 	ubyte	cmd;
++ #endif
+  	ubyte	ch;
+  {
++ 	if (currinf.virtual) {
++ 	    currinf.fontp = currinf.fontp->first_font;
++ 	    if (currinf.fontp != NULL) {
++ 		if (!(currinf.fontp->flags & FONT_LOADED))
++ 		    load_font(currinf.fontp);
++ 		maxchar = currinf.fontp->maxchar;
++ 		currinf.set_char_p = currinf.fontp->set_char_p;
++ #ifndef	TEXXET
++ 		return (*currinf.set_char_p)(ch);
++ #else
++ 		(*currinf.set_char_p)(cmd, ch);
++ 		return;
++ #endif
++ 	    }
++ 	}
+  	oops("Dvi file or vf macro sets character of unknown font.");
+  	/* NOTREACHED */
+  }
+  
++ 
+  /*
+   *	Set rule.  Arguments are coordinates of lower left corner.
+   */
+***************
+*** 498,504 ****
+--- 580,591 ----
+  set_rule(h, w)
+  	int h, w;
+  {
++ #ifndef	TEXXET
+  	put_rectangle(PXL_H, PXL_V - h + 1, w, h, False);
++ #else
++ 	put_rectangle(PXL_H - (currinf.dir < 0 ? w - 1 : 0), PXL_V - h + 1,
++ 	    w, h, False);
++ #endif
+  }
+  
+  static	void
+***************
+*** 549,574 ****
+  	double		current_dimconv;
+  {
+  	ubyte ch;
+  
+  	for (;;) {
+  	    ch = xone();
+  	    if (debug & DBG_DVI)
+  		print_dvi(ch);
+! 	    if (ch <= SETCHAR0 + 127) {
+! 		long a = (*currinf.set_char_p)(ch);
+! 		DVI_H += a;
+! 	    } else if (FNTNUM0 <= ch && ch <= FNTNUM0 + 63) {
+  		change_font((unsigned long) (ch - FNTNUM0));
+! 	    } else {
+  		long a, b;
+- 		ubyte ch1;
+  
+  		switch (ch) {
+  		    case SET1:
+  		    case PUT1:
+! 			ch1 = xone();
+! 			a = (*currinf.set_char_p)(ch1);
+  			if (ch != PUT1) DVI_H += a;
+  			break;
+  
+  		    case SETRULE:
+--- 636,678 ----
+  	double		current_dimconv;
+  {
+  	ubyte ch;
++ #ifdef	TEXXET
++ 	struct drawinf	oldinfo;
++ 	ubyte	oldmaxchar;
++ 	long	file_pos;
++ 	int	refl_count;
++ #endif
+  
++ 	currinf.fontp = NULL;
++ 	currinf.set_char_p = set_no_char;
++ #ifdef	TEXXET
++ 	currinf.dir = 1;
++ 	scan_frame = NULL;	/* indicates we're not scanning */
++ #endif
+  	for (;;) {
+  	    ch = xone();
+  	    if (debug & DBG_DVI)
+  		print_dvi(ch);
+! 	    if (ch <= SETCHAR0 + 127)
+! #ifndef	TEXXET
+! 		DVI_H += (*currinf.set_char_p)(ch);
+! #else
+! 		(*currinf.set_char_p)(ch, ch);
+! #endif
+! 	    else if (FNTNUM0 <= ch && ch <= FNTNUM0 + 63)
+  		change_font((unsigned long) (ch - FNTNUM0));
+! 	    else {
+  		long a, b;
+  
+  		switch (ch) {
+  		    case SET1:
+  		    case PUT1:
+! #ifndef	TEXXET
+! 			a = (*currinf.set_char_p)(xone());
+  			if (ch != PUT1) DVI_H += a;
++ #else
++ 			(*currinf.set_char_p)(ch, xone());
++ #endif
+  			break;
+  
+  		    case SETRULE:
+***************
+*** 577,592 ****
+  			   SIGFPE here. */
+  			a = xsfour();
+  			b = xspell_conv(xsfour());
+  			if (a > 0 && b > 0)
+  			    set_rule(pixel_round(xspell_conv(a)),
+  				pixel_round(b));
+! 			DVI_H += b;
+  			break;
+  
+  		    case PUTRULE:
+  			a = xspell_conv(xsfour());
+  			b = xspell_conv(xsfour());
+! 			if (a > 0  &&  b > 0)
+  			    set_rule(pixel_round(a), pixel_round(b));
+  			break;
+  
+--- 681,704 ----
+  			   SIGFPE here. */
+  			a = xsfour();
+  			b = xspell_conv(xsfour());
++ #ifndef	TEXXET
+  			if (a > 0 && b > 0)
++ #else
++ 			if (a > 0 && b > 0 && scan_frame == NULL)
++ #endif
+  			    set_rule(pixel_round(xspell_conv(a)),
+  				pixel_round(b));
+! 			DVI_H += DIR * b;
+  			break;
+  
+  		    case PUTRULE:
+  			a = xspell_conv(xsfour());
+  			b = xspell_conv(xsfour());
+! #ifndef	TEXXET
+! 			if (a > 0 && b > 0)
+! #else
+! 			if (a > 0 && b > 0 && scan_frame == NULL)
+! #endif
+  			    set_rule(pixel_round(a), pixel_round(b));
+  			break;
+  
+***************
+*** 625,637 ****
+  			current_frame = current_frame->prev;
+  			break;
+  
+  		    case RIGHT1:
+  		    case RIGHT2:
+  		    case RIGHT3:
+  		    case RIGHT4:
+! 			DVI_H += xspell_conv(xsnum(ch - RIGHT1 + 1));
+  			break;
+  
+  		    case X1:
+  		    case X2:
+  		    case X3:
+--- 737,826 ----
+  			current_frame = current_frame->prev;
+  			break;
+  
++ #ifdef	TEXXET
++ 		    case SREFL:
++ 			if (scan_frame == NULL) {
++ 			    /* we're not scanning:  save some info. */
++ 			    oldinfo = currinf;
++ 			    oldmaxchar = maxchar;
++ 			    if (!currinf.virtual)
++ 				file_pos = tell(fileno(dvi_file)) -
++ 				    (currinf.end - currinf.pos);
++ 			    scan_frame = current_frame; /* now we're scanning */
++ 			    refl_count = 0;
++ 			    break;
++ 			}
++ 			/* we are scanning */
++ 			if (current_frame == scan_frame) ++refl_count;
++ 			break;
++ 
++ 		    case EREFL:
++ 			if (scan_frame != NULL) {	/* if we're scanning */
++ 			    if (current_frame == scan_frame && --refl_count < 0)
++ 			    {
++ 				/* we've hit the end of our scan */
++ 				scan_frame = NULL;
++ 				/* first:  push */
++ 				if (current_frame->next == NULL) {
++ 				    struct frame *newp = (struct frame *)
++ 					xmalloc(sizeof(struct frame),
++ 					    "stack frame");
++ 				    current_frame->next = newp;
++ 				    newp->prev = current_frame;
++ 				    newp->next = NULL;
++ 				}
++ 				current_frame = current_frame->next;
++ 				current_frame->data = currinf.data;
++ 				/* next:  restore old file position, XX, etc. */
++ 				if (!currinf.virtual) {
++ 				    long bgn_pos = tell(fileno(dvi_file))
++ 					 - (currinf.end - dvi_buffer);
++ 				    if (file_pos >= bgn_pos) {
++ 					oldinfo.pos = dvi_buffer
++ 					    + (file_pos - bgn_pos);
++ 					oldinfo.end = currinf.end;
++ 				    }
++ 				    else {
++ 					(void) lseek(fileno(dvi_file), file_pos,
++ 					    SEEK_SET);
++ 					oldinfo.pos = oldinfo.end;
++ 				    }
++ 				}
++ 				currinf = oldinfo;
++ 				maxchar = oldmaxchar;
++ 				/* and then:  recover position info. */
++ 				DVI_H = current_frame->data.dvi_h;
++ 				DVI_V = current_frame->data.dvi_v;
++ 				PXL_V = current_frame->data.pxl_v;
++ 				/* and finally, reverse direction */
++ 				currinf.dir = -currinf.dir;
++ 			    }
++ 			    break;
++ 			}
++ 			/* we're not scanning, */
++ 			/* so just reverse direction and then pop */
++ 			currinf.dir = -currinf.dir;
++ 			currinf.data = current_frame->data;
++ 			current_frame = current_frame->prev;
++ 			break;
++ #endif	/* TEXXET */
++ 
+  		    case RIGHT1:
+  		    case RIGHT2:
+  		    case RIGHT3:
+  		    case RIGHT4:
+! 			DVI_H += DIR * xspell_conv(xsnum(ch - RIGHT1 + 1));
+  			break;
+  
++ 		    case W1:
++ 		    case W2:
++ 		    case W3:
++ 		    case W4:
++ 			WW = xspell_conv(xsnum(ch - W0));
++ 		    case W0:
++ 			DVI_H += DIR * WW;
++ 			break;
++ 
+  		    case X1:
+  		    case X2:
+  		    case X3:
+***************
+*** 638,653 ****
+  		    case X4:
+  			XX = xspell_conv(xsnum(ch - X0));
+  		    case X0:
+! 			DVI_H += XX;
+  			break;
+  
+! 		    case W1:
+! 		    case W2:
+! 		    case W3:
+! 		    case W4:
+! 			WW = xspell_conv(xsnum(ch - W0));
+! 		    case W0:
+! 			DVI_H += WW;
+  			break;
+  
+  		    case Y1:
+--- 827,841 ----
+  		    case X4:
+  			XX = xspell_conv(xsnum(ch - X0));
+  		    case X0:
+! 			DVI_H += DIR * XX;
+  			break;
+  
+! 		    case DOWN1:
+! 		    case DOWN2:
+! 		    case DOWN3:
+! 		    case DOWN4:
+! 			DVI_V += xspell_conv(xsnum(ch - DOWN1 + 1));
+! 			PXL_V = pixel_conv(DVI_V);
+  			break;
+  
+  		    case Y1:
+***************
+*** 670,683 ****
+  			PXL_V = pixel_conv(DVI_V);
+  			break;
+  
+- 		    case DOWN1:
+- 		    case DOWN2:
+- 		    case DOWN3:
+- 		    case DOWN4:
+- 			DVI_V += xspell_conv(xsnum(ch - DOWN1 + 1));
+- 			PXL_V = pixel_conv(DVI_V);
+- 			break;
+- 
+  		    case FNT1:
+  		    case FNT2:
+  		    case FNT3:
+--- 858,863 ----
+***************
+*** 703,717 ****
+  			break;
+  
+  		    case PRE:
+- 			oops("Shouldn't happen: PRE encountered.");
+- 			break;
+- 
+  		    case POST:
+- 			oops("Shouldn't happen: POST encountered.");
+- 			break;
+- 
+  		    case POSTPOST:
+! 			oops("Unexpected POSTPOST encountered.");
+  			break;
+  
+  		    default:
+--- 883,892 ----
+  			break;
+  
+  		    case PRE:
+  		    case POST:
+  		    case POSTPOST:
+! 			oops("Shouldn't happen: %s encountered.",
+! 				dvi_table2[ch - (FNTNUM0 + 64)]);
+  			break;
+  
+  		    default:
+***************
+*** 735,741 ****
+  	(void) lseek(fileno(dvi_file), page_offset[current_page], SEEK_SET);
+  
+  	bzero((char *) &currinf.data, sizeof(currinf.data));
+- 	currinf.set_char_p = set_no_char;
+  	currinf.tn_head = tn_head;
+  	currinf.pos = currinf.end = dvi_buffer;
+  	currinf.virtual = False;
+--- 910,915 ----
+diff -cr xdvi_old/dvi_init.c xdvi_new/dvi_init.c
+*** xdvi_old/dvi_init.c	Sat Feb 15 16:36:09 1992
+--- xdvi_new/dvi_init.c	Sat Mar 28 12:50:09 1992
+***************
+*** 13,18 ****
+--- 13,19 ----
+   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
++  * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 25,30 ****
+--- 26,32 ----
+   *	BMLONG	store bitmaps in longs instead of bytes
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
++  *	TEXXET	support reflection dvi codes (right-to-left typesetting)
+   */
+  
+  #include "xdvi.h"
+***************
+*** 39,45 ****
+  #include <stdlib.h>
+  #else
+  char	*realloc();
+- volatile void	exit();
+  #endif
+  #if	defined(macII) && !defined(__STDC__) /* stdlib.h doesn't define these */
+  char	*realloc();
+--- 41,46 ----
+***************
+*** 102,112 ****
+  	register struct glyph *g;
+  
+  	for (f = font_head; f != NULL; f = f->next)
+! 	    for (g = f->glyph; g <= f->glyph + f->maxchar; ++g)
+! 		if (g->bitmap2.bits) {
+! 		    free(g->bitmap2.bits);
+! 		    g->bitmap2.bits = NULL;
+! 		}
+  }
+  
+  /*
+--- 103,114 ----
+  	register struct glyph *g;
+  
+  	for (f = font_head; f != NULL; f = f->next)
+! 	    if ((f->flags & FONT_LOADED) && !(f->flags & FONT_VIRTUAL))
+! 		for (g = f->glyph; g <= f->glyph + f->maxchar; ++g)
+! 		    if (g->bitmap2.bits) {
+! 			free(g->bitmap2.bits);
+! 			g->bitmap2.bits = NULL;
+! 		    }
+  }
+  
+  /*
+diff -cr xdvi_old/font_open.c xdvi_new/font_open.c
+*** xdvi_old/font_open.c	Tue Feb 11 13:23:37 1992
+--- xdvi_new/font_open.c	Thu Mar 26 18:05:45 1992
+***************
+*** 75,81 ****
+  
+  char	*xmalloc(), *getenv();
+  double	atof();
+- volatile void	exit();
+  
+  #ifdef	SEARCH_SUBDIRECTORIES
+  /* We will need some system include files to deal with directories.  */
+--- 75,80 ----
+***************
+*** 398,410 ****
+  }
+  
+  static	FILE *
+! formatted_open(path, font, gforpk, mag, name, count, tail)
+  	_Xconst char	*path;
+  	_Xconst char	*font;
+  	_Xconst char	*gforpk;
+  	int	mag;
+  	char	**name;
+! 	int	count;
+  	_Xconst	char	*tail;
+  {
+  	_Xconst char	*p = path;
+--- 397,409 ----
+  }
+  
+  static	FILE *
+! formatted_open(path, font, gforpk, mag, name, first_try, tail)
+  	_Xconst char	*path;
+  	_Xconst char	*font;
+  	_Xconst char	*gforpk;
+  	int	mag;
+  	char	**name;
+! 	Boolean	first_try;
+  	_Xconst	char	*tail;
+  {
+  	_Xconst char	*p = path;
+***************
+*** 458,464 ****
+  	    }
+  	    else *n++ = c;
+  	}
+! 	if (!p_used && count > 0) return NULL;
+  	*n = '\0';
+  	if (debug & DBG_OPEN) Printf("Trying font file %s\n", nm);
+  	f = xfopen(nm);
+--- 457,463 ----
+  	    }
+  	    else *n++ = c;
+  	}
+! 	if (!p_used && first_try) return NULL;
+  	*n = '\0';
+  	if (debug & DBG_OPEN) Printf("Trying font file %s\n", nm);
+  	f = xfopen(nm);
+***************
+*** 492,499 ****
+  	next_subdir = subdir_head;
+  #endif
+  	for (;;) {
+- 	    int count = 0;
+- 
+  	    if (*p == PATH_SEP || *p == '\0') {
+  		if (x_default_font_path != NULL &&
+  			(f = try_size(font, pxlmag, name, x_default_font_path,
+--- 491,496 ----
+***************
+*** 502,519 ****
+  		if (*p == '\0') break;
+  	    }
+  	    else {
+  #ifdef	USE_PK
+! 		if ((f = formatted_open(p, font, "pk", pkmag, name, count++,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
+  #endif
+  #ifdef	USE_GF
+! 		if ((f = formatted_open(p, font, "gf", pkmag, name, count++,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
+  #endif
+  #ifdef	USE_PXL
+! 		if ((f = formatted_open(p, font, "pxl", pxlmag, name, count++,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
+  #endif
+--- 499,521 ----
+  		if (*p == '\0') break;
+  	    }
+  	    else {
++ #define	FIRST_TRY True
+  #ifdef	USE_PK
+! 		if ((f = formatted_open(p, font, "pk", pkmag, name, FIRST_TRY,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
++ #undef	FIRST_TRY
++ #define	FIRST_TRY False
+  #endif
+  #ifdef	USE_GF
+! 		if ((f = formatted_open(p, font, "gf", pkmag, name, FIRST_TRY,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
++ #undef	FIRST_TRY
++ #define	FIRST_TRY False
+  #endif
+  #ifdef	USE_PXL
+! 		if ((f = formatted_open(p, font, "pxl", pxlmag, name, FIRST_TRY,
+  			DEFAULT_TAIL)) != NULL)
+  		    return f;
+  #endif
+***************
+*** 628,634 ****
+  	    return f;
+  
+  	/* Now try at all the sizes. */
+! 	for (p2 = sizes; p2 < sizend; ++p2) if (*p2 >= imag) break;
+  	p1 = p2;
+  	for (;;) {
+  		/* find another magnification */
+--- 630,636 ----
+  	    return f;
+  
+  	/* Now try at all the sizes. */
+! 	for (p2 = sizes; p2 < sizend; ++p2) if (*p2 >= pxlmag) break;
+  	p1 = p2;
+  	for (;;) {
+  		/* find another magnification */
+diff -cr xdvi_old/patchlevel.h xdvi_new/patchlevel.h
+*** xdvi_old/patchlevel.h	Sat Jan 18 16:24:29 1992
+--- xdvi_new/patchlevel.h	Sat Mar 28 00:22:24 1992
+***************
+*** 1 ****
+! #define PATCHLEVEL 12
+--- 1 ----
+! #define PATCHLEVEL 13
+diff -cr xdvi_old/pxl.c xdvi_new/pxl.c
+*** xdvi_old/pxl.c	Sun Jan 19 14:24:23 1992
+--- xdvi_new/pxl.c	Mon Mar 23 19:03:00 1992
+***************
+*** 65,86 ****
+  #ifndef	MSBITFIRST
+  		*ptr = _reverse_byte[one(fp)];
+  #if	BYTES_PER_BMUNIT > 1
+! 		*ptr |= _reverse_byte[one(fp)] << 8;
+  #endif
+  #ifdef	BMLONG
+! 		*ptr |= _reverse_byte[one(fp)] << 16;
+! 		*ptr |= _reverse_byte[one(fp)] << 24;
+  #endif
+  #else	/* MSBITFIRST */
+  		*ptr = 0;
+  #ifdef	BMLONG
+! 		*ptr |= one(fp) << 24;
+! 		*ptr |= one(fp) << 16;
+  #endif
+  #if	BYTES_PER_BMUNIT > 1
+! 		*ptr |= one(fp) << 8;
+  #endif
+! 		*ptr |= one(fp);
+  #endif	/* MSBITFIRST */
+  		++ptr;
+  	    }
+--- 65,86 ----
+  #ifndef	MSBITFIRST
+  		*ptr = _reverse_byte[one(fp)];
+  #if	BYTES_PER_BMUNIT > 1
+! 		*ptr |= (BMUNIT) _reverse_byte[one(fp)] << 8;
+  #endif
+  #ifdef	BMLONG
+! 		*ptr |= (BMUNIT) _reverse_byte[one(fp)] << 16;
+! 		*ptr |= (BMUNIT) _reverse_byte[one(fp)] << 24;
+  #endif
+  #else	/* MSBITFIRST */
+  		*ptr = 0;
+  #ifdef	BMLONG
+! 		*ptr |= (BMUNIT) one(fp) << 24;
+! 		*ptr |= (BMUNIT) one(fp) << 16;
+  #endif
+  #if	BYTES_PER_BMUNIT > 1
+! 		*ptr |= (BMUNIT) one(fp) << 8;
+  #endif
+! 		*ptr |= (BMUNIT) one(fp);
+  #endif	/* MSBITFIRST */
+  		++ptr;
+  	    }
+diff -cr xdvi_old/util.c xdvi_new/util.c
+*** xdvi_old/util.c	Sat Feb  8 14:07:55 1992
+--- xdvi_new/util.c	Sat Mar 28 12:50:28 1992
+***************
+*** 13,18 ****
+--- 13,19 ----
+   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
++  * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 25,30 ****
+--- 26,32 ----
+   *	BMLONG	store bitmaps in longs instead of bytes
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
++  *	TEXXET	support reflection dvi codes (right-to-left typesetting)
+   */
+  
+  #include "xdvi.h"
+***************
+*** 39,45 ****
+  #include <stdlib.h>
+  #else
+  char	*malloc();
+- volatile void	exit();
+  #endif
+  #if	defined(macII) && !defined(__STDC__) /* stdlib.h doesn't define these */
+  char	*malloc();
+--- 41,46 ----
+***************
+*** 157,163 ****
+  	if (n_files_left == 0) close_a_file();
+  	f = fopen(filename, OPEN_MODE);
+  #ifndef	VMS
+! 	if (f == NULL && errno == EMFILE)
+  #else	/* VMS */
+  	if (f == NULL && errno == EVMSERR && vaxc$errno == RMS$_ACC)
+  #endif	/* VMS */
+--- 158,164 ----
+  	if (n_files_left == 0) close_a_file();
+  	f = fopen(filename, OPEN_MODE);
+  #ifndef	VMS
+! 	if (f == NULL && (errno == EMFILE || errno == ENFILE))
+  #else	/* VMS */
+  	if (f == NULL && errno == EVMSERR && vaxc$errno == RMS$_ACC)
+  #endif	/* VMS */
+diff -cr xdvi_old/vf.c xdvi_new/vf.c
+*** xdvi_old/vf.c	Tue Feb 11 13:23:17 1992
+--- xdvi_new/vf.c	Mon Mar 23 19:06:49 1992
+***************
+*** 42,48 ****
+  	fontp->read_char = NULL;
+  	fontp->flags |= FONT_VIRTUAL;
+  	fontp->set_char_p = set_vf_char;
+- 	VF_file = fontp->file;
+  	if (debug & DBG_PK)
+  	    Printf("Reading VF pixel file %s\n", fontp->filename);
+  /*
+--- 42,47 ----
+diff -cr xdvi_old/xdvi.c xdvi_new/xdvi.c
+*** xdvi_old/xdvi.c	Mon Feb 17 14:18:21 1992
+--- xdvi_new/xdvi.c	Tue Mar 31 12:23:41 1992
+***************
+*** 13,18 ****
+--- 13,19 ----
+   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
++  * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 25,30 ****
+--- 26,32 ----
+   *	BMLONG	store bitmaps in longs instead of bytes
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
++  *	TEXXET	support reflection dvi codes (right-to-left typesetting)
+   */
+  
+  #ifndef	ALTFONT
+***************
+*** 344,351 ****
+  	{XtNcallback,	(XtArgVal) command_call},
+  };
+  
+  #ifdef	NOQUERY
+! #define	drawWidgetClass	widgetClass;
+  #else
+  
+  /* ARGSUSED */
+--- 346,380 ----
+  	{XtNcallback,	(XtArgVal) command_call},
+  };
+  
++ static	void
++ create_buttons(h)
++ 	XtArgVal	h;
++ {
++ 	int i;
++ 
++ 	line_args[2].value = h;
++ 	line_args[3].value = (XtArgVal) vport_widget;
++ 	line_widget = XtCreateManagedWidget("line", widgetClass, form_widget,
++ 		line_args, XtNumber(line_args));
++ 	right_args[0].value = (XtArgVal) line_widget;
++ 	right_args[2].value = h;
++ 	right_widget = XtCreateManagedWidget("right", compositeWidgetClass,
++ 		form_widget, right_args, XtNumber(right_args));
++ 
++ 	command_args[2].value = (XtArgVal) vport_widget;
++ 	for (i = 0; i < XtNumber(command_table); ++i) {
++ 	    command_args[0].value = (XtArgVal) command_table[i].label;
++ 	    command_args[2].value = (XtArgVal) command_table[i].y_pos;
++ 	    command_call[0].closure = (caddr_t) command_table[i].closure;
++ 	    (void) XtCreateManagedWidget(command_table[i].name,
++ 		commandWidgetClass, right_widget,
++ 		command_args, XtNumber(command_args));
++ 	}
++ }
++ #endif	/* BUTTONS */
++ 
+  #ifdef	NOQUERY
+! #define	drawWidgetClass	widgetClass
+  #else
+  
+  /* ARGSUSED */
+***************
+*** 405,437 ****
+  
+  #endif	/* NOQUERY */
+  
+- static	void
+- create_buttons(h)
+- 	XtArgVal	h;
+- {
+- 	int i;
+- 
+- 	line_args[2].value = h;
+- 	line_args[3].value = (XtArgVal) vport_widget;
+- 	line_widget = XtCreateManagedWidget("line", widgetClass, form_widget,
+- 		line_args, XtNumber(line_args));
+- 	right_args[0].value = (XtArgVal) line_widget;
+- 	right_args[2].value = h;
+- 	right_widget = XtCreateManagedWidget("right", compositeWidgetClass,
+- 		form_widget, right_args, XtNumber(right_args));
+- 
+- 	command_args[2].value = (XtArgVal) vport_widget;
+- 	for (i = 0; i < XtNumber(command_table); ++i) {
+- 	    command_args[0].value = (XtArgVal) command_table[i].label;
+- 	    command_args[2].value = (XtArgVal) command_table[i].y_pos;
+- 	    command_call[0].closure = (caddr_t) command_table[i].closure;
+- 	    (void) XtCreateManagedWidget(command_table[i].name,
+- 		commandWidgetClass, right_widget,
+- 		command_args, XtNumber(command_args));
+- 	}
+- }
+- #endif	/* BUTTONS */
+- 
+  #else	/* !TOOLKIT */
+  #define	BAR_WID		12	/* width of darkened area */
+  #define	BAR_THICK	15	/* gross amount removed */
+--- 434,439 ----
+***************
+*** 489,495 ****
+  #endif
+  
+  extern	double	atof();
+- extern	volatile void	exit();
+  
+  /********************************
+   *	  tpic routines		*
+--- 491,496 ----
+***************
+*** 725,745 ****
+  home(scrl)
+  	Boolean	scrl;
+  {
+- 	register int coord;
+- 
+  	if (!scrl) XUnmapWindow(DISP, WINDOW(mane));
+  	get_xy();
+- 	coord = 0;
+  	if (page_w > clip_w) {
+! 	    coord = (page_w - clip_w) / 2;
+  	    if (coord > home_x / mane.shrinkfactor)
+  		coord = home_x / mane.shrinkfactor;
+  	    XtCallCallbacks(x_bar, XtNscrollProc,
+  		(XtPointer) (window_x + coord));
+  	}
+- 	coord = 0;
+  	if (page_h > clip_h) {
+! 	    coord = (page_h - clip_h) / 2;
+  	    if (coord > home_y / mane.shrinkfactor)
+  		coord = home_y / mane.shrinkfactor;
+  	    XtCallCallbacks(y_bar, XtNscrollProc,
+--- 726,742 ----
+  home(scrl)
+  	Boolean	scrl;
+  {
+  	if (!scrl) XUnmapWindow(DISP, WINDOW(mane));
+  	get_xy();
+  	if (page_w > clip_w) {
+! 	    register int coord = (page_w - clip_w) / 2;
+  	    if (coord > home_x / mane.shrinkfactor)
+  		coord = home_x / mane.shrinkfactor;
+  	    XtCallCallbacks(x_bar, XtNscrollProc,
+  		(XtPointer) (window_x + coord));
+  	}
+  	if (page_h > clip_h) {
+! 	    register int coord = (page_h - clip_h) / 2;
+  	    if (coord > home_y / mane.shrinkfactor)
+  		coord = home_y / mane.shrinkfactor;
+  	    XtCallCallbacks(y_bar, XtNscrollProc,
+***************
+*** 799,808 ****
+  /* The following callback routine should never be called. */
+  	/*ARGSUSED*/
+  static	void
+! handle_key(widget, junk, event)
+  	Widget	widget;
+  	caddr_t	junk;
+  	XEvent	*event;
+  {
+  	XBell(DISP, 20);
+  }
+--- 796,806 ----
+  /* The following callback routine should never be called. */
+  	/*ARGSUSED*/
+  static	void
+! handle_key(widget, junk, event, cont)
+  	Widget	widget;
+  	caddr_t	junk;
+  	XEvent	*event;
++ 	Boolean	*cont;		/* unused */
+  {
+  	XBell(DISP, 20);
+  }
+***************
+*** 809,818 ****
+  
+  	/*ARGSUSED*/
+  static	void
+! handle_resize(widget, junk, event)
+  	Widget	widget;
+  	caddr_t	junk;
+  	XEvent	*event;
+  {
+  	resized = True;
+  }
+--- 807,817 ----
+  
+  	/*ARGSUSED*/
+  static	void
+! handle_resize(widget, junk, event, cont)
+  	Widget	widget;
+  	caddr_t	junk;
+  	XEvent	*event;
++ 	Boolean	*cont;		/* unused */
+  {
+  	resized = True;
+  }
+***************
+*** 1079,1094 ****
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_button(widget, junk, event)
+  	Widget	widget;
+  	caddr_t	junk;
+  #else	/* !TOOLKIT */
+  static	void
+  handle_button(event)
+- #endif	/* TOOLKIT */
+  	XButtonEvent *event;
+  {
+! 	int x, y;
+  #ifndef X10
+  	XSetWindowAttributes attr;
+  
+--- 1078,1096 ----
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_button(widget, junk, ev, cont)
+  	Widget	widget;
+  	caddr_t	junk;
++ 	XEvent *ev;
++ #define	event	(&(ev->xbutton))
++ 	Boolean	*cont;		/* unused */
+  #else	/* !TOOLKIT */
+  static	void
+  handle_button(event)
+  	XButtonEvent *event;
++ #endif	/* TOOLKIT */
+  {
+! 	int	x, y;
+  #ifndef X10
+  	XSetWindowAttributes attr;
+  
+***************
+*** 1134,1145 ****
+  }
+  
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_motion(widget, junk, event)
+  	Widget	widget;
+  	caddr_t	junk;
+! 	XMotionEvent *event;
+  {
+  	new_mag_x = event->x;
+  	main_x = event->x_root - new_mag_x;
+--- 1136,1151 ----
+  }
+  
+  #ifdef	TOOLKIT
++ #undef	event
++ 
+  	/*ARGSUSED*/
+  static	void
+! handle_motion(widget, junk, ev, cont)
+  	Widget	widget;
+  	caddr_t	junk;
+! 	XEvent *ev;
+! #define	event	(&(ev->xmotion))
+! 	Boolean	*cont;		/* unused */
+  {
+  	new_mag_x = event->x;
+  	main_x = event->x_root - new_mag_x;
+***************
+*** 1147,1152 ****
+--- 1153,1160 ----
+  	main_y = event->y_root - new_mag_y;
+  	mag_moved = (new_mag_x != mag_x || new_mag_y != mag_y);
+  }
++ 
++ #undef	event
+  #endif	/* TOOLKIT */
+  
+  static	void
+***************
+*** 1167,1176 ****
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_release(widget, junk, event)
+  	Widget	widget;
+  	caddr_t	junk;
+! 	XButtonEvent *event;
+  #else	/* !TOOLKIT */
+  static	void
+  handle_release()
+--- 1175,1186 ----
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_release(widget, junk, ev, cont)
+  	Widget	widget;
+  	caddr_t	junk;
+! 	XEvent *ev;
+! #define	event	(&(ev->xbutton))
+! 	Boolean	*cont;		/* unused */
+  #else	/* !TOOLKIT */
+  static	void
+  handle_release()
+***************
+*** 1188,1204 ****
+  }
+  
+  #ifdef	TOOLKIT
+  	/*ARGSUSED*/
+  static	void
+! handle_exp(widget, windowrec, event)
+  	Widget	widget;
+  	struct WindowRec *windowrec;
+! 	register XExposeEvent *event;
+  {
+  	if (windowrec == &alt)
+  	    if (alt_stat < 0) {	/* destroy upon exposure */
+  		alt_stat = 0;
+! 		handle_release(widget, (caddr_t) NULL, (XButtonEvent *) event);
+  		return;
+  	    }
+  	    else
+--- 1198,1219 ----
+  }
+  
+  #ifdef	TOOLKIT
++ #undef	event
++ 
+  	/*ARGSUSED*/
+  static	void
+! handle_exp(widget, windowrec, ev, cont)
+  	Widget	widget;
+  	struct WindowRec *windowrec;
+! 	register XEvent *ev;
+! #define	event	(&(ev->xexpose))
+! 	Boolean	*cont;		/* unused */
+  {
+  	if (windowrec == &alt)
+  	    if (alt_stat < 0) {	/* destroy upon exposure */
+  		alt_stat = 0;
+! 		handle_release(widget, (caddr_t) NULL, (XButtonEvent *) event,
+! 			(Boolean *) NULL);
+  		return;
+  	    }
+  	    else
+***************
+*** 1205,1210 ****
+--- 1220,1227 ----
+  		alt_stat = 0;
+  	expose(windowrec, event->x, event->y, event->width, event->height);
+  }
++ 
++ #undef	event
+  #endif	/* TOOLKIT */
+  
+  /* |||
+***************
+*** 1441,1449 ****
+--- 1458,1468 ----
+  	bad:  XBell(DISP, 10);
+  }
+  
++ 
+  #ifndef X10
+  #define	TRSIZE	100
+  #endif	/* X10 */
++ 
+  static	void
+  read_events(wait)
+  	Boolean	wait;
+***************
+*** 1478,1484 ****
+  	    if (resized) get_geom();
+  	    if (event.xany.window == WINDOW(alt) &&
+  		    event.type == Expose) {
+! 		handle_exp((Widget) NULL, &alt, &event.xexpose);
+  		continue;
+  	    }
+  	    if (event.type != KeyPress) {
+--- 1497,1503 ----
+  	    if (resized) get_geom();
+  	    if (event.xany.window == WINDOW(alt) &&
+  		    event.type == Expose) {
+! 		handle_exp((Widget) NULL, &alt, &event.xexpose, (Boolean*)NULL);
+  		continue;
+  	    }
+  	    if (event.type != KeyPress) {
+diff -cr xdvi_old/xdvi.h xdvi_new/xdvi.h
+*** xdvi_old/xdvi.h	Mon Feb 17 14:18:07 1992
+--- xdvi_new/xdvi.h	Fri Mar 27 18:15:28 1992
+***************
+*** 162,171 ****
+  };
+  
+  #if	NeedFunctionPrototypes
+! typedef	long	(*set_char_proc)(WIDEARG(ubyte,int));
+! #else
+  typedef	long	(*set_char_proc)();
+! #endif
+  
+  struct drawinf {	/* this information is saved when using virtual fonts */
+  	struct framedata data;
+--- 162,179 ----
+  };
+  
+  #if	NeedFunctionPrototypes
+! #ifndef	TEXXET
+! typedef	long	(*set_char_proc)(WIDEARG(ubyte, int));
+! #else	/* TEXXET */
+! typedef	void	(*set_char_proc)(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
+! #endif	/* TEXXET */
+! #else	/* NeedFunctionPrototypes */
+! #ifndef	TEXXET
+  typedef	long	(*set_char_proc)();
+! #else	/* TEXXET */
+! typedef	void	(*set_char_proc)();
+! #endif	/* TEXXET */
+! #endif	/* NeedFunctionPrototypes */
+  
+  struct drawinf {	/* this information is saved when using virtual fonts */
+  	struct framedata data;
+***************
+*** 174,179 ****
+--- 182,190 ----
+  	struct tn	*tn_head;
+  	ubyte		*pos, *end;
+  	Boolean		virtual;
++ #ifdef	TEXXET
++ 	int		dir;
++ #endif
+  };
+  
+  EXTERN	struct drawinf	currinf;
+***************
+*** 262,268 ****
+   */
+  
+  #if	NeedFunctionPrototypes
+! typedef	void (*read_char_proc)(struct font *, WIDEARG(ubyte,int));
+  #else
+  typedef	void (*read_char_proc)();
+  #endif
+--- 273,279 ----
+   */
+  
+  #if	NeedFunctionPrototypes
+! typedef	void (*read_char_proc)(struct font *, WIDEARG(ubyte, int));
+  #else
+  typedef	void (*read_char_proc)();
+  #endif
+***************
+*** 379,386 ****
+--- 390,402 ----
+  extern	void	init_page(void);
+  extern	void	open_dvi_file(void);
+  extern	Boolean	check_dvi_file(void);
++ #ifndef	TEXXET
+  extern	long	set_char(WIDEARG(ubyte, int));
+  extern	long	set_vf_char(WIDEARG(ubyte, int));
++ #else
++ extern	void	set_char(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
++ extern	void	set_vf_char(WIDEARG(ubyte, int), WIDEARG(ubyte, int));
++ #endif
+  extern	void	draw_page(void);
+  extern	void	init_font_open(void);
+  extern	FILE	*font_open(_Xconst char *, char **,
+***************
+*** 413,420 ****
+--- 429,441 ----
+  extern	void	init_page();
+  extern	void	open_dvi_file();
+  extern	Boolean	check_dvi_file();
++ #ifndef	TEXXET
+  extern	long	set_char();
+  extern	long	set_vf_char();
++ #else
++ extern	void	set_char();
++ extern	void	set_vf_char();
++ #endif
+  extern	void	draw_page();
+  extern	void	init_font_open();
+  extern	FILE	*font_open();
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,2130 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i051:  cmdline - C++ Library for parsing command-line arguments, Part04/07
+Message-ID: <1992Jul27.020604.29355@sparky.imd.sterling.com>
+X-Md4-Signature: d89dbcd0655937b4d01cf818483f864a
+Date: Mon, 27 Jul 1992 02:06:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 51
+Archive-name: cmdline/part04
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 7)."
+# Contents:  doc/classes.man src/cmd/shells.c src/cmd/shells.h
+#   src/cmd/syntax.c
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:30 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'doc/classes.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/classes.man'\"
+else
+echo shar: Extracting \"'doc/classes.man'\" \(13264 characters\)
+sed "s/^X//" >'doc/classes.man' <<'END_OF_FILE'
+X.SH CLASS DEFINITIONS
+X.ds CI \f4CmdLineArgIter\fP
+X.ds CA \f4CmdArg\fP
+X.ds CL \f4CmdLine\fP
+X.de Ss
+X.br
+X\fB\s-1\&\\$1:\s+1\fR
+X.br
+X..
+X.de UL
+X.if n \\$1
+X.if n .br
+X..
+X.de CS
+X.  ft 4
+X.  nf
+X..
+X.de CE
+X.  fi
+X.  ft R
+X..
+X.PP
+XFor the most "up to date" explanation of each class (and of its members),
+Xplease refer to the relevant include files (which are thoroughly commented)
+Xmentioned in the \s-1\fBFILES\fP\s+1 section. The most common facilities
+Xof the most commonly used classes are described in the following subsections.
+X.\"-----------------------------------------------
+X.SS "\s+1Class \*(CI\s-1"
+X.RS
+XClass \*(CI is an abstract base class for iterating over string
+Xarguments from the command-line (or from some other input source).
+XIt has two member functions (both of which are pure virtual):
+X
+X.IP "\f4const char * operator()(void);\fP"
+XThis member function returns the current string argument and then
+Xadvances to the next string argument. If no arguments are left then
+X\f4NULL\fP is returned.
+X
+X.IP "\f4int  is_temporary(void)  const;\fP"
+XThis member function is used to indicate the "type" of storage that is
+Xused for the values returned by \f4operator()\fP. Some iterators will
+Xhave \f4operator()\fP return values that will stay around at least as
+Xlong as the iterator itself; if this is the case, then this member
+Xfunction will return 0. Other iterators may reuse the same storage
+Xon successive calls to \f4operator()\fP; if this is the case, this
+Xthis member function will return a non-zero value.
+X
+X.PP
+XThere are three predefined subclasses of \*(CI: \f4CmdArgvIter\fP,
+X\f4CmdStrtokIter\fP, and \f4CmdIstreamIter\fP.
+X
+X.CS
+Xclass CmdArgvIter : public CmdLineArgIter {
+Xpublic:
+X   CmdArgvIter(const char * const argv[]);
+X
+X   CmdArgvIter(int argc, const char * const argv[]);
+X
+X      // Restart using a different string array.
+X   void  reset(const char * const argv[]);
+X   void  reset(int argc, const char * const argv[]);
+X
+X   const char * operator()(void);
+X
+X   int  is_temporary(void)  const;
+X} ;
+X.CE
+X
+XThis class iterates over string arguments that originate from a NULL
+Xterminated vector of strings (such as \f4argv\fP), and may be  constructed
+Xwith just an array, or with an array and an item count.
+X
+X.CS
+Xclass  CmdStrTokIter : public CmdLineArgIter {
+Xpublic:
+X   CmdStrTokIter(const char * tokens, const char * delimiters =NULL);
+X
+X      // Reset using a new token-string and delimiter set.
+X   void  reset(const char * tokens, const char * delimiters =NULL);
+X
+X      // Get the current delimiter set
+X   const char *  delimiters(void)  const;
+X
+X      // Change the current delimiter set
+X   void  delimiters(const char * new_delimiters);
+X
+X   const char * operator()(void);
+X
+X   int  is_temporary(void)  const;
+X} ;
+X.CE
+X
+XThis class iterates over string arguments that come from a single string
+Xthat contains multiple tokens which are delimited by one or more characters
+Xfrom the given delimiter set. The \f4strtok(3C)\fP library function is 
+Xused to extract tokens from the string. If a delimiter set of \f4NULL\fP
+Xis given then whitespace will be assumed.
+X
+X.CS
+Xclass  CmdIstreamIter : public CmdLineArgIter {
+Xpublic:
+X   CmdIstreamIter(istream & input);
+X
+X   const char * operator()(void);
+X
+X   int  is_temporary(void)  const;
+X} ;
+X.CE
+X
+XThis class iterates over string arguments that come from an input stream.
+XEach line of the input stream is considered to be a set of white-space
+Xseparated tokens. If the the first non-white character on a line is `#'
+X(`!' for VMS systems) then the line is considered a comment and is ignored.
+XIf a line is more than 1022 characters in length then we treat it as if
+Xit were several lines of length 1022 or less.
+X
+X.RE
+X.\"-----------------------------------------------
+X.SS "\s+1Class \*(CA\s-1"
+X.RS
+XA \*(CA is an abstract command-line argument.
+XAt this level (being the base class), all a command argument
+Xcontains is the "interface" (on the command-line) of the
+Xargument, and some information (after the command-line has
+Xbeen parsed) that says "how" the argument appeared (if it
+Xwas specified).
+X
+XThe interface of a \*(CA consists of the following:
+X
+X.RS
+X.IP "\(bu" 3
+Xa character name
+X.IP "\(bu" 3
+Xa keyword name
+X.IP "\(bu" 3
+Xa value name (if the argument takes a value)
+X.IP "\(bu" 3
+Xan argument description
+X.IP "\(bu" 3
+Xa set of flags describing the syntax of the argument.
+X.IP "\(bu" 3
+Xa set of flags to record how (and if) the argument
+Xappeared on the command-line.
+X.RE
+X
+XWhen constructing a \*(CA, the most common syntax-flags can be
+Xinferred from the syntax used in the argument description,
+Xand the argument value name.  If the first non-white character
+Xof the argument description is a semicolon (`;'), then the argument
+Xis considered to be "secret" and is NOT printed in usage messages.
+XWhen specifying a value name, one may enclose the value name in between
+Xsquare brackets (`[' and `]') to indicate the value is optional. Also,
+Xone may follow the actual value name with an ellipsis ("\0.\^.\^.")
+Xto indicate that the value corresponds to a LIST of values.
+X
+XOther more esoteric syntax flags may be specified explicitly by using
+Xone or more of the bitmasks of type \f4CmdArg::CmdArgSyntax\fP as
+Xthe last argument to the constructor; if these syntax-flags are NOT supplied,
+Xthen reasonable defaults will be used.
+X
+XThe different types of constructors for a \*(CA are as follows:
+X
+X.CS
+X   // Create an option that takes a value.
+X   //
+X   // The default flags are to assume that the argument is
+X   // optional and that the value is required.
+X   //
+X   // Examples:
+X   //    //  [\-c number]  or  [\*(--count number]
+X   //    CmdArg('c', "count", "number",
+X   //              "specify the # of copies to use);
+X   //
+X   //    //  [\-d [level]]  or  [\*(--debug [level]]
+X   //    CmdArg('d', "debug", "[level]",
+X   //              "turn on debugging and optionally"
+X   //              "specify the debug level");
+X   //
+X   //    //  [\-l items ...]  or  [\*(--list items ...]
+X   //    CmdArg('l', "list", "items ...",
+X   //              "specify a list of items.");
+X   //
+XCmdArg(char         optchar,
+X       const char * keyword,
+X       const char * value,
+X       const char * description,
+X       unsigned     syntax_flags =CmdArg::isOPTVALREQ);
+X
+X   // Create an option that takes no value.
+X   //
+X   // The default syntax-flags are to assume that the
+X   // argument is optional.
+X   //
+X   // Example:
+X   //    //  -m  or  \*(--mode
+X   //    CmdArg('m', "mode", "turn on this mode");
+X   //
+XCmdArg(char         optchar,
+X       const char * keyword,
+X       const char * description,
+X       unsigned     syntax_flags =CmdArg::isOPT);
+X
+X   // Create a positional argument.
+X   //
+X   // The default flags are to assume that the argument is
+X   // positional and that the argument value is required.
+X   //
+X   // Examples:
+X   //    CmdArg("file", "file to read");
+X   //
+X   //    CmdArg("[file]", "optional file to read");
+X   //
+X   //    CmdArg("file ...", "list of files to read");
+X   //
+X   //    CmdArg("[file ...]", "optional list of files to read");
+X   //
+XCmdArg(const char * value,
+X       const char * description,
+X       unsigned     syntax_flags =CmdArg::isPOSVALREQ);
+X.CE
+X
+XAfter a command-argument has been declared, you may wish to ask several
+Xquestions regarding how (and if) it was specified. For example: was the
+Xargument given? If it was given, was a value supplied?  These questions
+X(and others) may answered using the \f4flags()\fP member function:
+X
+X.CS
+X     unsigned  CmdArg::flags(void)  const;
+X.CE
+X
+XThis member function returns a set of bitmasks of type
+X\f4CmdArg::CmdArgFlags\fP which are defined in \f4<cmdline.h>\fP.
+XThe most common flags are \f4CmdArg::GIVEN\fP (which is set if the
+Xargument was given) and \f4CmdArg::VALGIVEN\fP (which is set if a
+Xvalue was supplied for the argument).
+X
+XThere are other member functions to return each of the attributes that
+Xa \*(CA was constructed with.  These member functions (and others) are
+Xdiscussed in \f4<cmdline.h>\fP.
+X
+XClasses that are derived from \*(CA will not have all three of the above 
+Xdestructors. Some derived classes (such as \f4CmdArgBool\fP) only
+Xcorrespond to non-positional arguments that take no value. Other derived
+Xclasses (such as \f4CmdArgInt\fP and \f4CmdArgStr\fP) always permit
+Xa value to be given.
+XSome predefined subclasses of \*(CA which represent the most commonly used
+Xtypes of command-line arguments may be found in \f4<cmdargs.h>\fP.
+X
+X.RE
+X.\"-----------------------------------------------
+X.SS "\s+1Class \*(CL\s-1"
+X.RS
+XClass \*(CL is the class that represents a command-line object.
+XA command-line object is a parsing machine (with machine states),
+Xwhose parsing behavior may be configured at run-time by specifying
+Xvarious flags of type \f4CmdLine::CmdFlags\fP.
+XA command-line object also contains a command-name and a list of
+X\*(CA objects that correspond to the various arguments that are
+Xallowed to occur on the command-line.
+X
+X.Ss "Constructing a \*(CL Object"
+X.UL "------------------------------"
+XIt is not necessary to supply a command-name at construction
+Xtime, but one SHOULD be specified before parsing a command-line
+Xor printing a usage message.
+X
+XSimilarly, \*(CAs are not required at construction time and may
+Xeven be added on the fly. All desired arguments should be added
+Xbefore any parsing happens and before printing usage.
+X
+XThe order in which \*(CAs are added to a \*(CL is important
+Xbecause for positional parameters, this specifies the order in
+Xwhich they are expected to appear on the command-line.
+X
+XThe constructors for a \*(CL are as follows (those constructors that
+Xtake a variable number of parameters must have \f4NULL\fP specified
+Xas the final parameter):
+X
+X.CS
+X        // construct a command (and optionally specify a name)
+X     CmdLine(const char * name =NULL);
+X
+X        // construct a command with a name, and arguments
+X     CmdLine(const char * name, CmdArg * ...);
+X
+X        // construct a command command with arguments, but no name
+X     CmdLine(CmdArg * cmdarg, CmdArg * ...);
+X.CE
+X
+XThe command name may be set (or queried) after construction by using
+Xthe \f4name()\fP member function.
+X
+XCommand arguments may be added after construction by using the \f4append()\fP
+Xmember function.
+X
+X.Ss "Other Common \*(CL Member Functions"
+X.UL "--------------------------------------"
+XThe most common requests to make of a \*(CL object is to ask it to parse
+Xits arguments, to query it's status, to print the command usage, and to
+Xprint an error message.  These may be accomplished with the following
+Xmember functions:
+X
+X.CS
+X   // Print usage to the given outstream or to
+X   // the default error outstream.
+X   //
+Xostream &  usage(ostream & os)  const;
+Xostream &  usage(void)  const;
+X
+X   // Print the command-name, followed by ": " and return the
+X   // outstream for the user to supply the remainder of the
+X   // error message.
+X   //
+X   // Example:
+X   //   cmd.error() << "can't use \-x with \-y." << endl ;
+X   //
+Xostream &  error(void)  const;
+X
+X   // Obtain the current status of the command. The status will be
+X   // zero if everything is okay; otherwise it will correspond
+X   // to a combination of CmdLine::CmdStatus bitmasks telling us
+X   // precisely what went wrong.
+X   //
+Xunsigned  status(void)  const;
+X
+X   // Parse arguments from the given string argument iterator.
+X   // The return value will be the resultant CmdLine status
+X   // (which may also be obtained using status()).
+X   //
+Xunsigned  parse(CmdLineArgIter & arg_iter);
+X.CE
+X
+X
+X.Ss "Modifying Parsing Behavior"
+X.UL "-----------------------------"
+XIf you wish to modify parsing behavior to something other than the default,
+Xthere are four more member functions that you will need to know how to use.
+XEach of these member functions deals with bitmasks of the type
+X\f4CmdLine::CmdFlags\fP.
+X
+X.CS
+X   // Flags that define parsing behavior
+X   //   The default flags (for Unix) are OPTS_FIRST.
+Xenum CmdFlags {
+X   ANY_CASE_OPTS = 0x001, // Ignore character-case for short-options
+X.sp 2p
+X   PROMPT_USER   = 0x002, // Prompt the user for missing required args
+X.sp 2p
+X   NO_ABORT      = 0x004, // Don't exit upon syntax error
+X.sp 2p
+X   OPTS_FIRST    = 0x008, // No options after positional parameters
+X.sp 2p
+X   OPTS_ONLY     = 0x010, // Don't accept short-options
+X.sp 2p
+X   KWDS_ONLY     = 0x020, // Don't accept long-options
+X.sp 2p
+X   TEMP          = 0x040, // Assume all arg-strings are temporary
+X.sp 2p
+X   QUIET         = 0x080, // Don't print syntax error messages
+X.sp 2p
+X   NO_GUESSING   = 0x100, // Don't guess if cant match an option. 
+X                             // Unless this flag is given, then
+X                             // when we see an unmatched option,
+X                             // we will try to see if it matches
+X                             // a keyword (and vice-versa).
+X} ;
+X
+X   // Get the current set of command-flags
+Xunsigned  flags(void)  const;
+X
+X   // Specify a new set of command-flags
+Xvoid  flags(unsigned newflags);
+X
+X   // Set only the given command-flags, leave the others alone
+Xvoid  set(unsigned flags);
+X
+X   // Clear only the given command-flags, leave the others alone
+Xvoid  clear(unsigned flags =~0);
+X.CE
+X
+XThese are the basic member functions of a \*(CL object. The are others as well
+Xbut these should provide most of the desired functionality. For more detailed
+Xinformation, please see \f4<cmdline.h>\fP.
+X
+X.RE
+X.\"-----------------------------------------------
+END_OF_FILE
+if test 13264 -ne `wc -c <'doc/classes.man'`; then
+    echo shar: \"'doc/classes.man'\" unpacked with wrong size!
+fi
+# end of 'doc/classes.man'
+fi
+if test -f 'src/cmd/shells.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/shells.c'\"
+else
+echo shar: Extracting \"'src/cmd/shells.c'\" \(16461 characters\)
+sed "s/^X//" >'src/cmd/shells.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: shells.c - implement classes for the various Unix shells
+X//
+X// ^DESCRIPTION:
+X//     This file packages all the information we need to know about each
+X//  of the shells that cmdparse(1) will support into a set of (sub)classes.
+X//
+X// ^HISTORY:
+X//    04/19/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include <fifolist.h>
+X
+X#include "shells.h"
+X#include "argtypes.h"
+X
+X//--------------------------------------------------------------- ShellVariable
+X
+XShellVariable::ShellVariable(const char * name)
+X   : var_name(name), var_value(NULL)
+X{
+X}
+X
+XShellVariable::~ShellVariable(void)
+X{
+X}
+X
+X//------------------------------------------------------------ ShellArrayValues
+X
+XDECLARE_FIFO_LIST(CharPtrList, char *);
+X
+Xstruct  ShellArrayValues {
+X   CharPtrList       list;
+X   CharPtrListArray  array;
+X
+X   ShellArrayValues(void);
+X} ;
+X
+XShellArrayValues::ShellArrayValues(void)
+X   : array(list)
+X{
+X   list.self_cleaning(1);
+X}
+X
+X//------------------------------------------------------------------ ShellArray
+X
+XShellArray::ShellArray(const char * name)
+X   : array_name(name), array_value(NULL)
+X{
+X}
+X
+XShellArray::~ShellArray(void)
+X{
+X   delete  array_value ;
+X}
+X
+Xvoid
+XShellArray::append(const char * value)
+X{
+X   if (array_value == NULL) {
+X      array_value = new ShellArrayValues ;
+X   }
+X   char ** valptr = new char* ;
+X   if (valptr) {
+X      *valptr = (char *)value;
+X      array_value->list.add(valptr);
+X   }
+X}
+X
+Xunsigned
+XShellArray::count(void) const
+X{
+X   return  ((array_value) ? array_value->list.count() : 0);
+X}
+X
+Xconst char *
+XShellArray::operator[](unsigned  index) const
+X{
+X   return  ((array_value) ? array_value->array[index] : NULL);
+X}
+X
+X//----------------------------------------------------------- AbstractUnixShell
+X
+XAbstractUnixShell::~AbstractUnixShell(void)
+X{
+X}
+X
+X//------------------------------------------------------------------- UnixShell
+X
+XUnixShell::UnixShell(const char * shell_name)
+X   : shell(NULL), valid(1)
+X{
+X   if (::strcmp(BourneShell::NAME, shell_name) == 0) {
+X      shell = new BourneShell ;
+X   } else if (::strcmp("ash", shell_name) == 0) {
+X      shell = new BourneShell ;
+X   } else if (::strcmp(KornShell::NAME, shell_name) == 0) {
+X      shell = new KornShell ;
+X   } else if (::strcmp(BourneAgainShell::NAME, shell_name) == 0) {
+X      shell = new BourneAgainShell ;
+X   } else if (::strcmp(CShell::NAME, shell_name) == 0) {
+X      shell = new CShell ;
+X   } else if (::strcmp("tcsh", shell_name) == 0) {
+X      shell = new CShell ;
+X   } else if (::strcmp("itcsh", shell_name) == 0) {
+X      shell = new CShell ;
+X   } else if (::strcmp(ZShell::NAME, shell_name) == 0) {
+X      shell = new ZShell ;
+X   } else if (::strcmp(Plan9Shell::NAME, shell_name) == 0) {
+X      shell = new Plan9Shell ;
+X   } else if (::strcmp(PerlShell::NAME, shell_name) == 0) {
+X      shell = new PerlShell ;
+X   } else if (::strcmp(TclShell::NAME, shell_name) == 0) {
+X      shell = new TclShell ;
+X   } else {
+X      valid = 0;
+X   }
+X}
+X
+XUnixShell::~UnixShell(void)
+X{
+X   delete  shell;
+X}
+X
+Xconst char *
+XUnixShell::name(void) const
+X{
+X   return  ((shell) ? shell->name() : NULL);
+X}
+X
+Xvoid
+XUnixShell::unset_args(const char * name) const
+X{
+X   if (shell)  shell->unset_args(name);
+X}
+X
+Xint
+XUnixShell::is_positionals(const char * name) const
+X{
+X   return  ((shell) ? shell->is_positionals(name) : 0);
+X}
+X
+Xvoid
+XUnixShell::set(const ShellVariable & variable) const
+X{
+X   if (shell)  shell->set(variable);
+X}
+X
+Xvoid
+XUnixShell::set(const ShellArray & array, int variant) const
+X{
+X   if (shell)  shell->set(array, variant);
+X}
+X
+X//----------------------------------------------------------------- varname
+X
+X// Remove any "esoteric" portions of a vraible name (such as a leading '$')
+X//
+Xinline  static  const char *
+Xvarname(const char * name, char skip)
+X{
+X   return  ((*name == skip) && (*(name + 1))) ? (name + 1): name ;
+X}
+X
+X//----------------------------------------------------------------- BourneShell
+X
+Xconst char * BourneShell::NAME = "sh" ;
+X
+XBourneShell::BourneShell(void)
+X{
+X}
+X
+XBourneShell::~BourneShell(void)
+X{
+X}
+X
+Xconst char *
+XBourneShell::name(void) const
+X{
+X   return  BourneShell::NAME ;
+X}
+X
+Xvoid
+XBourneShell::unset_args(const char *) const
+X{
+X   cout << "shift $# ;" << endl ;
+X}
+X
+Xint
+XBourneShell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '$');
+X   return  ((::strcmp(name, "--") == 0) || (::strcmp(name, "-") == 0) ||
+X            (::strcmp(name, "@") == 0)  || (::strcmp(name, "*") == 0)) ;
+X}
+X
+Xvoid
+XBourneShell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   if (is_positionals(name)) {
+X      cout << "set -- '" ;
+X   } else {
+X      cout << name << "='" ;
+X   }
+X   escape_value(variable.value());
+X   cout << "';" << endl ;
+X}
+X
+Xvoid
+XBourneShell::set(const ShellArray & array, int variant) const
+X{
+X   int  ndx;
+X   const char * name = varname(array.name(), '$');
+X
+X   if (is_positionals(name)) {
+X      // set -- 'arg1' 'arg2' ...
+X      cout << "set -- ";
+X      for (ndx = 0 ; ndx < array.count() ; ndx++) {
+X         if (ndx)  cout << ' ' ;
+X         cout << '\'' ;
+X         escape_value(array[ndx]);
+X         cout << '\'' ;
+X      }
+X      cout << ';' << endl ;
+X   } else if (variant) {
+X      // argname_count=N
+X      // argname1='arg1'
+X      //   ...
+X      // argnameN='argN'
+X      cout << name << "_count=" << array.count() << ';' << endl ;
+X      for (ndx = 0 ; ndx < array.count() ; ndx++) {
+X         cout << name << (ndx + 1) << "='";
+X         escape_value(array[ndx]);
+X         cout << "';" << endl ;
+X      }
+X   } else {
+X      // argname='arg1 arg2 ...'
+X      cout << name << "='";
+X      for (ndx = 0 ; ndx < array.count() ; ndx++) {
+X         if (ndx)  cout << ' ' ;
+X         escape_value(array[ndx]);
+X      }
+X      cout << "';" << endl ;
+X   }
+X}
+X
+Xvoid
+XBourneShell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\'' :
+X         cout << "'\\''" ;
+X         break ;
+X
+X      case '\\' :
+X      case '\b' :
+X      case '\r' :
+X      case '\v' :
+X      case '\f' :
+X         cout << '\\' ;    // fall thru to default case
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+X//------------------------------------------------------------------- KornShell
+X
+Xconst char * KornShell::NAME = "ksh" ;
+X
+XKornShell::KornShell(void)
+X{
+X}
+X
+XKornShell::~KornShell(void)
+X{
+X}
+X
+Xconst char *
+XKornShell::name(void) const
+X{
+X   return  KornShell::NAME ;
+X}
+X
+Xvoid
+XKornShell::unset_args(const char *) const
+X{
+X   cout << "set -- ;" << endl ;
+X}
+X
+Xvoid
+XKornShell::set(const ShellVariable & variable) const
+X{
+X   BourneShell::set(variable);
+X} 
+X
+Xvoid
+XKornShell::set(const ShellArray & array, int variant) const
+X{
+X   const char * name = varname(array.name(), '$');
+X   if (is_positionals(name)) {
+X      cout << "set -- " ;
+X   } else {
+X      cout << "set " << (variant ? '+' : '-') << "A " << name << ' ' ;
+X   }
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << ' ' ;
+X      cout << '\'' ;
+X      escape_value(array[ndx]);
+X      cout << '\'' ;
+X   }
+X   cout << ';' << endl ;
+X}
+X
+X//------------------------------------------------------------ BourneAgainShell
+X
+Xconst char * BourneAgainShell::NAME = "bash" ;
+X
+XBourneAgainShell::BourneAgainShell(void)
+X{
+X}
+X
+XBourneAgainShell::~BourneAgainShell(void)
+X{
+X}
+X
+Xconst char *
+XBourneAgainShell::name(void) const
+X{
+X   return  BourneAgainShell::NAME ;
+X}
+X
+Xvoid
+XBourneAgainShell::set(const ShellVariable & variable) const
+X{
+X   BourneShell::set(variable);
+X} 
+X
+Xvoid
+XBourneAgainShell::set(const ShellArray & array, int variant) const
+X{
+X   BourneShell::set(array, variant);
+X}
+X
+X//---------------------------------------------------------------------- CShell
+X
+Xconst char * CShell::NAME = "csh" ;
+X
+XCShell::CShell(void)
+X{
+X}
+X
+XCShell::~CShell(void)
+X{
+X}
+X
+Xconst char *
+XCShell::name(void) const
+X{
+X   return  CShell::NAME ;
+X}
+X
+Xvoid
+XCShell::unset_args(const char *) const
+X{
+X   cout << "set argv=();" << endl ;
+X}
+X
+Xint
+XCShell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '$');
+X   return  (::strcmp(name, "argv") == 0);
+X}
+X
+Xvoid
+XCShell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   int  posl = is_positionals(name);
+X   cout << "set " << name << '=' ;
+X   if (posl)  cout << '(' ;
+X   cout << '\'' ;
+X   escape_value(variable.value());
+X   cout << '\'' ;
+X   if (posl)  cout << ')' ;
+X   cout << ';' << endl ;;
+X}
+X
+Xvoid
+XCShell::set(const ShellArray & array, int ) const
+X{
+X   cout << "set " << varname(array.name(), '$') << "=(" ;
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << ' ' ;
+X      cout << '\'' ;
+X      escape_value(array[ndx]);
+X      cout << '\'' ;
+X   }
+X   cout << ");" << endl ;
+X}
+X
+Xvoid
+XCShell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\'' :
+X         cout << "'\\''" ;
+X         break ;
+X
+X      case '!' :
+X      case '\n' :
+X      case '\b' :
+X      case '\r' :
+X      case '\v' :
+X      case '\f' :
+X         cout << '\\' ;    // fall thru to default case
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+X//---------------------------------------------------------------------- ZShell
+X
+Xconst char * ZShell::NAME = "zsh" ;
+X
+XZShell::ZShell(void)
+X{
+X}
+X
+XZShell::~ZShell(void)
+X{
+X}
+X
+Xconst char *
+XZShell::name(void) const
+X{
+X   return  ZShell::NAME ;
+X}
+X
+Xvoid
+XZShell::unset_args(const char *) const
+X{
+X   cout << "argv=();" << endl ;
+X}
+X
+Xint
+XZShell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '$');
+X   return  ((::strcmp(name, "--") == 0) || (::strcmp(name, "-") == 0) ||
+X            (::strcmp(name, "@") == 0)  || (::strcmp(name, "*") == 0) ||
+X            (::strcmp(name, "argv") == 0));
+X}
+X
+Xvoid
+XZShell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   int  posl = is_positionals(name);
+X   cout << name << '=' ;
+X   if (posl)  cout << '(' ;
+X   cout << '\'' ;
+X   escape_value(variable.value());
+X   cout << '\'' ;
+X   if (posl)  cout << ')' ;
+X   cout << ';' << endl ;;
+X}
+X
+Xvoid
+XZShell::set(const ShellArray & array, int ) const
+X{
+X   cout << varname(array.name(), '$') << "=(" ;
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << ' ' ;
+X      cout << '\'' ;
+X      escape_value(array[ndx]);
+X      cout << '\'' ;
+X   }
+X   cout << ");" << endl ;
+X}
+X
+Xvoid
+XZShell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\'' :
+X         cout << "'\\''" ;
+X         break ;
+X
+X      case '!' :
+X      case '\\' :
+X      case '\b' :
+X      case '\r' :
+X      case '\v' :
+X      case '\f' :
+X         cout << '\\' ;    // fall thru to default case
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+X//------------------------------------------------------------------ Plan9Shell
+X
+Xconst char * Plan9Shell::NAME = "rc" ;
+X
+XPlan9Shell::Plan9Shell(void)
+X{
+X}
+X
+XPlan9Shell::~Plan9Shell(void)
+X{
+X}
+X
+Xconst char *
+XPlan9Shell::name(void) const
+X{
+X   return  Plan9Shell::NAME ;
+X}
+X
+Xvoid
+XPlan9Shell::unset_args(const char *) const
+X{
+X   cout << "*=();" << endl ;
+X}
+X
+Xint
+XPlan9Shell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '$');
+X   return  (::strcmp(name, "*") == 0);
+X}
+X
+Xvoid
+XPlan9Shell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   int  posl = is_positionals(name);
+X   cout << name << '=' ;
+X   if (posl)  cout << '(' ;
+X   cout << '\'' ;
+X   escape_value(variable.value());
+X   cout << '\'' ;
+X   if (posl)  cout << ')' ;
+X   cout << ';' << endl ;;
+X}
+X
+Xvoid
+XPlan9Shell::set(const ShellArray & array, int ) const
+X{
+X   cout << varname(array.name(), '$') << "=(" ;
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << ' ' ;
+X      cout << '\'' ;
+X      escape_value(array[ndx]);
+X      cout << '\'' ;
+X   }
+X   cout << ");" << endl ;
+X}
+X
+Xvoid
+XPlan9Shell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\'' :
+X         cout << "''" ;
+X         break ;
+X
+X      case '\\' :
+X      case '\b' :
+X      case '\r' :
+X      case '\v' :
+X      case '\f' :
+X         cout << '\\' ;    // fall thru to default case
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+X//------------------------------------------------------------------- PerlShell
+X
+Xconst char * PerlShell::NAME = "perl" ;
+X
+XPerlShell::PerlShell(void)
+X{
+X   static const char perl_true[]  = "1" ;
+X   static const char perl_false[] = "0" ;
+X
+X      // use different defaults for TRUE and FALSE
+X   ShellCmdArgBool::True(perl_true);
+X   ShellCmdArgBool::False(perl_false);
+X}
+X
+XPerlShell::~PerlShell(void)
+X{
+X}
+X
+Xconst char *
+XPerlShell::name(void) const
+X{
+X   return  PerlShell::NAME ;
+X}
+X
+Xvoid
+XPerlShell::unset_args(const char *) const
+X{
+X   cout << "@ARGV = ();" << endl ;
+X}
+X
+Xint
+XPerlShell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '@');
+X   return  (::strcmp(name, "ARGV") == 0);
+X}
+X
+Xvoid
+XPerlShell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   int array = (*name == '@') ;
+X   cout << (array ? "" : "$") << name << " = " ;
+X   if (array)  cout << '(' ;
+X   cout << '\'' ;
+X   escape_value(variable.value());
+X   cout << '\'' ;
+X   if (array)  cout << ')' ;
+X   cout << ';' << endl ;;
+X}
+X
+Xvoid
+XPerlShell::set(const ShellArray & array, int ) const
+X{
+X   const char * name = varname(array.name(), '@');
+X   int scalar = (*name == '$') ;
+X   cout << (scalar ? "" : "@") << name << " = " ;
+X   cout << (scalar ? '\'' : '(') ;
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << (scalar ? " " : ", ") ;
+X      if (! scalar)  cout << '\'' ;
+X      escape_value(array[ndx]);
+X      if (! scalar)  cout << '\'' ;
+X   }
+X   cout << (scalar ? '\'' : ')') ;
+X   cout << ";" << endl ;
+X}
+X
+Xvoid
+XPerlShell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\t' :  cout << "\\t" ; break ;
+X      case '\n' :  cout << "\\n" ; break ;
+X      case '\b' :  cout << "\\b" ; break ;
+X      case '\r' :  cout << "\\r" ; break ;
+X      case '\v' :  cout << "\\v" ; break ;
+X      case '\f' :  cout << "\\f" ; break ;
+X
+X      case '\'' :
+X      case '\\' :
+X         cout << "\\" ;    // fall thru to default
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+X//------------------------------------------------------------------- TclShell
+X
+Xconst char * TclShell::NAME = "tcl" ;
+X
+XTclShell::TclShell(void)
+X{
+X   static const char tcl_true[]  = "1" ;
+X   static const char tcl_false[] = "0" ;
+X
+X      // use different defaults for TRUE and FALSE
+X   ShellCmdArgBool::True(tcl_true);
+X   ShellCmdArgBool::False(tcl_false);
+X}
+X
+XTclShell::~TclShell(void)
+X{
+X}
+X
+Xconst char *
+XTclShell::name(void) const
+X{
+X   return  TclShell::NAME ;
+X}
+X
+Xvoid
+XTclShell::unset_args(const char * name) const
+X{
+X   cout << "set " << varname(name, '$') << " {};" << endl ;
+X}
+X
+Xint
+XTclShell::is_positionals(const char * name) const
+X{
+X   name = varname(name, '$');
+X   return  ((::strcmp(name, "argv") == 0) || (::strcmp(name, "args") == 0));
+X}
+X
+Xvoid
+XTclShell::set(const ShellVariable & variable) const
+X{
+X   const char * name = varname(variable.name(), '$');
+X   cout << "set " << name << ' ' ;
+X   cout << '"' ;
+X   escape_value(variable.value());
+X   cout << '"' ;
+X   cout << ';' << endl ;;
+X}
+X
+Xvoid
+XTclShell::set(const ShellArray & array, int ) const
+X{
+X   const char * name = varname(array.name(), '@');
+X   int scalar = (*name == '$') ;
+X   cout << "set " << name << " [ list " ;
+X   for (int  ndx = 0 ; ndx < array.count() ; ndx++) {
+X      if (ndx)  cout << ' ' ;
+X      cout << '"' ;
+X      escape_value(array[ndx]);
+X      cout << '"' ;
+X   }
+X   cout << " ]" ;
+X   cout << ";" << endl ;
+X}
+X
+Xvoid
+XTclShell::escape_value(const char * value) const
+X{
+X   for ( ; *value ; value++) {
+X      switch (*value) {
+X      case '\t' :  cout << "\\t" ; break ;
+X      case '\n' :  cout << "\\n" ; break ;
+X      case '\b' :  cout << "\\b" ; break ;
+X      case '\r' :  cout << "\\r" ; break ;
+X      case '\v' :  cout << "\\v" ; break ;
+X      case '\f' :  cout << "\\f" ; break ;
+X
+X      case '\'' :
+X      case '\\' :
+X      case '{' :
+X      case '}' :
+X      case '[' :
+X      case ']' :
+X      case '$' :
+X      case ';' :
+X      case '"' :
+X         cout << "\\" ;    // fall thru to default
+X      default :
+X         cout << char(*value) ;
+X      }
+X   } //for
+X}
+X
+END_OF_FILE
+if test 16461 -ne `wc -c <'src/cmd/shells.c'`; then
+    echo shar: \"'src/cmd/shells.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/shells.c'
+fi
+if test -f 'src/cmd/shells.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/shells.h'\"
+else
+echo shar: Extracting \"'src/cmd/shells.h'\" \(11983 characters\)
+sed "s/^X//" >'src/cmd/shells.h' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: shells.h - define classes for the various Unix shells
+X//
+X// ^DESCRIPTION:
+X//     This file encapsulates all the information that cmdparse(1) needs
+X//     to know about each of the various shells that it will support.
+X//
+X//     To add a new shell to the list of shells supported here:
+X//        1) Add its class definition in this file.
+X//
+X//        2) Implement its member functions in "shells.h"
+X//           (dont forget the NAME data-member to hold the name).
+X//
+X//        3) Add an "else if" statement for the new shell into
+X//           the virtual constructor UnixShell::UnixShell(const char *).
+X//
+X// ^HISTORY:
+X//    04/19/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#ifndef _shells_h
+X#define _shells_h
+X
+X   // A ShellVariable object houses the name and value of a shell
+X   // environment variable.
+X   //
+Xclass  ShellVariable {
+Xpublic:
+X   ShellVariable(const char * name);
+X
+X   virtual ~ShellVariable(void);
+X
+X      // Return the name of this variable
+X   const char *
+X   name(void) const { return  var_name ; }
+X
+X      // Set the value of this variable
+X   void
+X   set(const char * value) { var_value = value; }
+X
+X      // Return the value of this variable
+X   const char *
+X   value(void) const { return  var_value; }
+X
+Xprotected:
+X   const char * var_name ;
+X   const char * var_value ;
+X};
+X
+X
+X   // A ShellArray object houses the name and values of a shell array.
+X   //
+Xstruct  ShellArrayValues;
+Xclass  ShellArray {
+Xpublic:
+X   ShellArray(const char * name);
+X
+X   virtual ~ShellArray(void);
+X
+X      // Return the name of this array
+X   const char *
+X   name(void) const { return  array_name; }
+X
+X      // Append to the list of values in this array
+X   void
+X   append(const char * value);
+X
+X      // Return the number of items in this array.
+X   unsigned
+X   count(void) const;
+X
+X      // Return the desired element of an array
+X      //
+X      // NOTE: the elements range in index from 0 .. count-1,
+X      //       an out-of-range index will result in a run-time
+X      //       NULL-ptr dereferencing error!
+X      //
+X   const char *
+X   operator[](unsigned  index) const;
+X
+Xprotected:
+X   const char       * array_name ;
+X   ShellArrayValues * array_value ;
+X} ;
+X
+X
+X   // AbstractUnixShell is an abstract class for an arbitrary Unix shell
+X   // program.  It represents all the functionality that cmdparse(1)
+X   // requires of a command-interpreter.
+X   //
+Xclass  AbstractUnixShell {
+Xpublic:
+X   virtual
+X   ~AbstractUnixShell(void);
+X
+X      // Return the name of this shell
+X   virtual  const char *
+X   name(void) const = 0;
+X
+X      // Does "name" correspond to the positional-parameters for this shell?
+X   virtual  int
+X   is_positionals(const char * name) const = 0;
+X
+X      // Unset the positional parameters of this shell.
+X      //
+X      // The parameter "name" is the name of a shell variable
+X      // for which is_positionals() returns TRUE.
+X      //
+X   virtual  void
+X   unset_args(const char * name) const = 0;
+X
+X      // Set the given variable name to the given value
+X   virtual  void
+X   set(const ShellVariable & variable) const = 0;
+X
+X      // Set the given array name to the given values.
+X      // Some shells have more than one way to set an array.
+X      // Such shells should label these varying methods as
+X      // variant0 .. variantN, the desired variant method to use
+X      // (which defaults to zero), should be indicated by the
+X      // last parameter.
+X      //
+X      // This member function is responsible for checking to see
+X      // if the array name corresponds to the positional-parameters
+X      // (and for behaving accordingly if this is the case).
+X      //
+X   virtual  void
+X   set(const ShellArray & array, int variant) const = 0;
+X
+Xprotected:
+X   AbstractUnixShell(void) {};
+X
+X} ;
+X
+X
+X   // UnixShell is used as an envelope class (using its siblings as
+X   // letter classes). It is a "shell" that does not decide what
+X   // type of shell it is until runtime.
+X   // 
+Xclass  UnixShell {
+Xpublic:
+X      // This is a virtual constructor that constructs a Unix shell object
+X      // that is the appropriate derived class of AbstractUnixShell.
+X      //
+X   UnixShell(const char * shell_name);
+X
+X   virtual
+X   ~UnixShell(void);
+X
+X      // See if this shell is valid
+X   int
+X   is_valid(void) const { return  (valid) ? 1 : 0; }
+X
+X      // Return the name of this shell
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+Xprivate:
+X   unsigned    valid : 1 ;
+X   AbstractUnixShell * shell;
+X
+X} ;
+X
+X
+X   // BourneShell (sh) - the most common of the Unix Shells - implemented
+X   //                    by Stephen R. Bourne
+X   //
+X   // Variables are set using:
+X   //      name='value';
+X   //
+X   // Arrays (by default) are set using:
+X   //      name='value1 value2 value3 ...';
+X   //
+X   // but if requested, the following array-variant will be used instead:
+X   //      name_count=N;
+X   //      name1='value1';
+X   //      name2='value2';
+X   //          ...
+X   //      nameN='valueN';
+X   //
+X   // If a variable name matches one of "@", "*", "-", or "--", then the 
+X   // variable is assumed to refer to the positional-parameters of the
+X   // shell-script and the following syntax will be used:
+X   //      set -- 'value1' 'value2' 'value3' ...
+X   //
+Xclass  BourneShell : public  AbstractUnixShell {
+Xpublic:
+X   BourneShell(void);
+X
+X   virtual  ~BourneShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // KornShell (ksh) -- David G. Korn's reimplementation of the Bourne shell
+X   //
+X   // Variables are set using the same syntax as in the Bourne Shell.
+X   //
+X   // Arrays (by default) are set using:
+X   //      set -A name 'value1' 'value2' 'value3' ...;
+X   //
+X   // but if requested, the following array-variant will be used instead:
+X   //      set +A name 'value1' 'value2' 'value3' ...;
+X   //
+X   // If a variable name matches one of "@", "*", "-", or "--", then the 
+X   // variable is assumed to refer to the positional-parameters of the
+X   // shell-script and the following syntax will be used:
+X   //      set -- 'value1' 'value2' 'value3' ...
+X   //
+Xclass  KornShell : public BourneShell {
+Xpublic:
+X   KornShell(void);
+X
+X   virtual  ~KornShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // BourneAgainShell (bash) -- The Free Software Foundation's answer to ksh
+X   //
+X   // bash is treated exactlt like the Bourne Shell, this will change when
+X   // bash supports arrays.
+X   //
+Xclass  BourneAgainShell : public BourneShell {
+Xpublic:
+X   BourneAgainShell(void);
+X
+X   virtual  ~BourneAgainShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // CShell (csh) -- Bill Joy's rewrite of "sh" with C like syntax.
+X   //                 this will work for tcsh and itcsh as well.
+X   //
+X   // Variables are set using:
+X   //      set name='value';
+X   //
+X   // Arrays (by default) are set using:
+X   //      set name=('value1' 'value2' 'value3' ...);
+X   //
+Xclass  CShell : public AbstractUnixShell {
+Xpublic:
+X   CShell(void);
+X
+X   virtual  ~CShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // ZShell (zsh) -- Paul Falstad's shell combining lots of stuff from
+X   //                 csh and ksh and some stuff of his own.
+X   //
+X   // Variables are set using:
+X   //    name='value';
+X   //
+X   // Arrays are set using:
+X   //    name=('value1' 'value2' 'value3' ...);
+X   //
+X   // If a variable name matches one of "@", "*", "-", "--", or "argv" then
+X   // the variable is assumed to refer to the positional-parameters of the
+X   // shell-script and the following syntax will be used:
+X   //    argv=('value1' 'value2' 'value3' ...);
+X   //
+Xclass  ZShell : public AbstractUnixShell {
+Xpublic:
+X   ZShell(void);
+X
+X   virtual  ~ZShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // Plan9Shell (rc) -- Tom Duff's shell from the Plan 9 papers.
+X   //        A public domain version (with some enhancements) was
+X   //        written by Byron Rakitzis.
+X   //
+X   // Variables are set using:
+X   //    name='value';
+X   //
+X   // Arrays are set using:
+X   //    name=('value1' 'value2' 'value3' ...);
+X   //
+Xclass  Plan9Shell : public AbstractUnixShell {
+Xpublic:
+X   Plan9Shell(void);
+X
+X   virtual  ~Plan9Shell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // Perl (perl) -- Larry Wall's Practical Extraction and Report Generation
+X   //                utility.
+X   //
+X   // Variables are set using:
+X   //    $name = 'value';
+X   //
+X   // Arrays are set using:
+X   //    @name = ('value1', 'value2', 'value3', ...);
+X   //
+Xclass  PerlShell : public AbstractUnixShell {
+Xpublic:
+X   PerlShell(void);
+X
+X   virtual  ~PerlShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X   // Tcl -- Karl Lehenbauer and friends implementation of a shell based
+X   //        on John K. Ousterhout's Tool Command Language
+X   //
+X   // Variables are set using:
+X   //    set name "value";
+X   //
+X   // Arrays are set using:
+X   //     set name [list "value1" "value2" "value3" ...];
+X   //
+Xclass  TclShell : public AbstractUnixShell {
+Xpublic:
+X   TclShell(void);
+X
+X   virtual  ~TclShell(void);
+X
+X   virtual  const char *
+X   name(void) const;
+X
+X   virtual  void
+X   unset_args(const char * name) const;
+X
+X   virtual  int
+X   is_positionals(const char * name) const;
+X
+X   virtual  void
+X   set(const ShellVariable & variable) const;
+X
+X   virtual  void
+X   set(const ShellArray & array, int variant) const;
+X
+X   static const char * NAME ;
+X
+Xprotected:
+X   void
+X   escape_value(const char * value) const;
+X
+Xprivate:
+X
+X} ;
+X
+X
+X#endif  /* _shells_h */
+END_OF_FILE
+if test 11983 -ne `wc -c <'src/cmd/shells.h'`; then
+    echo shar: \"'src/cmd/shells.h'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/shells.h'
+fi
+if test -f 'src/cmd/syntax.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/syntax.c'\"
+else
+echo shar: Extracting \"'src/cmd/syntax.c'\" \(11234 characters\)
+sed "s/^X//" >'src/cmd/syntax.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: syntax.c - implement the ArgSyntax class
+X//
+X// ^DESCRIPTION:
+X//    This file uses a SyntaxFSM to implement a class to parse an argument
+X//    syntax string from input and to hold the "compiled" result.
+X//
+X// ^HISTORY:
+X//    03/25/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include <cmdline.h>
+X
+X#include "syntax.h"
+X#include "quoted.h"
+X
+X//------------------------------------------------------------------ copy_token
+X
+X//-------------------
+X// ^FUNCTION: copy_token - copy into a token
+X//
+X// ^SYNOPSIS:
+X//    copy_token(dest, src)
+X//
+X// ^PARAMETERS:
+X//    const char * & dest;
+X//    -- where to house the duplicated token
+X//
+X//    SyntaxFSM::token_t src;
+X//    -- the token to copy.
+X//
+X// ^DESCRIPTION:
+X//    Duplicate the token denoted by "src" into "dest".
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    Allocates storage for "dest" is token length is non-zero.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xvoid
+Xcopy_token(const char * & dest, SyntaxFSM::token_t src)
+X{
+X   char * tok = new char[src.len + 1] ;
+X   ::strncpy(tok, src.start, src.len);
+X   tok[src.len] = '\0';
+X   dest = tok;
+X}
+X
+X//---------------------------------------------------------------- ArgSyntax
+X
+X//-------------------
+X// ^FUNCTION: parse_syntax - parse syntax string
+X//
+X// ^SYNOPSIS:
+X//    parse_syntax(str)
+X//
+X// ^PARAMETERS:
+X//    const char * str;
+X//    -- the string (containing the argument syntax) to parse.
+X//
+X// ^DESCRIPTION:
+X//    Parse the syntax-string and compile it into an internal format
+X//    (namely an ArgSyntax object).
+X//
+X// ^REQUIREMENTS:
+X//    "str" should correspond to the following:
+X//
+X//       [<KEYWORD-SPEC>] [<VALUE-SPEC>]
+X//
+X//    Where <KEYWORD-SPEC> is of the form:
+X//       c|keyword
+X//
+X//    Where 'c' is the option-character and "keyword" is the keyword.
+X//
+X//    (There must be no spaces surrounding the '|', if there arem then a space
+X//    before the '|' means an "empty" option and a space after the '|' means
+X//    an empty keyword).
+X//
+X//    <VALUE-SPEC> should look like:
+X//        value [...]
+X//
+X//    Where "value" is the value name and "..." indicates the value is really
+X//    a list of values. The entire VALUE-SPEC should be surrounded by '[' and
+X//    ']' if the value is optional.
+X//
+X//    If the argument itself is optional then the entire syntax string
+X//    should be inside of square brackets.
+X//
+X//    Lastly - a positional AND keyword argument may be denoted by
+X//        "[c|keyword] value"
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies all parts of the ArgSyntax object.
+X//    - prints syntax error messages on cout.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Too complicated to be described here - follow along.
+X//-^^----------------
+Xint
+XArgSyntax::parse_syntax(const char * syntax)
+X{
+X   const char * ptr = syntax;
+X   SyntaxFSM  fsm;
+X   SyntaxFSM::token_t  token;
+X
+X   while (fsm(ptr, token)) {
+X      switch(fsm.state()) {
+X      case  SyntaxFSM::OPTION :
+X         // We have an option character - save it and move on
+X         if (token.len)  arg_char = *(token.start) ;
+X         if (! fsm.level())  arg_syntax |= CmdArg::isREQ;
+X         break;
+X
+X      case  SyntaxFSM::KEYWORD :
+X         // We have a keyword - save it and move on
+X         ::copy_token(arg_keyword, token);
+X         if (! fsm.level())  arg_syntax |= CmdArg::isREQ;
+X         break;
+X
+X      case  SyntaxFSM::VALUE :
+X         // We have a value - save it and call parse_value to
+X         // figure out what the flags are.
+X         //
+X         if (token.len)  ::copy_token(arg_value, token);
+X         parse_value(fsm);
+X         break;
+X
+X      case  SyntaxFSM::LIST :
+X         // We have an ellipsis -- update the syntax flags
+X         arg_syntax |= CmdArg::isLIST;
+X         break;
+X
+X      case  SyntaxFSM::ERROR :
+X         // Error!
+X         cerr << "syntax error in \"" << syntax << "\"." << endl ;
+X         return  -1;
+X
+X      default :
+X         cerr << "internal error in class SyntaxFSM.\n\tunexpected state "
+X              << "(" << fsm.state() << ") encountered." << endl ;
+X         return  -1;
+X      } //switch
+X   } //while
+X
+X   return  0;
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: parse_value - parse an argument value
+X//
+X// ^SYNOPSIS:
+X//    parse_value(fsm)
+X//
+X// ^PARAMETERS:
+X//    const SyntaxFSM & fsm;
+X//    -- the finite-state machine that is reading input.
+X//
+X// ^DESCRIPTION:
+X//    The "value" has already been read and saved, we need to figure out
+X//    what syntax_flags to associate with the argument.
+X//
+X// ^REQUIREMENTS:
+X//    "fsm" MUST be in the SyntaxFSM::VALUE state!
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies the arg_syntax flags of an ArgSyntax object.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Too complicated to be described here - follow along.
+X//
+X//-^^----------------
+Xvoid
+XArgSyntax::parse_value(const SyntaxFSM & fsm)
+X{
+X   // Each of the possibilities we encounter in the SyntaxFSM::VALUE state
+X   // will correspond to some combination of num_tokens, num_braces, and
+X   // level. Let us determine all the valid possibilites below:
+X   //
+X   //   (num_tokens, num_braces, level)            syntax-string
+X   //   -------------------------------     ---------------------------
+X   //             (1, 0, 0)                      "value"
+X   //             (1, 0, 1)                      "[value]"
+X   //             (3, 0, 0)                      "c|string value"
+X   //             (3, 0, 1)                      "c|string [value]"
+X   //             (3, 0, 1)                      "[c|string value]"
+X   //             (3, 0, 2)                      "[c|string [value]]"
+X   //             (3, 1, 0)                      "[c|string] value"
+X   //             (3, 1, 1)                      "[c|string] [value]"
+X   //             (3, 1, 1)                      "[[c|string] value]"
+X   //
+X   // There are only two case where a given (num_token, num_braces, level)
+X   // combination corresponds to more than one possible syntax-string. These
+X   // two cases are (3, 0, 1) and (3, 1, 1). We can ignore the "ambiguity"
+X   // of (3, 1, 1) because although the two possible syntax-strings are
+X   // different, they mean exactly the same thing. (3, 0, 1) is a different
+X   // case however: how do we tell if the whole argument is optional or if
+X   // just the value is optional? If the whole argument is required (meaning
+X   // "not optional") then we will already have set the isREQ flag when we
+X   // parsed the option and/or the keyword name.
+X   //
+X   if (fsm.num_tokens() == 1) {
+X      // cases (1, 0, 0) and (1, 0, 1)
+X      arg_syntax |= CmdArg::isPOS;
+X      if (! fsm.level()) {
+X         arg_syntax |= (CmdArg::isREQ | CmdArg::isVALREQ);
+X      } else {
+X         arg_syntax |= (CmdArg::isOPT | CmdArg::isVALOPT);
+X      }
+X   } else {
+X      if (fsm.num_braces()) {
+X         // cases (3, 1, 0) and (3, 1, 1)
+X         arg_syntax |= CmdArg::isPOS;
+X         if (! fsm.level()) {
+X            // case (3, 1, 0)
+X            arg_syntax |= (CmdArg::isREQ | CmdArg::isVALREQ);
+X         } else {
+X            // case (3, 1, 1)
+X            arg_syntax |= (CmdArg::isOPT | CmdArg::isVALOPT);
+X         }
+X      } else {
+X         if (! fsm.level()) {
+X            // case (3, 0, 0)
+X            arg_syntax |= (CmdArg::isREQ | CmdArg::isVALREQ);
+X         } else if (fsm.level() == 1) {
+X            // case (3, 0, 1)
+X            if (arg_syntax & CmdArg::isREQ) {
+X               arg_syntax |= CmdArg::isVALOPT;
+X            } else {
+X               arg_syntax |= CmdArg::isVALREQ;
+X            }
+X         } else {
+X            // case (3, 0, 2)
+X            arg_syntax |= CmdArg::isVALOPT;
+X         } //if level
+X      } //if num-braces
+X   } //if num-tokens
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: parse_flag - parse a flag
+X//
+X// ^SYNOPSIS:
+X//    parse_flag(is)
+X//
+X// ^PARAMETERS:
+X//    istream & is;
+X//    -- the input stream to read the flag from.
+X//
+X// ^DESCRIPTION:
+X//    By specifying a string that is accepted by "parse_syntax" one
+X//    can specify almost any combination of CmdArg::SyntaxFlags. 
+X//    The only ones that cannot be specified in this manner are the
+X//    CmdArg::isVALSTICKY and CmdArg::isVALSEP flags. In order to
+X//    specify these flags, we allow the syntax string to be followed
+X//    by a colon (':') and one of "SEPARATE" or "STICKY".
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies the syntax-flags of an ArgSyntax object.
+X//    - prints syntax error messages on stderr.
+X//    - modifies the state of "is" if an error occurs.
+X//    - consumes characters from is.
+X//
+X// ^RETURN-VALUE:
+X//    A reference to the input stream used.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xistream &
+XArgSyntax::parse_flag(istream & is)
+X{
+X   char  ch;
+X   is >> ch;
+X   if (! is)  return  is;
+X
+X      // If `ch' is a quote then the flags were omitted
+X   if ((ch == '\'') || (ch == '"')) {
+X      is.putback(ch);
+X      return  is ;
+X   }
+X
+X      // The flags are here, make sure they start with ':'
+X   if (ch != ':') {
+X      cerr << "Unexpected token after syntax string.\n"
+X           << "\texpecting a colon, or a double or single quote." << endl ;
+X      is.clear(ios::failbit);
+X      return  is;
+X   }
+X
+X      // Now parse the flag
+X   char  arg_flag[16];
+X   is.width(sizeof(arg_flag) - 1);
+X   is >> arg_flag;
+X   if (! is) {
+X      if (is.eof()) {
+X         cerr << "Error - premature end-of-input.\n"
+X              << "\texpecting one of \"sticky\" or \"separate\"." << endl ; 
+X      } else {
+X         cerr << "Unable to extract argument flag." << endl ;
+X      }
+X      return  is;
+X   }
+X 
+X   char * flag = arg_flag;
+X
+X      // Skip any leading "CmdArg::isVAL" portion of the flag      
+X   if (CmdLine::strmatch("Cmd", flag, 3) == CmdLine::str_EXACT)  flag += 3;
+X   if (CmdLine::strmatch("Arg", flag, 3) == CmdLine::str_EXACT)  flag += 3;
+X   if (CmdLine::strmatch("::", flag, 2) == CmdLine::str_EXACT)   flag += 2;
+X   if (CmdLine::strmatch("is", flag, 2) == CmdLine::str_EXACT)   flag += 2;
+X   while ((*flag == '_') || (*flag == '-'))  ++flag;
+X   if (CmdLine::strmatch("VAL", flag, 3) == CmdLine::str_EXACT)  flag += 3;
+X   while ((*flag == '_') || (*flag == '-'))  ++flag;
+X
+X      // check for an ambiguous flag
+X   if (((*flag == 's') || (*flag == 'S')) && (! *(flag + 1))) {
+X      cerr << "Ambiguous flag \"" << flag << "\"." << endl ;
+X      is.clear(ios::failbit);
+X      return  is;
+X   }
+X
+X   if (CmdLine::strmatch("Sticky", flag) != CmdLine::str_NONE) {
+X      arg_syntax |= CmdArg::isVALSTICKY ;
+X   } else if (CmdLine::strmatch("Separate", flag) != CmdLine::str_NONE) {
+X      arg_syntax |= CmdArg::isVALSEP ;
+X   } else {
+X      cerr << "Invalid flag \"" << flag << "\".\n"
+X           << "\tmust be one of \"sticky\" or \"separate\"." << endl ;
+X      is.clear(ios::failbit);
+X      return  is;
+X   }
+X
+X   return  is ;
+X}
+X
+X//------------------------------------------------------------------ operator>>
+X
+Xistream &
+Xoperator>>(istream & is, ArgSyntax & arg)
+X{
+X   QuotedString  qstr(256);
+X
+X   is >> qstr ;
+X   if (! is)  return  is;
+X
+X   if (arg.parse_syntax(qstr))  return  is;
+X   return  arg.parse_flag(is);
+X}
+X
+END_OF_FILE
+if test 11234 -ne `wc -c <'src/cmd/syntax.c'`; then
+    echo shar: \"'src/cmd/syntax.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/syntax.c'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1276 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 25/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.081902.12132@klaava.Helsinki.FI>
+Date: 14 Jun 92 08:19:02 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1264
+
+Archieve-name: monster_helsinki_104/part25
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 25/32
+
+-+-+-+-+-+-+-+-+ START OF PART 25 -+-+-+-+-+-+-+-+
+X            if not obj_here (oid) then oid := 0
+X         end else oid := 0;
+X
+X         mslot := x_slot(player);          `123 monster slot `125
+X         if mslot = 0 then int_get := false
+X         else if here.people`091mslot`093.kind = P_MONSTER then begin `123 m
+Vonster `125
+X            if oid > 0 then begin
+X               slot := find_obj(oid);            `123 object current slot `1
+V25
+X               if mslot > 0 then begin
+X`009          getroom(room);                    `123 locking `125
+X                  i := 1;
+X`009          found := false;
+X`009          while (i <= maxhold) and (not found) do begin
+X`009`009     if here.people`091mslot`093.holding`091i`093 = 0 then
+X`009`009`009found := true
+X`009`009     else
+X`009`009`009i := i + 1;
+X`009          end;
+X`009          if found and (here.objs`091slot`093 = oid) then begin
+X`009       `009     here.people`091mslot`093.holding`091i`093 := oid;
+X                     here.objs`091slot`093 := 0;
+X                     here.objhide`091slot`093 := 0;
+X`009       `009     putroom;          `032
+X                     int_get := true;
+X`009          end else begin
+X`009`009     freeroom;
+X                     int_get := false
+X                  end
+X               end
+X            end else int_get := false        `123 someone is moving monster
+V ? `125
+X         end else if pid = mylog then begin `123 player `125
+X            if oid > 0 then begin
+X               if can_hold then begin
+X                  slot := find_obj(oid);
+X                  if take_obj(oid,slot) then begin
+X                     hold_obj(oid);`032
+X                     int_get := true
+X                  end else int_get := false
+X               end else int_get := false
+X            end else int_get := false
+X         end else begin         `032
+X            writeln ('%serious error in int_get. Notify Monster Manager.');
+X            int_get := false;
+X         end
+X      end else int_get := false;
+X   end else int_get := false;
+Xend;
+X
+X`091global`093
+Xfunction int_drop(player,object: shortstring): boolean;
+Xvar room,i,pid,oid,slot,mslot: integer;    `032
+X    found : boolean;
+Xbegin
+X   if debug then begin
+X      writeln('%int_drop: ',player);
+X      writeln('%        : ',object);
+X   end;
+X   if player > '' then begin
+X      room := x_where (player,pid);
+X      if room > 0 then begin
+X         gethere(room); `032
+X         mslot := x_slot(player); `032
+X         if mslot = 0 then oid := 0    `123 is  monster moving ? `125
+X         else if exact_obj (oid,object) then begin
+X            if not x_hold (oid,mslot) then oid := 0
+X         end else oid := 0;
+X    `032
+X         if mslot = 0 then int_drop := false
+X         else if here.people`091mslot`093.kind = P_MONSTER then begin `123 m
+Vonster `125
+X            if oid > 0 then begin
+X               slot := find_hold(oid,mslot);     `123 object current slot `1
+V25
+X`009       if slot > 0 then begin            `123 is object here yet ? `125
+X                  getroom(room);                    `123 locking `125
+X                  i := 1;
+X`009          found := false;
+X`009          while (i <= maxobjs) and (not found) do begin
+X`009`009     if here.objs`091i`093 = 0 then
+X`009`009`009found := true
+X`009`009     else
+X`009`009`009i := i + 1;
+X`009          end;
+X`009          if found and (here.people`091mslot`093.holding`091slot`093 = o
+Vid) then begin
+X`009       `009     here.people`091mslot`093.holding`091slot`093 := 0;
+X                     if here.people`091mslot`093.wielding = oid then
+X                        here.people`091mslot`093.wielding := 0;
+X                     if here.people`091mslot`093.wearing = oid then
+X                        here.people`091mslot`093.wearing := 0;
+X                     here.objs`091i`093 := oid;
+X                     here.objhide`091i`093 := 0;
+X`009       `009     putroom;          `032
+X                     int_drop := true;
+X`009          end else begin           `032
+X`009`009     freeroom;
+X                     int_drop := false
+X                  end
+X               end
+X            end else int_drop := false `123 someone is droping object ? `125
+X                                       `123 two user must run same monster `
+V125
+X         end else if pid = mylog then begin `123 player `125
+X            if oid > 0 then begin
+X               if can_drop then begin
+X                  slot := find_hold(oid);
+X                  if place_obj(oid,TRUE) then begin
+X                     drop_obj(slot);`032
+X                     int_drop := true;
+X                     if mywield = oid then x_unwield;
+X                     if mywear = oid then x_unwear;
+X                  end else int_drop := false
+X               end else int_drop := false
+X            end else int_drop := false
+X         end else begin         `032
+X            writeln ('%serious error in int_drop. Notify Monster manager');
+X            int_drop := false;
+X         end
+X      end else int_drop := false;
+X   end else int_drop := false;
+Xend;
+X
+X`091global`093
+Xfunction int_poof (player,room,owner: shortstring;`032
+X                   general,own: boolean): boolean;
+Xvar pid,cur,loc,targslot,code,apu,mslot: integer;
+X    pub,dis: shortstring;
+Xbegin
+X  if debug then begin
+X     writeln('%int_poof: ',player);
+X     writeln('%        : ',room);
+X     writeln('%        : ',owner);
+X     writeln('%        : ',general); `123 poof privilegio `125
+X     writeln('%        : ',own);     `123 privileged code `125
+X  end;
+X
+X  if player > '' then begin
+X     cur := x_where(player,pid);
+X     if cur > 0 then begin
+X        gethere(cur);
+X        mslot := x_slot(player);
+X        if (mslot >0) then begin
+X           if exact_room(loc,room) then begin
+X              if cur = loc then int_poof := true
+X              else if here.people`091mslot`093.kind = P_MONSTER then begin `
+V123 monster `125
+X                  code := here.people`091mslot`093.parm;
+X                  gethere(loc);                         `123 target room `12
+V5
+X                  if (owner = here.owner) or`032
+X                     (here.owner = disowned_id) or`032
+X`009`009     (here.owner = public_id) or general then begin
+X                     if x_puttoken (cur,pid,mslot,loc,targslot) then begin
+X                        take_token(mslot,cur);
+X                        int_poof := true
+X                     end else int_poof := false
+X                  end else int_poof := false
+X              end else if pid = mylog then begin       `123 player `125
+X                 if own then begin                    `032
+X                    gethere(loc);                      `123 target room `125
+X                    if (owner = here.owner) or`032
+X`009`009`009(here.owner = disowned_id) or
+X`009`009`009(here.owner = public_id) or
+X                       general then begin
+X                       if put_token (loc,targslot,0) then begin
+X                          take_token(mslot,cur);
+X                          myslot := targslot;
+X                          location := loc;
+X                          setevent;
+X                          do_look;
+X                          int_poof := true`032
+X                       end else int_poof := false;
+X                    end else int_poof := false;
+X                 end else int_poof := false;
+X              end else begin
+X                 writeln ('%seriuos error in int_poof. Notify Monster Manage
+Vr.');
+X                 int_poof := false;
+X              end;
+X           end else int_poof := false
+X        end else int_poof := false
+X      end else int_poof := false
+X   end else int_poof := false
+Xend; `123 int_poof `125
+X        `032
+X`091global`093
+Xfunction int_login (player: shortstring; force: boolean): integer;
+X`123 0 = no such player name `125
+X`123 1 = login ok `125
+X`123 2 = monster is already logged in `125   `032
+X`123 3 = miscelagous failure `125
+Xvar room,pid,mslot: integer;
+Xbegin
+X  if debug then begin
+X     writeln('%int_login: ',player);
+X     writeln('%         : ',force);
+X  end;  `032
+X  if player = '' then int_login := 1`009`009`123 pseudo login `125
+X  else begin
+X     room := x_where(player,pid);
+X     if room = 0 then int_login := 0
+X     else begin
+X        gethere(room);
+X        mslot := x_slot(player);
+X        if mslot = 0 then int_login := 3
+X        else if here.people`091mslot`093.kind < P_MONSTER then begin
+X           writeln('%serious error in int_login. Notify Monster Manager.');
+X           int_login := 3;
+X        end else begin
+X           getindex(I_ASLEEP);         `123 locking `125
+X           if indx.free`091pid`093 or force then begin     `123 ok `125
+X              indx.free`091pid`093 := false;
+X              putindex;
+X              int_login := 1
+X           end else begin
+X              freeindex;              `032
+X              int_login := 2
+X           end
+X       end
+X     end `032
+X   end
+Xend; `123 int_login `125
+X
+X`091global`093
+Xprocedure int_logout (player: shortstring);
+Xvar pid,room,mslot: integer;
+Xbegin
+X  if debug then writeln('%int_logout: ',player);
+X  if player > '' then begin`032
+X     room := x_where(player,pid);
+X     if room > 0 then begin
+X        gethere(room);
+X        mslot := x_slot(player);
+X        if mslot > 0 then`032
+X           if here.people`091mslot`093.kind < P_MONSTER then begin
+X              writeln('%serious error in int_logout. Notify Monster Manager.
+V');
+X           end else do_endplay (pid)              `032
+X     end
+X   end
+Xend; `123 int_logout `125
+X
+X`091global`093
+Xfunction int_attack(player: shortstring; power: integer): boolean;
+Xvar cur,pid,mslot,health,lev: integer;
+Xbegin
+X  if debug then begin
+X     writeln('%int_attack: ',player);
+X     writeln('%          : ',power:1);
+X  end;
+X  if not read_global_flag(GF_WARTIME) then int_attack := false
+X  else if player > '' then begin
+X     cur := x_where(player,pid);
+X     if cur > 0 then gethere(cur);                      `032
+X     mslot := x_slot(player);
+X     if (cur > 0) and (mslot >0) then begin
+X        if here.people`091mslot`093.kind = P_MONSTER then begin `123 monster
+V `125
+X           getroom;             `032
+X           if here.people`091mslot`093.kind <> P_MONSTER then begin `123 is
+V this `125
+X              int_attack := false;                   `123 double cheking ? `
+V125
+X              freeroom          `032
+X           end else begin
+X              health := here.people`091mslot`093.health;
+X              health := health - power;
+X              if health < 0 then health := 0;     `032
+X              here.people`091mslot`093.health := health;
+X              int_attack := true;
+X              putroom;
+X              getint(N_HEALTH);
+X              anint.int`091pid`093 := health;
+X              putint;
+X           end;
+X        end else if pid = mylog then begin        `123 player `125
+X           if (myexperience >= protect_exp) `123 and protected_MM `125 then
+V int_attack := false
+X           else begin                        `032
+X              take_hit(power);         `032
+X              int_attack := true;
+X           end
+X        end else begin`032
+X           writeln ('%serious error in int_attack. Notify Monster Manager.')
+V;
+X           int_attack := false;
+X        end;
+X      end else int_attack := false
+X   end else int_attack := false
+Xend; `123 int_poof `125
+X        `032
+X
+X
+X`091global`093
+Xfunction int_where(player: shortstring): shortstring;
+Xvar room,pid: integer;
+Xbegin
+X  if debug then writeln('%int_where: ',player);
+X  room := x_where(player,pid);
+X  if room = 0 then int_where := ''
+X  else begin
+X    getnam;   `123 room names `125
+X    freenam;
+X    int_where := nam.idents`091room`093;
+X  end
+Xend; `123 int_where `125
+X
+X`091global`093
+Xfunction player_room(player: shortstring): integer;
+Xvar unused: integer;
+Xbegin
+X  player_room := x_where(player,unused);
+Xend;
+X
+Xprocedure poof_monster `123 (n: integer; s: string) declared forward `125 ;
+Xvar name: shortstring;
+X    loc: integer;
+Xbegin
+X    name := here.people`091n`093.name;
+X    if lookup_room(loc,s) then begin
+X`009log_event(myslot,E_POOFYOU,n,loc);
+X`009writeln;
+X`009writeln('You extend your arms, muster some energy, and ',name,' is');
+X`009writeln('engulfed in a cloud of orange smoke.');
+X`009writeln;
+X`009wait(1);`009`123 try fixing event problem - yes - that isn't good `125
+X`009int_poof(name,nam.idents`091loc`093,'',true,true);
+X`009checkevents;
+X    end else
+X`009writeln('There is no room named ',s,'.');
+Xend; `123 poof monster `125
+X
+Xprocedure block_monster(s: string);
+Xvar room,pid,mslot,parm: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: A <monster>')
+X   else if lookup_pers(pid,s,true) then begin
+X      getint(N_LOCATION);
+X      freeint;
+X      room := anint.int`091pid`093;
+X      getpers;
+X      freepers;
+X      s := pers.idents`091pid`093;
+X      gethere(room);   `032
+X      mslot := x_slot (s);
+X      if mslot = 0 then writeln ('%error')
+X      else if here.people`091mslot`093.kind <> P_MONSTER then writeln ('No m
+Vonster')
+X      else begin
+X         parm := here.people`091mslot`093.parm;
+X         if parm = 0 then writeln ('%error')
+X         else begin
+X            set_runnable(parm,false);
+X            writeln('Blocked.');
+X         end
+X      end
+X   end else writeln ('No such monster.');
+Xend;
+X
+Xprocedure block_spell(s: string);
+Xvar n,parm: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: G <spell>')
+X   else if lookup_spell(n,s,true) then begin
+X`009getint(N_SPELL);
+X`009freeint;
+X`009parm := anint.int`091n`093;
+X`009if parm = 0 then writeln ('%error')
+X`009else begin
+X            set_runnable(parm,false);
+X            writeln('Blocked.');
+X`009end
+X   end else writeln ('No such spell.');
+Xend;
+X
+Xprocedure block_object(s: string);
+Xvar room,pid,mslot,parm,oid: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: B <object>')
+X   else if lookup_obj(oid,s,true) then begin
+X      getobj(oid);
+X      freeobj;
+X      if obj.actindx > 0 then begin
+X         set_runnable(obj.actindx,false);
+X         writeln('Blocked.');
+X      end else writeln ('No hook defined.')
+X   end else writeln('No such room.');
+Xend;
+X
+Xprocedure block_room (s: string);
+Xvar room,pid,mslot,parm: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: C <room>')
+X   else if lookup_room(room,s,true) then begin
+X      gethere(room);
+X      if here.hook > 0 then begin
+X         set_runnable(here.hook,false);
+X         writeln('Blocked.');
+X      end else writeln ('No hook defined.')
+X   end else writeln ('No such room.')
+Xend;
+X
+Xprocedure system_claim_room(s: string);
+Xvar room,pid,mslot,parm,oldowner: integer;
+Xbegin      `032
+X    if (s = '') or (length(s) > shortlen) then writeln('USAGE: R <room>')
+X    else if lookup_room(room,s,true) then begin
+X`009getroom(room);
+X`009if not exact_user(oldowner,here.owner) then oldowner := 0;
+X`009here.owner := system_id;
+X`009putroom;
+X`009getown;
+X`009own.idents`091room`093 := system_id;
+X`009putown;
+X`009change_owner(oldowner,0);
+X`009if here.hook > 0 then set_owner(here.hook,,system_id);
+X`009writeln('System is now owner of ',here.nicename,'.');
+X    end else writeln('No such room.');
+Xend;
+X
+Xprocedure system_claim_object(s: string);
+Xvar pid,mslot,parm,oid: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: O <object>')
+X   else if lookup_obj(oid,s,true) then begin
+X      getobj(oid);
+X      putobj;
+X      getobjown;
+X      objown.idents`091oid`093 := system_id;
+X      putobjown;
+X      if obj.actindx > 0 then set_owner(obj.actindx,,system_id);
+X      writeln('System is now owner of ',obj.oname,'.');
+X    end else writeln('No such object.');
+Xend;
+X
+Xprocedure system_claim_monster(s: shortstring);
+Xvar room,pid,mslot,parm: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: M <monster>')
+X   else if lookup_pers(pid,s,true) then begin
+X      getint(N_LOCATION);
+X      freeint;
+X      room := anint.int`091pid`093;
+X      getpers;
+X      freepers;
+X      s := pers.idents`091pid`093;
+X      gethere(room);   `032
+X      mslot := x_slot (s);
+X      if mslot = 0 then writeln ('%error')
+X      else if here.people`091mslot`093.kind <> P_MONSTER then writeln ('No m
+Vonster')
+X      else begin
+X         parm := here.people`091mslot`093.parm;
+X         if parm = 0 then writeln ('%error')
+X         else begin
+X            set_owner(parm,,system_id);
+X`009    writeln('System is now owner of ',here.people`091mslot`093.name,'.')
+V;
+X         end
+X      end
+X   end else writeln ('No such monster.');
+Xend;
+X
+Xprocedure system_claim_spell(s: shortstring);
+Xvar room,n,parm: integer;
+Xbegin      `032
+X   if (s = '') or (length(s) > shortlen) then writeln('USAGE: S <spell>')
+X   else if lookup_spell(n,s,true) then begin
+X      getint(N_SPELL);
+X      freeint;
+X      parm := anint.int`091n`093;
+X      if parm = 0 then writeln ('%error')
+X      else begin
+X            set_owner(parm,,system_id);
+X`009    writeln('System is now owner of ',spell_name.idents`091n`093,'.');
+X      end
+X   end else writeln ('No such spell.');
+Xend;
+X
+Xprocedure system_2 `123(s: string); forward `125;
+Xvar continue: boolean;
+X    a: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009s := 'q';
+X    end;
+X
+X    procedure null;
+X    begin
+X`009writeln('QUIT');
+X`009s := '';
+X    end;
+X
+Xbegin
+X   continue := true;
+X   if s = '' then grab_line('Subsystem> ',s,eof_handler := leave)
+X   else continue := false;
+X   repeat
+X       s := lowcase(s);
+X       a := bite(s);
+X       if a > '' then case a`0911`093 of
+X`009    '?','h': command_help('*system 2 help*');
+X`009    'a': block_monster(s);
+X`009    'b': block_object(s);
+X`009    'c': block_room(s);
+X`009    'd': begin
+X`009`009    if s = '' then grab_line('Message? ',s,eof_handler := null);
+X`009`009    do_s_shutdown(s);
+X`009`009    set_global_flag(GF_ACTIVE,FALSE);
+X`009`009 end;
+X`009    'f': set_global_flag(GF_ACTIVE,TRUE);
+X`009    'g': block_spell(s);
+X`009    'i': custom_global_code(GF_CODE);
+X`009    'o': system_claim_object(s);
+X`009    'r': system_claim_room(s);
+X`009    'w': begin
+X`009`009    if s = '' then grab_line('Message? ',s,eof_handler := null);
+X`009`009    do_s_announce(s);
+X`009`009 end;
+X`009    'm': system_claim_monster(s);
+X`009    's': system_claim_spell(s);
+X`009    'v': fix_view_global_flags;
+X`009    'e','q': continue := false;
+X`009    otherwise`032
+X`009`009if continue then writeln('Type ? for help.')
+X`009`009else writeln('Type C ? for help.');
+X       end;
+X       if continue then grab_line('Subsystem> ',s,eof_handler := leave);
+X   until not continue;
+Xend;
+X
+Xprocedure throw_player `123(s: string)`125;
+Xlabel exit_label;
+Xvar mess: string;
+X    room,pid,count: integer;
+X    done: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X    if s = '' then grab_line('Player''s (personal) name? ',s,
+X`009eof_handler := leave);
+X    if (s = '') or (s = '?') then`032
+X`009writeln ('Usage: T <Player''s personal name>')
+X    else if length(s) > shortlen then writeln('Limit name to ',
+X`009shortlen:1,' characters.')
+X    else begin
+X`009grab_line('Message? ',mess,
+X`009    eof_handler := leave);
+X`009room := x_where(s,pid);
+X`009if pid = mylog then`032
+X`009    writeln ('You can''t throw yourself out from Monster.')
+X`009else if room = 0 then writeln('Player isn''t in Monster now.')
+X`009else begin
+X`009    log_event(0,E_KICK_OUT,pid,,mess,room);
+X`009    done := false;
+X`009    count := 0;
+X`009    while not done and (count < 20) do begin
+X`009`009wait(2);
+X`009`009checkevents(TRUE);
+X`009`009getindex(I_ASLEEP);
+X`009`009freeindex;
+X`009`009done := indx.free`091pid`093;
+X`009`009count := count +1;
+X`009    end;
+X`009    if done then writeln('Ok.');
+X`009end;
+X    end;
+X    exit_label:
+Xend;
+X
+X
+X
+Xbegin`009    `123 main program `125
+X    Get_Environment;
+X
+X    if not lookup_class(system_id,'system') then
+X`009writeln('%error in main program: system');
+X    if not lookup_class(public_id,'public') then
+X`009writeln('%error in main program: public');
+X    if not lookup_class(disowned_id,'disowned') then
+X`009writeln('%error in main program: disowned');
+X
+X    done := false;
+X    setup_guts;
+X    if terminal_line_len < 40 then begin `123 to avoid run time errors `125
+X`009writeln('Monster requires, that');
+X`009writeln('terminal width is at');
+X`009writeln('least 40 chars.');
+X    end else if terminal_page_len < 5 then begin `123 to avoid run time erro
+Vrs `125
+X`009writeln('Monster requires, that');
+X`009writeln('terminal height is at');
+X`009writeln('least 5 lines.');
+X    end else begin
+X
+X      very_init;
+X      very_prestart;  `123 very_prestart reopen OUTPUT `125
+X      if init then begin
+X
+X`009init_interpreter;
+X`009prestart;`032
+X`009`009`009
+X`009if not(done) then begin
+X`009    if not read_global_flag(GF_VALID) then begin
+X`009`009writeln('Can''t enter Monster universe.');
+X`009`009writeln('Database marked as invalid by Monster Manager.');
+X`009`009if userid = MM_userid then
+X`009`009    writeln('Use /FIX option to mark database as valid.');
+X
+X`009    end else if enter_universe then begin
+X`009`009repeat
+X`009`009`009parser;
+X`009`009`009if not read_global_flag(GF_ACTIVE) then begin
+X`009`009`009    if manager_priv then`032
+X`009`009`009`009writeln('WARNING: Monster is shutdown.')
+X`009`009`009    else begin
+X`009`009`009`009writeln('Monster is shutdown.');
+X`009`009`009`009done := true;
+X`009`009`009    end;
+X`009`009`009end;
+X`009`009until done;
+X`009`009leave_universe;
+X`009    end else
+X`009`009writeln('You attempt to enter the Monster universe, but a strange fo
+Vrce repels you.');
+X`009end;
+X`009finish_interpreter;
+X`009close_database;
+X      end else if work_time then write_message   `123 now is work time `125
+X      else writeln('Monster is ill, please notify Monster Manager.');
+X`009    `123 file protection problem `125
+X    end;
+X    finish_guts;
+Xend.
+X
+X`123 Notes to other who may inherit this program:
+X
+X`009Change all occurances in this file of dolpher to the account which
+X`009you will use for maintenance of this program.  That account will
+X`009have special administrative powers.
+X
+X`009This program uses several data files.  These files are in a directory
+X`009specified by the variable root in procedure init.  In my implementation,
+X`009I have a default ACL on the directory allowing everyone READ and WRITE
+X`009access to the files created in that directory.  Whoever plays the game
+X`009must be able to write to these data files.
+X
+X
+XWritten by Rich Skrenta, 1988.
+X
+X
+X
+X
+XBrief program organization overview:
+X------------------------------------
+X
+XMonster's Shared Files:
+X
+XMonster uses several shared files for communication.
+XEach shared file is accessed within Monster by a group of 3 procedures of th
+Ve
+Xform:`009getX(), freeX and putX.
+X
+XgetX takes an integer and attempts to get and lock that record from the
+Xappropriate data file.  If it encounters a "collision", it waits a short
+Xrandom amount of time and tries again.  After maxerr collisions it prints
+Xa deadlock warning message.
+X
+XIf data is to be read but not changed, a freeX should immediately follow
+Xthe getX so that other Monster processes can access the record.  If the
+Xrecord is to be written then a putX must eventually follow the getX.
+X
+X
+XMonster's Record Allocation:
+X
+XMonster dynamically allocates some resources such as description blocks and
+Xlines and player log entries.  The allocation is from a bitmap.  I chose a
+Xbitmap over a linked list to make the multiuser access to the database
+Xmore stable.  A particular resource (such as log entries) will have a
+Xparticular bitmap in the file INDEXFILE.  A getindex(I_LOG) will retrieve
+Xthe bitmap for it.
+X
+XActually allocation and deallocation is done through the group of functions
+Xalloc_X and delete_X.  If alloc_X returns true, the allocation was successfu
+Vl,
+Xand the integer parameter is the number of the block allocated.
+X
+XThe top available record in each group is stored in indexrec.  To increase
+Xthe top, the new records must be initially written so that garbage data is
+Xnot in them and the getX routines can locate them.  This can be done with
+Xthe addX(n) group of routines, which add capacity to resources.
+X
+X
+X
+XParsing in Monster:
+X
+XThe main parser(s) use a first-unique-characters method to lookup command
+Xkeywords and parameters.  The format of these functions is lookup_x(n,s).
+XIf it returns true, it successfully found an unambiguous match to string s.
+XThe integer index will be in n.
+X
+XIf an unambiguating match is needed (for example, if someone makes a new roo
+Vm,
+Xthe match to see if the name exists shouldn't disambiguate), the group of
+Xroutines exact_X(n,s) are called.  They function similarly to lookup_x(n,s).
+X
+XThe customization subsystems and the editor use very primitive parsers
+Xwhich only use first character match and integer arguments.
+X
+X
+X
+XAsynchronous events in Monster:
+X
+XWhen someone comes into a room, the other players in that room need
+Xto be notified, even if they might be typing a command on their terminal.
+X
+XThis is done in a two part process (producer/consumer problem):
+X
+XWhen an event takes place, the player's Monster that caused the event
+Xmakes a call to log_event.  Parameters include the slot of the sender (which
+Xperson in the room caused the event), the actual event that occurred
+X(E_something) and parameters.  Log_event works by sticking the event
+Xinto a circular buffer associated with the room (room may be specified on
+Xlog_event).
+X
+XNote: there is not an event record for every room; instead, the event
+X      record used is  ROOM # mod ACTUAL NUMBER of EVENT RECORDS
+X
+XThe other half of the process occurrs when a player's Monster calls
+Xgrab_line to get some input.  Grab line looks for keystrokes, and if
+Xthere are none, it calls checkevent and then sleeps for a short time
+X(.1 - .2 seconds).  Checkevent loads the event record associated with this
+Xroom and compare's the player's buffer pointer with the record's buffer
+Xpointer.  If they are different, checkevent bites off events and sends them
+Xto handle_event until there are no more events to be processed.  Checkevent
+Xignores events logged by it's own player.
+X
+X`125
+$ CALL UNPACK MON.PAS;454 1694381216
+$ create/nolog 'f'
+X!*************************************MONSTER*******************************
+V*******
+Xdefine syntax MONSTER_WHO
+X   image MONSTER_IMAGE_:monster_who
+X   noqualifiers
+Xdefine syntax MONSTER_DUMP
+X   image MONSTER_IMAGE_:monster_dump
+X   parameter P1
+X`009label = DUMP_FILE
+X`009prompt = "Dump file"
+X`009value(type=$file,required)
+Xdefine verb MONSTER
+X   image MONSTER_IMAGE_:mon
+X   qualifier WHO
+X      nonnegatable
+X      syntax = MONSTER_WHO
+X   qualifier REBUILD
+X   qualifier FIX
+X   qualifier VERSION
+X   qualifier DEBUG
+X   qualifier REAL_USERID
+X      value(required)
+X   qualifier USERID
+X      value(required)
+X   qualifier BATCH
+X      value(required,type=$infile)
+X   qualifier START
+X   qualifier OUTPUT
+X      value(default="SYS$OUTPUT",type=$outfile)
+X   qualifier DUMP
+X      nonnegatable
+X      syntax = MONSTER_DUMP
+X   qualifier BUILD
+X      nonnegatable
+X      syntax = MONSTER_DUMP
+X   disallow any2 (REBUILD, FIX, REAL_USERID, USERID, BATCH, DUMP, BUILD)
+X   disallow ((OUTPUT or neg OUTPUT) and FIX)`032
+X   disallow (START and (BUILD or DUMP))
+$ CALL UNPACK MONSTER.CLD;20 388957007
+$ create/nolog 'f'
+X:*privilege help*
+X
+X- <privilege>   Remove privilege
+X+ <privilege>   Add privilege
+XE               Exit
+XL               List possible privileges.
+XQ               Quit (do not save changes)
+XV               View current privileges
+X
+X? - This list
+X:*system 2 help*
+X
+XA         Block monster''s code.
+XB         Block object''s code.
+XC         Block room''s code.
+XD         Shutdown Monster.
+XE         Leave subsystem.
+XF         Open Monster for playing.
+XG         Block spell's code.
+XH         This text.
+XM         Claim monster to System.
+XO         Claim object to System.
+XW         Announce over Monster Universe.
+XQ         Leave subsystem.
+XR         Claim room to System.
+XS         Claim spell to System
+XV`009  View global flags.
+X?         This text.  `032
+X
+X:*hook help*
+X
+XB       Block hook code.
+XC       Type COMMANDS.PAPER.
+XD       Delete hook.
+XE       Exit customizing hook.
+XF       Free hook code.
+XG       Get program file, default extension is .MDL.
+XH       This list.
+XL       List hook code.
+XM       Run manually hook code.
+XO       List hook code to file.
+XP       Change hook privilege.
+XQ       Exit customizing hook.
+XV       View hook.
+X?       This list.
+X
+X:*global c help*
+X
+XB       Block hook code.
+XC       Type COMMANDS.PAPER.
+XD       Delete code.
+XE       Exit customizing code.
+XF       Free code.
+XG       Get program file, default extension is .MDL.
+XH       This list.
+XL       List code.
+XM       Run manually code.
+XO       List hook code to file.
+XQ       Exit customizing code.
+XV       View hook.
+X?       This list.
+X
+X:*spell help*
+X
+XA       Toggle spell mode
+XB       Block spell code.
+XC       Type COMMANDS.PAPER.
+XD       Delete spell.
+XE       Exit customizing spell.
+XF       Free hook code.
+XG       Get program file, default extension is .MDL.
+XH       This list.
+XI       Change your own level of this hook
+XL       List spell code.
+XM       Run manually spell code.
+XO       List spell code to file.
+XP       Change spell privilege.
+XQ       Exit customizing spell.
+XV       View hook.
+X?       This list.
+X
+X:*monster help*
+X
+XA       Give monster's level and heal monster.
+XB       Block monster
+XC       Type COMMANDS.PAPER
+XD       Customize monster's privilege  set.
+XE       Exit customizing monster
+XF       Free monster
+XG       Get program file, default extension is .MDL
+XH       This list
+XI       Give monster's health.
+XJ       Disable/Enable control access.
+XL       List monster code.
+XM       Run manually monster code
+XN       Change monster's name
+XO       List monster code to file.
+XP       Change monster's privilege
+XQ       Exit customizing monster
+XS       Write monster's self description
+XV       View monster.
+X?       This list
+X
+X
+X:*do y help*
+X
+XPassword          Change your password.
+XWar               Allow violance in Monster
+XPeace             Forbid any violance in Monster
+XSpell             Make new spell or customizing spell
+XNewPlayer         Set new player's welcome text
+XWelcome           Set welcome text
+X
+X
+X:*do s help*
+X
+XExits             Lists exits you can inspect here
+XObject            Show internals of an object
+XDetails           Show details you can look at in this room
+XMonster           Show owner of a monster
+XPrivileges        Show your privileges
+XTime              Show time and date
+XRoom              Show owner of a room
+XCommands.paper    List COMMANDS.PAPER
+XLevels            Show experience levels
+XQuotas            Show your quotas
+XSpells            Show your spell level or what spells you know
+X
+X:*program help*
+X
+XA`009"a", "an", "some", etc.
+XC`009Customizing hook
+XD`009Edit a Description of the object
+XF`009Edit the GET failure message
+XG`009Set the object required to pick up this object
+X1`009Set the get success message
+XK`009Set the Kind of object this is
+XL`009Edit the label description ("There is a ... here.")
+XP`009Program the object based on the kind it is
+XR`009Rename the object
+XS`009Toggle the sticky bit
+X
+XU`009Set the object required for use
+X2`009Set the place required for use
+X3`009Edit the use failure description
+X4`009Edit the use success description
+XV`009View attributes of this object
+X
+XX`009Edit the extra description
+X5`009Edit extra desc #2
+XE`009Exit (same as Quit)
+XQ`009Quit (same as Exit)
+X?`009This list
+X
+X6`009Set home description
+X7`009Set home of object
+X
+X:*custom help*
+X
+XA`009Set an Alias for the exit
+XC`009Conceal an exit
+XD`009Edit the exit's main Description
+XE`009EXIT custom (saves changes)
+XF`009Edit the exit''s failure line
+XI`009Edit the line that others see when a player goes Into an exit
+XK`009Set the object that is the Key to this exit
+XL`009Automatically look `091default`093 / don't look on exit
+XO`009Edit the line that people see when a player comes Out of an exit
+XQ`009QUIT Custom (saves changes)
+XR`009Require/don't require alias for exit; ignore direction
+XS`009Edit the success line
+XT`009Alter Type of exit (passage, door, etc)
+XV`009View exit information
+XX`009Require/don't require exit name to be a verb
+X?`009This list
+X
+X:*room help*
+X
+XA`009Define an alternate mystery message block
+XB`009Edit the target room (G) "bounced in" description  `032
+XC`009Define action code (hook) for room  `032
+XD`009Alter the way the room description prints  `032
+XE`009Exit (same as quit)  `032
+XF`009Set the chance of the trapdoor functioning  `032
+XG`009Set the location that a dropped object really goes to  `032
+XH`009This list  `032
+XI`009Edit the default exit failure message  `032
+XM`009Define the magic object for this room
+XN`009Change how the room Name prints
+XO`009Edit the object drop description (for drop effects)
+XP`009Edit the Primary room description <the default one> (same as desc)
+XQ`009Quit (same as exit)
+XR`009Rename the room
+XS`009Edit the Secondary room description
+XT`009Set the direction that the Trapdoor goes to
+XV`009View settings on this room
+XX`009Define a mystery message
+X1`009Set the primary visual link for this room
+X2`009Set the secondary visual link for this room
+X
+X?`009This list
+X
+X
+X:*fix p help*
+X
+XA      Change player''s health.
+XE,Q    for quit.
+XL      Change player's level/experience.
+XN      Change player's personal name.
+XP      Change player's password.
+XR      Change player's room quota.
+XV      View player''s data.
+XH,?    for help.
+X
+X:*system help*
+X
+X1      Customize player database.
+XA      Alter player privileges
+XB      Add description blocks
+XC      Subsystem
+XD      Disown <user>
+XE      Exit (same as quit)
+XH      Add header blocks
+XK      Kill <user>
+XL      Add one liner records
+XM      Move a player who is asleep (not playing now)
+XO      Add object records
+XP      Write a distribution list of players
+XQ      Quit (same as exit)
+XR      Add rooms
+XT      Throw player out from Monster
+XV      View current sizes/usage
+XW      List of players
+X?      This list
+X
+X:*show help*
+XList of commands:
+X
+XType <command> ? for more info.
+X
+XAccept #         Allow others to Link an exit here at direction #
+XAtmosphere       Atmosphere command
+XBear #           Create monster #
+XBrief            Toggle printing of room descriptions
+XClaim #          Get ownership of room/object/monster/spell
+XCreate #         Create room/object/monster
+XCustomize #      Customize this room / Customize exit # / Customize object #
+XDcl #            Spawn subprocess/Run command #
+XDelete #         Delete room/object/monster
+XDescribe #       Describe this room / Describe a feature (#) in detail
+XDestroy  *       Destroy an instance of object #
+XDisown #         Disown room/object/monster/spell
+XDrop *           Drop object #
+XDuplicate *      Make a duplicate of an already-created object.
+XErase #          Erase monster #
+XForm #           Form a new room with name #
+XGet *            Get object #
+X#,Go #           Go towards # (Some: N/North S/South E/East W/West U/Up D/Do
+Vwn)
+XHealth           Show how healthy you are
+XHide *           Hide yoursef / Hide object (#)
+XI,Inventory *    See what you or someone else is carrying
+XLink #           Link this room to/from another via exit at direction #
+XList #           List rooms/objects/monsters/spells
+XLook,L *         Look here / Look at something or someone (#) closely
+XMake #           Make a new object named #
+XMonsters #       Show information about monsters  : monsters ? for help
+XName #           Set your game name to #
+XObjects #        Show information about objects  : objects ? for help
+XPlayers          List people who have played Monster
+XPoof #           Jump other room or move other player
+XPunch #          Punch person #
+XQuit             Leave the game
+XRelink           Move an exit
+XRefuse #         Disallow others to Link an exit here at direction #
+XReset *          Move object to its home.
+XReveal           Reveal yourself
+XRooms            Show information about rooms you have made
+XSay, ' (quote)   Say line of text following command to others in the room
+XScan #           Scan location of object # in universe
+XScore #          Show score of you/other player/all in some level.
+XSearch           Look around the room for anything hidden
+XSelf *           Edit a description of yourself / View #'s self-description
+XSet #            Set something : SET ? for a list
+XShow #           Show something : SHOW ? for a list
+XSpells #         Show information about spells  : spells ? for help
+XSummon #         Summon spell #
+XUnlink #         Unlink this room to/from another via exit at direction #
+XUnmake #         Remove the form definition of object #
+XUse #            Use object #
+XWear #           Wear the object # / unwear
+XWield #          Wield the weapon # / wield the ring # / unwield
+XWhisper #        Whisper something (prompted for) to person #
+XWho              List of people playing Monster now
+XWhois *          What is a player's username  `032
+XZap #            Destroy room named #  `032
+X?,Help           This list  `032
+X. (period)       Repeat last command        `032
+X
+XCommands for manager:  `032
+X
+XSystem           Go to system maintenance mode  `032
+XPublic #         Make room/object/monster/spell public    `032
+XDebug            Debug system  `032
+X
+X
+XParameter is optional in all commands
+X# = normal parameter (= one item)
+X* = parameter list with or without joker(*) or 'all'
+X
+X:*edit help*
+X
+XA`009Append text to end
+XC`009Check text for correct length with parameter substitution (#)
+XD #`009Delete line #
+XE`009Exit & save changes
+XI #`009Insert lines before line #
+XP`009Print out description
+XQ`009Quit: THROWS AWAY CHANGES
+XR #`009Replace text of line #
+XZ`009Zap all text
+X@`009Throw away text & exit with the default description
+X?`009This list
+X
+X:accept
+XSyntax:        Accept <direction>
+X
+XDescription:   Allows others to link exits here at <direction>
+XRequirements:  You are the owner of this room
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if the owner of this room is System
+X:atmosphere
+XSyntax:        Atmosphere <your action>
+XShortcut:      :<your action>
+X
+XDescription:   Prints other players and you`032
+X               a text <your player name> <your action>
+X:brief
+XSyntax:        Brief
+X
+XDescription:   Toggles brief printing of room description off or on
+X:claim
+XSyntax:        Claim
+X               Claim <object>
+X               Claim <monster>
+X               Claim <spell>
+X
+XDescription:   Sets the ownership of <object> or <monster> or <spell> or
+X                  this room to you
+XRequirements:  Current ownership of target is Disowned
+X                  or you have the Manager -privilege
+X:create
+XSyntax:        Create room <room>
+X               Create object <object>
+X               Create monster <monster>
+X:customize
+XSyntax:        Customize
+X               Customize <direction>
+X               Customize <object>
+X               Customize <monster>
+X               Customize room
+X               Customize object <object>
+X               Customize monster <monster>
+X
+XDescription:   Customizes <object> or <monster> or <direction> or this room
+XRequirements:  You are the owner of the target
+X               or you have the Owner -privilege,`032
+X               or you have the Manager -privilege,`032
+X                  if owner of target is System
+X
+XBugs:          Following non-existed commands is recognized:
+X               Customize player <...>
+X               Customize spell <...>
+X:dcl
+XSyntax:        Dcl
+X               Dcl <command>
+X
+XDescription:   Starts subprocess for shell and  leaves  Monster  running `03
+V2
+X               Executes <command>, if given`032
+X:describe
+XSyntax:        Describe`032
+X               Describe <detail>
+X
+XDescription:   Writes description of <detail> or this room
+XRequirements:  You are owner of this room
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if owner of this room is System
+X:delete
+XSyntax:        Delete room <room>
+X               Delete object <object>
+X               Delete monster <monster>
+X:destroy
+XSyntax:        Destroy <object>
+X               Destroy all
+X               Destroy <object,...>
+XAlias:         Delete object <object>
+X
+XDescription:   Destroys an instance of object(s)`032
+XRequirements:  You are the owner of the object
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if owner of object is System
+X               And you are the owner of this room
+X               or this room is public
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if owner of this room is System
+X:disown
+XSyntax:        Disown
+X               Disown <object>
+X               Disown <monster>
+X               Disown <spell>
+X
+XDescription:   Sets ownership of <object> or <monster> or <spell>
+X                  this room to Disowned
+XRequirements:  You happen to be the owner of the target
+X               or you have the Owner -privilege, if target is this room
+X               or you have the Owner -privilege,`032
+X                  if target is object or monster
+X               or you have the Manager -privilege,`032
+X                  if owner of target is System
+X:drop
+XSyntax:        Drop <object>
+X               Drop all
+X               Drop <object,...>
+X
+XDescription:   Drops object
+X:duplicate
+XSyntax:        Duplicate <object>
+X               Duplicate all
+X               Duplicate <object,...>
+X
+XDescription:   Creates an instance of object(s)
+XRequirements:  You are the owner of the particular object
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if the owner of object is System
+X               And you are the owner of this room
+X               or this room is public
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if the owner of this room is System
+X:erase
+XSyntax:        Erase <monster>
+XAlias:         Delete monster <monster>
+X
+XDescription:   Destroys <monster>
+XRequirements:  You are the owner of the monster
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if the owner of monster is System
+X:form
+XSyntax:        Form <room>
+XAlias:         Create room <room>
+X
+XDescription:   Creates new room with a name: <room>
+XRequirements:  You are the owner of this room
+X               or this room have some kind of exit with Accept
+X               or you have the Owner -privilege
+X               or you have the Manager -privilege,`032
+X                  if owner of this room is System
+X:get
+XSyntax:        Get <object>
++-+-+-+-+-+-+-+-  END  OF PART 25 +-+-+-+-+-+-+-+-

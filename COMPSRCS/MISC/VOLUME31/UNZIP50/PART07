@@ -1,0 +1,1418 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i110:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part07/14
+Message-ID: <1992Aug24.025543.24754@sparky.imd.sterling.com>
+X-Md4-Signature: 5fd69f93d9b9caced342163d5aebe6b7
+Date: Mon, 24 Aug 1992 02:55:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 110
+Archive-name: unzip50/part07
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MAC/macfile.c MAC/thinkc.hqx VMS/vmsshare.opt zipinfo.c.A
+# Wrapped by kent@sparky on Sun Aug 23 21:09:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 14)."'
+if test -f 'MAC/macfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/macfile.c'\"
+else
+  echo shar: Extracting \"'MAC/macfile.c'\" \(6797 characters\)
+  sed "s/^X//" >'MAC/macfile.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  macfile.c
+X
+X  This source file is used by the mac port to support commands not available
+X  directly on the Mac, i.e. mkdir().
+X  It also helps determine if we're running on a Mac with HFS and a disk
+X  formatted for HFS (HFS - Hierarchical File System; compared to its predecessor,
+X  MFS - Macintosh File System).
+X  
+X  ---------------------------------------------------------------------------*/
+X
+X#include "unzip.h"
+X
+X#ifdef MACOS
+X#ifndef FSFCBLen
+X#define FSFCBLen    (*(short *)0x3F6)
+X#endif
+X
+Xstatic short wAppVRefNum;
+Xstatic long lAppDirID;
+Xint hfsflag;            /* set if disk has hierarchical file system */
+X
+Xstatic int IsHFSDisk(short wRefNum)
+X{
+X    /* get info about the specified volume */
+X    if (hfsflag == true) {
+X        HParamBlockRec    hpbr;
+X        Str255 temp;
+X        short wErr;
+X        
+X        hpbr.volumeParam.ioCompletion = 0;
+X        hpbr.volumeParam.ioNamePtr = temp;
+X        hpbr.volumeParam.ioVRefNum = wRefNum;
+X        hpbr.volumeParam.ioVolIndex = 0;
+X        wErr = PBHGetVInfo(&hpbr, 0);
+X
+X        if (wErr == noErr && hpbr.volumeParam.ioVFSID == 0
+X            && hpbr.volumeParam.ioVSigWord == 0x4244) {
+X                return true;
+X        }
+X    }
+X
+X    return false;
+X} /* IsHFSDisk */
+X
+Xvoid macfstest(int vrefnum)
+X{
+X    Str255 st;
+X
+X    /* is this machine running HFS file system? */
+X    if (FSFCBLen <= 0) {
+X        hfsflag = false;
+X    }
+X    else
+X    {
+X        hfsflag = true;
+X    }
+X
+X    /* get the file's volume reference number and directory ID */
+X    if (hfsflag == true) {
+X        WDPBRec    wdpb;
+X        OSErr err = noErr;
+X
+X        if (vrefnum != 0) {
+X            wdpb.ioCompletion = false;
+X            wdpb.ioNamePtr = st;
+X            wdpb.ioWDIndex = 0;
+X            wdpb.ioVRefNum = vrefnum;
+X            err = PBHGetVol(&wdpb, false);
+X        
+X            if (err == noErr) {
+X                wAppVRefNum = wdpb.ioWDVRefNum;
+X                lAppDirID = wdpb.ioWDDirID;
+X            }
+X        }
+X
+X        /* is the disk we're using formatted for HFS? */
+X        hfsflag = IsHFSDisk(wAppVRefNum);
+X    }
+X    
+X    return;
+X} /* mactest */
+X
+Xint macmkdir(char *path, short nVRefNum, long lDirID)
+X{
+X    OSErr    err = -1;
+X
+X    if (path != 0 && strlen(path)<256 && hfsflag == true) {
+X        HParamBlockRec    hpbr;
+X        Str255    st;
+X
+X        CtoPstr(path);
+X        if ((nVRefNum == 0) && (lDirID == 0))
+X        {
+X            hpbr.fileParam.ioNamePtr = st;
+X            hpbr.fileParam.ioCompletion = NULL;
+X            err = PBHGetVol((WDPBPtr)&hpbr, false);
+X            nVRefNum = hpbr.wdParam.ioWDVRefNum;
+X            lDirID = hpbr.wdParam.ioWDDirID;
+X        }
+X        else
+X        {
+X            err = noErr;
+X        }
+X        if (err == noErr) {
+X            hpbr.fileParam.ioCompletion = NULL;
+X            hpbr.fileParam.ioVRefNum = nVRefNum;
+X            hpbr.fileParam.ioDirID = lDirID;
+X            hpbr.fileParam.ioNamePtr = (StringPtr)path;
+X            err = PBDirCreate(&hpbr, false);
+X        }    
+X        PtoCstr(path);
+X    }
+X
+X    return (int)err;
+X} /* mkdir */
+X
+Xvoid ResolveMacVol(short nVRefNum, short *pnVRefNum, long *plDirID, StringPtr pst)
+X{
+X    if (hfsflag)
+X    {
+X        WDPBRec  wdpbr;
+X        Str255   st;
+X        OSErr    err;
+X
+X        wdpbr.ioCompletion = (ProcPtr)NULL;
+X        wdpbr.ioNamePtr = st;
+X        wdpbr.ioVRefNum = nVRefNum;
+X        wdpbr.ioWDIndex = 0;
+X        wdpbr.ioWDProcID = 0;
+X        wdpbr.ioWDVRefNum = 0;
+X        err = PBGetWDInfo( &wdpbr, false );
+X        if ( err == noErr )
+X        {
+X            if (pnVRefNum)
+X                *pnVRefNum = wdpbr.ioWDVRefNum;
+X            if (plDirID)
+X                *plDirID = wdpbr.ioWDDirID;
+X            if (pst)
+X                BlockMove( st, pst, st[0]+1 );
+X        }
+X    }
+X    else
+X    {
+X        if (pnVRefNum)
+X            *pnVRefNum = nVRefNum;
+X        if (plDirID)
+X            *plDirID = 0;
+X        if (pst)
+X            *pst = 0;
+X    }
+X}
+X
+Xshort macopen(char *sz, short nFlags, short nVRefNum, long lDirID)
+X{
+X    OSErr   err;
+X    Str255  st;
+X    char    chPerms = (!nFlags) ? fsRdPerm : fsRdWrPerm;
+X    short   nFRefNum;
+X
+X    CtoPstr( sz );
+X    BlockMove( sz, st, sz[0]+1 );
+X    PtoCstr( sz );
+X    if (hfsflag)
+X    {
+X        if (nFlags > 1)
+X            err = HOpenRF( nVRefNum, lDirID, st, chPerms, &nFRefNum);
+X        else
+X            err = HOpen( nVRefNum, lDirID, st, chPerms, &nFRefNum);
+X    }
+X    else
+X    {
+X        /*
+X         * Have to use PBxxx style calls since the high level
+X         * versions don't support specifying permissions
+X         */
+X        ParamBlockRec    pbr;
+X
+X        pbr.ioParam.ioNamePtr = st;
+X        pbr.ioParam.ioVRefNum = gnVRefNum;
+X        pbr.ioParam.ioVersNum = 0;
+X        pbr.ioParam.ioPermssn = chPerms;
+X        pbr.ioParam.ioMisc = 0;
+X        if (nFlags >1)
+X            err = PBOpenRF( &pbr, false );
+X        else
+X            err = PBOpen( &pbr, false );
+X        nFRefNum = pbr.ioParam.ioRefNum;
+X    }
+X    if ( err )
+X        return -1;
+X    else
+X        return nFRefNum;
+X}
+X
+Xshort maccreat(char *sz, short nVRefNum, long lDirID, OSType ostCreator, OSType ostType)
+X{
+X    OSErr   err;
+X    Str255  st;
+X    FInfo   fi;
+X
+X    CtoPstr( sz );
+X    BlockMove( sz, st, sz[0]+1 );
+X    PtoCstr( sz );
+X    if (hfsflag)
+X    {
+X        err = HGetFInfo( nVRefNum, lDirID, st, &fi );
+X        if (err == fnfErr)
+X            err = HCreate( nVRefNum, lDirID, st, ostCreator, ostType );
+X        else if (err == noErr)
+X        {
+X            fi.fdCreator = ostCreator;
+X            fi.fdType = ostType;
+X            err = HSetFInfo( nVRefNum, lDirID, st, &fi );
+X        }
+X    }
+X    else
+X    {
+X        err = GetFInfo( st, nVRefNum, &fi );
+X        if (err == fnfErr)
+X            err = Create( st, nVRefNum, ostCreator, ostType );
+X        else if (err == noErr)
+X        {
+X            fi.fdCreator = ostCreator;
+X            fi.fdType = ostType;
+X            err = SetFInfo( st, nVRefNum, &fi );
+X        }
+X    }
+X    if (err == noErr)
+X        return noErr;
+X    else
+X        return -1;
+X}
+X
+Xshort macread(short nFRefNum, char *pb, unsigned cb)
+X{
+X    long    lcb = cb;
+X
+X    (void)FSRead( nFRefNum, &lcb, pb );
+X
+X    return (short)lcb;
+X}
+X
+Xshort macwrite(short nFRefNum, char *pb, unsigned cb)
+X{
+X    long    lcb = cb;
+X
+X    (void)FSWrite( nFRefNum, &lcb, pb );
+X
+X    return (short)lcb;
+X}
+X
+Xshort macclose(short nFRefNum)
+X{
+X    return FSClose( nFRefNum );
+X}
+X
+Xlong maclseek(short nFRefNum, long lib, short nMode)
+X{
+X    ParamBlockRec   pbr;
+X
+X    if (nMode == SEEK_SET)
+X        nMode = fsFromStart;
+X    else if (nMode == SEEK_CUR)
+X        nMode = fsFromMark;
+X    else if (nMode == SEEK_END)
+X        nMode = fsFromLEOF;
+X    pbr.ioParam.ioRefNum = nFRefNum;
+X    pbr.ioParam.ioPosMode = nMode;
+X    pbr.ioParam.ioPosOffset = lib;
+X    (void)PBSetFPos(&pbr, 0);
+X    return pbr.ioParam.ioPosOffset;
+X}
+X
+X#endif /* MACOS */
+END_OF_FILE
+  if test 6797 -ne `wc -c <'MAC/macfile.c'`; then
+    echo shar: \"'MAC/macfile.c'\" unpacked with wrong size!
+  fi
+  # end of 'MAC/macfile.c'
+fi
+if test -f 'MAC/thinkc.hqx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/thinkc.hqx'\"
+else
+  echo shar: Extracting \"'MAC/thinkc.hqx'\" \(19223 characters\)
+  sed "s/^X//" >'MAC/thinkc.hqx' <<'END_OF_FILE'
+X(This file must be converted with BinHex 4.0)
+X
+X:$(9ZHQP`,R4SD@jVB`"38Np+5d&)6!#3#$k'i#%!N!3"!*!$2+`!!$ZX!!!"fJ#
+X3!`)14'9cDh4[F#"'EfaNCA*%!3#3"dakT9J-G@jkDA!ZG'KTEQYM!J)!N!038Np
+X+5d&)6!%!rj!%!!"38Np+5d&)6!%!rj!%!*!5TN"a!`#3"Mk'9%&54P4"8L!"!2q
+X3"!#3"&9N!*!%8!#3!e!!N!ZPeF!3TGA!,!#3%`)!!*N'!"3!N$S$m!#3r`#3r`#
+X3r`#3mK)!!!3!N!3#!*!$B!#3%`3!N"d35%%#!`!+!*!$!`#3!f!!N"-%!*!+3FS
+X!N"(f4&)"!J!*!*!$"!#3!f!!N"-%!*!+30J!N"!"9N4#!3)!!3#3!`8!N!0J!*!
+X6"!#3#N+f!*!3$@!!+J%#!!)!N!-'!*!$B!#3%`3!N!S)-J#3%%Lm!!!"!J!1!*!
+X$"`#3!f!!N"-%!*!Frrm!!!-%!!-!N!-)!*!$B!#3%`3!N!T!IJ#3%4`r2!%#!!3
+X!N!-*!*!$B!#3%`3!N!T"q!#3%!Db2c`"!J!'!*!$#J#3!f!!N"-%!*!+3F`!N"%
+XNLX`"!J!(!*!$#`#3!f!!N"-%!*!+4*!!!*!3!Hd"r3%#!!J!N!--!*!$B!#3%`3
+X!N!S*U!#3%'`!r`!"!J!,!*!$$3#3!f!!N"-%!*!+3@)!N"0)!3)!$!#3!`i!N!0
+XJ!*!6"!#3#N$Q!*!3@YB!!3%#!!d!N!-2!*!$B!#3%`3!N!T)CJ#3%&C5!CJ"!J#
+X3"4!!N!0J!*!6"!#3#N@)!*!8!3)!"3#3!a%!N!0J!*!6"!#3)!-%!!m!N!-)!!6
+Xr-!$m!*!&&[rr!J!%*J!U513&E@YKD'`!N!-3!#3!N!-B!!3!N!BM!"3XarP!!)!
+XT$J`!+3ZF!*!$#PJ!!!B!N!-'!*!&&L0TEQ0XG@4P)$a0B@0)C@&NCA*c2J#3!`&
+XB!!#`"3!!4&*@8J'B!#5+c!!!rc!!YJ#3#%MN!*!$9!!NLX`!!!%!N!-"!*!$$#S
+X!N!0-!#5-!!03i!!!(!"'!!&)390)!*!$%PT26N8!N!-H!!%!!!)!!$)!+NM`!!$
+Xrr`)!"#B!+NMN"@eVB@KX!*!$%!!NLX`!!2m`!,B!N!98!#5+c!!!!3#3!`%!N!-
+X-+J#3!d`!*)`!!e$J!!!F!%B!!8K"8dJ!N!-5@Np143#3!ai!!3!!!J!!-J!U52!
+X!!2rr!J!%*J!U513&E@YKD'`!N!-3!#5+c!!!rc!!YJ#3"93!*)V-!!!"!*!$!3#
+X3!``U!*!$6!!NM!!$81!!!"`!4J99ERTTF#!e,M!J8d&&!*!$(J!"!!!#!!!b!#T
+X)m!!!rrm#!!3Q!#T)j!9YDf&SE!#3!a!!*)V-!!$r-!#f!!""8&"-2j!%!!!"J!#
+X3!f!!N!0`!*!(8!#3!b!!($mm!!'Tm!A@2c`!!DR`"HSr2!!"UI!&rMmm!!'Tm!B
+XD2c`!!DR`"P!r2!!"UI!'F$mm!!'Tm!D52c`!!DR`"V)r2!!"UI!*,$mm!!'Tm!#
+X3!`3!N!F%!*!("!#3-LJ!!$)C(!!b(4`!-Kdm!$)GEJ!b(iJ!-L'L!$)M[!!b*0B
+X!-L8-!$)R*J!b+6i!-LY@!$)YF!!b,KJ!-M!d!$)b8!!b0)i!-MDS!$)fhJ!b0`!
+X!-N%F!*!&#`!-!!d!$J!2!"!!%3!5!"-!&!!9!"B!&`!B!"N!'J!E!"`!(3!H!"m
+X!)!!K!#)!)`!N!#8!*J!R!#J!+3!U!#X!,!!Y!#i!,`!`!$%!-J!c!$3!03!f!$F
+X!1!!j!$S!1`!m!$d!2J!r!%!!33!$!!3!"3!'!!F!#!!*!!S!#`!-!!d!$J!2!"!
+X!%3!5!"-!&!!9!"B!&`!B!"N!'J!E!"`!(3!H!"m!)!!K!#)!)`!N!#8!*J!R!#J
+X!+3!U!#X!,!!Y!#i!,`!`!$%!-J!c!$3!03!f!$F!1!!j!$S!1`!m!$d!2J!r!%!
+X!33"#!*!$#!!"!%%!J3$"!C!$33'"!F%#!3*"!S%#`3-"!d%$J32""!%%335""-%
+X&!39""B%&`3B""N%'J3E""`%(33H""m%)!3K"#)%)`3N"#8%*J3R"#J%+33U"#X%
+X,!3Y"#i%,`3`"$%%-J3c"$3%033f"$F%1!3j"$S%1`3m"$d%2J3r"!!%!J3'3!i%
+X#!3+"!`%$J33"")%&!3@""J%'J3F""i%)!3L"#3%*J3S"#S%,!3Z"$!%-J3d"$B%
+X1!3k"$`%2J4!"%)%4!4'"%J%5J4-"%i%8!45"&3%9J4B"&S%A!4H"'!%BJ4N"'B%
+XD!4U"'`%EJ4`"()%G!4f"(J%HJ4m"(i(rrm5mrrr%p[rra5$rrm9!rrr&BQ0PER4
+XbB@`!Bf9ZG(*KE!!+*A-k)#"LB@3JCQPXC5"MEfeYC@jd)'aPEQGdD!S!!'acC@9
+XV!%924J"MB@iRG#"QD@jN)'a[Bf&X)'KPB@4PFL"cD@F!#QCTE'8J)b9N1L!JBQ&
+XN)'a[Bf&X)'KPB@4PFJS!E'pMB@`!E'pMB@`!FQ9`E'&MC5!PFcmJ@hPGCA-X)&Y
+XZA@mX)&Y"A@aX,#"E6Pe[EQ8X)&YbA@9ZB@eP1L!!!'jPGb"ZB@eP1L!!!%&d)'a
+XPBA0d)'pZC5"PFR*[FL"hBA-JC'9dC@0dC@3JD@iJ*A-Z#J"$BA9dD@pZ1L!JHQ9
+XbEb"QD@aPFb"dCA0dC@3JD@iJ*A-Z#J"1Eb"PFR*[FR-JC'9dC@0dC@3JD@iJ*A-
+XZ#J!!F`"1Eb"PFR*[FR-JC'9dC@0dC@3JD@iJ*A-JCQpb)(4SC5!PC#"QD@aP*A-
+XJG'9cG'9N,JS!N!0c!#9N)'CTE'8PFb"cDfP`F'9N)'*PBf&eFf8JEfBJG@jcGA"
+X`Eh*dC@3JBfpYF(*PFh0TEfiJEh)JC@jMEf4TEQFZ#!!!9Ne6!!SPFcSJ)(0dEh*
+XPC#"TEL"@69-JCQpbE6!!&#c(q8!!&#c(q8!!!!%!!2q3#+5XU9B!&!!#!!"5*N&
+X18dN!"%&18dN!!!S!&#c(q8!!&#c(q8!!!!%!!2q3#+BpUiB!'!!"!!"Z4d9B9&)
+X!#@9iG(*KBh3ZB`!!!D5A`JQNPm)*T*I##3!D!!)!!&*b68&$5!%+6@&M5'9KC'9
+XbF`#3!`'Q2HcbTMhXmUBpl2)!&J!"!!"Z4e91@NN!"h9ZHQP`,QJ!!!+N-adpT$-
+XG2D3c(6d!&J!#!!"5+e084%N""h0dC'P[,QJ!!!1N,ErlT#frqk3Y[rX!'!!#!!"
+X5+e0*@N8!#(0THQ9IG#jS!(-!!U3VMFUN+ih+T#Z0bJ!@!!)!!&)V3e4C8!%(Bh4
+XjF'8ZD!!!!U3VM+#N+ibJT#Z-S!!@!!)!!&)V49*56J%(CA*bEQmZD!!!!U3Y`%#
+XN,F"!T#h!3!!B!!)!!&)V8e4%4!%)Fh4NC'9Q,QJ!F`!$T#h!)U3Y`#+N,F!L!"J
+X!!J!!8LYA3dK"!!PhBfKKFPpd,QJ!!!+N,P%0T#j4$D3Z83d!'!!#!!"5+e084%`
+X"#(0dC'aTBLjS!*!$!U3Y`,1N,F#cT#h!X`!B!!)!!&)V8e4553%)Fh4bD@jR,QJ
+X!N!-#T$(rN!#N-Iq3!+3arj!!!"B!!J!!8LY'3dj8!3GQBfjdE#jS!!!#TM9"IUB
+Xe3AkQ08&q!"J!!3!!ENG03806!!PYB@0cG'&d,QJ!!!1N,F#*T#h!LD3Y`)N!&J!
+X#!!"5+e4*688""R4TE@8ZD!!Z#J!8,-Ij3!!8,-Ij3!!!!3!!rj!)TMhF4!!B!!%
+X!!'j(4NP-43!*CQPXC9pTEbjM!!!"T*I##D5A`JQNPm)*!"S!!J!!8R*0380)!3T
+X0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%!!'j(98jD53!(G@jkDA!ZD!!
+X!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4ND@mZD!!!!k3Y[rZN,ErlT#f
+Xrq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z0bU3VMFUN+ih+!"B!!J!!8LY
+X$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B!!J!!8LY&8P*1!3GPFR*ZEbj
+XS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3KcG'4NC@BZD!"c!!1N,F!LT#h
+X!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!!!U3Z83fN,P%0T#j4$3!B!!)
+X!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1N,F#c!"J!!J!!8LY69&**!3K
+XcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!#!!"5+dC$6P3""fCMER4X,QJ
+X!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZD!!!!k3Y`)QN,F#
+X*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3XarP!!!!"!!$rN!L
+XQ1lP!!"J!!3!!ENG0380'!!PYB@0QD@aP,Q-!!!'NPm)*T*I##D5A`JN!'J!#!!"
+X5FNe"3dJ"#NeKBdKPB@4PFR-!N!-"TMhXmUBpl2+Q2Hcb!"B!!3!!ENG96PT*!!G
+XeERTTF#jS!!!#T$-G2D3c(6fN-adp!"B!!J!!8LY69%4*!3GcG'4TEbjS!!!$T#f
+Xrqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3ZD!"c!!+N+ih+T#Z0bU3VMFS
+X!&J!#!!"5+d08@9!""f0dHA"P,QJ!!!+N+ibJT#Z-S+3VM+!!&J!#!!"5+d958Ni
+X""f9bFQj[,QJ!!!+N,F"!T#h!3+3Y`%!!'!!#!!"5+e084%3"#(0dC'4PCLjS!(-
+X!!k3Y`#+N,F!LT#h!)J!B!!)!!&)V9d0)33!*Gf0SBA*IG#jS!!!#T#j4$D3Z83f
+XN,P%0!"J!!J!!8LY69%4-!3KcG'4XD@)ZD!#3!`+N,F#cT#h!Xk3Y`,-!'!!#!!"
+X5+e088NN"#(0dFQPZCbjS!*!$!U3arj!!T$(rN!#N-Iq3!!!@!!)!!&)V4N019!%
+X(CQ0ZG'`ZD!!!!UBe3AkQ08&qTM9"IJ!B!!%!!'j(68&$8`!*E@&MFh4KG#jS!!!
+X$T#h!LD3Y`)QN,F#*!"B!!J!!8LY858e&!3CdD@eP,QJ!,JS!&#c(q8!!&#c(q8!
+X!!!%!!2q3#+Be3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZB`!!!D5A`JQNPm)*T*I
+X##3!D!!)!!&*b68&$5!%+6@&M5'9KC'9bF`#3!`'N8'jET&"Z@k43EPX!'!!#!!"
+X5b&""8d-"#("KFf0KE#jS!(-!!D3Y`,1N,F#cT#h!X`!B!!)!!&)V8e4553%)Fh4
+XbD@jR,QJ!F`!#T#frqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3ZD!"c!!'
+XQ08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZD!!!!U3Y`)QN,F#*T#h
+X!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i!!"3XarP!!"3XarP!!!!"!!$rN!LNR29
+XI!"J!!J!!8Y&03808!!K0B@08FQ&`F`!!#J!8,-Ij3!!8,-Ij3!!!!3!!rj!)TMQ
+XUGJ!B!!%!!'j(68&36J!*E@&`EQ&YC5jM!!!"T*I##D5A`JQNPm)*!"S!!J!!8R*
+X0380)!3T0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%!!'j(98jD53!(G@j
+XkDA!ZD!!!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4ND@mZD!!!!k3Y[rZ
+XN,ErlT#frq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z0bU3VMFUN+ih+!"B
+X!!J!!8LY$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B!!J!!8LY&8P*1!3G
+XPFR*ZEbjS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3KcG'4NC@BZD!"c!!1
+XN,F!LT#h!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!!!U3Z83fN,P%0T#j
+X4$3!B!!)!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1N,F#c!"J!!J!!8LY
+X69&**!3KcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!#!!"5+dC$6P3""fC
+XMER4X,QJ!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZD!!!!k3
+XY`)QN,F#*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3XarP!!!!
+X"!!$rN!LQ09CD!"B!!3!!ENG0394$!!GYBA4MD#jM!!!"T*I##D5A`JQNPm)*!"S
+X!!J!!8R*0380)!3T0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%!!'j(98j
+XD53!(G@jkDA!ZD!!!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4ND@mZD!!
+X!!k3Y[rZN,ErlT#frq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z0bU3VMFU
+XN+ih+!"B!!J!!8LY$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B!!J!!8LY
+X&8P*1!3GPFR*ZEbjS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3KcG'4NC@B
+XZD!"c!!1N,F!LT#h!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!!!U3Z83f
+XN,P%0T#j4$3!B!!)!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1N,F#c!"J
+X!!J!!8LY69&**!3KcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!#!!"5+dC
+X$6P3""fCMER4X,QJ!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3
+XZD!!!!k3Y`)QN,F#*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3
+XXarP!!!!"!!$rN!LQ1DSX!"B!!3!!ENG0590$!!CYDA0M,Q-!N!-"T*I##D5A`JQ
+XNPm)*!"S!!J!!8R*0380)!3T0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%
+X!!'j(98jD53!(G@jkDA!ZD!!!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4
+XND@mZD!!!!k3Y[rZN,ErlT#frq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z
+X0bU3VMFUN+ih+!"B!!J!!8LY$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B
+X!!J!!8LY&8P*1!3GPFR*ZEbjS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3K
+XcG'4NC@BZD!"c!!1N,F!LT#h!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!
+X!!U3Z83fN,P%0T#j4$3!B!!)!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1
+XN,F#c!"J!!J!!8LY69&**!3KcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!
+X#!!"5+dC$6P3""fCMER4X,QJ!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@e
+XKBh0dBA3ZD!!!!k3Y`)QN,F#*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3
+XXarP!!"3XarP!!!!"!!$rN!LQ,+,%!"J!!3!!ENG&@&"-!!PPH("XEf4P,Q-!!!'
+XNPm)*T*I##D5A`JN!'J!#!!"5FNe"3dJ"#NeKBdKPB@4PFR-!N!-"TMhXmUBpl2+
+XQ2Hcb!"B!!3!!ENG96PT*!!GeERTTF#jS!!!#T$-G2D3c(6fN-adp!"B!!J!!8LY
+X69%4*!3GcG'4TEbjS!!!$T#frqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3
+XZD!"c!!+N+ih+T#Z0bU3VMFS!&J!#!!"5+d08@9!""f0dHA"P,QJ!!!+N+ibJT#Z
+X-S+3VM+!!&J!#!!"5+d958Ni""f9bFQj[,QJ!!!+N,F"!T#h!3+3Y`%!!'!!#!!"
+X5+e084%3"#(0dC'4PCLjS!(-!!k3Y`#+N,F!LT#h!)J!B!!)!!&)V9d0)33!*Gf0
+XSBA*IG#jS!!!#T#j4$D3Z83fN,P%0!"J!!J!!8LY69%4-!3KcG'4XD@)ZD!#3!`+
+XN,F#cT#h!Xk3Y`,-!'!!#!!"5+e088NN"#(0dFQPZCbjS!*!$!U3arj!!T$(rN!#
+XN-Iq3!!!@!!)!!&)V4N019!%(CQ0ZG'`ZD!!!!UBe3AkQ08&qTM9"IJ!B!!%!!'j
+X(68&$8`!*E@&MFh4KG#jS!!!$T#h!LD3Y`)QN,F#*!"B!!J!!8LY858e&!3CdD@e
+XP,QJ!,JS!&#c(q8!!&#c(q8!!!!%!!2q3#+C!Lr!!'!!"!!"Z4d919N%!#@9ZGQ&
+XbCh-ZB`!!!D5A`JQNPm)*T*I##3!D!!)!!&*b68&$5!%+6@&M5'9KC'9bF`#3!`'
+XN-adpT$-G2D3c(6d!&J!#!!"5+e084%N""h0dC'P[,QJ!!!+N,ErlT#frqk3Y[rX
+X!'!!#!!"5+e0*@N8!#(0THQ9IG#jS!(-+!"3XarP!!"3XarP!!!!"!!$rN!LQ1D[
+Xd!"S!!3!!ENG96P*&!!TeER*PC(9MC5jM!*!$!D5A`JQNPm)*T*I##3!D!!)!!&*
+Xb68&$5!%+6@&M5'9KC'9bF`#3!`'Q2HcbTMhXmUBpl2)!&J!"!!"Z4e91@NN!"h9
+XZHQP`,QJ!!!+N-adpT$-G2D3c(6d!&J!#!!"5+e084%N""h0dC'P[,QJ!!!1N,Er
+XlT#frqk3Y[rX!'!!#!!"5+e0*@N8!#(0THQ9IG#jS!(-!!U3VMFUN+ih+T#Z0bJ!
+X@!!)!!&)V3e4C8!%(Bh4jF'8ZD!!!!U3VM+#N+ibJT#Z-S!!@!!)!!&)V49*56J%
+X(CA*bEQmZD!!!!U3Y`%#N,F"!T#h!3!!B!!)!!&)V8e4%4!%)Fh4NC'9Q,QJ!F`!
+X$T#h!)U3Y`#+N,F!L!"J!!J!!8LYA3dK"!!PhBfKKFPpd,QJ!!!+N,P%0T#j4$D3
+XZ83d!'!!#!!"5+e084%`"#(0dC'aTBLjS!*!$!U3Y`,1N,F#cT#h!X`!B!!)!!&)
+XV8e4553%)Fh4bD@jR,QJ!N!-#T$(rN!#N-Iq3!+3arj!!!"B!!J!!8LY'3dj8!3G
+XQBfjdE#jS!!!#TM9"IUBe3AkQ08&q!"J!!3!!ENG03806!!PYB@0cG'&d,QJ!!!1
+XN,F#*T#h!LD3Y`)N!&J!#!!"5+e4*688""R4TE@8ZD!!Z#J!8,-Ij3!!8,-Ij3!!
+X!!3!!rj!)TLKLfJ!D!!%!!'j(98j65!!+G@jcD(*TEQXZB`#3!`'NPm)*T*I##D5
+XA`JN!'J!#!!"5FNe"3dJ"#NeKBdKPB@4PFR-!N!-"TMhXmUBpl2+Q2Hcb!"B!!3!
+X!ENG96PT*!!GeERTTF#jS!!!#T$-G2D3c(6fN-adp!"B!!J!!8LY69%4*!3GcG'4
+XTEbjS!!!$T#frqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3ZD!"c!!+N+ih
+X+T#Z0bU3VMFS!&J!#!!"5+d08@9!""f0dHA"P,QJ!!!+N+ibJT#Z-S+3VM+!!&J!
+X#!!"5+d958Ni""f9bFQj[,QJ!!!+N,F"!T#h!3+3Y`%!!'!!#!!"5+e084%3"#(0
+XdC'4PCLjS!(-!!k3Y`#+N,F!LT#h!)J!B!!)!!&)V9d0)33!*Gf0SBA*IG#jS!!!
+X#T#j4$D3Z83fN,P%0!"J!!J!!8LY69%4-!3KcG'4XD@)ZD!#3!`+N,F#cT#h!Xk3
+XY`,-!'!!#!!"5+e088NN"#(0dFQPZCbjS!*!$!U3arj!!T$(rN!#N-Iq3!!!@!!)
+X!!&)V4N019!%(CQ0ZG'`ZD!!!!UBe3AkQ08&qTM9"IJ!B!!%!!'j(68&$8`!*E@&
+XMFh4KG#jS!!!$T#h!LD3Y`)QN,F#*!"B!!J!!8LY858e&!3CdD@eP,QJ!,JS!&#c
+X(q8!!&#c(q8!!!!%!!2q3#+Br)AB!&J!"!!"Z4e91@NN!"h9ZHQP`,Q-!!!'NPm)
+X*T*I##D5A`JN!'J!#!!"5FNe"3dJ"#NeKBdKPB@4PFR-!N!-"TMhXmUBpl2+Q2Hc
+Xb!"B!!3!!ENG96PT*!!GeERTTF#jS!!!#T$-G2D3c(6fN-adp!"B!!J!!8LY69%4
+X*!3GcG'4TEbjS!!!$T#frqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3ZD!"
+Xc!!+N+ih+T#Z0bU3VMFS!&J!#!!"5+d08@9!""f0dHA"P,QJ!!!+N+ibJT#Z-S+3
+XVM+!!&J!#!!"5+d958Ni""f9bFQj[,QJ!!!+N,F"!T#h!3+3Y`%!!'!!#!!"5+e0
+X84%3"#(0dC'4PCLjS!(-!!k3Y`#+N,F!LT#h!)J!B!!)!!&)V9d0)33!*Gf0SBA*
+XIG#jS!!!#T#j4$D3Z83fN,P%0!"J!!J!!8LY69%4-!3KcG'4XD@)ZD!#3!`+N,F#
+XcT#h!Xk3Y`,-!'!!#!!"5+e088NN"#(0dFQPZCbjS!*!$!U3arj!!T$(rN!#N-Iq
+X3!!!@!!)!!&)V4N019!%(CQ0ZG'`ZD!!!!UBe3AkQ08&qTM9"IJ!B!!%!!'j(68&
+X$8`!*E@&MFh4KG#jS!!!$T#h!LD3Y`)QN,F#*!"B!!J!!8LY858e&!3CdD@eP,QJ
+X!,J!"T$(BaD3af-@N-GM&!"J!!J!!8LY$6dj6!3PMEfjcEfaP,QJ!#J!8,-Ij3!!
+X8,-Ij3!!!!3!!rj!)TKY&qJ!B!!%!!'j(58j'6!!*D@jQE'&dC5jM!!!"T*I##D5
+XA`JQNPm)*!"S!!J!!8R*0380)!3T0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!
+X@!!%!!'j(98jD53!(G@jkDA!ZD!!!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%
+X(Fh4ND@mZD!!!!k3Y[rZN,ErlT#frq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!
+X#T#Z0bU3VMFUN+ih+!"B!!J!!8LY$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ib
+XJ!"B!!J!!8LY&8P*1!3GPFR*ZEbjS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4
+X%!3KcG'4NC@BZD!"c!!1N,F!LT#h!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3
+XZD!!!!U3Z83fN,P%0T#j4$3!B!!)!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3
+XY`,1N,F#c!"J!!J!!8LY69&**!3KcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!
+X!&J!#!!"5+dC$6P3""fCMER4X,QJ!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-
+X!#@eKBh0dBA3ZD!!!!k3Y`)QN,F#*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i
+X!!"3XarP!!"3XarP!!!!"!!$rN!LNR29b!"J!!J!!8Y&03808!!P0B@08FQ&`Fc)
+X!N!@Q08&qTM9"IJ!B!!%!N!8"!*!$#!4YB@PZ)*!$D!!!!k3Y`)QN,F#*T#h!L3!
+X@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3XarP!!!!"!!$rN!LQ09CD!"B
+X!!3!!ENG0394$!!GYBA4MD#jM!!!"T*I##D5A`JQNPm)*!"S!!J!!8R*0380)!3T
+X0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%!!'j(98jD53!(G@jkDA!ZD!!
+X!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4ND@mZD!!!!k3Y[rZN,ErlT#f
+Xrq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z0bU3VMFUN+ih+!"B!!J!!8LY
+X$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B!!J!!8LY&8P*1!3GPFR*ZEbj
+XS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3KcG'4NC@BZD!"c!!1N,F!LT#h
+X!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!!!U3Z83fN,P%0T#j4$3!B!!)
+X!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1N,F#c!"J!!J!!8LY69&**!3K
+XcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!#!!"5+dC$6P3""fCMER4X,QJ
+X!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZD!!!!k3Y`)QN,F#
+X*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3XarP!!!!"!!$rN!L
+XQ1DSX!"B!!3!!ENG0590$!!CYDA0M,Q-!N!-"T*I##D5A`JQNPm)*!"S!!J!!8R*
+X0380)!3T0B@0)C@&NCA*c!*!$!DBpl2+Q2HcbTMhXmJ!@!!%!!'j(98jD53!(G@j
+XkDA!ZD!!!!U3c(6fN-adpT$-G23!@!!)!!&)V8e4%53%(Fh4ND@mZD!!!!k3Y[rZ
+XN,ErlT#frq`!B!!)!!&)V8dPD43!)FfPkC9pd,QJ!F`!#T#Z0bU3VMFUN+ih+!"B
+X!!J!!8LY$9&P3!3GMG(P`C5jS!!!#T#Z-S+3VM+#N+ibJ!"B!!J!!8LY&8P*1!3G
+XPFR*ZEbjS!!!#T#h!3+3Y`%#N,F"!!"J!!J!!8LY69%4%!3KcG'4NC@BZD!"c!!1
+XN,F!LT#h!)U3Y`#)!'!!#!!"5+eG$5%%!#AGMD'&bAh3ZD!!!!U3Z83fN,P%0T#j
+X4$3!B!!)!!&)V8e4%6!%)Fh4NE'PL,QJ!N!-#T#h!Xk3Y`,1N,F#c!"J!!J!!8LY
+X69&**!3KcG(*TEQFZD!#3!`+N-Iq3!+3arj!!T$(rN!!!&J!#!!"5+dC$6P3""fC
+XMER4X,QJ!!!+Q08&qTM9"IUBe3Ai!'!!"!!"Z4de"3e-!#@eKBh0dBA3ZD!!!!k3
+XY`)QN,F#*T#h!L3!@!!)!!&)V9%P043%'G'PYC5jS!#i+!"3XarP!!"3XarP!!!!
+X"!!$rN!LQ,+,%!"J!!3!!ENG&@&"-!!PPH("XEf4P,Q-!!!'NPm)*T*I##D5A`JN
+X!'J!#!!"5FNe"3dJ"#NeKBdKPB@4PFR-!N!-"TMhXmUBpl2+Q2Hcb!"B!!3!!ENG
+X96PT*!!GeERTTF#jS!!!#T$-G2D3c(6fN-adp!"B!!J!!8LY69%4*!3GcG'4TEbj
+XS!!!$T#frqk3Y[rZN,Erl!"J!!J!!8LY659T&!!KcDATPAh3ZD!"c!!+N+ih+T#Z
+X0bU3VMFS!&J!#!!"5+d08@9!""f0dHA"P,QJ!!!+N+ibJT#Z-S+3VM+!!&J!#!!"
+X5+d958Ni""f9bFQj[,QJ!!!+N,F"!T#h!3+3Y`%!!'!!#!!"5+e084%3"#(0dC'4
+XPCLjS!(-!!k3Y`#+N,F!LT#h!)J!B!!)!!&)V9d0)33!*Gf0SBA*IG#jS!!!#T#j
+X4$D3Z83fN,P%0!"J!!J!!8LY69%4-!3KcG'4XD@)ZD!#3!`+N,F#cT#h!Xk3Y`,-
+X!'!!#!!"5+e088NN"#(0dFQPZCbjS!*!$!U3arj!!T$(rN!#N-Iq3!!!@!!)!!&)
+XV4N019!%(CQ0ZG'`ZD!!!!UBe3AkQ08&qTM9"IJ!B!!%!!'j(68&$8`!*E@&MFh4
+XKG#jS!!!$T#h!LD3Y`)QN,F#*!"B!!J!!8LY858e&!3CdD@eP,QJ!,JS!&#c(q8!
+X!&#c(q8!!!!%!!2q3#+C!Lr!!'!!"!!"Z4d919N%!#@9ZGQ&bCh-ZB`!!!D5A`JQ
+XNPm)*T*I##3!D!!)!!&*b68&$5!%+6@&M5'9KC'9bF`#3!`'N-adpT$-G2D3c(6d
+X!&J!#!!"5+e084%N""h0dC'P[,QJ!!!+N,ErlT#frqk3Y[rX!'!!#!!"5+e0*@N8
+X!#(0THQ9IG#jS!(-+!"3XarP!!"3XarP!!!!"!!$rN!LQ1D[d!"S!!3!!ENG96P*
+X&!!TeER*PC(9MC5jM!*!$!D5A`JQNPm)*T*I##3!D!!)!!&*b68&$5!%+6@&M5'9
+XKC'9bF`#3!`'Q2HcbTMhXmUBpl2)!&J!"!!"Z4e91@NN!"h9ZHQP`,QJ!!!+N-ad
+XpT$-G2D3c(6d!&J!#!!"5+e084%N""h0dC'P[,QJ!!!1N,ErlT#frqk3Y[rX!'!!
+X#!!"5+e0*@N8!#(0THQ9IG#jS!(-!!U3VMFUN+ih+T#Z0bJ!@!!)!!&)V3e4C8!%
+X(Bh4jF'8ZD!!!!U3VM+#N+ibJT#Z-S!!@!!)!!&)V49*56J%(CA*bEQmZD!!!!U3
+XY`%#N,F"!T#h!3!!B!!)!!&)V8e4%4!%)Fh4NC'9Q,QJ!F`!$T#h!)U3Y`#+N,F!
+XL!"J!!J!!8LYA3dK"!!PhBfKKFPpd,QJ!!!+N,P%0T#j4$D3Z83d!'!!#!!"5+e0
+X84%`"#(0dC'aTBLjS!*!$!U3Y`,1N,F#cT#h!X`!B!!)!!&)V8e4553%)Fh4bD@j
+XR,QJ!N!-#T$(rN!#N-Iq3!+3arj!!!"B!!J!!8LY'3dj8!3GQBfjdE#jS!!!#TM9
+X"IUBe3AkQ08&q!"J!!3!!ENG03806!!PYB@0cG'&d,QJ!!!1N,F#*T#h!LD3Y`)N
+X!&J!#!!"5+e4*688""R4TE@8ZD!!ZFcSJ)(GbDA4P)'9bFQpb)#KNDA0V)'CeE'`
+Xr+5iJ)%0[ER4TER9P2b!SH5pZ,ej$+5!!!'9bFQpb1L!JBf&Z*h3JFf9d)(4SC5"
+XdD@eP)'C[FL!PF`S!!'9bFQpb1L!JBf&Z*h3JFf9d)(4SC5"dD@eP)'C[FL!PF`S
+X!N!-3!"%!%J#3!`J!"`!*!!B!#J!&!!X!"!!-!!-!$3!#!!i!!3!2!!-!"!!&!!B
+X!"`!)!!N!#J!,!!d!$`!4!"-!&`!E!"m!)`!V!$-!1`"$!&-!B`"c!)-!S`$$!1-
+X"!J#3!`%!!3!"!!%!!J!!#6i!N!-+!*!E%N*i#NUGcNkk!&41ZJ"N,$a*6N4B6VS
+X(1NIkrmSQM%IkrmJQK%kk!'a1ZJ1L6VS(mNkk!0j1ZJ#U3QG)H2rr5'm!"%KA5(J
+X!!5)krl*1ZJ916V8B!#"Y!'a1N!#Tp&(i#Pj`!%kk"-CR"NU3!'F#S%P1G5!i#RK
+XQ$L`m@Np148kk"Y)J$'!'*N!J+`!J4rVrB#D!6R8X2%4"9%&1ZJDf)%`LH!N))!5
+XJ,Nkk"fT(q[p)*S3X2&088P01ZJDB4rVr0#D-,$a%8N9-6VS'L#"-)!4R$%kk!Ui
+X%J!#3!`aQp%lk"c419[rD3IJ*%#*2F##J,R!"d"&D%G,!3IS!%R!&S#j9MdK[!!+
+XTPdjH6R8ZFR0bB`"(qJIf*VJ+I#"i#RLar!#3"'F)4rS(jLDS!"B[1!U!CJ*BMdj
+Xe@)p)jrri2Lm!1&(i#PjJ#PQ2,`LTT5!IS%!`"dkk!pCRE%IkrTiQL#!3Cq3L3%U
+X4CLkJ+D"*,$a$8N9-6VS&hQG-2Lm!1#"-)!4R$%kk!0S%J!#3!`aQp%kk"S*1ZJ*
+Xm)(VqB+"T#!!!"fB%S'5J+8kk!ZBLE`!dABN[53!f60mIre525MJ",@F#UIp1GA!
+X2UFPBMb"[!!3-8%ljCJi`)%kk!e*Rk+!U6VS#J#kI6R91ZJFU6VS!$Nkk"TK1G8k
+Xk"aa1G5!k"a"Q!!!b)(J#TR!-d*!!X,J#UQBL)(J+l+!P)&!L5#)BB!T"k!!)G!'
+X%'0$#8FRrp*!!L0#*CJ*1G5)!S#iJH!VX)!'J*#*36qrr`#"23UJ!%M&T!!3!&U!
+X93UG)D3!-)%qTmM)B6VS#lL4BeF%d'#)BEMjR)P*"Ca*53@FQ9N&R!!#Z8N&R!!#
+XB6R8b+2rd6VS#r0056R8b+2rd6VS#c0056R8b+2rd6VS#dY1Urrj1G8kk!T)b+3!
+X-5QN!#QBJ9%*U%&*#CRK`BkR*8N*Qq0056R91ZJ+8dUN!$Y056R91ZJ+XdUN!$Ja
+X#rraRBQeS8N*Q"0056R9$p4J#[P&Qc!aK2caQaP*#CJB+DJ!Arrib)9K")RVmk0+
+X4NNV68Nje-LMrp%kk!QM5MG1Urrj1G6)Srr41ZJ)ddSh6U[rq6R91ZJ)SdUN!$Y+
+X0dkVrrNjedSh6U[rq6R9$p4J#[P&Qm!aK2caQkJTU!!2rr$)KA%%LH[b-dT(5U[r
+XqNNSe3Irq0,a1F8je-KK1ZJ(J4I8B!0AB0"KR-L)BEL4R$P*"CK3b+2rd6VS"k'!
+XB-LMrp%kk!ETJ$M)Srr41ZJ(#B!C1ZJ(LdSh6NNje)KK1ZJ(@de*1G5"kr"BJ1[`
+X@5UJ!!'FS-LJ!+'FL*#J!'&P#3qd!%02S!!69@6,m2ca#'4,S!$dbr+R`88&Ql%(
+XS!%!%J!#3!d"QaNje)(VldL!kqp*brh3!5UJ!!'FD[LJ!2@B80LJ!+%M$C`c8Jl+
+XS!!4P"#)S!!4"k!"!")!!N!0!CY3JH[ZZ)&"`%*+!jSN``HD+!%+!!$$#6R8J8()
+X!-KJ`'!*!IrrRL82e'#!d%@!5)LN!"*+)-X%br$mm-X)br+R`8FMrl'!f)"#J95"
+X!FJ!b'$!B!N"rrqH*3r8B)!aT6[N!!QFB0#N!"'!1-K&)F"!!-X)br%lj)Yp4b2r
+X`)$S!#L"!CJ*K"Nl3!*!%-$bJ[D0')JJ`2+LITdDbL'F'3IS!,'!J$$J!"!%[C3C
+X"qJ!LB")-1!!#!5pP"N(k!"KJ"%(k!"j$q[r#)SK1GD#p6RAdq%je6RS!!JM!!!0
+X1H`!#6R9CMbmm3dp%46m!UD!JAe$i#PiJ#%je+(VkUL*-Np6PJGR"dp41G5KkqT,
+X#r!"!)M3B'#KkqTV5P%je+(VkIX,m!%!L0"J)NVVkJNje+(VkE-,m!%!L0"J3dVV
+XkE%je+(Vk@X,m!%!L0"J%"S%!N!-36R91Z[qL-LN!$%TT!!TQ"NkkrlKJ"%kkrpE
+X5U3!16R8JAc)B0"L`@&I*rrT+3QIq6[!Jr#"I-KJd',#B9mRrqNT#Crj1m#$k)&m
+Xb'$3BX%*Z#T!!3@d'd%""m!!#-""RrNl`!!!J,`!%,d%!"#)[!!J[A`!%51Fm!#3
+X!*J&)3X6$+!!U!8K&b-A84%K#N!2!`G##60m!2#)I6R8J,`!%,d%!"#)[!!J[A`!
+X%51Fa!%kk!*a-h`#-)Kp1G5![!!3[33!%)Lm!##pI!!4)jc%!6VS!I#!"60m!M#)
+XI6R8J,`!%,d%!"#)[!!J[A`!%51Fa!%kk!#a-h`#-)Kp1G5![!!3[33!%)Lm!##p
+XI!!4)jc%!6VS!$#!"60m!M#)I6R9+J'SF5S&U$%5!4)&1ZJ!J4)&1G85!6VS!&N5
+X!4)&1G8U"DJT%J8kk!!C%J%je,M`!!2rrXS"M"L)!F!"1GE#(BJb!`8K!-J"#3%K
+X!6R@bKf)D,J"#3%K!J-&)3%K(2J")4il"-!G)4c)(6R8N!#B"iSMLLE+(B[L!`F#
+X(-J2#`#i$5%I1`%K(dSGP#*+#BJ4%J8je8d"Jj(i!8IJ+APQ2,`Br"kQJ)"pR!!#
+XZ*N"CMbm,UD8Q(b!,+!054qp(8NFk"f!@@Bm["Mm(UD!J(fF!!)K54`D%!!"rrP@
+X2,`#TTM!I#!!!"@EF82J+AXp&QNGQ(#!$S%![#kQL)"0R!!"D,`ZTNLK6)%ZJ+A!
+X"6R8J"+%H)!KR!!"#+%J[#kQL)"0R!!!f)%XJ!f!B@Bm["Mm(UD!J(fF!!#*54b"
+X!)$`!!(rq,`JJ8#*-fF#J,UQM8FhrfTR%*Na`!8je)%Y+4@B%S#01GD!I6R8b2+R
+X`3rVj%%kk!,!b2+Rb3rVj[%kk!+3b2+Ra3rVjLNkk!*Jb2+Rc3rVjT#"i#RLar!#
+X3"'F3)#J!&QF+)#J!('F86[S!G%kk!(!b2+Rd3rVjG%lk!'41ZJ"J-MbTp%2kqA*
+X1qJ"8,`JJE`!),fJ!!J!))$S!GQB!!$`JH!+QF!c3N!#`Z!+UCLa1ZJ"Q-MbTm%k
+Xk!%)b2+Ra6VS!1M)mUI*1ZJ!b-MbTmdkk!#Sb2+Rd6VS!)L"I6R8`!D&'*%K`$+%
+XH-!'J4c$m6VNJb6$m6[NJbNje-!'K4L*S!!LJ(c!")%QJ4dje!*!)6R8J1[rdC`3
+XJ3%+3!%je!!!"!*!$2+`!!$ZX!!!"fJ!M6V3$8!#3!a`"dJ!35%&65!#3!iTD6dj
+X&!*!$PNY*6N3!N!1L9da23`#3!kj*6N4B!*!$ZN024%8!"!$'4%&833!!!3*69&*
+X6!!!"$N4548`!!!%D8eP08`!!!5C$6NC(!!!"-P0*@N8!!!%q4%*69!!!!8T%3PG
+X6!!!"9N0548`!!J&L4%*94`!#!BC849K8!!!"UJ!"!*!(+3X!N!2rr`!!#QB!+3Z
+XF!!$rr`!!#')!)diF!!$rr`!!"rJ!+3V8!!$rr`!!!r3!+3UJ!!$rr`!!#Ei!+3U
+X%!!,rr`!!#L)!+3U!!!2rr`!!#LS!+3Vi!!6rr`!!#M)!+3VN!!(rra3!-QS!+3U
+Xd!!$rr`!!#MS!+3Y`!!$rr`!!#Mi!+3ZJ!!$rr`!!#N)!+3Yi!!$rr`!!#NB!+3U
+XN!!Err`!!#"i!+3U`rrm!"J!!#$S!+3UX!)$rr`!!#Q)!+3Z%!)$rr`!!#!3!+3U
+X3!!!#rrm!!!T+!#N,'!!$rrm!!!T1!#N+l!!%rrm!!!T5!#N+[!!#rrm!!!T@!#N
+X,J!!$rrm!!!TD!#N+m!!%rrm!!!TH!#N,[!!!rrm!!!K)!#N+@!9YDf&SE!%f%ZN:
+END_OF_FILE
+  if test 19223 -ne `wc -c <'MAC/thinkc.hqx'`; then
+    echo shar: \"'MAC/thinkc.hqx'\" unpacked with wrong size!
+  fi
+  # end of 'MAC/thinkc.hqx'
+fi
+if test -f 'VMS/vmsshare.opt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/vmsshare.opt'\"
+else
+  echo shar: Extracting \"'VMS/vmsshare.opt'\" \(30 characters\)
+  sed "s/^X//" >'VMS/vmsshare.opt' <<'END_OF_FILE'
+Xsys$library:vaxcrtl.exe/share
+END_OF_FILE
+  if test 30 -ne `wc -c <'VMS/vmsshare.opt'`; then
+    echo shar: \"'VMS/vmsshare.opt'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/vmsshare.opt'
+fi
+if test -f 'zipinfo.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipinfo.c.A'\"
+else
+  echo shar: Extracting \"'zipinfo.c.A'\" \(29513 characters\)
+  sed "s/^X//" >'zipinfo.c.A' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  zipinfo.c
+X
+X  This program reads all sorts of totally nifty information, including the
+X  central directory stuff, from a ZIP archive ("zipfile" for short).  It
+X  started as just a testbed for fooling with zipfiles, but at this point
+X  it's actually a moderately useful utility.  It also became the basis
+X  for the rewrite of unzip (3.16 -> 4.0), using the central directory for
+X  processing rather than the individual (local) file headers.
+X
+X  For myself, I find it convenient to define an alias "ii" (under Unix and
+X  VMS) or to rename the executable to "ii.exe" (OS/2 and DOS).  This nicely
+X  complements my Unix long-listing "ll" alias (ls -lF), since zipinfo's de-
+X  fault action is to produce a Unix-like listing of the archive's contents.
+X  "ii zipfile" is easier to type than "zipinfo zipfile"...
+X
+X  Another dandy product from your buddies at Newtware!
+X
+X  ---------------------------------------------------------------------------
+X
+X  To compile (partial instructions; some of this stuff doesn't exist yet):
+X
+X     under Unix (cc):  make zipinfo
+X
+X     under MS-DOS (TurboC):  make -fMKZIPINF.DOS   (edit appropriately)
+X
+X     under MS-DOS (MSC):  make MKZIPINF.DOS
+X       (or use Makefile if you have MSC 6.0:  "nmake zi_dos")
+X
+X     under OS/2 (MSC):  make MKZIPINF.DOS   (edit appropriately)
+X       (or use Makefile if you have MSC 6.0:  "nmake zi_os2")
+X
+X     under Atari OS:  beats me...
+X
+X     under VMS:  @MAKE_ZIPINFO     (see also VMSNOTES)
+X                 ZIPINFO == $DISKNAME:[DIRECTORY]ZIPINFO.EXE
+X
+X     under Macintosh OS:  who knows?
+X
+X  ---------------------------------------------------------------------------
+X
+X  Source:     unzip50.zip (.tar.Z, etc.) for Unix, VMS, OS/2 and MS-DOS; see
+X              `Where' in source distribution for ftp, uucp and mail-server
+X              sites.
+X  Author:     Greg Roelofs, roelofs@nas.nasa.gov, 23 August 1990
+X  Copyright:  Portions copyright 1992 Greg Roelofs.  Portions adapted from
+X              unzip 3.1.  SizeOfEAs() by Kai Uwe Rommel.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X
+X
+X#ifndef ZIPINFO
+X#  define ZIPINFO   /* needed for Unix permissions in non-Unix environments */
+X#endif /* !ZIPINFO */
+X#include "unzip.h"
+X
+X#define VERSION  "v1.0 of 21 August 92"
+X
+X#define LFLAG    3        /* for short "ls -l" type listing */
+X
+X#define EAID     0x0009   /* OS/2 EA extra field ID */
+Xtypedef struct {          /* for OS/2 info in OS/2 and non-OS/2 environments */
+X    unsigned short nID;
+X    unsigned short nSize;
+X    ULONG lSize;
+X} EAHEADER, *PEAHEADER;
+X
+X
+X
+X
+X/**********************/
+X/*  Global Variables  */
+X/**********************/
+X
+X#ifdef EBCDIC
+X   int  aflag=1;        /* this is so you can read it on the screen  */
+X#else                   /* (basically, entire program is "unzip -c") */
+X   int  aflag=0;
+X#endif
+Xint lflag=(-1);         /* '-1slmv':  listing format */
+Xint hflag=0;            /* '-h':  header line */
+Xint tflag=0;            /* '-t':  totals line */
+X
+Xbyte *inbuf, *inptr;    /* input buffer (any size is legal) and pointer */
+Xint incnt;
+X
+Xint zipfd;              /* zipfile file handle */
+Xchar zipfn[FILNAMSIZ];
+X
+Xchar local_hdr_sig[5] = "\120";    /* remaining signature bytes come later:  */
+Xchar central_hdr_sig[5] = "\120";  /*  must initialize at runtime so zipinfo */
+Xchar end_central_sig[5] = "\120";  /*  executable won't look like a zipfile  */
+Xchar extd_local_sig[5] = "\120";
+X
+Xcdir_file_hdr crec;             /* used in zipinfo.c, misc.c */
+Xlocal_file_hdr lrec;
+Xecdir_rec ecrec;
+Xstruct stat statbuf;            /* used by main() */
+X
+Xint process_all_files;
+Xlongint real_ecrec_offset, expect_ecrec_offset;
+Xlongint extra_bytes=0;          /* used in zipinfo.c, misc.c */
+Xlongint cur_zipfile_bufstart;   /* find_end_central_dir, readbuf */
+X
+Xmin_info info, *pInfo=(&info);
+X
+Xbyte *extra_field = NULL;       /* used by VMS, Mac and OS/2 versions */
+Xbyte *outbuf;                   /* buffer for rle look-back, zipfile comment */
+Xbyte *outout;                   /* scratch pad for ASCII-native trans */
+X
+Xchar filename[FILNAMSIZ];
+Xchar sig[5];
+Xchar *fnames[2] = {"*", NULL};    /* default filenames vector */
+Xchar **fnv = fnames;
+X
+Xstatic byte *hold;
+Xstatic longint ziplen;
+Xstatic UWORD hostnum;
+Xstatic UWORD methnum;
+Xstatic UWORD extnum;
+X
+Xchar *EndSigMsg = "\nwarning:\
+X  didn't find end-of-central-dir signature at end of central dir.\n";
+Xchar *CentSigMsg =
+X  "error:  expected central file header signature not found (file #%u).\n";
+Xchar *SeekMsg =
+X  "error:  attempt to seek before beginning of zipfile\n%s";
+X
+X#ifdef VMS
+Xchar *ReportMsg = "\
+X  (please check that you have transferred or created the zipfile in the\n\
+X  appropriate BINARY mode--this includes ftp, Kermit, AND unzip'd zipfiles)\n";
+X#else /* !VMS */
+Xchar *ReportMsg = "\
+X  (please check that you have transferred or created the zipfile in the\n\
+X  appropriate BINARY mode and that you have compiled unzip properly)\n";
+X#endif /* ?VMS */
+X
+X
+X
+X
+X
+X
+X/******************/
+X/*  Main program  */
+X/******************/
+X
+Xmain(argc, argv)
+X    int    argc;
+X    char   *argv[];
+X{
+X    char   *s;
+X    int    c, error=FALSE, negative=0;
+X    int    hflag_slmv=TRUE, hflag_1=FALSE;  /* diff options => diff defaults */
+X    int    tflag_slm=TRUE, tflag_1v=FALSE;
+X    int    explicit_h=FALSE, explicit_t=FALSE;
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    Everybody is now "NOTINT16," but this is a nice little piece of code, so
+X    just comment it out for future reference. :-)
+X  ---------------------------------------------------------------------------*/
+X
+X#if 0
+X# ifndef KNOW_IT_WORKS  /* define this to save space, if things already work */
+X# ifndef DOS_OS2        /* already works (no RISCy OS/2's yet...) */
+X# ifndef NOTINT16       /* whole point is to see if this NEEDS defining */
+X    {
+X        int error=0;
+X        long testsig;
+X        static char *mach_type[3] = {"big-endian", "structure-padding",
+X                                     "big-endian and structure-padding"};
+X
+X        strcpy((char *)&testsig,"012");
+X        if (testsig != 0x00323130)
+X            error = 1;
+X        if (sizeof(cdir_file_hdr) != CREC_SIZE)
+X            error += 2;
+X        if (error--)
+X            fprintf(stderr, "It appears that your machine is %s.  If errors\n\
+Xoccur, please try recompiling with \"NOTINT16\" defined (read the\n\
+XMakefile, or try \"make zipinfo\").\n\n", mach_type[error]);
+X    }
+X# endif /* !NOTINT16 */
+X# endif /* !DOS_OS2 */
+X# endif /* !KNOW_IT_WORKS */
+X#endif /* 0 */
+X
+X/*---------------------------------------------------------------------------
+X    Put environment-variable options into the queue, then rip through any
+X    command-line options lurking about...
+X  ---------------------------------------------------------------------------*/
+X
+X    envargs(&argc, &argv, ENV_ZIPINFO);
+X
+X    while (--argc > 0 && (*++argv)[0] == '-') {
+X        s = argv[0] + 1;
+X        while ((c = *s++) != 0) {    /* "!= 0":  prevent Turbo C warning */
+X            switch (c) {
+X                case '-':
+X                    ++negative;
+X                    break;
+X                case '1':      /* shortest listing:  just filenames */
+X                    if (negative)
+X                        lflag = -2, negative = 0;
+X                    else
+X                        lflag = 1;
+X                    break;
+X                case 'h':      /* header line */
+X                    if (negative)
+X                        hflag_1 = hflag_slmv = FALSE, negative = 0;
+X                    else {
+X                        hflag_1 = hflag_slmv = explicit_h = TRUE;
+X                        if (lflag == -1)
+X                            lflag = 0;
+X                    }
+X                    break;
+X                case 'l':      /* longer form of "ls -l" type listing */
+X                    if (negative)
+X                        lflag = -2, negative = 0;
+X                    else
+X                        lflag = 5;
+X                    break;
+X                case 'm':      /* medium form of "ls -l" type listing */
+X                    if (negative)
+X                        lflag = -2, negative = 0;
+X                    else
+X                        lflag = 4;
+X                    break;
+X                case 's':      /* default:  shorter "ls -l" type listing */
+X                    if (negative)
+X                        lflag = -2, negative = 0;
+X                    else
+X                        lflag = 3;
+X                    break;
+X                case 't':      /* totals line */
+X                    if (negative)
+X                        tflag_1v = tflag_slm = FALSE, negative = 0;
+X                    else {
+X                        tflag_1v = tflag_slm = explicit_t = TRUE;
+X                        if (lflag == -1)
+X                            lflag = 0;
+X                    }
+X                    break;
+X                case 'v':      /* turbo-verbose listing */
+X                    if (negative)
+X                        lflag = -2, negative = 0;
+X                    else
+X                        lflag = 10;
+X                    break;
+X                default:
+X                    error = TRUE;
+X                    break;
+X            }
+X        }
+X    }
+X    if ((argc-- == 0) || error)
+X        RETURN(usage(error));
+X
+X    if (argc != 0)
+X        process_all_files = FALSE;
+X    else
+X        process_all_files = TRUE;   /* for speed */
+X
+X    /* if no listing options given (or all negated), or if only -h/-t given
+X     * with individual files specified, use default listing format */
+X    if ((lflag < 0) || (!process_all_files && (lflag == 0)))
+X        lflag = LFLAG;
+X
+X    /* set header and totals flags to default or specified values */
+X    switch (lflag) {
+X        case 0:   /* 0:  can only occur if either -t or -h explicitly given; */
+X        case 1:   /*  therefore set both flags equal to normally false value */
+X            hflag = hflag_1;
+X            tflag = tflag_1v;
+X            break;
+X        case 3:
+X        case 4:
+X        case 5:
+X            hflag = (!process_all_files && !explicit_h)? FALSE : hflag_slmv;
+X            tflag = (!process_all_files && !explicit_t)? FALSE : tflag_slm;
+X            break;
+X        case 10:
+X            hflag = hflag_slmv;
+X            tflag = tflag_1v;
+X            break;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Now get the zipfile name from the command line and see if it exists as a
+X    regular (non-directory) file.  If not, append the ".zip" suffix.  We don't
+X    immediately check to see if this results in a good name, but we will do so
+X    later.  In the meantime, see if there are any member filespecs on the com-
+X    mand line, and if so, set the filename pointer to point at them.
+X  ---------------------------------------------------------------------------*/
+X
+X    strcpy(zipfn, *argv++);
+X    if (stat(zipfn, &statbuf) || (statbuf.st_mode & S_IFMT) == S_IFDIR)
+X        strcat(zipfn, ZSUFX);
+X#if defined(UNIX) && !defined(VMS)  /* Unix executables have no extension-- */
+X    else if (statbuf.st_mode & S_IXUSR)  /* might find zip, not zip.zip; etc */
+X        fprintf(stderr, "\nnote:  file [ %s ] may be an executable\n\n", zipfn);
+X#endif /* UNIX && !VMS */
+X
+X    if (stat(zipfn, &statbuf)) {    /* try again */
+X        fprintf(stderr, "error:  can't find zipfile [ %s ]\n", zipfn);
+X        RETURN(9);                  /* 9:  file not found */
+X    } else
+X        ziplen = statbuf.st_size;
+X
+X    if (!process_all_files)
+X        fnv = argv;
+X
+X/*---------------------------------------------------------------------------
+X    Okey dokey, we have everything we need to get started.  Let's roll.
+X  ---------------------------------------------------------------------------*/
+X
+X    inbuf = (byte *) (malloc(INBUFSIZ + 4));    /* 4 extra for hold[] (below) */
+X    outbuf = (byte *) (malloc(OUTBUFSIZ + 1));  /* 1 extra for string termin. */
+X    if (aflag)                  /* if need an ascebc scratch, */
+X        outout = (byte *) (malloc(OUTBUFSIZ));
+X    else                        /*  allocate it... */
+X        outout = outbuf;        /*  else just point to outbuf */
+X
+X    if ((inbuf == NULL) || (outbuf == NULL) || (outout == NULL)) {
+X        fprintf(stderr, "error:  can't allocate zipinfo buffers\n");
+X        RETURN(4);              /* 4-8:  insufficient memory */
+X    }
+X    hold = &inbuf[INBUFSIZ];    /* to check for boundary-spanning signatures */
+X
+X    RETURN(process_zipfile());  /* keep passing errors back... */
+X
+X} /* end main() */
+X
+X
+X
+X
+X
+X/**********************/
+X/*  Function usage()  */
+X/**********************/
+X
+Xint usage(error)
+X    int error;
+X{
+X    FILE *usagefp;
+X
+X
+X/*---------------------------------------------------------------------------
+X    If user requested usage, send it to stdout; else send to stderr.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (error)
+X        usagefp = (FILE *) stderr;
+X    else
+X        usagefp = (FILE *) stdout;
+X
+X    fprintf(usagefp, "\
+X   ZipInfo:  Zipfile Information Utility %s\n\
+X   (brought to you by Newtware, Inc., and the fine folks at Info-ZIP)\n\n\
+X   Usage:  zipinfo [-1smlvht] file[.zip] [filespec...]\n", VERSION);
+X    fprintf(usagefp, "\
+X     -1  list filenames only, one per line (useful for pipes)\n\
+X     -s  list zipfile info in short Unix \"ls -l\" format:  default\n\
+X     -m  list zipfile info in medium Unix \"ls -l\" format\n\
+X     -l  list zipfile info in long Unix \"ls -l\" format\n\
+X     -v  list zipfile information in verbose, multi-page format\n\
+X     -h  list header line\n\
+X     -t  list totals for files listed or for all files\n");
+X/*
+X     -p  disable automatic \"more\" function (for pipes) [not implemented]\n");
+X */
+X
+X#ifdef VMS
+X    fprintf(usagefp, "\nRemember that non-lowercase filespecs must be quoted\
+X in VMS (e.g., \"Makefile\").\n");
+X#endif
+X
+X    if (error)
+X        return 10;    /* 10:  bad or illegal parameters specified */
+X    else
+X        return 0;     /* just wanted usage screen: no error */
+X
+X} /* end function usage() */
+X
+X
+X
+X
+X
+X/********************************/
+X/*  Function process_zipfile()  */
+X/********************************/
+X
+Xint process_zipfile()   /* return PK-type error code */
+X{
+X    int error=0, error_in_archive;
+X
+X
+X/*---------------------------------------------------------------------------
+X    Open the zipfile for reading and in BINARY mode to prevent CR/LF trans-
+X    lation, which would corrupt the bitstreams.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef VMS
+X    if (check_format())         /* check for variable-length format */
+X        return 2;               /* 2:  error in zipfile */
+X#endif /* VMS */
+X
+X    if (open_input_file())      /* this should never happen, given the */
+X        return 9;               /*   stat() test in main(), but... */
+X
+X/*---------------------------------------------------------------------------
+X    Reconstruct the various PK signature strings, and find and process the
+X    end-of-central-directory header.
+X  ---------------------------------------------------------------------------*/
+X
+X    strcat(local_hdr_sig, LOCAL_HDR_SIG);
+X    strcat(central_hdr_sig, CENTRAL_HDR_SIG);
+X    strcat(end_central_sig, END_CENTRAL_SIG);
+X    strcat(extd_local_sig, EXTD_LOCAL_SIG);
+X
+X    if (find_end_central_dir()) {   /* not found; nothing to do */
+X        close(zipfd);
+X        return 2;                   /* 2:  error in zipfile */
+X    }
+X
+X    real_ecrec_offset = cur_zipfile_bufstart + (inptr-inbuf);
+X#ifdef TEST
+X    printf("\n  found end-of-central-dir signature at offset %ld (%.8lXh)\n",
+X      real_ecrec_offset, real_ecrec_offset);
+X    printf("    from beginning of file; offset %d (%.4Xh) within block\n",
+X      inptr-inbuf, inptr-inbuf);
+X#endif
+X
+X    /* sets expect_ecrec_offset: */
+X    if ((error_in_archive = process_end_central_dir()) > 1) {
+X        close(zipfd);
+X        return error_in_archive;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Test the end-of-central-directory info for incompatibilities (multi-disk
+X    archives) or inconsistencies (missing or extra bytes in zipfile).
+X  ---------------------------------------------------------------------------*/
+X
+X    if (ecrec.number_this_disk != ecrec.num_disk_with_start_central_dir) {
+X        fprintf(stderr, "\n\
+X     Zipfile is part of a multi-disk archive, and this is not the disk on\
+X     which the central zipfile directory begins.\n");
+X        error_in_archive = 11;  /* 11:  no files found */
+X    } else {
+X        if ((extra_bytes = real_ecrec_offset - expect_ecrec_offset) < 0) {
+X            fprintf(stderr, "\nerror:  missing %ld bytes in zipfile (\
+Xattempting to process anyway)\n\n", -extra_bytes);
+X            error_in_archive = 2;       /* 2:  (weak) error in zipfile */
+X        } else if (extra_bytes > 0) {
+X            if ((ecrec.offset_start_central_directory == 0) &&
+X                (ecrec.size_central_directory != 0))   /* zip 1.5 -go bug */
+X            {
+X                fprintf(stderr, "\nerror:  NULL central directory offset (\
+Xattempting to process anyway)\n\n");
+X                error_in_archive = 2;   /* 2:  (weak) error in zipfile */
+X            } else {
+X                fprintf(stderr, "\nwarning:  extra %ld bytes at beginning or\
+X within zipfile\n          (attempting to process anyway)\n\n", extra_bytes);
+X                error_in_archive = 1;   /* 1:  warning error */
+X            }
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        Check for empty zipfile and exit now if so.
+X      -----------------------------------------------------------------------*/
+X
+X        if (expect_ecrec_offset == 0L  &&  ecrec.size_central_directory == 0) {
+X            printf("%sEmpty zipfile.\n", lflag>9 ? "\n  " : "");
+X            close(zipfd);
+X            return (error_in_archive > 1)? error_in_archive : 1;
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        Compensate for missing or extra bytes, and seek to where the start
+X        of central directory should be.  If header not found, uncompensate
+X        and try again (necessary for at least some Atari archives created
+X        with STZIP, as well as archives created by J.H. Holm's ZIPSPLIT).
+X      -----------------------------------------------------------------------*/
+X
+X        LSEEK( ecrec.offset_start_central_directory )
+X        if ((readbuf(sig, 4) <= 0) || strncmp(sig, central_hdr_sig, 4)) {
+X            longint tmp = extra_bytes;
+X
+X            extra_bytes = 0;
+X            LSEEK( ecrec.offset_start_central_directory )
+X            if ((readbuf(sig, 4) <= 0) || strncmp(sig, central_hdr_sig, 4)) {
+X                fprintf(stderr,
+X            "error:  start of central directory not found; zipfile corrupt.\n");
+X                fprintf(stderr, ReportMsg);
+X                close(zipfd);
+X                return 3;           /* 3:  severe error in zipfile */
+X            }
+X            fprintf(stderr, "error:  reported length of central directory is \
+X%d bytes too\n        long (Atari STZIP zipfile?  J.H. Holm ZIPSPLIT zipfile?)\
+X.\n        Compensating...\n\n", -tmp);
+X            error_in_archive = 2;   /* 2:  (weak) error in zipfile */
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        Seek to the start of the central directory one last time, since we
+X        have just read the first entry's signature bytes; then do the central
+X        directory and close the zipfile.
+X      -----------------------------------------------------------------------*/
+X
+X        LSEEK( ecrec.offset_start_central_directory )
+X        if ((error = process_central_dir()) > error_in_archive)
+X            error_in_archive = error;    /* don't overwrite stronger error */
+X        if (lflag > 9)
+X            printf("\n");
+X    }
+X
+X    close(zipfd);
+X    return error_in_archive;
+X
+X} /* end function process_zipfile() */
+X
+X
+X
+X
+X
+X/*************************************/
+X/*  Function find_end_central_dir()  */
+X/*************************************/
+X
+Xint find_end_central_dir()   /* return 0 if found, 1 otherwise */
+X{
+X    int       i, numblks;
+X    longint   tail_len;
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    Treat case of short zipfile separately.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (ziplen <= INBUFSIZ) {
+X        lseek(zipfd, 0L, SEEK_SET);
+X        if ((incnt = read(zipfd,inbuf,(unsigned int)ziplen)) == (int)ziplen)
+X            /* 'P' must be at least 22 bytes from end of zipfile */
+X            for (inptr = inbuf+(int)ziplen-22;  inptr >= inbuf;  --inptr)
+X                if ((ascii_to_native(*inptr) == 'P')  &&
+X                     !strncmp((char *)inptr, end_central_sig, 4)) {
+X                    incnt -= inptr - inbuf;
+X                    return 0;   /* found it! */
+X                }               /* ...otherwise fall through & fail */
+X
+X/*---------------------------------------------------------------------------
+X    Zipfile is longer than INBUFSIZ:  may need to loop.  Start with short
+X    block at end of zipfile (if not TOO short).
+X  ---------------------------------------------------------------------------*/
+X
+X    } else {
+X        if ((tail_len = ziplen % INBUFSIZ) > ECREC_SIZE) {
+X            cur_zipfile_bufstart = lseek(zipfd, ziplen-tail_len, SEEK_SET);
+X            if ((incnt = read(zipfd,inbuf,(unsigned int)tail_len)) !=
+X                (int)tail_len)
+X                goto fail;      /* shut up; it's expedient. */
+X
+X            /* 'P' must be at least 22 bytes from end of zipfile */
+X            for (inptr = inbuf+(int)tail_len-22;  inptr >= inbuf;  --inptr)
+X                if ((ascii_to_native(*inptr) == 'P')  &&
+X                     !strncmp((char *)inptr, end_central_sig, 4)) {
+X                    incnt -= inptr - inbuf;
+X                    return 0;   /* found it */
+X                }               /* ...otherwise search next block */
+X            /* sig may span block boundary: */
+X            strncpy((char *)hold, (char *)inbuf, 3);
+X        } else
+X            cur_zipfile_bufstart = ziplen - tail_len;
+X
+X        /*
+X         * Loop through blocks of zipfile data, starting at the end and going
+X         * toward the beginning.  Need only check last 65557 bytes of zipfile:
+X         * comment may be up to 65535 bytes long, end-of-central-directory rec-
+X         * ord is 18 bytes (shouldn't hardcode this number, but what the hell:
+X         * already did so above (22=18+4)), and sig itself is 4 bytes.
+X         * 
+X         * zipinfo:  check the whole file, just in case some transfer protocol
+X         * has appended a whole bunch of garbage at the end of the archive.
+X         *
+X         *                =todo=   ==done==   ==rounding==    =blksiz=      */
+X        numblks = (int) ((ziplen - tail_len + (INBUFSIZ-1)) / INBUFSIZ);
+X
+X        for (i = 1;  i <= numblks;  ++i) {
+X            cur_zipfile_bufstart -= INBUFSIZ;
+X            lseek(zipfd, cur_zipfile_bufstart, SEEK_SET);
+X            if ((incnt = read(zipfd,inbuf,INBUFSIZ)) != INBUFSIZ)
+X                break;          /* fall through and fail */
+X
+X            for (inptr = inbuf+INBUFSIZ-1;  inptr >= inbuf;  --inptr)
+X                if ((ascii_to_native(*inptr) == 'P')  &&
+X                     !strncmp((char *)inptr, end_central_sig, 4)) {
+X                    incnt -= inptr - inbuf;
+X                    return 0;   /* found it */
+X                }
+X            /* sig may span block boundary: */
+X            strncpy((char *)hold, (char *)inbuf, 3);
+X        }
+X
+X    } /* end if (ziplen > INBUFSIZ) */
+X
+X/*---------------------------------------------------------------------------
+X    Searched through whole region where signature should be without finding
+X    it.  Print informational message and die a horrible death.
+X  ---------------------------------------------------------------------------*/
+X
+Xfail:
+X
+X    fprintf(stderr, "\n\
+X     %s:\n\n\
+X     End-of-central-directory signature not found.  Either this file is not\n\
+X     a zipfile, or it constitutes one disk of a multi-part archive.  In the\n\
+X     latter case the central directory and zipfile comment will be found on\n\
+X     the last disk(s) of this archive.\n", zipfn);
+X    return 1;   /* failed */
+X
+X} /* end function find_end_central_dir() */
+X
+X
+X
+X
+X
+X/****************************************/
+X/*  Function process_end_central_dir()  */
+X/****************************************/
+X
+Xint process_end_central_dir()   /* return PK-type error code */
+X{
+X    ec_byte_rec   byterec;
+X    int           error=0;
+X
+X
+X/*--------------------------------------------------------------------------
+X    Read the end-of-central-directory record and do any necessary machine-
+X    type conversions (byte ordering, structure padding compensation) by
+X    copying character array to struct.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (readbuf((char *)byterec, ECREC_SIZE+4) <= 0)
+X        return 51;
+X
+X    ecrec.number_this_disk =
+X        makeword(&byterec[NUMBER_THIS_DISK]);
+X    ecrec.num_disk_with_start_central_dir =
+X        makeword(&byterec[NUM_DISK_WITH_START_CENTRAL_DIR]);
+X    ecrec.num_entries_centrl_dir_ths_disk =
+X        makeword(&byterec[NUM_ENTRIES_CENTRL_DIR_THS_DISK]);
+X    ecrec.total_entries_central_dir =
+X        makeword(&byterec[TOTAL_ENTRIES_CENTRAL_DIR]);
+X    ecrec.size_central_directory =
+X        makelong(&byterec[SIZE_CENTRAL_DIRECTORY]);
+X    ecrec.offset_start_central_directory =
+X        makelong(&byterec[OFFSET_START_CENTRAL_DIRECTORY]);
+X    ecrec.zipfile_comment_length =
+X        makeword(&byterec[ZIPFILE_COMMENT_LENGTH]);
+X
+X    expect_ecrec_offset = ecrec.offset_start_central_directory +
+X                           ecrec.size_central_directory;
+X
+X/*---------------------------------------------------------------------------
+X    Print out various interesting things about the zipfile.
+X  ---------------------------------------------------------------------------*/
+X
+X    /* header fits on one line, for anything up to 10GB and 10000 files: */
+X    if (hflag)
+X        printf((strlen(zipfn)<39)? "Archive:  %s   %ld bytes   %d file%s\n"
+X          : "Archive:  %s   %ld   %d\n", zipfn, ziplen,
+X          ecrec.total_entries_central_dir,
+X          (ecrec.total_entries_central_dir==1)? "":"s");
+X
+X    /* verbose format */
+X    if (lflag > 9) {
+X        printf("\nEnd-of-central-directory record:\n");
+X        printf("-------------------------------\n\n");
+X
+X        printf("\
+X  Actual offset of end-of-central-dir record:   %9ld (%.8lXh)\n\
+X  Expected offset of end-of-central-dir record: %9ld (%.8lXh)\n\
+X  (based on the length of the central directory and its expected offset)\n\n",
+X          expect_ecrec_offset, expect_ecrec_offset,
+X          real_ecrec_offset, real_ecrec_offset);
+X
+X        if (ecrec.number_this_disk == 0) {
+X            printf("\
+X  This zipfile constitutes the sole disk of a single-part archive; its\n\
+X  central directory contains %u %s.  The central directory is %lu\n\
+X  (%.8lXh) bytes long, and its (expected) offset in bytes from the\n\
+X  beginning of the zipfile is %lu (%.8lXh).\n\n",
+X              ecrec.total_entries_central_dir,
+X              (ecrec.total_entries_central_dir == 1)? "entry" : "entries",
+X              ecrec.size_central_directory, ecrec.size_central_directory,
+X              ecrec.offset_start_central_directory,
+X              ecrec.offset_start_central_directory);
+X        } else {
+X            printf("\
+X  This zipfile constitutes disk %u of a multi-part archive.  The central\n\
+X  directory starts on disk %u; %u of its entries %s contained within\n\
+X  this zipfile, out of a total of %u %s.  The entire central\n\
+X  directory is %lu (%.8lXh) bytes long, and its offset in bytes from\n\
+X  the beginning of the zipfile in which it begins is %lu (%.8lXh).\n\n",
+X              ecrec.number_this_disk,
+X              ecrec.num_disk_with_start_central_dir,
+X              ecrec.num_entries_centrl_dir_ths_disk,
+X              (ecrec.num_entries_centrl_dir_ths_disk == 1)? "is" : "are",
+X              ecrec.total_entries_central_dir,
+X              (ecrec.total_entries_central_dir == 1) ? "entry" : "entries",
+X              ecrec.size_central_directory, ecrec.size_central_directory,
+X              ecrec.offset_start_central_directory,
+X              ecrec.offset_start_central_directory);
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        Get the zipfile comment, if any, and print it out.  (Comment may be
+X        up to 64KB long.  May the fleas of a thousand camels infest the arm-
+X        pits of anyone who actually takes advantage of this fact.)
+X      -----------------------------------------------------------------------*/
+X
+X        if (!ecrec.zipfile_comment_length)
+X            printf("  There is no zipfile comment.\n");
+X        else {
+X            printf("  The zipfile comment is %u bytes long and contains the following text:\n\n",
+X              ecrec.zipfile_comment_length );
+X            printf("======================== zipfile comment begins ==========================\n");
+X            if (do_string(ecrec.zipfile_comment_length, DISPLAY))
+X                error = 1;          /* 1:  warning error */
+X            printf("\n========================= zipfile comment ends ===========================\n");
+X            if (error)
+X                printf("\n  The zipfile comment is truncated.\n");
+X        } /* endif (comment exists) */
+X
+X    } /* endif (verbose) */
+X
+X    return error;
+X
+X} /* end function process_end_central_dir() */
+X
+X
+X
+X
+END_OF_FILE
+ if test 29513 -ne `wc -c <'zipinfo.c.A'`; then
+    echo shar: \"'zipinfo.c.A'\" unpacked with wrong size!
+ elif test -f 'zipinfo.c.B'; then
+    echo shar: Combining  \"'zipinfo.c'\" \(59337 characters\)
+    cat 'zipinfo.c.A' 'zipinfo.c.B' > 'zipinfo.c'
+    if test 59337 -ne `wc -c <'zipinfo.c'`; then
+      echo shar: \"'zipinfo.c'\" combined with wrong size!
+    else
+      rm zipinfo.c.A zipinfo.c.B
+    fi
+  fi
+  # end of 'zipinfo.c.A'
+fi
+echo shar: End of archive 7 \(of 14\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

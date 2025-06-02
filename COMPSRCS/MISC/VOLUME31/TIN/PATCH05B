@@ -1,0 +1,2250 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i081:  tin - threaded full screen newsreader v1.1, Patch05b/7
+Message-ID: <1992Aug16.012436.12378@sparky.imd.sterling.com>
+X-Md4-Signature: 366ef4cf046ce783faf7be2e9e7050f3
+Date: Sun, 16 Aug 1992 01:24:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 81
+Archive-name: tin/patch05b
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Patch-To: tin: Volume 31, Issue 1-15
+
+#!/bin/sh
+# this is patch-1.15.shar.02 (part 2 of tin-1.15)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file tin-1.15.patch continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping tin-1.15.patch'
+else
+echo 'x - continuing file tin-1.15.patch'
+sed 's/^X//' << 'SHAR_EOF' >> 'tin-1.15.patch' &&
+!    UNDER NNTP USE newnews COMMAND FROM NNTPSERVER
+X  
+! o  Add 'r' command to newsgroup level.
+X  
+X  FIX FEATURES V2.0
+X  -----------------
+X  
+X  o  If saving in mailbox format and mailbox does not exist query the user?
+X  
+X  o  In kill.c should kill_both only kill when subj & from are matched?
+--- 1,95 ----
+X  FIX FEATURES V1.x
+X  -----------------
+X  
+! o  Add auto-delete attribute to group attributes.
+X  
+! o  If -f .newsrc -S/-M specified then don't use attribute.batch_save to
+!    determine if group should be saved just save the groups that are
+!    specified in -f .newsrc-file. 
+X  
+X  o  Add code to decrement/increment counter of NEW killed & hot articles 
+X     so that 'h' is not offered as default when there are no NEW hot articles.
+!    Look at 
+!    'r'  group N   page N    
+!    'zZ' group Y   page ?(will return) N  thread N
+!    'k'  group Y   page ?N  thread N 
+!     & code that marks arts read.
+!    need a routine to redraw screen title to reflect changes.
+X  
+! o  Add ~/.tin/newsgroups to write LIBDIR/newsgroups after 1st being read
+!    so on rereading active file you have a local copy and don't waste net 
+!    bandwidth.
+X  
+! o  Fix 'm' mail t)hread because it does not redraw the screen.
+X  
+! o  Add code to read LOGIN/NAME env. vars as username/fullname when posting an article.
+!    ie. LOGIN=billy NAME=billy boy   billy@addr (billy boy)
+! 
+! o  Fix 'NP' so they goto next/prev unread group.
+! 
+! o  Fix 'C' do that it wraps around group list (like TAB).
+! 
+! o  Fix PRINTER env var problem overriding option 18?
+!    Do a strstr(buf, "-P") and if -P is there do not use the PRINTER var?
+! 
+! o  Fix threading arts so global can be set but local (group level) can
+!    override it. At moment once set global unthreaded cannot toggle
+!    threading within group.
+! 
+! o  Fix local group check to hash the groups read in from ~/.tin/active and
+!    mark active[].flag as TRUE. then find flag=FALSE and ask user if
+!    they want to subscribe to group. Also of CNEWS just do a compare of 
+!    active.times.
+X  
++ o  Add quick post mode to tin (like elm) (Dave Sch?? yale)
++    tin -w subject -g group,group,...
++ 
++ o  Fix '|' more of articles when done a 2nd time you have to add a <CR>
++    to command to get it to work
++ 
++ o  Fix when in a thread and you auto-select a author ^K. After selection the
++    header is from the basenote article while the article body is from the
++    correct article in the thread.
++ 
++ o  Fix kill last article in thread when at page level from within thread level
++    that causes an assertion failure in thread.c line 801. (David Bindermann)
++ 
++ o  Fix set show only unread in 'M' menu at article viewer level that causes
++    'cannot find basenote articles' (Thomas Omerzu).
++    Save respnum before so that it can be found after with which_thread() ?
++ 
++ o  Fix CDROM SPOOLDIRS to read newsgroups file from 'newsgrps' file.
++ 
+X  o  Fix -S option to create an active file when new articles are
+X     saved to <savedir>. Also fix -R option to read ACTIVE file created
+X     by -S command. Use minimax code from tony travis to help in -R cmd
+X     line option.
+X  
+! o  Add write_attributes_file () to write active attributes that are different
+!    than global settings. Also a menu 'M' interface to set all the options PL6.
+X  
+! o  Add options to 'M' menu to allow setting all the variables that are now in 
+!    the tinrc file.
+! 
+! o  If 'a' in pipe to less and 423 error msg from NNTP it starts less with 
+!    no file.
+X  
+! o  Add Msg-Id: field contents to reply & followups.
+X  
+! o  In inews.c also allow reply_to var to be used in From: field.
+X  
+! o  Fix Save in feed.c routines. 
+!    Also fix so SAVING routines just use save_art_to_file() and print
+!    *** X Articles saved *** & none of the BS done at the moment
+X  
+X  FIX FEATURES V2.0
+X  -----------------
+X  
++ o  Add Xref handling of articles so that read ones are marked read in 
++    other groups. Use update_group() to do it?
++    Needs to handle 'c' 'C' 'k' 'K' commands. Perhaps it should be an
++    option so that performance is not impaired. (JIM).
++ 
+X  o  If saving in mailbox format and mailbox does not exist query the user?
+X  
+X  o  In kill.c should kill_both only kill when subj & from are matched?
+***************
+*** 65,73 ****
+X  
+X  o  Add elm like mini-menu to tin for first time users.
+X  
+- o  Add option to 'M' menu to allow unlinking/not of ~/.article
+-    after posting an article.
+- 
+X  o  Add hashing to speedup valid_art() in big groups. Make it compile
+X     option so tin is still usable on Minix/small memory machines.
+X     -DSMALL_MEMORY_MACHINE
+--- 106,111 ----
+***************
+*** 74,89 ****
+X  
+X  o  Add auto-aliasing of peoples mail addresses to mail aliases file.
+X  
+- o  Add Xref handling of articles so that read ones are marked read in 
+-    other groups. Use update_group() to do it?
+-    Needs to handle 'c' 'C' 'k' 'K' commands. Perhaps it should be an
+-    option so that performance is not impaired. (JIM).
+- 
+X  o  Add ^G command to skip to next Subject: in digests.
+X  
+X  o  Try compiling with -D_POSIX_SOURCE
+X  
+! o  Add filename & groupname completion (readline?).
+X  
+X  o  Fix uuscram code in uudecode.
+X  
+--- 112,122 ----
+X  
+X  o  Add auto-aliasing of peoples mail addresses to mail aliases file.
+X  
+X  o  Add ^G command to skip to next Subject: in digests.
+X  
+X  o  Try compiling with -D_POSIX_SOURCE
+X  
+! o  Add filename & groupname completion (editline).
+X  
+X  o  Fix uuscram code in uudecode.
+X  
+***************
+*** 98,106 ****
+X  
+X  o  Add elm style print command with %s in it for printing in 'M'.
+X  
+- o  Add 'C' command at group level to catchup present group and
+-    enter next group with unread news in it.
+- 
+X  o  Sort .newsrc according to preference. (sort active file as it is read)
+X  
+X  o  Add time period to killing articles
+--- 131,136 ----
+***************
+*** 126,137 ****
+X  o  Add Virtual newsgroups (combination of newsgroups ie. virtual.ibm
+X     consists of comp.sys.ibm.* groups). ~/.tin/virtual
+X  
+! o  Change defaults on a per group basis
+! Group        Connect   Read    Thread    Save  Savedir  Maildir  Sigfile    
+!                        Unread  Unthread  Mail  ProcTyp  Mailbox
+X  -----------------------------------------------------------------------------
+! junk         local     Unread  Thread    None  Default  Default  Default
+! alt.sources  1.3.3.3   Read    Thread    Save  $SRC/alt Default  ~/.Sig-alt
+X  
+X  Add a menu interface to define all this. Also add edit menu for entries in
+X  kill file.
+--- 156,170 ----
+X  o  Add Virtual newsgroups (combination of newsgroups ie. virtual.ibm
+X     consists of comp.sys.ibm.* groups). ~/.tin/virtual
+X  
+! Group        Read    Thread    Save  Savedir  Maildir  Sigfile    
+!              Unread  Unthread  Mail  ProcTyp  Mailbox
+X  -----------------------------------------------------------------------------
+! junk         Unread  OFF       OFF   Default  Default  Default
+! alt.sources  Read    ON        ON    $SRC/alt Default  ~/.Sig-alt
+! 
+! Also following fields (to override globally defined ones in tinrc):
+! replyto:
+! organization:
+X  
+X  Add a menu interface to define all this. Also add edit menu for entries in
+X  kill file.
+***************
+*** 138,140 ****
+--- 171,176 ----
+X  
+X  Each group could have a field to say which NNTP/local connection to use so
+X  as to be able to plug into different NNTP servers for different newsgroups
++ 
++ Add global attributes file for site. LIST ATTRIBUTES ??
++ 
+diff -rcs ../1.14/active.c ./active.c
+*** ../1.14/active.c	Tue Aug 11 21:23:01 1992
+--- ./active.c	Tue Aug 11 20:24:15 1992
+***************
+*** 3,9 ****
+X   *  Module    : active.c
+X   *  Author    : I.Lea
+X   *  Created   : 16-02-92
+!  *  Updated   : 08-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : active.c
+X   *  Author    : I.Lea
+X   *  Created   : 16-02-92
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 14,26 ****
+X  
+X  #include	"tin.h"
+X  
+X  int group_hash[TABLE_SIZE];			/* group name --> active[] */
+X  int reread_active_file = FALSE;
+X  
+- 
+X  /*
+X   *  Resync active file when SIGALRM signal received that
+!  *  is triggered by alarm (RESYNC_ACTIVE_SECS) call.
+X   */
+X  
+X  void resync_active_file ()
+--- 14,28 ----
+X  
+X  #include	"tin.h"
+X  
++ char new_active_file_server[PATH_LEN];
++ char new_active_file_attribute[32];
+X  int group_hash[TABLE_SIZE];			/* group name --> active[] */
+X  int reread_active_file = FALSE;
++ int active_index = -1;
+X  
+X  /*
+X   *  Resync active file when SIGALRM signal received that
+!  *  is triggered by alarm (reread_active_file_secs) call.
+X   */
+X  
+X  void resync_active_file ()
+***************
+*** 30,37 ****
+--- 32,42 ----
+X  		max_active = DEFAULT_ACTIVE_NUM;
+X  		expand_active ();
+X  		read_active_file ();
++ 		read_attributes_file ();
+X  		read_newsgroups_file ();
+X  		read_newsrc (TRUE);
++ 		toggle_my_groups (show_only_unread_groups);
++ 		set_groupname_len (FALSE);
+X  		set_alarm_signal ();
+X  		mail_setup ();
+X  		group_selection_page ();
+***************
+*** 39,59 ****
+X  }
+X  
+X  /*
+X   *  Load the active file into active[] and create copy of active ~/.tin/active
+X   */
+X  
+! int read_active_file ()
+X  {
+X  	FILE *fp;
+X  	char *p, *q, *r;
+X  	char buf[LEN];
+X  	char moderated = 'y';
+! 	int created, i;
+X  	long h;
+! 	
+X  	num_active = 0;
+X  
+! 	if (! update) {
+X  		wait_message (txt_reading_active_file);
+X  	}
+X  
+--- 44,91 ----
+X  }
+X  
+X  /*
++  *  Find group name in active[] array and return index otherwise -1
++  */
++  
++ int find_group_index (group)
++ 	char *group;
++ {
++ 	int i = -1;
++ 	long h;
++ 
++ 	h = hash_groupname (group);
++ 
++ 	i = group_hash[h];
++ 	
++ 	/* 
++ 	 * hash linked list chaining 
++ 	 */
++ 	while (i >= 0) {
++ 		if (strcmp (active[i].name, group) == 0) {
++ 			return (i);
++ 		}
++ 		i = active[i].next;
++ 	}
++ 
++ 	return (-1);
++ }
++ 
++ /*
+X   *  Load the active file into active[] and create copy of active ~/.tin/active
+X   */
+X  
+! void read_active_file ()
+X  {
+X  	FILE *fp;
+X  	char *p, *q, *r;
+X  	char buf[LEN];
+X  	char moderated = 'y';
+! 	int i;
+X  	long h;
+! 		
+X  	num_active = 0;
+X  
+! 	if ((update && update_fork) || ! update) {
+X  		wait_message (txt_reading_active_file);
+X  	}
+X  
+***************
+*** 127,147 ****
+X  		active[num_active].min = (long) atol (q);
+X  		active[num_active].moderated = moderated;
+X  		active[num_active].next = -1;			/* hash chaining */
+! 		active[num_active].flag = UNSUBSCRIBED;	/* not in my_group[] yet */
+! 		/*
+! 		 * Per group attributes
+! 		 */
+! 		active[num_active].attribute.server  = (char *) 0;
+! 		active[num_active].attribute.maildir = default_maildir;
+! 		active[num_active].attribute.savedir = default_savedir;
+! 		active[num_active].attribute.sigfile = default_sigfile;
+! 		active[num_active].attribute.read    = FALSE;	/* read/unread */
+! 		active[num_active].attribute.showall = show_only_unread;
+! 		active[num_active].attribute.thread  = thread_arts;
+! 		active[num_active].attribute.sortby  = sort_art_type;
+! 		active[num_active].attribute.author  = show_author;
+! 		active[num_active].attribute.autosave= save_archive_name;
+! 		active[num_active].attribute.process = post_proc_type; 
+X  
+X  		num_active++;
+X  
+--- 159,166 ----
+X  		active[num_active].min = (long) atol (q);
+X  		active[num_active].moderated = moderated;
+X  		active[num_active].next = -1;			/* hash chaining */
+! 		active[num_active].my_group = UNSUBSCRIBED;	/* not in my_group[] yet */
+! 		active[num_active].unread = 0;
+X  
+X  		num_active++;
+X  
+***************
+*** 158,192 ****
+X  		exit (1);
+X  	}
+X  
+! 	/*
+! 	 * create backup of LIBDIR/active for use by -n option to notify new groups 
+! 	 */
+! 	created = backup_active (TRUE);
+! 
+! /*	if (cmd_line && (read_news_via_nntp && update == FALSE)) {
+! 		if (! (update && ! verbose)) {
+! 			wait_message ("\n");
+! 		}
+! 	}
+! */
+! 	if (cmd_line && ! update && ! verbose) {
+X  		wait_message ("\n");
+X  	}
+X  
+! 	return (created);
+X  }
+X  
+X  /*
+!  *  create ~/.tin/active from LIBDIR/active if it does not exist 
+X   */
+X  
+! int backup_active (create)
+X  	int create;
+X  {
+! 	char buf[LEN];
+X  	FILE *fp;
+! 	int created = FALSE;
+! 	int i;
+X  	struct stat sb;
+X  	
+X  	sprintf (buf, "%s/active", rcdir);
+--- 177,200 ----
+X  		exit (1);
+X  	}
+X  
+! 	if ((cmd_line && ! update && ! verbose) || (update && update_fork)) {
+! /* || ! update && ! verbose) { */
+X  		wait_message ("\n");
+X  	}
+X  
+! 	check_for_any_new_groups ();
+X  }
+X  
+X  /*
+!  *  create ~/.tin/active if it does not exist (local news only) 
+X   */
+X  
+! void backup_active (create)
+X  	int create;
+X  {
+! 	char buf[PATH_LEN];
+X  	FILE *fp;
+! 	register int i;
+X  	struct stat sb;
+X  	
+X  	sprintf (buf, "%s/active", rcdir);
+***************
+*** 193,248 ****
+X  	
+X  	if (create) {
+X  		if (stat (buf, &sb) != -1) {
+! 			goto backup_active_done;
+X  		}
+X  	}
+X  	
+! 	if ((fp = fopen (buf, "w")) != NULL) {
+X  		for (i = 0; i < num_active ; i++) {	/* for each group */
+X  			fprintf (fp, "%s\n", active[i].name);
+X  		}
+X  		fclose (fp);
+X  		chmod (buf, 0644);
+- 		created = TRUE;
+X  	}
+- 
+- backup_active_done:
+- 	return (created);
+X  }
+X  
+X  /*
+!  *  Option -n to check for any newly created newsgroups.
+X   */
+X  
+! void notify_groups ()
+X  {
+X  	char buf[LEN];
+X  	FILE *fp;
+X  	int group_not_found;
+! 	int index;
+! 	int num = 0;
+X  	int update_old_active = FALSE;
+X  	int max_old_active;
+X  	register int i, j;
+X  	struct notify_t {
+! 		char name[LEN];
+X  		int len;
+X  		int visited;
+X  	} *old_active = (struct notify_t *) 0;
+X  	
+! 	sprintf (buf, "%s/active", rcdir);
+X  	
+! 	if ((fp = fopen (buf, "r")) == NULL) {
+! 		perror_message (txt_cannot_open, buf);
+X  		goto notify_groups_done;
+X  	}
+X  
+X  	Raw (TRUE);
+- 	
+- 	wait_message (txt_checking_active_file);
+X  
+- 	max_old_active = num_active;
+- 	
+X  	old_active = (struct notify_t *) my_malloc ((unsigned) sizeof (struct notify_t) * max_old_active);
+X  	if (old_active == (struct notify_t *) 0) {
+X  		error_message (txt_out_of_memory, progname);
+--- 201,308 ----
+X  	
+X  	if (create) {
+X  		if (stat (buf, &sb) != -1) {
+! 			return;
+X  		}
+X  	}
+X  	
+! 	if ((fp = fopen (buf, "w")) != (FILE *) 0) {
+X  		for (i = 0; i < num_active ; i++) {	/* for each group */
+X  			fprintf (fp, "%s\n", active[i].name);
+X  		}
+X  		fclose (fp);
+X  		chmod (buf, 0644);
+X  	}
+X  }
+X  
+X  /*
+!  *  check for any newly created newsgroups.
+!  *
+!  * If reading news locally stat() the active file to get its
+!  * size otherwise do a LIST NEWGROUPS to the NNTP server
+X   */
+X  
+! void check_for_any_new_groups ()
+X  {
++ 	char old_active_file_server[LEN];
++ 	char old_active_file_attribute[LEN];
+X  	char buf[LEN];
+X  	FILE *fp;
+X  	int group_not_found;
+! 	int ch, num = 0;
+! 	int ch_default = 'n';
+X  	int update_old_active = FALSE;
+X  	int max_old_active;
++ 	int new_active_size;
++ 	int old_active_size;
++ 	long epoch;
+X  	register int i, j;
++ 	struct stat sb;
++ 	struct tm *tm;
+X  	struct notify_t {
+! 		char name[PATH_LEN];
+X  		int len;
+X  		int visited;
+X  	} *old_active = (struct notify_t *) 0;
++ 
++ 	if (! check_for_new_newsgroups) {
++ 		return;
++ 	}
+X  	
+! 	/*
+! 	 * reading news locally (local) or via NNTP (server name)
+! 	 */	
+! 	if (read_news_via_nntp) {
+! 		time (&epoch);
+! 		tm = localtime (&epoch);
+! 		sprintf (new_active_file_attribute, "%02d%02d%02d %02d%02d%02d",
+! 			tm->tm_year, tm->tm_mon+1, tm->tm_mday, 
+! 			tm->tm_hour, tm->tm_min, tm->tm_sec);
+! 		strcpy (new_active_file_server, nntp_server);
+! 		max_old_active = 16;
+! 	} else {
+! 		backup_active (TRUE);
+! 		strcpy (new_active_file_server, "local");
+! 		max_old_active = num_active;
+! 		if (stat (active_file, &sb) >= 0) {
+! 			sprintf (new_active_file_attribute, "%d", sb.st_size);
+! 		}
+! 	}
+X  	
+! 	/*
+! 	 * find out if we have read news from here before otherwise -1
+! 	 */
+! 	active_index = find_active_size_index (new_active_file_server);
+! 		
+! 	if (debug == 2) {
+! 		if (active_index >= 0) {	
+! 			strcpy (old_active_file_server, active_size[active_index].server); 
+! 			strcpy (old_active_file_attribute, active_size[active_index].attribute);
+! 		} else {
+! 			strcpy (old_active_file_server, "UNKNOWN"); 
+! 			strcpy (old_active_file_attribute, "UNKNOWN");
+! 		}	
+! 		sprintf (msg, "Active size index=[%d]  old=[%s %s]  new=[%s %s]", 
+! 			active_index,
+! 			old_active_file_server, old_active_file_attribute,
+! 			new_active_file_server, new_active_file_attribute);
+! 		error_message (msg, "");						
+! 		sleep (2);
+! 	}
+! 			
+! 	if (! read_news_via_nntp && active_index >= 0) {
+! 		new_active_size = atoi (new_active_file_attribute);
+! 		old_active_size = atoi (active_size[active_index].attribute);
+! 		if (new_active_size <= old_active_size) {
+! 			goto notify_groups_done;
+! 		}
+! 	}
+! 
+! 	if ((fp = open_newgroups_fp (active_index)) == (FILE *) 0) {
+X  		goto notify_groups_done;
+X  	}
+X  
+X  	Raw (TRUE);
+X  
+X  	old_active = (struct notify_t *) my_malloc ((unsigned) sizeof (struct notify_t) * max_old_active);
+X  	if (old_active == (struct notify_t *) 0) {
+X  		error_message (txt_out_of_memory, progname);
+***************
+*** 249,390 ****
+X  		goto notify_groups_done;
+X  	}
+X  	
+! 	while (fgets (old_active[num].name, sizeof (old_active[num].name), fp) != NULL) {
+! 		old_active[num].len = strlen (old_active[num].name)-1;
+! 		old_active[num].name[old_active[num].len] = '\0';
+! 		old_active[num].visited = FALSE;
+! 		num++;
+! 		if (num >= max_old_active) {
+! 			max_old_active= max_old_active + (max_old_active / 2);
+! 			old_active= (struct notify_t*) my_realloc(
+! 				(char *) old_active, 
+! 				(unsigned) sizeof(struct notify_t) * max_old_active);
+! 			if (old_active == (struct notify_t *) 0) {
+! 				error_message (txt_out_of_memory, progname);
+! 				goto notify_groups_done;
+X  			}
+! 		}
+X  	}
+X  
+! 	for (i = 0 ; i < num_active ; i++) {	
+! 		group_not_found = TRUE;
+! 		for (j=0; j < num ; j++) {
+! 			if (strcmp (old_active[j].name, active[i].name) == 0) {
+! 				group_not_found = FALSE;	/* found it so read in next group */
+! 				old_active[j].visited = TRUE;
+! 				break;
+X  			}
+X  		}
+! 
+! 		if (group_not_found == FALSE) {
+! 			continue;
+! 		}	
+X  
+! 		update_old_active = TRUE;
+! 		do {
+! 			fputc ('\r', stdout);
+! 			CleartoEOLN();
+! 			printf (txt_subscribe_to_new_group, active[i].name);
+! 			fflush (stdout);
+! 			buf[0] = ReadCh();
+! 		} while (buf[0] != 'y' && buf[0] != 'n');
+! 			
+! 		if (buf[0] == 'y') {
+! 			index = add_group (active[i].name, TRUE);
+! 			subscribe (active[my_group[index]].name, ':',
+! 				   my_group[index], FALSE);
+X  		}
+! 		printf ("\r\n%s", txt_checking);
+X  		fflush (stdout);
+X  	}
+- 	fclose (fp);
+- 	fputc ('\r', stdout);
+- 	fflush (stdout);
+X  	CleartoEOLN();
+X  
+! 	/*
+! 	 * Look for bogus groups 
+! 	 */
+! 	for (j = 0 ; j < num ; j++)  {
+! 		if (old_active[j].visited) {
+! 			continue;
+! 		}
+! 		do {	
+! 			update_old_active= 1;
+! 			fputc ('\r', stdout);
+! 			CleartoEOLN ();
+! 			printf (txt_delete_bogus_group, old_active[j].name);
+! 			fflush (stdout);
+! 			buf[0] = ReadCh ();
+! 		} while (buf[0] != 'y' && buf[0] != 'n');
+! 		if (buf[0] == 'y') {
+! 			delete_group (old_active[j].name);
+X  		}
+- 		printf ("\r\n");
+X  	}
+X  	
+- 	Raw (TRUE);
+- 
+X  	/*
+! 	 *  write active[] to ~/.tin/active
+X  	 */
+! 	if (update_old_active) {
+X  		backup_active (FALSE);
+X  	}
+X  
+X  notify_groups_done:
+X  	if (old_active != (struct notify_t *) 0) {
+X  		free ((char *) old_active);
+X  		old_active = (struct notify_t *) 0;
+X  	}
+X  }
+X  
+X  /*
+!  *  Mark any groups in my_group[] that are in ~/.tin/unthread so they
+!  *  will not be threaded
+X   */
+X   
+! void mark_unthreaded_groups ()
+X  {
+! 	FILE *fp;
+! 	char buf[LEN];
+! 	int i, len;
+! 	long h;
+X  
+X  #ifndef INDEX_DAEMON
+X  
+! 	if ((fp = fopen (unthreadfile, "r")) == NULL) {
+! 		perror_message (txt_cannot_open, unthreadfile);
+X  		return;
+X  	}
+X  
+! 	while (fgets (buf, sizeof (buf), fp) != NULL) {
+! 		buf[strlen (buf)-1] = '\0'; 
+! 		h = hash_groupname (buf);
+! 		sprintf (msg, "Unthreading %s...\n", buf);
+! 		wait_message (msg);
+! 		
+! 		i = group_hash[h];
+! 		
+! 		if (active[i].next == -1) {
+! 			len = strlen (active[i].name);
+! 			if (strncmp (active[i].name, buf, len) == 0) {
+! 				active[i].attribute.thread = FALSE;
+X  			}
+! 		
+! 		} else {
+! 			for (i=group_hash[h] ; i >= 0 ; i=active[i].next) {
+! 				len = strlen (active[i].name);
+! 				if (strncmp (active[i].name, buf, len) == 0) {
+! 					active[i].attribute.thread = FALSE;
+! 					break;
+! 				}
+X  			}
+! 		}	
+X  	}
+X  
+X  	fclose (fp);
+! #endif /* INDEX_DAEMON */
+X  }
+X  
+X  /*
+--- 309,663 ----
+X  		goto notify_groups_done;
+X  	}
+X  	
+! 	while (fgets (buf, sizeof (buf), fp) != NULL) {
+! 		if (buf[0] != '.') {
+! 			strncpy (old_active[num].name, buf, sizeof (old_active[num].name));		
+! 			old_active[num].len = strlen (old_active[num].name)-1;
+! 			old_active[num].name[old_active[num].len] = '\0';
+! 			old_active[num].visited = FALSE;
+! 			num++;
+! 			if (num >= max_old_active) {
+! 				max_old_active= max_old_active + (max_old_active / 2);
+! 				old_active= (struct notify_t*) my_realloc(
+! 					(char *) old_active, 
+! 					(unsigned) sizeof(struct notify_t) * max_old_active);
+! 				if (old_active == (struct notify_t *) 0) {
+! 					error_message (txt_out_of_memory, progname);
+! 					goto notify_groups_done;
+! 				}
+X  			}
+! 		}	
+X  	}
+X  
+! 	fclose (fp);
+! 
+! 	if (read_news_via_nntp) {
+! 		for (i = 0 ; i < num ; i++) {	
+! 			if (! prompt_subscribe_group (old_active[i].name)) {
+! 				goto notify_groups_done;
+X  			}
+X  		}
+! 	} else {	
+! 		wait_message (txt_checking_active_file);
+! 		for (i = 0 ; i < num_active ; i++) {	
+! 			group_not_found = TRUE;
+! 			for (j=0; j < num ; j++) {
+! 				if (strcmp (old_active[j].name, active[i].name) == 0) {
+! 					group_not_found = FALSE;	/* found it so read in next group */
+! 					old_active[j].visited = TRUE;
+! 					break;
+! 				}
+! 			}
+X  
+! 			if (group_not_found == FALSE) {
+! 				continue;
+! 			}	
+! 	
+! 			update_old_active = TRUE;
+! 	
+! 			if (! prompt_subscribe_group (active[i].name)) {
+! 				goto notify_groups_done;
+! 			}
+X  		}
+! 	}
+! 	if (cmd_line) {
+! 		fputc ('\r', stdout);
+X  		fflush (stdout);
+X  	}
+X  	CleartoEOLN();
+X  
+! 	if (! read_news_via_nntp) {
+! 		/*
+! 		 * Look for bogus groups 
+! 		 */
+! 		ch_default = 'y';
+! 		for (j = 0 ; j < num ; j++)  {
+! 			if (old_active[j].visited) {
+! 				continue;
+! 			}
+! 			do {	
+! 				update_old_active= 1;
+! 				fputc ('\r', stdout);
+! 				CleartoEOLN ();
+! 				printf (txt_delete_bogus_group, old_active[j].name, ch_default);
+! 				fflush (stdout);
+! 				ch = ReadCh ();
+! 				if (ch == CR) {
+! 					ch = ch_default;
+! 				}
+! 			} while (ch != 'y' && ch != 'n' && ch != 'q');
+! 	
+! 			switch (ch) {
+! 				case 'y':
+! 					delete_group (old_active[j].name);
+! 					break;	   
+! 				case 'q':
+! 					goto notify_groups_done;	   
+! 				case 'n':
+! 				default:
+! 					break;	   
+! 			}		
+! 			printf ("\r\n");
+X  		}
+X  	}
+X  	
+X  	/*
+! 	 *  write active[] to ~/.tin/active (local spooldir)
+X  	 */
+! 	if (! read_news_via_nntp && update_old_active) {
+X  		backup_active (FALSE);
+X  	}
+X  
+X  notify_groups_done:
++ 	
++ 	/*
++ 	 * update attribute field/create new entry with new size/date
++ 	 */
++ 	if (active_index >= 0) {
++ 		if (active_size[active_index].attribute != (char *) 0) {
++ 			free (active_size[active_index].attribute);
++ 			active_size[active_index].attribute = (char *) 0;
++ 		}
++ 		active_size[active_index].attribute = 
++ 			str_dup (new_active_file_attribute);
++ 	} else {
++ 		sprintf (buf, "%s[%s]", new_active_file_server, new_active_file_attribute);
++ 		load_active_size_info (buf);
++ 	}
++ 
+X  	if (old_active != (struct notify_t *) 0) {
+X  		free ((char *) old_active);
+X  		old_active = (struct notify_t *) 0;
+X  	}
++ 
++ 	if (cmd_line) {
++ 		Raw (FALSE);
++ 	}
+X  }
+X  
+X  /*
+!  * prompt user if new group should be subscribed to
+X   */
+X   
+! int prompt_subscribe_group (group)
+! 	char *group;
+X  {
+! 	int ch, ch_default = 'n';
+! 	int idx;
+! 	
+! 	do {
+! 		if (cmd_line) {
+! 			fputc ('\r', stdout);
+! 		}
+! 		CleartoEOLN ();
+! 		printf (txt_subscribe_to_new_group, group, ch_default);
+! 		fflush (stdout);
+! 		ch = ReadCh ();
+! 		if (ch == CR) {
+! 			ch = ch_default;
+! 		}
+! 	} while (! strchr ("nqy\033", ch));
+! 		
+! 	fputc (ch, stdout);
+! 	
+! 	switch (ch) {
+! 		case 'y':
+! 			idx = add_group (group, TRUE);
+! 			subscribe (active[my_group[idx]].name, ':',
+! 				   my_group[idx], FALSE);
+! 			break;	   
+! 		case 'q':
+! 		case ESC:
+! 			return FALSE;			   
+! 		case 'n':
+! 		default:
+! 			break;	   
+! 	}	
+! 		
+! 	if (cmd_line) {
+! 		printf ("\r\n%s", txt_checking);
+! 		fflush (stdout);
+! 	} else {	
+! 		wait_message (txt_checking);
+! 	}
+! 
+! 	return TRUE;			   
+! }
+! 
+! /*
+!  * Per group attributes
+!  */
+!  
+! void set_default_attributes ()
+! {
+! #ifndef INDEX_DAEMON
+! 	register int i;
+! 	
+! 	for (i = 0; i < num_active ; i++) {
+! 		active[i].attribute.maildir = default_maildir;
+! 		active[i].attribute.savedir = default_savedir;
+! 		active[i].attribute.sigfile = default_sigfile;
+! 		active[i].attribute.followup_to = (char *) 0;
+! 		active[i].attribute.read_during_session = FALSE;
+! 		active[i].attribute.show_only_unread = default_show_only_unread;
+! 		active[i].attribute.thread_arts = default_thread_arts;
+! 		active[i].attribute.sort_art_type = default_sort_art_type;
+! 		active[i].attribute.show_author  = default_show_author;
+! 		active[i].attribute.auto_save= default_auto_save;
+! 		active[i].attribute.batch_save = default_batch_save;
+! 		active[i].attribute.post_proc_type = default_post_proc_type; 
+! 	}
+! #endif	/* INDEX_DAEMON */
+! }
+X  
++ /*
++  *  Load the group attributes into active[].attribute from ~/.tin/attributes 
++  *
++  *  attribute.maildir          = STRING
++  *  attribute.savedir          = STRING
++  *  attribute.sigfile          = STRING
++  *  attribute.followup_to      = STRING
++  *  attribute.auto_save        = ON/OFF
++  *  attribute.batch_save       = ON/OFF
++  *  attribute.show_only_unread = ON/OFF
++  *  attribute.thread_arts      = ON/OFF
++  *  attribute.sort_art_type    = NUM
++  *    0=??, 1=??, 2=??, 3=??, 4=??
++  *  attribute.show_author      = NUM
++  *    
++  *  attribute.post_proc_type   = NUM
++  *  
++  */
++ 
++ void read_attributes_file ()
++ {
+X  #ifndef INDEX_DAEMON
+X  
+! 	char buf[PATH_LEN];
+! 	char line[PATH_LEN];
+! 	FILE *fp;
+! 	int num;
+! 	int index = -1;
+! 		
+! 	set_default_attributes ();
+! 
+! 	if ((fp = fopen (attributes_file, "r")) == (FILE *) 0) {
+X  		return;
+X  	}
+X  
+! 	if ((update && update_fork) || ! update) {
+! 		wait_message (txt_reading_attributes_file);
+! 	}
+! 
+! 	while (fgets (line, sizeof (line), fp) != NULL) {
+! 		if (line[0] == '#' || line[0] == '\n') {
+! 			continue;
+! 		}
+! 		if (match_string (line, "newsgroup=", buf, sizeof (buf))) {
+! if (debug == 2) {
+! 	error_message("group=[%s]",buf);
+! }
+! 			index = find_group_index (buf);
+! 			continue;
+! 		}
+! 		if (match_string (line, "maildir=", buf, sizeof (buf))) {
+! 			if (index >= 0) {
+! 				active[index].attribute.maildir = str_dup (buf);
+! if (debug == 2) {
+! 	error_message("maildir=[%s]",active[index].attribute.maildir);
+! }
+X  			}
+! 			continue;
+! 		}
+! 		if (match_string (line, "savedir=", buf, sizeof (buf))) {
+! 			if (index >= 0) {
+! 				active[index].attribute.savedir = str_dup (buf);
+! if (debug == 2) {
+! 	error_message("savedir=[%s]",active[index].attribute.savedir);
+! }
+X  			}
+! 			continue;
+! 		}
+! 		if (match_string (line, "sigfile=", buf, sizeof (buf))) {
+! 			if (index >= 0) {
+! 				active[index].attribute.sigfile = str_dup (buf);
+! if (debug == 2) {
+! 	error_message("sigfile=[%s]",active[index].attribute.sigfile);
+! }
+! 			}
+! 			continue;
+! 		}
+! 		if (match_string (line, "followup_to=", buf, sizeof (buf))) {
+! 			if (index >= 0) {
+! 				active[index].attribute.followup_to = str_dup (buf);
+! if (debug == 2) {
+! 	error_message("followup_to=[%s]",active[index].attribute.followup_to);
+! }
+! 			}
+! 			continue;
+! 		}
+! 		if (match_boolean (line, "show_only_unread=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.show_only_unread = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_boolean (line, "thread_arts=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.thread_arts = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_boolean (line, "auto_save=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.auto_save = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_boolean (line, "batch_save=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.batch_save = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_number (line, "sort_art_type=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.sort_art_type = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_number (line, "show_author=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.show_author = num;
+! 			}
+! 			continue;
+! 		}
+! 		if (match_number (line, "post_proc_type=", &num)) {
+! 			if (index >= 0) {
+! 				active[index].attribute.post_proc_type = num;
+! 			}
+! 			continue;
+! 		}
+X  	}
+X  
+X  	fclose (fp);
+! 
+! 	if ((cmd_line && ! update && ! verbose) || (update && update_fork)) {
+! 		wait_message ("\n");
+! 	}
+! 
+! #endif	/* INDEX_DAEMON */
+! }
+! 
+! /*
+!  *  Save the group attributes from active[].attribute to ~/.tin/attributes 
+!  */
+! 
+! void write_attributes_file ()
+! {
+! #ifndef INDEX_DAEMON
+! 
+! #endif	/* INDEX_DAEMON */
+X  }
+X  
+X  /*
+***************
+*** 394,413 ****
+X  
+X  void read_newsgroups_file ()
+X  {
+X  	FILE *fp;
+X  	char *p, *q;
+X  	char buf[LEN];
+X  	char group[PATH_LEN];
+X  	int i;
+- 	long h;
+X  	
+! 	if (! show_description || update) {
+! 		return;
+X  	}
+X  
+X  	wait_message (txt_reading_newsgroups_file);
+X  
+! 	if ((fp = open_newsgroups_fp ()) == NULL) {
+X  		return;
+X  	}
+X  
+--- 667,689 ----
+X  
+X  void read_newsgroups_file ()
+X  {
++ #ifndef INDEX_DAEMON
++ 
+X  	FILE *fp;
+X  	char *p, *q;
+X  	char buf[LEN];
+X  	char group[PATH_LEN];
+X  	int i;
+X  	
+! 	if (! show_description || save_news) {
+! 		if (update && ! update_fork) {
+! 			return;
+! 		}	
+X  	}
+X  
+X  	wait_message (txt_reading_newsgroups_file);
+X  
+! 	if ((fp = open_newsgroups_fp ()) == (FILE *) 0) {
+X  		return;
+X  	}
+X  
+***************
+*** 419,457 ****
+X  		}
+X  		*q = '\0';
+X  
+! 		for (;*p == '\t' || *p == ' '; p++) {
+! 			;
+X  		}	
+- 				
+- 		h = hash_groupname (group);
+- 
+- 		i = group_hash[h];
+X  
+! 		if (debug == 2) {
+! 			fprintf (stderr, "HASH=[%5ld] IDX=[%5d] GRP=[%s] TXT=[%s]\n", h, i, group, p);
+! 		}
+! 		
+! 		if (active[i].next == -1) {
+! 			if (strcmp (active[i].name, group) == 0) {
+! if (debug == 2) {
+! 	fprintf (stderr, "FOUND HEAD\n");
+! }	
+! 				if (active[i].description == (char *) 0) {
+! 					active[i].description = str_dup (p);
+! 				}
+! 			}
+! 		} else {
+! 			for (; i >= 0 ; i = active[i].next) {
+! 				if (strcmp (active[i].name, group) == 0) {
+! if (debug == 2) {
+! 	fprintf (stderr, "FOUND LINK\n");
+! }	
+! 					if (active[i].description == (char *) 0) {
+! 						active[i].description = str_dup (p);
+! 						break;
+! 					}
+! 				}
+! 			}
+X  		}
+X  	}
+X  	fclose (fp);
+--- 695,708 ----
+X  		}
+X  		*q = '\0';
+X  
+! 		while (*p == '\t' || *p == ' ') {
+! 			p++;
+X  		}	
+X  
+! 		i = find_group_index (group);
+! 		 
+! 		if (i >= 0 && active[i].description == (char *) 0) {
+! 			active[i].description = str_dup (p);
+X  		}
+X  	}
+X  	fclose (fp);
+***************
+*** 459,462 ****
+--- 710,778 ----
+X  	if (cmd_line && ! update && ! verbose) {
+X  		wait_message ("\n");
+X  	}
++ #endif	/* INDEX_DAEMON */
++ }
++ 
++ 
++ void load_active_size_info (info)
++ 	char *info;
++ {
++ 	char *ptr_name;
++ 	char *ptr_size;
++ 	char buf[PATH_LEN];
++ 	int i;
++ 		
++ 	/*
++ 	 * initialize active_size[] if no entries
++ 	 */
++ 	if (! num_active_size) {
++ 		for (i = 0 ; i < max_active_size ; i++) {
++ 			active_size[i].server = (char *) 0;
++ 			active_size[i].attribute = (char *) 0;
++ 		}
++ 	}
++ 
++ 	my_strncpy (buf, info, sizeof (buf));
++ 	
++ 	ptr_name = buf;
++ 
++ 	ptr_name = strchr (buf, ']'); 
++ 	if (*ptr_name) {
++ 		*ptr_name = '\0';
++ 	}
++ 	ptr_name = buf;
++ 
++ 	ptr_name = strchr (buf, '['); 
++ 	if (*ptr_name) {
++ 		ptr_size = ptr_name;
++ 		*ptr_name = '\0';
++ 		if (num_active_size > max_active_size) {
++ 			expand_active_size ();
++ 		}
++ 		active_size[num_active_size].server = str_dup (buf);
++ 		active_size[num_active_size].attribute = str_dup (++ptr_size);
++ 		if (debug == 2) {
++ 			sprintf (buf, "ACTIVE server=[%s] attribute=[%s]", 
++ 				active_size[num_active_size].server,
++ 				active_size[num_active_size].attribute);
++ 			error_message ("%s", buf);
++ 		}	
++ 		num_active_size++;
++ 	}
++ }
++ 
++ 
++ int find_active_size_index (cur_active_server)
++ 	char *cur_active_server;
++ {
++ 	int i, found = FALSE;
++ 		
++ 	for (i = 0 ; i < num_active_size ; i++) {
++ 		if (strcmp (cur_active_server, active_size[i].server) == 0) {
++ 			found = TRUE;
++ 			break;
++ 		}
++   	}
++ 
++ 	return (found ? i : -1);
+X  }
+diff -rcs ../1.14/art.c ./art.c
+*** ../1.14/art.c	Tue Aug 11 21:23:02 1992
+--- ./art.c	Fri Jul 24 20:46:24 1992
+***************
+*** 3,9 ****
+X   *  Module    : art.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 12-05-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : art.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 24-07-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 27,34 ****
+X   *  set to -2 (ART_EXPIRED).
+X   */
+X  
+! void find_base (only_unread)
+! 	int only_unread;
+X  {
+X  	register int i;
+X  	register int j;
+--- 27,34 ----
+X   *  set to -2 (ART_EXPIRED).
+X   */
+X  
+! void find_base (index)
+! 	int index;	/* active[index] */
+X  {
+X  	register int i;
+X  	register int j;
+***************
+*** 37,43 ****
+X  
+X  	debug_print_arts ();
+X  
+! 	if (only_unread) {
+X  		for (i = 0; i < top; i++) {
+X  			if (IGNORE_ART(i) || arts[i].inthread != FALSE) {
+X  				continue;
+--- 37,43 ----
+X  
+X  	debug_print_arts ();
+X  
+! 	if (active[index].attribute.show_only_unread) {
+X  		for (i = 0; i < top; i++) {
+X  			if (IGNORE_ART(i) || arts[i].inthread != FALSE) {
+X  				continue;
+***************
+*** 134,139 ****
+--- 134,140 ----
+X  	char *group;
+X  	char *group_path;
+X  {
++ 	int index; 
+X  	int killed = FALSE;
+X  	int modified = FALSE;
+X  	glob_art_group = group;
+***************
+*** 146,151 ****
+--- 147,153 ----
+X  		sprintf (msg, txt_group, group);
+X  		wait_message (msg);
+X  	}
++ 	index = find_group_index (group);
+X  	hash_reclaim ();
+X  	free_art_array ();
+X  
+***************
+*** 162,171 ****
+X  	if (modified || purge_needed ()) {
+X  		write_index_file (group);
+X  	}
+X  	read_newsrc_line (group);
+! 	killed = kill_any_articles (group); /* do after read_newsrc_line() */
+X  	make_threads (FALSE);
+! 	find_base (show_only_unread);
+X  	
+X  	if ((modified || killed) && ! update) {
+X  		clear_message ();
+--- 164,174 ----
+X  	if (modified || purge_needed ()) {
+X  		write_index_file (group);
+X  	}
++ 	
+X  	read_newsrc_line (group);
+! 	killed = kill_any_articles (index);
+X  	make_threads (FALSE);
+! 	find_base (index);
+X  	
+X  	if ((modified || killed) && ! update) {
+X  		clear_message ();
+***************
+*** 230,235 ****
+--- 233,239 ----
+X  
+X  		if (! parse_headers (fp, &arts[top])) {
+X  			debug_nntp ("read_group", "FAILED parse_header()");
++ 			fclose (fp);
+X  			continue;
+X  		}
+X  
+***************
+*** 266,273 ****
+X  	register int i;
+X  	register int j;
+X  
+! 	if (!cmd_line) {
+! 		if (thread_arts) {
+X  			wait_message (txt_threading_arts);
+X  		} else {
+X  			wait_message (txt_unthreading_arts);
+--- 270,277 ----
+X  	register int i;
+X  	register int j;
+X  
+! 	if (! cmd_line) {
+! 		if (active[my_group[cur_groupnum]].attribute.thread_arts) {
+X  			wait_message (txt_threading_arts);
+X  		} else {
+X  			wait_message (txt_unthreading_arts);
+***************
+*** 274,283 ****
+X  		}
+X  	}
+X  
+X  	/*
+! 	 *  .thread & .inthread need to be reset if re-threading arts[]
+X  	 */
+! 	if (rethread && active[my_group[cur_groupnum]].attribute.thread) {
+X  		for (i=0 ; i < top ; i++) {
+X  			arts[i].thread = ART_NORMAL;
+X  			arts[i].inthread = FALSE;
+--- 278,296 ----
+X  		}
+X  	}
+X  
++ if (debug == 2) {
++ 	sprintf (msg, "rethread=[%d]  thread_arts=[%d]  attr_thread_arts=[%d]", 	
++ 		rethread, default_thread_arts,
++ 		active[my_group[cur_groupnum]].attribute.thread_arts);
++ 	error_message (msg, "");
++ }
+X  	/*
+! 	 *  arts[].thread & arts[].inthread need to be reset if re-threading
+X  	 */
+! 	if (rethread || active[my_group[cur_groupnum]].attribute.thread_arts) {
+! if (debug == 2) {
+! 	error_message("Resetting .thread & .inthread", "");
+! }
+X  		for (i=0 ; i < top ; i++) {
+X  			arts[i].thread = ART_NORMAL;
+X  			arts[i].inthread = FALSE;
+***************
+*** 284,290 ****
+X  		}
+X  	}
+X  
+! 	switch (sort_art_type) {
+X  		case SORT_BY_NOTHING:		/* don't sort at all */
+X  			qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X  			break;
+--- 297,303 ----
+X  		}
+X  	}
+X  
+! 	switch (default_sort_art_type) {
+X  		case SORT_BY_NOTHING:		/* don't sort at all */
+X  			qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X  			break;
+***************
+*** 304,313 ****
+X  			break;
+X  	}
+X  
+! 	if (thread_arts == 0 || active[my_group[cur_groupnum]].attribute.thread == 0) {
+X  		return;
+X  	}
+X  
+X  	for (i = 0; i < top; i++) {
+X  		if (arts[i].thread != ART_NORMAL || IGNORE_ART(i)) {
+X  			continue;
+--- 317,335 ----
+X  			break;
+X  	}
+X  
+! 	/*
+! 	 * FIXME - Once full group attributes are implemented what should the case be here?
+! 	 */
+! 	if (active[my_group[cur_groupnum]].attribute.thread_arts == 0 || default_thread_arts == 0) {
+! if (debug == 2) {
+! 	error_message("Returning before threading", "");
+! }
+X  		return;
+X  	}
+X  
++ if (debug == 2) {
++ 	error_message("Threading", "");
++ }
+X  	for (i = 0; i < top; i++) {
+X  		if (arts[i].thread != ART_NORMAL || IGNORE_ART(i)) {
+X  			continue;
+***************
+*** 456,462 ****
+X  	/*
+X  	 *  dump group header info.
+X  	 */
+! 	if (sort_art_type != SORT_BY_NOTHING) {
+X  		qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X  	}
+X  	fprintf (fp, "%s\n", group);
+--- 478,484 ----
+X  	/*
+X  	 *  dump group header info.
+X  	 */
+! 	if (default_sort_art_type != SORT_BY_NOTHING) {
+X  		qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X  	}
+X  	fprintf (fp, "%s\n", group);
+***************
+*** 910,917 ****
+X  
+X  	if (verbose) {
+X  		time (&end_epoch);
+! 		sprintf (msg, "%s %d groups in %ld seconds\n", 
+! 			(catchup ? "Caughtup" : "Updated"), group_top, end_epoch - beg_epoch);
+X  		wait_message (msg);
+X  	}
+X  }
+--- 932,940 ----
+X  
+X  	if (verbose) {
+X  		time (&end_epoch);
+! 		sprintf (msg, txt_catchup_update_info,
+! 			(catchup ? "Caughtup" : "Updated"), 
+! 			group_top, end_epoch - beg_epoch);
+X  		wait_message (msg);
+X  	}
+X  }
+***************
+*** 1048,1054 ****
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (sort_art_type == SORT_BY_SUBJ_ASCEND 
+X  			? my_stricmp (s1->subject, s2->subject) 
+X  			: my_stricmp (s2->subject, s1->subject));
+X  }
+--- 1071,1077 ----
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (default_sort_art_type == SORT_BY_SUBJ_ASCEND 
+X  			? my_stricmp (s1->subject, s2->subject) 
+X  			: my_stricmp (s2->subject, s1->subject));
+X  }
+***************
+*** 1062,1068 ****
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (sort_art_type == SORT_BY_FROM_ASCEND 
+X  			? my_stricmp (s1->from, s2->from) 
+X  			: my_stricmp (s2->from, s1->from));
+X  }
+--- 1085,1091 ----
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (default_sort_art_type == SORT_BY_FROM_ASCEND 
+X  			? my_stricmp (s1->from, s2->from) 
+X  			: my_stricmp (s2->from, s1->from));
+X  }
+***************
+*** 1075,1081 ****
+X  	struct article_t *s1 = (struct article_t *) p1;
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (sort_art_type == SORT_BY_DATE_ASCEND 
+X  			? strcmp (s1->date, s2->date) 
+X  			: strcmp (s2->date, s1->date));
+X  }
+--- 1098,1104 ----
+X  	struct article_t *s1 = (struct article_t *) p1;
+X  	struct article_t *s2 = (struct article_t *) p2;
+X  	/* return result of strcmp (reversed for descending) */
+! 	return (default_sort_art_type == SORT_BY_DATE_ASCEND 
+X  			? strcmp (s1->date, s2->date) 
+X  			: strcmp (s2->date, s1->date));
+X  }
+Files ../1.14/common.patch and ./common.patch are identical
+diff -rcs ../1.14/curses.c ./curses.c
+*** ../1.14/curses.c	Tue Aug 11 21:23:03 1992
+--- ./curses.c	Mon Jul 20 12:51:09 1992
+***************
+*** 2,9 ****
+X   *  Project   : tin - a threaded Netnews reader
+X   *  Module    : curses.c
+X   *  Author    : D.Taylor & I.Lea
+!  *  Created   : ??-??-86
+!  *  Updated   : 20-06-92
+X   *  Notes     : This is a screen management library borrowed with permission
+X   *              from the Elm mail system (a great mailer--I highly recommend
+X   *              it!).This library was hacked to provide what tin needs.
+--- 2,9 ----
+X   *  Project   : tin - a threaded Netnews reader
+X   *  Module    : curses.c
+X   *  Author    : D.Taylor & I.Lea
+!  *  Created   : 01-01-86
+!  *  Updated   : 06-07-92
+X   *  Notes     : This is a screen management library borrowed with permission
+X   *              from the Elm mail system (a great mailer--I highly recommend
+X   *              it!).This library was hacked to provide what tin needs.
+***************
+*** 46,51 ****
+--- 46,55 ----
+X  #		else
+X  #			include <sgtty.h>
+X  #		endif
++ #	else
++ #		ifdef HPUX
++ #			include <termio.h>
++ #		endif
+X  #	endif
+X  #endif
+X  
+***************
+*** 58,66 ****
+X  #endif
+X  
+X  #if defined(BSD) || defined(MINIX)
+X  #	define TCGETA	TIOCGETP
+X  #	define TCSETAW	TIOCSETP
+- 
+X  struct sgttyb _raw_tty,
+X  	      _original_tty;
+X  #else
+--- 62,75 ----
+X  #endif
+X  
+X  #if defined(BSD) || defined(MINIX)
++ #	ifdef TCGETA
++ #		undef TCGETA
++ #	endif
+X  #	define TCGETA	TIOCGETP
++ #	ifdef TCSETAW
++ #		undef TCSETAW
++ #	endif
+X  #	define TCSETAW	TIOCSETP
+X  struct sgttyb _raw_tty,
+X  	      _original_tty;
+X  #else
+***************
+*** 163,169 ****
+X  		_lines = DEFAULT_LINES_ON_TERMINAL;
+X  	if (_columns == -1)
+X  		_columns = DEFAULT_COLUMNS_ON_TERMINAL;
+! 	/* kludge to workaround no inverse */
+X  	if (_setinverse == 0) {
+X  		_setinverse = _setunderline;
+X  		_clearinverse = _clearunderline;
+--- 172,180 ----
+X  		_lines = DEFAULT_LINES_ON_TERMINAL;
+X  	if (_columns == -1)
+X  		_columns = DEFAULT_COLUMNS_ON_TERMINAL;
+! 	/* 
+! 	 * kludge to workaround no inverse 
+! 	 */
+X  	if (_setinverse == 0) {
+X  		_setinverse = _setunderline;
+X  		_clearinverse = _clearunderline;
+***************
+*** 227,238 ****
+X  void set_keypad_on ()
+X  {
+X  #ifndef INDEX_DAEMON
+! /*
+X   	if (_keypadxmit) {
+X  		tputs (_keypadxmit, 1, outchar);
+X  		fflush (stdout);
+X  	}
+! */
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+--- 238,249 ----
+X  void set_keypad_on ()
+X  {
+X  #ifndef INDEX_DAEMON
+! #    ifdef HPUX
+X   	if (_keypadxmit) {
+X  		tputs (_keypadxmit, 1, outchar);
+X  		fflush (stdout);
+X  	}
+! #    endif
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+***************
+*** 239,250 ****
+X  void set_keypad_off ()
+X  {
+X  #ifndef INDEX_DAEMON
+! /*
+X  	if (_keypadlocal) {
+X  		tputs (_keypadlocal, 1, outchar);
+X  		fflush (stdout);
+X  	}
+! */
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+--- 250,261 ----
+X  void set_keypad_off ()
+X  {
+X  #ifndef INDEX_DAEMON
+! #    ifdef HPUX
+X  	if (_keypadlocal) {
+X  		tputs (_keypadlocal, 1, outchar);
+X  		fflush (stdout);
+X  	}
+! #    endif
+X  #endif /* INDEX_DAEMON */
+X  }
+X  
+***************
+*** 387,398 ****
+X  	if (state == FALSE && _inraw) {
+X  	  (void) ioctl(TTYIN, TCSETAW, &_original_tty);
+X  	  _inraw = 0;
+! 	}
+! 	else if (state == TRUE && ! _inraw) {
+! 
+X  	  (void) ioctl(TTYIN, TCGETA, &_original_tty);	/** current setting **/
+- 
+X  	  (void) ioctl(TTYIN, TCGETA, &_raw_tty);    /** again! **/
+X  #if defined(BSD) || defined(MINIX)
+X  	  _raw_tty.sg_flags &= ~(ECHO | CRMOD);	/* echo off */
+X  	  _raw_tty.sg_flags |= CBREAK;	/* raw on    */
+--- 398,407 ----
+X  	if (state == FALSE && _inraw) {
+X  	  (void) ioctl(TTYIN, TCSETAW, &_original_tty);
+X  	  _inraw = 0;
+! 	} else if (state == TRUE && ! _inraw) {
+X  	  (void) ioctl(TTYIN, TCGETA, &_original_tty);	/** current setting **/
+X  	  (void) ioctl(TTYIN, TCGETA, &_raw_tty);    /** again! **/
++ 
+X  #if defined(BSD) || defined(MINIX)
+X  	  _raw_tty.sg_flags &= ~(ECHO | CRMOD);	/* echo off */
+X  	  _raw_tty.sg_flags |= CBREAK;	/* raw on    */
+***************
+*** 404,410 ****
+X  #endif
+X  
+X  	  (void) ioctl(TTYIN, TCSETAW, &_raw_tty);
+- 
+X  	  _inraw = 1;
+X  	}
+X  	
+--- 413,418 ----
+***************
+*** 436,442 ****
+X  
+X  	return ((result == EOF) ? EOF : result & 0xFF);
+X  #else
+- 
+X  	while ((result = read(0, &ch, 1)) < 0 && errno == EINTR)
+X  		;	/* spin on signal interrupts */
+X  
+--- 444,449 ----
+diff -rcs ../1.14/debug.c ./debug.c
+*** ../1.14/debug.c	Tue Aug 11 21:23:03 1992
+--- ./debug.c	Fri Jul 31 18:33:23 1992
+***************
+*** 3,9 ****
+X   *  Module    : debug.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 03-06-92
+X   *  Notes     : debug routines
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : debug.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 31-07-92
+X   *  Notes     : debug routines
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 112,117 ****
+--- 112,157 ----
+X  }
+X  
+X  
++ void debug_save_comp ()
++ {
++ #ifdef DEBUG
++ 	FILE *fp;
++ 	int i;
++ 	
++ 	if (debug != 2)
++ 		return;
++ 
++ 	if ((fp = fopen ("/tmp/SAVE_COMP","a+")) != NULL) {
++ 		for (i = 0 ; i < num_save ; i++) {
++ 
++ 			fprintf (fp,"subj=[%-38s]\n", save[i].subject);
++ 			fprintf (fp,"dir=[%s]  file=[%s]\n", save[i].dir, save[i].file);
++  			if (save[i].archive) {
++  			    fprintf (fp, "arch=[%-38s]  ", save[i].archive);
++  			} else {
++  			    fprintf (fp, "arch=[]  ");
++  			}
++  			if (save[i].part) {
++  			    fprintf (fp, "part=[%s]  ", save[i].part);
++  			} else {
++  			    fprintf (fp, "part=[]  ");
++  			}
++  			if (save[i].patch) {
++  			    fprintf (fp, "patch=[%s]\n", save[i].patch);
++ 			} else {
++  			    fprintf (fp, "patch=[]\n");
++  			}
++ 			fprintf (fp,"index=[%d]  saved=[%d]  mailbox=[%d]\n\n",
++ 				save[i].index, save[i].saved, save[i].is_mailbox);
++ 		}	
++ 		fflush (fp);
++ 		fclose (fp);
++ 		chmod ("/tmp/SAVE_COMP", 0666);
++ 	}
++ #endif
++ }
++ 
++ 
+X  void debug_print_comment (comment)
+X  	char *comment;
+X  {
+***************
+*** 163,182 ****
+X  
+X  	if ((fp = fopen ("/tmp/ACTIVE","w")) != NULL) {
+X  		for (i = 0; i < num_active; i++) {	/* for each group */
+! 			fprintf (fp, "[%4d]=[%-28s] max=[%4ld] min=[%4ld] mod=[%c] nxt=[%4d] flag=[%d]\n",
+X  				i, active[i].name, active[i].max, active[i].min,
+! 				active[i].moderated, active[i].next, active[i].flag);
+X  			fprintf (fp, "hash=[%ld]  description=[%s]\n", hash_groupname (active[i].name), 
+X  				(active[i].description ? active[i].description : ""));
+X  			fprintf (fp, "read=[%d] show=[%d] thread=[%d] sort=[%d] author=[%d] auto=[%d] process=[%d]\n",
+! 				active[i].attribute.read,    active[i].attribute.showall,
+! 				active[i].attribute.thread,  active[i].attribute.sortby,
+! 				active[i].attribute.author,  active[i].attribute.autosave,
+! 				active[i].attribute.process);
+! 			fprintf (fp, "server=[%s] ", (active[i].attribute.server  == (char *) 0 ? "" : active[i].attribute.server));
+X  			fprintf (fp, "maildir=[%s] ",(active[i].attribute.maildir == (char *) 0 ? "" : active[i].attribute.maildir));			
+X  			fprintf (fp, "savedir=[%s] ",(active[i].attribute.savedir == (char *) 0 ? "" : active[i].attribute.savedir));
+! 			fprintf (fp, "sigfile=[%s]\n\n",(active[i].attribute.sigfile == (char *) 0 ? "" : active[i].attribute.sigfile));
+X  		}
+X  		fflush (fp);
+X  		fclose (fp);
+--- 203,225 ----
+X  
+X  	if ((fp = fopen ("/tmp/ACTIVE","w")) != NULL) {
+X  		for (i = 0; i < num_active; i++) {	/* for each group */
+! 			fprintf (fp, "[%4d]=[%-28s] max=[%4ld] min=[%4ld] mod=[%c] nxt=[%4d] my_group=[%d]\n",
+X  				i, active[i].name, active[i].max, active[i].min,
+! 				active[i].moderated, active[i].next, active[i].my_group);
+X  			fprintf (fp, "hash=[%ld]  description=[%s]\n", hash_groupname (active[i].name), 
+X  				(active[i].description ? active[i].description : ""));
+X  			fprintf (fp, "read=[%d] show=[%d] thread=[%d] sort=[%d] author=[%d] auto=[%d] process=[%d]\n",
+! 				active[i].attribute.read_during_session,
+! 				active[i].attribute.show_only_unread,
+! 				active[i].attribute.thread_arts,
+! 				active[i].attribute.sort_art_type,
+! 				active[i].attribute.show_author,  
+! 				active[i].attribute.auto_save,
+! 				active[i].attribute.post_proc_type);
+X  			fprintf (fp, "maildir=[%s] ",(active[i].attribute.maildir == (char *) 0 ? "" : active[i].attribute.maildir));			
+X  			fprintf (fp, "savedir=[%s] ",(active[i].attribute.savedir == (char *) 0 ? "" : active[i].attribute.savedir));
+! 			fprintf (fp, "sigfile=[%s] ",(active[i].attribute.sigfile == (char *) 0 ? "" : active[i].attribute.sigfile));
+! 			fprintf (fp, "followup_to=[%s]\n\n", (active[i].attribute.followup_to  == (char *) 0 ? "" : active[i].attribute.followup_to));
+X  		}
+X  		fflush (fp);
+X  		fclose (fp);
+diff -rcs ../1.14/extern.h ./extern.h
+*** ../1.14/extern.h	Tue Aug 11 21:23:27 1992
+--- ./extern.h	Fri Aug  7 11:46:41 1992
+***************
+*** 3,9 ****
+X   *  Module    : extern.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : extern.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 69,80 ****
+X  extern char *help_thread[];
+X  extern char active_file[PATH_LEN];
+X  extern char add_addr[LEN];
+- extern char default_art_search[LEN];
+X  extern char article[PATH_LEN];
+! extern char default_author_search[LEN];
+X  extern char bug_addr[LEN];
+X  extern char cvers[LEN];
+X  extern char dead_article[PATH_LEN];
+X  extern char default_crosspost_group[LEN];
+X  extern char default_mail_address[LEN];
+X  extern char default_pipe_command[LEN];
+--- 69,82 ----
+X  extern char *help_thread[];
+X  extern char active_file[PATH_LEN];
+X  extern char add_addr[LEN];
+X  extern char article[PATH_LEN];
+! extern char attributes_file[PATH_LEN];
+X  extern char bug_addr[LEN];
++ extern char cmd_line_printer[LEN];
+X  extern char cvers[LEN];
+X  extern char dead_article[PATH_LEN];
++ extern char default_art_search[LEN];
++ extern char default_author_search[LEN];
+X  extern char default_crosspost_group[LEN];
+X  extern char default_mail_address[LEN];
+X  extern char default_pipe_command[LEN];
+***************
+*** 87,97 ****
+--- 89,104 ----
+X  extern char default_goto_group[LEN];
+X  extern char default_group_search[LEN];
+X  extern char default_maildir[PATH_LEN];
++ extern char default_savedir[PATH_LEN];
++ extern char default_sigfile[PATH_LEN];
++ extern char default_signature[PATH_LEN];
++ extern char default_subject_search[LEN];
+X  extern char homedir[PATH_LEN];
+X  extern char indexdir[PATH_LEN];
+X  extern char killfile[PATH_LEN];
+X  extern char killfrom[LEN];
+X  extern char killsubj[LEN];
++ extern char lock_file[PATH_LEN];
+X  extern char mail_news_user[LEN];
+X  extern char mailbox[PATH_LEN];
+X  extern char mailer[PATH_LEN];
+***************
+*** 98,127 ****
+X  extern char msg[LEN];
+X  extern char my_distribution[LEN];
+X  extern char my_org[LEN];
+X  extern char newsgroups_file[PATH_LEN];
+X  extern char newnewsrc[PATH_LEN];
+X  extern char newsrc[PATH_LEN];
+! extern char nntp_server[LEN];
+X  extern char page_header[LEN];
+X  extern char postfile[PATH_LEN];
+X  extern char printer[LEN];
+- extern char cmd_line_printer[LEN];
+X  extern char proc_ch_default;				/* set in change_rcfile () */
+X  extern char progname[PATH_LEN];
+X  extern char rcdir[PATH_LEN];
+X  extern char rcfile[PATH_LEN];
+X  extern char redirect_output[LEN];
+X  extern char reply_to[LEN];
+- extern char default_savedir[PATH_LEN];
+- extern char default_sigfile[PATH_LEN];
+- extern char default_signature[PATH_LEN];
+X  extern char spooldir[PATH_LEN];
+X  extern char spooldir_alias[PATH_LEN];
+- extern char default_subject_search[LEN];
+X  extern char subscriptions_file[PATH_LEN];
+! extern char txt_help_bug_report[LEN];
+! extern char unthreadfile[PATH_LEN];
+! extern char userid[LEN];
+X  
+X  extern char txt_1_resp[];
+X  extern char txt_active_file_is_empty[];
+--- 105,130 ----
+X  extern char msg[LEN];
+X  extern char my_distribution[LEN];
+X  extern char my_org[LEN];
++ extern char new_active_file_attribute[32];
++ extern char new_active_file_server[PATH_LEN];
+X  extern char newsgroups_file[PATH_LEN];
+X  extern char newnewsrc[PATH_LEN];
+X  extern char newsrc[PATH_LEN];
+! extern char *nntp_server;
+X  extern char page_header[LEN];
+X  extern char postfile[PATH_LEN];
+X  extern char printer[LEN];
+X  extern char proc_ch_default;				/* set in change_rcfile () */
+X  extern char progname[PATH_LEN];
++ extern char quote_chars[PATH_LEN];
+X  extern char rcdir[PATH_LEN];
+X  extern char rcfile[PATH_LEN];
+X  extern char redirect_output[LEN];
+X  extern char reply_to[LEN];
+X  extern char spooldir[PATH_LEN];
+X  extern char spooldir_alias[PATH_LEN];
+X  extern char subscriptions_file[PATH_LEN];
+! extern char userid[PATH_LEN];
+X  
+X  extern char txt_1_resp[];
+X  extern char txt_active_file_is_empty[];
+***************
+*** 150,155 ****
+--- 153,161 ----
+X  extern char txt_cannot_open_active_file[];
+X  extern char txt_cannot_open_art[];
+X  extern char txt_cannot_post[];
++ extern char txt_cannot_change_spooldir[];
++ extern char txt_catchup_update_info[];
++ extern char txt_changing_sppoldir_to[];
+X  extern char txt_checking[];
+X  extern char txt_checking_active_file[];
+X  extern char txt_checking_for_news[];
+***************
+*** 183,188 ****
+--- 189,195 ----
+X  extern char txt_spooldir_com[];
+X  extern char txt_group_selection[];
+X  extern char txt_group_undeleted[];
++ extern char txt_help_bug_report[LEN];
+X  extern char txt_help_4[];
+X  extern char txt_help_C[];
+X  extern char txt_help_I[];
+***************
+*** 198,203 ****
+--- 205,211 ----
+X  extern char txt_help_b[];
+X  extern char txt_help_bug[];
+X  extern char txt_help_c[];
++ extern char txt_help_cC[];
+X  extern char txt_help_ck[];
+X  extern char txt_help_cr[];
+X  extern char txt_help_catchup_groups[];
+***************
+*** 221,226 ****
+--- 229,235 ----
+X  extern char txt_help_g_ctrl_r[];
+X  extern char txt_help_g_l[];
+X  extern char txt_help_g_q[];
++ extern char txt_help_g_r[];
+X  extern char txt_help_g_search[];
+X  extern char txt_help_g_tab[];
+X  extern char txt_help_g_y[];
+***************
+*** 310,315 ****
+--- 319,325 ----
+X  extern char txt_index_page_com[];
+X  extern char txt_indexing[];
+X  extern char txt_indexing_num[];
++ extern char txt_ispell_define_not_compiled[];
+X  extern char txt_inverse_off[];
+X  extern char txt_inverse_on[];
+X  extern char txt_kill_from[];
+***************
+*** 358,363 ****
+--- 368,374 ----
+X  extern char txt_no_resp[];
+X  extern char txt_no_resps_in_thread[];
+X  extern char txt_no_search_string[];
++ extern char txt_no_spooldirs[];
+X  extern char txt_no_subject[];
+X  extern char txt_not_active_newsfeed[];
+X  extern char txt_not_in_active_file[];
+***************
+*** 412,417 ****
+--- 423,429 ----
+X  extern char txt_read_art[];
+X  extern char txt_read_resp[];
+X  extern char txt_reading_active_file[];
++ extern char txt_reading_attributes_file[];
+X  extern char txt_reading_newsgroups_file[];
+X  extern char txt_rejected_by_nntpserver[];
+X  extern char txt_rename_error[];
+***************
+*** 449,454 ****
+--- 461,469 ----
+X  extern char txt_sort_by_nothing[];
+X  extern char txt_sort_by_subj_ascend[];
+X  extern char txt_sort_by_subj_descend[];
++ extern char txt_spooldir_server_error_1[];
++ extern char txt_spooldir_server_error_2[];
++ extern char txt_spooldirs_not_supported[];
+X  extern char txt_stuff_nntp_cannot_open[];
+X  extern char txt_subscribe_pattern[];
+X  extern char txt_subscribe_to_new_group[];
+***************
+*** 486,512 ****
+X  extern char txt_yanking_sub_groups[];
+X  extern char txt_you_have_mail[];
+X  
+X  extern int LINES, COLS;
+X  extern int MORE_POS;
+X  extern int NOTESLINES;
+X  extern int RIGHT_POS;
+X  extern int *my_group;
+! extern int *unread;
+X  extern int can_post;
+X  extern int catchup;
+X  extern int catchup_read_groups;
+X  extern int cmd_line;
+X  extern int compiled_with_nntp;
+X  extern int confirm_action;
+X  extern int created_rcdir;
+X  extern int debug;
+X  extern int default_move_group;
+X  extern int default_printer;
+X  extern int default_show_author;
+X  #ifdef SIGTSTP
+X  extern int do_sigtstp;
+X  #endif
+X  extern int draw_arrow_mark;
+X  extern int full_page_scroll;
+X  extern int group_hash[TABLE_SIZE];
+X  extern int group_top;
+--- 501,539 ----
+X  extern char txt_yanking_sub_groups[];
+X  extern char txt_you_have_mail[];
+X  
++ extern int unread_art_mark;
++ extern int hot_art_mark;
++ extern int return_art_mark;
+X  extern int LINES, COLS;
+X  extern int MORE_POS;
+X  extern int NOTESLINES;
+X  extern int RIGHT_POS;
+X  extern int *my_group;
+! extern int old_active_file_size;
+X  extern int can_post;
+X  extern int catchup;
+X  extern int catchup_read_groups;
++ extern int check_for_new_newsgroups;
+X  extern int cmd_line;
+X  extern int compiled_with_nntp;
+X  extern int confirm_action;
+X  extern int created_rcdir;
++ extern int cur_active_size;
+X  extern int debug;
++ extern int default_auto_save;
++ extern int default_batch_save;
+X  extern int default_move_group;
++ extern int default_post_proc_type;
+X  extern int default_printer;
+X  extern int default_show_author;
++ extern int default_show_only_unread;
++ extern int default_sort_art_type;
++ extern int default_thread_arts;
+X  #ifdef SIGTSTP
+X  extern int do_sigtstp;
+X  #endif
+X  extern int draw_arrow_mark;
++ extern int force_screen_redraw;
+X  extern int full_page_scroll;
+X  extern int group_hash[TABLE_SIZE];
+X  extern int group_top;
+***************
+*** 516,538 ****
+X  extern int inverse_okay;
+X  extern int killed_articles;
+X  extern int kill_level;
+- extern int kill_num;
+X  extern int local_index;
+X  extern int mail_news;
+X  extern int mark_saved_read;
+X  extern int max_active;
+X  extern int max_art;
+X  extern int max_from;
+X  extern int max_subj;
+X  extern int max_kill;
+X  extern int max_save;
+X  extern int nntp_codeno;
+X  extern int num_active;
+X  extern int num_of_hot_arts;
+X  extern int num_of_killed_arts;
+X  extern int num_of_tagged_arts;
+X  extern int pos_first_unread;
+- extern int post_proc_type;
+X  extern int print_header;
+X  extern int process_id;
+X  extern int read_news_via_nntp;
+--- 543,569 ----
+X  extern int inverse_okay;
+X  extern int killed_articles;
+X  extern int kill_level;
+X  extern int local_index;
+X  extern int mail_news;
+X  extern int mark_saved_read;
+X  extern int max_active;
++ extern int max_active_size;
+X  extern int max_art;
+X  extern int max_from;
+X  extern int max_subj;
+X  extern int max_kill;
+X  extern int max_save;
++ extern int max_spooldir;
+X  extern int nntp_codeno;
+X  extern int num_active;
++ extern int num_active_size;
++ extern int num_kill;
+X  extern int num_of_hot_arts;
+X  extern int num_of_killed_arts;
+X  extern int num_of_tagged_arts;
++ extern int num_save;
++ extern int num_spooldir;
+X  extern int pos_first_unread;
+X  extern int print_header;
+X  extern int process_id;
+X  extern int read_news_via_nntp;
+***************
+*** 540,560 ****
+X  extern int real_uid;
+SHAR_EOF
+true || echo 'restore of tin-1.15.patch failed'
+fi
+echo 'End of tin-1.15 part 2'
+echo 'File tin-1.15.patch is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea 
+EMAIL  iain%anl433.uucp@Germany.EU.net
+SNAIL  Siemens AG, ANL A433SZ, Gruendlacher Str. 248, 8510 Fuerth, Germany.
+PHONE  +49-911-3089-407 (work) +49-911-331963 (home) +49-911-3089-290 (FAX)  
+exit 0 # Just in case...

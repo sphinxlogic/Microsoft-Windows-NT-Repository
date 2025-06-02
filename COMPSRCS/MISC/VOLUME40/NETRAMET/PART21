@@ -1,0 +1,2126 @@
+Newsgroups: comp.sources.misc
+From: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Subject: v40i109:  netramet - Network Traffic Accounting Meter, Part21/25
+Message-ID: <1993Nov9.020449.18834@sparky.sterling.com>
+X-Md4-Signature: 28aba8417d577895b6709cdf839bc849
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 02:04:49 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Posting-number: Volume 40, Issue 109
+Archive-name: netramet/part21
+Environment: INET, UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netramet/examples/rules.sample
+#   netramet/src/apps/snmpnetstat/if.c netramet/src/apps/snmpstatus.c
+#   netramet/src/apps/snmptest.c netramet/src/manager/nmc_pars.c
+#   netramet/src/snmplib/snmpclnt.c
+# Wrapped by kent@sparky on Tue Nov  2 18:17:12 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 21 (of 25)."'
+if test -f 'netramet/examples/rules.sample' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/examples/rules.sample'\"
+else
+  echo shar: Extracting \"'netramet/examples/rules.sample'\" \(3166 characters\)
+  sed "s/^X//" >'netramet/examples/rules.sample' <<'END_OF_FILE'
+X#  1705, Mon 13 Sep 93
+X#
+X#  Rule specification file to tally IP net <-> IP net,
+X#     tally DECnet and Novell and aggregate EtherTalk
+X#
+X#  Nevil Brownlee,  Computer Centre,  University of Auckland
+X#
+XSET 2  # Rule + action set number 2
+X#
+XRULES
+X#
+XSourcePeerType & 255 = DECnet :         Tally,  9;  #   1
+XSourcePeerType & 255 = IP.0.0.0 :      Pushto,  8;  #   2
+XSourcePeerType & 255 = EtherTalk :  Aggregate,  7;  #   3
+XSourcePeerType & 255 = Novell :         Tally,  8;  #   4
+XNull & 0 = 0 :                        Succeed,  0;  #   5  Ignore
+X#
+XNull & 0 = 0 :                        Succeed,  0;  #   6
+XNull & 0 = 0 :                        Succeed,  0;  #   7
+X#
+X#  IP ...
+X#
+XSourcePeerAddress & 192.0.0.0 = 128.0.0.0 :  Pushto, 13;  #   8  Low B
+XSourcePeerAddress & 192.0.0.0 = 192.0.0.0 :  Pushto, 16;  #   9  Low C
+XSourcePeerAddress & 192.0.0.0 = 64.0.0.0 :   Pushto, 18;  #  10  Low A
+XSourcePeerAddress & 192.0.0.0 = 0.0.0.0 :    Pushto, 18;  #  11  Low A
+XNull & 0 = 0 :                                 Fail,  0;  #  12
+X#
+XDestPeerAddress & 192.0.0.0 = 128.0.0.0 :     Tally,  1;  #  13  High B: B-B
+XDestPeerAddress & 192.0.0.0 = 192.0.0.0 :     Tally,  2;  #  14  High C: B-C
+XNull & 0 = 0 :                                 Fail,  0;  #  15
+X#
+XDestPeerAddress & 192.0.0.0 = 192.0.0.0 :     Tally,  3;  #  16  High C: C-C
+XNull & 0 = 0 :                                 Fail,  0;  #  17
+X#
+XDestPeerAddress & 192.0.0.0 = 128.0.0.0 :    Tally,   4;  #  18  High B: A-B
+XDestPeerAddress & 192.0.0.0 = 192.0.0.0 :    Tally,   5;  #  19  High C: A-C
+XDestPeerAddress & 192.0.0.0 = 64.0.0.0 :     Tally,   6;  #  20  High A: A-A
+XDestPeerAddress & 192.0.0.0 = 0.0.0.0 :      Tally,   6;  #  21  High A: A-A
+XNull & 0 = 0 :                                 Fail,  0;  #  22
+X#
+XNull & 0 = 0 :                                 Fail,  0;  #  23
+XNull & 0 = 0 :                                 Fail,  0;  #  24
+X#
+XACTIONS
+X#
+XSourcePeerType=IP, SourcePeerMask=255.255.0.0,   
+X                   DestPeerMask=255.255.0.0;            # 1  B-B
+XSourcePeerType=IP, SourcePeerMask=255.255.0.0,   
+X                   DestPeerMask=255.255.255.0;          # 2  B-C
+XSourcePeerType=IP, SourcePeerMask=255.255.255.0, 
+X                   DestPeerMask=255.255.255.0;          # 3  C-C
+XSourcePeerType=IP, SourcePeerMask=255.0.0.0,     
+X                   DestPeerMask=255.255.0.0;            # 4  A-B
+XSourcePeerType=IP, SourcePeerMask=255.0.0.0,     
+X                   DestPeerMask=255.255.255.0;          # 5  A-C
+XSourcePeerType=IP, SourcePeerMask=255.0.0.0,     
+X                   DestPeerMask=255.0.0.0;              # 6  A-A
+X#
+XSourcePeerType=EtherTalk, 
+X   SourcePeerAddress=1.0.0.0, SourcePeerMask=255.0.0.0,
+X   DestPeerAddress=1.0.0.0, DestPeerMask=255.0.0.0;     # 7  Aggregate
+X#
+XSourcePeerType=Novell, SourcePeerMask=255.255.255.255, 
+X                       DestPeerMask=255.255.255.255;    # 8  Tally all
+XSourcePeerType=DECnet, SourcePeerMask=255.255.255.0, 
+X                       DestPeerMask=255.255.255.0;      # 9  Tally all
+X#
+XFORMAT FlowRuleSet FlowIndex FirstTime "  "
+X   SourcePeerType SourcePeerAddress DestPeerAddress "  "
+X   ToPDUs FromPDUs "  " ToOctets FromOctets;
+X#
+X# end of file
+END_OF_FILE
+  if test 3166 -ne `wc -c <'netramet/examples/rules.sample'`; then
+    echo shar: \"'netramet/examples/rules.sample'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/examples/rules.sample'
+fi
+if test -f 'netramet/src/apps/snmpnetstat/if.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/apps/snmpnetstat/if.c'\"
+else
+  echo shar: Extracting \"'netramet/src/apps/snmpnetstat/if.c'\" \(9741 characters\)
+  sed "s/^X//" >'netramet/src/apps/snmpnetstat/if.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * Copyright (c) 1983,1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that this notice is preserved and that due credit is given
+X * to the University of California at Berkeley. The name of the University
+X * may not be used to endorse or promote products derived from this
+X * software without specific prior written permission. This software
+X * is provided ``as is'' without express or implied warranty.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X
+X#include <netinet/in.h>
+X
+X#include <stdio.h>
+X#include <signal.h>
+X
+X#include "ausnmp.h"
+X#include "main.h"
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "snmpapi.h"
+X#include "snmpclnt.h"
+X#include "mib.h"
+X
+X#define	YES	1
+X#define	NO	0
+X
+Xextern	int nflag;
+Xextern	char *interface;
+Xextern	char *routename(), *netname();
+Xextern	struct snmp_session *Session;
+Xextern	struct variable_list *getvarbyname();
+X
+Xoid oid_ifname[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 2, 1};
+Xstatic oid oid_ifinucastpkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 11, 1};
+Xstatic oid oid_cfg_nnets[] = {1, 3, 6, 1, 2, 1, 2, 1, 0};
+X
+X#define IFNAME		2
+X#define IFMTU		4
+X#define IFOPERSTATUS	8
+X#define INUCASTPKTS	11
+X#define INNUCASTPKTS	12
+X#define INERRORS	14
+X#define OUTUCASTPKTS	17
+X#define OUTNUCASTPKTS	18
+X#define OUTERRORS	20
+X
+X/*
+X * Print a description of the network interfaces.
+X */
+Xintpr(interval)
+X	int interval;
+X{
+X	oid varname[MAX_NAME_LEN], *instance, *ifentry;
+X	int varname_len;
+X	int ifnum, cfg_nnets;
+X	struct variable_list *var;
+X	char name[128];
+X	int mtu;
+X	int ipkts, ierrs, opkts, oerrs, operstatus, collisions;
+X
+X	if (interval) {
+X		sidewaysintpr((unsigned)interval);
+X		return;
+X	}
+X	printf("%-11.11s %-5.5s %-11.11s %-15.15s %8.8s %5.5s %8.8s %5.5s",
+X		"Name", "Mtu", "Network", "Address", "Ipkts", "Ierrs",
+X		"Opkts", "Oerrs");
+X	putchar('\n');
+X	var = getvarbyname(Session, oid_cfg_nnets, sizeof(oid_cfg_nnets) / sizeof(oid));
+X	if (var)
+X	    cfg_nnets = *var->val.integer;
+X	else
+X	    return;
+X	bcopy((char *)oid_ifname, (char *)varname, sizeof(oid_ifname));
+X	varname_len = sizeof(oid_ifname) / sizeof(oid);
+X	ifentry = varname + 9;
+X	instance = varname + 10;
+X	for (ifnum = 1; ifnum <= cfg_nnets; ifnum++) {
+X		register char *cp;
+X		char *index();
+X
+X		*name = mtu = 0;
+X		ipkts = ierrs = opkts = oerrs = operstatus = collisions = 0;
+X		*instance = ifnum;
+X		*ifentry = IFNAME;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var){
+X		    bcopy((char *)var->val.string, name, var->val_len);
+X		    name[var->val_len] = 0;
+X		}
+X		*ifentry = IFMTU;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    mtu = *var->val.integer;
+X		*ifentry = IFOPERSTATUS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    operstatus = *var->val.integer;
+X		*ifentry = INUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ipkts = *var->val.integer;
+X		*ifentry = INNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ipkts += *var->val.integer;
+X		*ifentry = INERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ierrs = *var->val.integer;
+X		*ifentry = OUTUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    opkts = *var->val.integer;
+X		*ifentry = OUTNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    opkts += *var->val.integer;
+X		*ifentry = OUTERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    oerrs = *var->val.integer;
+X
+X		name[15] = '\0';
+X		if (interface != 0 &&
+X		    strcmp(name, interface) != 0)
+X			continue;
+X		cp = index(name, '\0');
+X		if (operstatus != MIB_IFSTATUS_UP)
+X			*cp++ = '*';
+X		*cp = '\0';
+X		printf("%-11.11s %-5d ", name, mtu);
+X		printf("%-11.11s ", "none");
+X		printf("%-15.15s ", "none");
+X		printf("%8d %5d %8d %5d %5d",
+X		    ipkts, ierrs,
+X		    opkts, oerrs, collisions);
+X		putchar('\n');
+X	}
+X}
+X
+X#define	MAXIF	10
+Xstruct	iftot {
+X	char	ift_name[128];		/* interface name */
+X	int	ift_ip;			/* input packets */
+X	int	ift_ie;			/* input errors */
+X	int	ift_op;			/* output packets */
+X	int	ift_oe;			/* output errors */
+X	int	ift_co;			/* collisions */
+X} iftot[MAXIF];
+X
+Xu_char	signalled;			/* set if alarm goes off "early" */
+X
+X/*
+X * Print a running summary of interface statistics.
+X * Repeat display every interval seconds, showing statistics
+X * collected over that interval.  Assumes that interval is non-zero.
+X * First line printed at top of screen is always cumulative.
+X */
+Xsidewaysintpr(interval)
+X	unsigned interval;
+X{
+X	register struct iftot *ip, *total;
+X	register int line;
+X	struct iftot *lastif, *sum, *interesting, ifnow, *now = &ifnow;
+X	int oldmask;
+X	int catchalarm();
+X	struct variable_list *var;
+X	oid varname[MAX_NAME_LEN], *instance, *ifentry;
+X	int varname_len;
+X	int ifnum, cfg_nnets;
+X	char *index();
+X
+X	lastif = iftot;
+X	sum = iftot + MAXIF - 1;
+X	total = sum - 1;
+X	interesting = iftot;
+X	var = getvarbyname(Session, oid_cfg_nnets, sizeof(oid_cfg_nnets) / sizeof(oid));
+X	if (var)
+X	    cfg_nnets = *var->val.integer;
+X	else
+X	    return;
+X	bcopy((char *)oid_ifname, (char *)varname, sizeof(oid_ifname));
+X	varname_len = sizeof(oid_ifname) / sizeof(oid);
+X	for (ifnum = 1, ip = iftot; ifnum <= cfg_nnets; ifnum++) {
+X		char *cp;
+X
+X		ip->ift_name[0] = '(';
+X		varname[10] = ifnum;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var){
+X		    bcopy((char *)var->val.string, ip->ift_name + 1, var->val_len);
+X		}
+X		if (interface && strcmp(ip->ift_name + 1, interface) == 0)
+X			interesting = ip;
+X		ip->ift_name[15] = '\0';
+X		cp = index(ip->ift_name, '\0');
+X		sprintf(cp, ")");
+X		ip++;
+X		if (ip >= iftot + MAXIF - 2)
+X			break;
+X	}
+X	lastif = ip;
+X
+X	(void)signal(SIGALRM, catchalarm);
+X	signalled = NO;
+X	(void)alarm(interval);
+Xbanner:
+X	printf("    input   %-6.6s    output       ", interesting->ift_name);
+X	if (lastif - iftot > 0)
+X		printf("     input  (Total)    output");
+X	for (ip = iftot; ip < iftot + MAXIF; ip++) {
+X		ip->ift_ip = 0;
+X		ip->ift_ie = 0;
+X		ip->ift_op = 0;
+X		ip->ift_oe = 0;
+X		ip->ift_co = 0;
+X	}
+X	putchar('\n');
+X	printf("%8.8s %5.5s %8.8s %5.5s %5.5s ",
+X		"packets", "errs", "packets", "errs", "colls");
+X	if (lastif - iftot > 0)
+X		printf("%8.8s %5.5s %8.8s %5.5s %5.5s ",
+X			"packets", "errs", "packets", "errs", "colls");
+X	putchar('\n');
+X	fflush(stdout);
+X	line = 0;
+Xloop:
+X	sum->ift_ip = 0;
+X	sum->ift_ie = 0;
+X	sum->ift_op = 0;
+X	sum->ift_oe = 0;
+X	sum->ift_co = 0;
+X	bcopy((char *)oid_ifinucastpkts, (char *)varname, sizeof(oid_ifinucastpkts));
+X	varname_len = sizeof(oid_ifinucastpkts) / sizeof(oid);
+X	ifentry = varname + 9;
+X	instance = varname + 10;
+X	for (ifnum = 1, ip = iftot; ifnum <= cfg_nnets && ip < lastif; ip++, ifnum++) {
+X		bzero((char *)now, sizeof(*now));
+X		*instance = ifnum;
+X		*ifentry = INUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ip = *var->val.integer;
+X		*ifentry = INNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ip += *var->val.integer;
+X		*ifentry = INERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ie = *var->val.integer;
+X		*ifentry = OUTUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_op = *var->val.integer;
+X		*ifentry = OUTNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_op += *var->val.integer;
+X		*ifentry = OUTERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_oe = *var->val.integer;
+X
+X		if (ip == interesting)
+X			printf("%8d %5d %8d %5d %5d ",
+X				now->ift_ip - ip->ift_ip,
+X				now->ift_ie - ip->ift_ie,
+X				now->ift_op - ip->ift_op,
+X				now->ift_oe - ip->ift_oe,
+X				now->ift_co - ip->ift_co);
+X		ip->ift_ip = now->ift_ip;
+X		ip->ift_ie = now->ift_ie;
+X		ip->ift_op = now->ift_op;
+X		ip->ift_oe = now->ift_oe;
+X		ip->ift_co = now->ift_co;
+X		sum->ift_ip += ip->ift_ip;
+X		sum->ift_ie += ip->ift_ie;
+X		sum->ift_op += ip->ift_op;
+X		sum->ift_oe += ip->ift_oe;
+X		sum->ift_co += ip->ift_co;
+X	}
+X	if (lastif - iftot > 0)
+X		printf("%8d %5d %8d %5d %5d ",
+X			sum->ift_ip - total->ift_ip,
+X			sum->ift_ie - total->ift_ie,
+X			sum->ift_op - total->ift_op,
+X			sum->ift_oe - total->ift_oe,
+X			sum->ift_co - total->ift_co);
+X	*total = *sum;
+X	putchar('\n');
+X	fflush(stdout);
+X	line++;
+X	oldmask = sigblock(sigmask(SIGALRM));
+X	if (! signalled) {
+X		sigpause(0);
+X	}
+X	sigsetmask(oldmask);
+X	signalled = NO;
+X	(void)alarm(interval);
+X	if (line == 21)
+X		goto banner;
+X	goto loop;
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * Called if an interval expires before sidewaysintpr has completed a loop.
+X * Sets a flag to not wait for the alarm.
+X */
+Xcatchalarm()
+X{
+X	signalled = YES;
+X}
+END_OF_FILE
+  if test 9741 -ne `wc -c <'netramet/src/apps/snmpnetstat/if.c'`; then
+    echo shar: \"'netramet/src/apps/snmpnetstat/if.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/apps/snmpnetstat/if.c'
+fi
+if test -f 'netramet/src/apps/snmpstatus.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/apps/snmpstatus.c'\"
+else
+  echo shar: Extracting \"'netramet/src/apps/snmpstatus.c'\" \(9974 characters\)
+  sed "s/^X//" >'netramet/src/apps/snmpstatus.c' <<'END_OF_FILE'
+X/*
+X * snmpstatus.c - send snmp GET requests to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X
+X#include "ausnmp.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpclnt.h"
+X#include "snmpapi.h"
+X#include "mib.h"
+X
+Xint	snmp_dump_packet = 0;
+X
+Xoid	objid_sysDescr[] = {1, 3, 6, 1, 2, 1, 1, 1, 0};
+Xint	length_sysDescr = sizeof(objid_sysDescr)/sizeof(oid);
+Xoid	objid_sysUpTime[] = {1, 3, 6, 1, 2, 1, 1, 3, 0};
+Xint	length_sysUpTime = sizeof(objid_sysUpTime)/sizeof(oid);
+Xoid	objid_ifOperStatus[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 8};
+Xint	length_ifOperStatus = sizeof(objid_ifOperStatus)/sizeof(oid);
+Xoid	objid_ifInUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 11};
+Xint	length_ifInUCastPkts = sizeof(objid_ifInUCastPkts)/sizeof(oid);
+Xoid	objid_ifInNUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 12};
+Xint	length_ifInNUCastPkts = sizeof(objid_ifInNUCastPkts)/sizeof(oid);
+Xoid	objid_ifOutUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 17};
+Xint	length_ifOutUCastPkts = sizeof(objid_ifOutUCastPkts)/sizeof(oid);
+Xoid	objid_ifOutNUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 18};
+Xint	length_ifOutNUCastPkts = sizeof(objid_ifOutNUCastPkts)/sizeof(oid);
+Xoid	objid_ipInReceives[] = {1, 3, 6, 1, 2, 1, 4, 3, 0};
+Xint	length_ipInReceives = sizeof(objid_ipInReceives)/sizeof(oid);
+Xoid	objid_ipOutRequests[] = {1, 3, 6, 1, 2, 1, 4, 10, 0};
+Xint	length_ipOutRequests = sizeof(objid_ipOutRequests)/sizeof(oid);
+X
+Xchar *
+Xuptime_string(timeticks, buf)
+X    register u_long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0){
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    } else if (days == 1) {
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    } else {
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X    }
+X    return buf;
+X}
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu, *response;
+X    struct variable_list *vars;
+X    int	arg;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    char    name[256];
+X    char    buf[64];
+X    int	    good_var, index;
+X    int	    status, count;
+X    u_long  ipackets = 0, opackets = 0, down_interfaces = 0;
+X    u_long  ipin = 0, ipout = 0;
+X    u_long  uptime = 0;
+X
+X    /*
+X     * usage: snmpstatus gateway-name [community-name]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else {
+X	    printf("usage: snmpstatus gateway-name [community-name]\n");
+X	    exit(1);
+X	}
+X    }
+X    if (!(gateway)){
+X	printf("usage: snmpstatus gateway-name [community-name]\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    if (community == NULL){
+X	session.community_len = SNMP_DEFAULT_COMMUNITY_LEN;
+X    } else {
+X	session.community_len = strlen(community);
+X    }
+X    session.retries = 4;
+X    session.timeout = 500000;
+X    session.authenticator = NULL;
+X    snmp_synch_setup(&session);
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    strcpy(name, "No System Description Available");
+X    pdu = snmp_pdu_create(GET_REQ_MSG);
+X
+X    snmp_add_null_var(pdu, objid_sysDescr, length_sysDescr);
+X    snmp_add_null_var(pdu, objid_sysUpTime, length_sysUpTime);
+X    snmp_add_null_var(pdu, objid_ipInReceives, length_ipInReceives);
+X    snmp_add_null_var(pdu, objid_ipOutRequests, length_ipOutRequests);
+X
+Xretry:
+X    status = snmp_synch_response(ss, pdu, &response);
+X    if (status == STAT_SUCCESS){
+X	if (response->errstat == SNMP_ERR_NOERROR){
+X	    for(vars = response->variables; vars; vars = vars->next_variable){
+X		if (vars->name_length == length_sysDescr &&
+X		    !bcmp((char *)objid_sysDescr, (char*)vars->name, sizeof(objid_sysDescr))){
+X			bcopy((char *)vars->val.string, name, vars->val_len);
+X			name[vars->val_len] = '\0';
+X		}
+X		if (vars->name_length == length_sysUpTime &&
+X		    !bcmp((char *)objid_sysUpTime, (char*)vars->name, sizeof(objid_sysUpTime))){
+X			uptime = *vars->val.integer;
+X		}
+X		if (vars->name_length == length_ipInReceives &&
+X		    !bcmp((char *)objid_ipInReceives, (char*)vars->name, sizeof(objid_ipInReceives))){
+X			ipin = *vars->val.integer;
+X		}
+X		if (vars->name_length == length_ipOutRequests &&
+X		    !bcmp((char *)objid_ipOutRequests, (char*)vars->name, sizeof(objid_ipOutRequests))){
+X			ipout = *vars->val.integer;
+X		}
+X	    }
+X	} else {
+X	    printf("Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X	    if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		printf("This name doesn't exist: ");
+X		for(count = 1, vars = response->variables; vars && count != response->errindex;
+X		    vars = vars->next_variable, count++)
+X			;
+X		if (vars)
+X		    print_objid(vars->name, vars->name_length);
+X		printf("\n");
+X	    }
+X	    if ((pdu = snmp_fix_pdu(response, GET_REQ_MSG)) != NULL)
+X		goto retry;
+X	}
+X
+X    } else if (status == STAT_TIMEOUT){
+X	printf("No Response from %s\n", gateway);
+X	exit(1);
+X    } else {    /* status == STAT_ERROR */
+X	printf("An error occurred, Quitting\n");
+X	exit(2);
+X    }
+X
+X    printf("[%s]=>[%s] Up: %s\n", inet_ntoa(response->address.sin_addr), name,
+X	uptime_string(uptime, buf));
+X
+X    if (response)
+X	snmp_free_pdu(response);
+X
+X    pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X
+X    snmp_add_null_var(pdu, objid_ifOperStatus, length_ifOperStatus);
+X    snmp_add_null_var(pdu, objid_ifInUCastPkts, length_ifInUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifInNUCastPkts, length_ifInNUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifOutUCastPkts, length_ifOutUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifOutNUCastPkts, length_ifOutNUCastPkts);
+X
+X    good_var = 5;
+X    while(good_var == 5){
+X	good_var = 0;
+X	status = snmp_synch_response(ss, pdu, &response);
+X	if (status == STAT_SUCCESS){
+X	    if (response->errstat == SNMP_ERR_NOERROR){
+X		pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X
+X		index = 0;
+X		for(vars = response->variables; vars; vars = vars->next_variable){
+X		    if (index == 0 && vars->name_length >= length_ifOperStatus &&
+X			!bcmp((char *)objid_ifOperStatus, (char *)vars->name,
+X			sizeof(objid_ifOperStatus))){
+X			    if (*vars->val.integer != MIB_IFSTATUS_UP)
+X				down_interfaces++;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 1 && vars->name_length >= length_ifInUCastPkts &&
+X			!bcmp((char *)objid_ifInUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifInUCastPkts))){
+X			    ipackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 2 && vars->name_length >= length_ifInNUCastPkts &&
+X			!bcmp((char *)objid_ifInNUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifInNUCastPkts))){
+X			    ipackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 3 && vars->name_length >= length_ifOutUCastPkts &&
+X			!bcmp((char *)objid_ifOutUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifOutUCastPkts))){
+X			    opackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 4 && vars->name_length >= length_ifOutNUCastPkts &&
+X			!bcmp((char *)objid_ifOutNUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifOutNUCastPkts))){
+X			    opackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    }
+X		    index++;
+X		}
+X	    } else {
+X		printf("Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X		if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		    printf("This name doesn't exist: ");
+X		    for(count = 1, vars = response->variables; vars && count != response->errindex;
+X			vars = vars->next_variable, count++)
+X			    ;
+X		    if (vars)
+X			print_objid(vars->name, vars->name_length);
+X		    printf("\n");
+X		}
+X	    }
+X
+X	} else if (status == STAT_TIMEOUT){
+X	    printf("No Response from %s\n", gateway);
+X	} else {    /* status == STAT_ERROR */
+X	    printf("An error occurred, Quitting\n");
+X	}
+X
+X	if (response)
+X	    snmp_free_pdu(response);
+X    }
+X    printf("Recv/Trans packets: Interfaces: %d/%d | IP: %d/%d\n", ipackets, opackets, ipin, ipout);
+X    if (down_interfaces > 0){
+X	printf("%d interface%s down!\n", down_interfaces, down_interfaces > 1 ? "s are": " is" );
+X    }
+X}
+X
+END_OF_FILE
+  if test 9974 -ne `wc -c <'netramet/src/apps/snmpstatus.c'`; then
+    echo shar: \"'netramet/src/apps/snmpstatus.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/apps/snmpstatus.c'
+fi
+if test -f 'netramet/src/apps/snmptest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/apps/snmptest.c'\"
+else
+  echo shar: Extracting \"'netramet/src/apps/snmptest.c'\" \(9319 characters\)
+  sed "s/^X//" >'netramet/src/apps/snmptest.c' <<'END_OF_FILE'
+X/*
+X * snmptest.c - send snmp requests to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <errno.h>
+X
+X#include "ausnmp.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpapi.h"
+X#include "snmpclnt.h"
+X
+Xextern int  errno;
+Xint command = GET_REQ_MSG;
+Xint	snmp_dump_packet = 0;
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu, *response;
+X    struct variable_list *vars, *vp;
+X    int	arg, ret;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    int	    status, count;
+X
+X    init_mib();
+X    /*
+X     * usage: snmptest gateway-name community-name
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    fprintf(stderr, "invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else {
+X	    fprintf(stderr, "usage: snmptest gateway-name community-name\n");
+X	    exit(1);
+X	}
+X    }
+X    if (community == NULL)
+X	community = "public";	/* default to public */
+X
+X    if (!(gateway && community)){
+X	fprintf(stderr, "usage: snmptest gateway-name community-name\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    session.community_len = strlen((char *)community);
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    snmp_synch_setup(&session);
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	fprintf(stderr, "Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    while(1){
+X	vars = NULL;
+X	for(ret = 1; ret != 0;){
+X	    vp = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    vp->next_variable = NULL;
+X	    vp->name = NULL;
+X	    vp->val.string = NULL;
+X
+X	    while((ret = input_variable(vp)) == -1)
+X		;
+X	    if (ret == 1){
+X		/* add it to the list */
+X		if (vars == NULL){
+X		    /* if first variable */
+X		    pdu = snmp_pdu_create(command);
+X		    pdu->variables = vp;
+X		} else {
+X		    vars->next_variable = vp;
+X		}
+X		vars = vp;
+X	    } else {
+X		/* free the last (unused) variable */
+X		if (vp->name)
+X		    free((char *)vp->name);
+X		if (vp->val.string)
+X		    free((char *)vp->val.string);
+X		free((char *)vp);
+X	    }
+X	}
+X	status = snmp_synch_response(ss, pdu, &response);
+X	if (status == STAT_SUCCESS){
+X	    switch(response->command){
+X		case GET_REQ_MSG:
+X		    printf("Received GET REQUEST ");
+X		    break;
+X		case GETNEXT_REQ_MSG:
+X		    printf("Received GETNEXT REQUEST ");
+X		    break;
+X		case GET_RSP_MSG:
+X		    printf("Received GET RESPONSE ");
+X		    break;
+X		case SET_REQ_MSG:
+X		    printf("Received SET REQUEST ");
+X		    break;
+X		case TRP_REQ_MSG:
+X		    printf("Received TRAP REQUEST ");
+X		    break;
+X	    }
+X	    printf("from %s\n", inet_ntoa(response->address.sin_addr));
+X	    printf("requestid 0x%x errstat 0x%x errindex 0x%x\n",
+X		response->reqid, response->errstat, response->errindex);
+X	    if (response->errstat == SNMP_ERR_NOERROR){
+X		for(vars = response->variables; vars; vars = vars->next_variable)
+X		    print_variable(vars->name, vars->name_length, vars);
+X	    } else {
+X		fprintf(stderr, "Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X		if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		    for(count = 1, vars = response->variables; vars && count != response->errindex;
+X			vars = vars->next_variable, count++)
+X			    ;
+X		    if (vars){
+X			printf("This name doesn't exist: ");
+X			print_objid(vars->name, vars->name_length);
+X		    }
+X		    printf("\n");
+X		}
+X	    }
+X
+X	} else if (status == STAT_TIMEOUT){
+X	    fprintf(stderr, "No Response from %s\n", gateway);
+X	} else {    /* status == STAT_ERROR */
+X	    fprintf(stderr, "An error occurred, Quitting\n");
+X	}
+X
+X	if (response)
+X	    snmp_free_pdu(response);
+X    }
+X}
+X
+Xint
+Xascii_to_binary(cp, bufp)
+X    u_char  *cp;
+X    u_char *bufp;
+X{
+X    int	subidentifier;
+X    u_char *bp = bufp;
+X
+X    for(; *cp != '\0'; cp++){
+X	if (isspace(*cp))
+X	    continue;
+X	if (!isdigit(*cp)){
+X	    fprintf(stderr, "Input error\n");
+X	    return -1;
+X	}
+X	subidentifier = atoi(cp);
+X	if (subidentifier > 255){
+X	    fprintf(stderr, "subidentifier %d is too large ( > 255)\n", subidentifier);
+X	    return -1;
+X	}
+X	*bp++ = (u_char)subidentifier;
+X	while(isdigit(*cp))
+X	    cp++;
+X	cp--;
+X    }
+X    return bp - bufp;
+X}
+X
+X
+Xint
+Xhex_to_binary(cp, bufp)
+X    u_char  *cp;
+X    u_char *bufp;
+X{
+X    int	subidentifier;
+X    u_char *bp = bufp;
+X
+X    for(; *cp != '\0'; cp++){
+X	if (isspace(*cp))
+X	    continue;
+X	if (!isxdigit(*cp)){
+X	    fprintf(stderr, "Input error\n");
+X	    return -1;
+X	}
+X	sscanf(cp, "%x", &subidentifier);
+X	if (subidentifier > 255){
+X	    fprintf(stderr, "subidentifier %d is too large ( > 255)\n", subidentifier);
+X	    return -1;
+X	}
+X	*bp++ = (u_char)subidentifier;
+X	while(isxdigit(*cp))
+X	    cp++;
+X	cp--;
+X    }
+X    return bp - bufp;
+X}
+X
+X
+Xinput_variable(vp)
+X    struct variable_list    *vp;
+X{
+X    u_char  buf[256], value[256], ch;
+X
+X    printf("Please enter the variable name: ");
+X    fflush(stdout);
+X    gets(buf);
+X
+X    if (*buf == 0){
+X	vp->name_length = 0;
+X	return 0;
+X    }
+X    if (*buf == '$'){
+X	switch(buf[1]){
+X	    case 'G':
+X		command = GET_REQ_MSG;
+X		printf("Request type is GET REQUEST\n");
+X		break;
+X	    case 'N':
+X		command = GETNEXT_REQ_MSG;
+X		printf("Request type is GETNEXT REQUEST\n");
+X		break;
+X	    case 'S':
+X		command = SET_REQ_MSG;
+X		printf("Request type is SET REQUEST\n");
+X		break;
+X	    case 'D':
+X		if (snmp_dump_packet){
+X		    snmp_dump_packet = 0;
+X		    printf("Turned packet dump off\n");
+X		} else {
+X		    snmp_dump_packet = 1;
+X		    printf("Turned packet dump on\n");
+X		}
+X		break;
+X	    case 'Q':
+X		printf("Quitting,  Goodbye\n");
+X		exit(0);
+X		break;
+X	    default:
+X		fprintf(stderr, "Bad command\n");
+X	}
+X	return -1;
+X    }
+X    vp->name_length = MAX_NAME_LEN;
+X    if (!read_objid(buf, value, &vp->name_length))
+X	return -1;
+X    vp->name = (oid *)malloc(vp->name_length * sizeof(oid));
+X    bcopy((char *)value, (char *)vp->name, vp->name_length * sizeof(oid));
+X
+X    if (command == SET_REQ_MSG){
+X	printf("Please enter variable type [i|s|x|d|n|o|t|a]: ");
+X	fflush(stdout);
+X	gets(buf);
+X	ch = *buf;
+X	switch(ch){
+X	    case 'i':
+X		vp->type = INTEGER;
+X		break;
+X	    case 's':
+X		vp->type = STRING;
+X		break;
+X	    case 'x':
+X		vp->type = STRING;
+X		break;
+X	    case 'd':
+X		vp->type = STRING;
+X		break;
+X	    case 'n':
+X		vp->type = NULLOBJ;
+X		break;
+X	    case 'o':
+X		vp->type = OBJID;
+X		break;
+X	    case 't':
+X		vp->type = TIMETICKS;
+X		break;
+X	    case 'a':
+X		vp->type = IPADDRESS;
+X		break;
+X	    default:
+X		fprintf(stderr, "bad type \"%c\", use \"i\", \"s\", \"x\", \"d\", \"n\", \"o\", \"t\", or \"a\".\n", *buf);
+X		return -1;
+X	}
+X	printf("Please enter new value: "); fflush(stdout);
+X	gets(buf);
+X	switch(vp->type){
+X	    case INTEGER:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = atoi(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    case STRING:
+X		if (ch == 'd'){
+X		    vp->val_len = ascii_to_binary(buf, value);
+X		} else if (ch == 's'){
+X		    strcpy(value, buf);
+X		    vp->val_len = strlen(buf);
+X		} else if (ch == 'x'){
+X		    vp->val_len = hex_to_binary(buf, value);
+X		}
+X		vp->val.string = (u_char *)malloc(vp->val_len);
+X		bcopy((char *)value, (char *)vp->val.string, vp->val_len);
+X		break;
+X	    case NULLOBJ:
+X		vp->val_len = 0;
+X		vp->val.string = NULL;
+X		break;
+X	    case OBJID:
+X		vp->val_len = MAX_NAME_LEN;;
+X		read_objid(buf, value, &vp->val_len);
+X		vp->val_len *= sizeof(oid);
+X		vp->val.objid = (oid *)malloc(vp->val_len);
+X		bcopy((char *)value, (char *)vp->val.objid, vp->val_len);
+X		break;
+X	    case TIMETICKS:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = atoi(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    case IPADDRESS:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = inet_addr(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    default:
+X		fprintf(stderr, "Internal error\n");
+X		break;
+X	}
+X    } else {	/* some form of get message */
+X	vp->type = NULLOBJ;
+X	vp->val_len = 0;
+X    }
+X    return 1;
+X}
+X
+END_OF_FILE
+  if test 9319 -ne `wc -c <'netramet/src/apps/snmptest.c'`; then
+    echo shar: \"'netramet/src/apps/snmptest.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/apps/snmptest.c'
+fi
+if test -f 'netramet/src/manager/nmc_pars.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/manager/nmc_pars.c'\"
+else
+  echo shar: Extracting \"'netramet/src/manager/nmc_pars.c'\" \(16910 characters\)
+  sed "s/^X//" >'netramet/src/manager/nmc_pars.c' <<'END_OF_FILE'
+X/* 1135, Tue 28 Sep 93
+X
+X   NMCC_PARS.C:  Scanner/parser for nmc config and rules files
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <errno.h>
+X
+X#include <string.h>
+X#include <malloc.h>
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X
+X#include "ausnmp.h"
+X
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpclnt.h"
+X#include "snmpapi.h"
+X#include "mib.h"
+X
+X#include "nmc.h"
+X
+Xvoid mswait(unsigned int ms)  /* Wait for ms milliseconds */
+X{
+X   struct timeval timeout;
+X   timeout.tv_sec = ms/1000;  timeout.tv_usec = (long)(ms%1000)*1000L;
+X   select(FD_SETSIZE, 0, 0, 0, &timeout);
+X   }
+X
+XFILE *wfopen(fn)  /* Open next file in sequence for write */
+Xchar *fn;
+X{
+X   char lfn[NAME_LN];
+X   int n;
+X   FILE *f;
+X   for (n = 1; ; ++n) {
+X      sprintf(lfn,"%s.%03d",fn,n);
+X      if ((f = fopen(lfn,"r")) == NULL) {
+X         if ((f = fopen(lfn,"w")) != NULL) return f;
+X         printf("Failed to open %s\n",lfn);
+X         exit(0);
+X         }
+X      fclose(f);
+X      }
+X   }
+X
+Xchar *gnbr(unsigned int *n, char *s)
+X   /* Get nbr from 's', return updated 's' */
+X{
+X   unsigned int v = 0, b = 10, d;
+X   while (*s == ' ') ++s;
+X   if (*s == 'x' || *s == 'X') {
+X      ++s;  b = 16;
+X      }
+X   else if (*s == '0') {
+X      ++s;  b = 8;
+X      }
+X   for (;;) {
+X      d = *s;
+X      if (b == 16) {
+X         if (!isxdigit(d)) break;
+X         }
+X      else {
+X         if (!isdigit(d)) break;
+X         if (b == 8 && d > '7') break;
+X         }
+X      if (d <= '9') d -= '0';
+X      else if (d <= 'F') d -= ('A'-10);
+X      else d -= ('a'-10);
+X      v = v*b + d;  ++s;
+X      }
+X   *n = v;  return s;
+X   }
+X
+Xchar *gcstring(char *s, int *len)  /* Get string from s */
+X{
+X   static char escin[] = {
+X      'b', 'f', 'n', 'r', 't', 'v','\\','\'','\"','\?', 0 };
+X   static char escout[] ={
+X      '\b','\f','\n','\r','\t','\v','\\','\'','\"','\?' };
+X   unsigned int c,j;
+X   char sbuf[80], *t = sbuf, *rp;
+X   while (*s) {
+X      if (*s == '\\') {
+X	 ++s;  c = *s;
+X	 if (c == '0' || c == 'x' || c == 'X') {  /* Octal or hex nbr */
+X	    s = gnbr(&c,s);  *t++ = c;
+X	    }
+X	 else if isdigit(c) {  /* Octal number */
+X	    --s;  *s = '0';  /* Make gnbr use base 8 */
+X	    s = gnbr(&c,s);  *t++ = c;
+X	    }
+X	 else {
+X	    j = 0;  do {
+X	       if (c == escin[j]) break;
+X	       } while (escin[++j] != 0);
+X	    if (escin[j] != 0) {
+X	       *t++ = escout[j];  ++s;
+X	       }
+X	    }
+X	 }
+X      else *t++ = *s++;
+X      }
+X   *t = '\0';
+X   rp = malloc(*len = t-sbuf);  strcpy(rp,sbuf);
+X   return rp;
+X   }
+X
+Xstatic char ftb[32];
+X
+Xchar *fmt_time(time_t *t)
+X{
+X   char *ts = ctime(t);
+X   strncpy(&ftb[0],  &ts[11], 9);  /* 17:31:42_ */
+X   strncpy(&ftb[9],  &ts[0],  4);  /* Thu_ */
+X   strncpy(&ftb[13], &ts[8],  3);  /* 23_  */
+X   strncpy(&ftb[16], &ts[4],  4);  /* Sep_ */
+X   strncpy(&ftb[20], &ts[22], 2);  /* 93   */
+X   ftb[22] = '\0';
+X   return ftb;
+X   }   
+X
+Xchar *uptime_string(unsigned long timeticks, char *buf)
+X{
+X   int	seconds, minutes, hours, days;
+X
+X   timeticks /= 100;
+X   days = timeticks / (60 * 60 * 24);
+X   timeticks %= (60 * 60 * 24);
+X
+X   hours = timeticks / (60 * 60);
+X   timeticks %= (60 * 60);
+X
+X   minutes = timeticks / 60;
+X   seconds = timeticks % 60;
+X
+X   if (days == 0){
+X      sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X      }
+X   else if (days == 1) {
+X      sprintf(buf, "%d day, %d:%02d:%02d",
+X	 days, hours, minutes, seconds);
+X      }
+X   else {
+X      sprintf(buf, "%d days, %d:%02d:%02d",
+X	 days, hours, minutes, seconds);
+X      }
+X   return buf;
+X   }
+X
+Xvoid printaddress(FILE *f, unsigned char *a, unsigned char addrsz)
+X{
+X   int j;
+X   switch (addrsz) {
+X   case MAC_ADDR_LEN:
+X      fprintf(f,"%02X", a[0]);
+X      for (j = 1; j != addrsz; ++j) fprintf(f,"-%02X", a[j]);
+X      break;
+X   case PEER_ADDR_LEN:
+X      fprintf(f,"%u", a[0]);
+X      for (j = 1; j != addrsz; ++j) fprintf(f,".%u", a[j]);
+X      break;
+X   case DETAIL_ADDR_LEN:
+X      fprintf(f,"%u", a[0]*256 + a[1]);
+X      break;
+X      }
+X   }
+X
+Xvoid printruleaddress(FILE *f, unsigned char *a, unsigned char addrsz)
+X{
+X   int j;
+X   fprintf(f,"%u", a[0]);
+X   for (j = 1; j != addrsz; ++j) fprintf(f,".%u", a[j]);
+X   for ( ; j != RULE_ADDR_LEN; ++j) fprintf(f,".0");
+X   }
+X
+X
+Xint parse_open(char *fn)  /* Open file and initialise parser */
+X{
+X   if ((rfp = fopen(fn, "r")) == NULL) return 0;
+X   rferrors = rule_line = 0;  ic = '\n';
+X   return 1;
+X   }
+X
+Xvoid getarg(char *arg)
+X{
+X   for (;;) {
+X      if (ic == EOF) {
+X         *arg = NULL;  return;
+X         }
+X      if (!isspace(ic)) break;
+X      nextchar();
+X      }
+X   do {
+X      *arg++ = ic;
+X      nextchar();
+X      } while (ic != EOF && !isspace(ic));
+X   *arg = NULL;  return;
+X   }
+X
+Xint nextchar()
+X{
+X   lic = ic;
+X   for (;;) {
+X      if (lic == '\n') {
+X	 if (fgets(inbuf, sizeof(inbuf), rfp) == NULL) return ic = EOF;
+X	 iblisted = 0;  ++rule_line;
+X	 ibp = inbuf;
+X	 }
+X      ic = *ibp++;
+X      if (ic == '#') lic = '\n';  /* Ignore comments */
+X      else return ic;
+X      }
+X   }
+X
+Xint wordis(p,w)
+Xchar *p, *w;
+X{
+X   return strncmp(p,w,strlen(w)) == 0;
+X   }
+X
+Xint getword()
+X{
+X   char wbuf[30], *wp = wbuf;
+X   int j;
+X   for (;;) {
+X      *wp++ = tolower(ic);
+X      nextchar();
+X      if (ic == EOF) return EOF;
+X      if (!isalpha(ic)) break;
+X      }
+X
+X   if (wordis(wbuf,"ip")) return AT_IP;
+X   if (wordis(wbuf,"novell")) return AT_NOVELL;
+X   if (wordis(wbuf,"decnet")) return AT_DECNET;
+X   if (wordis(wbuf,"ethertalk")) return AT_ETHERTALK;
+X
+X   if (wordis(wbuf,"count")) return RA_COUNT;
+X   if (wordis(wbuf,"tally")) return RA_TALLY;
+X   if (wordis(wbuf,"aggregate")) return RA_AGGREGATE;
+X   if (wordis(wbuf,"succeed")) return RA_SUCCEED;
+X   if (wordis(wbuf,"fail")) return RA_FAIL;
+X   if (wordis(wbuf,"pushto")) return RA_PUSHTO;
+X   if (wordis(wbuf,"popto")) return RA_POPTO;
+X   if (wordis(wbuf,"goto")) return RA_GOTO;
+X
+X   if (wordis(wbuf,"set")) return RF_SET;
+X   if (wordis(wbuf,"rules")) return RF_RULES;
+X   if (wordis(wbuf,"actions")) return RF_ACTIONS;
+X   if (wordis(wbuf,"format")) return RF_FORMAT;
+X   if (wordis(wbuf,"statistics")) return RF_STATS;
+X
+X   if (wordis(wbuf,"icmp")) return PT_ICMP;
+X   if (wordis(wbuf,"tcp")) return PT_TCP;
+X   if (wordis(wbuf,"udp")) return PT_UDP;
+X
+X   if (wordis(wbuf,"ftpdata")) return WNP_FTPDATA;
+X   if (wordis(wbuf,"ftp")) return WNP_FTP;
+X   if (wordis(wbuf,"telnet")) return WNP_TELNET;
+X   if (wordis(wbuf,"smtp")) return WNP_SMTP;
+X   if (wordis(wbuf,"domain")) return WNP_DOMAIN;
+X   if (wordis(wbuf,"nntp")) return WNP_NNTP;
+X   if (wordis(wbuf,"ntp")) return WNP_NTP;
+X   if (wordis(wbuf,"snmp")) return WNP_SNMP;
+X
+X   for (j = 0; j != NATTRIBS+1; ++j)
+X      if (wordis(wbuf,attribs[j].name)) return attribs[j].index;
+X
+X   if (!iblisted) {
+X      printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X      iblisted = 1;
+X      }
+X   printf("Unknown word %s !!!\n", wbuf);
+X   ++rferrors;
+X   return 0;
+X   }
+X
+Xint getnbr()
+X{
+X   int v = 0;
+X   for (;;) {
+X      if (ic == EOF) return EOF;
+X      if (isdigit(ic)) break;
+X      else if (isalpha(ic)) return getword();
+X      else nextchar();
+X      }
+X   for (;;) {
+X      v = v*10 + ic-'0';
+X      if (nextchar() == EOF) return EOF;
+X      if (!isdigit(ic)) break;
+X      }
+X   if (v > 255) {
+X      if (!iblisted) {
+X	 printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X	 iblisted = 1;
+X	 }
+X      printf("Number > 255 !!!\n");
+X      ++rferrors;
+X      }
+X   return v;
+X   }
+X
+Xunsigned int getint(unsigned int *base)
+X{
+X   char wbuf[30], *wp;
+X   unsigned long v;
+X   unsigned char c, word;
+X   int sic;  char *sibp;
+X   for (;;) {
+X      if (ic == EOF) return EOF;
+X      if (isalnum(ic)) break;
+X      else nextchar();
+X      }
+X   sic = ic;  sibp = ibp;  /* Save scanner state */
+X   for (word = 0, wp = wbuf; ; ) {
+X      if (isalpha(ic) && !isxdigit(ic)) word = 1;
+X      *wp++ = tolower(ic);
+X      nextchar();
+X      if (ic == EOF) break;
+X      if (!isalnum(ic)) break;
+X      }
+X   if (word) {
+X      if (*base == 0) *base = 10;
+X      ic = sic;  ibp = sibp;  /* Back up scanner */
+X      return getword();
+X      }
+X   *wp = NULL;
+X   if (*base == 0)
+X      *base = ic == '-' ? 16 : 10;  /* Hex address bytes separated by - */
+X   for (wp = wbuf, v = 0; *wp != NULL; ) {
+X      c = *wp++;
+X      if (isdigit(c)) c -= '0';
+X      else c = c-'a' + 10;
+X      v = v*(*base) + c;
+X      }
+X   return v;
+X   }
+X
+Xvoid getaddress(unsigned char *a,unsigned char len, unsigned char addrsz)
+X{
+X   unsigned int j, base, v;
+X   for (base = j = 0; j != addrsz; ++j) {
+X      v = getint(&base);
+X      if (len != 1 &&  /* Two or more bytes in address */
+X            ic != '.' && ic != '-' &&  /* No byte separator character */
+X            j == 0) {  /* Allow 16-bit decimal in first two bytes */
+X         a[j++] = (v>>8) & 0xFF;  v &= 0x00FF;
+X         }
+X      a[j] = v;
+X      if (ic != '.' && ic != '-') {  /* End of token; pad with zeroes */
+X         for (++j; j != addrsz; ++j) a[j] = 0;
+X         return;
+X         }
+X      }
+X   }
+X
+Xint getattribute(unsigned char col, struct flow_info *fp)
+X{
+X   switch(col) {
+X   case FTLOWINTERFACE:
+X      fp->LowInterface = getnbr();
+X      break;
+X   case FTLOWADJACENTTYPE:
+X      fp->LowAdjType = getnbr();
+X      break;
+X   case FTLOWADJACENTADDRESS:
+X      getaddress(fp->LowAdjAddress,MAC_ADDR_LEN, MAC_ADDR_LEN);
+X      break;
+X   case FTLOWADJACENTMASK:
+X      getaddress(fp->LowAdjMask,MAC_ADDR_LEN, MAC_ADDR_LEN);
+X      break;
+X   case FTLOWPEERTYPE:
+X      fp->LowPeerType = getnbr();
+X      break;
+X   case FTLOWPEERTYPEMASK:
+X      fp->LowPeerTypeMask = getnbr();
+X      break;
+X   case FTLOWPEERADDRESS:
+X      getaddress(fp->LowPeerAddress,PEER_ADDR_LEN, PEER_ADDR_LEN);
+X      break;
+X   case FTLOWPEERMASK:
+X      getaddress(fp->LowPeerMask,PEER_ADDR_LEN, PEER_ADDR_LEN);
+X      break;
+X   case FTLOWDETAILTYPE:
+X      fp->LowDetailType = getnbr();
+X      break;
+X   case FTLOWDETAILTYPEMASK:
+X      fp->LowDetailTypeMask = getnbr();
+X      break;
+X   case FTLOWDETAILADDRESS:
+X      getaddress(fp->LowDetailAddress,DETAIL_ADDR_LEN, DETAIL_ADDR_LEN);
+X      break;
+X   case FTLOWDETAILMASK:
+X      getaddress(fp->LowDetailMask,DETAIL_ADDR_LEN, DETAIL_ADDR_LEN);
+X      break;
+X   case FTHIINTERFACE:
+X      fp->HighInterface = getnbr();
+X      break;
+X   case FTHIADJACENTTYPE:
+X      fp->HighAdjType = getnbr();
+X      break;
+X   case FTHIADJACENTADDRESS:
+X      getaddress(fp->HighAdjAddress,MAC_ADDR_LEN, MAC_ADDR_LEN);
+X      break;
+X   case FTHIADJACENTMASK:
+X      getaddress(fp->HighAdjMask,MAC_ADDR_LEN, MAC_ADDR_LEN);
+X      break;
+X   case FTHIPEERTYPE:
+X      fp->HighPeerType = getnbr();
+X      break;
+X   case FTHIPEERTYPEMASK:
+X      fp->HighPeerTypeMask = getnbr();
+X      break;
+X   case FTHIPEERADDRESS:
+X      getaddress(fp->HighPeerAddress,PEER_ADDR_LEN, PEER_ADDR_LEN);
+X      break;
+X   case FTHIPEERMASK:
+X      getaddress(fp->HighPeerMask,PEER_ADDR_LEN, PEER_ADDR_LEN);
+X      break;
+X   case FTHIDETAILTYPE:
+X      fp->HighDetailType = getnbr();
+X      break;
+X   case FTHIDETAILTYPEMASK:
+X      fp->HighDetailTypeMask = getnbr();
+X      break;
+X   case FTHIDETAILADDRESS:
+X      getaddress(fp->HighDetailAddress,DETAIL_ADDR_LEN, DETAIL_ADDR_LEN);
+X      break;
+X   case FTHIDETAILMASK:
+X      getaddress(fp->HighDetailMask,DETAIL_ADDR_LEN, DETAIL_ADDR_LEN);
+X      break;
+X   default:
+X      if (!iblisted) {
+X	 printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X	 iblisted = 1;
+X	 }
+X      printf("Attribute %d not allowed in action !!!\n",col);
+X      ++rferrors;
+X      }
+X   }
+X
+Xint scan_rulefile(ms,doset,list)
+Xstruct meter_status *ms;
+Xint doset,list;
+X{
+X   struct rule_info ri;
+X   int rule_set, nrules, nactions, n, kind;
+X   struct flow_info ai;
+X   unsigned char a, b, actions[1+NATTRIBS];
+X   char sbuf[32], *sp;
+X   int len;
+X
+X   if (!parse_open(ms->rulefile)) {
+X      printf("   Couldn't open rule file %s !!!\n", ms->rulefile);
+X      return 0;  /* Fail */
+X      }
+X
+X   rule_set = 0;
+X   nrules = nactions = 0;  kind = RF_RULES;
+X   for (;;) {
+X      do {  /* First char of a line */
+X	 nextchar();
+X	 if (ic == EOF) break;
+X	 } while (lic != '\n');
+X      if (ic == EOF) break;
+X      n = getnbr();  /* What kind of line is it? */
+X      if (n == RF_SET) {
+X         ri.RuleSet = rule_set = getnbr();
+X         kind = RF_RULES;  continue;
+X         }
+X      if (n == RF_RULES) {
+X         kind = RF_RULES;  continue;
+X         }
+X      if (n == RF_ACTIONS) {
+X         kind = RF_ACTIONS;   continue;
+X         }
+X      if (n == RF_FORMAT) {
+X         for (a = 0; a != NATTRIBS+1; ++a)
+X            ms->format[a] = ms->required[a] = 0;
+X         for (a = 0; ; ) {
+X            n = getnbr();
+X            if (n < NULL || n > FTLASTTIME) {
+X               if (!iblisted) {
+X	          printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X	          iblisted = 1;
+X                  }
+X               printf("Attribute %d not allowed in format !!!\n",n);
+X               ++rferrors;
+X	       }
+X            else {
+X               ms->format[a] = n;  ms->required[n] = 1;
+X               }
+X            if (ic == ';' || ic == EOF) break;
+X            for (;;) {
+X               if (ic == EOF) return EOF;
+X               if (ic == '\"' || isalnum(ic)) break;
+X               else nextchar();
+X               }
+X            if (ic == '\"') {  /* Separator string */
+X               nextchar();
+X               for (sp = sbuf; ; ) {
+X                  if (ic == EOF) {
+X                     if (!iblisted) {
+X	                printf("RULEFILE line %d: %s\n", rule_line,inbuf);
+X	                iblisted = 1;
+X                        }
+X                     printf("Missing \" !!!\n");
+X                     ++rferrors;  break;
+X	             }
+X                  else if (ic == '\"') {
+X                     *sp = '\0';
+X                     ms->separator[a] = gcstring(sbuf, &len);
+X                     break;
+X                     }
+X                  else *sp++ = ic;
+X                  nextchar();
+X                  }
+X               }
+X            else ms->separator[a] = " ";
+X            ++a;
+X            if (ic == ';' || ic == EOF) break;
+X            }
+X         if (list) {
+X	    printf("Format: ");
+X            for (n = ms->format[a = 0]; ; ) {
+X               for (b = 1; attribs[b].index != n; ++b) ;
+X               if (n != NULL) printf(attribs[b].name);
+X               if ((n = ms->format[a+1]) == NULL) break;
+X               printf(ms->separator[a++]);
+X               }
+X            printf("\n");
+X            }
+X         continue;
+X         }
+X      if (n == RF_STATS) {
+X         ms->statsreqd = 1;  /* Collect statistics */
+X         continue;
+X         }
+X
+X      if (kind == RF_RULES) {
+X         ri.RuleSelector = n;  /* Attribute nbr */
+X         getaddress(ri.RuleMask,attribs[n].len, RULE_ADDR_LEN);
+X         if (ic == EOF) break;
+X         getaddress(ri.RuleMatchedValue,attribs[n].len, RULE_ADDR_LEN);
+X         if (ic == EOF) break;
+X         ri.RuleAction = getnbr();
+X         if (ic == EOF) break;
+X         ri.RuleJumpIndex = getnbr();
+X         if (ic == EOF) break;
+X         ri.RuleNbr = ++nrules;
+X         if (list) {
+X	    printf("Rule %d,%d:  %d  ", rule_set,nrules,ri.RuleSelector);
+X	    printruleaddress(stdout, ri.RuleMask, RULE_ADDR_LEN);
+X            printf(" ");
+X	    printruleaddress(stdout, ri.RuleMatchedValue,RULE_ADDR_LEN);
+X	    printf(" %d %d\n", ri.RuleAction,ri.RuleJumpIndex);
+X	    }
+X         if (doset) add_rule(ms,&ri);  /* Add rule to meter's rule table */
+X	 }
+X
+X      if (kind == RF_ACTIONS) {
+X         for (a = 0; a != NATTRIBS+1; ++a) actions[a] = 0;
+X         for (;;) {
+X            getattribute(n,&ai);
+X            if (n > NULL || n <= NATTRIBS) {
+X               actions[n] = 1;  /* Remember which attribs are set */
+X               }
+X            if (ic == ';' || ic == EOF) break;
+X            n = getnbr();
+X            }
+X         ++nactions;
+X         if (list) {
+X	    printf("Action %d,%d: ", rule_set,nactions);
+X            for (a = 1;  a != NATTRIBS+1; ++a) {
+X               if (actions[a] != 0) {
+X                  for (b = 1; attribs[b].index != a; ++b) ;
+X                  printf(" %s=",attribs[b].name);
+X                  write_attrib(stdout,&ai,a);
+X                  }
+X               }
+X            printf("\n");
+X            }
+X         if (doset) add_action(ms, &ai, rule_set,nactions, actions);
+X	 }
+X      }
+X
+X   fclose(rfp);
+X   if (rferrors == 0) {
+X      ms->ruleset = rule_set;  ms->nrules = nrules;  ms->nactions = nactions;
+X      return 1;  /* Succeed */
+X      }
+X   return 0;  /* Fail */
+X   }
+X
+Xvoid parse_rulefile(ms,list)
+Xstruct meter_status *ms;
+Xint list;
+X{
+X   int NewRuleSet;
+X   if (scan_rulefile(ms,0,list)) {  /* Rulefile is OK */
+X      if (ms->ruleset == 0) return;
+X      if (ms->nrules != 0) {  /* Rules were specified */
+X         if (ms->CurrentRuleSet == (NewRuleSet = ms->ruleset))  {
+X            ms->ruleset = 1;  /* Ask meter to use default rule set */
+X            set_rule_info(ms,1);
+X            ms->ruleset = NewRuleSet;
+X            }
+X         if (set_rule_info(ms,0)) {  /* Set rule+action table sizes */
+X            scan_rulefile(ms,1,0);  /* Download the rules and actions */
+X            }
+X         }
+X      set_rule_info(ms,1);  /* Tell meter to start using specified rules */
+X      }
+X   }
+END_OF_FILE
+  if test 16910 -ne `wc -c <'netramet/src/manager/nmc_pars.c'`; then
+    echo shar: \"'netramet/src/manager/nmc_pars.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/manager/nmc_pars.c'
+fi
+if test -f 'netramet/src/snmplib/snmpclnt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/snmplib/snmpclnt.c'\"
+else
+  echo shar: Extracting \"'netramet/src/snmplib/snmpclnt.c'\" \(9588 characters\)
+  sed "s/^X//" >'netramet/src/snmplib/snmpclnt.c' <<'END_OF_FILE'
+X/*
+X * snmp_client.c - a toolkit of common functions for an SNMP client.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <stdio.h>
+X#include <netinet/in.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include "ausnmp.h"
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "snmpapi.h"
+X#include "snmpclnt.h"
+X
+X#ifndef BSD4_3
+X#define BSD4_2
+X#endif
+X
+X#ifndef BSD4_3
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+X
+Xextern int errno;
+Xstruct synch_state snmp_synch_state;
+X
+Xstruct snmp_pdu *
+Xsnmp_pdu_create(command)
+X    int command;
+X{
+X    struct snmp_pdu *pdu;
+X
+X    pdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bzero((char *)pdu, sizeof(struct snmp_pdu));
+X    pdu->command = command;
+X    pdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    pdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    pdu->address.sin_addr.s_addr = SNMP_DEFAULT_ADDRESS;
+X    pdu->enterprise = NULL;
+X    pdu->enterprise_length = 0;
+X    pdu->variables = NULL;
+X    return pdu;
+X}
+X
+X/*
+X * Add a null variable with the requested name to the end of the list of
+X * variables for this pdu.
+X */
+Xsnmp_add_null_var(pdu, name, name_length)
+X    struct snmp_pdu *pdu;
+X    oid *name;
+X    int name_length;
+X{
+X    struct variable_list *vars;
+X
+X    if (pdu->variables == NULL){
+X	pdu->variables = vars = (struct variable_list *)malloc(sizeof(struct variable_list));
+X    } else {
+X	for(vars = pdu->variables; vars->next_variable; vars = vars->next_variable)
+X	    ;
+X	vars->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	vars = vars->next_variable;
+X    }
+X
+X    vars->next_variable = NULL;
+X    vars->name = (oid *)malloc(name_length * sizeof(oid));
+X    bcopy((char *)name, (char *)vars->name, name_length * sizeof(oid));
+X    vars->name_length = name_length;
+X    vars->type = ASN_NULL;
+X    vars->val.string = NULL;
+X    vars->val_len = 0;
+X}
+X
+Xsnmp_synch_input(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    struct variable_list *var, *newvar;
+X    struct synch_state *state = (struct synch_state *)magic;
+X    struct snmp_pdu *newpdu;
+X
+X    if (reqid != state->reqid)
+X	return 0;
+X    state->waiting = 0;
+X    if (op == RECEIVED_MESSAGE && pdu->command == GET_RSP_MSG){
+X	/* clone the pdu */
+X	state->pdu = newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X	bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X	newpdu->variables = 0;
+X	var = pdu->variables;
+X	if (var != NULL){
+X	    newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    while(var->next_variable){
+X		newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X		var = var->next_variable;
+X		newvar = newvar->next_variable;
+X		bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X		if (var->name != NULL){
+X		    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X		}
+X		if (var->val.string != NULL){
+X		    newvar->val.string = (u_char *)malloc(var->val_len);
+X		    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X		}
+X		newvar->next_variable = 0;
+X	    }
+X	}
+X	state->status = STAT_SUCCESS;
+X    } else if (op == TIMED_OUT){
+X	state->status = STAT_TIMEOUT;
+X    }
+X    return 1;
+X}
+X
+X
+X/*
+X * If there was an error in the input pdu, creates a clone of the pdu
+X * that includes all the variables except the one marked by the errindex.
+X * The command is set to the input command and the reqid, errstat, and
+X * errindex are set to default values.
+X * If the error status didn't indicate an error, the error index didn't
+X * indicate a variable, the pdu wasn't a get response message, or there
+X * would be no remaining variables, this function will return NULL.
+X * If everything was successful, a pointer to the fixed cloned pdu will
+X * be returned.
+X */
+Xstruct snmp_pdu *
+Xsnmp_fix_pdu(pdu, command)
+X    struct snmp_pdu *pdu;
+X    int command;
+X{
+X    struct variable_list *var, *newvar;
+X    struct snmp_pdu *newpdu;
+X    int index, copied = 0;
+X
+X    if (pdu->command != GET_RSP_MSG || pdu->errstat == SNMP_ERR_NOERROR || pdu->errindex <= 0)
+X	return NULL;
+X    /* clone the pdu */
+X    newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X    newpdu->variables = 0;
+X    newpdu->command = command;
+X    newpdu->reqid = SNMP_DEFAULT_REQID;
+X    newpdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    newpdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    var = pdu->variables;
+X    index = 1;
+X    if (pdu->errindex == index){	/* skip first variable */
+X	var = var->next_variable;
+X	index++;
+X    }
+X    if (var != NULL){
+X	newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	if (var->name != NULL){
+X	    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X	    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	}
+X	if (var->val.string != NULL){
+X	    newvar->val.string = (u_char *)malloc(var->val_len);
+X	    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	}
+X	newvar->next_variable = 0;
+X	copied++;
+X
+X	while(var->next_variable){
+X	    var = var->next_variable;
+X	    if (++index == pdu->errindex)
+X		continue;
+X	    newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    newvar = newvar->next_variable;
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    copied++;
+X	}
+X    }
+X    if (index < pdu->errindex || copied == 0){
+X	snmp_free_pdu(newpdu);
+X	return NULL;
+X    }
+X    return newpdu;
+X}
+X
+X
+Xint
+Xsnmp_synch_response(ss, pdu, response)
+X    struct snmp_session *ss;
+X    struct snmp_pdu *pdu;
+X    struct snmp_pdu **response;
+X{
+X    struct synch_state *state = &snmp_synch_state;
+X    int numfds, count;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X    int block;
+X
+X
+X    if ((state->reqid = snmp_send(ss, pdu)) == 0){
+X	*response = NULL;
+X	snmp_free_pdu(pdu);
+X	return STAT_ERROR;
+X    }
+X    state->waiting = 1;
+X
+X    while(state->waiting){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X	    snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X	    /* FALLTHRU */
+X	    default:
+X		return STAT_ERROR;
+X	}
+X    }
+X    *response = state->pdu;
+X    return state->status;
+X}
+X
+Xsnmp_synch_setup(session)
+X    struct snmp_session *session;
+X{
+X    session->callback = snmp_synch_input;
+X    session->callback_magic = (void *)&snmp_synch_state;
+X}
+X
+Xchar	*error_string[6] = {
+X    "No Error",
+X    "Response message would have been too large.",
+X    "There is no such variable name in this MIB.",
+X    "The value given has the wrong type or length",
+X    "This variable is read only",
+X    "A general failure occured"
+X};
+X
+Xchar *
+Xsnmp_errstring(errstat)
+X    int	errstat;
+X{
+X    if (errstat <= SNMP_ERR_GENERR && errstat >= SNMP_ERR_NOERROR){
+X	return error_string[errstat];
+X    } else {
+X	return "Unknown Error";
+X    }
+X}
+END_OF_FILE
+  if test 9588 -ne `wc -c <'netramet/src/snmplib/snmpclnt.c'`; then
+    echo shar: \"'netramet/src/snmplib/snmpclnt.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/snmplib/snmpclnt.c'
+fi
+echo shar: End of archive 21 \(of 25\).
+cp /dev/null ark21isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

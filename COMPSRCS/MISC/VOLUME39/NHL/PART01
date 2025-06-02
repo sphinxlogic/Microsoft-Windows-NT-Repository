@@ -1,0 +1,1975 @@
+Newsgroups: comp.sources.misc
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v39i089:  nhl - NHL schedule program, Part01/01
+Message-ID: <1993Sep16.210733.4595@sparky.sterling.com>
+X-Md4-Signature: a1c2d1a3d8ff2ae3b40726dce0c21229
+Keywords: National Hockey League, ice hockey
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 16 Sep 1993 21:07:33 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 39, Issue 89
+Archive-name: nhl/part01
+Environment: UNIX, MSDOS, VMS?, nothing fancy
+
+Please find included an updated version of the National Hockey League
+schedule program that has floated around rec.sport.hockey for some
+years. It lets you print the schedule for given dates, query a team's
+upcoming schedule, query head-to-head matches, and many more similar
+things.
+
+I am submitting it to comp.sources.misc for wider distribution and
+archiving after an extensive period of testing within the group.  It
+has been tested on Unix, MSDOS, and VMS (I think) machines, but there
+are no doubt flavors of all of the above under which it will break.
+About the only potentially non-portable code is that which gets
+today's date, and that works on all platforms so far as I know.
+
+The official NHL ftp site is wuarchive.wustl.edu in directory
+/doc/misc/sports/nhl. Updates will appear there as well as here. The
+maintainer (as of this posting) is lsefton@apple.com (Laurie Sefton).
+
+George
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README MANIFEST Makefile nhl.c nhl.man patchlevel.h
+#   schedule.c schedule92.c
+# Wrapped by kent@sparky on Thu Sep 16 16:05:23 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(7038 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X		README for nhl -- NHL Schedule Program
+X				   
+X			   George Ferguson
+X		      ferguson@cs.rochester.edu
+X				   
+X			      6 Sep 1993
+X
+X
+XThis file describes "nhl", a program for querying and displaying the
+XNHL regular season schedule. See the section INSTALLATION for
+Xinformation on building an installing nhl. See the section UPDATING
+Xfor information about updating nhl for a new season.
+X
+XCREDITS:
+X
+X  Original program concept by Len Carr, used with permission.
+X
+X  All other features created by Rob Springall (rgs7077@ultb.isc.rit.edu,
+X  rgs7077@ritvax.bitnet), except for the neutral site games feature,
+X  created by Tom Wilson (twilson@dab.ge.com).
+X
+X  Maintained through 1992-93 season by: Valerie Hammerl
+X  (hammerl@acsu.buffalo.edu) and Rob Springall.
+X
+X  Re-constructed for 1993-94 by George Ferguson (ferguson@cs.rochester.edu),
+X  who also added head-to-head modes, wrote the manpage and put together
+X  the distribution kit.
+X
+X  1993-94 schedule data and beta testing by:
+X    Joseph Charles Ashkar <jca2@cec1.wustl.edu>
+X    Michael Collingridge <colling@ann-arbor.applicon.slb.com>
+X    John P. Curcio <jpc@philabs.philips.com>
+X    Mike (M.D.) D'Amico <miked77@bnr.ca>
+X    Valerie S. Hammerl <hammerl@acsu.buffalo.edu>
+X    Richard Hildebrand <rhh@tarheel.math.ufl.edu>
+X    Mark Holoubek <af042@Freenet.carleton.ca>
+X    Lori Iannamico <lli+@cs.cmu.edu>
+X    Mark Irwin <irwin@galton.uchicago.edu>
+X    Garry Knox <knox@monster.umd.edu>
+X    Carl J. Lunenfeld <lunenfcj@duvm.ocs.drexel.edu>
+X    Patrick MacRoberts <macro@hpcobr30.cup.hp.com>
+X    Kris Myers <kris@fs2.assist.uci.edu>
+X    David A. Ondzes <dao@scribe.mitre.org>
+X    John Michael Santore <jsbh+@andrew.cmu.edu>
+X    Andrew Scott <andrew@idacom.hp.com>
+X    Scott Simpson <simpson@bnr.ca>
+X    <diqman@ufcc.ufl.edu>
+X    <seth@hos1cad.att.com>
+X
+XINSTALLATION:
+X
+X  1. Edit Makefile as needed to set compiler flags and/or destination
+X     directories for your version of nhl. Since it doesn't use
+X     anything fancy, this should not be a problem. You don't have to
+X     use "make"; see steps (2) and (3).
+X
+X  2. Type "make". If you don't have make, you can simply do:
+X	  % cc -o nhl nhl.c
+X     or some similar incantation. I told you it was easy.
+X
+X  3. Type "make install" to install the executable and "make install.man"
+X     to install the manpage. If you don't have make, just install them
+X     by hand. Or don't install them (at least, not the manpages). It's
+X     not a big deal since there's built-in help.
+X
+XUPDATING:
+X
+X  All season-specific data is contained in the file "schedule.c",
+X  which is the only file you should have to change for a new season.
+X  This section describes what you have to do and, in part, why.
+X  Please share your updates with the rest of the world by posting
+X  them.
+X
+X  1. Set the constants NHL_START_DATE and NHL_END_DATE to be strings
+X     of the form "MM/DD/YYYY". They must be strings (i.e., enclosed in
+X     double-quotes) and the year must have four digits. These are
+X     parsed into variables when nhl starts; the startup cost is small
+X     compared to how easy this makes it to update them. The constant
+X     NHL_START_DOW should be a capitalized string representing the
+X     day-of-the-week for the NHL_START_DATE. Check weekday[] in nhl.c
+X     for spelling if you're not sure. This is used as a base for
+X     day-of-the-week calculations that would otherwise require use of
+X     true Julian dates (which is no doubt overkill). Don't forget the
+X     double-quotes on this one either.
+X
+X  2. In an expansion year, you will have to change the constant
+X     NUM_TEAMS and the teams[] array. This array should contain an
+X     entry for each team consisting of the city name, team nickname,
+X     and three-letter code, all of which should be strings.
+X
+X  3. In a realignment or expansion year, you will have to change the
+X     constant NUM_DIVISIONS and the divisions[] array. This array
+X     should contain an entry for each division consisting of the
+X     division name, a list of the team codes for teams in the
+X     division, and a division code to be specified on the command line
+X     in head-to-head mode. The list of teams is parsed into a flags[]
+X     array for each division to make testing whether a team is in a
+X     division faster. Again, the startup cost of the parsing the list
+X     is outweighed by the ease of updating.
+X
+X  4. The array special_dates[] contains entries for days for which
+X     there are no games scheduled and for which we would like to print
+X     a special message. These are typically the All-Star Game and the
+X     Holiday Break. Specify them with integers for month and day, and
+X     string to print on that day. End the array with a NULL string
+X     entry.
+X
+X  5. The neutral_sites[] array contains strings representing each of
+X     the neutral site locations. Each city need only appear once (this
+X     was changed by GF for 93-94 from TW's original per-team scheme).
+X
+X  6. Finally, the big one, the schedule[] array. Basically this array
+X     contains a string for each day of the season, each character of
+X     which specifies what the team in the corresponding location of
+X     the teams[] array is doing that day. A set of macros is defined
+X     for testing the meaning of the characters. Team codes index the
+X     teams[] array, site codes index teh neutral_sites[] array. 
+X
+X     So long as the number of teams does not increase beyond 26, these
+X     macros do not have to change (even if the teams change names or
+X     cities as reflected in the teams[] array). Simply use the key
+X     given in schedule.c to fill out the strings, or rather, use the
+X     key to write some scripts that will do it for you.
+X
+X     If the number of teams changes, then you have to do a bit more.
+X     You need to assign codes to the new teams and change the accessor
+X     and tester macros to handle them and properly map them into
+X     indices into the teams[] array. Since there are only 26 letters
+X     in the alphabet, you'll have to extend the current system. For
+X     example, you could add digits, to get:
+X     
+X     #define ISAWAYCODE(C)    (((C)>='a' && (C)<='z') || (C)>='0' && (C)<='9'))
+X     #define TEAMCODETOINDEX(C) ((int)(((C)>='a') ? ((C)-'a') : ((C)-'0'+26)))
+X     #define INDEXTOTEAMCODE(N) ((char)(((N)>=26) ? ((N)-26+'0') : ((N)+'a')))
+X
+X     With these macros, you would use letter `a' to `z' for the first
+X     26 teams in teams[], then `0' to `9' for the next ten teams. That
+X     ought to tide us over for a while.
+X
+X  7. I suggest saving the old schedule.c file for posterity, then
+X     trying to build and run it with your new schedule. This will make
+X     sure that all the run-time parsing of constants is ok. Once
+X     you've done that, tell the world!
+X
+XHISTORY:
+X   6 Sep 1993:
+X    - Added -H and -A options.
+X
+X  30 Aug 1993:
+X    - Don't include <sys/time.h> for MSDOS machines.
+X    - Use time() rather than gettimeofday() for MSDOS machines and ok
+X      for others.
+X      <Janusz_Ziemianski@mindlink.bc.ca> and others
+X    - Added -v flag and patchlevel.h file.
+X
+X  20 Aug 1993: First official release.
+END_OF_FILE
+  if test 7038 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(314 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XMANIFEST		This file
+XMakefile		Makefile for nhl
+XREADME			Credits, installation instructions, how to update nhl
+Xnhl.c			Season-independent code
+Xnhl.man			Man page for nhl
+Xpatchlevel.h		Version information
+Xschedule.c		Season-specific code, 1993-94 season
+Xschedule92.c		Season-specific code, 1992-93 season (not used)
+END_OF_FILE
+  if test 314 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(700 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for nhl : NHL schedule program
+X#
+X# George Ferguson, ferguson@cs.rochester.edu, 29 Jul 1993.
+X#
+X
+X#
+X# Adjust as needed:
+X#
+X#CC = cc
+X#CFLAGS = -g
+XLINKFLAGS =
+XLIBS =
+XBINDIR = /usr/local/bin
+XMANDIR = /usr/local/man/man1
+XMANEXT = 1
+X
+X#
+X# Don't touch:
+X#
+XSRCS = nhl.c schedule.c
+XOBJS = nhl.o
+X
+X# Main target
+Xnhl: $(OBJS)
+X	$(CC) -o nhl $(LINKFLAGS) $(OBJS) $(LIBS)
+X
+X# Other targets
+Xinstall: nhl
+X	cp nhl $(BINDIR)
+X
+Xinstall.man:
+X	cp nhl.man $(MANDIR)/nhl.$(MANEXT)
+X
+Xclean:
+X	rm -f nhl $(OBJS)
+X
+X# Dependencies
+Xnhl.o: schedule.c
+X
+X# Archiving targets
+Xshar:
+X	shar -n nhl -s ferguson@cs.rochester.edu `awk '{print $$1}' MANIFEST` >nhl.shar
+X
+Xtar:
+X	tar cvf - `awk '{print $$1}' MANIFEST` | compress >nhl.tar.Z
+END_OF_FILE
+  if test 700 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'nhl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nhl.c'\"
+else
+  echo shar: Extracting \"'nhl.c'\" \(21778 characters\)
+  sed "s/^X//" >'nhl.c' <<'END_OF_FILE'
+X/*
+X  NHL.C - Last modified on 6 Sep 1993 by ferguson.
+X
+X  Schedule program for the NHL regular season.
+X
+X  Reconstructed for 1993-94 by:
+X    George Ferguson <ferguson@cs.rochester.edu>
+X
+X    With any luck, you should never have to edit this file for a new
+X    season. All the season-specific information is in schedule.c which
+X    is included by this file. I also added head-to-head (team or division)
+X    modes, the manpage, and put together the distribution kit.
+X
+X  Maintained thorugh 1992-93 season by:
+X    Valerie Hammerl (hammerl@acsu.buffalo.edu)
+X    Rob Springall (rgs7077@ultb.isc.rit.edu, rgs7077@ritvax.bitnet)
+X
+X  ----------------------------------------------------------------------
+X
+X  Original program concept by Len Carr, used with permission.
+X  All other features created by Rob Springall, except for neutral site 
+X  games, assisted by Tom Wilson.
+X
+X  Additional credit goes to the members of the USENET community who
+X  contributed ideas and support for this project.
+X
+X  This program is not copyrighted or registered in any form.  It does,
+X  however, remain the intellectual property of its authors.
+X
+X  ----------------------------------------------------------------------
+X*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <time.h>
+X#ifndef VMS
+X#ifndef MSDOS
+X#include <sys/time.h>
+X#endif
+X#endif
+X
+X/*
+X * Load the season-specific code
+X */
+X#include "schedule.c"
+X
+X/*
+X * Include version control information for -v option
+X */
+X#include "patchlevel.h"
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * Functions defined here:
+X */
+Xstatic void initialize(), parse_options(), set_team_arg();
+Xstatic int str_to_team(), str_to_division();
+Xstatic void error(), print_help();
+Xstatic void do_sched(), do_nhl_sched(), do_team_sched(), do_div_sched();
+Xstatic void do_team_vs_team(), do_team_vs_div(), do_div_vs_div();
+Xstatic int today(), parse_date(), md_to_nhlday(), nhlday_to_dow(), find_char();
+Xstatic void inc_date(), print_game();
+X
+X/*
+X * Global variables:
+X */
+Xchar *program;			/* Name of program for error messages */
+Xint nhl_start_day;		/* Date of start of season */
+Xint nhl_start_month;
+Xint nhl_start_year;
+Xint nhl_end_day;		/* Date of end of season */
+Xint nhl_end_month;
+Xint nhl_end_year;
+Xint nhl_start_dow;		/* Day of week of start of season (Sun == 0) */
+Xint nhl_old_year_offset;	/* Days in start year before season starts */
+Xint nhl_new_year_offset;	/* Days in start year after season starts */
+X
+Xint team1 = -1;			/* First team specified on cmd-line */
+Xint team2 = -1;			/* Second team specified on cmd-line */
+Xint team1_is_div = 0;		/* First team is actually a division */
+Xint team2_is_div = 0;		/* Second team is actually a division */
+Xint homeonlyflag = 0;		/* Only print home games */
+Xint awayonlyflag = 0;		/* Only print away games */
+X#define DEFAULT_GAMES_TO_SHOW 3
+Xint num_games_to_show = DEFAULT_GAMES_TO_SHOW;	/* Value of -n option */
+X
+X/*
+X * These array will be munged in initialize() to adjust for leap-years.
+X */
+X/* Number of days in month in non-leap year, Jan == 1. */
+Xint month_len[] = {
+X  0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+X};
+X/* Index of first day of month in non-leap year, Jan == 1. */
+Xint month_start[] = {
+X  0,  0, 31, 59, 90,120,151,181,212,243,273,304,334
+X};
+X
+X/*
+X * String corresponding to weekday (0 == Sunday):
+X */
+Xchar *weekday[] = {
+X  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+X};
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+X    int month,day;
+X
+X    program = argv[0];
+X    argc -= 1;
+X    argv += 1;
+X    initialize();
+X    parse_options(&argc,&argv);
+X    if (argc == 0) {
+X	today(&month,&day);
+X	/* If today isn't in season, assume start of season */
+X	if (md_to_nhlday(month,day) < 0) {
+X	    fprintf(stderr,
+X		    "%s: today not during season, assuming start of season\n",
+X		    program);
+X	    month = nhl_start_month;
+X	    day = nhl_start_day;
+X	}
+X	do_sched(month,day);
+X    } else {
+X	while (argc--) {
+X	    if (parse_date(argv[0],&month,&day) >= 0) {
+X		do_sched(month,day);
+X	    }
+X	    argv += 1;
+X	}
+X    }
+X    exit(0);
+X}
+X
+X/*
+X * initialize():
+X *  Initialize the program. This involves setting various "constants"
+X *  from the season-specific information.
+X */
+Xstatic void
+Xinitialize()
+X{
+X    int div,team,i;
+X
+X    /* Parse the start and end dates */
+X    if (sscanf(NHL_START_DATE,"%d/%d/%d",
+X	       &nhl_start_month,&nhl_start_day,&nhl_start_year) != 3) {
+X	fprintf(stderr,"%s: YOW! NHL_START_DATE not set correctly: %s\n",
+X		program,NHL_START_DATE);
+X	exit(1);
+X    }
+X    if (sscanf(NHL_END_DATE,"%d/%d/%d",
+X	       &nhl_end_month,&nhl_end_day,&nhl_end_year) != 3) {
+X	fprintf(stderr,"%s: YOW! NHL_END_DATE not set correctly: %s\n",
+X		program,NHL_END_DATE);
+X	exit(1);
+X    }
+X    /* Parse the start dow */
+X    for (i=0; i < 7; i++) {
+X	if (strcmp(NHL_START_DOW,weekday[i]) == 0) {
+X	    nhl_start_dow = i;
+X	    break;
+X	}
+X    }
+X    if (i == 7) {
+X	fprintf(stderr,"%s: YOW! NHL_START_DOW not set correctly: %s\n",
+X		program,NHL_START_DOW);
+X	exit(1);
+X    }
+X    /* Adjust length of Feb for leap years */
+X    if (nhl_end_year % 400 == 0 ||
+X	(nhl_end_year % 100 != 0 && nhl_end_year % 4 == 0)) {
+X	month_len[2] += 1;
+X	for (i=3; i <= nhl_end_month; i++)
+X	    month_start[i] += 1;
+X    }
+X    /* Number of days in nhl_start_year before season starts: */
+X    nhl_old_year_offset = month_start[nhl_start_month] + nhl_start_day;
+X    /* Number of days in nhl_start_year after season starts: */
+X    nhl_new_year_offset = month_start[12]+month_len[12]-nhl_old_year_offset;
+X    /* Parse the division info */
+X    for (div=0; div < NUM_DIVISIONS; div++) {
+X	for (i=0; i < MAX_TEAMS_PER_DIVISION &&
+X	          divisions[div].teams[i] != NULL; i++) {
+X	    if ((team=str_to_team(divisions[div].teams[i])) < 0) {
+X		fprintf(stderr,"%s: YOW! division \"%s\" has bogus team: \"%s\"\n",
+X			program,divisions[div].name,divisions[div].teams[i]);
+X		exit(1);
+X	    }
+X	    divisions[div].flags[team] = 1;
+X	}
+X    }
+X}
+X
+X/*
+X * parse_options(argcp,argvp):
+X *  Parse the command-line and update ARGC/ARGV, exit on error.
+X */
+Xstatic void
+Xparse_options(argcp,argvp)
+Xint *argcp;
+Xchar ***argvp;
+X{
+X    char *arg;
+X    int team,division;
+X
+X    while (*argcp > 0) {
+X	arg = **argvp;
+X	if (strncmp(arg,"-v",2) == 0) {
+X	    printf("NHL schedule program: version %s, patchlevel %d\n",
+X		   VERSION,PATCHLEVEL);
+X	    exit(0);
+X	} else if (strncmp(arg,"-h",2) == 0) {
+X	    print_help();
+X	    exit(0);
+X	} else if (strncmp(arg,"-H",2) == 0) {
+X	    homeonlyflag = 1;
+X	} else if (strncmp(arg,"-A",2) == 0) {
+X	    awayonlyflag = 1;
+X	} else if (strncmp(arg,"-n",2) == 0) {
+X	    if ((num_games_to_show=atoi(arg+2)) == 0) {
+X		error("bad or missing value for -n: \"%s\"\n",arg+2);
+X	    }
+X	} else if (strncmp(arg,"-t",2) == 0) {
+X	    if ((team=str_to_team(arg+2)) < 0) {
+X		error("invalid team code: %s\n",arg+2);
+X	    }
+X	    set_team_arg(team,0);
+X	} else if (strncmp(arg,"-d",2) == 0) {
+X	    if ((division=str_to_division(arg+2)) < 0) {
+X		error("invalid divison code: %s\n",arg+2);
+X	    }
+X	    set_team_arg(division,1);
+X	} else if (*arg < '0' || *arg > '9') {
+X	    if ((team=str_to_team(arg)) >= 0) {
+X		set_team_arg(team,0);
+X	    } else if ((division=str_to_division(arg)) >= 0) {
+X		set_team_arg(division,1);
+X	    } else {
+X		error("unknown team or division code: %s\n",arg);
+X	    }
+X	} else {
+X	    /* Must be dates starting now */
+X	    return;
+X	}
+X	*argcp -= 1;
+X	*argvp += 1;
+X    }
+X}
+X
+X/*
+X * str_to_team(str):
+X *  Converts string STR to a team index (ie., an index into teams[])
+X *  if it is a valid team code and returns it, otherwise returns -1.
+X */
+Xstatic int
+Xstr_to_team(str)
+Xchar *str;
+X{
+X    int team;
+X
+X    for (team=0; team < NUM_TEAMS; team++) {
+X	if (strcmp(str,teams[team].abbrev) == 0)
+X	    return(team);
+X    }
+X    return(-1);
+X}
+X
+X/*
+X * str_to_division(str):
+X *  Converts string STR to a division index (ie., an index into divisons[])
+X *  if it is a valid team code and returns it, otherwise returns -1.
+X */
+Xstatic int
+Xstr_to_division(str)
+Xchar *str;
+X{
+X    int division;
+X
+X    for (division=0; division < NUM_DIVISIONS; division++) {
+X	if (strcmp(str,divisions[division].abbrev) == 0)
+X	    return(division);
+X    }
+X    return(-1);
+X}
+X
+X/*
+X * set_team_arg(team,flag):
+X *  Sets global variable team1 or team2 if one isn't set. If both are
+X *  already set, prints a message and exits. If FLAG is non-zero, then
+X *  this is really a division code not a team, and the appropriate flag
+X *  (team1_is_div or team2_is_div) is set.
+X */
+Xstatic void
+Xset_team_arg(team,flag)
+Xint team,flag;
+X{
+X    if (team1 == -1) {
+X	team1 = team;
+X	team1_is_div = flag;
+X    } else if (team2 == -1) {
+X	team2 = team;
+X	team2_is_div = flag;
+X    } else {
+X	error("too many teams or divisions specified\n",NULL);
+X    }
+X}
+X
+X/*
+X * error(fmt,arg):
+X *  Print an error message to stderr using FMT and ARG, then print the
+X *  help message and exit.
+X */
+Xstatic void
+Xerror(fmt,arg)
+Xchar *fmt,*arg;
+X{
+X    fprintf(stderr,"%s: ",program);
+X    fprintf(stderr,fmt,arg);
+X    print_help();
+X    exit(1);
+X}
+X
+X/*
+X * print_help():
+X *  Print the usage message:
+X */
+Xstatic void
+Xprint_help()
+X{
+X    int i;
+X
+X    printf("usage: %s [-HAv] [-nNUM] [TEAM|DIV [TEAM|DIV]] [mm/dd ...]\n",program);
+X    printf(" With no teams or divisions specified, print the league schedule\n");
+X    printf("   for given dates (default is today if no dates given).\n");
+X    printf(" With one team or division, print next NUM games (default %d) for\n",DEFAULT_GAMES_TO_SHOW);
+X    printf("   that team or teams in that division.\n");
+X    printf(" With two teams or divisions, print next NUM games where first team (or team\n");
+X    printf("   in first division) plays second team (or team in second division).\n");
+X    printf(" -H or -A: Show only home or away games, resp., for first team or division.\n");
+X    printf(" -v: Print version only: This is version %s, patchlevel %d.\n",
+X	   VERSION,PATCHLEVEL);
+X    printf(" Teams can specified with or without leading -t, from the following list:\n");
+X    for (i = 0; i < NUM_TEAMS; i++) {
+X	printf("   %3s - %-12s",teams[i].abbrev,teams[i].city);
+X	if ((i % 3) == 2)
+X	    printf( "\n");
+X    }
+X    if ((i % 3) != 0)
+X	printf( "\n");
+X    printf(" Divisions can specified with or without a leading -d, from the following list:\n");
+X    for (i = 0; i < NUM_DIVISIONS; i++) {
+X	printf("   %8s - %-12s",divisions[i].abbrev,divisions[i].name);
+X	if (((i+1) % 2) == 0)
+X	    printf( "\n");
+X    }
+X    if (i % 2 != 0)
+X	printf( "\n");
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * do_sched(month,day):
+X *  Depending on the globals set by cmd-line flags, do the right thing
+X *  for the given date.
+X */
+Xstatic void
+Xdo_sched(month,day)
+Xint month,day;
+X{
+X    int nhlday;
+X
+X    /* Convert date to index in season */
+X    if ((nhlday=md_to_nhlday(month,day)) < 0) {
+X	printf("The NHL regular season runs from %d/%d - %d/%d\n",
+X	       nhl_start_month,nhl_start_day,nhl_end_month,nhl_end_day);
+X	return;
+X    }
+X    /* Now do the right thing */
+X    if (team1 == -1 && team2 == -1) {
+X	do_nhl_sched(nhlday,month,day);
+X    } else if (team2 == -1) {
+X	if (team1_is_div)
+X	    do_div_sched(team1,nhlday,month,day);
+X	else
+X	    do_team_sched(team1,nhlday,month,day);
+X    } else if (team1_is_div && team2_is_div) {
+X	do_div_vs_div(team1,team2,nhlday,month,day);
+X    } else if (team1_is_div) {
+X	do_team_vs_div(team2,team1,nhlday,month,day);
+X    } else if (team2_is_div) {
+X	do_team_vs_div(team1,team2,nhlday,month,day);
+X    } else {
+X	do_team_vs_team(team1,team2,nhlday,month,day);
+X    }
+X}
+X
+X/*
+X * do_nhl_sched(nhlday,month,day):
+X *  Print league schedule for MON and DAY
+X */
+Xstatic void
+Xdo_nhl_sched(nhlday,month,day)
+Xint nhlday,month,day;
+X{
+X    char code;
+X    int home,site;
+X    int count,i;
+X
+X    printf("NHL schedule for %s, %d/%d...\n",
+X	   weekday[nhlday_to_dow(nhlday)],month,day);
+X    /* Scan today's schedule for games */
+X    count = 0;
+X    for (i=0; i < NUM_TEAMS; i++) {
+X	code = schedule[nhlday][i];
+X	if (ISAWAYCODE(code)) {
+X	    home = TEAMCODETOINDEX(code);
+X	    printf("     %-12s at %s",teams[i].city,teams[home].city);
+X	    code = schedule[nhlday][home];
+X	    if (ISSITECODE(code)) {
+X		site = SITECODETOINDEX(code);
+X		printf(" @ %s",neutral_sites[site]);
+X	    }
+X	    printf("\n");
+X	    count += 1;
+X	}
+X    }
+X    /* If there are no games, see if it is a special day. */
+X    if (count == 0) {
+X	printf("     No games scheduled");
+X	for (i=0; special_dates[i].month != 0; i++) {
+X	    if (month == special_dates[i].month &&
+X		day == special_dates[i].day) {
+X		printf(": %s",special_dates[i].text);
+X		break;
+X	    }
+X	}
+X	printf("\n");
+X    }
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * do_team_sched(team,nhlday,month,day):
+X *  Print upcoming games for TEAM starting at MONTH/DAY.
+X */
+Xstatic void
+Xdo_team_sched(team,nhlday,month,day)
+Xint team;
+Xint nhlday,month,day;
+X{
+X    char code;
+X    int home,visitor;
+X    int count;
+X
+X    if (homeonlyflag) {
+X	printf("Upcoming %s home games...\n",teams[team].name);
+X    } else if (awayonlyflag) {
+X	printf("Upcoming %s away games...\n",teams[team].name);
+X    } else {
+X	printf("Upcoming %s games...\n",teams[team].name);
+X    }
+X    count = 0;
+X    while ((nhlday >= 0) && (count < num_games_to_show)) {
+X	code = schedule[nhlday][team];
+X	if ((ISHOMECODE(code) || ISSITECODE(code)) &&	/* TEAM is home */
+X	    !awayonlyflag) {
+X	    visitor = find_char(INDEXTOTEAMCODE(team),schedule[nhlday]);
+X	    print_game(nhlday,month,day,visitor,team);
+X	    count += 1;
+X	} else if (ISAWAYCODE(code) && !homeonlyflag) {	/* TEAM is away */
+X	    home = TEAMCODETOINDEX(code);
+X	    print_game(nhlday,month,day,team,home);
+X	    count += 1;
+X	}
+X	inc_date(&month,&day);
+X	nhlday = md_to_nhlday(month,day);
+X    }
+X}
+X
+X/*
+X * do_div_sched(div,nhlday,month,day):
+X *  Print upcoming games for DIV starting at MONTH/DAY.
+X */
+Xstatic void
+Xdo_div_sched(div,nhlday,month,day)
+Xint div;
+Xint nhlday,month,day;
+X{
+X    char code;
+X    int team;
+X    int count,i;
+X
+X    if (homeonlyflag) {
+X	printf("Upcoming %s division home games...\n",divisions[div].name);
+X    } else if (awayonlyflag) {
+X	printf("Upcoming %s division away games...\n",divisions[div].name);
+X    } else {
+X	printf("Upcoming %s division games...\n",divisions[div].name);
+X    }
+X    count = 0;
+X    while ((nhlday >= 0) && (count < num_games_to_show)) {
+X	for (i=0; i < NUM_TEAMS; i++) {
+X	    code = schedule[nhlday][i];
+X	    if (ISAWAYCODE(code)) {
+X		team = TEAMCODETOINDEX(code);
+X		if ((divisions[div].flags[i] && !homeonlyflag) ||
+X		    (divisions[div].flags[team] && !awayonlyflag)) {
+X		    print_game(nhlday,month,day,i,team);
+X		    count += 1;
+X		}
+X	    }
+X	}
+X	inc_date(&month,&day);
+X	nhlday = md_to_nhlday(month,day);
+X    }
+X}
+X
+X/*
+X * do_team_vs_team(team1,team2,nhlday,month,day):
+X *  Prints upcoming games between TEAM1 and TEAM2 starting at MON/DAY.
+X */
+Xstatic void
+Xdo_team_vs_team(team1,team2,nhlday,month,day)
+Xint team1,team2;
+Xint nhlday,month,day;
+X{
+X    char code1,code2;
+X    int count;
+X
+X    if (homeonlyflag) {
+X	printf("Upcoming games for the %s home to the %s...\n",
+X	       teams[team1].name,teams[team2].name);
+X    } else if (awayonlyflag) {
+X	printf("Upcoming games for the %s away at the %s...\n",
+X	       teams[team1].name,teams[team2].name);
+X    } else {
+X	printf("Upcoming games between the %s and the %s...\n",
+X	       teams[team1].name,teams[team2].name);
+X    }
+X    code1 = INDEXTOTEAMCODE(team1);
+X    code2 = INDEXTOTEAMCODE(team2);
+X    count = 0;
+X    while ((nhlday >= 0) && (count < num_games_to_show)) {
+X	if (schedule[nhlday][team1] == code2 &&		/* TEAM1 at TEAM2 */
+X	    !homeonlyflag) {
+X	    print_game(nhlday,month,day,team1,team2);
+X	    count += 1;
+X	} else if (schedule[nhlday][team2] == code1 &&	/* TEAM2 at TEAM1 */
+X		   !awayonlyflag) {
+X	    print_game(nhlday,month,day,team2,team1);
+X	    count += 1;
+X	}
+X	inc_date(&month,&day);
+X	nhlday = md_to_nhlday(month,day);
+X    }
+X}
+X
+X/*
+X * do_team_vs_div(team,div,nhlday,month,day):
+X *  Prints upcoming games between TEAM and teams in DIV starting at MON/DAY.
+X */
+Xstatic void
+Xdo_team_vs_div(team,div,nhlday,month,day)
+Xint team,div;
+Xint nhlday,month,day;
+X{
+X    char code,teamcode;
+X    int home,count,i;
+X
+X    if (homeonlyflag) {
+X	printf("Upcoming games for the %s home to %s division teams...\n",
+X	       teams[team].name,divisions[div].name);
+X    } else if (awayonlyflag) {
+X	printf("Upcoming games for the %s away at %s division teams...\n",
+X	       teams[team].name,divisions[div].name);
+X    } else {
+X	printf("Upcoming games between the %s and %s division teams...\n",
+X	       teams[team].name,divisions[div].name);
+X    }
+X    teamcode = INDEXTOTEAMCODE(team);
+X    count = 0;
+X    while ((nhlday >= 0) && (count < num_games_to_show)) {
+X	code = schedule[nhlday][team];
+X	if (ISAWAYCODE(code) && !homeonlyflag) {	/* TEAM is away */
+X	    home = TEAMCODETOINDEX(code);
+X	    if (divisions[div].flags[home]) {		/* home is in DIV */
+X		print_game(nhlday,month,day,team,home);
+X		count += 1;
+X	    }
+X	} else if ((ISHOMECODE(code) || ISSITECODE(code)) && /* TEAM is home */
+X		   !awayonlyflag) {
+X	    for (i=0; i < NUM_TEAMS; i++) {
+X		if (schedule[nhlday][i] == teamcode &&	/* i away at TEAM */
+X		    divisions[div].flags[i]) {		/* i in DIV */
+X		    print_game(nhlday,month,day,i,team);
+X		    count += 1;
+X		}
+X	    }
+X	}
+X	inc_date(&month,&day);
+X	nhlday = md_to_nhlday(month,day);
+X    }
+X}
+X
+X/*
+X * do_div_vs_div(div1,div2,nhlday,month,day):
+X *  Prints upcoming games between teams in DIV1 and teams in DIV2 starting
+X *  at MON/DAY.
+X */
+Xstatic void
+Xdo_div_vs_div(div1,div2,nhlday,month,day)
+Xint div1,div2;
+Xint nhlday,month,day;
+X{
+X    char code;
+X    int home;
+X    int count,i;
+X
+X    if (div1 == div2) {
+X	printf("Upcoming games between %s division teams...\n",
+X	       divisions[div1].name);
+X    } else if (homeonlyflag) {
+X	printf("Upcoming games for %s division teams home to %s division teams...\n",
+X	       divisions[div1].name,divisions[div2].name);
+X    } else if (awayonlyflag) {
+X	printf("Upcoming games for %s division teams away at %s division teams...\n",
+X	       divisions[div1].name,divisions[div2].name);
+X    } else {
+X	printf("Upcoming games between %s division teams and %s division teams...\n",
+X	       divisions[div1].name,divisions[div2].name);
+X    }
+X    count = 0;
+X    while ((nhlday >= 0) && (count < num_games_to_show)) {
+X	for (i=0; i < NUM_TEAMS; i++) {
+X	    if (divisions[div1].flags[i]) {		/* Team i in DIV1 */
+X		code = schedule[nhlday][i];
+X		if (ISAWAYCODE(code) &&			/* Team i away */
+X		    (div1 == div2 || !homeonlyflag)) {
+X		    home = TEAMCODETOINDEX(code);
+X		    if (divisions[div2].flags[home]) {	/* Home team in DIV2 */
+X			print_game(nhlday,month,day,i,home);
+X			count += 1;
+X		    }
+X		}
+X	    } else if (divisions[div2].flags[i]) {	/* Team i in DIV2 */
+X		code = schedule[nhlday][i];
+X		if (ISAWAYCODE(code) &&			/* Team i away */
+X		    (div1 == div2 || !awayonlyflag)) {
+X		    home = TEAMCODETOINDEX(code);
+X		    if (divisions[div1].flags[home]) {	/* Home team in DIV1 */
+X			print_game(nhlday,month,day,i,home);
+X			count += 1;
+X		    }
+X		}
+X	    }
+X	}
+X	inc_date(&month,&day);
+X	nhlday = md_to_nhlday(month,day);
+X    }
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * today(monp,dayp):
+X *  Set MON and DAY to the current date.
+X */
+Xstatic int
+Xtoday(monp,dayp)
+Xint *monp,*dayp;
+X{
+X    time_t tv;
+X    struct tm *tmp;
+X
+X    tv = time(NULL);
+X    tmp = localtime(&tv);
+X    *monp = tmp->tm_mon+1;             /* We use Jan == 1 */
+X    *dayp = tmp->tm_mday;
+X    return(0);
+X}
+X
+X/*
+X * parse_date(date,monp,dayp):
+X *  Parse given DATE string (format MM/DD) into MON and DAY.
+X */
+Xstatic int
+Xparse_date(date,monp,dayp)
+Xchar *date;
+Xint *monp,*dayp;
+X{
+X    if (sscanf(date,"%d/%d",monp,dayp) != 2) {
+X	fprintf(stderr,"%s: bad date: %s...format is \"mm/dd\"\n",
+X		program,date);
+X	return(-1);
+X    }
+X    if (*monp < 1 || *monp > 12) {
+X	fprintf(stderr,"%s: bad month in date: %s\n",program,date);
+X	return(-1);
+X    }
+X    if (*dayp < 1 || *dayp > month_len[*monp]) {
+X	fprintf(stderr,"%s: bad day in date: %s\n",program,date);
+X	return(-1);
+X    }
+X    return(0);
+X}
+X
+X/*
+X * md_to_nhlday(month,day):
+X *  Return the day of the season for the given MONTH/DAY (ie., the index
+X *  into schedule[] for that date's games).
+X *  Returns -1 if the date is not during the nhl season.
+X */
+Xstatic int
+Xmd_to_nhlday(month,day)
+Xint month,day;
+X{
+X    int nhlday;
+X
+X    if ((month == nhl_start_month && day < nhl_start_day) ||
+X	(month == nhl_end_month && day > nhl_end_day) ||
+X	(month > nhl_end_month && month < nhl_start_month)) {
+X	/* Not during season */
+X	nhlday = -1;
+X    } else if (month >= nhl_start_month) {
+X	/* Before Jan 1 */
+X	nhlday = month_start[month] + day - nhl_old_year_offset;
+X    } else {
+X	/* After Jan 1 */
+X	nhlday = month_start[month] + day + nhl_new_year_offset;
+X    }
+X    return(nhlday);
+X}
+X
+X/*
+X * nhlday_to_dow(nhlday):
+X *  Return the day of the week for the given nhlday (Sun == 0).
+X */
+Xstatic int
+Xnhlday_to_dow(nhlday)
+Xint nhlday;
+X{
+X    return(((nhlday % 7) + nhl_start_dow) % 7);
+X}
+X
+X/*
+X * find_char(c,str):
+X *  Return index of first occurrence of C in STR, or -1 if not found.
+X */
+Xstatic int
+Xfind_char(c,str)
+Xchar c;
+Xchar *str;
+X{
+X    int n = 0;
+X
+X    while (*str) {
+X	if (c == *str++)
+X	    return(n);
+X	else
+X	    n += 1;
+X    }
+X    return(-1);
+X}
+X
+X/*
+X * inc_date(month,day):
+X *  Increment day (and month, if necessary) to the next day.
+X */
+Xstatic void
+Xinc_date(month,day)
+Xint *month,*day;
+X{
+X    if (*day >= month_len[*month]) {
+X	*day   = 1;
+X	*month += 1;
+X	if (*month > 12) {
+X	    *month = 1;
+X	}
+X    } else {
+X	(*day)++;
+X    }
+X}
+X
+X/*
+X * print_game(nhlday,month,day,visitor,home):
+X *  Format and output the entry for a game on DOW/MONTH/DAY between teams
+X *  VISITOR and HOME, checking for neutral site.
+X *  This is used by do_team_sched() and do_head_to_head_sched().
+X */
+Xstatic void
+Xprint_game(nhlday,month,day,visitor,home)
+Xint nhlday;
+Xint month,day;
+Xint visitor,home;
+X{
+X    char buf[32],code;
+X    int site;
+X
+X    sprintf(buf,"%s, %d/%d:",weekday[nhlday_to_dow(nhlday)],month,day);
+X    printf("     %-18s",buf);
+X    printf("%s at %s",teams[visitor].city,teams[home].city);
+X    code = schedule[nhlday][home];
+X    if (ISSITECODE(code)) {
+X	site = SITECODETOINDEX(code);
+X	printf(" @ %s",neutral_sites[site]);
+X    }
+X    printf("\n");
+X}
+END_OF_FILE
+  if test 21778 -ne `wc -c <'nhl.c'`; then
+    echo shar: \"'nhl.c'\" unpacked with wrong size!
+  fi
+  # end of 'nhl.c'
+fi
+if test -f 'nhl.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nhl.man'\"
+else
+  echo shar: Extracting \"'nhl.man'\" \(4230 characters\)
+  sed "s/^X//" >'nhl.man' <<'END_OF_FILE'
+X.TH NHL 1 "6 Sep 1993"
+X.SH NAME
+Xnhl - Print the NHL schedule
+X.SH SYNOPSIS
+Xnhl
+X[\-n\fInum\fP] [\-HAhv]
+X[TEAM|DIV\ [TEAM|DIV]]
+X[mm/dd\ ...]
+X.SH DESCRIPTION
+X.PP
+XThis program produces an on-line schedule for the NHL regular season.
+XPerfect for that .login -- also makes a great Xmas gift!
+X.PP
+XWith no teams or divisions specified,
+X.I nhl
+Xprints the league schedule for the given dates. If no dates are given
+Xthen today's schedule is printed.
+X.PP
+XWith one team or division specified,
+X.I nhl
+Xprints upcoming games for that team or for teams in that division,
+Xstarting from each of the given dates (or from today if none are
+Xgiven).
+X.PP
+XWith two teams or divisions specified,
+X.I nhl
+Xprints upcoming games where the first team (or any team in the first
+Xdivision) plays the second team (or any team in second division),
+Xstarting from each of the given dates (or from today if none are
+Xgiven).
+X.PP
+XNote that to get a listing of upcoming intra-division games you need
+Xto give the division twice (i.e., use two-team mode).  If the division
+Xis only given once, then
+X.I nhl
+Xwill list games in which either team was in the division, not
+Xnecessarily both.
+X.SH DIAGNOSTICS
+X.PP
+XIf no dates are given and today's date isn't during the season, a
+Xwarning is issued to stderr and the start of the season is used.
+X.PP
+XIf a date is explicitly given that isn't during the season, an error
+Xmessage is printed (to stdout) and
+X.I nhl
+Xexits.
+X.PP
+XErrors involving incorrect team or division codes, bad dates, or other
+Xcommand-line errors cause the help text to be printed and
+X.I nhl
+Xexits with an error indication.
+X.PP
+XAny other errors (marked with "YOW!")  indicate that the program was
+Xnot properly configured for the season.  You shouldn't see these
+Xunless you try to update
+X.I nhl
+Xfor a new season.
+X.SH OPTIONS
+X.IP \fB-n\fInum\fR
+XSet the number of games to display in one-team or two-team mode. The
+Xdefault is 3.
+X.IP \fB-t\fIteam\fR
+XTeams can specified with or without a leading \fB-t\fP, from the
+Xfollowing list:
+X
+X.nf
+X.na
+Xana - Anaheim        bos - Boston         buf - Buffalo     
+Xcgy - Calgary        chi - Chicago        dal - Dallas      
+Xdet - Detroit        edm - Edmonton       fla - Florida     
+Xhfd - Hartford       los - Los Angeles    mtl - Montreal    
+Xnjd - New Jersey     nyi - NY Islanders   nyr - NY Rangers  
+Xott - Ottawa         phl - Philadelphia   pit - Pittsburgh  
+Xque - Quebec         stl - St. Louis      sjs - San Jose    
+Xtmp - Tampa Bay      tor - Toronto        van - Vancouver   
+Xwsh - Washington     wpg - Winnipeg    
+X.ad
+X.fi
+X
+X.IP \fB-d\fIdiv\fR
+XDivisions can specified with or without a leading \fI-d\fP, from the
+Xfollowing list: 
+X
+X.nf
+X.na
+X    nea - Northeast           atl - Atlantic    
+X    ctl - Central             pac - Pacific     
+X.ad
+X.fi
+X
+X.IP \fB-H\fR
+XIn one-team (or division) mode, specifies that only games in which the
+Xgiven team (or team in the given division) is at home are to be
+Xprinted.  In two-team (or division) mode, specifies that only games in
+Xwhich the \fIfirst\fP team (or team in first division) is at home are
+Xto be printed. This option is ignored when the same divison is given
+Xtwice (intra-division mode).
+X.IP \fB-A\fR
+XLike \fB-H\fP, but only prints away games for the given team (or team
+Xin the given division).
+X.IP \fB-h\fR
+XIf given,
+X.I nhl
+Xprints the help message and exits.
+X.IP \fB-v\fR
+XIf given,
+X.I nhl
+Xprints its version information and exits. Please use this information
+Xwhen reporting bugs.
+X.SH AUTHOR
+X.PP
+XOriginal program concept by Len Carr, used with permission.
+X.PP
+XAll other features created by Rob Springall (rgs7077@ultb.isc.rit.edu,
+Xrgs7077@ritvax.bitnet), except for the neutral site games feature,
+Xcreated by Tom Wilson (twilson@dab.ge.com).
+X.PP
+XMaintained through 1992-93 season by: Valerie Hammerl
+X(hammerl@acsu.buffalo.edu) and Rob Springall.
+X.PP
+XRe-constructed for 1993-94 by George Ferguson
+X(ferguson@cs.rochester.edu), who also added head-to-head modes, wrote
+Xthe manpage and put together the distribution kit.
+X.PP
+XAdditional credit goes to the members of the USENET community who
+Xcontributed ideas and support for this project.
+X.SH COPYRIGHT
+XThis program is not copyrighted or registered in any form.  It does,
+Xhowever, remain the intellectual property of its authors.
+END_OF_FILE
+  if test 4230 -ne `wc -c <'nhl.man'`; then
+    echo shar: \"'nhl.man'\" unpacked with wrong size!
+  fi
+  # end of 'nhl.man'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(207 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/*
+X * patchlevel.h : Version information for NHL schedule program.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 31 Aug 1993.
+X *
+X * 93-94.2: 6 Sep 1994
+X */
+X
+X#define VERSION		"93-94"
+X#define PATCHLEVEL	2
+END_OF_FILE
+  if test 207 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'schedule.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'schedule.c'\"
+else
+  echo shar: Extracting \"'schedule.c'\" \(13445 characters\)
+  sed "s/^X//" >'schedule.c' <<'END_OF_FILE'
+X/*
+X * schedule.c : This file defines the teams, the schedule matrix,
+X *	special dates, and neutral sites for the season. It is the
+X *	the only file you should have to change for a new season.
+X *
+X * This file is for the 1993-94 season.
+X * Compiled by George Ferguson, ferguson@cs.rochester.edu, 20 Aug 1993.
+X *
+X * See the README file for instructions on updating this for a
+X * new season.
+X *
+X * This file is included directly in nhl.c. Don't bug me about it...
+X */
+X
+X/*
+X * Set these to the starting and ending dates of the season.
+X * They have to be strings (ie., enclosed in double-quotes) and
+X * should be in form MM/DD/YYYY (the year must be all four digits).
+X * The START_DOW should be a capitalized string representing the
+X * day-of-the-week for the START_DATE. Check weekday[] in nhl.c for spelling.
+X */
+X#define NHL_START_DATE		"10/5/1993"
+X#define NHL_START_DOW		"Tuesday"
+X#define NHL_END_DATE		"4/14/1994"
+X
+X/*
+X * The list of teams referenced by the schedule[] array.
+X */
+X#define NUM_TEAMS 26
+X
+Xstruct _team_struct {
+X    char *city;					/* City name for team */
+X    char *name;					/* Team nickname */
+X    char *abbrev;				/* Team code for cmd-line */
+X} teams[NUM_TEAMS] = {
+X    { "Anaheim",	"Mighty Ducks",	"ana" },
+X    { "Boston",		"Bruins",	"bos" },
+X    { "Buffalo",	"Sabres",	"buf" },
+X    { "Calgary",	"Flames",	"cgy" },
+X    { "Chicago",	"Blackhawks",	"chi" },
+X    { "Dallas",		"Stars",	"dal" },
+X    { "Detroit",	"Red Wings",	"det" },
+X    { "Edmonton",	"Oilers",	"edm" },
+X    { "Florida",	"Panthers",	"fla" },
+X    { "Hartford",	"Whalers",	"hfd" },
+X    { "Los Angeles",	"Kings",	"los" },
+X    { "Montreal",	"Canadiens",	"mtl" },
+X    { "New Jersey",	"Devils",	"njd" },
+X    { "NY Islanders",	"Islanders",	"nyi" },
+X    { "NY Rangers",	"Rangers",	"nyr" },
+X    { "Ottawa",		"Senators",	"ott" },
+X    { "Philadelphia",	"Flyers",	"phl" },
+X    { "Pittsburgh",	"Penguins",	"pit" },
+X    { "Quebec",		"Nordiques",	"que" },
+X    { "St. Louis",	"Blues",	"stl" },
+X    { "San Jose",	"Sharks",	"sjs" },
+X    { "Tampa Bay",	"Lightning",	"tmp" },
+X    { "Toronto",	"Maple Leafs",	"tor" },
+X    { "Vancouver",	"Canucks",	"van" },
+X    { "Washington",	"Capitals",	"wsh" },
+X    { "Winnipeg",	"Jets",		"wpg" },
+X};
+X
+X#define NUM_DIVISIONS 4
+X#define MAX_TEAMS_PER_DIVISION 7
+X
+Xstruct _division_struct {
+X    char *name;					/* Division name */
+X    char *teams[MAX_TEAMS_PER_DIVISION];	/* List of team abbrevs */
+X    char *abbrev;				/* Division abbrev */
+X    char flags[NUM_TEAMS];			/* Array of flags for teams */
+X} divisions[NUM_DIVISIONS] = {
+X    { "Northeast", { "bos","buf","hfd","mtl","ott","pit","que" }, "nea" },
+X    { "Atlantic",  { "fla","njd","nyi","nyr","phl","tmp","wsh" }, "atl" },
+X    { "Central",   { "chi","det","dal","stl","tor","wpg",NULL },  "ctl" },
+X    { "Pacific",   { "ana","cgy","edm","los","sjs","van",NULL },  "pac" },
+X};
+X
+X/*
+X * Special dates for which there are no games this season:
+X */
+Xstruct _special_struct {
+X    int month,day;					/* Date */
+X    char *text;						/* Message to print */
+X} special_dates[] = {
+X    { 12, 24, "Holiday Break" },
+X    { 12, 25, "Holiday Break" },
+X    {  1, 20, "All Star Break" },
+X    {  1, 21, "All Star Break" },
+X    {  1, 22, "All Star Game in New York City" },
+X    {  1, 23, "All Star Break" },
+X    {  0,  0, NULL },
+X};
+X
+X/*
+X * The list of neutral sites referenced in the schedule[] array
+X */
+Xchar *neutral_sites[] = {
+X    "Cleveland, OH",
+X    "Halifax, NS",
+X    "Hamilton, ON",
+X    "Minneapolis, MN",
+X    "Orlando, FL",
+X    "Phoenix, AZ",
+X    "Sacramento, CA",
+X    "Saskatoon, SK",
+X};
+X
+X/*
+X * Schedule matrix:
+X *   Each string represents one day of the season, The Nth character in
+X *   the string represents what the Nth team (in the teams[] array) is
+X *   doing on that day. The entries are interpreted as follows:
+X *	-   : This team is idle
+X *	+   : This team is home
+X *	a-z : This team is away at the team given by the letter
+X *	A-Z : This team is the home team at a neutral site given by the letter
+X *   Accessors are defined here for accessing the array. This will make
+X *   it easier when the day comes that size of the league exceeds the
+X *   size of the alphabet. The accessors have to map from the characters
+X *   used in schedule[] into the teams[] and neutral_sites[] arrays.
+X */
+X
+X#define ISIDLECODE(C)		((C) == '-')
+X#define ISHOMECODE(C)		((C) == '+')
+X#define ISAWAYCODE(C)		((C) >= 'a' && (C) <= 'z')
+X#define ISSITECODE(C)		((C) >= 'A' && (C) <= 'Z')
+X
+X#define TEAMCODETOINDEX(C)	((int)((C) - 'a'))
+X#define INDEXTOTEAMCODE(N)	((char)((N) + 'a'))
+X
+X#define SITECODETOINDEX(C)	((int)((C) - 'A'))
+X#define INDEXTOSITECODE(N)	((char)((N) + 'A'))
+X
+Xchar *schedule[] = {
+X    "-o-+-+f------d+-+q--------", /* 10/5  */
+X    "----+--+el+++--+--p-hm-kz+", /* 10/6  */
+X    "-+b+-w--t--r--+--+-+do+---", /* 10/7  */
+X    "+-----a+----yh----------+-", /* 10/8  */
+X    "-+lxw+k-v++++-rtj+b+-+++mf", /* 10/9  */
+X    "+-+-+----c+--a--+s+-k-q--e", /* 10/10 */
+X    "-+-----x---b--+--------+o-", /* 10/11 */
+X    "--q-f+--+-+-+k--+i-------m", /* 10/12 */
+X    "+-----+a-+-j--+---og--+-w-", /* 10/13 */
+X    "---u+--k+e+----i-v--++----", /* 10/14 */
+X    "+a+---w-------c-y-----+-+-", /* 10/15 */
+X    "-uykz+++-r++n+qv++lf++gh++", /* 10/16 */
+X    "+--a----+------------i----", /* 10/17 */
+X    "--+-+ecz---s------+------+", /* 10/18 */
+X    "ox------+wi--++--n-u+-++--", /* 10/19 */
+X    "m--h-l-+-+v++-----j--+----", /* 10/20 */
+X    "---++p+-+----q-++-eGt-id-g", /* 10/21 */
+X    "-h+----+--y---v--c---+--+-", /* 10/22 */
+X    "ldj++se-m+-+++-n+++r++vu-q", /* 10/23 */
+X    "-------+--o---+-----x--+h-", /* 10/24 */
+X    "p--+-g+--------+--------d-", /* 10/25 */
+X    "----+--u+-nm++--s-+e+----i", /* 10/26 */
+X    "--d+-++--fg----+p----+-+xv", /* 10/27 */
+X    "u+--+---+t-o-i+b-+r++-e---", /* 10/28 */
+X    "+-h----+--z--v-------+--a+", /* 10/29 */
+X    "-+x+r+sd++-++-jfm++b+il+u-", /* 10/30 */
+X    "+--z+-------o-B-e---a----+", /* 10/31 */
+X    "-----+---+---------j--f---", /* 11/1  */
+X    "-g----+-+----+--iu+-+s-n--", /* 11/2  */
+X    "+-Gj-a-+w+++k-+h-c-z-l+o-+", /* 11/3  */
+X    "-+-b+-+------e--+-q---g---", /* 11/4  */
+X    "+----u------a--z----+--y++", /* 11/5  */
+X    "-+-l---t-n++-+s-wk++-b+---", /* 11/6  */
+X    "+c+-++-es---u---+a+-+--q-f", /* 11/7  */
+X    "--------------+------o----", /* 11/8  */
+X    "F--+-a+g--d--+---ty++-u-+n", /* 11/9  */
+X    "--+-----l+x++m+jc------+-o", /* 11/10 */
+X    "d+-+++-bp---q--++e-+f+t-v-", /* 11/11 */
+X    "--------------------------", /* 11/12 */
+X    "-nq+wzrj-+++++yl++vkm++d++", /* 11/13 */
+X    "x---+e--+-----+---i-o--+--", /* 11/14 */
+X    "---+---w---p---+------+--d", /* 11/15 */
+X    "--------+-----i-r+-xy--++-", /* 11/16 */
+X    "+jm--+zl-+-++p-+-----fa--+", /* 11/17 */
+X    "-+-ti---+q+Cpl-+++-+b-k-r-", /* 11/18 */
+X    "x-+-----------v------+-+-c", /* 11/19 */
+X    "-+-fv+m+++t++---bl++j+h-is", /* 11/20 */
+X    "h-+--+t+--f--q--+--+c-----", /* 11/21 */
+X    "d-p+-----------+------x+--", /* 11/22 */
+X    "------u-+i-os-+---+-+-----", /* 11/23 */
+X    "zr++h+x+-v-qcfp+++-y-+d+++", /* 11/24 */
+X    "----------s-------+-------", /* 11/25 */
+X    "++++d---b---t--c+y-+aq-z++", /* 11/26 */
+X    "uws--g++j+l+-+nrv++-+++h--", /* 11/27 */
+X    "------n------++----+----ot", /* 11/28 */
+X    "--w-xh-+-p-----+------++--", /* 11/29 */
+X    "-s-+-d----+-++m---+-----nk", /* 11/30 */
+X    "+-v---j+-+-+---lh--w-++--a", /* 12/1  */
+X    "k+i-----+-+-rb--x+-+--t+--", /* 12/2  */
+X    "------+----y-+-g--n-+---+u", /* 12/3  */
+X    "-+-+mt---++b+-w+dj++-k+sp-", /* 12/4  */
+X    "+c+--+zfu---o-+-----+a---+", /* 12/5  */
+X    "---p--+----+---+-------l-g", /* 12/6  */
+X    "+--st--nay---+----+++u--+-", /* 12/7  */
+X    "--p--+-ok+++l-++-f----+j-w", /* 12/8  */
+X    "-+---D+-----+--f+-mg---bq-", /* 12/9  */
+X    "--+c----z----------------+", /* 12/10 */
+X    "-+jwb-+m-+++++-snv+kg++-l-", /* 12/11 */
+X    "++--++-qfb------+--ae-z--+", /* 12/12 */
+X    "--o-------p---++--+-----s-", /* 12/13 */
+X    "g--+--+---rvn+---+---E-d--", /* 12/14 */
+X    "wm--f+-++o-i+-+v---u+++h--", /* 12/15 */
+X    "--r-------------++q-------", /* 12/16 */
+X    "f-++-+++--c--+gy---dh-n++x", /* 12/17 */
+X    "-v-+q-l--+w+s---+-+--++-jd", /* 12/18 */
+X    "ei+-+x-++---+r+om++hsc-+--", /* 12/19 */
+X    "z--+------d--------------+", /* 12/20 */
+X    "----g-+x-------+++p--r-+q-", /* 12/21 */
+X    "+--h-a-+++-+jli-----w-+---", /* 12/22 */
+X    "-++x+kq--p+c+-y++bz+etmH++", /* 12/23 */
+X    "--------------------------", /* 12/24 */
+X    "--------------------------", /* 12/25 */
+X    "+-n-t---v+a-o++j-y-+-E--+-", /* 12/26 */
+X    "-p+-++f+---t---+c--+--e--h", /* 12/27 */
+X    "n--u----ym+-++--r++-+s-k+-", /* 12/28 */
+X    "----z+-+j+-h-st---++--f--+", /* 12/29 */
+X    "y--+---d-------+-----p--+-", /* 12/30 */
+X    "-D+++e+---gd--c-b+rzx--+-+", /* 12/31 */
+X    "i-------+nw-p+-+-----y+-+-", /*  1/1  */
+X    "v++t++-+-+-x-----jf+hEc+be", /*  1/2  */
+X    "--------o-----++-p--------", /*  1/3  */
+X    "----f+t---+u+m----k++wC---", /*  1/4  */
+X    "---o-----+-s--++--F----p-j", /*  1/5  */
+X    "e+--++u--A-----wf--j+-+--b", /*  1/6  */
+X    "--+n---+m---++---ch-------", /*  1/7  */
+X    "t+-ry-k-b+++-jl+v+-+-++w+p", /*  1/8  */
+X    "--+-++-e----+------f---cm-", /*  1/9  */
+X    "++----a----+-p++-----ob--l", /*  1/10 */
+X    "-re+++-f--u----q++d-+-y-+-", /*  1/11 */
+X    "+-z---+--k++l-----x-ag-+-+", /*  1/12 */
+X    "-q--+w-tr-------++-+-e+---", /*  1/13 */
+X    "+----g+--a-ny++xo------++-", /*  1/14 */
+X    "-+t+n-brlum+++-d-++++-z-s+", /*  1/15 */
+X    "+-f-++----q---e-+----z-a-+", /*  1/16 */
+X    "-+-u--v-nb-+-+------+D--l-", /*  1/17 */
+X    "w----+-p--f---++-s+o--+---", /*  1/18 */
+X    "gl+x--+c++-+zv--+--q-+j+i+", /*  1/19 */
+X    "--------------------------", /*  1/20 */
+X    "--------------------------", /*  1/21 */
+X    "--------------------------", /*  1/22 */
+X    "--------------------------", /*  1/23 */
+X    "+jvF-+-H++dif------a-E-h--", /*  1/24 */
+X    "-y--g-+---+---urs++x+--++k", /*  1/25 */
+X    "+--+-d-+v+-jhw-------++--a", /*  1/26 */
+X    "--+-+xe--p+---k+-+r----+c-", /*  1/27 */
+X    "+n-+---++---d+a----hi-----", /*  1/28 */
+X    "k+l++h++-+++xb-e+wjdv+++qg", /*  1/29 */
+X    "--+---y-c--+----l-------+-", /*  1/30 */
+X    "-+--p-----x---++-ob----+--", /*  1/31 */
+X    "--------rs---+---+++n-t---", /*  2/1  */
+X    "+-maxzv+plh++o++A----+-+q+", /*  2/2  */
+X    "-+------------b-+-t+q-----", /*  2/3  */
+X    "+-i-h-+++z-y+--m-g-----a++", /*  2/4  */
+X    "-+-k--w---+p+s-+bm++ty+-+-", /*  2/5  */
+X    "+i+-a+-++x---c------f--+-h", /*  2/6  */
+X    "---+---d---r--+--+---w+-o-", /*  2/7  */
+X    "-sn-u-+------+-+p-++G--g-t", /*  2/8  */
+X    "---hk+-+--++--l----------f", /*  2/9  */
+X    "-+b-----q---+r-+++-+-p-mt-", /*  2/10 */
+X    "+-++u-+--dac--+-g-o-+-z--+", /*  2/11 */
+X    "-+-+-rt+nh++b+p+-+l+-+dvk-", /*  2/12 */
+X    "h-+-uc-++---v---+q--++-i--", /*  2/13 */
+X    "-k-+d-----+---s---+-------", /*  2/14 */
+X    "------wy-----+--u+-++n+t+r", /*  2/15 */
+X    "+fj--++-g+------a---------", /*  2/16 */
+X    "----+----r-vw----+u-+++e--", /*  2/17 */
+X    "+t+fz++gc-+--y+ok-a+----++", /*  2/18 */
+X    "-------w-+u+++jn-l--+m+---", /*  2/19 */
+X    "tvyz+-i-+---e------+-+--++", /*  2/20 */
+X    "--+--u----+q-++-+oc-+-k-n-", /*  2/21 */
+X    "---x----z--------------+-C", /*  2/22 */
+X    "co+--k++--++g-+-----l-h---", /*  2/23 */
+X    "r--++-A-+g--+qm++++spd--ie", /*  2/24 */
+X    "-z+-c--+--h--+--n--------+", /*  2/25 */
+X    "s-r+-++-y+dwj-f+-++pgx+++-", /*  2/26 */
+X    "-e--+--+-+---+----n--h--j-", /*  2/27 */
+X    "--------+-+k+--+-i-mz-p--+", /*  2/28 */
+X    "--sg--+x-----+----+n-y-++-", /*  3/1  */
+X    "+-p--z--++jai-++o--------+", /*  3/2  */
+X    "-+-e+--u--b-v------+++-t--", /*  3/3  */
+X    "+-+--++a+i---o+Dyc----gf+p", /*  3/4  */
+X    "-+-m-----v--++nb--+--+s---", /*  3/5  */
+X    "u-gy+++---ef----vz--++--++", /*  3/6  */
+X    "-+----o-x---+z+---mw--++b+", /*  3/7  */
+X    "eru-Fq---------s+++-+-----", /*  3/8  */
+X    "+-a+kwd+h+++-xy----l-j++B-", /*  3/9  */
+X    "-+-------m-s+ubq+++-+-r---", /*  3/10 */
+X    "+--+a-h+d--------------z-+", /*  3/11 */
+X    "-mk+-j---++++tr-l+y+d-+-+w", /*  3/12 */
+X    "+---+m---+--+--a+j---q-e--", /*  3/13 */
+X    "-l--s---+--+--i---+-------", /*  3/14 */
+X    "---v--+---+-n+-k-+---+-gr-", /*  3/15 */
+X    "+--il--v+oa+--+----z-++w-+", /*  3/16 */
+X    "-++---+--s--cg-u-b+-+-----", /*  3/17 */
+X    "--n-o+-i+----D+----w--+-f-", /*  3/18 */
+X    "-+----z--q++b---++l-k--r-+", /*  3/19 */
+X    "--+w++-s+-u--+-cin+e+E+fv-", /*  3/20 */
+X    "--------+---i-------------", /*  3/21 */
+X    "fs-+g++--y---+d-t+++rn--+-", /*  3/22 */
+X    "--+---p+C-+z--h+---c--ik-+", /*  3/23 */
+X    "b+--+---q--e+--r++--wm+---", /*  3/24 */
+X    "--+--t++-ch---x----+z--+g+", /*  3/25 */
+X    "j+-+----n+-b++--mdw---+---", /*  3/26 */
+X    "qy+-+ve+--x-Dcz-+hm+t+-+++", /*  3/27 */
+X    "-----i--+--+---l------x+--", /*  3/28 */
+X    "------+--g-m+yq-+---+---+u", /*  3/29 */
+X    "k-+-j---+++----+-xpi-c-+--", /*  3/30 */
+X    "++-q+b+a--------+-g-+-u-e-", /*  3/31 */
+X    "-c+--o-----ny++----v-+-++x", /*  4/1  */
+X    "+-sg--+k+++++lmij-+-+-au--", /*  4/2  */
+X    "-r-e+y+k--G------A-g----+-", /*  4/3  */
+X    "--------o-----+-z+---r---+", /*  4/4  */
+X    "----t+x-s-+--y----++k-f++-", /*  4/5  */
+X    "d--+---z-+-+rj-+-+---l--p+", /*  4/6  */
+X    "-+------qst----b+-++x--+--", /*  4/7  */
+X    "h-+++n-+---c+++--m-ed-o---", /*  4/8  */
+X    "x+-+--d---z+---y-l---b-+++", /*  4/9  */
+X    "-q+-+th+++e-i+n-+-c++j+u-w", /*  4/10 */
+X    "+--a-----+-j---+-p--------", /*  4/11 */
+X    "--o-w+--+---q-+-+-if--+-+y", /*  4/12 */
+X    "+p-k--+u--+g-v-+----++-a--", /*  4/13 */
+X    "-++-++fk+b+-+i+mo-v+-+e-ct", /*  4/14 */
+X};
+END_OF_FILE
+  if test 13445 -ne `wc -c <'schedule.c'`; then
+    echo shar: \"'schedule.c'\" unpacked with wrong size!
+  fi
+  # end of 'schedule.c'
+fi
+if test -f 'schedule92.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'schedule92.c'\"
+else
+  echo shar: Extracting \"'schedule92.c'\" \(13015 characters\)
+  sed "s/^X//" >'schedule92.c' <<'END_OF_FILE'
+X/*
+X * schedule.c : This file defines the teams, the schedule matrix,
+X *	special dates, and neutral sites for the season. It is the
+X *	the only file you should have to change for a new season.
+X *
+X * This file is for the 1992-93 season. The schedule[] array has been
+X * translated from that distributed with the original nhl.c to correspond
+X * to the new format as of 93-94.
+X *
+X * See the README file for instructions on updating this for a
+X * new season.
+X *
+X * This file is included directly in nhl.c. Don't bug me about it...
+X */
+X
+X/*
+X * Set these to the starting and ending dates of the season.
+X * They have to be strings (ie., enclosed in double-quotes) and
+X * should be in form MM/DD/YYYY (the year must be all four digits).
+X * The START_DOW should be a capitalized string representing the
+X * day-of-the-week for the START_DATE. Check weekday[] in nhl.c for spelling.
+X */
+X#define NHL_START_DATE		"10/6/1992"
+X#define NHL_START_DOW		"Tuesday"
+X#define NHL_END_DATE		"4/15/1993"
+X
+X/*
+X * The list of teams referenced by the schedule[] array.
+X */
+X#define NUM_TEAMS 24
+X
+Xstruct _team_struct {
+X    char *city;					/* City name for team */
+X    char *name;					/* Team nickname */
+X    char *abbrev;				/* Team code for cmd-line */
+X} teams[NUM_TEAMS] = {
+X    { "Boston",		"Bruins",	"bos" },
+X    { "Buffalo",	"Sabres",	"buf" },
+X    { "Calgary",	"Flames",	"cgy" },
+X    { "Chicago",	"Blackhawks",	"chi" },
+X    { "Detroit",	"Red Wings",	"det" },
+X    { "Edmonton",	"Oilers",	"edm" },
+X    { "Hartford",	"Whalers",	"hfd" },
+X    { "Los Angeles",	"Kings",	"los" },
+X    { "Minnesota",	"Stars",	"min" },
+X    { "Montreal",	"Canadiens",	"mtl" },
+X    { "New Jersey",	"Devils",	"njd" },
+X    { "NY Islanders",	"Islanders",	"nyi" },
+X    { "NY Rangers",	"Rangers",	"nyr" },
+X    { "Ottawa",		"Senators",	"ott" },
+X    { "Philadelphia",	"Flyers",	"phl" },
+X    { "Pittsburgh",	"Penguins",	"pit" },
+X    { "Quebec",		"Nordiques",	"que" },
+X    { "St. Louis",	"Blues",	"stl" },
+X    { "San Jose",	"Sharks",	"sjs" },
+X    { "Tampa Bay",	"Lightning",	"tmp" },
+X    { "Toronto",	"Maple Leafs",	"tor" },
+X    { "Vancouver",	"Canucks",	"van" },
+X    { "Washington",	"Capitals",	"wsh" },
+X    { "Winnipeg",	"Jets",		"wpg" },
+X};
+X
+X#define NUM_DIVISIONS 4
+X#define MAX_TEAMS_PER_DIVISION 6
+X
+Xstruct _division_struct {
+X    char *name;					/* Division name */
+X    char *teams[MAX_TEAMS_PER_DIVISION];	/* List of team abbrevs */
+X    char *abbrev;				/* Division abbrev */
+X    char flags[NUM_TEAMS];			/* Array of flags for teams */
+X} divisions[NUM_DIVISIONS] = {
+X    { "Adams",	 { "bos","buf","hfd","mtl","ott","que" }, "adams" },
+X    { "Patrick", { "njd","nyi","nyr","phl","pit","wsh" }, "patrick" },
+X    { "Norris",	 { "chi","det","min","stl","tmp","tor" }, "norris" },
+X    { "Smythe",	 { "cgy","edm","los","sjs","van","wpg" }, "smythe" },
+X};
+X
+X/*
+X * Special dates for which there are no games this season:
+X */
+Xstruct _special_struct {
+X    int month,day;					/* Date */
+X    char *text;						/* Message to print */
+X} special_dates[] = {
+X    { 12, 24, "Holiday Break" },
+X    { 12, 25, "Holiday Break" },
+X    {  2,  4, "All Star Break" },
+X    {  2,  5, "All Star Break" },
+X    {  2,  6, "All Star Game in Montreal" },
+X    {  2,  7, "All Star Break" },
+X    {  0,  0, NULL },
+X};
+X
+X/*
+X * The list of neutral sites referenced in the schedule[] array
+X */
+Xchar *neutral_sites[] = {
+X    "Atlanta, GA",
+X    "Birmingham, AL",
+X    "Cincinnati, OH",
+X    "Cleveland, OH",
+X    "Dallas, TX",
+X    "Halifax, N.S.",
+X    "Hamilton, Ont.",
+X    "Indianapolis, IN",
+X    "Miami, FL",
+X    "Milwaukee, WI",
+X    "Oklahoma City, OK",
+X    "Phoenix, AZ",
+X    "Providence, RI",
+X    "Saskatoon, Sask.",
+X    "Sacramento, CA",
+X};
+X
+X/*
+X * Schedule matrix:
+X *   Each string represents one day of the season, The Nth character in
+X *   the string represents what the Nth team (in the teams[] array) is
+X *   doing on that day. The entries are interpreted as follows:
+X *	-   : This team is idle
+X *	+   : This team is home
+X *	a-z : This team is away at the team given by the letter
+X *	A-Z : This team is the home team at a neutral site given by the letter
+X *   Accessors are defined here for accessing the array. This will make
+X *   it easier when the day comes that size of the league exceeds the
+X *   size of the alphabet. The accessors have to map from the characters
+X *   used in schedule[] into the teams[] and neutral_sites[] arrays.
+X */
+X
+X#define ISIDLECODE(C)		((C) == '-')
+X#define ISHOMECODE(C)		((C) == '+')
+X#define ISAWAYCODE(C)		((C) >= 'a' && (C) <= 'z')
+X#define ISSITECODE(C)		((C) >= 'A' && (C) <= 'Z')
+X
+X#define TEAMCODETOINDEX(C)	((int)((C) - 'a'))
+X#define INDEXTOTEAMCODE(C)	((char)((C) + 'a'))
+X
+X#define SITECODETOINDEX(C)	((int)((C) - 'A'))
+X#define INDEXTOSITECODE(C)	((char)((C) + 'A'))
+X
+Xchar *schedule[] = {
+X    "--+-x++crg+k--p+-+--+fu+", /* 10/6 */
+X    "---t---------------+----", /* 10/7 */
+X    "+++-hca++n-p-+-+bi+----s", /* 10/8 */
+X    "----------o-w-+-------+-", /* 10/9 */
+X    "+g+rsv+++++akqwj+++ic++h", /* 10/10 */
+X    "-+-+-+---b---------df---", /* 10/11 */
+X    "+-----m---+-+a-------+kv", /* 10/12 */
+X    "-pi----+N-----q+++hr----", /* 10/13 */
+X    "-----x+---m-+g---------+", /* 10/14 */
+X    "s-h++d-+rp-o--++e++u+---", /* 10/15 */
+X    "-+-----------w-----b-x++", /* 10/16 */
+X    "hwsu+e++j+++l-kg+q+-+-+-", /* 10/17 */
+X    "---+----u--m+-+-----+d-o", /* 10/18 */
+X    "---------+-------j------", /* 10/19 */
+X    "--+-+tkc--++-ul+---+Gp-e", /* 10/20 */
+X    "-+-b-----+--+---r+j---m-", /* 10/21 */
+X    "c-++p-n-+-d--+++i--+to--", /* 10/22 */
+X    "f+---+-x-m-w+-----b---++", /* 10/23 */
+X    "----r-li+o++n++kt+u++---", /* 10/24 */
+X    "v-f+d+---------------+--", /* 10/25 */
+X    "------------+-m--+r---x+", /* 10/26 */
+X    "-------l---+-+-n+--q----", /* 10/27 */
+X    "-ux-+++-f+g-------ej++v+", /* 10/28 */
+X    "+--+---a----+-drm+------", /* 10/29 */
+X    "-++-+---v-+k-b----t+e+c-", /* 10/30 */
+X    "+n+au++gc+l+j+r-++--+-fq", /* 10/31 */
+X    "---+-----------t--d+----", /* 11/1 */
+X    "-m+------+--+--------c-j", /* 11/2 */
+X    "---w-++----p-f-+gt-+--H-", /* 11/3 */
+X    "--v-+----e--+-m------+--", /* 11/4 */
+X    "+s++---++-hi-c-+ap+-d---", /* 11/5 */
+X    "----+xe------v-----w-+++", /* 11/6 */
+X    "+h-qji++++s+a-+u+o+l+-g-", /* 11/7 */
+X    "--q+---s-------d+-+--+-v", /* 11/8 */
+X    "--j------+--++-----mn---", /* 11/9 */
+X    "-----r-x+------i-+v--+-+", /* 11/10 */
+X    "b+g-t-+--k+-++--n--+--m-", /* 11/11 */
+X    "+-a+-s-++--o--++pd+--h-i", /* 11/12 */
+X    "-+--+-b---+--t-e---+--k-", /* 11/13 */
+X    "+ltigh++++w+q-j-++++as+r", /* 11/14 */
+X    "---+----d----o+---------", /* 11/15 */
+X    "j------v-+-------u--++--", /* 11/16 */
+X    "-p-e+--s-n---+-+G-++q--t", /* 11/17 */
+X    "-k---++-w-G------g---f+-", /* 11/18 */
+X    "+-+h+-n+tq-ao++-+-++sc-e", /* 11/19 */
+X    "----w-----+----k------+-", /* 11/20 */
+X    "+++s-vq+b+pcxja++++rh+-+", /* 11/21 */
+X    "-o---+-----f--+-+-----q-", /* 11/22 */
+X    "n--v+----+--++-m---e-+j-", /* 11/23 */
+X    "-----------x-------u+--+", /* 11/24 */
+X    "w++-+++f+gn-p+-+bec--i+-", /* 11/25 */
+X    "----------------u+--+r--", /* 11/26 */
+X    "+++f++ae+--oib+w--xc--++", /* 11/27 */
+X    "g-+cr++u++q+--l+++if+jp-", /* 11/28 */
+X    "-n-----------+----------", /* 11/29 */
+X    "qj--+---m+--+---+-----e-", /* 11/30 */
+X    "---J-srdn-++-+-l-++-k---", /* 12/1 */
+X    "--+-m-------+----------c", /* 12/2 */
+X    "+--++vs+ean--++ho-+-d+--", /* 12/3 */
+X    "-++--------bw----c----+-", /* 12/4 */
+X    "k--ut+h+qx++-+ns+f+++-l+", /* 12/5 */
+X    "o+-+-----db-+-+-----m---", /* 12/6 */
+X    "-q+--c-----t-+--+v-+-+n-", /* 12/7 */
+X    "--fe++-L-h-----+-------p", /* 12/8 */
+X    "b+--u-+---+-Ig----vm++k-", /* 12/9 */
+X    "+--+-i-++--d-a--hs+-----", /* 12/10 */
+X    "-+u-+-b---+-t-ek---++-+w", /* 12/11 */
+X    "jgni-t++++p+-+++sh++--ol", /* 12/12 */
+X    "-----l---m-K+---v----+--", /* 12/13 */
+X    "+ae-+-------------------", /* 12/14 */
+X    "--m-n--++-xr++p+-E-hi--+", /* 12/15 */
+X    "-----++--+------j-+s-fg-", /* 12/16 */
+X    "---+-----q-+rl+o++-----d", /* 12/17 */
+X    "e---++wf--t-------v+-++-", /* 12/18 */
+X    "+j+oi-+c++-pgu++-++-+sar", /* 12/19 */
+X    "-+-+----d--q--t-+--+b---", /* 12/20 */
+X    "--+--cj--++-k+-+p-x---n+", /* 12/21 */
+X    "+---+--++--------i-aeh--", /* 12/22 */
+X    "-+xn-++--+mj+++o--fg--b+", /* 12/23 */
+X    "------------------------", /* 12/24 */
+X    "------------------------", /* 12/25 */
+X    "g--+u-+s+--+lqw-+d+-+-+i", /* 12/26 */
+X    "m+f+d+k-xv+-++-bn+--r+-+", /* 12/27 */
+X    "------------------------", /* 12/28 */
+X    "x--e++B+-fq+w-h-+gv-l+++", /* 12/29 */
+X    "--------------s---+-----", /* 12/30 */
+X    "i++++x+v+c-rbe-+g+-dp+-+", /* 12/31 */
+X    "----------w-----------+-", /* 1/1 */
+X    "+n+wq+a+lh++p+c++u+f+s+k", /* 1/2 */
+X    "-+-+-++-g-----f--b-v-+-d", /* 1/3 */
+X    "----+----Om-+-----j-e---", /* 1/4 */
+X    "p-+--r---s-+---+l++----c", /* 1/5 */
+X    "-g----++k-+-+m-----h+u--", /* 1/6 */
+X    "+-r+-d--p-----++a+----o-", /* 1/7 */
+X    "-+--+--x--+b-k----u-+e-+", /* 1/8 */
+X    "+-pr-w+-++a+o-++g+-ijl+-", /* 1/9 */
+X    "-+b+-o+d-g---++x--n----+", /* 1/10 */
+X    "----+-------+----e-u+m--", /* 1/11 */
+X    "+ali---n+-++-+----x--k-+", /* 1/12 */
+X    "----++j--+--+----u-e+-mf", /* 1/13 */
+X    "+-o+---kdq++-++a+n----l-", /* 1/14 */
+X    "-v--++f-----------e--+--", /* 1/15 */
+X    "+-iu--v++++kjpa++tq+++-h", /* 1/16 */
+X    "-f-+o+-----n-++----+d-t-", /* 1/17 */
+X    "+-----x-----------a----N", /* 1/18 */
+X    "lc+x++-ft--+e+-vn+-+r+-+", /* 1/19 */
+X    "---------+j-------------", /* 1/20 */
+X    "o--++-+++----i+--eg+thd-", /* 1/21 */
+X    "-++--+---k+----fb------c", /* 1/22 */
+X    "+q+grx+++ua+hwlc++t++i++", /* 1/23 */
+X    "---+--o-t-----+----+-d--", /* 1/24 */
+X    "j--------+--------------", /* 1/25 */
+X    "qo+-c--+u-l+-r++++h-+-p-", /* 1/26 */
+X    "-+-vf+j--+--+--------+bm", /* 1/27 */
+X    "+-h---n++-ip-+++ot-+---a", /* 1/28 */
+X    "-+-s--------b---w-+---+-", /* 1/29 */
+X    "l-shv-++++r+ujp+-++i++-g", /* 1/30 */
+X    "-+---b---+----jw------+-", /* 1/31 */
+X    "--------v--+l+---++sr+-n", /* 2/1 */
+X    "+-w--a-q--------+-----+-", /* 2/2 */
+X    "q+ke+nbjs++u++m-+x+v++-+", /* 2/3 */
+X    "------------------------", /* 2/4 */
+X    "------------------------", /* 2/5 */
+X    "------------------------", /* 2/6 */
+X    "------------------------", /* 2/7 */
+X    "pn--------+-k+-A--------", /* 2/8 */
+X    "r---+h-++le+-o+-++-+tqi-", /* 2/9 */
+X    "-x+---------+--m--c----+", /* 2/10 */
+X    "d--+h--+to----+--+-++ur-", /* 2/11 */
+X    "-++--+x----m+---c-f--b-+", /* 2/12 */
+X    "--+pr-c+un++l+k+-+--+-h-", /* 2/13 */
+X    "t+-+d+--+-o---+bf-x+i--+", /* 2/14 */
+X    "-------+----+----m---h--", /* 2/15 */
+X    "--C--l-----+--c---+---s-", /* 2/16 */
+X    "jgu-+-+i+++--q--+k-e+---", /* 2/17 */
+X    "---+-p-d---+--v+-l+--+-s", /* 2/18 */
+X    "-ke-+-----+--------u+---", /* 2/19 */
+X    "u----g+w++-+sjilt-+F+++v", /* 2/20 */
+X    "--d+ij+-+++----gkw----+-", /* 2/21 */
+X    "----o--t----sxD---O+v+-+", /* 2/22 */
+X    "--s--q---rp+-N-++++---ln", /* 2/23 */
+X    "-+--b-+-----v-g------+--", /* 2/24 */
+X    "+--t---ra-oq-++n++++s---", /* 2/25 */
+X    "-++------b--c--------x-+", /* 2/26 */
+X    "+j+e++q+r++ofk++++cph-a-", /* 2/27 */
+X    "---+k++-x-+g-+-wndf---++", /* 2/28 */
+X    "+G-------a-----------b--", /* 3/1 */
+X    "--h-l--+---+-s+ox-+--w++", /* 3/2 */
+X    "-m----+-utg-+------++---", /* 3/3 */
+X    "+-r+-+-+-----h--d+---a-f", /* 3/4 */
+X    "-+-k+-b---+-+-wm----e-+-", /* 3/5 */
+X    "+-t--h+++i--q---+a-++g-u", /* 3/6 */
+X    "-+-+is--+-+w-dk---+---+b", /* 3/7 */
+X    "------q---------+-------", /* 3/8 */
+X    "p------m+-v++-l+--i+w++t", /* 3/9 */
+X    "-q--f+u--+-j----+---+---", /* 3/10 */
+X    "+-++c--pva--d-++-+r--No-", /* 3/11 */
+X    "-----+----f--------u+x-+", /* 3/12 */
+X    "+g+---+or+c+wa+lj+----+-", /* 3/13 */
+X    "-++fs++b+--+--g--i+x-cl+", /* 3/14 */
+X    "m-----------+---+---q---", /* 3/15 */
+X    "Mr+cJ-t+o-as--+--+++--eh", /* 3/16 */
+X    "-----m------+-----------", /* 3/17 */
+X    "n---+k-+eq+h-+p++--+t+-v", /* 3/18 */
+X    "------w-----+-----m---+-", /* 3/19 */
+X    "+t-jau-+-++v-p-+kh-+++--", /* 3/20 */
+X    "--x+iD--+-o---+f--wd--++", /* 3/21 */
+X    "+j----a--+--n+---v---+--", /* 3/22 */
+X    "----+-----+e---+w-pkx-++", /* 3/23 */
+X    "b++---+v-g--+-m--c---+--", /* 3/24 */
+X    "+d-+----+al+-+++--oni-p-", /* 3/25 */
+X    "--vm-+-f----+----x---+-+", /* 3/26 */
+X    "+---t+i-++w+-jqa+-l+f-+-", /* 3/27 */
+X    "-+++--dx----+b-wm---c-++", /* 3/28 */
+X    "----+--e--+-------k-----", /* 3/29 */
+X    "gw+---+----+--l--+---r+c", /* 3/30 */
+X    "-+---+-uf+b-----j---+---", /* 3/31 */
+X    "--++d-p-c----+++n-++ot-s", /* 4/1 */
+X    "---------w-m+---------+-", /* 4/2 */
+X    "+asr++++hlu+-g+q+++o+e-f", /* 4/3 */
+X    "b+s+------+-w+-k-d+--n+-", /* 4/4 */
+X    "------m-----+-----------", /* 4/5 */
+X    "qih--s-++--w--x-+t++--++", /* 4/6 */
+X    "-----vn--p+-k+-+-----+--", /* 4/7 */
+X    "+--lt--+---+--+-a-h+x-o+", /* 4/8 */
+X    "--+---------+--m-----c--", /* 4/9 */
+X    "je-t+-qs++w+plu++i+++-+-", /* 4/10 */
+X    "++v+-++-r-+k-a--b+-dg+-f", /* 4/11 */
+X    "---------+--o-+-------j-", /* 4/12 */
+X    "-+fi-+-v+b---q--+u-x++-+", /* 4/13 */
+X    "n-----+---+g++-k------m-", /* 4/14 */
+X    "-++++xl+e-p+--b+-+crdh-+", /* 4/15 */
+X};
+END_OF_FILE
+  if test 13015 -ne `wc -c <'schedule92.c'`; then
+    echo shar: \"'schedule92.c'\" unpacked with wrong size!
+  fi
+  # end of 'schedule92.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

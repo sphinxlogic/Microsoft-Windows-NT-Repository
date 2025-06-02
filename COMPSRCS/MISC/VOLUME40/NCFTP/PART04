@@ -1,0 +1,2272 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v40i079:  ncftp - Alternative User Interface for FTP, v1.6, Part04/06
+Message-ID: <1993Nov2.232434.6463@sparky.sterling.com>
+X-Md4-Signature: d71867cd0b7b59f46522a93e5b22ae0e
+Keywords: ncftp
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Tue, 2 Nov 1993 23:24:34 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 40, Issue 79
+Archive-name: ncftp/part04
+Environment: UNIX, ANSI-C, !SVR4
+Supersedes: ncftp: Volume 39, Issue 53-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ftprc.c main.c patchlevel.h set.c
+# Wrapped by kent@sparky on Mon Nov  1 16:19:17 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 6)."'
+if test -f 'ftprc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftprc.c'\"
+else
+  echo shar: Extracting \"'ftprc.c'\" \(11813 characters\)
+  sed "s/^X//" >'ftprc.c' <<'END_OF_FILE'
+X/* ftprc.c */
+X
+X/*  $RCSfile: ftprc.c,v $
+X *  $Revision: 14020.11 $
+X *  $Date: 93/07/09 10:58:37 $
+X */
+X
+X#include "sys.h"
+X
+X#include <sys/stat.h>
+X
+X#include <ctype.h>
+X
+X#include "util.h"
+X#include "ftprc.h"
+X#include "main.h"
+X#include "cmds.h"
+X#include "set.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X/* ftprc.c global variables */
+Xsiteptr					firstsite = NULL, lastsite = NULL;
+Xrecentsite				recents[dMAXRECENTS];
+Xint						nRecents = 0;
+Xint						nSites = 0;
+Xint						keep_recent = dRECENT_ON;
+Xlongstring				rcname;
+Xlongstring				recent_file;
+Xint						parsing_rc = 0;
+X
+Xextern char				*line, *margv[];
+Xextern int				margc, fromatty;
+Xextern string			anon_password;		/* most likely your email address */
+Xextern struct userinfo	uinfo;
+X
+Xint thrash_rc(void)
+X{
+X	struct stat			st;
+X	string				word, str;
+X	longstring			cwd;
+X	char				*cp, *dp, *rc;
+X	FILE				*fp;
+X	int					i;
+X
+X	(void) get_cwd(cwd, sizeof(cwd));
+X	if (cwd[strlen(cwd) - 1] != '/')
+X		(void) Strncat(cwd, "/");
+X
+X	/* Because some versions of regular ftp complain about ncftp's
+X	 * #set commands, FTPRC takes precedence over NETRC.
+X	 */
+X	cp = getenv("DOTDIR");
+X	for (i=0; i<2; i++) {
+X		rc = (i == 0) ? FTPRC : NETRC;
+X
+X		(void) sprintf(rcname, "%s%s", cwd, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X		
+X		(void) sprintf(rcname, "%s.%s", cwd, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X
+X		if (cp != NULL) {
+X			(void) sprintf(rcname, "%s/.%s", cp, rc);
+X			if (stat(rcname, &st) == 0)
+X				goto foundrc;
+X		}
+X
+X		(void) sprintf(rcname, "%s/.%s", uinfo.homedir, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X	}
+X
+X	return (0);	/* it's OK not to have an rc. */
+X	
+Xfoundrc:	
+X	if ((st.st_mode & 077) != 0)				/* rc must be unreadable by others. */
+X		(void) chmod(rcname, 0600);
+X
+X	if ((fp = fopen(rcname, "r")) == NULL) {
+X		PERROR("thrash_rc", rcname);
+X		return -1;
+X	}
+X	
+X	parsing_rc = 1;
+X	while ((cp = FGets(str, fp)) != 0) {
+X		while (isspace(*cp)) ++cp;		/* skip leading space. */
+X		if (*cp == '#') {
+X			if ((strncmp("set", ++cp, (size_t)3) == 0) || (strncmp("unset", cp, (size_t)5) == 0)) {
+X				(void) strcpy(line, cp);
+X				makeargv();
+X				(void) set(margc, margv);			
+X				/* setting or unsetting a variable. */
+X			} /* else a comment. */
+X		} else {
+X			if (strncmp(cp, "machine", (size_t) 7) == 0) {
+X				/* We have a new machine record. */
+X				cp += 7;
+X				while (isspace(*cp)) ++cp;	/* skip delimiting space. */
+X				dp = word;
+X				while (*cp && !isspace(*cp)) *dp++ = *cp++;	/* copy the name. */
+X				*dp = 0;
+X				AddNewSitePtr(word);
+X			}
+X		}
+X	}
+X	(void) fclose(fp);
+X	parsing_rc = 0;
+X	return 1;
+X}	/* thrash_rc */
+X
+X
+X
+X
+Xvoid AddNewSitePtr(char *word)
+X{
+X	siteptr			s;
+X
+X	if ((s = (siteptr) malloc(sizeof(site))) != 0) {
+X		s->next = NULL;
+X		if ((s->name = malloc(strlen(word) + 1)) != 0) {
+X			(void) strcpy(s->name, word);
+X			if (firstsite == NULL)
+X				firstsite = lastsite = s;
+X			else {
+X				lastsite->next = s;
+X				lastsite = s;
+X			}
+X			++nSites;
+X		} else {
+X			Free(s);
+X		}
+X	}
+X}	/* AddNewSitePtr */
+X
+X
+X
+X
+Xstatic int RecentCmp(recentsite *a, recentsite *b)
+X{
+X	int i = 1;
+X	
+X	if (a->lastcall > b->lastcall)
+X		i = -1;
+X	else if (a->lastcall == b->lastcall)
+X		i = 0;
+X	return i;
+X}	/* RecentCmp */
+X
+X
+X
+X
+Xstatic siteptr FindNetrcSite(char *host)
+X{
+X	register siteptr s, s2;
+X
+X	/* see if 'host' is in our list of favorite sites (in NETRC). */
+X	for (s = firstsite; s != NULL; s2=s->next, s=s2) {
+X		if (strstr(s->name, host) != NULL) {
+X			return s;
+X		}
+X	}
+X	return NULL;
+X}	/* FindNetrcSite */
+X
+X
+X
+X
+Xstatic recentsite *FindRecentSite(char *host)
+X{
+X	register recentsite		*r;
+X	register int			i;
+X
+X	/* see if 'host' is in our list of favorite sites (in recent-log). */
+X	for (i=0; i<nRecents; i++) {
+X		r = &recents[i];
+X		if (strstr(r->name, host) != NULL) {
+X			return r;
+X		}
+X	}
+X	return NULL;
+X}	/* FindRecentSite */
+X
+X
+X
+X
+Xvoid ReadRecentSitesFile(void)
+X{
+X	FILE *rfp;
+X	recentsite *r;
+X	char name[64];
+X	int offset;
+X	longstring str;
+X
+X	nRecents = 0;
+X	if (recent_file[0] != 0 && keep_recent) {
+X		rfp = fopen(recent_file, "r");
+X		if (rfp != NULL) {
+X			for (; nRecents < dMAXRECENTS; ) {
+X				r = &recents[nRecents];
+X				if (FGets(str, rfp) == NULL)
+X					break;
+X				(void) RemoveTrailingNewline(str, NULL);
+X				if (sscanf(str, "%s %lu %n",
+X					name,
+X					(unsigned long *) &r->lastcall,
+X					&offset) >= 2)
+X				{
+X					if ((r->name = NewString(name)) != NULL) {
+X						r->dir = NewString(str + offset);
+X						if (r->dir != NULL)
+X							nRecents++;
+X						else free(r->name);
+X					}
+X				}
+X			}
+X			(void) fclose(rfp);
+X		}
+X	}
+X}	/* ReadRecentSitesFile */
+X
+X
+X
+Xstatic void SortRecentList(void)
+X{
+X	QSort(recents, nRecents, sizeof(recentsite), RecentCmp);
+X}	/* SortRecentList */
+X
+X
+X
+X
+Xvoid WriteRecentSitesFile(void)
+X{
+X	FILE			*rfp;
+X	recentsite		*r;
+X	int				i;
+X
+X	if ((recent_file[0] != 0) && (nRecents > 0) && (keep_recent)) {
+X		rfp = fopen(recent_file, "w");
+X		SortRecentList();
+X		if (rfp != NULL) {
+X			for (i=0; i<nRecents; i++) {
+X				r = &recents[i];
+X				(void) fprintf(rfp, "%-32s %11lu %s\n", r->name,
+X					(unsigned long) r->lastcall, r->dir);
+X			}
+X			(void) fclose(rfp);
+X			(void) chmod(recent_file, 0600);
+X		}
+X	}
+X}	/* WriteRecentSitesFile */
+X
+X
+X
+X
+Xvoid AddRecentSite(char *host, char *lastdir)
+X{
+X	char			*nhost, *ndir;
+X	recentsite		*r;
+X	
+X	if (keep_recent) {
+X		nhost = NewString(host);
+X		/* Use '/' to denote that the current directory wasn't known,
+X		 * because we won't try to cd to the root directory.
+X		 */
+X		ndir = NewString(*lastdir ? lastdir : "/");
+X		
+X		/* Don't bother if we don't have the memory, or if it is already
+X		 * in our NETRC.
+X		 */
+X		if ((ndir != NULL) && (nhost != NULL) && (FindNetrcSite(host) == NULL)) {
+X			if (nRecents == dMAXRECENTS) {
+X				SortRecentList();
+X				r = &recents[dMAXRECENTS - 1];
+X				if (r->name != NULL)
+X					free(r->name);
+X				if (r->dir != NULL)
+X					free(r->dir);
+X			} else {
+X				r = &recents[nRecents];
+X				nRecents++;
+X			}
+X			r->name = nhost;			
+X			r->dir = ndir;
+X			(void) time(&r->lastcall);
+X			SortRecentList();
+X		}
+X	}
+X}	/* AddRecentSite */
+X
+X
+X
+X
+X/*
+X * After you are done with a site (by closing it or quitting), we
+X * need to update the list of recent sites called.
+X */
+Xvoid UpdateRecentSitesList(char *host, char *lastdir)
+X{
+X	recentsite *r;
+X	char *ndir;
+X
+X	if (keep_recent) {	
+X		r = FindRecentSite(host);
+X		if (r == NULL)
+X			AddRecentSite(host, lastdir);
+X		else {
+X			/* Update the last time connected, and the directory we left in. */
+X			if ((ndir = NewString(*lastdir ? lastdir : "/")) != NULL) {
+X				free(r->dir);
+X				r->dir = ndir;
+X			}
+X			(void) time(&r->lastcall);
+X		}
+X	}
+X}	/* UpdateRecentSitesList */
+X
+X
+X
+X/*
+X * Prints out the number of sites we know about, so the user can figure out
+X * an abbreviation or type it's number to open (setpeer).
+X */
+Xvoid PrintSiteList(void)
+X{
+X	int						i, j;
+X	siteptr					s, s2;
+X
+X	if (fromatty) {
+X		j = 0;
+X		i = 1;
+X		if (nRecents > 0) {
+X			j++;
+X			(void) printf("Recently called sites:\n");
+X			for (; i<=nRecents; i++) {
+X				(void) printf("%4d. %-32s", i, recents[i-1].name);
+X				i++;
+X				if (i <= nRecents) {
+X					(void) printf("%5d. %-32s", i, recents[i-1].name);
+X				} else {
+X					(void) printf("\n");
+X					break;
+X				}
+X				(void) printf("\n");
+X			}
+X		}
+X		if (nSites > 0) {
+X			j++;
+X			(void) printf("Sites in your netrc (%s):\n", rcname);
+X			for (s = firstsite; s != NULL; s2=s->next, s=s2, ++i) {
+X				(void) printf("%4d. %-32s", i, s->name);
+X				s2=s->next;
+X				s=s2;
+X				i++;
+X				if (s != NULL) {
+X					(void) printf("%5d. %-32s", i, s->name);
+X				} else {
+X					(void) printf("\n");
+X					break;
+X				}
+X				(void) printf("\n");
+X			}
+X		}
+X		if (j > 0) {
+X			(void) printf("\
+XNote that you can specify an abbreviation of any name, or #x, where x is the\n\
+Xnumber of the site you want to connect to.\n\n");
+X		}
+X	}
+X}	/* PrintRecentSiteList */
+X
+X
+X
+X
+X/*
+X * Given a sitename, check to see if the name was really an abbreviation
+X * of a site in the NETRC, or a site in our list of recently connected
+X * sites.  Also check if the name was in the format #x, where x which
+X * would mean to use recents[x].name as the site; if x was greater than
+X * the number of sites in the recent list, then index into the netrc
+X * site list.
+X */
+Xvoid GetFullSiteName(char *host, char *lastdir)
+X{
+X	register siteptr		s, s2;
+X	register recentsite		*r;
+X	char					*ndir, *nhost, *cp;
+X	int						x, i, isAllDigits;
+X
+X	ndir = nhost = NULL;
+X	x = 0;
+X
+X	/* Don't allow just numbers as abbreviations;  "open 2" could be
+X	 * confused between site numbers in the open 'menu,' like
+X	 * "2. unlinfo.unl.edu" and IP numbers "128.93.2.1" or even numbers
+X	 * in the site name like "simtel20.army.mil."
+X	 */
+X	
+X	for (isAllDigits = 1, cp = host; *cp != 0; cp++) {
+X		if (!isdigit(*cp)) {
+X			isAllDigits = 0;
+X			break;
+X		}
+X	}
+X
+X	if (!isAllDigits) {
+X		if (host[0] == '#')
+X			(void) sscanf(host + 1, "%d", &x);
+X		/* Try matching the abbreviation, since it isn't just a number. */
+X		/* see if 'host' is in our list of favorite sites (in NETRC). */
+X
+X		if (x == 0) {
+X			if ((s = FindNetrcSite(host)) != NULL) {
+X				nhost = s->name;
+X			} else if ((r = FindRecentSite(host)) != NULL) {
+X				nhost = r->name;
+X				ndir = r->dir;
+X			}
+X		}
+X	} else if (sscanf(host, "%d", &x) != 1) {
+X		x = 0;
+X	}
+X
+X	if (--x >= 0) {
+X		if (x < nRecents) {
+X			nhost = recents[x].name;
+X			ndir = recents[x].dir;
+X		} else {
+X			x -= nRecents;
+X			if (x < nSites) {
+X				for (i = 0, s = firstsite; i < x; s2=s->next, s=s2)
+X					++i;				
+X				nhost = s->name;
+X			}
+X		}
+X	}
+X
+X	if (nhost != NULL) {
+X		(void) strcpy(host, nhost);
+X		if (lastdir != NULL) {
+X			*lastdir = 0;
+X			/* Don't cd if the dir is the root directory. */
+X			if (ndir != NULL && (strcmp("/", ndir) != 0))
+X				(void) strcpy(lastdir, ndir);
+X		}
+X	}
+X}	/* GetFullSiteName */
+X
+X
+X
+X
+Xint ruserpass2(char *host, char **username, char **pass, char **acct)
+X{
+X	FILE			*fp;
+X	char			*cp, *dp, *dst, *ep;
+X	str32			macname;
+X	char			*varname;
+X	int				site_found;
+X	string			str;
+X	static string	auser;
+X	static str32	apass, aacct;
+X
+X	site_found = 0;
+X
+X	if ((fp = fopen(rcname, "r")) != NULL) {
+X		parsing_rc = 1;
+X		while (FGets(str, fp)) {
+X			if ((cp = strstr(str, "machine")) != 0) {
+X				/* Look for the machine token. */
+X				cp += 7;
+X				while (isspace(*cp))
+X					cp++;
+X			} else
+X				continue;
+X			/* if (strstr(cp, host) != NULL) { */
+X			if (strncmp(host, cp, strlen(host)) == 0) {
+X				site_found = 1;
+X				while (!isspace(*cp))
+X					++cp;		/* skip the site name. */
+X				do {
+X					/* Skip any comments ahead of time. */
+X					for (dp=cp; *dp; dp++) {
+X						if (*dp == '#') {
+X							*dp = 0;
+X							break;
+X						}
+X					}
+X
+X					ep = cp;
+X					while (1) {
+X						varname = strtok(ep, RC_DELIM);
+X						if (!varname) break;
+X						dst = ep = NULL;
+X						switch (*varname) {
+X							case 'u':	/* user */
+X								*username = dst = auser;
+X								break;
+X							case 'l':	/* login */
+X								*username = dst = auser;
+X								break;
+X							case 'p':	/* password */
+X								*pass = dst = apass;
+X								break;
+X							case 'a':	/* account */
+X								*acct = dst = aacct;
+X								break;
+X						/*	case 'd':  /o default */
+X						/* unused -- use 'set anon_password.' */
+X							case 'm':	/* macdef or machine */
+X								if (strcmp(varname, "macdef"))
+X									goto done;	/* new machine record... */
+X								dst = macname;
+X								break;
+X							default:
+X								(void) fprintf(stderr, "Unknown .netrc keyword \"%s\"\n",
+X									varname
+X								);
+X						}
+X						if (dst) {
+X							dp = strtok(ep, RC_DELIM);
+X							if (dp)
+X								(void) strcpy(dst, dp);
+X							if (dst == macname) {
+X								/*
+X								 *	Read in the lines of the macro.
+X								 *	The macro's end is denoted by
+X								 *	a blank line.
+X								 */
+X								(void) make_macro(macname, fp);
+X								goto nextline;
+X							}
+X						}
+X					}
+Xnextline: ;
+X				} while ((cp = FGets(str, fp)) != 0);
+X				break;
+X			}		/* end if we found the machine record. */
+X		}
+Xdone:
+X		parsing_rc = 0;
+X		(void) fclose(fp);
+X	}
+X
+X	if (!site_found) {
+X		/* didn't find it in the rc. */
+X		return (0);
+X	}
+X
+X	return (1);	/* found */
+X}	/* ruserpass2 */
+X
+X/* eof ftprc.c */
+END_OF_FILE
+  if test 11813 -ne `wc -c <'ftprc.c'`; then
+    echo shar: \"'ftprc.c'\" unpacked with wrong size!
+  fi
+  # end of 'ftprc.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(24709 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/* main.c */
+X
+X/*  $RCSfile: main.c,v $
+X *  $Revision: 14020.15 $
+X *  $Date: 93/07/09 11:50:12 $
+X */
+X
+X#define _main_c_
+X
+X#define FTP_VERSION "1.6.0 (October 31, 1993)"
+X
+X/* #define BETA 1 */ /* If defined, it prints a little warning message. */
+X
+X#include "sys.h"
+X
+X#include <sys/stat.h>
+X#include <arpa/ftp.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <ctype.h>
+X#include <netdb.h>
+X#include <pwd.h>
+X
+X#ifdef SYSLOG
+X#	include <syslog.h>
+X#endif
+X
+X#if defined(CURSES) && !defined(NO_CURSES_H)
+X#	undef HZ		/* Collides with HaZeltine ! */
+X#	include <curses.h>
+X#	ifdef TERMH
+X#		include <term.h>
+X#	endif
+X#endif	/* CURSES */
+X
+X#include "util.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "open.h"
+X#include "set.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X/* main.c globals */
+Xint					slrflag;
+Xint					fromatty;			/* input is from a terminal */
+Xint					toatty;				/* output is to a terminal */
+Xint					doing_script;		/* is a file being <redirected to me? */
+Xchar				*altarg;			/* argv[1] with no shell-like preprocessing  */
+Xstruct servent		serv;				/* service spec for tcp/ftp */
+Xjmp_buf				toplevel;			/* non-local goto stuff for cmd scanner */
+Xchar				*line;				/* input line buffer */
+Xchar				*stringbase;		/* current scan point in line buffer */
+Xchar				*argbuf;			/* argument storage buffer */
+Xchar				*argbase;			/* current storage point in arg buffer */
+Xint					margc;				/* count of arguments on input line */
+Xchar				*margv[20];			/* args parsed from input line */
+Xstruct userinfo		uinfo;				/* a copy of their pwent really */
+Xint					ansi_escapes;		/* for fancy graphics */
+Xint                             startup_msg = 1;        /* TAR: display message on startup? */
+Xint					ignore_rc;			/* are we supposed to ignore the netrc */
+Xstring				progname;			/* simple filename */
+Xstring				prompt, prompt2;	/* shell prompt string */
+Xstring				anon_password;		/* most likely your email address */
+Xstring				pager;				/* program to browse text files */
+Xstring				version = FTP_VERSION;
+Xlong				eventnumber;		/* number of commands we've done */
+XFILE				*logf = NULL;		/* log user activity */
+Xlongstring			logfname;			/* name of the logfile */
+Xlong				logsize = 4096L;	/* max log size. 0 == no limit */
+Xint					percent_flags;		/* "%" in prompt string? */
+Xint					at_flags;			/* "@" in prompt string? */
+Xstring 				mail_path;			/* your mailbox */
+Xtime_t				mbox_time;			/* last modified time of mbox */
+Xsize_t				epromptlen;			/* length of the last line of the
+X										 * prompt as it will appear on screen,
+X										 * (i.e. no invis escape codes).
+X										 */
+X
+X#ifdef HPUX
+Xchar				*tcap_normal = "\033&d@";	/* Default ANSI escapes */
+Xchar				*tcap_boldface = "\033&dH";     /* Half Bright */
+Xchar				*tcap_underline = "\033&dD";
+Xchar				*tcap_reverse = "\033&dB";
+X
+X#else
+X
+Xchar                            *tcap_normal = "\033[0m";       /* Default ANSI escapes */
+Xchar                            *tcap_boldface = "\033[1m";
+Xchar                            *tcap_underline = "\033[4m";
+Xchar                            *tcap_reverse = "\033[7m";
+X
+X#endif
+X
+Xsize_t				tcl_normal = 4,		/* lengths of the above strings. */
+X					tcl_bold = 4,
+X					tcl_uline = 4,
+X					tcl_rev = 4;
+X
+X#ifdef CURSES
+Xstatic char			tcbuf[2048];
+X#endif
+X
+X/* main.c externs */
+Xextern int			debug, verbose, mprompt;
+Xextern int			options, cpend, data, connected, logged_in;
+Xextern int			curtype, macnum, remote_is_unix;
+Xextern FILE			*cout;
+Xextern struct cmd	cmdtab[];
+Xextern str32		curtypename;
+Xextern char			*macbuf;
+Xextern char			*reply_string;
+Xextern char			*short_verbose_msgs[4];
+Xextern string		vstr;
+Xextern Hostname		hostname;
+Xextern longstring	cwd, lcwd, recent_file;
+Xextern int			Optind;
+Xextern char			*Optarg;
+X#ifdef GATEWAY
+Xextern string		gate_login;
+X#endif
+X
+Xvoid main(int argc, char **argv)
+X{
+X	register char		*cp;
+X	int					top, opt, openopts = 0;
+X	string				tmp, oline;
+X	struct servent		*sptr;
+X
+X	if ((cp = rindex(argv[0], '/'))) cp++;
+X	else cp = argv[0];
+X	(void) Strncpy(progname, cp);
+X	
+X	sptr = getservbyname("ftp", "tcp");
+X	if (sptr == 0) fatal("ftp/tcp: unknown service");
+X	serv = *sptr;
+X
+X	if (init_arrays())			/* Reserve large blocks of memory now */
+X		fatal("could not reserve large amounts of memory.");
+X
+X#ifdef GZCAT
+X	if ((GZCAT == (char *)1) || (GZCAT == (char *)0)) {
+X		(void) fprintf(stderr,
+X"You compiled the program with -DGZCAT, but you must specify the path with it!\n\
+XRe-compile, this time with -DGZCAT=\\\"/path/to/gzcat\\\".\n");
+X		exit(1);
+X	}
+X#endif
+X#ifdef ZCAT
+X	if ((ZCAT == (char *)1) || (ZCAT == (char *)0)) {
+X		(void) fprintf(stderr,
+X"You compiled the program with -DZCAT, but you must specify the path with it!\n\
+XRe-compile, this time with -DZCAT=\\\"/path/to/zcat\\\".\n");
+X		exit(1);
+X	}
+X#endif
+X
+X	/*
+X	 * Set up defaults for FTP.
+X	 */
+X	mprompt = dMPROMPT;
+X	debug = dDEBUG;
+X	verbose = dVERBOSE;
+X	(void) Strncpy(vstr, short_verbose_msgs[verbose+1]);
+X
+X	(void) Strncpy(curtypename, dTYPESTR);
+X	curtype = dTYPE;
+X	(void) Strncpy(prompt, dPROMPT);
+X#ifdef GATEWAY
+X	(void) Strncpy(gate_login, dGATEWAY_LOGIN);
+X#endif
+X
+X#ifdef SOCKS
+X	SOCKSinit("ncftp");
+X#endif
+X	
+X	/*	Setup our pager variable, before we run through the rc,
+X		which may change it. */
+X	set_pager(getenv("PAGER"), 0);
+X#ifdef CURSES
+X	ansi_escapes = 1;
+X	termcap_init();
+X#else
+X	ansi_escapes = 0;
+X	if ((cp = getenv("TERM")) != NULL) {
+X		if ((*cp == 'v' && cp[1] == 't')		/* vt100, vt102, ... */
+X			|| (strcmp(cp, "xterm") == 0))
+X			ansi_escapes = 1;
+X	}
+X#endif
+X	(void) getuserinfo();
+X
+X	/* Init the mailbox checking code. */
+X	(void) time(&mbox_time);
+X
+X	(void) Strncpy(anon_password, uinfo.username);
+X	if (getlocalhostname(uinfo.hostname, sizeof(uinfo.hostname)) == 0) {
+X		(void) Strncat(anon_password, "@");
+X		(void) Strncat(anon_password, uinfo.hostname);
+X	}
+X#if dLOGGING
+X	(void) Strncpy(logfname, dLOGNAME);
+X	(void) LocalDotPath(logfname);
+X#else
+X	*logfname = 0;
+X#endif
+X	(void) Strncpy(recent_file, dRECENTF);
+X	(void) LocalDotPath(recent_file);
+X
+X	(void) get_cwd(lcwd, (int) sizeof(lcwd));
+X
+X#ifdef SYSLOG
+X#	ifdef LOG_LOCAL3
+X	openlog ("NcFTP", LOG_PID, LOG_LOCAL3);
+X#	else
+X	openlog ("NcFTP", LOG_PID);
+X#	endif
+X#endif				/* SYSLOG */
+X
+X
+X	ignore_rc = 0;
+X	(void) strcpy(oline, "open ");
+X	while ((opt = Getopt(argc, argv, "D:V:INRHaicmup:rd:g:")) >= 0) {
+X		switch(opt) {
+X			case 'a':
+X			case 'c':
+X			case 'i':
+X			case 'm':
+X			case 'u':
+X			case 'r':
+X				(void) sprintf(tmp, "-%c ", opt);
+X				goto cattmp;
+X
+X			case 'p':
+X			case 'd':
+X			case 'g':
+X				(void) sprintf(tmp, "-%c %s ", opt, Optarg);
+X			cattmp:
+X				(void) strcat(oline, tmp);
+X				openopts++;
+X				break;
+X
+X			case 'D':
+X				debug = atoi(Optarg);
+X				break;
+X			
+X			case 'V':
+X				set_verbose(Optarg, 0);
+X				break;
+X
+X			case 'I':
+X				mprompt = !mprompt;
+X				break;
+X
+X			case 'N':
+X				++ignore_rc;
+X				break;
+X
+X			case 'H':
+X				(void) show_version(0, NULL);
+X				exit (0);
+X
+X			default:
+X			usage:
+X				(void) fprintf(stderr, "Usage: %s [program options] [[open options] site.to.open[:path]]\n\
+XProgram Options:\n\
+X    -D x   : Set debugging level to x (a number).\n\
+X    -H     : Show version and compilation information.\n\
+X    -I     : Toggle interactive (mprompt) mode.\n\
+X    -N     : Toggle reading of the .netrc/.ncftprc.\n\
+X    -V x   : Set verbosity to level x (-1,0,1,2).\n\
+XOpen Options:\n\
+X    -a     : Open anonymously (this is the default).\n\
+X    -u     : Open, specify user/password.\n\
+X    -i     : Ignore machine entry in your .netrc.\n\
+X    -p N   : Use port #N for connection.\n\
+X    -r     : \"Redial\" until connected.\n\
+X    -d N   : Redial, pausing N seconds between tries.\n\
+X    -g N   : Redial, giving up after N tries.\n\
+X    :path  : ``Colon-mode:'' If \"path\" is a file, it opens site, retrieves\n\
+X             file \"path,\" then exits; if \"path\" is a remote directory,\n\
+X             it opens site then starts you in that directory..\n\
+X    -c     : If you're using colon-mode with a file path, this will cat the\n\
+X             file to stdout instead of storing on disk.\n\
+X    -m     : Just like -c, only it pipes the file to your $PAGER.\n\
+XExamples:\n\
+X    ncftp ftp.unl.edu:/pub/README (just fetches README then quits)\n\
+X    ncftp  (just enters ncftp command shell)\n\
+X    ncftp -V -u ftp.unl.edu\n\
+X    ncftp -c ftp.unl.edu:/pub/README (cats README to stdout then quits)\n\
+X    ncftp -D -r -d 120 -g 10 ftp.unl.edu\n", progname);
+X			exit(1);
+X		}
+X	}
+X
+X	cp = argv[Optind];  /* the site to open. */
+X	if (cp == NULL) {
+X		if (openopts)
+X			goto usage;
+X	} else
+X		(void) strcat(oline, cp);
+X
+X	if (ignore_rc <= 0)
+X		(void) thrash_rc();
+X	if (ignore_rc <= 1)
+X		ReadRecentSitesFile();
+X
+X	(void) fix_options();	/* adjust "options" according to "debug"  */
+X	
+X	fromatty = doing_script = isatty(0);
+X	toatty = isatty(1);
+X	(void) UserLoggedIn();	/* Init parent-death detection. */
+X	cpend = 0;  /* no pending replies */
+X	
+X	if (*logfname)
+X		logf = fopen (logfname, "a");
+X
+X
+X	/* The user specified a host, maybe in 'colon-mode', on the command
+X	 * line.  Open it now...
+X	 */
+X	if (argc > 1 && cp) {
+X		if (setjmp(toplevel))
+X			exit(0);
+X		(void) Signal(SIGINT, intr);
+X		(void) Signal(SIGPIPE, lostpeer);
+X		(void) strcpy(line, oline);
+X		makeargv();
+X		/* setpeer uses this to tell if it was called from the cmd-line. */
+X		eventnumber = 0L;
+X		(void) cmdOpen(margc, margv);
+X	}
+X	eventnumber = 1L;
+X
+X	(void) init_prompt();
+X
+X	if (startup_msg) {  /* TAR */
+X	    if (ansi_escapes) {
+X#ifdef BETA
+X#	define BETA_MSG "\n\
+XFor testing purposes only.  Do not re-distribute or subject to novice users."
+X#else
+X#	define BETA_MSG ""
+X#endif
+X
+X#ifndef CURSES
+X		(void) printf("%sNcFTP %s by Mike Gleason, NCEMRSoft.%s%s%s%s\n", 
+X			tcap_boldface,
+X			FTP_VERSION,
+X			tcap_normal,
+X			tcap_reverse,
+X			BETA_MSG,
+X			tcap_normal
+X		);
+X#else
+X		char vis[256];
+X		(void) sprintf(vis, "%sNcFTP %s by Mike Gleason, NCEMRSoft.%s%s%s%s\n", 
+X			tcap_boldface,
+X			FTP_VERSION,
+X			tcap_normal,
+X			tcap_reverse,
+X			BETA_MSG,
+X			tcap_normal
+X		);
+X		tcap_put(vis);
+X#endif /* !CURSES */
+X	    }
+X	    else
+X		(void) printf("%s%s\n", FTP_VERSION, BETA_MSG);
+X	}  /* TAR */
+X	if (NOT_VQUIET)
+X		PrintTip();
+X	top = setjmp(toplevel) == 0;
+X	if (top) {
+X		(void) Signal(SIGINT, intr);
+X		(void) Signal(SIGPIPE, lostpeer);
+X	}
+X	for (;;) {
+X		(void) cmdscanner(top);
+X		top = 1;
+X	}
+X}	/* main */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid intr SIG_PARAMS
+X{
+X	dbprintf("intr()\n");
+X	(void) Signal(SIGINT, intr);
+X	(void) longjmp(toplevel, 1);
+X}	/* intr */
+X
+X
+X
+Xint getuserinfo(void)
+X{
+X	register char			*cp;
+X	struct passwd			*pw;
+X	string					str;
+X	extern char				*home;	/* for glob.c */
+X	
+X	home = uinfo.homedir;	/* for glob.c */
+X	pw = getpwuid(uinfo.uid = getuid());
+X	if (pw != NULL) {
+X		(void) Strncpy(uinfo.username, pw->pw_name);
+X		(void) Strncpy(uinfo.shell, pw->pw_shell);
+X		(void) Strncpy(uinfo.homedir, pw->pw_dir);
+X		cp = getenv("MAIL");
+X		if (cp == NULL)
+X			cp = getenv("mail");
+X		if (cp == NULL)
+X			(void) sprintf(str, "/usr/spool/mail/%s", uinfo.username);
+X		else
+X			(void) Strncpy(str, cp);
+X		cp = str;
+X
+X		/*
+X		 * mbox variable may be like MAIL=(28 /usr/mail/me /usr/mail/you),
+X		 * so try to find the first mail path.
+X		 */
+X		while ((*cp != '/') && (*cp != 0))
+X			cp++;
+X		(void) Strncpy(mail_path, cp);
+X		if ((cp = index(mail_path, ' ')) != NULL)
+X			*cp = '\0';
+X		return (0);
+X	} else {
+X		PERROR("getuserinfo", "Could not get your passwd entry!");
+X		(void) Strncpy(uinfo.shell, "/bin/sh");
+X		(void) Strncpy(uinfo.homedir, ".");	/* current directory */
+X		if ((cp = getenv("HOME")) != NULL)
+X			(void) Strncpy(uinfo.homedir, cp);
+X		mail_path[0] = 0;
+X		return (-1);
+X	}
+X}	/* getuserinfo */
+X
+X
+X
+X
+Xint init_arrays(void)
+X{
+X	if ((macbuf = (char *) malloc((size_t)(MACBUFLEN))) == NULL)
+X		goto barf;
+X	if ((line = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((argbuf = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((reply_string = (char *) malloc((size_t)(RECEIVEDLINELEN))) == NULL)
+X		goto barf;
+X	
+X	*macbuf = '\0';
+X	init_transfer_buffer();
+X	return (0);
+Xbarf:
+X	return (-1);
+X}	/* init_arrays */
+X
+X
+X
+X#ifndef BUFSIZ
+X#define BUFSIZ 512
+X#endif
+X
+Xvoid init_transfer_buffer(void)
+X{
+X	extern char *xferbuf;
+X	extern size_t xferbufsize;
+X	
+X	/* Make sure we use a multiple of BUFSIZ for efficiency. */
+X	xferbufsize = (MAX_XFER_BUFSIZE / BUFSIZ) * BUFSIZ;
+X	while (1) {
+X		xferbuf = (char *) malloc (xferbufsize);
+X		if (xferbuf != NULL || xferbufsize < 1024)
+X			break;
+X		xferbufsize >>= 2;
+X	}
+X	
+X	if (xferbuf != NULL) return;
+X	fatal("out of memory for transfer buffer.");
+X}	/* init_transfer_buffer */
+X
+X
+X
+X
+Xvoid init_prompt(void)
+X{
+X	register char *cp;
+X	
+X	percent_flags = at_flags = 0;
+X	for (cp = prompt; *cp; cp++) {
+X		if (*cp == '%') percent_flags = 1;
+X		else if (*cp == '@') at_flags = 1;
+X	}
+X}	/* init_prompt */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid lostpeer SIG_PARAMS
+X{
+X	if (connected) {
+X		close_streams(1);
+X		if (data >= 0) {
+X			(void) shutdown(data, 1+1);
+X			(void) close(data);
+X			data = -1;
+X		}
+X		connected = 0;
+X	}
+X	if (connected) {
+X		close_streams(1);
+X		connected = 0;
+X	}
+X	hostname[0] = cwd[0] = 0;
+X	logged_in = macnum = 0;
+X}	/* lostpeer */
+X
+X
+X/*
+X * Command parser.
+X */
+Xvoid cmdscanner(int top)
+X{
+X	register struct cmd *c;
+X
+X	if (!top)
+X		(void) putchar('\n');
+X	for (;;) {
+X		if (!doing_script && !UserLoggedIn())
+X			(void) quit(0, NULL);
+X		if (Gets(strprompt(), line, (size_t)CMDLINELEN) == NULL) {
+X			(void) quit(0, NULL);	/* control-d */
+X		}
+X		eventnumber++;
+X		dbprintf("\"%s\"\n", line);
+X		(void) makeargv();
+X		if (margc == 0) {
+X			continue;	/* blank line... */
+X		}
+X		c = getcmd(margv[0]);
+X		if (c == (struct cmd *) -1) {
+X			(void) printf("?Ambiguous command\n");
+X			continue;
+X		}
+X		if (c == 0) {
+X			if (!implicit_cd(margv[0]))
+X				(void) printf("?Invalid command\n");
+X			continue;
+X		}
+X		if (c->c_conn && !connected) {
+X			(void) printf ("Not connected.\n");
+X			continue;
+X		}
+X		if ((*c->c_handler)(margc, margv) == USAGE)
+X			cmd_usage(c);
+X		if (c->c_handler != help)
+X			break;
+X	}
+X	(void) Signal(SIGINT, intr);
+X	(void) Signal(SIGPIPE, lostpeer);
+X}	/* cmdscanner */
+X
+X
+X
+X
+Xchar *strprompt(void)
+X{
+X	time_t					tyme;
+X	char					eventstr[8];
+X	char					*dname, *lastlinestart;
+X	register char			*p, *q;
+X	string					str;
+X	int						flag;
+X
+X	if (at_flags == 0 && percent_flags == 0) {
+X		epromptlen = strlen(prompt);
+X		return (prompt);	/* But don't overwrite it! */
+X	}
+X	epromptlen = 0;
+X	lastlinestart = prompt2;
+X	if (at_flags) {
+X		for (p = prompt, q = prompt2, *q = 0; (*p); p++) {
+X			if (*p == '@') switch (flag = *++p) {
+X				case '\0':
+X					--p;
+X					break;
+X				case 'M':
+X					if (CheckNewMail() > 0)
+X						q = Strpcpy(q, "(Mail) ");
+X					break;
+X				case 'N':
+X					q = Strpcpy(q, "\n");
+X					lastlinestart = q;
+X					epromptlen = 0;
+X					break;
+X				case 'P':	/* reset to no bold, no uline, no inverse, etc. */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_normal);
+X						epromptlen += tcl_normal;
+X					}
+X					break;
+X				case 'B':	/* toggle boldface */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_boldface);
+X						epromptlen += tcl_bold;
+X					}
+X					break;
+X				case 'U':	/* toggle underline */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_underline);
+X						epromptlen += tcl_uline;
+X					}
+X					break;
+X				case 'R':
+X				case 'I':	/* toggle inverse (reverse) video */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_reverse);
+X						epromptlen += tcl_rev;
+X					}
+X					break;
+X				case 'D':	/* insert current directory */
+X				case 'J':
+X					if ((flag == 'J') && (remote_is_unix)) {
+X						/* Not the whole path, just the dir name. */
+X						dname = rindex(cwd, '/');
+X						if (dname == NULL)
+X							dname = cwd;
+X						else if ((dname != cwd) && (dname[1]))
+X							++dname;
+X					} else
+X						dname = cwd;
+X					if (dname[0]) {
+X						q = Strpcpy(q, dname);
+X						q = Strpcpy(q, " ");
+X					}
+X					break;
+X				case 'H':	/* insert name of connected host */
+X					if (logged_in) {
+X						(void) sprintf(str, "%s ", hostname);
+X						q = Strpcpy(q, str);
+X					}
+X					break;
+X				case 'C':  /* Insert host:path (colon-mode format. */
+X					if (logged_in) {
+X						(void) sprintf(str, "%s:%s ", hostname, cwd);
+X						q = Strpcpy(q, str);
+X					} else
+X						q = Strpcpy(q, "(not connected)");
+X					break;
+X				case 'c':
+X					if (logged_in) {
+X						(void) sprintf(str, "%s:%s\n", hostname, cwd);
+X						q = Strpcpy(q, str);
+X						lastlinestart = q;	/* there is a \n at the end. */
+X						epromptlen = 0;
+X					}
+X					break;
+X				case '!':
+X				case 'E':	/* insert event number */
+X					(void) sprintf(eventstr, "%ld", eventnumber);
+X					q = Strpcpy(q, eventstr);
+X					break;
+X				default:
+X					*q++ = *p;	/* just copy it; unknown switch */
+X			} else
+X				*q++ = *p;
+X		}
+X		*q = '\0';
+X	} else 
+X		(void) strcpy(prompt2, prompt);
+X	
+X#ifndef NO_STRFTIME
+X	if (percent_flags) {
+X		/*	only strftime if the user requested it (with a %something),
+X			otherwise don't waste time doing nothing. */
+X		(void) time(&tyme);
+X		(void) Strncpy(str, prompt2);
+X		(void) strftime(prompt2, sizeof(str), str, localtime(&tyme));
+X	}
+X#endif
+X	epromptlen = (size_t) ((long) strlen(lastlinestart) - (long) epromptlen);
+X	return (prompt2);
+X}	/* strprompt */
+X
+X
+X/*
+X * Slice a string up into argc/argv.
+X */
+X
+Xvoid makeargv(void)
+X{
+X	char **argp;
+X
+X	margc = 0;
+X	argp = margv;
+X	stringbase = line;		/* scan from first of buffer */
+X	argbase = argbuf;		/* store from first of buffer */
+X	slrflag = 0;
+X	while ((*argp++ = slurpstring()) != 0)
+X		margc++;
+X}	/* makeargv */
+X
+X
+X
+X
+X/*
+X * Parse string into argbuf;
+X * implemented with FSM to
+X * handle quoting and strings
+X */
+Xchar *slurpstring(void)
+X{
+X	int got_one = 0;
+X	register char *sb = stringbase;
+X	register char *ap = argbase;
+X	char *tmp = argbase;		/* will return this if token found */
+X
+X	if (*sb == '!' || *sb == '$') {	/* recognize ! as a token for shell */
+X		switch (slrflag) {	/* and $ as token for macro invoke */
+X			case 0:
+X				slrflag++;
+X				stringbase++;
+X				return ((*sb == '!') ? "!" : "$");
+X				/* NOTREACHED */
+X			case 1:
+X				slrflag++;
+X				altarg = stringbase;
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X
+XS0:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X		sb++; goto S0;
+X
+X	default:
+X		switch (slrflag) {
+X			case 0:
+X				slrflag++;
+X				break;
+X			case 1:
+X				slrflag++;
+X				altarg = sb;
+X				break;
+X			default:
+X				break;
+X		}
+X		goto S1;
+X	}
+X
+XS1:
+X	switch (*sb) {
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X	case '\0':
+X		goto OUT;	/* end of token */
+X
+X	case '\\':
+X		sb++; goto S2;	/* slurp next character */
+X
+X	case '"':
+X		sb++; goto S3;	/* slurp quoted string */
+X
+X	default:
+X		*ap++ = *sb++;	/* add character to token */
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS2:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS3:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case '"':
+X		sb++; goto S1;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S3;
+X	}
+X
+XOUT:
+X	if (got_one)
+X		*ap++ = '\0';
+X	argbase = ap;			/* update storage pointer */
+X	stringbase = sb;		/* update scan pointer */
+X	if (got_one) {
+X		return(tmp);
+X	}
+X	switch (slrflag) {
+X		case 0:
+X			slrflag++;
+X			break;
+X		case 1:
+X			slrflag++;
+X			altarg = (char *) 0;
+X			break;
+X		default:
+X			break;
+X	}
+X	return((char *)0);
+X}	/* slurpstring */
+X
+X/*
+X * Help command.
+X * Call each command handler with argc == 0 and argv[0] == name.
+X */
+Xint
+Xhelp(int argc, char **argv)
+X{
+X	register struct cmd		*c;
+X	int						showall = 0, helpall = 0;
+X	char					*arg;
+X	int						i, j, k;
+X	int 					nRows, nCols;
+X	int 					nCmds2Print;
+X	int 					screenColumns;
+X	int 					len, widestName;
+X	char 					*cp, **cmdnames, spec[16];
+X
+X	if (argc == 2) {
+X		showall = (strcmp(argv[1], "showall") == 0);
+X		helpall = (strcmp(argv[1], "helpall") == 0);
+X	}
+X	if (argc == 1 || showall)  {
+X		(void) printf("\
+XCommands may be abbreviated.  'help showall' shows aliases, invisible and\n\
+Xunsupported commands.  'help <command>' gives a brief description of <command>.\n\n");
+X
+X		for (c = cmdtab, nCmds2Print=0; c->c_name != NULL; c++) 
+X			if (!c->c_hidden || showall)
+X				nCmds2Print++;
+X
+X		if ((cmdnames = (char **) malloc(sizeof(char *) * nCmds2Print)) == NULL)
+X			fatal("out of memory!");
+X
+X		for (c = cmdtab, i=0, widestName=0; c->c_name != NULL; c++) {
+X			if (!c->c_hidden || showall) {
+X				cmdnames[i++] = c->c_name;
+X				len = (int) strlen(c->c_name);
+X				if (len > widestName)
+X					widestName = len;
+X			}
+X		}
+X
+X		if ((cp = getenv("COLUMNS")) == NULL)
+X			screenColumns = 80;
+X		else
+X			screenColumns = atoi(cp);
+X
+X		widestName += 2;	/* leave room for white-space in between cols. */
+X		nCols = screenColumns / widestName;
+X		/* if ((screenColumns % widestName) > 0) nCols++; */
+X		nRows = nCmds2Print / nCols;
+X		if ((nCmds2Print % nCols) > 0)
+X			nRows++;
+X
+X		(void) sprintf(spec, "%%-%ds", widestName);
+X		for (i=0; i<nRows; i++) {
+X			for (j=0; j<nCols; j++) {
+X				k = nRows*j + i;
+X				if (k < nCmds2Print)
+X					(void) printf(spec, cmdnames[k]);
+X			}
+X			(void) printf("\n");
+X		}
+X		Free(cmdnames);
+X	} else if (helpall) {
+X		/* Really intended to debug the help strings. */
+X		for (c = cmdtab; c->c_name != NULL; c++) {
+X			cmd_help(c);
+X			cmd_usage(c);
+X		}
+X	} else while (--argc > 0) {
+X		arg = *++argv;
+X		c = getcmd(arg);
+X		if (c == (struct cmd *)-1)
+X			(void) printf("?Ambiguous help command %s\n", arg);
+X		else if (c == (struct cmd *)0)
+X			(void) printf("?Invalid help command %s\n", arg);
+X		else {
+X			cmd_help(c);
+X			cmd_usage(c);
+X		}
+X	}
+X	return NOERR;
+X}	/* help */
+X
+X
+X/*
+X * If the user wants to, s/he can specify the maximum size of the log
+X * file, so it doesn't waste too much disk space.  If the log is too
+X * fat, trim the older lines (at the top) until we're under the limit.
+X */
+Xvoid trim_log(void)
+X{
+X	FILE				*new, *old;
+X	struct stat			st;
+X	long				fat;
+X	string				tmplogname, str;
+X
+X	if (logsize <= 0 || *logfname == 0 || stat(logfname, &st) ||
+X		(old = fopen(logfname, "r")) == NULL)
+X		return;	/* never trim, or no log */
+X	fat = st.st_size - logsize;
+X	if (fat <= 0L) return;	/* log too small yet */
+X	while (fat > 0L) {
+X		if (FGets(str, old) == NULL) return;
+X		fat -= (long) strlen(str);
+X	}
+X	/* skip lines until a new site was opened */
+X	while (1) {
+X		if (FGets(str, old) == NULL) {
+X			(void) fclose(old);
+X			(void) unlink(logfname);
+X			return;	/* nothing left, start anew */
+X		}
+X		if (*str != '\t') break;
+X	}
+X	
+X	/* copy the remaining lines in "old" to "new" */
+X	(void) Strncpy(tmplogname, logfname);
+X	tmplogname[strlen(tmplogname) - 1] = 'T';
+X	if ((new = fopen(tmplogname, "w")) == NULL) {
+X		(void) PERROR("trim_log", tmplogname);
+X		return;
+X	}
+X	(void) fputs(str, new);
+X	while (FGets(str, old))
+X		(void) fputs(str, new);
+X	(void) fclose(old); (void) fclose(new);
+X	if (unlink(logfname) < 0)
+X		PERROR("trim_log", logfname);
+X	if (rename(tmplogname, logfname) < 0)
+X		PERROR("trim_log", tmplogname);
+X}	/* trim_log */
+X
+X
+X
+X
+Xint CheckNewMail(void)
+X{
+X	struct stat stbuf;
+X
+X	if (*mail_path == '\0') return 0;
+X	if (stat(mail_path, &stbuf) < 0) {	/* cant find mail_path so we'll */
+X		*mail_path = '\0';				/* never check it again */
+X		return 0;
+X	}
+X
+X	/*
+X	 * Check if the size is non-zero and the access time is less than
+X	 * the modify time -- this indicates unread mail.
+X	 */
+X	if ((stbuf.st_size != 0) && (stbuf.st_atime <= stbuf.st_mtime)) {
+X		if (stbuf.st_mtime > mbox_time) {
+X			(void) printf("%s\n", NEWMAILMESSAGE);
+X			mbox_time = stbuf.st_mtime;
+X		}
+X		return 1;
+X	}
+X
+X	return 0;
+X}	/* CheckNewMail */
+X
+X
+X
+X#ifdef CURSES
+Xint termcap_get(char **dest, char *attr)
+X{
+X	static char area[1024];
+X	static char *s = area;
+X	char *buf, *cp;
+X	int i, result = -1;
+X	int len = 0;
+X
+X	*dest = NULL;
+X	while (*attr != '\0') {
+X		buf = tgetstr(attr, &s);
+X		if (buf != NULL && buf[0] != '\0') {
+X			for (i = 0; (buf[i] <= '9') && (buf[i] >= '0'); )
+X				i++;
+X			/* Get rid of the terminal delays, like "$<2>". */
+X			if ((cp = strstr(&(buf[i]), "$<")) != NULL)
+X				*cp = 0;
+X			if (*dest == NULL)
+X				*dest = (char *)malloc(strlen(&(buf[i])) + 1);
+X			else
+X				*dest = (char *)realloc(*dest, len + strlen(&(buf[i])) + 1);
+X			if (*dest == NULL)
+X				break;
+X			(void) strcpy(*dest + len, &(buf[i]));
+X			len += strlen (&(buf[i]));
+X		}
+X		attr += 2;
+X	}
+X	if (*dest == NULL)
+X		*dest = "";
+X	else
+X		result = 0;
+X	return (result);
+X}	/* termcap_get */
+X
+X
+X  
+Xvoid termcap_init(void)
+X{
+X	char *term;
+X
+X	if ((term = getenv("TERM")) == NULL) {
+X		term = "dumb";  /* TAR */
+X		ansi_escapes = 0;
+X	}
+X	if (tgetent(tcbuf,term) != 1) {
+X		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+X	} else {
+X		(void) termcap_get(&tcap_normal, "meuese");
+X		if (termcap_get(&tcap_boldface, "md") < 0) {
+X			/* Dim-mode is better than nothing... */
+X			(void) termcap_get(&tcap_normal, "mh");
+X		}
+X		(void) termcap_get(&tcap_underline, "us");
+X		(void) termcap_get(&tcap_reverse, "so");
+X		tcl_normal = strlen(tcap_normal);
+X		tcl_bold = strlen(tcap_boldface);
+X		tcl_uline = strlen(tcap_underline);
+X		tcl_rev = strlen(tcap_reverse);
+X	}
+X
+X}	/* termcap_init */
+X
+X
+X
+Xstatic int c_output(int c)
+X{
+X	return (putchar(c));
+X}	/* c_output */
+X
+X
+X
+X
+Xvoid tcap_put(char *cap)
+X{
+X	tputs(cap, 0, c_output);
+X}	/* tcap_put */
+X
+X#endif /* CURSES */
+X
+X/* eof main.c */
+X
+END_OF_FILE
+  if test 24709 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(11724 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/* patchlevel.h */
+X
+X/*
+X * v1.0.0 - December 6, 1992.
+X *    Initial release.
+X *
+X * v1.0.1 - December 8, 1992.
+X *  Added default value for NCARGS in glob.c for systems that don't define it.
+X *  Fixed pdir bug which was caused by me mistakenly adding the page-a-
+X *  compressed-file feature to ls instead of page.  Fixed bug in documentation,
+X *  which had the same error!  Added spec for Ultrix in sys.h.  Fixed error
+X *  in sys.h that recommended -Dconst instead of -Dconst="".  Added GETPASS
+X *  compile flag to use getpass() instead of getpass2(), which make compiling
+X *  easier if the compiler choked in cmds.c.  Added GETCWDSIZET for systems
+X *  whose getcwd() takes a size_t instead of an int.
+X *
+X * v1.0.2 - Jan 17, 1993.
+X *  Using the cpp symbol CONST instead of const to tell
+X *  the compiler not to use the 'const' directive.  Checking for __sgi as
+X *  well as sgi in sys.h.  Added #ifndef __GNUC__ block to make SunOS users
+X *  use gcc.  You can avoid trying to include <unistd.h> by defining
+X *  NO_UNISTDH.  Added DG/UX entry in sys.h.  Also added still another cpp
+X *  symbol, BAD_INETADDR, which is used if inet_addr returns a structure
+X *  instead of a u_long (this is only for DG/UX so far).  Changed long to
+X *  int in wait().  Added default value for NCARGS in glob.c.  Added cpp
+X *  symbol NO_STDLIBH for systems without <stdlib.h>.  Fixed 'quote.'
+X *  Fixed 'size.'  Set all's string variable are printed in double quotes.
+X *  Ansi-escapes is init'd to 1 if TERM==xterm.  Fixed 'type tenex.'  Set
+X *  verbose makes sure verbose is within bounds and prints messages now.
+X *  Better getpass2.  Tries .ncftprc before .netrc.  @N adds a \n to prompt.
+X *  ls() is more flexible.  Macdef and $ print current macros if no arg
+X *  is given.  getpass2 is now Getpass, and accompanying this are
+X *  more cpp symbols SGTTYB and TERMIOS.  Better SCO support.  No longer using
+X *  gets(), instead using own Gets() which is safer.  Better termcap support,
+X *  or actually curses support, to get ansi-escape sequences.  Using -FC
+X *  instead of -CF for ls flags, do avoid a rare conflict.  Progress meters
+X *  work better.  Phil Dietz added a cool bar graph one, and I added another
+X *  similar to the default percentage meter that shows the # KB transferred,
+X *  which will work on systems not supporting SIZE.  Fixed floating point
+X *  exception bug in put/mput.  Fixed implicit_cd to work with wuarchive-ish
+X *  cd messages.  Added NeXT and DYNIX blocks in sys.h.  
+X *  Fixed bug in _cd, that was trying to use wildcards when it
+X *  shouldn't.  Fixed bug in macdef.  Fixed small bug in getreply.  Turned
+X *  off echoing during the progress-meter.  Added syslogging capability.
+X *
+X * v1.5.0 - August 22, 1993
+X *  Fixed error in CONST block in ftpdefs.h.  Fixed error in sys.h so that when
+X *  you compile with -DGETPASS it uses getpass.  'ls' bug with wildcards
+X *  fixed.  'ls' enhanced to take multiple remote paths.  Added new cpp symbol
+X *  STRICT_PROTOS so I don't have to worry about the correct declarations of
+X *  int returning functions.  Moved termcap_init() up.  Changed value of
+X *  tcap_plain to "me" from "se."  Defining TERMIOS by default for SunOS.
+X *  Edited perror to not print ioctl errors (for SunOS only).  Making sure
+X *  we use ioctl only on tty files.  Using <arpa/ftp.h> for SCO to get
+X *  MAXPATHLEN instead of <sys/arpa.h>.  386BSD and Pyramid OSx entries added
+X *  to sys.h.  Fixed subtle error in FGets macro.  Using private _Strn
+X *  string routines, with macros to them instead of the strn routines.
+X *  Added support for GNU Readline (not included).  Added BROKEN_MEMCPY
+X *  CPP symbol for other systems with same bug as that of SCO (see ftp.c).
+X *  Changed mail detection code a bit, hopefully ending the false alarms
+X *  that some systems were having.  New CPP symbol, dFTP_PORT, lets you define
+X *  the default ftp port if your OS (i.e. ISC unix) is wrong.  Fixed bugs
+X *  in 'rstatus' and 'syst;'  apparently no one noticed...  Phased out
+X *  mls and mdir since ls does it all now.  Added dPROGRESS to defaults.h to
+X *  set the default progress indicator.  Colon-mode wasn't quiet; fixed.
+X *  Some new prompt @flags added.  @flags that may result in an empty string
+X *  are set so that when they do print something, they tack on a trailing
+X *  space.  May have fixed bug that caused 'page' to drop connection when
+X *  you quit your pager.  NcFTP tries to prevent itself from becoming a
+X *  mindless zombie process.  Fixed bug in 'rename.'  Added another progress
+X *  indicator that doesn't use any backspaces.  Firewall support added by
+X *  Dave Wolfe (dwolfe@pffft.sps.mot.com).  Saving the entire servent struct,
+X *  not just a ptr to it.  Support the DOTDIR env variable.  Fetched files'
+X *  modification times now set to that on the server.  Added RO-Var "netrc."
+X *  Munged Makefile to support 'install' and 'uninstall,' and passing the
+X *  installation parameters as a -D flag.  Awesome new recent site log!
+X *  Can type 'open' by itself to print out the sites in our netrc/recent
+X *  buffers.  Added show command.  Drastic changes in source code; cmds.c
+X *  made smaller by spawning set.c and util.c; ftpdefs.h eliminated.  Improved
+X *  on-line help.  Revamped the command table, by eliminating obselete fields
+X *  and adding a usage field to print a cmd's usage message.  Removed all the
+X *  useless settings of the 'code' variable.  Added tips.c.  Better support
+X *  for ~s and environment vars in pathnames.  Ascii transfers can get whole
+X *  lines at a time instead of just chars at a time, so ascii transfers may
+X *  be a bit faster.  Old FTP commands are acknowledged at least.  Some
+X *  additions for Apollo in sys.h.  Code in ftp.c cleaned up a bit, most
+X *  notably the obnoxiously long recvrequest() function has been broken up
+X *  into quite a few subroutines; it's still too long for my taste, though.
+X *  Incorporated some stuff by Tom Dickey.  Enhanced Perror() function to
+X *  print more stuff if DB_ERRS is defined.  Added 'ftpcat' mode.  You can
+X *  now turnoff the startup msg.  GNU gzip support added.  Added dbprintf()
+X *  function to print the debug messages.  Changed mind and decided to
+X *  read the whole stream anyway on aborts for better stability;  you can
+X *  still try the aborting the stream if you define TryAbort.  Added 'site'
+X *  command.  Fixed bug where verbose was left set to V_QUIET when you used
+X *  colon-mode.  Printing a warning when you try something like 'ls -t *.Z,'
+X *  because wildcards don't work right with ls flags. Verbose and debug can
+X *  be set directly from the cmd line (i.e. -D 3, not -DDD).  Verbosity can
+X *  be set using their ascii names, in addition to it's number, like 'set
+X *  verbose = quiet.'  Removed setpeer from cmds.c, and created new files,
+X *  open.{c,h} dedicated to it; broke up setpeer into smaller sub-procs,
+X *  and commented whole file (yay!).  Added a new user var, anon-open,
+X *  for those folks who don't want anon logins as the default.
+X *
+X * v1.5.1 - August 29, 1993
+X *  Bugs fixed in termcap code, mput, and pwd.  No longer adding blank
+X *  lines to readline's history.  Netrc site abbreviations were matched
+X *  by strncmp() when it should have been strstr().  Bug fixed in
+X *  open's site "menu."  Revised tips a little to encourage .ncftprc instead
+X *  of .netrc.  TRY_ABOR documented in the README.  Added stuff to the
+X *  DYNIX entry.  Hacks added for SCO322.  Shortened bargraph prog meter
+X *  by one char.  Better compat with getline.  Man page fixed by DWS again :)
+X *
+X * v1.5.2 - August 30, 1993.
+X *  Back to using "me" instead of "se" to for termcap_normal.  Fixed Netrc
+X *  site abbrev problem in a different way (by getting the fullsite name
+X *  before calling ruserpass2).
+X *
+X * v1.5.3 - September 2, 1993.
+X *  Changed 'sig_t' to 'Sig_t.'  Fixed another error in the termcap crap.
+X *  Made having mktime() optional, at the expense of setting file dates
+X *  to the same as the remote file.  Fixed an error during 'account'
+X *  validation.  Added a warning about a bug I haven't fixed yet with
+X *  non-UNIX systems hanging after listings.  Fixed bug where colon-mode
+X *  sitenames weren't expanded.  Fixed a tip.  Using <readline/readline.h>
+X *  and <getline/getline.h> instead of <readline.h> etc.  Fixed daylight
+X *  savings time bug.  LocalPath checks $HOME now.
+X *
+X * v1.5.4 - September 14, 1993.
+X *  Fixed bug where non-unix sites were hanging after listings.  Better
+X *  SVR4 support.  Fixed bug during an ascii transfer with debug mode
+X *  on.  Now checking the system type after a successful login, because
+X *  some sites didn't allow commands to be executed until logged in; this
+X *  prevents one (the only?) instance of the elusive short-file bug, because
+X *  files were being fetched with ascii mode on.  Now checking for half-
+X *  bright mode if boldface isn't available.  Numeric-only site abbreviations
+X *  no longer accepted, so numbers will be treated only as indices from the
+X *  open 'menu.'  You can include <term.h> for the 'tgetstr' prototype,
+X *  if you define TERMH.  termcap_get() tweaked.  Fixed bug where macros
+X *  from the previous site were still present when you opened a new site.
+X *  Fixed bug where colon-mode paths were truncated.  Setting tenex mode
+X *  automatically when you open a TOPS20 site.  Looking for <getline.h>
+X *  instead of <getline/getline.h>; have to leave <readline/readline.h>,
+X *  because that header also includes stuff like <readline/keymaps.h>.
+X *  Catman support added to Makefile.  Fixed problem with terminfo, where
+X *  $<2> etc., was not being removed from the terminal control strings.
+X *
+X * v1.5.5 - September 16, 1993.
+X *  Fixed a bug where a key function wasn't returning it's results.
+X *
+X * v1.5.6 - September 20, 1993.
+X *  Fixed bug in put, caused by "indent."  Checking for '.gz' extension
+X *  for gzip in addition to '.z'.  A little better at preserving the
+X *  transfer type.  Changed a syslog() call to use than 6 arguments,
+X *  and reporting the full remote path to the system log now.  Have to
+X *  explicitly define GZCAT in order to try paging gzip files now.
+X *  Setting the current hostname correctly if using the gateway code.
+X *  A lot of hacks added for SCO Xenix support: 1.  Can add -DNO_STRSTR
+X *  to use own strstr();  2.  Can add -DNO_STRFTIME to make % flags in the
+X *  prompt optional;  3. Can add -DNO_RENAME if you do not have rename(),
+X *  or rename() doesn't work;  4. Added PTRTYPE if void ptrs are a problem.
+X *
+X * v1.6.0 - October 31, 1993.
+X *  Added "term" support for Linux users.  Better SCO Xenix support.  Added
+X *  -DLINGER, if you have a connection requiring it (so 'puts' to the remote
+X *  system complete).  Added -DNET_ERRNO_H if you need to include
+X *  <net/errno.h>.  Including more headers in sys.h.  Fixed another globulize
+X *  bug.  Fixed a bug in confirm() where prompt was overwriting a str32.
+X *  Added -DNO_CURSES_H if you do not want to try and include <curses.h>.
+X *  Added -DHAS_GETCWD (usually automatic) and HAS_DOMAINNAME.  Logins as
+X *  "ftp" act like "anonymous."  Fixed bug with "open #x".  Making sure you
+X *  defined GZCAT as a string.  Turning off termcap attributes one by one,
+X *  instead of using the turn-off-all-attributes.  A few fixes for the man
+X *  page, including documentation of the progress-meter types.  AIX 2.x,
+X *  AIX 3.x, ISC Unix, Dynix/PTX, and Besta support added to sys.h.  Safer
+X *  use of getwd().  Colon-mode is quieter.  Getuserinfo function tweaked.
+X *  Eliminated unnecessary GetHomeDir function in util.c.  Reworked Gets(),
+X *  since it wasn't always stripping \n's.  Recent file can now read dir
+X *  names with whitespace.  Opening msg uses a larger buffer, because of
+X *  escape codes.  Philbar now prints K/sec stats.
+X */
+END_OF_FILE
+  if test 11724 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'set.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'set.c'\"
+else
+  echo shar: Extracting \"'set.c'\" \(7930 characters\)
+  sed "s/^X//" >'set.c' <<'END_OF_FILE'
+X/* Set.c */
+X
+X/*  $RCSfile: set.c,v $
+X *  $Revision: 14020.12 $
+X *  $Date: 93/07/09 11:45:48 $
+X */
+X
+X#include "sys.h"
+X
+X#include <ctype.h>
+X
+X#include "util.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "set.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X#ifdef TERM_FTP
+Xextern int compress_toggle;
+X#endif
+X
+X/* Set.c globals: */
+Xchar *verbose_msgs[4] = {
+X	"Not printing anything.\n",
+X	"Only printing necessary error messages.\n",
+X	"Printing error messages and announcements from the remote host.\n",
+X	"Printing all messages, errors, acknowledgments, and announcements.\n"
+X};
+X
+Xchar *short_verbose_msgs[4] = {
+X	"Quiet (-1)",
+X	"Errors Only (0)",
+X	"Terse (1)",
+X	"Verbose (2)"
+X};
+X
+Xstring						vstr;
+X
+X/* Set.c externs: */
+Xextern int					progress_meter, connected;
+Xextern int					parsing_rc, keep_recent;
+Xextern string				pager, anon_password, prompt;
+Xextern str32				curtypename;
+Xextern long					logsize;
+Xextern FILE					*logf;
+Xextern longstring			rcname, logfname, lcwd;
+Xextern int					auto_binary, ansi_escapes, debug;
+Xextern int					mprompt, remote_is_unix, verbose;
+Xextern int					startup_msg, anon_open;
+X#ifndef NO_TIPS
+Xextern int					tips;
+X#endif
+X#ifdef GATEWAY
+Xextern string				gateway, gate_login;
+X#endif
+X
+X/* The variables must be sorted in alphabetical order, or else
+X * match_var() will choke.
+X */
+Xstruct var vars[] = {
+X	VARENTRY("anon-open",		BOOL, 0, &anon_open,	NULL),
+X	VARENTRY("anon-password",	STR,  0, anon_password,	NULL),
+X	VARENTRY("ansi-escapes",	BOOL, 0, &ansi_escapes,	NULL),
+X	VARENTRY("auto-binary",		BOOL, 0, &auto_binary,	NULL),
+X#ifdef TERM_FTP
+X	VARENTRY("compress",		INT,  0,
+X		 &compress_toggle,NULL),
+X#endif
+X	VARENTRY("debug",			INT,  0, &debug,		NULL),
+X#ifdef GATEWAY
+X	VARENTRY("gateway-login",	STR,  0, gate_login,	set_gatelogin),
+X	VARENTRY("gateway-host",	STR,  0, gateway,		NULL),
+X#endif
+X	VARENTRY("local-dir",		STR,  0, lcwd,			set_ldir),
+X	VARENTRY("logfile",			STR,  0, logfname,		set_log),
+X	VARENTRY("logsize",			LONG, 0, &logsize,		NULL),
+X	VARENTRY("mprompt",			BOOL, 0, &mprompt,		NULL),
+X	VARENTRY("netrc",			-STR, 0, rcname,		NULL),
+X	VARENTRY("pager",			STR,  0, pager + 1,		set_pager),
+X	VARENTRY("prompt",			STR,  0, prompt,		set_prompt),
+X	VARENTRY("progress-reports",INT,  0, &progress_meter,NULL),
+X	VARENTRY("recent-list",		BOOL, 0, &keep_recent,	NULL),
+X	VARENTRY("remote-is-unix",	BOOL, 1, &remote_is_unix,NULL),
+X	VARENTRY("startup-msg",		BOOL, 0, &startup_msg,	NULL),  /* TAR */
+X#ifndef NO_TIPS
+X	VARENTRY("tips",			BOOL, 0, &tips,			NULL),
+X#endif
+X	VARENTRY("type",			STR,  1, curtypename,	set_type),
+X	VARENTRY("verbose",			STR,  0, vstr,			set_verbose),
+X};
+X
+X
+Xvoid set_verbose(char *new, int unset)
+X{
+X	int i, c;
+X
+X	if (unset == -1) verbose = !verbose;
+X	else if (unset || !new) verbose = V_ERRS;
+X	else {
+X		if (isalpha(*new)) {
+X			c = islower(*new) ? toupper(*new) : *new;	
+X			for (i=0; i<(int)(sizeof(short_verbose_msgs)/sizeof(char *)); i++) {
+X				if (short_verbose_msgs[i][0] == c)
+X					verbose = i - 1;
+X			}
+X		} else {
+X			i = atoi(new);
+X			if (i < V_QUIET) i = V_QUIET;
+X			else if (i > V_VERBOSE) i = V_VERBOSE;
+X			verbose = i;
+X		}
+X	}
+X	(void) Strncpy(vstr, short_verbose_msgs[verbose+1]);
+X	if (!parsing_rc && NOT_VQUIET) 
+X		(void) fputs(verbose_msgs[verbose+1], stdout);
+X}	/* set_verbose */
+X
+X
+X
+X
+Xvoid set_prompt(char *new, int unset)
+X{
+X	(void) Strncpy(prompt, (unset || !new) ? dPROMPT : new);
+X	init_prompt();
+X}	/* set_prompt */
+X
+X
+X
+X
+Xvoid set_log(char *fname, int unset)
+X{
+X	if (logf) {
+X		(void) fclose(logf);
+X		logf = NULL;
+X	}
+X	if (!unset && fname) {
+X		(void) Strncpy(logfname, fname);
+X		logf = fopen (LocalDotPath(logfname), "a");
+X	}
+X}	/* set_log */
+X
+X
+X
+X
+Xvoid set_pager(char *new, int unset)
+X{
+X	if (unset)
+X		(void) strcpy(pager, "-");
+X	else {
+X		if (!new)
+X			new = dPAGER;
+X		if (!new[0])
+X			(void) Strncpy(pager, "-");
+X		else {
+X			(void) sprintf(pager, "|%s", (*new == '|' ? new + 1 : new));
+X			(void) LocalPath(pager + 1);
+X		}
+X	}
+X}	/* set_pager */
+X
+X
+X
+X
+Xvoid set_type(char *newtype, int unset)
+X{
+X	int t = verbose;
+X	verbose = V_QUIET;
+X	if (!connected && t > V_QUIET)
+X		(void) printf("Not connected.\n");
+X	else if (newtype != NULL && !unset)
+X		(void) _settype(newtype);
+X	verbose = t;
+X}	/* set_type */
+X
+X
+X
+X
+Xvoid set_ldir(char *ldir, int unset)
+X{
+X	int t = verbose;
+X	char *argv[2];
+X
+X	if (ldir && !unset) {
+X		verbose = V_QUIET;
+X		argv[1] = ldir;
+X		(void) lcd(2, argv);
+X		verbose = t;
+X	}
+X}	/* set_ldir */
+X
+X
+X
+X
+X#ifdef GATEWAY
+Xvoid set_gatelogin(char *glogin, int unset)
+X{
+X	if (unset || !glogin) {
+X		gate_login[0] = gateway[0] = 0;
+X	} else
+X		(void) strcpy(gate_login, glogin);
+X}	/* set_gatelogin */
+X#endif
+X
+X
+X
+X
+Xstruct var *match_var(char *varname)
+X{
+X	int i, ambig;
+X	struct var *v;
+X	short c;
+X
+X	c = (short) strlen(varname);
+X	for (i=0, v=vars; i<NVARS; i++, v++) {
+X		if (strcmp(v->name, varname) == 0)
+X			return v;	/* exact match. */
+X		if (c < v->nmlen) {
+X			if (strncmp(v->name, varname, (size_t) c) == 0) {
+X				/* Now make sure that it only matches one var name. */
+X				if (c >= v[1].nmlen || (i == (NVARS - 1)))
+X					ambig = 0;
+X				else
+X					ambig = !strncmp(v[1].name, varname, (size_t) c);
+X				if (!ambig)
+X					return v;
+X				(void) fprintf(stderr, "%s: ambiguous variable name.\n", varname);
+X				goto xx;
+X			}
+X		}
+X	}
+X	(void) fprintf(stderr, "%s: unknown variable.\n", varname);
+Xxx:
+X	return ((struct var *)0);
+X}	/* match_var */
+X
+X
+X
+X
+Xvoid show_var(struct var *v)
+X{
+X	int c;
+X
+X	if (v != (struct var *)0) {
+X		(void) printf("%-20s= ", v->name);
+X		c = v->type;
+X		if (c < 0) c = -c;
+X		if (v->conn_required && !connected)
+X			(void) printf("(not connected)\n");
+X		else switch (c) {
+X			case INT:
+X				(void) printf("%d\n", *(int *)v->var); break;
+X			case LONG:
+X				(void) printf("%ld\n", *(long *)v->var); break;
+X			case STR:
+X				(void) printf("\"%s\"\n", (char *)v->var); break;
+X			case BOOL:
+X				(void) printf("%s\n", *(int *)v->var == 0 ? "no" : "yes");
+X		}
+X	}
+X}	/* show_var */
+X
+X
+X
+X
+Xvoid show(char *varname)
+X{
+X	int i;
+X	struct var *v;
+X
+X	if ((varname == NULL)	/* (Denotes show all vars) */
+X		|| (strcmp("all", varname) == 0))
+X	{
+X		for (i=0; i<NVARS; i++)
+X		    show_var(&vars[i]);
+X	} else {
+X		if ((v = match_var(varname)) != (struct var *)0)
+X			show_var(v);
+X	}
+X}	/* show */
+X
+X
+X
+X
+Xint do_show(int argc, char **argv)
+X{
+X	int i;
+X
+X	if (argc < 2)
+X		show(NULL);
+X	else
+X		for (i=1; i<argc; i++)
+X			show(argv[i]);
+X	return NOERR;
+X}	/* do_show */
+X
+X
+X
+X
+Xint set(int argc, char **argv)
+X{
+X	int unset;
+X	struct var *v;
+X	char *var, *val = NULL;
+X
+X	if (argc < 2 || strncmp(argv[1], "all", (size_t)3) == 0) {
+X		show(NULL);		/* show all variables. */
+X	} else {
+X		unset = argv[0][0] == 'u';
+X		var = argv[1];
+X		if (argc > 2) {
+X			/* could be '= value' or just 'value.' */
+X			if (*argv[2] == '=') {
+X				if (argc > 3)
+X					val = argv[3];
+X				else return USAGE;	/* can't do 'set var =' */
+X			} else
+X				val = argv[2];
+X			if (val[0] == 0)
+X				val = NULL;
+X		}
+X		v = match_var(var);
+X		if (v != NULL) {
+X			if (v->conn_required && !connected)
+X				(void) fprintf(stderr, "%s: must be connected.\n", var);
+X			else if (v->type < 0)	
+X				(void) fprintf(stderr, "%s: read-only variable.\n", var);
+X			else if (v->proc != (setvarproc) 0) {
+X				(*v->proc)(val, unset);		/* a custom set proc. */
+X			} else if (unset) switch(v->type) {
+X				case BOOL:
+X				case INT:
+X					*(int *) v->var = 0; break;
+X				case LONG:
+X					*(long *) v->var = 0; break;
+X				case STR:
+X					*(char *) v->var = 0; break;
+X			} else {
+X				if (val == NULL) switch(v->type) {
+X					/* User just said "set varname" */
+X					case BOOL:
+X					case INT:
+X						*(int *) v->var = 1; break;
+X					case LONG:
+X						*(long *) v->var = 1; break;
+X					case STR:
+X						*(char *) v->var = 0; break;
+X				} else {
+X					/* User said "set varname = value" */
+X					switch (v->type) {
+X						case BOOL:
+X							*(int *)v->var = StrToBool(val); break;
+X						case INT:
+X							(void) sscanf(val, "%d", (int *) v->var); break;
+X						case LONG:
+X							(void) sscanf(val, "%ld", (long *) v->var); break;
+X						case STR:
+X							(void) strcpy(v->var, val); break;
+X					}
+X				}
+X			}
+X		}
+X	}
+X	return NOERR;
+X}	/* set */
+X
+X/* eof Set.c */
+END_OF_FILE
+  if test 7930 -ne `wc -c <'set.c'`; then
+    echo shar: \"'set.c'\" unpacked with wrong size!
+  fi
+  # end of 'set.c'
+fi
+echo shar: End of archive 4 \(of 6\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

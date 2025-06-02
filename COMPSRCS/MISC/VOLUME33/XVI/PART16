@@ -1,0 +1,2377 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i025:  xvi - portable multi-window vi-like editor, Part16/18
+Message-ID: <1992Oct24.172536.2452@sparky.imd.sterling.com>
+X-Md4-Signature: ce97faa7180d44bf36cc76e6ff28bef2
+Date: Sat, 24 Oct 1992 17:25:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 25
+Archive-name: xvi/part16
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/cursor.c xvi/src/events.c xvi/src/ibmpc_c.c
+#   xvi/src/makefile.386 xvi/src/mouse.c xvi/src/os2vio.h
+#   xvi/src/param.h xvi/src/pc386.c xvi/src/pipe.c xvi/src/preserve.c
+#   xvi/src/unix.h
+# Wrapped by kent@sparky on Thu Oct 22 09:03:44 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 18)."'
+if test -f 'xvi/src/cursor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/cursor.c'\"
+else
+  echo shar: Extracting \"'xvi/src/cursor.c'\" \(3663 characters\)
+  sed "s/^X//" >'xvi/src/cursor.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)cursor.c	2.2 (Chris & John Downey) 9/1/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    cursor.c
+X* module function:
+X    Deal with movement of the screen cursor - i.e. when the
+X    logical cursor moves within a buffer, work out the new
+X    position of the screen cursor within its window.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	void	calc_position_in_line P((Xviwin *));
+X
+X/*
+X * Update the window's variables which say where the cursor is.
+X * These are row, col and virtcol, curswant if w_set_want_col.
+X *
+X * We also update w_c_line_size, which is used in screen.c to
+X * figure out whether the cursor line has changed size or not.
+X */
+Xvoid
+Xcursupdate(win)
+XXviwin	*win;
+X{
+X#if 0
+X    if (win->w_curs_new == FALSE) {
+X    	return;
+X    }
+X#endif
+X    win->w_curs_new = FALSE;
+X
+X    /*
+X     * Calculate physical lines from logical lines.
+X     */
+X    win->w_row = cntplines(win, win->w_topline, win->w_cursor->p_line);
+X    win->w_c_line_size = plines(win, win->w_cursor->p_line);
+X
+X    /*
+X     * Calculate new position within the line.
+X     */
+X    calc_position_in_line(win);
+X}
+X
+X/*
+X * The cursor has moved along by nchars within the current line.
+X * Updating it here saves the overhead of cursupdate().
+X */
+Xvoid
+Xcurs_horiz(win, nchars)
+XXviwin	*win;
+Xint	nchars;
+X{
+X    /*
+X     * For the moment, just completely recalculate the position
+X     * in the line. More optimisation can come later.
+X     */
+X    /*
+X     * This doesn't work for longlines, because it recalculates
+X     * the row from a starting position of the current row, and
+X     * so adds (c_line_size - 1) to the row:
+X    calc_position_in_line(win);
+X     * so we just call cursupdate() instead.
+X     */
+X    win->w_curs_new = TRUE;
+X}
+X
+Xstatic void
+Xcalc_position_in_line(win)
+XXviwin	*win;
+X{
+X    register Posn	*curp;
+X    register int	c;
+X    register int	i;
+X    register unsigned	width;
+X    register int	ccol;
+X
+X    curp = win->w_cursor;
+X
+X    /*
+X     * Work out the virtual column within the current line.
+X     */
+X    ccol = Pb(P_number) ? NUM_SIZE : 0;
+X    for (i = width = 0; i <= curp->p_index; i++) {
+X
+X	c = curp->p_line->l_text[i];
+X	ccol += width;
+X	width = vischar(c, (char **) NULL, ccol);
+X    }
+X
+X    if (State != INSERT && c == '\t' && ! Pb(P_list) && Pb(P_tabs)) {
+X	/*
+X	 * If we are inserting, or we're on a control
+X	 * character other than a tab, or we aren't showing
+X	 * tabs normally, the cursor goes to the first column
+X	 * of the control character representation: otherwise,
+X	 * if it's a tab & we aren't in insert mode, we place
+X	 * the cursor on the last column of the tab
+X	 * representation. (This is like the "real" vi.)
+X	 */
+X	ccol += width - 1;
+X    }
+X
+X    /*
+X     * If showing line numbers, adjust the virtual column within the line.
+X     */
+X    win->w_virtcol = ccol - (Pb(P_number) ? NUM_SIZE : 0);
+X
+X    /*
+X     * Convert virtual column to screen column by line folding.
+X     */
+X    while (ccol >= win->w_ncols) {
+X	win->w_row++;
+X	ccol -= win->w_ncols;
+X    }
+X    win->w_col = ccol;
+X
+X    /*
+X     * Don't go past bottom line of window. (This should only
+X     * happen on a longline which is too big to fit in the
+X     * window.)
+X     */
+X    if (win->w_row >= win->w_nrows - 1) {
+X	win->w_row = win->w_nrows - 2;
+X    }
+X
+X    if (win->w_set_want_col) {
+X	win->w_curswant = win->w_virtcol;
+X	win->w_set_want_col = FALSE;
+X    }
+X}
+END_OF_FILE
+  if test 3663 -ne `wc -c <'xvi/src/cursor.c'`; then
+    echo shar: \"'xvi/src/cursor.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/cursor.c'
+fi
+if test -f 'xvi/src/events.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/events.c'\"
+else
+  echo shar: Extracting \"'xvi/src/events.c'\" \(3643 characters\)
+  sed "s/^X//" >'xvi/src/events.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)events.c	1.1 (Chris & John Downey) 7/31/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    events.c
+X* module function:
+X    Deals with incoming events.
+X    The main entry point for input to the editor.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	bool_t	n_proc P((int));
+Xstatic	bool_t	c_proc P((int));
+Xstatic	bool_t	d_proc P((int));
+X
+Xvolatile int	keystrokes;
+X
+Xlong
+Xxvi_handle_event(ev)
+XxvEvent	*ev;
+X{
+X    bool_t		do_update;
+X    int		c;
+X
+X    switch (ev->ev_type) {
+X    case Ev_char:
+X	keystrokes++;
+X	map_char(ev->ev_inchar);
+X	break;
+X
+X    case Ev_timeout:
+X	if (map_waiting()) {
+X	    map_timeout();
+X	} else if (keystrokes >= PSVKEYS) {
+X	    do_preserve();
+X	    keystrokes = 0;
+X	}
+X	break;
+X    }
+X
+X    /*
+X     * Look to see if the event produced any input characters
+X     * which we can feed into the editor. Call the appropriate
+X     * function for each one, according to the current State.
+X     */
+X    do_update = FALSE;
+X    while ((c = map_getc()) != EOF) {
+X	bool_t	(*func)P((int));
+X
+X	switch (State) {
+X	case NORMAL:
+X	    func = n_proc;
+X	    break;
+X
+X	case CMDLINE:
+X	    func = c_proc;
+X	    break;
+X
+X	case DISPLAY:
+X	    func = d_proc;
+X	    break;
+X
+X	case INSERT:
+X	    func = i_proc;
+X	    break;
+X
+X	case REPLACE:
+X	    func = r_proc;
+X	    break;
+X	}
+X	if ((*func)(c)) {
+X	    do_update = TRUE;
+X	}
+X
+X	/*
+X	 * Look at the resultant state, and the
+X	 * result of the proc() routine, to see
+X	 * whether to update the display.
+X	 */
+X	switch (State) {
+X	case CMDLINE:
+X	case DISPLAY:
+X	    break;
+X
+X	case NORMAL:
+X	case INSERT:
+X	case REPLACE:
+X	    if (do_update) {
+X		move_window_to_cursor(curwin);
+X		cursupdate(curwin);
+X		wind_goto(curwin);
+X	    }
+X	}
+X    }
+X
+X    if (kbdintr) {
+X	if (imessage) {
+X	    show_message(curwin, "Interrupted");
+X	    wind_goto(curwin);	/* put cursor back */
+X	}
+X	imessage = (kbdintr = 0);
+X    }
+X
+X    if (map_waiting()) {
+X	return((long) Pn(P_timeout));
+X    } else if (keystrokes >= PSVKEYS) {
+X	return((long) Pn(P_preservetime) * 1000);
+X    } else {
+X	return(0);
+X    }
+X}
+X
+X/*
+X * Process the given character in command mode.
+X */
+Xstatic bool_t
+Xn_proc(c)
+Xint	c;
+X{
+X    unsigned	savecho;
+X    bool_t	result;
+X
+X    savecho = echo;
+X    result = normal(c);
+X    echo = savecho;
+X    return(result);
+X}
+X
+X/*
+X * Returns TRUE if screen wants updating, FALSE otherwise.
+X */
+Xstatic bool_t
+Xc_proc(c)
+Xint	c;
+X{
+X    char	*cmdline;
+X
+X    switch (cmd_input(curwin, c)) {
+X    case cmd_CANCEL:
+X	/*
+X	 * Put the status line back as it should be.
+X	 */
+X	show_file_info(curwin);
+X	update_window(curwin);
+X	return(FALSE);
+X
+X    case cmd_INCOMPLETE:
+X	return(FALSE);
+X
+X    case cmd_COMPLETE:
+X	cmdline = get_cmd(curwin);
+X	(void) yank_str(cmdline[0], cmdline, TRUE);
+X	switch (cmdline[0]) {
+X	case '/':
+X	case '?':
+X	    (void) dosearch(curwin, cmdline + 1, cmdline[0]);
+X	    move_window_to_cursor(curwin);
+X	    break;
+X
+X	case '!':
+X	    do_pipe(curwin, cmdline + 1);
+X	    break;
+X
+X	case ':':
+X	    do_colon(cmdline + 1, TRUE);
+X	}
+X	return(TRUE);
+X    }
+X    /*NOTREACHED*/
+X}
+X
+X/*ARGSUSED*/
+Xstatic bool_t
+Xd_proc(c)
+Xint	c;
+X{
+X    if (c == CTRL('C')) {
+X	/*
+X	 * In some environments it's possible to type
+X	 * control-C without actually generating an interrupt,
+X	 * but if they do, in this context, they probably want
+X	 * the semantics of an interrupt anyway.
+X	 */
+X	imessage = (kbdintr = 1);
+X    }
+X    return(disp_screen(curwin));
+X}
+END_OF_FILE
+  if test 3643 -ne `wc -c <'xvi/src/events.c'`; then
+    echo shar: \"'xvi/src/events.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/events.c'
+fi
+if test -f 'xvi/src/ibmpc_c.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/ibmpc_c.c'\"
+else
+  echo shar: Extracting \"'xvi/src/ibmpc_c.c'\" \(5791 characters\)
+  sed "s/^X//" >'xvi/src/ibmpc_c.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)ibmpc_c.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ibmpc_c.c
+X* module function:
+X    C part of terminal interface module for IBM PC compatibles
+X    running MS-DOS.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Screen dimensions, defined here so they'll go in the C default data
+X * segment.
+X */
+Xunsigned int	Rows;
+Xunsigned int	Columns;
+X
+X/*
+X * IBM-compatible PC's have a default typeahead buffer which is only
+X * big enough for 16 characters, & some 8088-based PC's are so
+X * unbelievably slow that xvi can't handle more than about 2
+X * characters a second. So we do some input buffering here to
+X * alleviate the problem.
+X */
+X
+Xstatic	char	    kbuf[16];
+Xstatic	char	    *kbrp = kbuf,
+Xstatic	char	    *kbwp = kbuf;
+Xstatic	unsigned    kbcount;
+X
+Xstatic void near
+Xkbfill()
+X{
+X    register int	c;
+X
+X    while (kbcount < sizeof kbuf && (c = getchnw()) >= 0) {
+X	kbcount++;
+X	*kbwp = c;
+X	if (kbwp++ >= &kbuf[sizeof kbuf - 1])
+X	    kbwp = kbuf;
+X    }
+X}
+X
+Xstatic unsigned char near
+Xkbget()
+X{
+X    for (;;) {
+X	if (kbcount > 0) {
+X	    unsigned char c;
+X
+X	    --kbcount;
+X	    c = *kbrp;
+X	    if (kbrp++ >= &kbuf[sizeof kbuf - 1])
+X		kbrp = kbuf;
+X	    return c;
+X	} else {
+X	    kbfill();
+X	}
+X    }
+X}
+X
+X/*
+X * Convert milliseconds to clock ticks.
+X */
+X#if CLK_TCK > 1000
+X#		define	MS2CLK(m)	((long)(m) * (CLK_TCK / 1000))
+X#else
+X#	if CLK_TCK < 1000
+X#		define	MS2CLK(m)	((long)(m) / (1000 / CLK_TCK))
+X#	else
+X#		define	MS2CLK(m)	(m)
+X#	endif
+X#endif
+X
+X/*
+X * inchar() - get a character from the keyboard
+X */
+Xint
+Xinchar(long mstimeout)
+X{
+X    clock_t		stoptime;
+X
+X    if (kbcount == 0) {
+X	flush_output();
+X	if (mstimeout != 0) {
+X	    stoptime = clock() + MS2CLK(mstimeout);
+X	}
+X	kbfill();
+X    }
+X    for (;;) {
+X	static clock_t	lastevent;
+X	register int	c;
+X
+X	if (kbcount == 0) {
+X	    unsigned	prevbstate;
+X	    unsigned	prevx, prevy;
+X	    bool_t	isdrag;
+X
+X	    if (State == NORMAL) {
+X		showmouse();
+X		prevbstate = 0;
+X	    }
+X	    for (; kbcount == 0; kbfill()) {
+X		/*
+X		 * Time out if we have to.
+X		 */
+X		if (mstimeout != 0 && clock() > stoptime) {
+X		    break;
+X		}
+X		if (State == NORMAL) {
+X		    unsigned	buttonstate;
+X		    unsigned	mousex,
+X				mousey;
+X
+X		    /*
+X		     * If there's no keyboard input waiting to be
+X		     * read, watch out for mouse events. We don't do
+X		     * this if we're in insert or command line mode.
+X		     */
+X
+X		    buttonstate = mousestatus(&mousex, &mousey) & 7;
+X		    mousex /= 8;
+X		    mousey /= 8;
+X		    if (prevbstate == 0) {
+X			isdrag = FALSE;
+X		    } else {
+X			if (buttonstate) {
+X			    /*
+X			     * If a button is being held down, & the
+X			     * position has changed, this is a mouse
+X			     * drag event.
+X			     */
+X			    if (mousex != prevx || mousey != prevy) {
+X				hidemouse();
+X				mousedrag(prevy, mousey, prevx, mousex);
+X				showmouse();
+X				isdrag = TRUE;
+X			    }
+X			} else {
+X			    if (!isdrag) {
+X				/*
+X				 * They've pressed & released a button
+X				 * without moving the mouse.
+X				 */
+X				hidemouse();
+X				mouseclick(mousey, mousex);
+X				showmouse();
+X			    }
+X			}
+X		    }
+X		    if ((prevbstate = buttonstate) != 0) {
+X			prevx = mousex;
+X			prevy = mousey;
+X		    }
+X		}
+X	    }
+X	    if (State == NORMAL) {
+X		hidemouse();
+X	    }
+X	    if (kbcount == 0) {
+X		/*
+X		 * We must have timed out.
+X		 */
+X		return EOF;
+X	    }
+X	}
+X	c = kbget();
+X	/*
+X	 * On IBM compatible PC's, function keys return '\0' followed
+X	 * by another character. Check for this, and turn function key
+X	 * presses into appropriate "normal" characters to do the
+X	 * right thing in xvi.
+X	 */
+X	if (c != '\0') {
+X	    return(c);
+X	}
+X	/* else must be a function key press */
+X	{
+X	    if (State != NORMAL) {
+X		/*
+X		 * Function key pressed during insert or command line
+X		 * mode. Get the next character ...
+X		 */
+X		if (kbget() == 0x53) {
+X		    /*
+X		     * ... and if it's the delete key, return it as a
+X		     * backspace ...
+X		     */
+X		    return '\b';
+X		}
+X		/*
+X		 * ... otherwise it isn't valid ...
+X		 */
+X		alert();
+X
+X		/*
+X		 * Typical MS-DOS users are fairly naive & may not
+X		 * understand how to get out of insert mode. To make
+X		 * things easier, we do it for them here.
+X		 */
+X		switch (State) {
+X		case INSERT:
+X		case REPLACE:
+X		    return ESC;
+X		default:
+X		    continue;
+X		}
+X	    }
+X	    /* else (State == NORMAL) ... */
+X	    switch (kbget()) {
+X	    case 0x3b: return(K_HELP);		/* F1 key */
+X	    case 0x47: return('H');		/* home key */
+X	    case 0x48: return('k');		/* up arrow key */
+X	    case 0x49: return (CTRL('B'));	/* page up key */
+X	    case 0x4b: return('\b');		/* left arrow key */
+X	    case 0x4d: return(' ');		/* right arrow key */
+X	    case 0x4f: return('L');		/* end key */
+X	    case 0x50: return('j');		/* down arrow key */
+X	    case 0x51: return (CTRL('F'));	/* page down key */
+X	    case 0x52: return('i');		/* insert key */
+X	    case 0x53: return('x');		/* delete key */
+X	    /*
+X	     * default:
+X	     *	fall through and ignore both characters ...
+X	     */
+X	    }
+X	    continue;
+X	}
+X    }
+X}
+X
+X#ifdef __ZTC__
+X#   ifdef DOS386
+X#	define Z386
+X#   endif
+X#endif
+X
+X#ifndef Z386
+X
+X/*
+X * The routines in ibmpc_a.asm need to call this because they can't
+X * invoke C macros directly.
+X *
+X * Return Pn(P_colour) in the al register, Pn(P_statuscolour) in ah, &
+X * Pb(P_vbell) in dx.
+X *
+X * This will only work with a Microsoft-compatible compiler.
+X */
+Xlong
+Xcparams()
+X{
+X    return ((long) Pb(P_vbell) << 16) |
+X	   (unsigned short) ((Pn(P_statuscolour) << 8) |
+X		 (unsigned char) Pn(P_colour));
+X}
+X
+X#endif	/* not Z386 */
+END_OF_FILE
+  if test 5791 -ne `wc -c <'xvi/src/ibmpc_c.c'`; then
+    echo shar: \"'xvi/src/ibmpc_c.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/ibmpc_c.c'
+fi
+if test -f 'xvi/src/makefile.386' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.386'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.386'\" \(3534 characters\)
+  sed "s/^X//" >'xvi/src/makefile.386' <<'END_OF_FILE'
+X# Copyright (c) 1990,1991,1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.386	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.386
+X# module function:
+X#	Makefile for MS-DOS 386 protected mode version using Zortech
+X#	C 3.00 & PharLap DOS extender.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+X#
+X# Name of this file.
+X#
+XTHISFILE=	makefile.386
+X
+XMEMMODEL=	p
+XCC=		ztc
+XLIBDIR=		$(LIB)
+XPHARLAP=	d:\osu\pharlap
+XOPTFLAGS=	-o+dc -o+li -o+loop
+XDEBUGFLAGS=	-g
+XCDEFS=		-DMSDOS -D__STDC__=1
+XCFLAGS=		-m$(MEMMODEL) -bx $(CDEFS) $(OPTFLAGS)
+XLD=		$(PHARLAP)\386linkp
+XTARGET=		xvi
+X
+XINC=		ascii.h param.h ptrfunc.h regexp.h regmagic.h xvi.h \
+X		virtscr.h msdos.h pc386.h
+X
+XSRC=		defscr.c \
+X		alloc.c ascii.c buffers.c cmdline.c cursor.c \
+X		edit.c ex_cmds1.c ex_cmds2.c events.c flexbuf.c \
+X		fileio.c find.c map.c mark.c misccmds.c \
+X		mouse.c movement.c normal.c param.c pipe.c \
+X		preserve.c ptrfunc.c screen.c regexp.c \
+X		search.c startup.c status.c \
+X		tags.c undo.c version.c windows.c yankput.c \
+X		msdos_c.c ibmpc_c.c pc386.c
+X
+XOBJ=		defscr.obj \
+X		alloc.obj ascii.obj buffers.obj cmdline.obj cursor.obj \
+X		edit.obj ex_cmds1.obj ex_cmds2.obj events.obj flexbuf.obj \
+X		fileio.obj find.obj map.obj mark.obj misccmds.obj \
+X		mouse.obj movement.obj normal.obj param.obj pipe.obj \
+X		preserve.obj ptrfunc.obj screen.obj regexp.obj \
+X		search.obj startup.obj status.obj \
+X		tags.obj undo.obj version.obj windows.obj yankput.obj \
+X		msdos_c.obj ibmpc_c.obj pc386.obj
+X
+XLINKFILE=	$(TARGET).lnk
+X
+X$(TARGET).exe:	$(TARGET).exp
+X		$(PHARLAP)\bind386 $(PHARLAP)\run386b $(TARGET)
+X
+X$(TARGET).exp:	$(OBJ) $(LINKFILE) version.c
+X		$(CC) $(CFLAGS) -c version.c
+X		$(LD) @$(LINKFILE)
+X
+X$(LINKFILE):	$(THISFILE) echonl.com
+X		+echo $(LIBDIR)\realmode > $@
+X		# +echo $(LIBDIR)\int >> $@
+X		+echo defscr >> $@
+X		+echo alloc >> $@
+X		+echo ascii >> $@
+X		+echo buffers >> $@
+X		+echo cmdline >> $@
+X		+echo cursor >> $@
+X		+echo edit >> $@
+X		+echo ex_cmds1 >> $@
+X		+echo ex_cmds2 >> $@
+X		+echo events >> $@
+X		+echo flexbuf >> $@
+X		+echo fileio >> $@
+X		+echo find >> $@
+X		+echo map >> $@
+X		+echo mark >> $@
+X		+echo misccmds >> $@
+X		+echo mouse >> $@
+X		+echo movement >> $@
+X		+echo normal >> $@
+X		+echo param >> $@
+X		+echo pipe >> $@
+X		+echo preserve >> $@
+X		+echo ptrfunc >> $@
+X		+echo regexp >> $@
+X		+echo screen >> $@
+X		+echo search >> $@
+X		+echo startup >> $@
+X		+echo status >> $@
+X		+echo tags >> $@
+X		+echo undo >> $@
+X		+echo version >> $@
+X		+echo windows >> $@
+X		+echo yankput >> $@
+X		+echo msdos_c >> $@
+X		+echo ibmpc_c >> $@
+X		+echo pc386 >> $@
+X		+echonl >> $@
+X		+echo -lib $(LIBDIR)\zps.lib -tc -MAXREAL 4096 >> $@
+X		+echo -exe $(TARGET).exp >> $@
+X
+X.c.obj:
+X		$(CC) $(CFLAGS) -o$@ -c $<
+X
+X.asm.com:
+X		@masm $* ;
+X		@link $* ;
+X		@del $*.obj
+X		@exe2bin $*.exe $*.com
+X		@del $*.exe
+X
+Xechonl.com:	echonl.asm
+X
+X#
+X# Generate program to output a single newline. This is needed to
+X# generate the link file.
+X#
+Xechonl.asm:	$(THISFILE)
+X		+echo cseg segment > $@
+X		+echo assume cs:cseg >> $@
+X		+echo org 100h >> $@
+X		+echo start: >> $@
+X		+echo mov dx, offset crnl >> $@
+X		+echo mov ah, 9 >> $@
+X		+echo int 21h >> $@
+X		+echo mov ax, 4c00h >> $@
+X		+echo int 21h >> $@
+X		+echo crnl db 0dh, 0ah, 024h >> $@
+X		+echo cseg ends >> $@
+X		+echo end start >> $@
+X
+Xclean:
+X		del *.obj
+X		del $(LINKFILE)
+X		del *.map
+X		del echonl.com
+END_OF_FILE
+  if test 3534 -ne `wc -c <'xvi/src/makefile.386'`; then
+    echo shar: \"'xvi/src/makefile.386'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.386'
+fi
+if test -f 'xvi/src/mouse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/mouse.c'\"
+else
+  echo shar: Extracting \"'xvi/src/mouse.c'\" \(4855 characters\)
+  sed "s/^X//" >'xvi/src/mouse.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)mouse.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    mouse.c
+X* module function:
+X    Machine-independent mouse interface routines.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Find the Line corresponding to a given physical screen row.
+X *
+X * Also return (in *pstartrow) the physical screen row on which that
+X * Line starts.
+X */
+Xstatic Line *
+Xfindline(wp, row, pstartrow)
+XXviwin		*wp;
+Xregister int	row;
+Xint		*pstartrow;
+X{
+X    register int	lposn;
+X    int			maxrow;
+X    register Line	*lp;
+X    Line		*lastline;
+X
+X    lp = wp->w_topline;
+X    lastline = wp->w_buffer->b_lastline;
+X    lposn = wp->w_winpos;
+X    maxrow = wp->w_cmdline;
+X
+X    for (;;) {
+X	register int	newposn;
+X
+X	newposn = lposn + LONG2INT(plines(wp, lp));
+X	if (
+X	    (
+X		/*
+X		 * If we've found the right line ...
+X		 */
+X		row >= lposn
+X		&&
+X		row < newposn
+X	    )
+X	    ||
+X	    (
+X		/*
+X		 * ... or we've got to the end of the buffer ...
+X		 */
+X		lp->l_next == wp->w_buffer->b_lastline
+X	    )
+X	    ||
+X	    (
+X		/*
+X		 * ... or we're at the bottom of the window ...
+X		 */
+X		newposn >= maxrow
+X	    )
+X	) {
+X	    /*
+X	     * ... we return this line.
+X	     */
+X	    *pstartrow = lposn;
+X	    return lp;
+X	}
+X	lposn = newposn;
+X	lp = lp->l_next;
+X    }
+X}
+X
+X/*
+X * Move the text cursor as near as possible to the given physical
+X * screen co-ordinates.
+X */
+Xstatic void
+Xsetcursor(wp, row, col)
+XXviwin	*wp;
+Xint	row;		/* row where mouse was clicked */
+Xint	col;		/* column where mouse was clicked */
+X{
+X    int		startrow;	/* row at which line starts */
+X    int		vcol;		/* virtual column */
+X    Line	*lp;		/* logical line corresponding to row */
+X
+X    lp = findline(wp, row, &startrow);
+X    vcol = col + ((row - startrow) * wp->w_ncols);
+X    move_cursor(wp, lp, 0);
+X    coladvance(wp, (wp->w_curswant = vcol));
+X}
+X
+X/*
+X * Find the window a given physical screen row is in.
+X */
+Xstatic Xviwin *
+Xfindwin(row)
+Xregister int	row;
+X{
+X    register Xviwin	*wp;
+X
+X    wp = curwin;
+X    for (;;) {
+X	if (wp->w_winpos <= row && row <= wp->w_cmdline) {
+X	    /*
+X	     * We've found the right window.
+X	     */
+X	    return wp;
+X	}
+X	if ((wp = next_window(wp)) == curwin) {
+X	    /*
+X	     * This can't happen: the mouse isn't in any
+X	     * window.
+X	     */
+X	    return NULL;
+X	}
+X    }
+X}
+X
+X/*
+X * Handle mouse drag event.
+X */
+Xvoid
+Xmousedrag(row1, row2, col1, col2)
+Xint row1, row2, col1, col2;
+X{
+X    if (State == NORMAL && row1 != row2 && row1 < Rows - 1) {
+X	Xviwin *wp;
+X
+X	if ((wp = findwin(row1)) == NULL) {
+X	    /*
+X	     * This can't happen.
+X	     */
+X	    return;
+X	}
+X
+X	if (wp->w_cmdline == row1) {
+X	    unsigned savecho;
+X
+X	    savecho = echo;
+X	    echo &= ~e_CHARUPDATE;
+X
+X	    (void) move_sline(wp, row2 - row1);
+X
+X	    echo = savecho;
+X
+X	    move_cursor_to_window(curwin);
+X	    update_all();
+X	    cursupdate(curwin);
+X	    wind_goto(curwin);
+X	}
+X    }
+X}
+X
+X/*
+X * This function is called by the (obviously machine-dependent) mouse
+X * event handling code when a mouse button is pressed & released.
+X *
+X * The algorithm we use here is semantically complicated, but seems to
+X * be fairly intuitive in actual use.
+X */
+Xvoid
+Xmouseclick(row, col)
+Xregister int	row;	/* row the mouse cursor is in */
+Xint		col;	/* column the mouse cursor is in */
+X{
+X    register Xviwin	*wp;
+X
+X    if (State != NORMAL) {
+X	return;
+X    }
+X
+X    /*
+X     * First find which window the mouse is in.
+X     */
+X    if ((wp = findwin(row)) == NULL) {
+X	/*
+X	 * This can't happen.
+X	 */
+X	return;
+X    }
+X
+X    if (wp != curwin) {
+X	/*
+X	 * The window the mouse is in isn't the current window.
+X	 * Make it the current window.
+X	 */
+X	curwin = wp;
+X	curbuf = wp->w_buffer;
+X    }
+X
+X    if (row == wp->w_cmdline) {
+X	/*
+X	 * If the mouse is on the status line of any window,
+X	 * we update the information on the status line. This
+X	 * applies whether or not it was already the current
+X	 * window.
+X	 */
+X	show_file_info(wp);
+X    } else {
+X	/*
+X	 * Move the cursor as near as possible to where the
+X	 * mouse was clicked.
+X	 */
+X	setcursor(wp, row, col);
+X
+X	/*
+X	 * If the window has at least 2 text rows, and ...
+X	 */
+X	if (wp->w_nrows > 2) {
+X	    if (row == wp->w_winpos) {
+X		/*
+X		 * ... we're on the top line of the
+X		 * window - scroll down ...
+X		 */
+X		scrolldown(wp, (unsigned) 1);
+X		update_window(wp);
+X	    } else if (row == wp->w_cmdline - 1) {
+X		/*
+X		 * ... or we're on the bottom line of
+X		 * the window - scroll up ...
+X		 */
+X		scrollup(wp, (unsigned) 1);
+X		update_window(wp);
+X	    }
+X	}
+X    }
+X
+X    /*
+X     * Make sure physical screen and cursor position are updated.
+X     */
+X    cursupdate(wp);
+X    wind_goto(wp);
+X}
+END_OF_FILE
+  if test 4855 -ne `wc -c <'xvi/src/mouse.c'`; then
+    echo shar: \"'xvi/src/mouse.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/mouse.c'
+fi
+if test -f 'xvi/src/os2vio.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/os2vio.h'\"
+else
+  echo shar: Extracting \"'xvi/src/os2vio.h'\" \(4160 characters\)
+  sed "s/^X//" >'xvi/src/os2vio.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X* @(#)os2vio.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    os2vio.h
+X* module function:
+X    Definitions for OS/2 system interface.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * System include files.
+X */
+X#define INCL_BASE
+X#define INCL_DOS
+X#define INCL_SUB
+X#define INCL_DOSERRORS
+X
+X#include <os2.h>
+X
+X/*
+X * Include files for Microsoft C library.
+X */
+X#include <fcntl.h>
+X#include <malloc.h>
+X#include <process.h>
+X#include <stdlib.h>
+X#include <time.h>
+X#ifndef SIGINT
+X#   include <signal.h>
+X#endif
+X
+X/*
+X * This is a multi-thread program, so we allocate multiple stacks
+X * within the same stack segment, so there isn't much point in letting
+X * the compiler put in stack probes.
+X */
+X#pragma check_stack(off)
+X
+X#ifndef HELPFILE
+X#   define HELPFILE	"d:\\jmd\\xvi\\help"
+X#endif
+X
+X/*
+X * System-dependent constants.
+X *
+X * These are right for MS-DOS & (I think) OS/2. (jmd)
+X */
+X#define	MAXPATHLEN	143	/* maximum length of full path name */
+X#define	MAXNAMLEN	12	/* maximum length of file name */
+X#define	DIRSEPS		"\\/"	/*
+X				 * directory separators within
+X				 * pathnames
+X				 */
+X
+X/*
+X * Under OS/2, characters with the top bit set are perfectly valid
+X * (although not necessarily always what you want to see).
+X */
+X#define	DEF_CCHARS	TRUE
+X#define	DEF_MCHARS	TRUE
+X
+X#define	SETVBUF_AVAIL
+X#define	WRTBUFSIZ	0x7000
+X#define	READBUFSIZ	0x7000
+X
+Xextern unsigned		Rows, Columns;
+Xextern unsigned char	virt_row, virt_col;
+Xextern unsigned char	curcell[2];
+X
+X/*
+X * Default value for P_format parameter.
+X */
+X#define DEF_TFF		fmt_OS2
+X
+X/*
+X * Terminal driving functions - just use macros here.
+X */
+X#define insert_line()		/* insert one line */
+X#define delete_line()		/* delete one line */
+X#define save_cursor()		/* save cursor position */
+X#define restore_cursor()	/* restore cursor position */
+X#define invis_cursor()		/* invisible cursor */
+X#define vis_cursor()		/* visible cursor */
+X#define tty_goto(r,c)	(virt_row = (r), virt_col = (c))
+X#define cost_goto	0	/* cost of using tty_goto() */
+X
+X/*
+X * Update actual screen cursor position. This is the only output flushing we
+X * need to do, because outstr() & outchar() use system calls which update
+X * video memory directly.
+X */
+X#define flush_output()	VioSetCurPos(virt_row, virt_col, 0)
+X
+X#define can_ins_line	FALSE
+X#define can_del_line	FALSE
+X#define can_scroll_area TRUE
+X/*
+X * tty_linefeed() isn't needed if can_scroll_area is TRUE.
+X */
+X#define tty_linefeed()
+X
+X#define can_inschar	FALSE
+X#define inschar(c)
+X
+X#define set_colour(a)	(curcell[1] = (a))
+X/*
+X * User-definable screen colours. Default values are for mono
+X * displays.
+X */
+X#define DEF_COLOUR	7
+X#define DEF_STCOLOUR	112
+X#define DEF_SYSCOLOUR	7
+X
+X#define alert()		DosBeep(2000, 150)
+X
+X/*
+X * Macros to open files in binary mode,
+X * and to expand filenames.
+X */
+X#define fopenrb(f)	fopen((f),"rb")
+X#define fopenwb(f)	fopen((f),"wb")
+X#define fexpand(f)	(f)
+X
+X/*
+X * exists(): TRUE if file exists.
+X */
+X#define exists(f)	(access((f),0) == 0)
+X/*
+X * can_write(): TRUE if file does not exist or exists and is writeable.
+X */
+X#define can_write(f)	(access((f),0) != 0 || access((f), 2) == 0)
+X#define delay()		DosSleep((long) 200)
+X#define call_shell(s)	spawnlp(P_WAIT, (s), (s), (char *) NULL)
+X#define call_system(s)	system(s)
+X
+X/*
+X * Declarations for system interface routines in os2vio.c.
+X */
+Xextern	void		erase_display(void);
+Xextern	void		erase_line(void);
+Xextern	int		inchar(long);
+Xextern	void		outchar(int);
+Xextern	void		outstr(char*);
+Xextern	void		scroll_down(unsigned, unsigned, unsigned);
+Xextern	void		scroll_up(unsigned, unsigned, unsigned);
+Xextern	char		*tempfname(char *);
+Xextern	void		sys_init(void);
+Xextern	void		sys_exit(int);
+Xextern	bool_t		sys_pipe P((char *, int (*)(FILE *), long (*)(FILE *)));
+Xextern	void		sys_startv(void);
+Xextern	void		sys_endv(void);
+X
+X/*
+X * in i286.asm:
+X */
+Xextern void far			es0(void);
+Xextern unsigned char * far	newstack(int);
+END_OF_FILE
+  if test 4160 -ne `wc -c <'xvi/src/os2vio.h'`; then
+    echo shar: \"'xvi/src/os2vio.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/os2vio.h'
+fi
+if test -f 'xvi/src/param.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/param.h'\"
+else
+  echo shar: Extracting \"'xvi/src/param.h'\" \(4258 characters\)
+  sed "s/^X//" >'xvi/src/param.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)param.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    param.h
+X* module function:
+X    Definitions for parameter access.
+X
+X    This is all going to change when we have local parameters.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * Settable parameters.
+X */
+X
+Xtypedef union {
+X    int		pv_i;
+X    bool_t	pv_b;
+X    char	*pv_s;
+X    char	**pv_l;
+X} Paramval;
+X
+Xtypedef	struct	param {
+X    char	*p_fullname;	/* full parameter name */
+X    char	*p_shortname;	/* permissible abbreviation */
+X    int		p_flags;	/* type of parameter, and whether implemented */
+X
+X    /*
+X     * This field is used for numeric and boolean values,
+X     * and for storing the numeric representation for enums.
+X     */
+X    int		p_value;
+X
+X    /*
+X     * Special function to set parameter.
+X     * This is called whenever the parameter is set by the user.
+X     */
+X    bool_t	(*p_func) P((Xviwin *, Paramval, bool_t));
+X
+X    /*
+X     * This field is used for strings, lists and enums.
+X     * Note that making this the last field allows us to initialise the
+X     * parameter table, since we can just leave this field uninitialised.
+X     */
+X    union {
+X	char	*pu_str;
+X	char	**pu_list;
+X    } pu;
+X} Param;
+X
+X#define	p_num	p_value
+X#define	p_bool	p_value
+X#define	p_eval	p_value
+X
+X#define	p_str	pu.pu_str
+X#define	p_list	pu.pu_list
+X#define	p_elist	pu.pu_list
+X
+X#ifdef __ZTC__
+X#   define	PFUNCADDR(f)	((bool_t (*)(Xviwin *, Paramval, bool_t))(f))
+X#else
+X#   define	PFUNCADDR(f)	(f)
+X#endif
+X
+Xextern	Param	params[];
+X
+X/*
+X * Flags
+X */
+X#define	P_BOOL		0x01	/* the parameter is boolean */
+X#define	P_NUM		0x02	/* the parameter is numeric */
+X#define	P_STRING	0x04	/* the parameter is a string */
+X#define	P_ENUM		0x08	/* the parameter is an enumerated type */
+X#define	P_LIST		0x20	/* the parameter is a list of strings */
+X
+X#define	P_TYPE		0x2f	/* used to mask out type from other bits */
+X
+X#define	P_CHANGED	0x10	/* the parameter has been changed */
+X
+X/*
+X * Macros to set/get the value of a parameter.
+X * One each for the four parameter types.
+X * May change implementation later to do more checking.
+X */
+X#define	Pn(n)		(params[n].p_num)
+X#define	Pb(n)		(params[n].p_bool)
+X#define	Ps(n)		(params[n].p_str)
+X#define	Pl(n)		(params[n].p_list)
+X#define	Pen(n)		(params[n].p_value)
+X#define	Pes(n)		(params[n].p_elist[params[n].p_eval])
+X
+X#define P_ischanged(n)	(params[n].p_flags & P_CHANGED)
+X#define P_setchanged(n)	(params[n].p_flags |= P_CHANGED)
+X
+X/*
+X * The following are the indices in the params array for each parameter.
+X * They must not be changed without also changing the table in "param.c".
+X */
+X#define P_ada		0
+X#define P_adapath 	1
+X#define P_autoindent 	2
+X#define P_autoprint 	3
+X#define P_autosplit 	4
+X#define P_autowrite 	5
+X#define P_beautify 	6
+X#define P_cchars 	7
+X#define P_colour 	8
+X#define P_directory 	9
+X#define P_edcompatible 	10
+X#define P_edit 		11
+X#define P_errorbells 	12
+X#define P_format 	13
+X#define P_hardtabs 	14
+X#define P_helpfile 	15
+X#define P_ignorecase 	16
+X#define P_jumpscroll 	17
+X#define P_lisp 		18
+X#define P_list 		19
+X#define P_magic 	20
+X#define P_mchars 	21
+X#define P_mesg 		22
+X#define P_minrows 	23
+X#define P_modeline 	24
+X#define P_number 	25
+X#define P_open 		26
+X#define P_optimize 	27
+X#define P_paragraphs 	28
+X#define P_preserve 	29
+X#define P_preservetime 	30
+X#define P_prompt 	31
+X#define P_readonly 	32
+X#define P_redraw 	33
+X#define P_regextype 	34
+X#define P_remap 	35
+X#define P_report 	36
+X#define P_roscolour 	37
+X#define P_scroll 	38
+X#define P_sections 	39
+X#define P_sentences 	40
+X#define P_shell 	41
+X#define P_shiftwidth 	42
+X#define P_showmatch 	43
+X#define P_slowopen 	44
+X#define P_sourceany 	45
+X#define P_statuscolour 	46
+X#define P_systemcolour 	47
+X#define P_tabs	 	48
+X#define P_tabstop 	49
+X#define P_taglength 	50
+X#define P_tags 		51
+X#define P_term 		52
+X#define P_terse 	53
+X#define P_timeout 	54
+X#define P_ttytype 	55
+X#define P_vbell 	56
+X#define P_warn 		57
+X#define P_window 	58
+X#define P_wrapmargin 	59
+X#define P_wrapscan 	60
+X#define P_writeany 	61
+END_OF_FILE
+  if test 4258 -ne `wc -c <'xvi/src/param.h'`; then
+    echo shar: \"'xvi/src/param.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/param.h'
+fi
+if test -f 'xvi/src/pc386.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/pc386.c'\"
+else
+  echo shar: Extracting \"'xvi/src/pc386.c'\" \(5712 characters\)
+  sed "s/^X//" >'xvi/src/pc386.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)pc386.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    pc386.c
+X* module function:
+X    Routines for MS-DOS 386 protected mode version.
+X
+X    This file implements the same routines as ibmpc_a.asm &
+X    msdos_a.asm, which are for the real mode version.
+X
+X    Zortech C++ version 3.0 or later & an appropriate DOS extender
+X    package (such as PharLap's) are required.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X***/
+X
+X#include "xvi.h"
+X
+X#include <cerror.h>
+X#include <controlc.h>
+X
+X/*
+X * Virtual mode handling.
+X *
+X * On EGA's & VGA's, the number of rows in text modes can vary because
+X * fonts with different sizes can be loaded, so we use virtual modes
+X * to contain the additional information needed. (Actually, we handle
+X * it a bit simplistically because the Zortech display library only
+X * knows about certain cases: 25 rows (default), 43 rows (EGA with
+X * 8 x 8 font) & 50 rows (VGA with 8 x 8 font). The last two are
+X * treated as equivalent.)
+X */
+X#define MONO25X80	2
+X#define COLOUR25X80	3
+X#define MDA25X80	7
+X#define MASK43		043000
+X#define COLOUR43X80	(COLOUR25X80 | MASK43)
+X#define MONO43X80	(MONO25X80 | MASK43)
+X#define MDA43X80	(MDA25X80 | MASK43)
+X
+Xstatic unsigned
+Xgetvmode()
+X{
+X    unsigned	mode;
+X
+X    if ((mode = disp_getmode()) == COLOUR25X80 || mode == MONO25X80 ||
+X    							mode == MDA25X80) {
+X	if (disp_numrows > 25) {
+X	    return mode | MASK43;
+X	}
+X    }
+X    return mode;
+X}
+X
+Xstatic void
+Xsetvmode(unsigned vmode)
+X{
+X    {
+X	int	mode;
+X
+X	if (disp_getmode() != (mode = vmode & ~MASK43)) {
+X	    disp_close();
+X	    disp_setmode(mode);
+X	    disp_open();
+X	}
+X    }
+X    {
+X	unsigned	m43;
+X
+X	m43 = vmode & MASK43;
+X	if (disp_ega && ((m43 && disp_numrows <= 25) ||
+X			 (!m43 && disp_numrows > 25))) {
+X	    disp_close();
+X	    if (m43) {
+X		disp_set43();
+X	    } else {
+X		disp_reset43();
+X	    }
+X	    disp_open();
+X	}
+X    }
+X}
+X
+Xstatic unsigned startmode;		/* system virtual mode */
+X
+X#if 0
+X
+X/*
+X * Critical error handler.
+X *
+X * See notes in msdos_a.asm.
+X */
+Xstatic int _far _cdecl
+Xcriterr(int *pax, int *pdi)
+X{
+X    *pax = ((_osmajor >= 3) ? 3 : 0);
+X}
+X
+X#endif
+X
+X/*
+X * Keyboard interrupt handler.
+X */
+Xstatic void _cdecl
+Xinthandler(void)
+X{
+X    kbdintr = 1;
+X#if 0
+X    return(-1);	/* don't chain to previously installed vector */
+X#endif
+X}
+X
+X/*
+X * Install interrupt handlers.
+X */
+Xvoid
+Xmsdsignal(unsigned char *flagp)
+X{
+X    _controlc_handler = inthandler;
+X    controlc_open();
+X#if 0
+X    _cerror_handler = criterr;
+X    cerror_open();
+X    int_intercept(0x23, inthandler, 0);
+X    int_intercept(0x24, criterr, 0);
+X#endif
+X}
+X
+Xvoid
+Xcatch_signals(void)
+X{
+X    /*
+X     * Set console break flag so that we can be interrupted even
+X     * when we're not waiting for console input.
+X     */
+X    dos_set_ctrl_break(1);
+X}
+X
+X/*
+X * Pointer to copy of previous screen.
+X */
+Xstatic unsigned short *oldscreen = NULL;
+X
+Xvoid
+Xtty_open(unsigned *prows, unsigned *pcolumns)
+X{
+X    if (!disp_inited) {
+X	disp_open();
+X    }
+X    startmode = getvmode();
+X
+X    if (disp_base) {
+X	/*
+X	 * Allocate storage for copy of previous screen
+X	 * (except bottom line).
+X	 *
+X	 * We don't do this if we're using BIOS calls
+X	 * (indicated by disp_base == 0) because the BIOS
+X	 * doesn't do it very well (it causes a lot of cursor
+X	 * flicker).
+X	 */
+X	oldscreen = (unsigned short *)
+X		    malloc((disp_numrows - 1) * disp_numcols *
+X					    sizeof(unsigned short));
+X    }
+X    *prows = disp_numrows;
+X    *pcolumns = disp_numcols;
+X}
+X
+Xstatic enum {
+X	m_INITIAL = 0,
+X	m_SYS = 1,
+X	m_VI = 2
+X}	curmode;
+X
+X/*
+X * Save screen contents & set up video state for editor.
+X */
+Xvoid
+Xtty_startv(void)
+X{
+X    switch (curmode) {
+X    case m_VI:
+X	/*
+X	 * We're already in vi mode.
+X	 */
+X	return;
+X    case m_SYS:
+X	/*
+X	 * This isn't the first call. Force display
+X	 * package's variables to be re-initialized.
+X	 */
+X	disp_close();
+X	disp_open();
+X    }
+X    curmode = m_VI;
+X    if (getvmode() != startmode) {
+X	/*
+X	 * The display mode has changed; set it back to what we
+X	 * started with.
+X	 */
+X	setvmode(startmode);
+X    }
+X    if (oldscreen) {
+X	/*
+X	 * Save screen contents (except bottom line) so they
+X	 * can be restored afterwards.
+X	 */
+X	disp_peekbox(oldscreen, 0, 0, disp_numrows - 2, disp_numcols - 1);
+X    }
+X    msm_init();
+X    /*
+X     * Apparently, the Microsoft mouse driver sometimes
+X     * gets the number of screen rows wrong.
+X     */
+X    msm_setareay(0, (disp_numrows - 1) * 8);
+X}
+X
+X/*
+X * Restore video state to what it was when we started.
+X *
+X * tty_endv() can be called after it's been called already with no
+X * intervening tty_startv(), so we have to check.
+X */
+Xvoid
+Xtty_endv(void)
+X{
+X    if (curmode != m_VI) {
+X	return;
+X    }
+X    /*
+X     * Restore contents of screen.
+X     */
+X    if (oldscreen != NULL) {
+X	disp_pokebox(oldscreen, 0, 0, disp_numrows - 2, disp_numcols - 1);
+X    }
+X    disp_flush();
+X    curmode = m_SYS;
+X    msm_term();
+X}
+X
+X#ifndef ABS
+X#	define ABS(n) ((n) < 0 ? -(n) : (n))
+X#endif
+X
+Xvoid
+Xpc_scroll(unsigned start, unsigned end, int nlines)
+X{
+X    if (ABS(nlines) > end + 1 - start) {
+X	nlines = 0;
+X    }
+X    disp_scroll(nlines, start, 0, end, disp_numcols - 1, Pn(P_colour));
+X}
+X
+X/*
+X * Return a character from standard input if one is immediately
+X * available, otherwise -1.
+X *
+X * Don't do anything special if control-C is typed. Just return it.
+X */
+Xint
+Xgetchnw()
+X{
+X    union REGS r;
+X
+X    r.h.ah = 6;
+X    r.h.dl = 0xff;
+X    intdos(&r, &r);
+X    return (r.e.flags & 0x40) ?		/* zero flag */
+X	-1 : (unsigned char) r.h.al;
+X}
+END_OF_FILE
+  if test 5712 -ne `wc -c <'xvi/src/pc386.c'`; then
+    echo shar: \"'xvi/src/pc386.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/pc386.c'
+fi
+if test -f 'xvi/src/pipe.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/pipe.c'\"
+else
+  echo shar: Extracting \"'xvi/src/pipe.c'\" \(4811 characters\)
+  sed "s/^X//" >'xvi/src/pipe.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)pipe.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    pipe.c
+X* module function:
+X    Handle pipe operators.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	int	p_write P((FILE *));
+Xstatic	long	p_read P((FILE *));
+X
+Xstatic	Xviwin	*specwin;
+Xstatic	Line	*line1, *line2;
+Xstatic	Line	*newlines;
+X
+X/*
+X * This function is called when the ! is typed in initially,
+X * to specify the range; do_pipe() is then called later on
+X * when the line has been typed in completely.
+X *
+X * Note that we record the first and last+1th lines to make the loop easier.
+X */
+Xvoid
+Xspecify_pipe_range(window, l1, l2)
+XXviwin	*window;
+XLine	*l1;
+XLine	*l2;
+X{
+X    /*
+X     * Ensure that the lines specified are in the right order.
+X     */
+X    if (l1 != NULL && l2 != NULL && earlier(l2, l1)) {
+X	register Line	*tmp;
+X
+X	tmp = l1;
+X	l1 = l2;
+X	l2 = tmp;
+X    }
+X    line1 = (l1 != NULL) ? l1 : window->w_buffer->b_file;
+X    line2 = (l2 != NULL) ? l2->l_next : window->w_buffer->b_lastline;
+X    specwin = window;
+X}
+X
+X/*
+X * Pipe the given sequence of lines through the command,
+X * replacing the old set with its output.
+X */
+Xvoid
+Xdo_pipe(window, command)
+XXviwin	*window;
+Xchar	*command;
+X{
+X    if (line1 == NULL || line2 == NULL || specwin != window) {
+X	show_error(window,
+X	    "Internal error: pipe through badly-specified range.");
+X	return;
+X    }
+X
+X    newlines = NULL;
+X    if (sys_pipe(command, p_write, p_read) && newlines != NULL) {
+X	repllines(window, line1, cntllines(line1, line2) - 1, newlines);
+X	update_buffer(window->w_buffer);
+X	begin_line(window, TRUE);
+X    } else {
+X	show_error(window, "Failed to execute \"%s\"", command);
+X	redraw_screen();
+X    }
+X    cursupdate(window);
+X}
+X
+Xstatic int
+Xp_write(fp)
+XFILE	*fp;
+X{
+X    Line	*l;
+X    long	n;
+X
+X    for (l = line1, n = 0; l != line2; l = l->l_next, n++) {
+X	(void) fputs(l->l_text, fp);
+X	(void) putc('\n', fp);
+X    }
+X    return(n);
+X}
+X
+X/*
+X * Returns the number of lines read, or -1 for failure.
+X */
+Xstatic long
+Xp_read(fp)
+XFILE	*fp;
+X{
+X    Line	*lptr = NULL;	/* pointer to list of lines */
+X    Line	*last = NULL;	/* last complete line read in */
+X    Line	*lp;		/* line currently being read in */
+X    register enum {
+X	at_soln,
+X	in_line,
+X	at_eoln,
+X	at_eof
+X    }	state;
+X    char	*buff;		/* text of line being read in */
+X    int		col;		/* current column in line */
+X    unsigned long
+X		nlines;		/* number of lines read */
+X
+X    col = 0;
+X    nlines = 0;
+X    state = at_soln;
+X    while (state != at_eof) {
+X
+X	register int	c;
+X
+X	c = getc(fp);
+X
+X	/*
+X	 * Nulls are special; they can't show up in the file.
+X	 */
+X	if (c == '\0') {
+X	    continue;
+X	}
+X
+X	if (c == EOF) {
+X	    if (state != at_soln) {
+X		/*
+X		 * Reached EOF in the middle of a line; what
+X		 * we do here is to pretend we got a properly
+X		 * terminated line, and assume that a
+X		 * subsequent getc will still return EOF.
+X		 */
+X		state = at_eoln;
+X	    } else {
+X		state = at_eof;
+X	    }
+X	} else {
+X	    if (state == at_soln) {
+X		/*
+X		 * We're at the start of a line, &
+X		 * we've got at least one character,
+X		 * so we have to allocate a new Line
+X		 * structure.
+X		 *
+X		 * If we can't do it, we throw away
+X		 * the lines we've read in so far, &
+X		 * return gf_NOMEM.
+X		 */
+X		lp = newline(MAX_LINE_LENGTH);
+X		if (lp == NULL) {
+X		    if (lptr != NULL)
+X			throw(lptr);
+X		    return(-1);
+X		} else {
+X		    buff = lp->l_text;
+X		}
+X	    }
+X
+X	    if (c == '\n') {
+X		state = at_eoln;
+X	    }
+X	}
+X
+X	/*
+X	 * Fake eoln for lines which are too long.
+X	 * Don't lose the input character.
+X	 */
+X	if (col >= MAX_LINE_LENGTH - 1) {
+X	    (void) ungetc(c, fp);
+X	    state = at_eoln;
+X	}
+X
+X	switch (state) {
+X    /*
+X     *	case at_eof:
+X     *		break;
+X     */
+X
+X	case at_soln:
+X	case in_line:
+X	    state = in_line;
+X	    buff[col++] = c;
+X	    break;
+X
+X	case at_eoln:
+X	    /*
+X	     * First null-terminate the old line.
+X	     */
+X	    buff[col] = '\0';
+X
+X	    /*
+X	     * If this fails, we squeak at the user and
+X	     * then throw away the lines read in so far.
+X	     */
+X	    buff = realloc(buff, (unsigned) col + 1);
+X	    if (buff == NULL) {
+X		if (lptr != NULL)
+X		    throw(lptr);
+X		return(-1);
+X	    }
+X	    lp->l_text = buff;
+X	    lp->l_size = col + 1;
+X
+X	    /*
+X	     * Tack the line onto the end of the list,
+X	     * and then point "last" at it.
+X	     */
+X	    if (lptr == NULL) {
+X		lptr = lp;
+X		last = lptr;
+X	    } else {
+X		last->l_next = lp;
+X		lp->l_prev = last;
+X		last = lp;
+X	    }
+X
+X	    nlines++;
+X	    col = 0;
+X	    state = at_soln;
+X	    break;
+X	}
+X    }
+X
+X    newlines = lptr;
+X
+X    return(nlines);
+X}
+END_OF_FILE
+  if test 4811 -ne `wc -c <'xvi/src/pipe.c'`; then
+    echo shar: \"'xvi/src/pipe.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/pipe.c'
+fi
+if test -f 'xvi/src/preserve.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/preserve.c'\"
+else
+  echo shar: Extracting \"'xvi/src/preserve.c'\" \(3765 characters\)
+  sed "s/^X//" >'xvi/src/preserve.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)preserve.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    preserve.c
+X* module function:
+X    Buffer preservation routines.
+X
+X    The do_preserve() routine saves the contents of all modified
+X    buffers in temporary files. It can be invoked with the
+X    :preserve command or it may be called by one of the system
+X    interface modules when at least PSVKEYS keystrokes have been
+X    read, & at least Pn(P_preservetime) seconds have elsapsed
+X    since the last keystroke. (PSVKEYS is defined in xvi.h.) The
+X    preservebuf() routine can be used to preserve a single buffer.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Names of values for the P_preserve enumerated parameter.
+X */
+Xchar	*psv_strings[] =
+X{
+X    "unsafe",
+X    "standard",
+X    "safe",
+X    "paranoid",
+X    NULL
+X};
+X
+X/*
+X * Open temporary file for given buffer.
+X */
+Xstatic FILE *
+Xpsvfile(window)
+XXviwin	*window;
+X{
+X    register Buffer	*buffer;
+X    FILE		*fp;
+X
+X    buffer = window->w_buffer;
+X
+X    if (buffer->b_tempfname == NULL) {
+X	char	*fname;
+X
+X	fname = buffer->b_filename;
+X	if (fname == NULL)
+X	    fname = "unnamed";
+X	buffer->b_tempfname = tempfname(fname);
+X	if (buffer->b_tempfname == NULL) {
+X	    show_error(window, "Can't create name for preserve file");
+X	    return(NULL);
+X	}
+X    }
+X    fp = fopenwb(buffer->b_tempfname);
+X    if (fp == NULL) {
+X	show_error(window, "Can't open preserve file %s",
+X					     buffer->b_tempfname);
+X    }
+X    return(fp);
+X}
+X
+X/*
+X * Write contents of buffer to file & close file. Return TRUE if no
+X * errors detected.
+X */
+Xstatic bool_t
+Xputbuf(wp, fp)
+XXviwin		*wp;
+Xregister FILE	*fp;
+X{
+X    unsigned long	l1, l2;
+X
+X    if (put_file(wp, fp, (Line *) NULL, (Line *) NULL, &l1, &l2) == FALSE) {
+X	show_error(wp, "Error writing preserve file %s",
+X					     wp->w_buffer->b_tempfname);
+X	return(FALSE);
+X    } else {
+X	return(TRUE);
+X    }
+X}
+X
+X/*
+X * Preserve contents of a single buffer, so that a backup copy is
+X * available in case something goes wrong while the file itself is
+X * being written.
+X *
+X * This is controlled by the P_preserve parameter: if it's set to
+X * psv_UNSAFE, we just return. If it's psv_STANDARD, to save time, we
+X * only preserve the buffer if it doesn't appear to have been
+X * preserved recently: otherwise, if it's psv_SAFE or psv_PARANOID, we
+X * always preserve it.
+X *
+X * Return FALSE if an error occurs during preservation, otherwise TRUE.
+X */
+Xbool_t
+Xpreservebuf(window)
+XXviwin	*window;
+X{
+X    FILE	*fp;
+X    Buffer	*bp;
+X
+X    if (
+X	Pn(P_preserve) == psv_UNSAFE
+X	||
+X	(
+X	    Pn(P_preserve) == psv_STANDARD
+X	    &&
+X	    /*
+X	     * If there is a preserve file already ...
+X	     */
+X	    (bp = window->w_buffer)->b_tempfname != NULL
+X	    &&
+X	    exists(bp->b_tempfname)
+X	    &&
+X	    /*
+X	     * & a preserve appears to have been done recently ...
+X	     */
+X	    keystrokes < PSVKEYS
+X	)
+X    ) {
+X	/*
+X	 * ... don't bother.
+X	 */
+X	return(TRUE);
+X    }
+X
+X    fp = psvfile(window);
+X    if (fp == NULL) {
+X	return(FALSE);
+X    }
+X
+X    return(putbuf(window, fp));
+X}
+X
+X/*
+X * Preserve contents of all modified buffers.
+X */
+Xbool_t
+Xdo_preserve()
+X{
+X    Xviwin		*wp;
+X    bool_t		psvstatus = TRUE;
+X
+X    wp = curwin;
+X    do {
+X	if (is_modified(wp->w_buffer)) {
+X	    FILE	*fp;
+X
+X	    fp = psvfile(wp);
+X	    if (fp != NULL) {
+X		if (!putbuf(wp, fp))
+X		    psvstatus = FALSE;
+X	    } else {
+X		psvstatus = FALSE;
+X	    }
+X	}
+X    } while ((wp = next_window(wp)) != curwin);
+X
+X    return(psvstatus);
+X}
+END_OF_FILE
+  if test 3765 -ne `wc -c <'xvi/src/preserve.c'`; then
+    echo shar: \"'xvi/src/preserve.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/preserve.c'
+fi
+if test -f 'xvi/src/unix.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/unix.h'\"
+else
+  echo shar: Extracting \"'xvi/src/unix.h'\" \(3773 characters\)
+  sed "s/^X//" >'xvi/src/unix.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)unix.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    unix.h
+X* module function:
+X    Definitions for UNIX system interface module.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include <errno.h>
+X#include <fcntl.h>
+X#if defined(BSD) && !defined(__STDC__)
+X#   include <sys/time.h>
+X#else
+X#   include <time.h>
+X#endif
+X
+X#if defined(SUNVIEW) || defined(XVIEW)
+X#   include "sunview.h"
+X#else
+X#   include "termcap.h"
+X#endif
+X
+X/*
+X * Default value for helpfile parameter.
+X */
+X#ifndef HELPFILE
+X#   define  HELPFILE	"/usr/lib/xvi.help"
+X#endif
+X
+X#if defined(sun) || defined(ultrix) || defined(XENIX) || defined(__STDC__)
+X#   define SETVBUF_AVAIL
+X    /*
+X     * These are the buffer sizes we use for reading & writing files.
+X     */
+X#   define  READBUFSIZ	16384
+X#   define  WRTBUFSIZ	16384
+X#endif
+X
+X/*
+X * If we don't have an ANSI compiler, strerror() is implemented in unix.c.
+X */
+X#define STRERROR_AVAIL
+X
+X#ifndef	__STDC__
+X    /*
+X     * Conditionally compile this to be safe.
+X     */
+X    extern const char	*strerror P((int));
+X#endif
+X
+X#ifdef sun
+X    /*
+X     * getwd() is a system call, which doesn't need to run the pwd
+X     * program (as getcwd() does).
+X     */
+X    extern char		*getwd P((char *));
+X#   define getcwd(p,s)	getwd(p)
+X#endif
+X
+X/*
+X * Macros to open files in binary mode.
+X */
+X#define fopenrb(f)	fopen((f),"r")
+X#define fopenwb(f)	fopen((f),"w")
+X
+X/*
+X * ANSI C libraries should have remove(), but unlink() does exactly
+X * the same thing.
+X */
+X#define remove(f)	unlink(f)
+X
+X/*
+X * BSD doesn't provide memcpy, but bcopy does the same thing.
+X * Similarly, strchr=index and strrchr=rindex.
+X * However, any __STDC__ environment must provide these,
+X * and SunOS provides them too, as does ULTRIX.
+X */
+X#if defined(BSD) && !defined(__STDC__) && !defined(sun) && !defined(ultrix)
+X#   define  memcpy(to, from, n)	bcopy((from), (to), (n))
+X#   define  strchr		index
+X#   define  strrchr		rindex
+X#endif
+X
+X/*
+X * System-dependent constants - these are needed by file i/o routines.
+X */
+X#ifdef	BSD
+X#   include <sys/param.h>
+X#   include <sys/dir.h>
+X#   include <sys/file.h>	/* get W_OK define for access() */
+X#else	/* not BSD */
+X    /*
+X     * I think these are right for System V. (jmd)
+X     */
+X#   define  MAXPATHLEN	1024	/* max length of full path name */
+X#   define  MAXNAMLEN	14	/* max length of file name */
+X#endif	/* BSD */
+X
+X#ifndef W_OK
+X#   define	F_OK	0
+X#   define	W_OK	2
+X#endif
+X
+X/*
+X * exists(): TRUE if file exists.
+X */
+X#define exists(f)	(access((f),F_OK) == 0)
+X
+X/*
+X * can_write(): TRUE if file does not exist or exists and is writeable.
+X */
+X#define can_write(f)	(access((f),F_OK) != 0 || access((f), W_OK) == 0)
+X
+X#define	DIRSEPS		"/"	/* directory separators within pathnames */
+X
+X/*
+X * Default file format.
+X */
+X#define DEF_TFF		fmt_UNIX
+X
+X/*
+X * These are needed for the termcap terminal interface module.
+X */
+X#define oflush()	(void) fflush(stdout)
+X#define moutch(c)	putchar(c)
+X
+X/*
+X * Declarations for standard UNIX functions.
+X */
+Xextern	int		rename P((const char *, const char *));
+X
+X/*
+X * Declarations for system interface routines in unix.c.
+X */
+Xextern	char		*fexpand P((char *));
+Xextern	void		foutch P((int));
+Xextern	void		delay P((void));
+Xextern	void		sys_init P((void));
+Xextern	void		sys_startv P((void));
+Xextern	void		sys_endv P((void));
+Xextern	void		sys_exit P((int));
+Xextern	int		call_shell P((char *));
+Xextern	int		call_system P((char *));
+Xextern	bool_t		sys_pipe P((char *, int (*)(FILE *), long (*)(FILE *)));
+Xextern	char		*tempfname P((char *));
+END_OF_FILE
+  if test 3773 -ne `wc -c <'xvi/src/unix.h'`; then
+    echo shar: \"'xvi/src/unix.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/unix.h'
+fi
+echo shar: End of archive 16 \(of 18\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

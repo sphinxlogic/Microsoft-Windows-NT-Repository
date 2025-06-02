@@ -1,0 +1,878 @@
+Newsgroups: comp.sources.misc
+From: Kevin Stock <kstock@encore.com>
+Subject:  v32i093:  oraperl-v2 - Extensions to Perl to access Oracle database, Patch02
+Message-ID: <1992Oct4.163750.3822@sparky.imd.sterling.com>
+X-Md4-Signature: dc9a01c833e18d5a5baffd716da392b7
+Date: Sun, 4 Oct 1992 16:37:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Kevin Stock <kstock@encore.com>
+Posting-number: Volume 32, Issue 93
+Archive-name: oraperl-v2/patch02
+Environment: Perl, Oracle with OCI, optionally Curses
+Patch-To: oraperl-v2: Volume 30, Issue 87-91,99
+
+This is patch 2 to version 2 of Oraperl, a set of usersubs which
+allow Perl to access Oracle databases. You need Perl (v3.0.27 or
+better) and Oracle (including the Oracle Call Interface) to build
+Oraperl. If you can build Larry's Curseperl, then you can also
+build Coraperl, which is Oraperl with Curses.
+
+Oraperl version 2 appeared as 5 postings in comp.sources.misc
+volume 30, issues 87 to 91. Patch 01 appeared shortly afterwards
+as issue 99.
+
+
+  Principal changes:
+  ------------------
+Oraperl can now deal with NULL fields properly. &ora_fetch() will
+return undef for any field which was NULL, and supplying undef as
+a parameter to &ora_bind() will result in a NULL being bound.
+
+This change should not cause any problems when printing fetched
+values, since Perl will automatically convert them into blank
+strings. However, if you have a script which binds undefined
+values, they will now become NULL instead of a string containing
+exactly one space.
+
+See ex.pl and mkdb.pl in the examples subdirectory for a simple
+example of NULL handling.
+
+The &ora_titles() function now takes an optional second parameter
+which indicates whether the titles should be truncated to the width
+of the data. For compatibility, the default action is to truncate.
+If the second parameter is supplied and is zero, then the titles will
+not be truncated.
+
+Thanks to Cynthia Mumford and Dave Hollen for pushing me to fix these
+and to Larry for telling me how!
+
+  Directions
+  ----------
+Save this file in your Oraperl source directory, and type:
+
+	patch -p0 <this-file
+
+Then make, make test, make install.
+
+Feel free to mail me if you have any problems with or questions about
+Oraperl.
+
+	Kevin
+	kstock@encore.com, kstock@encore.fr
+
+
+----cut here-----
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/patchlevel.h ./patchlevel.h
+*** /user/mis/kstock/tmp/oraperl-v2.1/patchlevel.h	Fri Sep 25 14:39:48 1992
+--- ./patchlevel.h	Tue Sep 22 12:17:00 1992
+***************
+*** 1,4 ****
+  /* patchlevel.h */
+  
+  #define	VERSION		2
+! #define	PATCHLEVEL	1
+--- 1,4 ----
+  /* patchlevel.h */
+  
+  #define	VERSION		2
+! #define	PATCHLEVEL	2
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/Changes ./Changes
+*** /user/mis/kstock/tmp/oraperl-v2.1/Changes	Fri Sep 25 14:38:41 1992
+--- ./Changes	Fri Sep 25 14:21:30 1992
+***************
+*** 4,9 ****
+--- 4,21 ----
+  Version 2
+  =========
+  
++ Patch 02
++ ========
++ Added a BUGS section to the manual page
++ Fixed &ora_titles so that it can return the entire title without truncation
++ Fixed &ora_fetch so that it returns undef for a NULL field
++ Fixed &ora_bind so that it accepts undef to bind a NULL value
++ 
++ Patch 01
++ ========
++ Fixed a bug in testdir/mkdb.pl
++ Added a hint about building coraperl with bsdcurses.mus
++ 
+  Patchlevel 0:
+  =============
+  Replaced my debugging code with Fred Fish' DBUG package
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/Readme ./Readme
+*** /user/mis/kstock/tmp/oraperl-v2.1/Readme	Fri Sep 25 14:38:44 1992
+--- ./Readme	Wed Aug 26 09:12:28 1992
+***************
+*** 51,58 ****
+  each release (covers the range 3.0.34 to 4.0.35, excluding 4.0.33) with
+  Oracle version 6, as I don't have access to any other system with Pro*C.
+  However, other people have compiled and used it on a range of different
+! systems including Convex, Cray, NeXT, Pyramid, Sun and Ultrix, using Oracle
+! versions 5 and 6. I'd appreciate any comments, bug-reports, improvements, etc.
+  
+  In addition to this README, the package contains the following files:
+  
+--- 51,59 ----
+  each release (covers the range 3.0.34 to 4.0.35, excluding 4.0.33) with
+  Oracle version 6, as I don't have access to any other system with Pro*C.
+  However, other people have compiled and used it on a range of different
+! systems including Amdahl, Convex, Cray, NeXT, Pyramid, Sun and Ultrix,
+! using Oracle versions 5 and 6. I'd appreciate any comments, bug-reports,
+! improvements, etc.
+  
+  In addition to this README, the package contains the following files:
+  
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/doc/Makefile ./doc/Makefile
+*** /user/mis/kstock/tmp/oraperl-v2.1/doc/Makefile	Fri Sep 25 14:38:59 1992
+--- ./doc/Makefile	Fri Sep 25 15:16:03 1992
+***************
+*** 8,11 ****
+  	$(NROFF) -man ../examples/sql >sql.man
+  
+  clobber:
+! 	rm -f oraperl.man oraperl.ref.pr sql.man
+--- 8,11 ----
+  	$(NROFF) -man ../examples/sql >sql.man
+  
+  clobber:
+! 	rm -f oraperl.man oraperl.ref.pr sql.man nohup.out
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/doc/oraperl.1 ./doc/oraperl.1
+*** /user/mis/kstock/tmp/oraperl-v2.1/doc/oraperl.1	Fri Sep 25 14:38:37 1992
+--- ./doc/oraperl.1	Fri Sep 25 15:39:10 1992
+***************
+*** 18,24 ****
+  
+  &ora_do($lda, $stmt)
+  
+! &ora_titles($csr)
+  &ora_lengths($csr)
+  &ora_types($csr)
+  &ora_commit($lda)
+--- 18,24 ----
+  
+  &ora_do($lda, $stmt)
+  
+! &ora_titles($csr [, $truncate])
+  &ora_lengths($csr)
+  &ora_types($csr)
+  &ora_commit($lda)
+***************
+*** 160,165 ****
+--- 160,174 ----
+  &ora_bind($csr, 50, 'management', 'Paris');
+  .if t .ft P
+  
++ A \fBNULL\fP value (in the \fIOracle\fP sense)
++ may be bound by specifying an \fBundef\fPined value as a parameter.
++ For example:
++ 
++ .ti +.5i
++ .if t .ft CW
++ &ora_bind($csr, 70, 'marketing', undef);
++ .if t .fi P
++ 
+  This function is equivalent to the \fIOCI obndrn\fP and \fIoexec\fP statements.
+  
+  The \fIOCI obndrn\fP function does not allow empty strings to be bound.
+***************
+*** 166,172 ****
+  As distributed, \fI$ora_bind\fP therefore replaces empty strings
+  with a single space.
+  However, a compilation option allows this substitution to be suppressed,
+! causing \fI&ora_bind()\fP to fail.
+  The output from the \fI&ora_version()\fP function
+  specifies which is the case at your installation.
+  .\"
+--- 175,181 ----
+  As distributed, \fI$ora_bind\fP therefore replaces empty strings
+  with a single space.
+  However, a compilation option allows this substitution to be suppressed,
+! causing \fI&ora_bind()\fP to fail in this case.
+  The output from the \fI&ora_version()\fP function
+  specifies which is the case at your installation.
+  .\"
+***************
+*** 195,200 ****
+--- 204,212 ----
+  
+  Used in an array context,
+  the value returned is an array containing the data, one element per field.
++ If any field was \fBNULL\fP (in the \fIOracle\fP sense)
++ the corresponding data value will be \fBundef\fPined.
++ This may be tested using \fIPerl\fP's \fBdefined()\fP operator.
+  
+  An optional second parameter may be supplied
+  to indicate whether the truncation of a \fBLONG\fP or \fBLONGRAW\fP field
+***************
+*** 222,228 ****
+  while (($deptno, $dname, $loc) = &ora_fetch($csr, 1))
+  {
+  .in +.5i
+! warn "Truncated!!!" if $ora_errstr == 1406;
+  # do something with the data
+  .in -.5i
+  }
+--- 234,240 ----
+  while (($deptno, $dname, $loc) = &ora_fetch($csr, 1))
+  {
+  .in +.5i
+! warn "Truncated!!!" if $ora_errno == 1406;
+  # do something with the data
+  .in -.5i
+  }
+***************
+*** 290,306 ****
+  See, for example, the sample program \fBsql\fP
+  which is supplied with \fIOraperl\fP and may have been installed at your site.
+  .\"
+! .SH "@titles = &ora_titles($csr)"
+  .\"
+  A program may determine the field titles of an executed query
+  by calling \fI&ora_titles()\fP.
+! This function takes a single parameter,
+  a statement identifier (obtained from \fI&ora_open()\fP)
+  indicating the query for which the titles are required.
+  The titles are returned as an array of strings, one for each column.
+  
+  Titles are truncated to the length of the field,
+! as reported by the \fI&ora_lengths()\fP function.
+  
+  This function is equivalent to the \fIOCI oname\fP function.
+  .\"
+--- 302,319 ----
+  See, for example, the sample program \fBsql\fP
+  which is supplied with \fIOraperl\fP and may have been installed at your site.
+  .\"
+! .SH "@titles = &ora_titles($csr [, $truncate])"
+  .\"
+  A program may determine the field titles of an executed query
+  by calling \fI&ora_titles()\fP.
+! This function takes one mandatory parameter,
+  a statement identifier (obtained from \fI&ora_open()\fP)
+  indicating the query for which the titles are required.
+  The titles are returned as an array of strings, one for each column.
+  
+  Titles are truncated to the length of the field,
+! as reported by the \fI&ora_lengths()\fP function,
+! unless the optional \fI$truncate\fP parameter is supplied and is zero.
+  
+  This function is equivalent to the \fIOCI oname\fP function.
+  .\"
+***************
+*** 666,672 ****
+  not those performed on the data retrieved from the database.
+  .SH SEE ALSO
+  .nf
+! Oracle Documentation:
+  .in +.5i
+  \fISQL Language Reference Manual\fP
+  \fIProgrammer's Guide to the Oracle Call Interfaces\fP
+--- 679,685 ----
+  not those performed on the data retrieved from the database.
+  .SH SEE ALSO
+  .nf
+! \fIOracle\fP Documentation:
+  .in +.5i
+  \fISQL Language Reference Manual\fP
+  \fIProgrammer's Guide to the Oracle Call Interfaces\fP
+***************
+*** 677,684 ****
+  \fIperl(1)\fP
+  .in -.5i
+  .fi
+  .SH AUTHORS
+! \fIORACLE\fP by Oracle Corporation, California.
+  .br
+  \fIPerl\fP and \fICurseperl\fP by Larry Wall, Netlabs
+  .if t .ft C
+--- 690,700 ----
+  \fIperl(1)\fP
+  .in -.5i
+  .fi
++ .SH BUGS
++ "\fIOraperl\fP sounds like a denture cleaner."
++ (Buzz Moschetti in comp.lang.perl)
+  .SH AUTHORS
+! \fIOracle\fP by Oracle Corporation, California.
+  .br
+  \fIPerl\fP and \fICurseperl\fP by Larry Wall, Netlabs
+  .if t .ft C
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/doc/oraperl.ref ./doc/oraperl.ref
+*** /user/mis/kstock/tmp/oraperl-v2.1/doc/oraperl.ref	Fri Sep 25 14:38:46 1992
+--- ./doc/oraperl.ref	Tue Sep 22 10:50:07 1992
+***************
+*** 56,63 ****
+  .in +2m
+  
+  .ti -2m
+! \fB@ary = &ora_titles($csr)\fP
+  Returns the column names associated with the query.
+  
+  .ti -2m
+  \fB@ary = &ora_lengths($csr)\fP
+--- 56,64 ----
+  .in +2m
+  
+  .ti -2m
+! \fB@ary = &ora_titles($csr [, $truncate])\fP
+  Returns the column names associated with the query.
++ Names are truncated unless \fI$truncate\fP is supplied and is zero.
+  
+  .ti -2m
+  \fB@ary = &ora_lengths($csr)\fP
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/examples/Readme ./examples/Readme
+*** /user/mis/kstock/tmp/oraperl-v2.1/examples/Readme	Fri Sep 25 14:38:59 1992
+--- ./examples/Readme	Fri Sep 25 14:35:26 1992
+***************
+*** 9,21 ****
+  
+  commit.pl	Demonstrates the use of &ora_commit() and &ora_rollback()
+  
+! ex.pl		This was my first ever Oraperl script. I probably wrote it
+  		before writing Oraperl! It reads data from a table and prints
+! 		it using a format.
+  
+  mkdb.pl		Creates a database, puts some data into it, drops it. The nice
+  		thing about this is that it detects whether it is running under
+! 		Oraperl or Coraperl, and changes its output accordingly.
+  
+  oradump.pl	Dumps the contents of an Oracle table into a set of insert
+  		statements.
+--- 9,24 ----
+  
+  commit.pl	Demonstrates the use of &ora_commit() and &ora_rollback()
+  
+! ex.pl		This was my first ever Oraperl script. I think I wrote it even
+  		before writing Oraperl! It reads data from a table and prints
+! 		it using a format. It also illustrates how to recognise NULL
+! 		fields.
+  
+  mkdb.pl		Creates a database, puts some data into it, drops it. The nice
+  		thing about this is that it detects whether it is running under
+! 		Oraperl or Coraperl, and changes its output accordingly. It
+! 		also illustrates handling of NULL fields, with both &ora_bind()
+! 		and &ora_fetch().
+  
+  oradump.pl	Dumps the contents of an Oracle table into a set of insert
+  		statements.
+***************
+*** 23,25 ****
+--- 26,32 ----
+  sql		This was written in response to a posting on the net, asking
+  		whether there was a tool which would execute an SQL statement
+  		specified on the command line. Manual page built-in.
++ 
++ tabinfo.pl	Displays the structure of the specified table.
++ 		This is mainly to show the use of &ora_lengths, &ora_titles
++ 		and &ora_types.
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/examples/ex.pl ./examples/ex.pl
+*** /user/mis/kstock/tmp/oraperl-v2.1/examples/ex.pl	Fri Sep 25 14:39:01 1992
+--- ./examples/ex.pl	Tue Sep 22 12:26:44 1992
+***************
+*** 24,29 ****
+--- 24,31 ----
+  
+  while (($name, $phone) = &ora_fetch($csr))
+  {
++ 	# mark any NULL fields found
++ 	grep(defined || ($_ = '<NULL>'), $name, $phone);
+  	write;
+  }
+  
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/examples/mkdb.pl ./examples/mkdb.pl
+*** /user/mis/kstock/tmp/oraperl-v2.1/examples/mkdb.pl	Fri Sep 25 14:38:48 1992
+--- ./examples/mkdb.pl	Fri Sep 25 12:35:10 1992
+***************
+*** 9,14 ****
+--- 9,17 ----
+  #
+  # Date:		15th November 1991
+  #
++ # Modified to demonstrate NULL handling in &ora_bind and &ora_fetch()
++ #
++ # Date:		25th September 1992
+  
+  # First make sure that we are running under some form of perl.
+  
+***************
+*** 102,107 ****
+--- 105,112 ----
+  	$csr = &ora_open($lda, $LIST)			|| die $ora_errstr;
+  	while (($name, $ext) = &ora_fetch($csr))
+  	{
++ 		$name = '<-NULL->' unless defined($name);
++ 		$ext = '<-NULL->' unless defined($ext);
+  		do during();
+  	}
+  	die $ora_errstr if ($ora_errno != 0);
+***************
+*** 115,120 ****
+--- 120,126 ----
+  $INSERT = "insert into tryit values (:1, :2)";
+  $LIST	= "select * from tryit order by name";
+  $DELETE	= "delete from tryit where name = :1";
++ $DELETE_NULL	= "delete from tryit where name is null";
+  $DROP	= "drop table tryit";
+  
+  # create the database
+***************
+*** 127,134 ****
+  $csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+  while (<DATA>)
+  {
+! 	m/([a-z]+):([0-9]+)/;
+! 	do ora_bind($csr, $1, $2);
+  }
+  do ora_close($csr)				|| die $ora_errstr;
+  
+--- 133,142 ----
+  $csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+  while (<DATA>)
+  {
+! 	m/(.*):(.*)/;
+! 	$name = ($1 eq 'NULL') ? undef : $1;
+! 	$ext = ($2 eq 'NULL') ? undef : $2;
+! 	do ora_bind($csr, $name, $ext);
+  }
+  do ora_close($csr)				|| die $ora_errstr;
+  
+***************
+*** 143,148 ****
+--- 151,157 ----
+  	&ora_bind($csr, $name)			|| die $ora_errstr;
+  }
+  &ora_close($csr)				|| die $ora_errstr;
++ &ora_do($lda, $DELETE_NULL)			|| die $ora_errstr;
+  
+  # check the result
+  do list();
+***************
+*** 157,163 ****
+--- 166,175 ----
+  __END__
+  julia:292
+  angela:208
++ NULL:999
+  larry:424
+  catherine:201
++ nonumber:NULL
+  randal:306
+  arnold:305
++ NULL:NULL
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/examples/tabinfo.pl ./examples/tabinfo.pl
+*** /user/mis/kstock/tmp/oraperl-v2.1/examples/tabinfo.pl	Fri Sep 25 14:38:38 1992
+--- ./examples/tabinfo.pl	Tue Sep 22 12:29:38 1992
+***************
+*** 40,46 ****
+  $lda = &ora_login($base, $user, $pass) || die $ora_errstr . "\n";
+  $csr = &ora_open($lda, "select * from $table") || die $ora_errstr . "\n";
+  
+! (@name = &ora_titles($csr)) || die $ora_errstr . "\n";
+  (@length = &ora_lengths($csr)) || die $ora_errstr . "\n";
+  (@type = &ora_types($csr)) || die $ora_errstr . "\n";
+  
+--- 40,46 ----
+  $lda = &ora_login($base, $user, $pass) || die $ora_errstr . "\n";
+  $csr = &ora_open($lda, "select * from $table") || die $ora_errstr . "\n";
+  
+! (@name = &ora_titles($csr, 0)) || die $ora_errstr . "\n";
+  (@length = &ora_lengths($csr)) || die $ora_errstr . "\n";
+  (@type = &ora_types($csr)) || die $ora_errstr . "\n";
+  
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/oracle.mus ./oracle.mus
+*** /user/mis/kstock/tmp/oraperl-v2.1/oracle.mus	Fri Sep 25 14:38:32 1992
+--- ./oracle.mus	Fri Sep 25 11:52:00 1992
+***************
+*** 110,118 ****
+  END
+  
+      case US_ora_open:
+! 	if ((items < 2) || (items > 3))
+  	    fatal("Usage: &ora_open($lda, $stmt [, $cache])");
+! 	else {
+  	    char * retval;
+  	    char * lda		      = (char *) str_get(st[1]);
+  	    char * stmt		      = (char *) str_get(st[2]);
+--- 110,118 ----
+  END
+  
+      case US_ora_open:
+! 	if ((items < 2) || (items > 3)) {
+  	    fatal("Usage: &ora_open($lda, $stmt [, $cache])");
+! 	} else {
+  	    char * retval;
+  	    char * lda		      = (char *) str_get(st[1]);
+  	    char * stmt		      = (char *) str_get(st[2]);
+***************
+*** 125,137 ****
+  	return sp;
+  
+      case US_ora_titles:
+! 	if (items != 1) {
+! 	    fatal("Usage: @array = &ora_titles($csr)");
+  	} else {
+! 	    char *csr		      = (char *) str_get(st[1]);
+  	    int  retval;
+  
+! 	    retval = ora_titles(csr);
+  	    astore(stack, sp + retval, Nullstr);
+  	    st = stack->ary_array + sp;
+  	    for (i = 0 ; i < retval ; i++) {
+--- 125,138 ----
+  	return sp;
+  
+      case US_ora_titles:
+! 	if ((items < 1) || (items > 2)) {
+! 	    fatal("Usage: @array = &ora_titles($csr [, $truncate])");
+  	} else {
+! 	    char *csr			      = (char *) str_get(st[1]);
+! 	    int   truncate = (items == 1) ? 1 : (int)    str_gnum(st[2]);
+  	    int  retval;
+  
+! 	    retval = ora_titles(csr, truncate);
+  	    astore(stack, sp + retval, Nullstr);
+  	    st = stack->ary_array + sp;
+  	    for (i = 0 ; i < retval ; i++) {
+***************
+*** 198,205 ****
+--- 199,210 ----
+  		astore(stack, sp + retval, Nullstr);
+  		st = stack->ary_array + sp;
+  		for (i = 0 ; i < retval ; i++) {
++ 		    if (ora_result[i] == NULL) {
++ 			st[i] = str_2mortal(&str_undef);
++ 		    } else {
+  			tmps = ora_result[i];
+  			st[i] = str_2mortal(str_make(tmps, strlen(tmps)));
++ 		    }
+  		}
+  		return sp + retval - 1;
+  	    } else {	/* in scalar context, return the number of fields */
+***************
+*** 233,239 ****
+  	    {
+  		for (i = 0 ; i < items - 1 ; i++)
+  		{
+! 		    vars[i] = (char *) str_get(st[i+2]);
+  		}
+  		retval = ora_bind(csr, vars, items - 1);
+  		free(vars);
+--- 238,252 ----
+  	    {
+  		for (i = 0 ; i < items - 1 ; i++)
+  		{
+! 		    if (st[i+2]->str_pok || st[i+2]->str_nok)
+! 		    {
+! 		    	vars[i] = (char *) str_get(st[i+2]);
+! 		    }
+! 		    else
+! 		    {
+! 			/* we got an undef */
+! 			vars[i] = NULL;
+! 		    }
+  		}
+  		retval = ora_bind(csr, vars, items - 1);
+  		free(vars);
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/orafns.c ./orafns.c
+*** /user/mis/kstock/tmp/oraperl-v2.1/orafns.c	Fri Sep 25 14:38:40 1992
+--- ./orafns.c	Fri Sep 25 15:32:24 1992
+***************
+*** 263,269 ****
+  
+  	/* set up csr->data  to receive the information when we do a fetch
+  	 *	  csr->rcode to receive the column return codes
+! 	 *	  csr->len   with the data lengths (principally for ora_titles)
+  	 */
+  
+  	if (cache < 1)
+--- 263,269 ----
+  
+  	/* set up csr->data  to receive the information when we do a fetch
+  	 *	  csr->rcode to receive the column return codes
+! 	 *	  csr->len   with the data lengths
+  	 */
+  
+  	if (cache < 1)
+***************
+*** 430,446 ****
+   *
+   * returns the column headers for the query referenced by csr
+   *
+!  * overwrites the first position in each data array,
+!  * but this is acceptable since these values have always been returned.
+   */
+  
+! int ora_titles(csr_s)
+  char *csr_s;
+  {
+  	int i;
+  	short len;
+  	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+  
+  	DBUG_ENTER("ora_titles");
+  	DBUG_PRINT("entry", ("ora_titles(%s)", csr_s));
+  	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+--- 430,453 ----
+   *
+   * returns the column headers for the query referenced by csr
+   *
+!  * As of version 2, patch 2, the column titles are written into a locally
+!  * allocated data area. This allows the entire name to be returned without
+!  * truncation. If the truncate flag is set, however, then the title is
+!  * truncated to the length of the data, to allow compatibility with the
+!  * old form.
+   */
+  
+! int ora_titles(csr_s, truncate)
+  char *csr_s;
++ int truncate;
+  {
+  	int i;
+  	short len;
+  	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+  
++ 	static	int	 n_titles	= 0;
++ 	static	char	*titles		= NULL;
++ 
+  	DBUG_ENTER("ora_titles");
+  	DBUG_PRINT("entry", ("ora_titles(%s)", csr_s));
+  	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+***************
+*** 464,477 ****
+  		DBUG_RETURN(0);
+  	}
+  
+  	for (i = 0 ; i < csr->nfields ; i++)
+  	{
+! 		len = csr->len[i];
+  		oname(csr->csr, i + 1, (char *) -1, (short *) -1,
+! 		      csr->data[i], &len);
+! 		ora_result[i] = csr->data[i];
+  		DBUG_PRINT("info", ("field %4d (%lx) title \"%s\"",
+! 		    i, (long) csr->data[i], csr->data[i]));
+  	}
+  
+  	ora_errno = 0;
+--- 471,518 ----
+  		DBUG_RETURN(0);
+  	}
+  
++ 	if (n_titles < csr->nfields)
++ 	{
++ 		n_titles = csr->nfields;
++ 
++ 		/* we use free/malloc rather than realloc because we don't
++ 		 * need to preserve the contents of titles
++ 		 */
++ 
++ 		if (titles != NULL)
++ 		{
++ 			DBUG_PRINT("free", ("freeing titles %lx",(long)titles));
++ 			free(titles);
++ 		}
++ 
++ 		/* according to the manual, the title is a maximum of 240
++ 		 * characters. Here we allocate 256, which may lead to better
++ 		 * blocking?
++ 		 */
++ 
++ 		if ((titles = (char *) malloc(256 * n_titles)) == NULL)
++ 		{
++ 			n_titles = 0;
++ 			DBUG_PRINT("malloc",("insufficient memory for titles"));
++ 			DBUG_PRINT("exit", ("returning 0"));
++ 			DBUG_RETURN(0);
++ 		}
++ 		else
++ 		{
++ 			DBUG_PRINT("malloc", ("got titles %d bytes at %lx",
++ 				(256 * n_titles), (long) titles));
++ 		}
++ 	}
++ 
+  	for (i = 0 ; i < csr->nfields ; i++)
+  	{
+! 		len = (truncate) ? csr->len[i] : 256;
+  		oname(csr->csr, i + 1, (char *) -1, (short *) -1,
+! 		      &titles[256 * i], &len);
+! 		ora_result[i] = &titles[256 * i];
+! 		ora_result[i][len] = '\0';
+  		DBUG_PRINT("info", ("field %4d (%lx) title \"%s\"",
+! 		    i, (long) ora_result[i], ora_result[i]));
+  	}
+  
+  	ora_errno = 0;
+***************
+*** 677,684 ****
+  			break;
+  
+  		case 1405:
+! 			DBUG_PRINT("info", ("field %d was NULL", i));
+! 			*ora_result[i] = '\0';
+  			break;
+  
+  		case 1406:
+--- 718,724 ----
+  			break;
+  
+  		case 1405:
+! 			ora_result[i] = NULL;
+  			break;
+  
+  		case 1406:
+***************
+*** 710,716 ****
+  		}
+  
+  		DBUG_PRINT("info", ("field %4d (%lx) data \"%s\"",
+! 		    i, (long) ora_result[i], ora_result[i]));
+  	}
+  
+  	++csr->next_entry;
+--- 750,757 ----
+  		}
+  
+  		DBUG_PRINT("info", ("field %4d (%lx) data \"%s\"",
+! 		    i, (long) ora_result[i],
+! 		    ora_result[i] ? ora_result[i] : "<NULL>"));
+  	}
+  
+  	++csr->next_entry;
+***************
+*** 731,736 ****
+--- 772,778 ----
+  int nitems;
+  {
+  	int i;
++ 	short null_flag = -1;
+  #ifndef	NO_BIND_PADDING
+  	static char small_buf[2] = " ";
+  #endif
+***************
+*** 757,762 ****
+--- 799,819 ----
+  
+  	for (i = 0 ; i < nitems ; i++)
+  	{
++ 	    if (vars[i] == NULL)
++ 	    {
++ 		if ((obndrn(csr->csr, i+1, (char *) -1, 0,
++ 			5, -1, &null_flag, (char *) -1, 0, 0)) != 0)
++ 		{
++ 			ora_errno = csr->csr->csrrc;
++ 			DBUG_PRINT("exit", ("obndrn failed on field %d, <NULL>",
++ 			    i + 1));
++ 			DBUG_RETURN(0);
++ 		}
++ 
++ 		DBUG_PRINT("info", ("obndrn %d, <NULL> OK", (i + 1), vars[i]));
++ 	    }
++ 	    else
++ 	    {
+  #ifndef	NO_BIND_PADDING
+  		if (vars[i][0] == '\0')
+  		{
+***************
+*** 774,779 ****
+--- 831,837 ----
+  		}
+  
+  		DBUG_PRINT("info", ("obndrn %d, \"%s\" OK", (i + 1), vars[i]));
++ 	    }
+  	}
+  
+  	if (oexec(csr->csr) != 0)
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/testdir/Standard-Results ./testdir/Standard-Results
+*** /user/mis/kstock/tmp/oraperl-v2.1/testdir/Standard-Results	Fri Sep 25 14:39:04 1992
+--- ./testdir/Standard-Results	Fri Sep 25 15:35:58 1992
+***************
+*** 12,17 ****
+--- 12,18 ----
+  2 3 5 7 11 
+  2 fields, lengths 10, 40
+  	types 1, 2
++ 	names NAME, EXT
+         Name         Ext
+         ====         ===
+         angela       208
+***************
+*** 19,28 ****
+--- 20,34 ----
+         catherine    201
+         julia        292
+         larry        424
++        nonumber     <-N
+         randal       306
++        <-NULL->     999
++        <-NULL->     <-N
+  2 fields, lengths 10, 40
+  	types 1, 2
++ 	names NAME, EXT
+         Name         Ext
+         ====         ===
+         larry        424
++        nonumber     <-N
+         randal       306
+diff -cr /user/mis/kstock/tmp/oraperl-v2.1/testdir/mkdb.pl ./testdir/mkdb.pl
+*** /user/mis/kstock/tmp/oraperl-v2.1/testdir/mkdb.pl	Fri Sep 25 14:39:58 1992
+--- ./testdir/mkdb.pl	Fri Sep 25 15:35:44 1992
+***************
+*** 28,36 ****
+--- 28,38 ----
+  	$nfields = &ora_fetch($csr)			|| die $ora_errstr;
+  	print "$nfields fields, lengths ", join(', ', &ora_lengths($csr)), "\n";
+  	print "\ttypes ", join(', ', &ora_types($csr)), "\n";
++ 	print "\tnames ", join(', ', &ora_titles($csr, 0)), "\n";
+  
+  	while (($name, $ext) = &ora_fetch($csr))
+  	{
++ 		grep(defined || ($_ = '<-NULL->'), $name, $ext);
+  		write;
+  	}
+  	die $ora_errstr if ($ora_errno != 0);
+***************
+*** 53,60 ****
+  $csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+  while (<DATA>)
+  {
+! 	m/([a-z]+):([0-9]+)/;
+! 	do ora_bind($csr, $1, $2);
+  }
+  do ora_close($csr)				|| die $ora_errstr;
+  
+--- 55,66 ----
+  $csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+  while (<DATA>)
+  {
+! 	chop;
+! 	($name, $telno) = split(':', $_);
+! 	undef $name if $name eq 'NULL';
+! 	undef $telno if $telno eq 'NULL';
+! 
+! 	do ora_bind($csr, $name, $telno);
+  }
+  do ora_close($csr)				|| die $ora_errstr;
+  
+***************
+*** 69,74 ****
+--- 75,81 ----
+  	&ora_bind($csr, $name)			|| die $ora_errstr;
+  }
+  &ora_close($csr)				|| die $ora_errstr;
++ &ora_do($lda, 'delete from tryit where name is null')	|| die $ora_errstr;
+  
+  # check the result
+  do list();
+***************
+*** 85,87 ****
+--- 92,97 ----
+  catherine:201
+  randal:306
+  arnold:305
++ NULL:999
++ nonumber:NULL
++ NULL:NULL
+
+exit 0 # Just in case...

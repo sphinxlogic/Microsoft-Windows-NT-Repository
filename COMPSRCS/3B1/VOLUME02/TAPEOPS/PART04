@@ -1,0 +1,458 @@
+Path: comp-sources-3b1
+From: vern@zebra.alphacdc.com (vern)
+Subject:  v02i038:  3B1 Tape processing utilities, Part04/04
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 1e6e8481 6e574ab6 0a0f2afa 226b3c2b
+
+Submitted-by: vern@zebra.alphacdc.com (vern)
+Posting-number: Volume 2, Issue 38
+Archive-name: tapeops/part04
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  MANIFEST save.list src/Makefile utils/fix-1.sh
+#   utils/panic.sh utils/recov.sh utils/rewind.sh utils/wrk.pl
+#   utils/zap.sh
+# Wrapped by vern@zebra on Mon Mar  8 08:57:48 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f MANIFEST -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"MANIFEST\"
+else
+echo shar: Extracting \"MANIFEST\" \(1254 characters\)
+sed "s/^X//" >MANIFEST <<'END_OF_MANIFEST'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X Files                     1	
+X MANIFEST                  4	This shipping list
+X README                    1	
+X backup.sh                 2	
+X header.sh                 3	
+X link.list                 2	
+X mk.index.sh               3	
+X params                    3	
+X prep.sh                   3	
+X rd.tape.sh                3	
+X save.list                 4	
+X squirrel.sh               2	
+X src                       1	
+X src/Makefile              4	
+X src/fix.cpio.c            2	
+X src/group.c               3	
+X src/mini-z.c              2	
+X src/pick.files.c          1	
+X src/read.vtoc.c           3	
+X utils                     1	
+X utils/convert.sh          3	
+X utils/copy.sh             2	
+X utils/fix-1.sh            4	
+X utils/panic.pl            2	
+X utils/panic.sh            4	
+X utils/recov.sh            4	
+X utils/rewind.sh           4	
+X utils/set_up.sh           3	
+X utils/trim.pl             2	
+X utils/trim.sh             3	
+X utils/util.hdr.sh         3	
+X utils/util.prep.sh        3	
+X utils/util.rd.sh          3	
+X utils/util.sq.sh          3	
+X utils/wr.tape.sh          1	
+X utils/wrk.pl              4	
+X utils/zap.sh              4	
+X wr.tape.sh                1	
+END_OF_MANIFEST
+if test 1254 -ne `wc -c <MANIFEST`; then
+    echo shar: \"MANIFEST\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f save.list -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"save.list\"
+else
+echo shar: Extracting \"save.list\" \(427 characters\)
+sed "s/^X//" >save.list <<'END_OF_save.list'
+X# This is the list of directories or files to be scanned
+X# for 'squirrel'ing to 'arcdir'.  Later, 'arcdir' is to be
+X# processed by 'prep.sh' for transfer to tape.
+X
+X/news/to.zebra		# This should be changed to your local name.
+X/news/to.tape
+X/news/comp/sys/att
+X/news/comp/sys/3b1
+X/news/comp/sources
+X/news/alt/sources
+X/news/sci/physics/fusion
+X
+X# The following entries may be needed for converting old tapes.
+X#/news/.tape.ops
+X#/tmp
+END_OF_save.list
+if test 427 -ne `wc -c <save.list`; then
+    echo shar: \"save.list\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/Makefile -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/Makefile\"
+else
+echo shar: Extracting \"src/Makefile\" \(333 characters\)
+sed "s/^X//" >src/Makefile <<'END_OF_src/Makefile'
+XCFLAGS		= -O -v
+XLDFLAGS		= -s
+X
+XSHAREDLIB	= /lib/crt0s.o /lib/shlib.ifile
+X
+XTARGETS		= pick.files read.vtoc group fix.cpio mini-z
+X
+XOBJS		= $(TARGETS).o
+X
+Xall: $(TARGETS)
+X
+X$(TARGETS): $$@.o
+X	$(LD) $(LDFLAGS) $(SHAREDLIB) $? $(LIBS) -o $@
+X	@if [ "$@" = "mini-z" ]; then chmod 1755 $@; fi
+X	chgrp news $@
+X	chown netnews $@
+X
+Xclean:
+X	rm *.o;
+END_OF_src/Makefile
+if test 333 -ne `wc -c <src/Makefile`; then
+    echo shar: \"src/Makefile\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f utils/fix-1.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/fix-1.sh\"
+else
+echo shar: Extracting \"utils/fix-1.sh\" \(823 characters\)
+sed "s/^X//" >utils/fix-1.sh <<'END_OF_utils/fix-1.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh
+Xfi
+X
+X# This should be the start of the program
+Xset `Tgetname -r | tr -d "'"`
+Xname=$1
+X
+Xecho `date +%T`" The contents of tape \"$name\" are:"
+X$SRCDIR/read.vtoc -w9 > xyz
+X
+Xfor i in 1 2 3 4 5 6 7 8 9
+Xdo
+X	while
+X		read line
+X	do
+X		set $line
+X		if [ "$1" = "$i" ]
+X		then
+X			CHAP=$1
+X			SSNAME=$2
+X			SSCMNT="$3 $4 $5 $6 $7"
+X			NFILES=$8
+X			OFFSET=$9
+X			shift
+X			NBLOCKS=$9
+X		fi
+X	done < xyz
+X
+X	echo "name = $name"
+X	echo "CHAP = $CHAP"
+X	echo "SSNAME = $SSNAME"
+X	echo "SSCMNT = $SSCMNT"
+X	echo "NFILES = $NFILES"
+X	echo "OFFSET = $OFFSET"
+X	echo "NBLOCKS = $NBLOCKS"
+X	Tgetname -w "Backup by Names" "$name" "$SSNAME" "$SSCMNT" \
+X		$OFFSET $NBLOCKS $NFILES
+Xdone
+Xrm -f xyz
+Xexit
+END_OF_utils/fix-1.sh
+if test 823 -ne `wc -c <utils/fix-1.sh`; then
+    echo shar: \"utils/fix-1.sh\" unpacked with wrong size!
+fi
+chmod +x utils/fix-1.sh
+# end of overwriting check
+fi
+if test -f utils/panic.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/panic.sh\"
+else
+echo shar: Extracting \"utils/panic.sh\" \(1204 characters\)
+sed "s/^X//" >utils/panic.sh <<'END_OF_utils/panic.sh'
+X
+X# The purpose of this script is to prepare the 'squirrel'ed files
+X# for transfer to tape.  This consists of building a 'contents'
+X# file from the "Subject" line in the posted articles.  The 'contents'
+X# is sorted and similar titles are moved together for easier reference.
+X# The articles are then compressed and moved to the 'savdir' where
+X# they can copied to tape.
+X
+Xexport NEWSDEV=/dev/fp002
+Xexport WRKDIR=/news/.tape.ops/utils
+Xexport CACHE=$WRKDIR/cache
+Xexport ARCDIR=$WRKDIR/arcdir
+Xexport RDPARMS=$WRKDIR/rd.params
+Xexport PARAMS=$WRKDIR/rd.params		# was "wr.params"
+Xexport SAVDIR=$WRKDIR/savdir
+Xexport CONFILE=$WRKDIR/contents
+Xexport SRCDIR=/news/.tape.ops/src
+Xexport PNTRS=$WRKDIR/pntrs
+Xexport CPNTRS=$WRKDIR/c.pntrs
+Xexport LIST=$WRKDIR/save.list		# Directory list to be saved
+Xexport LINKS=$WRKDIR/link.list
+Xexport KLINKS=$WRKDIR/wrk.links
+Xexport GOOFS=$WRKDIR/goofs
+Xexport TMP1=$WRKDIR/tmpp1
+Xexport TMP2=$WRKDIR/tmpp2
+Xexport COPY=1
+Xexport GRP=news
+Xexport OWN=netnews
+Xexport PERCENT=6200	# This is the last five percent of disk space
+Xexport MAXOFFSET=45384  # or B1FE 512 byte blocks = 23329792 bytes
+X# If we add 2 blocks for header, B200 512 byte blocks
+X# or 1DAA blocks per stream???
+X
+Xwr.tape.sh
+END_OF_utils/panic.sh
+if test 1204 -ne `wc -c <utils/panic.sh`; then
+    echo shar: \"utils/panic.sh\" unpacked with wrong size!
+fi
+chmod +x utils/panic.sh
+# end of overwriting check
+fi
+if test -f utils/recov.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/recov.sh\"
+else
+echo shar: Extracting \"utils/recov.sh\" \(932 characters\)
+sed "s/^X//" >utils/recov.sh <<'END_OF_utils/recov.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'copy.sh'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh
+Xfi
+X
+XTgetname -t 
+XTgetname -v
+X
+X# ARCDIR=$WRKDIR/arcdir
+Xchap=`sed -n 's/Next source chapter:\	//p' $RDPARMS`
+Xset `$SRCDIR/read.vtoc -r$chap`
+Xoffset=$2
+Xblocks=$3
+Xset `Tgetname -r | tr -d "'"`
+Xname=$1
+X
+Xecho "\tWe will be attempting to recover chapter '$chap', starting at
+X	offset '$offset' and will read '$blocks' blocks of the tape."
+X
+Xif [ -d $ARCDIR ]
+Xthen
+X	echo echo `date +%T`" Purging old '$ARCDIR'."
+X	rm -rf $ARCDIR
+Xfi
+Xmkdir $ARCDIR
+X
+Xcd $ARCDIR
+Xecho `date +%T`" Reading chapter $chap from tape '$name' starting \
+Xat $offset offset."
+Xdbuf -iT124"O"$offset"S"$blocks /dev/rft3 | $SRCDIR/fix.cpio -b$blocks -c$chap
+X
+Xrm -f contents ss.filelist
+X
+Xcd $WRKDIR
+X
+Xecho `date +%T`" You can remove the tape now."
+Xecho "\tCheck size of directories before proceding. <cr> \c"
+Xread ch
+Xexit
+END_OF_utils/recov.sh
+if test 932 -ne `wc -c <utils/recov.sh`; then
+    echo shar: \"utils/recov.sh\" unpacked with wrong size!
+fi
+chmod +x utils/recov.sh
+# end of overwriting check
+fi
+if test -f utils/rewind.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/rewind.sh\"
+else
+echo shar: Extracting \"utils/rewind.sh\" \(481 characters\)
+sed "s/^X//" >utils/rewind.sh <<'END_OF_utils/rewind.sh'
+Xstart=`date +%T`
+Xecho `date +%T`" Rewinding test procedure."
+XTgetname -v &
+Xrm -f /tmp/*
+Xrm -f BUfiles
+Xrm -f contents
+Xrm -f ss.filelist
+Xrm -f bk.*
+Xrm -f c.pntrs
+Xrm -rf cache arcdir
+Xecho `date +%T`" Copying hold to 'arcdir'."
+Xmkdir arcdir
+Xcp hold/[1-3]* arcdir
+Xcp hold/[4-]* arcdir
+Xmv savdir cache
+Xrm -f cache/contents cache/ss.filelist
+X
+Xecho `date +%T`" Running:"
+Xpanic.pl
+X../src/group contents
+Xpanic.sh
+Xtail -12 vch
+Xecho `date +%T`" Done again."
+Xecho "$start was the start time."
+X
+END_OF_utils/rewind.sh
+if test 481 -ne `wc -c <utils/rewind.sh`; then
+    echo shar: \"utils/rewind.sh\" unpacked with wrong size!
+fi
+chmod +x utils/rewind.sh
+# end of overwriting check
+fi
+if test -f utils/wrk.pl -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/wrk.pl\"
+else
+echo shar: Extracting \"utils/wrk.pl\" \(857 characters\)
+sed "s/^X//" >utils/wrk.pl <<'END_OF_utils/wrk.pl'
+Xeval 'exec /usr/local/bin/perl -S $0 ${1+"$@"}'
+X	if 0;
+X
+Xrequire 'flush.pl';
+X$CACHE = "cache";
+X$ARCDIR = "arcdir";
+X$SAVDIR = "savdir";
+X
+Xprint "Running:\n";
+Xopen( FRM, "ls -l $ARCDIR | cut -c27-37,51- | sort -nr |" );
+X$move = 1;
+Xwhile( <FRM> ) {
+X	chop;
+Xprint "In = >$_<\n";
+X	if ( $_ == 0 ) { last; }
+X	if ( $move ) {
+X		if ( $first ) {
+X#			print &ntime(time),
+X			print
+X				" Moving residual 'arcdir' to 'cache'.\n";
+X			$first = 0;
+X		}
+X		($size, $fname) = split( ' ' );
+X		if ( $fname eq "" ) { next; }
+X		system( "mv $ARCDIR/$fname $CACHE/$$.$fname" );
+X#		print( "mv $ARCDIR/$fname $CACHE/$$.$fname\n" );
+X	}
+X	else {
+X		print &ntime(time)," Moving 'arcdir' to 'cache'.\n";
+X		print " Moving 'arcdir' to 'cache'.\n";
+X		system( "rm -fr cache; mv arcdir cache" );
+X#		print( "rm -fr cache; mv arcdir cache\n" );
+X		last;
+X	}
+X}
+Xprint "Last\n";
+X&flush( FRM );
+Xclose( FRM );
+END_OF_utils/wrk.pl
+if test 857 -ne `wc -c <utils/wrk.pl`; then
+    echo shar: \"utils/wrk.pl\" unpacked with wrong size!
+fi
+chmod +x utils/wrk.pl
+# end of overwriting check
+fi
+if test -f utils/zap.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/zap.sh\"
+else
+echo shar: Extracting \"utils/zap.sh\" \(982 characters\)
+sed "s/^X//" >utils/zap.sh <<'END_OF_utils/zap.sh'
+XSRCDIR=/news/.tape.ops/src
+XTgetname -t
+Xret=$?
+Xif [ $ret != 0 ]
+Xthen
+X	echo "Please insert a tape. Q)uit or <cr> to continue. \c"
+X	read  ch
+X	if [ "$ch" = "q" -o "$ch" = "Q" ]
+X	then
+X		exit 1
+X	fi
+Xfi
+Xset `Tgetname -b | tr -d "'"`
+Xret=$?
+Xname=$1
+Xtoffset=$2
+Xif [ $ret = 30 ]
+Xthen
+X	echo "\n\tThis tape has the \"SAFE\" key set.
+X\tPlease exchange it for a tape we can write onto.
+X\t	<cr> to continue."
+X	read -r ch
+X	exit 1
+Xfi
+Xecho `date +%T`" The contents of tape \"$name\" are:"
+X$SRCDIR/read.vtoc -w9
+Xecho "\tIs this the tape you wish to ZAP? \c"
+Xread ch
+Xif [ "$ch" = "y" -o "$ch" = "Y" ]
+Xthen
+X	Tgetname -w "Backup by Names" "Data-001" "" "" 0 0 0
+X#            "$BTYPE"       "$TPNAME" "$SSNAME" "$SSCMNT"
+X#               $OFFSET $NBLOCKS $NFILES
+X	ret=$?
+X	if [ "$ret" != "0" ]
+X	then
+X		echo "\tAn error has occurred while trying to update\
+X the data block.
+X\tError number = "$ret
+X		exit 1
+X	fi
+X	Tgetname -v
+X	echo `date +%T`" Zapping complete.  The new contents are:"
+X	$SRCDIR/read.vtoc -w9
+Xfi
+END_OF_utils/zap.sh
+if test 982 -ne `wc -c <utils/zap.sh`; then
+    echo shar: \"utils/zap.sh\" unpacked with wrong size!
+fi
+chmod +x utils/zap.sh
+# end of overwriting check
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+Vernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+3975 W. 29th Ave.                                   vern@zebra.alphacdc.COM
+Denver, Colo., 80212          voice: 303-477-1780        uucp: 303-455-2670
+
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Pardon me Professor, can I be excused, my brain is full. **

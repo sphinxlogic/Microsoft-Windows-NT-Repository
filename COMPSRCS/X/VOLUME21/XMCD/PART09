@@ -1,0 +1,4354 @@
+Newsgroups: comp.sources.x
+From: ti@bazooka.amb.org (Ti Kan)
+Subject: v21i071:  xmcd - X11/Motif CD audio player, Part09/13
+Message-ID: <1993Dec19.194013.24685@sparky.sterling.com>
+X-Md4-Signature: afd1d9f9cb1d30cf67c5951e7256be7e
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 19:40:13 GMT
+Approved: chris@sterling.com
+
+Submitted-by: ti@bazooka.amb.org (Ti Kan)
+Posting-number: Volume 21, Issue 71
+Archive-name: xmcd/part09
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 9 (of 13)."
+# Contents:  lib_scsipt.c lib_sun.c
+# Wrapped by ti@bazooka on Mon Nov  8 10:35:22 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'lib_scsipt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_scsipt.c'\"
+else
+echo shar: Extracting \"'lib_scsipt.c'\" \(71104 characters\)
+sed "s/^X//" >'lib_scsipt.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_scsipt_c_ident_ = "@(#)lib_scsipt.c	1.109 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "dbprog.h"
+X#include "cdlib.h"
+X#include "lib_scsipt.h"
+X
+X
+X#ifndef CDLIB_VERS
+X#define CDLIB_VERS	"1.0"		/* Version */
+X#endif
+X
+X
+Xextern AppData		app_data;
+X
+XSTATIC bool_t		run_ab(curstat_t *),
+X			run_sample(curstat_t *),
+X			run_prog(curstat_t *),
+X			run_repeat(curstat_t *),
+X			disc_ready(curstat_t *);
+XSTATIC void		stat_poll(curstat_t *),
+X			insert_poll(curstat_t *);
+X
+X#ifndef LINT
+Xbool_t			lib_scsipt = TRUE;
+X#endif
+X
+Xbool_t			notrom_error = FALSE;
+X					/* Not a CD-ROM error */
+X
+XSTATIC int		stat_id,	/* Play status poll timer id */
+X			insert_id,	/* Disc insert poll timer id */
+X			search_id,	/* FF/REW self-running timer id */
+X			stat_interval;	/* status poll interval */
+XSTATIC byte_t		next_sam;	/* Next SAMPLE track */
+XSTATIC bool_t		stat_polling,	/* Current polling play status */
+X			insert_polling,	/* Currently polling disc insert */
+X			new_progshuf,	/* New program/shuffle sequence */
+X			start_search = FALSE;
+X					/* Start FF/REW play segment */
+XSTATIC word32_t		ab_start_addr,	/* A->B mode start block */
+X			ab_end_addr,	/* A->B mode end block */
+X			sav_end_addr;	/* Saved end addr for error recovery */
+XSTATIC msf_t		ab_start_msf,	/* A->B mode start MSF */
+X			ab_end_msf,	/* A->B mode end MSF */
+X			sav_end_msf;	/* Saved end MSF for error recovery */
+XSTATIC byte_t		dev_scsiver,	/* Device SCSI version */
+X			sav_end_fmt;	/* Saved addr fmt for error recovery */
+X
+X
+X
+X/***********************
+X *  internal routines  *
+X ***********************/
+X
+X
+X/*
+X * scsi_rdsubq
+X *	Send SCSI-2 Read Subchannel command to the device
+X *
+X * Args:
+X *	buf - Pointer to the return data buffer
+X *	fmt - Subchannel data format code
+X *		SUB_ALL		Subchannel-Q data
+X *		SUB_CURPOS	CD-ROM Current position data
+X *		SUB_CATNO	Media catalog number data
+X *		SUB_ISRC	Track Intl Standard Recording Code
+X *	subq - Whether the CD-ROM should return subchannel-Q data
+X *	trkno - Track number from which the ISRC data is read
+X *	msf - Whether to use MSF or logical block address format
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_rdsubq(byte_t *buf, byte_t fmt, byte_t subq, int trkno, bool_t msf)
+X{
+X	int	xfer_len;
+X
+X	switch (fmt) {
+X	case SUB_ALL:
+X		xfer_len = 48;
+X		break;
+X	case SUB_CURPOS:
+X		xfer_len = 16;
+X		break;
+X	case SUB_CATNO:
+X	case SUB_ISRC:
+X		xfer_len = 24;
+X		break;
+X	default:
+X		return(FALSE);
+X	}
+X
+X	if (xfer_len > SZ_RDSUBQ)
+X		xfer_len = SZ_RDSUBQ;
+X
+X	return(
+X		pthru_send(
+X			OP_M_RDSUBQ,
+X			(word32_t) (fmt << 16 | subq << 30),
+X			buf,
+X			xfer_len,
+X			(byte_t) trkno,
+X			xfer_len,
+X			(byte_t) (msf << 1),
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_modesense
+X *	Send SCSI Mode Sense command to the device
+X *
+X * Args:
+X *	buf - Pointer to the return data buffer
+X *	pg_ctrl - Defines the type of parameters to be returned:
+X *		0: Current values
+X *		1: Changeable values
+X *		2: Default values
+X *	pg_code - Specifies which page or pages to return:
+X *		PG_ERRECOV: Error recovery params page
+X *		PG_DISCONN: Disconnect/reconnect params page
+X *		PG_CDROMCTL: CD-ROM params page
+X *		PG_AUDIOCTL: Audio control params page
+X *		PG_ALL: All pages
+X *	dbd - Whether to disable the block descriptor return data
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_modesense(byte_t *buf, byte_t pg_ctrl, byte_t pg_code, bool_t dbd)
+X{
+X	int	xfer_len;
+X
+X	switch (pg_code) {
+X	case PG_ERRECOV:
+X		xfer_len = 12;
+X		break;
+X	case PG_DISCONN:
+X		xfer_len = 20;
+X		break;
+X	case PG_CDROMCTL:
+X		xfer_len = 12;
+X		break;
+X	case PG_AUDIOCTL:
+X		xfer_len = 20;
+X		break;
+X	case PG_ALL:
+X		xfer_len = 52;
+X		break;
+X	default:
+X		return(FALSE);
+X	}
+X
+X	if (!dbd)
+X		xfer_len += 8;
+X
+X	return(
+X		pthru_send(
+X			OP_S_MSENSE,
+X			(word32_t) ((pg_ctrl << 6 | pg_code) << 8),
+X			buf,
+X			xfer_len,
+X			0,
+X			xfer_len,
+X			(byte_t) (dbd ? 0x08 : 0x00),
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_modesel
+X *	Send SCSI Mode Select command to the device
+X *
+X * Args:
+X *	buf - Pointer to the data buffer
+X *	pg_code - Specifies which page or pages to return:
+X *		PG_ERRECOV: Error recovery params page
+X *		PG_DISCONN: Disconnect/reconnect params page
+X *		PG_CDROMCTL: CD-ROM params page
+X *		PG_AUDIOCTL: Audio control params page
+X *		PG_ALL: All pages
+X *	dbd - Whether the block descriptor data is present
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_modesel(byte_t *buf, byte_t pg_code, bool_t dbd)
+X{
+X	int	xfer_len;
+X
+X	switch (pg_code) {
+X	case PG_ERRECOV:
+X		xfer_len = 12;
+X		break;
+X	case PG_DISCONN:
+X		xfer_len = 20;
+X		break;
+X	case PG_CDROMCTL:
+X		xfer_len = 12;
+X		break;
+X	case PG_AUDIOCTL:
+X		xfer_len = 20;
+X		break;
+X	case PG_ALL:
+X		xfer_len = 52;
+X		break;
+X	default:
+X		return(FALSE);
+X	}
+X
+X	if (!dbd)
+X		xfer_len += 8;
+X
+X	return(
+X		pthru_send(
+X			OP_S_MSELECT,
+X			0,
+X			buf,
+X			xfer_len,
+X			0,
+X			xfer_len,
+X			0x10,
+X			0,
+X			WRITE_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_inquiry
+X *	Send SCSI Inquiry command to the device
+X *
+X * Args:
+X *	buf - Pointer to the return data buffer
+X *	len - Maximum number of inquiry data bytes to transfer
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_inquiry(byte_t *buf, int len)
+X{
+X	return(
+X		pthru_send(
+X			OP_S_INQUIR,
+X			0,
+X			buf,
+X			len,
+X			0,
+X			len,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_rdtoc
+X *	Send SCSI-2 Read TOC command to the device
+X *
+X * Args:
+X *	buf - Pointer to the return data buffer
+X *	msf - Whether to use MSF or logical block address data format
+X *	start - Starting track number for which the TOC data is returned
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_rdtoc(byte_t *buf, bool_t msf, int start)
+X{
+X	int		xfer_len;
+X	toc_hdr_t	*thdr;
+X
+X	/* Read the TOC header first */
+X	if (!pthru_send(OP_M_RDTOC, 0, buf, SZ_TOCHDR,
+X			(byte_t) start, SZ_TOCHDR,
+X			(byte_t) (msf << 1), 0, READ_OP))
+X		return(FALSE);
+X
+X	thdr = (toc_hdr_t *)(void *) buf;
+X
+X	if (start == 0)
+X		start = (int) thdr->first_trk;
+X
+X	xfer_len = SZ_TOCHDR +
+X		   (((int) thdr->last_trk - start + 2) * SZ_TOCENT);
+X
+X	if (xfer_len > SZ_RDTOC)
+X		xfer_len = SZ_RDTOC;
+X
+X	/* Read the appropriate number of bytes of the entire TOC */
+X	return(
+X		pthru_send(
+X			OP_M_RDTOC,
+X			0,
+X			buf,
+X			xfer_len,
+X			(byte_t) start,
+X			xfer_len,
+X			(byte_t) (msf << 1),
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_tst_unit_rdy
+X *	Send SCSI Test Unit Ready command to the device
+X *
+X * Args:
+X *	Nothing
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure (drive not ready)
+X */
+XSTATIC bool_t
+Xscsi_tst_unit_rdy(void)
+X{
+X	return(
+X		pthru_send(
+X			OP_S_TEST,
+X			0,
+X			NULL,
+X			0,
+X			0,
+X			0,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_playmsf
+X *	Send SCSI-2 Play Audio MSF command to the device
+X *
+X * Args:
+X *	start - Pointer to the starting position MSF data
+X *	end - Pointer to the ending position MSF data
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_playmsf(msf_t *start, msf_t *end)
+X{
+X	word32_t	*addr = (word32_t *)(void *) start;
+X	word16_t	*len = (word16_t *)(void *) &end->sec;
+X	byte_t		*rsvd = (byte_t *) &end->min;
+X
+X	if (!app_data.playmsf_supp)
+X		return(FALSE);
+X
+X	start->res = end->res = 0;
+X
+X	return(
+X		pthru_send(
+X			OP_M_PLAYMSF,
+X			bswap32(*addr),
+X			NULL,
+X			0,
+X			*rsvd,
+X			(word32_t) bswap16(*len),
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_play10
+X *	Send SCSI-2 Play Audio (10) command to the device
+X *
+X * Args:
+X *	start - The starting logical block address
+X *	len - The number of logical blocks to play (max=0xffff)
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_play10(word32_t start, word32_t len)
+X{
+X	if (!app_data.play10_supp || len > 0xffff)
+X		return(FALSE);
+X
+X	return(
+X		pthru_send(
+X			OP_M_PLAY,
+X			start,
+X			NULL,
+X			0,
+X			0,
+X			len,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_play12
+X *	Send SCSI-2 Play Audio (12) command to the device
+X *
+X * Args:
+X *	start - The starting logical block address
+X *	len - The number of logical blocks to play
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_play12(word32_t start, word32_t len)
+X{
+X	if (!app_data.play12_supp)
+X		return(FALSE);
+X
+X	return(
+X		pthru_send(
+X			OP_L_PLAY,
+X			start,
+X			NULL,
+X			0,
+X			0,
+X			len,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_prev_allow
+X *	Send SCSI Prevent/Allow Medium Removal command to the device
+X *
+X * Args:
+X *	prevent - Whether to prevent or allow medium removal
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_prev_allow(bool_t prevent)
+X{
+X	if (!app_data.caddylock_supp)
+X		return(FALSE);
+X
+X	return(
+X		pthru_send(
+X			OP_S_PREVENT,
+X			0,
+X			NULL,
+X			0,
+X			0,
+X			prevent,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_start_stop
+X *	Send SCSI Start/Stop Unit command to the device
+X *
+X * Args:
+X *	start - Whether to start unit or stop unit
+X *	loej - Whether caddy load/eject operation should be performed
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_start_stop(bool_t start, bool_t loej)
+X{
+X	byte_t	param;
+X
+X	if (start)
+X		param = 0x01;
+X	else
+X		param = 0x00;
+X
+X	if (loej)
+X		param |= 0x02;
+X
+X	return(
+X		pthru_send(
+X			OP_S_START,
+X			0,
+X			NULL,
+X			0,
+X			0,
+X			param,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_pause_resume
+X *	Send SCSI-2 Pause/Resume command to the device
+X *
+X * Args:
+X *	resume - Whether to resume or pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_pause_resume(bool_t resume)
+X{
+X	if (!app_data.pause_supp)
+X		return(FALSE);
+X
+X	return(
+X		pthru_send(
+X			OP_M_PAUSE,
+X			0,
+X			NULL,
+X			0,
+X			0,
+X			resume,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * scsi_play_trkidx
+X *	Send SCSI-2 Play Audio Track/Index command to the device
+X *
+X * Args:
+X *	start_trk - Starting track number
+X *	start_idx - Starting index number
+X *	end_trk - Ending track number
+X *	end_idx - Ending index number
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xscsi_play_trkidx(int start_trk, int start_idx, int end_trk, int end_idx)
+X{
+X	if (!app_data.playti_supp)
+X		return(FALSE);
+X
+X	return(
+X		pthru_send(
+X			OP_M_PLAYTI,
+X			(start_trk << 8) | start_idx,
+X			NULL,
+X			0,
+X			0,
+X			(end_trk << 8) | end_idx,
+X			0,
+X			0,
+X			READ_OP
+X		)
+X	);
+X}
+X
+X
+X/*
+X * do_playaudio
+X *	General top-level play audio function
+X *
+X * Args:
+X *	addr_fmt - The address formats specified:
+X *		ADDR_BLK: logical block address
+X *		ADDR_MSF: MSF address
+X *		ADDR_TRKIDX: Track/index numbers
+X *		ADDR_OPTEND: Ending address can be ignored
+X *	start_addr - Starting logical block address
+X *	end_addr - Ending logical block address
+X *	start_msf - Pointer to start address MSF data
+X *	end_msf - Pointer to end address MSF data
+X *	trk - Starting track number
+X *	idx - Starting index number
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xdo_playaudio(
+X	byte_t		addr_fmt,
+X	word32_t	start_addr,
+X	word32_t	end_addr,
+X	msf_t		*start_msf,
+X	msf_t		*end_msf,
+X	byte_t		trk,
+X	byte_t		idx
+X)
+X{
+X	msf_t		emsf,
+X			*emsfp = NULL;
+X	bool_t		ret = FALSE;
+X
+X
+X	/* Fix addresses: Some CD-ROM drives will only allow playing to
+X	 * the last frame minus 1.
+X	 */
+X	if (addr_fmt & ADDR_MSF && end_msf != NULL) {
+X		emsf = *end_msf;	/* Structure copy */
+X		emsfp = &emsf;
+X
+X		if (emsfp->frame > 0)
+X			emsfp->frame--;
+X		else {
+X			emsfp->frame = FRAME_PER_SEC - 1;
+X			if (emsfp->sec > 0)
+X				emsfp->sec--;
+X			else {
+X				emsfp->sec = 59;
+X				if (emsfp->min > 0)
+X					emsfp->min--;
+X			}
+X		}
+X
+X		/* Save end address for error recovery */
+X		sav_end_msf = *end_msf;
+X	}
+X	if (addr_fmt & ADDR_BLK) {
+X		if (end_addr != 0)
+X			end_addr--;
+X
+X		/* Save end address for error recovery */
+X		sav_end_addr = end_addr;
+X	}
+X
+X	/* Save end address format for error recovery */
+X	sav_end_fmt = addr_fmt;
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI)
+X		ret = hita_playaudio(
+X			addr_fmt,
+X			start_addr, end_addr,
+X			start_msf, emsfp,
+X			trk, idx
+X		);
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_NEC)
+X		ret = nec_playaudio(
+X			addr_fmt,
+X			start_addr, end_addr,
+X			start_msf, emsfp,
+X			trk, idx
+X		);
+X#endif
+X
+X#ifdef PIONEER
+X	/* ----- Pioneer vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_PIONEER)
+X		ret = pion_playaudio(
+X			addr_fmt,
+X			start_addr, end_addr,
+X			start_msf, emsfp,
+X			trk, idx
+X		);
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA)
+X		ret = tosh_playaudio(
+X			addr_fmt,
+X			start_addr, end_addr,
+X			start_msf, emsfp,
+X			trk, idx
+X		);
+X#endif
+X
+X	/* If the device does not claim SCSI-2 compliance, and the
+X	 * device-specific configuration is not SCSI-2, then don't
+X	 * attempt to deliver SCSI-2 commands to the device.
+X	 */
+X	if (!ret && app_data.vendor_code != VENDOR_SCSI2 && dev_scsiver < 2)
+X		return(FALSE);
+X	
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X
+X	if (!ret && (addr_fmt & ADDR_MSF) && app_data.playmsf_supp)
+X		ret = scsi_playmsf(start_msf, emsfp);
+X	
+X	if (!ret && (addr_fmt & ADDR_BLK) && app_data.play12_supp)
+X		ret = scsi_play12(start_addr, end_addr - start_addr);
+X	
+X	if (!ret && (addr_fmt & ADDR_BLK) && app_data.play10_supp)
+X		ret = scsi_play10(start_addr, end_addr - start_addr);
+X
+X	if (!ret && (addr_fmt & ADDR_TRKIDX) && app_data.playti_supp)
+X		ret = scsi_play_trkidx(trk, idx, trk, idx);
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * do_pause_resume
+X *	General top-level pause/resume function
+X *
+X * Args:
+X *	resume - Whether to resume or pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xdo_pause_resume(bool_t resume)
+X{
+X	bool_t	ret = FALSE;
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI)
+X		ret = hita_pause_resume(resume);
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_NEC)
+X		ret = nec_pause_resume(resume);
+X#endif
+X
+X#ifdef PIONEER
+X	/* ----- Pioneer vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_PIONEER)
+X		ret = pion_pause_resume(resume);
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA)
+X		ret = tosh_pause_resume(resume);
+X#endif
+X
+X
+X	/* If the device does not claim SCSI-2 compliance, and the
+X	 * device-specific configuration is not SCSI-2, then don't
+X	 * attempt to deliver SCSI-2 commands to the device.
+X	 */
+X	if (!ret && app_data.vendor_code != VENDOR_SCSI2 && dev_scsiver < 2)
+X		return(FALSE);
+X
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X
+X	if (!ret && app_data.pause_supp)
+X		ret = scsi_pause_resume(resume);
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * do_start_stop
+X *	General top-level start/stop function
+X *
+X * Args:
+X *	start - Whether to start unit or stop unit
+X *	loej - Whether caddy load/eject operation should be performed
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xdo_start_stop(bool_t start, bool_t loej)
+X{
+X	bool_t	ret = FALSE;
+X
+X	if (!app_data.load_supp && start && loej)
+X		return(FALSE);
+X
+X	if (!app_data.eject_supp)
+X		loej = 0;
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI) {
+X		if ((ret = hita_start_stop(start, loej)) == TRUE)
+X			ret = scsi_start_stop(start, loej);
+X	}
+X#endif
+X
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X
+X	if (!ret)
+X		ret = scsi_start_stop(start, loej);
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * get_playstatus
+X *	Obtain and update current playback status information
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - Audio playback is in progress
+X *	FALSE - Audio playback stopped or command failure
+X */
+XSTATIC bool_t
+Xget_playstatus(curstat_t *s)
+X{
+X	bool_t		done,
+X			ret = FALSE,
+X			err = FALSE;
+X	byte_t		buf[SZ_RDSUBQ],
+X			audio_status,
+X			*cp,
+X			*subq_end;
+X	word32_t	recov_start_addr;
+X	msf_t		recov_start_msf;
+X	subq_hdr_t	*h;
+X	subq_01_t	*p;
+X	static int	errcnt = 0;
+X	static word32_t	errblk = 0;
+X	static bool_t	in_get_playstatus = FALSE;
+X
+X
+X	/* Lock this routine from multiple entry */
+X	if (in_get_playstatus)
+X		return(TRUE);
+X
+X	in_get_playstatus = TRUE;
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI)
+X		ret = hita_get_playstatus(s, &audio_status);
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_NEC)
+X		ret = nec_get_playstatus(s, &audio_status);
+X#endif
+X
+X#ifdef PIONEER
+X	/* ----- Pioneer vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_PIONEER)
+X		ret = pion_get_playstatus(s, &audio_status);
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA)
+X		ret = tosh_get_playstatus(s, &audio_status);
+X#endif
+X
+X	/* If the device does not claim SCSI-2 compliance, and the
+X	 * device-specific configuration is not SCSI-2, then don't
+X	 * attempt to deliver SCSI-2 commands to the device.
+X	 */
+X	if (!ret && app_data.vendor_code != VENDOR_SCSI2 && dev_scsiver < 2) {
+X		in_get_playstatus = FALSE;
+X		return(FALSE);
+X	}
+X
+X
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X
+X	if (!ret) {
+X		memset(buf, (byte_t) 0, sizeof(buf));
+X
+X		if (!scsi_rdsubq(buf, 1, 1, 0, TRUE)) {
+X			/* Check to see if the disc had been manually ejected */
+X			if (!disc_ready(s)) {
+X				sav_end_addr = 0;
+X				sav_end_msf.min = 0;
+X				sav_end_msf.sec = 0;
+X				sav_end_msf.frame = 0;
+X				sav_end_fmt = 0;
+X				errcnt = 0;
+X				errblk = 0;
+X
+X				in_get_playstatus = FALSE;
+X				return(FALSE);
+X			}
+X
+X			/* The read subchannel command failed for some
+X			 * unknown reason.  Just return success and
+X			 * hope the next poll succeeds.  We don't want
+X			 * to return FALSE here because that would stop
+X			 * the poll.
+X			 */
+X			in_get_playstatus = FALSE;
+X			return(TRUE);
+X		}
+X
+X		h = (subq_hdr_t *)(void *) buf;
+X		subq_end = (byte_t *) h + bswap16(h->subch_len) + 4;
+X
+X		audio_status = h->audio_status;
+X
+X		/* Check the subchannel data */
+X		for (cp = (byte_t *) h + sizeof(subq_hdr_t);
+X		     cp < subq_end && !err;
+X		     cp += sizeof(subq_01_t)) {
+X
+X			switch (*cp) {
+X			case SUB_CURPOS:
+X				p = (subq_01_t *)(void *) cp;
+X
+X				if (p->trkno != s->cur_trk) {
+X					s->cur_trk = p->trkno;
+X					dpy_track(s);
+X				}
+X
+X				if (p->idxno != s->cur_idx) {
+X					s->cur_idx = p->idxno;
+X					s->sav_iaddr = s->cur_tot_addr;
+X					dpy_index(s);
+X				}
+X
+X				s->cur_tot_min = p->abs_addr.msf.min;
+X				s->cur_tot_sec = p->abs_addr.msf.sec;
+X				s->cur_tot_frame = p->abs_addr.msf.frame;
+X				msftoblk(
+X					s->cur_tot_min,
+X					s->cur_tot_sec,
+X					s->cur_tot_frame,
+X					&s->cur_tot_addr,
+X					MSF_OFFSET(s)
+X				);
+X
+X				s->cur_trk_min = p->rel_addr.msf.min;
+X				s->cur_trk_sec = p->rel_addr.msf.sec;
+X				s->cur_trk_frame = p->rel_addr.msf.frame;
+X				msftoblk(
+X					s->cur_trk_min,
+X					s->cur_trk_sec,
+X					s->cur_trk_frame,
+X					&s->cur_trk_addr,
+X					0
+X				);
+X
+X				break;
+X			default:
+X				/* Something is wrong with the data */
+X				err = TRUE;
+X				break;
+X			}
+X		}
+X	}
+X
+X	/* Update time display */
+X	dpy_time(s, FALSE);
+X
+X
+X	/* Deal with playback status */
+X	switch (audio_status) {
+X	case AUDIO_PLAYING:
+X	case AUDIO_PAUSED:
+X		done = FALSE;
+X
+X		/* If we haven't encountered an error for a while, then
+X		 * clear the error count.
+X		 */
+X		if (errcnt > 0 && (s->cur_tot_addr - errblk) > ERR_CLRTHRESH)
+X			errcnt = 0;
+X		break;
+X
+X	case AUDIO_FAILED:
+X		/* Check to see if the disc had been manually ejected */
+X		if (!disc_ready(s)) {
+X			sav_end_addr = 0;
+X			sav_end_msf.min = 0;
+X			sav_end_msf.sec = 0;
+X			sav_end_msf.frame = 0;
+X			sav_end_fmt = 0;
+X			errcnt = 0;
+X			errblk = 0;
+X
+X			in_get_playstatus = FALSE;
+X			return(FALSE);
+X		}
+X
+X		/* Audio playback stopped due to a disc error.  We will
+X		 * try to restart the playback by skipping a few frames
+X		 * and continuing.  This will cause a glitch in the sound
+X		 * but is better than just stopping.
+X		 */
+X		done = FALSE;
+X
+X		/* Check for max errors limit */
+X		if (++errcnt > MAX_RECOVERR) {
+X			done = TRUE;
+X			fprintf(stderr, "%s: %s\n",
+X				PROGNAME, app_data.str_maxerr);
+X		}
+X		errblk = s->cur_tot_addr;
+X
+X		if (!done && (sav_end_fmt & ADDR_MSF)) {
+X			if ((int) s->cur_tot_frame <
+X			    (FRAME_PER_SEC - ERR_SKIPBLKS)) {
+X				recov_start_msf.min = s->cur_tot_min;
+X				recov_start_msf.sec = s->cur_tot_sec;
+X				recov_start_msf.frame =
+X					s->cur_tot_frame + ERR_SKIPBLKS;
+X			}
+X			else if ((int) s->cur_tot_sec < 59) {
+X				recov_start_msf.min = s->cur_tot_min;
+X				recov_start_msf.sec = s->cur_tot_sec + 1;
+X				recov_start_msf.frame = ERR_SKIPBLKS -
+X					(FRAME_PER_SEC - s->cur_tot_frame);
+X			}
+X			else {
+X				recov_start_msf.min = s->cur_tot_min + 1;
+X				recov_start_msf.sec = 0;
+X				recov_start_msf.frame = ERR_SKIPBLKS -
+X					(FRAME_PER_SEC - s->cur_tot_frame);
+X			}
+X
+X			/* Check to see if we have skipped past
+X			 * the end.
+X			 */
+X			if (recov_start_msf.min > sav_end_msf.min)
+X				done = TRUE;
+X			else if (recov_start_msf.min == sav_end_msf.min) {
+X				if (recov_start_msf.sec > sav_end_msf.sec)
+X					done = TRUE;
+X				else if ((recov_start_msf.sec ==
+X					  sav_end_msf.sec) &&
+X					 (recov_start_msf.frame >
+X					  sav_end_msf.frame)) {
+X					done = TRUE;
+X				}
+X			}
+X		}
+X		else {
+X			recov_start_msf.min = 0;
+X			recov_start_msf.sec = 0;
+X			recov_start_msf.frame = 0;
+X		}
+X
+X		if (!done && (sav_end_fmt & ADDR_BLK)) {
+X			recov_start_addr = s->cur_tot_addr + ERR_SKIPBLKS;
+X
+X			/* Check to see if we have skipped past
+X			 * the end.
+X			 */
+X			if (recov_start_addr >= sav_end_addr)
+X				done = TRUE;
+X		}
+X		else
+X			recov_start_addr = 0;
+X
+X
+X		/* Restart playback */
+X		if (!done) {
+X			fprintf(stderr, "%s: %s\n",
+X				PROGNAME, app_data.str_recoverr);
+X
+X			do_playaudio(
+X				sav_end_fmt,
+X				recov_start_addr, sav_end_addr,
+X				&recov_start_msf, &sav_end_msf,
+X				0, 0
+X			);
+X
+X			in_get_playstatus = FALSE;
+X			return(TRUE);
+X		}
+X
+X		/*FALLTHROUGH*/
+X	case AUDIO_COMPLETED:
+X	case AUDIO_NOSTATUS:
+X	case AUDIO_NOTVALID:
+X		done = TRUE;
+X
+X		switch (s->mode) {
+X		case M_SAMPLE:
+X			done = !run_sample(s);
+X			break;
+X
+X		case M_AB:
+X			done = !run_ab(s);
+X			break;
+X
+X		case M_PLAY:
+X			if (s->shuffle || s->program)
+X				done = !run_prog(s);
+X
+X			if (s->repeat)
+X				done = !run_repeat(s);
+X
+X			break;
+X		}
+X
+X		break;
+X
+X	default:
+X		/* Something is wrong with the data. */
+X		done = FALSE;
+X	}
+X
+X	if (done) {
+X		/* Reset states */
+X		reset_curstat(s, FALSE);
+X		s->mode = M_STOP;
+X		sav_end_addr = 0;
+X		sav_end_msf.min = sav_end_msf.sec = sav_end_msf.frame = 0;
+X		sav_end_fmt = 0;
+X		errcnt = 0;
+X		errblk = 0;
+X		dpy_all(s);
+X
+X		/* Spin down the disc */
+X		do_start_stop(FALSE, FALSE);
+X
+X		in_get_playstatus = FALSE;
+X		return(FALSE);
+X	}
+X
+X	in_get_playstatus = FALSE;
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * scale_vol
+X *	Scale logical audio volume value (0-100) to the SCSI-2
+X *	Mode Select parameter value (0-0xff) range.
+X *
+X * Args:
+X *	v - The logical volume value
+X *
+X * Return:
+X *	The scaled volume value
+X */
+XSTATIC int
+Xscale_vol(int v)
+X{
+X	/* Convert logical audio volume value to SCSI volume */
+X	return((v * (MAX_SCSIVOL - app_data.base_scsivol) / MAX_VOL) +
+X	       app_data.base_scsivol);
+X}
+X
+X
+X/*
+X * unscale_vol
+X *	Scale the SCSI-2 Mode Select audio volume parameter value
+X *	(0-0xff) to the logical volume value (0-100).
+X *
+X * Args:
+X *	v - The SCSI-2 volume value
+X *
+X * Return:
+X *	The logical volume value
+X */
+XSTATIC int
+Xunscale_vol(int v)
+X{
+X	register int	val;
+X
+X	/* Convert SCSI audio volume value to logical volume */
+X	val = (v - app_data.base_scsivol) * MAX_VOL /
+X	      (MAX_SCSIVOL - app_data.base_scsivol);
+X
+X	return ((val < 0) ? 0 : val);
+X}
+X
+X
+X/*
+X * config_vol
+X *	Audio volume control function
+X *
+X * Args:
+X *	vol - Logical volume value to set to
+X *	s - Pointer to the curstat_t structure
+X *	query - If TRUE, query current volume only
+X *	warp - Whether to set the volume control slider thumb
+X *		to the appropriate position
+X *
+X * Return:
+X *	The current logical volume value, or -1 on failure.
+X */
+X/*ARGSUSED*/
+XSTATIC int
+Xconfig_vol(int vol, curstat_t *s, bool_t query, bool_t warp)
+X{
+X	byte_t			buf[SZ_MSENSE];
+X	mode_sense_data_t	*ms_data;
+X	audio_pg_t		*audiopg;
+X	bool_t			ret = FALSE;
+X	static bool_t		muted = FALSE;
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI) {
+X		if (!query && (ret = hita_mute((bool_t) (vol < 50))) == TRUE)
+X			muted = (vol < 50);
+X
+X		vol = muted ? 0 : MAX_VOL;
+X
+X		if (warp)
+X			set_vol_slider((byte_t) vol);
+X
+X		return(vol);
+X	}
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_NEC) {
+X		if (!query && (ret = nec_mute((bool_t) (vol < 50))) == TRUE)
+X			muted = (vol < 50);
+X
+X		vol = muted ? 0 : MAX_VOL;
+X
+X		if (warp)
+X			set_vol_slider((byte_t) vol);
+X
+X		return(vol);
+X	}
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA) {
+X		if (!query && (ret = tosh_mute((bool_t) (vol < 50))) == TRUE)
+X			muted = (vol < 50);
+X
+X		vol = muted ? 0 : MAX_VOL;
+X
+X		if (warp)
+X			set_vol_slider((byte_t) vol);
+X
+X		return(vol);
+X	}
+X#endif
+X
+X
+X	/* ----- SCSI-2 standard audio commands ----- */
+X
+X	if (ret || !app_data.mselvol_supp)
+X		return(0);
+X
+X	memset(buf, (byte_t) 0, SZ_MSENSE);
+X
+X	if (!scsi_modesense(buf, 0, PG_AUDIOCTL, app_data.mselvol_dbd))
+X		return(-1);
+X
+X#ifdef DEBUG
+X	{
+X		int i;
+X
+X		fprintf(stderr, "\nMode Sense data bytes:\n");
+X		for (i = 0; i < SZ_MSENSE; i++)
+X			fprintf(stderr, "0x%02x: 0x%02x\n",
+X				i, *(buf + i));
+X	}
+X#endif
+X	ms_data = (mode_sense_data_t *)(void *) buf;
+X	audiopg = (audio_pg_t *)(void *)
+X		&ms_data->data[ms_data->bdescr_len];
+X
+X	if (audiopg->pg_code == PG_AUDIOCTL) {
+X		if (query) {
+X			if (audiopg->p0_vol > 0)
+X				muted = FALSE;
+X
+X			vol = untaper_vol(unscale_vol((int) audiopg->p0_vol));
+X
+X			if (warp)
+X				set_vol_slider((byte_t) vol);
+X
+X			return(vol);
+X		}
+X		else {
+X			ms_data->data_len = 0x00;
+X
+X			audiopg->p0_vol = scale_vol(taper_vol(vol));
+X			audiopg->p1_vol = scale_vol(taper_vol(vol));
+X
+X#ifdef DEBUG
+X			{
+X				int i;
+X
+X				fprintf(stderr, "\nMode Select data bytes:\n");
+X				for (i = 0; i < SZ_MSENSE; i++)
+X					fprintf(stderr, "0x%02x: 0x%02x\n",
+X						i, *(buf + i));
+X			}
+X#endif
+X
+X			if (scsi_modesel(buf, PG_AUDIOCTL,
+X					 app_data.mselvol_dbd)) {
+X				muted = (vol > 0) ? FALSE : TRUE;
+X				return(vol);
+X			}
+X		}
+X	}
+X
+X	return(-1);
+X}
+X
+X
+X/*
+X * get_vendor_model
+X *	Query and update CD-ROM vendor/model/revision information
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xget_vendor_model(curstat_t *s)
+X{
+X	inquiry_data_t	inq;
+X	char		errstr[STR_BUF_SZ];
+X
+X	if (scsi_inquiry((byte_t *) &inq, sizeof(inq))) {
+X		strncpy(s->vendor, (char *) inq.vendor, 8);
+X		s->vendor[8] = '\0';
+X
+X		strncpy(s->prod, (char *) inq.prod, 16);
+X		s->prod[16] = '\0';
+X
+X		strncpy(s->revnum, (char *) inq.revnum, 4);
+X		s->revnum[4] = '\0';
+X
+X		/* Check for errors */
+X		if (inq.type != DEV_ROM || !inq.rmb) {
+X			/* Not a CD-ROM device */
+X			notrom_error = TRUE;
+X			sprintf(errstr, app_data.str_notrom, app_data.device);
+X			cd_fatal_popup(app_data.str_fatal, errstr);
+X			return;
+X		}
+X
+X		/* Check for unsupported drives */
+X		dev_scsiver = (byte_t) (inq.ver & 0x07);
+X		if (dev_scsiver < 2 && app_data.vendor_code == VENDOR_SCSI2) {
+X			/* Not SCSI-2 or later */
+X			sprintf(errstr, app_data.str_notscsi2, app_data.device);
+X			cd_warning_popup(app_data.str_warning, errstr);
+X		}
+X	}
+X}
+X
+X
+X/*
+X * get_toc
+X *	Query and update the CD Table Of Contents
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xget_toc(curstat_t *s)
+X{
+X	int			i;
+X	byte_t			buf[SZ_RDTOC],
+X				*cp,
+X				*toc_end;
+X	bool_t			ret = FALSE;
+X	toc_hdr_t		*h;
+X	toc_trk_descr_t		*p;
+X
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI)
+X		ret = hita_get_toc(s);
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_NEC)
+X		ret = nec_get_toc(s);
+X#endif
+X
+X#ifdef PIONEER
+X	/* ----- Pioneer vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_PIONEER)
+X		ret = pion_get_toc(s);
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA)
+X		ret = tosh_get_toc(s);
+X#endif
+X
+X	if (ret)
+X		return(TRUE);
+X
+X	/* If the device does not claim SCSI-2 compliance, and the
+X	 * device-specific configuration is not SCSI-2, then don't
+X	 * attempt to deliver SCSI-2 commands to the device.
+X	 */
+X	if (!ret && app_data.vendor_code != VENDOR_SCSI2 && dev_scsiver < 2)
+X		return(FALSE);
+X
+X
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	if (!scsi_rdtoc(buf, TRUE, 0))
+X		return(FALSE);
+X
+X	/* Fill curstat structure with TOC data */
+X	h = (toc_hdr_t *)(void *) buf;
+X	toc_end = (byte_t *) h + bswap16(h->data_len) + 2;
+X
+X	s->first_trk = h->first_trk;
+X	s->last_trk = h->last_trk;
+X
+X	cp = (byte_t *) h + sizeof(toc_hdr_t);
+X
+X	for (i = 0; cp < toc_end && i < MAXTRACK; i++) {
+X		p = (toc_trk_descr_t *)(void *) cp;
+X
+X		s->trkinfo[i].trkno = p->trkno;
+X		s->trkinfo[i].type = (p->trktype == 0) ?
+X			TYP_AUDIO : TYP_DATA;
+X		s->trkinfo[i].min = p->abs_addr.msf.min;
+X		s->trkinfo[i].sec = p->abs_addr.msf.sec;
+X		s->trkinfo[i].frame = p->abs_addr.msf.frame;
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&s->trkinfo[i].addr,
+X			MSF_OFFSET(s)
+X		);
+X
+X		if (p->trkno == LEAD_OUT_TRACK ||
+X		    s->trkinfo[i-1].trkno == s->last_trk ||
+X		    i == (MAXTRACK - 1)) {
+X			s->tot_min = s->trkinfo[i].min;
+X			s->tot_sec = s->trkinfo[i].sec;
+X			s->tot_frame = s->trkinfo[i].frame;
+X			s->tot_trks = i;
+X			s->tot_addr = s->trkinfo[i].addr;
+X
+X			break;
+X		}
+X
+X		cp += sizeof(toc_trk_descr_t);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * start_stat_poll
+X *	Start polling the drive for current playback status
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xstart_stat_poll(curstat_t *s)
+X{
+X	stat_polling = TRUE;
+X
+X	/* Start poll timer */
+X	stat_id = cd_timeout(
+X		stat_interval,
+X		stat_poll,
+X		(byte_t *) s
+X	);
+X}
+X
+X
+X/*
+X * stop_stat_poll
+X *	Stop polling the drive for current playback status
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xstop_stat_poll(void)
+X{
+X	if (stat_polling) {
+X		/* Stop poll timer */
+X		cd_untimeout(stat_id);
+X
+X		stat_polling = FALSE;
+X	}
+X}
+X
+X
+X/*
+X * start_insert_poll
+X *	Start polling the drive for disc insertion
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xstart_insert_poll(curstat_t *s)
+X{
+X	if (insert_polling || s->mode != M_NODISC)
+X		return;
+X
+X	insert_polling = TRUE;
+X
+X	/* Start poll timer */
+X	insert_id = cd_timeout(
+X		app_data.ins_interval,
+X		insert_poll,
+X		(byte_t *) s
+X	);
+X}
+X
+X
+X/*
+X * stop_insert_poll
+X *	Stop polling the drive for disc insertion
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xstop_insert_poll(void)
+X{
+X	if (insert_polling) {
+X		/* Stop poll timer */
+X		cd_untimeout(insert_id);
+X
+X		insert_polling = FALSE;
+X	}
+X}
+X
+X
+X/*
+X * stat_poll
+X *	The playback status polling function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xstat_poll(curstat_t *s)
+X{
+X	if (!stat_polling)
+X		return;
+X
+X	/* Get current audio playback status */
+X	if (get_playstatus(s)) {
+X		/* Register next poll interval */
+X		stat_id = cd_timeout(
+X			stat_interval,
+X			stat_poll,
+X			(byte_t *) s
+X		);
+X	}
+X	else
+X		stat_polling = FALSE;
+X}
+X
+X
+X/*
+X * insert_poll
+X *	The disc insertion polling function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xinsert_poll(curstat_t *s)
+X{
+X	/* Check to see if a disc is inserted */
+X	if (!disc_ready(s)) {
+X		/* Register next poll interval */
+X		insert_id = cd_timeout(
+X			app_data.ins_interval,
+X			insert_poll,
+X			(byte_t *) s
+X		);
+X	}
+X	else
+X		insert_polling = FALSE;
+X}
+X
+X
+X/*
+X * disc_ready
+X *	Check if the disc is loaded and ready for use, and update
+X *	curstat table.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - Disc is ready
+X *	FALSE - Disc is not ready
+X */
+XSTATIC bool_t
+Xdisc_ready(curstat_t *s)
+X{
+X	int		i,
+X			vol;
+X	sword32_t	err;
+X	bool_t		first_open = FALSE;
+X	static bool_t	not_open = TRUE;
+X
+X	/* If device has not been opened, attempt to open it */
+X	if (not_open) {
+X		/* Open CD-ROM device */
+X		if (!pthru_open(app_data.device)) {
+X			dpy_time(s, FALSE);
+X			return(FALSE);
+X		}
+X
+X		not_open = FALSE;
+X		first_open = TRUE;
+X	}
+X
+X	for (i = 0; i < 5; i++) {
+X		if ((err = !scsi_tst_unit_rdy()) == TRUE) {
+X			s->mode = M_NODISC;
+X			dbprog_dbclear(s);
+X		}
+X		else
+X			break;
+X	}
+X
+X	if (!err && first_open) {
+X		first_open = FALSE;
+X
+X		/* Fill in inquiry data */
+X		get_vendor_model(s);
+X
+X		/* Query current volume and warp volume slider to
+X		 * appropriate setting
+X		 */
+X		if ((vol = config_vol(0, s, TRUE, TRUE)) >= 0)
+X			s->level = (byte_t) vol;
+X		else
+X			s->level = 0;
+X	}
+X
+X	/* Disable front-panel eject button if so specified */
+X	if (!err && app_data.caddy_lock && s->mode == M_NODISC) {
+X		cdlib_lock(s, TRUE);
+X
+X		if (s->caddy_lock)
+X			set_lock_btn(TRUE);
+X	}
+X
+X	/* Read disc table of contents */
+X	if (err || (s->mode == M_NODISC && !get_toc(s))) {
+X		reset_curstat(s, TRUE);
+X		dpy_all(s);
+X
+X		start_insert_poll(s);
+X
+X		return(FALSE);
+X	}
+X
+X	if (s->mode == M_NODISC) {
+X		/* Load CD database entry for this disc */
+X		dbprog_dbget(s);
+X
+X		s->mode = M_STOP;
+X		dpy_all(s);
+X
+X		if (app_data.load_spindown)
+X			/* Spin down disc in case the user isn't going to
+X			 * play anything for a while.  This reduces wear and
+X			 * tear on the drive.
+X			 */
+X			do_start_stop(FALSE, FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * run_rew
+X *	Run search-rewind operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xrun_rew(curstat_t *s)
+X{
+X	int			i,
+X				skip_blks;
+X	word32_t		addr,
+X				end_addr;
+X	static word32_t		start_addr,
+X				seq;
+X
+X	/* Find out where we are */
+X	if (!get_playstatus(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	skip_blks = app_data.skip_blks;
+X	addr = s->cur_tot_addr;
+X
+X	if (start_search) {
+X		start_search = FALSE;
+X		seq = 0;
+X		if (skip_blks < addr)
+X			start_addr = addr - skip_blks;
+X		else
+X			start_addr = 0;
+X	}
+X	else {
+X		if (app_data.skip_spdup > 0 && seq > app_data.skip_spdup)
+X			/* Speed up search */
+X			skip_blks *= 3;
+X
+X		if ((int) (start_addr - skip_blks) > 0)
+X			start_addr -= skip_blks;
+X		else
+X			start_addr = 0;
+X	}
+X
+X	seq++;
+X
+X	if (s->shuffle || s->program) {
+X		if ((i = curtrk_pos(s)) < 0)
+X			i = 0;
+X	}
+X	else
+X		i = 0;
+X
+X	if (start_addr < s->trkinfo[i].addr)
+X		start_addr = s->trkinfo[i].addr;
+X
+X	end_addr = start_addr + MAX_SRCH_BLKS;
+X
+X	/* Play next search interval */
+X	do_playaudio(
+X		ADDR_BLK | ADDR_OPTEND,
+X		start_addr, end_addr,
+X		NULL, NULL,
+X		0, 0
+X	);
+X
+X	search_id = cd_timeout(
+X		app_data.skip_pause,
+X		run_rew,
+X		(byte_t *) s
+X	);
+X}
+X
+X
+X/*
+X * stop_rew
+X *	Stop search-rewind operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xstop_rew(curstat_t *s)
+X{
+X	cd_untimeout(search_id);
+X}
+X
+X
+X/*
+X * run_ff
+X *	Run search-fast-forward operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xrun_ff(curstat_t *s)
+X{
+X	int		i,
+X			skip_blks;
+X	word32_t	addr,
+X			end_addr;
+X	static word32_t	start_addr,
+X			seq;
+X
+X	/* Find out where we are */
+X	if (!get_playstatus(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	skip_blks = app_data.skip_blks;
+X	addr = s->cur_tot_addr;
+X
+X	if (start_search) {
+X		start_search = FALSE;
+X		seq = 0;
+X		start_addr = addr + skip_blks;
+X	}
+X	else {
+X		if (app_data.skip_spdup > 0 && seq > app_data.skip_spdup)
+X			/* Speed up search */
+X			skip_blks *= 3;
+X
+X		start_addr += skip_blks;
+X	}
+X
+X	seq++;
+X
+X	if (s->shuffle || s->program) {
+X		if ((i = curtrk_pos(s)) < 0)
+X			i = s->tot_trks - 1;
+X		else if (s->cur_idx == 0)
+X			/* We're in the lead-in: consider this to be
+X			 * within the previous track.
+X			 */
+X			i--;
+X	}
+X	else
+X		i = s->tot_trks - 1;
+X
+X	end_addr = start_addr + MAX_SRCH_BLKS;
+X
+X	if (end_addr >= s->trkinfo[i+1].addr) {
+X		end_addr = s->trkinfo[i+1].addr;
+X		start_addr = end_addr - skip_blks;
+X	}
+X
+X	/* Play next search interval */
+X	do_playaudio(
+X		ADDR_BLK | ADDR_OPTEND,
+X		start_addr, end_addr,
+X		NULL, NULL,
+X		0, 0
+X	);
+X
+X	search_id = cd_timeout(
+X		app_data.skip_pause,
+X		run_ff,
+X		(byte_t *) s
+X	);
+X}
+X
+X
+X/*
+X * stop_ff
+X *	Stop search-fast-forward operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xstop_ff(curstat_t *s)
+X{
+X	cd_untimeout(search_id);
+X}
+X
+X
+X/*
+X * run_ab
+X *	Run a->b segment play operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+XSTATIC bool_t
+Xrun_ab(curstat_t *s)
+X{
+X	return(
+X		do_playaudio(
+X			ADDR_BLK | ADDR_MSF,
+X			ab_start_addr, ab_end_addr,
+X			&ab_start_msf, &ab_end_msf,
+X			0, 0
+X		)
+X	);
+X}
+X
+X
+X/*
+X * run_sample
+X *	Run sample play operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xrun_sample(curstat_t *s)
+X{
+X	if (next_sam < s->tot_trks) {
+X		if (do_playaudio(ADDR_BLK,
+X				 s->trkinfo[next_sam].addr,
+X				 s->trkinfo[next_sam].addr +
+X				 app_data.sample_blks,
+X				 NULL, NULL, 0, 0)) {
+X			next_sam++;
+X			return(TRUE);
+X		}
+X	}
+X
+X	next_sam = 0;
+X	return(FALSE);
+X}
+X
+X
+X/*
+X * run_prog
+X *	Run program/shuffle play operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xrun_prog(curstat_t *s)
+X{
+X	sword32_t	i;
+X	msf_t		start_msf,
+X			end_msf;
+X
+X	if (!s->shuffle && !s->program)
+X		return(FALSE);
+X
+X	if (new_progshuf) {
+X		if (s->shuffle)
+X			/* New shuffle sequence needed */
+X			reset_shuffle(s);
+X		else
+X			/* Program play: simply reset the count */
+X			s->prog_cnt = 0;
+X
+X		new_progshuf = FALSE;
+X	}
+X
+X	if (s->prog_cnt >= s->prog_tot)
+X		/* Done with program/shuffle play cycle */
+X		return(FALSE);
+X
+X	if ((i = curprog_pos(s)) < 0)
+X		return(FALSE);
+X
+X	if (s->trkinfo[i].trkno == LEAD_OUT_TRACK)
+X		return(FALSE);
+X
+X	s->prog_cnt++;
+X	s->cur_trk = s->trkinfo[i].trkno;
+X	s->cur_idx = 1;
+X	s->cur_tot_addr = s->trkinfo[i].addr;
+X	s->cur_trk_addr = 0;
+X	s->cur_tot_min = s->trkinfo[i].min;
+X	s->cur_tot_sec = s->trkinfo[i].sec;
+X	s->cur_tot_frame = s->trkinfo[i].frame;
+X	s->mode = M_PLAY;
+X	dpy_all(s);
+X
+X	if (s->trkinfo[i].type == TYP_DATA)
+X		return(TRUE);
+X
+X	start_msf.min = s->trkinfo[i].min;
+X	start_msf.sec = s->trkinfo[i].sec;
+X	start_msf.frame = s->trkinfo[i].frame;
+X	end_msf.min = s->trkinfo[i+1].min;
+X	end_msf.sec = s->trkinfo[i+1].sec;
+X	end_msf.frame = s->trkinfo[i+1].frame;
+X
+X	return(
+X		do_playaudio(
+X			ADDR_BLK | ADDR_MSF,
+X			s->trkinfo[i].addr, s->trkinfo[i+1].addr,
+X			&start_msf, &end_msf,
+X			0, 0
+X		)
+X	);
+X}
+X
+X
+X/*
+X * run_repeat
+X *	Run repeat play operation
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xrun_repeat(curstat_t *s)
+X{
+X	msf_t	start_msf,
+X		end_msf;
+X
+X	if (!s->repeat)
+X		return(FALSE);
+X
+X	if (s->shuffle || s->program) {
+X		if (s->prog_cnt < s->prog_tot)
+X			/* Not done with program/shuffle sequence yet */
+X			return(TRUE);
+X
+X		new_progshuf = TRUE;
+X	}
+X	else {
+X		s->cur_trk = s->first_trk;
+X		s->cur_idx = 1;
+X
+X		s->cur_tot_addr = 0;
+X		s->cur_trk_addr = 0;
+X		s->cur_tot_min = 0;
+X		s->cur_tot_sec = 0;
+X		s->cur_tot_frame = 0;
+X		dpy_all(s);
+X
+X		start_msf.min = s->trkinfo[0].min;
+X		start_msf.sec = s->trkinfo[0].sec;
+X		start_msf.frame = s->trkinfo[0].frame;
+X		end_msf.min = s->tot_min;
+X		end_msf.sec = s->tot_sec;
+X		end_msf.frame = s->tot_frame;
+X
+X		if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X				    s->trkinfo[0].addr, s->tot_addr,
+X				    &start_msf, &end_msf, 0, 0))
+X			return(FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X
+X/***********************
+X *   public routines   *
+X ***********************/
+X
+X/*
+X * cdlib_check_disc
+X *	Check if disc is ready for use
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xcdlib_check_disc(curstat_t *s)
+X{
+X	return(disc_ready(s));
+X}
+X
+X
+X/*
+X * cdlib_lock
+X *	Caddy lock function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	enable - whether to enable/disable caddy lock
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_lock(curstat_t *s, bool_t enable)
+X{
+X	if (scsi_prev_allow(enable)) {
+X		s->caddy_lock = enable;
+X		return;
+X	}
+X
+X	/* Can't lock the caddy: beep. */
+X	cd_beep();
+X	set_lock_btn((bool_t) !enable);
+X}
+X
+X
+X/*
+X * cdlib_repeat
+X *	Repeat mode function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	enable - whether to enable/disable repeat mode
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_repeat(curstat_t *s, bool_t enable)
+X{
+X	s->repeat = enable;
+X}
+X
+X
+X/*
+X * cdlib_shuffle
+X *	Shuffle mode function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	enable - whether to enable/disable shuffle mode
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_shuffle(curstat_t *s, bool_t enable)
+X{
+X	switch (s->mode) {
+X	case M_STOP:
+X	case M_NODISC:
+X		break;
+X	default:
+X		/* Can't change mode unless when stopped */
+X		cd_beep();
+X		set_shuffle_btn((bool_t) !enable);
+X		return;
+X	}
+X
+X	s->shuffle = enable;
+X}
+X
+X
+X/*
+X * cdlib_load_eject
+X *	CD caddy load and eject function.  If disc caddy is not
+X *	loaded, it will attempt to load it.  Otherwise, it will be
+X *	ejected.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_load_eject(curstat_t *s)
+X{
+X	bool_t	ret = FALSE;
+X
+X	if (!disc_ready(s)) {
+X		/* Disc not ready: try loading the disc */
+X		if (!do_start_stop(TRUE, TRUE))
+X			cd_beep();
+X
+X		return;
+X	}
+X
+X	/* Eject the disc */
+X
+X	if (!app_data.eject_supp) {
+X		cd_beep();
+X
+X		stop_stat_poll();
+X		reset_curstat(s, TRUE);
+X		s->mode = M_NODISC;
+X
+X		dbprog_dbclear(s);
+X		dpy_all(s);
+X
+X		start_insert_poll(s);
+X		return;
+X	}
+X
+X	/* Unlock caddy if necessary */
+X	if (s->caddy_lock) {
+X		cdlib_lock(s, FALSE);
+X		set_lock_btn(FALSE);
+X	}
+X
+X#ifdef HITACHI
+X	/* ----- Hitachi vendor-unique audio commands ----- */
+X	if (!ret && app_data.vendor_code == VENDOR_HITACHI)
+X		ret = hita_eject();
+X#endif
+X
+X#ifdef NEC
+X	/* ----- NEC vendor-unique audio commands ----- */
+X	if (!ret && app_data.vendor_code == VENDOR_NEC)
+X		ret = nec_eject();
+X#endif
+X
+X#ifdef PIONEER
+X	/* ----- Pioneer vendor-unique audio commands ----- */
+X	if (!ret && app_data.vendor_code == VENDOR_PIONEER)
+X		ret = pion_eject();
+X#endif
+X
+X#ifdef TOSHIBA
+X	/* ----- Toshiba vendor-unique audio commands ----- */
+X	if (!ret && app_data.vendor_code == VENDOR_TOSHIBA)
+X		ret = tosh_eject();
+X#endif
+X
+X	/* ----- Standard SCSI-2 audio commands ----- */
+X	if (!ret)
+X		ret = do_start_stop(FALSE, TRUE);
+X
+X	if (ret) {
+X		stop_stat_poll();
+X		reset_curstat(s, TRUE);
+X		s->mode = M_NODISC;
+X
+X		dbprog_dbclear(s);
+X		dpy_all(s);
+X
+X		start_insert_poll(s);
+X	}
+X	else
+X		cd_beep();
+X}
+X
+X
+X/*
+X * cdlib_ab
+X *	A->B segment play mode function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_ab(curstat_t *s)
+X{
+X	switch (s->mode) {
+X	case M_SAMPLE:
+X	case M_PLAY:
+X		/* Get current location */
+X		if (!get_playstatus(s)) {
+X			cd_beep();
+X			break;
+X		}
+X
+X		ab_start_addr = s->cur_tot_addr;
+X		ab_start_msf.min = s->cur_tot_min;
+X		ab_start_msf.sec = s->cur_tot_sec;
+X		ab_start_msf.frame = s->cur_tot_frame;
+X
+X		s->mode = M_A;
+X		dpy_playmode(s, FALSE);
+X		break;
+X
+X	case M_A:
+X		/* Get current location */
+X		if (!get_playstatus(s)) {
+X			cd_beep();
+X			break;
+X		}
+X
+X		ab_end_addr = s->cur_tot_addr;
+X		ab_end_msf.min = s->cur_tot_min;
+X		ab_end_msf.sec = s->cur_tot_sec;
+X		ab_end_msf.frame = s->cur_tot_frame;
+X
+X		/* Make sure that the A->B play interval is no less
+X		 * than a user-configurable minimum.
+X		 */
+X		if ((ab_end_addr - ab_start_addr) < app_data.min_playblks) {
+X			ab_end_addr = ab_start_addr + app_data.min_playblks;
+X			blktomsf(
+X				ab_end_addr,
+X				&ab_end_msf.min,
+X				&ab_end_msf.sec,
+X				&ab_end_msf.frame,
+X				MSF_OFFSET(s)
+X			);
+X		}
+X
+X		if (!run_ab(s)) {
+X			cd_beep();
+X			return;
+X		}
+X
+X		s->mode = M_AB;
+X		dpy_playmode(s, FALSE);
+X		break;
+X
+X	case M_AB:
+X		/* Currently doing A->B playback, just call cdlib_play_pause
+X		 * to resume normal playback.
+X		 */
+X		cdlib_play_pause(s);
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_sample
+X *	Sample play mode function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_sample(curstat_t *s)
+X{
+X	int	i;
+X
+X	if (!disc_ready(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	if (s->shuffle || s->program) {
+X		/* Sample is not supported in program/shuffle mode */
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_STOP:
+X		start_stat_poll(s);
+X		/*FALLTHROUGH*/
+X	case M_A:
+X	case M_AB:
+X	case M_PLAY:
+X		/* If already playing a track, start sampling the track after
+X		 * the current one.  Otherwise, sample from the beginning.
+X		 */
+X		if (s->cur_trk > 0 && s->cur_trk != s->last_trk) {
+X			i = curtrk_pos(s) + 1;
+X			s->cur_trk = s->trkinfo[i].trkno;
+X			next_sam = i;
+X		}
+X		else {
+X			s->cur_trk = s->first_trk;
+X			next_sam = 0;
+X		}
+X		
+X		s->cur_idx = 1;
+X
+X		s->mode = M_SAMPLE;
+X		dpy_all(s);
+X
+X		if (!run_sample(s))
+X			return;
+X
+X		break;
+X
+X	case M_SAMPLE:
+X		/* Currently doing Sample playback, just call cdlib_play_pause
+X		 * to resume normal playback.
+X		 */
+X		cdlib_play_pause(s);
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_level
+X *	Audio volume control function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	level - The volume level to set to
+X *	drag - Whether this is an update due to the user dragging the
+X *		volume control slider thumb.  If this is FALSE, then
+X *		a final volume setting has been found.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_level(curstat_t *s, byte_t level, bool_t drag)
+X{
+X	int	actual;
+X
+X#ifdef HITACHI
+X	if (app_data.vendor_code == VENDOR_HITACHI && drag)
+X		return;
+X#endif
+X
+X#ifdef NEC
+X	if (app_data.vendor_code == VENDOR_NEC && drag)
+X		return;
+X#endif
+X
+X#ifdef PIONEER
+X	if (app_data.vendor_code == VENDOR_PIONEER && drag)
+X		return;
+X#endif
+X
+X#ifdef TOSHIBA
+X	if (app_data.vendor_code == VENDOR_TOSHIBA && drag)
+X		return;
+X#endif
+X
+X	/* Set volume level */
+X	if ((actual = config_vol((int) level, s, FALSE, TRUE)) >= 0)
+X		s->level = (byte_t) actual;
+X}
+X
+X
+X/*
+X * cdlib_play_pause
+X *	Audio playback and pause function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_play_pause(curstat_t *s)
+X{
+X	sword32_t	i;
+X	word32_t	start_addr;
+X	msf_t		start_msf,
+X			end_msf;
+X
+X	if (!disc_ready(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	if (s->mode == M_NODISC)
+X		s->mode = M_STOP;
+X
+X	switch (s->mode) {
+X	case M_PLAY:
+X		/* Currently playing: go to pause mode */
+X
+X		if (!do_pause_resume(FALSE)) {
+X			cd_beep();
+X			return;
+X		}
+X		stop_stat_poll();
+X		s->mode = M_PAUSE;
+X		dpy_playmode(s, FALSE);
+X		break;
+X
+X	case M_PAUSE:
+X		/* Currently paused: resume play */
+X
+X		if (!do_pause_resume(TRUE)) {
+X			cd_beep();
+X			return;
+X		}
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		start_stat_poll(s);
+X		break;
+X
+X	case M_STOP:
+X		/* Currently stopped: start play */
+X
+X		if (s->shuffle) {
+X			/* Start shuffle play */
+X			new_progshuf = TRUE;
+X
+X			if (!run_prog(s))
+X				return;
+X		}
+X		else {
+X			/* Start normal play */
+X			if ((i = curtrk_pos(s)) < 0 || s->cur_trk <= 0) {
+X				/* Start play from the beginning */
+X				i = 0;
+X				s->cur_trk = s->first_trk;
+X				start_addr = s->trkinfo[0].addr;
+X				start_msf.min = s->trkinfo[0].min;
+X				start_msf.sec = s->trkinfo[0].sec;
+X				start_msf.frame = s->trkinfo[0].frame;
+X			}
+X			else {
+X				/* User has specified a starting track */
+X				start_addr = s->trkinfo[i].addr;
+X				start_msf.min = s->trkinfo[i].min;
+X				start_msf.sec = s->trkinfo[i].sec;
+X				start_msf.frame = s->trkinfo[i].frame;
+X			}
+X
+X			end_msf.min = s->tot_min;
+X			end_msf.sec = s->tot_sec;
+X			end_msf.frame = s->tot_frame;
+X
+X			s->cur_idx = 1;
+X			s->mode = M_PLAY;
+X			if (s->trkinfo[i].type == TYP_DATA)
+X				dpy_time(s, FALSE);
+X
+X			if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X					  start_addr, s->tot_addr,
+X					  &start_msf, &end_msf, 0, 0)) {
+X				cd_beep();
+X				s->mode = M_STOP;
+X				return;
+X			}
+X		}
+X
+X		dpy_all(s);
+X		start_stat_poll(s);
+X		break;
+X
+X	case M_A:
+X		/* Just reset mode to play and continue */
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		break;
+X
+X	case M_AB:
+X	case M_SAMPLE:
+X		/* Force update of curstat */
+X		if (!get_playstatus(s)) {
+X			cd_beep();
+X			return;
+X		}
+X
+X		/* Currently doing a->b or sample playback: just resume play */
+X		if (s->shuffle || s->program) {
+X			if ((i = curtrk_pos(s)) < 0 ||
+X			    s->trkinfo[i].trkno == LEAD_OUT_TRACK)
+X				return;
+X
+X			start_msf.min = s->cur_tot_min;
+X			start_msf.sec = s->cur_tot_sec;
+X			start_msf.frame = s->cur_tot_frame;
+X			end_msf.min = s->trkinfo[i+1].min;
+X			end_msf.sec = s->trkinfo[i+1].sec;
+X			end_msf.frame = s->trkinfo[i+1].frame;
+X
+X			if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X					  s->cur_tot_addr,
+X					  s->trkinfo[i+1].addr,
+X					  &start_msf, &end_msf, 0, 0)) {
+X				cd_beep();
+X				return;
+X			}
+X		}
+X		else {
+X			start_msf.min = s->cur_tot_min;
+X			start_msf.sec = s->cur_tot_sec;
+X			start_msf.frame = s->cur_tot_frame;
+X			end_msf.min = s->tot_min;
+X			end_msf.sec = s->tot_sec;
+X			end_msf.frame = s->tot_frame;
+X
+X			if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X					  s->cur_tot_addr, s->tot_addr,
+X					  &start_msf, &end_msf, 0, 0)) {
+X				cd_beep();
+X				return;
+X			}
+X		}
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_stop
+X *	Stop function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	stop_disc - Whether to actually spin down the disc or just
+X *		update status.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_stop(curstat_t *s, bool_t stop_disc)
+X{
+X	/* The stop_disc parameter will cause the disc to spin down.
+X	 * This is usually set to TRUE, but can be FALSE if the caller
+X	 * just wants to set the current state to stop but will
+X	 * immediately go into play state again.  Not spinning down
+X	 * the drive makes things a little faster...
+X	 */
+X
+X	if (!disc_ready(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_PLAY:
+X	case M_PAUSE:
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X	case M_STOP:
+X		/* Currently playing or paused: stop */
+X
+X		if (stop_disc && !do_start_stop(FALSE, FALSE)) {
+X			cd_beep();
+X			return;
+X		}
+X		stop_stat_poll();
+X
+X		reset_curstat(s, FALSE);
+X		s->mode = M_STOP;
+X
+X		dpy_all(s);
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_prevtrk
+X *	Previous track function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_prevtrk(curstat_t *s)
+X{
+X	sword32_t	i;
+X	word32_t	start_addr;
+X	msf_t		start_msf,
+X			end_msf;
+X	bool_t		go_prev,
+X			paused;
+X
+X	if (!disc_ready(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		paused = (s->mode == M_PAUSE);
+X
+X		/* Find appropriate track to start */
+X		if (s->shuffle || s->program) {
+X			s->prog_cnt--;
+X			i = curprog_pos(s);
+X		}
+X		else
+X			i = curtrk_pos(s);
+X
+X		if (i < 0)
+X			return;
+X
+X		start_addr = s->trkinfo[i].addr;
+X		start_msf.min = s->trkinfo[i].min;
+X		start_msf.sec = s->trkinfo[i].sec;
+X		start_msf.frame = s->trkinfo[i].frame;
+X		s->cur_trk = s->trkinfo[i].trkno;
+X		s->cur_idx = 1;
+X
+X		/* If the current track has been playing for less
+X		 * than app_data.prev_threshold blocks, then go
+X		 * to the beginning of the previous track (if we
+X		 * are not already on the first track).
+X		 */
+X		go_prev = FALSE;
+X		if ((s->cur_tot_addr - start_addr) < app_data.prev_threshold)
+X			go_prev = TRUE;
+X
+X		if (go_prev) {
+X			if ((s->shuffle || s->program) && s->prog_cnt > 0) {
+X				s->prog_cnt--;
+X				if ((i = curprog_pos(s)) < 0)
+X					return;
+X
+X				start_addr = s->trkinfo[i].addr;
+X				start_msf.min = s->trkinfo[i].min;
+X				start_msf.sec = s->trkinfo[i].sec;
+X				start_msf.frame = s->trkinfo[i].frame;
+X				s->cur_trk = s->trkinfo[i].trkno;
+X			}
+X			else if (!s->shuffle && !s->program && i > 0) {
+X				start_addr = s->trkinfo[i-1].addr;
+X				start_msf.min = s->trkinfo[i-1].min;
+X				start_msf.sec = s->trkinfo[i-1].sec;
+X				start_msf.frame = s->trkinfo[i-1].frame;
+X				s->cur_trk = s->trkinfo[i-1].trkno;
+X			}
+X		}
+X
+X		dpy_track(s);
+X		dpy_index(s);
+X
+X		if (s->shuffle || s->program) {
+X			/* Program/Shuffle mode: just stop the playback
+X			 * and let run_prog go to the previous track
+X			 */
+X
+X			do_start_stop(FALSE, FALSE);
+X		}
+X		else {
+X			if (paused)
+X				/* Mute: so we don't get a transient */
+X				cdlib_mute_on(s);
+X
+X			end_msf.min = s->tot_min;
+X			end_msf.sec = s->tot_sec;
+X			end_msf.frame = s->tot_frame;
+X
+X			if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X					  start_addr, s->tot_addr,
+X					  &start_msf, &end_msf, 0, 0)) {
+X				cd_beep();
+X				return;
+X			}
+X
+X			if (paused) {
+X				do_pause_resume(FALSE);
+X
+X				/* Restore volume */
+X				cdlib_mute_off(s);
+X
+X				/* Force update of curstat */
+X				get_playstatus(s);
+X			}
+X		}
+X
+X		break;
+X
+X	case M_STOP:
+X		if (s->shuffle || s->program) {
+X			/* Pre-selecting tracks not supported in shuffle
+X			 * or program mode.
+X			 */
+X			cd_beep();
+X			return;
+X		}
+X
+X		/* Find previous track */
+X		if (s->cur_trk <= 0) {
+X			s->cur_trk = s->trkinfo[0].trkno;
+X			dpy_track(s);
+X		}
+X		else {
+X			i = curtrk_pos(s);
+X
+X			if (i > 0) {
+X				s->cur_trk = s->trkinfo[i-1].trkno;
+X				dpy_track(s);
+X			}
+X		}
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_nexttrk
+X *	Next track function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_nexttrk(curstat_t *s)
+X{
+X	sword32_t	i;
+X	word32_t	start_addr;
+X	msf_t		start_msf,
+X			end_msf;
+X	bool_t		paused;
+X
+X	if (!disc_ready(s)) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		paused = (s->mode == M_PAUSE);
+X
+X		if (s->shuffle || s->program) {
+X			/* Program/Shuffle mode: just stop the playback
+X			 * and let run_prog go to the next track.
+X			 */
+X			do_start_stop(FALSE, FALSE);
+X			return;
+X		}
+X
+X		/* Find next track */
+X		if ((i = curtrk_pos(s)) < 0)
+X			return;
+X
+X		if (i < (MAXTRACK - 1) &&
+X		    s->trkinfo[i+1].trkno >= 0 &&
+X		    s->trkinfo[i+1].trkno != LEAD_OUT_TRACK) {
+X
+X			start_addr = s->trkinfo[i+1].addr;
+X			start_msf.min = s->trkinfo[i+1].min;
+X			start_msf.sec = s->trkinfo[i+1].sec;
+X			start_msf.frame = s->trkinfo[i+1].frame;
+X			s->cur_trk = s->trkinfo[i+1].trkno;
+X			s->cur_idx = 1;
+X
+X			dpy_track(s);
+X			dpy_index(s);
+X
+X			if (paused)
+X				/* Mute: so we don't get a transient */
+X				cdlib_mute_on(s);
+X
+X			end_msf.min = s->tot_min;
+X			end_msf.sec = s->tot_sec;
+X			end_msf.frame = s->tot_frame;
+X
+X			if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X					  start_addr, s->tot_addr,
+X					  &start_msf, &end_msf, 0, 0)) {
+X				cd_beep();
+X				return;
+X			}
+X
+X			if (paused) {
+X				do_pause_resume(FALSE);
+X
+X				/* Restore volume */
+X				cdlib_mute_off(s);
+X
+X				/* Force update of curstat */
+X				get_playstatus(s);
+X			}
+X		}
+X
+X		break;
+X
+X	case M_STOP:
+X		if (s->shuffle || s->program) {
+X			/* Pre-selecting tracks not supported in shuffle
+X			 * or program mode.
+X			 */
+X			cd_beep();
+X			return;
+X		}
+X
+X		/* Find next track */
+X		if (s->cur_trk <= 0) {
+X			s->cur_trk = s->trkinfo[0].trkno;
+X			dpy_track(s);
+X		}
+X		else {
+X			i = curtrk_pos(s);
+X
+X			if (i >= 0 &&
+X			    s->trkinfo[i+1].trkno != LEAD_OUT_TRACK) {
+X				s->cur_trk = s->trkinfo[i+1].trkno;
+X				dpy_track(s);
+X			}
+X		}
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_previdx
+X *	Previous index function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_previdx(curstat_t *s)
+X{
+X	byte_t		idx;
+X	msf_t		start_msf,
+X			end_msf;
+X	bool_t		paused;
+X
+X	if (s->shuffle || s->program) {
+X		/* Index search is not supported in program/shuffle mode */
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		paused = (s->mode == M_PAUSE);
+X
+X		/* Find appropriate index to start */
+X		if (s->cur_idx > 1 &&
+X		    (s->cur_tot_addr - s->sav_iaddr) < app_data.prev_threshold)
+X			idx = s->cur_idx - 1;
+X		else
+X			idx = s->cur_idx;
+X		
+X		/* This is a hack...
+X		 * Since there is no standard SCSI-2 command to start
+X		 * playback on an index boundary and then go on playing
+X		 * until the end of the disc, we will use the PLAY AUDIO
+X		 * TRACK/INDEX command to go to where we want to start,
+X		 * immediately followed by a PAUSE.  We then find the
+X		 * current block position and issue a PLAY AUDIO MSF
+X		 * or PLAY AUDIO(12) command to start play there.
+X		 * We mute the audio in between these operations to
+X		 * prevent unpleasant transients.
+X		 */
+X
+X		/* Mute */
+X		cdlib_mute_on(s);
+X
+X		if (!do_playaudio(ADDR_TRKIDX, 0, 0, NULL, NULL,
+X				  (byte_t) s->cur_trk, idx)) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			cd_beep();
+X			return;
+X		}
+X
+X		if (!do_pause_resume(FALSE)) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			return;
+X		}
+X
+X		/* Use get_playstatus to update the current status */
+X		if (!get_playstatus(s)) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			return;
+X		}
+X
+X		/* Save starting block addr of this index */
+X		s->sav_iaddr = s->cur_tot_addr;
+X
+X		if (!paused)
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X
+X		start_msf.min = s->cur_tot_min;
+X		start_msf.sec = s->cur_tot_sec;
+X		start_msf.frame = s->cur_tot_frame;
+X		end_msf.min = s->tot_min;
+X		end_msf.sec = s->tot_sec;
+X		end_msf.frame = s->tot_frame;
+X
+X		if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X				  s->cur_tot_addr, s->tot_addr,
+X				  &start_msf, &end_msf, 0, 0)) {
+X			cd_beep();
+X			return;
+X		}
+X
+X		if (paused) {
+X			do_pause_resume(FALSE);
+X
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X
+X			/* Force update of curstat */
+X			get_playstatus(s);
+X		}
+X
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_nextidx
+X *	Next index function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_nextidx(curstat_t *s)
+X{
+X	msf_t		start_msf,
+X			end_msf;
+X	bool_t		paused;
+X
+X	if (s->shuffle || s->program) {
+X		/* Index search is not supported in program/shuffle mode */
+X		cd_beep();
+X		return;
+X	}
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		s->mode = M_PLAY;
+X		dpy_playmode(s, FALSE);
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		paused = (s->mode == M_PAUSE);
+X
+X		/* Find appropriate index to start */
+X		
+X		/* This is a hack...
+X		 * Since there is no standard SCSI-2 command to start
+X		 * playback on an index boundary and then go on playing
+X		 * until the end of the disc, we will use the PLAY AUDIO
+X		 * TRACK/INDEX command to go to where we want to start,
+X		 * immediately followed by a PAUSE.  We then find the
+X		 * current block position and issue a PLAY AUDIO MSF
+X		 * or PLAY AUDIO(12) command to start play there.
+X		 * We mute the audio in between these operations to
+X		 * prevent unpleasant transients.
+X		 */
+X
+X		/* Mute */
+X		cdlib_mute_on(s);
+X
+X		if (!do_playaudio(ADDR_TRKIDX, 0, 0, NULL, NULL,
+X				  (byte_t) s->cur_trk,
+X				  (byte_t) (s->cur_idx + 1))) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			cd_beep();
+X			return;
+X		}
+X
+X		if (!do_pause_resume(FALSE)) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			return;
+X		}
+X
+X		/* Use get_playstatus to update the current status */
+X		if (!get_playstatus(s)) {
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X			return;
+X		}
+X
+X		/* Save starting block addr of this index */
+X		s->sav_iaddr = s->cur_tot_addr;
+X
+X		if (!paused)
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X
+X		start_msf.min = s->cur_tot_min;
+X		start_msf.sec = s->cur_tot_sec;
+X		start_msf.frame = s->cur_tot_frame;
+X		end_msf.min = s->tot_min;
+X		end_msf.sec = s->tot_sec;
+X		end_msf.frame = s->tot_frame;
+X
+X		if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X				  s->cur_tot_addr, s->tot_addr,
+X				  &start_msf, &end_msf, 0, 0)) {
+X			cd_beep();
+X			return;
+X		}
+X
+X		if (paused) {
+X			do_pause_resume(FALSE);
+X
+X			/* Restore volume */
+X			cdlib_mute_off(s);
+X
+X			/* Force update of curstat */
+X			get_playstatus(s);
+X		}
+X
+X		break;
+X
+X	default:
+X		cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_rew
+X *	Search-rewind function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_rew(curstat_t *s, bool_t start)
+X{
+X	sword32_t	i;
+X	byte_t		vol;
+X	msf_t		start_msf,
+X			end_msf;
+X	static bool_t	paused = FALSE;
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		/* Go to normal play mode first */
+X		cdlib_play_pause(s);
+X
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		if (start) {
+X			/* Button press */
+X
+X			if (s->mode == M_PLAY)
+X				stop_stat_poll();
+X
+X			paused = (s->mode == M_PAUSE);
+X
+X			if (app_data.mselvol_supp) {
+X				/* Reduce volume */
+X				vol = (byte_t) ((int) s->level *
+X					app_data.skip_vol / 100);
+X
+X				config_vol((int)
+X					((vol < (byte_t)app_data.skip_minvol) ?
+X					 (byte_t) app_data.skip_minvol : vol),
+X					s,
+X					FALSE,
+X					FALSE
+X				);
+X			}
+X
+X			/* Start search rewind */
+X			start_search = TRUE;
+X			run_rew(s);
+X		}
+X		else {
+X			/* Button release */
+X
+X			stop_rew(s);
+X
+X			/* Update display */
+X			get_playstatus(s);
+X
+X			if (s->shuffle || s->program) {
+X				if (app_data.mselvol_supp)
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X
+X				if ((i = curtrk_pos(s)) < 0 ||
+X				    s->trkinfo[i].trkno == LEAD_OUT_TRACK)
+X					return;
+X
+X				start_msf.min = s->cur_tot_min;
+X				start_msf.sec = s->cur_tot_sec;
+X				start_msf.frame = s->cur_tot_frame;
+X				end_msf.min = s->trkinfo[i+1].min;
+X				end_msf.sec = s->trkinfo[i+1].sec;
+X				end_msf.frame = s->trkinfo[i+1].frame;
+X
+X				if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X						  s->cur_tot_addr,
+X						  s->trkinfo[i+1].addr,
+X						  &start_msf, &end_msf,
+X						  0, 0)) {
+X					cd_beep();
+X					return;
+X				}
+X
+X				start_stat_poll(s);
+X			}
+X			else {
+X				if (paused)
+X					/* Mute: so we don't get a transient */
+X					cdlib_mute_on(s);
+X				else if (app_data.mselvol_supp)
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X
+X				start_msf.min = s->cur_tot_min;
+X				start_msf.sec = s->cur_tot_sec;
+X				start_msf.frame = s->cur_tot_frame;
+X				end_msf.min = s->tot_min;
+X				end_msf.sec = s->tot_sec;
+X				end_msf.frame = s->tot_frame;
+X
+X				if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X						  s->cur_tot_addr,
+X						  s->tot_addr,
+X						  &start_msf, &end_msf,
+X						  0, 0)) {
+X					cd_beep();
+X					return;
+X				}
+X
+X				if (paused) {
+X					do_pause_resume(FALSE);
+X
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X				}
+X				else
+X					start_stat_poll(s);
+X			}
+X		}
+X		break;
+X
+X	default:
+X		if (start)
+X			cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_ff
+X *	Search-fast-forward function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_ff(curstat_t *s, bool_t start)
+X{
+X	sword32_t	i;
+X	byte_t		vol;
+X	msf_t		start_msf,
+X			end_msf;
+X	static bool_t	paused = FALSE;
+X
+X	switch (s->mode) {
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		/* Go to normal play mode first */
+X		cdlib_play_pause(s);
+X
+X		/*FALLTHROUGH*/
+X	case M_PLAY:
+X	case M_PAUSE:
+X		if (start) {
+X			/* Button press */
+X
+X			if (s->mode == M_PLAY)
+X				stop_stat_poll();
+X
+X			paused = (s->mode == M_PAUSE);
+X
+X			if (app_data.mselvol_supp) {
+X				/* Reduce volume */
+X				vol = (byte_t) ((int) s->level *
+X					app_data.skip_vol / 100);
+X
+X				config_vol((int)
+X					((vol < (byte_t)app_data.skip_minvol) ?
+X					 (byte_t) app_data.skip_minvol : vol),
+X					s,
+X					FALSE,
+X					FALSE
+X				);
+X			}
+X
+X			/* Start search forward */
+X			start_search = TRUE;
+X			run_ff(s);
+X		}
+X		else {
+X			/* Button release */
+X
+X			stop_ff(s);
+X
+X			/* Update display */
+X			get_playstatus(s);
+X
+X			if (s->shuffle || s->program) {
+X				if (app_data.mselvol_supp)
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X
+X				if ((i = curtrk_pos(s)) < 0 ||
+X				    s->trkinfo[i].trkno == LEAD_OUT_TRACK)
+X					return;
+X
+X				start_msf.min = s->cur_tot_min;
+X				start_msf.sec = s->cur_tot_sec;
+X				start_msf.frame = s->cur_tot_frame;
+X				end_msf.min = s->trkinfo[i+1].min;
+X				end_msf.sec = s->trkinfo[i+1].sec;
+X				end_msf.frame = s->trkinfo[i+1].frame;
+X
+X				if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X						  s->cur_tot_addr,
+X						  s->trkinfo[i+1].addr,
+X						  &start_msf, &end_msf,
+X						  0, 0)) {
+X					cd_beep();
+X					return;
+X				}
+X
+X				start_stat_poll(s);
+X			}
+X			else {
+X				if (paused)
+X					/* Mute: so we don't get a transient */
+X					cdlib_mute_on(s);
+X				else if (app_data.mselvol_supp)
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X
+X				start_msf.min = s->cur_tot_min;
+X				start_msf.sec = s->cur_tot_sec;
+X				start_msf.frame = s->cur_tot_frame;
+X				end_msf.min = s->tot_min;
+X				end_msf.sec = s->tot_sec;
+X				end_msf.frame = s->tot_frame;
+X
+X				if (!do_playaudio(ADDR_BLK | ADDR_MSF,
+X						  s->cur_tot_addr,
+X						  s->tot_addr,
+X						  &start_msf, &end_msf,
+X						  0, 0)) {
+X					cd_beep();
+X					return;
+X				}
+X
+X				if (paused) {
+X					do_pause_resume(FALSE);
+X
+X					/* Restore volume */
+X					cdlib_mute_off(s);
+X				}
+X				else
+X					start_stat_poll(s);
+X			}
+X		}
+X		break;
+X
+X	default:
+X		if (start)
+X			cd_beep();
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_mute_on
+X *	Mute audio function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_mute_on(curstat_t *s)
+X{
+X	config_vol(0, s, FALSE, FALSE);
+X}
+X
+X
+X/*
+X * cdlib_mute_off
+X *	Un-mute audio function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_mute_off(curstat_t *s)
+X{
+X	config_vol((int) s->level, s, FALSE, FALSE);
+X}
+X
+X
+X/*
+X * cdlib_playprog
+X *	Program/shuffle play function
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_playprog(curstat_t *s)
+X{
+X	switch (s->mode) {
+X	case M_PLAY:
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		stop_stat_poll();
+X
+X		/*FALLTHROUGH*/
+X	case M_STOP:
+X	case M_PAUSE:
+X		break;
+X
+X	case M_NODISC:
+X		/* No disc: just return */
+X		return;
+X
+X	default:
+X		/* Unknown mode */
+X		return;
+X	}
+X
+X	new_progshuf = TRUE;
+X
+X	if (run_prog(s))
+X		start_stat_poll(s);
+X	else {
+X		cd_beep();
+X		cdlib_stop(s, FALSE);
+X	}
+X}
+X
+X
+X/*
+X * cdlib_init
+X *	Top-level function to initialize the SCSI-passthrough and
+X *	vendor-unique modules.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_init(curstat_t *s)
+X{
+X	/* Initialize */
+X	stat_polling = FALSE;
+X	stat_interval = app_data.stat_interval;
+X	insert_polling = FALSE;
+X	next_sam = FALSE;
+X	new_progshuf = FALSE;
+X	sav_end_addr = 0;
+X	sav_end_msf.min = sav_end_msf.sec = sav_end_msf.frame = 0;
+X	sav_end_fmt = 0;
+X
+X#ifndef SIMULATED_CDROM
+X	if (setuid(0) < 0 || getuid() != 0)
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_moderr);
+X#endif
+X
+X	/* Initialize curstat structure */
+X	reset_curstat(s, TRUE);
+X
+X	/* Initialize the vendor unique modules */
+X
+X#ifdef HITACHI
+X	if (app_data.vendor_code == VENDOR_HITACHI)
+X		hita_init();
+X#endif
+X
+X#ifdef NEC
+X	if (app_data.vendor_code == VENDOR_NEC)
+X		nec_init();
+X#endif
+X
+X#ifdef PIONEER
+X	if (app_data.vendor_code == VENDOR_PIONEER)
+X		pion_init();
+X#endif
+X
+X#ifdef TOSHIBA
+X	if (app_data.vendor_code == VENDOR_TOSHIBA)
+X		tosh_init();
+X#endif
+X}
+X
+X
+X/*
+X * cdlib_start
+X *	Start the SCSI-passthrough module.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_start(curstat_t *s)
+X{
+X	/* Check to see if disc is ready */
+X	if (!disc_ready(s))
+X		start_insert_poll(s);
+X
+X	/* Update display */
+X	dpy_all(s);
+X}
+X
+X
+X/*
+X * cdlib_icon
+X *	Handler for main window iconification/de-iconification
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	iconified - Whether the main window is iconified
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_icon(curstat_t *s, bool_t iconified)
+X{
+X	/* This function attempts to reduce the status polling frequency
+X	 * when possible to cut down on CPU and SCSI bus usage.  This is
+X	 * done when xmcd is iconified.
+X	 */
+X
+X	/* Increase status polling interval by 4 seconds when iconified */
+X	if (iconified)
+X		stat_interval = app_data.stat_interval + 4000;
+X	else
+X		stat_interval = app_data.stat_interval;
+X
+X	/* Check disc status */
+X	if (!disc_ready(s))
+X		return;
+X
+X	switch (s->mode) {
+X	case M_STOP:
+X	case M_NODISC:
+X	case M_PAUSE:
+X		break;
+X
+X	case M_A:
+X	case M_AB:
+X	case M_SAMPLE:
+X		/* No optimization in these modes */
+X		stat_interval = app_data.stat_interval;
+X		break;
+X
+X	case M_PLAY:
+X		if (!iconified) {
+X			/* Force an immediate update */
+X			stop_stat_poll();
+X			start_stat_poll(s);
+X		}
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * cdlib_halt
+X *	Shut down the SCSI-passthrough and vendor-unique modules.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdlib_halt(curstat_t *s)
+X{
+X	/* Re-enable front-panel eject button */
+X	if (s->caddy_lock)
+X		cdlib_lock(s, FALSE);
+X
+X	if (s->mode != M_NODISC) {
+X		if (app_data.exit_eject && app_data.eject_supp) {
+X			/* User closing application: Eject disc */
+X			do_start_stop(FALSE, TRUE);
+X		}
+X		else {
+X			if (app_data.exit_stop)
+X				/* User closing application: Stop disc */
+X				do_start_stop(FALSE, FALSE);
+X
+X			switch (s->mode) {
+X			case M_PLAY:
+X			case M_PAUSE:
+X			case M_A:
+X			case M_AB:
+X			case M_SAMPLE:
+X				stop_stat_poll();
+X				break;
+X			}
+X		}
+X	}
+X
+X	/* Shut down the vendor unique modules */
+X
+X#ifdef HITACHI
+X	if (app_data.vendor_code == VENDOR_HITACHI)
+X		hita_halt();
+X#endif
+X
+X#ifdef NEC
+X	if (app_data.vendor_code == VENDOR_NEC)
+X		nec_halt();
+X#endif
+X
+X#ifdef PIONEER
+X	if (app_data.vendor_code == VENDOR_PIONEER)
+X		pion_halt();
+X#endif
+X
+X#ifdef TOSHIBA
+X	if (app_data.vendor_code == VENDOR_TOSHIBA)
+X		tosh_halt();
+X#endif
+X
+X	/* Close device */
+X	pthru_close();
+X}
+X
+X
+X/*
+X * cdlib_mode
+X *	Return a text string indicating the current SCSI mode
+X *	("SCSI-2" or a particular vendor-unique string).
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	SCSI mode text string.
+X */
+Xchar *
+Xcdlib_mode(void)
+X{
+X	static char	mode[STR_BUF_SZ];
+X
+X	switch (app_data.vendor_code) {
+X
+X	case VENDOR_SCSI2:
+X		strcpy(mode, "SCSI-2");
+X		break;
+X
+X#ifdef HITACHI
+X	case VENDOR_HITACHI:
+X		strcpy(mode, "Hitachi vendor-unique");
+X		break;
+X#endif
+X
+X#ifdef NEC
+X	case VENDOR_NEC:
+X		strcpy(mode, "NEC vendor-unique");
+X		break;
+X#endif
+X
+X#ifdef PIONEER
+X	case VENDOR_PIONEER:
+X		strcpy(mode, "Pioneer vendor-unique");
+X		break;
+X#endif
+X
+X#ifdef TOSHIBA
+X	case VENDOR_TOSHIBA:
+X		strcpy(mode, "Toshiba vendor-unique");
+X		break;
+X#endif
+X
+X	default:
+X		strcpy(mode, "??");
+X		break;
+X	}
+X
+X	return(mode);
+X}
+X
+X
+X/*
+X * cdlib_vers
+X *	Return a text string indicating the SCSI-passthrough module's
+X *	version number and which SCSI-1 vendor-unique modes are
+X *	supported in this binary.
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Version text string.
+X */
+Xchar *
+Xcdlib_vers(void)
+X{
+X	static char	vers[256];
+X
+X	sprintf(vers, "%s v%s\n%s\n",
+X		"SCSI-2 Pass-through module",
+X		CDLIB_VERS,
+X		"SCSI-1 Vendor-unique support:");
+X
+X#ifdef HITACHI
+X	sprintf(vers, "%s    Hitachi\n", vers);
+X#endif
+X
+X#ifdef NEC
+X	sprintf(vers, "%s    NEC\n", vers);
+X#endif
+X
+X#ifdef PIONEER
+X	sprintf(vers, "%s    Pioneer\n", vers);
+X#endif
+X
+X#ifdef TOSHIBA
+X	sprintf(vers, "%s    Toshiba\n", vers);
+X#endif
+X
+X#ifndef VUSUPPORT
+X	sprintf(vers, "%s    (none)\n", vers);
+X#endif
+X
+X	strcat(vers, pthru_vers());
+X
+X	return(vers);
+X}
+X
+X
+END_OF_FILE
+if test 71104 -ne `wc -c <'lib_scsipt.c'`; then
+    echo shar: \"'lib_scsipt.c'\" unpacked with wrong size!
+fi
+# end of 'lib_scsipt.c'
+fi
+if test -f 'lib_sun.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_sun.c'\"
+else
+echo shar: Extracting \"'lib_sun.c'\" \(7347 characters\)
+sed "s/^X//" >'lib_sun.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   This software module contains code that interfaces xmcd to
+X *   the SunOS operating systems.  The name "Sun" and "SunOS"
+X *   are used here for identification purposes.  This software and
+X *   its author are not affiliated with Sun Microsystems.
+X *
+X *   You may want to compile with -DAUTO_RSENSE on Solaris 2.2 or
+X *   later systems to enable the auto-request sense feature.
+X */
+X#ifndef LINT
+Xstatic char *_lib_sun_c_ident_ = "@(#)lib_sun.c	1.16 93/10/06";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#if defined(sun) && !defined(SIMULATED_CDROM)
+X
+X#ifndef OSI_VERS
+X#define OSI_VERS	"1.0"		/* Version */
+X#endif
+X
+X
+Xextern AppData		app_data;
+Xextern bool_t		notrom_error;
+X
+X#ifndef LINT
+Xbool_t			lib_sun = TRUE;
+X#endif
+X
+XSTATIC int		fd = -1;	/* Passthrough device file desc */
+XSTATIC req_sense_data_t	sense_data;	/* Request sense data buffer */
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	struct uscsi_cmd	ucmd;
+X	byte_t			cdb[12];
+X
+X	
+X	if (fd < 0 || notrom_error)
+X		return(FALSE);
+X
+X	memset(&ucmd, (byte_t) 0, sizeof(ucmd));
+X	memset(cdb, (byte_t) 0, sizeof(cdb));
+X
+X	/* set up SCSI CDB */
+X	switch (opcode & 0xf0) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		cdb[0] = opcode;
+X		cdb[1] = param;
+X		cdb[2] = (addr >> 24) & 0xff;
+X		cdb[3] = (addr >> 16) & 0xff;
+X		cdb[4] = (addr >> 8) & 0xff;
+X		cdb[5] = (addr & 0xff);
+X		cdb[6] = (length >> 24) & 0xff;
+X		cdb[7] = (length >> 16) & 0xff;
+X		cdb[8] = (length >> 8) & 0xff;
+X		cdb[9] = length & 0xff;
+X		cdb[10] = rsvd;
+X		cdb[11] = control;
+X
+X		ucmd.uscsi_cdblen = 12;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		cdb[0] = opcode;
+X		cdb[1] = param;
+X		cdb[2] = (addr >> 24) & 0xff;
+X		cdb[3] = (addr >> 16) & 0xff;
+X		cdb[4] = (addr >> 8) & 0xff;
+X		cdb[5] = addr & 0xff;
+X		cdb[6] = rsvd;
+X		cdb[7] = (length >> 8) & 0xff;
+X		cdb[8] = length & 0xff;
+X		cdb[9] = control;
+X
+X		ucmd.uscsi_cdblen = 10;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		cdb[0] = opcode;
+X		cdb[1] = param;
+X		cdb[2] = (addr >> 8) & 0xff;
+X		cdb[3] = addr & 0xff;
+X		cdb[4] = length & 0xff;
+X		cdb[5] = control;
+X
+X		ucmd.uscsi_cdblen = 6;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		return(FALSE);
+X	}
+X
+X#ifdef DEBUG
+X	{
+X		int	i;
+X
+X		fprintf(stderr, "\nSCSI CDB bytes:");
+X		for (i = 0; i < ucmd.uscsi_cdblen; i++)
+X			fprintf(stderr, " %02x", cdb[i]);
+X		fprintf(stderr, "\n");
+X	}
+X#endif
+X
+X	/* set up uscsi_cmd */
+X	ucmd.uscsi_cdb = (caddr_t) cdb;
+X	ucmd.uscsi_bufaddr = (caddr_t) buf;
+X	ucmd.uscsi_buflen = (int) size;
+X	ucmd.uscsi_flags = USCSI_SILENT | USCSI_ISOLATE;
+X	if (size != 0)
+X		ucmd.uscsi_flags |= (rw == READ_OP) ? USCSI_READ : USCSI_WRITE;
+X
+X#ifdef AUTO_RSENSE
+X	ucmd.uscsi_flags |= USCSI_RQENABLE;
+X	ucmd.uscsi_rqbuf = (caddr_t) AD_RSENSE(&sense_data);
+X	ucmd.uscsi_rqlen = SZ_RSENSE;
+X#endif
+X
+X	/* Send the command down via the "pass-through" interface */
+X	if (ioctl(fd, USCSICMD, &ucmd) < 0) {
+X		if (opcode != OP_S_TEST)
+X			perror("USCSICMD ioctl failed");
+X		return(FALSE);
+X	}
+X
+X	if (ucmd.uscsi_status != USCSI_STATUS_GOOD) {
+X		if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, "%s: %s %s:\n%s=0x%x %s=0x%x\n",
+X				PROGNAME,
+X				"SCSI command fault on",
+X				app_data.device,
+X				"Opcode",
+X				opcode,
+X				"Status",
+X				ucmd.uscsi_status);
+X		}
+X
+X#ifdef AUTO_RSENSE
+X		if (ucmd.rqstatus == USCSI_STATUS_GOOD &&
+X		    opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, " Key=0x%x Code=0x%x Qual=0x%x\n",
+X				sense_data.key,
+X				sense_data.code,
+X				sense_data.qual);
+X		}
+X#else	/* !AUTO_RSENSE */
+X		/* Send Request Sense command */
+X		cdb[0] = OP_S_RSENSE;
+X		cdb[1] = 0;
+X		cdb[2] = 0;
+X		cdb[3] = 0;
+X		cdb[4] = (byte_t) SZ_RSENSE;
+X		cdb[5] = 0;
+X
+X		ucmd.uscsi_cdblen = 6;
+X		ucmd.uscsi_cdb = (caddr_t) cdb;
+X		ucmd.uscsi_bufaddr = (caddr_t) AD_RSENSE(&sense_data);
+X		ucmd.uscsi_buflen = (int) SZ_RSENSE;
+X		ucmd.uscsi_flags = USCSI_READ;
+X
+X		if (ioctl(fd, USCSICMD, &ucmd) < 0 || sense_data.valid == 0) {
+X			if (opcode != OP_S_TEST && app_data.scsierr_msg)
+X				fprintf(stderr, "\n");
+X#ifdef DEBUG
+X			perror("USCSICMD ioctl (Request Sense) failed");
+X#endif
+X		}
+X		else if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, " Key=0x%x Code=0x%x Qual=0x%x\n",
+X				sense_data.key,
+X				sense_data.code,
+X				sense_data.qual);
+X		}
+X#endif	/* AUTO_RSENSE */
+X
+X		return(FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	struct stat	stbuf;
+X	char		errstr[STR_BUF_SZ];
+X
+X	/* Check for validity of device node */
+X	if (stat(path, &stbuf) < 0) {
+X		sprintf(errstr, app_data.str_staterr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X	if ((stbuf.st_mode & S_IFMT) != S_IFCHR) {
+X		sprintf(errstr, app_data.str_noderr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X
+X	/* Check for another copy of xmcd running on the same
+X	 * CD-ROM device.
+X	 */
+X	if (!cd_devlock(path))
+X		return(FALSE);
+X
+X	if ((fd = open(path, O_RDONLY)) < 0)
+X		return(FALSE);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	if (fd >= 0) {
+X		close(fd);
+X		fd = -1;
+X	}
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (for SunOS %s)\n", OSI_VERS,
+X#ifdef SVR4
+X		"5.x"
+X#else
+X		"4.x"
+X#endif
+X	);
+X
+X	return(vers);
+X}
+X
+X#else	/* !sun || SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t			lib_sun = FALSE;
+X#endif
+X
+X#endif	/* sun SIMULATED_CDROM */
+X
+END_OF_FILE
+if test 7347 -ne `wc -c <'lib_sun.c'`; then
+    echo shar: \"'lib_sun.c'\" unpacked with wrong size!
+fi
+# end of 'lib_sun.c'
+fi
+echo shar: End of archive 9 \(of 13\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 13 archives.
+    echo "Now read the README and INSTALL files for further instructions."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+    ///  Ti Kan                vorsprung durch technik
+   ///   AMB Research Laboratories, Sunnyvale, CA. USA
+  ///    ti@amb.org
+ //////  ...!{decwrl,synopsys,tandem,tsoft,ultra}!sgiblab!bazooka!ti
+///      ...!uunet!bazooka!ti
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

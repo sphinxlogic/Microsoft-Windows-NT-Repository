@@ -1,0 +1,2262 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v33i068:  remind - A replacement for calendar, Part11/12
+Message-ID: <1992Nov10.042035.1434@sparky.imd.sterling.com>
+X-Md4-Signature: f892ce4e2bb42672c29efbdf83626ec6
+Date: Tue, 10 Nov 1992 04:20:35 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 33, Issue 68
+Archive-name: remind/part11
+Environment: UNIX, MS-DOS
+Supersedes: remind: Volume 17, Issue 3-6
+
+#!/bin/sh
+# This is part 11 of Remind 03.00.00
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= remind.1 ==============
+if test X"$1" != X"-c" -a -f 'remind.1'; then
+	echo "File already exists: skipping 'remind.1'"
+else
+echo "x - extracting remind.1 (Text)"
+sed 's/^X//' << 'SHAR_EOF' > remind.1 &&
+X.TH REMIND 1 "20 October 1992"
+X.UC4
+X.SH NAME
+Xremind \- a sophisticated reminder service
+X.SH SYNOPSIS
+X.B remind [\fIoptions\fR] \fIfilename\fR [\fIdate\fR]
+X.SH DESCRIPTION
+X\fBRemind\fR reads the supplied \fIfilename\fR and executes the commands
+Xfound in it.  The commands are used to issue reminders and alarms.  Each
+Xreminder or alarm can consist of a message sent to standard output, or
+Xa program to be executed.
+X.SH OPTIONS
+X.TP
+X.B \-n
+XThe \fB\-n\fR option causes \fBRemind\fR to print the \fBnext\fR occurrence
+Xof each reminder in a simple calendar format.  You can sort this by
+Xdate by piping the output through \fBsort(1)\fR.
+X.TP
+X.B \-r
+XThe \fB\-r\fR option disables \fBRUN\fR directives and the \fBshell()\fR
+Xfunction
+X.TP
+X.B \-c\fR\fIn\fR
+XThe \fB\-c\fR option causes \fBRemind\fR to produce a calendar which is sent to
+Xstandard output.  If you supply a number \fIn\fR, then a calendar will
+Xbe generated for \fIn\fR months, starting with the current month.  By
+Xdefault, a calendar for only the current month is produced.  If \fIn\fR
+Xstarts with '+', then a calendar for \fIn\fR weeks is produced.
+X.TP
+X.B \-w\fR\fIn\fR
+XThe \fB\-w\fR option specifies the output width of the formatted calendar,
+Xin columns.  By default, the calendar is formatted for an 80-column
+Xdevice.
+X.TP
+X.B \-s\fR\fIn\fR
+XThe \fB\-s\fR option is very similar to the \fB\-c\fR option, except
+Xthat the output calendar is not formatted.  It is listed in a "simple
+Xformat" which can be used as input for more sophisticated calendar-drawing
+Xprograms.
+X.TP
+X.B \-v
+XThe \fB\-v\fR option makes the output of \fBRemind\fR slightly more verbose.
+X.TP
+X.B \-o
+XThe \fB\-o\fR option causes \fBRemind\fR to ignore all \fBONCE\fR directives.
+X.TP
+X.B \-t
+XThe \fB\-t\fR option causes \fBRemind\fR to trigger all non-expired reminders,
+Xregardless of the \fIdelta\fR supplied for each reminder.
+X.TP
+X.B \-h
+XThe \fB\-h\fR option ("hush...") supresses certain warning and information
+Xmessages.  In particular, if no reminders are triggered, this mode
+Xproduces no output.
+X.TP
+X.B \-a
+XThe \fB\-a\fR option causes \fBRemind\fR not to immediately trigger timed
+Xreminders which would also be queued.
+X.TP
+X.B \-q
+XThe \fB\-q\fR option causes \fBRemind\fR not to queue timed reminders
+Xfor later execution.
+X.TP
+X.B \-f
+XThe \fB\-f\fR option causes \fBRemind\fR to remain in the foreground
+Xwhen processing queued reminders, rather than forking off
+Xa background process to handle them.
+X.TP
+X.B \-e
+XThe \fB\-e\fR option diverts error messages (normally sent to the
+Xstandard error stream) to the standard output stream.
+X.TP
+X.B \-d\fR\fIchars\fR
+XThe \fB-d\fR option enables certain debugging modes.  The \fIchars\fR
+Xspecify which modes to enable:
+X.RS 2
+X.TP
+X.B e
+XEcho all input lines
+X.TP
+X.B x
+XTrace all expression evaluation
+X.TP
+X.B t
+XDisplay all trigger date computation
+X.TP
+X.B v
+XDump the variable table after execution of the reminder script
+X.TP
+X.B l
+XEcho lines when displaying error messages
+X.RE
+X.TP
+X\fB\-b\fR[\fIn\fR]
+XSet the time format for the calendar and simple-calendar outputs.  \fIN\fR
+Xcan range from 0 to 2, with the default 0.  A value of 0 causes times
+Xto be inserted in 12-hour (am/pm) format.  1 causes times to be inserted
+Xin 24-hour format, and 2 inhibits the automatic insertion of times in the
+Xcalendar output.
+X.TP
+X\fB\-x\fR[\fIn\fR]
+XSets the iteration limit for the \fBSATISFY\fR clause of a \fBREM\fR
+Xcommand.  Defaults to 150.
+X.TP
+X\fB\-z\fR[\fIn\fR]
+XRuns \fBRemind\fR in the daemon mode.  If \fIn\fR is supplied, it
+Xspecifies how often (in minutes) \fBRemind\fR should wake up to
+Xcheck if the reminder script has been changed.  \fIN\fR defaults
+Xto 5, and can range from 5 to 60.  Note that the use of the
+X\fB\-z\fR option also enables the \fB\-f\fR option.
+X.PP
+XIf you supply a \fIdate\fR on the command line, it must consist of
+X\fIday month year\fR, where \fIday\fR is the day of the month,
+X\fImonth\fR is at least the first three letters of the English name
+Xof the month, and \fIyear\fR is a year (all 4 digits) from 1990 to
+Xabout 2075.  You can leave out the \fIday\fR, which then defaults to 1.
+X.PP
+XIf you do supply a \fIdate\fR on the command line, then \fBRemind\fR uses
+Xit, rather than the actual system date, as its notion of "today."
+XThis lets you create calendars for future months, or test to see
+Xhow your reminders will be triggered in the future.
+X.SH REMINDER FILES
+X.PP
+X\fBRemind\fR uses scripts to control its operation.  The commands
+Xinside a script can range from
+Xthe very simple and almost immediately understandable:
+X.PP
+X.nf
+X	REM 6 Jan MSG David's birthday
+X.fi
+X.PP
+Xto the baroque and obscure:
+X.PP
+X.nf
+X	REM [trigger(date(thisyear, 1, 1) + 180)] ++5 OMIT \\
+X	sat sun SKIP MSG [ord(thisyear-1980)] payment due %b!
+X.fi
+X.PP
+XA reminder file consists of commands, with one command per line.  Several
+Xlines can be continued using the backslash character, as in the above
+Xexample.  In this case, all of the concatenated lines are treated as a
+Xsingle line by \fBRemind\fR.  Note that if an error occurs, \fBRemind\fR
+Xreports the line number of the last line of a continued line.
+X.PP
+X\fBRemind\fR ignores blank lines, and lines beginning with the '#' or ';'
+Xcharacters.  You can use the semicolon as a comment character if you
+Xwish to pass a \fBRemind\fR script through the C pre-processor, which
+Xinterprets the '#' character as the start of a pre-processing
+Xdirective.
+X.PP
+X\fBRemind\fR is not case sensitive; you can generally use any mixture of upper-
+Xor lower-case for commands, parameters, invocation options, etc.
+X.SH THE REM COMMAND
+X.PP
+XThe most powerful command in a \fBRemind\fR script is the \fBREM\fR command.
+XThis command is responsible for issuing reminders.
+XIts syntax is:
+X.PP
+X.RS
+X\fBREM\fR [\fBONCE\fR] [\fIdate_spec\fR]
+X[\fIback\fR]
+X[\fIdelta\fR]
+X[\fIrepeat\fR]
+X[\fBSKIP\fR | \fBBEFORE\fR | \fBAFTER\fR]
+X[\fBOMIT\fR \fIomit_list\fR]
+X[\fBAT\fR \fItime\fR [\fItdelta\fR] [\fItrepeat\fR]]
+X[\fBUNTIL\fR \fIexpiry_date\fR]
+X\fBMSG\fR | \fBRUN\fR | \fBCAL\fR | \fBSATISFY\fR
+X.I body
+X.RE
+X.PP
+XThe parts of the \fBREM\fR command can be specified in any order, except
+Xthat the \fIbody\fR must come immediately after the \fBMSG\fR,
+X\fBRUN\fR, \fBCAL\fR or \fBSATISFY\fR keyword.
+X.PP
+XThe \fBREM\fR token is optional, providing that the remainder
+Xof the command cannot be mistaken for another \fBRemind\fR command
+Xsuch as \fBOMIT\fR or \fBRUN\fR.  The portion of the \fBREM\fR command
+Xbefore the \fBMSG\fR, \fBRUN\fR, \fBCAL\fR or \fBSATISFY\fR clause
+Xis called a \fItrigger\fR.
+X.PP
+X.B MSG, RUN, and CAL
+X.PP
+XThe keywords \fBMSG\fR, \fBRUN\fR and \fBCAL\fR denote the \fItype\fR
+Xof the reminder.  (\fBSATISFY\fR is more complicated and will be explained
+Xlater.)  A \fBMSG\fR type reminder simply prints a message to the standard
+Xoutput, after passing the \fIbody\fR through a special substitution filter,
+Xdescribed in the section "The Substitution Filter."  A \fBRUN\fR-type
+Xreminder also passes the \fIbody\fR through the substitution filter, but
+Xthen executes the result as a system command.  A \fBCAL\fR-type reminder
+Xis used only to place entries in the calendar produced when \fBRemind\fR
+Xis run with the \-c or \-s options.
+X.PP
+X.B DATE SPECIFICATIONS
+X.PP
+XA \fIdate_spec\fR consists of zero to four parts.
+XThese parts are
+X.I day
+X(day of month),
+X.I month
+X(month name),
+X.I year
+Xand
+X.I weekday.
+X.I Month
+Xand
+X.I weekday
+Xare the English names of months and weekdays.  At least the first three
+Xcharacters must be used.  The following are examples of the various parts of a
+X.I date_spec:
+X.TP
+X.I day:
+X1, 22, 31, 14, 3
+X.TP
+X.I month:
+XJANUARY, feb, March, ApR, may, Aug
+X.TP
+X.I year:
+X1990, 1993, 2030, 95 (interpreted as 1995).  The year can range
+Xfrom 1990 to 2075.
+X.TP
+X.I weekday:
+XMonday, tue, Wed, THU, Friday, saturday, sundAy
+X.PP
+XNote that there can be several
+X.I weekday
+Xcomponents separated by spaces in a
+X.I date_spec.
+X.PP
+X.B INTERPRETATION OF DATE SPECIFICATIONS
+X.PP
+XThe following examples show how date specifications are interpreted.
+X.PP
+X1. Null date specification - the reminder is triggered every day.
+XThe trigger date for a specific run is simply the current system date.
+X.PP
+X2. Only
+X.I day
+Xpresent.  The reminder is triggered on the specified day of each month.
+XThe trigger date for a particular run is the closest such day to the
+Xcurrent system date.  For example:
+X.nf
+X	REM 1 MSG First of every month.
+X	REM 31 MSG 31st of every month that has 31 days.
+X.fi
+X.PP
+X3. Only
+X.I month
+Xpresent.  The reminder is triggered every day of the specified month.
+XExample:
+X.nf
+X	REM Feb MSG Every day in February
+X.fi
+X.PP
+X4.
+X.I day
+Xand
+X.I month
+Xpresent.  Examples:
+X.nf
+X	REM 6 Jan MSG Every 6th of January
+X	REM Feb 29 MSG Every 29th of February
+X.fi
+X.PP
+X5.  Only
+X.I year
+Xpresent. Example:
+X.nf
+X	REM 1991 MSG Every day in 1991
+X.fi
+X.PP
+X6.
+X.I year
+Xand
+X.I day
+Xpresent.  Examples:
+X.nf
+X	REM 1 1990 MSG 1st of every month in 1990
+X	REM 1992 23 MSG 23rd of every month in 1992
+X.fi
+X.PP
+X7.
+X.I year
+Xand
+X.I month
+Xpresent.  Examples:
+X.nf
+X	REM Feb 1991 MSG Every day in Feb 1991
+X	REM 1992 September MSG Every day in Sept 1992
+X.fi
+X.PP
+X8.
+X.I year, month
+Xand
+X.I day
+Xpresent.  Examples:
+X.nf
+X	REM 8 Jan 1991 MSG 8th January 1991.
+X	REM 1992 March 9 MSG 9th March 1992.
+X.fi
+X.PP
+X9.
+X.I weekday
+Xonly.  Examples:
+X.nf
+X	REM Sat MSG Every Saturday
+X	REM Mon Tue Wed Thu Fri MSG Every working day
+X	REM Monday Wednesday MSG Every Monday and Wednesday
+X.fi
+X.PP
+X10.
+X.I weekday
+Xand
+X.I day
+Xpresent.  Examples:
+X.nf
+X	REM Sat 1 MSG First Saturday of every month
+X	REM Mon Tue Wed Thu Fri 15 \\
+X		MSG 1st working day after 15th of every month
+X.fi
+X.PP
+X11.
+X.I weekday
+Xand
+X.I month
+Xpresent.  Examples:
+X.nf
+X	REM Mon March MSG Every Monday in March
+X	REM Mon Tue Wed Thu Fri Feb MSG Every working day in February
+X.fi
+X.PP
+X12.
+X.I weekday, month
+Xand
+X.I day
+Xpresent.  Examples:
+X.nf
+X	REM Mon 1 March MSG First Monday in March
+X	REM Sat Sun 15 July MSG First Sat or Sun on or after 15 July
+X.fi
+X.PP
+X13.
+X.I weekday
+Xand
+X.I year
+Xpresent.  Example:
+X.nf
+X	REM Sat Sun 1991 MSG Every Saturday and Sunday in 1991
+X.fi
+X.PP
+X14.
+X.I weekday, day
+Xand
+X.I year
+Xpresent.  Examples:
+X.nf
+X	REM Mon 15 1990 MSG 1st Mon after 15th of every month in 1990
+X	REM Mon Tue Wed Thu Fri 1 1990 \\
+X		MSG 1st working day of every month in 1990
+X.fi
+X.PP
+X15.
+X.I weekday, month
+Xand
+X.I year
+Xpresent.  Example:
+X.nf
+X	REM Mon Wed 1991 Feb MSG Every Mon and Wed in Feb 1991.
+X.fi
+X.PP
+X16.
+X.I weekday, day, month
+Xand
+X.I year
+Xpresent.  Example:
+X.nf
+X	REM Mon Tue Wed Thu Fri 28 Oct 1990 \\
+X		MSG 1st working day on or after 28 October 1990.
+X.fi
+X.PP
+XNote that when both
+X.I weekday
+Xand
+X.I day
+Xare specified,
+X.B Remind
+Xchooses the first date on or after the specified
+X.I day
+Xwhich also satisfies the
+X.I weekday
+Xconstraint.  It does this by picking the first date on or after the specified
+X.I day
+Xwhich is listed in the list of
+X.I weekdays.
+XThus, a reminder like:
+X.PP
+X.nf
+X	REM Mon Tue 28 Oct 1990 MSG Hi
+X.fi
+X.PP
+Xwould be issued only on Monday, 29 October, 1990.  It would not be issued
+Xon Tuesday, 30 October, 1990, since the 29th is the first date to satisfy
+Xthe
+X.I weekday
+Xconstraints.
+X.PP
+X.B BACKWARD SCANNING
+X.PP
+XSometimes, it is necessary to specify a date as being a set amount of
+Xtime before another date.  For example, the last Monday in a given
+Xmonth is computed as the first Monday in the next month, minus 7 days.
+XThe \fIback\fR specification in the reminder is used in this case:
+X.PP
+X.nf
+X	REM Mon 1 -7 MSG Last Monday of every month.
+X.fi
+X.PP
+XA \fIback\fR is specified with one or two dashes followed by an integer.
+XThis causes \fBRemind\fR to move "backwards" from what would normally be the
+Xtrigger date.  The difference between \-\-7 and \-7 will be explained
+Xwhen the \fBOMIT\fR keyword is described.
+X.PP
+X.B ADVANCE WARNING
+X.PP
+XFor some reminders, it is appropriate to receive advance warning of the
+Xevent.  For example, you may wish to be reminded of someone's birthday
+Xseveral days in advance.  The \fIdelta\fR portion of the \fBREM\fR command
+Xachieves this.  It is specified as one or two "+" signs followed by a number
+X\fIn\fR.  Again, the difference between the "+" and "++" forms will
+Xbe explained under the \fBOMIT\fR keyword.
+X\fBRemind\fR will trigger the reminder on computed trigger date, as well as
+Xon each of the \fIn\fR days before the event.  Here are some examples:
+X.PP
+X.nf
+X	REM 6 Jan +5 MSG Remind me of birthday 5 days in advance.
+X.fi
+X.PP
+XThe above example would be triggered every 6th of January, as well as the
+X1st through 5th of January.
+X.PP
+X.B PERIODIC REMINDERS
+X.PP
+XWe have already seen some built-in mechanisms for certain types of
+Xperiodic reminders.  For example, an event occurring every Wednesday
+Xcould be specified as:
+X.PP
+X.nf
+X	REM Wed MSG Event!
+X.fi
+X.PP
+XHowever, events which do not repeat daily, weekly, monthly or yearly require
+Xanother approach.  The \fIrepeat\fR component of the \fBREM\fR command
+Xfills this need.  To use it, you must completely specify a date (year, month
+Xand day, and optionally weekday.)  The \fIrepeat\fR component is an asterisk
+Xfollowed by a number specifying the repetition period in days.
+X.PP
+XFor example, suppose you get paid every second Wednesday, and your
+Xlast payday was Wednesday, 28 October, 1992.  You can use:
+X.PP
+X.nf
+X	REM 28 Oct 1992 *14 MSG Payday
+X.fi
+X.PP
+XThis issues the reminder every 14 days, starting from the calculated trigger
+Xdate.  You can use \fIdelta\fR and \fIback\fR with \fIrepeat.\fR  Note,
+Xhowever, that the \fIback\fR is used only to compute the initial
+Xtrigger date; thereafter, the reminder repeats with the specified
+Xperiod.  Similarly, if you specify a weekday, it is used only to calculate
+Xthe initial date, and does not affect the repetition period.
+X.PP
+X.B EXPIRY DATES
+X.PP
+XSome reminders should be issued periodically for a certain time, but then
+Xexpire.  For example, suppose you have a class every Friday, and that your
+Xlast class is on 11 December 1992.  You can use:
+X.PP
+X.nf
+X	REM Fri UNTIL 11 Dec 1992 MSG Class today.
+X.fi
+X.PP
+XAnother example:  Suppose you have jury duty from 30 November 1992 until
+X4 December 1992.  The following reminder will issue the message every day
+Xof your jury duty, as well as 2 days ahead of time:
+X.PP
+X.nf
+X	REM 30 Nov 1992 *1 +2 UNTIL 4 Dec 1992 MSG Jury duty
+X.fi
+X.PP
+XNote that the \fIrepeat\fR of *1 is necessary; without it, the reminder
+Xwould be issued only on 30 November (and the two days preceding.)
+X.PP
+X.B THE ONCE KEYWORD
+X.PP
+XSometimes, it is necessary to ensure that reminders are run only once
+Xon a given day.  For example, if you have a reminder which makes a backup
+Xof your files every Friday:
+X.PP
+X.nf
+X	REM Fri RUN do_backup
+X.fi
+X.PP
+X(Here, \fIdo_backup\fR is assumed to be a program or shell script which
+Xdoes the work.)  If you run \fBRemind\fR from your .login script, for
+Xexample, and log in several times per day, the \fIdo_backup\fR program
+Xwill be run each time you log in.  If, however, you use the \fBONCE\fR
+Xkeyword in the reminder, the \fBRemind\fR checks the last access date of
+Xthe reminder script.  If it is the same as the current date, \fBRemind\fR
+Xassumes that it has already been run, and will not issue reminders containing
+Xthe \fBONCE\fR keyword.
+X.PP
+XNote that if you view or edit your reminder script, the last access date
+Xwill be updated, and the \fBONCE\fR keyword will not operate properly.
+XIf you start \fBRemind\fR with the \fB\-o\fR option, then the \fBONCE\fR
+Xkeyword will be ignored.
+X.PP
+X.B LOCALLY OMITTING WEEKDAYS
+X.PP
+XThe \fBOMIT\fR portion of the \fBREM\fR command is used to "omit" certain
+Xdays when counting the \fIdelta\fR or \fIback\fR.  It is specified using
+Xthe keyword \fBOMIT\fR followed by a list of weekdays.  Its action is
+Xbest illustrated with examples:
+X.PP
+X.nf
+X	REM 1 +1 OMIT Sat Sun MSG Important Event
+X.fi
+X.PP
+XThis reminder is normally triggered on the first of every month, as well
+Xas the day preceding it.  However, if the first of the month falls on a
+XSunday or Monday, then the reminder is triggered starting from the
+Xprevious Friday.  This is because the \fIdelta\fR of +1 does not count
+XSaturday or Sunday when it counts backwards from the trigger date to
+Xdetermine how much advance warning to give.
+X.PP
+XContrast this with the use of "++1" in the above command.  In this case,
+Xthe reminder is triggered on the first of each month, as well as the day
+Xpreceding it.  The omitted days are counted.
+X.PP
+X.nf
+X	REM 1 -1 OMIT Sat Sun MSG Last working day of month
+X.fi
+X.PP
+XAgain, in the above example, the \fIback\fR of \-1 normally causes the
+Xtrigger date to be the last day of the month.  However, because of the
+X\fBOMIT\fR clause, if the first of the month falls on a Sunday or Monday,
+Xthe trigger date is moved backwards past the weekend to Friday.  (If you
+Xhave globally omitted holidays, the reminder will be moved back past them,
+Xalso.  See "The OMIT command" for more details.)
+X.PP
+XBy comparison, if we had used "\-\-1", the reminder would be triggered on
+Xthe last day of the month, regardless of the \fBOMIT\fR.
+X.PP
+X.B TIMED REMINDERS
+X.PP
+XTimed reminders are those which have an \fBAT\fR keyword followed
+Xby a \fItime\fR and optional \fItdelta\fR and \fItrepeat\fR.  The \fItime\fR
+Xmust be specified in 24-hour format, with 0:00 representing midnight,
+X12:00 representing noon, and 23:59 representing one minute to midnight.
+X.PP
+X\fBRemind\fR treats timed reminders specially.  If the trigger date
+Xfor a timed reminder is the same as the current system date, the
+Xreminder is queued for later activation.  When \fBRemind\fR has
+Xfinished processing the reminder file,
+Xit puts itself in the background, and activates timed reminders when the
+Xsystem time reached the specified time.
+X.PP
+XIf the trigger date is \fInot\fR the same as the system date, the reminder
+Xis not queued.
+X.PP
+XFor example, the following reminder, triggered every working day, 
+Xwill emit a message telling you to
+Xleave at 5:00pm:
+X.PP
+X.nf
+X	REM Mon Tue Wed Thu Fri AT 17:00 MSG Time to leave!
+X.fi
+X.PP
+XThe following reminder will be triggered on Thursdays and Fridays,
+Xbut will only be queued on Fridays:
+X.PP
+X.nf
+X	REM Fri ++1 AT 13:00 MSG Lunch at 1pm Friday.
+X.fi
+X.PP
+XThe \fItdelta\fR and \fItrepeat\fR have the same form as a \fIrepeat\fR
+Xand \fIdelta\fR, but are specified in minutes.  For example, this reminder
+Xwill be triggered at 12:00pm as well as 45 minutes before:
+X.PP
+X.nf
+X	REM AT 12:00 +45 MSG Example
+X.fi
+X.PP
+XThe following will be issued starting at 10:45, every half hour until 11:45,
+Xand again at noon.
+X.PP
+X.nf
+X	REM AT 12:00 +75 *30 MSG Example2
+X.fi
+X.PP
+XThe "+75" means that the reminder is issued starting 75 minutes before noon;
+Xin other words, at 10:45.  The *30 specifies that the reminder is subsequently
+Xto be issued every 30 minutes.  Note that the reminder is always issued at
+Xthe specified time, even if the \fItdelta\fR is not a multiple of the
+X\fItrepeat\fR.  So the above example is issued at 10:45am, 11:15am, 11:45am,
+Xand 12:00pm.  Note that in the time specification, there is no distinction
+Xbetween the "+" and "++" forms of \fItdelta\fR.
+X.PP
+XNormally, \fBRemind\fR will issue timed reminders as it processes the reminder
+Xscript, as well as queuing them for later.  If you do not want \fBRemind\fR to
+Xissue the reminders when processing the script, but only to queue them
+Xfor later, use the \fB\-a\fR command-line option.  If you do not want
+Xreminders to be queued for later, use the \fB\-q\fR command-line
+Xoption.
+X.PP
+XNormally, \fBRemind\fR forks a background process to handle queued reminders.
+XIf you want \fBRemind\fR to remain in the foreground, use the \fB\-f\fR
+Xcommand-line option.  This is useful, for example, in .xinitrc
+Xscripts, where you can use the command:
+X.PP
+X.nf
+X	remind -fa myreminders &
+X.fi
+X.PP
+XThis ensures that when you exit X-Windows, the \fBRemind\fR process is killed.
+X.PP
+X.B WARNING ABOUT TIMED REMINDERS
+X.PP
+XNote:  If you use user-defined functions or variables (described later)
+Xin the bodies of timed reminders, then when the timed reminders are
+Xactivated, the variables and functions have the definitions which were
+Xin effect at the end of the reminder script.  These definitions may
+X\fInot\fR necessarily be those which were in effect at the time the reminder
+Xwas queued.
+X.PP
+X.SH THE SUBSTITUTION FILTER
+X.PP
+XBefore being processed, the body of a
+X.B REM
+Xcommand is passed through a substitution filter.  The filter scans for
+Xsequences "%x" (where "x" is any letter and certain other characters)
+Xand performs substitutions as
+Xshown below.  (All dates refer to the trigger date of the reminder.)
+X.TP
+X.B %a
+Xis replaced with "on \fIweekday, day month, year\fR"
+X.RS
+XFor example, consider the reminder:
+X.PP
+XREM 18 Oct 1990 +4 MSG Meeting with Bob %a.
+X.PP
+XOn 16 October 1990, it would print "Meeting with Bob on Thursday, 18 October,
+X1990."
+X.PP
+XOn 17 October 1990, it would print "Meeting with Bob tomorrow."
+X.PP
+XOn 18 October 1990, it would print "Meeting with Bob today."
+X.RE
+X.TP
+X.B %b
+Xis replaced with "in \fIdiff\fR day's time" where
+X.I diff
+Xis the
+X.B actual
+Xnumber of days between the current date and the trigger date.
+X(\fBOMITs\fR have no effect.)
+X.RS
+XFor example, consider:
+X.PP
+XREM 18 Oct 1990 +4 MSG Meeting with Bob %b.
+X.PP
+XOn 16 October 1990, it would print "Meeting with Bob in 2 days' time."
+X.PP
+XOn 17 October 1990, it would print "Meeting with Bob tomorrow."
+X.PP
+XOn 18 October 1990, it would print "Meeting with Bob today."
+X.RE
+X.TP
+X.B %c
+Xis replaced with "on \fIweekday\fR"
+X.RS
+XExample: REM 18 Oct 1990 +4 MSG Meeting with Bob %c.
+X.PP
+XOn 16 October 1990, it would print "Meeting with Bob on Thursday."
+X.PP
+XOn 17 October 1990, it would print "Meeting with Bob tomorrow."
+X.PP
+XOn 18 October 1990, it would print "Meeting with Bob today."
+X.RE
+X.TP
+X.B %d
+Xis replaced with "\fIday\fR", the day of the month.
+X.TP
+X.B %e
+Xis replaced with "on \fIdd/mm/yyyy\fR"
+X.TP
+X.B %f
+Xis replaced with "on \fImm/dd/yyyy\fR"
+X.TP
+X.B %g
+Xis replaced with "on \fIweekday, day month\fR"
+X.TP
+X.B %h
+Xis replaced with "on \fIdd/mm\fR"
+X.TP
+X.B %i
+Xis replaced with "on \fImm/dd\fR"
+X.TP
+X.B %j
+Xis replaced with "on \fIweekday, month day-th, year\fR"  This form appends the
+Xcharacters "st", "nd", "rd" or "th" to the day of the month, as appropriate.
+X.TP
+X.B %k
+Xis replaced with "on \fIweekday, month day-th\fR"
+X.TP
+X.B %l
+Xis replaced with "on \fIyyyy/mm/dd\fR"
+X.TP
+X.B %m
+Xis replaced with "\fImonth\fR", the name of the month.
+X.TP
+X.B %n
+Xis replaced with the number (1 to 12) of the month.
+X.TP
+X.B %o
+Xis replaced with " (today)" if and only if the current system date is the same
+Xas the date being used by
+X.B Remind
+Xas the current date.  Recall that you can specify a date for
+X.B Remind
+Xto use on the command line.  This substitution is not generally useful in a
+X.B REM
+Xcommand, but is useful in a
+X.B BANNER
+Xcommand.  (See "The BANNER Command.")
+X.TP
+X.B %p
+Xis replaced with "s" if the
+X.I diff
+Xbetween the current date and the trigger date is not 1.  You can use this
+Xto construct reminders like:
+X.RS
+XREM 1 Jan +4 MSG %x day%p to go before New Year!
+X.RE
+X.TP
+X.B %q
+Xis replaced with "'s" if the
+X.I diff
+Xbetween the trigger date and the current date is 1.  Otherwise, it is replaced
+Xwith "s'"  This can be used as follows:
+X.RS
+XREM 1 Jan +4 MSG New Year in %x day%q time!
+X.RE
+X.TP
+X.B %r
+Xis replaced with the day of the month (01 to 31) padded with a leading zero
+Xif needed to pad to two digits.
+X.TP
+X.B %s
+Xis replaced with "st", "nd", "rd" or "th" depending on the day of the month.
+X.TP
+X.B %t
+Xis replaced with the number of the month (01 to 12) padded to two digits
+Xwith a leading zero.
+X.TP
+X.B %u
+Xis replaced with "on \fIweekday, day-th month, year\fR"  This is similar
+Xto
+X.B %a
+Xexcept that "st", "nd", "rd" or "th" is added to the
+X.I day
+Xas appropriate.
+X.TP
+X.B %v
+Xis replaced with "on \fIweekday, day-th month\fR"
+X.TP
+X.B %w
+Xis replaced with "\fIweekday\fR", the name of the day of the week.
+X.TP
+X.B %x
+Xis replaced with the
+X.I diff
+Xbetween the current date and the trigger date.  The
+X.I diff
+Xis defined as the actual number of days between these two dates;
+X.B OMITs
+Xare not counted.  (Strict date subtraction is performed.)
+X.TP
+X.B %y
+Xis replaced with "\fIyear\fR", the year of the trigger date.
+X.TP
+X.B %z
+Xis replaced with "\fIyy\fR", the last two digits of the year.
+X.TP
+X.B %_
+X(percent-underscore) is replaced with a newline.  You can use this to
+Xachieve multi-line reminders.
+X.TP
+X.B %1
+Xis replaced with "now", "\fIm\fR minutes from now", "\fIm\fR minutes ago",
+X"\fIh\fR hours from now", "\fIh\fR hours ago", "\fIh\fR hours and \fIm\fR
+Xminutes from now" or "\fIh\fR hours and \fIm\fR minutes ago", as appropriate
+Xfor a timed reminder.  Note that unless you specify the \fB\-a\fR option,
+Xtimed reminders will be triggered like normal reminders, and thus a timed
+Xreminder which occurred earlier in the day may be triggered.  This
+Xcauses the need for the "...ago" forms.
+X.TP
+X.B %2
+Xis replaced with "at \fIhh\fR:\fImm\fRam" or "..pm" depending on the
+X.B AT
+Xtime of the reminder.
+X.TP
+X.B %3
+Xis replaced with "at \fIhh\fR:\fImm\fR" in 24-hour format.
+X.TP
+X.B %4
+Xis replaced with "\fImm\fR" where \fImm\fR is the number of minutes between
+X"now" and the time specified by \fBAT\fR.  If the \fBAT\fR time is
+Xearlier than the current time, then the result is negative.
+X.TP
+X.B %5
+Xis replaced with "\fIma\fR" where \fIma\fR is the absolute value of the number
+Xproduced by \fB%4\fR.
+X.TP
+X.B %6
+Xis replaced with "ago" or "from now", depending on the relationship between
+Xthe \fBAT\fR time and the current time.
+X.TP
+X.B %7
+Xis replaced with the number of hours between the \fBAT\fR time and the
+Xcurrent time.  It is always non-negative.
+X.TP
+X.B %8
+Xis replaced with the number of minutes between the \fBAT\fR time and
+Xthe current time, after the hours (\fB%7\fR) have been subtracted out.
+XThis is a number ranging from 0 to 59.
+X.TP
+X.B %9
+Xis replaced with "s" if the value produced by \fB%8\fR is not 1.
+X.TP
+X.B %0
+Xis replaced with "s" if the value produced by \fB%7\fR is not 1.
+X.TP
+X.B %!
+Xis replaced with "is" if the current time is before the \fBAT\fR time,
+Xor "was" if it is after.
+X.TP
+X.B %@
+Xis similar to \fB%2\fR but displays the current time.
+X.TP
+X.B %#
+Xis similar to \fB%3\fR but displays the current time.
+X.TP
+X.B 
+X%"
+X(percent-doublequote) is removed.  This sequence is not 
+Xused by the substitution filter,
+Xbut is used to tell \fBremind\fR which text to include in a calendar
+Xentry when the \fB\-c\fR option is chosen.  See "Calendar
+XMode"
+X.PP
+XNotes:
+X.TP
+Xo
+X.B Remind
+Xnormally prints a blank line after each reminder; if the last character
+Xof the body is "%", the blank line will not be printed.
+X.TP
+Xo
+XSubstitutions a, b, c, e, f, g, h, i, j, k, l, u and v all are replaced
+Xwith "today" if the current date equals the trigger date, or "tomorrow"
+Xif the trigger date is one day after the current date.  Thus, they are
+X.B not
+Xthe same as substitutions built up from the simpler %w, %y, etc.
+Xsequences.
+X.TP
+Xo
+XAny of the substitutions dealing with time (0 through 9 and '!')
+Xproduce undefined results if used in a reminder which does not have
+Xan \fBAT\fR keyword.  Also, if a reminder has a \fIdelta\fR and may
+Xbe triggered on several days, the time substitutions ignore the date.  Thus,
+Xthe \fB%1\fR substitution may report that a meeting is in 15 minutes, for
+Xexample, even though it may only be in 2 days time, because a \fIdelta\fR has
+Xtriggered the reminder.  It is recommended that you use the time substitutions
+Xonly in timed reminders with no \fIdelta\fR which are designed to be
+Xqueued for timed activation.
+X.TP 
+Xo
+XCapital letters can be used in the substitution sequence, in which case
+Xthe first character of the substituted string is capitalized (if it is
+Xnormally a lower-case letter.)
+X.TP 
+Xo
+XAll other characters following a "%" sign are simply copied.  In particular,
+Xto get a "%" sign out, use "%%" in the body.  To start the body of a reminder
+Xwith a space, use "% ", since
+X.B remind
+Xnormally scans for the first non-space character after a
+X.B MSG,
+X.B CAL
+Xor
+X.B RUN
+Xtoken.
+X.SH THE OMIT COMMAND
+X.PP
+XIn addition to being a keyword in the \fBREM\fR command,
+X\fBOMIT\fR is a command in its own right.  Its syntax is:
+X.PP
+X.RS
+X\fBOMIT\fR \fIday\fR \fImonth\fR [\fIyear\fR]
+X.RE
+X.PP
+XThe \fBOMIT\fR command is used to "globally" omit certain days, which
+Xare usually holidays.  These globally-omitted days are skipped by the
+X"\-" and "+" forms of \fIback\fR and \fIdelta\fR.  Some examples:
+X.PP
+X.nf
+X	OMIT 1 Jan
+X	OMIT 7 Sep 1992
+X.fi
+X.PP
+XThe first example specifies a holiday which occurs on the same date each
+Xyear - New Year's Day.  The second example specifies a holiday which
+Xchanges each year - Labour Day.  For these types of holidays, you
+Xmust create an \fBOMIT\fR command for each year.  (Later, in the
+Xdescription of expressions and some of the more advanced features of
+X\fBRemind\fR, you will see how to automate this for some cases.)
+X.PP
+XFor convenience, you can use a \fIdelta\fR and \fBMSG\fR or \fBRUN\fR
+Xkeyword in the \fBOMIT\fR command.  The following sequences are exactly
+Xequivalent:
+X.PP
+X.nf
+X	OMIT 1 Jan
+X	REM 1 Jan +4 MSG New year's day is %b!
+X
+X	and
+X
+X	OMIT 1 Jan +4 MSG New year's day is %b!
+X.fi
+X.PP
+X.B THE BEFORE, AFTER AND SKIP KEYWORDS
+X.PP
+XNormally, days which are omitted, whether by a global \fBOMIT\fR command
+Xor the local \fBOMIT\fR keyword in a \fBREM\fR statement, only affect the
+Xcounting of the \-\fIback\fR or the +\fIdelta\fR.  For example, suppose
+Xyou have a meeting every Wednesday.  Suppose, too, that you have indicated
+X11 Nov as a holiday:
+X.PP
+X.nf
+X	OMIT 11 Nov +4 MSG Remembrance Day
+X	REM Wed +1 MSG Code meeting %b.
+X.fi
+X.PP
+XThe above sequence will issue a reminder about a meeting for 11 November 1992,
+Xwhich is a Wednesday.  This is probably incorrect.  There are three
+Xoptions:
+X.TP
+X.B BEFORE
+XThis keyword moves the reminder to before any omitted days.  Thus, in
+Xthe above example, use of \fBBEFORE\fR would cause the meeting reminder
+Xto be triggered on Tuesday, 10 November 1992.
+X.TP
+X.B AFTER
+XThis keyword moves the reminder to after any omitted days.  In the above
+Xexample, the meeting reminder would be triggered on Thursday, 12 November
+X1992.
+X.TP
+X.B SKIP
+XThis keyword causes the reminder to be skipped completely on any omitted
+Xdays.  Thus, in the above example, the reminder would not be triggered
+Xon 11 November 1992.  However, it would be triggered as usual on the following
+XWednesday, 18 November 1992.
+X.PP
+XThe \fBBEFORE\fR and \fBAFTER\fR keywords move the trigger date of a
+Xreminder to before or after a block of omitted days, respectively.
+XSuppose you normally run a backup on the first day of the month.  However,
+Xif the first day of the month is a weekend or holiday, you run the backup
+Xon the first working day following the weekend or holiday.  You could use:
+X.PP
+X.nf
+X	REM 1 OMIT Sat Sun AFTER RUN do_backup
+X.fi
+X.PP
+XLet's examine how the trigger date is computed.  The \fB1\fR specifies
+Xthe first day of the month.  The local \fBOMIT\fR keyword causes the
+X\fBAFTER\fR keyword to move the reminder forward past weekends.
+XFinally, the \fBAFTER\fR keyword will keep moving the reminder forward
+Xuntil it has passed any holidays specified with global \fBOMIT\fR
+Xcommands.
+X.SH THE INCLUDE COMMAND
+X.PP
+X\fBRemind\fR allows you to include other files in your reminder script,
+Xsimilar to the C preprocessor #include directive.  For example, your
+Xsystem administrator may maintain a file of holidays or system-wide
+Xreminders.  You can include these in your reminder script as follows:
+X.PP
+X.nf
+X	INCLUDE /usr/share/remind/holidays
+X	INCLUDE /usr/share/remind/reminders
+X.fi
+X.PP
+X(The actual pathnames vary from system to system - ask your system
+Xadministrator.)
+X.PP
+X\fBINCLUDE\fR files can be nested up to a depth of 8.
+X.PP
+X.SH THE RUN COMMAND
+X.PP
+XIf you include other files in your reminder script, you may not always
+Xentirely "trust" the contents of the other files.  For example, they
+Xmay contain \fBRUN\fR-type reminders which could be used to access your
+Xfiles or perform undesired actions.  The \fBRUN\fR command can restrict
+Xthis:  If you include the command \fBRUN OFF\fR in your top-level reminder
+Xscript, any reminder or expression which would normally execute a system
+Xcommand is disabled.  \fBRUN ON\fR will re-enable the execution of
+Xsystem commands.  Note that the \fBRUN\fR command can \fIonly\fR be used
+Xin your top-level reminder script; it will \fInot\fR work in any files
+Xaccessed by the \fBINCLUDE\fR command.  This is to protect you from someone
+Xplacing a \fBRUN ON\fR command in an included file.
+X.PP
+XIf you run \fBRemind\fR with the \fB\-r\fR command-line option,
+X\fBRUN\fR-type reminders and the \fBshell()\fR function will be disabled,
+Xregardless of any \fBRUN\fR commands in the reminder script.
+X.PP
+XOne use of the \fBRUN\fR command is to provide a secure interface
+Xbetween \fBRemind\fR and the \fBElm\fR mail system.  The \fBElm\fR
+Xsystem can automatically scan incoming mail for reminder or calendar
+Xentries, and place them in your calendar file.  To use this feature,
+Xyou should set the calendar filename option under \fBElm\fR to be something
+Xlike "~/.reminders.in", \fInot\fR your main reminder file!  This is
+Xso that any \fBRUN ON\fR commands mailed to you can never be activated.
+X.PP
+XThen, you can use the \fBElm\fR \fIscan message for calendar entries\fR
+Xcommand to place reminders prefaced by "->" into .reminders.in.  In
+Xyour main .reminders file, include the following lines:
+X.PP
+X.nf
+X	RUN OFF   # Disable RUN
+X	INCLUDE .reminders.in
+X	RUN ON    # Re-enable RUN
+X.fi
+X.PP
+X.SH THE BANNER COMMAND
+X.PP
+XWhen \fBRemind\fR first issues a reminder, it prints a message like this:
+X.PP
+X.nf
+X	Reminders for Friday, 30th October, 1992 (today):
+X.fi
+X.PP
+XThe \fBBANNER\fR command lets you change the format.  It should appear
+Xbefore any \fBREM\fR commands.  The format is:
+X.PP
+X.RS
+X\fBBANNER\fR \fIformat\fR
+X.RE
+X.PP
+XThe \fIformat\fR is similar to the \fIbody\fR of a \fBREM\fR command.  It
+Xis passed through the substitution filter, with an implicit trigger of
+Xthe current system date.  Thus, the default banner is equivalent to:
+X.PP
+X.nf
+X	BANNER Reminders for %w, %d%s %m, %y%o:
+X.fi
+X.PP
+XYou can disable the banner completely with BANNER %.  Or you can create
+Xa custom banner:
+X.PP
+X.nf
+X	BANNER Hi - here are your reminders for %y/%t/%r:
+X.fi
+X.SH CONTROLLING THE OMIT CONTEXT
+X.PP
+XSometimes, it is necessary to temporarily change the global \fBOMITs\fR
+Xwhich are in force for a few reminders.  Three commands allow you to do
+Xthis:
+X.TP
+X.B PUSH-OMIT-CONTEXT
+XThis command saves the current global \fBOMITs\fR on an internal stack.
+X.TP
+X.B CLEAR-OMIT-CONTEXT
+XThis command clears all of the global \fBOMITs\fR, starting you off with
+Xa "clean slate."
+X.TP
+X.B POP-OMIT-CONTEXT
+XThis command restores the global \fBOMITs\fR which were saved by the most
+Xrecent \fBPUSH-OMIT-CONTEXT\fR.
+X.PP
+XFor example, suppose you have a block of reminders which require a clear
+X\fBOMIT\fR context, and that they also introduce unwanted global \fBOMITs\fR
+Xwhich could interfere with later reminders.  You could use the following
+Xfragment:
+X.PP
+X.nf
+X	PUSH-OMIT-CONTEXT	# Save the current context
+X	CLEAR-OMIT-CONTEXT	# Clean the slate
+X	# Block of reminders goes here
+X	POP-OMIT-CONTEXT	# Restore the saved omit context
+X.fi
+X.SH EXPRESSIONS
+X.PP
+XIn certain contexts, to be described later, \fBRemind\fR will accept
+Xexpressions for evaluation.  \fBRemind\fR expressions resemble C
+Xexpressions, but operate on different types of objects.
+X.PP
+X.B DATA TYPES
+X.PP
+X\fBRemind\fR expressions understand four types of objects:
+X.TP
+X.B INT
+XThe \fBINT\fR data type consists of the integers representable in one machine
+Xword.  The \fBINT\fR data type corresponds to the C "int" type.
+X.TP
+X.B STRING
+XThe \fBSTRING\fR data type consists of strings of characters.  It is
+Xsomewhat comparable to a C character array, but more closely resembles
+Xthe string type in BASIC.
+X.TP
+X.B TIME
+XThe \fBTIME\fR data type consists of times of the day.  The \fBTIME\fR
+Xdata type is internally stored as an integer representing the number
+Xof minutes since midnight.
+X.TP
+X.B DATE
+XThe \fBDATE\fR data type consists of dates (later than 1 January 1990.)
+XInternally, \fBDATE\fR objects are stored as the number of days since
+X1 January 1990.
+X.PP
+X.B CONSTANTS
+X.PP
+XThe following examples illustrate constants in \fBRemind\fR expressions:
+X.TP
+X.B INT constants
+X12, 36, -10, 0, 1209
+X.TP
+X.B STRING constants
+X"Hello there", "This is a test", "\\n\\gosd\\w", ""
+X.PP
+X.RS
+XNote that the empty string is represented by "", and that
+Xbackslashes in a string are \fInot\fR interpreted specially, as in they are
+Xin C.
+X.RE
+X.TP
+X.B TIME constants
+X12:33, 0:01, 14:15, 16:42
+X.PP
+X.RS
+XNote that \fBTIME\fR constants are written in 24-hour format
+X.RE
+X.TP
+X.B DATE constants
+X\fBDATE\fR constants have no readable representation.  They must be
+Xcreated with the \fBdate()\fR function, which takes the year, month
+Xand day as arguments:
+X.PP
+X.RS
+Xdate(1992, 2, 29), date(1996, 4, 2), date(2001, 12, 17)
+X.PP
+XHowever, \fBDATE\fR constants are \fIprinted\fR as
+X\fIyyyy\fR/\fImm\fR/\fIdd\fR.
+X.RE
+X.PP
+X.B OPERATORS
+X.PP
+X\fIRemind\fR has the following operators.  Operators on the same line
+Xhave equal precedence, while operators on lower lines have lower precedence
+Xthan those on higher lines.  The operators approximately correspond to
+XC operators.
+X.PP
+X.nf
+X	!  -     (unary logical negation and arithmetic negation)
+X	*  /  %		
+X	+  -
+X	<  <=  >  >=
+X	==  !=
+X	&&
+X	||
+X.fi
+X.PP
+X.B DESCRIPTION OF OPERATORS
+X.PP
+X.TP
+X.B !
+XLogical negation.  Can be applied to an \fBINT\fR type.  If the operand
+Xis non-zero, returns zero.  Otherwise, returns 1.
+X.TP
+X.B \-
+XUnary minus.  Can be applied to an \fBINT\fR.  Returns the negative
+Xof the operand.
+X.TP
+X.B *
+XMultiplication.  Returns the product of two \fBINT\fRs.
+X.TP
+X.B /
+XInteger division.  Returns the quotient of two \fBINT\fRs, discarding the
+Xremainder.
+X.TP
+X.B %
+XModulus.  Returns the remainder upon dividing one \fBINT\fR by another.
+X.TP
+X.B +
+XHas several uses.  These are:
+X.PP
+X.RS
+X\fBINT\fR + \fBINT\fR - returns the sum of two \fBINT\fRs.
+X.PP
+X\fBINT\fR + \fBTIME\fR or \fBTIME\fR + \fBINT\fR - returns a \fBTIME\fR
+Xobtained by adding
+X\fBINT\fR minutes to the original \fBTIME\fR.
+X.PP
+X\fBINT\fR + \fBDATE\fR or \fBDATE\fR + \fBINT\fR - returns a \fBDATE\fR
+Xobtained by adding \fBINT\fR days to the original \fBDATE\fR.
+X.PP
+X\fBSTRING\fR + \fBSTRING\fR - returns a \fBSTRING\fR which is the
+Xconcatenation of the two orignal
+X\fBSTRING\fRs.
+X.PP
+X\fBSTRING\fR + anything or anything + \fBSTRING\fR -
+Xconverts the non-\fBSTRING\fR
+Xargument to a \fBSTRING\fR, and then performs concatenation.  See
+Xthe \fBcoerce()\fR function.
+X.RE
+X.TP
+X.B \-
+XHas several uses.  These are:
+X.PP
+X.RS
+X\fBINT\fR - \fBINT\fR - returns the difference of two \fBINT\fRs.
+X.PP
+X\fBDATE\fR - \fBDATE\fR - returns (as an \fBINT\fR) the difference in days
+Xbetween two \fBDATE\fRs.
+X.PP
+X\fBTIME\fR - \fBTIME\fR - returns (as an \fBINT\fR) the difference in minutes
+Xbetween two \fBTIME\fRs.
+X.PP
+X\fBDATE\fR - \fBINT\fR - returns a \fBDATE\fR which is \fBINT\fR days
+Xearlier than
+Xthe original \fBDATE\fR.
+X.PP
+X\fBTIME\fR - \fBINT\fR - returns a \fBTIME\fR which is \fBINT\fR minutes
+Xearlier
+Xthan the original \fBTIME\fR.
+X.RE
+X.TP
+X.B <, <=, >, and >=
+XThese are the comparison operators.  They can take operands of any type,
+Xbut both operands must be of the same type.  The comparison operators
+Xreturn 1 if the comparison is true, or 0 if it is false.  Note that
+Xstring comparison is done following the lexical ordering of
+Xcharacters on your system, and that upper and lower case \fIare\fR
+Xdistinct for these operators.
+X.TP
+X.B ==, !=
+X== tests for equality, returning 1 if its operands are equal, and
+X0 if they are not.  != tests for inequality.
+X.PP
+X.RS
+XIf the operands are not of the same type, == returns 0 and != returns
+X1.  Again, string comparisons are case-sensitive.
+X.RE
+X.TP
+X.B &&
+XThis is the logical AND operator.  Both of its operands must be of
+Xtype \fBINT\fR.  It returns 1 if both operands are non-zero, and 0
+Xotherwise.
+X.TP
+X.B ||
+XThis is the logical OR operator.  Both of its operands must be of
+Xtype \fBINT\fR.  It returns 1 if either operand is non-zero, and 0
+Xotherwise.
+X.PP
+X.B NOTES
+X.PP
+XOperators of equal precedence are \fIalways\fR evaluated from left
+Xto right, except where parentheses dictate otherwise.  This is important,
+Xbecause the enhanced "+" and "\-" operators are not necessarily associative.
+XFor example:
+X.PP
+X.nf
+X	1 + 2 + "string" + 3 + 4  yields "3string34"
+X	1 + (2 + "string") + (3 + 4)  yields "12string7"
+X	12:59 + 1 + "test"  yields "13:00test"
+X	12:59 + (1 + "test")  yields "12:591test"
+X.fi
+X.PP
+XThe logical operators are \fInot\fR so-called short-circuit operators, as
+Xthey are in C.  Both operands are always evaluated.  Thus, an expression
+Xsuch as:
+X.PP
+X.nf
+X	(f!=0) && (100/f <= 3)
+X.fi
+X.PP
+Xwill cause an error if f is zero.
+X.PP
+X.B VARIABLES
+X.PP
+X\fBRemind\fR allows you to assign values to variables.  The \fBSET\fR
+Xcommand is used as follows:
+X.PP
+X\fBSET\fR \fIvar\fR \fIexpr\fR
+X.PP
+X\fIVar\fR is the name of a variable.  It must start with a letter or
+Xunderscore, and consist only of letters, digits and underscores.  Only
+Xthe first 12 characters of a variable name are significant.  Variable
+Xnames are \fInot\fR case sensitive; thus, "Afoo" and "afOo" are the same
+Xvariable.  Examples:
+X.PP
+X.nf
+X	SET a 10 + (9*8)
+X	SET b "This is a test"
+X	SET mydir getenv("HOME")
+X	SET time 12:15
+X	SET date today()
+X.fi
+X.PP
+XNote that variables themselves have no type.  They take on the type of
+Xwhatever you store in them.
+X.PP
+XTo delete a variable, use the \fBUNSET\fR command:
+X.PP
+X\fBUNSET\fR \fIvar\fR [\fIvar\fR...]
+X.PP
+XFor example, to delete all the variables declared above, use:
+X.PP
+X.nf
+X	UNSET a b mydir time date
+X.fi
+X.PP
+X.B BUILT-IN FUNCTIONS
+X.PP
+X\fBRemind\fR has a plethora of built-in functions.  The syntax for a function
+Xcall is the same as in C - the function name, followed a comma-separated list
+Xof arguments in parentheses.  Function names are not case-sensitive.  If
+Xa function takes no arguments, it must be followed by "()" in the function
+Xcall.  Otherwise, \fBRemind\fR will interpret it as a variable name,
+Xand probably not work correctly.
+X.PP
+XIn the descriptions below, short forms are used to denote acceptable
+Xtypes for the arguments.  The characters "i", "s", "d" and "t" denote
+X\fBINT\fR, \fBSTRING\fR, \fBDATE\fR and \fBTIME\fR arguments,
+Xrespectively.  If an argument can be one of several types, the characters
+Xare concatenated.  For example, "di_arg" denotes an argument which can be
+Xa \fBDATE\fR or an \fBINT\fR.  "x_arg" denotes an argument which can be
+Xof any type.  The type of the argument is followed by
+Xan underscore and an identifier naming the argument, for convenience.
+X.PP
+XThe built-in functions are:
+X.TP
+X.B abs(i_num)
+XReturns the absolute value of \fInum\fR.
+X.TP
+X.B access(s_file, si_mode)
+XTests the access permissions for the file \fIfile\fR.  \fIMode\fR can
+Xbe a string, containing a mix of the characters "rwx" for read,
+Xwrite and execute permission testing.  Alternatively, \fImode\fR can
+Xbe a number as described in the Unix \fBaccess\fR(2) system call.  The
+Xfunction returns 0 if the file can be accessed with the specified \fImode\fR,
+Xand -1 otherwise.
+X.TP
+X.B asc(s_string)
+XReturns an \fBINT\fR which is the ASCII code of the first character
+Xin \fIstring\fR.  As a special case, \fBasc("")\fR returns 0.
+X.TP
+X.B baseyr()
+XReturns the "base year" which was compiled into \fBRemind\fR (normally
+X1990.)  All dates are stored internally as the number of days since
+X1 January of \fBbaseyr()\fR.
+X.TP
+X.B char(i_i1 [,i_i2...])
+XThis function can take any number of \fBINT\fR arguments.  It returns
+Xa \fBSTRING\fR consisting of the characters specified by the arguments.
+XNote that none of the arguments can be 0, unless there is only one
+Xargument.  As a special case, \fBchar(0)\fR returns "".
+X.TP
+X.B choose(i_index, x_arg1 [,x_arg2...])
+X\fBChoose\fR must take at least two arguments, the first of which is
+Xan \fBINT\fR.  If \fIindex\fR is \fIn\fR, then the \fIn\fRth subsequent
+Xargument is returned.  If \fIindex\fR is less than 1, then \fIarg1\fR
+Xis returned.  If \fIindex\fR is greater than the number of subsequent
+Xarguments, then the last argument is returned.  Examples:
+X.PP
+X.nf
+X		\fBchoose(0, "foo", 1:13, 1000)\fR returns "foo"
+X		\fBchoose(1, "foo", 1:13, 1000)\fR returns "foo"
+X		\fBchoose(2, "foo", 1:13, 1000)\fR returns 1:13
+X		\fBchoose(3, "foo", 1:13, 1000)\fR returns 1000
+X		\fBchoose(4, "foo", 1:13, 1000)\fR returns 1000
+X.fi
+X.RS
+XNote that all arguments to \fBchoose()\fR are \fIalways\fR
+Xevaluated.
+X.RE
+X.TP
+X.B coerce(s_type, x_arg)
+XThis function converts \fIarg\fR to the specified \fItype\fR, if such
+Xconversion is possible.  \fIType\fR must be one of "INT", "STRING",
+X"DATE" or "TIME" (case-insensitive).
+XThe conversion rules are as follows:
+X.RS
+X.PP
+XIf \fIarg\fR is already of the \fItype\fR specified, it is returned
+Xunchanged.
+X.PP
+XIf \fItype\fR is "STRING", then \fIarg\fR is converted to a string
+Xconsisting of its printed representation.
+X.PP
+XIf \fItype\fR is "DATE", then an \fBINT\fR \fIarg\fR is converted
+Xby interpreting it as the number of days since 1 January \fBbaseyr()\fR.
+XA \fBSTRING\fR \fIarg\fR is converted by attempting to read it as if
+Xit were a printed date.  A \fBTIME\fR \fIarg\fR cannot be converted to
+Xa date.
+X.PP
+XIf \fItype\fR is "TIME", then an \fBINT\fR \fIarg\fR is converted
+Xby interpreting it as the number of minutes since midnight.
+XA \fBSTRING\fR \fIarg\fR is converted by attempting to read it as if
+Xit were a printed time.  A \fBDATE\fR \fIarg\fR cannot be converted to
+Xa time.
+X.PP
+XIf \fItype\fR is "INT", then \fBDATE\fR and \fBTIME\fR arguments are
+Xconverted using the reverse of procedures described above.  A
+X\fBSTRING\fR \fIarg\fR is converted by parsing it as an integer.
+X.RE
+X.TP
+X.B date(i_y, i_m, i_d)
+XThe \fBdate()\fR function returns a \fBDATE\fR object with the year,
+Xmonth and day components specified by \fIy\fR, \fIm\fR and \fId\fR.
+X.TP
+X.B day(d_date)
+XThis function takes a \fBDATE\fR as an argument, and returns an \fBINT\fR
+Xwhich is the day-of-month component of \fIdate\fR.
+X.TP
+X.B daysimon(i_m, i_y)
+XReturns the number of days in month \fIm\fR (1-12) of the year \fIy\fR.
+X.TP
+X.B defined(s_var)
+XReturns 1 if the variable named by \fIvar\fR is defined, or 0 if it is not.
+X.RS
+XNote that \fBdefined()\fR takes a \fBSTRING\fR argument; thus, to check
+Xif variable X is defined, use:
+X.PP
+X.nf
+X		defined("X")
+X.fi
+X.PP
+Xand not:
+X.PP
+X.nf
+X		defined(X)
+X.fi
+X.PP
+XThe second example will attempt to evaluate X, and will return an
+Xerror if it is undefined or not of type \fBSTRING\fR.
+X.RE
+X.TP
+X.B filename()
+XReturns (as a \fBSTRING\fR) the name of the current file being processed
+Xby \fBRemind\fR.  Inside included files, returns the name of the
+Xincluded file.
+X.TP
+X.B getenv(s_envvar)
+XSimilar to the \fBgetenv\fR(2) system call.  Returns a string representing
+Xthe value of the specified environment variable.  Returns "" if the
+Xenvironment variable is not defined.  Note that the names of environment
+Xvariables are generally case-sensitive; thus, getenv("HOME") is not
+Xthe same as getenv("home").
+X.TP
+X.B hour(t_time)
+XReturns the hour component of \fItime\fR.
+X.TP
+X.B iif(si_test, x_argtrue, x_argfalse)
+XIf \fItest\fR is not zero, and not the null string "", returns
+X\fIargtrue\fR.  Otherwise, returns \fIargfalse\fR.  Note that all
+Xarguments are \fIalways\fR evaluated.
+X.TP
+X.B index(s_search, s_target [,i_start)
+XReturns an \fBINT\fR which is the location of \fItarget\fR in the
+Xstring \fIsearch\fR.  The first character of a string is numbered 1.
+XIf \fItarget\fR does not exist in \fIsearch\fR, then 0 is returned.
+X.RS
+XThe optional parameter \fIstart\fR specifies the position in
+X\fIsearch\fR at which to start looking for \fItarget\fR.
+X.RE
+X.TP
+X.B isleap(id_arg)
+XReturns 1 if \fIarg\fR is a leap year, and 0 otherwise.  \fIArg\fR can
+Xbe either an \fBINT\fR or a \fBDATE\fR object.  If a \fBDATE\fR is
+Xsupplied, then the year component is used in the test.
+X.TP
+X.B isomitted(d_date)
+XReturns 1 if \fIdate\fR is omitted, given the current global \fBOMIT\fR
+Xcontext.  Returns 0 otherwise.
+X.TP
+X.B lower(s_string)
+XReturns a \fBSTRING\fR with all upper-case characters in \fIstring\fR
+Xconverted to lower-case.
+X.TP
+X.B max(x_arg1 [,x_arg2...)
+XCan take any number of arguments, and returns the maximum.  The arguments
+Xcan be of any type, but must all be of the same type.  They are compared
+Xas with the > operator.
+X.TP
+X.B min(x_arg1 [,x_arg2...)
+XCan take any number of arguments, and returns the minimum.  The arguments
+Xcan be of any type, but must all be of the same type.  They are compared
+Xas with the < operator.
+X.TP
+X.B minute(t_time)
+XReturns the minute component of \fItime\fR.
+X.TP
+X.B mon(di_arg)
+XIf \fIarg\fR is of \fBDATE\fR type, returns a string which names the month
+Xcomponent of the date.  If \fIarg\fR is an \fBINT\fR from 1 to
+X12, returns a string which names the month.
+X.TP
+X.B monnum(d_date)
+XReturns an \fBINT\fR from 1 to 12, representing the month component of
+X\fIdate\fR.
+X.TP
+X.B now()
+XReturns the current system time, as a \fBTIME\fR type.
+X.TP
+X.B ord(i_num)
+XReturns a string which is the ordinal number \fInum\fR.  For example,
+X\fBord(2)\fR returns "2nd", and \fBord(213)\fR returns "213th".
+X.TP
+X.B ostype()
+XReturns "UNIX" on UNIX systems, and "MSDOS" on MS-DOS systems.
+X.TP
+X.B plural(i_num [,s_str1 [,s_str2]])
+XCan take from one to three arguments.  If one argument is supplied, returns
+X"s" if \fInum\fR is not 1, and "" if \fInum\fR is 1.
+X.RS
+XIf two arguments are supplied, returns \fIstr1\fR + "s" if \fInum\fR is
+Xnot 1.  Otherwise, returns \fIstr1\fR.
+X.PP
+XIf three arguments are supplied, returns \fIstr1\fR if \fInum\fR is 1, and
+X\fIstr2\fR otherwise.
+X.RE
+X.TP
+X.B realtoday()
+XReturns the date as provided by the operating system.  This is in contrast to
+X\fBRemind\fR's concept of "today", which may be changed if it is running
+Xin calendar mode, or if a date has been supplied on the command line.
+X.TP
+X.B sgn(i_num)
+XReturns -1 if \fInum\fR is negative, 1 if \fInum\fR is positive,
+Xand 0 if \fInum\fR is zero.
+X.TP
+X.B shell(s_cmd)
+XExecutes \fIcmd\fR as a system command, and returns the first 511
+Xcharacters of output resulting from \fIcmd\fR.  Any whitespace
+Xcharacter in the output is converted to a space.  Note that if \fBRUN
+XOFF\fR has been executed, or the \fB\-r\fR command-line option has
+Xbeen used, \fBshell()\fR will result in an error, and \fIcmd\fR will
+Xnot be executed.
+X.TP
+X.B strlen(s_str)
+XReturns the length of \fIstr\fR.
+X.TP
+X.B substr(s_str, i_start [,i_end])
+XReturns a \fBSTRING\fR consisting of all characters in \fIstr\fR from
+X\fIstart\fR up to and including \fIend\fR.  Characters are numbered
+Xfrom 1.  If \fIend\fR is not supplied, then it defaults to the length
+Xof \fIstr\fR.
+X.TP
+X.B time(i_hr, i_min)
+XCreates a \fBTIME\fR with the hour and minute components specified by
+X\fIhr\fR and \fImin\fR.
+X.TP
+X.B today()
+XReturns \fBRemind\fR's notion of "today."  This may be the actual system
+Xdate, or a date supplied on the command line, or the date of the
+Xcalendar entry currently being computed.
+X.TP
+X.B trigdate()
+XReturns the calculated trigger date of the last \fBREM\fR command.  If used
+Xin the \fIbody\fR of a \fBREM\fR command, returns that command's trigger date.
+X.TP
+X.B trigger(d_date)
+XReturns a string suitable for use in a \fBREM\fR command, allowing you to
+Xcalculate trigger dates in advance.  See the section "Expression pasting"
+Xfor more information.
+X.TP
+X.B trigtime()
+XReturns the time of the last \fBREM\fR command with an \fBAT\fR clause.
+X.TP
+X.B trigvalid()
+XReturns 1 if the value returned by \fBtrigdate()\fR is valid for the most
+Xrecent \fBREM\fR command, or 0 otherwise.  Sometimes \fBREM\fR commands
+Xcannot calculate a trigger date.  For example, the following \fBREM\fR
+Xcommand can never be triggered:
+X.PP
+X.nf
+X		REM Mon OMIT Mon SKIP MSG Impossible!
+X.fi
+X.PP
+X.TP
+X.B typeof(x_arg)
+XReturns "STRING", "INT", "DATE" or "TIME", depending on the type of \fIarg\fR.
+X.TP
+X.B upper(s_string)
+XReturns a \fBSTRING\fR with all lower-case characters in \fIstring\fR
+Xconverted to upper-case.
+X.TP
+X.B value(s_varname [,x_default])
+XReturns the value of the specified variable.  For example, value("X"+"Y")
+Xreturns the value of variable XY, if it is defined.  If XY is not defined,
+Xan error results.
+X.RS
+XHowever, if you supply a second argument, it is returned if the \fIvarname\fR
+Xis not defined.  The expression value("XY", 0) will return 0 if XY is not
+Xdefined, and the value of XY if it is defined.
+X.RE
+X.TP
+X.B version()
+XReturns a string specifying the version of \fBRemind\fR.  For version 
+X03.00.00, returns "03.00.00".  It is guaranteed that as new versions of
+X\fBRemind\fR are released, the value returned by \fBversion()\fR will
+Xstrictly increase, according to the rules for string ordering.
+X.TP
+X.B wkday(di_arg)
+XIf \fIarg\fR is a \fBDATE\fR, returns a string representing the day of the
+Xweek of the date.  If \fIarg\fR is an \fBINT\fR from 0 to 6, returns
+Xthe corresponding weekday ("Sunday" to "Saturday").
+X.TP
+X.B wkdaynum(d_date)
+XReturns a number from 0 to 6 representing the day-of-week of the specified
+X\fIdate\fR.  (0 represents Sunday, and 6 represents Saturday.)
+X.TP
+X.B year(d_date)
+XReturns a \fBINT\fR which is the year component of \fIdate\fR.
+X.SH EXPRESSION PASTING
+X.PP
+XAn extremely powerful feature of \fBRemind\fR is its macro capability,
+Xor "expression pasting."
+X.PP
+XIn almost any situation where \fBRemind\fR is not expecting an expression,
+Xyou can "paste" an expression in.  To do this, surround the expression
+Xwith square brackets.  For example:
+X.PP
+X.nf
+X	REM [trigger(mydate)] MSG foo
+X.fi
+X.PP
+XThis evaluates the expression "trigger(mydate)", where "mydate" is
+Xpresumably some pre-computed variable, and then "pastes" the result
+Xinto the command-line for the parser to process.
+X.PP
+XA formal description of this is:  When \fBRemind\fR encounters a
+X"pasted-in" expression, it evaluates the expression, and coerces the
+Xresult to a \fBSTRING\fR.  It then substitutes the string for the
+Xpasted-in expression, and continues parsing.  Note, however, that
+Xexpressions are evaluated only once, not recursively.  Thus, writing:
+X.PP
+X.nf
+X	["[a+b]"]
+X.fi
+X.PP
+Xcauses \fBRemind\fR to read the token "[a+b]".  It does not interpret
+Xthis as a pasted-in expression.  In fact, the only way to get a literal
+Xleft-bracket into a reminder is to use ["["].
+X.PP
+XYou can use expression pasting almost anywhere.  However, there are a few
+Xexceptions:
+X.TP
+Xo
+XIf \fBRemind\fR is expecting an expression, as in the \fBSET\fR command,
+Xor the \fBIF\fR command, then no expression pasting takes place.  The
+Xexpression is simply evaluated as if the square brackets were not there.
+X.TP
+Xo
+XYou cannot use expression pasting for the first token on a line.
+XFor example, the following will not work:
+X.PP
+X.nf
+X		["SET"] a 1
+X.fi
+X.RS
+XThis restriction is because \fBRemind\fR must be able to unambiguously
+Xdetermine the first token of a line for the flow-control commands (to
+Xbe discussed later.)
+X.PP
+XIn fact, if \fBRemind\fR cannot determine the first token on a line, it
+Xassumes that it is a \fBREM\fR command.  If expression-pasting is used,
+X\fBRemind\fR assumes it is a \fBREM\fR command.  Thus, the following
+Xthree commands are equivalent:
+X.PP
+X.nf
+X		REM 12 Nov 1993 AT 13:05 MSG BOO!
+X		12 Nov 1993 AT 13:05 MSG BOO!
+X		[12] ["Nov " + 1993] AT [12:05+60] MSG BOO!
+X.fi
+X.RE
+X.TP
+Xo
+XYou cannot use expression-pasting to determine the type (\fBMSG\fR,
+X\fBCAL\fR, etc.) of a \fBREM\fR command.  You can paste expressions
+Xbefore and after the \fBMSG\fR, etc keywords, but cannot do something like
+Xthis:
+X.PP
+X.nf
+X		REM ["12 Nov 1993 AT 13:05 " + "MSG" + " BOO!"]
+X.fi
+X.PP
+X.B COMMON PITFALLS IN EXPRESSION PASTING
+X.PP
+XRemember, when pasting in expressions, that extra spaces are not
+Xinserted.  Thus, something like:
+X.PP
+X.nf
+X	REM[expr]MSG[expr]
+X.fi
+X.PP
+Xwill probably fail.
+X.PP
+XIf you use an expression to calculate a \fIdelta\fR or \fIback\fR,
+Xensure that the result is a positive number.  Something like:
+X.PP
+X.nf
+X	REM +[mydelta] Nov 12 1993 MSG foo
+X.fi
+X.PP
+Xwill fail if \fImydelta\fR happens to be negative.
+X.PP
+X.SH FLOW CONTROL COMMANDS
+X.PP
+X\fBRemind\fR has commands which control the flow of a reminder script.
+XNormally, reminder scripts are processed sequentially.  However,
+X\fBIF\fR and related commands allow you to process files conditionally,
+Xand skip sections which you don't want interpreted.
+X.PP
+X.B THE IF COMMAND
+X.PP
+XThe \fBIF\fR command has the following form:
+X.PP
+X.nf
+X	IF expr
+X		t-command
+X		t-command...
+X	ELSE
+X		f-command
+X		f-command...
+X	ENDIF
+X.fi
+X.PP
+XNote that the commands are shown indented for clarity.  Also, the \fBELSE\fR
+Xportion can be omitted.  \fBIF\fR commands can be nested up to a small limit,
+Xprobably around 8 or 16 levels of nesting, depending on your system.
+X.PP
+XIf the \fIexpr\fR evaluates to a non-zero \fBINT\fR, or a non-null
+X\fBSTRING\fR, then the \fBIF\fR portion is considered true, and the
+X\fIt-commands\fR are executed.  If \fIexpr\fR evaluates to zero or
+Xnull, then the \fIf-commands\fR (if the \fBELSE\fR portion is present)
+Xare executed.  If \fIexpr\fR is not of type \fBINT\fR or \fBSTRING\fR,
+Xthen it is an error.
+X.PP
+XExamples:
+X.PP
+X.nf
+X	IF defined("want_hols")
+X		INCLUDE /usr/share/remind/holidays
+X	ENDIF
+X
+X	IF today() > date(1992, 2, 10)
+X		set missed_ap "You missed it!"
+X	ELSE
+X		set missed_ap "Still have time..."
+X	ENDIF
+X.fi
+X.PP
+X.B THE IFTRIG COMMAND
+X.PP
+XThe \fBIFTRIG\fR command is similar to an \fBIF\fR command, except
+Xthat it computes a trigger (as in the \fBREM\fR command), and evaluates
+Xto true if a corresponding \fBREM\fR command would trigger.  Examples:
+X.PP
+X.nf
+X	IFTRIG 1 Nov
+X		; Executed on 1 Nov
+X	ELSE
+X		; Executed except on 1 Nov
+X	ENDIF
+X
+X	IFTRIG 1 -1 OMIT Sat Sun +4
+X		; Executed on last working day of month,
+X		; and the 4 working days preceding it
+X	ELSE
+X		; Executed except on above days
+X	ENDIF
+X.fi
+X.PP
+XNote that the \fBIFTRIG\fR command computes a trigger date, which can
+Xbe retrieved with the \fBtrigdate()\fR function.  You can use all of
+Xthe normal trigger components, such as \fBUNTIL\fR, \fIdelta\fR, etc in the
+X\fBIFTRIG\fR command.
+X.PP
+X.SH USER-DEFINED FUNCTIONS
+X.PP
+XIn addition to the built-in functions, \fBRemind\fR allows you to define
+Xyour own functions.  The \fBFSET\fR command does this for you:
+X.PP
+X\fBFSET\fR \fIfname\fR(\fIargs\fR) \fIexpr\fR
+X.PP
+X\fIFname\fR is the name of the function, and follows the convention for
+Xnaming variables.  \fIArgs\fR is a comma-separated list of arguments, and
+X\fIexpr\fR is an expression.  \fIArgs\fR can be empty, in which case
+Xyou define a function taking no parameters.  Here are some examples:
+X.PP
+X.nf
+X	FSET double(x) 2*x
+X	FSET yeardiff(date1, date2) year(date1) - year(date2)
+X	FSET since(x) ord(year(trigdate())-x)
+X.fi
+X.PP
+XThe last function is useful in birthday reminders.  For example:
+X.PP
+X.nf
+X	REM 1 Nov +12 MSG Dean's [since(1984)] birthday is %b.
+X.fi
+X.PP
+XDean was born in 1984.  The above example, on 1 November 1992, would print:
+X.PP
+X.nf
+X	Dean's 8th birthday is today.
+X.fi
+X.PP
+XNotes:
+X.TP
+Xo
+XIf you access a variable in \fIexpr\fR which is not in the list of arguments,
+Xthe "global" value (if any) is used.
+X.TP
+Xo
+XFunction and parameter names are significant only to 12 characters.
+X.TP
+Xo
+XThe \fBvalue()\fR function \fIalways\fR accesses the "global" value of a
+Xvariable, even if it has the same name as an argument.  For example:
+X.RS
+X.nf
+X		fset func(x) value("x")
+X		set x 1
+X		set y func(5)
+X.fi
+X.PP
+XThe above sequence sets y to 1, which is the global value of x.
+X.RE
+X.TP
+Xo
+XUser-defined functions may call other functions, including other user-defined
+Xfunctions.  However, recursive calls are not allowed.
+X.TP
+Xo
+XUser-defined functions are not syntax-checked when they are defined; parsing
+Xoccurs only when they are called.
+X.TP
+Xo
+XIf a user-defined function has the same name as a built-in function,
+Xit is ignored and the built-in function is used.  To prevent conflicts
+Xwith future versions of \fBRemind\fR (which may define more built-in
+Xfunctions), you may wish to name all user-defined functions beginning
+Xwith an underscore.
+X.PP
+X.SH THE SATISFY CLAUSE
+X.PP
+XThe form of \fBREM\fR which uses \fBSATISFY\fR is as follows:
+X.PP
+X\fBREM\fR \fItrigger\fR \fBSATISFY\fR \fIexpr\fR
+X.PP
+XThe way this works is as follows:  \fBRemind\fR first calculates a trigger
+Xdate, in the normal fashion.  Next, it sets \fBtrigdate()\fR to the
+Xcalculated trigger date.  It then evaluates \fIexpr\fR.  If the result
+Xis not the null string or zero, processing
+Xends.  Otherwise, \fBRemind\fR computes the next trigger date, and re-tests
+X\fIexpr\fR.  This iteration continues until \fIexpr\fR evaluates to non-zero
+Xor non-null, or until the iteration limit specified with the \fB\-x\fR
+Xcommand-line option is reached.
+X.PP
+XIf \fIexpr\fR is not satisfied, then \fBtrigvalid()\fR is set to 0.
+XOtherwise, \fBtrigvalid()\fR is set to 1.  In any event, no error message
+Xis issued.
+X.PP
+XThis is really useful only if \fIexpr\fR involves a call to the
+X\fBtrigdate()\fR function; otherwise, \fIexpr\fR will not change as
+X\fBRemind\fR iterates.
+X.PP
+XAn example of the usefulness of \fBSATISFY\fR:  Suppose you wish to
+Xbe warned of every Friday the 13th.  Your first attempt may be:
+X.PP
+X.nf
+X	# WRONG!
+X	REM Fri 13 +2 MSG Friday the 13th is %b.
+X.fi
+X.PP
+XBut this won't work.  This reminder triggers on the first Friday
+Xon or after the 13th of each month.  The way to do it is with a
+Xmore complicated sequence:
+X.PP
+X.nf
+X	REM 13 SATISFY wkdaynum(trigdate()) == 5
+X	IF trigvalid()
+X		REM [trigger(trigdate())] +2 MSG \\
+X		Friday the 13th is %b.
+X	ENDIF
+X.fi
+X.PP
+XLet's see how this works.  The \fBSATISFY\fR clause iterates through
+Xall the 13ths of successive months, until a trigger date is found whose
+Xday-of-week is Friday (== 5).  If a valid date was found, we use the
+Xcalculated trigger date (converted into a trigger format with the
+X\fBtrigger()\fR function) to set up the next reminder.
+X.PP
+XWe could also have written:
+X.PP
+X.nf
+X	REM Fri SATISFY day(trigdate()) == 13
+X.fi
+X.PP
+Xbut this would result in more iterations, since "Fridays" occur more
+Xoften than "13ths of the month."
+X.PP
+XThis technique of using one \fBREM\fR command to calculate a trigger date
+Xto be used by another command is quite powerful.  For example, suppose
+Xyou wanted to OMIT Labour day, which is the first Monday in September.  You
+Xcould use:
+X.PP
+X.nf
+X	# Note: SATISFY 1 is an idiom for "do nothing"
+X	REM Mon 1 Sept SATISFY 1
+X	OMIT [trigger(trigdate())]
+X.fi
+X.PP
+X\fBCAVEAT:\fR This \fIonly\fR omits the \fInext\fR Labour Day, not
+Xall Labour Days in the future.  This could cause strange results, as
+Xthe \fBOMIT\fR context can change depending on the current date.  For
+Xexample, if you use the following command after the above commands:
+X.PP
+X.nf
+X	REM Mon AFTER msg hello
+X.fi
+X.PP
+Xthe result will not be as you expect.  Consider producing a calendar
+Xfor September, 1992.  Labour Day was on Monday, 7 September, 1992.
+XHowever, when \fBRemind\fR gets around to calculating the trigger
+Xfor Tuesday, 8 September, 1992, the \fBOMIT\fR command will now be
+Xommitting Labour Day for 1993, and the "Mon AFTER" command
+Xwill not be triggered.
+X.PP
+XIt is probably best to stay away from computing \fBOMIT\fR
+Xtrigger dates unless you keep these pitfalls in mind.
+X.PP
+X.SH DEBUGGING REMINDER SCRIPTS
+X.PP
+XAlthough the command-line \fB\-d\fR option is useful for debugging, it
+Xis often overkill.  For example, if you turn on the \fB\-dx\fR option for
+Xa reminder file with many complex expressions, you'll get a huge amount of
+Xoutput.  The \fBDEBUG\fR command allows you to control the debugging flags
+Xunder program control.  The format is:
+X.PP
+X\fBDEBUG\fR [+\fIflagson\fR] [\-\fIflagsoff\fR]
+X.PP
+X\fIFlagson\fR and \fIflagsoff\fR consist of strings of the characters "extvl"
+Xwhich correspond to the debugging options discussed in the command-line
+Xoptions section.  If preceded with a "+", the corresponding group of
+Xdebugging options is switched on.  Otherwise, they are switched off.
+XFor example, you could use this sequence to debug a complicated expression:
+X.PP
+X.nf
+X	DEBUG +x
+X	set a very_complex_expression(many_args)
+X	DEBUG \-x
+X.fi
+X.PP
+X.B THE DUMPVARS COMMAND
+X.PP
+XThe command \fBDUMPVARS\fR displays the values of variables in memory.  Its
+Xformat is:
+X.PP
+X\fBDUMPVARS\fR [\fIvar\fR...]
+X.PP
+XIf you supply a space-separated list of variable names, the corresponding
+Xvariables are displayed.  If you do not supply a list of variables, then
+Xall variables in memory are displayed.
+X.PP
+X.B THE ERRMSG COMMAND
+X.PP
+XThe \fBERRMSG\fR command has the following format:
+X.PP
+X\fBERRMSG\fR \fIbody\fR
+X.PP
+XThe \fIbody\fR is passed through the substitution filter (with an
+Ximplicit trigger date of \fBtoday()\fR) and printed to the error
+Xoutput stream.  Example:
+X.PP
+X.nf
+X	IF !defined("critical_var")
+X		ERRMSG You must supply a value for "critical_var"
+X		EXIT
+X	ENDIF
+X.fi
+X.PP
+X.B THE EXIT COMMAND
+X.PP
+XThe above example also shows the use of the \fBEXIT\fR command.  This
+Xcauses an unconditional exit from script processing.  Any queued
+Xtimed reminders are discarded.  If you are in calendar mode
+X(described next), then the calendar processing is aborted.
+X.PP
+X.SH CALENDAR MODE
+X.PP
+XIf you supply the \fB\-c\fR or \fB\-s\fR command-line option, the \fBRemind\fR
+Xruns in "calendar mode."  In this mode, \fBRemind\fR interprets the script
+Xrepeatedly, performing one iteration through the whole file for each day
+Xin the calendar.  Reminders which trigger are saved in internal buffers,
+Xand then inserted into the calendar in the appropriate places.
+X.PP
+XFor example, if you have a reminder script called ".reminders", and you
+Xexecuted this command:
+X.PP
+X.nf
+X	remind -c .reminders jan 1993
+X.fi
+X.PP
+Xthen \fBRemind\fR executes the script 31 times, once for each day in
+XJanuary.  Each time it executes the script, it increments the value
+Xof \fBtoday()\fR.  Any reminders whose trigger date matches \fBtoday()\fR
+Xare entered into the calendar.
+X.PP
+X\fBMSG\fR and \fBCAL\fR-type reminders, by default, have their entire
+Xbody inserted into the calendar.  \fBRUN\fR-type reminders are not
+Xnormally inserted into the calendar.  However, if you enclose a portion of
+Xthe body in the %"...%" sequence, only that portion is inserted.  For
+Xexample, consider the following:
+X.PP
+X.nf
+X	REM 6 Jan MSG %"David's birthday%" is %b
+X.fi
+X.PP
+XIn the normal mode, \fBRemind\fR would print "David's birthday is today"
+Xon 6 January.  However, in the calendar mode, only the text "David's birthday"
+Xis inserted into the box for 6 January.
+X.PP
+XIf you explicitly use the %"...%" sequence in a \fBRUN\fR-type reminder,
+Xthen the text between the delimiters is inserted into the calendar.
+XIf you use the sequence %"%" in a \fBMSG\fR or \fBCAL\fR-type reminder, then
+Xno calendar entry is produced for that reminder.
+X.PP
+X.B PRESERVING VARIABLES
+X.PP
+XBecause \fBRemind\fR iterates through the script for each day in the calendar,
+Xslow operations may severely reduce the speed of producing a calendar.
+X.PP
+XFor example, suppose you set the variables "me" and "hostname" as follows:
+X.PP
+X.nf
+X	SET me shell("whoami")
+X	SET hostname shell("hostname")
+X.fi
+X.PP
+XNormally, \fBRemind\fR clears all variables between iterations in calendar
+Xmode.  However, if certain variables are slow to compute, and will
+Xnot change between iterations, you can "preserve" their values with the
+X\fBPRESERVE\fR command.  Also, since function definitions are preserved
+Xbetween calendar iterations, there is no need to redefine them on each
+Xiteration.  Thus, you could use the following sequence:
+X.PP
+X.nf
+X	IF ! defined("initialized")
+X		set initialized 1
+X		set me shell("whoami")
+X		set hostname shell("hostname")
+X		fset func complex_expr()
+X		preserve initialized me hostname
+X	ENDIF
+X.fi
+X.PP
+XThe operation is as follows:  On the first iteration through the script,
+X"initialized" is not defined.  Thus, the commands between \fBIF\fR and
+X\fBENDIF\fR are executed.  The \fBPRESERVE\fR command ensures that the
+Xvalues of initialized, me and hostname are preserved for subsequent
+Xiterations.  On the next iteration, the commands are skipped, since
+Xinitialized has remained defined.  Thus, time-consuming operations which
+Xdo not depend on the value of \fBtoday()\fR are done only once.
+X.PP
+XNote that for efficiency, \fBRemind\fR caches the reminder script
+X(and any \fBINCLUDE\fRd files) in memory when producing a calendar.
+X.PP
+XTimed reminders are sorted and placed into the calendar in time order.
+XThese are followed by non-timed reminders.  \fBRemind\fR automatically
+Xplaces the time of timed reminders in the calendar according to the
+X\fB\-b\fR command-line option.
+X.PP
+X.SH DAEMON MODE
+X.PP
+XIf you use the \fB\-z\fR command-line option, \fBRemind\fR runs in the
+X"daemon" mode.  In this mode, no "normal" reminders are issued.
+XInstead, only timed reminders are collected and queued, and are then
+Xissued whenever they reach their trigger time.
+X.PP
+XIn addition, \fBRemind\fR wakes up every few minutes to check the modification
+Xdate on the reminder script (the filename supplied on the command line.)
+XIf \fBRemind\fR detects that the script has changed, it re-executes itself
+Xin daemon mode, and interprets the changed script.
+X.PP
+XIn daemon mode, \fBRemind\fR also re-reads the remind script when it
+Xdetects that the system date has changed.
+X.PP
+XIn daemon mode, \fBRemind\fR acts as if the \fB\-f\fR option had been used,
+Xso to run in the daemon mode in the background, use:
+X.PP
+X.nf
+X	remind -z .reminders &
+X.fi
+X.PP
+XIf you use \fBsh\fR or \fBbash\fR, you may have to use the "nohup" command
+Xto ensure that the daemon is not killed whn you log out.
+X.PP
+X.SH MISCELLANEOUS
+X.PP
+X.B COMMAND ABBREVIATIONS
+X.PP
+XThe following commands can be abbreviated:
+X.TP
+Xo
+X\fBREM\fR can be omitted - it is implied if no other valid command
+Xis present.
+X.TP
+Xo
+X\fBCLEAR-OMIT-CONTEXT\fR --> \fBCLEAR\fR
+X.TP
+Xo
+X\fBPUSH-OMIT-CONTEXT\fR --> \fBPUSH\fR
+X.TP
+Xo
+X\fBPOP-OMIT-CONTEXT\fR --> \fBPOP\fR
+X.TP
+Xo
+X\fBDUMPVARS\fR --> \fBDUMP\fR
+X.TP
+Xo
+X\fBBANNER\fR --> \fBBAN\fR
+X.TP
+Xo
+X\fBINCLUDE\fR --> \fBINC\fR
+X.PP
+X.B NIFTY EXAMPLES
+X.PP
+XThis section is a sampling of what you can do with \fBRemind\fR.
+X.PP
+X.nf
+X	REM 5 Feb 1991 AT 14:00 +45 *30 \\
+X	RUN mail -s "Meeting at %2" $LOGNAME </dev/null &
+X.fi
+X.PP
+XOn 5 February, 1991, this reminder will mail
+Xyou reminders of a 2:00pm meeting at 1:15,
+X1:45 and 2:00.  The subject of the mail message will be "Meeting at 2:00pm"
+Xand the body of the message will be blank.
+X.PP
+X.nf
+X	REM AT 17:00 RUN echo "5:00pm - GO HOME!" | xless -g +0+0 &
+X.fi
+X.PP
+XThis reminder will pop up an xless window at 5:00pm every day.  The xless
+Xwindow will contain the line "5:00pm - GO HOME!"
+X.PP
+X.nf
+X	REM AT 23:59 RUN (sleep 120; remind -a [filename()]) &
+X.fi
+X.PP
+XThis reminder will run at one minute to midnight.  It will cause a new
+Xremind process to start at one minute past midnight.  This allows you to
+Xhave a continuous reminder service so you can work through the night and
+Xstill get timed reminders for early in the morning.  Note that this
+Xtrick is no longer necessary, providing you run \fBRemind\fR in
+Xdaemon mode.
+X.PP
+X.nf
+X	remind \-c12 /dev/null Jan 1993
+X.fi
+X.PP
+XThis invocation of \fBremind\fR will cause it to print a calendar for
+X1993, with all entries left blank.
+X.PP
+X.nf
+X	REM CAL [trigdate()-date(year(trigdate()), 1, 1)+1]
+X.fi
+X.PP
+XThis example puts an entry in each box of a calendar showing the number
+X(1-365 or 366) of the day of the year.
+X.PP
+X.nf
+X	REM Tue 2 Nov SATISFY (year(trigdate())%4) == 0
+X	IF trigvalid()
+X		REM [trigger(trigdate())] ++5 MSG \\
+X		U.S. Presidential Election!!
+X	ENDIF
+X.fi
+X.PP
+XThis example warns you 5 days ahead of each American presidential
+Xelection.  The first \fBREM\fR command calculates the first Tuesday after
+Xthe first Monday in November.  (This is equivalent to the first
+XTuesday on or after 2 November.)  The \fBSATISFY\fR clause ensures
+Xthat the trigger date is issued only in election years, which are
+Xmultiples of 4.  The second \fBREM\fR command actually issues the
+Xreminder.
+X.SH AUTHOR
+X.PP
+XDavid F. Skoll
+X.SH BUGS
+X.PP
+XDate calculation is a bit "brute force."
+X.PP
+XThe MS-DOS version of \fBRemind\fR does not support queuing or timed
+Xactivation of reminders.
+X.PP
+X\fBRemind\fR has some built-in limits on total line length,
+Xsubstitution buffer length, number of global \fBOMIT\fRs, etc.
+X.PP
+X.SH SEE ALSO
+X.pp
+Xrem, elm, kall
+SHAR_EOF
+$TOUCH -am 1109141292 remind.1 &&
+chmod 0600 remind.1 ||
+echo "restore of remind.1 failed"
+set `wc -c remind.1`;Wc_c=$1
+if test "$Wc_c" != "71460"; then
+	echo original size 71460, current size $Wc_c
+fi
+fi
+echo "End of part 11, continue with part 12"
+exit 0
+
+exit 0 # Just in case...

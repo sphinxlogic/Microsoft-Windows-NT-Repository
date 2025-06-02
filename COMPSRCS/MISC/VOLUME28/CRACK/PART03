@@ -1,0 +1,1975 @@
+From: aem@aber.ac.uk (Alec David Muffett)
+Newsgroups: comp.sources.misc
+Subject: v28i112: crack - The Unix Password Cracker, version 4.1, Part03/05
+Message-ID: <1992Mar18.143847.23911@aber.ac.uk>
+Date: 18 Mar 92 14:38:47 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: 5181c858338f3427fbc8d13540a2577a
+
+Submitted-by: aem@aber.ac.uk (Alec David Muffett)
+Posting-number: Volume 28, Issue 112
+Archive-name: crack/part03
+Environment: UNIX
+Supersedes: crack: Volume 25, Issue 5-9
+
+#! /bin/sh
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 5)."
+# Contents:  Sources/crack-lib.c Sources/crack-pwc.c
+# Wrapped by aem@aberfa on Wed Mar 18 14:08:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Sources/crack-lib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Sources/crack-lib.c'\"
+else
+echo shar: Extracting \"'Sources/crack-lib.c'\" \(14104 characters\)
+sed "s/^X//" >'Sources/crack-lib.c' <<'END_OF_FILE'
+X/*
+X * This program is copyright Alec Muffett 1991 except for some portions of
+X * code in "crack-fcrypt.c" which are copyright Robert Baldwin, Icarus Sparry
+X * and Alec Muffett.  The author(s) disclaims all responsibility or liability
+X * with respect to it's usage or its effect upon hardware or computer
+X * systems, and maintain copyright as set out in the "LICENCE" document which
+X * accompanies distributions of Crack v4.0 and upwards.
+X */
+X
+X#include "crack.h"
+X
+X#define RULE_NOOP	':'
+X#define RULE_PREPEND	'^'
+X#define RULE_APPEND	'$'
+X#define RULE_REVERSE	'r'
+X#define RULE_UPPERCASE	'u'
+X#define RULE_LOWERCASE	'l'
+X#define RULE_PLURALISE	'p'
+X#define RULE_CAPITALISE	'c'
+X#define RULE_DUPLICATE	'd'
+X#define RULE_REFLECT	'f'
+X#define RULE_SUBSTITUTE	's'
+X#define RULE_MATCH	'/'
+X#define RULE_NOT	'!'
+X#define RULE_LT		'<'
+X#define RULE_GT		'>'
+X#define RULE_EXTRACT	'x'
+X#define RULE_OVERSTRIKE	'o'
+X#define RULE_INSERT	'i'
+X#define RULE_EQUALS	'='
+X#define RULE_PURGE	'@'
+X#define RULE_CLASS	'?'	/* class rule? socialist ethic in cracker? */
+X
+Xvoid
+XTrim (string)			/* remove trailing whitespace from a string */
+X    register char *string;
+X{
+X    register char *ptr;
+X
+X    for (ptr = string; *ptr; ptr++);
+X    while ((--ptr >= string) && isspace (*ptr));
+X    *(++ptr) = '\0';
+X}
+X
+Xchar *
+XClone (string)
+X    char *string;
+X{
+X    register char *retval;
+X
+X    retval = (char *) malloc (strlen (string) + 1);
+X    if (retval)
+X    {
+X	strcpy (retval, string);
+X    }
+X    return (retval);
+X}
+X
+Xint
+XSuffix (word, suffix)
+X    char *word;
+X    char *suffix;
+X{
+X    register int i;
+X    register int j;
+X
+X    i = strlen (word);
+X    j = strlen (suffix);
+X
+X    if (i > j)
+X    {
+X	return (STRCMP ((word + i - j), suffix));
+X    } else
+X    {
+X	return (-1);
+X    }
+X}
+X
+Xchar *
+XReverse (str)			/* return a pointer to a reversal */
+X    register char *str;
+X{
+X    register int i;
+X    register int j;
+X    static char area[STRINGSIZE];
+X
+X    j = i = strlen (str);
+X    while (*str)
+X    {
+X	area[--i] = *str++;
+X    }
+X    area[j] = '\0';
+X    return (area);
+X}
+X
+Xchar *
+XUppercase (str)			/* return a pointer to an uppercase */
+X    register char *str;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*str)
+X    {
+X	*(ptr++) = CRACK_TOUPPER (*str);
+X	str++;
+X    }
+X    *ptr = '\0';
+X
+X    return (area);
+X}
+X
+Xchar *
+XLowercase (str)			/* return a pointer to an lowercase */
+X    register char *str;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*str)
+X    {
+X	*(ptr++) = CRACK_TOLOWER (*str);
+X	str++;
+X    }
+X    *ptr = '\0';
+X
+X    return (area);
+X}
+X
+Xchar *
+XCapitalise (str)		/* return a pointer to an capitalised */
+X    register char *str;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X
+X    while (*str)
+X    {
+X	*(ptr++) = CRACK_TOLOWER (*str);
+X	str++;
+X    }
+X
+X    *ptr = '\0';
+X    area[0] = CRACK_TOUPPER (area[0]);
+X    return (area);
+X}
+X
+Xchar *
+XPluralise (string)		/* returns a pointer to a plural */
+X    register char *string;
+X{
+X    register int length;
+X    static char area[STRINGSIZE];
+X
+X    length = strlen (string);
+X    strcpy (area, string);
+X
+X    if (!Suffix (string, "ch") ||
+X	!Suffix (string, "ex") ||
+X	!Suffix (string, "ix") ||
+X	!Suffix (string, "sh") ||
+X	!Suffix (string, "ss"))
+X    {
+X	/* bench -> benches */
+X	strcat (area, "es");
+X    } else if (length > 2 && string[length - 1] == 'y')
+X    {
+X	if (strchr ("aeiou", string[length - 2]))
+X	{
+X	    /* alloy -> alloys */
+X	    strcat (area, "s");
+X	} else
+X	{
+X	    /* gully -> gullies */
+X	    strcpy (area + length - 1, "ies");
+X	}
+X    } else if (string[length - 1] == 's')
+X    {
+X	/* bias -> biases */
+X	strcat (area, "es");
+X    } else
+X    {
+X	/* catchall */
+X	strcat (area, "s");
+X    }
+X
+X    return (area);
+X}
+X
+Xchar *
+XSubstitute (string, old, new)	/* returns pointer to a swapped about copy */
+X    register char *string;
+X    register char old;
+X    register char new;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*string)
+X    {
+X	*(ptr++) = (*string == old ? new : *string);
+X	string++;
+X    }
+X    *ptr = '\0';
+X    return (area);
+X}
+X
+Xchar *
+XPurge (string, target)		/* returns pointer to a purged copy */
+X    register char *string;
+X    register char target;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*string)
+X    {
+X	if (*string != target)
+X	{
+X	    *(ptr++) = *string;
+X	}
+X	string++;
+X    }
+X    *ptr = '\0';
+X    return (area);
+X}
+X/* -------- CHARACTER CLASSES START HERE -------- */
+X
+X/*
+X * this function takes two inputs, a class identifier and a character, and
+X * returns non-null if the given character is a member of the class, based
+X * upon restrictions set out below
+X */
+X
+Xint
+XMatchClass (class, input)
+X    register char class;
+X    register char input;
+X{
+X    register char c;
+X    register int retval;
+X
+X    retval = 0;
+X
+X    switch (class)
+X    {
+X	/* ESCAPE */
+X
+X    case '?':			/* ?? -> ? */
+X	if (input == '?')
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X	/* ILLOGICAL GROUPINGS (ie: not in ctype.h) */
+X
+X    case 'V':
+X    case 'v':			/* vowels */
+X	c = CRACK_TOLOWER (input);
+X	if (strchr ("aeiou", c))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'C':
+X    case 'c':			/* consonants */
+X	c = CRACK_TOLOWER (input);
+X	if (strchr ("bcdfghjklmnpqrstvwxyz", c))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'W':
+X    case 'w':			/* whitespace */
+X	if (strchr ("\t ", input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'P':
+X    case 'p':			/* punctuation */
+X	if (strchr (".`,:;'!?\"", input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'S':
+X    case 's':			/* symbols */
+X	if (strchr ("$%%^&*()-_+=|\\[]{}#@/~", input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X	/* LOGICAL GROUPINGS */
+X
+X    case 'L':
+X    case 'l':			/* lowercase */
+X	if (islower (input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'U':
+X    case 'u':			/* uppercase */
+X	if (isupper (input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'A':
+X    case 'a':			/* alphabetic */
+X	if (isalpha (input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'X':
+X    case 'x':			/* alphanumeric */
+X	if (isalnum (input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    case 'D':
+X    case 'd':			/* digits */
+X	if (isdigit (input))
+X	{
+X	    retval = 1;
+X	}
+X	break;
+X
+X    default:
+X	Log ("MatchClass: unknown class %c\n", class);
+X	return (0);
+X	break;
+X    }
+X
+X    if (isupper (class))
+X    {
+X	return (!retval);
+X    }
+X    return (retval);
+X}
+X
+Xchar *
+XPolyStrchr (string, class)
+X    register char *string;
+X    register char class;
+X{
+X    while (*string)
+X    {
+X	if (MatchClass (class, *string))
+X	{
+X	    return (string);
+X	}
+X	string++;
+X    }
+X    return ((char *) 0);
+X}
+X
+Xchar *
+XPolySubst (string, class, new)	/* returns pointer to a swapped about copy */
+X    register char *string;
+X    register char class;
+X    register char new;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*string)
+X    {
+X	*(ptr++) = (MatchClass (class, *string) ? new : *string);
+X	string++;
+X    }
+X    *ptr = '\0';
+X    return (area);
+X}
+X
+Xchar *
+XPolyPurge (string, class)	/* returns pointer to a purged copy */
+X    register char *string;
+X    register char class;
+X{
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X
+X    ptr = area;
+X    while (*string)
+X    {
+X	if (!MatchClass (class, *string))
+X	{
+X	    *(ptr++) = *string;
+X	}
+X	string++;
+X    }
+X    *ptr = '\0';
+X    return (area);
+X}
+X/* -------- BACK TO NORMALITY -------- */
+X
+Xint
+XChar2Int (character)
+X    char character;
+X{
+X    if (isdigit (character))
+X    {
+X	return (character - '0');
+X    } else if (islower (character))
+X    {
+X	return (character - 'a' + 10);
+X    } else if (isupper (character))
+X    {
+X	return (character - 'A' + 10);
+X    }
+X    return (-1);
+X}
+X
+Xchar *
+XMangle (input, control)		/* returns a pointer to a controlled Mangle */
+X    char *input;
+X    char *control;
+X{
+X    int limit;
+X    register char *ptr;
+X    static char area[STRINGSIZE];
+X    char area2[STRINGSIZE];
+X
+X    area[0] = '\0';
+X    strcpy (area, input);
+X
+X    for (ptr = control; *ptr; ptr++)
+X    {
+X	switch (*ptr)
+X	{
+X	case RULE_NOOP:
+X	    break;
+X	case RULE_REVERSE:
+X	    strcpy (area, Reverse (area));
+X	    break;
+X	case RULE_UPPERCASE:
+X	    strcpy (area, Uppercase (area));
+X	    break;
+X	case RULE_LOWERCASE:
+X	    strcpy (area, Lowercase (area));
+X	    break;
+X	case RULE_CAPITALISE:
+X	    strcpy (area, Capitalise (area));
+X	    break;
+X	case RULE_PLURALISE:
+X	    strcpy (area, Pluralise (area));
+X	    break;
+X	case RULE_REFLECT:
+X	    strcat (area, Reverse (area));
+X	    break;
+X	case RULE_DUPLICATE:
+X	    strcpy (area2, area);
+X	    strcat (area, area2);
+X	    break;
+X	case RULE_GT:
+X	    if (!ptr[1])
+X	    {
+X		Log ("Mangle: '>' missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		limit = Char2Int (*(++ptr));
+X		if (limit < 0)
+X		{
+X		    Log ("Mangle: '>' weird argument in '%s'\n", control);
+X		    return ((char *) 0);
+X		}
+X		if (strlen (area) <= limit)
+X		{
+X		    return ((char *) 0);
+X		}
+X	    }
+X	    break;
+X	case RULE_LT:
+X	    if (!ptr[1])
+X	    {
+X		Log ("Mangle: '<' missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		limit = Char2Int (*(++ptr));
+X		if (limit < 0)
+X		{
+X		    Log ("Mangle: '<' weird argument in '%s'\n", control);
+X		    return ((char *) 0);
+X		}
+X		if (strlen (area) >= limit)
+X		{
+X		    return ((char *) 0);
+X		}
+X	    }
+X	    break;
+X	case RULE_PREPEND:
+X	    if (!ptr[1])
+X	    {
+X		Log ("Mangle: prepend missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		area2[0] = *(++ptr);
+X		strcpy (area2 + 1, area);
+X		strcpy (area, area2);
+X	    }
+X	    break;
+X	case RULE_APPEND:
+X	    if (!ptr[1])
+X	    {
+X		Log ("Mangle: append missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		register char *string;
+X
+X		string = area;
+X		while (*(string++));
+X		string[-1] = *(++ptr);
+X		*string = '\0';
+X	    }
+X	    break;
+X	case RULE_EXTRACT:
+X	    if (!ptr[1] || !ptr[2])
+X	    {
+X		Log ("Mangle: extract missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		register int i;
+X		int start;
+X		int length;
+X
+X		start = Char2Int (*(++ptr));
+X		length = Char2Int (*(++ptr));
+X		if (start < 0 || length < 0)
+X		{
+X		    Log ("Mangle: extract: weird argument in '%s'\n", control);
+X		    return ((char *) 0);
+X		}
+X		strcpy (area2, area);
+X		for (i = 0; length-- && area2[start + i]; i++)
+X		{
+X		    area[i] = area2[start + i];
+X		}
+X		/* cant use strncpy() - no trailing NUL */
+X		area[i] = '\0';
+X	    }
+X	    break;
+X	case RULE_OVERSTRIKE:
+X	    if (!ptr[1] || !ptr[2])
+X	    {
+X		Log ("Mangle: overstrike missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		register int i;
+X
+X		i = Char2Int (*(++ptr));
+X		if (i < 0)
+X		{
+X		    Log ("Mangle: overstrike weird argument in '%s'\n",
+X			 control);
+X		    return ((char *) 0);
+X		} else
+X		{
+X		    ++ptr;
+X		    if (area[i])
+X		    {
+X			area[i] = *ptr;
+X		    }
+X		}
+X	    }
+X	    break;
+X	case RULE_INSERT:
+X	    if (!ptr[1] || !ptr[2])
+X	    {
+X		Log ("Mangle: insert missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		register int i;
+X		register char *p1;
+X		register char *p2;
+X
+X		i = Char2Int (*(++ptr));
+X		if (i < 0)
+X		{
+X		    Log ("Mangle: insert weird argument in '%s'\n",
+X			 control);
+X		    return ((char *) 0);
+X		}
+X		p1 = area;
+X		p2 = area2;
+X		while (i && *p1)
+X		{
+X		    i--;
+X		    *(p2++) = *(p1++);
+X		}
+X		*(p2++) = *(++ptr);
+X		strcpy (p2, p1);
+X		strcpy (area, area2);
+X	    }
+X	    break;
+X	    /* THE FOLLOWING RULES REQUIRE CLASS MATCHING */
+X
+X	case RULE_PURGE:	/* @x or @?c */
+X	    if (!ptr[1] || (ptr[1] == RULE_CLASS && !ptr[2]))
+X	    {
+X		Log ("Mangle: delete missing arguments in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else if (ptr[1] != RULE_CLASS)
+X	    {
+X		strcpy (area, Purge (area, *(++ptr)));
+X	    } else
+X	    {
+X		strcpy (area, PolyPurge (area, ptr[2]));
+X		ptr += 2;
+X	    }
+X	    break;
+X	case RULE_SUBSTITUTE:	/* sxy || s?cy */
+X	    if (!ptr[1] || !ptr[2] || (ptr[1] == RULE_CLASS && !ptr[3]))
+X	    {
+X		Log ("Mangle: subst missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else if (ptr[1] != RULE_CLASS)
+X	    {
+X		strcpy (area, Substitute (area, ptr[1], ptr[2]));
+X		ptr += 2;
+X	    } else
+X	    {
+X		strcpy (area, PolySubst (area, ptr[2], ptr[3]));
+X		ptr += 3;
+X	    }
+X	    break;
+X	case RULE_MATCH:	/* /x || /?c */
+X	    if (!ptr[1] || (ptr[1] == RULE_CLASS && !ptr[2]))
+X	    {
+X		Log ("Mangle: '/' missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else if (ptr[1] != RULE_CLASS)
+X	    {
+X		if (!strchr (area, *(++ptr)))
+X		{
+X		    return ((char *) 0);
+X		}
+X	    } else
+X	    {
+X		if (!PolyStrchr (area, ptr[2]))
+X		{
+X		    return ((char *) 0);
+X		}
+X		ptr += 2;
+X	    }
+X	    break;
+X	case RULE_NOT:		/* !x || !?c */
+X	    if (!ptr[1] || (ptr[1] == RULE_CLASS && !ptr[2]))
+X	    {
+X		Log ("Mangle: '!' missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else if (ptr[1] != RULE_CLASS)
+X	    {
+X		if (strchr (area, *(++ptr)))
+X		{
+X		    return ((char *) 0);
+X		}
+X	    } else
+X	    {
+X		if (PolyStrchr (area, ptr[2]))
+X		{
+X		    return ((char *) 0);
+X		}
+X		ptr += 2;
+X	    }
+X	    break;
+X
+X	    /*
+X	     * alternative use for a boomerang, number 1: a standard throwing
+X	     * boomerang is an ideal thing to use to tuck the sheets under
+X	     * the mattress when making your bed.  The streamlined shape of
+X	     * the boomerang allows it to slip easily 'twixt mattress and
+X	     * bedframe, and it's curve makes it very easy to hook sheets
+X	     * into the gap.
+X	     */
+X
+X	case RULE_EQUALS:	/* =nx || =n?c */
+X	    if (!ptr[1] || !ptr[2] || (ptr[2] == RULE_CLASS && !ptr[3]))
+X	    {
+X		Log ("Mangle: '=' missing argument in '%s'\n", control);
+X		return ((char *) 0);
+X	    } else
+X	    {
+X		register int i;
+X
+X		if ((i = Char2Int (ptr[1])) < 0)
+X		{
+X		    Log ("Mangle: '=' weird argument in '%s'\n", control);
+X		    return ((char *) 0);
+X		}
+X		if (ptr[2] != RULE_CLASS)
+X		{
+X		    ptr += 2;
+X		    if (area[i] != *ptr)
+X		    {
+X			return ((char *) 0);
+X		    }
+X		} else
+X		{
+X		    ptr += 3;
+X		    if (!MatchClass (*ptr, area[i]))
+X		    {
+X			return ((char *) 0);
+X		    }
+X		}
+X	    }
+X	    break;
+X	default:
+X	    Log ("Mangle: unknown command %c in %s\n", *ptr, control);
+X	    return ((char *) 0);
+X	    break;
+X	}
+X    }
+X    if (!area[0])		/* have we deweted de poor widdle fing away? */
+X    {
+X	return ((char *) 0);
+X    }
+X    return (area);
+X}
+END_OF_FILE
+if test 14104 -ne `wc -c <'Sources/crack-lib.c'`; then
+    echo shar: \"'Sources/crack-lib.c'\" unpacked with wrong size!
+fi
+# end of 'Sources/crack-lib.c'
+fi
+if test -f 'Sources/crack-pwc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Sources/crack-pwc.c'\"
+else
+echo shar: Extracting \"'Sources/crack-pwc.c'\" \(22280 characters\)
+sed "s/^X//" >'Sources/crack-pwc.c' <<'END_OF_FILE'
+X/*
+X * This program is copyright Alec Muffett 1991 except for some portions of
+X * code in "crack-fcrypt.c" which are copyright Robert Baldwin, Icarus Sparry
+X * and Alec Muffett.  The author(s) disclaims all responsibility or liability
+X * with respect to it's usage or its effect upon hardware or computer
+X * systems, and maintain copyright as set out in the "LICENCE" document which
+X * accompanies distributions of Crack v4.0 and upwards.
+X */
+X
+X#include "crack.h"
+X
+X#define DOTFILESIZE	1024
+X#define WORDSTACKSIZE	512
+X
+X/*
+X * crack-pwc.c - an optimised password cracker. (c) ADE Muffett, Feb 1992. If
+X * this won't break your password file, it's unlikely that anything else
+X * will.
+X */
+X
+X/* trap a signal on shutdown */
+X
+Xvoid
+XCatchTERM ()
+X{
+X    /* bury magnets */
+X    Log ("Caught a SIGTERM! Commiting suicide...\n");
+X    /* swallow the rapture */
+X    Log ("<argh!>\n");
+X    /* let's gather feathers */
+X    sync ();
+X    /* don't fall on me */
+X    exit (0);
+X    /* 'Fall on Me' by R.E.M. */
+X}
+X/* jump ':' separated fields in an input */
+X
+Xchar *
+XPWSkip (p)
+X    register char *p;
+X{
+X    while (*p && *p != ':')
+X    {
+X	p++;
+X    }
+X    if (*p)
+X    {
+X	*p++ = '\0';
+X    }
+X    return (p);
+X}
+X
+Xchar *
+XArchive (myword)
+X    register char *myword;
+X{
+X    register int i;
+X    register struct DICT *ptr;
+X    static struct DICT *arch_root;
+X
+X    for (ptr = arch_root; ptr; ptr = ptr -> next)
+X    {
+X	if (!STRCMP (ptr -> word, myword))
+X	{
+X	    return (ptr -> word);
+X	}
+X    }
+X
+X    i = strlen (myword);
+X
+X    ptr = (struct DICT *) malloc (sizeof (struct DICT) + i);
+X
+X    if (ptr)
+X    {
+X	strcpy (ptr -> word, myword);
+X	ptr -> word[i] = '\0';
+X	ptr -> next = arch_root;
+X	arch_root = ptr;
+X    } else
+X    {
+X	Log ("Archive/malloc() failed! Fatal lack of memory!\n");
+X	exit (1);
+X    }
+X
+X    return (ptr -> word);
+X}
+X/* parse and store a password entry */
+X
+Xstruct USER *
+XParse (buffer)
+X    register char *buffer;
+X{
+X    register char *p;
+X    register struct USER *retval;
+X
+X    retval = (struct USER *) malloc (sizeof (struct USER));
+X
+X    if (!retval)
+X    {
+X	Log ("Parse/malloc() failed! Fatal lack of memory!\n");
+X	exit (1);
+X    }
+X    retval -> next = retval -> across = NULL;
+X    retval -> passwd_txt = NULL;
+X    retval -> done = 0;
+X    Trim (buffer);
+X
+X    p = PWSkip (buffer);
+X    retval -> filename = Archive (buffer);
+X
+X    p = Clone (p);
+X    if (!p)
+X    {
+X	Log ("Parse/Clone() failed! Fatal lack of memory!\n");
+X	exit (1);
+X    }
+X    retval -> passwd.pw_name = p;
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_passwd = p;
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_uid = atoi (p);
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_gid = atoi (p);
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_gecos = p;
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_dir = p;
+X
+X    p = PWSkip (p);
+X    retval -> passwd.pw_shell = p;
+X
+X    return (retval);
+X}
+X/* load pre-formatted password entries off stdin into linked list */
+X
+Xint
+XLoadData ()
+X{
+X    int i;
+X    char *ptr;
+X    char salt[2];
+X    char buffer[STRINGSIZE];
+X    long int numlines;
+X    long int numentries;
+X    register struct USER *new_element;
+X    register struct USER *current_line;
+X
+X    numlines = 0L;
+X    numentries = 0L;
+X    current_line = NULL;
+X    salt[0] = salt[1] = '*';
+X
+X    while (fgets (buffer, STRINGSIZE, stdin))
+X    {
+X	if (!*buffer || isspace (*buffer))
+X	{
+X	    continue;
+X	}
+X	new_element = Parse (buffer);
+X	ptr = new_element -> passwd.pw_passwd;
+X
+X	if (!ptr[0])
+X	{
+X	    Log ("Warning! %s (%s in %s) has a NULL password!\n",
+X		 new_element -> passwd.pw_name,
+X		 new_element -> passwd.pw_shell,
+X		 new_element -> filename);
+X	    continue;
+X	}
+X	if (strchr (ptr, '*') ||
+X	    strchr (ptr, '!') ||
+X	    strchr (ptr, ' '))
+X	{
+X	    Log ("User %s (in %s) has a locked password:- %s\n",
+X		 new_element -> passwd.pw_name,
+X		 new_element -> filename,
+X		 new_element -> passwd.pw_passwd);
+X	    continue;
+X	}
+X	i = strlen (ptr);
+X
+X	if (i < 13)
+X	{
+X	    Log ("User %s (in %s) has a short pw_passwd field - skipping.\n",
+X		 new_element -> passwd.pw_name,
+X		 new_element -> filename);
+X	    continue;
+X	}
+X	if (i > 13)
+X	{
+X	    Log ("User %s (in %s) has a long pw_passwd field - truncating.\n",
+X		 new_element -> passwd.pw_name,
+X		 new_element -> filename);
+X	    ptr[13] = '\0';
+X	}
+X	numentries++;
+X
+X	if (ptr[0] == salt[0] && ptr[1] == salt[1])
+X	{
+X	    new_element -> across = current_line;
+X	    current_line = new_element;
+X	} else
+X	{
+X	    if (current_line)
+X	    {
+X		current_line -> next = userroot;
+X	    }
+X	    userroot = current_line;
+X	    current_line = new_element;
+X	    numlines++;
+X	    salt[0] = ptr[0];
+X	    salt[1] = ptr[1];
+X	}
+X    }
+X
+X    if (current_line)		/* last one tends to hang about */
+X    {
+X	current_line -> next = userroot;
+X	userroot = current_line;
+X	numlines++;
+X    }
+X    --numlines;
+X
+X    if (numentries)
+X    {
+X	Log ("Loaded %ld password entries with %ld different salts: %d%%\n",
+X	     numentries,
+X	     numlines,
+X	     ((numlines * 100) / numentries));
+X    } else
+X    {
+X	Log ("No input supplied: everything removed by feedback ?\n");
+X    }
+X    return (numentries);
+X}
+X/* and load rules from a standard file into a similar list */
+X
+Xint
+XLoadRules (file, rootpos)
+X    char *file;
+X    struct RULE **rootpos;
+X{
+X    FILE *fp;
+X    int numrules;
+X    struct RULE fencepost;
+X    register struct RULE *addinto;
+X    register struct RULE *scratch;
+X    char buffer[STRINGSIZE];
+X
+X    if (!(fp = fopen (file, "r")))
+X    {
+X	Log ("cannot open rulefile %s\n", file);
+X	perror (file);
+X	return (-1);
+X    }
+X    numrules = 0;
+X    addinto = &fencepost;
+X    addinto -> next = (struct RULE *) 0;
+X
+X    while (fgets (buffer, STRINGSIZE, fp))
+X    {
+X	Trim (buffer);
+X
+X	if (!buffer[0] || buffer[0] == '#')
+X	{
+X	    continue;
+X	}
+X	scratch = (struct RULE *) malloc (sizeof (struct RULE));
+X
+X	if (!scratch)
+X	{
+X	    Log ("LoadRules/malloc() failed! Fatal lack of memory!\n");
+X	    exit (1);
+X	}
+X	scratch -> rule = Clone (buffer);
+X
+X	if (!scratch -> rule)
+X	{
+X	    Log ("LoadRules/Clone() failed! Fatal lack of memory!\n");
+X	    exit (1);
+X	}
+X	scratch -> next = (struct RULE *) 0;
+X	addinto -> next = scratch;
+X	addinto = scratch;
+X	numrules++;
+X    }
+X
+X    fclose (fp);
+X    Log ("Loaded %d rules from '%s'.\n", numrules, file);
+X    *rootpos = fencepost.next;
+X    return (numrules);
+X}
+X/* load a dictionary into a linked list, and sort it */
+X
+Xlong int
+XLoadDict (file, rule, contdict)
+X    char *file;
+X    char *rule;
+X    int contdict;
+X{
+X    int i;
+X    int memfilled;
+X    long int nelem;
+X    long int rejected;
+X    register char *mangle;
+X    register struct DICT *scratch;
+X    char pipebuff[STRINGSIZE];
+X
+X    static FILE *fp;
+X    char buffer[STRINGSIZE];
+X
+X    if (contdict && fp)
+X    {
+X	goto files_open;
+X    }
+X#ifdef COMPRESSION
+X    if (!Suffix (file, ".Z"))
+X    {
+X	sprintf (pipebuff, "%s %s", zcat, file);
+X	if (!(fp = (FILE *) popen (pipebuff, "r")))
+X	{
+X	    perror (pipebuff);
+X	    return (0);
+X	}
+X    } else if (!Suffix (file, ".z"))
+X    {
+X	sprintf (pipebuff, "%s %s", pcat, file);
+X	if (!(fp = (FILE *) popen (pipebuff, "r")))
+X	{
+X	    perror (pipebuff);
+X	    return (0);
+X	}
+X    } else
+X#endif	/* COMPRESSION */
+X    {
+X	pipebuff[0] = '\0';
+X	if (!(fp = fopen (file, "r")))
+X	{
+X	    perror (file);
+X	    return (0);
+X	}
+X    }
+X
+X  files_open:
+X
+X    nelem = 0;
+X    rejected = 0;
+X    memfilled = 0;
+X    dictroot = (struct DICT *) 0;
+X
+X    Log ("%s rule '%s' to file '%s'\n",
+X	 contdict ? "Continuing" : "Applying",
+X	 rule,
+X	 file);
+X
+X    while (fgets (buffer, STRINGSIZE, fp))
+X    {
+X	Trim (buffer);
+X
+X	if (!buffer[0] || buffer[0] == '#')
+X	{
+X	    continue;
+X	}
+X	mangle = Mangle (buffer, rule);
+X
+X	if (!mangle)
+X	{
+X	    rejected++;
+X
+X	    if (verbose_bool)
+X	    {
+X		Log ("Rejected '%s' due to rule specs.\n", buffer);
+X	    }
+X	    continue;
+X	}
+X	if (dictroot && !strncmp (mangle, dictroot -> word, pwlength))
+X	{
+X	    rejected++;
+X
+X	    if (verbose_bool)
+X	    {
+X		Log ("Rejected '%s'; duplicated to %d chars.\n", buffer,
+X		     pwlength);
+X	    }
+X	    continue;
+X	}
+X	i = strlen (mangle);
+X
+X	if (i > pwlength)
+X	{
+X	    i = pwlength;
+X	}
+X	scratch = (struct DICT *) malloc (sizeof (struct DICT) + i);
+X
+X	if (!scratch)
+X	{
+X	    Log ("LoadDict/malloc() failed! Shameful lack of memory!\n");
+X	    memfilled = 1;
+X	    goto words_loaded;
+X	}
+X	strncpy (scratch -> word, mangle, i);
+X	scratch -> word[i] = '\0';
+X	scratch -> next = dictroot;
+X	dictroot = scratch;
+X	nelem++;
+X
+X	if (verbose_bool)
+X	{
+X	    Log ("Loaded '%s' as '%s' using '%s'\n", buffer,
+X		 scratch -> word, rule);
+X	}
+X    }
+X
+X    if (pipebuff[0])
+X    {
+X	pclose (fp);
+X    } else
+X    {
+X	fclose (fp);
+X    }
+X
+X    fp = (FILE *) 0;
+X
+X  words_loaded:
+X
+X    if (nelem == 0)
+X    {
+X	return (0);
+X    }
+X    Log ("Rejected %ld words on loading, %ld words left to sort\n",
+X	 rejected, nelem);
+X
+X    dictroot = (struct DICT *) SortDict (dictroot, nelem);
+X
+X    if (memfilled)
+X    {
+X	nelem = -nelem;
+X    }
+X    return (nelem);		/* not strict number anymore... */
+X}
+X/* lose the current dictionary */
+X
+Xint
+XDropDict ()
+X{
+X    register struct DICT *scratch1;
+X    register struct DICT *scratch2;
+X
+X    scratch1 = dictroot;
+X    while (scratch1)
+X    {
+X	scratch2 = scratch1 -> next;
+X	free (scratch1);
+X	scratch1 = scratch2;
+X    }
+X    return (0);
+X}
+X/*
+X * write a feedback file if there is anything to save - return number
+X * uncracked users
+X */
+X
+Xint
+XFeedBack (log_notdone)
+X    int log_notdone;
+X{
+X    register FILE *fp;
+X    static char fmt[] = "%s:%s:%s:%s\n";
+X    register struct USER *head;
+X    register struct USER *arm;
+X    int done;
+X    int notdone;
+X
+X    notdone = done = 0;
+X
+X    if (verbose_bool)
+X    {
+X	Log ("Sweeping data looking for feedback.\n");
+X    }
+X    fp = (FILE *) 0;
+X
+X    for (head = userroot; head; head = head -> next)
+X    {
+X	for (arm = head; arm; arm = arm -> across)
+X	{
+X	    if (arm -> done)
+X	    {
+X		done++;
+X		/* horrible little hack, vile, sick, I love it */
+X		if (!fp)
+X		{
+X		    if (!(fp = fopen (feedbackfile, "w")))
+X		    {
+X			perror (feedbackfile);
+X			return (-1);
+X		    }
+X		    if (verbose_bool)
+X		    {
+X			Log ("Feedback file opened for writing.\n");
+X		    }
+X		}
+X		fprintf (fp, fmt, feedback_string,
+X			 arm -> passwd.pw_passwd, "Y", arm -> passwd_txt);
+X	    } else
+X	    {
+X		notdone++;
+X		if (log_notdone)
+X		{
+X		    if (!fp)	/* and again !!! heheheheheheh */
+X		    {
+X			if (!(fp = fopen (feedbackfile, "w")))
+X			{
+X			    perror (feedbackfile);
+X			    return (-1);
+X			}
+X			if (verbose_bool)
+X			{
+X			    Log ("Feedback file opened for writing.\n");
+X			}
+X		    }
+X		    /* I think I'm going slightly warped */
+X		    fprintf (fp, fmt, feedback_string,
+X			     arm -> passwd.pw_passwd, "N", "");
+X		}
+X	    }
+X
+X	}
+X    }
+X    if (fp)
+X    {
+X	fclose (fp);
+X	Log ("Closing feedback file.\n");
+X    }
+X    Log ("FeedBack: %d users done, %d users left to crack.\n", done, notdone);
+X    return (notdone);
+X}
+X/* try a chain of users with the same salt */
+X
+Xint
+XTryManyUsers (eptr, guess)	/* returns 0 if all done this chain */
+X    register struct USER *eptr;
+X    char *guess;
+X{
+X    register int retval;
+X    char guess_crypted[STRINGSIZE];
+X
+X    if (eptr -> done && !eptr -> across)
+X    {
+X	return (0);
+X    }
+X    strcpy (guess_crypted, crypt (guess, eptr -> passwd.pw_passwd));
+X
+X    retval = 0;
+X
+X    while (eptr)
+X    {
+X	if (verbose_bool)
+X	{
+X	    Log ("Trying '%s' on %s from line %s\n",
+X		 guess,
+X		 eptr -> passwd.pw_name,
+X		 eptr -> filename);
+X	}
+X	if (!eptr -> done && !STRCMP (guess_crypted, eptr -> passwd.pw_passwd))
+X	{
+X	    PrintGuess (eptr, guess);
+X	}
+X	retval += (!(eptr -> done));
+X	eptr = eptr -> across;
+X    }
+X
+X    return (retval);
+X}
+X/* try a word on an individual */
+X
+Xint
+XTryOneUser (eptr, guess)	/* returns non-null on guessed user */
+X    register struct USER *eptr;
+X    register char *guess;
+X{
+X    if (!guess || !*guess || eptr -> done)
+X    {
+X	return (0);
+X    }
+X    if (verbose_bool)
+X    {
+X	Log ("Trying '%s' on %s from %s\n",
+X	     guess,
+X	     eptr -> passwd.pw_name,
+X	     eptr -> filename);
+X    }
+X    if (strcmp (crypt (guess, eptr -> passwd.pw_passwd),
+X		eptr -> passwd.pw_passwd))
+X    {
+X	return (0);
+X    }
+X    PrintGuess (eptr, guess);
+X
+X    return (1);
+X}
+X/* frontend to TryOneUser() to save hassle */
+X
+Xint
+XWordTry (entry_ptr, guess)
+X    register struct USER *entry_ptr;
+X    register char *guess;
+X{
+X    struct RULE *ruleptr;
+X    register char *mangle;
+X
+X    if (!guess[0] || !guess[1])
+X    {
+X	return (0);
+X    }
+X    for (ruleptr = gecosroot; ruleptr; ruleptr = ruleptr -> next)
+X    {
+X	if (mangle = Mangle (guess, ruleptr -> rule))
+X	{
+X	    if (TryOneUser (entry_ptr, mangle))
+X	    {
+X		return (1);
+X	    }
+X	}
+X    }
+X    return (0);
+X}
+X/* Special manipulations for the GECOS field and dotfiles */
+X
+Xint
+XParseBuffer (entry_ptr, buffer, advanced)
+X    register struct USER *entry_ptr;
+X    char *buffer;
+X    int advanced;
+X{
+X    int wordcount;
+X    register int i;
+X    register int j;
+X    register char *ptr;
+X    char junk[STRINGSIZE];
+X    char *words[WORDSTACKSIZE];
+X
+X    /* zap all punctuation */
+X    for (ptr = buffer; *ptr; ptr++)
+X    {
+X	if (ispunct (*ptr) || isspace (*ptr))
+X	{
+X	    *ptr = ' ';
+X	}
+X    }
+X
+X    /* break up all individual words */
+X    wordcount = 0;
+X    ptr = buffer;
+X    while (*ptr)
+X    {
+X	while (*ptr && isspace (*ptr))
+X	{
+X	    ptr++;
+X	}
+X
+X	if (*ptr)
+X	{
+X	    words[wordcount++] = ptr;
+X	    if (wordcount >= WORDSTACKSIZE)
+X	    {
+X		Log ("ParseBuffer: Abort: Stack Full !\n");
+X		return (0);
+X	    }
+X	}
+X	while (*ptr && !isspace (*ptr))
+X	{
+X	    ptr++;
+X	}
+X
+X	if (*ptr)
+X	{
+X	    *(ptr++) = '\0';
+X	}
+X    }
+X
+X    words[wordcount] = (char *) 0;
+X
+X    /* try all the words individually */
+X    if (verbose_bool)
+X    {
+X	Log ("Trying individual words\n");
+X    }
+X    for (i = 0; i < wordcount; i++)
+X    {
+X	if (WordTry (entry_ptr, words[i]))
+X	{
+X	    return (1);
+X	}
+X    }
+X
+X    if (!advanced)
+X    {
+X	return (0);
+X    }
+X    /* try pairings of words */
+X    if (verbose_bool)
+X    {
+X	Log ("Trying paired words\n");
+X    }
+X    for (j = 1; j < wordcount; j++)
+X    {
+X	for (i = 0; i < j; i++)
+X	{
+X	    /* Skip initials for next pass */
+X	    if (!words[i][1] || !words[j][1])
+X	    {
+X		continue;
+X	    }
+X	    strcpy (junk, words[i]);
+X	    strcat (junk, words[j]);
+X
+X	    if (WordTry (entry_ptr, junk))
+X	    {
+X		return (1);
+X	    }
+X	    strcpy (junk, words[j]);
+X	    strcat (junk, words[i]);
+X
+X	    if (WordTry (entry_ptr, junk))
+X	    {
+X		return (1);
+X	    }
+X	}
+X    }
+X
+X    /* try initials + words */
+X    if (verbose_bool)
+X    {
+X	Log ("Trying initial'ed words\n");
+X    }
+X    for (j = 1; j < wordcount; j++)
+X    {
+X	for (i = 0; i < j; i++)
+X	{
+X	    junk[0] = words[i][0];
+X	    junk[0] = CRACK_TOUPPER (junk[0]);
+X	    strcpy (junk + 1, words[j]);
+X	    if (WordTry (entry_ptr, junk))
+X	    {
+X		return (1);
+X	    }
+X	}
+X    }
+X
+X    return (0);
+X}
+X/* run over password entries looking for passwords */
+X
+Xvoid
+XPass1 ()
+X{
+X    struct USER *head;
+X    char junk[DOTFILESIZE];
+X    register struct USER *this;
+X
+X#ifdef CRACK_DOTFILES
+X#ifdef CRACK_DOTSANE
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X    struct stat sb;
+X#endif	/* CRACK_DOTSANE */
+X    int i;
+X    int j;
+X    FILE *fp;
+X    char filename[STRINGSIZE];
+X    static char *dotfiles[] =
+X    {
+X	".plan",
+X	".project",
+X	".signature",
+X	(char *) 0
+X    };
+X#endif	/* CRACK_DOTFILES */
+X
+X    Log ("Starting pass 1 - password information\n");
+X
+X    for (head = userroot; head; head = head -> next)
+X    {
+X	for (this = head; this; this = this -> across)
+X	{
+X	    strcpy (junk, this -> passwd.pw_gecos);
+X
+X	    if (WordTry (this, this -> passwd.pw_name) ||
+X		ParseBuffer (this, junk, 1))
+X	    {
+X		continue;
+X	    }
+X#ifdef CRACK_DOTFILES
+X	    for (i = 0; dotfiles[i]; i++)
+X	    {
+X		sprintf (filename, "%s/%s", this -> passwd.pw_dir, dotfiles[i]);
+X#ifdef CRACK_DOTSANE
+X		if (stat (filename, &sb) < 0)
+X		{
+X		    continue;
+X		}
+X		if ((!(sb.st_mode & S_IFREG))
+X#ifdef S_IFSOCK
+X		    || ((sb.st_mode & S_IFSOCK) == S_IFSOCK)
+X#endif	/* S_IFSOCK */
+X		    )
+X		{
+X		    continue;
+X		}
+X#endif	/* CRACK_DOTSANE */
+X
+X		if (!(fp = fopen (filename, "r")))
+X		{
+X		    continue;
+X		}
+X		j = fread (junk, 1, DOTFILESIZE, fp);
+X		fclose (fp);
+X
+X		if (j <= 2)
+X		{
+X		    continue;
+X		}
+X		junk[j - 1] = '\0';	/* definite terminator */
+X
+X		if (verbose_bool)
+X		{
+X		    Log ("DOTFILES: Checking %d bytes of %s\n", j, filename);
+X		}
+X		if (ParseBuffer (this, junk, 0))
+X		{
+X		    continue;
+X		}
+X	    }
+X#endif	/* CRACK_DOTFILES */
+X	}
+X    }
+X    return;
+X}
+X
+Xvoid
+XPass2 (dictfile)
+X    char *dictfile;
+X{
+X    int pointuser;
+X    struct USER *headptr;
+X    struct RULE *ruleptr;
+X    struct DICT *dictptr;
+X
+X    Log ("Starting pass 2 - dictionary words\n");
+X    headptr = (struct USER *) 0;
+X    ruleptr = (struct RULE *) 0;
+X
+X    /* check if we are recovering from a crash */
+X    if (recover_bool)
+X    {
+X	recover_bool = 0;	/* switch off */
+X
+X	for (ruleptr = ruleroot;
+X	     ruleptr && strcmp (ruleptr -> rule, old_rule);
+X	     ruleptr = ruleptr -> next);
+X
+X	if (!ruleptr)
+X	{
+X	    Log ("Fatal: Ran off end of list looking for rule '%s'\n",
+X		 old_rule);
+X	    exit (1);
+X	}
+X	for (headptr = userroot;/* skip right number of users */
+X	     headptr && old_usernum--;
+X	     headptr = headptr -> next);
+X
+X	if (!headptr)
+X	{
+X	    Log ("Fatal: Ran off end of list looking for user '%s'\n",
+X		 old_username);
+X	    exit (1);
+X	}
+X    }
+X    /* start iterating here */
+X    for (ruleptr = (ruleptr ? ruleptr : ruleroot);
+X	 ruleptr;
+X	 ruleptr = ruleptr -> next)
+X    {
+X	long int rval;
+X	int continue_dict;
+X
+X	continue_dict = 0;
+X
+X      load_dict:
+X	rval = LoadDict (dictfile, ruleptr -> rule, continue_dict);
+X
+X	if (rval == 0)
+X	{
+X	    Log ("Oops! I got an empty dictionary! Skipping rule '%s'!\n",
+X		 ruleptr -> rule);
+X	    continue;
+X	}
+X	pointuser = 0;
+X
+X	/* iterate all the users */
+X	for (headptr = (headptr ? headptr : userroot);
+X	     headptr;
+X	     headptr = headptr -> next)
+X	{
+X	    SetPoint (dictfile,
+X		      ruleptr -> rule,
+X		      pointuser++,
+X		      headptr -> passwd.pw_name);
+X
+X	    /* iterate all the words */
+X	    for (dictptr = dictroot;
+X		 dictptr;
+X		 dictptr = dictptr -> next)
+X	    {
+X		/* skip repeated words... */
+X		if (!TryManyUsers (headptr, dictptr -> word))
+X		{
+X		    break;
+X		}
+X	    }
+X	}
+X
+X	/* free up memory */
+X	DropDict ();
+X
+X	/* write feedback file */
+X	if (!FeedBack (0))
+X	{
+X	    Log ("FeedBack: All Users Are Cracked! Bloody Hell!\n");
+X	    return;
+X	}
+X	/* on next pass, start from top of user list */
+X	headptr = (struct USER *) 0;
+X
+X	/* did we REALLY finish this dictionary ? */
+X	if (rval < 0)
+X	{
+X	    continue_dict = 1;
+X	    goto load_dict;
+X	}
+X    }
+X}
+X
+Xint
+Xmain (argc, argv)
+X    int argc;
+X    char *argv[];
+X{
+X    int i;
+X    long t;
+X    int uerr;
+X    int die_bool = 0;
+X    FILE *fp;
+X    char *crack_out;
+X    extern int optind;
+X    extern char *optarg;
+X    static char getopt_string[] = "i:fX:n:r:vml:";
+X
+X    uerr = 0;
+X
+X    if (argc == 1)
+X    {
+X	uerr++;
+X    }
+X    while ((i = getopt (argc, argv, getopt_string)) != EOF)
+X    {
+X	switch (i)
+X	{
+X	case 'i':
+X	    strcpy (input_file, optarg);
+X	    if (!freopen (input_file, "r", stdin))
+X	    {
+X		perror (input_file);
+X		exit (1);
+X	    }
+X	    if (!strncmp (input_file, "/tmp/pw.", 7))
+X	    {
+X		unlink (input_file);
+X	    }
+X	    break;
+X	case 'm':
+X	    mail_bool = 1;
+X	    break;
+X	case 'f':
+X	    foreground_bool = 1;
+X	    break;
+X	case 'X':
+X	    remote_bool = 1;
+X	    strcpy (supplied_name, optarg);
+X	    break;
+X	case 'l':
+X	    pwlength = atoi (optarg);
+X	    break;
+X	case 'n':
+X	    nice_value = atoi (optarg);
+X	    nice (nice_value);
+X	    break;
+X	case 'r':
+X	    recover_bool = 1;
+X	    strcpy (recover_file, optarg);
+X	    break;
+X	case 'v':
+X	    verbose_bool = 1;
+X	    break;
+X	default:
+X	case '?':
+X	    uerr++;
+X	    break;
+X	}
+X    }
+X
+X    if (optind >= argc)
+X    {
+X	uerr++;
+X    }
+X    if (uerr)
+X    {
+X	fprintf (stderr,
+X		 "Usage:\t%s -%s dictfile [dictfile...]\n",
+X		 argv[0],
+X		 getopt_string);
+X	exit (1);
+X    }
+X    pid = getpid ();
+X
+X    if (gethostname (this_hostname, STRINGSIZE))
+X    {
+X	perror ("gethostname");
+X    }
+X    if (!(crack_out = (char *) getenv ("CRACK_OUT")))
+X    {
+X	crack_out = ".";
+X    }
+X    sprintf (opfile, "%s/out.%s%d", crack_out, this_hostname, pid);
+X
+X    if (remote_bool)
+X    {
+X	sprintf (diefile, "%s", supplied_name);
+X    } else
+X    {
+X	sprintf (diefile, "%s/D%s%d", runtime, this_hostname, pid);
+X    }
+X    sprintf (pointfile, "%s/P%s%d", runtime, this_hostname, pid);
+X    sprintf (feedbackfile, "%s/F%s%d", runtime, this_hostname, pid);
+X
+X    if (!foreground_bool)
+X    {
+X	if (!freopen (opfile, "w", stdout))
+X	{
+X	    perror ("freopen(stdout)");
+X	    exit (1);
+X	}
+X	if (!freopen (opfile, "a", stderr))
+X	{
+X	    perror ("freopen(stderr)");
+X	    exit (1);
+X	}
+X    }
+X    /*
+X     * don't generate a die file unless we are not 'attached' to a
+X     * terminal...  except when we are remote as well...
+X     */
+X
+X    time (&t);
+X
+X    if (!foreground_bool || (foreground_bool && remote_bool))
+X    {
+X	if (!(fp = fopen (diefile, "w")))
+X	{
+X	    perror (diefile);
+X	    exit (1);
+X	}
+X	die_bool = 1;
+X	fprintf (fp, "#!/bin/sh\n");
+X	fprintf (fp, "# ID=%s.%d start=%s", this_hostname, pid, ctime (&t));
+X	fprintf (fp, "kill -TERM %d && rm $0", pid);
+X	fclose (fp);
+X	chmod (diefile, 0700);
+X    }
+X    Log ("Crack v%s: The Password Cracker, (c) Alec D.E. Muffett, 1992\n",
+X	 version);
+X
+X#ifdef FCRYPT
+X    init_des ();
+X#endif
+X
+X    /* Quick, verify that we are sane ! */
+X
+X    if (strcmp (crypt ("fredfred", "fredfred"), "frxWbx4IRuBBA"))
+X    {
+X	Log ("Version of crypt() being used internally is not compatible with standard.\n");
+X	Log ("This could be due to byte ordering problems - see the comments in Sources/conf.h\n");
+X	Log ("If there is another reason for this, edit the source to remove this assertion.\n");
+X	Log ("Terminating...\n");
+X	exit (0);
+X    }
+X#ifndef AMIGA
+X    signal (SIGTERM, CatchTERM);
+X#endif
+X
+X    Log ("Loading Data, host=%s pid=%d\n", this_hostname, pid);
+X
+X    if (LoadData () <= 0)
+X    {
+X	Log ("Nothing to Crack. Exiting...\n");
+X	exit (0);
+X    }
+X    if (LoadRules (rulefile, &ruleroot) < 0 ||
+X	LoadRules (gecosfile, &gecosroot) < 0)
+X    {
+X	exit (1);
+X    }
+X    if (!recover_bool)
+X    {
+X	/* We are starting afresh ! Ah, the birds in May ! */
+X	Pass1 ();
+X
+X	if (!FeedBack (0))
+X	{
+X	    Log ("FeedBack: information: all users are cracked after gecos pass\n");
+X	    goto finish_crack;
+X	}
+X    } else
+X    {
+X	int rval;
+X
+X	if (rval = GetPoint (recover_file))
+X	{
+X	    Log ("Recovery from file %s not permitted on this host [code %d]\n",
+X		 recover_file,
+X		 rval);
+X	    exit (0);
+X
+X	}
+X	/* Some spodulous creep pulled our plug... */
+X	while ((optind < argc) && strcmp (argv[optind], old_dictname))
+X	{
+X	    optind++;
+X	}
+X    }
+X
+X    for (i = optind; i < argc; i++)
+X    {
+X	Pass2 (argv[i]);
+X    }
+X
+X    Log ("Tidying up files...\n");
+X    FeedBack (1);
+X
+X  finish_crack:
+X
+X    if (die_bool)
+X    {
+X	unlink (diefile);
+X    }
+X    unlink (pointfile);
+X
+X    Log ("Done.\n");
+X
+X    return (0);
+X}
+END_OF_FILE
+if test 22280 -ne `wc -c <'Sources/crack-pwc.c'`; then
+    echo shar: \"'Sources/crack-pwc.c'\" unpacked with wrong size!
+fi
+# end of 'Sources/crack-pwc.c'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

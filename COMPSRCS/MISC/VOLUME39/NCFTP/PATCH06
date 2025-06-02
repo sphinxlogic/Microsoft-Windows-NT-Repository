@@ -1,0 +1,797 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i092:  ncftp - Alternative User Interface for FTP, v1.5, Patch06
+Message-ID: <1993Sep20.165319.17049@sparky.sterling.com>
+X-Md4-Signature: 233ca844591a35914a701745646a6167
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Mon, 20 Sep 1993 16:53:19 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 92
+Archive-name: ncftp/patch06
+Environment: UNIX, ANSI-C, !SVR4
+Patch-To: ncftp: Volume 39, Issue 53-57
+
+This is the sixth official patch to ncftp 1.5.  This patch fixes 
+a bug in 'put' adds SCO Xenix support, and some other little things.
+
+As usual, you'll need the sources with all the previous patches applied
+for this to work.
+ 
+There are supposed to be tabs in this patch. Make sure your newsreader isn't
+converting them to spaces; if you have problems you may want to check to see
+if your 'patch' program can handle munged tabs (like patch -l, perhaps).
+ 
+I'll put up the whole 1.5.6 distribution up for ftp as:
+  cse.unl.edu:/pub/mgleason/ncftp156.tar.z
+Don't call during business hours -- you won't be able to download it.
+
+ * v1.5.6 - September 20, 1993.
+ *  Fixed bug in put, caused by "indent."  Checking for '.gz' extension
+ *  for gzip in addition to '.z'.  A little better at preserving the
+ *  transfer type.  Changed a syslog() call to use than 6 arguments,
+ *  and reporting the full remote path to the system log now.  Have to
+ *  explicitly define GZCAT in order to try paging gzip files now.
+ *  Setting the current hostname correctly if using the gateway code.
+ *  A lot of hacks added for SCO Xenix support: 1.  Can add -DNO_STRSTR
+ *  to use own strstr();  2.  Can add -DNO_STRFTIME to make % flags in the
+ *  prompt optional;  3. Can add -DNO_RENAME if you do not have rename(),
+ *  or rename() doesn't work;  4. Added PTRTYPE if void ptrs are a problem.
+ */
+
+diff -c ./Makefile ../ncftp156/Makefile
+*** ./Makefile	Thu Sep 16 20:21:31 1993
+--- ../ncftp156/Makefile	Mon Sep 20 00:03:50 1993
+***************
+*** 171,176 ****
+--- 171,179 ----
+  	-@ls -l $(NAME)
+  	-@echo 'Done.'
+  
++ clean:
++ 	rm -f $(OBJS) $(NAME)
++ 
+  # Dependencies:
+  cmds.o: cmds.c 
+  cmds.o: sys.h 
+diff -c ./README ../ncftp156/README
+*** ./README	Thu Sep 16 20:21:31 1993
+--- ../ncftp156/README	Mon Sep 20 00:03:50 1993
+***************
+*** 114,119 ****
+--- 114,121 ----
+      SCO Unix:  Add -DSCO324 or -DSCO322 (as appropriate) to SDEFS,
+        and -lsocket to LIBS.
+  
++     SCO Xenix 2.3.4: Add -DSCOXNX to SDEFS and add "-lsocket -ldir" to LIBS.
++ 
+      Bull DPX/2: Add -DBULL to SDEFS, add -linet to LIBS, and
+        use gcc.
+  
+***************
+*** 175,180 ****
+--- 177,196 ----
+  a remote host.  I'm told that this happens because of some problem in System
+  V's sockets don't like fprintf (and memcpy).
+  
++ *  Add -DPTRTYPE=char if your pre-ANSI compiler complains about the
++ way malloc() or free() are used, and in general does not like (void *)
++ as a generic pointer type.
++ 
++ *  Add -DNO_STRFTIME if your system does not have strftime().  If you do,
++ we won't try to use it.  This means, however, you cannot use ``%'' values
++ in your prompt.
++ 
++ *  Add -DNO_RENAME if your system does not have rename() (or the one it
++ has is broken).  If you do, we will use our own.
++ 
++ * Add -DNO_STRSTR if your system does not have strstr().  If you do, we
++ will use our own.
++ 
+  *  (Optional) Add -DGETCWDSIZET if your system's getcwd() takes a size_t
+  as the second parameter instead of an int.
+  
+***************
+*** 201,206 ****
+--- 217,227 ----
+  ------------------------
+  
+  Add these as applicable to the PDEFS line in the Makefile.
++ 
++ * -DGZCAT="path": If you have the GNU gzip package installed on your system,
++ 	the program can try paging remote files compressed with gzip _and_ 
++ 	compress (instead of just compress).  Add -DGZCAT=\"/full/path/to/zcat\"
++ 	with GZCAT set to the path name of GNU's zcat/gzcat.
+  
+  *   -DCURSES:  Uses curses library to display boldface, underline, etc.
+      By default ncftp uses hard-coded ANSI escapes (^[[1m etc.) to
+diff -c ./cmds.c ../ncftp156/cmds.c
+*** ./cmds.c	Thu Sep 16 20:21:23 1993
+--- ../ncftp156/cmds.c	Mon Sep 20 00:03:49 1993
+***************
+*** 333,339 ****
+  			(void) printf("%s\n", globerr);
+  			if (gargs) {
+  				blkfree(gargs);
+! 				free(gargs);
+  			}
+  			continue;
+  		}
+--- 333,339 ----
+  			(void) printf("%s\n", globerr);
+  			if (gargs) {
+  				blkfree(gargs);
+! 				Free(gargs);
+  			}
+  			continue;
+  		}
+***************
+*** 350,356 ****
+  		}
+  		if (gargs != NULL) {
+  			blkfree(gargs);
+! 			free(gargs);
+  		}
+  	}
+  	(void) Signal(SIGINT, oldintr);
+--- 350,356 ----
+  		}
+  		if (gargs != NULL) {
+  			blkfree(gargs);
+! 			Free(gargs);
+  		}
+  	}
+  	(void) Signal(SIGINT, oldintr);
+***************
+*** 412,418 ****
+  	string local_file;
+  	char remote_file[256];
+  	char *cp;
+! 	int oldtype = curtype;
+  
+  	/* paging mode is set if the command name is 'page' or 'more.' */
+  	paging = (**argv != 'g');
+--- 412,419 ----
+  	string local_file;
+  	char remote_file[256];
+  	char *cp;
+! 	int oldtype = curtype, try_zcat;
+! 	size_t len;
+  
+  	/* paging mode is set if the command name is 'page' or 'more.' */
+  	paging = (**argv != 'g');
+***************
+*** 429,441 ****
+  		return CMDERR;
+  
+  	if (paging) {
+! 		size_t len = strlen(remote_file);
+  
+! 		/* Run compressed remote files through zcat, then the pager. */
+! 		if (strlen(remote_file) > (size_t)2 &&
+! 			(remote_file[len - 1] == 'Z' || remote_file[len - 1] == 'z') &&
+! 			remote_file[len - 2] == '.')
+! 		{
+  			(void) _settype("b");
+  			(void) sprintf(local_file, "|%s ", ZCAT);
+  			argv[2] = Strncat(local_file, pager);
+--- 430,465 ----
+  		return CMDERR;
+  
+  	if (paging) {
+! 		try_zcat = 0;
+! 		len = strlen(remote_file);
+  
+! 		if (len > (size_t) 2) {
+!  		    if (remote_file[len-2] == '.') {
+! 				/* Check for .Z files. */
+! 				if (remote_file[len-1] == 'Z')
+! 					try_zcat = 1;
+! #ifdef GZCAT
+! 				/* Check for .z (gzip) files. */
+! 				if (remote_file[len-1] == 'z')
+! 					try_zcat = 1;
+! #endif	/* GZCAT */
+! 			}
+! 		}
+! 
+! #ifdef GZCAT
+! 		if (len > (size_t) 3) {
+! 			/* Check for ".gz" (gzip) files. */
+! 			if (strcmp(remote_file + len - 3, ".gz") == 0)
+! 				try_zcat = 1;
+! 		}
+! #endif	/* GZCAT */
+! 
+! 		/* Run compressed remote files through zcat, then the pager.
+! 		 * If GZCAT was defined, we also try paging gzipped files.
+! 		 * Note that ZCAT is defined to be GZCAT if you defined
+! 		 * GZCAT.
+! 		 */
+!  		if (try_zcat) {
+  			(void) _settype("b");
+  			(void) sprintf(local_file, "|%s ", ZCAT);
+  			argv[2] = Strncat(local_file, pager);
+***************
+*** 1242,1248 ****
+  		(void) printf("%s: %s\n", *cpp, globerr);
+  		if (globbed) {
+  			blkfree(globbed);
+! 			free(globbed);
+  		}
+  		return (0);
+  	}
+--- 1266,1272 ----
+  		(void) printf("%s: %s\n", *cpp, globerr);
+  		if (globbed) {
+  			blkfree(globbed);
+! 			Free(globbed);
+  		}
+  		return (0);
+  	}
+***************
+*** 1251,1257 ****
+  		/* don't waste too much memory */
+  		if (*globbed) {
+  			blkfree(globbed);
+! 			free(globbed);
+  		}
+  	}
+  	return (1);
+--- 1275,1281 ----
+  		/* don't waste too much memory */
+  		if (*globbed) {
+  			blkfree(globbed);
+! 			Free(globbed);
+  		}
+  	}
+  	return (1);
+***************
+*** 1811,1816 ****
+--- 1835,1843 ----
+  #ifdef NO_TIPS
+  	DStrs[nDStrs++] = "NO_TIPS";
+  #endif
++ #ifdef GZCAT
++ 	DStrs[nDStrs++] = "GZCAT";
++ #endif
+  #ifdef NO_UTIMEH 
+  	DStrs[nDStrs++] = "NO_UTIMEH";
+  #endif
+***************
+*** 1823,1828 ****
+--- 1850,1864 ----
+  #ifdef NO_MKTIME
+  	DStrs[nDStrs++] = "NO_MKTIME";
+  #endif
++ #ifdef NO_STRSTR
++ 	DStrs[nDStrs++] = "NO_STRSTR";
++ #endif
++ #ifdef NO_STRFTIME
++ 	DStrs[nDStrs++] = "NO_STRFTIME";
++ #endif
++ #ifdef NO_RENAME
++ 	DStrs[nDStrs++] = "NO_RENAME";
++ #endif
+  #ifdef TRY_ABOR
+  	DStrs[nDStrs++] = "TRY_ABOR";
+  #endif
+***************
+*** 1884,1890 ****
+  		b = a->next;
+  		if (a->string)
+  			free(a->string);    /* free string */
+! 		free(a);                /* free node */
+  		a = b;
+  	}
+  	lshead = lstail = NULL;
+--- 1920,1926 ----
+  		b = a->next;
+  		if (a->string)
+  			free(a->string);    /* free string */
+! 		Free(a);         /* free node */
+  		a = b;
+  	}
+  	lshead = lstail = NULL;
+diff -c ./defaults.h ../ncftp156/defaults.h
+*** ./defaults.h	Thu Sep 16 20:21:30 1993
+--- ../ncftp156/defaults.h	Mon Sep 20 00:03:49 1993
+***************
+*** 18,24 ****
+  
+  #ifndef ZCAT					/* Usually "zcat," but use the full pathname */
+  								/* if possible. */
+! #define ZCAT "zcat"
+  #endif
+  
+  #ifndef MAX_XFER_BUFSIZE
+--- 18,30 ----
+  
+  #ifndef ZCAT					/* Usually "zcat," but use the full pathname */
+  								/* if possible. */
+! #ifdef GZCAT					/* If you said you had gnu's zcat, use it
+! 								 * since it can do .Z files too.
+! 								 */
+! #	define ZCAT GZCAT
+! #else
+! #	define ZCAT "zcat"
+! #endif
+  #endif
+  
+  #ifndef MAX_XFER_BUFSIZE
+diff -c ./ftp.c ../ncftp156/ftp.c
+*** ./ftp.c	Thu Sep 16 20:21:24 1993
+--- ../ncftp156/ftp.c	Mon Sep 20 00:03:49 1993
+***************
+*** 790,811 ****
+  	}
+  	
+  	/* Save transfers to the logfile. */
+      if (logf != NULL) {
+- 		/* if a simple path is given, try to log the full path */
+- 		if (rindex(remote, '/') == NULL && cwd != NULL) {
+- 			(void) sprintf(str, "%s/%s", cwd, remote);
+- 			 cp = str;
+- 		} else
+- 			cp = remote;
+  		(void) fprintf(logf, "\t-> \"%s\" %s, %.2f %s", cp, direction, bs, bsstr);
+      } 
+  #ifdef SYSLOG
+  	if (direction[0] == 'r')
+! 		syslog (LOG_INFO, "%s %s %s as %s from %s (%ld bytes).",
+! 			uinfo.username, direction, remote, local, hostname, bytes);
+  	else
+! 		syslog (LOG_INFO, "%s %s %s as %s to %s (%ld bytes).",
+! 			uinfo.username, direction, local, remote, hostname, bytes);
+  #endif
+  }   /* end_progress */
+  
+--- 790,811 ----
+  	}
+  	
+  	/* Save transfers to the logfile. */
++ 	/* if a simple path is given, try to log the full path */
++ 	if (rindex(remote, '/') == NULL && cwd != NULL) {
++ 		(void) sprintf(str, "%s/%s", cwd, remote);
++ 		 cp = str;
++ 	} else
++ 		cp = remote;
+      if (logf != NULL) {
+  		(void) fprintf(logf, "\t-> \"%s\" %s, %.2f %s", cp, direction, bs, bsstr);
+      } 
+  #ifdef SYSLOG
+  	if (direction[0] == 'r')
+! 		syslog (LOG_INFO, "%s received %s as %s from %s (%ld bytes).",
+! 			uinfo.username, cp, local, hostname, bytes);
+  	else
+! 		syslog (LOG_INFO, "%s sent %s as %s to %s (%ld bytes).",
+! 			uinfo.username, local, cp, hostname, bytes);
+  #endif
+  }   /* end_progress */
+  
+***************
+*** 939,945 ****
+  #else
+  	 if (remote) {
+  		 (void) sprintf(str, "%s %s", cmd, remote);
+! 		 if (command(str) == PRELIM) {
+  			 (void) Signal(SIGINT, oldintr);
+  			 if (oldintp)
+  				 (void) Signal(SIGPIPE, oldintp);
+--- 939,945 ----
+  #else
+  	 if (remote) {
+  		 (void) sprintf(str, "%s %s", cmd, remote);
+! 		 if (command(str) != PRELIM) {
+  			 (void) Signal(SIGINT, oldintr);
+  			 if (oldintp)
+  				 (void) Signal(SIGPIPE, oldintp);
+***************
+*** 947,953 ****
+  			 goto xx;
+  		 }
+  	 } else {
+! 		 if (command(cmd) == PRELIM) {
+  			 (void) Signal(SIGINT, oldintr);
+  			 if (oldintp)
+  				 (void) Signal(SIGPIPE, oldintp);
+--- 947,953 ----
+  			 goto xx;
+  		 }
+  	 } else {
+! 		 if (command(cmd) != PRELIM) {
+  			 (void) Signal(SIGINT, oldintr);
+  			 if (oldintp)
+  				 (void) Signal(SIGPIPE, oldintp);
+***************
+*** 1136,1142 ****
+  
+  int SetToAsciiForLS(int is_retr, int currenttype)
+  {
+! 	int oldt = 0, oldv;
+  
+  	if (!is_retr) {
+  		if (currenttype != TYPE_A) {
+--- 1136,1142 ----
+  
+  int SetToAsciiForLS(int is_retr, int currenttype)
+  {
+! 	int oldt = -1, oldv;
+  
+  	if (!is_retr) {
+  		if (currenttype != TYPE_A) {
+***************
+*** 1383,1394 ****
+  {
+  	int oldv;
+  
+! 	if (oldtype) {
+  		oldv = verbose;
+  		if (!debug)
+  			verbose = V_QUIET;
+! 		if (oldtype == TYPE_I)
+! 			(void) setbinary(0, NULL);
+  		verbose = oldv;
+  	}
+  }	/* ResetOldType */
+--- 1383,1393 ----
+  {
+  	int oldv;
+  
+! 	if (oldtype >= 0) {
+  		oldv = verbose;
+  		if (!debug)
+  			verbose = V_QUIET;
+! 		(void) SetTypeByNumber(oldtype);
+  		verbose = oldv;
+  	}
+  }	/* ResetOldType */
+***************
+*** 1500,1506 ****
+  	}	
+  	CloseData();
+  	(void) getreply(0);
+- 	ResetOldType(oldtype);
+  
+  	goto xx;
+  
+--- 1499,1504 ----
+***************
+*** 1510,1516 ****
+  
+  	(void) Signal(SIGPIPE, SIG_IGN);	/* Don't bug us while aborting. */
+  	(void) Signal(SIGINT, SIG_IGN);
+- 	ResetOldType(oldtype);
+  	if (!cpend || !cout) goto xx;
+  	(void) fprintf(cout,"%c%c",IAC,IP);
+  	(void) fflush(cout); 
+--- 1508,1513 ----
+***************
+*** 1554,1559 ****
+--- 1551,1557 ----
+  	if (oldintp)
+  		(void) Signal(SIGPIPE, oldintp);
+  	dbprintf("recvrequest result = %d.\n", result);
++ 	ResetOldType(oldtype);
+  	return (result);
+  }	/* recvrequest */
+  
+diff -c ./ftprc.c ../ncftp156/ftprc.c
+*** ./ftprc.c	Thu Sep 16 20:21:24 1993
+--- ../ncftp156/ftprc.c	Mon Sep 20 00:03:49 1993
+***************
+*** 133,139 ****
+  			}
+  			++nSites;
+  		} else {
+! 			free(s);
+  		}
+  	}
+  }	/* AddNewSitePtr */
+--- 133,139 ----
+  			}
+  			++nSites;
+  		} else {
+! 			Free(s);
+  		}
+  	}
+  }	/* AddNewSitePtr */
+diff -c ./glob.c ../ncftp156/glob.c
+*** ./glob.c	Thu Sep 16 20:21:25 1993
+--- ../ncftp156/glob.c	Mon Sep 20 00:03:49 1993
+***************
+*** 7,12 ****
+--- 7,13 ----
+  
+  #include "sys.h"
+  #include <sys/param.h>
++ #include <sys/types.h>
+  #include <sys/stat.h>
+  
+  /* Dir.h.  Try <sys/dir.h> (add -DSYSDIRH) if <dirent.h> doesn't exist. */
+diff -c ./main.c ../ncftp156/main.c
+*** ./main.c	Thu Sep 16 20:21:26 1993
+--- ../ncftp156/main.c	Mon Sep 20 00:03:49 1993
+***************
+*** 7,13 ****
+  
+  #define _main_c_
+  
+! #define FTP_VERSION "1.5.5 (September 16, 1993)"
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+--- 7,13 ----
+  
+  #define _main_c_
+  
+! #define FTP_VERSION "1.5.6 (September 20, 1993)"
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+***************
+*** 655,660 ****
+--- 655,661 ----
+  	} else 
+  		(void) strcpy(prompt2, prompt);
+  	
++ #ifndef NO_STRFTIME
+  	if (percent_flags) {
+  		/*	only strftime if the user requested it (with a %something),
+  			otherwise don't waste time doing nothing. */
+***************
+*** 662,667 ****
+--- 663,669 ----
+  		(void) Strncpy(str, prompt2);
+  		(void) strftime(prompt2, sizeof(str), str, localtime(&tyme));
+  	}
++ #endif
+  	epromptlen = (size_t) ((long) strlen(lastlinestart) - (long) epromptlen);
+  	return (prompt2);
+  }	/* strprompt */
+***************
+*** 876,882 ****
+  			}
+  			(void) printf("\n");
+  		}
+! 		free(cmdnames);
+  	} else if (helpall) {
+  		/* Really intended to debug the help strings. */
+  		for (c = cmdtab; c->c_name != NULL; c++) {
+--- 878,884 ----
+  			}
+  			(void) printf("\n");
+  		}
+! 		Free(cmdnames);
+  	} else if (helpall) {
+  		/* Really intended to debug the help strings. */
+  		for (c = cmdtab; c->c_name != NULL; c++) {
+diff -c ./open.c ../ncftp156/open.c
+*** ./open.c	Thu Sep 16 20:21:26 1993
+--- ../ncftp156/open.c	Mon Sep 20 00:03:49 1993
+***************
+*** 288,296 ****
+  
+  #ifdef GATEWAY
+  	/* Try connecting to the gateway host. */
+! 	if (*gateway)
+  		hErr = hookup(gateway, openopt->port);
+! 	else
+  #endif
+  		hErr = hookup(openopt->hostname, openopt->port);
+  	
+--- 288,297 ----
+  
+  #ifdef GATEWAY
+  	/* Try connecting to the gateway host. */
+! 	if (*gateway) {
+  		hErr = hookup(gateway, openopt->port);
+! 		(void) Strncpy(hostname, openopt->hostname);
+! 	} else
+  #endif
+  		hErr = hookup(openopt->hostname, openopt->port);
+  	
+diff -c ./patchlevel.h ../ncftp156/patchlevel.h
+*** ./patchlevel.h	Thu Sep 16 20:21:31 1993
+--- ../ncftp156/patchlevel.h	Mon Sep 20 00:03:49 1993
+***************
+*** 147,150 ****
+--- 147,162 ----
+   *
+   * v1.5.5 - September 16, 1993.
+   *  Fixed a bug where a key function wasn't returning it's results.
++  *
++  * v1.5.6 - September 20, 1993.
++  *  Fixed bug in put, caused by "indent."  Checking for '.gz' extension
++  *  for gzip in addition to '.z'.  A little better at preserving the
++  *  transfer type.  Changed a syslog() call to use than 6 arguments,
++  *  and reporting the full remote path to the system log now.  Have to
++  *  explicitly define GZCAT in order to try paging gzip files now.
++  *  Setting the current hostname correctly if using the gateway code.
++  *  A lot of hacks added for SCO Xenix support: 1.  Can add -DNO_STRSTR
++  *  to use own strstr();  2.  Can add -DNO_STRFTIME to make % flags in the
++  *  prompt optional;  3. Can add -DNO_RENAME if you do not have rename(),
++  *  or rename() doesn't work;  4. Added PTRTYPE if void ptrs are a problem.
+   */
+diff -c ./sys.h ../ncftp156/sys.h
+*** ./sys.h	Thu Sep 16 20:21:31 1993
+--- ../ncftp156/sys.h	Mon Sep 20 00:03:49 1993
+***************
+*** 75,87 ****
+  #	define SYSSELECTH 1
+  #endif	/* _AIX */
+  
+  #ifdef SCO322
+  #	define BOTCHED_FOPEN_RW
+! #	define SCO324
+! #endif
+  
+  #ifdef SCO324
+! #	define System "SCO Unix"
+  #	ifndef SYSV
+  #		define SYSV 1
+  #	endif
+--- 75,101 ----
+  #	define SYSSELECTH 1
+  #endif	/* _AIX */
+  
++ #ifdef SCOXNX
++ #	define System "SCO Xenix"
++ #	define LAI_TCP
++ #	define NO_UTIMEH
++ #	define NO_MKTIME
++ #	define NO_STRFTIME
++ #	define NO_STRSTR
++ #	define NO_RENAME
++ #	define SYSV 1
++ #endif	/* SCOXNX */
++ 
+  #ifdef SCO322
++ #	define System "SCO Unix 3.2v2"
+  #	define BOTCHED_FOPEN_RW
+! #	define NO_RENAME	/* it exists, but it corrupts filesystems */
+! #	define BROKEN_MEMCPY 1
+! #	define SYSV 1
+! #endif	/* SCO322 */
+  
+  #ifdef SCO324
+! #	define System "SCO Unix 3.2v4"
+  #	ifndef SYSV
+  #		define SYSV 1
+  #	endif
+***************
+*** 88,94 ****
+  #	ifndef BROKEN_MEMCPY
+  #		define BROKEN_MEMCPY 1
+  #	endif
+! #endif	/* SCO */
+  
+  #ifdef aux
+  #	define System "A/UX"
+--- 102,108 ----
+  #	ifndef BROKEN_MEMCPY
+  #		define BROKEN_MEMCPY 1
+  #	endif
+! #endif	/* SCO324 */
+  
+  #ifdef aux
+  #	define System "A/UX"
+***************
+*** 280,285 ****
+--- 294,310 ----
+  #endif
+  
+  /*
++  * Generic pointer type, e.g. as returned by malloc().
++  */
++ #ifndef PTRTYPE
++ #	define PTRTYPE void
++ #endif
++ 
++ #ifndef Free
++ #	define Free(a) free((PTRTYPE *)(a))
++ #endif
++ 
++ /*
+   * Some systems besides System V don't use rindex/index (like SunOS).
+   * Add -DRINDEX to your SDEFS line if you need to.
+   */
+***************
+*** 336,346 ****
+  #ifndef NO_STDLIBH
+  #	include <stdlib.h>
+  #else
+! extern void *malloc(size_t);
+! extern void *calloc(size_t, size_t);
+! extern void *malloc(size_t);
+! extern void	free(void *);
+! extern void *realloc(void *, size_t);
+  extern void	exit(int);
+  
+  #ifdef NO_CONST
+--- 361,371 ----
+  #ifndef NO_STDLIBH
+  #	include <stdlib.h>
+  #else
+! extern PTRTYPE *malloc(size_t);
+! extern PTRTYPE *calloc(size_t, size_t);
+! extern PTRTYPE *malloc(size_t);
+! extern void	free(PTRTYPE *);
+! extern PTRTYPE *realloc(PTRTYPE *, size_t);
+  extern void	exit(int);
+  
+  #ifdef NO_CONST
+diff -c ./util.c ../ncftp156/util.c
+*** ./util.c	Thu Sep 16 20:21:28 1993
+--- ../ncftp156/util.c	Mon Sep 20 00:03:49 1993
+***************
+*** 774,777 ****
+--- 774,820 ----
+  	return cp;
+  }	/* LocalDotPath */
+  
++ #ifdef NO_STRSTR
++ 
++ /*
++  *  The Elm Mail System  -  $Revision: 5.1 $   $State: Exp $
++  *
++  *			Copyright (c) 1988-1992 USENET Community Trust
++  *			Copyright (c) 1986,1987 Dave Taylor
++  */
++ 
++ char *strstr(s1, s2)
++ char *s1, *s2;
++ {
++ 	int len;
++ 	char *ptr;
++ 	char *tmpptr;
++ 
++ 	ptr = NULL;
++ 	len = strlen(s2);
++ 
++ 	if ( len <= strlen(s1)) {
++ 	    tmpptr = s1;
++ 	    while ((ptr = index(tmpptr, (int)*s2)) != NULL) {
++ 	        if (strncmp(ptr, s2, len) == 0) {
++ 	            break;
++ 	        }
++ 	        tmpptr = ptr+1;
++ 	    }
++ 	}
++ 	return (ptr);
++ }
++ 
++ #endif
++ 
++ 
++ #ifdef NO_RENAME
++ int rename(oldname, newname)
++ const char *oldname, *newname;
++ {
++ 	return (link(oldname, newname) == 0 ? unlink(oldname) : -1);
++ }
++ #endif /*NO_RENAME*/
++ 
++ 
+  /* eof Util.c */
+diff -c ./util.h ../ncftp156/util.h
+*** ./util.h	Thu Sep 16 20:21:31 1993
+--- ../ncftp156/util.h	Mon Sep 20 00:03:49 1993
+***************
+*** 81,84 ****
+--- 81,88 ----
+  char *LocalDotPath(char *path);
+  char *GetHomeDir(char *home);
+  
++ #ifdef NO_STRSTR
++ char *strstr(char *s1, char *s2);
++ #endif
++ 
+  #endif	/* _util_h_ */
+--
+______________________________________________________________________________
+mike gleason                 mgleason@cse.unl.edu             NCEMRSoft, baby!
+
+exit 0 # Just in case...

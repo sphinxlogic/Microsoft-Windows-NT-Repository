@@ -1,0 +1,2061 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Subject:  v32i041:  ecu - ECU Asynchronous Communications v3.20, Part06/40
+Message-ID: <1992Sep11.192451.6777@sparky.imd.sterling.com>
+X-Md4-Signature: f00f24dbcf81224d13c2fa1672638fbf
+Date: Fri, 11 Sep 1992 19:24:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Posting-number: Volume 32, Issue 41
+Archive-name: ecu/part06
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.06 (part 6 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecuDCE.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecuDCE.c'
+else
+echo 'x - continuing file ecuDCE.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecuDCE.c' &&
+X		}
+X
+X		if(sigint || !strcmp(last_dial_result,interrupted_string))
+X			goto ABORT_CYCLE;
+X
+X		if((retries == 0) || (erc >= e_FATAL))
+X			break;
+X
+X		pprintf("%d %s left ... ",retries,(retries == 1) ? "retry" : "retries");
+X		nap_msec = delay * 1000L;
+X		ff(se,"waiting %d seconds ... 'c' to cycle, %s to abort\r\n",
+X			delay,(kbdintr == DEL) ?"DEL":make_char_graphic(kbdintr,0));
+X		while(nap_msec > 0)
+X		{
+X			nap_msec -= Nap(100L);
+X			while(ttyrdchk())
+X			{
+X				ans = to_lower(ttygetc(1));
+X				if(ans == 'c')
+X					goto CONTINUE_CYCLE;
+X				else if(ans == kbdintr)
+X					goto ABORT_CYCLE;
+X				else
+X					ring_bell();
+X			}
+X			if(sigint)
+X				goto ABORT_CYCLE;
+X		}
+XCONTINUE_CYCLE:
+X		DCE_hangup();
+X	}
+X
+XERROR_RETURN:
+X	DCE_hangup();
+X	start_rcvr_process(1);
+X	return(-1);
+X
+XABORT_CYCLE:
+X	DCE_hangup();
+X	ff(se,"redial ABORTED\r\n");
+X	sigint = 0;
+X	goto ERROR_RETURN;
+X}	/* end of DCE_redial */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_now_on_hook() - DCE no longer in connection
+X
+XThis may be called, however, when no connection is active
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_now_on_hook()
+X{
+X	char s128[128];
+X	long connect_secs;
+X
+X	lCLOCAL(1);		/* turn on CLOCAL */
+X
+X	if(shm->Lconnected)
+X	{
+X		connect_secs = time((long *)0) - shm->Loff_hook_time;
+X		sprintf(s128,"DISCONNECT %s (%s) %ld %s",
+X			shm->Llogical,shm->Ltelno,connect_secs,
+X			get_elapsed_time(connect_secs));
+X		ecu_log_event(getpid(),s128);
+X#if defined(WHT2) || defined(XTERM_FRIEND)
+X		/*
+X		 * if xterm, put disconnected status in title bar
+X		 * but this really should be done in _hangup.ep
+X		 */
+X		xterm_title("disconnected",1);
+X#endif
+X		/*
+X		 * do the _hangup.ep execution
+X		 */
+X		if(find_procedure("_hangup"))
+X		{
+X			char *_hangup_args[2];
+X			sprintf(s128,"%ld",connect_secs);
+X			_hangup_args[0] = "_hangup";
+X			_hangup_args[1] = s128;
+X			(void)do_proc(2,_hangup_args);
+X		}
+X		shm->Lconnected = 0;
+X	}
+X	shm->Lrname[0] = 0;
+X	set_default_escape_prompt();
+X
+X}	/* end of DCE_now_on_hook */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - terminate any active connection
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+X	int restart_rcvr = need_rcvr_restart();
+X
+X	if(restart_rcvr)
+X		kill_rcvr_process(SIGUSR1);
+X
+X	lflash_dtr();
+X	DCE_now_on_hook();
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_get_sreg_value(regnum)
+X assumes rcvr process has been killed
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_get_sreg_value(regnum)
+Xint regnum;
+X{
+X	char s128[128];
+X	LRWT lr;
+X
+X	sprintf(s128,"ATS%d?",regnum);
+X	DCE_send_cmd(s128);
+X	lflush(0);
+X	lr.to1 = 2000L;
+X	lr.to2 = 140L;
+X	lr.raw_flag = 0;
+X	lr.buffer = s128;
+X	lr.bufsize = sizeof(s128);
+X	lr.delim = (char *)0;
+X	lr.echo_flag = 0;
+X	lgets_timeout(&lr);
+X	if(lr.count != 3)
+X		return(-1);
+X	return(atoi(s128));
+X
+X}	/* end of DCE_get_sreg_value */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_set_sreg(regnum,value)
+X assumes rcvr process has been killed
+X returns 0 if no error (reads back value set),
+X else -1 and error message has been printed
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_set_sreg(regnum,value)
+Xint regnum;
+Xint value;
+X{
+X	char s128[128];
+X	int value2;
+X	LRWT lr;
+X
+X	sprintf(s128,"ATS%d=%d",regnum,value);
+X	DCE_send_cmd(s128);
+X	lflush(0);
+X	lr.to1 = 2000L;
+X	lr.to2 = 140L;
+X	lr.raw_flag = 0;
+X	lr.buffer = s128;
+X	lr.bufsize = sizeof(s128);
+X	lr.delim = (char *)0;
+X	lr.echo_flag = 0;
+X	lgets_timeout(&lr);
+X	value2 = DCE_get_sreg_value(regnum);
+X	if(value2 < 0)
+X		pprintf("PROBLEM setting modem S%d=%d; cannot talk to modem\n",
+X				regnum,value);
+X	else if(value != value2)
+X		pprintf("PROBLEM setting modem S%d=%d; got %d back\n",
+X				regnum,value,value2);
+X	return((value != value2) ? -1 : 0);
+X
+X}	/* end of DCE_set_sreg */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_autoanswer()
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_autoanswer()
+X{
+X	if(!Lmodem_autoans[0])
+X		return;
+X	(void)Nap(200L);
+X	lputs_paced(20,"AT\r");
+X	(void)Nap(100L);
+X	lputs_paced(20,Lmodem_autoans); /* quiet modem */
+X	lputs_paced(20,"\r");
+X	(void)Nap(200L);
+X	lputs_paced(20,Lmodem_autoans); /* quiet modem */
+X	lputs_paced(20,"\r");
+X	(void)Nap(200L);
+X	lflush(0);
+X}	/* end of DCE_autoanswer */
+X
+X/* end of ecuDCE.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecuDCE.c is complete' &&
+chmod 0644 ecuDCE.c ||
+echo 'restore of ecuDCE.c failed'
+Wc_c="`wc -c < 'ecuDCE.c'`"
+test 24153 -eq "$Wc_c" ||
+	echo 'ecuDCE.c: original size 24153, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuLCK.c ==============
+if test -f 'ecuLCK.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuLCK.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuLCK.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuLCK.c' &&
+X#define HONEYDANBER /* means use ASCII pids in lock files */
+X#if defined(SHARE_DEBUG)
+X#define LOG_LOCKS
+X#endif
+X/*+-----------------------------------------------------------------------
+X	ecuLCK.c -- ECU lock file management
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	is_active_lock(name)
+X	line_lock_status(ttyname)
+X	make_lock_name(ttyname,lock_file_name)
+X
+XLock files under XENIX are supposed to use the direct line name
+X(lower-case last letter); we create only the lower-case case, but
+Xcheck for both.
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:08-25-1991-14:39-wht@n4hgf-ISCSVR4 port thanks to aega84!lh */
+X/*:08-21-1991-03:37-wht@n4hgf-kill LINST_INVALID check */
+X/*:08-11-1991-18:06-wht@n4hgf-SCO_TTY_NAMING considerations */
+X/*:08-09-1991-11:07-wht@n4hgf-configurable lock directory */
+X/*:08-07-1991-14:41-wht@n4hgf-race with ecuungetty over lock resolved */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:11-19-1990-01:05-wht@n4hgf-remove lock in is_active_lock if we locked */
+X/*:10-16-1990-20:43-wht@n4hgf-add SHARE_DEBUG */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "utmpstatus.h"
+X#if defined(SVR4)
+X# include <sys/sysmacros.h>
+X#endif
+X
+Xextern int errno;
+Xextern char ungetty_ttyname[];
+X
+Xchar *lock_dir_name = LOCK_DIR_NAME; /* location of LCK.. files */
+X
+X/*+-------------------------------------------------------------------------
+X	make_lock_name(ttyname,lock_file_name)
+X--------------------------------------------------------------------------*/
+Xint
+Xmake_lock_name(ttyname,lock_file_name)
+Xchar *ttyname;
+Xchar *lock_file_name;
+X{
+X
+X#if defined(SVR4)
+X	struct stat tbuf;
+X
+X	if(stat(ttyname, &tbuf) < 0)
+X	{
+X		if(errno == ENOENT)
+X			return(LINST_NODEV);		/* device does not exist */
+X		else
+X			return(LINST_OPNFAIL);		/* could not access line */
+X	}
+X	sprintf(lock_file_name,"%s/LK.%03u.%03u.%03u",
+X		lock_dir_name,major(tbuf.st_dev),
+X	    tbuf.st_rdev >> 18, minor(tbuf.st_rdev));
+X#else
+X
+X	/*
+X	 * SVR3 and before
+X	 */
+X	strcpy(lock_file_name,lock_dir_name);
+X	strcat(lock_file_name,"/LCK..");
+X#ifdef SCO_TTY_NAMING
+X	strcat(lock_file_name,direct_tty(ttyname) + 5);
+X#else
+X	strcat(lock_file_name,ttyname + 5);
+X#endif /* SCO_TTY_NAMING */
+X
+X#endif /* SVR4 */
+X
+X	return(0);
+X
+X}	/* end of make_lock_name */
+X
+X/*+-------------------------------------------------------------------------
+X	is_active_lock(name) - check to see if lock still active
+X
+Xif not unlink any old lock name
+X--------------------------------------------------------------------------*/
+Xis_active_lock(name)
+Xregister char *name;
+X{
+X	register itmp;
+X	PID_T lockpid;
+X	int fd;
+X	int status = 0;
+X	char pidstr[12];
+X
+X#ifdef SCO_TTY_NAMING
+X	char name2[256];
+X
+X	if(isupper(name[itmp = strlen(name) - 1]))
+X	{
+X		strcpy(name2,name);
+X		name2[itmp] = to_lower(name2[itmp]);
+X		name = name2;
+X	}
+X#endif /* SCO_TTY_NAMING */
+X
+X	errno = 0;
+X	if((fd = open(name,O_RDONLY,0)) < 0)
+X	{
+X		if(errno != ENOENT)
+X			status = LINST_LCKERR;
+X		goto RETURN_STATUS;
+X	}
+X
+X#if defined(HONEYDANBER)
+X	itmp = read(fd,(char *)pidstr,11);
+X	pidstr[11] = 0;
+X	close(fd);
+X	if(itmp != 11)
+X		goto UNLINK_OLD_LOCK;
+X	lockpid = atoi(pidstr);
+X#else
+X	itmp = read(fd,(char *)&lockpid,sizeof(int));
+X	close(fd);
+X	if(itmp != sizeof(int))
+X		goto UNLINK_OLD_LOCK;
+X#endif
+X
+X	/* if we are the locker, return no error */
+X	if(lockpid == xmtr_pid)
+X	{
+X		status = LINST_WEGOTIT;
+X		goto RETURN_STATUS;
+X	}
+X
+X	if((!(itmp = kill(lockpid,0))) || (errno != ESRCH))
+X	{
+X		errno = EACCES;		/* for termecu() */
+X		status = lockpid;
+X		goto RETURN_STATUS;
+X	}
+X
+XUNLINK_OLD_LOCK:
+X	if(unlink(name))
+X		status = LINST_LCKERR;
+X
+XRETURN_STATUS:
+X
+X#if defined(LOG_LOCKS)
+X{ char s128[128];
+X  extern char *errno_text();
+X	sprintf(s128,"ISLOCK %s status=%d errno=%d",name,status,errno);
+X	ecu_log_event(getpid(),s128);
+X}
+X#endif
+X
+X	return(status);
+X}	/* end of is_active_lock */
+X
+X/*+-----------------------------------------------------------------------
+X	line_lock_status(ttyname)
+X
+X  ttyname must be of style "/dev/ttyxx"
+X  Returns locking pid if locked else LOPEN lock error code (< 0) else 0
+X------------------------------------------------------------------------*/
+Xint
+Xline_lock_status(ttyname)
+Xchar *ttyname;
+X{
+X	register itmp;
+X	char lock_file_name[128];
+X	
+X	if(itmp = make_lock_name(ttyname,lock_file_name))
+X		return(itmp);
+X
+X	if(itmp = is_active_lock(lock_file_name))
+X		return(itmp);
+X
+X	return(0);
+X
+X}	/* end of line_lock_status */
+X
+X/* end of ecuLCK.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuLCK.c ||
+echo 'restore of ecuLCK.c failed'
+Wc_c="`wc -c < 'ecuLCK.c'`"
+test 4765 -eq "$Wc_c" ||
+	echo 'ecuLCK.c: original size 4765, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecu_pwd.h ==============
+if test -f 'ecu_pwd.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecu_pwd.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecu_pwd.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecu_pwd.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecu_pwd.h
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XWe cannot always guarantee against multiple inclusion because
+Xsome old development environments don't protect against it.
+XWe try and do it here ..... 1/2 of my incoming long distance 
+Xsupport calls are because old XENIX systems don't do this.
+X
+XThis is sort of moot since ecu code does not multiply
+Xinclude <pwd.h> and there is no ubiquitous #define in
+X<pwd.h> to protect other system headers from including it too
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:01-29-1992-16:49-wht@n4hgf-creation */
+X
+X#ifndef _ecu_pwd_h
+X#define _ecu_pwd_h
+X
+X#include <pwd.h>
+X
+X#endif /* _ecu_pwd_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecu_pwd.h */
+SHAR_EOF
+chmod 0644 ecu_pwd.h ||
+echo 'restore of ecu_pwd.h failed'
+Wc_c="`wc -c < 'ecu_pwd.h'`"
+test 981 -eq "$Wc_c" ||
+	echo 'ecu_pwd.h: original size 981, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecu_stat.h ==============
+if test -f 'ecu_stat.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecu_stat.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecu_stat.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecu_stat.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecu_stat.h
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XWe cannot always guarantee against multiple inclusion because
+Xsome old development environments don't protect against it.
+XWe try and do it here ..... 1/2 of my incoming long distance 
+Xsupport calls are because old XENIX systems don't do this.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:01-29-1992-16:49-wht@n4hgf-creation */
+X
+X#ifndef ___ECU_STAT_H___
+X#define ___ECU_STAT_H___
+X#ifndef S_IFMT	/* some stat.h included by stdio.h and cannot be reincluded
+X				 * this is just an attempt ... you may have to hack */
+X#include <sys/stat.h>
+X#endif
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecu_stat.h */
+SHAR_EOF
+chmod 0644 ecu_stat.h ||
+echo 'restore of ecu_stat.h failed'
+Wc_c="`wc -c < 'ecu_stat.h'`"
+test 951 -eq "$Wc_c" ||
+	echo 'ecu_stat.h: original size 951, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecu_types.h ==============
+if test -f 'ecu_types.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecu_types.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecu_types.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecu_types.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecu_types.h
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XWe cannot always guarantee against multiple inclusion because
+Xsome old development environments don't protect against it.
+XWe try and do it here ..... 1/2 of my incoming long distance 
+Xsupport calls are because old XENIX systems don't do this.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:01-29-1992-16:49-wht@n4hgf-creation */
+X
+X#ifndef ___ECU_TYPES_H___
+X#define ___ECU_TYPES_H___
+X#ifndef NBBY	/* some types.h included by stdio.h and cannot be reincluded
+X				 * this is just an attempt ... you may have to hack */
+X#include <sys/types.h>
+X#endif
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecu_types.h */
+SHAR_EOF
+chmod 0644 ecu_types.h ||
+echo 'restore of ecu_types.h failed'
+Wc_c="`wc -c < 'ecu_types.h'`"
+test 955 -eq "$Wc_c" ||
+	echo 'ecu_types.h: original size 955, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuchdir.c ==============
+if test -f 'ecuchdir.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuchdir.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuchdir.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuchdir.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuchdir.c - ECU change directory command/history
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	cd_array_delete(arg,narg)
+X	cd_array_delete_usage()
+X	cd_array_init()
+X	cd_array_read()
+X	cd_array_save()
+X	change_directory(dirname,arg_present_flag)
+X	expand_dirname(dirname,maxlen)
+X	pop_directory(arg,arg_present,pcmd)
+X	push_directory(dirname,arg_present,pcmd)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:09-25-1991-18:24-wht@n4hgf2-fix seg viol in popd w/o argument on Sun */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:05-21-1991-18:53-wht@n4hgf-add push_directory and pop_directory */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecutty.h"
+X#include "termecu.h"
+X
+Xint push_directory();
+X
+X#define CD_PATHLEN	256
+X
+X#define CD_QUAN		44
+Xchar *cd_array[CD_QUAN];
+Xuint cd_in_use = 0;
+X
+X#define DIR_PUSH_MAX	10
+Xchar *dir_push_stack[DIR_PUSH_MAX];
+Xuint dir_push_level = 0;
+X
+Xextern char curr_dir[CURR_DIRSIZ];		/* current working directory */
+Xextern int proctrace;
+Xextern char errmsg[];
+Xextern int errno;
+X
+X/*+-------------------------------------------------------------------------
+X	cd_array_read() - read ~/.ecu/dir
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcd_array_read()
+X{
+Xchar dirpath[CD_PATHLEN];
+XFILE *fpcd;
+XFILE *fopen();
+Xregister char *cptr;
+Xchar *skip_ld_break();
+X
+X	get_home_dir(dirpath);
+X	strcat(dirpath,"/.ecu/dir");
+X	if((fpcd = fopen(dirpath,"r")) == (FILE *)0)
+X		return;		/* none found */
+X
+X	for(cd_in_use = 0; cd_in_use < CD_QUAN; cd_in_use++)
+X	{
+X		if(fgets(dirpath,sizeof(dirpath),fpcd) == (char *)0)
+X			break;
+X		dirpath[strlen(dirpath) - 1] = 0;
+X		cptr = skip_ld_break(dirpath);
+X		if(strlen(cptr) == 0)
+X		{
+X			--cd_in_use;
+X			continue;
+X		}
+X		strcpy(cd_array[cd_in_use],cptr);
+X	}
+X	fclose(fpcd);
+X}	/* end of cd_array_read */
+X
+X/*+-------------------------------------------------------------------------
+X	cd_array_save() - save ~/.ecu/dir
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcd_array_save()
+X{
+Xregister icd;
+Xchar savepath[256];
+XFILE *fpcd;
+XFILE *fopen();
+X
+X	get_home_dir(savepath);
+X	strcat(savepath,"/.ecu/dir");
+X
+X	if(cd_in_use == 0)
+X	{
+X		ff(se,"No directory list to save in %s\r\n",savepath);
+X		return;
+X	}
+X	if((fpcd = fopen(savepath,"w")) == (FILE *)0)
+X	{
+X		ff(se,"%s could not be opened\r\n",savepath);
+X		return;
+X	}
+X
+X	for(icd = 0; icd < cd_in_use; icd++)
+X		fprintf(fpcd,"%s\n",cd_array[icd]);
+X	fclose(fpcd);
+X	ff(se,"%d entries saved in %s\r\n",cd_in_use,savepath);
+X
+X}	/* end of cd_array_save */
+X
+X/*+-------------------------------------------------------------------------
+X	cd_array_delete_usage()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcd_array_delete_usage()
+X{
+X	ff(se,"usage: d[elete] <1st> [<last>]\r\n");
+X}	/* end of cd_array_delete_usage */
+X
+X/*+-------------------------------------------------------------------------
+X	cd_array_delete(arg,narg)
+X--------------------------------------------------------------------------*/
+Xcd_array_delete(arg,narg)
+Xchar **arg;
+Xint narg;
+X{
+Xuint first;		/* 1st to delete */
+Xuint last;		/* last to delete */
+X
+X	if((narg < 2) || (narg > 3))
+X	{
+X		cd_array_delete_usage();
+X		return(-1);
+X	}
+X
+X	first = atoi(arg[1]) - 1;
+X	if(narg == 2)
+X		last = first;
+X	else
+X		last = atoi(arg[2]) - 1;
+X
+X	if((first > (cd_in_use - 1)) || (last > (cd_in_use - 1)) || (last < first))
+X	{
+X		cd_array_delete_usage();
+X		return(-1);
+X	}
+X
+X	if(last == (cd_in_use - 1))
+X	{
+X		cd_in_use = first;
+X	}
+X	else
+X	{
+X	int count_less = last - first + 1;
+X		last++;
+X		while(last != cd_in_use)
+X			strcpy(cd_array[first++],cd_array[last++]);
+X		cd_in_use -= count_less;
+X	}
+X	return(0);
+X}	/* end of cd_array_delete */
+X
+X/*+-------------------------------------------------------------------------
+X	cd_array_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcd_array_init()
+X{
+Xregister itmp;
+X
+X/*allocate change_directory stack */
+X	for(itmp = 0; itmp < CD_QUAN; itmp++)
+X	{
+X		if(!(cd_array[itmp] = malloc(CD_PATHLEN + 1)))
+X		{
+X			ff(se,"Not enough memory for cd stack\r\n");
+X			termecu(TERMECU_MALLOC);
+X		}
+X		*cd_array[itmp] = 0;
+X	}
+X	(void)cd_array_read();
+X}	/* end of cd_array_init */
+X
+X/*+-------------------------------------------------------------------------
+X	expand_dirname(dirname,maxlen) - convert dirname with shell chars
+X--------------------------------------------------------------------------*/
+Xexpand_dirname(dirname,maxlen)
+Xchar *dirname;
+Xint maxlen;
+X{
+Xchar s256[256];
+Xchar *expcmd;
+X
+X	if(!find_shell_chars(dirname))
+X		return(0);
+X
+X	sprintf(s256,"`ls -d %s`",dirname);
+X	if(expand_wildcard_list(s256,&expcmd))
+X	{
+X		strcpy(errmsg,"No such directory");
+X		return(-1);
+X	}
+X	strncpy(dirname,expcmd,maxlen);
+X	dirname[maxlen - 1] = 0;
+X	free(expcmd);
+X	if(strchr(dirname,' '))
+X	{
+X		strcpy(errmsg,"Too many files");
+X		return(-1);
+X	}
+X	return(0);
+X
+X}	/* end of expand_dirname */
+X
+X/*+-------------------------------------------------------------------------
+X	change_directory(dirname,arg_present_flag) - 'cd' interactive cmd hdlr
+X
+X  Change directory to 'dirname' if arg_present_flag is true,
+X  else if flag 0, ask for new directory name and change to it
+X  This procedure maintains the global variable 'curr_dir' that
+X  reflects the ecu transmitter process current working directory.
+X--------------------------------------------------------------------------*/
+Xint
+Xchange_directory(dirname,arg_present_flag)
+Xchar *dirname;
+Xint arg_present_flag;
+X{
+Xregister icd;
+Xregister itmp;
+Xchar s256[256];
+Xuchar delim;
+X#define BLD_ARG_MAX	5
+Xchar *arg[BLD_ARG_MAX];
+Xint narg;
+Xint longest;
+Xint pushing = 0;
+X
+X	if(cd_in_use == 0)
+X		cd_array_read();
+X
+X	fputs("  ",se);
+X
+X	if(arg_present_flag)		/* if there is an argument ... */
+X	{
+X		if(isdigit(*dirname))		/* ... and first char is digit */
+X		{
+X			icd = atoi(dirname) - 1;
+X			if((icd < 0) || (icd >= cd_in_use))
+X				goto DISPLAY_CD_ARRAY;
+X			strncpy(s256,cd_array[icd],sizeof(s256) - 1);
+X		}
+X		else
+X			strncpy(s256,dirname,sizeof(s256) - 1);	/* literal dir spec */
+X
+X		s256[sizeof(s256) - 1] = 0;
+X	}
+X	else		/* no arg to cd command */
+X	{
+XDISPLAY_CD_ARRAY:
+X		fputs("\r\n",se);
+X		longest = 0;
+X		for(icd = 0; icd < CD_QUAN/2; icd++)
+X		{
+X			if(icd >= cd_in_use)
+X				break;
+X			if(longest < (itmp = strlen(cd_array[icd])))
+X				longest = itmp;
+X		}
+X		longest += 4;
+X		if(longest < 36)
+X			longest += 4;
+X		for(icd = 0; icd < CD_QUAN/2; icd++)
+X		{
+X			if(icd >= cd_in_use)
+X				break;
+X			sprintf(s256,"%2d %s ",icd + 1,cd_array[icd]);
+X			fputs(s256,se);
+X			if(icd + CD_QUAN/2 >= cd_in_use)
+X				fputs("\r\n",se);
+X			else
+X			{
+X				itmp = longest - strlen(s256);
+X				while(itmp-- > 0)
+X					fputc(' ',se);
+X				sprintf(s256,"%2d %s\r\n",
+X					icd + 1 + CD_QUAN/2,cd_array[icd + CD_QUAN/2]);
+X				fputs(s256,se);
+X			
+X			}
+X		}
+X		fputs("current dir: ",se);
+X		tcap_stand_out();
+X		ff(se," %s ",curr_dir);
+X		tcap_stand_end();
+X		tcap_eeol();
+X		fputs("\r\n",se);
+X
+XGET_NEW_DIR:
+X		fputs(
+X			"New dir, <#>, %save, %read, %del, %xmitcd, %pushd, <enter>:  ",se);
+X		ttygets(s256,sizeof(s256),TG_CRLF,&delim,(int *)0);
+X
+XTRY_AGAIN:
+X		if((delim == ESC) || !strlen(s256))
+X		{
+X			ff(se,"no directory change\r\n");
+X			return(0);
+X		}
+X		else if(s256[0] == '%')
+X		{
+X			if(pushing)
+X			{
+X				ff(se,"syntax error\r\n");
+X				return(-1);
+X			}
+X			build_str_array(s256,arg,BLD_ARG_MAX,&narg);
+X
+X			if(minunique("save",&s256[1],1))
+X			{
+X				cd_array_save();
+X				goto GET_NEW_DIR;
+X			}
+X			else if(minunique("read",&s256[1],1))
+X			{
+X				cd_array_read();
+X				goto DISPLAY_CD_ARRAY;
+X			}
+X			else if(minunique("delete",&s256[1],1))
+X			{
+X				if(cd_array_delete(arg,narg))
+X					goto GET_NEW_DIR;
+X				else
+X					goto DISPLAY_CD_ARRAY;
+X			}
+X			else if(minunique("xmitcd",&s256[1],1))
+X			{
+X				lputs("cd ");
+X				lputs(curr_dir);
+X				lputc('\r');
+X				return(0);
+X			}
+X			else if(minunique("pushd",&s256[1],1))
+X			{
+X				strcpy(s256,arg[1]);
+X				pushing = 1;
+X				goto TRY_AGAIN;
+X			}
+X			else
+X			{
+X				ff(se,"Invalid cd subcommand\r\n");
+X				goto GET_NEW_DIR;
+X			}
+X		}
+X		else if(icd = atoi(s256))
+X		{
+X			icd--;
+X			if(icd >= cd_in_use)
+X				goto GET_NEW_DIR;
+X			strncpy(s256,cd_array[icd],sizeof(s256) - 1);
+X			s256[sizeof(s256) - 1] = 0;
+X		}
+X	}
+X	if(pushing)
+X	{
+X		if(push_directory(s256,1,1))
+X			return(-1);
+X	}
+X	else
+X	{
+X		if(expand_dirname(s256,sizeof(s256)))
+X		{
+X			ff(se,"%s\r\n",errmsg);
+X			return(-1);
+X		}
+X		if(chdir(s256) < 0)		/* now change to the new directory */
+X		{
+X			perror(s256);		/* print error if we get one */
+X			ff(se,"\r\n");
+X			return(-1);
+X		}
+X		get_curr_dir(curr_dir,sizeof(curr_dir));
+X		fputs("confirmed: ",se);
+X		tcap_stand_out();
+X		ff(se," %s ",curr_dir);
+X		tcap_stand_end();
+X		fputs("\r\n",se);
+X	}
+X
+X	for(icd = 0; icd < cd_in_use; icd++)
+X	{
+X		if(strcmp(curr_dir,cd_array[icd]) == 0)
+X			return(0);
+X	}
+X	if(cd_in_use == CD_QUAN)
+X	{
+X		for(icd = 1; icd < CD_QUAN; icd++)
+X		{
+X			strcpy(cd_array[icd - 1],cd_array[icd]);
+X		}
+X		strcpy(cd_array[CD_QUAN - 1],curr_dir);
+X	}
+X	else
+X		strcpy(cd_array[cd_in_use++],curr_dir);
+X
+X	return(0);
+X
+X}	/* end of change_directory */
+X
+X/*+-------------------------------------------------------------------------
+X	push_directory(dirname,arg_present,pcmd) - 'pushd' function
+X
+XThis function performs 'pushd' actions for both the interactive
+Xand procedure 'pushd' commands
+X
+Xdirname is new directory name if arg_present true
+Xpcmd true if procedure command or cd %p interactive, else interactive command
+X
+Xreturns -1 if error, else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xpush_directory(dirname,arg_present,pcmd)
+Xchar *dirname;
+Xint arg_present;
+Xint pcmd;
+X{
+Xregister itmp;
+Xchar s256[256];
+X
+X	if(!pcmd)
+X		ff(se,"\r\n");
+X
+X	if(!arg_present)
+X	{
+X		if(!dir_push_level)
+X		{
+X			if(!pcmd || proctrace)
+X				pprintf("---: no directories pushed\n");
+X		}
+X		else
+X		{
+X			for(itmp = 0; itmp < dir_push_level; itmp++)
+X				pprintf("%3d: %s\n",itmp,dir_push_stack[itmp]);
+X		}
+X		pprintf("cwd: %s\n",curr_dir);
+X		return(0);
+X	}
+X
+X	if(dir_push_level == DIR_PUSH_MAX)
+X	{
+X		pputs("too many pushds\n");
+X		return(-1);
+X	}
+X
+X	if(!dir_push_stack[dir_push_level])
+X	{
+X		if(!(dir_push_stack[dir_push_level] = malloc(CD_PATHLEN)))
+X		{
+X			pputs("no memory for pushd\n");
+X			return(-1);
+X		}
+X	}
+X
+X	get_curr_dir(dir_push_stack[dir_push_level],CD_PATHLEN);
+X
+X	strncpy(s256,dirname,sizeof(s256) - 1);
+X	s256[sizeof(s256) - 1] = 0;
+X	if(expand_dirname(s256,sizeof(s256)))
+X	{
+X		pprintf("'%s': %s\n",s256,errmsg);
+X		return(-1);
+X	}
+X	if(chdir(s256) < 0)		/* now change to the new directory */
+X	{
+X		pperror(s256);		/* print error if we get one */
+X		return(-1);
+X	}
+X	get_curr_dir(curr_dir,sizeof(curr_dir));
+X
+X	if(pcmd && proctrace)
+X		pprintf("pushed to directory %s\n",curr_dir);
+X	else
+X	{
+X		fputs("confirmed: ",se);
+X		tcap_stand_out();
+X		ff(se," %s ",curr_dir);
+X		tcap_stand_end();
+X		ff(se," (level %d)\r\n",dir_push_level);
+X	}
+X
+X	dir_push_level++;
+X	return(0);
+X
+X}	/* end of push_directory */
+X
+X/*+-------------------------------------------------------------------------
+X	pop_directory(arg,arg_present,pcmd) - 'popd' function
+X
+XThis function performs 'popd' actions for both the interactive
+Xand procedure 'popd' commands
+X
+Xarg is empty if arg_present false
+Xif not empty, it is == 'all' or a numeric level to pop to
+Xpcmd true if procedure command, else interactive command
+X
+Xreturns -1 if error, else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xpop_directory(arg,arg_present,pcmd)
+Xchar *arg;
+Xint arg_present;
+Xint pcmd;
+X{
+Xint new_level = -1;
+X
+X	if(!pcmd)
+X		pputs("\n");
+X
+X	if(!dir_push_level)
+X	{
+X		if(!pcmd || proctrace)
+X		{
+X			pprintf("---: no directories pushed\n");
+X			pprintf("cwd: %s\n",curr_dir);
+X		}
+X		return(-1);
+X	}
+X
+X	if(!arg_present)
+X		new_level = dir_push_level - 1;
+X	else if(minunique("all",arg,1))
+X		new_level = 0;
+X	else if(isdigit(*arg))
+X		new_level = atoi(arg);
+X	else 
+X	{
+X		pprintf("argument error: '%s'\n",arg);
+X		return(-1);
+X	}
+X
+X	if((new_level < 0) || (new_level > (dir_push_level - 1)))
+X	{
+X		pprintf("invalid popd argument (or not pushed to level): '%s'\n",arg);
+X		return(-1);
+X	}
+X
+X	dir_push_level = new_level;
+X	if(chdir(dir_push_stack[dir_push_level]) < 0)
+X	{
+X		pperror(dir_push_stack[dir_push_level]);
+X		return(-1);
+X	}
+X	get_curr_dir(curr_dir,sizeof(curr_dir));
+X
+X	if(pcmd && proctrace)
+X		pprintf("popped to directory %s (level %d)\n",curr_dir,dir_push_level);
+X	else
+X	{
+X		fputs("confirmed: ",se);
+X		tcap_stand_out();
+X		ff(se," %s ",curr_dir);
+X		tcap_stand_end();
+X		ff(se," (level %d)\r\n",dir_push_level);
+X	}
+X
+X	return(0);
+X
+X}	/* end of pop_directory */
+X
+X/* end of ecuchdir.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuchdir.c ||
+echo 'restore of ecuchdir.c failed'
+Wc_c="`wc -c < 'ecuchdir.c'`"
+test 12742 -eq "$Wc_c" ||
+	echo 'ecuchdir.c: original size 12742, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecucmd.h ==============
+if test -f 'ecucmd.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecucmd.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecucmd.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecucmd.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecucmd.h -- command definitions
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-30-1992-23:06-wht@n4hgf-add fkmap */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-19-1992-19:54-wht@n4hgf-kbdtest command now visible to users */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:03-01-1992-13:28-wht@n4hgf-come up to modern times ... enum for CT */
+X/*:11-16-1991-14:34-wht@n4hgf-add upon + rearrance pcmd_... decls */
+X/*:11-11-1991-14:33-wht@n4hgf-add dcdwatch */
+X/*:09-01-1991-18:12-wht@n4hgf2-add setline */
+X/*:09-01-1991-18:11-wht@n4hgf2-add setline */
+X/*:08-17-1991-16:41-wht@n4hgf-add kbdtest */
+X/*:07-29-1991-17:57-wht@n4hgf-add memstat */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-04-1991-20:07-wht@n4hgf-add procedure rlog cmd */
+X/*:05-21-1991-18:07-wht@n4hgf-add pushd/popd commands */
+X/*:03-20-1991-05:25-root@n4hgf-experimental eto command */
+X/*:03-16-1991-15:24-wht@n4hgf-add nice */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecucmd_h
+X#define _ecucmd_h
+X
+X/* interactive command tokens */
+X
+Xenum CT_codes
+X{
+X	CTRSVD = 15,	/* codes 0-15 reserved */
+X	CTautorz,
+X	CTax,
+X	CTbaud,
+X	CTbn,
+X	CTbreak,
+X	CTcd,
+X	CTclrx,
+X	CTda,
+X	CTdcdwatch,
+X	CTdial,
+X	CTdo,
+X	CTduplex,
+X	CTeto,
+X	CTexit,
+X	CTfasi,
+X	CTfi,
+X	CTfkey,
+X	CTfkmap,
+X	CTgetf,
+X	CThangup,
+X	CThelp,
+X	CTkbdtest,
+X	CTllp,
+X	CTloff,
+X	CTlog,
+X	CTmemstat,
+X	CTnice,
+X	CTnl,
+X	CTnlin,
+X	CTnlout,
+X	CToa,
+X	CTparity,
+X	CTpcmd,
+X	CTpid,
+X	CTplog,
+X	CTpopd,
+X	CTptrace,
+X	CTpushd,
+X	CTputf,
+X	CTpwd,
+X	CTredial,
+X	CTrev,
+X	CTrk,
+X	CTrs,
+X	CTrtscts,
+X	CTrx,
+X	CTry,
+X	CTrz,
+X	CTsdname,
+X	CTsgr,
+X	CTsk,
+X	CTss,
+X	CTstat,
+X	CTsx,
+X	CTsy,
+X	CTsz,
+X	CTtime,
+X	CTts,
+X	CTtty,
+X	CTxa,
+X	CTxlog,
+X	CTxon,
+X	CT____end,
+X
+X	CTdummy1 = 120,
+X	CTdummy2,
+X	CTdummy3,
+X	CTdummy4
+X};
+X
+X#define TOKEN_QUAN	128		/* for help package */
+X
+X/*
+X * if compiling helpgen, we need dummy functions for linker
+X * to resolve though they are never called; when compiling ecu,
+X * we just declare them as integer functions
+X */
+X#if defined(HELPGEN)
+X#define S static
+X#define BODY {;}
+X#else
+X#define S
+X#define BODY ;
+X#endif
+X
+XS int pcmd_autorz() BODY
+XS int pcmd_baud() BODY
+XS int pcmd_break() BODY
+XS int pcmd_cd() BODY
+XS int pcmd_clrx() BODY
+XS int pcmd_cls() BODY
+XS int pcmd_color() BODY
+XS int pcmd_continue() BODY
+XS int pcmd_cursor() BODY
+XS int pcmd_dcdwatch() BODY
+XS int pcmd_delline() BODY
+XS int pcmd_dial() BODY
+XS int pcmd_do() BODY
+XS int pcmd_duplex() BODY
+XS int pcmd_echo() BODY
+XS int pcmd_eeol() BODY
+XS int pcmd_else() BODY
+XS int pcmd_exec() BODY
+XS int pcmd_exit() BODY
+XS int pcmd_expresp() BODY
+XS int pcmd_getf() BODY
+X#if	defined(FASI)
+XS int pcmd_fasi() BODY
+X#endif
+XS int pcmd_fchmod() BODY
+XS int pcmd_fclose() BODY
+XS int pcmd_fgetc() BODY
+XS int pcmd_fgets() BODY
+XS int pcmd_fkey() BODY
+XS int pcmd_fkmap() BODY
+XS int pcmd_flush() BODY
+XS int pcmd_fopen() BODY
+XS int pcmd_fputc() BODY
+XS int pcmd_fputs() BODY
+XS int pcmd_fread() BODY
+XS int pcmd_fseek() BODY
+XS int pcmd_fdel() BODY
+XS int pcmd_fwrite() BODY
+XS int pcmd_gosub() BODY
+XS int pcmd_gosubb() BODY
+XS int pcmd_goto() BODY
+XS int pcmd_gotob() BODY
+XS int pcmd_hangup() BODY
+XS int pcmd_hexdump() BODY
+XS int pcmd_home() BODY
+XS int pcmd_icolor() BODY
+XS int pcmd_insline() BODY
+XS int pcmd_ifge() BODY
+XS int pcmd_ifgt() BODY
+XS int pcmd_ifi() BODY
+XS int pcmd_ifle() BODY
+XS int pcmd_iflt() BODY
+XS int pcmd_ifnz() BODY
+XS int pcmd_ifs() BODY
+XS int pcmd_ifz() BODY
+XS int pcmd_lbreak() BODY
+XS int pcmd_lgets() BODY
+XS int pcmd_logevent() BODY
+XS int pcmd_lookfor() BODY
+X/* S int pcmd_mkdir() BODY */
+XS int pcmd_mkvar() BODY
+XS int pcmd_nap() BODY
+XS int pcmd_nice() BODY
+XS int pcmd_parity() BODY
+XS int pcmd_pclose() BODY
+XS int pcmd_plog() BODY
+XS int pcmd_popd() BODY
+XS int pcmd_popen() BODY
+XS int pcmd_prompt() BODY
+XS int pcmd_ptrace() BODY
+XS int pcmd_pushd() BODY
+XS int pcmd_putf() BODY
+XS int pcmd_return() BODY
+XS int pcmd_rk() BODY
+XS int pcmd_rlog() BODY
+XS int pcmd_rname() BODY
+XS int pcmd_rs() BODY
+XS int pcmd_rtscts() BODY
+XS int pcmd_rx() BODY
+XS int pcmd_ry() BODY
+XS int pcmd_rz() BODY
+XS int pcmd_scrdump() BODY
+XS int pcmd_send() BODY
+XS int pcmd_set() BODY
+XS int pcmd_setline() BODY
+XS int pcmd_sk() BODY
+XS int pcmd_ss() BODY
+XS int pcmd_sx() BODY
+XS int pcmd_sy() BODY
+XS int pcmd_system() BODY
+XS int pcmd_sz() BODY
+XS int pcmd_upon() BODY
+XS int pcmd_vidcolor() BODY
+XS int pcmd_vidnorm() BODY
+XS int pcmd_vidrev() BODY
+XS int pcmd_whilei() BODY
+XS int pcmd_whiles() BODY
+XS int pcmd_xon() BODY
+X
+X/* command classification */
+X#define ccG  1	/* general command */
+X#define ccC  2	/* comm command */
+X#define ccT  3	/* transfer command */
+X#define ccP  4	/* procedure-related command */
+X
+Xtypedef struct p_cmd
+X{ 
+X	char *cmd;		/* command string */
+X	short min_ch;	/* min chars for match (0 if not interactive) */
+X	short token;	/* command number (if interactive) */
+X	char *descr;	/* command description (if interactive) */
+X	PFI proc;		/* procedure cmd handler (or 0) */
+X	short cmdclass;	/* cc{C,G,P,X} or 0 (for help processor) */
+X}	P_CMD;
+X
+X#if !defined(DECLARE_P_CMD)
+X#if defined(NEED_P_CMD)
+Xextern P_CMD icmd_cmds[];
+X#endif
+X#else
+XP_CMD icmd_cmds[] =
+X{
+X	{ "ax",		2,CTax,		"ascii char to hex/oct/dec",	0,			ccG},
+X	{ "autorz",	6,CTautorz,	"set auto ZMODEM receive",		pcmd_autorz,ccT},
+X	{ "baud",	2,CTbaud,	"set/display line baud rate",	pcmd_baud,	ccC},
+X	{ "bn",		2,CTbn,		"all console event alarm",		0,			ccG},
+X	{ "break",	2,CTbreak,	"send break to remote",			pcmd_break,	ccC},
+X	{ "cd",		2,CTcd,		"change current directory",		pcmd_cd,	ccG},
+X	{ "clrx",	2,CTclrx,	"simulate XON from remote",		pcmd_clrx,	ccC},
+X	{ "cls",	0,0,		"",								pcmd_cls,	0  },
+X	{ "color",	0,0,		"",								pcmd_color,	0  },
+X	{ "continue",0,0,		"",								pcmd_continue,0},
+X	{ "cursor",	0,0,		"",								pcmd_cursor,0  },
+X	{ "da",		2,CTda,		"decimal to ascii char",		0,          ccG},
+X	{ "dcdwatch",3,CTdcdwatch,"control DCD disconnect",		pcmd_dcdwatch,ccC},
+X	{ "dial",	1,CTdial,	"dial remote destination",		pcmd_dial, ccC},
+X	{ "delline",0,0,		"",								pcmd_delline,0 },
+X	{ "do",		2,CTdo,		"perform procedure",			pcmd_do,   ccP},
+X	{ "duplex",	2,CTduplex,	"set/display duplex",			pcmd_duplex,ccC},
+X	{ "echo",	0,0,		"",								pcmd_echo,  0  },
+X	{ "eeol",	0,0,		"",								pcmd_eeol,  0  },
+X	{ "else",	0,0,		"",								pcmd_else,  0  },
+X	{ "eto",	3,CTeto,	"ESC/fkey timeout",				0,         ccG},
+X	{ "exec",	0,0,		"",								pcmd_exec,  0 },
+X	{ "exit",	2,CTexit,	"hang up, exit program",		pcmd_exit, ccG},
+X	{ "expresp",0,0,		"",								pcmd_expresp,0 },
+X#if	defined(FASI)
+X	{ "fasi",	2,CTfasi,	"FAS/i driver control",			pcmd_fasi,	ccC},
+X#endif
+X	{ "fchmod",	0,0,		"",								pcmd_fchmod,0  },
+X	{ "fclose",	0,0,		"",								pcmd_fclose,0  },
+X	{ "fdel",	0,0,		"",								pcmd_fdel,  0  },
+X	{ "fgetc",	0,0,		"",								pcmd_fgetc, 0  },
+X	{ "fgets",	0,0,		"",								pcmd_fgets, 0  },
+X	{ "fi",		2,CTfi,		"send text file to line",		0,         ccG },
+X	{ "fkey",	3,CTfkey,	"function key definition",		pcmd_fkey, ccG },
+X	{ "fkmap",	3,CTfkmap,	"redefine function key map",	pcmd_fkmap,ccG },
+X	{ "flush",	0,0,		"",								pcmd_flush, 0  },
+X	{ "fopen",	0,0,		"",								pcmd_fopen, 0  },
+X	{ "fputc",	0,0,		"",								pcmd_fputc, 0  },
+X	{ "fputs",	0,0,		"",								pcmd_fputs, 0  },
+X	{ "fread",	0,0,		"",								pcmd_fread, 0  },
+X	{ "fseek",	0,0,		"",								pcmd_fseek, 0  },
+X	{ "fwrite",	0,0,		"",								pcmd_fwrite,0  },
+X	{ "getf",	0,0,		"",								pcmd_getf,  0  },
+X	{ "gosub",	0,0,		"",								pcmd_gosub, 0  },
+X	{ "gosubb",	0,0,		"",								pcmd_gosubb,0  },
+X	{ "goto",	0,0,		"",								pcmd_goto,  0  },
+X	{ "gotob",	0,0,		"",								pcmd_gotob, 0  },
+X	{ "hangup",	2,CThangup,	"hang up modem",				pcmd_hangup,ccC},
+X	{ "help",	2,CThelp,	"invoke help",					0,         ccG },
+X	{ "hexdump",0,0,		"",								pcmd_hexdump,0 },
+X	{ "home",	0,0,		"",								pcmd_home,  0  },
+X	{ "icolor",	0,0,		"",								pcmd_icolor,0  },
+X	{ "ifge",	0,0,		"",								pcmd_ifge,  0  },
+X	{ "ifgt",	0,0,		"",								pcmd_ifgt,  0  },
+X	{ "ifi",	0,0,		"",								pcmd_ifi,   0  },
+X	{ "ifle",	0,0,		"",								pcmd_ifle,  0  },
+X	{ "iflt",	0,0,		"",								pcmd_iflt,  0  },
+X	{ "ifnz",	0,0,		"",								pcmd_ifnz,  0  },
+X	{ "ifs",	0,0,		"",								pcmd_ifs,   0  },
+X	{ "ifz",	0,0,		"",								pcmd_ifz,   0  },
+X	{ "insline",0,0,		"",								pcmd_insline,0 },
+X	{ "kbdtest",4,CTkbdtest,"test keyboard mapping",		0,         ccG },
+X	{ "lbreak",	0,0,		"",								pcmd_lbreak,0  },
+X	{ "llp",	2,CTllp,	"set session log to /dev/lp",	0,         ccG },
+X	{ "lgets",	0,0,		"",								pcmd_lgets, 0  },
+X	{ "loff",	3,CTloff,	"turn off session logging",		0,         ccG },
+X	{ "log",	3,CTlog,	"session logging control",		0,         ccG },
+X	{ "logevent",0,0,		"",								pcmd_logevent,0},
+X	{ "lookfor",0,0,		"",								pcmd_lookfor,0 },
+X#if defined(MALLOC_3X)
+X	{ "memstat",3,CTmemstat,"",								0,          0  },
+X#endif
+X/*	{ "mkdir",	3,CTmkdir,	"mkdir <dirname>",				pcmd_mkdir, ccG}, */
+X	{ "mkvar",	0,0,		"",								pcmd_mkvar, 0  },
+X	{ "nap",	0,0,		"",								pcmd_nap,   0  },
+X	{ "nice",	2,CTnice,	"change process nice (0-39)",	pcmd_nice,  0  },
+X	{ "nl",		2,CTnl,		"display CR/LF mapping",		0,         ccC },
+X	{ "nlin",	3,CTnlin,	"set receive CR/LF mapping",	0,         ccC },
+X	{ "nlout",	3,CTnlout,	"set transmit CR/LF mapping",	0,         ccC },
+X	{ "oa",		2,CToa,		"octal to ascii char",			0,         ccG },
+X	{ "parity",	3,CTparity,	"set/display line parity",		pcmd_parity,ccC},
+X	{ "pclose",	0,0,		"",								pcmd_pclose,0  },
+X	{ "pcmd",	2,CTpcmd,	"execute procedure command",	0,         ccP },
+X	{ "pid",	2,CTpid,	"display process ids",			0,         ccG },
+X	{ "plog",	2,CTplog,	"control procedure logging",	pcmd_plog, ccP },
+X	{ "popd",	2,CTpopd,	"pop to previous directory",	pcmd_popd, ccG },
+X	{ "popen",	0,0,		"",								pcmd_popen, 0  },
+X	{ "prompt",	0,0,		"",								pcmd_prompt,0  },
+X	{ "ptrace",	2,CTptrace,	"control procedure trace",		pcmd_ptrace,ccP},
+X	{ "pushd",	2,CTpushd,	"push to new directory",		pcmd_pushd, ccG},
+X	{ "putf",	0,0,		"",								pcmd_putf,  0  },
+X	{ "pwd",	2,CTpwd,	"print working directory",		0,         ccG },
+X	{ "redial",	3,CTredial,	"redial last number",			0,         ccC },
+X	{ "return",	0,0,		"",								pcmd_return,0  },
+X	{ "rev",	3,CTrev,	"ecu revision/make date",		0,         ccG },
+X	{ "rk",		2,CTrk,		"receive via C-Kermit",			pcmd_rk,   ccT },
+X	{ "rlog",	0,0,		"",								pcmd_rlog,  0  },
+X	{ "rname",	0,0,		"",								pcmd_rname, 0  },
+X	{ "rs",		2,CTrs,		"receive via SEAlink",			pcmd_rs,   ccT },
+X	{ "rtscts",	3,CTrtscts,	"RTS/CTS flow control",			pcmd_rtscts,ccC},
+X	{ "rx",		2,CTrx,		"receive via XMODEM/CRC",		pcmd_rx,   ccT },
+X	{ "ry",		2,CTry,		"receive via YMODEM Batch",		pcmd_ry,   ccT },
+X	{ "rz",		2,CTrz,		"receive via ZMODEM/CRC32",		pcmd_rz,   ccT },
+X	{ "scrdump",0,0,		"",								pcmd_scrdump,0 },
+X	{ "sdname",	3,CTsdname,	"select screen dump name",		0,         ccC },
+X	{ "send",	0,0,		"",								pcmd_send,  0  },
+X	{ "set",	0,0,		"",								pcmd_set,   0  },
+X	{ "setline",0,0,		"",								pcmd_setline,0 },
+X	{ "sgr",	2,CTsgr,	"send command/get response",	0,         ccC },
+X	{ "sk",		2,CTsk,		"send via C-Kermit",			pcmd_sk,   ccT },
+X	{ "ss",		2,CTss,		"send via SEAlink",				pcmd_ss,   ccT },
+X	{ "stat",	2,CTstat,	"general status",				0,         ccG },
+X	{ "sx",		2,CTsx,		"send via XMODEM/CRC",			pcmd_sx,   ccT },
+X	{ "sy",		2,CTsy,		"send via YMODEM Batch",		pcmd_sy,   ccT },
+X	{ "system",	0,CTsy,		"",								pcmd_system,0  },
+X	{ "sz",		2,CTsz,		"send via ZMODEM/CRC32",		pcmd_sz,   ccT },
+X	{ "time",	2,CTtime,	"time of day",					0,         ccG },
+X	{ "ts",		2,CTts,		"termio display",				0,         ccC },
+X	{ "tty",	2,CTtty,	"console tty name",				0,         ccG },
+X	{ "upon",	0,0,		"",								pcmd_upon, 0   },
+X	{ "vidcolor",0,0,		"",								pcmd_vidcolor,0},
+X	{ "vidnorm",0,0,		"",								pcmd_vidnorm,0 },
+X	{ "vidrev",	0,0,		"",								pcmd_vidrev,0  },
+X	{ "whilei",	0,0,		"",								pcmd_whilei,0  },
+X	{ "whiles",	0,0,		"",								pcmd_whiles,0  },
+X	{ "xa",		2,CTxa,		"hex to ascii char",			0,         ccG },
+X	{ "xlog",	2,CTxlog,	"protocol packet logging",		0,         ccT },
+X	{ "xon",	2,CTxon,	"xon/xoff flow control",		pcmd_xon,  ccC },
+X/* these cmds are interecepted by special code in ecucmd.h and appear
+X * here only so they will be picked up by the help system.
+X */
+X	{ "!",		1,CTdummy1,	"execute shell (tty)",			0,         ccG },
+X	{ "$",		1,CTdummy2,	"execute shell (comm line)",	0,         ccG },
+X	{ "-",		1,CTdummy3,	"execute program",				0,         ccG },
+X	{ "?",		1,CTdummy4,	"get help",						0,         ccG },
+X	{ "",		0,-1,"",0,0 }	/* list ends with token value of -1 */
+X};
+X#endif
+X
+X#endif /* _ecucmd_h */
+X
+X/* end of ecucmd.h */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecucmd.h ||
+echo 'restore of ecucmd.h failed'
+Wc_c="`wc -c < 'ecucmd.h'`"
+test 12720 -eq "$Wc_c" ||
+	echo 'ecucmd.h: original size 12720, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecucurses.h ==============
+if test -f 'ecucurses.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecucurses.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecucurses.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecucurses.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecucurses.h - bypass SCO <curses.h> problems
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XIt is impossible to avoid warnings with various SCO curses installation
+Xoptions, so we do it here
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:05-02-1991-02:35-wht@n4hgf-creation */
+X
+X#ifndef _ecucurses_h
+X#define _ecucurses_h
+X
+X/*
+X * remove any pre-conceived notion of TERMINFO vs. TERMCAP curses (SCO)
+X */
+X#if defined(M_TERMINFO)
+X#undef M_TERMINFO
+X#endif /* M_TERMINFO */
+X
+X#if defined(M_TERMCAP)
+X#undef M_TERMCAP
+X#endif /* M_TERMCAP */
+X
+X
+X#if defined(M_SYSV)		/* any SCO */
+X/*
+X * SCO uses TERMCAP curses at this time
+X */
+X#define M_TERMCAP
+X#if defined(M_TERMCAP)
+X# include <tcap.h>
+X#else /* !M_TERMCAP */
+X# include <tinfo.h>
+X#endif /* M_TERMCAP */
+X#else /* !M_SYSV */
+X#if defined(sun)
+X# include <curses.h>
+X#else
+X/*
+X * other uses TERMINFO curses at this time
+X */
+X#define M_TERMINFO		/* some ecu code requires this despite non-SCO */
+X# include <curses.h>
+X#endif /* sun */
+X#endif /* M_SYSV */
+X
+X#endif /* _ecucurses_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecucurses.h */
+SHAR_EOF
+chmod 0644 ecucurses.h ||
+echo 'restore of ecucurses.h failed'
+Wc_c="`wc -c < 'ecucurses.h'`"
+test 1402 -eq "$Wc_c" ||
+	echo 'ecucurses.h: original size 1402, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecudump.c ==============
+if test -f 'ecudump.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecudump.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecudump.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecudump.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecudump.c  -- very generic hex/graphics dump development aid
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	dump_putc(ch)
+X	dump_puts(str)
+X	hex_dump(str,len,title,terse_flag)
+X	hex_dump16(int16)
+X	hex_dump32(int32)
+X	hex_dump4(int4)
+X	hex_dump8(int8)
+X	hex_dump_fp(fp,str,len,title,terse_flag)
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X
+XFILE *dumpfp;
+X
+X/*+-------------------------------------------------------------------------
+X	dump_putc(ch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdump_putc(ch)
+Xchar ch;
+X{
+X	if(dumpfp == stderr)
+X		pputc(ch);
+X	else
+X		fputc(ch,dumpfp);
+X}	/* end of dump_putc */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	dump_puts(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdump_puts(str)
+Xchar *str;
+X{
+X	if(dumpfp == stderr)
+X		pputs(str);
+X	else
+X		fputs(str,dumpfp);
+X}	/* end of dump_puts */
+X
+X
+X/*+-----------------------------------------------------------------------
+X	hex_dump#... subservient routines
+X------------------------------------------------------------------------*/
+Xvoid hex_dump4(int4)
+Xuchar int4;
+X{
+X	int4 &= 15;
+X	dump_putc((int4 >= 10) ? (int4 + 'A' - 10) : (int4 + '0'));
+X}
+X
+Xvoid hex_dump8(int8)
+Xuchar int8;
+X{
+X	hex_dump4(int8 >> 4);
+X	hex_dump4(int8);
+X}
+X
+Xvoid hex_dump16(int16)
+Xushort int16;
+X{
+X	hex_dump8(int16 >> 8);
+X	hex_dump8(int16);
+X}
+X
+Xvoid hex_dump32(int32)
+Xulong int32;
+X{
+X	hex_dump16(int32 >> 16);
+X	hex_dump16(int32);
+X}
+X
+X
+X/*+-----------------------------------------------------------------
+X	hex_dump_fp(fp,str,len,title,terse_flag)
+X
+X  if 'title' not NULL, title is printed... 'terse_flag'
+X  controls whether or not the title is "conspicuous" with
+X  hyphens before and after it making title line >70 chars long
+X  If len negative, print no buffer offsets.
+X------------------------------------------------------------------*/
+Xvoid
+Xhex_dump_fp(fp,str,len,title,terse_flag)
+XFILE *fp;
+Xchar *str;
+Xint len;
+Xchar *title;
+Xint terse_flag;
+X{
+X	register ipos = 0;
+X	register itmp;
+X	int istr;
+X	int print_offset = (len > 16);
+X
+X	if(!print_offset)
+X		len = -len;
+X
+X	dumpfp = fp;
+X
+X	if(title && (istr = strlen(title)))
+X	{
+X		if(!terse_flag)
+X		{
+X			ipos = (((print_offset) ? 73 : 67) - istr) / 2;
+X			itmp = ipos;
+X			while(itmp--)
+X				dump_putc('-');
+X			dump_putc(' ');
+X			if(istr & 1)
+X				ipos--;
+X		}
+X		dump_puts(title);
+X		if(!terse_flag)
+X		{
+X			dump_putc(' ');
+X			while(ipos--)
+X				dump_putc('-');
+X		}
+X		if(terse_flag && (len < 12))
+X			dump_putc(' ');
+X		else
+X		{
+X			if(dumpfp == stderr)
+X				dump_puts("\r\n");
+X			else
+X				dump_puts("\n");
+X		}
+X	}
+X
+X	istr = 0;
+X	while(istr < len)
+X	{
+X		if(print_offset)
+X		{
+X			hex_dump16(istr);
+X			dump_puts("  ");
+X		}
+X		for(itmp = 0; itmp < 16; ++itmp)
+X		{
+X			ipos = istr + itmp;
+X			if(ipos >= len)
+X			{
+X				if(!terse_flag)
+X					dump_puts("   ");
+X				continue;
+X			}
+X			if(itmp)
+X				dump_putc(' ');
+X			hex_dump8(str[ipos]);
+X		}
+X		dump_puts("  | ");
+X		for(itmp = 0; itmp < 16; ++itmp)
+X		{
+X			ipos = istr + itmp;
+X			if( (ipos) >= len)
+X			{
+X				if(!terse_flag)
+X					dump_putc(' ');
+X			}
+X			else
+X			{
+X				dump_putc((str[ipos] >= ' ' && str[ipos] < 0x7f)
+X				    ? str[ipos] : '.' );
+X			}
+X		}
+X		if(dumpfp == stderr)
+X			dump_puts(" |\r\n");
+X		else
+X			dump_puts(" |\n");
+X		istr += 16;
+X	}   /* end of while(istr < len) */
+X
+X}	/* end of hex_dump_fp */
+X
+X/*+-------------------------------------------------------------------------
+X	hex_dump(str,len,title,terse_flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhex_dump(str,len,title,terse_flag)
+Xchar *str;
+Xint len;
+Xchar *title;
+Xint terse_flag;
+X{
+X	hex_dump_fp(stderr,str,len,title,terse_flag);
+X}	/* end of hex_dump_fp */
+X/* end of ecudump.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecudump.c ||
+echo 'restore of ecudump.c failed'
+Wc_c="`wc -c < 'ecudump.c'`"
+test 4079 -eq "$Wc_c" ||
+	echo 'ecudump.c: original size 4079, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuerror.h ==============
+if test -f 'ecuerror.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuerror.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuerror.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuerror.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecuerror.h
+X	wht@n4hgf.Mt-Park.GA.US
+X
+Xe_... values must not be changed without careful looking through code
+Xerror numbers should be <= 0x7FFF to avoid problems with M_I286 versions
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:08-25-1991-23:45-root@n4hgf2-add eSwitchesTooLong */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecuerror_h
+X#define _ecuerror_h
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuerror.h */
+X#define e_USER				0x1000	/* user error differentiation */
+X
+X/* warning errors - do not stop proc execution */
+X#define e_WARNING			0x3000
+X#define eProcEmpty			0x3001  /* empty procedure */
+X#define eWARNING_ALREADY	0x3002  /* warning already printed */
+X#define eConnectFailed		0x3003	/* failed to connect */
+X#define eNoSwitches			0x3004	/* no switch(es) to command */
+X
+X/* fatal errors - stop proc execution */
+X#define e_FATAL				0x4000
+X#define eIllegalCommand		0x4003  /* invalid command */
+X#define eNoMemory			0x4004  /* no more memory available */
+X#define eSyntaxError		0x4005  /* syntax error */
+X#define eIllegalVarNumber	0x4006  /* number is invalid or out of range */
+X#define eIllegalVarType		0x4007  /* unrecognized variable type */
+X#define eNotInteger			0x4008  /* integer expected and not found */
+X#define eFATAL_ALREADY		0x4011  /* fatal to proc, info already printed */
+X#define eCONINT				0x4012  /* abort due to interrupt */
+X#define eInvalidFunction	0x4013  /* invalid function name */
+X#define eMissingLeftParen	0x4014  /* did not find expected left paren */
+X#define eMissingRightParen	0x4015  /* did not find expected right paren */
+X#define eCommaExpected		0x4016  /* expected comma not found */
+X#define eProcStackTooDeep	0x4017  /* procedure stack depth exceeded */
+X#define eInvalidRelOp		0x4018  /* invalid relational operator */
+X#define eInvalidIntOp		0x4019  /* invalid integer operator */
+X#define eInvalidStrOp		0x4020  /* invalid string operator */
+X#define eNotExecutingProc	0x4022  /* not executing DO at this time */
+X#define eInvalidLabel		0x4023  /* invalid label */
+X#define eInternalLogicError	0x4025  /* internal logic error ... whoops */
+X#define eEOF				0x4026  /* end of file or read error */
+X#define eBufferTooSmall		0x4027  /* string too long */
+X#define eNoParameter		0x4028  /* expected parameter not found */
+X#define eBadParameter		0x4029  /* bad parameter */
+X#define eInvalidHexNumber	0x402A	/* invalid hexadecimal digit */
+X#define eInvalidDecNumber	0x402B	/* invalid decimal digit */
+X#define eInvalidOctNumber	0x402C	/* invalid octal digit */
+X#define eInteractiveCmd		0x402E	/* interactive command */
+X#define eNoLineAttached		0x402F	/* no line (modem) attached */
+X#define eBadFileNumber		0x4030	/* file number out of range */
+X#define eNotImplemented		0x4031	/* not implemented */
+X#define eDuplicateMatch		0x4032	/* more than one condition matches */
+X#define eColonExpected		0x4033  /* expected colon not found */
+X#define eLabelInvalidHere	0x4034  /* label not allowed on this statement */
+X#define eNoCloseFrame		0x4035  /* missing '}' for '{' */
+X#define eNoFrame			0x4036  /* missing command or command group after 'while' or 'if' */
+X#define eMissingCommand		0x4037  /* expected command not found */
+X#define eBreakCommand		0x4038  /* 'break' outside 'while' */
+X#define eContinueCommand	0x4039  /* 'continue' outside 'while' */
+X#define eElseCommand		0x403A  /* 'else' without matching 'if' */
+X#define eInvalidVarName		0x403B  /* invalid variable name */
+X#define eNoSuchVariable		0x403C  /* variable by this name not defined */
+X#define eInvalidLogicOp		0x403D  /* invalid logical operator */
+X#define eExpectRespondFail	0x403E  /* expect-respond failed */
+X#define eSwitchesTooLong	0x403F	/* switches too long */
+X
+X/* DO attention getter */
+X#define e_ProcAttn			0x7000
+X#define eProcAttn_GOTO		0x7000  /* GOTO detected */
+X#define eProcAttn_GOTOB		0x7001  /* GOTOB detected */
+X#define eProcAttn_RETURN	0x7002  /* RETURN detected */
+X#define eProcAttn_ESCAPE	0x7003  /* ESCAPE detected */
+X#define eProcAttn_Interrupt	0x7004  /* procedure interrupted */
+X#define eProcAttn_DCDloss	0x7005	/* DCD lost during procedure execution */
+X
+X#endif /* _ecuerror_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuerror.h */
+SHAR_EOF
+chmod 0644 ecuerror.h ||
+echo 'restore of ecuerror.h failed'
+Wc_c="`wc -c < 'ecuerror.h'`"
+test 4535 -eq "$Wc_c" ||
+	echo 'ecuerror.h: original size 4535, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecufinsert.c ==============
+if test -f 'ecufinsert.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecufinsert.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecufinsert.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecufinsert.c' &&
+X#define USE_XON_XOFF
+X/*+-------------------------------------------------------------------------
+X	ecufinsert.c -- insert file onto comm line
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	expand_filename(fname,maxlen)
+X	file_insert_clear_xoff()
+X	file_insert_to_line(narg,arg)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:04-27-1991-01:24-wht@n4hgf-expand_filename was NFG */
+X/*:03-30-1991-12:40-wht@n4hgf-redi!donovan found q does not restart receiver */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecutty.h"
+X
+Xextern char kbdintr;		/* current input INTR */
+Xextern ulong colors_current;
+Xextern ulong colors_alert;
+Xextern ulong colors_errors;
+X
+X/*+-------------------------------------------------------------------------
+X	expand_filename(fname) - convert fnames with shell chars
+X
+Xreturn 0 if no shell characters found
+X       -1 if shell expansion match found
+X       1 if shell expansion found
+X--------------------------------------------------------------------------*/
+Xint
+Xexpand_filename(fname,maxlen)
+Xchar *fname;
+Xint maxlen;
+X{
+Xchar *expcmd;
+X
+X	if(!find_shell_chars(fname))
+X		return(0);
+X
+X	if(expand_wildcard_list(fname,&expcmd))
+X	{
+X		fputs("\r\n",se);
+X		fputs(expcmd,se);
+X		fputs("\r\n",se);
+X		return(-1);
+X	}
+X	strncpy(fname,expcmd,maxlen);
+X	fname[maxlen - 1] = 0;
+X	if(strchr(expcmd,' '))
+X	{
+X		fputs("\r\nToo many files:\r\n",se);
+X		fputs(expcmd,se);
+X		fputs("\r\n",se);
+X		free(expcmd);
+X		return(-1);
+X	}
+X	strncpy(fname,expcmd,maxlen - 1);
+X	*(fname + maxlen - 1) = 0;
+X	free(expcmd);
+X	return(0);
+X
+X}	/* end of expand_filename */
+X
+X/*+-------------------------------------------------------------------------
+X	file_insert_clear_xoff()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfile_insert_clear_xoff()
+X{
+X#ifdef USE_XON_XOFF
+X#ifdef SAY_CLEARED_XOFF
+Xulong colors_at_entry = colors_current;
+X
+X	setcolor(colors_alert);
+X	fputs("--> local XOFF cleared\r",se);
+X	setcolor(colors_at_entry);
+X#endif
+X	lclear_xmtr_xoff();
+X#endif
+X}	/* end of file_insert_clear_xoff */
+X
+X/*+-------------------------------------------------------------------------
+X	file_insert_to_line(narg,arg)
+X--------------------------------------------------------------------------*/
+Xfile_insert_to_line(narg,arg)
+Xint narg;
+Xchar **arg;
+SHAR_EOF
+true || echo 'restore of ecufinsert.c failed'
+fi
+echo 'End of ecu320 part 6'
+echo 'File ecufinsert.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

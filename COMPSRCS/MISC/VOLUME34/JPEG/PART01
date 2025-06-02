@@ -1,0 +1,1119 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i055:  jpeg - JPEG image compression, Part01/18
+Message-ID: <csm-v34i055=jpeg.220424@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2c30bc9b21d0f071e852db3164301a05
+Date: Thu, 17 Dec 1992 04:13:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 55
+Archive-name: jpeg/part01
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+This package contains C software to implement JPEG image compression and
+decompression.  JPEG is a standardized compression method for full-color
+and gray-scale images.  JPEG is intended for "real-world" scenes; cartoons
+and other non-realistic images are not its strong suit.  JPEG is lossy,
+meaning that the output image is not identical to the input image.
+The user can trade off output image quality against compressed file size by
+adjusting a compression parameter.
+
+The distributed programs provide conversion between JPEG "JFIF" format and
+image files in PBMPLUS PPM/PGM, Utah RLE, Truevision Targa, and GIF file
+formats.  The core compression and decompression modules can easily be
+reused in other programs, such as image viewers.  The package is highly
+portable C code; we have tested it on many machines ranging from PCs to Crays.
+
+This version 4 supersedes version 3, which was posted in comp.sources.misc
+volume 29.  Important improvements over version 3 include:
+
+* Significant speedups.  The basic JPEG compression and decompression
+  operations are typically about a factor of 2 faster than v3.  (Your
+  mileage will vary depending on CPU type and C compiler.)
+
+* Improved image quality, due to more accurate DCT and resampling
+  algorithms.
+
+* Error recovery capability has been added to the decompressor, so that
+  it can cope with damaged JPEG files.  While damage to the compressed
+  data will scramble the output image, the effects of damage can be
+  confined to small areas of the image if the file was originally created
+  with "restart" markers.  Even severe damage will only result in loss of
+  the damaged restart segments; the rest of the image can still be recovered.
+
+* Redesigned command line switches provide access to more JPEG parameter
+  settings, including restart marker generation in the compressor.
+
+* There is an option for smoothing the input image before JPEG compression.
+  This helps a lot when converting dithered GIFs to JPEG.
+
+* Portability is even better than v3.
+
+
+We are releasing this software for both noncommercial and commercial use.
+Companies are welcome to use it as the basis for JPEG-related products.
+We do not ask a royalty, although we do ask for an acknowledgement in
+product literature (see the README file in the distribution for details).
+We hope to make this software industrial-quality --- although, as with
+anything that's free, we offer no warranty and accept no liability.
+
+			Dr. Thomas G. Lane
+			organizer, Independent JPEG Group
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README jcexpand.c timg.ppm.UU.A
+# Wrapped by kent@sparky on Wed Dec 16 20:52:24 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 18)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(21128 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThe Independent JPEG Group's JPEG software
+X==========================================
+X
+XREADME for release 4 of 10-Dec-92
+X=================================
+X
+XThis distribution contains the fourth public release of the Independent JPEG
+XGroup's free JPEG software.  You are welcome to redistribute this software and
+Xto use it for any purpose, subject to the conditions under LEGAL ISSUES, below.
+X
+XFor installation instructions, see file SETUP.
+X
+XFor usage instructions, see file USAGE (or the cjpeg.1 and djpeg.1 manual
+Xpages; but USAGE contains a "hints" section not found in the manual pages).
+XUseful information can also be found in the JPEG FAQ (Frequently Asked
+XQuestions) article; see ARCHIVE LOCATIONS below to obtain the FAQ article.
+X
+XThis software is still undergoing revision.  Updated versions may be obtained
+Xby FTP or UUCP to UUNET and other archive sites; see ARCHIVE LOCATIONS below
+Xfor details.
+X
+XSerious users of this software (particularly those incorporating it into
+Xlarger programs) should contact jpeg-info@uunet.uu.net to be added to our
+Xelectronic mailing list.  Mailing list members are notified of updates and
+Xhave a chance to participate in technical discussions, etc.
+X
+XThis software is the work of Tom Lane, Philip Gladstone, Luis Ortiz,
+XLee Crocker, Ge' Weijers, and other members of the Independent JPEG Group.
+X
+X
+XDISCLAIMER
+X==========
+X
+XTHIS SOFTWARE IS NOT COMPLETE NOR FULLY DEBUGGED.  It is not guaranteed to be
+Xuseful for anything, nor to be compatible with subsequent releases, nor to be
+Xan accurate implementation of the JPEG standard.  (See LEGAL ISSUES for even
+Xmore disclaimers.)
+X
+XDespite that, we believe that this software is pretty good, and if you find
+Xany problems with it, we'd like to know about them.  Please report problems
+Xby e-mail to jpeg-info@uunet.uu.net.
+X
+X
+XWHAT'S HERE
+X===========
+X
+XThis distribution contains C software to implement JPEG image compression and
+Xdecompression.  JPEG (pronounced "jay-peg") is a standardized compression
+Xmethod for full-color and gray-scale images.  JPEG is intended for compressing
+X"real-world" scenes; cartoons and other non-realistic images are not its
+Xstrong suit.  JPEG is lossy, meaning that the output image is not necessarily
+Xidentical to the input image.  Hence you must not use JPEG if you have to have
+Xidentical output bits.  However, on typical images of real-world scenes, very
+Xgood compression levels can be obtained with no visible change, and amazingly
+Xhigh compression levels are possible if you can tolerate a low-quality image.
+XFor more details, see the references, or just experiment with various
+Xcompression settings.
+X
+XThe software implements JPEG baseline and extended-sequential compression
+Xprocesses.  Provision is made for supporting all variants of these processes,
+Xalthough some uncommon parameter settings aren't implemented yet.  For legal
+Xreasons, we are not distributing code for the arithmetic-coding process; see
+XLEGAL ISSUES.  At present we have made no provision for supporting the
+Xprogressive, hierarchical, or lossless processes defined in the standard.
+X
+XIn order to support file conversion and viewing software, we have included
+Xconsiderable functionality beyond the bare JPEG coding/decoding capability;
+Xfor example, the color quantization modules are not strictly part of JPEG
+Xdecoding, but they are essential for output to colormapped file formats or
+Xcolormapped displays.  These extra functions can be compiled out if not
+Xrequired for a particular application.
+X
+XThe emphasis in designing this software has been on achieving portability and
+Xflexibility, while also making it fast enough to be useful.  In particular,
+Xthe software is not intended to be read as a tutorial on JPEG.  (See the
+XREFERENCES section for introductory material.)  While we hope that the entire
+Xpackage will someday be industrial-strength code, much remains to be done in
+Xperformance tuning and in improving the capabilities of individual modules.
+X
+X
+XThis software can be used on several levels:
+X
+X* As canned software for JPEG compression and decompression.  Just edit the
+X  Makefile and configuration files as needed (see file SETUP), compile and go.
+X  Members of the Independent JPEG Group will improve the out-of-the-box
+X  functionality and speed as time goes on.
+X
+X* As the basis for other JPEG programs.  For example, you could incorporate
+X  the decompressor into a general image viewing package by replacing the
+X  output module with write-to-screen functions.  For an implementation on
+X  specific hardware, you might want to replace some of the inner loops with
+X  assembly code.  For a non-command-line-driven system, you might want a
+X  different user interface.  (Members of the group will be producing Macintosh
+X  and Amiga versions with more appropriate user interfaces, for example.)
+X
+X* As a toolkit for experimentation with JPEG and JPEG-like algorithms.  Most
+X  of the individual decisions you might want to mess with are packaged up into
+X  separate modules.  For example, the details of color-space conversion and
+X  subsampling techniques are each localized in one compressor and one
+X  decompressor module.  You'd probably also want to extend the user interface
+X  to give you more detailed control over the JPEG compression parameters.
+X
+XIn particular, we welcome the use of this software as a component of commercial
+Xproducts; no royalty is required.
+X
+X
+XARCHIVE LOCATIONS
+X=================
+X
+XThe "official" archive site for this software is ftp.uu.net (Internet
+Xaddress 137.39.1.9 or 192.48.96.9).  The most recent released version can
+Xalways be found there in directory graphics/jpeg.  This particular version
+Xwill be archived as jpegsrc.v4.tar.Z.  If you are on the Internet, you can
+Xretrieve files from UUNET by anonymous FTP.  If you don't have FTP access,
+XUUNET's archives are also available via UUCP; contact postmaster@uunet.uu.net
+Xfor information on retrieving files that way.
+X
+XNumerous Internet sites maintain copies of the UUNET files; in particular,
+Xyou can probably find a copy at any site that archives comp.sources.misc
+Xsubmissions.  However, only ftp.uu.net is guaranteed to have the latest
+Xofficial version.
+X
+XYou can also obtain this software from CompuServe, in the GRAPHSUPPORT forum
+X(GO PICS), library 15; this version will be file jpsrc4.zip.  Again,
+XCompuServe is not guaranteed to have the very latest version.
+X
+XThe JPEG FAQ (Frequently Asked Questions) article is a useful source of
+Xgeneral information about JPEG.  It is updated constantly and therefore
+Xis not included in this distribution.  The FAQ is posted every two weeks
+Xto Usenet newsgroups comp.graphics, news.answers, and other groups.  You
+Xcan always obtain the latest version from the news.answers archive at
+Xrtfm.mit.edu (18.172.1.27).  By FTP, fetch /pub/usenet/news.answers/jpeg-faq.
+XIf you don't have FTP, send e-mail to mail-server@rtfm.mit.edu with body
+X"send usenet/news.answers/jpeg-faq".
+X
+X
+XSUPPORTING SOFTWARE
+X===================
+X
+XYou will probably want Jef Poskanzer's PBMPLUS image software, which provides
+Xmany useful operations on PPM-format image files.  In particular, it can
+Xconvert PPM images to and from a wide range of other formats.  You can FTP
+Xthis free software from export.lcs.mit.edu (contrib/pbmplus*.tar.Z) or
+Xftp.ee.lbl.gov (pbmplus*.tar.Z).  Unfortunately PBMPLUS is not nearly as
+Xportable as the JPEG software is; you are likely to have difficulty making it
+Xwork on any non-Unix machine.
+X
+XIf you are using X Windows you might want to use the xv or xloadimage viewers
+Xto save yourself the trouble of converting PPM to some other format.  Both of
+Xthese can be found in the contrib directory at export.lcs.mit.edu.  Actually,
+Xxv version 2.00 and up incorporates our software and thus can read and write
+XJPEG files directly.  (NOTE: since xv internally reduces all images to 8
+Xbits/pixel, a JPEG file written by xv will not be very high quality; and xv
+Xcannot fully exploit a 24-bit display.  These problems are expected to go away
+Xin the next xv release, planned for early 1993.  In the meantime, use
+Xxloadimage for 24-bit displays.)
+X
+XFor DOS machines, Lee Crocker's free Piclab program is a useful companion to
+Xthe JPEG software.  The latest version, currently 1.91, is available by FTP
+Xfrom SIMTEL20 and its various mirror sites, file <msdos.graphics>piclb191.zip.
+XCompuServe also has it, in the same library as the JPEG software.
+X
+X
+XSOFTWARE THAT'S NO HELP AT ALL
+X==============================
+X
+XHandmade Software's shareware PC program GIF2JPG produces files that are
+Xtotally incompatible with our programs.  They use a proprietary format that is
+Xan amalgam of GIF and JPEG representations.  However, you can force GIF2JPG
+Xto produce compatible files with its -j switch, and their decompression
+Xprogram JPG2GIF can read our files (at least ones produced with our default
+Xoption settings).
+X
+XSome commercial JPEG implementations are also incompatible as of this writing,
+Xespecially programs released before summer 1991.  The root of the problem is
+Xthat the ISO JPEG committee failed to specify a concrete file format.  Some
+Xvendors "filled in the blanks" on their own, creating proprietary formats that
+Xno one else could read.  (For example, none of the early commercial JPEG
+Ximplementations for the Macintosh were able to exchange compressed files.)
+X
+XThe file format we have adopted is called JFIF (see REFERENCES).  This format
+Xhas been agreed to by a number of major commercial JPEG vendors, and we expect
+Xthat it will become the de facto standard.  JFIF is a minimal representation;
+Xwork is also going forward to incorporate JPEG compression into the TIFF 6.0
+Xstandard, for use in "high end" applications that need to record a lot of
+Xadditional data about an image.  We intend to support TIFF 6.0 in the future.
+XWe hope that these two formats will be sufficient and that other, incompatible
+XJPEG file formats will not proliferate.
+X
+XIndeed, part of the reason for developing and releasing this free software is
+Xto help force rapid convergence to de facto standards for JPEG file formats.
+XSUPPORT STANDARD, NON-PROPRIETARY FORMATS: demand JFIF or TIFF 6.0!
+X
+X
+XUSING JPEG AS A SUBROUTINE IN A LARGER PROGRAM
+X==============================================
+X
+XYou can readily incorporate the JPEG compression and decompression routines in
+Xa larger program.  The file example.c provides a skeleton of the interface
+Xroutines you'll need for this purpose.  Essentially, you replace jcmain.c (for
+Xcompression) and/or jdmain.c (for decompression) with your own code.  Note
+Xthat the fewer JPEG options you allow the user to twiddle, the less code you
+Xneed; all the default options are set up automatically.  (Alternately, if you
+Xknow a lot about JPEG or have a special application, you may want to twiddle
+Xthe default options even more extensively than jcmain/jdmain do.)
+X
+XMost likely, you will want the uncompressed image to come from memory (for
+Xcompression) or go to memory or the screen (for decompression).  For this
+Xpurpose you must provide image reading or writing routines that match the
+Xinterface used by the image file I/O modules (jrdXXX or jwrXXX); again,
+Xexample.c shows a skeleton of what is required.  In this situation, you
+Xwon't need any of the non-JPEG image file I/O modules used by cjpeg and djpeg.
+X
+XBy default, any error detected inside the JPEG routines will cause a message
+Xto be printed on stderr, followed by exit().  You can override this behavior
+Xby supplying your own message-printing and/or error-exit routines; again,
+Xexample.c shows how.
+X
+XWe recommend you create libjpeg.a as shown in the Makefile, then link that
+Xwith your surrounding program.  (If your linker is at all reasonable, only the
+Xcode you actually need will get loaded.)  Include the files jconfig.h and
+Xjpegdata.h in C files that need to call the JPEG routines.
+X
+XCAUTION: some people have tried to compile JPEG and their surrounding code
+Xwith different compilers, e.g., cc for JPEG and c++ or gcc for the rest.  This
+Xis a Real Bad Move and you will deserve what happens to you if you try it.
+X(Hint: the parameter structures can get laid out differently with no warning.)
+X
+XRead our "architecture" file for more info.  If it seems to you that the
+Xsoftware structure doesn't accommodate what you want to do, please contact
+Xthe authors.
+X
+XBeginning with version 3, we will endeavor to hold the interface described by
+Xexample.c constant, so that you can plug in updated versions of the JPEG code
+Xjust by recompiling.  However, we can't guarantee this, especially if you
+Xchoose to twiddle any JPEG options not listed in example.c.  Check the
+XCHANGELOG when installing any new version, and compare example.c against the
+Xprior version.  Recompile your calling software (don't just relink), as we may
+Xadd or subtract fields in the parameter structures.
+X
+X
+XREFERENCES
+X==========
+X
+XWe highly recommend reading one or more of these references before trying to
+Xunderstand the innards of any JPEG software.
+X
+XThe best short technical introduction to the JPEG compression algorithm is
+X	Wallace, Gregory K.  "The JPEG Still Picture Compression Standard",
+X	Communications of the ACM, April 1991 (vol. 34 no. 4), pp. 30-44.
+X(Adjacent articles in that issue discuss MPEG motion picture compression,
+Xapplications of JPEG, and related topics.)  If you don't have the CACM issue
+Xhandy, a PostScript file containing a revised version of the article is
+Xavailable at ftp.uu.net, graphics/jpeg/wallace.ps.Z.  The file (actually a
+Xpreprint for an article to appear in IEEE Trans. Consumer Electronics) omits
+Xthe sample images that appeared in CACM, but it includes corrections and some
+Xadded material.  Note: the Wallace article is copyright ACM and IEEE, and it
+Xmay not be used for commercial purposes.
+X
+XA somewhat less technical, more leisurely introduction to JPEG can be found in
+X"The Data Compression Book" by Mark Nelson, published by M&T Books (Redwood
+XCity, CA), 1991, ISBN 1-55851-216-0.  This book provides good explanations and
+Xexample C code for a multitude of compression methods including JPEG.  It is
+Xan excellent source if you are comfortable reading C code but don't know much
+Xabout data compression in general.  The book's JPEG sample code is far from
+Xindustrial-strength, but when you are ready to look at a full implementation,
+Xyou've got one here...
+X
+XA new textbook about JPEG is "JPEG Still Image Data Compression Standard" by
+XWilliam B. Pennebaker and Joan L. Mitchell, published by Van Nostrand
+XReinhold, 1993, ISBN 0-442-01272-1.  Price US$59.95.  This book includes the
+Xcomplete text of the ISO JPEG standards (DIS 10918-1 and draft DIS 10918-2).
+XThis is by far the most complete exposition of JPEG in existence, and I highly
+Xrecommend it.  If you read the entire book, you will probably know more about
+XJPEG than I do.
+X
+XThe JPEG standard itself is not available electronically; you must order a
+Xpaper copy through ISO.  (Unless you are concerned about having a certified
+Xofficial copy, I recommend buying the Pennebaker and Mitchell book instead;
+Xit's much cheaper and includes a great deal of useful explanatory material.)
+XIn the US, copies of the standard may be ordered from ANSI Sales at (212)
+X642-4900.  It's not cheap: as of 1992, Part 1 is $95 and Part 2 is $47, plus
+X7% shipping/handling.  The standard is divided into two parts, Part 1 being
+Xthe actual specification, while Part 2 covers compliance testing methods.
+XAs of early 1992, Part 1 has Draft International Standard status.  It is
+Xtitled "Digital Compression and Coding of Continuous-tone Still Images, Part
+X1: Requirements and guidelines" and has document number ISO/IEC DIS 10918-1.
+XPart 2 is still at Committee Draft status.  It is titled "Digital Compression
+Xand Coding of Continuous-tone Still Images, Part 2: Compliance testing" and
+Xhas document number ISO/IEC CD 10918-2.  (NOTE: I'm told that the final
+Xversion of Part 2 will differ considerably from the CD draft.)
+X
+XThe JPEG standard does not specify all details of an interchangeable file
+Xformat.  For the omitted details we follow the "JFIF" conventions, revision
+X1.02.  A copy of the JFIF spec is available from:
+X	Literature Department
+X	C-Cube Microsystems, Inc.
+X	399A West Trimble Road
+X	San Jose, CA  95131
+X	(408) 944-6300
+XA PostScript version of this document is available at ftp.uu.net, file
+Xgraphics/jpeg/jfif.ps.Z.  It can also be obtained by e-mail from the C-Cube
+Xmail server, netlib@c3.pla.ca.us.  Send the message "send jfif_ps from jpeg"
+Xto the server to obtain the JFIF document; send the message "help" if you have
+Xtrouble.
+X
+XThe TIFF 6.0 file format specification can be obtained by FTP from sgi.com
+X(192.48.153.1), file graphics/tiff/TIFF6.ps.Z; or you can order a printed copy
+Xfrom Aldus Corp. at (206) 628-6593.  It should be noted that the TIFF 6.0 spec
+Xof 3-June-92 has a number of serious problems in its JPEG features.  A
+Xclarification note will probably be needed to ensure that TIFF JPEG files are
+Xcompatible across different implementations.  The IJG does not intend to
+Xsupport TIFF 6.0 until these problems are resolved.
+X
+XIf you want to understand this implementation, start by reading the
+X"architecture" documentation file.  Please read "codingrules" if you want to
+Xcontribute any code.
+X
+X
+XLEGAL ISSUES
+X============
+X
+XThe authors make NO WARRANTY or representation, either express or implied,
+Xwith respect to this software, its quality, accuracy, merchantability, or
+Xfitness for a particular purpose.  This software is provided "AS IS", and you,
+Xits user, assume the entire risk as to its quality and accuracy.
+X
+XThis software is copyright (C) 1991, 1992, Thomas G. Lane.
+XAll Rights Reserved except as specified below.
+X
+XPermission is hereby granted to use, copy, modify, and distribute this
+Xsoftware (or portions thereof) for any purpose, without fee, subject to these
+Xconditions:
+X(1) If any part of the source code for this software is distributed, then this
+XREADME file must be included, with this copyright and no-warranty notice
+Xunaltered; and any additions, deletions, or changes to the original files
+Xmust be clearly indicated in accompanying documentation.
+X(2) If only executable code is distributed, then the accompanying
+Xdocumentation must state that "this software is based in part on the work of
+Xthe Independent JPEG Group".
+X(3) Permission for use of this software is granted only if the user accepts
+Xfull responsibility for any undesirable consequences; the authors accept
+XNO LIABILITY for damages of any kind.
+X
+XPermission is NOT granted for the use of any IJG author's name or company name
+Xin advertising or publicity relating to this software or products derived from
+Xit.  This software may be referred to only as "the Independent JPEG Group's
+Xsoftware".
+X
+XWe specifically permit and encourage the use of this software as the basis of
+Xcommercial products, provided that all warranty or liability claims are
+Xassumed by the product vendor.
+X
+X
+Xansi2knr.c is included in this distribution by permission of L. Peter Deutsch,
+Xsole proprietor of its copyright holder, Aladdin Enterprises of Menlo Park, CA.
+Xansi2knr.c is NOT covered by the above copyright and conditions, but instead
+Xby the usual distribution terms of the Free Software Foundation; principally,
+Xthat you must include source code if you redistribute it.  (See the file
+Xansi2knr.c for full details.)  However, since ansi2knr.c is not needed as part
+Xof any program generated from the JPEG code, this does not limit you more than
+Xthe foregoing paragraphs do.
+X
+X
+XIt appears that the arithmetic coding option of the JPEG spec is covered by
+Xpatents owned by IBM and AT&T, as well as a pending Japanese patent of
+XMitsubishi.  Hence arithmetic coding cannot legally be used without obtaining
+Xone or more licenses.  For this reason, support for arithmetic coding has been
+Xremoved from the free JPEG software.  (Since arithmetic coding provides only a
+Xmarginal gain over the unpatented Huffman mode, it is unlikely that very many
+Ximplementors will support it.  If you do obtain the necessary licenses,
+Xcontact jpeg-info@uunet.uu.net for a copy of our arithmetic coding modules.)
+XSo far as we are aware, there are no patent restrictions on the remaining
+Xcode.
+X
+X
+XWe are required to state that
+X    "The Graphics Interchange Format(c) is the Copyright property of
+X    CompuServe Incorporated.  GIF(sm) is a Service Mark property of
+X    CompuServe Incorporated."
+X
+X
+XTO DO
+X=====
+X
+XThe next major release will probably be a significant rewrite to allow use of
+Xthis code in conjunction with Sam Leffler's free TIFF library (assuming the
+Xbugs in the TIFF 6.0 specification get resolved).
+X
+XMany of the modules need fleshing out to provide more complete
+Ximplementations, or to provide faster paths for common cases.
+XSpeeding things up is still high on our priority list.
+X
+XWe'd appreciate it if people would compile and check out the code on as wide a
+Xvariety of systems as possible, and report any portability problems
+Xencountered (with solutions, if possible).  Checks of file compatibility with
+Xother JPEG implementations would also be of interest.  Finally, we would
+Xappreciate code profiles showing where the most time is spent, especially on
+Xunusual systems.
+X
+XPlease send bug reports, offers of help, etc. to jpeg-info@uunet.uu.net.
+END_OF_FILE
+  if test 21128 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'jcexpand.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcexpand.c'\"
+else
+  echo shar: Extracting \"'jcexpand.c'\" \(1948 characters\)
+  sed "s/^X//" >'jcexpand.c' <<'END_OF_FILE'
+X/*
+X * jcexpand.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains image edge-expansion routines.
+X * These routines are invoked via the edge_expand method.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/*
+X * Expand an image so that it is a multiple of the MCU dimensions.
+X * This is to be accomplished by duplicating the rightmost column
+X * and/or bottommost row of pixels.  The image has not yet been
+X * downsampled, so all components have the same dimensions.
+X */
+X
+XMETHODDEF void
+Xedge_expand (compress_info_ptr cinfo,
+X	     long input_cols, int input_rows,
+X	     long output_cols, int output_rows,
+X	     JSAMPIMAGE image_data)
+X{
+X  /* Expand horizontally */
+X  if (input_cols < output_cols) {
+X    register JSAMPROW ptr;
+X    register JSAMPLE pixval;
+X    register long count;
+X    register int row;
+X    short ci;
+X    long numcols = output_cols - input_cols;
+X
+X    for (ci = 0; ci < cinfo->num_components; ci++) {
+X      for (row = 0; row < input_rows; row++) {
+X	ptr = image_data[ci][row] + (input_cols-1);
+X	pixval = GETJSAMPLE(*ptr++);
+X	for (count = numcols; count > 0; count--)
+X	  *ptr++ = pixval;
+X      }
+X    }
+X  }
+X
+X  /* Expand vertically */
+X  /* This happens only once at the bottom of the image, */
+X  /* so it needn't be super-efficient */
+X  if (input_rows < output_rows) {
+X    register int row;
+X    short ci;
+X    JSAMPARRAY this_component;
+X
+X    for (ci = 0; ci < cinfo->num_components; ci++) {
+X      this_component = image_data[ci];
+X      for (row = input_rows; row < output_rows; row++) {
+X	jcopy_sample_rows(this_component, input_rows-1, this_component, row,
+X			  1, output_cols);
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * The method selection routine for edge expansion.
+X */
+X
+XGLOBAL void
+Xjselexpand (compress_info_ptr cinfo)
+X{
+X  /* just one implementation for now */
+X  cinfo->methods->edge_expand = edge_expand;
+X}
+END_OF_FILE
+  if test 1948 -ne `wc -c <'jcexpand.c'`; then
+    echo shar: \"'jcexpand.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcexpand.c'
+fi
+if test -f 'timg.ppm.UU.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'timg.ppm.UU.A'\"
+else
+  echo shar: Extracting \"'timg.ppm.UU.A'\" \(30960 characters\)
+  sed "s/^X//" >'timg.ppm.UU.A' <<'END_OF_FILE'
+Xbegin 666 testimg.ppm
+XM4#8*,3(U(#$R-0HR-34*JDE+QV9HVWI\U'-UR&=IRFEKSVYPSVYPU'-UQ61F
+XMLU)4NEE;S6QNT7!RT&]QV'=YVWM^U'=YSW)SSW)ST79TU'IUTGMST'EQSGAR
+XMWHB"Y8^+T7IYQ&]NV8.%YI"4V(*$VXB'V(:#V8B&X(^-X9*2WI&0W)&/WI.1
+XMVY..V9&,W9.-V8Z$T(-XUXM]Y)6'X96&UHU^UY"#W)>+U8^&R8-\T8J'VY>5
+XMVI:4UY22TY".W)N6WIZ6VIV3V)N/TYB)W:.1X*:2Y:F6XZ26V):/U9"1VY::
+XMXYJDXIFDV)*<V)*;W9F=WI^>U)B/QHY^QY%\SIV&Z+BEX+*AV:N<U*:7U*:7
+XMVZV>XK6GZ+NM\\BY\,6V[,&TZ+VPXKFLW[:IWK6JVK6KTK>MT;FPU;NSV+VU
+XMW;^XX;ZYX[^ZY;^[YKVZY[Z[X[VYX+JVX[^ZZ<;!Y\?!Y,*Z[<6\X[:LRY>0
+XMNX%\T(V+[*&AY9.6QW1WPW)RW)&/WIZ6Y*^B],JWRFEKU'-UUW9XS6QNQF5G
+XMRFEKSVYPT&]QPV)DPV)DOEU?Q&-ETG%STW)TT&]QUG5WTW-VTG5WTG5VT'-T
+XMS'%OS')MS'1OSW=RWHB"TGQXT'IVT7IYS'=VTGQ^X8N/YI"4WXR+V8:%U82$
+XMV(F)WY*3XY:7VY"0TXB(T8F&RX. U8J&VY&)UXR"V8R!X)&$W)""WY2(SH5X
+XMS(5ZUH^&V)"*V)"+UH^,SXB%VI:2V)20WIR7X)Z7VYN2U96,S9"$TI:'TY>&
+XMT96&UI:+WYV6X)N<V928V9&8W92>TXV6T8V3T(Z/SI",RY*(S9>&V*20X[&=
+XMUJF5UJB7UZF:V:N<W[&BY;FI[+^Q\<2V[,&RZK^PZ+VPX[JMX;BKX+>JX+>L
+XMW;BNU;>NU+JRU[RTW+ZWW[^YXK^ZY,"[Y<&\Y+ZZY+ZZX[^ZY<*]X\.]Y,2^
+XMY<? Z\G![\:]SI^6OHB!TI:1Z*6CXI>7S'U_OVYNUH>'V)"+XJ*:[KFL]<JZ
+XMW7Q^UW9XT&]QRVILRFEKRFEKR6AJR&=ILU)4Q&-ES&MMSVYPUW9XUW9XT7!R
+XMTW)TSFYQSG%SSG%RRVYOQVQJRF]MSW=RUGYYV()^QW%MRG-RV(&!UX&#U'Z"
+XMU8*%U8*%U(&$UX2'UH2'TX2(UXF-W)"3UXN.R8""UHV/T8B*VI&1YIN7XY>2
+XMWI"*V8R#SH%XS8!WPG=MT(1]Y)J2X9>/V8^)X):0Z*";SH:!T(J$UI"*W)B2
+XMW9F3V96/V):/VIB1V)B/U)2,TI&,U9*0V).4UY*4UI&5U8^6T8N2RH:*P8*!
+XMQHJ%U)V2XZZ?X[&?W*R9T**1TZ>7VJZ>X;6EZ+RLZ\"P[<*S[<*SXK>HX+BH
+XMX+>JWK>IW[BJX+FKX;JNX+NQW+BOW+JRWKRTXKZWX[^XY,*ZY,*ZY<.[X,"X
+XMX,"XX\.[YLB_X\B^X,6[X\B^[LS$VZVGR)&-Q8N(VIR8W9F7RX!^R'MZVHV*
+XMW9*.SHB"XJ2<^\6\W*^CT7!RS&MMRFEKSVYPT&]QR&=IP%]AO%M=M516RVIL
+XMTW)TTG%SV7AZVGE[TW)TT7!RSV]RR&MMQ&=HQ&=HRFULTG=UVG]]W(2!QG!L
+XMR7)QU'U]V8*$V8.'X(J0W(B/S'A_S7F W(J0X9&7UX>/T(*)T82-S(**PGB 
+XMSH2,SH2*TXJ-TXJ,U(F'W(^.V8R)QWEVV8N(U8>$X9./Z)R7VHZ)SX-^V(R'
+XMX):0W)&-W960UX^,VY.0V9"0THN,UH^0T8R-T8Z.UY24U)&1RXB)SHF+V).5
+XMUI&3R(6&QX2%T(^.U)B3UIV5W:><Y+&DWJV?T**1VZ^?W[.CY+BHYKNKY[RL
+XMY;JJX;:GW+2DV[.CVK.CV[2FW+6GWK>IX+FKX;JNXKJQXKJRX[NUY;VWY;^Y
+XMY<&ZY<.[X\.[XL2[W,&WX<:\XLF^X<B]X\J_Y\[#Y,O Y,"YP(N*S8Z.UI25
+XMU)&1S(6"R(!]T8:"VI*-R()\QH1_Z:VH_\_+HG)OPV)DQ&-ERFEKT&]QS6QN
+XMPF%CNUI<N5A:Q61FU'-UU'-USVYPUG5WV7AZTG%SSVYPS&QOQ&1GP&!BR&AJ
+XMU'=XW8"!V'U]SG9UQ6YMS'5UV(*$VX6)UG^'VX>0WXJ6UH&-S'F$V8:3VXJ7
+XMU(.1T(&.TH23R'V+N&]\LVIWN7![M6QVI%IBIUUCS8&%WY.7T8.'XY28VXF.
+XMUH>)UXB(UHB%W8^+W9&,T86 VXZ+X9:4TXB(V8V0V8R3THB2WY6?UXR8RH2.
+XMS8>0T8N4THR3T8R0SHF+R8:&Q(. R(J$WZ.<[;2LXZVDU*&7T:*7V*N?V["A
+XMYKNKY[RLY[RLY+RKX+BHV[.CUJZ>TJN;V;*DV+2EV;6FV[>HW;BLWKFMW[JN
+XMX;JNY[NSZ;NUZKZWZ,"XYL*YY,6ZX\:ZW\:YVL.UY,V_X\R^V\2VXLF\\-7)
+XMY,F]TJJBQXF-U(J2U(N.SH6'RX. R8%\NG1NIF-;MG1MTY6/^;^]_\S.9S,Y
+XMPV)DR6AJS&MMR&=IP%]AO%M=OUY@PV)DTW)TV'=YT&]QRVILTG%STW)TS&MM
+XMS&MMQ65HPV-FQ65GT'!RV7Q]V7Q]S'%QOV-ES'-TRG-UVH2(YH^7TW^(OVIX
+XMO&=VO&=VN65VMV-VLF!SMV=[QG>+T(29Q7N/L&A\N'"$O'6&L6IYE4Q9D4A3
+XMNW!\VY&;V(N6VHN8V8J7VXR6U8>.SX&%V8R-W9*0TXB&T8:&WI*5RX*%U8N5
+XMU8J8RW^2V(RAQWJ1X):JT8J;SH>6TXV7RH2+NG=XPH%\V9N3YZRAXZJ?VZ:9
+XMU*&5U*6:W;"FX[>MXKFNY+RLX[NJX;FHWKBFW+6EVK.CV;*BUK*CV;6FV;:G
+XMV[BIW;JMWKNNW[ROW[ROX+NOZKRUZ[VVZ[^WZ<&XY<.XXL6XW\:XWL>XW,6V
+XMY<Z_X\R]W<.UZ,F]\]'&W[RQQ960X)B?UX21R'B OW%UL&5CG%90EE-+G%Q3
+XMOX%YZ[&L_\[0WZ:N2!$?Q&)FS&INS&INOEQ@ME18O%I>R&9JSFQPU')VU7-W
+XMS6MOS&INT&YRR6=KPF!DR&9JQ&)FRVEMT7%TU'1WSW)TRVYPR&QNR&QPT'=\
+XMSG9]UG^'U'V)O&=UK%AIJU=JJ51JK5APHD]HFTAAGTYHJ5QUL66 K61^IE]X
+XMRH.<SH>@RX2;M6^#H5EMJV-WP':(P7>)SH.;TH>?W9.GVY&AQWZ)OG9]PWN 
+XMQ'R!S(2)WY>>S(.0U(J<RX"8KV. K&*"C$)BQGJ7S8*:SX>;R(&.O'A^P7Y^
+XMU):.Z:ZA[+:EV:23RIB&T:.4Y+>K[,.XZ;^XX;FPX;JLX+FIWK>GVK:EVK:E
+XMV[>FW+BIW+FJVK>JVKFKW;RNW[ZPX;^TX;^TX;^TXK^TZ+^TZKZTZ,&UYL.V
+XMX\6VX,:VW<:UW<:UX,FXX,BWY,>XZ\J\\LN_Z[^UU*6<QHF(U86/Q&MZL5IF
+XMI%)8C$$_?C@REU=.OX-ZW:2<_,/!_\C-EUUL10HAOEQ@RFALR6=KN5=;LU%5
+XMP5]CSVUQTG!TT&YRT&YRS6MOSVUQT&YRPF!DNUE=Q6-GQV5ITW%UVGA\TG)U
+XMPV-FOV%FSG)VX(2*V7^'VH&,RG-_I5!?E4%2L5QRRW:.Q7")N6:!LU]_JEAW
+XMGTYND4-BASU=C45DEU!QQ'V>RH2BVI2PUI"LMG"+GUAQG59MGUASI5Y_FU1W
+XMK&:$R(*=SHF=R(26QX.1QH..G5EGNG:&LFV!QX&<Q'V>J&&&IEZ'?S=><"9(
+XMKV. SX><OWJ(OGJ WIV:[;*GWZ>7S)B"SYZ'W*^9[,"NZ\*UX[JQX;FQZ,"X
+XMX;VNW[NJW;FHV[>FV;>EVKBFV[BIW+FJV;BJV[JLWKVOX<"RX<*VXL.WXL.W
+XMY,*WY<"TY<"TY<*UX\6VX,:VWL:UW<:UW<6TYLR\W\&RYL&U^\_%_LK#YJRG
+XMSY&-S82&MUYKI$97D#="C#@_C$$_E%!*L7-KSI6-]+ZW_<;%\;C"5QTO20LI
+XMS6MQO%I@KTU3M%)8PV%GSFQRU')XUG1ZT6]US6MQRFANQV5KP5]EO5MAP5]E
+XMR6=MR65LSFIQR&9LV'9\Q65JRVURR&QRV7R%TWB$R&]\O&1TMV%SOVJ Q7*+
+XMP&V(M6)_I%!QMF.&H$URGDUQCT)GA3IA="M1E4UTR82JU9"USXJORH:HLFZ0
+XMM6Z/JV6#JF:(J&>0EE:!EU> ?3YBBTUMG5][LW2.KW")F5ISCD]I@T-B9B9)
+XM=31;;RU:@T%PD$QX3@4I@SI6O'2)THV;Z*FKYZNFQX^!QY-_T:"(V*R2WK.<
+XMWK:CX;BKY+RSXKJTV;2KW[NLW[VKW[VKW;NIV[BIVK>HV[JJW;RLV+>IW[ZP
+XMXL.WX<*VX<*VXL.WX,.VW<"SW\*SW<"QX\:WX\FYW<6TXLJYYLR\WL&RYL.V
+XM\<B]^<>_];NVZ::DU(N+N6ILIU%7E#5"CS _FT!,GDI0D49&HU];TI:/[+2N
+XM_,?&_<?,@DA731 H5Q<ZN5==LU%7LU%7P%YDS6MQT&YTS6MQRFANT&YTRVEO
+XMQF1JQ&)HPF!FP%YDQ&)HRVEOS6EPSFIQQ&!GT&YTR&AMU71\SG!YU7B"VX".
+XMOF9UK%9HN&-YRG>0QW21L%Q\FT=HK%E^H$UTA#);@C)<?C!;<"90;B91CTET
+XMOGJDOWNEU9&[N76=Q8&II&&&IV2)DE%ZD52$ADI]?D-R<39CCU5^?41J;#%4
+XM:"Y/:2]0;C-6<#5:6A]&8"1/3Q)"5!=)61E%4 DL<"E"SXF<]+&\S8^1P8B 
+XMS)>(TZ*+X[>=Y[RBYK^EY+VGX[RLY;ZRXKVTW+>NW[JNW[VKW[VKW;JKV[BI
+XMVK>HV[JJW;RNW[ZPX+^QW;ZRV[RPWK^SX\2XY,>ZX<2WW<2VX,BWY\^^XLJY
+XMUKRLW<"Q[<R^\,N_]\O![KJSWZ&=SH>&O&]PK5=;GD5*ESE"GCU(ESA%E3U%
+XMF4=,IUY>R(6#Y*>EZ;*Q_]/6LWV&7B0V20LG4@XVK4M1L$Y4NEA>RFANU')X
+XMTG!VRVEOQF1JS&IPQF1JP5]EPV%GQ6-IQ6-IR&9LS6MQSFIQSFAOPEYERFAN
+XMS&MSW'N#TG-^RVYZMUQLLEILO&9\SGF2R7:3L%Q]GDMNGDMPH$QVCCIEDC]L
+XMG4U[G%!_@39EAT%OGUJ(H5^.LW&@JFB5NWFFEE2 FEB$=C5>;S!<:3!D21-(
+XM=D!UFF27@TQ\3!9#8BQ7>T5N2Q0]5R!)61])1@PV4QA%4A=$4!5$2 HR;2I%
+XMKFI\XJ&NTY6;PXF&SYF.UZ63Z+NCZ\"FZ\*GYK^EX+JDWKBFX+FKX+BOW;6L
+XMWKFMW[NLW[NLWKJKV[BKVK>JW+FLWKNNX;^TX;^TWKRQW+JOW;ZSX\2YXL.X
+XMW+^SWL6WV<*SX,>YZ<R_Z\S \LW#[L6\WJZHT)B4OGU\J6!BH$Y3FD))E3= 
+XMES0_FSA#FCQ%E3U$FD9,LV5IT(F*X)Z?\+6V_]'5[;? ;SA'5ALR5A8W51 X
+XMM%)8N%9<PV%GSVUSTW%WT&YTS&IPS&IPQ6-IP%YDOUUCQ&)HRFANRFANRFAN
+XMS&AORV5LS&9MR6-JS&AQTG!XV7B"S&UZO&%OGT56LUIOR'&*RG22LEY_GDEO
+XMIE-ZO&B2KUN&I%%^O&R:NFN;JEV.?#)D@3IKA4)T@T)UC$M^GEV.DE&"C4Q[
+XM<S)A;BY:8B557299B56,@DZ%7RE@=T%V<3MN;SEL9B]@6"%14!A&2! \2 XX
+XM3A0]3!([9BU3CE1SN7F+VYJEU9>=L79WRI2-[KNOY[FH\L>PYKVCX[RBX+NB
+XMW;>AW+:DW+6EW;:HW;:JW[BJWKJKWKJKW;FJW+>KVK>JW+FLWKNNW+FNX+ZS
+XMXL"UX;^TX;^UX,&VW;ZSU[JNW<*VV\"TYL>\\,S#[L2]X[.NR9*/J&MJFU98
+XMCT%&BS<^ESU&GT!+G#M&GSI'I41.F$%#JEE9MVAHS8*"[*>I\[&VYJ>OYJNV
+XMCU5E20XE6APX514X30@PO5MCP5]GRFAPTG!XTG!XRVEQR6=ORVEQOUUEO5MC
+XMP%YFR6=OSFQTS&IRR6=OR&1MQ%YERV-KTVQVT6UVTW![RVIUP&%NLE=GNF!S
+XMP&=^O6: KEAXIE)UK%F MV..NVB5IU2!G4IYI%.$CT!Q@39H9QU1;RE>:B=<
+XM;2M@?3UQF5F-DU.'CT^">CIM@D-S@TAYD5J+=T%T=D!U<SUT82EA41E1>T-[
+XM:C!G7R9:419'1@LX418]3!$T3!(Q@TIFVI^TW*"GL79WP(>%U9Z:U:*8Y+6H
+XMZ[^MYK^IX[RFX;RCX+JDX;NEX;FHX+BGW[>GW[>GWK>IW[BJX+FMW[BLV[:J
+XMV[:JW;BNW[JPVK>LX;ZSY<&XX[^VX+ZTXL"VY,*XX\&WZLB^[\O$],S&X+&N
+XMN(."H&)DE$]3B3Q#ET1-CS9!D31 H$%.ITA5HT11HT11ITU5KUY;T8=_VI*-
+XMW9:5][2U]+&YLG-_=#9(4!(H4!$M61DZ618[6A4]P%YFQ6-KSFQTU')ZT6]W
+XMQF1LP%YFP%YFO5MCO5MCPV%IRVEQSFQTRFAPQF1LQF)KQV%HS&1LV7)\U&UW
+XMT&QWN5ACMUAGLUAHPFA[R&^(P&F%L%E[JE5[L%R&J%6"ET1SC3II@B]@="-5
+XM8A5(:Q]4:R19;BA>9B1;<C)HD%"&DU6+JFRB@4-YB$M^@$-VF%V.:C)BG&65
+XMB%&"725;8REB61]:?D%]@T: 10<_5QI,2@LW1@DL8"1!GV1[O8.3S).=IVYL
+XMKW=OV**9Z;:LY+6HX+2DU*R;W+2AX;NGW[FCX+JDXKRHX;FFWK.CW+&AW;*B
+XMWK:FWK>IW[BLWK>KW;:JV[:JW;BNW[JPWKFOX;ZSXKZUW[NRWKJQX\&WZ,:\
+XMZ\? ],S&[+VZVJ>EMGU]CTU0A3M!D#U&E#M&FSY*ES5#ES5#GT!-J$M7K5)>
+XMMUYIOVMQT(9^VIB)\:^G_\*]]+*ULW-[;BP^3 LB4Q$N9"%#4@\S8!M!<BI1
+XMQF1LR&9NS6MST6]WS&IRPF!HO5MCO%IBP%YFP5]GQ6-KRVEQRFAPQ6-KPV%I
+XMQF)KU&UWS65OUW!ZSF=QR65PJTE7ME=FOV-UNV!VPFF"OF:%K59ZFT9NDCYI
+XMC#EHA3)CD#UNC#EJ<!]19QI-:AY3:"%67!E.:RE@D5")CE"(HF2<?T-Z?D)W
+XM72%6?4%TBU"!F%V*@$ER<#AF?D)U=SMR5!90>3IW;BUH/0 S5A5&3P\X9RE)
+XMG5]UX:2RSY.:JW!QG65=VJ68\K^RVZJ<X;6EY+FIRZ.2V+*@W[FGV;:AV[6A
+XMW;>CW;6BV:^<V:V;W+">WK:FW[:IW[:KW[:KW;:JW;:JW[>NX;FPX+NQX+NQ
+XMW[JQW[JQX;VTX[^VW;FRUZ^IRYJ:PHJ,MGA\I&!FE4A1FD51IDA7HT%1G#=(
+XMH3Q-J456L5)ANF%NQG%]U(&,VHZ1X:"3V9V*\[:J_\*\P(&#9R8S30L@8R [
+XM6!0V7QH_3PHP714\:2)'T6UTS6EPRV=NRV=PQV-LP5UFP%QEPU]JQ6%LQ6%L
+XMQV5MR6=OQF1LP%]GP6!HQV5MX'F#SF=QTVQXQ%]LP5]MHT-5M5EMR7")R7*.
+XMM&" FTAMA3-<=25/="12?S!@CC]O?S!@A#AG91A)9AM-7A1(719+71I/DU&&
+XMGER3F5F/A$1Z=#9L4A1*5QI-:BU@BU"!8"I3AU%Z?T=U;#1D92E>30U#=C1M
+XM<2UE5Q1&1P,O618XNWJ1VYRHQ8>+GV)@LWIPY*^BVJB8Z[JJW*Z?QYN+U:J:
+XMV;&@UJZ=W[FGVK2BV;&@W;6BW[6BW+">W:^>XK2EW[2EWK6HW[:KW[:KWK6J
+XMWK6JW[BLX;FPWKFOW;BOWKBRXKRVZL&^Y;NXT*.CNHF,A$Y3F%QCLF]WM&MU
+XMHU-=GD50HD-.H#U(K$A1O5EBS6URU7E]V(*$WHV-X).2W):0Z*B=ZZZB[[&K
+XMQ(6%=S<_4A B5A,M6!0T6A4Z81Q$:R-,:2%*8QM"S6=KT&INT&IOR6-JP%EC
+XMO%5?PEEFR6!NQE]LQ5YKQF)MQF1LP%]GNEQAPV5JTW-XS6EPUW!ZR69RT&Y^
+XMPV1YDC=1QFZ/OFF/H$YWC#YI>"Q;819%;B54E4Q[D4AW<2M951$]<R];5Q,_
+XM81Q*9B%/5 \_A#]QJV:8F%*'I5^4<2YC71M05!)'6QM/C4V!?T=W8#!;?4]Z
+XM>$9T52!/004X1P<ZEE&#?3=E3P4O@3E:OG>.U9*=P7^ KG!HQHI[ZK*B[+>H
+XMYK6GX;"BVJN>UJF;UJF;V*V>V["AW;*CW;*CW+&BW;&AWK*BWK"AVZV>V:J=
+XMW[*FX+2JW[2GW+&DW+&DX;:IY+NNX[ZRY\2YVK:OZL3 UJNLX[&WSI6A>3Q,
+XMC$Q>DU=HEUIJN'>$NG1^OG!WKUQ?QV]NSG)LVWUTXH1YYHU^YI*!Y)2"XI>#
+XMX)B#W9B(YJ.A^;>\R(6-;RLY3@D=6A4M8!HX7Q@[8!@_91U&9AY)8AI%81E"
+XMUG%RSFALPUUBN5-:N%!:O51AR%QKSV-TR%YORF)RQ6!MO%EDN5A@O%YEO6%E
+XMNEQAS&IRRF9QR6=UUGB*U'F3IDYOL5R$ET1Q@#%A;2)4;B=:@#ELAD%Q>#-C
+XM8!M)5Q5"7AY)8R-.41$\71M'6AA%9R)0G5:'EU"!F5*%@CMP6A1)4Q!$<C%D
+XME5.(E%2(:C%C;T%O<TAU72]=0@T\31)#61I(B$1P=R]6B3]AP7F0V9*ANG9Z
+XMJFEDR8R ZK"<[;:AY+&DW["CW*V@V*F<U:B:UZJ<VJV?W;"BV:R>V:R>V*N=
+XMV:R>W*V@W:ZAWJ^BWJ^DV:VCX+2JYKFMY+>KX;2HW[*FW+&DV*^DT*NAYL"Z
+XMZL' MXB/@TQ:?CU2AC]8@SQ7DE-LDE9II6-UPGR&SH*&VHF'WXF!WXE[Z9%^
+XMY(QWXXYVY91ZX91YVY)XX9V![ZN9_\G-RX>5=S-#3@D=4@TE7!8R7!4V7Q@]
+XM91U$:2%*:"!+8QM&81E$TW!SQF-FMU18M$Y5N%%=PUIHR5]PRV%TQEQORV-S
+XMQ%]NMU1@NUIEQVERPF5NLE1=GSY)I$)0PF)URV^%OF2!F$%CD#QFAC9D;!]0
+XM=2M==S!C>#-E=S)B9")14Q$^40\\:RM66!A#3@PX7!I&6!-!?#=EJV25=2Y?
+XM@3IM719+7!9,:B=<B4=\HF*8D%"&>4!T>TQ_21Q.3!M,621451I)6!E%B4AO
+XMFE9XSHBCQX&4NG5_MW5VR(R%XJJ<\+JG[KFHWJV?V:R@UZJ>U:B<U:B<V*N?
+XMVJ^BW+&DUJN>U:J=U*>;U*>;U:B<V:R@W*^CW[*FW+.HW[:KX;:IWK&EX+&D
+XMYK>JZ[RQZKVS]<?!Q)64AE99>T917R4U=31+NG20EE!LDU1NEUIRFEILPWZ*
+XMSX.'ZIF7X8V$XXU_Y9!\Z)-]Z)5^Y)5_XI>!ZZ..^K:B_\.YT8V5@3U/3 <;
+XM40PD7A@T7!8T718Y8QQ!9AY%:B)+:2%,9!Q'81E"PF!DO5M?N5==O5EBPUYK
+XMR&!PQEQOPEAKP%ALQ5UQPUYOOUMLQV5STW%_SF]ZP61PPV1SG3U0HT1;ITMG
+XMK5=WI%%V>RM5815$=BU<AT!Q>C5G:B=98B!/61=&8R%.;BQ9;2M75A1 30LW
+XM81U)9R)0AT%OF%&"7!5(:B-84PM":")8BDA_CDZ$A45[ATE_C5.*9#)J/A!'
+XM;CQP=4!P2 T\;"Y6N'B9QH2?Q8.6HV)MHV-HT922\+>MZK.EXZZ=ZKFIVZR?
+XMV*N?UJF=U:B<UJF=V*N?V:ZAV:ZAUZR?U:J=U*>;T:28T:28TZ::V*N?V["C
+XMW[:KW[:KW;*EW:ZCY;2G[KNO[;>NXZVFKG=T:C(V3!,;C%%@A4=;<S%,KVN)
+XMKVN+E%9TGF%ZHF%VN76#QGR"V(J'UX9\XHU_Y9%^Z96!Y9-_XI2!]*F;_[ZS
+XM]K.KUY24<2PZ4@TC4@TE9!XZ81LY7Q@Y8QQ!7Q<^8QM$9Q](9Q]*8QM&81E"
+XML5%6ME9;OEUEQ6)MR61QQU]OP5EKO%1HOU9LOU9LPEQQR65YS6M]S&I\R6E[
+XMR6M]I$A>CC%,GD)@DCI;?RM.AC1==B=5@SAH@CML?#=I:298<S)C:BE84A% 
+XM;2U9BTEV71M'615!3PLW9B!-@SUKASYM=BQ>60]#9!U29!Q39!Y6A4-Z@#]X
+XM<S5MCE"(<CAS/0I&>TN&F66>7"581 PXH6:)TI6NNWV/E%=CKW1WTIB5YZ^G
+XMZK2IY+&DXK&AXK2EW*^CV:VCUJJ@U:F?UZNAV*RBUJJ@U:F?TJ:<TJ:<TJ:<
+XMT*2:SZ.9T:6;UZNAW+"FV+&CV[2FW[2GX[2G[+FMZK.HSY.,KW%M>3H\5A8=
+XM8B$NF%9IF59P>3=4CTQNM768FUZ GV. HV5[I6%QQW^$SX)_W(R"Y96%[IR(
+XMYI:"Y9:&\Z:;_[>QZZ2EKFIN>#,_8ALR4 @E5 PK7Q<X6Q(V81@^9QU%7!(\
+XM91M%:!Y(:!Y(9!I$81=!KE!7M5=>OUYHPV)MPV!NP%MLP%ALP%=MP%=OOE=Q
+XMPUYWRF=_QV1ZNEIOME=LN%MTH$1B>R!"<QL]=2!&=R5.D$)M>B]>>C!B>#-E
+XM=3)D7!M,7QY/61A'8B%0C$QXAD1Q3PLW61- 4PTZ;"-1DTIY@3=I71-'81=-
+XM6Q-*=R]F:B1<;"IA7QY7;C!HDU:04!521 ]0JW>XB5*-1Q!#<#EBL':5I&I\
+XMH69QL'=YU9V9\;NR[;JNY+.FX[6FX[:HW+&BW+"FV:VCUJJ@UJJ@UZNAUZNA
+XMU*B>T:2:RYZ4S:&7T:6;TJ:<TJ:<U:F?VZ^EW;2IV[2FV[2FVJ^@W*V@Z+*G
+XMZ*RCS(J%JF-BCD1*A#I$@S=*>#!'BD)?FE9XC$MPG%V#JFR2I6B*G5YXD4]A
+XMQ7^&S(2!V(V!WY" XI2!YYB(_*^D_[VWWY>:E4]981TM5Q(J9!P[5 PM5PXR
+XM8AD]7Q8\60\W81=!:R%+:!Y(:R%+:B!*8QE#7Q4]MEEBNUUFPF%LQ&)PQ&!Q
+XMPUUQPEQQPUUTO%5OPUQXQV)]QF)]OUYZMU=SL%!LJ$QJI4UOG45NET)LD3]I
+XM;Q]-=RM:=2M=@SYP92)4;2Q?5!-&2 DY1@<U>3IHJVN7;BQ93PDV7!-!7A5#
+XM;B53C$%Q>S!B60U"9!I0715,;B9=;BA@7QU43@U&<#)JB4R&1PQ)9R]RI6^R
+XM=C]Z>4)SFF.)D5IS@DM9JG5XXJZIX["DYK6GY[FJY[JLX[BIVK&DU:RAV*^D
+XMU*NBTZ>?U*B@V*JCV*JCTZ6>SY^9R)B2S9^8U*:?UZFBUJJBUZNCV;"GW;2I
+XMW+6GV[2FUZR=U:27XJN?\;&IYY^<TH.%B#0[D3Q*G4A>BSE6BCU>E$UR@4%J
+XM?T%KJ6N3L'&5G5YZE%)EN75]R8)_SX5[WY6%XY>([J.5]*JDV(^1E4Y;6A0H
+XM3PDE8QP_4PHP6A X8AA :B!(:!Y&7!(\7A0^<BA29QU':B!*:1]'8AA 71,[
+XMO6!IP6)MQF1RR6=WRV=ZR65YQV%XQ%UWN%%MQ5]]RF:#P%Y\O5U\OV&"MEAY
+XMHTAKE3UHCSMH@2Y=B3AI<"-4?S5GAC]RC4I^71Q/5!-&1@8Y6QM.7!U-@$%O
+XMJ&>67QU*6!) 7Q9$:!]-<"=6?C-E=BM=7A)'815*=BQB50U$7AA.6Q=/6AI0
+XM?T%W?3]W2 Y)=CZ F6&CD5F3OX>WGVF*?TA>GVMQQ)&-W:R?YKBGY[FHWK*@
+XMV;&@WK6HVK.GSZ>>U*NBT:B?T:6=TZ>?UZFBV*BBTZ.=T)Z8RYF3T:&;V:FC
+XMVZVFV:VEUZNCUJVDV;"GT:J>V;"CW+&BW:R?Z;*F][>N\J>CX(V0QVUVFCQ-
+XMBRY'H$5EH$]SETUUDU-^C5%\F5N%MG>=HF*!I&)WKVITRX2%SXA_]:R?_[FL
+XM]JRDQ'M[@#=!61$F61,Q7!<]5 XY5PTY:1])8QE#6Q$[:1]);"),81=!8AA"
+XM8QE#9AQ&9AQ$8!8^71,[OV!KQVASRVEWQ&)RO%AKNE9JO5AOOUISQ%]ZPEY[
+XMLU%QKDUON5Q_N5R G4%G@RE3=B)/@S)CASAI@#-DACMMD$E\B41V<B]C8R%6
+XM7!Q06QM.1 0W8R)3CDU^EU:%71M*5Q) :B12@#=F711#91I,819(:A]1;2%6
+XMA3MO>S1IBD1YB49[;2M@D5&%>CUP9BIA@DB)CE25C56-LWNGF&. GFM[Q).6
+XMT:&;WK"AVZ^;VZ^;W;.>WK:EW+6GU:VDSJ:=SJ6<U:RCV*RDT:6=T**;UJ:@
+XMUZ6?T9V8TIZ9UZ6?VZNEW*ZGV*RDU:FAU*NBUJVDW+.HX+6HY+>IZ[JM\+FM
+XM\[.J]JJE^*&CTG%[M%!AGCE2DC)1DCUCJ%V%GUV)<S=B?T%KIF>-MG:7MG.+
+XMK&ETOWI\Z:&>XYN5U(R&ET],:1\E7A0D6!$L5@\T61- 6Q5#6@\^815"9QM(
+XM:1U*:1U(:!Q':!U%:1Y&:A]'9AM#818^71(Y71(YQ&-NQ&-NO5MIM5)@LT]@
+XMN55HP5UQPUYWPEYYOEQZPF*!P62'L%1ZDSIA?R=0=B!,?"E:>RM?>BU@?3)D
+XMA#UPB41V@#UQ<C%D7AQ16!A,7!Q/4A%$;"M<>CEJ@#]P9R549!]/:")0=C!>
+XM9!M*:1]1819(9AM-819(7A1&>"Y@;"586!-%81Y0A$-T9"55:2Q?ATR)@4B$
+XMA4R HFN3HFV(M(&.SIV?TJ.:U:F9U:F5U:N6V*Z9UZ^>U*V?SJ:=R:&9S*.:
+XMT*2<SZ.;S9^8SY^9U**<U*";TIN7VJ.?U:&<TJ":T:&;U:>@VJZFWK*JX+2L
+XMX;2JXK6KY;BLZ[JL\+NL\K6I]ZVE^J.BZ8>/Q%QLJ#]7ES)3ARY3BCQECDUV
+XMA$9P>3ED@T)IL6Z0L&V'M&Y_P7N"T8J+QWY^KV9H?3,Y7!,>7!0I7A8U714\
+XM71=%719'7Q1$9!A':!Q):AY):!Q'9QQ$:!U%:1Y&:A]'9AM"8!4\71(Y7!$X
+XMQ&%MP5YJNUAFMU)ANU9GQ5]SR65YQV1ZO%MUHT-@K%!PQ&F,M%V#ED%IAS-=
+XM?2I7>BM<;B%6:1U2<RE=?C=J@#MM=S1H;RYA9"-67QY17QY17!M.=C-G9R18
+XM<"UAA4!R@SYN92!0611$4 DZ5PX]5 LZ91I*8A='6Q! 9!M*5@T[3 8S7!9#
+XM<BY::2=3BDEX=#AM:3!D@TMWD5M^IW.)NXF3R)>7R)F0T*24TZ>5UJJ8UJR9
+XMTZB9S*.6R:"7QYZ5T:6=S:&7S:"6TJ.:UJ*;UJ"9UY^9V:&;VZ.=U)R6SYF2
+XMTIZ7VZRCY+>MY;FOY;BNY[6OY[6MYK>LZ[JL[;NK\K>H]K&E^ZFD^IJ=TVQX
+XMM4IAH3M9@21(;AQ#=S):B$AQA$!H;BE/I6&!LFR'NW6(QX"-Q'R#MV]VGE9=
+XM<BDT60\A6Q(L714V6A([61-!60]!91E(:1I(:QQ*;!Y):QU&:AQ$:AQ$:QU%
+XM:AQ$9QH_8A4Z7A$V7A XN5)?OUAEQ5YKQV)QS&=VSVI[RV=ZPV!VR&F"GD%=
+XMGT1DL%E[FTAMB#EA@S5@=296;B%49!A-71-'9!I.<BM>>S9H=3)D:BE<=#-F
+XM<"]B8B%46A=+=S1H8AQ1<"I?H%J/DD^!;"I95!)!7QI*9!Y,7A5$9QQ,71)!
+XM:!U,6 XZ71,]6Q,\4PLT>S-:F51ZE%-\=3EF=CYJJW2:JG62P(R?R):@S)N=
+XMU:6?TZ:8V*R<VZ^?V:V=T:26RYZ2R)N1R9N4T*.9S:"6TJ.:VJB@V:.<T9F3
+XMTYF4W:&<UIJ5U)J5UY^9X*JCZ;>O[;ZUZ+NQX[2K[+6QZ[6NZ+:LZ+JKZ[JJ
+XM\+JG];2E^ZZC^9R;W'9]PE5IK4->ARE*:10Z91U$=3%9CTIP="U0C49GMF^*
+XMMV^$R'Z0R7^/O'. H%9F=RT_71(J61 M5@TQ5@XW6A% 6Q)!:!Q):AQ':QU(
+XM;!Y';!Y&;!]$;2!%;B%$:1P_91@[810Y7A$V7A XL$=4O51ARV)OT&EVT6IW
+XMS6AWQ6%TO5INM%5LE3Q5D#I8B#96:QQ";"%)?C1@>"U<819(8QA*7!)$6 Y 
+XM9A]0?#=G>CAG:B=9?#EK?CMM:"5950]$=C!F9!Q3;B-;EU"%HF&2?T!P3PX_
+XM5!)!6!) 5@T\8QA'71,_7! [60XV7A,Z61 V:!]#F%!QKF:'?#E;DE=\E%Z!
+XMPHRLO(>@TI^OTJ"JT)^AW:VHVZRCW["EX+&DVJN>T*&6R)F.QI>.R)F0R9J1
+XMS9Z3UZ6;W*F?U)R4RHZ'S8^)W)N6V)>2W9^9YJJC[;6M[[RR[KRRZ;JOZ;6N
+XM\;2R\+.QZ;:LZ+JKZ;VI[KRH\[>D^[*C]9N6Y7^$QUMJJT)8D2]-=1Y 818[
+XM7AD^ACUAA#Q=<"A'N&^+KV: P7:.TH6<P'.*E$=><B4^71$N6A P5PXR6A X
+XM81E$9!I&9QM&:1M$:AQ$:QY#;B%$;R)%<"-$<21%9ADZ8Q8W8!,V7Q(W7Q$Y
+XMO5!>Q5EGS6%OS&-PRV)PR6%QQ%]POEMOJ4UCB#%*<!TZ81,T71(Y="I4?CAC
+XM;2=461 _91I,8AA*5PT_8!E*>31D?3MJ;RU<=3)D?SIL;2=<5Q!%=R]F9QQ4
+XM815-<BIAH&"3FUZ.8B-37AU.71A(6!(_715 6 XX50HR4P@O3 $F<R9)L62%
+XMGU9SD4ADBD=BN8"<K7B3LWZ7N(29U:*PUZ6MT)^BVZJJWZ^JX+&HW:ZCUZ6;
+XMS)J0QI.)QI.)QY6+SIR2U**8W*F?W:6=U)B1RXV'TY&,WIJ6Y*"<ZJBC[[&K
+XM\;6N[;6MZK>M[;NQ]+ZW\[2S]+.R[;>NZKRMZL"K[<"H\[RF^K:D]Z&9[HN,
+XMRV!KICQ1E#--?R=&8Q8W5Q Q;R5%BT)?:2 ]LV>%N&R)PG:3V8NIOW&/@C12
+XM:AP[8!,T8Q8Y7A,X7!,Y7Q4]7A0\9AM#:!I":1Q!;!]";R)#<25#<25#<"1"
+XM9!@V8A8T8!,T7Q(U8!,XS%UJS%]KR5QHPU=EP5AEPEMHOUIKN%9HO6%UDCM4
+XM91,P60PM;B5+?CEA:B902 0P6 \^8A='8QI)7!-"7AA&;"=5=3-@=3-B<"M;
+XM=S)D<"E>7QA-?C-K:AY671!+7A9-?CYQKW2EATIZB$EYA$)Q<2M861$\20 I
+XM50HQ6 LP:AT^J%IYU(:DEDIEG5)JPWZ6UINRPX^DIG*%P8Z>WJNXWZVUV:BK
+XMX[*TXJ^MWZRHVJB@TI^5R9:,QY&(R)*)RI2)UJ68VJF<W*:;U9R2TI2,UI:.
+XMWIJ4Y)Z8[*:@[ZNE\K*J\;.K[+.IZ[6J[KVP]L"W^+6V^+6V\KJT[L"Q[<:P
+XM[\:L],&G^KJE_*B=^)>5TFIRK4-4FSA0@"9#8!(Q6Q$Q7Q8RA#A5=RM(FDQK
+XMQWF8S'Z=W(ZOP'*3>"E-9A<[8A4X9AD^7Q0Y7!$V710X61 T9AM :!M :1P_
+XM;2!!<"1"<25";R- ;" ]8A8S8!0R7Q(S8!,V8A4ZT%]LRUIGOU)@MDU;ME%@
+XMMU5GL%!EI$=@G$5?@2Y+8A$S8A4Z?#):@#IE9B104P\[61 ^71)!8!=%8!=%
+XM7!9#7QM':R=3>#-A<"M9<2Q<;RA;9R!5@C=O;2):8Q918AI3;S)EK76E;S1E
+XM6AU-5QA&5!(^40PT5 HR2  B;2!!KF!^R'N4LV=\ETM<V(^<Y)^MR8Z=PHN:
+XMF&)QPXZ;U:.KSY^DS9V@W*VNW["MW*RGUJ2>SYN4RY.+RI&)SI*)T9.+X*.9
+XMX*.7VIJ/SHR$SXR$W9>0Y)Z7XYN5[*:?[JJD\K*J\[6M\+>M[KBM[;JN\;NR
+XM];FT]KFW\K^U\L.V\LBS\\BO]\.L^[VI^:V?^9^:V79ZMU)?HC]5?2 \8 DK
+XM8Q(T6@TN=2A)@315>2Q-RGV>S8"AV(NLOG&2;R)#7Q(S7A$T81<Y7A0V8!4Z
+XM91Q 9!L_9QQ!:1Q!:AU ;B%"<25#<"1";" ]:!PY814R7Q,Q7Q(S810W8Q8[
+XMTEMHPU!>P%)BI4!1C2Y#E3Q5BS=7<R!#A#);A#1@;1U+6PP\BT!P>C%@6!-!
+XM30DU7A9!7A9!9Q]*9Q]*6!(]61,^9!Y)9R-/=S)@92!09!]1:B19@3MQ;BA>
+XM;2=?8!Q49RE?HVJ<>T1T2!(_.@(N5AQ%30XT0@ @710QH%-LT8*6M6=TG5-;
+XMU8Z/];*PSXZ-RHJ2W)VIJ6]WP8N0PY.6OI.3SJ6BV;.MTZNCSZ:=SI^6TIR5
+XMTY>0U9..VI2.Y)B3Y96+W8R V(=[VXN!X)"(XI6,Z9V6\:>?[:>>[:NC\+.I
+XM\K>L\+FM[[JM[KNN[KVO[;RO[+VP[K^R\<*U\\6V]\6S_,2R_\.P_K6F]Z:<
+XMX8F(PF1MI4)8C2E'>!(Y9 8S7PPY7Q,^@#5=="E.HUE[T8BEV(^KRX*<<RI$
+XM8ADS:B$]91T\7Q8Z:!]%9AQ$:1]'8AD_9AM :A]$;R5'<2=);R5%:B! 91L[
+XM7A0T7Q4U8A@X9AP\:1\_V&%PPD]?L$-7ES1*ARY'B3=6?S!6:QU(<B-3:AI.
+XM915+9Q=-FDV <"985Q$_7QE&:B)-:2%*:R-,9AY'6Q8^7AA#8QU(81M(8QY,
+XM;BE9:2167AA-?SQQAD-XAT-[9R5<41-)@45Z>T1U0PTZ21,\10PR1P@K6!0R
+XMFE)IP'2'O6Y[KF%HRH."X)Z7V9R0UYN2SHZ3VINCIVUSP(N.S)V>RJ&>T:NE
+XMU;&JV;2KT:B?S9Z5TYN5W)N6WYB5X)61Y9..WH=]WH-YWH5ZXXR"YY.*ZIF/
+XM[Z*9]:NA[JB?[ZZC\+.I\+>L\+FM[[JM[[RO[L"QZ;^LZ\"P[L&S\<*U]<2V
+XM^L6V_<6U_\.S_[RL^J^CY)*-QFURK$E=E"Q,@14^;@<W600V6@\_;2-/=BQ4
+XMBT-DT8FFT8JCPWR3>S5)9A\V:B,\9!PY8!<[:1]'91M%9QU':!]%:!]#:R)&
+XM;B5)<2E*;B9':"!!8AH[6Q,T714V7Q<X8QLZ9AX]VFA[SF!TNU5JJTQEF$)>
+XMA#-5<B1,8Q=$:QY/5PH]7P]%:!A.FDV 7Q5'3PDW81M(;250;B9/:B)-8AI%
+XM7AA#8QU(8QU*71=$6A5#;RI:8AU/61-(B$5ZE%&&EE**=C1K8!]8>CYSGV:8
+XM4QM)4AA!.0 ?6A@UCTAAR7V2QG:&M&5OQ'A[Z:*?Y*2<SY>)W*2<SI67V:"H
+XMKWE^OHV0SZ"ASJ2AUZ^IW;.NXK:OU*2>S):/T96.VIB3W):0UXR(U85_UH%V
+XMVH-XX8J Z).(Z9B.ZYN1[Z2:]*VB[ZRB\+"E\;2J[[:K[[BL\+NN\+VP\L&S
+XMZ[^M[<&Q[\*T\<2V],:W^,>W_,>V_\:T_\.Q_;>GZ9R3SG=YL5)AF3).A1A 
+XM<0HX600V6Q! 8!9"?3-;=BY/TXNHU(VFPWR3B$)6:R0[:2([8QLX81@\:B!(
+XM91M%91M%;21(:R-$:R)&;B5)<2A,;R9*9AU!7Q8Z7!,W7A4Y8!<[8QL\91T^
+XMQ5AOPEEQKTYHHDAEAS55:!M 9!I"9QY,:!U-5@D\71!%60Q!D$5W91Q+71=$
+XM7AI$8AQ':R-.9Q]*7A9!7QE$8QU*81M(7QE'9B%19R)44@Q!8!I/D4Z#@C]T
+XMB$1\?CQS<"]H?3]UOH.T:R]<0 (H1 0CB$-;PWF+P7)_KEYHQWA\ZIV<X9V7
+XMW)^5X*N>UZ6;SIV=VZFONHJ-NHJ-QYB9RYR=VZRKZ;FTY+*LV**;S92,T9"+
+XMU9&+U8V(SX-^S'QVVH9]X(N YY*'ZI:+YY>-YYJ/ZZ&7\*F>\:ZD\;&F\;2J
+XM\;:K\+>L\;JN\[ZQ],&T[;^N[L"Q\,.U\L6W],BX]LBW^<FV_<FS_\6P_+RI
+XM[:27T7Y]ME=DG3=.AQH^<PLW7@DY6 T]71,_>C!8<"A)R8&>W)6NQ7Z5D4M?
+XM;28]91XW8!@U81@\:R%)91M%91M%;B5):R-$:B%%;21(<"=+;B5)91Q 710X
+XM7Q8Z81@^9!M!9AU#9AU#NE1SJ4=GB"Q,?2E*:AU"7A8]>C1?A3]M60]!60U"
+XM8!-(4 ,XACMM@#=F=S-?71E#71=":R)09AU+7Q9$8AQ)8!I(7A=(9R!3<"M=
+XM:")730<\8QU3AD-X:"5:=S-K<"QD61=082%7J6J:>SMF.@ ;=S1.M6M]QWB$
+XMK5MANF=JWXZ,[:&<UY6-VZ*7YK6GU:J=U:NHU:NNMHN,JGQ^Q9:7TJ&CXZZO
+XM[;:SWZ6BV9N7U)*-U)"*UHZ)U8F$T86 U(1^WXZ$YI*)Z)>-YI:,XY:+Y9J.
+XMZZ*5[JF=\J^C\K*G\;2H\;:I[[>I\+FK\[RP]<"S\+ZN\+^Q\<*U\L6W\\BX
+XM\LJW]<NV^,NS^<BN^L&I\*N;V(B"O%]HHSU1CR$_>1(Y80P\4@<W7A1 :R%)
+XM<RM,L&B%WYBQR(&8E$YB;"4\81HS7A8S81@\;")*9AQ&9QU':R)&:2%":"!!
+XM:R-$;21(:R)&9!M!7A4[8!<]8QE!91M#91M#9!I$L%%VDS==;AD_<B1,9!Q#
+XM8R)+BDAU?CQK4 D\8!9*8A9+4@<Y<2A7@#IG=C)<5! Z:R52<BE79AU+8!=&
+XM91]-7!5&6A-&<BM@:")7<2M@61-)7AA.;"E>71I/?3IO6Q=/2 0^3@M @3]N
+XMD$UR9R0_LVM_Q'>"KUUBNV9EY9",Y)2,T8=]W9V2Y*^@V*V=U[*FV[>RS:BI
+XMK(6%G'%RSIV?Y;"QZJ^PY::FTH^/THN*TXN(UHN'UHJ%U(:"UHB"W8V%X9&)
+XMY96+YY>-XI6*XI>+Z)^2[::9[ZJ<\:ZB\K&D\[.H\K6I\K>J\;FK\[JO]+VQ
+XM\;RM\;ZQ\,&T\,6V\,BW\<NW\LRV]<RR^,RP_,>N];6BWY2*Q6QOK4A7F"I$
+XM@QH_9Q- 4@<W81=#81<_?356FU-PWYBQTXRCEE!D;"4\8!DR7A8S8AD]:R%)
+XM9AQ&:1]):2!$:2%":B)#:R-$:B%%9QY"8AD_7Q4]7Q4]8AA"9!I$8AA$7A1 
+XMC#1?=2%,91="<RM65!(^4A,_@$%Q8!]061-(91Y1815*71)$61 _9R%.9B),
+XM9B),?CAE>"]=7Q9%6Q)!9R!16A-&61)%?39K71=-<2MA9!Y48!I07!E.7!E.
+XMD$V"6QA-2@0Z5 Y#8QU*FE-VH5IQQ7J(MV=MMV5BVX5][YN0W(U_R8!QV)R-
+XMWZV=U*R<V+>IU;6OS*FGNI.3I7=YUJ*EZ:ZQYZ6HW968T8.'T(&#TX*"UX:$
+XMV(>$UX>!VHJ$WX^'XY.+Y9B/Y9B/XY:-Y9J.[*.6[J>:[*>9[ZV>\;"C\[2F
+XM\[>H\K>J\K>J\[BM\KFN\KJL\KVP\<"S\,.U[L>W[LJX[\RU\<RQ]LRO^LJM
+XM^+JDYIN/S'-TM5!=H3))C"1&:A9#6 T]71,_7A0\@3E:C45BUH^HWI>NF5-G
+XM;B<^8QPU8AHW9!L_:R%)9AQ&:R%+:R)&;25$;R=(;25&:!]#8QH^8!<]7Q4]
+XM81=!8QE#9!I&819%6Q _>B=8;R!0;B54>#9E1@<U1PP[BU"!<C)E9"%5:"%6
+XM7!)&9QU/300S6!(_9B5.CTYWB4-P=RY<5 LZ4PD[9A]26A-&6A-(A3UT6!)(
+XM:")891]5:2-97!E.7!E-GEN/:R9810 Q5PX]3 (JCD9CN7*#L&9NHU14V8> 
+XM\)N/UH-TUXAXV)*!R(Y\T)^/W[BHU+*GRZNET["MU*NJMH>(V:&CX9^BWY:9
+XMW(V1W(F,VX.(VX2&WXB(X(N)WXJ&WHR'X)"*YI:0Z)J4YYF3Y9B/YYR0[:27
+XM[J68YZ"3[ZJ<\:^@]+.D];:H\[:J\K>J\K>L\K>L]+FL\KNM\;ZQ\<*U[\>W
+XM[\FW[LNT\,NP],JM^<BN^;NEZ)V/SW=VN%1?I3=+CR='9! [5PP\4@@T6Q$Y
+XM>C)3@CI7QX"9X9JQG5=K<BM"9R Y91TZ91Q :B!(91M%:R%+;B5)<2E(="Q-
+XM<"A)9QY"8!<]7A0\7Q4]9!I$9AQ(9QQ+8QA'7!%!8!-(<RE=EE"%8"!3/ $R
+XM4QM+?T9X>3QO9"-64PU"8QE-7A1&;2=5=C)>C$QU>SIC=C!;7A5#5 LZ8AA*
+XM8AM.6!%$9R!5A3UT40M#9!Y6G5>-7AA.6A=+>#5G:BA75Q) 4P@W70\Z=RU/
+XMJV-ZG51?D$=)T(1]ZYR/X)" XI* VX]^SXMYS)&"U*.5V;*DV;:KP)R5Y+ZZ
+XMT*.ASYJ9XZ6GW968W8V3W(:,VX*'XX6,Z8N0Z(R.XXN*XHJ)XXR+Y9".Z):3
+XMZIF6[IV:[)Z8Z)N2XYB,YIV.ZJ24[*>7[JR;\K&B]+6G]+2I\;2H\+.I\+.G
+XM];JK\[NK\KVP\<"R\<2V\,BW\LJW],JS]\NQ_,>N_;VJ\*67UW]^NE9?ICE-
+XMES!.9A(]6 T]6Q$]6 XV<2E*?C93OWB1XINRL&I^;28]>C-,81DV:R)&="I2
+XM:R%+:R%+:B%%;R=&<BI+;25&8QH^7A4[81<_9AQ$8QE#9QU)9QQ+4P@W8A='
+XM:A]9:2-;C4N"4A5(4!=)1Q!!C52&@$1W4Q)%3PH\7QA)8!I(=3%==C1@@4-K
+XM=35>9B!+715 6 \]7!-"7!5&7!5*8QM2;R=>30<_8AQ2AT%W81M071I,?SUL
+XM9B118AQ'81,\81 ROG&,OG2&A3U$PWQY]:NATHAXXI>#Z)V)X9F&SXU\RH^ 
+XMTJ&3V;"CV;&HX;>PX+"MT9V9[[*Q[*>IM6=KK%A>Q6MST')YV'9^WWV#Y(2'
+XMYHF+Z(R.YXZ/YY"0Z923[9B7[YR;[YV8[IZ6[:"5[:*4[:25Z:.2[:F7\:^>
+XM\[*C\[2F\K*G\+.I\;2H\+6F]+FJ]+VO]<"S\L&T\<*U\L:T]<BT_,BR_\>R
+XM_\&O_*RBX(6%ME);DR8Z>1(P9A(]5@L[6A \6A X<"A)>3%.MF^(Y)VTN'*&
+XM=S!'=2Y'9!PY;B5);R5-:R%+:1]);21(<2E(<RM,;25&9!L_7Q8Z81@^9AQ$
+XM91M%:!Y(:1]+60X];2)1=BUI>35O?SYW20U"4QQ/4QQ/FV*4>3UP3PY!5 ]!
+XM7!5&71=%;RM79250829-82-+5A(Z7A8_7A5#6A% 6Q1%91Y3:2%891U44PU#
+XM;RE?B$)W7AE+;"I7>#9B7AU&5P\V:!<WGDMDRWV.HUIDJ&-EZ*:?YJ.7SXU[
+XMX9N(YZ&.WYJ*RXI[R(V UJ.7XK6KXK2MY["L[;"NW9R;S(6&J%I>B38YECU"
+XMITE0P%YFPEYGQ6%JS&IPV'9\XX.(ZXV2[I*6[Y:9])N>\YR<[I>6[)B1[YZ4
+XM[:&3YYV-Z)^/ZJ23[JR;\;"A\K.E\;&F[[*H[[*F\K:E\[FG];JM\KFN[[BM
+XM[[FN]+VQ^<&S]KJI]+*A\ZB:[9F2U7=\L$M8D",Y=A O91$\4P@X5PTY7!(Z
+XM;25&<BI'J&%ZYZ"WPGR0AT!7;28_9Q\\<BE-:B!(;2--:!Y(<"=+<BI+<BI+
+XM;"1%9!L_8!<[8AD_9AQ$8QE!8AA"9!I$6A \="I6?SASEU.-:2AA2 Q#2!%$
+XM=C]RH6B::"M=4A%"7!='6A1"6A1":2516QM&418]7B-*5!$V7Q<^8AI%711"
+XM7A=(:2)5<RQA=2UD61-)>#)GC$=Y6!-#=3-?7QY'5A4\3P@ICCQ3T7R+GD]9
+XMF5%4X)^<X*.9T)6&WJ*1ZJR9Z*B6UY:'Q(1YR(R#WZF@ZKBPZ;.L\*ZI^J^M
+XMWY*1KEU=E#Y ITY1NUUBK$M3L$Y6JT=0I4%*HS]*K$A3NUACSFUWVGF#[8^8
+XM]YF@^9VA\)65ZY..[9F.[)N.XY>(YYV+ZZ.0[JJ8\:^>\;"A[Z^D[JZE[*^C
+XM\;6D\+2A\;6F\[:L]KBP^;NU_KZV_[ZV_\.X]ZRBX8^(SG9UN5A@G35%AQHQ
+XM=0\P9A(_4P@X5@PX71,[:2%";25"F5)KZ*&XRH28ED]F:"$Z:2$^<RI.:B!(
+XM;R5/:B!*<BE-<2E*;R=(:2%"8AD]7Q8Z81@^9!M!9AU#8!8^8!8^6Q$Y>C!:
+XMAC]\CDJ&5!-,2P]&6R)6@TQ]GF67;"]A3 D[6!-#61-!91]-;BQ89"906R%*
+XM<SA?8A]$81H_7A8_7A9!6Q5#7QA)<"E>@SQQ:")7>C5G;BE9:"-1:"=02PHO
+XM4! S=S!+R76$N&)HH515RX>#W:&8SYB,XZZ?WZJ;\[RNYJN>SY*(PX5]TI:/
+XMZ:^J[KBQZ:NE\:.?U'QYP6EHQ6IJSW)TVGI]TG)UQ6-INU=@L4U6H3U(DBTZ
+XMBB4RCRHWG#=$IT)/R&-PW'F$[X^4])27\I:2\9J0[IN.Z)B(YYN*ZZ&/[ZF8
+XM\*Z=[ZZ?[JVBZZNBZ*N?ZZ^<ZZ^<[[.D^+BO_[NU_K>T]JNI[J"=VHB%Q6]K
+XML596JDI/H3Q)DBH^AALV?1@[:15"5@L[6 XZ71,[9AX_;"1!BT1=YI^VS(::
+XMH5IQ:2([:" ]<2A,;R5-;R5/;R5/<BE-;R=(:B%%9!L_8!<[7Q8Z8!<[8AD]
+XM;B5)9!M!8QI 81@^ACUCAT!]:"1@4 ](6AQ2@$=Y;C5GCE.$ADEY1P4T4PX^
+XM6Q5#<RY<;BQ892=162)*<#==>#599A]$6! W61$\5 X[40H[81I->3)GA4!R
+XMBD5U4@T[A$!L4Q(Y20DL61DXK69]TGZ%ID].U8F$Z::>R(^$TZ*4W;&AW[*D
+XMY[:ITI^3PHJ"RX^(Y*BC]+BS[+*MY*"<SW=TOEQ:Q&)@UW1UXG^ VWA[SVUQ
+XMXX&'WWN$U'![P5QIJT95G#1$D2D[C"0VC2,TE2L\K492S6ERYX6)\I.0\9:-
+XMZY2)Z)6&YIB%Z9^+[:>4\JV=\*Z?[JVBZZNBZ*R=Z[&<[;*=\+&C\J^G[J:A
+XMWH^/QG-TMEU@GD%#E34XEC0XJ$1-LDI:JD%7H#93F39;;!E&71)"6Q$]7!(Z
+XM8AH[<"A%@#E2XINRRX69IV!W<BM$9!PY:B%%>"Y6:R%+<BA2<BE-;"1%91Q 
+XM8!<[7Q8Z8!<[81@\81@\;"-'8QH^9!L_:"!!CT=H?S9R719181]8=SEOATM^
+XM5AY.;#%BFUR,51-"51 ^7AA&>35A7AY)5!A"318^82A.BD=K;RA+5@XU5 PU
+XM50\\4@PZ6!%$8QQ/>S9HC4AX615!>#1>2@DN514VA49BO':)NF1FS'5M[:"7
+XMVYJ/T)F-V:V=T*B8Y+VOUZNAQ)6,P(R%VJ";\+.QZJNJT)*.Q'EUNUE7RU]<
+XMVF]NTF=FT6AHQV)CNUA;WWN"YX6-V7:!R&-PNU9EM4U?KT5:I#I/G3!&E2DZ
+XMG3% M$Q6U&YSY82"YHB XXI_Y(^!XY.!YIN'[:62\:V;\:^@\*^D[JZEZZ^@
+XM[;.>[+&<Z*>8W9>.RWY]MF-FIDI0G#Q!ME)9KDA/L4E1PEEFQEQOM4QDICQ;
+XMG#M@<!U,91I*7Q5!6A X8!@Y=2U*>C-,W)6LRH28K&5\?C=08!@U8AD]@3=?
+XM9!I$<BA2<RI0;"-'8QH^7Q8Z7Q<X8AH[8QL\8QL\91T^7Q<X9Q] <2E(FU-R
+XM<"QF:BA?<C)HDU:);S1E419%31! FUJ)9")/6A5#7AI&>35A4A(^31$\3QA!
+XM9"I3DE%X=3!65Q(Z4@PW6A9"71A&6!-#5 \_3 <U>#1@:R9.30@M30DI8A\Z
+XMO':1L&9VLV!?\)R1XIF*V)F)W:B9UZN;Y;ZNX[RNVK&FR9N4S9F4YZZL\K.S
+XMU(^1J&!CE4-(LT]6L45,MDM2MT]7Q%UGJD91@B$LH$%.R&IYMEAGID98ID-7
+XMLTUDO51LNDQFLD-;O4U@KT)0L$A0R6-HVWAYWWUYXH)[ZHR#XXR!Y9:&Z:.2
+XM[JZ<[K*A[[.D\;&F\+&C[:V;Z:>6WIB/RX!^M65KK%5?JU!>LE-@LD]=I#].
+XMGSI)J415JD1;FS10D2M,C2Y5<R!-:A].81=!6 XV7Q8Z>3%0>#%,V9*IRH28
+XMKVE]B$%8718Q7!0UASYD7A0^<2=1=2I1;2)'8AD]7A4Y81@\8QQ!91Y#9!U 
+XM8AL\81DZ;B9%?S93JF%[72%6>S]R:R]BEUR-8R962@LY5A5$=C1AA4-P4 XZ
+XM61=$@3]L6!=&3Q ^3 \_71Y.>CAGE5" 8QY.20<V6QI)511#515!5Q="3PXU
+XM6Q@\6Q0U7!0Q60THJ5QSQ7:,H5)?W)"+X)>(WYV,WJ*1Y*Z;[+RIZ;^LX;FH
+XMS:27TZ:<Y;&MZJ^PR(*+E$52B#! F3U1D#%(ID=>B2A"<Q(LBBI&?2 \: XI
+XM@"E%C3=3;1HU;ADR<!8QE#)0O59TN4UMPU)MQU5EPU5=P%A>QF!DTFMMWW9V
+XMZGI]ZWZ XH!\XX^&ZJB9W:>4[;NI^<.RY*67]K"G^:VFYYF6W8Z2RGJ$M6-V
+XML%YU=!\XBS9/>"$Z<1@O<!4M>1PU@B(_@R)$@R!&@B1->RE29QQ$7!$Y4 4M
+XM7Q0[>S!5=RY+V(^IUX^DGU=KDDI?:B(Y9!LX>"U2:Q]*=2E4<B5*:AU 8A<\
+XM8!<]7Q= 71="7QM%8Q]'81Q"5Q S9QX[EDMCO&V!7RA9>T1U=3UMG&&28R96
+XM2PPZ5A9">#9C:BA47AQ(6QE&CDQY3PX]5A5&20D\41!#8R!2G%>)AT1V81Y0
+XM4A%"3 T[5QA$5Q="510[30HL5Q$M1@ 7A#5,P7&%M&!SNVMU\ZFCYZ64WJ"-
+XMV:&/WJR8Y[JFZ;^JY[VJX+.ETY^8XZFGRX>-A3=$@"H^E3I2>1PW?2- ;A8U
+XM=!D[=QP^;!$T;!4Y:Q@[6 HK9ADZ6 PJ8!(P9A0Q;Q,QA" ^K4%BY'..T5YL
+XMSEQDR%YCR&)FTVELWW)VZW5\[GA_ZX*"YHZ)YZ:9XK">YKFEZKBF[*V?_[>O
+XM^:BF]:&GKUQGD#Y1?"M%<R% =B5%8A$Q91,R91,P:Q@S=!XZ>!T]=QH^>QQ#
+XM@"1,<R%(8Q@_7A,[5 DQ8!4]>2Y5<BA(THFEW)2II5UQE$Q@<"@_9QX[>B]4
+XM;"!+=BA3<2)(:1H^8A4Z8!8^7Q="71=$7QI(8Q]+71A 5@\R:B$^G5!GQ'.#
+XM:C-D?TAYA$Q\G6*38B553@\]5A9"=C9B5A1 <S%=7AQ)FUF&3PX]8!]03Q! 
+XM3@T^4 X]>C5ED4]^EE.%=C5F3@T^3PX]5Q=#7!M$3@LO3PDG7A4OO'"%OFZ 
+XMMV9TZ9F?YYV7W)J+U9V+VZN6X;JDXK^HX+JFWK.C[+:MZ*>FR7R#E4)/<QXM
+XM=!XR=B V:10M9 XJ:A0R:! Q9 XN9Q,T910T9!@V;"1!C$ED?SQ6:",[7Q0L
+XM5@$:70 9C29"N$EAV6-RUF%JS6%GRV1HTFAKW6URZ'!XZG1[ZW^#YX^,XZ*7
+XM[;BIZ+BEZ+.B_KVP_[FSYYB:J%5>CCI);QTR:!8S9Q8V9A4U=R9&>2E'<!X[
+XM:18Q:A0P;Q<V<Q@[>!I#>!Y(:!D_7Q0[8!4]6 TU8A<_=BM2;")"RX*>WY>L
+XMJF)VDDI>=BY%:B$^>S!5:Q]*<R50;1Y$9A<[810Y7Q4]8!A!71=$7AI&8AY(
+XM610Z5Q S<RI&J5URRGJ*?$5V?TAYBU*$DEJ*6R!/41) 515!<#!<4 XZ>#9B
+XM6QE&EE2!8!Y-8!].5Q9'4A% 30LX6!1 >#9CEE2#A4)T9R977AU,5A1!30PU
+XM3 DM0P ;EDYEQWN.F$I7SG^)\Z>JW)2.U9:(TZ&/W+6?XL.JWL&JW+BFX+&D
+XM[JVHU8:*H$-/A"(TARD[=!DO7 H?:ADQ:18Q>") ;A@X8 PL8Q(R8!<T;"E$
+XMC4YGRY"GS)&FFUUQ>#)&81 G800=A!TWA!8JTEUITUUFS5]FS6-HTV=KW&IP
+XMYFMTYV]WYGI^Z8Z,X9Z4\;RM\,"M]+^N_\J][**<JUQ@8 \<=R4X8A$I;1T[
+XM?RY0@S56I5=VMF:$DD)>:QHT70HE:1,Q=1T_=QM#;A8_8Q0Z7A,Z8A<_6Q X
+XM8QA =2I1:B! R'^;WI:KK&1XBT-7>S-*;"- ?#%6:Q]*;2%,:!M 8Q8[7A,Z
+XM8!8^81E"7AA#7AA#81M&6!,Y7Q@Y@3A2M6E^SX"-C5>*>T1WC5:'A$Q\4QA'
+XM5A=%4Q,_9B9230LW9B).5A$_AT)P?SUL7!I)5Q9'3PX]5!,\6Q=!:"1071A&
+XM6!9%>#5G>39H4@T]40TY4PXT9R$_PWN2L&=TK&)J\:BJY)R9Z*6=X::9V*R:
+XMV+:AV+^GV<"JXKZL\;NPVHV,HT5.D24VER@_?A@M:P\E:QLO9QLPBC=2<!HX
+XM>2-!>2=&60TJ7QPV?#]7=#Y1TZ&SZ[G)U9ZLLW."B3M,=1LNEC)&H#)$Q$U8
+XMR%!8R5E>S&!DTF5IW&ANY6ERYFMTXG5Y[(^.X9Z4\;JL^,:V_\J\_[RRO7)N
+XM;B G;1TM9A4L5P<A9!,S>"E-M6:*I5=XWY&OM&2 ?RY(8@\J9A N<AH\<QH_
+XM:Q0Z9!4[7Q0[8QA 7!$Y9!E!=2I1:1\_R'^;WI:KKV=[A3U1@CI1<"=$@#5:
+XM;B)-;2%,9AD^810Y7Q0[81<_8AI#8!A!71A 7AE!718[;B9%DTIDOG*%SG^+
+XMF6.6=D!SDUR-?$1T3A-"6!Q)4!$]8!Y+5! \5A(^5Q) >#-AG%J)81].5A-%
+XM40\\6Q<_51(W8!Q&3PLW1P(R9!]192!240H[7AA%8AI!G%9RNW6)FU5?Y)^@
+XM][&KS8J"V)J2V:::W+2DWKVKW\:QXL2QX[:HY:2?JE)7ISY+GRL_E2 YA!<N
+XM;0TB9Q4H>"D_G49BCC-3@RM*@2],>"]);RY%:S-':#9&WK&_ZKK'[KG$Z*FU
+XMNF][CC5$GCE*P%%@NT).PD=0Q%)8R%M?T6%FV65KXV=PYVMTY75Z[Y"/ZJ2;
+XM\+FM_,F\_\B\W)F1E4I(>RPX=24Y?2Y%<2$_;1] =RA,D$%EGU%RWY&OQ'2.
+XMF$=?<B$[8Q M9Q R;!,X:A4[918\7Q0[8QA 71(Z9AM#=RQ3:1\_QGV9X9FN
+XMM6V!@SM/BT-:=RY+A3I?<B91;B)-91@]8A4Z8!4\9!M!9!Q#8!A!7!<_7A8]
+XM81H]?S=4J%UUPG:'R7J&FVB<=#YQGVB9?45U3A-"6Q],3Q \71M(8!Q(5A(^
+XM6A9"9B%/GEF';"=751-"7!I&6Q@]2@<K7QM#8AY(5A$_40H[20(U60]!61$\
+XM="U2I%YYE%!@I6%GY**=TY*'PX9ZQI.'TJ>:W;FJY,&RZL:WZ+VPT9B0N&UK
+XMGD!'QUIHMD)6H"Q"ICE0@ATT8PH?A2]%H41@ME9UE#A6?BA$CT);>SE.;S=)
+XMGVY[],C2Y[C!\[['];:^V(F5K5)>HCE'P$U;OT).Q$A1Q5%7QU=<S5MAUV%H
+XMY69RZ6QXZWF![X^1]JZH][ZT_\["]+VRNG9PD49&J5MH>BM!DT-=DD%AA39:
+XMA39<<B%%PW*4W(RHQ76/GTYF=R8^8Q M9 XN:1(V:!,Y9!4[71(Y818^7A,[
+XM:1Y&>B]6:!X^P'>3Y9VRNG*&@3E-D4E@>3!-ACM@<250:Q]*9!E 818[8A<^
+XM9AU#9AY%81E 714\7!4Z9!P]C41@MFR Q':%PG-]FF>;<C]SJ7.F@4I[3A9&
+XM72!03Q ^71M(:"106A9"51$]4 PXB41R;"=55 \_9").6!4Y51(T9B-(61,^
+XM4@PY711#4PD[819&7Q4_GU=XH5QRDD]:TY24RXV%Q(AWWJF8V[.CX;ZQY;ZR
+XMXK>JZ+6KY:>APWAVF4)$Q6%JPE9DQUAHSEYQO$]EEC!%?1TR?!LSKDEDLTUK
+XMIT9BCC--=",Z="Q HF5UW:BU[KW'Y[>^_\C-\J^WVH>0Q69QL412R%%>R$E5
+XMRDM5QU%8QE1:S%A>UEYFY69RZVYZ[WV%[HZ1_K:Q_\:\_]+&Z[2IJ65?H%17
+XMMVEVJ5IP@3%+D4%?B3A:B3A<IE-VZ9>WY).MQG6-F$9=<1\V9!$L:A0T:Q0X
+XM8PXT8A,Y6Q W8!4]7Q0\;"%)?#%89AP\NW*.Y9VRO'2(?C9*DDIA>"],A#E>
+XM;2%,9AI%9!E 8A<^8AD_9QY$9Q]&81H_7!4Z7!0U9!PYE4QFO7.%PG2!O6]V
+XM@$Z$<C]SFV68BE.$62%18B556QQ*20<T8Q]+6Q=#61,^7AA%8AQ)81M)81Q*
+XM92%-6QL^3PPN71H_9R)*5 PW4P@W7Q- 6 PWA3IAP7F6CTM=PH**WJ&?R9"%
+XMV*".UJF3W+ZMV+FMW[.I\+BRZ:&>MF!BI$9+RF9MOUABQE]KSFEVTVY]SV=Y
+XMOU5JJCU3FRY%L4-=O%%LR&%[P%]WLEEPPG*&XIVK\;3 ]+[%\;F^\+*XY)RA
+XMTGN#SFIUTV)OSU1@WUYITE):QE!7REA>TEYDU%QDWV!LYVIV['N$\Y.6^+&N
+XM_\[&_]7+WZF@J&9AB3U!L&)ON6E]MV9^H$YKF4=GOVN,YI*R[INXYI&IOVJ 
+XME$!3;QHP;!<P<1DX9@XP<!P_9A<[7!$X9AM#9!E!=BM3<RA/:R%!K&-_V9&F
+XMV)"D@SM/ACY5BT)??3)7;R-.9QM&6A X8AD_7A0\7!(Z91Q"9QY$7Q8Z7!0S
+XM<"=#H5ENOW6%NVYYNFQQFFB>41]5QI/'F6*5>#]Q4!-#;B]=7!I'6A9"5! \
+XM5 XY6A0_7QE&7QE&7QI(8Q]+5Q8[7!D]9R)(6! W40<Q5@HU5PDR;2!%OW.1
+XMF5%HK&=U[JZSUIR7PHM]WJJ6W;&=X<.RW;NP\+RUWYB7LU=;N5%9TF1NPU5?
+XMQ5UEQF1LRVUVT'%\TF]]SV-TQE)HOD=@KCY5N4IBRV!WT&I_RFI_T7N-X)*?
+XMWIFC[:VUZ:FP[:FMZYVBX(:.W7: VF=SSU1@VUIETE):R5-:S%I@TEYDTUMC
+XMWE]KYFEV[7R%\Y6:^;*O_\O"_]#&Y*ZGP'U[KV9II59BMF1WQG&)Q&^(QG".
+XMW86DZ)&MVX*;P6A]I$Q>B3%!=1TO?",Z@"9!;Q0V<QQ 9A<[71(Y9QQ$9AM#
+XM=BM3<RA/:1\_J%][VI*GUX^CBT-7A#Q3CD5B>2Y3;B)-91E$7A0\81@^71,[
+XM7A0\9QY$9AU!8AH[:2 ]@SI4KV5YPWB&O&]XNVUQJ7FQ:SEOO(F]@DQ_=SYP
+XM?T1S;S!>5!(_5Q,_5! Z50\Z61,^71="7!9#7!9#71E%6!= 8Q]'9!]'4 @O
+XM5 DP50@M6PTNF4MIOW*)CT55TX^7[J^OSI6-U)^0Z;FDX+:AX\"Q\,>^W9R9
+XMKU=<JCU'QTY<V%UITEMFT69MRVMNR'%SS'1YU'-]VFY\W65XVF!VQU-GO4]A
+XMO4]ANE!CM5!AO5]NQ&]]O6YZM&MUN'!WRWZ%W8N1Z8N4](R6](&-Z&UYUE5@
+XMTE-;SEA?T%YDTEYDT5EAW%UIY&EUYWF#\Y6:^;6S_\O$_L_&Y[.NTY*1SX:)
+XMR7F!S7B&SW>)QFV"P6: QVR&OF%ZHT19FSU.BRT\A2<V@2,TC3%'CC%,=1<X
+XM=!D\9Q8Z71(Y:!U%:!U%>"U5<B=.9AP\HUIVVI*GUX^CF5%E@3E0D$=D<RA-
+XM;2%,8A9!8QE!7Q<^6Q,Z8QM":R)(8AD]91L[>"]+FU!HN&Z PWB$O&]VO6]S
+XMEV>?E&2<H&ZD=3]TC%6&G6*15A=%2PDV7!A$6Q=!7!9!71="71="6Q5 6A1!
+XM6A1!8!Q(7QM'4@PW6 XV60PQ4 (C?BY*P7*(GE!?JV)LX9Z?T9./VJ.8W*N=
+XMW+">ZKZNZ[ZTVJ"=K%U?G3E Q$U:UE5CTU)?XF=RVFYTT7%SRW1TS'5WU'1Y
+XMW'%\XVM]XFA[['N(U6ATQEEGNT]=LTQ9O%EEQ6ATP&ESKU]GLV5LQ'1ZUG^'
+XMWH")YX"*YGB"VF-NTE-=U%5=TUUDTV%GTEYDSUEBV5QIXF=SX7-][Y.7^+6S
+XM_\[)_]/,ZKBRU9:5U(N-SWV"R'!XOV1RM%EIL5)GNEIOME-GGSM.D2X\C2HV
+XMDS \DC ^G#E-E#--=Q4U=!<[9!,W6Q W:!U%:1Y&>2Y6<B=.9!HZH5ATV9&F
+END_OF_FILE
+  if test 30960 -ne `wc -c <'timg.ppm.UU.A'`; then
+    echo shar: \"'timg.ppm.UU.A'\" unpacked with wrong size!
+  elif test -f 'timg.ppm.UU.B'; then
+    echo shar: Combining  \"'testimg.ppm.U'\" \(64632 characters\)
+    cat 'timg.ppm.UU.A' 'timg.ppm.UU.B' > 'testimg.ppm.U'
+    if test 64632 -ne `wc -c <'testimg.ppm.U'`; then
+      echo shar: \"'testimg.ppm.U'\" combined with wrong size!
+    else
+      rm timg.ppm.UU.A timg.ppm.UU.B
+      if test 64632 -ne `wc -c <'testimg.ppm.U'`; then
+         echo shar: \"'testimg.ppm.U'\" unpacked with wrong size!
+      else
+         echo shar: Uudecoding \"'testimg.ppm'\" \(46890 characters\)
+         cat testimg.ppm.U | uudecode
+         if test 46890 -ne `wc -c <'testimg.ppm'`; then
+           echo shar: \"'testimg.ppm'\" uudecoded with wrong size!
+         else
+           rm testimg.ppm.U
+         fi
+       fi
+       # end of 'testimg.ppm.U'
+    fi
+  fi
+  # end of 'timg.ppm.UU.A'
+fi
+echo shar: End of archive 1 \(of 18\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

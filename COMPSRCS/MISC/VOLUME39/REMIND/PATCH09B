@@ -1,0 +1,1795 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject: v39i116:  remind - A replacement for calendar, Patch09b/4
+Message-ID: <1993Oct4.203923.8020@sparky.sterling.com>
+X-Md4-Signature: 2dfabe41b984468a550261045f6f42b7
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Dept. of Electronics, Carleton University
+Date: Mon, 4 Oct 1993 20:39:23 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 39, Issue 116
+Archive-name: remind/patch09b
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.09.C
+# Wrapped by kent@sparky on Mon Oct  4 15:03:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 4)."'
+if test -f 'patch.09.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.09.C'\"
+else
+  echo shar: Extracting \"'patch.09.C'\" \(52176 characters\)
+  sed "s/^X//" >'patch.09.C' <<'END_OF_FILE'
+X*** ../prev/french.h	Thu Aug 26 10:49:49 1993
+X--- ./french.h	Tue Sep 28 12:35:38 1993
+X***************
+X*** 361,367 ****
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X  #endif
+X  #ifdef ISOLATIN1
+X!    fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Afficher la prochaine occurence des rappels en format simple\n");
+X     fprintf(ErrFp, " -r     D\351sactiver les instructions RUN\n");
+X--- 361,367 ----
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X  #endif
+X  #ifdef ISOLATIN1
+X!    fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date] [*r\351p\351tition]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Afficher la prochaine occurence des rappels en format simple\n");
+X     fprintf(ErrFp, " -r     D\351sactiver les instructions RUN\n");
+X***************
+X*** 387,394 ****
+X     fprintf(ErrFp, " -kcmd  Ex\351cuter 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[d[d]] Trier les rappels par date et heure avant lancement\n");
+X     fprintf(ErrFp, " -ivar=val Initialiser var \340 val et conserver var\n\n");
+X  #else /* ISOLATIN1 */
+X!    fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Afficher la prochaine occurence des rappels en format simple\n");
+X     fprintf(ErrFp, " -r     Desactiver les instructions RUN\n");
+X--- 387,395 ----
+X     fprintf(ErrFp, " -kcmd  Ex\351cuter 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[d[d]] Trier les rappels par date et heure avant lancement\n");
+X     fprintf(ErrFp, " -ivar=val Initialiser var \340 val et conserver var\n\n");
+X+    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plutot que dimanche");
+X  #else /* ISOLATIN1 */
+X!    fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date] [*repetition]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Afficher la prochaine occurence des rappels en format simple\n");
+X     fprintf(ErrFp, " -r     Desactiver les instructions RUN\n");
+X***************
+X*** 414,419 ****
+X--- 415,421 ----
+X     fprintf(ErrFp, " -kcmd  Executer 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[d[d]] Trier les rappels par date et heure avant lancement\n");
+X     fprintf(ErrFp, " -ivar=val Initialiser var a val et conserver var\n\n");
+X+    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plutot que dimanche");
+X  #endif /* ISOLATIN1 */
+X     exit(1);
+X  }
+X*** ../prev/funcs.c	Thu Aug 19 16:58:12 1993
+X--- ./funcs.c	Tue Sep 28 16:45:33 1993
+X***************
+X*** 81,86 ****
+X--- 81,89 ----
+X  PRIVATE	int	FMin		ARGS ((void));
+X  PRIVATE	int	FMinute		ARGS ((void));
+X  PRIVATE	int	FMinsfromutc	ARGS ((void));
+X+ PRIVATE	int	FMoondate	ARGS ((void));
+X+ PRIVATE	int	FMoonphase	ARGS ((void));
+X+ PRIVATE	int	FMoontime	ARGS ((void));
+X  PRIVATE	int	FMon		ARGS ((void));
+X  PRIVATE	int	FMonnum		ARGS ((void));
+X  PRIVATE	int	FOrd		ARGS ((void));
+X***************
+X*** 87,92 ****
+X--- 90,97 ----
+X  PRIVATE	int	FOstype 	ARGS ((void));
+X  PRIVATE	int	FPlural		ARGS ((void));
+X  PRIVATE	int	FSgn		ARGS ((void));
+X+ PRIVATE int	FPsmoon		ARGS ((void));
+X+ PRIVATE int	FPsshade	ARGS ((void));
+X  PRIVATE	int	FShell		ARGS ((void));
+X  PRIVATE	int	FStrlen		ARGS ((void));
+X  PRIVATE	int	FSubstr		ARGS ((void));
+X***************
+X*** 196,205 ****
+X--- 201,215 ----
+X      {   "minute",	1,	1,	FMinute },
+X      {   "mon",		1,	1,	FMon	},
+X      {   "monnum",	1,	1,	FMonnum },
+X+     {	"moondate",	1,	3,	FMoondate },
+X+     {	"moonphase",	0,	2,	FMoonphase },
+X+     {	"moontime",	1,	3,	FMoontime },
+X      {   "now",		0,	0,	FNow	},
+X      {   "ord",		1,	1,	FOrd	},
+X      {   "ostype",       0,      0,      FOstype },
+X      {   "plural",	1,	3,	FPlural },
+X+     {	"psmoon",	1,	2,	FPsmoon},
+X+     {	"psshade",	1,	1,	FPsshade},
+X      {   "realtoday",    0,      0,      FRealtoday },
+X      {   "sgn",		1,	1,	FSgn	},
+X      {   "shell",	1,	1,	FShell	},
+X***************
+X*** 2044,2046 ****
+X--- 2054,2250 ----
+X  
+X     return OK;
+X  }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FPsshade                                                   */
+X+ /*                                                             */
+X+ /*  Canned PostScript code for shading a calendar square       */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FPsshade(void)
+X+ #else
+X+ static int FPsshade()
+X+ #endif
+X+ {
+X+    char psbuff[256];
+X+    char *s = psbuff;
+X+    if (ARG(0).type != INT_TYPE) return E_BAD_TYPE;
+X+    if (ARG(0).v.val < 0) return E_2LOW;
+X+    if (ARG(0).v.val > 100) return E_2HIGH;
+X+ 
+X+    sprintf(s, "/_A LineWidth 2 div def ");
+X+    s += strlen(s);
+X+    sprintf(s, "_A _A moveto ");
+X+    s += strlen(s);
+X+    sprintf(s, "BoxWidth _A sub _A lineto BoxWidth _A sub BoxHeight _A sub lineto ");
+X+    s += strlen(s);
+X+    sprintf(s, "_A BoxHeight _A sub lineto closepath %d 100 div setgray fill 0.0 setgray", ARG(0).v.val);
+X+    return RetStrVal(psbuff);
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FPsmoon                                                    */
+X+ /*                                                             */
+X+ /*  Canned PostScript code for generating moon phases          */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FPsmoon(void)
+X+ #else
+X+ static int FPsmoon()
+X+ #endif
+X+ {
+X+    char psbuff[256];
+X+    char sizebuf[30];
+X+    char *s = psbuff;
+X+    if (ARG(0).type != INT_TYPE) return E_BAD_TYPE;
+X+    if (ARG(0).v.val < 0) return E_2LOW;
+X+    if (ARG(0).v.val > 3) return E_2HIGH;
+X+    if (Nargs > 1) {
+X+       if (ARG(1).type != INT_TYPE) return E_BAD_TYPE;
+X+       if (ARG(1).v.val <= 0) return E_2LOW;
+X+       sprintf(sizebuf, "%d", ARG(1).v.val);
+X+    } else {
+X+       strcpy(sizebuf, "DaySize 2 div");
+X+    }
+X+ 
+X+    sprintf(s, "gsave 0 setgray newpath Border %s add BoxHeight Border sub %s sub",
+X+            sizebuf, sizebuf);
+X+    s += strlen(s);
+X+    sprintf(s, " %s 0 360 arc closepath", sizebuf);
+X+    s += strlen(s);
+X+    switch(ARG(0).v.val) {
+X+       case 0:
+X+ 	 sprintf(s, " fill grestore");
+X+ 	 break;
+X+ 
+X+       case 2:
+X+ 	 sprintf(s, " stroke grestore");
+X+ 	 break;
+X+ 
+X+       case 1:
+X+          sprintf(s, " stroke");
+X+ 	 s += strlen(s);
+X+          sprintf(s, " newpath Border %s add BoxHeight Border sub %s sub",
+X+                  sizebuf, sizebuf);
+X+ 	 s += strlen(s);
+X+ 	 sprintf(s, " %s 90 270 arc closepath fill grestore", sizebuf);
+X+ 	 break;
+X+ 
+X+       default:
+X+          sprintf(s, " stroke");
+X+ 	 s += strlen(s);
+X+          sprintf(s, " newpath Border %s add BoxHeight Border sub %s sub",
+X+                  sizebuf, sizebuf);
+X+ 	 s += strlen(s);
+X+ 	 sprintf(s, " %s 270 90 arc closepath fill grestore", sizebuf);
+X+ 	 break;
+X+    }
+X+    return RetStrVal(psbuff);
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FMoonphase                                                 */
+X+ /*                                                             */
+X+ /*  Phase of moon for specified date/time.                     */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FMoonphase(void)
+X+ #else
+X+ static int FMoonphase()
+X+ #endif
+X+ {
+X+    int date, time;
+X+ 
+X+    switch(Nargs) {
+X+       case 0:
+X+          date = JulianToday;
+X+ 	 time = 0;
+X+ 	 break;
+X+       case 1:
+X+          if (ARG(0).type != DATE_TYPE) return E_BAD_TYPE;
+X+ 	 date = ARG(0).v.val;
+X+ 	 time = 0;
+X+ 	 break;
+X+       case 2:
+X+          if (ARG(0).type != DATE_TYPE && ARG(1).type != TIM_TYPE) return E_BAD_TYPE;
+X+ 	 date = ARG(0).v.val;
+X+ 	 time = ARG(1).v.val;
+X+ 	 break;
+X+ 
+X+       default: return E_SWERR;
+X+    }
+X+ 
+X+    RetVal.type = INT_TYPE;
+X+    RetVal.v.val = MoonPhase(date, time);
+X+    return OK;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FMoondate                                                  */
+X+ /*                                                             */
+X+ /*  Hunt for next occurrence of specified moon phase           */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ PRIVATE int MoonStuff ARGS ((int want_time));
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FMoondate(void)
+X+ #else
+X+ static int FMoondate()
+X+ #endif
+X+ {
+X+    return MoonStuff(0);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FMoontime(void)
+X+ #else
+X+ static int FMoontime()
+X+ #endif
+X+ {
+X+    return MoonStuff(1);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int MoonStuff(int want_time)
+X+ #else
+X+ static int MoonStuff(want_time)
+X+ int want_time;
+X+ #endif
+X+ {
+X+    int startdate, starttim;
+X+    int d, t;
+X+ 
+X+    startdate = JulianToday;
+X+    starttim = 0;
+X+ 
+X+    if (ARG(0).type != INT_TYPE) return E_BAD_TYPE;
+X+    if (ARG(0).v.val < 0) return E_2LOW;
+X+    if (ARG(0).v.val > 3) return E_2HIGH;
+X+    if (Nargs >= 2) {
+X+       if (ARG(1).type != DATE_TYPE) return E_BAD_TYPE;
+X+       startdate = ARG(1).v.val;
+X+       if (Nargs >= 3) {
+X+          if (ARG(2).type != TIM_TYPE) return E_BAD_TYPE;
+X+ 	 starttim = ARG(2).v.val;
+X+       }
+X+    }
+X+ 
+X+    HuntPhase(startdate, starttim, ARG(0).v.val, &d, &t);
+X+    if (want_time) {
+X+       RetVal.type = TIM_TYPE;
+X+       RetVal.v.val = t;
+X+    } else {
+X+       RetVal.type = DATE_TYPE;
+X+       RetVal.v.val = d;
+X+    }
+X+    return OK;
+X+ }
+X+ 
+X+ 
+X*** ../prev/globals.h	Thu Aug 19 15:46:05 1993
+X--- ./globals.h	Tue Sep 28 10:56:14 1993
+X***************
+X*** 39,44 ****
+X--- 39,46 ----
+X  EXTERN  INIT(	int     DebugFlag, 0);
+X  EXTERN  INIT(   int	DoCalendar, 0);
+X  EXTERN  INIT(   int     DoSimpleCalendar, 0);
+X+ EXTERN	INIT(	int	MondayFirst, 0);
+X+ EXTERN	INIT(	int	Iterations, 1);
+X  EXTERN  INIT(   int     PsCal, 0);
+X  EXTERN  INIT(   int     CalWidth, 80);
+X  EXTERN  INIT(   int     CalWeeks, 0);
+X***************
+X*** 86,91 ****
+X--- 88,94 ----
+X  EXTERN  INIT(	int	  LongDeg, LON_DEG);
+X  EXTERN  INIT(	int	  LongMin, LON_MIN);
+X  EXTERN  INIT(	int	  LongSec, LON_SEC);
+X+ EXTERN	INIT(	char	  *Location, LOCATION);
+X  
+X  /* UTC calculation stuff */
+X  EXTERN  INIT(	int	  MinsFromUTC, 0);
+X***************
+X*** 96,101 ****
+X--- 99,106 ----
+X  EXTERN  INIT(   int	  FormWidth, 72);
+X  EXTERN	INIT(	int	  FirstIndent, 0);
+X  EXTERN	INIT(	int	  SubsIndent, 0);
+X+ EXTERN	INIT(	char	  *EndSent, ".?!");
+X+ EXTERN	INIT(	char	  *EndSentIg, "\"')]}>");
+X  
+X  /* We need the language stuff here... */
+X  
+X*** ../prev/init.c	Fri Aug 20 11:46:29 1993
+X--- ./init.c	Tue Sep 28 11:03:50 1993
+X***************
+X*** 66,71 ****
+X--- 66,72 ----
+X   *             by non-root, changes environment but not effective uid.
+X   *  -kcmd    = Run 'cmd' for MSG-type reminders instead of printing to stdout
+X   *  -iVAR=EXPR = Initialize and preserve VAR.
+X+  *  -m       = Start calendar with Monday instead of Sunday.
+X   *  A minus sign alone indicates to take input from stdin
+X   *
+X   **************************************************************/
+X***************
+X*** 104,115 ****
+X  {
+X     char *arg;
+X     int i;
+X!    int y, m, d;
+X     Token tok;
+X  
+X     y = NO_YR;
+X     m = NO_MON;
+X     d = NO_DAY;
+X  
+X     RealToday = SystemDate(&CurYear, &CurMon, &CurDay);
+X     if (RealToday < 0) {
+X--- 105,117 ----
+X  {
+X     char *arg;
+X     int i;
+X!    int y, m, d, rep;
+X     Token tok;
+X  
+X     y = NO_YR;
+X     m = NO_MON;
+X     d = NO_DAY;
+X+    rep = NO_REP;
+X  
+X     RealToday = SystemDate(&CurYear, &CurMon, &CurDay);
+X     if (RealToday < 0) {
+X***************
+X*** 162,167 ****
+X--- 164,174 ----
+X  	       RunDisabled = 1;
+X  	       break;
+X  
+X+ 	    case 'm':
+X+ 	    case 'M':
+X+ 	       MondayFirst = 1;
+X+ 	       break;
+X+ 
+X  	    case 'o':
+X  	    case 'O':
+X  	       IgnoreOnce = 1;
+X***************
+X*** 358,369 ****
+X  	       else y = tok.val;
+X  	       break;
+X  
+X  	    default: Usage();
+X           }
+X        }
+X  
+X  /* Must supply date in the form:  day, mon, yr OR mon, yr */
+X!       if (m == NO_MON || y == NO_YR) Usage();
+X        if (d == NO_DAY) d=1;
+X        if (d > DaysInMonth(m, y)) {
+X           fprintf(ErrFp, BadDate);
+X--- 365,394 ----
+X  	       else y = tok.val;
+X  	       break;
+X  
+X+ 	    case T_Rep:
+X+ 	       rep = tok.val;
+X+ 	       break;
+X+ 
+X  	    default: Usage();
+X           }
+X        }
+X  
+X+       if (rep > 0) {
+X+          Iterations = rep;
+X+ 	 DontQueue = 1;
+X+ 	 Daemon = 0;
+X+       }
+X+ 
+X  /* Must supply date in the form:  day, mon, yr OR mon, yr */
+X!       if (m == NO_MON || y == NO_YR) {
+X!          if (rep == NO_REP) Usage();
+X! 	 else if (m != NO_MON || y != NO_YR) Usage();
+X! 	 else {
+X! 	    m = CurMon;
+X! 	    y = CurYear;
+X! 	    if (d == NO_DAY) d = CurDay;
+X!          }
+X!       }
+X        if (d == NO_DAY) d=1;
+X        if (d > DaysInMonth(m, y)) {
+X           fprintf(ErrFp, BadDate);
+X***************
+X*** 404,410 ****
+X  #ifdef BETA
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X  #endif
+X!    fprintf(ErrFp, "Usage: remind [options] filename [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X     fprintf(ErrFp, " -r     Disable RUN directives\n");
+X--- 429,435 ----
+X  #ifdef BETA
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X  #endif
+X!    fprintf(ErrFp, "Usage: remind [options] filename [date] [*rep]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X     fprintf(ErrFp, " -r     Disable RUN directives\n");
+X***************
+X*** 430,435 ****
+X--- 455,461 ----
+X     fprintf(ErrFp, " -kcmd  Run 'cmd' for MSG-type reminders\n");
+X     fprintf(ErrFp, " -g[d[d]] Sort reminders by date and time before issuing\n");
+X     fprintf(ErrFp, " -ivar=val Initialize var to val and preserve var\n");
+X+    fprintf(ErrFp, " -m     Start calendar with Monday rather than Sunday\n");
+X     exit(1);
+X  }
+X  #endif /* L_USAGE_OVERRIDE */
+X***************
+X*** 560,570 ****
+X     }
+X  
+X     if (*varname == '$') {
+X!       if (val.type != INT_TYPE) {
+X!          fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[E_BAD_TYPE]);
+X! 	 return;
+X!       }
+X!       r=SetSysVar(varname+1, val.v.val);
+X        if (r) fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X        return;
+X     }
+X--- 586,592 ----
+X     }
+X  
+X     if (*varname == '$') {
+X!       r=SetSysVar(varname+1, &val);
+X        if (r) fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X        return;
+X     }
+X*** ../prev/lnk.msc	Mon Jun 28 12:30:12 1993
+X--- ./lnk.msc	Mon Sep 20 14:59:42 1993
+X***************
+X*** 8,13 ****
+X--- 8,14 ----
+X  hbcal.obj +
+X  init.obj +
+X  main.obj +
+X+ moon.obj +
+X  omit.obj +
+X  sort.obj +
+X  token.obj +
+X*** ../prev/lnk.tc	Mon Jun 28 12:30:13 1993
+X--- ./lnk.tc	Mon Sep 20 14:59:34 1993
+X***************
+X*** 9,14 ****
+X--- 9,15 ----
+X  hbcal.obj
+X  init.obj
+X  main.obj
+X+ moon.obj
+X  omit.obj
+X  sort.obj
+X  token.obj
+X*** ../prev/main.c	Wed Aug 25 13:06:26 1993
+X--- ./main.c	Tue Sep 28 16:50:30 1993
+X***************
+X*** 80,86 ****
+X  
+X  /* The very first thing to do is to set up ErrFp to be stderr */
+X     ErrFp = stderr;
+X!    
+X  /* Set up global vars */
+X     ArgC = argc;
+X     ArgV = argv;
+X--- 80,86 ----
+X  
+X  /* The very first thing to do is to set up ErrFp to be stderr */
+X     ErrFp = stderr;
+X! 
+X  /* Set up global vars */
+X     ArgC = argc;
+X     ArgV = argv;
+X***************
+X*** 92,147 ****
+X     }
+X  
+X     /* Not doing a calendar.  Do the regular remind loop */
+X!    DoReminders();
+X  
+X!    if (DebugFlag & DB_DUMP_VARS) {
+X!       DumpVarTable();
+X!       DumpSysVarByName(NULL);
+X!    }
+X  
+X!    if (!Hush) {
+X!       if (DestroyOmitContexts())
+X! 	Eprint("%s", E_PUSH_NOPOP);
+X  #ifdef HAVE_QUEUED
+X!       if (!Daemon && !NextMode && !NumTriggered && !NumQueued) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X!    else
+X!       if (!Daemon && !NextMode && !NumTriggered) printf(ErrMsg[M_QUEUED],
+X!          NumQueued);
+X  #else
+X!       if (!NextMode && !NumTriggered) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X  #endif
+X!    }
+X  
+X     /* If it's MS-DOS or OS2, reset the file access date */
+X  #if defined(__MSDOS__) || defined(OS2)
+X!    if (!UseStdin && (RealToday == JulianToday))
+X!       SetAccessDate(InitialFile, RealToday);
+X  #endif
+X  
+X     /* If there are sorted reminders, handle them */
+X!    if (SortByDate) IssueSortedReminders();
+X  
+X     /* If there are any background reminders queued up, handle them */
+X  #ifdef HAVE_QUEUED
+X!    if (NumQueued || Daemon) {
+X  
+X!       if (DontFork) {
+X! 	 HandleQueuedReminders();
+X! 	 return 0;
+X!       } else {
+X! 	 pid = fork();
+X! 	 if (pid == 0) {
+X! 	    HandleQueuedReminders();
+X! 	    return 0;
+X! 	 }
+X! 	 if (pid == -1) {
+X! 	    fprintf(ErrFp, "%s", ErrMsg[E_CANTFORK]);
+X! 	    return 1;
+X! 	 }
+X        }
+X-    }
+X  #endif
+X! 
+X     return 0;
+X  }
+X  
+X--- 92,157 ----
+X     }
+X  
+X     /* Not doing a calendar.  Do the regular remind loop */
+X!    ShouldCache = (Iterations > 1);
+X  
+X!    while (Iterations--) {
+X!       DoReminders();
+X  
+X!       if (DebugFlag & DB_DUMP_VARS) {
+X!          DumpVarTable();
+X!          DumpSysVarByName(NULL);
+X!       }
+X! 
+X!       if (!Hush) {
+X!          if (DestroyOmitContexts())
+X!          Eprint("%s", E_PUSH_NOPOP);
+X  #ifdef HAVE_QUEUED
+X!          if (!Daemon && !NextMode && !NumTriggered && !NumQueued) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X!       else
+X!          if (!Daemon && !NextMode && !NumTriggered) printf(ErrMsg[M_QUEUED],
+X!             NumQueued);
+X  #else
+X!          if (!NextMode && !NumTriggered) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X  #endif
+X!       }
+X  
+X     /* If it's MS-DOS or OS2, reset the file access date */
+X  #if defined(__MSDOS__) || defined(OS2)
+X!       if (!UseStdin && (RealToday == JulianToday))
+X!          SetAccessDate(InitialFile, RealToday);
+X  #endif
+X  
+X     /* If there are sorted reminders, handle them */
+X!       if (SortByDate) IssueSortedReminders();
+X  
+X     /* If there are any background reminders queued up, handle them */
+X  #ifdef HAVE_QUEUED
+X!       if (NumQueued || Daemon) {
+X  
+X!          if (DontFork) {
+X!    	    HandleQueuedReminders();
+X!   	    return 0;
+X!          } else {
+X! 	    pid = fork();
+X! 	    if (pid == 0) {
+X! 	       HandleQueuedReminders();
+X! 	       return 0;
+X! 	    }
+X! 	    if (pid == -1) {
+X! 	       fprintf(ErrFp, "%s", ErrMsg[E_CANTFORK]);
+X! 	       return 1;
+X! 	    }
+X!          }
+X        }
+X  #endif
+X!       if (Iterations) {
+X!          ClearGlobalOmits();
+X!          DestroyOmitContexts();
+X!          DestroyVars(0);
+X!          NumTriggered = 0;
+X! 	 JulianToday++;
+X!       }
+X!    }
+X     return 0;
+X  }
+X  
+X***************
+X*** 213,219 ****
+X  	    case T_Else:    r=DoElse(&p);    break;
+X  	    case T_EndIf:   r=DoEndif(&p);   break;
+X  	    case T_Include: r=DoInclude(&p); break;
+X! 	    case T_Exit:    exit(99);        break;
+X  	    case T_Set:     r=DoSet(&p);     break;
+X  	    case T_Fset:    r=DoFset(&p);    break;
+X  	    case T_UnSet:   r=DoUnset(&p);   break;
+X--- 223,230 ----
+X  	    case T_Else:    r=DoElse(&p);    break;
+X  	    case T_EndIf:   r=DoEndif(&p);   break;
+X  	    case T_Include: r=DoInclude(&p); break;
+X! 	    case T_Exit:    DoExit(&p);      break;
+X! 	    case T_Flush:   r=DoFlush(&p);   break;
+X  	    case T_Set:     r=DoSet(&p);     break;
+X  	    case T_Fset:    r=DoFset(&p);    break;
+X  	    case T_UnSet:   r=DoUnset(&p);   break;
+X***************
+X*** 239,246 ****
+X  				r=DoRem(&p);
+X  				break;
+X  			     }
+X- 				 
+X  
+X  	 /* If we don't recognize the command, do a REM by default */
+X  	 /* Note:  Since the parser hasn't been used yet, we don't */
+X  	 /* need to destroy it here. */
+X--- 250,257 ----
+X  				r=DoRem(&p);
+X  				break;
+X  			     }
+X  
+X+ 
+X  	 /* If we don't recognize the command, do a REM by default */
+X  	 /* Note:  Since the parser hasn't been used yet, we don't */
+X  	 /* need to destroy it here. */
+X***************
+X*** 306,318 ****
+X     int y400 = (y2 / 400) - (y1 / 400); /* ... but do count multiples of 400 */
+X  
+X     int try_jul= 365 * (try_yr-BASE) + y4 - y100 + y400;
+X!    
+X     while (try_jul > jul) {
+X        try_yr--;
+X        try_jul -= DaysInYear(try_yr);
+X     }
+X     jul -= try_jul;
+X!    
+X     t = DaysInMonth(try_mon, try_yr);
+X     while (jul >= t) {
+X        jul -= t;
+X--- 317,329 ----
+X     int y400 = (y2 / 400) - (y1 / 400); /* ... but do count multiples of 400 */
+X  
+X     int try_jul= 365 * (try_yr-BASE) + y4 - y100 + y400;
+X! 
+X     while (try_jul > jul) {
+X        try_yr--;
+X        try_jul -= DaysInYear(try_yr);
+X     }
+X     jul -= try_jul;
+X! 
+X     t = DaysInMonth(try_mon, try_yr);
+X     while (jul >= t) {
+X        jul -= t;
+X***************
+X*** 436,442 ****
+X  {
+X     int c, err;
+X     int len = 0;
+X!    
+X     *out = 0;
+X  
+X     c = ParseChar(p, &err, 0);
+X--- 447,453 ----
+X  {
+X     int c, err;
+X     int len = 0;
+X! 
+X     *out = 0;
+X  
+X     c = ParseChar(p, &err, 0);
+X***************
+X*** 480,486 ****
+X  {
+X     int c, err;
+X     int len = 0;
+X!    
+X     *out = 0;
+X  
+X     c = ParseChar(p, &err, 0);
+X--- 491,497 ----
+X  {
+X     int c, err;
+X     int len = 0;
+X! 
+X     *out = 0;
+X  
+X     c = ParseChar(p, &err, 0);
+X***************
+X*** 566,572 ****
+X  #ifndef HAVE_STDARG
+X     char *fmt;
+X  #endif
+X!    
+X     /* Check if more than one error msg. from this line */
+X     if (!FreshLine && !ShowAllErrors) return;
+X  
+X--- 577,583 ----
+X  #ifndef HAVE_STDARG
+X     char *fmt;
+X  #endif
+X! 
+X     /* Check if more than one error msg. from this line */
+X     if (!FreshLine && !ShowAllErrors) return;
+X  
+X***************
+X*** 679,685 ****
+X     strcpy(TPushBuffer, tok);
+X     strcat(TPushBuffer, " ");  /* Separate the pushed token from the next
+X  		                 token */
+X!    
+X  }
+X  
+X  /***************************************************************/
+X--- 690,696 ----
+X     strcpy(TPushBuffer, tok);
+X     strcat(TPushBuffer, " ");  /* Separate the pushed token from the next
+X  		                 token */
+X! 
+X  }
+X  
+X  /***************************************************************/
+X***************
+X*** 779,785 ****
+X        if ( (r = EvaluateExpr(p, &v)) ) {
+X           syndrome = IF_TRUE | BEFORE_ELSE;
+X  	 Eprint("%s", ErrMsg[r]);
+X!       } else 
+X           if ( (v.type != STR_TYPE && v.v.val) ||
+X                (v.type == STR_TYPE && strcmp(v.v.str, "")) )
+X              syndrome = IF_TRUE | BEFORE_ELSE;
+X--- 790,796 ----
+X        if ( (r = EvaluateExpr(p, &v)) ) {
+X           syndrome = IF_TRUE | BEFORE_ELSE;
+X  	 Eprint("%s", ErrMsg[r]);
+X!       } else
+X           if ( (v.type != STR_TYPE && v.v.val) ||
+X                (v.type == STR_TYPE && strcmp(v.v.str, "")) )
+X              syndrome = IF_TRUE | BEFORE_ELSE;
+X***************
+X*** 877,883 ****
+X     return OK;
+X  }
+X  
+X! 	   
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  ShouldIgnoreLine - given the current state of the IF       */
+X--- 888,894 ----
+X     return OK;
+X  }
+X  
+X! 
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  ShouldIgnoreLine - given the current state of the IF       */
+X***************
+X*** 943,949 ****
+X  {
+X     int err;
+X     int ch;
+X!    int val=1;     
+X  
+X     while(1) {
+X        ch = ParseChar(p, &err, 0);
+X--- 954,960 ----
+X  {
+X     int err;
+X     int ch;
+X!    int val=1;
+X  
+X     while(1) {
+X        ch = ParseChar(p, &err, 0);
+X***************
+X*** 965,971 ****
+X  	 case '-':
+X  	    val = 0;
+X  	    break;
+X!  
+X   	 case 'e':
+X   	 case 'E':
+X  	    if (val) DebugFlag |=  DB_ECHO_LINE;
+X--- 976,982 ----
+X  	 case '-':
+X  	    val = 0;
+X  	    break;
+X! 
+X   	 case 'e':
+X   	 case 'E':
+X  	    if (val) DebugFlag |=  DB_ECHO_LINE;
+X***************
+X*** 1072,1077 ****
+X--- 1083,1129 ----
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X+ /*  DoFlush                                                    */
+X+ /*                                                             */
+X+ /*  Flush stdout and stderr                                    */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int DoFlush(ParsePtr p)
+X+ #else
+X+ int DoFlush(p)
+X+ ParsePtr p;
+X+ #endif
+X+ {
+X+    fflush(stdout);
+X+    fflush(stderr);
+X+    return VerifyEoln(p);
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  DoExit                                                     */
+X+ /*                                                             */
+X+ /*  Handle the EXIT command.                                   */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC void DoExit(ParsePtr p)
+X+ #else
+X+ void DoExit(p)
+X+ ParsePtr p;
+X+ #endif
+X+ {
+X+    int r;
+X+    Value v;
+X+ 
+X+    r = EvaluateExpr(p, &v);
+X+    if (r || v.type != INT_TYPE) exit(99);
+X+    exit(v.v.val);
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X  /*  DoErrMsg                                                   */
+X  /*                                                             */
+X  /*  Issue an error message under program control.              */
+X***************
+X*** 1091,1097 ****
+X  
+X     t.typ = MSG_TYPE;
+X     tt.ttime = SystemTime() / 60;
+X!    if ( (r=DoSubst(p, SubstBuffer, &t, &tt, JulianToday, NORMAL_MODE)) ) 
+X        return r;
+X     s = SubstBuffer;
+X     while (isspace(*s)) s++;
+X--- 1143,1149 ----
+X  
+X     t.typ = MSG_TYPE;
+X     tt.ttime = SystemTime() / 60;
+X!    if ( (r=DoSubst(p, SubstBuffer, &t, &tt, JulianToday, NORMAL_MODE)) )
+X        return r;
+X     s = SubstBuffer;
+X     while (isspace(*s)) s++;
+X***************
+X*** 1112,1118 ****
+X     on the specified weekday.  For example, FoldArray[0][2] is a
+X     non-leapyear beginning on Wednesday, and FoldArray[1][5] is a
+X     leapyear beginning on Saturday.  Used to fold back dates which
+X!    are too high for the standard Unix representation. 
+X     NOTE:  This implies that you cannot set BASE > 2001!!!!! */
+X  static int FoldArray[2][7] = {
+X     {2001, 2002, 2003, 2009, 2010, 2005, 2006},
+X--- 1164,1170 ----
+X     on the specified weekday.  For example, FoldArray[0][2] is a
+X     non-leapyear beginning on Wednesday, and FoldArray[1][5] is a
+X     leapyear beginning on Saturday.  Used to fold back dates which
+X!    are too high for the standard Unix representation.
+X     NOTE:  This implies that you cannot set BASE > 2001!!!!! */
+X  static int FoldArray[2][7] = {
+X     {2001, 2002, 2003, 2009, 2010, 2005, 2006},
+X***************
+X*** 1168,1174 ****
+X                               (loc_t - utc_t) / 60 );  /* Should use difftime */
+X  #else
+X     if (mins) *mins = (int) ((utc_t - loc_t) / 60);
+X! #endif   
+X     if (isdst) *isdst = temp->tm_isdst;
+X     return 0;
+X  }
+X--- 1220,1226 ----
+X                               (loc_t - utc_t) / 60 );  /* Should use difftime */
+X  #else
+X     if (mins) *mins = (int) ((utc_t - loc_t) / 60);
+X! #endif
+X     if (isdst) *isdst = temp->tm_isdst;
+X     return 0;
+X  }
+X***************
+X*** 1180,1189 ****
+X  /*  Write a string to standard output, formatting it as a      */
+X  /*  paragraph according to the FirstIndent, FormWidth and      */
+X  /*  SubsIndent variables.  Spaces are gobbled.  Double-spaces  */
+X! /*  are inserted after periods.  As a special case, if the     */
+X! /*  last char in s is '\n', an extra newline is emitted.       */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X  PUBLIC void FillParagraph(char *s)
+X  #else
+X--- 1232,1245 ----
+X  /*  Write a string to standard output, formatting it as a      */
+X  /*  paragraph according to the FirstIndent, FormWidth and      */
+X  /*  SubsIndent variables.  Spaces are gobbled.  Double-spaces  */
+X! /*  are inserted after '.', '?' and '!'.  Newlines in the      */
+X! /*  source are treated as paragraph breaks.                    */
+X  /*                                                             */
+X  /***************************************************************/
+X+ 
+X+ /* A macro safe ONLY if used with arg with no side effects! */
+X+ #define ISBLANK(c) (isspace(c) && (c) != '\n')
+X+ 
+X  #ifdef HAVE_PROTOS
+X  PUBLIC void FillParagraph(char *s)
+X  #else
+X***************
+X*** 1194,1199 ****
+X--- 1250,1256 ----
+X  
+X     int line = 0;
+X     int i, j;
+X+    int doublespace = 1;
+X     int pendspace;
+X     int len;
+X     char *t;
+X***************
+X*** 1203,1214 ****
+X     if (!s || !*s) return;
+X  
+X     /* Skip leading spaces */
+X!    while(isspace(*s)) s++;
+X  
+X     /* Start formatting */
+X     while(1) {
+X        if (!*s) {
+X!          if (*(s-1) == '\n') putchar('\n');
+X           return;
+X        }
+X        /* Over here, we're at the beginning of a line.  Emit the correct
+X--- 1260,1280 ----
+X     if (!s || !*s) return;
+X  
+X     /* Skip leading spaces */
+X!    while(ISBLANK(*s)) s++;
+X  
+X     /* Start formatting */
+X     while(1) {
+X+ 
+X+       /* If it's a carriage return, output it and start new paragraph */
+X+       if (*s == '\n') {
+X+          putchar('\n');
+X+ 	 s++;
+X+ 	 line = 0;
+X+ 	 while(ISBLANK(*s)) s++;
+X+ 	 continue;
+X+       }
+X        if (!*s) {
+X!          putchar('\n');
+X           return;
+X        }
+X        /* Over here, we're at the beginning of a line.  Emit the correct
+X***************
+X*** 1222,1234 ****
+X  
+X        /* Emit words until the next one won't fit */
+X        while(1) {
+X!          while(isspace(*s)) s++;
+X           t = s;
+X           while(*s && !isspace(*s)) s++;
+X  	 len = s - t;
+X  	 if (!len) {
+X  	    putchar('\n');
+X-             if (*(s-1) == '\n') putchar('\n');
+X  	    return;
+X           }
+X  	 if (!pendspace || len+pendspace <= roomleft) {
+X--- 1288,1300 ----
+X  
+X        /* Emit words until the next one won't fit */
+X        while(1) {
+X!          while(ISBLANK(*s)) s++;
+X! 	 if (*s == '\n') break;
+X           t = s;
+X           while(*s && !isspace(*s)) s++;
+X  	 len = s - t;
+X  	 if (!len) {
+X  	    putchar('\n');
+X  	    return;
+X           }
+X  	 if (!pendspace || len+pendspace <= roomleft) {
+X***************
+X*** 1235,1240 ****
+X--- 1301,1308 ----
+X              for (i=0; i<pendspace; i++) putchar(' ');
+X     	    while(t < s) {
+X  	       putchar(*t);
+X+ 	       if (strchr(EndSent, *t)) doublespace = 2;
+X+ 	       else if (!strchr(EndSentIg, *t)) doublespace = 1;
+X  	       t++;
+X              }
+X           } else {
+X***************
+X*** 1243,1250 ****
+X  	    line++;
+X  	    break;
+X           }
+X! 	 pendspace = (*(t-1) == '.') ? 2 : 1;
+X! 	 roomleft -= len+pendspace;
+X        }
+X     }
+X  }
+X--- 1311,1318 ----
+X  	    line++;
+X  	    break;
+X           }
+X! 	 roomleft -= len+doublespace;
+X! 	 pendspace = doublespace;
+X        }
+X     }
+X  }
+X***************
+X*** 1266,1272 ****
+X  	long guess = time((long *) NULL);
+X  	struct tm g;
+X  	int diff;
+X! 	
+X  	g = *gmtime (&guess);
+X  	while ((diff = year - g.tm_year) > 0)
+X  	{
+X--- 1334,1340 ----
+X  	long guess = time((long *) NULL);
+X  	struct tm g;
+X  	int diff;
+X! 
+X  	g = *gmtime (&guess);
+X  	while ((diff = year - g.tm_year) > 0)
+X  	{
+X***************
+X*** 1323,1325 ****
+X--- 1391,1458 ----
+X  	return (clock);
+X  }
+X  #endif /* NEED_TIMEGM */
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  LocalToUTC                                                 */
+X+ /*                                                             */
+X+ /*  Convert a local date/time to a UTC date/time.              */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC void LocalToUTC(int locdate, int loctime, int *utcdate, int *utctime)
+X+ #else
+X+ void LocalToUTC(locdate, loctime, utcdate, utctime)
+X+ int locdate, loctime, *utcdate, *utctime;
+X+ #endif
+X+ {
+X+    int diff;
+X+    int dummy;
+X+ 
+X+    if (!CalculateUTC || !CalcMinsFromUTC(locdate, loctime, &diff, &dummy)) 
+X+    diff=MinsFromUTC;
+X+ 
+X+    loctime -= MinsFromUTC;
+X+    if (loctime < 0) {
+X+       loctime += 1440;
+X+       locdate--;
+X+    } else if (loctime >= 1440) {
+X+       loctime -= 1440;
+X+       locdate++;
+X+    }
+X+    *utcdate = locdate;
+X+    *utctime = loctime;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  UTCToLocal                                                 */
+X+ /*                                                             */
+X+ /*  Convert a UTC date/time to a local date/time.              */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC void UTCToLocal(int utcdate, int utctime, int *locdate, int *loctime)
+X+ #else
+X+ void UTCToLocal(utcdate, utctime, locdate, loctime)
+X+ int utcdate, utctime, *locdate, *loctime;
+X+ #endif
+X+ {
+X+    int diff;
+X+    int dummy;
+X+ 
+X+    /* Hack -- not quite right when DST changes.  */
+X+    if (!CalculateUTC || !CalcMinsFromUTC(utcdate, utctime, &diff, &dummy)) 
+X+    diff=MinsFromUTC;
+X+ 
+X+    utctime += MinsFromUTC;
+X+    if (utctime < 0) {
+X+       utctime += 1440;
+X+       utcdate--;
+X+    } else if (utctime >= 1440) {
+X+       utctime -= 1440;
+X+       utcdate++;
+X+    }
+X+    *locdate = utcdate;
+X+    *loctime = utctime;
+X+ }
+X*** ../prev/makefile.msc	Mon Jun 28 12:30:11 1993
+X--- ./makefile.msc	Thu Sep 30 15:50:35 1993
+X***************
+X*** 2,12 ****
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj sort.obj hbcal.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X! MODEL= /AS
+X  
+X  calendar.obj: calendar.c
+X  	cl /c $(DEFINES) $(MODEL) /Focalendar.obj calendar.c
+X--- 2,12 ----
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj sort.obj hbcal.obj moon.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X! MODEL= /AM
+X  
+X  calendar.obj: calendar.c
+X  	cl /c $(DEFINES) $(MODEL) /Focalendar.obj calendar.c
+X***************
+X*** 40,45 ****
+X--- 40,48 ----
+X  
+X  main.obj: main.c
+X  	cl /c $(DEFINES) $(MODEL) /Fomain.obj main.c
+X+ 
+X+ moon.obj: moon.c
+X+ 	cl /c $(DEFINES) $(MODEL) /Fomoon.obj moon.c
+X  
+X  omit.obj: omit.c
+X  	cl /c $(DEFINES) $(MODEL) /Foomit.obj omit.c
+X*** ../prev/makefile.os2	Wed Aug 18 11:13:19 1993
+X--- ./makefile.os2	Mon Sep 20 15:00:08 1993
+X***************
+X*** 25,31 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.08
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h french.h norwgian.h
+X--- 25,31 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.09
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h french.h norwgian.h
+X***************
+X*** 35,41 ****
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X--- 35,41 ----
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c moon.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X***************
+X*** 77,82 ****
+X--- 77,83 ----
+X  globals$O: globals.c config.h types.h globals.h err.h lang.h
+X  init$O: init.c $(STDHDRS) expr.h version.h
+X  main$O: main.c $(STDHDRS) expr.h
+X+ moon$O: moon.c $(STDHDRS)
+X  omit$O: omit.c $(STDHDRS)
+X  sort$O: sort.c $(STDHDRS)
+X  token$O: token.c $(STDHDRS)
+X*** ../prev/makefile.tc	Wed Aug 18 11:13:06 1993
+X--- ./makefile.tc	Thu Sep 30 15:50:25 1993
+X***************
+X*** 1,6 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.08
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X--- 1,6 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.09
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X***************
+X*** 10,16 ****
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj sort.obj token.obj trigger.obj \
+X--- 10,16 ----
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! moon.c main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj sort.obj token.obj trigger.obj \
+X***************
+X*** 31,37 ****
+X  	tcc -erem2ps.exe rem2ps.obj
+X  
+X  .c.obj:
+X! 	tcc -A -w-pia -c -O -ms {$< }
+X  
+X  rem2ps.obj: rem2ps.c rem2ps.h config.h lang.h
+X  
+X--- 31,37 ----
+X  	tcc -erem2ps.exe rem2ps.obj
+X  
+X  .c.obj:
+X! 	tcc -A -w-pia -c -O -mm {$< }
+X  
+X  rem2ps.obj: rem2ps.c rem2ps.h config.h lang.h
+X  
+X***************
+X*** 52,57 ****
+X--- 52,59 ----
+X  init.obj: init.c $(STDHDRS) expr.h version.h
+X  
+X  main.obj: main.c $(STDHDRS) expr.h
+X+ 
+X+ moon.obj: moon.c $(STDHDRS) expr.h
+X  
+X  omit.obj: omit.c $(STDHDRS)
+X  
+X*** ../prev/protos.h	Wed Aug 18 12:52:08 1993
+X--- ./protos.h	Mon Sep 20 16:53:13 1993
+X***************
+X*** 29,34 ****
+X--- 29,36 ----
+X  void ProduceCalendar ARGS ((void));
+X  char *SimpleTime ARGS ((int tim, char *out));
+X  int DoRem ARGS ((ParsePtr p));
+X+ int DoFlush ARGS ((ParsePtr p));
+X+ void DoExit ARGS ((ParsePtr p));
+X  int ParseRem ARGS ((ParsePtr s, Trigger *trig, TimeTrig *tim));
+X  int TriggerReminder ARGS ((ParsePtr p, Trigger *t, TimeTrig *tim, int jul));
+X  int ShouldTriggerReminder ARGS ((Trigger *t, TimeTrig *tim, int jul));
+X***************
+X*** 103,109 ****
+X  int DoUnset  ARGS ((Parser *p));
+X  int DoDump ARGS ((ParsePtr p));
+X  void DumpVarTable ARGS ((void));
+X! void DestroyVars ARGS ((void));
+X  int PreserveVar ARGS ((char *name));
+X  int DoPreserve  ARGS ((Parser *p));
+X  int DoSatRemind ARGS ((Trigger *trig, TimeTrig *tim, ParsePtr p));
+X--- 105,111 ----
+X  int DoUnset  ARGS ((Parser *p));
+X  int DoDump ARGS ((ParsePtr p));
+X  void DumpVarTable ARGS ((void));
+X! void DestroyVars ARGS ((int all));
+X  int PreserveVar ARGS ((char *name));
+X  int DoPreserve  ARGS ((Parser *p));
+X  int DoSatRemind ARGS ((Trigger *trig, TimeTrig *tim, ParsePtr p));
+X***************
+X*** 126,132 ****
+X  int GetNextHebrewDate ARGS((int julstart, int hm, int hd, int yahr, int adarbehave, int *ans));
+X  int ComputeJahr ARGS ((int y, int m, int d, int *ans));
+X  int GetSysVar ARGS ((const char *name, Value *val));
+X! int SetSysVar ARGS ((const char *name, int value));
+X  void DumpSysVarByName ARGS ((const char *name));
+X  int CalcMinsFromUTC ARGS ((int jul, int tim, int *mins, int *isdst));
+X  void FillParagraph ARGS ((char *s));
+X--- 128,138 ----
+X  int GetNextHebrewDate ARGS((int julstart, int hm, int hd, int yahr, int adarbehave, int *ans));
+X  int ComputeJahr ARGS ((int y, int m, int d, int *ans));
+X  int GetSysVar ARGS ((const char *name, Value *val));
+X! int SetSysVar ARGS ((const char *name, Value *val));
+X  void DumpSysVarByName ARGS ((const char *name));
+X  int CalcMinsFromUTC ARGS ((int jul, int tim, int *mins, int *isdst));
+X  void FillParagraph ARGS ((char *s));
+X+ void LocalToUTC ARGS ((int locdate, int loctime, int *utcdate, int *utctime));
+X+ void UTCToLocal ARGS ((int utcdate, int utctime, int *locdate, int *loctime));
+X+ int MoonPhase ARGS ((int date, int time));
+X+ void HuntPhase ARGS ((int startdate, int starttim, int phas, int *date, int *time));
+X*** ../prev/rem2ps.1	Wed Jul 28 10:22:25 1993
+X--- ./rem2ps.1	Thu Sep 30 15:23:25 1993
+X***************
+X*** 1,4 ****
+X! .TH REM2PS 1 "8 January 1993"
+X  .UC4
+X  .SH NAME
+X  rem2ps \- draw a PostScript calendar from Remind output
+X--- 1,4 ----
+X! .TH REM2PS 1 "30 September 1993"
+X  .UC4
+X  .SH NAME
+X  rem2ps \- draw a PostScript calendar from Remind output
+X***************
+X*** 10,15 ****
+X--- 10,18 ----
+X  draws a calendar) to the standard output.
+X  .SH OPTIONS
+X  .TP
+X+ .B \-n
+X+ Produce a calendar whose first column is Monday (rather than Sunday.)
+X+ .TP
+X  .B \-p file
+X  Include the contents of \fIfile\fR in the PostScript prologue.  This
+X  allows you to define procedures, variables etc. which can be used
+X***************
+X*** 20,30 ****
+X  Produce the calendar in landscape mode rather than the default
+X  portrait mode.
+X  .TP
+X! .B \-c
+X! Do not generate small calendars for the next and previous months.  By
+X! default, these small calendars are generated and placed on the main
+X! calendar.
+X  .TP
+X  .B \-i
+X  Use ISO 8859-1 standard encoding for the PostScript fonts.  If you do
+X  not use this option, the default encoding is used.
+X--- 23,53 ----
+X  Produce the calendar in landscape mode rather than the default
+X  portrait mode.
+X  .TP
+X! \fB\-c\fR[\fIn\fR]
+X! If \fIn\fR is omitted, disables the small calendars for next and previous
+X! months which are normally generated.  If \fIn\fR is supplied, it can range
+X! from 0 to 3, with the following meanings:
+X! .RS
+X  .TP
+X+ .B 0
+X+ Disable small calendars
+X+ .TP
+X+ .B 1
+X+ Place the small calendars at the bottom-right if there is room; otherwise,
+X+ place them at the top-left.
+X+ .TP
+X+ .B 2
+X+ Place the small calendars at the top-left if there is room; otherwise,
+X+ place them at the bottom-right.
+X+ .TP
+X+ .B 3
+X+ Place the previous month's small calendar at the top-left and the next
+X+ month's at the bottom-right if there is room; otherwise, follow \fIn\fR=1.
+X+ A moment's thought reveals that an option which splits the calendars if
+X+ there is room and otherwise follows \fIn\fR=2 yields the same results as
+X+ \fIn\fR=3.
+X+ .RE
+X+ .TP
+X  .B \-i
+X  Use ISO 8859-1 standard encoding for the PostScript fonts.  If you do
+X  not use this option, the default encoding is used.
+X***************
+X*** 90,97 ****
+X  option will display the compiled-in default.
+X  .RE
+X  .TP
+X! \fB\-f\fR[\fBshed\fR] \fIfont\fR
+X! Set the font for the small calendar, the calendar headings, the calendar
+X  entries, and the day numbers, respectively.  \fIFont\fR must be the
+X  name of a valid PostScript font.  The default fonts are equivalent to
+X  specifying:
+X--- 113,121 ----
+X  option will display the compiled-in default.
+X  .RE
+X  .TP
+X! \fB\-f\fR[\fBtshed\fR] \fIfont\fR
+X! Set the font for the calendar title,
+X! the small calendars, the day-of-week headings, the calendar
+X  entries, and the day numbers, respectively.  \fIFont\fR must be the
+X  name of a valid PostScript font.  The default fonts are equivalent to
+X  specifying:
+X***************
+X*** 98,104 ****
+X  .RS
+X  .PP
+X  .nf
+X! 	-fhes Helvetica -fd Helvetica-BoldOblique
+X  .fi
+X  .PP
+X  In other words, the heading, entry and small-calendar fonts are set
+X--- 122,128 ----
+X  .RS
+X  .PP
+X  .nf
+X! 	-ftshe Helvetica -fd Helvetica-BoldOblique
+X  .fi
+X  .PP
+X  In other words, the heading, entry and small-calendar fonts are set
+X***************
+X*** 106,120 ****
+X  Helvetica-BoldOblique.
+X  .RE
+X  .TP
+X! \fB\-s\fR[\fBhed\fR] \fIsize\fR
+X! Set the size (in points) of the text for the the calendar headings,
+X! the calendar entries, and the day numbers, respectively.  \fISize\fR
+X! must be a decimal number.  The default sizes are equivalent to
+X! specifying:
+X  .RS
+X  .PP
+X  .nf
+X! 	-sdh 14 -se 8
+X  .fi
+X  .PP
+X  In other words, the heading and day numbers are 14-point fonts, and the
+X--- 130,144 ----
+X  Helvetica-BoldOblique.
+X  .RE
+X  .TP
+X! \fB\-s\fR[\fBthed\fR] \fIsize\fR
+X! Set the size (in points) of the text for the the calendar title,
+X! day-of-week headings, the calendar entries, and the day numbers,
+X! respectively.  \fISize\fR must be a decimal number.  The default sizes
+X! are equivalent to specifying:
+X  .RS
+X  .PP
+X  .nf
+X! 	-sthd 14 -se 8
+X  .fi
+X  .PP
+X  In other words, the heading and day numbers are 14-point fonts, and the
+X***************
+X*** 185,195 ****
+X  of the regular calendar entry area.  The space from here to the top
+X  of the box is used only to draw the day number.
+X  .TP
+X! /DayFont, /EntryFont, /SmallFont and /HeadFont
+X! The fonts used to draw the day numbers, the calendar entries, the small
+X! calendars, and the month and day headings, respectively.
+X  .TP
+X! DaySize, EntrySize and HeadSize
+X  The sizes of the above fonts.  (The size of the small calendar font
+X  is \fInot\fR defined here.)  For example, if you wanted to print
+X  the Hebrew date next to the regular day number in the calendar, use:
+X--- 209,220 ----
+X  of the regular calendar entry area.  The space from here to the top
+X  of the box is used only to draw the day number.
+X  .TP
+X! /DayFont, /TitleFont, /EntryFont, /SmallFont and /HeadFont
+X! The fonts used to draw the day numbers, the month and year title,
+X! the calendar entries, the small
+X! calendars, and the day-of-week headings, respectively.
+X  .TP
+X! DaySize, TitleSize, EntrySize and HeadSize
+X  The sizes of the above fonts.  (The size of the small calendar font
+X  is \fInot\fR defined here.)  For example, if you wanted to print
+X  the Hebrew date next to the regular day number in the calendar, use:
+X*** ../prev/rem2ps.c	Wed Jul 28 10:15:11 1993
+X--- ./rem2ps.c	Tue Sep 28 12:33:59 1993
+X***************
+X*** 43,48 ****
+X--- 43,59 ----
+X  
+X  char Days[]=L_DAYINIT;
+X  
+X+ char *SmallCalLoc[] = {
+X+    "",
+X+    "bt",
+X+    "tb",
+X+    "sbt",
+X+ };
+X+ 
+X+ #define NUMSMALL (sizeof(SmallCalLoc)/sizeof(SmallCalLoc[0]))
+X+ char *SmallLocation;
+X+ int SmallCol1, SmallCol2;
+X+ 
+X  PageType Pages[] =
+X  {
+X     {"Letter", 612, 792},     /* 8.5 x 11 in. */
+X***************
+X*** 78,83 ****
+X--- 89,95 ----
+X  char LineBuffer[LINELEN];
+X  
+X  char *HeadFont="Helvetica";
+X+ char *TitleFont="Helvetica";
+X  char *DayFont="Helvetica-BoldOblique";
+X  char *EntryFont="Helvetica";
+X  char *SmallFont="Helvetica";
+X***************
+X*** 84,89 ****
+X--- 96,102 ----
+X  char *LineWidth = "1";
+X  
+X  char *HeadSize="14";
+X+ char *TitleSize="14";
+X  char *DaySize="14";
+X  char *EntrySize="8";
+X  char *BorderSize = "6";
+X***************
+X*** 96,102 ****
+X  int MaxDay;
+X  int DayNum;
+X  int WkDayNum;
+X! 
+X  int LeftMarg, RightMarg, TopMarg, BotMarg;
+X  int FillPage;
+X  
+X--- 109,116 ----
+X  int MaxDay;
+X  int DayNum;
+X  int WkDayNum;
+X! int FirstWkDay;
+X! int MondayFirst;
+X  int LeftMarg, RightMarg, TopMarg, BotMarg;
+X  int FillPage;
+X  
+X***************
+X*** 104,113 ****
+X  void Usage ARGS ((char *s));
+X  void DoPsCal ARGS ((void));
+X  int DoQueuedPs ARGS ((void));
+X! void DoSmallCal ARGS((char *m, int days, int first, int col));
+X  void WriteProlog ARGS ((void));
+X  void WriteCalEntry ARGS ((void));
+X  void WriteOneEntry ARGS ((char *s));
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X--- 118,128 ----
+X  void Usage ARGS ((char *s));
+X  void DoPsCal ARGS ((void));
+X  int DoQueuedPs ARGS ((void));
+X! void DoSmallCal ARGS((char *m, int days, int first, int col, int which));
+X  void WriteProlog ARGS ((void));
+X  void WriteCalEntry ARGS ((void));
+X  void WriteOneEntry ARGS ((char *s));
+X+ void GetSmallLocations ARGS ((void));
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X***************
+X*** 165,177 ****
+X     int days, wkday, prevdays, nextdays;
+X     int sfirst;
+X     int i;
+X-    int smallcol = 0; /* Stop GCC from complaining about uninit var */
+X     int is_ps;
+X     CalEntry *c, *d;
+X  
+X     printf("%%%%Page: %d %d\n", validfile, validfile);
+X  /* Read the month and year name, followed by # days in month and 1st day of
+X!    month */
+X     gets(LineBuffer);
+X     sscanf(LineBuffer, "%s %s %d %d", month, year, &days, &wkday);
+X     gets(LineBuffer);
+X--- 180,191 ----
+X     int days, wkday, prevdays, nextdays;
+X     int sfirst;
+X     int i;
+X     int is_ps;
+X     CalEntry *c, *d;
+X  
+X     printf("%%%%Page: %d %d\n", validfile, validfile);
+X  /* Read the month and year name, followed by # days in month and 1st day of
+X!    month, followed by the MondayFirst flag */
+X     gets(LineBuffer);
+X     sscanf(LineBuffer, "%s %s %d %d", month, year, &days, &wkday);
+X     gets(LineBuffer);
+X***************
+X*** 179,184 ****
+X--- 193,199 ----
+X     gets(LineBuffer);
+X     sscanf(LineBuffer, "%s %d", nextm, &nextdays);
+X     MaxDay = days;
+X+    FirstWkDay = wkday;
+X  
+X  /* Emit PostScript to do the heading */
+X     if (!PortraitMode) printf("XSIZE 0 translate 90 rotate\n");
+X***************
+X*** 197,207 ****
+X           printf("/MinBoxSize ytop MinY sub 5 div def\n");
+X     }
+X  
+X! /* If wkday >= 2, then do the small calendars at the top. */
+X!    if (wkday >=2 && !NoSmallCal) {
+X!       smallcol = 0;
+X!       printf("/ysmall ytop def\n");
+X!    }
+X  
+X  /* Do each entry */
+X  
+X--- 212,218 ----
+X           printf("/MinBoxSize ytop MinY sub 5 div def\n");
+X     }
+X  
+X!    printf("/ysmalltop ytop def\n");
+X  
+X  /* Do each entry */
+X  
+X***************
+X*** 262,278 ****
+X     }
+X  
+X  /* If wkday < 2, set ysmall.  If necessary (only for feb) increase cal size. */
+X!    if (wkday < 2 && !NoSmallCal) {
+X!       smallcol = 5;
+X!       printf("/ysmall ylast def\n");
+X!       if (days == 28 && wkday == 0) {
+X!          printf("/ysmall ymin def /ymin ysmall MinBoxSize sub def\n");
+X! 	 printf("MinX ymin MaxX ymin L\n");
+X!       }
+X!    }
+X!        
+X  
+X  /* Now draw the vertical lines */
+X     for (i=0; i<=7; i++) {
+X        printf("%d xincr mul MinX add ymin %d xincr mul MinX add topy L\n",
+X                i, i);
+X--- 273,282 ----
+X     }
+X  
+X  /* If wkday < 2, set ysmall.  If necessary (only for feb) increase cal size. */
+X!    printf("/ysmallbot ylast def\n");
+X  
+X  /* Now draw the vertical lines */
+X+    GetSmallLocations();
+X     for (i=0; i<=7; i++) {
+X        printf("%d xincr mul MinX add ymin %d xincr mul MinX add topy L\n",
+X                i, i);
+X***************
+X*** 282,291 ****
+X     if (!NoSmallCal) {
+X        sfirst = wkday - (prevdays % 7);
+X        if (sfirst < 0) sfirst += 7;
+X!       DoSmallCal(prevm, prevdays, sfirst, smallcol);
+X        sfirst = wkday + (days % 7);
+X        if (sfirst >6) sfirst -= 7;
+X!       DoSmallCal(nextm, nextdays, sfirst, smallcol+1);
+X     }
+X  /* Do it! */
+X     printf("showpage\n");
+X--- 286,295 ----
+X     if (!NoSmallCal) {
+X        sfirst = wkday - (prevdays % 7);
+X        if (sfirst < 0) sfirst += 7;
+X!       DoSmallCal(prevm, prevdays, sfirst, SmallCol1, 1);
+X        sfirst = wkday + (days % 7);
+X        if (sfirst >6) sfirst -= 7;
+X!       DoSmallCal(nextm, nextdays, sfirst, SmallCol2, 2);
+X     }
+X  /* Do it! */
+X     printf("showpage\n");
+X***************
+X*** 322,332 ****
+X  /* Write the document structuring stuff */
+X     printf("%%!PS-Adobe-\n");
+X     printf("%%%%DocumentFonts: %s", HeadFont);
+X!    if (strcmp(HeadFont, DayFont)) printf(" %s", DayFont);
+X     if (strcmp(EntryFont, HeadFont) &&
+X         strcmp(EntryFont, DayFont)) printf(" %s", EntryFont);
+X     if (!NoSmallCal && strcmp(SmallFont, HeadFont) &&
+END_OF_FILE
+  if test 52176 -ne `wc -c <'patch.09.C'`; then
+    echo shar: \"'patch.09.C'\" unpacked with wrong size!
+  elif test -f 'patch.09.A' && test -f 'patch.09.B' && test -f 'patch.09.D'
+  then    
+    echo shar: Combining  \"'patch.09'\" \(145785 characters\) 
+    cat 'patch.09.A' 'patch.09.B' 'patch.09.C' 'patch.09.D' > 'patch.09' 
+    if test 145785 -ne `wc -c <'patch.09'`; then 
+      echo shar: \"'patch.09'\" combined with wrong size! 
+    else 
+      rm patch.09.A patch.09.B patch.09.C patch.09.D 
+    fi 
+  fi
+  # end of 'patch.09.C'
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

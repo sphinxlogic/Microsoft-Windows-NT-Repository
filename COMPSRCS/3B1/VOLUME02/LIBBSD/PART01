@@ -1,0 +1,2112 @@
+Path: comp-sources-3b1
+From: dave@galaxia.newport.ri.us (David H. Brierley)
+Subject:  v02i004:  BSD Compatibility Library for ATT 3B1, Part01/02
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.newport.ri.us
+X-Checksum-Snefru: 0d0d3658 781cc586 3f88da6e a1f2bf49
+
+Submitted-by: dave@galaxia.newport.ri.us (David H. Brierley)
+Posting-number: Volume 2, Issue 4
+Archive-name: libbsd/part01
+
+This is a collection of library routines that have been found to be useful
+when porting software to the ATT 3B1.  It is probably at least partially
+useful on other machines as well.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  MANIFEST Makefile README README.getdate alloca.s cobj-gen
+#   defs.h dup2.c ffs.c fsync.c ftruncate.c getdtblsize.c gethostent.c
+#   gethostname.c gettimeofday.c index.c inet_addr.c inet_lnaof.c
+#   inet_mkaddr.c inet_netof.c inet_network.c inet_ntoa.c mktemp.c
+#   nap.c rename.c rindex.c rmdir.c setenv.c setlinebuf.c sigsetmask.c
+#   sigvec.c sigvec.h statfs.c strcasecmp.c strdup.c strerror.c
+#   writev.c
+# Wrapped by dave@galaxia on Sat Jun 13 15:23:35 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(1398 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	
+X Makefile                   1	
+X README                     1	
+X README.getdate             1	
+X alloca.s                   1	
+X cobj-gen                   1	
+X defs.h                     1	
+X dup2.c                     1	
+X ffs.c                      1	
+X fsync.c                    1	
+X ftruncate.c                1	
+X getdate.y                  2	
+X getdtblsize.c              1	
+X gethostent.c               1	
+X gethostname.c              1	
+X gettimeofday.c             1	
+X index.c                    1	
+X inet_addr.c                1	
+X inet_lnaof.c               1	
+X inet_mkaddr.c              1	
+X inet_netof.c               1	
+X inet_network.c             1	
+X inet_ntoa.c                1	
+X mkdir.c                    2	
+X mktemp.c                   1	
+X nap.c                      1	
+X random.c                   2	
+X rename.c                   1	
+X rindex.c                   1	
+X rmdir.c                    1	
+X setenv.c                   1	
+X setlinebuf.c               1	
+X sigsetmask.c               1	
+X sigvec.c                   1	
+X sigvec.h                   1	
+X statfs.c                   1	
+X strcasecmp.c               1	
+X strdup.c                   1	
+X strerror.c                 1	
+X strftime.3                 2	
+X strftime.c                 2	
+X writev.c                   1	
+END_OF_FILE
+if test 1398 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(835 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XAOBJS = alloca.o
+X# regenerate COBJS line by running cobj-gen
+XCOBJS =	dup2.o ffs.o fsync.o ftruncate.o getdate.o getdtblsize.o gethostent.o\
+X	gethostname.o gettimeofday.o index.o inet_addr.o inet_lnaof.o\
+X	inet_mkaddr.o inet_netof.o inet_network.o inet_ntoa.o mkdir.o mktemp.o\
+X	nap.o random.o rename.o rindex.o rmdir.o setenv.o setlinebuf.o\
+X	sigsetmask.o sigvec.o statfs.o strcasecmp.o strdup.o strerror.o\
+X	strftime.o writev.o
+X
+XCFLAGS = -O -DUSG -DSYSV -DUNIXPC
+X
+Xlibbsd.a:	$(COBJS) $(AOBJS)
+X	rm -f libbsd.a
+X	ar cr libbsd.a `lorder $(COBJS) $(AOBJS) | tsort`
+X
+X# syslog.o needs special options - make sure SYSLOG_KEY is the same as
+X# the value used when compiling syslogd
+Xsyslog.o:	syslog.c
+X	$(CC) $(CFLAGS) -DSYSV_IPC -DSYSLOG_KEY=42 -c syslog.c
+X
+Xinstall:	/usr/lib/libbsd.a
+X
+X/usr/lib/libbsd.a: libbsd.a
+X	mv libbsd.a /usr/lib/libbsd.a
+END_OF_FILE
+if test 835 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(1023 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis directory contains library functions that have been found to be useful
+Xin porting programs to the AT&T Unix-pc/7300/3B1.  Most of them provide
+Xfunctions that are commonly found in BSD systems, a few of them provide
+Xfunctions normally found in more recent SysV release, and a few are just
+Xplain handy routines to have around.
+X
+XSome of the routines were copied directly from the free BSD sources, some
+Xwere collected from the net, and some were written by me.  If there is no
+Xattribution at the top of a particular source file, there is a strong
+Xprobability that I wrote it but that is not an absolute certainty.  As far
+Xas I know, all of these routines are public domain.  Some of them explicitly
+Xstate that in the comments, others have neither a copyright, a disclaimer,
+Xor even an author.
+X
+XMost of the routines do not have any documentation supplied with them
+Xbecause it is assumed that you are familiar with the BSD/SysV routine that
+Xthese routines are intended to replace.
+X
+XDave Brierley
+Xdave@galaxia.newport.ri.us
+END_OF_FILE
+if test 1023 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'README.getdate' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README.getdate'\"
+else
+echo shar: Extracting \"'README.getdate'\" \(2104 characters\)
+sed "s/^X//" >'README.getdate' <<'END_OF_FILE'
+X
+XWe've been using Steve Bellovin's getdate() routine in the Cronus project
+Xfor over a year.  This past summer Jim Berets and I cleaned up all the
+Xtimezones, cleaned up some int/long problems that others have found,
+Xreformatted the code and cleaned it up, and contacted Steve about what
+Xshould else needs to be done with it.
+X
+XUnfortunately, we didn't have the time to do anything much with Steve's
+Xcomments, other then document them in the code, and here (thanks to Steve
+Xfor letting me quote some email):
+X    Two things need to be done.  First, the purpose of getdate should be
+X    defined; many of its features were for a rather different purpose that
+X    it's used for today.  Specifically, I was implementing 'at' before
+X    there was such a thing, and I wanted the ability to specify relative
+X    intervals.  Thus, getdate accepts things like 'two weeks'.  I don't
+X    think that code is tremendously useful.  If it is, it could be
+X    strengthened by writing a better grammar, i.e., ``two weeks after
+X    monday'' -- currently, the word ``after'' isn't accept, and the
+X    relationship between the day of the week and the interval is
+X    peculiar.  And that in turn goes back to the central implementation
+X    failure:  it is restricted to a simple 'int' stack, because that's all
+X    that v6 yacc allowed.  There's also a lot of reliance on global
+X    variables, for the same reason.  Using a union as the stack type, one
+X    could store much better information, clean up the code, and make the
+X    semantics much clearer.  (As a trivial change, I suspect that the
+X    military time zones are wrong, as I took them from RFC822 (or maybe
+X    even 733), and I've since learned that those are incorrect.  I'd drop
+X    that entirely.) It might also be worth some effort to make the time
+X    zone stuff more compatible with the 4.3tahoe and the SysVR3.2 stuff,
+X    especially as regards the names of the zones.
+X
+X    It was also intended to let utter novices set the date on a UNIX
+X    machine after rebooting it and thus it accepted almost any rational
+X    form.
+X
+XHope you find this useful.
+X	/rich $alz
+END_OF_FILE
+if test 2104 -ne `wc -c <'README.getdate'`; then
+    echo shar: \"'README.getdate'\" unpacked with wrong size!
+fi
+# end of 'README.getdate'
+fi
+if test -f 'alloca.s' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alloca.s'\"
+else
+echo shar: Extracting \"'alloca.s'\" \(573 characters\)
+sed "s/^X//" >'alloca.s' <<'END_OF_FILE'
+X# This is optimized for the Unix PC, it won't work on some other 68k systems.
+X# The "and.l &-4" could be changed to "and.l &-2" if you're only running the
+X# code on the Unix PC.  I use this same code when cross-compiling to a 68020
+X# system, thus the longword alignment.
+X
+X	global	alloca
+Xalloca:
+X	mov.l	(%sp)+,%a0	# pop return addr
+X	mov.l	(%sp),%d0	# get size argument
+X	and.l	&-4,%d0		# round size down to long word
+X	sub.l	%d0,%sp		# allocate by moving stack pointer
+X	mov.l	%sp,%d0		# return pointer in d0
+X	lea	-4(%sp),%sp	# allow caller to pop the arg
+X	jmp	(%a0)		# return
+END_OF_FILE
+if test 573 -ne `wc -c <'alloca.s'`; then
+    echo shar: \"'alloca.s'\" unpacked with wrong size!
+fi
+# end of 'alloca.s'
+fi
+if test -f 'cobj-gen' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cobj-gen'\"
+else
+echo shar: Extracting \"'cobj-gen'\" \(313 characters\)
+sed "s/^X//" >'cobj-gen' <<'END_OF_FILE'
+X: 'sh or ksh'
+Xls *.[cly] | sed -e 's/\..$/.o/' |sort -u | awk '
+X	BEGIN { printf "COBJS ="; len = 0; space = "\t" }
+X	{
+X	    if (len + length($0) > 70) {
+X		printf "\\\n"
+X		len = 0
+X		space = "\t"
+X	    }
+X	    printf "%s%s", space, $0
+X	    space = " "
+X	    len += (length($0) + 1)
+X	}
+X	END { if(len > 0) printf "\n" }'
+END_OF_FILE
+if test 313 -ne `wc -c <'cobj-gen'`; then
+    echo shar: \"'cobj-gen'\" unpacked with wrong size!
+fi
+chmod +x 'cobj-gen'
+# end of 'cobj-gen'
+fi
+if test -f 'defs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'defs.h'\"
+else
+echo shar: Extracting \"'defs.h'\" \(0 characters\)
+sed "s/^X//" >'defs.h' <<'END_OF_FILE'
+END_OF_FILE
+if test 0 -ne `wc -c <'defs.h'`; then
+    echo shar: \"'defs.h'\" unpacked with wrong size!
+fi
+# end of 'defs.h'
+fi
+if test -f 'dup2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dup2.c'\"
+else
+echo shar: Extracting \"'dup2.c'\" \(526 characters\)
+sed "s/^X//" >'dup2.c' <<'END_OF_FILE'
+X/******************************************************************************
+Xdup2() under System V unixes:
+X
+X++Brandon
+X-- 
+XBrandon S. Allbery, moderator of comp.sources.misc	     allbery@NCoast.ORG
+Xuunet!hal.cwru.edu!ncoast!allbery		    ncoast!allbery@hal.cwru.edu
+X*******************************************************************************/
+X
+X
+X#include <fcntl.h>
+X
+Xdup2(fd1, fd2)
+X	int fd1, fd2;
+X{
+X	/* sanity check  -- added by dhb */
+X	if (fd1 == fd2) return (fd1);
+X	(void) close(fd2);
+X	return fcntl(fd1, F_DUPFD, fd2);
+X}
+END_OF_FILE
+if test 526 -ne `wc -c <'dup2.c'`; then
+    echo shar: \"'dup2.c'\" unpacked with wrong size!
+fi
+# end of 'dup2.c'
+fi
+if test -f 'ffs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ffs.c'\"
+else
+echo shar: Extracting \"'ffs.c'\" \(1143 characters\)
+sed "s/^X//" >'ffs.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)ffs.c	5.2 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X/*
+X * ffs -- vax ffs instruction
+X */
+Xffs(mask)
+X	register long mask;
+X{
+X	register int cnt;
+X
+X	if (mask == 0)
+X		return(0);
+X	for (cnt = 1; !(mask & 1); cnt++)
+X		mask >>= 1;
+X	return(cnt);
+X}
+END_OF_FILE
+if test 1143 -ne `wc -c <'ffs.c'`; then
+    echo shar: \"'ffs.c'\" unpacked with wrong size!
+fi
+# end of 'ffs.c'
+fi
+if test -f 'fsync.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fsync.c'\"
+else
+echo shar: Extracting \"'fsync.c'\" \(79 characters\)
+sed "s/^X//" >'fsync.c' <<'END_OF_FILE'
+X/* Too lazy to check if there is a sysv equiv to this */
+X
+Xfsync(){ return 0; }
+END_OF_FILE
+if test 79 -ne `wc -c <'fsync.c'`; then
+    echo shar: \"'fsync.c'\" unpacked with wrong size!
+fi
+# end of 'fsync.c'
+fi
+if test -f 'ftruncate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftruncate.c'\"
+else
+echo shar: Extracting \"'ftruncate.c'\" \(1344 characters\)
+sed "s/^X//" >'ftruncate.c' <<'END_OF_FILE'
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <unistd.h>
+X
+Xint
+Xftruncate(fd, length)
+Xint     fd;     /* file descriptor */
+Xoff_t   length; /* length to set file to */
+X{
+X#ifdef	F_FREESP
+X        extern  long    lseek();
+X
+X        struct  flock   fl;
+X        struct  stat    filebuf;
+X
+X        if (fstat(fd, &filebuf) < 0)
+X                return(-1);
+X
+X        if (filebuf.st_size < length) {
+X                /* extend file length */
+X
+X                if ((lseek(fd, (length - 1), SEEK_SET)) < 0)
+X                        return(-1);
+X
+X                /* write a "0" byte */
+X
+X                if ((write(fd, "", 1)) != 1)
+X                        return(-1);
+X        } else {
+X                /* truncate length */
+X
+X                fl.l_whence = 0;
+X                fl.l_len = 0;
+X                fl.l_start = length;
+X                fl.l_type = F_WRLCK;    /* write lock on file space */
+X
+X                /*
+X                 * This relies on the UNDOCUMENTED F_FREESP argument to
+X                 * fcntl(2), which truncates the file so that it ends at the
+X                 * position indicated by fl.l_start.
+X                 *
+X                 * Will minor miracles never cease?
+X                 */
+X
+X		if (fcntl(fd, F_FREESP, &fl) < 0)
+X			return(-1);
+X
+X        }
+X        return(0);
+X#else
+X	return(-1);
+X#endif
+X
+X}
+END_OF_FILE
+if test 1344 -ne `wc -c <'ftruncate.c'`; then
+    echo shar: \"'ftruncate.c'\" unpacked with wrong size!
+fi
+# end of 'ftruncate.c'
+fi
+if test -f 'getdtblsize.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getdtblsize.c'\"
+else
+echo shar: Extracting \"'getdtblsize.c'\" \(56 characters\)
+sed "s/^X//" >'getdtblsize.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+Xgetdtablesize()
+X{
+X	return _NFILE;
+X}
+END_OF_FILE
+if test 56 -ne `wc -c <'getdtblsize.c'`; then
+    echo shar: \"'getdtblsize.c'\" unpacked with wrong size!
+fi
+# end of 'getdtblsize.c'
+fi
+if test -f 'gethostent.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gethostent.c'\"
+else
+echo shar: Extracting \"'gethostent.c'\" \(3269 characters\)
+sed "s/^X//" >'gethostent.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1985, 1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that this notice is preserved and that due credit is given
+X * to the University of California at Berkeley. The name of the University
+X * may not be used to endorse or promote products derived from this
+X * software without specific prior written permission. This software
+X * is provided ``as is'' without express or implied warranty.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)gethostnamadr.c	6.32 (Berkeley) 4/12/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <ctype.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X
+X#ifdef	USG
+X#define	bcmp	memcmp
+X#endif
+X
+X#define	MAXALIASES	35
+X#define	MAXADDRS	35
+X
+Xstatic char *h_addr_ptrs[MAXADDRS + 1];
+X
+Xstatic struct hostent host;
+Xstatic char *host_aliases[MAXALIASES];
+Xstatic char hostbuf[BUFSIZ+1];
+Xstatic char HOSTDB[] = "/etc/hosts";
+Xstatic FILE *hostf = NULL;
+Xstatic char hostaddr[MAXADDRS];
+Xstatic char *host_addrs[2];
+Xstatic int stayopen = 0;
+Xstatic char *any();
+X
+Xsethostent(f)
+X	int f;
+X{
+X	if (hostf == NULL)
+X		hostf = fopen(HOSTDB, "r" );
+X	else
+X		rewind(hostf);
+X	stayopen |= f;
+X}
+X
+Xendhostent()
+X{
+X	if (hostf && !stayopen) {
+X		(void) fclose(hostf);
+X		hostf = NULL;
+X	}
+X}
+X
+Xstruct hostent *
+Xgethostent()
+X{
+X	char *p;
+X	register char *cp, **q;
+X
+X	if (hostf == NULL && (hostf = fopen(HOSTDB, "r" )) == NULL)
+X		return (NULL);
+Xagain:
+X	if ((p = fgets(hostbuf, BUFSIZ, hostf)) == NULL)
+X		return (NULL);
+X	if (*p == '#')
+X		goto again;
+X	cp = any(p, "#\n");
+X	if (cp == NULL)
+X		goto again;
+X	*cp = '\0';
+X	cp = any(p, " \t");
+X	if (cp == NULL)
+X		goto again;
+X	*cp++ = '\0';
+X	/* THIS STUFF IS INTERNET SPECIFIC */
+X#if BSD >= 43 || defined(h_addr)	/* new-style hostent structure */
+X	host.h_addr_list = host_addrs;
+X#endif
+X	host.h_addr = hostaddr;
+X	*((u_long *)host.h_addr) = inet_addr(p);
+X	host.h_length = sizeof (u_long);
+X#ifdef	AF_INET
+X	host.h_addrtype = AF_INET;
+X#else
+X	host.h_addrtype = 0;
+X#endif
+X	while (*cp == ' ' || *cp == '\t')
+X		cp++;
+X	host.h_name = cp;
+X	q = host.h_aliases = host_aliases;
+X	cp = any(cp, " \t");
+X	if (cp != NULL) 
+X		*cp++ = '\0';
+X	while (cp && *cp) {
+X		if (*cp == ' ' || *cp == '\t') {
+X			cp++;
+X			continue;
+X		}
+X		if (q < &host_aliases[MAXALIASES - 1])
+X			*q++ = cp;
+X		cp = any(cp, " \t");
+X		if (cp != NULL)
+X			*cp++ = '\0';
+X	}
+X	*q = NULL;
+X	return (&host);
+X}
+X
+Xstatic char *
+Xany(cp, match)
+X	register char *cp;
+X	char *match;
+X{
+X	register char *mp, c;
+X
+X	while (c = *cp) {
+X		for (mp = match; *mp; mp++)
+X			if (*mp == c)
+X				return (cp);
+X		cp++;
+X	}
+X	return ((char *)0);
+X}
+X
+Xstruct hostent *
+Xgethostbyname(name)
+X	char *name;
+X{
+X	register struct hostent *p;
+X	register char **cp;
+X	
+X	sethostent(0);
+X	while (p = gethostent()) {
+X		if (strcasecmp(p->h_name, name) == 0)
+X			break;
+X		for (cp = p->h_aliases; *cp != 0; cp++)
+X			if (strcasecmp(*cp, name) == 0)
+X				goto found;
+X	}
+Xfound:
+X	endhostent();
+X	return (p);
+X}
+X
+Xstruct hostent *
+Xgethostbyaddr(addr, len, type)
+X	char *addr;
+X	int len, type;
+X{
+X	register struct hostent *p;
+X
+X	sethostent(0);
+X	while (p = gethostent())
+X		if (p->h_addrtype == type && !bcmp(p->h_addr, addr, len))
+X			break;
+X	endhostent();
+X	return (p);
+X}
+END_OF_FILE
+if test 3269 -ne `wc -c <'gethostent.c'`; then
+    echo shar: \"'gethostent.c'\" unpacked with wrong size!
+fi
+# end of 'gethostent.c'
+fi
+if test -f 'gethostname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gethostname.c'\"
+else
+echo shar: Extracting \"'gethostname.c'\" \(264 characters\)
+sed "s/^X//" >'gethostname.c' <<'END_OF_FILE'
+X#include <sys/utsname.h>
+X
+Xstatic struct utsname name;
+X
+Xgethostname (hostname, maxlen)
+Xchar           *hostname;
+Xint             maxlen;
+X{
+X
+X    if (uname (&name) == -1) {
+X	return (-1);
+X    }
+X
+X    (void) strncpy (hostname, name.nodename, maxlen);
+X    return (0);
+X
+X}
+END_OF_FILE
+if test 264 -ne `wc -c <'gethostname.c'`; then
+    echo shar: \"'gethostname.c'\" unpacked with wrong size!
+fi
+# end of 'gethostname.c'
+fi
+if test -f 'gettimeofday.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gettimeofday.c'\"
+else
+echo shar: Extracting \"'gettimeofday.c'\" \(761 characters\)
+sed "s/^X//" >'gettimeofday.c' <<'END_OF_FILE'
+X/*
+X *	SystemV simulation of bsd's gettimeofday(2).
+X *
+X *	Thad Floryan, 24-June-1990.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/times.h>
+X#include <sys/time.h>
+X
+Xgettimeofday( tp, tz )
+X    struct timeval *tp;	/* long tv_sec  secs since 1-jan-1970	*/
+X			/* long tv_usec microseconds fraction	*/
+X    struct timezone *tz;/* int tz_minuteswest of GMT		*/
+X			/* int tz_dsttime = DST_* if apply DST	*/
+X{
+X    extern long time(), times();
+X    extern long timezone;
+X    struct tms dummy;
+X
+X    tp->tv_sec = time((long *) 0);
+X    tp->tv_usec = (times(&dummy) % 60L) * 16666L; /* 1/60 = .016666 S */
+X    if (tz != (struct timezone *)0) {
+X	tz->tz_minuteswest = (int) (timezone / 60L);  /* convert sec to min */
+X	tz->tz_dsttime = DST_USA;		/* assume USA DST handling */
+X    }
+X}
+END_OF_FILE
+if test 761 -ne `wc -c <'gettimeofday.c'`; then
+    echo shar: \"'gettimeofday.c'\" unpacked with wrong size!
+fi
+# end of 'gettimeofday.c'
+fi
+if test -f 'index.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'index.c'\"
+else
+echo shar: Extracting \"'index.c'\" \(1131 characters\)
+sed "s/^X//" >'index.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)index.c	5.4 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <stdio.h>
+X
+Xchar *
+Xindex(p, ch)
+X	register char *p, ch;
+X{
+X	for (;; ++p) {
+X		if (*p == ch)
+X			return(p);
+X		if (!*p)
+X			return((char *)NULL);
+X	}
+X	/* NOTREACHED */
+X}
+END_OF_FILE
+if test 1131 -ne `wc -c <'index.c'`; then
+    echo shar: \"'index.c'\" unpacked with wrong size!
+fi
+# end of 'index.c'
+fi
+if test -f 'inet_addr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_addr.c'\"
+else
+echo shar: Extracting \"'inet_addr.c'\" \(2819 characters\)
+sed "s/^X//" >'inet_addr.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_addr.c	5.6 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X#include <ctype.h>
+X#include <netinet/in.h>
+X
+X/*
+X * Internet address interpretation routine.
+X * All the network library routines call this
+X * routine to interpret entries in the data bases
+X * which are expected to be an address.
+X * The value returned is in network order.
+X */
+Xu_long
+Xinet_addr(cp)
+X	register char *cp;
+X{
+X	register u_long val, base, n;
+X	register char c;
+X	u_long parts[4], *pp = parts;
+X
+Xagain:
+X	/*
+X	 * Collect number up to ``.''.
+X	 * Values are specified as for C:
+X	 * 0x=hex, 0=octal, other=decimal.
+X	 */
+X	val = 0; base = 10;
+X	if (*cp == '0') {
+X		if (*++cp == 'x' || *cp == 'X')
+X			base = 16, cp++;
+X		else
+X			base = 8;
+X	}
+X	while (c = *cp) {
+X		if (isdigit(c)) {
+X			val = (val * base) + (c - '0');
+X			cp++;
+X			continue;
+X		}
+X		if (base == 16 && isxdigit(c)) {
+X			val = (val << 4) + (c + 10 - (islower(c) ? 'a' : 'A'));
+X			cp++;
+X			continue;
+X		}
+X		break;
+X	}
+X	if (*cp == '.') {
+X		/*
+X		 * Internet format:
+X		 *	a.b.c.d
+X		 *	a.b.c	(with c treated as 16-bits)
+X		 *	a.b	(with b treated as 24 bits)
+X		 */
+X		if (pp >= parts + 4)
+X			return (INADDR_NONE);
+X		*pp++ = val, cp++;
+X		goto again;
+X	}
+X	/*
+X	 * Check for trailing characters.
+X	 */
+X	if (*cp && !isspace(*cp))
+X		return (INADDR_NONE);
+X	*pp++ = val;
+X	/*
+X	 * Concoct the address according to
+X	 * the number of parts specified.
+X	 */
+X	n = pp - parts;
+X	switch (n) {
+X
+X	case 1:				/* a -- 32 bits */
+X		val = parts[0];
+X		break;
+X
+X	case 2:				/* a.b -- 8.24 bits */
+X		val = (parts[0] << 24) | (parts[1] & 0xffffff);
+X		break;
+X
+X	case 3:				/* a.b.c -- 8.8.16 bits */
+X		val = (parts[0] << 24) | ((parts[1] & 0xff) << 16) |
+X			(parts[2] & 0xffff);
+X		break;
+X
+X	case 4:				/* a.b.c.d -- 8.8.8.8 bits */
+X		val = (parts[0] << 24) | ((parts[1] & 0xff) << 16) |
+X		      ((parts[2] & 0xff) << 8) | (parts[3] & 0xff);
+X		break;
+X
+X	default:
+X		return (INADDR_NONE);
+X	}
+X	val = htonl(val);
+X	return (val);
+X}
+END_OF_FILE
+if test 2819 -ne `wc -c <'inet_addr.c'`; then
+    echo shar: \"'inet_addr.c'\" unpacked with wrong size!
+fi
+# end of 'inet_addr.c'
+fi
+if test -f 'inet_lnaof.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_lnaof.c'\"
+else
+echo shar: Extracting \"'inet_lnaof.c'\" \(725 characters\)
+sed "s/^X//" >'inet_lnaof.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.  The Berkeley software License Agreement
+X * specifies the terms and conditions for redistribution.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_lnaof.c	5.2 (Berkeley) 3/9/86";
+X#endif LIBC_SCCS and not lint
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X
+X/*
+X * Return the local network address portion of an
+X * internet address; handles class a/b/c network
+X * number formats.
+X */
+Xinet_lnaof(in)
+X	struct in_addr in;
+X{
+X	register u_long i = ntohl(in.s_addr);
+X
+X	if (IN_CLASSA(i))
+X		return ((i)&IN_CLASSA_HOST);
+X	else if (IN_CLASSB(i))
+X		return ((i)&IN_CLASSB_HOST);
+X	else
+X		return ((i)&IN_CLASSC_HOST);
+X}
+END_OF_FILE
+if test 725 -ne `wc -c <'inet_lnaof.c'`; then
+    echo shar: \"'inet_lnaof.c'\" unpacked with wrong size!
+fi
+# end of 'inet_lnaof.c'
+fi
+if test -f 'inet_mkaddr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_mkaddr.c'\"
+else
+echo shar: Extracting \"'inet_mkaddr.c'\" \(869 characters\)
+sed "s/^X//" >'inet_mkaddr.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.  The Berkeley software License Agreement
+X * specifies the terms and conditions for redistribution.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_makeaddr.c	5.1 (Berkeley) 3/11/86";
+X#endif LIBC_SCCS and not lint
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X
+X/*
+X * Formulate an Internet address from network + host.  Used in
+X * building addresses stored in the ifnet structure.
+X */
+Xstruct in_addr
+Xinet_makeaddr(net, host)
+X	int net, host;
+X{
+X	u_long addr;
+X
+X	if (net < 128)
+X		addr = (net << IN_CLASSA_NSHIFT) | (host & IN_CLASSA_HOST);
+X	else if (net < 65536)
+X		addr = (net << IN_CLASSB_NSHIFT) | (host & IN_CLASSB_HOST);
+X	else
+X		addr = (net << IN_CLASSC_NSHIFT) | (host & IN_CLASSC_HOST);
+X	addr = htonl(addr);
+X	return (*(struct in_addr *)&addr);
+X}
+END_OF_FILE
+if test 869 -ne `wc -c <'inet_mkaddr.c'`; then
+    echo shar: \"'inet_mkaddr.c'\" unpacked with wrong size!
+fi
+# end of 'inet_mkaddr.c'
+fi
+if test -f 'inet_netof.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_netof.c'\"
+else
+echo shar: Extracting \"'inet_netof.c'\" \(761 characters\)
+sed "s/^X//" >'inet_netof.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.  The Berkeley software License Agreement
+X * specifies the terms and conditions for redistribution.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_netof.c	5.2 (Berkeley) 3/9/86";
+X#endif LIBC_SCCS and not lint
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X
+X/*
+X * Return the network number from an internet
+X * address; handles class a/b/c network #'s.
+X */
+Xinet_netof(in)
+X	struct in_addr in;
+X{
+X	register u_long i = ntohl(in.s_addr);
+X
+X	if (IN_CLASSA(i))
+X		return (((i)&IN_CLASSA_NET) >> IN_CLASSA_NSHIFT);
+X	else if (IN_CLASSB(i))
+X		return (((i)&IN_CLASSB_NET) >> IN_CLASSB_NSHIFT);
+X	else
+X		return (((i)&IN_CLASSC_NET) >> IN_CLASSC_NSHIFT);
+X}
+END_OF_FILE
+if test 761 -ne `wc -c <'inet_netof.c'`; then
+    echo shar: \"'inet_netof.c'\" unpacked with wrong size!
+fi
+# end of 'inet_netof.c'
+fi
+if test -f 'inet_network.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_network.c'\"
+else
+echo shar: Extracting \"'inet_network.c'\" \(1976 characters\)
+sed "s/^X//" >'inet_network.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_network.c	5.5 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <ctype.h>
+X
+X/*
+X * Internet network address interpretation routine.
+X * The library routines call this routine to interpret
+X * network numbers.
+X */
+Xu_long
+Xinet_network(cp)
+X	register char *cp;
+X{
+X	register u_long val, base, n;
+X	register char c;
+X	u_long parts[4], *pp = parts;
+X	register int i;
+X
+Xagain:
+X	val = 0; base = 10;
+X	if (*cp == '0')
+X		base = 8, cp++;
+X	if (*cp == 'x' || *cp == 'X')
+X		base = 16, cp++;
+X	while (c = *cp) {
+X		if (isdigit(c)) {
+X			val = (val * base) + (c - '0');
+X			cp++;
+X			continue;
+X		}
+X		if (base == 16 && isxdigit(c)) {
+X			val = (val << 4) + (c + 10 - (islower(c) ? 'a' : 'A'));
+X			cp++;
+X			continue;
+X		}
+X		break;
+X	}
+X	if (*cp == '.') {
+X		if (pp >= parts + 4)
+X			return (INADDR_NONE);
+X		*pp++ = val, cp++;
+X		goto again;
+X	}
+X	if (*cp && !isspace(*cp))
+X		return (INADDR_NONE);
+X	*pp++ = val;
+X	n = pp - parts;
+X	if (n > 4)
+X		return (INADDR_NONE);
+X	for (val = 0, i = 0; i < n; i++) {
+X		val <<= 8;
+X		val |= parts[i] & 0xff;
+X	}
+X	return (val);
+X}
+END_OF_FILE
+if test 1976 -ne `wc -c <'inet_network.c'`; then
+    echo shar: \"'inet_network.c'\" unpacked with wrong size!
+fi
+# end of 'inet_network.c'
+fi
+if test -f 'inet_ntoa.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inet_ntoa.c'\"
+else
+echo shar: Extracting \"'inet_ntoa.c'\" \(681 characters\)
+sed "s/^X//" >'inet_ntoa.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.  The Berkeley software License Agreement
+X * specifies the terms and conditions for redistribution.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)inet_ntoa.c	5.2 (Berkeley) 3/9/86";
+X#endif LIBC_SCCS and not lint
+X
+X/*
+X * Convert network-format internet address
+X * to base 256 d.d.d.d representation.
+X */
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X
+Xchar *
+Xinet_ntoa(in)
+X	struct in_addr in;
+X{
+X	static char b[18];
+X	register char *p;
+X
+X	p = (char *)&in;
+X#define	UC(b)	(((int)b)&0xff)
+X	sprintf(b, "%d.%d.%d.%d", UC(p[0]), UC(p[1]), UC(p[2]), UC(p[3]));
+X	return (b);
+X}
+END_OF_FILE
+if test 681 -ne `wc -c <'inet_ntoa.c'`; then
+    echo shar: \"'inet_ntoa.c'\" unpacked with wrong size!
+fi
+# end of 'inet_ntoa.c'
+fi
+if test -f 'mktemp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mktemp.c'\"
+else
+echo shar: Extracting \"'mktemp.c'\" \(2486 characters\)
+sed "s/^X//" >'mktemp.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)mktemp.c	5.7 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef	SYSV
+X#include <fcntl.h>
+X#endif
+X
+X#define	YES	1
+X#define	NO	0
+X
+Xmkstemp(as)
+X	char	*as;
+X{
+X	int	fd;
+X
+X	return (_gettemp(as, &fd) ? fd : -1);
+X}
+X
+Xchar *
+Xmktemp(as)
+X	char	*as;
+X{
+X	return(_gettemp(as, (int *)NULL) ? as : (char *)NULL);
+X}
+X
+Xstatic
+X_gettemp(as, doopen)
+X	char	*as;
+X	register int	*doopen;
+X{
+X	extern int	errno;
+X	register char	*start, *trv;
+X	struct stat	sbuf;
+X	u_int	pid;
+X
+X	pid = getpid();
+X
+X	/* extra X's get set to 0's */
+X	for (trv = as; *trv; ++trv);
+X	while (*--trv == 'X') {
+X		*trv = (pid % 10) + '0';
+X		pid /= 10;
+X	}
+X
+X	/*
+X	 * check for write permission on target directory; if you have
+X	 * six X's and you can't write the directory, this will run for
+X	 * a *very* long time.
+X	 */
+X	for (start = ++trv; trv > as && *trv != '/'; --trv);
+X	if (*trv == '/') {
+X		*trv = '\0';
+X		if (stat(as, &sbuf) || !(sbuf.st_mode & S_IFDIR))
+X			return(NO);
+X		*trv = '/';
+X	}
+X	else if (stat(".", &sbuf) == -1)
+X		return(NO);
+X
+X	for (;;) {
+X		if (doopen) {
+X		    if ((*doopen = open(as, O_CREAT|O_EXCL|O_RDWR, 0600)) >= 0)
+X			return(YES);
+X		    if (errno != EEXIST)
+X			return(NO);
+X		}
+X		else if (stat(as, &sbuf))
+X			return(errno == ENOENT ? YES : NO);
+X
+X		/* tricky little algorithm for backward compatibility */
+X		for (trv = start;;) {
+X			if (!*trv)
+X				return(NO);
+X			if (*trv == 'z')
+X				*trv++ = 'a';
+X			else {
+X				if (isdigit(*trv))
+X					*trv = 'a';
+X				else
+X					++*trv;
+X				break;
+X			}
+X		}
+X	}
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+if test 2486 -ne `wc -c <'mktemp.c'`; then
+    echo shar: \"'mktemp.c'\" unpacked with wrong size!
+fi
+# end of 'mktemp.c'
+fi
+if test -f 'nap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nap.c'\"
+else
+echo shar: Extracting \"'nap.c'\" \(457 characters\)
+sed "s/^X//" >'nap.c' <<'END_OF_FILE'
+X/*
+X * nap - suspend execution for a short period
+X *
+X * Similar in function to sleep() except the argument is
+X * specified in milliseconds.
+X */
+X
+Xnap (milli)
+Xunsigned int    milli;
+X{
+X    static int      fd = 0;
+X    unsigned int    ticks;
+X
+X    if (fd == 0) {
+X	fd = open ("/dev/nap", 0);
+X    }
+X
+X    if (fd == -1) {
+X	ticks = (milli * 0.001) + 1;
+X	(void) sleep (ticks);
+X    }
+X    else {
+X	ticks = (milli * 0.06) + 1;
+X	(void) read (fd, (char *) 0, ticks);
+X    }
+X
+X}
+END_OF_FILE
+if test 457 -ne `wc -c <'nap.c'`; then
+    echo shar: \"'nap.c'\" unpacked with wrong size!
+fi
+# end of 'nap.c'
+fi
+if test -f 'rename.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rename.c'\"
+else
+echo shar: Extracting \"'rename.c'\" \(377 characters\)
+sed "s/^X//" >'rename.c' <<'END_OF_FILE'
+X/* rename.c -- file renaming routine for systems without rename(2)
+X *
+X * Written by reading the System V Interface Definition, not the code.
+X *
+X * Totally public domain.
+X *
+X */
+X/* LINTLIBRARY */
+X
+Xint rename(from,to)
+Xregister char *from, *to;
+X{
+X    (void) unlink(to);
+X    if (link(from, to) < 0)
+X	return(-1);
+X
+X    (void) unlink(from);
+X    return(0);
+X}
+X
+X/* rename.c ends here */
+END_OF_FILE
+if test 377 -ne `wc -c <'rename.c'`; then
+    echo shar: \"'rename.c'\" unpacked with wrong size!
+fi
+# end of 'rename.c'
+fi
+if test -f 'rindex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rindex.c'\"
+else
+echo shar: Extracting \"'rindex.c'\" \(1158 characters\)
+sed "s/^X//" >'rindex.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)rindex.c	5.4 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <stdio.h>
+X
+Xchar *
+Xrindex(p, ch)
+X	register char *p, ch;
+X{
+X	register char *save;
+X
+X	for (save = NULL;; ++p) {
+X		if (*p == ch)
+X			save = p;
+X		if (!*p)
+X			return(save);
+X	}
+X	/* NOTREACHED */
+X}
+END_OF_FILE
+if test 1158 -ne `wc -c <'rindex.c'`; then
+    echo shar: \"'rindex.c'\" unpacked with wrong size!
+fi
+# end of 'rindex.c'
+fi
+if test -f 'rmdir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rmdir.c'\"
+else
+echo shar: Extracting \"'rmdir.c'\" \(489 characters\)
+sed "s/^X//" >'rmdir.c' <<'END_OF_FILE'
+X/* rmdir.c -- remove a directory.
+X *
+X * Written by reading the System V Interface Definition, not the code.
+X *
+X * Totally public domain.
+X *
+X */
+X/*LINTLIBRARY*/
+X
+Xint rmdir(dir)
+Xchar *dir;
+X{
+X    extern char *malloc();
+X    char *path = malloc(strlen(dir) + 25);
+X    int status;
+X
+X    if (path == (char *)0)
+X	status = -1;
+X    else
+X    {
+X	(void) sprintf(path, "/bin/rmdir %s 2>/dev/null", dir);
+X	status = system(path);
+X    }
+X    (void) free(path);
+X    return(status);
+X}
+X
+X/* rmdir.c ends here */
+END_OF_FILE
+if test 489 -ne `wc -c <'rmdir.c'`; then
+    echo shar: \"'rmdir.c'\" unpacked with wrong size!
+fi
+# end of 'rmdir.c'
+fi
+if test -f 'setenv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setenv.c'\"
+else
+echo shar: Extracting \"'setenv.c'\" \(395 characters\)
+sed "s/^X//" >'setenv.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <string.h>
+X
+Xsetenv (name, value)
+Xchar           *name;
+Xchar           *value;
+X{
+X    auto char      *buf;
+X
+X    buf = malloc (strlen (name) + strlen (value) + 2);
+X    if (buf == NULL) {
+X	fprintf (stderr, "Unable to allocate dynamic memory for setenv\n");
+X	exit (1);
+X    }
+X
+X    (void) sprintf (buf, "%s=%s", name, value);
+X    (void) putenv (buf);
+X
+X}
+END_OF_FILE
+if test 395 -ne `wc -c <'setenv.c'`; then
+    echo shar: \"'setenv.c'\" unpacked with wrong size!
+fi
+# end of 'setenv.c'
+fi
+if test -f 'setlinebuf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setlinebuf.c'\"
+else
+echo shar: Extracting \"'setlinebuf.c'\" \(194 characters\)
+sed "s/^X//" >'setlinebuf.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+Xextern char    *malloc ();
+X
+Xvoid
+Xsetlinebuf (fp)
+XFILE           *fp;
+X{
+X    char           *buf;
+X
+X    buf = malloc (BUFSIZ);
+X
+X    (void) setvbuf (fp, buf, _IOLBF, BUFSIZ);
+X
+X}
+END_OF_FILE
+if test 194 -ne `wc -c <'setlinebuf.c'`; then
+    echo shar: \"'setlinebuf.c'\" unpacked with wrong size!
+fi
+# end of 'setlinebuf.c'
+fi
+if test -f 'sigsetmask.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sigsetmask.c'\"
+else
+echo shar: Extracting \"'sigsetmask.c'\" \(1302 characters\)
+sed "s/^X//" >'sigsetmask.c' <<'END_OF_FILE'
+X/*
+X * Procedure: sigsetmask
+X *
+X * Function:
+X * This is a very crude attempt at mimicing the BSD sigsetmask facility.  It
+X * is not really all that close in functionality since the BSD sigsetmask
+X * facility causes the specified signals to be "blocked" whereas this routine
+X * is causing them to be "ignored".  There are most assuredly race conditions
+X * in this code that I have chosen to totally ignore.
+X * 
+X * Despite all of that, this routine should suffice for most programs.
+X *
+X * Author: David H. Brierley
+X *         dave@galaxia.newport.ri.us
+X */
+X
+X#include <signal.h>
+X
+Xstatic int      current_mask = 0;
+Xstatic int      (*func[NSIG]) ();
+X
+Xsigsetmask (mask)
+Xint             mask;
+X{
+X    int             old_mask;
+X    int             signo;
+X
+X    /*
+X     * First, restore any signals I blocked before.
+X     */
+X    for (signo = 1; signo < NSIG; ++signo) {
+X	if (current_mask & (1 << (signo - 1))) {
+X	    (void) signal (signo, func[signo]);
+X	}
+X    }
+X
+X    /*
+X     * Save current mask as old mask for return value.
+X     */
+X    old_mask = current_mask;
+X    current_mask = mask;
+X
+X    /*
+X     * Block (ignore) all specified signals.
+X     */
+X    for (signo = 1; signo < NSIG; ++signo) {
+X	if (current_mask & (1 << (signo - 1))) {
+X	    func[signo] = signal (signo, SIG_IGN);
+X	}
+X    }
+X
+X    return (old_mask);
+X
+X}
+END_OF_FILE
+if test 1302 -ne `wc -c <'sigsetmask.c'`; then
+    echo shar: \"'sigsetmask.c'\" unpacked with wrong size!
+fi
+# end of 'sigsetmask.c'
+fi
+if test -f 'sigvec.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sigvec.c'\"
+else
+echo shar: Extracting \"'sigvec.c'\" \(271 characters\)
+sed "s/^X//" >'sigvec.c' <<'END_OF_FILE'
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "sigvec.h"
+X
+Xsigvec(sig, vec, ovec)
+Xint sig;
+Xstruct sigvec *vec, *ovec;
+X{
+Xint (*hold)(), (*signal())();
+X
+X	hold = signal(sig, vec->sv_handler);
+X	if (ovec)
+X		ovec->sv_handler = signal(sig, vec->sv_handler);
+X	return 0;
+X}
+END_OF_FILE
+if test 271 -ne `wc -c <'sigvec.c'`; then
+    echo shar: \"'sigvec.c'\" unpacked with wrong size!
+fi
+# end of 'sigvec.c'
+fi
+if test -f 'sigvec.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sigvec.h'\"
+else
+echo shar: Extracting \"'sigvec.h'\" \(1036 characters\)
+sed "s/^X//" >'sigvec.h' <<'END_OF_FILE'
+X/*
+X * Signal vector "template" used in sigvec call.
+X */
+Xstruct	sigvec {
+X	int	(*sv_handler)();	/* signal handler */
+X	int	sv_mask;		/* signal mask to apply */
+X	int	sv_flags;		/* see signal options below */
+X};
+X#define sv_onstack sv_flags	/* isn't compatibility wonderful! */
+X
+X/*
+X * Structure used in sigstack call.
+X */
+Xstruct	sigstack {
+X	char	*ss_sp;			/* signal stack pointer */
+X	int	ss_onstack;		/* current status */
+X};
+X
+X/*
+X * Information pushed on stack when a signal is delivered.
+X * This is used by the kernel to restore state following
+X * execution of the signal handler.  It is also made available
+X * to the handler to allow it to properly restore state if
+X * a non-standard exit is performed.
+X */
+Xstruct	sigcontext {
+X	int	sc_onstack;		/* sigstack state to restore */
+X	int	sc_mask;		/* signal mask to restore */
+X	int	sc_sp;			/* sp to restore */
+X	int	sc_pc;			/* pc to retore */
+X	int	sc_ps;			/* psl to restore */
+X};
+X
+X/*
+X * Macro for converting signal number to a mask suitable for sigblock().
+X */
+X#define sigmask(m)	(1 << ((m)-1))
+END_OF_FILE
+if test 1036 -ne `wc -c <'sigvec.h'`; then
+    echo shar: \"'sigvec.h'\" unpacked with wrong size!
+fi
+# end of 'sigvec.h'
+fi
+if test -f 'statfs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'statfs.c'\"
+else
+echo shar: Extracting \"'statfs.c'\" \(4816 characters\)
+sed "s/^X//" >'statfs.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/filsys.h>
+X#include <sys/param.h>
+X#include <sys/statfs.h>
+X#include <mnttab.h>
+X
+X#define MNTTAB		"/etc/mnttab"
+X#define INOPERBLK	(512 / sizeof (struct dinode))
+X
+X/*
+X * table for holding info about mounted file systems
+X */
+Xstruct mtable {
+X    char            m_device[16];
+X    char            m_filsys[16];
+X    dev_t           m_dev;
+X};
+X
+X
+X/* declare external routines */
+Xextern void     exit ();
+Xextern void     perror ();
+Xextern long     lseek ();
+X
+Xstruct mtable   m_info[NMOUNT];
+Xint             m_size = -1;
+X
+Xint
+Xstatfs (FileSystem, sbuf, length, flag)
+Xchar           *FileSystem;
+Xstruct statfs  *sbuf;
+Xint             length;
+Xint             flag;
+X{
+X    int             m_index;
+X    int             tot;
+X    int             used;
+X    int             avail;
+X    double          pct;
+X    struct filsys   fsys;
+X    int             fd;
+X    int             type;
+X
+X    /*
+X     * read the mount table
+X     */
+X    if (m_size == -1) {
+X	m_size = read_mtab (m_info);
+X    }
+X
+X    /* sync 3 times on the console if you want me,	 */
+X    /* twice on the pipe if the answer is no.		 */
+X    sync ();
+X    sync ();
+X
+X    m_index = fscheck (FileSystem, m_info, m_size);
+X    if (m_index == -1) {
+X	return (-1);
+X    }
+X
+X    if ((fd = open (m_info[m_index].m_device)) == -1) {
+X	perror ("df");
+X	(void) printf ("%s: unable to open device\n", m_info[m_index].m_device);
+X	return (-1);
+X    }
+X
+X    /*
+X     * Read and validate the super-block
+X     */
+X    if (lseek (fd, 512L, 0) == -1L) {
+X	perror ("df");
+X	(void) printf ("%s: unable to seek to super-block\n", m_info[m_index].m_device);
+X	(void) close (fd);
+X	return (-1);
+X    }
+X
+X    if (read (fd, &fsys, sizeof (fsys)) != sizeof (fsys)) {
+X	perror ("df");
+X	(void) printf ("%s: i/o error reading super-block\n", m_info[m_index].m_device);
+X	(void) close (fd);
+X	return (-1);
+X    }
+X    (void) close (fd);
+X
+X    if (sbcheck (&fsys) == -1) {
+X	(void) printf ("%s: invalid super-block\n", m_info[m_index].m_device);
+X	return (-1);
+X    }
+X
+X    type = Fs1b;
+X    if (fsys.s_magic == FsMAGIC) {
+X	type = fsys.s_type;
+X    }
+X
+X    sbuf -> f_files = fsys.s_tinode;
+X    switch (type) {
+X    case Fs1b:
+X	sbuf -> f_bsize = 512;
+X	break;
+X    case Fs2b:
+X	sbuf -> f_bsize = 1024;
+X	break;
+X    default:
+X	sbuf -> f_bsize = 512;
+X    }
+X
+X    return (0);
+X
+X}
+X
+X/*
+X * Routine: sbcheck
+X *
+X * Perform various sanity checks on the fields in the super block.
+X * This is to prevent things like reading a non-filesystem format
+X * floppy.
+X *
+X */
+X
+Xsbcheck (fsys)
+Xstruct filsys  *fsys;
+X{
+X
+X    if (fsys -> s_isize & 0x8000) {
+X	return (-1);
+X    }
+X    if (fsys -> s_fsize < 0) {
+X	return (-1);
+X    }
+X    if (fsys -> s_isize >= fsys -> s_fsize) {
+X	return (-1);
+X    }
+X    if (fsys -> s_nfree > NICFREE) {
+X	return (-1);
+X    }
+X    if (fsys -> s_ninode > NICINOD) {
+X	return (-1);
+X    }
+X    if (fsys -> s_tfree >= fsys -> s_fsize) {
+X	return (-1);
+X    }
+X    if (fsys -> s_tfree < 0) {
+X	return (-1);
+X    }
+X    if (fsys -> s_tinode >= fsys -> s_fsize) {
+X	return (-1);
+X    }
+X
+X    return (0);
+X
+X}
+X
+X/* declare external routines */
+Xextern void     exit ();
+Xextern void     perror ();
+Xextern long     lseek ();
+X
+X/*
+X * Routine: read_mtab
+X *
+X * Read the mount table and extract info about each file
+X * system.  The file system is also "stat"ed to extract
+X * the device number.
+X *
+X */
+X
+Xread_mtab (info)
+Xstruct mtable   info[];
+X{
+X    int             n;
+X    int             fd;
+X    struct mnttab   mtab;
+X    struct stat     sbuf;
+X
+X#define	L_DEV		(sizeof(mtab.mt_dev))
+X#define L_FILSYS	(sizeof(mtab.mt_filsys))
+X
+X    if ((fd = open (MNTTAB, 0)) == -1) {
+X	perror ("df");
+X	(void) printf ("Unable to open file %s\n", MNTTAB);
+X	exit (1);
+X    }
+X
+X    n = 0;
+X    while (read (fd, &mtab, sizeof (mtab)) == sizeof (mtab)) {
+X	(void) strcpy (info[n].m_device, "/dev/");
+X	(void) strncat (info[n].m_device, mtab.mt_dev, L_DEV);
+X	info[n].m_device[L_DEV] = '\0';
+X	(void) strncpy (info[n].m_filsys, mtab.mt_filsys, L_FILSYS);
+X	info[n].m_filsys[L_FILSYS] = '\0';
+X	if (stat (info[n].m_device, &sbuf) == -1) {
+X	    continue;
+X	}
+X	info[n].m_dev = sbuf.st_rdev;
+X	n++;
+X    }
+X
+X    (void) close (fd);
+X    return (n);
+X
+X}
+X
+X /*
+X  * Routine: fscheck
+X  * 
+X  * Check to see if the specified path name is part of a mounted filesystem or
+X  * is a special device file.  If so, print out the info.  If not, print out
+X  * an error message.
+X  * 
+X  */
+X
+Xint
+Xfscheck (DirName, m_info, m_size)
+Xchar           *DirName;
+Xstruct mtable   m_info[];
+Xint             m_size;
+X{
+X    struct stat     sbuf;
+X    int             n;
+X
+X    if (stat (DirName, &sbuf) == -1) {
+X	perror ("df");
+X	(void) printf ("%s: unable to access file\n", DirName);
+X	return (-1);
+X    }
+X
+X    for (n = 0; n < m_size; n++) {
+X	if (sbuf.st_dev == m_info[n].m_dev) {
+X	    return (n);
+X	}
+X    }
+X
+X    (void) printf ("%s: mounted on unknown device\n", DirName);
+X    return (-1);
+X
+X}
+END_OF_FILE
+if test 4816 -ne `wc -c <'statfs.c'`; then
+    echo shar: \"'statfs.c'\" unpacked with wrong size!
+fi
+# end of 'statfs.c'
+fi
+if test -f 'strcasecmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strcasecmp.c'\"
+else
+echo shar: Extracting \"'strcasecmp.c'\" \(3767 characters\)
+sed "s/^X//" >'strcasecmp.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strcasecmp.c	5.6 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X
+X/*
+X * This array is designed for mapping upper and lower case letter
+X * together for a case independent comparison.  The mappings are
+X * based upon ascii character sequences.
+X */
+Xstatic u_char charmap[] = {
+X	'\000', '\001', '\002', '\003', '\004', '\005', '\006', '\007',
+X	'\010', '\011', '\012', '\013', '\014', '\015', '\016', '\017',
+X	'\020', '\021', '\022', '\023', '\024', '\025', '\026', '\027',
+X	'\030', '\031', '\032', '\033', '\034', '\035', '\036', '\037',
+X	'\040', '\041', '\042', '\043', '\044', '\045', '\046', '\047',
+X	'\050', '\051', '\052', '\053', '\054', '\055', '\056', '\057',
+X	'\060', '\061', '\062', '\063', '\064', '\065', '\066', '\067',
+X	'\070', '\071', '\072', '\073', '\074', '\075', '\076', '\077',
+X	'\100', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\133', '\134', '\135', '\136', '\137',
+X	'\140', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\173', '\174', '\175', '\176', '\177',
+X	'\200', '\201', '\202', '\203', '\204', '\205', '\206', '\207',
+X	'\210', '\211', '\212', '\213', '\214', '\215', '\216', '\217',
+X	'\220', '\221', '\222', '\223', '\224', '\225', '\226', '\227',
+X	'\230', '\231', '\232', '\233', '\234', '\235', '\236', '\237',
+X	'\240', '\241', '\242', '\243', '\244', '\245', '\246', '\247',
+X	'\250', '\251', '\252', '\253', '\254', '\255', '\256', '\257',
+X	'\260', '\261', '\262', '\263', '\264', '\265', '\266', '\267',
+X	'\270', '\271', '\272', '\273', '\274', '\275', '\276', '\277',
+X	'\300', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\333', '\334', '\335', '\336', '\337',
+X	'\340', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
+X};
+X
+Xstrcasecmp(s1, s2)
+X	char *s1, *s2;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(cm[*us1] - cm[*--us2]);
+X}
+X
+Xstrncasecmp(s1, s2, n)
+X	char *s1, *s2;
+X	register int n;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (--n >= 0 && cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(n < 0 ? 0 : cm[*us1] - cm[*--us2]);
+X}
+END_OF_FILE
+if test 3767 -ne `wc -c <'strcasecmp.c'`; then
+    echo shar: \"'strcasecmp.c'\" unpacked with wrong size!
+fi
+# end of 'strcasecmp.c'
+fi
+if test -f 'strdup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strdup.c'\"
+else
+echo shar: Extracting \"'strdup.c'\" \(1410 characters\)
+sed "s/^X//" >'strdup.c' <<'END_OF_FILE'
+X/*
+X * From: dag@persoft.com (Daniel A. Glasser)
+X * Date: 18 Feb 91 15:41:59 GMT
+X * Organization: Persoft, Inc.
+X * 
+X * A shorter version (assuming declarations of malloc(), strlen(), and strcpy(),
+X * and a definition for NULL in some header file or preceeding this function
+X * in the source file is:
+X * 
+X * I did add one more error check, and I used some shorthand (the assignment
+X * within the if()) that some people may take exception to, however this is
+X * just about as efficient (code wise) as you can get and still insure
+X * robust behavior of the function.  If you drop the NULL check on the
+X * original, you can have it even smaller but at the risk that the strcpy
+X * or strlen call will die a horrible death.
+X * -- 
+X *         Daniel A. Glasser  |  Persoft, Inc.  |  dag@persoft.com
+X *              "Their brains were small, and they died."
+X */
+X
+X#include <string.h>
+X#include <malloc.h>
+X
+X#ifndef	NULL
+X# define NULL 0
+X#endif
+X
+Xchar *strdup(orig)	/* Allocate a new copy of a string 	*/
+Xchar *orig;		/* a pointer to the original string 	*/
+X{
+X	char *copy;	/* where we keep the copy.		*/
+X
+X	if (orig == (char *)NULL)	/* If the original is NULL	*/
+X		return (char *)NULL;	/* so is the result.		*/
+X
+X	if (copy = malloc((strlen(orig) + 1) * sizeof(char)))
+X		strcpy(copy, orig);	/* if malloc() worked, copy the	*/
+X					/* string data.			*/
+X	return copy;			/* return the result of malloc() */
+X} /* end of strdup() */
+END_OF_FILE
+if test 1410 -ne `wc -c <'strdup.c'`; then
+    echo shar: \"'strdup.c'\" unpacked with wrong size!
+fi
+# end of 'strdup.c'
+fi
+if test -f 'strerror.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strerror.c'\"
+else
+echo shar: Extracting \"'strerror.c'\" \(1152 characters\)
+sed "s/^X//" >'strerror.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#include <string.h>
+X
+X/*
+X * Return the error message corresponding to some error number.
+X */
+Xchar *
+Xstrerror(e)
+X	int e;
+X{
+X	extern int sys_nerr;
+X	extern char *sys_errlist[];
+X	static char unknown[30];
+X
+X	if ((unsigned)e < sys_nerr)
+X		return (sys_errlist[e]);
+X	(void) sprintf(unknown, "Unknown error: %d", e);
+X	return (unknown);
+X}
+END_OF_FILE
+if test 1152 -ne `wc -c <'strerror.c'`; then
+    echo shar: \"'strerror.c'\" unpacked with wrong size!
+fi
+# end of 'strerror.c'
+fi
+if test -f 'writev.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'writev.c'\"
+else
+echo shar: Extracting \"'writev.c'\" \(1183 characters\)
+sed "s/^X//" >'writev.c' <<'END_OF_FILE'
+X/*
+X * writev emulation for System V
+X *
+X * Based on an implementation by Andy Poling.  This version modified to
+X * collect all the data and then issue a single write to the output file.
+X * This was done to more closely emulate BSD because the BSD version is
+X * an actual system call.
+X *
+X * David H. Brierley, dave@galaxia.newport.ri.us
+X */
+X
+X#include <sys/types.h>
+X#include <sys/uio.h>
+X
+X#ifndef	NULL
+X#define	NULL	0
+X#endif
+X
+Xstatic char    *io_buffer = NULL;
+Xstatic unsigned int io_max = 0;
+Xextern char    *malloc ();
+X
+Xwritev (d, iov, iovcnt)
+Xint             d;
+Xstruct iovec   *iov;
+Xint             iovcnt;
+X{
+X    int             i, r, sum;
+X
+X    sum = 0;
+X    for (i = 0; i < iovcnt; ++i) {
+X	sum += iov[i].iov_len;
+X    }
+X    if (sum > io_max) {
+X	if (io_buffer != NULL) {
+X	    (void) free (io_buffer);
+X	}
+X	/* always round up to 1K boundary */
+X	io_max = ((sum + 1023) / 1024) * 1024;
+X	io_buffer = malloc (io_max);
+X	if (io_buffer == NULL) {
+X	    perror ("writev");
+X	    return (-1);
+X	}
+X    }
+X
+X    sum = 0;
+X    for (i = 0; i < iovcnt; i++) {
+X	(void) memcpy (io_buffer + sum, iov[i].iov_base, iov[i].iov_len);
+X	sum += iov[i].iov_len;
+X    }
+X
+X    r = write (d, io_buffer, sum);
+X    return (r);
+X}
+END_OF_FILE
+if test 1183 -ne `wc -c <'writev.c'`; then
+    echo shar: \"'writev.c'\" unpacked with wrong size!
+fi
+# end of 'writev.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+-- 
+David H. Brierley
+Home: dave@galaxia.newport.ri.us; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.newport.ri.us
+%% Can I be excused, my brain is full. **

@@ -1,0 +1,1513 @@
+Newsgroups: comp.sources.misc
+From: jrs@panix.com (Jon Saxton)
+Subject:  v30i097:  indent - C/C++ indent for UNIX, OS/2 and MSDOS, Part03/04
+Message-ID: <1992Jul5.190352.26861@sparky.imd.sterling.com>
+X-Md4-Signature: ff3d85d1036c66a97dff1fda81fe59f7
+Date: Sun, 5 Jul 1992 19:03:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jrs@panix.com (Jon Saxton)
+Posting-number: Volume 30, Issue 97
+Archive-name: indent/part03
+Environment: UNIX, OS/2, MSDOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  codes.h comment.c globals.h indent.man readme
+# Wrapped by kent@sparky on Tue Jun 30 00:01:42 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 4)."'
+if test -f 'codes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'codes.h'\"
+else
+  echo shar: Extracting \"'codes.h'\" \(1778 characters\)
+  sed "s/^X//" >'codes.h' <<'END_OF_FILE'
+X/*
+X * Copyright 1989 Object Design, Inc.
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X *
+X *	@(#)codes.h	6.0 (Berkeley) 92/06/15
+X */
+X
+X#define newline		1
+X#define lparen		2
+X#define rparen		3
+X#define unary_op	4
+X#define binary_op	5
+X#define postop		6
+X#define question	7
+X#define casestmt	8
+X#define colon		9
+X#define semicolon	10
+X#define lbrace		11
+X#define rbrace		12
+X#define ident		13
+X#define comma		14
+X#define comment		15
+X#define swstmt		16
+X#define preesc		17
+X#define form_feed	18
+X#define decl		19
+X#define sp_paren	20
+X#define sp_nparen	21
+X#define ifstmt		22
+X#define whilestmt	23
+X#define forstmt		24
+X#define stmt		25
+X#define stmtl		26
+X#define elselit		27
+X#define dolit		28
+X#define dohead		29
+X#define ifhead		30
+X#define elsehead	31
+X#define period		32
+X
+X#define cc_commnt	33
+X#define class		34
+X#define privpub		35
+END_OF_FILE
+  if test 1778 -ne `wc -c <'codes.h'`; then
+    echo shar: \"'codes.h'\" unpacked with wrong size!
+  fi
+  # end of 'codes.h'
+fi
+if test -f 'comment.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'comment.c'\"
+else
+  echo shar: Extracting \"'comment.c'\" \(17188 characters\)
+  sed "s/^X//" >'comment.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+X# ifndef OS2
+X    static char sccsid[] = "@(#)comment.c	6.0 (Berkeley) 92/06/15";
+X# endif
+X#endif                          /* not lint */
+X
+X/*
+X * NAME:
+X *	pr_comment
+X *
+X * FUNCTION:
+X *	This routine takes care of scanning and printing comments.
+X *
+X * ALGORITHM:
+X *	1) Decide where the comment should be aligned, and if lines should
+X *	   be broken.
+X *	2) If lines should not be broken and filled, just copy up to end of
+X *	   comment.
+X *	3) If lines should be filled, then scan thru input_buffer copying
+X *	   characters to com_buf.  Remember where the last blank, tab, or
+X *	   newline was.  When line is filled, print up to last blank and
+X *	   continue copying.
+X *
+X * HISTORY:
+X *	November 1976	D A Willcox of CAC	Initial coding
+X *	12/6/76		D A Willcox of CAC	Modification to handle
+X *						UNIX-style comments
+X *
+X */
+X
+X/*
+X * this routine processes comments.  It makes an attempt to keep comments from
+X * going over the max line length.  If a line is too long, it moves everything
+X * from the last blank to the next comment line.  Blanks and tabs from the
+X * beginning of the input line are removed
+X */
+X
+X
+X#include "globals.h"
+X
+X#ifdef OS2
+X#include <malloc.h>
+X#endif
+X
+X#ifdef ANSIC
+Xvoid pr_comment(void)
+X#else
+Xpr_comment()
+X#endif
+X{
+X    int now_col;                /* column we are in now */
+X    int adj_max_col;            /* Adjusted max_col for when we decide to spill
+X                                   comments over the right margin */
+X    char *last_bl;              /* points to the last blank in the output
+X                                   buffer */
+X    char *t_ptr;                /* used for moving string */
+X    int unix_comment;           /* tri-state variable used to decide if it is a
+X                                   unix-style comment. 0 means only blanks
+X                                   since /*, 1 means regular style comment, 2
+X                                   means unix style comment */
+X    int break_delim = comment_delimiter_on_blankline;
+X    int l_just_saw_decl = ps.just_saw_decl;
+X
+X    /*
+X       int         ps.last_nl = 0;	/* true iff the last significant thing weve
+X       seen is a newline
+X    */
+X    int one_liner = 1;          /* true iff this comment is a one-liner */
+X
+X    adj_max_col = max_col;
+X    ps.just_saw_decl = 0;
+X    last_bl = 0;                /* no blanks found so far */
+X    ps.box_com = false;         /* at first, assume that we are not in a boxed
+X                                   comment or some other comment that should
+X                                   not be touched */
+X    ++ps.out_coms;              /* keep track of number of comments */
+X    unix_comment = 1;           /* set flag to let us figure out if there is a
+X                                   unix-style comment ** DISABLED: use 0 to
+X                                   reenable this hack! */
+X
+X    /* Figure where to align and how to treat the comment */
+X
+X    if (ps.col_1 && !format_col1_comments)
+X    {                           /* if comment starts in column 1 it should not
+X                                   be touched */
+X        ps.box_com = true;
+X        ps.com_col = 1;
+X    }
+X    else
+X    {
+X        if (*buf_ptr == '-' || *buf_ptr == '*')
+X        {
+X            ps.box_com = true;  /* a comment with a '-' or '*' immediately
+X                                   after the /* is assumed to be a boxed
+X                                   comment */
+X            break_delim = 0;
+X        }
+X        if ( /* ps.bl_line && */ (s_lab == e_lab) && (s_code == e_code))
+X        {
+X            /* klg: check only if this line is blank */
+X            /*
+X               If this (*and previous lines are*) blank, dont put comment way
+X               out at left
+X            */
+X            ps.com_col = (ps.ind_level - ps.unindent_displace) * ps.ind_size + 1;
+X            adj_max_col = block_comment_max_col;
+X            if (ps.com_col <= 1)
+X                ps.com_col = 1 + !format_col1_comments;
+X        }
+X        else
+X        {
+X            register target_col;
+X
+X            break_delim = 0;
+X            if (s_code != e_code)
+X                target_col = count_spaces(compute_code_target(), s_code);
+X            else
+X            {
+X                target_col = 1;
+X                if (s_lab != e_lab)
+X                    target_col = count_spaces(compute_label_target(), s_lab);
+X            }
+X            ps.com_col = ps.decl_on_line || ps.ind_level == 0 ? ps.decl_com_ind : ps.com_ind;
+X            if (ps.com_col < target_col)
+X                ps.com_col = target_col +
+X                    (tabsize - ((target_col - 1) % tabsize)); /* JHT 22oct89 */
+X            if (ps.com_col + 24 > adj_max_col)
+X                adj_max_col = ps.com_col + 24;
+X        }
+X    }
+X    if (ps.box_com)
+X    {
+X        buf_ptr[-2] = 0;
+X        ps.n_comment_delta = 1 - count_spaces(1, in_buffer);
+X        buf_ptr[-2] = '/';
+X    }
+X    else
+X    {
+X        ps.n_comment_delta = 0;
+X        while (*buf_ptr == ' ' || *buf_ptr == '\t')
+X            buf_ptr++;
+X    }
+X    ps.comment_delta = 0;
+X    *e_com++ = '/';             /* put '/*' into buffer */
+X    if (ps.cc_comment)          /* (or '//') */
+X        *e_com++ = '/';
+X    else
+X        *e_com++ = '*';
+X    if (*buf_ptr != ' ' && !ps.box_com)
+X        *e_com++ = ' ';
+X
+X    *e_com = '\0';
+X    if (troff)
+X    {
+X        now_col = 1;
+X        adj_max_col = 80;
+X    }
+X    else
+X        now_col = count_spaces(ps.com_col, s_com);  /* figure what column we
+X                                                       would be in if we
+X                                                       printed the comment now */
+X
+X    /* Start to copy the comment */
+X
+X    while (1)
+X    {                           /* this loop will go until the comment is
+X                                   copied */
+X        if (*buf_ptr >= 040 && *buf_ptr != '*')
+X            ps.last_nl = 0;
+X        check_size(com);
+X        switch (*buf_ptr)
+X        {                       /* this checks for various spcl cases */
+X        case 014:              /* check for a form feed */
+X            if (!ps.box_com)
+X            {                   /* in a text comment, break the line here */
+X                ps.use_ff = true;
+X                /* fix so dump_line uses a form feed */
+X                dump_line();
+X                last_bl = 0;
+X                *e_com++ = ' ';
+X                *e_com++ = '*';
+X                *e_com++ = ' ';
+X                while (*++buf_ptr == ' ' || *buf_ptr == '\t');
+X            }
+X            else
+X            {
+X                if (++buf_ptr >= buf_end)
+X                    fill_buffer();
+X                *e_com++ = 014;
+X            }
+X            break;
+X
+X        case '\n':
+X            if (ps.cc_comment)
+X            {
+X                *e_com = '\0';
+X                dump_line();
+X                ps.cc_comment = 0;
+X                ps.just_saw_decl = l_just_saw_decl; /* ?? */
+X                if (++buf_ptr >= buf_end) /* eat '\n' */
+X                    fill_buffer();
+X                ps.last_nl = 1; /* jrs 12 Mar 92 */
+X                return;
+X            }
+X            if (had_eof)
+X            {                   /* check for unexpected eof */
+X                printf("Unterminated comment\n");
+X                *e_com = '\0';
+X                dump_line();
+X                return;
+X            }
+X            one_liner = 0;
+X            if (ps.box_com || ps.last_nl)
+X            {                   /* if this is a boxed comment, we dont ignore
+X                                   the newline */
+X                if (s_com == e_com)
+X                {
+X                    *e_com++ = ' ';
+X                    *e_com++ = ' ';
+X                }
+X                *e_com = '\0';
+X                if (!ps.box_com && e_com - s_com > 3)
+X                {
+X                    if (break_delim == 1 && s_com[0] == '/'
+X                        && s_com[1] == '*' && s_com[2] == ' ')
+X                    {
+X                        char *t = e_com;
+X
+X                        break_delim = 2;
+X                        e_com = s_com + 2;
+X                        *e_com = 0;
+X                        if (blanklines_before_blockcomments)
+X                            prefix_blankline_requested = 1;
+X                        dump_line();
+X                        e_com = t;
+X                        s_com[0] = s_com[1] = s_com[2] = ' ';
+X                    }
+X                    dump_line();
+X                    check_size(com);
+X                    *e_com++ = ' ';
+X                    *e_com++ = ' ';
+X                }
+X                dump_line();
+X                now_col = ps.com_col;
+X            }
+X            else
+X            {
+X                ps.last_nl = 1;
+X                if (unix_comment != 1)
+X                {               /* we are not in unix_style comment */
+X                    if (unix_comment == 0 && s_code == e_code)
+X                    {
+X                        /*
+X                           if it is a UNIX-style comment, ignore the
+X                           requirement that previous line be blank for
+X                           unindention
+X                        */
+X                        ps.com_col = (ps.ind_level - ps.unindent_displace) * ps.ind_size + 1;
+X                        if (ps.com_col <= 1)
+X                            ps.com_col = 2;
+X                    }
+X                    unix_comment = 2; /* permanently remember that we are in
+X                                         this type of comment */
+X                    dump_line();
+X                    ++line_no;
+X                    now_col = ps.com_col;
+X                    *e_com++ = ' ';
+X                    /*
+X                       fix so that the star at the start of the line will line
+X                       up
+X                    */
+X                    do          /* flush leading white space */
+X                        if (++buf_ptr >= buf_end)
+X                            fill_buffer();
+X                    while (*buf_ptr == ' ' || *buf_ptr == '\t');
+X                    break;
+X                }
+X                if (*(e_com - 1) == ' ' || *(e_com - 1) == '\t')
+X                    last_bl = e_com - 1;
+X                /*
+X                   if there was a space at the end of the last line, remember
+X                   where it was
+X                */
+X                else
+X                {               /* otherwise, insert one */
+X                    last_bl = e_com;
+X                    check_size(com);
+X                    *e_com++ = ' ';
+X                    ++now_col;
+X                }
+X            }
+X            ++line_no;          /* keep track of input line number */
+X            if (!ps.box_com)
+X            {
+X                int nstar = 1;
+X
+X                do
+X                {               /* flush any blanks and/or tabs at start of
+X                                   next line */
+X                    if (++buf_ptr >= buf_end)
+X                        fill_buffer();
+X                    if (*buf_ptr == '*' && --nstar >= 0)
+X                    {
+X                        if (++buf_ptr >= buf_end)
+X                            fill_buffer();
+X                        if (*buf_ptr == '/')
+X                            goto end_of_comment;
+X                    }
+X                } while (*buf_ptr == ' ' || *buf_ptr == '\t');
+X            }
+X            else if (++buf_ptr >= buf_end)
+X                fill_buffer();
+X            break;              /* end of case for newline */
+X
+X        case '*':              /* must check for possibility of being at end
+X                                   of comment */
+X            if (++buf_ptr >= buf_end) /* get to next char after * */
+X                fill_buffer();
+X
+X            if (unix_comment == 0)  /* set flag to show we are not in
+X                                       unix-style comment */
+X                unix_comment = 1;
+X
+X            if (*buf_ptr == '/')
+X            {                   /* it is the end!!! */
+X        end_of_comment:
+X                if (++buf_ptr >= buf_end)
+X                    fill_buffer();
+X
+X                if (*(e_com - 1) != ' ' && !ps.box_com)
+X                {               /* ensure blank before end */
+X                    *e_com++ = ' ';
+X                    ++now_col;
+X                }
+X                if (break_delim == 1 && !one_liner && s_com[0] == '/'
+X                    && s_com[1] == '*' && s_com[2] == ' ')
+X                {
+X                    char *t = e_com;
+X
+X                    break_delim = 2;
+X                    e_com = s_com + 2;
+X                    *e_com = 0;
+X                    if (blanklines_before_blockcomments)
+X                        prefix_blankline_requested = 1;
+X                    dump_line();
+X                    e_com = t;
+X                    s_com[0] = s_com[1] = s_com[2] = ' ';
+X                }
+X                if (break_delim == 2 && e_com > s_com + 3
+X                     /* now_col > adj_max_col - 2 && !ps.box_com */ )
+X                {
+X                    *e_com = '\0';
+X                    dump_line();
+X                    now_col = ps.com_col;
+X                }
+X                check_size(com);
+X                *e_com++ = '*';
+X                *e_com++ = '/';
+X                *e_com = '\0';
+X                ps.just_saw_decl = l_just_saw_decl;
+X                return;
+X            }
+X            else
+X            {                   /* handle isolated '*' */
+X                *e_com++ = '*';
+X                ++now_col;
+X            }
+X            break;
+X        default:               /* we have a random char */
+X            if (unix_comment == 0 && *buf_ptr != ' ' && *buf_ptr != '\t')
+X                unix_comment = 1; /* we are not in unix-style comment */
+X
+X            *e_com = *buf_ptr++;
+X            if (buf_ptr >= buf_end)
+X                fill_buffer();
+X
+X            if (*e_com == '\t') /* keep track of column */
+X                now_col = now_col + (tabsize - ((now_col - 1) % tabsize));
+X            else if (*e_com == '\b')  /* this is a backspace */
+X                --now_col;
+X            else
+X                ++now_col;
+X
+X            if (*e_com == ' ' || *e_com == '\t')
+X                last_bl = e_com;
+X            /* remember we saw a blank */
+X
+X            ++e_com;
+X            if (now_col > adj_max_col && !ps.box_com && unix_comment == 1 && e_com[-1] > ' ')
+X            {
+X                /*
+X                   the comment is too long, it must be broken up
+X                */
+X                if (break_delim == 1 && s_com[0] == '/'
+X                    && s_com[1] == '*' && s_com[2] == ' ')
+X                {
+X                    char *t = e_com;
+X
+X                    break_delim = 2;
+X                    e_com = s_com + 2;
+X                    *e_com = 0;
+X                    if (blanklines_before_blockcomments)
+X                        prefix_blankline_requested = 1;
+X                    dump_line();
+X                    e_com = t;
+X                    s_com[0] = s_com[1] = s_com[2] = ' ';
+X                }
+X                if (last_bl == 0)
+X                {               /* we have seen no blanks */
+X                    last_bl = e_com;  /* fake it */
+X                    *e_com++ = ' ';
+X                }
+X                *e_com = '\0';  /* print what we have */
+X                *last_bl = '\0';
+X                while (last_bl > s_com && last_bl[-1] < 040)
+X                    *--last_bl = 0;
+X                e_com = last_bl;
+X                dump_line();
+X
+X                *e_com++ = ps.cc_comment ? '/' : ' '; /* blanks or slashes */
+X                *e_com++ = ps.cc_comment ? '/' : ' '; /* for continuation */
+X                *e_com++ = ' ';
+X
+X                t_ptr = last_bl + 1;
+X                last_bl = 0;
+X                if (t_ptr >= e_com)
+X                {
+X                    while (*t_ptr == ' ' || *t_ptr == '\t')
+X                        t_ptr++;
+X                    while (*t_ptr != '\0')
+X                    {           /* move unprinted part of comment down in
+X                                   buffer */
+X                        if (*t_ptr == ' ' || *t_ptr == '\t')
+X                            last_bl = e_com;
+X                        *e_com++ = *t_ptr++;
+X                    }
+X                }
+X                *e_com = '\0';
+X                now_col = count_spaces(ps.com_col, s_com);  /* recompute current
+X                                                               position */
+X            }
+X            break;
+X        }
+X    }
+X}
+END_OF_FILE
+  if test 17188 -ne `wc -c <'comment.c'`; then
+    echo shar: \"'comment.c'\" unpacked with wrong size!
+  fi
+  # end of 'comment.c'
+fi
+if test -f 'globals.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'globals.h'\"
+else
+  echo shar: Extracting \"'globals.h'\" \(14797 characters\)
+  sed "s/^X//" >'globals.h' <<'END_OF_FILE'
+X/*
+X * Copyright 1989 Object Design, Inc.
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X *
+X *	@(#)globals.h	6.0 (Berkeley) 92/06/15
+X */
+X
+X#include <stdio.h>
+X#include <memory.h>             /* gst: 24 mar 89 */
+X
+X#ifdef __IBMC__              /* IBM C Set/2 and other IBM C compilers */
+X# ifdef __OS2__
+X#  ifndef OS2
+X#   define OS2
+X#  endif
+X# endif
+X#endif
+X
+X#ifdef MSDOS		
+X# ifndef OS2
+X#  define OS2
+X# endif
+X#endif
+X
+X#ifdef OS2
+X# ifndef ANSIC
+X#  define ANSIC
+X# endif
+X#endif
+X
+X#define BACKSLASH '\\'
+X#define bufsize 1000            /* size of internal buffers */
+X#define inp_bufs 1000           /* size of input buffer */
+X#define sc_size 5000            /* size of save_com buffer */
+X#define label_offset 2          /* number of levels a label is placed to left
+X                                   of code */
+X#define cplus_ppp_indent 2      /* spaces to indent public, private, protected
+X                                   in c++ */
+X
+X#define false 0
+X#define true  1
+X
+X
+XFILE *input;                    /* the fid for the input file */
+XFILE *output;                   /* the output file */
+X
+X#ifdef OS2
+X#define check_size(name) \
+X	if (e_##name >= l_##name) { \
+X	    register nsize = l_##name-s_##name+400; \
+X	    name##buf = (char *) realloc(name##buf, nsize); \
+X	    e_##name = name##buf + (e_##name-s_##name) + 1; \
+X	    l_##name = name##buf + nsize - 5; \
+X	    s_##name = name##buf + 1; \
+X	}
+X#else
+X#define check_size(name) \
+X	if (e_/**/name >= l_/**/name) { \
+X	    register nsize = l_/**/name-s_/**/name+400; \
+X	    name/**/buf = (char *) realloc(name/**/buf, nsize); \
+X	    e_/**/name = name/**/buf + (e_/**/name-s_/**/name) + 1; \
+X	    l_/**/name = name/**/buf + nsize - 5; \
+X	    s_/**/name = name/**/buf + 1; \
+X	}
+X#endif
+X
+Xchar *labbuf;                   /* buffer for label */
+Xchar *s_lab;                    /* start ... */
+Xchar *e_lab;                    /* .. and end of stored label */
+Xchar *l_lab;                    /* limit of label buffer */
+X
+Xchar *codebuf;                  /* buffer for code section */
+Xchar *s_code;                   /* start ... */
+Xchar *e_code;                   /* .. and end of stored code */
+Xchar *l_code;                   /* limit of code section */
+X
+Xchar *combuf;                   /* buffer for comments */
+Xchar *s_com;                    /* start ... */
+Xchar *e_com;                    /* ... and end of stored comments */
+Xchar *l_com;                    /* limit of comment buffer */
+X
+Xchar in_buffer[inp_bufs];       /* input buffer */
+Xchar *buf_ptr;                  /* ptr to next character to be taken from
+X                                   in_buffer */
+Xchar *buf_end;                  /* ptr to first after last char in in_buffer */
+X
+Xchar save_com[sc_size];         /* input text is saved here when looking for
+X                                   the brace after an if, while, etc */
+Xchar *sc_end;                   /* pointer into save_com buffer */
+X
+Xchar *bp_save;                  /* saved value of buf_ptr when taking input
+X                                   from save_com */
+Xchar *be_save;                  /* similarly saved value of buf_end */
+X
+Xchar token[bufsize];            /* the last token scanned */
+X
+Xint cplus;                      /* c++ */
+Xint pointer_as_binop;
+Xint blanklines_after_declarations;
+Xint blanklines_before_blockcomments;
+Xint blanklines_after_procs;
+Xint blanklines_around_conditional_compilation;
+Xint swallow_optional_blanklines;
+Xint n_real_blanklines;
+Xint prefix_blankline_requested;
+Xint postfix_blankline_requested;
+X
+Xint tabsize;
+X
+Xint break_comma;                /* when true and not in parens, break after a
+X                                   comma */
+Xint btype_2;                    /* when true, brace should be on same line as
+X                                   if, while, etc */
+Xint btype_3;                    /* when true, braces are not only on the next
+X                                   line but indented with the enclosed code */
+Xfloat case_ind;                 /* indentation level to be used for a "case n:" */
+Xint code_lines;                 /* count of lines with code */
+Xint had_eof;                    /* set to true when input is exhausted */
+Xint line_no;                    /* the current line number. */
+Xint max_col;                    /* the maximum allowable line length */
+Xint verbose;                    /* when true, non-essential error messages are
+X                                   printed */
+Xint cuddle_else;                /* true if else should cuddle up to '}' */
+Xint star_comment_cont;          /* true iff comment continuation lines should
+X                                   have stars at the beginning of each line. */
+Xint comment_delimiter_on_blankline;
+Xint troff;                      /* true iff were generating troff input */
+Xint procnames_start_line;       /* if true, the names of procedures being
+X                                   defined get placed in column 1 (ie. a
+X                                   newline is placed between the type of the
+X                                   procedure and its name) */
+Xint proc_calls_space;           /* If true, procedure calls look like: foo(bar)
+X                                   rather than foo (bar) */
+Xint parens_space;               /* If true, parens gets spaces inside them */
+Xint format_col1_comments;       /* If comments which start in column 1 are to
+X                                   be magically reformatted (just like comments
+X                                   that begin in later columns) */
+Xint inhibit_formatting;         /* true if INDENT OFF is in effect */
+Xint suppress_blanklines;        /* set iff following blanklines should be
+X                                   suppressed */
+Xint continuation_indent;        /* set to the indentation between the edge of
+X                                   code and continuation lines */
+Xint lineup_to_parens;           /* if true, continued code within parens will
+X                                   be lined up to the open paren */
+Xint Bill_Shannon;               /* true iff a blank should always be inserted
+X                                   after sizeof */
+Xint blanklines_after_declarations_at_proctop; /* This is vaguely similar to
+X                                                 blanklines_after_declarations
+X                                                 except that it only applies to
+X                                                 the first set of declarations
+X                                                 in a procedure (just after the
+X                                                 first '{') and it causes a
+X                                                 blank line to be generated
+X                                                 even if there are no
+X                                                 declarations */
+Xint block_comment_max_col;
+Xint extra_expression_indent;    /* True if continuation lines from the
+X                                   expression part of "if(e)", "while(e)",
+X                                   "for(e;e;e)" should be indented an extra tab
+X                                   stop so that they don't conflict with the
+X                                   code that follows */
+X
+X/* -troff font state information */
+X
+Xstruct fstate
+X{
+X    char font[4];
+X    char size;
+X    int allcaps:1;
+X};
+Xchar *chfont();
+X
+Xstruct fstate
+X    keywordf,                   /* keyword font */
+X    stringf,                    /* string font */
+X    boxcomf,                    /* Box comment font */
+X    blkcomf,                    /* Block comment font */
+X    scomf,                      /* Same line comment font */
+X    bodyf;                      /* major body font */
+X
+X
+X#define STACKSIZE 150
+X
+Xstruct parser_state
+X{
+X    int last_token;
+X    struct fstate cfont;        /* Current font */
+X    int p_stack[STACKSIZE];     /* this is the parsers stack */
+X    int il[STACKSIZE];          /* this stack stores indentation levels */
+X    float cstk[STACKSIZE];      /* used to store case stmt indentation levels */
+X    int box_com;                /* set to true when we are in a "boxed"
+X                                   comment. In that case, the first non-blank
+X                                   char should be lined up with the / in /* */
+X    int comment_delta, n_comment_delta;
+X    int cast_mask;              /* indicates which close parens close off casts */
+X    int sizeof_mask;            /* indicates which close parens close off
+X                                   sizeof''s */
+X    int block_init;             /* true iff inside a block initialization */
+X    int block_init_level;       /* The level of brace nesting in an
+X                                   initialization */
+X    int last_nl;                /* this is true if the last thing scanned was a
+X                                   newline */
+X    int in_or_st;               /* Will be true iff there has been a declarator
+X                                   (e.g. int or char) and no left paren since
+X                                   the last semicolon. When true, a '{' is
+X                                   starting a structure definition or an
+X                                   initialization list */
+X    int bl_line;                /* set to 1 by dump_line if the line is blank */
+X    int col_1;                  /* set to true if the last token started in
+X                                   column 1 */
+X    int com_col;                /* this is the column in which the current
+X                                   coment should start */
+X    int com_ind;                /* the column in which comments to the right of
+X                                   code should start */
+X    int com_lines;              /* the number of lines with comments, set by
+X                                   dump_line */
+X    int dec_nest;               /* current nesting level for structure or init */
+X    int decl_com_ind;           /* the column in which comments after
+X                                   declarations should be put */
+X    int decl_on_line;           /* set to true if this line of code has part of
+X                                   a declaration on it */
+X    int i_l_follow;             /* the level to which ind_level should be set
+X                                   after the current line is printed */
+X    int in_decl;                /* set to true when we are in a declaration
+X                                   stmt.  The processing of braces is then
+X                                   slightly different */
+X    int in_stmt;                /* set to 1 while in a stmt */
+X    int ind_level;              /* the current indentation level */
+X    int ind_size;               /* the size of one indentation level */
+X    int ind_stmt;               /* set to 1 if next line should have an extra
+X                                   indentation level because we are in the
+X                                   middle of a stmt */
+X    int last_u_d;               /* set to true after scanning a token which
+X                                   forces a following operator to be unary */
+X    int leave_comma;            /* if true, never break declarations after
+X                                   commas */
+X    int ljust_decl;             /* true if declarations should be left
+X                                   justified */
+X    int out_coms;               /* the number of comments processed, set by
+X                                   pr_comment */
+X    int out_lines;              /* the number of lines written, set by
+X                                   dump_line */
+X    int p_l_follow;             /* used to remember how to indent following
+X                                   statement */
+X    int paren_level;            /* parenthesization level. used to indent
+X                                   within stmts */
+X    short paren_indents[20];    /* column positions of each paren */
+X    int pcase;                  /* set to 1 if the current line label is a
+X                                   case.  It is printed differently from a
+X                                   regular label */
+X    int search_brace;           /* set to true by parse when it is necessary to
+X                                   buffer up all info up to the start of a stmt
+X                                   after an if, while, etc */
+X    int unindent_displace;      /* comments not to the right of code will be
+X                                   placed this many indentation levels to the
+X                                   left of code */
+X    int use_ff;                 /* set to one if the current line should be
+X                                   terminated with a form feed */
+X    int want_blank;             /* set to true when the following token should
+X                                   be prefixed by a blank. (Said prefixing is
+X                                   ignored in some cases.) */
+X    int else_if;                /* True iff else if pairs should be handled
+X                                   specially */
+X    int decl_indent;            /* column to indent declared identifiers to */
+X    int its_a_keyword;
+X    int sizeof_keyword;
+X    int dumped_decl_indent;
+X    float case_indent;          /* The distance to indent case labels from the
+X                                   switch statement */
+X    float case_code_indent;     /* The distance to indent case code from the
+X                                   case label */
+X    int in_parameter_declaration;
+X    int indent_parameters;
+X    int tos;                    /* pointer to top of stack */
+X    char procname[100];         /* The name of the current procedure */
+X    int just_saw_decl;
+X    int cc_comment;             /* saw a C++ comment ("//...") */
+X}   ps;
+X
+Xint ifdef_level;
+Xstruct parser_state state_stack[5];
+Xstruct parser_state match_state[5];
+X
+Xtypedef enum cplus_flag
+X{
+X    c_only,
+X    c_and_cplus,
+X    cplus_only
+X}   cplus_flag;
+X
+X#ifdef ANSIC
+X#include "proto.h"
+X#endif
+END_OF_FILE
+  if test 14797 -ne `wc -c <'globals.h'`; then
+    echo shar: \"'globals.h'\" unpacked with wrong size!
+  fi
+  # end of 'globals.h'
+fi
+if test -f 'indent.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'indent.man'\"
+else
+  echo shar: Extracting \"'indent.man'\" \(15868 characters\)
+  sed "s/^X//" >'indent.man' <<'END_OF_FILE'
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X     NAME
+X          indent - indent and format C program source
+X
+X     SYNOPSIS
+X          indent  [ input-file [ output-file ] ] [ -bad | -nbad ]
+X                 [ -bap | -nbap ] [ -bbb | -nbbb ] [ -bc | -nbc ]
+X                 [ -bl ] [ -br ] [ -brr ] [ -cn ] [ -cdn ]
+X                 [ -cdb | -ncdb ] [ -ce | -nce ] [ -cin ] [ -clin ]
+X                 [ -ccin ] [ -dn ] [ -din ] [ -fc1 | -nfc1 ] [ -in ]
+X                 [ -ip | -nip ] [ -ln ] [ -lcn ] [ -lp | -nlp ]
+X                 [ -pcs | -npcs ] [ -npro ] [ -prs | -nprs ]
+X                 [ -psl | -npsl ] [ -sc | -nsc ] [ -sob | -nsob ]
+X                 [ -st ] [ -tabsn ] [ -troff ] [ -v | -nv ] [ -+ ]
+X
+X
+X     DESCRIPTION
+X          Indent is a C program formatter.  It reformats the C program
+X          in the input-file according to the switches.  The switches
+X          which can be specified are described below. They may appear
+X          before or after the file names.
+X
+X          NOTE: If you only specify an input-file, the formatting is
+X          done 'in-place', that is, the formatted file is written back
+X          into input-file and a backup copy of input-file is written
+X          in the current directory.  If input-file is named
+X          '/blah/blah/file', the backup file is named file.BAK.
+X
+X          If output-file is specified, indent checks to make sure it
+X          is different from input-file.
+X
+X     OPTIONS
+X          The options listed below control the formatting style
+X          imposed by indent.
+X
+X          -bap,-nbap     If -bap is specified, a blank line is forced
+X                         after every procedure body.  Default:  -nbap.
+X
+X          -bad,-nbad     If -bad is specified, a blank line is forced
+X                         after every block of declarations.  Default:
+X                         -nbad.
+X
+X          -bbb,-nbbb     If -bbb is specified, a blank line is forced
+X                         before every block comment.  Default:  -nbbb.
+X
+X          -bc,-nbc       If -bc is specified, then a newline is forced
+X                         after each comma in a declaration. -nbc turns
+X                         off this option.  The default is -bc.
+X
+X          -br,-bl,-brr   Specifying -bl lines up compound statements
+X
+X
+X
+X
+X
+X
+X     Page 1                                          (printed 3/16/92)
+X
+X
+X
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X                         like this:
+X                             if (...)
+X                             {
+X                                 code
+X                             }
+X                         Specifying -br (the default) makes them look
+X                         like this:
+X                             if (...) {
+X                                 code
+X                             }
+X                         And specifying -brr makes them look like
+X                         this:
+X                             if (...)
+X                                 {
+X                                 code
+X                                 }
+X
+X          -cn            The column in which comments on code start.
+X                         The default is 33.
+X
+X          -cdn           The column in which comments on declarations
+X                         start.  The default is for these comments to
+X                         start in the same column as those on code.
+X
+X          -cdb,-ncdb     Enables (disables) the placement of comment
+X                         delimiters on blank lines.  With this option
+X                         enabled, comments look like this:
+X                              /*
+X                               * this is a comment
+X                               */
+X                         Rather than like this:
+X                              /* this is a comment */
+X                         This only affects block comments, not
+X                         comments to the right of code. The default is
+X                         -cdb .
+X
+X          -ce,-nce       Enables (disables) forcing 'else's to cuddle
+X                         up to the immediatly preceding }.  The default
+X                         is -ce.
+X
+X          -cin           Sets the continuation indent to be n.
+X                         Continuation lines will be indented that far
+X                         from the beginning of the first line of the
+X                         statement.  Parenthesized expressions have
+X                         extra indentation added to indicate the
+X                         nesting, unless -lp is in effect.  -ci
+X                         defaults to the same value as -i.
+X
+X          -clin          Causes case labels to be indented n tab stops
+X                         to the right of the containing switch
+X                         statement.  -cli0.5 causes case labels to be
+X                         indented half a tab stop.  The default is
+X                         -cli0 .
+X
+X
+X
+X     Page 2                                          (printed 3/16/92)
+X
+X
+X
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X          -ccin          Causes case code to be indented n tab stops
+X                         to the right of the corresponding case label.
+X                         -cci0.5 causes case code to be indented half
+X                         a tab stop.  The default is -cci1 .
+X
+X          -dn            Controls the placement of comments which are
+X                         not to the right of code.  The default -d1
+X                         means that such comments are placed one
+X                         indentation level to the left of code.
+X                         Specifying -d0 lines up these comments with
+X                         the code.  See the section on comment
+X                         indentation below.
+X
+X          -din           Specifies the indentation, in character
+X                         positions, from a declaration keyword to the
+X                         following identifier.  The default is -di16 .
+X
+X          -fc1,-nfc1     Enables (disables) the formatting of comments
+X                         that start in column 1.  Often, comments
+X                         whose leading '/' is in column 1 have been
+X                         carefully hand formatted by the programmer.
+X                         In such cases, -nfc1 should be used.  The
+X                         default is -fc1.
+X
+X          -in            The number of spaces for one indentation
+X                         level.  The default is 4.
+X
+X          -ip,-nip       Enables (disables) the indentation of
+X                         parameter declarations from the left margin.
+X                         The default is -ip .
+X
+X          -ln            Maximum length of an output line.  The
+X                         default is 75.
+X
+X          -npro          Causes the profile files, './.indent.pro' and
+X                         '~/.indent.pro', to be ignored.
+X
+X          -lp,-nlp       Lines up code surrounded by parenthesis in
+X                         continuation lines.  If a line has a left
+X                         paren which is not closed on that line, then
+X                         continuation lines will be lined up to start
+X                         at the character position just after the left
+X                         paren.  For example, here is how a piece of
+X                         continued code looks with -nlp in effect:
+X                             p1 = first_procedure(second_procedure(p2, p3),
+X                                 third_procedure(p4, p5));
+X                         With -lp in effect (the default) the code
+X                         looks somewhat clearer:
+X                             p1 = first_procedure(second_procedure(p2, p3),
+X                                                  third_procedure(p4, p5));
+X
+X
+X
+X
+X
+X     Page 3                                          (printed 3/16/92)
+X
+X
+X
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X                         Inserting a couple more newlines we get:
+X                             p1 = first_procedure(second_procedure(p2,
+X                                                                   p3),
+X                                                  third_procedure(p4,
+X                                                                  p5));
+X
+X          -pcs , -npcs   If true (-pcs) all procedure calls will have
+X                         a space inserted between the name and the
+X                         '('.  The default is -npcs
+X
+X          -prs , -nprs   If true (-prs) all parentheses will have a
+X                         space inserted after the '(' and before the
+X                         ')'.  The default is -nprs
+X
+X          -psl , -npsl   If true (-psl) the names of procedures being
+X                         defined are placed in column 1 - their types,
+X                         if any, will be left on the previous lines.
+X                         The default is -psl
+X
+X          -sc,-nsc       Enables (disables) the placement of asterisks
+X                         ('*'s) at the left edge of all comments.
+X
+X          -sob,-nsob     If -sob is specified, indent will swallow
+X                         optional blank lines.  You can use this to
+X                         get rid of blank lines after declarations.
+X                         Default:  -nsob
+X
+X          -st            Causes indent to take its input from stdin,
+X                         and put its output to stdout.
+X
+X          -Ttypename     Adds typename to the list of type keywords.
+X                         Names accumulate:  -T can be specified more
+X                         than once.  You need to specify all the
+X                         typenames that appear in your program that
+X                         are defined by typedefs - nothing will be
+X                         harmed if you miss a few, but the program
+X                         won't be formatted as nicely as it should.
+X                         This sounds like a painful thing to have to
+X                         do, but it's really a symptom of a problem in
+X                         C: typedef causes a syntactic change in the
+X                         language and indent can't find all typedefs.
+X
+X          -tabsn         Tells indent that tabs are assumed to be at
+X                         every n columns.  The default is -tabs8.  If
+X                         n is less than 3 then tabs will not be used
+X                         at all in the output.
+X
+X          -troff         Causes indent to format the program for
+X                         processing by troff.  It will produce a fancy
+X                         listing in much the same spirit as vgrind.
+X                         If the output file is not specified, the
+X                         default is standard output, rather than
+X                         formatting in place.
+X
+X
+X
+X     Page 4                                          (printed 3/16/92)
+X
+X
+X
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X          -v,-nv         -v turns on 'verbose' mode, -nv turns it off.
+X                         When in verbose mode, indent reports when it
+X                         splits one line of input into two or more
+X                         lines of output, and gives some size
+X                         statistics at completion. The default is -nv.
+X
+X          -+             turns on support for C++. In c++ mode, :: is
+X                         permited in identifiers, C++ keywords are
+X                         supported, and class definition keywords
+X                         (public, private, etc.) are set in column 2.
+X
+X     FURTHER DESCRIPTION
+X          You may set up your own 'profile' of defaults to indent by
+X          creating a file called .indent.pro in either your login
+X          directory or the current directory and including whatever
+X          switches you like.  A '.indent.pro' in the current directory
+X          takes precedence over the one in your login directory.  If
+X          indent is run and a profile file exists, then it is read to
+X          set up the program's defaults.  Switches on the command
+X          line, though, always override profile switches.  The
+X          switches should be separated by spaces, tabs or newlines.
+X
+X          Comments
+X
+X          'Box' comments.  Indent assumes that any comment with a dash
+X          or star immediately after the start of comment (that is,
+X          '/*-' or '/**') is a comment surrounded by a box of stars.
+X          Each line of such a comment is left unchanged, except that
+X          its indentation may be adjusted to account for the change in
+X          indentation of the first line of the comment.
+X
+X          Straight text.  All other comments are treated as straight
+X          text.  Indent fits as many words (separated by blanks, tabs,
+X          or newlines) on a line as possible.  Blank lines break
+X          paragraphs.
+X
+X          Comment indentation
+X
+X          If a comment is on a line with code it is started in the
+X          'comment column', which is set by the -cn command line
+X          parameter.  Otherwise, the comment is started at n
+X          indentation levels less than where code is currently being
+X          placed, where n is specified by the -dn command line
+X          parameter.  If the code on a line extends past the comment
+X          column, the comment starts further to the right, and the
+X          right margin may be automatically extended in extreme cases.
+X
+X          Special Comments
+X
+X          Indent produces and interprets some special comments.  When
+X          indent cannot parse the source, it prints a message on
+X          standard error and inserts a comment into the output of the
+X
+X
+X
+X     Page 5                                          (printed 3/16/92)
+X
+X
+X
+X
+X
+X
+X     INDENT(1)             A/UX (July 14, 1989)              INDENT(1)
+X
+X
+X
+X          form
+X               /**INDENT** ErrorMessage */
+X
+X          Indent interprets several special comments as directives.
+X          First, it makes no attempt to format lines containing the
+X          error comment described above.
+X
+X          Second, lines of the form:
+X               /* INDENT OFF */
+X          or
+X               /* INDENT ON */
+X          disable and re-enable indent formatting. Any amount of
+X          whitespace may replace the spaces shown in the examples.
+X
+X          Third, indent allows formatting controls to be included in
+X          the source via comments of the form:
+X               /* INDENT: arg1 arg2 arg3 ... arg4 */
+X          The arguments given are in the same syntax as the command
+X          line or profile file.  For example:
+X               /* INDENT: -cli.25 -nfc1 */
+X
+X          Preprocessor lines
+X
+X          In general, indent leaves preprocessor lines alone.  The
+X          only reformmatting that it will do is to straighten up
+X          trailing comments.  It leaves imbedded comments alone.
+X          Conditional compilation (#ifdef...#endif) is recognized and
+X          indent attempts to correctly compensate for the syntactic
+X          peculiarites introduced.
+X
+X          C syntax
+X
+X          Indent understands a substantial amount about the syntax of
+X          C, but it has a 'forgiving' parser.  It attempts to cope
+X          with the usual sorts of incomplete and misformed syntax.  In
+X          particular, the use of macros like:
+X                  #define forever for(;;)
+X          is handled properly.
+X
+X     FILES
+X          ./.indent.pro  profile file
+X
+X     BUGS
+X          Indent has even more switches than ls.
+X
+X          A common mistake that often causes grief is typing:
+X              indent *.c
+X          to the shell in an attempt to indent all the C programs in a
+X          directory.  This is a really nasty thing to do.  (Think
+X          about it.)
+X
+X
+X
+X
+X
+X     Page 6                                          (printed 3/16/92)
+X
+X
+X
+X/users/jrs>
+END_OF_FILE
+  if test 15868 -ne `wc -c <'indent.man'`; then
+    echo shar: \"'indent.man'\" unpacked with wrong size!
+  fi
+  # end of 'indent.man'
+fi
+if test -f 'readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme'\"
+else
+  echo shar: Extracting \"'readme'\" \(7034 characters\)
+  sed "s/^X//" >'readme' <<'END_OF_FILE'
+X---------------------------------------------------------------------
+X
+XIndent is a C/C++ program formatter.  It reformats the C/C++ program
+Xin the input-file according to a long list of command line switches.
+X
+XThe original indent (from the University of Illinois and part of the
+XBerkeley Software Distribution) was only for C programs.  It has since
+Xbeen modified to understand C++ syntax as well.
+X
+X---------------------------------------------------------------------
+X
+X			A short guide to indent
+X		(for impatient users of OS/2 or MSDOS)
+X
+XAssuming you have managed to unpack the distribution sources and have
+Xcompiled indent.exe:-
+X
+X1. Set up an environment variable called HOME pointing at some directory
+X   where you keep useful things.  Copy indent.pro into that directory.
+X   Alternatively put indent.pro somewhere along your DPATH or PATH.
+X
+X2. If you use a brain-damaged editor which doesn't allow tabs to be set
+X   at any interval other than 8 columns, either change the line in
+X   indent.pro which says
+X	-tabs 4
+X   or simply remove it altogether.
+X
+X3. Copy indent.exe to some directory on your PATH.
+X
+X4. Change directory to where your messy C or C++ programs reside.
+X
+X5. To clean up all the programs issue the command:
+X	for %f in (*.c *.cpp) do indent %f
+X
+XIf you have an indent.pro in the current directory that will be processed
+Xafter the one found in HOME or along DPATH or PATH.  This allows you to
+Xhave options unique to a project without having to specify everything.
+X
+X---------------------------------------------------------------------
+X
+X		     An even shorter guide to indent
+X		(for impatient users of BSD-flavoured UNIX)
+X
+XRead the guide for OS/2-MSDOS and make the following changes:
+X
+X1. Copy indent.pro into your home directory or somewhere along your PATH,
+X   calling it .indent.pro
+X
+X5. Use a loop syntax appropriate for your shell.
+X
+XIf you have a .indent.pro in the current directory that will be processed
+Xafter the one found in your HOME directory or along your PATH.  This allows
+Xyou to have options unique to a project without having to specify everything.
+X
+X---------------------------------------------------------------------
+X
+X                      OS/2 implementor's note
+X                      -----------------------
+X
+XThere seems to have been three streams of development for this program.
+X
+XThe original indent came from the University of Illinois where it was
+Xapparently written in 1976.  Some work was done by James Gosling and the
+Xpeople at Sun Microsystems.  The program became part of the BSD UNIX
+Xdistribution at some time not later than 1985.  At around that time it was
+Xported to MSDOS by Bruce Mallett and various fixes were done by Bruce
+XMallett and James Thompson.  James Thompson also implemented the handling
+Xof tabs at spacings other than 8 (surely a most worthwhile enhancement; who
+Xprograms in C with tabs set at 8 anyway?)
+X
+XWhile all this good stuff was going on, other (unnamed) people upgraded the
+Xoriginal program to handle C++ syntax as well as ordinary C and apparently
+Xfixed a few minor annoyances which were extant in the version from which
+Xthe MSDOS implementation was derived.
+X
+XThen of course, the GNU project people of the Free Software Foundation have
+Xbeen doing things with sources apparently derived from the BSD version.
+X
+XI have not looked at the GNU version of indent. I started with the BSD C++
+Xformatter sources from comp.misc.sources volume 21 and modified them for
+Xcompilation with Microsoft C386 under OS/2 2.0.  That gave me a working
+Xbaseline version to which I made the following modifications:
+X
+X1  Changed some of the file names to allow compilation with Microsoft C
+X   version 6.00A which objects to files whose names do not conform to
+X   MSDOS's 8.3 format.
+X
+X2  Built new makefiles for OS/2 2.0 and for OS/2 1.X.  (The MSDOS version
+X   is created by post-processing the OS/2 1.X version.)
+X
+X   Note that when you use Makefile.1x you'll see some warning messages
+X   concerning the truncation of variable names.  You may safely ignore
+X   them.  The messages do not appear when compiling the 32-bit version.
+X
+X2  Added James Thompson's tab stuff.
+X
+X3  Fixed a bug which was causing //-style comments to be followed by an
+X   extra newline or an extra space depending on context.
+X
+X4  Corrected the stack overflow problem in the OS/2 1.x and MSDOS versions.
+X   (This seems to have been independently discovered and fixed twice
+X   previously but the sources contained no trace of the fix.)
+X
+X5  Patched the manual source to reflect the new -tabs option and generated
+X   a human-readable version.
+X
+XFinally, I put the sources through the indenter to clean up the mess.
+X
+XMore recently still, I built the program using the IBM C Set/2 tools after
+Xmodifying the 2.0 Makefile.  I also:
+X
+X6  Fixed a bug notified by Steve Comen which was causing overlength //
+X   comments to be split incorrectly.
+X
+X7  Modified the profile search to include DPATH under OS/2 and to include
+X   PATH on all platforms.
+X
+X8  Modified the action of the -tabsN specifier.  If N is 2 or less then
+X   indent will not use tab characters in the output.  This patch had the
+X   side-effect of avoiding a potential divide-by-zero fault which would
+X   have arisen if someone had said -tabs0.
+X
+XJust before preparing the shar files for submission I removed all the tabs
+Xwith the command:
+X	for %f in (*.c *.h) do indent -tabs0 %f
+X  
+XNow, if I have done the job properly, the current source should combine both
+Xthe BSD development streams.  Furthermore, it should compile under OS/2 1.x
+Xfor OS/2 and MSDOS, under OS/2 2.0 for the 32-bit 'flat' model using either
+Xthe Microsoft C386 compiler or the IBM C Set/2 compiler and on the original
+XBSD UNIX platform.
+X
+XI am indebted to Steve Comen and his colleagues for help with testing and
+Xverifying the BSD compatibility and for several patches.
+X
+XNow all that remains to be done is to incorporate the nicer features of this
+Xversion into the GNU one.  Any volunteers?
+X
+XJon Saxton
+XApril 1992
+X
+X-------------------------------------------------------------------------
+X
+XManifest
+X
+X	args.c		\
+X	comment.c	 \
+X	indent.c	  \_	Program source files
+X	io.c		  /
+X	lexi.c		 /
+X	parse.c		/
+X
+X	codes.h		\
+X	globals.h	 >-	Header files
+X	proto.h		/
+X
+X	indent.1		Manual source
+X
+X	indent.man		Manual in human-readable form
+X
+X	indent.def		Used only when compiling
+X				under OS/2 for OS/2 or MSDOS
+X
+X	indent.pro		A sample profile (the one used to format
+X				these sources).  Rename to .indent.pro
+X				for use with BSD UNIX.
+X
+X	Makefile.1x		Makefile for compiling under OS/2 1.x.
+X				Generates a bound 16-bit executable which
+X				will run under OS/2 or MSDOS.
+X
+X	Makefile.20		Makefile for compiling under OS/2 2.0 using
+X				the IBM C Set/2 compiler.  Generates a 32-
+X				bit executable.
+X
+X	Makefile.bsd		Untouched.  This is the original Makefile
+X				as distributed with the BSD version.
+X
+X	readme			This file
+X
+X	typedefs.os2		A collection of type names which may be
+X				useful for programming the OS/2 kernel.
+X				Simply add these to indent.pro or rename
+X				typedefs.os2 to indent.pro in the current
+X				directory.
+END_OF_FILE
+  if test 7034 -ne `wc -c <'readme'`; then
+    echo shar: \"'readme'\" unpacked with wrong size!
+  fi
+  # end of 'readme'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

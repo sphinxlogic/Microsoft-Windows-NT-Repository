@@ -1,0 +1,171 @@
+Newsgroups: comp.sources.misc
+From: hendrik@vedge.UUCP (Hendrik Boom)
+Subject:  v28i102:  crc16 - Generate 16-bit CRC checksums, Part01/01
+Message-ID: <1992Mar14.223929.5153@sparky.imd.sterling.com>
+X-Md4-Signature: 1d1f174f0fd424312de82f1fa3e9d55f
+Date: Sat, 14 Mar 1992 22:39:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: hendrik@vedge.UUCP (Hendrik Boom)
+Posting-number: Volume 28, Issue 102
+Archive-name: crc16/part01
+Environment: UNIX, Amiga
+
+I wrote this a few years ago. It's useful for checking that file transfers
+work properly.
+
+How to use it?
+Say
+	crc  filenames
+and get crc check values for the files on standard output, in hex and decimal.
+
+It uses the CCITT 16-bit CRC polynomial.
+
+	-- hendrik.
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  crc.c crc.makefile make_crc_tab.c
+# Wrapped by kent@sparky on Sat Mar 14 16:32:35 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'crc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crc.c'\"
+else
+  echo shar: Extracting \"'crc.c'\" \(1087 characters\)
+  sed "s/^X//" >'crc.c' <<'END_OF_FILE'
+X/* The following routines can be used to interpret the crc_table.
+X  First use init_crc; then add_crc for each character, from
+X  first to last; and finally, as report_crc to yield the
+X  result. It is probably much more convenient to code these
+X  routines inline; this file serves primarily as documentation. */
+X#include <stdio.h>
+X#include "crc_tab.h"
+X
+Xstatic unsigned short crc;
+X
+Xvoid init_crc(){crc = 0;}
+X
+Xvoid add_crc(c) unsigned char c;
+X  {crc = crc_table[(crc & 0x00ff) ^ c] ^ (crc >> 8);
+X  }
+X
+Xunsigned short report_crc(){return crc;}
+X
+Xvoid crcfile(name)char *name;
+X {FILE *f; int c; unsigned short ck;
+X  printf("crc %s ", name);
+X  f = fopen(name, "rb");
+X  if(! f){printf("cannot find %s\n", name); return;}
+X  init_crc();
+X  while((c = getc(f)) >= 0){add_crc(c);}
+X  ck =  report_crc();
+X#ifdef AMIGA
+X  printf("0x%x %d\n", ck, ck);
+X#else
+X  printf("%#.4x %d\n", ck, ck);
+X#endif
+X  fclose(f);
+X  return;
+X }
+X
+Xvoid main(argc, argv)int argc; char *argv[];
+X {int i; char **c;
+X  if(argc < 2){printf("crc filenames\n"); exit(1);}
+X  c = &(argv[1]); i=argc;
+X  while(--i)crcfile(*c++);
+X  exit(0);
+X }
+END_OF_FILE
+  if test 1087 -ne `wc -c <'crc.c'`; then
+    echo shar: \"'crc.c'\" unpacked with wrong size!
+  fi
+  # end of 'crc.c'
+fi
+if test -f 'crc.makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crc.makefile'\"
+else
+  echo shar: Extracting \"'crc.makefile'\" \(211 characters\)
+  sed "s/^X//" >'crc.makefile' <<'END_OF_FILE'
+X$(SYSTYPE)/make_crc_tab : make_crc_tab.c
+X	cc make_crc_tab.c -o $(SYSTYPE)/make_crc_tab
+Xcrc_tab.h : make_crc_tab
+X	./$(SYSTYPE)/make_crc_tab >crc_tab.h
+X$(SYSTYPE)/crc : crc.c crc_tab.h
+X	cc crc.c -o $(SYSTYPE)/crc
+END_OF_FILE
+  if test 211 -ne `wc -c <'crc.makefile'`; then
+    echo shar: \"'crc.makefile'\" unpacked with wrong size!
+  fi
+  # end of 'crc.makefile'
+fi
+if test -f 'make_crc_tab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'make_crc_tab.c'\"
+else
+  echo shar: Extracting \"'make_crc_tab.c'\" \(809 characters\)
+  sed "s/^X//" >'make_crc_tab.c' <<'END_OF_FILE'
+X/* The CRC polynomial is represented in binary; each bit is the
+Xcoefficient of a term. The low-order bit corresponds to the
+Xhighest-order coefficient (yes, this does seem backwards).
+X
+XThe bit sequences for some common CRC polynomials:
+X
+XCRC-16:	 16    15    2
+X	x   + x   + x  + 1    0x14003
+X
+XCCITT:	 16    12    5
+X	x   + x   + x  + 1    0x10811
+X
+XThe CCITT polynomial is used for Kermit.
+X
+X*/
+X
+X#define CCITT 0x10811
+X#define CRC_16 0x14003
+X
+Xvoid make_16_bit_crc_tab(poly) unsigned int poly;
+X  {unsigned int i,j, M;
+X  printf("unsigned short crc_table[256] = {\n");
+X  for (i=0; i<256; i++){
+X    M = i;
+X    for (j=8;j>0;j--){
+X      if (M & 1){M ^= poly;}
+X      M >>= 1;}
+X#ifdef AMIGA
+X    printf("0x%x,\n", M);
+X#else
+X    printf("%#x,\n", M);
+X#endif
+X    }
+X  printf("};\n");
+X}
+X
+Xvoid main(){make_16_bit_crc_tab(CCITT);}
+END_OF_FILE
+  if test 809 -ne `wc -c <'make_crc_tab.c'`; then
+    echo shar: \"'make_crc_tab.c'\" unpacked with wrong size!
+  fi
+  # end of 'make_crc_tab.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

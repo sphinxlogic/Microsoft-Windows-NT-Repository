@@ -1,0 +1,762 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject: v34i116:  mailagent - Rule Based Mail Filtering, Patch16
+Message-ID: <1993Jan17.210431.4092@sparky.imd.sterling.com>
+X-Md4-Signature: 2e6f5e9334b235ff72618bc1b84dd494
+Date: Sun, 17 Jan 1993 21:04:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 34, Issue 116
+Archive-name: mailagent/patch16
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[The latest patch for mailagent version 2.9 is #16.]
+
+System: mailagent version 2.9
+Patch #: 16
+Priority: MEDIUM
+Subject: patch #15, continued
+Date: Tue Jan 12 13:51:15 PST 1993
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	See patch #15.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		### Read this carefully
+		# Unusual stuff
+		cd agent/test
+		mkdir misc
+		cd misc
+		cp /dev/null compress.t
+		cp /dev/null mmdf.t
+		cd ../../..
+		# The usual stuff
+		Configure -d
+		make depend
+		make
+		make install
+		make install.man
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 15
+4c4
+< #define PATCHLEVEL 15
+---
+> #define PATCHLEVEL 16
+
+Index: MANIFEST
+*** MANIFEST.old	Tue Jan 12 13:41:53 1993
+--- MANIFEST	Tue Jan 12 13:41:54 1993
+***************
+*** 73,78 ****
+--- 73,79 ----
+  agent/pl/analyze.pl        Perl library analyzing the incoming mail
+  agent/pl/builtins.pl       Perl library dealing with builtins
+  agent/pl/checklock.pl      Perl library to check for long lasting locks
++ agent/pl/compress.pl       Folder compression library
+  agent/pl/context.pl        Mailagent context file handling
+  agent/pl/dbr.pl            Internal database management
+  agent/pl/distribs.pl       Perl library to scan the distribs file
+***************
+*** 98,103 ****
+--- 99,105 ----
+  agent/pl/makedir.pl        Perl library for making a directory
+  agent/pl/matching.pl       Matching routines used by filter
+  agent/pl/mbox.pl           Getting mails from a mailbox file
++ agent/pl/mmdf.pl           MMDF-style mailbox handling
+  agent/pl/once.pl           Dealing with once commands
+  agent/pl/parse.pl          Perl library to parse a mail message
+  agent/pl/period.pl         Perl library to compute periods
+***************
+*** 178,183 ****
+--- 180,187 ----
+  agent/test/filter/status.t     Action status updating tests
+  agent/test/level               Default logging level for tests
+  agent/test/mail                The mail used by testing routines
++ agent/test/misc/compress.t     Folder compression checks
++ agent/test/misc/mmdf.t         MMDF-style mailbox checks
+  agent/test/option/             Tests the options to the mailagent program
+  agent/test/option/L.t          Test -L option
+  agent/test/option/V.t          Test -V option
+
+Index: agent/pl/plsave.pl
+Prereq: 2.9
+*** agent/pl/plsave.pl.old	Tue Jan 12 13:41:42 1993
+--- agent/pl/plsave.pl	Tue Jan 12 13:41:43 1993
+***************
+*** 1,4 ****
+! ;# $Id: plsave.pl,v 2.9 92/07/14 16:50:29 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: plsave.pl,v 2.9.1.1 93/01/12 13:34:53 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	plsave.pl,v $
++ ;# Revision 2.9.1.1  93/01/12  13:34:53  ram
++ ;# patch15: lock outdating now performed by &acs_rqst
++ ;# 
+  ;# Revision 2.9  92/07/14  16:50:29  ram
+  ;# 3.0 beta baseline.
+  ;# 
+***************
+*** 74,83 ****
+  # file we write is not correct, in case the distribution file changed
+  # while we were processing a mail. However, it isn't a big problem.
+  sub write_plsave {
+! 	local($lockext) = ".lock";		# Needed by checklock
+  	local($system);
+  	local($version);
+- 	do checklock($cf'plsave);		# Make sure no old lock lasts
+  	if (0 != &acs_rqst($cf'plsave)) {
+  		do add_log("WARNING updating unlocked patlist file")
+  			if ($loglvl > 5);
+--- 77,85 ----
+  # file we write is not correct, in case the distribution file changed
+  # while we were processing a mail. However, it isn't a big problem.
+  sub write_plsave {
+! 	local($lockext) = ".lock";		# Needed by checklock (via acs_rqst)
+  	local($system);
+  	local($version);
+  	if (0 != &acs_rqst($cf'plsave)) {
+  		do add_log("WARNING updating unlocked patlist file")
+  			if ($loglvl > 5);
+
+Index: agent/files/mailagent.cf
+Prereq: 2.9.1.1
+*** agent/files/mailagent.cf.old	Tue Jan 12 13:40:40 1993
+--- agent/files/mailagent.cf	Tue Jan 12 13:40:40 1993
+***************
+*** 2,8 ****
+  # Configuration file for mailagent
+  #
+  
+! # $Id: mailagent.cf,v 2.9.1.1 92/08/02 15:52:42 ram Exp $
+  #
+  #  Copyright (c) 1991, Raphael Manfredi
+  #
+--- 2,8 ----
+  # Configuration file for mailagent
+  #
+  
+! # $Id: mailagent.cf,v 2.9.1.2 93/01/12 12:07:32 ram Exp $
+  #
+  #  Copyright (c) 1991, Raphael Manfredi
+  #
+***************
+*** 10,15 ****
+--- 10,18 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mailagent.cf,v $
++ # Revision 2.9.1.2  93/01/12  12:07:32  ram
++ # patch15: new parameters: nfslock, mmdf, mmdfbox and compress
++ # 
+  # Revision 2.9.1.1  92/08/02  15:52:42  ram
+  # patch2: new configuration parameter to specify mailbox file
+  # 
+***************
+*** 58,65 ****
+--- 61,74 ----
+  timezone : PST8PDT				# Time zone location
+  statfile : $spool/mailagent.st	# Statistics file
+  rules    : ~/.rules				# Filter's rules location (optional)
++ nfslock  : OFF					# NFS-secure locking (optional)
++ 
++ # Mailbox parameters
+  maildrop : /usr/mail			# System mail drop directory (optional)
+  mailbox  : $user				# Mailbox file name (optional)
++ mmdf     : OFF					# Allow MMDF-style mailbox delivery
++ mmdfbox  : OFF					# Force new folders to MMDF format
++ compress : ~/.compress			# Folder compression list (optional)
+  
+  # Database hashing directory (in $spool) and other controls
+  hash     : dbr					# Hashing directory
+
+Index: agent/pl/jobnum.pl
+Prereq: 2.9.1.1
+*** agent/pl/jobnum.pl.old	Tue Jan 12 13:41:35 1993
+--- agent/pl/jobnum.pl	Tue Jan 12 13:41:35 1993
+***************
+*** 1,4 ****
+! ;# $Id: jobnum.pl,v 2.9.1.1 92/08/26 13:14:57 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: jobnum.pl,v 2.9.1.2 93/01/12 13:33:56 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,17 ****
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	jobnum.pl,v $
+  ;# Revision 2.9.1.1  92/08/26  13:14:57  ram
+  ;# patch8: created
+  ;# 
+  ;# 
+  ;# Depends on the following external routines:
+! ;#  checklock() to check for locks older than one hour
+  ;#  acs_rqst() to get a lock on file
+  ;#  free_file() to release lock on file
+  ;#
+--- 6,20 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	jobnum.pl,v $
++ ;# Revision 2.9.1.2  93/01/12  13:33:56  ram
++ ;# patch15: lock outdating now performed by &acs_rqst
++ ;# 
+  ;# Revision 2.9.1.1  92/08/26  13:14:57  ram
+  ;# patch8: created
+  ;# 
+  ;# 
+  ;# Depends on the following external routines:
+! ;#  checklock() to check for locks older than one hour (via acs_rqst)
+  ;#  acs_rqst() to get a lock on file
+  ;#  free_file() to release lock on file
+  ;#
+***************
+*** 18,24 ****
+  # Computes a new job number
+  sub jobnum {
+  	local($job);						# Computed job number
+- 	&checklock($cf'seqfile);			# Check for old lock
+  	if (0 != &acs_rqst($cf'seqfile)) {
+  		$job = "?";
+  	} else {
+--- 21,26 ----
+
+Index: bin/perload
+Prereq: 2.9.1.4
+*** bin/perload.old	Tue Jan 12 13:41:49 1993
+--- bin/perload	Tue Jan 12 13:41:50 1993
+***************
+*** 1,4 ****
+! # feed this into perl
+  '/bin/true' && eval 'exec perl -S $0 "$@"'
+  	if $running_under_some_shell;
+  'di';
+--- 1,4 ----
+! : # feed this into perl
+  '/bin/true' && eval 'exec perl -S $0 "$@"'
+  	if $running_under_some_shell;
+  'di';
+***************
+*** 8,14 ****
+  # This perl script is its own manual page [generated by wrapman]
+  #
+  
+! # $Id: perload,v 2.9.1.4 92/11/10 10:14:47 ram Exp $
+  #
+  #  Copyright (c) 1992, Raphael Manfredi
+  #
+--- 8,14 ----
+  # This perl script is its own manual page [generated by wrapman]
+  #
+  
+! # $Id: perload,v 2.9.1.5 93/01/12 13:39:42 ram Exp $
+  #
+  #  Copyright (c) 1992, Raphael Manfredi
+  #
+***************
+*** 16,21 ****
+--- 16,24 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	perload,v $
++ # Revision 2.9.1.5  93/01/12  13:39:42  ram
++ # patch15: perload now knows about leading ':' for shell startup
++ # 
+  # Revision 2.9.1.4  92/11/10  10:14:47  ram
+  # patch12: fixed English typo in manual section
+  # 
+***************
+*** 49,55 ****
+  &Getopt;
+  
+  while (<>) {
+! 	if ($. == 1 && /^#.*perl/) {	# Invocation stub
+  		$has_invocation_stub = 1;
+  		print;
+  		next;
+--- 52,58 ----
+  &Getopt;
+  
+  while (<>) {
+! 	if ($. == 1 && /^(:|#).*perl/) {	# Invocation stub
+  		$has_invocation_stub = 1;
+  		print;
+  		next;
+
+Index: agent/pl/getdate.pl
+Prereq: 2.9.1.1
+*** agent/pl/getdate.pl.old	Tue Jan 12 13:41:32 1993
+--- agent/pl/getdate.pl	Tue Jan 12 13:41:33 1993
+***************
+*** 47,55 ****
+  ;# Below are logging information for this package as included in the
+  ;# mailagent program.
+  ;#
+! ;# $Id: getdate.pl,v 2.9.1.1 92/07/25 12:39:08 ram Exp $
+  ;#
+  ;# $Log:	getdate.pl,v $
+  ;# Revision 2.9.1.1  92/07/25  12:39:08  ram
+  ;# patch1: swapped offsets for EET and WET (reported by Jost Krieger)
+  ;# 
+--- 47,59 ----
+  ;# Below are logging information for this package as included in the
+  ;# mailagent program.
+  ;#
+! ;# $Id: getdate.pl,v 2.9.1.2 92/12/07 09:21:10 ram Exp $
+  ;#
+  ;# $Log:	getdate.pl,v $
++ ;# Revision 2.9.1.2  92/12/07  09:21:10  ram
++ ;# patch15: military timezones did not parse correctly
++ ;# patch15: (fix by Paul Marquess <pmarquess@rosebud.bfsec.bt.co.uk>)
++ ;# 
+  ;# Revision 2.9.1.1  92/07/25  12:39:08  ram
+  ;# patch1: swapped offsets for EET and WET (reported by Jost Krieger)
+  ;# 
+***************
+*** 890,896 ****
+  		return $token;
+  	}
+  	
+! 	if (length($idvar) == 1 && $idvar =~ /a-zA-Z/) {
+  		$idvar =~ tr/A-Z/a-z/;
+  		if (defined($milzone{$idvar})) {
+  			($token, $yylval) = split(/,/,$milzone{$idvar});
+--- 894,900 ----
+  		return $token;
+  	}
+  	
+! 	if (length($idvar) == 1 && $idvar =~ /[a-zA-Z]/) {
+  		$idvar =~ tr/A-Z/a-z/;
+  		if (defined($milzone{$idvar})) {
+  			($token, $yylval) = split(/,/,$milzone{$idvar});
+
+Index: agent/pl/filter.pl
+Prereq: 2.9.1.5
+*** agent/pl/filter.pl.old	Tue Jan 12 13:41:26 1993
+--- agent/pl/filter.pl	Tue Jan 12 13:41:27 1993
+***************
+*** 1,4 ****
+! ;# $Id: filter.pl,v 2.9.1.5 92/11/01 16:01:13 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: filter.pl,v 2.9.1.6 93/01/12 13:13:12 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	filter.pl,v $
++ ;# Revision 2.9.1.6  93/01/12  13:13:12  ram
++ ;# patch15: undocumented feature commented (WRITE may allow hooks)
++ ;# 
+  ;# Revision 2.9.1.5  92/11/01  16:01:13  ram
+  ;# patch11: space between command and '(' made optional for ONCE and SELECT
+  ;# patch11: (feature requested by Nigel Metheringham <nigelm@ohm.york.ac.uk>)
+***************
+*** 583,588 ****
+--- 586,594 ----
+  	if ($remove == $FOLDER_REMOVE) {
+  		# Folder has to be removed before writting into it. However, if it
+  		# is write protected, do not unlink it (save will fail later on anyway).
++ 		# Note that this makes it a candidate for hooks via WRITE, if the
++ 		# folder has its 'x' bit set with its 'w' bit cleared. This is an
++ 		# undocumented feature however (WRITE is not supposed to trigger hooks).
+  		unlink "$folder" if -f "$folder" && -w _;
+  	}
+  	local($mbox, $failed) = do save($folder);
+
+Index: agent/mhook.SH
+Prereq: 2.9.1.1
+*** agent/mhook.SH.old	Tue Jan 12 13:40:57 1993
+--- agent/mhook.SH	Tue Jan 12 13:40:57 1993
+***************
+*** 14,20 ****
+  esac
+  echo "Extracting agent/mhook (with variable substitutions)"
+  $spitshell >mhook <<!GROK!THIS!
+! # feed this into perl
+  	eval 'exec perl -S \$0 "\$@"'
+  		if \$running_under_some_shell;
+  
+--- 14,20 ----
+  esac
+  echo "Extracting agent/mhook (with variable substitutions)"
+  $spitshell >mhook <<!GROK!THIS!
+! $startperl
+  	eval 'exec perl -S \$0 "\$@"'
+  		if \$running_under_some_shell;
+  
+***************
+*** 22,28 ****
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: mhook.SH,v 2.9.1.1 92/08/26 12:44:48 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 22,28 ----
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: mhook.SH,v 2.9.1.2 93/01/12 12:09:20 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 30,35 ****
+--- 30,38 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mhook.SH,v $
++ # Revision 2.9.1.2  93/01/12  12:09:20  ram
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9.1.1  92/08/26  12:44:48  ram
+  # patch8: created
+  # 
+
+Index: agent/pl/dbr.pl
+Prereq: 2.9.1.3
+*** agent/pl/dbr.pl.old	Tue Jan 12 13:41:20 1993
+--- agent/pl/dbr.pl	Tue Jan 12 13:41:21 1993
+***************
+*** 1,4 ****
+! ;# $Id: dbr.pl,v 2.9.1.3 92/11/10 10:13:10 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: dbr.pl,v 2.9.1.4 93/01/12 12:13:12 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	dbr.pl,v $
++ ;# Revision 2.9.1.4  93/01/12  12:13:12  ram
++ ;# patch15: typo fix
++ ;# 
+  ;# Revision 2.9.1.3  92/11/10  10:13:10  ram
+  ;# patch12: unfortunate typo transformed all tags into UNKNOWN
+  ;# 
+***************
+*** 241,247 ****
+  	unless (@contents > 2) {			# Has at least . and ..
+  		unless (rmdir($dir)) {			# Don't leave empty directories
+  			&'add_log("SYSERR rmdir: $!") if $'loglvl;
+! 			&'add_log("ERROR could not remove directory $file") if $'loglvl;
+  		}
+  	}
+  }
+--- 244,250 ----
+  	unless (@contents > 2) {			# Has at least . and ..
+  		unless (rmdir($dir)) {			# Don't leave empty directories
+  			&'add_log("SYSERR rmdir: $!") if $'loglvl;
+! 			&'add_log("ERROR could not remove directory $dir") if $'loglvl;
+  		}
+  	}
+  }
+
+Index: agent/pl/context.pl
+Prereq: 2.9.1.1
+*** agent/pl/context.pl.old	Tue Jan 12 13:41:17 1993
+--- agent/pl/context.pl	Tue Jan 12 13:41:18 1993
+***************
+*** 1,4 ****
+! ;# $Id: context.pl,v 2.9.1.1 92/12/01 09:19:38 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: context.pl,v 2.9.1.2 93/01/12 12:12:49 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	context.pl,v $
++ ;# Revision 2.9.1.2  93/01/12  12:12:49  ram
++ ;# patch15: outdated locks checking now performed by &acs_rqst
++ ;# 
+  ;# Revision 2.9.1.1  92/12/01  09:19:38  ram
+  ;# patch13: remove context file lock when excessively old
+  ;# 
+***************
+*** 66,72 ****
+  sub save {
+  	require 'ctime.pl';
+  	local($existed) = -f $cf'context;
+- 	&'checklock($cf'context);				# Ensure no eternal locking
+  	&'acs_rqst($cf'context) if $existed;	# Lock existing file
+  	unless (open(CONTEXT, ">$cf'context")) {
+  		&'add_log("ERROR cannot overwrite context file: $!") if $'loglvl > 1;
+--- 69,74 ----
+
+Index: agent/mailpatch.SH
+Prereq: 2.9
+*** agent/mailpatch.SH.old	Tue Jan 12 13:40:54 1993
+--- agent/mailpatch.SH	Tue Jan 12 13:40:54 1993
+***************
+*** 14,24 ****
+  esac
+  echo "Extracting agent/mailpatch (with variable substitutions)"
+  $spitshell >mailpatch <<!GROK!THIS!
+! # feed this into perl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: mailpatch.SH,v 2.9 92/07/14 16:49:00 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 14,24 ----
+  esac
+  echo "Extracting agent/mailpatch (with variable substitutions)"
+  $spitshell >mailpatch <<!GROK!THIS!
+! $startperl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: mailpatch.SH,v 2.9.1.1 93/01/12 12:09:15 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 26,31 ****
+--- 26,34 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mailpatch.SH,v $
++ # Revision 2.9.1.1  93/01/12  12:09:15  ram
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9  92/07/14  16:49:00  ram
+  # 3.0 beta baseline.
+  # 
+
+Index: agent/mailhelp.SH
+Prereq: 2.9
+*** agent/mailhelp.SH.old	Tue Jan 12 13:40:49 1993
+--- agent/mailhelp.SH	Tue Jan 12 13:40:49 1993
+***************
+*** 14,24 ****
+  esac
+  echo "Extracting agent/mailhelp (with variable substitutions)"
+  $spitshell >mailhelp <<!GROK!THIS!
+! # feed this into perl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: mailhelp.SH,v 2.9 92/07/14 16:48:54 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 14,24 ----
+  esac
+  echo "Extracting agent/mailhelp (with variable substitutions)"
+  $spitshell >mailhelp <<!GROK!THIS!
+! $startperl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: mailhelp.SH,v 2.9.1.1 93/01/12 12:09:00 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 26,31 ****
+--- 26,34 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	mailhelp.SH,v $
++ # Revision 2.9.1.1  93/01/12  12:09:00  ram
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9  92/07/14  16:48:54  ram
+  # 3.0 beta baseline.
+  # 
+
+Index: agent/maillist.SH
+Prereq: 2.9
+*** agent/maillist.SH.old	Tue Jan 12 13:40:51 1993
+--- agent/maillist.SH	Tue Jan 12 13:40:52 1993
+***************
+*** 14,24 ****
+  esac
+  echo "Extracting agent/maillist (with variable substitutions)"
+  $spitshell >maillist <<!GROK!THIS!
+! # feed this into perl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maillist.SH,v 2.9 92/07/14 16:48:57 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 14,24 ----
+  esac
+  echo "Extracting agent/maillist (with variable substitutions)"
+  $spitshell >maillist <<!GROK!THIS!
+! $startperl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maillist.SH,v 2.9.1.1 93/01/12 12:09:08 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 26,31 ****
+--- 26,34 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	maillist.SH,v $
++ # Revision 2.9.1.1  93/01/12  12:09:08  ram
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9  92/07/14  16:48:57  ram
+  # 3.0 beta baseline.
+  # 
+
+Index: agent/maildist.SH
+Prereq: 2.9
+*** agent/maildist.SH.old	Tue Jan 12 13:40:46 1993
+--- agent/maildist.SH	Tue Jan 12 13:40:47 1993
+***************
+*** 14,24 ****
+  esac
+  echo "Extracting agent/maildist (with variable substitutions)"
+  $spitshell >maildist <<!GROK!THIS!
+! # feed this into perl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maildist.SH,v 2.9 92/07/14 16:48:51 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 14,24 ----
+  esac
+  echo "Extracting agent/maildist (with variable substitutions)"
+  $spitshell >maildist <<!GROK!THIS!
+! $startperl
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maildist.SH,v 2.9.1.1 93/01/12 12:08:51 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 26,31 ****
+--- 26,34 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	maildist.SH,v $
++ # Revision 2.9.1.1  93/01/12  12:08:51  ram
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9  92/07/14  16:48:51  ram
+  # 3.0 beta baseline.
+  # 
+
+Index: agent/examples/vacation
+*** agent/examples/vacation.old	Tue Jan 12 13:40:38 1993
+--- agent/examples/vacation	Tue Jan 12 13:40:38 1993
+***************
+*** 1,14 ****
+  Subject: This is a recording... [Re: %R]
+  Organization: %o
+  
+! [This is a recording -- Last revision was made on %T]
+  
+  Hello %N:
+  
+  I have received your message of %[Date], whose subject
+! was "%s" and dropped it into %u's mailbox.
+! I'll send you such an acknowledgment only once a day, unless your message is
+! filtered into one of %u's mail folders, whose reading is delayed anyway.
+  (Your mail was received by a program, not by a person, in case you wonder.)
+  
+  %U told me:
+--- 1,13 ----
+  Subject: This is a recording... [Re: %R]
+  Organization: %o
+  
+! [This is a recording -- Last revision was made on %T (month/day)]
+  
+  Hello %N:
+  
+  I have received your message of %[Date], whose subject
+! was "%s" and dropped it into one
+! of %u's mailbox. I will send you such an acknowledgment only once a day.
+  (Your mail was received by a program, not by a person, in case you wonder.)
+  
+  %U told me:
+
+*** End of Patch 16 ***
+
+exit 0 # Just in case...

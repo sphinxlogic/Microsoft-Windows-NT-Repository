@@ -1,0 +1,1142 @@
+Newsgroups: comp.sources.misc
+From: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Subject: v38i046:  ibpag2 - Icon-Based Parser Generator, Part02/05
+Message-ID: <1993Jul13.044351.17077@sparky.sterling.com>
+X-Md4-Signature: ac437851616f92bab10659bfbf3f0ad5
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: University of Chicago
+Date: Tue, 13 Jul 1993 04:43:51 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Posting-number: Volume 38, Issue 46
+Archive-name: ibpag2/part02
+Environment: Icon
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README
+# Wrapped by kent@sparky on Sun Jul 11 18:51:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(52712 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+X
+X
+X
+X
+X
+X		       A User's Manual for Ibpag2
+X	       (Icon-Based Parser Generation System 2)
+X			     Version 1.2
+X
+X				- or -
+X
+X	       How to Use an LR-based Parser Generator
+X
+X
+X		       Richard L. Goerwitz, III
+X			University of Chicago
+X
+X
+X
+X
+X
+X
+X1.__What_is_Ibpag2?
+X
+X	Ibpag2 is a so-called "parser generator," i.e. a tool for
+Xautomating the process of generating a recognizer and/or parser from
+Xabstract structural descriptions of an input language.  Put in more
+Xpractical terms, Ibpag2 is a piece of software that a) reads a source
+Xfile containing a grammar that defines an input language, and then b)
+Xoutputs an automaton that recognizes that language.  The user may, at
+Xhis or her option, specify actions this automaton should take when it
+Xsees various substructures within its input language.  By default,
+Xhowever, the parser simply recognizes a given sequence as belonging,
+Xor not, to that language.
+X
+X	Ibpag2 utilizes so-called "LR" table generation and parsing
+Xalgorithms.  These algorithms facilitate construction of reasonably
+Xfast deterministic pushdown automata that are powerful enough to
+Xhandle most commonly used programming language constructs.  LR-based
+Xsystems come in three main flavors: SLR(1), LALR(1), and LR(1).  The
+XLR(1) flavor is fairly easy to implement, but uses too many resources
+Xto be practical.  LALR(1) algorithms are harder to implement, but much
+Xfaster, and the parse tables they construct use considerably less
+Xmemory than do those of their LR(1) counterparts.  SLR(1) algorithms
+Xare the easiest to implement, compile the fastest, and use about as
+Xmuch memory as LALR(1)s.  SLR(1) is the least powerful of the three,
+Xthough, so there is a tradeoff.  Ibpag2 is an "enhanced" SLR(1) parser
+Xgenerator.  It is enhanced in the sense that it can operate both in
+Xits native SLR(1) mode, and in a more powerful "quasi-GLR" mode (on
+Xwhich, see section 5 below).
+X
+X	As its full title ("Icon-Based Parser Generator 2") implies,
+XIbpag2 is written in Icon [2,3], as are the automata it creates.
+XIbpag2 has been tested with Icon version 8.10.  So far I have only run
+Xit on an i386 box running Xenix 2.3.3, and on a Sun 4 running some
+Xversion of SunOS.  I have many reports, though, of it running under
+Xother UNIX variants.  It will probably also run under other operating
+Xsystems, though modifications will in some instances be required.  The
+XIbpag2 distribution adheres to de facto UNIX installation standards:
+XJust set the appropriate variables in the makefile, and then "make
+Xinstall."  For those who are using a non-UNIX system, or who have not
+Xinstalled such a package before, there is a section at the end
+Xentitled "Installing Ibpag2" that details the installation procedure
+X(section 6).
+X
+X	Aside from the above-mentioned installation section (6), the
+Xremainder of this document aims to provide the reader a) with a
+Xsimple, practical explanation of what LR-family parser generators are
+Xand how they work (section 2), and b) with a set of directions
+Xspecifically on how to use Ibpag2 (section 3).  There is also an
+Xadvanced section on debugging (4), and one on using Ibpag2 with non-LR
+Xand/or ambiguous languages (5).  The discussion is geared for those
+Xthat have little or no experience in parsing or automaton theory.  For
+Xvery advanced reading, consult the bibliography.  For a brief summary
+Xof Ibpag's command-line options, see the main Ibpag2 source file,
+Xibpag2.icn, or invoke ibpag2 with the -h (help) option.
+X
+X	In general, be warned that Ibpag2 works best with small or
+Xmedium-sized grammars.  Its parse tables have to be reconstructed at
+Xrun-time, and the code for doing this can become a bit cumbersome for
+Xgrammars with more than 100 rules and fifty or so terminal symbols.  I
+Xmyself have processed grammars with as many as 300 terminals and 400
+Xrules.  Although the resulting automata run well enough, the output
+Xfiles are over 300k, and Ibpag2 takes a long time to create them.  If
+Xyou must use Ibpag2 with a very large grammar symbols, try the -c
+Xcommand-line option (which produces compressed parse tables).  This
+Xoption is discussed below, in section 4.  Compiling (rather than
+Xinterpreting) Ibpag2 may result in much faster processing, as will
+Xresetting your BLOCKSIZE and STRSIZE environment variables.  See the
+Xinstallation section (6) below on using the Icon compiler to create
+Xthe Ibpag2 executable.  Good starting values for BLOCKSIZE and STRSIZE
+Xare triple their default values (i.e. 3 x 65000).  These variables are
+Xdiscussed in the Icon manual page.
+X
+X	My ultimate aim in writing this document has been to make
+Xaccessible to the non-CS portion of the Icon community what for them
+Xmight seem an inaccessible branch of applied parsing and automaton
+Xtheory.  I am a philologist myself, and feel that there is a great
+Xdeal that can and ought to be done to make advanced tools accessible
+Xto people with other interests than twiddling bits or pondering the
+Xtrue meaning of epsilon closures :-).
+X
+X	Any comments on the Ibpag2 system itself or its documentation
+Xwill be gratefully received.  Write to me at the address appended to
+Xthe final section (6).
+X
+X
+X2.__What_is_an_LR_Parser_Generator?
+X
+X	Back in the late 50s and 60s, linguists, mathematicians, and
+Xsoftware engineers all became intensely interested in the formal
+Xproperties of languages: Can they be described as a series of logical
+Xstructures and relations?  Can computers recognize and manipulate
+Xthese structures efficiently?  Linguists, in particular, quickly
+Xrealized that the amount of structural complexity, ambiguity, and pure
+Xnoise in natural language would render it computationally intractable,
+Xespecially given the limited memory/throughput of then available CPUs.
+XMathematicians and engineers, however, found that many of the
+Xformalized notations they dealt with could, in fact, be (re)designed
+Xin such a way that efficient computer processing could - at least in
+Xprinciple - be achieved.
+X
+X	Principle, in this case, did not squarely meet reality until
+Xviable parser generation tools came into being.  Parser generation
+Xtools map an abstract structural description of a formal notation or
+X"language" to working computer code.  Ideally, the designer simply
+Xmakes assertions like:
+X
+X	an expression is composed of either
+X	    1) a term (e.g. 10), or
+X	    2) an expression, a "+" or "-", and another expression
+X
+XParser generator systems translate these assertions (the "grammar")
+Xinto a machine, i.e. automaton, that can recognize and/or manipulate
+Xinput streams that conform to the "language" so described.
+X
+X	Let me dwell, for a moment, on the toy expression grammar
+Xoffered above.  Note that it describes a set of simple mathematical
+Xconstructs like:
+X
+X	9
+X	9 + 3
+X	9 + 3 - 8
+X
+XAccording to the specifications given above, the nine, three, and
+Xeight alone constitute terms - which are also expressions (via rule
+X1).  Because these terms are also expressions, "9 + 3" can be reduced
+Xto a larger expression by rule 2.  The same is true for "9 + 3 - 8,"
+Xexcept that there rule 2 must apply twice - once for "9 + 3," and then
+Xagain for that and the remainder of the line - in effect grouping the
+Xexpressions as ( ( (9) + (3) ) - (8) ).  It is also possible to group
+Xthe expression ( (9) + ( (3) - (8) ) ), although for the discussion
+Xthat immediately follows this second grouping will be ignored (see
+Xbelow on the terms "precedence" and "associativity").
+X
+X	If we add actions to the above grammar specification, we can
+Xcreate a calculator-like automaton.  Traditionally, LR-family automata
+X(like the ones Ibpag2 creates) contain a parser, one or more stacks,
+Xand a set of action tables.  The parser reads from an input stream
+Xsegmented into "tokens" (e.g. TERM, '+', '-'), and then manipulates
+Xits stacks according to directives contained in so-called "action" and
+X"goto" tables.  As it reads the input stream, the parser matches rules
+Xwith action code specified by the programmer, e.g. rule 2 above might
+Xbe matched with code that added/subtracted the expressions on either
+Xside of the '+'/'-' operator, and produced (in calculator style) the
+Xresult.  Alternatively, it might be matched with code that generated
+Xan equivalent construct in another language.
+X
+X	In the case of our toy expression grammar above, the
+Xcorresponding LR automaton operates as follows.  Omitting and/or
+Xsimplifying some of the inner details, it first looks at the input
+Xstream to see what the next token is.  If the next token is an
+Xoperator or end-of-input, it checks the top of its stack.  If the top
+Xof the stack has a term on it, that term is popped off, and pushed
+Xback on, this time renamed as an expression (rule 1 above).  The input
+Xtoken is then shifted from the input stream onto the stack, unless it
+Xis the end-of-input token, in which case the parser returns with a
+Xresult.  If the top of the stack has an expression on it (rather than
+Xa term), the parser pops the top three elements off of the stack, and
+Xthen either subtracts the third element from the first or adds the two
+Xtogether, depending on whether the second element down was the
+Xaddition or subtraction operator, and the result is pushed onto the
+Xstack as yet another expression.
+X
+X	Even in this much-simplified form, the automaton's structure
+Xis complex.  Let us look briefly, therefore, at a practical example of
+Xits actual workings.  If we were to feed it "9 + 3 + 8," our
+Xcalculator would take the following actions:
+X
+X	1) read the 9, and push it onto the stack as a term
+X	2) see a plus sign on the input stream
+X	3) pop the term (9) off of the stack and push it back on again
+X	   (this time calling it an expression)
+X	4) push the plus sign onto the stack
+X	5) read the 3, and push it onto the stack as a term
+X	6) see a minus sign on the input stream
+X	7) pop the 3 off of the stack and push it back on again (this
+X	   time calling it an expression)
+X	8) see a minus sign still waiting on the input stream
+X	9) pop 9, +, and 3 off of the stack, apply the plus operator
+X	   to 9 and 3, then push the result onto the stack again a
+X	   single expression (the stack now has 12 on top)
+X	10) read the minus sign, and push it onto the stack
+X	11) read the 8, and push it onto the stack as a term
+X	12) see the end of input coming up on the input stream
+X	13) pop the 8 off of the stack and push it back on again as an
+X	   expression
+X	14) see the end-of-input token still sitting on the input
+X	   stream 
+X	15) pop 12, -, and 8 off of the stack, apply the minus operator
+X	   to 12 and 8, then push the result onto the stack again (the
+X	   stack now has 4 on top)
+X	16) return the "answer" (i.e. 4)
+X
+X	This series of actions is hard to describe, and even more so
+Xto model as part of a hand-written computer program.  And, even if
+Xsuch a program were written by hand, this program would have to be
+Xmodified, at times radically, every time the grammar it assumes was
+Xaugmented or changed.  What I am leading up to is that, with a parser
+Xgenerator, the hand compilation stage can be eliminated by allowing
+Xthe programmer simply to declare his/her tokens and language specs,
+Xthen have the appropriate automaton constructed with little, or no,
+Xhuman intervention.  This is why parser generation tools were critical
+Xto the development of not just theoretically feasible, but truly
+X*practical*, LR-based computer language design systems.
+X
+X
+X3.__Using_Ibpag2
+X
+X	To recode the above toy expression grammar in
+XIbpag2-compatible format is relatively simple, especially if we omit
+Xthe actions initially, and concentrate on simple recognition.  We need
+Xonly a set of token declarations and three rules.  Certain
+Xmodifications will have to be made to the token declarations later on.
+XFor general illustration's sake, however, the following will suffice:
+X
+X	%token TERM, '+', '-'
+X	%%
+X	expression : TERM
+X	expression : expression, '+', expression
+X	expression : expression, '-', expression
+X
+XTERM, and the addition and subtraction operators, are the tokens (i.e.
+Xthe terminals symbols out of which the grammar is constructed - the
+Xthings that the input stream is segmented into).  Note the %token
+Xkeyword used to declare them.  The colon means "is composed of."  The
+Xdouble percent sign separates token declarations from the grammar
+Xproper.
+X
+X	Adding in our actions - which above were keyed to a complex
+Xset of decisions based on input tokens and stack conditions - requires
+Xjust a few extra lines of Ibpag2 action code, set off in curly braces:
+X
+X	%token TERM, '+', '-'
+X	%%
+X	expression : TERM { return arg1 }
+X	expression : expression, '+', expression { return arg1 + arg3 }
+X	expression : expression, '-', expression { return arg1 - arg3 }
+X
+XUsing a "|" shorthand for repeated left-hand sides of rules, we may
+Xreformat this as:
+X
+X	%token TERM, '+', '-'
+X	%%
+X	expression : TERM { return arg1 }
+X		   | expression, '+', expression { return arg1 + arg3 }
+X		   | expression, '-', expression { return arg1 - arg3 }
+X
+X	ArgX above refers to the Xth element of the right-hand side of
+Xthe preceding rule.  So, for example, arg1 in "{ return arg1 }" above
+Xrefers to TERM - the only right-hand side element of the first rule.
+XThe action "{ return arg1 }" means, "once you find a TERM and have
+Xrenamed it as an expression, use the value of TERM as the value for
+Xthat expression."  By way of contrast, the action "{ return arg1 +
+Xarg3 }" means, in conjunction with the rule it follows: "When you find
+Xan expression consisting of a sub-expression, a plus operator, and
+Xanother sub-expression, use the value of sub-expression 1 + the value
+Xof sub-expression 2 as the value for the expression as a whole."
+XTechnically, the action "{ return arg1 }" for expression : TERM is not
+Xnecessary, since the Ibpag2 parser, by default, pushes the value of
+Xthe last RHS arg onto the stack.  For epsilon productions (to be
+Xdiscussed below), it pushes &null.
+X
+X	One serious problem with this set of specifications is that
+Xthe operators '-' and '+' are left associative.  We humans take this
+Xfor granted, because correct algebraic grouping is something our
+Xhigh-school math teachers burned into us.  The computer, though, has
+Xto be told, pedantically, how to group addition and subtraction
+Xexpressions.  It has to be explicitly instructed, in other words, to
+Xgroup expressions like "9 + 32 - 4" as (9 + 32) - 4.  Without
+Xinstructions of this kind, the parser does not know, after it has read
+X"9 + 32" and is looking at a minus sign, whether to shift the minus
+Xsign onto the stack, and eventually try to group as 9 + (32 - 4), or
+Xto reduce "9 + 32" to an expression and group as (9 + 32) - 4.
+XAlthough in this case the grouping may not seem to matter, it
+Xsometimes does.  Some operators group right to left.  The unary minus
+Xsign, for example, is one such operator (--4 groups as (- (- 4))).  To
+Xinclude the unary minus sign in our grammar, we might append yet
+Xanother rule:
+X
+X	%token TERM
+X	%left '+', '-'
+X	%right '-'
+X	%%
+X	expression : TERM { return arg1 }
+X		   | expression, '+', expression { return arg1 + arg3 }
+X		   | expression, '-', expression { return arg1 - arg3 }
+X		   | '-', expression { return - arg2 }
+X
+XThe trouble with this arrangement is that the minus sign was already
+Xdeclared as left associative.  To get around the conflict we use a
+X"dummy" token declaration, and a %prec declaration in the applicable
+Xrule:
+X
+X	%token TERM
+X	%left '+', '-'
+X	%right UMINUS
+X	%%
+X	expression : TERM { return arg1 }
+X		   | expression, '+', expression { return arg1 + arg3 }
+X		   | expression, '-', expression { return arg1 - arg3 }
+X		   | '-', expression %prec UMINUS { return - arg2 }
+X
+XThe %prec declaration simply tells the parser that, even though the
+Xrule contains a '-' operator, the rule should be handled as if the
+Xoperator were UMINUS.  UMINUS is not actually used as a symbol in the
+Xright-hand side of any rule (hence the designation "dummy").  It is
+Xthere simply to make the last rule behave as if the minus sign in the
+Xlast rule were different than in the second-to-last rule.
+X
+X	Let us now add in multiplication and division operators to our
+Xcalculator specifications, and see what happens.  Let me reiterate
+Xhere that the action "{ return arg1 }" for rule 1 (expression : TERM)
+Xis not strictly necessary, since the default is to push the last RHS
+Xarg onto the value stack:
+X
+X	%token TERM
+X	%left '+', '-'
+X	%left '*', '/'
+X	%right UMINUS
+X	%%
+X	expression : TERM { return arg1 }
+X		   | expression, '+', expression { return arg1 + arg3 }
+X		   | expression, '-', expression { return arg1 - arg3 }
+X		   | expression, '*', expression { return arg1 * arg3 }
+X		   | expression, '/', expression { return arg1 / arg3 }
+X		   | '-', expression %prec UMINUS { return - arg2 }
+X
+XNote that the multiplication and division operators were defined
+X*after* the addition and subtraction operators.  The reason for this
+Xis that, technically speaking, the grammar itself is ambiguous.  If we
+Xtreat all operators identically, the parser will not be able to tell
+Xwhether "9 + 1 * 3" should be parsed as (9 + 1) * 3 or as 9 + (1 * 3).
+XAs we all know from our high-school algebra, multiplication has a
+Xhigher precedence than addition.  You do the multiplications before
+Xthe additions, in other words, no matter where they occur.  To tell
+Xthe parser to behave in this same manner, we declare '*' after '+'.
+XNote that, despite their higher priority, the '*' and '/' operators
+Xare still left associative.  Hence, given "3 / 4 * 7," the parser will
+Xgroup its input as (3 / 4) * 7.  As a brain teaser, try to figure out
+Xhow the parser might group the input "9 + 3 / 4 * 7."  Remember that
+Xhigher-precedence rules get done first, but that same-precedence rules
+Xget done according to associativity.
+X
+X	The only fundamental problem remaining with the above grammar
+Xis that it assumes that the end of the input coincides with the end of
+Xthe line.  Is it possible to redefine the language described as
+Xconsisting of arbitrary many lines?  The answer to this question is
+X"yes."  One can simply add another set of productions to the grammar
+Xthat state, essentially, that the input language consists of lines
+Xmade up of an expression and a carriage return or of nothing.  Nothing
+Xis indicated by the keyword epsilon.  Note that only the first rule
+Xhas an action field:
+X
+X	lines	: lines, expression, '\n'	{ write(arg2) }
+X		| lines, '\n'
+X		| epsilon
+X
+XThis rule-series may seem rather abstruse, but it becomes a bit
+Xclearer when you think about what happens on actual input.  If there
+Xis no input (epsilon), nothing gets printed, because lines : epsilon
+Xhas no action field.  If the parser sees an expression and a newline,
+Xthe parser takes this as an instance of epsilon, plus an expression,
+Xplus a newline.  This, then, becomes the first component of rule 1 if
+Xanother expression + newline follows, or of rule two if just a newline
+Xoccurs.  Every time an instance of rule 1 occurs, the action "{
+Xwrite(arg2) }" is executed, i.e. the value of the expression gets
+Xprinted.  If this still seems hard to fathom, try walking through
+Xstep-by-step.  Even experienced hands may find these sorts of rules
+Xdifficult to construct and debug.
+X
+X	Note that "lines" is now the so-called "start symbol" of our
+Xgrammar.  It is, in other words, the goal of every parse.  By default
+Xthe left-hand side symbol of the first rule is the start symbol.  This
+Xmay be overridden with a %start declaration in the tokens section (on
+Xwhich, see the sample Ibpag2 input file below).
+X
+X	With our new, multi-line start symbol in place, the only piece
+Xthat needs to be added, in order to make our calculator specification
+Xa full working input to Ibpag2, is a tokenizer.  A tokenizer is a
+Xroutine that reads input from a file or from some other stream (e.g.
+Xthe user's console), and then segments this input into tokens that its
+Xparser can understand.  In some cases, the tokens must be accompanied
+Xby a literal value.  For example, if we encounter a TERM, we return
+XTERM, just as it is listed in the %token declaration.  But what is the
+Xliteral value of a TERM token?  It could be, for example, 9, or 5, or
+X700.  The tokenizer returns the symbol TERM, in this case, but then
+Xrecords that TERM's actual value by setting some global variable.  In
+XIbpag2's parser, this variable is assumed to be "iilval."  In the
+Xtokenizer, therefore, one might write
+X
+X	iilval := (literal value)
+X	suspend TERM
+X
+XFor literal operators like '+' and '*', there is no need to set
+Xiilval, since their literal value is irrelevant.  One simply returns
+Xthese as integers (usually via "suspend ord(c)").
+X
+X	The tokenizer routine is normally appended to the grammar
+Xafter another double percent sign.  Everything after this second
+Xdouble percent sign is copied literally to the output file.
+XAlternatively, the tokenizer can be $included via Icon's preprocessor.
+XIbpag2 demands that the tokenizer be called iilex, and that it take a
+Xsingle file argument, that it be a generator, and that it fail when it
+Xreaches end-of-input.  Combined with our "lines" productions, the
+Xaddition of an iilex routine to our calculator grammar yields the
+Xfollowing Ibpag2 input file:
+X
+X	%token TERM
+X	%left '+', '-'
+X	%left '*', '/'
+X	%right UMINUS
+X
+X	%start lines
+X
+X	%%
+X
+X	expression : TERM { return arg1 }
+X		   | expression, '+', expression { return arg1 + arg3 }
+X		   | expression, '-', expression { return arg1 - arg3 }
+X		   | expression, '*', expression { return arg1 * arg3 }
+X		   | expression, '/', expression { return arg1 / arg3 }
+X		   | '-', expression %prec UMINUS { return - arg2 }
+X
+X	lines	   : lines, expression, '\n'	{ write(arg2) }
+X		   | lines, '\n'
+X		   | epsilon
+X
+X	%%
+X
+X	procedure iilex(infile)
+X
+X	    local nextchar, c, num
+X
+X	    nextchar := create !(!infile || "\n" || "\n")
+X	    c := @nextchar | fail
+X
+X	    repeat {
+X		if any(&digits, c) then {
+X		    if not (\num ||:= c) then
+X			num := c
+X		} else {
+X		    if iilval := \num then {
+X			suspend TERM
+X			num := &null
+X		    }
+X		    if any('+-*/()\n', c) then {
+X			iilval := c
+X			suspend ord(c)
+X		    } else {
+X			if not any(' \t', c) then {
+X			    # deliberate error - will be handled later
+X			    suspend &null
+X			}
+X		    }
+X		}
+X		c := @nextchar | break
+X	    }
+X	    if iilval := \num then {
+X		return TERM
+X		num := &null
+X	    }
+X
+X	end
+X
+X	procedure main()
+X	    return iiparse(&input, 1)
+X	end
+X
+XAs noted above, the tokenizer (iilex) must be a generator.  It must
+Xsuspend integers either directly (e.g. ord(c)), or else via symbolic
+Xdefines like TERM, created by Ibpag2 on the basis of %token, %right,
+X%left, and %nonassoc declarations.  The tokenizer must fail on end of
+Xinput.
+X
+X	If you like, cut the above code out, place it in a temporary
+Xfile, tmp.ibp, and then feed this file to Ibpag2 by typing "ibpag2 -f
+Xtmp.ibp -o tmp.icn."  If your system supports input and output
+Xredirection, type: "ibpag2 < tmp.ibp > tmp.icn."  Ibpag2 will turn
+Xyour grammar specifications and actions into a routine called iiparse.
+XIf you look above, you will see that I appended a main procedure that,
+Xin fact, calls iiparse().  Iiparse() takes two arguments: 1) an input
+Xstream, and 2) a switch that, if nonnull, tells the parser to fail
+Xrather than abort on unrecoverable errors.  When Ibpag2 is finished
+Xcreating its output file (tmp.icn above), compile that file the way
+Xyou would compile any other Icon program (e.g. "icont tmp").  Finally,
+Xrun the executable.  You should be able to type in various simple
+Xarithmetic expressions and have the program spit back answers each
+Xtime you hit a return.  The only problem you might encounter is that
+Xthe parser aborts on erroneous input.
+X
+X	The issue of erroneous input brings up yet another point of
+Xgeneral Ibpag2 usage.  Normally, if one is processing input, one does
+Xnot want to abort on errors, but rather just emit an error message,
+Xand to continue processing - if this is at all possible.  To do this,
+XIbpag2 provides a simple but fairly effective mechanism: A reserved
+X"error" token.
+X
+X	When Ibpag2 encounters an error, it will remove symbols from
+Xits stack until it has backtracked to a point where the error token is
+Xlegal.  It then shifts the error token onto the stack, and tries to
+Xre-start the token stream at the point where it left off, discarding
+Xtokens if necessary in order to get itself resynchronized.  The parser
+Xconsiders itself resynchronized when it has successfully read and
+Xshifted three tokens after shifting the error token.  Until then it
+Xremains in an error state, and will not output additional error
+Xmessages as it discards tokens.
+X
+X	This explanation may sound a bit abstruse, but in practice it
+Xis turns out to be quite simple.  To implement error handling for our
+Xcalculator, we really have to add only one production to the end of
+Xthe "lines" section:
+X
+X	lines	   : lines, expression, '\n'	{ write(arg2) }
+X		   | lines, '\n'
+X		   | epsilon
+X		   | error, '\n'	{
+X					  write("syntax error; try again:")
+X					  iierrok
+X					}
+X
+XGiven the above grammar, the parser will handle errors as follows: If
+Xan error occurs (say it has an expression then an operator on its
+Xstack and sees a newline on the input stream) the parser will throw
+Xout the operator, then check if the error token would be OK in this
+Xstate (which it would not).  Then it would throw out the expression.
+XAt this point, the stack is in the ready-to-read-a-lines state - the
+Xstate it was in before it read the last expression.  Since "lines" may
+Xconsist of error and '\n,' the error token is legal here, and so the
+Xparser pushes error onto the stack, then looks back at the input
+Xstream (where a newline is still waiting).  Since the newline now
+Xcompletes the rule lines : error, '\n', the parser pushes the newline
+Xonto its stack, then executes the action associated with this
+Xproduction, i.e. it writes "syntax error; try again:" to the console,
+Xprompting the user for additional input.
+X
+X	The keyword "iierrok" in the above error production's action
+Xfield is there for a subtle, but important, reason: It tells the
+Xparser to consider itself resynchronized, even if three tokens have
+Xnot yet been shifted.  If iierrok were not in the action code for this
+Xrule, and the user were to supply more bad input after the prompt,
+Xthen the parser would simply discard those tokens, without emitting
+Xanother error message.  Why?  Because, as you will recall, the parser
+Xdiscards tokens after an error, in efforts to resynchronize itself.
+XUntil it reads and shifts three tokens successfully, it considers
+Xitself in an error state, and will not emit additional error messages.
+XThe three-token resync rule is there to prevent a cascade of
+Xirrelevant error messages touched off by a single error.  In our
+Xcalculator's case above, though, we are smarter than the parser.  We
+Xknow that it is resynchronized as soon as it reduces error, '\n' to
+Xlines.  So if a syntax error occurs on the next token, it should be
+Xreported.  Adding "iierrok" to the action insures that the parser will
+Xdo just this.
+X
+X	In addition to iierrok, there are several other directives
+XIbpag2 accepts as part of the action code segments.  These are as
+Xfollows:
+X
+X	iiclearin		clear the current input token
+X	IIERROR			perform error recovery
+X	IIACCEPT		simulate an accept action
+X
+XThere are several other directives (all implemented as macros) that
+XIbpag2 accepts in GLR mode.  For a discussion of GLR mode, see below,
+Xsection 5.  IIERROR in particular, and error recovery in general, work
+Xa bit differently in that mode than they do in Ibpag2's normal (i.e.
+XLR) mode.
+X
+X	There are admittedly many other topics that might be covered
+Xhere.  This treatment, however, is intended as a general nontechnical
+Xintroduction, and not as a complete textbook on parser generation use.
+XIf you want to learn more about this topic, consult the bibliography.
+XAlso, check the UNIX manual pages on the YACC utility (Yet Another
+XCompiler Compiler).  Ibpag's input format is fairly close (too close,
+Xperhaps) to YACC's.  In fact, most of what is said about YACC in UNIX
+Xdocumentation can be carried directly over to Ibpag2.  Several salient
+Xdifferences, though, should be kept in mind:
+X
+X        1) YACC's "$$ = x" constructs are replaced by "return x" (e.g.
+X           "$$ = $1 + $3" -> "return $1 + $3" [$1 is a synonym for
+X	   "arg1", $3 for "arg3", etc.])
+X
+X        2) all variables within a given action are, by default, local
+X           to that action; i.e. they cannot be accessed by other
+X           actions unless you declare them global elsewhere (e.g. in
+X           the pass-through part of the declarations section %{ ...
+X           %})
+X
+X        3) the %union and %type declarations/tags are not needed by
+X	   Ibpag2 (both for better and for worse)
+X
+X        4) tokens and symbols are separated from each other by a comma
+X           in Ibpag2 files (e.g. %token '+', '-' and S : NP, VP)
+X
+X        5) epsilon is indicated by the keyword "epsilon" (e.g. REL :
+X           epsilon), and not by an empty RHS
+X
+X        6) both epsilon and error *may* be declared as %tokens for
+X           reasons of precedence, although they retain hard-coded
+X           internal values (-2 and -1, respectively)
+X
+X        7) all actions must follow the last RHS symbol of the rule
+X           they apply to (preceded by an optional %prec directive); to
+X           achieve S : NP { action1 }, VP { action2 }, insert a dummy
+X           rule: S : NP, dummy, VP { action2 }; dummy : epsilon {
+X           action1 } ;
+X
+X        8) YYERROR, YYACCEPT, yyclearin, and yyerrok are the same,
+X           except they are written IIERROR, IIACCEPT, iiclearin, and
+X           iierrok (i.e. "ii" replaces "yy")
+X
+X        9) Ibpag2's input files are tokenized as modified Icon files,
+X           and, as a consequence, Icon's reserved words must not be
+X           used as symbols (e.g. "if : if, then" is no go)
+X
+XI myself find YACC to be ugly.  As a result, Ibpag2 is not an exact
+XYACC clone.  I would like to underscore the fact that I have no
+Xintention to move in this direction, either.  It's as YACC-like as
+Xit's going to get!
+X
+X	Both YACC and non-YACC users should note number 9 in the above
+Xlist.  Don't use things like "while," "every," "do," etc. as symbols
+Xin your grammar!  Just use the same rules for Ibpag2 nonterminals as
+Xfor Icon variables, and you'll be OK.
+X
+X	For those that just can't bear using anything but a strictly
+XYACC-conformant system, I've included a preprocessor with the Ibpag2
+Xdistribution called (at one user's recommendation) "iacc."  Iacc reads
+X&input - assumed to be a YACCish grammar - and sends to &output an
+XIbpag2-conformant file.  I have not tested this file extensively, and
+Xthere are likely to be bugs in the way I've handled the necessary 2
+Xtoken lookaheads and value stack references.  Give it a whirl, though,
+Xif you are feeling adventurous.  The only reason I personally use Iacc
+Xis that some YACCs (e.g. BSD YACC) have particularly nice debugging
+Xmessages and help.  If my grammar is particularly complex, I just run
+Xit through YACC without action code first, then use Iacc to convert it
+Xto Ibpag2 format.  Iacc's output, as I noted, is not meant to be
+Xpretty, so I invariably end up doing a little editing - usually just
+Xrespacing a few rules, and re-inserting any comments that I might have
+Xput in the original YACC file.
+X
+X	In general, Ibpag2 (like YACC) handles epsilon moves and
+Xindirect cycles.  LR-mode shift-reduce conflicts are also handled in
+Xthe normal way (i.e. pick the rule with the highest priority, and, in
+Xcases where the priority is the same, check the associativities).  In
+Xcontrast to YACC, Ibpag2 flags reduce/reduce conflicts as errors
+X(since these often conceal deeper precedence problems and just plain
+Xkludges).  Reduce/reduce conflict errors are easily enough remedied,
+Xif need be, via (dummy) precedences.  One can convert these errors to
+Xwarnings by specifying -y on the command line.  With the -y option,
+Xreduce/reduce conflicts are resolved in favor of the rule that occurs
+Xfirst in the grammar.  The -y switch also prevents Ibpag2 from
+Xaborting on shift/reduce conflicts, telling it instead to resolve in
+Xfavor of shift.  Basically, -y is a partial YACC compatibility switch.
+XNormally (i.e. in SLR mode) Ibpag2 is much more finicky than YACC
+Xabout conflicts in its grammars.
+X
+X	Also in contrast to YACC, Ibpag2 supports multiple
+Xsimultaneous parsers.  Ibpag2 normally names its main parser routine
+Xiiparse().  By using the -m command-line option, however, you can
+Xoverride this default behavior, and force Ibpag2 to augment this name
+Xin some uniquely identifiable fashion.  For example, "ibpag2 -m _1 <
+Xtmp.ibp > tmp.icn" will force Ibpag2 to write a parser called
+X"iiparse_1" to tmp.icn.  Note that, instead of calling iilex, this
+Xiiparse_1() routine will now call iilex_1, and all necessary global
+Xvariables will have _1 appended to them (e.g. errors will become
+Xerrors_1).  I don't expect that many people will have occasion to use
+Xthis feature.  It is there, though, for those that want it.
+X
+X
+X4.__Debugging
+X
+X	Constructing and debugging LR(1) family parsers can sometimes
+Xbe hair raising, even with a parser generator.  Several precautions
+Xcan be taken, however, to minimize the agony.  The first is to declare
+Xall tokens initially as part of a single %token declaration, i.e. with
+Xno precedences, and with the same associativities.  Also, leave out
+Xaction code until the grammar seems to be working.  In this stage, you
+Xcan even run the grammar through (BSD)YACC or GNU Bison.  All you
+Xwould need to do is remove the commas between tokens and symbols, and
+Xplace a semicolon at the end of every rule.  During this and all
+Xdebugging stages, supply Ibpag2 with a -v command-line switch.  This
+Xwill cause Ibpag2 to write a summary of rules, tokens, and its two
+Xstate tables to "ibpag2.output" (a bit like GNU Bison, but with a
+Xhard-coded name).  If you get messages about conflicts in your parse
+Xtables (e.g.  "unresolvable reduce/reduce conflict, state 5, token
+X257, rules 4,5").  This file will tell you what rules these are, and
+Xwhat token number 257 is.  Use precedences and associativities to
+Xclear these problems up as they arise.  If you are comfortable having
+Xreduce/reduce errors resolved by the order in which the conflicting
+Xrules occur, then use the -y command-line switch.  With -y on the
+Xcommand line, Ibpag2 will always resolve in favor of the earlier rule.
+XThis option will also cause it to resolve all shift/reduce conflicts
+Xin favor of shift.
+X
+X	There are certain languages that are not ambiguous that SLR(1)
+Xparsers like Ibpag2 will fail to produce an unambiguous parse table
+Xfor.  The classic example is
+X
+X	expr : lval, '=', rval | rval
+X	lval : '*', rval       | ID
+X	rval : lval
+X
+XC programmers will recognize this as a toy expression grammar with
+Xcode for identifiers, assignments, and pointers.  The problem is that
+Xif we feed this grammar to Ibpag2, it will claim that there is a
+Xconflict on lookahead '='.  In truth, there is no ambiguity.  The SLR
+Xparser simply doesn't remember the pathway the parser used to get to
+Xthe state it is in when it sees '=' on the input stream.  Whether the
+Xparser gets into this state by seeing '*' plus and ID, or by seeing
+Xjust an ID, it knows to turn the ID into an lval.  Then it knows to
+Xturn lval into rval.  At this point, though, it doesn't know whether
+Xto shift the = sign via rule 1, or to turn rval and the preceding '*'
+Xinto an lval.  The parser has "forgotten" that the '*' is there
+Xwaiting on level down on the stack!
+X
+X	The solution to this problem is actually quite simple (at
+Xleast in concept).  Just provide a unique pathway in the grammar for
+Xthe conflicting rules.  In this case, they are rules 1 and 5 (the
+Xfirst and last):
+X
+X	expr : lval, '=', rval | rval
+X	lval : '*', pval | ID
+X	pval : lval
+X	rval : lval
+X
+XNow when the parser sees '*,' it can only have a pval after it.  Never
+Xmind that pval is composed of precisely the same things as rval.  The
+Xpoint is that the parser generator follows a different route after
+Xseeing '*' than if it starts with ID and no preceding '*'.  Hence it
+X"remembers" that that the '*' is back on the stack, waiting for the
+X"lval : '*', pval" rule to apply.  There is no more conflict.
+X
+X	Go ahead and run these grammars through Ibpag2 if you aren't
+Xsure what is going on.  Remember to declare ID as a token, and to
+Xplace "%%" in the appropriate spot!
+X
+X	If you get your parser up and running, but find that it is not
+Xfunctioning quite the way you expect, add the following line somewhere
+Xnear the start of Ibpag2's output file:
+X
+X	$define IIDEBUG
+X
+XIf you like, you can add it to the beginning of your Ibpag2 input
+Xfile.  Place it in the declarations section (before the first double
+Xpercent sign), and surround it by %{ and %}, e.g.:
+X
+X	%{
+X	$define IIDEBUG
+X	%}
+X
+XThis tells Ibpag2 to send $define IIDEBUG straight through to the
+Xoutput file.
+X
+X	What defining IIDEBUG does is tell iiparse, once compiled, to
+Xemit profuse debugging messages about the parser's actions, and about
+Xthe state of its stacks.  This display will not make a whole lot of
+Xsense to anyone who doesn't understand LR-family parsers, so those who
+Xwant to access this feature should perhaps go through a standard
+Xreference like Aho, Sethi, and Ullman [1].
+X
+X	If, after you are finished debugging your grammar, you find
+Xthat Ibpag2's output files are rather large, you may try saving space
+Xby compressing the action and goto tables.  This is accomplished by
+Xinvoking Ibpag2 with the -c (compress) option.  Using this option
+Xmakes debugging difficult, and makes the parser run a bit more slowly.
+XIt also only works for rather large grammars with long nonterminal
+Xsymbol names.  Don't even consider it until the grammar is thoroughly
+Xdebugged and you have determined that the output file's size is just
+Xtoo great for practical use.  Even then, compression may or may not
+Xhelp, depending on how long your nonterminal names are.  In general,
+XIbpag2 is best as a teaching tool, or as a production system for
+Xmedium or small grammars.
+X
+X
+X5.__Using_Ibpag2_with_Non-LR_Grammars
+X
+X	There may be times when you *want* to parse languages that no
+XLR-based algorithm can handle.  There may be times, that is, when the
+Xgrammar you want to use contains conflicts or ambiguities that are
+Xthere by design, and not by oversight.  For example, you may want to
+Xparse a natural language.  Full-blown natural languages involve many
+Xhighly ambiguous constructs, and are not LR-parsable.  By invoking it
+Xwith the -a option, Ibpag2 can parse or recognize certain natural
+Xlanguages, or, more practically speaking, certain NL subsets.  The
+Xletter "a" in -a is supposed to stand for "ambiguous," although what
+Xthis option really does is put Ibpag2 into a quasi-GLR mode - i.e.
+Xinto a kind of "generalized" LR mode in which it can accept non-LR
+Xgrammars [4,5].
+X
+X	User-visible changes to Ibpag2's operation in quasi-GLR mode
+X(i.e. with the -a option) are as follows:
+X
+X	1) iiparse() is now a generator
+X	2) action code can use suspend as well as return
+X	3) IIERROR places the current thread in an error state (i.e.
+X	   it doesn't *necessarily* trigger error recovery; see below)
+X	4) there are two new action-code directives (iiprune and
+X           iiisolate) and a general define (AUTO_PRUNE)
+X	5) conflicts due to ambiguities in the grammar no longer
+X	   result in aborted processing (so, e.g., if you do not
+X	   specify the -y option on a grammar with reduce/reduce
+X	   conflicts, Ibpag2 will simply generate a parser capable of
+X	   producing multiple parses for the same input)
+X
+X	In quasi-GLR mode, iiparse() should be invoked in a way that
+Xwill render multiple results usable, if they are available (e.g.
+X"every result := iiparse(&input) do...".  Action code is also allowed
+Xto produce more than one value (i.e. to use suspend).  When it does
+Xso, iiparse() creates separate parse threads for each value.  So, for
+Xinstance, if your action code for some production suspends both of the
+Xfollowing lists,
+X
+X	["noun", "will", "gloss: desire"]
+X	["noun", "will", "gloss: legal document mandating how _
+X	                  one's possessions are to be disposed _
+X			  of after one's death"],
+X
+Xiiparse() would create two separate parse threads - one for each
+Xresult.  Note that in this case, the syntactic structure of each
+Xthread is the same.  It is their semantics (i.e. the stuff on the
+Xvalue stack) that differs.
+X
+X	If you use the iierrok and iiclearin macros in your action
+Xcode before suspending any result, their affect persists through all
+Xsubseqent suspensions and resulting parse threads.  If you use these
+Xmacros after suspending one or more times, however, they are valid
+Xonly for the parse thread generated by the next suspension.  By way of
+Xcontrast, the IIERROR macro *always* flags only the next parse thread
+Xas erroneous.  Likewise, IIACCEPT always simulates an accept action on
+Xthe next suspension only.  IIERROR and IIACCEPT, in other words, never
+Xhave any effect on subsequent suspensions and parse threads other than
+Xthe one that immediately follows them.  This is true of iierrok and
+Xiiclearin only when used after the first suspension.
+X
+X	In quasi-GLR mode, IIERROR (number three in the difference
+Xlist above) becomes a mechanism for placing the current parse thread
+Xin error mode.  This is similar to, but not quite identical to, how
+XIIERROR functions in straight LR mode.  In quasi-GLR mode, if other
+Xthreads can carry on the parse without error the erroneous parse
+Xthread is quietly clobbered.  Full-blown error recovery only occurs if
+Xall of the other parsers halt as well.  This makes sense if you think
+Xabout it.  Why keep erroneous threads around when there are threads
+Xstill continuing a valid parse?  For some large interactive systems,
+Xit might be necessary to keep bogus threads around longer, and weed
+Xthem out only after a lengthy grading process.  If you are
+Xconstructing a system such as this, you'll have to modify Ibpag2's
+Xiiglrpar.lib file.  In particular, you'll need to change the segment
+Xin iiparse() that takes out the trash, so to speak, in such a way that
+Xit does so only if the error count in a given parser either rises
+Xabove a specific threshhold or else exceeds the number of errors in
+Xthe "most correct" parser by a certain amount.  This is not that hard
+Xto do.  I just don't expect that most parsers people generate with
+XIbpag2 will use IIERROR or error recovery in general in so involved a
+Xfashion.
+X
+X	Iiprune and iiisolate (number 4 above) are used to control the
+Xgrowth of the parallel parser array.  In order to give straightforward
+X(read "implementationally trivial") support for action code, Ibpag2
+Xcannot create a parse "forest" in the sense that a standard GLR parser
+Xdoes.  Instead, it simply duplicates the current parser environment
+Xwhenever it encounters a conflict in its action table.  Even if the
+Xconflict turns out to reflect only a local ambiguity, the parsers, by
+Xdefault, remain separate.  Put differently, Ibpag2's quasi-GLR parser,
+Xby default, makes no direct effort to reduce the size of its parser
+Xarrays or to alter the essentially linear structure of their value and
+Xstate stacks.  Size reduction, where necessary and/or desirable, is up
+Xto the programmer.  What the iiprune macro is there to do is to give
+Xthe programmer a way of pruning a given thread out of the active
+Xparser list.  Iiisolate allows him or her to prune out every thread
+X*but* the current one.  AUTO_PRUNE makes the parser behave more like a
+Xstandard GLR parser, instructing it to prune parse threads that are
+Xessentially duplicating another parse thread's efforts.  The parser,
+Xthough, does not build a parse tree per se, the way most GLR parsers
+Xtypically do, but rather manipulates its value stack like a
+Xtraditional LR-family parser.
+X
+X	Iiprune is useful when, for example, the semantics (i.e. your
+X"action" code segments) determine that a given parse thread is no
+Xlonger viable, and you want to signal the syntactic analyzer not to
+Xcontinue pursuing it.  The difference between iiprune and IIERROR is
+Xthat iiprune clobbers the current parser immediately.  IIERROR only
+Xputs it into an error state.  If all active parsers end up in an error
+Xstate, and none can shift additional input symbols, then the IIERROR
+Xmacro induces error recovery.  Iiprune does not.  NB: iiprune, if used
+Xin action code that suspends multiple results, cancels the current and
+Xremaining results (i.e. it does not clobber parsers already spun off
+Xby previous suspensions by invocation of that same code; it merely
+Xcuts the result sequence).  Iiprune essentially stands in for "fail"
+Xin this situation.  Fail itself can be used in the code, but be warned
+Xthat iiparse() will still push *at least one* value onto its value
+Xstack, even if a given action code segment fails.  This keeps the
+Xvalue stack in sync with the syntax.  To avoid confusion, I recommend
+Xnot using "fail" in any action code.
+X
+X	Iiisolate is useful if, during error recovery, you prompt the
+Xuser interactively, or do something else that cannot be elegantly done
+Xin parallel for two or more distinct parse threads.  Iiisolate allows
+Xyou to preserve only the the current parse thread, and to clobber the
+Xrest.  Iiisolate can also be useful as a way of making sure that only
+Xone thread carries on the parse in non-error situations.  Suppose that
+Xwe have a series of productions:
+X
+X	sentences  :  sentences sentence '\n'
+X			{ print_parse(arg2) }
+X		   |  sentences '\n'
+X		   |  error '\n'
+X		   |  epsilon
+X
+XIf we get a sentence with more than one parse, all of the underlying
+Xthreads that produced these parses will be active for the next
+Xsentence as well.  In many situations this will not be what we want.
+XIf our desire it to have only one active parse thread at the start of
+Xeach sentence, we simply tell our lexical analyzer to suspend two
+Xnewlines every time it sees a newline on the input stream.  This
+Xinsures that the second rule will always apply right after the first.
+XWe then insert iiisolate directives for both it and the one error
+Xproduction:
+X
+X	sentences  :  sentences sentence '\n'
+X			{ print_parse(arg2) }
+X		   |  sentences '\n'
+X			{ iiisolate }
+X		   |  error '\n'
+X			{ iiisolate; iierrok }
+X		   |  epsilon
+X
+XThe effect here is to allow multiple parsers to be generated only
+Xwhile parsing "sentence".  The iiisolate directive, in other words,
+Xsees to it that no sentence parse will ever begin with multiple active
+Xparsers.  As with LR mode, iierrok clears the error flag for the
+X(current) parser.
+X
+X	Note that if you use iiisolate in action code that suspends
+Xmultiple results, iiisolate will clobber all parsers but the one
+Xgenerated by the next suspension.
+X
+X	If there is no need for close control over the details of the
+Xparser array, and you wish only to clobber parsers that end up doing
+Xthe same thing as some other parser (and hence returning identical
+Xvalues), then just make sure you add "$define AUTO_PRUNE" to the
+Xpass-through code section at the top of the file.  Put differently,
+Xdefining AUTO_PRUNE instructs the quasi-GLR parser to weed out parsers
+Xthat are in the same state, and which have identical value stacks.
+XAUTO_PRUNE can often be used in place of iiisolate in situations like
+Xthe one discussed just above.  Its only drawback is that it slows
+Xthe parser a bit.
+X
+X	Other than these deviations (action code and iiparse becoming
+Xgenerators, IIERROR's altered behavior, and the addition of iiprune,
+Xiiisolate, and AUTO_PRUNE), Ibpag2's quasi-GLR mode - at least on the
+Xsurface - works pretty much like its straight LR mode.  In fact, if
+Xyou take one of your SLR(1) grammars, and run it through Ibpag2 using
+Xthe -a option, you probably won't notice any difference in the
+Xresulting automaton unless you do some debugging or perform some
+Xtiming tests (the GLR parser is slower, though for straight SLR(1)
+Xgrammars not by much).  Even with non-SLR(1) grammars, the quasi-GLR
+Xparser will clip along merrily, using all the same sorts of rules,
+Xaction code, and macros that you would typically use in LR mode!
+X
+X
+X6.__Installing_Ibpag
+X
+X	If you are a UNIX user, or have a generic "make" utility, you
+Xare in luck.  Just edit Makefile.dist according to the directions
+Xgiven in that file, rename it as "makefile," then execute "make."
+XIbpag2 should be created automatically.  If everything goes smoothly,
+Xthen "make install" (su-ing root, if both possible and necessary for
+Xcorrect installation of the iiparse.icn file).  Check with your system
+Xadministrator if you are on a public system, and aren't sure what to
+Xdo.
+X
+X	Please be sure to read the directions in the makefile
+Xcarefully, and set DESTDIR and LIBDIR to the directory where you want
+Xthe executable and parser file to reside.  Also, make sure the paths
+Xyou specify are correct for your Icon executables.  Although Ibpag2
+Xwill apparently compile using iconc, I would recommend using the
+Xinterpreter, icont, first, unless you are planning on working with a
+Xlarge grammar.
+X
+X	If you are using some other system - one that lacks "make" -
+Xthen shame on your manufacturer :-).  You'll only be slightly
+Xinconvenienced, though.  Type:
+X
+X	icont -o ibpag2 follow.icn ibpag2.icn ibreader.icn \
+X		 ibtokens.icn ibutil.icn ibwriter.icn iohno.icn \
+X		 outbits.icn slritems.icn slrtbls.icn shrnktbl.icn \
+X		 version.icn slshupto.icn
+X
+XThe backslashes merely indicate that the next line is a continuation.
+XThe whole thing should, in other words, be on a single line.  As noted
+Xabove, you may compile rather than interpret - if your OS supports the
+XIcon compiler.  Just replace "icont" above with "iconc."  The
+Xresulting executable will run considerably faster than with "icont,"
+Xalthough the time required to compile it may be large, and the (still
+Xsomewhat experimental) compiler may not work smoothly in all
+Xenvironments.
+X
+X	If your operating system support environment variables, and
+Xyou have set up your LPATH according to the specifications in the Icon
+Xdistribution (see below), then you may copy iiparse.lib and
+Xiiglrpar.lib to some file in your LPATH.  If you do not do this, or if
+Xyour OS does not support environment variables, then you must be in
+Xthe directory where you keep your Ibpag2 files when you use it, or
+Xelse invoke Ibpag2 with the -p dirname option (where dirname is the
+Xdirectory that holds the iiparse.lib and iiglrpar.lib files that come
+Xwith the Ibpag2 distribution).  The .lib files contain template
+Xparsers that are critical to Ibpag2's operation.  Ibpag2 will abort if
+Xit cannot find them.
+X
+X	If your operating system permits the creation of macros or
+Xbatch files, it might be useful to create one that changes
+Xautomatically to the Ibpag2 source directory, and runs the executable.
+XThis has the side-benefit of making it easier for Ibapg2 to find the
+Xparser library files, iiparse.lib and iiglrpar.lib.  Under DOS, for
+Xinstance, one might create a batch file that says:
+X
+X	c:
+X	cd c:\ibpag2
+X	iconx ibpag2 %1 %2 %3 %4 %5 %6 %7 %8 %9
+X
+XDOS, it turns out, has to execute Icon files indirectly through iconx,
+Xso this technique has yet another advantage in that it hides the
+Xsecond level of indirection - although it prevents you from using
+Xinput and output redirection.  Naturally, the above example assumes
+Xthat Ibpag2 is in c:\ibpag2.
+X
+X	Ibpag2 assumes the existence on your system, not only of an
+XIcon interpreter or compiler, but also of an up-to-date Icon Program
+XLibrary.  There are several routines included in the IPL that Bibleref
+Xuses.  Make sure you (or the local system administrators) have put the
+XIPL online, and have translated the appropriate object modules.  Set
+Xyour IPATH environment variable to point to the place where the object
+Xmodules reside.  Set LPATH to point to the modules' source files.
+XBoth IPATH and LPATH are documented in doc directory of the Icon
+Xsource tree (ipd224.doc).  If your system does not support environment
+Xvariables, copy ximage.icn, options.icn, ebcdic.icn, and escape.icn
+Xfrom the IPL into the Ibpag2 source directory, and compile them in
+Xwith the rest of the Ibpag2 source files, either by adding them to the
+XSRC variable in the makefile, or by adding them manually to the "icont
+X-o ..." command line given above.
+X
+X	If you have any problems installing or using Ibpag2, please
+Xfeel free to drop me, Richard Goerwitz, an e-mail message at
+Xgoer@midway.uchicago.edu, or (via the post) at:
+X
+X	5410 S. Ridgewood Ct., 2E
+X	Chicago, IL   60615
+X
+X
+X6.__Bibliography
+X
+X1.  Aho, Alfred V., Sethi, Ravi, and Ullman, Jeffrey D.  Compilers.
+X    Addison-Wesley: Reading, Massachusetts, second printing, 1988.
+X
+X2.  Griswold, Ralph E. and Griswold, Madge T.  The Icon Programming
+X    Language. Prentice-Hall, Inc.: Englewood Cliffs, New Jersey, USA,
+X    second edition, 1990.
+X
+X3.  Griswold, Ralph E., Jeffery, Clinton L., and Townsend, Gregg M.
+X    Version 8.10 of the Icon Programming Language.  Univ. of Arizona
+X    Icon Project Document 212, 1993.  (obtain via anonymous FTP from
+X    cs.arizona.edu ~ftp/icon/docs/ipd212.doc)
+X
+X4.  Tomita, Masaru.  Efficient Parsing for Natural Language.  Boston:
+X    Kluwer Academic Publishers, c. 1985.
+X
+X5.  Tomita, Masaru editor.  Generalized LR Parsing.  Boston:  Kluwer
+X    Academic Publishers, 1991.
+END_OF_FILE
+  if test 52712 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

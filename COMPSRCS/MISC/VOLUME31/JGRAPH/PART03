@@ -1,0 +1,1821 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v31i033:  jgraph - A filter for plotting postscript graphs v8.0, Part03/07
+Message-ID: <1992Jul14.151608.10377@sparky.imd.sterling.com>
+X-Md4-Signature: bb2ffa7ca9e27296075d716a079bb5b0
+Date: Tue, 14 Jul 1992 15:16:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 31, Issue 33
+Archive-name: jgraph/part03
+Environment: UNIX, VMS, postscript
+Supersedes: jgraph: Volume 16, Issue 20
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  draw.c edit.c prio_list.h
+# Wrapped by kent@sparky on Sun Jul 12 20:04:02 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 7)."'
+if test -f 'draw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'draw.c'\"
+else
+  echo shar: Extracting \"'draw.c'\" \(18554 characters\)
+  sed "s/^X//" >'draw.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:15:39 $
+X * $Author: jsp $
+X */
+X
+X#include "jgraph.h"
+X#include <stdio.h>
+X#include <math.h>
+X
+Xstatic char real_eof = EOF;
+X
+Xfloat ctop(val, axis)
+Xfloat val;
+XAxis axis;
+X{
+X  if (axis->is_lg) {
+X    if (val <= 0.0) {
+X      error_header();
+X      fprintf(stderr, 
+X              "Value of %f is at negative infinity with logrhythmic %c axis\n", 
+X              val, (axis->is_x) ? 'x' : 'y'); 
+X       exit(1);
+X    }
+X    return (log(val) / axis->logfactor - axis->logmin) * axis->factor;
+X  } else {
+X    return (val - axis->min) * axis->factor;
+X  }
+X}
+X
+Xfloat disttop(val, axis)
+Xfloat val;
+XAxis axis;
+X{
+X  if (axis->is_lg) {
+X    return FCPI * val;
+X  } else {
+X    return (val) * axis->factor;
+X  }
+X}
+X
+Xfloat intop(val)
+Xfloat val;
+X{
+X  return FCPI * val;
+X}
+X
+X#define MAXIMUM(a,b) ((a > b) ? a : b)
+X
+Xdraw_axis(a, other)
+XAxis a, other;
+X{
+X  char orientation;
+X  Hash h;
+X  String s;
+X
+X  orientation = (a->is_x) ? 'x' : 'y';
+X  setlinewidth(1.0);
+X  comment("Drawing Axis");
+X  if (a->grid_lines) {
+X    comment("Drawing Grid lines");
+X    gsave();
+X    setgray(a->gr_graytype, a->gr_gray);
+X    for (h = first(a->hash_lines); h != nil(a->hash_lines); h = next(h)) {
+X      if (h->major) {
+X        printline(h->loc, 0.0, h->loc, other->psize, orientation);
+X      }
+X    }
+X    grestore();
+X  }
+X  if (a->mgrid_lines) {
+X    comment("Drawing Minor Grid lines");
+X    gsave();
+X    setgray(a->mgr_graytype, a->mgr_gray);
+X    for (h = first(a->hash_lines); h != nil(a->hash_lines); h = next(h)) {
+X      if (!h->major) {
+X        printline(h->loc, 0.0, h->loc, other->psize, orientation);
+X      }
+X    }
+X    grestore();
+X  }
+X  gsave();
+X  setgray(a->graytype, a->gray);
+X  if (a->draw_axis_line) {
+X    printline(0.0, a->draw_at, a->psize, a->draw_at, orientation);
+X  }
+X  if (a->draw_hash_marks) {
+X    comment("Drawing Hash Marks");
+X    for (h = first(a->hash_lines); h != nil(a->hash_lines); h = next(h)) {
+X      printline(h->loc, a->draw_hash_marks_at, h->loc, 
+X                a->draw_hash_marks_at + (h->size * a->hash_scale), 
+X                orientation);
+X    }
+X  }
+X  if (a->draw_hash_labels) {
+X    comment("Drawing Hash Labels");
+X    for (s = first(a->hash_labels); s != nil(a->hash_labels); s = next(s)) {
+X      a->hl->label = s->s->label;
+X      if (a->is_x) {
+X        a->hl->x = s->s->x;
+X      } else {
+X        a->hl->y = s->s->y;
+X      }
+X      draw_label(a->hl);
+X    }
+X  }
+X  if (a->draw_axis_label) {
+X    comment("Drawing Axis Label");
+X    draw_label(a->label);
+X  }
+X  grestore();
+X  printf("\n");
+X}
+X
+X
+Xdraw_label(l)
+XLabel l;
+X{
+X  if (l->label == CNULL) return;
+X  comment(l->label);
+X  print_label(l);
+X}
+X
+Xset_clip(g)
+XGraph g;
+X{
+X  comment("Setting Clip");
+X  printf("newpath\n");
+X  printf(" 0 0 moveto 0 %f lineto %f %f lineto %f 0 lineto\n",
+X           g->y_axis->psize, g->x_axis->psize,
+X           g->y_axis->psize, g->x_axis->psize);
+X  printf("  closepath clip newpath\n");
+X}
+X
+Xdraw_curves(g)
+XGraph g;
+X{
+X  Curve c;
+X
+X  gsave();
+X  printf("\n");
+X  if (g->clip) set_clip(g);
+X  for(c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    draw_curve(c, g);
+X  }
+X  grestore();
+X  printf("\n");
+X}
+X
+Xdraw_curve(c, g)
+XCurve c;
+XGraph g;
+X{
+X  Point p, px, py;
+X  int i, j;
+X  float this_x, this_y, last_x, last_y, x, y;
+X
+X  gsave();
+X  setgray(c->graytype, c->gray);
+X  if (c->clip) set_clip(g);
+X  if (first(c->xepts) != nil(c->xepts) ||
+X      first(c->yepts) != nil(c->yepts)) {
+X    comment("Drawing Epts");
+X    px = first(c->xepts);
+X    py = first(c->yepts);
+X    setlinewidth(c->linethick);
+X    setlinestyle('s', (Flist)0);
+X    for (p = first(c->pts); p != nil(c->pts); p = next(p)) {
+X      if (p->e == 'x') {
+X        x = ctop(p->x, g->x_axis);
+X        y = ctop(p->y, g->y_axis);
+X        print_ebar(x, y, ctop(px->x, g->x_axis), c->marksize[1]/2.0, 'x');
+X        px = next(px);
+X        print_ebar(x, y, ctop(px->x, g->x_axis), c->marksize[1]/2.0, 'x');
+X        px = next(px);
+X      } else if (p->e == 'y') {
+X        x = ctop(p->x, g->x_axis);
+X        y = ctop(p->y, g->y_axis);
+X        print_ebar(y, x, ctop(py->y, g->y_axis), c->marksize[0]/2.0, 'y');
+X        py = next(py);
+X        print_ebar(y, x, ctop(py->y, g->y_axis), c->marksize[0]/2.0, 'y');
+X        py = next(py);
+X      }
+X    }
+X  }
+X
+X  comment("Drawing Curve");
+X  if (c->linetype != '0' || c->poly) {
+X    if (c->bezier) {
+X      i = 0;
+X      j = 0;
+X      if (c->poly) printf("newpath ");
+X      for (p = first(c->pts); p != nil(c->pts); p = next(p)) {
+X        if (j == 0 && i == 0) {
+X          start_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis), c);
+X          j++;
+X        } else if (i != 0) {
+X          bezier_control(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+X        } else {
+X          bezier_end(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+X          j++;
+X        }
+X        if (!c->poly && j == 30 && i == 0) {
+X          end_line();
+X          p = prev(p);
+X          j = 0;
+X          i = 0;
+X        } else i = (i + 1) % 3;
+X      }
+X      if (j != 0) {
+X        if (c->poly) {
+X          printf("closepath ");
+X          setfill(c->pfilltype, c->pfill);
+X        }
+X        end_line();
+X      }
+X    } else {
+X      i = 0;
+X      if (c->poly) printf("newpath ");
+X      for (p = first(c->pts);
+X           p != nil(c->pts);
+X           p = next(p)) {
+X        if (i == 0) {
+X          start_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis), c);
+X        } else {
+X          cont_line(ctop(p->x, g->x_axis), ctop(p->y, g->y_axis));
+X        } 
+X        if (!c->poly && i == 100 && next(p)) {
+X          end_line();
+X          p = prev(p);
+X          i = 0;
+X        } else i++;
+X      }
+X      if (i != 0) {
+X        if (c->poly) {
+X          printf("closepath ");
+X          setfill(c->pfilltype, c->pfill);
+X        }
+X        end_line();
+X      }
+X    }
+X  }
+X  comment("Drawing Curve points");
+X  i = 0;
+X  for (p = first(c->pts);
+X       p != nil(c->pts);
+X       p = next(p)) {
+X    this_x = ctop(p->x, g->x_axis);
+X    this_y = ctop(p->y, g->y_axis);
+X    if (!c->bezier || i == 0) draw_mark(this_x, this_y, c, g);
+X    if (p != first(c->pts)) {
+X      if (c->rarrows || (c->rarrow && p == last(c->pts))) {
+X        if (!c->bezier || i == 0) 
+X          draw_arrow(this_x, this_y, last_x, last_y, c);
+X      }
+X      if (c->larrows || (c->larrow && prev(p) == first(c->pts))) {
+X        if (!c->bezier || i == 1) 
+X          draw_arrow(last_x, last_y, this_x, this_y, c);
+X      }
+X    }
+X    last_x = this_x;  
+X    last_y = this_y;  
+X    i = (i + 1) % 3;
+X  }
+X  grestore();
+X  printf("\n");
+X}
+X
+Xdraw_mark(x, y, c, g)
+Xfloat x, y;
+XCurve c;
+XGraph g;
+X{
+X  Point p;
+X  float ms0, ms1;
+X  int i, j;
+X  FILE *f;
+X  char ch;
+X
+X  if (c->marktype == 'n') return;
+X  ms0 = c->marksize[0] / 2.0;
+X  ms1 = c->marksize[1] / 2.0;
+X
+X  gsave();
+X  printf(" %f %f translate %f rotate\n", x, y, c->mrotate);
+X
+X  switch (c->marktype) {
+X    case 'n': break;
+X    case 'p': if (c->postscript == CNULL) break;
+X              printf("%f %f scale\n", ms0, ms1);
+X              if (!c->postfile) {
+X                printf("%s\n", c->postscript);
+X              } else {
+X                f = fopen(c->postscript, "r");
+X                if (f == NULL) {
+X                fprintf(stderr, 
+X                        "Error: postscript file %s couldn't be opened\n",
+X                        c->postscript);
+X                  exit(1);
+X                }
+X                for (ch = getc(f); ch != real_eof; ch = getc(f)) putchar(ch);
+X                putchar('\n');
+X                fclose(f);
+X              }
+X              break;
+X    case 'c': printline(-ms0, 0.0, ms0, 0.0, 'x');
+X              printline(-ms1, 0.0, ms1, 0.0, 'y');
+X              break;
+X    case 'b': start_poly(-ms0, -ms1);
+X              cont_poly(ms0, -ms1);
+X              cont_poly(ms0, ms1);
+X              cont_poly(-ms0, ms1);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'd': start_poly(-ms0, 0.0);
+X              cont_poly(0.0, -ms1);
+X              cont_poly(ms0, 0.0);
+X              cont_poly(0.0, ms1);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'g': p = first(c->general_marks);
+X              if (p == nil(c->general_marks)) break;
+X              if (next(p) == nil(c->general_marks)) break;
+X              start_poly(p->x*ms0, p->y*ms1);
+X              for(p = next(p); p != nil(c->general_marks); p = next(p))
+X                cont_poly(p->x*ms0, p->y*ms1);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'G': i = 0;
+X              for (p = first(c->general_marks);
+X                   p != nil(c->general_marks);
+X                   p = next(p)) {
+X                if (i == 0) {
+X                  printf("%f %f moveto ", p->x*ms0, p->y*ms1);
+X                } else {
+X                  printf("%f %f lineto\n", p->x*ms0, p->y*ms1);
+X                }
+X                if (i == 100) {
+X                  printf("stroke\n");
+X                  p = prev(p);
+X                  i = 0;
+X                } else i++;
+X              }
+X              if (i != 0) printf("stroke\n");
+X              break;
+X    case 'B': i = 0;
+X              j = 0;
+X              for (p = first(c->general_marks);
+X                   p != nil(c->general_marks);
+X                   p = next(p)) {
+X                if (j == 0 && i == 0) {
+X                  printf("%f %f moveto ", p->x*ms0, p->y*ms1);
+X                  j++;
+X                } else if (i != 0) {
+X                  printf("%f %f ", p->x*ms0, p->y*ms1);
+X                } else {
+X                  printf("%f %f curveto\n", p->x*ms0, p->y*ms1);
+X                  j++;
+X                }
+X                if (j == 30 && i == 0) {
+X                  printf(" stroke\n");
+X                  p = prev(p);
+X                  j = 0;
+X                  i = 0;
+X                } else i = (i + 1) % 3;
+X              }
+X              if (j != 0) printf(" stroke\n");
+X              if (! ((i == 1) || (i == 0 && j == 0))) {
+X                fprintf(stderr, "Error: curve %d, %s\n", c->num,
+X                        "wrong number of points for bezier marktype\n");
+X                exit(1);
+X              }
+X              break;
+X
+X    case 'Z': i = 0;
+X              j = 0;
+X              for (p = first(c->general_marks);
+X                   p != nil(c->general_marks);
+X                   p = next(p)) {
+X                if (i == 0 && j == 0) {
+X                  printf("newpath %f %f moveto ", p->x*ms0, p->y*ms1);
+X                  j++;
+X                } else if (i != 0) {
+X                  printf("%f %f ", p->x*ms0, p->y*ms1);
+X                } else {
+X                  printf("%f %f curveto\n", p->x*ms0, p->y*ms1);
+X                }
+X                i = (i + 1) % 3;
+X              }
+X              printf("closepath ");
+X              setfill(c->filltype, c->fill);
+X              printf("stroke\n");
+X
+X              if (i != 1) {
+X                fprintf(stderr, "Error: curve %d, %s\n", c->num,
+X                        "wrong number of points for bezier marktype\n");
+X                exit(1);
+X              }
+X              break;
+X
+X    case 'x': printline(-ms0, -ms1, ms0, ms1, 'x');
+X              printline(-ms0, ms1, ms0, -ms1, 'x');
+X              break;
+X    case 'o': printellipse(0.0, 0.0, ms0, ms0, c->filltype, c->fill);
+X              break;
+X    case 'e': printellipse(0.0, 0.0, ms0, ms1, c->filltype, c->fill);
+X              break;
+X    case 't': start_poly(ms0, -ms1);
+X              cont_poly(0.0, ms1);
+X              cont_poly(-ms0, -ms1);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'X': start_poly(ms0, 0.0);
+X              cont_poly(-ms0, 0.0);
+X              cont_poly(-ms0, g->x_axis->draw_at - y);
+X              cont_poly(ms0, g->x_axis->draw_at - y);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'Y': start_poly(0.0, ms1);
+X              cont_poly(0.0, -ms1);
+X              cont_poly(g->y_axis->draw_at - x, -ms1);
+X              cont_poly(g->y_axis->draw_at - x, ms1);
+X              end_poly(c->filltype, c->fill);
+X              break;
+X    case 'l': draw_label(c->lmark);
+X              break;
+X    default: error_header(); 
+X             fprintf(stderr, "Unknown mark: %c\n", c->marktype);
+X             break;
+X  }
+X  grestore();
+X}
+X
+Xdraw_arrow(x1, y1, x2, y2, c)
+Xfloat x1, y1, x2, y2;
+XCurve c;
+X{
+X  float dx, dy;
+X  float ms0;
+X  float theta, ct, st;
+X  
+X  
+X  if (c->marktype == 'o') {
+X    dx = x1 - x2;
+X    dy = y1 - y2;
+X    if (dx == 0.0 && dy == 0.0) return;
+X
+X    ms0 = c->marksize[0] / 2.0;
+X    if (dx == 0.0) theta = asin(1.0); else theta = atan(dy/dx);
+X    if (theta < 0.0) theta = -theta;
+X    ct = cos(theta)*ms0;
+X    st = sin(theta)*ms0;
+X    x1 = x1 + ct*(dx > 0.0 ? -1.0 : 1.0);
+X    y1 = y1 + st*(dy > 0.0 ? -1.0 : 1.0);
+X
+X    if ( ((x1 - x2 > 0) != (dx > 0)) || 
+X         ((y1 - y2 > 0) != (dy > 0)) ) return;
+X  }
+X
+X  dx = x1 - x2;
+X  dy = y1 - y2;
+X  if (dx == 0.0 && dy == 0.0) return;
+X
+X  gsave();
+X  printf("%f %f translate %f %f atan rotate\n", x1, y1, dy, dx);
+X  start_poly(0.0, 0.0);
+X  cont_poly(-(c->asize[0]), (c->asize[1]));
+X  cont_poly(-(c->asize[0]), -(c->asize[1]));
+X  end_poly(c->afilltype, c->afill);
+X  grestore();
+X  printf("\n");
+X}
+X
+Xdraw_legend(g)
+XGraph g;
+X{
+X  Curve c;
+X  Legend l;
+X  float x, y;
+X  char tmpmktype;
+X
+X  l = g->legend;
+X  comment("Drawing legend");
+X  if (l->type == 'n' || l->anylines < 0) return;
+X  gsave();
+X  if (l->type == 'u') {
+X    printf("%f %f translate %f rotate\n", l->l->x, l->l->y, l->l->rotate);
+X  }
+X  for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    if (c->l->label != CNULL) {
+X      gsave();
+X      setgray(c->graytype, c->gray);
+X      y = (c->l->ymax + c->l->ymin) / 2.0;
+X      if (l->anylines) {
+X        if (c->linetype != '0' && l->linelength != 0) {
+X          if (l->type == 'c' && c->l->hj == 'r') {
+X            x = c->l->x + l->midspace;
+X          } else {
+X            x = c->l->x - l->midspace - l->linelength;
+X          }
+X          start_line(x, y, c); 
+X          cont_line(x+l->linelength, y);
+X          end_line();
+X        }
+X        tmpmktype = c->marktype;
+X        c->marktype = 'n';
+X        if (c->larrows || c->larrow) draw_arrow(x, y, x+l->linelength, y, c);
+X        if (c->rarrows || c->rarrow) draw_arrow(x+l->linelength, y, x, y, c);
+X        c->marktype = tmpmktype;
+X        if (l->type == 'c' && c->l->hj == 'r') {
+X          x = c->l->x + l->midspace + l->linelength / 2.0;
+X        } else {
+X          x = c->l->x - l->midspace - l->linelength / 2.0;
+X        }
+X      } else if (l->type == 'c' && c->l->hj == 'r') {
+X        x = c->l->x + l->midspace;
+X      } else {
+X        x = c->l->x - l->midspace;
+X      }
+X      if (c->marktype == 'X' || c->marktype == 'Y') {
+X        char old;
+X        old = c->marktype;
+X        c->marktype = 'b'; 
+X        draw_mark(x, y, c, g); 
+X        c->marktype = old;
+X      } else {
+X        draw_mark(x, y, c, g);
+X      }
+X      grestore();
+X      printf("\n");
+X      draw_label(c->l);
+X    }
+X  }
+X  grestore();
+X  printf("\n");
+X}
+X
+Xdraw_strings(g)
+XGraph g;
+X{
+X  String s;
+X
+X  comment("Drawing strings");
+X  for (s = first(g->strings); s != nil(g->strings); s = next(s))
+X    draw_label(s->s);
+X}
+X
+Xdraw_graph(g)
+XGraph g;
+X{
+X  comment("Drawing New Graph");
+X  printf("%f %f translate\n", g->x_translate, g->y_translate);
+X  if (g->border) {
+X    printline(0.0, 0.0, 0.0, g->y_axis->psize, 'x');
+X    printline(0.0, 0.0, 0.0, g->x_axis->psize, 'y');
+X    printline(g->x_axis->psize, 0.0, g->x_axis->psize, g->y_axis->psize, 'x');
+X    printline(g->y_axis->psize, 0.0, g->y_axis->psize, g->x_axis->psize, 'y');
+X  }
+X  draw_axis(g->x_axis, g->y_axis);
+X  draw_axis(g->y_axis, g->x_axis);
+X  draw_label(g->title);
+X  draw_curves(g);
+X  draw_legend(g);
+X  draw_strings(g);
+X  printf("%f %f translate\n", - g->x_translate, - g->y_translate);
+X
+X}
+X
+Xdraw_graphs(gs, pp, landscape)
+XGraphs gs;
+Xint pp;
+Xint landscape;
+X{
+X  Graphs gs_p;
+X  Graph g;
+X
+X  for (gs_p = first(gs); gs_p != nil(gs); gs_p = next(gs_p)) {
+X    draw_header(gs_p, pp, landscape);
+X    for (g = first(gs_p->g); g != nil(gs_p->g); g = next(g)) {
+X      draw_graph(g);
+X    }
+X    draw_footer(gs_p, pp);
+X  }
+X}
+X
+Xdraw_header(gs, pp, landscape)
+XGraphs gs;
+Xint pp;
+Xint landscape;
+X{
+X  FILE *f;
+X  char c;
+X
+X  printf("%%!PS-Adobe-2.0 EPSF-1.2\n");
+X  printf("%%%%Pages: 0\n");
+X  if (landscape) {
+X    printf("%%%%BoundingBox: %f %f %f %f\n", gs->bb[1], gs->bb[0], 
+X            gs->bb[3], gs->bb[2]);
+X  } else {
+X    printf("%%%%BoundingBox: %f %f %f %f\n", gs->bb[0], gs->bb[1], 
+X            gs->bb[2], gs->bb[3]);
+X  }
+X
+X  printf("%%%%EndComments\n");
+X  printf("/$F2psDict 32 dict def $F2psDict begin\t$F2psDict /mtrx matrix put\n");
+X  printf("/DrawEllipse {\t/endangle exch def\t/startangle exch def");
+X  printf("\t/yrad exch def\t/xrad exch def\t/y exch def\t/x exch def");
+X  printf("\t/savematrix mtrx currentmatrix def");
+X  printf("\tx y translate xrad yrad scale 0 0 1 startangle endangle arc");
+X  printf("\tsavematrix setmatrix\t} def\n");
+X  printf("\tend\t/$F2psBegin {$F2psDict begin /$F2psEnteredState save def} def");
+X  printf("\t/$F2psEnd\n");
+X  printf("{$F2psEnteredState restore end} def\t%%%%EndProlog\n");
+X  printf("$F2psBegin\n");
+X  if (landscape) {
+X    printf("-90 rotate\n");
+X  }
+X  if (pp) {
+X    if (landscape) {
+X      printf("%f 0 translate\n", -(11.0 * FCPI));
+X      printf("%f %f translate\n",
+X        (((11.0 * FCPI) - gs->width) / 2.0) - gs->bb[0],     
+X        (((8.5 * FCPI) - gs->height) / 2.0) - gs->bb[1]);     
+X    } else {
+X      printf("%f %f translate\n",
+X        (((8.5 * FCPI) - gs->width) / 2.0) - gs->bb[0],     
+X        (((11.0 * FCPI) - gs->height) / 2.0) - gs->bb[1]);     
+X    }
+X  } else if (landscape) {
+X    printf("%f 0 translate\n", -gs->bb[2] - gs->bb[0]);
+X  }
+X  printf("1 setlinecap 1 setlinejoin\n");
+X  printf("0.700 setlinewidth\n");
+X  printf("0.00 setgray\n");
+X  gsave();
+X  setfont("Times-Roman", 9.00);
+X  if (gs->preamble != CNULL) {
+X    if (gs->prefile) {
+X      f = fopen(gs->preamble, "r");
+X      if (f == NULL) {
+X        fprintf(stderr, "Error: preamble file %s couldn't be opened\n",
+X                gs->preamble);
+X        exit(1);
+X      }
+X      for (c = getc(f); c != real_eof; c = getc(f)) putchar(c);
+X      putchar('\n');
+X      fclose(f);
+X    } else {
+X      printf("%s\n", gs->preamble);
+X    }
+X  }
+X}
+X
+Xdraw_footer(gs, pp)
+XGraphs gs;
+Xint pp;
+X{
+X  FILE *f;
+X  char c;
+X
+X  if (gs->epilogue != CNULL) {
+X    if (gs->epifile) {
+X      f = fopen(gs->epilogue, "r");
+X      if (f == NULL) {
+X        fprintf(stderr, "Error: epilogue file %s couldn't be opened\n",
+X                gs->epilogue);
+X        exit(1);
+X      }
+X      for (c = getc(f); c != real_eof; c = getc(f)) putchar(c);
+X      putchar('\n');
+X      fclose(f);
+X    } else {
+X      printf("%s\n", gs->epilogue);
+X    }
+X  }
+X  printf("$F2psEnd\n");
+X  grestore();
+X  if (pp) printf("showpage\n"); else printf("\n");
+X}
+X
+END_OF_FILE
+  if test 18554 -ne `wc -c <'draw.c'`; then
+    echo shar: \"'draw.c'\" unpacked with wrong size!
+  fi
+  # end of 'draw.c'
+fi
+if test -f 'edit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'edit.c'\"
+else
+  echo shar: Extracting \"'edit.c'\" \(31446 characters\)
+  sed "s/^X//" >'edit.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:15:40 $
+X * $Author: jsp $
+X */
+X
+X
+X#include <stdio.h>
+X
+X#include "jgraph.h"
+X
+X#define MAX(a,b) ((a > b) ? a : b)
+X#define MIN(a,b) ((a < b) ? a : b)
+X
+Xedit_label(l)
+XLabel l;
+X{
+X  char *txt, inp_str[80];
+X  float f;
+X  int i;
+X
+X  while ( getstring(inp_str) ) {
+X    if (strcmp(inp_str, ":") == 0) {
+X      if ((txt = getlabel()) == CNULL) return;
+X      l->label = txt;
+X    } else if (strcmp(inp_str, "x") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->x = f;
+X    } else if (strcmp(inp_str, "y") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->y = f;
+X    } else if (strcmp(inp_str, "fontsize") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->fontsize = f;
+X    } else if (strcmp(inp_str, "linesep") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->linesep = f;
+X    } else if (strcmp(inp_str, "hjl") == 0) {
+X      l->hj = 'l';
+X    } else if (strcmp(inp_str, "hjc") == 0) {
+X      l->hj = 'c';
+X    } else if (strcmp(inp_str, "hjr") == 0) {
+X      l->hj = 'r';
+X    } else if (strcmp(inp_str, "vjc") == 0) {
+X      l->vj = 'c';
+X    } else if (strcmp(inp_str, "vjt") == 0) {
+X      l->vj = 't';
+X    } else if (strcmp(inp_str, "vjb") == 0) {
+X      l->vj = 'b';
+X    } else if (strcmp(inp_str, "font") == 0) {
+X      if (!getstring(inp_str)) return;
+X      txt = (char *) malloc (sizeof(char)*strlen(inp_str)+2);
+X      strcpy(txt, inp_str);
+X      l->font = txt;
+X    } else if (strcmp(inp_str, "rotate") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->rotate = f;
+X    } else if (strcmp(inp_str, "lgray") == 0) {
+X        if (!getfloat(&f)) rejecttoken(); else {
+X          l->graytype = 'g';
+X          l->gray[0] = f;
+X        }
+X    } else if (strcmp(inp_str, "lcolor") == 0) {
+X        l->graytype = 'c';
+X        for( i = 0 ; i < 3 ; i++ )  {
+X          if(!getfloat(&f)) {
+X            rejecttoken();
+X            l->graytype = 'n';
+X            break ;
+X          } else l->gray[i] = f ;
+X        }
+X    } else {
+X      rejecttoken();
+X      return;
+X    }
+X  }
+X}
+X
+Xcopy_curve(c1, c2) /* Copies curve c2 to c1 */
+XCurve c1, c2;
+X{
+X  Flist f, newf;
+X  Point p, newp;
+X
+X  copy_label(c1->l, c2->l);
+X  copy_label(c1->lmark, c2->lmark);
+X  c1->l->label = CNULL;
+X  c1->clip = c2->clip;
+X  for (f = first(c2->gen_linetype); 
+X       f != nil(c2->gen_linetype); 
+X       f = next(f)) {
+X    newf = (Flist) get_node(c1->gen_linetype);
+X    newf->f = f->f;
+X    insert(newf, c1->gen_linetype);
+X  }
+X  c1->marktype = c2->marktype;
+X  c1->linetype = c2->linetype;
+X  c1->linethick = c2->linethick;
+X  c1->marksize[0] = c2->marksize[0];
+X  c1->marksize[1] = c2->marksize[1];
+X  c1->mrotate = c2->mrotate;
+X  for (p = first(c2->general_marks); 
+X       p != nil(c2->general_marks); 
+X       p = next(p)) {
+X    newp = (Point) get_node(c1->general_marks);
+X    newp->x = p->x;
+X    newp->y = p->y;
+X    insert(newp, c1->general_marks);
+X  }
+X  c1->graytype = c2->graytype;
+X  c1->gray[0] = c2->gray[0];
+X  c1->gray[1] = c2->gray[1];
+X  c1->gray[2] = c2->gray[2];
+X  c1->filltype = c2->filltype;
+X  c1->fill[0] = c2->fill[0];
+X  c1->fill[1] = c2->fill[1];
+X  c1->fill[2] = c2->fill[2];
+X  c1->poly = c2->poly;
+X  c1->pfilltype = c2->pfilltype;
+X  c1->pfill[0] = c2->pfill[0];
+X  c1->pfill[1] = c2->pfill[1];
+X  c1->pfill[2] = c2->pfill[2];
+X  c1->afilltype = c2->afilltype;
+X  c1->afill[0] = c2->afill[0];
+X  c1->afill[1] = c2->afill[1];
+X  c1->afill[2] = c2->afill[2];
+X  c1->postscript = c2->postscript;
+X  c1->postfile = c2->postfile;
+X  c1->rarrow = c2->rarrows;
+X  c1->larrow = c2->larrows;
+X  c1->rarrows = c2->rarrows;
+X  c1->larrows = c2->larrows;
+X  c1->asize[0] = c2->asize[0];
+X  c1->asize[1] = c2->asize[1];
+X  c1->bezier = c2->bezier;
+X}
+X
+Xcopy_label(l1, l2) /* Copies label l2 to l1 */
+XLabel l1, l2;
+X{
+X  l1->label = l2->label;
+X  l1->x = l2->x;
+X  l1->y = l2->y;
+X  l1->rotate = l2->rotate;
+X  l1->font = l2->font;
+X  l1->fontsize = l2->fontsize;
+X  l1->hj = l2->hj;
+X  l1->vj = l2->vj;
+X  l1->graytype = l2->graytype;
+X  l1->gray[0] = l2->gray[0];
+X  l1->gray[1] = l2->gray[1];
+X  l1->gray[2] = l2->gray[2];
+X  l1->linesep = l2->linesep;
+X}
+X
+Xcopy_axis(a1, a2) /* Copies axis a2 to a1 */
+XAxis a1, a2;
+X{
+X  copy_label(a1->label, a2->label);
+X  copy_label(a1->hl, a2->hl);
+X  a1->max = a2->max;
+X  a1->min = a2->min;
+X  a1->pmax = a2->pmax;
+X  a1->pmin = a2->pmin;
+X  a1->size = a2->size;
+X  a1->hash_interval = a2->hash_interval;
+X  a1->hash_start = a2->hash_start;
+X  a1->log_base = a2->log_base;
+X  a1->draw_hash_marks_at = a2->draw_hash_marks_at;
+X  a1->draw_hash_labels_at = a2->draw_hash_labels_at;
+X  a1->draw_at = a2->draw_at;
+X  a1->draw_hash_labels = a2->draw_hash_labels;
+X  a1->draw_axis_line = a2->draw_axis_line;
+X  a1->draw_hash_marks = a2->draw_hash_marks;
+X  a1->draw_axis_label = a2->draw_axis_label;
+X  a1->auto_hash_labels = a2->auto_hash_labels;
+X  a1->auto_hash_marks = a2->auto_hash_marks;
+X  a1->minor_hashes = a2->minor_hashes;
+X  a1->hash_scale = a2->hash_scale;
+X  a1->graytype = a2->graytype;
+X  a1->gray[0] = a2->gray[0];
+X  a1->gray[1] = a2->gray[1];
+X  a1->gray[2] = a2->gray[2];
+X  a1->mgr_graytype = a2->mgr_graytype;
+X  a1->mgr_gray[0] = a2->mgr_gray[0];
+X  a1->mgr_gray[1] = a2->mgr_gray[1];
+X  a1->mgr_gray[2] = a2->mgr_gray[2];
+X  a1->gr_graytype = a2->gr_graytype;
+X  a1->gr_gray[0] = a2->gr_gray[0];
+X  a1->gr_gray[1] = a2->gr_gray[1];
+X  a1->gr_gray[2] = a2->gr_gray[2];
+X  a1->grid_lines = a2->grid_lines;
+X  a1->mgrid_lines = a2->mgrid_lines;
+X  a1->precision = a2->precision;
+X  a1->start_given = a2->start_given;
+X  a1->is_lg = a2->is_lg;
+X  a1->is_x = a2->is_x;
+X}
+X
+XCurve do_copy_curve(g, gs, all_gs)
+XGraph g;
+XGraphs gs;
+XGraphs all_gs;
+X{
+X  Curve lastc, newc;
+X  Graph oldg;
+X  Graphs oldgs;
+X  int num;
+X
+X  if (!getint(&num)) {
+X    rejecttoken();
+X    oldg = g;
+X    oldgs = gs;
+X    while(gs != nil(all_gs)) {
+X      if (gs != oldgs) g = last(gs->g);
+X      while(g != nil(gs->g)) {
+X        if (first(g->curves) == nil(g->curves)) g = prev(g);
+X        else {
+X          lastc = last(g->curves);
+X          if (first(oldg->curves) == nil(oldg->curves))
+X            newc = new_curve(oldg->curves, 0);
+X          else newc = new_curve(oldg->curves, last(oldg->curves)->num + 1);
+X          copy_curve(newc, lastc);
+X          return newc;
+X        }
+X      }
+X      gs = prev(gs);
+X    }
+X    error_header(); 
+X    fprintf(stderr, "Cannot perform copycurve on first curve\n");
+X    exit(1);
+X  } else {
+X    if (first(g->curves) == nil(g->curves))
+X      newc = new_curve(g->curves, 0);
+X    else newc = new_curve(g->curves, last(g->curves)->num + 1);
+X    lastc = g->curves; 
+X    while(1) {
+X      lastc = prev(lastc);
+X      if (lastc == nil(g->curves) || lastc->num < num) {
+X        error_header(); 
+X        fprintf(stderr, "copycurve: curve #%d not found\n", num);
+X        exit(1);
+X      }
+X      if (lastc->num == num) {
+X        copy_curve(newc, lastc);
+X        return newc;
+X      }
+X    }
+X  }
+X  return newc; /* To shut lint up */
+X}
+X
+XLabel do_copy_string(g, gs, all_gs)
+XGraph g;
+XGraphs gs;
+XGraphs all_gs;
+X{
+X  String lastl, newl;
+X  Graph oldg;
+X  Graphs oldgs;
+X  int num;
+X
+X  if (!getint(&num)) {
+X    rejecttoken();
+X    oldgs = gs;
+X    oldg = g;
+X    while(gs != nil(all_gs)) {
+X      if (gs != oldgs) g = last(gs->g);
+X      while(g != nil(gs->g)) {
+X        if (first(g->strings) == nil(g->strings)) g = prev(g);
+X        else {
+X          lastl = last(g->strings);
+X          if (first(oldg->strings) == nil(oldg->strings))
+X            newl = new_string(oldg->strings, 0);
+X          else newl = new_string(oldg->strings, last(oldg->strings)->num + 1);
+X          copy_label(newl->s, lastl->s);
+X          return newl->s;
+X        }
+X      }
+X      gs = prev(gs);
+X    }
+X    error_header(); 
+X    fprintf(stderr, "Cannot perform copystring on first string\n");
+X    exit(1);
+X    return newl->s; /* To shut lint up */
+X  } else {
+X    if (first(g->strings) == nil(g->strings))
+X      newl = new_string(g->strings, 0);
+X    else newl = new_string(g->strings, last(g->strings)->num + 1);
+X    lastl = g->strings; 
+X    while(1) {
+X      lastl = prev(lastl);
+X      if (lastl == nil(g->strings) || lastl->num < num) {
+X        error_header(); 
+X        fprintf(stderr, "copystring: string #%d not found\n", num);
+X        exit(1);
+X      }
+X      if (lastl->num == num) {
+X        copy_label(newl->s, lastl->s);
+X        return newl->s;
+X      }
+X    }
+X  }
+X}
+X
+XGraph last_graph(g, gs, all_gs)
+XGraph g;
+XGraphs gs;
+XGraphs all_gs;
+X{
+X  Graph lastg;
+X
+X
+X  lastg = prev(g);
+X  while(lastg == nil(gs->g)) {
+X    if (prev(gs) == nil(all_gs)) {
+X      error_header(); 
+X      fprintf(stderr, "First graph cannot inherit axes\n");
+X      exit(1);
+X    } else {
+X      gs = prev(gs);
+X      lastg = last(gs->g);
+X    }
+X  }
+X  return lastg;
+X}
+X
+Xcopy_legend(l1, l2)
+XLegend l1, l2;
+X{
+X  l1->linelength = l2->linelength;
+X  l1->linebreak = l2->linebreak;
+X  l1->midspace = l2->midspace;
+X  l1->type = l2->type;
+X  copy_label(l1->l, l2->l);
+X}
+X
+Xinherit_axes(g, lastg)
+XGraph g;
+XGraph lastg;
+X{
+X  char *s;
+X  copy_axis(g->x_axis, lastg->x_axis);
+X  copy_axis(g->y_axis, lastg->y_axis);
+X  g->x_translate = lastg->x_translate;
+X  g->y_translate = lastg->y_translate;
+X  g->clip = lastg->clip;
+X  g->border = lastg->border;
+X  copy_legend(g->legend, lastg->legend);
+X  s = g->title->label;
+X  copy_label(g->title, lastg->title);
+X  g->title->label = s;
+X}
+X
+Xedit_curve(c, g)
+XCurve c;
+XGraph g;
+X{
+X  char inp_str[256], *txt;
+X  float x, y, f, e1, e2;
+X  float xh, yh, xl, yl;
+X  Point p, p1, p2;
+X  Flist fl;
+X  int i;
+X  char e;
+X
+X  while ( getstring(inp_str) ) {
+X    if (strcmp(inp_str, "y_epts") == 0 ||
+X        strcmp(inp_str, "pts") == 0    ||
+X        strcmp(inp_str, "x_epts") == 0) {
+X      e = inp_str[0];
+X      while (getfloat(&x)) {
+X        if (e == 'p') {
+X          if (!getfloat(&y)) {
+X            error_header(); 
+X            fprintf(stderr, "Reading Points, no y value for x=%f\n", x);
+X            exit(1);
+X          }
+X        } else {
+X          if (!getfloat(&y) || !getfloat(&e1) || !getfloat(&e2)) {
+X            error_header();
+X              fprintf(stderr, 
+X                      "Reading %s, need 4 values per data point\n", inp_str);
+X              exit(1);
+X          }
+X        }
+X        p = (Point) get_node(c->pts);
+X        p->x = x;
+X        p->y = y;
+X        p->e = e;
+X	insert(p, c->pts);
+X        c->npts++;
+X        if (e == 'x') {
+X          p1 = (Point) get_node(c->xepts);
+X          p1->x = e1;
+X          p1->y = y;
+X          p2 = (Point) get_node(c->xepts);
+X          p2->x = e2;
+X          p2->y = y;
+X	  insert(p1, c->xepts);
+X	  insert(p2, c->xepts);
+X          xh = MAX(e1, e2); xh = MAX(xh, x);
+X          xl = MIN(e1, e2); xl = MIN(xl, x);
+X          yh = y; yl = y;
+X        } else if (e == 'y') {
+X          p1 = (Point) get_node(c->yepts);
+X          p1->y = e1;
+X          p1->x = x;
+X          p2 = (Point) get_node(c->yepts);
+X          p2->y = e2;
+X          p2->x = x;
+X	  insert(p1, c->yepts);
+X	  insert(p2, c->yepts);
+X          yh = MAX(e1, e2); yh = MAX(yh, y);
+X          yl = MIN(e1, e2); yl = MIN(yl, y);
+X          xh = x; xl = x;
+X        } else {
+X          xh = x; xl = x; yh = y; yl = y;
+X        }
+X        if (g->x_axis->pmax == FSIG) {
+X          g->x_axis->pmax = xh;
+X          g->x_axis->pmin = xl;
+X          g->y_axis->pmax = yh;
+X          g->y_axis->pmin = yl;
+X        } else {
+X          g->x_axis->pmax = MAX(g->x_axis->pmax, xh);
+X          g->x_axis->pmin = MIN(g->x_axis->pmin, xl);
+X          g->y_axis->pmax = MAX(g->y_axis->pmax, yh);
+X          g->y_axis->pmin = MIN(g->y_axis->pmin, yl);
+X        }
+X      }
+X      rejecttoken();
+X
+X    } else if (strcmp(inp_str, "label") == 0) {
+X      edit_label(c->l);
+X    } else if (strcmp(inp_str, "marksize") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); 
+X      else {
+X        c->marksize[0] = f;
+X        if (!getfloat(&f)) rejecttoken(); 
+X        else c->marksize[1] = f;
+X      }
+X    } else if (strcmp(inp_str, "gmarks") == 0) {
+X      while (getfloat(&x)) {
+X        if (!getfloat(&y)) {
+X          error_header(); 
+X          fprintf(stderr, "Reading GMarks, no y value for x=%f\n", x);
+X          exit(1);
+X        }
+X        p =  (Point) get_node(c->general_marks);
+X        p->x = x;
+X        p->y = y;
+X        insert(p, c->general_marks);
+X      }
+X      rejecttoken();
+X    } else if (strcmp(inp_str, "pfill") == 0) {
+X        if (!getfloat(&f)) rejecttoken(); else {
+X          /* grey fill */
+X          c->pfilltype = 'g';
+X          c->pfill[0] = f;
+X        }
+X    } else if (strcmp(inp_str, "pcfill") == 0) {
+X         /* color fill */
+X        c->pfilltype = 'c';
+X        for( i = 0 ; i < 3 ; i++ )  {
+X          if(!getfloat(&f)) {
+X            rejecttoken();
+X            c->pfilltype = 'n';
+X            break ;
+X          } else c->pfill[i] = f ;
+X        }
+X    } else if (strcmp(inp_str, "fill") == 0) {
+X        if (!getfloat(&f)) rejecttoken(); else {
+X          /* grey fill */
+X          c->filltype = 'g';
+X          c->fill[0] = f;
+X        }
+X    } else if (strcmp(inp_str, "cfill") == 0) {
+X         /* color fill */
+X        c->filltype = 'c';
+X        for( i = 0 ; i < 3 ; i++ )  {
+X          if(!getfloat(&f)) {
+X            rejecttoken();
+X            c->filltype = 'n';
+X            break ;
+X          } else c->fill[i] = f ;
+X        }
+X    } else if (strcmp(inp_str, "afill") == 0) {
+X	if (!getfloat(&f)) rejecttoken(); else {
+X	  c->afilltype = 'g';
+X          c->afill[0] = f;
+X	}
+X    } else if (strcmp(inp_str, "acfill") == 0) {
+X	c->afilltype = 'c';
+X	for( i = 0 ; i < 3 ; i++ )  {
+X	  if(!getfloat(&f)) { 
+X	    rejecttoken(); 
+X 	    c->afilltype = 'n';
+X            break ;
+X	  } else c->afill[i] = f ;
+X	}
+X    } else if (strcmp(inp_str, "marktype") == 0) {
+X      if (!getstring(inp_str)) return;
+X      for (i = 0; i < NMARKTYPES && strcmp(inp_str, MARKTYPESTRS[i]) != 0; i++) ;
+X      if (i == NMARKTYPES) {
+X        error_header(); fprintf(stderr, "Bad mark: %s\n", inp_str);
+X        fprintf(stderr, "             Valid marks are:");
+X        for (i = 0; i < NMARKTYPES; i++) {
+X          fprintf(stderr, " %s", MARKTYPESTRS[i]);
+X        }
+X        fprintf(stderr, "\n");
+X        exit(1);
+X      } else {
+X        c->marktype = MARKTYPES[i];
+X        if (c->marktype == 'l') edit_label(c->lmark);
+X      }
+X    } else if (strcmp(inp_str, "glines") == 0) {
+X      while (getfloat(&f)) {
+X        fl = (Flist) get_node (c->gen_linetype);
+X        fl->f = f;
+X        insert(fl, c->gen_linetype);
+X      } 
+X      rejecttoken();
+X    } else if (strcmp(inp_str, "linetype") == 0) {
+X      if (!getstring(inp_str)) return;
+X      if (strcmp(inp_str, "none") == 0) c->linetype = '0';
+X      else if (strcmp(inp_str, "solid") == 0) c->linetype = 's';
+X      else if (strcmp(inp_str, "dotted") == 0) c->linetype = '.';
+X      else if (strcmp(inp_str, "dashed") == 0) c->linetype = '-';
+X      else if (strcmp(inp_str, "longdash") == 0) c->linetype = 'l';
+X      else if (strcmp(inp_str, "dotdash") == 0) c->linetype = 'd';
+X      else if (strcmp(inp_str, "dotdotdash") == 0) c->linetype = 'D';
+X      else if (strcmp(inp_str, "dotdotdashdash") == 0) c->linetype = '2';
+X      else if (strcmp(inp_str, "general") == 0) c->linetype = 'g';
+X      else {
+X        error_header(); fprintf(stderr, "Bad line type: %s\n", inp_str);
+X        error_header(); fprintf(stderr, "             Valid marks are %s\n", 
+X          "solid, dotted, dashed, longdash, dotdash,"); 
+X        error_header(); fprintf(stderr, "             %s.\n", 
+X          "dotdotdash, dotdotdashdash, none");
+X        exit(1);
+X      }
+X    } else if (strcmp(inp_str, "linethickness") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else c->linethick = f;
+X    } else if (strcmp(inp_str, "gray") == 0) {
+X        if (!getfloat(&f)) rejecttoken(); else {
+X          c->graytype = 'g';
+X          c->gray[0] = f;
+X        }
+X    } else if (strcmp(inp_str, "color") == 0) {
+X        c->graytype = 'c';
+X        for( i = 0 ; i < 3 ; i++ )  {
+X          if(!getfloat(&f)) {
+X            rejecttoken();
+X            c->graytype = 'n';
+X            break ;
+X          } else c->gray[i] = f ;
+X        }
+X    } else if (strcmp(inp_str, "mrotate") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else {
+X        c->mrotate = f;
+X      }
+X    } else if (strcmp(inp_str, "postscript") == 0) {
+X      c->marktype = 'p';
+X      if (!getstring(inp_str)) return;
+X      if (strcmp(inp_str, ":") == 0) {
+X        c->postfile = 0;
+X        if ((txt = getmultiline()) == CNULL) return;
+X        c->postscript = txt;
+X      } else {
+X        c->postfile = 1;
+X        c->postscript = (char *) malloc ((strlen(inp_str)+1)*sizeof(char));
+X        strcpy(c->postscript, inp_str);
+X      }
+X    } else if (strcmp(inp_str, "poly") == 0) {
+X      c->poly = 1;
+X    } else if (strcmp(inp_str, "nopoly") == 0) {
+X      c->poly = 0;
+X    } else if (strcmp(inp_str, "larrow") == 0) {
+X      c->larrow = 1;
+X    } else if (strcmp(inp_str, "nolarrow") == 0) {
+X      c->larrow = 0;
+X    } else if (strcmp(inp_str, "rarrow") == 0) {
+X      c->rarrow = 1;
+X    } else if (strcmp(inp_str, "norarrow") == 0) {
+X      c->rarrow = 0;
+X    } else if (strcmp(inp_str, "larrows") == 0) {
+X      c->larrows = 1;
+X    } else if (strcmp(inp_str, "nolarrows") == 0) {
+X      c->larrows = 0;
+X    } else if (strcmp(inp_str, "rarrows") == 0) {
+X      c->rarrows = 1;
+X    } else if (strcmp(inp_str, "norarrows") == 0) {
+X      c->rarrows = 0;
+X    } else if (strcmp(inp_str, "bezier") == 0) {
+X      c->bezier = 1;
+X    } else if (strcmp(inp_str, "nobezier") == 0) {
+X      c->bezier = 0;
+X    } else if (strcmp(inp_str, "asize") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); 
+X      else {
+X        c->asize[0] = f;
+X        if (!getfloat(&f)) rejecttoken(); 
+X        else c->asize[1] = f;
+X      }
+X    } else if (strcmp(inp_str, "clip") == 0) {
+X      c->clip = 1;
+X    } else if (strcmp(inp_str, "noclip") == 0) {
+X      c->clip = 0;
+X    } else {
+X      rejecttoken();
+X      return;
+X    }
+X  }
+X}
+X
+Xedit_hash_label(a)
+XAxis a;
+X{
+X  float at, f;
+X  char *s;
+X  char inp_str[256];
+X  String st;
+X
+X  s = CNULL;
+X
+X  at = (first(a->hash_lines) == nil(a->hash_lines)) ? FSIG
+X          : first(a->hash_lines)->loc;
+X  while (getstring(inp_str)) {
+X    if (strcmp(inp_str, ":") == 0) {
+X      if ((s = getlabel()) == CNULL) return;
+X    } else if (strcmp(inp_str, "at") == 0) {
+X      if (getfloat(&f)) at = f; else rejecttoken();
+X    } else {
+X      rejecttoken();
+X      if (s == CNULL) return;
+X      if (at == FSIG) {
+X        error_header();
+X        fprintf(stderr, 
+X          "hash_label either needs \"at\" or an associated \"hash_at\"\n");
+X        exit(1);
+X      }
+X      st = (String) get_node(a->hash_labels);
+X      st->s = new_label();
+X      st->s->label = s;
+X      st->s->x = at;
+X      st->s->y = at;
+X      insert(st, a->hash_labels);
+X      return;
+X    }
+X  }
+X}
+X
+Xedit_axis(a)
+XAxis a;
+X{
+X  char inp_str[256];
+X  float f;
+X  int i;
+X  Hash h;
+X
+X  while ( getstring(inp_str) ) {
+X
+X    if (strcmp(inp_str, "size") == 0) {
+X      if ( getfloat(&f)) a->size = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "max") == 0) {
+X      if ( getfloat(&f)) a->max = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "min") == 0) {
+X      if ( getfloat(&f)) a->min = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "hash") == 0) {
+X      if ( getfloat(&f)) a->hash_interval = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "shash") == 0) {
+X      if ( getfloat(&f)) {
+X        a->hash_start = f;
+X        a->start_given = 1;
+X        } 
+X      else rejecttoken();
+X    } else if (strcmp(inp_str, "mhash") == 0) {
+X      if (getint(&i)) a->minor_hashes = i; else rejecttoken();
+X    } else if (strcmp(inp_str, "precision") == 0) {
+X      if (getint(&i)) a->precision = i; else rejecttoken();
+X    } else if (strcmp(inp_str, "label") == 0) {
+X      edit_label(a->label);
+X    } else if (strcmp(inp_str, "hash_labels") == 0) {
+X      edit_label(a->hl);
+X    } else if (strcmp(inp_str, "log_base") == 0) {
+X      if (getfloat(&f)) {
+X        if (f <= 1.0) {
+X          error_header();
+X          fprintf(stderr, "\"log_base %f\": log_base must be > 1.0\n", f);
+X          exit(1);
+X        } else a->log_base = f; 
+X      } else rejecttoken();
+X    } else if (strcmp(inp_str, "draw_at") == 0) {
+X      if ( getfloat(&f)) a->draw_at = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "log") == 0) {
+X      a->is_lg = 1;
+X    } else if (strcmp(inp_str, "linear") == 0) {
+X      a->is_lg = 0;
+X    } else if (strcmp(inp_str, "nodraw") == 0) {
+X      a->draw_hash_labels = 0;
+X      a->draw_axis_line = 0;
+X      a->draw_hash_marks = 0;
+X      a->draw_axis_label = 0;
+X    } else if (strcmp(inp_str, "draw") == 0) {
+X      a->draw_hash_labels = 1;
+X      a->draw_axis_line = 1;
+X      a->draw_hash_marks = 1;
+X      a->draw_axis_label = 1;
+X    } else if (strcmp(inp_str, "hash_at") == 0 ||
+X               strcmp(inp_str, "mhash_at") == 0) {
+X      if (getfloat(&f)) {
+X        h = (Hash) get_node (a->hash_lines);
+X        h->loc = f;
+X        h->major = (inp_str[0] == 'h');
+X        h->size = h->major ? HASH_SIZE : MHASH_SIZE;
+X        insert(h, a->hash_lines);
+X      } else rejecttoken();
+X    } else if (strcmp(inp_str, "hash_label") == 0) {
+X      edit_hash_label(a);       
+X    } else if (strcmp(inp_str, "hash_scale") == 0) {
+X      if ( getfloat(&f)) a->hash_scale = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "auto_hash_marks") == 0) {
+X      a->auto_hash_marks = 1;
+X    } else if (strcmp(inp_str, "no_auto_hash_marks") == 0) {
+X      a->auto_hash_marks = 0;
+X    } else if (strcmp(inp_str, "auto_hash_labels") == 0) {
+X      a->auto_hash_labels = 1;
+X    } else if (strcmp(inp_str, "no_auto_hash_labels") == 0) {
+X      a->auto_hash_labels = 0;
+X    } else if (strcmp(inp_str, "draw_hash_labels_at") == 0) {
+X      if (getfloat(&f)) a->draw_hash_labels_at = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "draw_hash_marks_at") == 0) {
+X      if (getfloat(&f)) a->draw_hash_marks_at = f; else rejecttoken();
+X    } else if (strcmp(inp_str, "no_draw_hash_labels") == 0) {
+X      a->draw_hash_labels = 0;
+X    } else if (strcmp(inp_str, "draw_hash_labels") == 0) {
+X      a->draw_hash_labels = 1;
+X    } else if (strcmp(inp_str, "no_draw_axis_line") == 0) {
+X      a->draw_axis_line = 0;
+X    } else if (strcmp(inp_str, "draw_axis_line") == 0) {
+X      a->draw_axis_line = 1;
+X    } else if (strcmp(inp_str, "no_draw_axis") == 0) {
+X      a->draw_axis_line = 0;
+X    } else if (strcmp(inp_str, "draw_axis") == 0) {
+X      a->draw_axis_line = 1;
+X    } else if (strcmp(inp_str, "no_draw_hash_marks") == 0) {
+X      a->draw_hash_marks = 0;
+X    } else if (strcmp(inp_str, "draw_hash_marks") == 0) {
+X      a->draw_hash_marks = 1;
+X    } else if (strcmp(inp_str, "no_draw_axis_label") == 0) {
+X      a->draw_axis_label = 0;
+X    } else if (strcmp(inp_str, "draw_axis_label") == 0) {
+X      a->draw_axis_label = 1;
+X    } else if (strcmp(inp_str, "no_grid_lines") == 0) {
+X      a->grid_lines = 0;
+X    } else if (strcmp(inp_str, "grid_lines") == 0) {
+X      a->grid_lines = 1;
+X    } else if (strcmp(inp_str, "no_mgrid_lines") == 0) {
+X      a->mgrid_lines = 0;
+X    } else if (strcmp(inp_str, "mgrid_lines") == 0) {
+X      a->mgrid_lines = 1;
+X    } else if (strcmp(inp_str, "gray") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else {
+X        a->graytype = 'g';
+X        a->gray[0] = f;
+X      }
+X    } else if (strcmp(inp_str, "color") == 0) {
+X      a->graytype = 'c';
+X      for( i = 0 ; i < 3 ; i++ )  {
+X        if(!getfloat(&f)) {
+X          rejecttoken();
+X          a->graytype = 'n';
+X          break ;
+X        } else a->gray[i] = f ;
+X      }
+X    } else if (strcmp(inp_str, "grid_gray") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else {
+X        a->gr_graytype = 'g';
+X        a->gr_gray[0] = f;
+X      }
+X    } else if (strcmp(inp_str, "grid_color") == 0) {
+X      a->gr_graytype = 'c';
+X      for( i = 0 ; i < 3 ; i++ )  {
+X        if(!getfloat(&f)) {
+X          rejecttoken();
+X          a->gr_graytype = 'n';
+X          break ;
+X        } else a->gr_gray[i] = f ;
+X      }
+X    } else if (strcmp(inp_str, "mgrid_gray") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else {
+X        a->mgr_graytype = 'g';
+X        a->mgr_gray[0] = f;
+X      }
+X    } else if (strcmp(inp_str, "mgrid_color") == 0) {
+X      a->mgr_graytype = 'c';
+X      for( i = 0 ; i < 3 ; i++ )  {
+X        if(!getfloat(&f)) {
+X          rejecttoken();
+X          a->mgr_graytype = 'n';
+X          break ;
+X        } else a->mgr_gray[i] = f ;
+X      }
+X    } else {
+X      rejecttoken(); 
+X      return;
+X    }
+X  }
+X}
+X
+Xedit_legend(l)
+XLegend l;
+X{
+X  char inp_str[256];
+X  float f;
+X
+X  while ( getstring(inp_str) ) {
+X    if (strcmp(inp_str, "x") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); 
+X      else {
+X        l->l->x = f; 
+X        l->l->hj = 'l';
+X        l->l->vj = 't';
+X        l->type = 'u';
+X      }
+X    } else if (strcmp(inp_str, "y") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); 
+X      else {
+X        l->l->y = f; 
+X        l->l->hj = 'l';
+X        l->l->vj = 't';
+X        l->type = 'u';
+X      }
+X    } else if (strcmp(inp_str, "right") == 0 ||
+X               strcmp(inp_str, "on") == 0) {
+X      l->type = 'u';
+X      l->l->y = FSIG; 
+X      l->l->x = FSIG; 
+X      l->l->hj = 'l';
+X      l->l->vj = 'c';
+X    } else if (strcmp(inp_str, "left") == 0) {
+X      l->type = 'u';
+X      l->l->y = FSIG; 
+X      l->l->x = FSIG; 
+X      l->l->hj = 'r';
+X      l->l->vj = 'c';
+X    } else if (strcmp(inp_str, "off") == 0) {
+X      l->type = 'n';
+X    } else if (strcmp(inp_str, "top") == 0) {
+X      l->type = 'u';
+X      l->l->y = FSIG; 
+X      l->l->x = FSIG; 
+X      l->l->hj = 'l';
+X      l->l->vj = 'b';
+X    } else if (strcmp(inp_str, "bottom") == 0) {
+X      l->type = 'u';
+X      l->l->y = FSIG; 
+X      l->l->x = FSIG; 
+X      l->l->hj = 'l';
+X      l->l->vj = 't';
+X    } else if (strcmp(inp_str, "custom") == 0) {
+X      l->type = 'c';
+X    } else if (strcmp(inp_str, "linelength") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->linelength = f;
+X    } else if (strcmp(inp_str, "linebreak") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->linebreak = f;
+X    } else if (strcmp(inp_str, "midspace") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else l->midspace = f;
+X    } else if (strcmp(inp_str, "defaults") == 0) {
+X      edit_label(l->l);
+X    } else {
+X      rejecttoken();
+X      return;
+X    }
+X  }
+X}
+X
+Xedit_graph(g, gs, all_gs)
+XGraph g;
+XGraphs gs;
+XGraphs all_gs;
+X{
+X  char inp_str[80];
+X  int num;
+X  String s;
+X  float f;
+X
+X  while ( getstring(inp_str) ) {
+X    if (strcmp(inp_str, "xaxis") == 0)
+X      edit_axis(g->x_axis);
+X    else if (strcmp(inp_str, "yaxis") == 0)
+X      edit_axis(g->y_axis);
+X    else if (strcmp(inp_str, "curve") == 0) {
+X      if (!getint(&num)) {
+X        error_header(); fprintf(stderr, "\"curve\" not followed by number\n");
+X        exit(1);
+X      }
+X      edit_curve(get_curve(g->curves, num), g);
+X    } else if (strcmp(inp_str, "newcurve") == 0) {
+X      if (first(g->curves) == nil(g->curves))
+X        edit_curve(new_curve(g->curves, 0), g);
+X      else edit_curve(new_curve(g->curves, last(g->curves)->num + 1), g);
+X    } else if (strcmp(inp_str, "copycurve") == 0) {
+X      edit_curve(do_copy_curve(g, gs, all_gs), g);
+X    } else if (strcmp(inp_str, "newline") == 0) {
+X      if (first(g->curves) == nil(g->curves))
+X        edit_curve(new_line(g->curves, 0), g);
+X      else edit_curve(new_line(g->curves, last(g->curves)->num + 1), g);
+X    } else if (strcmp(inp_str, "title") == 0) {
+X      edit_label(g->title);
+X    } else if (strcmp(inp_str, "legend") == 0) {
+X      edit_legend(g->legend);
+X    } else if (strcmp(inp_str, "x_translate") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else g->x_translate = f;
+X    } else if (strcmp(inp_str, "y_translate") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else g->y_translate = f;
+X    } else if (strcmp(inp_str, "string") == 0) {
+X      if (!getint(&num)) {
+X        error_header(); fprintf(stderr, "\"string\" not followed by number\n");
+X        exit(1);
+X      }
+X      s = get_string(g->strings, num);
+X      edit_label(s->s);
+X    } else if (strcmp(inp_str, "newstring") == 0) {
+X      if (first(g->strings) == nil(g->strings))
+X        s = new_string(g->strings, 0);
+X      else s = new_string(g->strings, last(g->strings)->num + 1);
+X      edit_label(s->s);
+X    } else if (strcmp(inp_str, "copystring") == 0 ||
+X               strcmp(inp_str, "copyline") == 0) {
+X      edit_label(do_copy_string(g, gs, all_gs));
+X    } else if (strcmp(inp_str, "inherit_axes") == 0) {
+X      inherit_axes(g, last_graph(g, gs, all_gs));
+X    } else if (strcmp(inp_str, "Y") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else gs->height = f;
+X    } else if (strcmp(inp_str, "X") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else gs->width = f;
+X    } else if (strcmp(inp_str, "border") == 0) {
+X      g->border = 1;
+X    } else if (strcmp(inp_str, "noborder") == 0) {
+X      g->border = 0;
+X    } else if (strcmp(inp_str, "clip") == 0) {
+X      g->clip = 1;
+X    } else if (strcmp(inp_str, "noclip") == 0) {
+X      g->clip = 0;
+X    } else {
+X      rejecttoken();
+X      return;
+X    } 
+X  }
+X}
+X
+Xedit_graphs(gs)
+XGraphs gs;
+X{
+X  Graphs the_g;
+X  Graph g, tmp_g;
+X  char inp_str[80];
+X  float f;
+X  int num, i, ok;
+X
+X  the_g = first(gs);
+X  while ( getstring(inp_str) ) {
+X    if (strcmp(inp_str, "graph") == 0) {
+X      if (!getint(&num)) {
+X        error_header(); fprintf(stderr, "\"graph\" not followed by number\n");
+X        exit(1);
+X      }
+X      edit_graph(get_graph(the_g->g, num), the_g, gs);
+X    } else if (strcmp(inp_str, "newgraph") == 0) {
+X      if (first(the_g->g) == nil(the_g->g))
+X        edit_graph(new_graph(the_g->g, 0), the_g, gs);
+X      else edit_graph(new_graph(the_g->g, last(the_g->g)->num + 1), the_g, gs);
+X    } else if (strcmp(inp_str, "copygraph") == 0) {
+X      if (first(the_g->g) == nil(the_g->g))
+X        g = new_graph(the_g->g, 0);
+X      else g = new_graph(the_g->g, last(the_g->g)->num + 1);
+X      if (!getint(&num)) {
+X        rejecttoken();
+X        inherit_axes(g, last_graph(g, the_g, gs));
+X      } else {
+X        ok = 0;
+X        tmp_g = the_g->g;
+X        while(!ok) {
+X          tmp_g = prev(tmp_g);
+X          if (tmp_g == nil(the_g->g) || tmp_g->num < num) {
+X            error_header();
+X            fprintf(stderr, "copygraph: no graph #%d\n", num);
+X            exit(1);
+X          }
+X          ok = (tmp_g->num == num);
+X        }
+X        inherit_axes(g, tmp_g);
+X      }
+X      edit_graph(g, the_g, gs);
+X    } else if (strcmp(inp_str, "Y") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else the_g->height = f;
+X    } else if (strcmp(inp_str, "X") == 0) {
+X      if (!getfloat(&f)) rejecttoken(); else the_g->width = f;
+X    } else if (strcmp(inp_str, "newpage") == 0) {
+X      new_graphs(gs);
+X      the_g = last(gs);
+X    } else if (strcmp(inp_str, "bbox") == 0) {
+X      for (i = 0; i < 4; i++) {
+X        if (!getfloat(&f)) {
+X          error_header();
+X          fprintf(stderr, "Bbox definition must have four numbers\n");
+X          exit(1);
+X        } else {
+X          the_g->bb[i] = f;
+X        }
+X      }
+X    } else if (strcmp(inp_str, "preamble") == 0) {
+X      if (!getstring(inp_str)) return;
+X      if (strcmp(inp_str, ":") != 0) {
+X        the_g->prefile = 1;
+X        the_g->preamble = (char *) malloc (sizeof(char)*(strlen(inp_str)+1));
+X        strcpy(the_g->preamble, inp_str);
+X      } else {
+X        the_g->prefile = 0;
+X        the_g->preamble = getmultiline();
+X        if (the_g->preamble == CNULL) return;
+X      }
+X    } else if (strcmp(inp_str, "epilogue") == 0) {
+X      if (!getstring(inp_str)) return;
+X      if (strcmp(inp_str, ":") != 0) {
+X        the_g->epifile = 1;
+X        the_g->epilogue = (char *) malloc (sizeof(char)*(strlen(inp_str)+1));
+X        strcpy(the_g->epilogue, inp_str);
+X      } else {
+X        the_g->epifile = 0;
+X        the_g->epilogue = getmultiline();
+X        if (the_g->epilogue == CNULL) return;
+X      }
+X    } else {
+X      error_header(); fprintf(stderr, "Bad token: %s\n", inp_str);
+X      exit(1);
+X    } 
+X  }
+X}
+END_OF_FILE
+  if test 31446 -ne `wc -c <'edit.c'`; then
+    echo shar: \"'edit.c'\" unpacked with wrong size!
+  fi
+  # end of 'edit.c'
+fi
+if test -f 'prio_list.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prio_list.h'\"
+else
+  echo shar: Extracting \"'prio_list.h'\" \(789 characters\)
+  sed "s/^X//" >'prio_list.h' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:08 $
+X * $Author: jsp $
+X */
+X
+X/* Priority lists are just like normal lists of list.h and list.c, except
+X * that their third field is a (int) prioriy.  The routines of list.c should all
+X * be used except for insert, because it will always put an item at the 
+X * end of a list.  Instead, use prio_insert, which will put the item
+X * into its proper place in the list.  The last argument of prio_insert should
+X * be TRUE if the list is to be kept in descending order; it should be FALSE
+X * for ascending order.
+X
+X * Priority list should be:
+X
+Xstruct prio_list {
+X  struct prio_list *flink;
+X  struct prio_list *blink;
+X  int prio;
+X  ...
+X  }
+X
+X*/
+X
+X/* void prio_insert(node, list, descending); */
+X
+END_OF_FILE
+  if test 789 -ne `wc -c <'prio_list.h'`; then
+    echo shar: \"'prio_list.h'\" unpacked with wrong size!
+  fi
+  # end of 'prio_list.h'
+fi
+echo shar: End of archive 3 \(of 7\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

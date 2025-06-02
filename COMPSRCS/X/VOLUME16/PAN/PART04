@@ -1,0 +1,944 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: jeff@rd1.interlan.com (Jeff Bailey)
+Subject: v16i140: pan - Post A Note (for Open Windows), Part04/06
+Message-ID: <1992Mar6.200354.8290@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i137-pan@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 20:03:54 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: jeff@rd1.interlan.com (Jeff Bailey)
+Posting-number: Volume 16, Issue 140
+Archive-name: pan/part04
+
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 04 of a multipart archive
+# ============= pan.c ==============
+if test -f 'pan.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan.c (File already exists)'
+else
+echo 'x - extracting pan.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan.c' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#define public
+X
+#include "pan.h"
+#include <signal.h>
+X
+#include <X11/X.h>
+#include <X11/Xutil.h>
+X
+extern char *malloc();
+extern char *getenv();
+X
+extern int errno;
+extern char *sys_errlist[];
+X
+int  xverror(), xerror();
+X
+extern char *optarg;
+X
+static char init_search_val[MAXSEARCHLEN];
+X
+Notify_value aborted();
+X
+main(argc, argv)
+X    int  argc;
+X    char *argv[];
+X    {
+X    char *cp;
+X    int  opt;
+X
+X    debug_on = 0;
+X    move_up = 0;
+X    destroy_up = 0;
+X    search_up = 0;
+X    notecount = 0;
+X    *init_search_val = 0;
+X
+X    LLM_init(&subdir_rt, sizeof(struct SubDir));
+X    LLM_init(&freewin_rt, sizeof(struct FreeWin));
+X
+X    strcpy(myname, argv[0]);
+X    cp = getenv("HOME");
+X    if(cp == NULL)
+X        {
+X        fprintf(stderr, "%s:  Can't determine value of HOME\n", myname);
+X        exit(1);
+X        }
+X
+X    /* If first time run, set up default dirs */
+X    sprintf(note_dir, "%s/%s", cp, NOTEDIR);
+X    (void) mkdir(note_dir, 0700);
+X    sprintf(note_dir, "%s/%s/Miscellaneous", cp, NOTEDIR);
+X    (void) mkdir(note_dir, 0700);
+X
+X    sprintf(note_dir, "%s/%s", cp, NOTEDIR);
+X
+X    xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv,
+X        XV_ERROR_PROC, xverror,
+X        XV_X_ERROR_PROC, xerror,
+X        NULL);
+X
+X    defaults_load_db(NULL);
+X
+X    cp = defaults_get_string(resources[RES_IDIR].a, resources[RES_IDIR].b,
+X         note_dir);
+X    if(cp != note_dir)
+X        {
+X        strcpy(note_dir, cp);
+X        }
+X
+X    while((opt = getopt(argc, argv, "d:x")) != -1)
+X        {
+X        switch(opt)
+X            {
+X            case 'd' : /* Initial directory */
+X                strcpy(note_dir, optarg);
+X                break;
+X            case 'x' : /* Turn on debugs.  Undocumented flag */
+X                debug_on = 1;
+X                break;
+X            }
+X        }
+X
+X    if(chdir(note_dir) < 0)
+X        {
+X        fprintf(stderr, "%s:  Couldn't chdir to %s\n", myname, note_dir);
+X        exit(1);
+X        }
+X
+X    confirmdestroy = (defaults_get_boolean(resources[RES_CDESTROY].a,
+X        resources[RES_CDESTROY].b, RESDEF_CDESTROY) == TRUE);
+X
+X    /* Reverse boolean */
+X    noticenobeep = (defaults_get_boolean(resources[RES_NBEEP].a,
+X        resources[RES_NBEEP].b, RESDEF_NBEEP) == FALSE);
+X
+X    icontransparent = (defaults_get_boolean(resources[RES_ITRANSPARENT].a,
+X        resources[RES_ITRANSPARENT].b, RESDEF_ITRANSPARENT) == TRUE);
+X
+X    cp = defaults_get_string(resources[RES_FORDER].a, resources[RES_FORDER].b,
+X         RESDEF_FORDER);
+X    strcpy(folderorder, cp);
+X
+X    cp = defaults_get_string(resources[RES_DSEARCH].a, resources[RES_DSEARCH].b,
+X         RESDEF_DSEARCH);
+X    strcpy(init_search_val, cp);
+X
+X    setup_display();
+X    restorenotes();
+X    xv_main_loop(main_frame);
+X    exit(0);
+X    /* NOTREACHED */
+X    }
+X
+/*
+X    Routine to set up main frame and buttons.
+*/
+setup_display()
+X    {
+X    Menu menu;
+X    Server_image image;
+X    Icon icon;
+X    static XClassHint chint;
+X
+X    main_frame = xv_create(NULL, FRAME,
+X                           XV_LABEL, "Post A Note V2.4",
+X                           XV_WIDTH, MAINWIDTH,
+X                           XV_HEIGHT, MAINHEIGHT,
+X                           FRAME_NO_CONFIRM, TRUE,
+X                           NULL);
+X    if(main_frame == NULL)
+X        {
+X        fprintf(stderr, "%s:  Couldn't create base frame.\n", myname);
+X        exit(1);
+X        }
+X
+X    /* Set up the X class since xview doesn't */
+X    chint.res_name = "panmain";
+X    chint.res_class = "PanMain";
+X    XSetClassHint(xv_get(main_frame, XV_DISPLAY), xv_get(main_frame, XV_XID),
+X        &chint);
+X
+X    notify_interpose_destroy_func(main_frame, aborted);
+X
+X    main_panel = (Panel) xv_create(main_frame, PANEL, 
+X                     WIN_RETAINED, FALSE, 
+X                     NULL);
+X
+X    main_newnote = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, newnote,
+X                     NULL);
+X    (void) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "New Note", 
+X                     PANEL_ITEM_MENU, main_newnote,
+X                     NULL);
+X    (void) xv_create(main_panel, PANEL_BUTTON, PANEL_LABEL_STRING, 
+X                     "Hide Notes", PANEL_NOTIFY_PROC, hideall, NULL);
+X    main_expose = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, exposemenu,
+X                     MENU_STRINGS, CHOICE_ALL, NULL,
+X                     NULL);
+X    (void) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "Expose Notes", 
+X                     PANEL_ITEM_MENU, main_expose,
+X                     NULL);
+X    main_print = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, actionmenu,
+X                     NULL);
+X    menu = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, actionmenu,
+X                     MENU_STRINGS, CHOICE_QUIT, CHOICE_FOLDER, 
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_MOVE,
+X                         MENU_NOTIFY_PROC, movenote,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_PRINT,
+X                         MENU_PULLRIGHT, main_print,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_DESTROY,
+X                         MENU_NOTIFY_PROC, destroyfolder,
+X                         NULL,
+X                     NULL);
+X    folder_mitem = xv_find(menu, MENUITEM, MENU_STRING, CHOICE_FOLDER, NULL);
+X    (void) xv_create(main_panel, PANEL_BUTTON, PANEL_LABEL_STRING, 
+X                     "Action", PANEL_ITEM_MENU, menu, NULL);
+X
+X    search_item = xv_create(main_panel, PANEL_TEXT,
+X                     PANEL_LABEL_STRING, "Search:",
+X                     PANEL_VALUE, init_search_val,
+X                     PANEL_VALUE_DISPLAY_LENGTH, MAXSEARCHDISLEN + 1,
+X                     PANEL_VALUE_STORED_LENGTH, MAXSEARCHLEN,
+X                     PANEL_NOTIFY_PROC, notesearch,
+X                     NULL);
+X
+X    image = xv_create(NULL, SERVER_IMAGE, XV_WIDTH, 64, XV_HEIGHT, 64,
+X                      SERVER_IMAGE_BITS, myicon, NULL);
+X    icon = xv_create(main_frame, ICON,
+X                     ICON_IMAGE, image,
+X                     ICON_LABEL, "Notes",
+X                     ICON_TRANSPARENT, icontransparent,
+X                     NULL);
+X    xv_set(main_frame, FRAME_ICON, icon, NULL);
+X    }
+X
+Notify_value aborted(client, status)
+X    Notify_client client;
+X    Destroy_status status;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X 
+X    if(status == DESTROY_CHECKING) return(NOTIFY_DONE);
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            update(np);
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X
+X    if(status == DESTROY_CLEANUP)
+X        return(notify_next_destroy_func(client, status));
+X
+X    return(NOTIFY_DONE);
+X    }
+X
+/*
+X    Routine called to safely cleanup and exit pan.  Called by Action Quit menu
+X    item.
+*/
+cleanup(errnum)
+X    int  errnum;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            update(np);
+X            updateinfo(np, NOFORCE);
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    xv_destroy_safe(main_frame);
+X    exit(errnum);
+X    }
+X
+/*
+X    Scan the notes directory and locate all notes.  Create frames of the
+X    appropriate attributes for any notes found.  Called on startup or
+X    folder change.
+*/
+restorenotes()
+X    {
+X    int  found;
+X    char *cp;
+X    DIR *dp;
+X    struct dirent *ent;
+X    struct stat st;
+X    struct Note *np;
+X    struct SubDir *sp;
+X    struct ps_component *list, *tok;
+X    Menu_item mi;
+X    char buf[MAXBUFLEN];
+X
+X    /* parse requested order */
+X    list = parse_string(folderorder, ", \t", 0, 0, 0);
+X    if(list != NULL)
+X        {
+X        tok = list;
+X        while(tok != NULL)
+X            {
+X            if(stat(tok->ps_text, &st) == 0 && (S_IFMT & st.st_mode) == S_IFDIR)
+X                {
+X                sp = (struct SubDir *)LLM_add(&subdir_rt);
+X                if(sp == NULL)
+X                    {
+X                    notice_prompt(main_frame, NULL,
+X                        NOTICE_MESSAGE_STRINGS,
+X                            "Insufficient memory - Exiting",
+X                            sys_errlist[errno],
+X                            NULL,
+X                        NOTICE_BUTTON_YES, "Acknowledge",
+X                        NOTICE_NO_BEEPING, noticenobeep,
+X                        NULL);
+X                    cleanup(1);
+X                    }
+X                strcpy(sp->subdir, tok->ps_text);
+X                LLM_init(&sp->note_rt, sizeof(struct Note));
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_NOTIFY_PROC, newnote,
+X                    NULL);
+X                xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_GEN_PULLRIGHT, gen_exposemenu,
+X                    NULL);
+X                xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_GEN_PULLRIGHT, gen_prtmenu,
+X                    NULL);
+X                xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X                }
+X            tok = tok->ps_next;
+X            }
+X        free_ps_list(list);
+X        }
+X
+X    dp = opendir(note_dir);
+X    if(dp == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't read directory",
+X                note_dir,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    (void) re_comp("Note_[0-9][0-9]*.*\\.info$");
+X    while((ent = readdir(dp)) != NULL)
+X        {
+X        if(*ent->d_name != '.' && stat(ent->d_name, &st) == 0 &&
+X           (S_IFMT & st.st_mode) == S_IFDIR)
+X            {
+X            found = 0;
+X            sp = (struct SubDir *)LLM_first(&subdir_rt);
+X            while(sp != NULL)
+X                {
+X                if(strcmp(ent->d_name, sp->subdir) == 0)/* already processed */
+X                    {
+X                    found = 1;
+X                    break;
+X                    }
+X                sp = (struct SubDir *)LLM_next(&subdir_rt);
+X                }
+X            if(found) continue;
+X            sp = (struct SubDir *)LLM_add(&subdir_rt);
+X            if(sp == NULL)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Insufficient memory - Exiting",
+X                        sys_errlist[errno],
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                cleanup(1);
+X                }
+X            strcpy(sp->subdir, ent->d_name);
+X            LLM_init(&sp->note_rt, sizeof(struct Note));
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_NOTIFY_PROC, newnote,
+X                NULL);
+X            xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_GEN_PULLRIGHT, gen_exposemenu,
+X                NULL);
+X            xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_GEN_PULLRIGHT, gen_prtmenu,
+X                NULL);
+X            xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X            }
+X        }
+X    closedir(dp);
+X    sp = (struct SubDir *)LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        sprintf(buf, "%s/%s", note_dir, sp->subdir);
+X        dp = opendir(buf);
+X        if(dp == NULL)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Couldn't read directory",
+X                    note_dir,
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            while((ent = readdir(dp)) != NULL)
+X                {
+X                if(re_exec(ent->d_name) == 1)
+X                    {
+X                    np = (struct Note *)LLM_add(&sp->note_rt);
+X                    if(np == NULL)
+X                        {
+X                        notice_prompt(main_frame, NULL,
+X                            NOTICE_MESSAGE_STRINGS,
+X                                "Insufficient memory - Exiting",
+X                                note_dir,
+X                                sys_errlist[errno],
+X                                NULL,
+X                            NOTICE_BUTTON_YES, "Acknowledge",
+X                            NOTICE_NO_BEEPING, noticenobeep,
+X                            NULL);
+X                        cleanup(1);
+X                        }
+X                    memset((char *)np, 0, sizeof(struct Note));
+X                    np->sp = sp;
+X                    strcpy(np->basename, ent->d_name);
+X                    cp = np->basename;
+X                    while(*cp)
+X                        {
+X                        if(*cp == '.') *cp = 0;
+X                        cp++;
+X                        }
+X                    setnote(np);
+X                    adjust_sorted(np);
+X                    }
+X                }
+X            closedir(dp);
+X            }
+X        sp = (struct SubDir *)LLM_next(&subdir_rt);
+X        }
+X    }
+X
+/*
+X   Trims trailing blanks, tabs, newlines, and carriage returns from a string 
+*/
+X
+trim(start)
+X    register char *start;
+X    {
+X    register int  slen;
+X    register char *end;
+X
+X    slen = strlen(start);
+X    if(slen == 0) return;
+X    end = start + slen - 1;
+X    while( (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
+X           && end >= start) end--;
+X    end++;
+X    *end = '\0';
+X    }
+X
+/* Searches for first occurrence of spattern in string */
+X
+char *instr(string, spattern)
+X    char *string;
+X    char *spattern;
+X    {
+X    register char *pos1, *pos2;
+X
+X    while(*string != '\0')
+X        {
+X        pos1 = string;
+X        pos2 = spattern;
+X        while(*pos1 == *pos2)
+X            {
+X            pos1++;
+X            pos2++;
+X            if(*pos2 == '\0') return(string);
+X            }
+X        string++;
+X        }
+X    return(NULL);
+X    }
+X
+xverror(obj, list)
+X    Xv_object obj;
+X    Attr_avlist list;
+X    {
+X    fprintf(stderr, "XView error:  %s\n", xv_error_format(obj, list));
+X    kill(getpid(), SIGBUS);
+X    }
+X
+xerror()
+X    {
+X    if(fork() == 0)
+X        kill(getpid(), SIGBUS);
+X    return(XV_ERROR);
+X    }
+SHAR_EOF
+chmod 0644 pan.c ||
+echo 'restore of pan.c failed'
+Wc_c="`wc -c < 'pan.c'`"
+test 15901 -eq "$Wc_c" ||
+	echo 'pan.c: original size 15901, current size' "$Wc_c"
+fi
+# ============= pan.h ==============
+if test -f 'pan.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan.h (File already exists)'
+else
+echo 'x - extracting pan.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan.h' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#ifndef  PAN
+X
+#include <stdio.h>
+#include <time.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <xview/xview.h>
+#include <xview/panel.h>
+#include <xview/openmenu.h>
+#include <xview/textsw.h>
+#include <xview/svrimage.h>
+#include <xview/icon.h>
+#include <xview/notice.h>
+#include <xview/defaults.h>
+#include <xview/seln.h>
+X
+#define  PAN
+X
+/* parser stuff */
+struct ps_component
+X    {
+X    struct ps_component *ps_prev; /* Pointer to previous node */
+X    struct ps_component *ps_next; /* Pointer to next node */
+X    char *ps_text;                /* Pointer to token text */
+X    char ps_start_delim;          /* Character delimiter for start of token */
+X    char ps_end_delim;            /* Character delimiter for end of token */
+X    };
+extern struct ps_component *parse_string();
+X
+X
+/* Linked List stuff */
+X
+struct LLM_node   {
+X                  struct LLM_node *Next;
+X                  struct LLM_node *Prev;
+X                  };
+X
+struct LLM_root   {
+X                  int              Init;
+X                  struct LLM_node *First;
+X                  struct LLM_node *Last;
+X                  struct LLM_node *Current;
+X                  unsigned int     Size;
+X                  };
+X
+typedef struct LLM_root LLM_root;
+X
+extern char *LLM_add();
+extern char *LLM_first();
+extern char *LLM_insert();
+extern char *LLM_last();
+extern char *LLM_next();
+extern char *LLM_previous();
+extern char *LLM_current();
+X
+/* Pan stuff */
+struct resource {
+X    char *a;
+X    char *b;
+};
+X
+#ifdef public
+struct resource resources [] = {
+X    {"pan.initialDirectory",	"pan.initialdirectory"},
+X    {"pan.noticeBeep",		"pan.noticebeep"},
+X    {"pan.confirmDestroy",	"pan.confirmdestroy"},
+X    {"pan.printCommand",	"pan.printcommand"},
+X    {"pan.iconTransparent",	"pan.icontransparent"},
+X    {"pan.folderOrder",	        "pan.folderorder"},
+X    {"pan.defaultSearch",	"pan.defaultsearch"}
+};
+X
+short myicon [] = {
+#include "pan.icon"
+};
+X
+#else /* ifdef public */
+X
+extern struct resource resources [];
+extern short myicon [];
+X
+#endif /* ifdef public */
+X
+/* Index number into resources array */
+#define RES_IDIR         0
+#define RES_NBEEP        1
+#define RES_CDESTROY     2
+#define RES_PCOMMAND     3
+#define RES_ITRANSPARENT 4
+#define RES_FORDER       5
+#define RES_DSEARCH      6
+X
+/* Resource default values (IDIR default is built dynamically) */
+#define RESDEF_NBEEP		TRUE
+#define RESDEF_CDESTROY		FALSE
+#define RESDEF_PCOMMAND		"/usr/ucb/lpr $FILE"
+#define RESDEF_ITRANSPARENT	FALSE
+#define RESDEF_FORDER      	"Miscellaneous"
+#define RESDEF_DSEARCH      	""
+X
+#ifndef public
+#define public extern
+#endif
+X
+#define NOTEDIR ".pan"
+#define NOTENAM "Note_%d_%d"
+X
+#define DEFWIDTH  260
+#define DEFHEIGHT 200
+#define DEFSPACING 30
+X
+#define MAINWIDTH  200
+#define MAINHEIGHT 90
+X
+#define FLDRWIDTH  350
+#define FLDRHEIGHT 60
+#define FLDRSPACING 30
+X
+#define DESTROYWIDTH  160
+#define DESTROYHEIGHT 230
+#define DESTROYSPACING 30
+X
+#define SEARCHWIDTH  160
+#define SEARCHHEIGHT 230
+#define SEARCHSPACING 30
+X
+#define MOVEWIDTH  550
+#define MOVEHEIGHT 250
+#define MOVESPACING 30
+X
+#define FORCE   1
+#define NOFORCE 0
+X
+#define NOTITLE "Untitled"
+X
+#define MAXTITLELEN     100
+#define MAXTITLEDISLEN  8
+#define MAXSEARCHLEN    MAXTITLELEN
+#define MAXSEARCHDISLEN 15
+#define MAXBUFLEN       1024
+X
+#define MAXINCORE      20  /* Max. note windows created */
+#define MAXSUBDIR      20  /* Max. len of sub dir name */
+#define MAXNAME        256 /* Max. note file name len */
+X
+#define COL_ROLLOVER 10
+#define COL_MAXCOL    6
+X
+#define CHOICE_ALL       "All"
+#define CHOICE_FROM_LIST "From List"
+X
+#define CHOICE_QUIT    "Quit"
+#define CHOICE_MOVE    "Move Note"
+#define CHOICE_FOLDER  "Create Folder"
+#define CHOICE_DESTROY "Destroy Folder"
+#define CHOICE_PRINT   "Print Note"
+X
+public Frame  main_frame;
+public Panel  main_panel;
+public Menu   main_newnote;
+public Menu   main_expose;
+public Menu   main_print;
+X
+public Frame      folder_frame;
+public Panel_item folder_item;
+public Menu_item  folder_mitem;
+X
+public Frame      move_frame;
+public Panel      move_panel;
+public Menu_item  move_mitem;
+X
+public Frame      destroy_frame;
+public Panel_item destroy_item;
+public Menu_item  destroy_mitem;
+X
+public Frame      search_frame;
+public Panel_item search_item;
+X
+public int move_up, destroy_up, search_up;
+X
+enum NoteState {
+X    Visible = 0,
+X    Hidden  = 1,
+X    Veiled  = 2
+};
+typedef enum NoteState NoteState;
+X
+struct Note {
+X    Rect       rect;
+X    NoteState  state;
+X    char       ntitle[MAXTITLELEN + 1];
+X    int        mapped;
+X    Frame      frame;
+X    Panel      panel;
+X    Textsw     textsw;
+X    Panel_item title;
+X    Panel_item hide;
+X    Panel_item destroy;
+X    Panel_item cdate;
+X    Panel_item ctime;
+X    Icon       icon;
+X    long       crttime;
+X    long       touched;
+X    char       basename[MAXNAME];
+X    struct SubDir *sp;
+};
+X
+struct SubDir {
+X    char           subdir[MAXSUBDIR];
+X   struct LLM_root note_rt;
+};
+X
+struct FreeWin {
+X    Frame      frame;
+X    Panel      panel;
+X    Textsw     textsw;
+X    Panel_item title;
+X    Panel_item hide;
+X    Panel_item destroy;
+X    Panel_item cdate;
+X    Panel_item ctime;
+X    Icon       icon;
+};
+X
+public int  confirmdestroy;
+public int  noticenobeep;
+public int  icontransparent;
+public char folderorder[2048];
+X
+public int  notecount;
+X
+public int  debug_on;
+X
+public char note_dir [MAXBUFLEN];
+public char myname [MAXBUFLEN];
+X
+extern int  cleanup(), hideall(), exposeall(), hidenote(), removenote();
+extern int  dismissed(), frameexit(), dragdrop(), reseticon(), newtitle();
+extern int  newnote(), exposemenu(), actionmenu(), newfolder(), folderdone();
+extern int  notesearch(), movenote(), destroyfolder();
+extern Menu gen_exposemenu(), gen_prtmenu();
+extern Notify_value child_death();
+extern char *add_sorted();
+X
+public struct LLM_root subdir_rt;
+public struct LLM_root freewin_rt;
+X
+#endif /* PAN */
+SHAR_EOF
+chmod 0644 pan.h ||
+echo 'restore of pan.h failed'
+Wc_c="`wc -c < 'pan.h'`"
+test 6718 -eq "$Wc_c" ||
+	echo 'pan.h: original size 6718, current size' "$Wc_c"
+fi
+# ============= pan.icon ==============
+if test -f 'pan.icon' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan.icon (File already exists)'
+else
+echo 'x - extracting pan.icon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan.icon' &&
+/* Format_version=1, Width=64, Height=64, Depth=1, Valid_bits_per_item=16
+X */
+X	0x0000,0x0000,0x0000,0x0800,
+X	0x0000,0x0000,0x0000,0x1600,
+X	0x0000,0x0000,0x0000,0x1100,
+X	0x0000,0x0000,0x0000,0x2200,
+X	0x0000,0x0000,0x0000,0x4200,
+X	0x0000,0x0000,0x0000,0x6400,
+X	0x07FF,0xFFFF,0xFFFF,0x9FE0,
+X	0x0400,0x0000,0x0001,0x0820,
+X	0x0400,0x0000,0x0001,0x1020,
+X	0x0400,0x0020,0x0002,0x2020,
+X	0x0424,0x0022,0x0004,0x2020,
+X	0x045E,0x61FE,0x0004,0x4020,
+X	0x0401,0xB600,0x0008,0x8020,
+X	0x0400,0x0000,0x0010,0x8020,
+X	0x0400,0x0000,0x0011,0x0020,
+X	0x0400,0x0000,0x01A2,0x0020,
+X	0x0404,0x0100,0x0142,0x0020,
+X	0x04EB,0x5531,0xAE45,0xB920,
+X	0x0400,0x8983,0xF089,0x8320,
+X	0x0400,0x0118,0x0108,0x0020,
+X	0x0400,0x0008,0x0110,0x0020,
+X	0x0400,0x0000,0x0220,0x0020,
+X	0x0400,0x0000,0x2420,0x0020,
+X	0x046E,0x340F,0x4446,0x8220,
+X	0x0400,0x83A8,0x0888,0x7DA0,
+X	0x0400,0x0000,0x1080,0x0020,
+X	0x0400,0x0000,0x1100,0x0020,
+X	0x0400,0x0000,0x2E00,0x0020,
+X	0x0400,0x0000,0x2200,0x0020,
+X	0x0421,0x8800,0x4C00,0x0020,
+X	0x0442,0xA800,0x7000,0x0020,
+X	0x0418,0x457D,0xC000,0x0020,
+X	0x0400,0x0248,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x0400,0x0000,0x0000,0x0020,
+X	0x07FF,0xFFFF,0xFFFF,0xFFE0,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000,
+X	0x0000,0x0000,0x0000,0x0000
+SHAR_EOF
+chmod 0644 pan.icon ||
+echo 'restore of pan.icon failed'
+Wc_c="`wc -c < 'pan.icon'`"
+test 1997 -eq "$Wc_c" ||
+	echo 'pan.icon: original size 1997, current size' "$Wc_c"
+fi
+true || echo 'restore of pan.man failed'
+echo End of part 4, continue with part 5
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

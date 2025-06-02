@@ -1,0 +1,1718 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 7/8
+Message-ID: <1992Apr12.182142.15583@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:42 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1707
+
+Archive-name: empireclient_110/part7
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 7 -+-+-+-+-+-+-+-+
+X`009return;
+X    `125
+X
+X    while (try_next) `123
+X`009try_next = 0;`009 /* 1 if errors occured */
+X
+X`009do `123 dist_cur++;
+X`009`125 while (dist_cur < dump_database.count &&
+X`009    !dist_table`091dist_cur`093);
+X
+X`009if (dist_cur >= dump_database.count) `123
+X`009    sprintf(buffer,"Autodistribute finished, %d sector%s modified",
+X`009`009dist_count, dist_count != 1 ? "s" : "");
+X`009    write_line(buffer,E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009start_X = dump_database.sectors`091dist_cur`093`091F_x`093.U_num;
+X`009start_Y = dump_database.sectors`091dist_cur`093`091F_y`093.U_num;
+X`009des = dump_database.sectors`091dist_cur`093`091F_des`093.U_char;
+X`009oldpath = dump_database.sectors`091dist_cur`093`091F_dist_path`093.U_str
+Ving;
+X
+X`009if (start_X == UNKNOWN_num `124`124 start_Y == UNKNOWN_num) `123
+X`009    sprintf(buffer,"Internal error(next_distribute): cordinates unknown
+V (index=%d)",
+X`009`009dist_cur);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009if (des == UNKNOWN_char `124`124 des == 'w') `123
+X`009    try_next = 1;
+X`009    continue;
+X`009`125
+X
+X`009calculate_cost(&dump_database,start_X,start_Y,
+X`009    costtable,dirtable,MAX_DIST_PATH);
+X
+X`009if (dist_targ && costtable`091tar - B`093 > 1000) `123
+X`009    sprintf(buffer,"No path from %d,%d to %d,%d",
+X`009`009start_X,start_Y,tar_X,tar_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    try_next = 1;
+X`009    continue;`009/* next sector */
+X`009`125
+X
+X`009if (!dist_targ) `123
+X`009    float best_val = 1000;
+X`009    int i;
+X`009    tar = NULL;
+X`009    for (i = 0; i < dump_database.count; i++)`032
+X`009`009if (dist_targ_table`091i`093) `123
+X`009`009    if (costtable`091i`093 < best_val) `123
+X`009`009`009tar = B + i;
+X`009`009`009best_val = costtable`091i`093;
+X`009`009    `125
+X`009`009`125
+X`009    if (tar == NULL) `123
+X`009`009sprintf(buffer,"No path from %d,%d to any given sector",
+X`009`009    start_X,start_Y);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009`009try_next = 1;
+X`009`009continue;`009/* next sector */
+X`009    `125 else `123
+X`009`009tar_X = (*tar)`091F_x`093.U_num;
+X`009`009tar_Y = (*tar)`091F_y`093.U_num;
+X
+X`009`009sprintf(buffer,
+X`009`009    "Selected distribution center for %d,%d is %d,%d (cost %.2f)",
+X`009`009    start_X,start_Y,tar_X,tar_Y,best_val);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009    `125
+X`009`125
+X
+X`009give_path(&dump_database,dirtable,dist_path,tar - B,&temp_X,&temp_Y);
+X`009if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009    write_line("Something is wrong with path",E_tool,NULL);
+X`009    return;
+X`009`125
+X
+X`009if (oldpath && (StrEQ(oldpath,dist_path,0) `124`124
+X`009    (StrEQ(oldpath,"_",0) && StrEQ(dist_path,"",0)))) `123
+X`009    sprintf(buffer,"Path from %d,%d to %d,%d OK!",
+X`009`009start_X,start_Y,tar_X,tar_Y);
+X`009    write_line(buffer,E_none,NULL);
+X`009    try_next = 1;
+X`009    continue;`009/* next sector */
+X`009`125
+X
+X    `125`032
+X
+X    sprintf(buffer,"distribute %d,%d %sh",
+X`009start_X,start_Y,dist_path);
+X    feed_command(buffer,parse_dump_dist);
+X    return;
+X`125
+X
+X/* read MAP dump **********************************************************
+V */
+X
+X#define MAX_HEADER 3
+Xstatic char map_top_line`091MAX_HEADER`093`09150+ 256`093;
+Xstatic int map_leftoffset = 0;
+Xstatic int map_linelen = 0;
+Xstatic int map_count = 0;
+X
+Xstatic int parse_map_header(int *minx, int *maxx)
+X`123
+X    char temp`091MAX_HEADER+1`093;
+X    int i,L,R,len;
+X
+X    if (VD_size_x == 0 `124`124 VD_size_y == 0) `123
+X`009write_line("World size unknown.",E_tool,NULL);
+X`009return 0;   /* can't calculate with zero size */
+X    `125
+X
+X    /* read leftmost number */
+X    for (i = 0; i < map_count; i ++)
+X`009temp`091i`093 = map_top_line`091i`093`091map_leftoffset`093;
+X    temp`091map_count`093 = '\0';
+X    if (sscanf(temp,"%d",&L) != 1) return 0;
+X
+X    /* read rightmost number */
+X    for (i = 0; i < map_count; i ++)
+X`009temp`091i`093 = map_top_line`091i`093`091map_linelen-1`093;
+X    temp`091map_count`093 = '\0';
+X    if (sscanf(temp,"%d",&R) != 1) return 0;
+X
+X    len = map_linelen - map_leftoffset;
+X
+X    if (L + len -1 < VD_size_x/2 && R == L + len -1) `123
+X`009*minx = L;
+X`009*maxx = R;
+X`009return 1;
+X    `125
+X    if (L + len -1 >= VD_size_x/2 && R == L + len -1 - VD_size_x) `123
+X`009*minx = L;
+X`009*maxx = R;
+X`009return 1;
+X    `125
+X
+X    if (L > 0 && -L + len -1 < VD_size_x/2 && R == -L + len -1) `123
+X`009*minx = -L;
+X`009*maxx = R;
+X`009return 1;
+X    `125
+X    if (L > 0 && -L + len -1 >= VD_size_x/2 && R == -L + len -1 - VD_size_x)
+V `123
+X`009*minx = -L;
+X`009*maxx = R;
+X`009return 1;
+X    `125
+X
+X    if (R > 0 && L + len -1 < VD_size_x/2 && -R == L + len -1) `123
+X`009*minx = L;
+X`009*maxx = -R;
+X`009return 1;
+X    `125
+X    if (R > 0 && L + len -1 >= VD_size_x/2 && -R == L + len -1 - VD_size_x)
+V `123
+X`009*minx = L;
+X`009*maxx = -R;
+X`009return 1;
+X    `125
+X
+X    if (R > 0 && L > 0 && -L + len -1 < VD_size_x/2 && -R == -L + len -1) `1
+V23
+X`009*minx = -L;
+X`009*maxx = -R;
+X`009return 1;
+X    `125
+X    if (R > 0 && L > 0 && -L + len -1 >= VD_size_x/2 && -R == -L + len -1 -
+V VD_size_x) `123
+X`009*minx = -L;
+X`009*maxx = -R;
+X`009return 1;
+X    `125
+X
+X    return 0;   `032
+X`125
+X
+Xstatic int map_add_sector(sectors *database,int X, int Y, char C)
+X`123
+X    sector_data *temp;
+X    int pos;
+X
+X    /* check that there is space left */
+X    if (!realloc_database(database)) return 0;
+X
+X    pos = database -> count++;
+X    temp = database -> sectors;
+X
+X    temp`091pos`093`091F_x`093.U_num = X;
+X    temp`091pos`093`091F_y`093.U_num = Y;
+X    temp`091pos`093`091F_des`093.U_char = C;
+X    /* notice that  F_OWNED is unknown if C != ? */
+X    if ( C == '?') temp`091pos`093`091F_OWNED`093.U_bool = 0; /* not owned *
+V/
+X    if ( C == '.') `123 /* sea sector */
+X`009temp`091pos`093`091F_OWNED`093.U_bool = 0;`009/* not owned */
+X`009temp`091pos`093`091F_own`093.U_num = 0;`009/* owner deity */
+X    `125
+X    return 1; /* ok */
+X`125
+X
+Xstatic int parse_map_line(sectors *database, char *line)
+X`123
+X
+X    static leftx = 0, rightx = 0;
+X    static topy = 0, boty = 0;
+X    static enum `123 M_header, M_map, M_tail `125 mode = M_header;
+X    int X,Y,i;
+X    static char part`09110`093;
+X
+X    int lc = ++(database -> linecount);
+X
+X    if (lc == 1) `123
+X`009topy = 999;
+X`009boty = -999;
+X`009map_count = 0;
+X`009map_leftoffset = count_lead_space(line);
+X`009map_linelen = strlen(line);
+X`009mode = M_header;
+X`009if (map_leftoffset == 0) return 0;`009/* something is wrong */
+X    `125
+X
+X    switch(mode) `123
+X`009case M_header:
+X`009    if (count_lead_space(line) == map_leftoffset) `123
+X`009`009if (map_count == MAX_HEADER)  `123
+X`009`009    write_line("Too long map's header",E_tool,NULL);
+X`009`009    return 0; /* overflow */
+X`009`009`125
+X`009`009strcpy(map_top_line`091map_count`093,line);
+X`009`009map_count++;
+X`009`009if (strlen(line) != map_linelen)`032
+X`009`009    return 0; /*something is wong */
+X`009`009return 1; /* ok */
+X`009    `125
+X`009    /* map part is beginning */
+X`009    if (!parse_map_header(&leftx,&rightx)) `123
+X`009`009write_line("Can't parse map's header",E_tool,NULL);
+X`009`009return 0; /* something is wrong */
+X`009    `125
+X`009    mode = M_map;   /* fall to next */
+X`009case M_map:
+X`009    if (count_lead_space(line) < map_leftoffset) `123
+X`009`009if (strlen(line) < map_linelen)
+X`009`009    return 0;`009/* something is wrong */
+X
+X`009`009strncpy(part,line,map_leftoffset);
+X`009`009part`091map_leftoffset`093 = '\0';
+X`009`009if (sscanf(part,"%d",&Y) != 1)`032
+X`009`009    return 0; /* something is wrong */
+X
+X`009`009if (topy == 999) topy = Y;
+X`009`009boty = Y;
+X
+X`009`009for (i = map_leftoffset; i < map_linelen; i++) `123
+X`009`009    char C = line`091i`093;
+X
+X`009`009    X = leftx + i - map_leftoffset;
+X`009`009    if ( X >= VD_size_x / 2) X -= VD_size_x;
+X
+X`009`009    if (C != ' ') `123
+X`009`009`009if(!map_add_sector(database,X,Y,C))
+X`009`009`009    return 0; /* something is wrong */
+X`009`009    `125
+X`009`009`125
+X`009`009return 1;
+X
+X`009    `125 else `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"Map's cordinates %d:%d,%d:%d",
+X`009`009    leftx,rightx,topy,boty);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009`009mode = M_tail;`009/* fall to next */
+X`009    `125
+X`009case M_tail:
+X`009    if (count_lead_space(line) != map_leftoffset)
+X`009`009return 0; /* somethin is wrong */
+X`009    if (strlen(line) != map_linelen)
+X`009`009return 0; /* somethin is wrong */
+X`009    return 1; /* ok */
+X    `125
+X`125
+X
+Xstatic parse_dump_map(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    if (temp_database.linecount == 0) `123
+X`009temp_database.count = 0;
+X    `009error = 0;
+X`009if (!temp_database.sectors) `123
+X`009    if(!init_database(&temp_database)) `123
+X`009`009error = 1;
+X`009`009return;
+X`009    `125
+X`009`125 else reset_database(&temp_database);
+X    `125
+X    if (D == D_EOD) `123
+X
+X`009if (error `124`124 temp_database.linecount == 0 `124`124 empiretool_canc
+Vel) `123
+X`009    if (empiretool_cancel) write_line("Canceled.",E_tool,NULL);
+X`009    empiretool_cancel = 1;
+X`009    error = 0;
+X`009`125 else `123
+X`009    char buffer`091PROMPT_SIZE`093;
+X
+X`009    sprintf(buffer,"%d sector%s",
+X`009`009temp_database.count, temp_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009    sort_database(&temp_database);   /* new update database requires */
+X`009    update_database(&dump_database,&temp_database);
+X`009    check_visual();
+X
+X`009    sprintf(buffer,"Total: %d sector%s",
+X`009`009dump_database.count, dump_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X`009`125
+X
+X`009temp_database.linecount = 0;`009/* is ended */
+X`009call_empiretool_handler();
+X`009change_prompt(P_tool);
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (error) `123
+X`009return; /* skip rest */
+X    `125 else if (!parse_map_line(&temp_database,line)) `123
+X`009write_line("Can't parse",E_tool,line);
+X`009error = 1;
+X    `125
+X`125
+X
+X
+X/* read MOVE 'dump'  ******************************************************
+V */
+X
+Xstatic dump_fields move_field;
+Xstatic int move_amount;
+X
+X/* also answers */
+Xstatic int parse_move_query(char *line)
+X`123
+X    char des;
+X    float mob;
+X    int X,Y;
+X
+X    if (sscanf(line,"<%f: %c %d,%d>",&mob,&des,&X,&Y) != 4) return 0;
+X   `032
+X    if (tar_X != X && tar_Y != Y) write_line("Move failed",E_tool,NULL);
+X
+X    cur_X = X;
+X    cur_Y = Y;
+X    cur_mob = mob;
+X
+X    answer_query("h");
+X    return 1;
+X`125
+X
+Xstatic int move_var = -1;
+Xstatic int move_auto = 0;  /* 1 = collect , 2 = automove */
+Xstatic int move_stat = 0;
+X
+Xstatic void move_next(void);
+Xstatic void moveauto_next(void);
+X
+Xstatic void parse_dump_move(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    if (D == D_EOD) `123 `032
+X`009if (empiretool_cancel) `123
+X`009    write_line("Canceled.",E_tool,NULL);
+X`009`125 else if (cur_mob != UNKNOWN_num) `123
+X`009    sector_data *from = Locate(&dump_database,start_X,start_Y);
+X`009    sector_data *tar = Locate(&dump_database,cur_X,cur_Y);
+X`009    if (!from) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"cord: %d,%d",start_X,start_Y);
+X`009`009write_line("Internal error(parse_dump_move): Sector not found from d
+Vatabase",
+X`009`009    E_tool,buffer);
+X`009    `125 else if (!tar) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"cord: %d,%d",cur_X,cur_Y);
+X`009`009write_line("Internal error(parse_dump_move): Sector not found from d
+Vatabase",
+X`009`009    E_tool,buffer);
+X`009    `125 else `123`009/* update database */
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009if ((*from)`091move_field`093.U_num != UNKNOWN_num)`032
+X`009`009    (*from)`091move_field`093.U_num -= move_amount;
+X`009`009if ((*tar)`091move_field`093.U_num != UNKNOWN_num)`032
+X`009`009    (*tar)`091move_field`093.U_num += move_amount;
+X`009`009(*from)`091F_mob`093.U_num = cur_mob;`009    /* mobility */
+X`009`009if (cur_X != tar_X `124`124 cur_Y != tar_Y) `123
+X`009`009    sprintf(buffer,"Commodities left to %d,%d",cur_X,cur_Y);
+X`009`009    write_line(buffer,E_tool,NULL);
+X`009`009`125 else `123
+X`009`009    if (move_auto == 2) add_to_var(move_var,tar_X,tar_Y);
+X`009`009    else add_to_var(move_var,start_X,start_Y);
+X`009`009    move_stat += move_amount;
+X`009`009`125
+X`009    `125
+X`009`125
+X
+X`009if (move_auto == 1 && !empiretool_cancel && !error) move_next();
+X`009else if (move_auto == 2 && !empiretool_cancel && !error)`032
+X`009    moveauto_next();
+X`009else call_empiretool_handler();
+X`009empiretool_cancel = 0;
+X`009error = 0;
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009if (!parse_move_query(line)) `123
+X`009    write_line("Can't parse",E_tool,line);
+X`009    ask_message(line);  /* ask from user */
+X`009    error = 1;
+X`009`125
+X`009return;`032
+X    `125 else `123
+X`009write_line(line,E_none,NULL);
+X`009error = 1;
+X    `125
+X`125
+X
+X   `032
+X/* read VERSION dump ******************************************************
+V */
+X
+Xtypedef int version_routine(char *line);
+X
+Xstatic int VR_size(char *line);
+Xstatic int VR_cordinate(char *line);
+Xstatic int VR_update_etu(char *line);
+Xstatic int VR_pro_btu(char *line);
+Xstatic int VR_pro_food(char *line);
+Xstatic int VR_harv_food(char *line);
+Xstatic int VR_pro_civ(char *line);
+Xstatic int VR_pro_uw(char *line);
+Xstatic int VR_no_food(char *line);
+Xstatic int VR_use_food(char *line);
+Xstatic int VR_buse_food(char *line);
+Xstatic int VR_interest(char *line);
+Xstatic int VR_taxs(char *line);
+Xstatic int VR_payments(char *line);
+X
+Xstatic struct VERSION_STRINGS `123
+X`009char *text;
+X`009version_routine *routine;
+X`009`125 version_strings`091`093 = `123
+X`009    `123 "World size is ",`009`009    VR_size `125,
+X`009    `123 "By default, countries use",  VR_cordinate `125,
+X`009    `123 "An update consists of ",`009    VR_update_etu `125,
+X`009    `123 "civilians to produce a BTU in one time unit.", VR_pro_btu `125
+V,
+X`009    `123 "A non-aggi, 100 fertility sector can grow", VR_pro_food `125,
+X`009    `123 "1000 civilians will harvest ", VR_harv_food `125,
+X`009    `123 "1000 civilians will give birth to ", VR_pro_civ `125,
+X`009    `123 "1000 uncompensated workers will give birth to ", VR_pro_uw `12
+V5,
+X`009    `123 "No food is needed!!", VR_no_food `125,
+X`009    `123 "In one time unit, 1000 people eat", VR_use_food `125,
+X`009    `123 "1000 babies eat", VR_buse_food `125,
+X`009    `123 "interest per 1000 gold bars per etu", VR_interest `125,
+X`009    `123 "1000 civilians generate ", VR_taxs `125,
+X`009    `123 "1000 active military cost", VR_payments `125,
+X
+X    `125;
+X
+Xstatic int VD_rel = 0;
+Xstatic int VD_update_etu = 0;
+Xstatic float VD_pro_btu = 0;
+Xstatic float VD_pro_food = 0;
+Xstatic float VD_harv_food = 0;
+Xstatic float VD_pro_civ = 0;
+Xstatic float VD_pro_uw = 0;
+Xstatic float VD_use_food = 0;
+Xstatic float VD_buse_food = 0;
+Xstatic float VD_interest = 0;
+Xstatic float VD_tax_civ = 0;
+Xstatic float VD_tax_uw = 0;
+Xstatic float VD_payment_mil = 0;
+Xstatic float VD_payment_res = 0;
+X
+Xstatic int write_VD(FILE *fp)
+X`123   /*          x  y ... */
+X    return (
+X`009fprintf(fp,"VD %d %d %d %d %f %f %f %f %f %f %f %f %f %f %f %f\n",
+X`009    VD_size_x, VD_size_y, VD_rel, VD_update_etu,
+X`009    VD_pro_btu, VD_pro_food,VD_harv_food,
+X`009    VD_pro_civ, VD_pro_uw, VD_use_food, VD_buse_food,
+X`009    VD_interest, VD_tax_civ, VD_tax_uw, VD_payment_mil, VD_payment_res)
+X`009`009> 0);
+X`125
+X
+Xstatic int read_VD(FILE *fp)
+X`123   /*          x  y ... */
+X    return (
+X`009fscanf(fp,"VD %d %d %d %d %f %f %f %f %f %f %f %f %f %f %f %f\n",
+X`009    &VD_size_x, &VD_size_y, &VD_rel, &VD_update_etu,
+X`009    &VD_pro_btu, &VD_pro_food, &VD_harv_food,
+X`009    &VD_pro_civ, &VD_pro_uw, &VD_use_food, &VD_buse_food,
+X`009    &VD_interest, &VD_tax_civ, &VD_tax_uw, &VD_payment_mil,`032
+X`009    &VD_payment_res)
+X`009`009== 16);
+X`125
+X
+Xstatic int VR_size(char *line)
+X`123
+X    return (sscanf(line,"World size is %d by %d",
+X`009&VD_size_x,&VD_size_y) == 2);
+X`125
+X
+Xstatic int VR_cordinate(char *line)
+X`123
+X    if (strstr(line,"the deity's")) VD_rel = 0;
+X    else if (strstr(line,"their own")) VD_rel = 1;
+X    else return 0;
+X
+X    return 1;
+X`125
+X
+Xstatic int VR_update_etu(char *line)
+X`123
+X    return (sscanf(line,"An update consists of %d empire time units",
+X`009&VD_update_etu) == 1);
+X`125
+X
+Xstatic int VR_pro_btu(char *line)
+X`123
+X    return (sscanf(line,
+X`009"It takes %f civilians to produce a BTU in one time unit",
+X`009    &VD_pro_btu) == 1);
+X`125
+X
+Xstatic int VR_pro_food(char *line)
+X`123
+X    return (sscanf(line,
+X`009" A non-aggi, 100 fertility sector can grow %f food per etu",
+X`009&VD_pro_food) == 1);
+X`125
+X
+Xstatic int VR_harv_food(char *line)
+X`123
+X    return (sscanf(line," 1000 civilians will harvest %f food per etu",
+X`009&VD_harv_food) == 1);
+X`125
+X
+Xstatic int VR_pro_civ(char *line)
+X`123
+X    return (sscanf(line,
+X`009" 1000 civilians will give birth to %f babies per etu",
+X`009&VD_pro_civ) == 1);
+X`125
+X
+Xstatic int VR_pro_uw(char *line)
+X`123
+X    return (sscanf(line,
+X`009" 1000 uncompensated workers will give birth to %f babies",
+X`009&VD_pro_uw) == 1);
+X`125
+X
+Xstatic int VR_no_food(char *line)
+X`123
+X    VD_use_food = 0;
+X    return 1;
+X`125
+X
+Xstatic int VR_use_food(char *line)
+X`123
+X    return (sscanf(line,"In one time unit, 1000 people eat %f units of food"
+V,
+X`009&VD_use_food) == 1);
+X`125
+X
+Xstatic int VR_buse_food(char *line)
+X`123
+X    return (sscanf(line," 1000 babies eat %f units of food becoming adults",
+X`009&VD_buse_food) == 1);
+X`125
+X
+Xstatic int VR_interest(char *line)
+X`123
+X    return (sscanf(line,
+X`009" Banks pay $%f in interest per 1000 gold bars per etu",
+X`009&VD_interest) == 1);
+X`125
+X
+Xstatic int VR_taxs(char *line)
+X`123
+X    return (sscanf(line,
+X`009" 1000 civilians generate $%f, uncompensated workers $%f each time unit"
+V,
+X`009&VD_tax_civ,&VD_tax_uw) == 2);
+X`125
+X
+Xstatic int VR_payments(char *line)
+X`123
+X    return (sscanf(line," 1000 active military cost $%f, reserves cost $%f",
+X`009&VD_payment_mil,&VD_payment_res) == 2);
+X`125
+X
+X
+Xstatic int parse_version_line(char *line)
+X`123
+X    int i,match = -1;
+X    for (i = 0; i < sizeof(version_strings) / sizeof(struct VERSION_STRINGS)
+V;
+X`009i++)`032
+X`009    if (strstr(line,version_strings`091i`093.text))`032
+X`009`009match = i;
+X`009
+X    if (match == -1)`032
+X`009return 1;`009`009/* No error with nonmatched line */
+X   `032
+X    else `032
+X`009return version_strings`091match`093.routine(line);
+X`125
+X
+Xstatic void parse_dump_version(data_type D,char *line)
+X`123
+X   `032
+X    if (D == D_EOD) `123
+X`009char buffer`091PROMPT_SIZE`093;
+X`009/* next part : dump database */
+X`009if (start_with_dump && !empiretool_cancel) `123
+X`009    sprintf(buffer,"dump %s",dump_area);
+X`009    feed_command(buffer,parse_dump_scan);
+X`009`125 else `123
+X`009    if (empiretool_cancel) write_line("Canceled.",E_tool,NULL);
+X`009    empiretool_cancel = 0;
+X`009    change_prompt(P_tool);
+X`009    call_empiretool_handler();
+X`009`125
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (!parse_version_line(line)) `123
+X`009write_line("Can't parse",E_tool,line);
+X    `125
+X`125
+X
+X/* update *****************************************************************
+V */
+X
+Xstatic int update_day = 0;
+Xstatic int update_hour = 0;
+Xstatic int update_min = 0;
+Xstatic int update_sec = 0;
+Xstatic int short_update_wait = 0;
+X
+Xstatic void parse_update(data_type D,char *line)
+X`123
+X    char d1`09110`093,d2`09110`093;
+X    int day, hour, min, sec;
+X    int delta_day, delta_hour, delta_min, delta_sec;
+X
+X    if (D == D_EOD) `123
+X`009if (empiretool_cancel) write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X
+X`009call_empiretool_handler();
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (
+X`009sscanf(line,
+X`009    "The next update is at %`091`094 `093 %`091`094 `093 %d %d:%d:%d.",
+X`009`009d1,d2,&update_day,&update_hour,&update_min,&update_sec)
+X`009`009   == 6) `123
+X`009`009/* ok */
+X    `125 else if (
+X`009sscanf(line,
+X`009    "The current time is %`091`094 `093 %`091`094 `093 %d %d:%d:%d.",
+X`009`009d1,d2,&day,&hour,&min,&sec)
+X`009`009   == 6) `123
+X
+X`009    char buffer1`091COMMAND_SIZE`093;
+X
+X`009    delta_day = update_day - day;
+X`009    delta_hour = update_hour - hour;
+X`009    delta_min = update_min - min;
+X`009    delta_sec = update_sec - sec;
+X
+X`009    if (delta_sec < 0) `123
+X`009`009delta_sec += 60;
+X`009`009delta_min -= 1;
+X`009    `125
+X
+X`009    if (delta_min < 0) `123
+X`009`009delta_min += 60;
+X`009`009delta_hour -= 1;
+X`009    `125
+X
+X`009    if (delta_hour < 0) `123
+X`009`009delta_hour += 24;
+X`009`009delta_day -= 1;
+X`009    `125
+X
+X`009    if (delta_day < 0) `123
+X`009`009delta_day += 31;`009/* suppose 31 day in month */
+X`009    `125
+X
+X`009    sprintf(buffer1,"%d %d:%d:%d",delta_day,delta_hour,
+X`009`009delta_min,delta_sec);
+X`009    short_update_wait = 0;
+X`009    recycle_updatetimer(buffer1);
+X
+X`009    write_line("To next update",E_tool,buffer1);
+X    `125 else write_line("Can't parse",E_tool,line);
+X`125
+X
+X/* dummy ***************************************************************** *
+V/
+X
+Xstatic void parse_dummy(data_type D,char *line)
+X`123
+X    if (D == D_EOD) `123
+X`009call_empiretool_handler();
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else write_line(line,E_none,NULL);    /* just dummy */
+X`125
+X
+X/* main level **************************************************************
+V */
+X
+Xtypedef int routine(char *comm, char *param);`009/* 1 = write prompt */
+X
+Xstatic int C_rescan(char *comm, char *param);
+Xstatic int C_command(char *comm, char *param);
+Xstatic int C_list(char *comm, char *param);
+Xstatic int C_empty(char *comm, char *param);
+Xstatic int C_examine(char *comm, char *param);
+Xstatic int C_autoexplore(char *comm, char *param);
+Xstatic int C_autodist(char *comm, char *param);
+Xstatic int C_distribute(char *comm, char *param);
+Xstatic int C_move(char *comm, char *param);
+Xstatic int C_collect(char *comm, char *param);
+Xstatic int C_automove(char *comm, char *param);
+Xstatic int C_show(char *comm, char *param);
+Xstatic int C_sectors(char *comm, char *param);
+Xstatic int C_visual(char *comm, char *param);
+Xstatic int C_path(char *comm, char *param);
+Xstatic int C_sum(char *comm, char *param);
+Xstatic int C_update(char *comm, char *param);
+Xstatic int C_spy(char *comm, char *param);
+Xstatic int C_map(char *comm, char *param);
+Xstatic int C_version(char *comm, char *param);
+Xstatic int C_foodcheck(char *comm, char *param);
+Xstatic int C_birthcheck(char *comm, char *param);
+Xstatic int C_desigcheck(char *comm, char *param);
+Xstatic int C_autodump(char *comm, char *param);
+Xstatic int C_save(char *comm, char *param);
+Xstatic int C_if(char *comm, char *param);
+Xstatic int C_quit(char *comm, char *param);
+Xstatic int C_exit(char *comm, char *param);
+Xstatic int C_desig(char *comm, char *param);
+Xstatic int C_thre(char *comm, char *param);
+Xstatic int C_compare(char *comm, char *param);
+Xstatic int C_remember(char *comm, char *param);
+X
+Xstatic struct CS `123
+X`009char *command;
+X`009char *info;
+X`009routine *handler;
+X`009`125 commands`091`093 = `123
+X`009`123 "rescan",`009"Rereads empiretool dump -database",`009C_rescan `125,
+X`009`123 "update",`009"Updates empiretool dump -database",`009C_update `125,
+X`009`123 "map",`009"Updates empiretool dump -database",`009C_map `125,
+X`009`123 "spy",`009"Adds spy report to empiretool dump -database",`009C_spy
+V `125,
+X`009`123 "command",`009"Goes to EMPIRECLIENT command -level",`009C_command `
+V125,
+X`009`123 "save",`009"Saves dump -database",`009`009`009C_save `125,
+X`009`123 "compare",`009"Compares current database to saved database", C_comp
+Vare `125,
+X`009`123 "remember",`009"Remebers sectors from old database",`009C_remember
+V `125,
+X`009`123 "list",`009"lists commands (this list)",`009`009C_list `125,
+X`009`123 "?",`009`009"lists commands (this list)",`009`009C_list `125,
+X`009`123 "",`009`009NULL,`009`009`009`009`009C_empty `125,
+X`009`123 "!",`009`009NULL,`009`009`009`009`009C_empty `125,
+X`009`123 "examine",`009"Examines content of sector",`009`009C_examine `125,
+X`009`123 "show",`009"Lists selected sectors",`009`009C_show `125,
+X`009`123 "sectors",`009"Draw map for selected sectors",`009C_sectors `125,
+X`009`123 "view",`009"Draw map for selected sectors",`009C_sectors `125,
+X`009`123 "visual",`009"Draw map in screen mode",`009`009C_visual `125,
+X`009`123 "sum",`009"Sums selected sectors' field",`009`009C_sum `125,
+X`009`123 "if",`009`009"Executes empiretool command conditionally",`009C_if `
+V125,
+X`009`123 "quit",`009"Sends quit command to server",`009`009C_quit `125,
+X`009`123 "exit",`009"Exits empiretool",`009`009`009C_exit `125,
+X`009`123 "path",`009"Shows best path",`009`009`009C_path `125,
+X`009`123 "version",`009"Shows part of empire version information",`009C_vers
+Vion `125,
+X`009`123 "foodcheck",`009"Checks foods of sector",`009`009C_foodcheck `125,
+X`009`123 "birthcheck",`009"Checks civs (and uws) of sector",`009C_birthcheck
+V `125,
+X`009`123 "desigcheck", "Checks designation of sector",`009`009C_desigcheck `
+V125,
+X`009`123 "autodump",`009"Turns autodump on/off",`009`009C_autodump `125,
+X`009`123 "autoexplore","Explores wilderness",`009`009`009C_autoexplore `125,
+X`009`123 "autodistribute","Generates distribute lines",`009C_autodist `125,
+X`009`123 "move",`009"Moves commodities",`009`009`009C_move `125,
+X`009`123 "automove",`009"Shares commodities",`009`009`009C_automove `125,
+X`009`123 "collect",`009"Collects commodities",`009`009`009C_collect `125,
+X`009`123 "distribute",`009"Generates distribute line",`009`009C_distribute `
+V125,
+X`009`123 "designate",`009"Designates sector",`009`009`009C_desig `125,
+X`009`123 "des",`009"Designates sector",`009`009`009C_desig `125,
+X`009`123 "threshold",`009"Sets sector's threshold",`009`009C_thre `125,
+X`009`125;
+X
+X#define SHORT_UPDATE_WAIT "0 00:00:05.00"   /* 5 seconds */
+Xstatic int auto_update = 0;
+Xstatic int is_in_empiretool_prompt = 0;
+Xstatic int need_update_feed = 0;
+Xstatic void empiretool_handler(void);
+X
+Xvoid tool_update(void)
+X`123
+X    if (!auto_update) return;
+X
+X    if (!short_update_wait) `123
+X`009was_update = 0;
+X`009short_update_wait = 1;
+X`009need_update_feed = 0;
+X`009write_line("Update seems occured - wait a moment...",E_tool,NULL);
+X`009recycle_updatetimer(SHORT_UPDATE_WAIT);
+X`009return;
+X    `125
+X
+X    if (is_in_empiretool_prompt) `123
+X`009was_update = 0;
+X`009short_update_wait = 0;
+X`009cancel_updatetimer();
+X`009write_line("Update seems occured",E_tool,NULL);
+X
+X`009if (dump_area`0910`093 && auto_update) `123
+X`009    char buffer`091COMMAND_SIZE`093;
+X`009    sprintf(buffer,"dump %s",dump_area);
+X`009    feed_command(buffer,parse_dump_update);
+X`009    need_update_feed = 1;
+X`009    return;
+X`009`125
+X    `125 else was_update = 1;
+X`125
+X
+Xstatic void call_empiretool_handler(void)
+X`123
+X    char buffer`091PROMPT_SIZE`093;
+X
+X    if (no_btu && BTU_left > 5) no_btu = 0;
+X
+X    if (was_update `124`124 no_btu) `123
+X`009was_update = 0;
+X`009need_update_feed = 0;
+X`009write_line("Update seems occured - wait a moment...",E_tool,NULL);
+X`009short_update_wait = 1;
+X`009recycle_updatetimer(SHORT_UPDATE_WAIT);
+X    `125
+X
+X    if (need_update_feed) `123
+X`009feed_command("update",parse_update);
+X`009need_update_feed = 0;
+X`009return;
+X    `125
+X
+X    if (no_btu) `123
+X`009if (BTU_left > 0) sprintf(buffer,"%d BTU%s left",
+X`009    BTU_left, BTU_left == 1 ? "'s" : "");
+X`009else sprintf(buffer,"NO ANY BTUs");
+X`009write_line("You have shortage of BTU's !",E_tool,buffer);
+X    `125
+X
+X    if (empiretool_cancel) write_line("Cancel: No action.",E_tool,NULL);
+X    empiretool_cancel = 0;
+X
+X    if (dump_area`0910`093) sprintf(buffer,"Empiretool (%s)> ",dump_area);
+X    else strcpy(buffer,"Empiretool> ");
+X    ask_prompt(P_tool,buffer,empiretool_handler,1);
+X    is_in_empiretool_prompt = 1;
+X`125
+X
+Xstatic void empiretool_handler(void)
+X`123
+X    char *command = prompts`091P_tool`093.command;
+X    routine *Match = NULL, *Last = NULL;
+X    int count = 0,i;
+X    char buffer1`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093;
+X    int write_prompt = 0;
+X
+X    is_in_empiretool_prompt = 0;
+X    empiretool_cancel = 0;     /* no action */
+X    parse_command(command,buffer1,buffer2);
+X
+X    for (i = 0; i < sizeof(commands) / sizeof(struct CS); i++)`032
+X`009if (!strcmp(buffer1,commands`091i`093.command))`032
+X`009    Match = commands`091i`093.handler;
+X`009else if (strstr(commands`091i`093.command,buffer1) ==
+X`009    commands`091i`093.command) `123`032
+X`009`009count++;
+X`009`009Last = commands`091i`093.handler;
+X`009    `125
+X
+X    if (Match) write_prompt = Match(buffer1,buffer2);
+X    else if (count == 1) write_prompt = Last(buffer1, buffer2);
+X    else if (count > 0) `123
+X`009write_line("Ambiguous command",E_tool,buffer1);
+X`009write_prompt = 1;
+X    `125 else `123
+X`009write_line("Unknown command",E_tool,buffer1);
+X`009write_prompt = 1;
+X    `125
+X
+X    if (write_prompt) call_empiretool_handler();
+X`125
+X
+X/* COMMANDS ****************************************************************
+V */
+X
+X#define SPACES  "                                                         \
+X                                                                          \
+X                "
+X
+Xstatic int C_empty(char *comm, char *param)`032
+X`123
+X    return 1;
+X`125
+X
+Xstatic int C_list(char *comm, char *param)`032
+X`123
+X    int i,n;
+X    const int min = 15;
+X    char buffer`091TERM_LEN`093;
+X
+X    if (!strcmp(param,"?")) `123
+X`009write_line("Usage: list",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    for (i = 0; i < sizeof(commands) / sizeof(struct CS); i++)`032
+X`009if (commands`091i`093.info) `123
+X`009    strcpy(buffer,commands`091i`093.command);
+X`009    n = min - strlen(buffer);
+X`009    if (n > 0) `123
+X`009`009strncat(buffer,SPACES,n);
+X`009`009buffer`091min`093 = '\0';
+X`009    `125
+X`009    strcat(buffer,commands`091i`093.info);
+X`009    write_line(buffer,E_none,NULL);
+X`009`125
+X    return 1;
+X`125
+X
+Xstatic int C_command(char *comm, char *param)`032
+X`123
+X    if (!strcmp(param,"?")) `123
+X`009write_line("Usage: command",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    change_prompt(P_command);
+X    return 1;
+X`125
+X
+Xstatic int C_quit(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if (StrEQ(param,"?",0)) `123
+X`009write_line("Usage: quit",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    feed_command("quit",parse_dummy);`009   `032
+X    return 0;
+X`125
+X
+Xstatic int C_exit(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if (StrEQ(param,"?",0)) `123
+X`009write_line("Usage: exit",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    finish_empiretool();
+X    return 0;`009/* no prompt */
+X`125
+X
+Xstatic int C_rescan(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: rescan <sects>",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    start_with_dump = 1;
+X    strcpy(dump_area,param);`009`009`009    /* store it */
+X    feed_command("version",parse_dump_version);`009   `032
+X    return 0;
+X`125
+X
+Xstatic int C_update(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if ((param`0910`093 == '\0' && dump_area`0910`093 == '\0') `124`124 StrE
+VQ(param,"?",0)) `123
+X`009write_line("Usage: update <sects>",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    if (dump_area`0910`093 == '\0') strcpy(dump_area,param);
+X
+X    if (param`0910`093 == '\0') sprintf(buffer,"dump %s",dump_area);
+X    else sprintf(buffer,"dump %s",param);
+X    feed_command(buffer,parse_dump_update);
+X    return 0;
+X`125
+X
+Xstatic int C_spy(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: spy <sects>",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    sprintf(buffer,"spy %s",param);
+X    feed_command(buffer,parse_dump_spy);
+X    return 0;
+X`125
+X
+Xstatic int C_map(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: map <sects>",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    sprintf(buffer,"map %s",param);
+X    feed_command(buffer,parse_dump_map);
+X    return 0;
+X`125
+X
+Xstatic int C_autoexplore(char *comm, char *param)`032
+X`123
+X    int x,y,civ,mob,btu,var = -1;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *secs;
+X    expression civ_e,mob_e;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: autoexplore X,Y civ mob btu =$var",E_none,NULL);
+X`009write_line("       autoexplore X,Y civ mob btu +$var",E_none,NULL);
+X`009write_line(" civ and mob can be expression (depending of X,Y -sector)",
+X`009    E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if(sscanf(buffer,"%d,%d",&x,&y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(secs = Locate(&dump_database,x,y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    civ = (*secs)`091F_civ`093.U_num -1;
+X    mob = (*secs)`091F_mob`093.U_num;
+X    btu = BTU_left - 20;`032
+X    exp_count = 0;
+X
+X    if (btu < 1) `123
+X`009write_line("Not enaugh BTU's",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (civ == UNKNOWN_num `124`124 mob == UNKNOWN_num) `123
+X`009write_line("Not enaugh data for that sector",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (stepper(&param,buffer,sizeof(buffer)) &&
+X`009(!parse_expression(&civ_e,buffer) `124`124
+X`009  (civ = execute_expression(civ_e,secs)) == UNKNOWN_num `124`124
+X`009    civ <= 0 `124`124
+X`009    civ > (*secs)`091F_civ`093.U_num -1)) `123
+X`009write_line("Not such civilian amount",E_tool,buffer);
+X`009return 1;
+X    `125`032
+X
+X    if (stepper(&param,buffer,sizeof(buffer)) &&
+X`009(!parse_expression(&mob_e,buffer) `124`124
+X`009  (mob = execute_expression(mob_e,secs)) == UNKNOWN_num `124`124
+X`009    mob <= 0 `124`124
+X`009    mob > (*secs)`091F_mob`093.U_num)) `123
+X`009write_line("Not such mobility",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    sprintf(buffer,"Using %d civilians and %d of mobility for exploring",
+X`009civ,mob);
+X    write_line(buffer,E_none,NULL);
+X   `032
+X    if (stepper(&param,buffer,sizeof(buffer))`032
+X`009&& (sscanf(buffer,"%d",&btu) != 1 `124`124
+X`009    btu > BTU_left)) `123
+X`009write_line("Not such btu",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if (stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    exp_civ_limit = (*secs)`091F_civ`093.U_num - civ;
+X    exp_mob_limit = (*secs)`091F_mob`093.U_num - mob;
+X    exp_var = var;
+X    btu_limit = BTU_left - btu;
+X
+X    start_X = x;
+X    start_Y = y;
+X    start_explore();
+X    return 0;
+X`125
+X
+X
+Xstatic int C_examine(char *comm, char *param)`032
+X`123
+X    int x,y;
+X    char buffer`091COMMAND_SIZE`093;
+X    char buffer2`091COMMAND_SIZE`093;
+X    char buffer3`091COMMAND_SIZE`093;
+X    dump_fields field;
+X    expression E;
+X    sector_data *sector;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: examine X,Y field ...",E_none,NULL);
+X`009write_line("       examine X,Y 'expression ...",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if(sscanf(buffer,"%d,%d",&x,&y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    sector = Locate(&dump_database,x,y);
+X    if (!sector) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X   `032
+X    sprintf(buffer,"Contents of sector %d,%d:",x,y);
+X    write_line(buffer,E_none,NULL);
+X
+X    while(stepper(&param,buffer,sizeof(buffer))) `123
+X`009if (buffer`0910`093 == '\'' `124`124 buffer`0910`093 == ':' `124`124 buf
+Vfer`0910`093 == '(' ) `123
+X`009    if (parse_expression(&E,buffer + (buffer`0910`093 == '\''))) `123
+X`009`009int val = execute_expression(E,sector);
+X`009`009if (val == UNKNOWN_num)`032
+X`009`009    sprintf(buffer2,"  %-12s = ?",buffer + (buffer`0910`093 == '\'')
+V);
+X`009`009else`032
+X`009`009    sprintf(buffer2,"  %-12s = %d",buffer+1,val);
+X`009`009write_line(buffer2,E_none,NULL);
+X`009    `125
+X`009`125 else `123
+X`009    field = MatchRef(buffer);
+X`009    if (field != F_NULL) `123
+X`009`009Text(sector,field,buffer3);
+X`009`009sprintf(buffer2,"  %-12s = %s",FieldName(field),buffer3);
+X`009`009write_line(buffer2,E_none,NULL);
+X`009    `125
+X`009`125
+X    `125
+X    return 1;
+X`125
+X
+X
+Xstatic int C_show(char *comm, char *param)`032
+X`123
+X#define MAX_ARGS 10
+X    dump_fields array`091MAX_ARGS`093;
+X    char buffer`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093,buffer3`091C
+VOMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,var = -1;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: show area ?selector field... =$var",E_none,NULL);
+X`009write_line("       show area ?selector field... +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reask prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    while (strlen(buffer) && counter < MAX_ARGS &&`032
+X`009buffer`0910`093 != '=' && buffer`0910`093 != '+') `123
+X`009field = MatchRef(buffer);
+X`009if (field != F_NULL) array`091counter++`093 = field;
+X`009else return 1;  /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if (strlen(buffer) && init_var(&var,buffer) == -1) return 1;
+X
+X    sprintf(buffer,"Sector  des");
+X    for (j = 0; j < counter; j++) `123
+X`009sprintf(buffer2," %5s",FieldName(array`091j`093));
+X`009strcat(buffer,buffer2);
+X    `125
+X    write_line(buffer,E_none,NULL);
+X
+X    for(i = 0; i < dump_database.count; i++)`032
+X`009if (table`091i`093) `123
+X`009    sprintf(buffer,"%3d,%-3d %c  ",
+X`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_y`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_des`093.U_char);
+X
+X`009    add_to_var(var,dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009`009    dump_database.sectors`091i`093`091F_y`093.U_num);
+X
+X`009    for (j = 0; j <counter; j++) `123
+X`009`009Text(&dump_database.sectors`091i`093,array`091j`093,buffer2);
+X`009`009sprintf(buffer3," %5s",buffer2);
+X`009`009strcat(buffer,buffer3);
+X`009    `125
+X`009    write_line(buffer,E_none,NULL);
+X`009`125   `032
+X    return 1; /* reask prompt */
+X`125
+X
+X
+Xstatic int C_if(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,negated = 0;
+X
+X    routine *Match = NULL, *Last = NULL;
+X    int count = 0;
+X    int write_prompt = 0;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: if area ?selector command argument...",E_none,NULL);
+X`009write_line("Usage: if not area ?selector command argument...",E_none,NUL
+VL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (StrEQ(buffer,"not",1)) `123
+X`009negated = 1;
+X    stepper(&param,buffer,sizeof(buffer));
+X    `125
+X   `032
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reask prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    while (*param == ' ') param++;
+X
+X    for(i = 0; i < dump_database.count; i++) if (table`091i`093) counter++;
+X
+X    if ((counter > 0) == negated) return 1; /* don't execute */
+X
+X    for (i = 0; i < sizeof(commands) / sizeof(struct CS); i++)`032
+X`009if (!strcmp(buffer,commands`091i`093.command))`032
+X`009    Match = commands`091i`093.handler;
+X`009else if (strstr(commands`091i`093.command,buffer) ==
+X`009    commands`091i`093.command) `123`032
+X`009`009count++;
+X`009`009Last = commands`091i`093.handler;
+X`009    `125
+X
+X    if (Match) write_prompt = Match(buffer,param);
+X    else if (count == 1) write_prompt = Last(buffer, param);
+X    else if (count > 0) `123
+X`009write_line("Ambiguous command",E_tool,buffer);
+X`009write_prompt = 1;
+X    `125 else `123
+X`009write_line("Unknown command",E_tool,buffer);
+X`009write_prompt = 1;
+X    `125
+X
+X    return write_prompt;
+X`125
+X
+Xstatic int C_sectors(char *comm, char *param)`032
+X`123
+X#define MAX_TOP 4
+X#define MAX_X   300
+X#define MAX_Y   999
+X    char buffer`091COMMAND_SIZE`093,temp`091MAX_TOP+1`093,line`091MAX_X+11`0
+V93,
+X`009data`091MAX_X+1`093;
+X    char tops`091MAX_TOP`093`091MAX_X+1`093;
+X    selector table;
+X    int x,y,i,BF = 0;
+X    int X1 = (-MAX_X)/2,X2=MAX_X/2-1,
+X`009Y1= (-MAX_Y)/2,Y2=MAX_Y/2-1;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: sectors area ?selector ",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!BaseCord(&X1,&X2,&Y1,&Y2,buffer,1)) `123
+X`009int i;
+X`009if (!Base(&dump_database,table,buffer)) return 1; /* reas prompt */
+X`009X1 = UNKNOWN_num;
+X`009Y1 = UNKNOWN_num;
+X`009X2 = UNKNOWN_num;
+X`009Y2 = UNKNOWN_num;
+X`009for(i = 0; i < dump_database.count; i++)`032
+X`009    if (table`091i`093) `123
+X`009`009int X = dump_database.sectors`091i`093`091F_x`093.U_num;
+X`009`009int Y = dump_database.sectors`091i`093`091F_y`093.U_num;
+X`009
+X`009`009if (X != UNKNOWN_num && (X1 == UNKNOWN_num `124`124 X1 > X))
+X`009`009    X1 = X;
+X`009`009if (X != UNKNOWN_num && (X2 == UNKNOWN_num `124`124 X2 < X))
+X`009`009    X2 = X;
+X`009`009if (Y != UNKNOWN_num && (Y1 == UNKNOWN_num `124`124 Y1 > Y))
+X`009`009    Y1 = Y;
+X`009`009if (Y != UNKNOWN_num && (Y2 == UNKNOWN_num `124`124 Y2 < Y))
+X`009`009    Y2 = Y;
+X`009    `125
+X
+X`009if (X1 == UNKNOWN_num `124`124 X2 == UNKNOWN_num `124`124
+X`009    Y1 == UNKNOWN_num `124`124 Y2 == UNKNOWN_num) `123
+X`009    write_line("No area",E_tool,buffer);
+X`009    return 1; /* reask prompt */
+X`009`125`032
+X
+X`009BF = 1;
+X
+X    `125
+X
+X    if (VD_size_x && VD_size_y) `123
+X`009if (X1 < -VD_size_x/2) X1 = -VD_size_x/2;
+X`009if (X2 > VD_size_x/2-1) X2 = VD_size_x/2-1;
+X`009if (Y1 < -VD_size_y/2) Y1 = -VD_size_y/2;
+X`009if (Y2 > VD_size_y/2-1) Y2 = VD_size_y/2-1;
+X    `125
+X
+X    if (X2 - X1 > MAX_X `124`124 Y2 - Y1 > MAX_Y) `123
+X`009write_line("Cordinate overflow",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X
+X    if(stepper(&param,buffer,sizeof(buffer))) `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X`009BF = 1;
+X    `125
+X
+X    for (x = X1; x <= X2; x++) `123
+X`009sprintf(temp,"%4d",x);
+X`009for (i = 0; i < MAX_TOP; i++) tops`091i`093`091x-X1`093 = temp`091i`093;
+X    `125
+X    for (i = 0; i < MAX_TOP; i++) tops`091i`093`091X2-X1+1`093 = '\0';
+X
+X    for (i = 0; i < MAX_TOP; i++) `123
+X`009sprintf(line,"     %s",tops`091i`093);
+X`009write_line(line,E_data,NULL);
+X    `125
+X
+X    for (y = Y1; y <= Y2; y++) `123
+X`009for (x = X1; x <= X2; x++) `123
+X`009    unsigned char s = ' ';
+X`009    sector_data *temp = Locate(&dump_database,x,y);
+X`009    if (temp) `123
+X`009`009int I = temp - dump_database.sectors;
+X`009`009s = (*temp)`091F_des`093.U_char;
+X`009`009if (BF && table`091I`093) s `124= 128;`009/* boldface */
+X`009    `125
+X`009    data`091x-X1`093=s;`009   `032
+X`009`125
+X`009data`091X2-X1+1`093 = '\0';
+X`009sprintf(line,"%4d %s %-4d",y,data,y);
+X`009write_line(line,E_data,NULL);
+X    `125
+X
+X    for (x = X1; x <= X2; x++) `123
+X`009sprintf(temp,"%-4d",x);
+X`009for (i = 0; i < MAX_TOP; i++) tops`091i`093`091x-X1`093 = temp`091i`093;
+X    `125
+X    for (i = 0; i < MAX_TOP; i++) tops`091i`093`091X2-X1+1`093 = '\0';
+X
+X    for (i = 0; i < MAX_TOP; i++) `123
+X`009sprintf(line,"     %s",tops`091i`093);
+X`009write_line(line,E_data,NULL);
+X    `125
+X
+X    return 1; /* reask prompt */
+X`125
+X
+Xstatic int C_sum(char *comm, char *param)`032
+X`123
+X    dump_fields array`091MAX_ARGS`093;
+X    int scount = 0;
+X    int summary`091MAX_ARGS`093;
+X    char buffer`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,var = -1;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: sum area ?selector field... =$var",E_none,NULL);
+X`009write_line("       sum area ?selector field... +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reas prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    while (strlen(buffer) && counter < MAX_ARGS &&`032
+X`009buffer`0910`093 != '=' && buffer`0910`093 != '+') `123
+X`009field = MatchRef(buffer);
+X`009if (field != F_NULL) `123
+X`009    if (field_types`091field`093 != DF_num &&
+X`009`009field_types`091field`093 != DF_bool) `123
+X`009`009write_line("Field must be numerical or boolean",E_tool,buffer);
+X`009`009return 1; /* reask prompt */
+X`009    `125 else `123
+X`009`009summary`091counter`093 = 0;
+X`009`009array`091counter++`093 = field;
+X`009    `125
+X`009`125 else return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if (strlen(buffer) && init_var(&var,buffer) == -1) return 1;
+X
+X    sprintf(buffer,"Sectors");
+X    for (j = 0; j < counter; j++) `123
+X`009sprintf(buffer2," %5s",FieldName(array`091j`093));
+X`009strcat(buffer,buffer2);
+X    `125
+X    write_line(buffer,E_none,NULL);
+X
+X    for(i = 0; i < dump_database.count; i++)`032
+X`009if (table`091i`093) `123
+X`009    scount++;
+X
+X`009    add_to_var(var,dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009`009    dump_database.sectors`091i`093`091F_y`093.U_num);
+X
+X`009    for (j = 0; j <counter; j++) `123
+X`009`009switch(field_types`091array`091j`093`093) `123
+X`009`009    case DF_num:
+X`009`009`009if (dump_database.sectors`091i`093`091array`091j`093`093.U_num !
+V=`032
+X`009`009`009    UNKNOWN_num) summary`091j`093 +=`032
+X`009`009`009`009dump_database.sectors`091i`093`091array`091j`093`093.U_num;
+X`009`009`009break;
+X`009`009    case DF_bool:
+X`009`009`009if (dump_database.sectors`091i`093`091array`091j`093`093.U_bool
+V !=
+X`009`009`009    UNKNOWN_bool) summary`091j`093 +=`032
+X`009`009`009`009dump_database.sectors`091i`093`091array`091j`093`093.U_bool;
+X`009`009`009break;
+X`009`009`125
+X`009    `125
+X`009`125   `032
+X
+X    sprintf(buffer,"  %5d",scount);
+X    for (j = 0; j < counter; j++) `123
+X`009sprintf(buffer2," %5d",summary`091j`093);
+X`009strcat(buffer,buffer2);
+X    `125
+X    write_line(buffer,E_none,NULL);
+X
+X    return 1; /* reask prompt */
+X`125
+X
+Xstatic int C_version(char *comm, char *param)
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    sprintf(buffer,"World size is %d by %d.",VD_size_x,VD_size_y);
+X    write_line(buffer,E_none,NULL);
+X
+X    if (VD_rel)
+X`009write_line("By default, countries use their own cordinate system.",
+X`009    E_none,NULL);
+X    else`032
+X`009write_line("By default, countries use the deity's cordinate system.",
+X`009    E_none,NULL);
+X
+X    sprintf(buffer,"An update consists of %d empire time units.",VD_update_e
+Vtu);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"It takes %.2f civilians to produce a BTU in one time uni
+Vt",
+X`009    VD_pro_btu);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"A non-aggi, 100 fertility sector can grow %.2f food per
+V etu",
+X`009VD_pro_food);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 civilians will harvest %.2f food per etu",VD_harv_f
+Vood);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 civilians will give birth to %.2f babies per etu",
+X`009VD_pro_civ);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 uncompensated workers will give birth to %.2f babie
+Vs",
+X`009VD_pro_uw);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"In one time unit, 1000 people eat %.2f units of food",
+X`009VD_use_food);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 babies eat %.2f units of food becoming adults",
+X`009VD_buse_food);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"Banks pay $%.2f in interest per 1000 gold bars per etu",
+X`009VD_interest),
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 civilians generate $%.2f, uncompensated workers $%.
+V2f each time unit",
+X`009VD_tax_civ,VD_tax_uw);
+X    write_line(buffer,E_none,NULL);
+X
+X    sprintf(buffer,"1000 active military cost $%.2f, reserves cost $%.2f",
+X`009VD_payment_mil,VD_payment_res);
+X    write_line(buffer,E_none,NULL);
+X
+X    return 1;
+X`125
+X
+Xstatic int check_food(sector_data *sector,int *left)
+X`123
+X    int food = (*sector)`091F_food`093.U_num;
+X    int civ  = (*sector)`091F_civ`093.U_num;
+X    int uw   = (*sector)`091F_uw`093.U_num;
+X    int mil   = (*sector)`091F_mil`093.U_num;
+X    int fert   = (*sector)`091F_fert`093.U_num;
+X
+X    int temp,temp2,baby;
+X
+X    *left = 0;
+X    if (food == UNKNOWN_num `124`124 civ == UNKNOWN_num `124`124 uw == UNKNO
+VWN_num
+X`009`124`124 fert == UNKNOWN_num `124`124 mil == UNKNOWN_num)
+X`009return 0;   /* no information */
+X
+X    *left = food;
+X   `032
+X    /* production */
+X    temp = VD_update_etu * ( VD_pro_food * fert / 100.0);
+X    /* harvest */
+X    temp2 = VD_update_etu * ( VD_harv_food * (civ + uw) / 1000.0 +
+X`009VD_harv_food * civ / 1000.0 / 5);   /*      `094`094   ??? */
+X
+X    if (temp > temp2) temp = temp2;
+X   `032
+X    *left += temp;
+X   `032
+X    /* people eats */
+X    *left -= VD_update_etu * ((civ + uw + mil) / 1000.0 * VD_use_food);
+X
+X    baby = VD_update_etu * (civ / 1000.0 * VD_pro_civ +
+X`009 uw / 1000.0 * VD_pro_uw);
+X
+X    *left -= baby / 1000.0 * VD_buse_food;
+X   `032
+X    return 1;
+X`125
+X
+X#define MAX_POP 999
+X
+Xstatic int check_baby(sector_data *sector,int *civ_b, int *uw_b)
+X`123
+X    int food = (*sector)`091F_food`093.U_num;
+X    int civ  = (*sector)`091F_civ`093.U_num;
+X    int uw   = (*sector)`091F_uw`093.U_num;
+X    int mil   = (*sector)`091F_mil`093.U_num;
+X    int fert   = (*sector)`091F_fert`093.U_num;
+X    int left = 0;
+X
+X    int temp,temp2;
+X
+X    *civ_b = 0;
+X    *uw_b = 0;
+X
++-+-+-+-+-+-+-+-  END  OF PART 7 +-+-+-+-+-+-+-+-

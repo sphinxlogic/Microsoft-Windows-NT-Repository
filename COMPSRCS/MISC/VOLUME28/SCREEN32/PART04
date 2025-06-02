@@ -1,0 +1,1888 @@
+Newsgroups: comp.sources.misc
+From: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Subject:  v28i021:  screen-3.2 - multiple windows on an ASCII terminal, v3.2, Part04/11
+Message-ID: <1992Feb9.223542.6587@sparky.imd.sterling.com>
+X-Md4-Signature: 6a19c8e6934cd429c5533731d9021d09
+Date: Sun, 9 Feb 1992 22:35:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Posting-number: Volume 28, Issue 21
+Archive-name: screen-3.2/part04
+Environment: UNIX
+
+#!/bin/sh
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file screen3.2/mark.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping screen3.2/mark.c'
+else
+echo 'x - continuing file screen3.2/mark.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'screen3.2/mark.c' &&
+X	{
+X	  if (oq == 0 || !(flags & NW_ENDOFWORD))
+X	    *xp = x;
+X	  else
+X	    *xp = x-sx;
+X	  *yp = y;
+X	  if ((!(flags & NW_ENDOFWORD) && q) ||
+X	      ((flags & NW_ENDOFWORD) && oq))
+X	    {
+X	      if (--num <= 0)
+X	        return;
+X	    }
+X	}
+X      if (x == xx)
+X	{
+X	  x = -1;
+X	  if (++y >= yy)
+X	    return;
+X	}
+X      else if (x < 0)
+X	{
+X	  x = xx;
+X	  if (--y < 0)
+X	    return;
+X	}
+X    }
+}
+X
+X
+/*
+X * y1, y2 are WIN coordinates
+X *
+X * redisplay:	0  -  just copy
+X * 		1  -  redisplay + copy
+X *		2  -  count + copy, don't redisplay
+X */
+X
+static int rem(x1, y1, x2, y2, redisplay, pt, yend)
+int x1, y1, x2, y2, redisplay, yend;
+char *pt;
+{
+X  int i, j, from, to, ry;
+X  int l = 0;
+X  char *im;
+X
+X  second = 0;
+X  if (y2 < y1 || ((y2 == y1) && (x2 < x1)))
+X    {
+X      i = y2;
+X      y2 = y1;
+X      y1 = i;
+X      i = x2;
+X      x2 = x1;
+X      x1 = i;
+X    }
+X  ry = y1 - hist_offset;
+X  
+X  i = y1;
+X  if (redisplay != 2 && pt == 0 && ry <0)
+X    {
+X      i -= ry;
+X      ry = 0;
+X    }
+X  for (; i <= y2; i++, ry++)
+X    {
+X      if (redisplay != 2 && pt == 0 && ry > yend)
+X	break;
+X      from = (i == y1) ? x1 : 0;
+X      if (from < left_mar)
+X	from = left_mar;
+X      for (to = screenwidth-1, im = iWIN(i)+to; to>=0; to--)
+X        if (*im-- != ' ')
+X	  break;
+X      if (i == y2 && x2 < to)
+X	to = x2;
+X      if (to > right_mar)
+X	to = right_mar;
+X      if (redisplay == 1 && from <= to && ry >=0 && ry <= yend)
+X	MarkRedisplayLine(ry, from, to, 0);
+X      if (redisplay != 2 && pt == 0)	/* don't count/copy */
+X	continue;
+X      for (j = from, im = iWIN(i)+from; j <= to; j++)
+X	{
+X	  if (pt)
+X	    *pt++ = *im++;
+X	  l++;
+X	}
+X      if (i != y2)
+X	{
+X	  /* 
+X	   * this code defines, what glues lines together
+X	   */
+X	  switch (nonl)
+X	    {
+X	    case 0:		/* lines separated by newlines */
+X	      if (join_with_cr)
+X		{
+X		  if (pt)
+X		    *pt++ = '\r';
+X		  l++;
+X		}
+X	      if (pt)
+X		*pt++ = '\n';
+X	      l++;
+X	      break;
+X	    case 1:		/* nothing to separate lines */
+X	      break;
+X	    case 2:		/* lines separated by blanks */
+X	      if (pt)
+X		*pt++ = ' ';
+X	      l++;
+X	      break;
+X	    }
+X	}
+X    }
+X  return(l);
+}
+X
+static int eq(a, b)
+int a, b;
+{
+X  if (a == b)
+X    return 1;
+X  if (a == 0 || b == 0)
+X    return 1;
+X  if (a <= '9' && a >= '0' && b <= '9' && b >= '0')
+X    return 1;
+X  return 0;
+}
+X
+static int crazychar = 0;
+static int crazy_y = -1;
+static int crazy_x = -1;
+X
+int MarkRoutine(flag)	/* return value 1 when copybuffer changed; */
+int flag;
+{
+X  int x, y, i;
+X 
+X  hist_offset = fore->histheight;
+X 
+X  if (!fore->active)
+X    {
+X      Msg(0, "Fore window is not active !!!");
+X      return 0;
+X    }
+X
+X  second = 0;
+X  rep_cnt = 0;
+X  append_mode = 0;
+X  write_buffer = 0;
+X  nonl = left_mar = 0;
+X  right_mar = screenwidth-1;
+X  x = fore->x;
+X  y = D2W(fore->y);
+X  if (x >= screenwidth)
+X    x = screenwidth-1;
+X
+X  if (flag == CRAZY && crazychar != 0 && crazy_x != -1 && crazy_y != -1)
+X    {
+X      Msg(0, "CRAZY mode not impl.\n");
+X    }
+X  crazychar = 0;
+X  crazy_y = -1;
+X  crazy_x = -1;
+X  if (flag == TRICKY)
+X    {
+X      int f, q = 0, xx, yy;
+X      char *linep;
+X
+X      debug2("cursor is at x=%d, y=%d\n", fore->x, D2W(fore->y));
+X      for (xx = fore->x - 1, linep = iWIN(y) + xx; xx >= 0; xx--)
+X	if ((q = *linep--) != ' ' )
+X	  break;
+X      debug3("%c at (%d,%d)\n", q, xx, y);
+X      for (yy = D2W(fore->y) - 1; yy >= 0; yy--)
+X	if (xx < 0 || eq(iWIN(yy)[xx], q))
+X	  {		/* line is matching... */
+X	    f = 0;
+X	    for (i = fore->x; i < screenwidth-1; i++)
+X	      {
+X		if (iWIN(yy)[i] != ' ')
+X		  {
+X		    f = 1;
+X		    break;
+X		  }
+X	      }
+X	    if (f)
+X	      break;
+X	  }
+X      if (yy < 0)
+X	return 0;
+X      xx = 0;
+X      for (i = screenwidth-1, linep = iWIN(yy)+i; i>0; i--)
+X	if (*linep-- != ' ')
+X	  break;
+X      if (i < x)
+X	i = x;
+X      if (copybuffer != NULL)
+X	Free(copybuffer);
+X      if ((copybuffer = malloc((unsigned) (i - x + 2))) == NULL)
+X	{
+X	  Msg(0, "Not enough memoooh!... Sorry.");
+X	  return 0;
+X	}
+X      rem(x, yy, i, yy, 0, copybuffer, 0);
+X      copylen = i - x + 1;
+X      return 1;
+X    }
+X  InitOverlayPage(process_mark_input, MarkRedisplayLine, MarkRewrite, 1);
+X  GotoPos(x, W2D(y));
+#ifdef NETHACK
+X  if (nethackflag)
+X    Msg(0, "Welcome to hacker's treasure zoo - Column %d Line %d(+%d) (%d,%d)",
+X	x+1, W2D(y+1), fore->histheight, fore->width, fore->height);
+X  else
+#endif
+X  Msg(0, "Copy mode - Column %d Line %d(+%d) (%d,%d)",
+X      x+1, W2D(y+1), fore->histheight, fore->width, fore->height);
+X  fflush(stdout);
+X  cx = x1 = x;
+X  cy = y1 = y;
+X  in_mark = 1;
+X  return 0;
+}
+X
+static void process_mark_input(inbufp,inlenp)
+char **inbufp;
+int *inlenp;
+{
+X  char *inbuf, *pt;
+X  int inlen;
+X  int x2, y2, i, j, yend;
+X  int newcopylen = 0, od;
+/*
+X  char *extrap = 0, extrabuf[100];
+*/
+X      
+X  if (inbufp == 0)
+X    {
+X      AbortMarkRoutine();
+X      return;
+X    }
+X 
+X  inbuf= *inbufp;
+X  inlen= *inlenp;
+X  pt = inbuf;
+X  while (in_mark && (inlen /* || extrap */))
+X    {
+X      if (!HS)
+X	RemoveStatus();
+/*
+X      if (extrap)
+X	{
+X	  od = *extrap++;
+X	  if (*extrap == 0)
+X	    extrap = 0;
+X	}
+X      else
+*/
+X	{
+X          od = mark_key_tab[*pt++];
+X          inlen--;
+X	}
+X      if (od >= '0' && od <= '9')
+X        {
+X	  if (rep_cnt < 1001 && (od != '0' || rep_cnt != 0))
+X	    {
+X	      rep_cnt = 10 * rep_cnt + od - '0';
+X	      continue;
+X 	      /*
+X	       * Now what is that 1001 here? Well, we have a screen with
+X	       * 25 * 80 = 2000 characters. Movement is at most across the full
+X	       * screen. This we do with word by word movement, as character by
+X	       * character movement never steps over line boundaries. The most words
+X	       * we can place on the screen are 1000 single letter words. Thus 1001
+X	       * is sufficient. Users with bigger screens never write in single letter
+X	       * words, as they should be more advanced. jw.
+X	       * Oh, wrong. We still give even the experienced user a factor of ten.
+X	       */
+X	    }
+X	}
+X      switch (od)
+X	{
+X	case '\014':	/* CTRL-L Redisplay */
+X	  Redisplay(0);
+X	  GotoPos(cx, W2D(cy));
+X	  break;
+X	case '\010':	/* CTRL-H Backspace */
+X	case 'h':
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  revto(cx - rep_cnt, cy);
+X	  break;
+X	case '\016':	/* CTRL-N */
+X	case 'j':
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  revto(cx, cy + rep_cnt);
+X	  break;
+X	case '+':
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  j = cy + rep_cnt;
+X	  if (j > fore->histheight + screenheight - 1)
+X	    j = fore->histheight + screenheight - 1;
+X	  revto(linestart(j), j);
+X	  break;
+X	case '-':
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  j = cy - rep_cnt;
+X	  if (j < 0)
+X	    j = 0;
+X	  revto(linestart(j), j);
+X	  break;
+X	case '^':
+X	  revto(linestart(cy), cy);
+X	  break;
+X	case '\n':
+X	  revto(left_mar, cy + 1);
+X	  break;
+X	case 'k':
+X	case '\020':	/* CTRL-P */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  revto(cx, cy - rep_cnt);
+X	  break;
+X	case 'l':
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  revto(cx + rep_cnt, cy);
+X	  break;
+X	case '\001':	/* CTRL-A from tcsh/emacs */
+X	case '0':
+X	  revto(left_mar, cy);
+X	  break;
+X	case '\004':    /* CTRL-D down half screen */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = (screenheight+1) >> 1;
+X	  revto_line(cx, cy + rep_cnt, W2D(cy));
+X	  break;
+X	case '$':
+X	  revto(lineend(cy), cy);
+X	  break;
+X	case '\025':	/* CTRL-U up half screen */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = (screenheight+1) >> 1;
+X	  revto_line(cx, cy - rep_cnt, W2D(cy));
+X	  break;
+X	case '?':
+X	  if (left_mar == 0 && right_mar == screenwidth - 1)
+X	    Msg(0, "Column %d Line %d(+%d)", cx+1, W2D(cy)+1,
+X		hist_offset);
+X	  else
+X	    Msg(0, "Column %d(%d..%d) Line %d(+%d)", cx+1,
+X		left_mar+1, right_mar+1, W2D(cy)+1, hist_offset);
+X	  break;
+X	case '\002':	/* CTRL-B  back one page */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  rep_cnt *= (screenheight-1);
+X	  revto(cx, cy - rep_cnt);
+X	  break;
+X	case '\006':	/* CTRL-F  forward one page */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  rep_cnt *= (screenheight-1);
+X	  revto(cx, cy + rep_cnt);
+X	  break;
+X	case '\005':	/* CTRL-E  scroll up */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  rep_cnt = MarkScrollUpDisplay(rep_cnt);
+X	  if (cy < D2W(0))
+X            revto(cx, D2W(0));
+X	  else
+X            GotoPos(cx, W2D(cy));
+X	  break;
+X	case '\031': /* CTRL-Y  scroll down */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  rep_cnt = MarkScrollDownDisplay(rep_cnt);
+X	  if (cy > D2W(screenheight-1))
+X            revto(cx, D2W(screenheight-1));
+X	  else
+X            GotoPos(cx, W2D(cy));
+X	  break;
+X	case '@':
+X	  /* it may be usefull to have a key that does nothing */
+X	  break;
+X	case '%':
+X	  rep_cnt--;
+X	  /* rep_cnt is a percentage for the history buffer */
+X	  if (rep_cnt < 0)
+X	    rep_cnt = 0;
+X	  if (rep_cnt > 100)
+X	    rep_cnt = 100;
+X	  revto_line(left_mar, (rep_cnt * (fore->histheight + screenheight)) / 100, (screenheight-1)/2);
+X	  break;
+X	case 'g':
+X	  rep_cnt = 1;
+X	  /* FALLTHROUGH */
+X	case 'G':
+X	  /* rep_cnt is here the WIN line number */
+X	  if (rep_cnt == 0)
+X	    rep_cnt = fore->histheight + screenheight;
+X	  revto_line(left_mar, --rep_cnt, (screenheight-1)/2);
+X	  break;
+X	case 'H':
+X	  revto(left_mar, D2W(0));
+X	  break;
+X	case 'M':
+X	  revto(left_mar, D2W((screenheight-1) / 2));
+X	  break;
+X	case 'L':
+X	  revto(left_mar, D2W(screenheight-1));
+X	  break;
+X	case '|':
+X	  revto(--rep_cnt, cy);
+X	  break;
+X	case 'w':
+X	  i = cx;
+X	  j = cy;
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  nextword(&i, &j, NW_MUSTMOVE, rep_cnt);
+X	  revto(i, j);
+X	  break;
+X	case 'e':
+X	  i = cx;
+X	  j = cy;
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  nextword(&i, &j, NW_ENDOFWORD|NW_MUSTMOVE, rep_cnt);
+X	  revto(i, j);
+X	  break;
+X	case 'b':
+X	  i = cx;
+X	  j = cy;
+X	  if (rep_cnt == 0)
+X	    rep_cnt = 1;
+X	  nextword(&i, &j, NW_BACK|NW_ENDOFWORD|NW_MUSTMOVE, rep_cnt);
+X	  revto(i, j);
+X	  break;
+X	case 'a':
+X	  append_mode = 1 - append_mode;
+X	  debug1("append mode %d--\n", append_mode);
+X	  Msg(0, (append_mode) ? ":set append" : ":set noappend");
+X	  break;
+X	case 'v':
+X	case 'V':
+X	  /* this sets start column to column 9 for VI :set nu users */
+X	  if (left_mar == 8)
+X	    rep_cnt = 1;
+X	  else
+X	    rep_cnt = 9;
+X	  /* FALLTHROUGH */
+X	case 'c':
+X	case 'C':
+X	  /* set start column (c) and end column (C) */
+X	  if (second)
+X	    {
+X	      rem(x1, y1, cx, cy, 1, (char *)0, screenheight-1); /* Hack */
+X	      second = 1;	/* rem turns off second */
+X	    }
+X	  rep_cnt--;
+X	  if (rep_cnt < 0)
+X	    rep_cnt = cx;
+X	  if (od != 'C')
+X	    {
+X	      left_mar = rep_cnt;
+X	      if (left_mar > right_mar)
+X		left_mar = right_mar;
+X	    }
+X	  else
+X	    {
+X	      right_mar = rep_cnt;
+X	      if (left_mar > right_mar)
+X		right_mar = left_mar;
+X	    }
+X	  if (second)
+X	    {
+X	      int x = cx, y = cy;
+X	      cx = x1; cy = y1;
+X	      revto(x, y);
+X	    }
+X	  if (od == 'v' || od == 'V')
+X	    Msg(0, (left_mar != 8) ? ":set nonu" : ":set nu");
+X	  break;
+X	case 'J':
+X	  /* how do you join lines in VI ? */
+X	  nonl = (nonl + 1) % 3;
+X	  switch (nonl)
+X	    {
+X	    case 0:
+X	      if (join_with_cr)
+X		Msg(0, "Multiple lines (CR/LF)");
+X	      else
+X		Msg(0, "Multiple lines (LF)");
+X	      break;
+X	    case 1:
+X	      Msg(0, "Lines joined");
+X	      break;
+X	    case 2:
+X	      Msg(0, "Lines joined with blanks");
+X	      break;
+X	    }
+X	  break;
+X	case 'y':
+X	case 'Y':
+X	  if (!second)
+X	    {
+X	      revto(linestart(cy), cy);
+X	      second++;
+X	      x1 = cx;
+X	      y1 = cy;
+X	    }
+X	  if (--rep_cnt > 0)
+X	    revto(cx, cy + rep_cnt);
+X	  revto(lineend(cy), cy);
+X	  if (od == 'y')
+X	    break;
+X	  /* FALLTHROUGH */
+X	case 'W':
+X	  if (od == 'W')
+X	    {
+X	      if (rep_cnt == 0)
+X		rep_cnt = 1;
+X	      if (!second)
+X		{
+X		  i = cx;
+X		  j = cy;
+X		  nextword(&i, &j, NW_BACK|NW_ENDOFWORD, 1);
+X		  revto(i, j);
+X		  second++;
+X		  x1 = cx;
+X		  y1 = cy;
+X		}
+X	      i = cx;
+X	      j = cy;
+X	      nextword(&i, &j, NW_ENDOFWORD, rep_cnt);
+X	      revto(i, j);
+X	    }
+X	  /* FALLTHROUGH */
+X	case 'A':
+X	  if (od == 'A')
+X	    append_mode = 1;
+X	  /* FALLTHROUGH */
+X	case '>':
+X	  if (od == '>')
+X	    write_buffer = 1;
+X	  /* FALLTHROUGH */
+X	case ' ':
+X	case '\r':
+X	  if (!second)
+X	    {
+X	      second++;
+X	      x1 = cx;
+X	      y1 = cy;
+X	      revto(x1, y1);
+#ifdef NETHACK
+X	      if (nethackflag)
+X		Msg(0, "You drop a magic marker - Column %d Line %d",
+X	    	    cx+1, W2D(cy)+1, hist_offset);
+X	      else
+#endif
+X	      Msg(0, "First mark set - Column %d Line %d", cx+1, cy+1);
+X	      break;
+X	    }
+X	  else
+X	    {
+X	      x2 = cx;
+X	      y2 = cy;
+X	      newcopylen = rem(x1, y1, x2, y2, 2, (char *)0, 0); /* count */
+X	      if (copybuffer != NULL && !append_mode)
+X		{
+X		  copylen = 0;
+X		  Free(copybuffer);
+X		}
+X	      if (newcopylen > 0)
+X		{
+X		  /* the +3 below is for : cr + lf + \0 */
+X		  if (copybuffer != NULL)
+X		    copybuffer = realloc(copybuffer,
+X			(unsigned) (copylen + newcopylen + 3));
+X		  else
+X		    {
+X		    copylen = 0;
+X		    copybuffer = malloc((unsigned) (newcopylen + 3));
+X		    }
+X		  if (copybuffer == NULL)
+X		    {
+X		      AbortMarkRoutine();
+X		      Msg(0, "Not enough memoooh!... Sorry.");
+X		      copylen = 0;
+X		      copybuffer = NULL;
+X		      break;
+X		    }
+X		  if (append_mode)
+X		    {
+X		      switch (nonl)
+X			/* 
+X			 * this code defines, what glues lines together
+X			 */
+X			{
+X			case 0:
+X			  if (join_with_cr)
+X			    {
+X			      copybuffer[copylen] = '\r';
+X			      copylen++;
+X			    }
+X			  copybuffer[copylen] = '\n';
+X			  copylen++;
+X			  break;
+X			case 1:
+X			  break;
+X			case 2:
+X			  copybuffer[copylen] = ' ';
+X			  copylen++;
+X			  break;
+X			}
+X		    }
+X		  yend = screenheight - 1;
+X		  if (fore->histheight - hist_offset < screenheight)
+X		    {
+X		      second = 0;
+X		      yend -= MarkScrollUpDisplay(fore->histheight - hist_offset);
+X		    }
+X		  copylen += rem(x1, y1, x2, y2, hist_offset == fore->histheight, copybuffer + copylen, yend);
+X		}
+X	      if (hist_offset != fore->histheight)
+X		{
+X		  in_ovl = 0;	/* So we can use Activate() */
+X		  Activate(0);
+X		}
+X	      ExitOverlayPage();
+X	      if (append_mode)
+X		Msg(0, "Appended %d characters to buffer",
+X		    newcopylen);
+X	      else
+X		Msg(0, "Copied %d characters into buffer", copylen);
+X	      if (write_buffer)
+X		WriteFile(DUMP_EXCHANGE);
+X	      in_mark = 0;
+X	      break;
+X	    }
+X	default:
+X	  AbortMarkRoutine();
+#ifdef NETHACK
+X	  if (nethackflag)
+X	    Msg(0, "You escaped the dungeon.");
+X	  else
+#endif
+X	  Msg(0, "Copy mode aborted");
+X	  break;
+X	}
+X      rep_cnt = 0;
+X    }
+X  fflush(stdout);
+X  *inbufp = pt;
+X  *inlenp = inlen;
+}
+X
+static void revto(tx, ty)
+int tx, ty;
+{
+X  revto_line(tx, ty, -1);
+}
+X
+/* tx, ty: WINDOW,  line: DISPLAY */
+static void revto_line(tx, ty, line)
+int tx, ty, line;
+{
+X  int fx, fy;
+X  int x, y, t, revst, reven, qq, ff, tt, st, en, ce = 0;
+X  int ystart = 0, yend = screenheight-1;
+X  int i, ry;
+X 
+X  if (tx < 0)
+X    tx = 0;
+X  else if (tx > screenwidth - 1)
+X    tx = screenwidth -1;
+X  if (ty < 0)
+X    ty = 0;
+X  else if (ty > fore->histheight + screenheight - 1)
+X    ty = fore->histheight + screenheight - 1;
+X  
+X  fx = cx; fy = cy;
+X  cx = tx; cy = ty;
+/*debug2("revto(%d, %d, ", x1, y1);
+X  debug2("%d, %d, ", fx, fy);
+X  debug2("%d, %d)\n", tx, ty);*/
+X 
+X  /*
+X   * if we go to a position that is currently offscreen 
+X   * then scroll the screen
+X   */
+X  i = 0;
+X  if (line >= 0 && line < screenheight)
+X    i = W2D(ty) - line;
+X  else if (ty < hist_offset)
+X    i = ty - hist_offset;
+X  else if (ty > hist_offset + (screenheight-1))
+X    i = ty-hist_offset-(screenheight-1);
+X  if (i > 0)
+X    yend -= MarkScrollUpDisplay(i);
+X  else if (i < 0)
+X    ystart += MarkScrollDownDisplay(-i);
+X
+X  if (second == 0)
+X    {
+X      GotoPos(tx, W2D(cy));
+X      return;
+X    }
+X  
+X  qq = x1 + y1 * screenwidth;
+X  ff = fx + fy * screenwidth; /* "from" offset in WIN coords */
+X  tt = tx + ty * screenwidth; /* "to" offset  in WIN coords*/
+X 
+X  if (ff > tt)
+X    {
+X      st = tt; en = ff;
+X      x = tx; y = ty;
+X    }
+X  else
+X    {
+X      st = ff; en = tt;
+X      x = fx; y = fy;
+X    }
+X  if (st > qq)
+X    {
+X      st++;
+X      x++;
+X    }
+X  if (en < qq)
+X    en--;
+X  if (tt > qq)
+X    {
+X      revst = qq; reven = tt;
+X    }
+X  else
+X    {
+X      revst = tt; reven = qq;
+X    }
+X  ry = y - hist_offset;
+X  if (ry < ystart)
+X    {
+X      y += (ystart - ry);
+X      x = 0;
+X      st = y * screenwidth;
+X      ry = ystart;
+X    }
+X  for (t = st; t <= en; t++, x++)
+X    {
+X      if (x >= screenwidth)
+X	{
+X	  x = 0;
+X	  y++, ry++;
+X	}
+X      if (ry > yend)
+X	break;
+X      if (t == st || x == 0)
+X	{
+X	  for (ce = screenwidth-1; ce >= 0; ce--)
+X	    if (iWIN(y)[ce] != ' ')
+X	      break;
+X	}
+X      if (x <= ce && x >= left_mar && x <= right_mar
+X          && (LP || x < screenwidth-1 || ry < screenbot))
+X	{
+X	  GotoPos(x, W2D(y));
+X	  if (t >= revst && t <= reven)
+X	    SaveSetAttr(A_SO, ASCII);
+X	  else
+X	    SaveSetAttr(aWIN(y)[x], fWIN(y)[x]);
+X	  PUTCHAR(iWIN(y)[x]);
+X	}
+X    }
+X  GotoPos(tx, W2D(cy));
+}
+X
+static void AbortMarkRoutine()
+{
+X  int yend, redisp;
+X
+X  yend = screenheight - 1;
+X  redisp = second;
+X  if (fore->histheight - hist_offset < screenheight)
+X    {
+X      second = 0;
+X      yend -= MarkScrollUpDisplay(fore->histheight - hist_offset);
+X    }
+X  if (hist_offset != fore->histheight)
+X    {
+X      in_ovl = 0;	/* So we can use Activate() */
+X      Activate(0);	/* to do a complete redisplay */
+X    }
+X  else
+X    {
+X      rem(x1, y1, cx, cy, redisp, (char *)0, yend);
+X    }
+X  ExitOverlayPage();
+X  in_mark = 0;
+}
+X
+X
+static void MarkRedisplayLine(y, xs, xe, isblank)
+int y; /* NOTE: y is in DISPLAY coords system! */
+int xs, xe;
+int isblank;
+{
+X  int x, i, rm;
+X  int sta, sto, cp; /* NOTE: these 3 are in WINDOW coords system */
+X  char *wi, *wa, *wf, *oldi;
+X 
+X  InsertMode(0); /* Not done in DisplayLine() */
+X
+X  wi = iWIN(D2W(y));
+X  wa = aWIN(D2W(y));
+X  wf = fWIN(D2W(y));
+X  oldi = isblank ? blank : null;
+X 
+X  if (second == 0)
+X    {
+X      DisplayLine(oldi, null, null, wi, wa, wf, y, xs, xe);
+X      return;
+X    }
+X 
+X  sta = y1 * screenwidth + x1;
+X  sto = cy * screenwidth + cx;
+X  if (sta > sto)
+X    {
+X      i=sta; sta=sto; sto=i;
+X    }
+X  cp = D2W(y) * screenwidth + xs;
+X 
+X  rm = right_mar;
+X  for (x = screenwidth - 1; x >= 0; x--)
+X    if (wi[x] != ' ')
+X      break;
+X  if (x < rm)
+X    rm = x;
+X 
+X  for (x = xs; x <= xe; x++, cp++)
+X    if (cp >= sta && x >= left_mar)
+X      break;
+X  if (x > xs)
+X    DisplayLine(oldi, null, null, wi, wa, wf, y, xs, x-1);
+X  for (; x <= xe; x++, cp++)
+X    {
+X      if (cp > sto || x > rm || (!LP && x >= screenwidth-1 && y == screenbot))
+X	break;
+X      GotoPos(x, y);
+X      SaveSetAttr(A_SO, ASCII);
+X      PUTCHAR(wi[x]);
+X    }
+X  if (x<=xe)
+X    DisplayLine(oldi, null, null, wi, wa, wf, y, x, xe);
+}
+X
+X
+static int
+MarkRewrite(ry, xs, xe, doit)
+int ry, xs, xe, doit;
+{
+X  int dx, x, y, st, en, t, rm;
+X  char *a, *f, *i;
+X
+X  y = D2W(ry);
+X  dx = xe - xs;
+X  if (doit)
+X    {
+X      i = iWIN(y) + xs;
+X      while (dx--)
+X        PUTCHAR(*i++);
+X      return(0);
+X    }
+X  
+X  a = aWIN(y) + xs,
+X  f = fWIN(y) + xs;
+X  if (second == 0)
+X    st = en = -1;
+X  else
+X    {
+X      st = y1 * screenwidth + x1;
+X      en = cy * screenwidth + cx;
+X      if (st > en)
+X        {
+X          t = st; st = en; en = t;
+X        }
+X    }
+X  t = y * screenwidth + xs;
+X  for (rm=screenwidth-1, i=iWIN(y) + screenwidth-1; rm>=0; rm--)
+X    if (*i-- != ' ')
+X      break;
+X  if (rm > right_mar)
+X    rm = right_mar;
+X  x = xs;
+X  while (dx--)
+X    {
+X      if (t >= st && t <= en && x >= left_mar && x <= rm)
+X        {
+X	  if (GlobalAttr != A_SO || GlobalCharset != ASCII)
+X	    return(EXPENSIVE);
+X        }
+X      else
+X        {
+X	  if (GlobalAttr != *a || GlobalCharset != *f)
+X	    return(EXPENSIVE);
+X        }
+X      a++, f++, t++, x++;
+X    }
+X  return(xe - xs);
+}
+X
+X
+/*
+X * scroll the screen contents up/down.
+X */
+static int MarkScrollUpDisplay(n)
+int n;
+{
+X  int i;
+X 
+X  debug1("MarkScrollUpDisplay(%d)\n", n);
+X  if (n <= 0)
+X    return 0;
+X  if (n > fore->histheight - hist_offset)
+X    n = fore->histheight - hist_offset;
+X  i = (n < screenheight) ? n : (screenheight);
+X  ScrollRegion(0, screenheight - 1, i);
+X  hist_offset += n;
+X  while (i-- > 0)
+X    MarkRedisplayLine(screenheight-i-1, 0, screenwidth-1, 1);
+X  return n;
+}
+X
+static int MarkScrollDownDisplay(n)
+int n;
+{
+X  int i;
+X 
+X  debug1("MarkScrollDownDisplay(%d)\n", n);
+X  if (n <= 0)
+X    return 0;
+X  if (n > hist_offset)
+X    n = hist_offset;
+X  i = (n < screenheight) ? n : (screenheight);
+X  ScrollRegion(0, screenheight - 1, -i);
+X  hist_offset -= n;
+X  while (i-- > 0)
+X    MarkRedisplayLine(i, 0, screenwidth-1, 1);
+X  return n;
+}
+X
+SHAR_EOF
+echo 'File screen3.2/mark.c is complete' &&
+chmod 0444 screen3.2/mark.c ||
+echo 'restore of screen3.2/mark.c failed'
+Wc_c="`wc -c < 'screen3.2/mark.c'`"
+test 25395 -eq "$Wc_c" ||
+	echo 'screen3.2/mark.c: original size 25395, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/patchlevel.h ==============
+if test -f 'screen3.2/patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/patchlevel.h' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+/****************************************************************
+X * $Header: /src.stand/pub/utilities/screen/3.2/RCS/patchlevel.h,v 1.2 92/02/03 02:27:59 jnweiger Exp $ 
+X *
+X * patchlevel.h: Our life story.
+X *   8.7.91 -- 3.00.01 -wipe and a 'setenv TERM dumb' bugfix.
+X *  17.7.91 -- 3.00.02 another patchlevel by Wayne Davison
+X *  31.7.91 -- 3.00.03 E0, S0, C0 for flexible semi-graphics, nonblocking 
+X *                     window title input and 'C-a :' command input.
+X *  10.8.91 -- 3.00.04 scrollback, markkeys and some bugfixes.
+X *  13.8.91 -- 3.00.05 mark routine improved, ansi prototypes added.
+X *  20.8.91 -- 3.00.06 screen -h, faster GotoPos in overlay, termcap %.
+X *                     instead of %c
+X *  28.8.91 -- 3.00.07 environment variable support. security. terminfo.
+X *                     pyramid and ultrix support.
+X *  07.9.91 -- 3.00.99 secopen(), MIPS support, SVR4 support.
+X *  09.9.91 -- 3.01.00 backspace bug fixed.
+X * 03.10.91 -- 3.01.01 ansi.c: null-ptr fixed, CLS now saves to scrollback.
+X *                     Using setresuid on hpux. Memory leak fixed.
+X *		       Better GotoPos(). Support for IC. Another resize bug.
+X *                     Detach() w/o fore crashed. -T and -A(dapt) option.
+X *                     GNU copyleft.
+X * 19.12.91 -- 3.01.02 flow now really automatic (autoflow killed).
+X *		       7 bit restriction removed from WriteString().
+X * 09.01.92 -- 3.01.03 flow reattach bug fixed. VDISCARD bug fixed.
+X * 13.01.92 -- 3.01.04 new flow concept: ^Af toggles now three states
+X * 21.01.92 -- 3.01.05 '^A:screen 11' bug fixed. aflag in DoScreen().
+X *                     Some code cleanup. attach_tty and display_tty[]
+X *                     added.
+X * 26.01.92 -- 3.01.06 apollo support, "hardcopy_append on", "bufferfile", 
+X *                     SECURITY PROBLEM cleared..
+X * 28.01.92 -- 3.01.07 screen after su allowed. Pid became part of 
+X *                     SockName. sysvish 14 character restriction considered.
+X * 31.01.92 -- 3.02.00 Ultrix port, Irix 3.3 SGI port, shadow pw support,
+X *                     data loss on stdin overflow fixed. "refresh off".
+X */
+X
+#define ORIGIN "FAU"
+#define REV 3
+#define VERS 2
+#define PATCHLEVEL 0
+#define DATE "01/31/92"
+#define STATE ""
+SHAR_EOF
+chmod 0444 screen3.2/patchlevel.h ||
+echo 'restore of screen3.2/patchlevel.h failed'
+Wc_c="`wc -c < 'screen3.2/patchlevel.h'`"
+test 3666 -eq "$Wc_c" ||
+	echo 'screen3.2/patchlevel.h: original size 3666, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/putenv.c ==============
+if test -f 'screen3.2/putenv.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/putenv.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/putenv.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/putenv.c' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+/*
+X *  putenv  --  put value into environment
+X *
+X *  Usage:  i = putenv (string)
+X *    int i;
+X *    char  *string;
+X *
+X *  where string is of the form <name>=<value>.
+X *  If "value" is 0, then "name" will be deleted from the environment.
+X *  Putenv returns 0 normally, -1 on error (not enough core for malloc).
+X *
+X *  Putenv may need to add a new name into the environment, or to
+X *  associate a value longer than the current value with a particular
+X *  name.  So, to make life simpler, putenv() copies your entire
+X *  environment into the heap (i.e. malloc()) from the stack
+X *  (i.e. where it resides when your process is initiated) the first
+X *  time you call it.
+X *
+X *  HISTORY
+X *  3-Sep-91 Michael Schroeder (mlschroe). Modified to behave as
+X *    as putenv.
+X * 16-Aug-91 Tim MacKenzie (tym) at Monash University. Modified for
+X *    use in screen (iScreen) (ignores final int parameter)
+X * 14-Oct-85 Michael Mauldin (mlm) at Carnegie-Mellon University
+X *      Ripped out of CMU lib for Rob-O-Matic portability
+X * 20-Nov-79  Steven Shafer (sas) at Carnegie-Mellon University
+X *    Created for VAX.  Too bad Bell Labs didn't provide this.  It's
+X *    unfortunate that you have to copy the whole environment onto the
+X *    heap, but the bookkeeping-and-not-so-much-copying approach turns
+X *    out to be much hairier.  So, I decided to do the simple thing,
+X *    copying the entire environment onto the heap the first time you
+X *    call putenv(), then doing realloc() uniformly later on.
+X */
+#include "config.h"
+X
+#if defined(NEEDSETENV)
+X
+#define EXTRASIZE 5        /* increment to add to env. size */
+X
+char *index(), *malloc(), *realloc();
+int   strlen();
+X
+static int  envsize = -1;    /* current size of environment */
+extern char **environ;        /* the global which is your env. */
+X
+static int  findenv();        /* look for a name in the env. */
+static int  newenv();        /* copy env. from stack to heap */
+static int  moreenv();        /* incr. size of env. */
+X
+int unsetenv(name)
+char *name;
+{
+X  register int i;
+X  
+X  i = findenv(name);
+X  if (i<0)
+X    return;			/* Already here */
+X  
+X  free(environ[i]);
+X  if (envsize > 0)
+X    envsize--;
+X  for (; environ[i]; i++)
+X    environ[i] = environ[i+1];
+}
+X
+int putenv(string)
+char *string;
+{ 
+X  register int  i, j;
+X  register char *p;
+X  
+X  if (envsize < 0)
+X    {				/* first time putenv called */
+X      if (newenv() < 0)		/* copy env. to heap */
+X	return (-1);
+X    }
+X  
+X  i = findenv(string);		/* look for name in environment */
+X
+X  if (i < 0)
+X    {			/* name must be added */
+X      for (i = 0; environ[i]; i++);
+X      if (i >= (envsize - 1))
+X	{			/* need new slot */
+X	  if (moreenv() < 0)
+X	    return (-1);
+X	}
+X      p = malloc(strlen(string) + 1);
+X      if (p == 0)		/* not enough core */
+X	return (-1);
+X      environ[i + 1] = 0;	/* new end of env. */
+X    }
+X  else
+X    {			/* name already in env. */
+X      p = realloc(environ[i], strlen(string) + 1);
+X      if (p == 0)
+X	return (-1);
+X    }
+X  sprintf(p, "%s", string); /* copy into env. */
+X  environ[i] = p;
+X  
+X  return (0);
+}
+X
+static int  findenv(name)
+char *name;
+{
+X  register char *namechar, *envchar;
+X  register int  i, found;
+X  
+X  found = 0;
+X  for (i = 0; environ[i] && !found; i++)
+X    { 
+X      envchar = environ[i];
+X      namechar = name;
+X      while (*namechar && *namechar != '=' && (*namechar == *envchar))
+X        { 
+X	  namechar++;
+X	  envchar++;
+X        }
+X      found = ((*namechar == '\0' || *namechar == '=') && *envchar == '=');
+X    }
+X  return (found ? i - 1 : -1);
+}
+X
+static int newenv()
+{ 
+X  register char **env, *elem;
+X  register int i, esize;
+X
+X  for (i = 0; environ[i]; i++)
+X    ;
+X  esize = i + EXTRASIZE + 1;
+X  env = (char **)malloc(esize * sizeof (elem));
+X  if (env == 0)
+X    return (-1);
+X
+X  for (i = 0; environ[i]; i++)
+X    { 
+X      elem = malloc(strlen(environ[i]) + 1);
+X      if (elem == 0)
+X	return (-1);
+X      env[i] = elem;
+X      strcpy(elem, environ[i]);
+X    }
+X   
+X  env[i] = 0;
+X  environ = env;
+X  envsize = esize;
+X  return (0);
+}
+X
+static int moreenv()
+{ 
+X  register int  esize;
+X  register char **env;
+X  
+X  esize = envsize + EXTRASIZE;
+X  env = (char **)realloc(environ, esize * sizeof (*env));
+X  if (env == 0)
+X    return (-1);
+X  environ = env;
+X  envsize = esize;
+X  return (0);
+}
+X
+#endif /* NEEDSETENV */
+X
+X
+SHAR_EOF
+chmod 0444 screen3.2/putenv.c ||
+echo 'restore of screen3.2/putenv.c failed'
+Wc_c="`wc -c < 'screen3.2/putenv.c'`"
+test 5664 -eq "$Wc_c" ||
+	echo 'screen3.2/putenv.c: original size 5664, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/screen.1 ==============
+if test -f 'screen3.2/screen.1' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/screen.1 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/screen.1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/screen.1' &&
+.if n .ds Q \&"
+.if n .ds U \&"
+.if t .ds Q ``
+.if t .ds U ''
+.TH SCREEN 1 "31 January 1992"
+.UC 4
+.SH NAME
+screen \- screen manager with VT100/ANSI terminal emulation
+.SH SYNOPSIS
+.B screen
+[
+.B -\fIoptions\fP
+] [
+.B \fIcmd\fP
+[
+.B \fIargs\fP
+] ]
+.br
+.B screen \-r
+[
+.BR \fI\fP[\fIpid.\fP]\fItty\fP[\fI.host\fP]
+]
+.ta .5i 1.8i
+.SH DESCRIPTION
+.I Screen
+is a full-screen window manager that
+multiplexes a physical terminal between several processes (typically
+interactive shells).
+Each virtual terminal provides the functions
+of the DEC VT100 terminal and, in addition, several control functions
+from the ANSI X3.64 (ISO 6429) and ISO 2022 standards
+(e.\|g. insert/delete line and support for multiple character sets).
+There is a scrollback history buffer for each virtual terminal and a 
+copy-and-paste mechanism that allows moving text regions between
+windows.
+.PP 
+The name of this program was changed to
+.I iScreen
+to be able to distinguish it from Oliver Laumann's original 
+.I screen
+program. Despite that fact, this manual will continue to use the name
+.IR screen .
+This is, because often the binary is installed as 'screen'.
+.PP
+When
+.I screen
+is called, it creates a single window with a shell in it (or the specified
+command) and then gets out of your way so that you can use the program as you
+normally would.
+Then, at any time, you can create new (full-screen) windows with other programs
+in them (including more shells), kill existing windows, view a list of the
+current windows, turn output logging on and off, copy-and-paste text between
+windows, view the scrollback history, switch between windows
+in whatever manner you wish, etc.
+When a program terminates,
+.I screen
+kills the window that contained it.
+If this window was in the foreground, the display switches to the previous
+window; if none are left,
+.I screen
+exits.
+.PP
+Everything you type is sent to the program running in the current window.
+The only exception to this is the one keystroke that is used to initiate
+a command to the window manager.
+By default, each command begins with a control-a (abbreviated C-a from
+now on), and is followed by one other keystroke.
+The command character and all the key bindings can be fully customized
+to be anything you like, though they are always two characters in length.
+.PP
+The standard way to create a new window is to type \*QC-a c\*U.
+This creates a new window running a shell and switches to that
+window immediately, regardless of the state of the process running
+in the current window.
+Similarly, you can create a new window with a custom command in it by
+first binding the command to a keystroke (in your .screenrc file) and
+then using it just like the \*QC-a c\*U command.
+In addition, new windows can be created by running a command like:
+.IP
+screen emacs prog.c
+.PP
+from a shell prompt within a previously created window.
+This will not run another copy of 
+.IR screen ,
+but will instead supply the
+command name and its arguments to the window manager who will use it to
+create the new window.
+The above example would start the emacs editor (editing prog.c) and switch
+to its window.
+.PP
+If \*Q/etc/utmp\*U is writable by
+.IR screen ,
+an appropriate record will be written to this file for each window, and
+removed when the window is terminated.
+This is useful for working with \*Qtalk\*U, \*Qscript\*U, \*Qshutdown\*U,
+\*Qrsend\*U, \*Qsccs\*U and other similar programs that use the utmp
+file to determine who you are. As long as 
+.I screen
+is active on your terminal,
+the terminals own record is removed from the utmp file. See also \*QC-a L\*U.
+.SH GETTING STARTED
+Before you begin to use
+.I screen
+you'll need to make sure you have correctly selected your terminal type,
+just as you would for any other termcap/terminfo program.
+(You can do this by using
+.IR tset
+or
+.IR stty , 
+for example.)
+.PP
+If you're impatient and want to get started without doing a lot more reading,
+you should remember this one command:  \*QC-a ?\*U.
+Typing these two characters will display a list of the available
+.I screen
+commands and their bindings. Each keystroke is discussed in
+the section \*QCOMMAND KEYS\*U. The manual section \*QCUSTOMIZATION\*U 
+deals with the contents of your .screenrc.
+.PP
+If possible, choose a version of your terminal's termcap that has automatic
+margins turned \fIoff\fP.
+This will ensure an accurate and optimal update of the screen
+in all circumstances.
+The next best thing is an auto-margin terminal that allows the last position
+on the screen to be updated without scrolling the screen (such as a vt100).
+This also allows the entire screen to be updated.
+Lastly, if all you've got is a \*Qtrue\*U auto-margin terminal
+.I screen
+will be content to use it, but updating a character put into the last position
+on the screen may not be possible until the screen scrolls or the character
+is moved into a safe position in some other way.
+This delay can be shortened by using a terminal with insert-character
+capability.
+.PP
+If your terminal is of the second type (firm-margined `am'), you will
+want to let
+.I screen
+know about this, since a normal termcap doesn't distinguish this type of
+automatic margins from a \*Qtrue\*U `am' terminal.
+You do this by specifying the `LP' capability in your termcap
+(see the \*Qtermcap\*U .screenrc command), or by using the
+.B \-L
+command-line option.
+.I Screen
+needs this information to correctly update the screen.
+.PP
+If you are using a \*Qtrue\*U auto-margin terminal (no `LP') at low baud
+rates, you may want to turn on a more optimal output mode by including the
+flag `OP' in your termcap entry, or by specifying the
+.B \-O
+command-line option.
+The trade-off is that
+.I screen
+will no-longer accurately emulate the vt100's line-end quirks (e.\|g. the
+screen will scroll after putting \fIone\fP character in the last screen
+position).
+.SH "COMMAND KEYS"
+As mentioned, each
+.I screen
+command consists of a
+\*QC-a\*U followed by one other character.
+For your convenience, all commands that are bound to lower-case letters are
+also bound to their control character counterparts (with the exception
+of \*QC-a a\*U; see below), thus, \*QC-a c\*U as well as \*QC-a C-c\*U can
+be used to create a window.
+.PP
+The following keystroke commands are available:
+.IP "\fBC-a 0\fP  -  \fBC-a 9\fP   (select0 - select9)"
+Switch to the window with the number 0 through 9.
+When a new window is established, the first available number from the
+range 0..9 is assigned to this window.
+Thus, the first window can be activated by \*QC-a 0\*U (there can be no more
+than 10 windows present at any one time).
+.IP "\fBC-a C-a\fP   (other)"
+Switch to the window displayed previously.
+Note that this function defaults to the command character typed twice,
+unless overridden; for instance, if you use the option \*Q\fB\-e]x\fP\*U,
+this function becomes \*Q]]\*U, not \*Q]C-a\*U.
+.IP "\fBC-a a\fP\0\0\0\0\0"
+Send the command character (C-a) to the processes in the current window.
+.IP "\fBC-a A\fP   (aka)"
+Allow the user to enter an a.\|k.\|a (also-known-as). for the current window.
+.IP "\fBC-a c\fP  or  \fBC-a C-c\fP   (shell)"
+Create a new window with a shell and switch to that window.
+.IP "\fBC-a C\fP   (clear)"
+Clear the screen.
+.IP "\fBC-a d\fP  or  \fBC-a C-d\fP   (detach)"
+Detach
+.I screen
+(disconnect it from the terminal and put it into the background).
+A detached
+.I screen
+can be resumed by invoking
+.I screen
+with the
+.B \-r
+option. (See also section \*QCOMMAND-LINE OPTIONS\*U.)
+.IP "\fBC-a D D\fP   (pow_detach)"
+Power detach. Mainly the same as above, but also sends a HANGUP signal to
+the parent process of
+.IR screen .
+CAUTION: This will result in a logout, when 
+.I screen
+was started from your login shell.
+.IP "\fBC-a f\fP  or  \fBC-a C-f\fP   (flow)"
+Cycles the current window's flow-control setting from "automatic" to "on" to 
+"off", see the section titled FLOW-CONTROL for details.
+.IP "\fBC-a C-g\fP   (vbell)"
+Toggles 
+.I screen's
+visual bell mode. If your terminal does not support
+a visual bell, a `vbell-message' is displayed in the status line. 
+.IP "\fBC-a h\fP  or  \fBC-a C-h\fP   (hardcopy)"
+Write a hardcopy of the current window to the file \*Qhardcopy.\fIn\fP\*U
+in the window's default directory, where \fIn\fP is the number
+of the current window. 
+.IP "\fBC-a H\fP   (log)"
+Begins/ends logging of the current window to the file \*Qscreenlog.\fIn\fP\*U
+in the window's default directory, where \fIn\fP is the number
+of the current window.
+The session log is appended to the previous contents of the file
+if it already exists. 
+The current contents and the contents of the scrollback history are not
+included in the session log.
+.IP "\fBC-a i\fP  or  \fBC-a C-i\fP   (info)"
+Uses the message line to display some information about the current window:
+the cursor position in the form \*Q(column,row)\*U starting with \*Q(1,1)\*U,
+the terminal width and height plus the size of the scrollback buffer in lines, 
+like in \*U(80,24)+50\*U, various flag settings (flow-control, insert mode,
+origin
+mode, wrap mode, application-keypad mode, output logging, and activity
+monitoring (`+' indicates enabled, `-' not)),
+the currently active character set (\fIG0\fP, \fIG1\fP, \fIG2\fP,
+or \fIG3\fP), and in square brackets the terminal character sets that are
+currently designated as \fIG0\fP through \fIG3\fP.
+For system information use \*QC-a t\*U.
+.IP "\fBC-a k\fP  or  \fBC-a C-k\fP   (kill)"
+Kill the current window and switch to the previously displayed window.
+Note:
+.I Emacs
+users should keep this command in mind, when killing a line.
+It is recommended not to use \*QC-a\*U as the
+.I screen
+escape key or that kill is rebound to \*QC-a K\*U.
+.IP "\fBC-a l\fP  or  \fBC-a C-l\fP   (redisplay)"
+Redisplay the current window.
+.IP "\fBC-a L\fP   (login)"
+Adds or removes the entry in /etc/utmp file for the current window.
+This controls if the window is `logged in'. See also above.
+Additionally to that toggle, it is convenient having a `log in' and a `log out'
+key. E.\|g. `bind I set login on' and `bind O set login off' will map these
+keys to be C-a I and C-a O.
+.IP "\fBC-a m\fP  or  \fBC-a C-m\fP   (lastmsg)"
+Repeat the last message displayed in the message line.
+Useful if you're typing when a message appears, because (unless your terminal
+has a status line) the message goes away when you press a key.
+.IP "\fBC-a M\fP   (monitor)"
+Toggles monitoring of the current window.
+When monitoring is turned on and the affected window is switched into the
+background, you will receive the activity notification message in the
+status line at the first sign of output and the window will also be marked
+with an `@' in the window-status display.
+Monitoring is initially off for all windows.
+.IP "\fBC-a space\fP  or  \fBC-a n\fP  or  \fBC-a C-n\fP   (next)"
+Switch to the next window.
+This function can be used repeatedly to cycle through the list of windows.
+(Some terminals require you to release the control key before pressing space.)
+.IP "\fBC-a p\fP  or  \fBC-a C-p\fP   (prev)"
+Switch to the previous window (the opposite of \fBC-a n\fP).
+.IP "\fBC-a q\fP  or  \fBC-a C-q\fP   (xon)"
+Send a control-q to the program in the current window.
+.IP "\fBC-a r\fP  or  \fBC-a C-r\fP   (wrap)"
+Toggle the current window's line-wrap setting (turn the current window's
+automatic margins on and off).
+.IP "\fBC-a s\fP  or  \fBC-a C-s\fP   (xoff)"
+Send a control-s to the program in the current window.
+.IP "\fBC-a t\fP  or  \fBC-a C-t\fP   (time)"
+Uses the message line to display the time of day, the host name, and the load
+averages over 1, 5, and 15 minutes (if this is available on your system).
+For window specific information use \*QC-a i\*U.
+.IP "\fBC-a v\fP  or  \fBC-a C-v\fP   (version)"
+Display the version and compilation date.
+.IP "\fBC-a w\fP  or  \fBC-a C-w\fP   (windows)"
+Uses the message line to display a list of all the windows.
+Each window is listed by number with the name of process that has been
+started in the window (or its a.\|k.\|a.);
+the current window is marked with a `*';
+the previous window is marked with a `-';
+all the windows that are \*Qlogged in\*U are marked with a `$';
+a background window that has received a bell is marked with a `!';
+a background window that is being monitored and has had activity occur
+is marked with an `@';
+a window which has output logging turned on is marked with `(L)'.
+.IP "\fBC-a W\fP   (width)"
+Toggle the window width between 80 and 132 columns. As this command became
+a toggle, \*QC-a N\*U is no longer supported.
+This requires a capable terminal and the termcap entries \*QZ0\*U and \*QZ1\*U.
+See the \*Qtermcap\*U command in section \*QCUSTOMIZATION\*U 
+for more information.
+.IP "\fBC-a x\fP  or  \fBC-a C-x\fP   (lock)"
+Call a screenlock program (/local/bin/lck or /usr/bin/lock or a builtin, if no
+other is available). Screen does not accept any command keys until this program
+terminates. Meanwhile processes in the windows may continue, as the windows 
+are in the `detached' state. The screenlock program may be changed through the
+environment variable $LOCKPRG (which must be set in the shell from which 
+.I screen
+is started) and is executed with the user's uid and gid.
+.IP "\fBC-a z\fP  or  \fBC-a C-z\fP   (suspend)"
+Suspend
+.IR screen .
+The windows are in the `detached' state, while 
+.IR screen
+is suspended.
+.IP "\fBC-a Z\fP   (reset)"
+Reset the virtual terminal to its \*Qpower-on\*U values.
+.IP "\fBC-a .\fP   (termcap)"
+Write the termcap entry for the virtual terminal of the currently active
+window to the file \*Q.termcap\*U in the user's \*Q$HOME/.screen\*U directory
+(or wherever 
+.I screen
+stores its sockets. See the \*QFILES\*U section below).
+This termcap entry is identical to the value of the environment variable
+$TERMCAP that is set up by
+.I screen
+for each window. For terminfo based systems you will need to run a converter
+like 
+.IR captoinfo
+and then compile the entry with 
+.IR tic .
+.IP "\fBC-a ?\fP   (help)"
+Displays a help screen showing you all the key bindings.
+The first pages list all the internal commands followed by their bindings.
+Subsequent pages will display the custom commands, one command per key.
+Press space when you're done reading each page, or return to exit early.
+All other characters are ignored, except for the command character, which will
+exit the help display and begin a command.
+.IP "\fBC-a C-\e\fP   (quit)"
+Kill all windows and terminate
+.IR screen .
+Note that on vt100-style terminals the keys C-4 and C-\e are identical.
+So be careful not to write C-a C-4 when selecting window no. 4.
+Use the empty bind command (as in \*Qbind '^\'\*U) to remove a key binding.
+.IP "\fBC-a :\fP   (colon)"
+Allows you to enter \*Q.screenrc\*U command lines as well as names of 
+key-bound-functions. Useful for on-the-fly modification of key bindings, 
+specific window creation and changing settings. Settings of the current window
+can be changed by prepending the command (if appropriate) with the keyword
+\*Qset\*U.  If you consider this as the `Ex command mode' of 
+.IR screen ,
+you may regard \*QC-a esc\*U as its `Vi command mode'.
+.IP "\fBC-a [\fP  or  \fBC-a C-[\fP  or  \fBC-a esc\fP   (copy)"
+Enter copy/scrollback mode. This allows you to copy text from the current
+window and its history into the paste buffer. In this mode a vi-like
+`full screen editor' is active:
+.br
+.IR "Movement keys" :
+.br
+\fBh\fP, \fBj\fP, \fBk\fP, \fBl\fP move the cursor line by line or column by column.
+.br
+\fB0\fP, \fB^\fP and \fB$\fP move to the leftmost column, to the first or last
+non-whitespace
+character on the line.
+.br
+\fBH\fP, \fBM\fP and \fBL\fP move the cursor to the leftmost column
+of the top, center or bottom line of the window. 
+.br
+\fB+\fP and \fB-\fP positions one line up and down.
+.br
+\fBG\fP moves to the specified absolute line (default: end of buffer).
+.br 
+\fB|\fP moves to the specified absolute column.
+.br
+\fBw\fP, \fBb\fP, \fBe\fP move the cursor word by word.
+.br 
+\fBC-u\fP and \fBC-d\fP scroll the display up/down by the specified amount of 
+lines while preserving the cursor position. (Default: half screenfull). 
+.br
+\fBC-b\fP and \fBC-f\fP scroll the display up/down a full screen.
+.br
+\fBg\fP moves to the beginning of the buffer, whereas
+.br
+\fB%\fP jumps to the specified percentage.
+.br
+.IR Note :
+Emacs style movement keys can be customized by a .screenrc command. (E.\|g.
+markkeys "h=^B:l=^F:$=^E") There is no simple method for a full emacs-style
+keymap, as this involves multi-character codes.
+.br
+.IR Marking :
+.br
+The copy range is specified by setting two marks. The text between these marks 
+will be highlighted. Press \fBspace\fP to set the first or second mark
+respectively.
+.br
+\fBY\fP and \fBy\fP can be used to mark one whole line or to mark from 
+start of line.
+.br
+\fBW\fP marks exactly one word. 
+.br 
+.IR "Repeat count" :
+.br
+Any of these commands can be prefixed with a number (by pressing digits 
+\fB0\fP..\fB9\fP) which
+is taken as a repeat count. Example: \*QC-a C-[ H 10 j 5 Y\*U will copy lines
+11 to 15 into the pastebuffer.
+.br
+.IR Specials :
+.br
+There are however some keys that act differently here and in
+.IR vi .
+.I Vi
+does not allow to yank rectangular blocks of text, but
+.I screen
+does. Press 
+.br
+\fBc\fP or \fBC\fP to set the left or right margin respectively. If no repeat count is
+given, both default to the current cursor position. Try this on a rather 
+full text screen as an example: \*QC-A [ S-M 20 l SPACE c 10 l 5 j S-C SPACE\*U.
+.br
+\fBJ\fP joins lines. It toggles between 
+3 modes: lines separated by a newline character (012), lines glued seamless,
+lines separated by a single whitespace. Note that you can prepend the newline
+character with a carriage return character, by issuing a \*Qset crlf on\*U.
+.br
+\fBv\fP is for all the
+.I vi 
+users with \*Q:set numbers\*U - it toggles the left margin between column 9
+and 1.
+.br
+Press \fBa\fP before the final space key to toggle in append mode. Thus
+the contents of the pastebuffer will not be overwritten, but appended to.
+.br
+\fBA\fP toggles in append mode and sets a (second) mark.
+.br
+\fB>\fP sets the (second) mark and writes the contents of the copybuffer to
+the screen-exchange file (/tmp/screen-exchange per default) once copy-mode is 
+finished. This example demonstrates how to dump the whole scrollback buffer 
+to that file: \*QC-A [ g SPACE G $ >\*U.
+.br
+\fB?\fP gives information about the current line and column.
+.IP "\fBC-a ]\fP  or  \fBC-a C-]\fP   (paste)"
+Paste. Write the contents of the paste buffer to the stdin queue of the
+current window.
+.IP "\fBC-a {\fP   (history)"
+Usually users work with a shell that allows easy access to previous commands.
+E.g. csh has the command \*Q!!\*U to repeat the last command executed. 
+.I Screen
+allows you to have a primitive way of re-calling \*Qthe command that
+started ...\*U: You just type the first letter of that command, then hit
+`C-a {' and
+.I screen
+tries to find a previous line that matches with the `prompt character' 
+to the left of the cursor. This line is pasted into this window's input queue.
+Thus you have a crude command history (made up by the visible window and its
+scrollback buffer). 
+.IP "\fBC-a >\fP   (write_buffer)"
+Writes the contents of the paste buffer to a public accessible screen-exchange
+file. This is thought of as a primitive means of communication between
+.I screen
+users on the same host. See also \*QC-a esc\*U.
+.IP "\fBC-a <\fP   (read_buffer)"
+Reads the screen-exchange file into the pastebuffer. See also \*QC-a ]\*U.
+.IP "\fBC-a =\fP   (kill_buffer)"
+Removes the exchange file used by \*QC-a <\*U and \*QC-a >\*U.
+.SH "COMMAND-LINE OPTIONS"
+Screen has the following command-line options:
+.TP 5
+.B \-a
+include \fIall\fP capabilities (with some minor exceptions) in each
+window's termcap, even if
+.I screen
+must redraw parts of the display in order to implement a function.
+.TP 5
+.B "\-c \fIfile\fP"
+override the default configuration file from \*Q$HOME/.screenrc\*U
+to \fIfile\fP.
+.TP 5
+.B "\-d\fP|\fB\-D \fP[\fIpid.tty.host\fP\]\fB"
+does not start
+.IR screen ,
+but detach the elsewhere running 
+.I screen
+session. It has the same effect as typing \*QC-a d\*U from 
+.I screen's
+controlling terminal. \fB-D\fP is the equivalent to the power detach key.
+If no session can be detached, this option is ignored. 
+The combination \*Qscreen -D -r\*U can be used to `transport' the elsewhere 
+running session to this terminal and logout there. 
+Note: It is a good idea to have the status of your sessions checked by means of
+\*Qscreen -list\*U.
+.TP 5
+.B "\-e \fIxy\fP"
+specifies the command character to be \fIx\fP and the character generating a
+literal command character to \fIy\fP (when typed after the command character).
+The default is \*QC-a\*U and `a', which can be specified as \*Q-e^Aa\*U.
+See the \*Qescape\*U .screenrc command for more details.
+.TP 5
+.B "\-f\fP, \fB\-fn\fP, and \fB\-fa"
+turns flow-control on, off, or \*Qautomatic switching mode\*U.
+This can also be defined through the \*Qflow\*U .screenrc command.
+.TP 5
+.B "\-h \fInum\fP"
+Specifies the history scrollback buffer to be \fInum\fP lines high.
+.TP 5
+.B \-i
+will cause the interrupt key (usually C-c) to interrupt the display
+immediately when flow-control is on.
+See the \*Qflow\*U .screenrc command for details.
+.TP 5
+.B "\-l \fPand\fB -ln"
+turns login mode on or off (for /etc/utmp updating).
+This can also be defined through the \*Qlogin\*U .screenrc command.
+.TP 5
+.B "\-ls \fPand\fB -list"
+does not start
+.IR screen ,
+but prints a list of
+.I pid.tty.host
+strings identifying your 
+.I screen
+sessions.
+Sessions marked `detached' can be resumed with \*Qscreen -r\*U. Those marked 
+`attached' are running and have a controlling terminal. Sessions marked as
+`dead' should be thoroughly checked and removed. Ask your system administrator
+if you are not sure. Remove sessions with the \fB-wipe\fP option.
+.TP 5
+.B "\-t \fIname\fP"
+sets the title (a.\|k.\|a.) for the default shell or specified program.
+See also the \*Qshellaka\*U .screenrc command.
+.TP 5
+.B "\-wipe"
+does the same as \*Qscreen -ls\*U, but removes destroyed sessions instead of 
+marking them as `dead'.
+.TP 5
+.B \-L
+tells 
+.I screen
+your auto-margin terminal has a writable last-position on
+the screen.
+This can also be set in your .screenrc by specifying `LP' in a \*Qtermcap\*U
+command.
+.TP 5
+.B \-O
+selects a more optimal output mode for your terminal rather than true vt100
+emulation (only affects auto-margin terminals without `LP').
+This can also be set in your .screenrc by specifying `OP' in a \*Qtermcap\*U
+command.
+.TP 5
+.B "\-r \fP[\fIpid.tty.host\fP]"
+resumes a detached
+.I screen
+session.
+No other options (except \*Q-d -r\*U or \*Q-D -r\*U) may be specified, though
+an optional prefix of [\fIpid.\fP]\fItty.host\fP
+may be needed to distinguish between multiple detached
+.I screen
+sessions.
+.TP 5
+.B \-R
+attempts to resume the first detached 
+.I screen
+session it finds.
+If successful, all other command-line options are ignored.
+If no detached session exists, starts a new session using the specified
+SHAR_EOF
+true || echo 'restore of screen3.2/screen.1 failed'
+fi
+echo 'End of  part 4'
+echo 'File screen3.2/screen.1 is continued in part 5'
+echo 5 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

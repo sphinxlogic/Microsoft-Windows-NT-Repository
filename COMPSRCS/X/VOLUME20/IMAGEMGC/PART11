@@ -1,0 +1,1610 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i067:  imagemagic - X11 image processing and display, Part11/38
+Message-ID: <1993Jul14.175535.1295@sparky.sterling.com>
+X-Md4-Signature: ba79a299c3643ad3a0469013e44bbe6c
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:55:35 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 67
+Archive-name: imagemagic/part11
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.11 (part 11 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/X.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 11; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/X.c'
+else
+echo 'x - continuing file ImageMagick/X.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/X.c' &&
+X                  {
+X                    pixel=XStandardPixel(map_info,(*p),8);
+X                    for (k=bytes_per_pixel-1; k >= 0; k--)
+X                    {
+X                      channel[k]=(unsigned char) pixel;
+X                      pixel>>=8;
+X                    }
+X                    for (j=0; j <= ((int) p->length); j++)
+X                    {
+X                      for (k=0; k < bytes_per_pixel; k++)
+X                        *q++=channel[k];
+X                      x++;
+X                      if (x == ximage->width)
+X                        {
+X                          x=0;
+X                          q+=scanline_pad;
+X                        }
+X                    }
+X                    p++;
+X                  }
+X                }
+X              break;
+X            }
+X          }
+X        }
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e I n v i s i b l e C u r s o r                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeInvisibleCursor creates an invisible X11 cursor.
+%
+%  The format of the XMakeInvisibleCursor routine is:
+%
+%      XMakeInvisibleCursor(display,window)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies the ID of the window for which the cursor is
+%      assigned.
+%
+%
+*/
+Cursor XMakeInvisibleCursor(display,window)
+Display
+X  *display;
+X
+Window
+X  window;
+{
+X  Cursor
+X    cursor;
+X
+X  Pixmap
+X    pixmap;
+X
+X  XColor
+X    color;
+X
+X  static char
+X    bits[]={0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+X
+X  color.red=0;
+X  color.green=0;
+X  color.blue=0;
+X  pixmap=XCreateBitmapFromData(display,window,bits,8,8);
+X  cursor=XCreatePixmapCursor(display,pixmap,pixmap,&color,&color,0,0);
+X  XFreePixmap(display,pixmap);
+X  return(cursor);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e P i x m a p                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakePixmap creates an X11 pixmap.
+%
+%  The format of the XMakePixmap routine is:
+%
+%      status=XMakePixmap(display,resource_info,window)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function XMakePixmap returns True if the X pixmap is
+%      successfully created.  False is returned is there is a memory shortage.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%
+*/
+unsigned int XMakePixmap(display,resource_info,window)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindowInfo
+X  *window;
+{
+X  if (window->ximage == (XImage *) NULL)
+X    return(False);
+X  /*
+X    Display busy cursor.
+X  */
+X  XDefineCursor(display,window->id,window->busy_cursor);
+X  XFlush(display);
+X  /*
+X    Create pixmap.
+X  */
+X  if (window->pixmap != (Pixmap) NULL)
+X    XFreePixmap(display,window->pixmap);
+X  window->pixmap=XCreatePixmap(display,window->id,(unsigned int)
+X    window->ximage->width,(unsigned int) window->ximage->height,window->depth);
+X  if (window->pixmap == (Pixmap) NULL)
+X    {
+X      /*
+X        Unable to allocate pixmap.
+X      */
+X      XDefineCursor(display,window->id,window->cursor);
+X      return(False);
+X    }
+X  /*
+X    Copy X image to pixmap.
+X  */
+X  XPutImage(display,window->pixmap,window->graphic_context,window->ximage,
+X    0,0,0,0,(unsigned int) window->ximage->width,
+X    (unsigned int) window->ximage->height);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Pixmap:\n");
+X      (void) fprintf(stderr,"  width, height: %dx%d\n",window->ximage->width,
+X        window->ximage->height);
+X    }
+X  /*
+X    Restore cursor.
+X  */
+X  XDefineCursor(display,window->id,window->cursor);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e S t a n d a r d C o l o r m a p                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeStandardColormap creates an X11 Standard Colormap.
+%
+%  The format of the XMakeStandardColormap routine is:
+%
+%      XMakeStandardColormap(display,visual_info,resource_info,pixel_info,
+%        image,map_info)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o visual_info: Specifies a pointer to a X11 XVisualInfo structure;
+%      returned from XGetVisualInfo.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o pixel_info: Specifies a pointer to a XPixelInfo structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%    o map_info: If a Standard Colormap type is specified, this structure is
+%      initialized with info from the Standard Colormap.
+%
+%
+*/
+static int IntensityCompare(x,y)
+const void
+X  *x,
+X  *y;
+{
+X  DiversityPacket
+X    *color_1,
+X    *color_2;
+X
+X  color_1=(DiversityPacket *) x;
+X  color_2=(DiversityPacket *) y;
+X  return((int) Intensity(*color_2)-(int) Intensity(*color_1));
+}
+X
+static int PopularityCompare(x,y)
+const void
+X  *x,
+X  *y;
+{
+X  DiversityPacket
+X    *color_1,
+X    *color_2;
+X
+X  color_1=(DiversityPacket *) x;
+X  color_2=(DiversityPacket *) y;
+X  return((int) color_2->count-(int) color_1->count);
+}
+X
+void XMakeStandardColormap(display,visual_info,resource_info,pixel_info,image,
+X  map_info)
+Display
+X  *display;
+X
+XXVisualInfo
+X  *visual_info;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXPixelInfo
+X  *pixel_info;
+X
+Image
+X  *image;
+X
+XXStandardColormap
+X  *map_info;
+{
+X  Colormap
+X    colormap;
+X
+X  int
+X    status;
+X
+X  register int
+X    i;
+X
+X  unsigned int
+X    gray_value,
+X    number_colors,
+X    retain_colors;
+X
+X  XColor
+X    color,
+X    *colors,
+X    *p;
+X
+X  if (resource_info->map_type != (char *) NULL)
+X    {
+X      /*
+X        Standard Colormap is already defined (i.e. xstdcmap).
+X      */
+X      if (pixel_info->pixels != (unsigned long *) NULL)
+X        (void) free((char *) pixel_info->pixels);
+X      XGetPixelInfo(display,visual_info,map_info,resource_info,image,
+X        pixel_info);
+X      return;
+X    }
+X  if ((visual_info->class != DirectColor) && (visual_info->class != TrueColor))
+X    if ((image->class == DirectClass) ||
+X        (image->colors > visual_info->colormap_size))
+X      {
+X        /*
+X          Image has more colors than the visual supports.
+X        */
+X        QuantizeImage(image,(unsigned int) visual_info->colormap_size,
+X          resource_info->tree_depth,resource_info->dither,
+X          resource_info->colorspace,False);
+X        image->class=DirectClass;  /* promote to DirectClass */
+X      }
+X  /*
+X    Free previous and create new colormap.
+X  */
+X  XFreeStandardColormap(display,visual_info,pixel_info,map_info);
+X  colormap=XDefaultColormap(display,visual_info->screen);
+X  if (visual_info->visual != XDefaultVisual(display,visual_info->screen))
+X    colormap=XCreateColormap(display,
+X      XRootWindow(display,visual_info->screen),visual_info->visual,
+X      visual_info->class == DirectColor ? AllocAll : AllocNone);
+X  if (colormap == (Colormap) NULL)
+X    Error("unable to create colormap",(char *) NULL);
+X  /*
+X    Initialize the Standard Colormap attributes.
+X  */
+X  map_info->colormap=colormap;
+X  map_info->red_max=visual_info->red_mask;
+X  map_info->red_mult=map_info->red_max > 0 ? 1 : 0;
+X  if (map_info->red_max > 0)
+X    while ((map_info->red_max & 0x01) == 0)
+X    {
+X      map_info->red_max>>=1;
+X      map_info->red_mult<<=1;
+X    }
+X  map_info->green_max=visual_info->green_mask;
+X  map_info->green_mult=map_info->green_max > 0 ? 1 : 0;
+X  if (map_info->green_max > 0)
+X    while ((map_info->green_max & 0x01) == 0)
+X    {
+X      map_info->green_max>>=1;
+X      map_info->green_mult<<=1;
+X    }
+X  map_info->blue_max=visual_info->blue_mask;
+X  map_info->blue_mult=map_info->blue_max > 0 ? 1 : 0;
+X  if (map_info->blue_max > 0)
+X    while ((map_info->blue_max & 0x01) == 0)
+X    {
+X      map_info->blue_max>>=1;
+X      map_info->blue_mult<<=1;
+X    }
+X  map_info->base_pixel=0;
+X  XGetPixelInfo(display,visual_info,map_info,resource_info,image,pixel_info);
+X  /*
+X    Allocating colors in server colormap is based on visual class.
+X  */
+X  switch (visual_info->class)
+X  {
+X    case StaticGray:
+X    case StaticColor:
+X    {
+X      /*
+X        Define Standard Colormap for StaticGray or StaticColor visual.
+X      */
+X      number_colors=image->colors;
+X      colors=(XColor *) malloc(visual_info->colormap_size*sizeof(XColor));
+X      if (colors == (XColor *) NULL)
+X        Error("unable to create colormap","memory allocation failed");
+X      p=colors;
+X      color.flags=DoRed | DoGreen | DoBlue;
+X      if (visual_info->class == StaticColor)
+X        for (i=0; i < image->colors; i++)
+X        {
+X          color.red=(unsigned short) (image->colormap[i].red << 8);
+X          color.green=(unsigned short) (image->colormap[i].green << 8);
+X          color.blue=(unsigned short) (image->colormap[i].blue << 8);
+X          status=XAllocColor(display,colormap,&color);
+X          if (status == 0)
+X            {
+X              colormap=XCopyColormapAndFree(display,colormap);
+X              XAllocColor(display,colormap,&color);
+X            }
+X          pixel_info->pixels[i]=color.pixel;
+X          *p++=color;
+X        }
+X      else
+X        for (i=0; i < image->colors; i++)
+X        {
+X          gray_value=Intensity(image->colormap[i]);
+X          color.red=(unsigned short) (gray_value << 8);
+X          color.green=(unsigned short) (gray_value << 8);
+X          color.blue=(unsigned short) (gray_value << 8);
+X          status=XAllocColor(display,colormap,&color);
+X          if (status == 0)
+X            {
+X              colormap=XCopyColormapAndFree(display,colormap);
+X              XAllocColor(display,colormap,&color);
+X            }
+X          pixel_info->pixels[i]=color.pixel;
+X          *p++=color;
+X        }
+X      break;
+X    }
+X    case GrayScale:
+X    case PseudoColor:
+X    {
+X      unsigned int
+X        colormap_type;
+X
+X      /*
+X        Define Standard Colormap for GrayScale or PseudoColor visual.
+X      */
+X      number_colors=image->colors;
+X      colors=(XColor *) malloc(visual_info->colormap_size*sizeof(XColor));
+X      if (colors == (XColor *) NULL)
+X        Error("unable to create colormap","memory allocation failed");
+X      /*
+X        Determine if image colors will "fit" into X server colormap.
+X      */
+X      colormap_type=resource_info->colormap;
+X      status=XAllocColorCells(display,colormap,False,
+X        (unsigned long *) NULL,0,pixel_info->pixels,image->colors);
+X      if (status != 0)
+X        colormap_type=PrivateColormap;
+X      if (colormap_type == SharedColormap)
+X        {
+X          DiversityPacket
+X            *diversity;
+X
+X          register RunlengthPacket
+X            *q;
+X
+X          unsigned short
+X            index;
+X
+X          /*
+X            Define Standard colormap for shared GrayScale or PseudoColor visual:
+X          */
+X          diversity=(DiversityPacket *)
+X            malloc(image->colors*sizeof(DiversityPacket));
+X          if (diversity == (DiversityPacket *) NULL)
+X            Error("unable to create colormap","memory allocation failed");
+X          for (i=0; i < image->colors; i++)
+X          {
+X            diversity[i].red=image->colormap[i].red;
+X            diversity[i].green=image->colormap[i].green;
+X            diversity[i].blue=image->colormap[i].blue;
+X            diversity[i].index=(unsigned short) i;
+X            diversity[i].count=0;
+X          }
+X          q=image->pixels;
+X          for (i=0; i < image->packets; i++)
+X          {
+X            diversity[q->index].count+=(q->length+1);
+X            q++;
+X          }
+X          /*
+X            Sort colors by decreasing intensity.
+X          */
+X          (void) qsort((void *) diversity,image->colors,sizeof(DiversityPacket),
+X            IntensityCompare);
+X          for (i=0; i < image->colors; i+=Max(image->colors >> 4,2))
+X            diversity[i].count<<=4;  /* increase this colors popularity */
+X          diversity[image->colors-1].count<<=4;
+X          (void) qsort((void *) diversity,image->colors,sizeof(DiversityPacket),
+X            PopularityCompare);
+X          /*
+X            Allocate colors.
+X          */
+X          p=colors;
+X          color.flags=DoRed | DoGreen | DoBlue;
+X          if (visual_info->class == PseudoColor)
+X            for (i=0; i < image->colors; i++)
+X            {
+X              index=diversity[i].index;
+X              color.red=(unsigned short) (image->colormap[index].red << 8);
+X              color.green=(unsigned short) (image->colormap[index].green << 8);
+X              color.blue=(unsigned short) (image->colormap[index].blue << 8);
+X              status=XAllocColor(display,colormap,&color);
+X              if (status == 0)
+X                break;
+X              pixel_info->pixels[index]=color.pixel;
+X              *p++=color;
+X            }
+X          else
+X            for (i=0; i < image->colors; i++)
+X            {
+X              index=diversity[i].index;
+X              gray_value=Intensity(image->colormap[index]);
+X              color.red=(unsigned short) (gray_value << 8);
+X              color.green=(unsigned short) (gray_value << 8);
+X              color.blue=(unsigned short) (gray_value << 8);
+X              status=XAllocColor(display,colormap,&color);
+X              if (status == 0)
+X                break;
+X              pixel_info->pixels[index]=color.pixel;
+X              *p++=color;
+X            }
+X          if (i < image->colors)
+X            {
+X              register int
+X                j;
+X
+X              XColor
+X                *server_colors;
+X
+X              /*
+X                Read X server colormap.
+X              */
+X              server_colors=(XColor *)
+X                malloc(visual_info->colormap_size*sizeof(XColor));
+X              if (server_colors == (XColor *) NULL)
+X                Error("unable to create colormap","memory allocation failed");
+X              for (j=0; j < visual_info->colormap_size; j++)
+X                server_colors[j].pixel=(unsigned long) j;
+X              XQueryColors(display,colormap,server_colors,
+X                (int) Min(visual_info->colormap_size,256));
+X              /*
+X                Select remaining colors from X server colormap.
+X              */
+X              if (visual_info->class == PseudoColor)
+X                for (; i < image->colors; i++)
+X                {
+X                  index=diversity[i].index;
+X                  color.red=(unsigned short) (image->colormap[index].red << 8);
+X                  color.green=(unsigned short)
+X                    (image->colormap[index].green << 8);
+X                  color.blue=(unsigned short)
+X                    (image->colormap[index].blue << 8);
+X                  XBestPixel(server_colors,(unsigned int)
+X                    Min(visual_info->colormap_size,256),&color);
+X                  XAllocColor(display,colormap,&server_colors[color.pixel]);
+X                  pixel_info->pixels[index]=color.pixel;
+X                  *p++=color;
+X                }
+X              else
+X                for (; i < image->colors; i++)
+X                {
+X                  index=diversity[i].index;
+X                  gray_value=Intensity(image->colormap[index]);
+X                  color.red=(unsigned short) (gray_value << 8);
+X                  color.green=(unsigned short) (gray_value << 8);
+X                  color.blue=(unsigned short) (gray_value << 8);
+X                  XBestPixel(server_colors,(unsigned int)
+X                    Min(visual_info->colormap_size,256),&color);
+X                  XAllocColor(display,colormap,&server_colors[color.pixel]);
+X                  pixel_info->pixels[index]=color.pixel;
+X                  *p++=color;
+X                }
+X              if (image->colors < visual_info->colormap_size)
+X                {
+X                  /*
+X                    Fill up colors array-- more choices for pen colors.
+X                  */
+X                  retain_colors=
+X                    Min(visual_info->colormap_size-image->colors,256);
+X                  for (i=0; i < retain_colors; i++)
+X                    *p++=server_colors[i];
+X                  number_colors+=retain_colors;
+X                }
+X              (void) free((char *) server_colors);
+X            }
+X          (void) free((char *) diversity);
+X          break;
+X        }
+X      /*
+X        Define Standard colormap for private GrayScale or PseudoColor visual.
+X      */
+X      if (status == 0)
+X        {
+X          /*
+X            Not enough colormap entries in the colormap-- Create a new colormap.
+X          */
+X          colormap=XCreateColormap(display,
+X            XRootWindow(display,visual_info->screen),visual_info->visual,
+X            AllocNone);
+X          if (colormap == (Colormap) NULL)
+X            Error("unable to create colormap",(char *) NULL);
+X          map_info->colormap=colormap;
+X          if (image->colors < visual_info->colormap_size)
+X            {
+X              /*
+X                Retain colors from the default colormap to help lessens the
+X                effects of colormap flashing.
+X              */
+X              retain_colors=Min(visual_info->colormap_size-image->colors,256);
+X              p=colors+image->colors;
+X              for (i=0; i < retain_colors; i++)
+X              {
+X                p->pixel=(unsigned long) i;
+X                p++;
+X              }
+X              XQueryColors(display,
+X                XDefaultColormap(display,visual_info->screen),
+X                colors+image->colors,(int) retain_colors);
+X              /*
+X                Transfer colors from default to private colormap.
+X              */
+X              XAllocColorCells(display,colormap,False,(unsigned long *) NULL,0,
+X                pixel_info->pixels,retain_colors);
+X              p=colors+image->colors;
+X              for (i=0; i < retain_colors; i++)
+X              {
+X                p->pixel=pixel_info->pixels[i];
+X                p++;
+X              }
+X              XStoreColors(display,colormap,colors+image->colors,retain_colors);
+X              number_colors+=retain_colors;
+X            }
+X          XAllocColorCells(display,colormap,False,(unsigned long *) NULL,0,
+X            pixel_info->pixels,image->colors);
+X        }
+X      /*
+X        Store the image colormap.
+X      */
+X      p=colors;
+X      color.flags=DoRed | DoGreen | DoBlue;
+X      if (visual_info->class == PseudoColor)
+X        for (i=0; i < image->colors; i++)
+X        {
+X          color.red=(unsigned short) (image->colormap[i].red << 8);
+X          color.green=(unsigned short) (image->colormap[i].green << 8);
+X          color.blue=(unsigned short) (image->colormap[i].blue << 8);
+X          color.pixel=pixel_info->pixels[i];
+X          *p++=color;
+X        }
+X      else
+X        for (i=0; i < image->colors; i++)
+X        {
+X          gray_value=Intensity(image->colormap[i]);
+X          color.red=(unsigned short) (gray_value << 8);
+X          color.green=(unsigned short) (gray_value << 8);
+X          color.blue=(unsigned short) (gray_value << 8);
+X          color.pixel=pixel_info->pixels[i];
+X          *p++=color;
+X        }
+X      XStoreColors(display,colormap,colors,image->colors);
+X      break;
+X    }
+X    case TrueColor:
+X    case DirectColor:
+X    default:
+X    {
+X      unsigned int
+X        linear_colormap;
+X
+X      /*
+X        Define Standard Colormap for TrueColor or DirectColor visual.
+X      */
+X      number_colors=(unsigned int) ((map_info->red_max*map_info->red_mult)+
+X        (map_info->green_max*map_info->green_mult)+
+X        (map_info->blue_max*map_info->blue_mult)+1);
+X      linear_colormap=
+X        ((map_info->red_max+1) == visual_info->colormap_size) &&
+X        ((map_info->green_max+1) == visual_info->colormap_size) &&
+X        ((map_info->blue_max+1) == visual_info->colormap_size);
+X      if (linear_colormap)
+X        number_colors=visual_info->colormap_size;
+X      /*
+X        Allocate color array.
+X      */
+X      colors=(XColor *) malloc(number_colors*sizeof(XColor));
+X      if (colors == (XColor *) NULL)
+X        Error("unable to create colormap","memory allocation failed");
+X      /*
+X        Initialize linear color ramp.
+X      */
+X      p=colors;
+X      color.flags=DoRed | DoGreen | DoBlue;
+X      if (linear_colormap)
+X        for (i=0; i < number_colors; i++)
+X        {
+X          color.blue=(unsigned short) 0;
+X          if (map_info->blue_max > 0)
+X            color.blue=(unsigned short)
+X              (((i % map_info->green_mult)*65535)/map_info->blue_max);
+X          color.green=color.blue;
+X          color.red=color.blue;
+X          color.pixel=XStandardPixel(map_info,color,16);
+X          *p++=color;
+X        }
+X      else
+X        for (i=0; i < number_colors; i++)
+X        {
+X          color.red=(unsigned short) 0;
+X          if (map_info->red_max > 0)
+X            color.red=(unsigned short)
+X              (((i/map_info->red_mult)*65535)/map_info->red_max);
+X          color.green=(unsigned short) 0;
+X          if (map_info->green_max > 0)
+X            color.green=(unsigned short) ((((i/map_info->green_mult) %
+X              (map_info->green_max+1))*65535)/map_info->green_max);
+X          color.blue=(unsigned short) 0;
+X          if (map_info->blue_max > 0)
+X            color.blue=(unsigned short)
+X              (((i % map_info->green_mult)*65535)/map_info->blue_max);
+X          color.pixel=XStandardPixel(map_info,color,16);
+X          *p++=color;
+X        }
+X      if ((visual_info->class == DirectColor) &&
+X          (colormap != XDefaultColormap(display,visual_info->screen)))
+X        XStoreColors(display,colormap,colors,number_colors);
+X      else
+X        for (i=0; i < number_colors; i++)
+X          XAllocColor(display,colormap,&colors[i]);
+X      break;
+X    }
+X  }
+X  if ((visual_info->class != DirectColor) && (visual_info->class != TrueColor))
+X    {
+X      /*
+X        Set background/border/foreground/pen pixels.
+X      */
+X      status=XAllocColor(display,colormap,&pixel_info->background_color);
+X      if (status == 0)
+X        XBestPixel(colors,number_colors,&pixel_info->background_color);
+X      status=XAllocColor(display,colormap,&pixel_info->foreground_color);
+X      if (status == 0)
+X        XBestPixel(colors,number_colors,&pixel_info->foreground_color);
+X      status=XAllocColor(display,colormap,&pixel_info->border_color);
+X      if (status == 0)
+X        XBestPixel(colors,number_colors,&pixel_info->border_color);
+X      for (i=0; i < MaxNumberPens; i++)
+X      {
+X        status=XAllocColor(display,colormap,&pixel_info->pen_color[i]);
+X        if (status == 0)
+X          XBestPixel(colors,number_colors,&pixel_info->pen_color[i]);
+X        pixel_info->pixels[image->colors+i]=pixel_info->pen_color[i].pixel;
+X      }
+X      pixel_info->colors=image->colors+MaxNumberPens;
+X    }
+X  (void) free((char *) colors);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Standard Colormap:\n");
+X      (void) fprintf(stderr,"  colormap id: 0x%lx\n",map_info->colormap);
+X      (void) fprintf(stderr,"  red, green, blue max: %lu %lu %lu\n",
+X        map_info->red_max,map_info->green_max,map_info->blue_max);
+X      (void) fprintf(stderr,"  red, green, blue mult: %lu %lu %lu\n",
+X        map_info->red_mult,map_info->green_mult,map_info->blue_mult);
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e W i n d o w                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeWindow creates an X11 window.
+%
+%  The format of the XMakeWindow routine is:
+%
+%      XMakeWindow(display,parent,argv,argc,class_hint,manager_hints,property,
+%        window_info)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o parent: Specifies the parent window_info.
+%
+%    o argv: Specifies the application's argument list.
+%
+%    o argc: Specifies the number of arguments.
+%
+%    o class_hint: Specifies a pointer to a X11 XClassHint structure.
+%
+%    o manager_hints: Specifies a pointer to a X11 XWMHints structure.
+%
+%    o property: A property to define on the window_info.
+%
+%    o window_info: Specifies a pointer to a X11 XWindowInfo structure.
+%
+%
+*/
+void XMakeWindow(display,parent,argv,argc,class_hint,manager_hints,property,
+X  window_info)
+Display
+X  *display;
+X
+Window
+X  parent;
+X
+char
+X  **argv;
+X
+int
+X  argc;
+X
+XXClassHint
+X  *class_hint;
+X
+XXWMHints
+X  *manager_hints;
+X
+Atom
+X  property;
+X
+XXWindowInfo
+X  *window_info;
+{
+#define MinWindowSize  64
+X
+X  int
+X    status;
+X
+X  XSizeHints
+X    *size_hints;
+X
+X  XTextProperty
+X    icon_name,
+X    window_name;
+X
+X  /*
+X    Set window_info hints.
+X  */
+X  size_hints=XAllocSizeHints();
+X  if (size_hints == (XSizeHints *) NULL)
+X    Error("unable to make window_info","memory allocation failed");
+X  size_hints->flags=window_info->flags;
+X  size_hints->x=window_info->x;
+X  size_hints->y=window_info->y;
+X  size_hints->width=window_info->width;
+X  size_hints->height=window_info->height;
+X  if (!window_info->immutable)
+X    {
+X      /*
+X        Window size can be changed.
+X      */
+X      size_hints->min_width=window_info->min_width;
+X      size_hints->min_height=window_info->min_height;
+X      size_hints->flags|=PMinSize;
+X    }
+X  else
+X    {
+X      /*
+X        Window size cannot be changed.
+X      */
+X      size_hints->min_width=window_info->width;
+X      size_hints->min_height=window_info->height;
+X      size_hints->max_width=window_info->width;
+X      size_hints->max_height=window_info->height;
+X      size_hints->flags|=PMinSize | PMaxSize;
+X    }
+X  size_hints->flags|=PResizeInc;
+X  size_hints->width_inc=window_info->width_inc;
+X  size_hints->height_inc=window_info->height_inc;
+#ifndef PRE_R4_ICCCM
+X  size_hints->flags|=PBaseSize;
+X  size_hints->base_width=size_hints->min_width;
+X  size_hints->base_height=size_hints->min_height;
+#endif
+X  if (window_info->geometry != (char *) NULL)
+X    {
+X      char
+X        default_geometry[2048];
+X
+X      int
+X        flags,
+X        gravity;
+X
+X      /*
+X        User specified geometry.
+X      */
+X      (void) sprintf(default_geometry,"%dx%d",size_hints->width,
+X        size_hints->height);
+X      flags=XWMGeometry(display,window_info->screen,window_info->geometry,
+X        default_geometry,window_info->border_width,size_hints,&size_hints->x,
+X        &size_hints->y,&size_hints->width,&size_hints->height,&gravity);
+X      window_info->x=size_hints->x;
+X      window_info->y=size_hints->y;
+X      if ((flags & WidthValue) && (flags & HeightValue))
+X        size_hints->flags|=USSize;
+X      if ((flags & XValue) && (flags & YValue))
+X        size_hints->flags|=USPosition;
+#ifndef PRE_R4_ICCCM
+X      size_hints->win_gravity=gravity;
+X      size_hints->flags|=PWinGravity;
+#endif
+X    }
+X  if (window_info->id == (Window) NULL)
+X    window_info->id=XCreateWindow(display,parent,window_info->x,window_info->y,
+X      window_info->width,window_info->height,window_info->border_width,
+X      window_info->depth,InputOutput,window_info->visual_info->visual,
+X      window_info->mask,&window_info->attributes);
+X  else
+X    {
+X      unsigned int
+X        mask;
+X
+X      XEvent
+X        discard_event;
+X
+X      XWindowChanges
+X        window_info_changes;
+X
+X      /*
+X        Window already exists;  change relevant attributes.
+X      */
+X      XChangeWindowAttributes(display,window_info->id,window_info->mask,
+X        &window_info->attributes);
+X      XSync(display,False);
+X      while (XCheckTypedWindowEvent(display,window_info->id,ConfigureNotify,
+X        &discard_event));
+X      window_info_changes.x=window_info->x;
+X      window_info_changes.y=window_info->y;
+X      window_info_changes.width=window_info->width;
+X      window_info_changes.height=window_info->height;
+X      mask=CWWidth | CWHeight;
+X      if (window_info->flags & USPosition)
+X        mask|=CWX | CWY;
+X      XReconfigureWMWindow(display,window_info->id,window_info->screen,mask,
+X        &window_info_changes);
+X    }
+X  if (window_info->id == (Window) NULL)
+X    Error("unable to create window",window_info->name);
+X  status=XStringListToTextProperty(&window_info->name,1,&window_name);
+X  if (status == 0)
+X    Error("unable to create text property",window_info->name);
+X  if (window_info->icon_name == (char *) NULL)
+X    icon_name=window_name;
+X  else
+X    {
+X      status=XStringListToTextProperty(&window_info->icon_name,1,&icon_name);
+X      if (status == 0)
+X        Error("unable to create text property",window_info->icon_name);
+X    }
+X  if (window_info->icon_geometry != (char *) NULL)
+X    {
+X      int
+X        flags,
+X        gravity,
+X        height,
+X        width;
+X
+X      /*
+X        User specified icon geometry.
+X      */
+X      size_hints->flags|=USPosition;
+X      flags=XWMGeometry(display,window_info->screen,window_info->icon_geometry,
+X        (char *) NULL,0,size_hints,&manager_hints->icon_x,
+X        &manager_hints->icon_y,&width,&height,&gravity);
+X      if ((flags & XValue) && (flags & YValue))
+X        manager_hints->flags|=IconPositionHint;
+X    }
+X  XSetWMProperties(display,window_info->id,&window_name,&icon_name,argv,argc,
+X    size_hints,manager_hints,class_hint);
+X  XSetWMProtocols(display,window_info->id,&property,1);
+X  XFree((void *) size_hints);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X P o p U p A l e r t                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XPopupAlert displays a popup window with an alert to the user.
+%  The function returns when the user presses a button or key.
+%
+%  The format of the XPopupAlert routine is:
+%
+%    XPopupAlert(display,window,message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void XPopupAlert(display,window,message,qualifier)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+char
+X  *message,
+X  *qualifier;
+{
+X  char
+X    text[2048];
+X
+X  int
+X    i,
+X    state,
+X    x,
+X    y;
+X
+X  unsigned int
+X    height,
+X    mask;
+X
+X  Window
+X    root_window;
+X
+X  XEvent
+X    event;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  /*
+X    Position and map popup window.
+X  */
+X  (void) sprintf(text,"%s",message);
+X  if (qualifier != (char *) NULL)
+X    {
+X      (void) strcat(text," (");
+X      (void) strcat(text,qualifier);
+X      (void) strcat(text,")");
+X    }
+X  font_info=window->font_info;
+X  window->width=XTextWidth(font_info,text,strlen(text))+
+X    4*font_info->max_bounds.width;
+X  height=font_info->ascent+font_info->descent;
+X  window->height=2*height;
+X  XQueryPointer(display,XRootWindow(display,window->screen),&root_window,
+X    &root_window,&i,&i,&window->x,&window->y,&mask);
+X  x=Min(window->x,XDisplayWidth(display,window->screen)-window->width);
+X  y=Min(window->y,XDisplayHeight(display,window->screen)-window->height);
+X  XMoveResizeWindow(display,window->id,x,y,window->width,window->height);
+X  XMapRaised(display,window->id);
+X  XClearWindow(display,window->id);
+X  /*
+X    Display message in popup window.
+X  */
+X  x=2*font_info->max_bounds.width;
+X  y=font_info->ascent+(height >> 1);
+X  XDrawString(display,window->id,window->graphic_context,x,y,text,strlen(text));
+X  XBell(display,0);
+X  /*
+X    Wait for a key press.
+X  */
+X  state=DefaultState;
+X  do
+X  {
+X    /*
+X      Wait for next event.
+X    */
+X    XMaskEvent(display,ButtonPressMask | KeyPressMask | VisibilityChangeMask,
+X      &event);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      case KeyPress:
+X      {
+X        state|=ExitState;
+X        break;
+X      }
+X      case VisibilityNotify:
+X      {
+X        XMapRaised(display,window->id);
+X        break;
+X      }
+X      default:
+X        break;
+X    }
+X  } while (!(state & ExitState));
+X  XWithdrawWindow(display,window->id,window->screen);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X P o p U p M e n u                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XPopupMenu maps a menu and returns the command pointed to by the
+%  user when the button is released.
+%
+%  The format of the XPopupMenu routine is:
+%
+%    selection_number=XPopupMenu(display,window,x,y,menu_title,menu_selections,
+%      number_selections,item)
+%
+%  A description of each parameter follows:
+%
+%    o selection_number: Specifies the number of the selection that the
+%      user choose.
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o x: Specifies an unsigned integer representing the root offset in the
+%      x-direction.
+%
+%    o y: Specifies an unsigned integer representing the root offset in the
+%      x-direction.
+%
+%    o menu_title: Specifies a character string that describes the menu
+%      selections.
+%
+%    o menu_selections: Specifies a pointer to one or more strings that
+%      make up the choices in the menu.
+%
+%    o number_selections: Specifies the number of choices in the menu.
+%
+%    o item: Specifies a character array.  The item selected from the menu
+%      is returned here.
+%
+%
+*/
+int XPopupMenu(display,window,x,y,menu_title,menu_selections,number_selections,
+X  item)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+int
+X  x,
+X  y;
+X
+char
+X  *menu_title,
+X  **menu_selections;
+X
+unsigned int
+X  number_selections;
+X
+char
+X  *item;
+{
+X  typedef struct _Selection
+X  {
+X    int
+X      id,
+X      x,
+X      y;
+X
+X    unsigned int
+X      width,
+X      height;
+X  } Selection;
+X
+X  GC
+X    graphic_context;
+X
+X  int
+X    id,
+X    state;
+X
+X  Selection
+X    selection;
+X
+X  unsigned int
+X    height,
+X    title_height,
+X    width;
+X
+X  XEvent
+X    event;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  /*
+X    Size and position menu window under current pointer location and map.
+X  */
+X  font_info=window->font_info;
+X  window->width=XTextWidth(font_info,menu_title,strlen(menu_title));
+X  for (selection.id=0; selection.id < number_selections; selection.id++)
+X  {
+X    width=XTextWidth(font_info,menu_selections[selection.id],
+X      strlen(menu_selections[selection.id]));
+X    if (width > window->width)
+X      window->width=width;
+X  }
+X  window->width+=4*font_info->max_bounds.width;
+X  title_height=(font_info->descent+font_info->ascent)*2;
+X  height=font_info->ascent+font_info->descent;
+X  window->height=title_height+number_selections*(height+(height >> 2));
+X  width=window->width+2*window->border_width;
+X  window->x=x-(int) width/2;
+X  if (window->x < 0)
+X    window->x=0;
+X  else
+X    if (window->x > (XDisplayWidth(display,window->screen)-width))
+X      window->x=XDisplayWidth(display,window->screen)-width;
+X  height=window->height+2*window->border_width;
+X  window->y=y-(int) window->border_width;
+X  if (window->y < 0)
+X    window->y=0;
+X  else
+X    if (window->y > (XDisplayHeight(display,window->screen)-height))
+X      window->y=XDisplayHeight(display,window->screen)-height;
+X  XMoveResizeWindow(display,window->id,window->x,window->y,window->width,
+X    window->height);
+X  XMapRaised(display,window->id);
+X  XClearWindow(display,window->id);
+X  /*
+X    Draw title.
+X  */
+X  width=XTextWidth(font_info,menu_title,strlen(menu_title));
+X  height=font_info->ascent+font_info->descent;
+X  graphic_context=window->graphic_context;
+X  XDrawString(display,window->id,graphic_context,
+X    (int) (window->width-width) >> 1,(int) (font_info->ascent*3) >> 1,
+X    menu_title,strlen(menu_title));
+X  XDrawLine(display,window->id,graphic_context,0,title_height-(height >> 3),
+X    window->width,title_height-(height >> 3));
+X  /*
+X    Draw menu selections.
+X  */
+X  selection.x=2*font_info->max_bounds.width;
+X  selection.y=title_height+font_info->ascent+(height >> 3);
+X  selection.width=window->width;
+X  selection.height=height+(height >> 2);
+X  for (selection.id=0; selection.id < number_selections; selection.id++)
+X  {
+X    XDrawString(display,window->id,graphic_context,selection.x,selection.y,
+X      menu_selections[selection.id],strlen(menu_selections[selection.id]));
+X    selection.y+=(int) selection.height;
+X  }
+X  /*
+X    Highlight menu as pointer moves;  return item on button release.
+X  */
+X  selection.id=(-1);
+X  state=DefaultState;
+X  do
+X  {
+X    /*
+X      Wait for next event.
+X    */
+X    XMaskEvent(display,ButtonPressMask | ButtonMotionMask | ButtonReleaseMask |
+X      EnterWindowMask | LeaveWindowMask | VisibilityChangeMask,&event);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X        break;
+X      case ButtonRelease:
+X      {
+X        /*
+X          Exit menu.
+X        */
+X        *item='\0';
+X        state|=ExitState;
+X        break;
+X      }
+X      case EnterNotify:
+X      {
+X        if (event.xcrossing.window != window->id)
+X          break;
+X        id=((event.xcrossing.y-title_height)/(int) selection.height);
+X        if ((id < 0) || (id >= number_selections))
+X          break;
+X        /*
+X          Highlight this selection.
+X        */
+X        selection.id=id;
+X        selection.y=title_height+font_info->ascent+(height >> 3)+
+X          selection.id*selection.height;
+X        XFillRectangle(display,window->id,graphic_context,0,selection.y-
+X          font_info->ascent-(height >> 3),selection.width,selection.height);
+X        XDrawString(display,window->id,window->highlight_context,selection.x,
+X          selection.y,menu_selections[selection.id],
+X          strlen(menu_selections[selection.id]));
+X        break;
+X      }
+X      case LeaveNotify:
+X      {
+X        if (event.xcrossing.window != window->id)
+X          break;
+X        if ((selection.id >= 0) && (selection.id < number_selections))
+X          {
+X            /*
+X              Unhighlight last selection.
+X            */
+X            XClearArea(display,window->id,0,selection.y-font_info->ascent-
+X              (height >> 3),selection.width,selection.height,False);
+X            XDrawString(display,window->id,graphic_context,selection.x,
+X              selection.y,menu_selections[selection.id],
+X              strlen(menu_selections[selection.id]));
+X          }
+X        selection.id=(-1);
+X        break;
+X      }
+X      case MotionNotify:
+X      {
+X        if (event.xmotion.window != window->id)
+X          break;
+X        /*
+X          Determine if pointer has moved to a new selection.
+X        */
+X        id=(event.xmotion.y-title_height)/(int) selection.height;
+X        if ((selection.id >= 0) && (selection.id < number_selections))
+X          {
+X            /*
+X              Unhighlight last selection.
+X            */
+X            if (id == selection.id)
+X              break;
+X            XClearArea(display,window->id,0,selection.y-font_info->ascent-
+X              (height >> 3),selection.width,selection.height,False);
+X            XDrawString(display,window->id,graphic_context,selection.x,
+X              selection.y,menu_selections[selection.id],
+X              strlen(menu_selections[selection.id]));
+X          }
+X        selection.id=id;
+X        if ((id < 0) || (id >= number_selections))
+X          break;
+X        /*
+X          Highlight this selection.
+X        */
+X        selection.y=title_height+font_info->ascent+(height >> 3)+selection.id*
+X          selection.height;
+X        XFillRectangle(display,window->id,graphic_context,0,selection.y-
+X          font_info->ascent-(height >> 3),selection.width,selection.height);
+X        XDrawString(display,window->id,window->highlight_context,selection.x,
+X          selection.y,menu_selections[selection.id],
+X          strlen(menu_selections[selection.id]));
+X        break;
+X      }
+X      case VisibilityNotify:
+X      {
+X        XMapRaised(display,window->id);
+X        break;
+X      }
+X      default:
+X        break;
+X    }
+X  } while (!(state & ExitState));
+X  XWithdrawWindow(display,window->id,window->screen);
+X  if ((selection.id < 0) || (selection.id >= number_selections))
+X    return(-1);
+X  (void) strcpy(item,menu_selections[selection.id]);
+X  return(selection.id);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X P o p U p Q u e r y                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XPopupQuery displays a popup window with a query to the user.  The
+%  user keys their reply and presses return to exit.  The typed text is
+%  returned as the reply function parameter.
+%
+%  The format of the XPopupQuery routine is:
+%
+%    XPopupQuery(display,window,query,reply)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o query: Specifies a pointer to the query to present to the user.
+%
+%    o reply: The response from the user is returned in this parameter.
+%
+%
+*/
+void XPopupQuery(display,window,query,reply)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+char
+X  *query,
+X  *reply;
+{
+X  char
+X    *p,
+X    text[2048];
+X
+X  Cursor
+X    cursor;
+X
+X  GC
+X    graphic_context;
+X
+X  int
+X    i,
+X    state,
+X    x,
+X    y;
+X
+X  unsigned int
+X    height,
+X    mask;
+X
+X  Window
+X    root_window;
+X
+X  XEvent
+X    event;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  /*
+X    Position and map popup window.
+X  */
+X  (void) sprintf(text,"%s %s",query,reply);
+X  font_info=window->font_info;
+X  window->width=XTextWidth(font_info,text,strlen(text))+
+X    22*font_info->max_bounds.width;
+X  height=font_info->ascent+font_info->descent;
+X  window->height=2*height;
+X  XQueryPointer(display,XRootWindow(display,window->screen),&root_window,
+X    &root_window,&i,&i,&window->x,&window->y,&mask);
+X  x=Min(window->x,XDisplayWidth(display,window->screen)-window->width);
+X  y=Min(window->y,XDisplayHeight(display,window->screen)-window->height);
+X  XMoveResizeWindow(display,window->id,x,y,window->width,window->height);
+X  XMapRaised(display,window->id);
+X  XClearWindow(display,window->id);
+X  /*
+X    Display query in popup window.
+X  */
+X  graphic_context=window->graphic_context;
+X  x=2*font_info->max_bounds.width;
+X  y=font_info->ascent+(height >> 1);
+X  XDrawString(display,window->id,graphic_context,x,y,query,strlen(query));
+X  x+=XTextWidth(font_info,query,strlen(query))+font_info->max_bounds.width;
+X  /*
+X    Display reply in popup window.
+X  */
+X  XDrawString(display,window->id,graphic_context,x,y,reply,strlen(reply));
+X  x+=XTextWidth(font_info,reply,strlen(reply));
+X  /*
+X    Begin editing the reply.
+X  */
+X  state=DefaultState;
+X  cursor=XCreateFontCursor(display,XC_pencil);
+X  XRecolorCursor(display,cursor,&window->pixel_info->background_color,
+X    &window->pixel_info->foreground_color);
+X  XDefineCursor(display,window->id,cursor);
+X  p=reply+strlen(reply);
+X  do
+X  {
+X    if ((x+font_info->max_bounds.width) >= window->width)
+X      {
+X        /*
+X          Resize popup window.
+X        */
+X        (void) sprintf(text,"%s %s",query,reply);
+X        window->width=XTextWidth(window->font_info,text,strlen(text))+
+X          22*window->font_info->max_bounds.width;
+X        XResizeWindow(display,window->id,window->width,window->height);
+X        /*
+X          Display reply in popup window.
+X        */
+X        x=2*font_info->max_bounds.width;
+X        XDrawString(display,window->id,graphic_context,x,y,query,strlen(query));
+X        x+=XTextWidth(font_info,query,strlen(query))+
+X          font_info->max_bounds.width;
+X        XDrawString(display,window->id,graphic_context,x,y,reply,strlen(reply));
+X        x+=XTextWidth(font_info,reply,strlen(reply));
+X      }
+X    /*
+X      Display text cursor.
+X    */
+X    *p='\0';
+X    XDrawString(display,window->id,graphic_context,x,y,"_",1);
+X    /*
+X      Wait for next event.
+X    */
+X    XMaskEvent(display,ButtonPressMask | KeyPressMask | VisibilityChangeMask,
+X      &event);
+X    /*
+X      Erase text cursor.
+X    */
+X    XClearArea(display,window->id,x,y-font_info->ascent,
+X      (unsigned int) font_info->max_bounds.width,height,False);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        Atom
+X          type;
+X
+X        int
+X          format,
+X          status;
+X
+X        unsigned char
+X          *data;
+X
+X        unsigned long
+X          after,
+X          length;
+X
+X        if ((event.xbutton.button == Button3) &&
+X            (event.xbutton.state & Mod1Mask))
+X          {
+X            /*
+X              Convert Alt-Button3 to Button2.
+X            */
+X            event.xbutton.button=Button2;
+X            event.xbutton.state&=(~Mod1Mask);
+X          }
+X        if (event.xbutton.button != Button2)
+X          break;
+X        /*
+X          Obtain response from cut buffer.
+X        */
+X        status=XGetWindowProperty(display,XRootWindow(display,0),XA_CUT_BUFFER0,
+X          0L,2047L,False,XA_STRING,&type,&format,&length,&after,&data);
+X        if ((status != Success) || (type != XA_STRING) || (format == 32) ||
+X            (length == 0))
+X          break;
+X        /*
+X          Append cut buffer to reply.
+X        */
+X        (void) strncpy(p,(char *) data,(int) length);
+X        XFree((void *) data);
+X        XDrawString(display,window->id,graphic_context,x,y,p,(int) length);
+X        x+=XTextWidth(font_info,p,(unsigned int) length);
+X        p+=length;
+X        *p='\0';
+X        break;
+X      }
+X      case KeyPress:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key press.
+X        */
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Control_L)
+X          {
+X            state|=ControlState;
+X            break;
+X          }
+X        if (state & ControlState)
+X          switch (key_symbol)
+X          {
+X            case XK_u:
+X            case XK_U:
+SHAR_EOF
+true || echo 'restore of ImageMagick/X.c failed'
+fi
+echo 'End of ImageMagick part 11'
+echo 'File ImageMagick/X.c is continued in part 12'
+echo 12 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

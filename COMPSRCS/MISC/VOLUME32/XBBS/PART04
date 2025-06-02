@@ -1,0 +1,2981 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i019:  xbbs - A Bulletin Board System for System V, Part04/11
+Message-ID: <1992Sep9.045002.26032@sparky.imd.sterling.com>
+X-Md4-Signature: 7ec3d9bbe307f44a95de02ae07869c1e
+Date: Wed, 9 Sep 1992 04:50:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 19
+Archive-name: xbbs/part04
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbsc1.c.A checksum.c today/sun.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:49 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 11)."'
+if test -f 'bbsc1.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbsc1.c.A'\"
+else
+  echo shar: Extracting \"'bbsc1.c.A'\" \(39960 characters\)
+  sed "s/^X//" >'bbsc1.c.A' <<'END_OF_FILE'
+X/*
+X * bbsc.c 
+X *
+X * BBS (Bulletin Board System) written in xenix system V  "C". 
+X *
+X * Support files needed: bbscdef.h bbscport.o or bbscport.c bbsclock.o or
+X * bbsclock.c bbscfile.o or bbscfile.c bbscmisc.o or bbscmisc.c bbscio.o   or
+X * bbscio.c bbscarea.o or bbscarea.c bbscmsga.o or bbscmsga.c bbscqust.o or
+X * bbscqust.c bbscbult.o or bbscbult.c bbscadds.o or bbscadds.c bbsclist.o or
+X * bbsclist.c bbsczip.o  or bbsczip.c bbscconf.c or bbscconf.o bbscsumm.c or
+X * .o 
+X *
+X *
+X *                          Sanford J. Zelkovitz
+X *
+X */
+X#include "bbsc12.h"
+Xchar *basename();
+Xlong difft();
+Xmain()
+X{
+X	int             i, fd;
+X	char            ptype[2];
+X	char            pval[18];
+X	/*
+X	 * init global variables 
+X	 */
+X	Zsec = Ztime = sigreturn = 0;
+X	if ((inbuf = fopen(CONFIG, "r")) == NULL) {
+X		portsout("\n\rError opening configuration file!\n\r");
+X		exit(1);
+X	}
+X	if ((fgets(WELCOME, 49, inbuf) == NULL))
+X		error_config();
+X	strip(WELCOME);
+X	if ((fgets(BULLETINS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(BULLETINS);
+X	if ((fgets(NEWUSER, 49, inbuf) == NULL))
+X		error_config();
+X	strip(NEWUSER);
+X	if ((fgets(SYSTEM, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SYSTEM);
+X	if ((fgets(CALLERS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(CALLERS);
+X	if ((fgets(LASTCALL, 49, inbuf) == NULL))
+X		error_config();
+X	strip(LASTCALL);
+X	if ((fgets(USERS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(USERS);
+X	if ((fgets(UNIXMSG, 49, inbuf) == NULL))
+X		error_config();
+X	strip(UNIXMSG);
+X	if ((fgets(DLMSG, 49, inbuf) == NULL))
+X		error_config();
+X	strip(DLMSG);
+X	if ((fgets(HUMOR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(HUMOR);
+X	if ((fgets(HELP, 49, inbuf) == NULL))
+X		error_config();
+X	strip(HELP);
+X	if ((fgets(HELPFILE, 49, inbuf) == NULL))
+X		error_config();
+X	strip(HELPFILE);
+X	if ((fgets(HELPMSG, 49, inbuf) == NULL))
+X		error_config();
+X	strip(HELPMSG);
+X	if ((fgets(USERPRIV, 49, inbuf) == NULL))
+X		error_config();
+X	strip(USERPRIV);
+X	if ((fgets(MAINPRIV, 49, inbuf) == NULL))
+X		error_config();
+X	strip(MAINPRIV);
+X	if ((fgets(FILEPRIV, 49, inbuf) == NULL))
+X		error_config();
+X	strip(FILEPRIV);
+X	if ((fgets(QUESTION, 49, inbuf) == NULL))
+X		error_config();
+X	strip(QUESTION);
+X	if ((fgets(ANSWER, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ANSWER);
+X	if ((fgets(ADDITN, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ADDITN);
+X	if ((fgets(LISTFILES, 49, inbuf) == NULL))
+X		error_config();
+X	strip(LISTFILES);
+X	if ((fgets(TODAY, 98, inbuf) == NULL))
+X		error_config();
+X	strip(TODAY);
+X	if ((fgets(ORGPATH, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ORGPATH);
+X	if ((fgets(AREAS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(AREAS);
+X
+X	strcpy(SIGS, ORGPATH);
+X	strcat(SIGS, "sigs.bbs");
+X
+X	if ((fgets(MSGS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(MSGS);
+X	if ((fgets(USRBBS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(USRBBS);
+X	if ((fgets(RB, 49, inbuf) == NULL))
+X		error_config();
+X	strip(RB);
+X	if ((fgets(SB, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SB);
+X	if ((fgets(CRCR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(CRCR);
+X	if ((fgets(CRCS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(CRCS);
+X	if ((fgets(YMDR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(YMDR);
+X	if ((fgets(YMDS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(YMDS);
+X	if ((fgets(YMR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(YMR);
+X	if ((fgets(YMS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(YMS);
+X	if ((fgets(RZ, 49, inbuf) == NULL))
+X		error_config();
+X	strip(RZ);
+X	if ((fgets(SZ, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SZ);
+X	if ((fgets(KS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(KS);
+X	if ((fgets(KRA, 49, inbuf) == NULL))
+X		error_config();
+X	strip(KRA);
+X	if ((fgets(KRE, 49, inbuf) == NULL))
+X		error_config();
+X	strip(KRE);
+X	if ((fgets(SEAR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SEAR);
+X	if ((fgets(SEAS, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SEAS);
+X	if ((fgets(SYSOP, 49, inbuf) == NULL))
+X		error_config();
+X	strip(SYSOP);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	LOGTIME = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	RUNTIME = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	WAITTIME = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	NEWPRIV = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	MAXPRIV = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	MAXSEC = atoi(buf128);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	MAXKBYTE = atoi(buf128);
+X	if ((fgets(TAR, 49, inbuf) == NULL))
+X		error_config();
+X	strip(TAR);
+X	if ((fgets(ZCAT, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ZCAT);
+X/*
+X	Starting with version 7.102, the following fgets can just get garbage
+X   	since the arc file lister is now a built-in ( bbscarc.c )
+X*/ 
+X	if ((fgets(ARC, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ARC);
+X
+X/*
+X	Starting with version 7.102, the following fgets can just get garbage
+X   	since the zip file lister is now a built-in ( bbscunzip.c )
+X*/ 
+X	if ((fgets(ZIP, 49, inbuf) == NULL))
+X		error_config();
+X	strip(ZIP);
+X
+X	if ((fgets(MONITOR, 29, inbuf) == NULL))
+X		error_config();
+X	strip(MONITOR);
+X	if ((fgets(CONSOLE, 29, inbuf) == NULL))
+X		error_config();
+X	strip(CONSOLE);
+X	if ((fgets(SHELL, 29, inbuf) == NULL))
+X		error_config();
+X	strip(SHELL);
+X	if ((fgets(buf128, 49, inbuf) == NULL))
+X		error_config();
+X	strip(buf128);
+X	scan = atoi(buf128);
+X	if ((fgets(READN, 98, inbuf) == NULL))
+X		error_config();
+X	strip(READN);
+X	if ((fgets(POSTN, 98, inbuf) == NULL))
+X		error_config();
+X	strip(POSTN);
+X	fclose(inbuf);
+X
+X	strcpy(l_m_base, "0");
+X	strcpy(l_f_base, "0");
+X	strcpy(xprt_a, "0");
+X	strcpy(tggl_a, "1");
+X
+X	maxkbyte = MAXKBYTE;
+X	logtime = LOGTIME;
+X	Ytime = logtime;
+X	runtime = RUNTIME;
+X	waittime = WAITTIME;
+X	newpriv = NEWPRIV;
+X	max_priv = MAXPRIV;
+X	strcpy(callers, CALLERS);
+X	this_ttyname = ttyname(0);
+X	strcpy(buf128, this_ttyname);
+X	i = strlen(buf128);
+X	i--;
+X	substr(buf128, pval, i, 2);
+X	strcat(callers, pval);
+X	strcpy(port_id, pval);
+X	strcpy(buf128, "/tmp/conf");
+X	strcat(buf128, pval);
+X	(void) unlink(buf128);
+X	strcpy( buf128, ORGPATH );
+X	strcat( buf128, "inval_port.bbs");
+X	inbuf = fopen(buf128, "r" );
+X	if( inbuf != NULL ) {
+X		while (1) {
+X			if( fscanf(inbuf, "%s", buf128) == EOF )
+X				break;
+X			if(strcmp(basename(buf128),basename(this_ttyname))==0){
+X				fclose(inbuf);
+X				portinit();
+X				setmodes();
+X				portsout("\n\r\n\rYou called in on a restricted line!\n\r\n\r");
+X				restoremodes();
+X				portrst();
+X				strcpy(buf128, ORGPATH);
+X				strcat(buf128, "restricted.bbs");
+X				if((inbuf=fopen(buf128,"a")) != NULL) {
+X					gettime(ttime);
+X					GeTdAtE(mm, dd, yy, month, day, year, date, week);
+X					fd = atoi(mm);
+X					fd++;
+X					sprintf(mm, "%.2d", fd);
+X					(void)fprintf(inbuf, "%s/%s/%s  %s    restricted line caller on %s\n", mm,dd,yy,ttime,this_ttyname);
+X					fclose(inbuf);
+X				}
+X				exit(1);
+X			}
+X		}
+X		fclose(inbuf);
+X	}
+X	hold_pipe = FALSE;
+X	debug = FALSE;
+X	hold_off = FALSE;
+X	toggle_hold = FALSE;
+X	first_time_in = TRUE;
+X	first_msg_in = TRUE;
+X	chat_in_progress = FALSE;
+X	stop_chat = FALSE;
+X	newuzr = FALSE;
+X	statcnt = 0;
+X	last_msg_read = 0;
+X	xpert = FALSE;
+X	listed_l = FALSE;
+X	listed_r = FALSE;
+X	listed_n = FALSE;
+X	toggle = TRUE;
+X	active = TRUE;
+X	reply_sw = FALSE;
+X	end_msg = FALSE;
+X	read_flag = FALSE;
+X	sys_flag = FALSE;
+X	strcpy(old_upath, AUTHOR);
+X	new_msg = 0;
+X	c_pathname[0] = '\0';
+X	if_monitor = FALSE;
+X	no_cntrl_k = FALSE;
+X	resp_flag = FALSE;
+X	in_the_buffer = 0;
+X	user_priv = 1;
+X	read_number = 1;
+X	extra_time = 0L;
+X	extra_size = 0L;
+X	dload_total = 0L;
+X	max_dload = 0L;
+X	blocked_m = 0;
+X	mpA = 1;
+X	mpB = 1;
+X	mpE = 1;
+X	mpG = 1;
+X	mpK = 1;
+X	mpP = 1;
+X	mpN = 1;
+X	mpQ = 1;
+X	mpR = 1;
+X	mpS = 1;
+X	mpW = 1;
+X	mpM = 1;
+X	mpX = 1;
+X	mpF = 1;
+X	mpC = 1;
+X	mpH = 1;
+X	mpT = 1;
+X	mpD = 1;
+X	mpY = 1;
+X
+X	mpUSENET = 1;		/* added for 7.2.1 */
+X	mpRF = 1;
+X	mpQUEST = 1;
+X	mpU = 32767;
+X	mpMS = 1;
+X	mpCHAT = 1;
+X	mpCONF = 1;
+X	mpL = 1;
+X	fpL = 1;
+X	fpU = 1;
+X	fpD = 1;
+X	fpM = 1;
+X	fpG = 1;
+X	fpR = 1;
+X
+X
+X	strcpy(buf128, STDERR);
+X	strcat(buf128, port_id);
+X	STDerr = freopen(buf128, "w+", stderr);
+X	if (IF_MONITOR) {
+X		mon_handle = open(MONITOR, O_WRONLY);
+X		if (mon_handle == -1) {
+X			portsout("\n\rCritical Error --- End BBS\n\r");
+X			exit(1);
+X		}
+X		if_monitor = FALSE;
+X		i = getpid();
+X		itoa(buf128, i);
+X		strcpy(who_am_i, "/tmp/pid");
+X		strcat(who_am_i, pval);
+X		inbuf = fopen(who_am_i, "w");
+X		fprintf(inbuf, "%s", buf128);
+X		fclose(inbuf);
+X	}
+X	if ((inbuf = fopen(MAINPRIV, "r")) == NULL) {
+X		portsout("\n\rCritical Error!\n\r");
+X		portsout("Unable to find main privs!\n\r");
+X		exit(1);
+X	}
+X	while (fscanf(inbuf, "%s%s", ptype, pval) != EOF) {
+X		ptype[1] = '\0';
+X		*ptype = toupper(*ptype);
+X		switch (ptype[0]) {
+X		case ('B'):
+X			mpB = atoi(pval);
+X			break;
+X		case ('E'):
+X			mpE = atoi(pval);
+X			break;
+X		case ('G'):
+X			mpG = atoi(pval);
+X			break;
+X		case ('K'):
+X			mpK = atoi(pval);
+X			break;
+X		case ('N'):
+X			mpN = atoi(pval);
+X			break;
+X		case ('Q'):
+X			mpQ = atoi(pval);
+X			break;
+X		case ('R'):
+X			mpR = atoi(pval);
+X			break;
+X		case ('S'):
+X			mpS = atoi(pval);
+X			break;
+X		case ('W'):
+X			mpW = atoi(pval);
+X			break;
+X		case ('M'):
+X			mpM = atoi(pval);
+X			break;
+X		case ('X'):
+X			mpX = atoi(pval);
+X			break;
+X		case ('F'):
+X			mpF = atoi(pval);
+X			break;
+X		case ('C'):
+X			mpC = atoi(pval);
+X			break;
+X		case ('H'):
+X			mpH = atoi(pval);
+X			break;
+X		case ('T'):
+X			mpT = atoi(pval);
+X			break;
+X		case ('D'):
+X			mpD = atoi(pval);
+X			break;
+X		case ('Y'):
+X			mpY = atoi(pval);
+X			break;
+X		case ('U'):
+X			mpU = atoi(pval);
+X			break;
+X		case ('P'):
+X			mpP = atoi(pval);
+X			break;
+X		case ('A'):
+X			mpA = atoi(pval);
+X			break;
+X		case ('L'):
+X			mpL = atoi(pval);
+X			break;
+X		case ('&'):
+X			mpMS = atoi(pval);
+X			break;
+X		case ('?'):
+X			mpZ = atoi(pval);
+X			break;
+X		case ('~'):
+X			mpCHAT = atoi(pval);
+X			break;
+X		case ('%'):
+X			mpQUEST = atoi(pval);
+X			break;
+X		case ('$'):
+X			mpRF = atoi(pval);
+X			break;
+X		case ('O'):
+X			mpCONF = atoi(pval);
+X			break;
+X		case ('I'):	/* added for 7.2.1 */
+X			mpUSENET = atoi(pval);
+X			break;
+X		default:
+X			portsout("\n\rBad entry in MAIN PRIV\n\r");
+X			break;
+X		}
+X	}
+X	fclose(inbuf);
+X	if ((inbuf = fopen(FILEPRIV, "r")) == NULL) {
+X		portsout("\n\rCritical Error!\n\r");
+X		portsout("Unable to find file privs!\n\r");
+X		exit(1);
+X	}
+X	while (fscanf(inbuf, "%s%s", ptype, pval) != EOF) {
+X		ptype[1] = '\0';
+X		*ptype = toupper(*ptype);
+X		switch (ptype[0]) {
+X		case ('L'):
+X			fpL = atoi(pval);
+X			break;
+X		case ('U'):
+X			fpU = atoi(pval);
+X			break;
+X		case ('D'):
+X			fpD = atoi(pval);
+X			break;
+X		case ('M'):
+X			fpM = atoi(pval);
+X			break;
+X		case ('G'):
+X			fpG = atoi(pval);
+X			break;
+X		case ('R'):
+X			fpR = atoi(pval);
+X			break;
+X		default:
+X			portsout("\n\rBad entry in FILE PRIV\n\r");
+X			break;
+X		}
+X	}
+X	fclose(inbuf);
+X	w_fname[0] = '\0';
+X	w_lname[0] = '\0';
+X	strcpy(w_password, "MPK0");
+X
+X	u_fname[0] = '\0';
+X	u_lname[0] = '\0';
+X	strcpy(u_password, "MPK0");
+X	u_time1[0] = '\0';
+X	u_date1[0] = '\0';
+X	u_time2[0] = '\0';
+X	u_date2[0] = '\0';
+X	u_city[0] = '\0';
+X
+X	mm[0] = '\0';
+X	dd[0] = '\0';
+X	yy[0] = '\0';
+X	month[0] = '\0';
+X	day[0] = '\0';
+X	year[0] = '\0';
+X	date[0] = '\0';
+X	week[0] = '\0';
+X	ttime[0] = '\0';
+X
+X	strcpy(msg_delete, "0");
+X	msg_no[0] = '\0';
+X	msg_date[0] = '\0';
+X	msg_date[0] = '\0';
+X	msg_time[0] = '\0';
+X	msg_to[0] = '\0';
+X	msg_from[0] = '\0';
+X	msg_pass[0] = '\0';
+X	msg_subject[0] = '\0';
+X	msg_text[0] = '\0';
+X	strfill(msg_text, 0, 1482);
+X
+X	stop_that = FALSE;
+X
+X	/* get date and time from the clock      */
+X
+X	gettime(ttime);
+X	GeTdAtE(mm, dd, yy, month, day, year, date, week);
+X	substr(month, mnd, 1, 3);
+X	strcat(mnd, day);
+X
+X	fd = atoi(mm);
+X	fd++;
+X	sprintf(mm, "%.2d", fd);
+X
+X	sec = logtime;
+X	which_timer = 1;
+X	alarm(sec);
+X
+X	if (signal(SIGALRM, timer) == (int (*) ()) -1)
+X		exit(1);
+X	if (signal(SIGUSR1, mon_toggle) == (int (*) ()) -1)
+X		exit(1);
+X	if (signal(SIGUSR2, sys_toggle) == (int (*) ()) -1)
+X		exit(1);
+X	if (signal(SIGPIPE, chat) == (int (*) ()) -1)
+X		exit(1);
+X	if (signal(SIGINT, STOP) == (int (*) ()) -1)
+X		exit(1);
+X	if (signal(SIGHUP, hanged) == (int (*) ()) -1)
+X		exit(1);
+X
+X
+X	portinit();		/* init terminal modes */
+X	setmodes();
+X	signon();
+X	driver();
+X	restoremodes();
+X	portrst();		/* undo any special modes */
+X	closer(1);
+X}
+X/* end of mainline routine       */
+X
+Xdriver()
+X{
+X	char            linebuf[MAXLINE], buf[128], *bufptr,	/* ptr to buf */
+X	                usercd[100],	/* user record */
+X	               *userptr,/* ptr to usercd */
+X	                cmd[2];
+X
+X	int             cnt, ok_sw, case_sw, i, mpk, result, num0, num1, num2;
+X	long            vtime;
+X
+X	mpk = mpK;
+X	cnt = 0;
+X	ok_sw = TRUE;
+X	bufptr = buf;
+X	cmd[0] = '\0';
+X	if (active) {
+X
+X		sec = runtime;
+X		vtime = sec;
+X		vtime += extra_time;
+X		if (vtime > 32767L)
+X			vtime = 32767L;
+X		if (vtime < 60L)
+X			vtime = 60L;
+X		sec = vtime;
+X		Ytime = sec;
+X		max_dload = ((long) (maxkbyte)) * 1024L;
+X		max_dload += extra_size;
+X		alarm(sec);
+X		which_timer = 2;
+X		change_bult();
+X		today_msg();
+X		if (scan) {
+X			if (!newuzr) {
+X				portsout("\n\rLast time you were on the system: ");
+X				portsout(z_date);
+X				portsout(" at ");
+X				portsout(z_time);
+X				portsout("\n\r\n\r");
+X				portsout("\n\rDo you wish to check to see if you have any messages? (Y/n): ");
+X				portsin(cmd, 1);
+X				portsout(CRLF);
+X				if (cmd[0] == 'N' || cmd[0] == 'n')
+X					check_msga_n();
+X				else
+X					check_msga();
+X				cmd[0] = '\0';
+X			} else {
+X				portsout(CRLF);
+X				portsout("Since you are a new user, the scan for messages will not be performed.\n\r");
+X				portsout("The next time that you call, all message bases will be scanned.\n\r\n\r");
+X				check_msga_n();
+X				portsout("Since you are a new user, you will be asked to fill out our questionnaire.\n\r");
+X				portsout("Please take the time and fill it out. Thank you.\n\r");
+X				question(1);
+X			}
+X		} else
+X			check_msga_n();
+X	}
+X	while (active) {
+X		stop_that = FALSE;	/* reset switch */
+X		portsout(CRLF);
+X		signal(SIGALRM, timer);
+X		signal(SIGUSR1, mon_toggle);
+X		signal(SIGUSR2, sys_toggle);
+X		signal(SIGPIPE, chat);
+X		signal(SIGINT, STOP);
+X		signal(SIGHUP, hanged);
+X		cmd_t();
+X		sigreturn = 0;
+X		bbsmenu(1,0);
+X		portsin(cmd, 1);
+X		portsout(CRLF);
+X
+X		*cmd = toupper(*cmd);
+X
+X		switch (cmd[0]) {
+X		case ('V'):
+X			portsout("\n\r\n\rVersion: ");
+X			portsout(VERSION);
+X			portsout("    ");
+X			portsout(LASTDATE);
+X			portsout("\n\r\n\r");
+X			break;
+X		case ('U'):
+X			if (!privmsg(mpU))
+X				break;
+X			cmd_p(UNIXMSG);
+X			if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X									 * append */
+X				portsout(CRLF);
+X				portsout("Can't open/create callers file!");
+X				portsout(CRLF);
+X				return;
+X			}
+X			result = fprintf(inbuf, "%s", "   Going into Xenix/Unix");
+X			if (result < 0) {
+X				portsout(CRLF);
+X				portsout("Caller file has problem writing");
+X				portsout(CRLF);
+X			} else {
+X				fputs("\n", inbuf);
+X			}
+X			fclose(inbuf);
+X			restoremodes();
+X			portrst();
+X			STDerr = freopen("/dev/tty", "w+", stderr);
+X			result = system(SHELL);
+X			strcpy(buf128, STDERR);
+X			strcat(buf128, port_id);
+X			STDerr = freopen(buf128, "w+", stderr);
+X			signal(SIGALRM, timer);
+X			signal(SIGHUP, hanged);
+X			signal(SIGUSR1, mon_toggle);
+X			signal(SIGUSR2, sys_toggle);
+X			signal(SIGPIPE, chat);
+X			signal(SIGINT, STOP);
+X			portinit();
+X			setmodes();
+X			break;
+X		case ('G'):	/* goodby */
+X			if (!privmsg(mpG))
+X				break;
+X			cmd_c();
+X			break;
+X		case ('L'):
+X			if (!privmsg(mpL))
+X				break;
+X			who_is_there();
+X			break;
+X		case ('Z'):
+X			if (!privmsg(mpY))
+X				break;
+X			cmd_z();
+X			break;
+X		case ('R'):
+X			if (!privmsg(mpRF))
+X				break;
+X			file_list();
+X			break;
+X		case ('C'):
+X			if (!privmsg(mpCHAT))
+X				break;
+X			sigchat();
+X			break;
+X		case ('O'):
+X			if (!privmsg(mpCONF))
+X				break;
+X			conf();
+X			break;
+X		case ('E'):
+X			if (!privmsg(mpCONF))
+X				break;
+X			portsout("\n\r\n\rThe following users are presently in conference\n\r");
+X			no_cntrl_k = 1;
+X			strcpy(buf128, "ls /tmp/conf* > /tmp/inconf.");
+X			strcat(buf128, port_id);
+X			(void) system(buf128);
+X			strcpy(buf128, "/tmp/inconf.");
+X			strcat(buf128, port_id);
+X			if ((otbuf = fopen(buf128, "r")) == NULL) {
+X				portsout("\n\rError opening list file!\n\r");
+X				exit(1);
+X			}
+X			while (fscanf(otbuf, "%s", who_am_i) != EOF)
+X				cmd_p(who_am_i);
+X			fclose(otbuf);
+X			no_cntrl_k = 0;
+X			break;
+X		case ('I'):		/* No need to check privs since
+X                                           each command has access privs */
+X			sig_access();
+X			break;
+X		case ('Q'):
+X			if (!privmsg(mpQUEST))
+X				break;
+X			question(0);
+X			break;
+X		case ('A'):
+X			if (!privmsg(mpA))
+X				break;
+X			additional(ADDITN);
+X			break;
+X		case ('D'):
+X			if (!privmsg(mpD))
+X				break;
+X			strcpy(buf128, TODAY);
+X			strcat(buf128, port_id);
+X			result = system(buf128);
+X			strcpy(buf128, "/tmp/today");
+X			strcat(buf128, port_id);
+X			cmd_p(buf128);
+X			break;
+X		case ('P'):
+X			if (!privmsg(mpP))
+X				break;
+X			ch_password();
+X			break;
+X		case ('X'):	/* expert toggle */
+X			if (!privmsg(mpX))
+X				break;
+X			cmd_x();
+X			rewritx();
+X			break;
+X		case ('N'):	/* print new-user stuff */
+X			if (!privmsg(mpN))
+X				break;
+X			cmd_p(NEWUSER);
+X			break;
+X		case ('W'):	/* print welcome file */
+X			if (!privmsg(mpW))
+X				break;
+X			cmd_p(WELCOME);
+X			break;
+X		case ('B'):	/* print bulletins */
+X			if (!privmsg(mpB))
+X				break;
+X			change_bult();
+X			break;
+X		case ('H'):	/* print humor file */
+X			if (!privmsg(mpH))
+X				break;
+X			cmd_p(HUMOR);
+X			break;
+X		case ('F'):
+X			if (!privmsg(mpF))
+X				break;
+X			cmd_f();
+X			break;
+X		case ('M'):
+X			if (!privmsg(mpMS))
+X				break;
+X			msg_section(mpk);
+X			break;
+X		case ('T'):
+X			if (!privmsg(mpT))
+X				break;
+X			toggle = !toggle;
+X			rewritx();
+X			if (toggle) {
+X				portsout("\n\rStop Mode\n\r");
+X			} else {
+X				portsout("\n\rContinuous Mode\n\r");
+X			}
+X			break;
+X		case ('?'):	/* help */
+X			if (!privmsg(mpZ))
+X				break;
+X			cmd_p(HELP);
+X			break;
+X		case ('S'):	/* added for 7.2.1  USENET ACCESS */
+X			if (!privmsg(mpUSENET))
+X				break;
+X			usenet();
+X			break;
+X		default:
+X			break;
+X		}
+X
+X	}
+X}
+X/* end of function               */
+Xsigchat()
+X{
+X	char           *ttyzz;
+X	char            tb[80];
+X	int             result, handle;
+X	static char     bell = '\007';
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	result = fprintf(inbuf, "%s", "   Requesting a chat");
+X	if (result < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	} else {
+X		fputs("\n", inbuf);
+X	}
+X	fclose(inbuf);
+X	result = stat(SYSTTY, &statbuf);
+X	if (!result) {
+X		strcpy(buf128, "\n\r\n\r");
+X		strcat(buf128, SYSOP);
+X		strcat(buf128, " is already engaged in a chat or has turned it off.\n\r\n\r");
+X		portsout(buf128);
+X		return;
+X	}
+X	handle = open(CONSOLE, O_WRONLY);
+X	if (handle == -1) {
+X		portsout("\n\rError opening console driver!\n\r");
+X		exit(1);
+X	}
+X	ttyzz = ttyname(1);
+X	strcpy(tb, "\n\rChat requested by ");
+X	strcat(tb, w_fname);
+X	strcat(tb, " ");
+X	strcat(tb, w_lname);
+X	strcat(tb, " on ");
+X	strcat(tb, ttyzz);
+X	strcat(tb, "\n\r");
+X	write(handle, tb, (strlen(tb)));
+X	Xsec = 0;
+X	stop_chat = FALSE;
+X	portsout("\n\rPaging: ");
+X	for (result = 0; result <= 30; result++) {
+Xsigloop:
+X		if (stop_chat) {
+X			portsout(CRLF);
+X			close(handle);
+X			return;
+X		}
+X		Sec = alarm(0);
+X		hold_pipe = TRUE;
+X		alarm(Sec);
+X		hold_pipe = FALSE;
+X		if (Sec != Xsec) {
+X			if (stop_chat) {
+X				portsout(CRLF);
+X				close(handle);
+X				return;
+X			}
+X			Xsec = Sec;
+X			portsout(". ");
+X			write(handle, &bell, 1);
+X		} else
+X			goto sigloop;
+X	}
+X	strcpy(buf128, "\n\rI am sorry; however, ");
+X	strcat(buf128, SYSOP);
+X	strcat(buf128, " is unavailable to chat with you.\n\r");
+X	portsout(buf128);
+X	close(handle);
+X}
+X
+Xch_password()
+X{
+X	int             result, char_in_passwd;
+X	char           *pptr;
+X	while (1) {
+Xin_passx:
+X		portsout(CRLF);
+X		portsout("Ok, now I need a 4  to 10 character password ===> ");
+X		portsinz(u_password, 10);
+X		portsout(CRLF);
+X		char_in_passwd = strlen(u_password);
+X		if (char_in_passwd < 4) {
+X			portsout("\n\rPassword was NOT changed!\n\r");
+X			return;
+X		}
+X		pptr = strchr(u_password, '~');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid password   try again!\n\r");
+X			goto in_passx;
+X		}
+X		pptr = strchr(u_password, ' ');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid password   try again!\n\r");
+X			goto in_passx;
+X		}
+X		portsout("Just to make sure, enter it again ===> ");
+X		portsinz(w_password, 10);
+X		result = strlen(w_password);
+X		if (result != char_in_passwd)
+X			goto passwx_loop;
+X		portsout(CRLF);
+X
+X		if (strcmp(u_password, w_password) == 0) {
+X			result = 10 - result;
+X			while (result) {
+X				strcat(u_password, " ");
+X				result--;
+X			}
+X			break;	/* get it right twice, then get out */
+X		}
+Xpasswx_loop:
+X		portsout(CRLF);
+X		portsout("hmmmm, one of us forgot it already");
+X		portsout(CRLF);
+X		portsout("      let's try it again!!");
+X		portsout(CRLF);
+X		portsout(CRLF);
+X	}
+X	if ((inbuf = fopen(USERS, "r+")) == NULL) {
+X		portsout("\n\rError opening users file!\n\r");
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	result = fseek(inbuf, save_d_pos, 0);
+X	rewrtuser(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X}
+X
+Xmsg_section(mpk)
+X	int             mpk;
+X{
+X	char            cmd[81];
+X	char		tmp_cmd[80];
+X	char		*cmd_ptr, *tmp_cmd_ptr;
+X	int             result, tmp_number;
+X	char           *file_ptr_x;
+X	if (first_msg_in) {
+X		result = atoi(l_m_base);
+X		change_msga(result);
+X		check_mail();
+X	}
+X	first_msg_in = FALSE;
+Xmsg_looper:
+X	signal(SIGALRM, timer);
+X	signal(SIGHUP, hanged);
+X	signal(SIGUSR1, mon_toggle);
+X	signal(SIGUSR2, sys_toggle);
+X	signal(SIGPIPE, chat);
+X	signal(SIGINT, STOP);
+X	stop_that = FALSE;
+X	cmd_t();
+X	portsout("\n\rCurrent message area = ");
+X	strcpy(buf128, m_pathname);
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x = '\0';
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x++;
+X	strcpy(who_am_i, file_ptr_x);
+X	portsout(who_am_i);
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	bbsmenu(2,mpk);
+X	portsin_cmp(cmd, 80, "KkQqSsRrYyCcEeNnMmGgXxTt?");
+X	portsout(CRLF);
+X
+X	if(cmd[0] != 'B' && cmd[0] != 'b')
+X		fix_name(cmd);
+X
+X	switch (cmd[0]) {
+X	case ('E'):		/* enter msg */
+X		if (!privmsg(mpE))
+X			goto msg_looper;
+X		cmd_e();
+X		goto msg_looper;
+X	case ('N'):		/*Enter BLOCKED message */
+X		if(!privmsg(mpE))
+X			goto msg_looper;
+X		blocked_m = 1;
+X		cmd_e();
+X		blocked_m = 0;
+X		goto msg_looper;
+X	case ('G'):		/* goodby */
+X		if (!privmsg(mpG))
+X			goto msg_looper;
+X		cmd_c();
+X		break;
+X	case ('T'):
+X		if (!privmsg(mpT))
+X			goto msg_looper;
+X		toggle = !toggle;
+X		rewritx();
+X		if (toggle) {
+X			portsout("\n\rStop Mode\n\r");
+X		} else {
+X			portsout("\n\rContinuous Mode\n\r");
+X		}
+X		goto msg_looper;
+X	case ('X'):
+X		if (!privmsg(mpX))
+X			goto msg_looper;
+X		cmd_x();
+X		rewritx();
+X		goto msg_looper;
+X	case ('K'):
+X		if (!privmsg(mpk))
+X			goto msg_looper;
+X		cmd_k();
+X		goto msg_looper;
+X	case ('Q'):		/* quick scan */
+X		if (!privmsg(mpQ))
+X			goto msg_looper;
+X		cmd_q();
+X		goto msg_looper;
+X	case ('R'):		/* read msg */
+X		if (!privmsg(mpR))
+X			goto msg_looper;
+X		cmd_r();
+X		goto msg_looper;
+X	case ('B'):
+X	case ('b'):
+X		if(!privmsg(mpR))
+X			goto msg_looper;
+X		cmd_ptr = cmd;
+X		cmd_ptr++;
+X		tmp_number=strlen(cmd_ptr);
+X		if(!tmp_number)
+X			{
+X			portsout("\n\r\n\rNo messages selected in batch command!\n\r\n\r");
+X			goto msg_looper;
+X			}
+X		digit(cmd_ptr);
+X		while(*cmd_ptr)
+X			{
+X			tmp_cmd_ptr = tmp_cmd;
+X			if(*cmd_ptr == (char) ' ')
+X				{
+X				cmd_ptr++;
+X				continue;
+X				}
+X			while(*cmd_ptr != (char) ' ')
+X				{
+X				if(*cmd_ptr == (char) '\0')
+X					break;
+X				*tmp_cmd_ptr++ = *cmd_ptr++;
+X				}
+X			*tmp_cmd_ptr = (char)'\0';
+X			read_number = atoi(tmp_cmd);
+X			read_flag = TRUE;
+X			cmd_r();
+X			read_flag = FALSE;
+X			portsout(CRLF);
+X			portsout("*** Depress a key to continue ( control-k to quit ) ........ ");
+X			jnk[0] = portin();
+X			if (jnk[0] == CTL_K || stop_that)
+X				{
+X				stop_that = FALSE;
+X				goto msg_looper;
+X				}
+X				
+X			}
+X		goto msg_looper;
+X			
+X		
+X	case ('Y'):
+X		if (!privmsg(mpY))
+X			goto msg_looper;
+X		cmd_y();
+X		goto msg_looper;
+X	case ('S'):		/* scan msg */
+X		if (!privmsg(mpS))
+X			goto msg_looper;
+X		cmd_s();
+X		goto msg_looper;
+X	case ('C'):
+X		if (!privmsg(mpC))
+X			goto msg_looper;
+X		check_mail();
+X		goto msg_looper;
+X	case ('M'):
+X		break;
+X	case ('?'):		/* help */
+X		if (!privmsg(mpZ))
+X			goto msg_looper;
+X		cmd_p(HELPMSG);
+X		goto msg_looper;
+X	case ('A'):
+X		result = strlen(cmd);
+X		result--;
+X		if (!result)
+X			change_msga(0);
+X		else {
+X			substr(cmd, buf128, 2, result);
+X			digit(buf128);
+X			result = atoi(buf128);
+X			change_msga(result);
+X		}
+X		check_mail();
+X		goto msg_looper;
+X	default:
+X		goto msg_looper;
+X	}
+X}
+X
+Xprivmsg(priv)
+X	int             priv;
+X{
+X	if (user_priv >= priv)
+X		return (TRUE);
+X	portsout("\n\rI'm sorry, your privilege level is not high enough to use that option.\n\r");
+X	return (FALSE);
+X}
+Xcmd_c()
+X{				/* go to the operating system level */
+X	char            well[3];
+X	int             length;
+X	if (resp_flag) {
+X		portsout("\n\r\n\rAre you sure you want to exit? (Y/n): ");
+X		portsin(well, 1);
+X		portsout(CRLF);
+X		if (well[0] == 'N' || well[0] == 'n')
+X			return;
+X	}
+X	length = strlen(c_pathname);
+X	if (resp_flag && length > 0) {
+X		portsout(CRLF);
+X		strcpy(buf128, "Would you like to leave a private message for ");
+X		strcat(buf128, SYSOP);
+X		strcat(buf128, "? (y/N): ");
+X		portsout(buf128);
+X		portsin(well, 1);
+X		portsout(CRLF);
+X		if (well[0] == 'y' || well[0] == 'Y') {
+X			portsout("\n\rDo you wish to use blocked (right justified) format?  (y/N: ");
+X			portsin(well, 1);
+X			portsout(CRLF);
+X			if (well[0] == 'y' || well[0] == 'Y') 
+X				blocked_m = 1;
+X			else
+X				blocked_m = 0;
+X			strcpy(m_pathname, c_pathname);
+X			hdrread();
+X			reply_sw = TRUE;
+X			strcpy(msg_to, SYSOP);
+X			strcpy(msg_subject, "Departure Message");
+X			end_msg = TRUE;
+X			cmd_e();
+X			reply_sw = FALSE;
+X		}
+X	}
+X	if ((inbuf = fopen(SYSTEM, "r")) == NULL) {
+X		portsout("\n\rError opening system file!\n\r");
+X		exit(1);
+X	} else {
+X		no_cntrl_k = TRUE;
+X		porttype(inbuf);/* type a file to port */
+X		fclose(inbuf);
+X	}
+X	active = FALSE;
+X}
+X/* end of function               */
+Xcmd_t()
+X{
+X	int             minutes, seconds;
+X	xsec = alarm(0);
+X	sec = xsec;
+X	alarm(sec);
+X	minutes = xsec / 60;
+X	seconds = xsec - (minutes * 60);
+X	portsout(CRLF);
+X	portsout("Time left = ");
+X	itoa(bufy, minutes);
+X	strcpy(bufx, bufy);
+X	strcat(bufx, " minutes and ");
+X	itoa(bufy, seconds);
+X	strcat(bufx, bufy);
+X	strcat(bufx, " seconds");
+X	portsout(bufx);
+X	portsout(CRLF);
+X}
+X
+Xcmd_tt(tt) int tt;
+X{
+X	int             minutes, seconds;
+X	long		tottime;
+X	tottime = difft();
+X	minutes = (int)tottime / 60L;
+X	seconds = (int)tottime - (long)(minutes * 60);
+X	itoa(bufy, minutes);
+X	strcpy(bufx, bufy);
+X	strcat(bufx, " minutes and ");
+X	itoa(bufy, seconds);
+X	strcat(bufx, bufy);
+X	strcat(bufx, " seconds");
+X}
+X
+Xint
+Xtimer()
+X{
+X	portsout(CRLF);
+X	if (which_timer == 1)
+X		portsout("Your login time limit has been reached!");
+X	if (which_timer == 2)
+X		portsout("Your usage time limit has been reached!");
+X	if (which_timer == 3)
+X		portsout("Your response time limit has been reached!");
+X	portsout(CRLF);
+X	restoremodes();
+X	portrst();		/* undo any special modes */
+X	closer(2);
+X	exit(1);
+X}
+Xint
+Xhanged()
+X{
+X	restoremodes();
+X	portrst();
+X	closer(3);
+X	exit(1);
+X}
+X
+Xcloser(typeclose)
+Xint typeclose;
+X{
+X	int result;
+X	if(typeclose == 2)
+X		cmd_tt(0);
+X	else
+X		cmd_tt(1);
+X	if ((inbuf = fopen(callers, "a")) == NULL)
+X		exit(1);
+X	result = fprintf(inbuf, "Time used on the system = %s\n",bufx);
+X	if (result < 0)
+X		exit(1);
+X	switch(typeclose) {
+X	case (1): fprintf(inbuf, "Normal exit .....\n");
+X			break;
+X	case (2): fprintf(inbuf, "Limit exit .....");
+X			switch (which_timer) {
+X			case(1): fprintf(inbuf, "logon\n");
+X				break;
+X			case(2): fprintf(inbuf, "usage\n");
+X				break;
+X			case(3): fprintf(inbuf, "response\n");
+X				break;
+X			}
+X			break;
+X	case (3): fprintf(inbuf, "The user just hung up! .....\n");
+X			break;
+X	case (4): fprintf(inbuf, "The user forgot his password! .....\n");
+X			break;
+X	default:  fprintf(inbuf, "Ooooops .... This exit is not known! .....\n");
+X			break;
+X	}
+X
+X	fprintf(inbuf,"\n\n");
+X	fclose(inbuf);
+X}
+Xint
+Xmon_toggle()
+X{
+X	signal(SIGUSR1, mon_toggle);
+X	if (!chat_in_progress)
+X		if_monitor = !if_monitor;
+X	else
+X		chat_in_progress = !chat_in_progress;
+X}
+Xint
+XSTOP()
+X{
+X	signal(SIGINT, STOP);
+X	stop_that = TRUE;
+X}
+Xint
+Xchat()
+X{
+X	FILE           *dev;
+X	int             result, handle;
+X	char            byte, byten, byter, bytes, device[30];
+X	signal(SIGPIPE, chat);
+X	byten = (char) '\n';
+X	byter = (char) '\r';
+X	bytes = (char) ' ';
+X	chat_in_progress = TRUE;
+X	stop_chat = TRUE;
+X	if (hold_pipe) {
+X		alarm(Sec);
+X		hold_pipe = FALSE;
+X	}
+X	Xsec = alarm(0);
+X	if ((dev = fopen(SYSTTY, "r")) == NULL) {
+X		portsout_chat("\n\rError finding sysop's device driver!\n\r");
+X		exit(1);
+X	}
+X	if ((fgets(device, 29, dev) == NULL)) {
+X		portsout_chat("\n\rError reading sysop's device driver name!\n\r");
+X		exit(1);
+X	}
+X	fclose(dev);
+X	strip(device);
+X	handle = open(device, O_WRONLY);
+X	if (handle == -1) {
+X		portsout_chat("\n\rError opening sysop's device driver!\n\r");
+X		exit(1);
+X	}
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat("********** THE SYSOP HAS STARTED CHAT MODE ********");
+X	portsout_chat(CRLF);
+X	portsout_chat("*** Your usage time has stopped during the chat ***");
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	while (chat_in_progress) {
+X		byte = portin_chat();
+X		if (byte == 127)
+X			byte = '\b';
+X		portout_chat(byte);
+X		if (byte == '\n')
+X			portout_chat(byter);
+X		if (byte == '\r')
+X			portout_chat(byten);
+X		write(handle, &byte, 1);
+X		if (byte == '\n')
+X			write(handle, &byter, 1);
+X		if (byte == '\r')
+X			write(handle, &byten, 1);
+X		if (byte == '\b') {
+X			write(handle, &bytes, 1);
+X			portout_chat(bytes);
+X			write(handle, &byte, 1);
+X			portout_chat(byte);
+X		}
+X	}
+X	close(handle);
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat("********** THE SYSOP HAS STOPPED CHAT MODE **********");
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	portsout_chat(CRLF);
+X	alarm(Xsec);
+X}
+X
+Xint
+Xsys_toggle()
+X{
+X	signal(SIGUSR2, sys_toggle);
+X	if (!toggle_hold && hold_off) {
+X		toggle_hold = TRUE;
+X		return;
+X	}
+X	toggle_hold = FALSE;
+X	if (!sys_flag) {
+X		old_priv = user_priv;
+X		user_priv = max_priv;
+X		if (max_priv != MAXPRIV) {
+X			sprintf(buf128, "\n\rCompiler error max=%d  MAX=%d\n\r", max_priv, MAXPRIV);
+X			portsout(buf128);
+X			exit(1);
+X		}
+X		strcpy(old_upath, u_pathname);
+X		strcpy(old_fpath, f_pathname);
+X		strcpy(old_mpath, m_pathname);
+X		old_sec = alarm(0);
+X		alarm(MAXSEC);
+X	} else {
+X		user_priv = old_priv;
+X		strcpy(u_pathname, old_upath);
+X		strcpy(f_pathname, old_fpath);
+X		strcpy(m_pathname, old_mpath);
+X		if (!first_msg_in)
+X			hdrread();
+X		delta_time = old_sec;
+X		delta_time = delta_time - (MAXSEC - alarm(0));
+X		if (delta_time < 0L || delta_time > 32767L)
+X			delta_time = 5L;
+X		sec = delta_time;
+X		alarm(sec);
+X	}
+X	sys_flag = !sys_flag;
+X}
+Xcmd_f()
+X{
+X	char            choice[6];
+X	char           *file_ptr_x;
+X	long            bytes_left;
+X	int             result;
+X	listed_l = FALSE;
+X	listed_r = FALSE;
+X	listed_n = FALSE;
+X	if (first_time_in) {
+X		result = atoi(l_f_base);
+X		change_area(result);
+X	}
+X	first_time_in = FALSE;
+Xffile:
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	signal(SIGALRM, timer);
+X	signal(SIGHUP, hanged);
+X	signal(SIGUSR1, mon_toggle);
+X	signal(SIGUSR2, sys_toggle);
+X	signal(SIGPIPE, chat);
+X	signal(SIGINT, STOP);
+X	cmd_t();
+X	portsout("\n\rCurrent download area = ");
+X	strcpy(buf128, f_pathname);
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x = '\0';
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x++;
+X	strcpy(who_am_i, file_ptr_x);
+X	portsout(who_am_i);
+X	portsout("\n\rCurrent upload area = ");
+X	strcpy(buf128, u_pathname);
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x = '\0';
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x++;
+X	strcpy(who_am_i, file_ptr_x);
+X	portsout(who_am_i);
+X	portsout(CRLF);
+X	bytes_left = max_dload - dload_total;
+X	strcpy(buf128, "Allowable daily download limit = ");
+X	sprintf(who_am_i, "%ld", bytes_left);
+X	strcat(buf128, who_am_i);
+X	strcat(buf128, " bytes\n\r");
+X	portsout(buf128);
+X	stop_that = FALSE;
+X	bbsmenu(3,0);
+X	portsin_cmp(choice, 5, "FfLlUuDdMmXxTtGgCcRrNnSsZz?");
+X	portsout(CRLF);
+X	fix_name(choice);
+X	switch (choice[0]) {
+X	case ('S'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		summary();
+X		goto ffile;
+X	case ('L'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		listed_r = FALSE;
+X		listed_n = FALSE;
+X		listed_l = FALSE;
+X		file_loc( NULL );
+X		goto ffile;
+X	case ('F'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		listed_r = FALSE;
+X		listed_n = FALSE;
+X		file_l();
+X		listed_l = TRUE;
+X		goto ffile;
+X	case ('N'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		listed_r = FALSE;
+X		listed_l = FALSE;
+X		file_n();
+X		listed_n = TRUE;
+X		goto ffile;
+X	case ('Z'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		listed_r = FALSE;
+X		listed_l = FALSE;
+X		listed_n = FALSE;
+X		allnew();
+X		goto ffile;
+X	case ('?'):		/* help */
+X		if (!privmsg(mpZ))
+X			goto ffile;
+X		cmd_p(HELPFILE);
+X		goto ffile;
+X	case ('R'):
+X		if (!privmsg(fpR))
+X			goto ffile;
+X		listed_l = FALSE;
+X		listed_n = FALSE;
+X		file_r();
+X		listed_r = TRUE;
+X		goto ffile;
+X	case ('C'):
+X		if (!privmsg(fpL))
+X			goto ffile;
+X		listed_l = FALSE;
+X		listed_r = FALSE;
+X		listed_n = FALSE;
+X		file_c();
+X		goto ffile;
+X	case ('T'):
+X		if (!privmsg(mpT))
+X			goto ffile;
+X		toggle = !toggle;
+X		rewritx();
+X		if (toggle) {
+X			portsout("\n\rStop Mode\n\r");
+X		} else {
+X			portsout("\n\rContinuous Mode\n\r");
+X		}
+X		goto ffile;
+X	case ('A'):
+X		result = strlen(choice);
+X		result--;
+X		if (!result)
+X			change_area(0);
+X		else {
+X			substr(choice, buf128, 2, result);
+X			digit(buf128);
+X			result = atoi(buf128);
+X			change_area(result);
+X		}
+X		listed_r = FALSE;
+X		listed_l = FALSE;
+X		listed_n = FALSE;
+X		goto ffile;
+X	case ('X'):
+X		if (!privmsg(mpX))
+X			goto ffile;
+X		cmd_x();
+X		rewritx();
+X		goto ffile;
+X	case ('U'):
+X		if (!privmsg(fpU))
+X			goto ffile;
+X		file_u();
+X		listed_r = FALSE;
+X		listed_l = FALSE;
+X		listed_n = FALSE;
+X		goto ffile;
+X	case ('D'):
+X		if (!privmsg(fpD))
+X			goto ffile;
+X		file_d();
+X		goto ffile;
+X	case ('M'):
+X		if (!privmsg(fpM))
+X			goto ffile;
+X		listed_l = FALSE;
+X		listed_r = FALSE;
+X		listed_n = FALSE;
+X		break;
+X	case ('G'):
+X		if (!privmsg(fpG))
+X			goto ffile;
+X		cmd_c();
+X		break;
+X	default:
+X		goto ffile;
+X	}
+X}
+Xfile_c()
+X{
+X	int             result, zcat;
+X	char           *ptr, temp[16];
+X	zcat = 0;
+X	portsout("\n\r\n\rArchive Contents Listing Option for .tar(.Z), .zip  or .arc files\n\r\n\r");
+X	portsout("Input archive file name to list ====> ");
+X	portsin(x_filename, 15);
+X	portsout(CRLF);
+X	if (strlen(x_filename) < 1)
+X		return;
+X	strcpy(x_pathandfile, f_pathname);
+X	strcat(x_pathandfile, x_filename);
+X	ptr = strrchr(x_pathandfile, '.');
+X	if (ptr == NULL) {
+X		portsout("\n\rImproper file extension\n\r");
+X		return;
+X	}
+X	*ptr++;
+X	strcpy(temp, ptr);
+X	if (strcmp(temp, "Z") == 0) {
+X		zcat = 1;
+X		strcpy(buf128, x_pathandfile);
+X		ptr = strrchr(buf128, '.');
+X		if (ptr == NULL) {
+X			portsout("\n\rImproper file extension\n\r");
+X			return;
+X		}
+X		*ptr = '\0';
+X		ptr = strrchr(buf128, '.');
+X		if (ptr == NULL) {
+X			portsout("\n\rImproper file extension\n\r");
+X			return;
+X		}
+X		*ptr++;
+X		strcpy(temp, ptr);
+X	}
+X	if ((strcmp(temp, "arc") == 0) || (strcmp(temp, "ARC") == 0) || (strcmp(temp, "tar") == 0) || (strcmp(temp,"zip") == 0) || (strcmp(temp,"ZIP") ==0)) {
+X		result = stat(x_pathandfile, &statbuf);
+X		if (result != 0) {
+X			portsout("\n\r\n\rThe requested file was not found!\n\r\n\r");
+X			return;
+X		}
+X		if ((strcmp(temp, "arc") == 0 || strcmp(temp, "ARC") == 0)) {
+X			listarc(x_pathandfile, port_id);
+X/*
+X			strcpy(buf128, ARC);
+X			strcat(buf128, x_pathandfile);
+X			strcat(buf128, " > ");
+X			strcat(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X			(void) system(buf128);
+X*/
+X
+X			strcpy(buf128, "/tmp/arclst.");
+X			strcat(buf128, port_id);
+X
+X			portsout("\n\r\n\r");
+X/*
+X			strcpy(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X*/
+X			cmd_p(buf128);
+X			portsout("\n\r\n\r");
+X			return;
+X		}
+X		if ((strcmp(temp, "zip") == 0 || strcmp(temp, "ZIP") == 0)) {
+X
+X			listzip( x_pathandfile, port_id);
+X/*
+X			strcpy(buf128, ZIP);
+X			strcat(buf128, x_pathandfile);
+X			strcat(buf128, " > ");
+X			strcat(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X			(void) system(buf128);
+X*/
+X
+X			strcpy(buf128, "/tmp/ziplst.");
+X			strcat(buf128, port_id);
+X
+X			portsout("\n\r\n\r");
+X/*
+X			strcpy(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X*/
+X			cmd_p(buf128);
+X			portsout("\n\r\n\r");
+X			return;
+X		}
+X		if (strcmp(temp, "tar") == 0) {
+X			if (!zcat) {
+X				strcpy(buf128, TAR);
+X				strcat(buf128, x_pathandfile);
+X			} else {
+X				strcpy(buf128, ZCAT);
+X				strcat(buf128, x_pathandfile);
+X				strcat(buf128, " | ");
+X				strcat(buf128, TAR);
+X				strcat(buf128, "-");
+X			}
+X
+X			strcat(buf128, " > ");
+X			strcat(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X			portsout("\n\rOne moment please ....");
+X			(void) system(buf128);
+X			portsout("\n\r\n\r");
+X			strcpy(buf128, TMPFILE);
+X			strcat(buf128, port_id);
+X			cmd_p(buf128);
+X			portsout("\n\r\n\r");
+X			return;
+X		}
+X	}
+X	portsout("\n\r\n\rIllegal file extension!\n\r\n\r");
+X}
+Xfile_r()
+X{
+X	int             result;
+X	if (!listed_r) {
+X		portsout("\n\rOne moment please ....");
+X		strcpy(buf128, "ls -l ");
+X		strcat(buf128, f_pathname);
+X		strcat(buf128, " > ");
+X		strcat(buf128, TMPFILE);
+X		strcat(buf128, port_id);
+X		(void) system(buf128);
+X	}
+X	portsout("\n\r\n\r");
+X	strcpy(buf128, TMPFILE);
+X	strcat(buf128, port_id);
+X	cmd_p(buf128);
+X	portsout("\n\r\n\r");
+X}
+Xmsgck()
+X{
+X	portsout("A control-k will terminate the listing\n");
+X}
+Xfile_l()
+X{
+X	int             result;
+X	int             zz;
+X	char            timeptr[30];
+X	char           *fileptr;
+X	int             lnctx, xp;
+X	lnctx = 1;
+X	if (xpert)
+X		xp = 10;
+X	else
+X		xp = 5;
+X	xyy = atol(yy);
+X	strcpy(buf128, f_pathname);
+X	strcat(buf128, FILES);
+X	if ((rdstatbuf = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rThe are NO files available!\n\r");
+X		return;
+X	}
+X	msgck();
+X	portsout(CRLF);
+X	strcpy(buf128, TMPFILE);
+X	strcat(buf128, port_id);
+X	while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X		zz = 0;
+X		if (x_filename[0] == '~') {
+X			goto finis;	/* Special case so that that
+X					 * following files are not displayed
+X					 * - can be used to disallow uploads
+X					 * from being shown until they are
+X					 * validated. */
+X		}
+X		if (x_filename[0] == '+') {
+X			fileptr = x_filename + 1;
+X			strcpy(work_msg, fileptr);
+X			(void) fgets(buf128, 80, rdstatbuf);
+X			strcat(work_msg, buf128);
+X			strip(work_msg);
+X			goto arond;
+X		}
+X		if (x_filename[0] == '.') {
+X			strcpy(x_filename, "   ");
+X			strcpy(who_am_i, "   ");
+X			strcpy(who_am_I, "   ");
+X			zz++;
+X		}
+X		if (result = fgets(buf128, 55, rdstatbuf) == NULL) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		strip(buf128);
+X		if (!zz)
+X			term_space(buf128);
+X		result = strlen(buf128);
+X		if (result == 0) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		if (!zz) {
+X			strcpy(x_pathandfile, f_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				strcpy(who_am_i, "OFFLINE");
+X				strcpy(who_am_I, "    ");
+X				goto around;
+X			}
+X			xmm = statbuf.st_size;
+X			sprintf(who_am_i, "%6ld", xmm);
+X			xmm = statbuf.st_mtime;
+X			strcpy(timeptr, ctime(&xmm));
+X			substr(timeptr, bufx, 5, 6);
+X			substr(timeptr, z_dd, 23, 2);
+X			xmm = atol(z_dd);
+X			if (xyy > xmm) {
+X				substr(timeptr, bufx, 5, 3);
+X				strcat(bufx, "-");
+X				strcat(bufx, z_dd);
+X			}
+X			strcpy(who_am_I, bufx);
+X		}
+Xaround:
+X		sprintf(work_msg, "%-15s%-7s%-6s%-50s", x_filename, who_am_i, who_am_I, buf128);
+Xarond:
+X		strip(work_msg);
+X		term_space(work_msg);
+X
+X		sprintf(buf128, "%s\n\r", work_msg);
+X		portsout(buf128);
+X		if (stop_that) {
+X			fclose(rdstatbuf);
+X			stop_that = FALSE;
+X			return;
+X		}
+X		if (toggle) {
+X			lnctx++;
+X			if (lnctx == 23) {
+X				portsout(CRLF);
+X				portsout("*** Depress a key to continue ( control-k to quit ) ........ ");
+X				jnk[0] = portin();
+X				if (jnk[0] == CTL_K || stop_that) {
+X					stop_that = FALSE;
+X					fclose(rdstatbuf);
+X					return;
+X				}
+X				portsout(CRLF);
+X				lnctx = 1;
+X			}
+X		}
+X	}
+Xfinis:
+X	fclose(rdstatbuf);
+Xfinisl:
+X	if (toggle && lnctx > xp) {
+X		portsout(CRLF);
+X		portsout("*** Depress a key to continue ........ ");
+X		jnk[0] = portin();
+X		portsout(CRLF);
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X}
+END_OF_FILE
+  if test 39960 -ne `wc -c <'bbsc1.c.A'`; then
+    echo shar: \"'bbsc1.c.A'\" unpacked with wrong size!
+  elif test -f 'bbsc1.c.B'; then
+    echo shar: Combining  \"'bbsc1.c'\" \(83594 characters\)
+    cat 'bbsc1.c.A' 'bbsc1.c.B' > 'bbsc1.c'
+    if test 83594 -ne `wc -c <'bbsc1.c'`; then
+      echo shar: \"'bbsc1.c'\" combined with wrong size!
+    else
+      rm bbsc1.c.A bbsc1.c.B
+    fi
+  fi
+  # end of 'bbsc1.c.A'
+fi
+if test -f 'checksum.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'checksum.c'\"
+else
+  echo shar: Extracting \"'checksum.c'\" \(9680 characters\)
+  sed "s/^X//" >'checksum.c' <<'END_OF_FILE'
+X/*
+X * A version of Ward Christensen's file transfer protocol for
+X * Unix System V or 4.2 bsd.
+X *
+X *        Emmet P. Gray, ..!ihnp4!uiucuxc!fthood!egray, 16 Aug 85
+X *
+X * Modified by Sanford Zelkovitz   08/18/86
+X * Last modification date: 05/20/87
+X */
+X
+X#define SV
+X#undef  BSD
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifdef SV
+X#include <termio.h>
+X#endif
+X#ifdef BSD
+X#include <sgtty.h>
+X#endif
+X
+X#define MAXERRORS 10			/* max number of times to retry */
+X#define SECSIZE	128			/* CP/M sector, transmission block */
+X#define CPMEOF	26			/* End Of File (for CP/M) */
+X#define SOH	1			/* Start Of Header */
+X#define EOT	4			/* End Of Transmission */
+X#define ACK	6			/* ACKnowledge */
+X#define NAK	21			/* Negative AcKnowledge */
+X#define CAN	24			/* CANcel */
+X
+Xint synchron;
+Xint exit_return;
+Xunsigned char crc1, crc2;
+X#ifdef SV
+Xstruct termio ttyhold;
+X#endif
+X#ifdef BSD
+Xstruct sgttyb ttyhold;
+X#endif
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int msgstat;
+X	char *tty, *ttyname();
+X	struct stat stbuf;
+X	exit_return=0;
+X	if (argc != 3) {
+X		usage();
+X		exit(1);
+X	}
+X	tty = ttyname(1);
+X	stat(tty, &stbuf); 
+X	msgstat = (stbuf.st_mode & 0777);
+X	chmod(tty, 0600);			/* mesg n */
+X#ifdef SV
+X	ioctl(0, TCGETA, &ttyhold);		/* get current settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCGETP, &ttyhold);
+X#endif
+X	switch (*argv[1]) {
+X		case 'r':
+X			recvfile(argv[2]);
+X			break;
+X		case 's':
+X			sendfile(argv[2]);
+X			break;
+X		default:
+X			usage();
+X	}
+X#ifdef SV
+X	ioctl(0, TCSETAF, &ttyhold);		/* restore settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSETP, &ttyhold);
+X#endif
+X	chmod(tty, msgstat);			/* restore mesg status */
+X	exit(exit_return);
+X}
+X
+X/* send a file to the remote */
+Xsendfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char chr, checksum, block, sector[SECSIZE];
+X	int i, mode, nbytes, errcount, size, speed;
+X	long min, sec;
+X	static int baud[15] = {0, 50, 75, 110, 134, 150, 200,
+X	300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+X	struct stat sbuf;
+X
+X	if (!(fp = fopen(tfile, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", tfile);
+X		exit_return=1;
+X		return;
+X	}
+X	stat(tfile, &sbuf);
+X	size = (sbuf.st_size / 128) + 1;
+X#ifdef SV
+X	speed = baud[ttyhold.c_cflag & 017];
+X#endif
+X#ifdef BSD
+X	speed = baud[ttyhold.sg_ispeed];
+X#endif
+X	sec = size;
+X	sec = sec * 128L * 11L / speed;
+X	min = sec / 60L;
+X	sec = sec - min * 60L;
+X	printf("File open: %d records\r\n", size);
+X	printf("Send time: %ld min, %ld sec at %d baud\r\n", min, sec, speed);
+X	printf("To cancel: use CTRL-X numerous times\r\n");
+X	printf("Waiting ready signal\r\n");
+X
+X	rawmode();
+X	errcount = 0;
+X	mode = 0;
+X	block = 1;
+X	while (errcount < MAXERRORS) {
+X		chr = getchar_t();
+X		if (chr == NAK)			/* checksum mode */
+X			break;
+X		if (chr == 'C') {		/* CRC mode */
+X			mode = 1;
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "xmodem: Timed out on acknowledge\r\n");
+X		exit_return=1;
+X		return;
+X	}
+X	while (nbytes = fread(sector, sizeof(sector[0]), SECSIZE, fp)) {
+X		if (nbytes < SECSIZE) {		/* fill short sector */
+X			for (i=nbytes; i < SECSIZE; i++)
+X				sector[i] = CPMEOF;
+X		}
+X		errcount = 0;
+X		while (errcount < MAXERRORS) {
+X			putchar(SOH);		/* the header */
+X			putchar(block);		/* the block number */
+X			chr = ~block;
+X			putchar(chr);		/* it's complement */
+X			checksum = 0;
+X			crc1 = 0;
+X			crc2 = 0;
+X			for (i=0; i < SECSIZE; i++) {
+X				putchar(sector[i]);
+X				if (mode)
+X					update_crc(sector[i]);
+X				else
+X					checksum += sector[i];
+X			}
+X			if (mode) {
+X				update_crc(0);
+X				update_crc(0);
+X				putchar(crc1);
+X				putchar(crc2);
+X			}
+X			else
+X				putchar(checksum);
+Xrec_loop:
+X			chr = getchar_t();
+X			if (chr == CAN) {
+X				sleep(3);
+X				exit_return=1;
+X				fprintf(stderr,"\r\nxmodem: Abort request received\r\n");
+X				return;
+X			}
+X			if (chr == ACK)
+X				break;		/* got it! */
+X			if (chr != NAK) goto rec_loop;  /* Noise on line? */
+X			errcount++;
+X		}
+X		if (errcount == MAXERRORS) {
+X			error();
+X			exit_return=1;
+X			return;
+X		}
+X		block++;
+X	}
+X	errcount = 0;
+X	exit_return=1;
+X	while (errcount < MAXERRORS) {
+X		putchar(EOT);
+X		if (getchar_t() == ACK)
+X			{
+X			exit_return=0;
+X			break;
+X			}
+X		errcount++;
+X	}
+X	return;
+X}
+X
+X/* receive a file from the remote */
+Xrecvfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char hdr, blk, cblk, tmp, cksum;
+X	unsigned char c1, c2, sum, block, sector[SECSIZE];
+X	int i, stop = 0, mode, errcount, resync();
+X	long true_end;
+X	char ans[40];
+X
+X	if (!access(tfile, 00)) {
+X		while (1) {
+X			printf("File already exists \r\n");
+X				return;
+X		}
+X	}
+X
+X	if (!(fp = fopen(tfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for write\r\n", tfile);
+X		return;
+X	}
+X	printf("File open - ready to receive\r\n");
+X	rawmode();
+X	errcount = 0;
+X	block = 1;
+X	
+X	sleep(10);
+X	while (errcount < MAXERRORS) {
+X		if (errcount < (MAXERRORS / 2)) {
+X			putchar(NAK);		/* try checksum mode first */
+X			mode = 0;
+X		}
+X		else {
+X			putchar('C');		/* then crc */
+X			mode = 1;
+X		}
+X		if ((hdr = getchar_t()) == SOH) {
+X			ungetc(SOH, stdin);
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "\r\nxmodem: Timed out on acknowledge\r\n");
+X		return;
+X	}
+X	errcount = 0;
+X
+X	while (errcount < MAXERRORS) {
+X		hdr = getchar_t();
+X		if (hdr == CAN) {
+X			sleep(3);
+X			fprintf(stderr, "\r\nxmodem: Abort request received\r\n");
+X			return;
+X		}
+X		if (hdr == EOT)			/* done! */
+X			break;
+X		if (hdr != SOH) {		/* read in junk for 6 seconds */
+X			synchron = 0;		/*  to re-synchronized block */
+X			signal(SIGALRM, resync);
+X			alarm(6);
+X			while(synchron == 0)
+X				hdr = getchar();
+X			goto nak;
+X		}
+X		blk = getchar_t();
+X		cblk = getchar_t();
+X		crc1 = 0;
+X		crc2 = 0;
+X		sum = 0;
+X		for (i=0; i < SECSIZE; i++) {
+X			sector[i] = getchar_t();
+X			if (mode)
+X				update_crc(sector[i]);
+X			else
+X				sum += sector[i];
+X		}
+X		if (mode) {
+X			c1 = getchar_t();
+X			c2 = getchar_t();
+X		}
+X		else
+X			cksum = getchar_t();
+X		if (blk != block && blk != (block - 1))
+X			goto nak;
+X		tmp = ~blk;
+X		if (cblk != tmp)
+X			goto nak;
+X		if (mode) {
+X			update_crc(0);
+X			update_crc(0);
+X			if (c1 != crc1 || c2 != crc2)
+X				goto nak;
+X		}
+X		else {
+X			if (cksum != sum)
+X				goto nak;
+X		}
+X		if (block == blk) {
+X			fflush(fp);
+X			fwrite(sector, sizeof(sector[0]), SECSIZE, fp);
+X		}
+X		block = blk + 1;
+X		putchar(ACK);			/* got it! */
+X		errcount = 0;
+X		continue;
+X
+X	nak:	putchar(NAK);			/* do it over */
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		error();
+X		return;
+X	}
+X	putchar(ACK);
+X	for (i = SECSIZE -1; i >= 0; i--) {	/* find true EOF */
+X		if (sector[i] != CPMEOF) {
+X			stop = i;
+X			break;
+X		}
+X	}
+X/*
+X * Some CPM systems don't pad the end of the file with ^Z's so the file may
+X * have junk at the end.  A conservative approach had to be taken in order
+X * for Unix object code (where ^Z's may be valid data) to transfer properly.
+X */
+X	true_end = ftell(fp) - SECSIZE + stop +1;
+X	fclose(fp);
+X	truncate(tfile, true_end);
+X	return;
+X}
+X
+X/* give minimal usage message */
+Xusage()
+X{
+X	fprintf(stderr, "Usage: xmodem [ s | r ] filename\r\n");
+X	fprintf(stderr, "       options are 's' for send or 'r' for receive\r\n");
+X	return;
+X}
+X
+X/* exceeded the maximum number of retry's */
+Xerror()
+X{
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	sleep(3);
+X	fprintf(stderr, "\r\nxmodem: Exceeded error limit...aborting\r\n");
+X	return;
+X}
+X
+X/* update the CRC bytes */
+Xupdate_crc(c)
+Xunsigned char c;
+X{
+X	int i, temp;
+X	unsigned char carry, c_crc1, c_crc2;
+X	for (i=0; i < 8; i++) {
+X		temp = c * 2;
+X		c = temp;			/* rotate left */
+X		carry = ((temp > 255) ? 1 : 0);
+X		temp = crc2 * 2;
+X		crc2 = temp;
+X		crc2 |= carry;			/* rotate with carry */
+X		c_crc2 = ((temp > 255) ? 1 : 0);
+X		temp = crc1 * 2;
+X		crc1 = temp;
+X		crc1 |= c_crc2;
+X		c_crc1 = ((temp > 255) ? 1 : 0);
+X		if (c_crc1) {
+X			crc2 ^= 0x21;
+X			crc1 ^= 0x10;
+X		}
+X	}
+X	return;
+X}
+X
+X/* getchar with a 10 sec time out */
+Xgetchar_t()
+X{
+X	int force_it();
+X	unsigned char c;
+X	signal(SIGALRM, force_it);
+X	alarm(10);				/* only have 10 sec... */
+X	c = getchar();
+X	alarm(0);
+X	return(c);
+X}
+X
+X/*
+X * This code (and the resync() below) is the most machine dependent part
+X * of the program.  The action of the signal SIGALRM during a read system
+X * call is not well defined.  Some systems return the stack to the point
+X * outside the system call, others inside the call itself.  Have fun...
+X */
+Xforce_it()
+X{
+X	unsigned char c;
+X	c = CPMEOF;				/* arbitrary default char */
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+X
+X/* truncate file to given length */
+Xtruncate(path, length)
+Xchar *path;
+Xlong length;
+X{
+X	FILE *fp, *tempfp;
+X	long i;
+X	char c, string[80], *tempfile, *mktemp();
+X	if (!(fp = fopen(path, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", path);
+X		return;
+X	}
+X	tempfile = mktemp("/tmp/trunXXXXXX");
+X	if (!(tempfp = fopen(tempfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open temporary file\r\n");
+X		return;
+X	}
+X	for (i=0; i < length; i++) {
+X		c = fgetc(fp);
+X		fputc(c, tempfp);
+X	}
+X	fclose(fp);
+X	fclose(tempfp);
+X	sprintf(string, "mv %s %s", tempfile, path);
+X	system(string);
+X	return;
+X}
+X
+X/* put the stdin/stdout in the "raw" mode */
+Xrawmode()
+X{
+X#ifdef SV
+X	struct termio tbuf;
+X	ioctl(0, TCGETA, &tbuf);
+X	tbuf.c_cc[4] = 1;			/* VMIN */
+X	tbuf.c_cc[5] = 0;			/* VTIME */
+X	tbuf.c_iflag = 0;
+X	tbuf.c_oflag = 0;
+X	tbuf.c_lflag = 0;
+X	tbuf.c_cflag &= ~CSIZE;
+X	tbuf.c_cflag |= CS8;
+X	tbuf.c_cflag &= ~PARENB;
+X	ioctl(0, TCSETAF, &tbuf);
+X	return;
+X#endif
+X#ifdef BSD
+X	struct sgttyb sgbuf;
+X	ioctl(0, TIOCGETP, &sgbuf);
+X	sgbuf.sg_flags |= RAW;
+X	sgbuf.sg_flags &= ~ECHO;
+X	ioctl(0, TIOCSETP, &sgbuf);
+X	return;
+X#endif
+X}
+X
+X/*  after 6 seconds of reading junk data... */
+Xresync()
+X{
+X	char c;
+X	synchron = 1;				/* set the flag */
+X	c = SOH;
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+END_OF_FILE
+  if test 9680 -ne `wc -c <'checksum.c'`; then
+    echo shar: \"'checksum.c'\" unpacked with wrong size!
+  fi
+  # end of 'checksum.c'
+fi
+if test -f 'today/sun.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'today/sun.c'\"
+else
+  echo shar: Extracting \"'today/sun.c'\" \(11105 characters\)
+  sed "s/^X//" >'today/sun.c' <<'END_OF_FILE'
+X/***** hpfcla:net.sources / nsc-pdc!rgb / 10:24 am  May 16, 1985
+X*
+X* Changed constants to Fort Collins, Colorado.  (ajs, 850520)
+X* Made other minor output format improvements also.
+X* 
+X*        sun <options>
+X*
+X*        options:        -t hh:mm:ss	time (default is current system time)
+X*			 -d mm/dd/yy	date (default is current system date)
+X*                        -a lat		decimal latitude (default = 45.5333)
+X*                        -o lon		decimal longitude (default = 122.8333) 
+X*			 -z tz		timezone (default = 8, pst)
+X*			 -p		show position of sun (azimuth)
+X*			 -v		turn on debugging
+X*        
+X*        All output is to standard io.  
+X*
+X*	 Compile with cc -O -o sun sun.c -lm
+X*	 Non 4.2 systems may have to change <sys/time.h> to <time.h> below.
+X*	(yes, done)
+X*
+X*	 Note that the latitude, longitude, time zone correction and
+X*	 time zone string are all defaulted in the global variable section.
+X*
+X*	 Most of the code in this program is adapted from algorithms
+X*	 presented in "Practical Astronomy With Your Calculator" by
+X*	 Peter Duffet-Smith.
+X*
+X*	 The GST and ALT-AZIMUTH algorithms are from Sky and Telescope,
+X*	 June, 1984 by Roger W. Sinnott
+X*
+X*	 Author Robert Bond - Beaverton Oregon.
+X*	
+X*/
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <sys/types.h>
+X#include <time.h>
+X
+X#define PI       3.141592654
+X#define EPOCH	 1980
+X#define JDE	 2444238.5	/* Julian date of EPOCH */
+X
+Xstatic double dtor();
+Xstatic double adj360();
+Xdouble adj24();
+Xdouble julian_date();
+Xdouble hms_to_dh();
+Xdouble solar_lon();
+Xdouble acos_deg();
+Xdouble asin_deg();
+Xdouble atan_q_deg();
+Xdouble atan_deg();
+Xdouble sin_deg();
+Xdouble cos_deg();
+Xdouble tan_deg();
+Xdouble gmst();
+X
+Xlong time();
+Xstruct tm *localtime();
+X
+Xint th;
+Xint tm;
+Xint ts;
+Xint mo;
+Xint day;
+Xint yr;
+Xint tz=8;			/* Default time zone */
+Xchar *tzs  = "(PST)";		/* Default time zone string */
+Xchar *dtzs = "(PDT)";		/* Default daylight savings time string */
+Xint debug = 0;
+Xint popt = 0;
+X
+Xdouble lat =  35.0000;		/* Default latitude (Fort Collins, Colorado) */
+Xdouble lon = 118.0000;		/* Default Longitude (Degrees west) */ 
+X
+Xsun(sunrh, sunrm, sunsh, sunsm)
+Xint *sunrh, *sunrm, *sunsh, *sunsm;
+X{
+X    double ed, jd;
+X    double alpha1, delta1, alpha2, delta2, st1r, st1s, st2r, st2s;
+X    double a1r, a1s, a2r, a2s, dt, dh, x, y;
+X    double trise, tset, ar, as, alpha, delta, tri, da;
+X    double lambda1, lambda2;
+X    double alt, az, gst, m1;
+X    double hsm, ratio;
+X    time_t sec_1970;
+X    int h, m;
+X    struct tm *pt;
+X
+X    time(&sec_1970);
+X    pt = localtime(&sec_1970);  
+X
+X    th = pt->tm_hour;
+X    tm = pt->tm_min;
+X    ts = pt->tm_sec;
+X    yr = pt->tm_year + 1900;
+X    mo = pt->tm_mon + 1;
+X    day = pt->tm_mday;
+X    if (pt->tm_isdst) {		/* convert tz to daylight savings time */
+X	tz--;
+X	tzs = dtzs;	
+X    }
+X
+X
+X    if (debug)
+X        printf("Date: %d/%d/%d,  Time: %d:%d:%d, Tz: %d, Lat: %lf, Lon: %lf \n",
+X	    mo,day,yr,th,tm,ts,tz,lat,lon);
+X
+X    jd = julian_date(mo,day,yr);
+X    ed = jd - JDE;
+X
+X    lambda1 = solar_lon(ed);
+X    lambda2 = solar_lon(ed + 1.0);
+X
+X    lon_to_eq(lambda1, &alpha1, &delta1);
+X    lon_to_eq(lambda2, &alpha2, &delta2);
+X
+X    rise_set(alpha1, delta1, &st1r, &st1s, &a1r, &a1s);
+X    rise_set(alpha2, delta2, &st2r, &st2s, &a2r, &a2s);
+X
+X    m1 = adj24(gmst(jd - 0.5, 0.5 + tz / 24.0) - lon / 15); /* lst midnight */
+X
+X    if (debug)
+X	printf ("local sidereal time of midnight is %lf \n", m1);
+X
+X    hsm = adj24(st1r - m1);
+X
+X    if (debug)
+X	printf ("about %lf hours from midnight to dawn \n", hsm);
+X
+X    ratio = hsm / 24.07;
+X
+X    if (debug)
+X	printf("%lf is how far dawn is into the day \n", ratio);
+X
+X    if (fabs(st2r - st1r) > 1.0) {
+X	st2r += 24.0;
+X	if (debug)
+X	    printf("st2r corrected from %lf to %lf \n", st2r-24.0, st2r);
+X    }
+X
+X    trise = adj24((1.0 - ratio) * st1r + ratio * st2r);
+X
+X    hsm = adj24(st1s - m1);
+X
+X    if (debug)
+X	printf ("about %lf hours from midnight to sunset \n", hsm);
+X
+X    ratio = hsm / 24.07;
+X
+X    if (debug)
+X	printf("%lf is how far sunset is into the day \n", ratio);
+X
+X    if (fabs(st2s - st1s) > 1.0) {
+X	st2s += 24.0;
+X	if (debug)
+X	    printf("st2s corrected from %lf to %lf \n", st2s-24.0, st2s);
+X    }
+X
+X    tset = adj24((1.0 - ratio) * st1s + ratio * st2s);
+X
+X    if (debug)
+X	printf("Uncorrected rise = %lf, set = %lf \n", trise, tset);
+X
+X    ar = a1r * 360.0 / (360.0 + a1r - a2r);
+X    as = a1s * 360.0 / (360.0 + a1s - a2s);
+X
+X    delta = (delta1 + delta2) / 2.0;
+X    tri = acos_deg(sin_deg(lat)/cos_deg(delta));
+X
+X    x = 0.835608;		/* correction for refraction, parallax, ? */
+X    y = asin_deg(sin_deg(x)/sin_deg(tri));
+X    da = asin_deg(tan_deg(x)/tan_deg(tri));
+X    dt = 240.0 * y / cos_deg(delta) / 3600;
+X
+X    if (debug)
+X	printf("Corrections: dt = %lf, da = %lf \n", dt, da);
+X
+X    lst_to_hm(trise - dt, jd, &h, &m);
+X    *sunrh = h;
+X    *sunrm = m;
+X
+X    if (popt) {
+X        dh_to_hm(ar - da, &h, &m);
+X        printf("Azimuth: %3d %02d'\n", h, m);
+X    }
+X
+X    lst_to_hm(tset + dt, jd, &h, &m);
+X    *sunsh = h;
+X    *sunsm = m;
+X
+X    if (popt) {
+X        dh_to_hm(as + da, &h, &m);
+X        printf("Azimuth: %3d %02d'\n", h, m);
+X    } 
+X     
+X
+X    if (popt) {
+X
+X	if (alpha1 < alpha2)
+X	    alpha = (alpha1 + alpha2) / 2.0;
+X	else
+X	    alpha = (alpha1 + 24.0 + alpha2) / 2.0;
+X	
+X	if (alpha > 24.0)
+X	    alpha -= 24.0;
+X
+X	dh = (hms_to_dh(th, tm, ts) + tz) / 24.0;
+X	if (dh > 0.5) {
+X	    dh -= 0.5;
+X	    jd += 0.5;
+X	} else {
+X	    dh += 0.5;
+X	    jd -= 0.5;
+X	}
+X
+X	gst = gmst(jd, dh);
+X
+X	eq_to_altaz(alpha, delta, gst, &alt, &az);
+X
+X	printf	 ("The sun is at:   ");
+X	dh_to_hm (az, &h, &m);
+X	printf	 ("Azimuth: %3d %02d'  ", h, m);
+X	dh_to_hm (alt, &h, &m);
+X	printf	 ("Altitude: %3d %02d'\n", h, m);
+X    }
+X}
+X
+Xstatic double
+Xdtor(deg)
+Xdouble deg;
+X{
+X    return (deg * PI / 180.0);
+X}
+X
+Xdouble
+Xrtod(deg)
+Xdouble deg;
+X{
+X    return (deg * 180.0 / PI);
+X}
+X
+X
+Xstatic double 
+Xadj360(deg)
+Xdouble deg;
+X{
+X    while (deg < 0.0) 
+X	deg += 360.0;
+X    while (deg > 360.0)
+X	deg -= 360.0;
+X    return(deg);
+X}
+X
+Xdouble 
+Xadj24(hrs)
+Xdouble hrs;
+X{
+X    while (hrs < 0.0) 
+X	hrs += 24.0;
+X    while (hrs > 24.0)
+X	hrs -= 24.0;
+X    return(hrs);
+X}
+X
+Xdouble 
+Xjulian_date(m, d, y) int m, d, y;
+X{
+X    long a, b;
+X    double jd;
+X
+X    if (m == 1 || m == 2) {
+X	--y;
+X	m += 12;
+X    }
+X    if (y < 1583) {
+X	printf("Can't handle dates before 1583\n");
+X	exit(1);
+X    }
+X    a = (long)y/100;
+X    b = 2 - a + a/4;
+X    b += (long)((double)y * 365.25);
+X    b += (long)(30.6001 * ((double)m + 1.0));
+X    jd = (double)d + (double)b + 1720994.5;
+X
+X    if (debug) 
+X	printf("Julian date for %d/%d/%d is %lf \n", m, d, y, jd);
+X
+X    return(jd);
+X}
+X
+Xdouble 
+Xhms_to_dh(h, m, s) int h, m, s;
+X{
+X    double rv;
+X    rv = h + m / 60.0 + s / 3600.0;
+X
+X    if (debug)
+X	printf("For time %d:%d:%d frac hours are: %lf \n", h, m, s, rv);
+X
+X    return rv;
+X}
+X
+Xdouble 
+Xsolar_lon(ed)
+Xdouble ed;
+X{
+X    double n, m, e, ect, errt, v;
+X
+X    n = 360.0 * ed / 365.2422;
+X    n = adj360(n);
+X    m = n + 278.83354 - 282.596403;
+X    m = adj360(m);
+X    m = dtor(m);
+X    e = m; ect = 0.016718;
+X    while ((errt = e - ect * sin(e) - m) > 0.0000001) 
+X        e = e - errt / (1 - ect * cos(e));
+X    v = 2 * atan(1.0168601 * tan(e/2));
+X    v = adj360(v * 180.0 / PI + 282.596403);
+X
+X    if (debug)
+X	printf("Solar Longitude for %lf days is %lf \n", ed, v); 
+X
+X    return(v);
+X}
+X
+Xdouble 
+Xacos_deg(x)
+Xdouble x;
+X{
+X    return rtod(acos(x));
+X}
+X
+Xdouble 
+Xasin_deg(x)
+Xdouble x;
+X{
+X    return rtod(asin(x));
+X}
+X
+Xdouble 
+Xatan_q_deg(y,x)
+Xdouble y,x;
+X{
+X    double rv;
+X
+X    if (y == 0)
+X        rv = 0;
+X    else if (x == 0)
+X        rv = y>0 ? 90.0 : -90.0;
+X    else rv = atan_deg(y/x);
+X
+X    if (x<0) return rv+180.0;
+X    if (y<0) return rv+360.0;
+X    return(rv);
+X}
+X
+Xdouble
+Xatan_deg(x)
+Xdouble x;
+X{
+X    return rtod(atan(x));
+X}
+X
+Xdouble 
+Xsin_deg(x)
+Xdouble x;
+X{
+X    return sin(dtor(x));
+X}
+X
+Xdouble 
+Xcos_deg(x)
+Xdouble x;
+X{
+X    return cos(dtor(x));
+X}
+X
+Xdouble 
+Xtan_deg(x)
+Xdouble x;
+X{
+X    return tan(dtor(x));
+X}
+X
+Xlon_to_eq(lambda, alpha, delta)
+Xdouble lambda;
+Xdouble *alpha;
+Xdouble *delta;
+X{
+X    double tlam,epsilon;
+X
+X    tlam = dtor(lambda);
+X    epsilon = dtor((double)23.441884);
+X    *alpha = atan_q_deg((sin(tlam))*cos(epsilon),cos(tlam)) / 15.0;
+X    *delta = asin_deg(sin(epsilon)*sin(tlam));
+X
+X    if (debug)
+X	printf("Right ascension, declination for lon %lf is %lf, %lf \n",
+X	    lambda, *alpha, *delta);
+X}
+X
+Xrise_set(alpha, delta, lstr, lsts, ar, as)
+Xdouble alpha, delta, *lstr, *lsts, *ar, *as;
+X{
+X    double tar;
+X    double h;
+X
+X    tar = sin_deg(delta)/cos_deg(lat);
+X    if (tar < -1.0 || tar > 1.0) {
+X	printf("The object is circumpolar\n");
+X	exit (1);
+X    }
+X    *ar = acos_deg(tar);
+X    *as = 360.0 - *ar;
+X
+X    h = acos_deg(-tan_deg(lat) * tan_deg(delta)) / 15.0;
+X    *lstr = 24.0 + alpha - h;
+X    if (*lstr > 24.0)
+X	*lstr -= 24.0;
+X    *lsts = alpha + h;
+X    if (*lsts > 24.0)
+X	*lsts -= 24.0;
+X
+X    if (debug) {
+X	printf("For ra, decl. of %lf, %lf: \n", alpha, delta);
+X	printf("lstr = %lf, lsts = %lf, \n", *lstr, *lsts);
+X	printf("ar =   %lf, as =   %lf \n", *ar, *as);
+X    }
+X}
+X
+Xlst_to_hm(lst, jd, h, m)
+Xdouble lst, jd;
+Xint *h, *m;
+X{
+X    double ed, gst, jzjd, t, r, b, t0, gmt;
+X
+X    gst = lst + lon / 15.0;
+X    if (gst > 24.0)
+X	gst -= 24.0;
+X    jzjd = julian_date(1,0,yr);
+X    ed = jd-jzjd;
+X    t = (jzjd -2415020.0)/36525.0;
+X    r = 6.6460656+2400.05126*t+2.58E-05*t*t;
+X    b = 24.0-(r-24.0*(yr-1900));
+X    t0 = ed * 0.0657098 - b;
+X    if (t0 < 0.0)
+X	t0 += 24;
+X    gmt = gst-t0;
+X    if (gmt<0) 
+X	gmt += 24.0;
+X    gmt = gmt * 0.99727 - tz;;
+X    if (gmt < 0)
+X	gmt +=24.0;
+X    dh_to_hm(gmt, h, m);
+X}
+X
+Xdh_to_hm(dh, h, m)
+Xdouble dh;
+Xint *h, *m;
+X{
+X    double tempsec;
+X
+X    *h = dh;
+X /* *m = (dh - *h) * 60; 
+X    tempsec = (dh - *h) * 60 - *m; */
+X    *m = fmod(dh, 1.0) * 60.0; 
+X    tempsec = fmod(dh, 1.0) * 60.0 - *m;
+X    tempsec = tempsec * 60 + 0.5;
+X    if (tempsec > 30.0)
+X	(*m)++;
+X    if (*m == 60) {
+X	*m = 0;
+X	(*h)++;
+X    }
+X}
+X
+Xeq_to_altaz(r, d, t, alt, az)
+Xdouble r, d, t;
+Xdouble *alt, *az;
+X{
+X    double p = 3.14159265;
+X    double r1 = p / 180.0;
+X    double b = lat * r1;
+X    double l = (360 - lon) * r1;
+X    double t5, s1, c1, c2, s2, a, h;
+X
+X    if (debug)
+X	printf("Given R. A. = %lf, DECL. = %lf, gmt = %lf \n", r, d, t);
+X
+X    r = r * 15.0 * r1;
+X    d = d * r1;
+X    t = t * 15.0 * r1;
+X    t5 = t - r + l;
+X    s1 = sin(b) * sin(d) + cos(b) * cos(d) * cos(t5);
+X    c1 = 1 - s1 * s1;
+X    if (c1 > 0) {
+X	c1 = sqrt(c1);
+X	h = atan(s1 / c1);
+X    } else {
+X	h = (s1 / fabs(s1)) * (p / 2.0);
+X    }
+X    c2 = cos(b) * sin(d) - sin(b) * cos(d) * cos(t5);
+X    s2 = -cos(d) * sin(t5);
+X    if (c2 == 0) 
+X	a = (s2/fabs(s2)) * (p/2);
+X    else {
+X	a = atan(s2/c2);
+X	if (c2 < 0)
+X	    a=a+p;
+X    }
+X    if (a<0)
+X        a=a+2*p;
+X    *alt = h / r1;
+X    *az = a / r1;
+X
+X    if (debug)
+X	printf("alt = %lf, az = %lf \n",*alt,*az);
+X}
+X
+Xdouble
+Xgmst(j, f)
+Xdouble j,f;
+X{
+X    double d, j0, t, t1, t2, s;
+X
+X    d = j - 2451545.0;
+X    t = d / 36525.0;
+X    t1 = floor(t);
+X    j0 = t1 * 36525.0 + 2451545.0;
+X    t2 = (j - j0 + 0.5)/36525.0;
+X    s = 24110.54841 + 184.812866 * t1; 
+X    s += 8640184.812866 * t2;
+X    s += 0.093104 * t * t;
+X    s -= 0.0000062 * t * t * t;
+X    s /= 86400.0;
+X    s -= floor(s);
+X    s = 24 * (s + (f - 0.5) * 1.002737909);
+X    if (s < 0)
+X	s += 24.0;
+X    if (s > 24.0)
+X	s -= 24.0;
+X
+X    if (debug)
+X	printf("For jd = %lf, f = %lf, gst = %lf \n", j, f, s);
+X
+X    return(s);
+X}
+END_OF_FILE
+  if test 11105 -ne `wc -c <'today/sun.c'`; then
+    echo shar: \"'today/sun.c'\" unpacked with wrong size!
+  fi
+  # end of 'today/sun.c'
+fi
+echo shar: End of archive 4 \(of 11\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

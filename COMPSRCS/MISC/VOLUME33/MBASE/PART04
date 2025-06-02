@@ -1,0 +1,1956 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i122:  mbase - MetalBase 5.0, Portable database engine, Part04/08
+Message-ID: <1992Nov23.232459.7422@sparky.imd.sterling.com>
+X-Md4-Signature: 87d6cd42d8825598a91064150903ec07
+Date: Mon, 23 Nov 1992 23:24:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 122
+Archive-name: mbase/part04
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  sample/bench.s src/form.c src/lock.c src/mbase.c
+#   src/mbase.h
+# Wrapped by kent@sparky on Mon Nov 23 16:33:13 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 8)."'
+if test -f 'sample/bench.s' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/bench.s'\"
+else
+  echo shar: Extracting \"'sample/bench.s'\" \(67 characters\)
+  sed "s/^X//" >'sample/bench.s' <<'END_OF_FILE'
+Xrelation bench
+X
+Xfield num type serial;
+X
+Xindex ix_num on num;
+X
+Xend
+X
+END_OF_FILE
+  if test 67 -ne `wc -c <'sample/bench.s'`; then
+    echo shar: \"'sample/bench.s'\" unpacked with wrong size!
+  fi
+  # end of 'sample/bench.s'
+fi
+if test -f 'src/form.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/form.c'\"
+else
+  echo shar: Extracting \"'src/form.c'\" \(12334 characters\)
+  sed "s/^X//" >'src/form.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X *
+X * Special thanks go to Adrian Corston (adrian@internode.com.au) for his
+X * suggestions and code.  While this code is of my penning, the idea and
+X * style of implementation for this are direct ports from his own
+X * excellent work.
+X *
+X */
+X
+X#include "mbase.h"
+X
+X#ifndef MAXnREL
+X#define MAXnREL 20    /* Max # of relations in any given DE form */
+X#endif
+X#ifndef MAXnFLD
+X#define MAXnFLD 40    /* Max # of fields in any given DE form    */
+X#endif
+X
+X/*
+X * Definitions
+X *
+X */
+X
+X#define LPARQ "("
+X#define LBRCQ "{"   /* These are pulled out   */
+X#define LBKT  '['   /* so that vi's ()/[]/{}  */
+X#define LBRC  '{'   /* matchin works properly */
+X#define RBRC  '}'   /* in moving through the  */
+X#define RBKT  ']'   /* code.                  */
+X#define RBRCQ "}"
+X#define RPARQ ")"
+X
+X#define usage() fprintf (stderr, "form: format: %sform [formname]%s",SNGCR,SNGCR)
+X
+X#define comment() skip(form,";"); while(skip(form,"#")) goeol(form,NULL);
+X#define nocolon()                 while(skip(form,"#")) goeol(form,NULL);
+X
+X#define fieldopt(x) (*(options[x]))
+X#define fieldmode(x) (*(modes[x]))
+X
+X/*
+X * Prototypes
+X *
+X */
+X
+X#ifdef LONGARGS
+X   void  main         (int, char **);
+X   void  parse_args   (int, char **);
+X   void  check_data   (int);
+X   void  check_defin  (int);
+X   void  check_screen (int);
+X   void  check_fields (int);
+X   void  check_modes  (int);
+X   void  id_field     (char *, char *);
+X   extern void  writeit      (void);
+X#else
+X   void  main();
+X   void  parse_args();
+X   void  check_data();
+X   void  check_defin();
+X   void  check_screen();
+X   void  check_fields();
+X   void  check_modes();
+X   void  id_field();
+X   extern void  writeit();
+X#endif
+X
+Xtypedef relation *relptr;
+Xtypedef char      optlist[10][40];
+Xtypedef int       modelist[20];
+X
+X/*
+X * Global Variables
+X *
+X */
+X
+Xchar      formname[30];
+Xint       form;
+X
+Xftype     gen_type;
+Xint       gen_len;
+X
+Xchar      defins[26][50];
+Xchar      displ[25][140];
+Xint       num_l, pos_y, pos_x, num_f, num_m;
+Xfield     fld[MAXnFLD];
+Xint       lens[MAXnFLD];
+Xoptlist  *options[MAXnFLD];
+Xmodelist *modes[MAXnFLD];
+X
+Xint       num_r;
+Xrelptr    rel[MAXnREL];
+X
+X/*
+X * Main code
+X *
+X */
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   parse_args   (argc, argv);
+X
+X   check_data   (form);
+X   check_defin  (form);
+X   check_screen (form);
+X   check_fields (form);
+X   check_modes  (form);
+X
+X   close   (form);
+X   mb_die  ();  /* Close all open relations */
+X
+X   writeit ();
+X   exit (0);
+X}
+X
+X/*
+X * Utilities
+X *
+X */
+X
+Xvoid
+Xparse_args (agc, agv)
+Xint         agc;
+Xchar           **agv;
+X{
+X   while (agc > 1 && agv[1][0] == '-')
+X    {
+X      switch (agv[1][1])
+X       { default:   fprintf (stderr, "unrecognized option '%s'\n", agv[1]);
+X                    usage   ();
+X                    exit    (1);
+X                   break;
+X       }
+X
+X      agc--;  agv++;
+X    }
+X
+X   if (agc != 2)
+X    { usage ();
+X      exit  (1);
+X    }
+X
+X   strcpy (formname, agv[1]);
+X   if (strcmp (&formname[strlen(formname)-4], ".frm"))
+X      strcat (formname, ".frm");
+X   if ((form = openx (formname, O_RDONLY)) < 0)
+X    { fprintf (stderr, "cannot open form '%s'\n", formname);
+X      exit    (2);
+X    }
+X}
+X
+Xvoid
+Xcheck_data (form)
+Xint         form;
+X{
+X   char  temp[80];
+X
+X   comment();
+X   num_r = 0;
+X   if (skip(form,"data") || skip(form,"relations") || skip(form,"relation"))
+X    {
+X      while (! skip (form, ";"))
+X       {
+X         if (num_r == MAXnREL)
+X          { fprintf (stderr, "Too many relations--see trouble.dox%s", SNGCR);
+X            close   (form);
+X            mb_exit (4);
+X          }
+X
+X         strcpy (temp, getword(form));
+X         skip (form, ","); nocolon();
+X
+X         if (! strcmp (&temp[strlen(temp)-4], ".rel"))
+X            temp[strlen(temp)-4] = 0;
+X
+X         if ((rel[num_r] = mb_inc (temp, 0)) == RNULL)
+X          { fprintf (stderr, "Cannot open relation '%s' : %s\n",temp,mb_error);
+X            close   (form);
+X            mb_exit (4);
+X          }
+X         num_r++;
+X       }
+X      if (num_r == 0)
+X       { fprintf (stderr,"Data keyword implies at least one relation%s",SNGCR);
+X         close   (form);
+X         mb_exit (5);
+X       }
+X    }
+X}
+X
+Xvoid
+Xcheck_defin (form)
+Xint          form;
+X{
+X   int   i;
+X   char  temp[80], t2[80];
+X
+X   for (i = 0; i < 26; i++)  defins[i][0] = 0;
+X
+X   while (skip (form, "define"))
+X    {
+X      strcpy (temp, getword (form));
+X      strcpy (t2,   getword (form));
+X
+X      if (strlen (temp) != 1 || t2[0] == 0)
+X       { fprintf (stderr, "DEFINE (%s:%s) syntax error%s", temp, t2, SNGCR);
+X         close   (form);
+X         mb_exit (6);
+X       }
+X      if (defins[(i = tolower(temp[0])-'a')][0] != 0)
+X       { fprintf (stderr, "Multiple references to DEFINE %c%s",temp[0],SNGCR);
+X         close   (form);
+X         mb_exit (6);
+X       }
+X
+X      strcpy  (defins[i], t2);
+X      comment ();
+X    }
+X}
+X
+Xvoid
+Xcheck_screen (form)
+Xint           form;
+X{
+X   int   i, j, k;
+X   char  temp[80], c;
+X
+X   pos_y = pos_x = 0;
+X
+X   if (! skip (form, "screen"))
+X    { fprintf (stderr, "Screen{} segment must follow Data and Define%s",SNGCR);
+X      close   (form);
+X      mb_exit (7);
+X    }
+X   if (! skip (form, LBRCQ))
+X    {
+X      pos_y = atoi (getword (form));
+X
+X      if (! skip (form, LBRCQ))
+X       {
+X         pos_x = atoi (getword (form));
+X
+X         if (! skip (form, LBRCQ))
+X          { fprintf (stderr, "Left brace must follow SCREEN keyword%s",SNGCR);
+X            close   (form);
+X            mb_exit (7);
+X          }
+X       }
+X    }
+X   goeol (form, NULL);
+X
+X   num_f = 0;
+X
+X   for (num_l = 0; num_l < 24; num_l++)
+X    {
+X      goeol (form, displ[num_l]);
+X      if (displ[num_l][0] == RBRC)  break;
+X
+X      for (;;)
+X       {
+X         for (i = 0; displ[num_l][i] != 0; i++)
+X            if (displ[num_l][i] == LBKT || displ[num_l][i] == LBRC)
+X               break;
+X         if (displ[num_l][i] == 0)
+X            break;
+X
+X         for (j = i+1; displ[num_l][j] != 0; j++)
+X            if ((displ[num_l][j] == RBKT && displ[num_l][i] == LBKT) ||
+X                (displ[num_l][j] == RBRC && displ[num_l][i] == LBRC))
+X               break;
+X            else
+X               temp[j-i-1] = displ[num_l][j];
+X         temp[j-i-1] = 0;
+X         if (displ[num_l][j] == 0)
+X            break;
+X
+X         if (num_f == MAXnFLD)
+X          { fprintf (stderr, "Too many fields--see trouble.dox%s", SNGCR);
+X            close   (form);
+X            mb_exit (8);
+X          }
+X
+X         for (k = 0; k < j-i-1; k++)
+X            if (temp[k] == ' ' || temp[k] == '\t')
+X               break;
+X         temp[k] = 0;
+X         if (k == 1)
+X          {
+X            k = (toupper (temp[0]) - 'A');
+X            if (defins[k][0] == 0)
+X             {
+X               fprintf (stderr, "Field %c undefined%s", temp[0], SNGCR);
+X               close   (form);
+X               mb_exit (8);
+X             }
+X            strcpy (temp, defins[k]);
+X          }
+X
+X         gen_len = j-i;
+X         id_field (fld[num_f].name, temp);
+X         fld[num_f].type  = gen_type;
+X         fld[num_f].y     = num_l;
+X         fld[num_f].x     = i + ((c = displ[num_l][i]) == LBKT);
+X         fld[num_f].len   = j-i-1;
+X         lens[num_f]      = gen_len;
+X
+X         num_f++;
+X
+X         for (k = i; i <= j; i++)
+X            displ[num_l][i] = ' ';
+X         if (c == LBRC)
+X          {
+X            for (i = k; displ[num_l][i+1] != 0; i++)
+X               displ[num_l][i] = displ[num_l][i+1];
+X            displ[num_l][i] = 0;
+X            i = j-1;
+X            for ( ; displ[num_l][i+1] != 0; i++)
+X               displ[num_l][i] = displ[num_l][i+1];
+X            displ[num_l][i] = 0;
+X          }
+X       }
+X    }
+X   comment();
+X}
+X
+Xvoid
+Xcheck_fields (form)
+Xint           form;
+X{
+X   char   temp[80];
+X   int    i, j, t;
+X
+X   for (i = 0; i < MAXnFLD; i++)
+X      options[i] = (optlist *)0;
+X
+X   while (skip (form, "field"))
+X    {
+X      id_field (temp, getword(form));
+X
+X      for (i = 0; i < num_f; i++)
+X         if (! strcmp (fld[i].name, temp))  break;
+X      if (i == num_f)
+X       { fprintf (stderr, "FIELD variable '%s' unused%s", temp, SNGCR);
+X         close   (form);
+X         mb_exit (9);
+X       }
+X
+X      skip (form, "type");
+X
+X       /*
+X        * Field credit type choice ("Yy" "Nn" "?");
+X        * Field temp   type link to credit ("Yes" "No" "Maybe");
+X        * Field other  type money;
+X        *
+X        */
+X
+X      strcpy (temp, getword (form));
+X
+X      if (! strcmp (temp, "choice") || ! strcmp (temp, "link"))
+X       {
+X         t = 0;
+X         if (!strcmp (temp, "link"))
+X          {
+X            skip (form, "to");
+X            id_field (temp, getword(form));
+X            t = 1;
+X          }
+X
+X         if (! skip (form, LPARQ))
+X          { fprintf (stderr, "(...) must surround options in FIELD%s", SNGCR);
+X            close   (form);
+X            mb_exit (9);
+X          }
+X
+X         if ((options[i] = New (optlist)) == (optlist *)0)
+X          { fprintf (stderr, "fatal error: out of memory%s", SNGCR);
+X            close   (form);
+X            mb_exit (9);
+X          }
+X
+X         fieldopt(i)[0][0] = 0;  /* Link-To field name */
+X         if (t == 1)
+X            strcpy (fieldopt(i)[0], temp);  /* Link-To field name */
+X
+X         for (j = 1; !skip (form, RPARQ); j++)
+X          {
+X            if (j == 10)  break;
+X            strcpy (fieldopt(i)[j], getword(form));
+X          }
+X         if (j != 10)  fieldopt(i)[j][0] = 0;
+X
+X         fld[i].option = t+1;  /* t: 0 == choice, 1 == link */
+X
+X         comment();
+X         continue;
+X       }
+X
+X      if (! strcmp (temp, "char"))       fld[i].type = T_CHAR;
+X      if (! strcmp (temp, "string"))     fld[i].type = T_CHAR;
+X      if (! strcmp (temp, "character"))  fld[i].type = T_CHAR;
+X      if (! strcmp (temp, "short"))      fld[i].type = T_SHORT;
+X      if (! strcmp (temp, "ushort"))     fld[i].type = T_USHORT;
+X      if (! strcmp (temp, "long"))       fld[i].type = T_LONG;
+X      if (! strcmp (temp, "ulong"))      fld[i].type = T_ULONG;
+X      if (! strcmp (temp, "float"))      fld[i].type = T_FLOAT;
+X      if (! strcmp (temp, "double"))     fld[i].type = T_DOUBLE;
+X      if (! strcmp (temp, "money"))      fld[i].type = T_MONEY;
+X      if (! strcmp (temp, "time"))       fld[i].type = T_TIME;
+X      if (! strcmp (temp, "date"))       fld[i].type = T_DATE;
+X      if (! strcmp (temp, "serial"))     fld[i].type = T_SERIAL;
+X      if (! strcmp (temp, "phone"))      fld[i].type = T_PHONE;
+X
+X      comment ();
+X    }
+X}
+X
+Xvoid
+Xcheck_modes  (form)
+Xint           form;
+X{
+X   char   temp[80];
+X   int    i, j, k;
+X
+X   for (i = 0; i < MAXnFLD; i++)
+X      modes[i] = (modelist *)0;
+X   for (i = 0; i < num_f; i++)
+X      if ((modes[i] = New (modelist)) == (modelist *)0)
+X       { fprintf (stderr, "fatal error: out of memory%s", SNGCR);
+X         close   (form);
+X         mb_exit (9);
+X       }
+X
+X   num_m = 0;
+X
+X   while (skip (form, "mode"))
+X    {
+X      if ((i = atoi (getword (form))) < 1) { goeol (form, NULL);  continue; };
+X
+X      strcpy (temp, getword (form));
+X      k = FM_INOUT;
+X      if (! strcmp (temp, "in"))   k = FM_IN;
+X      if (! strcmp (temp, "out"))  k = FM_OUT;
+X
+X      for (j = 0; j < num_f; j++)
+X         fieldmode(j)[i-1] = k;
+X
+X      while (! skip (form, ";"))
+X       {
+X         id_field (temp, getword (form));
+X
+X         for (j = 0; j < num_f; j++)
+X            if (! strcmp (fld[j].name, temp))  break;
+X         if (j == num_f)
+X          { fprintf (stderr, "MODE variable '%s' unused%s", temp, SNGCR);
+X            close   (form);
+X            mb_exit (9);
+X          }
+X
+X         k = FM_INOUT;
+X         strcpy (temp, getword (form));
+X         if (! strcmp (temp, "in"))   k = FM_IN;
+X         if (! strcmp (temp, "out"))  k = FM_OUT;
+X         fieldmode(j)[i-1] = k;
+X
+X         skip (form, ",");
+X       }
+X
+X      num_m ++;
+X      nocolon ();
+X    }
+X
+X   if (! skip (form, "end"))
+X    { fprintf (stderr, "unexpected keyword: END%s", SNGCR);
+X      close   (form);
+X      mb_exit (9);
+X    }
+X}
+X
+Xvoid
+Xid_field (buf, str)
+Xchar     *buf,*str;
+X{
+X   int  i, j;
+X
+X   strcpy (buf, str);
+X   gen_type = T_CHAR;
+X
+X   if (strchr (str, '.') == NULL)
+X      for (i = 0; i < num_r; i++)
+X       {
+X         for (j = 0; j < rel[i]->num_f; j++)
+X            if (! strcmp (str, rel[i]->name[j]))
+X               {
+X               sprintf (buf, "%s.%s", rel[i]->relname, rel[i]->name[j]);
+X               gen_type = rel[i]->type[j];
+X               gen_len  = rel[i]->siz[j];
+X               break;
+X               }
+X         if (j != rel[i]->num_f)  break;
+X       }
+X}
+X
+END_OF_FILE
+  if test 12334 -ne `wc -c <'src/form.c'`; then
+    echo shar: \"'src/form.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/form.c'
+fi
+if test -f 'src/lock.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lock.c'\"
+else
+  echo shar: Extracting \"'src/lock.c'\" \(12967 characters\)
+  sed "s/^X//" >'src/lock.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define UTIL_C
+X#include "mbase.h"
+X#include "internal.h"
+X
+X#ifdef LONGARGS
+X   static mb_err     _set_hack  (relation *);
+X   static void       _clr_hack  (relation *);
+X   static void       _lck_pause (void);
+X   static int        _is_dead   (relation *, int);
+X   static void       _clrstrobe (relation *);
+X#else
+X   static mb_err     _set_hack();
+X   static void       _clr_hack();
+X   static void       _lck_pause();
+X   static int        _is_dead();
+X   static void       _clrstrobe();
+X#endif
+X
+X/*****************************************************************************
+X *
+X * LOCK TIMING
+X *
+X */
+X
+Xstatic void
+X_lck_pause ()  /* Around .1 second pause, to reduce disk I/O */
+X{
+X   int  i, j = 1;
+X   for (i = 0; i < 40000; i++)  /* UGLY!  CHANGE THIS! */
+X      j = 1-j;
+X}
+X
+X/*****************************************************************************
+X *
+X * EXCLUSIVE (RELATION-WIDE) LOCKS
+X *
+X */
+X
+Xmb_err           /* Fair warning:                                            */
+X_chk_elck (rel)  /* THIS ROUTINE CANNOT BE TRUSTED unless you have a         */
+Xrelation  *rel;  /* temporary lock placed on the relation before calling it! */
+X{
+X   ushort pid;
+X   if (rel->exc & 1)  baderr (MB_OKAY);  /* _we_ have the lock set */
+X
+X   lseek (rel->lckcode, lckPOS_ELOCK, 0);
+X   readx (rel->lckcode, &pid, 2);
+X   if (! pid)  baderr (MB_OKAY);     /* or no one has the lock */
+X
+X   baderr (MB_LOCKED);
+X}
+X
+Xmb_err
+Xmb_unl   (rel)
+Xrelation *rel;
+X{
+X   ushort pid;
+X   if (_identify (rel) < 0)  reterr (MB_BAD_REL,  -1);
+X   if (! (rel->exc & 1))     reterr (MB_OKAY, MB_OKAY); /* We didn't lock it */
+X
+X   if (_set_lck (rel) != MB_OKAY)  baderr (mb_errno);
+X
+X   lseek (rel->lckcode, lckPOS_ELOCK, 0);
+X   readx (rel->lckcode, &pid,      2);
+X
+X   if (pid == rel->pid)
+X      {
+X      pid = 0;
+X      lseek (rel->lckcode, lckPOS_ELOCK, 0);
+X      writx (rel->lckcode, &pid,      2);
+X      }
+X
+X   rel->exc &= 2;  /* Clear the exclusive-lock bit */
+X   lckerr (rel, MB_OKAY, MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_lck   (rel)
+Xrelation *rel;
+X{
+X   ushort pid;
+X   if (_identify (rel) < 0)  reterr (MB_BAD_REL,  -1);
+X   if (rel->exc & 1)         baderr (MB_OKAY);  /* We've already locked it */
+X
+X   if (_set_lck (rel) != MB_OKAY)  baderr (mb_errno);
+X
+X   lseek (rel->lckcode, lckPOS_ELOCK, 0);
+X   readx (rel->lckcode, &pid, 2);
+X   if (pid != 0)  lckerr (rel, MB_LOCKED, -1);
+X
+X   lseek (rel->lckcode, lckPOS_ELOCK, 0);
+X   writx (rel->lckcode, &rel->pid, 2);
+X   rel->exc |= 1;  /* Set the exclusive-lock bit */
+X
+X   lckerr (rel, MB_OKAY, MB_OKAY);
+X}
+X
+X/*****************************************************************************
+X *
+X * HACK LOCKS (CONCURRENCY CONTROL)
+X *
+X */
+X
+Xstatic void
+X_clr_hack (rel)
+Xrelation  *rel;
+X{
+X   ushort *pid;
+X   char    pids[6];
+X
+X   lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X   readx (rel->lckcode, pids, 6);
+X
+X   if (*(pid = (ushort *)&pids[0]) == rel->pid)  *pid = 0L;
+X   if (*(pid = (ushort *)&pids[2]) == rel->pid)  *pid = 0L;
+X   if (*(pid = (ushort *)&pids[4]) == rel->pid)  *pid = 0L;
+X
+X   lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X   writx (rel->lckcode, pids, 6);
+X}
+X
+Xstatic mb_err
+X_set_hack (rel)
+Xrelation  *rel;
+X{
+X   ushort *pid;
+X   char    pids[6];
+X   int     fChange;
+X   mb_time timeStart;
+X
+X   timeStart = curtime();
+X
+X   for (;;)
+X      {
+X      if (elap_t (timeStart) > 5)
+X         {
+X         pids[0] = pids[1] = pids[2] = pids[3] = pids[4] = pids[5] = 0;
+X         lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X         writx (rel->lckcode, pids, 6);
+X         timeStart = curtime();
+X         continue;
+X         }
+X
+X/*
+X * FIRST ITERATION:
+X *
+X */
+X
+X      fChange = 0;
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      readx (rel->lckcode, pids, 6);
+X
+X      if (*(pid = (ushort *)&pids[0]) == rel->pid) { *pid = 0; fChange |= 1; }
+X      if (*pid != 0)  fChange |= 2;
+X      if (*(pid = (ushort *)&pids[2]) == rel->pid) { *pid = 0; fChange |= 1; }
+X      if (*pid != 0)  fChange |= 2;
+X      if (*(pid = (ushort *)&pids[4]) == rel->pid) { *pid = 0; fChange |= 1; }
+X      if (*pid != 0)  fChange |= 2;
+X
+X      if (! (fChange & 2))
+X         {
+X         *pid = rel->pid;  fChange |= 1;
+X         }
+X
+X      if (fChange & 1)
+X         {
+X         lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X         writx (rel->lckcode, pids, 6);
+X         }
+X
+X      if (fChange & 2)
+X         {
+X         continue;
+X         }
+X
+X/*
+X * SECOND ITERATION:
+X *
+X */
+X
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      readx (rel->lckcode, pids, 6);
+X
+X      if (*(pid = (ushort *)&pids[0]) != 0)          continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[4]) != rel->pid)   continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[2]) != 0)          continue; /* NOTE ORDER */
+X
+X      *pid = rel->pid;
+X
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      writx (rel->lckcode, pids, 6);
+X
+X/*
+X * THIRD ITERATION:
+X *
+X */
+X
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      readx (rel->lckcode, pids, 6);
+X
+X      if (*(pid = (ushort *)&pids[4]) != rel->pid)   continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[2]) != rel->pid)   continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[0]) != 0)          continue; /* NOTE ORDER */
+X
+X      *pid = rel->pid;
+X
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      writx (rel->lckcode, pids, 6);
+X
+X/*
+X * FINAL CHECK:
+X *
+X */
+X
+X      lseek (rel->lckcode, lckPOS_HLOCK, 0);
+X      readx (rel->lckcode, pids, 6);
+X
+X      if (*(pid = (ushort *)&pids[4]) != rel->pid)   continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[2]) != rel->pid)   continue; /* NOTE ORDER */
+X      if (*(pid = (ushort *)&pids[0]) != rel->pid)   continue; /* NOTE ORDER */
+X
+X      break;
+X      }
+X
+X   return MB_OKAY;
+X}
+X
+X/*****************************************************************************
+X *
+X * TEMPORARY LOCKS/ QUEUEING
+X *
+X */
+X
+Xmb_err
+X_set_lck (rel)
+Xrelation *rel;
+X{
+X   char    pids[60];
+X   ushort *pid, tpid;
+X   int     i, j;
+X
+X/*
+X * FLOW FOR GETTING   ( example queue:  12  13  14  00  19  22  00  00  00... )
+X * INTO THE QUEUE:    (           pos:   0   1   2   3   4   5   6   7   8... )
+X *
+X *     set hacklock  -- This guarantees that only one process will try to get
+X *                      into the queue at once--avoids race conditions.
+X *
+X * WAIT:
+X *     pos = the first zero in the right-hand set of contiguous zeroes
+X *           (position 6 in the example above)
+X *     look for a queuehole (position 3 above): -- if we were to just set
+X *        a lock when the queue has a hole in it, we'd possibly escalate
+X *        the length of the queue, whereas if we wait a few seconds, it'll
+X *        shrink itself (when process 19 wakes up and moves itself).
+X *     if queuehole
+X *        check strobe for our blocking process (pos 5, pid 22 in this case)
+X *        if strobe hasn't changed and elapsed time > 3 seconds
+X *           pos -= 1      -- move over the dead process and erase its hold on
+X *           write PID, 0  -- the queue--try again and we'll start here.
+X *        else
+X *           pause         -- let other processes work without extra I/O
+X *        goto WAIT        -- go check the queue for a hole again.
+X *     if the queue's full (pos == 30 -- no free slots), return MB_BUSY
+X *
+X *     clear hacklock      -- we're assured this position in the queue now
+X *
+X */
+X
+X   if (rel->exc & 2)  baderr (MB_OKAY);
+X
+X   if (_set_hack (rel))   baderr (mb_errno);
+X
+X   _clrstrobe (rel);
+X
+Xlockwait:
+X
+X   lseek (rel->lckcode, lckPOS_QUEUE, 0);
+X   readx (rel->lckcode, pids, 60);
+X
+X   for (i = 29; i >= 0; i--)
+X      if (*(pid = (ushort *)&pids[i*2]) != 0)
+X         break;
+X   i++;           /* "i" now == first available zero. */
+X
+X   if (i != 0)    /* Check for a queuehole before taking the slot. */
+X      {
+X      for (j = i-1; j >= 0; j--)
+X         if (*(pid = (ushort *)&pids[j*2]) == 0)
+X            break;
+X
+X      if (j != -1)  /* If this != -1, there's a 0 right here in the queue */
+X         {
+X         if (! _is_dead (rel, i-1))  /* If it's not dead, we expect it's     */
+X            {                   /* checking the guy before it, and so on--   */
+X            _lck_pause ();      /* and that eventually, someone will see the */
+X            _lck_pause ();      /* queuehole exists and will try to get it   */
+X            }                   /* filled.                                   */
+X         else
+X            {
+X            i--;       /* If it IS dead, though, move over it and try again. */
+X            tpid = 0;
+X            lseek (rel->lckcode, lckPOS_QUEUE +2*i, 0);
+X            writx (rel->lckcode, &tpid, 2);
+X            }
+X         goto lockwait; /* Look, GOTO was useful here, all right?  Sheesh... */
+X         }
+X      }
+X   if (i == 30)
+X      {
+X      _clr_hack (rel);
+X      baderr (MB_BUSY);
+X      }
+X
+X   lseek (rel->lckcode, lckPOS_QUEUE +2*i, 0);
+X   writx (rel->lckcode, &rel->pid, 2);
+X
+X   _clr_hack (rel);
+X
+X/*
+X * FLOW FOR WORKING OUR    ( example queue:   15  13  12  92  34  16  00... )
+X * WAY UP THE QUEUE:       (           pos:    0   1   2   3   4   5   6... )
+X *
+X * (we're in slot #4, PID==34, in the example above):
+X *
+X * WAIT:
+X *   If we're in slot 0, goto DONE
+X *   Otherwise,
+X *      Read pos OurPos-1 (#3)--check pid (92)
+X *      If PID==0,                     -- The process that WAS there has moved,
+X *      OR PID is dead                 -- or hasn't strobed in 3 seconds,
+X *         Write our PID in that slot  -- move up over it.  This way, free
+X *         Write zero in our last slot -- slots bubble upwards...
+X *         Goto WAIT
+X *      Strobe our position
+X *      Goto WAIT
+X *
+X * DONE:
+X *   We're finished, and a temporary lock is in place.  Make sure to strobe
+X *   every second during operations, or you'll lose your lock.
+X *
+X */
+X
+X   _clrstrobe (rel);
+X
+X   for (j = 0; i > 0; j++)
+X      {
+X      lseek (rel->lckcode, lckPOS_QUEUE +2*(i-1), 0);
+X      readx (rel->lckcode, &tpid, 2);
+X      if (tpid == 0 || _is_dead (rel, i-1))
+X         {
+X         i--;
+X         tpid = 0;
+X         lseek (rel->lckcode, lckPOS_QUEUE +2*i, 0);
+X         writx (rel->lckcode, &rel->pid, 2);
+X         writx (rel->lckcode, &tpid,     2);
+X         continue;
+X         }
+X
+X      _strobe (rel, i);  /* Don't let anyone think we're dead, but let */
+X      _lck_pause ();     /* other processes think for a second without */
+X      continue;          /* tons of I/O slowing everything down.       */
+X      }
+X
+X   rel->exc |= 2;
+X
+X   baderr (MB_OKAY);
+X}
+X
+Xmb_err
+X_clr_lck (rel)
+Xrelation *rel;
+X{
+X   ushort tpid = 0;
+X
+X   if (! (rel->exc & 2))  baderr (MB_OKAY);
+X
+X   rel->exc &= 1;  /* Clear the temp lock bit */
+X
+X   lseek (rel->lckcode, lckPOS_QUEUE, 0);
+X   writx (rel->lckcode, &tpid, 2);
+X
+X   return MB_OKAY;
+X}
+X
+Xstatic int
+X_is_dead (rel, pos)
+Xrelation *rel;
+Xint            pos;
+X{
+X   char    newstrobe[30];   /* Values just read from lockfile         */
+X   mb_time cur;             /* Current time (reduces curtime() calls) */
+X   int     i;
+X
+X   cur = curtime();
+X
+X/*
+X * If you have lots of frequently-dying processes, you may want to change the
+X * thing below to "#if 0"--that way, you can detect ALL processes dying in
+X * exactly three seconds instead of three sec per process--does a bit more
+X * I/O, though.
+X *
+X */
+X
+X#if 1
+X   i = pos;
+X
+X   lseek (rel->lckcode, lckPOS_STROBE +2*i, 0);    /* Get just this one */
+X   readx (rel->lckcode, &newstrobe[i], 1);         /* position's strobe */
+X#else
+X   lseek (rel->lckcode, lckPOS_STROBE, 0);  /* First, we read all thirty */
+X   readx (rel->lckcode, newstrobe, 30);     /* strobes into an array.    */
+X
+X   for (i = 0; i < 30; i++)                /* For each strobe, check if the  */
+X#endif
+X      if (rel->strobe[i] != newstrobe[i])  /* value's changed--if so, update */
+X         rel->times[i] = cur;              /* times[] array to current time. */
+X
+X/*
+X * Note: elap_t() will fail at midnight--it'll return a BIG negative number,
+X *       which won't pass the IsItDead test below.  So it may take 6 seconds
+X *       to detect if a process is dead, if successive checks occur right then.
+X *
+X * Now why 10 seconds?
+X *    1-second granularity means two seconds are minimum.
+X *    Previous value == current value adds two seconds for trigger (strobing
+X *       process won't change it, even if it expects to--and won't try again
+X *       for 1 sec, plus granularity safeguard).
+X *    6-second safeguard (just to be SURE, 'cause it's a Bad Thing to be
+X *       trigger happy, and a one-time timeout isn't worth fussing over).
+X *
+X */
+X
+X   return (elap_t (rel->times[pos]) > 10);  /* If not changed yet, dead. */
+X}
+X
+Xvoid
+X_strobe  (rel, pos)
+Xrelation *rel;
+Xint            pos;
+X{
+X   if (elap_t (rel->times[pos]) >= 1)
+X      {
+X      lseek (rel->lckcode, lckPOS_STROBE +pos, 0);
+X      rel->strobe[pos] = (char)( ((int)rel->strobe[pos] +1) % 255 );
+X      writx (rel->lckcode, &rel->strobe[pos], 1);
+X      rel->times[pos] = curtime();
+X      }
+X}
+X
+Xstatic void
+X_clrstrobe (rel)
+Xrelation   *rel;
+X{
+X   int     i;
+X   mb_time cur;
+X   cur = curtime();
+X   for (i = 0; i < 30; i++)
+X      rel->times[i] = curtime();
+X}
+X
+END_OF_FILE
+  if test 12967 -ne `wc -c <'src/lock.c'`; then
+    echo shar: \"'src/lock.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/lock.c'
+fi
+if test -f 'src/mbase.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mbase.c'\"
+else
+  echo shar: Extracting \"'src/mbase.c'\" \(12702 characters\)
+  sed "s/^X//" >'src/mbase.c' <<'END_OF_FILE'
+X/*   ********************************************************************   *
+X  ***                                                   unix compatible! ***
+X *    MetalBase 5.0.....................................................    *
+X *                                                                          *
+X *    Simultaneous multi-user use of multiple relations!                    *
+X *    Users may have many relations open at once, even the same one!        *
+X *    Environmentally safe--no chloroflourocarbons to destroy the ozone!    *
+X *    Loads of wonderful utilities, like data entry and report writing!     *
+X *    Unlimited indicies per relation/Up to 999 fields per composite index! *
+X *    Up to 4.2 billion records per relation (that's a lot, friend...)      *
+X *    Bizarre intermittent bugs (NOT), just like the expensive programs!    *
+X *    Portable to most any small-scale platform you can think of!           *
+X *    And, unless they're weird, your kids will eat it.                     *
+X *                                                               /\         *
+X *    Released October 1st, 1992 by Huan-Ti                  rj /  \        *
+X *                                                             /    \       *
+X *   "Ye hath mushrooms for $1.99 a pound.  Ye art             \    /       *
+X *    truly a Calvinist."                                       \  / tp     *
+X *                       -- II Calvin 7:1                        \/         *
+X *                                                                          *
+X *          206/881-2624 <-----= May 26, 1996 =-----> 615/494-0445          *
+X  ***       t-richj@microsoft.com / / virtual!root@owlnet.rice.edu       ***
+X *   ********************************************************************   */
+X
+X#define MBASE_C
+X#include "mbase.h"
+X#include "internal.h"
+X
+Xint       _started = 0;
+Xint       _really  = 1;
+Xrelation *_list [MAX_REL];
+X
+X#ifndef MSDOS
+X#ifdef LONGARGS
+X   extern char *getenv (char _FAR_ *);
+X#else
+X   extern char *getenv();
+X#endif
+X#endif
+X
+Xrelation *
+Xmb_open (filename, key, useold)
+Xchar    *filename;
+Xint                key, useold;
+X{
+X   relation     *rel;
+X   int           i, rc, fZero = 0;
+X   char          buf[256], *pch;
+X   long          fld, idx, tlong;
+X   short         tshort;
+X
+X   _really = 0;
+X   if (mb_test (filename, useold) != MB_OKAY)
+X    { if (_really != 0)
+X       { if (_really < 0)  close (0-_really);
+X         else              close (_really);
+X       }
+X      _really = 1;
+X      relerr (mb_errno, RNULL);
+X    }
+X   if ((rel = New (relation)) == RNULL)
+X    { if (_really != 0)
+X       { if (_really < 0)  close (0-_really);
+X         else              close (_really);
+X       }
+X      _really = 1;
+X      relerr (MB_NO_MEMORY, RNULL);
+X    }
+X
+X   rel->rdonly = (_really < 0) ? 1 : 0;
+X   if (_really < 0)  _really = 0-_really;
+X   rel->relcode = rc = _really;  _really = 1;
+X
+X   lseek (rel->relcode, 0L, 0);
+X   readx (rel->relcode, buf, 1);
+X
+X   rel->pos = 0L;
+X   rel->exc = 0;
+X   rel->pid = getpid();
+X   rel->ver = (int)buf[0];
+X
+X   for (i=0; i<MAX_REL; i++)
+X      if (_list[i] == RNULL)
+X         break;
+X   _list[i] = rel;        /* Assign it so mb_rmv()/mb_die() can find it */
+X
+X   if ((pch = strrchr (filename, DIRSEP)) == NULL)
+X      pch = filename;
+X   else
+X      pch++;
+X   strcpy (buf, pch);
+X
+X   if ((pch = strrchr (buf, '.')) != NULL)
+X      *pch = 0;
+X   strcpy (rel->relname, buf);
+X
+X   lseek (rel->relcode, POS_FIELDPTR(rel->ver), 0);
+X
+X   readx (rc, &fld,        4);
+X   readx (rc, &idx,        4);
+X   readx (rc, &rel->recz,  4);
+X   readx (rc, &tlong,      4);
+X   readx (rc, &tlong,      4);
+X   readx (rc, &tshort,     2);  rel->num_f = tshort;
+X   readx (rc, &tshort,     2);  rel->num_i = tshort;
+X
+X   _divine_mask (rel, key);
+X
+X   if (rel->ver == verCURRENT && ! rel->rdonly)
+X      {
+X      if ((pch = getenv ("TMP")) != NULL ||
+X          (pch = getenv ("TEMP")) != NULL)
+X         {
+X         strcpy (buf, pch);  /* If they define a directory, use it. */
+X         }
+X      else                   /* Otherwise, try to guess a default directory. */
+X         {
+X#ifdef UNIX
+X         strcpy (buf, "/tmp");
+X#endif
+X         }
+X      if (! buf[0])
+X         {
+X         close (rel->relcode);
+X         free (rel);
+X         relerr (MB_TMPDIR, RNULL);
+X         }
+X      if (buf[(i = strlen(buf))-1] != DIRSEP)
+X         {
+X         buf[i] = DIRSEP;
+X         buf[i+1] = 0;
+X         }
+X      strcat (buf, rel->relname);
+X      strcat (buf, ".lck");
+X
+X      if (access (buf, 0) == -1)
+X         if ((rel->lckcode = creatx (buf)) > 0)
+X            {
+X            close (rel->lckcode);
+X            fZero = 1;
+X            rel->lckcode = -1;
+X            }
+X
+X      rel->lckcode = openx (buf, OPENMODE);
+X
+X      if (rel->lckcode <= 0)
+X         {
+X         close (rel->relcode);
+X         free (rel);
+X         relerr (MB_TMPERR, RNULL);
+X         }
+X
+X      if (fZero)
+X         {
+X         modex (buf, 0666);              /* The 100 bytes consist of:    */
+X         for (i = 0; i < 100; i++)       /*   2 : Number of users in rel */
+X            buf[i] = 0;                  /*   2 : Exclustive lock        */
+X         lseek (rel->lckcode, 0L, 0);    /*   6 : 3 Hacklock positions   */
+X         writx (rel->lckcode, buf, 100); /*  60 : 30 Queue positions     */
+X         }                               /*  30 : 30 Strobe positions    */
+X
+X/*
+X * Lock file has been created; keep going.
+X *
+X */
+X
+X      if (_set_lck (rel) || _chk_elck (rel))
+X         {
+X         if (rel->exc & 2)
+X            _clr_lck (rel);
+X         close (rel->relcode);
+X         free (rel);
+X         relerr (mb_errno, RNULL);
+X         }
+X      }
+X
+X   return _fill_info (rel, fld, idx);
+X}
+X
+Xmb_err
+Xmb_test (filename, useold)
+Xchar    *filename;
+Xint                useold;
+X{
+X   int     i, rc, rdonly = 0;
+X   int     ver;
+X   char    buffer[256];
+X
+X   if (_started == 0)
+X      {
+X      _started = 1;
+X      for (_started=1, i=0; i<MAX_REL; i++)  /* Initialize list */
+X         _list[i] = RNULL;                   /* (oh boy fun!)   */
+X      }
+X
+X   for (i=0; i<MAX_REL; i++)
+X      if (_list[i] == RNULL)  break;
+X
+X   if (i == MAX_REL)
+X      {
+X      _really = 0;
+X      reterr (MB_NO_ROOM, -1);
+X      }
+X
+X   strcpy (buffer, filename);
+X   if (strcmp (&buffer[strlen(buffer)-4], ".rel"))
+X      strcat (buffer, ".rel");
+X
+X   if ((rc = openx (buffer, OPENMODE)) == -1)
+X      {
+X      if ((rc = openx (buffer, READMODE)) == -1)
+X         {
+X         if (_really)  close (rc);
+X         else         _really = 0;
+X         reterr (MB_NO_OPEN, -1);                    /* Can we open it? */
+X         }
+X      rdonly = 1;
+X      }
+X   if (readx (rc, buffer, 2) != 2)
+X      {
+X      if (_really)  close (rc);  else _really = 0;
+X      reterr (MB_NO_READ, -1);                    /* Can we read it? */
+X      }
+X
+X   ver = (int)buffer[0];
+X
+X   if (useold   && (ver < 40 || ver > verCURRENT))
+X      ver = 0;
+X   if (! useold && ver != verCURRENT)
+X      ver = 0;
+X
+X   if (!ver)
+X      {
+X      if (_really)  close (rc); else _really = 0;
+X      reterr (MB_FORMAT, -1);             /* Is it a 5.0 relation? */
+X      }
+X
+X#ifndef UNIX_LOCKS
+X   if (ver == verCURRENT && !rdonly && ((int)((uchar)buffer[1]) == 255))
+X      {
+X      if (_really)  close (rc);  else _really = 0;
+X      reterr (MB_BUSY, -1);                   /* Are there 255 users already? */
+X      }
+X#endif
+X
+X   if (_really)  close (rc);
+X   else          _really = (rdonly) ? 0-rc : rc;    /* - == readonly */
+X
+X   reterr (MB_OKAY, MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_add   (rel, rec)
+Xrelation *rel;
+Xdataptr        rec;
+X{
+X   int     i;
+X   long    rcd;
+X   int     err;
+X
+X   if (_identify (rel) < 0)            reterr (MB_BAD_REL,  -1);
+X   if (rel->rdonly)                    reterr (MB_NO_WRITE, -1);
+X
+X   if (_format (rel, rec, 1))          reterr (mb_errno,    -1);
+X   if (_set_lck (rel))                 reterr (mb_errno,    -1);
+X   if (_chk_elck (rel))                lckerr (rel, MB_LOCKED, -1);
+X
+X   _crypt (rel, rec);
+X   for (i=0; i<rel->num_i; i++)
+X      if (_check_dup (rel, rec, i, 0L))  lckerr (rel, mb_errno, -1);
+X
+X   _format (rel, rec, 2);
+X
+X   if (! (rcd = _append (rel, rec)))  lckerr (rel, MB_NO_WRITE, -1);
+X   if (_link (rel, rcd))              lckerr (rel, MB_CORRUPT,  -1);
+X
+X   rel->pos = rcd;
+X
+X   _crypt (rel, rec);
+X   err = MB_OKAY;
+X
+X   lckerr (rel, MB_OKAY, MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_upd   (rel, rec)
+Xrelation *rel;
+Xdataptr        rec;
+X{
+X   int     i;
+X   long    rcd;
+X
+X   if (_identify (rel) < 0)            reterr (MB_BAD_REL, -1);
+X   if ((rcd = rel->pos) == 0L)         reterr (MB_NO_CURR, -1);
+X   if (_format (rel, rec, 1))          reterr (mb_errno,   -1);
+X   if (rel->rdonly)                    reterr (MB_NO_WRITE,-1);
+X   if (_chk_elck (rel))                reterr (MB_LOCKED,  -1);
+X
+X   if (rel->iser < rel->num_f)
+X      {
+X      if (*(long *)((char *)rec + rel->start[rel->iser]) != rel->serial)
+X         reterr (MB_BAD_SERIAL, -1);
+X      }
+X   _crypt (rel, rec);
+X   for (i=0; i<rel->num_i; i++)
+X      if (_check_dup (rel, rec, i, rcd)) reterr (mb_errno, -1);
+X   if (_set_lck (rel))                   reterr (mb_errno, -1);
+X
+X   if (_delete (rel, rel->pos) <= 0L)
+X      if (mb_errno != MB_OKAY)         lckerr (rel, mb_errno, -1);
+X
+X   GO_RECID (rel, rel->pos);
+X   writx (rel->relcode, rec, rel->rec_len);
+X
+X   if (_link (rel, rel->pos))          lckerr (rel, MB_CORRUPT,  -1);
+X
+X   _crypt (rel, rec);
+X   lckerr (rel, MB_OKAY, MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_del   (rel)
+Xrelation *rel;
+X{
+X   if (_identify (rel) < 0)    reterr (MB_BAD_REL, -1);
+X   if (rel->pos == 0L)         reterr (MB_NO_CURR, -1);
+X   if (_chk_elck (rel))        reterr (MB_LOCKED,  -1);
+X   if (rel->rdonly)            reterr (MB_NO_WRITE,-1);
+X   if (_set_lck (rel))         reterr (mb_errno,   -1);
+X
+X   if (_delete (rel, rel->pos) <= 0L)
+X      if (mb_errno != MB_OKAY)  lckerr (rel, mb_errno, -1);
+X
+X   _remove (rel, rel->pos);
+X
+X   rel->pos = 0L;
+X
+X   lckerr (rel, MB_OKAY, MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_rmv   (rel)
+Xrelation *rel;
+X{
+X   int  i;
+X
+X   if ((i = _identify (rel)) == -1)  reterr (MB_BAD_REL, -1);
+X   _list[i] = RNULL;
+X   _close_proc (rel);
+X   baderr (MB_OKAY);
+X}
+X
+Xvoid
+Xmb_exit (x)
+Xint      x;
+X{
+X   mb_die ();
+X   exit   (x);
+X}
+X
+Xvoid
+Xmb_die ()
+X{
+X   int  i;
+X   if (_started)
+X      for (i=0; i<MAX_REL; i++)
+X         if (_list[i] != RNULL)
+X          { _close_proc (_list[i]);
+X            _list[i] = RNULL;
+X          }
+X   _seterr (MB_OKAY);
+X}
+X
+Xlong
+Xmb_num   (rel)
+Xrelation *rel;
+X{
+X   long    x;
+X   if (_identify (rel) < 0)  longerr (MB_BAD_REL, -1);
+X   if (lseek (rel->relcode, POS_NUMREC, 0) != POS_NUMREC)
+X      longerr (MB_FORMAT, -1);
+X   readx (rel->relcode, &x, 4);
+X   longerr (MB_OKAY, x);
+X}
+X
+Xint
+Xstrtokey (str)
+Xchar     *str;
+X{
+X   char *a;
+X   int   x;
+X   for (x=0, a=str; a && *a; a++)
+X      x = (x + (int)*a) % 240 + 15;
+X   return x;
+X}
+X
+Xvoid
+Xstrzcpy (new, old, num)
+Xchar    *new,*old;
+Xint                num;
+X{
+X   int  i;
+X   char         *a,*b;
+X
+X   if (!new || !old)  return;
+X   for (a=new,b=old,i=0; i<num && *b; a++,b++,i++)
+X      *a = *b;
+X   *a = 0;
+X}
+X
+Xmb_err
+Xmb_sel   (rel, idx, buf, act, comp)
+Xrelation *rel;
+Xint            idx;
+Xmb_action                act;
+Xdataptr             buf,      comp;
+X{
+X   dataptr rec;
+X   long    off, top;
+X
+X   _free_cache ();
+X
+X   if (_identify (rel) < 0)                            baderr (MB_BAD_REL);
+X   if (act != CURR && (idx < 0 || idx >= rel->num_i))  baderr (MB_BAD_IDX);
+X   if (_chk_elck (rel))                                baderr (MB_LOCKED);
+X   if (_set_lck (rel))                                 baderr (mb_errno);
+X
+X   rec = (comp == NULL) ? buf : comp;
+X   if (rec != NULL)  _crypt (rel, rec);
+X
+X   if (rel->pos == 0L)
+X      {
+X      if (act == NEXT)  act = FRST;
+X      if (act == PREV)  act = LAST;
+X      }
+X
+X   switch (act)
+X      {
+X      case FRST:
+X      case LAST:  off = _find_ends (rel, idx, (act == FRST) ? -1 : 1);
+X                 break;
+X      case CURR:  off = rel->pos;
+X                 break;
+X      case NEXT:
+X      case PREV:  off = _find_seq (rel, 0L, rel->pos, idx, (act == NEXT)?1:-1);
+X                 break;
+X      case GTEQ:
+X      case GTHN:
+X      case LTEQ:
+X      case LTHN:
+X      case EQUL:  GO_TOP (rel, idx);  readx (rel->relcode, &top, 4);
+X                  off = _search (rel, top, idx, act, rec);
+X                 break;
+X      default  :  baderr (MB_UNKNOWN);
+X                 break;
+X      }
+X
+X   if (off == 0L)
+X      {
+X      _seterr (MB_NO_SUCH);
+X      }
+X   else
+X      {
+X      _seterr (MB_OKAY);
+X      rel->pos = off;
+X      }
+X
+X   _crypt  (rel, rec);           /* Reverse-encrypt the comparison buffer */
+X   _memrec (rel, rel->pos, buf); /* Read in the output buffer, encrypted  */
+X   _crypt  (rel, buf);           /* Decrypt the output buffer             */
+X
+X   if (rel->pos && rel->iser < rel->num_f)
+X      {
+X      rel->serial = *(long *)((char *)buf + rel->start[rel->iser]);
+X      }
+X
+X   _clr_lck (rel);
+X
+X   return mb_errno;
+X}
+X
+END_OF_FILE
+  if test 12702 -ne `wc -c <'src/mbase.c'`; then
+    echo shar: \"'src/mbase.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mbase.c'
+fi
+if test -f 'src/mbase.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mbase.h'\"
+else
+  echo shar: Extracting \"'src/mbase.h'\" \(12825 characters\)
+  sed "s/^X//" >'src/mbase.h' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#ifndef MBASE_H
+X#define MBASE_H
+X
+X#include <stdinc.h>
+X#include <curses.h>
+X
+X#define verCURRENT 50  /* Signature for 5.0 relations */
+X
+Xextern WINDOW *win;
+X
+X#ifdef MSDOS       /*                                                     */
+X#ifdef KEY_RIGHT   /* If this is defined in curses.h, the curses package  */
+X#define USE_CURKEY /* supports keypad mode, and can trap our keys itself. */
+X#endif             /* Otherwise, we have to use our own esc-sequences. /  */
+X#endif             /*                                                     */
+X
+X/*
+X * USER-DEFINABLE DEFINITIONS -----------------------------------------------
+X *
+X */
+X
+X#ifndef MAX_REL
+X#define MAX_REL  100      /* Max relations open at once for any given user */
+X#endif
+X#ifndef MAX_FLD
+X#define MAX_FLD   40      /* Maximum number of fields in a relation        */
+X#endif
+X#ifndef MAX_IDX
+X#define MAX_IDX   20      /* Maximum number of indices in a relation       */
+X#endif
+X#ifndef MAX_CACHE
+X#define MAX_CACHE 500     /* Maximum # of records to cache before flushing */
+X#endif
+X
+X/*
+X * ERROR CODES --------------------------------------------------------------
+X *
+X */
+X
+Xtypedef enum
+X   {
+X   MB_OKAY = 0,
+X   MB_NO_ROOM,    /* MAX_REL is #defined to be too small   */
+X   MB_NO_MEMORY,  /* Not enough memory for requested task  */
+X   MB_NO_OPEN,    /* Cannot open given filename            */
+X   MB_NO_READ,    /* Cannot read given filename            */
+X   MB_FORMAT,     /* Relation is not in MB 4.0+ format     */
+X   MB_LOCKED,     /* Relation is locked by another user    */
+X   MB_BUSY,       /* Relation has too many users at once   */
+X   MB_BAD_REL,    /* Function passed bad relation struct   */
+X   MB_NO_WRITE,   /* Cannot write given filename           */
+X   MB_TIMEOUT,    /* Temporary lock has not been removed   */
+X   MB_BAD_REC,    /* A null rec pointer has been received  */
+X   MB_CORRUPT,    /* A corrupt index has been detected     */
+X   MB_BAD_DUP,    /* Addition would violate a nodups idx   */
+X   MB_NO_CURR,    /* Current record required for operation */
+X   MB_BAD_IDX,    /* A bad index number has been received  */
+X   MB_NO_SUCH,    /* The specified record can't be found   */
+X   MB_UNKNOWN,    /* Search command invalid                */
+X   MB_NO_FIELDS,  /* The new relation has no fields        */
+X   MB_NO_INDICES, /* The new relation has no indices       */
+X   MB_BAD_INDEX,  /* A proposed new index has no fields    */
+X   MB_DISKFULL,   /* There is not enough free space left   */
+X   MB_BAD_SERIAL, /* Serial #'s for records can't change   */
+X   MB_TMPDIR,     /* You must define a TMP directory       */
+X   MB_TMPERR,     /* Cannot work with TMP directory        */
+X   } mb_err;
+X
+X/*
+X * SEARCH CRITERIA ----------------------------------------------------------
+X *
+X */
+X
+Xtypedef enum
+X   {
+X   FRST = 0,
+X   LAST,
+X   CURR,
+X   NEXT,
+X   PREV,
+X   GTEQ,
+X   GTHN,
+X   LTEQ,
+X   LTHN,
+X   EQUL
+X   } mb_action;
+X
+Xtypedef enum
+X   {
+X   T_CHAR = 0,  /*  0 -- length ? (char [])         */
+X   T_SHORT,     /*  1 -- length 2 (short)           */
+X   T_USHORT,    /*  2 -- length 2 (unsigned short)  */
+X   T_LONG,      /*  3 -- length 4 (long)            */
+X   T_ULONG,     /*  4 -- length 4 (unsigned long)   */
+X   T_FLOAT,     /*  5 -- length 4 (float)           */
+X   T_DOUBLE,    /*  6 -- length 8 (double)          */
+X   T_MONEY,     /*  7 -- length 8 (double)          */
+X   T_TIME,      /*  8 -- length 4 (long)            */
+X   T_DATE,      /*  9 -- length 4 (long)            */
+X   T_SERIAL,    /* 10 -- length 4 (long)            */
+X   T_PHONE      /* 11 -- lenght 20 (char [])        */
+X   } ftype;
+X
+X#define FIRST    FRST
+X#define CURRENT  CURR
+X#define PREVIOUS PREV
+X#define GTHAN    GTHN
+X#define LTHAN    LTHN
+X#define EQUAL    EQUL
+X
+X#define AR_UP    (char)129  /* Arrows for input.c */
+X#define AR_DOWN  (char)130
+X#define AR_LEFT  (char)131
+X#define AR_RIGHT (char)132
+X#define AR_INS   (char)133  /* Insert, Delete, Home, End, PgUp, PgDn */
+X#define AR_DEL   (char)134
+X#define AR_HOME  (char)135
+X#define AR_END   (char)136
+X#define AR_PGUP  (char)137
+X#define AR_PGDN  (char)138
+X
+X/*
+X * TIME/DATE/PHONE STRUCTURES -----------------------------------------------
+X *
+X */
+X
+Xtypedef long mb_time;
+Xtypedef long mb_date;
+Xtypedef char mb_phone[20];
+X
+X/*
+X * RELATION STRUCTURE -------------------------------------------------------
+X *
+X */
+X
+Xtypedef struct
+X   {
+X   int    relcode;                       /* File handle for relation     */
+X   int    lckcode;                       /* Handle for lockfile          */
+X   int    num_i, num_f, rec_len;
+X   long   recz,  pos,   hack;
+X   long   serial;                        /* Serial value last queried    */
+X   int    iser;                          /* Serial field index, or num_f */
+X
+X   char   relname[30];                   /* Relation name--no path       */
+X
+X   int    start[MAX_FLD], siz[MAX_FLD];  /* Byte-wise info for fields    */
+X   ftype  type[MAX_FLD];                 /* Field types                  */
+X   char   name[MAX_FLD][21];             /* Field names                  */
+X
+X   int    itype[MAX_IDX];                /* Dups/Nodups                  */
+X   char   idxs[MAX_IDX][100];            /* Index fields                 */
+X   char   iname[MAX_IDX][21];            /* Index name                   */
+X
+X   char   mask;                          /* Encryption mask              */
+X   ushort pid;                           /* This Process ID              */
+X   int    rdonly;                        /* True if we can't write       */
+X   int    exc;                           /* True if we've locked it      */
+X   int    ver;                           /* Version number               */
+X
+X   char    strobe[30];      /* Last read strobe value for each strobe */
+X   mb_time times[30];       /* Time strobe value last changed         */
+X   } relation;
+X
+X#define RNULL (relation *)0
+X
+X/*
+X * DEFINITIONS --------------------------------------------------------------
+X *
+X */
+X
+X#ifndef UTIL_C
+X#define mb_inc(a,b) mb_open(a,b,0)
+X#define mb_old(a,b) mb_open(a,b,1)
+X#define mb_tst(a)   mb_test(a,0)
+X
+X#define MB_IncludeRelation   mb_inc
+X#define MB_TestInclude       mb_tst
+X#define MB_RemoveRelation    mb_rmv
+X#define MB_CloseAllRelations mb_die
+X#define MB_NumberOfRecords   mb_num
+X#define MB_ResetNumUsers     mb_rst
+X#define MB_AddRecord         mb_add
+X#define MB_DeleteRecord      mb_del
+X#define MB_DebugRelation     mb_dbg
+X#define MB_UpdateRecord      mb_upd
+X#define MB_SelectRecord      mb_sel
+X#define MB_LockRelation      mb_lck
+X#define MB_UnlockRelation    mb_unl
+X#define MB_FormatDate        fmt_date
+X#define MB_FormatTime        fmt_time
+X#define MB_FormatPhone       fmt_phone
+X#define MB_ScanDate          scn_date
+X#define MB_ScanTime          scn_time
+X#define MB_ScanPhone         scn_phone
+X#endif
+X
+X#define curtime()     tmtotime((struct tm *)0)
+X#define curdate()     tmtodate((struct tm *)0)
+X#define curdatetime() datetimetotm((mb_date)0,(mb_time)0)
+X#define iswhite(x)    (x==' ' ||x=='\n' ||x=='\r' ||x=='\t')
+X#define istoken(x)    (x==',' ||x==':'  ||x==';'  ||x=='#' ||x=='(' || x==')')
+X#define putback(f)    lseek(f,_lpos,0)
+X
+X/*
+X * GLOBAL VARIABLES ---------------------------------------------------------
+X *
+X */
+X
+X#ifdef INPUT_C
+X   char      quit_chars[20] = "";
+X   WINDOW   *win = (WINDOW *)0;
+X#else
+X   extern WINDOW *win;
+X   extern char    quit_chars[20];
+X#endif
+X
+X#ifdef MBASE_C
+X   char     *mb_error = "";
+X   mb_err    mb_errno = MB_OKAY;
+X#else
+X   extern char     *mb_error;
+X   extern mb_err    mb_errno;
+X#endif
+X
+X/*
+X * DATA ENTRY STRUCTURES ----------------------------------------------------
+X *
+X */
+X
+X#define FM_IN    1
+X#define FM_OUT   2
+X#define FM_INOUT (FM_IN|FM_OUT)
+X#define fm_refrnum(f,n) fm_refresh(f,&(form->fields[n]))
+X
+Xtypedef int (*int_fn)();
+X
+Xtypedef struct
+X { int      y,    x,     len;
+X   ftype    type;
+X   int      inout, option;
+X   int     *mode;
+X   dataptr  buffer;
+X   char     name[40];
+X   charptr *opt_arr; } field;
+X
+Xtypedef struct
+X { int      curmode;
+X   int      key;          /* Return code from input() */
+X   int      curfield;
+X   int      nextfield;
+X   int      numfields;
+X   int      nummodes;
+X   int_fn   valid_fn;
+X   int      numlines, y, x;
+X   field   *fields;
+X   charptr *_scrn;       } de_form;
+X
+X/*
+X * FUNCTION PROTOTYPES ------------------------------------------------------
+X *
+X */
+X
+X#ifdef LONGARGS
+X
+X#ifndef UTIL_C
+X   extern relation *mb_open  (char     *, int, int);
+X   extern mb_err    mb_test  (char     *, int);
+X   extern mb_err    mb_rmv   (relation *);
+X   extern void      mb_die   (void);
+X   extern long      mb_num   (relation *);
+X   extern mb_err    mb_rst   (relation *, int);
+X   extern mb_err    mb_add   (relation *, dataptr);
+X   extern mb_err    mb_upd   (relation *, dataptr);
+X   extern mb_err    mb_del   (relation *);
+X   extern void      mb_dbg   (relation *);
+X   extern mb_err    mb_sel   (relation *, int, dataptr, mb_action, dataptr);
+X   extern int       compare  (relation *, char *, char *, int);
+X   extern int       idxnum   (relation *, char *);
+X   extern void      mb_exit  (int);
+X   extern int       strtokey (char *);
+X   extern mb_err    mb_lck   (relation *);
+X#endif
+X
+X   extern mb_err   _chk_elck (relation *);
+X   extern mb_err    mb_unl   (relation *);
+X   extern void      strzcpy  (char *,     char *, int);
+X
+X#ifndef MBASE_C
+X   extern long       elap_t       (mb_time);
+X   extern mb_time    tmtotime     (struct tm *);
+X   extern mb_date    tmtodate     (struct tm *);
+X   extern struct tm *datetimetotm (mb_date,     mb_time);
+X   extern char      *fmt_date     (mb_date,     int);
+X   extern char      *fmt_time     (mb_time,     int);
+X   extern char      *fmt_phone    (long, long, long, long, int);
+X   extern void       scn_phone    (long *, long *, long *, long *, char *);
+X   extern mb_date    scn_date     (char      *);
+X   extern mb_time    scn_time     (char      *);
+X   extern mb_time    add_time     (char      *);
+X   extern char      input    (dataptr,    int,    int);
+X   extern char      getarr   (void);
+X   extern void      display  (dataptr,    int,    int);
+X   extern void      init_curses(void);
+X   extern int       skip     (int,        char *);
+X   extern void      goeol    (int,        char *);
+X   extern char     *getword  (int);
+X   extern int       fm_fldnum  (de_form  *,  char     *);
+X   extern void      reltoform  (relation *,  de_form  *,  dataptr);
+X   extern void      formtorel  (de_form  *,  relation *,  dataptr);
+X   extern void      fm_refresh (de_form  *,  field    *);
+X   extern void      fm_refrall (de_form  *);
+X   extern void      fm_zero    (de_form  *);
+X   extern int       do_form    (de_form  *);
+X   extern dataptr   fm_data    (de_form  *,  char     *);
+X   extern void      fm_mode    (de_form *,   int);
+X   extern relation *mb_new      (void);
+X   extern mb_err    mb_addindex (relation *, char *, int,   char *);
+X   extern mb_err    mb_addfield (relation *, char *, ftype, long);
+X   extern mb_err    mb_create   (relation *, char *, int);
+X   extern int       mb_getname  (relation *, char *, int);
+X#endif
+X
+X#else  /* ifndef LONGARGS */
+X
+X#ifndef UTIL_C
+X   extern relation *mb_open();
+X   extern mb_err    mb_test();
+X   extern mb_err    mb_rmv();
+X   extern void      mb_die();
+X   extern long      mb_num();
+X   extern mb_err    mb_rst();
+X   extern mb_err    mb_add();
+X   extern mb_err    mb_upd();
+X   extern mb_err    mb_del();
+X   extern void      mb_dbg();
+X   extern mb_err    mb_sel();
+X   extern int       compare();
+X   extern int       idxnum();
+X   extern void      mb_exit();
+X   extern int       strtokey();
+X   extern mb_err    mb_lck();
+X#endif
+X
+X   extern mb_err   _chk_elck();
+X   extern mb_err    mb_unl();
+X   extern void      strzcpy();
+X
+X#ifndef MBASE_C
+X   extern long       elap_t();
+X   extern mb_time    tmtotime();
+X   extern mb_date    tmtodate();
+X   extern struct tm *datetimetotm();
+X   extern char      *fmt_date();
+X   extern char      *fmt_time();
+X   extern char      *fmt_phone();
+X   extern void       scn_phone();
+X   extern mb_date    scn_date();
+X   extern mb_time    scn_time();
+X   extern mb_time    add_time();
+X   extern char      input();
+X   extern char      getarr();
+X   extern void      display();
+X   extern void      init_curses();
+X   extern int       skip();
+X   extern void      goeol();
+X   extern char     *getword();
+X   extern int       fm_fldnum();
+X   extern void      reltoform();
+X   extern void      formtorel();
+X   extern void      fm_refresh();
+X   extern void      fm_refrall();
+X   extern void      fm_zero();
+X   extern int       do_form();
+X   extern dataptr   fm_data();
+X   extern void      fm_mode();
+X   extern relation *mb_new();
+X   extern mb_err    mb_addindex();
+X   extern mb_err    mb_addfield();
+X   extern mb_err    mb_create();
+X   extern int       mb_getname();
+X#endif
+X
+X#endif  /* LONGARGS */
+X
+X#endif  /* MBASE_H */
+X
+END_OF_FILE
+  if test 12825 -ne `wc -c <'src/mbase.h'`; then
+    echo shar: \"'src/mbase.h'\" unpacked with wrong size!
+  fi
+  # end of 'src/mbase.h'
+fi
+echo shar: End of archive 4 \(of 8\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1515 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v33i066:  remind - A replacement for calendar, Part09/12
+Message-ID: <1992Nov10.042005.1288@sparky.imd.sterling.com>
+X-Md4-Signature: e9fb3a1ea25840c7602d2cba6cf9d939
+Date: Tue, 10 Nov 1992 04:20:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 33, Issue 66
+Archive-name: remind/part09
+Environment: UNIX, MS-DOS
+Supersedes: remind: Volume 17, Issue 3-6
+
+#!/bin/sh
+# This is part 09 of Remind 03.00.00
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= trigger.c ==============
+if test X"$1" != X"-c" -a -f 'trigger.c'; then
+	echo "File already exists: skipping 'trigger.c'"
+else
+echo "x - extracting trigger.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > trigger.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  TRIGGER.C                                                  */
+X/*                                                             */
+X/*  Routines for figuring out the trigger date of a reminder   */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1991 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X
+X#include <stdio.h>
+X#include "config.h"
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include "types.h"
+X#include "expr.h"
+X#include "protos.h"
+X#include "globals.h"
+X#include "err.h"
+X
+X#define GOT_DAY 1
+X#define GOT_MON 2
+X#define GOT_YR 4
+X#define GOT_WD 8
+X
+Xstatic int	JYear		ARGS((int jul));
+Xstatic int	JMonth		ARGS((int jul));
+Xstatic int NextSimpleTrig ARGS((int startdate, Trigger *trig, int *err));
+Xstatic int GetNextTriggerDate ARGS((Trigger *trig, int start, int *err, int *nextstart));
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  NextSimpleTrig                                             */
+X/*                                                             */
+X/*  Compute the "simple" trigger date, taking into account     */
+X/*  ONLY the day of week, day, month and year components.      */
+X/*  Normally, returns -1 if the trigger has expired.  As a     */
+X/*  special case, if D, M, Y [WD] are specified, returns the   */
+X/*  Julian date, regardless of whether it's expired.  This is  */
+X/*  so that dates with a REP can be handled properly.          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int NextSimpleTrig(int startdate, Trigger *trig, int *err)
+X#else
+Xstatic int NextSimpleTrig(startdate, trig, err)
+Xint startdate;
+XTrigger *trig;
+Xint *err;
+X#endif
+X{
+X   int typ = 0;
+X   int d, m, y, j, d2, m2, y2;
+X
+X   *err = 0;
+X   FromJulian(startdate, &y, &m, &d);
+X   d2 = d;
+X   m2 = m;
+X   y2 = y;
+X
+X   if (trig->d != NO_DAY) typ |= GOT_DAY;
+X   if (trig->m != NO_MON) typ |= GOT_MON;
+X   if (trig->y != NO_YR) typ |= GOT_YR;
+X   if (trig->wd != NO_WD) typ |= GOT_WD;
+X   switch(typ) {
+X      case 0:
+X      case GOT_WD:
+X	 if (trig->wd != NO_WD)
+X	    while(! (trig->wd & (1 << (startdate%7)))) startdate++;
+X	 return startdate;
+X
+X      case GOT_DAY:
+X	 if (d > trig->d) {
+X	    m++;
+X	    if (m == 12) { m = 0; y++; }
+X	 }
+X	 while (trig->d > DaysInMonth(m, trig->y)) m++;
+X	 j = Julian(y, m, trig->d);
+X	 return j;
+X
+X      case GOT_MON:
+X	 if (m == trig->m) return startdate;
+X	 else if (m > trig->m) return Julian(y+1, trig->m, 1);
+X	 else return Julian(y, trig->m, 1);
+X
+X      case GOT_YR:
+X	 if (y == trig->y) return startdate;
+X	 else if (y < trig->y) return Julian(trig->y, 0, 1);
+X	 else return -1;
+X
+X      case GOT_DAY+GOT_MON:
+X	 if (m > trig->m || m == trig->m && d > trig->d) y++;
+X	 if (trig->d > MonthDays[trig->m]) {
+X	    *err = E_BAD_DATE;
+X	    return -1;
+X	 }
+X
+X	 /* Take care of Feb. 29 */
+X	 while (trig->d > DaysInMonth(trig->m, y)) y++;
+X	 return Julian(y, trig->m, trig->d);
+X
+X      case GOT_DAY+GOT_YR:
+X	if (y < trig->y) return Julian(trig->y, 0, trig->d);
+X	else if (y > trig->y) return -1;
+X
+X	if (d > trig->d) {
+X	   m++;
+X	   if (m == 12) return -1;
+X	}
+X	while (trig->d > DaysInMonth(m, trig->y)) m++;
+X	return Julian(trig->y, m, trig->d);
+X
+X      case GOT_MON+GOT_YR:
+X	 if (y > trig->y || (y == trig->y && m > trig->m)) return -1;
+X	 if (y < trig->y) return Julian(trig->y, trig->m, 1);
+X	 if (m == trig->m) return startdate;
+X	 return Julian(trig->y, trig->m, 1);
+X
+X      case GOT_DAY+GOT_MON+GOT_YR:
+X	 if (trig->d > DaysInMonth(trig->m, trig->y)) {
+X	    *err = E_BAD_DATE;
+X	    return -1;
+X	 }
+X	 return Julian(trig->y, trig->m, trig->d);
+X
+X      case GOT_YR+GOT_WD:
+X	 if (y > trig->y) return -1;
+X	 if (y < trig->y) j = Julian(trig->y, 0, 1);
+X	 else j = startdate;
+X	 while(! (trig->wd & (1 << (j%7)))) j++;
+X	 if (JYear(j) > trig->y) return -1;
+X	 return j;
+X
+X      case GOT_MON+GOT_WD:
+X	 if (m == trig->m) {
+X	    j = startdate;
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    if (JMonth(j) == trig->m) return j;
+X	 }
+X	 if (m >= trig->m) j = Julian(y+1, trig->m, 1);
+X	 else if (m < trig->m) j = Julian(y, trig->m, 1);
+X	 while(! (trig->wd & (1 << (j%7)))) j++;
+X	 return j; /* Guaranteed to be within the month */
+X
+X      case GOT_DAY+GOT_WD:
+X	 if (m !=0 || y > BASE) {
+X	    m2 = m-1;
+X	    if (m2 < 0) { y2 = y-1; m2 = 11; }
+X
+X	    /* If there are fewer days in previous month, no match */
+X	    if (trig->d <= DaysInMonth(m2, y2)) {
+X	       j = Julian(y2, m2, trig->d);
+X	       while(! (trig->wd & (1 << (j%7)))) j++;
+X	       if (j >= startdate) return j;
+X
+X	    }
+X	 }
+X
+X	 /* Try this month */
+X	 if (trig->d <= DaysInMonth(m, y)) {
+X	    j = Julian(y, m, trig->d);
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    if (j >= startdate) return j;
+X	 }
+X
+X         /* Argh!  Try next avail. month */
+X	 m2 = m+1;
+X	 if (m2 > 11) { m2 = 0; y++; }
+X	 while (trig->d > DaysInMonth(m2, y)) m2++;
+X	 j = Julian(y, m2, trig->d);
+X	 while(! (trig->wd & (1 << (j%7)))) j++;
+X	 return j;
+X
+X      case GOT_WD+GOT_YR+GOT_DAY:
+X	 if (y > trig->y+1 || y > trig->y && m>0) return -1;
+X	 if (y > trig->y) {
+X	    j = Julian(trig->y, 11, trig->d);
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    if (j >= startdate) return j;
+X	 } else if (y < trig->y) {
+X	    j = Julian(trig->y, 0, trig->d);
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    return j;
+X	 } else {
+X	    /* Try last month */
+X	    if (m > 0) {
+X	       m2 = m-1;
+X	       while (trig->d > DaysInMonth(m2, trig->y)) m2--;
+X	       j = Julian(trig->y, m2, trig->d);
+X	       while(! (trig->wd & (1 << (j%7)))) j++;
+X	       if (j >= startdate) return j;
+X	    }
+X	 }
+X	 /* Try this month */
+X	 if (trig->d <= DaysInMonth(m, trig->y)) {
+X	    j = Julian(trig->y, m, trig->d);
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    if (j >= startdate) return j;
+X	 }
+X
+X	 /* Must be next month */
+X	 if (m == 11) return -1;
+X	 m++;
+X	 while (trig->d > DaysInMonth(m, trig->d)) m++;
+X	 j = Julian(trig->y, m, trig->d);
+X	 while(! (trig->wd & (1 << (j%7)))) j++;
+X	 return j;
+X
+X      case GOT_DAY+GOT_MON+GOT_WD:
+X	 /* Move up to the first valid year */
+X	while (trig->d > DaysInMonth(trig->m, y)) y++;
+X
+X	/* Try this year */
+X	j = Julian(y, trig->m, trig->d);
+X	while(! (trig->wd & (1 << (j%7)))) j++;
+X	if (j >= startdate) return j;
+X
+X	/* Must be next year */
+X	y = y + 1;
+X	while (trig->d > DaysInMonth(trig->m, y)) y++;
+X	j = Julian(y, trig->m, trig->d);
+X	while(! (trig->wd & (1 << (j%7)))) j++;
+X	return j;
+X
+X      case GOT_WD+GOT_MON+GOT_YR:
+X	 if (y > trig->y || (y == trig->y && m > trig->m)) return -1;
+X	 if (trig->y > y || (trig->y == y && trig->m > m)) {
+X	    j = Julian(trig->y, trig->m, 1);
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    return j;
+X	 } else {
+X	    j = startdate;
+X	    while(! (trig->wd & (1 << (j%7)))) j++;
+X	    FromJulian(j, &y2, &m2, &d2);
+X	    if (m2 == trig->m) return j; else return -1;
+X	 }
+X
+X      case GOT_WD+GOT_DAY+GOT_MON+GOT_YR:
+X	 j = Julian(trig->y, trig->m, trig->d);
+X	 while(! (trig->wd & (1 << (j%7)))) j++;
+X	 return j;
+X
+X      default:
+X	Eprint("NextSimpleTrig: Bad type %d", typ);
+X	*err = E_SWERR;
+X	return -1;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  JMonth - Given a Julian date, what's the month?            */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int JMonth(int jul)
+X#else
+Xstatic int JMonth(jul)
+Xint jul;
+X#endif
+X{
+X   int y, m, d;
+X   FromJulian(jul, &y, &m, &d);
+X   return m;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  JYear - Given a Julian date, what's the year?              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int JYear(int jul)
+X#else
+Xstatic int JYear(jul)
+Xint jul;
+X#endif
+X{
+X   int y, m, d;
+X   FromJulian(jul, &y, &m, &d);
+X   return y;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  GetNextTriggerDate                                         */
+X/*                                                             */
+X/*  Given a trigger, compute the next trigger date.            */
+X/*                                                             */
+X/*  Returns the Julian date of next trigger, -1 if             */
+X/*  expired, -2 if can't compute trigger date.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int GetNextTriggerDate(Trigger *trig, int start, int *err, int *nextstart)
+X#else
+Xstatic int GetNextTriggerDate(trig, start, err, nextstart)
+XTrigger *trig;
+Xint start;
+Xint *err;
+Xint *nextstart;
+X#endif
+X{
+X   int simple, mod;
+X
+X/* First:  Have we passed the UNTIL date? */
+X   if (trig->until != NO_UNTIL &&
+X       trig->until < start) return -1; /* expired */
+X
+X/* Next: If it's an "AFTER"-type skip, back up
+X   until we're at the start of a block of holidays */
+X   if (trig->skip == AFTER_SKIP)
+X      while (IsOmitted(start-1, trig->localomit)) start--;
+X
+X/* Find the next simple trigger */
+X   simple = NextSimpleTrig(start, trig, err);
+X
+X/* Problems? */
+X   if (*err || (simple == -1)) return -1;
+X
+X/* Suggested starting point for next attempt */
+X   *nextstart = simple+1;
+X
+X/* If there's a BACK, back up... */
+X   if (trig->back != NO_BACK) {
+X      mod = trig->back;
+X      if (mod < 0) simple += mod;
+X      else
+X	 while(mod) {
+X	    simple--;
+X	    if (!IsOmitted(simple, trig->localomit)) mod--;
+X	 }
+X   }
+X
+X/* If there's a REP, calculate the next occurrence */
+X   if (trig->rep != NO_REP) {
+X      if (simple < start) {
+X	 mod = (start - simple) / trig->rep;
+X	 simple = simple + mod * trig->rep;
+X	 if (simple < start) simple += trig->rep;
+X      }
+X   }
+X
+X/* If it's a "BEFORE"-type skip, back up */
+X   if (trig->skip == BEFORE_SKIP)
+X      while(IsOmitted(simple, trig->localomit)) simple--;
+X
+X/* If it's an "AFTER"-type skip, jump ahead */
+X   if (trig->skip == AFTER_SKIP)
+X      while (IsOmitted(simple, trig->localomit)) simple++;
+X
+X/* Return the date */
+X   return simple;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ComputeTrigger                                             */
+X/*                                                             */
+X/*  The main function.  Compute the next trigger date given    */
+X/*  today's date.                                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int ComputeTrigger(int today, Trigger *trig, int *err)
+X#else
+Xint ComputeTrigger(today, trig, err)
+Xint today;
+XTrigger *trig;
+Xint *err;
+X#endif
+X{
+X   int nattempts = 0,
+X       start = today,
+X       nextstart,
+X       y, m, d,
+X       result;
+X
+X   LastTrigValid = 0;
+X/* Assume everything works */
+X   *err = OK;
+X
+X/* But check for obvious problems... */
+X   if (trig->localomit == 1 + 2 + 4 + 8 + 16 + 32 + 64) {
+X      *err = E_2MANY_LOCALOMIT;
+X      return -1;
+X   }
+X
+X   if (trig->rep != NO_REP &&
+X       (trig->d == NO_DAY ||
+X	trig->m == NO_MON ||
+X	trig->y == NO_YR)) {
+X      Eprint("Must fully specify date to use repeat.");
+X      *err = E_PARSE_ERR;
+X      return -1;
+X   }
+X       
+X   
+X   while (nattempts++ < TRIG_ATTEMPTS) {
+X      result = GetNextTriggerDate(trig, start, err, &nextstart);
+X
+X      /* If there's an error, die immediately */
+X      if (*err) return -1;
+X      if (result == -1) {
+X         if (DebugFlag & DB_PRTTRIG) {
+X	    fprintf(ErrFp, "%s(%d): Expired\n",
+X	       FileName, LineNo);
+X	 }
+X         return -1;
+X      }
+X
+X      /* If result is >= today, great! */
+X      if (result >= today &&
+X         (trig->skip != SKIP_SKIP || !IsOmitted(result, trig->localomit))) {
+X	 LastTriggerDate = result;  /* Save in global var */
+X	 LastTrigValid = 1;
+X	 if (DebugFlag & DB_PRTTRIG) {
+X	    FromJulian(result, &y, &m, &d);
+X	    fprintf(ErrFp, "%s(%d): Trig = %s, %d %s, %d\n",
+X	            FileName, LineNo,
+X		    DayName[result % 7],
+X		    d,
+X		    MonthName[m],
+X		    y);
+X	 }
+X	 return result;
+X      }
+X
+X      /* If it's a simple trigger, no point in rescanning */
+X      if (trig->back == NO_BACK &&
+X          trig->skip == NO_SKIP &&
+X	  trig->rep == NO_REP) {
+X          if (DebugFlag & DB_PRTTRIG) {
+X	     fprintf(ErrFp, "%s(%d): Expired\n",
+X	             FileName, LineNo);
+X	     }
+X	     return -1;
+X	  }
+X      /* Keep scanning... unless there's no point in doing it.*/
+X      if (nextstart <= start) {
+X         if (DebugFlag & DB_PRTTRIG) {
+X	    fprintf(ErrFp, "%s(%d): Expired\n",
+X	              FileName, LineNo);
+X         }
+X	 return -1;
+X      }
+X      else start = nextstart;
+X
+X   }
+X
+X   /* We failed - too many attempts or trigger has expired*/
+X   *err = E_CANT_TRIG;
+X   return -1;
+X}
+SHAR_EOF
+$TOUCH -am 1109141292 trigger.c &&
+chmod 0600 trigger.c ||
+echo "restore of trigger.c failed"
+set `wc -c trigger.c`;Wc_c=$1
+if test "$Wc_c" != "13395"; then
+	echo original size 13395, current size $Wc_c
+fi
+fi
+# ============= userfns.c ==============
+if test X"$1" != X"-c" -a -f 'userfns.c'; then
+	echo "File already exists: skipping 'userfns.c'"
+else
+echo "x - extracting userfns.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > userfns.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  USERFNS.C                                                  */
+X/*                                                             */
+X/*  This file contains the routines to support user-defined    */
+X/*  functions.                                                 */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X#include "config.h"
+X#include <stdio.h>
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include <ctype.h>
+X#include "types.h"
+X#include "globals.h"
+X#include "protos.h"
+X#include "err.h"
+X#include "expr.h"
+X
+X#define FUNC_HASH_SIZE 32   /* Size of User-defined function hash table */
+X
+X/* Define the data structure used to hold a user-defined function */
+Xtypedef struct _udf_struct {
+X   struct _udf_struct *next;
+X   char name[VAR_NAME_LEN+1];
+X   char *text;
+X   Var *locals;
+X   char IsCached;
+X   char IsActive;
+X   int nargs;
+X} UserFunc;
+X
+X/* The hash table */
+Xstatic UserFunc *FuncHash[FUNC_HASH_SIZE];
+X
+X/* We need access to the expression evaluation stack */
+Xextern Value ValStack[];
+Xextern int ValStackPtr;
+X
+XPRIVATE void DestroyUserFunc ARGS ((UserFunc *f));
+XPRIVATE void FUnset ARGS ((char *name));
+XPRIVATE void FSet ARGS ((UserFunc *f));
+XPRIVATE int SetUpLocalVars ARGS ((UserFunc *f));
+XPRIVATE void DestroyLocalVals ARGS ((UserFunc *f));
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoFset                                                     */
+X/*                                                             */
+X/*  Define a user-defined function - the FSET command.         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoFset(ParsePtr p)
+X#else
+Xint DoFset(p)
+XParsePtr p;
+X#endif
+X{
+X   int r;
+X   int c;
+X   UserFunc *func;
+X   Var *v;
+X
+X   /* Get the function name */
+X   if(r=ParseIdentifier(p, TokBuffer)) return r;
+X
+X   /* Should be followed by '(' */
+X   c = ParseNonSpaceChar(p, &r, 0);
+X   if (r) return r;
+X   if (c != '(') return E_PARSE_ERR;
+X
+X   func = NEW(UserFunc);
+X   if (!func) return E_NO_MEM;
+X   StrnCpy(func->name, TokBuffer, VAR_NAME_LEN);
+X   func->locals = NULL;
+X   func->text = NULL;
+X   func->IsCached = 1;
+X   func->IsActive = 0;
+X   func->nargs = 0;
+X
+X   /* Get the local variables - we insert the local variables in REVERSE
+X      order, but that's OK, because we pop them off the stack in reverse
+X      order, too, so everything works out just fine. */
+X
+X   c=ParseNonSpaceChar(p, &r, 1);
+X   if (r) return r;
+X   if (c == ')') {
+X      (void) ParseNonSpaceChar(p, &r, 0);
+X   }
+X   else {
+X      while(1) {
+X	 if (r=ParseIdentifier(p, TokBuffer)) return r;
+X	 v = NEW(Var);
+X	 func->nargs++;
+X	 v->v.type = ERR_TYPE;
+X	 if (!v) {
+X	    DestroyUserFunc(func);
+X	    return E_NO_MEM;
+X	 }
+X	 StrnCpy(v->name, TokBuffer, VAR_NAME_LEN);
+X	 v->next = func->locals;
+X	 func->locals = v;
+X	 c = ParseNonSpaceChar(p, &r, 0);
+X	 if (c == ')') break;
+X	 else if (c != ',') {
+X	    DestroyUserFunc(func);
+X	    return E_PARSE_ERR;
+X	 }
+X      }
+X   }
+X
+X   /* Copy the text over */
+X   if (p->isnested) {
+X      Eprint ("Can't nest function definition in expression.");
+X      DestroyUserFunc(func);
+X      return E_PARSE_ERR;
+X   }
+X
+X   /* A bit of trickery here - if the definition is already cached,
+X      no point in copying it. */
+X   if (CurLine != LineBuffer) {
+X      func->IsCached = 1;
+X      func->text = p->pos;
+X   } else {
+X      func->IsCached = 0;
+X      func->text = StrDup(p->pos);
+X      if (!func->text) {
+X	 DestroyUserFunc(func);
+X	 return E_NO_MEM;
+X      }
+X   }
+X
+X   /* If an old definition of this function exists, destroy it */
+X   FUnset(func->name);
+X
+X   /* Add the function definition */
+X   FSet(func);
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DestroyUserFunc                                            */
+X/*                                                             */
+X/*  Free up all the resources used by a user-defined function. */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void DestroyUserFunc(UserFunc *f)
+X#else
+Xstatic void DestroyUserFunc(f)
+XUserFunc *f;
+X#endif
+X{
+X   Var *v, *prev;
+X
+X   /* Free the local variables first */
+X   v = f->locals;
+X   while(v) {
+X      DestroyValue(&(v->v));
+X      prev = v;
+X      v = v->next;
+X      free(prev);
+X   }
+X
+X   /* Free the function definition */
+X   if (f->text && !f->IsCached) free(f->text);
+X
+X   /* Free the data structure itself */
+X   free(f);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  FUnset                                                     */
+X/*                                                             */
+X/*  Delete the function definition with the given name, if     */
+X/*  it exists.                                                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void FUnset(char *name)
+X#else
+Xstatic void FUnset(name)
+Xchar *name;
+X#endif
+X{
+X   UserFunc *cur, *prev;
+X   int h;
+X
+X   h = HashVal(name) % FUNC_HASH_SIZE;
+X
+X   cur = FuncHash[h];
+X   prev = NULL;
+X   while(cur) {
+X      if (StrinEq(name, cur->name, VAR_NAME_LEN)) break;
+X      prev = cur;
+X      cur = cur->next;
+X   }
+X   if (!cur) return;
+X   if (prev) prev->next = cur->next; else FuncHash[h] = cur->next;
+X   DestroyUserFunc(cur);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  FSet                                                       */
+X/*                                                             */
+X/*  Insert a user-defined function into the hash table.        */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void FSet(UserFunc *f)
+X#else
+Xstatic void FSet(f)
+XUserFunc *f;
+X#endif
+X{
+X   int h = HashVal(f->name) % FUNC_HASH_SIZE;
+X   f->next = FuncHash[h];
+X   FuncHash[h] = f;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  CallUserFunc                                               */
+X/*                                                             */
+X/*  Call a user-defined function.                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int CallUserFunc(char *name, int nargs)
+X#else
+Xint CallUserFunc(name, nargs)
+Xchar *name;
+Xint nargs;
+X#endif
+X{
+X   UserFunc *f;
+X   int h = HashVal(name) % FUNC_HASH_SIZE;
+X   int i;
+X   char *s;
+X
+X   /* Search for the function */
+X   f = FuncHash[h];
+X   while (f && !StrinEq(name, f->name, VAR_NAME_LEN)) f = f->next;
+X   if (!f) return E_UNDEF_FUNC;
+X
+X   /* Debugging stuff */
+X   if (DebugFlag & DB_PRTEXPR) {
+X      fprintf(ErrFp, "UserFN %s(", f->name);
+X      for (i=0; i<nargs; i++) {
+X         PrintValue(&ValStack[ValStackPtr - nargs + i], ErrFp);
+X         if (i<nargs-1) fprintf(ErrFp, ", ");
+X      }
+X      fprintf(ErrFp, ")\n");
+X   }
+X   /* Detect illegal recursive call */
+X   if (f->IsActive) return E_RECURSIVE;
+X
+X   /* Check number of args */
+X   if (nargs != f->nargs)
+X      return (nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS;
+X
+X   /* Found the function - set up a local variable frame */
+X   h = SetUpLocalVars(f);
+X   if (h) return h;
+X
+X   /* Evaluate the expression */
+X   f->IsActive = 1;
+X   s = f->text;
+X
+X   /* Skip the opening bracket, if there's one */
+X   while (isspace(*s)) s++;
+X   if (*s == BEG_OF_EXPR) s++;
+X   h = Evaluate(&s, f->locals);
+X   f->IsActive = 0;
+X   DestroyLocalVals(f);
+X   if (DebugFlag &DB_PRTEXPR) {
+X      fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X      if (h) fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X      else {
+X         PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X         fprintf(ErrFp, "\n");
+X      }
+X   }
+X   return h;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  SetUpLocalVars                                             */
+X/*                                                             */
+X/*  Set up the local variables from the stack frame.           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int SetUpLocalVars(UserFunc *f)
+X#else
+Xstatic int SetUpLocalVars(f)
+XUserFunc *f;
+X#endif
+X{
+X   int i, r;
+X   Var *var;
+X
+X   for (i=0, var=f->locals; var && i<f->nargs; var=var->next, i++) {
+X      if (r=PopValStack(&(var->v))) {
+X	 DestroyLocalVals(f);
+X	 return r;
+X      }
+X   }
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DestroyLocalVals                                           */
+X/*                                                             */
+X/*  Destroy the values of all local variables after evaluating */
+X/*  the function.                                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void DestroyLocalVals(UserFunc *f)
+X#else
+Xstatic void DestroyLocalVals(f)
+XUserFunc *f;
+X#endif
+X{
+X   Var *v = f->locals;
+X
+X   while(v) {
+X      DestroyValue(&(v->v));
+X      v = v->next;
+X   }
+X}
+SHAR_EOF
+$TOUCH -am 1109141292 userfns.c &&
+chmod 0600 userfns.c ||
+echo "restore of userfns.c failed"
+set `wc -c userfns.c`;Wc_c=$1
+if test "$Wc_c" != "10178"; then
+	echo original size 10178, current size $Wc_c
+fi
+fi
+# ============= utils.c ==============
+if test X"$1" != X"-c" -a -f 'utils.c'; then
+	echo "File already exists: skipping 'utils.c'"
+else
+echo "x - extracting utils.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > utils.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  UTILS.C                                                    */
+X/*                                                             */
+X/*  Useful utility functions.                                  */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1991 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X
+X#include <string.h>
+X#include <stdio.h>
+X#include "config.h"
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X
+X#define UPPER(c) ( ((c) >= 'a' && (c) <= 'z') ? (c) - 'a' + 'A' : (c) )
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrEq                                                      */
+X/*                                                             */
+X/*  Are two strings equal?                                     */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StrEq(const char *s1, const char *s2)
+X#else
+Xint StrEq(s1, s2)
+Xchar *s1, *s2;
+X#endif
+X{
+X   while (*s1 && *s2) {
+X      if (*s1++ != *s2++) return 0;
+X   }
+X   if (*s1 || *s2) return 0 ; else return 1;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StriEq                                                     */
+X/*                                                             */
+X/*  Are two strings equal, ignoring case?                      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StriEq(const char *s1, const char *s2)
+X#else
+Xint StriEq(s1, s2)
+Xchar *s1, *s2;
+X#endif
+X{
+X   while (*s1 && *s2) {
+X      if (UPPER(*s1) != UPPER(*s2)) return 0;
+X      s1++;
+X      s2++;
+X   }
+X   if (*s1 || *s2) return 0 ; else return 1;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrinEq                                                    */
+X/*  Are two strings equal to a given number of chars?          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StrinEq(const char *s1, const char *s2, int n)
+X#else
+Xint StrinEq(s1, s2, n)
+Xchar *s1, *s2;
+Xint n;
+X#endif
+X{
+X   while (*s1 && *s2 && n--) {
+X      if (UPPER(*s1) != UPPER(*s2)) return 0;
+X      s1++;
+X      s2++;
+X   }
+X   if (n && (*s1 || *s2)) return 0 ; else return 1;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrnCpy                                                    */
+X/*                                                             */
+X/*  Just like strncpy EXCEPT we ALWAYS copy the trailing 0.    */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC char *StrnCpy(char *dest, const char *source, int n)
+X#else
+Xchar *StrnCpy(dest, source, n)
+Xchar *dest, *source;
+Xint n;
+X#endif
+X{
+X   register char *odest = dest;
+X
+X   while (n-- && (*dest++ = *source++)) ;
+X   if (*(dest-1)) *dest = 0;
+X   return odest;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrMatch                                                   */
+X/*                                                             */
+X/*  Checks that two strings match (case-insensitive) to at     */
+X/*  least the specified number of characters, or the length    */
+X/*  of the first string, whichever is greater.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StrMatch(const char *s1, const char *s2, int n)
+X#else
+Xint StrMatch(s1, s2, n)
+Xchar *s1, *s2;
+Xint n;
+X#endif
+X{
+X   int l;
+X   if ((l = strlen(s1)) < n) return 0;
+X   return StrinEq(s1, s2, l);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrinCmp - compare strings, case-insensitive               */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StrinCmp(const char *s1, const char *s2, int n)
+X#else
+Xint StrinCmp(s1, s2, n)
+Xchar *s1, *s2;
+Xint n;
+X#endif
+X{
+X   register int r;
+X   while (n && *s1 && *s2) {
+X      n--;
+X      r = UPPER(*s1) - UPPER(*s2);
+X      if (r) return r;
+X      s1++;
+X      s2++;
+X   }
+X   if (n) return (UPPER(*s1) - UPPER(*s2)); else return 0;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrDup                                                     */
+X/*                                                             */
+X/*  Like ANSI strdup                                           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC char *StrDup(const char *s)
+X#else
+Xchar *StrDup(s)
+Xchar *s;
+X#endif
+X{
+X   char *ret = (char *) malloc(strlen(s)+1);
+X   if (!ret) return (char *) NULL;
+X   strcpy(ret, s);
+X   return ret;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  StrCmpi                                                    */
+X/*                                                             */
+X/*  Compare strings, case insensitive.                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int StrCmpi(char *s1, char *s2)
+X#else
+Xint StrCmpi(s1, s2)
+Xchar *s1, *s2;
+X#endif
+X{
+X   int r;
+X   while (*s1 && *s2) {
+X      r = UPPER(*s1) - UPPER(*s2);
+X      if (r) return r;
+X      s1++;
+X      s2++;
+X   }
+X   return UPPER(*s1) - UPPER(*s2);
+X}
+X
+X#ifdef NO_STRSTR
+X#ifdef HAVE_PROTOS
+XPUBLIC char *strstr(char *s1, char *s2)
+X#else
+Xchar *strstr(s1, s2)
+Xchar *s1, *s2;
+X#endif
+X{
+X   char *s = s1;
+X   int len2 = strlen(s2);
+X   int len1 = strlen(s1);
+X
+X   while (s-s1 <= len1-len2) {
+X      if (!strncmp(s, s2, len2)) return s;
+X      s++;
+X   }
+X   return NULL;
+X}
+X#endif
+X
+SHAR_EOF
+$TOUCH -am 1109141292 utils.c &&
+chmod 0600 utils.c ||
+echo "restore of utils.c failed"
+set `wc -c utils.c`;Wc_c=$1
+if test "$Wc_c" != "6948"; then
+	echo original size 6948, current size $Wc_c
+fi
+fi
+# ============= var.c ==============
+if test X"$1" != X"-c" -a -f 'var.c'; then
+	echo "File already exists: skipping 'var.c'"
+else
+echo "x - extracting var.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > var.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  VAR.C                                                      */
+X/*                                                             */
+X/*  This file contains routines, structures, etc for           */
+X/*  user- and system-defined variables.                        */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1991 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X
+X#include <stdio.h>
+X#include "config.h"
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include "types.h"
+X#include "expr.h"
+X#include "globals.h"
+X#include "protos.h"
+X#include "err.h"
+X
+X#define UPPER(c) ( ((c) >= 'a' && (c) <= 'z') ? (c) - 'a' + 'A' : (c) )
+X
+X/* The variable hash table */
+X#define VAR_HASH_SIZE 64
+Xstatic Var *VHashTbl[VAR_HASH_SIZE];
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  HashVal                                                    */
+X/*  Given a string, compute the hash value.                    */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int HashVal(const char *str)
+X#else
+Xint HashVal(str)
+Xchar *str;
+X#endif
+X{
+X   register int i = 0;
+X   register int j=1;
+X   register int len=0;
+X
+X   while(*str && len < VAR_NAME_LEN) {
+X      i += j * UPPER(*str);
+X      str++;
+X      len++;
+X      j = 3-j;
+X   }
+X   return i;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  FindVar                                                    */
+X/*  Given a string, find the variable whose name is that       */
+X/*  string.  If create is 1, create the variable.              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC Var *FindVar(const char *str, int create)
+X#else
+XVar *FindVar(str, create)
+Xchar *str;
+Xint create;
+X#endif
+X{
+X   register int h;
+X   register Var *v;
+X   register Var *prev;
+X
+X   h = HashVal(str) % VAR_HASH_SIZE;
+X   v = VHashTbl[h];
+X   prev = NULL;
+X
+X   while(v) {
+X      if (StrinEq(str, v->name, VAR_NAME_LEN)) return v;
+X      prev = v;
+X      v = v-> next;
+X   }
+X   if (!create) return v;
+X
+X/* Create the variable */
+X   v = NEW(Var);
+X   if (!v) return v;
+X   v->next = NULL;
+X   v->v.type = INT_TYPE;
+X   v->v.v.val = 0;
+X   v->preserve = 0;
+X   StrnCpy(v->name, str, VAR_NAME_LEN);
+X
+X   if (prev) prev->next = v; else VHashTbl[h] = v;
+X   return v;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DeleteVar                                                  */
+X/*  Given a string, find the variable whose name is that       */
+X/*  string and delete it.                                      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DeleteVar(const char *str)
+X#else
+Xint DeleteVar(str)
+Xchar *str;
+X#endif
+X{
+X   register int h;
+X   register Var *v;
+X   register Var *prev;
+X
+X   h = HashVal(str) % VAR_HASH_SIZE;
+X   v = VHashTbl[h];
+X   prev = NULL;
+X
+X   while(v) {
+X      if (StrinEq(str, v->name, VAR_NAME_LEN)) break;
+X      prev = v;
+X      v = v-> next;
+X   }
+X   if (!v) return E_NOSUCH_VAR;
+X   DestroyValue(&(v->v));
+X   if (prev) prev->next = v->next; else VHashTbl[h] = v->next;
+X   free(v);
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  SetVar                                                     */
+X/*                                                             */
+X/*  Set the indicate variable to the specified value.          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int SetVar(const char *str, Value *val)
+X#else
+Xint SetVar(str, val)
+Xchar *str;
+XValue *val;
+X#endif
+X{
+X   Var *v = FindVar(str, 1);
+X
+X   if (!v) return E_NO_MEM;  /* Only way FindVar can fail */
+X
+X   DestroyValue(&(v->v));
+X   v->v = *val;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  GetVarValue                                                */
+X/*                                                             */
+X/*  Get a copy of the value of the variable.                   */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int GetVarValue(const char *str, Value *val, Var *locals)
+X#else
+Xint GetVarValue(str, val, locals)
+Xchar *str;
+XValue *val;
+XVar *locals;
+X#endif
+X{
+X   Var *v;
+X
+X   /* Try searching local variables first */
+X   v = locals;
+X   while (v) {
+X      if (StrinEq(str, v->name, VAR_NAME_LEN))
+X	 return CopyValue(val, &v->v);
+X      v = v->next;
+X   }
+X
+X   v=FindVar(str, 0);
+X
+X   if (!v) {
+X     Eprint("Undefined variable: %s", str);
+X     return E_NOSUCH_VAR;
+X   }
+X   return CopyValue(val, &v->v);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoSet - set a variable.                                    */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoSet (Parser *p)
+X#else
+Xint DoSet (p)
+XParser *p;
+X#endif
+X{
+X   Value v;
+X   int r;
+X
+X   r = ParseIdentifier(p, TokBuffer);
+X   if (r) return r;
+X
+X   r = EvaluateExpr(p, &v);
+X   if (r) return r;
+X
+X   r = SetVar(TokBuffer, &v);
+X
+X   return r;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoUnset - delete a bunch of variables.                     */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoUnset (Parser *p)
+X#else
+Xint DoUnset (p)
+XParser *p;
+X#endif
+X{
+X   int r;
+X
+X   r = ParseToken(p, TokBuffer);
+X   if (r) return r;
+X   if (!*TokBuffer) return E_EOLN;
+X
+X   (void) DeleteVar(TokBuffer);  /* Ignore error - nosuchvar */
+X
+X/* Keep going... */
+X   while(1) {
+X      r = ParseToken(p, TokBuffer);
+X      if (r) return r;
+X      if (!*TokBuffer) return OK;
+X      (void) DeleteVar(TokBuffer);
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoDump                                                     */
+X/*                                                             */
+X/*  Command file command to dump variable table.               */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoDump(ParsePtr p)
+X#else
+Xint DoDump(p)
+XParsePtr p;
+X#endif
+X{
+X   int r;
+X   Var *v;
+X
+X   r = ParseToken(p, TokBuffer);
+X   if (r) return r;
+X   if (!*TokBuffer || *TokBuffer == '#' || *TokBuffer == ';') {
+X      DumpVarTable();
+X      return OK;
+X   }
+X   fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X   while(1) {
+X      v = FindVar(TokBuffer, 0);
+X      TokBuffer[VAR_NAME_LEN] = 0;
+X      if (!v) fprintf(ErrFp, "%*s  *UNDEFINED*\n", VAR_NAME_LEN, TokBuffer);
+X      else {
+X         fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X         PrintValue(&(v->v), ErrFp);
+X	 fprintf(ErrFp, "\n");
+X      }
+X      r = ParseToken(p, TokBuffer);
+X      if (r) return r;
+X      if (!*TokBuffer || *TokBuffer == '#' || *TokBuffer == ';') return OK;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DumpVarTable                                               */
+X/*                                                             */
+X/*  Dump the variable table to stderr.                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC void DumpVarTable(void)
+X#else
+Xvoid DumpVarTable()
+X#endif
+X{
+X   register Var *v;
+X   register int i;
+X
+X   fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X
+X   for (i=0; i<VAR_HASH_SIZE; i++) {
+X      v = VHashTbl[i];
+X      while(v) {
+X         fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X         PrintValue(&(v->v), ErrFp);
+X         fprintf(ErrFp, "\n");
+X	 v = v->next;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DestroyVars                                                */
+X/*                                                             */
+X/*  Free all the memory used by variables, but don't delete    */
+X/*  preserved variables.                                       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC void DestroyVars(void)
+X#else
+Xvoid DestroyVars()
+X#endif
+X{
+X   int i;
+X   Var *v, *next, *prev;
+X
+X   for (i=0; i<VAR_HASH_SIZE; i++) {
+X      v = VHashTbl[i];
+X      VHashTbl[i] = NULL;
+X      prev = NULL;
+X      while(v) {
+X         if (!v->preserve) {
+X            DestroyValue(&(v->v));
+X   	    next = v->next;
+X	    free(v);
+X	 } else {
+X	    if (prev) prev->next = v;
+X	    else VHashTbl[i] = v;
+X	    prev = v;
+X	    next = v->next;
+X	    v->next = NULL;
+X         }
+X	 v = next;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PreserveVar                                                */
+X/*                                                             */
+X/*  Given the name of a variable, "preserve" it.               */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int PreserveVar(char *name)
+X#else
+Xint PreserveVar(name)
+Xchar *name;
+X#endif
+X{
+X   Var *v;
+X
+X   v = FindVar(name, 1);
+X   if (!v) return E_NO_MEM;
+X   v->preserve = 1;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoPreserve - delete a bunch of variables.                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoPreserve (Parser *p)
+X#else
+Xint DoPreserve (p)
+XParser *p;
+X#endif
+X{
+X   int r;
+X
+X   r = ParseToken(p, TokBuffer);
+X   if (r) return r;
+X   if (!*TokBuffer) return E_EOLN;
+X
+X   r = PreserveVar(TokBuffer);
+X   if (r) return r;
+X
+X/* Keep going... */
+X   while(1) {
+X      r = ParseToken(p, TokBuffer);
+X      if (r) return r;
+X      if (!*TokBuffer) return OK;
+X      r = PreserveVar(TokBuffer);
+X      if (r) return r;
+X   }
+X}
+X
+SHAR_EOF
+$TOUCH -am 1109141292 var.c &&
+chmod 0600 var.c ||
+echo "restore of var.c failed"
+set `wc -c var.c`;Wc_c=$1
+if test "$Wc_c" != "11570"; then
+	echo original size 11570, current size $Wc_c
+fi
+fi
+echo "End of part 9, continue with part 10"
+exit 0
+
+exit 0 # Just in case...

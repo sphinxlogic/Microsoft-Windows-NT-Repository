@@ -1,0 +1,1796 @@
+Newsgroups: comp.sources.misc
+From: carson@sputnik.uucp (Carson Wilson)
+Subject:  v28i013:  cfx - Cp/m File eXpress, v1.1.0, Part02/02
+Message-ID: <1992Feb3.031705.4652@sparky.imd.sterling.com>
+X-Md4-Signature: eb7446310c2eefc2371d058624dfb404
+Date: Mon, 3 Feb 1992 03:17:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: carson@sputnik.uucp (Carson Wilson)
+Posting-number: Volume 28, Issue 13
+Archive-name: cfx/part02
+Environment: UNIX, MS-DOS, PC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  cfx.c cfx.doc cfx.h cfx.hst cfx.man cfx.1
+# Wrapped by carson@sputnik on Sat Jan 25 10:39:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'cfx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.c'\"
+else
+echo shar: Extracting \"'cfx.c'\" \(18746 characters\)
+sed "s/^X//" >'cfx.c' <<'END_OF_FILE'
+X/*
+CFX.C - Main module of CP/M File eXpress
+Copyright 20 Jan 1992 by 
+Carson Wilson
+X1359 W. Greenleaf, #1D
+Chicago, IL 60626
+X
+UUCP:	carson@sputnik.uucp
+X	..!uunet!ddsw1!carson
+X
+BBS:	Antelope Freeway, 1-708-455-0120
+X
+Version:	1.1
+Date:		25 Jan 92
+Author:		Copr. 1992 by Carson Wilson
+Changes:	Initial universal version.
+X		Normal exit now always returns 0.
+X		Added .GIF, .ZOO to file exclusion list.
+X		Minor cosmetic tweaks.
+X
+Notes:		Compiles under ISC SYSVR3.2 v2.2.1 SDS
+X		  and with MSDOS Turbo C 2.01.
+X*/
+X/* ======================================================= */
+X
+X#include "cfx.h"
+X#include <sys/stat.h>
+X
+X/* External variables */
+X
+unsigned cksum;			/* Checksum of all bytes written to output */
+unsigned outreccount;		/* Number of bytes written to output record */
+unsigned long mlength;		/* library member length */
+X
+unsigned char repeat_flag;	/* So send can remember if repeat required*/
+long unclength;         	/* global for library members */
+X
+char *infname;			/* Current input file name */
+XFILE *infd;			/* Currently open input file */
+XFILE *outfd;			/* Currently open output file */
+X
+X/* Command line flags */
+X
+int brief = 0;			/* -b brief output only */
+int cdline = 0;			/* -c command line argument (0..4) */
+int diskout = 0;		/* -d disk output flag */
+int uncompress = 1;		/* -n no uncompress flag */
+int info = 0;			/* -i info only flag */
+int prompt = 0;			/* -p prompt flag */
+time_t timelmt = 0;		/* -t time limit command line argument */
+int waitflag = 0;		/* -w wait for key at end of files */
+X
+X/* Internal flags */
+X
+int inlbr;			/* library file flag */
+int contin = 1;			/* Global abort flag */
+int scrline = 1;		/* Current screen line for [more] */
+int pause = 1;			/* Pause at each screenful */
+int infoflag;			/* Display directory info */
+X
+char membername[40] = "";
+X
+struct stat fsstruct;		/* file status buffer */
+struct tm *ftsptr;
+X
+time_t nowtime, starttime;	/* -t time buffers */
+X
+int fileyear, filemonth, fileday;
+X
+X/* ============================ MAIN PROGRAM =========================== */
+X
+int main(argc, argv)
+int argc;
+char *argv[];
+X{
+X	extern int optind;		/* pointer to remaining arguments */
+X	extern char *optarg;		/* pointer to current argument */
+X	extern int opterr;		/* getopt() control */
+X	int badopt = 0;
+X	int c;
+X	int fhandle;
+X
+X#ifdef UNIX
+X	char DOSSW = '-';
+X#else
+X	char DOSSW;			/* MSDOS command line switch */
+X	_AX = 0x3700;                   /* Get SW using DOS call 0x37 */
+X	geninterrupt(0x21);
+X	DOSSW = _DL;			/* save DOS "switch" character */
+X#endif
+X
+X	/* Process global variables */
+X	opterr = 0;			/* disallow getopt messages */
+X
+X	while ((c = getopt (argc, argv, "bBc:C:dDiIm:M:nNpPt:T:wW")) != EOF )
+X		switch (tolower(c))
+X		{
+X		case 'b' : brief = 1;
+X			   break;
+X#ifndef UNIX
+X		case 'c' : cdline = atoi(optarg);
+X			   if (strcmp(optarg, "0") && (!cdline))
+X				badopt = 1;	/* allow /c0 = console */
+X			   break;
+X#endif
+X		case 'd' : diskout = 1;
+X			   break;
+X		case 'i' : info = 1;		/* info only */
+X			   break;
+X		case 'm' : strcpy(membername, optarg);
+X			   break;
+X		case 'n' : uncompress = 0;
+X			   break;
+X		case 'p' : prompt = 1;
+X			   break;
+X		case 't' : timelmt = atoi(optarg);
+X			   if (!timelmt)	/* -t 0 or illegal */
+X				badopt = 1;
+X			   else
+X				timelmt *= 60;	/* in seconds */
+X			   break;
+X		case 'w' : waitflag = 1;
+X			   break;
+X		case '?' :
+X		default  : badopt = 1;
+X			   break;
+X		}
+X
+X	if (badopt || (optind == argc))
+X	{       printf("\n%s - Cp/m File eXpress for %s, Rev. %s, Copr. 1992 by %s\n",
+X			PROGNAME, OSTYPE, VERS, AUTHOR);
+X		printf("  Usage:\n");
+X		printf("        %s [option ...] afn ...\n", PROGNAME);
+X		printf("  Options:\n");
+X		printf("        %cb       - brief output only\n", DOSSW);
+X#ifndef UNIX
+X		printf("        %cc n     - monitor COMn for carrier\n", DOSSW);
+X#endif
+X		printf("        %cd       - disk output\n", DOSSW);
+X		printf("        %ci       - display file info only\n", DOSSW);
+X		printf("        %cm \"afn\" - library member specification\n", DOSSW);
+X		printf("        %cn       - don't uncompress library members\n", DOSSW);
+X		printf("        %cp       - prompt before processing files\n", DOSSW);
+X		printf("        %ct n     - maximum minutes allowed\n", DOSSW);
+X		printf("        %cw       - wait after last file\n", DOSSW);
+X#ifdef UNIX
+X		printf("\n");
+X#endif
+X		exit(0);
+X	}
+X#ifdef UNIX
+X	ttyraw();			/* select raw tty input */
+X#endif
+X	if (timelmt)			/* -t option */
+X	       time(&starttime);	/* log start time */
+X
+X	/* Do all the files specified */
+X	argv += optind;
+X	argc -= optind;			/* subtract */
+X	while (argc--)
+X	{	inlbr = 0;
+X		infname = *argv++;
+X		/* Open input file */
+X		tryopen:
+X		if ( 0 == (infd = fopen(infname, "rb")) )
+X		{	if (!strchr(infname, '.'))
+X			{
+X				infname = strcat(infname, LBREXT);
+X				goto tryopen;
+X			}
+X			else
+X			{	outcrlf(1);
+X				printf("  %s: can't open file \"%s\".", PROGNAME, infname);
+X				outcrlf(1);
+X			}
+X		}
+X		else
+X		{	/* preload file datestamp */
+X			fhandle = fileno(infd);
+X			fstat(fhandle, &fsstruct);
+X			ftsptr = localtime(&fsstruct.st_mtime);
+X			fileyear = ftsptr->tm_year;
+X			filemonth = ftsptr->tm_mon;
+X			fileday = ftsptr->tm_mday;
+X			infoflag = info;
+X			outcrlf(1);		/* count linefeeds */
+X			printf(" File Name    Length   Method     Date");
+X			outcrlf(1);
+X			printf("============  ======  ========  ========");
+X			process(infd, infname, fsstruct.st_size);
+X			fclose(infd);
+X		}
+X		outcrlf(1);
+X	}
+X	checkwait();
+X	quit();			/* done */
+X	return(0);		/* else compiler warning */
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Process a single file.
+X*/
+void process(procfd, procfn, procfs)
+XFILE *procfd;			/* opened file descriptor */
+char *procfn;			/* name of opened file    */
+long procfs;
+X{
+X	int mresult;
+X	int procch;
+X	char *procptr;
+X
+X	/* Upcase name */
+X#ifndef UNIX
+X	stupcase(procfn);
+X#endif
+X	/* Strip leading modifiers */
+X	procptr = strrchr(procfn, DIRSEPCHAR);
+X	if (procptr++ == NULLCHARPTR)		/* DIRSEPCHAR not found */
+X	{	procptr = strrchr(procfn, ':');
+X			if (procptr++ == NULLCHARPTR)	/* ':' not found */
+X				procptr = procfn;
+X	}
+X	procfn = procptr;
+X	outcrlf(1);
+X	printf("%-12s  %6u  ", procfn, procfs);
+X
+X	mresult = method(procfd, procfn, procfs);
+X	switch (mresult)
+X	{
+X	case 0 :
+X	case 1 : printf("%s", " Stored ");
+X		 break;
+X	case 2 :
+X	case 3 : printf("%s", "Squeezed");
+X		 break;
+X	case 4 :
+X	case 5 : printf("%s", "Crunched");
+X		 break;
+X	case 6 :
+X	case 7 : printf("%s", " Cr-lzh ");
+X		 break;
+X	case 8 : printf("%s", "Library ");
+X		 break;
+X	}
+X	/* print date */
+X	printf("  %02d-%02d-%02d", filemonth, fileday, fileyear);
+X
+X	if (mresult == 8) 			/* library file */
+X	{	/* don't show initial info on lbrs in lbrs */
+X		if (infoflag && inlbr && !info)
+X			goto alldone;
+X		inlbr = 1;
+X		outcrlf(2);
+X		printf("member name   length   method     date");
+X		outcrlf(1);
+X		printf("------------  ------  --------  --------");
+X		lbr(procfd);
+X		if (infoflag)
+X			goto alldone;
+X		else
+X			goto filedone;
+X	}
+X
+X	if (infoflag)
+X		goto alldone;
+X
+X	if (!diskout)
+X	{	if ((mresult == 1) || (mresult == 3) || (mresult == 5) ||
+X		    (mresult == 7) ||
+X		    ((mresult) && (!uncompress)))
+X		{	printf("  Can't display binary file.");
+X			goto alldone;
+X		}
+X		else
+X			outfd = stdout;		/* default */
+X	}
+X	else if (!inlbr)
+X		if ( (mresult == 0) || (mresult == 1) || !uncompress )
+X		{	printf("  Input and output files identical.");
+X			goto alldone;
+X		}
+X
+X	if (prompt)
+X	{	scrline = 1;			/* reset [more] flag */
+X		printf("  %s (y/N/q)? ", (diskout ? "Extract" : "View"));
+X		procch = toupper(mgetch(WAIT));
+X		if (isprint(procch))
+X			printf("%c ", procch);
+X		switch (procch)
+X		{ case 3   :			/* ^C, ^K, ^N */
+X		  case 11  :
+X		  case 14  :
+X		  case 'Q' : cfabort();		/* abort */
+X			     break;
+X		  case 'Y' : scrline = 1;
+X			     break;
+X		  default  : goto alldone;
+X		}
+X	}
+X	cksum = 0;
+X	if (!diskout)
+X	{	if (prompt)
+X			outcrlf(1);
+X		printf("  [^c=quit ^x=next file ^z=eof]");
+X	}
+X
+X	if (uncompress && ((mresult == 2) || (mresult == 3)))
+X		/* squeezed */
+X		unsqueeze(procfd, procfn, procfs);
+X	else if (uncompress && ((mresult == 4) || (mresult == 5)))
+X        	/* crunched */
+X		uncrunch(procfd, procfn, procfs);
+X	else if (uncompress && ((mresult == 6) || (mresult == 7)))
+X		/* LZH encoded */
+X		unlzh(procfd, procfn, procfs);
+X	else
+X	{	if (diskout)
+X		{
+X#ifdef UNIX
+X			unixfn(procfn);
+X#endif
+X			outfd = fopen(procfn, "wb");
+X			outreccount = 0;
+X		}
+X		else
+X			outcrlf(2);
+X		while (((procch = cgetc(procfd)) != EOF) && (contin))
+X			output(procch, outfd);
+X	}
+X	/* All done this file */
+X	filedone:
+X	if (diskout)          	/* Don't "close" console! */
+X	{
+X#ifndef UNIX
+X		/* A fixup for MSDOS: Make CP/M files even sector size */
+X		while(outreccount)
+X			output(0x1a, outfd); /* pad with EOFs */
+X#endif
+X		fclose(outfd);
+X	}
+X	alldone:
+X	pause = 1;
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Determine file storage method.
+X	0 = normal file
+X	1 = binary file		 (per file EXTent)
+X	2 = squeezed normal file
+X	3 = squeezed binary file ( "    "    "   )
+X	4 = crunched normal file
+X	5 = crunched binary file ( "    "    "   )
+X	6 = LZH normal file
+X	7 = LZH binary file	 ( "    "    "   )
+X	8 = library file
+X*/
+int method(mfd, mfn, mfsize)
+XFILE *mfd;
+char *mfn;
+long mfsize;
+X{
+X	long mmarker;
+X	char *mptr, *mtptr;
+X	int byte1, byte2;
+X	int mresult;		/* result code */
+X	char mname[100];
+X
+X	mname[0] = '\0';
+X	mresult = 0;		/* normal file */
+X
+X	/* Mark place */
+X	mmarker = ftell(mfd);
+X
+X	if (islbr(mfd) && (mfsize > 128))
+X		return (8);	/* Novosielski .LBR format */
+X
+X	/* Get crunched/squeezed/LZH signature.  If found, use */
+X	/*  the embedded filename instead of the command line spec. */
+X	/*  for binary file detection. */
+X
+X	mtptr = mname;		/* point to temp. storage */
+X	byte1 = getc(mfd);
+X	byte2 = getc(mfd);
+X	if (feof(mfd) || (mfsize < 5))
+X	{	fseek(mfd, mmarker, SEEK_SET);	/* restore pointer */
+X		goto checkext;		/* too short for signature */
+X	}
+X	else if ((byte1 == 0x76) && (byte2 == 0xFD))
+X	{	/* point to un-LZHed filespec */
+X		mresult = 6;
+X		for ( (getw(mfd)) ;
+X			(*mtptr = getc(mfd)) != '\0'; mtptr++);
+X		mtptr = mname;
+X	}
+X	else if ((byte1 == 0x76) && (byte2 == 0xFE))
+X	{	/* point to uncrunched filespec */
+X		mresult = 4;
+X		for ( ; (*mtptr = (getc(mfd)) & 0x7F) != '\0'; mtptr++)
+X			if (*mtptr == 1)
+X				*mtptr = '\0';
+X		mtptr = mname;
+X	}
+X	else if ((byte1 == 0x76) && (byte2 == 0xFF))
+X	{	/* point to unsqueezed filespec */
+X		mresult = 2;
+X		for ( (getw(mfd)) ;
+X			(*mtptr = getc(mfd)) != '\0'; mtptr++);
+X		mtptr = mname;
+X	}
+X	else	/* no signature found */
+checkext:
+X#ifdef UNIX
+X	{	strcpy(mname, mfn);		/* Convert possibly mixed */
+X		stupcase(mname);		/*  or lower case for	*/
+X		mtptr = mname;			/*  testing, and point to it */
+X	}
+X#else
+X		mtptr = mfn;			/* Point to input filespec */
+X#endif
+X	mptr = (char *) strchr(mtptr, '.');	/* find extent, if any */
+X	fseek(mfd, mmarker, SEEK_SET);		/* restore file pointer */
+X
+X	if (mptr != NULL)
+X		if (!strncmp(mptr, ".OBJ", 4) ||
+X#ifdef UNIX
+X		    !strncmp(mptr, ".Z\0", 3) ||
+X#endif
+X		    !strncmp(mptr, ".COM", 4) ||
+X		    !strncmp(mptr, ".EXE", 4) ||
+X		    !strncmp(mptr, ".BIN", 4) ||
+X		    !strncmp(mptr, ".ARC", 4) ||
+X		    !strncmp(mptr, ".ZIP", 4) ||
+X		    !strncmp(mptr, ".ARK", 4) ||
+X		    !strncmp(mptr, ".REL", 4) ||
+X		    !strncmp(mptr, ".SLR", 4) ||
+X		    !strncmp(mptr, ".HDR", 4) ||
+X		    !strncmp(mptr, ".CFG", 4) ||
+X		    !strncmp(mptr, ".SCN", 4) ||
+X		    !strncmp(mptr, ".LBR", 4) ||	/* compressed .LBR */
+X		    !strncmp(mptr, ".ZDK", 4) ||
+X		    !strncmp(mptr, ".OVR", 4) ||
+X		    !strncmp(mptr, ".Z3T", 4) ||
+X		    !strncmp(mptr, ".CHN", 4) ||
+X		    !strncmp(mptr, ".CIM", 4) ||
+X		    !strncmp(mptr, ".3OM", 4) ||
+X		    !strncmp(mptr, ".4OM", 4) ||
+X		    !strncmp(mptr, ".T4C", 4) ||
+X		    !strncmp(mptr, ".DAT", 4) ||
+X		    !strncmp(mptr, ".GIF", 4) ||
+X		    !strncmp(mptr, ".ZOO", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4) ||
+X		    !strncmp(mptr, ".ZRL", 4))
+X			mresult++;			/* binary file */
+X	return (mresult);
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Determine whether file is library.  0 = not library.
+X*/
+int islbr(lbrfd)
+XFILE *lbrfd;
+X{
+X	long lbrmarker;
+X	int lbrresult;
+X	struct direntry islbrent;
+X
+X	lbrresult = 0;
+X	/* Mark place */
+X	lbrmarker = ftell(lbrfd);
+X
+X	if ((fread(&islbrent, sizeof(islbrent), 1, lbrfd)) < 1)
+X		;
+X	else
+X		if ((islbrent.status == '\0') &&
+X		    (strcmp(islbrent.name, "           ") == 0) &&
+X		    (islbrent.index == 0))
+X		{       lbrresult = 1;
+X			xferndate(islbrent.credate, islbrent.moddate);
+X		}
+X
+X	fseek(lbrfd, lbrmarker, SEEK_SET);	/* restore pointer */
+X	return (lbrresult);
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Transfers given Novosielski datestamps to global fileyear, 
+X	  filemonth, and fileday variables.  Use modify datestamp by 
+X	  default; if modify unavailable use create datestamp; if neither 
+X	  available set date to zero.
+X	Novosielski dates are in days since 12/31/77, or 0 if undefined.
+X*/
+void xferndate(ncdate, nmdate)
+unsigned short int ncdate;
+unsigned short int nmdate;
+X{
+X	time_t xferval;
+X
+X	if (!nmdate)			/* no modify datestamp */
+X		nmdate = ncdate;	/* fallback to create datestamp */
+X	if (!nmdate)			/* no datestamps */
+X	{	fileyear = filemonth = fileday = 0;
+X		return;
+X	}
+X        xferval = nmdate * 60L * 60L * 24L; /* seconds since 12/31/77 */
+X	xferval += 252392400L;		   /* seconds since 01/01/70 */
+X	ftsptr = localtime(&xferval);
+X	fileyear = ftsptr->tm_year;
+X	filemonth = ftsptr->tm_mon;
+X	fileday = ftsptr->tm_mday;
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Write a byte to output file.
+X	Repeat byte (0x90) expanded here.
+X	Checksumming of output stream done here.
+X*/
+void send(c)
+register unsigned char c;
+X{
+X	static unsigned char savec;	/* Previous byte put to output */
+X
+X	/* Repeat flag may have been set by previous call */
+X	if (repeat_flag)
+X	{
+X		/* Repeat flag was set - emit (c-1) copies of savec	*/
+X		/*  or (if c is zero), emit the repeat byte itself	*/
+X		repeat_flag = 0;
+X		if (c)
+X		{
+X			cksum += (savec & 0xff) * (c - 1);
+X			while (--c)
+X				output(savec, outfd);
+X		}
+X		else
+X		{
+X			output(REPEAT_CHARACTER, outfd);
+X			cksum += REPEAT_CHARACTER;
+X		}
+X	}
+X	else
+X		/*normal case - emit c or set repeat flag*/
+X		if (c == REPEAT_CHARACTER)
+X			repeat_flag++;
+X		else
+X		{
+X			output(savec = c, outfd);
+X			cksum += (c & 0xff);
+X		}
+X}
+X/* ----------------------------------------------------------------- */
+X/*
+X	Output to screen or file, checking for abort during screen output.
+X*/
+void output(ch, fd)
+int ch;
+XFILE *fd;
+X{
+X	int tchar;
+X
+X	if (diskout)		/* No checking during disk output */
+X	{	if (putc(ch, fd) == EOF)
+X		{	cerror("error writing to file.");
+X			cfabort();		/* disk output broken */
+X		}
+X		else
+X			outreccount = (outreccount + 1) & 127;
+X		return;
+X	}
+X	else if (!contin)	/* allows seek to next library member */
+X		return;
+X
+X	ch &= 0x7F;
+X	if (ch != '\07')	/* no bells please */
+X		putc(ch, fd);
+X
+X	if (ch == '\n')
+X	{
+X		tchar = 0;
+X		if ((scrline++ > ROWS - 3) && (pause))
+X		{	scrline = 1;
+X			  printf(" [more] ");
+X			tchar = mgetch(WAIT);
+X			printf("\r       \r");
+X		}
+X		else
+X			tchar = mgetch(NOWAIT);
+X
+X		if (toupper(tchar) == 'Q')
+X		{	cfabort();
+X			return;
+X		}
+X
+X		switch (tchar & 0x1F)		/* c, C --> ^C, etc. */
+X		{ case 3  :			/* ^C, ^K */
+X		  case 11 : cfabort();		/* exit program */
+X			    break;
+X		  case 24 : contin = 0;		/* ^X next file */
+X			    break;
+X		  case 26 : pause = 0;		/* ^Z zip to EOF */
+X			    break;
+X		}
+X	}
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Send CRLFs to console, causing output() to count lines.
+X*/
+void outcrlf(times)
+int times;
+X{
+X	contin = 1;		/* always print */
+X	while(times--)
+X	{	output('\r', stdout);
+X		output('\n', stdout);
+X	}
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Get / test for character / monitor for carrier loss (if cdline).
+X*/
+int mgetch(keywait)
+int keywait;
+X{
+X	int result = 0, comresult;
+X
+X	do
+X	{	if (timelmt)	/* see if time expired */
+X		{	time(&nowtime);
+X			if ((nowtime - starttime) > timelmt)
+X			{       printf(
+X			"\n  %s: %d-minute time limit exceeded.\n",
+X					PROGNAME, timelmt / 60);
+X				quit();
+X			}
+X		}
+X#ifdef UNIX
+X		if (keywait)
+X		{	result = getchar();
+X			if (result < 0)
+X				result = 0;
+X		}
+X#else
+X		if (cdline)	/* check for carrier */
+X		{	comresult = bioscom(3, 0, cdline-1);
+X			if ((comresult & 0x80) == 0)
+X				quit();		/* no carrier; abort */
+X			else if (comresult & 0x100)	/* COM data ready */
+X				return(bioscom(2, 0, cdline-1));
+X		}
+X		if (bioskey(1))			/* also poll console */
+X			result = bioskey(0);
+X#endif
+X	}
+X	while (!result && keywait);	/* if !keywait, just poll once */
+X	return (result);
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Custom input routine, checks for end of library member
+X*/
+int cgetc(stream)
+XFILE *stream;
+X{
+X	if (inlbr)
+X		if (mlength-- == 0)	/* library member length */
+X		{	contin = 0;
+X			return (EOF);
+X		}
+X	return (getc(stream));
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Print error message.
+X*/
+void cerror(message1, message2, message3, message4)
+char *message1, *message2, *message3, *message4;
+X{
+X	outcrlf(1);
+X	fprintf(stderr, "  %s: ", PROGNAME);
+X	fprintf(stderr, message1, message2, message3, message4);
+X	return;
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Program exits.
+X*/
+void quit()
+X{
+X#ifdef UNIX
+X	printf("\n");
+X	ttyrestore();		/* restore tty */
+X#endif
+X	exit (0);		/* no errors */
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Abort program.
+X*/
+void cfabort()
+X{
+X	printf("\n [abort]\n");
+X	checkwait();
+X	quit();
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Wait for keystroke (-w option)
+X*/
+void checkwait()
+X{
+X	if (waitflag)
+X	{	printf(" Strike any key -- ");
+X		mgetch(WAIT);
+X		printf("\n");
+X	}
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X	Translate string to uppercase, strip high bits
+X*/
+void stupcase(stptr)
+char *stptr;
+X{
+X	while (*stptr != '\0')
+X		*stptr++ = (toupper(*stptr) & 0x7F);
+X}
+X/* ---------------------------------------------------------------- */
+X/*
+X cisubstr(string, token) searches for lower case token in string s
+X returns pointer to token within string if found, NULL otherwise
+X*/
+X
+char *cisubstr(s, t)
+char *s, *t;
+X{
+X        char *ss, *tt;
+X        /* search for first char of token */
+X        for (ss = s; *s; s++)
+X                if (*s == *t)
+X                        /* compare token with substring */
+X			for (ss = s, tt = t; ; )
+X			{	if (*tt == 0)
+X                                        return s;
+X                                if (*ss++ != *tt++)
+X                                        break;
+X                        }
+X        return NULL;
+X}
+X/* End of CFX.C */
+END_OF_FILE
+if test 18746 -ne `wc -c <'cfx.c'`; then
+    echo shar: \"'cfx.c'\" unpacked with wrong size!
+fi
+# end of 'cfx.c'
+fi
+if test -f 'cfx.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.doc'\"
+else
+echo shar: Extracting \"'cfx.doc'\" \(18018 characters\)
+sed "s/^X//" >'cfx.doc' <<'END_OF_FILE'
+X                     CFX - Cp/m File eXpress
+X                         User's Manual
+X             Copyright 4 January 92 by Carson Wilson
+X
+X
+X                          - CONTENTS -
+X
+X     1  PURPOSE.
+X     2  USAGE.
+X          2.1  Invocation.
+X               2.1.1  Help Screen.
+X               2.1.2  File Specification
+X               2.1.3  Command Line Options.
+X                    2.1.3.0  Option B - Brief Output Only.
+X                    2.1.3.1  Option C - Monitor COMn for Carrier.
+X                    2.1.3.2  Option D - Disk Output.
+X                    2.1.3.3  Option I - Display File Info Only.
+X                    2.1.3.4  Option M - Library Member
+X                             Specification.
+X                    2.1.3.5  Option N - Don't Uncompress Library
+X                             Files.
+X                    2.1.3.6  Option P - Prompt Before Processing
+X                             Files.
+X                    2.1.3.7  Option T - Maximum Minutes Allowed.
+X                    2.1.3.8  Option W - Wait After Last File.
+X               2.1.4  Combined Command Lines.
+X          2.2  Output Files to Screen.
+X          2.3  Errors.
+X     3  APPLICATION NOTES.
+X          3.1  BBS Usage.
+X          3.2  Local Usage.
+X     4  KNOWN BUGS.
+X     5  COPYRIGHT.
+X     6  DEVELOPMENT OF CFX.
+X     7  ABOUT THE AUTHOR.
+X
+X
+X                            ---------
+X
+X1  PURPOSE.
+X
+As its name suggests, CFX is a tool intended to allow quick 
+access to CP/M files.  While CFX will operate on standard ASCII 
+files, its main strength is its ability access files stored with 
+the special archiving and compression methods native to the CP/M 
+operating system.  Specifically, CFX can handle files compressed 
+with Roger Warren's LZH utilities, Steve Greenberg's CRUNCH 
+utilities, "squeezed" files, and archives built using Gary 
+Novosielski's Library definition.  
+X
+Typically, CP/M files stored using these protocols can be 
+identified by the three letter file extent as follows:
+X
+X     Extent   Storage method
+X     ------   --------------
+X     .?Y?     LZH compression
+X     .?Z?     Crunched
+X     .?Q?     Squeezed
+X     .LBR     Library
+X
+Notes:
+X  1. Much of what follows applies only to the MSDOS version of
+X     CFX.  If you are using CFX on a Unix system, please refer to
+X     the file cfx.1 or cfx.man for usage information.
+X
+X  1. Library members themselves may be stored under one of the 
+X     above methods (e.g., crunched library members are common).  
+X     CFX can extract compressed library members 
+X     directly to screen or disk.  It can also process library 
+X     members which are themselves libraries in one step.  
+X     However, CFX cannot presently extract members from 
+X     compressed library files in a single step; you must first 
+X     run CFX on the compressed library file and then invoke CFX 
+X     again on the uncompressed library file to access library 
+X     members.
+X
+X  2. Though LZH, crunched, and squeezed files usually have the 
+X     extents mentioned above, they are more reliably identified 
+X     by means of a unique signature at the start of the file.  
+X     CFX uses this signature to identify the compression method 
+X     in all cases.  Following the signature check, CFX 
+X     additionally uses the following standard file extensions to 
+X     identify files which cannot be displayed to the screen:
+X
+X     .OBJ, .COM, .EXE, .BIN, .ARC, .ARK, .ZIP, .REL, .SLR, .CFG, 
+X     .SCN, .LBR, .ZDK, .OVR, .Z3T, .CHN, .CIM, .3OM, .4OM, .T4C, 
+X     .DAT, .ZRL
+X
+X     You can add or remove entries from this list of extensions 
+X     using a binary file patcher.  The default extensions reside 
+X     at or near offset 53A0h in CFX.EXE (compiled MSDOS version 
+X     only), and the last few entries are all ".ZRL"  By overwriting 
+X     a ZRL entry with an extension of your choosing, you can prevent 
+X     CFX from displaying files and library members of this type.  
+X     To allow display of one of the above file types, simply 
+X     overwrite its entry with one of the other extensions from the 
+X     list.
+X
+X  3. CFX cannot access members of .ARC, .ZIP, .ZOO, or other 
+X     common MSDOS file archives.  Plenty of utilities are already 
+X     available for this purpose.
+X
+X
+X2  USAGE.
+z
+X     2.1  Invocation.
+X
+CFX is invoked as:
+X
+X     CFX [option ...] [afn ...]
+X
+where CFX is the name of the CFX executable file.
+X
+X          2.1.1  Help Screen.
+X
+If no command line parameters are given, the following help 
+screen appears:
+X
+CFX - Cp/m File eXpress, Version x.x, Copr. 1992 by Carson Wilson
+X  Usage:
+X        CFX [option ...] afn ...
+X  Options:
+X        /b       - brief output only
+X        /c n     - monitor COMn for carrier
+X        /d       - disk output
+X        /i       - display directory information
+X        /m "afn" - library member specification
+X        /n       - don't uncompress library members
+X        /p       - prompt before processing files
+X        /t n     - maximum minutes allowed
+X        /w       - wait after last file
+X
+The "/" character in the above help screen is the current MSDOS 
+X"switch" character, and may change depending on your 
+installation.
+X
+X          2.1.2  File Specification
+X
+CFX can be used on one or many files at once, depending on the 
+command line arguments it is invoked with.  File compression and 
+archiving methods are detected "on the fly" by CFX, and the 
+proper decompression or library access operations 
+performed as needed.  This makes CFX suitable for use as an 
+extension to many existing MSDOS applications, such as file 
+viewers or BBS programs (see USAGE EXAMPLES, below).
+X
+XFiles can be specified using single or multiple ambiguous or 
+unambiguous filespecs, and filespecs may include path 
+information.  If command line options are also given, file 
+specifications must appear LAST on the command line.  When 
+specifying library files, the .LBR extent is optional.
+X
+XExamples:
+X
+Command                           Results
+X-------                           -------
+CFX *.dzc                         View all files in current 
+X                                  directory with extension "DZC".
+X
+CFX a:\backup\test.bat            View TEST.BAT in directory 
+X                                  BACKUP on drive A:.
+X
+CFX *.lbr ..\*.lbr                View all files with extension 
+X                                  "LBR" in the current and parent 
+X                                  directories.
+X
+CFX mylbr                         View MYLBR.LBR in current 
+X                                  directory.
+X
+X
+X          2.1.3  Command Line Options.
+X
+CFX command line options are specified using the current MSDOS 
+X"switch" character (normally "/"), or "-" under Unix systems.  
+Under MSDOS, to specify more than one option you must use the 
+switch character once before each option.  Options must come 
+BEFORE file specifications (if any) in the command line, [and 
+under MSDOS, MUST BE SEPARATED BY SPACES] (see examples below).
+X
+X               2.1.3.0  Option B - Brief Output Only.
+X
+When displaying a library file, CFX normally displays a complete 
+library directory before further processing occurs.  Option B 
+suppresses the initial directory display.  Useful for slow 
+terminals or to save screen space.
+X
+X               2.1.3.1  Option C - Monitor COMn for Carrier.
+X
+MSDOS version only.
+Option C causes CFX to monitor one of your computer's serial 
+ports for a carrier signal after each line is displayed and when 
+waiting for input from a user.  If no carrier is present, CFX 
+immediately exits.  This is intended for remote applications of 
+CFX in which loss of carrier should normally cause CFX's parent 
+program(s) to resume control and prepare for another phone call.  
+As a special case, /C 0 specifies no carrier detection, causing 
+CFX to operate as though no /C option had been specified.
+X
+XExample:
+X
+Command                           Result
+X-------                           ------
+CFX /C1 test.fil                  Display TEST.FIL and monitor 
+X                                  COM1 for carrier.
+X
+X               2.1.3.2  Option D - Disk Output.  
+X
+Option D causes CFX to extract files to disk.  Compressed files 
+are extracted to the filenames stored at file compression time.  
+XFiles are extracted to the current directory.  
+X
+X               2.1.3.3  Option I - Display File Info Only.
+X
+Option I causes CFX to display file information only.  This 
+overrides most other options.
+X
+X               2.1.3.4  Option M - Library Member Specification.
+X
+Normally CFX process all members of specified library files.  
+Option M allows you to specify a subset of library members for 
+processing.  Unlike the global file specification, the library 
+member specification is limited to one ambiguous or unambiguous 
+parameter.  If an ambiguous member specification is used, it must 
+be enclosed in double quotes ("").  Example:
+X
+Command                           Result
+X-------                           ------
+CFX /M "*.dzc" *.lbr              Display all library members 
+X                                  with the extent "DZC" in the 
+X                                  current directory.
+X
+X               2.1.3.5  Option N - Don't Uncompress Library Files.
+X
+Option N is intended for use in conjunction with option D (Disk 
+output), and tells CFX not to uncompress library members when 
+extracting them to disk.  Attempts to display compressed files 
+using option N will result in the message "can't display binary 
+file." 
+X
+X               2.1.3.6  Option P - Prompt Before Processing Files.
+X
+If the Prompt option is specified, CFX displays the selected 
+file's name, compression method and datestamp to the screen and 
+prompts the user before displaying each matched file.  Example:
+X
+X File Name    Length   Method     Date
+X------------  ------  --------  --------
+CFX.DOC         7064   Stored   06-01-91  View (y/N/q)? 
+X
+A response of Y or y causes CFX to display the file's contents.  
+Responses of Q, q, control-c, control-x, or control-k cause CFX 
+to abort and return to the parent environment.  Any other 
+response causes CFX to skip to the next specified file.
+X
+X               2.1.3.7  Option T - Maximum Minutes Allowed.
+X
+Option T is intended for use on remote systems which limit the 
+amount of connect time a caller is allowed.  Once the specified 
+number of minutes has elapsed, CFX unconditionally displays the 
+message
+X
+X  CFX: x-minute time limit exceeded.
+X
+and returns control to the parent environment.
+X
+X               2.1.3.8  Option W - Wait After Last File.
+X
+Option W simply causes CFX to pause and wait for a keystroke 
+before returning control to the parent program or operating 
+system.  This is useful if you invoked CFX from within a shell 
+X(such as LIST) which overwrites screen contents after invoking 
+CFX.
+X
+X          2.1.4  Combined Command Lines.
+X
+CFX provides a great deal of flexibility by allowing combinations 
+of options and file specifications to be given in a single 
+command.  Here are some examples:
+X
+Command                           Result
+X-------                           ------
+CFX /D /N big.lbr                 Extract all members of BIG.LBR 
+X                                  to disk without uncompressing 
+X                                  them.
+X
+CFX /I *.?z? *.?q? *.lbr          Display information only on all 
+X                                  crunched, squeezed, and library 
+X                                  files in current directory.
+X
+CFX /P /M "*.d?c" *.lbr *.d?c     Display all files and library 
+X                                  members in the current 
+X                                  directory with the extent 
+X                                  "D?C," prompting the user for 
+X                                  each one.
+X
+X     2.2  Output Files to Screen.
+X
+Unless the Disk Output option is specified, CFX always extracts 
+CP/M text files to the screen.  Binary files are skipped with the 
+message "can't display binary file."  Text files are paged 22 
+lines at a time.  When 22 lines have been written to the screen, 
+CFX pauses, displays the message "[more]", and awaits input from 
+the keyboard.  Keyboard inputs of C, control-c, Q, K, or 
+control-k cause CFX to abort and return control to the parent 
+environment.  Inputs of X or control-x cause CFX to skip to the 
+next specified file, if any (or quit if not).  Inputs of Z or 
+control-z cause CFX to scroll the rest of the file past without 
+pausing (useful in viewing the end of a file).  Any other input 
+causes CFX to display the next page of output to the screen.
+X
+When extracting files to the screen, high bits are stripped, so 
+WordStar and other types of files which store special meanings in 
+bit seven of a character should display properly.  Also, the 
+X"bell" character (binary 7) is skipped when outputting files to 
+the screen. All 8 bits are preserved during disk output.
+X
+X     2.3  Errors.
+X
+Most error messages are self-explanatory.  Some confusion may 
+result from CFX's flexible command syntax.  For example, if you 
+try to extract a compressed file which is not a library member to 
+disk without uncompressing it, you are actually trying to copy a 
+file to itself.  In this event, CFX will skip the specified file 
+and display the message
+X
+X  input and output files identical
+X
+In fact, the current version of CFX will display this message any 
+time the NAMES of the input and output files are identical, even 
+if they reside in different directories.  This is a bug, but one 
+easily gotten around with the MSDOS COPY or XCOPY commands.
+X
+X
+X3  APPLICATION NOTES.
+X
+Because of its flexibly command line syntax, CFX can easily be 
+called from within other programs to process CP/M files, 
+returning control when finished. Note that in order to execute 
+CFX as a subtask, your program must provide access to the MSDOS 
+command line.  Most current BBS programs and many other 
+applications such as LIST and VDE provide this capability.
+X
+X     3.1  BBS Usage.
+X
+A prime example of CFX's use is with MSDOS BBS applications.  
+Using the C, P, and T options, CFX can display the contents of 
+CP/M files to remote callers, monitoring for loss of carrier and 
+timing out after a specified amount of time has been exceeded.  
+The current version of CFX will NOT direct its output to the 
+modem as do the Samuel H. Smith's popular ZIPTV and ARCTV file 
+display utilities.  Rather, CFX relies on MSDOS I/O redirection 
+to achieve this task.  You can redirect CFX output entirely to 
+the serial port using the COMx device, or obtain GATEWAY.SYS, 
+which allows program output to be split between a COM port and 
+the local console (see the file GATEWAY2.ZIP, found on many 
+bulletin boards).
+X
+Many MSDOS BBS systems implement remote file viewing through 
+MSDOS BATCH files created by the sysop.  Here are some sample 
+BATCH commands which tell CFX to display the file given as the 
+first parameter, monitoring COM1 for loss of carrier and 
+returning control to the BBS program after 10 minutes:
+X
+X     Using MSDOS COM1:
+X
+X          CFX /C 1 /P /T 10 %1 < COM1 > COM1
+X
+X     Using GATEWAY.SYS:
+X
+X          CFX /C 1 /P /T 10 %1 < GATE1 > GATE1
+X
+If you are running RBBS-PC, you probably want to change "%1" in 
+the above examples to "[1]".  This causes RBBS-PC to shell 
+directly to the first line of the BATCH file rather than to the 
+BATCH file itself, and in practice has proven to be the more 
+reliable approach.  You can also substitute "/C [3]" for "/C 1".  
+This will allow local use of CFX, since [3] is substituted with 
+the number of the COM line RBBS is using, or 0 if RBBS is being 
+used locally.
+X
+Note: when used remotely, control-C does not cause CFX to abort, 
+though this signal still operates on the local console.
+X
+X     3.2  Local Usage.
+X
+CFX can also be used to access CP/M files from within other MSDOS 
+programs.  A good example is its ability to display CP/M files 
+from within Vernon Buerg's popular LIST utility.  LIST allows you 
+to patch in the name of your favorite text editor for invocation 
+on the pointed-to file with LIST's E command.  By substituting 
+the name of CFX at the location dedicated to your editor's name, 
+you can create a version of LIST which will display any 
+pointed-to CP/M (LZH, crunched, library, or squeezed) file using 
+LIST's E command.  See LIST.DOC for instructions on patching 
+LIST.COM.
+X
+X
+X4  KNOWN BUGS.
+X
+X  1. If a wildcarded argument to the /m option is used, the 
+X     argument must be quoted ("") to avoid expansion by the 
+X     command line parser.
+X
+X  2. Does not display embedded file datestamps.
+X
+X  3. Does not set datestamps of output files.
+X
+X  4. Not yet extensively tested with nested .LBR files.
+X
+X
+X5  COPYRIGHT.
+X
+Consider this is a "free sample" of my best programming work; for 
+more you may have to pay.  Programmers must eat.  CFX and its 
+documentation are copyright 1992 by Carson Wilson.  As long as 
+you don't charge money to others for the use of CFX, you don't 
+owe me any money either.  Otherwise please contact me regarding a 
+license to use CFX commercially.
+X
+Also, if you wish to incorporate CFX's source code into a 
+project of your own, I'd appreciate it if you would contact me 
+first.  There are two reasons for this: 1) I may have corrected 
+errors in the source code since this release, and 2) I may 
+already be working on a project similar to yours.  In either 
+case, we are both better off if we pool our efforts.
+X
+X
+X6  DEVELOPMENT OF CFX.
+X
+Most of the design work on CFX done with Borland's Turbo C 
+version 2.01.  It is written entirely in the C language, and 
+should be portable to other systems with standard C compilers.
+X
+X
+X7  ABOUT THE AUTHOR.
+X
+Carson Wilson is a doctoral candidate in Political Science at 
+Loyola University of Chicago.  He has also spent quite a bit of 
+time learning to program CP/M, MSDOS, and Unix systems.  Please 
+address all correspondence to
+X
+X     Carson Wilson
+X     1359 W. Greenleaf, #1D
+X     Chicago, IL 60626
+X
+X              - or -
+X
+X     carson@sputnik.uucp
+X
+X              - or - 
+X
+X     Carson Wilson
+X     Antelope Freeway RBBS
+X     708-455-0120, 24 hours, 3/12/2400 baud, Franklin Park, IL.
+X
+Any and all comments and suggestions will be appreciated.
+END_OF_FILE
+if test 18018 -ne `wc -c <'cfx.doc'`; then
+    echo shar: \"'cfx.doc'\" unpacked with wrong size!
+fi
+# end of 'cfx.doc'
+fi
+if test -f 'cfx.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.h'\"
+else
+echo shar: Extracting \"'cfx.h'\" \(2974 characters\)
+sed "s/^X//" >'cfx.h' <<'END_OF_FILE'
+X/*
+CFX.H - Include module of CP/M File eXpress
+Copyright 20 Jan 1992 by 
+Carson Wilson
+X1359 W. Greenleaf, #1D
+Chicago, IL 60626
+X
+UUCP:	carson@sputnik.uucp
+X	..!uunet!ddsw1!carson
+X
+BBS:	Antelope Freeway, 1-708-455-0120
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <setjmp.h>
+X#include <time.h>
+X
+X#ifdef UNIX
+X# define OSTYPE "Unix"
+X# define LBREXT ".lbr"
+X# define DIRSEPCHAR '/'
+X#else
+X# include <dos.h>
+X# include <io.h>
+X# define OSTYPE "MSDOS"
+X# define LBREXT ".LBR"
+X# define DIRSEPCHAR '\\'
+X
+X /* Define this if linker makes a huge executable image containing
+X      mostly zeros (big tables will instead be allocated at run time):
+X */
+X# define DUMBLINKER
+X#endif
+X
+X#define ROWS 24
+X
+X/ * ======= NOTHING BENEATH THIS LINE SHOULD NEED TO BE CHANGED ======= */
+X
+X/* Strings for prompts, etc */
+X
+X#define PROGNAME "CFX"
+X#define	VERS "1.1"
+X#define	AUTHOR "Carson Wilson"
+X
+X/* Following byte is repeat count */
+X
+X#define	REPEAT_CHARACTER 0x90
+X
+X#define NULLCHARPTR (char *) NULL
+X
+X/* For mgetch() */
+X#define WAIT 1
+X#define NOWAIT 0
+X
+extern unsigned cksum;			/* Checksum of all bytes written to output file*/
+extern unsigned outreccount;		/* Number of bytes written to output record */
+extern unsigned long mlength;		/* current library member length */
+X
+extern char *infname;			/* Currently open input file's name */
+extern FILE *infd;			/* Currently open input file */
+extern FILE *outfd;			/* Currently open output file */
+X
+X/* Command line flags */
+X
+extern int brief;			/* -b brief flag */
+extern int diskout;			/* -d diskout flag */
+extern int info;			/* -i file info */
+extern int uncompress;			/* -n uncompress flag */
+X
+extern unsigned char repeat_flag;	/* So send can remember if repeat required*/
+X
+extern char membername[];
+X
+X/* Internal flags */
+X
+extern int inlbr;			/* in library file flag */
+extern int infoflag;			/* show info only */
+X
+extern unsigned long mlength;	/* library member's uncompressed size */
+X
+X/* .LBR directory entry format */
+X
+struct direntry {
+X	char status;
+X	char name[8];
+X	char ext[3];
+X	unsigned short int index, length, crc;
+X	unsigned short int credate, moddate, cretime, modtime;
+X	char pad;
+X	char filler[5];
+X};
+X
+extern int contin;			/* global abort flag */
+X
+extern jmp_buf jumpbuf;			/* for longjmp() */
+X
+extern long unclength;         		/* global for library members */
+X
+extern int getopt();			/* From Turbo C package */
+X
+extern void outcrlf();                  /* globals */
+extern time_t filetime;
+extern void xferndate();
+extern void quit();
+extern void process();
+extern void unsqueeze();
+extern void uncrunch();
+extern void unlzh();
+extern void lbr();
+extern void stupcase();
+extern void output();
+extern char *cisubstr();
+extern void send();
+extern void enterx();
+extern void intram();
+extern void figure();
+extern void entfil();
+extern void checkwait();
+extern void cerror();
+extern void cfabort();
+extern void unixfn();
+X
+extern int ttyraw();			/* Unix globals */
+extern int ttyrestore();
+extern void unixfn();
+X
+X/* End of CFX.H */
+END_OF_FILE
+if test 2974 -ne `wc -c <'cfx.h'`; then
+    echo shar: \"'cfx.h'\" unpacked with wrong size!
+fi
+# end of 'cfx.h'
+fi
+if test -f 'cfx.hst' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.hst'\"
+else
+echo shar: Extracting \"'cfx.hst'\" \(2616 characters\)
+sed "s/^X//" >'cfx.hst' <<'END_OF_FILE'
+Version:	1.0
+Date:		12 Dec 91
+Author:		Copr. 1991 by Carson Wilson
+Changes:	Initial public MSDOS release.
+X		Now always exits with return code of zero (0).
+X		'N' key no longer aborts file displays.
+X		'Q' key now aborts file displays.
+X
+Version:	0.9
+Date:		2 Nov 91
+Author:		Copr. 1991 by Carson Wilson
+Changes:	Fixed bug which caused CFX to skip library members preceding
+X		  libraries within libraries after displaying initial
+X		  information screen.
+X		Corrected parsing of /b command line option.
+X
+Version:	0.8
+Date:		26 Oct 91
+Author:		Carson Wilson
+Changes:	[Thanks to Jay Sage for the following two suggestions:]
+X		Now displays full library directory info before processing
+X		  members by default.  Use new /b option to suppress this
+X		  display.  /i option still specifies information only.
+X		Now displays brief summary of viewing commands before
+X		  displaying files.
+X		Now uses "===..." to distinguish file information headers
+X		  from "---..." library headers.
+X		Fixed bug which caused output error when /p and /d options
+X		  were used and user refused file extraction.
+X
+Version:	0.7
+Date:		14 Sep 91
+Author:		Carson Wilson
+Changes:	Added LZH file handling (thanks to Roger Warren).
+X		Now checks for files of type .LBR if no filetype was
+X		  specified and file not found.  To force filename only,
+X		  use a "." at the end of the name.
+X		^C, ^K, ^N now synonyms for "q" at "View?" prompt.
+X		Now tests Squeezed file checksum.
+X		Now pads output with 1A hex to make file size equivalent to
+X		  the next CP/M 128-byte boundary.
+X		Now more bulletproof.
+X
+Version:	0.6
+Date:		14 Jun 91
+Author:		Carson Wilson
+Changes:	Added several new exclusion filetypes (note: patch location
+X		  may have changed).
+X		Added /w option to wait for keystroke following last file.
+X		Now reports date of 00-00-00 instead of the MSDOS file datestamp
+X		  if library member datestamps are missing.
+X		Removed redundant [more] prompt during prompted file selection.
+X		Fixed bug which prevented /m option from working with multiple
+X		  library files.
+X		Displays now use fewer linefeeds.
+X		Now aborts on n, N, ^N as well as ^C, ^K.
+X		BELL characters in files suppressed (won't activate speaker).
+X
+Version:	0.5
+Date:		31 May 91
+Author:		Carson Wilson
+Notes:		If a wildcarded argument to the -m option is used, the
+X		  argument must be quoted ("") to avoid expansion by the
+X		  command line parser.
+X		Does not display embedded CRUNCHED datestamps.
+X		There may be a bug in the Borland unixtodos() function: dates
+X		  before the mid '80's seem to generate invalid results.
+X		  Therefore library datestamps before 1981 may not display
+X		  properly.
+END_OF_FILE
+if test 2616 -ne `wc -c <'cfx.hst'`; then
+    echo shar: \"'cfx.hst'\" unpacked with wrong size!
+fi
+# end of 'cfx.hst'
+fi
+if test -f 'cfx.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.man'\"
+else
+echo shar: Extracting \"'cfx.man'\" \(3919 characters\)
+sed "s/^X//" >'cfx.man' <<'END_OF_FILE'
+X
+X
+X
+X	  cfx(1)						     cfx(1)
+X
+X
+X
+X	  NAME
+X	       cfx - CP/M File eXpress
+X
+X	  SYNOPSIS
+X	       cfx [-bdinpw] [-c n] [-m	afn] [-t minutes] [files ...]
+X
+X	  DESCRIPTION
+X	       Cfx provides convenient access to the various file archiving
+X	       methods presently associated with computers based on Digital
+X	       Research's CP/M operating system	and its	descendants.  By
+X	       default,	cfx steps through the target file and extracts all
+X	       human-readable information to the screen.  File extraction
+X	       is also supported as a command line option.
+X
+X	       The following types of archives are supported (note that	the
+X	       file extents given below	are merely conventions;	cfx reads a
+X	       file's data to distinguish its archive type):
+X
+X	       Extent  Typical archive type
+X
+X	       .lbr    Novosielski library format file.	 This format is
+X		       similar in purpose to the familiar MS-DOS .arc and
+X		       .zip archives.  A set of	related	files is stored	as
+X		       a single	"library" for convenience and efficiency.
+X		       The format is comprised of a binary directory one or
+X		       more 128-byte CP/M records in length, followed
+X		       sequentially by one or more member files, also com-
+X		       prised of one or	more CP/M records.
+X
+X	       .?q?    Squeezed	files.	Squeezed files contain Huffman-
+X		       encoded text or binary data.  Squeezing has gener-
+X		       ally been replaced more efficient compression meth-
+X		       ods.  The first two bytes of CP/M squeezed files	are
+X		       guaranteed to be	76 and FF hex, respectively.
+X
+X	       .?z?    Crunched	files.	Crunching is similar to	squeezing,
+X		       but uses	the Lempel-Ziv-Welch algorithm,	adapted	for
+X		       CP/M use	by Steve Greenberg.  The first two bytes of
+X		       CP/M crunched files are guaranteed to be	76 and FE
+X		       hex, respectively.
+X
+X	       .?y?    LZH-compressed files.  LZH-compression uses a combi-
+X		       nation of Lempel-Ziv-Welch and Huffman techniques.
+X		       The first two bytes of CP/M LZH files are guaranteed
+X		       to be 76	and FD hex, respectively.
+X
+X	       Cfx will	also display non-compressed (ASCII) files.  High
+X	       bits are	stripped during	display, but not during	extraction,
+X	       so WordStar and other forms of text which store information
+X	       in 8-bit	form are handled reliably.
+X
+X	  OPTIONS
+X	       -b	Brief output only.  When processing library (.lbr)
+X
+X
+X
+X	  Rev. 1.1		       01-20-92			     Page 1
+X
+X
+X
+X
+X
+X	  cfx(1)						     cfx(1)
+X
+X
+X
+X			files, suppress	initial	directory display.
+X
+X	       -c n	Monitor	COM n for carrier (MSDOS only).
+X
+X	       -d	Extract	files to current disk directory.  Com-
+X			pressed	files are extracted to the filenames stored
+X			at file	compression time.  (See	option -n).
+X
+X	       -i	Display	file information only.	Overrides most
+X			other options.
+X
+X	       -m afn	Specify	a subset of library members for	processing.
+X			Limited	to one ambiguous or unambiguous	parameter.
+X
+X	       -n	Don't uncompress library file members.	Intended
+X			for use	in conjunction with option -d (disk out-
+X			put).
+X
+X	       -p	Display	file name, compression method and datestamp
+X			to the screen and prompt the user before processing
+X			each file.
+X
+X	       -t minutes
+X			Allow only minutes time.  Intended for use on
+X			remote systems which limit the amount of connect
+X			time a caller is allowed.
+X
+X	       -w	Wait for keystroke before returning control to the
+X			parent environment.
+X
+X	  BUGS
+X	       Screen length fixed at 24 rows.
+X
+X	       Does not	prompt before overwriting files.
+X
+X	       Does not	display	embedded file datestamps.
+X
+X	       Does not	restore	datestamps of output files.
+X
+X	       Not yet extensively tested with nested .LBR files.
+X
+X	  SEE ALSO
+X	       Cfx User's Manual, arc(1), unzip(1), compress(1), pack(1).
+X
+X	  AUTHOR
+X	       Carson Wilson
+X	       ..!uunet!ddsw1!carson
+X	       carson@sputnik.uucp
+X
+X
+X
+X
+X
+X
+X
+X
+X	  Rev. 1.1		       01-20-92			     Page 2
+X
+X
+END_OF_FILE
+if test 3919 -ne `wc -c <'cfx.man'`; then
+    echo shar: \"'cfx.man'\" unpacked with wrong size!
+fi
+# end of 'cfx.man'
+fi
+if test -f 'cfx.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfx.1'\"
+else
+echo shar: Extracting \"'cfx.1'\" \(3485 characters\)
+sed "s/^X//" >'cfx.1' <<'END_OF_FILE'
+X.TH cfx 1 01-20-92 "Rev. 1.1"
+X.SH NAME
+cfx \- CP/M File eXpress
+X.SH SYNOPSIS
+X.B cfx
+X[-bdinpw] [-c
+X.IR n ]
+X[-m
+X.IR afn ]
+X[-t
+X.IR minutes ]
+X[files ...]
+X.SH DESCRIPTION
+X.I Cfx
+provides convenient access to the various file archiving methods 
+presently associated with computers based on Digital Research's
+X.I CP/M
+operating system and its descendants.
+By default,
+X.I cfx
+steps through the target file and extracts all human-readable 
+information to the screen.
+XFile extraction is also supported as a command line option.
+X.PP
+The following types of archives are supported
+X(note that the file extents given below are merely conventions;
+X.I cfx
+reads a file's data to distinguish its archive type):
+X.TP 12
+X.B Extent
+X.B Typical archive type
+X.TP
+X.B .lbr
+Novosielski 
+X.I library
+format file.
+This format is similar in purpose to the familiar MS-DOS 
+X.I .arc
+and 
+X.I .zip
+archives.
+A set of related files is stored as a single "library"
+for convenience and efficiency.
+The format is comprised of a binary
+X.I directory
+one or more 128-byte CP/M 
+X.I records
+in length, followed sequentially by one or more 
+X.I member
+files, also comprised of one or more CP/M records.
+X.TP
+X.B .?q?
+X.I Squeezed
+files.
+Squeezed
+files contain Huffman-encoded text or binary data.
+Squeezing
+has generally been replaced more efficient compression 
+methods.
+The first two bytes of CP/M squeezed files are guaranteed to be 
+X76 and FF hex, respectively.
+X.TP
+X.B .?z?
+X.I Crunched
+files.
+Crunching is similar to squeezing, but uses the Lempel-Ziv-Welch 
+algorithm, adapted for CP/M use by Steve Greenberg.
+The first two bytes of CP/M crunched files are guaranteed to be 
+X76 and FE hex, respectively.
+X.TP
+X.B .?y?
+X.IR LZH -compressed
+files.
+LZH-compression uses a combination of Lempel-Ziv-Welch and 
+Huffman techniques.
+The first two bytes of CP/M LZH files are guaranteed to be 76 
+and FD hex, respectively.
+X.PP
+X.I Cfx
+will also display non-compressed (ASCII) files.
+High bits are stripped during display, but not during 
+extraction, so WordStar and other forms of text which store 
+information in 8-bit form are handled reliably.
+X.SH OPTIONS
+X.TP 13
+X.B \-b
+Brief output only.
+When processing library (.lbr) files, suppress initial directory 
+display.
+X.TP 13
+X.BI \-c "\ n"
+Monitor COM
+X.I n
+for carrier (MSDOS only).
+X.TP
+X.B \-d
+XExtract files to current disk directory.
+Compressed files are extracted to the filenames stored 
+at file compression time.
+X(See option -n).
+X.TP
+X.B \-i
+Display file information only.
+Overrides most other options.
+X.TP
+X.BI \-m "\ afn"
+Specify a subset of library members for processing.
+Limited to one ambiguous or unambiguous parameter.
+X.TP
+X.B \-n
+Don't uncompress library file members.
+Intended for use in conjunction with option -d (disk 
+output).
+X.TP
+X.B \-p
+Display file name, compression method and datestamp to the 
+screen and prompt the user before processing each file.
+X.TP
+X.BI \-t "\ minutes"
+Allow only
+X.I minutes
+time.
+Intended for use on remote systems which limit the 
+amount of connect time a caller is allowed.
+X.TP
+X.B \-w
+Wait for keystroke before returning control to the parent 
+environment.
+X.SH BUGS
+X.TP
+Screen length fixed at 24 rows.
+X.TP
+Does not prompt before overwriting files.
+X.TP
+Does not display embedded file datestamps.
+X.TP
+Does not restore datestamps of output files.
+X.TP
+Not yet extensively tested with nested .LBR files.
+X.SH "SEE ALSO"
+Cfx User's Manual,
+arc(1), unzip(1),
+compress(1), pack(1).
+X.SH AUTHOR
+X.nf
+Carson Wilson
+X.I ..!uunet!ddsw1!carson
+X.I carson\@sputnik.uucp
+END_OF_FILE
+if test 3485 -ne `wc -c <'cfx.1'`; then
+    echo shar: \"'cfx.1'\" unpacked with wrong size!
+fi
+# end of 'cfx.1'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

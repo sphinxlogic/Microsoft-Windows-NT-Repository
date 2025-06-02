@@ -1,0 +1,2695 @@
+Newsgroups: comp.sources.misc
+From: byron@archone.tamu.edu (Byron Rakitzis)
+Subject:  v30i025:  rc - A Plan 9 shell reimplementation, v1.4, Part02/07
+Message-ID: <1992May30.031607.5307@sparky.imd.sterling.com>
+X-Md4-Signature: 1766d0bd25c15f101d33191f5df07107
+Date: Sat, 30 May 1992 03:16:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: byron@archone.tamu.edu (Byron Rakitzis)
+Posting-number: Volume 30, Issue 25
+Archive-name: rc/part02
+Environment: UNIX
+Supersedes: rc: Volume 23, Issue 61-66
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  hash.c lex.c open.c rc.1
+# Wrapped by kent@sparky on Fri May 29 20:55:23 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 7)."'
+if test -f 'hash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hash.c'\"
+else
+  echo shar: Extracting \"'hash.c'\" \(6754 characters\)
+  sed "s/^X//" >'hash.c' <<'END_OF_FILE'
+X/* hash.c: hash table support for functions and variables. */
+X
+X/*
+X   Functions and variables are cached in both internal and external
+X   form for performance. Thus a variable which is never "dereferenced"
+X   with a $ is passed on to rc's children untouched. This is not so
+X   important for variables, but is a big win for functions, where a call
+X   to yyparse() is involved.
+X*/
+X
+X#include "rc.h"
+X#include "sigmsgs.h"
+X
+Xstatic bool var_exportable(char *);
+Xstatic bool fn_exportable(char *);
+Xstatic int hash(char *, int);
+Xstatic int find(char *, Htab *, int);
+Xstatic void free_fn(Function *);
+X
+XHtab *fp;
+XHtab *vp;
+Xstatic int fused, fsize, vused, vsize;
+Xstatic char **env;
+Xstatic int bozosize;
+Xstatic int envsize;
+Xstatic bool env_dirty = TRUE;
+Xstatic char *dead = "";
+X
+X#define HASHSIZE 64 /* rc was debugged with HASHSIZE == 2; 64 is about right for normal use */
+X
+Xextern void inithash() {
+X	Htab *fpp, *vpp;
+X	int i;
+X	fp = ealloc(sizeof(Htab) * HASHSIZE);
+X	vp = ealloc(sizeof(Htab) * HASHSIZE);
+X	fused = vused = 0;
+X	fsize = vsize = HASHSIZE;
+X	for (vpp = vp, fpp = fp, i = 0; i < HASHSIZE; i++, vpp++, fpp++)
+X		vpp->name = fpp->name = NULL;
+X}
+X
+X#define ADV()   {if ((c = *s++) == '\0') break;}
+X
+X/* hash function courtesy of paul haahr */
+X
+Xstatic int hash(char *s, int size) {
+X	int c, n = 0;
+X	while (1) {
+X		ADV();
+X		n += (c << 17) ^ (c << 11) ^ (c << 5) ^ (c >> 1);
+X		ADV();
+X		n ^= (c << 14) + (c << 7) + (c << 4) + c;
+X		ADV();
+X		n ^= (~c << 11) | ((c << 3) ^ (c >> 1));
+X		ADV();
+X		n -= (c << 16) | (c << 9) | (c << 2) | (c & 3);
+X	}
+X	if (n < 0)
+X		n = ~n;
+X	return n & (size - 1); /* need power of 2 size */
+X}
+X
+Xstatic bool rehash(Htab *ht) {
+X	int i, j, size;
+X	int newsize, newused;
+X	Htab *newhtab;
+X	if (ht == fp) {
+X		if (fsize > 2 * fused)
+X			return FALSE;
+X		size = fsize;
+X	} else {
+X		if (vsize > 2 * vused)
+X			return FALSE;
+X		size = vsize;
+X	}
+X	newsize = 2 * size;
+X	newhtab = ealloc(newsize * sizeof(Htab));
+X	for (i = 0; i < newsize; i++)
+X		newhtab[i].name = NULL;
+X	for (i = newused = 0; i < size; i++)
+X		if (ht[i].name != NULL && ht[i].name != dead) {
+X			newused++;
+X			j = hash(ht[i].name, newsize);
+X			while (newhtab[j].name != NULL) {
+X				j++;
+X				j &= (newsize - 1);
+X			}
+X			newhtab[j].name = ht[i].name;
+X			newhtab[j].p = ht[i].p;
+X		}
+X	if (ht == fp) {
+X		fused = newused;
+X		fp = newhtab;
+X		fsize = newsize;
+X	} else {
+X		vused = newused;
+X		vp = newhtab;
+X		vsize = newsize;
+X	}
+X	efree(ht);
+X	return TRUE;
+X}
+X
+X#define varfind(s) find(s, vp, vsize)
+X#define fnfind(s) find(s, fp, fsize)
+X
+Xstatic int find(char *s, Htab *ht, int size) {
+X	int h = hash(s, size);
+X	while (ht[h].name != NULL && !streq(ht[h].name, s)) {
+X		h++;
+X		h &= size - 1;
+X	}
+X	return h;
+X}
+X
+Xextern void *lookup(char *s, Htab *ht) {
+X	int h = find(s, ht, ht == fp ? fsize : vsize);
+X	return (ht[h].name == NULL) ? NULL : ht[h].p;
+X}
+X
+Xextern Function *get_fn_place(char *s) {
+X	int h = fnfind(s);
+X	env_dirty = TRUE;
+X	if (fp[h].name == NULL) {
+X		if (rehash(fp))
+X			h = fnfind(s);
+X		fused++;
+X		fp[h].name = ecpy(s);
+X		fp[h].p = enew(Function);
+X	} else
+X		free_fn(fp[h].p);
+X	return fp[h].p;
+X}
+X
+Xextern Variable *get_var_place(char *s, bool stack) {
+X	Variable *new;
+X	int h = varfind(s);
+X
+X	env_dirty = TRUE;
+X
+X	if (vp[h].name == NULL) {
+X		if (rehash(vp))
+X			h = varfind(s);
+X		vused++;
+X		vp[h].name = ecpy(s);
+X		vp[h].p = enew(Variable);
+X		((Variable *)vp[h].p)->n = NULL;
+X		return vp[h].p;
+X	} else {
+X		if (stack) {	/* increase the stack by 1 */
+X			new = enew(Variable);
+X			new->n = vp[h].p;
+X			return vp[h].p = new;
+X		} else {	/* trample the top of the stack */
+X			new = vp[h].p;
+X			efree(new->extdef);
+X			listfree(new->def);
+X			return new;
+X		}
+X	}
+X}
+X
+Xextern void delete_fn(char *s) {
+X	int h = fnfind(s);
+X	if (fp[h].name == NULL)
+X		return; /* not found */
+X	env_dirty = TRUE;
+X	free_fn(fp[h].p);
+X	efree(fp[h].p);
+X	efree(fp[h].name);
+X	if (fp[(h+1)&(fsize-1)].name == NULL) {
+X		--fused;
+X		fp[h].name = NULL;
+X	} else {
+X		fp[h].name = dead;
+X	}
+X}
+X
+Xextern void delete_var(char *s, bool stack) {
+X	int h = varfind(s);
+X	Variable *v;
+X	if (vp[h].name == NULL)
+X		return; /* not found */
+X	env_dirty = TRUE;
+X	v = vp[h].p;
+X	efree(v->extdef);
+X	listfree(v->def);
+X	if (v->n != NULL) { /* This is the top of a stack */
+X		if (stack) { /* pop */
+X			vp[h].p = v->n;
+X			efree(v);
+X		} else { /* else just empty */
+X			v->extdef = NULL;
+X			v->def = NULL;
+X		}
+X	} else { /* needs to be removed from the hash table */
+X		efree(v);
+X		efree(vp[h].name);
+X		if (vp[(h+1)&(vsize-1)].name == NULL) {
+X			--vused;
+X			vp[h].name = NULL;
+X		} else {
+X			vp[h].name = dead;
+X		}
+X	}
+X}
+X
+Xstatic void free_fn(Function *f) {
+X	treefree(f->def);
+X	efree(f->extdef);
+X}
+X
+Xextern void initenv(char **envp) {
+X	int n;
+X	for (n = 0; envp[n] != NULL; n++)
+X		;
+X	n++; /* one for the null terminator */
+X	if (n < HASHSIZE)
+X		n = HASHSIZE;
+X	env = ealloc((envsize = 2 * n) * sizeof (char *));
+X	for (; *envp != NULL; envp++)
+X		if (strncmp(*envp, "fn_", conststrlen("fn_")) == 0) {
+X			if (!dashpee)
+X				fnassign_string(*envp);
+X		} else {
+X			if (!varassign_string(*envp)) /* add to bozo env */
+X				env[bozosize++] = *envp;
+X		}
+X}
+X
+Xstatic bool var_exportable(char *s) {
+X	static char *notforexport[] = {
+X		"apid", "pid", "apids", "*", "ifs"
+X	};
+X	int i;
+X	for (i = 0; i < arraysize(notforexport); i++)
+X		if (streq(s, notforexport[i]))
+X			return FALSE;
+X	return TRUE;
+X}
+X
+Xstatic bool fn_exportable(char *s) {
+X	int i;
+X	if (strncmp(s, "sig", conststrlen("sig")) == 0) { /* small speed hack */
+X		for (i = 0; i < NUMOFSIGNALS; i++)
+X			if (streq(s, signals[i].name))
+X				return FALSE;
+X		if (streq(s, "sigexit"))
+X			return FALSE;
+X	}
+X	return TRUE;
+X}
+X
+Xextern char **makeenv() {
+X	int ep, i;
+X	char *v;
+X	if (!env_dirty)
+X		return env;
+X	env_dirty = FALSE;
+X	ep = bozosize;
+X	if (vsize + fsize + 1 + bozosize > envsize) {
+X		envsize = 2 * (bozosize + vsize + fsize + 1);
+X		env = erealloc(env, envsize * sizeof(char *));
+X	}
+X	for (i = 0; i < vsize; i++) {
+X		if (vp[i].name == NULL || vp[i].name == dead || !var_exportable(vp[i].name))
+X			continue;
+X		v = varlookup_string(vp[i].name);
+X		if (v != NULL)
+X			env[ep++] = v;
+X	}
+X	for (i = 0; i < fsize; i++) {
+X		if (fp[i].name == NULL || fp[i].name == dead || !fn_exportable(fp[i].name))
+X			continue;
+X		env[ep++] = fnlookup_string(fp[i].name);
+X	}
+X	env[ep] = NULL;
+X	qsort(env, (SIZE_T) ep, sizeof(char *), starstrcmp);
+X	return env;
+X}
+X
+Xextern void whatare_all_vars() {
+X	int i;
+X	List *s;
+X	for (i = 0; i < vsize; i++)
+X		if (vp[i].name != NULL && (s = varlookup(vp[i].name)) != NULL)
+X			prettyprint_var(1, vp[i].name, s);
+X	for (i = 0; i < fsize; i++)
+X		if (fp[i].name != NULL && fp[i].name != dead)
+X			prettyprint_fn(1, fp[i].name, fnlookup(fp[i].name));
+X}
+X
+X/* fake getenv() for readline() follows: */
+X
+X#ifdef READLINE
+Xextern char *getenv(const char *name) {
+X	List *s;
+X	if (name == NULL || vp == NULL || (s = varlookup((char *) name)) == NULL)
+X		return NULL;
+X	return s->w;
+X}
+X#endif
+END_OF_FILE
+  if test 6754 -ne `wc -c <'hash.c'`; then
+    echo shar: \"'hash.c'\" unpacked with wrong size!
+  fi
+  # end of 'hash.c'
+fi
+if test -f 'lex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lex.c'\"
+else
+  echo shar: Extracting \"'lex.c'\" \(10427 characters\)
+  sed "s/^X//" >'lex.c' <<'END_OF_FILE'
+X/* lex.c: rc's lexical analyzer */
+X
+X#include "rc.h"
+X#include "y.tab.h"
+X
+X/*
+X	Special characters (i.e., "non-word") in rc:
+X		\t \n # ; & | ^ $ = ~ ` ' { } @ ! ( ) < > \
+X
+X	The lexical analyzer is fairly straightforward. The only really
+X	unclean part concerns backslash continuation and "double
+X	backslashes". A backslash followed by a newline is treated as a
+X	space, otherwise backslash is not a special characeter (i.e.,
+X	it can be part of a word).  This introduces a host of unwanted
+X	special cases. In our case, \ cannot be a word character, since
+X	we wish to read in all word characters in a tight loop.
+X
+X	Note: to save the trouble of declaring these arrays with TRUEs
+X	and FALSEs, I am assuming that FALSE = 0, TRUE = 1. (and so is
+X	it declared in rc.h)
+X*/
+X
+X#define BUFSIZE ((SIZE_T) 1000)	/*	malloc hates power of 2 buffers? */
+X#define BUFMAX (8 * BUFSIZE)	/* 	How big the buffer can get before we re-allocate the
+X					space at BUFSIZE again. Premature optimization? Maybe.
+X				*/
+X
+Xtypedef enum wordstates {
+X	NW, RW, KW /* "nonword", "realword", "keyword" */
+X} wordstates;
+X
+Xstatic void getpair(int);
+X
+Xint lineno;
+X
+Xconst char nw[] = {
+X	1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X	1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+X	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+X	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+X};
+X
+Xconst char dnw[] = {
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
+X	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+X	1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+X};
+X
+Xstatic SIZE_T bufsize = BUFSIZE;
+Xstatic char *realbuf = NULL;
+Xstatic bool newline = FALSE;
+Xstatic bool errset = FALSE;
+Xstatic bool prerror = FALSE;
+Xstatic wordstates w = NW;
+Xstatic int fd_left, fd_right;
+X
+X#define checkfreecaret {if (w != NW) { w = NW; ugchar(c); return '^'; }}
+X
+Xenum filedescriptors {
+X	UNSET = -9, CLOSED = -1
+X};
+X
+Xextern int yylex() {
+X	static bool dollar = FALSE;
+X	bool saw_meta = FALSE;
+X	int c;
+X	SIZE_T i;			/* The purpose of all these local assignments is to	*/
+X	const char *meta;		/* allow optimizing compilers like gcc to load these	*/
+X	char *buf = realbuf;		/* values into registers. On a sparc this is a		*/
+X	YYSTYPE *y = &yylval;		/* win, in code size *and* execution time		*/
+X	if (errset) {
+X		errset = FALSE;
+X		return '\n';
+X	}
+X	/* rc variable-names may contain only alnum, '*' and '_', so use dnw if we are scanning one. */
+X	meta = (dollar ? dnw : nw);
+X	dollar = FALSE;
+X	if (newline) {
+X		--lineno; /* slight space optimization; print_prompt2() always increments lineno */
+X		print_prompt2();
+X		newline = FALSE;
+X	}
+Xtop:	while ((c = gchar()) == ' ' || c == '\t')
+X		w = NW;
+X	if (c == EOF)
+X		return END;
+X	if (!meta[(unsigned char) c]) {	/* it's a word or keyword. */
+X		checkfreecaret;
+X		w = RW;
+X		i = 0;
+X	read:	do {
+X			buf[i++] = c;
+X			if (c == '?' || c == '[' || c == '*')
+X				saw_meta = TRUE;
+X			if (i >= bufsize)
+X				buf = realbuf = erealloc(buf, bufsize *= 2);
+X		} while ((c = gchar()) != EOF && !meta[(unsigned char) c]);
+X		while (c == '\\') {
+X			if ((c = gchar()) == '\n') {
+X				print_prompt2();
+X				c = ' '; /* Pretend a space was read */
+X				break;
+X			} else {
+X	bs:			if (meta != dnw) { /* all words but varnames may have a bslash */
+X					buf[i++] = '\\';
+X					if (i >= bufsize)
+X						buf = realbuf = erealloc(buf, bufsize *= 2);
+X					if (!meta[(unsigned char) c])
+X						goto read;
+X				} else {
+X					ugchar(c);
+X					c = '\\';
+X					break;
+X				}
+X			}
+X		}
+X		ugchar(c);
+X		buf[i] = '\0';
+X		w = KW;
+X		if (i == 2) {
+X			if (*buf == 'i' && buf[1] == 'f') return IF;
+X			if (*buf == 'f' && buf[1] == 'n') return FN;
+X			if (*buf == 'i' && buf[1] == 'n') return IN;
+X		}
+X		if (streq(buf, "for")) return FOR;
+X		if (streq(buf, "else")) return ELSE;
+X		if (streq(buf, "switch")) return SWITCH;
+X		if (streq(buf, "while")) return WHILE;
+X		if (streq(buf, "case")) return CASE;
+X		w = RW;
+X		y->word.w = ncpy(buf);
+X		if (saw_meta) {
+X			char *r, *s;
+X
+X			y->word.m = nalloc(strlen(buf) + 1);
+X			for (r = buf, s = y->word.m; *r != '\0'; r++, s++)
+X				*s = (*r == '?' || *r == '[' || *r == '*');
+X		} else {
+X			y->word.m = NULL;
+X		}
+X		return WORD;
+X	}
+X	if (c == '`' || c == '!' || c == '@' || c == '~' || c == '$' || c == '\'') {
+X		checkfreecaret;
+X		if (c == '!' || c == '@' || c == '~')
+X			w = KW;
+X	}
+X	switch (c) {
+X	case '\0':
+X		pr_error("warning: null character ignored");
+X		goto top;
+X	case '!':
+X		return BANG;
+X	case '@':
+X		return SUBSHELL;
+X	case '~':
+X		return TWIDDLE;
+X	case '`':
+X		c = gchar();
+X		if (c == '`')
+X			return BACKBACK;
+X		ugchar(c);
+X		return '`';
+X	case '$':
+X		dollar = TRUE;
+X		c = gchar();
+X		if (c == '#')
+X			return COUNT;
+X		if (c == '^')
+X			return FLAT;
+X		ugchar(c);
+X		return '$';
+X	case '\'':
+X		w = RW;
+X		i = 0;
+X		do {
+X			buf[i++] = c;
+X			if (c == '\n')
+X				print_prompt2();
+X			if (c == EOF) {
+X				w = NW;
+X				scanerror("eof in quoted string");
+X				return HUH;
+X			}
+X			if (i >= bufsize)
+X				buf = realbuf = erealloc(buf, bufsize *= 2);
+X		} while ((c = gchar()) != '\'' || (c = gchar()) == '\''); /* quote "'" thus: 'how''s it going?' */
+X		ugchar(c);
+X		buf[i] = '\0';
+X		y->word.w = ncpy(buf);
+X		y->word.m = NULL;
+X		return WORD;
+X	case '\\':
+X		if ((c = gchar()) == '\n') {
+X			print_prompt2();
+X			goto top; /* Pretend it was just another space. */
+X		}
+X		ugchar(c);
+X		c = '\\';
+X		checkfreecaret;
+X		c = gchar();
+X		i = 0;
+X		goto bs;
+X	case '(':
+X		if (w == RW) /* SUB's happen only after real words, not keyowrds, so if () and while () work */
+X			c = SUB;
+X		w = NW;
+X		return c;
+X	case '#':
+X		while ((c = gchar()) != '\n') /* skip comment until newline */
+X			if (c == EOF)
+X				return END;
+X		/* FALLTHROUGH */
+X	case '\n':
+X		lineno++;
+X		newline = TRUE;
+X		/* FALLTHROUGH */
+X	case ';':
+X	case '^':
+X	case ')':
+X	case '=':
+X	case '{': case '}':
+X		w = NW;
+X		return c;
+X	case '&':
+X		w = NW;
+X		c = gchar();
+X		if (c == '&')
+X			return ANDAND;
+X		ugchar(c);
+X		return '&';
+X	case '|':
+X		w = NW;
+X		c = gchar();
+X		if (c == '|')
+X			return OROR;
+X		getpair(c);
+X		if (errset)
+X			return HUH;
+X		if ((y->pipe.left = fd_left) == UNSET)
+X			y->pipe.left = 1;				/* default to fd 1 */
+X		if ((y->pipe.right = fd_right) == UNSET)
+X			y->pipe.right = 0;				/* default to fd 0 */
+X		if (y->pipe.right == CLOSED) {
+X			scanerror("expected digit after '='");		/* can't close a pipe */
+X			return HUH;
+X		}
+X		return PIPE;
+X	case '>':
+X		c = gchar();
+X		if (c == '>') {
+X			c = gchar();
+X			y->redir.type = rAppend;
+X		} else
+X			y->redir.type = rCreate;
+X		y->redir.fd = 1;
+X		goto common;
+X	case '<':
+X		c = gchar();
+X		if (c == '<') {
+X			c = gchar();
+X			if (c == '<') {
+X				c = gchar();
+X				y->redir.type = rHerestring;
+X			} else {
+X				y->redir.type = rHeredoc;
+X			}
+X		} else
+X			y->redir.type = rFrom;
+X		y->redir.fd = 0;
+X	common:
+X		w = NW;
+X		getpair(c);
+X		if (errset)
+X			return HUH;
+X		if (fd_right == UNSET) { /* redirection, not dup */
+X			if (fd_left != UNSET) {
+X				y->redir.fd = fd_left;
+X				return SREDIR;
+X			}
+X			return (y->redir.type == rFrom || y->redir.type == rCreate) ? REDIR : SREDIR;
+X		} else { /* dup; recast yylval */
+X			y->dup.type = y->redir.type;
+X			y->dup.left = fd_left;
+X			y->dup.right = fd_right;
+X			return DUP;
+X		}
+X	default:
+X		w = NW;
+X		return c; /* don't know what it is, let yacc barf on it */
+X	}
+X}
+X
+Xextern void yyerror(const char *s) {
+X	char *tok;
+X	if (prerror) { /* don't print "syntax error" if there's a more informative scanerror */
+X		prerror = FALSE;
+X		return;
+X	}
+X	if (!interactive) {
+X		if (w != NW)
+X			tok = realbuf;
+X		else if (last == EOF)
+X			tok = "eof";
+X		else if (last == '\n')
+X			tok = "end of line";
+X		else
+X			tok = nprint((last < 32 || last > 126) ? "(decimal %d)" : "'%c'", last);
+X		fprint(2, "line %d: %s near %s\n", lineno - (last == '\n'), s, tok);
+X	} else
+X		fprint(2, "%s\n", s);
+X}
+X
+Xextern void scanerror(char *s) {
+X	flushu(); /* flush upto newline */
+X	yyerror(s);
+X	errset = prerror = TRUE;
+X}
+X
+Xextern void inityy() {
+X	newline = FALSE;
+X	w = NW;
+X	hq = NULL;
+X	/* return memory to the system if the buffer got too large */
+X	if (bufsize > BUFMAX && realbuf != NULL) {
+X		efree(realbuf);
+X		bufsize = BUFSIZE;
+X		realbuf = ealloc(bufsize);
+X	} else if (realbuf == NULL)
+X		realbuf = ealloc(bufsize);
+X}
+X
+Xextern void print_prompt2() {
+X	lineno++;
+X#ifdef READLINE
+X	prompt = prompt2;
+X#else
+X	if (interactive)
+X		fprint(2, "%s", prompt2);
+X#endif
+X}
+X
+X/*
+X   Scan in a pair of integers for redirections like >[2=1]. CLOSED represents a closed file
+X   descriptor (i.e., >[2=]) and UNSET represents an undesignated file descriptor (e.g.,
+X   >[2] is represented as (2,UNSET).
+X
+X   This function makes use of unsigned compares to make range tests in one compare operation.
+X*/
+X
+Xstatic void getpair(int c) {
+X	int n;
+X	fd_left = fd_right = UNSET;
+X	if (c != '[') {
+X		ugchar(c);
+X		return;
+X	}
+X	if ((unsigned int) (n = gchar() - '0') > 9) {
+X		scanerror("expected digit after '['");
+X		return;
+X	}
+X	while ((unsigned int) (c = gchar() - '0') <= 9)
+X		n = n * 10 + c;
+X	fd_left = n;
+X	c += '0';
+X	switch (c) {
+X	default:
+X		scanerror("expected '=' or ']' after digit");
+X		return;
+X	case ']':
+X		return;
+X	case '=':
+X		if ((unsigned int) (n = gchar() - '0') > 9) {
+X			if (n != ']' - '0') {
+X				scanerror("expected digit or ']' after '='");
+X				return;
+X			}
+X			fd_right = CLOSED;
+X		} else {
+X			while ((unsigned int) (c = gchar() - '0') <= 9)
+X				n = n * 10 + c;
+X			if (c != ']' - '0') {
+X				scanerror("expected ']' after digit");
+X				return;
+X			}
+X			fd_right = n;
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 10427 -ne `wc -c <'lex.c'`; then
+    echo shar: \"'lex.c'\" unpacked with wrong size!
+  fi
+  # end of 'lex.c'
+fi
+if test -f 'open.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'open.c'\"
+else
+  echo shar: Extracting \"'open.c'\" \(703 characters\)
+  sed "s/^X//" >'open.c' <<'END_OF_FILE'
+X/* open.c: to insulate <fcntl.h> from the rest of rc. */
+X
+X#include <fcntl.h>
+X#include "rc.h"
+X
+X/* prototype for open() follows. comment out if necessary */
+X
+X/*extern int open(const char *, int,...);*/
+X
+X/*
+X   Opens a file with the necessary flags. Assumes the following
+X   declaration for redirtype:
+X
+X	enum redirtype {
+X		rFrom, rCreate, rAppend, rHeredoc, rHerestring
+X	};
+X*/
+X
+Xstatic const int mode_masks[] = {
+X	/* rFrom */	O_RDONLY,
+X	/* rCreate */	O_TRUNC | O_CREAT | O_WRONLY,
+X	/* rAppend */	O_APPEND | O_CREAT | O_WRONLY
+X};
+X
+Xextern int rc_open(const char *name, redirtype m) {
+X	if ((unsigned) m >= arraysize(mode_masks))
+X		panic("bad mode passed to rc_open");
+X	return open(name, mode_masks[m], 0666);
+X}
+END_OF_FILE
+  if test 703 -ne `wc -c <'open.c'`; then
+    echo shar: \"'open.c'\" unpacked with wrong size!
+  fi
+  # end of 'open.c'
+fi
+if test -f 'rc.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rc.1'\"
+else
+  echo shar: Extracting \"'rc.1'\" \(39683 characters\)
+  sed "s/^X//" >'rc.1' <<'END_OF_FILE'
+X.\" rc.1
+X.\"-------
+X.\" Man page portability notes
+X.\"
+X.\" These are some notes on conventions to maintain for greatest
+X.\" portability of this man page to various other versions of
+X.\" nroff.
+X.\"
+X.\" When you want a \ to appear in the output, use \e in the man page.
+X.\" (NOTE this comes up in the rc grammar, where to print out '\n' the
+X.\" man page must contain '\en'.)
+X.\"
+X.\" Evidently not all versions of nroff allow the omission of the
+X.\" terminal " on a macro argument.  Thus what could be written
+X.\"
+X.\" .Cr "exec >[2] err.out
+X.\"
+X.\" in true nroffs must be written
+X.\"
+X.\" .Cr "exec >[2] err.out"
+X.\"
+X.\" instead.
+X.\"
+X.\" Use symbolic font names (e.g. R, I, B) instead of the standard
+X.\" font positions 1, 2, 3.  Note that for Xf to work the standard
+X.\" font names must be single characters.
+X.\"
+X.\" Not all man macros have the RS and RE requests (I altered the Ds
+X.\" and De macros and the calls to Ds accordingly).
+X.\"
+X.\" Thanks to Michael Haardt (u31b3hs@cip-s01.informatik.rwth-aachen.de)
+X.\" for pointing out these problems.
+X.\"
+X.\" Note that sentences should end at the end of a line.  nroff and
+X.\" troff will supply the correct intersentence spacing, but only if
+X.\" the sentences end at the end of a line.  Explicit spaces, if given,
+X.\" are apparently honored and the normal intersentence spacing is
+X.\" supressed.
+X.\"
+X.\" DaviD W. Sanderson
+X.\"-------
+X.\" Dd	distance to space vertically before a "display"
+X.\" These are what n/troff use for interparagraph distance
+X.\"-------
+X.if t .nr Dd .4v
+X.if n .nr Dd 1v
+X.\"-------
+X.\" Ds	begin a display, indented .5 inches from the surrounding text.
+X.\"
+X.\" Note that uses of Ds and De may NOT be nested.
+X.\"-------
+X.de Ds
+X.\" .RS \\$1
+X.sp \\n(Ddu
+X.in +0.5i
+X.nf
+X..
+X.\"-------
+X.\" De	end a display (no trailing vertical spacing)
+X.\"-------
+X.de De
+X.fi
+X.in
+X.\" .RE
+X..
+X.\"-------
+X.\" I stole the Xf macro from the -man macros on my machine (originally
+X.\" "}S", I renamed it so that it won't conflict).
+X.\"-------
+X.\" Set Cf to the name of the constant width font.
+X.\" It will be "C" or "(CW", typically.
+X.\" NOTEZ BIEN the lines defining Cf must have no trailing white space:
+X.\"-------
+X.if t .ds Cf C
+X.if n .ds Cf R
+X.\"-------
+X.\" Rc - Alternate Roman and Courier
+X.\"-------
+X.de Rc
+X.Xf R \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Ic - Alternate Italic and Courier
+X.\"-------
+X.de Ic
+X.Xf I \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Bc - Alternate Bold and Courier
+X.\"-------
+X.de Bc
+X.Xf B \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Cr - Alternate Courier and Roman
+X.\"-------
+X.de Cr
+X.Xf \\*(Cf R \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Ci - Alternate Courier and Italic
+X.\"-------
+X.de Ci
+X.Xf \\*(Cf I \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Cb - Alternate Courier and Bold
+X.\"-------
+X.de Cb
+X.Xf \\*(Cf B \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Xf - Alternate fonts
+X.\"
+X.\" \$1 - first font
+X.\" \$2 - second font
+X.\" \$3 - desired word with embedded font changes, built up by recursion
+X.\" \$4 - text for first font
+X.\" \$5 - \$9 - remaining args
+X.\"
+X.\" Every time we are called:
+X.\"
+X.\" If		there is something in \$4
+X.\" then	Call ourself with the fonts switched,
+X.\"		with a new word made of the current word (\$3) and \$4
+X.\"		rendered in the first font,
+X.\"		and with the remaining args following \$4.
+X.\" else	We are done recursing.  \$3 holds the desired output
+X.\"		word.  We emit \$3, change to Roman font, and restore
+X.\"		the point size to the default.
+X.\" fi
+X.\"
+X.\" Use Xi to add a little bit of space after italic text.
+X.\"-------
+X.de Xf
+X.ds Xi
+X.\"-------
+X.\" I used to test for the italic font both by its font position
+X.\" and its name.  Now just test by its name.
+X.\"
+X.\" .if "\\$1"2" .if !"\\$5"" .ds Xi \^
+X.\"-------
+X.if "\\$1"I" .if !"\\$5"" .ds Xi \^
+X.\"-------
+X.\" This is my original code to deal with the recursion.
+X.\" Evidently some nroffs can't deal with it.
+X.\"-------
+X.\" .ie !"\\$4"" \{\
+X.\" .	Xf \\$2 \\$1 "\\$3\\f\\$1\\$4\\*(Xi" "\\$5" "\\$6" "\\$7" "\\$8" "\\$9"
+X.\" .\}
+X.\" .el \{\\$3
+X.\" .	ft R	\" Restore the default font, since we don't know
+X.\" .		\" what the last font change was.
+X.\" .	ps 10	\" Restore the default point size, since it might
+X.\" .		\" have been changed by an argument to this macro.
+X.\" .\}
+X.\"-------
+X.\" Here is more portable (though less pretty) code to deal with
+X.\" the recursion.
+X.\"-------
+X.if !"\\$4"" .Xf \\$2 \\$1 "\\$3\\f\\$1\\$4\\*(Xi" "\\$5" "\\$6" "\\$7" "\\$8" "\\$9"
+X.if "\\$4"" \\$3\fR\s10
+X..
+X.TH RC 1 "28 April 1991"
+X.SH NAME
+Xrc \- shell
+X.SH SYNOPSIS
+X.B rc
+X.RB [ \-eixvldnpo ]
+X.RB [ \-c
+X.IR command ]
+X.RI [ arguments ]
+X.SH DESCRIPTION
+X.I rc
+Xis a command interpreter and programming language similar to
+X.IR sh (1).
+XIt is based on the AT&T Plan 9 shell of the same name.
+XThe shell offers a C-like syntax (much more so than the C shell),
+Xand a powerful mechanism for manipulating variables.
+XIt is reasonably small and reasonably fast,
+Xespecially when compared to contemporary shells.
+XIts use is intended to be interactive,
+Xbut the language lends itself well to scripts.
+X.SH OPTIONS
+X.TP
+X.Cr \-e
+XIf the
+X.Cr \-e
+Xoption is present, then
+X.I rc
+Xwill exit if the exit status of a command is false (nonzero).
+X.I rc
+Xwill not exit, however, if a conditional fails, e.g., an
+X.Cr if()
+Xcommand.
+X.TP
+X.Cr \-i
+XIf the
+X.Cr \-i
+Xoption is present or if the input to
+X.I rc
+Xis from a terminal (as determined by
+X.IR isatty (3))
+Xthen
+X.I rc
+Xwill be in
+X.I interactive
+Xmode.
+XThat is, a prompt (from
+X.Cr $prompt(1)\^ )
+Xwill be printed before an
+Xinput line is taken, and
+X.I rc
+Xwill ignore the signals
+X.Cr SIGINT
+Xand
+X.Cr SIGQUIT .
+X.TP
+X.Cr \-x
+XThis option will make
+X.I rc
+Xprint every command on standard error before it is executed.
+XIt can be useful for debugging
+X.I rc
+Xscripts.
+X.TP
+X.Cr \-v
+XThis option will echo input to
+X.I rc
+Xon standard error as it is read.
+X.TP
+X.Cr \-l
+XIf the
+X.Cr \-l
+Xoption is present, or if
+X.IR rc 's
+X.Cr argv[0][0]
+Xis a dash
+X.Rc ( \- ),
+Xthen
+X.I rc
+Xwill behave as a login shell.
+XThat is, it will try to run commands present in
+X.Cr $home/.rcrc ,
+Xif this file exists, before reading any other input.
+X.TP
+X.Cr \-d
+XThis flag causes
+X.I rc
+Xnot to ignore
+X.Cr SIGQUIT
+Xor
+X.Cr SIGTERM .
+XThus
+X.I rc
+Xcan be made to dump core if sent
+X.Cr SIGQUIT .
+XThis option is only useful for debugging
+X.IR rc .
+X.TP
+X.Cr \-n
+XThis flag causes
+X.I rc
+Xto read its input and parse it, but not to execute any commands.
+XThis is useful for syntax checking on scripts.
+XIf used in combination with the
+X.Cr \-x
+Xoption,
+X.I rc
+Xwill print each command as it is parsed in a form similar to the one
+Xused for exporting functions into the environment.
+X.TP
+X.Cr \-p
+XThis flag prevents
+X.I rc
+Xfrom initializing shell functions from the environment.
+XThis allows
+X.I rc
+Xto run in a protected mode, whereby it becomes more difficult for
+Xan
+X.I rc
+Xscript to be subverted by placing false commands in the environment.
+X(Note that this presence of this option does NOT mean that it is safe to
+Xrun setuid
+X.I rc
+Xscripts; the usual caveats about the setuid bit still apply.)
+X.TP
+X.Cr \-o
+XThis flag prevents the usual practice of trying to open
+X.Cr /dev/null
+Xon file descriptors 0, 1, and 2, if any of those descriptors
+Xare inherited closed.
+X.TP
+X.Cr \-c
+XIf
+X.Cr \-c
+Xis present, commands are executed from the immediately following
+Xargument.
+XAny further arguments to
+X.I rc
+Xare placed in
+X.Cr $* .
+X.PP
+X.SH COMMANDS
+XA simple command is a sequence of words, separated by white space
+X(space and tab) characters that ends with a newline, semicolon
+X.Rc ( ; ),
+Xor ampersand
+X.Rc ( & ).
+XThe first word of a command is the name of that command.
+XIf the name begins with
+X.Cr / ,
+X.Cr ./ ,
+Xor
+X.Cr ../ ,
+Xthen the name is used as an absolute path
+Xname referring to an executable file.
+XOtherwise, the name of the command is looked up in a table
+Xof shell functions, builtin commands,
+Xor as a file in the directories named by
+X.Cr $path .
+X.SS "Background Tasks"
+XA command ending with a
+X.Cr &
+Xis run in the background; that is,
+Xthe shell returns immediately rather than waiting for the command to
+Xcomplete.
+XBackground commands have
+X.Cr /dev/null
+Xconnected to their standard input unless an explicit redirection for
+Xstandard input is used.
+X.SS "Subshells"
+XA command prefixed with an at-sign
+X.Rc ( @ )
+Xis executed in a subshell.
+XThis insulates the parent shell from the effects
+Xof state changing operations such as a
+X.B cd
+Xor a variable assignment.
+XFor example:
+X.Ds
+X.Cr "@ {cd ..; make}"
+X.De
+X.PP
+Xwill run
+X.IR make (1)
+Xin the parent directory
+X.Rc ( .. ),
+Xbut leaves the shell running in the current directory.
+X.SS "Line continuation"
+XA long logical line may be continued over several physical lines by
+Xterminating each line (except the last) with a backslash
+X.Rc ( \e ).
+XThe backslash-newline sequence is treated as a space.
+XA backslash is not otherwise special to
+X.IR rc .
+X(In addition,
+Xinside quotes a backslash loses its special meaning
+Xeven when it is followed by a newline.)
+X.SS Quoting
+X.IR rc
+Xinterprets several characters specially; special characters
+Xautomatically terminate words.
+XThe following characters are special:
+X.Ds
+X.Cr "# ; & | ^ $ = \` ' { } ( ) < >"
+X.De
+X.PP
+XThe single quote
+X.Rc ( ' )
+Xprevents special treatment of any character other than itself.
+XAll characters, including control characters, newlines,
+Xand backslashes between two quote characters are treated as an
+Xuninterpreted string.
+XA quote character itself may be quoted by placing two quotes in a row.
+XThe minimal sequence needed to enter the quote character is
+X.Cr '''' .
+XThe empty string is represented by
+X.Cr '' .
+XThus:
+X.Ds
+X.Cr "echo 'What''s the plan, Stan?'"
+X.De
+X.PP
+Xprints out
+X.Ds
+X.Cr "What's the plan, Stan?"
+X.De
+X.PP
+XThe number sign
+X.Rc ( # )
+Xbegins a comment in
+X.IR rc .
+XAll characters up to but not including the next newline are ignored.
+XNote that backslash continuation does not work inside a comment,
+Xi.e.,
+Xthe backslash is ignored along with everything else.
+X.SS Grouping
+XZero or more commands may be grouped within braces
+X.Rc (`` { ''
+Xand
+X.Rc `` } ''),
+Xand are then treated as one command.
+XBraces do not otherwise define scope;
+Xthey are used only for command grouping.
+XIn particular, be wary of the command:
+X.Ds
+X.Cr "for (i) {"
+X.Cr "    command"
+X.Cr "} | command"
+X.De
+X.PP
+XSince pipe binds tighter than
+X.Cr for ,
+Xthis command does not perform what the user expects it to.
+XInstead, enclose the whole
+X.Cr for
+Xstatement in braces:
+X.Ds
+X.Cr "{for (i) command} | command"
+X.De
+X.PP
+XFortunately,
+X.IR rc 's
+Xgrammar is simple enough that a (confident) user can
+Xunderstand it by examining the skeletal
+X.IR yacc (1)
+Xgrammar
+Xat the end of this man page (see the section entitled
+X.BR GRAMMAR ).
+X.SS "Input and output"
+X.PP
+XThe standard output may be redirected to a file with
+X.Ds
+X.Cr "command > file"
+X.De
+X.PP
+Xand the standard input may be taken from a file with
+X.Ds
+X.Cr "command < file"
+X.De
+X.PP
+XFile descriptors other than 0 and 1 may be specified also.
+XFor example, to redirect standard error to a file, use:
+X.Ds
+X.Cr "command >[2] file"
+X.De
+X.PP
+XIn order to duplicate a file descriptor, use
+X.Ci >[ n = m ]\fR.
+XThus to redirect both standard output and standard error
+Xto the same file, use
+X.Ds
+X.Cr "command > file >[2=1]"
+X.De
+X.PP
+XTo close a file descriptor that may be open, use
+X.Ci >[ n =]\fR.
+XFor example, to
+Xclose file descriptor 7:
+X.Ds
+X.Cr "command >[7=]"
+X.De
+X.PP
+XIn order to place the output of a command at the end of an already
+Xexisting file, use:
+X.Ds
+X.Cr "command >> file"
+X.De
+X.PP
+XIf the file does not exist, then it is created.
+X.PP
+X``Here documents'' are supported as in
+X.I sh
+Xwith the use of
+X.Ds
+X.Cr "command << 'eof-marker'"
+X.De
+X.PP
+XIf the end-of-file marker is enclosed in quotes,
+Xthen no variable substitution occurs inside the here document.
+XOtherwise, every variable is substituted
+Xby its space-separated-list value (see
+X.BR "Flat Lists" ,
+Xbelow),
+Xand if a
+X.Cr ^
+Xcharacter follows a variable name, it is deleted.
+XThis allows the unambiguous use of variables adjacent to text, as in
+X.Ds
+X.Cr $variable^follow
+X.De
+XTo include a literal
+X.Cr $
+Xin a here document when an unquoted end-of-file marker is being used,
+Xenter it as
+X.Cr $$ .
+X.PP
+XAdditionally,
+X.I rc
+Xsupports ``here strings'', which are like here documents,
+Xexcept that input is taken directly from a string on the command line.
+XIts use is illustrated here:
+X.Ds
+X.Cr "cat <<< 'this is a here string' | wc"
+X.De
+X.PP
+X(This feature enables
+X.I rc
+Xto export functions using here documents into the environment;
+Xthe author does not expect users to find this feature useful.)
+X.SS Pipes
+XTwo or more commands may be combined in a pipeline by placing the
+Xvertical bar
+X.Rc ( \||\| )
+Xbetween them.
+XThe standard output (file descriptor 1)
+Xof the command on the left is tied to the standard input (file
+Xdescriptor 0) of the command on the right.
+XThe notation
+X.Ci |[ n = m ]
+Xindicates that file descriptor
+X.I n
+Xof the left process is connected to
+Xfile descriptor
+X.I m
+Xof the right process.
+X.Ci |[ n ]
+Xis a shorthand for
+X.Ci |[ n =0]\fR.
+XAs an example, to pipe the standard error of a command to
+X.IR wc (1),
+Xuse:
+X.Ds
+X.Cr "command |[2] wc"
+X.De
+X.PP
+XThe exit status of a pipeline is considered true if and only if every
+Xcommand in the pipeline exits true.
+X.SS "Commands as Arguments"
+XSome commands, like
+X.IR cmp (1)
+Xor
+X.IR diff (1),
+Xtake their arguments on the command
+Xline, and do not read input from standard input.
+XIt is convenient
+Xsometimes to build nonlinear pipelines so that a command like
+X.I cmp
+Xcan read the output of two other commands at once.
+X.I rc
+Xdoes it like this:
+X.Ds
+X.Cr "cmp <{command} <{command}"
+X.De
+X.PP
+Xcompares the output of the two commands in braces.
+XA note: since this form of
+Xredirection is implemented with some kind of pipe, and since one cannot
+X.IR lseek (2)
+Xon a pipe, commands that use
+X.IR lseek (2)
+Xwill hang.
+XFor example,
+Xmost versions of
+X.IR diff (1)
+Xuse
+X.IR lseek (2)
+Xon their inputs.
+X.PP
+XData can be sent down a pipe to several commands using
+X.IR tee (1)
+Xand the output version of this notation:
+X.Ds
+X.Cr "echo hi there | tee >{sed 's/^/p1 /'} >{sed 's/^/p2 /'}"
+X.De
+X.SH "CONTROL STRUCTURES"
+XThe following may be used for control flow in
+X.IR rc :
+X.SS "If-else Statements"
+X.PD 0
+X.sp
+X.Ci "if (" test ") {"
+X.br
+X.I  "    cmd"
+X.br
+X.TP
+X.Ci "} else " cmd
+XThe
+X.I test
+Xis executed, and if its return status is zero, the first
+Xcommand is executed, otherwise the second is.
+XBraces are not mandatory around the commands.
+XHowever, an
+X.Cr else
+Xstatement is valid only if it
+Xfollows a close-brace on the same line.
+XOtherwise, the
+X.Cr if
+Xis taken to be a simple-if:
+X.Ds
+X.Cr "if (test)"
+X.Cr "    command"
+X.De
+X.PD
+X.SS "While and For Loops"
+X.TP
+X.Ci "while (" test ) " cmd"
+X.I rc
+Xexecutes the
+X.I test
+Xand performs the command as long as the
+X.I test
+Xis true.
+X.TP
+X.Ci "for (" var " in" " list" ) " cmd"
+X.I rc
+Xsets
+X.I var
+Xto each element of
+X.I list
+X(which may contain variables and backquote substitutions) and runs
+X.IR cmd .
+XIf
+X.Rc `` in
+X.IR list ''
+Xis omitted, then
+X.I rc
+Xwill set
+X.I var
+Xto each element of
+X.Cr $*
+X(excluding
+X.Cr $0 ).
+XFor example:
+X.Ds
+X.Cr "for (i in \`{ls -F | grep '\e*$' | sed 's/\e*$//'}) { commands }"
+X.De
+X.TP
+X\&
+Xwill set
+X.Cr $i
+Xto the name of each file in the current directory that is
+Xexecutable.
+X.SS "Switch"
+X.TP
+X.Ci "switch (" list ") { case" " ..." " }"
+X.I rc
+Xlooks inside the braces after a
+X.Cr switch
+Xfor statements beginning with the word
+X.Cr case .
+XIf any of the patterns following
+X.Cr case
+Xmatch the list supplied to
+X.Cr switch ,
+Xthen the commands up until the next
+X.Cr case
+Xstatement are executed.
+XThe metacharacters
+X.Cr "*" ,
+X.Cr [
+Xor
+X.Cr ?
+Xshould not be quoted;
+Xmatching is performed only against the strings in
+X.IR list ,
+Xnot against file names.
+X(Matching for case statements is the same as for the
+X.Cr ~
+Xcommand.)
+X.SS "Logical Operators"
+XThere are a number of operators in
+X.I rc
+Xwhich depend on the exit status of a command.
+X.Ds
+X.Cr "command && command"
+X.De
+X.PP
+Xexecutes the first command and then executes the second command if and only if
+Xthe first command exits with a zero exit status (``true'' in Unix).
+X.Ds
+X.Cr "command || command"
+X.De
+X.PP
+Xexecutes the first command executing the second command if and only if
+Xthe second command exits with a nonzero exit status (``false'' in Unix).
+X.Ds
+X.Cr "! command"
+X.De
+X.PP
+Xnegates the exit status of a command.
+X.SH "PATTERN MATCHING"
+XThere are two forms of pattern matching in
+X.IR rc .
+XOne is traditional shell globbing.
+XThis occurs in matching for file names in argument lists:
+X.Ds
+X.Cr "command argument argument ..."
+X.De
+X.PP
+XWhen the characters
+X.Cr "*" ,
+X.Cr [
+Xor
+X.Cr ?
+Xoccur in an argument or command,
+X.I rc
+Xlooks at the
+Xargument as a pattern for matching against files.
+X(Contrary to the behavior other shells exhibit,
+X.I rc
+Xwill only perform pattern matching if a metacharacter occurs unquoted and
+Xliterally in the input.
+XThus,
+X.Ds
+X.Cr "foo='*'"
+X.Cr "echo $foo"
+X.De
+X.PP
+Xwill always echo just a star.
+XIn order for non-literal metacharacters to be expanded, an
+X.Cr eval
+Xstatement must be used in order to rescan the input.)
+XPattern matching occurs according to the following rules: a
+X.Cr *
+Xmatches any number (including zero) of
+Xcharacters.
+XA
+X.Cr ?
+Xmatches any single character, and a
+X.Cr [
+Xfollowed by a
+Xnumber of characters followed by a
+X.Cr ]
+Xmatches a single character in that
+Xclass.
+XThe rules for character class matching are the same as those for
+X.IR ed (1),
+Xwith the exception that character class negation is achieved
+Xwith the tilde
+X.Rc ( ~ ),
+Xnot the caret
+X.Rc ( ^ ),
+Xsince the caret already means
+Xsomething else in
+X.IR rc .
+X.PP
+X.I rc
+Xalso matches patterns against strings with the
+X.Cr ~
+Xcommand:
+X.Ds
+X.Cr "~ subject pattern pattern ..."
+X.De
+X.PP
+X.Cr ~
+Xsets
+X.Cr $status
+Xto zero if and only if a supplied pattern matches any
+Xsingle element of the subject list.
+XThus
+X.Ds
+X.Cr "~ foo f*"
+X.De
+X.PP
+Xsets status to zero, while
+X.Ds
+X.Cr "~ (bar baz) f*"
+X.De
+X.PP
+Xsets status to one.
+XThe null list is matched by the null list, so
+X.Ds
+X.Cr "~ $foo ()"
+X.De
+X.PP
+Xchecks to see whether
+X.Cr $foo
+Xis empty or not.
+XThis may also be achieved
+Xby the test
+X.Ds
+X.Cr "~ $#foo 0"
+X.De
+X.PP
+XNote that inside a
+X.Cr ~
+Xcommand
+X.I rc
+Xdoes not match patterns against file
+Xnames, so it is not necessary to quote the characters
+X.Cr "*" ,
+X.Cr [
+Xand
+X.Cr "?" .
+XHowever,
+X.I rc
+Xdoes expand the glob the subject against filenames if it contains
+Xmetacharacters.
+XThus, the command
+X.Ds
+X.Cr "~ * ?"
+X.De
+X.PP
+Xreturns true if any of the files in the current directory have a
+Xsingle-character name.
+X(Note that if the
+X.Cr ~
+Xcommand is given a list as its first
+Xargument, then a successful match against any of the elements of that
+Xlist will cause
+X.Cr ~
+Xto return true.
+XFor example:
+X.Ds
+X.Cr "~ (foo goo zoo) z*"
+X.De
+X.PP
+Xis true.)
+X.SH "LISTS AND VARIABLES"
+XThe primary data structure in
+X.IR rc
+Xis the list, which is a sequence of words.
+XParentheses are used to group lists.
+XThe empty list is represented by
+X.Cr "()" .
+XLists have no hierarchical structure;
+Xa list inside another list is expanded so the
+Xouter list contains all the elements of the inner list.
+XThus, the following are all equivalent
+X.Ds
+X.Cr "one two three"
+X
+X.Cr "(one two three)"
+X
+X.Cr "((one) () ((two three)))"
+X.De
+X.PP
+XNote that the null string,
+X.Cr "''" ,
+Xand the null list,
+X.Cr "()" ,
+Xare two very
+Xdifferent things.
+XAssigning the null string to variable is a valid
+Xoperation, but it does not remove its definition.
+XFor example,
+Xif
+X.Cr $a
+Xis set to
+X.Cr "''" ,
+Xthen
+X.Cr "$#a" ,
+Xreturns a 1.
+X.SS "List Concatenation"
+XTwo lists may be joined by the concatenation operator
+X.Rc ( ^ ).
+XA single word is treated as a list of length one, so
+X.Ds
+X.Cr "echo foo^bar"
+X.De
+X.PP
+Xproduces the output
+X.Ds
+X.Cr foobar
+X.De
+X.PP
+XFor lists of more than one element,
+Xconcatenation works according to the following rules:
+Xif the two lists have the same number of elements,
+Xthen concatenation is pairwise:
+X.Ds
+X.Cr "echo (a\- b\- c\-)^(1 2 3)"
+X.De
+X.PP
+Xproduces the output
+X.Ds
+X.Cr "a\-1 b\-2 c\-3"
+X.De
+X.PP
+XOtherwise, one of the lists must have a single element,
+Xand then the concatenation is distributive:
+X.Ds
+X.Cr "cc \-^(O g c) (malloc alloca)^.c"
+X.De
+X.PP
+Xhas the effect of performing the command
+X.Ds
+X.Cr "cc \-O \-g \-c malloc.c alloca.c"
+X.De
+X.SS "Free Carets"
+X.I rc
+Xinserts carets (concatenation operators) for free in certain situations,
+Xin order to save some typing on the user's behalf.
+XFor
+Xexample, the above example could also be typed in as:
+X.Ds
+X.Cr "opts=(O g c) files=(malloc alloca) cc \-$opts $files.c"
+X.De
+X.PP
+X.I rc
+Xtakes care to insert a free-caret between the
+X.Rc `` \- ''
+Xand
+X.Cr "$opts" ,
+Xas well
+Xas between
+X.Cr $files
+Xand
+X.Cr ".c" .
+XThe rule for free carets is as follows:  if
+Xa word or keyword is immediately
+Xfollowed by another word, keyword, dollar-sign or
+Xbackquote, then
+X.I rc
+Xinserts a caret between them.
+X.SS "Variables"
+XA list may be assigned to a variable, using the notation:
+X.Ds
+X.Ic var " = " list
+X.De
+X.PP
+XAny sequence of non-special characters, except a sequence including
+Xonly digits, may be used as a variable name.
+XAll user-defined variables are exported into the environment.
+X.PP
+XThe value of a variable is referenced with the notation:
+X.Ds
+X.Ci $ var
+X.De
+X.PP
+XAny variable which has not been assigned a value returns the null list,
+X.Cr "()" ,
+Xwhen referenced.
+XIn addition, multiple references are allowed:
+X.Ds
+X.Cr a=foo
+X.Cr b=a
+X.Cr "echo $$b"
+X.De
+X.PP
+Xprints
+X.Ds
+X.Cr foo
+X.De
+X.PP
+XA variable's definition may also be removed by
+Xassigning the null list to a variable:
+X.Ds
+X.Ic var =()
+X.De
+X.PP
+XFor ``free careting'' to work correctly,
+X.I rc
+Xmust make certain assumptions
+Xabout what characters may appear in a variable name.
+X.I rc
+Xassumes that a variable name consists only of alphanumeric characters,
+Xunderscore
+X.Rc ( \|_\| )
+Xand star
+X.Rc ( * ).
+XTo reference a variable with other
+Xcharacters in its name, quote the variable name.
+XThus:
+X.Ds
+X.Cr "echo $'we$Ird\Variab!le'"
+X.De
+X.SS "Local Variables"
+XAny number of variable assignments may be made local to a single
+Xcommand by typing:
+X.Ds
+X.Cr "a=foo b=bar ... command"
+X.De
+X.PP
+XThe command may be a compound command, so for example:
+X.Ds
+X.Cr "path=. ifs=() {"
+X.Cr "    " ...
+X.Cr }
+X.De
+X.PP
+Xsets
+X.Cr path
+Xto
+X.Cr .
+Xand removes
+X.Cr ifs
+Xfor the duration of one long compound command.
+X.SS "Variable Subscripts"
+XVariables may be subscripted with the notation
+X.Ds
+X.Ci $var( n )
+X.De
+X.PP
+Xwhere
+X.I n
+Xis a list of integers (origin 1).
+XThe list of subscripts need
+Xnot be in order or even unique.
+XThus, if
+X.Ds
+X.Cr "a=(one two three)"
+X.De
+X.PP
+Xthen
+X.Ds
+X.Cr "echo $a(3 3 3)"
+X.De
+X.PP
+Xprints
+X.Ds
+X.Cr "three three three"
+X.De
+X.PP
+XIf
+X.I n
+Xreferences a nonexistent element, then
+X.Ci $var( n )
+Xreturns the null list.
+XThe notation
+X.Ci "$" n\fR,
+Xwhere
+X.I n
+Xis an integer, is a shorthand for
+X.Ci $*( n )\fR.
+XThus,
+X.IR rc 's
+Xarguments may be referred to as
+X.Cr "$1" ,
+X.Cr "$2" ,
+Xand so on.
+X.PP
+XNote also that the list of subscripts may be given by any of
+X.IR rc 's
+Xlist operations:
+X.Ds
+X.Cr "$var(\`{awk 'BEGIN{for(i=1;i<=10;i++)print i;exit; }'})"
+X.De
+X.PP
+Xreturns the first 10 elements of
+X.Cr $var .
+X.PP
+XTo count the number of elements in a variable, use
+X.Ds
+X.Cr $#var
+X.De
+X.PP
+XThis returns a single-element list, with the number of elements in
+X.Cr $var .
+X.SS "Flat Lists"
+XIn order to create a single-element list from a multi-element list,
+Xwith the components space-separated, use
+X.Ds
+X.Cr $^var
+X.De
+X.PP
+XThis is useful when the normal list concatenation rules need to be
+Xbypassed.
+XFor example, to append a single period at the end of
+X.Cr $path ,
+Xuse:
+X.Ds
+X.Cr "echo $^path."
+X.De
+X.SS "Backquote Substitution"
+XA list may be formed from the output of a command by using backquote
+Xsubstitution:
+X.Ds
+X.Cr "\`{ command }"
+X.De
+X.PP
+Xreturns a list formed from the standard output of the command in braces.
+X.Cr $ifs
+Xis used to split the output into list elements.
+XBy default,
+X.Cr $ifs
+Xhas the value space-tab-newline.
+XThe braces may be omitted if the command is a single word.
+XThus
+X.Cr \`ls
+Xmay be used instead of
+X.Cr "\`{ls}" .
+XThis last feature is useful when defining functions that expand
+Xto useful argument lists.
+XA frequent use is:
+X.Ds
+X.Cr "fn src { echo *.[chy] }"
+X.De
+X.PP
+Xfollowed by
+X.Ds
+X.Cr "wc \`src"
+X.De
+X.PP
+X(This will print out a word-count of all C source files in the current
+Xdirectory.)
+X.PP
+XIn order to override the value of
+X.Cr $ifs
+Xfor a single backquote
+Xsubstitution, use:
+X.Ds
+X.Cr "\`\` (ifs-list) { command }"
+X.De
+X.PP
+X.Cr $ifs
+Xwill be temporarily ignored and the command's output will be split as specified by
+Xthe list following the double backquote.
+XFor example:
+X.Ds
+X.Cr "\`\` ($nl :) {cat /etc/passwd}"
+X.De
+X.PP
+Xsplits up
+X.Cr /etc/passwd
+Xinto fields, assuming that
+X.Cr $nl
+Xcontains a newline
+Xas its value.
+X.SH "SPECIAL VARIABLES"
+XSeveral variables are known to
+X.I rc
+Xand are treated specially.
+X.TP
+X.Cr *
+XThe argument list of
+X.IR rc .
+X.Cr "$1, $2,"
+Xetc. are the same as
+X.Cr $*(1) ,
+X.Cr $*(2) ,
+Xetc.
+XThe variable
+X.Cr $0
+Xholds the value of
+X.Cr argv[0]
+Xwith which
+X.I rc
+Xwas invoked.
+XAdditionally,
+X.Cr $0
+Xis set to the name of a function for the duration of
+Xthe execution of that function, and
+X.Cr $0
+Xis also set to the name of the
+Xfile being interpreted for the duration of a
+X.Cr .
+Xcommand.
+X.TP
+X.Cr apid
+XThe process ID of the last process started in the background.
+X.TP
+X.Cr apids
+XThe process IDs of any background processes which are outstanding
+Xor which have died and have not been waited for yet.
+X.TP
+X.Cr cdpath
+XA list of directories to search for the target of a
+X.B cd
+Xcommand.
+XThe empty string stands for the current directory.
+XNote that if the
+X.Cr $cdpath
+Xvariable does not contain the current directory, then the current
+Xdirectory will not be searched; this allows directory searching to
+Xbegin in a directory other than the current directory.
+XNote also that an assignment to
+X.Cr $cdpath
+Xcauses an automatic assignment to
+X.Cr $CDPATH ,
+Xand vice-versa.
+X.TP
+X.Cr history
+X.Cr $history
+Xcontains the name of a file to which commands are appended as
+X.I rc
+Xreads them.
+XThis facilitates the use of a stand-alone history program
+X(such as
+X.IR history (1))
+Xwhich parses the contents of the history file and presents them to
+X.I rc
+Xfor reinterpretation.
+XIf
+X.Cr $history
+Xis not set, then
+X.I rc
+Xdoes not append commands to any file.
+X.TP
+X.Cr home
+XThe default directory for the builtin
+X.B cd
+Xcommand and is the directory
+Xin which
+X.I rc
+Xlooks to find its initialization file,
+X.Cr .rcrc ,
+Xif
+X.I rc
+Xhas been started up as a login shell.
+XLike
+X.Cr $cdpath
+Xand
+X.Cr $CDPATH ,
+X.Cr $home
+Xand
+X.Cr $HOME
+Xare aliased to each other.
+X.TP
+X.Cr ifs
+XThe internal field separator, used for splitting up the output of
+Xbackquote commands for digestion as a list.
+X.TP
+X.Cr path
+XThis is a list of directories to search in for commands.
+XThe empty string stands for the current directory.
+XNote that like
+X.Cr $cdpath
+Xand
+X.Cr $CDPATH ,
+X.Cr $path
+Xand
+X.Cr $PATH
+Xare aliased to each other.
+XIf
+X.Cr $path
+Xor
+X.Cr $PATH
+Xis not set at startup time,
+X.Cr $path
+Xassumes a default value suitable for your system.
+XThis is typically
+X.Cr "(/usr/ucb /usr/bin /bin .)"
+X.TP
+X.Cr pid
+XThe process ID of the currently running
+X.IR rc .
+X.TP
+X.Cr prompt
+XThis variable holds the two prompts (in list form, of course) that
+X.I rc
+Xprints.
+X.Cr $prompt(1)
+Xis printed before each command is read, and
+X.Cr $prompt(2)
+Xis printed when input is expected to continue on the next
+Xline.
+X.I rc
+Xsets
+X.Cr $prompt
+Xto
+X.Cr "('; ' '')"
+Xby default.
+XThe reason for this is that it enables an
+X.I rc
+Xuser to grab commands from previous lines using a
+Xmouse, and to present them to
+X.I rc
+Xfor re-interpretation; the semicolon
+Xprompt is simply ignored by
+X.IR rc .
+XThe null
+X.Cr $prompt(2)
+Xalso has its
+Xjustification:  an
+X.I rc
+Xscript, when typed interactively, will not leave
+X.Cr $prompt(2) 's
+Xon the screen,
+Xand can therefore be grabbed by a mouse and placed
+Xdirectly into a file for use as a shell script, without further editing
+Xbeing necessary.
+X.TP
+X.Cr prompt " (function)"
+XIf this function is set, then it gets executed every time
+X.I rc
+Xis about to print
+X.Cr "$prompt(1)" .
+X.TP
+X.Cr status
+XThe exit status of the last command.
+XIf the command exited with a numeric value,
+Xthat number is the status.
+XIf the died with a signal,
+Xthe status is the name of that signal; if a core file
+Xwas created, the string
+X.Rc `` +core ''
+Xis appended.
+XThe value of
+X.Cr $status
+Xfor a pipeline is a list, with one entry,
+Xas above, for each process in the pipeline.
+XFor example, the command
+X.Ds
+X.Cr "ls | wc"
+X.De
+X.TP
+X\&
+Xusually sets
+X.Cr $status
+Xto
+X.Cr "(0 0)" .
+X.PP
+XThe values of
+X.Cr "$path" ,
+X.Cr "$cdpath" ,
+Xand
+X.Cr $home
+Xare derived from the environment
+Xvalues of
+X.Cr "$PATH" ,
+X.Cr "$CDPATH" ,
+Xand
+X.Cr "$HOME" .
+XOtherwise, they are derived from
+Xthe environment values of
+X.Cr $path ,
+X.Cr $cdpath
+Xand
+X.Cr $home .
+XThis is for compatibility with other Unix programs, like
+X.IR sh (1).
+X.Cr $PATH
+Xand
+X.Cr $CDPATH
+Xare assumed to be colon-separated lists.
+X.SH FUNCTIONS
+X.I rc
+Xfunctions are identical to
+X.I rc
+Xscripts, except that they are stored
+Xin memory and are automatically exported into the environment.
+XA shell function is declared as:
+X.Ds
+X.Cr "fn name { commands }"
+X.De
+X.PP
+X.I rc
+Xscans the definition until the close-brace, so the function can
+Xspan more than one line.
+XThe function definition may be removed by typing
+X.Ds
+X.Cr "fn name"
+X.De
+X.PP
+X(One or more names may be specified.
+XWith an accompanying definition, all names receive the same definition.
+XThis is sometimes useful
+Xfor assigning the same signal handler to many signals.
+XWithout a definition, all named functions are deleted.)
+XWhen a function is executed,
+X.Cr $*
+Xis set to the arguments to that
+Xfunction for the duration of the command.
+XThus a reasonable definition for
+X.Cr "l" ,
+Xa shorthand for
+X.IR ls (1),
+Xcould be:
+X.Ds
+X.Cr "fn l { ls -FC $* }"
+X.De
+X.PP
+Xbut not
+X.Ds
+X.Cr "fn l { ls -FC }"
+X.De
+X.SH "INTERRUPTS AND SIGNALS"
+X.I rc
+Xrecognizes a number of signals, and allows the user to define shell
+Xfunctions which act as signal handlers.
+X.I rc
+Xby default traps
+X.Cr SIGINT
+Xwhen it is in interactive mode.
+X.Cr SIGQUIT
+Xand
+X.Cr SIGTERM
+Xare ignored, unless
+X.I rc
+Xhas been invoked with the
+X.Cr \-d
+Xflag.
+XHowever, user-defined signal handlers may be written for these and
+Xall other signals.
+XThe way to define a signal handler is to
+Xwrite a function by the name of the signal in lower case.
+XThus:
+X.Ds
+X.Cr "fn sighup { echo hangup; rm /tmp/rc$pid.*; exit }"
+X.De
+X.PP
+XIn addition to Unix signals,
+X.I rc
+Xrecognizes the artificial signal
+X.Cr SIGEXIT
+Xwhich occurs as
+X.I rc
+Xis about to exit.
+X.PP
+XIn order to remove a signal handler's definition,
+Xremove it as though it were a regular function.
+XFor example:
+X.Ds
+X.Cr "fn sigint"
+X.De
+X.PP
+Xreturns the handler of
+X.Cr SIGINT
+Xto the default value.
+XIn order to ignore a signal, set the signal handler's value to
+X.Cr "{}" .
+XThus:
+X.Ds
+X.Cr "fn sigint {}"
+X.De
+X.PP
+Xcauses SIGINT to be ignored by the shell.
+XOnly signals that are being ignored are passed on to programs run by
+X.IR rc ;
+Xsignal functions are not exported.
+X.PP
+XOn System V-based Unix systems,
+X.I rc
+Xwill not allow you to trap
+X.Cr SIGCLD .
+X.SH "BUILTIN COMMANDS"
+XBuiltin commands execute in the context of the shell, but otherwise
+Xbehave exactly like other commands.
+XAlthough
+X.BR ! ,
+X.B ~
+Xand
+X.B @
+Xare not strictly speaking builtin commands,
+Xthey can usually be used as such.
+X.TP
+X\&\fB.\fR [\fB\-i\fR] \fIfile \fR[\fIarg ...\fR]
+XReads
+X.I file
+Xas input to
+X.IR rc
+Xand executes its contents.
+XWith a
+X.Cr \-i
+Xflag, input is interactive.
+XThus from within a shell script,
+X.Ds
+X.Cr ". \-i /dev/tty"
+X.De
+X.TP
+X\&
+Xdoes the ``right'' thing.
+X.TP
+X.B break
+XBreaks from the innermost
+X.Cr for
+Xor
+X.Cr while ,
+Xas in C.
+XIt is an error to invoke
+X.B break
+Xoutside of a loop.
+X(Note that there is no
+X.B break
+Xkeyword between commands in
+X.Cr switch
+Xstatements, unlike C.)
+X.TP
+X\fBbuiltin \fIcommand \fR[\fIarg ...\fR]
+XExecutes the command ignoring any function definition of the
+Xsame name.
+XThis command is present to allow functions with the
+Xsame names as builtins to use the underlying builtin or binary.
+X.TP
+X\fBcd \fR[\fIdirectory\fR]
+XChanges the current directory to
+X.IR directory .
+XThe variable
+X.Cr $cdpath
+Xis searched for possible locations of
+X.IR directory ,
+Xanalogous to the searching of
+X.Cr $path
+Xfor executable files.
+XWith no argument,
+X.B cd
+Xchanges the current directory to
+X.Cr "$home" .
+X.TP
+X\fBecho \fR[\fB\-n\fR] [\fB\-\|\-\fR] [\fIarg ...\fR]
+XPrints its arguments to standard output, terminated by a newline.
+XArguments are separated by spaces.
+XIf the first argument is
+X.Cr "\-n"
+Xno final newline is printed.
+XIf the first argument is
+X.Cr "\-\|\-" ,
+Xthen all other arguments are echoed literally.
+XThis is used for echoing a literal
+X.Cr "\-n" .
+X.TP
+X\fBeval \fR[\fIlist\fR]
+XConcatenates the elements of
+X.I list
+Xwith spaces and feeds the resulting string to
+X.I rc
+Xfor re-scanning.
+XThis is the only time input is rescanned in
+X.IR rc .
+X.TP
+X\fBexec \fR[\fIarg ...\fR]
+XReplaces
+X.I rc
+Xwith the given command.
+XIf the exec contains only redirections,
+Xthen these redirections apply to the current shell
+Xand the shell does not exit.
+XFor example,
+X.Ds
+X.Cr "exec >[2] err.out"
+X.De
+X.TP
+X\&
+Xplaces further output to standard error in the file
+X.IR err.out .
+X.TP
+X\fBexit \fR[\fIstatus\fR]
+XCause the current shell to exit with the given exit
+X.IR status .
+XIf no argument is given, the current value of
+X.Cr $status
+Xis used.
+X.TP
+X\fBlimit \fR[\fB\-h\fR] [\fIresource \fR[\fIvalue\fR]]
+XSimilar to the
+X.IR csh (1)
+X.B limit
+Xbuiltin, this command operates upon the
+XBSD-style limits of a process.
+XThe
+X.Cr \-h
+Xflag displays/alters the hard
+Xlimits.
+XThe resources which can be shown or altered are
+X.BR cputime ,
+X.BR filesize ,
+X.BR datasize ,
+X.BR stacksize ,
+X.B coredumpsize
+Xand
+X.BR memoryuse .
+XFor
+Xexample:
+X.Ds
+X.Cr "limit coredumpsize 0"
+X.De
+X.TP
+X\&
+Xdisables core dumps.
+X.TP
+X.B newpgrp
+XPuts
+X.I rc
+Xinto a new process group.
+XThis builtin is useful for making
+X.I rc
+Xbehave like a job-control shell in a hostile environment.
+XOne example is the NeXT Terminal program, which implicitly assumes
+Xthat each shell it forks will put itself into a new process group.
+X.TP
+X\fBreturn \fR[\fIn\fR]
+XReturns from the current function, with status
+X.IR n ,
+Xwhere
+X.IR n
+Xis a single value or a list of possible exit statuses.
+XThus it is legal to have
+X.Ds
+X.Cr "return (sigpipe 1 2 3)"
+X.De
+X.TP
+X\&
+X(This is commonly used to allow a function to return with the exit status
+Xof a previously executed pipeline of commands.)
+XIf
+X.IR n
+Xis omitted, then
+X.Cr $status
+Xis left unchanged.
+XIt is an error to invoke
+X.B return
+Xwhen not inside a function.
+X.TP
+X\fBshift \fR[\fIn\fR]
+XDeletes
+X.I n
+Xelements from the beginning of
+X.Cr $*
+Xand shifts the other
+Xelements down by
+X.IR n .
+X.I n
+Xdefaults to 1.
+X(Note that
+X.Cr $0
+Xis not affected by
+X.BR shift .)
+X.TP
+X\fBumask \fR[\fImask\fR]
+XSets the current umask (see
+X.IR umask (2))
+Xto the octal
+X.IR mask .
+XIf no argument is present, the current mask value is printed.
+X.TP
+X\fBwait \fR[\fIpid\fR]
+XWaits for the specified
+X.IR pid ,
+Xwhich must have been started by
+X.IR rc .
+XIf no
+X.I pid
+Xis specified,
+X.I rc
+Xwaits for any child process to exit.
+X.TP
+X\fBwhatis \fR[\fB\-s\fR] [\fB\-\|\-\fR] [\fIname ...\fR]
+XPrints a definition of the named objects.
+XFor variables, their values
+Xare printed; for functions, their definitions are; and for executable
+Xfiles, path names are printed.
+XWithout arguments,
+X.B whatis
+Xprints the values of all shell variables and functions.
+XWith a
+X.Cr \-s
+Xargument,
+X.B whatis
+Xalso prints out a list of available signals and their handlers (if any).
+XNote that
+X.B whatis
+Xoutput is suitable for input to
+X.IR rc ;
+Xby saving the output of
+X.B whatis
+Xin a file, it should be possible to recreate the state of
+X.I rc
+Xby sourcing this file with a
+X.Cr .
+Xcommand.
+XAnother note:
+X.Cr "whatis -s > file"
+Xcannot be used to store the state of
+X.IR rc 's
+Xsignal handlers in a file, because builtins with redirections
+Xare run in a subshell, and
+X.I rc
+Xalways restores signal handlers to their default value after a
+X.Cr fork() .
+X.TP
+X\&
+XSince
+X.B whatis
+Xuses
+X.IR getopt (3)
+Xto parse its arguments, you can use the special argument
+X.Cr "\-\|\-"
+Xto terminate its options.
+XThis allows you to use names beginning with a dash, such as
+Xthe
+X.IR history (1)
+Xcommands.
+XFor example,
+X.Ds
+X.Cr "whatis \-\|\- \-p"
+X.De
+X.SH GRAMMAR
+XHere is
+X.IR rc 's
+Xgrammar, edited to remove semantic actions.
+X.Ds
+X.ft \*(Cf
+X%term ANDAND BACKBACK BANG CASE COUNT DUP ELSE END FLAT FN FOR IF IN
+X%term OROR PIPE REDIR SUB SUBSHELL SWITCH TWIDDLE WHILE WORD HUH
+X
+X%left WHILE ')' ELSE
+X%left ANDAND OROR '\en'
+X%left BANG SUBSHELL
+X%left PIPE
+X%right '$'
+X%left SUB
+X
+X%start rc
+X
+X%%
+X
+Xrc: line end
+X	| error end
+X
+Xend: END /* EOF */ | '\en'
+X
+Xcmdsa: cmd ';' | cmd '&'
+X
+Xline: cmd | cmdsa line
+X
+Xbody: cmd | cmdsan body
+X
+Xcmdsan: cmdsa | cmd '\en'
+X
+Xbrace: '{' body '}'
+X
+Xparen: '(' body ')'
+X
+Xassign: first '=' word
+X
+Xepilog: /* empty */ | redir epilog
+X
+Xredir: DUP | REDIR word
+X
+Xcase: CASE words ';' | CASE words '\en'
+X
+Xcbody: cmd | case cbody | cmdsan cbody
+X
+Xiftail: cmd	%prec ELSE
+X	| brace ELSE optnl cmd
+X
+Xcmd	: /* empty */	%prec WHILE
+X	| simple
+X	| brace epilog
+X	| IF paren optnl iftail
+X	| FOR '(' word IN words ')' optnl cmd
+X	| FOR '(' word ')' optnl cmd
+X	| WHILE paren optnl cmd	
+X	| SWITCH '(' word ')' optnl '{' cbody '}'
+X	| TWIDDLE optcaret word words
+X	| cmd ANDAND optnl cmd
+X	| cmd OROR optnl cmd
+X 	| cmd PIPE optnl cmd
+X	| redir cmd	%prec BANG
+X	| assign cmd	%prec BANG
+X	| BANG optcaret cmd
+X	| SUBSHELL optcaret cmd
+X	| FN words brace
+X	| FN words
+X
+Xoptcaret: /* empty */ | '^'
+X
+Xsimple: first | simple word | simple redir
+X
+Xfirst: comword | first '^' sword
+X
+Xsword: comword | keyword
+X
+Xword: sword | word '^' sword
+X
+Xcomword: '$' sword
+X	| '$' sword SUB words ')'
+X	| COUNT sword
+X	| FLAT sword
+X	| '`' sword
+X	| '`' brace
+X	| BACKBACK word	brace | BACKBACK word sword
+X	| '(' words ')'
+X	| REDIR brace
+X	| WORD
+X
+Xkeyword: FOR | IN | WHILE | IF | SWITCH
+X	| FN | ELSE | CASE | TWIDDLE | BANG | SUBSHELL
+X
+Xwords: /* empty */ | words word
+X
+Xoptnl: /* empty */ | optnl '\en'
+X.ft R
+X.De
+X.SH FILES
+X.Cr $HOME/.rcrc ,
+X.Cr /tmp/rc* ,
+X.Cr /dev/null
+X.SH CREDITS
+X.I rc
+Xwas written by Byron Rakitzis, with valuable help
+Xfrom Paul Haahr, Hugh Redelmeier and David Sanderson.
+XThe design of this shell has been copied from the
+X.I rc
+Xthat Tom Duff wrote at Bell Labs.
+X.SH BUGS
+XOn systems that support
+X.Cr /dev/fd ,
+X.Cr <{foo}
+Xstyle redirection is implemented that way.
+XHowever, on other systems it is implemented with named pipes,
+Xand it is sometimes
+Xpossible to foil
+X.I rc
+Xinto removing the FIFO it places in
+X.Cr /tmp
+Xprematurely, or it is even possible to cause
+X.I rc
+Xto hang.
+X.PP
+XThe functionality of
+X.B shift
+Xshould be available for variables other than
+X.Cr "$*" .
+X.PP
+X.B echo
+Xis built in only for performance reasons, which is a bad idea.
+X.PP
+XThere should be a way to avoid exporting a variable.
+X.PP
+XThe
+X.Cr $^var
+Xnotation for flattening should allow for using an arbitrary
+Xseparating character, not just space.
+X.PP
+XBug reports should be mailed to
+X.Cr "byron@archone.tamu.edu" .
+X.SH INCOMPATIBILITIES
+XHere is a list of features which distinguish this incarnation of
+X.I rc
+Xfrom the one described in the Bell Labs manual pages:
+X.PP
+XThe treatment of
+X.Cr if - else
+Xis different in the v10
+X.IR rc :
+Xthat version uses an
+X.Cr "if not"
+Xclause which gets executed
+Xif the preceding
+X.Cr if
+Xtest does not succeed.
+X.PP
+XBackquotes are slightly different in v10
+X.IR rc :
+Xa backquote must always be followed by a left-brace.
+XThis restriction is not present for single-word commands in this
+X.IR rc .
+X.PP
+XThe following are all new with this version of
+X.IR rc :
+XThe
+X.Cr \-n
+Xoption,
+Xthe list flattening operator,
+Xhere strings (they facilitate exporting of functions
+Xwith here documents into the environment),
+Xthe
+X.B return
+Xand
+X.B break
+Xkeywords,
+Xthe
+X.B echo
+Xbuiltin,
+Xthe support for the GNU
+X.IR readline (3)
+Xlibrary and
+Xthe support for the
+X.Cr prompt
+Xfunction.
+XThis
+X.I rc
+Xalso sets
+X.Cr $0
+Xto the name of a function being executed/file
+Xbeing sourced.
+X.SH "SEE ALSO"
+X``rc \(em A Shell for Plan 9 and UNIX Systems'',
+XUnix Research System,
+X10th Edition,
+Xvol. 2. (Saunders College Publishing)
+X(This paper is also distributed with this
+X.I rc
+Xin PostScript form.)
+X.PP
+X.IR history (1)
+END_OF_FILE
+  if test 39683 -ne `wc -c <'rc.1'`; then
+    echo shar: \"'rc.1'\" unpacked with wrong size!
+  fi
+  # end of 'rc.1'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

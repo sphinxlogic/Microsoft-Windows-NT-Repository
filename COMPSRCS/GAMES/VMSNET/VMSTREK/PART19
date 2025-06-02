@@ -1,0 +1,440 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!stanford.edu!agate!usenet.ins.cwru.edu!magnus.acs.ohio-state.edu!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 19/47
+Message-ID: <1992Nov13.134601.1@acad2.alaska.edu>
+Lines: 428
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Fri, 13 Nov 1992 17:46:01 GMT
+Xref: uunet vmsnet.sources.games:505
+
+-+-+-+-+-+-+-+-+ START OF PART 19 -+-+-+-+-+-+-+-+
+Xstruct plasmatorp *plasmatorps;
+Xstruct status *status;
+Xstruct ship *myship;
+Xstruct stats *mystats;
+Xstruct planet *planets;
+Xstruct phaser *phasers;
+Xstruct message *messages;
+Xstruct mctl *mctl;
+Xstruct memory universe;
+X
+Xint`009oldalert = PFGREEN;`009/* Avoid changing more than we have to */
+Xint `009remap`09116`093 = `123 0, 1, 2, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+V 0 `125;
+Xint`009messpend;
+Xint`009lastcount;
+Xint`009mdisplayed;
+Xint`009redrawall;
+Xint`009nopilot = 1;
+Xint`009selfdest;
+Xint`009udcounter;
+Xint`009lastm;
+Xint`009delay;`009`009`009/* delay for decaring war */
+Xint`009rdelay;`009`009`009/* delay for refitting */
+Xint`009mapmode = 1;`032
+Xint`009namemode = 1;`032
+Xint`009showStats;
+Xint`009showShields;
+Xint`009msgBeep = 1;`009`009/* ATM - msg beep */
+Xint`009warncount = 0;
+Xint`009warntimer = -1;
+Xint`009infomapped = 0;
+Xint`009scanmapped = 0;`009`009/* ATM - scanners */
+Xint`009mustexit = 0;
+Xint`009messtime = 5;
+Xint`009keeppeace = 0;
+Xint`009showlocal = 2;
+Xint `009showgalactic = 2;
+Xchar `009*shipnos="0123456789abcdefghijklmnopqrstuvwxyz";
+Xint `009sock= -1;
+Xint`009xtrekPort=2592;`009`009/* ATM: was 592 (inetd version) */
+Xint`009queuePos= -1;
+Xint`009pickOk= -1;
+Xint`009lastRank= -1;
+Xint`009promoted= 0;
+Xint`009loginAccept= -1;
+Xunsigned localflags=0;
+Xint`009tournMask=15;
+Xint `009nextSocket;`009/* socket to use when we get ghostbusted... */
+Xint`009updatePlayer`091MAXPLAYER`093;`009/* Needs updating on player list */
+Xchar   *serverName="bigmax.ulowell.edu"; /* 129.63.32.1 */
+Xint`009loggedIn=0;
+Xint `009reinitPlanets=0;
+Xchar`009*netaddrstr = NULL;`009`009/* wait queue support for blesstrek */
+Xint`009redrawPlayer`091MAXPLAYER`093;`009/* Needs redrawing on galactic map
+V */
+Xint`009lastUpdate`091MAXPLAYER`093=`1230`125;`009/* Last update of this play
+Ver */
+Xint     timerDelay=200000;`009`009/* micro secs between updates */
+Xint`009reportKills=1;`009`009`009/* report kill messages? */
+Xint`009scanplayer;`009`009`009/* who to scan */
+Xint`009showTractor=1;`009`009`009/* show visible tractor beams */
+Xint`009commMode=0;`009`009`009/* UDP: 0=TCP only, 1=UDP updates */
+Xint`009commModeReq=0;`009`009`009/* UDP: req for comm protocol change */
+Xint`009commStatus=0;`009`009`009/* UDP: used when switching protocols */
+Xint`009commSwitchTimeout=0;`009`009/* UDP: don't wait forever */
+Xint`009udpTotal=1;`009`009`009/* UDP: total #of packets received */
+Xint`009udpDropped=0;`009`009`009/* UDP: count of packets dropped */
+Xint`009udpRecentDropped=0;`009`009/* UDP: #of packets dropped recently */
+Xint`009udpSock = -1;`009`009`009/* UDP: the socket */
+Xint`009udpDebug=0;`009`009`009/* UDP: debugging info on/off */
+Xint`009udpClientSend=1;`009`009/* UDP: send packets with simple UDP */
+Xint`009udpClientRecv=1;`009`009/* UDP: receive with simple UDP */
+Xint`009udpSequenceChk=1;`009`009/* UDP: check sequence numbers */
+X#ifdef GATEWAY
+Xint gw_serv_port,gw_port,gw_local_port;`009/* UDP */
+Xchar *gw_mach;`009`009`009`009/* UDP */
+X#endif
+X
+XW_Icon stipple, clockpic, icon;
+X
+XW_Color`009borderColor, backColor, textColor, myColor, warningColor, shipCol
+V`0915`093,
+X`009rColor, yColor, gColor, unColor, foreColor;
+X
+XW_Icon expview`091EX_FRAMES`093;
+XW_Icon sbexpview`091SBEXPVIEWS`093;
+XW_Icon cloud`091NUMDETFRAMES`093;
+XW_Icon plasmacloud`091NUMDETFRAMES`093;
+XW_Icon etorp, mtorp;
+XW_Icon eplasmatorp, mplasmatorp;
+XW_Icon shield, cloakicon, tractbits, pressbits;`009/* ATM - visible tractors
+V */
+XW_Icon fed_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       kli_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       rom_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       ori_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       ind_bitmaps`091NUM_TYPES`093`091VIEWS`093;
+XW_Icon bplanets`0916`093;
+XW_Icon mbplanets`0916`093;
+XW_Icon bplanets2`0918`093;
+XW_Icon mbplanets2`0918`093;
+X
+Xchar teamlet`091`093 = `123'I', 'F', 'R', 'X', 'K', 'X', 'X', 'X', 'O'`125;
+Xchar *teamshort`0919`093 = `123"IND", "FED", "ROM", "X", "KLI", "X", "X", "X
+V", "ORI"`125;
+Xchar pseudo`091PSEUDOSIZE`093;
+Xchar login`091PSEUDOSIZE`093;
+X
+Xstruct rank ranks`091NUMRANKS`093 = `123
+X    `123 0.0, 0.0, 0.0, "Ensign"`125,
+X    `123 2.0, 1.0, 0.0, "Lieutenant"`125,
+X    `123 4.0, 2.0, 0.8, "Lt. Cmdr."`125,`032
+X    `123 8.0, 3.0, 0.8, "Commander"`125,
+X    `12315.0, 4.0, 0.8, "Captain"`125,
+X    `12320.0, 5.0, 0.8, "Flt. Capt."`125,
+X    `12325.0, 6.0, 0.8, "Commodore"`125,
+X    `12330.0, 7.0, 0.8, "Rear Adm."`125,
+X    `12340.0, 8.0, 0.8, "Admiral"`125`125;
+X
+XW_Window messagew, w, mapw, statwin, baseWin, infow, iconWin, tstatw,
+X`009war, warnw, helpWin, teamWin`0914`093, qwin, messwa, messwt, messwi, mes
+Vswk,
+X`009planetw, playerw, rankw, optionWin = 0, reviewWin, scanw, scanwin;
+XW_Window udpWin;
+X
+$ CALL UNPACK DATA.C;1 420243960
+$ create/nolog 'f'
+X/*
+X * data.h
+X */
+X#include "copyright.h"
+X#ifdef VMS
+X#include "struct.h"
+X#endif
+X
+X#define EX_FRAMES `009`0095
+X#define SBEXPVIEWS `009`0097
+X#define NUMDETFRAMES`009`0095`009/* # frames in torp explosion */
+X#define ex_width        `00964
+X#define ex_height       `00964
+X#define sbexp_width        `00980
+X#define sbexp_height       `00980
+X#define cloud_width `009`0099
+X#define cloud_height `009`0099
+X#define plasmacloud_width `00913
+X#define plasmacloud_height `00913
+X#define etorp_width `009`0093
+X#define etorp_height `009`0093
+X#define eplasmatorp_width `0097
+X#define eplasmatorp_height `0097
+X#define mplasmatorp_width `0095
+X#define mplasmatorp_height `0095
+X#define mtorp_width `009`0093
+X#define mtorp_height `009`0093
+X#define crossmask_width `00916
+X#define crossmask_height `00916
+X#define planet_width `009`00930
+X#define planet_height `009`00930
+X#define mplanet_width `009`00916
+X#define mplanet_height `009`00916
+X#define shield_width `009`00920
+X#define shield_height `009`00920
+X#define cloak_width`009`00920
+X#define cloak_height`009`00920
+X#define icon_width `009`009112
+X#define icon_height `009`00980
+X
+Xextern struct player *players;
+Xextern struct player *me;
+Xextern struct torp *torps;
+Xextern struct plasmatorp *plasmatorps;
+Xextern struct status *status;
+Xextern struct ship *myship;
+Xextern struct stats *mystats;
+Xextern struct planet *planets;
+Xextern struct phaser *phasers;
+Xextern struct message *messages;
+Xextern struct mctl *mctl;
+Xextern struct team *teams;
+Xextern struct memory universe;
+Xextern struct planet pdata`091`093;
+X
+Xextern int oldalert;
+Xextern int remap`091`093;
+Xextern int udcounter;
+Xextern int messpend;
+Xextern int lastcount;
+Xextern int mdisplayed;
+Xextern int redrawall;
+Xextern int nopilot;
+Xextern int watch;
+Xextern int selfdest;
+Xextern int lastm;
+Xextern int delay;
+Xextern int rdelay;
+Xextern int mapmode;`032
+Xextern int namemode;`032
+Xextern int showShields;
+Xextern int showStats;
+Xextern int msgBeep;`009/* ATM - msg beep */
+Xextern int warncount;
+Xextern int warntimer;
+Xextern int infomapped;
+Xextern int scanmapped;`009/* ATM - scanner stuff */
+Xextern int mustexit;
+Xextern int messtime;
+Xextern int keeppeace;
+Xextern int showlocal, showgalactic;
+Xextern char *shipnos;
+Xextern int sock;
+Xextern int xtrekPort;
+Xextern int queuePos;
+Xextern int pickOk;
+Xextern int lastRank;
+Xextern int promoted;
+Xextern int loginAccept;
+Xextern unsigned localflags;
+Xextern int tournMask;
+Xextern int nextSocket;
+Xextern int updatePlayer`091`093;
+Xextern char *serverName;
+Xextern int loggedIn;
+Xextern int reinitPlanets;
+Xextern int redrawPlayer`091`093;
+Xextern int lastUpdate`091`093;
+Xextern int timerDelay;
+Xextern int reportKills;
+Xextern int scanplayer;
+Xextern int showTractor;
+Xextern char *netaddrstr;
+Xextern int commMode;`009`009/* UDP */
+Xextern int commModeReq;`009`009/* UDP */
+Xextern int commStatus;`009`009/* UDP */
+Xextern int commSwitchTimeout;`009/* UDP */
+Xextern int udpTotal;`009`009/* UDP */
+Xextern int udpDropped;`009`009/* UDP */
+Xextern int udpRecentDropped;`009/* UDP */
+Xextern int udpSock;`009`009/* UDP */
+Xextern int udpDebug;`009`009/* UDP */
+Xextern int udpClientSend;`009/* UDP */
+Xextern int udpClientRecv;`009/* UDP */
+Xextern int udpSequenceChk;`009/* UDP */
+X#ifdef GATEWAY
+Xextern int gw_serv_port, gw_port, gw_local_port;`009/* UDP */
+Xextern char *gw_mach;`009`009/* UDP */
+X#endif
+X
+X#ifdef VMS  /* vms links everything in uppercase so we have to convert sin`0
+V91`093 to sintab */
+Xextern double`009Sintab`091`093, Costab`091`093;
+X#else /* unix */
+Xextern double`009Sin`091`093, Cos`091`093;
+X#endif
+X
+Xextern W_Icon stipple, clockpic, icon;
+X
+X#define VIEWS 16
+X#define NUM_TYPES 8`009`009/* ATM - Galaxy */
+Xextern W_Icon expview`091EX_FRAMES`093;
+Xextern W_Icon sbexpview`091SBEXPVIEWS`093;
+Xextern W_Icon cloud`091NUMDETFRAMES`093;
+Xextern W_Icon plasmacloud`091NUMDETFRAMES`093;
+Xextern W_Icon etorp, mtorp;
+Xextern W_Icon eplasmatorp, mplasmatorp;
+Xextern W_Icon shield, cloakicon, tractbits, pressbits;`009/* ATM - vis tract
+Vors */
+Xextern W_Icon fed_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       `009      kli_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       `009      rom_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X       `009      ori_bitmaps`091NUM_TYPES`093`091VIEWS`093,
+X`009      ind_bitmaps`091NUM_TYPES`093`091VIEWS`093;
+Xextern W_Icon bplanets`0916`093;
+Xextern W_Icon mbplanets`0916`093;
+Xextern W_Icon bplanets2`0918`093;
+Xextern W_Icon mbplanets2`0918`093;
+X
+Xextern W_Color`009borderColor, backColor, textColor, myColor,`032
+X`009`009warningColor, shipCol`0915`093, rColor, yColor,
+X`009`009gColor, unColor, foreColor;
+X
+Xextern char teamlet`091`093;
+Xextern char *teamshort`091`093;
+Xextern char pseudo`091PSEUDOSIZE`093;
+Xextern char login`091PSEUDOSIZE`093;
+X
+Xextern struct rank ranks`091NUMRANKS`093;
+X
+Xextern W_Window`009messagew, w, mapw, statwin, baseWin, infow, iconWin, tsta
+Vtw,
+X`009`009war, warnw, helpWin, teamWin`0914`093, qwin, messwa, messwt, messwi,
+X`009`009messwk, planetw, rankw, playerw, optionWin, reviewWin, scanw,
+X`009`009scanwin;
+Xextern W_Window udpWin;
+$ CALL UNPACK DATA.H;1 1363583231
+$ create/nolog 'f'
+X/*
+X * death.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <types.h>
+X#ifdef hpux
+X#include <time.h>
+X#else /*hpux*/
+X#include <time.h>
+X#endif /*hpux*/
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+Xextern jmp_buf env;
+X
+X#ifndef VMS /* this struct is not really used for the client */
+Xstatic struct itimerval udt;
+X#endif
+Xstatic char *teamstring`0919`093 = `123"", "and the Federation",
+X`009`009`009 "and the Romulan Empire", "",
+X`009`009`009 "and the Klingon Empire", "", "", "",
+X`009`009`009 "and the Orions"`125;
+X
+Xdeath()
+X`123
+X    char buf`09180`093;
+X    /*int i,j,k,first;*/
+X    W_Event event;
+X    W_Window oldw;`009/* ATM-death */
+X
+X    oldw = w;`009`009/* ATM-death */
+X    w = mapw;`009`009/* ATM-death */
+X
+X#ifndef VMS   /* I don't think this code is really used anywhere */
+X    /* Reset the signal */
+X    signal(SIGALRM, SIG_IGN);
+X    udt.it_interval.tv_sec = 0;
+X    udt.it_interval.tv_usec = 0;
+X    udt.it_value.tv_sec = 0;
+X    udt.it_value.tv_usec = 0;
+X    setitimer(ITIMER_REAL, &udt, 0);
+X    signal(SIGALRM, SIG_DFL);
+X#endif
+X
+X    W_ClearWindow(w);
+X    W_ClearWindow(iconWin);
+X    if (oldalert != PFGREEN) `123
+X`009W_ChangeBorder(baseWin, gColor);
+X`009oldalert=PFGREEN;
+X    `125
+X    if (W_IsMapped(statwin)) `123
+X`009W_UnmapWindow(statwin);
+X`009showStats=1;
+X    `125 else `123
+X`009showStats=0;
+X    `125
+X    if (infomapped)
+X`009destroyInfo();
+X    W_UnmapWindow(planetw);
+X    W_UnmapWindow(rankw);
+X    W_UnmapWindow(war);
+X    if (optionWin)
+X`009optiondone();
+X
+X    switch (me->p_whydead) `123
+X    case KQUIT:
+X`009sprintf(buf, "You have self-destructed.");
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KTORP:
+X`009sprintf(buf, "You were killed by a photon torpedo from %s (%c%c).",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091me->p_whodead`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KPLASMA:
+X`009sprintf(buf, "You were killed by a plasma torpedo from %s (%c%c)",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091me->p_whodead`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KPHASER:
+X`009sprintf(buf, "You were killed by a phaser shot from %s (%c%c)",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091me->p_whodead`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KPLANET:
+X`009sprintf(buf, "You were killed by planetary fire from %s (%c)",
+X`009    planets`091me->p_whodead`093.pl_name,
+X`009    teamlet`091planets`091me->p_whodead`093.pl_owner`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KSHIP:
+X`009sprintf(buf, "You were killed by an exploding ship formerly owned by %s
+V (%c%c)",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091me->p_whodead`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KDAEMON:
+X`009sprintf(buf, "You were killed by a dying daemon.");
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KWINNER:
+X`009sprintf(buf, "Galaxy has been conquered by %s (%c%c) %s",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091players`091me->p_whodead`093.p_no`093,
+X`009    teamstring`091players`091me->p_whodead`093.p_team`093);
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KGHOST:
+X`009sprintf(buf, "You were killed by a confused daemon.");
+X`009W_WriteText(w, 50, 80, textColor, buf, strlen(buf), W_RegularFont);
+X`009break;
+X    case KGENOCIDE:
+X`009sprintf(buf, "Your team was genocided by %s (%c%c) %s.",
+X`009    players`091me->p_whodead`093.p_name,
+X`009    teamlet`091players`091me->p_whodead`093.p_team`093,
+X`009    shipnos`091me->p_whodead`093,
++-+-+-+-+-+-+-+-  END  OF PART 19 +-+-+-+-+-+-+-+-

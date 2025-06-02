@@ -1,0 +1,1876 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i083:  chiaro - Image Utilities, Part13/18
+Message-ID: <1993Mar26.202851.14852@sparky.imd.sterling.com>
+X-Md4-Signature: f722aa48bbec0ab1f49169467a808a54
+Date: Fri, 26 Mar 1993 20:28:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 83
+Archive-name: chiaro/part13
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/blocproc.c.A src/gifstrip.1 src/pcx.c
+# Wrapped by kent@sparky on Thu Mar 25 11:20:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 18)."'
+if test -f 'src/blocproc.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/blocproc.c.A'\"
+else
+  echo shar: Extracting \"'src/blocproc.c.A'\" \(29781 characters\)
+  sed "s/^X//" >'src/blocproc.c.A' <<'END_OF_FILE'
+X/***************************************************************************
+X*   BLOCPROC.C                                                             *
+X*   MODULE:  -                                                             *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   The Graphics Interchange Format(c) is the Copyright property of        *
+X*   CompuServe Incorporated. GIF(sm) is a Service Mark property of         *
+X*   CompuServe Incorporated.                                               *
+X*                                                                          *
+X*   GIF and "Graphic Interchange Format" are trademarks (tm) of            *
+X*   CompuServe, Inc., an H&R Block company.                                *
+X*                                                                          *
+X*   $Id: blocproc.c,v 1.6 1993/02/10 01:59:38 jwbirdsa Exp $
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STDLIB
+X#include <stdlib.h>
+X#endif
+X#include <ctype.h>
+X#ifndef NO_MALLOCHDR
+X#include <malloc.h>
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X
+X#include "fb.h"
+X
+X#include "formats.h"
+X#include "gif.h"
+X#include "gld.h"
+X
+X#include "colors.h"
+X
+X#include "gifcheck.h"
+X#include "blocproc.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/* Sizes of various displays. */
+X
+X#define HEXLINELEN           8
+X#define COLORLINELEN         5
+X
+X/* Fast decompression overhead. */
+X
+X#ifndef SMALL_MEM
+X#define EXTRA_TABLESIZE      20000
+X#else
+X#define EXTRA_TABLESIZE      2000
+X#endif
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: blocproc.c,v 1.6 1993/02/10 01:59:38 jwbirdsa Exp $";
+X
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/* Global color table. */
+X
+XRGB_TRIPLET *gct = (RGB_TRIPLET *) NULL;
+X
+X/* Last state. */
+X
+Xint laststate;
+X
+X
+X/* Default: allow leading junk. */
+X
+Xextern int lead;
+X
+X/* Default: do decompression. */
+X
+Xextern int decomp;
+X
+X/* Default: don't dump color tables. */
+X
+Xextern int do_colordump;
+X
+X/* Default: display FASCINATING and above, abort on VIOLATION and above. */
+X
+Xextern int dlevel;
+Xextern int elevel;
+X
+X/* Default: terse displays. */
+X
+Xextern int verbose;
+X
+X/* Default: don't do hex dump of PTEs, comments, app & generic extensions. */
+X
+Xextern int do_hexdump;
+X
+X/* Display progress indicator? */
+X
+X#ifdef PROGRESS_IND
+Xextern int prog_ind;
+X#endif
+X
+X/* File descriptors for standard and error output. */
+X
+Xextern FILE *outstr;
+Xextern FILE *outerr;
+X
+X/* Global scratch space. */
+X
+Xextern char scratch[];
+X
+X
+X/*
+X** static globals
+X*/
+X
+X/* Global color table stuff. */
+X
+Xstatic int globcolors;
+Xstatic int globsize;
+X
+X/* Size of logical screen. */
+X
+Xstatic unsigned int logwid;
+Xstatic unsigned int loghi;
+X
+X/* Transparency index. */
+X
+Xstatic int transparent = -1;
+X
+X/* For progress indication. */
+X
+X#ifdef PROGRESS_IND
+Xstatic char clockface[] = "|/-\\";
+X#endif
+X
+X/* State names array. */
+X
+Xstatic char *state_names[] = { "logical screen descriptor & global color table",
+X                               "graphic control extension",
+X                               "image",
+X                               "plain-text extension",
+X                               "generic extension",
+X                               "comment extension",
+X                               "application extension" };
+X
+X/* State transition table. */
+X
+Xstatic int state_trans[STATE_MAX][STATE_MAX] = {
+X/*          BEGIN   GCE IMAGE   PTE GENEXT  COMMENT APP TERM */
+X/* BEGIN */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* GCE   */ 0,      0,  1,      1,  0,      0,      0,  0,
+X/* IMAGE */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* PTE   */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* GEN   */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* COMNT */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* APP   */ 0,      1,  1,      1,  1,      1,      1,  1,
+X/* TERM  */ 0,      0,  0,      0,  0,      0,      0,  0 } ;
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef  __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic unsigned int count_unprint P_((UCHAR *data, unsigned int len));
+Xstatic VOID hexdump P_((UCHAR *data, unsigned int len));
+Xstatic VOID colordump P_((RGB_TRIPLET *ctable, int colors));
+X
+Xstatic VOID callback P_((long donelen, UCHAR **buffer, long *availlen, long *bufpos));
+X
+X#undef P_
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION: GLOBAL_PRINTOUT                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from Logical Screen Descriptor and global color    *
+X*       table.                                                             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile   - handle of file                                          *
+X*       filename - name of file                                            *
+X*       lsd      - LSD data from file                                      *
+X*       size     - length of file                                          *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xglobal_printout(FB *infile, char *filename, GIF_LSD *lsd, long size)
+X#else
+Xglobal_printout(infile, filename, lsd, size)
+XFB *infile;
+Xchar *filename;
+XGIF_LSD *lsd;
+Xlong size;
+X#endif
+X{
+X    ULONG status;
+X    int loop;
+X    long uniques, entries;
+X    int chandle;
+X    int denom;
+X
+X    /* Print some info from logical screen descriptor. */
+X
+X    fprintf(outstr, "FILE %s", filename);
+X    if (verbose != 0)
+X    {
+X        fprintf(outstr, " is GIF version GIF%s:\n",
+X                ((GIF_89A == lsd->version) ? "89a" : "87a"));
+X        fprintf(outstr, "   file size (bytes): %8ld\n", size);
+X        fprintf(outstr,
+X                "   logical screen size (pixels, width x height): %5u x %5u\n",
+X                lsd->scr_wid, lsd->scr_hi);
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   GIF%s   %8ld bytes\n",
+X                ((GIF_89A == lsd->version) ? "89a" : "87a"), size);
+X        fprintf(outstr, "   logical screen:  %5u x %5u", lsd->scr_wid,
+X                lsd->scr_hi);
+X    }
+X
+X    if (lsd->aspect != 0)
+X    {
+X        if (GIF_89A == lsd->version)
+X        {
+X            for (denom = 64, loop = lsd->aspect; ((loop & 0x1) == 0);
+X                 denom >>= 1, loop >>= 1) ;
+X            if (verbose != 0)
+X            {
+X                fprintf(outstr, "   logical screen aspect ratio: ");
+X            }
+X            else
+X            {
+X                fprintf(outstr, "   aspect ");
+X            }
+X            fprintf(outstr, "%3d/%2d\n", loop, denom);
+X        }
+X        else
+X        {
+X            if (dlevel >= DLEVEL_NITPICK)
+X            {
+X                fprintf(outstr, "\nNITPICK: byte 6 of logical screen descriptor should be 0 for GIF87A\n");
+X            }
+X        }
+X    }
+X    else if (GIF_89A == lsd->version)
+X    {
+X        if (verbose != 0)
+X        {
+X            fprintf(outstr, "   logical screen aspect ratio not given.\n");
+X        }
+X        else
+X        {
+X            fprintf(outstr, "   aspect ---\n");
+X        }
+X    }
+X    else if (0 == verbose)
+X    {
+X        fputc('\n', outstr);
+X    }
+X    fprintf(outstr, "   %d bits per color available on source\n", lsd->clr_res);
+X    if (verbose != 0)
+X    {
+X        if (lsd->gct_flag)
+X        {
+X            fprintf(outstr, "   This file has a global color table.\n");
+X        }
+X        else
+X        {
+X            fprintf(outstr,
+X                         "   This file does not have a global color table.\n");
+X        }
+X    }
+X
+X    /* Save logical screen dimensions. */
+X
+X    logwid = lsd->scr_wid;
+X    loghi = lsd->scr_hi;
+X
+X    /* Get global color table, if any. */
+X
+X    if (lsd->gct_flag)
+X    {
+X        fprintf(outstr, "GLOBAL COLOR TABLE:\n");
+X        globcolors = 0x1 << lsd->gct_size;
+X        globsize = lsd->gct_size;
+X        if (verbose != 0)
+X        {
+X            fprintf(outstr, "   %d bits per index for a table size of %d\n",
+X                    lsd->gct_size, globcolors);
+X        }
+X        else
+X        {
+X            fprintf(outstr, "   %d bits (%d colors)", lsd->gct_size,
+X                    globcolors);
+X        }
+X        if (lsd->sort_flag)
+X        {
+X            if (GIF_89A == lsd->version)
+X            {
+X                if (verbose != 0)
+X                {
+X                    fprintf(outstr, "   The global color table is sorted by decreasing importance.\n");
+X                }
+X                else
+X                {
+X                    fprintf(outstr, "   sorted  ");
+X                }
+X            }
+X            else
+X            {
+X                if (dlevel >= DLEVEL_NITPICK)
+X                {
+X                    fprintf(outstr, "\nNITPICK: bit 3, byte 4 of logical screen descriptor should be 0 for GIF87A\n");
+X                }
+X            }
+X        }
+X        else if (GIF_89A == lsd->version)
+X        {
+X            if (verbose != 0)
+X            {
+X                fprintf(outstr, "   The global color table is not sorted.\n");
+X            }
+X            else
+X            {
+X                fprintf(outstr, "   unsorted");
+X            }
+X        }
+X
+X        if ((status = gif_gctget(infile, &gct, globcolors)) != ST_SUCCESS)
+X        {
+X            fprintf(outerr, "%s\n", errxlate(status));
+X            fb_close(infile);
+X            return ((GIF_UNEOF_E == status) ? EXIT_UNEOF : EXIT_ERROR);
+X        }
+X
+X        if (verbose != 0)
+X        {
+X            fprintf(outstr,
+X                    "   background index %d, RGB value %03d/%03d/%03d\n",
+X                    lsd->background, gct[lsd->background].red,
+X                    gct[lsd->background].green, gct[lsd->background].blue);
+X        }
+X        else
+X        {
+X            fprintf(outstr, "   bg index %d (%03d/%03d/%03d)\n",
+X                    lsd->background, gct[lsd->background].red,
+X                    gct[lsd->background].green, gct[lsd->background].blue);
+X        }
+X
+X        if ((chandle = col_open()) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Cannot open color hash table.\n");
+X            fb_close(infile);
+X            return EXIT_ERROR;
+X        }
+X        for (loop = 0; loop < globcolors; loop++)
+X        {
+X            if (col_enter(chandle, &(gct[loop])) != 0)
+X            {
+X                fprintf(outerr, "ERROR: Error entering in color hash table.\n");
+X                col_close(chandle, (HASHIT **) NULL);
+X                fb_close(infile);
+X                return EXIT_ERROR;
+X            }
+X        }
+X        if (col_getstat(chandle, &uniques, &entries) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Error retrieving from color hash table.\n");
+X            col_close(chandle, (HASHIT **) NULL);
+X            fb_close(infile);
+X            return EXIT_ERROR;
+X        }
+X        fprintf(outstr, "   %ld unique colors.\n", uniques);
+X        if (col_close(chandle, (HASHIT **) NULL) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Error closing color hash table.\n");
+X            fb_close(infile);
+X            return EXIT_ERROR;
+X        }
+X
+X        if (do_colordump)
+X        {
+X            colordump(gct, globcolors);
+X        }
+X    }
+X    else
+X    {
+X        fprintf(outstr,
+X                "   No global color table, table size field has value %d.\n",
+X                lsd->gct_size);
+X    }
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of global_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: IMAGE_PRINTOUT                                               *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from Image Descriptor, local color table (if any), *
+X*       and decompresses image.                                            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile   - handle of file                                          *
+X*       imd      - Image Descriptor data from file                         *
+X*       version  - GIF format version                                      *
+X*       gct_size - size of global color table                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Ximage_printout(FB *infile, GIF_IMD *imd, int images, ULONG version,
+X               int gct_size)
+X#else
+Ximage_printout(infile, imd, images, version, gct_size)
+XFB *infile;
+XGIF_IMD *imd;
+Xint images;
+XULONG version;
+Xint gct_size;
+X#endif
+X{
+X    ULONG status;
+X    int colors;
+X    int loop;
+X    ULONG blockbytes;
+X    unsigned int blocks;
+X    long uniques, entries;
+X    int chandle;
+X    codeinfo *table;
+X    UCHAR *holding_space;
+X    int clockseq = 0;
+X    long cratio;
+X    int compon = 1;
+X    unsigned int endblock;
+X
+X    RGB_TRIPLET *ctable = (RGB_TRIPLET *) NULL;
+X    UCHAR codesize;
+X    UCHAR *data;
+X    int datalen;
+X
+X    /* Print some info from image descriptor. */
+X
+X    if (verbose != 0)
+X    {
+X        fprintf(outstr, "   image size (pixels, width x height): %5u x %5u\n",
+X                imd->im_wid, imd->im_hi);
+X        fprintf(outstr, "   image upper left corner (column, row): %5u, %5u\n",
+X                imd->im_left, imd->im_top);
+X        fprintf(outstr, "   image is stored %s\n",
+X                ((0 == imd->interlace_flag) ? "sequentially" : "interlaced"));
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   size %5u x %5u   corner %5u, %5u   %s\n",
+X                imd->im_wid, imd->im_hi, imd->im_left, imd->im_top,
+X                ((0 == imd->interlace_flag) ? "sequentially" : "interlaced"));
+X    }
+X
+X    if ((imd->raw_packed & 0x18) != 0)
+X    {
+X        if (dlevel >= DLEVEL_NITPICK)
+X        {
+X            fprintf(outstr, "\nNITPICK: bits 3 and 4, byte 9 of image descriptor should be 0\n");
+X        }
+X    }
+X
+X    if (((imd->im_left + imd->im_wid) > logwid) ||
+X        ((imd->im_top + imd->im_hi) > loghi))
+X    {
+X        if (dlevel >= DLEVEL_VIOLATION)
+X        {
+X            fprintf(outstr, 
+X                    "\nVIOLATION: image does not fit on logical screen.\n");
+X        }
+X        if (elevel >= ELEVEL_VIOLATION)
+X        {
+X            fb_close(infile);
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X
+X    if (imd->lct_flag)
+X    {
+X        fprintf(outstr, "   This image has a local color table.\n");
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   This image uses the global color table (no local color table).\n");
+X        if (((RGB_TRIPLET *) NULL) == gct)
+X        {
+X            if (dlevel >= DLEVEL_FASCINATING)
+X            {
+X                fprintf(outstr, "\nFASCINATING: this file does not contain a global color table\n");
+X            }
+X            if (elevel >= ELEVEL_FASCINATING)
+X            {
+X                fb_close(infile);
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X    }
+X
+X    /* Read local color table, if any. */
+X
+X    if (imd->lct_flag)
+X    {
+X        fprintf(outstr, "   LOCAL COLOR TABLE FOR IMAGE %d:\n", images);
+X        colors = 0x1 << imd->lct_size;
+X        if (verbose != 0)
+X        {
+X            fprintf(outstr, "   %d bits per index for a table size of %d\n",
+X                    imd->lct_size, colors);
+X        }
+X        else
+X        {
+X            fprintf(outstr, "   %d bits (%d colors)", imd->lct_size, colors);
+X        }
+X        if (imd->sort_flag)
+X        {
+X            if (GIF_89A == version)
+X            {
+X                if (verbose != 0)
+X                {
+X                    fprintf(outstr, "   The local color table is sorted by decreasing importance.\n");
+X                }
+X                else
+X                {
+X                    fprintf(outstr, "   sorted\n");
+X                }
+X            }
+X            else
+X            {
+X                if (dlevel >= DLEVEL_NITPICK)
+X                {
+X                    fprintf(outstr, "\nNITPICK: bit 5, byte 9 of image descriptor should be 0 for GIF87A\n");
+X                }
+X            }
+X        }
+X        else if (GIF_89A == version)
+X        {
+X            if (verbose != 0)
+X            {
+X                fprintf(outstr, "   The local color table is not sorted.\n");
+X            }
+X            else
+X            {
+X                fprintf(outstr, "   unsorted\n");
+X            }
+X        }
+X
+X        if ((status = gif_lctget(infile, &ctable, colors)) != ST_SUCCESS)
+X        {
+X            fprintf(outerr, "%s\n", errxlate(status));
+X            fb_close(infile);
+X            return ((GIF_UNEOF_E == status) ? EXIT_UNEOF : EXIT_ERROR);
+X        }
+X
+X        if ((chandle = col_open()) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Cannot open color hash table.\n");
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            fb_close(infile);
+X            return EXIT_ERROR;
+X        }
+X        for (loop = 0; loop < colors; loop++)
+X        {
+X            if (col_enter(chandle, &(ctable[loop])) != 0)
+X            {
+X                fprintf(outerr, "ERROR: Error entering in color hash table.\n");
+X                col_close(chandle, (HASHIT **) NULL);
+X                fb_close(infile);
+X                if (imd->lct_flag)
+X                {
+X                    free(ctable);
+X                }
+X                return EXIT_ERROR;
+X            }
+X        }
+X        if (col_getstat(chandle, &uniques, &entries) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Error retrieving from color hash table.\n");
+X            col_close(chandle, (HASHIT **) NULL);
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        fprintf(outstr, "   %ld unique colors.\n", uniques);
+X        if (col_close(chandle, (HASHIT **) NULL) != 0)
+X        {
+X            fprintf(outerr, "ERROR: Error closing color hash table.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X
+X        if (do_colordump)
+X        {
+X            colordump(ctable, colors);
+X        }
+X    }
+X    else
+X    {
+X        if ((imd->lct_size != 0) && (dlevel >= DLEVEL_NITPICK))
+X        {
+X            fprintf(outstr, "\nNITPICK: local color table size is nonzero.\n");
+X        }
+X    }
+X
+X    /* Check for transparency. */
+X
+X    if (transparent != -1)
+X    {
+X        if (transparent > ((imd->lct_flag != 0) ? colors : globcolors))
+X        {
+X            if (dlevel >= DLEVEL_VIOLATION)
+X            {
+X                fprintf(outstr, "\nVIOLATION: bad transparency index (%d)\n",
+X                        transparent);
+X            }
+X            if (elevel >= ELEVEL_VIOLATION)
+X            {
+X                fb_close(infile);
+X                if (imd->lct_flag)
+X                {
+X                    free(ctable);
+X                }
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X    }
+X    transparent = -1;
+X
+X    /* Read codesize. */
+X
+X    codesize = (UCHAR) fb_getc(infile);
+X    if (fb_error != ST_SUCCESS)
+X    {
+X        fprintf(outerr, "%s\n", errxlate(status));
+X        fb_close(infile);
+X        if (imd->lct_flag)
+X        {
+X            free(ctable);
+X        }
+X        return ((FB_EOF_W == status) ? EXIT_UNEOF : EXIT_ERROR);
+X    }
+X    fprintf(outstr, "   IMAGE DATA FOR IMAGE %d:\n", images);
+X    fprintf(outstr, "   code size %d bits\n", (int) codesize);
+X
+X    /* Initialize decompressor. */
+X
+X    if (decomp != 0)
+X    {
+X        table = (codeinfo *) calloc(CODES, sizeof(codeinfo));
+X        if (((codeinfo *) NULL) == table)
+X        {
+X            fprintf(outerr,
+X                    "ERROR: Cannot allocate memory for decompressor table.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        holding_space = (UCHAR *) malloc(EXTRA_TABLESIZE);
+X        if (((UCHAR *) NULL) == holding_space)
+X        {
+X            fprintf(outerr,
+X                    "ERROR: Cannot allocate memory for decompressor table.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        status = gld_init(codesize, (imd->lct_flag ? imd->lct_size : gct_size),
+X                          table, holding_space, EXTRA_TABLESIZE);
+X        if (status != ST_SUCCESS)
+X        {
+X            fprintf(outerr, "%s\n", errxlate(status));
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X    }
+X
+X    /* Read data blocks until done. */
+X
+X    blockbytes = 0;
+X    blocks = 0;
+X#ifdef PROGRESS_IND
+X    if (prog_ind != 0)
+X    {
+X        fputc(clockface[(clockseq % 4)], outstr);
+X        clockseq++;
+X    }
+X#endif
+X    while (1)
+X    {
+X        /* Read block. */
+X
+X        if ((status = gif_readblock(infile, &data, &datalen)) != ST_SUCCESS)
+X        {
+X#ifdef PROGRESS_IND
+X            if (prog_ind != 0)
+X            {
+X                fputc('\10', outstr);
+X            }
+X#endif
+X            fprintf(outerr, "%s\n", errxlate(status));
+X            fprintf(outstr, "\n   %ld good codes found yielding %lu pixels ",
+X                    gld_codes, gld_pixout);
+X            fprintf(outstr, " (%lu", (gld_pixout / imd->im_wid));
+X            if ((gld_pixout % imd->im_wid) != 0)
+X            {
+X                fputc('+', outstr);
+X            }
+X            fprintf(outstr, " lines, %lu%% of image)\n",
+X                    ((100L * gld_pixout) / ((ULONG) imd->im_wid *
+X                                            (ULONG) imd->im_hi)));
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            if (decomp != 0)
+X            {
+X                free(table);
+X                free(holding_space);
+X            }
+X            return ((GIF_UNEOF_E == status) ? EXIT_UNEOF : EXIT_ERROR);
+X        }
+X
+X        /* Check length. */
+X
+X        if (0 == datalen)
+X        {
+X            /* If zero length, at end. */
+X
+X            if (0 == compon)
+X            {
+X                /* Compression already turned off -- reached end of codes. */
+X
+X                break;
+X            }
+X            if (0 == decomp)
+X            {
+X                /*
+X                ** Not doing decompression -- all OK. Set endblock so don't
+X                ** get message about extra blocks
+X                */
+X
+X                endblock = blocks - 1;
+X                break;
+X            }
+X            fprintf(outerr,
+X                    "\nANOMALY: end of data reached before end of codes\n");
+X            fprintf(outstr, "   %ld good codes found yielding %lu pixels ",
+X                    gld_codes, gld_pixout);
+X            fprintf(outstr, " (%lu", (gld_pixout / imd->im_wid));
+X            if ((gld_pixout % imd->im_wid) != 0)
+X            {
+X                fputc('+', outstr);
+X            }
+X            fprintf(outstr, " lines, %lu%% of image)\n",
+X                    ((100L * gld_pixout) / ((ULONG) imd->im_wid *
+X                                            (ULONG) imd->im_hi)));
+X            /* Set endblock so don't get message about extra blocks. */
+X            endblock = blocks - 1;
+X            break;
+X        }
+X
+X        /* Do decompression. */
+X
+X        if ((decomp != 0) && (compon != 0))
+X        {
+X            status = gld_process(datalen, data, NULL, 0, callback);
+X            if ((status != ST_SUCCESS) && (status != GLD_EOI_S))
+X            {
+X#ifdef PROGRESS_IND
+X                if (prog_ind != 0)
+X                {
+X                    fputc('\10', outstr);
+X                }
+X#endif
+X                fprintf(outerr,
+X                  "\nANOMALY: decompression error in block %u at offset %ld\n",
+X                  blocks, (fb_tell(infile) - datalen));
+X                fprintf(outstr, "   %ld good codes found yielding %lu pixels ",
+X                        gld_codes, gld_pixout);
+X                fprintf(outstr, " (%lu", (gld_pixout / imd->im_wid));
+X                if ((gld_pixout % imd->im_wid) != 0)
+X                {
+X                    fputc('+', outstr);
+X                }
+X                fprintf(outstr, " lines, %lu%% of image)\n",
+X                        ((100L * gld_pixout) / ((ULONG) imd->im_wid *
+X                                                (ULONG) imd->im_hi)));
+X                fb_close(infile);
+X                if (decomp != 0)
+X                {
+X                    free(table);
+X                    free(holding_space);
+X                }
+X                if (imd->lct_flag)
+X                {
+X                    free(ctable);
+X                }
+X                return EXIT_ERROR;
+X            }
+X            if (GLD_EOI_S == status)
+X            {
+X#ifdef PROGRESS_IND
+X                if (prog_ind != 0)
+X                {
+X                    fputc('\10', outstr);
+X                }
+X#endif
+X                fprintf(outstr, "   Reached end of codes in block %u\n",
+X                        blocks);
+X                endblock = blocks;
+X                compon = 0;
+X            }
+X        }
+X#ifdef PROGRESS_IND
+X        if (prog_ind != 0)
+X        {
+X            fputc('\10', outstr);
+X            fputc(clockface[(clockseq++ % 4)], outstr);
+X        }
+X#endif
+X        blockbytes += (ULONG) datalen;
+X        blocks++;
+X
+X        /* Free data block. */
+X
+X        free(data);
+X    }
+X
+X    /* Check for extra blocks. */
+X
+X    if ((blocks - 1) != endblock)
+X    {
+X        if (dlevel >= DLEVEL_FASCINATING)
+X        {
+X            fprintf(outstr,
+X                    "\n   FASCINATING: %u extra blocks on end of image\n",
+X                    ((blocks - 1) - endblock));
+X        }
+X        if (elevel >= ELEVEL_FASCINATING)
+X        {
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X
+X    /* If doing decompression, clean up. */
+X
+X    if (decomp != 0)
+X    {
+X        free(table);
+X        free(holding_space);
+X    }
+X
+X    /* Print more info. */
+X
+X    fprintf(outstr, "   totals: ");
+X    if (decomp != 0)
+X    {
+X        fprintf(outstr, "%ld codes packed into ", gld_codes);
+X    }
+X    fprintf(outstr, "%lu bytes in %u blocks\n", blockbytes, blocks);
+X    if (decomp != 0)
+X    {
+X        fprintf(outstr, "        %lu pixels extracted\n", gld_pixout);
+X        if (gld_pixout < ((ULONG) imd->im_wid * (ULONG) imd->im_hi))
+X        {
+X            if (dlevel >= DLEVEL_FASCINATING)
+X            {
+X                fprintf(outstr, "\nFASCINATING: too few pixels extracted ");
+X                fprintf(outstr, "(%lu", (gld_pixout / imd->im_wid));
+X                if ((gld_pixout % imd->im_wid) != 0)
+X                {
+X                    fputc('+', outstr);
+X                }
+X                fprintf(outstr, " lines found, %lu pixels missing)\n",
+X                        (((ULONG) imd->im_wid *
+X                          (ULONG) imd->im_hi) - gld_pixout));
+X            }
+X            if (elevel >= ELEVEL_FASCINATING)
+X            {
+X                fb_close(infile);
+X                if (imd->lct_flag)
+X                {
+X                    free(ctable);
+X                }
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X        else if (gld_pixout > ((ULONG) imd->im_wid * (ULONG) imd->im_hi))
+X        {
+X            if (dlevel >= DLEVEL_FASCINATING)
+X            {
+X                fprintf(outstr, "\nFASCINATING: too many pixels extracted ");
+X                fprintf(outstr, " (%lu extra)\n",
+X                        (gld_pixout - ((ULONG) imd->im_wid *
+X                                       (ULONG) imd->im_hi)));
+X            }
+X            if (elevel >= ELEVEL_FASCINATING)
+X            {
+X                fb_close(infile);
+X                if (imd->lct_flag)
+X                {
+X                    free(ctable);
+X                }
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X    }
+X    if (gld_clears >= 1)
+X    {
+X        fprintf(outstr, "        code table cleared %d times\n", gld_clears);
+X    }
+X    else if (decomp != 0)
+X    {
+END_OF_FILE
+  if test 29781 -ne `wc -c <'src/blocproc.c.A'`; then
+    echo shar: \"'src/blocproc.c.A'\" unpacked with wrong size!
+  elif test -f 'src/blocproc.c.B'; then
+    echo shar: Combining  \"'src/blocproc.c'\" \(64047 characters\)
+    cat 'src/blocproc.c.A' 'src/blocproc.c.B' > 'src/blocproc.c'
+    if test 64047 -ne `wc -c <'src/blocproc.c'`; then
+      echo shar: \"'src/blocproc.c'\" combined with wrong size!
+    else  
+      rm src/blocproc.c.A src/blocproc.c.B 
+    fi  
+  fi  
+  # end of 'src/blocproc.c.A'
+fi
+if test -f 'src/gifstrip.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gifstrip.1'\"
+else
+  echo shar: Extracting \"'src/gifstrip.1'\" \(10723 characters\)
+  sed "s/^X//" >'src/gifstrip.1' <<'END_OF_FILE'
+X.\"
+X.\" $Id: gifstrip.1,v 1.3 1993/03/02 00:44:17 jwbirdsa Exp $
+X.\"
+X.TH GIFSTRIP 1 "$Date: 1993/03/02 00:44:17 $"
+X.PD 1
+X.SH NAME
+Xgifstrip \- GIF file rebuilder
+X.SH SYNOPSIS
+X.B gifstrip
+X[
+X.B \-b
+X][
+X.B \-r
+X][
+X.B \-\-
+X][
+X.B \-f
+X][
+X.B \-n
+X][
+X.B \-m
+X][
+X.B \-o
+X][
+X.B \-h
+X][
+X.B \-c
+X][
+X.B \-d
+X][
+X.B \-s
+X][
+X.B \-tpath
+X] target [ target... ]
+X.br
+X.SH DESCRIPTION
+X.I Gifstrip
+Xis used to remove excess characters from the beginning and/or end of a GIF
+Xfile (usually the end). These excess characters may be added in a variety
+Xof ways, including XMODEM-protocol file transfers or transfer from a
+XMacintosh computer.
+X.I Gifstrip
+Xalso does some basic file analysis and enforces a few format requirements
+Xwhich are sometimes ignored. For temporary storage, it can use memory or
+Xdisk. By default, it uses memory first and only uses disk space to make up
+Xthe shortfall if there is not enough memory. By default,
+X.I gifstrip
+Xalso keeps the original file around until the new file has been written to
+Xdisk successfully, and attempts to preserve the timestamp, owner, and
+Xpermissions of the original file.
+X.SH TARGETS
+XA target is a filename or directory. Multiple targets may be specified on
+Xthe command line. If a target is a directory, all files in that directory
+Xwill be processed. If no targets are specified on the command line, a usage
+Xmessage will be printed.
+X.SH OPTIONS
+XOptions may not be combined. In the case of the
+X.B \-t
+Xoption, there cannot be a space between the option and the argument to the
+Xoption.
+X.TP
+X.B \-b
+XOperate in batch mode. All output is suppressed. This option should be
+Xfirst on the command line or other options may generate output before this
+Xoption is found. When in batch mode,
+X.I gifstrip
+Xadjusts its status return to reflect the results of processing. The status
+Xmay be:
+X.RS 10
+X.PP
+X.nf
+X0     the file is GIF format and did not need
+X       stripping, or was stripped OK
+X1     file is not GIF format
+X2     an unexpected EOF was encountered
+X       (usually indicates a corrupt file)
+X3     any other error 
+X.fi
+X.RE
+X.RS 5
+X.PP
+XNote that the status reflects the result of only the last file processed.
+XTherefore, in batch mode only one file should be specified on the command
+Xline.
+X.RE
+X.TP
+X.B \-\-
+XRead targets from stdin. The list of targets must have only one target per
+Xline. Targets which are directories will be expanded as usual, but
+Xwildcards will not be expanded. Targets on the command line will be ignored.
+XFor use with the
+X.B \-f
+Xoption of
+X.I
+Xchils.
+X.TP
+X.B \-r
+XRedirects error messages to stderr.
+X.TP
+X.B \-f
+XForces
+X.I gifstrip
+Xto rebuild the file. Normally, files are rebuilt only when extra characters
+Xare found or if the file does not meet strict format requirements (see the
+X.B \-n
+Xoption below).
+X.TP
+X.B \-m
+XEnables the stripping of files which have excess characters at the
+Xbeginning. Ordinarily, such files are not recognized as GIF format files.
+XWith this option,
+X.I gifstrip
+Xsearches through the file looking for the GIF format signature, and starts
+Xrebuilding the file when it finds it. Files without excess characters at
+Xthe beginning will be processed normally.
+X.TP
+X.B \-n
+XDisables strict format checking. Normally, the following violations are
+Xchecked for, and the file rebuilt if any are found:
+X.RS 10
+X.PP
+X.nf
+X(GIF87a only)    Global or local color table sorted
+X                  flag set
+X(GIF87a only)    Aspect ratio value nonzero
+X(GIF87a, GIF89a) Local color table size given but local
+X                  color table flag not set (no local
+X                  color table)
+X(GIF89a only)    Local color table sorted flag set but
+X                  local color table flag not set (no
+X                  local color table)
+X.fi
+X.RE
+X.RS 5
+X.PP
+XIf the
+X.B \-n
+Xoption is used, these violations are ignored. If the file is rebuilt due to
+Xexcess characters, any violations will be propagated into the rebuilt
+Xfile.
+X.RE
+X.TP
+X.B \-o
+XErases the original file before writing the rebuilt file. By default,
+X.I gifstrip
+Xretains the original file until the rebuilt file has been completely
+Xwritten to disk. Thus, in case of error, either the original file or the
+Xrebuilt file will exist on disk no matter when
+X.I gifstrip
+Xis aborted, providing a measure of security. However, sometimes it is
+Xnecessary to process a file which is on a nearly-full drive, with
+Xinsufficient room for a second copy of the file. This option allows for
+Xthat case.
+X.TP
+X.B \-h
+XPrints a usage message. No files are processed and all other options are
+Xignored.
+X.TP
+X.B \-c
+XDisables use of memory for temporary storage. Cannot be combined with the
+X.B \-d
+Xoption.
+X.TP
+X.B \-d
+XDisables use of disk for temporary storage. Cannot be combined with the
+X.B \-c
+Xoption.
+X.TP
+X.B \-s
+XEquivalent to
+X.B \-c.
+X.TP
+X.B \-tpath
+XSpecifies a path for the disk temporary file. There must not be space
+Xbetween the "-t" and the path.
+X.SH OUTPUT
+X.I Gifstrip
+Xproduces at least two lines of output for each file. In some cases, it may
+Xproduce several pages of output.
+X.PP
+XFor each file specified,
+X.I gifstrip
+Xoutputs the line "Processing 
+X.IR filename ...
+X". If the file is not a GIF format file,
+X.I gifstrip
+Xthen outputs the message "ERROR: File is not a GIF format file." and
+Xproceeds to the next file.
+X.RS 3
+X.SS "FILE HEADER LINE"
+X.nf
+XGIF87A  G--   21463    250 x   200 @ 128   junk/vla.gif
+XGIF89A  G-A   34256    320 x   200 @ 256   junk/glass.gif
+X.fi
+X.PP
+XThe columns from left to right are:
+X.RS 3
+X.PD 0
+X.HP
+X\(bu  the format identifier (GIF87A or GIF89A)
+X.HP
+X\(bu  G file has a global color table
+X.HP
+X   - file does not have a global color table
+X.HP
+X\(bu  S global color table is sorted
+X.HP
+X   - global color table is not sorted
+X.HP
+X\(bu  A aspect ratio is specified
+X.HP
+X   - no aspect ratio
+X.HP
+X\(bu  the file size
+X.HP
+X\(bu  the width in pixels of the logical screen
+X.HP
+X\(bu  the height in pixels of the logical screen
+X.HP
+X\(bu  the number of colors in the global color table (--- if no global
+Xcolor table)
+X.HP
+X\(bu  the filename
+X.PD 1
+X.RE
+X.PP
+XIf
+X.I gifstrip
+Xencounters in the file header one of the format violations listed under the
+X.B \-n
+Xoption, and the
+X.B \-n
+Xoption is not in effect, it will print a message describing the violation
+Xafter the file header line. This message will start with "FYI:".
+X.SS "IMAGE LINE"
+X.nf
+XG-S  (  0,  0)    250 x   200 @ 128   20970BY    83BL
+X.fi
+X.PP
+XThe columns from left to right are:
+X.RS 3
+X.PD 0
+X.HP
+X\(bu  G image uses global color table
+X.HP
+X   L image uses local color table
+X.HP
+X\(bu  S local color table is sorted
+X.HP
+X   - local color table is not sorted
+X.HP
+X\(bu  S image is stored sequentially
+X.HP
+X   I image is stored interlaced
+X.HP
+X\(bu  offset of upper left corner of the image on the logical screen,
+X(horizontal,vertical)
+X.HP
+X\(bu  the width in pixels of the image
+X.HP
+X\(bu  the height in pixels of the image
+X.HP
+X\(bu  the number of colors in either the global or local color table,
+Xwhichever the image uses
+X.HP
+X\(bu  the number of data bytes in the image
+X.HP
+X\(bu  the number of blocks into which the data bytes are broken up
+X.PD 1
+X.RE
+X.PP
+XIf
+X.I gifstrip
+Xencounters in an image one of the format violations listed under the
+X.B \-n
+Xoption, and the
+X.B \-n
+Xoption is not in effect, it will print a mesasge describing the violation
+XBEFORE it prints the image line for that image. This message will start
+Xwith "FYI:".
+X.SS "EXTENSION BLOCK LINE"
+XWhen an extension block is encountered,
+X.I gifstrip
+Xwill print one of several lines. If the format is GIF87a, or the extension
+Xblock is not one of the four dedicated types defined in GIF89a,
+X.I gifstrip
+Xprints:
+X.PP
+X.RS 3
+XType
+X.I xxx
+XExtension Block
+X.RE
+X.PP
+Xwhere xxx is the type number given in the extension block header. If it is
+Xone of the four dedicated types defined in GIF89a,
+X.I gifstrip
+Xprints:
+X.PP
+X.nf
+X   Plain Text Extension Block
+X   Graphic Control Extension Block
+X   Comment Extension Block
+X   Application Extension Block
+X.fi
+X.PP
+Xas appropriate.
+X.PP
+XAfter identifying the extenion type,
+X.I gifstrip
+Xprints the number of data bytes and data blocks in the extension block, on
+Xthe same line, in the same format as for an image.
+X.SS "TERMINATOR LINE"
+XIf the file is not corrupt,
+X.I gifstrip
+Xwill eventually come to the GIF format terminator character. When it
+Xencounters this, it prints:
+X.PP
+X.nf
+X   GIF Terminator
+X.fi
+X.PP
+Xand ceases processing the original file. It then determines whether the
+Xfile needs to be rebuilt or not.
+X.SS "NO REBUILD"
+XIf the file does not have excess characters on either the beginning or the
+Xend, and either does not have any format violations or the
+X.B \-n
+Xoption is in effect, and the
+X.B \-f
+Xoption is not in effect, the file will not be rebuilt.
+X.I Gifstrip
+Xprints:
+X.PP
+X.nf
+X   No work to be done. File unchanged.
+X.fi
+X.PP
+Xand proceeds to the next file.
+X.SS REBUILD
+XIf the file does need to be rebuilt,
+X.I gifstrip
+Xprints:
+X.PP
+X.nf
+X    New size:    xxx   Bytes removed:    yyy
+XRecopying... done.
+X.fi
+X.PP
+Xwhere xxx is the size in bytes of the rebuilt file, and yyy is the
+Xdifference between the size of the original file and the size of the
+Xrebuilt file. The next line ("Recopying...") is simply to indicate that
+X.I gifstrip
+Xis doing something. When
+X.I gifstrip
+Xprints "done." it is finished writing the rebuilt file and proceeds to the
+Xnext file. The timestamp, owner, and permissions of the original file are
+Xpreserved as well as possible in the rebuilt file.
+X.SS "OTHER LINES"
+X.I Gifstrip
+Xmay issue error messages at any time. These will begin with "WARNING:",
+X"ERROR:", or "FATAL ERROR:".
+X.PP
+XThere are two other messages that
+X.I gifstrip
+Xmay issue:
+X.PP
+XIf
+X.I gifstrip
+Xis used with the
+X.B \-m
+Xoption and encounters excess characters at the beginning of a file, it
+Xprints an "FYI:" message stating that leading junk bytes have been skipped
+Xover and gives the number of bytes skipped. This message appears before the
+Xfile header line.
+X.PP
+XIf
+X.I gifstrip
+Xencounters extraneous characters between sections, it will issue an "FYI:"
+Xmessage describing the violation and giving the number of extraneous
+Xcharacters. This message appears between the lines describing the sections
+Xon either side of the extraneous characters. This is an FYI message
+Xbecause, technically,
+X.I gifstrip
+Xcan fix the problem. However, extraneous characters between sections are
+Xforbidden by the format specification. If present, they indicate a serious
+Xproblem in the encoder which produced the image, or, more likely, a corrupt
+XGIF file.
+X.RE
+X.SH COPYRIGHT
+X.I Gifstrip
+Xis copyright 1993 by James W. Birdsall, all rights reserved.
+X.PP
+XThe Graphics Interchange Format(c) is the Copyright property of CompuServe
+XIncorporated. GIF(sm) is a Service Mark property of CompuServe
+XIncorporated.
+X.SH AUTHOR
+XJames W. Birdsall
+X.RS 3
+X.nf
+Xsupport@picarefy.com
+Xuunet!uw-coco!amc-gw!picarefy!support
+XCompuServe: 71261,1731
+XGEnie: J.BIRDSALL2
+X.fi
+X.RE
+X.SH "SEE ALSO"
+Xchils(1),
+Xgifcheck(1)
+END_OF_FILE
+  if test 10723 -ne `wc -c <'src/gifstrip.1'`; then
+    echo shar: \"'src/gifstrip.1'\" unpacked with wrong size!
+  fi
+  # end of 'src/gifstrip.1'
+fi
+if test -f 'src/pcx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/pcx.c'\"
+else
+  echo shar: Extracting \"'src/pcx.c'\" \(12105 characters\)
+  sed "s/^X//" >'src/pcx.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   PCX.C                                                                  *
+X*   MODULE:  PCX                                                           *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: pcx.c,v 1.1 1993/03/02 00:57:05 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains functions to process PCX format files.              *
+X*   Functions:                                                             *
+X*      pcx_verify    - checks filename to see if it is an PCX file         *
+X*      pcx_getheader - extracts header data from PCX file                  *
+X*                                                                          *
+X*      pcx_errstring - converts error code into message                    *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "formats.h"
+X#include "pcx.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: pcx.c,v 1.1 1993/03/02 00:57:05 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef NO_STR_INC
+Xextern char *strrchr();
+Xextern int strcmp();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    pcx_verify                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Verifies that a file is an PCX file by checking filename against   *
+X*       list of extensions. Reads PCX version number from start of file.   *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filename - name of file to be verified                             *
+X*       version  - pointer to unsigned long in which format/version value  *
+X*                  is returned                                             *
+X*       exts     - array of string pointers, list of extensions for PCX    *
+X*                  files                                                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xpcx_verify(char *filename, ULONG *version, char **exts)
+X#else
+Xpcx_verify(filename, version, exts)
+Xchar *filename;
+XULONG *version;
+Xchar **exts;
+X#endif
+X{
+X    char *extptr;
+X    int loop;
+X    FILE *pcxfile;
+X    int magic;
+X    ULONG retval;
+X
+X    /* Search for '.' marking extension. */
+X
+X    extptr = strrchr(filename, '.');
+X    if (NULL == extptr)
+X    {
+X        /* No extension, cannot classify. */
+X
+X        *version = PCX_NOT;
+X        return 0;
+X    }
+X    extptr++;
+X
+X    /* Now we have the extension, check against list. */
+X
+X    for (loop = 0; exts[loop] != NULL; loop++)
+X    {
+X        /* Case-sensitive string compare. */
+X
+X        if (strcmp(extptr, exts[loop]) == 0)
+X        {
+X            /* Match, so break out of loop. */
+X
+X            break;
+X        }
+X    }
+X
+X    /* Check exit from loop. */
+X
+X    if (NULL == exts[loop])
+X    {
+X        /* No match, return. */
+X
+X        *version = PCX_NOT;
+X        return 0;
+X    }
+X
+X    /* Extension is valid for type PCX, so process accordingly. */
+X
+X    if ((pcxfile = fopen(filename, FOPEN_READ_BINARY)) == (FILE *) NULL)
+X    {
+X        return PCX_FILEERR_E;
+X    }
+X
+X    /* Read magic number. */
+X
+X    if ((magic = fgetc(pcxfile)) == EOF)
+X    {
+X        *version = PCX_NOT;
+X        retval = (feof(pcxfile) ? ST_SUCCESS : PCX_FILEERR_E);
+X        fclose(pcxfile);
+X        return retval;
+X    }
+X    if (PCX_MAGIC != magic)
+X    {
+X        *version = PCX_NOT;
+X        fclose(pcxfile);
+X        return ST_SUCCESS;
+X    }
+X
+X    /* Read version number, which immediately follows. */
+X
+X    if ((magic = fgetc(pcxfile)) == EOF)
+X    {
+X        *version = PCX_NOT;
+X        retval = (feof(pcxfile) ? ST_SUCCESS : PCX_FILEERR_E);
+X        fclose(pcxfile);
+X        return retval;
+X    }
+X
+X    /* Close file. */
+X
+X    if (fclose(pcxfile))
+X    {
+X        return PCX_FILEERR_E;
+X    }
+X
+X    /* Set version according to magic. */
+X
+X    switch (magic)
+X    {
+X        case PCX_VER25_MAGIC:
+X            *version = PCX_VER25;
+X            break;
+X
+X        case PCX_VER28_MAGIC:
+X            *version = PCX_VER28;
+X            break;
+X
+X        case PCX_VER28P_MAGIC:
+X            *version = PCX_VER28P;
+X            break;
+X
+X        case PCX_VER30_MAGIC:
+X            *version = PCX_VER30;
+X            break;
+X
+X        default:
+X            *version = PCX_NOT;
+X            break;
+X    }
+X
+X    /* Return OK. */
+X
+X    return ST_SUCCESS;
+X} /* end of pcx_verify() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    pcx_getheader                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Assumes that file is an PCX file. Reads header from file, extracts *
+X*       data into PCX_HDR structure.                                       *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile  - file to be processed                                     *
+X*       results - pointer to PCX_HDR structure in which data from header   *
+X*                 is returned                                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Leaves file pointing to beginning of image data.                   *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xpcx_getheader(FILE *infile, PCX_HDR *results)
+X#else
+Xpcx_getheader(infile, results)
+XFILE *infile;
+XPCX_HDR *results;
+X#endif
+X{
+X    UCHAR rawhdr[PCX_HDR_LEN];
+X
+X    /* Make sure we're at beginning of file. */
+X
+X    if (fseek(infile, 0L, SEEK_SET))
+X    {
+X        return PCX_FILEERR_E;
+X    }
+X
+X    /* Read raw bytes into buffer. */
+X
+X    if (fread(rawhdr, 1, PCX_HDR_LEN, infile) != PCX_HDR_LEN)
+X    {
+X        return (feof(infile) ? PCX_UNEOF_E : PCX_FILEERR_E);
+X    }
+X
+X    /* Extract info from raw header. */
+X
+X    if (PCX_MAGIC != *(rawhdr + PCX_HDR_MAGIC_OFF))
+X    {
+X        return PCX_NOTPCX_E;
+X    }
+X    switch (*(rawhdr + PCX_HDR_VERS_OFF))
+X    {
+X        case PCX_VER25_MAGIC:
+X            results->version = PCX_VER25;
+X            break;
+X
+X        case PCX_VER28_MAGIC:
+X            results->version = PCX_VER28;
+X            break;
+X
+X        case PCX_VER28P_MAGIC:
+X            results->version = PCX_VER28P;
+X            break;
+X
+X        case PCX_VER30_MAGIC:
+X            results->version = PCX_VER30;
+X            break;
+X
+X        default:
+X            return PCX_NOTPCX_E;
+X            break;
+X    }
+X    results->planes = (unsigned int)(*(rawhdr + PCX_HDR_PLANES_OFF));
+X    results->pixbits = (unsigned int)(*(rawhdr + PCX_HDR_BITS_OFF));
+X    results->imwid = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_XMAX_OFF);
+X    results->imhi = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_YMAX_OFF);
+X    results->imleft = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_XMIN_OFF);
+X    results->imtop = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_YMIN_OFF);
+X    results->imwid -= (results->imleft - 1);
+X    results->imhi -= (results->imtop - 1);
+X    results->encoding = (unsigned int)(*(rawhdr + PCX_HDR_ENC_OFF));
+X    results->hres = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_HRES_OFF);
+X    results->vres = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_VRES_OFF);
+X    results->palfmt = CONSTRUCT_I_UINT(rawhdr + PCX_HDR_PFMT_OFF);
+X
+X    /* Set file to point to start of data. */
+X
+X    if (fseek(infile, (long)(PCX_HDR_MAXLEN), SEEK_SET))
+X    {
+X        return PCX_FILEERR_E;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X} /* end of pcx_getheader() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: pcx_errstring                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Returns a string corresponding to an error code.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      errcode - error code to be translated                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns a pointer to the appropriate string, or NULL if there is    *
+X*      no appropriate string.                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xpcx_errstring(ULONG errcode)
+X#else
+Xpcx_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if ((errcode & ST_MOD_MASK) != PCX_MODULE)
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(PCX_NOTPCX_E):
+X            temp = "File is not a PCX format file.";
+X            break;
+X        case ERRSEV(PCX_FILEERR_E):
+X            temp = "Error accessing file.";
+X            break;
+X        case ERRSEV(PCX_UNEOF_E):
+X            temp = "Unexpected End of File";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of pcx_errstring() */
+X
+END_OF_FILE
+  if test 12105 -ne `wc -c <'src/pcx.c'`; then
+    echo shar: \"'src/pcx.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/pcx.c'
+fi
+echo shar: End of archive 13 \(of 18\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

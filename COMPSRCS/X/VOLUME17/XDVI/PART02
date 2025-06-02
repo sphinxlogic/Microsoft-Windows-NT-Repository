@@ -1,0 +1,1944 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Subject: v17i024: xdvi, dvi previewer, Part02/05
+Message-ID: <1992Mar23.173021.15100@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i023-xdvi@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 17:30:21 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 24
+Archive-name: xdvi/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  dvi.h patchlevel.h xdvi.h xdvi_curs.h xdvi_mask.h
+#   dvi_draw.c dvi_init.c
+# Wrapped by vojta@powdermilk.berkeley.edu on Tue Mar 17 17:46:59 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'dvi.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dvi.h'\"
+else
+echo shar: Extracting \"'dvi.h'\" \(1066 characters\)
+sed "s/^X//" >'dvi.h' <<'END_OF_FILE'
+X/*
+X *	Mnemonics for bytes in dvi file.
+X */
+X
+X#define	SETCHAR0	0
+X#define	SET1		128
+X#define	SETRULE		132
+X#define	PUT1		133
+X#define	PUTRULE		137
+X#define	NOP		138
+X#define	BOP		139
+X#define	EOP		140
+X#define	PUSH		141
+X#define	POP		142
+X#define	RIGHT1		143
+X#define	RIGHT2		144
+X#define	RIGHT3		145
+X#define	RIGHT4		146
+X#define	W0		147
+X#define	W1		148
+X#define	W2		149
+X#define	W3		150
+X#define	W4		151
+X#define	X0		152
+X#define	X1		153
+X#define	X2		154
+X#define	X3		155
+X#define	X4		156
+X#define	DOWN1		157
+X#define	DOWN2		158
+X#define	DOWN3		159
+X#define	DOWN4		160
+X#define	Y0		161
+X#define	Y1		162
+X#define	Y2		163
+X#define	Y3		164
+X#define	Y4		165
+X#define	Z0		166
+X#define	Z1		167
+X#define	Z2		168
+X#define	Z3		169
+X#define	Z4		170
+X#define	FNTNUM0		171
+X#define	FNT1		235
+X#define	FNT2		236
+X#define	FNT3		237
+X#define	FNT4		238
+X#define	XXX1		239
+X#define	XXX2		240
+X#define	XXX3		241
+X#define	XXX4		242
+X#define	FNTDEF1		243
+X#define	FNTDEF2		244
+X#define	FNTDEF3		245
+X#define	FNTDEF4		246
+X#define	PRE		247
+X#define	POST		248
+X#define	POSTPOST	249
+X
+X#define	TRAILER		223	/* Trailing bytes at end of file */
+END_OF_FILE
+if test 1066 -ne `wc -c <'dvi.h'`; then
+    echo shar: \"'dvi.h'\" unpacked with wrong size!
+fi
+# end of 'dvi.h'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(22 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 12
+END_OF_FILE
+if test 22 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'xdvi.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi.h'\"
+else
+echo shar: Extracting \"'xdvi.h'\" \(11773 characters\)
+sed "s/^X//" >'xdvi.h' <<'END_OF_FILE'
+X/*
+X *	Written by Eric C. Cooper, CMU
+X */
+X
+X/********************************
+X *	The C environment	*
+X *******************************/
+X
+X#ifndef X10
+X#include <X11/Xlib.h>	/* include Xfuncs.h, if available */
+X#include <X11/Xos.h>	/* same as below */
+X#else	/* X10 */
+X#include <X/Xlib.h>	/* get type of Window */
+X#include <sys/types.h>	/* for sites without X11 */
+X#ifdef	SYSV
+X#include <string.h>
+X#define	index	strchr
+X#define	rindex	strrchr
+X#include <fcntl.h>
+X#else /* SYSV */
+X#include <strings.h>
+X#endif /* SYSV */
+X#include <sys/file.h>
+X#endif	/* X10 */
+X
+X#ifdef	VMS
+X#include <string.h>
+X#define	index	strchr
+X#define	rindex	strrchr
+X#define	bzero(a, b)	(void) memset ((void *) (a), 0, (size_t) (b))
+X#define bcopy(a, b, c)  (void) memmove ((void *) (b), (void *) (a), (size_t) (c))
+X#endif
+X
+X#include <stdio.h>
+X#include <setjmp.h>
+X
+X#ifndef	OPEN_MODE
+X#ifndef	VMS
+X#define	OPEN_MODE	"r"
+X#else	/* VMS */
+X#define	OPEN_MODE	"r", "ctx=stm"
+X#endif	/* VMS */
+X#endif	/* OPEN_MODE */
+X
+X#ifndef	SYSV
+X#ifndef	VMS
+X#define	HAS_SIGIO		/* has SIGIO on _sockets_ */
+X#endif
+X#endif
+X
+X#ifndef	NeedFunctionPrototypes
+X#ifdef	__STDC__
+X#define	NeedFunctionPrototypes	1
+X#else	/* STDC */
+X#define	NeedFunctionPrototypes	0
+X#endif	/* STDC */
+X#endif	/* NeedFunctionPrototypes */
+X
+X#ifndef	NeedWidePrototypes
+X#define	NeedWidePrototypes	NeedFunctionPrototypes
+X#endif
+X
+X#if	NeedWidePrototypes
+X#define	WIDEARG(a, b)	b
+X#else
+X#define	WIDEARG(a, b)	a
+X#endif
+X
+X#ifndef	NeedVarargsPrototypes
+X#define	NeedVarargsPrototypes	NeedFunctionPrototypes
+X#endif
+X
+X#ifndef	_XFUNCPROTOBEGIN
+X#define	_XFUNCPROTOBEGIN
+X#define	_XFUNCPROTOEND
+X#endif
+X
+X#ifndef	_Xconst
+X#ifdef	__STDC__
+X#define	_Xconst	const
+X#else	/* STDC */
+X#define	_Xconst
+X#endif	/* STDC */
+X#endif	/* _Xconst */
+X
+X#ifndef	__GNUC__
+X#define	volatile
+X#endif
+X
+X#define	Printf	(void) printf
+X#define	Fprintf	(void) fprintf
+X#define	Sprintf	(void) sprintf
+X#define	Fseek	(void) fseek
+X#define	Fread	(void) fread
+X#define	Fputs	(void) fputs
+X#define	Putc	(void) putc
+X#define	Putchar	(void) putchar
+X#define	Fclose	(void) fclose
+X#define	Strcpy	(void) strcpy
+X
+X/********************************
+X *	 Types and data		*
+X *******************************/
+X
+X#ifndef	EXTERN
+X#define	EXTERN	extern
+X#define	INIT(x)
+X#endif
+X
+Xtypedef	unsigned char ubyte;
+X#define	Boolean	char
+X#define	True	1
+X#define	False	0
+X
+X#define	MAXDIM		32767
+X
+X/*
+X *	pixel_conv is currently used only for converting absolute positions
+X *	to pixel values; although normally it should be
+X *		((int) ((x) / shrink_factor + (1 << 15) >> 16)),
+X *	the rounding is achieved instead by moving the constant 1 << 15 to
+X *	PAGE_OFFSET in dvi_draw.c.
+X */
+X#define	pixel_conv(x)		((int) ((x) / shrink_factor >> 16))
+X#define	pixel_round(x)		((int) ROUNDUP(x, shrink_factor << 16))
+X#define	spell_conv0(n, f)	((long) (n * f))
+X#define	spell_conv(n)		spell_conv0(n, dimconv)
+X
+X#ifdef X10
+X#undef	MSBITFIRST
+X#undef	BMLONG
+X#define	BMSHORT
+X#endif
+X
+X#ifdef	BMLONG
+X#define	BMUNIT			unsigned long
+X#define	BITS_PER_BMUNIT		32
+X#define	BYTES_PER_BMUNIT	4
+X#else	/* BMLONG */
+X#ifdef	BMSHORT
+X#define	BMUNIT			unsigned short
+X#define	BITS_PER_BMUNIT		16
+X#define	BYTES_PER_BMUNIT	2
+X#else	/* BMSHORT */
+X#define	BMUNIT			unsigned char
+X#define	BITS_PER_BMUNIT		8
+X#define	BYTES_PER_BMUNIT	1
+X#endif	/* BMSHORT */
+X#endif	/* BMLONG */
+X
+X#define	ADD(a, b)	((BMUNIT *) (((char *) a) + b))
+X#define	SUB(a, b)	((BMUNIT *) (((char *) a) - b))
+X
+Xextern	BMUNIT	bit_masks[BITS_PER_BMUNIT + 1];
+X
+Xstruct frame {
+X	struct framedata {
+X		long dvi_h, dvi_v, w, x, y, z;
+X		int pxl_v;
+X	} data;
+X	struct frame *next, *prev;
+X};
+X
+X#if	NeedFunctionPrototypes
+Xtypedef	long	(*set_char_proc)(WIDEARG(ubyte,int));
+X#else
+Xtypedef	long	(*set_char_proc)();
+X#endif
+X
+Xstruct drawinf {	/* this information is saved when using virtual fonts */
+X	struct framedata data;
+X	struct font	*fontp;
+X	set_char_proc	set_char_p;
+X	struct tn	*tn_head;
+X	ubyte		*pos, *end;
+X	Boolean		virtual;
+X};
+X
+XEXTERN	struct drawinf	currinf;
+X
+X/* entries below with the characters 'dvi' in them are actually stored in
+X   scaled pixel units */
+X
+X#define DVI_H   currinf.data.dvi_h
+X#define PXL_H   pixel_conv(currinf.data.dvi_h)
+X#define DVI_V   currinf.data.dvi_v
+X#define PXL_V   currinf.data.pxl_v
+X#define WW      currinf.data.w
+X#define XX      currinf.data.x
+X#define YY      currinf.data.y
+X#define ZZ      currinf.data.z
+X#define ROUNDUP(x,y) (((x)+(y)-1)/(y))
+X
+XEXTERN	int	current_page;
+XEXTERN	int	total_pages;
+XEXTERN	double	dimconv;
+XEXTERN	int	n_files_left	INIT(32767);	/* for LRU closing of fonts */
+XEXTERN	time_t	dvi_time;		/* last mod. time for dvi file */
+XEXTERN	int	page_w, page_h;
+X
+X/*
+X * Table of page offsets in DVI file, indexed by page number - 1.
+X * Initialized in prepare_pages().
+X */
+XEXTERN	long	*page_offset;
+X
+X/*
+X * Mechanism for reducing repeated warning about specials, lost characters, etc.
+X */
+XEXTERN	Boolean	hush_spec	INIT(False);
+XEXTERN	Boolean	hush_spec_now;
+XEXTERN	Boolean	hush_chars	INIT(False);
+X
+X
+X/*
+X * Bitmap structure for raster ops.
+X */
+Xstruct bitmap {
+X	short w, h;		/* width and height in pixels */
+X	short bytes_wide;	/* scan-line width in bytes */
+X	char *bits;		/* pointer to the bits */
+X};
+X
+X/*
+X * Per-character information.
+X * There is one of these for each character in a font (raster fonts only).
+X * All fields are filled in at font definition time,
+X * except for the bitmap, which is "faulted in"
+X * when the character is first referenced.
+X */
+Xstruct glyph {
+X	long addr;		/* address of bitmap in font file */
+X	long dvi_adv;		/* DVI units to move reference point */
+X	short x, y;		/* x and y offset in pixels */
+X	struct bitmap bitmap;	/* bitmap for character */
+X	short x2, y2;		/* x and y offset in pixels (shrunken bitmap) */
+X	struct bitmap bitmap2;	/* shrunken bitmap for character */
+X};
+X
+X/*
+X * Per character information for virtual fonts
+X */
+Xstruct macro {
+X	ubyte	*pos;		/* address of first byte of macro */
+X	ubyte	*end;		/* address of last+1 byte */
+X	long	dvi_adv;	/* DVI units to move reference point */
+X	Boolean	free_me;	/* if free(pos) should be called when */
+X				/* freeing space */
+X};
+X
+X/*
+X * The layout of a font information block.
+X * There is one of these for every loaded font or magnification thereof.
+X * Duplicates are eliminated:  this is necessary because of possible recursion
+X * in virtual fonts.
+X *
+X * Also note the strange units.  The design size is in 1/2^20 point
+X * units (also called micro-points), and the individual character widths
+X * are in the TFM file in 1/2^20 ems units, i.e., relative to the design size.
+X *
+X * We then change the sizes to SPELL units (unshrunk pixel / 2^16).
+X */
+X
+X#if	NeedFunctionPrototypes
+Xtypedef	void (*read_char_proc)(struct font *, WIDEARG(ubyte,int));
+X#else
+Xtypedef	void (*read_char_proc)();
+X#endif
+X
+Xstruct font {
+X	struct font *next;		/* link to next font info block */
+X	char *fontname;			/* name of font */
+X	float fsize;			/* size information (dots per inch) */
+X	FILE *file;			/* open font file or NULL */
+X	char *filename;			/* name of font file */
+X	unsigned short timestamp;	/* for LRU management of fonts */
+X	ubyte flags;			/* flags byte (see values below) */
+X	ubyte maxchar;			/* largest character code */
+X	double dimconv;			/* size conversion factor */
+X	set_char_proc set_char_p;	/* proc used to set char */
+X		/* these fields are used by (loaded) raster fonts */
+X	read_char_proc read_char;	/* function to read bitmap */
+X	struct glyph *glyph;
+X		/* these fields are used by (loaded) virtual fonts */
+X	struct tn *vf_chain;		/* list of fonts used by this vf */
+X	struct font *first_font;	/* first font defined */
+X	struct macro *macro;
+X		/* I suppose the above could be put into a union, but we */
+X		/* wouldn't save all that much space. */
+X};
+X
+X#define	FONT_IN_USE	1	/* used for housekeeping */
+X#define	FONT_LOADED	2	/* if font file has been read */
+X#define	FONT_VIRTUAL	4	/* if font is virtual */
+X
+Xstruct tn {
+X	struct tn *next;		/* link to next TeXnumber info block */
+X	int TeXnumber;			/* font number (in DVI file) */
+X	struct font *fontp;		/* pointer to the rest of the info */
+X};
+X
+XEXTERN	struct font	*font_head	INIT(NULL);
+XEXTERN	struct tn	*tn_head	INIT(NULL);
+XEXTERN	ubyte		maxchar;
+XEXTERN	unsigned short	current_timestamp INIT(0);
+X
+X/*
+X * Command line flags.
+X */
+X
+XEXTERN	int	debug	INIT(0);
+X
+X#define	DBG_BITMAP	0x1
+X#define	DBG_DVI		0x2
+X#define	DBG_PK		0x4
+X#define	DBG_BATCH	0x8
+X#define	DBG_EVENT	0x10
+X#define	DBG_OPEN	0x20
+X#define	DBG_ALL		(DBG_BITMAP|DBG_DVI|DBG_PK|DBG_EVENT|DBG_OPEN)
+X
+XEXTERN	Boolean	list_fonts	INIT(False);
+X
+XEXTERN	int	pixels_per_inch	INIT(300);
+XEXTERN	int	offset_x, offset_y;
+XEXTERN	int	unshrunk_paper_w, unshrunk_paper_h;
+XEXTERN	int	unshrunk_page_w, unshrunk_page_h;
+XEXTERN	int	density		INIT(40);
+XEXTERN	double	specialConv;
+X
+XEXTERN	char	*dvi_name	INIT(NULL);
+XEXTERN	FILE	*dvi_file;				/* user's file */
+XEXTERN	_Xconst	char	*alt_font	INIT(ALTFONT);
+XEXTERN	char	*prog;
+X
+Xstruct	WindowRec {
+X	Window	win;
+X	int	shrinkfactor;
+X	int	base_x, base_y;
+X	int	width, height;
+X	int	min_x, max_x, min_y, max_y;	/* for pending expose events */
+X};
+X
+Xextern	struct WindowRec mane, alt, currwin;
+X
+X#define	WINDOW(wr)	((Window) (wr).win)
+X#define	shrink_factor	currwin.shrinkfactor
+X
+XEXTERN	jmp_buf	dvi_env;	/* mechanism to communicate dvi file errors */
+X
+X/********************************
+X *	   Procedures		*
+X *******************************/
+X
+X_XFUNCPROTOBEGIN
+X#if	NeedFunctionPrototypes
+X
+Xextern	void	line_btw(int, int, int, int);
+Xextern	void	dot_at(int, int);
+Xextern	void	do_attribute_path(int, int, int, int);
+Xextern	void	put_bitmap(struct bitmap *, int, int);
+Xextern	void	put_rectangle(int, int, int, int, WIDEARG(Boolean, int));
+Xextern	void	redraw_page(void);
+X#if	NeedVarargsPrototypes
+Xextern	volatile void	oops(_Xconst char *, ...);
+X#else
+Xextern	volatile void	oops();
+X#endif
+Xextern	char	*xmalloc(unsigned, _Xconst char *);
+Xextern	void	alloc_bitmap(struct bitmap *);
+Xextern	FILE	*xfopen(_Xconst char *);
+Xextern	unsigned long	num(FILE *, WIDEARG(ubyte, int));
+Xextern	long	snum(FILE *, WIDEARG(ubyte, int));
+Xextern	void	reset_fonts(void);
+Xextern	void	realloc_font(struct font *, WIDEARG(ubyte, int));
+Xextern	void	realloc_virtual_font(struct font *, WIDEARG(ubyte, int));
+Xextern	void	load_font(struct font *);
+Xextern	void	define_font(FILE *, WIDEARG(ubyte, unsigned int), struct font *,
+X			struct tn **);
+Xextern	void	init_page(void);
+Xextern	void	open_dvi_file(void);
+Xextern	Boolean	check_dvi_file(void);
+Xextern	long	set_char(WIDEARG(ubyte, int));
+Xextern	long	set_vf_char(WIDEARG(ubyte, int));
+Xextern	void	draw_page(void);
+Xextern	void	init_font_open(void);
+Xextern	FILE	*font_open(_Xconst char *, char **,
+X			WIDEARG(float, double), int *, char **);
+Xextern	void	applicationDoSpecial(char *);
+Xextern	void	read_PK_index(struct font *);
+Xextern	void	read_GF_index(struct font *);
+Xextern	void	read_PXL_index(struct font *);
+Xextern	void	read_VF_index(struct font *);
+X
+X#else	/* ! NeedFunctionPrototypes */
+X
+Xextern	void	line_btw();
+Xextern	void	dot_at();
+Xextern	void	do_attribute_path();
+Xextern	void	put_bitmap();
+Xextern	void	put_rectangle();
+Xextern	void	redraw_page();
+Xextern	volatile void	oops();
+Xextern	char	*xmalloc();
+Xextern	void	alloc_bitmap();
+Xextern	FILE	*xfopen();
+Xextern	unsigned long	num();
+Xextern	long	snum();
+Xextern	void	reset_fonts();
+Xextern	void	realloc_font();
+Xextern	void	realloc_virtual_font();
+Xextern	void	load_font();
+Xextern	void	define_font();
+Xextern	void	init_page();
+Xextern	void	open_dvi_file();
+Xextern	Boolean	check_dvi_file();
+Xextern	long	set_char();
+Xextern	long	set_vf_char();
+Xextern	void	draw_page();
+Xextern	void	init_font_open();
+Xextern	FILE	*font_open();
+Xextern	void	applicationDoSpecial();
+Xextern	void	read_PK_index();
+Xextern	void	read_GF_index();
+Xextern	void	read_PXL_index();
+Xextern	void	read_VF_index();
+X
+X#endif	/* NeedFunctionPrototypes */
+X
+X#define one(fp)		((unsigned char) getc(fp))
+X#define sone(fp)	((long) one(fp))
+X#define two(fp)		num (fp, 2)
+X#define stwo(fp)	snum(fp, 2)
+X#define four(fp)	num (fp, 4)
+X#define sfour(fp)	snum(fp, 4)
+X
+X_XFUNCPROTOEND
+END_OF_FILE
+if test 11773 -ne `wc -c <'xdvi.h'`; then
+    echo shar: \"'xdvi.h'\" unpacked with wrong size!
+fi
+# end of 'xdvi.h'
+fi
+if test -f 'xdvi_curs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi_curs.h'\"
+else
+echo shar: Extracting \"'xdvi_curs.h'\" \(249 characters\)
+sed "s/^X//" >'xdvi_curs.h' <<'END_OF_FILE'
+X#define xdvi_width 15
+X#define xdvi_height 15
+X#define xdvi_x_hot 7
+X#define xdvi_y_hot 7
+Xstatic short xdvi_bits[] = {
+X   0x0080, 0x01c0, 0x03e0, 0x06b0,
+X   0x0c98, 0x188c, 0x3086, 0x7fff,
+X   0x3086, 0x188c, 0x0c98, 0x06b0,
+X   0x03e0, 0x01c0, 0x0080};
+END_OF_FILE
+if test 249 -ne `wc -c <'xdvi_curs.h'`; then
+    echo shar: \"'xdvi_curs.h'\" unpacked with wrong size!
+fi
+# end of 'xdvi_curs.h'
+fi
+if test -f 'xdvi_mask.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi_mask.h'\"
+else
+echo shar: Extracting \"'xdvi_mask.h'\" \(222 characters\)
+sed "s/^X//" >'xdvi_mask.h' <<'END_OF_FILE'
+X#define xdvi_mask_width 15
+X#define xdvi_mask_height 15
+Xstatic short xdvi_mask_bits[] = {
+X   0x01c0, 0x03e0, 0x07f0, 0x0ff8,
+X   0x1ffc, 0x3ffe, 0x7fff, 0x7fff,
+X   0x7fff, 0x3ffe, 0x1ffc, 0x0ff8,
+X   0x07f0, 0x03e0, 0x01c0};
+END_OF_FILE
+if test 222 -ne `wc -c <'xdvi_mask.h'`; then
+    echo shar: \"'xdvi_mask.h'\" unpacked with wrong size!
+fi
+# end of 'xdvi_mask.h'
+fi
+if test -f 'dvi_draw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dvi_draw.c'\"
+else
+echo shar: Extracting \"'dvi_draw.c'\" \(16733 characters\)
+sed "s/^X//" >'dvi_draw.c' <<'END_OF_FILE'
+X/*
+X * DVI previewer for X.
+X *
+X * Eric Cooper, CMU, September 1985.
+X *
+X * Code derived from dvi-imagen.c.
+X *
+X * Modification history:
+X * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X * 12/1988	Added 'R' option, toolkit, magnifying glass
+X *			--Paul Vojta, UC Berkeley.
+X * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X *
+X *	Compilation options:
+X *	SYSV	compile for System V
+X *	VMS	compile for VMS
+X *	X10	compile for X10
+X *	NOTOOL	compile without toolkit (X11 only)
+X *	BUTTONS	compile with buttons on the side of the window (needs toolkit)
+X *	MSBITFIRST	store bitmaps internally with most significant bit first
+X *	BMSHORT	store bitmaps in shorts instead of bytes
+X *	BMLONG	store bitmaps in longs instead of bytes
+X *	ALTFONT	default for -altfont option
+X *	A4	use European size paper
+X */
+X
+X#include <ctype.h>
+X#include "xdvi.h"
+X#include "dvi.h"
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#endif
+X
+Xstatic	struct frame	frame0;		/* dummy head of list */
+X
+X#ifndef	DVI_BUFFER_LEN
+X#define	DVI_BUFFER_LEN	512
+X#endif
+X
+Xstatic	ubyte	dvi_buffer[DVI_BUFFER_LEN];
+Xstatic	struct frame	*current_frame;
+X
+X/*
+X *	Explanation of the following constant:
+X *	offset_[xy]   << 16:	margin (defaults to one inch)
+X *	shrink_factor << 16:	one pixel page border
+X *	shrink_factor << 15:	rounding for pixel_conv
+X */
+X#define OFFSET_X	(offset_x << 16) + (shrink_factor * 3 << 15)
+X#define OFFSET_Y	(offset_y << 16) + (shrink_factor * 3 << 15)
+X
+X#ifndef	BMLONG
+X#ifndef	BMSHORT
+Xunsigned char	bit_masks[9] = {
+X	0x0,	0x1,	0x3,	0x7,
+X	0xf,	0x1f,	0x3f,	0x7f,
+X	0xff
+X};
+X#else	/* BMSHORT */
+Xunsigned short	bit_masks[17] = {
+X	0x0,	0x1,	0x3,	0x7,
+X	0xf,	0x1f,	0x3f,	0x7f,
+X	0xff,	0x1ff,	0x3ff,	0x7ff,
+X	0xfff,	0x1fff,	0x3fff,	0x7fff,
+X	0xffff
+X};
+X#endif	/* BMSHORT */
+X#else	/* BMLONG */
+Xunsigned long	bit_masks[33] = {
+X	0x0,		0x1,		0x3,		0x7,
+X	0xf,		0x1f,		0x3f,		0x7f,
+X	0xff,		0x1ff,		0x3ff,		0x7ff,
+X	0xfff,		0x1fff,		0x3fff,		0x7fff,
+X	0xffff,		0x1ffff,	0x3ffff,	0x7ffff,
+X	0xfffff,	0x1fffff,	0x3fffff,	0x7fffff,
+X	0xffffff,	0x1ffffff,	0x3ffffff,	0x7ffffff,
+X	0xfffffff,	0x1fffffff,	0x3fffffff,	0x7fffffff,
+X	0xffffffff
+X};
+X#endif	/* BMLONG */
+X
+Xextern	char	*xmalloc();
+Xextern	volatile void	exit();
+X
+X#ifndef VMS
+Xextern	off_t	lseek();
+X#else
+Xextern  int     lseek();
+X#endif
+X
+X#ifndef	SEEK_SET	/* if <unistd.h> is not provided (or for <X11R5) */
+X#define	SEEK_SET	0
+X#define	SEEK_CUR	1
+X#define	SEEK_END	2
+X#endif
+X
+Xstatic	void	draw_part();
+X
+Xstatic	void
+Xprint_bitmap(bitmap)
+X	register struct bitmap *bitmap;
+X{
+X	register BMUNIT *ptr = (BMUNIT *) bitmap->bits;
+X	register int x, y, i;
+X
+X	if (ptr == NULL) oops("print_bitmap called with null pointer.");
+X	Printf("w = %d, h = %d, bytes wide = %d\n",
+X	    bitmap->w, bitmap->h, bitmap->bytes_wide);
+X	for (y = 0; y < bitmap->h; ++y) {
+X	    for (x = bitmap->bytes_wide; x > 0; x -= BYTES_PER_BMUNIT) {
+X#ifndef	MSBITFIRST
+X		for (i = 0; i < BITS_PER_BMUNIT; ++i)
+X#else
+X		for (i = BITS_PER_BMUNIT - 1; i >= 0; --i)
+X#endif
+X		    Putchar((*ptr & (1 << i)) ? '@' : ' ');
+X		++ptr;
+X	    }
+X	    Putchar('\n');
+X	}
+X}
+X
+Xstatic	void
+Xprint_char(ch, g)
+X	ubyte ch;
+X	struct glyph *g;
+X{
+X	Printf("char %d", ch);
+X	if (isprint(ch))
+X	    Printf(" (%c)", ch);
+X	Putchar('\n');
+X	Printf("x = %d, y = %d, dvi = %d\n", g->x, g->y, g->dvi_adv);
+X	print_bitmap(&g->bitmap);
+X}
+X
+Xstatic	_Xconst	char	*dvi_table1[] = {
+X	"SET1", NULL, NULL, NULL, "SETRULE", "PUT1", NULL, NULL,
+X	NULL, "PUTRULE", "NOP", "BOP", "EOP", "PUSH", "POP", "RIGHT1",
+X	"RIGHT2", "RIGHT3", "RIGHT4", "W0", "W1", "W2", "W3", "W4",
+X	"X0", "X1", "X2", "X3", "X4", "DOWN1", "DOWN2", "DOWN3",
+X	"DOWN4", "Y0", "Y1", "Y2", "Y3", "Y4", "Z0", "Z1",
+X	"Z2", "Z3", "Z4"};
+X
+Xstatic	_Xconst	char	*dvi_table2[] = {
+X	"FNT1", "FNT2", "FNT3", "FNT4", "XXX1", "XXX2", "XXX3", "XXX4",
+X	"FNTDEF1", "FNTDEF2", "FNTDEF3", "FNTDEF4", "PRE", "POST", "POSTPOST",
+X	NULL, NULL, NULL, NULL, NULL, NULL};
+X
+Xstatic	void
+Xprint_dvi(ch)
+X	ubyte ch;
+X{
+X	_Xconst	char	*s;
+X
+X	Printf("%4d %4d ", PXL_H, PXL_V);
+X	if (ch <= SETCHAR0 + 127) {
+X	    Printf("SETCHAR%-3d", ch - SETCHAR0);
+X	    if (isprint(ch))
+X		Printf(" (%c)", ch);
+X	    Putchar('\n');
+X	    return;
+X	}
+X	else if (ch < FNTNUM0) s = dvi_table1[ch - 128];
+X	else if (ch <= FNTNUM0 + 63) {
+X	    Printf("FNTNUM%d\n", ch - FNTNUM0);
+X	    return;
+X	}
+X	else s = dvi_table2[ch - (FNTNUM0+64)];
+X	if (s) puts(s);
+X	else oops("Unknown op-code %d, offset %d", ch, ftell(dvi_file) - 1);
+X}
+X
+X/*
+X *	Byte reading routines for dvi file.
+X */
+X
+Xstatic	ubyte
+Xxxone()
+X{
+X	if (currinf.virtual) {
+X	    ++currinf.pos;
+X	    return EOP;
+X	}
+X	currinf.end = dvi_buffer +
+X	    read(fileno(dvi_file), (_Xconst char *) (currinf.pos = dvi_buffer),
+X		DVI_BUFFER_LEN);
+X	return currinf.end > dvi_buffer ? *(currinf.pos)++ : EOF;
+X}
+X
+X#define	xone()  (currinf.pos < currinf.end ? *(currinf.pos)++ : xxone())
+X
+Xstatic	unsigned long
+Xxnum(size)
+X	register ubyte size;
+X{
+X	register long x = 0;
+X
+X	while (size--) x = (x << 8) | xone();
+X	return x;
+X}
+X
+Xstatic	long
+Xxsnum(size)
+X	register ubyte size;
+X{
+X	register long x;
+X
+X#ifdef	__STDC__
+X	x = (signed char) xone();
+X#else
+X	x = xone();
+X	if (x & 0x80) x -= 0x100;
+X#endif
+X	while (--size) x = (x << 8) | xone();
+X	return x;
+X}
+X
+X#define	xsfour()	xsnum(4)
+X
+Xstatic	void
+Xxskip(offset)
+X	long	offset;
+X{
+X	currinf.pos += offset;
+X	if (!currinf.virtual && currinf.pos > currinf.end)
+X	    (void) lseek(fileno(dvi_file), (long) (currinf.pos - currinf.end),
+X		SEEK_CUR);
+X}
+X
+X
+X/*
+X *	Count the number of set bits in a given region of the bitmap
+X */
+X
+Xchar	sample_count[]	= {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
+X
+Xstatic	int
+Xsample(bits, bytes_wide, bit_skip, w, h)
+X	BMUNIT	*bits;
+X	int	bytes_wide, bit_skip, w, h;
+X{
+X	BMUNIT	*ptr, *endp;
+X	register BMUNIT *cp;
+X	int	bits_left;
+X	register int n, bit_shift, wid;
+X
+X	ptr = bits + bit_skip / BITS_PER_BMUNIT;
+X	endp = ADD(bits, h * bytes_wide);
+X	bits_left = w;
+X#ifndef	MSBITFIRST
+X	bit_shift = bit_skip % BITS_PER_BMUNIT;
+X#else
+X	bit_shift = BITS_PER_BMUNIT - bit_skip % BITS_PER_BMUNIT;
+X#endif
+X	n = 0;
+X	while (bits_left) {
+X#ifndef	MSBITFIRST
+X	    wid = BITS_PER_BMUNIT - bit_shift;
+X#else
+X	    wid = bit_shift;
+X#endif
+X	    if (wid > bits_left) wid = bits_left;
+X	    if (wid > 4) wid = 4;
+X#ifdef	MSBITFIRST
+X	    bit_shift -= wid;
+X#endif
+X	    for (cp = ptr; cp < endp; cp = ADD(cp, bytes_wide))
+X		n += sample_count[(*cp >> bit_shift) & bit_masks[wid]];
+X#ifndef	MSBITFIRST
+X	    bit_shift += wid;
+X	    if (bit_shift == BITS_PER_BMUNIT) {
+X		bit_shift = 0;
+X		++ptr;
+X	    }
+X#else
+X	    if (bit_shift == 0) {
+X		bit_shift = BITS_PER_BMUNIT;
+X		++ptr;
+X	    }
+X#endif
+X	    bits_left -= wid;
+X	}
+X	return n;
+X}
+X
+Xstatic	void
+Xshrink_glyph(g)
+X	register struct glyph *g;
+X{
+X	int shrunk_bytes_wide, shrunk_height;
+X	int rows_left, rows, init_cols, cols_left;
+X	register int cols;
+X	BMUNIT *old_ptr, *new_ptr;
+X	register BMUNIT m, *cp;
+X	int min_sample = shrink_factor * shrink_factor * density / 100;
+X
+X	/* These machinations ensure that the character is shrunk according to
+X	   its hot point, rather than its upper left-hand corner. */
+X	g->x2 = g->x / shrink_factor;
+X	init_cols = g->x - g->x2 * shrink_factor;
+X	if (init_cols <= 0) init_cols += shrink_factor;
+X	else ++g->x2;
+X	g->bitmap2.w = g->x2 + ROUNDUP(g->bitmap.w - g->x, shrink_factor);
+X	/* include row zero with the positively numbered rows */
+X	cols = g->y + 1; /* spare register variable */
+X	g->y2 = cols / shrink_factor;
+X	rows = cols - g->y2 * shrink_factor;
+X	if (rows <= 0) {
+X	    rows += shrink_factor;
+X	    --g->y2;
+X	}
+X	g->bitmap2.h = shrunk_height = g->y2 +
+X	    ROUNDUP(g->bitmap.h - cols, shrink_factor) + 1;
+X	if (g->bitmap2.bits) free(g->bitmap2.bits);
+X	alloc_bitmap(&g->bitmap2);
+X	old_ptr = (BMUNIT *) g->bitmap.bits;
+X	new_ptr = (BMUNIT *) g->bitmap2.bits;
+X	shrunk_bytes_wide = g->bitmap2.bytes_wide;
+X	rows_left = g->bitmap.h;
+X	bzero((char *) new_ptr, shrunk_bytes_wide * shrunk_height);
+X	while (rows_left) {
+X	    if (rows > rows_left) rows = rows_left;
+X	    cols_left = g->bitmap.w;
+X#ifndef	MSBITFIRST
+X	    m = (1 << 0);
+X#else
+X	    m = (1 << (BITS_PER_BMUNIT-1));
+X#endif
+X	    cp = new_ptr;
+X	    cols = init_cols;
+X	    while (cols_left) {
+X		if (cols > cols_left) cols = cols_left;
+X		if (sample(old_ptr, g->bitmap.bytes_wide,
+X			g->bitmap.w - cols_left, cols, rows) >= min_sample)
+X		    *cp |= m;
+X#ifndef	MSBITFIRST
+X		if (m == (BMUNIT)(1 << (BITS_PER_BMUNIT-1))) {
+X		    m = (1 << 0);
+X		    ++cp;
+X		}
+X		else m <<= 1;
+X#else
+X		if (m == (1 << 0)) {
+X		    m = (1 << (BITS_PER_BMUNIT-1));
+X		    ++cp;
+X		}
+X		else m >>= 1;
+X#endif
+X		cols_left -= cols;
+X		cols = shrink_factor;
+X	    }
+X	    *((char **) &new_ptr) += shrunk_bytes_wide;
+X	    *((char **) &old_ptr) += rows * g->bitmap.bytes_wide;
+X	    rows_left -= rows;
+X	    rows = shrink_factor;
+X	}
+X	g->y2 = g->y / shrink_factor;
+X	if (debug & DBG_BITMAP)
+X	    print_bitmap(&g->bitmap2);
+X}
+X
+X/*
+X *	Find font #n.
+X */
+X
+Xstatic	void
+Xchange_font(n)
+X	unsigned long n;
+X{
+X	register struct tn *tnp;
+X
+X	currinf.fontp = NULL;
+X	for (tnp = currinf.tn_head; tnp != NULL; tnp = tnp->next)
+X	    if (tnp->TeXnumber == n) {
+X		currinf.fontp = tnp->fontp;
+X		if (!(currinf.fontp->flags & FONT_LOADED))
+X		    load_font(currinf.fontp);
+X		break;
+X	    }
+X	if (currinf.fontp == NULL) oops("Non-existent font #%d", n);
+X	maxchar = currinf.fontp->maxchar;
+X	currinf.set_char_p = currinf.fontp->set_char_p;
+X}
+X
+X
+X/*
+X *	Open a font file.
+X */
+X
+Xstatic	void
+Xopen_font_file(fontp)
+X	struct font *fontp;
+X{
+X	if (fontp->file == NULL) {
+X	    fontp->file = xfopen(fontp->filename);
+X	    if (fontp->file == NULL)
+X		oops("Font file disappeared:  %s", fontp->filename);
+X	}
+X}
+X
+Xlong
+Xset_char(ch)
+X	ubyte ch;
+X{
+X	register struct glyph *g;
+X
+X	if (ch > maxchar) realloc_font(currinf.fontp, ch);
+X	if ((g = &currinf.fontp->glyph[ch])->bitmap.bits == NULL) {
+X	    if (g->addr == 0) {
+X		if (!hush_chars)
+X		    Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+X			currinf.fontp->fontname);
+X		g->addr = -1;
+X		return 0L;
+X	    }
+X	    if (g->addr == -1) return 0L; /* previously flagged missing char */
+X	    open_font_file(currinf.fontp);
+X	    Fseek(currinf.fontp->file, g->addr, 0);
+X	    (*currinf.fontp->read_char)(currinf.fontp, ch);
+X	    if (debug & DBG_BITMAP) print_char(ch, g);
+X	    currinf.fontp->timestamp = ++current_timestamp;
+X	}
+X
+X	if (shrink_factor == 1)
+X	    put_bitmap(&g->bitmap, PXL_H - g->x, PXL_V - g->y);
+X	else {
+X	    if (g->bitmap2.bits == NULL) {
+X		shrink_glyph(g);
+X	    }
+X	    put_bitmap(&g->bitmap2, PXL_H - g->x2, PXL_V - g->y2);
+X	}
+X	return g->dvi_adv;
+X}
+X
+X
+Xstatic	long
+Xset_first_font_char(ch)
+X	ubyte	ch;
+X{
+X	currinf.fontp = currinf.fontp->first_font;
+X	if (currinf.fontp == NULL) oops("Non-existent font");
+X	if (!(currinf.fontp->flags & FONT_LOADED))
+X	    load_font(currinf.fontp);
+X	maxchar = currinf.fontp->maxchar;
+X	currinf.set_char_p = currinf.fontp->set_char_p;
+X	return (*currinf.set_char_p)(ch);
+X}
+X
+X
+Xlong
+Xset_vf_char(ch)
+X	ubyte	ch;
+X{
+X	register struct macro *m;
+X	struct drawinf	oldinfo;
+X	static	ubyte	c;
+X
+X	if (ch > maxchar) realloc_virtual_font(currinf.fontp, ch);
+X	if ((m = &currinf.fontp->macro[ch])->pos == NULL) {
+X	    if (!hush_chars)
+X		Fprintf(stderr, "Character %d not defined in font %s\n", ch,
+X		    currinf.fontp->fontname);
+X	    m->pos = m->end = &c;
+X	    return 0L;
+X	}
+X	oldinfo = currinf;
+X	WW = XX = YY = ZZ = 0;
+X	currinf.tn_head = currinf.fontp->vf_chain;
+X	currinf.set_char_p = set_first_font_char;
+X	currinf.pos = m->pos;
+X	currinf.end = m->end;
+X	currinf.virtual = True;
+X	draw_part(current_frame, currinf.fontp->dimconv);
+X	if (currinf.pos != currinf.end + 1)
+X	    oops("Virtual character macro does not end correctly.");
+X	currinf = oldinfo;
+X	return m->dvi_adv;
+X}
+X
+X/*ARGSUSED*/
+Xstatic	long
+Xset_no_char(ch)
+X	ubyte	ch;
+X{
+X	oops("Dvi file or vf macro sets character of unknown font.");
+X	/* NOTREACHED */
+X}
+X
+X/*
+X *	Set rule.  Arguments are coordinates of lower left corner.
+X */
+X
+Xstatic	void
+Xset_rule(h, w)
+X	int h, w;
+X{
+X	put_rectangle(PXL_H, PXL_V - h + 1, w, h, False);
+X}
+X
+Xstatic	void
+Xput_border(w, h)
+X	int w, h;
+X{
+X	put_rectangle(0, 0, w, 1, True);	/* top */
+X	put_rectangle(w, 0, 1, h, True);	/* right */
+X	put_rectangle(1, h, w, 1, True);	/* bottom */
+X	put_rectangle(0, 1, 1, h, True);	/* left */
+X}
+X
+Xstatic	void
+Xspecial(nbytes)
+X	long	nbytes;
+X{
+X	static	char	*cmd	= NULL;
+X	static	long	cmdlen	= -1;
+X	char	*p;
+X
+X	if (cmdlen < nbytes) {
+X	    if (cmd) free(cmd);
+X	    cmd = xmalloc((unsigned) nbytes + 1, "special");
+X	    cmdlen = nbytes;
+X	}
+X	p = cmd;
+X	for (;;) {
+X	    int i = currinf.end - currinf.pos;
+X
+X	    if (i > nbytes) i = nbytes;
+X	    bcopy((_Xconst char *) currinf.pos, p, i);
+X	    currinf.pos += i;
+X	    p += i;
+X	    nbytes -= i;
+X	    if (nbytes == 0) break;
+X	    (void) xxone();
+X	    --(currinf.pos);
+X	}
+X	*p = '\0';
+X	applicationDoSpecial(cmd);
+X}
+X
+X#define	xspell_conv(n)	spell_conv0(n, current_dimconv)
+X
+Xstatic	void
+Xdraw_part(minframe, current_dimconv)
+X	struct frame	*minframe;
+X	double		current_dimconv;
+X{
+X	ubyte ch;
+X
+X	for (;;) {
+X	    ch = xone();
+X	    if (debug & DBG_DVI)
+X		print_dvi(ch);
+X	    if (ch <= SETCHAR0 + 127) {
+X		long a = (*currinf.set_char_p)(ch);
+X		DVI_H += a;
+X	    } else if (FNTNUM0 <= ch && ch <= FNTNUM0 + 63) {
+X		change_font((unsigned long) (ch - FNTNUM0));
+X	    } else {
+X		long a, b;
+X		ubyte ch1;
+X
+X		switch (ch) {
+X		    case SET1:
+X		    case PUT1:
+X			ch1 = xone();
+X			a = (*currinf.set_char_p)(ch1);
+X			if (ch != PUT1) DVI_H += a;
+X			break;
+X
+X		    case SETRULE:
+X			/* Be careful, dvicopy outputs rules with
+X			   height = 0x80000000.  We don't want any
+X			   SIGFPE here. */
+X			a = xsfour();
+X			b = xspell_conv(xsfour());
+X			if (a > 0 && b > 0)
+X			    set_rule(pixel_round(xspell_conv(a)),
+X				pixel_round(b));
+X			DVI_H += b;
+X			break;
+X
+X		    case PUTRULE:
+X			a = xspell_conv(xsfour());
+X			b = xspell_conv(xsfour());
+X			if (a > 0  &&  b > 0)
+X			    set_rule(pixel_round(a), pixel_round(b));
+X			break;
+X
+X		    case NOP:
+X			break;
+X
+X		    case BOP:
+X			xskip((long) 11 * 4);
+X			DVI_H = OFFSET_X;
+X			DVI_V = OFFSET_Y;
+X			PXL_V = pixel_conv(DVI_V);
+X			WW = XX = YY = ZZ = 0;
+X			break;
+X
+X		    case EOP:
+X			if (current_frame != minframe)
+X			    oops("Stack not empty at EOP");
+X			return;
+X
+X		    case PUSH:
+X			if (current_frame->next == NULL) {
+X			    struct frame *newp = (struct frame *)
+X				xmalloc(sizeof(struct frame), "stack frame");
+X			    current_frame->next = newp;
+X			    newp->prev = current_frame;
+X			    newp->next = NULL;
+X			}
+X			current_frame = current_frame->next;
+X			current_frame->data = currinf.data;
+X			break;
+X
+X		    case POP:
+X			if (current_frame == minframe)
+X			    oops("More POPs than PUSHes");
+X			currinf.data = current_frame->data;
+X			current_frame = current_frame->prev;
+X			break;
+X
+X		    case RIGHT1:
+X		    case RIGHT2:
+X		    case RIGHT3:
+X		    case RIGHT4:
+X			DVI_H += xspell_conv(xsnum(ch - RIGHT1 + 1));
+X			break;
+X
+X		    case X1:
+X		    case X2:
+X		    case X3:
+X		    case X4:
+X			XX = xspell_conv(xsnum(ch - X0));
+X		    case X0:
+X			DVI_H += XX;
+X			break;
+X
+X		    case W1:
+X		    case W2:
+X		    case W3:
+X		    case W4:
+X			WW = xspell_conv(xsnum(ch - W0));
+X		    case W0:
+X			DVI_H += WW;
+X			break;
+X
+X		    case Y1:
+X		    case Y2:
+X		    case Y3:
+X		    case Y4:
+X			YY = xspell_conv(xsnum(ch - Y0));
+X		    case Y0:
+X			DVI_V += YY;
+X			PXL_V = pixel_conv(DVI_V);
+X			break;
+X
+X		    case Z1:
+X		    case Z2:
+X		    case Z3:
+X		    case Z4:
+X			ZZ = xspell_conv(xsnum(ch - Z0));
+X		    case Z0:
+X			DVI_V += ZZ;
+X			PXL_V = pixel_conv(DVI_V);
+X			break;
+X
+X		    case DOWN1:
+X		    case DOWN2:
+X		    case DOWN3:
+X		    case DOWN4:
+X			DVI_V += xspell_conv(xsnum(ch - DOWN1 + 1));
+X			PXL_V = pixel_conv(DVI_V);
+X			break;
+X
+X		    case FNT1:
+X		    case FNT2:
+X		    case FNT3:
+X		    case FNT4:
+X			change_font(xnum(ch - FNT1 + 1));
+X			break;
+X
+X		    case XXX1:
+X		    case XXX2:
+X		    case XXX3:
+X		    case XXX4:
+X			a = xnum(ch - XXX1 + 1);
+X			if (a > 0)
+X			    special(a);
+X			break;
+X
+X		    case FNTDEF1:
+X		    case FNTDEF2:
+X		    case FNTDEF3:
+X		    case FNTDEF4:
+X			xskip((long) (12 + ch - FNTDEF1 + 1));
+X			xskip((long) xone() + (long) xone());
+X			break;
+X
+X		    case PRE:
+X			oops("Shouldn't happen: PRE encountered.");
+X			break;
+X
+X		    case POST:
+X			oops("Shouldn't happen: POST encountered.");
+X			break;
+X
+X		    case POSTPOST:
+X			oops("Unexpected POSTPOST encountered.");
+X			break;
+X
+X		    default:
+X			oops("Unknown op-code %d", ch);
+X		} /* end switch*/
+X	    } /* end else (ch not a SETCHAR or FNTNUM) */
+X	} /* end for */
+X}
+X
+X#undef	xspell_conv
+X
+Xvoid
+Xdraw_page()
+X{
+X	/* Check for changes in dvi file. */
+X	if (!check_dvi_file()) return;
+X
+X	put_border(ROUNDUP(unshrunk_paper_w, shrink_factor) + 1,
+X	    ROUNDUP(unshrunk_paper_h, shrink_factor) + 1);
+X
+X	(void) lseek(fileno(dvi_file), page_offset[current_page], SEEK_SET);
+X
+X	bzero((char *) &currinf.data, sizeof(currinf.data));
+X	currinf.set_char_p = set_no_char;
+X	currinf.tn_head = tn_head;
+X	currinf.pos = currinf.end = dvi_buffer;
+X	currinf.virtual = False;
+X	draw_part(current_frame = &frame0, dimconv);
+X}
+END_OF_FILE
+if test 16733 -ne `wc -c <'dvi_draw.c'`; then
+    echo shar: \"'dvi_draw.c'\" unpacked with wrong size!
+fi
+# end of 'dvi_draw.c'
+fi
+if test -f 'dvi_init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dvi_init.c'\"
+else
+echo shar: Extracting \"'dvi_init.c'\" \(14903 characters\)
+sed "s/^X//" >'dvi_init.c' <<'END_OF_FILE'
+X/*
+X * DVI previewer for X.
+X *
+X * Eric Cooper, CMU, September 1985.
+X *
+X * Code derived from dvi-imagen.c.
+X *
+X * Modification history:
+X * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X * 12/1988	Added 'R' option, toolkit, magnifying glass
+X *			--Paul Vojta, UC Berkeley.
+X * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X *
+X *	Compilation options:
+X *	SYSV	compile for System V
+X *	VMS	compile for VMS
+X *	X10	compile for X10
+X *	NOTOOL	compile without toolkit (X11 only)
+X *	BUTTONS	compile with buttons on the side of the window (needs toolkit)
+X *	MSBITFIRST	store bitmaps internally with most significant bit first
+X *	BMSHORT	store bitmaps in shorts instead of bytes
+X *	BMLONG	store bitmaps in longs instead of bytes
+X *	ALTFONT	default for -altfont option
+X *	A4	use European size paper
+X */
+X
+X#include "xdvi.h"
+X#include "dvi.h"
+X#include <sys/stat.h>
+X
+X#ifdef	sun
+Xextern	char	*sprintf();
+X#endif
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#else
+Xchar	*realloc();
+Xvolatile void	exit();
+X#endif
+X#if	defined(macII) && !defined(__STDC__) /* stdlib.h doesn't define these */
+Xchar	*realloc();
+X#endif /* macII */
+X
+X#define	PK_PRE		247
+X#define	PK_ID		89
+X#define	PK_MAGIC	(PK_PRE << 8) + PK_ID
+X#define	GF_PRE		247
+X#define	GF_ID		131
+X#define	GF_MAGIC	(GF_PRE << 8) + GF_ID
+X#define	VF_PRE		247
+X#define	VF_ID_BYTE	202
+X#define	VF_MAGIC	(VF_PRE << 8) + VF_ID_BYTE
+X#define	PXL_MAGIC1	0
+X#define	PXL_MAGIC2	1001
+X
+X#define	dvi_oops(str)	longjmp(dvi_env, (int) str);
+X
+Xstatic	struct stat fstatbuf;
+X
+Xstatic	Boolean	font_not_found;
+X
+X/*
+X * DVI preamble and postamble information.
+X */
+Xstatic	char	job_id[300];
+Xstatic	long	numerator, denominator, magnification;
+X
+X/*
+X * Offset in DVI file of last page, set in read_postamble().
+X */
+Xstatic	long	last_page_offset;
+X
+X
+X/*
+X *	free_vf_chain frees the vf_chain structure.
+X */
+X
+Xstatic	void
+Xfree_vf_chain(tnp)
+X	struct tn *tnp;
+X{
+X	while (tnp != NULL) {
+X	    register struct tn *tnp1 = tnp->next;
+X	    free((char *) tnp);
+X	    tnp = tnp1;
+X	}
+X}
+X
+X
+X/*
+X *	Release all shrunken bitmaps for all fonts.
+X */
+X
+Xvoid
+Xreset_fonts()
+X{
+X	register struct font *f;
+X	register struct glyph *g;
+X
+X	for (f = font_head; f != NULL; f = f->next)
+X	    for (g = f->glyph; g <= f->glyph + f->maxchar; ++g)
+X		if (g->bitmap2.bits) {
+X		    free(g->bitmap2.bits);
+X		    g->bitmap2.bits = NULL;
+X		}
+X}
+X
+X/*
+X *	realloc_font allocates the font structure to contain (newsize + 1)
+X *	characters.
+X */
+X
+Xvoid
+Xrealloc_font(fontp, newsize)
+X	struct font *fontp;
+X	ubyte	newsize;
+X{
+X	struct glyph *glyph;
+X
+X	glyph = fontp->glyph = (struct glyph *) realloc((char *) fontp->glyph,
+X	    ((unsigned int) newsize + 1) * sizeof(struct glyph));
+X	if (glyph == NULL) oops("! Cannot reallocate space for glyph array.");
+X	if (newsize > fontp->maxchar)
+X	    bzero((char *) (glyph + fontp->maxchar + 1),
+X		(int) (newsize - fontp->maxchar) * sizeof(struct glyph));
+X	maxchar = fontp->maxchar = newsize;
+X}
+X
+X
+X/*
+X *	realloc_virtual_font does the same thing for virtual fonts.
+X */
+X
+Xvoid
+Xrealloc_virtual_font(fontp, newsize)
+X	struct font *fontp;
+X	ubyte	newsize;
+X{
+X	struct macro *macro;
+X
+X	macro = fontp->macro = (struct macro *) realloc((char *) fontp->macro,
+X	    ((unsigned int) newsize + 1) * sizeof(struct macro));
+X	if (macro == NULL) oops("! Cannot reallocate space for macro array.");
+X	if (newsize > fontp->maxchar)
+X	    bzero((char *) (macro + fontp->maxchar + 1),
+X		(int) (newsize - fontp->maxchar) * sizeof(struct macro));
+X	maxchar = fontp->maxchar = newsize;
+X}
+X
+X
+X/*
+X *	load_font locates the raster file and reads the index of characters,
+X *	plus whatever other preprocessing is done (depending on the format).
+X */
+X
+Xvoid
+Xload_font(fontp)
+X	struct font *fontp;
+X{
+X	float	fsize	= fontp->fsize;
+X	int	dpi	= fsize + 0.5;
+X	char	*font_found;
+X	int	size_found;
+X	int	magic;
+X
+X	fontp->flags |= FONT_LOADED;
+X	fontp->file = font_open(fontp->fontname, &font_found,
+X	    (WIDEARG(float, double)) fsize, &size_found, &fontp->filename);
+X	if (fontp->file == NULL) {
+X	    Fprintf(stderr, "Can't find font %s.\n", fontp->fontname);
+X	    font_not_found = True;
+X	    return;
+X	}
+X	--n_files_left;
+X	if (font_found != NULL) {
+X	    Fprintf(stderr,
+X		    "Can't find font %s; using %s instead at %d dpi\n",
+X		    fontp->fontname, font_found, dpi);
+X	    free(fontp->fontname);
+X	    fontp->fontname = font_found;
+X	}
+X	else if (size_found > (int) (5 * 1.002 * fsize + 0.5) ||
+X		size_found < (int) (5 * 0.998 * fsize + 0.5))
+X	    Fprintf(stderr,
+X		"Can't find font %s at %d dpi; using %d dpi instead.\n",
+X		fontp->fontname, dpi, (size_found + 2) / 5);
+X	fontp->fsize = (float) size_found / 5;
+X	fontp->timestamp = ++current_timestamp;
+X	fontp->maxchar = maxchar = 255;
+X	fontp->set_char_p = set_char;
+X	magic = two(fontp->file);
+X#ifdef	USE_PK
+X	if (magic == PK_MAGIC) read_PK_index(fontp);
+X	else
+X#endif
+X#ifdef	USE_GF
+X	    if (magic == GF_MAGIC) read_GF_index(fontp);
+X	else
+X#endif
+X	    if (magic == VF_MAGIC) read_VF_index(fontp);
+X	else
+X#ifdef	USE_PXL
+X	    if (magic == PXL_MAGIC1 && two(fontp->file) == PXL_MAGIC2)
+X		read_PXL_index(fontp);
+X	else
+X#endif
+X	    oops("Cannot recognize format for font file %s", fontp->filename);
+X
+X	if (fontp->flags & FONT_VIRTUAL) {
+X	    while (maxchar > 0 && fontp->macro[maxchar].pos == NULL) --maxchar;
+X	    if (maxchar < 255) realloc_virtual_font(fontp, maxchar);
+X	}
+X	else {
+X	    while (maxchar > 0 && fontp->glyph[maxchar].addr == 0) --maxchar;
+X	    if (maxchar < 255) realloc_font(fontp, maxchar);
+X	}
+X}
+X
+X
+X/*
+X *	reuse_font recursively sets the flags for font structures being reused.
+X */
+X
+Xstatic	void
+Xreuse_font(fontp)
+X	struct font *fontp;
+X{
+X	struct tn *tnp;
+X
+X	if (fontp->flags & FONT_IN_USE) return;
+X
+X	fontp->flags |= FONT_IN_USE;
+X	if (list_fonts)
+X	    Printf("(reusing) %s at %d dpi\n", fontp->fontname,
+X		(int) (fontp->fsize + 0.5));
+X	if (fontp->flags & FONT_VIRTUAL)
+X	    for (tnp = fontp->vf_chain; tnp != NULL; tnp = tnp->next)
+X		reuse_font(tnp->fontp);
+X}
+X
+X
+X/*
+X *      define_font reads the rest of the fntdef command and then reads in
+X *      the specified pixel file, adding it to the global linked-list holding
+X *      all of the fonts used in the job.
+X */
+Xvoid
+Xdefine_font(file, cmnd, vfparent, tn_headpp)
+X	FILE		*file;
+X	WIDEARG(ubyte,unsigned int) cmnd;
+X	struct font	*vfparent;	/* vf parent of this font, or NULL */
+X	struct tn	**tn_headpp;	/* addr of head of list of TeXnumbers */
+X{
+X	register struct tn *tnp;
+X	struct font *fontp;
+X	float	fsize;
+X	double	scale_dimconv;
+X	int scale;
+X	int design;
+X	int len;
+X	char *fontname;
+X	int size;
+X
+X	tnp = (struct tn *) xmalloc((unsigned) sizeof(struct tn),
+X	    "TeXnumber structure");
+X	tnp->next = *tn_headpp;
+X	*tn_headpp = tnp;
+X	tnp->TeXnumber = num(file, (ubyte) cmnd - FNTDEF1 + 1);
+X	(void) four(file);	/* checksum */
+X	scale = four(file);
+X	design = four(file);
+X	len = one(file) + one(file);
+X	fontname = xmalloc((unsigned) len + 1, "font name");
+X	Fread(fontname, sizeof(char), len, file);
+X	fontname[len] = '\0';
+X	if(debug & DBG_PK)
+X	    Printf("Define font \"%s\" scale=%d design=%d\n",
+X		fontname, scale, design);
+X	if (vfparent == NULL) {
+X	    fsize = 0.001 * scale / design * magnification * pixels_per_inch;
+X	    scale_dimconv = dimconv;
+X	}
+X	else {
+X	    /*
+X	     *	The scaled size is given in units of vfparent->scale * 2 ** -20
+X	     *	SPELL units, so we convert it into SPELL units by multiplying by
+X	     *		vfparent->dimconv.
+X	     *	The design size is given in units of 2 ** -20 pt, so we convert
+X	     *	into SPELL units by multiplying by
+X	     *		(pixels_per_inch * 2**16) / (72.27 * 2**20).
+X	     */
+X	    fsize = (0.001 * 72.27 * (1<<4)) * vfparent->dimconv * scale
+X		/ design * magnification;
+X	    scale_dimconv = vfparent->dimconv;
+X	}
+X	size = 5 * fsize + 0.5;
+X	/*
+X	 * reuse font if possible
+X	 */
+X	for (fontp = font_head;; fontp = fontp->next) {
+X	    if (fontp == NULL) {		/* if font doesn't exist yet */
+X		if (list_fonts)
+X		    Printf("%s at %d dpi\n", fontname, (int) (fsize + 0.5));
+X		fontp = (struct font *) xmalloc((unsigned) sizeof(struct font),
+X		    "font structure");
+X		fontp->next = font_head;
+X		font_head = fontp;
+X		fontp->dimconv = scale * scale_dimconv / (1<<20);
+X		fontp->fontname = fontname;
+X		fontp->fsize = fsize;
+X		fontp->flags = FONT_IN_USE;
+X		if (vfparent == NULL) load_font(fontp);
+X		break;
+X	    }
+X	    if (strcmp(fontname, fontp->fontname) == 0
+X		    && size == (int) (5 * fontp->fsize + 0.5)) {
+X			/* if font already in use */
+X		reuse_font(fontp);
+X		free(fontname);
+X		break;
+X	    }
+X	}
+X	tnp->fontp = fontp;
+X}
+X
+X
+X/*
+X *      process_preamble reads the information in the preamble and stores
+X *      it into global variables for later use.
+X */
+Xstatic	void
+Xprocess_preamble()
+X{
+X	ubyte   k;
+X
+X	if (one(dvi_file) != PRE)
+X		dvi_oops("DVI file doesn't start with preamble");
+X	if (one(dvi_file) != 2)
+X		dvi_oops("Wrong version of DVI output for this program");
+X	numerator     = four(dvi_file);
+X	denominator   = four(dvi_file);
+X	magnification = four(dvi_file);
+X	dimconv = (((double) numerator * magnification)
+X		/ ((double) denominator * 1000.));
+X	dimconv = dimconv * (((long) pixels_per_inch)<<16) / 254000;
+X	specialConv = pixels_per_inch * magnification / 1000000.0;
+X	k = one(dvi_file);
+X	Fread(job_id, sizeof(char), (int) k, dvi_file);
+X	job_id[k] = '\0';
+X}
+X
+X/*
+X *      find_postamble locates the beginning of the postamble
+X *	and leaves the file ready to start reading at that location.
+X */
+X#define	TMPSIZ	516	/* 4 trailer bytes + 512 junk bytes allowed */
+Xstatic	void
+Xfind_postamble()
+X{
+X	long	pos;
+X	ubyte	temp[TMPSIZ];
+X	ubyte	*p;
+X	ubyte	*p1;
+X	ubyte	byte;
+X
+X	Fseek(dvi_file, (long) 0, 2);
+X	pos = ftell(dvi_file) - TMPSIZ;
+X	if (pos < 0) pos = 0;
+X	Fseek(dvi_file, pos, 0);
+X	p = temp + fread((char *) temp, sizeof(char), TMPSIZ, dvi_file);
+X	for (;;) {
+X	    p1 = p;
+X	    while (p1 > temp && *(--p1) != TRAILER) ;
+X	    p = p1;
+X	    while (p > temp && *(--p) == TRAILER) ;
+X	    if (p <= p1 - 4) break;	/* found 4 TRAILER bytes */
+X	    if (p <= temp) dvi_oops("DVI file corrupted");
+X	}
+X	pos += p - temp;
+X	byte = *p;
+X	while (byte == TRAILER) {
+X	    Fseek(dvi_file, --pos, 0);
+X	    byte = one(dvi_file);
+X	}
+X	if (byte != 2)
+X	    dvi_oops("Wrong version of DVI output for this program");
+X	Fseek(dvi_file, pos - 4, 0);
+X	Fseek(dvi_file, sfour(dvi_file), 0);
+X}
+X
+X
+X/*
+X *      read_postamble reads the information in the postamble,
+X *	storing it into global variables.
+X *      It also takes care of reading in all of the pixel files for the fonts
+X *      used in the job.
+X */
+Xstatic	void
+Xread_postamble()
+X{
+X	ubyte   cmnd;
+X	struct font	*fontp;
+X	struct font	**fontpp;
+X
+X	if (one(dvi_file) != POST)
+X	    dvi_oops("Postamble doesn't begin with POST");
+X	last_page_offset = four(dvi_file);
+X	if (numerator != four(dvi_file)
+X		|| denominator != four(dvi_file)
+X		|| magnification != four(dvi_file))
+X	    dvi_oops("Postamble doesn't match preamble");
+X		/* read largest box height and width */
+X	unshrunk_page_h = (spell_conv(sfour(dvi_file)) >> 16) + offset_y;
+X	if (unshrunk_page_h < unshrunk_paper_h)
+X	    unshrunk_page_h = unshrunk_paper_h;
+X	unshrunk_page_w = (spell_conv(sfour(dvi_file)) >> 16) + offset_x;
+X	if (unshrunk_page_w < unshrunk_paper_w)
+X	    unshrunk_page_w = unshrunk_paper_w;
+X	(void) two(dvi_file);	/* max stack size */
+X	total_pages = two(dvi_file);
+X	font_not_found = False;
+X	while ((cmnd = one(dvi_file)) >= FNTDEF1 && cmnd <= FNTDEF4)
+X	    define_font(dvi_file, cmnd, (struct font *) NULL, &tn_head);
+X	if (cmnd != POSTPOST)
+X	    dvi_oops("Non-fntdef command found in postamble");
+X	if (font_not_found)
+X	    dvi_oops("Not all pixel files were found");
+X	/*
+X	 * free up fonts no longer in use
+X	 */
+X	fontpp = &font_head;
+X	while ((fontp = *fontpp) != NULL)
+X	    if (fontp->flags & FONT_IN_USE)
+X		fontpp = &fontp->next;
+X	    else {
+X		if (debug & DBG_PK)
+X		    Printf("Discarding font \"%s\" at %d dpi\n",
+X			fontp->fontname, (int) (fontp->fsize + 0.5));
+X		*fontpp = fontp->next;		/* remove from list */
+X		free(fontp->fontname);
+X		if (fontp->flags & FONT_LOADED) {
+X		    if (fontp->file != NULL) {
+X			Fclose(fontp->file);
+X			++n_files_left;
+X		    }
+X		    free(fontp->filename);
+X		    if (fontp->flags & FONT_VIRTUAL) {
+X			register struct macro *m;
+X
+X			for (m = fontp->macro;
+X				m <= fontp->macro + fontp->maxchar; ++m)
+X			    if (m->free_me) free((char *) m->pos);
+X			free((char *) fontp->macro);
+X			free_vf_chain(fontp->vf_chain);
+X		    }
+X		    else {
+X			register struct glyph *g;
+X
+X			for (g = fontp->glyph;
+X				g <= fontp->glyph + fontp->maxchar; ++g) {
+X			    if (g->bitmap.bits != NULL) free(g->bitmap.bits);
+X			    if (g->bitmap2.bits != NULL) free(g->bitmap2.bits);
+X			}
+X			free((char *) fontp->glyph);
+X		    }
+X		    free((char *) fontp);
+X		}
+X	    }
+X}
+X
+Xstatic	void
+Xprepare_pages()
+X{
+X	int i;
+X
+X	page_offset = (long *) xmalloc((unsigned) total_pages * sizeof(long),
+X	    "page directory");
+X	i = total_pages;
+X	page_offset[--i] = last_page_offset;
+X	Fseek(dvi_file, last_page_offset, 0);
+X	/*
+X	 * Follow back pointers through pages in the DVI file,
+X	 * storing the offsets in the page_offset table.
+X	 */
+X	while (i > 0) {
+X	    Fseek(dvi_file, (long) (1+4+(9*4)), 1);
+X	    Fseek(dvi_file, page_offset[--i] = four(dvi_file), 0);
+X	}
+X}
+X
+Xvoid
+Xinit_page()
+X{
+X	page_w = ROUNDUP(unshrunk_page_w, mane.shrinkfactor) + 2;
+X	page_h = ROUNDUP(unshrunk_page_h, mane.shrinkfactor) + 2;
+X}
+X
+X/*
+X *	init_dvi_file is the main subroutine for reading the startup information
+X *	from the dvi file.
+X */
+X
+Xstatic	void
+Xinit_dvi_file()
+X{
+X	(void) fstat(fileno(dvi_file), &fstatbuf);
+X	dvi_time = fstatbuf.st_mtime;
+X	process_preamble();
+X	find_postamble();
+X	read_postamble();
+X	prepare_pages();
+X	init_page();
+X	if (current_page >= total_pages) current_page = total_pages - 1;
+X	hush_spec_now = hush_spec;
+X}
+X
+X/**
+X **	open_dvi_file opens the dvi file and calls init_dvi_file() to
+X **	initialize it.
+X **/
+X
+Xvoid
+Xopen_dvi_file()
+X{
+X	char *errmsg;
+X
+X	if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL) {
+X	    int n = strlen(dvi_name);
+X	    char *file = dvi_name;
+X
+X	    if (strcmp(dvi_name + n - sizeof(".dvi") + 1, ".dvi") == 0) {
+X		perror(dvi_name);
+X		exit(1);
+X	    }
+X	    dvi_name = xmalloc((unsigned) n + sizeof(".dvi"), "dvi file name");
+X	    Sprintf(dvi_name, "%s.dvi", file);
+X	    if ((dvi_file = fopen(dvi_name, OPEN_MODE)) == NULL) {
+X		perror(dvi_name);
+X		exit(1);
+X	    }
+X	}
+X
+X	if (errmsg = (char *) setjmp(dvi_env)) oops(errmsg);
+X	init_dvi_file();
+X}
+X
+X/**
+X **	Check for changes in dvi file.
+X **/
+X
+XBoolean
+Xcheck_dvi_file()
+X{
+X	struct font *fontp;
+X
+X	if (dvi_file == NULL || fstat(fileno(dvi_file), &fstatbuf) != 0
+X	    || fstatbuf.st_mtime != dvi_time) {
+X		if (dvi_file) Fclose(dvi_file);
+X		free((char *) page_offset);
+X		dvi_file = fopen(dvi_name, OPEN_MODE);
+X		if (dvi_file == NULL)
+X		    dvi_oops("Cannot reopen dvi file.");
+X		if (list_fonts) Putchar('\n');
+X		free_vf_chain(tn_head);
+X		tn_head = NULL;
+X		for (fontp = font_head; fontp != NULL; fontp = fontp->next)
+X		    fontp->flags &= ~FONT_IN_USE;
+X		init_dvi_file();
+X		redraw_page();
+X		return False;
+X	}
+X	return True;
+X}
+END_OF_FILE
+if test 14903 -ne `wc -c <'dvi_init.c'`; then
+    echo shar: \"'dvi_init.c'\" unpacked with wrong size!
+fi
+# end of 'dvi_init.c'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,1227 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v34i017:  u386mon - SVR3 performance/status monitor v2.60, Patch01
+Message-ID: <1992Dec7.231937.2049@sparky.imd.sterling.com>
+X-Md4-Signature: ff7256177230fd25eff721e42e6eecfc
+Date: Mon, 7 Dec 1992 23:19:37 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 34, Issue 17
+Archive-name: u386mon/patch01
+Environment: SYSVR3
+Patch-To: u386mon: Volume 33, Issue 110-117
+
+This excellent patch set was sent to me by Uwe Doering
+<gemini@geminix.in-berlin.de>.  This patch direct addresses compile
+problems with all non-SCO boxes (most have no 'bootstr' in bootinfo).
+As you can see, he's done other good work.
+
+His comments:
+
+I've installed u386mon 2.60, uusnap and siomon a few days ago and have
+since made a few changes/bug fixes. They are appended below as a
+context diff.
+
+Here are some comments on the changes:
+
+- In all three programs, SIO_IS_FAS now overrides the M_UNIX define.
+  That is, if SIO_IS_FAS is defined it is save to assume that the user
+  really wants to compile in the sio functions regardless of whether
+  he/she uses SCO UNIX or not. This assumption can be made because
+  I made the necessary changes to allow the use of the standard
+  FAS device names (`ttyF00', `ttyFM00' etc.) for UNIX flavours
+  != SCO UNIX. So everyone who runs FAS can use the sio functions
+  now. On SCO UNIX the SCO tty name conventions are used, and on
+  all other UNIX flavours the standard FAS names are assumed.
+
+- The problem with the FAS support is that there are two tty
+  structures for each port. This consumes valuable space on the
+  screen, and siomon and uusnap wouldn't be able to properly
+  work with more than eight FAS ports. This definitely bugged me. :-)
+
+  I came up with the following idea: One isn't really interested
+  in both tty structures at the same time. That is, during a
+  dialin a dialout isn't possible, anyway, and the other way round,
+  during a dialout the getty on the dialin device is kind of
+  frozen until the dialout has finished. Therefore, the dialin
+  structure isn't really interesting while a dialout is in progress.
+
+  So I merged both tty structures to one line on the display. If
+  the dialout device is used, its tty structure is displayed
+  (as the dialin device can't do much at this time), and if a
+  dialin is in progress, or the device is at least waiting for
+  a dialin, the dialin tty structure is displayed. Now one
+  can have all of the 16 possible FAS ports on one screen. :-)
+  The distinction between the devices is possible because the
+  respective device names are displayed.
+
+- You apparently decided for u386mon that the tty timeout
+  flag is displayed as a `T' (according to the tty flag legend
+  at the bottom on the screen. However, in the code that displays
+  the flags there was still a `D' character used. For the sake
+  of consistency I made changes so that in u386mon and also
+  in siomon and uusnap this flag is represented by a `T'.
+
+- The area between the last tty line and the legend on the
+  sio screen wasn't erased properly. Apparently, this was
+  a typo.
+
+- The incrementation of the pointer `call' in `det_table.c'
+  was done before `call' was used. The incrementation should
+  happen after the pointer was used.
+
+- I left in the diffs to `siotools/Makefile' so that you can
+  see which flags and libs I've used for ISC UNIX (actually,
+  I use ISC UNIX 3.0, but I still have the developement package
+  for 2.21 installed, so I'd say these flags are for version
+  2.21). siomon and uusnap should work with both SCO and ISC
+  UNIX. I couldn't check other flavours. For ISC UNIX, I didn't
+  need to worry about `-lx' because this lib doesn't contain
+  opendir() etc. So it is save to put it before `-lc_s'.
+
+- This `a.kludge.did.not.work' kludge in `siotools/kmemsio.c' did
+  indeed not work for ISC UNIX. I couldn't figure out what this
+  kludge was supposed to do, so I removed it, and I think that
+  it should still work with SCO UNIX.
+
+- `typeahead(-1)' is used now unconditionally in uusnap and siomon
+  because it is used unconditionally in u386mon as well. So one
+  can assume that all UNIX flavours have this function. I had
+  some problems with entering commands in siomon and uusnap
+  until I included this function call. Also, I changed the
+  soures to always use getch() or wgetch(). Originally, read()
+  was used at some places, while getch() was used at other
+  places. I think that it isn't a good idea to mix read() and
+  getch() in the same sources. So I fixed this, and everything
+  works as expected.
+
+- In uusnap there was a problem with the UUCP lock files. The
+  original directory for lock files in HDB UUCP is `/usr/spool/locks'.
+  Only SCO changed this to `/usr/spool/uucp', probably for Xenix
+  compatibility. So I made this portable and changed some variable
+  and function names to make it more clear that they deal with
+  lock files. Now SCO gets `/usr/spool/uucp' and all other UNIX
+  flavours use `/usr/spool/locks'.
+
+- I ran an earlier version of uusnap for some years, and I found
+  it rather comfortable that the date _and_ the time were displayed.
+  So if a site didn't poll for a few days and there was a date instead
+  of a time in the LAST and NEXT columns, I just had to look at the
+  current date in the upper right corner and knew for how many days
+  the respective site didn't call. With the new version I always
+  have to take a look onto my watch because I usually don't know
+  the exact date without checking. Therefore, I put the code for
+  the date back into display_tod().
+
+- Fixed one occurence where nap() was used even if HAVE_SELECT
+  was defined.
+
+- Although all UNIX flavours appear to have the bootinfo structure,
+  the structure members `bootstr' and `bootstrlen' seem to be
+  unique to SCO UNIX. Therefore, only SCO UNIX has the bootinfo
+  screen selected by `b' (in u386mon).
+
+Hope you like the patches. If you need a beta tester for the next
+version I'd be willing to try out the sources on my system.
+
+      Uwe
+
+Yes, Uwe, I do -- and so will the rest of us.
+
+
+diff -c -r ../u386mon.orig/config.h ./config.h
+*** ../u386mon.orig/config.h	Fri Nov 27 15:34:25 1992
+--- ./config.h	Fri Nov 27 15:37:24 1992
+***************
+*** 111,117 ****
+  #define DPT_PS		1
+  #define DPT_PS_LONG	2
+  #define DPT_EXTRA	3
+! #ifdef M_UNIX
+  #define DPT_SIO		4
+  #endif
+  #if defined(M_UNIX) || defined(SVR31) || defined(ISC22)
+--- 111,117 ----
+  #define DPT_PS		1
+  #define DPT_PS_LONG	2
+  #define DPT_EXTRA	3
+! #if defined(M_UNIX) || defined(SIO_IS_FAS)
+  #define DPT_SIO		4
+  #endif
+  #if defined(M_UNIX) || defined(SVR31) || defined(ISC22)
+diff -c -r ../u386mon.orig/det_sio.c ./det_sio.c
+*** ../u386mon.orig/det_sio.c	Fri Nov 27 15:34:20 1992
+--- ./det_sio.c	Wed Nov 25 15:32:15 1992
+***************
+*** 228,234 ****
+--- 228,248 ----
+  struct tty *sio1;
+  struct tty *sio2;
+  {
++ #if defined(SIO_IS_FAS)
++ 	register slot1;
++ 	register slot2;
++ 
++ 	slot1 = sio1->t_slot;
++ 	slot2 = sio2->t_slot;
++ 	if(slot1 < SIO_NTTY)
++ 		slot1 %= SIO_NTTY / 2;
++ 	if(slot2 < SIO_NTTY)
++ 		slot2 %= SIO_NTTY / 2;
++ 
++ 	return(slot1 - slot2);
++ #else
+  	return(sio1->t_slot - sio2->t_slot);
++ #endif
+  }	/* end of tty_slot_compare */
+  
+  /*+-------------------------------------------------------------------------
+***************
+*** 238,250 ****
+  grok_sio_tty()
+  {
+  	register isio;
+- 	register struct tty *tsio;
+  
+  	nsio = 0;
+  	kread((caddr_t)sio,sio_ttyaddr,sizeof(struct tty) * SIO_NTTY);
+  	for(isio = 0; isio < SIO_NTTY; isio++)
+  	{
+! 		tsio = &sio[isio];
+  		if(tsio->t_state & (WOPEN | ISOPEN))
+  		{
+  			tsio->t_slot = (ushort)isio;
+--- 252,286 ----
+  grok_sio_tty()
+  {
+  	register isio;
+  
+  	nsio = 0;
+  	kread((caddr_t)sio,sio_ttyaddr,sizeof(struct tty) * SIO_NTTY);
++ #if defined(SIO_IS_FAS)
++ 	for(isio = 0; isio < (SIO_NTTY / 2); isio++)
++ 	{
++ 		if(sio[isio].t_state & ISOPEN)
++ 		{
++ 			sio[isio].t_slot = (ushort)isio;
++ 			sio[isio + (SIO_NTTY / 2)].t_slot = 127;
++ 			nsio++;
++ 			continue;
++ 		}
++ 		else if(sio[isio + (SIO_NTTY / 2)].t_state & (WOPEN | ISOPEN))
++ 		{
++ 			sio[isio + (SIO_NTTY / 2)].t_slot
++ 				= (ushort)(isio + (SIO_NTTY / 2));
++ 			sio[isio].t_slot = 127;
++ 			nsio++;
++ 			continue;
++ 		}
++ 		sio[isio].t_slot = 127;
++ 		sio[isio + (SIO_NTTY / 2)].t_slot = 127;
++ 	}
++ #else
+  	for(isio = 0; isio < SIO_NTTY; isio++)
+  	{
+! 		register struct tty *tsio = &sio[isio];
+! 
+  		if(tsio->t_state & (WOPEN | ISOPEN))
+  		{
+  			tsio->t_slot = (ushort)isio;
+***************
+*** 253,258 ****
+--- 289,295 ----
+  		}
+  		tsio->t_slot = 127;
+  	}
++ #endif
+  	(void)qsort((char *)sio,(unsigned)SIO_NTTY,
+  	    sizeof(struct tty),tty_slot_compare);
+  
+***************
+*** 430,436 ****
+  
+  	wmove(win,y,TX);
+  	if(ttynm = slot_to_ttynm(tsio->t_slot))
+! 		wprintw(win,"%.2s",ttynm);
+  	else
+  		wprintw(win,"%02d",tsio->t_slot);
+  
+--- 467,473 ----
+  
+  	wmove(win,y,TX);
+  	if(ttynm = slot_to_ttynm(tsio->t_slot))
+! 		wprintw(win,"%-4.4s",ttynm);
+  	else
+  		wprintw(win,"%02d",tsio->t_slot);
+  
+***************
+*** 491,497 ****
+  	if(tsio->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tsio->t_state & TIMEOUT)
+! 		s8[4] = 'D';
+  	wmove(win,y,FX);
+  	waddstr(win,s8);
+  
+--- 528,534 ----
+  	if(tsio->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tsio->t_state & TIMEOUT)
+! 		s8[4] = 'T';
+  	wmove(win,y,FX);
+  	waddstr(win,s8);
+  
+***************
+*** 519,525 ****
+  	static char *header  = 
+  	" tty  raw  can    out  speed  state  iflag  oflag  cflag  lflag  pgrp";
+  	static char *legend =
+! 	"W=wait for open  O=open C=carrier on  B=output busy  S=stopped  T=timeout";
+  	static int couldnt_display_all = 0;
+  
+  	if(initial)
+--- 556,562 ----
+  	static char *header  = 
+  	" tty  raw  can    out  speed  state  iflag  oflag  cflag  lflag  pgrp";
+  	static char *legend =
+! 	"W=wait for open  O=open  C=carrier on  B=output busy  S=stopped  T=timeout";
+  	static int couldnt_display_all = 0;
+  
+  	if(initial)
+***************
+*** 557,564 ****
+  		display_siosum_update(win,isio + 1,&sio[isio]);
+  	}
+  
+! 	for(; isio < getmaxy(win)-2; isio++);
+! 	clear_area(win,isio + 1,0,getmaxx(win));
+  
+  	if(couldnt_display_all)
+  	{
+--- 594,601 ----
+  		display_siosum_update(win,isio + 1,&sio[isio]);
+  	}
+  
+! 	for(; isio < getmaxy(win)-2; isio++)
+! 		clear_area(win,isio + 1,0,getmaxx(win));
+  
+  	if(couldnt_display_all)
+  	{
+diff -c -r ../u386mon.orig/det_table.c ./det_table.c
+*** ../u386mon.orig/det_table.c	Fri Nov 27 15:34:21 1992
+--- ./det_table.c	Wed Nov 25 14:51:24 1992
+***************
+*** 166,174 ****
+  	kread((caddr_t) callbase, calloutaddr, sizeof(struct callo)*v.v_call);
+  	call=callbase;
+  	while (ndx<v.v_call) {
+- 		ndx++; call++;
+  				/* This is a guess - I'm checking it with SCO */
+  		if (call->c_id>0) cnt++;
+  	}
+  	return(cnt);
+  }
+--- 166,174 ----
+  	kread((caddr_t) callbase, calloutaddr, sizeof(struct callo)*v.v_call);
+  	call=callbase;
+  	while (ndx<v.v_call) {
+  				/* This is a guess - I'm checking it with SCO */
+  		if (call->c_id>0) cnt++;
++ 		ndx++; call++;
+  	}
+  	return(cnt);
+  }
+diff -c -r ../u386mon.orig/siotools/Makefile ./siotools/Makefile
+*** ../u386mon.orig/siotools/Makefile	Fri Nov 27 15:34:30 1992
+--- ./siotools/Makefile	Fri Nov 27 15:41:41 1992
+***************
+*** 16,27 ****
+  #               this makes for long druding nlists
+  # -DSIO_IS_FAS: is how I get the stuff to work with my FAS configuration
+  #               study the code, especially ../ttynm.h
+! CFLAGS2 = -DSIO_IS_FAS
+  
+  # SCO CC
+  CC=cc
+  CFLAGS = \
+! 	-O \
+  	$(CFLAGS2)
+  
+  # SCO UNIX 3.2->3.2v4 gcc
+--- 16,27 ----
+  #               this makes for long druding nlists
+  # -DSIO_IS_FAS: is how I get the stuff to work with my FAS configuration
+  #               study the code, especially ../ttynm.h
+! CFLAGS2 = -DSIO_IS_FAS -DHAVE_SELECT -DISC
+  
+  # SCO CC
+  CC=cc
+  CFLAGS = \
+! 	-O -s \
+  	$(CFLAGS2)
+  
+  # SCO UNIX 3.2->3.2v4 gcc
+***************
+*** 41,50 ****
+  
+  # get shared library stuff first, then opendir/etc from libc.a not libx.a
+  # then get nap/rdchk from libx.a
+! LIB=-ltinfo -lc_s -lc -lx
+  
+  # local bin directory (for make install)
+! LBIN=/usr/local/bin
+  
+  SIOMON_OBJ = \
+  	siomon.o\
+--- 41,50 ----
+  
+  # get shared library stuff first, then opendir/etc from libc.a not libx.a
+  # then get nap/rdchk from libx.a
+! LIB=-lcurses -linet -lx -lc_s
+  
+  # local bin directory (for make install)
+! LBIN=/usr/lbin
+  
+  SIOMON_OBJ = \
+  	siomon.o\
+diff -c -r ../u386mon.orig/siotools/kmemsio.c ./siotools/kmemsio.c
+*** ../u386mon.orig/siotools/kmemsio.c	Fri Nov 27 15:34:31 1992
+--- ./siotools/kmemsio.c	Fri Nov 27 14:49:01 1992
+***************
+*** 20,26 ****
+  
+  #include "kmemsio.h"
+  
+! #ifdef M_UNIX
+  char *kernel_file = "/unix";
+  
+  #include <nlist.h>
+--- 20,26 ----
+  
+  #include "kmemsio.h"
+  
+! #if defined(M_UNIX) || defined(ISC)
+  char *kernel_file = "/unix";
+  
+  #include <nlist.h>
+***************
+*** 59,67 ****
+  #else  /* !STANDALONE_NLIST */
+  #undef M_TERMINFO
+  #include "../config.h"
+- #ifndef M_TERMINFO
+- a.kludge.did.not.work;
+- #endif
+  #include "../nlsym.h"
+  #include "../libnlsym.h"
+  #endif /* STANDALONE_NLIST */
+--- 59,64 ----
+diff -c -r ../u386mon.orig/siotools/siomon.c ./siotools/siomon.c
+*** ../u386mon.orig/siotools/siomon.c	Fri Nov 27 15:34:31 1992
+--- ./siotools/siomon.c	Fri Nov 27 15:07:56 1992
+***************
+*** 30,36 ****
+  19  2h
+  20 
+  21 State: W waiting for open to complete  O open  C carrier on
+! 22        S stopped by XOFF  D interval timeout in progress
+  23 Commands: + inc interval  - dec interval  ^L refresh  q quit  d detail
+  
+  Under XENIX, termio.h is included twice (once by curses.h/tcap.h and
+--- 30,36 ----
+  19  2h
+  20 
+  21 State: W waiting for open to complete  O open  C carrier on
+! 22        S stopped by XOFF  T interval timeout in progress
+  23 Commands: + inc interval  - dec interval  ^L refresh  q quit  d detail
+  
+  Under XENIX, termio.h is included twice (once by curses.h/tcap.h and
+***************
+*** 90,97 ****
+--- 90,101 ----
+  #include <time.h>
+  
+  #if defined(HAVE_SELECT)
++ #if defined(ISC)
++ #include <sys/bsdtypes.h>
++ #else
+  #include <sys/select.h>
+  #endif
++ #endif
+  
+  #include <sys/tty.h>
+  
+***************
+*** 161,167 ****
+  	char s8[8];
+  
+  	move(y,TX + 0);
+! 	addstr(ttynm[sionum]);
+  
+  	if(!opened)
+  	{
+--- 165,171 ----
+  	char s8[8];
+  
+  	move(y,TX + 0);
+! 	printw("%-4.4s",ttynm[sionum]);
+  
+  	if(!opened)
+  	{
+***************
+*** 206,212 ****
+  	if(tty->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tty->t_state & TIMEOUT)
+! 		s8[4] = 'D';
+  	move(y,FX);
+  	addstr(s8);
+  
+--- 210,216 ----
+  	if(tty->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tty->t_state & TIMEOUT)
+! 		s8[4] = 'T';
+  	move(y,FX);
+  	addstr(s8);
+  
+***************
+*** 253,259 ****
+  "State: W waiting for open to complete  O open  C carrier on");
+  	move(LINES - 3,0);
+  	addstr(
+! "       S stopped by XOFF  D interval timeout in progress  B transmitter busy");
+  }	/* end of disp_state_legend */
+  
+  /*+-------------------------------------------------------------------------
+--- 257,263 ----
+  "State: W waiting for open to complete  O open  C carrier on");
+  	move(LINES - 3,0);
+  	addstr(
+! "       S stopped by XOFF  T interval timeout in progress  B transmitter busy");
+  }	/* end of disp_state_legend */
+  
+  /*+-------------------------------------------------------------------------
+***************
+*** 343,349 ****
+  	standout();
+  	printw(" siomon %s (%s V.%s/%s)",
+  		revision,
+! #if defined(M_UNIX)
+  		"UNIX",
+  #else
+  		"XENIX",
+--- 347,353 ----
+  	standout();
+  	printw(" siomon %s (%s V.%s/%s)",
+  		revision,
+! #if defined(M_UNIX) || defined(ISC)
+  		"UNIX",
+  #else
+  		"XENIX",
+***************
+*** 444,458 ****
+  	long nap();
+  #endif
+  
+- 	for(y = 0; y < (LINES - 4); y++)
+- 	{
+- 		move(HY + 2 + y,0);
+- 		clrtoeol();
+- 	}
+  	disp_cmd_legend("display detail on /dev/tty");
+  	getyx(stdscr,y,x);
+  
+! 	if(wingets(stdscr,y,x,tty_name,3,&delim,0,(int *)0) < 0)
+  		return;
+  	for(sionum = 0,cpptr = ttynm; sionum < SIO_NTTY; sionum++,cpptr++)
+  	{
+--- 448,457 ----
+  	long nap();
+  #endif
+  
+  	disp_cmd_legend("display detail on /dev/tty");
+  	getyx(stdscr,y,x);
+  
+! 	if(wingets(stdscr,y,x,tty_name,5,&delim,0,(int *)0) < 0)
+  		return;
+  	for(sionum = 0,cpptr = ttynm; sionum < SIO_NTTY; sionum++,cpptr++)
+  	{
+***************
+*** 465,470 ****
+--- 464,474 ----
+  		return;
+  	}
+  
++ 	for(y = 0; y < (LINES - 4); y++)
++ 	{
++ 		move(HY + 2 + y,0);
++ 		clrtoeol();
++ 	}
+  	disp_state_legend();
+  	disp_cmd_legend("");
+  	move(LINES - 2,0);
+***************
+*** 573,582 ****
+  		fputs("curses init failed ... check terminal type\n",stderr);
+  		exit(1);
+  	}
+- #if defined(M_TERMINFO)
+  	typeahead(-1);
+! #endif
+! 	crmode();
+  	noecho();
+  	main_template();
+  
+--- 577,584 ----
+  		fputs("curses init failed ... check terminal type\n",stderr);
+  		exit(1);
+  	}
+  	typeahead(-1);
+! 	cbreak();
+  	noecho();
+  	main_template();
+  
+***************
+*** 602,607 ****
+--- 604,627 ----
+  	while(1)
+  	{
+  		kmem_read_tty(0,SIO_NTTY);
++ #if defined(SIO_IS_FAS)
++ 		for(sionum = 0; sionum < (SIO_NTTY / 2); sionum++)
++ 		{
++ 			int yy = HY + 2 + sionum;
++ 			if(yy == (LINES - 5))
++ 			{
++ 				move(yy,0);
++ 				clrtoeol();
++ 				addstr("not enough room for all ttys");
++ 				break;
++ 			}
++ 			if (sio[sionum].t_state & ISOPEN)
++ 				disp_tty(yy,sionum,&sio[sionum]);
++ 			else
++ 				disp_tty(yy,sionum + (SIO_NTTY / 2),
++ 						&sio[sionum + (SIO_NTTY / 2)]);
++ 		}
++ #else
+  		for(sionum = 0; sionum < SIO_NTTY; sionum++)
+  		{
+  			int yy = HY + 2 + sionum;
+***************
+*** 614,619 ****
+--- 634,640 ----
+  			}
+  			disp_tty(yy,sionum,&sio[sionum]);
+  		}
++ #endif
+  		disp_tod();
+  		move(LINES - 1,0);
+  		refresh();
+***************
+*** 636,643 ****
+  		if(cmd_available)
+  		{
+  		char ch;
+! 			ch = getch();
+! 			switch(ch & 0x7F)
+  			{
+  			case 'L' & 0x1F:		/* redraw screen */
+  			case 'R' & 0x1F:		/* redraw screen */
+--- 657,664 ----
+  		if(cmd_available)
+  		{
+  		char ch;
+! 			ch = getch() & 0x7F;
+! 			switch(ch)
+  			{
+  			case 'L' & 0x1F:		/* redraw screen */
+  			case 'R' & 0x1F:		/* redraw screen */
+diff -c -r ../u386mon.orig/siotools/uusnap.c ./siotools/uusnap.c
+*** ../u386mon.orig/siotools/uusnap.c	Fri Nov 27 15:34:33 1992
+--- ./siotools/uusnap.c	Fri Nov 27 15:52:06 1992
+***************
+*** 20,26 ****
+  	main(argc,argv)
+  	my_resetty()
+  	my_savetty()
+! 	spooldirname(fname)
+  	statdirname(fname)
+  	strcmpi(s1,s2)
+  	to_lower(ch)
+--- 20,26 ----
+  	main(argc,argv)
+  	my_resetty()
+  	my_savetty()
+! 	lockdirname(fname)
+  	statdirname(fname)
+  	strcmpi(s1,s2)
+  	to_lower(ch)
+***************
+*** 76,86 ****
+--- 76,92 ----
+  #include <sys/stat.h>
+  #include <sys/tty.h>
+  #include <sys/utsname.h>
++ #if defined(HAVE_SELECT)
+  #if defined(M_SYSV)
+  #include <sys/select.h>
+  #else
++ #if defined(ISC)
++ #include <sys/bsdtypes.h>
++ #else
+  #include <sys/time.h>
+  #endif
++ #endif
++ #endif
+  
+  #include "wintty.h"
+  #define DEFINE_TTYNM
+***************
+*** 122,130 ****
+  char bell = 7;
+  
+  char *STATUSDIR = "/usr/spool/uucp/.Status";
+! char *LOCKDIR = "/usr/spool/uucp/LCK..";
+  char *WORKDIR = "/usr/spool/uucp/";
+- char *SPOOLDIR = "/usr/spool/uucp";
+  
+  #define MAX_SYSTEMS (LINES - FIRSTSYS_Y - 4)
+  #define WAITSECS_ACTIVE 1 /* sleep secs between samples when talking */
+--- 128,139 ----
+  char bell = 7;
+  
+  char *STATUSDIR = "/usr/spool/uucp/.Status";
+! #if defined(ISC)
+! char *LOCKDIR = "/usr/spool/locks";
+! #else
+! char *LOCKDIR = "/usr/spool/uucp";
+! #endif
+  char *WORKDIR = "/usr/spool/uucp/";
+  
+  #define MAX_SYSTEMS (LINES - FIRSTSYS_Y - 4)
+  #define WAITSECS_ACTIVE 1 /* sleep secs between samples when talking */
+***************
+*** 152,158 ****
+  #define SS_UNKNOWN_RESPONSE      19	/* remote reject, unknown msg */
+  #define SS_STARTUP               20	/* startup failed */
+  #define SS_CHAT_FAILED           21	/* caller script failed */
+! #if defined(M_SYSV)
+  #define SS_CALL_IN_PROGRESS	     22	/* CALL IN PROGRESS */
+  #define SS_CALL_FAILED           23	/* call failed (busy?) */
+  #else
+--- 161,167 ----
+  #define SS_UNKNOWN_RESPONSE      19	/* remote reject, unknown msg */
+  #define SS_STARTUP               20	/* startup failed */
+  #define SS_CHAT_FAILED           21	/* caller script failed */
+! #if defined(M_SYSV) || defined(ISC)
+  #define SS_CALL_IN_PROGRESS	     22	/* CALL IN PROGRESS */
+  #define SS_CALL_FAILED           23	/* call failed (busy?) */
+  #else
+***************
+*** 187,193 ****
+  	/* 19*/ "remote reject, unknown msg",
+  	/* 20*/ "startup failed",
+  	/* 21*/ "caller script failed",
+! #if defined(SYSV)
+  	/* 22*/ "CALL IN PROGRESS",
+  	/* 23*/ "call failed (busy?)",
+  #else
+--- 196,202 ----
+  	/* 19*/ "remote reject, unknown msg",
+  	/* 20*/ "startup failed",
+  	/* 21*/ "caller script failed",
+! #if defined(M_SYSV) || defined(ISC)
+  	/* 22*/ "CALL IN PROGRESS",
+  	/* 23*/ "call failed (busy?)",
+  #else
+***************
+*** 195,201 ****
+  #endif
+  };
+  
+! #if defined(SYSV)
+  #define SS_MSG_MAX 23
+  #else
+  #define SS_MSG_MAX 22
+--- 204,210 ----
+  #endif
+  };
+  
+! #if defined(M_SYSV) || defined(ISC)
+  #define SS_MSG_MAX 23
+  #else
+  #define SS_MSG_MAX 22
+***************
+*** 295,306 ****
+  }	/* end of statdirname */
+  
+  /*+-------------------------------------------------------------------------
+! 	spooldirname(fname) - return base name prepended with spool dir
+  
+  returns address of static string
+  --------------------------------------------------------------------------*/
+  char *
+! spooldirname(fname)
+  char *fname;
+  {
+  	static char fullname[128];
+--- 304,315 ----
+  }	/* end of statdirname */
+  
+  /*+-------------------------------------------------------------------------
+! 	lockdirname(fname) - return base name prepended with lock dir
+  
+  returns address of static string
+  --------------------------------------------------------------------------*/
+  char *
+! lockdirname(fname)
+  char *fname;
+  {
+  	static char fullname[128];
+***************
+*** 308,314 ****
+  
+  	if(!fullname_cat_point)
+  	{
+! 		strcpy(fullname,SPOOLDIR);
+  		strcat(fullname,"/");
+  		fullname_cat_point = strlen(fullname);
+  	}
+--- 317,323 ----
+  
+  	if(!fullname_cat_point)
+  	{
+! 		strcpy(fullname,LOCKDIR);
+  		strcat(fullname,"/");
+  		fullname_cat_point = strlen(fullname);
+  	}
+***************
+*** 316,322 ****
+  	strcpy(fullname + fullname_cat_point,fname);
+  	return(fullname);
+  
+! }	/* end of statdirname */
+  
+  /*+-------------------------------------------------------------------------
+  	display_tod()
+--- 325,331 ----
+  	strcpy(fullname + fullname_cat_point,fname);
+  	return(fullname);
+  
+! }	/* end of lockdirname */
+  
+  /*+-------------------------------------------------------------------------
+  	display_tod()
+***************
+*** 326,332 ****
+  {
+  	register struct tm *lt;		/* local time */
+  	struct tm *localtime();
+! 	char buf[10];
+  
+  	(void)time(&secs_now);
+  
+--- 335,341 ----
+  {
+  	register struct tm *lt;		/* local time */
+  	struct tm *localtime();
+! 	char buf[20];
+  
+  	(void)time(&secs_now);
+  
+***************
+*** 334,345 ****
+  		return;
+  
+  	lt = localtime(&secs_now);
+! 	utoda_lz(buf,2,lt->tm_hour);
+! 	buf[2] = ':';
+! 	utoda_lz(buf + 3,2,lt->tm_min);
+! 	buf[5] = ':';
+! 	utoda_lz(buf + 6,2,lt->tm_sec);
+! 	move(0,COLS - 18);
+  	addstr(buf);
+  
+  }	/* end of display_tod */
+--- 343,360 ----
+  		return;
+  
+  	lt = localtime(&secs_now);
+! 	utoda_lz(buf,2,lt->tm_mon + 1);
+! 	buf[2] = '/';
+! 	utoda_lz(buf + 3,2,lt->tm_mday);
+! 	buf[5] = '/';
+! 	utoda_lz(buf + 6,2,lt->tm_year);
+! 	buf[8] = ' ';
+! 	utoda_lz(buf + 9,2,lt->tm_hour);
+! 	buf[11] = ':';
+! 	utoda_lz(buf + 12,2,lt->tm_min);
+! 	buf[14] = ':';
+! 	utoda_lz(buf + 15,2,lt->tm_sec);
+! 	move(0,COLS - 26);
+  	addstr(buf);
+  
+  }	/* end of display_tod */
+***************
+*** 358,364 ****
+  		clrtobot();
+  		refresh();
+  		echo();
+! 		nocrmode();
+  		move(LINES - 1,0);
+  		refresh();
+  		my_resetty();
+--- 373,379 ----
+  		clrtobot();
+  		refresh();
+  		echo();
+! 		nocbreak();
+  		move(LINES - 1,0);
+  		refresh();
+  		my_resetty();
+***************
+*** 383,389 ****
+  	{
+  		if(strncmp(dp->d_name,"LCK..tty",8))
+  			continue;
+! 		if(fp = fopen(spooldirname(dp->d_name),"r"))
+  		{
+  			fscanf(fp,"%d",&testpid);
+  			fclose(fp);
+--- 398,404 ----
+  	{
+  		if(strncmp(dp->d_name,"LCK..tty",8))
+  			continue;
+! 		if(fp = fopen(lockdirname(dp->d_name),"r"))
+  		{
+  			fscanf(fp,"%d",&testpid);
+  			fclose(fp);
+***************
+*** 522,528 ****
+  	}
+  
+  	/* "kludges for screwy status stuff with HDB" thanks to Ed Carp */
+! 	strcpy(lock_name,LOCKDIR);
+  	strcat(lock_name,system_name);
+  	if(!access(lock_name,0) && (status != SS_TALKING))
+  		status = SS_CALL_IN_PROGRESS;
+--- 537,543 ----
+  	}
+  
+  	/* "kludges for screwy status stuff with HDB" thanks to Ed Carp */
+! 	strcpy(lock_name,lockdirname("LCK.."));
+  	strcat(lock_name,system_name);
+  	if(!access(lock_name,0) && (status != SS_TALKING))
+  		status = SS_CALL_IN_PROGRESS;
+***************
+*** 665,671 ****
+  	clrtoeol();
+  	getyx(stdscr,y,x);
+  	move(y,TX + x);
+! 	addstr(ttynm[sionum]);
+  	if((itmp = (unsigned)tty->t_rawq.c_cc) > 999)
+  		itmp = 999;
+  	utoda(s8,3,itmp);
+--- 680,686 ----
+  	clrtoeol();
+  	getyx(stdscr,y,x);
+  	move(y,TX + x);
+! 	printw("%-4.4s",ttynm[sionum]);
+  	if((itmp = (unsigned)tty->t_rawq.c_cc) > 999)
+  		itmp = 999;
+  	utoda(s8,3,itmp);
+***************
+*** 703,709 ****
+  	if(tty->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tty->t_state & TIMEOUT)
+! 		s8[3] = 'D';
+  	move(y,FX + x);
+  	addstr(s8);
+  
+--- 718,724 ----
+  	if(tty->t_state & TTSTOP)
+  		s8[3] = 'S';
+  	if(tty->t_state & TIMEOUT)
+! 		s8[3] = 'T';
+  	move(y,FX + x);
+  	addstr(s8);
+  
+***************
+*** 790,795 ****
+--- 805,814 ----
+  	char **cpptr;
+  	char delim;
+  	char s8[8];
++ #if defined(HAVE_SELECT)
++ 	struct timeval timeout;
++ 	int fdmask;
++ #endif
+  
+  	static char *header  =
+  	"tty  raw  can   out   speed  state iflag  oflag  cflag  lflag  pgrp";
+***************
+*** 800,806 ****
+  	static char *state1 =
+  	"State: W waiting for open to complete  O open  C carrier on";
+  	static char *state2 =
+! 	"       S stopped by XOFF  D delay timeout in progress  B transmitter busy";
+  	static kmem_initialized = 0;
+  
+  	disp_cmd_legend("display detail on system # (ESC to cancel): ");
+--- 819,825 ----
+  	static char *state1 =
+  	"State: W waiting for open to complete  O open  C carrier on";
+  	static char *state2 =
+! 	"       S stopped by XOFF  T delay timeout in progress  B transmitter busy";
+  	static kmem_initialized = 0;
+  
+  	disp_cmd_legend("display detail on system # (ESC to cancel): ");
+***************
+*** 873,879 ****
+  		
+  			if(cptr = kmem_read_tty(ttnum,1))
+  			{
+! #ifdef SIO_IS_FAS
+  BAD_NEWS:
+  #endif
+  				standout();
+--- 892,898 ----
+  		
+  			if(cptr = kmem_read_tty(ttnum,1))
+  			{
+! #if defined(SIO_IS_FAS) && !defined(ISC)
+  BAD_NEWS:
+  #endif
+  				standout();
+***************
+*** 885,891 ****
+  				getch();
+  				goto DETAIL_EXIT;
+  			}
+! #ifdef SIO_IS_FAS
+  			if(!(sio[0].t_state & (WOPEN | ISOPEN)))
+  			{
+  				char other_tty[64];
+--- 904,910 ----
+  				getch();
+  				goto DETAIL_EXIT;
+  			}
+! #if defined(SIO_IS_FAS) && !defined(ISC)
+  			if(!(sio[0].t_state & (WOPEN | ISOPEN)))
+  			{
+  				char other_tty[64];
+***************
+*** 908,914 ****
+  				if(cptr = kmem_read_tty(ttnum,1))
+  					goto BAD_NEWS;
+  			}
+! #endif /* SIO_IS_FAS */
+  			if(!have_tty)
+  			{
+  				move(y+3,0);
+--- 927,933 ----
+  				if(cptr = kmem_read_tty(ttnum,1))
+  					goto BAD_NEWS;
+  			}
+! #endif /* SIO_IS_FAS && !ISC */
+  			if(!have_tty)
+  			{
+  				move(y+3,0);
+***************
+*** 947,953 ****
+--- 966,979 ----
+  			getch();
+  			break;
+  		}
++ #if defined(HAVE_SELECT)
++ 		timeout.tv_sec = 0;
++ 		timeout.tv_usec = ((have_tty) ? 20L : 500L) * 1000L;
++ 		fdmask = 1 << 0;
++ 		select(32,&fdmask,(int *)0,(int *)0,&timeout);
++ #else
+  		nap((have_tty) ? 20L : 500L);
++ #endif
+  	}
+  
+  DETAIL_EXIT:
+***************
+*** 992,1002 ****
+  		fprintf(stderr,"curses init failed... check terminal type\n");
+  		exit(0);
+  	}
+- #if defined(M_TERMINFO)
+  	typeahead(-1);
+- #endif
+  	noecho();
+! 	crmode();
+  
+  	signal(SIGTERM,bye);
+  	signal(SIGINT,bye);
+--- 1018,1026 ----
+  		fprintf(stderr,"curses init failed... check terminal type\n");
+  		exit(0);
+  	}
+  	typeahead(-1);
+  	noecho();
+! 	cbreak();
+  
+  	signal(SIGTERM,bye);
+  	signal(SIGINT,bye);
+***************
+*** 1009,1015 ****
+  	standout();
+  	printw(" uusnap %s (%s V.%s/%s)",
+  	    revision,
+! #if defined(M_UNIX)
+  	    "UNIX",
+  #else
+  	    "XENIX",
+--- 1033,1039 ----
+  	standout();
+  	printw(" uusnap %s (%s V.%s/%s)",
+  	    revision,
+! #if defined(M_UNIX) || defined(ISC)
+  	    "UNIX",
+  #else
+  	    "XENIX",
+***************
+*** 1041,1047 ****
+  	standend();
+  	refresh();
+  
+! 	dirname = SPOOLDIR;
+  	if(!(uspool_dp = opendir(dirname)))
+  		goto BOO_HISS;
+  
+--- 1065,1071 ----
+  	standend();
+  	refresh();
+  
+! 	dirname = LOCKDIR;
+  	if(!(uspool_dp = opendir(dirname)))
+  		goto BOO_HISS;
+  
+***************
+*** 1118,1126 ****
+  
+  		if(rdchk(0))
+  		{
+! 			read(0,&cmd,1);
+! 			cmd &= 0x7f;
+! 			switch(cmd &= 0x7f)
+  			{
+  				case 'q':
+  				case 0x1B:
+--- 1142,1149 ----
+  
+  		if(rdchk(0))
+  		{
+! 			cmd = getch() & 0x7f;
+! 			switch(cmd)
+  			{
+  				case 'q':
+  				case 0x1B:
+diff -c -r ../u386mon.orig/siotools/wingets.c ./siotools/wingets.c
+*** ../u386mon.orig/siotools/wingets.c	Fri Nov 27 15:34:33 1992
+--- ./siotools/wingets.c	Fri Nov 27 15:03:56 1992
+***************
+*** 95,102 ****
+  	while(1)
+  	{
+  		wrefresh(win);
+! 		read(0,delim,1);
+! 		*delim &= 0x7F;
+  		if((*delim < 0x20) || (*delim >= 0x7F))
+  		{
+  			switch(*delim)
+--- 95,101 ----
+  	while(1)
+  	{
+  		wrefresh(win);
+! 		*delim = wgetch(win) & 0x7F;
+  		if((*delim < 0x20) || (*delim >= 0x7F))
+  		{
+  			switch(*delim)
+diff -c -r ../u386mon.orig/ttynm.h ./ttynm.h
+*** ../u386mon.orig/ttynm.h	Fri Nov 27 15:34:27 1992
+--- ./ttynm.h	Thu Nov 26 16:04:58 1992
+***************
+*** 44,49 ****
+--- 44,51 ----
+   * This is the ordering of my FAS driver tty structures
+   * Yours will probably be different
+   */
++ #if defined(M_UNIX)
++ 
+  #define SIO_NTTY 18
+  
+  #ifdef DEFINE_TTYNM
+***************
+*** 68,73 ****
+--- 70,104 ----
+  	"2H",
+  };
+  #endif /* DEFINE_TTYNM */
++ 
++ #else
++ 
++ #define SIO_NTTY 18
++ 
++ #ifdef DEFINE_TTYNM
++ char *ttynm[SIO_NTTY] = {
++ 	"F00",
++ 	"F01",
++ 	"F02",
++ 	"F03",
++ 	"F04",
++ 	"F05",
++ 	"F06",
++ 	"F07",
++ 	"F08",
++ 	"FM00",
++ 	"FM01",
++ 	"FM02",
++ 	"FM03",
++ 	"FM04",
++ 	"FM05",
++ 	"FM06",
++ 	"FM07",
++ 	"FM08",
++ };
++ #endif /* DEFINE_TTYNM */
++ 
++ #endif /* M_UNIX */
+  
+  #endif /* SIO_IS_FAS */
+  
+diff -c -r ../u386mon.orig/u386mon.c ./u386mon.c
+*** ../u386mon.orig/u386mon.c	Fri Nov 27 15:34:18 1992
+--- ./u386mon.c	Tue Nov 24 16:28:08 1992
+***************
+*** 1418,1424 ****
+  				case 'q':
+  				case A_ESC:
+  					goto GOOD_BYE;
+! #if defined(HAS_BOOTINFO)
+  				case 'b':
+  					if(bootinfo.bootstrlen > 79)
+  						itmp = 79;
+--- 1418,1424 ----
+  				case 'q':
+  				case A_ESC:
+  					goto GOOD_BYE;
+! #if defined(HAS_BOOTINFO) && defined(M_UNIX)
+  				case 'b':
+  					if(bootinfo.bootstrlen > 79)
+  						itmp = 79;
+-- 
+Uwe Doering  |  INET : gemini@geminix.in-berlin.de
+Berlin       |----------------------------------------------------------------
+Germany      |  UUCP : ...!unido!fub!geminix.in-berlin.de!gemini
+
+
+exit 0 # Just in case...

@@ -1,0 +1,2040 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v37i101:  lout - Lout document formatting system, v2, Part03/30
+Message-ID: <1993May31.035132.20649@sparky.imd.sterling.com>
+X-Md4-Signature: 57e41a94eef8653ac41a71e135813f34
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 31 May 1993 03:51:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 37, Issue 101
+Archive-name: lout/part03
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lout/z20.c lout/z24.c
+# Wrapped by kent@sparky on Sun May 30 19:43:53 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 30)."'
+if test -f 'lout/z20.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z20.c'\"
+else
+  echo shar: Extracting \"'lout/z20.c'\" \(22873 characters\)
+  sed "s/^X//" >'lout/z20.c' <<'END_OF_FILE'
+X/*@z20.c:Galley Flushing:FlushGalley()@***************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z20.c                                                      */
+X/*  MODULE:       Galley Flushing                                            */
+X/*  EXTERNS:      FlushGalley()                                              */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ParentFlush(dest_index, kill)                                            */
+X/*                                                                           */
+X/*  Flush the galley which is the parent of dest_index, if likely to flush.  */
+X/*  If kill is TRUE, delete dest_index.                                      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define ParentFlush(dest_index, kill)					\
+Xif( prnt_flush )							\
+X{ debug0(DGF,D, "  ParentFlush calling FlushGalley (prnt)");		\
+X  Parent(prnt, Up(dest_index));						\
+X  if( kill )  DeleteNode(dest_index);					\
+X  debug0(DGF, D, "  calling FlushGalley from ParentFlush");		\
+X  FlushGalley(prnt);							\
+X  prnt_flush = FALSE;							\
+X}									\
+Xelse if( kill )  DeleteNode(dest_index)
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  FlushGalley(hd)                                                          */
+X/*                                                                           */
+X/*  Flush galley hd as far as possible.  It could be the root galley.        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFlushGalley(hd)
+XOBJECT hd;
+X{ OBJECT dest;			/* the target galley hd empties into         */
+X  OBJECT dest_index;		/* the index of dest                         */
+X  OBJECT inners;		/* list of galleys and PRECEDES to flush     */
+X  OBJECT link, y;		/* for scanning through the components of hd */
+X
+X  CONSTRAINT dest_constraint;	/* the vertical size constraint on dest      */
+X  int f;			/* candidate replacement value for dest_fwd  */
+X
+X  OBJECT dest_encl;		/* the VCAT enclosing dest, if any           */
+X  int    dest_side;		/* if dest_encl != nil, the side dest is on  */
+X  BOOLEAN need_adjust;		/* TRUE as soon as dest_encl needs adjusting */
+X  LENGTH dest_back, dest_fwd;	/* the current size of dest_encl or dest     */
+X  LENGTH frame_size;		/* the total constraint of dest_encl         */
+X  OBJECT prec_gap;		/* the gap preceding dest, if any, else nil  */
+X  OBJECT prec_def;		/* the component preceding dest, if any      */
+X  OBJECT succ_gap;		/* the gap following dest, if any, else nil  */
+X  OBJECT succ_def;		/* the component following dest, if any      */
+X  OBJECT stop_link;		/* most recently seen gap link of hd         */
+X  BOOLEAN prnt_flush;		/* TRUE when hd's parent needs a flush       */
+X  OBJECT zlink, z, tmp, prnt;
+X
+X  debug1(DGF, D, "[ FlushGalley %s (hd)", SymName(actual(hd)));
+X  prnt_flush = FALSE;
+X
+X  RESUME:
+X  assert( type(hd) == HEAD, "FlushGalley: type(hd) != HEAD!" );
+X  debug1(DGF, D, "  resuming FlushGalley %s, hd =", SymName(actual(hd)));
+X  ifdebug(DGF, DD, EchoObject(stderr, hd));
+X  assert( Up(hd) != hd, "FlushGalley: resume found no parent to hd!" );
+X
+X
+X  /*@@************************************************************************/
+X  /*                                                                         */
+X  /*  The first step is to examine the parent of galley hd to determine the  */
+X  /*  status of the galley.  If this is not suitable for flushing, we do     */
+X  /*  what we can to change the status.  If still no good, return; so if     */
+X  /*  this code does not return, then the galley is ready to flush into a    */
+X  /*  destination in the normal way, and the following variables are set:    */
+X  /*                                                                         */
+X  /*      dest_index     the galley's parent and index of its destination    */
+X  /*      dest           the galley's destination, a @Galley object          */
+X  /*                                                                         */
+X  /***************************************************************************/
+X
+X  Parent(dest_index, Up(hd));
+X  switch( type(dest_index) )
+X  {
+X
+X    case DEAD:
+X    
+X      /* the galley has been killed off while this process was sleeping */
+X      debug1(DGF, D, "] FlushGalley %s returning (DEAD)", SymName(actual(hd)));
+X      debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X      return;
+X
+X
+X    case UNATTACHED:
+X    
+X      /* the galley is currently not attached to a destination */
+X      AttachGalley(hd, &inners);
+X      Parent(dest_index, Up(hd));
+X      if( type(dest_index)!=RECEIVING || actual(actual(dest_index))==InputSym )
+X      {	if( type(dest_index) != DEAD )
+X	{ ParentFlush(dest_index, FALSE);
+X	  if( inners != nil ) FlushInners(inners, nil);
+X	}
+X	debug1(DGF,D,"] FlushGalley %s retn, no attach", SymName(actual(hd)));
+X	debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X	return;
+X      }
+X
+X      /* if hd is a forcing galley, close all predecessors */
+X      if( actual(hd) != nil && force_target(actual(hd)) )
+X      {	Parent(prnt, Up(dest_index));
+X	debug0(DGA, DD, "  force: prnt =");
+X	ifdebug(DGA, DD, EchoObject(stderr, prnt));
+X	debug1(DGA, D,"  calling FreeGalley from FlushGalley(%s)",
+X	  SymName(actual(hd)));
+X	FreeGalley(prnt, Up(dest_index), &inners, Up(dest_index), whereto(hd));
+X	prnt_flush = TRUE;
+X	debug0(DGA, DD, "  force: after FreeGalley, prnt =");
+X	ifdebug(DGA, DD, EchoObject(stderr, prnt));
+X      }
+X      else prnt_flush = prnt_flush || blocked(dest_index);
+X      debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X
+X      if( inners != nil ) FlushInners(inners, nil);
+X      goto RESUME;
+X      break;
+X
+X
+X    case RECEIVING:
+X    
+X      if( actual(actual(dest_index)) == InputSym )
+X      { ParentFlush(dest_index, FALSE);
+X	debug1(DGF, D, "] FlushGalley %s retn, input", SymName(actual(hd)));
+X	debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X	return;
+X      }
+X      break;
+X
+X
+X    default:
+X    
+X      Error(INTERN, &fpos(hd), "FlushGalley: %s ind!", Image(type(dest_index)));
+X      break;
+X  }
+X  dest = actual(dest_index);
+X  debug1(DGF, DD, "  dest_index: %s", EchoObject(null, dest_index));
+X
+X
+X  /*@@************************************************************************/
+X  /*                                                                         */
+X  /*  The second step is to examine the components of the galley one by one  */
+X  /*  to determine if they can be promoted.  Each component has the format   */
+X  /*                                                                         */
+X  /*    { <index> } <object>                                                 */
+X  /*                                                                         */
+X  /*  and is always followed by a gap object (except the last component).    */
+X  /*  An index indicates that the following object has some interesting      */
+X  /*  feature, and it points to that feature inside the object.  There are   */
+X  /*  two possible actions for each component, in addition to accepting it:  */
+X  /*                                                                         */
+X  /*    REJECT:   The component does not fit, so detach the galley           */
+X  /*    SUSPEND:  The component is incomplete; go to sleep and wait          */
+X  /*                                                                         */
+X  /***************************************************************************/
+X
+X  stop_link = dest_encl = inners = nil;
+X  need_adjust = FALSE;
+X
+X  /***************************************************************************/
+X  /*                                                                         */
+X  /*  Loop invariant                                                         */
+X  /*                                                                         */
+X  /*  The children of hd up to but not including Child(link) have been       */
+X  /*  examined and pronounced to be promotable.                              */
+X  /*                                                                         */
+X  /*  stop_link is the link of the most recently encountered gap object of   */
+X  /*  hd, or nil if no gap object has been encountered yet.                  */
+X  /*                                                                         */
+X  /*  if dest_encl is non-nil, then the destination is not external,         */
+X  /*  dest_encl is its parent, and the following variables are defined:      */
+X  /*                                                                         */
+X  /*    prec_gap         gap object preceding dest (which must exist)        */
+X  /*    prec_def         first definite object preceding dest (must exist)   */
+X  /*    dest_back        back(dest_encl) including effect of accepted compts */
+X  /*    dest_fwd         fwd(dest_encl) including effect of accepted compts  */
+X  /*    dest_side        BACK or FWD indicating dest's side of the mark      */
+X  /*    dest_constraint  the size constraint on dest                         */
+X  /*    frame_size       size of frame enclosing dest_encl                   */
+X  /*                                                                         */
+X  /*  if dest_encl is nil, these variables are not defined.                  */
+X  /*                                                                         */
+X  /*  need_adjust is true if at least one definite component has been        */
+X  /*  accepted for promotion and the destination is internal; hence,         */
+X  /*  dest_encl is defined and its size needs to be adjusted.                */
+X  /*                                                                         */
+X  /*  inners is the set of all PRECEDES and UNATTACHED indexes found.        */
+X  /*                                                                         */
+X  /***************************************************************************/
+X
+X  for( link = Down(hd);  link != hd;  link = NextDown(link) )
+X  {
+X    Child(y, link);
+X    if( type(y) == SPLIT )  Child(y, DownDim(y, ROW));
+X    debug1(DGF, DD, "  try to flush %s", EchoObject(null, y));
+X    switch( type(y) )
+X    {
+X
+X      case GAP_OBJ:
+X
+X	prec_gap = y;
+X	stop_link = link;
+X	if( !join(gap(y)) )  seen_nojoin(hd) = TRUE;
+X	break;
+X
+X
+X      case EXPAND_IND:
+X      case GALL_PREC:
+X      case GALL_FOLL:
+X      case GALL_TARG:
+X      case CROSS_PREC:
+X      case CROSS_FOLL:
+X      case CROSS_TARG:
+X
+X	break;
+X
+X
+X      case PRECEDES:
+X      case UNATTACHED:
+X	  
+X	if( inners == nil )  inners = New(ACAT);
+X	Link(inners, y);
+X	break;
+X
+X
+X      case RECEIVING:
+X      case RECEPTIVE:
+X	  
+X	goto SUSPEND;
+X
+X
+X      case FOLLOWS:
+X	  
+X	Child(tmp, Down(y));
+X	if( Up(tmp) == LastUp(tmp) )
+X	{ link = PrevDown(link);
+X	  DisposeChild(NextDown(link));
+X	  break;
+X	}
+X	Parent(tmp, Up(tmp));
+X	assert(type(tmp) == PRECEDES, "Flush: PRECEDES!");
+X	switch( CheckConstraint(tmp, dest_index) )
+X	{
+X	  case CLEAR:	DeleteNode(tmp);
+X			link = PrevDown(link);
+X			DisposeChild(NextDown(link));
+X			break;
+X
+X	  case PROMOTE:	break;
+X
+X	  case BLOCK:	goto SUSPEND;
+X
+X	  case CLOSE:	goto REJECT;
+X	}
+X	break;
+X
+X
+X      case WORD:
+X      case ONE_COL:
+X      case ONE_ROW:
+X      case WIDE:
+X      case HIGH:
+X      case HSCALE:
+X      case VSCALE:
+X      case HCONTRACT:
+X      case VCONTRACT:
+X      case HEXPAND:
+X      case VEXPAND:
+X      case PADJUST:
+X      case HADJUST:
+X      case VADJUST:
+X      case ROTATE:
+X      case SCALE:
+X      case INCGRAPHIC:
+X      case SINCGRAPHIC:
+X      case GRAPHIC:
+X      case ACAT:
+X      case HCAT:
+X      case ROW_THR:
+X      case CLOSURE:
+X      case NULL_CLOS:
+X      case CROSS:
+X
+X	/* make sure y is not joined to a target below */
+X	for( zlink = NextDown(link); zlink != hd; zlink = NextDown(zlink) )
+X	{ Child(z, zlink);
+X	  switch( type(z) )
+X	  {
+X	    case RECEPTIVE:
+X	    case RECEIVING:	y = z;
+X				goto SUSPEND;
+X				break;
+X
+X	    case GAP_OBJ:	if( !join(gap(z)) )  zlink = PrevDown(hd);
+X				break;
+X
+X	    default:		break;
+X	  }
+X	}
+X
+X	/* check size constraint */
+X	if( !external(dest) )
+X	{
+X	  /* initialise dest_encl etc if not done yet */
+X	  if( dest_encl == nil )
+X	  { assert( UpDim(dest,COL) == UpDim(dest,ROW), "FlushG: UpDims!" );
+X	    Parent(dest_encl, NextDown(Up(dest)));
+X	    assert( type(dest_encl) == VCAT, "FlushGalley: dest != VCAT!" );
+X	    SetNeighbours(Up(dest), FALSE, &prec_gap, &prec_def,
+X	      &succ_gap, &succ_def, &dest_side);
+X	    assert(prec_gap != nil || is_indefinite(type(y)),
+X	      "FlushGalley: prec_gap == nil && !is_indefinite(type(y))!" );
+X	    assert(succ_gap == nil, "FlushGalley: succ_gap != nil!" );
+X	    assert(dest_side == FWD || is_indefinite(type(y)),
+X	      "FlushGalley: dest_side != FWD || !is_indefinite(type(y))!");
+X	    dest_back = back(dest_encl, ROW);
+X	    dest_fwd  = fwd(dest_encl, ROW);
+X	    Constrained(dest_encl, &dest_constraint, ROW);
+X	    frame_size = constrained(dest_constraint) ? bfc(dest_constraint) :0;
+X	  }
+X
+X	  if( !is_indefinite(type(y)) )
+X	  { /* calculate effect of adding y to dest */
+X	    f = dest_fwd  + fwd(y, ROW) - fwd(prec_def, ROW) +
+X		  ActualGap(fwd(prec_def, ROW), back(y, ROW),
+X			fwd(y, ROW), &gap(prec_gap), frame_size,
+X			dest_back + dest_fwd - fwd(prec_def, ROW));
+X	    debug3(DGF, DD, "  b,f: %s,%s;   dest_encl: %s",
+X			EchoLength(dest_back), EchoLength(f),
+X			EchoConstraint(&dest_constraint));
+X
+X	    /* check new size against constraint */
+X	    if( !FitsConstraint(dest_back,f,dest_constraint) )
+X	      goto REJECT;
+X	    if( units(gap(prec_gap))==FRAME_UNIT && width(gap(prec_gap)) > FR )
+X	      goto REJECT;
+X
+X	    /* accept component */
+X	    dest_fwd = f;  prec_def = y;
+X	    need_adjust = TRUE;
+X	  }
+X
+X	} /* end if( !external(dest) ) */
+X
+X	/* accept this component into dest */
+X	debug1(DGF, D, "  accept %s", EchoObject(null, y));
+X	prnt_flush = prnt_flush || blocked(dest_index);
+X	debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X	if( inners != nil )
+X	{ Promote(hd, NextDown(link), dest_index);
+X	  if( need_adjust )
+X	  { debug0(DSA, D, "  calling AdjustSize from FlushGalley (ACCEPT)");
+X	    AdjustSize(dest_encl, dest_back, dest_fwd, ROW);
+X	  }
+X	  FlushInners(inners, hd);
+X	  goto RESUME;
+X	}
+X	break;
+X
+X
+X      default:
+X	  
+X	Error(INTERN, &fpos(y), "FlushGalley: %s", Image(type(y)));
+X	break;
+X
+X    } /* end switch */
+X
+X  } /* end for */
+X
+X
+X  /* EMPTY: */
+X
+X    /* galley is now completely accepted; clean up and exit */
+X    debug0(DGF, DD, "  galley empty now");
+X    if( inners != nil )  DisposeObject(inners);
+X    if( Down(hd) != hd )
+X    { Promote(hd, hd, dest_index);
+X      if( need_adjust )
+X      { debug0(DSA, D, "  calling AdjustSize from FlushGalley (EMPTY)");
+X	AdjustSize(dest_encl, dest_back, dest_fwd, ROW);
+X      }
+X    }
+X    DetachGalley(hd);
+X    debug0(DGF, D, "  calling KillGalley from FlushGalley");
+X    KillGalley(hd);
+X    ParentFlush(dest_index, TRUE);
+X    debug1(DGF,D,"] FlushGalley %s returning (emptied).", SymName(actual(hd)));
+X      debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X    return;
+X
+X
+X  REJECT:
+X  
+X    /* reject this component and move to a new dest */
+X    debug1(DGF, D, "  reject %s", EchoObject(null, y));
+X    assert(actual(dest) != PrintSym, "FlushGalley: reject print!");
+X    if( inners != nil )  DisposeObject(inners);
+X    if( stop_link != nil )
+X    { Promote(hd, stop_link, dest_index);
+X      if( need_adjust )
+X      { debug0(DSA, D, "  calling AdjustSize from FlushGalley (REJECT)");
+X	AdjustSize(dest_encl, dest_back, dest_fwd, ROW);
+X      }
+X    }
+X    DetachGalley(hd);
+X    assert( type(dest_index) == RECEIVING, "FlushGalley/REJECT: dest_index!" );
+X    prnt_flush = prnt_flush || blocked(dest_index); /* **** bug fix **** */
+X    DeleteNode(dest_index);
+X    goto RESUME;
+X
+X
+X  SUSPEND:
+X  
+X    /* suspend this component */
+X    debug1(DGF, D, "  suspend %s", EchoObject(null, y));
+X    if( inners != nil )  DisposeObject(inners);
+X    if( stop_link != nil )
+X    { Promote(hd, stop_link, dest_index);
+X      if( need_adjust )
+X      { debug0(DSA, D, "  calling AdjustSize from FlushGalley (SUSPEND)");
+X	AdjustSize(dest_encl, dest_back, dest_fwd, ROW);
+X      }
+X    }
+X
+X    /* check whether external galleys can remove the blockage */
+X    if( type(y) == RECEPTIVE && ready_galls(hd) != nil && AllowCrossDb )
+X    { OBJECT eg, val, index2, hd2, tag, seq, newsym;
+X      BOOLEAN found, gall;  unsigned char newtag[MAX_LINE], newseq[MAX_LINE];
+X
+X      /* get first ready galley in from cross reference database */
+X      Child(eg, Down(ready_galls(hd)));
+X      val = ReadFromFile(eg_fnum(eg), eg_fpos(eg), nil);
+X      if( val == nil ) Error(FATAL, &fpos(y),
+X	"Error in database file %s", FileName(eg_fnum(eg)));
+X      assert( type(val) == CLOSURE, "AttachG: db CLOSURE!" );
+X      index2 = New(UNATTACHED);
+X      hd2 = New(HEAD);
+X      FposCopy(fpos(hd2), fpos(val));
+X      actual(hd2) = actual(val);
+X      backward(hd2) = TargetSymbol(val, &whereto(hd2));
+X      backward(hd2) = sized(hd2) = FALSE;
+X      ready_galls(hd2) = nil;
+X      must_expand(hd2) = TRUE;
+X      Link(index2, hd2);
+X      Link(hd2, val);
+X      Link(Up(y), index2);
+X
+X      /* set up the next ready galley for reading next time */
+X      Child(tag, Down(eg));  Child(seq, LastDown(eg));
+X      do /* skip duplicate seq values */
+X      {	found = DbRetrieveNext(OldCrossDb, &gall, &newsym,
+X		 newtag, newseq, &eg_fnum(eg), &eg_fpos(eg), &eg_cont(eg));
+X	debug2(DGF, D, "  ext gall  found:   %15s  gall:    %15s",
+X			bool(gall), bool(found));
+X	debug2(DGF, D, "  ext gall  new sym: %15s  old sym: %15s",
+X			SymName(newsym), SymName(eg_symbol(eg)));
+X	debug2(DGF, D, "  ext gall  new tag: %15s  old tag: %15s",
+X			newtag, string(tag));
+X	debug2(DGF, D, "  ext gall  new seq: %15s  old seq: %15s",
+X			newseq, string(seq));
+X	if( found )  found = gall && newsym == eg_symbol(eg) &&
+X			strcmp(newtag, string(tag)) == 0;
+X      } while( found && strcmp(newseq, string(seq)) == 0 );
+X      if( found )
+X      {	DisposeChild(Up(tag));
+X	DisposeChild(Up(seq));
+X	tag = MakeWord(newtag, no_fpos);
+X	seq = MakeWord(newseq, no_fpos);
+X	Link(eg, tag);  Link(eg, seq);
+X	debug1(DGF,D, "  another ext gall: into %s", SymName(newsym));
+X      }
+X      else
+X      {	DisposeChild(Up(eg));
+X	debug1(DGF,D, "  last ext gall into ", SymName(eg_symbol(eg)));
+X	if( Down(ready_galls(hd)) == ready_galls(hd) )
+X	{ Dispose(ready_galls(hd));
+X	  ready_galls(hd) = nil;
+X	  debug0(DGF,D, "  all ext galls exhausted");
+X	}
+X      }
+X
+X      /* flush the ready galley found above, and resume */
+X      debug2(DGF, D, "  ext gall FlushGalley (%s into %s)",
+X			SymName(actual(hd2)), SymName(whereto(hd2)));
+X      debug0(DGF, D, "  calling FlushGalley from FlushGalley/SUSPEND");
+X      FlushGalley(hd2);
+X      goto RESUME;
+X    }
+X    else if( type(y) == RECEPTIVE && trigger_externs(y) && AllowCrossDb )
+X    { OBJECT sym, cr, ins, tag, seq, eg, cnt;  BOOLEAN found;
+X      unsigned char newseq[MAX_LINE];  FILE_NUM tfnum;  long tfpos, tcont;
+X      debug1(DGF, D, "  ext gall target %s", SymName(actual(actual(y))));
+X      for( sym = FirstExternTarget(actual(actual(y)), &cnt);
+X	     sym != nil;  sym = NextExternTarget(actual(actual(y)), &cnt) )
+X      {
+X	debug1(DGF, D, "  ext gall gall_targ %s", SymName(sym));
+X	cr = GallTargEval(sym, &fpos(actual(y)));
+X	ins = New(GALL_TARG);
+X	actual(ins) = cr;
+X	Link(Up(y), ins);
+X	Child(tag, LastDown(cr));
+X	assert( type(tag) == WORD, "FlushGalley: cr tag WORD!" );
+X	found = DbRetrieve(OldCrossDb, TRUE, sym, string(tag),
+X		newseq, &tfnum, &tfpos, &tcont);
+X	if( found )
+X	{ if( ready_galls(hd) == nil )  ready_galls(hd) = New(ACAT);
+X	  eg = New(EXT_GALL);
+X	  debug1(DGF, D, "  ext gall retrieved: into %s", SymName(sym));
+X	  eg_fnum(eg) = tfnum;
+X	  eg_fpos(eg) = tfpos;
+X	  eg_symbol(eg) = sym;
+X	  eg_cont(eg) = tcont;
+X	  tag = MakeWord(string(tag), no_fpos);
+X	  Link(eg, tag);
+X	  seq = MakeWord(newseq, no_fpos);
+X	  Link(eg, seq);
+X	  Link(ready_galls(hd), eg);
+X	}
+X      }
+X      trigger_externs(y) = FALSE;
+X      if( ready_galls(hd) != nil )  goto RESUME;
+X    } /* end if external galleys */
+X
+X    /* if non-blocking, delete the index and resume */
+X    if( type(y) == RECEPTIVE && non_blocking(y) )
+X    { DeleteNode(y);
+X      goto RESUME;
+X    }
+X    else if( type(y) == RECEIVING && non_blocking(y) )
+X    {	
+X      if( Down(y) == y )
+X      {	DeleteNode(y);
+X      }
+X      else
+X      {	Child(z, Down(y));
+X	DetachGalley(z);
+X      }
+X      goto RESUME;
+X    }
+X
+X    /* if all the above fail to remove the blockage, suspend */
+X    blocked(y) = TRUE;
+X    ParentFlush(dest_index, FALSE);
+X      debug1(DGF, D, "    prnt_flush = %s", bool(prnt_flush));
+X    debug1(DGF, D, "] FlushGalley %s returning (suspend)", SymName(actual(hd)));
+X    return;
+X
+X} /* end FlushGalley */
+END_OF_FILE
+  if test 22873 -ne `wc -c <'lout/z20.c'`; then
+    echo shar: \"'lout/z20.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z20.c'
+fi
+if test -f 'lout/z24.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z24.c'\"
+else
+  echo shar: Extracting \"'lout/z24.c'\" \(56122 characters\)
+  sed "s/^X//" >'lout/z24.c' <<'END_OF_FILE'
+X/*@z24.c:Back End:FontDefine(), FontChange(), FontAtomSize()@*****************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z24.c                                                      */
+X/*  MODULE:       PostScript Back End                                        */
+X/*  EXTERNS:      PrintInit(), FontStripQuotes(), FontDefine(),              */
+X/*                FontChange(), FontAtomSize(), FontSize(),                  */
+X/*                PrintPrologue(), PrintOriginIncrement(), PrintAtom(),      */
+X/*                PrintClose()                                               */
+X/*                CoordTranslate(), CoordRotate(), CoordScale(),             */
+X/*                SaveGraphicState(), RestoreGraphicState(),                 */
+X/*                DefineGraphicNames, PrintGraphicObject()                   */
+X/*                                                                           */
+X/*  This module implements Lout's PostScript back end, by reading Adobe      */
+X/*  font metrics files (.AFM files, version 2) and writing PostScript.       */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#define DEFAULT_XHEIGHT 500
+X
+X#define printnum(x, fp)							\
+X{ unsigned char buff[20];  register int i, y;				\
+X  if( x < 0 )								\
+X  { y = -x;								\
+X    putc('-', fp);							\
+X  }									\
+X  else y = x;								\
+X  i = 0;								\
+X  do									\
+X  { buff[i++] = (y % 10) + '0';						\
+X  } while( y = y / 10 );						\
+X  do									\
+X  { putc(buff[--i], fp);						\
+X  } while( i );								\
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  FirstChar(str, ch, xfpos)                                                */
+X/*  NextChar(str, ch, xfpos)                                                 */
+X/*                                                                           */
+X/*  FirstChar sets ch to the true (interpreted) value of the first           */
+X/*  character of Lout string str.  NextChar sets ch to the true value of     */
+X/*  the next character, repeatedly.  Both set ch to '\0' at end of string.   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define FirstChar(str, ch, xfpos)	p = str;  NextChar(str, ch, xfpos)
+X
+X#define NextChar(str, ch, xfpos)					\
+X  while( *p == '"' )  p++;						\
+X  if( *p != '\\' )  ch = *p++;						\
+X  else if( *++p >= '0' && *p <= '7' )					\
+X  { int count;								\
+X    count = ch = 0;							\
+X    do									\
+X    { ch = ch * 8 + *p++ - '0';						\
+X      count++;								\
+X    } while( *p >= '0' && *p <= '7' && count < 3 );			\
+X    if( ch == '\0' )  Error(WARN, xfpos, "null character \\0 in word");	\
+X  }									\
+X  else if( *p == '"'  )  ch = '"',  ++p;				\
+X  else if( *p == '\\' )  ch = '\\', ++p;				\
+X  else									\
+X  { Error(WARN, xfpos, "unknown ecape sequence \\%c in word", *p);	\
+X    ch = *p++;								\
+X  }
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  CheckLigature(str, ch, lig)                                              */
+X/*                                                                           */
+X/*  Check whether character ch from string str starts a ligature.  Use lig   */
+X/*  as the source of information about what ligatures there are.  If ch      */
+X/*  does start a ligature, skip it and change ch to the ligature character.  */
+X/*                                                                           */
+X/*  CheckLigature also modifies any ligature it finds to the form \?"""      */
+X/*  where ? denotes the ligature character (assumed to be different from     */
+X/*  the characters which normally may follow a \, i.e. 0123456789"\), and    */
+X/*  " is used to fill up space.                                              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define CheckLigature(str, ch, lig)					\
+X  if( lig[ch] )								\
+X  { unsigned char *a, *b;						\
+X    a = &lig[lig[ch] + MAX_CHARS];					\
+X    debug3(DFT, D, "  CheckLigature(%s, %c, %s)", str, ch, a);		\
+X    while( *a++ == ch )							\
+X    { b = p;								\
+X      debug2(DFT, D, "  checking a = %s, b = %s", a, b);		\
+X      while( *a == *b && *(a+1) != '\0' && *b != '\0' )  a++, b++;	\
+X      if( *(a+1) == '\0' )						\
+X      { *(p-1) = '\\';							\
+X	*p = ch = *a;							\
+X	while( ++p < b ) *p = '"';					\
+X        debug1(DFT, D, "  success: now str = %s", str);			\
+X	break;								\
+X      }									\
+X      else								\
+X      { while( *++a );  a++;						\
+X        debug0(DFT, D, "  failure");					\
+X      }									\
+X    }									\
+X  }
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  FontStripQuotes(str, xfpos)                                              */
+X/*                                                                           */
+X/*  Destructively replace str by its unquoted version.                       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFontStripQuotes(str, xfpos)
+Xunsigned char *str;  FILE_POS *xfpos;
+X{ unsigned char *p, *q;
+X  int ch;
+X  debug1(DFT, D, "FontStripQuotes( %s )", str);
+X  q = str;  FirstChar(str, ch, xfpos);
+X  while( ch != '\0' )
+X  { *q++ = ch;
+X    NextChar(str, ch, xfpos);
+X  }
+X  *q++ = '\0';
+X  debug1(DFT, D, "FontStripQuotes returning, result is %s", str);
+X} /* end FontStripQuotes */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  Definitions for metrics                                                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define	NO_FONT		  0	/* the not-a-font font number                */
+X#define	MAX_CHARS	256	/* maximum number of chars in a font         */
+X#define SZ_DFT	       1000	/* default lout size is 50p                  */
+X
+X#define font_num(x)		word_font(x)
+X#define	font_size(x)		back(x, COL)
+X#define	font_xheight2(x)	fwd(x, COL)
+X
+Xstruct metrics {
+X  LENGTH up;
+X  LENGTH down;
+X  LENGTH left;
+X  LENGTH right;
+X};
+X
+Xstatic struct metrics	*size_table[MAX_FONT];	/* metrics of sized fonts    */
+Xstatic unsigned char	*lig_table[MAX_FONT];	/* ligatures                 */
+Xstatic OBJECT		font_table[MAX_FONT];	/* record of sized fonts     */
+Xstatic OBJECT		font_root;		/* root of tree of fonts     */
+Xstatic FONT_NUM		fontcount;		/* number of sized fonts     */
+X
+Xstatic FILE	*out_fp;		/* output file                       */
+Xstatic short	currentfont;		/* font of most recent atom          */
+Xstatic BOOLEAN	cpexists;		/* true if a current point exists    */
+Xstatic LENGTH	currenty;		/* if cpexists, its y coordinate     */
+Xstatic int	wordcount;		/* atoms printed since last newline  */
+Xstatic int	pagecount;		/* total number of pages printed     */
+Xstatic BOOLEAN	prologue_done;		/* TRUE after prologue is printed    */
+Xstatic OBJECT	needs;			/* Resource needs of included EPSFs  */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  PrintInit(file_ptr)                                                      */
+X/*                                                                           */
+X/*  Initialise this module.  Output is to go to FILE file_ptr.               */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintInit(file_ptr)
+XFILE *file_ptr;
+X{ debug0(DFT, D, "PrintInit()");
+X  out_fp	= file_ptr;
+X  prologue_done	= FALSE;
+X  currentfont	= NO_FONT;
+X  cpexists	= FALSE;
+X  wordcount	= pagecount = 0;
+X  fontcount	= 0;
+X  font_root	= New(ACAT);
+X  needs		= New(ACAT);
+X  debug0(DFT, D, "PrintInit returning.");
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  FontDebug()                        	                                     */
+X/*                                                                           */
+X/*  Print out font tree.                                                     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#if DEBUG_ON
+Xstatic FontDebug()
+X{ OBJECT family, face, filename, link, flink;  int i;
+X  assert( font_root != nil && type(font_root)==ACAT, "FontDebug: font_root!" );
+X  for( link = Down(font_root);  link != font_root;  link = NextDown(link) )
+X  { Child(family, link);
+X    assert( type(family) == WORD, "FontDebug: family!" );
+X    fprintf(stderr, "family %s:\n", string(family));
+X    for( flink = Down(family);  flink != family;  flink = NextDown(flink) )
+X    { Child(face, flink);
+X      assert( type(face) == WORD, "FontDebug: face!" );
+X      fprintf(stderr, "   face %s in file ", string(face));
+X      assert( Down(face) != face, "FontDebug: Down(face)!");
+X      Child(filename, Down(face));
+X      assert( type(filename) == WORD, "FontDebug: filename!" );
+X      fprintf(stderr, "%s\n", string(filename));
+X    }
+X  }
+X  for( i = 1;  i <= fontcount;  i++ )
+X    fprintf(stderr, "  font_table[%d] = %s\n",
+X		i, EchoObject(null, font_table[i]));
+X} /* end FontDebug */
+X#endif
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  FontDefine(family, face, filename) 		                             */
+X/*                                                                           */
+X/*  Insert a font with this family, face and file name into the font tree.   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFontDefine(family, face, filename)
+XOBJECT family, face, filename;
+X{ OBJECT link, y;
+X  debug3(DFT, D, "FontDefine( %s, %s, %s )",
+X	string(family), string(face), string(filename) );
+X
+X  /* insert family into font tree if not already present */
+X  for( link = Down(font_root);  link != font_root;  link = NextDown(link) )
+X  { Child(y, link);
+X    if( strcmp(string(y), string(family)) == 0 )
+X    { Dispose(family);
+X      family = y;
+X      break;
+X    }
+X  }
+X  if( link == font_root )  Link(font_root, family);
+X
+X  /* insert face into family, or error if already present */
+X  for( link = Down(family);  link != family;  link = NextDown(link) )
+X  { Child(y, link);
+X    if( strcmp(string(y), string(face)) == 0 )
+X    { Error(WARN, &fpos(face), "font %s %s already defined at%s",
+X	string(family), string(face), EchoFilePos(&fpos(y)));
+X      debug0(DFT, D, "FontDefine returning: font already defined");
+X      return;
+X    }
+X  }
+X  Link(family, face);
+X
+X  assert( type(filename) == WORD, "FontDefine: filename!" );
+X  Link(face, filename);
+X  Child(filename, Down(face));
+X  assert( type(filename) == WORD, "FontDefine: filename!" );
+X  debug0(DFT, D, "FontDefine returning.");
+X  /* ifdebug(DFT, DD, FontDebug()); */
+X} /* end FontDefine */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  static ReadFont(face, err)                                               */
+X/*                                                                           */
+X/*  Read in a font file.  Object err is used only for error reporting.       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define is_letter(ch) ( ((ch)>='A' && (ch)<='Z') || ((ch)>='a' && (ch)<='z') )
+X
+Xstatic int find_ch(str, char_name)
+Xunsigned char *str;  OBJECT char_name[];
+X{ int i;
+X  for( i = 0;  i < MAX_CHARS;  i++ )
+X    if( char_name[i] != nil && strcmp(string(char_name[i]), str) == 0 )
+X      return i;
+X  return -1;
+X} /* end find_ch */
+X
+Xstatic ReadFont(face, err)
+XOBJECT face, err;
+X{ OBJECT filename, fontname;
+X  unsigned char buff[MAX_LINE], command[MAX_LINE];
+X  int wx, llx, lly, urx, ury, xheight2, ch, i, lnum, offset;
+X  BOOLEAN xhfound, chfound, wxfound, bfound;
+X  FILE *fp;
+X  struct metrics *fnt;
+X  unsigned char *lig;
+X  OBJECT char_name[MAX_CHARS], lig_list[MAX_CHARS];
+X  OBJECT x, y, z, link, zlink;
+X  char *malloc();
+X  assert( type(face) == WORD, "ReadFont: type(face) != WORD!" );
+X  debug1(DFT, DD, "ReadFont( %s, err )", string(face));
+X
+X  /* initialize font number and font_table entries, char_name and lig_list */
+X  if( ++fontcount >= MAX_FONT )
+X     Error(FATAL, &fpos(err), "too many different fonts and sizes (max is %d)",
+X       MAX_FONT - 1);
+X  for( i = 0;  i < MAX_CHARS;  i++ )  char_name[i] = lig_list[i] = nil;
+X
+X  /* open Adobe font metrics (.AFM) file */
+X  assert( Down(face) != face, "ReadFont: filename missing!" );
+X  Child(filename, Down(face));
+X  fp = OpenFile(DefineFile(filename, FONT_FILE, FONT_PATH), FALSE);
+X  if( fp == NULL )  Error(FATAL, &fpos(filename),
+X    "Cannot open font file %s", string(filename));
+X  fnt = (struct metrics *) malloc(MAX_CHARS * sizeof(struct metrics));
+X  if( ( (unsigned char *) fgets(buff, MAX_LINE, fp) ) != buff ||
+X	sscanf(buff, "%s", command) != 1 ||
+X	strcmp(command, "StartFontMetrics") != 0 )
+X  { Error(FATAL, &fpos(filename),
+X      "font file %s does not begin with StartFontMetrics", string(filename));
+X  }
+X
+X  /* read font metrics file */
+X  xhfound = FALSE;  fontname = nil;  lnum = 1;
+X  while ( ( (unsigned char *) fgets(buff, MAX_LINE, fp) ) == buff )
+X  {
+X    lnum++;
+X    sscanf(buff, "%s", command);
+X    switch( command[0] )
+X    {
+X
+X      case 'X':
+X
+X	if( strcmp(command, "XHeight") == 0 ) 
+X	{
+X	  if( xhfound )
+X	  { Error(FATAL, &fpos(filename),
+X	      "XHeight found twice in font file (line %d)", lnum);
+X	  }
+X	  sscanf(buff, "XHeight %d", &xheight2);
+X	  xheight2 = xheight2 / 2;
+X	  xhfound = TRUE;
+X	}
+X	break;
+X
+X
+X      case 'F':
+X
+X	if( strcmp(command, "FontName") == 0 )
+X	{ if( fontname != nil )
+X	  { Error(FATAL, &fpos(filename),
+X	      "FontName found twice in font file %s (line %d)",
+X	      string(filename), lnum);
+X	  }
+X	  sscanf(buff, "FontName %s", command);
+X	  fontname = MakeWord(command, &fpos(filename));
+X	  if( string(fontname)[0] == '\0' )
+X	  { Error(FATAL, &fpos(filename),
+X	      "FontName empty in font file %s (line %d)",
+X	      string(filename), lnum);
+X	  }
+X	}
+X	break;
+X
+X
+X      case 'S':
+X
+X	if( strcmp(command, "StartCharMetrics") == 0 )
+X	{
+X	  if( fontname == nil )  Error(FATAL, &fpos(filename),
+X		"FontName missing in file %s", string(filename));
+X	  if( !xhfound )  xheight2 = DEFAULT_XHEIGHT / 2;
+X	  while( ( (unsigned char *) fgets(buff, MAX_LINE, fp) ) == buff )
+X	  {
+X	    debug1(DFT, DD, "ReadFont reading %s", buff);
+X	    lnum++;
+X	    sscanf(buff, "%s", command);
+X	    if( strcmp(command, "EndCharMetrics") == 0 )
+X	    {
+X	      /* make a new font record and insert into font tree */
+X	      font_size(fontname) = SZ_DFT;
+X	      font_xheight2(fontname) = xheight2;
+X	      font_num(fontname) = fontcount;
+X	      font_table[fontcount] = fontname;
+X	      size_table[fontcount] = fnt;
+X	      Link(face, fontname);
+X
+X	      /* construct ligature table */
+X	      ifdebug(DFT, D,
+X		fprintf(stderr, "Ligatures for font %s\n", string(filename));
+X	        for( i = 0;  i < MAX_CHARS;  i++ )
+X	        { fprintf(stderr, "%3d (%c) %s:\t", i, is_letter(i) ? i : '?',
+X			char_name[i] != nil ? string(char_name[i])
+X					    : (unsigned char *) "<nil>" );
+X		  x = lig_list[i];
+X		  if( x != nil )
+X		  for( link = Down(x);  link != x;  link = NextDown(link) )
+X		  { fprintf(stderr, " L ");
+X		    Child(y, link);
+X		    for( zlink= Down(y);  zlink != y;  zlink = NextDown(zlink) )
+X		    { Child(z, zlink);
+X		      fprintf(stderr, " %s", string(z));
+X		    }
+X		    fprintf(stderr, " ;");
+X		  }
+X		  fprintf(stderr, "\n");
+X	        }
+X	      );
+X	      lig = (unsigned char *) malloc(2*MAX_CHARS);
+X	      if( lig == NULL )  Error(FATAL, &fpos(filename),
+X		"run out of memory reading font file %s", string(filename));
+X	      for( i = 0;  i < MAX_CHARS;  i++ )  lig[i] = 0;
+X	      offset = MAX_CHARS+1;
+X	      for( ch = 0;  ch < MAX_CHARS;  ch++ )
+X	      { if( lig_list[ch] == nil )  continue;
+X		lig[ch] = offset - MAX_CHARS;
+X		for( link = Down(lig_list[ch]);  link != lig_list[ch];  link =
+X			NextDown(link) )
+X		{ lig[offset++] = ch;
+X		  Child(y, link);
+X		  for( zlink = Down(y);  zlink != y;  zlink = NextDown(zlink) )
+X		  { Child(z, zlink);
+X		    if( offset >= 2*MAX_CHARS-3 )  Error(FATAL, &fpos(filename),
+X			"too many ligatures in font file %s", string(filename));
+X		    i = find_ch(string(z), char_name);
+X		    if( i == -1 )  Error(FATAL, &fpos(filename),
+X			"unknown character name %s in font file %s", string(z),
+X			string(filename));
+X		    lig[offset++] = i;
+X		  }
+X		  lig[offset++] = '\0';
+X		}
+X		lig[offset++] = '\0';
+X	      }
+X	      lig_table[fontcount] = lig;
+X
+X	      /* debug and exit */
+X	      fclose(fp);
+X	      for( i = 0;  i < MAX_CHARS;  i++ )
+X	      {	if( char_name[i] != nil )  Dispose(char_name[i]);
+X		if( lig_list[i] != nil )  DisposeObject(lig_list[i]);
+X	      }
+X	      debug4(DFT, D, "ReadFont returning: %d, name %s, fs %d, xh2 %d",
+X		fontcount, string(fontname), font_size(fontname), xheight2);
+X	      return;
+X	    }
+X	    ch = -1;  
+X	    chfound = wxfound = bfound = FALSE;
+X	    i = 0;  while( buff[i] == ' ' )  i++;
+X	    while( buff[i] != '\n' )
+X	    {
+X	      sscanf(&buff[i], "%s", command);
+X	      if( strcmp(command, "C") == 0 )
+X	      {	sscanf(&buff[i], "C %d", &ch);
+X		chfound = TRUE;
+X	      }
+X	      if( strcmp(command, "N") == 0 )
+X	      { if( !chfound )  Error(FATAL, &fpos(filename),
+X		  "N precedes C in font file %s (line %d)",
+X		  string(filename), lnum);
+X		sscanf(&buff[i], "N %s", command);
+X		char_name[ch] = MakeWord(command, no_fpos);
+X	      }
+X	      else if( strcmp(command, "WX") == 0 )
+X	      {	sscanf(&buff[i], "WX %d", &wx);
+X		wxfound = TRUE;
+X	      }
+X	      else if( strcmp(command, "B") == 0 )
+X	      { sscanf(&buff[i], "B %d %d %d %d", &llx, &lly, &urx, &ury);
+X		bfound = TRUE;
+X	      }
+X	      else if( strcmp(command, "L") == 0 )
+X	      { if( !chfound )  Error(FATAL, &fpos(filename),
+X		  "L precedes C in font file %s (line %d)",
+X		  string(filename), lnum);
+X		if( lig_list[ch] == nil )  lig_list[ch] = New(ACAT);
+X		y = New(ACAT);
+X		Link(lig_list[ch], y);
+X		i++; /* skip L */
+X		while( buff[i] == ' ' )  i++;
+X		while( buff[i] != ';' && buff[i] != '\n' )
+X		{ sscanf(&buff[i], "%s", command);
+X		  z = MakeWord(command, no_fpos);
+X		  Link(y, z);
+X		  while( buff[i] != ' ' && buff[i] != ';' )  i++;
+X		  while( buff[i] == ' ' ) i++;
+X		}
+X	      }
+X	      while( buff[i] != ';' && buff[i] != '\n' )  i++;
+X	      if( buff[i] == ';' )
+X	      { i++;  while( buff[i] == ' ' ) i++;
+X	      }
+X	    }
+X	    if( !chfound )
+X	    { Error(FATAL, &fpos(filename),
+X	      "C missing in font file %s (line %d)", string(filename), lnum);
+X	    }
+X	    if( !wxfound )
+X	    { Error(FATAL, &fpos(filename),
+X	     "WX missing in font file %s (line %d)", string(filename), lnum);
+X	    }
+X	    if( !bfound )
+X	    { Error(FATAL, &fpos(filename),
+X	      "B missing in font file %s (line %d)", string(filename), lnum);
+X	    }
+X	    if( ch >= 0 && ch < MAX_CHARS )
+X	    { fnt[ch].left  = llx;
+X	      fnt[ch].down  = lly - xheight2;
+X	      fnt[ch].right = wx;
+X	      fnt[ch].up    = ury - xheight2;
+X	      debug5(DFT, DD, "  fnt[%c] = (%d,%d,%d,%d)", ch, fnt[ch].left,
+X		fnt[ch].down, fnt[ch].right, fnt[ch].up);
+X	    }
+X	  }
+X	  Error(FATAL, &fpos(filename),
+X		"EndCharMetrics missing from font file %s", string(filename));
+X	}
+X	break;
+X
+X
+X      default:
+X
+X	break;
+X
+X    }
+X  }
+X  Error(FATAL, &fpos(filename),
+X	"StartCharMetrics missing from font file %s", string(filename));
+X} /* end ReadFont */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  FontChange(style, x)                                                     */
+X/*                                                                           */
+X/*  Returns an internal font number which is the current font changed        */
+X/*  according to word object x.  e.g. if current font is Roman 12p and x is  */
+X/*  "-3p", then FontChange returns the internal font number of Roman 9p.     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFontChange(style, x)
+XSTYLE *style;  OBJECT x;
+X{ /* register */ int i;
+X  OBJECT par[3], family, face, fsize, y, link, new, old, tmpf;
+X  GAP gp;  LENGTH flen;  int num, c;  unsigned inc;
+X  struct metrics *newfnt, *oldfnt;  char *malloc();
+X  debug2(DFT, D, "FontChange( %s, %s )", EchoStyle(style), EchoObject(null, x));
+X  assert( font(*style)>=0 && font(*style)<=fontcount, "FontChange: fontcount!");
+X  /* ifdebug(DFT, DD, FontDebug()); */
+X
+X  /* set par[0..num-1] to the 1, 2 or 3 parameters of the font operator */
+X  num = 0;
+X  if( type(x) == WORD )
+X  { par[num++] = x;
+X    FontStripQuotes(string(x), &fpos(x));
+X  }
+X  else if( type(x) == ACAT )
+X  { for( link = Down(x);  link != x;  link = NextDown(link) )
+X    { Child(y, link);
+X      debug1(DFT, DD, "  pars examining y = %s", EchoObject(null, y));
+X      if( type(y) == GAP_OBJ )  continue;
+X      if( type(y) != WORD || num >= 3 )
+X      {	Error(WARN, &fpos(x), "error in left parameter of %s", KW_FONT);
+X	debug0(DFT, D, "FontChange returning: ACAT children");
+X	return;
+X      }
+X      par[num++] = y;
+X      FontStripQuotes(string(y), &fpos(x));
+X    }
+X  }
+X  else
+X  { Error(WARN, &fpos(x), "error in left parameter of %s", KW_FONT);
+X    debug0(DFT, D, "FontChange returning: wrong type");
+X    return;
+X  }
+X  debug1(DFT, DD, " found pars, num = %d", num);
+X
+X  /* extract fsize parameter, if any */
+X  assert( num >= 1 && num <= 3, "FontChange: num!" );
+X  c = string(par[num-1])[0];
+X  if( c == '+' || c == '-' || (c >= '0' && c <= '9') )
+X  { fsize = par[num-1];  num--;
+X  }
+X  else fsize = nil;
+X
+X  /* check for initial font case: must have family, face, and size */
+X  if( font(*style) == NO_FONT && (fsize == nil || num < 2) )
+X    Error(FATAL, &fpos(x), "initial font must have family, face and size");
+X
+X  /* get font family */
+X  if( num == 2 )
+X  {
+X    /* par[0] contains a new family name */
+X    for( link = Down(font_root);  link != font_root;  link = NextDown(link) )
+X    { Child(family, link);
+X      if( strcmp(string(family), string(par[0])) == 0 )  break;
+X    }
+X    if( link == font_root )
+X    { Error(WARN,&fpos(par[0]), "font family %s not defined", string(par[0]));
+X      return;
+X    }
+X  }
+X  else
+X  { /* preserve current family */
+X    assert( Up(font_table[font(*style)]) != font_table[font(*style)],
+X      "FontChange: Up(font_table[font(*style)]) !" );
+X    Parent(face, Up(font_table[font(*style)]));
+X    assert( type(face) == WORD, "FontChange: type(face)!" );
+X    assert( Up(face) != face, "FontChange: Up(face)!" );
+X    Parent(family, Up(face));
+X    assert( type(family) == WORD, "FontChange: type(family)!" );
+X  }
+X
+X  /* get font face */
+X  if( num != 0 )
+X  {
+X    /* par[num-1] contains a new face name */
+X    for( link = Down(family);  link != family;  link = NextDown(link) )
+X    { Child(face, link);
+X      if( strcmp(string(face), string(par[num-1])) == 0 )  break;
+X    }
+X    if( link == family )
+X    {
+X      /* missing face name; first check whether a family name was intended */
+X      for( link = Down(font_root);  link != font_root;  link = NextDown(link) )
+X      {	Child(tmpf, link);
+X	if( strcmp(string(tmpf), string(par[num-1])) == 0 )  break;
+X      }
+X      if( font_root == Down(font_root) )
+X      {	Error(FATAL, &fpos(par[num-1]), "there are no fonts");
+X      }
+X      else if( link != font_root )
+X      {	Error(WARN, &fpos(par[num-1]),
+X	    "font family name %s must be accompanied by a face name",
+X	    string(par[num-1]));
+X      }
+X      else Error(WARN, &fpos(par[num-1]),
+X	    "font face name %s not defined in font family %s",
+X		string(par[num-1]), string(family));
+X      return;
+X    }
+X  }
+X  else
+X  {
+X    /* preserve current face name */
+X    Parent(face, Up(font_table[font(*style)]));
+X    assert( type(face) == WORD, "FontChange: type(face)!" );
+X    assert( Up(face) != face, "FontChange: Up(face)!" );
+X  }
+X
+X  /* get font size */
+X  if( fsize == nil )  flen = font_size(font_table[font(*style)]);
+X  else 
+X  { GetGap(fsize, style, &gp, &inc);
+X    if( inc == ABS )  flen = width(gp);
+X    else if( font(*style) == NO_FONT )
+X      Error(FATAL, &fpos(fsize), "no font encloses this %s", string(fsize));
+X    else if( inc==INC )  flen = font_size(font_table[font(*style)])+width(gp);
+X    else if( inc==DEC )  flen = font_size(font_table[font(*style)])-width(gp);
+X    else Error(INTERN, &fpos(x), "GetGap returned inc = %d!", inc);
+X  }
+X
+X  if( flen <= 0 )
+X  { Error(WARN, &fpos(fsize), "%s %s ignored: result is not positive",
+X      string(fsize), KW_FONT);
+X    return;
+X  }
+X
+X  /* if the font file has not been read before, read it now */
+X  assert( Down(face) != face && type(Down(face)) == LINK, "FontChange: dn!" );
+X  if( Down(face) == LastDown(face) )  ReadFont(face, x);
+X  assert( Down(face) != LastDown(face), "FontChange: after ReadFont!" );
+X
+X  /* search fonts of face for desired size; return if already present */
+X  for( link = NextDown(Down(face));  link != face;  link = NextDown(link) )
+X  { Child(fsize, link);
+X    if( font_size(fsize) == flen )
+X    { font(*style) = font_num(fsize);
+X      SetGap( space_gap(*style), FALSE, TRUE, FIXED_UNIT, EDGE_MODE,
+X			size_table[font_num(fsize)][' '].right);
+X      debug2(DFT, D,"FontChange returning (old) %d (XHeight2 = %d)",
+X			font(*style), font_xheight2(font_table[font(*style)]));
+X      return;
+X    }
+X  }
+X
+X  /* insert new sized font record into tree */
+X  if( ++fontcount >= MAX_FONT )
+X    Error(FATAL, &fpos(x), "too many different fonts and sizes (max is %d)",
+X      MAX_FONT - 1);
+X  assert( Down(face) != face && NextDown(Down(face)) != face, "FontChange!!" );
+X  Child(old, NextDown(Down(face)));
+X  assert( type(old) == WORD, "FontChange: old!" );
+X  new = MakeWord(string(old), no_fpos);
+X  Link(face, new);
+X  font_size(new)        = flen;
+X  font_xheight2(new)    = font_xheight2(old) * font_size(new) / font_size(old);
+X  font_num(new)         = fontcount;
+X  font_table[fontcount] = new;
+X  size_table[fontcount] =
+X	(struct metrics *) malloc(MAX_CHARS * sizeof(struct metrics));
+X  lig_table[fontcount]  = (unsigned char *) malloc(2*MAX_CHARS);
+X
+X  /* scale old font to new size */
+X  newfnt = size_table[font_num(new)];
+X  oldfnt = size_table[font_num(old)];
+X  for( i = 0;  i < MAX_CHARS;  i++ )
+X  { newfnt[i].left  = (oldfnt[i].left  * font_size(new)) / font_size(old);
+X    newfnt[i].right = (oldfnt[i].right * font_size(new)) / font_size(old);
+X    newfnt[i].down  = (oldfnt[i].down  * font_size(new)) / font_size(old);
+X    newfnt[i].up    = (oldfnt[i].up    * font_size(new)) / font_size(old);
+X  }
+X  for( i = 0;  i < 2*MAX_CHARS;  i++ )
+X    lig_table[font_num(new)][i] = lig_table[font_num(old)][i];
+X
+X  /* return new font number and exit */
+X  font(*style) = fontcount;
+X  SetGap( space_gap(*style), FALSE, TRUE, FIXED_UNIT, EDGE_MODE,
+X    size_table[fontcount][' '].right);
+X  debug2(DFT, D,"FontChange returning (scaled) %d (XHeight2 = %d)",
+X    font(*style), font_xheight2(font_table[font(*style)]));
+X  /* FontDebug(); */
+X} /* end FontChange */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  FontAtomSize(x)                                                          */
+X/*                                                                           */
+X/*  Set the horizontal and vertical sizes of literal atom x.                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XFontAtomSize(x)
+XOBJECT x;
+X{ 
+X  /* register */ unsigned char *p;
+X  /* register */ int r, u, d, ch, newch;
+X  struct metrics *fnt;  unsigned char *lig;
+X
+X  debug2(DFT, D, "FontAtomSize( %s ), font = %d", string(x), word_font(x));
+X  FirstChar(string(x), ch, &fpos(x));
+X  debug1(DFT, DDD, "  ch = %d", ch);
+X  if( ch == '\0' )
+X  { back(x, COL) = fwd(x, COL) = 0;
+X    back(x, ROW) = fwd(x, ROW) = 0;
+X  }
+X  else
+X  { if ( word_font(x) < 1 || word_font(x) > fontcount )
+X      Error(FATAL, &fpos(x), "%s operator missing, word is %s",
+X	KW_FONT, string(x));
+X    fnt = size_table[word_font(x)];
+X    lig = lig_table[word_font(x)];
+X    CheckLigature(string(x), ch, lig);
+X    d = fnt[ch].down;
+X    u = fnt[ch].up;
+X    r = fnt[ch].right;
+X    NextChar(string(x), ch, &fpos(x));
+X    CheckLigature(string(x), ch, lig);
+X    debug1(DFT, DDD, "  ch = %d", ch);
+X    while( ch )
+X    { if( fnt[ch].up   > u )  u = fnt[ch].up;
+X      if( fnt[ch].down < d )  d = fnt[ch].down;
+X      r += fnt[ch].right;
+X      NextChar(string(x), ch, &fpos(x));
+X      CheckLigature(string(x), ch, lig);
+X      debug1(DFT, DDD, "  ch = %d", ch);
+X    }
+X    back(x, COL) = 0;
+X    fwd(x, COL)  = max(r, 0);
+X    back(x, ROW) = max(u, 0);
+X    fwd(x, ROW)  = max(-d, 0);
+X  } 
+X  debug4(DFT, D, "FontAtomSize returning %hd %hd %hd %hd",
+X	  back(x, COL), fwd(x, COL), back(x, ROW), fwd(x, ROW));
+X} /* end FontAtomSize */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  LENGTH FontSize(fnum, x)                                                 */
+X/*                                                                           */
+X/*  Return the size of this font.  x is for error messages only.             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XLENGTH FontSize(fnum, x)
+XFONT_NUM fnum;  OBJECT x;
+X{
+X  debug1(DFT, D, "FontSize( %d )", fnum);
+X  assert( fnum <= fontcount, "FontSize!" );
+X  if( fnum <= 0 )  Error(FATAL, &fpos(x), "no current font at this point");
+X  debug1(DFT, D, "FontSize returning %d", font_size(font_table[fnum]));
+X  return font_size(font_table[fnum]);
+X} /* end FontSize */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  PrintPrologue(h, v)                                                      */
+X/*                                                                           */
+X/*  Generate the standard PostScript prologue, augmented with any @Prologue  */
+X/*  or @SysPrologue files specified by the user.                             */
+X/*  The first non-empty page has width h and height v in Lout units.         */
+X/*  The following PostScript operators are defined:                          */
+X/*                                                                           */
+X/*      scale_factor  fnt       scale and set font                           */
+X/*      x_coordinate  x         move to x_coordinate, current y coordinate   */
+X/*      string        s         show string                                  */
+X/*      number        in        result is number inches                      */
+X/*      number        cm        result is number centimetres                 */
+X/*      number        pt        result is number points                      */
+X/*      number        sp        result is number spaces                      */
+X/*      number        vs        result is number v's                         */
+X/*      number        ft        result is number font-sizes                  */
+X/*                                                                           */
+X/*  as well as loutgr, for use with Lout's @Graphic operator:                */
+X/*                                                                           */
+X/*      xsize ysize xmark ymark fr vs sp loutgr -                            */
+X/*                                                                           */
+X/*  Define xmark, ymark, xsize, ysize to be the positions of                 */
+X/*  these features of x, and define symbols ft, vs and sp                    */
+X/*  to be the current font size, line separation, and space width.           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintPrologue(h, v)
+XLENGTH h, v;
+X{ FILE_NUM fnum;
+X  debug2(DGP, DD, "PrintPrologue: v = %d   h = %d", v, h);
+X
+X  /* print header comments for PostScript DSC 3.0 output */
+X  if( Encapsulated )
+X    fprintf(out_fp, "%%%!PS-Adobe-3.0 EPSF-3.0\n");
+X  else
+X    fprintf(out_fp, "%%%!PS-Adobe-3.0\n");
+X  fprintf(out_fp, "%%%%Creator: %s\n", LOUT_VERSION);
+X  fprintf(out_fp, "%%%%CreationDate: %s", TimeString());
+X  fprintf(out_fp, "%%%%DocumentNeededResources: (atend)\n");
+X  fprintf(out_fp, "%%%%Pages: (atend)\n");
+X  fprintf(out_fp, "%%%%BoundingBox: 0 0 %d %d\n", h/PT, v/PT);
+X  fprintf(out_fp, "%%%%EndComments\n");
+X
+X  /* print procedure definitions part of header */
+X  fprintf(out_fp, "%%%%BeginProlog\n");
+X  fprintf(out_fp, "%%%%BeginResource: procset LoutStartUp\n");
+X  fprintf(out_fp, "/fnt { exch findfont exch scalefont setfont } def\n");
+X  fprintf(out_fp, "/x { currentpoint exch pop moveto } def\n");
+X  fprintf(out_fp, "/s { show } def\n");
+X  fprintf(out_fp, "/in { %d mul } def\n", IN);
+X  fprintf(out_fp, "/cm { %d mul } def\n", CM);
+X  fprintf(out_fp, "/pt { %d mul } def\n", PT);
+X  fprintf(out_fp, "/em { %d mul } def\n", EM);
+X  fprintf(out_fp, "/sp { louts mul } def\n");
+X  fprintf(out_fp, "/vs { loutv mul } def\n");
+X  fprintf(out_fp, "/ft { loutf mul } def\n");
+X  fprintf(out_fp, "/dg {           } def\n");
+X
+X  fputs("/loutgr {\n",						out_fp);
+X  fputs("  /louts exch def\n",					out_fp);
+X  fputs("  /loutv exch def\n",					out_fp);
+X  fputs("  /loutf exch def\n",					out_fp);
+X  fputs("  /ymark exch def\n",					out_fp);
+X  fputs("  /xmark exch def\n",					out_fp);
+X  fputs("  /ysize exch def\n",					out_fp);
+X  fputs("  /xsize exch def\n} def\n",				out_fp);
+X
+X  /* print definitions used by Lout output when including EPSF files */
+X  /* copied from PostScript Language Reference Manual (2nd Ed.), page 726 */
+X  fputs("/BeginEPSF {\n",					out_fp);
+X  fputs("  /LoutEPSFState save def\n",				out_fp);
+X  fputs("  /dict_count countdictstack def\n",			out_fp);
+X  fputs("  /op_count count 1 sub def\n",			out_fp);
+X  fputs("  userdict begin\n",					out_fp);
+X  fputs("  /showpage { } def\n",				out_fp);
+X  fputs("  0 setgray 0 setlinecap\n",				out_fp);
+X  fputs("  1 setlinewidth 0 setlinejoin\n",			out_fp);
+X  fputs("  10 setmiterlimit [] 0 setdash newpath\n",		out_fp);
+X  fputs("  /languagelevel where\n",				out_fp);
+X  fputs("  { pop languagelevel\n",				out_fp);
+X  fputs("    1 ne\n",						out_fp);
+X  fputs("    { false setstrokeadjust false setoverprint\n",	out_fp);
+X  fputs("    } if\n",						out_fp);
+X  fputs("  } if\n",						out_fp);
+X  fputs("} bind def\n",						out_fp);
+X
+X  fputs("/EndEPSF {\n",						out_fp);
+X  fputs("  count op_count sub { pop } repeat\n",		out_fp);
+X  fputs("  countdictstack dict_count sub { end } repeat\n",	out_fp);
+X  fputs("  LoutEPSFState restore\n",				out_fp);
+X  fputs("} bind def\n",						out_fp);
+X
+X  fputs("%%EndResource\n",					out_fp);
+X
+X  /* print prepend files (assumed to be organized as DSC 3.0 Resources) */
+X  for( fnum=FirstFile(PREPEND_FILE);  fnum != NO_FILE;  fnum=NextFile(fnum) )
+X  { char buff[MAX_LINE];  FILE *fp;
+X    if( (fp = OpenFile(fnum, FALSE)) == null )
+X      Error(WARN, PosOfFile(fnum), "cannot open %s file %s",
+X	KW_PREPEND, FileName(fnum));
+X    else if( fgets(buff, MAX_LINE, fp) == NULL )
+X      Error(WARN, PosOfFile(fnum), "%s file %s is empty",
+X	KW_PREPEND, FileName(fnum));
+X    else
+X    {
+X      if( !StringBeginsWith(buff, "%%BeginResource:") )
+X	Error(WARN, PosOfFile(fnum),
+X	  "%s file %s lacks PostScript DSC 3.0 \"%%%%BeginResource:\" comment",
+X	  KW_PREPEND, FileName(fnum));
+X      fputs(buff, out_fp);
+X      fprintf(out_fp, "\n%% %s file %s\n", KW_PREPEND, FileName(fnum));
+X      while( fgets(buff, MAX_LINE, fp) != NULL )  fputs(buff, out_fp);
+X    }
+X  }
+X
+X  fputs("\n%%EndProlog\n\n", out_fp);
+X  fprintf(out_fp, "%%%%Page: ? %d\n", ++pagecount);
+X  fprintf(out_fp, "%%%%BeginPageSetup\n");
+X  fprintf(out_fp, "%.4f dup scale %d setlinewidth\n", 1.0 / PT, PT/2);
+X  fprintf(out_fp, "/pgsave save def\n");
+X  fprintf(out_fp, "%%%%EndPageSetup\n");
+X  prologue_done = TRUE;
+X} /* end PrintPrologue */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  PrintOriginIncrement(y)                                                  */
+X/*                                                                           */
+X/*  Move current vertical origin down by y.                                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintOriginIncrement(y)
+XLENGTH y;
+X{ debug1(DGP, D, "PrintOriginIncrement( %d )", y );
+X  fprintf(out_fp, "\npgsave restore\nshowpage\n");
+X  cpexists = FALSE;
+X  currentfont = NO_FONT;
+X  if( Encapsulated )
+X  { PrintClose();
+X    Error(FATAL, no_fpos, "truncating -EPS document at end of first page");
+X  }
+X  fprintf(out_fp, "\n%%%%Page: ? %d\n", ++pagecount);
+X  fprintf(out_fp, "%%%%BeginPageSetup\n");
+X  fprintf(out_fp, "%.4f dup scale %d setlinewidth\n", 1.0 / PT, PT/2);
+X  fprintf(out_fp, "/pgsave save def\n");
+X  fprintf(out_fp, "%%%%EndPageSetup\n");
+X  wordcount = 0;
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  PrintAtom(x, hpos, vpos)                                                 */
+X/*                                                                           */
+X/*  Print word x; its marks cross at the point (hpos, vpos).                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintAtom(x, hpos, vpos)
+XOBJECT x;  int hpos, vpos;
+X{ unsigned char *p;
+X
+X  debug4(DGP, DD, "PrintAtom( %s, %d, %d ) font %d", string(x),
+X	hpos, vpos, word_font(x));
+X
+X  /* if font is different to previous word then print change */
+X  if (word_font(x) != currentfont)
+X  { currentfont = word_font(x);
+X    assert( type(font_table[currentfont])==WORD, "PrintAtom: font_table!" );
+X    if( string(font_table[currentfont])[0] == '\0' )
+X    { Error(INTERN, &fpos(font_table[currentfont]),
+X	"font bug: font %d, addr %d, string addr %d (hex 0x%x)",
+X	currentfont, font_table[currentfont],
+X	string(font_table[currentfont]), string(font_table[currentfont]));
+X    }
+X    fprintf(out_fp, "\n/%s %hd fnt\n",
+X      string(font_table[currentfont]), font_size(font_table[currentfont]));
+X  }
+X
+X  /* move to coordinate of x */
+X  debug1(DGP, DDD, "  xheight2 = %d", font_xheight2(font_table[currentfont]));
+X  vpos = vpos - font_xheight2(font_table[currentfont]);
+X  if( cpexists && currenty == vpos )
+X  { printnum(hpos, out_fp);
+X    fputs(" x", out_fp);
+X  }
+X  else
+X  { currenty = vpos;
+X    printnum(hpos, out_fp);
+X    putc(' ', out_fp);
+X    printnum(currenty, out_fp);
+X    fputs(" moveto", out_fp);
+X    cpexists = TRUE;
+X  }
+X
+X  /* show string(x) */
+X  putc('(', out_fp);
+X  p = string(x);
+X  while( *p != '\0' )  switch( *p )
+X  {
+X    case '"':	p++;
+X		break;
+X
+X    case '\\':	switch( *++p )
+X		{
+X		  case '\0':	break;
+X      
+X		  case '"':	putc(*p++, out_fp);
+X				break;
+X
+X		  case '\\':
+X		  case '0':
+X		  case '1':
+X		  case '2':
+X		  case '3':
+X		  case '4':
+X		  case '5':
+X		  case '6':
+X		  case '7':	putc('\\', out_fp);
+X				putc(*p++,   out_fp);
+X				break;
+X
+X		  default:	/* denotes print in octal e.g. ligature */
+X				putc('\\', out_fp);
+X				fprintf(out_fp, "%03o", *p++);
+X		}
+X		break;
+X
+X    case '(':	
+X    case ')':	putc('\\', out_fp);
+X		putc(*p++, out_fp);
+X		break;
+X
+X    default:	putc(*p++, out_fp);
+X		break;
+X  }
+X  if( ++wordcount >= 5 )
+X  { fputs(")s\n", out_fp);  wordcount = 0;
+X  }
+X  else fputs(")s ", out_fp);
+X
+X  debug0(DGP, DDD, "PrintAtom returning");
+X} /* end PrintAtom */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  PrintClose()                                                             */
+X/*                                                                           */
+X/*  Clean up this module and close output stream.                            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintClose()
+X{ OBJECT family, face, x, link, flink;  BOOLEAN first_need;
+X  if( prologue_done )
+X  { fprintf(out_fp, "\npgsave restore\nshowpage\n");
+X    fprintf(out_fp, "%%%%Trailer\n");
+X
+X    /* print document fonts line */
+X    /* *** obsolete DSC 1.0 version
+X    fprintf(out_fp, "%%%%DocumentFonts:");
+X    for( link = Down(font_root); link != font_root; link = NextDown(link) )
+X    { Child(family, link);
+X      for( flink = Down(family);  flink != family;  flink = NextDown(flink) )
+X      {	Child(face, flink);
+X	if( LastDown(face) != Down(face) )
+X	{ Child(x, LastDown(face));
+X	  fprintf(out_fp, " %s", string(x));
+X	}
+X      }
+X    }
+X    fprintf(out_fp, "\n");
+X    *** */
+X
+X    /* print resource requirements (DSC 3.0 version) - fonts */
+X    first_need = TRUE;
+X    for( link = Down(font_root); link != font_root; link = NextDown(link) )
+X    { Child(family, link);
+X      for( flink = Down(family);  flink != family;  flink = NextDown(flink) )
+X      { Child(face, flink);
+X	if( LastDown(face) != Down(face) )
+X	{ Child(x, LastDown(face));
+X	  fprintf(out_fp, "%s font %s\n",
+X	    first_need ? "%%DocumentNeededResources:" : "%%+", string(x));
+X	  first_need = FALSE;
+X	}
+X      }
+X    }
+X
+X    /* print resource requirements (DSC 3.0 version) - included EPSFs  */
+X    for( link = Down(needs); link != needs; link = NextDown(link) )
+X    { Child(x, link);
+X      assert(type(x) == WORD, "PrintClose: needs!" );
+X      fprintf(out_fp, "%s %s",
+X	first_need ? "%%DocumentNeededResources:" : "%%+", string(x));
+X      first_need = FALSE;
+X    }
+X
+X    fprintf(out_fp, "%%%%Pages: %d\n", pagecount);
+X    fprintf(out_fp, "%%%%EOF\n");
+X  }
+X  DisposeObject(font_root);
+X} /* end PrintClose */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  CoordTranslate(xdist, ydist)                                             */
+X/*                                                                           */
+X/*  Translate coordinate system by the given x and y distances.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XCoordTranslate(xdist, ydist)
+XLENGTH xdist, ydist;
+X{ debug2(DRS,D,"CoordTranslate(%s, %s)",
+X    EchoLength(xdist), EchoLength(ydist));
+X  fprintf(out_fp, "%d %d translate\n", xdist, ydist);
+X  cpexists = FALSE;
+X  currentfont = NO_FONT;
+X  debug0(DRS, D, "CoordTranslate returning.");
+X} /* end CoordTranslate */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  CoordRotate(amount)                                                      */
+X/*                                                                           */
+X/*  Rotate coordinate system by given amount (in internal DG units)          */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XCoordRotate(amount)
+XLENGTH amount;
+X{ debug1(DRS, D, "CoordRotate(%.1f degrees)", (float) amount / DG);
+X  fprintf(out_fp, "%.4f rotate\n", (float) amount / DG);
+X  cpexists = FALSE;
+X  currentfont = NO_FONT;
+X  debug0(DRS, D, "CoordRotate returning.");
+X} /* end CoordRotate */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  CoordScale(ratio, dim)                                                   */
+X/*                                                                           */
+X/*  Scale coordinate system by ratio in the given dimension.                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XCoordScale(hfactor, vfactor)
+Xfloat hfactor, vfactor;
+X{ unsigned char buff[20];
+X  ifdebug(DRS, D, sprintf(buff, "%.3f, %.3f", hfactor, vfactor));
+X  debug1(DRS, D, "CoordScale(%s)", buff);
+X  fprintf(out_fp, "%.4f %.4f scale\n", hfactor, vfactor);
+X  cpexists = FALSE;
+X  currentfont = NO_FONT;
+X  debug0(DRS, D, "CoordScale returning.");
+X} /* end CoordScale */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  SaveGraphicState()                                                       */
+X/*                                                                           */
+X/*  Save current coord system on stack for later restoration.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XSaveGraphicState()
+X{ debug0(DRS, D, "SaveGraphicState()");
+X  fprintf(out_fp, "gsave\n");
+X  debug0(DRS, D, "SaveGraphicState returning.");
+X} /* end SaveGraphicState */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  RestoreGraphicState()                                                    */
+X/*                                                                           */
+X/*  Restore previously saved coordinate system.  NB we normally assume that  */
+X/*  no white space is needed before any item of output, but since this       */
+X/*  procedure is sometimes called immediately after PrintGraphicObject(),    */
+X/*  which does not append a concluding space, we prepend one here.           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XRestoreGraphicState()
+X{ debug0(DRS, D, "RestoreGraphicState()");
+X  fprintf(out_fp, "\ngrestore\n");
+X  cpexists = FALSE;
+X  currentfont = NO_FONT;
+X  debug0(DRS, D, "RestoreGraphicState returning.");
+X} /* end RestoreGraphicState */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  PrintGraphicObject(x)                                                    */
+X/*                                                                           */
+X/*  Print object x on out_fp                                                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XPrintGraphicObject(x)
+XOBJECT x;
+X{ OBJECT y, link;  unsigned char *p;
+X  switch( type(x) )
+X  {
+X    case WORD:
+X    
+X      for( p = string(x);  *p != '\0';  p++ )
+X      {	if( *p == '"' )
+X	  continue;
+X	else if( *p != '\\' )
+X	  putc(*p, out_fp);
+X	else if( *++p != '\0' )
+X	{ putc('\\', out_fp);
+X	  putc(*p, out_fp);
+X	}
+X      }
+X      break;
+X	
+X
+X    case ACAT:
+X    
+X      for( link = Down(x);  link != x;  link = NextDown(link) )
+X      {	Child(y, link);
+X	if( type(y) == GAP_OBJ )
+X	{ if( vspace(y) > 0 )  putc('\n', out_fp);
+X	  else if( hspace(y) > 0 ) putc(' ', out_fp);
+X	}
+X	else if( type(y) == WORD || type(y) == ACAT )  PrintGraphicObject(y);
+X	else if( type(y) != WIDE && !is_index(type(y)) )
+X		/* @Wide, indexes are sometimes inserted by Manifest */
+X	{ Error(WARN, &fpos(x), "error in left parameter of %s", KW_GRAPHIC);
+X	  debug1(DGP, D, "  type(y) = %s, y =", Image(type(y)));
+X	  ifdebug(DGP, D, EchoObject(stderr, y));
+X	}
+X      }
+X      break;
+X
+X
+X    default:
+X    
+X      Error(WARN, &fpos(x), "error in left parameter of %s", KW_GRAPHIC);
+X      debug1(DGP, D, "  type(x) = %s, x =", Image(type(x)));
+X      ifdebug(DGP, D, EchoObject(stderr, x));
+X      break;
+X  }
+X} /* end PrintGraphicObject */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DefineGraphicNames(x)                                                    */
+X/*                                                                           */
+X/*  Generate PostScript for xsize, ysize etc. names of graphic object.       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XDefineGraphicNames(x)
+XOBJECT x;
+X{ OBJECT y;
+X  assert( type(x) == GRAPHIC, "PrintGraphic: type(x) != GRAPHIC!" );
+X  debug1(DRS, D, "DefineGraphicNames( %s )", EchoObject(null, x));
+X  debug1(DRS, DD, "  style = %s", EchoStyle(&save_style(x)));
+X
+X  fprintf(out_fp, "%d %d %d %d %d %d %d loutgr\n",
+X    size(x, COL), size(x, ROW), back(x, COL), fwd(x, ROW),
+X    font(save_style(x)) <= 0 ? 12*PT : FontSize(font(save_style(x)), x),
+X    width(line_gap(save_style(x))), width(space_gap(save_style(x))));
+X
+X  debug0(DRS, D, "DefineGraphicNames returning.");
+X} /* end DefineGraphicNames */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  PrintGraphicInclude(x, colmark, rowmark)                                 */
+X/*                                                                           */
+X/*  Print graphic include file, with appropriate surrounds.  This code       */
+X/*  closely follows the PostScript Language Reference Manual, 2n ed.,        */
+X/*  pages 733-5, except we don't clip the included EPSF.                     */
+X/*                                                                           */
+X/*  Note to porters: Version 3.0 of the EPSF standard is not compatible      */
+X/*  with previous versions.  Thus, Lout's output may crash your system.      */
+X/*  If you can find out which comment line(s) are causing the trouble,       */
+X/*  you can add to procedure strip_out to strip them out during the          */
+X/*  file inclusion step.  e.g. on my system %%EOF causes problems, so I      */
+X/*  strip it out.                                                            */
+X/*                                                                           */
+X/*****************************************************************************/
+X#define	SKIPPING	0
+X#define	READING_DNR	1
+X#define FINISHED	2
+X
+Xstatic BOOLEAN strip_out(buff)
+Xunsigned char *buff;
+X{ if( StringBeginsWith(buff, "%%EOF") )  return TRUE;
+X  return FALSE;
+X} /* end strip_out */
+X
+XPrintGraphicInclude(x, colmark, rowmark)
+XOBJECT x; LENGTH colmark, rowmark;
+X{ OBJECT y, full_name;  unsigned char buff[MAX_LINE];
+X  FILE *fp;  int state;
+X  debug0(DRS, D, "PrintGraphicInclude(x)");
+X  assert(type(x)==INCGRAPHIC || type(x)==SINCGRAPHIC, "PrintGraphicInclude!");
+X  assert(sparec(constraint(x)), "PrintGraphicInclude: sparec(constraint(x))!");
+X
+X  /* open the include file and get its full path name */
+X  Child(y, Down(x));
+X  fp = OpenIncGraphicFile(string(y), type(x), &full_name, &fpos(y));
+X  assert( fp != NULL, "PrintGraphicInclude: fp!" );
+X
+X  /* generate appropriate header code */
+X  fprintf(out_fp, "BeginEPSF\n");
+X  CoordTranslate(colmark - back(x, COL), rowmark - fwd(x, ROW));
+X  CoordScale( (float) PT, (float) PT );
+X  CoordTranslate(-back(y, COL), -back(y, ROW));
+X  fprintf(out_fp, "%%%%BeginDocument: %s\n", string(full_name));
+X
+X  /* copy through the include file, except divert resources lines to needs */
+X  /* and strip out some comment lines that cause problems                  */
+X  state = (fgets(buff, MAX_LINE, fp) == NULL) ? FINISHED : SKIPPING;
+X  while( state != FINISHED ) switch(state)
+X  {
+X    case SKIPPING:
+X
+X      if( StringBeginsWith(buff, "%%DocumentNeededResources:") &&
+X	  !StringContains(buff, "(atend)") == NULL )
+X      { x = MakeWord(&buff[strlen("%%DocumentNeededResources:")], no_fpos);
+X        Link(needs, x);
+X	state = (fgets(buff, MAX_LINE, fp) == NULL) ? FINISHED : READING_DNR;
+X      }
+X      else
+X      { if( StringBeginsWith(buff, "%%LanguageLevel:") )
+X	  Error(WARN, &fpos(x), "ignoring \"%%%%LanguageLevel\" in %s file %s",
+X		KW_INCGRAPHIC, string(full_name));
+X	if( StringBeginsWith(buff, "%%Extensions:") )
+X	  Error(WARN, &fpos(x), "ignoring \"%%%%Extensions\" in %s file %s",
+X		KW_INCGRAPHIC, string(full_name));
+X	if( !strip_out(buff) )  fputs(buff, out_fp);
+X	state = (fgets(buff, MAX_LINE, fp) == NULL) ? FINISHED : SKIPPING;
+X      }
+X      break;
+X
+X    case READING_DNR:
+X
+X      if( StringBeginsWith(buff, "%%+") )
+X      {	x = MakeWord(&buff[strlen("%%+")], no_fpos);
+X	Link(needs, x);
+X	state = (fgets(buff, MAX_LINE, fp) == NULL) ? FINISHED : READING_DNR;
+X      }
+X      else
+X      { if( !strip_out(buff) )  fputs(buff, out_fp);
+X	state = (fgets(buff, MAX_LINE, fp) == NULL) ? FINISHED : SKIPPING;
+X      }
+X      break;
+X  }
+X
+X  /* wrapup */
+X  DisposeObject(full_name);
+X  fclose(fp);
+X  fprintf(out_fp, "%%%%EndDocument\nEndEPSF\n");
+X  debug0(DRS, D, "PrintGraphicInclude returning.");
+X} /* end PrintGraphicInclude */
+END_OF_FILE
+  if test 56122 -ne `wc -c <'lout/z24.c'`; then
+    echo shar: \"'lout/z24.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z24.c'
+fi
+echo shar: End of archive 3 \(of 30\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 30 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

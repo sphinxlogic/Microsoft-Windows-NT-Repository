@@ -1,0 +1,1525 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i112:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part09/14
+Message-ID: <1992Aug24.025659.25051@sparky.imd.sterling.com>
+X-Md4-Signature: 6a5e93b9b352571481748a7a0fb1ea7c
+Date: Mon, 24 Aug 1992 02:56:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 112
+Archive-name: unzip50/part09
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MAC/macstat.h VMS/VMS.notes explode.c zipinfo.1
+# Wrapped by kent@sparky on Sun Aug 23 21:09:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 14)."'
+if test -f 'MAC/macstat.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/macstat.h'\"
+else
+  echo shar: Extracting \"'MAC/macstat.h'\" \(974 characters\)
+  sed "s/^X//" >'MAC/macstat.h' <<'END_OF_FILE'
+X/*****************************************************************
+X *
+X *                stat.h
+X *
+X *****************************************************************/
+X
+X#include <time.h>
+Xextern int macstat(char *path, struct stat *buf, short nVRefNum, long lDirID );
+Xtypedef long dev_t;
+Xtypedef long ino_t;
+Xtypedef long off_t;
+X
+Xstruct stat {
+X    dev_t    st_dev;
+X    ino_t    st_ino;
+X    unsigned short    st_mode;
+X    short    st_nlink;
+X    short    st_uid;
+X    short    st_gid;
+X    dev_t    st_rdev;
+X    off_t    st_size;
+X    time_t   st_atime, st_mtime, st_ctime;
+X    long     st_blksize;
+X    long     st_blocks;
+X};
+X
+X#define S_IFMT     0xF000
+X#define S_IFIFO    0x1000
+X#define S_IFCHR    0x2000
+X#define S_IFDIR    0x4000
+X#define S_IFBLK    0x6000
+X#define S_IFREG    0x8000
+X#define S_IFLNK    0xA000
+X#define S_IFSOCK   0xC000
+X#define S_ISUID    0x800
+X#define S_ISGID    0x400
+X#define S_ISVTX    0x200
+X#define S_IREAD    0x100
+X#define S_IWRITE   0x80
+X#define S_IEXEC    0x40
+END_OF_FILE
+  if test 974 -ne `wc -c <'MAC/macstat.h'`; then
+    echo shar: \"'MAC/macstat.h'\" unpacked with wrong size!
+  fi
+  # end of 'MAC/macstat.h'
+fi
+if test -f 'VMS/VMS.notes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/VMS.notes'\"
+else
+  echo shar: Extracting \"'VMS/VMS.notes'\" \(13719 characters\)
+  sed "s/^X//" >'VMS/VMS.notes' <<'END_OF_FILE'
+X                     VMS Notes for UnZip 5.0
+X                           24 May 1992
+X
+X
+XThe various VMS tweaks to UnZip 5.0 and ZipInfo 0.97 were tested on a 
+XVAX 8600 running VMS 5.2 (and, later, VMS 5.4) and VAX C 3.0.  Older 
+Xversions were also tested on a VAX 11/785.
+X
+XTo build UnZip (and its trusty sidekick, ZipInfo), just run one of the 
+Xincluded command files MAKE_UNZIP_VAXC.COM or MAKE_UNZIP_GCC.COM, either
+Xdecryption or non-decryption versions, depending on whether you have the
+Xseparate crypt.c module and whether you use VAX C or GNU C (for example, 
+X"@make_unzip_vaxc").  By default, this creates shareable-image executables,
+Xwhich are smaller and (supposedly) load faster than the normal type.  They 
+Xalso (supposedly) will be better able to take advantage of any bug fixes 
+Xor new capabilities that DEC might introduce, since the library code isn't 
+Xbuilt into the executable.  The shared executable is about a quarter the 
+Xsize of the ordinary type in the case of UnZip.
+X
+X[Btw, the VMS make utility "MMS" is not compatible enough with Unix make 
+Xto use the same makefile.  Antonio Querubin, Jr., sent along an MMS makefile,
+Xsubsequently modified by Igor Mandrichenko.  Read the comments at the top 
+Xof DESCRIP.MMS for more info.  An alternate Unix-like makefile designed for 
+Xuse with Todd Aven's MAKE/VMS is included, as well.  Comments on where to
+Xget MAKE/VMS are at the bottom of VMS Contents.]
+X
+XUnZip is written to return the standard PK-type return codes (or error
+Xcodes, or exit codes, or whatever you want to call them).  Unfortunately,
+XVMS insists on interpreting the codes in its own lovable way, and this
+Xresults in endearing commentary such as "access violation, error mask =
+X0005, PC = 00003afc" (or something like that) when you run UnZip with no
+Xarguments.  To avoid this I've added a special VMS_return() function which
+Xeither ignores the error codes (and exits with normal status) or interprets
+Xthem, prints a semi-informative message (enclosed in square [] brackets), 
+Xand then exits with a normal error status.  I personally can't stand the 
+Xlatter behavior, so by default the error codes are simply ignored.  Tastes
+Xvary, however, and some people may actually like semi-informative messages.
+XIf you happen to be one of those people, you may enable the messages by 
+Xrecompiling misc.c with RETURN_CODES defined.  (This adds a block or two
+Xto the executable size, though.)  The syntax is as follows:
+X	cc /def=(RETURN_CODES) misc
+X
+XTo use UnZip in the normal way, define a symbol "unzip" as follows:
+X	unzip :== "$diskname:[directory]unzip.exe"
+X(substitute for "diskname" and "directory" as appropriate, and DON'T FORGET
+XTHE `$'!  It won't work if you omit that.)  In general it's wise to stick 
+Xsuch assignments in your LOGIN.COM file and THEN forget about them.  It is 
+Xno longer necessary to worry about the record type of the zipfile...er, 
+Xwell, most of the time, anyway (see the Kermit section below).
+X
+XHaving done all this you are ready to roll.  Use the unzip command in
+Xthe usual way; as with the Unix, OS/2 and MS-DOS versions, this one uses 
+X'-' as a switch character.  If nothing much happens when you do a directory
+Xlisting, for example, you're probably trying to specify a filename which
+Xhas uppercase letters in it...VMS thoughtfully converts everything on the
+Xcommand line to lowercase, so even if you type:
+X	unzip -v zipfile Makefile
+Xwhat you get is:
+X	unzip -v zipfile makefile
+Xwhich, in my example here, doesn't match the contents of the zipfile.
+XThis is relatively easy to circumvent by enclosing the filespec(s) in 
+Xquotes:
+X	unzip -tq unzip401 "Makefile" "VMS*" *.c *.h
+X[This example also demonstrates the use of wildcards, which act like Unix
+Xwildcards, not VMS ones.   In other words, "VMS*" matches files VMSNOTES,
+XVMS_MAKE.COM, and VMSSHARE.OPT, whereas the normal VMS behavior would be
+Xto match only the first file (since the others have extensions--ordinarily,
+Xyou would be required to specify "VMS*.*").]
+X
+XNote that created files get whatever default permissions you've set, but 
+Xcreated directories additionally inherit the (possibly more restrictive) 
+Xpermissions of the parent directory.  And, of course, things probably won't 
+Xwork too well if you don't have permission to write to whatever directory 
+Xinto which you're trying to extract things.  (That made sense; read it 
+Xagain if you don't believe me.)
+X
+XZipInfo, by the way, is an amusing little utility which tells you all sorts
+Xof amazingly useless information about zipfiles.  Occasionally it's useful
+Xto debug a problem with a corrupted zipfile (for example, we used it to 
+Xfind a bug in PAK-created zipfiles, versions 2.5 and earlier).  Feel free
+Xto blow it away if you don't need it.  It's about 30 blocks on my system,
+Xand I find I actually prefer its listing format to that of UnZip now (hardly
+Xsurprising, since I wrote it :-) ).  I also find it useful to use "ii" 
+Xrather than "zipinfo" as the symbol for zipinfo, since it's easier to type 
+Xthan either "zipinfo" or "unzip -v", and it echoes the common Unix alias 
+X"ll" for the similar style of directory listings.  Oh, and the reason it's 
+Xstill got a beta version number is that I haven't finished it yet--it would 
+Xbe better with an automatic paging function, for example.  Oh well.
+X
+XRANDOM OTHER NOTES:  (1) Igor Mandrichenko (leader of our fearless Russian 
+Xcontingent) rewrote major portions of the VMS file-handling code, with
+Xthe result that UnZip is much smarter now about VMS file formats.  For
+Xfull VMS compatibility (file attributes, ownership info, etc.), be sure
+Xto use the -X option of Zip 1.6 and later.  There are also some notes
+Xat the end of this file from Hugh Schmidt and Mike Freeman which give 
+Xhints on how to save VMS attributes using Zip 1.0 and UnZip 4.1.  Most of
+Xthe information is still valid, but the -X option is much easier if you
+Xdon't have to transfer the zipfiles to a Unix or PC system.  (2) Zip 1.0 
+Xcannot handle any zipfile that isn't in stream-LF format, so you may need 
+Xto use Rahul Dhesi's BILF utility which is included with UnZip.  It will
+Xalso be necessary for certain other special occasions, like when you've 
+Xforgotten to set the correct Kermit parameters while uploading a zipfile 
+X(see Hugh Schmidt's note below for comments about Kermit, too).
+X
+XGreg Roelofs
+X
+X====================
+X
+XFrom INFO-ZIP Digest (Wed, 6 Nov 1991), Volume 91, Issue 290
+X
+X                VMS attributes and PKZIP compatibility
+X                  VMS attributes restored! (2 msgs)
+X
+X------------------------------
+X
+XDate: Tue, 5 Nov 91 15:31 CDT
+XFrom: Hugh Schmidt <HUGH@macc.wisc.edu>
+XSubject: VMS attributes and PKZIP compatibility
+XMessage-ID: <21110515313938@vms.macc.wisc.edu>
+X
+X           ******************************************************
+X(1)        *** Retaining VMS attributes - a proposed strategy ***
+X           ******************************************************
+X
+XThis is a proposed strategy for recovering VMS file attributes after
+Xzip/unzip:
+X
+Xa) capture VMS file attributes: VMS ANALYZE/RMS/FDL/OUTPUT=fdlfile vmsfile.ext
+Xb) compress files on VMS......: ZIP zipfile vmsfile.ext, fdlfile.fdl
+Xc) uncompress files on VMS....: UNZIP zipfile vmsfile.ext, fdlfile.fdl
+Xd) recover VMS file attributes: CONVERT/FDL=fdlfile.fdl vmsfile.ext vmsfile.ext
+X
+XThe wrinkle is that UNZIP creates files which are unreadable by CONVERT
+Xdespite a concerted effort to accomodate VMS file management system:
+X
+Xfile_io.c, line 178: ...creat(filename,0, "rat=cr", "rfm=streamlf")
+X
+XThese files are unCONVERTABLE because they appear to VMS to contain
+Xrecords with 512+ bytes.  Poring over VMS manuals (Programming V-6A, VAX
+XC RTL Reference Manual) doesn't readily suggest better alternatives.
+XExperimentation with "rat=fix", etc. may help suppress the spurious
+Xblock-end delimeters.
+X
+X          ****************************************************
+X(2)       *** VMS ZIP and PKZIP compatibility using KERMIT ***
+X          ****************************************************
+X
+XMany use Procomm's kermit to transfer zipped files between PC and VMS
+XVAX.  The following VMS kermit settings make VMS-ZIP compatible with
+XPKZIP:
+X
+X                                             VMS kermit      Procomm kermit
+X                                           ---------------   --------------
+XUploading PKZIPped file to be UNZIPped:    set fi ty fixed    set fi ty bi
+XDownloading ZIPped file to be PKUNZIPped:  set fi ty block    set fi ty bi
+X
+X"Block I/O lets you bypass the VMS RMS record-processing capabilities
+Xentirely", (Guide to VMS file applications, Section 8.5).  The kermit
+Xguys must have known this!
+X
+X         ************************************************
+X(3)      *** Making ZIP files compatible with VMS RMS ***
+X         ************************************************
+X
+XIt looks like a crummy patch, but to make VMS RMS happy, I inserted the
+Xfollowing near line 570 in the putend() section of zipfile.c:
+X
+X#ifdef VMS
+X fprintf(f,"\n")
+X#endif
+X
+XIt's probably of no consequence, but it satisfies VMS ANALYZE.
+X
+X------------------------------
+X
+XDate: Tue, 5 Nov 91 19:40 CDT
+XFrom: Hugh Schmidt <HUGH@macc.wisc.edu>
+XSubject: VMS attributes restored!
+XMessage-ID: <21110519403912@vms.macc.wisc.edu>
+X
+X           ************************************************************
+X           ***   Aha!  It works!  VMS attributes can be restored! *****
+X           ***                                                      ***
+X           *** Change FAB$C_STMLF to FAB$C_FIX in file_io.c         ***
+X           *** ANALYZE => .FDL | CONVERT => original VMS attributes ***
+X           ************************************************************
+X
+X(1) Change line 147 in file_io.c and dropping lines 148-149:
+X
+X    fileblk.fab$b_rfm = FAB$C_STMLF;    /* stream-LF record format */
+X    fileblk.fab$b_rat = FAB$M_CR;       /* carriage-return carriage ctrl */
+X    /*                      ^^^^ *NOT* V_CR!!!     */
+X
+X=>
+X
+X    fileblk.fab$b_rfm = FAB$C_FIX;    /* fixed record format */
+X
+X(2) Use VMS ANALYZE to store the VMS attributes for the original file
+X    into a file descripion language file.  Save the .FDL file with the
+X    original file.
+X
+X(3) Apply the original attributes to the UNZIPped file using VMS CREATE
+X    and the description file (test.fdl).
+X
+XIn the following example, the original attributes of a SPSSX system
+Xformat file were restored.  Later, SPSSX successfully read the UNZIPped/
+XCONVERTed file.
+X
+X!******** Procedure (or method for you ai'ers)
+X!********
+X!******** Create an .FDL file using ANALYZE
+X
+X$ analyze/rms/fdl/out=test test.spssxsav;1
+X
+X!******** ZIP the file and its description file
+X
+X$ zip test test.spssxsav;1 test.fdl;1
+Xadding test.spssxsav (imploded 62%)
+Xadding test.fdl (imploded 90%)
+X
+X!******** When the ZIPPED file is needed, UNZIP it and its description file
+X
+X$ unzip test
+X  Exploding: test.spssxsav
+X  Exploding: test.fdl
+X
+X!******** To restore the original attributes, apply the description file to
+X!********  the UNZIPped file using VMS CONVERT
+X
+X$ convert/fdl=test  test.spssxsav;2 test.spssxsav;3
+X
+X! ******* The following show that the VMS attributes are restored.
+X
+X$ analyze/rms/check test.spssxsav;1
+X
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;1
+X	File Organization: sequential
+X	Record Format: fixed
+X	Record Attributes:
+X	Maximum Record Size: 4
+X	Longest Record: 4
+X
+XThe analysis uncovered NO errors.
+X
+X$ analyze/rms/check test.spssxsav;2
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;2
+X	File Organization: sequential
+X	Record Format: undefined
+X	Record Attributes:
+X	Maximum Record Size: 0
+X	Longest Record: 512
+XThe analysis uncovered NO errors.
+X
+X$ analyze/rms/check test.spssxsav;3
+X	File Spec: PROJDISK5:[322042.CORE]TEST.SPSSXSAV;3
+X	File Organization: sequential
+X	Record Format: fixed
+X	Record Attributes:
+X	Maximum Record Size: 4
+X	Longest Record: 4
+X
+XThank you all for your help and comments.  It was very reasurring to
+Xknow that I was on the right track.  This is a humble contribution
+Xcompared to the great efforts of others in the ZIP project.
+X
+X------------------------------
+X
+XDate: Wed, 6 Nov 91 12:49:33 EST
+XFrom: Mike Freeman <freeman@watsun.cc.columbia.edu>
+XSubject: Re: VMS attributes restored!
+XMessage-ID: <CMM.0.90.0.689449773.freeman@watsun.cc.columbia.edu>
+X
+XHello, all.
+X
+XHUGH@macc.wisc.edu has come up with a commendable method for saving/
+Xrestoring record attributes in Vax/VMS files when ZIPping/UNZIPping.
+XThere are a couple of potential problems in his specific implementation,
+Xhowever:
+X
+X(a) It would be better to leave the output file(s) in STREAM_LF format
+X    and use Joe Meadows' FILE utility to put them in fixed-record
+X    format if CONVERT has trouble reading them.
+X
+X    Outputting a text file as fixed-record format could be a pain, and
+X    one would have to use FILE anyway.
+X
+X    (Incidentally, I ZIPped up a text file, UNZIPped it and used Hugh's
+X    method to restore the attributes.  CONVERT had no trouble with the
+X    STREAM_LF format -- it's only a problem with binary files and, as I
+X    say, Joe Meadows' FILE will fix this.)
+X
+X(b) Even if ANALYZE/RMS complains, I do not think one ought to put the
+X    "\n" in as Hugh advocates.  This contradicts the ZIP philosophy of
+X    byte-for-byte storage/retrieval.
+X
+X    As Mr. Roelofs has said, there is nothing wrong with the ZIP file;
+X    it's just that ANALYZE/RMS expects STREAM_LF files to end in an
+X    <LF>.
+X
+XAnyway, I was able to use Hugh's method without modifying ZIP 1.0.  We
+Xreally ought to get the word out about FILE, though -- it's very handy.
+X
+XMike Freeman, K7UIJ     |       Internet: freeman@watsun.cc.columbia.edu
+X301 N.E. 107th Street   |       GEnie: M.FREEMAN11
+XVancouvEr, WA 98685 USA |       Confidence is the feeling you have
+XTelephone (206)574-8221 |       before you understand the situation.
+X
+X------------------------------
+X
+END_OF_FILE
+  if test 13719 -ne `wc -c <'VMS/VMS.notes'`; then
+    echo shar: \"'VMS/VMS.notes'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/VMS.notes'
+fi
+if test -f 'explode.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'explode.c'\"
+else
+  echo shar: Extracting \"'explode.c'\" \(26874 characters\)
+  sed "s/^X//" >'explode.c' <<'END_OF_FILE'
+X/* explode.c -- Not copyrighted 1992 by Mark Adler
+X   version c7, 27 June 1992 */
+X
+X
+X/* You can do whatever you like with this source file, though I would
+X   prefer that if you modify it and redistribute it that you include
+X   comments to that effect with your name and the date.  Thank you.
+X
+X   History:
+X   vers    date          who           what
+X   ----  ---------  --------------  ------------------------------------
+X    c1   30 Mar 92  M. Adler        explode that uses huft_build from inflate
+X                                    (this gives over a 70% speed improvement
+X                                    over the original unimplode.c, which
+X                                    decoded a bit at a time)
+X    c2    4 Apr 92  M. Adler        fixed bug for file sizes a multiple of 32k.
+X    c3   10 Apr 92  M. Adler        added a little memory tracking if DEBUG
+X    c4   11 Apr 92  M. Adler        added NOMEMCPY do kill use of memcpy()
+X    c5   21 Apr 92  M. Adler        added the WSIZE #define to allow reducing
+X                                    the 32K window size for specialized
+X                                    applications.
+X    c6   31 May 92  M. Adler        added typecasts to eliminate some warnings
+X    c7   27 Jun 92  G. Roelofs      added more typecasts
+X */
+X
+X
+X/*
+X   Explode imploded (PKZIP method 6 compressed) data.  This compression
+X   method searches for as much of the current string of bytes (up to a length
+X   of ~320) in the previous 4K or 8K bytes.  If it doesn't find any matches
+X   (of at least length 2 or 3), it codes the next byte.  Otherwise, it codes
+X   the length of the matched string and its distance backwards from the
+X   current position.  Single bytes ("literals") are preceded by a one (a
+X   single bit) and are either uncoded (the eight bits go directly into the
+X   compressed stream for a total of nine bits) or Huffman coded with a
+X   supplied literal code tree.  If literals are coded, then the minimum match
+X   length is three, otherwise it is two.
+X   
+X   There are therefore four kinds of imploded streams: 8K search with coded
+X   literals (min match = 3), 4K search with coded literals (min match = 3),
+X   8K with uncoded literals (min match = 2), and 4K with uncoded literals
+X   (min match = 2).  The kind of stream is identified in two bits of a
+X   general purpose bit flag that is outside of the compressed stream.
+X   
+X   Distance-length pairs are always coded.  Distance-length pairs for matched
+X   strings are preceded by a zero bit (to distinguish them from literals) and
+X   are always coded.  The distance comes first and is either the low six (4K)
+X   or low seven (8K) bits of the distance (uncoded), followed by the high six
+X   bits of the distance coded.  Then the length is six bits coded (0..63 +
+X   min match length), and if the maximum such length is coded, then it's
+X   followed by another eight bits (uncoded) to be added to the coded length.
+X   This gives a match length range of 2..320 or 3..321 bytes.
+X
+X   The literal, length, and distance codes are all represented in a slightly
+X   compressed form themselves.  What is sent are the lengths of the codes for
+X   each value, which is sufficient to construct the codes.  Each byte of the
+X   code representation is the code length (the low four bits representing
+X   1..16), and the number of values sequentially with that length (the high
+X   four bits also representing 1..16).  There are 256 literal code values (if
+X   literals are coded), 64 length code values, and 64 distance code values,
+X   in that order at the beginning of the compressed stream.  Each set of code
+X   values is preceded (redundantly) with a byte indicating how many bytes are
+X   in the code description that follows, in the range 1..256.
+X
+X   The codes themselves are decoded using tables made by huft_build() from
+X   the bit lengths.  That routine and its comments are in the inflate.c
+X   module.
+X */
+X
+X#include "unzip.h"      /* this must supply the slide[] (byte) array */
+X
+X#ifndef WSIZE
+X#  define WSIZE 0x8000  /* window size--must be a power of two, and at least
+X                           8K for zip's implode method */
+X#endif /* !WSIZE */
+X
+X
+Xstruct huft {
+X  byte e;               /* number of extra bits or operation */
+X  byte b;               /* number of bits in this code or subcode */
+X  union {
+X    UWORD n;            /* literal, length base, or distance base */
+X    struct huft *t;     /* pointer to next level of table */
+X  } v;
+X};
+X
+X/* Function prototypes */
+X/* routines from inflate.c */
+Xextern unsigned hufts;
+Xint huft_build OF((unsigned *, unsigned, unsigned, UWORD *, UWORD *,
+X                   struct huft **, int *));
+Xint huft_free OF((struct huft *));
+Xvoid flush OF((unsigned));
+X
+X/* routines here */
+Xint get_tree OF((unsigned *, unsigned));
+Xint explode_lit8 OF((struct huft *, struct huft *, struct huft *,
+X                     int, int, int));
+Xint explode_lit4 OF((struct huft *, struct huft *, struct huft *,
+X                     int, int, int));
+Xint explode_nolit8 OF((struct huft *, struct huft *, int, int));
+Xint explode_nolit4 OF((struct huft *, struct huft *, int, int));
+Xint explode OF((void));
+X
+X
+X/* The implode algorithm uses a sliding 4K or 8K byte window on the
+X   uncompressed stream to find repeated byte strings.  This is implemented
+X   here as a circular buffer.  The index is updated simply by incrementing
+X   and then and'ing with 0x0fff (4K-1) or 0x1fff (8K-1).  Here, the 32K
+X   buffer of inflate is used, and it works just as well to always have
+X   a 32K circular buffer, so the index is anded with 0x7fff.  This is
+X   done to allow the window to also be used as the output buffer. */
+X/* This must be supplied in an external module useable like "byte slide[8192];"
+X   or "byte *slide;", where the latter would be malloc'ed.  In unzip, slide[]
+X   is actually a 32K area for use by inflate, which uses a 32K sliding window.
+X */
+X
+X
+X/* Tables for length and distance */
+XUWORD cplen2[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+X        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+X        35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+X        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65};
+XUWORD cplen3[] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+X        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+X        36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+X        53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66};
+XUWORD extra[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+X        8};
+XUWORD cpdist4[] = {1, 65, 129, 193, 257, 321, 385, 449, 513, 577, 641, 705,
+X        769, 833, 897, 961, 1025, 1089, 1153, 1217, 1281, 1345, 1409, 1473,
+X        1537, 1601, 1665, 1729, 1793, 1857, 1921, 1985, 2049, 2113, 2177,
+X        2241, 2305, 2369, 2433, 2497, 2561, 2625, 2689, 2753, 2817, 2881,
+X        2945, 3009, 3073, 3137, 3201, 3265, 3329, 3393, 3457, 3521, 3585,
+X        3649, 3713, 3777, 3841, 3905, 3969, 4033};
+XUWORD cpdist8[] = {1, 129, 257, 385, 513, 641, 769, 897, 1025, 1153, 1281,
+X        1409, 1537, 1665, 1793, 1921, 2049, 2177, 2305, 2433, 2561, 2689,
+X        2817, 2945, 3073, 3201, 3329, 3457, 3585, 3713, 3841, 3969, 4097,
+X        4225, 4353, 4481, 4609, 4737, 4865, 4993, 5121, 5249, 5377, 5505,
+X        5633, 5761, 5889, 6017, 6145, 6273, 6401, 6529, 6657, 6785, 6913,
+X        7041, 7169, 7297, 7425, 7553, 7681, 7809, 7937, 8065};
+X
+X
+X/* Macros for inflate() bit peeking and grabbing.
+X   The usage is:
+X   
+X        NEEDBITS(j)
+X        x = b & mask_bits[j];
+X        DUMPBITS(j)
+X
+X   where NEEDBITS makes sure that b has at least j bits in it, and
+X   DUMPBITS removes the bits from b.  The macros use the variable k
+X   for the number of bits in b.  Normally, b and k are register
+X   variables for speed.
+X */
+X
+Xextern UWORD bytebuf;           /* (use the one in inflate.c) */
+X#define NEXTBYTE    (ReadByte(&bytebuf), bytebuf)
+X#define NEEDBITS(n) {while(k<(n)){b|=((ULONG)NEXTBYTE)<<k;k+=8;}}
+X#define DUMPBITS(n) {b>>=(n);k-=(n);}
+X
+X
+X
+Xint get_tree(l, n)
+Xunsigned *l;            /* bit lengths */
+Xunsigned n;             /* number expected */
+X/* Get the bit lengths for a code representation from the compressed
+X   stream.  If get_tree() returns 4, then there is an error in the data.
+X   Otherwise zero is returned. */
+X{
+X  unsigned i;           /* bytes remaining in list */
+X  unsigned k;           /* lengths entered */
+X  unsigned j;           /* number of codes */
+X  unsigned b;           /* bit length for those codes */ 
+X
+X
+X  /* get bit lengths */
+X  ReadByte(&bytebuf);
+X  i = bytebuf + 1;                      /* length/count pairs to read */
+X  k = 0;                                /* next code */
+X  do {
+X    ReadByte(&bytebuf);
+X    b = ((j = bytebuf) & 0xf) + 1;      /* bits in code (1..16) */
+X    j = ((j & 0xf0) >> 4) + 1;          /* codes with those bits (1..16) */
+X    if (k + j > n)
+X      return 4;                         /* don't overflow l[] */
+X    do {
+X      l[k++] = b;
+X    } while (--j);
+X  } while (--i);
+X  return k != n ? 4 : 0;                /* should have read n of them */
+X}
+X
+X
+X
+Xint explode_lit8(tb, tl, td, bb, bl, bd)
+Xstruct huft *tb, *tl, *td;      /* literal, length, and distance tables */
+Xint bb, bl, bd;                 /* number of bits decoded by those */
+X/* Decompress the imploded data using coded literals and an 8K sliding
+X   window. */
+X{
+X  longint s;            /* bytes to decompress */
+X  register unsigned e;  /* table entry flag/number of extra bits */
+X  unsigned n, d;        /* length and index for copy */
+X  unsigned w;           /* current window position */
+X  struct huft *t;       /* pointer to table entry */
+X  unsigned mb, ml, md;  /* masks for bb, bl, and bd bits */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X  unsigned u;           /* true if unflushed */
+X
+X
+X  /* explode the coded data */
+X  b = k = w = 0;                /* initialize bit buffer, window */
+X  u = 1;                        /* buffer unflushed */
+X  mb = mask_bits[bb];           /* precompute masks for speed */
+X  ml = mask_bits[bl];
+X  md = mask_bits[bd];
+X  s = ucsize;
+X  while (s > 0)                 /* do until ucsize bytes uncompressed */
+X  {
+X    NEEDBITS(1)
+X    if (b & 1)                  /* then literal--decode it */
+X    {
+X      DUMPBITS(1)
+X      s--;
+X      NEEDBITS((unsigned)bb)    /* get coded literal */
+X      if ((e = (t = tb + ((~(unsigned)b) & mb))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      slide[w++] = (byte)t->v.n;
+X      if (w == WSIZE)
+X      {
+X        flush(w);
+X        w = u = 0;
+X      }
+X    }
+X    else                        /* else distance/length */
+X    {
+X      DUMPBITS(1)
+X      NEEDBITS(7)               /* get distance low bits */
+X      d = (unsigned)b & 0x7f;
+X      DUMPBITS(7)
+X      NEEDBITS((unsigned)bd)    /* get coded distance high bits */
+X      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      d = w - d - t->v.n;       /* construct offset */
+X      NEEDBITS((unsigned)bl)    /* get coded length */
+X      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      n = t->v.n;
+X      if (e)                    /* get length extra bits */
+X      {
+X        NEEDBITS(8)
+X        n += (unsigned)b & 0xff;
+X        DUMPBITS(8)
+X      }
+X
+X      /* do the copy */
+X      s -= n;
+X      do {
+X        n -= (e = (e = WSIZE - ((d &= WSIZE-1) > w ? d : w)) > n ? n : e);
+X        if (u && w <= d)
+X        {
+X          memset(slide + w, 0, e);
+X          w += e;
+X          d += e;
+X        }
+X        else
+X#ifndef NOMEMCPY
+X          if (w - d >= e)       /* (this test assumes unsigned comparison) */
+X          {
+X            memcpy(slide + w, slide + d, e);
+X            w += e;
+X            d += e;
+X          }
+X          else                  /* do it slow to avoid memcpy() overlap */
+X#endif /* !NOMEMCPY */
+X            do {
+X              slide[w++] = slide[d++];
+X            } while (--e);
+X        if (w == WSIZE)
+X        {
+X          flush(w);
+X          w = u = 0;
+X        }
+X      } while (n);
+X    }
+X  }
+X
+X  /* flush out slide */
+X  flush(w);
+X  return csize ? 5 : 0;         /* should have read csize bytes */
+X}
+X
+X
+X
+Xint explode_lit4(tb, tl, td, bb, bl, bd)
+Xstruct huft *tb, *tl, *td;      /* literal, length, and distance tables */
+Xint bb, bl, bd;                 /* number of bits decoded by those */
+X/* Decompress the imploded data using coded literals and a 4K sliding
+X   window. */
+X{
+X  longint s;            /* bytes to decompress */
+X  register unsigned e;  /* table entry flag/number of extra bits */
+X  unsigned n, d;        /* length and index for copy */
+X  unsigned w;           /* current window position */
+X  struct huft *t;       /* pointer to table entry */
+X  unsigned mb, ml, md;  /* masks for bb, bl, and bd bits */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X  unsigned u;           /* true if unflushed */
+X
+X
+X  /* explode the coded data */
+X  b = k = w = 0;                /* initialize bit buffer, window */
+X  u = 1;                        /* buffer unflushed */
+X  mb = mask_bits[bb];           /* precompute masks for speed */
+X  ml = mask_bits[bl];
+X  md = mask_bits[bd];
+X  s = ucsize;
+X  while (s > 0)                 /* do until ucsize bytes uncompressed */
+X  {
+X    NEEDBITS(1)
+X    if (b & 1)                  /* then literal--decode it */
+X    {
+X      DUMPBITS(1)
+X      s--;
+X      NEEDBITS((unsigned)bb)    /* get coded literal */
+X      if ((e = (t = tb + ((~(unsigned)b) & mb))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      slide[w++] = (byte)t->v.n;
+X      if (w == WSIZE)
+X      {
+X        flush(w);
+X        w = u = 0;
+X      }
+X    }
+X    else                        /* else distance/length */
+X    {
+X      DUMPBITS(1)
+X      NEEDBITS(6)               /* get distance low bits */
+X      d = (unsigned)b & 0x3f;
+X      DUMPBITS(6)
+X      NEEDBITS((unsigned)bd)    /* get coded distance high bits */
+X      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      d = w - d - t->v.n;       /* construct offset */
+X      NEEDBITS((unsigned)bl)    /* get coded length */
+X      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      n = t->v.n;
+X      if (e)                    /* get length extra bits */
+X      {
+X        NEEDBITS(8)
+X        n += (unsigned)b & 0xff;
+X        DUMPBITS(8)
+X      }
+X
+X      /* do the copy */
+X      s -= n;
+X      do {
+X        n -= (e = (e = WSIZE - ((d &= WSIZE-1) > w ? d : w)) > n ? n : e);
+X        if (u && w <= d)
+X        {
+X          memset(slide + w, 0, e);
+X          w += e;
+X          d += e;
+X        }
+X        else
+X#ifndef NOMEMCPY
+X          if (w - d >= e)       /* (this test assumes unsigned comparison) */
+X          {
+X            memcpy(slide + w, slide + d, e);
+X            w += e;
+X            d += e;
+X          }
+X          else                  /* do it slow to avoid memcpy() overlap */
+X#endif /* !NOMEMCPY */
+X            do {
+X              slide[w++] = slide[d++];
+X            } while (--e);
+X        if (w == WSIZE)
+X        {
+X          flush(w);
+X          w = u = 0;
+X        }
+X      } while (n);
+X    }
+X  }
+X
+X  /* flush out slide */
+X  flush(w);
+X  return csize ? 5 : 0;         /* should have read csize bytes */
+X}
+X
+X
+X
+Xint explode_nolit8(tl, td, bl, bd)
+Xstruct huft *tl, *td;   /* length and distance decoder tables */
+Xint bl, bd;             /* number of bits decoded by tl[] and td[] */
+X/* Decompress the imploded data using uncoded literals and an 8K sliding
+X   window. */
+X{
+X  longint s;            /* bytes to decompress */
+X  register unsigned e;  /* table entry flag/number of extra bits */
+X  unsigned n, d;        /* length and index for copy */
+X  unsigned w;           /* current window position */
+X  struct huft *t;       /* pointer to table entry */
+X  unsigned ml, md;      /* masks for bl and bd bits */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X  unsigned u;           /* true if unflushed */
+X
+X
+X  /* explode the coded data */
+X  b = k = w = 0;                /* initialize bit buffer, window */
+X  u = 1;                        /* buffer unflushed */
+X  ml = mask_bits[bl];           /* precompute masks for speed */
+X  md = mask_bits[bd];
+X  s = ucsize;
+X  while (s > 0)                 /* do until ucsize bytes uncompressed */
+X  {
+X    NEEDBITS(1)
+X    if (b & 1)                  /* then literal--get eight bits */
+X    {
+X      DUMPBITS(1)
+X      s--;
+X      NEEDBITS(8)
+X      slide[w++] = (byte)b;
+X      if (w == WSIZE)
+X      {
+X        flush(w);
+X        w = u = 0;
+X      }
+X      DUMPBITS(8)
+X    }
+X    else                        /* else distance/length */
+X    {
+X      DUMPBITS(1)
+X      NEEDBITS(7)               /* get distance low bits */
+X      d = (unsigned)b & 0x7f;
+X      DUMPBITS(7)
+X      NEEDBITS((unsigned)bd)    /* get coded distance high bits */
+X      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      d = w - d - t->v.n;       /* construct offset */
+X      NEEDBITS((unsigned)bl)    /* get coded length */
+X      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      n = t->v.n;
+X      if (e)                    /* get length extra bits */
+X      {
+X        NEEDBITS(8)
+X        n += (unsigned)b & 0xff;
+X        DUMPBITS(8)
+X      }
+X
+X      /* do the copy */
+X      s -= n;
+X      do {
+X        n -= (e = (e = WSIZE - ((d &= WSIZE-1) > w ? d : w)) > n ? n : e);
+X        if (u && w <= d)
+X        {
+X          memset(slide + w, 0, e);
+X          w += e;
+X          d += e;
+X        }
+X        else
+X#ifndef NOMEMCPY
+X          if (w - d >= e)       /* (this test assumes unsigned comparison) */
+X          {
+X            memcpy(slide + w, slide + d, e);
+X            w += e;
+X            d += e;
+X          }
+X          else                  /* do it slow to avoid memcpy() overlap */
+X#endif /* !NOMEMCPY */
+X            do {
+X              slide[w++] = slide[d++];
+X            } while (--e);
+X        if (w == WSIZE)
+X        {
+X          flush(w);
+X          w = u = 0;
+X        }
+X      } while (n);
+X    }
+X  }
+X
+X  /* flush out slide */
+X  flush(w);
+X  return csize ? 5 : 0;         /* should have read csize bytes */
+X}
+X
+X
+X
+Xint explode_nolit4(tl, td, bl, bd)
+Xstruct huft *tl, *td;   /* length and distance decoder tables */
+Xint bl, bd;             /* number of bits decoded by tl[] and td[] */
+X/* Decompress the imploded data using uncoded literals and a 4K sliding
+X   window. */
+X{
+X  longint s;            /* bytes to decompress */
+X  register unsigned e;  /* table entry flag/number of extra bits */
+X  unsigned n, d;        /* length and index for copy */
+X  unsigned w;           /* current window position */
+X  struct huft *t;       /* pointer to table entry */
+X  unsigned ml, md;      /* masks for bl and bd bits */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X  unsigned u;           /* true if unflushed */
+X
+X
+X  /* explode the coded data */
+X  b = k = w = 0;                /* initialize bit buffer, window */
+X  u = 1;                        /* buffer unflushed */
+X  ml = mask_bits[bl];           /* precompute masks for speed */
+X  md = mask_bits[bd];
+X  s = ucsize;
+X  while (s > 0)                 /* do until ucsize bytes uncompressed */
+X  {
+X    NEEDBITS(1)
+X    if (b & 1)                  /* then literal--get eight bits */
+X    {
+X      DUMPBITS(1)
+X      s--;
+X      NEEDBITS(8)
+X      slide[w++] = (byte)b;
+X      if (w == WSIZE)
+X      {
+X        flush(w);
+X        w = u = 0;
+X      }
+X      DUMPBITS(8)
+X    }
+X    else                        /* else distance/length */
+X    {
+X      DUMPBITS(1)
+X      NEEDBITS(6)               /* get distance low bits */
+X      d = (unsigned)b & 0x3f;
+X      DUMPBITS(6)
+X      NEEDBITS((unsigned)bd)    /* get coded distance high bits */
+X      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      d = w - d - t->v.n;       /* construct offset */
+X      NEEDBITS((unsigned)bl)    /* get coded length */
+X      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      n = t->v.n;
+X      if (e)                    /* get length extra bits */
+X      {
+X        NEEDBITS(8)
+X        n += (unsigned)b & 0xff;
+X        DUMPBITS(8)
+X      }
+X
+X      /* do the copy */
+X      s -= n;
+X      do {
+X        n -= (e = (e = WSIZE - ((d &= WSIZE-1) > w ? d : w)) > n ? n : e);
+X        if (u && w <= d)
+X        {
+X          memset(slide + w, 0, e);
+X          w += e;
+X          d += e;
+X        }
+X        else
+X#ifndef NOMEMCPY
+X          if (w - d >= e)       /* (this test assumes unsigned comparison) */
+X          {
+X            memcpy(slide + w, slide + d, e);
+X            w += e;
+X            d += e;
+X          }
+X          else                  /* do it slow to avoid memcpy() overlap */
+X#endif /* !NOMEMCPY */
+X            do {
+X              slide[w++] = slide[d++];
+X            } while (--e);
+X        if (w == WSIZE)
+X        {
+X          flush(w);
+X          w = u = 0;
+X        }
+X      } while (n);
+X    }
+X  }
+X
+X  /* flush out slide */
+X  flush(w);
+X  return csize ? 5 : 0;         /* should have read csize bytes */
+X}
+X
+X
+X
+Xint explode()
+X/* Explode an imploded compressed stream.  Based on the general purpose
+X   bit flag, decide on coded or uncoded literals, and an 8K or 4K sliding
+X   window.  Construct the literal (if any), length, and distance codes and
+X   the tables needed to decode them (using huft_build() from inflate.c),
+X   and call the appropriate routine for the type of data in the remainder
+X   of the stream.  The four routines are nearly identical, differing only
+X   in whether the literal is decoded or simply read in, and in how many
+X   bits are read in, uncoded, for the low distance bits. */
+X{
+X  unsigned r;           /* return codes */
+X  struct huft *tb;      /* literal code table */
+X  struct huft *tl;      /* length code table */
+X  struct huft *td;      /* distance code table */
+X  int bb;               /* bits for tb */
+X  int bl;               /* bits for tl */
+X  int bd;               /* bits for td */
+X  unsigned l[256];      /* bit lengths for codes */
+X
+X
+X  /* Tune base table sizes.  Note: I thought that to truly optimize speed,
+X     I would have to select different bl, bd, and bb values for different
+X     compressed file sizes.  I was suprised to find out the the values of
+X     7, 7, and 9 worked best over a very wide range of sizes, except that
+X     bd = 8 worked marginally better for large compressed sizes. */
+X  bl = 7;
+X  bd = csize > 200000L ? 8 : 7;
+X
+X
+X  /* With literal tree--minimum match length is 3 */
+X  hufts = 0;                    /* initialze huft's malloc'ed */
+X  if (lrec.general_purpose_bit_flag & 4)
+X  {
+X    bb = 9;                     /* base table size for literals */
+X    if ((r = get_tree(l, 256)) != 0)
+X      return r;
+X    if ((r = huft_build(l, 256, 256, NULL, NULL, &tb, &bb)) != 0)
+X    {
+X      if (r == 1)
+X        huft_free(tb);
+X      return r;
+X    }
+X    if ((r = get_tree(l, 64)) != 0)
+X      return r;
+X    if ((r = huft_build(l, 64, 0, cplen3, extra, &tl, &bl)) != 0)
+X    {
+X      if (r == 1)
+X        huft_free(tl);
+X      huft_free(tb);
+X      return r;
+X    }
+X    if ((r = get_tree(l, 64)) != 0)
+X      return r;
+X    if (lrec.general_purpose_bit_flag & 2)      /* true if 8K */
+X    {
+X      if ((r = huft_build(l, 64, 0, cpdist8, extra, &td, &bd)) != 0)
+X      {
+X        if (r == 1)
+X          huft_free(td);
+X        huft_free(tl);
+X        huft_free(tb);
+X        return r;
+X      }
+X      r = explode_lit8(tb, tl, td, bb, bl, bd);
+X    }
+X    else                                        /* else 4K */
+X    {
+X      if ((r = huft_build(l, 64, 0, cpdist4, extra, &td, &bd)) != 0)
+X      {
+X        if (r == 1)
+X          huft_free(td);
+X        huft_free(tl);
+X        huft_free(tb);
+X        return r;
+X      }
+X      r = explode_lit4(tb, tl, td, bb, bl, bd);
+X    }
+X    huft_free(td);
+X    huft_free(tl);
+X    huft_free(tb);
+X  }
+X  else
+X
+X
+X  /* No literal tree--minimum match length is 2 */
+X  {
+X    if ((r = get_tree(l, 64)) != 0)
+X      return r;
+X    if ((r = huft_build(l, 64, 0, cplen2, extra, &tl, &bl)) != 0)
+X    {
+X      if (r == 1)
+X        huft_free(tl);
+X      return r;
+X    }
+X    if ((r = get_tree(l, 64)) != 0)
+X      return r;
+X    if (lrec.general_purpose_bit_flag & 2)      /* true if 8K */
+X    {
+X      if ((r = huft_build(l, 64, 0, cpdist8, extra, &td, &bd)) != 0)
+X      {
+X        if (r == 1)
+X          huft_free(td);
+X        huft_free(tl);
+X        return r;
+X      }
+X      r = explode_nolit8(tl, td, bl, bd);
+X    }
+X    else                                        /* else 4K */
+X    {
+X      if ((r = huft_build(l, 64, 0, cpdist4, extra, &td, &bd)) != 0)
+X      {
+X        if (r == 1)
+X          huft_free(td);
+X        huft_free(tl);
+X        return r;
+X      }
+X      r = explode_nolit4(tl, td, bl, bd);
+X    }
+X    huft_free(td);
+X    huft_free(tl);
+X  }
+X#ifdef DEBUG
+X  fprintf(stderr, "<%u > ", hufts);
+X#endif /* DEBUG */
+X  return r;
+X}
+END_OF_FILE
+  if test 26874 -ne `wc -c <'explode.c'`; then
+    echo shar: \"'explode.c'\" unpacked with wrong size!
+  fi
+  # end of 'explode.c'
+fi
+if test -f 'zipinfo.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipinfo.1'\"
+else
+  echo shar: Extracting \"'zipinfo.1'\" \(13533 characters\)
+  sed "s/^X//" >'zipinfo.1' <<'END_OF_FILE'
+X.de X
+X.nf
+X.ien .ti -5
+X.el \{ .ti +2m
+X.ps -1 \}
+X\&\\$1
+X.ien .ti +5
+X.el \{ .ti -2m
+X.ps +1 \}
+X.fi
+X..
+X.TH ZIPINFO 1 "19 Aug 92 (v1.0)"
+X.SH NAME
+Xzipinfo \- list detailed information about a ZIP archive file
+X.SH SYNOPSIS
+X\fBzipinfo\fP [\-\fB1smlvht\fP] \fRfile\fP[\fR.zip\fP] [\fRfilespec\fP\ ...]
+X.SH ARGUMENTS
+X.IP \fIfile\fP[\fI.zip\fP] \w'[\fIfilespec\fP]'u+2m
+XPath of the ZIP archive.  The suffix ``\fR.zip\fP'' is applied
+Xif the \fRfile\fP specified does not exist.  Note that
+Xself-extracting ZIP files are supported; just specify
+Xthe ``\fR.exe\fP'' suffix yourself.
+X.IP [\fIfilespec\fP]
+XAn optional list of archive members to be processed.
+XExpressions may be used to match multiple members; be sure to quote
+Xexpressions that contain characters interpreted by the Unix shell. See
+XPATTERN MATCHING (below) for more details.
+X.SH OPTIONS
+X.PD 0
+X.IP \-1 \w'\-1'u+2m
+Xlist filenames only, one per line (useful for pipes)
+X.IP \-s
+Xlist zipfile info in short Unix ``ls \-l'' format:  default
+X.IP \-m
+Xlist zipfile info in medium Unix ``ls \-l'' format
+X.IP \-l
+Xlist zipfile info in long Unix ``ls \-l'' format
+X.IP \-v
+Xlist zipfile information in verbose, multi-page format
+X.IP \-h
+Xlist header line
+X.IP \-t
+Xlist totals for files listed or for all files
+X.PD
+X.SH PATTERN MATCHING
+XAll archive members are listed unless a \fIfilespec\fP is provided to 
+Xspecify a subset of the archive members.  The \fIfilespec\fP is similar 
+Xto an \fRegrep\fP expression, and may contain:
+X.PP
+X.ta \w'[...]'u+2m
+X*	matches a sequence of 0 or more characters
+X.br
+X?	matches exactly 1 character
+X.br
+X\\nnn	matches the character having octal code nnn
+X.PD 0
+X.IP [...] \w'[...]'u+2m
+Xmatches any single character found inside the brackets; ranges
+Xare specified by a beginning character, a hyphen, and an ending
+Xcharacter.  If an exclamation point or a carat (`!' or `^') follows
+Xthe left bracket, then the range of characters matched is complemented
+Xwith respect to the ASCII character set (that is, anything except the
+Xcharacters inside the brackets is considered a match).
+X.PD
+X.SH DESCRIPTION
+X.I ZipInfo
+Xlists technical information about a ZIP archive, including information
+Xfile access permissions, encryption status, type of compression, version
+Xand operating system of compressing program, and the like.  The default
+Xoption is to list files in the following format:
+X.PP
+X.X "-rw-rwl---  1.5 unx    2802 t- defX 11-Aug-91 13:48 perms.2660"
+X.PP
+XThe last three fields are clearly the modification date and time of
+Xthe file, and its name.  The case of the filename is respected; thus
+Xfiles which come from MS-DOS PKZIP are always capitalized.  If the file
+Xwas zipped with a stored directory name, that is also displayed as part
+Xof the filename.
+X.PP
+XThe second and third fields indicate that the file was zipped under
+XUnix with version 1.5 of \fRZip\fP (a beta version).  Since it comes
+Xfrom Unix, the file
+Xpermissions at the beginning of the line are printed in Unix format.
+XThe uncompressed file-size (2802 in this example) is the fourth field.
+X.PP
+XThe fifth field consists of two characters, either of which may take
+Xon several values.  The first character may be either `t' or `b', indicating
+Xthat \fRZip\fP believes the file to be text or binary, respectively;
+Xbut if the file is encrypted, \fIZipInfo\fP
+Xnotes this fact by capitalizing the character (`T' or `B').  The second
+Xcharacter may also take on four values, depending on whether there is
+Xan extended local header and/or an ``extra field'' associated with the
+Xfile (explained in PKWare's APPNOTE.TXT).  If neither exists, the character
+Xwill be a hyphen (`\-'); if there is an extended local header but no extra
+Xfield, `l'; if the reverse, `x'; and if both exist, `X'.  Thus the
+Xfile in this example is (apparently) a text file, is not encrypted, and
+Xhas neither an extra field nor an extended local header associated with it.
+XThe example below, on the other hand, is an encrypted binary file with an 
+Xextra field:
+X.PP
+X.X "RWD,R,R     0.9 vms     168 Bx shrk  9-Aug-91 19:15 perms.0644"
+X.PP
+XExtra fields are used by PKWare for authenticity verification(?) and
+Xpossibly other purposes, and by Info-ZIP's \fRZip\fP
+X1.6 and later to store OS/2, Macintosh and VMS file attributes.
+XThis example presumably falls into
+Xthe latter class, then.  Note that the file attributes are listed in
+XVMS format.  Other possibilities for the host operating system include
+XOS/2 with High Performance File System (HPFS), DOS or OS/2 with File 
+XAllocation Table (FAT) file system, and Macintosh, denoted
+Xas follows:
+X.PP
+X.X "arc,,rw,    1.0 os2    5358 Tl i4:3  4-Dec-91 11:33 longfilename.hpfs"
+X.X "arc,hid,rdo,sys dos    4096 b- i4:2 14-Jul-91 12:58 EA DATA. SF"
+X.X "--w-------  1.0 mac   17357 bx i8:2  4-May-92 04:02 unzip.macr"
+X.PP
+XFile attributes in the first two cases are indicated in a DOS-like format,
+Xwhere the file may or may not have its archive bit set; may be hidden or not;
+Xmay be read-write or read-only; and may be a system file or not.  If the
+Xattributes are too long, the version number of the encoding software is
+Xomitted.  (The information is still available in the verbose listing, 
+Xhowever.)  Interpretation of Macintosh file attributes needs some work yet.
+X.PP
+XFinally, the sixth field indicates
+Xthe compression method and possible sub-method used.  There are six methods
+Xknown at present:  storing (no compression), reducing, shrinking, imploding,
+Xtokenizing, and deflating.  In addition, there are four levels of reducing
+X(1 through 4); four types of imploding (4K or 8K sliding dictionary, and
+X2 or 3 Shannon-Fano trees); and three levels of deflating (fast, normal,
+Xmaximum compression).  \fIZipInfo\fP represents these methods and their
+Xsub-methods as follows:  ``stor''; ``re:1,'' ``re:2,'' etc.; ``shrk'';
+X``i4:2,'' ``i8:3,'' etc.; ``tokn''; and ``defF,'' ``defN,'' and ``defX.''
+X.PP
+XThe medium and long listings are almost identical to the
+Xshort format except that they add information on the file's
+Xcompression.  The medium format indicates the file's
+Xcompression factor as a percentage:
+X.PP
+X.X "-rw-rwl---  1.5 unx    2802 t- 81% defX 11-Aug-91 13:48 perms.2660"
+X.PP
+XIn this example, the file has been compressed by more than a factor of
+Xfive; the compressed data are only 19% of the original size.  The long
+Xformat gives the compressed file's size in bytes, instead:
+X.PP
+X.X "-rw-rwl---  1.5 unx    2802 t-     538 defX 11-Aug-91 13:48 perms.2660"
+X.PP
+XIn addition to individual file information, a default zipfile listing
+Xalso includes header and trailer lines:
+X.PP
+X.X "Archive:  OS2.zip   5453 bytes   5 files"
+X.X ",,rw,       1.0 os2     730 b- i4:3 26-Jun-92 23:40 Contents"
+X.X ",,rw,       1.0 os2    3710 b- i4:3 26-Jun-92 23:33 makefile.os2"
+X.X ",,rw,       1.0 os2    8753 b- i8:3 26-Jun-92 15:29 os2unzip.c"
+X.X ",,rw,       1.0 os2      98 b- stor 21-Aug-91 15:34 unzip.def"
+X.X ",,rw,       1.0 os2      95 b- stor 21-Aug-91 17:51 zipinfo.def"
+X.X "5 files, 13386 bytes uncompressed, 4951 bytes compressed:  63%"
+X.PP
+XThe header line gives the name of the archive, its total size, and the
+Xtotal number of files; the trailer gives the number of files listed,
+Xtheir total uncompressed size, and their total compressed size (not
+Xincluding any of \fRZip\fP's internal overhead).  If, however, one or 
+Xmore \fIfilespec\fPs are provided, the header and trailer lines are
+Xnot listed.  This behavior is also similar to that of Unix's ``ls \-l'';
+Xit may be overridden by specifying the \-h and \-t options explicitly.
+XIn such a case the listing format must also be specified explicitly,
+Xsince \-h or \-t (or both) in the absence of other options implies
+Xthat ONLY the header or trailer line (or both) is listed.  See the
+XEXAMPLES section below for a semi-intelligible translation of this
+Xnonsense.
+X.PP
+XThe verbose listing is self-explanatory.  It also lists file
+Xcomments and the zipfile comment, if any, and the number of
+Xbytes of OS/2 extended attributes stored.  Note that the
+Xlatter number will in general NOT match the number given by
+XOS/2's ``dir'' command; OS/2 always reports the number of
+Xbytes required in 16-bit format, whereas \fIZipInfo\fP
+Xalways reports the 32-bit storage.
+X.PD
+X.SH ENVIRONMENT OPTIONS
+XModifying \fIZipInfo\fP's default behavior via options placed in
+Xan environment variable can be a bit complicated to explain, due to
+X\fIZipInfo\fP's attempts to handle various defaults in an intuitive,
+Xyet Unix-like, manner.  Nevertheless, there is some underlying logic.
+XIn brief, 
+Xthere are three ``priority levels'' of options:  the default options;
+Xenvironment options, which can override or add to the defaults; and 
+Xexplicit options given by the user, which can override or add to 
+Xeither of the above.
+X.PP
+XThe default listing format, as noted above, corresponds roughly
+Xto the "zipinfo \-hst" command (except when individual zipfile members
+Xare specified).
+XA user who prefers the long-listing format (\-l) can make use of the
+X\fIZIPINFO\fP environment variable to change this default:
+X.ta \w'tabset'u +\w'ZIPINFO=\-l; export ZIPINFO'u+3m
+X.PP
+X.IP "\tsetenv ZIPINFO \-l\tUnix C shell"
+X.br
+X.IP "\tZIPINFO=\-l; export ZIPINFO\tUnix Bourne shell"
+X.PP
+X.IP "\tset ZIPINFO=\-l\tOS/2 or MS-DOS"
+X.PP
+X.IP "\tdefine ZIPINFO_OPTS ""\-l""\tVMS (quotes for LOWERCASE)"
+X.PP
+XIf, in addition, the user dislikes the trailer line, \fIZipInfo\fP's
+Xconcept of ``negative options'' may be used to override the default
+Xinclusion of the line.  This is accomplished by preceding the undesired
+Xoption with one or more minuses:  e.g., ``\-l\-t'' or ``\-\-tl'', in this
+Xexample.  The first hyphen is the regular switch character, but the one
+Xbefore the `t' is a minus sign.  The dual use of hyphens may seem a little
+Xawkward, but it's reasonably intuitive nonetheless:  simply ignore the
+Xfirst hyphen and go from there.  It is also consistent with the behavior
+Xof the Unix command \fRnice\fP(1).
+X.PD
+X.SH EXAMPLES
+XTo get a basic, short-format listing of the complete contents of a ZIP 
+Xarchive ``storage.zip,'' with both header and totals lines, use only
+Xthe archive name as an argument to zipinfo:
+X.PP
+X.IP "\t\fIzipinfo\fP storage"
+X.PP
+XTo produce a basic, long-format listing (not verbose), including header and
+Xtotals lines, use \-l:
+X.PP
+X.IP "\t\fIzipinfo\fP \-l storage"
+X.PP
+XTo list the complete contents of the archive without header and totals
+Xlines, either negate the \-h and \-t options or else specify the contents
+Xexplicitly:
+X.PP
+X.IP "\t\fIzipinfo\fP \-\-h\-t storage"
+X.IP "\t\fIzipinfo\fP storage \e*"
+X.PP
+X(where the backslash is required only if the shell would otherwise expand
+Xthe `*' wildcard, as in Unix when globbing is turned on--double quotes around
+Xthe asterisk would have worked as well).  To turn off the totals line by
+Xdefault, use the environment variable (C shell is assumed here):
+X.PP
+X.IP "\tsetenv ZIPINFO \-\-t"
+X.IP "\t\fIzipinfo\fP storage"
+X.PP
+XTo get the full, short-format listing of the first example again, given
+Xthat the environment variable is set as in the previous example, it is
+Xnecessary to specify the \-s option explicitly, since the \-t
+Xoption by itself implies that ONLY the footer line is to be printed:
+X.PP
+X.IP "\tsetenv ZIPINFO \-\-t"
+X.IP "\t\fIzipinfo\fP \-t storage\t[only totals line]"
+X.IP "\t\fIzipinfo\fP \-st storage\t[full listing]"
+X.PP
+XThe \-s option, like \-m and \-l, includes headers and footers by default,
+Xunless otherwise specified.  Since the environment variable specified no
+Xfooters and that has a higher precedence than the default behavior of \-s,
+Xan explicit \-t option was necessary to produce the full listing.  Nothing 
+Xwas indicated about the header, however, so the \-s option was sufficient.
+XNote that both the \-h and \-t options, when used by themselves or with
+Xeach other, override any default listing of member files; only the header
+Xand/or footer are printed.  This behavior will be more 
+Xuseful when \fIZipInfo\fP accepts wildcards for the zipfile name; one
+Xmay then summarize the contents of all zipfiles with a single command.
+X.PP
+XTo list information on a single file within the archive, in medium format,
+Xspecify the filename explicitly:
+X.PP
+X.IP "\t\fIzipinfo\fP \-m storage unshrink.c"
+X.PP
+XThe specification of any member file, as in this example, will override
+Xthe default header and totals lines; only the single line of information
+Xabout the requested file will be printed.  This is intuitively what one
+Xwould expect when requesting information about a single file.  For multiple
+Xfiles, it is often useful to know the total compressed and uncompressed
+Xsize; in such cases \-t may be specified explicitly:
+X.PP
+X.IP "\t\fIzipinfo\fP \-mt storage ""*.[ch] Mak\e*"
+X.PP
+XFinally, to get maximal information about the ZIP archive, use the verbose 
+Xoption.  It is usually wise to pipe the output into a filter such as 
+X\fRmore\fP(1):
+X.PP
+X.IP "\t\fIzipinfo\fP \-v storage | more"
+X.PD
+X.SH TIPS
+XThe author finds it convenient to set up an alias ``ii'' for \fIZipInfo\fP
+Xon systems which allow aliases, or else to set up a batch file ``ii.bat''
+Xor to rename the executable to ``ii.exe'' on systems such as MS-DOS which
+Xhave no provision for aliases.  The ``ii'' usage parallels the common
+X``ll'' alias for long listings in Unix, and the similarity between the
+Xoutputs of the two commands was intentional.
+X.PD
+X.SH SEE ALSO
+Xfunzip(1), unzip(1), zip(1), zipcloak(1), zipnote(1), zipsplit(1)
+X.PD
+X.SH AUTHOR
+XGreg Roelofs (also known as Cave Newt).  \fIZipInfo\fP is partly based on
+XS. H. Smith's \fRunzip\fP and contains pattern-matching code by J. Kercheval,
+Xbut mostly it was written from scratch.  The OS/2 extra-field code is by
+XKai Uwe Rommel.
+END_OF_FILE
+  if test 13533 -ne `wc -c <'zipinfo.1'`; then
+    echo shar: \"'zipinfo.1'\" unpacked with wrong size!
+  fi
+  # end of 'zipinfo.1'
+fi
+echo shar: End of archive 9 \(of 14\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

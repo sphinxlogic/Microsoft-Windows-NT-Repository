@@ -1,0 +1,2353 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i020:  xbbs - A Bulletin Board System for System V, Part05/11
+Message-ID: <1992Sep9.045151.26348@sparky.imd.sterling.com>
+X-Md4-Signature: 01b932c0a97eae78bda5e8f13721cce9
+Date: Wed, 9 Sep 1992 04:51:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 20
+Archive-name: xbbs/part05
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbscsumm.c bbscunzip.c sealink/sealink.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:50 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 11)."'
+if test -f 'bbscsumm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscsumm.c'\"
+else
+  echo shar: Extracting \"'bbscsumm.c'\" \(4846 characters\)
+  sed "s/^X//" >'bbscsumm.c' <<'END_OF_FILE'
+X/* bbscsumm.c         2/5/88 */
+X/* This code was derived from newest.c by Rick Richardson */
+X
+X#include <ftw.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <time.h>
+X#include <string.h>
+X/*
+X#include "bbscdef.h"
+X*/
+X 
+Xextern char msg_text[1482];
+Xextern char who_am_I[99];
+Xextern char who_am_i[99];
+Xextern char jnk[2];
+Xextern char buf128[384];
+Xextern char x_pathandfile[99];
+Xextern char f_pathname[99];
+Xextern char x_filename[20];
+X 
+Xextern int toggle;
+X
+X#define	DAYSIZE	15
+X#define	SIZSIZE	11
+X#define	SECS	(60L*60L*24L)
+X#define	EPOCH	9999999L
+X#define CRLF	"\n\r"
+X
+Xint	unreadable;
+Xlong	mtime;
+Xlong	atime;
+Xlong	Ctime;
+Xlong	bigsize;
+Xint	files;
+Xlong	bytes;
+Xint	bigflag;
+Xint	timeflag;
+Xchar	*base();
+Xstatic long	dayvec[] =
+X{
+X	0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 10L, 20L, 50L, 100L, 200L, 500L, EPOCH
+X};
+X
+Xstatic long	sizvec[] =
+X{
+X	0L, 1000L, 5000L, 10000L, 20000L, 50000L, 100000L, 200000L, 500000L,
+X	1000000L, EPOCH
+X};
+X
+Xint	afiles[DAYSIZE];
+Xint	mfiles[DAYSIZE];
+Xint	cfiles[DAYSIZE];
+Xint	sizfiles[SIZSIZE];
+Xlong	now;
+X
+Xint
+Xin(mindays, maxdays, when)
+Xlong	mindays, maxdays;
+Xlong	when;
+X{
+X	long	minsecs = mindays * SECS;
+X	long	maxsecs = maxdays * SECS;
+X
+X	if ( (now-when)<maxsecs && (now-when)>=minsecs) return (1);
+X	return (0);
+X}
+X
+Xint
+Xsiz(minsiz, maxsiz, thissiz)
+Xlong	minsiz, maxsiz;
+Xlong	thissiz;
+X{
+X	if ( thissiz<maxsiz && thissiz>=minsiz) return (1);
+X	return (0);
+X}
+X
+Xint
+Xfn(name, sp, what)
+Xchar	*name;
+Xregister struct stat	*sp;
+X{
+X	register int i;
+X
+X	if (what != FTW_F && what != FTW_D)
+X	{
+X		++unreadable;
+X		return (0);
+X	}
+X	bytes += sp->st_size;
+X	if (what != FTW_F) return(0);
+X	++files;
+X	for (i = 1; i < DAYSIZE; ++i)
+X	{
+X		if (in(dayvec[i-1], dayvec[i], sp->st_mtime)) mfiles[i]++;
+X		if (in(dayvec[i-1], dayvec[i], sp->st_atime)) afiles[i]++;
+X		if (in(dayvec[i-1], dayvec[i], sp->st_ctime)) cfiles[i]++;
+X	}
+X	for (i = 1; i < SIZSIZE; ++i)
+X		if (siz(sizvec[i-1], sizvec[i], sp->st_size)) sizfiles[i]++;
+X	if (sp->st_mtime>mtime)
+X		{mtime = sp->st_mtime; (void)strcpy(who_am_I, name);}
+X	if (sp->st_ctime>Ctime)
+X		{Ctime = sp->st_ctime; (void)strcpy(x_pathandfile, name);}
+X	if (sp->st_atime>atime)
+X		{atime = sp->st_atime; (void)strcpy(who_am_i, name);}
+X	if (sp->st_size>bigsize)
+X		{bigsize = sp->st_size; (void)strcpy(buf128, name);}
+X	return (0);
+X}
+Xsummary()
+X{
+X	long	time();
+X	register int i, c, errflag = 0;
+X	portsout("\n\rCompiling statistics summary .........");
+X	now = time( (long *) 0);
+X	init();
+X	walk(f_pathname);
+X	stats(f_pathname);
+X	graf(afiles, mfiles, cfiles);
+X	return (0);
+X}
+X
+Xinit()
+X{
+X	register int	i;
+X
+X	unreadable = 0;
+X	mtime = 0;
+X	atime = 0;
+X	Ctime = 0;
+X	bigsize = 0;
+X	files = 0;
+X	bytes = 0;
+X	for (i = 1; i < DAYSIZE; ++i)
+X	{
+X		afiles[i] = 0;
+X		mfiles[i] = 0;
+X		cfiles[i] = 0;
+X	}
+X	for (i = 1; i < SIZSIZE; ++i)
+X		sizfiles[i] = 0;
+X}
+X
+Xwalk(name)
+Xregister char	*name;
+X{
+X	while (ftw(name, fn, 10) > 0)
+X		;
+X}
+X
+Xstats(name)
+Xchar	*name;
+X{
+X	portsout("\n\r\n\rDirectory:  ");
+X	portsout(name);
+X	portsout("\n\rNewest access:  ");
+X	portsout(base(who_am_i));
+X	portsout(" at ");
+X	portsout(ctime(&atime));
+X	portsout("\n\rNewest modify:  ");
+X	portsout(base(who_am_I));
+X	portsout(" at ");
+X	portsout(ctime(&mtime));
+X	portsout("\n\rNewest change:  ");
+X	portsout(base(x_pathandfile));
+X	portsout(" at ");
+X	portsout(ctime(&Ctime));
+X	portsout("\n\rLargest file:   ");
+X	portsout(base(buf128));
+X	portsout(" is ");
+X	sprintf(x_filename, "%ld", bigsize);
+X	portsout(x_filename);
+X	portsout(CRLF);
+X	if (unreadable)
+X		portsout("\n\r\n\rUnreadable directories/files found\n\r\n\r");
+X}
+X
+Xchar *base(nm)
+Xchar *nm;
+X{
+X	char *ptr;
+X	ptr = strrchr(nm, '/');
+X	ptr++;
+X	return(ptr);
+X}
+X
+Xgraf(avec, mvec, cvec)
+Xint	avec[];
+Xint	mvec[];
+Xint	cvec[];
+X{
+X	register int	i;
+X		for (i = 1; i < DAYSIZE; ++i)
+X		{
+X			if (dayvec[i] == EPOCH){
+X				(void) sprintf(msg_text,
+X		"%5ld - EPOCH days: %5d accessed %5d modified %5d changed\n\r",
+X					dayvec[i-1], avec[i], mvec[i], cvec[i]);
+X		portsout(msg_text); }
+X			else{
+X				(void) sprintf(msg_text,
+X		"%5ld - %5ld days: %5d accessed %5d modified %5d changed\n\r",
+X					dayvec[i-1], dayvec[i],
+X					avec[i], mvec[i], cvec[i] );
+X		portsout(msg_text); }
+X		}
+X		(void) sprintf(msg_text,
+X		"                    %5d TOTAL FILES, %7ld TOTAL BYTES\n\r\n\r",
+X			files, bytes);
+X		portsout(msg_text);
+X
+X	if(toggle)
+X		{
+X		portsout("*** Depress a key to continue .......");
+X		portsin(jnk, 1);
+X		portsout("\n\r\n\r");
+X		}
+X		for (i = 1; i < SIZSIZE; ++i)
+X		{
+X			if (sizvec[i] == EPOCH){
+X				(void)sprintf(msg_text,"%7ld -  ULIMIT bytes: %5d files\n\r",
+X					sizvec[i-1], sizfiles[i] );
+X				portsout(msg_text); }
+X			else{
+X				(void)sprintf(msg_text,"%7ld - %7ld bytes: %5d files\n\r",
+X					sizvec[i-1], sizvec[i], sizfiles[i] );
+X				portsout(msg_text); }
+X		}
+X		(void)sprintf(msg_text,"                    %7ld TOTAL BYTES\n\r", bytes);
+X		portsout(msg_text);
+X	if(toggle)
+X		{
+X		portsout("\n\r*** Depress a key to continue .......");
+X		portsin(jnk, 1);
+X		portsout("\n\r\n\r");
+X		}
+X}
+END_OF_FILE
+  if test 4846 -ne `wc -c <'bbscsumm.c'`; then
+    echo shar: \"'bbscsumm.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscsumm.c'
+fi
+if test -f 'bbscunzip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscunzip.c'\"
+else
+  echo shar: Extracting \"'bbscunzip.c'\" \(23004 characters\)
+  sed "s/^X//" >'bbscunzip.c' <<'END_OF_FILE'
+X
+X/*
+X	If the computer is BIG ENDIAN, remove the comment from the next
+X        line.
+X#define BIGEND
+X*/
+X
+Xtypedef unsigned char byte;	/* code assumes UNSIGNED bytes */
+Xtypedef long longint;
+Xtypedef unsigned short word;
+Xtypedef char boolean;
+X
+X#define STRSIZ 256
+X#define BSIZE 512
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef __STDC__
+X
+X#include <stdlib.h>
+X
+X#else
+X
+Xchar *malloc();
+X
+X#endif
+X
+X#define min(a,b) ((a) < (b) ? (a) : (b))
+X
+X/*
+X * Zipfile layout declarations
+X *
+X */
+X
+X#define LONGIP(l) ((longint *) &((l)[0]))
+X#define LONGI(l) (*(LONGIP(l)))
+X
+Xtypedef longint signature_type;
+X
+X
+X#define LOCAL_FILE_HEADER_SIGNATURE  0x04034b50L
+X
+X
+Xtypedef struct local_file_header {
+X	word version_needed_to_extract;
+X        word general_purpose_bit_flag;
+X	word compression_method;
+X	word last_mod_file_time;
+X	word last_mod_file_date;
+X	byte crc32[4];
+X	byte compressed_size[4];
+X        byte uncompressed_size[4];
+X	word filename_length;
+X	word extra_field_length;
+X} local_file_header;
+X
+X
+X#define CENTRAL_FILE_HEADER_SIGNATURE  0x02014b50L
+X
+X
+Xtypedef struct central_directory_file_header {
+X	word version_made_by;
+X	word version_needed_to_extract;
+X	word general_purpose_bit_flag;
+X	word compression_method;
+X	word last_mod_file_time;
+X	word last_mod_file_date;
+X	byte crc32[4];
+X	byte compressed_size[4];
+X	byte uncompressed_size[4];
+X	word filename_length;
+X	word extra_field_length;
+X	word file_comment_length;
+X	word disk_number_start;
+X	word internal_file_attributes;
+X	byte external_file_attributes[4];
+X	byte relative_offset_local_header[4];
+X} central_directory_file_header;
+X
+X
+X#define END_CENTRAL_DIR_SIGNATURE  0x06054b50L
+X
+X
+Xtypedef struct end_central_dir_record {
+X	word number_this_disk;
+X	word number_disk_with_start_central_directory;
+X	word total_entries_central_dir_on_this_disk;
+X	word total_entries_central_dir;
+X	byte size_central_directory[4];
+X	byte offset_start_central_directory[4];
+X	word zipfile_comment_length;
+X} end_central_dir_record;
+X
+X
+Xchar *fnames[2] = {	/* default filenames vector */
+X	"*",
+X	NULL
+X};
+Xchar **fnv = &fnames[0];
+X
+Xint vflag;		/* -v: view directory */
+X
+Xint members;
+Xlongint csize;
+Xlongint ucsize;
+Xlongint tot_csize;
+Xlongint tot_ucsize;
+X
+X
+X/*
+X * input file variables
+X *
+X */
+X
+X#define INBUFSIZ BUFSIZ		/* same as stdio uses */
+Xbyte *inbufchr;			/* input file buffer - any size is legal */
+Xbyte *inptr;
+X
+Xint incnt;
+Xword bitbuf;
+Xint bits_left;
+Xboolean zipeof;
+X
+Xint zipfd;
+Xchar zipfn[STRSIZ];
+Xlocal_file_header lrec;
+X
+X
+X/*
+X * output stream variables
+X *
+X */
+X
+X#define OUTBUFSIZ 0x2000        /* unImplode needs power of 2, >= 0x2000 */
+Xbyte *outbufchr;                   /* buffer for rle look-back */
+Xbyte *outptr;
+X
+Xlongint outpos;			/* absolute position in outfile */
+Xint outcnt;			/* current position in outbufchr */
+X
+Xint outfd;
+Xchar filename[STRSIZ];
+Xchar extra[STRSIZ];
+X
+X#define DLE 144
+X
+X
+X/* ----------------------------------------------------------- */
+X/*
+X * shrink/reduce working storage
+X *
+X */
+X
+Xint factor;
+X
+X#define max_bits 13
+X#define init_bits 9
+X#define hsize 8192
+X#define first_ent 257
+X#define clear 256
+X
+X
+Xint codesize;
+Xint maxcode;
+Xint free_ent;
+Xint maxcodemax;
+Xint offset;
+Xint sizex;
+X
+X
+X
+X/* ============================================================= */
+X/*
+X * Host operating system details
+X *
+X */
+X
+X/* On some systems the contents of sys/param.h duplicates the
+X   contents of sys/types.h, so you don't need (and can't use)
+X   sys/types.h. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <time.h>
+Xstruct tm *gmtime(), *localtime();
+X#define ZSUFX ".zip"
+X
+X
+Xchar *strchr(), *strrchr();
+X
+Xlong lseek();
+X
+X#define SEEK_SET  0
+X#define SEEK_CUR  1
+X#define SEEK_END  2
+X
+XFILE *zipFILE;
+X
+X#include <fcntl.h>
+X
+Xvoid set_file_time()
+X /*
+X  * set the output file date/time stamp according to information from the
+X  * zipfile directory record for this file 
+X  */
+X
+X{
+X    time_t times[2];
+X    struct tm *tmbuf;
+X    long m_time;
+X    int yr, mo, dy, hh, mm, ss, leap, days = 0;
+X
+X
+X    yr = (((lrec.last_mod_file_date >> 9) & 0x7f) + 10);  /* dissect date */
+X    mo = ((lrec.last_mod_file_date >> 5) & 0x0f);
+X    dy = ((lrec.last_mod_file_date & 0x1f) - 1);
+X
+X    hh = ((lrec.last_mod_file_time >> 11) & 0x1f);        /* dissect time */
+X    mm = ((lrec.last_mod_file_time >> 5) & 0x3f);
+X    ss = ((lrec.last_mod_file_time & 0x1f) * 2);
+X
+X    /* leap = # of leap years from 1970 up to but not including
+X       the current year */
+X
+X    leap = ((yr+1969)/4);              /* Leap year base factor */
+X
+X    /* How many days from 1970 to this year? */
+X    days = (yr * 365) + (leap - 492);
+X
+X    switch(mo)			       /* calculate expired days this year */
+X    {
+X    case 12:
+X        days += 30;
+X    case 11:
+X        days += 31;
+X    case 10:
+X        days += 30;
+X    case 9:
+X        days += 31;
+X    case 8:
+X        days += 31;
+X    case 7:
+X        days += 30;
+X    case 6:
+X        days += 31;
+X    case 5:
+X        days += 30;
+X    case 4:
+X        days += 31;
+X    case 3:
+X        days += 28;                    /* account for leap years */
+X        if (((yr+1970) % 4 == 0) && (yr+1970) != 2000)
+X            ++days;
+X    case 2:
+X        days += 31;
+X    }
+X
+X    /* convert date & time to seconds relative to 00:00:00, 01/01/1970 */
+X    m_time = ((days + dy) * 86400) + (hh * 3600) + (mm * 60) + ss;
+X
+X    tmbuf = localtime(&m_time);
+X    hh = tmbuf->tm_hour;
+X    tmbuf = gmtime(&m_time);
+X    hh = tmbuf->tm_hour - hh;
+X    if (hh < 0)
+X	hh += 24;
+X    m_time += (hh * 3600);             /* account for timezone differences */
+X
+X    times[0] = m_time;             /* set the stamp on the file */
+X    times[1] = m_time;
+X    utime(filename, times);
+X}
+X
+X
+Xint open_input_file()
+X /* return non-0 if open failed */
+X{
+X	/*
+X	 * open the zipfile for reading and in BINARY mode to prevent cr/lf
+X	 * translation, which would corrupt the bitstreams 
+X	 */
+X
+X	zipfd = open(zipfn, O_RDONLY);
+X	return 0;
+X}
+X
+X
+X#ifdef BIGEND
+X
+Xvoid swap_bytes(wordp)
+Xword *wordp;
+X /* convert intel style 'short int' variable to host format */
+X{
+X	char *charp = (char *) wordp;
+X	char temp;
+X
+X	temp = charp[0];
+X	charp[0] = charp[1];
+X	charp[1] = temp;
+X}
+X
+Xvoid swap_lbytes(longp)
+Xlongint *longp;
+X /* convert intel style 'long' variable to host format */
+X{
+X	char *charp = (char *) longp;
+X	char temp[4];
+X
+X	temp[3] = charp[0];
+X	temp[2] = charp[1];
+X	temp[1] = charp[2];
+X	temp[0] = charp[3];
+X
+X	charp[0] = temp[0];
+X	charp[1] = temp[1];
+X	charp[2] = temp[2];
+X	charp[3] = temp[3];
+X}
+X
+X#endif
+X
+X
+X
+X/* ============================================================= */
+X
+Xint readbuf(fd, buf, size)
+Xint fd;
+Xchar *buf;
+Xregister unsigned size;
+X{
+X	register int count;
+X	int n;
+X
+X	n = size;
+X	while (size)  {
+X		if (incnt == 0)  {
+X			if ((incnt = read(fd, inbufchr, INBUFSIZ)) <= 0)
+X				return(incnt);
+X			inptr = inbufchr;
+X		}
+X		count = min(size, incnt);
+X		memcpy(buf, inptr, count);
+X		buf += count;
+X		inptr += count;
+X		incnt -= count;
+X		size -= count;
+X	}
+X	return(n);
+X}
+X
+Xint ReadByte(x)
+Xword *x;
+X /* read a byte; return 8 if byte available, 0 if not */
+X{
+X	if (csize-- <= 0)
+X		return 0;
+X	if (incnt == 0)  {
+X		if ((incnt = read(zipfd, inbufchr, INBUFSIZ)) <= 0)
+X			return 0;
+X		inptr = inbufchr;
+X	}
+X	*x = *inptr++;
+X	--incnt;
+X	return 8;
+X}
+X
+X
+X/* ------------------------------------------------------------- */
+Xstatic word mask_bits[] =
+X        {0,     0x0001, 0x0003, 0x0007, 0x000f,
+X                0x001f, 0x003f, 0x007f, 0x00ff,
+X                0x01ff, 0x03ff, 0x07ff, 0x0fff,
+X                0x1fff, 0x3fff, 0x7fff, 0xffff
+X        };
+X
+X
+Xint FillBitBuffer(bits)
+Xregister int bits;
+X{
+X	/* get the bits that are left and read the next word */
+X        register int result = bitbuf;
+X	word temp;
+X	int sbits = bits_left;
+X	bits -= bits_left;
+X
+X	/* read next word of input */
+X	bits_left = ReadByte(&bitbuf);
+X	bits_left += ReadByte(&temp);
+X	bitbuf |= (temp << 8);
+X	if (bits_left == 0)
+X		zipeof = 1;
+X
+X	/* get the remaining bits */
+X        result = result | (int) ((bitbuf & mask_bits[bits]) << sbits);
+X        bitbuf >>= bits;
+X        bits_left -= bits;
+X        return result;
+X}
+X
+X#define READBIT(nbits,zdest) { if (nbits <= bits_left) { zdest = (int)(bitbuf & mask_bits[nbits]); bitbuf >>= nbits; bits_left -= nbits; } else zdest = FillBitBuffer(nbits);}
+X
+X
+X/* ------------------------------------------------------------- */
+X
+Xunsigned long crc32val;
+X
+Xvoid UpdateCRC();
+X
+X
+X
+X/* ----------------------------------------------------------- */
+X/*
+X * The Reducing algorithm is actually a combination of two
+X * distinct algorithms.  The first algorithm compresses repeated
+X * byte sequences, and the second algorithm takes the compressed
+X * stream from the first algorithm and applies a probabilistic
+X * compression method.
+X */
+X
+Xint L_table[] = {0, 0x7f, 0x3f, 0x1f, 0x0f};
+X
+Xint D_shift[] = {0, 0x07, 0x06, 0x05, 0x04};
+Xint D_mask[]  = {0, 0x01, 0x03, 0x07, 0x0f};
+X
+Xint B_table[] = {8, 1, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5,
+X		 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6,
+X		 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+X		 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7,
+X		 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X		 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X		 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X		 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X		 8, 8, 8, 8};
+X
+X/* ----------------------------------------------------------- */
+X
+X
+X/*
+X Length  Method   Size  Ratio   Date    Time   CRC-32    Name
+X ------  ------   ----- -----   ----    ----   ------    ----
+X  44004  Implode  13041  71%  11-02-89  19:34  88420727  DIFF3.C
+X */
+X
+Xvoid dir_member()
+X{
+X	char *method;
+X	int ratio;
+X	int yr, mo, dy, hh, mm;
+X
+X	yr = (((lrec.last_mod_file_date >> 9) & 0x7f) + 80);
+X	mo = ((lrec.last_mod_file_date >> 5) & 0x0f);
+X	dy = (lrec.last_mod_file_date & 0x1f);
+X
+X	hh = ((lrec.last_mod_file_time >> 11) & 0x1f);
+X	mm = ((lrec.last_mod_file_time >> 5) & 0x3f);
+X
+X	switch (lrec.compression_method)  {
+X	case 0:
+X		method = "Stored";
+X		break;
+X	case 1:
+X		method = "Shrunk";
+X		break;
+X	case 2:
+X		method = "Reduce1";
+X		break;
+X	case 3:
+X		method = "Reduce2";
+X		break;
+X	case 4:
+X		method = "Reduce3";
+X		break;
+X	case 5:
+X		method = "Reduce4";
+X		break;
+X	case 6:
+X		method = "Implode";
+X		break;
+X	case 7:
+X		method = "Token";
+X		break;
+X	case 8:
+X		method = "Deflate";
+X		break;
+X	default:
+X		method = "Unknown";
+X		break;
+X	}
+X
+X	if (ucsize != 0)  {
+X		ratio = (int) ((1000L * (ucsize	- csize)) / ucsize);
+X		if ((ratio % 10) >= 5)
+X			ratio += 10;
+X	}
+X	else
+X		ratio = 0;	/* can .zip contain 0-size file? */
+X
+X	fprintf(zipFILE, "%7ld  %-7s%7ld %3d%%  %02d-%02d-%02d  %02d:%02d  \
+X%08lx  %s\n", ucsize, method, csize,
+X		ratio / 10, mo, dy, yr, hh, mm,
+X		LONGI(lrec.crc32), filename);
+X	tot_ucsize += ucsize;
+X	tot_csize += csize;
+X	++members;
+X}
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid skip_member()
+X{
+X	register long pos;
+X	long endbuf;
+X	int offset;
+X
+X	endbuf = lseek(zipfd, 0L, SEEK_CUR);	/* 1st byte beyond inbufchr */
+X	pos = endbuf - incnt;			/* 1st compressed byte */
+X	pos += csize;		/* next header signature */
+X	if (pos < endbuf)  {
+X		incnt -= csize;
+X		inptr += csize;
+X	}
+X	else  {
+X		offset = pos % BSIZE;		/* offset within block */
+X		pos = (pos / BSIZE) * BSIZE;	/* block start */
+X	        lseek(zipfd, pos, SEEK_SET);
+X		incnt = read(zipfd, inbufchr, INBUFSIZ);
+X		incnt -= offset;
+X		inptr = inbufchr + offset;
+X	}
+X}
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid get_string(len, s)
+Xint len;
+Xchar *s;
+X{
+X	readbuf(zipfd, s, len);
+X	s[len] = 0;
+X}
+X
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid process_local_file_header(fnamev)
+Xchar **fnamev;
+X{
+X	int extracted;
+X
+X	readbuf(zipfd, &lrec, sizeof(lrec));
+X
+X#ifdef BIGEND
+X	swap_bytes(&lrec.filename_length);
+X	swap_bytes(&lrec.extra_field_length);
+X	swap_lbytes(LONGIP(lrec.compressed_size));
+X	swap_lbytes(LONGIP(lrec.uncompressed_size));
+X	swap_bytes(&lrec.compression_method);
+X	swap_bytes(&lrec.version_needed_to_extract);
+X        swap_bytes(&lrec.general_purpose_bit_flag);
+X	swap_bytes(&lrec.last_mod_file_time);
+X	swap_bytes(&lrec.last_mod_file_date);
+X        swap_lbytes(LONGIP(lrec.crc32));
+X#endif
+X	csize = LONGI(lrec.compressed_size);
+X	ucsize = LONGI(lrec.uncompressed_size);
+X
+X	get_string(lrec.filename_length, filename);
+X	get_string(lrec.extra_field_length, extra);
+X
+X	extracted = 0;
+X	for (--fnamev; *++fnamev; )  {
+X		if (match(filename, *fnamev))  {
+X				dir_member();
+X			break;
+X		}
+X	}
+X		skip_member();
+X}
+X
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid process_central_file_header()
+X{
+X	central_directory_file_header rec;
+X	char filename[STRSIZ];
+X	char extra[STRSIZ];
+X	char comment[STRSIZ];
+X
+X	readbuf(zipfd, &rec, sizeof(rec));
+X
+X#ifdef BIGEND
+X	swap_bytes(&rec.filename_length);
+X	swap_bytes(&rec.extra_field_length);
+X	swap_bytes(&rec.file_comment_length);
+X#endif
+X
+X        get_string(rec.filename_length, filename);
+X	get_string(rec.extra_field_length, extra);
+X	get_string(rec.file_comment_length, comment);
+X}
+X
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid process_end_central_dir()
+X{
+X	end_central_dir_record rec;
+X	char comment[STRSIZ];
+X
+X	readbuf(zipfd, &rec, sizeof(rec));
+X
+X#ifdef BIGEND
+X	swap_bytes(&rec.zipfile_comment_length);
+X#endif
+X
+X	/* There seems to be no limit to the zipfile
+X	   comment length.  Some zipfiles have comments
+X	   longer than 256 bytes.  Currently no use is
+X	   made of the comment anyway.
+X	 */
+X#if 0
+X	get_string(rec.zipfile_comment_length, comment);
+X#endif
+X}
+X
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid process_headers()
+X{
+X	int ratio;
+X	longint sig;
+X
+X	if (vflag)  {
+X		members = 0;
+X		tot_ucsize = tot_csize = 0;
+X		fprintf(zipFILE,"\n Length  Method   Size  Ratio   Date    Time   \
+XCRC-32    Name\n ------  ------   ----- -----   ----    ----   ------    \
+X----\n");
+X	}
+X
+X	while (1) {
+X		if (readbuf(zipfd, &sig, sizeof(sig)) != sizeof(sig))
+X			return;
+X
+X#ifdef BIGEND
+X		swap_lbytes(&sig);
+X#endif
+X
+X                if (sig == LOCAL_FILE_HEADER_SIGNATURE)
+X			process_local_file_header(fnv);
+X                else if (sig == CENTRAL_FILE_HEADER_SIGNATURE)
+X			process_central_file_header();
+X                else if (sig == END_CENTRAL_DIR_SIGNATURE) {
+X			process_end_central_dir();
+X			break;
+X		}
+X                else {
+X			fprintf(stderr, "Invalid Zipfile Header\n");
+X			return;
+X		}
+X	}
+X	if (vflag)  {
+X		if (tot_ucsize != 0)  {
+X			ratio = (int) ((1000L * (tot_ucsize-tot_csize))
+X					/ tot_ucsize);
+X			if ((ratio % 10) >= 5)
+X				ratio += 10;
+X		}
+X		else
+X			ratio = 0;
+X		fprintf(zipFILE, " ------          ------  \
+X---                             -------\n\
+X%7ld         %7ld %3d%%                             %7d\n",
+X		tot_ucsize, tot_csize, ratio / 10, members);
+X	}
+X}
+X
+X
+X/* ---------------------------------------------------------- */
+X
+Xvoid process_zipfile()
+X{
+X	/*
+X	 * open the zipfile for reading and in BINARY mode to prevent cr/lf
+X	 * translation, which would corrupt the bitstreams 
+X	 */
+X
+X	if (open_input_file())
+X		exit(1);
+X
+X	process_headers();
+X
+X	close(zipfd);
+X}
+X
+X/* ---------------------------------------------------------- */
+Xvoid listzip (fn, port_id)
+Xchar *fn;
+Xchar *port_id;
+X{
+X	char *s;
+X	int c;
+X	char buu[32];
+X
+X	++vflag;
+X
+X	strcpy(zipfn, fn);
+X        /* allocate i/o buffers */
+X	inbufchr = (byte *) (malloc(INBUFSIZ));
+X	outbufchr = (byte *) (malloc(OUTBUFSIZ));
+X	if ((inbufchr == NULL) || (outbufchr == NULL)) {
+X		fprintf(stderr, "Can't allocate buffers!\n");
+X		exit(1);
+X	}
+X
+X        /* do the job... */
+X	sprintf( buu, "/tmp/ziplst.%s", port_id);
+X	zipFILE = fopen( buu, "w" );
+X        process_zipfile();
+X	free(inbufchr);
+X	free(outbufchr);
+X	fclose(zipFILE);
+X}
+X
+X#include <sys/dir.h>
+X#include <ctype.h>
+X
+X#define ASTERISK '*'		/* The '*' metacharacter */
+X#define QUESTION '?'		/* The '?' metacharacter */
+X#define BACK_SLASH '\\'         /* The '\' metacharacter */
+X#define LEFT_BRACKET '['	/* The '[' metacharacter */
+X#define RIGHT_BRACKET ']'	/* The ']' metacharacter */
+X
+X#define IS_OCTAL(ch) (ch >= '0' && ch <= '7')
+X
+Xtypedef short INT;
+Xtypedef short BOOLEAN;
+X#define TRUE 1
+X#define FALSE 0
+X#define EOS '\000'
+X
+Xstatic BOOLEAN do_list();
+Xstatic char nextch();
+Xstatic void list_parse();
+X
+Xint match(string, pattern)
+Xchar *string;
+Xchar *pattern;
+X{
+X    register int ismatch;
+X
+X    ismatch = FALSE;
+X    switch (*pattern)
+X    {
+X    case ASTERISK:
+X        pattern++;
+X        do
+X        {
+X            ismatch = match (string, pattern);
+X        }
+X        while (!ismatch && *string++ != EOS);
+X        break;
+X    case QUESTION:
+X        if (*string != EOS)
+X            ismatch = match (++string, ++pattern);
+X        break;
+X    case EOS:
+X        if (*string == EOS)
+X            ismatch = TRUE;
+X        break;
+X    case LEFT_BRACKET:
+X        if (*string != EOS)
+X            ismatch = do_list (string, pattern);
+X        break;
+X    case BACK_SLASH:
+X        pattern++;
+X    default:
+X	if (toupper(*string) == toupper(*pattern))
+X        {
+X            string++;
+X            pattern++;
+X            ismatch = match (string, pattern);
+X        }
+X        else
+X            ismatch = FALSE;
+X        break;
+X    }
+X    return(ismatch);
+X}
+X
+Xstatic BOOLEAN do_list (string, pattern)
+Xregister char *string;
+Xchar *pattern;
+X{
+X    register BOOLEAN ismatch;
+X    register BOOLEAN if_found;
+X    register BOOLEAN if_not_found;
+X    auto char lower;
+X    auto char upper;
+X
+X    pattern++;
+X    if (*pattern == '!')
+X    {
+X        if_found = FALSE;
+X        if_not_found = TRUE;
+X        pattern++;
+X    }
+X    else
+X    {
+X        if_found = TRUE;
+X        if_not_found = FALSE;
+X    }
+X    ismatch = if_not_found;
+X    while (*pattern != ']' && *pattern != EOS)
+X    {
+X        list_parse(&pattern, &lower, &upper);
+X        if (*string >= lower && *string <= upper)
+X        {
+X            ismatch = if_found;
+X            while (*pattern != ']' && *pattern != EOS) pattern++;
+X        }
+X    }
+X
+X    if (*pattern++ != ']')
+X    {
+X        fprintf(stderr, "Character class error\n");
+X	return;
+X    }
+X    else
+X        if (ismatch)
+X            ismatch = match (++string, pattern);
+X
+X    return(ismatch);
+X}
+X
+Xstatic void list_parse (patp, lowp, highp)
+Xchar **patp;
+Xchar *lowp;
+Xchar *highp;
+X{
+X    *lowp = nextch (patp);
+X    if (**patp == '-')
+X    {
+X        (*patp)++;
+X        *highp = nextch(patp);
+X    }
+X    else
+X        *highp = *lowp;
+X}
+X
+Xstatic char nextch (patp)
+Xchar **patp;
+X{
+X    register char ch;
+X    register char chsum;
+X    register INT count;
+X
+X    ch = *(*patp)++;
+X    if (ch == '\\')
+X    {
+X        ch = *(*patp)++;
+X        if (IS_OCTAL (ch))
+X        {
+X            chsum = 0;
+X            for (count = 0; count < 3 && IS_OCTAL (ch); count++)
+X            {
+X                chsum *= 8;
+X                chsum += ch - '0';
+X                ch = *(*patp)++;
+X            }
+X            (*patp)--;
+X            ch = chsum;
+X        }
+X    }
+X    return(ch);
+X}
+X
+Xlong crc_32_tab[] = {
+X      0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L,
+X      0x706af48fL, 0xe963a535L, 0x9e6495a3L, 0x0edb8832L, 0x79dcb8a4L,
+X      0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L,
+X      0x90bf1d91L, 0x1db71064L, 0x6ab020f2L, 0xf3b97148L, 0x84be41deL,
+X      0x1adad47dL, 0x6ddde4ebL, 0xf4d4b551L, 0x83d385c7L, 0x136c9856L,
+X      0x646ba8c0L, 0xfd62f97aL, 0x8a65c9ecL, 0x14015c4fL, 0x63066cd9L,
+X      0xfa0f3d63L, 0x8d080df5L, 0x3b6e20c8L, 0x4c69105eL, 0xd56041e4L,
+X      0xa2677172L, 0x3c03e4d1L, 0x4b04d447L, 0xd20d85fdL, 0xa50ab56bL,
+X      0x35b5a8faL, 0x42b2986cL, 0xdbbbc9d6L, 0xacbcf940L, 0x32d86ce3L,
+X      0x45df5c75L, 0xdcd60dcfL, 0xabd13d59L, 0x26d930acL, 0x51de003aL,
+X      0xc8d75180L, 0xbfd06116L, 0x21b4f4b5L, 0x56b3c423L, 0xcfba9599L,
+X      0xb8bda50fL, 0x2802b89eL, 0x5f058808L, 0xc60cd9b2L, 0xb10be924L,
+X      0x2f6f7c87L, 0x58684c11L, 0xc1611dabL, 0xb6662d3dL, 0x76dc4190L,
+X      0x01db7106L, 0x98d220bcL, 0xefd5102aL, 0x71b18589L, 0x06b6b51fL,
+X      0x9fbfe4a5L, 0xe8b8d433L, 0x7807c9a2L, 0x0f00f934L, 0x9609a88eL,
+X      0xe10e9818L, 0x7f6a0dbbL, 0x086d3d2dL, 0x91646c97L, 0xe6635c01L,
+X      0x6b6b51f4L, 0x1c6c6162L, 0x856530d8L, 0xf262004eL, 0x6c0695edL,
+X      0x1b01a57bL, 0x8208f4c1L, 0xf50fc457L, 0x65b0d9c6L, 0x12b7e950L,
+X      0x8bbeb8eaL, 0xfcb9887cL, 0x62dd1ddfL, 0x15da2d49L, 0x8cd37cf3L,
+X      0xfbd44c65L, 0x4db26158L, 0x3ab551ceL, 0xa3bc0074L, 0xd4bb30e2L,
+X      0x4adfa541L, 0x3dd895d7L, 0xa4d1c46dL, 0xd3d6f4fbL, 0x4369e96aL,
+X      0x346ed9fcL, 0xad678846L, 0xda60b8d0L, 0x44042d73L, 0x33031de5L,
+X      0xaa0a4c5fL, 0xdd0d7cc9L, 0x5005713cL, 0x270241aaL, 0xbe0b1010L,
+X      0xc90c2086L, 0x5768b525L, 0x206f85b3L, 0xb966d409L, 0xce61e49fL,
+X      0x5edef90eL, 0x29d9c998L, 0xb0d09822L, 0xc7d7a8b4L, 0x59b33d17L,
+X      0x2eb40d81L, 0xb7bd5c3bL, 0xc0ba6cadL, 0xedb88320L, 0x9abfb3b6L,
+X      0x03b6e20cL, 0x74b1d29aL, 0xead54739L, 0x9dd277afL, 0x04db2615L,
+X      0x73dc1683L, 0xe3630b12L, 0x94643b84L, 0x0d6d6a3eL, 0x7a6a5aa8L,
+X      0xe40ecf0bL, 0x9309ff9dL, 0x0a00ae27L, 0x7d079eb1L, 0xf00f9344L,
+X      0x8708a3d2L, 0x1e01f268L, 0x6906c2feL, 0xf762575dL, 0x806567cbL,
+X      0x196c3671L, 0x6e6b06e7L, 0xfed41b76L, 0x89d32be0L, 0x10da7a5aL,
+X      0x67dd4accL, 0xf9b9df6fL, 0x8ebeeff9L, 0x17b7be43L, 0x60b08ed5L,
+X      0xd6d6a3e8L, 0xa1d1937eL, 0x38d8c2c4L, 0x4fdff252L, 0xd1bb67f1L,
+X      0xa6bc5767L, 0x3fb506ddL, 0x48b2364bL, 0xd80d2bdaL, 0xaf0a1b4cL,
+X      0x36034af6L, 0x41047a60L, 0xdf60efc3L, 0xa867df55L, 0x316e8eefL,
+X      0x4669be79L, 0xcb61b38cL, 0xbc66831aL, 0x256fd2a0L, 0x5268e236L,
+X      0xcc0c7795L, 0xbb0b4703L, 0x220216b9L, 0x5505262fL, 0xc5ba3bbeL,
+X      0xb2bd0b28L, 0x2bb45a92L, 0x5cb36a04L, 0xc2d7ffa7L, 0xb5d0cf31L,
+X      0x2cd99e8bL, 0x5bdeae1dL, 0x9b64c2b0L, 0xec63f226L, 0x756aa39cL,
+X      0x026d930aL, 0x9c0906a9L, 0xeb0e363fL, 0x72076785L, 0x05005713L,
+X      0x95bf4a82L, 0xe2b87a14L, 0x7bb12baeL, 0x0cb61b38L, 0x92d28e9bL,
+X      0xe5d5be0dL, 0x7cdcefb7L, 0x0bdbdf21L, 0x86d3d2d4L, 0xf1d4e242L,
+X      0x68ddb3f8L, 0x1fda836eL, 0x81be16cdL, 0xf6b9265bL, 0x6fb077e1L,
+X      0x18b74777L, 0x88085ae6L, 0xff0f6a70L, 0x66063bcaL, 0x11010b5cL,
+X      0x8f659effL, 0xf862ae69L, 0x616bffd3L, 0x166ccf45L, 0xa00ae278L,
+X      0xd70dd2eeL, 0x4e048354L, 0x3903b3c2L, 0xa7672661L, 0xd06016f7L,
+X      0x4969474dL, 0x3e6e77dbL, 0xaed16a4aL, 0xd9d65adcL, 0x40df0b66L,
+X      0x37d83bf0L, 0xa9bcae53L, 0xdebb9ec5L, 0x47b2cf7fL, 0x30b5ffe9L,
+X      0xbdbdf21cL, 0xcabac28aL, 0x53b39330L, 0x24b4a3a6L, 0xbad03605L,
+X      0xcdd70693L, 0x54de5729L, 0x23d967bfL, 0xb3667a2eL, 0xc4614ab8L,
+X      0x5d681b02L, 0x2a6f2b94L, 0xb40bbe37L, 0xc30c8ea1L, 0x5a05df1bL,
+X      0x2d02ef8dL
+X   };
+X
+X
+X#define UPDCRC32(res,oct) res=crc_32_tab[(byte)res^(byte)oct] ^ ((res>>8) & 0x00FFFFFFL)
+X
+X/* ------------------------------------------------------------- */
+X
+Xextern unsigned long crc32val;
+X
+Xvoid UpdateCRC(s, len)
+Xregister unsigned char *s;
+Xregister int len;
+X /* update running CRC calculation with contents of a buffer */
+X{
+X	register unsigned long crcval;
+X
+X	crcval = crc32val;
+X        while (len--) {
+X		crcval = crc_32_tab[(byte)crcval ^ (byte)(*s++)]
+X			^ (crcval >> 8);
+X        }
+X	crc32val = crcval;
+X}
+X
+X
+END_OF_FILE
+  if test 23004 -ne `wc -c <'bbscunzip.c'`; then
+    echo shar: \"'bbscunzip.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscunzip.c'
+fi
+if test -f 'sealink/sealink.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sealink/sealink.c'\"
+else
+  echo shar: Extracting \"'sealink/sealink.c'\" \(31816 characters\)
+  sed "s/^X//" >'sealink/sealink.c' <<'END_OF_FILE'
+X/*****************************************************************************
+X *	SEAlink - Sliding window file transfer protocol
+X *
+X *	@(#) sealink.c 2.9 89/03/02 
+X *	UNIX SVR2 and BSD versions by Scott Reynolds
+X *	uucp: clmqt!scott
+X *
+X *	additional SysV modifications by Sanford Zelkovitz, without whose
+X *	help this couldn't have been accomplished
+X *
+X *	Based on:
+X *	MS-DOS Version 1.20, created on 08/05/87 at 17:51:40
+X *   (C)COPYRIGHT 1986, 87 by System Enhancement Associates ALL RIGHTS RESERVED
+X *	By:  Thom Henderson
+X *
+X *	Mr. Henderson had no hand in this UNIX port; please don't bother
+X *	him with questions about this program!
+X *
+X *	Description:
+X *
+X *	The intent of SEAlink is to provide a file transfer protocol that
+X *	does not suffer from propagation delays, such as are introduced
+X *	by satellite relays or packet switched networks.
+X ****************************************************************************/
+X
+X/*
+X * The following flags are for compiling on different systems.
+X */
+X#define SYSV			/* Compile for SYS V i/o calls	*/
+X/* #define BSD			/* Compile for BSD i/o calls	*/
+X
+X/*
+X * Define NO_MEM if your system doesn't have a
+X * working memset() function
+X */
+X/* #define NO_MEM		/* memset() doesn't work	*/
+X
+X/*
+X * Define NO_NAP if there is no nap() function.
+X *
+X * If you use nap() be aware that it causes a MUCH greater load
+X * on the processor.
+X *
+X * With NO_NAP defined the XModem compatibility is reduced; if
+X * this is not a concern, define this for greater efficiency.
+X */
+X#define NO_NAP			/* nap() doesn't work		*/
+X
+X/*
+X * Define CRCTABLE to use the fast table lookup CRC calculation;
+X * a slower calculation-based method can be compiled to reduce the
+X * amount of process memory required by commenting this out.
+X */
+X#define	CRCTABLE		/* use CRC lookup table		*/
+X
+X/*
+X * The section of code that is compiled when NAKEOT is defined is in the
+X * original MS-DOS version 1.16 code.  Its purpose is to send a NAK when
+X * an EOT is received during rcvfile(), apparently to confirm that this is
+X * indeed the end of file.  However, in certain (apparently non-standard)
+X * versions of the protocol, it is possible that the program will report an
+X * error when in fact there isn't one.  Comment this out at your discretion.
+X */
+X#define NAKEOT				/* define to NAK EOT's		*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <sys/ioctl.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <time.h>
+X#ifdef	SYSV			/* use System V I/O control	*/
+X#include <termio.h>
+X#endif	/* SYSV */
+X#ifdef	BSD			/* use BSD I/O control		*/
+X#include <sgtty.h>
+X#endif	/* BSD */
+X#ifndef	NO_MEM
+X#include <memory.h>
+X#endif	/* NO_MEM */
+X
+X/* Various system constants */
+X#define	WINDOW	6			/* maximum size of window	*/
+X#define	S_NAK	0			/* NAK condition for sendack()	*/
+X#define	S_ACK	1			/* ACK condition for sendack()	*/
+X#define	NONE	0			/* neither send nor receive	*/
+X#define	SEND	1			/* send mode			*/
+X#define	RECV	2			/* receive mode			*/
+X#define	TENYEAR	(time_t) 315532800L	/* GMT offset for 1970 <-> 1980	*/
+X
+X/* SEAlink block zero data structure */
+Xstruct zeros
+X{   
+X	long	flen;			/* file length			*/
+X	time_t	fstamp;			/* file date/time stamp		*/
+X	char	fnam[17];		/* original file name		*/
+X	char	prog[15];		/* sending program name		*/
+X	char	noacks;			/* true if ACKing not required	*/
+X	char	fill[87];		/* reserved for future use	*/
+X};
+X
+X/* ASCII mnemonic values */
+X#define	ACK	0x06
+X#define	NAK	0x15
+X#define	SOH	0x01
+X#define	EOT	0x04
+X#define	CAN	0x18
+X
+Xstatic int	outblk;			/* number of next block to send	*/
+Xstatic int	ackblk;			/* number of last block ACKed	*/
+Xstatic int	blksnt;			/* number of last block sent	*/
+Xstatic int	slide;			/* true if sliding window	*/
+Xstatic int	ackst;			/* ACK/NAK state		*/
+Xstatic int	numnak;			/* number of sequential NAKs	*/
+Xstatic int	chktec;			/* 1 = CRC, 0 = checksum		*/
+Xstatic int	toterr;			/* total number of errors	*/
+Xstatic int	ackrep;			/* true when ACK, NAK reported	*/
+Xstatic int	ackseen;		/* count of sliding ACKs seen	*/
+Xstatic int	xferdone = 0;		/* done with transfer (recvr)	*/
+Xstatic int	debug = 0;		/* debugging flag		*/
+Xstatic int	sld_flag = 1;		/* sliding windows allowed	*/
+Xstatic int	ackless = 1;		/* true if ACKs not required	*/
+Xstatic char	outb[133];		/* block to use for output	*/
+X
+X/* the program name MUST be 14 characters plus a '\0' terminator */
+X#ifdef	SYSV
+Xchar	progname[15] = "SEAlink/SYSV  ";
+X#endif	/* SYSV */
+X#ifdef	BSD
+Xchar	progname[15] = "SEAlink/BSD   ";
+X#endif	/* BSD */
+X
+X/* the debug filename is a local preference */
+Xchar	*dbugfile = "/tmp/sealink.log";
+X
+X
+X#ifdef	NO_NAP
+X/*
+X * Need this to do a (very) rough approximation of nap().
+X * Used by alarm() in com_getc()
+X */
+Xjmp_buf	tohere;
+X#endif
+X
+X/* CRC computation logic */
+X#ifdef	CRCTABLE
+Xunsigned short crc_tab[256] = 		/* CRC lookup table */
+X{
+X	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 
+X	0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef, 
+X	0x1231, 0x0210, 0x3273, 0x2252, 0x52b5, 0x4294, 0x72f7, 0x62d6, 
+X	0x9339, 0x8318, 0xb37b, 0xa35a, 0xd3bd, 0xc39c, 0xf3ff, 0xe3de, 
+X	0x2462, 0x3443, 0x0420, 0x1401, 0x64e6, 0x74c7, 0x44a4, 0x5485, 
+X	0xa56a, 0xb54b, 0x8528, 0x9509, 0xe5ee, 0xf5cf, 0xc5ac, 0xd58d, 
+X	0x3653, 0x2672, 0x1611, 0x0630, 0x76d7, 0x66f6, 0x5695, 0x46b4, 
+X	0xb75b, 0xa77a, 0x9719, 0x8738, 0xf7df, 0xe7fe, 0xd79d, 0xc7bc, 
+X	0x48c4, 0x58e5, 0x6886, 0x78a7, 0x0840, 0x1861, 0x2802, 0x3823, 
+X	0xc9cc, 0xd9ed, 0xe98e, 0xf9af, 0x8948, 0x9969, 0xa90a, 0xb92b, 
+X	0x5af5, 0x4ad4, 0x7ab7, 0x6a96, 0x1a71, 0x0a50, 0x3a33, 0x2a12, 
+X	0xdbfd, 0xcbdc, 0xfbbf, 0xeb9e, 0x9b79, 0x8b58, 0xbb3b, 0xab1a, 
+X	0x6ca6, 0x7c87, 0x4ce4, 0x5cc5, 0x2c22, 0x3c03, 0x0c60, 0x1c41, 
+X	0xedae, 0xfd8f, 0xcdec, 0xddcd, 0xad2a, 0xbd0b, 0x8d68, 0x9d49, 
+X	0x7e97, 0x6eb6, 0x5ed5, 0x4ef4, 0x3e13, 0x2e32, 0x1e51, 0x0e70, 
+X	0xff9f, 0xefbe, 0xdfdd, 0xcffc, 0xbf1b, 0xaf3a, 0x9f59, 0x8f78, 
+X	0x9188, 0x81a9, 0xb1ca, 0xa1eb, 0xd10c, 0xc12d, 0xf14e, 0xe16f, 
+X	0x1080, 0x00a1, 0x30c2, 0x20e3, 0x5004, 0x4025, 0x7046, 0x6067, 
+X	0x83b9, 0x9398, 0xa3fb, 0xb3da, 0xc33d, 0xd31c, 0xe37f, 0xf35e, 
+X	0x02b1, 0x1290, 0x22f3, 0x32d2, 0x4235, 0x5214, 0x6277, 0x7256, 
+X	0xb5ea, 0xa5cb, 0x95a8, 0x8589, 0xf56e, 0xe54f, 0xd52c, 0xc50d, 
+X	0x34e2, 0x24c3, 0x14a0, 0x0481, 0x7466, 0x6447, 0x5424, 0x4405, 
+X	0xa7db, 0xb7fa, 0x8799, 0x97b8, 0xe75f, 0xf77e, 0xc71d, 0xd73c, 
+X	0x26d3, 0x36f2, 0x0691, 0x16b0, 0x6657, 0x7676, 0x4615, 0x5634, 
+X	0xd94c, 0xc96d, 0xf90e, 0xe92f, 0x99c8, 0x89e9, 0xb98a, 0xa9ab, 
+X	0x5844, 0x4865, 0x7806, 0x6827, 0x18c0, 0x08e1, 0x3882, 0x28a3, 
+X	0xcb7d, 0xdb5c, 0xeb3f, 0xfb1e, 0x8bf9, 0x9bd8, 0xabbb, 0xbb9a, 
+X	0x4a75, 0x5a54, 0x6a37, 0x7a16, 0x0af1, 0x1ad0, 0x2ab3, 0x3a92, 
+X	0xfd2e, 0xed0f, 0xdd6c, 0xcd4d, 0xbdaa, 0xad8b, 0x9de8, 0x8dc9, 
+X	0x7c26, 0x6c07, 0x5c64, 0x4c45, 0x3ca2, 0x2c83, 0x1ce0, 0x0cc1, 
+X	0xef1f, 0xff3e, 0xcf5d, 0xdf7c, 0xaf9b, 0xbfba, 0x8fd9, 0x9ff8, 
+X	0x6e17, 0x7e36, 0x4e55, 0x5e74, 0x2e93, 0x3eb2, 0x0ed1, 0x1ef0
+X};
+X
+X/*
+X * crc_update performs CRC calculation using crc_tab[].
+X * Note:  Don't need to "flush" with zeroes with this formula.
+X */
+X#define	crc_update(CRC, C)	((CRC << 8) ^ crc_tab[(CRC >> 8)^C])
+X#define	crc_finish(CRC)		(CRC)
+X
+X#else	/* otherwise, don't use CRC table */
+X
+Xunsigned short crc_update(crc, c)	/* calculate a CRC value */
+Xregister unsigned	crc;
+Xregister int	c;
+X{
+X	int	count;
+X
+X	for (count = 8; --count >= 0;) {
+X		if (crc & 0x8000) {
+X			crc <<= 1;
+X			crc += (((c <<= 1) & 0400)   !=  0);
+X			crc ^ = 0x1021;
+X		} else {
+X			crc <<= 1;
+X			crc += (((c <<= 1) & 0400)   !=  0);
+X		}
+X	}
+X	return crc;
+X}
+X
+X/* finish CRC calculation by "flushing" with zeroes */
+X#define crc_finish(C)	crc_update(crc_update(C, 0), 0)
+X#endif
+X
+Xunsigned	alarm();
+Xvoid		sendabort();
+Xvoid		shipblk();
+X
+X#ifdef	NO_MEM
+Xchar		*memset();
+X#endif	/* NO_MEM */
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	*argv[];
+X{
+X	int		c;		/* used to get options */
+X	int		mode = NONE;	/* SEND, RECV files */
+X	int		noerr;		/* no error in transmission */
+X	char		*fn;		/* current filename to send/recv */
+X	int		getopt();
+X	unsigned	sleep();
+X	int		xmtfile();
+X	char		*rcvfile();
+X	extern int	opterr;		/* used by getopt() */
+X	extern int	optind;		/*        "         */
+X	extern char	*optarg;	/*        "         */
+X#ifdef	SYSV
+X	struct termio	oldtty, tty;
+X#endif /* SYSV */
+X#ifdef	BSD
+X	struct sgttyb	oldtty, tty;
+X#endif /* BSD */
+X
+X	mode = 0;
+X	fn = NULL;
+X	opterr = 0;
+X	while ((c = getopt(argc, argv, "dfors:")) != EOF) {
+X		switch (c) {
+X		case 'd':
+X			debug = 1;	/* use debug file */
+X			break;
+X		case 'f':
+X			sld_flag = 0;	/* no sliding window */
+X			break;
+X		case 'o':
+X			ackless = 0;	/* no overdrive mode */
+X			break;
+X		case 's':
+X			mode = SEND;
+X			fn = optarg;
+X			break;
+X		case 'r':
+X			mode = RECV;
+X			break;
+X		default:
+X			mode = NONE;
+X			break;
+X		}
+X	}
+X	switch (mode) {
+X	case RECV:
+X		fputs("sealink: ready to receive\n", stderr);
+X		break;
+X	case SEND:
+X		fputs("sealink: ready to send\n", stderr);
+X		break;
+X	default:
+X		if (debug)
+X			printf("%s 2.9 sealink.c 89/03/02\n\n", progname);
+X		printf("   SEAlink sliding window file transfer protocol\n");
+X		printf("v1.20  (C) 1986, 1987 System Enhancement Associates\n");
+X		printf("  ALL RIGHTS RESERVED   written by Thom Henderson\n");
+X		printf("      UNIX version written by Scott Reynolds\n\n");
+X		printf("Usage: sealink -[dfo]s filename...\n");
+X		printf("       sealink -[dfo]r [filename...]\n");
+X		printf("Options:\n");
+X		printf("  -d                Debug output to temporary file\n");
+X		printf("  -f                Force no sliding window\n");
+X		printf("  -o                Shut down overdrive mode\n");
+X		printf("  -s filename...    Send the file(s) specified\n");
+X		printf("  -r [filename...]  Receive file(s)\n");
+X		exit(1);
+X	}
+X	if (debug) {
+X		time_t	tim, time();
+X		char	*ctime();
+X
+X		printf("Sending debug output to %s\n", dbugfile);
+X		freopen(dbugfile, "a", stderr); /* open log file */
+X		setbuf(stderr, NULL);
+X		(void) time(&tim);
+X		fputs(ctime(&tim), stderr);
+X	}
+X	fflush(stdout);			/* flush output before anything else */
+X
+X#ifdef	SYSV
+X	(void) ioctl(0, TCGETA, &oldtty);	/* get terminal parameters */
+X	if (debug)
+X		fputs("tty parameters read\n", stderr);
+X	tty = oldtty;			/* copy them, then set new */
+X	tty.c_iflag = IGNBRK;		/* No input filter; ignore break */
+X	tty.c_oflag = 0;			/* Use transparent output */
+X	tty.c_lflag &= ~(ECHO|ICANON|ISIG);	/* disable echo, signals */
+X	tty.c_cc[VMIN] = 0;		/* AT&T Sys V: return immediately */
+X	tty.c_cc[VTIME] = 0;		/*   if no characters can be read */
+X	tty.c_cflag &= ~PARENB;		/* Leave baud rate, disable parity */
+X	tty.c_cflag &= ~CSIZE;		/* reset data bits */
+X	tty.c_cflag |= CS8;		/* set 8 bit data */
+X	(void) ioctl(0, TCSETAW, &tty);	/* go after setting terminal */
+X#endif /* SYSV */
+X#ifdef BSD
+X	(void) ioctl(0, TIOCGETP, &oldtty);	/* get terminal parameters */
+X	if (debug)
+X		fputs("tty parameters read\n", stderr);
+X	tty = oldtty;			/* copy them, then set new */
+X	tty.sg_flags = RAW;		/* raw mode (8 bit, no processing */
+X	(void) ioctl(0, TIOCSETP, &tty);	/* go after setting terminal */
+X#endif /* BSD */
+X	if (debug)
+X		fputs("tty parameters set\n", stderr);
+X
+X	if (mode == SEND) {
+X		do {
+X			if (noerr = xmtfile(fn))
+X				sleep(2);	/* wait a few before next */
+X			if (optind < argc)
+X				fn = argv[optind++];
+X			else
+X				fn = NULL;
+X		} while (noerr && fn  != NULL);
+X		if (noerr)		/* no errors, send end marker */
+X			(void) xmtfile("");
+X	} else {
+X		do {
+X			if (optind < argc)	/* if filename given, use it */
+X				fn = argv[optind++];
+X			else		/* otherwise get one from remote */
+X				fn = "";
+X			if (noerr = (rcvfile(fn)  != NULL))
+X				sleep(2);	/* wait a few before next */
+X		} while (noerr);	/* go until done/err */
+X		noerr = xferdone;	/* set no error if done */
+X	}
+X
+X#ifdef	SYSV
+X	(void) ioctl(0, TCSBRK, 1);	/* Wait for output to drain */
+X	(void) ioctl(0, TCFLSH, 2);	/* Flush input queue */
+X	(void) ioctl(0, TCSETAW, &oldtty);	/* Restore original modes */
+X	(void) ioctl(0, TCXONC, 1);	/* Restart output */
+X#endif /* SYSV */
+X#ifdef	BSD
+X	(void) ioctl(0, TIOCSETP, &oldtty);
+X#endif /* BSD */
+X	if (debug) {
+X		fputs("tty parameters restored\n", stderr);
+X		(void) fclose(stderr);
+X	}
+X
+X	exit(!noerr);			/* and return error status */
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * chkout() returns non-zero if stdout and stderr are sending to
+X * different files/devices, zero if the same
+X */
+Xint chkout()
+X{
+X	struct stat	so, se;
+X
+X	(void)fstat(1, &so);
+X	(void)fstat(2, &se);
+X	return (so.st_rdev  != se.st_rdev);
+X}
+X
+X#ifdef	NO_NAP
+X/*
+X * alarmint() is called when an alarm signal is caught.
+X */
+Xint alarmint()
+X{
+X	longjmp(tohere, EOF);		/* return EOF to indicate timeout */
+X}
+X#endif	/* NO_NAP */
+X
+X/*
+X * com_getc(timeout) reads a character from file descriptor 0
+X * timeout is in tenths of seconds
+X * EOF returned if no character was available to read
+X *
+X * If timeout is 0, this routine will return immediately regardless of
+X * the status of the read.  If timeout > 0, there will be a minimum of
+X * one to two seconds before returning if nap() does not work.
+X */
+Xint com_getc(timeout)
+Xregister int	timeout;
+X{
+X	static char	byt[2];		/* buffer to read characters into  */
+X
+X#ifdef	BSD
+X	if (!timeout) {			/* if no timeout then no alarms	   */
+X		long		len;	/* number of buffered characters   */
+X
+X		(void) ioctl(0, FIONREAD, &len);	/* check buffer	   */
+X					/* read character if available	   */
+X		if (len > 0L && read(0, byt, 1) == 1)
+X			return (byt[0] & 0377);	/* return the character	   */
+X		return EOF;		/* error or none available	   */
+X	}
+X#endif /* BSD */
+X#ifdef	SYSV
+X	if (!timeout) {			/* if no timeout then no alarms	   */
+X		if (read(0, byt, 1) == 1)	/* if character was read,  */
+X			return (byt[0] & 0377);	/* return the character	   */
+X		return EOF;		/* error or none available	   */
+X	}
+X#endif /* SYSV */
+X
+X#ifdef	NO_NAP
+X/* There's a timeout value, so now we get to use alarm() */
+X	timeout = ((timeout-1)/10)+1;	/* round to seconds		   */
+X	if (timeout == 1)		/* minimum of 2 seconds for alarm, */
+X		timeout++;		/*   since 1 may not be any delay  */
+X	if (setjmp(tohere)) {		/* if the alarm went off	   */
+X		if (debug)		/* timeout message if debugging	   */
+X			fputs("Read: timeout\n", stderr);
+X		return EOF;		/* return EOF (longjmp call)	   */
+X	}
+X	signal(SIGALRM, alarmint);	/* set up alarm signal catching	   */
+X	alarm((unsigned)timeout);	/* set alarm time		   */
+X	while (read(0, byt, 1) != 1)	/* Go until we read a character	   */
+X		;			/*   (or the alarm goes off!)	   */
+X	alarm(0);			/* reset alarm			   */
+X	signal(SIGALRM, SIG_DFL);	/* and turn off signal catching	   */
+X	return (byt[0] & 0377);		/* return the character		   */
+X#else	/* NO_NAP undefined -- nap() works */
+X	do {
+X		if (read(0, byt, 1) == 1)	/* did we read a char?	   */
+X			return (byt[0] & 0377);	/* yes, return it	   */
+X		(void) nap(100L);	/* sleep for a little while	   */
+X	} while (--timeout);		/* loop until time runs out	   */
+X	if (debug)			/* timeout message if debugging	   */
+X		fputs("Read: timeout\n", stderr);
+X	return EOF;
+X#endif	/* NO_NAP */
+X}
+X
+X/*  File transmitter logic */
+X
+Xint xmtfile(name)			/* transmit a file */
+Xchar *name;				/* name of file to send */
+X{
+X	FILE	*f, *fopen();		/* file to send */
+X	int	endblk;			/* block number of EOT */
+X	struct stat	fst;		/* data about file */
+X	struct zeros	zero;		/* block zero data */
+X	char	*basename;		/* base filename */
+X
+X	if (name && *name) {		/* if sending a file */
+X		if ((char *)(f = fopen(name, "r")) == NULL) {
+X			fprintf(stderr, "Can't read %s\n", name);
+X			return 0;
+X		}
+X
+X		memset((char *)&zero, 0, sizeof(zero)); /* clear data block */
+X
+X		tzset();
+X		stat(name, &fst);		/* get file information	*/
+X		zero.flen = (long)fst.st_size;
+X		zero.fstamp = fst.st_mtime - timezone;	/* adjust f/TZ	*/
+X		if (daylight)			/* if daylight savings,	*/
+X			zero.fstamp -= 3600L;	/* subtract an hour	*/
+X		if (zero.fstamp < 0L)
+X			zero.fstamp = (time_t) 0;
+X		if ((basename = strrchr(name, '/')) == NULL) {
+X			strcpy(zero.fnam, name);
+X		} else {
+X			basename++;
+X			strcpy(zero.fnam, basename);
+X		}
+X		if (debug)
+X			fprintf(stderr, "basename: %s\n", zero.fnam);
+X		strcpy(zero.prog, progname);
+X		zero.noacks = ackless;
+X
+X		endblk = (int)((zero.flen+127L)/128L)+1;
+X	} else {
+X		endblk = 0;		/* fake for no file */
+X		if (debug)
+X			fputs("send transfer complete\n", stderr);
+X	}
+X
+X	outblk = 1;			/* set starting state */
+X	ackblk = (-1);
+X	blksnt = slide = ackst = numnak = toterr = ackrep = ackseen = 0;
+X	chktec = 2;			/* undetermined */
+X
+X	while (ackblk < endblk) {	/* while not all there yet */
+X		if (outblk <= ackblk + ((slide && sld_flag)? WINDOW : 1)) {    
+X			if (outblk < endblk) {    
+X				if (outblk > 0)
+X					sendblk(f, outblk);
+X				else
+X					shipblk((unsigned char *)&zero, 0);
+X				if (ackless && slide && sld_flag)
+X					ackblk = outblk;
+X			} else if (outblk == endblk) {    
+X				outb[0] = EOT;
+X				write(1, outb, 1);
+X				if (debug)
+X					fputs("sent EOT\n", stderr);
+X			}
+X			outblk++;
+X		}
+X
+X		ackchk();
+X		if (numnak>10)
+X			goto abort;
+X	}
+X
+X	if (endblk)
+X		(void) fclose(f);
+X	if (debug && toterr>2)
+X		fprintf(stderr, "%d errors/%d blocks\n", toterr, blksnt);
+X	return 1;                          /* exit with good status */
+X
+Xabort:
+X	if (endblk)
+X		(void) fclose(f);
+X	if (debug) {
+X		fputs("TRANSMIT ABORTED\n", stderr);
+X		if (toterr)
+X			fprintf(stderr, "%d errors/%d blocks\n", toterr, blksnt);
+X	}
+X	sendabort();
+X	return 0;                          /* exit with bad status */
+X}
+X
+X/*
+X * The various ACK/NAK states are:
+X *  0:   Ground state, ACK or NAK expected.
+X *  1:   ACK received
+X *  2:   NAK received
+X *  3:   ACK, block# received
+X *  4:   NAK, block# received
+X *  5:   Returning to ground state
+X */
+Xstatic ackchk()				/* check for ACK or NAK */
+X{
+X	int	c;			/* one byte of data */
+X	static int	rawblk;		/* raw block number */
+X
+X	ackrep = 0;			/* nothing reported yet */
+X
+X	while ((c = com_getc(0))  != EOF) {
+X		if (c == CAN) {				/* CANcel received? */
+X			if ((c = com_getc(20)) == CAN) {	/* get two  */
+X				numnak = 11;		/* OK, let's abort! */
+X				ackst = 0;
+X				if (debug)
+X					fputs("received cancel\n", stderr);
+X			}
+X			return;				/* break out of here */
+X		}
+X		if (ackst == 3 || ackst == 4) {		/* Windowed ACK/NAK */
+X			slide = 0;	/* assume this will fail */
+X					/* see if we believe the number */
+X			if (rawblk == (c^0xff)) {
+X				rawblk = outblk - ((outblk-rawblk)&0xff);
+X				if (rawblk >= 0 && rawblk <= outblk
+X						&& rawblk > outblk-128) {
+X					/* we have sliding window! */
+X					if (ackst == 3) {
+X						ackblk = ackblk > rawblk ? ackblk : rawblk;
+X						slide = 1;
+X						if (ackless && ++ackseen>10) {
+X							ackless = 0;
+X							if (debug)
+X								fputs("- Overdrive disengaged\n", stderr);
+X						}
+X					} else {    
+X						outblk = rawblk<0? 0 : rawblk;
+X						slide = numnak<4;
+X					}
+X					if (debug)
+X						fprintf(stderr, "%s %d == \n", ackst == 3?"ACK":"NAK", rawblk);
+X					ackrep = 1;  /* we reported something */
+X				}
+X			}
+X			ackst = 5;	/* return to ground state */
+X		}
+X
+X		if (ackst == 1 || ackst == 2) {    
+X			rawblk = c;
+X			ackst += 2;
+X		}
+X
+X		if (!slide || ackst == 0) {    
+X			if (c == ACK) {    
+X				if (!slide) {    
+X					ackblk++;
+X					if (debug)
+X						fprintf(stderr, "ACK %d --\n", ackblk);
+X					ackrep = 1;	/* reported an ACK */
+X				}
+X				ackst = 1;
+X				numnak = 0;
+X			} else if (c == 'C' || c == NAK) {    
+X				/* if method not determined yet */
+X				if (chktec>1)	/* then do what rcver wants */
+X					chktec = (c == 'C');
+X#ifdef	SYSV
+X				(void) ioctl(0, TCFLSH, 1); /* purge output */
+X#endif /* SYSV */
+X#ifdef	BSD
+X/* for now this code is commented out.  It causes more complications to have
+X * it installed -- my wish list would include for a BSD ioctl() to purge only
+X * the output, but at the moment things will just have to stay this way. */
+X/*				(void) ioctl(0, TIOCFLUSH, 0); /* purge i/o */
+X#endif /* BSD */
+X				if (!slide) {    
+X					outblk = ackblk+1;
+X					if (debug)
+X						fprintf(stderr, "NAK %d --\n", ackblk+1);
+X					ackrep = 1;	/* reported a NAK */
+X				}
+X				ackst = 2;
+X				numnak++;
+X				if (blksnt)
+X					toterr++;
+X			}
+X		}
+X		if (ackst == 5)
+X			ackst = 0;
+X	}
+X}
+X
+Xstatic sendblk(f, blknum)		/* send one block */
+XFILE *f;				/* file to read from */
+Xint blknum;                            	/* block to send */
+X{
+X	long		blkloc;		/* address of start of block */
+X	unsigned char	buf[128];	/* one block of data */
+X
+X	if (blknum  != blksnt+1) {	/* if jumping */
+X		blkloc = (long)(blknum-1) * 128L;
+X		fseek(f, blkloc, 0);	/* move where to */
+X	}
+X	blksnt = blknum;
+X
+X	memset(buf, 26, 128);		/* fill buffer with control Zs */
+X	fread(buf, 1, 128, f);		/* read in some data */
+X	shipblk(buf, blknum);		/* pump it out to the receiver */
+X}
+X
+Xstatic void shipblk(blk, blknum)	/* physically ship a block */
+Xunsigned char	*blk;			/* data to be shipped */
+Xint	blknum;				/* number of block */
+X{
+X	register unsigned short	crc = 0;	/* CRC check value */
+X	register int	n;		/* index */
+X	unsigned char	*b = blk;	/* data pointer */
+X
+X	outb[0] = SOH;			/* block header */
+X	outb[1] = blknum;			/* block number */
+X	outb[2] = blknum^0xff;		/* block number check value */
+X
+X	for(n = 0;n < 128;n++) {	/* ship the data */
+X		if (chktec)
+X			crc = crc_update(crc, *b);
+X		else
+X			crc += *b;
+X		outb[n+3] = (*b++);
+X	}
+X	crc = crc_finish(crc);
+X
+X	if (chktec) {			/* send proper check value */
+X		outb[131] = crc>>8;
+X		outb[132] = crc&0xff;
+X		write(1, outb, 133);
+X	} else {
+X		outb[131] = crc&0xff;
+X		write(1, outb, 132);
+X	}
+X
+X	if (debug)
+X		fprintf(stderr, "sent block %d\n", blknum);
+X
+X	return;
+X}
+X
+X/*  File receiver logic */
+X
+Xchar *rcvfile(name)			/* receive file */
+Xchar	*name;				/* name of file */
+X{
+X	int	c;			/* received character		*/
+X	int	tries;			/* retry counter		*/
+X	int	blknum;			/* desired block number		*/
+X	int	inblk;			/* this block number		*/
+X	FILE	*f;			/* file to receive to		*/
+X	char	buf[128];		/* data buffer			*/
+X	char	tmpname[100];		/* name of temporary file	*/
+X	static char	outname[100];	/* name of final file		*/
+X	struct zeros	zero;		/* file header data storage	*/
+X	int	endblk;			/* block number of EOT if known	*/
+X	long	left;			/* bytes left to output		*/
+X	int	getblock();		/* block receiver, status	*/
+X	int	fcopy();		/* copy source file to dest	*/
+X	void	setstamp();		/* set date/time stamp of file	*/
+X	int	cnvrt;			/* flag -- convert filename?	*/
+X	char	*onp;			/* use to convert filename to l/c */
+X
+X	if (name && *name) {		/* figure out a name to use	 */
+X		strcpy(outname, name);	/* user supplied one		 */
+X		cnvrt = 0;		/* no conversion should be done	 */
+X	} else {    
+X		*outname = '\0';	/* get name from transmitter	 */
+X		cnvrt = 1;		/* convert to local is necessary */
+X	}
+X
+X	strcpy(tmpname, ".sl.rcv.XXXXXX");	/* template for mktemp() */
+X	mktemp(tmpname);		/* use a unique temp filename	 */
+X	if (debug)
+X		fprintf(stderr, "tmpname: %s\n", tmpname);
+X
+X	if (*outname && (f = fopen(outname, "r"))) {	/* open output file */
+X		(void) fclose(f);
+X		if (!(f = fopen(outname, "r+"))) {
+X			if (debug)
+X				fprintf(stderr, "Cannot write %s\n", tmpname);
+X			sendabort();
+X			return NULL;
+X		} else {
+X			(void) fclose(f);
+X		}
+X	}
+X	if (!(f = fopen(tmpname, "w"))) {	/* open temporary file */
+X		if (debug)
+X			fprintf(stderr, "Cannot create %s\n", tmpname);
+X		sendabort();
+X		return NULL;
+X	}
+X
+X	blknum = *outname ? 1 : 0;	/* first block we must get */
+X	tries = -10;			/* kludge for first time around */
+X	chktec = 1;			/* try for CRC error checking */
+X	toterr = 0;			/* no errors yet */
+X	endblk = 0;			/* we don't know the size yet */
+X	ackless = 0;			/* we don't know about this yet */
+X	memset((char *)&zero, 0, sizeof(zero));	/* or much of anything else */
+X
+X/*
+X	if (com_scan() == EOF)		/+ kludge for adaptive Modem7 +/
+X		goto nextblock;
+X*/
+Xnakblock:				/* we got a bad block */
+X	if (blknum>1)
+X		toterr++;
+X	if (++tries>10)
+X		goto abort;
+X	if (tries == 0)			/* if CRC isn't going */
+X		chktec = 0;		/* then give checksum a try */
+X
+X	sendack(S_NAK, blknum);		/* send the NAK */
+X	if (ackless && toterr > 20) {	/* if ackless mode isn't working */
+X		ackless = 0;		/* then shut it off */
+X		if (debug)
+X			fputs("- Overdrive disengaged\n", stderr);
+X	}
+X	goto nextblock;
+X
+Xackblock:				/* we got a good block */
+Xnextblock:				/* start of "get a block" */
+X	while ((c = com_getc(30))  != EOF) {
+X		if (c == CAN)
+X			if ((c = com_getc(30)) == CAN) {
+X				sendabort();
+X				return NULL;
+X			} else
+X				break;
+X		if (c == EOT) {    
+X			if (!endblk || endblk == blknum)
+X				goto endrcv;
+X		} else if (c == SOH) {    
+X			if ((inblk = com_getc(5)) == EOF)
+X				goto nakblock;
+X			if (com_getc(5) == (inblk^0xff)) { 
+X				if (debug)
+X					fprintf(stderr, "received #%d\n", inblk);
+X				goto blockstart;	/* we found a start */
+X			}
+X		}
+X	}
+X	goto nakblock;
+X
+Xblockstart:				/* start of block detected */
+X	c = blknum&0xff;
+X	if (inblk == 0 && blknum <= 1) {	/* if this is the header */
+X		if (!getblock((char *)&zero)) {    
+X			sendack(S_ACK, inblk);	/* ack the header */
+X			if (!*name)	/* given name takes precedence */
+X				strcpy(outname, zero.fnam);
+X			if (left = zero.flen)	/* length to transfer */
+X				endblk = (int)((left+127L)/128L)+1;
+X			if (ackless != zero.noacks && debug)
+X				fprintf(stderr, "+ Overdrive %sengaged\n", 
+X					zero.noacks?"":"dis");
+X			ackless = zero.noacks;
+X
+X			blknum = 1;	/* now we want first data block */
+X			goto ackblock;
+X		} else {
+X			goto nakblock;		/* bad header block */
+X		}
+X	} else if (inblk == c) {		/* if this is the one we want */
+X		if (!getblock(buf)) {		/* else if we get it okay */
+X			if (!ackless)		/* if we're sending ACKs */
+X				sendack(S_ACK, inblk);	/* then ACK the data */
+X	/*
+X	 * if file size is not known or more than 128 bytes
+X	 * to go, write one block (128 bytes) to the file
+X	 */
+X			if (!endblk || left >= 128L) {
+X				if (fwrite(buf, 1, 128, f) != 128) {
+X					if (debug)
+X						fputs("- WRITE ERROR\n", stderr);
+X					goto abort;
+X				}
+X				left -= 128L;	/* 128 less to do... */
+X	/*
+X	 * we know the size of the file and there are less than
+X	 * 128 bytes to write out; only do the necessary amount
+X	 */
+X			} else if (left > 0) {
+X				if (fwrite(buf, 1, (unsigned)left, f) != (int)left) {
+X					if (debug)
+X						fputs("- WRITE ERROR\n", stderr);
+X					goto abort;
+X				}
+X				left = 0;	/* and then there were none */
+X			}
+X			tries = 0;		/* reset try count */
+X			blknum++;		/* we want the next block */
+X			goto ackblock;
+X		} else {
+X			goto nakblock;		/* ask for a resend */
+X		}
+X	} else if (inblk < c || inblk > (c + 100)) {	/* if we have it, */
+X		(void) getblock(buf);		/* ignore it */
+X		sendack(S_ACK, inblk);		/* but ack it */
+X		goto ackblock;
+X	} else
+X		goto nextblock;			/* else if running ahead */
+X
+Xendrcv:
+X#ifdef	NAKEOT
+X	sendack(S_NAK, blknum);			/* NAK the EOT, make sure */
+X	if (com_getc(20) != EOT)		/* we're all done */
+X		goto nakblock;
+X#endif /* NAKEOT */
+X	sendack(S_ACK, blknum);			/* ACK it and clean up */
+X	if (debug)
+X		fputs("received EOT\n", stderr);
+X	if (blknum>1) {				/* if we really got anything */
+X		if (debug && toterr>2)
+X			fprintf(stderr, "%d errors/%d blocks\n", toterr, blknum-1);
+X		(void) fclose(f);
+X		(void) unlink(outname);		/* rename temp to proper name */
+X
+X		for (onp = outname;cnvrt && *onp;onp++)
+X						/* find out if there's lower */
+X			if (islower(*onp))	/* case letters in filename  */
+X				cnvrt = 0;	/*  there are, don't convert */
+X		if (cnvrt)			/* if there aren't, make all */
+X			for (onp = outname;*onp;onp++)	/* into lowercase */
+X				*onp = tolower(*onp);
+X		if (link(tmpname, outname) == 0 || fcopy(tmpname, outname) == 0)
+X			(void) unlink(tmpname);
+X		else if (debug)
+X			fputs("can't rename or copy file\n", stderr);
+X		if (zero.fstamp)		/* set stamp, if known */
+X			setstamp(outname, zero.fstamp);
+X		if (debug)
+X			fprintf(stderr, "received file: %s\n", outname);
+X		return outname;			/* signal what file we got */
+X	} else {				/* else no real file */
+X		(void) fclose(f);
+X		(void) unlink(tmpname);		/* discard empty file */
+X		if (debug)
+X			fputs("received end\n", stderr);
+X		xferdone = 1;			/* signal end of transfer */
+X		return NULL;
+X	}
+X
+Xabort:
+X	if (debug) {
+X		fputs("RECEIVE ABORTED\n", stderr);
+X		if (toterr)
+X			fprintf(stderr, "%d errors/%d blocks\n", toterr, blknum-1);
+X	}
+X	(void) fclose(f);
+X	xferdone = 1;				/* signal end of transfer */
+X	sendabort();
+X	return NULL;
+X}
+X
+Xint fcopy(file1, file2)		/* copy 'file1' to 'file2'	*/
+Xchar	*file1;			/* source filename		*/
+Xchar	*file2;			/* destination filename		*/
+X{
+X	FILE		*f, *t;	/* files from and to		*/
+X	long		size;	/* bytes to copy		*/
+X	char		*buf;	/* buffer pointer		*/
+X	char		*malloc();	/* buffer allocator	*/
+X	unsigned int	bufl;	/* buffer length		*/
+X	unsigned int	cpy;	/* bytes being copied		*/
+X	struct stat	fst;	/* data about file		*/
+X
+X	if (stat(file1, &fst))	/* get file information	*/
+X		return EOF;
+X	size = (long)fst.st_size;
+X
+X	if ((char *)(f = fopen(file1, "r")) == NULL)
+X		return EOF;
+X	if ((char *)(t = fopen(file2, "w")) == NULL) {
+X		(void) fclose(f);
+X		return EOF;
+X	}
+X
+X	bufl = 32760;
+X	if (bufl > size)
+X		bufl = size;	/* don't waste space */
+X
+X	while (bufl >= 128 && (buf = malloc(bufl)) == NULL)
+X		bufl >>= 1;	/* keep trying until it's hopeless	*/
+X	if (buf == NULL) {	/* if we can't get a buffer, clean up	*/
+X		(void) fclose(f);
+X		(void) fclose(t);
+X		(void) unlink(file2);
+X		return EOF;	/* return an error indication		*/
+X	}
+X
+X	while (size > 0) {
+X		cpy = fread(buf, sizeof(char),
+X			bufl < size ? bufl : (unsigned short) size, f);
+X		if (fwrite(buf, sizeof(char), cpy, t) != cpy)
+X			break;
+X		size -= cpy;
+X	}
+X
+X	free(buf);
+X	(void) fclose(f);
+X	(void) fclose(t);
+X	return (size > 0);
+X}
+X
+Xstatic void setstamp(f_name, f_time)	/* set a file's date/time stamp	*/
+Xchar	*f_name;			/* file to set stamp on		*/
+Xlong	f_time;				/* desired date/time		*/
+X{
+X	void	tzset();		/* library time zone function	*/
+X	time_t	times[2], time();
+X
+X	times[0] = time((time_t *) 0);
+X	tzset();
+X	times[1] = f_time + TENYEAR + timezone;	/* convert time		*/
+X	if (daylight)				/* if daylight savings,	*/
+X		times[1] += 3600L;		/* add an hour		*/
+X	utime(f_name, times);
+X}
+X
+Xstatic int sendack(acknak, blknum)	/* send an ACK or a NAK */
+Xregister int	acknak;			/* 1 = ACK, 0 = NAK */
+Xregister int	blknum;			/* block number */
+X{
+X	if (debug)
+X		fprintf(stderr, "%s %d\n", acknak?"ACK":"NAK", blknum);
+X	if (acknak)			/* send the right signal */
+X		outb[0] = ACK;
+X	else if (chktec)
+X		outb[0] = 'C';
+X	else
+X		outb[0] = NAK;
+X
+X	outb[1] = blknum;		/* block number */
+X	outb[2] = blknum^0xff;		/* block number check */
+X	write(1, outb, 3);
+X}
+X
+Xstatic int getblock(buf)		/* read a block of data */
+Xchar	*buf;				/* data buffer */
+X{
+X	register unsigned short	ourcrc = 0;	/* remote CRC check value */
+X	unsigned short	hiscrc;			/* remote CRC check value */
+X	register int	c;			/* one byte of data */
+X	int	n;				/* index */
+X	int	timeout = ackless ? 200 : 5;	/* short block timeout */
+X
+X	for(n = 0; n<128; n++) {    
+X		if ((c = com_getc(timeout)) == EOF) {
+X			if (debug)
+X				fputs("block received -- short\n", stderr);
+X			return 1;
+X		}
+X		if (chktec)
+X			ourcrc = crc_update(ourcrc, (unsigned char) c);
+X		else
+X			ourcrc += c;
+X		*buf++ = (unsigned char) c;
+X	}
+X
+X	if (chktec) {    
+X		ourcrc = crc_finish(ourcrc);
+X		c = com_getc(timeout);
+X		hiscrc = (c << 8) | com_getc(timeout);
+X	} else {    
+X		ourcrc &= 0xff;
+X		hiscrc = com_getc(timeout) & 0xff;
+X	}
+X
+X	if (debug) {
+X		if (ourcrc == hiscrc)
+X			fputs("block received -- good\n", stderr);
+X		else {
+X			fprintf(stderr, "block received -- bad %s\n", chktec?"CRC":"checksum");
+X			fprintf(stderr, "his = 0x%x  ours = 0x%x\n", hiscrc, ourcrc);
+X		}
+X	}
+X	if (ourcrc == hiscrc)
+X		return 0;		/* block is good */
+X	else
+X		return 1;		/* error in checksum or CRC */
+X}
+X
+Xvoid sendabort()
+X{
+X#ifdef	SYSV
+X	(void) ioctl(0, TCFLSH, 1);	/* purge output */
+X#endif /* SYSV */
+X#ifdef	BSD
+X	(void) ioctl(0, TIOCFLUSH, 0);	/* purge all i/o */
+X#endif /* BSD */
+X	strcpy(outb, "\030\030\030\030\030\030\030\030\b\b\b\b\b\b\b\b");
+X	strcat(outb, "\030\030\030\030\b\b\b\b");	/* set up cancel seq */
+X	write(1, outb, (unsigned)strlen(outb));	/* write it out */
+X}
+X
+X#ifdef	NO_MEM
+X/*
+X *	This routine replicates the function found in the
+X *	System V memory.h module for systems without a proper
+X *	or with no implementation of this function available.
+X */
+Xchar *memset(m, n, c)
+Xchar	*m;
+Xint	n;
+Xchar	c;
+X{
+X	int	i;
+X	for (i = 0;i < n;i++)
+X		*(m+i) = c;
+X	return m;
+X}
+X#endif /* NO_MEM */
+END_OF_FILE
+  if test 31816 -ne `wc -c <'sealink/sealink.c'`; then
+    echo shar: \"'sealink/sealink.c'\" unpacked with wrong size!
+  fi
+  # end of 'sealink/sealink.c'
+fi
+echo shar: End of archive 5 \(of 11\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

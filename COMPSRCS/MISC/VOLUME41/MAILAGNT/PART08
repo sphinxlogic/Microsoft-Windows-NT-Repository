@@ -1,0 +1,1641 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i008:  mailagent - Flexible mail filtering and processing package, v3.0, Part08/26
+Message-ID: <1993Dec2.133759.18345@sparky.sterling.com>
+X-Md4-Signature: c89cc6993bbb9714902e81dbf93e0de2
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:37:59 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 8
+Archive-name: mailagent/part08
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/filter/hash.c agent/pl/cmdserv.pl patchlevel.h
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 26)."'
+if test -f 'agent/filter/hash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/hash.c'\"
+else
+  echo shar: Extracting \"'agent/filter/hash.c'\" \(10498 characters\)
+  sed "s/^X//" >'agent/filter/hash.c' <<'END_OF_FILE'
+X/*
+X
+X #    #    ##     ####   #    #           ####
+X #    #   #  #   #       #    #          #    #
+X ######  #    #   ####   ######          #
+X #    #  ######       #  #    #   ###    #
+X #    #  #    #  #    #  #    #   ###    #    #
+X #    #  #    #   ####   #    #   ###     ####
+X
+X	Hash table handling (no item ever deleted).
+X*/
+X
+X/*
+X * $Id: hash.c,v 3.0 1993/11/29 13:48:08 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: hash.c,v $
+X * Revision 3.0  1993/11/29  13:48:08  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include "hash.h"
+X#include "confmagic.h"
+X
+X#ifndef lint
+Xprivate char *rcsid =
+X	"$Id: hash.c,v 3.0 1993/11/29 13:48:08 ram Exp ram $";
+X#endif
+X
+Xprivate uint32 hashcode();			/* The hahsing function */
+Xprivate int prime();				/* Is a number a prime one? */
+Xprivate uint32 nprime();			/* Find next prime number */
+X
+Xextern char *malloc();				/* Memory allocation */
+Xextern char *calloc();				/* Character allocation */
+Xextern char *strsave();				/* Save string in memory */
+X
+Xpublic int ht_create(ht, n)
+Xstruct htable *ht;
+Xint n;
+X{
+X	/* Creates an H table to hold 'n' items with descriptor held in 'ht'. The
+X	 * size of the table is optimized to avoid conflicts and is of course a
+X	 * prime number. We take the first prime after (5 * n / 4).
+X	 * The function returns 0 if everything was ok, -1 otherwise.
+X	 */
+X
+X	int hsize;			/* Size of created table */
+X	char **array;		/* For array creation (keys/values) */
+X	
+X	hsize = nprime((5 * n) / 4);	/* Table's size */
+X
+X	array = (char **) calloc(hsize, sizeof(char *));	/* Array of keys */
+X	if (array == (char **) 0)
+X		return -1;					/* Malloc failed */
+X	ht->h_keys = array;				/* Where array of keys is stored */
+X
+X	array = (char **) malloc(hsize * sizeof(char *));	/* Array of values */
+X	if (array == (char **) 0) {
+X		free(ht->h_keys);			/* Free keys array */
+X		return -1;					/* Malloc failed */
+X	}
+X	ht->h_values = array;			/* Where array of keys is stored */
+X
+X	ht->h_size = hsize;				/* Size of hash table */
+X	ht->h_items = 0;				/* Table is empty */
+X
+X	return 0;			/* Creation was ok */
+X}
+X
+Xpublic char *ht_value(ht, skey)
+Xstruct htable *ht;
+Xchar *skey;
+X{
+X	/* Look for item associated with given key and returns its value.
+X	 * Return a null pointer if item is not found.
+X	 */
+X	
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Count number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* Initializations */
+X	hsize = ht->h_size;
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find the value or
+X	 * go to an empty entry or reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0)
+X			break;
+X		else if (0 == strcmp(hkeys[pos], skey))
+X			return ht->h_values[pos];
+X	}
+X
+X	return (char *) 0;			/* Item was not found */
+X}
+X
+Xpublic char *ht_put(ht, skey, val)
+Xstruct htable *ht;
+Xchar *skey;
+Xchar *val;
+X{
+X	/* Puts string held at 'val' tagged with key 'key' in H table 'ht'. If
+X	 * insertion was successful, the address of the value is returned and the
+X	 * value is copied in the array. Otherwise, return a null pointer.
+X	 */
+X
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Records number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* If the table is full at 75%, resize it to avoid performance degradations.
+X	 * The extension updates the htable structure in place.
+X	 */
+X	hsize = ht->h_size;
+X	if ((ht->h_items * 4) / 3 > hsize) {
+X		ht_xtend(ht);
+X		hsize = ht->h_size;
+X	}
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find a free entry or
+X	 * we reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0) {			/* Found a free location */
+X			hkeys[pos] = strsave(skey);			/* Record item */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			ht->h_items++;				/* One more item */
+X			return ht->h_values[pos];
+X		} else if (0 == strcmp(hkeys[pos], skey))
+X			fatal("H table key conflict: %s", skey);
+X	}
+X
+X	return (char *) 0;		/* We were unable to insert item */
+X}
+X
+Xpublic char *ht_force(ht, skey, val)
+Xstruct htable *ht;
+Xchar *skey;
+Xchar *val;
+X{
+X	/* Replace value tagged with key 'key' in H table 'ht' with 'val'. If
+X	 * insertion was successful, the address of the value is returned and the
+X	 * value is copied in the array. Otherwise, return a null pointer (if table
+X	 * is full and item was not found). The previous value is freed if any.
+X	 * Otherwise, simply add the item in the table.
+X	 */
+X
+X	register1 int32 key;		/* Hash code associated with string key */
+X	register2 int32 pos;		/* Position in H table */
+X	register3 int32 hsize;		/* Size of H table */
+X	register4 char **hkeys;		/* Array of keys */
+X	register5 int32 try = 0;	/* Records number of attempts */
+X	register6 int32 inc;		/* Loop increment */
+X
+X	/* If the table is full at 75%, resize it to avoid performance degradations.
+X	 * The extension updates the htable structure in place.
+X	 */
+X	hsize = ht->h_size;
+X	if ((ht->h_items * 4) / 3 > hsize) {
+X		ht_xtend(ht);
+X		hsize = ht->h_size;
+X	}
+X	hkeys = ht->h_keys;
+X	key = hashcode(skey);
+X
+X	/* Jump from one hashed position to another until we find a free entry or
+X	 * we reached the end of the table.
+X	 */
+X	inc = 1 + (key % (hsize - 1));
+X	for (pos = key % hsize; try < hsize; try++, pos = (pos + inc) % hsize) {
+X		if (hkeys[pos] == (char *) 0) {			/* Found a free location */
+X			hkeys[pos] = strsave(skey);			/* Record item */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			ht->h_items++;						/* One more item */
+X			return ht->h_values[pos];
+X		} else if (0 == strcmp(hkeys[pos], skey)) {
+X			if (ht->h_values[pos])				/* If old value */
+X				free(ht->h_values[pos]);		/* Free it */
+X			ht->h_values[pos] = strsave(val);	/* Save string */
+X			return ht->h_values[pos];
+X		}
+X	}
+X
+X	return (char *) 0;		/* We were unable to insert item */
+X}
+X
+Xpublic int ht_xtend(ht)
+Xstruct htable *ht;
+X{
+X	/* The H table 'ht' is full and needs resizing. We add 50% of old size and
+X	 * copy the old table in the new one, before freeing the old one. Note that
+X	 * h_create multiplies the number we give by 5/4, so 5/4*3/2 yields ~2, i.e.
+X	 * the final size will be the double of the previous one (modulo next prime
+X	 * number).
+X	 * Return 0 if extension was ok, -1 otherwise.
+X	 */
+X
+X	register1 int32 size;			/* Size of old H table */
+X	register2 char **key;			/* To loop over keys */
+X	register3 char **val;			/* To loop over values */
+X	struct htable new_ht;
+X
+X	size = ht->h_size;
+X	if (-1 == ht_create(&new_ht, size + (size / 2)))
+X		return -1;		/* Extension of H table failed */
+X
+X	key = ht->h_keys;				/* Start of array of keys */
+X	val = ht->h_values;				/* Start of array of values */
+X
+X	/* Now loop over the whole table, inserting each item in the new one */
+X
+X	for (; size > 0; size--, key++, val++) {
+X		if (*key == (char *) 0)		/* Nothing there */
+X			continue;				/* Skip entry */
+X		if ((char *) 0 == ht_put(&new_ht, *key, *val)) {	/* Failed */
+X			free(new_ht.h_values);	/* Free new H table */
+X			free(new_ht.h_keys);
+X			fatal("BUG in ht_xtend");
+X		}
+X	}
+X
+X	/* Free old H table and set H table descriptor */
+X	free(ht->h_values);				/* Free in allocation order */
+X	free(ht->h_keys);				/* To make free happy (coalescing) */
+X	bcopy(&new_ht, ht, sizeof(struct htable));
+X
+X	return 0;		/* Extension was ok */
+X}
+X
+Xpublic int ht_start(ht)
+Xstruct htable *ht;
+X{
+X	/* Start iteration over H table. Return 0 if ok, -1 if the table is empty */
+X
+X	register1 int32 hpos;		/* Index in H table */
+X	register2 char **hkeys;		/* Array of keys */
+X	register3 int32 hsize;		/* Size of H table */
+X
+X	/* Initializations */
+X	hpos = 0;
+X	hkeys = ht->h_keys;
+X	hsize = ht->h_size;
+X
+X	/* Stop at first non-null key */
+X	for (; hpos < hsize; hpos++, hkeys++)
+X		if (*hkeys != (char *) 0)
+X			break;
+X	ht->h_pos = hpos;			/* First non-null postion */
+X
+X	return (hpos < hsize) ? 0 : -1;
+X}
+X
+Xpublic int ht_next(ht)
+Xstruct htable *ht;
+X{
+X	/* Advance to next item in H table, if possible. Return 0 if there is a
+X	 * next item, -1 otherwise.
+X	 */
+X
+X	register1 int32 hpos;		/* Index in H table */
+X	register2 char **hkeys;		/* Array of keys */
+X	register3 int32 hsize;		/* Size of H table */
+X
+X	/* Initializations */
+X	hpos = ht->h_pos + 1;
+X	hkeys = ht->h_keys + hpos;
+X	hsize = ht->h_size;
+X
+X	/* Stop at first non-null key */
+X	for (; hpos < hsize; hpos++, hkeys++)
+X		if (*hkeys != (char *) 0)
+X			break;
+X	ht->h_pos = hpos;			/* Next non-null postion */
+X
+X	return (hpos < hsize) ? 0 : -1;
+X}
+X
+Xpublic char *ht_ckey(ht)
+Xstruct htable *ht;
+X{
+X	/* Return pointer on current item's key */
+X
+X	return ht->h_keys[ht->h_pos];
+X}
+X
+Xpublic char *ht_cvalue(ht)
+Xstruct htable *ht;
+X{
+X	/* Return pointer on current item's value */
+X
+X	return ht->h_values[ht->h_pos];
+X}
+X
+Xpublic int ht_count(ht)
+Xstruct htable *ht;
+X{
+X	/* Return the number of items in the H table */
+X
+X	return ht->h_items;
+X}
+X
+Xprivate uint32 hashcode(s)
+Xregister3 char *s;
+X{
+X	/* Compute the hash code associated with given string s. The magic number
+X	 * below is the greatest prime lower than 2^23.
+X	 */
+X
+X	register1 uint32 hashval = 0;
+X	register2 uint32 magic = 8388593;
+X
+X	while (*s)
+X		hashval = ((hashval % magic) << 8) + (unsigned int) *s++;
+X
+X	return hashval;
+X}
+X
+Xprivate uint32 nprime(n)
+Xregister1 uint32 n;
+X{
+X	/* Return the closest prime number greater than `n' */
+X
+X	while (!prime(n))
+X		n++;
+X
+X	return n;
+X}
+X
+Xprivate int prime(n)
+Xregister2 uint32 n;
+X{
+X	/* Return 1 if `n' is a prime number */
+X
+X	register1 uint32 divisor;
+X
+X	if (n == 1)
+X		return 0;
+X	else if (n == 2)
+X		return 1;
+X	else if (n % 2) {
+X		for (
+X			divisor = 3; 
+X			divisor * divisor <= n;
+X			divisor += 2
+X		)
+X			if (0 == (n % divisor))
+X				return 0;
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+END_OF_FILE
+  if test 10498 -ne `wc -c <'agent/filter/hash.c'`; then
+    echo shar: \"'agent/filter/hash.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/hash.c'
+fi
+if test -f 'agent/pl/cmdserv.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/cmdserv.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/cmdserv.pl'\" \(40926 characters\)
+  sed "s/^X//" >'agent/pl/cmdserv.pl' <<'END_OF_FILE'
+X;# $Id: cmdserv.pl,v 3.0 1993/11/29 13:48:37 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: cmdserv.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:37  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# The command server is configured by a 'command' file, which lists the
+X;# available commands, their type and their locations. The command file has
+X;# the following format:
+X;#
+X;#   <cmd_name> <type> <hide> <collect> <path> <extra>
+X;#
+X;#  - cmd_name: the name of the command recognized by the server.
+X;#  - type: the type of command: shell, perl, var, flag, help or end.
+X;#  - hide: argument to hide in transcript (password usually).
+X;#  - collect: whether the command collects data following in mail message. Set
+X;#    to '-' means no, otherwise 'yes' means collecting is needed.
+X;#  - path: the location of the executable for shell commands (may be left out
+X;#    by specifying '-', in which case the command will be searched for in the
+X;#    path), the file where the command is implemented for perl commands, and
+X;#    the directory where help files are located for help, one file per command.
+X;#  - extra: either some options for shell commands or the name of the function
+X;#    within the perl file.
+X;#
+X;# Each command has an environment set up (part of the process environment for
+X;# shell commands, part of perl cmdenv package for other commands processed
+X;# by perl). This basic environment consists of:
+X;#  - jobnum: the job number of the current mailagent.
+X;#  - cmd: the command line as written in the message.
+X;#  - name: the command name.
+X;#  - log: what was logged in transcript (some args possibly concealed)
+X;#  - pack: packing mode for file sending.
+X;#  - path: destination for the command (where to send file / notification).
+X;#  - auth: set to true if valid envelope found (can "authenticate" sender).
+X;#  - uid: address of the sender of the message (where to send transcript).
+X;#  - user: user's e-mail, equivalent to UNIX euid here (initially uid).
+X;#  - trace: true when command trace wanted in transcript (shell commands).
+X;#  - powers: a colon separated list of privileges the user has.
+X;#  - errors: number of errors so far
+X;#  - requests: number of requests processed so far
+X;#  - eof: the end of file for collection mode
+X;#  - collect: true when collecting a file
+X;#  - disabled: a list of commands disabled (comma separated)
+X;#  - trusted: true when server in trust mode (where powers may be gainned)
+X;#  - debug: true in debug mode
+X;#  - approve: approve password for 'approve' commands, empty if no approve
+X;#
+X;# All convenience variables normally defined for the PERL command are also
+X;# made part of the command environment.
+X;#
+X;# For perl commands, collected data is available in the @buffer environment.
+X;# Shell commands can see those collected data by reading stdin.
+X;#
+X;# TODO:
+X;# Commands may be batched for later processing, in the batch queue. Each job
+X;# is recorded in a 'cm' file, the environment of the command itself is written
+X;# at the top, ending with a blank line and followed by the actual command to
+X;# be exectuted (i.e. the internal representation of 'cmd').
+X;#
+X#
+X# Command server
+X#
+X
+Xpackage cmdserv;
+X
+X$loaded = 0;			# Set to true when loading done
+X
+X# Initialize builtin server commands
+Xsub init {
+X	%Builtin = (					# Builtins and their implemetation routine
+X		'addauth',	'run_addauth',	# Append to power clearance file
+X		'approve',	'run_approve',	# Record password for forthcoming command
+X		'delpower',	'run_delpower',	# Delete power from system
+X		'getauth',	'run_getauth',	# Get power clearance file
+X		'newpower',	'run_newpower',	# Add a new power to the system
+X		'passwd',	'run_passwd',	# Change power password, alternate syntax
+X		'password',	'run_password',	# Set new password for power
+X		'power',	'run_power',	# Ask for new power
+X		'powers',	'run_powers',	# A list of powers, along with clearances
+X		'release',	'run_release',	# Abandon power
+X		'remauth',	'run_remauth',	# Remove people from clearance file
+X		'set',		'run_set',		# Set internal variables
+X		'setauth',	'run_setauth',	# Set power clearance file
+X		'user',		'run_user',		# Commands on behalf of new user
+X	);
+X	%Conceal = (					# Words to be hidden in transcript
+X		'power',	'2',			# Protect power password
+X		'password',	'2',			# Second argument is password
+X		'passwd',	'2,3',			# Both old and new passwords are concealed
+X		'newpower',	'2',			# Power password
+X		'delpower',	'2,3',			# Power password and security
+X		'getauth',	'2',			# Power password if no system clearance
+X		'setauth',	'2',			# Power password
+X		'addauth',	'2',			# Power password
+X		'remauth',	'2',			# Power passowrd
+X		'approve',	'1',			# Approve passoword
+X	);
+X	%Collect = (					# Commands collecting more data from mail
+X		'newpower',	1,				# Takes list of allowed addresses
+X		'setauth',	1,				# Takes new list of allowed addresses
+X		'addauth',	1,				# Allowed addresses to be added
+X		'remauth',	1,				# List of addresses to be deleted
+X	);
+X	%Set = (						# Internal variables which may be set
+X		'debug',	'flag',			# Debugging mode
+X		'eof',		'var',			# End of file marker (default is EOF)
+X		'pack',		'var',			# Packing mode for file sending
+X		'path',		'var',			# Destination address for file sending
+X		'trace',	'flag',			# The trace flag
+X	);
+X}
+X
+X# Load command file into memory, setting %Command, %Type, %Path and %Extra
+X# arrays, all indexed by a command name.
+Xsub load {
+X	$loaded = 1;					# Do not come here more than once
+X	&init;							# Initialize builtins
+X	return unless -s $cf'comserver;	# Empty or non-existent file
+X	return unless &'file_secure($cf'comserver, 'server command');
+X	unless (open(COMMAND, $cf'comserver)) {
+X		&'add_log("ERROR cannot open $cf'comserver: $!") if $'loglvl;
+X		&'add_log("WARNING server commands not loaded") if $'loglvl > 5;
+X		return;
+X	}
+X
+X	local($_);
+X	local($cmd, $type, $hide, $collect, $path, @extra);
+X	local(%known_type) = (
+X		'perl',		1,				# Perl script loaded dynamically
+X		'shell',	1,				# Program to run via fork/exec
+X		'help',		1,				# Help, send back files from dir
+X		'end',		1,				# End processing of requests
+X		'flag',		1,				# A variable flag
+X		'var',		1,				# An ascii variable
+X	);
+X	local(%set_type) = (
+X		'flag',		1,				# Denotes a flag variable
+X		'var',		1,				# Denotes an ascii variable
+X	);
+X
+X	while (<COMMAND>) {
+X		next if /^\s*#/;			# Skip comments
+X		next if /^\s*$/;			# Skip blank lines
+X		($cmd, $type, $hide, $collect, $path, @extra) = split(' ');
+X		$path =~ s/~/$cf'home/;		# Perform ~ substitution
+X
+X		# Perl commands whose function name is not defined will bear the same
+X		# name as the command itself. If no path was specified, use the value
+X		# of the servdir configuration parameter from ~/.mailagent and assume
+X		# each command is stored in a cmd or cmd.pl file. Same for shell
+X		# commands, expected in a cmd or cmd.sh file. However, if the shell
+X		# command is not found there, it will be located at run-time using the
+X		# PATH variable.
+X		@extra = ($cmd) if $type eq 'perl' && @extra == 0;
+X		if ($type eq 'perl' || $type eq 'shell') {
+X			if ($path eq '-') {
+X				$path = "$cf'servdir/$cmd";
+X				$path = "$cf'servdir/$cmd.pl" if $type eq 'perl' && !-e $path;
+X				$path = "$cf'servdir/$cmd.sh" if $type eq 'shell' && !-e $path;
+X				$path = '-' if $type eq 'shell' && !-e $path;
+X			} elsif ($path !~ m|^/|) {
+X				$path = "$cf'servdir/$path";
+X			}
+X		}
+X
+X		# If path is specified, make sure it is valid
+X		if ($path ne '-' && !(-e $path && (-r _ || -x _))) {
+X			local($home) = $cf'home;
+X			$home =~ s/(\W)/\\$1/g;		# Escape possible metacharacters (+)
+X			$path =~ s/^$home/~/;
+X			&'add_log("ERROR command '$cmd' bound to invalid path $path")
+X				if $'loglvl > 1;
+X			next;					# Ignore invalid command
+X		}
+X
+X		# Verify command type
+X		unless ($known_type{$type}) {
+X			&'add_log("ERROR command '$cmd' has unknown type $type")
+X				if $'loglvl > 1;
+X			next;					# Skip to next command
+X		}
+X
+X		# If command is a variable, record it in the %Set array. Since all
+X		# variables are proceseed separately from commands, it is perfectly
+X		# legal to have both a command and a variable bearing the same name.
+X		if ($set_type{$type}) {
+X			$Set{$cmd} = $type;		# Record variable as being of given type
+X			next;
+X		}
+X
+X		# Load command into internal data structures
+X		$Command{$cmd}++;			# Record known command
+X		$Type{$cmd} = $type;
+X		$Path{$cmd} = $path;
+X		$Extra{$cmd} = join(' ', @extra);
+X		$Conceal{$cmd} = $hide if $hide ne '-';
+X		$Collect{$cmd}++ if $collect =~ /^y/i;
+X	}
+X	close COMMAND;
+X}
+X
+X# Process server commands held in the body, either by batching them or by
+X# executing them right away. A transcript is sent to the sender.
+X# Requires a previous call to 'setuid'.
+Xsub process {
+X	local(*body) = @_;				# Mail body
+X	local($_);						# Current line processed
+X	local($metoo);					# Send blind carbon copy to me too?
+X
+X	&load unless $loaded;			# Load commands unless already done
+X	$cmdenv'jobnum = $'jobnum;		# Propagate job number
+X	$metoo = $cf'user if $cf'scriptcc =~ /^on/i;
+X
+X	# Set up a mailer pipe to send the transcript back to the sender
+X	unless (open(MAILER, "|$cf'sendmail $cf'mailopt $cmdenv'uid $metoo")) {
+X		&'add_log("ERROR cannot start $cf'sendmail to mail transcript: $!")
+X			if $'loglvl > 1;
+X	}
+X
+X	# We may fork and have to close one end of the MAILER pipe, so make sure
+X	# no unflushed data ever remain...
+X	select((select(MAILER), $| = 1)[0]);
+X
+X	# Build up initial header. Be sure to add a junk precedence, since we do
+X	# not want to get any bounces.
+X	# For some reason, perl 4.0 PL36 fails with the here document construct
+X	# when using dataloading.
+X	print MAILER
+X"To: $cmdenv'uid
+XSubject: Mailagent session transcript
+XPrecedence: junk
+X$main'MAILER
+X
+X    ---- Mailagent session transcript for $cmdenv'uid ----
+X";
+X
+X	# Start message processing. Stop as soon as an ending command is reached,
+X	# or when more than 'maxerrors' errors have been detected. Also stop
+X	# processing when a signature is reached (introduced by '--').
+X
+X	foreach (@body) {
+X		if ($cmdenv'collect) {			# Collecting data for command
+X			if ($_ eq $cmdenv'eof) {	# Reached end of "file"
+X				$cmdenv'collect = 0;	# Stop collection
+X				&execute;				# Execute command
+X				undef @cmdenv'buffer;	# Free memory
+X			} else {
+X				push(@cmdenv'buffer, $_);
+X			}
+X			next;
+X		}
+X		if ($cmdenv'errors > $cf'maxerrors && !&root) {
+X			&finish('too many errors');
+X			last;
+X		}
+X		if ($cmdenv'requests > $cf'maxcmds && !&root) {
+X			&finish('too many requests');
+X			last;
+X		}
+X		next if /^\s*$/;			# Skip blank lines
+X		print MAILER "\n";			# Separate each command
+X		s/^\s*//;					# Strip leading spaces
+X		&cmdenv'set_cmd($_);		# Set command environment
+X		$cmdenv'approve = '';		# Clear approve password
+X		&user_prompt;				# Copy line to transcript
+X		if (/^--\s*$/) {			# Signature reached
+X			&finish('.signature');
+X			last;
+X		}
+X		if ($Disabled{$cmdenv'name}) {		# Skip disabled commands
+X			$cmdenv'errors++;
+X			print MAILER "Disabled command.\n";
+X			print MAILER "FAILED.\n";
+X			&'add_log("DISABLED $cmdenv'log") if $'loglvl > 1;
+X			next;
+X		}
+X		unless (defined $Builtin{$cmdenv'name}) {
+X			unless (defined $Command{$cmdenv'name}) {
+X				$cmdenv'errors++;
+X				print MAILER "Unknown command.\n";
+X				print MAILER "FAILED.\n";
+X				&'add_log("UNKNOWN $cmdenv'log") if $'loglvl > 1;
+X				next;
+X			}
+X			if ($Type{$cmdenv'name} eq 'end') {	# Ending request?
+X				&finish("user's request");		# Yes, end processing then
+X				last;
+X			}
+X		}
+X		if (defined $Collect{$cmdenv'name}) {
+X			$cmdenv'collect = 1;		# Start collect mode
+X			next;						# Grab things in @cmdenv'buffer
+X		}
+X		&execute;				# Execute command, report in transcript
+X	}
+X
+X	# If we are still in collecting mode, then the EOF marker was not found
+X	if ($cmdenv'collect) {
+X		&'add_log("ERROR did not reach eof mark '$cmdenv'eof'")
+X			if $'loglvl > 1;
+X		&'add_log("FAILED $cmdenv'log") if $'loglvl > 1;
+X		print MAILER "Could not find eof marker '$cmdenv'eof'.\n";
+X		print MAILER "FAILED.\n";
+X	}
+X
+X	print MAILER <<EOM;
+X
+X    ---- End of mailagent session transcript ----
+XEOM
+X	unless (close MAILER) {
+X		&'add_log("ERROR cannot mail transcript to $cmdenv'uid")
+X			if $'loglvl > 1;
+X	}
+X}
+X
+X#
+X# Command execution
+X#
+X
+X# Execute command recorded in the cmdenv environment. For each type of command,
+X# the routine 'exec_type' is called and returns 0 if ok. Builtins are dealt
+X# separately by calling the corresponding perl function.
+Xsub execute {
+X	$cmdenv'requests++;				# One more request
+X	local($log) = $cmdenv'log;		# Save log, since it could be modified
+X	local($failed) = &dispatch;		# Dispatch command
+X	if ($failed) {
+X		&'add_log("FAILED $log") if $'loglvl > 1;
+X		$cmdenv'errors++;
+X		print MAILER "FAILED.\n";
+X	} else {
+X		&'add_log("OK $log") if $'loglvl > 2;
+X		print MAILER "OK.\n";
+X	}
+X}
+X
+X# Dispatch command held in $cmdenv'name and return failure status (0 means ok).
+Xsub dispatch {
+X	local($failed) = 0;
+X	&'add_log("XEQ ($cmdenv'name) as $cmdenv'user") if $'loglvl > 10;
+X	if (defined $Builtin{$cmdenv'name}) {	# Deal separately with builtins
+X		eval "\$failed = &$Builtin{$cmdenv'name}";	# Call builtin function
+X		if (chop($@)) {
+X			print MAILER "Perl failure: $@\n";
+X			$@ .= "\n";		# Restore final char for &'eval_error call
+X			&'eval_error;	# Log error
+X			$@ = '';		# Clear evel error condition
+X			$failed++;		# Make sure failure is recorded
+X		}
+X	} else {
+X		# Command may be unknwon if called from 'user <email> command' or
+X		# from an 'approve <password> comamnd' type of invocation.
+X		if (defined $Type{$cmdenv'name}) {
+X			eval "\$failed = &exec_$Type{$cmdenv'name}";
+X		} else {
+X			print MAILER "Unknown command.\n";
+X			$cmdenv'errors++;
+X			$failed++;
+X		}
+X	}
+X	$failed;		# Report failure status
+X}
+X
+X# Shell command
+Xsub exec_shell {
+X	# Check for unsecure characters in shell command
+X	if ($cmdenv'cmd =~ /([=\$^&*([{}`\\|;><?])/ && !&root) {
+X		$cmdenv'errors++;
+X		print MAILER "Unsecure character '$1' in command line.\n";
+X		return 1;		# Failed
+X	}
+X
+X	# Initialize input script (if command operates in 'collect' mode)
+X	local($error) = 0;		# Error flag
+X	local($input) = '';		# Input file, when collecting
+X	if (defined $Collect{$cmdenv'name}) {
+X		$input = "$cf'tmpdir/input.cmd$$";
+X		unless (open(INPUT, ">$input")) {
+X			&'add_log("ERROR cannot create $input: $!") if $'loglvl;
+X			$error++;
+X		} else {
+X			foreach $collected (@cmdenv'buffer) {
+X				(print INPUT $collected, "\n") || $error++;
+X				&'add_log("SYSERR write: $!") if $error && $'loglvl;
+X				last if $error;
+X			}
+X			close(INPUT) || $error++;
+X			&'add_log("SYSERR close: $!") if $error == 1 && $'loglvl;
+X		}
+X		if ($error) {
+X			print MAILER "Cannot create input file ($!).\n";
+X			&'add_log("ERROR cannot initialize input file") if $'loglvl;
+X			unlink $input;
+X			return 1;		# Failed
+X		}
+X	}
+X
+X	# Create shell command file, whose purpose is to set up the environment
+X	# properly and do the appropriate file descriptors manipulations, which
+X	# is easier to do at the shell level, and cannot fully be done in perl 4.0
+X	# (see dup2 hack below).
+X	$cmdfile = "$cf'tmpdir/mess.cmd$$";
+X	unless (open(CMD, ">$cmdfile")) {
+X		&'add_log("ERROR cannot create $cmdfile: $!") if $'loglvl;
+X		print MAILER "Cannot create file comamnd file ($!).\n";
+X		unlink $input if $input;
+X		return 1;		# Failed
+X	}
+X
+X	# Initialize command environment
+X	local($key, $val);		# Key/value from perl's symbol table
+X	# Loop over perl's symbol table for the cmdenv package
+X	while (($key, $val) = each %_cmdenv) {
+X		local(*entry) = $val;		# Get definitaions of current slot
+X		next unless defined $entry;	# No variable slot
+X		($val = $entry) =~ s/'/'"'"'/g;		# Keep simple quotes
+X		(print CMD "$key='$val' export $key\n") || $error++;
+X	}
+X	# Now add command invocation and input redirection. Standard input will be
+X	# the collect buffer, if any, and file descriptor #3 is a path to the
+X	# session transcript.
+X	local($redirect);
+X	$redirect = "<$input" if $input;
+X	local(@argv) = split(' ', $cmdenv'cmd);
+X	local($extra) = $Extra{$cmdenv'name};
+X	$argv[0] = $Path{$cmdenv'name} if defined $Path{$cmdenv'name};
+X	(print CMD "cd $cf'home\n") || $error++;	# Make sure we start from home
+X	(print CMD "exec 3>&2 2>&1\n") || $error++;	# See dup2 hack below
+X	(print CMD "$argv[0] $extra @argv[1..$#argv] $redirect\n") || $error++;
+X	close(CMD) || $error++;
+X	close CMD;
+X	if ($error) {
+X		&'add_log("ERROR cannot initialize $cmdfile: $!") if $'loglvl;
+X		unlink $cmdfile;
+X		unlink $input if $input;
+X		print MAILER "Cannot initialize command file ($!).\n";
+X		return 1;			# Failed
+X	}
+X
+X	&include($cmdfile, 'command', '<<< ') if $cmdenv'debug;
+X
+X	# Set up trace file
+X	$trace = "$cf'tmpdir/trace.cmd$$";
+X	unless (open(TRACE, ">$trace")) {
+X		&'add_log("ERROR cannot create $trace: $!") if $'loglvl;
+X		unlink $cmdfile;
+X		unlink $input if $input;
+X		print MAILER "Cannot create trace file ($!).\n";
+X		return 1;			# Failed
+X	}
+X
+X	# Now fork a child which will redirect stdout and stderr onto the trace
+X	# file and exec the command file.
+X
+X	local($pid) = fork;			# We fork here
+X	unless (defined $pid) {		# Apparently, we could not fork...
+X		&'add_log("SYSERR fork: $!") if $'loglvl;
+X		close TRACE;
+X		unlink $cmdfile, $trace;
+X		unlink $input if $input;
+X		print MAILER "Cannot fork ($!).\n";
+X		return 1;			# Failed
+X	}
+X
+X	# Child process runs the command
+X	if ($pid == 0) {				# Child process
+X		# Perform a dup2(MAILER, 3) to allow file descriptor #3 to be a way
+X		# for the shell script to reach the session transcript. Since perl
+X		# insists on closing all file descriptors >2 ($^F) during the exec, we
+X		# remap the current STDERR to MAILER temporarily. That way, it will
+X		# be transmitted to the child, which is a shell script doing an
+X		# 'exec 3>&2 2>&1', meaning the file #3 is the original MAILER and
+X		# stdout and stderr for the script go to the same trace file, as
+X		# intiallly attached to stdout.
+X		open(STDOUT, '>&TRACE');	# Redirect stdout to the trace file
+X		open(STDERR, '>&MAILER');	# Temporarily mapped to the MAILER file
+X		close(STDIN);				# Make sure there is no input
+X		exec "sh $cmdfile";			# Don't let perl use sh -c
+X		&'add_log("SYSERR exec: $!") if $'loglvl;
+X		&'add_log("ERROR cannot exec /bin/sh $cmdfile") if $'loglvl;
+X		print MAILER "Cannot exec command file ($!).\n";
+X		exit(9);
+X	}
+X
+X	close TRACE;		# Only child uses it
+X	wait;				# Wait for child
+X	unlink $cmdfile;	# Has been used and abused...
+X	unlink $input if $input;
+X
+X	if ($?) {			# Child exited with non-zero status
+X		local($status) = $? >> 8;
+X		&'add_log("ERROR child exited with status $status") if $'loglvl > 1;
+X		print MAILER "Command returned a non-zero status ($status).\n";
+X		$error = 1;
+X	}
+X	&include($trace, 'trace', '<<< ') if $error || $cmdenv'trace;
+X	unlink $trace;
+X	$error;				# Failure status
+X}
+X
+X# Perl command
+Xsub exec_perl {
+X	local($name) = $cmdenv'name;		# Command name
+X	local($fn) = $Extra{$name};			# Perl function to execute
+X	$fn = $name unless $fn;				# If none specified, use command name
+X	unless (&dynload'load('cmdenv', $Path{$name}, $fn)) {
+X		&'add_log("ERROR cannot load script for command $name") if $'loglvl;
+X		print MAILER "Cannot load $name command.\n";
+X		return 1;		# Failed
+X	}
+X	# Place in the cmdenv package context and call the function, propagating
+X	# the error status (1 for failure). Arguments are pre-split on space,
+X	# simply for convenience, but the command is free to parse the 'cmd'
+X	# variable itself.
+X	package cmdenv;
+X	local(*MAILER) = *cmdserv'MAILER;	# Propagate file descriptor
+X	local($fn) = $cmdserv'fn;			# Propagate function name
+X	local(@argv) = split(' ', $cmd);
+X	shift(@argv);						# Remove command name
+X	local($res) = eval('&$fn(@argv)');	# Call function, get status
+X	if (chop $@) {
+X		&'add_log("ERROR in perl $name: $@") if $'loglvl;
+X		print MAILER "Perl error: $@\n";
+X		$res = 1;
+X	}
+X	$res;		# Propagate error status
+X}
+X
+X# Help command. Start by looking in the user's help directory, then in
+X# the public mailagent help directory. Users may disable help for a
+X# command by making an empty file in their own help dir.
+Xsub exec_help {
+X	local(@topic) = split(' ', $cmdenv'cmd);
+X	local($topic) = $topic[1];	# Help topic wanted
+X	local($help);				# Help file
+X	unless ($topic) {			# General builin help
+X		# Doesn't work with a here document form... (perl 4.0 PL36)
+X		print MAILER
+X"Following is a list of the known commands. Some additional help is available
+Xon a command basis by using 'help <command>', unless the command name is
+Xfollowed by a '*' character in which case no further help may be obtained.
+XCommands which collect input until an eof mark are marked with a trailing '='.
+X
+X";
+X		local(@cmds);			# List of known commands
+X		local($star);			# Does command have a help file?
+X		local($plus);			# Does command require additional input?
+X		local($online) = 0;		# Number of commands currently printed on line
+X		local($print);			# String printed for each command
+X		local($fieldlen) = 18;	# Amount of space dedicated to each command
+X		push(@cmds, keys(%Builtin), keys(%Command));
+X		foreach $cmd (sort @cmds) {
+X			$help = "$cf'helpdir/$cmd";
+X			$help = "$'privlib/help/$cmd" unless -e $help;
+X			$star = -s $help ? '' : '*';
+X			$plus = defined($Collect{$cmd}) ? '=' : '';
+X			# We print 4 commands on a single line
+X			$print = $cmd . $plus . $star;
+X			print MAILER $print, ' ' x ($fieldlen - length($print));
+X			if ($online++ == 3) {
+X				$online = 0;
+X				print MAILER "\n";
+X			}
+X		}
+X		print MAILER "\n" if $online;	# Pending line not completed yet
+X		print MAILER "\nEnd of command list.\n";
+X		return 0;	# Ok
+X	}
+X	$help = "$cf'helpdir/$topic";
+X	$help = "$'privlib/help/$cmd" unless -e $help;
+X	unless (-s $help) {
+X		print MAILER "Help for '$topic' is not available.\n";
+X		return 0;	# Not a failure
+X	}
+X	&include($help, "$topic help", '');	# Include file and propagate status
+X}
+X
+X#
+X# Builtins
+X#
+X
+X# Approve command in advance by specifying a password. The syntax is:
+X#    approve <password> [command]
+X# and the password is simply recorded in the command environment. Then parsing
+X# of the command is resumed.
+X# NOTE: cannot approve a command which collects input (yet).
+Xsub run_approve {
+X	local($x, $password, @command) = split(' ', $cmdenv'cmd);
+X	$cmdenv'approve = $password;			# Save approve password
+X	&cmdenv'set_cmd(join(' ', @command));	# Set command environment
+X	&dispatch;			# Execute command and propagate status
+X}
+X
+X# Ask for new power. The syntax is:
+X#    power <name> <password>
+X# Normally, 'root' does not need to request for any other powers, less give
+X# any password. However, for simplicity and uniformity, we simply grant it
+X# with no checks.
+Xsub run_power {
+X	local($x, $name, $password) = split(' ', $cmdenv'cmd);
+X	if (!$cmdenv'trusted) {		# Server has to be running in trusted mode
+X		&power'add_log("WARNING cannot gain power '$name': not in trusted mode")
+X			if $'loglvl > 5;
+X	} elsif (&root || &power'grant($name, $password, $cmdenv'uid)) {
+X		&power'add_log("granted power '$name' to $cmdenv'uid") if $'loglvl > 2;
+X		&cmdenv'addpower($name);
+X		return 0;		# Ok
+X	}
+X	print MAILER "Permission denied.\n";
+X	1;		# Failed
+X}
+X
+X# Release power. The syntax is:
+X#    release <name>
+X# If the 'root' power is released, other powers obtained while root or before
+X# are kept. That way, it makes sense to ask for powers as root when the
+X# password for some power has been changed. It is wise to release a power once
+X# it is not needed anymore, since it may prevent mistakes.
+Xsub run_release {
+X	local($x, $name) = split(' ', $cmdenv'cmd);
+X	&cmdenv'rempower($name);
+X	0;		# Always ok
+X}
+X
+X# List all powers with their clearances. The syntax is:
+X#    powers <regexp>
+X# and the 'system' power is needed to get the list. The root power or security
+X# power is needed to get the root or security information. If no arguments are
+X# specified, all the non-privileged powers (if you do not have root or security
+X# clearance) are listed. If arguments are given, they are taken as regular
+X# expression filters (perl way).
+Xsub run_powers {
+X	local($x, @regexp) = split(' ', $cmdenv'cmd);
+X	unless (&cmdenv'haspower('system') || &cmdenv'haspower('security')) {
+X		print MAILER "Permission denied.\n";
+X		return 1;
+X	}
+X	unless (open(PASSWD, $cf'passwd)) {
+X		&power'add_log("ERROR cannot open password file $cf'passwd: $!")
+X			if $'loglvl;
+X		print MAILER "Cannot open password file ($!).\n";
+X		return 1;
+X	}
+X	print MAILER "List of currently defined powers:\n";
+X	local($_);
+X	local($power);			# Current power analyzed
+X	local($matched);		# Did power match the regular expression?
+X	while (<PASSWD>) {
+X		($power) = split(/:/);
+X		# If any of the following regular expressions is incorrect, a die will
+X		# be generated and caught by the enclosing eval.
+X		$matched = @regexp ? 0 : 1;
+X		foreach $regexp (@regexp) {
+X			eval '$power =~ /$regexp/ && ++$matched;';
+X			if (chop($@)) {
+X				print MAILER "Perl failure: $@\n";
+X				$@ = '';
+X				close PASSWD;
+X				return 1;
+X			}
+X			last if $matched;
+X		}
+X		next unless $matched;
+X		print MAILER "\nPower: $power\n";
+X		if (
+X			($power eq 'root' || $power eq 'security') &&
+X			!&cmdenv'haspower($power)
+X		) {
+X			print MAILER "(Cannot list clearance file: permission denied.)\n";
+X			next;
+X		}
+X		&include(&power'authfile($power), "$power clearance");
+X	}
+X	close PASSWD;
+X	0;
+X}
+X
+X# Set new power password. The syntax is:
+X#    password <name> <new>
+X# To change a power password, you need to get the corresponding power or be
+X# system, hence showing you know the password for that power or have greater
+X# privileges. To change the 'root' and 'security' passwords, you need the
+X# corresponding security clearance.
+Xsub run_password {
+X	local($x, $name, $new) = split(' ', $cmdenv'cmd);
+X	local($required) = $name;
+X	$required = 'system' unless &cmdenv'haspower($name);
+X	$required = $name if $name eq 'root' || $name eq 'security';
+X	unless (&cmdenv'haspower($required)) {
+X		print MAILER "Permission denied (not enough power).\n";
+X		return 1;
+X	}
+X	return 0 if 0 == &power'set_passwd($name, $new);
+X	print MAILER "Could not change password, sorry.\n";
+X	1;
+X}
+X
+X# Set new power password. The syntax is:
+X#    passwd <name> <old> <new>
+X# You do not need to have the corresponding power to change the password since
+X# the old password is requested. This is a short for the sequence:
+X#    power <name> <old>
+X#    password <name> <new>
+X#    release <name>
+X# excepted that even root has to give the correct old password if this form
+X# is used.
+Xsub run_passwd {
+X	local($x, $name, $old, $new) = split(' ', $cmdenv'cmd);
+X	unless (&power'authorized($name, $cmdenv'uid)) {
+X		print MAILER "Permission denied (lacks authorization).\n";
+X		return 1;
+X	}
+X	unless (&power'valid($name, $old)) {
+X		print MAILER "Permission denied (invalid pasword).\n";
+X		return 1;
+X	}
+X	return 0 if 0 == &power'set_passwd($name, $new);
+X	print MAILER "Could not change password, sorry.\n";
+X	1;
+X}
+X
+X# Change user ID, i.e. e-mail address. The syntax is:
+X#    user [<email> [command]]
+X# and is used to execute some commands on behalf of another user. If a command
+X# is specified, it is immediately executed with the new identity, which only
+X# lasts for that time. Otherwise, the remaining commands are executed with that
+X# new ID. If no email is specified, the original sender ID is restored.
+X# All the powers are lost when a user command is executed, but this is only
+X# temporary when the command is specified on the same line.
+Xsub run_user {
+X	local($x, $user, @command) = split(' ', $cmdenv'cmd);
+X	local(%powers);
+X	local($powers);
+X	if (0 == @command && $cmdenv'powers ne '') {
+X		print MAILER "Wiping out current powers ($cmdenv'powers).\n";
+X		&cmdenv'wipe_powers;
+X	}
+X	if (0 != @command && $cmdenv'powers ne '') {
+X		%powers = %cmdenv'powers;
+X		$powers = $cmdenv'powers;
+X		print MAILER "Current powers temporarily lost ($cmdenv'powers).\n";
+X		&cmdenv'wipe_powers;
+X	}
+X	unless ($user) {			# Reverting to original sender ID
+X		$cmdenv'user = $cmdenv'uid;
+X		print MAILER "Back to original identity ($cmdenv'uid).\n";
+X		return 0;
+X	}
+X	if (0 == @command) {
+X		$cmdenv'user = $user;
+X		print MAILER "New user identity: $cmdenv'user.\n";
+X		return 0;
+X	}
+X
+X	&cmdenv'set_cmd(join(' ', @command));	# Set command environment
+X	local($failed) = &dispatch;				# Execute command
+X
+X	if (defined %powers) {
+X		$cmdenv'powers = $powers;
+X		%cmdenv'powers = %powers;
+X		print MAILER "Restored powers ($powers).\n";
+X	}
+X
+X	$failed;		# Propagate failure status
+X}
+X
+X# Add a new power to the system. The syntax is:
+X#    newpower <name> <password> [alias]
+X# followed by a list of approved names who may request that power. The 'system'
+X# power is required to add a new power. An alias should be specified if the
+X# name is longer than 12 characters. The 'security' power is required to create
+X# the root power, and root power is needed to create 'security'.
+Xsub run_newpower {
+X	local($x, $name, $password, $alias) = split(' ', $cmdenv'cmd);
+X	if (
+X		($name eq 'root' && !&cmdenv'haspower('security')) ||
+X		($name eq 'security' && !&cmdenv'haspower('root')) ||
+X		!&cmdenv'haspower('system')
+X	) {
+X		print MAILER "Permission denied.\n";
+X		return 1;
+X	}
+X	&newpower($name, $password, $alias);
+X}
+X
+X# Actually add the new power to the system, WITHOUT any security checks. It
+X# is up to the called to ensure the user has correct permissions. Return 0
+X# if ok and 1 on error.
+X# The clearance list is taken from @cmdenv'buffer.
+Xsub newpower {
+X	local($name, $password, $alias) = @_;
+X	local($power) = &power'getpwent($name);
+X	if (defined $power) {
+X		print MAILER "Power '$name' already exists.\n";
+X		return 1;
+X	}
+X	if (length($name) > 12 && !defined($alias)) {
+X		# Compute a suitable alias name, which never appears externally anyway
+X		# so it's not really important to use cryptic ones. First, reduce the
+X		# power name to 10 characters.
+X		$alias = $name;
+X		$alias =~ tr/aeiouy//d;
+X		$alias = substr($alias, 0, 6) . substr($alias, -6);
+X		if (&power'used_alias($alias)) {
+X			$alias = substr($alias, 0, 10);
+X			local($tag) = 'AA';
+X			local($try) = 100;
+X			local($attempt);
+X			while ($try--) {
+X				$attempt = "$alias$tag";
+X				last unless &power'used_alias($attempt);
+X				$tag++;
+X			}
+X			$alias = $attempt;
+X			if (&power'used_alias($alias)) {
+X				print MAILER "Cannot auto-select any unused alias.\n";
+X				return 1;	# Failed
+X			}
+X		}
+X		print MAILER "(Selecting alias '$alias' for this power.)\n";
+X	}
+X	# Make sure alias is not too long. Don't try to shorten any user-specified
+X	# alias if they took care of giving one instead of letting mailagent
+X	# pick one up...
+X	if (defined($alias) && length($alias) > 12) {
+X		print MAILER "Alias name too long (12 characters max).\n";
+X		return 1;
+X	}
+X	if (defined($alias) && &power'used_alias($alias)) {
+X		print MAILER "Alias '$alias' is already in use.\n";
+X		return 1;
+X	}
+X	if (defined($alias) && !&power'add_alias($name, $alias)) {
+X		print MAILER "Cannot add alias, sorry.\n";
+X		return 1;
+X	}
+X	unless (&power'set_auth($name, *cmdenv'buffer)) {
+X		print MAILER "Cannot set authentication file, sorry.\n";
+X		return 1;
+X	}
+X	if (-1 == &power'setpwent($name, "<$password>", '')) {
+X		print MAILER "Cannot add power, sorry.\n";
+X		return 1;
+X	}
+X	if (-1 == &power'set_passwd($name, $password)) {
+X		print MAILER "Warning: could not insert password.\n";
+X	}
+X	0;
+X}
+X
+X# Delete a power from the system. The syntax is:
+X#    delpower <name> <password> [<security>]
+X# deletes a power and its associated user list. The 'system' power is required
+X# to delete most powers except 'root' and 'security'. The 'security' power may
+X# only be deleted by security and the root power may only be deleted when the
+X# security password is also specified.
+Xsub run_delpower {
+X	local($x, $name, $password, $security) = split(' ', $cmdenv'cmd);
+X	if (
+X		($name eq 'security' && !&cmdenv'haspower($name)) ||
+X		($name eq 'root' && !&power'valid('security', $security)) ||
+X		!&cmdenv'haspower('system')
+X	) {
+X		print MAILER "Permission denied (not enough power).\n";
+X		return 1;
+X	}
+X	unless (&root) {
+X		unless (&power'valid($name, $password)) {
+X			print MAILER "Permission denied (invalid password).\n";
+X			return 1;
+X		}
+X	}
+X	&delpower($name);
+X}
+X
+X# Actually delete a power from the system, WITHOUT any security checks. It
+X# is up to the called to ensure the user has correct permissions. Return 0
+X# if ok and 1 on error.
+Xsub delpower {
+X	local($name) = @_;
+X	local($power) = &power'getpwent($name);
+X	if (!defined $power) {
+X		print MAILER "Power '$name' does not exist.\n";
+X		return 1;
+X	}
+X	local($auth) = &power'authfile($name);
+X	if ($auth ne '/dev/null' && !unlink($auth)) {
+X		&'add_log("SYSERR unlink: $!") if $'loglvl;
+X		&'add_log("ERROR could not remove clearance file $auth") if $'loglvl;
+X		print MAILER "Warning: could not remove clearance file.\n";
+X	}
+X	unless (&power'del_alias($name)) {
+X		print MAILER "Warning: could not remove power alias.\n";
+X	}
+X	if (0 != &power'rempwent($name)) {
+X		print MAILER "Failed (cannot remove password entry).\n";
+X		return 1;
+X	}
+X	0;
+X}
+X
+X# Replace current clearance file. The syntax is:
+X#    setauth <name> <password>
+X# and requires no special power if the password is given or if the power is
+X# already detained. Otherwise, the system power is needed. For 'root' and
+X# 'security' clearances, the corresponding power is needed as well.
+Xsub run_setauth {
+X	local($x, $name, $password) = split(' ', $cmdenv'cmd);
+X	local($required) = $name;
+X	$required = 'system' unless &cmdenv'haspower($name);
+X	$required = $name if $name eq 'root' || $name eq 'security';
+X	unless (&cmdenv'haspower($required)) {
+X		unless (&power'valid($name, $password)) {
+X			print MAILER "Permission denied.\n";
+X			return 1;
+X		}
+X	}
+X	unless (&power'set_auth($name, *cmdenv'buffer)) {
+X		print MAILER "Cannot set authentication file, sorry.\n";
+X		return 1;
+X	}
+X	0;
+X}
+X
+X# Add users to clearance file. The syntax is:
+X#    addauth <name> <password>
+X# and requires no special power if the password is given or if the power is
+X# already detained. Otherwise, the system power is needed. For 'root' and
+X# 'security' clearances, the corresponding power is needed as well.
+Xsub run_addauth {
+X	local($x, $name, $password) = split(' ', $cmdenv'cmd);
+X	local($required) = $name;
+X	$required = 'system' unless &cmdenv'haspower($name);
+X	$required = $name if $name eq 'root' || $name eq 'security';
+X	unless (&cmdenv'haspower($required)) {
+X		unless (&power'valid($name, $password)) {
+X			print MAILER "Permission denied.\n";
+X			return 1;
+X		}
+X	}
+X	unless (&power'add_auth($name, *cmdenv'buffer)) {
+X		print MAILER "Cannot add to authentication file, sorry.\n";
+X		return 1;
+X	}
+X	0;
+X}
+X
+X# Remove users from clearance file. The syntax is:
+X#   remauth <name> <password>
+X# and requires no special power if the password is given or if the power is
+X# already detained. Otherwise, the system power is needed. For 'root' and
+X# 'security' clearances, the corresponding power is needed as well.
+Xsub run_remauth {
+X	local($x, $name, $password) = split(' ', $cmdenv'cmd);
+X	local($required) = $name;
+X	$required = 'system' unless &cmdenv'haspower($name);
+X	$required = $name if $name eq 'root' || $name eq 'security';
+X	unless (&cmdenv'haspower($required)) {
+X		unless (&power'valid($name, $password)) {
+X			print MAILER "Permission denied.\n";
+X			return 1;
+X		}
+X	}
+X	unless (&power'rem_auth($name, *cmdenv'buffer)) {
+X		print MAILER "Cannot remove from authentication file, sorry.\n";
+X		return 1;
+X	}
+X	0;
+X}
+X
+X# Get current clearance file. The syntax is:
+X#    getauth <name> <password>
+X# and requires no special power if the password is given or if the power is
+X# already detained. Otherwise, the system power is needed for all powers,
+X# and for 'root' or 'security', the corresponding power is required.
+Xsub run_getauth {
+X	local($x, $name, $password) = split(' ', $cmdenv'cmd);
+X	local($required) = $name;
+X	$required = 'system' unless &cmdenv'haspower($name);
+X	$required = $name if $name eq 'root' || $name eq 'security';
+X	unless (&cmdenv'haspower($required)) {
+X		unless (&power'valid($name, $password)) {
+X			print MAILER "Permission denied.\n";
+X			return 1;
+X		}
+X	}
+X	local($file) = &power'authfile($name);
+X	&include($file, "$name clearance", '');	# Include file, propagate status
+X}
+X
+X# Set internal variable. The syntax is:
+X#    set <variable> <value>
+X# and the corresponding variable from cmdenv package is set.
+Xsub run_set {
+X	local($x, $var, @args) = split(' ', $cmdenv'cmd);
+X	unless (defined $Set{$var}) {
+X		print MAILER "Unknown or read-only variable '$var'.\n";
+X		return 1;		# Failed
+X	}
+X	local($type) = $Set{$var};		# The variable type
+X	local($_)	;					# Value to assign to variable
+X	if ($type eq 'flag') {
+X		$_ = $args[0];
+X		if ($_ eq '' || /on/i || /yes/i || /true/i) {
+X			$val = 1;
+X		} else {
+X			$val = 0;
+X		}
+X	} else {
+X		$val = join(' ', @args);
+X	}
+X	eval "\$cmdenv'$var = \$val";	# Set variable in cmdenv package
+X	0;
+X}
+X
+X#
+X# Utilities
+X#
+X
+X# Emit the user prompt in transcript, then copy current line
+Xsub user_prompt {
+X	if (&root) {
+X		print MAILER "####> ";			# Command with no restrictions at all
+X	} elsif ($cmdenv'powers ne '') {
+X		print MAILER "====> ";			# Command with local privileges
+X	} elsif ($cmdenv'user ne $cmdenv'uid) {
+X		print MAILER "~~~~> ";			# Command on behalf of another user
+X	} else {
+X		print MAILER "----> ";			# Command from and for current user
+X	}
+X	print MAILER "$cmdenv'log\n";
+X}
+X
+X# Include file in transcript, returning 1 on failure and 0 on success
+X# If the third parameter is given, then it is used as leading marks, and
+X# the enclosing digest lines are omitted.
+Xsub include {
+X	local($file, $description, $marks) = @_;
+X	unless (open(FILE, $file)) {
+X		&'add_log("ERROR cannot open $file: $!") if $'loglvl;
+X		print MAILER "Cannot open $description file ($!).\n";
+X		return 1;
+X	}
+X	local($_);
+X	print MAILER "   --- Beginning of file ($description) ---\n"
+X		unless defined $marks;
+X	while (<FILE>) {
+X		(print MAILER) unless defined $marks;
+X		(print MAILER $marks, $_) if defined $marks;
+X	}
+X	close FILE;
+X	print MAILER "   --- End of file ($description) ---\n"
+X		unless defined $marks;
+X	0;		# Success
+X}
+X
+X# Signals end of processing
+Xsub finish {
+X	local($why) = @_;
+X	print MAILER "End of processing ($why)\n";
+X	&'add_log("END ($why)") if $'loglvl > 6;
+X}
+X
+X# Check whether user has root powers or not.
+Xsub root {
+X	&cmdenv'haspower('root');
+X}
+X
+X#
+X# Server modes
+X#
+X
+X# Allow server to run in trusted mode (where powers may be gained).
+Xsub trusted {
+X	if ($cmdenv'auth) {			# Valid envelope in mail header
+X		$cmdenv'trusted = 1;	# Allowed to gain powers
+X	} else {
+X		&'add_log("WARNING unable to switch into trusted mode")
+X			if $'loglvl > 5;
+X	}
+X}
+X
+X# Disable a list of commands, and only those commands.
+Xsub disable {
+X	local($cmds) = @_;		# List of disabled commands
+X	undef %Disabled;		# Reset disabled commands, start with fresh set
+X	foreach $cmd (split(/[\s,]+/, $cmds)) {
+X		$Disabled{$cmd}++;
+X	}
+X	$cmdenv'disabled = join(',', sort keys %Disabled);	# No duplicates
+X}
+X
+X#
+X# Environment for server commands
+X#
+X
+Xpackage cmdenv;
+X
+X# Set user identification (e-mail address) within cmdenv package
+Xsub inituid {
+X	# Convenience variables are part of the basic environment for all the
+X	# server commands. This includes the $envelope variable, which is the
+X	# user who has issued the request (real uid).
+X	&hook'initvar('cmdenv');
+X	$auth = 1;				# Assume valid envelope
+X	$uid = (&'parse_address($envelope))[0];
+X	if ($uid eq '') {		# No valid envelope
+X		&'add_log("NOTICE no valid mail envelope") if $'loglvl > 6;
+X		$uid = (&'parse_address($sender))[0];
+X		$auth = 0;			# Will not be able to run in trusted mode
+X	}
+X	$user = $uid;			# Until further notice, euid = ruid
+X	$path = $uid;			# And files are sent to the one who requested them
+X	undef %powers;			# Reset power table
+X	$powers = '';			# The linear version of powers
+X	$errors = 0;			# Number of failed requests so far
+X	$requests = 0;			# Total number of requests processed so far
+X	$eof = 'EOF';			# End of file indicator in collection mode
+X	$collect = 0;			# Not in collection mode
+X	$trace = 0;				# Not in trace mode
+X	$trusted = 0;			# Not in trusted mode
+X}
+X
+X# Set command parameters
+Xsub set_cmd {
+X	($cmd) = @_;
+X	($name) = $cmd =~ /^([\w-]+)/;	# Get command name
+X	$name =~ tr/A-Z/a-z/;			# Cannonicalize to lower case
+X
+X	# Passwords in commands may need to be concealed
+X	if (defined $cmdserv'Conceal{$name}) {
+X		local(@argv) = split(' ', $cmd);
+X		local(@pos) = split(/,/, $cmdserv'Conceal{$name});
+X		foreach $pos (@pos) {
+X			$argv[$pos] = '********' if defined $argv[$pos];
+X		}
+X		$log = join(' ', @argv);
+X	} else {
+X		$log = $cmd;
+X	}
+X}
+X
+X# Add a new power to the list once the user has been authenticated.
+Xsub addpower {
+X	local($newpower) = @_;
+X	$powers{$newpower}++;
+X	$powers = join(':', keys %powers);
+X}
+X
+X# Remove power from the list.
+Xsub rempower {
+X	local($oldpower) = @_;
+X	delete $powers{$oldpower};
+X	$powers = join(':', keys %powers);
+X}
+X
+X# Wipe out all the powers
+Xsub wipe_powers {
+X	undef %powers;
+X	$powers = '';
+X}
+X
+X# Check whether user has a given power... Note that 'root' has all powers
+X# but 'security'.
+Xsub haspower {
+X	local($wanted) = @_;
+X	$wanted eq 'security' ?
+X		defined($powers{$wanted}) :
+X		(defined($powers{'root'}) || defined($powers{$wanted}));
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 40926 -ne `wc -c <'agent/pl/cmdserv.pl'`; then
+    echo shar: \"'agent/pl/cmdserv.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/cmdserv.pl'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(75 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/* mailagent-3.0 - 1 Dec 1993 */
+X
+X#define VERSION 3.0
+X#define PATCHLEVEL 0
+END_OF_FILE
+  if test 75 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+echo shar: End of archive 8 \(of 26\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

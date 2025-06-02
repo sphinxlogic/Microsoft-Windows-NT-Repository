@@ -1,0 +1,1887 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i014:  jpeg - JPEG image compression, Part14/18
+Message-ID: <1992Mar25.145342.661@sparky.imd.sterling.com>
+X-Md4-Signature: ec731e9ff6b64867112d360b27ad0e4e
+Date: Wed, 25 Mar 1992 14:53:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 14
+Archive-name: jpeg/part14
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  egetopt.c jdhuff.c jfwddct.c jinclude.h jmemdosa.asm
+#   jmemname.c jrevdct.c
+# Wrapped by kent@sparky on Mon Mar 23 16:02:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 18)."'
+if test -f 'egetopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'egetopt.c'\"
+else
+  echo shar: Extracting \"'egetopt.c'\" \(7226 characters\)
+  sed "s/^X//" >'egetopt.c' <<'END_OF_FILE'
+X/*
+X * egetopt.c -- Extended 'getopt'.
+X *
+X * A while back, a public-domain version of getopt() was posted to the
+X * net.  A bit later, a gentleman by the name of Keith Bostic made some
+X * enhancements and reposted it.
+X *
+X * In recent weeks (i.e., early-to-mid 1988) there's been some
+X * heated discussion in comp.lang.c about the merits and drawbacks
+X * of getopt(), especially with regard to its handling of '?'.
+X *
+X * In light of this, I have taken Mr. Bostic's public-domain getopt()
+X * and have made some changes that I hope will be considered to be
+X * improvements.  I call this routine 'egetopt' ("Extended getopt").
+X * The default behavior of this routine is the same as that of getopt(),
+X * but it has some optional features that make it more useful.  These
+X * options are controlled by the settings of some global variables.
+X * By not setting any of these extra global variables, you will have
+X * the same functionality as getopt(), which should satisfy those
+X * purists who believe getopt() is perfect and can never be improved.
+X * If, on the other hand, you are someone who isn't satisfied with the
+X * status quo, egetopt() may very well give you the added capabilities
+X * you want.
+X *
+X * Look at the enclosed README file for a description of egetopt()'s
+X * new features.
+X *
+X * The code was originally posted to the net as getopt.c by ...
+X *
+X *	Keith Bostic
+X *	ARPA: keith@seismo 
+X *	UUCP: seismo!keith
+X *
+X * Current version: added enhancements and comments, reformatted code.
+X *
+X *	Lloyd Zusman
+X *	Master Byte Software
+X *	Los Gatos, California
+X *	Internet:	ljz@fx.com
+X *	UUCP:		...!ames!fxgrp!ljz
+X *
+X *    	May, 1988
+X *
+X * Modified for use in free JPEG code:
+X *
+X *	Ed Hanway
+X *	UUCP:	uunet!sisd!jeh
+X *
+X *	October, 1991
+X */
+X
+X/* The original egetopt.c was written not to need stdio.h.
+X * For the JPEG code this is an unnecessary and unportable assumption.
+X * Also, we make all the variables and routines "static" to avoid
+X * possible conflicts with a system-library version of getopt.
+X *
+X * In the JPEG code, this file is compiled by #including it in jcmain.c
+X * or jdmain.c.  Since ANSI2KNR does not process include files, we can't
+X * rely on it to convert function definitions to K&R style.  Hence we
+X * provide both styles of function header with an explicit #ifdef PROTO (ick).
+X */
+X
+X#define GVAR static		/* make empty to export these variables */
+X
+X/*
+X * None of these constants are referenced in the executable portion of
+X * the code ... their sole purpose is to initialize global variables.
+X */
+X#define BADCH		(int)'?'
+X#define NEEDSEP		(int)':'
+X#define MAYBESEP	(int)'\0'
+X#define EMSG		""
+X#define START		"-"
+X
+X/*
+X * Here are all the pertinent global variables.
+X */
+XGVAR int opterr = 1;		/* if true, output error message */
+XGVAR int optind = 1;		/* index into parent argv vector */
+XGVAR int optopt;		/* character checked for validity */
+XGVAR int optbad = BADCH;	/* character returned on error */
+XGVAR int optchar = 0;		/* character that begins returned option */
+XGVAR int optneed = NEEDSEP;	/* flag for mandatory argument */
+XGVAR int optmaybe = MAYBESEP;	/* flag for optional argument */
+XGVAR const char *optarg;	/* argument associated with option */
+XGVAR const char *optstart = START; /* list of characters that start options */
+X
+X
+X/*
+X * Macros.
+X */
+X
+X/*
+X * Conditionally print out an error message and return (depends on the
+X * setting of 'opterr').
+X */
+X#define TELL(S)	{ \
+X	if (opterr) \
+X		fprintf(stderr, "%s%s%c\n", *nargv, (S), optopt); \
+X	return (optbad); \
+X}
+X
+X/*
+X * This works similarly to index() and strchr().  I include it so that you
+X * don't need to be concerned as to which one your system has.
+X */
+X
+X#ifdef PROTO
+XLOCAL const char *
+X_sindex (const char *string, int ch)
+X#else
+XLOCAL const char *
+X_sindex (string, ch)
+X     const char *string;
+X     int ch;
+X#endif
+X{
+X	if (string != NULL) {
+X		for (; *string != '\0'; ++string) {
+X			if (*string == (char)ch) {
+X				return (string);
+X			}
+X		}
+X	}
+X
+X	return (NULL);
+X}
+X
+X/*
+X * Here it is:
+X */
+X
+X#ifdef PROTO
+XLOCAL int
+Xegetopt (int nargc, char **nargv, const char *ostr)
+X#else
+XLOCAL int
+Xegetopt (nargc, nargv, ostr)
+X     int nargc;
+X     char **nargv;
+X     const char *ostr;
+X#endif
+X{
+X	static const char *place = EMSG; /* option letter processing */
+X	register const char *oli;	 /* option letter list index */
+X	register const char *osi = NULL; /* option start list index */
+X
+X	if (nargv == (char **)NULL) {
+X		return (EOF);
+X	}
+X
+X	if (nargc <= optind || nargv[optind] == NULL) {
+X		return (EOF);
+X	}
+X
+X	if (place == NULL) {
+X		place = EMSG;
+X	}
+X
+X	/*
+X	 * Update scanning pointer.
+X	 */
+X	if (*place == '\0') {
+X		place = nargv[optind];
+X		if (place == NULL) {
+X			return (EOF);
+X		}
+X		osi = _sindex(optstart, *place);
+X		if (osi != NULL) {
+X			optchar = (int)*osi;
+X		}
+X		if (optind >= nargc || osi == NULL || *++place == '\0') {
+X		    	return (EOF);
+X		}
+X
+X		/*
+X		 * Two adjacent, identical flag characters were found.
+X		 * This takes care of "--", for example.
+X		 */
+X		if (*place == place[-1]) {
+X			++optind;
+X			return (EOF);
+X		}
+X	}
+X
+X	/*
+X	 * If the option is a separator or the option isn't in the list,
+X	 * we've got an error.
+X	 */
+X	optopt = (int)*place++;
+X	oli = _sindex(ostr, optopt);
+X	if (optopt == optneed || optopt == optmaybe || oli == NULL) {
+X		/*
+X		 * If we're at the end of the current argument, bump the
+X		 * argument index.
+X		 */
+X		if (*place == '\0') {
+X			++optind;
+X		}
+X		TELL(": illegal option -- ");	/* byebye */
+X	}
+X
+X	/*
+X	 * If there is no argument indicator, then we don't even try to
+X	 * return an argument.
+X	 */
+X	++oli;
+X	if (*oli == '\0' || (*oli != optneed && *oli != optmaybe)) {
+X		/*
+X		 * If we're at the end of the current argument, bump the
+X		 * argument index.
+X		 */
+X		if (*place == '\0') {
+X			++optind;
+X		}
+X		optarg = NULL;
+X	}
+X	/*
+X	 * If we're here, there's an argument indicator.  It's handled
+X	 * differently depending on whether it's a mandatory or an
+X	 * optional argument.
+X	 */
+X	else {
+X		/*
+X		 * If there's no white space, use the rest of the
+X		 * string as the argument.  In this case, it doesn't
+X		 * matter if the argument is mandatory or optional.
+X		 */
+X		if (*place != '\0') {
+X			optarg = place;
+X		}
+X		/*
+X		 * If we're here, there's whitespace after the option.
+X		 *
+X		 * Is it a mandatory argument?  If so, return the
+X		 * next command-line argument if there is one.
+X		 */
+X		else if (*oli == optneed) {
+X			/*
+X			 * If we're at the end of the argument list, there
+X			 * isn't an argument and hence we have an error.
+X			 * Otherwise, make 'optarg' point to the argument.
+X			 */
+X			if (nargc <= ++optind) {
+X				place = EMSG;
+X				TELL(": option requires an argument -- ");
+X			}
+X			else {
+X				optarg = nargv[optind];
+X			}
+X		}
+X		/*
+X		 * If we're here it must have been an optional argument.
+X		 */
+X		else {
+X			if (nargc <= ++optind) {
+X				place = EMSG;
+X				optarg = NULL;
+X			}
+X			else {
+X				optarg = nargv[optind];
+X				if (optarg == NULL) {
+X					place = EMSG;
+X				}
+X				/*
+X				 * If the next item begins with a flag
+X				 * character, we treat it like a new
+X				 * argument.  This is accomplished by
+X				 * decrementing 'optind' and returning
+X				 * a null argument.
+X				 */
+X				else if (_sindex(optstart, *optarg) != NULL) {
+X					--optind;
+X					optarg = NULL;
+X				}
+X			}
+X		}
+X		place = EMSG;
+X		++optind;
+X	}
+X
+X	/*
+X	 * Return option letter.
+X	 */
+X	return (optopt);
+X}
+END_OF_FILE
+  if test 7226 -ne `wc -c <'egetopt.c'`; then
+    echo shar: \"'egetopt.c'\" unpacked with wrong size!
+  fi
+  # end of 'egetopt.c'
+fi
+if test -f 'jdhuff.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdhuff.c'\"
+else
+  echo shar: Extracting \"'jdhuff.c'\" \(7712 characters\)
+  sed "s/^X//" >'jdhuff.c' <<'END_OF_FILE'
+X/*
+X * jdhuff.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains Huffman entropy decoding routines.
+X * These routines are invoked via the methods entropy_decode
+X * and entropy_decoder_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/* Static variables to avoid passing 'round extra parameters */
+X
+Xstatic decompress_info_ptr dcinfo;
+X
+Xstatic INT32 get_buffer;	/* current bit-extraction buffer */
+Xstatic int bits_left;		/* # of unused bits in it */
+X
+X
+XLOCAL void
+Xfix_huff_tbl (HUFF_TBL * htbl)
+X/* Compute derived values for a Huffman table */
+X{
+X  int p, i, l, si;
+X  char huffsize[257];
+X  UINT16 huffcode[257];
+X  UINT16 code;
+X  
+X  /* Figure C.1: make table of Huffman code length for each symbol */
+X  /* Note that this is in code-length order. */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    for (i = 1; i <= (int) htbl->bits[l]; i++)
+X      huffsize[p++] = (char) l;
+X  }
+X  huffsize[p] = 0;
+X  
+X  /* Figure C.2: generate the codes themselves */
+X  /* Note that this is in code-length order. */
+X  
+X  code = 0;
+X  si = huffsize[0];
+X  p = 0;
+X  while (huffsize[p]) {
+X    while (((int) huffsize[p]) == si) {
+X      huffcode[p++] = code;
+X      code++;
+X    }
+X    code <<= 1;
+X    si++;
+X  }
+X
+X  /* We don't bother to fill in the encoding tables ehufco[] and ehufsi[], */
+X  /* since they are not used for decoding. */
+X
+X  /* Figure F.15: generate decoding tables */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    if (htbl->bits[l]) {
+X      htbl->valptr[l] = p;	/* huffval[] index of 1st sym of code len l */
+X      htbl->mincode[l] = huffcode[p]; /* minimum code of length l */
+X      p += htbl->bits[l];
+X      htbl->maxcode[l] = huffcode[p-1];	/* maximum code of length l */
+X    } else {
+X      htbl->maxcode[l] = -1;
+X    }
+X  }
+X  htbl->maxcode[17] = 0xFFFFFL;	/* ensures huff_DECODE terminates */
+X}
+X
+X
+X/* Extract the next N bits from the input stream (N <= 15) */
+X
+XLOCAL int
+Xget_bits (int nbits)
+X{
+X  int result;
+X  
+X  while (nbits > bits_left) {
+X    int c = JGETC(dcinfo);
+X    
+X    get_buffer <<= 8;
+X    get_buffer |= c;
+X    bits_left += 8;
+X    /* If it's 0xFF, check and discard stuffed zero byte */
+X    if (c == 0xff) {
+X      c = JGETC(dcinfo);  /* Byte stuffing */
+X      if (c != 0)
+X	ERREXIT1(dcinfo->emethods,
+X		 "Unexpected marker 0x%02x in compressed data", c);
+X    }
+X  }
+X  
+X  bits_left -= nbits;
+X  result = ((int) (get_buffer >> bits_left)) & ((1 << nbits) - 1);
+X  return result;
+X}
+X
+X/* Macro to make things go at some speed! */
+X
+X#define get_bit()	(bits_left ? \
+X			 ((int) (get_buffer >> (--bits_left))) & 1 : \
+X			 get_bits(1))
+X
+X
+X/* Figure F.16: extract next coded symbol from input stream */
+X  
+XLOCAL int
+Xhuff_DECODE (HUFF_TBL * htbl)
+X{
+X  int l, p;
+X  INT32 code;
+X  
+X  code = get_bit();
+X  l = 1;
+X  while (code > htbl->maxcode[l]) {
+X    code = (code << 1) + get_bit();
+X    l++;
+X  }
+X
+X  /* With garbage input we may reach the sentinel value l = 17. */
+X
+X  if (l > 16) {
+X    ERREXIT(dcinfo->emethods, "Corrupted data in JPEG file");
+X  }
+X
+X  p = (int) (htbl->valptr[l] + (code - htbl->mincode[l]));
+X  
+X  return (int) htbl->huffval[p];
+X}
+X
+X
+X/* Figure F.12: extend sign bit */
+X
+X/* NB: on some compilers this will only work for s > 0 */
+X
+X#define huff_EXTEND(x, s)	((x) < (1 << ((s)-1)) ? \
+X				 (x) + (-1 << (s)) + 1 : \
+X				 (x))
+X
+X
+X/* Decode a single block's worth of coefficients */
+X/* Note that only the difference is returned for the DC coefficient */
+X
+XLOCAL void
+Xdecode_one_block (JBLOCK block, HUFF_TBL *dctbl, HUFF_TBL *actbl)
+X{
+X  int s, k, r, n;
+X
+X  /* zero out the coefficient block */
+X
+X  MEMZERO((void *) block, SIZEOF(JBLOCK));
+X  
+X  /* Section F.2.2.1: decode the DC coefficient difference */
+X
+X  s = huff_DECODE(dctbl);
+X  if (s) {
+X    r = get_bits(s);
+X    s = huff_EXTEND(r, s);
+X  }
+X  block[0] = s;
+X
+X  /* Section F.2.2.2: decode the AC coefficients */
+X  
+X  for (k = 1; k < DCTSIZE2; k++) {
+X    r = huff_DECODE(actbl);
+X    
+X    s = r & 15;
+X    n = r >> 4;
+X    
+X    if (s) {
+X      k += n;
+X      r = get_bits(s);
+X      block[k] = huff_EXTEND(r, s);
+X    } else {
+X      if (n != 15)
+X	break;
+X      k += 15;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Initialize for a Huffman-compressed scan.
+X * This is invoked after reading the SOS marker.
+X */
+X
+XMETHODDEF void
+Xhuff_decoder_init (decompress_info_ptr cinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Initialize static variables */
+X  dcinfo = cinfo;
+X  bits_left = 0;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Make sure requested tables are present */
+X    if (cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no] == NULL ||
+X	cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no] == NULL)
+X      ERREXIT(cinfo->emethods, "Use of undefined Huffman table");
+X    /* Compute derived values for Huffman tables */
+X    /* We may do this more than once for same table, but it's not a big deal */
+X    fix_huff_tbl(cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no]);
+X    fix_huff_tbl(cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X    /* Initialize DC predictions to 0 */
+X    cinfo->last_dc_val[ci] = 0;
+X  }
+X
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num = 0;
+X}
+X
+X
+X/*
+X * Check for a restart marker & resynchronize decoder.
+X */
+X
+XLOCAL void
+Xprocess_restart (decompress_info_ptr cinfo)
+X{
+X  int c, nbytes;
+X  short ci;
+X
+X  /* Throw away any partial unread byte */
+X  bits_left = 0;
+X
+X  /* Scan for next JPEG marker */
+X  nbytes = 0;
+X  do {
+X    do {			/* skip any non-FF bytes */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c != 0xFF);
+X    do {			/* skip any duplicate FFs */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c == 0xFF);
+X  } while (c == 0);		/* repeat if it was a stuffed FF/00 */
+X
+X  if (c != (RST0 + cinfo->next_restart_num))
+X    ERREXIT2(cinfo->emethods, "Found 0x%02x marker instead of RST%d",
+X	     c, cinfo->next_restart_num);
+X
+X  if (nbytes != 2)
+X    TRACEMS2(cinfo->emethods, 1, "Skipped %d bytes before RST%d",
+X	     nbytes-2, cinfo->next_restart_num);
+X  else
+X    TRACEMS1(cinfo->emethods, 2, "RST%d", cinfo->next_restart_num);
+X
+X  /* Re-initialize DC predictions to 0 */
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X    cinfo->last_dc_val[ci] = 0;
+X
+X  /* Update restart state */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num++;
+X  cinfo->next_restart_num &= 7;
+X}
+X
+X
+X/*
+X * Decode and return one MCU's worth of Huffman-compressed coefficients.
+X */
+X
+XMETHODDEF void
+Xhuff_decode (decompress_info_ptr cinfo, JBLOCK *MCU_data)
+X{
+X  short blkn, ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Account for restart interval, process restart marker if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0)
+X      process_restart(cinfo);
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    decode_one_block(MCU_data[blkn],
+X		     cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no],
+X		     cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X    /* Convert DC difference to actual value, update last_dc_val */
+X    MCU_data[blkn][0] += cinfo->last_dc_val[ci];
+X    cinfo->last_dc_val[ci] = MCU_data[blkn][0];
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of a Huffman-compressed scan.
+X */
+X
+XMETHODDEF void
+Xhuff_decoder_term (decompress_info_ptr cinfo)
+X{
+X  /* No work needed */
+X}
+X
+X
+X/*
+X * The method selection routine for Huffman entropy decoding.
+X */
+X
+XGLOBAL void
+Xjseldhuffman (decompress_info_ptr cinfo)
+X{
+X  if (! cinfo->arith_code) {
+X    cinfo->methods->entropy_decoder_init = huff_decoder_init;
+X    cinfo->methods->entropy_decode = huff_decode;
+X    cinfo->methods->entropy_decoder_term = huff_decoder_term;
+X  }
+X}
+END_OF_FILE
+  if test 7712 -ne `wc -c <'jdhuff.c'`; then
+    echo shar: \"'jdhuff.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdhuff.c'
+fi
+if test -f 'jfwddct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jfwddct.c'\"
+else
+  echo shar: Extracting \"'jfwddct.c'\" \(7246 characters\)
+  sed "s/^X//" >'jfwddct.c' <<'END_OF_FILE'
+X/*
+X * jfwddct.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains the basic DCT (Discrete Cosine Transform)
+X * transformation subroutine.
+X *
+X * This implementation is based on Appendix A.2 of the book
+X * "Discrete Cosine Transform---Algorithms, Advantages, Applications"
+X * by K.R. Rao and P. Yip  (Academic Press, Inc, London, 1990).
+X * It uses scaled fixed-point arithmetic instead of floating point.
+X */
+X
+X#include "jinclude.h"
+X
+X/*
+X * This routine is specialized to the case DCTSIZE = 8.
+X */
+X
+X#if DCTSIZE != 8
+X  Sorry, this code only copes with 8x8 DCTs. /* deliberate syntax err */
+X#endif
+X
+X
+X/* The poop on this scaling stuff is as follows:
+X *
+X * We have to do addition and subtraction of the integer inputs, which
+X * is no problem, and multiplication by fractional constants, which is
+X * a problem to do in integer arithmetic.  We multiply all the constants
+X * by DCT_SCALE and convert them to integer constants (thus retaining
+X * LG2_DCT_SCALE bits of precision in the constants).  After doing a
+X * multiplication we have to divide the product by DCT_SCALE, with proper
+X * rounding, to produce the correct output.  The division can be implemented
+X * cheaply as a right shift of LG2_DCT_SCALE bits.  The DCT equations also
+X * specify an additional division by 2 on the final outputs; this can be
+X * folded into the right-shift by shifting one more bit (see UNFIXH).
+X *
+X * If you are planning to recode this in assembler, you might want to set
+X * LG2_DCT_SCALE to 15.  This loses a bit of precision, but then all the
+X * multiplications are between 16-bit quantities (given 8-bit JSAMPLEs!)
+X * so you could use a signed 16x16=>32 bit multiply instruction instead of
+X * full 32x32 multiply.  Unfortunately there's no way to describe such a
+X * multiply portably in C, so we've gone for the extra bit of accuracy here.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#define LG2_DCT_SCALE 16
+X#else
+X#define LG2_DCT_SCALE 15	/* lose a little precision to avoid overflow */
+X#endif
+X
+X#define ONE	((INT32) 1)
+X
+X#define DCT_SCALE (ONE << LG2_DCT_SCALE)
+X
+X/* In some places we shift the inputs left by a couple more bits, */
+X/* so that they can be added to fractional results without too much */
+X/* loss of precision. */
+X#define LG2_OVERSCALE 2
+X#define OVERSCALE  (ONE << LG2_OVERSCALE)
+X#define OVERSHIFT(x)  ((x) <<= LG2_OVERSCALE)
+X
+X/* Scale a fractional constant by DCT_SCALE */
+X#define FIX(x)	((INT32) ((x) * DCT_SCALE + 0.5))
+X
+X/* Scale a fractional constant by DCT_SCALE/OVERSCALE */
+X/* Such a constant can be multiplied with an overscaled input */
+X/* to produce something that's scaled by DCT_SCALE */
+X#define FIXO(x)  ((INT32) ((x) * DCT_SCALE / OVERSCALE + 0.5))
+X
+X/* Descale and correctly round a value that's scaled by DCT_SCALE */
+X#define UNFIX(x)   RIGHT_SHIFT((x) + (ONE << (LG2_DCT_SCALE-1)), LG2_DCT_SCALE)
+X
+X/* Same with an additional division by 2, ie, correctly rounded UNFIX(x/2) */
+X#define UNFIXH(x)  RIGHT_SHIFT((x) + (ONE << LG2_DCT_SCALE), LG2_DCT_SCALE+1)
+X
+X/* Take a value scaled by DCT_SCALE and round to integer scaled by OVERSCALE */
+X#define UNFIXO(x)  RIGHT_SHIFT((x) + (ONE << (LG2_DCT_SCALE-1-LG2_OVERSCALE)),\
+X			       LG2_DCT_SCALE-LG2_OVERSCALE)
+X
+X/* Here are the constants we need */
+X/* SIN_i_j is sine of i*pi/j, scaled by DCT_SCALE */
+X/* COS_i_j is cosine of i*pi/j, scaled by DCT_SCALE */
+X
+X#define SIN_1_4 FIX(0.707106781)
+X#define COS_1_4 SIN_1_4
+X
+X#define SIN_1_8 FIX(0.382683432)
+X#define COS_1_8 FIX(0.923879533)
+X#define SIN_3_8 COS_1_8
+X#define COS_3_8 SIN_1_8
+X
+X#define SIN_1_16 FIX(0.195090322)
+X#define COS_1_16 FIX(0.980785280)
+X#define SIN_7_16 COS_1_16
+X#define COS_7_16 SIN_1_16
+X
+X#define SIN_3_16 FIX(0.555570233)
+X#define COS_3_16 FIX(0.831469612)
+X#define SIN_5_16 COS_3_16
+X#define COS_5_16 SIN_3_16
+X
+X/* OSIN_i_j is sine of i*pi/j, scaled by DCT_SCALE/OVERSCALE */
+X/* OCOS_i_j is cosine of i*pi/j, scaled by DCT_SCALE/OVERSCALE */
+X
+X#define OSIN_1_4 FIXO(0.707106781)
+X#define OCOS_1_4 OSIN_1_4
+X
+X#define OSIN_1_8 FIXO(0.382683432)
+X#define OCOS_1_8 FIXO(0.923879533)
+X#define OSIN_3_8 OCOS_1_8
+X#define OCOS_3_8 OSIN_1_8
+X
+X#define OSIN_1_16 FIXO(0.195090322)
+X#define OCOS_1_16 FIXO(0.980785280)
+X#define OSIN_7_16 OCOS_1_16
+X#define OCOS_7_16 OSIN_1_16
+X
+X#define OSIN_3_16 FIXO(0.555570233)
+X#define OCOS_3_16 FIXO(0.831469612)
+X#define OSIN_5_16 OCOS_3_16
+X#define OCOS_5_16 OSIN_3_16
+X
+X
+X/*
+X * Perform the forward DCT on one block of samples.
+X *
+X * A 2-D DCT can be done by 1-D DCT on each row
+X * followed by 1-D DCT on each column.
+X */
+X
+XGLOBAL void
+Xj_fwd_dct (DCTBLOCK data)
+X{
+X  int pass, rowctr;
+X  register DCTELEM *inptr, *outptr;
+X  DCTBLOCK workspace;
+X
+X  /* Each iteration of the inner loop performs one 8-point 1-D DCT.
+X   * It reads from a *row* of the input matrix and stores into a *column*
+X   * of the output matrix.  In the first pass, we read from the data[] array
+X   * and store into the local workspace[].  In the second pass, we read from
+X   * the workspace[] array and store into data[], thus performing the
+X   * equivalent of a columnar DCT pass with no variable array indexing.
+X   */
+X
+X  inptr = data;			/* initialize pointers for first pass */
+X  outptr = workspace;
+X  for (pass = 1; pass >= 0; pass--) {
+X    for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X      /* many tmps have nonoverlapping lifetime -- flashy register colourers
+X       * should be able to do this lot very well
+X       */
+X      INT32 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
+X      INT32 tmp10, tmp11, tmp12, tmp13;
+X      INT32 tmp14, tmp15, tmp16, tmp17;
+X      INT32 tmp25, tmp26;
+X      SHIFT_TEMPS
+X
+X      tmp0 = inptr[7] + inptr[0];
+X      tmp1 = inptr[6] + inptr[1];
+X      tmp2 = inptr[5] + inptr[2];
+X      tmp3 = inptr[4] + inptr[3];
+X      tmp4 = inptr[3] - inptr[4];
+X      tmp5 = inptr[2] - inptr[5];
+X      tmp6 = inptr[1] - inptr[6];
+X      tmp7 = inptr[0] - inptr[7];
+X      
+X      tmp10 = tmp3 + tmp0;
+X      tmp11 = tmp2 + tmp1;
+X      tmp12 = tmp1 - tmp2;
+X      tmp13 = tmp0 - tmp3;
+X      
+X      outptr[        0] = (DCTELEM) UNFIXH((tmp10 + tmp11) * SIN_1_4);
+X      outptr[DCTSIZE*4] = (DCTELEM) UNFIXH((tmp10 - tmp11) * COS_1_4);
+X      
+X      outptr[DCTSIZE*2] = (DCTELEM) UNFIXH(tmp13*COS_1_8 + tmp12*SIN_1_8);
+X      outptr[DCTSIZE*6] = (DCTELEM) UNFIXH(tmp13*SIN_1_8 - tmp12*COS_1_8);
+X      
+X      tmp16 = UNFIXO((tmp6 + tmp5) * SIN_1_4);
+X      tmp15 = UNFIXO((tmp6 - tmp5) * COS_1_4);
+X      
+X      OVERSHIFT(tmp4);
+X      OVERSHIFT(tmp7);
+X      
+X      /* tmp4, tmp7, tmp15, tmp16 are overscaled by OVERSCALE */
+X      
+X      tmp14 = tmp4 + tmp15;
+X      tmp25 = tmp4 - tmp15;
+X      tmp26 = tmp7 - tmp16;
+X      tmp17 = tmp7 + tmp16;
+X      
+X      outptr[DCTSIZE  ] = (DCTELEM) UNFIXH(tmp17*OCOS_1_16 + tmp14*OSIN_1_16);
+X      outptr[DCTSIZE*7] = (DCTELEM) UNFIXH(tmp17*OCOS_7_16 - tmp14*OSIN_7_16);
+X      outptr[DCTSIZE*5] = (DCTELEM) UNFIXH(tmp26*OCOS_5_16 + tmp25*OSIN_5_16);
+X      outptr[DCTSIZE*3] = (DCTELEM) UNFIXH(tmp26*OCOS_3_16 - tmp25*OSIN_3_16);
+X
+X      inptr += DCTSIZE;		/* advance inptr to next row */
+X      outptr++;			/* advance outptr to next column */
+X    }
+X    /* end of pass; in case it was pass 1, set up for pass 2 */
+X    inptr = workspace;
+X    outptr = data;
+X  }
+X}
+END_OF_FILE
+  if test 7246 -ne `wc -c <'jfwddct.c'`; then
+    echo shar: \"'jfwddct.c'\" unpacked with wrong size!
+  fi
+  # end of 'jfwddct.c'
+fi
+if test -f 'jinclude.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jinclude.h'\"
+else
+  echo shar: Extracting \"'jinclude.h'\" \(3579 characters\)
+  sed "s/^X//" >'jinclude.h' <<'END_OF_FILE'
+X/*
+X * jinclude.h
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This is the central file that's #include'd by all the JPEG .c files.
+X * Its purpose is to provide a single place to fix any problems with
+X * including the wrong system include files.
+X * You can edit these declarations if you use a system with nonstandard
+X * system include files.
+X */
+X
+X
+X/*
+X * Normally the __STDC__ macro can be taken as indicating that the system
+X * include files conform to the ANSI C standard.  However, if you are running
+X * GCC on a machine with non-ANSI system include files, that is not the case.
+X * In that case change the following, or add -DNONANSI_INCLUDES to your CFLAGS.
+X */
+X
+X#ifdef __STDC__
+X#ifndef NONANSI_INCLUDES
+X#define INCLUDES_ARE_ANSI	/* this is what's tested before including */
+X#endif
+X#endif
+X
+X/*
+X * <stdio.h> is included to get the FILE typedef and NULL macro.
+X * Note that the core portable-JPEG files do not actually do any I/O
+X * using the stdio library; only the user interface, error handler,
+X * and file reading/writing modules invoke any stdio functions.
+X * (Well, we did cheat a bit in jmemmgr.c, but only if MEM_STATS is defined.)
+X */
+X
+X#include <stdio.h>
+X
+X/*
+X * We need the size_t typedef, which defines the parameter type of malloc().
+X * In an ANSI-conforming implementation this is provided by <stdio.h>,
+X * but on non-ANSI systems it's more likely to be in <sys/types.h>.
+X * On some not-quite-ANSI systems you may find it in <stddef.h>.
+X */
+X
+X#ifndef INCLUDES_ARE_ANSI	/* shouldn't need this if ANSI C */
+X#include <sys/types.h>
+X#endif
+X#ifdef __SASC			/* Amiga SAS C provides it in stddef.h. */
+X#include <stddef.h>
+X#endif
+X
+X/*
+X * In ANSI C, and indeed any rational implementation, size_t is also the
+X * type returned by sizeof().  However, it seems there are some irrational
+X * implementations out there, in which sizeof() returns an int even though
+X * size_t is defined as long or unsigned long.  To ensure consistent results
+X * we always use this SIZEOF() macro in place of using sizeof() directly.
+X */
+X
+X#undef SIZEOF			/* in case you included X11/xmd.h */
+X#define SIZEOF(object)	((size_t) sizeof(object))
+X
+X/*
+X * fread() and fwrite() are always invoked through these macros.
+X * On some systems you may need to twiddle the argument casts.
+X * CAUTION: argument order is different from underlying functions!
+X */
+X
+X#define JFREAD(file,buf,sizeofbuf)  \
+X  ((size_t) fread((void *) (buf), (size_t) 1, (size_t) (sizeofbuf), (file)))
+X#define JFWRITE(file,buf,sizeofbuf)  \
+X  ((size_t) fwrite((const void *) (buf), (size_t) 1, (size_t) (sizeofbuf), (file)))
+X
+X/*
+X * We need the memcpy() and strcmp() functions, plus memory zeroing.
+X * ANSI and System V implementations declare these in <string.h>.
+X * BSD doesn't have the mem() functions, but it does have bcopy()/bzero().
+X * NOTE: we assume the size parameters to these functions are of type size_t.
+X * Insert casts in these macros if not!
+X */
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#include <string.h>
+X#define MEMZERO(voidptr,size)	memset((voidptr), 0, (size))
+X#else /* not ANSI */
+X#ifdef BSD
+X#include <strings.h>
+X#define MEMZERO(voidptr,size)	bzero((voidptr), (size))
+X#define memcpy(dest,src,size)	bcopy((src), (dest), (size))
+X#else /* not BSD, assume Sys V or compatible */
+X#include <string.h>
+X#define MEMZERO(voidptr,size)	memset((voidptr), 0, (size))
+X#endif /* BSD */
+X#endif /* ANSI */
+X
+X
+X/* Now include the portable JPEG definition files. */
+X
+X#include "jconfig.h"
+X
+X#include "jpegdata.h"
+END_OF_FILE
+  if test 3579 -ne `wc -c <'jinclude.h'`; then
+    echo shar: \"'jinclude.h'\" unpacked with wrong size!
+  fi
+  # end of 'jinclude.h'
+fi
+if test -f 'jmemdosa.asm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemdosa.asm'\"
+else
+  echo shar: Extracting \"'jmemdosa.asm'\" \(8314 characters\)
+  sed "s/^X//" >'jmemdosa.asm' <<'END_OF_FILE'
+X;
+X; jmemdosa.asm
+X;
+X; Copyright (C) 1992, Thomas G. Lane.
+X; This file is part of the Independent JPEG Group's software.
+X; For conditions of distribution and use, see the accompanying README file.
+X;
+X; This file contains low-level interface routines to support the MS-DOS
+X; backing store manager (jmemdos.c).  Routines are provided to access disk
+X; files through direct DOS calls, and to access XMS and EMS drivers.
+X;
+X; This file should assemble with Microsoft's MASM or any compatible
+X; assembler (including Borland's Turbo Assembler).  If you haven't got
+X; a compatible assembler, better fall back to jmemansi.c or jmemname.c.
+X;
+X; To minimize dependence on the C compiler's register usage conventions,
+X; we save and restore all 8086 registers, even though most compilers only
+X; require SI,DI,DS to be preserved.  Also, we use only 16-bit-wide return
+X; values, which everybody returns in AX.
+X;
+X; Based on code contributed by Ge' Weijers.
+X;
+X
+XJMEMDOSA_TXT	segment byte public 'CODE'
+X
+X		assume	cs:JMEMDOSA_TXT
+X
+X		public	_jdos_open
+X		public	_jdos_close
+X		public	_jdos_seek
+X		public	_jdos_read
+X		public	_jdos_write
+X		public	_jxms_getdriver
+X		public	_jxms_calldriver
+X		public	_jems_available
+X		public	_jems_calldriver
+X
+X;
+X; short far jdos_open (short far * handle, char far * filename)
+X;
+X; Create and open a temporary file
+X;
+X_jdos_open	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	cx,0			; normal file attributes
+X		lds	dx,dword ptr [bp+10]	; get filename pointer
+X		mov	ah,3ch			; create file
+X		int	21h
+X		jc	open_err		; if failed, return error code
+X		lds	bx,dword ptr [bp+6]	; get handle pointer
+X		mov	word ptr [bx],ax	; save the handle
+X		xor	ax,ax			; return zero for OK
+Xopen_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_open	endp
+X
+X
+X;
+X; short far jdos_close (short handle)
+X;
+X; Close the file handle
+X;
+X_jdos_close	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		mov	ah,3eh			; close file
+X		int	21h
+X		jc	close_err		; if failed, return error code
+X		xor	ax,ax			; return zero for OK
+Xclose_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_close	endp
+X
+X
+X;
+X; short far jdos_seek (short handle, long offset)
+X;
+X; Set file position
+X;
+X_jdos_seek	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		mov	dx,word ptr [bp+8]	; LS offset
+X		mov	cx,word ptr [bp+10]	; MS offset
+X		mov	ax,4200h		; absolute seek
+X		int	21h
+X		jc	seek_err		; if failed, return error code
+X		xor	ax,ax			; return zero for OK
+Xseek_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_seek	endp
+X
+X
+X;
+X; short far jdos_read (short handle, void far * buffer, unsigned short count)
+X;
+X; Read from file
+X;
+X_jdos_read	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		lds	dx,dword ptr [bp+8]	; buffer address
+X		mov	cx,word ptr [bp+12]	; number of bytes
+X		mov	ah,3fh			; read file
+X		int	21h
+X		jc	read_err		; if failed, return error code
+X		cmp	ax,word ptr [bp+12]	; make sure all bytes were read
+X		je	read_ok
+X		mov	ax,1			; else return 1 for not OK
+X		jmp	short read_err
+Xread_ok:	xor	ax,ax			; return zero for OK
+Xread_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_read	endp
+X
+X
+X;
+X; short far jdos_write (short handle, void far * buffer, unsigned short count)
+X;
+X; Write to file
+X;
+X_jdos_write	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		lds	dx,dword ptr [bp+8]	; buffer address
+X		mov	cx,word ptr [bp+12]	; number of bytes
+X		mov	ah,40h			; write file
+X		int	21h
+X		jc	write_err		; if failed, return error code
+X		cmp	ax,word ptr [bp+12]	; make sure all bytes written
+X		je	write_ok
+X		mov	ax,1			; else return 1 for not OK
+X		jmp	short write_err
+Xwrite_ok:	xor	ax,ax			; return zero for OK
+Xwrite_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_write	endp
+X
+X
+X;
+X; void far jxms_getdriver (XMSDRIVER far *)
+X;
+X; Get the address of the XMS driver, or NULL if not available
+X;
+X_jxms_getdriver	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov 	ax,4300h		; call multiplex interrupt with
+X		int	2fh			; a magic cookie, hex 4300
+X		cmp 	al,80h			; AL should contain hex 80
+X		je	xmsavail
+X		xor 	dx,dx			; no XMS driver available
+X		xor 	ax,ax			; return a nil pointer
+X		jmp	short xmsavail_done
+Xxmsavail:	mov 	ax,4310h		; fetch driver address with
+X		int	2fh			; another magic cookie
+X		mov 	dx,es			; copy address to dx:ax
+X		mov 	ax,bx
+Xxmsavail_done:	les 	bx,dword ptr [bp+6]	; get pointer to return value
+X		mov	word ptr es:[bx],ax
+X		mov	word ptr es:[bx+2],dx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop	bp
+X		ret
+X_jxms_getdriver	endp
+X
+X
+X;
+X; void far jxms_calldriver (XMSDRIVER, XMScontext far *)
+X;
+X; The XMScontext structure contains values for the AX,DX,BX,SI,DS registers.
+X; These are loaded, the XMS call is performed, and the new values of the
+X; AX,DX,BX registers are written back to the context structure.
+X;
+X_jxms_calldriver 	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		les 	bx,dword ptr [bp+10]	; get XMScontext pointer
+X		mov 	ax,word ptr es:[bx]	; load registers
+X		mov 	dx,word ptr es:[bx+2]
+X		mov 	si,word ptr es:[bx+6]
+X		mov 	ds,word ptr es:[bx+8]
+X		mov 	bx,word ptr es:[bx+4]
+X		call	dword ptr [bp+6]	; call the driver
+X		mov	cx,bx			; save returned BX for a sec
+X		les 	bx,dword ptr [bp+10]	; get XMScontext pointer
+X		mov 	word ptr es:[bx],ax	; put back ax,dx,bx
+X		mov 	word ptr es:[bx+2],dx
+X		mov 	word ptr es:[bx+4],cx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jxms_calldriver 	endp
+X
+X
+X;
+X; short far jems_available (void)
+X;
+X; Have we got an EMS driver? (this comes straight from the EMS 4.0 specs)
+X;
+X_jems_available	proc	far
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	ax,3567h		; get interrupt vector 67h
+X		int	21h
+X		push	cs
+X		pop	ds
+X		mov	di,000ah		; check offs 10 in returned seg
+X		lea	si,ASCII_device_name	; against literal string
+X		mov	cx,8
+X		cld
+X		repe cmpsb
+X		jne	no_ems
+X		mov	ax,1			; match, it's there
+X		jmp	short avail_done
+Xno_ems:		xor	ax,ax			; it's not there
+Xavail_done:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		ret
+X
+XASCII_device_name	db	"EMMXXXX0"
+X
+X_jems_available	endp
+X
+X
+X;
+X; void far jems_calldriver (EMScontext far *)
+X;
+X; The EMScontext structure contains values for the AX,DX,BX,SI,DS registers.
+X; These are loaded, the EMS trap is performed, and the new values of the
+X; AX,DX,BX registers are written back to the context structure.
+X;
+X_jems_calldriver	proc far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		les 	bx,dword ptr [bp+6]	; get EMScontext pointer
+X		mov 	ax,word ptr es:[bx]	; load registers
+X		mov 	dx,word ptr es:[bx+2]
+X		mov 	si,word ptr es:[bx+6]
+X		mov 	ds,word ptr es:[bx+8]
+X		mov 	bx,word ptr es:[bx+4]
+X		int	67h			; call the EMS driver
+X		mov	cx,bx			; save returned BX for a sec
+X		les 	bx,dword ptr [bp+6]	; get EMScontext pointer
+X		mov 	word ptr es:[bx],ax	; put back ax,dx,bx
+X		mov 	word ptr es:[bx+2],dx
+X		mov 	word ptr es:[bx+4],cx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jems_calldriver	endp
+X
+XJMEMDOSA_TXT	ends
+X
+X		end
+END_OF_FILE
+  if test 8314 -ne `wc -c <'jmemdosa.asm'`; then
+    echo shar: \"'jmemdosa.asm'\" unpacked with wrong size!
+  fi
+  # end of 'jmemdosa.asm'
+fi
+if test -f 'jmemname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemname.c'\"
+else
+  echo shar: Extracting \"'jmemname.c'\" \(7643 characters\)
+  sed "s/^X//" >'jmemname.c' <<'END_OF_FILE'
+X/*
+X * jmemname.c  (jmemsys.c)
+X *
+X * Copyright (C) 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file provides a generic implementation of the system-dependent
+X * portion of the JPEG memory manager.  This implementation assumes that
+X * you must explicitly construct a name for each temp file.
+X * Also, the problem of determining the amount of memory available
+X * is shoved onto the user.
+X */
+X
+X#include "jinclude.h"
+X#include "jmemsys.h"
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare malloc(), free() */
+X#else
+Xextern void * malloc PP((size_t size));
+Xextern void free PP((void *ptr));
+X#endif
+X
+X#ifndef SEEK_SET		/* pre-ANSI systems may not define this; */
+X#define SEEK_SET  0		/* if not, assume 0 is correct */
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#define RW_BINARY	"w+"
+X#else
+X#define READ_BINARY	"rb"
+X#define RW_BINARY	"w+b"
+X#endif
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to error_exit */
+X
+Xstatic long total_used;		/* total memory requested so far */
+X
+X
+X/*
+X * Selection of a file name for a temporary file.
+X * This is system-dependent!
+X *
+X * The code as given is suitable for most Unix systems, and it is easily
+X * modified for most non-Unix systems.  Some notes:
+X *  1.  The temp file is created in the directory named by TEMP_DIRECTORY.
+X *      The default value is /usr/tmp, which is the conventional place for
+X *      creating large temp files on Unix.  On other systems you'll probably
+X *      want to change the file location.  You can do this by editing the
+X *      #define, or by defining TEMP_DIRECTORY in CFLAGS in the Makefile.
+X *      For example, you might say
+X *          CFLAGS= ... '-DTEMP_DIRECTORY="/tmp/"'
+X *      Note that double quotes are needed in the text of the macro.
+X *      With most make systems you have to put single quotes around the
+X *      -D construct to preserve the double quotes.
+X *	(Amiga SAS C has trouble with ":" and such in command-line options,
+X *	so we've put in a special case for the preferred Amiga temp directory.)
+X *
+X *  2.  If you need to change the file name as well as its location,
+X *      you can override the TEMP_FILE_NAME macro.  (Note that this is
+X *      actually a printf format string; it must contain %s and %d.)
+X *      Few people should need to do this.
+X *
+X *  3.  mktemp() is used to ensure that multiple processes running
+X *      simultaneously won't select the same file names.  If your system
+X *      doesn't have mktemp(), define NO_MKTEMP to do it the hard way.
+X *
+X *  4.  You probably want to define NEED_SIGNAL_CATCHER so that jcmain/jdmain
+X *      will cause the temp files to be removed if you stop the program early.
+X */
+X
+X#ifndef TEMP_DIRECTORY		/* so can override from Makefile */
+X#ifdef AMIGA
+X#define TEMP_DIRECTORY  "JPEGTMP:"  /* recommended setting for Amiga */
+X#else
+X#define TEMP_DIRECTORY  "/usr/tmp/" /* recommended setting for Unix */
+X#endif
+X#endif
+X
+Xstatic int next_file_num;	/* to distinguish among several temp files */
+X
+X#ifdef NO_MKTEMP
+X
+X#ifndef TEMP_FILE_NAME		/* so can override from Makefile */
+X#define TEMP_FILE_NAME  "%sJPG%03d.TMP"
+X#endif
+X
+XLOCAL void
+Xselect_file_name (char * fname)
+X{
+X  FILE * tfile;
+X
+X  /* Keep generating file names till we find one that's not in use */
+X  for (;;) {
+X    next_file_num++;		/* advance counter */
+X    sprintf(fname, TEMP_FILE_NAME, TEMP_DIRECTORY, next_file_num);
+X    if ((tfile = fopen(fname, READ_BINARY)) == NULL)
+X      break;
+X    fclose(tfile);		/* oops, it's there; close tfile & try again */
+X  }
+X}
+X
+X#else /* ! NO_MKTEMP */
+X
+X/* Note that mktemp() requires the initial filename to end in six X's */
+X#ifndef TEMP_FILE_NAME		/* so can override from Makefile */
+X#define TEMP_FILE_NAME  "%sJPG%dXXXXXX"
+X#endif
+X
+XLOCAL void
+Xselect_file_name (char * fname)
+X{
+X  next_file_num++;		/* advance counter */
+X  sprintf(fname, TEMP_FILE_NAME, TEMP_DIRECTORY, next_file_num);
+X  mktemp(fname);		/* make sure file name is unique */
+X  /* mktemp replaces the trailing XXXXXX with a unique string of characters */
+X}
+X
+X#endif /* NO_MKTEMP */
+X
+X
+X/*
+X * Memory allocation and freeing are controlled by the regular library
+X * routines malloc() and free().
+X */
+X
+XGLOBAL void *
+Xjget_small (size_t sizeofobject)
+X{
+X  total_used += sizeofobject;
+X  return (void *) malloc(sizeofobject);
+X}
+X
+XGLOBAL void
+Xjfree_small (void * object)
+X{
+X  free(object);
+X}
+X
+X/*
+X * We assume NEED_FAR_POINTERS is not defined and so the separate entry points
+X * jget_large, jfree_large are not needed.
+X */
+X
+X
+X/*
+X * This routine computes the total memory space available for allocation.
+X * It's impossible to do this in a portable way; our current solution is
+X * to make the user tell us (with a default value set at compile time).
+X * If you can actually get the available space, it's a good idea to subtract
+X * a slop factor of 5% or so.
+X */
+X
+X#ifndef DEFAULT_MAX_MEM		/* so can override from makefile */
+X#define DEFAULT_MAX_MEM		1000000L /* default: one megabyte */
+X#endif
+X
+XGLOBAL long
+Xjmem_available (long min_bytes_needed, long max_bytes_needed)
+X{
+X  return methods->max_memory_to_use - total_used;
+X}
+X
+X
+X/*
+X * Backing store (temporary file) management.
+X * Backing store objects are only used when the value returned by
+X * jmem_available is less than the total space needed.  You can dispense
+X * with these routines if you have plenty of virtual memory; see jmemnobs.c.
+X */
+X
+X
+XMETHODDEF void
+Xread_backing_store (backing_store_ptr info, void FAR * buffer_address,
+X		    long file_offset, long byte_count)
+X{
+X  if (fseek(info->temp_file, file_offset, SEEK_SET))
+X    ERREXIT(methods, "fseek failed on temporary file");
+X  if (JFREAD(info->temp_file, buffer_address, byte_count)
+X      != (size_t) byte_count)
+X    ERREXIT(methods, "fread failed on temporary file");
+X}
+X
+X
+XMETHODDEF void
+Xwrite_backing_store (backing_store_ptr info, void FAR * buffer_address,
+X		     long file_offset, long byte_count)
+X{
+X  if (fseek(info->temp_file, file_offset, SEEK_SET))
+X    ERREXIT(methods, "fseek failed on temporary file");
+X  if (JFWRITE(info->temp_file, buffer_address, byte_count)
+X      != (size_t) byte_count)
+X    ERREXIT(methods, "fwrite failed on temporary file --- out of disk space?");
+X}
+X
+X
+XMETHODDEF void
+Xclose_backing_store (backing_store_ptr info)
+X{
+X  fclose(info->temp_file);	/* close the file */
+X  unlink(info->temp_name);	/* delete the file */
+X/* If your system doesn't have unlink(), use remove() instead.
+X * remove() is the ANSI-standard name for this function, but if
+X * your system was ANSI you'd be using jmemansi.c, right?
+X */
+X}
+X
+X
+XGLOBAL void
+Xjopen_backing_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  char tracemsg[TEMP_NAME_LENGTH+40];
+X
+X  select_file_name(info->temp_name);
+X  if ((info->temp_file = fopen(info->temp_name, RW_BINARY)) == NULL)
+X    ERREXIT(methods, "Failed to create temporary file");
+X  info->read_backing_store = read_backing_store;
+X  info->write_backing_store = write_backing_store;
+X  info->close_backing_store = close_backing_store;
+X  /* hack to get around TRACEMS' inability to handle string parameters */
+X  sprintf(tracemsg, "Using temp file %s", info->temp_name);
+X  TRACEMS(methods, 1, tracemsg);
+X}
+X
+X
+X/*
+X * These routines take care of any system-dependent initialization and
+X * cleanup required.  Keep in mind that jmem_term may be called more than
+X * once.
+X */
+X
+XGLOBAL void
+Xjmem_init (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for error exit access */
+X  emethods->max_memory_to_use = DEFAULT_MAX_MEM;
+X  total_used = 0;
+X  next_file_num = 0;
+X}
+X
+XGLOBAL void
+Xjmem_term (void)
+X{
+X  /* no work */
+X}
+END_OF_FILE
+  if test 7643 -ne `wc -c <'jmemname.c'`; then
+    echo shar: \"'jmemname.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmemname.c'
+fi
+if test -f 'jrevdct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrevdct.c'\"
+else
+  echo shar: Extracting \"'jrevdct.c'\" \(7547 characters\)
+  sed "s/^X//" >'jrevdct.c' <<'END_OF_FILE'
+X/*
+X * jrevdct.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains the basic inverse-DCT transformation subroutine.
+X *
+X * This implementation is based on Appendix A.2 of the book
+X * "Discrete Cosine Transform---Algorithms, Advantages, Applications"
+X * by K.R. Rao and P. Yip  (Academic Press, Inc, London, 1990).
+X * It uses scaled fixed-point arithmetic instead of floating point.
+X */
+X
+X#include "jinclude.h"
+X
+X/*
+X * This routine is specialized to the case DCTSIZE = 8.
+X */
+X
+X#if DCTSIZE != 8
+X  Sorry, this code only copes with 8x8 DCTs. /* deliberate syntax err */
+X#endif
+X
+X
+X/* The poop on this scaling stuff is as follows:
+X *
+X * We have to do addition and subtraction of the integer inputs, which
+X * is no problem, and multiplication by fractional constants, which is
+X * a problem to do in integer arithmetic.  We multiply all the constants
+X * by DCT_SCALE and convert them to integer constants (thus retaining
+X * LG2_DCT_SCALE bits of precision in the constants).  After doing a
+X * multiplication we have to divide the product by DCT_SCALE, with proper
+X * rounding, to produce the correct output.  The division can be implemented
+X * cheaply as a right shift of LG2_DCT_SCALE bits.  The DCT equations also
+X * specify an additional division by 2 on the final outputs; this can be
+X * folded into the right-shift by shifting one more bit (see UNFIXH).
+X *
+X * If you are planning to recode this in assembler, you might want to set
+X * LG2_DCT_SCALE to 15.  This loses a bit of precision, but then all the
+X * multiplications are between 16-bit quantities (given 8-bit JSAMPLEs!)
+X * so you could use a signed 16x16=>32 bit multiply instruction instead of
+X * full 32x32 multiply.  Unfortunately there's no way to describe such a
+X * multiply portably in C, so we've gone for the extra bit of accuracy here.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#define LG2_DCT_SCALE 16
+X#else
+X#define LG2_DCT_SCALE 15	/* lose a little precision to avoid overflow */
+X#endif
+X
+X#define ONE	((INT32) 1)
+X
+X#define DCT_SCALE (ONE << LG2_DCT_SCALE)
+X
+X/* In some places we shift the inputs left by a couple more bits, */
+X/* so that they can be added to fractional results without too much */
+X/* loss of precision. */
+X#define LG2_OVERSCALE 2
+X#define OVERSCALE  (ONE << LG2_OVERSCALE)
+X#define OVERSHIFT(x)  ((x) <<= LG2_OVERSCALE)
+X
+X/* Scale a fractional constant by DCT_SCALE */
+X#define FIX(x)	((INT32) ((x) * DCT_SCALE + 0.5))
+X
+X/* Scale a fractional constant by DCT_SCALE/OVERSCALE */
+X/* Such a constant can be multiplied with an overscaled input */
+X/* to produce something that's scaled by DCT_SCALE */
+X#define FIXO(x)  ((INT32) ((x) * DCT_SCALE / OVERSCALE + 0.5))
+X
+X/* Descale and correctly round a value that's scaled by DCT_SCALE */
+X#define UNFIX(x)   RIGHT_SHIFT((x) + (ONE << (LG2_DCT_SCALE-1)), LG2_DCT_SCALE)
+X
+X/* Same with an additional division by 2, ie, correctly rounded UNFIX(x/2) */
+X#define UNFIXH(x)  RIGHT_SHIFT((x) + (ONE << LG2_DCT_SCALE), LG2_DCT_SCALE+1)
+X
+X/* Take a value scaled by DCT_SCALE and round to integer scaled by OVERSCALE */
+X#define UNFIXO(x)  RIGHT_SHIFT((x) + (ONE << (LG2_DCT_SCALE-1-LG2_OVERSCALE)),\
+X			       LG2_DCT_SCALE-LG2_OVERSCALE)
+X
+X/* Here are the constants we need */
+X/* SIN_i_j is sine of i*pi/j, scaled by DCT_SCALE */
+X/* COS_i_j is cosine of i*pi/j, scaled by DCT_SCALE */
+X
+X#define SIN_1_4 FIX(0.707106781)
+X#define COS_1_4 SIN_1_4
+X
+X#define SIN_1_8 FIX(0.382683432)
+X#define COS_1_8 FIX(0.923879533)
+X#define SIN_3_8 COS_1_8
+X#define COS_3_8 SIN_1_8
+X
+X#define SIN_1_16 FIX(0.195090322)
+X#define COS_1_16 FIX(0.980785280)
+X#define SIN_7_16 COS_1_16
+X#define COS_7_16 SIN_1_16
+X
+X#define SIN_3_16 FIX(0.555570233)
+X#define COS_3_16 FIX(0.831469612)
+X#define SIN_5_16 COS_3_16
+X#define COS_5_16 SIN_3_16
+X
+X/* OSIN_i_j is sine of i*pi/j, scaled by DCT_SCALE/OVERSCALE */
+X/* OCOS_i_j is cosine of i*pi/j, scaled by DCT_SCALE/OVERSCALE */
+X
+X#define OSIN_1_4 FIXO(0.707106781)
+X#define OCOS_1_4 OSIN_1_4
+X
+X#define OSIN_1_8 FIXO(0.382683432)
+X#define OCOS_1_8 FIXO(0.923879533)
+X#define OSIN_3_8 OCOS_1_8
+X#define OCOS_3_8 OSIN_1_8
+X
+X#define OSIN_1_16 FIXO(0.195090322)
+X#define OCOS_1_16 FIXO(0.980785280)
+X#define OSIN_7_16 OCOS_1_16
+X#define OCOS_7_16 OSIN_1_16
+X
+X#define OSIN_3_16 FIXO(0.555570233)
+X#define OCOS_3_16 FIXO(0.831469612)
+X#define OSIN_5_16 OCOS_3_16
+X#define OCOS_5_16 OSIN_3_16
+X
+X
+X/*
+X * Perform the inverse DCT on one block of coefficients.
+X *
+X * A 2-D IDCT can be done by 1-D IDCT on each row
+X * followed by 1-D IDCT on each column.
+X */
+X
+XGLOBAL void
+Xj_rev_dct (DCTBLOCK data)
+X{
+X  int pass, rowctr;
+X  register DCTELEM *inptr, *outptr;
+X  DCTBLOCK workspace;
+X
+X  /* Each iteration of the inner loop performs one 8-point 1-D IDCT.
+X   * It reads from a *row* of the input matrix and stores into a *column*
+X   * of the output matrix.  In the first pass, we read from the data[] array
+X   * and store into the local workspace[].  In the second pass, we read from
+X   * the workspace[] array and store into data[], thus performing the
+X   * equivalent of a columnar IDCT pass with no variable array indexing.
+X   */
+X
+X  inptr = data;			/* initialize pointers for first pass */
+X  outptr = workspace;
+X  for (pass = 1; pass >= 0; pass--) {
+X    for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X      /* many tmps have nonoverlapping lifetime -- flashy register colourers
+X       * should be able to do this lot very well
+X       */
+X      INT32 in0, in1, in2, in3, in4, in5, in6, in7;
+X      INT32 tmp10, tmp11, tmp12, tmp13;
+X      INT32 tmp20, tmp21, tmp22, tmp23;
+X      INT32 tmp30, tmp31;
+X      INT32 tmp40, tmp41, tmp42, tmp43;
+X      INT32 tmp50, tmp51, tmp52, tmp53;
+X      SHIFT_TEMPS
+X	
+X      in0 = inptr[0];
+X      in1 = inptr[1];
+X      in2 = inptr[2];
+X      in3 = inptr[3];
+X      in4 = inptr[4];
+X      in5 = inptr[5];
+X      in6 = inptr[6];
+X      in7 = inptr[7];
+X      
+X      /* These values are scaled by DCT_SCALE */
+X      
+X      tmp10 = (in0 + in4) * COS_1_4;
+X      tmp11 = (in0 - in4) * COS_1_4;
+X      tmp12 = in2 * SIN_1_8 - in6 * COS_1_8;
+X      tmp13 = in6 * SIN_1_8 + in2 * COS_1_8;
+X      
+X      tmp20 = tmp10 + tmp13;
+X      tmp21 = tmp11 + tmp12;
+X      tmp22 = tmp11 - tmp12;
+X      tmp23 = tmp10 - tmp13;
+X      
+X      /* These values are scaled by OVERSCALE */
+X      
+X      tmp30 = UNFIXO((in3 + in5) * COS_1_4);
+X      tmp31 = UNFIXO((in3 - in5) * COS_1_4);
+X      
+X      OVERSHIFT(in1);
+X      OVERSHIFT(in7);
+X      
+X      tmp40 = in1 + tmp30;
+X      tmp41 = in7 + tmp31;
+X      tmp42 = in1 - tmp30;
+X      tmp43 = in7 - tmp31;
+X      
+X      /* And these are scaled by DCT_SCALE */
+X      
+X      tmp50 = tmp40 * OCOS_1_16 + tmp41 * OSIN_1_16;
+X      tmp51 = tmp40 * OSIN_1_16 - tmp41 * OCOS_1_16;
+X      tmp52 = tmp42 * OCOS_5_16 + tmp43 * OSIN_5_16;
+X      tmp53 = tmp42 * OSIN_5_16 - tmp43 * OCOS_5_16;
+X      
+X      outptr[        0] = (DCTELEM) UNFIXH(tmp20 + tmp50);
+X      outptr[DCTSIZE  ] = (DCTELEM) UNFIXH(tmp21 + tmp53);
+X      outptr[DCTSIZE*2] = (DCTELEM) UNFIXH(tmp22 + tmp52);
+X      outptr[DCTSIZE*3] = (DCTELEM) UNFIXH(tmp23 + tmp51);
+X      outptr[DCTSIZE*4] = (DCTELEM) UNFIXH(tmp23 - tmp51);
+X      outptr[DCTSIZE*5] = (DCTELEM) UNFIXH(tmp22 - tmp52);
+X      outptr[DCTSIZE*6] = (DCTELEM) UNFIXH(tmp21 - tmp53);
+X      outptr[DCTSIZE*7] = (DCTELEM) UNFIXH(tmp20 - tmp50);
+X      
+X      inptr += DCTSIZE;		/* advance inptr to next row */
+X      outptr++;			/* advance outptr to next column */
+X    }
+X    /* end of pass; in case it was pass 1, set up for pass 2 */
+X    inptr = workspace;
+X    outptr = data;
+X  }
+X}
+END_OF_FILE
+  if test 7547 -ne `wc -c <'jrevdct.c'`; then
+    echo shar: \"'jrevdct.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrevdct.c'
+fi
+echo shar: End of archive 14 \(of 18\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

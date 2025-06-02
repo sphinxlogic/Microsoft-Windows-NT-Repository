@@ -1,0 +1,2386 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i011:  tin - threaded full screen newsreader v1.1 PL4, Part11/15
+Message-ID: <1992Jul7.181932.7800@sparky.imd.sterling.com>
+X-Md4-Signature: aa53262013c4b711670dda375f1320aa
+Date: Tue, 7 Jul 1992 18:19:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 11
+Archive-name: tin/part11
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 30, Issue 1-14
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  feed.c help.c open.c spooldir.c
+# Wrapped by kent@sparky on Mon Jun 29 23:35:14 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 15)."'
+if test -f 'feed.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'feed.c'\"
+else
+  echo shar: Extracting \"'feed.c'\" \(14656 characters\)
+  sed "s/^X//" >'feed.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : feed.c
+X *  Author    : I.Lea
+X *  Created   : 31-08-91
+X *  Updated   : 18-06-92
+X *  Notes     : provides same interface to mail,pipe,print and save commands
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xextern char *glob_group;			/* Group name */
+Xextern char note_h_date[LEN];		/* Date:	*/
+Xextern char note_h_newsgroups[LEN];	/* Newsgroups:	*/
+Xextern char note_h_subj[LEN];		/* Subject:	*/
+Xextern FILE *note_fp;				/* the body of the current article */
+Xextern int note_end;				/* end of article ? */
+Xextern int note_page;				/* what page we're on */
+Xextern long note_mark[MAX_PAGES];	/* ftells on beginnings of pages */
+X
+Xchar default_mail_address[LEN];
+Xchar default_pipe_command[LEN];
+Xchar default_save_file[PATH_LEN];
+Xchar default_regex_pattern[LEN];
+Xchar default_crosspost_group[LEN];
+Xchar proc_ch_default;				/* set in change_rcfile () */
+X
+X
+Xvoid feed_articles (function, level, prompt, respnum, group_path)
+X	int function;
+X	int level;
+X	char *prompt;
+X	int respnum;
+X	char *group_path;
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char address[LEN];
+X	char command[LEN];
+X	char filename[PATH_LEN], *p;
+X	char group[LEN];
+X	char mailbox[LEN];
+X	char pattern[LEN];
+X	char ch = 'a', ch_default = 'a';
+X	char proc_ch = proc_ch_default;
+X	FILE *fp = (FILE *) 0;
+X	int b, i, j;
+X	int confirm = TRUE;
+X	int processed_ok = TRUE;
+X	int proceed = FALSE;
+X	int is_mailbox = FALSE;
+X	int orig_note_end = 0;
+X	int orig_note_page = 0;
+X	int processed = 0;
+X	int ret1 = FALSE;
+X	int ret2 = FALSE;
+X	int redraw_screen = FALSE;
+X	
+X	if (level == PAGE_LEVEL) {
+X		orig_note_end = note_end;
+X		orig_note_page = note_page;
+X	}
+X
+X	b = which_thread (respnum);
+X
+X	/*
+X	 * try and work out what default the user wants
+X	 */
+X	if (num_of_tagged_arts) {
+X		ch_default = 'T';
+X	} else if (num_of_hot_arts) {
+X		ch_default = 'h';
+X	} else if (num_of_responses (b)) {
+X		ch_default = 't';
+X	}
+X
+X	if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0) ||
+X		(save_archive_name == TRUE && function != FEED_SAVE) ||
+X		ch_default == 'T') {
+X		do {
+X			sprintf (msg, "%s%s%c", prompt, txt_art_thread_regex_tag, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 't' && ch != 'T' && 
+X			ch != 'h' && ch != 'p' && ch != 'q');
+X	} else {
+X		filename[0] = '\0';
+X		ch = ch_default;
+X		if (proc_ch != 'n') {
+X			if (str_str (glob_group, "sources", 7)) {
+X				proc_ch = 's';		/* *source* group */ 
+X			} else if (str_str (glob_group, "binaries", 8)) {
+X				proc_ch = 'u';		/* *binaries* group */
+X			} else {
+X				proc_ch = 's';
+X			}
+X		}	
+X	}
+X
+X	if (ch == 'q' || ch == ESC) {	/* exit */
+X		clear_message ();
+X		return;
+X	}
+X	
+X	if (ch == 'p') {
+X		sprintf (msg, txt_feed_pattern, default_regex_pattern);
+X		if (! prompt_string (msg, pattern)) {
+X			clear_message ();
+X			return;
+X		}	
+X		if (strlen (pattern)) {
+X			my_strncpy (default_regex_pattern, pattern, 
+X				sizeof (default_regex_pattern));
+X		} else {
+X			if (default_regex_pattern[0]) {
+X				my_strncpy (pattern, default_regex_pattern, 
+X					sizeof (default_regex_pattern));
+X			} else {
+X				info_message (txt_no_match);
+X				return;
+X			}
+X		}
+X	}
+X
+X	switch (function) {
+X		case FEED_MAIL:
+X			sprintf (msg, txt_mail_art_to, 
+X				COLS-(strlen(txt_mail_art_to)+30), default_mail_address);
+X			if (! prompt_string (msg, address)) {
+X				clear_message ();
+X				return;
+X			}	
+X			if (strlen (address)) {
+X				strcpy (default_mail_address, address);
+X			} else {
+X				if (default_mail_address[0]) {
+X					strcpy (address, default_mail_address);
+X				} else {
+X					info_message (txt_no_mail_address);	
+X					return;
+X				}
+X			}
+X			break;
+X		case FEED_PIPE:
+X			sprintf (msg, txt_pipe_to_command, 
+X				COLS-(strlen(txt_pipe_to_command)+30), default_pipe_command);
+X			if (! prompt_string (msg, command)) {
+X				clear_message ();
+X				return;
+X			}
+X			if (strlen (command)) {
+X				strcpy (default_pipe_command, command);
+X			} else {
+X				if (default_pipe_command[0]) {
+X					strcpy (command, default_pipe_command);
+X				} else {
+X					info_message (txt_no_command);	
+X					return;
+X				}
+X			}
+X
+X			if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X				perror_message (txt_command_failed_s, command);
+X				return;
+X			}
+X			wait_message (txt_piping);
+X			Raw (FALSE);
+X			break;
+X		case FEED_PRINT:	
+X			if (default_printer) {
+X#ifdef sinix
+X					sprintf (command, "%s -dru=%s %s",
+X						printer, get_val ("PRINTER","ps"), redirect_output);
+X#else
+X					sprintf (command, "%s -P%s %s",
+X						printer, get_val ("PRINTER","ps"), redirect_output);
+X#endif
+X			} else {
+X				if (cmd_line_printer[0]) {
+X					sprintf (command, "%s %s",
+X						cmd_line_printer, redirect_output);
+X				} else {
+X					sprintf (command, "%s %s",
+X						printer, redirect_output);
+X				}
+X			}
+X			break;
+X		case FEED_SAVE:		/* ask user for filename */
+X			free_save_array ();
+X			if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0)) {
+X				sprintf (msg, txt_save_filename, default_save_file);
+X				if (! prompt_string (msg, filename)) {
+X					clear_message ();
+X					return;
+X				}
+X				if (strlen (filename)) {
+X					my_strncpy (default_save_file, filename,
+X						sizeof (default_save_file));
+X				} else {
+X					if (default_save_file[0]) {
+X						my_strncpy (filename, default_save_file,
+X							sizeof (filename));
+X					} else {
+X						info_message (txt_no_filename);	
+X						return;
+X					}
+X				}
+X				for (p = filename; *p && (*p == ' ' || *p == '\t'); p++) {
+X					continue;
+X				}
+X				if (! *p) {
+X					info_message (txt_no_filename);
+X					return;
+X				}
+X				if ((filename[0] == '~' || filename[0] == '+') && strlen (filename) == 1) {
+X					info_message (txt_no_filename);
+X					return;
+X				}
+X				is_mailbox = create_path (filename);
+X				if (is_mailbox) {
+X					if ((int) strlen (filename) > 1) {
+X						my_strncpy (mailbox, filename+1, sizeof (mailbox));		
+X					} else {
+X						my_strncpy (mailbox, glob_group, sizeof (mailbox));
+X						/*
+X						 *  convert 1st letter to uppercase
+X						 */
+X						if (mailbox[0] >= 'a' && mailbox[0] <= 'z') {
+X							mailbox[0] = mailbox[0] - 32;
+X						}
+X					}
+X					my_strncpy (filename, mailbox, sizeof (filename));
+X				} else {		/* ask for post processing type */
+X					do {
+X						sprintf (msg, "%s%c", txt_post_process_type, proc_ch_default);
+X						wait_message (msg);
+X						MoveCursor (LINES, (int) strlen (msg)-1);
+X						if ((proc_ch = (char) ReadCh ()) == CR)
+X							proc_ch = proc_ch_default;
+X					} while (proc_ch != 'n' && proc_ch != 's' &&
+X						 proc_ch != 'u' && proc_ch != 'U');
+X				}
+X			}
+X			clear_message ();
+X			break;
+X		case FEED_XPOST:	/* ask user for newsgroups */
+X			sprintf (msg, txt_crosspost_group, default_crosspost_group);
+X	
+X			if (! prompt_string (msg, group)) {
+X				clear_message ();
+X				return;
+X			}
+X
+X			if (strlen (group)) {
+X				my_strncpy (default_crosspost_group, group,
+X					sizeof (default_crosspost_group));
+X			} else {
+X				if (default_crosspost_group[0]) {
+X					my_strncpy (group, default_crosspost_group, 
+X						sizeof (group));
+X				} else {
+X					info_message (txt_no_group);
+X					return;
+X				}
+X			}
+X			break;
+X	}
+X	
+X	switch (ch) {
+X		case 'a':		/* article */
+X			if (level == GROUP_LEVEL) {
+X				note_page = art_open (arts[respnum].artnum, group_path);	
+X				if (note_page == ART_UNAVAILABLE) {
+X					break;
+X				}
+X			}
+X			switch (function) {
+X				case FEED_MAIL:
+X					redraw_screen = mail_to_someone (address, FALSE, TRUE, &processed_ok);
+X					break;
+X				case FEED_PIPE:
+X					fseek (note_fp, 0L, 0);
+X					copy_fp (note_fp, fp, "");
+X					break;
+X				case FEED_PRINT:
+X					processed_ok = print_file (command, respnum, 1);
+X					break;
+X				case FEED_SAVE:
+X					wait_message (txt_saving);
+X					add_to_save_list (0, &arts[respnum], is_mailbox, filename);
+X					processed_ok = save_art_to_file (respnum, 0, FALSE, "");
+X					break;
+X				case FEED_XPOST:
+X					redraw_screen = crosspost_article (group, respnum);
+X					break;
+X			}
+X			if (processed_ok) {
+X				processed++;
+X			}	
+X			if (mark_saved_read) {
+X				if (processed_ok) {
+X					arts[respnum].unread = ART_READ;
+X				}
+X			}
+X			if (level == GROUP_LEVEL) {
+X				art_close ();
+X			}
+X			break;
+X			
+X		case 't': 		/* thread */
+X			confirm = TRUE;
+X			for (i = (int) base[b]; i >= 0; i = arts[i].thread) {
+X				if (level == PAGE_LEVEL) {
+X					art_close ();
+X				}
+X				note_page = art_open (arts[i].artnum, group_path);	
+X				if (note_page == ART_UNAVAILABLE) {
+X					continue;
+X				}	
+X				switch (function) {
+X					case FEED_MAIL:
+X						processed_ok = TRUE;	
+X						mail_to_someone (address, FALSE, confirm, &processed_ok);
+X						confirm = FALSE;
+X						break;
+X					case FEED_PIPE:
+X						fseek (note_fp, 0L, 0);
+X						copy_fp (note_fp, fp, "");
+X						break;
+X					case FEED_PRINT:
+X						processed_ok = print_file (command, i, processed+1);
+X						break;
+X					case FEED_SAVE:
+X						add_to_save_list (i, &arts[i], is_mailbox, filename);
+X						break;
+X					case FEED_XPOST:
+X						redraw_screen = crosspost_article (group, i);
+X						break;
+X				}
+X				if (processed_ok) {
+X					processed++;
+X				}
+X				if (mark_saved_read) {
+X					if (processed_ok) {
+X						arts[i].unread = ART_READ;
+X					}	
+X				}
+X				art_close ();
+X			}
+X			if (function == FEED_SAVE) {
+X				sort_save_list ();
+X				(void) save_thread_to_file (is_mailbox, group_path);
+X			}
+X			break;
+X
+X		case 'T': 		/* tagged articles */
+X			confirm = TRUE;
+X			for (i=1 ; i <= num_of_tagged_arts ; i++) {
+X				for (j=0 ; j < top ; j++) {
+X					if (arts[j].tagged && arts[j].tagged == i) { 
+X						if (level == PAGE_LEVEL) {
+X							art_close ();
+X						}
+X						note_page = art_open (arts[j].artnum, group_path);	
+X						if (note_page == ART_UNAVAILABLE) {
+X							continue;
+X						}	
+X						switch (function) {
+X							case FEED_MAIL:
+X								processed_ok = TRUE;
+X								mail_to_someone (address, FALSE, confirm, &processed_ok);
+X								confirm = FALSE;
+X								break;
+X							case FEED_PIPE:
+X								fseek (note_fp, 0L, 0);
+X								copy_fp (note_fp, fp, "");
+X								break;
+X							case FEED_PRINT:
+X								processed_ok = print_file (command, j, processed+1);
+X								break;
+X							case FEED_SAVE:
+X								add_to_save_list (j, &arts[j], is_mailbox, filename);
+X								break;
+X							case FEED_XPOST:
+X								redraw_screen = crosspost_article (group, j);
+X								break;
+X						}
+X						if (processed_ok) {
+X							processed++;
+X						}	
+X						if (mark_saved_read) {
+X							if (processed_ok) {
+X								arts[j].unread = ART_READ;
+X							}	
+X						}
+X						art_close ();
+X					}
+X				}
+X			}
+X			if (function == FEED_SAVE) {				
+X				(void) save_regex_arts (is_mailbox, group_path);
+X			}
+X			untag_all_articles ();
+X			break;
+X
+X		case 'h': 		/* hot (auto-selected) articles */
+X		case 'p': 		/* regex pattern matched articles */
+X			confirm = TRUE;
+X			for (i = 0 ; i < top_base ; i++) {
+X				for (j = (int) base[i]; j >= 0; j = arts[j].thread) {
+X					if (ch == 'p') {
+X						if (STR_MATCH(arts[j].subject, pattern)) {
+X							proceed = TRUE;
+X						}
+X					} else if (arts[j].hot) {
+X						proceed = TRUE;
+X					}				
+X					if (proceed) {
+X						proceed = FALSE;
+X						if (level == PAGE_LEVEL) {
+X							art_close ();
+X						}
+X						note_page = art_open (arts[j].artnum, group_path);	
+X						if (note_page == ART_UNAVAILABLE) {
+X							continue;
+X						}	
+X						switch (function) {
+X							case FEED_MAIL:
+X								processed_ok = TRUE;
+X								mail_to_someone (address, FALSE, confirm, &processed_ok);
+X								/* confirm = FALSE; */
+X								break;
+X							case FEED_PIPE:
+X								fseek (note_fp, 0L, 0);
+X								copy_fp (note_fp, fp, "");
+X								break;
+X							case FEED_PRINT:
+X								processed_ok = print_file (command, j, processed+1);
+X								break;
+X							case FEED_SAVE:
+X								sprintf (filename, "%s.%02d", filename, processed+1);
+X								add_to_save_list (0, &arts[j], is_mailbox, filename);
+X								processed_ok = save_art_to_file (respnum, 0, FALSE, "");
+X								break;
+X							case FEED_XPOST:
+X								redraw_screen = crosspost_article (group, j);
+X								break;
+X						}
+X						if (processed_ok) {
+X							processed++;
+X						}	
+X						if (mark_saved_read) {
+X							if (processed_ok) {
+X								arts[j].unread = ART_READ;
+X								if (ch == 'h') {
+X									arts[j].hot = FALSE;
+X									num_of_hot_arts--;
+X								}	
+X							}	
+X						}
+X	 					art_close ();
+X					}
+X				}	
+X			}
+X			break;
+X	}
+X
+X	redraw_screen = mail_check ();	/* in case of sending to oneself */
+X
+X	switch (function) {
+X		case FEED_PIPE:
+X			pclose (fp);		
+X			Raw (TRUE);
+X			continue_prompt ();
+X			redraw_screen = TRUE;
+X			break;
+X		case FEED_SAVE:
+X			if (proc_ch != 'n' && is_mailbox == FALSE) {
+X				ret2 = post_process_files (proc_ch);
+X			}
+X			free_save_array ();
+X			break;
+X	}
+X
+X	if (level == GROUP_LEVEL) {
+X		ret1 = (mark_saved_read ? TRUE : FALSE);
+X	}
+X	if ((ret1 || ret2) && is_mailbox == FALSE) {
+X		redraw_screen = TRUE;
+X	}
+X
+X	if (level == PAGE_LEVEL) {
+X		if (ch != 'a') {
+X			note_page = art_open (arts[respnum].artnum, group_path);
+X		}
+X		note_end = orig_note_end;
+X		note_page = orig_note_page;
+X		fseek (note_fp, note_mark[note_page], 0);
+X		if (redraw_screen) {
+X			if (note_page == 0) {
+X				show_note_page (respnum, glob_group);
+X			} else {
+X				redraw_page (respnum, glob_group);
+X			}
+X		} else {
+X			if (function == FEED_PIPE) {
+X				clear_message ();
+X			}
+X		}
+X	} else {
+X		if (redraw_screen) {
+X			show_group_page (glob_group);
+X		}
+X	}
+X	if (function == FEED_MAIL) {	
+X		sprintf (msg, txt_mailed, processed);
+X		info_message (msg);
+X	} else if (function == FEED_PRINT) {	
+X		sprintf (msg, txt_printed, processed);
+X		info_message (msg);
+X	} else if (function == FEED_SAVE) {	
+X		if (ch == 'a') {
+X			sprintf (msg, txt_saved, processed);
+X			info_message (msg);
+X		}	
+X	}
+X
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xint print_file (command, respnum, count)
+X	char *command;
+X	int respnum;
+X	int count;
+X{
+X	FILE *fp;
+X								
+X	sprintf (msg, "%s%d", txt_printing, count);
+X	wait_message (msg);
+X	
+X	if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X		perror_message (txt_command_failed_s, command);
+X		return FALSE;
+X	}
+X
+X	if (print_header) {
+X		fseek(note_fp, 0L, 0);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X		if (arts[respnum].from == arts[respnum].name) {
+X			fprintf (fp, "From: %s\n", arts[respnum].from);
+X		} else {
+X			fprintf (fp, "From: %s (%s)\n",
+X				arts[respnum].from, arts[respnum].name);
+X		}		
+X		fprintf (fp, "Subject: %s\n", note_h_subj);
+X		fprintf (fp, "Date: %s\n\n", note_h_date);
+X		fseek (note_fp, note_mark[0], 0);
+X	}
+X	copy_fp (note_fp, fp, "");
+X
+X	pclose (fp);
+X	
+X	return (TRUE);	/* a hack that will check if file was really checked later */
+X}						
+END_OF_FILE
+  if test 14656 -ne `wc -c <'feed.c'`; then
+    echo shar: \"'feed.c'\" unpacked with wrong size!
+  fi
+  # end of 'feed.c'
+fi
+if test -f 'help.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help.c'\"
+else
+  echo shar: Extracting \"'help.c'\" \(5901 characters\)
+  sed "s/^X//" >'help.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : help.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 20-06-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xchar *help_select[] = {
+X	txt_help_g_4,
+X	txt_help_ctrl_d,
+X	txt_help_ctrl_f,
+X	txt_help_ctrl_l,
+X	txt_help_g_ctrl_k,
+X	txt_help_g_ctrl_r,
+X	txt_help_g_cr,
+X	txt_help_g_tab,
+X	txt_help_b,
+X	txt_help_bug_report,
+X	txt_help_sel_c,
+X	txt_help_g,
+X	txt_help_j,
+X	txt_help_h,
+X	txt_help_I,
+X	txt_help_g_l,
+X	txt_help_m,
+X	txt_help_M,
+X	txt_help_n,
+X	txt_help_g_q,
+X	txt_help_s,
+X	txt_help_S,
+X	txt_help_v,
+X	txt_help_w,
+X	txt_help_W,
+X	txt_help_g_y,
+X	txt_help_y,
+X	txt_help_g_z,
+X	txt_help_g_search,
+X#ifndef NO_SHELL_ESCAPE
+X	txt_help_shell,
+X#endif
+X	(char *) 0
+X};
+X
+Xchar *help_spooldir[] = {
+X	txt_help_4,
+X	txt_help_ctrl_d,
+X	txt_help_ctrl_f,
+X	txt_help_ctrl_l,
+X	txt_help_cr,
+X	txt_help_b,
+X	txt_help_bug_report,
+X	txt_help_h,
+X	txt_help_I,
+X	txt_help_j,
+X	txt_help_i,
+X	txt_help_q,
+X	txt_help_v,
+X	(char *) 0
+X};
+X
+Xchar *help_group[] = {
+X	txt_help_i_4,
+X	txt_help_ctrl_d,
+X	txt_help_ctrl_f,
+X	txt_help_ctrl_k,
+X	txt_help_ctrl_l,
+X	txt_help_i_cr,
+X	txt_help_i_tab,
+X	txt_help_a,
+X	txt_help_b,
+X	txt_help_bug_report,
+X	txt_help_c,
+X	txt_help_d,
+X	txt_help_g,
+X	txt_help_h,
+X	txt_help_I,
+X	txt_help_j,
+X	txt_help_K,
+X	txt_help_l,
+X	txt_help_p_m,
+X	txt_help_M,
+X	txt_help_o,
+X	txt_help_i_n,
+X	txt_help_i_p,
+X	txt_help_i,
+X	txt_help_q,
+X	txt_help_r,
+X	txt_help_p_s,
+X	txt_help_T,
+X	txt_help_u,
+X	txt_help_U,
+X	txt_help_v,
+X	txt_help_w,
+X	txt_help_W,
+X	txt_help_x,
+X	txt_help_p_z,
+X	txt_help_i_search,
+X#ifndef NO_SHELL_ESCAPE
+X	txt_help_shell,
+X#endif
+X	txt_help_dash,
+X	txt_help_pipe,
+X	txt_help_i_star,
+X	txt_help_i_dot,
+X	txt_help_i_coma,
+X	txt_help_i_tilda,
+X	txt_help_X,
+X	txt_help_plus,
+X	txt_help_equal,
+X	txt_help_semicolon,
+X	(char *) 0
+X};
+X
+Xchar *help_thread[] = {
+X	txt_help_t_0,
+X	txt_help_t_4,
+X	txt_help_ctrl_d,
+X	txt_help_ctrl_f,
+X	txt_help_ctrl_l,
+X	txt_help_t_cr,
+X	txt_help_p_tab,
+X	txt_help_b,
+X	txt_help_bug_report,
+X	txt_help_d,
+X	txt_help_h,
+X	txt_help_I,
+X	txt_help_j,
+X	txt_help_ck,
+X	txt_help_i,
+X	txt_help_q,
+X	txt_help_T,
+X	txt_help_v,
+X	txt_help_p_z,
+X	(char *) 0
+X};
+X
+Xchar *help_page[] = {
+X	txt_help_p_0,
+X	txt_help_p_4,
+X	txt_help_ctrl_d,
+X	txt_help_ctrl_f,
+X	txt_help_ctrl_h,
+X	txt_help_ctrl_k,
+X	txt_help_ctrl_l,
+X	txt_help_p_ctrl_r,
+X	txt_help_p_cr,
+X	txt_help_p_tab,
+X	txt_help_b,
+X	txt_help_a,
+X	txt_help_bug_report,
+X	txt_help_c,
+X	txt_help_C,
+X	txt_help_p_d,
+X	txt_help_p_f,
+X	txt_help_p_g,
+X	txt_help_h,
+X	txt_help_I,
+X	txt_help_p_k,
+X	txt_help_p_m,
+X	txt_help_M,
+X	txt_help_p_n,
+X	txt_help_o,
+X	txt_help_p_p,
+X	txt_help_i,
+X	txt_help_q,
+X	txt_help_p_r,
+X	txt_help_p_s,
+X	txt_help_t,
+X	txt_help_T,
+X	txt_help_v,
+X	txt_help_w,
+X	txt_help_W,
+X	txt_help_x,
+X	txt_help_p_z,
+X	txt_help_p_search,
+X#ifndef NO_SHELL_ESCAPE
+X	txt_help_shell,
+X#endif
+X	txt_help_dash,
+X	txt_help_pipe,
+X	txt_help_thread,
+X	txt_help_p_star,
+X	txt_help_p_dot,
+X	txt_help_p_coma,
+X	txt_help_p_tilda,
+X	(char *) 0
+X};
+X
+X
+Xvoid show_info_page (type, help, title)
+X	int type; 
+X	char *help[];
+X	char *title;
+X{
+X	char buf[LEN];
+X	char ch;
+X	int i, len;
+X	int group_len = 0;
+X	int old_page = 0;
+X	int cur_page = 1;
+X	int max_page = 1;
+X	int pos_help = 0;
+X
+X	if (NOTESLINES <= 0) {
+X		return;
+X	}
+X
+X	/*
+X	 *  find how many elements in array
+X	 */
+X	if (type == HELP_INFO) {
+X		for (i=0 ; help[i] ; i++) {
+X			continue;
+X		}
+X	} else {
+X		for (i=0 ; posted[i].date[0] ; i++) {
+X			len = strlen (posted[i].group);
+X			if (len > group_len) {
+X 				group_len = len;
+X			}
+X 		}
+X	}
+X	
+X	max_page = i / NOTESLINES;
+X	if (i % NOTESLINES) {
+X		max_page++;
+X	}
+X
+X	while (1) {
+X		if (cur_page != old_page) {
+X			ClearScreen ();
+X			sprintf (buf, title, cur_page, max_page);
+X			center_line (0, TRUE, buf);
+X			MoveCursor (INDEX_TOP, 0);
+X
+X			if (type == HELP_INFO) { 
+X				for (i=pos_help ; i < (pos_help + NOTESLINES) && help[i] ; i++) {
+X					fputs (help[i], stdout);
+X				}
+X			} else {
+X				for (i=pos_help ; i < (pos_help + NOTESLINES) && posted[i].date[0] ; i++) {
+X					sprintf (msg, "%8s  %c  %-*s  %s",
+X						posted[i].date, posted[i].action,  
+X						group_len, posted[i].group, posted[i].subj);
+X						msg[COLS-2] = '\0';
+X					printf ("%s\r\n", msg);
+X				}
+X			}
+X		}
+X
+X		if (cur_page != old_page) {
+X			center_line (LINES, FALSE, txt_hit_space_for_more);
+X		}
+X
+X		old_page = cur_page;
+X		
+X		ch = (char) ReadCh ();
+X		switch (ch) {
+X			case ESC:	/* common arrow keys */
+X				switch (get_arrow_key ()) {
+X					case KEYMAP_UP:
+X					case KEYMAP_PAGE_UP:
+X						if (cur_page > 1) {
+X							cur_page--;
+X							pos_help = (cur_page-1)*NOTESLINES;
+X						}
+X						break;
+X
+X					case KEYMAP_DOWN:
+X					case KEYMAP_PAGE_DOWN:
+X						if (cur_page < max_page) {
+X							pos_help = cur_page*NOTESLINES;
+X							cur_page++;
+X						}
+X						break;
+X
+X					case KEYMAP_HOME:
+X						if (cur_page != 1) {
+X							cur_page = 1;
+X							pos_help = 0;
+X						}
+X						break;
+X					
+X					case KEYMAP_END:
+X						if (cur_page != max_page) {
+X							cur_page = max_page;
+X							pos_help = (max_page-1) * NOTESLINES;
+X						}
+X						break;
+X				}
+X				break;
+X
+X			case ctrl('D'):			/* page down */
+X			case ' ':
+X			case 'j':
+X				if (cur_page < max_page) {
+X					pos_help = cur_page*NOTESLINES;
+X					cur_page++;
+X				}
+X				break;
+X			
+X			case ctrl('U'):			/* page up */
+X			case 'b':
+X			case 'k':
+X				if (cur_page > 1) {
+X					cur_page--;
+X					pos_help = (cur_page-1)*NOTESLINES;
+X				}
+X				break;
+X
+X			case ctrl('R'):			/* Home */
+X			case 'g':
+X				if (cur_page != 1) {
+X					cur_page = 1;
+X					pos_help = 0;
+X				}
+X				break;
+X
+X			case '$':				/* End */
+X			case 'G':
+X				if (cur_page != max_page) {
+X					cur_page = max_page;
+X					pos_help = (max_page-1) * NOTESLINES;
+X				}
+X				break;
+X
+X			default:
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif	
+X				return;
+X		}	
+X	}
+X}
+END_OF_FILE
+  if test 5901 -ne `wc -c <'help.c'`; then
+    echo shar: \"'help.c'\" unpacked with wrong size!
+  fi
+  # end of 'help.c'
+fi
+if test -f 'open.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'open.c'\"
+else
+  echo shar: Extracting \"'open.c'\" \(14367 characters\)
+  sed "s/^X//" >'open.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : open.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 04-06-92
+X *  Notes     : reads news locally (ie. /usr/spool/news) or via NNTP
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+X/*
+X * Directory handling code - Hopefully one of these is right for you. 
+X */
+X#ifdef BSD
+X#	ifdef sinix
+X#		include <dir.h>
+X#	else
+X#		include <sys/dir.h>
+X#	endif
+X#	define		DIR_BUF		struct direct
+X#	define		D_LENGTH	d_namlen
+X#endif
+X#ifdef M_XENIX
+X#	include <sys/ndir.h>
+X#	define		DIR_BUF		struct direct
+X#	define		D_LENGTH	d_namlen
+X#endif
+X#ifndef DIR_BUF
+X#	include	<dirent.h>
+X#	define		DIR_BUF		struct dirent
+X#	define		D_LENGTH	d_reclen
+X#endif
+X
+Xint nntp_codeno = 0;
+X
+X#ifdef NNTP_ABLE
+Xint compiled_with_nntp = TRUE;		/* used in mail_bug_report() info */
+X#else
+Xint compiled_with_nntp = FALSE;
+X#endif
+X
+X#ifdef NO_POSTING
+Xint	can_post = FALSE;
+X#else
+Xint	can_post = TRUE;
+X#endif
+X
+Xchar server_name[LEN];
+X
+X
+Xvoid nntp_open ()
+X{
+X#ifdef NNTP_ABLE	
+X	char *server;
+X	int ret;
+X
+X	if (read_news_via_nntp) {
+X		debug_nntp ("nntp_open", "BEGIN");
+X
+X		if (nntp_server[0]) {
+X			server = nntp_server;
+X		} else {
+X			server = getserverbyfile (NNTP_SERVER_FILE);
+X		}
+X
+X		if (server == (char *) 0) {
+X			error_message (txt_cannot_get_nntp_server_name, "");
+X			error_message (txt_server_name_in_file_env_var, NNTP_SERVER_FILE);
+X			exit(1);
+X		}
+X
+X		if (update == FALSE) {
+X			sprintf (msg, txt_connecting, server);
+X			wait_message (msg);
+X		}
+X		
+X		debug_nntp ("nntp_open", server);
+X
+X		ret = server_init (server);
+X		if (update == FALSE) {
+X			fputc ('\n', stdout);
+X		}
+X
+X		debug_nntp_respcode (ret);
+X
+X		switch (ret) {
+X		case OK_CANPOST:
+X#ifndef NO_POSTING		
+X			can_post = TRUE;
+X#endif			
+X			break;
+X
+X		case OK_NOPOST:
+X			can_post = FALSE;
+X			break;	
+X
+X		case -1:
+X			error_message (txt_failed_to_connect_to_server, server);
+X			exit (1);
+X
+X		default:
+X			sprintf (msg, "%s: %s", progname, nntp_respcode (ret));
+X			error_message (msg, "");
+X			exit (1);
+X		}
+X
+X		/*
+X		 * Find out if NNTP supports my XINDEX & XUSER commands
+X		 */
+X#ifndef NO_NNTP_EXTS	 
+X		debug_nntp ("nntp_open", "xindex");
+X		put_server ("xindex");	
+X		if (get_respcode () != ERR_COMMAND) {
+X			xindex_supported = TRUE;
+X		}
+X		debug_nntp ("nntp_open", "xuser");
+X		put_server ("xuser");	
+X		if (get_respcode () != ERR_COMMAND) {
+X			xuser_supported = TRUE;
+X		}
+X#endif	/* NO_NNTP_EXTS */		
+X		
+X		/*
+X		 * If INN NNTP & XINDEX not supported switch to mode reader
+X		 */
+X		if (! xindex_supported) {
+X			debug_nntp ("nntp_open", "mode reader");
+X			put_server ("mode reader");	
+X			if (get_respcode () != ERR_COMMAND) {
+X				inn_nntp_server = TRUE;
+X			}
+X		}
+X	}
+X#ifndef NO_NNTP_EXTS
+X	/*
+X	 * Find out if NNTP supports SPOOLDIR command
+X	 */
+X	get_spooldir ();
+X#endif	/* NO_NNTP_EXTS */		
+X
+X#endif	
+X}
+X
+X
+Xvoid nntp_close ()
+X{
+X#ifdef NNTP_ABLE
+X	if (read_news_via_nntp) {
+X		debug_nntp ("nntp_close", "END");
+X		close_server ();
+X	}
+X#endif	
+X}
+X
+X
+XFILE *open_active_fp ()
+X{
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_ABLE
+X		put_server ("list");
+X		if (get_respcode () != OK_GROUPS) {
+X			debug_nntp ("open_active_fp", "NOT_OK");
+X			return (FILE *) 0;
+X		}
+X		debug_nntp ("open_active_fp", "OK");
+X		return nntp_to_fp ();
+X#else
+X		return (FILE *) 0;
+X#endif		
+X	} else {
+X		return fopen (active_file, "r");
+X	}
+X}
+X
+X
+XFILE *open_subscription_fp ()
+X{
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_ABLE
+X		put_server ("list subscriptions");
+X		if (get_respcode () != OK_GROUPS) {
+X			debug_nntp ("open_subscription_fp", "NOT_OK");
+X			return (FILE *) 0;
+X		}
+X		debug_nntp ("open_subscription_fp", "OK");
+X		return nntp_to_fp ();
+X#else
+X		return (FILE *) 0;
+X#endif		
+X	} else {
+X		return fopen (subscriptions_file, "r");
+X	}
+X}
+X
+X
+XFILE *open_newsgroups_fp ()
+X{
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_ABLE
+X		put_server ("list newsgroups");
+X		if (get_respcode () != OK_GROUPS) {
+X			debug_nntp ("open_newsgroups_fp", "NOT_OK");
+X			return (FILE *) 0;
+X		}
+X		debug_nntp ("open_newsgroups_fp", "OK");
+X		return nntp_to_fp ();
+X#else
+X		return (FILE *) 0;
+X#endif		
+X	} else {
+X		return fopen (newsgroups_file, "r");
+X	}
+X}
+X
+X
+XFILE *open_index_fp (group_name)
+X	char *group_name;
+X{
+X	char line[NNTP_STRLEN];
+X	extern char index_file[PATH_LEN];
+X
+X	find_index_file (group_name);
+X	
+X	if (read_news_via_nntp && xindex_supported) {
+X		sprintf (line, "xindex %s", group_name);
+X		debug_nntp ("open_index_fp", line);
+X		put_server (line);
+X		if (get_respcode () != OK_XINDEX) {
+X			debug_nntp ("open_index_fp", "NOT_OK");
+X			return (FILE *) 0;
+X		}
+X		debug_nntp ("open_index_fp", "OK");
+X		return nntp_to_fp ();
+X	} else {
+X		return fopen (index_file, "r");
+X	}
+X}
+X
+X
+XFILE *open_art_fp (group_path, art)
+X	char *group_path;
+X	long art;
+X{
+X	char buf[LEN];
+X	int respcode;
+X	struct stat sb;
+X	extern long note_size;
+X
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_ABLE
+X		sprintf (buf, "article %ld", art);
+X		debug_nntp ("open_art_fp", buf);
+X		put_server (buf);
+X		if ((respcode = get_respcode ()) != OK_ARTICLE) {
+X			error_message ("%s", nntp_respcode (respcode));
+X			debug_nntp ("open_art_fp", buf);
+X			return (FILE *) 0;
+X		}
+X
+X		debug_nntp ("open_art_fp", "OK");
+X
+X		return nntp_to_fp ();
+X#else
+X		return (FILE *) 0;
+X#endif
+X	} else {
+X		sprintf (buf, "%s/%s/%ld", spooldir, group_path, art);
+X
+X		if (stat (buf, &sb) < 0) {
+X			note_size = 0;
+X		} else {
+X			note_size = sb.st_size;
+X		}
+X		return fopen (buf, "r");
+X	}
+X}
+X
+X
+XFILE *open_header_fp (group_path, art)
+X	char *group_path;
+X	long art;
+X{
+X	char buf[LEN];
+X	
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_ABLE	
+X		sprintf(buf, "head %ld", art);
+X		
+X		debug_nntp ("open_header_fp", buf);
+X
+X		put_server (buf);
+X		if (get_respcode () != OK_HEAD) {
+X			debug_nntp ("open_header_fp", "NOT_OK_HEAD");
+X			return (FILE *) 0;
+X		}
+X
+X		debug_nntp ("open_header_fp", "OK_HEAD");
+X
+X		return nntp_to_fp ();
+X#else
+X		return (FILE *) 0;
+X#endif		
+X	} else {
+X		sprintf (buf, "%s/%s/%ld", spooldir, group_path, art);
+X		return fopen (buf, "r");
+X	}
+X}
+X
+X/*
+X *  Longword comparison routine for the qsort()
+X */
+X
+Xint base_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+X{
+X	long *a = (long *) p1;
+X	long *b = (long *) p2;
+X
+X	if (*a < *b)
+X		return -1;
+X	if (*a > *b)
+X		return 1;
+X	return 0;
+X}
+X
+X
+X/*
+X *  Read the article numbers existing in a group's spool directory
+X *  into base[] and sort them.  top_base is one past top.
+X */
+X
+Xvoid setup_base (group, group_path)
+X	char *group;
+X	char *group_path;
+X{
+X	char buf[LEN];
+X#ifdef NNTP_ABLE
+X	char line[NNTP_STRLEN];
+X#endif
+X	DIR *d;
+X	DIR_BUF *e;
+X	long art, start, last, dummy, count;
+X
+X	top_base = 0;
+X
+X	if (read_news_via_nntp) {
+X
+X#ifdef NNTP_ABLE
+X		sprintf (buf, "group %s", group);
+X
+X		debug_nntp ("setup_base", buf);
+X		
+X		put_server (buf);
+X
+X		if (get_server (line, NNTP_STRLEN) == -1) {
+X			error_message (txt_connection_to_server_broken, "");
+X			tin_done (1);
+X		}
+X
+X		if (atoi(line) != OK_GROUP) {
+X			debug_nntp ("setup_base", "NOT_OK");
+X			return;
+X		}
+X
+X		debug_nntp ("setup_base", line);
+X
+X		sscanf (line,"%ld %ld %ld %ld", &dummy, &count, &start, &last);
+X		if (last - count > start) {
+X			start = last - count;
+X		}
+X
+X		while (start <= last) {
+X			if (top_base >= max_art) {
+X				expand_art();
+X			}
+X			base[top_base++] = start++;
+X		}
+X#else
+X		return; 
+X#endif
+X	} else {
+X		sprintf (buf, "%s/%s", spooldir, group_path);
+X
+X		if (access (buf, 4) != 0) {
+X			return;
+X		}
+X
+X		d = opendir (buf);
+X		if (d != NULL) {
+X			while ((e = readdir (d)) != NULL) {
+X				art = my_atol (e->d_name, (int) e->D_LENGTH);
+X				if (art >= 0) {
+X					if (top_base >= max_art)
+X						expand_art ();
+X					base[top_base++] = art;
+X				}
+X			}
+X			closedir (d);
+X			qsort ((char *) base, top_base, sizeof (long), base_comp);
+X		}
+X	}
+X}
+X
+X/*
+X *  get a response code from the server and return it to the caller
+X */
+X
+Xint get_respcode ()
+X{
+X#ifdef NNTP_ABLE
+X	char line[NNTP_STRLEN];
+X
+X	if (get_server (line, NNTP_STRLEN) == -1) {
+X		error_message (txt_connection_to_server_broken, "");
+X		tin_done (1);
+X	}
+X
+X	debug_nntp ("get_respcode", line);
+X	
+X	return atoi (line);
+X#else
+X	return (0);
+X#endif
+X}
+X
+X
+Xint stuff_nntp (fnam)
+X	char *fnam;
+X{
+X#ifdef NNTP_ABLE
+X	FILE *fp;
+X	char line[NNTP_STRLEN];
+X	extern char *mktemp ();
+X	struct stat sb;
+X	extern long note_size;
+X
+X	strcpy (fnam, "/tmp/tin_nntpXXXXXX");
+X	mktemp (fnam);
+X
+X	if ((fp = fopen (fnam, "w")) == (FILE *) 0) {
+X		perror_message (txt_stuff_nntp_cannot_open, fnam);
+X		return FALSE;
+X	}
+X
+X	while (1) {
+X		if (get_server (line, NNTP_STRLEN) == -1) {
+X			error_message (txt_connection_to_server_broken, "");
+X			tin_done (1);
+X		}
+X
+X		debug_nntp ("stuff_nntp", line);
+X		
+X		if (strcmp (line, ".") == 0)
+X			break;			/* end of text */
+X		strcat (line, "\n");
+X		if (line[0] == '.')		/* reduce leading .'s */
+X			fputs (&line[1], fp);
+X		else
+X			fputs (line, fp);
+X	}
+X	fclose (fp);
+X
+X	if (stat (fnam, &sb) < 0)
+X		note_size = 0;
+X	else
+X		note_size = sb.st_size;
+X
+X	return TRUE;
+X#else
+X	return TRUE;
+X#endif
+X}
+X
+X
+XFILE *nntp_to_fp ()
+X{
+X#ifdef NNTP_ABLE
+X	char fnam[LEN];
+X	FILE *fp = (FILE *) 0;
+X	
+X	if (! stuff_nntp (fnam)) {
+X		debug_nntp ("nntp_to_fp", "! stuff_nntp()");
+X		return (FILE *) 0;
+X	}
+X
+X	if ((fp = fopen (fnam, "r")) == (FILE *) 0) {
+X		perror_message (txt_nntp_to_fp_cannot_reopen, fnam);
+X		return (FILE *) 0;
+X	}
+X	
+X	unlink (fnam);
+X	return fp;
+X#else
+X	return (FILE *) 0;
+X#endif
+X}
+X
+X/*
+X * Log user info to local file or NNTP logfile
+X */
+X
+Xvoid log_user ()
+X{
+X	char buf[32], *ptr;
+X	char line[NNTP_STRLEN];
+X#ifdef LOG_USER
+X	FILE *fp;
+X	long epoch;
+X#endif
+X	extern struct passwd *myentry;
+X
+X	my_strncpy (buf, myentry->pw_gecos, sizeof (buf)-1);
+X
+X	if (read_news_via_nntp && xuser_supported) {
+X		if ((ptr = (char *) strchr(buf, ','))) {
+X			*ptr = '\0';
+X		}
+X		sprintf (line, "xuser %s (%s)", myentry->pw_name, buf);
+X
+X		debug_nntp ("log_user", line);
+X		put_server (line);
+X	} else {
+X#ifdef LOG_USER
+X		if ((fp = fopen (LOG_USER_FILE, "a+")) != (FILE *) 0) {
+X			time (&epoch);
+X			fprintf (fp, "%s%d: %-32s (%-8s) %s", VERSION, PATCHLEVEL,
+X					buf, myentry->pw_name, ctime (&epoch));
+X			fclose (fp);
+X			chmod (LOG_USER_FILE, 0666);
+X		}	
+X#endif
+X	}
+X}
+X
+X/*
+X * NNTP strings for get_respcode()
+X */
+X
+Xchar *nntp_respcode (respcode)
+X	int respcode;
+X{
+X#ifdef NNTP_ABLE
+X
+X	static char *text;
+X	
+X	switch (respcode) {
+X		case 0:
+X			text = "";
+X			break;
+X		case INF_HELP:
+X			text = "100  Help text on way";
+X			break;
+X		case INF_AUTH:
+X			text = "180  Authorization capabilities";
+X			break;
+X		case INF_DEBUG:
+X			text = "199  Debug output";
+X			break;
+X		case OK_CANPOST:
+X			text = "200  Hello; you can post";
+X			break;
+X		case OK_NOPOST:
+X			text = "201  Hello; you can't post";
+X			break;
+X		case OK_SLAVE:
+X			text = "202  Slave status noted";
+X			break;
+X		case OK_GOODBYE:
+X			text = "205  Closing connection";
+X			break;
+X		case OK_GROUP:
+X			text = "211  Group selected";
+X			break;
+X		case OK_GROUPS:
+X			text = "215  Newsgroups follow";
+X			break;
+X		case OK_XINDEX:
+X			text = "218  Group index file follows";
+X			break;
+X		case OK_ARTICLE:
+X			text = "220  Article (head & body) follows";
+X			break;
+X		case OK_HEAD:
+X			text = "221  Head follows";
+X			break;
+X		case OK_BODY:
+X			text = "222  Body follows";
+X			break;
+X		case OK_NOTEXT:
+X			text = "223  No text sent -- stat, next, last";
+X			break;
+X		case OK_NEWNEWS:
+X			text = "230  New articles by message-id follow";
+X			break;
+X		case OK_NEWGROUPS:
+X			text = "231  New newsgroups follow";
+X			break;
+X		case OK_XFERED:
+X			text = "235  Article transferred successfully";
+X			break;
+X		case OK_POSTED:
+X			text = "240  Article posted successfully";
+X			break;
+X		case OK_AUTHSYS:
+X			text = "280  Authorization system ok";
+X			break;
+X		case OK_AUTH:
+X			text = "281  Authorization (user/pass) ok";
+X			break;
+X		case OK_BIN:
+X			text = "282  binary data follows";
+X			break;
+X		case OK_SPLIST:
+X			text = "283  spooldir list follows";
+X			break;
+X		case OK_SPSWITCH:
+X			text = "284  Switching to a different spooldir";
+X			break;
+X		case OK_SPNOCHANGE:
+X			text = "285  Still using same spooldir";
+X			break;
+X		case OK_SPLDIRCUR:
+X			text = "286  Current spooldir";
+X			break;
+X		case OK_SPLDIRAVL:
+X			text = "287  Available spooldir";
+X			break;
+X		case OK_SPLDIRERR:
+X			text = "288  Unavailable spooldir or invalid entry";
+X			break;
+X		case CONT_XFER:
+X			text = "335  Continue to send article";
+X			break;
+X		case CONT_POST:
+X			text = "340  Continue to post article";
+X			break;
+X		case NEED_AUTHINFO:
+X			text = "380  authorization is required";
+X			break;
+X		case NEED_AUTHDATA:
+X			text = "381  <type> authorization data required";
+X			break;
+X		case ERR_GOODBYE:
+X			text = "400  Have to hang up for some reason";
+X			break;
+X		case ERR_NOGROUP:
+X			text = "411  No such newsgroup";
+X			break;
+X		case ERR_NCING:
+X			text = "412  Not currently in newsgroup";
+X			break;
+X		case ERR_XINDEX:
+X			text = "418  No index file for this group";
+X			break;
+X		case ERR_NOCRNT:
+X			text = "420  No current article selected";
+X			break;
+X		case ERR_NONEXT:
+X			text = "421  No next article in this group";
+X			break;
+X		case ERR_NOPREV:
+X			text = "422  No previous article in this group";
+X			break;
+X		case ERR_NOARTIG:
+X			text = "423  No such article in this group";
+X			break;
+X		case ERR_NOART:
+X			text = "430  No such article at all";
+X			break;
+X		case ERR_GOTIT:
+X			text = "435  Already got that article, don't send";
+X			break;
+X		case ERR_XFERFAIL:
+X			text = "436  Transfer failed";
+X			break;
+X		case ERR_XFERRJCT:
+X			text = "437  Article rejected, don't resend";
+X			break;
+X		case ERR_NOPOST:
+X			text = "440  Posting not allowed";
+X			break;
+X		case ERR_POSTFAIL:
+X			text = "441  Posting failed";
+X			break;
+X		case ERR_NOAUTH:
+X			text = "480  authorization required for command";
+X			break;
+X		case ERR_AUTHSYS:
+X			text = "481  Authorization system invalid";
+X			break;
+X		case ERR_AUTHREJ:
+X			text = "482  Authorization data rejected";
+X			break;
+X		case ERR_INVALIAS:
+X			text = "483  Invalid alias on spooldir cmd";
+X			break;
+X		case ERR_INVNOSPDIR:
+X			text = "484  No spooldir file found";
+X			break;
+X		case ERR_COMMAND:
+X			text = "500  Command not recognized";
+X			break;
+X		case ERR_CMDSYN:
+X			text = "501  Command syntax error";
+X			break;
+X		case ERR_ACCESS:
+X			text = "502  Access to server denied";
+X			break;
+X		case ERR_FAULT:
+X			text = "503  Program fault, command not performed";
+X			break;
+X		case ERR_AUTHBAD:
+X			text = "580  Authorization Failed";
+X			break;
+X		default:
+X			text = "Unknown NNTP response code";
+X			break;
+X	}
+X	return (text);
+X#else
+X	return ("");
+X#endif
+X}
+END_OF_FILE
+  if test 14367 -ne `wc -c <'open.c'`; then
+    echo shar: \"'open.c'\" unpacked with wrong size!
+  fi
+  # end of 'open.c'
+fi
+if test -f 'spooldir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'spooldir.c'\"
+else
+  echo shar: Extracting \"'spooldir.c'\" \(14375 characters\)
+  sed "s/^X//" >'spooldir.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : spooldir.c
+X *  Author    : I.Lea & Tom Theel
+X *  Created   : 08-05-92
+X *  Updated   : 20-06-92
+X *  Notes     : Changes spooldir to read news from (ie. news, nntp, cdrom)
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Tom Theel
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+X#define NUM_SPOOLDIRS	50
+X
+Xint cur_spoolnum = 0;
+Xint first_spooldir_on_screen;
+Xint last_spooldir_on_screen;
+Xint num_spooldirs = 0;
+Xint spool_top = 0;
+X
+X/*
+X * needs to be dynamic but no time 
+X */
+Xstruct spooldir_t spooldirs[NUM_SPOOLDIRS];
+X
+X
+X/*
+X * Change spooldir via menu of available choices
+X */
+X
+Xint spooldir_index ()
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char ch;
+X	int n;
+X	int scroll_lines;
+X	
+X	spool_top = num_spooldirs;
+X
+X	if (! xspooldir_supported) {
+X		info_message ("Multiple spooldirs are not supported");
+X		return FALSE;
+X	}
+X
+X	if (! spool_top) {
+X		info_message ("No spooldirs");
+X		return FALSE;
+X	}
+X
+X	
+X	mail_setup ();		/* record mailbox size for "you have mail" */
+X
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen();
+X#endif
+X
+X	show_spooldir_page ();		/* display spooldir selection page */
+X	
+X	while (TRUE) {
+X		ch = (char) ReadCh ();
+X
+X		if (ch > '0' && ch <= '9') {
+X			prompt_spooldir_num (ch);
+X			continue;
+X		}
+X		switch (ch) {
+X			case ESC:	/* (ESC) common arrow keys */
+X				switch (get_arrow_key ()) {
+X					case KEYMAP_UP:
+X						goto spooldir_up;
+X
+X					case KEYMAP_DOWN:
+X						goto spooldir_down;
+X
+X					case KEYMAP_PAGE_UP:
+X						goto spooldir_page_up;
+X
+X					case KEYMAP_PAGE_DOWN:
+X						goto spooldir_page_down;
+X
+X					case KEYMAP_HOME:
+X						if (cur_spoolnum != 0) {
+X							if (0 < first_spooldir_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X								erase_spooldir_arrow ();
+X#endif					
+X								cur_spoolnum = 0;
+X								show_spooldir_page ();
+X							} else {
+X								erase_spooldir_arrow ();
+X								cur_spoolnum = 0;
+X								draw_spooldir_arrow ();
+X							}
+X						}
+X						break;
+X					
+X					case KEYMAP_END:
+X						goto end_of_list;
+X				}
+X				break;
+X
+X			case '$':	/* show last page of spooldirs */
+Xend_of_list:
+X				if (cur_spoolnum != spool_top - 1) {
+X					if (spool_top - 1 > last_spooldir_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X						erase_spooldir_arrow ();
+X#endif					
+X						cur_spoolnum = spool_top - 1;
+X						show_spooldir_page ();
+X					} else {
+X						erase_group_arrow ();
+X						cur_spoolnum = spool_top - 1;
+X						draw_spooldir_arrow ();
+X					}
+X				}
+X			    break;
+X
+X			case '\r':	/* select spooldir */
+X			case '\n':
+X				if (set_spooldir (spooldirs[cur_spoolnum].name)) {
+X					wait_message (txt_reading_active_file);
+X					free_active_arrays ();
+X					max_active = DEFAULT_ACTIVE_NUM;
+X					expand_active ();
+X					read_active_file ();
+X					read_newsgroups_file ();
+X					read_newsrc (TRUE);
+X					return TRUE;
+X				}	
+X				break;
+X
+X			case ' ':		/* page down */
+X			case ctrl('D'):
+X			case ctrl('F'):		/* vi style */
+Xspooldir_page_down:
+X				if (cur_spoolnum == spool_top - 1) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_spooldir_on_screen) {
+X#	ifndef USE_CLEARSCREEN
+X						erase_spooldir_arrow ();
+X#	endif					
+X						cur_spoolnum = 0;
+X						show_spooldir_page ();
+X					} else {
+X						erase_spooldir_arrow ();
+X						cur_spoolnum = 0;
+X						draw_spooldir_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				erase_spooldir_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				cur_spoolnum = ((cur_spoolnum + scroll_lines) / scroll_lines) * scroll_lines;
+X				if (cur_spoolnum >= spool_top) {
+X					cur_spoolnum = (spool_top / scroll_lines) * scroll_lines;
+X					if (cur_spoolnum < spool_top - 1) {
+X						cur_spoolnum = spool_top - 1;
+X					}
+X				}
+X
+X				if (cur_spoolnum <= first_spooldir_on_screen
+X				||  cur_spoolnum >= last_spooldir_on_screen)
+X					show_spooldir_page ();
+X				else
+X					draw_spooldir_arrow ();
+X				break;
+X
+X			case ctrl('L'):		/* redraw */
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_spooldir_page ();
+X				break;
+X
+X			case ctrl('N'):		/* line down */
+X			case 'j':
+Xspooldir_down:
+X				if (cur_spoolnum + 1 >= spool_top) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_spooldir_on_screen) {
+X#	ifndef USE_CLEARSCREEN
+X						erase_spooldir_arrow ();
+X#	endif					
+X						cur_spoolnum = 0;
+X						show_spooldir_page ();
+X					} else {
+X						erase_spooldir_arrow ();
+X						cur_spoolnum = 0;
+X						draw_spooldir_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				if (cur_spoolnum + 1 >= last_spooldir_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X					erase_spooldir_arrow ();
+X#endif					
+X					cur_spoolnum++;
+X					show_spooldir_page ();
+X				} else {
+X					erase_spooldir_arrow ();
+X					cur_spoolnum++;
+X					draw_spooldir_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('P'):		/* line up */
+X			case 'k':
+Xspooldir_up:
+X				if (cur_spoolnum == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (spool_top > last_spooldir_on_screen) {
+X						cur_spoolnum = spool_top - 1;
+X						show_spooldir_page ();
+X					} else {
+X						erase_spooldir_arrow ();
+X						cur_spoolnum = spool_top - 1;
+X						draw_spooldir_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				if (cur_spoolnum <= first_spooldir_on_screen) {
+X					cur_spoolnum--;
+X					show_spooldir_page ();
+X				} else {
+X					erase_spooldir_arrow ();
+X					cur_spoolnum--;
+X					draw_spooldir_arrow ();
+X				}
+X				break;
+X
+X			case 'b':		/* page up */
+X			case ctrl('U'):
+X			case ctrl('B'):		/* vi style */
+Xspooldir_page_up:
+X				if (cur_spoolnum == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (spool_top > last_spooldir_on_screen) {
+X						cur_spoolnum = spool_top - 1;
+X						show_spooldir_page ();
+X					} else {
+X						erase_spooldir_arrow ();
+X						cur_spoolnum = spool_top - 1;
+X						draw_spooldir_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				erase_spooldir_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				if ((n = cur_spoolnum % scroll_lines) > 0) {
+X					cur_spoolnum = cur_spoolnum - n;
+X				} else {
+X					cur_spoolnum = ((cur_spoolnum - scroll_lines) / scroll_lines) * scroll_lines;
+X				}
+X				if (cur_spoolnum < 0) {
+X					cur_spoolnum = 0;
+X				}
+X				if (cur_spoolnum < first_spooldir_on_screen
+X				||  cur_spoolnum >= last_spooldir_on_screen)
+X					show_spooldir_page ();
+X				else
+X					draw_spooldir_arrow ();
+X				break;
+X
+X			case 'B':	/* bug/gripe/comment mailed to author */
+X				mail_bug_report ();
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_spooldir_page ();
+X				break;
+X				
+X			case 'h':	/* help */
+X				show_info_page (HELP_INFO, help_spooldir, txt_spooldir_com);
+X				show_spooldir_page ();
+X				break;
+X
+X			case 'I':	/* toggle inverse video */
+X				erase_spooldir_arrow ();
+X				toggle_inverse_video ();
+X				show_spooldir_page ();
+X				break;
+X
+X			case 'q':	/* quit */
+X				return TRUE;
+X				break;
+X				
+X			case 'Q':	/* quit */
+X				write_rcfile ();
+X				tin_done (0);
+X				break;
+X
+X			case 'v':	/* show tin version */
+X				info_message (cvers);
+X				break;
+X
+X			default:
+X			    info_message(txt_bad_command);
+X		}
+X	}
+X
+X#endif	/* INDEX_DAEMON */
+X}
+X
+X
+Xvoid show_spooldir_page ()
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char buf[PATH_LEN];
+X	int i, j;
+X	int spoolname_len;
+X
+X	set_signals_spooldir ();
+X
+X#ifdef USE_CLEARSCREEN
+X	ClearScreen ();
+X#else
+X	MoveCursor (0, 0);		/* top left corner */
+X	CleartoEOLN ();
+X#endif
+X
+X	sprintf (buf, txt_spooldir_selection, num_spooldirs);
+X	show_title (buf);
+X
+X#ifndef USE_CLEARSCREEN
+X	MoveCursor (1, 0);
+X	CleartoEOLN ();
+X#endif
+X
+X	MoveCursor (INDEX_TOP, 0);
+X
+X	if (cur_spoolnum >= spool_top) {
+X		cur_spoolnum = spool_top - 1;
+X	}
+X	if (cur_spoolnum < 0) {
+X		cur_spoolnum = 0;
+X	}
+X 
+X	if (NOTESLINES <= 0) {
+X		first_spooldir_on_screen = 0;
+X	} else {
+X		first_spooldir_on_screen = (cur_spoolnum / NOTESLINES) * NOTESLINES;
+X		if (first_spooldir_on_screen < 0) {
+X			first_spooldir_on_screen = 0;
+X		}
+X	}
+X
+X	last_spooldir_on_screen = first_spooldir_on_screen + NOTESLINES;
+X
+X	if (last_spooldir_on_screen >= spool_top) {
+X		last_spooldir_on_screen = spool_top;
+X		first_spooldir_on_screen = (cur_spoolnum / NOTESLINES) * NOTESLINES;
+X
+X		if (first_spooldir_on_screen == last_spooldir_on_screen ||
+X			first_spooldir_on_screen < 0) {
+X			if (first_spooldir_on_screen < 0) {
+X				first_spooldir_on_screen = 0;
+X			} else {
+X				first_spooldir_on_screen = last_spooldir_on_screen - NOTESLINES;
+X			}
+X		}	
+X	}
+X
+X	if (spool_top == 0) {
+X		first_spooldir_on_screen = 0;
+X		last_spooldir_on_screen = 0;
+X	}
+X
+X	spoolname_len = COLS - 11;
+X	
+X	for (j=0, i = first_spooldir_on_screen; i < last_spooldir_on_screen; i++,j++) {
+X		sprintf (buf, "%-16.16s  %s", spooldirs[i].name, spooldirs[i].comment);
+X		sprintf (screen[j].col, "   %4.d  %-*.*s\r\n",
+X			i+1, spoolname_len, spoolname_len, buf);
+X		fputs (screen[j].col, stdout);
+X	}
+X#ifndef USE_CLEARSCREEN
+X	CleartoEOS ();
+X#endif
+X
+X	draw_spooldir_arrow ();
+X
+X#endif	/* INDEX_DAEMON */
+X}
+X
+X
+Xint prompt_spooldir_num (ch)
+X	char ch;
+X{
+X	int num;
+X
+X	clear_message ();
+X
+X	if ((num = prompt_num (ch, txt_select_spooldir)) == -1) {
+X		clear_message ();
+X		return FALSE;
+X	}
+X	num--;		/* index from 0 (internal) vs. 1 (user) */
+X
+X	if (num < 0) {
+X		num = 0;
+X	}
+X	if (num >= spool_top) {
+X		num = spool_top - 1;
+X	}
+X
+X	if (num >= first_spooldir_on_screen
+X	&&  num < last_spooldir_on_screen) {
+X		erase_spooldir_arrow ();
+X		cur_spoolnum = num;
+X		draw_spooldir_arrow ();
+X	} else {
+X#ifndef USE_CLEARSCREEN
+X		erase_spooldir_arrow ();
+X#endif		
+X		cur_spoolnum = num;
+X		show_spooldir_page ();
+X	}
+X
+X	return TRUE;
+X}
+X
+X
+Xvoid erase_spooldir_arrow ()
+X{
+X	erase_arrow (INDEX_TOP + (cur_spoolnum-first_spooldir_on_screen));
+X}
+X
+X
+Xvoid draw_spooldir_arrow()
+X{
+X	draw_arrow (INDEX_TOP + (cur_spoolnum-first_spooldir_on_screen));
+X}
+X 
+X/*
+X * Load all spooldirs into spooldir[] array
+X */
+X 
+Xint load_spooldirs ()
+X{
+X	char comment[PATH_LEN];
+X	char line[NNTP_STRLEN];
+X	char name[PATH_LEN];
+X	char *ptr;
+X	int i, state;
+X
+X#if 0
+X	spooldirs = (struct spooldir_t *) 0;
+X#else
+X	for (i = 0 ; i < NUM_SPOOLDIRS ; i++) {
+X		spooldirs[i].state = 0;
+X		spooldirs[i].name = (char *) 0;
+X	}
+X#endif
+X
+X	xspooldir_supported = FALSE;
+X	
+X	if (! read_news_via_nntp) {
+X		return (xspooldir_supported);
+X	}
+X
+X	put_server ("spooldir list");
+X	(void) get_server (line, NNTP_STRLEN);
+X	if (*line != CHAR_OK) {
+X		xspooldir_supported = FALSE;
+X		if (debug > 0) {
+X			fprintf (stderr, "%s", line);
+X			fprintf (stderr, "Server does not appear to support the spooldir command\n");
+X			fprintf (stderr, "Reconfigure the news reader or the server & try again.\n");
+X		}
+X		return (xspooldir_supported);
+X	}
+X	if (debug == 1) {
+X		wait_message (line);
+X	}
+X	
+X	xspooldir_supported = TRUE;
+X	
+X	do {
+X		get_server (line, NNTP_STRLEN);
+X		if (line[0] != '.') {
+X			if (debug == 1) {
+X				printf ("%s\n", line);
+X			}	
+X			state = atoi (line);
+X
+X			if ((ptr = strchr (line, ' ')) != (char *) 0) {
+X				strncpy (name, ++ptr, sizeof (name));
+X				ptr = strchr (name, ' ');
+X				*ptr = '\0';				
+X			}
+X
+X			if ((ptr = strchr (line, '[')) != (char *) 0) {
+X				strncpy (comment, ++ptr, sizeof (comment));
+X				ptr = strchr (comment, ']');
+X				*ptr = '\0';				
+X			}
+X
+X/*				
+X			spooldirs = (struct spooldir_t *) my_realloc ((char *) spooldirs,
+X				(unsigned) sizeof (struct spooldir_t) * num_spooldirs + 1);
+X			if (spooldirs != (struct spooldir_t *) 0) {
+X				spooldirs[num_spooldirs].state = state;
+X				spooldirs[num_spooldirs].name = str_dup (name);
+X				spooldirs[num_spooldirs].comment = str_dup (comment);
+X				num_spooldirs++;
+X			}	
+X*/				
+X
+X			spooldirs[num_spooldirs].state = state;
+X			spooldirs[num_spooldirs].name = str_dup (name);
+X			spooldirs[num_spooldirs].comment = str_dup (comment);
+X
+X			if (debug == 1) {
+X				printf ("ALIAS=[%s] COMMENT=[%s]\n", 
+X					spooldirs[num_spooldirs].name,
+X					spooldirs[num_spooldirs].comment);
+X			}
+X			num_spooldirs++;
+X		}
+X	} while (!((line[0] == '.') && ((line[1] == '\0') || (line[1] == '\r'))));
+X
+X	return (xspooldir_supported);
+X}
+X 
+X/*
+X * Need to select a spooldir directory for reading news from and store all
+X * spooldir's in an array for later use when changing spooldir's
+X */
+X
+Xvoid get_spooldir ()
+X{
+X#ifdef NNTP_ABLE
+X	char line[NNTP_STRLEN];
+X	char alias[32];
+X	char default_alias[32];
+X	int i, set_alias = FALSE;
+X	
+X	default_alias[0] = '\0';
+X
+X	if (! load_spooldirs ()) {
+X		if (! xspooldir_supported) {
+X			strcpy (spooldir_alias, "news");
+X			set_tindir ();
+X		}	
+X		return;
+X	}	
+X
+X	 /*
+X	  * default to current spooldir from last session or 1st in spooldirs[]
+X	  */
+X	if (spooldir_alias[0]) {
+X		my_strncpy (default_alias, spooldir_alias, sizeof (default_alias));
+X	} else {
+X		my_strncpy (default_alias, spooldirs[0].name, sizeof (default_alias));
+X	}
+X
+X	/*
+X	 * Try to use default spooldir. If that fails go through spooldir list
+X	 * looking for first available spooldir.
+X	 */
+X	if (! set_spooldir (spooldir_alias)) {
+X		for (i = 0 ; spooldirs[i].name != (char *) 0 ; i++) {
+X			if (set_spooldir (spooldirs[i].name)) {
+X				set_alias = TRUE;
+X				break;
+X			}
+X		}
+X		if (! set_alias) {
+X			error_message ("%s: Cannot change to valid spooldir. Exiting...", progname);
+X			exit (1);			
+X		}
+X	}
+X
+X#if 0	 
+X	do {
+X		printf ("Which spooldir [%s] ? ", default_alias);
+X		gets (alias);
+X		if (alias[0] == '\0') {
+X			strcpy (alias, default_alias); 
+X		} else if ((alias[0] == 'q') && (alias[1] == '\0')) {
+X			exit(0); /* allow user to quit */
+X		}	
+X		sprintf (line, "spooldir %s", alias);
+X		put_server (line);
+X		(void) get_server (line, NNTP_STRLEN);
+X		printf ("\r\n%s\r\n", line);
+X	} while (line[0] != CHAR_OK);
+X#endif
+X
+X	/*
+X	 * And now set tin to act as though it is reading via NNTP
+X	 */
+X	read_news_via_nntp = TRUE;
+X
+X#endif /* NNTP_ABLE */
+X}
+X
+X/*
+X * Change to specified spooldir if everythings OK.
+X */
+X 
+Xint set_spooldir (name)
+X	char *name;
+X{
+X	char line[NNTP_STRLEN];
+X	int respcode;
+X
+X	if (cmd_line) {
+X		sprintf (line, "Changing spooldir to %s...\n", name);
+X	} else {
+X		sprintf (line, "Changing spooldir to %s...", name);
+X	}	
+X	wait_message (line);
+X
+X	sprintf (line, "spooldir %s", name);
+X	debug_nntp ("set_spooldir", line);
+X	put_server (line);
+X	debug_nntp ("set_spooldir", line);
+X
+X	respcode = get_respcode ();
+X	switch (respcode) {
+X		case OK_SPSWITCH:	/* Switching to a different spooldir */
+X			my_strncpy (spooldir_alias, name, sizeof (spooldir_alias));
+X			set_tindir ();
+X			return TRUE;
+X			break;
+X		case OK_SPNOCHANGE:	/* Still using same spooldir */
+X			break;
+X		default:
+X			error_message ("%s", nntp_respcode (respcode));
+X			clear_message ();
+X			return FALSE;
+X			break;		
+X	}
+X}
+END_OF_FILE
+  if test 14375 -ne `wc -c <'spooldir.c'`; then
+    echo shar: \"'spooldir.c'\" unpacked with wrong size!
+  fi
+  # end of 'spooldir.c'
+fi
+echo shar: End of archive 11 \(of 15\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

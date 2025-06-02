@@ -1,0 +1,1735 @@
+From: newsham@wiliki.eng.hawaii.edu (Timothy Newsham)
+Newsgroups: comp.sources.misc
+Subject: v38i010: circ - encrypted irc package, Part01/03
+Date: 19 Jun 1993 08:30:21 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <csm-v38i010=circ.082941@aber.ac.uk>
+X-Md4-Signature: 8f69745400e904297079a7f9cb0d0e4d
+
+Submitted-by: newsham@wiliki.eng.hawaii.edu (Timothy Newsham)
+Posting-number: Volume 38, Issue 10
+Archive-name: circ/part01
+Environment: C UNIX
+
+The following (in uuencoded tar-Z format) is The first release (V1.0) of
+the Circ package.  It works in conjunction with the ircII client (chat
+program: available at csd.bu.edu in pub/irc/clients)
+
+The program allows for key management, key exchange and the exchange of
+encrypted messages in real time over the IRC chat network.
+
+The current version has been tested on Ultrix (decstation) and HPUX 9.0
+(hp9000) machines.  Previous versions have been tested on other
+platforms, the code is mostly made up of STDIO routines and should
+compile on most unix machines.
+
+All code written by me is released into the public domain.
+
+The code in the RSA and d3des directories were not authored by me but
+are freely distributable.
+
+****
+Moderators note:
+Circ was supplied to me as a single 127Kb shar file.  Since this was too
+large to post directly, I've split it into 3 separate issues.  +Alec-
+--
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MANIFEST Circ Circ/README.old Circ/RSA Circ/RSA/conf.h
+#   Circ/d3des Circ/d3des/d3des.c Circ/pubkeys Circ/sock2.c
+# Wrapped by alecm@uk-usenet on Sat Jun 19 08:26:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(1445 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X----------------------------------------------------------
+XMANIFEST                   1	
+XCirc                       1	
+XCirc/LOG                   3	
+XCirc/Makefile              3	
+XCirc/README                2	
+XCirc/README.old            1	
+XCirc/RSA                   1	
+XCirc/RSA/MANIFEST          3	
+XCirc/RSA/Make.amiga        3	
+XCirc/RSA/Make.unix         3	
+XCirc/RSA/Makefile          3	
+XCirc/RSA/README            3	
+XCirc/RSA/README.english    3	
+XCirc/RSA/WARNING           3	
+XCirc/RSA/arith.c           2	
+XCirc/RSA/arith.h           3	
+XCirc/RSA/conf.h            1	
+XCirc/RSA/genprim.c         3	
+XCirc/RSA/genrsa.c          3	
+XCirc/RSA/makekey           3	
+XCirc/RSA/nio.c             2	
+XCirc/RSA/nio.h             3	
+XCirc/RSA/patchlevel.h      3	
+XCirc/RSA/prim.c            2	
+XCirc/RSA/prim.h            3	
+XCirc/RSA/rnd.c             3	
+XCirc/RSA/rnd.h             3	
+XCirc/RSA/rsa.c             2	
+XCirc/RSA/rsa.hdr           3	
+XCirc/RSA/test.c            3	
+XCirc/crypt.c               3	
+XCirc/crypt.irc             2	
+XCirc/crypt.irc2            3	
+XCirc/d3des                 1	
+XCirc/d3des/d3des.c         1	
+XCirc/d3des/d3des.h         2	
+XCirc/d3des/main.c          3	
+XCirc/d3des/readme          3	
+XCirc/ignore.irc            3	
+XCirc/new.c                 2	
+XCirc/pubkeys               1	
+XCirc/pubkeys/al            3	
+XCirc/sock.h                3	
+XCirc/sock2.c               1	
+XPOSTER                     3	
+END_OF_FILE
+  if test 1445 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test ! -d 'Circ' ; then
+    echo shar: Creating directory \"'Circ'\"
+    mkdir 'Circ'
+fi
+if test -f 'Circ/README.old' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/README.old'\"
+else
+  echo shar: Extracting \"'Circ/README.old'\" \(6652 characters\)
+  sed "s/^X//" >'Circ/README.old' <<'END_OF_FILE'
+X
+Xthis is a tinyirc client (client not written by me)
+Xbut I added in encryption..  Right now encryption is
+Xdone in DES for messages and RSA for key exchange.
+X
+XTo set it up,  unarchive (you probably already did this)
+Xthen type :
+X    (you should be in the 'irc' dir at this point)
+X     make sock
+Xthis should make a program called 'sock'
+X
+Xnow you need to go into the RSA directory and make yourself
+Xa keypair.
+X
+X     cd RSA
+X     make genrsa
+X     make genprim
+X     genrsa
+X
+Xthis makes two files  'public' and 'secret'.  You need to install
+Xthese:
+X     mv secret ..
+X     mv public ../<yournick>
+X     cd ..
+X
+Xand give out your public key to everyone you want to talk to.
+XThis lets them send their key to you.
+X
+XYou must send them your public key *BEFORE* you start talking
+Xto them on irc.  You can do this with mail or with /dcc on
+Xa normal irc client, or any other way you wish.
+X
+XYou must also receive keys for the people you wish to talk to
+X*BEFORE* running the program!  These should be in the same
+Xdirectory as 'sock' and have they same filename as the
+Xother person's nickname.  So by this point you should have:
+X   your friends key in a file named after their nickname
+X   your key in a file called 'secret'
+X   a binary named 'sock'
+Xall in the same directory.
+X
+XI have supplied a number of public keys from me and my friends.
+XThese are in the directory irc/pubkeys/*.  If you wish to
+Xuse any of them copy them into the same directory as you
+Xhave 'sock' in:
+X     cp pubkeys/* .
+X
+Xrun sock:
+X      sock
+X
+Xjoin the same channel as your friend you wish to talk to:
+X      /join #channel
+X
+Xsend them your key,  this lets them read any message typed by
+Xyou (note you have to be in the same channel as them)
+X      /key <your friend>
+X
+Xyour friend will receive your key, and now everything you type
+Xcan be read by him.  In order to send your key to your friend
+Xyou must have the file <your friend> in your directory that
+Xis <your friend>'s public key.  He must have the matching
+Xsecret key in the file 'secret' in his directory.  If your
+Xfriend changes nick's and the filename of his key isnt the
+Xsame as his nick you can specify the file:
+X       /key <your friend> <filename of his key>
+X
+X(note: this isnt working yet ^^^ will be fixed)
+Xthats it!  Everything you type is encrypted with the same key
+Xwhich is chosen at random when you start up 'sock'.  Every time
+Xyou use sock a new key is used.  Every time you want to talk to
+Xa new person you have to send them your key.  Anyone who has
+Xyour key can read any of your messages,  so if you dont want
+Xpeople reading your messages dont give them your key.  Everything
+Xyou type is encrypted.
+X
+X
+Xsome public keys are already provided in pubkeys/*
+Xcopy them into current directory to use them.
+X--------
+XWeaknesses:
+X
+X  (1) RSA key as created by 'genrsa' is not very long!  It
+X      is crackable right now.  This could be lengthened
+X      easily enough by modifying genrsa.c .  The rest of
+X      the program doesnt care what length key is used.
+X
+X  (2) You can send alot of garbage to someone's screen by
+X      sending out wrong key's and/or sending out bad
+X      data matching keys already aquired.
+X      possible solution: header inside of the encrypted
+X      data.  1 character would give a 1/256 chance of
+X      this attack working.
+X
+X  (3) probably alot more I didnt think about.
+X
+X----------
+XProtocol:
+X
+Xthere are two types of messages,  one to send keys across
+Xto other people, one to send across encrypted messages, all
+Xmessages are sent to the current irc channel, not through messages
+Xto individual people:
+X
+X   SKPJACK:xxxx:yyyy:zzzzz
+X        xxxx - the nick name of the intended recipient
+X        yyyy - the serial number of the key being transfered
+X        zzzz - ascii encoded RSA data
+X     messages of this format are used to send private keys (DES
+X     keys) to the recipient, ie   /key nick.
+X     Messages received are ignored if xxxxx isnt our current nick.
+X
+X   CLIPPER:xxxx:yyyy
+X         xxxx - the serial number of the key used to encrypt
+X         yyyy - the ascii encoded crypted data (DES)
+X     messages of this format are used to send encrypted chat
+X     messages.  Messages received are ignored if we dont have
+X     the key corresponding to the serial number. 
+X
+X   ascii coding:  each byte is broken into 2 nybbles (4 bits)
+X   and sent across as two characters,  the first nybble
+X   is sent as   hi+'a' and the second is sent as lo+'A'
+X   so alternate characters are always upper then lower then
+X   upper case and so on.  (byte = hi<<4 + lo)
+X    
+X   Keys are generated randomly and each key has a random 
+X   32 bit serial number associated with it.  The program
+X   uses the serial number to decided which key to decrypt 
+X   with.  The program keeps all the keys it receives.
+X   All messages you type are sent with your key,  all messages
+X   you receive are decoded with the key matching the serial
+X   number sent with it.
+X
+X   your key and its serial number are generated as follows:
+X      srand(time(0));   <-- seed random with time
+X      pick 8 random chars into K
+X      L=encrypt(K,K)      <-- encrypt K with key K
+X      serial = (int)L     <-- use this as the serial number
+X      pick 8 random chars int M
+X      N=encrypt(M,K)      <-- encrypt M with key K
+X      N is used as your private DES key
+X      serial is used to keep track of N 
+X     
+X   this should thward attacks trying to guess N given 
+X   serial and possibly a good guess of time(0);
+X   encrypt(a,b) means encrypt a with key b in DES
+X-----
+XCREDITS
+X
+XAlot of this software was not written by me, In fact my part
+Xwas minimal.  I stole code from the following people:
+X
+XThe basic IRC client (tinyIRC) by:
+X Nathan Laredo - "Green" 
+X gt7080a@prism.gatech.edu 
+X
+X
+XThe RSA package by:    (email address is no longer valid)
+X
+X  Martin Nicolay		( martin@trillian.megalon.de )
+X  Fliederstr. 23
+X  4100 Duisburg 1
+X  W-Germany
+X
+XI couldn't reach him via email.  I got this package via
+Xanon-ftp,  I hope he doesnt mind use of it in this program.
+X
+X
+XThe DES package (d3des):
+X
+X D3DES (V5.09) -
+X
+X A portable, public domain, version of the Data Encryption Standard.
+X
+X Written with Symantec's THINK (Lightspeed) C by Richard Outerbridge.
+X Thanks to: Dan Hoey for his excellent Initial and Inverse permutation
+X code;  Jim Gillogly & Phil Karn for the DES key schedule code; Dennis
+X Ferguson, Eric Young and Dana How for comparing notes; and Ray Lau,
+X for humouring me on.
+X
+X Copyright (c) 1988,1989,1990,1991,1992 by Richard Outerbridge.
+X (GEnie : OUTER; CIS : [71755,204]) Graven Imagery, 1992.
+X
+XHe says "public domain" and then later "Copyright".  I assume
+Xhe means "freely distributable, useable".
+X
+XIf any of you are out there thanx alot!  Your code is much
+Xappreciated.
+X
+END_OF_FILE
+  if test 6652 -ne `wc -c <'Circ/README.old'`; then
+    echo shar: \"'Circ/README.old'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/README.old'
+fi
+if test ! -d 'Circ/RSA' ; then
+    echo shar: Creating directory \"'Circ/RSA'\"
+    mkdir 'Circ/RSA'
+fi
+if test -f 'Circ/RSA/conf.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/RSA/conf.h'\"
+else
+  echo shar: Extracting \"'Circ/RSA/conf.h'\" \(2293 characters\)
+  sed "s/^X//" >'Circ/RSA/conf.h' <<'END_OF_FILE'
+X/*******************************************************************************
+X*									       *
+X*	Copyright (c) Martin Nicolay,  22. Nov. 1988			       *
+X*									       *
+X*	Wenn diese (oder sinngemaess uebersetzte) Copyright-Angabe enthalten   *
+X*	bleibt, darf diese Source fuer jeden nichtkomerziellen Zweck weiter    *
+X*	verwendet werden.						       *
+X*									       *
+X*	martin@trillian.megalon.de					       *
+X*									       *
+X*******************************************************************************/
+X
+X#ifndef	_conf_h_
+X#define	_conf_h_
+X
+Xtypedef	unsigned short INT;		/* muss MAXINT fassen		*/
+Xtypedef	unsigned long LONG;		/* muss (MAXINT+1)^2 -1 fassen	*/
+X
+X#if	defined( M_XENIX )
+X#define	P(x)	x			/* Funktions Prototypen an	*/
+X#else
+X#define	P(x)	()			/* Funktions Prototypen aus	*/
+X#endif
+X
+X/*
+X *	(MAXINT+1)-adic Zahlen
+X */
+X
+X/*
+X *	MAXINT		Maximale Zahl pro Elemenmt (muss int sein)
+X *	MAXBIT		Maximales Bit von MAXINT
+X *	LOWBITS		Anzahl der consekutiven low Bits von MAXINT
+X *	HIGHBIT		Hoechsten Bit von MAXINT
+X *	TOINT		muss (INT)( (x) % MAXINT) ergeben
+X *	MAXLEN		Laenge der INT Array in jeder NUMBER
+X */
+X
+X#define MAXINT		0xFFFF
+X
+X#if MAXINT == 99
+X#define	MAXBIT		7
+X#define	LOWBITS 	2
+X#endif
+X#if MAXINT == 9
+X#define	MAXBIT		4
+X#define	LOWBITS 	1
+X#endif
+X#if MAXINT == 1
+X#define MAXBIT		1
+X#endif
+X#if MAXINT == 0xFF
+X#define MAXBIT		8
+X#define	TOINT(x)	((INT)(x))		/* ACHTUNG !!!!! */
+X#endif
+X#if MAXINT == 0xFFFF
+X#define MAXBIT		16
+X#define	TOINT(x)	((INT)(x))		/* ACHTUNG !!!!! */
+X#endif
+X
+X#ifndef	MAXBIT
+X#include	"<< ERROR: MAXBIT must be defined >>"
+X#endif
+X#ifndef	LOWBITS
+X#if MAXINT == (1 << MAXBIT) - 1
+X#define	LOWBITS		MAXBIT
+X#else
+X#include	"<< ERROR: LOWBITS must be defined >>"
+X#endif
+X#endif
+X
+X#define	MAXLEN		(300*8/(MAXBIT + 1))
+X#define	STRLEN		(MAXLEN*MAXBIT/4)
+X#define	HIGHBIT		(1 << (MAXBIT-1) )
+X
+X#if LOWBITS == MAXBIT
+X#define	DIVMAX1(x)	((x) >> MAXBIT)
+X#define	MODMAX1(x)	((x) & MAXINT)
+X#define	MULMAX1(x)	((x) << MAXBIT)
+X#else
+X#define	DIVMAX1(x)	((x) / (MAXINT+1))
+X#define	MODMAX1(x)	((x) % (MAXINT+1))
+X#define	MULMAX1(x)	((x) * (unsigned)(MAXINT+1))
+X#endif
+X
+X#ifndef	TOINT
+X#define	TOINT(x)	((INT)MODMAX1(x))
+X#endif
+X
+Xtypedef struct {
+X	int	n_len;			/* Hoechster benutzter Index	*/
+X	INT	n_part[MAXLEN];
+X} NUMBER;
+X
+X#define	NUM0P	((NUMBER *)0)		/* Abkuerzung			*/
+X
+X#endif
+END_OF_FILE
+  if test 2293 -ne `wc -c <'Circ/RSA/conf.h'`; then
+    echo shar: \"'Circ/RSA/conf.h'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/RSA/conf.h'
+fi
+if test ! -d 'Circ/d3des' ; then
+    echo shar: Creating directory \"'Circ/d3des'\"
+    mkdir 'Circ/d3des'
+fi
+if test -f 'Circ/d3des/d3des.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/d3des/d3des.c'\"
+else
+  echo shar: Extracting \"'Circ/d3des/d3des.c'\" \(20140 characters\)
+  sed "s/^X//" >'Circ/d3des/d3des.c' <<'END_OF_FILE'
+X/* D3DES (V5.09) -
+X *
+X * A portable, public domain, version of the Data Encryption Standard.
+X *
+X * Written with Symantec's THINK (Lightspeed) C by Richard Outerbridge.
+X * Thanks to: Dan Hoey for his excellent Initial and Inverse permutation
+X * code;  Jim Gillogly & Phil Karn for the DES key schedule code; Dennis
+X * Ferguson, Eric Young and Dana How for comparing notes; and Ray Lau,
+X * for humouring me on.
+X *
+X * Copyright (c) 1988,1989,1990,1991,1992 by Richard Outerbridge.
+X * (GEnie : OUTER; CIS : [71755,204]) Graven Imagery, 1992.
+X */
+X
+X#include "d3des.h"
+X
+Xstatic void scrunch(/* unsigned char *, unsigned long * */);
+Xstatic void unscrun(/* unsigned long *, unsigned char * */);
+Xstatic void desfunc(/* unsigned long *, unsigned long * */);
+Xstatic void cookey(/* unsigned long * */);
+X
+Xstatic unsigned long KnL[32] = { 0L };
+Xstatic unsigned long KnR[32] = { 0L };
+Xstatic unsigned long Kn3[32] = { 0L };
+Xstatic unsigned char Df_Key[24] = {
+X	0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,
+X	0xfe,0xdc,0xba,0x98,0x76,0x54,0x32,0x10,
+X	0x89,0xab,0xcd,0xef,0x01,0x23,0x45,0x67 };
+X
+Xstatic unsigned short bytebit[8]	= {
+X	0200, 0100, 040, 020, 010, 04, 02, 01 };
+X
+Xstatic unsigned long bigbyte[24] = {
+X	0x800000L,	0x400000L,	0x200000L,	0x100000L,
+X	0x80000L,	0x40000L,	0x20000L,	0x10000L,
+X	0x8000L,	0x4000L,	0x2000L,	0x1000L,
+X	0x800L, 	0x400L, 	0x200L, 	0x100L,
+X	0x80L,		0x40L,		0x20L,		0x10L,
+X	0x8L,		0x4L,		0x2L,		0x1L	};
+X
+X/* Use the key schedule specified in the Standard (ANSI X3.92-1981). */
+X
+Xstatic unsigned char pc1[56] = {
+X	56, 48, 40, 32, 24, 16,  8,	 0, 57, 49, 41, 33, 25, 17,
+X	 9,  1, 58, 50, 42, 34, 26,	18, 10,  2, 59, 51, 43, 35,
+X	62, 54, 46, 38, 30, 22, 14,	 6, 61, 53, 45, 37, 29, 21,
+X	13,  5, 60, 52, 44, 36, 28,	20, 12,  4, 27, 19, 11,  3 };
+X
+Xstatic unsigned char totrot[16] = {
+X	1,2,4,6,8,10,12,14,15,17,19,21,23,25,27,28 };
+X
+Xstatic unsigned char pc2[48] = {
+X	13, 16, 10, 23,  0,  4,  2, 27, 14,  5, 20,  9,
+X	22, 18, 11,  3, 25,  7, 15,  6, 26, 19, 12,  1,
+X	40, 51, 30, 36, 46, 54, 29, 39, 50, 44, 32, 47,
+X	43, 48, 38, 55, 33, 52, 45, 41, 49, 35, 28, 31 };
+X
+Xvoid deskey(key, edf)	/* Thanks to James Gillogly & Phil Karn! */
+Xunsigned char *key;
+Xshort edf;
+X{
+X	register int i, j, l, m, n;
+X	unsigned char pc1m[56], pcr[56];
+X	unsigned long kn[32];
+X
+X	for ( j = 0; j < 56; j++ ) {
+X		l = pc1[j];
+X		m = l & 07;
+X		pc1m[j] = (key[l >> 3] & bytebit[m]) ? 1 : 0;
+X		}
+X	for( i = 0; i < 16; i++ ) {
+X		if( edf == DE1 ) m = (15 - i) << 1;
+X		else m = i << 1;
+X		n = m + 1;
+X		kn[m] = kn[n] = 0L;
+X		for( j = 0; j < 28; j++ ) {
+X			l = j + totrot[i];
+X			if( l < 28 ) pcr[j] = pc1m[l];
+X			else pcr[j] = pc1m[l - 28];
+X			}
+X		for( j = 28; j < 56; j++ ) {
+X		    l = j + totrot[i];
+X		    if( l < 56 ) pcr[j] = pc1m[l];
+X		    else pcr[j] = pc1m[l - 28];
+X		    }
+X		for( j = 0; j < 24; j++ ) {
+X			if( pcr[pc2[j]] ) kn[m] |= bigbyte[j];
+X			if( pcr[pc2[j+24]] ) kn[n] |= bigbyte[j];
+X			}
+X		}
+X	cookey(kn);
+X	return;
+X	}
+X
+Xstatic void cookey(raw1)
+Xregister unsigned long *raw1;
+X{
+X	register unsigned long *cook, *raw0;
+X	unsigned long dough[32];
+X	register int i;
+X
+X	cook = dough;
+X	for( i = 0; i < 16; i++, raw1++ ) {
+X		raw0 = raw1++;
+X		*cook	 = (*raw0 & 0x00fc0000L) << 6;
+X		*cook	|= (*raw0 & 0x00000fc0L) << 10;
+X		*cook	|= (*raw1 & 0x00fc0000L) >> 10;
+X		*cook++ |= (*raw1 & 0x00000fc0L) >> 6;
+X		*cook	 = (*raw0 & 0x0003f000L) << 12;
+X		*cook	|= (*raw0 & 0x0000003fL) << 16;
+X		*cook	|= (*raw1 & 0x0003f000L) >> 4;
+X		*cook++ |= (*raw1 & 0x0000003fL);
+X		}
+X	usekey(dough);
+X	return;
+X	}
+X
+Xvoid cpkey(into)
+Xregister unsigned long *into;
+X{
+X	register unsigned long *from, *endp;
+X
+X	from = KnL, endp = &KnL[32];
+X	while( from < endp ) *into++ = *from++;
+X	return;
+X	}
+X
+Xvoid usekey(from)
+Xregister unsigned long *from;
+X{
+X	register unsigned long *to, *endp;
+X
+X	to = KnL, endp = &KnL[32];
+X	while( to < endp ) *to++ = *from++;
+X	return;
+X	}
+X
+Xvoid des(inblock, outblock)
+Xunsigned char *inblock, *outblock;
+X{
+X	unsigned long work[2];
+X
+X	scrunch(inblock, work);
+X	desfunc(work, KnL);
+X	unscrun(work, outblock);
+X	return;
+X	}
+X
+Xstatic void scrunch(outof, into)
+Xregister unsigned char *outof;
+Xregister unsigned long *into;
+X{
+X	*into	 = (*outof++ & 0xffL) << 24;
+X	*into	|= (*outof++ & 0xffL) << 16;
+X	*into	|= (*outof++ & 0xffL) << 8;
+X	*into++ |= (*outof++ & 0xffL);
+X	*into	 = (*outof++ & 0xffL) << 24;
+X	*into	|= (*outof++ & 0xffL) << 16;
+X	*into	|= (*outof++ & 0xffL) << 8;
+X	*into	|= (*outof   & 0xffL);
+X	return;
+X	}
+X
+Xstatic void unscrun(outof, into)
+Xregister unsigned long *outof;
+Xregister unsigned char *into;
+X{
+X	*into++ = (*outof >> 24) & 0xffL;
+X	*into++ = (*outof >> 16) & 0xffL;
+X	*into++ = (*outof >>  8) & 0xffL;
+X	*into++ =  *outof++	 & 0xffL;
+X	*into++ = (*outof >> 24) & 0xffL;
+X	*into++ = (*outof >> 16) & 0xffL;
+X	*into++ = (*outof >>  8) & 0xffL;
+X	*into	=  *outof	 & 0xffL;
+X	return;
+X	}
+X
+Xstatic unsigned long SP1[64] = {
+X	0x01010400L, 0x00000000L, 0x00010000L, 0x01010404L,
+X	0x01010004L, 0x00010404L, 0x00000004L, 0x00010000L,
+X	0x00000400L, 0x01010400L, 0x01010404L, 0x00000400L,
+X	0x01000404L, 0x01010004L, 0x01000000L, 0x00000004L,
+X	0x00000404L, 0x01000400L, 0x01000400L, 0x00010400L,
+X	0x00010400L, 0x01010000L, 0x01010000L, 0x01000404L,
+X	0x00010004L, 0x01000004L, 0x01000004L, 0x00010004L,
+X	0x00000000L, 0x00000404L, 0x00010404L, 0x01000000L,
+X	0x00010000L, 0x01010404L, 0x00000004L, 0x01010000L,
+X	0x01010400L, 0x01000000L, 0x01000000L, 0x00000400L,
+X	0x01010004L, 0x00010000L, 0x00010400L, 0x01000004L,
+X	0x00000400L, 0x00000004L, 0x01000404L, 0x00010404L,
+X	0x01010404L, 0x00010004L, 0x01010000L, 0x01000404L,
+X	0x01000004L, 0x00000404L, 0x00010404L, 0x01010400L,
+X	0x00000404L, 0x01000400L, 0x01000400L, 0x00000000L,
+X	0x00010004L, 0x00010400L, 0x00000000L, 0x01010004L };
+X
+Xstatic unsigned long SP2[64] = {
+X	0x80108020L, 0x80008000L, 0x00008000L, 0x00108020L,
+X	0x00100000L, 0x00000020L, 0x80100020L, 0x80008020L,
+X	0x80000020L, 0x80108020L, 0x80108000L, 0x80000000L,
+X	0x80008000L, 0x00100000L, 0x00000020L, 0x80100020L,
+X	0x00108000L, 0x00100020L, 0x80008020L, 0x00000000L,
+X	0x80000000L, 0x00008000L, 0x00108020L, 0x80100000L,
+X	0x00100020L, 0x80000020L, 0x00000000L, 0x00108000L,
+X	0x00008020L, 0x80108000L, 0x80100000L, 0x00008020L,
+X	0x00000000L, 0x00108020L, 0x80100020L, 0x00100000L,
+X	0x80008020L, 0x80100000L, 0x80108000L, 0x00008000L,
+X	0x80100000L, 0x80008000L, 0x00000020L, 0x80108020L,
+X	0x00108020L, 0x00000020L, 0x00008000L, 0x80000000L,
+X	0x00008020L, 0x80108000L, 0x00100000L, 0x80000020L,
+X	0x00100020L, 0x80008020L, 0x80000020L, 0x00100020L,
+X	0x00108000L, 0x00000000L, 0x80008000L, 0x00008020L,
+X	0x80000000L, 0x80100020L, 0x80108020L, 0x00108000L };
+X
+Xstatic unsigned long SP3[64] = {
+X	0x00000208L, 0x08020200L, 0x00000000L, 0x08020008L,
+X	0x08000200L, 0x00000000L, 0x00020208L, 0x08000200L,
+X	0x00020008L, 0x08000008L, 0x08000008L, 0x00020000L,
+X	0x08020208L, 0x00020008L, 0x08020000L, 0x00000208L,
+X	0x08000000L, 0x00000008L, 0x08020200L, 0x00000200L,
+X	0x00020200L, 0x08020000L, 0x08020008L, 0x00020208L,
+X	0x08000208L, 0x00020200L, 0x00020000L, 0x08000208L,
+X	0x00000008L, 0x08020208L, 0x00000200L, 0x08000000L,
+X	0x08020200L, 0x08000000L, 0x00020008L, 0x00000208L,
+X	0x00020000L, 0x08020200L, 0x08000200L, 0x00000000L,
+X	0x00000200L, 0x00020008L, 0x08020208L, 0x08000200L,
+X	0x08000008L, 0x00000200L, 0x00000000L, 0x08020008L,
+X	0x08000208L, 0x00020000L, 0x08000000L, 0x08020208L,
+X	0x00000008L, 0x00020208L, 0x00020200L, 0x08000008L,
+X	0x08020000L, 0x08000208L, 0x00000208L, 0x08020000L,
+X	0x00020208L, 0x00000008L, 0x08020008L, 0x00020200L };
+X
+Xstatic unsigned long SP4[64] = {
+X	0x00802001L, 0x00002081L, 0x00002081L, 0x00000080L,
+X	0x00802080L, 0x00800081L, 0x00800001L, 0x00002001L,
+X	0x00000000L, 0x00802000L, 0x00802000L, 0x00802081L,
+X	0x00000081L, 0x00000000L, 0x00800080L, 0x00800001L,
+X	0x00000001L, 0x00002000L, 0x00800000L, 0x00802001L,
+X	0x00000080L, 0x00800000L, 0x00002001L, 0x00002080L,
+X	0x00800081L, 0x00000001L, 0x00002080L, 0x00800080L,
+X	0x00002000L, 0x00802080L, 0x00802081L, 0x00000081L,
+X	0x00800080L, 0x00800001L, 0x00802000L, 0x00802081L,
+X	0x00000081L, 0x00000000L, 0x00000000L, 0x00802000L,
+X	0x00002080L, 0x00800080L, 0x00800081L, 0x00000001L,
+X	0x00802001L, 0x00002081L, 0x00002081L, 0x00000080L,
+X	0x00802081L, 0x00000081L, 0x00000001L, 0x00002000L,
+X	0x00800001L, 0x00002001L, 0x00802080L, 0x00800081L,
+X	0x00002001L, 0x00002080L, 0x00800000L, 0x00802001L,
+X	0x00000080L, 0x00800000L, 0x00002000L, 0x00802080L };
+X
+Xstatic unsigned long SP5[64] = {
+X	0x00000100L, 0x02080100L, 0x02080000L, 0x42000100L,
+X	0x00080000L, 0x00000100L, 0x40000000L, 0x02080000L,
+X	0x40080100L, 0x00080000L, 0x02000100L, 0x40080100L,
+X	0x42000100L, 0x42080000L, 0x00080100L, 0x40000000L,
+X	0x02000000L, 0x40080000L, 0x40080000L, 0x00000000L,
+X	0x40000100L, 0x42080100L, 0x42080100L, 0x02000100L,
+X	0x42080000L, 0x40000100L, 0x00000000L, 0x42000000L,
+X	0x02080100L, 0x02000000L, 0x42000000L, 0x00080100L,
+X	0x00080000L, 0x42000100L, 0x00000100L, 0x02000000L,
+X	0x40000000L, 0x02080000L, 0x42000100L, 0x40080100L,
+X	0x02000100L, 0x40000000L, 0x42080000L, 0x02080100L,
+X	0x40080100L, 0x00000100L, 0x02000000L, 0x42080000L,
+X	0x42080100L, 0x00080100L, 0x42000000L, 0x42080100L,
+X	0x02080000L, 0x00000000L, 0x40080000L, 0x42000000L,
+X	0x00080100L, 0x02000100L, 0x40000100L, 0x00080000L,
+X	0x00000000L, 0x40080000L, 0x02080100L, 0x40000100L };
+X
+Xstatic unsigned long SP6[64] = {
+X	0x20000010L, 0x20400000L, 0x00004000L, 0x20404010L,
+X	0x20400000L, 0x00000010L, 0x20404010L, 0x00400000L,
+X	0x20004000L, 0x00404010L, 0x00400000L, 0x20000010L,
+X	0x00400010L, 0x20004000L, 0x20000000L, 0x00004010L,
+X	0x00000000L, 0x00400010L, 0x20004010L, 0x00004000L,
+X	0x00404000L, 0x20004010L, 0x00000010L, 0x20400010L,
+X	0x20400010L, 0x00000000L, 0x00404010L, 0x20404000L,
+X	0x00004010L, 0x00404000L, 0x20404000L, 0x20000000L,
+X	0x20004000L, 0x00000010L, 0x20400010L, 0x00404000L,
+X	0x20404010L, 0x00400000L, 0x00004010L, 0x20000010L,
+X	0x00400000L, 0x20004000L, 0x20000000L, 0x00004010L,
+X	0x20000010L, 0x20404010L, 0x00404000L, 0x20400000L,
+X	0x00404010L, 0x20404000L, 0x00000000L, 0x20400010L,
+X	0x00000010L, 0x00004000L, 0x20400000L, 0x00404010L,
+X	0x00004000L, 0x00400010L, 0x20004010L, 0x00000000L,
+X	0x20404000L, 0x20000000L, 0x00400010L, 0x20004010L };
+X
+Xstatic unsigned long SP7[64] = {
+X	0x00200000L, 0x04200002L, 0x04000802L, 0x00000000L,
+X	0x00000800L, 0x04000802L, 0x00200802L, 0x04200800L,
+X	0x04200802L, 0x00200000L, 0x00000000L, 0x04000002L,
+X	0x00000002L, 0x04000000L, 0x04200002L, 0x00000802L,
+X	0x04000800L, 0x00200802L, 0x00200002L, 0x04000800L,
+X	0x04000002L, 0x04200000L, 0x04200800L, 0x00200002L,
+X	0x04200000L, 0x00000800L, 0x00000802L, 0x04200802L,
+X	0x00200800L, 0x00000002L, 0x04000000L, 0x00200800L,
+X	0x04000000L, 0x00200800L, 0x00200000L, 0x04000802L,
+X	0x04000802L, 0x04200002L, 0x04200002L, 0x00000002L,
+X	0x00200002L, 0x04000000L, 0x04000800L, 0x00200000L,
+X	0x04200800L, 0x00000802L, 0x00200802L, 0x04200800L,
+X	0x00000802L, 0x04000002L, 0x04200802L, 0x04200000L,
+X	0x00200800L, 0x00000000L, 0x00000002L, 0x04200802L,
+X	0x00000000L, 0x00200802L, 0x04200000L, 0x00000800L,
+X	0x04000002L, 0x04000800L, 0x00000800L, 0x00200002L };
+X
+Xstatic unsigned long SP8[64] = {
+X	0x10001040L, 0x00001000L, 0x00040000L, 0x10041040L,
+X	0x10000000L, 0x10001040L, 0x00000040L, 0x10000000L,
+X	0x00040040L, 0x10040000L, 0x10041040L, 0x00041000L,
+X	0x10041000L, 0x00041040L, 0x00001000L, 0x00000040L,
+X	0x10040000L, 0x10000040L, 0x10001000L, 0x00001040L,
+X	0x00041000L, 0x00040040L, 0x10040040L, 0x10041000L,
+X	0x00001040L, 0x00000000L, 0x00000000L, 0x10040040L,
+X	0x10000040L, 0x10001000L, 0x00041040L, 0x00040000L,
+X	0x00041040L, 0x00040000L, 0x10041000L, 0x00001000L,
+X	0x00000040L, 0x10040040L, 0x00001000L, 0x00041040L,
+X	0x10001000L, 0x00000040L, 0x10000040L, 0x10040000L,
+X	0x10040040L, 0x10000000L, 0x00040000L, 0x10001040L,
+X	0x00000000L, 0x10041040L, 0x00040040L, 0x10000040L,
+X	0x10040000L, 0x10001000L, 0x10001040L, 0x00000000L,
+X	0x10041040L, 0x00041000L, 0x00041000L, 0x00001040L,
+X	0x00001040L, 0x00040040L, 0x10000000L, 0x10041000L };
+X
+Xstatic void desfunc(block, keys)
+Xregister unsigned long *block, *keys;
+X{
+X	register unsigned long fval, work, right, leftt;
+X	register int round;
+X
+X	leftt = block[0];
+X	right = block[1];
+X	work = ((leftt >> 4) ^ right) & 0x0f0f0f0fL;
+X	right ^= work;
+X	leftt ^= (work << 4);
+X	work = ((leftt >> 16) ^ right) & 0x0000ffffL;
+X	right ^= work;
+X	leftt ^= (work << 16);
+X	work = ((right >> 2) ^ leftt) & 0x33333333L;
+X	leftt ^= work;
+X	right ^= (work << 2);
+X	work = ((right >> 8) ^ leftt) & 0x00ff00ffL;
+X	leftt ^= work;
+X	right ^= (work << 8);
+X	right = ((right << 1) | ((right >> 31) & 1L)) & 0xffffffffL;
+X	work = (leftt ^ right) & 0xaaaaaaaaL;
+X	leftt ^= work;
+X	right ^= work;
+X	leftt = ((leftt << 1) | ((leftt >> 31) & 1L)) & 0xffffffffL;
+X
+X	for( round = 0; round < 8; round++ ) {
+X		work  = (right << 28) | (right >> 4);
+X		work ^= *keys++;
+X		fval  = SP7[ work		 & 0x3fL];
+X		fval |= SP5[(work >>  8) & 0x3fL];
+X		fval |= SP3[(work >> 16) & 0x3fL];
+X		fval |= SP1[(work >> 24) & 0x3fL];
+X		work  = right ^ *keys++;
+X		fval |= SP8[ work		 & 0x3fL];
+X		fval |= SP6[(work >>  8) & 0x3fL];
+X		fval |= SP4[(work >> 16) & 0x3fL];
+X		fval |= SP2[(work >> 24) & 0x3fL];
+X		leftt ^= fval;
+X		work  = (leftt << 28) | (leftt >> 4);
+X		work ^= *keys++;
+X		fval  = SP7[ work		 & 0x3fL];
+X		fval |= SP5[(work >>  8) & 0x3fL];
+X		fval |= SP3[(work >> 16) & 0x3fL];
+X		fval |= SP1[(work >> 24) & 0x3fL];
+X		work  = leftt ^ *keys++;
+X		fval |= SP8[ work		 & 0x3fL];
+X		fval |= SP6[(work >>  8) & 0x3fL];
+X		fval |= SP4[(work >> 16) & 0x3fL];
+X		fval |= SP2[(work >> 24) & 0x3fL];
+X		right ^= fval;
+X		}
+X
+X	right = (right << 31) | (right >> 1);
+X	work = (leftt ^ right) & 0xaaaaaaaaL;
+X	leftt ^= work;
+X	right ^= work;
+X	leftt = (leftt << 31) | (leftt >> 1);
+X	work = ((leftt >> 8) ^ right) & 0x00ff00ffL;
+X	right ^= work;
+X	leftt ^= (work << 8);
+X	work = ((leftt >> 2) ^ right) & 0x33333333L;
+X	right ^= work;
+X	leftt ^= (work << 2);
+X	work = ((right >> 16) ^ leftt) & 0x0000ffffL;
+X	leftt ^= work;
+X	right ^= (work << 16);
+X	work = ((right >> 4) ^ leftt) & 0x0f0f0f0fL;
+X	leftt ^= work;
+X	right ^= (work << 4);
+X	*block++ = right;
+X	*block = leftt;
+X	return;
+X	}
+X
+X#ifdef D2_DES
+X
+Xvoid des2key(hexkey, mode)		/* stomps on Kn3 too */
+Xunsigned char *hexkey;			/* unsigned char[16] */
+Xshort mode;
+X{
+X	short revmod;
+X
+X	revmod = (mode == EN0) ? DE1 : EN0;
+X	deskey(&hexkey[8], revmod);
+X	cpkey(KnR);
+X	deskey(hexkey, mode);
+X	cpkey(Kn3);					/* Kn3 = KnL */
+X	return;
+X	}
+X
+Xvoid Ddes(from, into)
+Xunsigned char *from, *into;		/* unsigned char[8] */
+X{
+X	unsigned long work[2];
+X
+X	scrunch(from, work);
+X	desfunc(work, KnL);
+X	desfunc(work, KnR);
+X	desfunc(work, Kn3);
+X	unscrun(work, into);
+X	return;
+X	}
+X
+Xvoid D2des(from, into)
+Xunsigned char *from;			/* unsigned char[16] */
+Xunsigned char *into;			/* unsigned char[16] */
+X{
+X	unsigned long *right, *l1, swap;
+X	unsigned long leftt[2], bufR[2];
+X
+X	right = bufR;
+X	l1 = &leftt[1];
+X	scrunch(from, leftt);
+X	scrunch(&from[8], right);
+X	desfunc(leftt, KnL);
+X	desfunc(right, KnL);
+X	swap = *l1;
+X	*l1 = *right;
+X	*right = swap;
+X	desfunc(leftt, KnR);
+X	desfunc(right, KnR);
+X	swap = *l1;
+X	*l1 = *right;
+X	*right = swap;
+X	desfunc(leftt, Kn3);
+X	desfunc(right, Kn3);
+X	unscrun(leftt, into);
+X	unscrun(right, &into[8]);
+X	return;
+X	}
+X
+Xvoid makekey(aptr, kptr)
+Xregister char *aptr;				/* NULL-terminated  */
+Xregister unsigned char *kptr;		/* unsigned char[8] */
+X{
+X	register unsigned char *store;
+X	register int first, i;
+X	unsigned long savek[96];
+X
+X	cpDkey(savek);
+X	des2key(Df_Key, EN0);
+X	for( i = 0; i < 8; i++ ) kptr[i] = Df_Key[i];
+X	first = 1;
+X	while( (*aptr != '\0') || first ) {
+X		store = kptr;
+X		for( i = 0; i < 8 && (*aptr != '\0'); i++ ) {
+X			*store++ ^= *aptr & 0x7f;
+X			*aptr++ = '\0';
+X			}
+X		Ddes(kptr, kptr);
+X		first = 0;
+X		}
+X	useDkey(savek);
+X	return;
+X	}
+X
+Xvoid make2key(aptr, kptr)
+Xregister char *aptr;				/* NULL-terminated   */
+Xregister unsigned char *kptr;		/* unsigned char[16] */
+X{
+X	register unsigned char *store;
+X	register int first, i;
+X	unsigned long savek[96];
+X
+X	cpDkey(savek);
+X	des2key(Df_Key, EN0);
+X	for( i = 0; i < 16; i++ ) kptr[i] = Df_Key[i];
+X	first = 1;
+X	while( (*aptr != '\0') || first ) {
+X		store = kptr;
+X		for( i = 0; i < 16 && (*aptr != '\0'); i++ ) {
+X			*store++ ^= *aptr & 0x7f;
+X			*aptr++ = '\0';
+X			}
+X		D2des(kptr, kptr);
+X		first = 0;
+X		}
+X	useDkey(savek);
+X	return;
+X	}
+X
+X#ifndef D3_DES	/* D2_DES only */
+X#ifdef	D2_DES	/* iff D2_DES! */
+X
+Xvoid cp2key(into)
+Xregister unsigned long *into;	/* unsigned long[64] */
+X{
+X	register unsigned long *from, *endp;
+X
+X	cpkey(into);
+X	into = &into[32];
+X	from = KnR, endp = &KnR[32];
+X	while( from < endp ) *into++ = *from++;
+X	return;
+X	}
+X
+Xvoid use2key(from)				/* stomps on Kn3 too */
+Xregister unsigned long *from;	/* unsigned long[64] */
+X{
+X	register unsigned long *to, *endp;
+X
+X	usekey(from);
+X	from = &from[32];
+X	to = KnR, endp = &KnR[32];
+X	while( to < endp ) *to++ = *from++;
+X	cpkey(Kn3);					/* Kn3 = KnL */
+X	return;
+X	}
+X
+X#endif	/* iff D2_DES */
+X#else	/* D3_DES too */
+X
+Xstatic void D3des(/* unsigned char *, unsigned char * */);
+X
+Xvoid des3key(hexkey, mode)
+Xunsigned char *hexkey;			/* unsigned char[24] */
+Xshort mode;
+X{
+X	unsigned char *first, *third;
+X	short revmod;
+X
+X	if( mode == EN0 ) {
+X		revmod = DE1;
+X		first = hexkey;
+X		third = &hexkey[16];
+X		}
+X	else {
+X		revmod = EN0;
+X		first = &hexkey[16];
+X		third = hexkey;
+X		}
+X	deskey(&hexkey[8], revmod);
+X	cpkey(KnR);
+X	deskey(third, mode);
+X	cpkey(Kn3);
+X	deskey(first, mode);
+X	return;
+X	}
+X
+Xvoid cp3key(into)
+Xregister unsigned long *into;	/* unsigned long[96] */
+X{
+X	register unsigned long *from, *endp;
+X
+X	cpkey(into);
+X	into = &into[32];
+X	from = KnR, endp = &KnR[32];
+X	while( from < endp ) *into++ = *from++;
+X	from = Kn3, endp = &Kn3[32];
+X	while( from < endp ) *into++ = *from++;
+X	return;
+X	}
+X
+Xvoid use3key(from)
+Xregister unsigned long *from;	/* unsigned long[96] */
+X{
+X	register unsigned long *to, *endp;
+X
+X	usekey(from);
+X	from = &from[32];
+X	to = KnR, endp = &KnR[32];
+X	while( to < endp ) *to++ = *from++;
+X	to = Kn3, endp = &Kn3[32];
+X	while( to < endp ) *to++ = *from++;
+X	return;
+X	}
+X
+Xstatic void D3des(from, into)	/* amateur theatrics */
+Xunsigned char *from;			/* unsigned char[24] */
+Xunsigned char *into;			/* unsigned char[24] */
+X{
+X	unsigned long swap, leftt[2], middl[2], right[2];
+X
+X	scrunch(from, leftt);
+X	scrunch(&from[8], middl);
+X	scrunch(&from[16], right);
+X	desfunc(leftt, KnL);
+X	desfunc(middl, KnL);
+X	desfunc(right, KnL);
+X	swap = leftt[1];
+X	leftt[1] = middl[0];
+X	middl[0] = swap;
+X	swap = middl[1];
+X	middl[1] = right[0];
+X	right[0] = swap;
+X	desfunc(leftt, KnR);
+X	desfunc(middl, KnR);
+X	desfunc(right, KnR);
+X	swap = leftt[1];
+X	leftt[1] = middl[0];
+X	middl[0] = swap;
+X	swap = middl[1];
+X	middl[1] = right[0];
+X	right[0] = swap;
+X	desfunc(leftt, Kn3);
+X	desfunc(middl, Kn3);
+X	desfunc(right, Kn3);
+X	unscrun(leftt, into);
+X	unscrun(middl, &into[8]);
+X	unscrun(right, &into[16]);
+X	return;
+X	}
+X
+Xvoid make3key(aptr, kptr)
+Xregister char *aptr;				/* NULL-terminated   */
+Xregister unsigned char *kptr;		/* unsigned char[24] */
+X{
+X	register unsigned char *store;
+X	register int first, i;
+X	unsigned long savek[96];
+X
+X	cp3key(savek);
+X	des3key(Df_Key, EN0);
+X	for( i = 0; i < 24; i++ ) kptr[i] = Df_Key[i];
+X	first = 1;
+X	while( (*aptr != '\0') || first ) {
+X		store = kptr;
+X		for( i = 0; i < 24 && (*aptr != '\0'); i++ ) {
+X			*store++ ^= *aptr & 0x7f;
+X			*aptr++ = '\0';
+X			}
+X		D3des(kptr, kptr);
+X		first = 0;
+X		}
+X	use3key(savek);
+X	return;
+X	}
+X
+X#endif	/* D3_DES */
+X#endif	/* D2_DES */
+X
+X/* Validation sets:
+X *
+X * Single-length key, single-length plaintext -
+X * Key	  : 0123 4567 89ab cdef
+X * Plain  : 0123 4567 89ab cde7
+X * Cipher : c957 4425 6a5e d31d
+X *
+X * Double-length key, single-length plaintext -
+X * Key	  : 0123 4567 89ab cdef fedc ba98 7654 3210
+X * Plain  : 0123 4567 89ab cde7
+X * Cipher : 7f1d 0a77 826b 8aff
+X *
+X * Double-length key, double-length plaintext -
+X * Key	  : 0123 4567 89ab cdef fedc ba98 7654 3210
+X * Plain  : 0123 4567 89ab cdef 0123 4567 89ab cdff
+X * Cipher : 27a0 8440 406a df60 278f 47cf 42d6 15d7
+X *
+X * Triple-length key, single-length plaintext -
+X * Key	  : 0123 4567 89ab cdef fedc ba98 7654 3210 89ab cdef 0123 4567
+X * Plain  : 0123 4567 89ab cde7
+X * Cipher : de0b 7c06 ae5e 0ed5
+X *
+X * Triple-length key, double-length plaintext -
+X * Key	  : 0123 4567 89ab cdef fedc ba98 7654 3210 89ab cdef 0123 4567
+X * Plain  : 0123 4567 89ab cdef 0123 4567 89ab cdff
+X * Cipher : ad0d 1b30 ac17 cf07 0ed1 1c63 81e4 4de5
+X *
+X * d3des V5.0a rwo 9208.07 18:44 Graven Imagery
+X **********************************************************************/
+END_OF_FILE
+  if test 20140 -ne `wc -c <'Circ/d3des/d3des.c'`; then
+    echo shar: \"'Circ/d3des/d3des.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/d3des/d3des.c'
+fi
+if test ! -d 'Circ/pubkeys' ; then
+    echo shar: Creating directory \"'Circ/pubkeys'\"
+    mkdir 'Circ/pubkeys'
+fi
+if test -f 'Circ/sock2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Circ/sock2.c'\"
+else
+  echo shar: Extracting \"'Circ/sock2.c'\" \(17161 characters\)
+  sed "s/^X//" >'Circ/sock2.c' <<'END_OF_FILE'
+X/* Nathan Laredo - "Green" - gt7080a@prism.gatech.edu */
+X/* mini-client, semi-raw input, formatted output */
+X/* supports none of pre-2.7.2 protocol in formatting */
+X/* the documentation takes up lots of the space here */
+X
+X/* modified Apr 21, 1993 "xxx".  Changed to a special- */
+X/* purpose encryption program                          */
+X
+X#include <stdio.h>
+X#ifdef pyr
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#include <errno.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include "sock.h"
+X
+Xchar *encode(),*decode();
+Xchar *en_crypt(),*de_crypt(); /* external, in crypt.c */
+X
+X#define KEYLEN  24+1
+X#define MAXKEYS 30
+X#define HUGE 1024
+X#define SECKEY  "secret"      /* secret key file,  should be a variable */
+X
+Xchar keys[MAXKEYS][KEYLEN];   /* keys           */
+Xunsigned int  sers[MAXKEYS];           /* serial numbers */
+X
+Xint s,d;                      /* IRC socket, DCC socket      */ 
+Xchar buf[512];                /* global text data buffer     */
+Xchar curchan[256];	      /* current active channel      */
+Xchar localhost[64];	      /* the local machine's name    */
+Xint dcchost,dccsock;	      /* for implementing DCC	     */
+Xchar dccbuf[2048];	      /* buffer for incomming	     */
+Xchar dccname[512];	      /* filename for dcc transfer   */
+Xunsigned long int dcclength;  /* dcc reply/check	     */
+Xchar inputbuf[512];	      /* buffer for user input	     */
+Xchar IRCNAME[32];	      /* storage for current nick    */
+Xfd_set readfs, orig;
+Xint sok=1;			/* socket ok flag */
+X
+Xchar *token[1024]; /* worst case: 1 2 3 4 5 .. etc 512 chars */
+X
+X/* casecmp(a,b)
+X     a,b - null terminated strings.
+X       does a non-case sensitive compare
+X */
+X#define To_lower(a)    (isupper(a)?tolower(a):(a))
+X
+Xcasecmp(a,b)
+Xchar *a,*b;
+X{
+X  while(*a && *b) 
+X    if(To_lower(*a) != To_lower(*b)) 
+X      return (*b-*a);   /* doesnt really matter if they are diff cases here*/
+X    else {
+X      a++,b++;
+X    }
+X  return(0);
+X}
+X
+X/* asctobin(str,len)
+X     str - ascii string (null terminated)
+X     len - int *,   RETURN length of binary block
+X     returns:  char * to binary block data in static storage.
+X       coding:
+X         high nybble - 'a'=0 to 'p'=15
+X         low nybble  - 'A'=0 to 'P'=15
+X      NULL returned for bad encoding. 
+X */
+Xchar *asctobin(str,len)
+Xchar *str;
+Xint *len;
+X{
+X  static char buf[HUGE];
+X  char a,b;
+X  int i;
+X
+X  for(i=0;;) {
+X    a=*str++;
+X    while(a==' '||a=='\n') a=*str++;
+X    b=*str++;
+X    if(a=='\0' || b=='\0') {
+X      *len=i;
+X      return(buf);
+X    }
+X    if (a<'a'||a>'p' || b<'A'||b>'P') 
+X      return(0);
+X    buf[i++] = ((a-'a')<<4)|(b-'A');
+X  }
+X}
+X
+X/* bintoasc(str,len)
+X      str - a pointer to a binary block
+X      len - length of binary block in bytes
+X      return - char * to a string that is ascii, null-terminated
+X        coding -
+X           high nybble  'a'=0 to 'p'=15
+X           low nybble   'A'=0 to 'P'=15
+X */
+Xchar *bintoasc(str,len)
+Xint len;
+Xchar *str;
+X{
+X  static char buf[HUGE];
+X  int i;
+X  
+X  for(i=0;len-- >0;str++) {
+X    buf[i++]=((*str&0xf0)>>4) + 'a';
+X    buf[i++]=(*str&0xf) + 'A'; 
+X  }
+X  buf[i]='\0';
+X  return(buf);
+X}
+X
+X/* encode(str)
+X     str - an ascii null-terminated string 
+X     returned - char * an encoded null terminated ascii string
+X     encoding:
+X       CLIPPER:xxxx:yyyyyyyyyyyyy
+X          xxxx - serial number of key used
+X          yyyyy- ascii coded, encrypted text message
+X */
+Xchar *encode(str)
+Xchar *str;
+X{
+X  int l,ser,a;
+X  static char buf[HUGE];
+X  char *p;
+X
+X  set_key(keys[0]);          /* use our key and our serial number */
+X  a=strlen(str)-1;
+X  if(str[a]=='\n') str[a]='\0';
+X  str[a++]='\0';
+X  p=en_crypt(str ,a,&l);
+X  sprintf(buf,"CLIPPER:%d:",sers[0]);
+X  strcat(buf,bintoasc(p,l));
+X  strcat(buf,"\n");
+X  return(buf);
+X}
+X
+X/*  decode(ar,len)
+X      ar - array of words like argv[]
+X      len - number of words,  like argc
+X      return - char * to a decoded ascii null-termianted string
+X       coding:  see encode()
+X       error codes are returned as human readable strings.
+X
+X        CLIPPER:xxxx:yyyyyy
+X            x - ascii serial number
+X            y - ascii encoded binary data, crypted
+X        SKPJACK:xxxx:yyyy:zzzz
+X            x - nick name of destination
+X            y - serial number of key being received
+X            z - ascii encoded binary data,  encrypted with rsa
+X                in 'nick's public key ,  contains the key
+X                needed to read messages from nick
+X */
+Xchar *decode(ar,len)
+Xchar *ar[];
+Xint len;
+X{
+X  char *p;      /* lots of chars */
+X  static char buf[HUGE];
+X  int i,ser,l,a,itsakey=0;
+X  
+X  buf[0]='\0';
+X  for(i=0;i<len;i++) {    /* put it into a single string */
+X    strcat(buf,ar[i]); 
+X    strcat(buf," ");      /* spaces seperate tokens */
+X  }
+X  if(strncmp(buf,"SKPJACK:",8)==0) 
+X    itsakey=1;                          /* someones sending a key */
+X  else if(strncmp(buf,"CLIPPER:",8))   
+X      return(0);                    /* not encoded */
+X  for(i=8;buf[i]!=':'&&buf[i]!='\0';i++);  /* jump past ser # */
+X  if(buf[i]!=':') {
+X    return("*Badly Formed*\n");
+X  }
+X  buf[i++]='\0';
+X  ser=atoi(buf+8);                          /* this is ser # */
+X
+X  if(itsakey && casecmp(buf+8,IRCNAME)==0) {      /* new key sent to us */
+X    ser=atoi(buf+i);
+X    for(;buf[i]!=':'&&buf[i]!='\0';i++) ;
+X    if(buf[i++]!=':') return("*Newkey: badly formed*");
+X    p=asctobin(buf+i,&len);
+X    if(!p) 
+X      return("*new key: bad coding*");
+X    memcpy(buf,p,len);         /* copy binary data */
+X    if(do_rsa(SECKEY,buf,len,HUGE)<0) 
+X      return("*new key: couldnt decrypt (rsa)*");
+X    for(i=0;i<MAXKEYS;i++) 
+X      if(sers[i]==0 || sers[i]==ser) break;
+X    if(i==MAXKEYS) return ("*new key: out of table entries*");
+X                    /* *never* receive a key we already have */
+X                    /* this could be a trick                 */
+X    if(sers[i]==ser) return("*new key: already have it!*");
+X    sers[i]= ser;
+X    memcpy(keys[i],buf,KEYLEN);
+X    return("*New Key installed*");
+X  }
+Xif (itsakey) printf("Saw key for %s\n",buf+8);
+X  if (itsakey) return("*Key received, but not for us*");
+X
+X  /* else its a message , try to decode */  
+X  a=key(ser);                               /* find the key */
+X  if(a==-1) return("*Dont Have the Key*\n");
+X  set_key(keys[a]);
+X  p=asctobin(buf+i,&len);                   /* decrypt it */
+X  if(!p) return("*Bad Encoding*");
+X  sprintf(buf,"<E> %s",de_crypt(p,len,&l));
+X  return(buf);
+X}
+X
+X/*  key(ser)
+X      ser = serial number 
+X      returned - index to the key with serial number ser, else -1 
+X */
+Xint key(ser)
+Xint ser;
+X{
+X  int i;
+X
+X  for(i=0;i<MAXKEYS;i++)
+X    if(ser == sers[i]) return(i);
+X  return(-1);
+X}
+X
+X/* sendkey(line)
+X     line - char *,  everything after  /key on the command line
+X       parsed to 'nick' and the optional 'filename'
+X       filename is set to nick if it doesnt exist.
+X     encodes our key and serial number with nick's public
+X     key and sends it over the current channel for him
+X     to receive 
+X */
+Xsendkey(line)     /* handle  /key nick [filename]   */
+Xchar *line;
+X{
+X  char *file,*nick,*p;
+X  char buf[1024];
+X  int len;
+X
+X  while(*line==' ') line++;
+X  nick=line;
+X  while(*line!=' '&&*line!='\0'&&*line!='\n') line++; 
+X  if(*line=='\n') *line='\0';
+X  if(*line=='\0') 
+X    file=nick;
+X  else {
+X    *line++='\0';
+X    file=line;
+X    while(*line!=' '&&*line!='\0'&&*line!='\n') line++; 
+X    *line='\0';
+X  }
+X  if(*nick=='\0') {
+X    printf("*ERROR*  nick missing,  /key nick [file]");
+X    return;
+X  }
+X
+X  memcpy(buf,keys[0],KEYLEN);
+X  len=do_rsa(file,buf,KEYLEN,1024);
+X  if(len<0)  {
+X    printf("*ERROR* dont have public key for %s\n",file);
+X    return;                 /* couldnt send it, RSA failed */
+X  }
+X  p=bintoasc(buf,len);
+X  sprintf(buf,"PRIVMSG %s SKPJACK:%s:%d:%s\n",
+X          curchan,nick,sers[0],p);
+X  writeln(buf);     /* send it to irc */
+X}
+X
+X
+Xint call_socket(hostname)
+X  char *hostname;
+X{
+X  struct sockaddr_in sa;
+X  struct hostent     *hp;
+X  int    a, s;
+X
+X  bzero(&sa, sizeof(sa));
+X  sa.sin_family = AF_INET;
+X  sa.sin_addr.s_addr = inet_addr(hostname);
+X  if (sa.sin_addr.s_addr ==-1) {
+X    if ((hp=gethostbyname(hostname))==NULL) {
+X      errno=ECONNREFUSED;
+X      return(-1);
+X    }
+X    sa.sin_family = hp->h_addrtype;
+X    bcopy(hp->h_addr, (char *)&sa.sin_addr, hp->h_length);
+X  }
+X  sa.sin_port = htons((u_short)DEFAULTPORT);
+X
+X  if((s=socket(sa.sin_family, SOCK_STREAM, 0)) < 0)
+X    return(-1);
+X  if(connect(s, &sa, sizeof(sa)) < 0) {
+X    close(s);
+X    return(-1);
+X  }
+X  return(s);
+X}
+X
+Xint dcc_socket(host,sock)
+Xunsigned long int host;
+Xint sock;
+X{
+Xstruct sockaddr_in sa;
+Xint    a, d;
+X
+X  bzero(&sa, sizeof(sa));
+X  bcopy(&host, (char *)&sa.sin_addr, sizeof(host));
+X  sa.sin_family = AF_INET;
+X  sa.sin_port = htons((u_short)sock);
+X
+X  if((d=socket(PF_INET, SOCK_STREAM, 0)) < 0)
+X    return(-1);
+X  if(connect(s, &sa, sizeof(sa)) < 0) {
+X    close(d);
+X    return(-1);
+X  }
+Xreturn(d);
+X}
+X
+X
+Xint readln(buf)
+X  char *buf;
+X{
+X  int to=0;
+X  char c;
+X  do { /* will never overflow 'cause 
+X	server can't send more than 512 bytes */
+X      if(read(s, &c, 1)<1) return(0);
+X      buf[to++] = c;
+X  } while (c != '\n');
+X  buf[to-1] = '\0';
+X  return(1);
+X}
+X
+Xint writeln(buf)
+X  char *buf;
+X{
+X  int to=0;
+X  if( write(s, buf, strlen(buf)) < to )
+X    return(0);
+X  return(1);
+X}
+X
+Xint dcc_getblock(so,fi)
+Xchar *so,*fi;
+X{ char r;
+X   if (r=read(so, dccbuf, 2048)) {
+X        dcclength += r;
+X        printf("[%08x]",dcclength);
+X        write(so, htons((unsigned long int) dcclength), sizeof(dcclength));
+X        write(fi, dccbuf, r);
+X	return(1);
+X        } /* if block is still there */
+X    close(fi); close(so);
+X    printf("DCC successful!\n");
+X    return (0); /* done */
+X}
+X
+Xdojoin() /* had to separate because the language is dumb */
+X{
+X    if(strcmp(token[0],IRCNAME)==0) {
+X      printf("*** Current channel is now %s",token[2]);
+X      strcpy(curchan,token[2]);
+X      } /* case change current channel (nick=ircnick) */
+X    else printf("*** %s has joined channel %s",token[0],token[2]);
+X} /* end of dojoin */
+X
+Xdopart() /* see above */
+X{
+X    if(strcmp(token[0],IRCNAME)==0) {
+X      if(strcmp(curchan,token[2])==0) { /* yur leaving your curent channel */
+X        printf("*** Current channel is now invalid until you use join");
+X/* you could probably implement a get last channel in if you wanted */
+X        strcpy(curchan,"=invalid"); /* literally :-) */
+X        } /* case invalidate current channel */
+X      } /* damn I hate this */
+X    else printf("*** %s has left channel %s",token[0],token[2]);
+X} /* end of part garbage */
+X
+Xdonick()
+X{
+Xif(strcmp(token[0],IRCNAME)==0) { strcpy(IRCNAME,token[2]);
+X    printf("*** You have changed your nickname to %s", token[2]);
+X    } /* if you're doing this to yourself */
+X    else printf("*** %s is now known as %s",token[0],token[2]);
+X} /* I hate this language - if only it could read my mind */
+X
+Xdoprivmsg(tokencount)
+Xint tokencount;
+X{ int i;
+X  char *p;
+X
+X    if(*(++token[3])=='\01') /* ctcp reply */
+X      printf("*** CTCP MESSAGE FROM %s: ",token[0]);
+X    else {
+X      printf("<%s-%s> ",token[0],token[2]);
+X/* decrypt here */
+X      p=decode(token+3,tokencount-3);
+X      if(p) {               /* if not encoded drop through */
+X        printf("%s",p);
+X        return;
+X      }
+X    }
+X    for(i=3;i<tokencount; i++) printf("%s ",token[i]);
+X
+X/*  DO CTCP GOES HERE (INCLUDES DCC)  */
+X} /* privmsg */
+X
+Xdonotice(tokencount)
+Xint tokencount;
+X{ int i;
+X    if(*(++token[3])=='\01') /* ctcp reply */
+X      printf("*** CTCP REPLY FROM %s: ",token[0]);
+X    /* if there's a . in nick we KNOW it's not a user */
+X    else if (strchr(token[0],'.')==0) printf("-%s- ",token[0]);
+X    for(i=3;i<tokencount; i++) printf("%s ",token[i]);
+X} /* notice */
+X
+Xint spitout(servstr) /* filter line to make more pleasing and spit out */
+Xchar *servstr;
+X{ int i;
+X  char *temp;
+X  int tokencount=0;
+X  if (strncmp(servstr,"PING",4)==0) { /* make pings/pongs transparent */
+X    temp=strncpy(servstr,"PO",2);
+X    return(writeln(strcat(temp,"\n"))); /* needs new line-gone before */
+X  }
+X  /* tokenize */
+X  token[0]=strtok(servstr," "); tokencount++;
+X  while(token[tokencount++]=strtok(NULL, " "));
+X  tokencount -= 1; /* need to fix for newline */
+X  /* each token contains exactly one word, and only one now */
+X  if(*token[0] != ':') { /* notice message from server usually */
+X    for(i=0;i<tokencount; i++) printf("%s ",token[i]);
+X    printf("\n");
+X    return(0);
+X    } /* if first char not : */
+X  else token[0]++; /* point at next char past colon */
+X  if(temp=strchr(token[0],'!')) *temp='\0'; /* strip address if there */
+X
+X/* main parsing stuff - follows parse.c in ircII pretty closely */
+X
+X  if(strcmp(token[1],"PRIVMSG")==0) doprivmsg(tokencount);
+X  else if(strcmp(token[1],"NOTICE")==0) donotice(tokencount);
+X  else if(strlen(token[1])==3)  /* server message, just print */
+X    for(i=3;i<tokencount; i++) printf("%s ",token[i]);
+X  else if(strcmp(token[1],"JOIN")==0) dojoin();
+X  else if(strcmp(token[1],"PART")==0) dopart();
+X  else if(strcmp(token[1],"QUIT")==0) {
+X    printf("*** signoff (%s)",token[0]);
+X    for(i=2;i<tokencount; i++) printf(" %s",token[i]);
+X    } /* if someone's leaving irc */ 
+X  else if(strcmp(token[1],"TOPIC")==0) {
+X    printf("*** %s has changed the topic on %s to",token[0],token[2]);
+X    for(i=3;i<tokencount; i++) printf(" %s",token[i]); }
+X  else if(strcmp(token[1],"INVITE")==0)
+X    printf("*** You have been invited to join channel %s by %s",token[2],
+X        token[0]);
+X  else if(strcmp(token[1],"NICK")==0) donick();
+X  else if(strcmp(token[1],"KILL")==0) /* Hmmm, never got one, but hell */
+X    printf("*** %s killed by %s",token[2],token[0]);
+X  else if(strcmp(token[1],"MODE")==0) /* well, there are mode changes */
+X    printf("*** Mode change on %s by %s to %s",token[2],token[0],token[3]);
+X  else if(strcmp(token[1],"KICK")==0)
+X    printf("*** %s has kicked %s from %s",token[0], token[2], token[3]);
+X  else if(strncmp(token[1],"ERROR",5)==0) {
+X    printf("*** ERROR:");
+X    for(i=2;i<tokencount; i++) printf(" %s",token[i]); }
+X  else /* if all else fails */
+X  { printf("***"); for(i=0;i<tokencount; i++) printf(" %s",token[i]); }
+Xputchar('\n'); /* if you get a blank line at this point this code sucks */
+Xreturn(0);
+X}
+X
+Xint dottyinput()
+X{
+X   char c;
+X  int to=0;
+X  do {
+X  if(read(1, &c, 1)<1) return(0);
+X    inputbuf[to++] = c;
+X   } while (c != '\n');
+X   inputbuf[to] = '\0';
+X   if (inputbuf[0]==COMMANDCHAR){
+X     if(strncmp(inputbuf+1,"key",3)==0)
+X       sendkey(inputbuf+4);
+X     else
+X       writeln(inputbuf+1);
+X   }
+X   else {
+X
+X/* encrypt here */
+X   sprintf(buf,"PRIVMSG %s %s",curchan,encode(inputbuf));
+X   writeln(buf);
+X   } /* no cmd character tried default */
+X   return(1);
+X}
+X
+Xmain(argc, argv)
+X  int argc;
+X  char **argv;
+X{
+X  char hostname[64];
+X  char *logfile=NULL;
+X  int c, errflag;
+X  extern int optind, opterr;
+X  extern char *optarg;
+X  char line[512];
+X
+X  int i;
+X
+X  /* pick random 8 bit key -> K           */
+X  /* encrypt  crypt(K,K) -> serial number */
+X  /* pick random 8 bits  L                */
+X  /* encrypt  crypt(L,K) -> our DES key   */
+X  srand(time(0));
+X  for(i=0;i<KEYLEN;i++)
+X    keys[0][i]= (char)((rand()&0xff00)>>8);
+X  set_key(keys[0]);
+X  en_crypt(keys[0],KEYLEN,&i);
+X  sers[0] = (int) *((int *)keys[0]);  /* pick serial number */
+X  /* if(sers[0]<0) sers[0]=-sers[0];     /* problem with negative ser #'s */
+X  for(i=0;i<KEYLEN;i++)
+X    keys[0][i]= (char)((rand()&0xff00)>>8);
+X  en_crypt(keys[0],KEYLEN,&i);
+X
+X  if(getenv("IRCNICK")==NULL || getenv("LOGNAME")==NULL || 
+X     getenv("IRCNAME")==NULL) {
+X  printf("The following settings in your environment are not set properly:\n");
+X  if (getenv("IRCNICK")==NULL) printf("IRCNICK should be set with a nick\n");
+X  if (getenv("LOGNAME")==NULL) printf("LOGNAME should contain user id\n");
+X  if (getenv("IRCNAME")==NULL) printf("IRCNAME should contain real name\n");
+X  exit(0);
+X  }
+Xif(argc>1) { /* assume only one param, hostname */
+X  if (strchr(argv[1],'.')==0) { /* shouldn't a host have a period? */
+X    fprintf(stderr,"usage: %s ircservername initialchannel\n", argv[0]);
+X   exit(0); }
+X  strcpy(hostname,argv[1]); }
+X  else strcpy(hostname,DEFAULTSERVER);
+X  gethostname(localhost, 64);
+X  if ((s=call_socket(hostname))==-1) {
+X    fprintf(stderr, "Could not connect to %s, aborting\n", hostname);
+X    exit(0);
+X  }
+X  sprintf(buf, "NICK %s\n", getenv("IRCNICK"));
+X  writeln(buf);
+X  sprintf(buf, "USER %s 1 1 %s\n", getenv("LOGNAME"), getenv("IRCNAME"));
+X  writeln(buf);
+X  strcpy(curchan,"=invalid");
+X  strncpy(IRCNAME,getenv("IRCNICK"),sizeof(IRCNAME));
+X  if(argc>2) /* well we'll call this the channel to join */
+X  { sprintf(buf, "JOIN %s\n", argv[2]); writeln(buf); }
+X  if(argc>3) { /* assume you don't know what the hell you want */
+X    fprintf(stderr,"usage: %s ircservername initialchannel\n", argv[0]);
+X    exit(0); }
+X  FD_ZERO(&readfs);
+X  FD_SET(s,&readfs);
+X  FD_SET(1,&readfs);
+X  orig = readfs;
+X  while(sok) {
+X/* notice how when one character is there, we assume a whole line is
+X   waiting for us to read.  This is because we're doing cooked i/o to
+X   keep resources minimal */
+X    if(select(FD_SETSIZE, &readfs, NULL, NULL, NULL)) {
+X	if(FD_ISSET(1,&readfs)) if(!dottyinput()) return(1);
+X	if(FD_ISSET(s,&readfs)) { 
+X	sok = readln(line); 
+X	if (sok) spitout(line);
+X	} /* if s */
+X	} /* if select */
+Xreadfs = orig;
+X}
+X  return(1); /* assume that these files will be properly closed */
+X}
+END_OF_FILE
+  if test 17161 -ne `wc -c <'Circ/sock2.c'`; then
+    echo shar: \"'Circ/sock2.c'\" unpacked with wrong size!
+  fi
+  # end of 'Circ/sock2.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

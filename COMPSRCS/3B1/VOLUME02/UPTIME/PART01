@@ -1,0 +1,237 @@
+Path: comp-sources-3b1
+From: tkacik@kyzyl.mi.org (Tom Tkacik)
+Subject:  v02i034:  uptime program for 3B1, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: dfebb492 13ec6f56 30a2026b 70ff00a5
+
+Submitted-by: tkacik@kyzyl.mi.org (Tom Tkacik)
+Posting-number: Volume 2, Issue 34
+Archive-name: uptime/part01
+
+
+There have been several requests for the uptime program.
+Although sysinfo has all of the information of uptime, I prefer
+running it standalone.  So here it is.
+
+Note that uptime is simply Lenny Tropiano's sysinfo program modified
+to look like uptime.  You will need loadavgd that comes with sysinfo
+to run this.
+
+Tom Tkacik
+tkacik@kyzyl.mi.org
+
+#--------------------------------CUT HERE-------------------------------------
+#! /bin/sh
+#
+# This is a shell archive.  Save this into a file, edit it
+# and delete all lines above this comment.  Then give this
+# file to sh by executing the command "sh file".  The files
+# will be extracted into the current directory owned by
+# you with default permissions.
+#
+# The files contained herein are:
+#
+# -rw-r--r--  1 tkacik  users       885 Mar  2 21:55 README
+# -rw-r--r--  1 tkacik  users        78 Mar  2 21:59 Makefile
+# -rw-r--r--  1 tkacik  users      4340 Mar  2 21:21 uptime.c
+#
+echo 'x - README'
+if test -f README; then echo 'shar: not overwriting README'; else
+sed 's/^X//' << '________This_Is_The_END________' > README
+X
+X
+XFor those who want to have the uptime command on your 3b1, but
+Xdo not want to run sysinfo, here it is.
+X
+XHere is what the output of uptime looks like:
+X 9:32 pm  up 72 days,  2:12,  load average:  0.14, 0.09, 0.07        
+X
+XIt shows the current time, the time since last boot and
+Xthe load averaged for the last 1, 5 and 15 minutes.
+X
+XI modified Lenny Tropiano's sysinfo program, so that it prints out
+Xa line that is very close to that produced by BSD's uptime(1).
+XThe difference is that this version does not print the number
+Xof users logged on.
+X
+XSimply type make, and move uptime to your favorite bin directory.
+XUptime will not run unless you are running loadavgd.
+XLoadavd is found along with sysinfo, so you will need to get that,
+Xif you have not already got it.
+X
+XLenny gets all of the credit for this progam (except for that which
+Xhe gave to others).
+X
+XTom Tkacik
+Xtkacik@kyzyl.mi.org
+X
+________This_Is_The_END________
+if test `wc -c < README` -ne 885; then
+	echo 'shar: README was damaged during transit (should have been 885 bytes)'
+fi
+fi		; : end of overwriting check
+echo 'x - Makefile'
+if test -f Makefile; then echo 'shar: not overwriting Makefile'; else
+sed 's/^X//' << '________This_Is_The_END________' > Makefile
+X
+XCFLAGS=-O
+XLDFLAGS=-s
+X
+Xuptime: uptime.o
+X	$(CC) $(LDFLAGS) -o uptime uptime.o
+X
+________This_Is_The_END________
+if test `wc -c < Makefile` -ne 78; then
+	echo 'shar: Makefile was damaged during transit (should have been 78 bytes)'
+fi
+fi		; : end of overwriting check
+echo 'x - uptime.c'
+if test -f uptime.c; then echo 'shar: not overwriting uptime.c'; else
+sed 's/^X//' << '________This_Is_The_END________' > uptime.c
+X/************************************************************************\
+X** Program name: uptime.c   (Print uptime and load average)             **
+X** Modified by:  Thomas Tkacik  (tkacik@kyzyl.mi.org)                   **
+X**                                                                      **
+X** This is a modified (mainly simplified) version of sysinfo.c          **
+X** All credit goes to Lenny Tropiano                                    **
+X**                                                                      **
+X** Program name: sysinfo.c (System Info)                                **
+X** Programmer:   Lenny Tropiano            UUCP: ...icus!lenny          **
+X** Organization: ICUS Software Systems     (c)1988, 1989                **
+X** Date:         January 23, 1988                                       **
+X** Version 2.0:  June 27, 1988                                          **
+X** Version 2.1:  Februrary 19, 1989 (Revision Level 4)                  **
+X**                                                                      **
+X**************************************************************************
+X**                                                                      **
+X** Credits:      The idea of displaying the file system information     **
+X**               came from Scott Hazen Mueller's  newmgr, the replace-  **
+X**               ment to the smgr.                                      **
+X**                                                                      **
+X**************************************************************************
+X**                                                                      **
+X** Program use:  Program is run as a info process from your .profile    **
+X**               This program the file system and displays the          **
+X**               pertinent information on the bottom of the screen      **
+X**               where the software labels would normally be displayed. **
+X**               The program also displays the uptime.                  **
+X**                                                                      **
+X**************************************************************************
+X** Permission is granted to distribute this program by any means as     **
+X** long as credit is given for my work.     I would also like to see    **
+X** any modifications or enhancements to this program.                   **
+X\************************************************************************/
+X
+X#include <stdio.h>
+X#include <time.h>
+X#include <sys/shm.h>
+X#include <utmp.h>
+X
+Xstatic char *LINE = "%2d:%02d %cm  up %2d day%1.1s, %2d:%02d,  load average: %-25.25s\n";
+X
+X#define	MINUTE	60L
+X#define	HOUR	(60L * 60L)
+X#define	DAY	(24L * 60L * 60L)
+X#define AM	0
+X#define PM	1
+X                             
+X/* time since boot */
+Xunsigned long	days = 0L;
+Xunsigned long	hrs  = 0L;
+Xunsigned long	mins = 0L;
+X
+X/* todays time */
+Xint hour;
+Xint minute;
+Xint am;		/* AM or PM */
+X
+X/************************************************************************/
+X
+Xmain(argc,argv)
+Xint	argc;
+Xchar	*argv[];
+X{
+X	void	exit();
+X	char	loadbuf[30];
+X
+X	uptime();
+X	loadaverage(loadbuf);
+X
+X	printf(LINE,
+X		hour, minute, ((am == AM) ? 'a' : 'p'),
+X		days,(days == 1) ? " " : "s",
+X		hrs, mins, loadbuf
+X	);
+X
+X	exit(0);
+X}
+X
+Xuptime()
+X{
+X	struct	utmp	*utent, *getutent();
+X	time_t   boottime, curtime, bootsec;
+X	struct  tm *current_time;
+X
+X	/* Get the boot time */
+X	setutent();
+X	while ((utent = getutent()) != (struct utmp *)NULL) {
+X		if (utent->ut_type == BOOT_TIME) {
+X			boottime = utent->ut_time;
+X			break;
+X		}
+X	}
+X	endutent();
+X
+X	time(&curtime);
+X	bootsec = curtime - boottime;
+X
+X	/* Convert uptime to days, minutes and seconds since boot */
+X	days = bootsec / DAY;
+X	bootsec -= DAY * days;
+X	hrs = bootsec / HOUR;
+X	bootsec -= HOUR * hrs;
+X	mins = bootsec / MINUTE;
+X	bootsec -= MINUTE * mins;
+X
+X	/* Convert to the current local time */
+X	current_time = localtime(&curtime);
+X	minute = current_time->tm_min;
+X	hour = current_time->tm_hour;
+X	if(hour == 12) {
+X		am = PM;
+X	} else if(hour > 12) {
+X		am = PM;
+X		hour -= 12;
+X	} else {
+X		am = AM;
+X		if(hour == 0) {
+X			hour = 12;
+X		}
+X	}
+X}
+X
+Xloadaverage(lbuf)
+Xchar *lbuf;
+X{
+X	int	shm;
+X	double	*shmseg;
+X
+X	shm = shmget(ftok("/unix",'a'),12,0);
+X	shmseg = (double *)shmat(shm, (char *) 0, SHM_RDONLY);
+X	sprintf(lbuf,"%5.2f,%5.2f,%5.2f", 
+X		shmseg[0], shmseg[1], shmseg[2]);
+X	shmdt(shmseg);
+X}
+X
+________This_Is_The_END________
+if test `wc -c < uptime.c` -ne 4340; then
+	echo 'shar: uptime.c was damaged during transit (should have been 4340 bytes)'
+fi
+fi		; : end of overwriting check
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Pardon me Professor, can I be excused, my brain is full. **

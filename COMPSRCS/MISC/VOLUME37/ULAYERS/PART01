@@ -1,0 +1,2113 @@
+Newsgroups: comp.sources.misc
+From: david@bdt.com (David Beckemeyer)
+Subject: v37i089:  ulayers - Unix/X client to MacLayers, Part01/03
+Message-ID: <csm-v37i089=ulayers.130855@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 47005ed1fc3efbf6fc9c2b5a1ea819e4
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 29 May 1993 18:09:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: david@bdt.com (David Beckemeyer)
+Posting-number: Volume 37, Issue 89
+Archive-name: ulayers/part01
+Environment: UNIX, X11, PTY
+
+Ulayers provides multi-window capability for a Unix system by
+emulating the Macintosh MacLayers application. To use Ulayers,
+you must have a terminal emulator windowing system on your local
+system (such as xterm, cmdtool, or a virtual terminal system)
+and the layers protocol program (from the Maclayers distribution)
+installed on your remote Unix system.  Refer to the FAQ from
+comp.sys.mac.comm for an overview of MacLayers.  Here is an
+excerpt from the FAQ:
+
+     MacLayers allows you to logon to a Unix host and open more than
+     one window over a single (serial) connection. Each window
+     can correspond to a (login) shell or program running on your
+     choice of host(s). Up to seven full-screen resizable VT-100
+     windows are allowed.
+
+     MacLayers comes in two parts: a program you run on your
+     Macintosh and a set of C source files that you compile
+     on your Unix host (a Makefile is provided). When you login
+     to your host while running MacLayers on your Macintosh, you
+     simply run one of the Unix-side programs to start up the
+     windowing system (similar to running a windowing-environment
+     like X-Windows at the console, except that everything is
+     character based -- no graphics).
+
+The latest version of MacLayers is available via anonymous FTP
+from rascal.ics.utexas.edu in mac/communications/MacLayers.
+You only need the Unix-side of the MacLayers software. Check
+with the administartors of the systems you want to connect to
+because many systems already have the Unix-side layers programs
+installed.
+
+Please DO NOT send mail to the official Layers support group
+about any problems you have with the Ulayers application!
+They don't want to hear it and they won't be able to help you
+anyway.  Send any comments, complaints, suggestions, etc. to
+david@bdt.com.
+
+
+                             ***  OVERVIEW  ***
+
+Ulayers is a bare-bones emulation of the Mac-side of the MacLayers
+program.  The real MacLayers application is a Macintosh program
+with a nice Macintosh-style interface. Ulayers, on the other hand,
+is a quick and dirty non-graphics program. Ulayers is designed to
+be used in an X environment; it starts xterms to handle the
+MacLayers login sessions, almost as though you had ordinary
+xterm logins to a local host. Ulayers features:
+
+        o Basic Modem Auto-dialer 
+
+        o Configurable modem and ports databases
+
+        o Dialing directory
+
+        o Automatic ZMODEM uploading and downloading
+
+It is possible to use Ulayers with some windowing system other
+than X by configuring a custom "terminal startup script".
+
+
+                         ***  SUPPORTED SYSTEMS  ***
+
+Ulayers has been successfully installed on the following systems:
+
+   SunOS 4.1.x on Sun3 and SPARC machines
+   Interatcive 386/ix Version 3.0 (System V, Release 3)
+   BSD386
+   PS/2 running AIX 1.3
+   SunOS 3.5 on Sun3
+   HP-UX A.08.02 on HP 9000
+   VAX/Ultrix 4.2
+   NeXT/Mach
+
+If you port this code to any system not listed above, or can 
+provide additional information on the listed systems, please send
+e-mail to david@bdt.com.
+
+NOTE: I left in some of the "#ifdef SEQUENT" code from the original
+MacLayers source.  I have not tested the code on a Sequent however.
+
+------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README connect.c startup.c ul_ports ulayers.1 ulslave.c
+# Wrapped by kent@sparky on Sat May 29 13:04:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(6468 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X                              Ulayers v1.0
+X                   Unix/X Emulation of the Mac-side
+X                             MacLayers v1.20
+X                        Release 1.0 May 24, 1993
+X                      
+XThe following files are provided with the Ulayers package:
+X
+X	README		- this file
+X
+X	makefile	- ulayers Makefile
+X	ulayers.1	- ulayers man page
+X
+X	ulayers.c	- ulayers source files
+X	ulayers.h
+X	conf.h
+X	startup.c
+X	connect.c
+X	term.c
+X	dial.c
+X	numbers.c
+X	ulslave.c
+X
+X	ulterm.xterm	- sample terminal startup using xterm
+X	ulterm.cmdtool	- sample terminal startup using cmdtool
+X
+XUlayers provides multi-window capability for a Unix system by
+Xemulating the Macintosh MacLayers application. To use Ulayers,
+Xyou must have a terminal emulator windowing system on your local
+Xsystem (such as xterm, cmdtool, or a virtual terminal system)
+Xand the layers protocol program (from the Maclayers distribution)
+Xinstalled on your remote Unix system.  Refer to the FAQ from
+Xcomp.sys.mac.comm for an overview of MacLayers.  Here is an
+Xexcerpt from the FAQ:
+X
+X     MacLayers allows you to logon to a Unix host and open more than
+X     one window over a single (serial) connection. Each window
+X     can correspond to a (login) shell or program running on your
+X     choice of host(s). Up to seven full-screen resizable VT-100
+X     windows are allowed.
+X
+X     MacLayers comes in two parts: a program you run on your
+X     Macintosh and a set of C source files that you compile
+X     on your Unix host (a Makefile is provided). When you login
+X     to your host while running MacLayers on your Macintosh, you
+X     simply run one of the Unix-side programs to start up the
+X     windowing system (similar to running a windowing-environment
+X     like X-Windows at the console, except that everything is
+X     character based -- no graphics).
+X
+XThe latest version of MacLayers is available via anonymous FTP
+Xfrom rascal.ics.utexas.edu in mac/communications/MacLayers.
+XYou only need the Unix-side of the MacLayers software. Check
+Xwith the administartors of the systems you want to connect to
+Xbecause many systems already have the Unix-side layers programs
+Xinstalled.
+X
+XPlease DO NOT send mail to the official Layers support group
+Xabout any problems you have with the Ulayers application!
+XThey don't want to hear it and they won't be able to help you
+Xanyway.  Send any comments, complaints, suggestions, etc. to
+Xdavid@bdt.com.
+X
+X
+X                             ***  OVERVIEW  ***
+X
+XUlayers is a bare-bones emulation of the Mac-side of the MacLayers
+Xprogram.  The real MacLayers application is a Macintosh program
+Xwith a nice Macintosh-style interface. Ulayers, on the other hand,
+Xis a quick and dirty non-graphics program. Ulayers is designed to
+Xbe used in an X environment; it starts xterms to handle the
+XMacLayers login sessions, almost as though you had ordinary
+Xxterm logins to a local host. Ulayers features:
+X
+X        o Basic Modem Auto-dialer 
+X
+X        o Configurable modem and ports databases
+X
+X        o Dialing directory
+X
+X        o Automatic ZMODEM uploading and downloading
+X
+XIt is possible to use Ulayers with some windowing system other
+Xthan X by configuring a custom "terminal startup script".
+X
+X
+X                         ***  SUPPORTED SYSTEMS  ***
+X
+XUlayers has been successfully installed on the following systems:
+X
+X   SunOS 4.1.x on Sun3 and SPARC machines
+X   Interatcive 386/ix Version 3.0 (System V, Release 3)
+X   BSD386
+X   PS/2 running AIX 1.3
+X   SunOS 3.5 on Sun3
+X   HP-UX A.08.02 on HP 9000
+X   VAX/Ultrix 4.2
+X   NeXT/Mach
+X
+XIf you port this code to any system not listed above, or can 
+Xprovide additional information on the listed systems, please send
+Xe-mail to david@bdt.com.
+X
+XNOTE: I left in some of the "#ifdef SEQUENT" code from the original
+XMacLayers source.  I have not tested the code on a Sequent however.
+X
+X                           ***   INSTALLATION   ***
+X
+XYou need a Unix machine that supports pseudo terminals (ptys).
+XYou also need the "xterm" program from the X11 distribution
+Xor some other suitible terminal emulator. To do downloading
+Xand uploading you need the "rz" and "sz" programs (optional
+Xif you don't care about file transfers).
+X
+XTo build the ulayers programs, edit the "conf.h" file to
+Xmatch your system. If you're on a System V system, then
+Xyou'll also have to add the -DUSG to the CFLAGS definition
+Xin the makefile. Then type 'make' to compile the sources.
+X
+XThen create your "ulterm" script.  To run basic "xterm" windows,
+Xsimply copy the included "ulterm.xterm" to "ulterm".  Users
+Xcan override the default "ulterm" by setting the environment
+Xvariable ULTERM.  Refer to the ulterm.xterm and ulterm.cmdtool
+Xsample scripts for information on writing your own custom
+Xulterm module.
+X
+XThere are two ways to install the programs:
+X
+X	make installsetuid
+Xor
+X	make installnosetuid
+X
+XInstalling ulayers setuid may be necessary in order for the
+Xapplication to have access to your serial ports.  Even if this
+Xis not the case on your system, there is another reason for
+Xrunning the program setuid.  It allows the ulayers utility to
+Xperform chown/chmod on its allocated pseudo-ttys. This is
+Xnecessary to plug security holes in some systems which
+Xotherwise would allow outside users free access to the pseudo 
+Xcontrol terminal ttys of layers users.  When run setuid,
+Xulayers always runs the xterms as your user ID; only the
+Xulayers program itself runs setuid.
+X
+XNOTE: A minor bug exists in versions of the Unix-side MacLayers
+X"layers" prior to v1.30 which prevents the upload feature of
+XUlayers from working on binary files.  You should try and get
+Xthe server upgraded to the v1.30 release of MacLayers.
+X
+XNOTE ABOUT ZMODEM: Some implementations of Chuck Forsberg's szrz
+Xare incompatible with the automatic upload/download feature of ulayers
+Xbecause of the way they setup the I/O channel (they open the device 
+X"/dev/tty" and they generate diagnostic output on stdout).  You must
+Xobtain a more "external program friendly" version of sz/rz or
+Xmodify the one you have to use stdin (handle 0) for communication
+Xand generate diagnostics on stderr (handle 2).
+X
+X
+X                       ***   ACKNOWLEDGEMENT   ***
+X
+XThanks go to a lot of people for Ulayers.  First and foremost, of
+Xcourse, is the original MacLayers author, Dave Trissel.  Others
+Xin the MacLayers team have been helpful too, Peter Newton, Eric
+XRosen, et al.  Many thanks go to all the Ulayers beta testers,
+Xwho spent the time help me track down bugs and gave me ideas for
+Ximprovements, especially Bjorn Engsig and Johan Vromans.
+END_OF_FILE
+  if test 6468 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'connect.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'connect.c'\"
+else
+  echo shar: Extracting \"'connect.c'\" \(9673 characters\)
+  sed "s/^X//" >'connect.c' <<'END_OF_FILE'
+X/********					connect.c
+X*********
+X*********     This is a quick & dirty implementation of the
+X*********     MacLayers protocol client-side for Unix.  It
+X*********     Basically is an emulation of the MacLayers
+X*********     Macintosh application for Unix, except that
+X*********     Ulayers is a bare-bones program, a far cry
+X*********     from the polished and professional MacLayers.
+X*********
+X*********     The hacks to produce Ulayers were made by me,
+X*********     David Beckemeyer david@bdt.com.  Essentially
+X*********     the entire credit for this goes to the original
+X*********     authors however, and all the contributors
+X*********     copyright messages appear below.  On the
+X*********     the other hand, the "real" Maclayers authors
+X*********     are not to blame for the shoddy hacks I made
+X*********     to their code either, and so I'm putting my
+X*********     here because I'm sure they don't want their
+X*********     name associatyed with this mess!
+X*********
+X*********     The UUCP locking code came from PCOMM by
+X*********     Emmet P. Gray ...!uunet!uiucuxc!fthood!egray.
+X*********
+X*********     Most of the code for Ulayers came straight from
+X*********     the Unix-side of the MacLayers implementation,
+X*********     the copyright messages to which follow:
+X*********
+X*********	Layers - MacLayers Multiwindow BSD Socket Driver
+X*********
+X*********          Dave Trissel oakhill!davet
+X*********
+X********* The sockets handling portion of this control module is based 
+X********* upon 'screen' by Oliver Laumann whose copyright remains below. 
+X********* The rest is
+X *
+X *             Copyright (C) 1989 by David W. Trissel
+X *
+X *              Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X */
+X
+X
+X/* Copyright (c) 1987,1988 Oliver Laumann, Technical University of Berlin.
+X * Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X *	Modified by Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Do whatever you want with (my modifications of) this program, but
+X *	don't claim you wrote them, don't try to make money from them, and
+X *	don't remove this notice.
+X */
+X#include <stdio.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <ctype.h>
+X#include <pwd.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X#include <sys/wait.h>
+X#include <sys/socket.h>
+X#include <utmp.h>
+X#ifndef USG
+X#include <sys/un.h>
+X#endif
+X#include <sys/stat.h>
+X#include <sys/dir.h>
+X#include <sys/ioctl.h>
+X#include <sys/param.h>
+X 
+X#include "ulayers.h"
+X
+X/* C library items */
+Xextern char *index(), *rindex(), *malloc(), *getenv();
+Xextern sys_nerr;
+Xextern char *sys_errlist[];
+X
+X
+X#ifdef MAXPID
+X#define MAX_PID  MAXPID
+X#else
+X#ifndef MAX_PID
+X#define MAX_PID  30000
+X#endif
+X#endif
+X
+X/* The name of the UUCP lock file */
+Xstatic char LockFile[512];
+Xstatic int IsLocked;
+X
+X/* #define LOCALDEBUG */
+X
+X#ifdef LOCALDEBUG
+X/* Local items */
+Xstatic char *ShellProg;
+Xstatic char *ShellArgs[2];
+Xstatic char DefaultShell[] = "/bin/sh";
+Xstatic char DefaultPath[] = ":/usr/ucb:/bin:/usr/bin";
+Xstatic char cmd[1024];
+Xstatic char tty[64];
+X
+XInitConnect ()
+X{
+X    register char **cp;
+X    register f, j;
+X    int tf;
+X    int DevTty;
+X    int mypid;
+X    int Oumask, lpid;
+X    char ebuf[10];
+X
+X	DO DEBUG("ForkShell()\n");
+X    if ((ShellProg = getenv ("SHELL")) == 0)
+X		ShellProg = DefaultShell;
+X	DO DEBUG("ShellProg %s\n", ShellProg);
+X
+X    ShellArgs[0] = ShellProg;
+X
+X
+X    if ((Oumask=umask(0)) == -1)
+X		Msg (errno, "Cannot change umask to zero");
+X	DO DEBUG("Original umask o%o\n", Oumask);
+X
+X    if ((DevTty = open ("/dev/tty", O_RDWR|O_NDELAY)) == -1)
+X		Msg (errno, "/dev/tty");
+X	DO DEBUG("opened /dev/tty fd %d\n", DevTty);
+X
+X    if ((f = OpenPTY ()) == -1)
+X	  { Msg (0, "No more PTYs.");
+X		return ( -1 );
+X      }
+X
+X/*     (void) fcntl (f, F_SETFL, FNDELAY); */
+X
+X    TtyFd = f;				/* pseudo pty for task's I/O */
+X    TtyMask = 1<<f;			/* set pty device mask */
+X    strncpy (cmd, Filename (ShellArgs[0]), MAXSTR-1);
+X    cmd[MAXSTR-1] = '\0';
+X    strncpy (tty, TtyName, MAXSTR-1);
+X	DO DEBUG("forking %s, tty %s, TtyFd %d, mask %x\n",
+X				cmd, tty, TtyFd, TtyMask);
+X    (void) chown (TtyName, getuid (), getgid ());
+X    /* do not allow any other user access to this device */
+X    (void) chmod (TtyName, 0600);
+X    switch (lpid = fork ())
+X	{ case -1:
+X		Msg (errno, "fork");
+X		lpid = 0;					/* clear pid field */
+X		return ( -1 );						/* return failed */
+X
+X      case 0:
+X		signal (SIGHUP, SIG_DFL);
+X		signal (SIGINT, SIG_DFL);
+X 		signal (SIGQUIT, SIG_DFL);
+X		signal (SIGTERM, SIG_DFL);
+X		signal (SIGTTIN, SIG_DFL);
+X		signal (SIGTTOU, SIG_DFL);
+X		signal (SIGALRM, SIG_DFL);
+X		setuid (getuid ());
+X		setgid (getgid ());
+X		mypid = getpid ();
+X		ioctl (DevTty, TIOCNOTTY, (char *)0);
+X		if ((tf = open (TtyName, O_RDWR)) == -1)
+X		  { Msg ("Cannot open %s: %s", TtyName, sys_errlist[errno]);
+X	    	exit(1);
+X		  }
+X		DO DEBUG("Now in new process\n");
+X		(void) dup2 (tf, 0);
+X		(void) dup2 (tf, 1);
+X		(void) dup2 (tf, 2);
+X		for (f = getdtablesize () - 1; f > 2; f--)
+X	    	close (f);
+X		ioctl (0, TIOCSPGRP, &mypid);
+X		(void) setpgrp (0, mypid);
+X		SetTTY (0, OldMode);
+X		  {	struct	winsize	wsize;		/* window size structure */
+X			int			retcode;		/* ioctl return code */
+X
+X			wsize.ws_col = 80; /* character width */
+X			wsize.ws_row = 25; /* window height */
+X			wsize.ws_xpixel = 0;		/* necessary? */
+X			wsize.ws_ypixel = 0;
+X			/* update O/S window state */
+X			retcode = ioctl(0, TIOCSWINSZ, &wsize);
+X		  }
+X
+X		(void) umask(Oumask);			/* restore user's original umask */
+X		execvp (ShellProg, ShellArgs);
+X		printf("cannot exec %s: %s", ShellProg, sys_errlist[errno]);
+X		exit (1);
+X    }
+X
+X    sleep(2);
+X    return ( lpid );
+X
+X} /* ForkShell () */
+X
+X
+XEndConnect()
+X{
+X}
+X
+X#else
+X
+XInitConnect()
+X{
+X	int fd, lfd;
+X	char buf[40];
+X	int cmask;
+X#ifndef ASCII_PID
+X	int progpid;
+X#endif
+X	/* open the TTY port */
+X					/* create a lock file name */
+X#ifdef SVR4_LOCKS
+X	struct stat sbuf;
+X	stat(ServerPort, &sbuf);
+X	sprintf(LockFile, "%s/LK.%03d.%03d.%03d", LOCK_DIR, major(sbuf.st_dev), major(sbuf.st_rdev), minor(sbuf.st_rdev));
+X#else /* SVR4_LOCKS */
+X	sprintf(LockFile, "%s/LCK..%s", LOCK_DIR, Filename(ServerPort));
+X#endif /* SVR4_LOCKS */
+X
+X	/* remove old lock if we created one */
+X	if (IsLocked) {
+X		unlink(LockFile);
+X		IsLocked = 0;
+X	}
+X
+X				/* no lock exists or it is dead */
+X	if (checklock(LockFile)) {
+X		cmask = umask(0);
+X		if ((lfd = open(LockFile, O_CREAT|O_EXCL|O_WRONLY, 0666)) < 0) {
+X			printf("Can't create the lockfile %s\r\n", LockFile);
+X			DO DEBUG("Can't create %s (errno %d)\n", LockFile, errno); 
+X			return(-1);
+X		}
+X		umask(cmask);
+X#ifdef ASCII_PID
+X		sprintf(buf, "%10d\n", getpid());
+X		write(lfd, buf, 11);
+X#else /* ASCII_PID */
+X		progpid = getpid();
+X		write(lfd, (char *) &progpid, sizeof(int));
+X#endif /* ASCII_PID */
+X		close(lfd);
+X		IsLocked = 1;
+X
+X					/* open the device (ignore DCD) */
+X		if ((fd = open(ServerPort, O_RDWR|O_NDELAY)) < 0) {
+X			printf("Can't open \"%s\" for read and write\r\n", ServerPort);
+X			DO DEBUG("Can't open %s (errno %d)\n", ServerPort, errno);
+X			return(-1);
+X		}
+X				/* ...just to be sure */
+X		close(open(ServerPort, O_RDWR));
+X					/* turn off the O_NDELAY setting */
+X#ifdef FASYNC
+X		(void) fcntl (fd, F_SETFL, FASYNC);
+X#endif
+X	       	TtyFd = fd;
+X	        TtyMask = 1<<fd;
+X
+X		SetLine();
+X		while (ServerNumber) {
+X			printf("Dialing %s on %s...\r\n",
+X			  ServerNumber, ServerPort);
+X			dial_it(ServerPort, ModemName, ServerNumber);
+X			if (read_codes() == 0) {
+X				printf("\r\nCONNECTED\007\007\r\n");
+X				break;
+X			}
+X			if (GetNumber(ServerName, 0)) {
+X				printf("\r\nFAILED\r\n");
+X				FQuit(1);
+X			}
+X		}
+X		return(fd);
+X	}
+X	printf("Device \"%s\" is in use by another process\r\n", ServerPort);
+X	return(-1);
+X}
+X
+XEndConnect()
+X{
+X	close(TtyFd);
+X	if (IsLocked) {
+X		unlink(LockFile);
+X		IsLocked = 0;
+X	}
+X}
+X
+X	
+X/*
+X * Check the lock file for a valid pid value.  Error conditions such
+X * as not being able to open the lock file or not being able to interpret
+X * the contents of the lock file cause the code to assume that the lock
+X * file is valid.  Let the user worry about weird special cases.  A 
+X * non-zero return code means the lock is dead or doesn't exist.
+X */
+X
+Xstatic int
+Xchecklock(lockfile)
+Xchar *lockfile;
+X{
+X	extern int errno;
+X	int lfd, lckpid, n;
+X	unsigned int sleep();
+X	char buf[40];
+X					/* doesn't exist */
+X	if (access(lockfile, 0))
+X		return(1);
+X					/* can't open the lock file */
+X	if ((lfd = open(lockfile, 0)) < 0)
+X		return(0);
+X
+X#ifdef ASCII_PID
+X	if ((n = read(lfd, buf, 40)) <= 0) {
+X		close(lfd);
+X		return(0);
+X	}
+X	close(lfd);
+X	buf[n--] = '\0';
+X	lckpid = atoi(buf);
+X#else /* ASCII_PID */
+X	if (read(lfd, (char *) &lckpid, sizeof(int)) != sizeof(int)) {
+X		close(lfd);
+X		return(0);
+X	}
+X	close(lfd);
+X#endif /* ASCII_PID */
+X					/* invalid pid? */
+X	if (lckpid <= 0 || lckpid > MAX_PID)
+X		return(0);
+X
+X	if ((kill(lckpid, 0) == -1) && (errno == ESRCH)) {
+X		/*
+X		 * If the kill was unsuccessful due to an ESRCH error,
+X		 * that means the process is no longer active and the
+X		 * lock file can be safely removed.
+X		 */
+X		unlink(lockfile);
+X		sleep(1);
+X		return(1);
+X	}
+X	/*
+X	 * If the kill() was successful, that means the process must
+X	 * still be active.
+X	 */
+X	return(0);
+X}
+X#endif
+X
+END_OF_FILE
+  if test 9673 -ne `wc -c <'connect.c'`; then
+    echo shar: \"'connect.c'\" unpacked with wrong size!
+  fi
+  # end of 'connect.c'
+fi
+if test -f 'startup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'startup.c'\"
+else
+  echo shar: Extracting \"'startup.c'\" \(21155 characters\)
+  sed "s/^X//" >'startup.c' <<'END_OF_FILE'
+X/********					startup.c
+X*********
+X*********     This is a quick & dirty implementation of the
+X*********     MacLayers protocol client-side for Unix.  It
+X*********     Basically is an emulation of the MacLayers
+X*********     Macintosh application for Unix, except that
+X*********     Ulayers is a bare-bones program, a far cry
+X*********     from the polished and professional MacLayers.
+X*********
+X*********     The hacks to produce Ulayers were made by me,
+X*********     David Beckemeyer david@bdt.com.  Essentially
+X*********     the entire credit for this goes to the original
+X*********     authors however, and all the contributors
+X*********     copyright messages appear below.  On the
+X*********     the other hand, the "real" Maclayers authors
+X*********     are not to blame for the shoddy hacks I made
+X*********     to their code either, and so I'm putting my
+X*********     here because I'm sure they don't want their
+X*********     name associatyed with this mess!
+X*********
+X*********     Most of the code for Ulayers came straight from
+X*********     the Unix-side of the MacLayers implementation,
+X*********     the copyright messages to which follow:
+X*********
+X*********	Layers - MacLayers Multiwindow BSD Socket Driver
+X*********
+X*********          Dave Trissel oakhill!davet
+X*********
+X********* The sockets handling portion of this control module is based 
+X********* upon 'screen' by Oliver Laumann whose copyright remains below. 
+X********* The rest is
+X *
+X *             Copyright (C) 1989 by David W. Trissel
+X *
+X *              Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X */
+X
+X
+X/* Copyright (c) 1987,1988 Oliver Laumann, Technical University of Berlin.
+X * Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X *	Modified by Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Do whatever you want with (my modifications of) this program, but
+X *	don't claim you wrote them, don't try to make money from them, and
+X *	don't remove this notice.
+X */
+X#include <stdio.h>
+X#include <signal.h>   
+X#include <errno.h>
+X#include <ctype.h>    
+X#ifdef USG
+X#include <stropts.h>
+X#include <poll.h>
+X#endif
+X#include <pwd.h>
+X#include <nlist.h> 
+X#include <fcntl.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X#include <sys/wait.h>
+X#include <sys/socket.h>
+X#include <utmp.h>
+X#ifndef USG
+X#include <sys/un.h>
+X#endif
+X#include <sys/stat.h>
+X#include <sys/dir.h> 
+X#include <setjmp.h>
+X#include "conf.h"
+X#ifdef V7TTY
+X#include <sgtty.h>
+X#include <sys/ioctl.h>
+X#else
+X#include <termio.h>
+X#endif
+X 
+X#include "ulayers.h"
+X
+Xstruct mode {
+X#ifdef V7TTY
+X    struct sgttyb m_ttyb;
+X    struct tchars m_tchars;
+X    struct ltchars m_ltchars;
+X    int m_ldisc;
+X    int m_lmode;
+X#else
+X    struct termio m_tty;
+X#endif
+X};
+X
+Xjmp_buf gl_buf;
+X
+X#define EXITNORMAL      0   /* normal exit - connection succeeded */
+X#define EXITNOMACLAYERS     1   /* MacLayers server error */
+X#define EXITABNORMAL        2   /* something wrong generic error */
+X#define EXITSIGQUIT     3   /* TERM or QUIT signal got us */
+X#define EXITSIGHUP      4   /* HUP signal got us */
+X
+X#define OUT_ERR_OK
+X
+Xstatic exitcode = EXITABNORMAL;
+X
+X/* C Library items */
+Xextern sys_nerr;
+Xextern char *sys_errlist[];
+X
+X/* Local items */
+Xstatic char PtyProto[] = "/dev/ptyXY";
+Xstatic char TtyProto[] = "/dev/ttyXY";
+Xstatic char *initseq = "\033[c";
+Xstatic int scanloc = 0;
+X
+X/* Global items */
+Xint TtyMask = 0;
+Xint TtyFd = 0;
+Xchar PtyName[32], TtyName[32];
+Xint flowctl = 0;
+Xstatic struct mode OldModeBuf, NewModeBuf;
+X
+Xchar *OldMode = (char *)&OldModeBuf;
+Xchar *NewMode = (char *)&NewModeBuf;
+X
+Xint Serverlevel = 1;            /* have to assume a level one server */
+Xint Protocollevel = 1;
+Xint Abortonmsg = 0;
+Xstruct Layer World[MAXPCHAN];
+X
+XSetTTY (fd, mp)
+Xstruct mode *mp;
+X{
+X#ifdef V7TTY
+X    ioctl (fd, TIOCSETP, &mp->m_ttyb);
+X    ioctl (fd, TIOCSETC, &mp->m_tchars);
+X    ioctl (fd, TIOCSLTC, &mp->m_ltchars);
+X    ioctl (fd, TIOCLSET, &mp->m_lmode);
+X    ioctl (fd, TIOCSETD, &mp->m_ldisc);
+X#else
+X    ioctl (fd, TCSETAF, &mp->m_tty);
+X#endif
+X} /* SetTTY() */
+X
+XGetTTY (fd, mp)
+Xstruct mode *mp;
+X{
+X#ifdef V7TTY
+X    ioctl (fd, TIOCGETP, &mp->m_ttyb);
+X    ioctl (fd, TIOCGETC, &mp->m_tchars);
+X    ioctl (fd, TIOCGLTC, &mp->m_ltchars);
+X    ioctl (fd, TIOCLGET, &mp->m_lmode);
+X    ioctl (fd, TIOCGETD, &mp->m_ldisc);
+X#else
+X    ioctl (fd, TCGETA, &mp->m_tty);
+X#endif
+X} /* GetTTY() */
+X
+XSetMode (op, np)
+Xstruct mode *op, *np;
+X{
+X    *np = *op;
+X#ifdef V7TTY
+X    if (flowctl)
+X      { np->m_ttyb.sg_flags &= ~(CRMOD|ECHO);
+X        np->m_ttyb.sg_flags |= CBREAK | ANYP | TANDEM;
+X      }
+X    else
+X        np->m_ttyb.sg_flags = RAW | ANYP;
+X    np->m_tchars.t_intrc = -1;
+X    np->m_tchars.t_quitc = -1;
+X    if (!flowctl)
+X      { np->m_tchars.t_startc = -1;
+X        np->m_tchars.t_stopc = -1;
+X      }
+X    np->m_ltchars.t_suspc = -1;
+X    np->m_ltchars.t_dsuspc = -1;
+X    np->m_ltchars.t_flushc = -1;
+X    np->m_ltchars.t_lnextc = -1;
+X#else
+X    np->m_tty.c_cc[4] = 1;               /* VMIN */
+X    np->m_tty.c_cc[5] = 0;               /* VTIME */
+X    np->m_tty.c_oflag = 0;
+X    np->m_tty.c_iflag = 0;
+X    np->m_tty.c_cflag |= (CREAD|HUPCL|CLOCAL);
+X    np->m_tty.c_lflag = 0;
+X
+X    if (flowctl)
+X        np->m_tty.c_iflag |= (IXON|IXOFF);
+X#endif
+X} /* SetMode() */
+X
+XSetSpeed (np, set)
+Xstruct mode *np;
+Xchar *set;
+X{
+X    int spd;
+X
+X    switch (atoi(set)) {
+X    case 300:
+X        spd = B300;
+X        break;
+X    case 1200:
+X        spd = B1200;
+X        break;
+X    case 2400:
+X        spd = B2400;
+X        break;
+X    case 4800:
+X        spd = B4800;
+X        break;
+X    case 9600:
+X        spd = B9600;
+X        break;
+X    case 19200:
+X#ifdef B19200
+X        spd = B19200;
+X#else
+X        spd = EXTA;
+X#endif
+X        break;
+X    case 38400:
+X#ifdef B38400
+X        spd = B38400;
+X#else
+X        spd = EXTB;
+X#endif
+X        break;
+X    default:
+X        DO DEBUG("SetSpeed(%s) unsupported speed\n", set);
+X        return;
+X    }
+X    while (*set >= '0' && *set <= '9')
+X	set++;
+X    if (*set == '-')
+X	set++;
+X    /* Any parity by default */
+X#ifdef V7TTY
+X    np->m_ttyb.sg_flags |= ANYP; 
+X#else
+X    np->m_tty.c_iflag &= ~INPCK;
+X    np->m_tty.c_cflag &= ~(CSIZE|PARODD|PARENB|CBAUD);
+X#ifdef CIBAUD
+X    np->m_tty.c_cflag &= ~CIBAUD;
+X#endif
+X    np->m_tty.c_iflag |= IGNPAR;
+X#endif
+X    switch (*set) {
+X    case 'O': 
+X    case 'o': 
+X#ifdef V7TTY
+X        np->m_ttyb.sg_flags &= ~ANYP; 
+X        np->m_ttyb.sg_flags |= ODDP; 
+X#else
+X        np->m_tty.c_iflag &= ~IGNPAR;
+X        np->m_tty.c_iflag |= INPCK;
+X        np->m_tty.c_cflag |= (CS7|PARODD|PARENB);
+X#endif
+X        break;
+X    case 'E':
+X    case 'e':
+X#ifdef V7TTY
+X        np->m_ttyb.sg_flags &= ~ANYP; 
+X        np->m_ttyb.sg_flags |= EVENP;
+X#else
+X        np->m_tty.c_iflag &= ~IGNPAR;
+X        np->m_tty.c_iflag |= INPCK;
+X        np->m_tty.c_cflag |= (CS7|PARENB);
+X#endif
+X        break;
+X#ifndef V7TTY
+X    default:
+X        np->m_tty.c_cflag |= CS8;
+X        break;
+X#endif
+X    }               
+X#ifdef V7TTY
+X    np->m_ttyb.sg_ispeed = spd;
+X    np->m_ttyb.sg_ospeed = spd;
+X#else
+X    np->m_tty.c_cflag |= spd;
+X#endif
+X} /* SetSpeed() */
+X
+X#ifdef sequent
+XOpenPTY ()
+X{
+X    char *m, *s;
+X    register f;
+X
+X    f = getpseudotty (&s, &m);
+X    strncpy (PtyName, m, sizeof (PtyName));
+X    strncpy (TtyName, s, sizeof (TtyName));
+X#ifdef V7TTY
+X    ioctl (f, TIOCFLUSH, (char *)0);
+X#else
+X    ioctl (f, TCFLSH, TCIOFLUSH);
+X#endif
+X    return (f);
+X}
+X
+X#else
+X
+XOpenPTY ()
+X{
+X    register char *p, *l, *d;
+X    register i, f, tf;
+X
+X    strcpy (PtyName, PtyProto);
+X    strcpy (TtyName, TtyProto);
+X    for (p = PtyName, i = 0; *p != 'X'; ++p, ++i);
+X#ifndef SEQUENT
+X    for (l = "pqrstuvwxyzPQRST"; *p = *l; ++l)
+X      { for (d = "0123456789abcdef"; p[1] = *d; ++d)
+X#else
+X    for (l = "pqrstuvwPQRSTUVW"; *p = *l; ++l)
+X      { for (d = "0123456789abcdef"; p[1] = *d; ++d)
+X#endif
+X          { if ((f = open (PtyName, O_RDWR)) != -1)
+X              { TtyName[i] = p[0];
+X                TtyName[i+1] = p[1];
+X                if ((tf = open (TtyName, O_RDWR)) != -1)
+X                  { close (tf);
+X                    return f;
+X                  }
+X                close (f);
+X              }
+X          }
+X      }
+X
+X    return -1;
+X
+X} /* OpenPTY() */
+X#endif
+X
+XScanInput(buf, len)
+Xchar *buf;
+Xint len;
+X{
+X    char obuf[IOSIZE+2];
+X    char *ip, *op;
+X    int olen;
+X
+X    DO DEBUG("ScanInput(), len = %d buf '%s', scanloc = %d\n", 
+X            len, buf, scanloc);
+X    op = obuf;
+X    olen = 0;
+X    while (len-- > 0) {
+X        if (*buf == initseq[scanloc]) {
+X            scanloc++;
+X            if (initseq[scanloc] == 0) {
+X                DO DEBUG("INIT received from layers server\n");
+X                printf("\r\n[MacLayers Startup Requested]\r\n");
+X	        /* Confirm the Maclayers protocol level */
+X	        if (Serverlevel != 2) {
+X        	    DO DEBUG("Cannot accept connection to a level %d server\n", 
+X                       Serverlevel);
+X                    Abortonmsg = 0;
+X                    Msg(0, "Sorry I can't talk to a level %d layers server\n", 
+X                       Serverlevel);
+X                    goto init_abort;
+X                }
+X                scanloc = 0;
+X                if (len) {
+X                    DO DEBUG("%d chars after INIT dumped '%s'\n",
+X                            len, buf+1);
+X                }
+X                return(1);
+X            }
+X        }
+X        else {
+X            if (scanloc) {
+X                /* protocol setting is a special case */
+X                if (scanloc == 1 && *buf > '1' && *buf < '7') {
+X                    DO DEBUG("Protocol set to %c\n", *buf);
+X                    Serverlevel = (*buf - '0');
+X                    printf("\r\n[Maclayers Protocol set to %d]\r\n", Serverlevel);
+X                    scanloc = 0;
+X                    buf++;
+X                    continue;
+X                }
+X                else {
+Xinit_abort:
+X                    for (ip = initseq; scanloc > 0; scanloc--) {
+X                        *op++ = *ip++ & 0x7f;
+X                        olen++;
+X                    }
+X                }
+X            }
+X            *op++ = *buf & 0x7f;
+X            olen++;
+X        }
+X        buf++;
+X    }
+X    obuf[olen] = 0;
+X    DO DEBUG("olen = %d obuf '%s'\n", olen, obuf);
+X    if (olen)
+X        write(1, obuf, olen);
+X    return(0);
+X}
+X
+XSetLine()
+X{
+X    struct mode TtyMode;
+X    
+X    /* Set the mode on the layers I/O channel */
+X    GetTTY (TtyFd, &TtyMode);
+X    SetMode (&TtyMode, &TtyMode);
+X    SetSpeed(&TtyMode, TtySpeed);
+X    SetTTY (TtyFd, &TtyMode);
+X}
+X
+XCookedMode()
+X{
+X    struct mode Mode;
+X
+X    GetTTY(0, &Mode);
+X#ifdef V7TTY
+X    Mode.m_ttyb.sg_flags &= ~RAW;
+X    Mode.m_tchars.t_intrc = 3;
+X#else
+X    Mode.m_tty.c_lflag |= ISIG;
+X#endif
+X    SetTTY(0, &Mode);
+X}
+X
+XRawMode()
+X{
+X    struct mode Mode;
+X
+X    GetTTY(0, &Mode);
+X#ifdef V7TTY
+X    Mode.m_ttyb.sg_flags |= RAW;
+X    Mode.m_tchars.t_intrc = -1;
+X#else
+X    Mode.m_tty.c_lflag &= ~ISIG;
+X#endif
+X    SetTTY(0, &Mode);
+X}
+X
+X
+XStartUp()
+X{
+X    register len;
+X    int     r;              /* read fd test bits */
+X    int     w;              /* write fd test bits */
+X    int     fderr;              /* error fd test bits */
+X    int i;
+X#ifdef USG
+X    struct pollfd fds[2];
+X#endif
+X    char    buf[IOSIZE];
+X        static  int escapemode = 0;
+X
+X    signal (SIGALRM, SIG_IGN);  /* alarm clock used by protocol.c */
+X
+X    printf("\r\n[ Layers - dumb terminal mode ]\r\n");
+X
+X    Abortonmsg = 0;         /* don't abort on msg from now on */
+X
+X    /* startup processing loop */
+X
+X    fderr = 0;                              /* startout no error fd's */
+X
+X    while (1)
+X      {
+X       
+X#ifdef USG
+X        fds[0].fd = 0;
+X        fds[0].events = POLLIN|POLLPRI;
+X        fds[1].fd = TtyFd;
+X        fds[1].events = POLLIN|POLLPRI;
+X
+X        switch (poll(fds, 2, -1)) {
+X        case -1:
+X            Abortonmsg = 1;
+X            DO DEBUG("poll errno %d\n", errno);
+X            Msg (errno, "poll");
+X            /*NOTREACHED*/
+X
+X          case 0:
+X            /* timeout reached - SHOULD NOT OCCUR */
+X            DO DEBUG("Unexpected poll timeout in StartUp\n");
+X            continue;           /* re-loop */
+X
+X          default:
+X            /* a channel has read/write status pending */
+X            break;
+X        }
+X
+X        DO DEBUG("after poll stdin = %x, TtyFd = %x\n", 
+X         fds[0].revents, fds[1].revents);
+X
+X        /* process input stream from remote */
+X        if (fds[0].revents)
+X          { 
+X            len = read(0, buf, IOSIZE);
+X            if (len >= 0)               /* if no error ... */
+X              { DO DEBUG("keyboard len %d\n", len);
+X              }
+X            else
+X              {
+X                DO DEBUG("read keyboard %d len %d\n",
+X                        errno, len);
+X#ifdef KEY_ERR_OK
+X                /* We expect EIO error if socket not yet open on other end
+X                ** or if process using socket has terminated. We expect
+X                ** EWOULDBLOCK also after process terminates.
+X                **/
+X                if (errno == EIO || errno == EAGAIN)
+X                  { DO DEBUG(" ...anticipated\n");
+X                  }
+X#else
+X            FQuit(EXITNORMAL);
+X#endif
+X              }
+X            if (len > 0)
+X              {
+X                /* Process input stream */
+X                for (i = 0; i < len; i++)
+X                 {
+X                  if ((buf[i] & 0x7f) == '~') {
+X                    if (!escapemode) {
+X                        escapemode++;
+X                        continue;
+X                    }
+X                  }
+X                  else if (escapemode) {
+X                    Tilde(buf[i]);
+X		    escapemode = 0;
+X                    continue;
+X                  }
+X                  write(TtyFd, &buf[i], 1);
+X                 }
+X              }
+X             }
+X
+X        /* now pass all available output to remote */
+X        if (fds[1].revents)
+X         {  /* output to send to stdout */
+X            len = read(TtyFd, buf, IOSIZE);
+X            if (len >= 0)               /* if no error ... */
+X              { DO DEBUG("output len %d\n", len);
+X              }
+X            else
+X              {
+X                DO DEBUG("read output errno %d len %d fd %d\n",
+X                        errno, len, TtyFd);
+X#ifdef OUT_ERR_OK
+X                /* We expect EIO error if socket not yet open on other end
+X                ** or if process using socket has terminated. We expect
+X                ** EWOULDBLOCK also after process terminates.
+X                **/
+X                if (errno == EIO || errno == EAGAIN)
+X                  { DO DEBUG(" ...anticipated\n");
+X                  }
+X                /* layer not ready or just terminated so wait-a-bit */
+X                fderr |= TtyMask;
+X                errno = 0;              /* clear errno */
+X#else
+X                FQuit(EXITNORMAL);
+X#endif
+X              }
+X
+X            if (len > 0)
+X                /* Process input stream */
+X                if (ScanInput(buf, len))
+X                    return;
+X             }
+X#else /* USG */
+X
+X        r = (1 | TtyMask);  /* read stdio and shell output */
+X        w = 0;          /* no write tests */
+X
+X
+X        DO DEBUG("Select(r %x, w %x, fderr %x)\n",
+X                    r, w, fderr);
+X
+X        switch ( select(32, &r, &w, NULL, NULL) )
+X        { case -1:
+X            /* errno has report */
+X            if (errno == EINTR)             /* signal delivered or timout */
+X              { errno = 0;
+X                fderr = 0;                  /* turn off error stall */
+X                DO DEBUG("select errno EINTR\n");
+X                continue;                   /* re-loop */
+X              }
+X            Abortonmsg = 1;
+X            DO DEBUG("select errno %d\n", errno);
+X            Msg (errno, "select");
+X            /*NOTREACHED*/
+X
+X          case 0:
+X            /* timeout reached - SHOULD NOT OCCUR */
+X            DO DEBUG("Unexpected select timeout in StartUp\n");
+X            fderr = 0;          /* turn off error stall */
+X            continue;           /* re-loop */
+X
+X          default:
+X            /* a channel has read/write status pending */
+X            break;
+X        }
+X
+X        DO DEBUG("after select r %x w %x\n", r, w);
+X
+X        /* process input stream from remote */
+X        if (r & 1 << 0)
+X          { 
+X            len = read(0, buf, IOSIZE);
+X            if (len >= 0)               /* if no error ... */
+X              { DO DEBUG("keyboard len %d\n", len);
+X              }
+X            else
+X              {
+X                DO DEBUG("read keyboard %d len %d\n",
+X                        errno, len);
+X#ifdef KEY_ERR_OK
+X                /* We expect EIO error if socket not yet open on other end
+X                ** or if process using socket has terminated. We expect
+X                ** EWOULDBLOCK also after process terminates.
+X                **/
+X                if (errno == EIO || errno == EWOULDBLOCK)
+X                  { DO DEBUG(" ...anticipated\n");
+X                  }
+X
+X                /* layer not ready or just terminated so wait-a-bit */
+X                fderr |= TtyMask;
+X                errno = 0;              /* clear errno */
+X#else
+X            FQuit(EXITNORMAL);
+X#endif
+X              }
+X            if (len > 0)
+X              {
+X                /* Process input stream */
+X                for (i = 0; i < len; i++)
+X                 {
+X                  if ((buf[i] & 0x7f) == '~') {
+X                    if (!escapemode) {
+X                        escapemode++;
+X                        continue;
+X                    }
+X                  }
+X                  else if (escapemode) {
+X                    Tilde(buf[i]);
+X		    escapemode = 0;
+X                    continue;
+X                  }
+X                  write(TtyFd, &buf[i], 1);
+X                 }
+X              }
+X             }
+X
+X        /* now pass all available output to remote */
+X        if (r & TtyMask)
+X         {  /* output to send to stdout */
+X            len = read(TtyFd, buf, IOSIZE);
+X            if (len >= 0)               /* if no error ... */
+X              { DO DEBUG("output len %d\n", len);
+X              }
+X            else
+X              {
+X                DO DEBUG("read output errno %d len %d fd %d\n",
+X                        errno, len, TtyFd);
+X#ifdef OUT_ERR_OK
+X                /* We expect EIO error if socket not yet open on other end
+X                ** or if process using socket has terminated. We expect
+X                ** EWOULDBLOCK also after process terminates.
+X                **/
+X                if (errno == EIO || errno == EWOULDBLOCK)
+X                  { DO DEBUG(" ...anticipated\n");
+X                  }
+X                /* layer not ready or just terminated so wait-a-bit */
+X                fderr |= TtyMask;
+X                errno = 0;              /* clear errno */
+X#else
+X                FQuit(EXITNORMAL);
+X#endif
+X              }
+X
+X            if (len > 0)
+X                /* Process input stream */
+X                if (ScanInput(buf, len))
+X                    return;
+X             }
+X#endif
+X
+X      } /* end while (1) */
+X
+X    /* NOT REACHED */
+X
+X}
+X
+XTilde(c)
+Xint c;
+X{
+X    char buf[2];
+X
+X    DO DEBUG("Tilde CMD %c\n", c);
+X    switch (c) {
+X    case '.':
+X        FQuit(0);
+X	/* NOT REACHED */
+X    case 'b':
+X	tty_break();
+X	break;
+X    default:
+X        buf[0] = c;
+X	write(TtyFd, buf, 1);
+X	break;
+X    }
+X}
+X
+X/*VARARGS2*/
+XMsg (err, fmt, p1, p2, p3, p4, p5, p6)
+Xchar *fmt;
+X{
+X    char buf[1024];
+X    register char *p = buf;
+X
+X    sprintf (p, fmt, p1, p2, p3, p4, p5, p6);
+X    if (err)
+X      { p += strlen (p);
+X        if (err > 0 && err < sys_nerr)
+X            sprintf (p, ": %s", sys_errlist[err]);
+X        else
+X            sprintf (p, ": Error %d", err);
+X      }
+X    if (!Abortonmsg)
+X      { /* MakeStatus (buf, curr);*/
+X        printf("%s\r\n", buf);
+X      } 
+X    else
+X      { printf ("%s\r\n", buf);
+X        exit(exitcode);
+X      }
+X
+X} /* Msg() */
+X
+X                /* DEBUG() - dump output routine */
+X
+Xvoid
+XDEBUG(format, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+Xchar        *format;
+Xint         arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8;
+X{
+X    fprintf(stderr, format, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+X}
+X
+Xchar *
+XFilename (s)
+Xchar *s;
+X{
+X    register char *p;
+X
+X    p = s + strlen (s) - 1;
+X    while (p >= s && *p != '/')
+X        --p;
+X    return ++p;
+X
+X} /* Filename() */
+X
+X
+Xstatic gl_timeout()
+X{
+X	DO DEBUG("getc_line: SIGALRM\n");
+X        longjmp(gl_buf, 1);
+X}
+X
+Xgetc_line(sec)
+Xunsigned int sec;
+X{       
+X    int result;
+X    char buf[2];
+X    unsigned int alarm();
+X
+X    if (sec) {
+X        alarm(sec);
+X        signal(SIGALRM, gl_timeout);
+X        if (setjmp(gl_buf))
+X            return(-1);
+X    }
+X
+X    do {
+X        /* do the read from the serial channel */
+X        CookedMode();   
+X        result = read(TtyFd, buf, 1);
+X	RawMode();
+X    } while (result == 0);
+X
+X    if (sec) {
+X       signal(SIGALRM, SIG_IGN);
+X       alarm(0);
+X    }
+X
+X    if (result <= 0)
+X      { DO DEBUG("get_line: result = %d, errno = %d\n", result, errno);
+X	return(-1);
+X      }
+X    return(buf[0] & 0x0ff);
+X}
+X
+X	        
+END_OF_FILE
+  if test 21155 -ne `wc -c <'startup.c'`; then
+    echo shar: \"'startup.c'\" unpacked with wrong size!
+  fi
+  # end of 'startup.c'
+fi
+if test -f 'ul_ports' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ul_ports'\"
+else
+  echo shar: Extracting \"'ul_ports'\" \(392 characters\)
+  sed "s/^X//" >'ul_ports' <<'END_OF_FILE'
+X#
+X# Ulayers ports database
+X#
+X# Each line identifies the default modem dialer to use for each port.
+X# The modems are defined in the ul_modems database.
+X# The -m option to ulayers overrides these defaults.
+X# When no match is found, ulayers defaults to its compile-time dialer
+X# (usually a simple hayes dialer).
+X#
+X# Examples: (remove the '#' to make them real)
+X#/dev/cua0:t2500
+X#/dev/cua1:t3000
+END_OF_FILE
+  if test 392 -ne `wc -c <'ul_ports'`; then
+    echo shar: \"'ul_ports'\" unpacked with wrong size!
+  fi
+  # end of 'ul_ports'
+fi
+if test -f 'ulayers.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ulayers.1'\"
+else
+  echo shar: Extracting \"'ulayers.1'\" \(6137 characters\)
+  sed "s/^X//" >'ulayers.1' <<'END_OF_FILE'
+X.TH ULAYERS l  "1 April 1993"
+X.SH NAME
+X.PP
+Xulayers \- Unix Emulation of MacLayers Multiwindow Terminal Emulator
+X.SH SYNOPSIS
+Xulayers [-df] [ -m modem ] device speed [ number ]
+X.PP
+Xulayers [-df] [ -m modem ] system
+X.PP
+Xulayers -v
+X.SH DESCRIPTION
+X.PP
+XUlayers provides multi-window capability for a Unix system running X
+Xby emulating the Macintosh application called MacLayers.
+XTo use Ulayers, you must have the X Windows system installed on your
+Xlocal Unix system and the layers protocol program installed on your
+Xremote Unix system. Alternatives to X are possible by substituting
+Xa custom
+X.I ulterm
+Xmodule (see below).
+X.SH ULAYERS OPERATION
+X.PP
+XThe Ulayers application starts up as a "dumb"
+Xterminal emulator. (As such you can use it with any
+Xhost, not just a Unix machine.)  Ulayers does not emulate any
+Xparticular terminal. Whatever terminal you're on is what the remote
+Xsystem "sees".  You can quit the ulayers "dumb terminal" mode
+Xby issuing the \~\. command.
+X.PP
+XIf only
+X.I device
+Xand
+X.I speed
+Xare specified, you
+Xwill be connected directly to the serial port (modem) and you can
+Xissue modem commands to dial the remote system.
+XThe
+X.I -f
+Xoption enables flow control on the serial connection. The 
+X.I -d
+Xoption enables debugging mode, in which ulayers will print
+Xdiagnostic information in a
+X.I ulayers.dump
+Xfile in the current directory. The
+X.I -v
+Xoption causes ulayers to print its version identification and exit.
+XThe
+X.I -m
+Xoption allows one to override the default modem for the selected port.
+X.PP
+XWhen
+X.IR device ,
+X.IR speed ,
+Xand
+X.I number
+Xare given, the specified number is dialed using the specified
+Xport and speed parameters.  If 
+X.I system
+Xalone is given, the specified system is called, using the user's
+Xpersonal dialing database (see below).
+X.PP
+XIn either case, once you're connected to the remote Unix system,
+Xlogin and issue the 
+X.I layers
+Xcommand (from the standard MacLayers distribution) with no options
+Xto start the MacLayers multi-window
+Xprotocol. A new layers session will start. If you're using
+Xthe default
+X.I ulterm
+Xthis will be an
+X.I xterm
+Xwindow. Once the MacLayers protocol
+Xstarts, the original "dumb" terminal session enters a basic command
+Xmode.  You can type 'n' (new) to the ulayers application to open a new
+XMacLayers session.  Or you can start a new layer session by issuing 
+Xthe
+X.I layers
+Xcommand to an existing layers session.  See layers(1) for other options.
+X.PP
+XYou can abort host 
+X.I layers
+Xby issuing the 'q' (quit) command to the ulayers program. The 's'
+X(status) command shows the status of all active layers. The 'h' (help)
+Xcommand lists all the possible
+X.I ulayers 
+Xcommands.
+X.SH ZMODEM DOWNLOADING
+X.PP
+XUlayers has a download facility for downloading using the 
+XZMODEM protocol.  When you start a ZMODEM download on the remote
+Xsystem, the layers window automatically detects the ZMODEM
+Xinitialization sequence and attempts to execute the
+X.I rz
+Xprogram on the local system. 
+X.SH ZMODEM UPLOADING
+X.PP
+XUlayers supports an upload facility for transferring local
+Xfiles to the remote system using the ZMODEM protocol.  When you
+Xstart a ZMODEM upload on the remote
+Xsystem, the layers window automatically detects the ZMODEM
+Xinitialization sequence.  You will be prompted for the name
+Xof the local file to send.
+XUlayers attempts to execute the
+X.I sz
+Xprogram on the local system to send the requested file.
+X.SH AUTOMATIC DIALING
+XUlayers supports a modem and dialing database.  Each user may
+Xhave a personal list of systems that they frequently call.
+XThis file is stored in the file
+X.B .ul_numbers
+Xin the user's home directory.  This file must be created with
+Xa text editor; there is no provision within Ulayers to create
+Xthis file.  The .ul_numbers file consists of entries, one per line,
+Xof the form:
+X.IP
+X.I
+Xsystem\ \ \ speed\ \ \ line\ \ \ number
+X.LP
+X.TP 10
+X.I system
+Xis the name of the dialer enter. It corresponds to the argument
+Xpassed on the ulayers command-line.
+X.TP
+X.I speed
+Xdefines the communication parameters for the connection.  It specifies
+Xthe baud rate and parity. For example, 19200-N-8-1, for 19.2K baud,
+Xno parity, 8 data bits, and 1 stop bit.
+X.TP
+X.I line
+Xspecifies the communications device, such as /dev/cua0.
+X.TP
+X.I number
+Xis optional and is the telephone number of the remote system.
+X.PP
+XThe Ulayers modems database allows you to customize the way
+XUlayers talks to your modem.
+XUlayers assumes a Hayes-compatible modem. If your modem is Hayes
+Xcompatible, then no special dialing instructions are required.
+XThe compile-time parameter LIB_DIR defines the location of the
+Xtwo modem database files. One file,
+X.B ul_modems
+Xdefines the modem commands used to initialize and dial.  Another
+Xfile,
+X.B ul_ports
+Xdefines the default modem dialer to use with each tty port.
+XRefer to the sample files provided for the format of these files.
+X.SH FILES
+X$HOME/.ul_numbers
+X.br
+Xul_modems
+X.br
+Xul_ports
+X.br
+Xulterm
+X.br
+Xrz
+X.br
+Xsz
+X.br
+Xulslave
+X.br
+X.SH ENVIRONMENT
+X.TP 10
+XULTERM
+Xdefines the name of the terminal startup module. Ulayers executes this
+Xcommand when a new layer session is started, passing the name of the
+XPTY and the layer number as arguments. If the ULTERM environment is
+Xnot defined, ulayers defaults to 
+X.BR ulterm .
+XThe supplied ulterm module is a Bourne shell script which runs
+X.IB xterm .
+X.SH AUTHOR
+XMost of the source was derived from the original Maclayers
+Xsource written by Dave Trissel.  The modifications to emulate
+Xthe Mac-side of the protocol on Unix were made by David Beckemeyer.
+X.SH BUGS AND CAVEATS
+XUlayers doesn't support geometry and sizing options.  All windows
+Xare assumed to be 80 columns by 25 rows.
+X.PP
+XDue to a bug in versions of "layers" prior to v1.30,
+Xthe UPLOAD feature of Ulayers does not work for binary files
+Xon all systems.  It should work on any file that does not contain
+Xthe character 0xfd.  This bug is fixed in the v1.30 version of
+Xlayers.
+X.SH SEE ALSO
+X.PP
+XThe MacLayers program is
+Xcompletely described in the manual that accompanies it.
+X.PP
+XManual page derived from layers(1) by Peter Newton.
+X.PP
+XUNIX(TM) is a registered trademark of American Telephone and Telegraph.
+XMacintosh is a trademark of McIntosh Laboratories and is licensed to Apple 
+XComputer.
+END_OF_FILE
+  if test 6137 -ne `wc -c <'ulayers.1'`; then
+    echo shar: \"'ulayers.1'\" unpacked with wrong size!
+  fi
+  # end of 'ulayers.1'
+fi
+if test -f 'ulslave.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ulslave.c'\"
+else
+  echo shar: Extracting \"'ulslave.c'\" \(8428 characters\)
+  sed "s/^X//" >'ulslave.c' <<'END_OF_FILE'
+X/********					ulslave.c
+X*********
+X*********     This is a quick & dirty implementation of the
+X*********     MacLayers protocol client-side for Unix.  It
+X*********     Basically is an emulation of the MacLayers
+X*********     Macintosh application for Unix, except that
+X*********     Ulayers is a bare-bones program, a far cry
+X*********     from the polished and professional MacLayers.
+X*********
+X*********     The hacks to produce Ulayers were made by me,
+X*********     David Beckemeyer david@bdt.com.  Essentially
+X*********     the entire credit for this goes to the original
+X*********     authors however, and all the contributors
+X*********     copyright messages appear below.  On the
+X*********     the other hand, the "real" Maclayers authors
+X*********     are not to blame for the shoddy hacks I made
+X*********     to their code either, and so I'm putting my
+X*********     here because I'm sure they don't want their
+X*********     name associatyed with this mess!
+X*********
+X*********     Most of the code for Ulayers came straight from
+X*********     the Unix-side of the MacLayers implementation,
+X*********     the copyright messages to which follow:
+X*********
+X*********	Layers - MacLayers Multiwindow BSD Socket Driver
+X*********
+X*********          Dave Trissel oakhill!davet
+X*********
+X********* The sockets handling portion of this control module is based 
+X********* upon 'screen' by Oliver Laumann whose copyright remains below. 
+X********* The rest is
+X *
+X *             Copyright (C) 1989 by David W. Trissel
+X *
+X *              Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X */
+X
+X
+X/* Copyright (c) 1987,1988 Oliver Laumann, Technical University of Berlin.
+X * Not derived from licensed software.
+X *
+X * Permission is granted to freely use, copy, modify, and redistribute
+X * this software, provided that no attempt is made to gain profit from it,
+X * the author is not construed to be liable for any results of using the
+X * software, alterations are clearly marked as such, and this notice is
+X * not modified.
+X *
+X *	Modified by Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Do whatever you want with (my modifications of) this program, but
+X *	don't claim you wrote them, don't try to make money from them, and
+X *	don't remove this notice.
+X */
+X#include <stdio.h>
+X#include <signal.h>   
+X#include <errno.h>
+X#include <ctype.h>    
+X#include <pwd.h>
+X#ifdef USG
+X#include <stropts.h>
+X#include <poll.h>
+X#endif
+X#include <nlist.h> 
+X#include <fcntl.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X#include <sys/wait.h>
+X#include <sys/socket.h>
+X#include <utmp.h>
+X#ifndef USG
+X#include <sys/un.h>
+X#endif
+X#include <sys/stat.h>
+X#include <sys/dir.h> 
+X#include "conf.h"
+X#ifdef V7TTY
+X#include <sgtty.h>
+X#include <sys/ioctl.h>
+X#else
+X#include <termio.h>
+X#endif
+X
+X#define IOSIZE 1024
+X
+X#define RZ "rz"
+X#define SZ "sz"
+X
+Xstatic char *RzArgs[] = { RZ, NULL };
+Xstatic char *SzArgs[3];
+X
+X#define DO if (Dflag)
+X
+X#ifdef DEBUG
+Xint Dflag = 1;
+X#else
+Xint Dflag = 0;
+X#endif
+X
+Xstruct mode {
+X#ifdef V7TTY
+X    struct sgttyb m_ttyb;
+X    struct tchars m_tchars;
+X    struct ltchars m_ltchars;
+X    int m_ldisc;
+X    int m_lmode;
+X#else
+X    struct termio m_tty;
+X#endif
+X};
+X
+Xstatic char *initseq = "**\030B0";
+Xstatic int scanloc = 0;
+Xstatic int ttyfd;
+Xstatic struct mode TtyMode, OldMode;
+X
+XSetTTY (fd, mp)
+Xstruct mode *mp;
+X{
+X#ifdef V7TTY
+X    ioctl (fd, TIOCSETP, &mp->m_ttyb);
+X    ioctl (fd, TIOCSETC, &mp->m_tchars);
+X    ioctl (fd, TIOCSLTC, &mp->m_ltchars);
+X    ioctl (fd, TIOCLSET, &mp->m_lmode);
+X    ioctl (fd, TIOCSETD, &mp->m_ldisc);
+X#else
+X    ioctl (fd, TCSETAF, &mp->m_tty);
+X#endif
+X} /* SetTTY() */
+X
+XGetTTY (fd, mp)
+Xstruct mode *mp;
+X{
+X#ifdef V7TTY
+X    ioctl (fd, TIOCGETP, &mp->m_ttyb);
+X    ioctl (fd, TIOCGETC, &mp->m_tchars);
+X    ioctl (fd, TIOCGLTC, &mp->m_ltchars);
+X    ioctl (fd, TIOCLGET, &mp->m_lmode);
+X    ioctl (fd, TIOCGETD, &mp->m_ldisc);
+X#else
+X    ioctl (fd, TCGETA, &mp->m_tty);
+X#endif
+X} /* GetTTY() */
+X
+XSetMode (op, np)
+Xstruct mode *op, *np;
+X{
+X    *np = *op;
+X#ifdef V7TTY
+X    np->m_ttyb.sg_flags = RAW | ANYP;
+X    np->m_tchars.t_intrc = -1;
+X    np->m_tchars.t_quitc = -1;
+X    np->m_tchars.t_startc = -1;
+X    np->m_tchars.t_stopc = -1;
+X    np->m_ltchars.t_suspc = -1;
+X    np->m_ltchars.t_dsuspc = -1;
+X    np->m_ltchars.t_flushc = -1;
+X    np->m_ltchars.t_lnextc = -1;
+X#else
+X    np->m_tty.c_cc[4] = 1;               /* VMIN */
+X    np->m_tty.c_cc[5] = 0;               /* VTIME */
+X    np->m_tty.c_oflag = 0;
+X    np->m_tty.c_iflag = 0;
+X    np->m_tty.c_cflag |= (CREAD|HUPCL|CLOCAL);
+X    np->m_tty.c_lflag = 0;
+X#endif
+X} /* SetMode() */
+X
+Xusage()
+X{
+X	fprintf(stderr, "usage: ulslave tty\n");
+X	exit(1);
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	char *tty;
+X	int ttymask;
+X	int len, r;
+X#ifdef USG
+X    struct pollfd fds[2];
+X#endif
+X
+Xstatic char buf[IOSIZE];
+X
+X	if (argc != 2)
+X		usage();
+X	tty = argv[1];
+X
+X	ttyfd = open(tty, O_RDWR);
+X	ttymask = (1 << ttyfd);
+X	printf("Ulayers session on local pty %s\n", tty);
+X	if (ttyfd < 0) {
+X		printf("ulslave: open failed (errno %d)\n", errno);
+X		exit(1);
+X	}
+X	GetTTY(0, &OldMode);
+X	SetMode(&OldMode, &TtyMode);
+X	SetTTY(0, &TtyMode);
+X	SetTTY(1, &TtyMode);
+X	SetTTY(ttyfd, &TtyMode);
+X
+X	/* Enable signals */
+X	signal(SIGHUP, SIG_DFL);
+X	signal(SIGTERM, SIG_DFL);
+X	signal(SIGINT, SIG_IGN);
+X
+X	/* Send Init message */
+X	sprintf(buf, "%dT", getpid());
+X	write(ttyfd, buf, strlen(buf));
+X
+X	while (1) {
+X#ifdef USG
+X		fds[0].fd = 0;
+X		fds[0].events = POLLIN|POLLPRI;
+X		fds[1].fd = ttyfd;
+X		fds[1].events = POLLIN|POLLPRI;
+X
+X		poll(fds, 2, -1);
+X		if (fds[0].revents) {
+X			len = read(0, buf, IOSIZE);
+X			DO printf("read %d bytes from stdin\n", len);
+X			if (len > 0)
+X				write(ttyfd, buf, len);
+X		}
+X		if (fds[1].revents) {
+X			len = read(ttyfd, buf, IOSIZE);
+X			DO printf("read %d bytes from tty", len);
+X			if (len > 0)
+X				ScanStream(buf, len);
+X			else {
+X				/* closed PTY, send a SIGHUP */
+X				kill(getpid(), SIGHUP);
+X			}
+X		}
+X#else
+X		r = 1 | ttymask;
+X		select(32, &r, 0, 0, 0);
+X		DO printf("back from select r = %x\n", r);
+X		if (r & 1) {
+X			len = read(0, buf, IOSIZE);
+X			DO printf("read %d bytes from stdin\n", len);
+X			if (len > 0)
+X				write(ttyfd, buf, len);
+X		}
+X		if (r & ttymask) {
+X			len = read(ttyfd, buf, IOSIZE);
+X			DO printf("read %d bytes from tty", len);
+X			if (len > 0)
+X				ScanStream(buf, len);
+X			else {
+X				/* closed PTY, send a SIGHUP */
+X				kill(getpid(), SIGHUP);
+X			}
+X		}
+X#endif		
+X	}
+X}
+X
+X
+XScanStream(buf, len)
+Xchar *buf;
+Xint len;
+X{
+X	char *op;
+X	int olen;
+X	char fname[256];
+X
+X	/* save original pointer */
+X	op = buf;
+X	olen = len;
+X	while (len-- > 0) {
+X		/* buffer chars while we have a match on out startup sequence */
+X		if (*buf == initseq[scanloc]) {
+X			scanloc++;
+X		}
+X		else {
+X			/* If we matched the Zmodem INIT sequence */
+X			if (initseq[scanloc] == 0) {
+X				/* see if it's a upload or download */
+X				switch (*buf) {
+X				case '0':
+X					scanloc = 0;
+X					write(1, "\r\n[ZMODEM D/L]\r\n", 16);
+X					do_udl(RZ, RzArgs);
+X					return(1);
+X				case '1':
+X					scanloc = 0;
+X					write(1, "\r\n[ZMODEM U/L]\r\n", 16);
+X					write(1, "Enter Filename: ", 16);
+X					SetTTY(0, &OldMode);
+X					len = readline(0, fname, IOSIZE);
+X					SetTTY(0, &TtyMode);
+X					if (len <= 0)
+X						return(0);
+X					SzArgs[0] = SZ;
+X					SzArgs[1] = fname;
+X					SzArgs[2] = NULL;
+X					do_udl(SZ, SzArgs);
+X					return(1);
+X				}
+X				/* not a valid start, ignore */
+X			}
+X		}
+X		buf++;
+X	}
+X	write(1, op, olen);
+X	return(0);
+X}
+X	
+X
+X
+X
+X
+X
+X
+Xdo_udl(cmd, args)
+Xchar *cmd, **args;
+X{
+X	int pid;
+X	FILE *fp;
+X
+X	switch (pid = fork()) {
+X	case 0:
+X		fp = fdopen(dup(1), "w");
+X		close(0);
+X		dup(ttyfd);
+X		close(1);
+X		dup(ttyfd);
+X		execvp(cmd, args);
+X		write(1, "\030\030\030\030\030", 5);
+X		fprintf(fp, "\r\n[ The \"%s\" program must be installed in your path locally. ]\r\n", cmd);
+X		fclose(fp);
+X		exit(1);
+X	case -1:
+X		perror("ulslave: fork failed");
+X		break;
+X	default:
+X		wait(NULL);
+X		SetTTY(ttyfd, &TtyMode);
+X		printf("[ZMODEM DONE]\r\n");
+X		break;
+X	}
+X}
+X
+X		
+Xreadline(fd, ptr, maxlen)
+Xint fd;
+Xchar *ptr;
+Xint maxlen;
+X{
+X	int n, rc;
+X
+X	for (n = 0; n < maxlen; n++) {
+X		if ((rc = read(fd, ptr, 1)) == 1) {
+X			if (*ptr <= ' ')
+X				break;
+X			ptr++;
+X		}
+X		else if (rc == 0) {
+X			break;		/* EOF, some data read */
+X		}
+X		else
+X			return(-1);	/* error */
+X	}
+X	*ptr = 0;
+X	return(n);
+X}
+END_OF_FILE
+  if test 8428 -ne `wc -c <'ulslave.c'`; then
+    echo shar: \"'ulslave.c'\" unpacked with wrong size!
+  fi
+  # end of 'ulslave.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

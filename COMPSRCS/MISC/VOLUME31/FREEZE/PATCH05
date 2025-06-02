@@ -1,0 +1,1120 @@
+Newsgroups: comp.sources.misc
+From: leo@ipmce.su (Leonid A. Broukhis)
+Subject:  v31i089:  freeze - Freeze/melt compression program 2.3, Patch05
+Message-ID: <1992Aug18.215658.29273@sparky.imd.sterling.com>
+X-Md4-Signature: d64313176f1e0ff48b0941206b3eb8e6
+Date: Tue, 18 Aug 1992 21:56:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 31, Issue 89
+Archive-name: freeze/patch05
+Environment: ISC, Xenix, SunOS, MS-DOS
+Patch-To: freeze: Volume 25, Issue 12-13
+
+Main enhancements:
+ - compression speed (without reducing compression rate)
+   was significantly increased;
+ - other small contributed patches.
+
+*** distribution/README	Thu Jul 16 15:20:51 1992
+--- README	Mon Aug 17 17:02:12 1992
+***************
+*** 12,29 ****
+  	o M_XENIX & !M_I386     Makes arrays < 65536 bytes each
+  	o BSD                   Allow long filenames ( > 14 characters) &
+  				Call setlinebuf(stderr)
+! 	o INT_SIG               signal is int (*)() unstead of void
+  	o MSDOS                 Turns off some UNIX-dependencies
+! 				and MSDOS' ones - vice versa
+! 				!!! It's important !!!
+! 				If your MSDOS' C compiler does support
+! 				inline functions, define DO_INLINE.
+! 				This will cause the main loop to be
+! 				replaced with a call of memcmp, which
+! 				will be represented as 'repz cmpsb'.
+  	o FAST                  Forces the Get_Next_Match routine
+  				to be inline. This gives additional
+! 				percents of speedup.
+  	o __TURBOC__            For compiling under TURBO C
+  	o __i386__              When compiling under GNU C causes
+  				some fixed register allocations,
+--- 12,31 ----
+  	o M_XENIX & !M_I386     Makes arrays < 65536 bytes each
+  	o BSD                   Allow long filenames ( > 14 characters) &
+  				Call setlinebuf(stderr)
+! 	o SIGTYPE               The type that is returned by signal
+! 				handlers.  Defaults to void.
+  	o MSDOS                 Turns off some UNIX-dependencies
+! 				and MSDOS' ones - vice versa.
+! 	o FASTHASH              Uses another hash function which gives
+! 				some speedup, thus reducing the compression
+! 				rate (!)
+  	o FAST                  Forces the Get_Next_Match routine
+  				to be inline. This gives additional
+! 				percents of speedup on some machines
+! 				using some compilers (depends on
+! 				the number of registers, register
+! 				allocation strategy and subroutine call
+! 				overhead).
+  	o __TURBOC__            For compiling under TURBO C
+  	o __i386__              When compiling under GNU C causes
+  				some fixed register allocations,
+***************
+*** 38,46 ****
+  				4.3).
+  
+  Please! If your computer supports the string operations, try to write
+! "asm" instructions (GNU style) which realize the right-to-left memory
+! comparison (s1, s2, length) in minimum number of clock cycles.
+! If a noticeable (5% or more) speedup is gained, please send me a message.
+  
+  Other preprocessor symbols (DEBUG, GATHER_STAT) are for internal use
+  only.
+--- 40,49 ----
+  				4.3).
+  
+  Please! If your computer supports the string operations, try to write
+! "asm" instructions (GNU style) which realize the memory comparison
+! "(s1, s2, maxlength) --> matched length" in the minimum number of clock
+! cycles.  If a noticeable (5% or more) speedup is gained, please send
+! me a message.
+  
+  Other preprocessor symbols (DEBUG, GATHER_STAT) are for internal use
+  only.
+***************
+*** 126,131 ****
+--- 129,136 ----
+  gif =   0 0 0 0 2 60 0 0        # This is NOT! optimal data
+  				# for GIF files
+  doc=0 0 1 2 7 16 36 0           # The sample was gcc.lp
++ greedy2=0 1 1 2 5 8 11 34       #
++ 
+  # End of file
+  ---------- cut here -----------
+  
+***************
+*** 144,150 ****
+  ------------------- BUGS ----------------------------
+  
+  Please send descriptions of found bugs, incompatibilities, etc.  to
+! leo@s514.ipmce.su.  MS-DOS version will not be supported in future
+  versions !!  (If they will be :-) )
+  
+  ------------ SPEED & COMPRESSION RATE ---------------
+--- 149,155 ----
+  ------------------- BUGS ----------------------------
+  
+  Please send descriptions of found bugs, incompatibilities, etc.  to
+! leo@ipmce.su.  MS-DOS version might not be supported in future
+  versions !!  (If they will be :-) )
+  
+  ------------ SPEED & COMPRESSION RATE ---------------
+*** distribution/encode.c	Thu Jul 16 15:20:58 1992
+--- encode.c	Thu Jul 30 13:19:42 1992
+***************
+*** 6,13 ****
+  /* for future versions ?... */
+  
+  #define LENGTH_OFFSET   256
+! #define EncodeLiteral(l)        EncodeChar(l)
+! #define EncodeLength(l)         EncodeChar(l + LENGTH_OFFSET)
+  
+  /*
+   * Freezes stdin to stdout
+--- 6,13 ----
+  /* for future versions ?... */
+  
+  #define LENGTH_OFFSET   256
+! #define EncodeLiteral(l)        EncodeChar((int)l)
+! #define EncodeLength(l)         EncodeChar((int)l + LENGTH_OFFSET)
+  
+  /*
+   * Freezes stdin to stdout
+***************
+*** 15,23 ****
+  
+  void freeze ()
+  {
+! 	register us_t i, len, r, s;
+! 	register short c;
+! 	int greedy_threshold = CHAIN_THRESHOLD / (3 * greedy + 3);
+  	putchar(MAGIC1);
+  	putchar(MAGIC2_2);
+  
+--- 15,21 ----
+  
+  void freeze ()
+  {
+! 	register int i, len, r, s, c;
+  	putchar(MAGIC1);
+  	putchar(MAGIC2_2);
+  
+***************
+*** 65,78 ****
+  				fprintf(stderr, "'%s'\n",
+  					pr_char(text_buf[r]));
+  #endif /* DEBUG */
+! 		} else if (match_length >= greedy_threshold) {
+  /* GREEDY parsing (compression rate 1.5% worse, but 40% faster) */
+  
+! 			EncodeLength((us_t) (match_length - THRESHOLD));
+! 			EncodePosition((us_t)match_position);
+  
+  		} else {
+! 			register us_t orig_length, orig_position, oldchar;
+  
+  /* This fragment (delayed coding, non-greedy) is due to ideas of
+  	Jan Mark Wams' <jms@cs.vu.nl> COMIC:
+--- 63,77 ----
+  				fprintf(stderr, "'%s'\n",
+  					pr_char(text_buf[r]));
+  #endif /* DEBUG */
+! 		} else if (greedy) {
+  /* GREEDY parsing (compression rate 1.5% worse, but 40% faster) */
+  
+! 			EncodeLength(match_length - THRESHOLD);
+! 			EncodePosition(match_position);
+  
+  		} else {
+! 			register int orig_length, orig_position;
+! 			register us_t oldchar;
+  
+  /* This fragment (delayed coding, non-greedy) is due to ideas of
+  	Jan Mark Wams' <jms@cs.vu.nl> COMIC:
+***************
+*** 88,96 ****
+  			if (match_length > len) match_length = len;
+  
+  			if (orig_length >= match_length) {
+! 				EncodeLength((us_t)
+! 					(orig_length - THRESHOLD));
+! 				EncodePosition((us_t)orig_position);
+  #ifdef DEBUG
+  				match_position = orig_position;
+  #endif  /* DEBUG */
+--- 87,94 ----
+  			if (match_length > len) match_length = len;
+  
+  			if (orig_length >= match_length) {
+! 				EncodeLength(orig_length - THRESHOLD);
+! 				EncodePosition(orig_position);
+  #ifdef DEBUG
+  				match_position = orig_position;
+  #endif  /* DEBUG */
+***************
+*** 106,113 ****
+  				EncodeLength(match_length - THRESHOLD);
+  				EncodePosition(match_position);
+  			}
+! #ifdef DEBUG
+  			refers_out ++;
+  			if (verbose) {
+  				register short pos =
+  					(r - 1 - match_position) & (N2 - 1),
+--- 104,114 ----
+  				EncodeLength(match_length - THRESHOLD);
+  				EncodePosition(match_position);
+  			}
+! 
+! #if defined(GATHER_STAT) || defined (DEBUG)
+  			refers_out ++;
++ #endif
++ #ifdef DEBUG
+  			if (verbose) {
+  				register short pos =
+  					(r - 1 - match_position) & (N2 - 1),
+***************
+*** 159,167 ****
+       */
+      if(quiet != 1) {
+  #ifdef GATHER_STAT
+! 	fprintf(stderr, "Average number of steps: ");
+! 	fprintf(stderr, "%d.%02d\n", (int) (node_steps / node_matches),
+! 			(int)((node_steps * 100 / node_matches) % 100));
+  #endif
+  #ifdef DEBUG
+  	fprintf( stderr,
+--- 160,171 ----
+       */
+      if(quiet != 1) {
+  #ifdef GATHER_STAT
+! 	fprintf(stderr, "Average number of compares per matching: %d.%02d\n",
+! 		(int) (node_compares / node_matches),
+! 		(int)((node_compares * 100 / node_matches) % 100));
+! 	fprintf(stderr, "Average number of prolongations per compare: %d.%02d\n",
+! 		(int) (node_prolongations / node_compares),
+! 		(int)((node_prolongations * 100 / node_compares) % 100));
+  #endif
+  #ifdef DEBUG
+  	fprintf( stderr,
+*** distribution/freeze.1	Wed Feb 26 14:40:06 1992
+--- freeze.1	Mon Aug 17 17:02:13 1992
+***************
+*** 62,70 ****
+  If the
+  .B \-g
+  flag is given, a slightly less powerful (compression
+! rate is 1.5% less), but 40% faster heuristic is used. The more times this
+! flag is present, the faster program works and the less compression
+! rate is. This flag is quite useful when freezing bitmaps.
+  .PP
+  If the
+  .B \-f
+--- 62,70 ----
+  If the
+  .B \-g
+  flag is given, a slightly less powerful (compression
+! rate is 1.5% less), but 40% faster heuristic is used. This flag may be
+! used twice (this mode is quite useful when freezing bitmaps) for
+! additional speedup.
+  .PP
+  If the
+  .B \-f
+*** distribution/freeze.c	Thu Jul 16 15:20:59 1992
+--- freeze.c	Thu Jul 30 13:27:11 1992
+***************
+*** 95,102 ****
+  short debug = 0;
+  short verbose = 0;
+  char * pr_char();
+! long symbols_out = 0, refers_out = 0;
+  #endif /* DEBUG */
+  
+  /* Do not sleep when freeze works :-) */
+  long indc_count, indc_threshold;
+--- 95,106 ----
+  short debug = 0;
+  short verbose = 0;
+  char * pr_char();
+! long symbols_out = 0;
+  #endif /* DEBUG */
++ 
++ #if defined(GATHER_STAT) || defined(DEBUG)
++ long refers_out = 0;
++ #endif
+  
+  /* Do not sleep when freeze works :-) */
+  long indc_count, indc_threshold;
+*** distribution/freeze.h	Thu Jul 16 15:20:59 1992
+--- freeze.h	Wed Jul 29 21:54:52 1992
+***************
+*** 4,13 ****
+--- 4,21 ----
+  #include <sys/stdtypes.h>
+  #else   /* SUN4 */
+  # ifndef getc
++ #  ifdef m88k			/* Green Hill C library bug. */
++ #   define getc(p)         (--(p)->_cnt < 0 ? __filbuf(p) : (int) *(p)->_ptr++)
++ #  else
+  #   define getc(p)         (--(p)->_cnt < 0 ? _filbuf(p) : (int) *(p)->_ptr++)
++ #  endif
+  # endif
+  # ifndef putc
++ #  ifdef m88k			/* Green Hill C library bug. */
++ #   define putc(x, p)      (--(p)->_cnt < 0 ? __flsbuf((unsigned char) (x), (p)) : (int) (*(p)->_ptr++ = (unsigned char) (x)))
++ #  else
+  #   define putc(x, p)      (--(p)->_cnt < 0 ? _flsbuf((unsigned char) (x), (p)) : (int) (*(p)->_ptr++ = (unsigned char) (x)))
++ #  endif
+  # endif
+  #endif  /* SUN4 */
+  
+***************
+*** 87,95 ****
+  # else /* TOS */
+  #  include <ext.h>
+  # endif  /* MSDOS */
+- #if !defined(SIGTYPE)
+- #define SIGTYPE void
+- #endif
+  #endif /* __TURBOC__ */
+  
+  typedef unsigned short us_t;
+--- 95,100 ----
+***************
+*** 136,146 ****
+  extern short debug;
+  extern short verbose;
+  extern char * pr_char();
+! extern long symbols_out, refers_out;
+  #endif /* DEBUG */
+  
+! #ifdef GATHER_STAT
+! extern long node_steps, node_matches;
+  #endif
+  
+  extern short DecodeChar(), DecodePosition(), GetNBits();
+--- 141,151 ----
+  extern short debug;
+  extern short verbose;
+  extern char * pr_char();
+! extern long symbols_out;
+  #endif /* DEBUG */
+  
+! #if defined(GATHER_STAT) || defined(DEBUG)
+! extern long refers_out;
+  #endif
+  
+  extern short DecodeChar(), DecodePosition(), GetNBits();
+***************
+*** 177,179 ****
+--- 182,188 ----
+  #endif
+  
+  extern char *strchr(), *strrchr();
++ 
++ #ifndef SIGTYPE
++ #define SIGTYPE void
++ #endif
+*** distribution/huf.c	Wed Feb 26 14:39:48 1992
+--- huf.c	Thu Jul 30 17:55:36 1992
+***************
+*** 76,83 ****
+  
+  void reconst ()
+  {
+! 	register us_t i, j, k;
+! 	register us_t f;
+  
+  #ifdef DEBUG
+  	if (quiet < 0)
+--- 76,83 ----
+  
+  void reconst ()
+  {
+! 	register int i, j, k;
+! 	register int f;
+  
+  #ifdef DEBUG
+  	if (quiet < 0)
+***************
+*** 130,139 ****
+  /* Updates given code's frequency, and updates tree */
+  
+  void update (c)
+! 	us_t c;
+  {
+  	register us_t *p;
+! 	register us_t i, j, k, l;
+  
+  	if (freq[r] == MAX_FREQ) {
+  		reconst();
+--- 130,139 ----
+  /* Updates given code's frequency, and updates tree */
+  
+  void update (c)
+! 	register int c;
+  {
+  	register us_t *p;
+! 	register int i, j, k, l;
+  
+  	if (freq[r] == MAX_FREQ) {
+  		reconst();
+***************
+*** 168,177 ****
+  /* Encodes the literal or the length information */
+  
+  void EncodeChar (c)
+! 	us_t c;
+  {
+  	ul_t i;
+! 	register us_t j, k;
+  
+  	i = 0;
+  	j = 0;
+--- 168,177 ----
+  /* Encodes the literal or the length information */
+  
+  void EncodeChar (c)
+! 	int c;
+  {
+  	ul_t i;
+! 	register int j, k;
+  
+  	i = 0;
+  	j = 0;
+***************
+*** 202,208 ****
+  /* Encodes the position information */
+  
+  void EncodePosition (c)
+! 	register us_t c;
+  {
+  	register us_t i;
+  
+--- 202,208 ----
+  /* Encodes the position information */
+  
+  void EncodePosition (c)
+! 	register int c;
+  {
+  	register us_t i;
+  
+***************
+*** 221,227 ****
+  
+  short DecodeChar ()
+  {
+! 	register us_t c;
+  	c = son[r];
+  
+  	/* trace from root to leaf,
+--- 221,227 ----
+  
+  short DecodeChar ()
+  {
+! 	register int c;
+  	c = son[r];
+  
+  	/* trace from root to leaf,
+*** distribution/lz.c	Thu Jul 16 15:20:59 1992
+--- lz.c	Thu Aug  6 18:16:58 1992
+***************
+*** 8,16 ****
+  /*----------------------------------------------------------------------*/
+  
+  uc_t    text_buf[N2 + F2 - 1];          /* cyclic buffer with an overlay */
+! us_t    match_position, match_length;   /* current characteristics of a
+  						matched pattern */
+! us_t    chain_length;                   /* max_chain_length ==
+  						CHAIN_THRESHOLD / greedy */
+  
+  
+--- 8,16 ----
+  /*----------------------------------------------------------------------*/
+  
+  uc_t    text_buf[N2 + F2 - 1];          /* cyclic buffer with an overlay */
+! int     match_position, match_length;   /* current characteristics of a
+  						matched pattern */
+! int     chain_length;                   /* max_chain_length ==
+  						CHAIN_THRESHOLD / greedy */
+  
+  
+***************
+*** 45,51 ****
+  #endif  /* __XENIX__ */
+  
+  #ifdef GATHER_STAT
+! long node_steps, node_matches;
+  #endif  /* GATHER_STAT */
+  
+  /* Initialize the data structures and allocate memory, if needed.
+--- 45,51 ----
+  #endif  /* __XENIX__ */
+  
+  #ifdef GATHER_STAT
+! long node_matches, node_compares, node_prolongations;
+  #endif  /* GATHER_STAT */
+  
+  /* Initialize the data structures and allocate memory, if needed.
+***************
+*** 57,63 ****
+  {
+  	hash_t i;
+  #ifdef GATHER_STAT
+! 	node_steps = node_matches = 0;
+  #endif  /* GATHER_STAT */
+  
+  #ifdef __TURBOC__
+--- 57,63 ----
+  {
+  	hash_t i;
+  #ifdef GATHER_STAT
+! 	node_matches = node_compares = node_prolongations = 0;
+  #endif  /* GATHER_STAT */
+  
+  #ifdef __TURBOC__
+***************
+*** 74,80 ****
+  		nextof(i) = NIL;
+  	for (i = 0; i < sizeof(prev)/sizeof(*prev); i++ )
+  		prev[i] = NIL;
+! 	chain_length = greedy ? CHAIN_THRESHOLD / greedy : 0;
+  }
+  
+  /* Get the longest (longer than `match_length' when entering in subroutine)
+--- 74,89 ----
+  		nextof(i) = NIL;
+  	for (i = 0; i < sizeof(prev)/sizeof(*prev); i++ )
+  		prev[i] = NIL;
+! 	switch (greedy) {
+! 	case 0:
+! 		chain_length = CHAIN_THRESHOLD;
+! 		break;
+! 	case 1:
+! 		chain_length = 3;
+! 		break;
+! 	default:
+! 		chain_length = 1;
+! 	}
+  }
+  
+  /* Get the longest (longer than `match_length' when entering in subroutine)
+***************
+*** 81,138 ****
+  	nearest match of the string beginning in text_buf[r]
+  	to the cyclic buffer. Result (length & position) is returned
+  	in correspondent global variables (`match_length' &
+! 	`match_position'). Unchanged `match_length' denotes failure.
+  */
+  
+  #ifndef FAST
+  void get_next_match (r)
+! 	us_t r;
+  {
+! 	register us_t p = r;
+  	register int m;
+  	register uc_t  *key FIX_SI, *pattern FIX_DI;
+  	int     chain_count = chain_length;
+  #ifdef GATHER_STAT
+  	node_matches++;
+  #endif
+! 	key = text_buf + r;
+! 	do {
+  		do {
+! 			/* From ZIP 1.0 by J.-L. Gailly et al. */
+  
+! 			if ((p = nextof(p)) == NIL ||
+! 				(greedy && !chain_count--))
+! 				return;
+  
+! 			pattern = text_buf + p;
+  
+  #ifdef GATHER_STAT
+! 		node_steps++;
+  #endif
+  
+! 			MATCHING;
+  
+! 		} while NOT_YET;
+  
+! 		for (m = match_length;
+! 			++m < F2 && key[m] == pattern[m]; );
+  
+- 		match_length = m;
+- 		match_position = ((r - p) & (N2 - 1)) - 1;
+- 	} while (m < F2);
+- 
+  /* There are two equal F-char sequences, the oldest one must be
+  	deleted from the list.
+  */
+  
+- 
+  #ifdef DEBUG
+  	if (verbose)
+  		fprintf(stderr, "Replacing node: %d -> %d\n", p, r);
+  #endif
+! 	nextof(prev[p]) = nextof(p);
+! 	prev[nextof(p)] = prev[p];
+! 	prev[p] = NIL;  /* remove p, it is further than r */
+! 	return;
+  }
+  #endif
+--- 90,172 ----
+  	nearest match of the string beginning in text_buf[r]
+  	to the cyclic buffer. Result (length & position) is returned
+  	in correspondent global variables (`match_length' &
+! 	`match_position'). Unchanged `match_length' denotes failure and
+! 	`match_position' contains garbage !!
+! 	In order to achieve faster operation, `match_length' is shifted
+! 	down to F2.
+  */
+  
+  #ifndef FAST
+  void get_next_match (r)
+! 	int r;
+  {
+! 	register int p = r;
+  	register int m;
++ 	register uc_t lastbyte;
+  	register uc_t  *key FIX_SI, *pattern FIX_DI;
+  	int     chain_count = chain_length;
++ 
+  #ifdef GATHER_STAT
+  	node_matches++;
+  #endif
+! 
+! 	key = text_buf + r + F2;
+! 	match_length -= F2;
+! 
+! 	for(;chain_count--;) {
+! 
+! 		lastbyte = key[match_length];
+! 
+  		do {
+! 			pattern = text_buf + match_length + F2;
+  
+! 			do {
+! 				if ((p = nextof(p)) == NIL) {
+! 					match_length += F2;
+! 					match_position = ((r - match_position) & (N2 - 1)) - 1;
+! 					return;
+! 				}
+! 			} while (pattern[p] != lastbyte);
+  
+! 			pattern = text_buf + p + F2;
+  
+  #ifdef GATHER_STAT
+! 		node_compares++;
+  #endif
+  
+! 			for (m = -F2; key[m] == pattern[m] && ++m < 0;);
+  
+! 		} while (m < match_length);
+  
+! 		if (m == 0) {
+  
+  /* There are two equal F-char sequences, the oldest one must be
+  	deleted from the list.
+  */
+  
+  #ifdef DEBUG
+  	if (verbose)
+  		fprintf(stderr, "Replacing node: %d -> %d\n", p, r);
+  #endif
+! 			nextof(prev[p]) = nextof(p);
+! 			prev[nextof(p)] = prev[p];
+! 			prev[p] = NIL;  /* remove p, it is further than r */
+! 			match_length = F2;
+! 			match_position = ((r - p) & (N2 - 1)) - 1;
+! 			return;
+! 		}
+! 
+! 		match_length = m;       /* remember new results */
+! 		match_position = p;
+! 
+! #ifdef GATHER_STAT
+! 		node_prolongations++;
+! #endif
+! 	}
+! 
+! 	/* chain length exceeded */
+! 
+! 	match_length += F2;
+! 	match_position = ((r - match_position) & (N2 - 1)) - 1;
+  }
+  #endif
+*** distribution/lz.h	Thu Jul 16 15:20:59 1992
+--- lz.h	Mon Aug 17 17:02:11 1992
+***************
+*** 39,45 ****
+  #define array_size      (N2 + 1 + (1L << BITS))
+  
+  extern hash_t prev[];
+! extern us_t      match_position, match_length, chain_length;
+  
+  #ifndef __XENIX__
+  #define nextof(i)       next[i]
+--- 39,45 ----
+  #define array_size      (N2 + 1 + (1L << BITS))
+  
+  extern hash_t prev[];
+! extern int       match_position, match_length, chain_length;
+  
+  #ifndef __XENIX__
+  #define nextof(i)       next[i]
+***************
+*** 75,81 ****
+--- 75,95 ----
+         nextof(prev[n]) = NIL;\
+         prev[n] = NIL;\
+  }
++ /* Hash function */
+  
++ #define hash(p)\
++ 	((hash_t)(p)[0] + ((hash_t)(p)[1] << LEN0) +\
++ 	((hash_t)(p)[2] << LEN1))
++ 
++ #ifdef FASTHASH
++ #define hashof(p)\
++ 	(((p)[0] != (p)[1] ? hash(p) : hash(p) + hash((p) + 3)) &\
++ 	((1L << BITS) - 1))
++ #else
++ #define hashof(p)\
++ 	(hash(p) & ((1L << BITS) - 1))
++ #endif
++ 
+  /* Inserting of a node `r' into hashed linked list: `r' becomes
+  	the head of list.
+  */
+***************
+*** 85,92 ****
+  	register hash_t p; register us_t first_son;\
+  	register uc_t  *key;\
+  	key = &text_buf[r];\
+! 	p = N2 + 1 + (((hash_t)key[0] + ((hash_t)key[1] << LEN0) +\
+! 		    ((hash_t)key[2] << LEN1)) & ((1L << BITS) - 1));\
+  	first_son = nextof(p);\
+  	nextof(r) = first_son;\
+  	nextof(p) = r;\
+--- 99,105 ----
+  	register hash_t p; register us_t first_son;\
+  	register uc_t  *key;\
+  	key = &text_buf[r];\
+! 	p = N2 + 1 + hashof(key);\
+  	first_son = nextof(p);\
+  	nextof(r) = first_son;\
+  	nextof(p) = r;\
+***************
+*** 133,161 ****
+  #define FIX_DI
+  #endif
+  
+! #ifndef DO_INLINE
+  
+! /* This statement is due to ideas of Boyer and Moore: */
+! /* Is somewhere an optimizing compiler which can vectorize this? ;-) */
+  
+! #define MATCHING for (m = match_length; m >= 0 && key[m] == pattern[m]; m--)
+! #define NOT_YET (m >= 0)
+! 
+! #else
+! 
+! /* Hope that memcmp will be intrinsic (Microsoft C).
+  */
+- #define MATCHING
+- #define NOT_YET (key[match_length] != pattern[match_length] || memcmp(key, pattern, match_length))
+  
+- #endif
+- 
+- #define CHAIN_THRESHOLD (F2 * 3)
+- 
+- #ifdef  FAST
+- /* Simple inline replacement for get_next_match; they match
+- literally except return --> goto quote(leave)l. No obfuscations !! */
+- 
+  #if defined(__STDC__) || defined (__TURBOC__)
+  #define LEAVE(num) leave##num
+  #else
+--- 146,159 ----
+  #define FIX_DI
+  #endif
+  
+! #define CHAIN_THRESHOLD F2
+  
+! #ifdef  FAST
+  
+! /* Simple inline replacement for get_next_match; they match almost
+! literally except return --> goto quote(leave)l. No obfuscations !!
+  */
+  
+  #if defined(__STDC__) || defined (__TURBOC__)
+  #define LEAVE(num) leave##num
+  #else
+***************
+*** 163,178 ****
+  #define LEAVE(num) quote(leave)num
+  #endif
+  
+! #define Get_Next_Match(r,l) {register us_t p=r;register int m;\
+! register uc_t *key FIX_SI, *pattern FIX_DI;int chain_count=chain_length;\
+! key=text_buf+r;do{ do{ if((p=nextof(p))==NIL||(greedy &&\
+! !chain_count--))goto LEAVE(l);pattern=text_buf+p;MATCHING;}while NOT_YET;\
+! for(m=match_length;++m<F2&&key[m]==pattern[m];);\
+! match_length=m;match_position=((r-p)&(N2-1))-1;}while(m<F2);\
+! nextof(prev[p])=nextof(p);prev[nextof(p)]=prev[p];prev[p]=NIL;LEAVE(l):;}
+  
+  #else
+  
+  #define Get_Next_Match(r,l)     get_next_match(r)
+  
+  #endif
+--- 161,187 ----
+  #define LEAVE(num) quote(leave)num
+  #endif
+  
+! #define m_l match_length
+! #define t_b text_buf
+! #define m_p match_position
+  
++ #define Get_Next_Match(r,l) {register p=r;register m;register uc_t lb;\
++ register uc_t *key FIX_SI, *pat FIX_DI;int cc=chain_length;\
++ key=t_b+r+F2;m_l-=F2;for(;cc--;){lb=key[m_l];do{pat=t_b+m_l+F2;do{\
++ if((p=nextof(p))==NIL){m_p=((r-m_p)&(N2-1))-1;m_l+=F2;goto LEAVE(l);}\
++ }while(pat[p]!=lb);pat=t_b+p+F2;for(m= -F2;key[m]==pat[m]&&++m<0;);\
++ }while(m<m_l);if(m==0){nextof(prev[p])=nextof(p);prev[nextof(p)]=prev[p];\
++ prev[p]=NIL;m_l=F2;m_p=((r-p)&(N2-1))-1;goto LEAVE(l);}m_l=m;m_p=p;}\
++ m_p=((r-m_p)&(N2-1))-1;m_l+=F2;LEAVE(l):;}
++ 
+  #else
+  
+  #define Get_Next_Match(r,l)     get_next_match(r)
++ extern void get_next_match();
+  
+  #endif
++ 
++ #ifdef GATHER_STAT
++ extern long node_matches, node_compares, node_prolongations;
++ #endif
++ 
+*** distribution/makefile	Thu Jul 16 15:21:00 1992
+--- makefile	Thu Jul 30 13:27:39 1992
+***************
+*** 4,14 ****
+  	@echo ''
+  	@echo 'Please indicate the system to make Freeze for.'
+  	@echo 'Possible choices are: bsd, sysv, x286, sun4, hpux,'
+! 	@echo 'generic.'
+  	@echo ''
+  
+! DEST          = /usr/local/bin
+! MANDEST       = /usr/local/man/man1
+  SEC           = 1
+  
+  HDRS          = bitio.h\
+--- 4,19 ----
+  	@echo ''
+  	@echo 'Please indicate the system to make Freeze for.'
+  	@echo 'Possible choices are: bsd, sysv, x286, sun4, hpux,'
+! 	@echo 'm88k, sysv-longnames, generic.'
+  	@echo ''
++ 	@echo 'sysv-longnames is a target for SysV machines which allow'
++ 	@echo 'filenames to be more than 14 characters long.'
++ 	@echo ''
+  
+! # Added the prefix macro, so that it was easier to change installation place.
+! prefix        = /usr/local
+! DEST          = $(prefix)/bin
+! MANDEST       = $(prefix)/man/man1
+  SEC           = 1
+  
+  HDRS          = bitio.h\
+***************
+*** 24,30 ****
+  OPTIONS       = -DCOMPAT
+  
+  LINTFLAGS     = -DBITS=15 -DSIGTYPE=void -DCOMPAT -DDEBUG\
+! 		-DGATHER_STAT -x -DFAST
+  
+  MAKEFILE      = makefile
+  
+--- 29,35 ----
+  OPTIONS       = -DCOMPAT
+  
+  LINTFLAGS     = -DBITS=15 -DSIGTYPE=void -DCOMPAT -DDEBUG\
+! 		-DGATHER_STAT -DUTIMES -x
+  
+  MAKEFILE      = makefile
+  
+***************
+*** 74,80 ****
+  		$(CC) $(CFLAGS) $(LDFLAGS) -o statist statist.o lz.o $(LIBS)
+  
+  clobber:        clean
+! 		rm -f $(PROGRAM) statist *.man
+  
+  clean:;         rm -f *.o *.b .,* core *.out
+  
+--- 79,85 ----
+  		$(CC) $(CFLAGS) $(LDFLAGS) -o statist statist.o lz.o $(LIBS)
+  
+  clobber:        clean
+! 		rm -f $(PROGRAM) statist *.man \#* *~
+  
+  clean:;         rm -f *.o *.b .,* core *.out
+  
+***************
+*** 91,96 ****
+--- 96,102 ----
+  		-strip $@
+  		-mcs -d $@
+  		-ln -f $@ $(DEST)/melt
++ 		-ln -f $@ $(DEST)/unfreeze
+  		-ln -f $@ $(DEST)/fcat
+  
+  $(DEST)/statist: statist
+***************
+*** 103,110 ****
+--- 109,122 ----
+  		cp freeze.1 $@
+  		chmod +r $@
+  		-ln -f $@ $(MANDEST)/melt.$(SEC)
++ 		-ln -f $@ $(MANDEST)/unfreeze.$(SEC)
+  		-ln -f $@ $(MANDEST)/fcat.$(SEC)
++ # This is much better for places which keep preformated manpages.
++ #		echo ".so man1/freeze.$(SEC)" > $(MANDEST)/melt.$(SEC)
++ #		echo ".so man1/freeze.$(SEC)" > $(MANDEST)/unfreeze.$(SEC)
++ #		echo ".so man1/freeze.$(SEC)" > $(MANDEST)/fcat.$(SEC)
+  
++ 
+  $(MANDEST)/statist.$(SEC): statist.1
+  		cp statist.1 $@
+  		chmod +r $@
+***************
+*** 111,125 ****
+  
+  bsd:
+  		make prog CFLAGS="-O -DBSD -DUTIMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void" CC=$(CC)
+  
+! hpux:
+  		make prog CFLAGS="-O -DLONGNAMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void" CC=$(CC)
+  
+  sysv:
+  		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=void"\
+! 		LIBS="-lc_s" CC=$(CC)
+  
+  x286:
+  		make prog CC=cc CFLAGS="-Ox -Ml2 -DBITS=16 -DFAST\
+--- 123,141 ----
+  
+  bsd:
+  		make prog CFLAGS="-O -DBSD -DUTIMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void" CC="$(CC)"
+  
+! sysv-longnames:
+  		make prog CFLAGS="-O -DLONGNAMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void" CC="$(CC)"
+  
++ hpux:		sysv-longnames
++ 
++ m88k:		sysv-longnames
++ 
+  sysv:
+  		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=void"\
+! 		LIBS="-lc_s" CC="$(CC)"
+  
+  x286:
+  		make prog CC=cc CFLAGS="-Ox -Ml2 -DBITS=16 -DFAST\
+***************
+*** 129,140 ****
+  		make install MANDEST=/usr/man/man.C SEC=C
+  
+  generic:
+! 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=int" CC=$(CC)
+  
+  sun4:
+! 		make prog CC=cc CFLAGS="-O4 -DBSD -DSUN4 -DSIGTYPE=void\
+! 		-DUTIMES -DBITS=16 -DFAST"
+! 
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+--- 145,155 ----
+  		make install MANDEST=/usr/man/man.C SEC=C
+  
+  generic:
+! 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=int" CC="$(CC)"
+  
+  sun4:
+! 		make prog CC="cc" CFLAGS="-O4 -DBSD -DSUN4 -DSIGTYPE=void\
+! 		-DUTIMES -DBITS=16"
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+*** distribution/patchlevel.h	Thu Jul 16 15:21:00 1992
+--- patchlevel.h	Mon Aug 17 16:48:47 1992
+***************
+*** 1,2 ****
+! #define PATCHLEVEL 4
+! #define PATCHDATE "6/3/92"
+--- 1,2 ----
+! #define PATCHLEVEL 5
+! #define PATCHDATE "17/8/92"
+*** distribution/statist.c	Thu Jul 16 15:20:52 1992
+--- statist.c	Thu Jul 30 13:43:21 1992
+***************
+*** 113,118 ****
+--- 113,120 ----
+  
+  	for (c = 1; c <= 6; c++) bits[c] = 0;
+  
++ 	printf("Non-monotonities are in: ");
++ 
+  	for(c = 0; c < N_POS; c++) {
+  		j = 0;
+  		k = c;
+***************
+*** 119,134 ****
+  		do j++; while ((k = prnt[k]) != r);
+  		if (j <= 6)
+  			bits[j]++;
+! 		if (j < pr)
+  			f += pr - j;
+! 		else
+  			pr = j;
+  	}
+  
+  	k = bits[1] + bits[2] + bits[3] + bits[4] +
+  	bits[5] + bits[6];
+  
+! 	k = 62 - k;     /* free variable length codes for 7 & 8 bits */
+  
+  	j = 128 * bits[1] + 64 * bits[2] + 32 * bits[3] +
+  	16 * bits[4] + 8 * bits[5] + 4 * bits[6];
+--- 121,142 ----
+  		do j++; while ((k = prnt[k]) != r);
+  		if (j <= 6)
+  			bits[j]++;
+! 		if (j < pr) {
+  			f += pr - j;
+! 			printf("%d, ", c);
+! 
+! 		} else
+  			pr = j;
+  	}
++ 	if(f == 0)
++ 		printf("\b\b\b\babsent.\n");
++ 	else
++ 		printf("\b\b.\n");
+  
+  	k = bits[1] + bits[2] + bits[3] + bits[4] +
+  	bits[5] + bits[6];
+  
+! 	k = N_POS - k;  /* free variable length codes for 7 & 8 bits */
+  
+  	j = 128 * bits[1] + 64 * bits[2] + 32 * bits[3] +
+  	16 * bits[4] + 8 * bits[5] + 4 * bits[6];
+***************
+*** 216,222 ****
+  			match_length = 1;
+  		} else if (greedy) {
+  			lens[match_length] ++;
+! 			update((us_t)match_position >> 7);
+  			refers ++;
+  		} else {
+  			register us_t orig_length, orig_position;
+--- 224,233 ----
+  			match_length = 1;
+  		} else if (greedy) {
+  			lens[match_length] ++;
+! 		if (match_position < 0 || match_position >= 8192 - 256)
+! 			printf("%d\n", match_position);
+! 
+! 			update(match_position >> 7);
+  			refers ++;
+  		} else {
+  			register us_t orig_length, orig_position;
+***************
+*** 226,237 ****
+  			Next_Char(N2, F2);
+  			Get_Next_Match(r,2);
+  			if (match_length > len) match_length = len;
+! 			if (orig_length > match_length) {
+  				lens[orig_length] ++;
+! 				update((us_t)orig_position >> 7);
+  				match_length = orig_length - 1;
+  			} else  {
+  				lens[match_length] ++;
+  				update(match_position >> 7);
+  			}
+  			refers ++;
+--- 237,251 ----
+  			Next_Char(N2, F2);
+  			Get_Next_Match(r,2);
+  			if (match_length > len) match_length = len;
+! 			if (orig_length >= match_length) {
+  				lens[orig_length] ++;
+! 				update(orig_position >> 7);
+  				match_length = orig_length - 1;
+  			} else  {
+  				lens[match_length] ++;
++ 			if (match_position < 0 || match_position >= 8192 - 256)
++ 				printf("%d\n", match_position);
++ 
+  				update(match_position >> 7);
+  			}
+  			refers ++;
+
+exit 0 # Just in case...

@@ -1,0 +1,1406 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject:  v30i080:  log_tcp - TCP/IP daemon wrapper, Part02/02
+Message-ID: <1992Jun21.042647.4406@sparky.imd.sterling.com>
+X-Md4-Signature: 05a4d3a7a6d5f28397ec6db8056f3377
+Date: Sun, 21 Jun 1992 04:26:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 30, Issue 80
+Archive-name: log_tcp/part02
+Environment: UNIX
+Supersedes: log_tcp: Volume 23, Issue 77
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  BLURB clean_exit.c hosts_access.3 hosts_ctl.c hosts_info.c
+#   log_tcp.h miscd.c percent_x.c refuse.c rfc931.c rfc931_option
+#   shell_cmd.c strcasecmp.c tcpd.8 tcpd.c try.c
+# Wrapped by kent@sparky on Sat Jun 20 23:22:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'BLURB' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'BLURB'\"
+else
+  echo shar: Extracting \"'BLURB'\" \(1635 characters\)
+  sed "s/^X//" >'BLURB' <<'END_OF_FILE'
+X@(#) BLURB 1.5 92/06/11 22:21:40
+X
+XThis package provides a couple of tiny programs that monitor incoming
+Xrequests for IP services such as TFTP, EXEC, FTP, RSH, TELNET, RLOGIN,
+XFINGER, SYSTAT, and many others.
+X
+XOptional features are: access control based on pattern matching; remote
+Xusername lookup using the RFC 931 protocol; protection against rsh and
+Xrlogin attacks from hosts that pretend to have someone elses name.
+X
+XThe programs can be installed without requiring any changes to existing
+Xsoftware or configuration files. By default, they just log the remote
+Xhost name and then invoke the real network daemon. No information is
+Xexchanged with the remote client process.
+X
+XEnhancements over the previous release are: 
+X
+X    1 - network daemons no longer have to live within a common directory
+X    2 - the access control code now uses both the host address and name
+X    3 - an access control pattern that supports netmasks
+X    4 - additional protection against forged host names
+X    5 - a pattern that matches hosts whose name or address lookup fails
+X    6 - an operator that prevents hosts or services from being matched
+X    7 - optional remote username lookup with the RFC 931 protocol
+X    8 - an optional umask to prevent the creation of world-writable files
+X    9 - hooks for access control language extensions
+X   10 - last but not least, thoroughly revised documentation.
+X
+XExcept for the change described under (2) the present version should be
+Xbackwards compatible with earlier ones.
+X
+X	Wietse Venema (wietse@wzv.win.tue.nl),
+X	Department of Mathematics and Computing Science,
+X	Eindhoven University of Technology,
+X	The Netherlands.
+END_OF_FILE
+  if test 1635 -ne `wc -c <'BLURB'`; then
+    echo shar: \"'BLURB'\" unpacked with wrong size!
+  fi
+  # end of 'BLURB'
+fi
+if test -f 'clean_exit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'clean_exit.c'\"
+else
+  echo shar: Extracting \"'clean_exit.c'\" \(1268 characters\)
+  sed "s/^X//" >'clean_exit.c' <<'END_OF_FILE'
+X /*
+X  * clean_exit() cleans up and terminates the program. It should be called
+X  * instead of exit when for some reason the real network daemon will not or
+X  * cannot be run. Reason: in the case of a datagram-oriented service we must
+X  * discard the not-yet received data from the client. Otherwise, inetd will
+X  * see the same datagram again and again, and go into a loop.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) clean_exit.c 1.1 92/06/11 22:21:52";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <stdio.h>
+X
+Xextern void exit();
+X
+X#include "log_tcp.h"
+X
+X/* clean_exit - clean up and exit */
+X
+Xvoid    clean_exit(client)
+Xstruct from_host *client;
+X{
+X    char    buf[BUFSIZ];
+X    struct sockaddr sa;
+X    int     size = sizeof(sa);
+X
+X    /*
+X     * Eat up the not-yet received packet. Some systems insist on a non-zero
+X     * source address argument in the recvfrom() call below.
+X     */
+X
+X    if (client->sock_type == FROM_UNCONNECTED)
+X	(void) recvfrom(0, buf, sizeof(buf), 0, &sa, &size);
+X
+X    /*
+X     * Be kind to the inetd. We already reported the problem via the syslogd,
+X     * and there is no need for additional garbage in the logfile.
+X     */
+X
+X    exit(0);
+X}
+END_OF_FILE
+  if test 1268 -ne `wc -c <'clean_exit.c'`; then
+    echo shar: \"'clean_exit.c'\" unpacked with wrong size!
+  fi
+  # end of 'clean_exit.c'
+fi
+if test -f 'hosts_access.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hosts_access.3'\"
+else
+  echo shar: Extracting \"'hosts_access.3'\" \(2018 characters\)
+  sed "s/^X//" >'hosts_access.3' <<'END_OF_FILE'
+X.TH HOSTS_ACCESS 3
+X.SH
+Xhosts_access, hosts_ctl \- access control library
+X.SH SYNOPSIS
+X.nf
+X#include "log_tcp.h"
+X
+Xint hosts_access(daemon, client)
+Xchar *daemon;
+Xstruct from_host *client;
+X
+Xint hosts_ctl(daemon, client_name, client_addr, client_user)
+Xchar *daemon;
+Xchar *client_host;
+Xchar *client_addr;
+Xchar *client_user;
+X.fi
+X.SH DESCRIPTION
+XThe routines described in this document are part of the \fIlibwrap.a\fR
+Xlibrary. They implement a pattern-based access control language with
+Xoptional shell commands that are executed when a pattern fires.
+X.PP
+XIn all cases, the daemon argument should specify a daemon process name
+X(argv[0] value).  The client host address should be a valid address, or
+XFROM_UNKNOWN if address lookup failed. The client host name and user
+Xname should be empty strings if no information is available,
+XFROM_UNKNOWN if lookup failed, or an actual host or user name.
+X.PP
+Xhosts_access() consults the access control tables described in the
+X\fIhosts_access(5)\fR manual page.  If a match is found, an optional
+Xshell command is executed and the search terminates. hosts_access()
+Xreturns zero if access should be denied.
+X.PP
+Xhosts_ctl() is a wrapper around the hosts_access() routine with a
+Xperhaps more convenient interface.  hosts_ctl() returns zero if access
+Xshould be denied.
+X.SH DIAGNOSTICS
+XProblems are reported via the syslog daemon.
+X.SH SEE ALSO
+Xhosts_access(5), format of the access control tables.
+X.SH FILES
+X/etc/hosts.access, /etc/hosts.deny, access control tables.
+X.SH BUGS
+XThe functions described here do not make copies of their string-valued
+Xarguments.  Beware of data from functions that overwrite their results
+Xupon each call.
+X.sp
+Xhosts_access() uses the strtok() library function. This may interfere
+Xwith other code that relies on strtok().
+X.SH AUTHOR
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl)
+XDepartment of Mathematics and Computing Science
+XEindhoven University of Technology
+XDen Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+X\" @(#) hosts_access.3 1.1 92/06/11 22:21:45
+END_OF_FILE
+  if test 2018 -ne `wc -c <'hosts_access.3'`; then
+    echo shar: \"'hosts_access.3'\" unpacked with wrong size!
+  fi
+  # end of 'hosts_access.3'
+fi
+if test -f 'hosts_ctl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hosts_ctl.c'\"
+else
+  echo shar: Extracting \"'hosts_ctl.c'\" \(969 characters\)
+  sed "s/^X//" >'hosts_ctl.c' <<'END_OF_FILE'
+X /*
+X  * hosts_ctl() combines the most common applications of the host access
+X  * control library. routine. It bundles its arguments into a from_host
+X  * structure, then calls the hosts_access() access control checker. The host
+X  * name and user name arguments should be empty strings, "unknown" or real
+X  * data. if a match is found, the optional shell command is executed.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) hosts_ctl.c 1.1 92/06/11 22:21:48";
+X#endif
+X
+X#include <stdio.h>
+X
+X#include "log_tcp.h"
+X
+X/* hosts_ctl - general interface for the hosts_access() routine */
+X
+Xint     hosts_ctl(daemon, name, addr, user)
+Xchar   *daemon;
+Xchar   *name;
+Xchar   *addr;
+Xchar   *user;
+X{
+X    struct from_host client;
+X    static struct from_host zeros;
+X
+X    client = zeros;
+X    client.name = name;
+X    client.addr = addr;
+X    client.user = user;
+X
+X    return (hosts_access(daemon, &client));
+X}
+END_OF_FILE
+  if test 969 -ne `wc -c <'hosts_ctl.c'`; then
+    echo shar: \"'hosts_ctl.c'\" unpacked with wrong size!
+  fi
+  # end of 'hosts_ctl.c'
+fi
+if test -f 'hosts_info.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hosts_info.c'\"
+else
+  echo shar: Extracting \"'hosts_info.c'\" \(788 characters\)
+  sed "s/^X//" >'hosts_info.c' <<'END_OF_FILE'
+X /*
+X  * hosts_info() returns a string with as much information about the origin
+X  * of a connection as we have: the user name, if known, and the host name,
+X  * or the host address if the name is not available.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) hosts_info.c 1.1 92/06/11 22:21:44";
+X#endif
+X
+X#include <stdio.h>
+X
+X#include "log_tcp.h"
+X
+X/* hosts_info - return string with as much about the client as we know */
+X
+Xchar   *hosts_info(client)
+Xstruct from_host *client;
+X{
+X    static char buf[BUFSIZ];		/* XXX */
+X
+X    if (client->user[0] && strcmp(client->user, FROM_UNKNOWN)) {
+X	sprintf(buf, "%s@%s", client->user, FROM_HOST(client));
+X	return (buf);
+X    } else {
+X	return (FROM_HOST(client));
+X    }
+X}
+END_OF_FILE
+  if test 788 -ne `wc -c <'hosts_info.c'`; then
+    echo shar: \"'hosts_info.c'\" unpacked with wrong size!
+  fi
+  # end of 'hosts_info.c'
+fi
+if test -f 'log_tcp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'log_tcp.h'\"
+else
+  echo shar: Extracting \"'log_tcp.h'\" \(1400 characters\)
+  sed "s/^X//" >'log_tcp.h' <<'END_OF_FILE'
+X/* @(#) log_tcp.h 1.2 92/06/11 22:21:30 */
+X
+X/* Location of the access control files. */
+X
+X#define HOSTS_ALLOW	"/etc/hosts.allow"
+X#define HOSTS_DENY	"/etc/hosts.deny"
+X
+X /*
+X  * Structure filled in by the fromhost() routine. Prerequisites:
+X  * <sys/types.h> and <sys/param.h>.
+X  */
+X
+X#ifndef MAXHOSTNAMELEN
+X#define MAXHOSTNAMELEN	1024		/* string with host name */
+X#endif
+X
+X#define FROM_ADDRLEN	(4*3+3+1)	/* string with IP address */
+X
+Xstruct from_host {
+X    int     sock_type;			/* socket type, see below */
+X    char   *name;			/* host name */
+X    char   *addr;			/* host address */
+X    char   *user;			/* user name */
+X};
+X
+X#define FROM_UNKNOWN	"unknown"	/* name or address lookup failed */
+X#define FROM_HOST(f) \
+X    (((f)->name[0] && strcmp((f)->name, FROM_UNKNOWN)) ? (f)->name : (f)->addr)
+X
+X/* Socket types: 0 means unknown. */
+X
+X#define FROM_CONNECTED		1	/* connection-oriented */
+X#define FROM_UNCONNECTED	2	/* non connection-oriented */
+X
+X/* Global functions. */
+X
+Xextern int fromhost();			/* get/validate remote host info */
+Xextern int hosts_access();		/* access control */
+Xextern void refuse();			/* refuse request */
+Xextern void shell_cmd();		/* execute shell command */
+Xextern void percent_x();		/* do %<char> expansion */
+Xextern char *rfc931_name();		/* remote name from RFC 931 daemon */
+Xextern char *hosts_info();		/* show origin of connection */
+Xextern void clean_exit();		/* clean up and exit */
+END_OF_FILE
+  if test 1400 -ne `wc -c <'log_tcp.h'`; then
+    echo shar: \"'log_tcp.h'\" unpacked with wrong size!
+  fi
+  # end of 'log_tcp.h'
+fi
+if test -f 'miscd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'miscd.c'\"
+else
+  echo shar: Extracting \"'miscd.c'\" \(2761 characters\)
+  sed "s/^X//" >'miscd.c' <<'END_OF_FILE'
+X /*
+X  * Front end to the ULTRIX miscd service. The front end logs the remote host
+X  * name and then invokes the real miscd daemon. Install as "/usr/etc/miscd",
+X  * after moving the real miscd daemon to the "/usr/etc/..." directory.
+X  * Connections and diagnostics are logged through syslog(3).
+X  * 
+X  * The Ultrix miscd program implements (among others) the systat service, which
+X  * pipes the output from who(1) to stdout. This information is potentially
+X  * useful to systems crackers.
+X  * 
+X  * Compile with -DHOSTS_ACCESS in order to enable access control. See the
+X  * hosts_access(5) manual page for details.
+X  * 
+X  * Compile with -DPARANOID if service should be refused to hosts that pretend
+X  * to have someone elses host name. This gives some protection against rsh
+X  * and rlogin attacks that involve compromised domain name servers.
+X  * 
+X  * Compile with -DDAEMON_UMASK=nnn if daemons should run with a non-default
+X  * umask value (the system default is 000, resulting in world-writable
+X  * files).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) miscd.c 1.3 92/06/11 22:21:20";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* The following specifies where the vendor-provided daemon should go. */
+X
+X#define REAL_DAEMON	"/usr/etc/.../miscd"
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct from_host from;
+X    int     from_stat;
+X
+X    /* Attempt to prevent the creation of world-writable files. */
+X
+X#ifdef DAEMON_UMASK
+X    umask(DAEMON_UMASK);
+X#endif
+X
+X    /*
+X     * Open a channel to the syslog daemon. Older versions of openlog()
+X     * require only two arguments.
+X     */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    (void) openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * Find out and verify the remote host name. Sites concerned with
+X     * security may choose to refuse connections from hosts that pretend to
+X     * have someone elses host name.
+X     */
+X
+X    from_stat = fromhost(&from);
+X#ifdef PARANOID
+X    if (from_stat == -1)
+X	refuse(&from);
+X#endif
+X
+X    /*
+X     * Check whether this host can access the service in argv[0]. The
+X     * access-control code invokes optional shell commands as specified in
+X     * the access-control tables.
+X     */
+X
+X#ifdef HOSTS_ACCESS
+X    if (!hosts_access(argv[0], &from))
+X	refuse(&from);
+X#endif
+X
+X    /* Report remote client and invoke the real daemon program. */
+X
+X    syslog(LOG_INFO, "connect from %s", hosts_info(&from));
+X    (void) execv(REAL_DAEMON, argv);
+X    syslog(LOG_ERR, "%s: %m", REAL_DAEMON);
+X    clean_exit(&from);
+X    /* NOTREACHED */
+X}
+END_OF_FILE
+  if test 2761 -ne `wc -c <'miscd.c'`; then
+    echo shar: \"'miscd.c'\" unpacked with wrong size!
+  fi
+  # end of 'miscd.c'
+fi
+if test -f 'percent_x.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'percent_x.c'\"
+else
+  echo shar: Extracting \"'percent_x.c'\" \(2134 characters\)
+  sed "s/^X//" >'percent_x.c' <<'END_OF_FILE'
+X /*
+X  * percent_x() takes a string and performs %a (host address), %c (client
+X  * info), %h (host name or address), %d (daemon name), %p (process id) and
+X  * %u (user name) substitutions. It aborts the program when the result of
+X  * expansion would overflow the output buffer.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) percent_x.c 1.1 92/06/11 22:21:49";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strncpy();
+Xextern void exit();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* percent_x - do %<char> expansion, abort if result buffer is too small */
+X
+Xvoid    percent_x(result, result_len, str, daemon, client, pid)
+Xchar   *result;
+Xint     result_len;
+Xchar   *str;
+Xchar   *daemon;
+Xstruct from_host *client;
+Xint     pid;
+X{
+X    char   *end = result + result_len - 1;	/* end of result buffer */
+X    char   *expansion;
+X    int     expansion_len;
+X    char    pid_buf[10];
+X
+X    /*
+X     * %a becomes the client address; %c all user and host information we
+X     * have about the client; %d the daemon process name; %h the client host
+X     * name or address; %p the daemon process id; %u the remote user name; %%
+X     * becomes a %, and %other is ignored. We terminate with a diagnostic if
+X     * we would overflow the result buffer.
+X     */
+X
+X    while (*str) {
+X	if (*str == '%') {
+X	    str++;
+X	    expansion =
+X		*str == 'a' ? (str++, client->addr) :
+X		*str == 'c' ? (str++, hosts_info(client)) :
+X		*str == 'd' ? (str++, daemon) :
+X		*str == 'h' ? (str++, FROM_HOST(client)) :
+X		*str == 'p' ? (str++, sprintf(pid_buf, "%d", pid), pid_buf) :
+X		*str == 'u' ? (str++, client->user) :
+X		*str == '%' ? (str++, "%") :
+X		*str == 0 ? "" : (str++, "");
+X	    expansion_len = strlen(expansion);
+X	} else {
+X	    expansion = str++;
+X	    expansion_len = 1;
+X	}
+X	if (result + expansion_len >= end) {
+X	    syslog(LOG_ERR, "shell command too long: %30s...", result);
+X	    exit(0);
+X	}
+X	strncpy(result, expansion, expansion_len);
+X	result += expansion_len;
+X    }
+X    *result = 0;
+X}
+END_OF_FILE
+  if test 2134 -ne `wc -c <'percent_x.c'`; then
+    echo shar: \"'percent_x.c'\" unpacked with wrong size!
+  fi
+  # end of 'percent_x.c'
+fi
+if test -f 'refuse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'refuse.c'\"
+else
+  echo shar: Extracting \"'refuse.c'\" \(737 characters\)
+  sed "s/^X//" >'refuse.c' <<'END_OF_FILE'
+X /*
+X  * refuse() reports a refused connection, and takes the consequences: in
+X  * case of a datagram-oriented service, the unread datagram is taken from
+X  * the input queue (or inetd would see the same datagram again and again);
+X  * the program is terminated.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) refuse.c 1.2 92/06/11 22:21:34";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <syslog.h>
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* refuse - refuse request from bad host */
+X
+Xvoid    refuse(client)
+Xstruct from_host *client;
+X{
+X    syslog(LOG_WARNING, "refused connect from %s", hosts_info(client));
+X    clean_exit(client);
+X    /* NOTREACHED */
+X}
+END_OF_FILE
+  if test 737 -ne `wc -c <'refuse.c'`; then
+    echo shar: \"'refuse.c'\" unpacked with wrong size!
+  fi
+  # end of 'refuse.c'
+fi
+if test -f 'rfc931.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rfc931.c'\"
+else
+  echo shar: Extracting \"'rfc931.c'\" \(2653 characters\)
+  sed "s/^X//" >'rfc931.c' <<'END_OF_FILE'
+X /*
+X  * rfc931_user() consults the RFC 931 daemon on the client host to look up
+X  * the remote user name.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  * 
+X  * Inspired by the authutil package (comp.sources.unix volume 22) by Dan
+X  * Bernstein (brnstnd@kramden.acf.nyu.edu).
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) rfc931.c 1.1 92/06/11 22:21:41";
+X#endif
+X
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X
+X#include "log_tcp.h"
+X
+X#define	RFC931_PORT	113		/* Semi-well-known port */
+X#define	TIMEOUT		10		/* wait for at most 10 seconds */
+X
+Xextern char *strchr();
+X
+Xstatic jmp_buf timebuf;
+X
+X/* timeout - handle timeouts */
+X
+Xstatic void timeout(sig)
+Xint     sig;
+X{
+X    longjmp(timebuf, sig);
+X}
+X
+X/* rfc931_name - return remote user name */
+X
+Xchar   *rfc931_name(there)
+Xstruct sockaddr_in *there;		/* remote link information */
+X{
+X    struct sockaddr_in here;		/* local link information */
+X    struct sockaddr_in sin;		/* for talking to RFC931 daemon */
+X    int     length;
+X    int     s;
+X    unsigned remote;
+X    unsigned local;
+X    static char user[256];		/* XXX */
+X    FILE   *fp;
+X    char   *cp;
+X    char   *result = FROM_UNKNOWN;
+X
+X    /* Find out local port number of our stdin. */
+X
+X    length = sizeof(here);
+X    if (getsockname(0, (struct sockaddr *) & here, &length) == -1) {
+X	syslog(LOG_ERR, "getsockname: %m");
+X	return (result);
+X    }
+X    /* Set up timer so we won't get stuck. */
+X
+X    if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+X	return (result);
+X    signal(SIGALRM, timeout);
+X    if (setjmp(timebuf)) {
+X	close(s);				/* not: fclose(fp) */
+X	return (result);
+X    }
+X    alarm(TIMEOUT);
+X
+X    /* Connect to the RFC931 daemon. */
+X
+X    sin = *there;
+X    sin.sin_port = htons(RFC931_PORT);
+X    if (connect(s, (struct sockaddr *) & sin, sizeof(sin)) == -1
+X	|| (fp = fdopen(s, "w+")) == 0) {
+X	close(s);
+X	return (result);
+X    }
+X    /* Query the RFC 931 server. Would 13-byte writes ever be broken up? */
+X
+X    fprintf(fp, "%u,%u\r\n", ntohs(there->sin_port), ntohs(here.sin_port));
+X    fflush(fp);
+X
+X    /* Read response. Kill stdio buffer or we may read back our own query. */
+X
+X    setbuf(fp, (char *) 0);
+X    if (fscanf(fp, "%u , %u : USERID :%*[^:]:%255s", &remote, &local, user) == 3
+X	&& ferror(fp) == 0 && feof(fp) == 0
+X	&& ntohs(there->sin_port) == remote
+X	&& ntohs(here.sin_port) == local) {
+X	/* Strip trailing carriage return. */
+X
+X	if (cp = strchr(user, '\r'))
+X	    *cp = 0;
+X	result = user;
+X    }
+X    alarm(0);
+X    fclose(fp);
+X    return (result);
+X}
+END_OF_FILE
+  if test 2653 -ne `wc -c <'rfc931.c'`; then
+    echo shar: \"'rfc931.c'\" unpacked with wrong size!
+  fi
+  # end of 'rfc931.c'
+fi
+if test -f 'rfc931_option' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rfc931_option'\"
+else
+  echo shar: Extracting \"'rfc931_option'\" \(2015 characters\)
+  sed "s/^X//" >'rfc931_option' <<'END_OF_FILE'
+X*** fromhost.c.orig	Tue Jun  9 19:38:26 1992
+X--- fromhost.c	Thu Jun 11 20:39:31 1992
+X***************
+X*** 90,96 ****
+X  int     fromhost(f)
+X  struct from_host *f;
+X  {
+X!     struct sockaddr sa;
+X      struct sockaddr_in *sin = (struct sockaddr_in *) (&sa);
+X      struct hostent *hp;
+X      int     length = sizeof(sa);
+X--- 90,96 ----
+X  int     fromhost(f)
+X  struct from_host *f;
+X  {
+X!     static struct sockaddr sa;
+X      struct sockaddr_in *sin = (struct sockaddr_in *) (&sa);
+X      struct hostent *hp;
+X      int     length = sizeof(sa);
+X***************
+X*** 143,156 ****
+X      }
+X      /* Save the host address. A later inet_ntoa() call may clobber it. */
+X  
+X      f->addr = strcpy(addr_buf, inet_ntoa(sin->sin_addr));
+X- 
+X-     /* Look up the remote user name. Does not work for UDP services. */
+X- 
+X- #ifdef RFC931
+X-     if (f->sock_type == FROM_CONNECTED)
+X- 	f->user = rfc931_name(sin);
+X- #endif
+X  
+X      /* Look up the remote host name. */
+X  
+X--- 143,150 ----
+X      }
+X      /* Save the host address. A later inet_ntoa() call may clobber it. */
+X  
+X+     f->sin = sin;
+X      f->addr = strcpy(addr_buf, inet_ntoa(sin->sin_addr));
+X  
+X      /* Look up the remote host name. */
+X  
+X*** log_tcp.h.orig	Thu Jun 11 19:16:27 1992
+X--- log_tcp.h	Thu Jun 11 20:39:30 1992
+X***************
+X*** 21,26 ****
+X--- 21,27 ----
+X      char   *name;			/* host name */
+X      char   *addr;			/* host address */
+X      char   *user;			/* user name */
+X+     struct sockaddr_in *sin;		/* remote link info */
+X  };
+X  
+X  #define FROM_UNKNOWN	"unknown"	/* name or address lookup failed */
+X*** options.c.orig	Thu Jun 11 19:15:58 1992
+X--- options.c	Thu Jun 11 20:39:31 1992
+X***************
+X*** 86,91 ****
+X--- 86,93 ----
+X  
+X  /* List of functions that implement the options. Add yours here. */
+X  
+X+ #define RFC931_OPTION			/* rfc 931 is a run-time option */
+X+ 
+X  static void user_option();		/* execute "user=name" option */
+X  static void group_option();		/* execute "group=name" option */
+X  static void twist_option();		/* execute "twist=command" option */
+END_OF_FILE
+  if test 2015 -ne `wc -c <'rfc931_option'`; then
+    echo shar: \"'rfc931_option'\" unpacked with wrong size!
+  fi
+  # end of 'rfc931_option'
+fi
+if test -f 'shell_cmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shell_cmd.c'\"
+else
+  echo shar: Extracting \"'shell_cmd.c'\" \(2608 characters\)
+  sed "s/^X//" >'shell_cmd.c' <<'END_OF_FILE'
+X /*
+X  * shell_cmd() takes a shell command template and performs %a (host
+X  * address), %c (client info), %h (host name or address), %d (daemon name),
+X  * %p (process id) and %u (user name) substitutions. The result is executed
+X  * by a /bin/sh child process, with standard input, standard output and
+X  * standard error connected to /dev/null.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) shell_cmd.c 1.2 92/06/11 22:21:28";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strncpy();
+Xextern void closelog();
+Xextern void exit();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* Forward declarations. */
+X
+Xstatic void do_child();
+X
+X/* shell_cmd - expand %<char> sequences and execute shell command */
+X
+Xvoid    shell_cmd(string, daemon, client)
+Xchar   *string;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char    cmd[BUFSIZ];
+X    int     child_pid;
+X    int     wait_pid;
+X    int     daemon_pid = getpid();
+X
+X    /*
+X     * Most of the work is done within the child process, to minimize the
+X     * risk of damage to the parent.
+X     */
+X
+X    switch (child_pid = fork()) {
+X    case -1:					/* error */
+X	syslog(LOG_ERR, "fork: %m");
+X	break;
+X    case 00:					/* child */
+X	percent_x(cmd, sizeof(cmd), string, daemon, client, daemon_pid);
+X	do_child(daemon, cmd);
+X	/* NOTREACHED */
+X    default:					/* parent */
+X	while ((wait_pid = wait((int *) 0)) != -1 && wait_pid != child_pid)
+X	     /* void */ ;
+X    }
+X}
+X
+X/* do_child - exec command with { stdin, stdout, stderr } to /dev/null */
+X
+Xstatic void do_child(myname, command)
+Xchar   *myname;
+Xchar   *command;
+X{
+X    char   *error = 0;
+X    int     tmp_fd;
+X
+X    /*
+X     * Close a bunch of file descriptors. The Ultrix inetd only passes stdin,
+X     * but other inetd implementations set up stdout as well. Ignore errors.
+X     */
+X
+X    closelog();
+X    for (tmp_fd = 0; tmp_fd < 10; tmp_fd++)
+X	(void) close(tmp_fd);
+X
+X    /* Set up new stdin, stdout, stderr, and exec the shell command. */
+X
+X    if (open("/dev/null", 2) != 0) {
+X	error = "open /dev/null: %m";
+X    } else if (dup(0) != 1 || dup(0) != 2) {
+X	error = "dup: %m";
+X    } else {
+X	(void) execl("/bin/sh", "sh", "-c", command, (char *) 0);
+X	error = "execl /bin/sh: %m";
+X    }
+X
+X    /* We can reach the following code only if there was an error. */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(myname, LOG_PID, FACILITY);
+X#else
+X    (void) openlog(myname, LOG_PID);
+X#endif
+X    syslog(LOG_ERR, error);
+X    exit(0);
+X}
+END_OF_FILE
+  if test 2608 -ne `wc -c <'shell_cmd.c'`; then
+    echo shar: \"'shell_cmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'shell_cmd.c'
+fi
+if test -f 'strcasecmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strcasecmp.c'\"
+else
+  echo shar: Extracting \"'strcasecmp.c'\" \(3767 characters\)
+  sed "s/^X//" >'strcasecmp.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strcasecmp.c	5.6 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X
+X/*
+X * This array is designed for mapping upper and lower case letter
+X * together for a case independent comparison.  The mappings are
+X * based upon ascii character sequences.
+X */
+Xstatic u_char charmap[] = {
+X	'\000', '\001', '\002', '\003', '\004', '\005', '\006', '\007',
+X	'\010', '\011', '\012', '\013', '\014', '\015', '\016', '\017',
+X	'\020', '\021', '\022', '\023', '\024', '\025', '\026', '\027',
+X	'\030', '\031', '\032', '\033', '\034', '\035', '\036', '\037',
+X	'\040', '\041', '\042', '\043', '\044', '\045', '\046', '\047',
+X	'\050', '\051', '\052', '\053', '\054', '\055', '\056', '\057',
+X	'\060', '\061', '\062', '\063', '\064', '\065', '\066', '\067',
+X	'\070', '\071', '\072', '\073', '\074', '\075', '\076', '\077',
+X	'\100', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\133', '\134', '\135', '\136', '\137',
+X	'\140', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\173', '\174', '\175', '\176', '\177',
+X	'\200', '\201', '\202', '\203', '\204', '\205', '\206', '\207',
+X	'\210', '\211', '\212', '\213', '\214', '\215', '\216', '\217',
+X	'\220', '\221', '\222', '\223', '\224', '\225', '\226', '\227',
+X	'\230', '\231', '\232', '\233', '\234', '\235', '\236', '\237',
+X	'\240', '\241', '\242', '\243', '\244', '\245', '\246', '\247',
+X	'\250', '\251', '\252', '\253', '\254', '\255', '\256', '\257',
+X	'\260', '\261', '\262', '\263', '\264', '\265', '\266', '\267',
+X	'\270', '\271', '\272', '\273', '\274', '\275', '\276', '\277',
+X	'\300', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\333', '\334', '\335', '\336', '\337',
+X	'\340', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
+X};
+X
+Xstrcasecmp(s1, s2)
+X	char *s1, *s2;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(cm[*us1] - cm[*--us2]);
+X}
+X
+Xstrncasecmp(s1, s2, n)
+X	char *s1, *s2;
+X	register int n;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (--n >= 0 && cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(n < 0 ? 0 : cm[*us1] - cm[*--us2]);
+X}
+END_OF_FILE
+  if test 3767 -ne `wc -c <'strcasecmp.c'`; then
+    echo shar: \"'strcasecmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'strcasecmp.c'
+fi
+if test -f 'tcpd.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tcpd.8'\"
+else
+  echo shar: Extracting \"'tcpd.8'\" \(4928 characters\)
+  sed "s/^X//" >'tcpd.8' <<'END_OF_FILE'
+X.TH TCPD 8
+X.SH NAME
+Xtcpd \- access control facility for internet services
+X.SH SYNOPSIS
+X.B /some/where/tcpd [arguments]
+X.SH DESCRIPTION
+X.PP
+XThe \fItcpd\fR program can be set up to monitor incoming requests for
+X\fItelnet\fR, \fIfinger\fR, \fIftp\fR, \fIexec\fR, \fIrsh\fR,
+X\fIrlogin\fR, \fItftp\fR, \fItalk\fR, \fIspray\fR, \fIrusers\fR,
+X\fIcomsat\fR and other services that have a one-to-one mapping onto
+Xexecutable files.
+X.PP
+XOptional features are:  access control based on pattern matching,
+Xremote username lookups with the RFC 931 protocol, and protection
+Xagainst hosts that pretend to have someone elses host name.
+X.PP
+XRequirements are: network daemons should be launched on-demand, e.g. by
+Xa central process such as the \fIinetd\fR; a syslog(3)-like interface.
+X.SH LOGGING
+XConnections that are monitored by
+X.I tcpd
+Xare reported through the \fIsyslog\fR(3) facility. Each record contains
+Xa time stamp, the remote host name and the name of the service
+Xrequested. The information can be useful to detect unwanted activities,
+Xespecially when logfile information from several hosts is merged.
+X.SH ACCESS CONTROL
+XOptionally,
+X.I tcpd
+Xsupports a simple form of access control that is based on pattern
+Xmatching.  The access-control software provides hooks for the execution
+Xof shell commands when a pattern fires.  For details, see the
+X\fIhosts_access\fR(5) manual page.
+X.SH HOST NAME VERIFICATION
+XThe authentication scheme of some protocols (\fIrlogin, rsh\fR) relies
+Xon host names. Some implementations believe the host name that they get
+Xfrom any random name server; other implementations are more careful but
+Xuse a flawed algorithm.
+X.PP
+X.I tcpd
+Xverifies the remote host name that is returned by the DNS server
+Xresponsible for the address->name mapping, by looking at the host name
+Xand address that are returned by the DNS server responsible for the
+Xname->address mapping. If any discrepancy is detected,
+X.I tcpd
+Xconcludes that it is dealing with a host that pretends to have someone
+Xelses host name.
+X.PP
+XIf the sources are compiled with the \*QPARANOID\*U option,
+X.I tcpd
+Xwill drop the connection in case of a host name/address mismatch.
+XOtherwise,
+X.I tcpd
+Xjust pretends that host name lookup failed when logging the connection
+Xand consulting the optional access control tables.
+X.SH RFC 931
+XWhen RFC 931 lookups are enabled (compile-time option) \fItcpd\fR will
+Xattempt to establish the name of the remote user. This will succeed
+Xonly if the client host runs an RFC 931-compliant daemon.  Remote user
+Xname lookups will not work for datagram-oriented connections, and may
+Xcause noticeable delays in the case of connections from PCs.
+X.SH EXAMPLES
+XThe details of using \fItcpd\fR depend on pathname information that was
+Xcompiled into the program.
+X.SH EXAMPLE 1
+XThis example applies when \fItcpd\fR expects that the original network
+Xdaemons will be moved to a "secret" place.
+X.PP
+XIn order to monitor access to the \fIfinger\fR service, move the
+Xoriginal finger daemon to the "secret" place and install tcpd in the
+Xplace of the original finger daemon. No changes are required to
+Xconfiguration files.
+X.SH EXAMPLE 2
+XThis example applies when \fItcpd\fR expects that the network daemons
+Xare left in their original place.
+X.PP
+XIn order to monitor access to the \fIfinger\fR service, perform the
+Xfollowing edits on the \fIinetd\fR configuration file (usually 
+X\fI/etc/inetd.conf\fR):
+X.nf
+X.sp
+X.ti +5
+Xfinger  stream  tcp  nowait  nobody  /usr/etc/in.fingerd  in.fingerd
+X.sp
+Xbecomes:
+X.sp
+X.ti +5
+Xfinger  stream  tcp  nowait  nobody  /some/where/tcpd     in.fingerd
+X.sp
+X.fi
+X.PP
+XThe example assumes that the network daemons live in /usr/etc.
+X.PP
+XSimilar changes will be needed for the other services that are to be
+Xcovered by \fItcpd\fR.  Send a SIGHUP to the \fIinetd\fR(8) process to
+Xmake the changes effective.
+X.SH EXAMPLE 3
+XIn the case of daemons that do not live in a common directory ("secret"
+Xor otherwise), edit the \fIinetd\fR configuration file so that it
+Xspecifies an absolute path name for the process name field. For example:
+X.nf
+X.sp
+X    ntalk  dgram  udp  wait  root  /some/where/tcpd  /usr/local/lib/ntalkd
+X.sp
+X.fi
+X.PP
+XOnly the last component (ntalkd) of the process name will be used for
+Xaccess control and logging.
+X.SH BUGS
+XSome UDP (and RPC) daemons linger around for a while after they have
+Xfinished their work, in case another request comes in.  In the
+X\fIinetd\fR configuration file these services are registered with the
+X`wait\' option. Only the request that started such a daemon will be
+Xlogged. This restriction does not apply to connection-oriented (TCP)
+Xservices.
+X.SH FILES
+X.PP
+XThe host access control tables are:
+X.PP
+X/etc/hosts.allow
+X.br
+X/etc/hosts.deny
+X.SH SEE ALSO
+Xhosts_access(5), format of the access control tables.
+X.SH AUTHORS
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl),
+XDepartment of Mathematics and Computing Science,
+XEindhoven University of Technology,
+XThe Netherlands.
+X\" @(#) tcpd.8 1.1 92/06/11 22:21:43
+END_OF_FILE
+  if test 4928 -ne `wc -c <'tcpd.8'`; then
+    echo shar: \"'tcpd.8'\" unpacked with wrong size!
+  fi
+  # end of 'tcpd.8'
+fi
+if test -f 'tcpd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tcpd.c'\"
+else
+  echo shar: Extracting \"'tcpd.c'\" \(3146 characters\)
+  sed "s/^X//" >'tcpd.c' <<'END_OF_FILE'
+X /*
+X  * General front end for stream and datagram IP services. This program logs
+X  * the remote host name and then invokes the real daemon. For example,
+X  * install as /usr/etc/{tftpd,fingerd,telnetd,ftpd,rlogind,rshd,rexecd},
+X  * after saving the real daemons in the directory "/usr/etc/...". This
+X  * arrangement requires that the network daemons are started by inetd or
+X  * something similar. Connections and diagnostics are logged through
+X  * syslog(3).
+X  * 
+X  * Compile with -DHOSTS_ACCESS in order to enable access control. See the
+X  * hosts_access(5) manual page for details.
+X  * 
+X  * Compile with -DPARANOID if service should be refused to hosts that pretend
+X  * to have someone elses host name. This gives some protection against rsh
+X  * and rlogin attacks that involve compromised domain name servers.
+X  * 
+X  * Compile with -DDAEMON_UMASK=nnn if daemons should run with a non-default
+X  * umask value (the system default is 000, resulting in world-writable
+X  * files).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) tcpd.c 1.3 92/06/11 22:21:22";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strrchr();
+Xextern char *strcpy();
+X
+X#ifndef MAXPATHNAMELEN
+X#define MAXPATHNAMELEN	BUFSIZ
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* The following specifies where the vendor-provided daemons should go. */
+X
+X#define REAL_DAEMON_DIR	"/usr/etc/..."
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct from_host from;
+X    int     from_stat;
+X    char    path[MAXPATHNAMELEN];
+X
+X    /* Attempt to prevent the creation of world-writable files. */
+X
+X#ifdef DAEMON_UMASK
+X    umask(DAEMON_UMASK);
+X#endif
+X
+X    /*
+X     * If argv[0] is an absolute path name, ignore REAL_DAEMON_DIR, and strip
+X     * argv[0] to its basename.
+X     */
+X
+X    if (argv[0][0] == '/') {
+X	strcpy(path, argv[0]);
+X	argv[0] = strrchr(argv[0], '/') + 1;
+X    } else {
+X	sprintf(path, "%s/%s", REAL_DAEMON_DIR, argv[0]);
+X    }
+X
+X    /*
+X     * Open a channel to the syslog daemon. Older versions of openlog()
+X     * require only two arguments.
+X     */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    (void) openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * Find out and verify the remote host name. Sites concerned with
+X     * security may choose to refuse connections from hosts that pretend to
+X     * have someone elses host name.
+X     */
+X
+X    from_stat = fromhost(&from);
+X#ifdef PARANOID
+X    if (from_stat == -1)
+X	refuse(&from);
+X#endif
+X
+X    /*
+X     * Check whether this host can access the service in argv[0]. The
+X     * access-control code invokes optional shell commands as specified in
+X     * the access-control tables.
+X     */
+X
+X#ifdef HOSTS_ACCESS
+X    if (!hosts_access(argv[0], &from))
+X	refuse(&from);
+X#endif
+X
+X    /* Report remote client and invoke the real daemon program. */
+X
+X    syslog(LOG_INFO, "connect from %s", hosts_info(&from));
+X    (void) execv(path, argv);
+X    syslog(LOG_ERR, "%s: %m", path);
+X    clean_exit(&from);
+X    /* NOTREACHED */
+X}
+END_OF_FILE
+  if test 3146 -ne `wc -c <'tcpd.c'`; then
+    echo shar: \"'tcpd.c'\" unpacked with wrong size!
+  fi
+  # end of 'tcpd.c'
+fi
+if test -f 'try.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'try.c'\"
+else
+  echo shar: Extracting \"'try.c'\" \(2553 characters\)
+  sed "s/^X//" >'try.c' <<'END_OF_FILE'
+X /*
+X  * try - program to try out host access-control tables, including the
+X  * optional shell commands.
+X  * 
+X  * usage: try process_name host_name_or_address
+X  * 
+X  * where process_name is a daemon process name (argv[0] value). If a host name
+X  * is specified, both the name and address will be used to check the address
+X  * control tables. If a host address is specified, the program pretends that
+X  * host name lookup failed.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) try.c 1.2 92/06/11 22:21:32";
+X#endif
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+X#ifdef HOSTS_ACCESS
+X
+X#ifndef	INADDR_NONE
+X#define	INADDR_NONE	(-1)		/* XXX should be 0xffffffff */
+X#endif
+X
+X#include "log_tcp.h"
+X
+X/* Try out a (daemon,client) pair */
+X
+Xtry(daemon, name, addr)
+Xchar   *daemon;
+Xchar   *name;
+Xchar   *addr;
+X{
+X    printf("daemon %s: host name %s (address %s): ",
+X	   daemon, name, addr);
+X    printf("access %s\n",
+X	   hosts_ctl(daemon, name, addr, "you") ? "granted" : "denied");
+X}
+X
+X/* function to intercept the real shell_cmd() */
+X
+Xvoid    shell_cmd(cmd, daemon, client)
+Xchar   *cmd;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X
+X    percent_x(buf, sizeof(buf), cmd, daemon, client, pid);
+X    printf("shell command: %s: ", buf);
+X}
+X
+X/* function to intercept the real process_options() */
+X
+Xprocess_options(options, daemon, client)
+Xchar   *options;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X
+X    percent_x(buf, sizeof(buf), options, daemon, client, pid);
+X    printf("options: %s: ", buf);
+X}
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct hostent *hp;
+X
+X#ifdef LOG_MAIL
+X    openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    openlog(argv[0], LOG_PID);
+X#endif
+X
+X    if (argc != 3) {
+X	fprintf(stderr, "usage: %s process_name host_name_or_address\n",
+X		argv[0]);
+X	return (1);
+X    } else {
+X	if (inet_addr(argv[2]) != INADDR_NONE) {/* pretend host name unknown */
+X	    try(argv[1], FROM_UNKNOWN, argv[2]);
+X	} else {
+X	    if ((hp = gethostbyname(argv[2])) == 0) {	/* bad host name */
+X		fprintf(stderr, "warning: host unknown: %s\n", argv[2]);
+X		try(argv[1], argv[2], "?.?.?.?");
+X	    } else {				/* use both name and address */
+X		while (hp->h_addr_list[0])
+X		    try(argv[1], hp->h_name,
+X			inet_ntoa(*(struct in_addr *) * hp->h_addr_list++));
+X	    }
+X	}
+X	return (0);
+X    }
+X}
+X
+X#else
+X
+Xmain()
+X{
+X    fprintf(stderr, "host access control is not enabled.\n");
+X    return (1);
+X}
+X
+X#endif
+END_OF_FILE
+  if test 2553 -ne `wc -c <'try.c'`; then
+    echo shar: \"'try.c'\" unpacked with wrong size!
+  fi
+  # end of 'try.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

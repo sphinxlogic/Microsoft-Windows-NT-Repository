@@ -1,0 +1,2295 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i050:  cmdline - C++ Library for parsing command-line arguments, Part03/07
+Message-ID: <1992Jul27.020525.29278@sparky.imd.sterling.com>
+X-Md4-Signature: 06b4e7c6c6ad6239de5adbe17530fb1a
+Date: Mon, 27 Jul 1992 02:05:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 50
+Archive-name: cmdline/part03
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 7)."
+# Contents:  Overview src/lib/cmdarg.c src/lib/cmdline.c
+#   src/lib/cmdtest.c src/lib/dump.c src/lib/strindent.c
+#   src/lib/usage.c
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:28 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Overview' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Overview'\"
+else
+echo shar: Extracting \"'Overview'\" \(10504 characters\)
+sed "s/^X//" >'Overview' <<'END_OF_FILE'
+X 
+X
+X                    An overview of CmdLine and cmdparse
+X                    ===================================
+X
+X                 by Brad Appleton <brad@ssd.csd.harris.com>
+X
+X
+X
+X Introduction
+X ------------
+X CmdLine is a C++ Library for parsing command-line arguments. It is 
+X approximately 2000 lines of C++ code (excluding comments).
+X
+X Cmdparse is a command-line interface to CmdLine for Unix shell-scripts.
+X It is approximately 1200 lines of C++ code (excluding comments).
+X
+X
+X CmdLine(3C++)
+X -------------
+X CmdLine is a set of classes to parse command-line arguments.  Unlike
+X getopt() and its variants, CmdLine does more than just split up the
+X command-line into some canonical form.  CmdLine will actually parse
+X the command-line, assigning the appropriate command-line values to
+X the corresponding variables, and will verify the command-line syntax
+X (and print a usage message if necessary) all in one member function
+X call.  Furthermore, many features of CmdLine's parsing behavior are
+X configurable at run-time.  These features include the following:
+X
+X     o  Prompting the user for missing arguments.
+X     o  Allowing keywords (-count=4) and/or options (-c4).
+X     o  Ignoring bad syntax instead of terminating.
+X     o  Ignoring upper/lower case on the command-line.
+X     o  Suppressing the printing of syntax error messages.
+X     o  Controlling the verboseness of usage messages.
+X     o  Controlling whether or not options may be processed
+X          after positional parameters have been seen.
+X
+X CmdLine also allows for options that take an optional argument, options
+X that take a (possibly optional) list of one or more arguments, options
+X whose argument must reside in the same token as the option itself, and
+X options whose argument must reside in a separate token from the option
+X itself.
+X
+X CmdLine consists of a set of C++ classes to parse arguments from an
+X input source called a CmdLineArgIter (which is a base class for iterating
+X over arguments from an arbitrary input source).  Argument iterators are
+X defined for an argv[] array (with or without a corresponding argc), for
+X a string of tokens that are separated by a given set of delimiters, and
+X for an input-stream.  Users can easily extend CmdLine to parse arguments
+X from other input sources simply by creating their own argument iterator
+X classes derived from the CmdLineArgIter class defined in <cmdline.h>.
+X
+X Command-line arguments are themselves objects that contain a specific
+X command-line interface, and a function that performs the desired actions
+X when its corresponding argument is seen on the command line.  Predefined
+X command-line argument types (derived from the abstract class CmdArg in
+X <cmdline.h>) exist for boolean, integer, floating-point, character, and
+X string arguments, and for lists of integers, floats, and strings.  These
+X predefined subclasses of CmdArg may be found in <cmdargs.h>.  Users can
+X also create their own command-argument types on the fly by defining and
+X implementing an appropriate subclass of the CmdArg class.
+X
+X Using CmdLine is relatively easy - you need to construct your arguments,
+X your command-line, and your argument iterator.  Then all that is left to
+X do is call the "parse" member function of your CmdLine object.  The
+X following is a simple example:
+X
+X    #include <stdlib.h>
+X    #include <iostream.h>
+X    #include <cmdargs.h>
+X
+X    int  main(int argc, char * argv[])
+X    {
+X          // Declare arguments
+X       CmdArgInt  count('c', "count", "number", "number of copies to print.");
+X       CmdArgBool xflag('x', "xmode", "turn on 'x'-mode.");
+X       CmdArgChar fdsep('s', "separator", "char", "field-separator to use.");
+X       CmdArgStr  input("input-file",  "input file to read.");
+X       CmdArgStrList  output("[output-file ...]",  "where to print output.");
+X
+X          // Declare command object and its argument-iterator
+X       CmdLine  cmd(*argv, &count, &xflag, &fdsep, &input, &output, NULL);
+X       CmdArgvIter  arg_iter(--argc, ++argv);
+X
+X          // Initialize arguments to appropriate default values.
+X       count = 1;
+X       xflag = 0;
+X       fdsep = ',';
+X
+X          // Parse arguments
+X       cmd.parse(arg_iter);
+X
+X          // Print arguments
+X       cout << "count=" << count << endl ;
+X       cout << "xflag=" << (xflag ? "ON" : "OFF") << endl ;
+X       cout << "fdsep='" << (char) fdsep << "'" << endl ;
+X       cout << "input=\"" << input << "\"" << endl ;
+X       
+X       for (int i = 0 ; i < output.count() ; i++) {
+X          cout << "output[" << i << "]=" << output[i] << endl ;
+X       }
+X
+X       return  0;
+X    }
+X
+X
+X The Unix command-line syntax for the above program would be as follows:
+X
+X    Usage: progname [-c number] [-x] [-s char] input-file [output-file ...]
+X
+X    Options/Arguments:
+X            -c number        number of copies to print.
+X            -x               turn on 'x'-mode.
+X            -s char          field-separator to use.
+X            input-file       input file to read.
+X            output-file ...  where to print output.
+X
+X
+X The Unix command-line syntax using long-options (keywords) for the above
+X program would be as follows:
+X
+X    Usage: progname [--count number] [--xmode] [--separator char]
+X                    input-file [output-file ...]
+X
+X    Options/Arguments:
+X            --count number    number of copies to print.
+X            --xmode           turn on 'x'-mode.
+X            --separator char  field-separator to use.
+X            input-file        input file to read.
+X            output-file ...   where to print output.
+X
+X
+X By default, CmdLine allows both options and long-options to appear on the
+X command-line. You can instruct CmdLine to disallow one or the other however.
+X As an "extra", when options are disallowed, the "-" prefix is assumed to
+X denote a long-option instead of an option (hence either "-" or "--" denotes
+X a keyword in this case).  Using this feature, CmdLine can be used to supply
+X the type of long-option syntax that is now becoming quite popular in the
+X Unix world. Using this "new" syntax, the command-line syntax for the above
+X command would be the following:
+X
+X    Usage: progname [-count number] [-xmode] [-separator char]
+X                    input-file [output-file ...]
+X
+X    Options/Arguments:
+X            -count number    number of copies to print.
+X            -xmode           turn on 'x'-mode.
+X            -separator char  field-separator to use.
+X            input-file       input file to read.
+X            output-file ...  where to print output.
+X
+X
+X It should be mentioned that, when long-options are used, only a unique
+X prefix of the keyword needs to be given (and character-case is ignored).
+X Hence, in the above example, "-x", "-X", and "-xm" will match "-xmode".
+X
+X
+X cmdparse(1)
+X -----------
+X Using "cmdparse" is even easier than using CmdLine. You declare your
+X arguments in a string and then you invoke cmdparse with the command
+X line of your shell-script and cmdparse will output a script of variable
+X settings for you to evaluate.  The following is an example (using the
+X same arguments as in our sample program):
+X
+X    #!/bin/sh
+X    NAME="`/bin/basename $0`"
+X
+X    ARGS='
+X       ArgInt   count  "[c|count number]"    "number of copies to print."
+X       ArgBool  xflag  "[x|xmode]"           "turn on x-mode."
+X       ArgChar  fdsep  "[s|separator char]"  "field-separator to use."
+X       ArgStr   input  "input-file"          "input file to read."
+X       ArgStr   output "[output-file ...]"   "where to print output."
+X    '
+X
+X    if  cmdparse -shell=sh -decls="$ARGS" -- $NAME "$@" > tmp$$
+X    then
+X       . tmp$$
+X       /bin/rm -f tmp$$
+X    else
+X       EXITVAL=$?
+X       /bin/rm -f tmp$$
+X       exit $EXITVAL
+X    fi
+X
+X    echo "xflag=" $xflag
+X    echo "count=" $count
+X    echo "fdsep=" $fdsep
+X    echo "input=" $input
+X    if [ "$output" ] ; then
+X       echo "output=" $output
+X    fi
+X
+X
+X Note that you declare the syntax of an argument differently for cmdparse
+X than for CmdLine. The syntax for a single argument for cmdparse looks like
+X the following:
+X
+X    <arg-type>  <arg-name>  <syntax>  <description>
+X
+X Where <arg-type> is one of the following:
+X
+X    ArgInt     --  an integer value (or list of values)
+X    ArgFloat   --  a floating-point value (or list of values)
+X    ArgChar    --  a character value (or list of values)
+X    ArgStr     --  a string value (or list of values)
+X    ArgBool    --  a boolean flag that is turned ON
+X    ArgClear   --  a boolean flag that is turned OFF
+X    ArgToggle  --  a boolean flag that is toggled
+X    ArgUsage   --  print usage and exit
+X    ArgDummy   -- a dummy argument
+X
+X If desired, the leading "Arg" portion may be omitted from the type-name.
+X
+X <arg-name> is simply the name of the variable in your script that you wish
+X to contain the resultant value from the command-line.  Any default value
+X must be assigned to the variable before invoking cmdparse.
+X
+X <syntax> and <description> *MUST* be enclosed in either single or double
+X quotes! <description> is simply that, the description of the argument.
+X 
+X <syntax> is a little trickier, there are three basic forms of syntax:
+X
+X   1)  "c|keyword"        -- an option the takes no value
+X   2)  "c|keyword value"  -- an option that takes a value
+X   3)  "value"            -- a positional parameter
+X
+X Note that the option-character MUST precede the keyword-name and that
+X there must be NO spaces surrounding the '|' in "c|keyword"!
+X
+X Any "optional" parts of the argument should appear inside square-brackets
+X ('[' and ']') and a list of values is denoted by an ellipsis (" ...").
+X Most options will be inside of square brackets to reflect the fact that
+X they are "optional".
+X
+X Some example <syntax> strings follow:
+X
+X    "c|keyword"                -- a required option
+X    "[c|keyword]"              -- an option with no value
+X    "[c|keyword value]"        -- an option that takes a value
+X    "[c|keyword [value]]"      -- an option that takes an optional value
+X    "[c|keyword value ...]"    -- an option that takes 1 or more values
+X    "[c|keyword [value ...]]"  -- an option that takes 0 or more values
+X    "value"                    -- a required positional parameter
+X    "[value]"                  -- an optional positional-parameter
+X    "[c|keyword] value"        -- a required argument that may be matched
+X                                  either positionally or by keyword!
+X
+X
+X Further Information
+X -------------------
+X This is just a brief overview of what the CmdLine package can do. Please
+X read the documentation for a more thorough explanation of this products'
+X capabilities and limitations!
+X
+END_OF_FILE
+if test 10504 -ne `wc -c <'Overview'`; then
+    echo shar: \"'Overview'\" unpacked with wrong size!
+fi
+# end of 'Overview'
+fi
+if test -f 'src/lib/cmdarg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdarg.c'\"
+else
+echo shar: Extracting \"'src/lib/cmdarg.c'\" \(9945 characters\)
+sed "s/^X//" >'src/lib/cmdarg.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdarg.c - implement a CmdArg
+X//
+X// ^DESCRIPTION:
+X//    This file implements the CmdArg class which is the base
+X//    class for all command-arguments.
+X//
+X// ^HISTORY:
+X//    03/25/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "cmdline.h"
+X
+X//---------------------------------------------------------------------- CmdArg
+X
+Xint  CmdArg::is_dummy(void) { return  0; }
+X
+X   // Copy-Constructor
+XCmdArg::CmdArg(const CmdArg & cp)
+X   : arg_char_name(cp.arg_char_name),
+X     arg_keyword_name(cp.arg_keyword_name),
+X     arg_value_name(cp.arg_value_name),
+X     alloc_value_name(cp.alloc_value_name),
+X     arg_syntax(cp.arg_syntax),
+X     arg_description(cp.arg_description),
+X     arg_flags(cp.arg_flags)
+X{
+X   if (alloc_value_name) {
+X      char * val_name = new char[::strlen(cp.arg_value_name) + 1] ;
+X      ::strcpy((char *)val_name, cp.arg_value_name);
+X      arg_value_name = val_name;
+X   }
+X}
+X
+X   // Constructors
+X
+XCmdArg::CmdArg(char         optchar,
+X               const char * keyword,
+X               const char * value,
+X               const char * description,
+X               unsigned     syntax_flags)
+X   : arg_char_name(optchar),
+X     arg_keyword_name(keyword),
+X     arg_value_name(value), alloc_value_name(0),
+X     arg_syntax(syntax_flags),
+X     arg_description(description),
+X     arg_flags(0)
+X{
+X   parse_description();
+X   parse_value();
+X   adjust_syntax();
+X}
+X
+X
+XCmdArg::CmdArg(char         optchar,
+X               const char * keyword,
+X               const char * description,
+X               unsigned     syntax_flags)
+X   : arg_char_name(optchar),
+X     arg_keyword_name(keyword),
+X     arg_value_name(NULL), alloc_value_name(0),
+X     arg_syntax(syntax_flags),
+X     arg_description(description),
+X     arg_flags(0)
+X{
+X   parse_description();
+X   adjust_syntax();
+X}
+X
+X
+XCmdArg::CmdArg(const char * value,
+X               const char * description,
+X               unsigned     syntax_flags)
+X   : arg_char_name(0),
+X     arg_keyword_name(NULL),
+X     arg_value_name(value), alloc_value_name(0),
+X     arg_syntax(syntax_flags),
+X     arg_description(description),
+X     arg_flags(0)
+X{
+X   parse_description();
+X   parse_value();
+X   adjust_syntax();
+X}
+X
+X
+X   // Destructor
+XCmdArg::~CmdArg(void)
+X{
+X   if (alloc_value_name)    delete [] (char *)arg_value_name;
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: adjust_syntax - adjust command argument syntax
+X//
+X// ^SYNOPSIS:
+X//    CmdArg::adjust_syntax(void)
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//    This routine tries to "iron out" any inconsistencies (such as
+X//    conflicting syntax flags) in the way a command-argument is specified
+X//    and makes its best guess at what the user eally intended.
+X//
+X// ^REQUIREMENTS:
+X//    parse_value() and parse_description() must already have been called.
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies the argument syntax flags.
+X//    Modifies is keyword and value names if they are ""
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Follow along in the code ...
+X//-^^----------------
+Xvoid
+XCmdArg::adjust_syntax(void)
+X{
+X   static const char default_value_name[] = "value" ;
+X
+X      // If the value is specified as both OPTIONAL and REQUIRED
+X      // then assume it is required.
+X      //
+X   if ((arg_syntax & isVALREQ) && (arg_syntax & isVALOPT)) {
+X      arg_syntax &= ~isVALOPT ;
+X   }
+X
+X      // If they said the argument was both STICKY and SEPARATE then
+X      // I dont know what to think just just ignore both of them.
+X      //
+X   if ((arg_syntax & isVALSTICKY) && (arg_syntax & isVALSEP)) {
+X      arg_syntax &= ~(isVALSTICKY | isVALSEP);
+X   }
+X
+X      // If a non-NULL, non-empty value-name was given but we werent
+X      // told that the argument takes a value, then assume that it
+X      // does take a value and that the value is required.
+X      //
+X   if (arg_value_name && *arg_value_name && (! (arg_syntax & isVALTAKEN))) {
+X      arg_syntax |= isVALREQ;
+X   }
+X
+X      // If a value is taken and the argument is positional, then
+X      // we need to make isREQ and isOPT consistent with isVALREQ
+X      // and isVALOPT
+X      //
+X   if ((arg_syntax & isVALTAKEN) && (arg_syntax & isPOS)) {
+X      arg_syntax &= ~(isREQ | isOPT);
+X      if (arg_syntax & isVALREQ)  arg_syntax |= isREQ;
+X      if (arg_syntax & isVALOPT)  arg_syntax |= isOPT;
+X   }
+X
+X      // If the keyword name is empty then just use NULL
+X   if (arg_keyword_name  &&  (! *arg_keyword_name)) {
+X      arg_keyword_name = NULL;
+X   }
+X
+X      // If the value name is empty then just use NULL
+X   if (arg_value_name  &&  (! *arg_value_name)) {
+X      arg_value_name = NULL;
+X   }
+X
+X      // If a value is taken but no value name was given,
+X      // then default the value name.
+X      //
+X   if ((arg_syntax & isVALTAKEN) && (! arg_value_name)) {
+X      arg_value_name = default_value_name;
+X   }
+X
+X      // If no keyword name or character name was given, then the
+X      // argument had better take a value and it must be positional
+X      //
+X   if ((! arg_char_name) && (arg_keyword_name == NULL) &&
+X                            (! (arg_syntax & isPOS))) {
+X      if (arg_syntax & isVALTAKEN) {
+X         arg_syntax |= isPOS;
+X      } else {
+X         cerr << "*** Error: non-positional CmdArg "
+X              << "has no character or keyword name!\n"
+X              << "\t(error occurred in CmdArg constructor)" << endl ;
+X      }
+X   }
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: parse_description - parse the argument description string
+X//
+X// ^SYNOPSIS:
+X//    CmdLine::parse_description(void)
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//    All we have to do is see if the first non-white character of
+X//    the description is string is ';'. If it is, then the argument
+X//    is a "hidden" argument and the description starts with the
+X//    next non-white character.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies arg_description
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xenum { c_HIDDEN = ';', c_OPEN = '[', c_CLOSE = ']', c_LIST = '.' } ;
+X
+Xvoid
+XCmdArg::parse_description(void)
+X{
+X   if (arg_description == NULL)  return;
+X   while (isspace(*arg_description))  ++arg_description;
+X   if (*arg_description == c_HIDDEN) {
+X      arg_syntax |= isHIDDEN ;
+X      ++arg_description;
+X      while (isspace(*arg_description))  ++arg_description;
+X   }
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: parse_value - parse the argument value name
+X//
+X// ^SYNOPSIS:
+X//    CmdLine::parse_value(void)
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//    This routine parses the argument value string. If the value name is
+X//    is enclosed between '[' and ']', then the value is optional (not
+X//    required) and we need to modify the arg_syntax flags. Also, if the
+X//    value name is suffixed by "..." then it means the value is a LIST
+X//    of values and we need to modify the arg_syntax flags.
+X//
+X// ^REQUIREMENTS:
+X//    This routine must be called BEFORE, adjust_syntax() is called/
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies the arg_value_name and the arg_syntax flags.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Its kind of hairy so follow along.
+X//-^^----------------
+Xvoid
+XCmdArg::parse_value(void)
+X{
+X   const char * save_value = arg_value_name;
+X   int  brace = 0;
+X   int  errors = 0;
+X
+X   // Skip whitespace as necessary and look for a '['
+X   while (isspace(*arg_value_name))  ++arg_value_name;
+X   if (*arg_value_name == c_OPEN) {
+X      ++brace;
+X      ++arg_value_name;
+X      while (isspace(*arg_value_name))  ++arg_value_name;
+X      arg_syntax &= ~isVALREQ;
+X      arg_syntax |= isVALOPT;
+X   }
+X
+X   // Now that arg_value_name points to the beginning of the value,
+X   // lets find the end of it.
+X   //
+X   const char * ptr = arg_value_name;
+X   while ((*ptr) && (! isspace(*ptr)) &&
+X          (*ptr != c_LIST) && (*ptr != c_CLOSE)) {
+X      ++ptr;
+X   }
+X
+X   // See if we dont need to allocate a new string
+X   if ((! *ptr) && (save_value == arg_value_name))  return;
+X
+X   // Copy the value name
+X   alloc_value_name = 1;
+X   int  len = (int) (ptr - arg_value_name);
+X   char * copied_value = new char[len + 1];
+X   (void) ::strncpy(copied_value, arg_value_name, len);
+X   copied_value[len] = '\0';
+X   arg_value_name = copied_value;
+X
+X   // Did we end on a ']' ?
+X   if (*ptr == c_CLOSE) {
+X      if (! brace) {
+X         cerr << "Error: unmatched '" << char(c_CLOSE) << "'." << endl ;
+X         ++errors;
+X         arg_syntax &= ~isVALREQ;
+X         arg_syntax |= isVALOPT;
+X      }
+X      brace = 0;
+X      ++ptr;
+X   }
+X
+X   // Skip whitespace and see if we are finished.
+X   while (isspace(*ptr))  ++ptr;
+X   if (! *ptr) {
+X      // Was there an unmatched ']'
+X      if (brace) {
+X         cerr << "Error: unmatched '" << char(c_OPEN) << "'." << endl ;
+X         ++errors;
+X      }
+X      if (errors) {
+X         cerr << "*** Syntax error in value \"" << save_value << "\".\n"
+X              << "\t(error occurred in CmdArg constructor)" << endl ;
+X      }
+X      return;
+X   }
+X
+X   // Not done - we had better see a "..."
+X   if (::strncmp(ptr, "...", 3) != 0) {
+X      cerr << "Error: unexpected token \"" << ptr << "\"." << endl ;
+X      ++errors;
+X   } else {
+X      arg_syntax |= isLIST;
+X      ptr += 3;
+X      while (isspace(*ptr))  ++ptr;
+X      if (brace && (*ptr != c_CLOSE)) {
+X         cerr << "Error: unmatched '" << char(c_OPEN) << "'." << endl ;
+X         ++errors;
+X      } else {
+X        // If theres anything left (except ']') it's an error
+X        if (brace && (*ptr == c_CLOSE))  ++ptr;
+X        while (isspace(*ptr))  ++ptr;
+X        if (*ptr) {
+X           cerr << "Error: unexpected token \"" << ptr << "\"." << endl ;
+X           ++errors;
+X        }
+X      }
+X   }
+X
+X   // Were there any errors?
+X   if (errors) {
+X      cerr << "*** Syntax error in value \"" << save_value << "\".\n"
+X           << "\t(error occurred in CmdArg constructor)" << endl ;
+X   }
+X}
+END_OF_FILE
+if test 9945 -ne `wc -c <'src/lib/cmdarg.c'`; then
+    echo shar: \"'src/lib/cmdarg.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdarg.c'
+fi
+if test -f 'src/lib/cmdline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdline.c'\"
+else
+echo shar: Extracting \"'src/lib/cmdline.c'\" \(7900 characters\)
+sed "s/^X//" >'src/lib/cmdline.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdline.c - implement CmdLine member functions.
+X//
+X// ^DESCRIPTION:
+X//    Many of the more basic member functions of a CmdLine are implemented
+X//    in this file. They are as follows:
+X//
+X//       Contructors
+X//       Destructors
+X//       CmdLine::name()
+X//       CmdLine::error()
+X//       CmdLine::append
+X//
+X// ^HISTORY:
+X//    03/21/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <stdarg.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "cmdline.h"
+X#include "cmdargs.h"
+X#include "arglist.h"
+X#include "states.h"
+X
+X#define  va_CmdArgP(ap)  va_arg(ap, CmdArg *)
+X
+X
+X//------------------------------------------------------------------- init_args
+X
+X//-------------------
+X// ^FUNCTION: init_args - initialize the arg_list member of a CmdLine
+X//
+X// ^SYNOPSIS:
+X//    init_args(list)
+X//
+X// ^PARAMETERS:
+X//    CmdArgListList & * list;
+X//    -- a reference to the list that is to be initialized.
+X//
+X// ^DESCRIPTION:
+X//    Allocate space for the list of command-arguments and insert
+X//    The default arguments onto the list.
+X//
+X// ^REQUIREMENTS:
+X//    list should be NULL upon entry
+X//
+X// ^SIDE-EFFECTS:
+X//    creates the arg-list and makes "list" point to it.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    - Create a new arg-list (sure it is NOT self-cleaning, the user is
+X//                             responsible for deleting inserted items)
+X//    - Insert the default arguments onto the list
+X//    - Make list point to the newly created list
+X//-^^----------------
+Xstatic void
+Xinit_args(CmdArgListList * & list)
+X{
+X   static  CmdArgUsage  default_help1('?', "?",    "; print usage and exit.");
+X   static  CmdArgUsage  default_help2('H', "Help", "; print usage and exit.");
+X
+X   list = new CmdArgListList ;
+X   list->self_cleaning(1);
+X
+X   CmdArgList * arg_list = new CmdArgList;
+X   arg_list->self_cleaning(0);
+X
+X   CmdArgList * default_list = new CmdArgList;
+X   default_list->self_cleaning(0);
+X   default_list->add(&default_help1);
+X   default_list->add(&default_help2);
+X
+X   list->add(arg_list);
+X   list->add(default_list);
+X}
+X
+X//---------------------------------------------------------------- filebasename
+X
+X//-------
+X// ^FUNCTION: filebasename
+X//
+X// ^SYNOPSIS:
+X//    static const char * filebasename(filename);
+X//
+X// ^PARAMETERS:
+X//    const char * filename;
+X//    -- the filename to get the "base" of.
+X//
+X// ^DESCRIPTION:
+X//    Extract and return the basename of "filename".
+X//
+X// ^REQUIREMENTS:
+X//    "filename" should be non-NULL and non-empty.
+X//
+X// ^SIDE-EFFECTS:
+X//    On VAX/VMS, MS-DOS, and OS/2 systems space is allocated (using malloc)
+X//    for the returned value.
+X//
+X// ^RETURN-VALUE:
+X//    The basename portion of the filename.
+X//
+X// ^ALGORITHM:
+X//    For Unix systems:
+X//       return everything following the rightmost '/'
+X//
+X//    For VAX/VMS systems:
+X//       make a copy of filename.
+X//       strip off any device name, any directory name.
+X//       strip off any "." extension.
+X//       strip off any version number.
+X//
+X//    For MS-DOS systems:
+X//       make a copy of filename.
+X//       strip off any drive and/or directory path.
+X//       strip off any "." extension.
+X//-^^----
+Xstatic const char *
+Xfilebasename(const char * filename)
+X{
+X
+X#if (defined(vms) || defined(msdos) || defined(os2))
+X   const char * start, * p1, * p2 ;
+X   const char * str, * ext;
+X
+X# ifdef vms
+X   const char * ver;
+X   // remove leading directory and/or device name
+X   p1 = ::strrchr(filename, ':');
+X   p2 = ::strrchr(filename, ']');
+X# else
+X   // remove leading directory and/or drive name
+X   p1 = ::strrchr(filename, '/');
+X   p2 = ::strrchr(filename, '\\');
+X# endif
+X   if ((p1 == NULL) && (p2 == NULL)) {
+X      start = filename ;
+X   } else if (p1 && (p2 == NULL)) {
+X      start = p1 + 1;
+X   } else if (p2 && (p1 == NULL)) {
+X      start = p2 + 1;
+X   } else {
+X      start = ((p1 > p2) ? p1 : p2) + 1;
+X   }
+X
+X   str = new char[strlen(start) + 1];
+X   (void) ::strcpy(str, start);
+X
+X   // remove the extension
+X   ext = ::strrchr(str, '.');
+X   if (ext)  *ext = '0' ;
+X
+X# ifdef vms
+X   // remove the version
+X   ver = ::strrchr(str, ';');
+X   if (ver)  *ver = '0' ;
+X# endif
+X
+X   return  str ;
+X
+X#else
+X
+X   char * p = ::strrchr(filename, '/') ;
+X   return  (p == NULL) ? filename : (p + 1) ;
+X
+X#endif /* if (vms || msdos || os2) */
+X
+X}
+X
+X//--------------------------------------------------------------- class CmdLine
+X
+X  // Contructor with a command-name
+XCmdLine::CmdLine(const char * cmdname)
+X   : cmd_parse_state(cmd_START_STATE),
+X     cmd_state(cmd_START_STATE),
+X     cmd_flags(DEFAULT_CMDFLAGS),
+X     cmd_status(CmdLine::NO_ERROR),
+X     cmd_name(NULL),
+X     cmd_matched_arg(NULL),
+X     cmd_args(NULL),
+X     cmd_err(NULL)
+X{
+X   name(cmdname);
+X   ::init_args(cmd_args);
+X}
+X
+X   // Constructor with a name and CmdArgs
+XCmdLine::CmdLine(const char * cmdname, CmdArg * ...)
+X   : cmd_parse_state(cmd_START_STATE),
+X     cmd_state(cmd_START_STATE),
+X     cmd_flags(DEFAULT_CMDFLAGS),
+X     cmd_status(CmdLine::NO_ERROR),
+X     cmd_name(NULL),
+X     cmd_matched_arg(NULL),
+X     cmd_args(NULL),
+X     cmd_err(NULL)
+X{
+X   name(cmdname);
+X   ::init_args(cmd_args);
+X
+X   CmdArgListListIter  iter(cmd_args);
+X   CmdArgList * arg_list = iter();
+X
+X   va_list  ap;
+X   va_start(ap, cmdname);
+X   for (CmdArg * cmdarg = va_CmdArgP(ap) ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X      arg_list->add(cmdarg);
+X   }
+X   va_end(ap);
+X}
+X
+X
+X   // Constructor with CmdArgs
+XCmdLine::CmdLine(CmdArg * cmdarg, CmdArg * ...)
+X   : cmd_parse_state(cmd_START_STATE),
+X     cmd_state(cmd_START_STATE),
+X     cmd_flags(DEFAULT_CMDFLAGS),
+X     cmd_status(CmdLine::NO_ERROR),
+X     cmd_name(NULL),
+X     cmd_matched_arg(NULL),
+X     cmd_args(NULL),
+X     cmd_err(NULL)
+X{
+X   if (cmdarg == NULL)  return;
+X   ::init_args(cmd_args);
+X
+X   CmdArgListListIter  iter(cmd_args);
+X   CmdArgList * arg_list = iter();
+X
+X   arg_list->add(cmdarg);
+X
+X   va_list  ap;
+X   va_start(ap, cmdarg);
+X   for (cmdarg = va_CmdArgP(ap) ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X      arg_list->add(cmdarg);
+X   }
+X   va_end(ap);
+X}
+X
+X
+X   // Destructor
+XCmdLine::~CmdLine(void)
+X{
+X   delete  cmd_args;
+X
+X#if (defined(vms) || defined(msdos) || defined(os2))
+X   delete [] cmd_name;
+X#endif
+X}
+X
+X
+X   // Set the name of the command
+Xvoid
+XCmdLine::name(const char * progname)
+X{
+X#if (defined(vms) || defined(msdos) || defined(os2))
+X   delete [] cmd_name;
+X#endif
+X   cmd_name = ::filebasename(progname);
+X}
+X
+X
+X   // Print an error message prefix and return a reference to the
+X   // error output stream for this command
+Xostream &
+XCmdLine::error(int  print) const
+X{
+X   ostream * os = (cmd_err) ? (ostream *)cmd_err : &cerr ;
+X   if (print && cmd_name && *cmd_name)  *os << cmd_name << ": " ;
+X   return  *os;
+X}
+X
+X
+X  // Add an argument to the current list of CmdArgs
+XCmdLine &
+XCmdLine::append(CmdArg * cmdarg)
+X{
+X   CmdArgListListIter  iter(cmd_args);
+X   CmdArgList * arg_list = iter();
+X   arg_list->add(cmdarg);
+X
+X   return  *this ;
+X}
+X
+X
+X//---------------------------------------------------------- CmdLineCmdArgIter
+X
+X   // Constructors and Destructors
+X
+XCmdLineCmdArgIter::CmdLineCmdArgIter(CmdLine & cmd)
+X   : iter(NULL)
+X{
+X   if (cmd.cmd_args) {
+X      CmdArgListListIter  listlist_iter(cmd.cmd_args);
+X      CmdArgList  * list = listlist_iter();
+X      if (list)  iter = new CmdArgListIter(list);
+X   }
+X}
+X
+XCmdLineCmdArgIter::CmdLineCmdArgIter(CmdLine * cmd)
+X   : iter(NULL)
+X{
+X   if (cmd->cmd_args) {
+X      CmdArgListListIter  listlist_iter(cmd->cmd_args);
+X      CmdArgList  * list = listlist_iter();
+X      if (list)  iter = new CmdArgListIter(list);
+X   }
+X}
+X
+XCmdLineCmdArgIter::~CmdLineCmdArgIter(void)
+X{
+X   delete  iter;
+X}
+X
+X   // Return the current argument and advance to the next one.
+X   // Returns NULL if we are already at the end of the list.
+X   //
+XCmdArg *
+XCmdLineCmdArgIter::operator()(void)
+X{
+X   return  (iter) ? (*iter)() : NULL ;
+X}
+X
+END_OF_FILE
+if test 7900 -ne `wc -c <'src/lib/cmdline.c'`; then
+    echo shar: \"'src/lib/cmdline.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdline.c'
+fi
+if test -f 'src/lib/cmdtest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdtest.c'\"
+else
+echo shar: Extracting \"'src/lib/cmdtest.c'\" \(8009 characters\)
+sed "s/^X//" >'src/lib/cmdtest.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdtest.c - test program for the CmdLine library
+X//
+X// ^DESCRIPTION:
+X//    This program tests as many features of command-line as possible.
+X//
+X// ^HISTORY:
+X//    03/18/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <ctype.h>
+X#include <cmdargs.h>
+X
+X//---------------------------------------------------------------- CmdArgModCmd
+X
+X   // CmdArgModCmd is a special argument that we use for testing.
+X   // The argument actually modifies the flags of the associated
+X   // command before it has finished parsing the arguments, hence
+X   // the new flags take effect for all remaining arguments.
+X   //
+X   // This argument takes a value (which is optional). If no value
+X   // is given, then the flags are unset, otherwise the value is
+X   // a list of characters, each of which corresponds to a CmdFlag
+X   // to turn on.
+X   //
+Xclass  CmdArgModCmd : public CmdArg {
+Xpublic:
+X   CmdArgModCmd(char         optchar,
+X                const char * keyword,
+X                const char * value,
+X                const char * description,
+X                unsigned     syntax_flags =CmdArg::isOPTVALOPT);
+X
+X   virtual
+X   ~CmdArgModCmd(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+XCmdArgModCmd::CmdArgModCmd(char         optchar,
+X                           const char * keyword,
+X                           const char * value,
+X                           const char * description,
+X                           unsigned     syntax_flags)
+X   : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+XCmdArgModCmd::~CmdArgModCmd(void) {}
+X
+Xint CmdArgModCmd::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  new_flags = 0;
+X   for (const char * p = arg ; *p ; p++) {
+X      char ch = *p;
+X      if (isupper(ch))  ch = tolower(ch);
+X      switch (ch) {
+X         case 'c' : new_flags |= CmdLine::ANY_CASE_OPTS;  break;
+X
+X         case 'p' : new_flags |= CmdLine::PROMPT_USER;    break;
+X
+X         case 'n' : new_flags |= CmdLine::NO_ABORT;       break;
+X
+X         case 'f' : new_flags |= CmdLine::OPTS_FIRST;     break;
+X
+X         case 'o' : new_flags |= CmdLine::OPTS_ONLY;      break;
+X
+X         case 'k' : new_flags |= CmdLine::KWDS_ONLY;      break;
+X
+X         case 't' : new_flags |= CmdLine::TEMP;           break;
+X
+X         case 'q' : new_flags |= CmdLine::QUIET;          break;
+X
+X         case 'g' : new_flags |= CmdLine::NO_GUESSING;    break;
+X
+X         default  : break;
+X      } //switch
+X   } //for
+X   cmd.flags(new_flags);
+X   arg = NULL;
+X   return  0;
+X}
+X
+X
+X//------------------------------------------------------ Command Line Arguments
+X
+Xstatic CmdArgModCmd    fflag('f', "flags", "[cpnfoktqg]",
+X   "Use this argument to change the behavior of \
+Xparsing for all remaining arguments.  If no \
+Xvalue is given   then the command-flags are \
+Xcleared.  Otherwise each letter specifies a flag \
+Xto set:\n\
+X   'c' = any-Case-opts\n\
+X   'p' = Prompt-user\n\
+X   'n' = No-abort\n\
+X   'f' = options-First\n\
+X   'o' = Opts-only\n\
+X   'k' = Keywords-only\n\
+X   't' = Temporary-args\n\
+X   'q' = Quiet!\n\
+X   'g' = no-Guessing\n\
+XThis-is-a-very-long-line-containing-no-whitespace-\
+Xcharacters-and-I-just-want-to-see-if-it-gets-\
+Xformatted-appropriately!"
+X   );
+X
+Xstatic CmdArgStr       str('s', "str", "[string]", "string to parse");
+Xstatic CmdArgInt       debug ('D', "Debug", "[level]", "turn on debugging",
+X                              CmdArg::isVALSTICKY);
+Xstatic CmdArgBool      infile('p', "parse", "parse from cin");
+X
+Xstatic CmdArgSet       xflag('x', "x", ";turn on X-rated mode");
+Xstatic CmdArgClearRef  nxflag(xflag, 'n', "nx", ";turn off X-rated mode");
+Xstatic CmdArgInt       count('c', "count", "number", "number of copies");
+Xstatic CmdArgChar      delim('d', "delimiter", "char", "delimiter character");
+Xstatic CmdArgChar      ext('e', "ext", "[char]", "extension to use",
+X                                                 CmdArg::isVALSTICKY);
+Xstatic CmdArgChar      code('C', "Code", "char", "code to use",
+X                                                 CmdArg::isVALSTICKY);
+Xstatic CmdArgStr       why('y', "why", "[reason]", "specify the reason why",
+X                                                   CmdArg::isVALSEP);
+Xstatic CmdArgStr       who('w', "who", "logname", "the user responsible",
+X                                                  CmdArg::isVALSEP);
+Xstatic CmdArgIntList   ints('i', "int", "number ...", "list of ints");
+Xstatic CmdArgStrList   grps('g', "groups", "newsgroup", "list of newsgroups");
+Xstatic CmdArgDummy     dummy("--", "denote end of options");
+Xstatic CmdArgStr       name('n', "name", "name", "name of document",
+X                                                 CmdArg::isPOS);
+Xstatic CmdArgStrList   files("[files ...]", "files to process");
+X
+X//------------------------------------------------------------------ print_args
+X
+Xstatic void
+Xprint_args(void) {
+X   cout << "xflag=" << (xflag ? "ON" : "OFF") << endl ;
+X   cout << "count=" << count << endl ;
+X
+X   unsigned  sflags = str.flags();
+X   if ((sflags & CmdArg::GIVEN) && (! (sflags & CmdArg::VALGIVEN))) {
+X      cout << "No string given on command-line!" << endl ;
+X   } else {
+X      cout << "str=\"" << str << "\"" << endl ;
+X   }
+X   cout << "delim='" << delim << "'" << endl ;
+X   cout << "ext='" << ext << "'" << endl ;
+X   cout << "code='" << code << "'" << endl ;
+X   cout << "why=\"" << why << "\"" << endl ;
+X   cout << "who=\"" << who << "\"" << endl ;
+X
+X   unsigned  nints = ints.count();
+X   for (int i = 0; i < nints ; i++) {
+X      cout << "int[" << i << "]=" << ints[i] << endl ;
+X   }
+X
+X   unsigned  ngrps = grps.count();
+X   for (i = 0; i < ngrps ; i++) {
+X      cout << "groups[" << i << "]=\"" << grps[i] << "\"" << endl ;
+X   }
+X
+X   cout << "name=\"" << name << "\"" << endl ;
+X
+X   unsigned  nfiles = files.count();
+X   for (i = 0; i < nfiles ; i++) {
+X      cout << "files[" << i << "]=\"" << files[i] << "\"" << endl ;
+X   }
+X}
+X
+X//------------------------------------------------------------------------ dump
+X
+Xstatic void
+Xdump(CmdLine & cmd)
+X{
+X   if (debug) {
+X      cmd.dump(cout);
+X      if (debug > 1) cmd.dump_args(cout);
+X   }
+X}
+X
+X//------------------------------------------------------------------------ main
+X
+Xint
+Xmain(int argc, char * argv[]) {
+X   CmdLine  cmd(*argv,
+X                & fflag,
+X                & str,
+X                & infile,
+X                & debug,
+X                & xflag,
+X                & nxflag,
+X                & count,
+X                & delim,
+X                & ext,
+X                & code,
+X                & why,
+X                & who,
+X                & ints,
+X                & grps,
+X                & dummy,
+X                & name,
+X                & files,
+X                NULL);
+X   CmdArgvIter  argv_iter(--argc, ++argv);
+X
+X   cout << "Test of " << CmdLine::ident() << endl ;
+X
+X   xflag = 0;
+X   count = 1;
+X   str = NULL;
+X   delim = '\t';
+X   name = NULL;
+X
+X   cout << "Parsing the command-line ..." << endl ;
+X   unsigned status = cmd.parse(argv_iter);
+X   if (status)  cmd.error() << "parsing errors occurred!" << endl ;
+X
+X   print_args();
+X
+X   unsigned dbg_flags = debug.flags();
+X   if ((dbg_flags & CmdArg::GIVEN) && (! (dbg_flags & CmdArg::VALGIVEN))) {
+X      debug = 1;
+X   }
+X
+X   dump(cmd);
+X
+X   int  parse_cin = infile;
+X
+X   // Parse arguments from a string
+X   if (str) {
+X      CmdStrTokIter  tok_iter(str);
+X
+X      xflag = 0;
+X      count = 1;
+X      str = NULL;
+X      delim = '\t';
+X      name = NULL;
+X
+X      cout << "\n\nParsing the string ..." << endl ;
+X      status = cmd.parse(tok_iter);
+X      print_args();
+X      dump(cmd);
+X   }
+X
+X
+X   // Parse arguments from a file
+X   if (parse_cin) {
+X      xflag = 0;
+X      count = 1;
+X      str = NULL;
+X      delim = '\t';
+X      name = NULL;
+X
+X      CmdIstreamIter  file_iter(cin);
+X      cout << "\n\nParsing from cin ..." << endl ;
+X      status = cmd.parse(file_iter);
+X      print_args();
+X      dump(cmd);
+X   }
+X
+X   return  0;
+X}
+X
+END_OF_FILE
+if test 8009 -ne `wc -c <'src/lib/cmdtest.c'`; then
+    echo shar: \"'src/lib/cmdtest.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdtest.c'
+fi
+if test -f 'src/lib/dump.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/dump.c'\"
+else
+echo shar: Extracting \"'src/lib/dump.c'\" \(7287 characters\)
+sed "s/^X//" >'src/lib/dump.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: dump.c - debugging/dumping functions of the CmdLine library
+X//
+X// ^DESCRIPTION:
+X//    If DEBUG_CMDLINE is #defined when this file is compiled, then
+X//    the functions that print out debugging information for a CmdLine
+X//    and a CmdArg are implemented.
+X//
+X// ^HISTORY:
+X//    04/01/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include  "cmdline.h"
+X
+X#ifdef DEBUG_CMDLINE
+X# include  <iostream.h>
+X# include  <string.h>
+X
+X# include  "arglist.h"
+X# include  "states.h"
+X#endif
+X
+X
+X#ifdef DEBUG_CMDLINE
+X
+X   // Indent a line corresponding to a given indent level.
+X   // The number of spaces to indent is 3x the indent level
+X   //
+Xstatic ostream &
+Xindent(ostream & os, unsigned level)
+X{
+X   os.width(level * 3);
+X   return  (os << "");
+X}
+X
+X
+X   // Dump the arg_syntax field of a CmdArg in a mnemonic format
+X   //
+Xstatic ostream &
+Xdump_arg_syntax(ostream & os, unsigned  syntax)
+X{
+X   if (syntax & CmdArg::isREQ) {
+X      os << "isREQ" ;
+X   } else {
+X      os << "isOPT" ;
+X   }
+X
+X   if (syntax & CmdArg::isVALREQ) {
+X      os << "+isVALREQ" ;
+X   }
+X   if (syntax & CmdArg::isVALOPT) {
+X      os << "+isVALOPT" ;
+X   }
+X   if (syntax & CmdArg::isVALSEP) {
+X      os << "+isVALSEP" ;
+X   }
+X   if (syntax & CmdArg::isVALSTICKY) {
+X      os << "+isVALSTICKY" ;
+X   }
+X   if (syntax & CmdArg::isLIST) {
+X      os << "+isLIST" ;
+X   }
+X   if (syntax & CmdArg::isPOS) {
+X      os << "+isPOS" ;
+X   }
+X   if (syntax & CmdArg::isHIDDEN) {
+X      os << "+isHID" ;
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the arg_flags field of a CmdArg in a mnemonic format
+Xstatic ostream &
+Xdump_arg_flags(ostream & os, unsigned  flags)
+X{
+X   if (flags & CmdArg::GIVEN) {
+X      os << "GIVEN" ;
+X   } else {
+X      os << "NOTGIVEN";
+X   }
+X   if (flags & CmdArg::VALGIVEN) {
+X      os << "+VALGIVEN";
+X   }
+X   if (flags & CmdArg::OPTION) {
+X      os << "+OPTION";
+X   }
+X   if (flags & CmdArg::KEYWORD) {
+X      os << "+KEYWORD";
+X   }
+X   if (flags & CmdArg::POSITIONAL) {
+X      os << "+POSITIONAL";
+X   }
+X   if (flags & CmdArg::VALSEP) {
+X      os << "+VALSEP";
+X   } else if (flags & CmdArg::VALGIVEN) {
+X      os << "+VALSAME";
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the cmd_flags field of a CmdLine in a mnemonic format
+Xstatic ostream &
+Xdump_cmd_flags(ostream & os, unsigned flags)
+X{
+X   if (flags & CmdLine::NO_ABORT) {
+X      os << "NO_ABORT" ;
+X   } else {
+X      os << "ABORT" ;
+X   }
+X   if (flags & CmdLine::ANY_CASE_OPTS) {
+X      os << "+ANY_CASE_OPTS";
+X   }
+X   if (flags & CmdLine::PROMPT_USER) {
+X      os << "+PROMPT_USER";
+X   }
+X   if (flags & CmdLine::OPTS_FIRST) {
+X      os << "+OPTS_FIRST";
+X   }
+X   if (flags & CmdLine::OPTS_ONLY) {
+X      os << "+OPTS_ONLY";
+X   }
+X   if (flags & CmdLine::KWDS_ONLY) {
+X      os << "+KWDS_ONLY";
+X   }
+X   if (flags & CmdLine::TEMP) {
+X      os << "+TEMP";
+X   }
+X   if (flags & CmdLine::QUIET) {
+X      os << "+QUIET";
+X   }
+X   if (flags & CmdLine::NO_GUESSING) {
+X      os << "+NO_GUESSING";
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the status of a CmdLine in a mnemonic format
+Xstatic ostream &
+Xdump_cmd_status(ostream & os, unsigned  status)
+X{
+X   if (! status) {
+X      os << "NO_ERROR";
+X      return  os;
+X   } else {
+X      os << "ERROR";
+X   }
+X   if (status & CmdLine::ARG_MISSING) {
+X      os << "+ARG_MISSING";
+X   }
+X   if (status & CmdLine::VAL_MISSING) {
+X      os << "+VAL_MISSING";
+X   }
+X   if (status & CmdLine::VAL_NOTSTICKY) {
+X      os << "+VAL_NOTSTICKY";
+X   }
+X   if (status & CmdLine::VAL_NOTSEP) {
+X      os << "+VAL_NOTSEP";
+X   }
+X   if (status & CmdLine::KWD_AMBIGUOUS) {
+X      os << "+KWD_AMBIG";
+X   }
+X   if (status & CmdLine::BAD_OPTION) {
+X      os << "+BAD_OPT";
+X   }
+X   if (status & CmdLine::BAD_KEYWORD) {
+X      os << "+BAD_KWD";
+X   }
+X   if (status & CmdLine::BAD_VALUE) {
+X      os << "+BAD_VAL";
+X   }
+X   if (status & CmdLine::TOO_MANY_ARGS) {
+X      os << "+TOO_MANY";
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the state of a CmdLine in a mnemonic format
+Xstatic ostream &
+Xdump_cmd_state(ostream & os, unsigned  state)
+X{
+X   if (! state) {
+X      os << "NO_OPTIONS";
+X   } else {
+X      os << "ARGS";
+X   }
+X   if (state & cmd_END_OF_OPTIONS) {
+X      os << "+ENDOPTS";
+X   }
+X   if (state & cmd_OPTIONS_USED) {
+X      os << "+OPTS_USED";
+X   }
+X   if (state & cmd_KEYWORDS_USED) {
+X      os << "+KWDS_USED";
+X   }
+X   if (state & cmd_GUESSING) {
+X      os << "+GUESSING";
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the parse_state of a CmdLine in a mnemonic format
+Xstatic ostream &
+Xdump_cmd_parse_state(ostream & os, unsigned parse_state)
+X{
+X   switch (parse_state) {
+X   case cmd_START_STATE :
+X      os << "START_STATE";
+X      break;
+X
+X   case cmd_TOK_REQUIRED :
+X      os << "TOK_REQUIRED";
+X      break;
+X
+X   case cmd_WANT_VAL :
+X      os << "WANT_VAL";
+X      break;
+X
+X   case cmd_NEED_VAL :
+X      os << "NEED_VAL";
+X      break;
+X
+X
+X#ifdef vms_style
+X   case cmd_WANT_VALSEP :
+X      os << "WANT_VALSEP";
+X      break;
+X
+X   case cmd_NEED_VALSEP :
+X      os << "NEED_VALSEP";
+X      break;
+X
+X   case cmd_WANT_LISTSEP :
+X      os << "WANT_LISTSEP";
+X      break;
+X
+X   case cmd_NEED_LISTSEP :
+X      os << "NEED_LISTSEP";
+X      break;
+X
+X#endif
+X
+X   default :
+X      os << parse_state;
+X   }
+X
+X   return  os;
+X}
+X
+X
+X   // Dump the arguments (including the default arguments) in an arg_list
+Xstatic ostream &
+Xdump_cmd_args(ostream & os, CmdArgListList * arg_list, unsigned level)
+X{
+X   ::indent(os, level) << "CmdLine::cmd_args {\n" ;
+X
+X   CmdArgListListIter  list_iter(arg_list);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         cmdarg->dump(os, level + 1);
+X      }
+X   }
+X
+X   ::indent(os, level) << "}" << endl;
+X   return  os;
+X}
+X
+X#endif  /* DEBUG_CMDLINE */
+X
+X
+X   // Dump a CmdArg
+Xvoid
+XCmdArg::dump(ostream & os, unsigned level) const
+X{
+X#ifdef DEBUG_CMDLINE
+X   ::indent(os, level) << "CmdArg {\n" ;
+X
+X   ::indent(os, level + 1) << "option='" << char(arg_char_name) << "', "
+X                         << "keyword=\"" << arg_keyword_name << "\", "
+X                         << "value=\"" << arg_value_name << "\"\n" ;
+X
+X   ::indent(os, level + 1) << "syntax=" ;
+X   dump_arg_syntax(os, arg_syntax) << "\n";
+X
+X   ::indent(os, level + 1) << "flags=" ;
+X   dump_arg_flags(os, arg_flags) << "\n";
+X
+X   ::indent(os, level) << "}" << endl;
+X#endif
+X}
+X
+X
+X   // Dump a CmdLine
+Xvoid
+XCmdLine::dump(ostream & os, unsigned level) const
+X{
+X#ifdef DEBUG_CMDLINE
+X   ::indent(os, level) << "CmdLine {\n" ;
+X
+X   ::indent(os, level + 1) << "name=\"" << cmd_name << "\"\n";
+X
+X   ::indent(os, level + 1) << "flags=" ;
+X   dump_cmd_flags(os, cmd_flags) << "\n";
+X
+X   ::indent(os, level + 1) << "status=" ;
+X   dump_cmd_status(os, cmd_status) << "\n";
+X
+X   ::indent(os, level + 1) << "state=" ;
+X   dump_cmd_state(os, cmd_state) << "\n";
+X
+X   ::indent(os, level + 1) << "parse_state=" ;
+X   dump_cmd_parse_state(os, cmd_parse_state) << "\n";
+X
+X   ::indent(os, level + 1);
+X   if (cmd_matched_arg == NULL) {
+X      os << "matched_arg=NULL\n";
+X   } else {
+X      os << "matched_arg=" << (void *)cmd_matched_arg << "\n";
+X   }
+X
+X   ::indent(os, level) << "}" << endl;
+X#endif
+X}
+X
+X
+X   // Dump the arguments of a CmdLine
+Xvoid
+XCmdLine::dump_args(ostream & os, unsigned level) const
+X{
+X#ifdef DEBUG_CMDLINE
+X   dump_cmd_args(os, cmd_args, level);
+X#endif
+X}
+X
+END_OF_FILE
+if test 7287 -ne `wc -c <'src/lib/dump.c'`; then
+    echo shar: \"'src/lib/dump.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/dump.c'
+fi
+if test -f 'src/lib/strindent.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/strindent.c'\"
+else
+echo shar: Extracting \"'src/lib/strindent.c'\" \(8789 characters\)
+sed "s/^X//" >'src/lib/strindent.c' <<'END_OF_FILE'
+X//-------------------------------------------------------------------------
+X// ^FILE: strindent.c - implement the strindent() function
+X//
+X// ^DESCRIPTION:
+X//    This file implements the function strmatch() which matches a 
+X//    keyword (case insensitive) and the function strindent() which
+X//    prints a hanging, indented paragraph.
+X//
+X//    On VMS systems - we also implement a replacement for "getenv()"
+X//    named "getsym()" to get the value of a VMS symbol.
+X//
+X// ^HISTORY:
+X//    12/05/91 	Brad Appleton 	<brad@ssd.csd.harris.com> 	Created
+X//-^^-----------------------------------------------------------------------
+X
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "cmdline.h"
+X
+X// Need a portable version of tolower
+X//
+X//   NOTE:: I would make this inline except that cfront refuses
+X//          to inline it because it is used twice in expressions
+X//
+X#define TO_LOWER(c)  ((isupper(c)) ? tolower(c) : c)
+X
+X
+X//-------
+X// ^FUNCTION: strmatch - match a keyword
+X//
+X// ^SYNOPSIS:
+X//    static CmdLine::strmatch_t CmdLine::strmatch(src, attempt, len);
+X//
+X// ^PARAMETERS:
+X//    const char * src;
+X//    -- the actual keyword to match against
+X//
+X//    const char * attempt;
+X//    -- the "candidate" that may or may not match the keyword
+X//
+X//    unsigned len;
+X//    -- the number of character of "attempt" to consider (==0 if all
+X//       characters of "attempt" should be used).
+X//
+X// ^DESCRIPTION:
+X//    See if "attempt" matches "src" (either partially or completely) and
+X//    return the result.
+X//
+X// ^REQUIREMENTS:
+X//    None that havent been discusses in the PARAMETERS section.
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    str_EXACT if "attempt" completely matches "src"
+X//    str_PARTIAL is "attempt" partially matches "src"
+X//    str_NONE otherwise
+X//
+X// ^ALGORITHM:
+X//    For each character (in order) of "attempt" to be considered
+X//       if attempt[i] != src[i] (case insensitive) return str_NONE
+X//    end-for
+X//    if we have exhausted "src" return str_EXACT,
+X//    else return str_PARTIAL
+X//-^^----
+XCmdLine::strmatch_t
+XCmdLine::strmatch(const char * src, const char * attempt, unsigned len)
+X{
+X   unsigned  i;
+X
+X   if (src == attempt)  return  str_EXACT ;
+X   if ((src == NULL) || (attempt == NULL))  return  str_NONE ;
+X   if ((! *src) && (! *attempt))  return  str_EXACT ;
+X   if ((! *src) || (! *attempt))  return  str_NONE ;
+X
+X   for (i = 0 ; ((i < len) || (! len)) && (attempt[i] != '\0') ; i++) {
+X      if (TO_LOWER(src[i]) != TO_LOWER(attempt[i]))  return  str_NONE ;
+X   }
+X
+X   return  (src[i] == '\0') ? str_EXACT : str_PARTIAL ;
+X}
+X
+X
+X//--------------------------------------------------------------------------
+X// ^FUNCTION: strindent - print a hanging indented paragraph
+X//
+X// ^SYNOPSIS:
+X//    void CmdLine::strindent(os, maxcols, margin, title, indent, text)
+X//
+X// ^PARAMETERS:
+X//    ostream & os;
+X//    -- the stream to which output is sent
+X//
+X//    unsigned maxcols;
+X//    -- the maximum width (in characters) of the output
+X//
+X//    unsigned margin;
+X//    -- the number of spaces to use as the left margin
+X//
+X//    char * title;
+X//    -- the paragraph title
+X//
+X//    unsigned indent;
+X//    -- the distance between the title and the paragraph body
+X//
+X//    char * text;
+X//    -- the body of the paragraph
+X//
+X// ^DESCRIPTION:
+X//    Strindent will print on os, a titled, indented paragraph as follows:
+X//
+X//    <----------------------- maxcols --------------------------->
+X//    <--- margin --><----- indent ---->
+X//                   title              This is the first sentence
+X//                                      of the paragraph. Etc ...
+X//
+X// ^REQUIREMENTS:
+X//    - maxcols and indent must be positive numbers with maxcols > indent.
+X//    - title should NOT contain any tabs or newlines.
+X//
+X// ^SIDE-EFFECTS:
+X//    Output is printed to os.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Print the paragraph title and then print the text.
+X//    Lines are automatically adjusted so that each one starts in the
+X//    appropriate column.
+X//-^^-----------------------------------------------------------------------
+Xvoid
+XCmdLine::strindent(ostream    & os,
+X                   unsigned     maxcols,
+X                   unsigned     margin,
+X                   const char * title,
+X                   unsigned     indent,
+X                   const char * text)
+X{
+X   // If we were given non-sensical parameters then dont use them
+X   if (margin > maxcols)  margin = 0;
+X   if ((indent + margin) >= maxcols)  indent = 1;
+X
+X   // print the title (left-justified)
+X   os.width(margin);
+X   os << "" ;
+X   long  save_flags = os.flags();
+X   os.setf(ios::left, ios::adjustfield);
+X   os.width(indent);
+X   os << ((title) ? title : "");
+X   os.flags(save_flags);
+X
+X   if (text == NULL) {
+X      os << endl ;
+X      return;
+X   }
+X
+X   // If the title is too big, start the paragraph on a new line
+X   if (title  &&  (::strlen(title) > indent)) {
+X      os << endl ;
+X      os.width(margin + indent);
+X      os << "";
+X   }
+X
+X   // Loop through the paragraph text witing to print until we absolutely
+X   // have to.
+X   //
+X   unsigned  col = margin + indent + 1;
+X   unsigned  index = 0 ;
+X   unsigned  last_white = 0 ;
+X   const char * p = text ;
+X
+X   while (p[index]) {
+X      switch (p[index]) {
+X         // If we have a space - just remember where it is
+X      case ' ' :
+X         last_white = index;
+X         ++col;
+X         ++index;
+X         break;
+X
+X         // If we have a tab - remember where it is and assume it
+X         // will take up 8 spaces in the output.
+X         //
+X      case '\t' :
+X         last_white = index;
+X         col += 8;
+X         ++index;
+X         break;
+X
+X         // If we have a form-feed, carriage-return, or newline, then
+X         // print what we have so far (including this character) and
+X         // start a new line.
+X         //
+X      case '\n' :
+X      case '\r' :
+X      case '\f' :
+X         os.write(p, index + 1);
+X         p += index + 1;
+X         col = margin + indent + 1;
+X         index = last_white = 0;
+X         if (*p) {
+X            os.width(margin + indent);
+X            os << "";
+X         }
+X         break;
+X
+X      default:
+X         ++col;
+X         ++index;
+X         break;
+X      } //switch
+X
+X         // Are we forced to start a new line?
+X      if (col > maxcols) {
+X            // Yes - if possible, print upto the last whitespace character
+X            //       and start the next line on a word-boundary
+X         if (last_white) {
+X            os.write(p, last_white);
+X            p += last_white;
+X            while (*p == ' ')  ++p;
+X         } else {
+X               // No word boundary in sight - just split the line here!
+X            os.write(p, index);
+X            p += index;
+X         }
+X         os << endl ;
+X
+X            // We just printed a newline - dont print another one right now
+X         while ((*p == '\n') || (*p == '\r') || (*p == '\f'))  ++p;
+X         col = margin + indent + 1;
+X         index = last_white = 0;
+X         if (*p) {
+X            os.width(margin + indent);
+X            os << "";
+X         }
+X      } else if (index && (! p[index])) {
+X         os << p << endl ;
+X      }
+X   } //while
+X}
+X
+X
+X#ifdef vms
+X
+X#  include <descrip.h>
+X#  include <libdef.h>
+X
+X   extern "C" {
+X      long   lib$get_symbol(...);
+X      void   exit(int);
+X   }
+X
+X//----------------------
+X// ^FUNCTION: getsym - retrieve the value of a VMS symbol
+X//
+X// ^SYNOPSIS:
+X//    const char * getsym(sym_name)
+X//
+X// ^PARAMETERS:
+X//    char * sym_name;
+X//    -- name of the symbol to retrieve
+X//
+X// ^DESCRIPTION:
+X//    Get_symbol will lookup the named symbol and return its value
+X//    as a string.
+X//
+X// ^REQUIREMENTS:
+X//    sym_name should correspond to the name of a pre-defined symbol.
+X//
+X// ^SIDE-EFFECTS:
+X//    None.  NO storage is allocated for the symbol-value and it will
+X//    be overwritten by the next call to this function.
+X//
+X// ^RETURN-VALUE:
+X//    NULL if the symbol is not found, otherwise it returns a pointer
+X//    to a static buffer containing the contents of the symbol value.
+X//    You MUST be finished using this buffer before another call to
+X//    get_symbol is made.
+X//
+X// ^ACKNOWLEDGEMENTS:
+X//    Thanx to Jim Barbour for writing most of this code. --BDA
+X//
+X// ^ALGORITHM:
+X//    Trivial - just use the LIB$GET_SYMBOL system service.
+X//-^^-------------------
+Xconst char *
+Xgetsym(const char * sym_name)
+X{
+X   static  char  sym_value[256];
+X   unsigned long   stat;
+X   unsigned short  buflen;
+X   $DESCRIPTOR(sym_name_d, sym_name);
+X   $DESCRIPTOR(sym_value_d, sym_value);
+X
+X   sym_value_d.dsc$w_length = sizeof(sym_value);
+X   sym_name_d.dsc$w_length = ::strlen(sym_name);
+X   stat = lib$get_symbol(&sym_name_d, &sym_value_d, &buflen, (void *)0);
+X   if (stat == LIB$_NOSUCHSYM) {
+X      return  NULL;
+X   } else if (! (stat & 1)) {
+X      ::exit(stat);
+X   }
+X   sym_value[buflen] = '\0';
+X   return  sym_value;
+X}
+X
+X#endif  /* vms */
+END_OF_FILE
+if test 8789 -ne `wc -c <'src/lib/strindent.c'`; then
+    echo shar: \"'src/lib/strindent.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/strindent.c'
+fi
+if test -f 'src/lib/usage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/usage.c'\"
+else
+echo shar: Extracting \"'src/lib/usage.c'\" \(9043 characters\)
+sed "s/^X//" >'src/lib/usage.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: usage.c - functions to print the usage of a CmdLine
+X//
+X// ^DESCRIPTION:
+X//     This file contains the functions that are used to print the
+X//  command-line usage of a command that is represented by a CmdLine
+X//  object.
+X//
+X// ^HISTORY:
+X//    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <iostream.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "cmdline.h"
+X#include "states.h"
+X#include "arglist.h"
+X
+X#ifdef vms
+X#  define  getenv  getsym
+X   extern  const char * getsym(const char *);
+X#endif
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::get_usage_level
+X//
+X// ^SYNOPSIS:
+X//    CmdLine::CmdUsageLevel CmdLine::get_usage_level(void)
+X//
+X// ^PARAMETERS:
+X//    NONE.
+X//
+X// ^DESCRIPTION:
+X//    Gets the usage_level that tells us how "verbose" we should be
+X//    when printing usage-messages. This usage_level is recorded in
+X//    the environment variable $USAGE_LEVEL. This variable may have the
+X//    following values:
+X//
+X//       0 : Dont print usage at all.
+X//       1 : Print a terse usage message (command-line syntax only).
+X//       2 : Print a verbose usage message (include argument descriptions).
+X//
+X//    If $USAGE_LEVEL is not defined or is empty, then the default
+X//    usage_level is 2.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    The usage level to use.
+X//
+X// ^ALGORITHM:
+X//    Read the usage_level from the environment and return it.
+X//-^^----
+XCmdLine::CmdUsageLevel
+XCmdLine::get_usage_level(void)
+X{
+X   long level;
+X   char * end_scan, * level_str = ::getenv("USAGE_LEVEL");
+X
+X   if (level_str == NULL)  return  VERBOSE_USAGE ;
+X   if (*level_str == '\0') return  NO_USAGE ;
+X
+X   level = ::strtol(level_str, &end_scan, 0);
+X   if (end_scan == level_str)  return  VERBOSE_USAGE ;
+X
+X   switch(level) {
+X      case 0 :  return NO_USAGE ;
+X      case 1 :  return TERSE_USAGE ;
+X      default:  return VERBOSE_USAGE ;
+X   }
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::print_synopsis
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::print_synopsis(syntax, os, cols)
+X//
+X// ^PARAMETERS:
+X//    CmdLine::CmdLineSyntax syntax;
+X//    -- the syntax to use (long-option, short-option, or both)
+X//       when printing the synopsis.
+X//
+X//    ostream & os;
+X//    -- where to print.
+X//
+X//    int cols;
+X//    -- the maximum width of a line.
+X//
+X// ^DESCRIPTION:
+X//    Print a command-line synopsis (the command-line syntax).
+X//    The synopsis should be printed to "os" using the desired syntax,
+X//    in lines that are no more than "cols" characters wide.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//     Prints on "os".
+X//
+X// ^RETURN-VALUE:
+X//     The length of the longest argument-buf that was printed.
+X//
+X// ^ALGORITHM:
+X//     It's kind of complicated so follow along!
+X//-^^----
+Xunsigned
+XCmdLine::print_synopsis(CmdLine::CmdLineSyntax  syntax,
+X                        ostream    & os,
+X                        int          cols) const
+X{
+X#ifdef vms_style
+X   static  char  usg_prefix[] = "Format: ";
+X#else
+X   static  char  usg_prefix[] = "Usage: ";
+X#endif
+X
+X   unsigned  ll, positionals, longest = 0;
+X
+X   // first print the command name
+X   os << usg_prefix << cmd_name ;
+X   ll = (cmd_name ? ::strlen(cmd_name) : 0) + (sizeof(usg_prefix) - 1);
+X
+X   // set margin so that we always start printing arguments in a column
+X   // that is *past* the command name.
+X   //
+X   unsigned  margin = ll + 1;
+X
+X   // print option-syntax followed by positional parameters
+X   int  first;
+X   char buf[256] ;
+X   for (positionals = 0 ; positionals < 2 ; positionals++) {
+X      first = 1;
+X      CmdArgListListIter  list_iter(cmd_args);
+X      for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X         CmdArgListIter  iter(alist);
+X         for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X            unsigned  len, pl;
+X
+X               // don't display hidden arguments
+X            if (cmdarg->syntax() & CmdArg::isHIDDEN)  continue;
+X            if (!positionals  &&  (cmdarg->syntax() & CmdArg::isPOS))  continue;
+X            if (positionals  &&  !(cmdarg->syntax() & CmdArg::isPOS))  continue;
+X
+X               // figure out how wide this parameter is (for printing)
+X            pl = len = fmt_arg(cmdarg, buf, sizeof(buf), syntax, VERBOSE_USAGE);
+X            if (! len)  continue;
+X
+X            if (cmdarg->syntax() & CmdArg::isLIST)  pl -= 4 ;  // " ..."
+X            if (! (cmdarg->syntax() & CmdArg::isREQ))  pl -= 2 ;   // "[]"
+X            if (pl > longest)  longest = pl;
+X
+X            //  Will this fit?
+X            if ((ll + len + 1) > (cols - first)) {
+X               os << char('\n') ;
+X               os.width(margin);
+X               os << "" ;  // No - start a new line;
+X               ll = margin;
+X            } else {
+X               os << char(' ') ;  // Yes - just throw in a space
+X               ++ll;
+X            }
+X            ll += len;
+X            os << buf;
+X
+X            first = 0;
+X         } //for each cmdarg
+X      } //for each arg-list
+X   } //for each parm-type
+X   os << endl ;
+X
+X   return  longest ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::print_descriptions
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::print_descriptions(syntax, os, cols, longest)
+X//
+X// ^PARAMETERS:
+X//    CmdLine::CmdLineSyntax syntax;
+X//    -- the syntax to use (long-option, short-option, or both)
+X//       when printing the synopsis.
+X//
+X//    ostream & os;
+X//    -- where to print.
+X//
+X//    int cols;
+X//    -- the maximum width of a line.
+X//
+X//    unsigned longest;
+X//    -- value returned by print_synopsis.
+X//
+X// ^DESCRIPTION:
+X//    Print a command argument descriptions (using the command-line syntax).
+X//    The descriptions should be printed to "os" using the desired syntax,
+X//    in lines that are no more than "cols" characters wide.
+X//
+X// ^REQUIREMENTS:
+X//    "longest" should correspond to a value returned by print_synopsis
+X//    that used the same "cmd" and syntax.
+X//
+X// ^SIDE-EFFECTS:
+X//     Prints on "os".
+X//
+X// ^RETURN-VALUE:
+X//     None.
+X//
+X// ^ALGORITHM:
+X//     Print the description for each argument.
+X//-^^----
+Xvoid
+XCmdLine::print_descriptions(CmdLine::CmdLineSyntax   syntax,
+X                            ostream                & os,
+X                            int                      cols,
+X                            unsigned                 longest) const
+X{
+X   int positionals, options = 0;
+X   char buf[256];
+X
+X   for (positionals = 0 ; positionals < 2 ; positionals++) {
+X      CmdArgListListIter  list_iter(cmd_args);
+X      for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X         CmdArgListIter  iter(alist);
+X         for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X               // don't display hidden arguments
+X            if (cmdarg->syntax() & CmdArg::isHIDDEN)  continue;
+X            if (!positionals  &&  (cmdarg->syntax() & CmdArg::isPOS))  continue;
+X            if (positionals  &&  !(cmdarg->syntax() & CmdArg::isPOS))  continue;
+X
+X#ifdef vms_style
+X            if ( !options++ )   os << "Qualifiers/Parameters:\n" ;
+X#else
+X            if ( !options++ )   os << "Options/Arguments:\n" ;
+X#endif
+X            if (! fmt_arg(cmdarg, buf, sizeof(buf), syntax, TERSE_USAGE)) {
+X               continue;
+X            }
+X            const char * description = cmdarg->description();
+X            if ((description == NULL) || (! *description))  continue;
+X            strindent(os, cols, 8, buf, (longest + 2), description);
+X         } //for each cmdarg
+X      } //for each arg-list
+X   } //for each parm-type
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::usage - print command-usage
+X//
+X// ^SYNOPSIS:
+X//    void CmdLine::usage(os, usage_level);
+X//
+X// ^PARAMETERS:
+X//    ostream & os;
+X//    -- where to print.
+X//
+X//    CmdLine::CmdUsageLevel  usage_level;
+X//    -- verboseness to use.
+X//
+X// ^DESCRIPTION:
+X//    Print the usage for the given CmdLine object on "os".
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    Prints on "os".
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    - get the usage level.
+X//    - determine which syntax to use
+X//    - get the max-columns for "os".
+X//    - print synopsis if required.
+X//    - print descriptions if required.
+X//-^^----
+Xostream &
+XCmdLine::usage(ostream & os, CmdLine::CmdUsageLevel usage_level) const
+X{
+X   // get user-specified usage-level
+X   //   (if status is zero this must be an explicit request so force verbose)
+X   //
+X   if (usage_level == DEFAULT_USAGE)  usage_level = get_usage_level();
+X   if (usage_level == NO_USAGE)  return  os;
+X
+X   // determine syntax to use
+X   CmdLineSyntax  cmd_syntax = syntax() ;
+X
+X   // get screen size (dont know how to do this yet)
+X   int  max_cols = 79;
+X
+X   // print command-line synopsis
+X   unsigned  longest = print_synopsis(cmd_syntax, os, max_cols) ;
+X   if (usage_level == TERSE_USAGE)  return  os;
+X
+X   // now print argument descriptions
+X   os << "\n" ;
+X   print_descriptions(cmd_syntax, os, max_cols, longest) ;
+X   return  os;
+X}
+X
+Xostream &
+XCmdLine::usage(CmdLine::CmdUsageLevel usage_level) const {
+X   return  usage(*cmd_err, usage_level);
+X}
+X
+END_OF_FILE
+if test 9043 -ne `wc -c <'src/lib/usage.c'`; then
+    echo shar: \"'src/lib/usage.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/usage.c'
+fi
+echo shar: End of archive 3 \(of 7\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

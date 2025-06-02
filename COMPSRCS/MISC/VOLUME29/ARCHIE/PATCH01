@@ -1,0 +1,1773 @@
+Newsgroups: comp.sources.misc
+From: brendan@cs.widener.edu (Brendan Kehoe)
+Subject:  v29i076:  archie - A client to query the Archie FTP databases, Patch01
+Message-ID: <1992Apr16.025857.24643@sparky.imd.sterling.com>
+X-Md4-Signature: 84f728c87e54525420623391e149635f
+Date: Thu, 16 Apr 1992 02:58:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cs.widener.edu (Brendan Kehoe)
+Posting-number: Volume 29, Issue 76
+Archive-name: archie/patch01
+Environment: UNIX, VMS, MSDOS A/UX
+Patch-To: archie: Volume 27, Issue 79-84
+
+The patch below brings the stand-alone archie client to version 1.3.2.
+
+ A number of portability problems have been fixed, and proper support
+for A/UX is included.  Also the CU/TCP port was cleaned up (this fix
+is present in the DOS version currently being distributed as
+archie-dos.zip).  The VMS port was also cleaned up.  This client's now
+in sync with the Prospero libraries as well.
+
+ This will be the last release before version 2.0, which will hopefully
+incorporate all of the planned changes to the Archie 3.0 server.
+
+ You can get the full client by FTPing to any of the Archie servers
+and looking in the /archie/clients subdirectory, or by FTPing to
+ftp.cs.widener.edu in /pub/archie, or cs.rochester.edu in /pub.
+
+ Here's the README, followed by the patch.
+
+--
+[Last changed 04/14/92 v1.3.2]
+
+ Enclosed you'll find a Prospero client for the archie service.  It'll
+let you query the archie databases without actually using an
+interactive process on the remote server's machine (e.g., archie.ans.net),
+resulting in a MUCH better response time.  It also helps lessen the
+load on the archie server itself.
+
+ What's Archie?  It's a system that will let you check a database containing
+thousands of entries for the files that're available at FTP sites around
+the world.
+
+ This is a third child of Clifford Neuman's Prospero project.  It's really
+the Archie client that's included in the prospero stuff, but I've taken out
+everything that's unnecessary for this client to work.  (Aka, you don't
+have to build all of Prospero to get the Archie client.)  Khun Yee Fung
+wrote an archie client in Perl, George Ferguson has written a client
+for use with XWindows, based in part upon this code.  Also, Scott
+Stark wrote a NeXT-Step client for the NeXT.
+
+ Using the Archie Prospero interface in its true form will probably be of
+interest---check out the file `Prospero' for an example of its interface.
+If you find it intriguing, you should probably get the full prospero kit
+from the University of Washington on cs.washington.edu in pub/prospero.tar.Z.
+
+ Suffice to say, there are now a number of ways to query Archie without
+bogging a server down with your logins.
+
+ Check out the man page (or archie.doc, if you're using VMS or DOS)
+for instructions on how to use this archie client.  VMS users please
+note that you have to put quotes around args that are capital letters;
+for example,  $ ARCHIE "-L"  to list the available servers.
+
+ Please check to make sure you don't have "archie" aliased or modified
+in some way to do a telnet or rlogin (which you may've done before
+this command-line ability came into being).
+
+ If Archie consistently hangs (at different times of day with
+different queries), it's possible that your site has UDP traffic on
+ports > 1000 blocked, for security reasons.  Type `make udptest' to
+check---if it prints out the date, the Archie server is probably down;
+if it doesn't print out the date, either Widener's computer is down
+(God forbid ;-) ) or you do indeed have UDP blocked.  See your system
+administrator in this case.  If the problem persists and haven't the
+vaguest, then write me describing the situation and what machine/OS
+you're using.
+
+ Write to archie-group@cs.mcgill.ca with questions about Archie itself.
+ Write to info-prospero@isi.edu about the Prospero protocol.
+ Write to brendan@cs.widener.edu with questions about this specific package.
+
+diff -cr archie/INSTALL archie-1.3.2/INSTALL
+*** archie/INSTALL	Wed Jan  8 13:43:22 1992
+--- archie-1.3.2/INSTALL	Wed Apr 15 02:00:13 1992
+***************
+*** 1,4 ****
+! [Last changed: 01/09/92 v1.3]
+  
+   This is the minimal set of things you need to build an Archie client
+  that takes advantage of the Prospero system.  It is derived from the
+--- 1,4 ----
+! [Last changed: 04/14/92 v1.3.2]
+  
+   This is the minimal set of things you need to build an Archie client
+  that takes advantage of the Prospero system.  It is derived from the
+***************
+*** 20,67 ****
+  me a line---my goal is for anybody to just type "make" and not have to
+  worry about things like what functions their system supports.
+  
+!  * To make the client under VMS, you should edit MAKE.COM and select
+! the appropriate define for your version of TCP/IP (currently Multinet,
+! UCX, or Wollongong).  It will sense if you're using Gnu C or not.
+! It's currently only been ported to VMS 5.4-2 -- I can't guarantee
+! it'll work with older versions.  As with Unix, if you're in a country
+! other than the United States (or archie.ans.net isn't close), please edit
+! the default archie server; it's in archie.h for VMS, though, not MAKE.COM.
+! (If anyone knows how to make MAKE.COM pass the value of ARCHIE, namely
+! "foo.bar" *with* quotes, into the compiler, please let me know!)
+  
+   * To make the client under MSDOS or OS/2:
+     * with FTP Software's PC/TCP for MSDOS (version 2.1 or higher) and
+       OS/2 (version 1.1 and higher), use makefile.os2 or makefile.dos
+     * with CUTCP (NCSA telnet), use makefile.cut
+- 
+- 
+-  It's been successfully built on:
+- 
+-   Machine			OS
+- 
+- * Apollo			Domain/OS 10.3
+- * Apple Mac IIsomething		A/UX v2.01
+- * CDC Mips systems, all sorts	EP/IX 1.2.3 and 1.3.1
+- * Convex c210 & others		ConvexOS 9.0 & 9.1
+- * DecStations -- all sorts	Ultrix 4.1 and 4.2
+- * Encore Multimax 520 (XPC)	Encore UMAX 4.3
+- * Encore Multimax 520		Encore Mach 1.1alpha
+- * Harris HCX-9 (tahoe)		CX/UX 5.1
+- * HP systems			MORE/bsd-4.3, HP/UX 7.0, and HP/UX 8.0
+- * IBM PC			MSDOS and OS/2 w/ PC/TCP
+- * IBM RS/6000			AIX
+- * IBM RT			4.3BSD, and AIX
+- * ISI 68020			4.3BSD
+- * NeXT				NeXT OS 2.1
+- * Pyramid 9815			OSx 5.0
+- * Sequent Symmetry		Dynix 3.1.1
+- * SGI 4D/220GTX			SGI Irix 3.3.2
+- * Solbourne Series 5/600	OS/MP 4.0Da
+- * Stardent 3030			SysV Rel 3.0.1
+- * Suns -- all sorts		SunOS 4.0.3, 4.1, and 4.1.1
+- * Vax 8600			MORE/bsd-4.3
+- * Vax 6000/310			VMS 5.4/Wollongong 5.1
+- * MicroVax 3400			VMS 5.4-2/Multinet 2.2 and Multinet 3.0
+  
+  -- Brendan Kehoe (brendan@cs.widener.edu)
+--- 20,31 ----
+  me a line---my goal is for anybody to just type "make" and not have to
+  worry about things like what functions their system supports.
+  
+!  * To make the client under VMS, just type @MAKE and it'll ask you
+!    which of the available Archie servers is closest.  That's it!
+  
+   * To make the client under MSDOS or OS/2:
+     * with FTP Software's PC/TCP for MSDOS (version 2.1 or higher) and
+       OS/2 (version 1.1 and higher), use makefile.os2 or makefile.dos
+     * with CUTCP (NCSA telnet), use makefile.cut
+  
+  -- Brendan Kehoe (brendan@cs.widener.edu)
+diff -cr archie/Makefile archie-1.3.2/Makefile
+*** archie/Makefile	Wed Jan  8 14:08:44 1992
+--- archie-1.3.2/Makefile	Wed Apr 15 02:10:28 1992
+***************
+*** 1,5 ****
+  #
+! # Last changed: 1/9/92, v1.3
+  #
+  # Makefile for the minimal build for an archie Prospero client.
+  
+--- 1,5 ----
+  #
+! # Last changed: 4/14/92, v1.3.2
+  #
+  # Makefile for the minimal build for an archie Prospero client.
+  
+***************
+*** 11,23 ****
+  #	* If you're on a Stardent, add  -43
+  #	* If you're running EP/IX, you may need to add  -systype bsd43
+  #	  but try it without it first.
+! OPTIONS= -O -I. -I/usr/netinclude
+  
+  # For this, DEFINES is usually ok as-is.  Try it without any of these
+  # first; if some stuff fails or shows up undefined, then come back and
+! # add 'em.
+  #
+- #     * if you're on an Apple running A/UX, add		      -DAUX
+  #     * if you want to include the debugging code (so you
+  #       can help with problem-solving if any crop up), add    -DDEBUG
+  #     * if you're running Interactive Unix, add		      -DISC
+--- 11,23 ----
+  #	* If you're on a Stardent, add  -43
+  #	* If you're running EP/IX, you may need to add  -systype bsd43
+  #	  but try it without it first.
+! OPTIONS= -O -I. -I/usr/netinclude -I/usr/ucbinclude
+  
+  # For this, DEFINES is usually ok as-is.  Try it without any of these
+  # first; if some stuff fails or shows up undefined, then come back and
+! # add 'em.  Also please drop me a line if you had to add anything...ideally
+! # things will reach a point where this whole section will be unnecessary.
+  #
+  #     * if you want to include the debugging code (so you
+  #       can help with problem-solving if any crop up), add    -DDEBUG
+  #     * if you're running Interactive Unix, add		      -DISC
+***************
+*** 36,47 ****
+  #    archie.ans.net		(USA [NY])
+  #    archie.rutgers.edu		(USA [NJ])
+  #    archie.sura.net		(USA [MD])
+  #    archie.mcgill.ca		(Canada)
+  #    archie.funet.fi		(Finland/Mainland Europe)
+  #    archie.au			(Australia)
+  #    archie.doc.ic.ac.uk	(Great Britain/Ireland)
+  #
+! ARCHIE= archie.ans.net
+  
+  #	Usually LDFLAGS is empty; if, after you build this, archie
+  #	 complains that it can't resolve ARCHIE.ANS.NET (or whatever
+--- 36,48 ----
+  #    archie.ans.net		(USA [NY])
+  #    archie.rutgers.edu		(USA [NJ])
+  #    archie.sura.net		(USA [MD])
++ #    archie.unl.edu		(USA [NE])
+  #    archie.mcgill.ca		(Canada)
+  #    archie.funet.fi		(Finland/Mainland Europe)
+  #    archie.au			(Australia)
+  #    archie.doc.ic.ac.uk	(Great Britain/Ireland)
+  #
+! ARCHIE= archie.sura.net
+  
+  #	Usually LDFLAGS is empty; if, after you build this, archie
+  #	 complains that it can't resolve ARCHIE.ANS.NET (or whatever
+***************
+*** 50,57 ****
+  #	* If you're using ISC, add -linet
+  #	* If you're using Wollongong TCP/IP on an AT&T box, use the
+  #	  arguments -lnet -lnsl_s .
+! LDFLAGS= # -lresolv
+! #LDFLAGS= # -lnet -lnsl_s
+  
+  # Change this if necessary.
+  RM=/bin/rm
+--- 51,63 ----
+  #	* If you're using ISC, add -linet
+  #	* If you're using Wollongong TCP/IP on an AT&T box, use the
+  #	  arguments -lnet -lnsl_s .
+! #	* If you're using UTS, add -lsocket
+! #	* If you're using System V Release 4, add -L/usr/ucblib etc.
+! LDFLAGS=
+! #LDFLAGS= -lresolv
+! #LDFLAGS= -lnet -lnsl_s
+! #LDFLAGS= -lsocket
+! #LDFLAGS= -L/usr/ucblib -lucb -lsockdns -lnsl
+  
+  # Change this if necessary.
+  RM=/bin/rm
+***************
+*** 61,71 ****
+  # =========================
+  #
+  CFLAGS=$(OPTIONS) $(DEFINES) -DARCHIE_HOST=\"$(ARCHIE)\"
+! #
+  OBJS=	aquery.o archie.o atalloc.o dirsend.o get_pauth.o get_vdir.o \
+  	perrmesg.o procquery.o ptalloc.o regex.o stcopy.o support.o \
+  	vlalloc.o vl_comp.o
+! #
+  all: archie
+  
+  archie: $(OBJS)
+--- 67,80 ----
+  # =========================
+  #
+  CFLAGS=$(OPTIONS) $(DEFINES) -DARCHIE_HOST=\"$(ARCHIE)\"
+! 
+! VERSION=1.3.2
+! VMS_VERSION=`echo $(VERSION) | sed -e 's,\\.,_,g'`
+! 
+  OBJS=	aquery.o archie.o atalloc.o dirsend.o get_pauth.o get_vdir.o \
+  	perrmesg.o procquery.o ptalloc.o regex.o stcopy.o support.o \
+  	vlalloc.o vl_comp.o
+! 
+  all: archie
+  
+  archie: $(OBJS)
+***************
+*** 79,85 ****
+  	$(RM) -f *.o archie archie.doc
+  
+  gclean: clean
+! 	$(RM) -f *~ archie.0* archie.com archie.tar* gmon.out archie.doc
+  
+  unx-deadly:
+  	unifdef -UXARCHIE xprocquery.c > procquery.c
+--- 88,94 ----
+  	$(RM) -f *.o archie archie.doc
+  
+  gclean: clean
+! 	$(RM) -f *~ archie.0* archie$(VMS_VERSION).com archie.tar* gmon.out archie.doc
+  
+  unx-deadly:
+  	unifdef -UXARCHIE xprocquery.c > procquery.c
+***************
+*** 106,132 ****
+  dist: tar shar dcl
+  
+  shar: archie.doc
+! 	makekit -narchie. $(FILES) vms msdos > Manifest
+  
+  archie.doc: archie.man
+  	nroff -man archie.man | tr '\010' _ | sed -e s/__//g > archie.doc
+  
+  dcl: archie.doc
+! 	echo '$$ write sys$$output "Unpacking..."' > archie.com
+! 	echo '$$ if f$$search("archie.dir") .eqs. "" then create/dir [.ARCHIE]' >> archie.com
+! 	echo '$$ if f$$search("[.ARCHIE]vms.dir") .eqs. "" then create/dir [.ARCHIE.VMS]' >> archie.com
+! 	echo '$$ if f$$search("[.ARCHIE]msdos.dir") .eqs. "" then create/dir [.ARCHIE.MSDOS]' >> archie.com
+! 	echo '$$ set noverify' >> archie.com
+! 	(cd .. ; dclshar `echo $(FILES) | tr ' ' '\012' |\
+! 	 sed -e "s/^/archie\//g"` >> archie/archie.com )
+! 	echo '$$ write sys$$output "Ok, now enter the ARCHIE directory, look at MAKE.COM, then type @MAKE ."' >> archie.com
+  
+  tar: archie.doc
+! 	( cd .. ; tar cvf archie/archie.tar `echo $(FILES) |\
+! 	 tr ' ' '\012' | sed -e "s/^/archie\//g"` )
+! 	compress -f archie.tar
+! 
+! atest: archie.doc
+! 	( cd .. ; tar cvf archie/atest.tar `echo $(BFILES) |\
+! 	 tr ' ' '\012' | sed -e "s/^/archie\//g"` )
+! 	compress -f atest.tar
+--- 115,140 ----
+  dist: tar shar dcl
+  
+  shar: archie.doc
+! 	makekit -narchie-$(VERSION). `echo $(FILES) \
+! 		tr ' ' '\012' | sed -e "s/^/archie-$(VERSION)\//g"` \
+! 		vms msdos > Manifest
+  
+  archie.doc: archie.man
+  	nroff -man archie.man | tr '\010' _ | sed -e s/__//g > archie.doc
+  
+  dcl: archie.doc
+! 	if [ ! -d archie$(VMS_VERSION)/ ]; then ln -s . archie$(VMS_VERSION); fi
+! 	echo '$$ write sys$$output "Unpacking..."' > archie$(VMS_VERSION).com
+! 	echo '$$ if f$$search("archie.dir") .eqs. "" then create/dir [.ARCHIE]' >> archie$(VMS_VERSION).com
+! 	echo '$$ if f$$search("[.ARCHIE]vms.dir") .eqs. "" then create/dir [.ARCHIE.VMS]' >> archie$(VMS_VERSION).com
+! 	echo '$$ if f$$search("[.ARCHIE]msdos.dir") .eqs. "" then create/dir [.ARCHIE.MSDOS]' >> archie$(VMS_VERSION).com
+! 	echo '$$ set noverify' >> archie$(VMS_VERSION).com
+! 	dclshar `echo "$(FILES)" | tr ' ' '\012' | \
+! 		sed -e "s/^/archie\//g"` >> archie$(VMS_VERSION).com
+! 	echo '$$ write sys$$output "Ok, now enter the ARCHIE directory, look at MAKE.COM, then type @MAKE ."' >> archie$(VMS_VERSION).com
+  
+  tar: archie.doc
+! 	if [ ! -d archie-$(VERSION)/ ]; then ln -s . archie-$(VERSION); fi
+! 	tar cvf archie-$(VERSION).tar `echo $(FILES) |\
+! 	 tr ' ' '\012' | sed -e "s/^/archie-$(VERSION)\//g"`
+! 	compress -f archie-$(VERSION).tar
+diff -cr archie/README archie-1.3.2/README
+*** archie/README	Wed Jan  8 13:45:41 1992
+--- archie-1.3.2/README	Wed Apr 15 02:08:12 1992
+***************
+*** 1,8 ****
+! [Last changed 01/09/92 v1.3]
+  
+   Enclosed you'll find a Prospero client for the archie service.  It'll
+  let you query the archie databases without actually using an
+! interactive process on the remote server's machine (e.g. archie.ans.net),
+  resulting in a MUCH better response time.  It also helps lessen the
+  load on the archie server itself.
+  
+--- 1,8 ----
+! [Last changed 04/14/92 v1.3.2]
+  
+   Enclosed you'll find a Prospero client for the archie service.  It'll
+  let you query the archie databases without actually using an
+! interactive process on the remote server's machine (e.g., archie.ans.net),
+  resulting in a MUCH better response time.  It also helps lessen the
+  load on the archie server itself.
+  
+***************
+*** 14,21 ****
+  the Archie client that's included in the prospero stuff, but I've taken out
+  everything that's unnecessary for this client to work.  (Aka, you don't
+  have to build all of Prospero to get the Archie client.)  Khun Yee Fung
+! wrote an archie client in Perl, and George Ferguson has written a client
+! for use with XWindows, based in part upon this code.
+  
+   Using the Archie Prospero interface in its true form will probably be of
+  interest---check out the file `Prospero' for an example of its interface.
+--- 14,22 ----
+  the Archie client that's included in the prospero stuff, but I've taken out
+  everything that's unnecessary for this client to work.  (Aka, you don't
+  have to build all of Prospero to get the Archie client.)  Khun Yee Fung
+! wrote an archie client in Perl, George Ferguson has written a client
+! for use with XWindows, based in part upon this code.  Also, Scott
+! Stark wrote a NeXT-Step client for the NeXT.
+  
+   Using the Archie Prospero interface in its true form will probably be of
+  interest---check out the file `Prospero' for an example of its interface.
+***************
+*** 26,32 ****
+  bogging a server down with your logins.
+  
+   Check out the man page (or archie.doc, if you're using VMS or DOS)
+! for instructions on how to use this archie client.
+  
+   Please check to make sure you don't have "archie" aliased or modified
+  in some way to do a telnet or rlogin (which you may've done before
+--- 27,35 ----
+  bogging a server down with your logins.
+  
+   Check out the man page (or archie.doc, if you're using VMS or DOS)
+! for instructions on how to use this archie client.  VMS users please
+! note that you have to put quotes around args that are capital letters;
+! for example,  $ ARCHIE "-L"  to list the available servers.
+  
+   Please check to make sure you don't have "archie" aliased or modified
+  in some way to do a telnet or rlogin (which you may've done before
+***************
+*** 42,47 ****
+  vaguest, then write me describing the situation and what machine/OS
+  you're using.
+  
+!  Write to archie-l@cs.mcgill.ca with questions about Archie itself.
+   Write to info-prospero@isi.edu about the Prospero protocol.
+   Write to brendan@cs.widener.edu with questions about this specific package.
+--- 45,50 ----
+  vaguest, then write me describing the situation and what machine/OS
+  you're using.
+  
+!  Write to archie-group@cs.mcgill.ca with questions about Archie itself.
+   Write to info-prospero@isi.edu about the Prospero protocol.
+   Write to brendan@cs.widener.edu with questions about this specific package.
+diff -cr archie/aquery.c archie-1.3.2/aquery.c
+*** archie/aquery.c	Tue Nov 19 21:31:57 1991
+--- archie-1.3.2/aquery.c	Wed Apr 15 01:18:24 1992
+***************
+*** 11,23 ****
+   * and new sorting code by George Ferguson (ferguson@cs.rochester.edu) 
+   * and Brendan Kehoe (brendan@cs.widener.edu).  MSDOS and OS2 modifications
+   * to use with PC/TCP by Mark Towfiq (towfiq@FTP.COM).
+-  *
+-  * v1.2.1 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+-  * v1.1.3 - 08/30/91 (bpk) - cast index()
+-  * v1.1.2 - 08/20/91 (bcn) - make it do it properly (new invdatecmplink)
+-  * v1.1.1 - 08/20/91 (bpk) - made sorting go inverted as we purport it does
+   */
+  #include <copyright.h>
+  
+  #include <stdio.h>
+--- 11,18 ----
+   * and new sorting code by George Ferguson (ferguson@cs.rochester.edu) 
+   * and Brendan Kehoe (brendan@cs.widener.edu).  MSDOS and OS2 modifications
+   * to use with PC/TCP by Mark Towfiq (towfiq@FTP.COM).
+   */
++ 
+  #include <copyright.h>
+  
+  #include <stdio.h>
+***************
+*** 82,88 ****
+  	char qstring[MAX_VPATH];    /* For construting the query  */
+  	VLINK	links;		/* Matches returned by server */
+  	VDIR_ST	dir_st;         /* Filled in by get_vdir      */
+! 	VDIR	dir= &dir_st;
+  	
+  	VLINK	p,q,r,lowest,nextp,pnext,pprev;
+  	int	tmp;
+--- 77,83 ----
+  	char qstring[MAX_VPATH];    /* For construting the query  */
+  	VLINK	links;		/* Matches returned by server */
+  	VDIR_ST	dir_st;         /* Filled in by get_vdir      */
+! 	PVDIR	dir= &dir_st;
+  	
+  	VLINK	p,q,r,lowest,nextp,pnext,pprev;
+  	int	tmp;
+diff -cr archie/archie.c archie-1.3.2/archie.c
+*** archie/archie.c	Fri Jan 10 13:12:38 1992
+--- archie-1.3.2/archie.c	Sun Apr  5 13:24:36 1992
+***************
+*** 3,13 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.1 - 11/21/91 (bkc) - added CUTCP library support for MSDOS
+-  * v1.2.0 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.1.2 - 08/27/91 (bpk) - added <pmachine.h> for index()
+-  * v1.1.1 - 08/22/91 (bpk) - added 0-9 as arguments
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+***************
+*** 28,33 ****
+--- 23,31 ----
+  # ifdef CUTCP
+  #  include <msdos/cutcp.h>
+  #  include <msdos/hostform.h>
++ /* The default stack size for a BC program is 4k; jack it up to 16 and add the
++    Check for Stack Overflow option to the compiler.  */
++ extern unsigned _stklen = 16 * 1024;
+  # endif
+  #endif
+  
+diff -cr archie/archie.h archie-1.3.2/archie.h
+*** archie/archie.h	Wed Jan  8 13:08:48 1992
+--- archie-1.3.2/archie.h	Wed Apr 15 01:32:15 1992
+***************
+*** 6,32 ****
+   *                Clifford Neuman (bcn@isi.edu).
+   */
+  
+- #ifdef VMS
+- /*
+-  * This has to be edited if you're running VMS, cuz I gave up after about
+-  * an hour trying to make DCL do       /define(archie_host="\"FOO\"")
+-  *
+-  * Edit ARCHIE_HOST to be one of :
+-  *    archie.ans.net		(USA [NY])
+-  *    archie.rutgers.edu        (USA [NJ])
+-  *    archie.sura.net		(USA [MD])
+-  *    archie.mcgill.ca		(Canada)
+-  *    archie.funet.fi		(Finland/Mainland Europe)
+-  *    archie.au			(Australia)
+-  *    archie.doc.ic.ac.uk	(Great Britain/Ireland)
+-  */
+- #define ARCHIE_HOST	"archie.ans.net"
+- #endif /* VMS */
+- 
+  /* You can't touch this.  */
+  #ifndef XARCHIE
+! # define ARCHIES	"archie.ans.net (USA [NY])","archie.rutgers.edu (USA [NJ])","archie.sura.net (USA [MD])","archie.mcgill.ca (Canada)","archie.funet.fi (Finland/Mainland Europe)","archie.au (Australia)","archie.doc.ic.ac.uk (Great Britain/Ireland)"
+! # define NARCHIES	7
+  #endif
+  
+  /*
+--- 6,15 ----
+   *                Clifford Neuman (bcn@isi.edu).
+   */
+  
+  /* You can't touch this.  */
+  #ifndef XARCHIE
+! # define ARCHIES	"archie.ans.net (USA [NY])","archie.rutgers.edu (USA [NJ])","archie.sura.net (USA [MD])","archie.unl.edu (USA [NE])","archie.mcgill.ca (Canada)","archie.funet.fi (Finland/Mainland Europe)","archie.au (Australia)","archie.doc.ic.ac.uk (Great Britain/Ireland)"
+! # define NARCHIES	8
+  #endif
+  
+  /*
+***************
+*** 53,59 ****
+  #ifdef XARCHIE
+  # define CLIENT_VERSION	"1.3-X"
+  #else
+! # define CLIENT_VERSION "1.3"
+  #endif
+  
+  /* Procedures from user/aquery.c */
+--- 36,42 ----
+  #ifdef XARCHIE
+  # define CLIENT_VERSION	"1.3-X"
+  #else
+! # define CLIENT_VERSION "1.3.2"
+  #endif
+  
+  /* Procedures from user/aquery.c */
+diff -cr archie/copyright.h archie-1.3.2/copyright.h
+*** archie/copyright.h	Tue Nov 19 21:32:08 1991
+--- archie-1.3.2/copyright.h	Wed Apr  1 16:32:55 1992
+***************
+*** 1,3 ****
+--- 1,6 ----
++ /* These are the uw-copyright.h and usc-copyright.h files that appear in
++    the Prospero distribution.  */
++ 
+  /* 
+    Copyright (c) 1989, 1990, 1991 by the University of Washington
+  
+***************
+*** 13,18 ****
+--- 16,55 ----
+    provided "as is" without express or implied warranty.
+  
+    Prospero was written by Clifford Neuman (bcn@isi.edu).
++ 
++   Questions concerning this software should be directed to 
++   info-prospero@isi.edu.
++ 
++   */
++ 
++ /* 
++   Copyright (c) 1991, 1992 by the University of Southern California
++   All rights reserved.
++ 
++   Permission to use, copy, modify, and distribute this software and its
++   documentation in source and binary forms for non-commercial purposes
++   and without fee is hereby granted, provided that the above copyright
++   notice appear in all copies and that both the copyright notice and
++   this permission notice appear in supporting documentation. and that
++   any documentation, advertising materials, and other materials related
++   to such distribution and use acknowledge that the software was
++   developed by the University of Southern California, Information
++   Sciences Institute.  The name of the University may not be used to
++   endorse or promote products derived from this software without
++   specific prior written permission.
++ 
++   THE UNIVERSITY OF SOUTHERN CALIFORNIA makes no representations about
++   the suitability of this software for any purpose.  THIS SOFTWARE IS
++   PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES,
++   INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
++   MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
++ 
++   Other copyrights might apply to parts of the Prospero distribution
++   and are so noted when applicable.
++ 
++   Prospero was originally written by Clifford Neuman (bcn@isi.edu).
++   Contributors include Benjamin Britt (britt@isi.edu)
++   and others identified in individual modules.
+  
+    Questions concerning this software should be directed to 
+    info-prospero@isi.edu.
+diff -cr archie/dirsend.c archie-1.3.2/dirsend.c
+*** archie/dirsend.c	Tue Dec 17 10:39:41 1991
+--- archie-1.3.2/dirsend.c	Sun Apr  5 13:24:28 1992
+***************
+*** 3,29 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.8 - 12/17/91 (jwb) - fixed warning message
+-  * v1.2.7 - 12/13/91 (bpk) - took out XARCHIE code since we've diverged
+-  * v1.2.6 - 12/13/91 (jwb) - UCX stuff
+-  * v1.2.5 - 11/21/91 (bkc) - new version for CUTCP, ugly as it is.
+-  * v1.2.4 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.3 - 11/04/91 (bcn) - removed host comparison and replaced with check
+-  *			     for connection id (undoes effect of v1.2.2.).
+-  * v1.2.2 - 11/02/91 (gf)  - removed extra inet_ntoa() calls and stuff for
+-  *			     multi-interface nets (lmjm@doc.imperial.ac.uk)
+-  * v1.2.1 - 10/20/91 (gf)  - asynch implementation
+-  * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+-  * v1.1.2 - 08/30/91 (bpk) - added VMS support
+-  * v1.1.1 - 08/29/91 (bcn) - changed backoff handling
+-  * v1.1.0 - 08/13/91 (gf)  - added XArchie status calls
+-  *
+-  * gf: 20 Oct 1991:
+-  *  Broken into pieces so that under X dirsend() doesn't block in select()
+-  *  but rather uses Xt calls to allow continued event processing. If
+-  *  XARCHIE is not defined, can still be used since processEvent() will
+-  *  use select() in this case.
+   */
+  
+  /* If you're going to hack on this, I'd suggest using unifdef with -UCUTCP
+--- 3,8 ----
+***************
+*** 57,62 ****
+--- 36,44 ----
+  # else
+  #  include <sys/time.h>
+  # endif
++ # ifdef WANT_BOTH_TIME
++ #  include <sys/time.h>
++ # endif
+  # ifdef NEED_STRING_H
+  #  include <string.h>
+  # else
+***************
+*** 699,705 ****
+  	    if(stmp) pkt_cid = ntohs(stmp);
+  	    ctlptr += 2;
+  	}
+! 	if(pkt_cid && this_conn_id && (pkt_cid != this_conn_id)) {
+  	    /* The packet is not for us */
+  	    /* goto keep_waiting; */
+  	    keepWaitingDirsend();
+--- 681,687 ----
+  	    if(stmp) pkt_cid = ntohs(stmp);
+  	    ctlptr += 2;
+  	}
+! 	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+  	    /* The packet is not for us */
+  	    /* goto keep_waiting; */
+  	    keepWaitingDirsend();
+***************
+*** 799,805 ****
+  	bcopy(ctlptr,&stmp,2);
+  	if(stmp) pkt_cid = ntohs(stmp);
+  	ctlptr += 2;
+! 	if(pkt_cid && this_conn_id && (pkt_cid != this_conn_id)) {
+  	    /* The packet is not for us */
+  	    /* goto keep_waiting; */
+  	    keepWaitingDirsend();
+--- 781,787 ----
+  	bcopy(ctlptr,&stmp,2);
+  	if(stmp) pkt_cid = ntohs(stmp);
+  	ctlptr += 2;
+! 	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+  	    /* The packet is not for us */
+  	    /* goto keep_waiting; */
+  	    keepWaitingDirsend();
+diff -cr archie/get_pauth.c archie-1.3.2/get_pauth.c
+*** archie/get_pauth.c	Tue Dec  3 14:31:41 1991
+--- archie-1.3.2/get_pauth.c	Sun Apr  5 13:26:25 1992
+***************
+*** 3,13 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.2 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.1 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+-  * v1.2.0 - 09/17/91 (bpk) - fixed it up (thanks to synful)
+-  * v1.1.1 - 08/30/91 (bpk) - added VMS support
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+diff -cr archie/get_vdir.c archie-1.3.2/get_vdir.c
+*** archie/get_vdir.c	Tue Nov 19 21:32:09 1991
+--- archie-1.3.2/get_vdir.c	Wed Apr 15 01:20:13 1992
+***************
+*** 3,13 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.2 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.1 - 10/23/91 (bpk) - added missing code
+-  * v1.2.0 - 09/17/91 (bpk) - added new get_vdir code
+-  * v1.1.1 - 08/30/91 (bpk) - cast rindex()
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+***************
+*** 84,90 ****
+      char	*dhost;		/* Host on which directory resides           */
+      char	*dfile;		/* Name of file on that host	             */
+      char	*components;	/* Component name (wildcards allowed)        */
+!     VDIR	dir;		/* Structure to be filled in		     */
+      long	flags;		/* Flags			             */
+      VLINK	filters;	/* Filters to be applied to result           */
+      char	*acomp;		/* Components left to be resolved            */
+--- 79,85 ----
+      char	*dhost;		/* Host on which directory resides           */
+      char	*dfile;		/* Name of file on that host	             */
+      char	*components;	/* Component name (wildcards allowed)        */
+!     PVDIR	dir;		/* Structure to be filled in		     */
+      long	flags;		/* Flags			             */
+      VLINK	filters;	/* Filters to be applied to result           */
+      char	*acomp;		/* Components left to be resolved            */
+***************
+*** 163,171 ****
+  	request = ptalloc();
+  
+  	sprintf(request->start,
+! 		"VERSION %d\nAUTHENTICATOR %s %s\nDIRECTORY ASCII %s\nLIST %s COMPONENTS %s%s%s\n",
+! 		VFPROT_VNO, authinfo->auth_type, authinfo->authenticator,
+! 		dfile,opt, (comp ? comp : ""), (mcomp ? "/" : ""),
+  		(mcomp ? acomp : ""));
+  
+  	request->length = strlen(request->start);
+--- 158,167 ----
+  	request = ptalloc();
+  
+  	sprintf(request->start,
+! 		"VERSION %d %s\nAUTHENTICATOR %s %s\nDIRECTORY ASCII %s\nLIST %s COMPONENTS %s%s%s\n",
+! 		VFPROT_VNO, PFS_SW_ID, authinfo->auth_type,
+! 		authinfo->authenticator, dfile, opt,
+! 		(comp ? comp : ""), (mcomp ? "/" : ""),
+  		(mcomp ? acomp : ""));
+  
+  	request->length = strlen(request->start);
+***************
+*** 311,317 ****
+  		    
+  		    break;
+  
+! 		case 'F': /* FILTER, FAILURE or FORWARDED*/
+  		    /* FORWARDED */
+  		    if(strncmp(line,"FORWARDED",9) == 0) {
+  			if(fwdcnt-- <= 0) {
+--- 307,313 ----
+  		    
+  		    break;
+  
+! 		case 'F': /* FILTER, FAILURE or FORWARDED */
+  		    /* FORWARDED */
+  		    if(strncmp(line,"FORWARDED",9) == 0) {
+  			if(fwdcnt-- <= 0) {
+diff -cr archie/make.com archie-1.3.2/make.com
+*** archie/make.com	Wed Jan  8 13:17:43 1992
+--- archie-1.3.2/make.com	Mon Jan 20 18:38:46 1992
+***************
+*** 1,121 ****
+! $!
+! $! MAKE.COM - build the Archie client for VMS (5.4-2, others?)
+! $!            for MultiNet TCP/IP, v2.2 & 3.0, and Wollongong 5.xx+
+! $!	      and UCX
+! $!
+! $! Many thanks to Jim Barbour (jwbarbour@clipr.colorado.edu) for all
+! $! of his help getting this up to par.
+! $!
+! $! v1.2.2 - 12/13/91 (jwb) - ported to UCX & added dependencies
+! $! v1.2.1 - 11/12/91 (bpk) - use option files
+! $! v1.2   - 09/25/91 (bpk) - ported to Wollongong
+! $!        - 09/20/91 (bpk) - fixed up strings.h stuff, etc
+! $! v1.1   - 09/17/91 (bpk) - works with 3.0 now
+! $! v1.0   - 08/30/91 (bpk) - Original
+! $!
+! $! If you want to force a compile (i.e. after modifying a .H file) then
+! $! give @make the argument force.  i.e. $ make force
+! $ force_compile = 0
+! $ if p1 .eqs. "FORCE" then force_compile = 1
+! $!
+! $! * If you're running Multinet 3.0, leave this alone.  If you're
+! $! running any version of Multinet less than 3.0 (e.g. 2.2), comment
+! $! it out.
+! $ mdef := ,multinet_30=1
+! $! * If you're running Wollongong TCP, uncomment this.
+! $!woll := ,wollongong=1
+! $! * If you're running UCX, uncomment this.
+! $!ucx := ,ucx=1
+! $!
+! $! * If you aren't in the US, or archie.ans.net doesn't ping "close" to
+! $!   your site, edit the file ARCHIE.H and change ARCHIE_HOST appropriately.
+! $! * Type @MAKE now.
+! $!
+! $!-----
+! $ ve := f$verify(0)
+! $!set noverify
+! $ on control_y then goto hell
+! $ on error then goto hell
+! $ echo := write sys$output
+! $!
+! $ cc := cc/opt=noinline
+! $ cflags := /define=(debug=1,funcs=1,noregex=1'mdef 'woll 'ucx)
+! $!g := /debug
+! $ if f$trnlnm("GNU_CC") .nes. "" then cc := gcc/optimize
+! $!
+! $ if f$search("strings.h") .nes. "" then delete/nolog/noconfirm []strings.h;*
+! $ if "''cc'" .nes. "GCC" then copy/noconfirm sys$library:string.h []strings.h
+! $ needs_linking = 0
+! $!
+! $ file := aquery
+! $ gosub possibly_compile
+! $ file := archie
+! $ gosub possibly_compile
+! $ file := atalloc
+! $ gosub possibly_compile
+! $ file := dirsend
+! $ gosub possibly_compile
+! $ file := get_pauth
+! $ gosub possibly_compile
+! $ file := get_vdir
+! $ gosub possibly_compile
+! $ file := perrmesg
+! $ gosub possibly_compile
+! $ file := procquery
+! $ gosub possibly_compile
+! $ file := ptalloc
+! $ gosub possibly_compile
+! $ file := regex
+! $ gosub possibly_compile
+! $ file := stcopy
+! $ gosub possibly_compile
+! $ file := support
+! $ gosub possibly_compile
+! $ file := vlalloc
+! $ gosub possibly_compile
+! $ file := vl_comp
+! $ gosub possibly_compile
+! $!
+! $ do_vs := ,
+! $ if "''ucx'" .nes. "" then libs :=  [.vms]ucx
+! $ if "''mdef'" .nes. "" then libs := [.vms]multi
+! $ if "''woll'" .nes. "" then libs := [.vms]woll
+! $ if "''mdef'" .eqs. "" .and. "''woll'" .eqs. "" .and "''ucx'" .eqs. "" then-
+! 								gosub dosup
+! $!
+! $ file :=
+! $ if f$search("ARCHIE.EXE") .eqs. "" then needs_linking = 1
+! $ if needs_linking
+! $ then
+! $ echo "Linking..."
+! $ link'g/exe=archie aquery+archie+atalloc+-
+! dirsend+get_pauth+get_vdir+-
+! perrmesg+procquery+ptalloc+regex+stcopy+support+vlalloc+vl_comp'do_vs-
+! 'libs/option
+! $ else
+! $ echo "ARCHIE is up to date."
+! $ endif
+! $ out:
+! $ echo "Done! Define the symbol ARCHIE & fire away."
+! $!
+! $ hell:
+! $ if "''file'" .nes. "" then delete/noconfirm/nolog 'file.obj;
+! $ if 've .eq. 1 then set verify
+! $ exit
+! $!
+! $ dosup:
+! $ file := vms_support
+! $ gosub possibly_compile
+! $ do_vs := +vms_support,
+! $ return
+! $ possibly_compile:
+! $ if force_compile then goto build
+! $ if f$search("''file'.obj") .eqs. "" then goto build
+! $ if f$cvtime(f$file("''file'.c","cdt")) .gts. -
+!      f$cvtime(f$file("''file'.obj","cdt")) then goto build
+! $ return
+! $ build:
+! $ echo "Compiling ''file'.C..."
+! $ 'cc/include=([])'cflags 'g 'file.c
+! $ needs_linking = 1
+! $ return
+--- 1,430 ----
+! $! --- MAKE.COM ---						!x='f$verify(0)'
+! $! Description:
+! $!  build the Archie client for VAX/VMS
+! $!
+! $! Written by Luke Brennan <brennan@coco.cchs.su.oz.au>
+! $!
+! $! Modifications:
+! $!    Date	Programmer	Reason for modification.
+! $! 20-Jan-92	   ldcb		Initial coding.
+! $!
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $ Archie_EXECUTABLE := "archie.exe"
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! add a new call here with the appropriate new Archie server host(s)
+! $!
+! $ arg == 1
+! $ Call AddHost "archie.ans.net"		"(USA [NY])"
+! $ Call AddHost "archie.rutgers.edu"	"(USA [NJ])"
+! $ Call AddHost "archie.sura.net"	"(USA [MD])"
+! $ Call AddHost "archie.unl.edu"		"(USA [NE])"
+! $ Call AddHost "archie.mcgill.ca"	"(Canada)"
+! $ Call AddHost "archie.funet.fi"	"(Finland/Mainland Europe)"
+! $ Call AddHost "archie.au"		"(Australia)"
+! $ Call AddHost "archie.doc.ic.ac.uk"	"(Great Britain/Ireland)"
+! $ MAXHOSTS = arg - 1
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! add a new call here with any new source file(s)
+! $! (P2 should be "SUPPORT" if intended for supporting an unknown TCPIP)
+! $!
+! $ arg == 1
+! $ Call AddSource "AQUERY"
+! $ Call AddSource "ARCHIE"
+! $ Call AddSource "ATALLOC"
+! $ Call AddSource "DIRSEND"
+! $ Call AddSource "GET_PAUTH"
+! $ Call AddSource "GET_VDIR"
+! $ Call AddSource "PERRMESG"
+! $ Call AddSource "PROCQUERY"
+! $ Call AddSource "PTALLOC"
+! $ Call AddSource "REGEX"
+! $ Call AddSource "STCOPY"
+! $ Call AddSource "SUPPORT"
+! $ Call AddSource "VLALLOC"
+! $ Call AddSource "VL_COMP"
+! $ Call AddSource "VMS_SUPPORT" "SUPPORT"
+! $ MAXSOURCEFILES = arg - 1
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! add a call here with any supported TCP/IP implementations
+! $!  P1 = name of TCP/IP product, P2 = cc/define to set,
+! $!  P3 = logical to look for,    P4 = location of link/OPT,
+! $!  P5 = MINIMUM VERSION of TCP/IP to support
+! $!
+! $!  Multinet should be last, as it can 'fake' a UCX if you want it to, so
+! $!  UCX would come up as the 'real' net even though Multinet is used.
+! $!
+! $ arg == 1
+! $ Call AddTCPIP "UCX"        "UCX"         "UCX$DEVICE" "[.vms]ucx.opt"
+! $ Call AddTCPIP "WOLLONGONG" "WOLLONGONG"  "TWG$TCP"    "[.vms]woll.opt"
+! $ Call AddTCPIP "MULTINET"   "MULTINET_30" "MULTINET"   "[.vms]multi.opt" "V3.0"
+! $ MAXTCPIPTYPES = arg - 1
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $ YES = (1.eq.1)
+! $ NO  = (1.eq.0)
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $ GoSub get_command_line_args
+! $ GoSub check_for_GNU_cc
+! $ GoSub check_which_TCPIP
+! $ GoSub ask_nearest_ARCHIE_HOST
+! $ GoSub check_for_strings_H
+! $ GoSub set_cc_defines
+! $ GoSub do_compiles
+! $ If (LINKAGE_REQUIRED)
+! $ Then GoSub do_link
+! $ Else Write Sys$OutPut "ARCHIE is up to date."
+! $ EndIF
+! $ Exit
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $get_command_line_args:
+! $ cmdline = P1 + P2 + P3 + P4 + P5 + P6 + P7 + P8
+! $ If ((f$locate("DEBUG",cmdline) .ne. f$length(cmdline)) -
+!  .or. (f$locate("DBG",cmdline)   .ne. f$length(cmdline)))
+! $ Then debug := "/DeBug"
+! $ Else debug := "/NOdebug"
+! $ EndIF
+! $ If (f$locate("FORCE",cmdline) .ne. f$length(cmdline))
+! $ Then FORCEBUILD = YES
+! $ Else FORCEBUILD = NO
+! $ EndIF
+! $ If (f$locate("LINK",cmdline) .ne. f$length(cmdline))
+! $ Then FORCELINK = YES
+! $ Else FORCELINK = NO
+! $ EndIF
+! $ If ((f$locate("?",cmdline) .ne. f$length(cmdline)) -
+!  .or. (f$locate("H",cmdline) .ne. f$length(cmdline)))
+! $ Then
+! $   Write Sys$Output "Usage:"
+! $   Write Sys$OutPut "     @MAKE [<debug>|<force>|<link>|<help>]
+! $   EXIT
+! $ EndIF
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $CHECK_FOR_GNU_CC:
+! $ If (f$trnlnm("GNU_CC") .nes. "")
+! $ Then
+! $   cc := "GCC/Optimize/Include=([])"
+! $   gnu_cc = YES
+! $ Else
+! $   cc := "CC/Optimize=NOinline/Include=([])"
+! $   gnu_cc = NO
+! $ EndIF
+! $!
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! for product P1, cc/define=P2 if logical P3 present on system.
+! $! Libs/option = P4 if present. ALL get disregarded if less than version P5
+! $!
+! $CHECK_WHICH_TCPIP:
+! $ tcpip_flag :=
+! $ tcpip_libs :=
+! $ NO_TCPIP_SUPPORT = YES
+! $ i = 1
+! $tcp_loop:
+! $ If (i .gt. MAXTCPIPTYPES) Then GoTo tcp_check_done
+! $ If (f$type(tcpip_P2_'i') .eqs. "") Then GoTo tcp_check_done
+! $ If (f$type(tcpip_P3_'i') .nes. "")
+! $ Then
+! $   tcpip_logical = tcpip_P3_'i'
+! $   If (tcpip_logical .nes. "")
+! $   Then					! logical to look for
+! $     If (f$logical(tcpip_logical) .nes. "")
+! $     Then
+! $       tcpip_flag = tcpip_P2_'i'
+! $       tcpip_flag = f$fao(",!AS=1",tcpip_flag)
+! $       NO_TCPIP_SUPPORT = NO
+! $       If (f$type(tcpip_P4_'i') .nes. "")
+! $       Then					! link/OPT file location
+! $  	  tcpip_linkOPTs = tcpip_P4_'i'
+! $         If (tcpip_linkOPTs .nes. "")
+! $         Then
+! $           If (f$search(tcpip_linkOPTs) .nes. "")
+! $           Then
+! $             tcpip_libs = tcpip_P4_'i'
+! $             tcpip_libs = f$fao("!AS/Option",tcpip_libs)
+! $           EndIF
+! $         EndIF
+! $       EndIF
+! $       If (f$type(tcpip_P5_'i') .nes. "")
+! $       Then					! minimum version specified
+! $         If (tcpip_P5_'i' .nes. "")
+! $         Then
+! $           GoSub CheckIfVersionOK
+! $           If VERSION_TOO_EARLY
+! $           Then				! too early.. use SUPPORT files
+! $             tcpip_flag :=
+! $             tcpip_libs :=
+! $             NO_TCPIP_SUPPORT = YES
+! $	      tcp_ver = tcpip_P5_'i'
+! $             tcp_name = tcpip_P1_'i'
+! $             Write Sys$OutPut f$fao( -
+! 		   "Your version of !AS is earlier than !AS.",tcp_name,tcp_ver)
+! 	      Write Sys$OutPut "MAKE will use STD support files instead."
+! $           EndIF
+! $         EndIF
+! $       EndIF
+! $     EndIF
+! $   EndIF
+! $ EndIF
+! $ i = i + 1
+! $ Goto tcp_loop
+! $tcp_check_done:
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $ASK_NEAREST_ARCHIE_HOST:
+! $GoSub CLRSCN
+! $ Write Sys$OutPut f$fao("!AS!/!/", -
+! 	"           Enter the number of the ARCHIE HOST nearest you.")
+! $!
+! $ i = 1
+! $_display_loop:
+! $ If (i .gt. MAXHOSTS) Then GoTo _display_done
+! $  Write Sys$OutPut f$fao("!2SL) !25AS  !AS",i,host_P1_'i',host_P2_'i')
+! $  i = i + 1
+! $ GoTo _display_loop
+! $_display_done:
+! $!
+! $ Assign/User_Mode/NOlog Sys$Command Sys$InPut
+! $_select_loop:				! get their selection
+! $ Read	 Sys$Command selection	-
+! 	/End=_selection_made	-
+! 	/Prompt="Enter number of your selection: "
+! $ If (selection .gt. MAXHOSTS)
+! $ Then
+! $   Write Sys$OutPut f$fao("!AS !2SL", "error: Options only go to", MAXHOSTS)
+! $   GoTo _select_loop
+! $ EndIF
+! $ ascii_string = f$edit(selection,"COLLAPSE,UPCASE")
+! $ ascii_char = f$extract(0,1,ascii_string)
+! $ If (.NOT. ("0" .les. ascii_char) .and. (ascii_char .les. "9"))
+! $ Then
+! $   Write Sys$OutPut -
+! 	f$fao("error: Enter option NUMBER (up to !2SL)", MAXHOSTS)
+! $   Goto _select_loop
+! $ EndIF
+! $!
+! $ local_archie = host_P1_'selection'
+! $!
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! If we're using VAXC then we need to grab STRINGS.H from SYS$LIBRARY.
+! $CHECK_FOR_STRINGS_H:
+! $ delete := delete
+! $ copy   := copy
+! $ If (f$search("strings.h") .nes. "") Then delete/nolog/noconfirm []strings.h;*
+! $ If .NOT. (GNU_CC) Then copy/noconfirm sys$library:string.h []strings.h
+! $!
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! **NOTE** use of global symbol!!!
+! $! **NOTE** this is the only way I could pass it to the compile subroutine
+! $! **NOTE** without DCL and/or CC stripping off too many layers of quotes..
+! $! **NOTE** yeah.. I know.. It's ugly...  you work it out!! :-)
+! $SET_CC_DEFINES:
+! $ archie_host = " """"""ARCHIE_HOST=""""""""''local_archie'"""""""" """""" "
+! $ cflags :== /define=(debug=1,funcs=1,noregex=1'tcpip_flag','archie_host')
+! $!
+! $RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $DO_COMPILES:
+! $ GoSub CLRSCN
+! $ LINKAGE_REQUIRED == NO
+! $ If ("''f$type(Archie_EXECUTABLE)'" .nes. "")
+! $ Then
+! $   If (Archie_EXECUTABLE .nes. "")
+! $   Then If (f$search(Archie_EXECUTABLE) .eqs. "") Then LINKAGE_REQUIRED == YES
+! $   Else If (f$search("Archie.exe") .eqs. "") Then LINKAGE_REQUIRED == YES
+! $   EndIF
+! $ Else
+! $   If (f$search("Archie.exe") .nes. "") Then LINKAGE_REQUIRED == YES
+! $ EndIF
+! $ i = 1
+! $cc_loop:
+! $ If (i .gt. MAXSOURCEFILES) Then GoTo cc_done
+! $ source_file = source_P1_'i'
+! $ If ((f$type(source_P2_'i') .eqs. "") .or. (source_P2_'i' .eqs. ""))
+! $ Then Call Compile "''cc'" "''source_file'" "''debug'" 'FORCEBUILD'
+! $ Else
+! $   If ((NO_TCPIP_SUPPORT) .and. (source_P2_'i' .eqs. "SUPPORT"))
+! $   Then Call Compile "''cc'" "''source_file'" "''debug'" 'FORCEBUILD'
+! $   EndIF
+! $ EndIF
+! $ i = i + 1
+! $ GoTo cc_loop
+! $cc_done:
+! $ If (FORCELINK) Then LINKAGE_REQUIRED == YES
+! $!
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $DO_LINK:
+! $ If (f$type(Archie_EXECUTABLE) .nes. "")
+! $ Then
+! $   If (Archie_EXECUTABLE .nes. "")
+! $   Then executable := /Exec='Archie_EXECUTABLE'
+! $   Else executable := /Exec=Archie.exe
+! $   EndIF
+! $ Else
+! $   executable := /Exec=Archie.exe
+! $ EndIF
+! $ i = 1
+! $ object_files :=
+! $object_files_loop:
+! $ If (i .gt. MAXSOURCEFILES) Then GoTo object_files_done
+! $ object_file = source_P1_'i'
+! $ If ((f$type(source_P2_'i') .eqs. "") .or. (source_P2_'i' .eqs. ""))
+! $ Then object_files := 'object_files'+'object_file'
+! $ Else
+! $   If ((NO_TCPIP_SUPPORT) .and. (source_P2_'i' .eqs. "SUPPORT"))
+! $   Then object_files := 'object_files'+'object_file'
+! $   EndIF
+! $ EndIF
+! $ i = i + 1
+! $ GoTo object_files_loop
+! $object_files_done:
+! $ If (f$extract(0,1,object_files) .eqs. "+")
+! $ Then object_files = f$extract(1,f$length(object_files),object_files)
+! $ EndIF
+! $ If (tcpip_libs .nes. "")
+! $ Then object_files = object_files + ","
+! $ EndIF
+! $!
+! $ Set Verify
+! $ Link'debug''executable' 'object_files''tcpip_libs'
+! $ x='f$verify(0)'
+! $!
+! $ Write Sys$OutPut " "
+! $ Write Sys$OutPut " "
+! $ Write Sys$OutPut "Done! Define the symbol ARCHIE & fire away."
+! $!
+! $ RETURN
+! $!
+! $! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $CLRSCN:
+! $If (f$GetDVI("TT:","TT_ANSICRT"))			! ANSI compatible?
+! $Then
+! $  CSI = "x["
+! $  CSI[0,8] = 27
+! $  CLS = CSI + "H" + CSI +"2J"
+! $  Write Sys$OutPut CLS
+! $Else
+! $  Write Sys$Output "''f$fao("!/!/!/!/!/!/!/!/!/!/!/")
+! $  Write Sys$Output "''f$fao("!/!/!/!/!/!/!/!/!/!/!/!/")
+! $EndIF
+! $Return
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $AddHOST: SUBROUTINE
+! $ host_P1_'arg' :== "''P1'"
+! $ host_P2_'arg' :== "''P2'"
+! $ arg == arg + 1	! *NOTE* global symbols used...
+! $ENDSUBROUTINE
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $AddSOURCE: SUBROUTINE
+! $ source_P1_'arg' :== "''P1'"
+! $ source_P2_'arg' :== "''P2'"
+! $ arg == arg + 1	! *NOTE* global symbols used...
+! $ENDSUBROUTINE
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $AddTCPIP: SUBROUTINE
+! $ tcpip_P1_'arg' :== "''P1'"
+! $ tcpip_P2_'arg' :== "''P2'"
+! $ tcpip_P3_'arg' :== "''P3'"
+! $ tcpip_P4_'arg' :== "''P4'"
+! $ tcpip_P5_'arg' :== "''P5'"
+! $ arg == arg + 1	! *NOTE* global symbols used...
+! $ENDSUBROUTINE
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $! **NOTE** cflags is a GLOBAL symbol due to problems with quoted /Defines
+! $! **NOTE** not passing down correctly.. (I gave up!)
+! $Compile: SUBROUTINE
+! $ YES = (1.eq.1)
+! $! --- do a Make of only that source which has been modified since its
+! $!     object code was generated or that is missing its object code.
+! $ cc       = "''P1'"
+! $ source   = "''P2'"
+! $ dbg      = "''P3'"
+! $ FORCED   = P4
+! $!
+! $source = source - ".C" + ".C"
+! $ t1 = f$search("''source'")				! source exists?
+! $  If (t1 .eqs. "") Then GoTo _error_source_missing	! YIPE!
+! $   source = source - ".C"
+! $    if (FORCED) Then GoTo _compile_the_source		! forced to compile
+! $     t1 = f$search("''source'.OBJ")			! object exist?
+! $     If (t1 .eqs. "") Then GoTo _compile_the_source	! object missing
+! $     t1 = f$file_attributes("''source'.OBJ","RDT")	! when was the OBJECT
+! $    t1 = f$cvtime(t1)					! produced? (rev date)
+! $   t2 = f$file_attributes("''source'.C","RDT")		! when was source last
+! $  t2 = f$cvtime(t2)					! modified?
+! $ If (t1 .ges. t2) Then GoTo _bypass_compile		! object still current
+! $_compile_the_source:
+! $ set verify
+! $ 'cc -
+!   'cflags -
+!   'dbg 'source
+! $ x='f$verify(0)'
+! $ LINKAGE_REQUIRED == YES
+! $  GoTo _cc_done
+! $_bypass_compile:					! didn't need to
+! $  GoTo _cc_done					! generate new OBJ file
+! $_error_source_missing:
+! $ Write Sys$OutPut "ERROR: unable to locate source file ''source'.C"
+! $_cc_done:
+! $ENDSUBROUTINE
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! $!
+! $CHECKIFVERSIONOK:
+! $ required_version = tcpip_P5_'i'
+! $ tcpip_type = tcpip_P1_'i'
+! $ If ("MULTINET" .eqs. tcpip_type)
+! $ Then						! I know how to check MULTINET
+! $   If (f$search("MULTINET:MULTINET_VERSION.;") .nes. "")
+! $   Then
+! $     Open/share=READ fd MULTINET:MULTINET_VERSION.;
+! $     Read fd buffer
+! $     Close fd
+! $     v = buffer - "VERSION"
+! $     v = f$edit(V,"TRIM,COMPRESS")
+! $     If (v .ges. required_version)
+! $     Then VERSION_TOO_EARLY = NO
+! $     Else VERSION_TOO_EARLY = YES
+! $     EndIF
+! $   Else
+! $     VERSION_TOO_EARLY = YES
+! $   EndIF
+! $ Else						! don't know, so assume current
+! $   VERSION_TOO_EARLY = NO
+! $ EndIF
+! $!
+! $ RETURN
+! $!
+! $!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! 
+! 
+diff -cr archie/makefile.cut archie-1.3.2/makefile.cut
+*** archie/makefile.cut	Tue Dec  3 15:11:21 1991
+--- archie-1.3.2/makefile.cut	Tue Jan 28 08:41:46 1992
+***************
+*** 16,22 ****
+  
+  DEFINES	= -DDEBUG -DCUTCP
+  
+! CFLAGS= -ml -r -v $(DEFINES) -I.
+  LFLAGS= /P/m/s
+  CC = bccx
+  
+--- 16,22 ----
+  
+  DEFINES	= -DDEBUG -DCUTCP
+  
+! CFLAGS= -k -N -ml -r -v $(DEFINES) -I.
+  LFLAGS= /P/m/s
+  CC = bccx
+  
+diff -cr archie/patchlevel.h archie-1.3.2/patchlevel.h
+*** archie/patchlevel.h	Fri Jan 10 13:21:16 1992
+--- archie-1.3.2/patchlevel.h	Wed Apr 15 01:32:54 1992
+***************
+*** 3,8 ****
+--- 3,9 ----
+   *
+   * History:
+   *
++  * 04/14/92 v1.3.2 - Release.
+   * 01/10/92 v1.3.1 - Release.
+   * 01/09/92 v1.3 - Release.
+   * 12/13/91      - added UCX support
+diff -cr archie/pcompat.h archie-1.3.2/pcompat.h
+*** archie/pcompat.h	Tue Nov 19 21:32:10 1991
+--- archie-1.3.2/pcompat.h	Wed Apr  1 16:27:14 1992
+***************
+*** 31,40 ****
+  #define PMAP_ATSIGN_NF	  3
+  #define PMAP_ATSIGN	  4
+  
+! #define DISABLE_PFS(stmt) {int DpfStmp; DpfStmp = pfs_enable;\
+  			   pfs_enable = PMAP_DISABLE; \
+  			   stmt; \
+! 			   pfs_enable = DpfStmp;}
+  
+  /* Definitions for PFS_ACCESS */
+  #define PFA_MAP           0  /* Map the file name only                       */
+--- 31,40 ----
+  #define PMAP_ATSIGN_NF	  3
+  #define PMAP_ATSIGN	  4
+  
+! #define DISABLE_PFS(stmt) do {int DpfStmp; DpfStmp = pfs_enable;\
+  			   pfs_enable = PMAP_DISABLE; \
+  			   stmt; \
+! 			   pfs_enable = DpfStmp;} while (0)
+  
+  /* Definitions for PFS_ACCESS */
+  #define PFA_MAP           0  /* Map the file name only                       */
+***************
+*** 42,45 ****
+  #define PFA_CRMAP         2  /* Map file name.  Map to new name if not found */
+  #define PFA_RO            4  /* Access to file is read only                  */
+  
+! #define check_pfs_default() if(pfs_default == -1) get_pfs_default()
+--- 42,46 ----
+  #define PFA_CRMAP         2  /* Map file name.  Map to new name if not found */
+  #define PFA_RO            4  /* Access to file is read only                  */
+  
+! #define check_pfs_default() \
+! 	do { if (pfs_default == -1) get_pfs_default(); } while (0)
+diff -cr archie/perrno.h archie-1.3.2/perrno.h
+*** archie/perrno.h	Tue Nov 19 21:32:11 1991
+--- archie-1.3.2/perrno.h	Sun Apr  5 13:28:44 1992
+***************
+*** 7,13 ****
+  
+  #include <copyright.h>
+  
+! /* this file and p_err_text.c should be updated simultaneously */
+  
+  /*
+   * perrno.h - definitions for perrno
+--- 7,13 ----
+  
+  #include <copyright.h>
+  
+! /* This file and perrmesg.c should be updated simultaneously.  */
+  
+  /*
+   * perrno.h - definitions for perrno
+diff -cr archie/pfs.h archie-1.3.2/pfs.h
+*** archie/pfs.h	Wed Jan  8 13:36:17 1992
+--- archie-1.3.2/pfs.h	Wed Apr 15 01:23:21 1992
+***************
+*** 3,12 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.0 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.1.2 - 08/30/91 (bpk) - added VMS support
+-  * v1.1.1 - 08/20/91 (bpk) - 4.2 -> 4.2B
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+***************
+*** 31,37 ****
+  # endif /* MSDOS */
+  #endif /* NULL */
+  
+! #define		PFS_RELEASE	"Beta.4.2D"
+  /* moved up for vdir_init */
+  #define ZERO(p)		bzero((char *)(p), sizeof(*(p)))
+  
+--- 27,35 ----
+  # endif /* MSDOS */
+  #endif /* NULL */
+  
+! #define		PFS_RELEASE	"Beta.4.2E"
+! #define		PFS_SW_ID	"B42E"
+! 
+  /* moved up for vdir_init */
+  #define ZERO(p)		bzero((char *)(p), sizeof(*(p)))
+  
+***************
+*** 127,133 ****
+      struct vdir		*next;		  /* Next element in linked list     */
+  };
+  
+! typedef struct vdir *VDIR;
+  typedef struct vdir VDIR_ST;
+  
+  /* Initialize directory */
+--- 125,131 ----
+      struct vdir		*next;		  /* Next element in linked list     */
+  };
+  
+! typedef struct vdir *PVDIR;
+  typedef struct vdir VDIR_ST;
+  
+  /* Initialize directory */
+***************
+*** 302,307 ****
+--- 300,308 ----
+  			 MACL_DELETE|MACL_ADD|MACL_SUBTRACT)
+  
+  #define      MACL_OTYPE (MACL_LINK|MACL_DIRECTORY|MACL_OBJECT|MACL_INCLUDE)
++ 
++ /* Flags for dsrdir */
++ #define DSRD_ATTRIBUTES                      0x1 /* Fill in attributes for links */
+  
+  /* Access methods returned by Pget_am */
+  #define P_AM_ERROR			0
+diff -cr archie/pmachine.h archie-1.3.2/pmachine.h
+*** archie/pmachine.h	Fri Jan 10 13:01:53 1992
+--- archie-1.3.2/pmachine.h	Sun Apr  5 13:23:50 1992
+***************
+*** 3,11 ****
+   *
+   * I kept the name pmachine.h because it was already in all of the files...this
+   * barely resembles the pmachine.h that comes with the real Prospero, tho.
+-  *
+-  * v1.2.1 - 12/13/91 (bpk) - added 3b2
+-  * v1.2.0 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+   */
+  
+  #ifdef u3b2
+--- 3,8 ----
+***************
+*** 40,45 ****
+--- 37,50 ----
+  # define MSDOS
+  #endif
+  
++ #ifdef _AUX_SOURCE
++ # define AUX
++ # define NOREGEX
++ # define NBBY 8	/* Number of bits in a byte.  */
++ # define long Fd_mask;
++ # define NFDBITS (sizeof(Fd_mask) * NBBY)	/* bits per mask */
++ #endif
++ 
+  #ifdef OS2
+  # define NOREGEX
+  # include <pctcp.h>
+***************
+*** 70,76 ****
+  char *strchr();
+  # endif
+  # define rindex		strrchr
+! # ifndef AUX
+  #  define bcopy(a,b,n)	memcpy(b,a,n)
+  #  define bzero(a,n)	memset(a,0,n)
+  # ifdef _IBMR2
+--- 75,81 ----
+  char *strchr();
+  # endif
+  # define rindex		strrchr
+! # ifndef _AUX_SOURCE
+  #  define bcopy(a,b,n)	memcpy(b,a,n)
+  #  define bzero(a,n)	memset(a,0,n)
+  # ifdef _IBMR2
+***************
+*** 85,92 ****
+  #if defined(USG) || defined(UTS)
+  # define NEED_STRING_H
+  #endif
+! #if defined(USG) || defined(UTS) || defined(AUX)
+  # define NEED_TIME_H
+  #endif
+  
+  #ifdef VMS
+--- 90,100 ----
+  #if defined(USG) || defined(UTS)
+  # define NEED_STRING_H
+  #endif
+! #if defined(USG) || defined(UTS) || defined(_AUX_SOURCE)
+  # define NEED_TIME_H
++ # ifdef UTS
++ #  define WANT_BOTH_TIME
++ # endif
+  #endif
+  
+  #ifdef VMS
+diff -cr archie/pprot.h archie-1.3.2/pprot.h
+*** archie/pprot.h	Sat Nov 23 15:43:01 1991
+--- archie-1.3.2/pprot.h	Sun Apr  5 13:29:10 1992
+***************
+*** 3,10 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.0 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+***************
+*** 47,59 ****
+  /* the string to be stepped through to S_next, then call get_token on  */
+  /* S.  The first token will be in S, and S_next will point to the next */
+  /* token.  Like strtok, this macro does modify the string passed to it */
+  #define get_token(S,C) \
+      S = S/**/_next; \
+      if(S) { \
+       while(*S == C) S++; \
+       S/**/_next = index(S,C); \
+       if(S/**/_next) *(S/**/_next++) = '\0'; \
+       if(!*S) S = NULL; \
+!     }
+! 
+! 
+--- 45,70 ----
+  /* the string to be stepped through to S_next, then call get_token on  */
+  /* S.  The first token will be in S, and S_next will point to the next */
+  /* token.  Like strtok, this macro does modify the string passed to it */
++ #ifdef __GNUC__
+  #define get_token(S,C) \
++   do { \
++     S = S##_next; \
++     if(S) { \
++      while(*S == C) S++; \
++      S##_next = index(S,C); \
++      if(S##_next) *(S##_next++) = '\0'; \
++      if(!*S) S = NULL; \
++     } \
++   } while (0)
++ #else
++ #define get_token(S,C) \
+      S = S/**/_next; \
++   do { \
+      if(S) { \
+       while(*S == C) S++; \
+       S/**/_next = index(S,C); \
+       if(S/**/_next) *(S/**/_next++) = '\0'; \
+       if(!*S) S = NULL; \
+!     } \
+!   } while (0)
+! #endif /* __GNUC__ */
+diff -cr archie/procquery.c archie-1.3.2/procquery.c
+*** archie/procquery.c	Tue Dec  3 15:02:14 1991
+--- archie-1.3.2/procquery.c	Sun Apr  5 13:29:22 1992
+***************
+*** 10,20 ****
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+   *
+-  * v1.2.2 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.1 - 10/18/91 (bpk) - warning stuff
+-  * v1.2.0 - 09/20/91 (bpk) - VMS under Multinet 3.0 too
+-  * v1.1.1 - 08/20/91 (bpk) - took out archie_query from error msg
+   */
+  #include <copyright.h>
+  #include <stdio.h>
+  #include <pfs.h>
+--- 10,17 ----
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+   *
+   */
++ 
+  #include <copyright.h>
+  #include <stdio.h>
+  #include <pfs.h>
+***************
+*** 210,215 ****
+--- 207,215 ----
+  
+      if (l == (VLINK)NULL && pwarn == PNOWARN && perrno == PSUCCESS) {
+  	if (! listflag) puts ("No matches.");
++ #ifdef CUTCP
++ 	netshut();
++ #endif
+  	exit (1);
+      }
+  
+diff -cr archie/ptalloc.c archie-1.3.2/ptalloc.c
+*** archie/ptalloc.c	Tue Nov 19 21:32:13 1991
+--- archie-1.3.2/ptalloc.c	Sun Apr  5 13:29:34 1992
+***************
+*** 3,10 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.0 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+diff -cr archie/regex.h archie-1.3.2/regex.h
+*** archie/regex.h	Tue Nov 19 21:32:14 1991
+--- archie-1.3.2/regex.h	Fri Jan 31 09:14:00 1992
+***************
+*** 9,15 ****
+   * George Ferguson, ferguson@cs.rochester.edu, 11 Sep 1991.
+   */
+  
+! #if defined(AUX) || defined(USG)
+  /* Let them use ours if they wish.  */
+  # ifndef NOREGEX
+  extern char *regcmp();
+--- 9,15 ----
+   * George Ferguson, ferguson@cs.rochester.edu, 11 Sep 1991.
+   */
+  
+! #if defined(_AUX_SOURCE) || defined(USG)
+  /* Let them use ours if they wish.  */
+  # ifndef NOREGEX
+  extern char *regcmp();
+diff -cr archie/stcopy.c archie-1.3.2/stcopy.c
+*** archie/stcopy.c	Tue Nov 19 21:32:14 1991
+--- archie-1.3.2/stcopy.c	Sun Apr  5 13:30:02 1992
+***************
+*** 3,11 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.1 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+   */
+  
+  #include <copyright.h>
+--- 3,8 ----
+diff -cr archie/support.c archie-1.3.2/support.c
+*** archie/support.c	Fri Dec 13 16:10:59 1991
+--- archie-1.3.2/support.c	Wed Apr 15 01:21:11 1992
+***************
+*** 3,13 ****
+   *
+   * For copying and distribution information, please see the file
+   * <copyright.h>.
+-  *
+-  * v1.2.2 - 11/19/91 (mmt) - added MSDOS & OS2 stuff
+-  * v1.2.1 - 09/23/91 (gf)  - made it use regex.h---much nicer
+-  * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+-  * v1.1.1 - 08/30/91 (bpk) - added VMS support; cast index()
+   */
+  
+  /*
+--- 3,8 ----
+***************
+*** 137,143 ****
+  int
+  ul_insert(ul,vd,p)
+      VLINK	ul;		/* Link to be inserted                   */
+!     VDIR	vd;		/* Directory to receive link             */
+      VLINK	p;		/* Union link to appear prior to new one */
+      {
+  	VLINK	current;
+--- 132,138 ----
+  int
+  ul_insert(ul,vd,p)
+      VLINK	ul;		/* Link to be inserted                   */
+!     PVDIR	vd;		/* Directory to receive link             */
+      VLINK	p;		/* Union link to appear prior to new one */
+      {
+  	VLINK	current;
+***************
+*** 237,243 ****
+  int
+  vl_insert(vl,vd,allow_conflict)
+      VLINK	vl;		/* Link to be inserted               */
+!     VDIR	vd;		/* Directory to receive link         */
+      int		allow_conflict;	/* Allow duplicate names             */
+      {
+  	VLINK	current;	/* To step through list		     */
+--- 232,238 ----
+  int
+  vl_insert(vl,vd,allow_conflict)
+      VLINK	vl;		/* Link to be inserted               */
+!     PVDIR	vd;		/* Directory to receive link         */
+      int		allow_conflict;	/* Allow duplicate names             */
+      {
+  	VLINK	current;	/* To step through list		     */
+
+--
+Brendan Kehoe, Sun Network Manager                      brendan@cs.widener.edu
+Widener University                                                 Chester, PA
+
+exit 0 # Just in case...

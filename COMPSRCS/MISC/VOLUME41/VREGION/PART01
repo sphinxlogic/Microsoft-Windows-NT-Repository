@@ -1,0 +1,2568 @@
+Newsgroups: comp.sources.misc
+From: seth@tachyon.princeton.edu (Seth Teller)
+Subject: v41i030:  vregion - 2D C-callable voronoi, delaunay, convex hull, Part01/01
+Message-ID: <1993Dec14.041433.2602@sparky.sterling.com>
+X-Md4-Signature: ecb218dc53e655cf4d8fd3fd7a396566
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Princeton University
+Date: Tue, 14 Dec 1993 04:14:33 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: seth@tachyon.princeton.edu (Seth Teller)
+Posting-number: Volume 41, Issue 30
+Archive-name: vregion/part01
+Environment: UNIX
+
+This code computes the voronoi diagram, delaunay triangulation,
+and convex hull of a two-dimensional point set.  It's based
+on Steve Fortune's algorithm, and partially on his implementation.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile edgelist.c heap.c main.c memory.c vordefs.h
+#   voronoi.c voronoi.h vortest.c vregion.c vregion.man vrgeometry.c
+# Wrapped by kent@sparky on Mon Dec 13 22:10:10 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1068 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XNAME=vor
+XINCDIRS=-I/usr/include -I${BASE}/src
+X
+XCFLAGS=-float -g -Wp,-B -prototypes
+XOPTCFLAGS=-float -O2 -Wp,-B -prototypes -DNDEBUG -DGL -DINLINE $(INCDIRS)
+X
+X# on a non-sgi
+XCFLAGS=
+XOPTCFLAGS=-O2
+X
+XAPPCFILES=edgelist.c vrgeometry.c heap.c main.c memory.c voronoi.c vregion.c
+XLIBCFILES=edgelist.c vrgeometry.c heap.c memory.c voronoi.c vregion.c
+XLIBOBJS=${LIBCFILES:.c=.o}
+X
+X# libraries this lib depends on
+XLIBDEPS=-lm
+X
+Xdefault:
+X	make $(NAME)
+X	make ascii_test
+X	make grfix_test
+X
+X$(NAME):    $(LIBOBJS)
+X	/bin/rm -f ${BASE}/lib/lib$(NAME).a
+X	ar crlvs ${BASE}/lib/lib$(NAME).a $(LIBOBJS)
+X
+Xascii_test:	$(NAME)test.o
+X	cc -o $(NAME)test $(NAME)test.o -L${BASE}/lib -l$(NAME) $(LIBDEPS)
+X
+Xgrfix_test:	main.o
+X	cc -o main main.o -L${BASE}/lib -l$(NAME) -lm -lgl_s
+X
+Xshar:
+X	shar $(LIBCFILES) *.h main.c vortest.c vregion.man Makefile > $(NAME).shar
+X
+Xopt:
+X	make $(LIBOBJS) "CFLAGS=$(OPTCFLAGS)"
+X	/bin/rm -f ${BASE}/lib/lib$(NAME).a
+X	ar crlvts ${BASE}/lib/lib$(NAME).a $(LIBOBJS)
+X
+Xclean:
+X	rm -f core *.o *.BAK *.CKP *.nroff
+X
+Xclobber: clean
+X	rm -f ${BASE}/lib/lib$(NAME).a main vortest
+X	
+END_OF_FILE
+  if test 1068 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'edgelist.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'edgelist.c'\"
+else
+  echo shar: Extracting \"'edgelist.c'\" \(3566 characters\)
+  sed "s/^X//" >'edgelist.c' <<'END_OF_FILE'
+X#include "vordefs.h"
+X
+Xint ntry, totalsearch;
+X
+XELinitialize()
+X{
+X    int i;
+X
+X    freeinit(&hfl, sizeof **ELhash);
+X    ELhashsize = 2 * sqrt_nsites;
+X    ELhash = (struct Halfedge **) myalloc ( sizeof (*ELhash) * ELhashsize);
+X    for(i=0; i<ELhashsize; i +=1) 
+X	ELhash[i] = (struct Halfedge *)NULL;
+X    ELleftend = HEcreate( (struct Edge *)NULL, 0);
+X    ELrightend = HEcreate( (struct Edge *)NULL, 0);
+X    ELleftend->ELleft = (struct Halfedge *)NULL;
+X    ELleftend->ELright = ELrightend;
+X    ELrightend->ELleft = ELleftend;
+X    ELrightend->ELright = (struct Halfedge *)NULL;
+X    ELhash[0] = ELleftend;
+X    ELhash[ELhashsize-1] = ELrightend;
+X}
+X
+Xstruct Halfedge *HEcreate(e, pm)
+Xstruct Edge *e;
+Xint pm;
+X{
+X    struct Halfedge *answer;
+X
+X    answer = (struct Halfedge *) getfree(&hfl);
+X    answer->ELedge = e;
+X    answer->ELpm = pm;
+X    answer->PQnext = (struct Halfedge *) NULL;
+X    answer->vertex = (struct Site *) NULL;
+X    answer->ELrefcnt = 0;
+X    return(answer);
+X}
+X
+XELinsert(lb, new)
+Xstruct	Halfedge *lb, *new;
+X{
+X    new->ELleft = lb;
+X    new->ELright = lb->ELright;
+X    (lb->ELright)->ELleft = new;
+X    lb->ELright = new;
+X}
+X
+X/* Get entry from hash table, pruning any deleted nodes */
+Xstruct Halfedge *ELgethash(b)
+Xint b;
+X{
+X    struct Halfedge *he;
+X
+X    if(b<0 || b>=ELhashsize) 
+X	return((struct Halfedge *) NULL);
+X    he = ELhash[b]; 
+X    if (he == (struct Halfedge *)NULL || he->ELedge!=(struct Edge *)DELETED) 
+X	return (he);
+X
+X/* Hash table points to deleted half edge.  Patch as necessary. */
+X    ELhash[b] = (struct Halfedge *) NULL;
+X    if ((he->ELrefcnt -= 1) == 0) makefree(he, &hfl);
+X	return ((struct Halfedge *) NULL);
+X}	
+X
+Xstruct Halfedge *ELleftbnd(p)
+Xstruct Point *p;
+X{
+X    int i, bucket;
+X    struct Halfedge *he;
+X
+X/* Use hash table to get close to desired halfedge */
+X    bucket = (p->x - vxmin)/vdeltax * ELhashsize;
+X    if(bucket<0) 
+X	bucket =0;
+X    if(bucket>=ELhashsize) 
+X	bucket = ELhashsize - 1;
+X    he = ELgethash(bucket);
+X    if(he == (struct Halfedge *) NULL) {   
+X	for(i=1; 1 ; i += 1) {	
+X	    if ((he=ELgethash(bucket-i)) != (struct Halfedge *) NULL) 
+X		break;
+X	    if ((he=ELgethash(bucket+i)) != (struct Halfedge *) NULL) 
+X		break;
+X	}
+X	totalsearch += i;
+X    }
+X    ntry += 1;
+X
+X/* Now search linear list of halfedges for the corect one */
+X    if (he==ELleftend  || (he != ELrightend && right_of(he,p))) {
+X	do {
+X	    he = he->ELright;
+X	} while (he!=ELrightend && right_of(he,p));
+X     	he = he->ELleft;
+X    } else 
+X	do {
+X	    he = he->ELleft;
+X	} while (he!=ELleftend && !right_of(he,p));
+X
+X/* Update hash table and reference counts */
+X    if(bucket > 0 && bucket <ELhashsize-1) {	
+X	if(ELhash[bucket] != (struct Halfedge *) NULL) 
+X	    ELhash[bucket]->ELrefcnt -= 1;
+X	ELhash[bucket] = he;
+X	ELhash[bucket]->ELrefcnt += 1;
+X    }
+X    return (he);
+X}
+X
+X/*
+X *  This delete routine can't reclaim node, since pointers from hash
+X *  table may be present.   
+X */
+XELdelete(he)
+Xstruct Halfedge *he;
+X{
+X    (he->ELleft)->ELright = he->ELright;
+X    (he->ELright)->ELleft = he->ELleft;
+X    he->ELedge = (struct Edge *)DELETED;
+X}
+X
+Xstruct Halfedge *ELright(he)
+Xstruct Halfedge *he;
+X{
+X    return (he->ELright);
+X}
+X
+Xstruct Halfedge *ELleft(he)
+Xstruct Halfedge *he;
+X{
+X    return (he->ELleft);
+X}
+X
+Xstruct Site *leftreg(he)
+Xstruct Halfedge *he;
+X{
+X    if(he->ELedge == (struct Edge *)NULL) 
+X	return(bottomsite);
+X    return( he->ELpm == le ? he->ELedge->reg[le] : he->ELedge->reg[re]);
+X}
+X
+Xstruct Site *rightreg(he)
+Xstruct Halfedge *he;
+X{
+X    if(he->ELedge == (struct Edge *)NULL) 
+X	return(bottomsite);
+X    return( he->ELpm == le ? he->ELedge->reg[re] : he->ELedge->reg[le]);
+X}
+END_OF_FILE
+  if test 3566 -ne `wc -c <'edgelist.c'`; then
+    echo shar: \"'edgelist.c'\" unpacked with wrong size!
+  fi
+  # end of 'edgelist.c'
+fi
+if test -f 'heap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'heap.c'\"
+else
+  echo shar: Extracting \"'heap.c'\" \(1810 characters\)
+  sed "s/^X//" >'heap.c' <<'END_OF_FILE'
+X#include "vordefs.h"
+X
+XPQinsert(he, v, offset)
+Xstruct Halfedge *he;
+Xstruct Site *v;
+Xfloat 	offset;
+X{
+X    struct Halfedge *last, *next;
+X
+X    he->vertex = v;
+X    ref(v);
+X    he->ystar = v->coord.y + offset;
+X    last = &PQhash[PQbucket(he)];
+X    while ((next = last->PQnext) != (struct Halfedge *) NULL &&
+X      (he->ystar  > next->ystar  ||
+X	(he->ystar == next->ystar && v->coord.x > next->vertex->coord.x))) {
+X	last = next;
+X    }
+X    he->PQnext = last->PQnext; 
+X    last->PQnext = he;
+X    PQcount += 1;
+X}
+X
+XPQdelete(he)
+Xstruct Halfedge *he;
+X{
+X    struct Halfedge *last;
+X
+X    if(he-> vertex != (struct Site *) NULL) {	
+X	last = &PQhash[PQbucket(he)];
+X	while (last->PQnext != he) 
+X	    last = last->PQnext;
+X	last->PQnext = he->PQnext;
+X	PQcount -= 1;
+X	deref(he->vertex);
+X	he->vertex = (struct Site *) NULL;
+X    }
+X}
+X
+Xint PQbucket(he)
+Xstruct Halfedge *he;
+X{
+X    int bucket;
+X
+X    bucket = (he->ystar - vymin)/vdeltay * PQhashsize;
+X    if (bucket<0) 
+X	bucket = 0;
+X    if (bucket>=PQhashsize) 
+X	bucket = PQhashsize-1 ;
+X    if (bucket < PQmin) 
+X	PQmin = bucket;
+X    return(bucket);
+X}
+X
+Xint PQempty()
+X{
+X    return(PQcount==0);
+X}
+X
+Xstruct Point PQ_min()
+X{
+X    struct Point answer;
+X
+X    while(PQhash[PQmin].PQnext == (struct Halfedge *)NULL) 
+X	PQmin += 1;
+X    answer.x = PQhash[PQmin].PQnext->vertex->coord.x;
+X    answer.y = PQhash[PQmin].PQnext->ystar;
+X    return (answer);
+X}
+X
+Xstruct Halfedge *PQextractmin()
+X{
+X    struct Halfedge *curr;
+X
+X    curr = PQhash[PQmin].PQnext;
+X    PQhash[PQmin].PQnext = curr->PQnext;
+X    PQcount -= 1;
+X    return(curr);
+X}
+X
+XPQinitialize()
+X{
+X    int i; struct Point *s;
+X
+X    PQcount = 0;
+X    PQmin = 0;
+X    PQhashsize = 4 * sqrt_nsites;
+X    PQhash = (struct Halfedge *) myalloc(PQhashsize * sizeof (struct Halfedge));
+X    for(i=0; i<PQhashsize; i+=1) 
+X	PQhash[i].PQnext = (struct Halfedge *)NULL;
+X}
+X
+END_OF_FILE
+  if test 1810 -ne `wc -c <'heap.c'`; then
+    echo shar: \"'heap.c'\" unpacked with wrong size!
+  fi
+  # end of 'heap.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(4703 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*
+X
+Xthis is a graphical version of main.c.
+X
+Xcompile as cc -float -g -prototypes -DGL -c main.c
+X
+Xlink as cc -o main main.o ~/base/lib/libvor.a -lm -lgl_s
+X
+X*/
+X
+X#include "stdio.h"
+X#include "voronoi.h"
+X#include "gl.h"
+X#include <gl/gl.h>
+X#include <gl/device.h>
+X
+X#define E	(0.02)
+X
+X/*
+Xvoid bailout (char *s)
+X{
+X    exit (0);
+X}
+X*/
+X
+X/* example for use of voronoi region package	*/
+X/*  create data in xy float array		*/
+X/*  call load_vsites() to create vor diagram	*/
+X/*  call find_vregion() to query structure	*/
+X
+Xfloat data[][2] = {
+X		    {-1.0448985, 0.6952569},
+X		    {-0.2643085,-0.1562872},
+X		    {-0.3617359,-0.8812830},
+X		    {-0.9136937,-0.6788232},
+X		    {-0.9266945, 0.3022859},
+X		    {-0.3424, 0.6394},
+X		    {-0.1645, 0.895443},
+X		    {-0.9345435, 0.4523450},
+X
+X		    /* sentinel entry */
+X		    { -9999.0, -9999.0 }
+X		  };
+X
+Xmain()
+X{
+Xint n=0, sid, vid, plen;
+Xfloat pverts[256][2];
+Xint ntris, tid, nchverts;
+XTRI *dtris;
+XNVERT *chverts;
+Xchar nstr[32];
+X
+X    foreground();
+X    /* prefsize(400,400); */
+X    winopen("vor");
+X    color(15);
+X    clear();
+X    color(0);
+X    ortho2(-2.1,2.1,-2.1,2.1);
+X
+X    /* count the number of sites in data array (sizeof() should work, but doesn't) */
+X    while (data[n][0] != -9999.0 || data[n][1] != -9999.0)
+X	n++;
+X
+X    printf ("found %d vertices in data:\n", n);
+X
+X    for (sid = 0; sid < n; sid++) {
+X	printf ("site %d:\t(%f, %f)\n", sid, data[sid][0], data[sid][1]);
+X	color(1);
+X	rectf(data[sid][0]-E,data[sid][1]-E,data[sid][0]+E,data[sid][1]+E);
+X	}
+X
+X    printf ("calling load_vsites() with user bbox\n");
+X    load_vsites (n, data, -2.0, -2.0, 2.0, 2.0);
+X
+X    for (sid = 0; sid < n; sid++) {
+X	plen = find_vregion (sid, pverts);
+X	printf ("region of site %d has length %d\n", sid, plen);
+X
+X	color(2);
+X	bgnclosedline();
+X	for (vid = 0; vid < plen; vid++) {
+X	    printf ("\t%f %f\n", pverts[vid][0], pverts[vid][1]);
+X	    v2f(pverts[vid]);
+X	}
+X	endclosedline();
+X    }
+X
+X
+X    ntris = find_dtriangles (&dtris);
+X    for (tid = 0; tid < ntris; tid++)	{
+X	printf ("delaunay triangle %d has vertices %d, %d, %d\n", 
+X	    tid, dtris[tid].v1->vpid, dtris[tid].v2->vpid, dtris[tid].v3->vpid);
+X	printf ("\tcoords (%f, %f)  (%f, %f)  (%f, %f)\n", 
+X	    dtris[tid].v1->x, dtris[tid].v1->y, dtris[tid].v2->x, dtris[tid].v2->y, dtris[tid].v3->x, dtris[tid].v3->y);
+X	
+X	    color(0);
+X	    bgnclosedline();
+X            v2f((float*)(dtris[tid].v1));	/*pass a 2 element float array to graphics pipe*/
+X	    v2f((float*)(dtris[tid].v2));
+X	    v2f((float*)(dtris[tid].v3));
+X	    endclosedline();
+X	}
+X
+X    nchverts = find_convexhull (&chverts);
+X    color(6);
+X    bgnclosedline();
+X    for (vid = 0; vid < nchverts; vid++)	{
+X	printf ("convex hull vertex %d has id %d [bk %d, fw %d]\n", vid, chverts[vid].vpid, chverts[vid].nbr1, chverts[vid].nbr2);
+X        v2f(data[chverts[vid].vpid]);
+X	}
+X    endclosedline();
+X
+X    color(4);
+X    for (vid = 0; vid < nchverts; vid++)    {
+X	sprintf (nstr, "%d [%d]", vid, chverts[vid].vpid);
+X	cmov2 (data[chverts[vid].vpid][0], data[chverts[vid].vpid][1]);
+X	charstr (nstr);
+X	}
+X
+X    printf ("calling load_vsites() with no bbox\n");
+X    load_vsites (n, data, 0.0, 0.0, 0.0, 0.0);
+X
+X    for (sid = 0; sid < n; sid++) {
+X	plen = find_vregion (sid, pverts);
+X	printf ("region of site %d has length %d\n", sid, plen);
+X	for (vid = 0; vid < plen; vid++)
+X	    printf ("\t%f %f\n", pverts[vid][0], pverts[vid][1]);
+X	}
+X
+X    ntris = find_dtriangles (&dtris);
+X    for (tid = 0; tid < ntris; tid++)	{
+X	printf ("delaunay triangle %d has vertices %d, %d, %d\n", 
+X	    tid, dtris[tid].v1->vpid, dtris[tid].v2->vpid, dtris[tid].v3->vpid);
+X	printf ("\tcoords (%f, %f)  (%f, %f)  (%f, %f)\n", 
+X	    dtris[tid].v1->x, dtris[tid].v1->y, dtris[tid].v2->x, dtris[tid].v2->y, dtris[tid].v3->x, dtris[tid].v3->y);
+X	}
+X
+X    nchverts = find_convexhull (&chverts);
+X    for (vid = 0; vid < nchverts; vid++)	{
+X	printf ("convex hull vertex %d has id %d [bk %d, fw %d]\n", vid, chverts[vid].vpid, chverts[vid].nbr1, chverts[vid].nbr2);
+X	}
+X
+X    {
+X    int k, nadjs, (*adjs)[][2];	    /* pointer  to nx2 array of ints */
+X
+X    nadjs = find_dtadjacencies (&adjs);
+X
+X    if (nadjs > 0)  {
+X        color(3);
+X
+X	for (k = 0; k < nadjs; k++) {	
+X	    printf ("found adj between tri %d and %d\n", (*adjs)[k][0], (*adjs)[k][1]);
+X
+X	    move2 ((dtris[(*adjs)[k][0]].v1->x + dtris[(*adjs)[k][0]].v2->x + dtris[(*adjs)[k][0]].v3->x) / 3.0, 
+X		   (dtris[(*adjs)[k][0]].v1->y + dtris[(*adjs)[k][0]].v2->y + dtris[(*adjs)[k][0]].v3->y) / 3.0); 
+X	    draw2 ((dtris[(*adjs)[k][1]].v1->x + dtris[(*adjs)[k][1]].v2->x + dtris[(*adjs)[k][1]].v3->x) / 3.0, 
+X		   (dtris[(*adjs)[k][1]].v1->y + dtris[(*adjs)[k][1]].v2->y + dtris[(*adjs)[k][1]].v3->y) / 3.0); 
+X	    } 
+X	}
+X
+X    }
+X
+X    while(!getbutton(MOUSE1))
+X	 sleep(1);
+X    
+X    exit(0);
+X}
+X
+X
+END_OF_FILE
+  if test 4703 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'memory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'memory.c'\"
+else
+  echo shar: Extracting \"'memory.c'\" \(1212 characters\)
+  sed "s/^X//" >'memory.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include "vordefs.h"
+X
+Xfreeinit(fl, size)
+Xstruct	Freelist *fl;
+Xint	size;
+X{
+X    fl->head = (struct Freenode *) NULL;
+X    fl->nodesize = size;
+X}
+X
+Xchar *getfree(fl)
+Xstruct	Freelist *fl;
+X{
+X    int i; struct Freenode *t;
+X
+X    if(fl->head == (struct Freenode *) NULL) {	
+X	t = (struct Freenode *)myalloc(sqrt_nsites * fl->nodesize);
+X	for(i=0; i<sqrt_nsites; i+=1) 	
+X	    makefree((struct Freenode *)((char *)t+i*fl->nodesize), fl);
+X    }
+X    t = fl->head;
+X    fl->head = (fl->head)->nextfree;
+X    return((char *)t);
+X}
+X
+Xmakefree(curr,fl)
+Xstruct Freenode *curr;
+Xstruct Freelist *fl;
+X{
+X    curr->nextfree = fl->head;
+X    fl->head = curr;
+X}
+X
+X#define MAXALLOCS (8 * MAXSITES)
+Xint total_alloc, num_allocs;
+Xchar *locations[MAXALLOCS];
+X
+Xchar *myalloc(n)
+Xunsigned n;
+X{
+X    char *t;
+X    if ((t=malloc(n)) == (char *) 0) {
+X	fprintf(stderr,"out of memory processing site %d (%d bytes in use)\n",
+X		siteidx, total_alloc);
+X    	exit();
+X    }
+X    total_alloc += n;
+X    locations[num_allocs++] = t;
+X    return(t);
+X}
+X
+Xvoid 
+Xmyfreeall()
+X{
+Xint k;
+X
+X    for (k = 0; k < num_allocs; k++)
+X	free (locations [k]);
+X/*
+X    printf ("freed %d allocs (%d bytes)\n", num_allocs, total_alloc);
+X*/
+X    num_allocs = total_alloc = 0;
+X}
+END_OF_FILE
+  if test 1212 -ne `wc -c <'memory.c'`; then
+    echo shar: \"'memory.c'\" unpacked with wrong size!
+  fi
+  # end of 'memory.c'
+fi
+if test -f 'vordefs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vordefs.h'\"
+else
+  echo shar: Extracting \"'vordefs.h'\" \(3110 characters\)
+  sed "s/^X//" >'vordefs.h' <<'END_OF_FILE'
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X
+X#define DELETED -2
+X
+X#define MAXSITES 4096
+X
+X#define le 0
+X#define re 1
+X
+Xextern struct Site *(*next)();
+Xextern int triangulate, sorted, plot, vrdebug, outputmode;
+Xextern float vxmin, vxmax, vymin, vymax, vdeltax, vdeltay;
+Xextern float pxmin, pxmax, pymin, pymax;
+X
+Xextern char execdir[];		/* from voronoi.c */
+X
+Xextern int numvedges;
+X
+Xextern int total_alloc;	    /* memory.c */
+Xextern int menu;	    /* menus.c */
+X
+Xextern float randr(float, float);
+X
+X/* GL DRAWING STUFF */
+X
+X/* vertex: x, y */
+Xstruct vertstruct {
+X    float x, y;
+X    int vpid;
+X    };
+X
+X/* vertex id w/neighbors */
+Xstruct nvertstruct {
+X    int nbr1, nbr2, onhull;
+X    int vpid;
+X    };
+X
+X/* vertex: x, y, theta */
+Xstruct vertthetastruct {
+X    float x, y, theta;
+X    int e1, e2;
+X    };
+X
+X/* edge: CLIPPED to reasonable bounds */
+Xstruct edgestruct {
+X    float x1, y1, x2, y2;
+X    int nbr1, nbr2;
+X    float xm, ym;	    /* halfway between inducing voronoi sites */
+X    };
+X
+Xtypedef struct vertstruct VERT;
+Xtypedef struct nvertstruct NVERT;
+Xtypedef struct vertthetastruct VERTTHETA;
+Xtypedef struct edgestruct EDGE;
+X
+X/* triangle: holds POINTERS to three verts */
+Xstruct tristruct {
+X    VERT *v1, *v2, *v3;
+X    };
+X
+Xstruct circstruct {
+X    float cx, cy, r;
+X    int nbr1, nbr2, nbr3;
+X    };
+X
+Xtypedef struct tristruct TRI;
+Xtypedef struct circstruct CIRC;
+X
+X#define MAXVERTS (3 * MAXSITES)
+X#define MAXEDGES (2 * MAXSITES)
+X#define MAXTRIS  (MAXEDGES)
+X
+Xextern VERT GLsites[MAXVERTS];
+Xextern VERT verts[MAXVERTS];
+Xextern EDGE vedges[MAXEDGES];
+Xextern NVERT chverts[MAXVERTS];
+Xextern TRI  tris[MAXTRIS];
+Xextern CIRC circles[MAXTRIS];
+X
+X/* END GL DRAWING STUFF */
+X
+Xstruct	Freenode	{
+X    struct Freenode *nextfree;
+X};
+X
+Xstruct	Freelist	{
+X    struct Freenode *head;
+X    int	nodesize;
+X};
+X
+Xchar *getfree();
+Xchar *malloc();
+Xchar *myalloc();
+X
+Xstruct Point {
+X    float x,y;
+X};
+X
+X/* structure used both for sites and for vertices */
+Xstruct Site {
+X    struct Point coord;
+X    int sitenbr;
+X    int refcnt;
+X};
+X
+Xtypedef struct Site SITE;
+X
+Xstruct Edge {
+X    float a,b,c;
+X    struct Site *ep[2];
+X    struct Site	*reg[2];
+X    int	edgenbr;
+X};
+X
+Xextern struct Site *sites;
+Xextern int nsites;
+Xextern int siteidx;
+Xextern int sqrt_nsites;
+Xextern int nvertices;
+Xextern struct Freelist sfl;
+Xextern struct Site *bottomsite;
+X
+Xextern struct Site *nextone();	    /* from voronoi.c */
+X
+Xextern int nedges;
+Xextern struct	Freelist efl;
+X
+Xvoid v_endpoint();
+Xint has_endpoint(),right_of();
+Xstruct Site *sintersect();
+Xfloat dist();
+Xstruct Point PQ_min();
+Xstruct Halfedge *PQextractmin();
+Xstruct Edge *bisect();
+X
+Xstruct Halfedge {
+X    struct Halfedge *ELleft, *ELright;
+X    struct Edge	*ELedge;
+X    int	ELrefcnt;
+X    char ELpm;
+X    struct Site	*vertex;
+X    float ystar;
+X    struct Halfedge *PQnext;
+X};
+X
+Xextern struct Freelist	hfl;
+Xextern struct Halfedge *ELleftend, *ELrightend;
+Xextern int ELhashsize;
+Xextern struct Halfedge **ELhash;
+X
+Xstruct Halfedge *HEcreate(), *ELleft(), *ELright(), *ELleftbnd();
+Xstruct Site *leftreg(), *rightreg();
+X
+Xextern int PQhashsize;
+Xextern struct Halfedge *PQhash;
+Xextern int PQcount;
+Xextern int PQmin;
+X
+Xint PQempty();
+Xstruct Halfedge *PQfind();
+END_OF_FILE
+  if test 3110 -ne `wc -c <'vordefs.h'`; then
+    echo shar: \"'vordefs.h'\" unpacked with wrong size!
+  fi
+  # end of 'vordefs.h'
+fi
+if test -f 'voronoi.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'voronoi.c'\"
+else
+  echo shar: Extracting \"'voronoi.c'\" \(4483 characters\)
+  sed "s/^X//" >'voronoi.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "vordefs.h"
+X
+X#define FALSE (0)
+X#define TRUE  (1)
+X
+Xint triangulate = FALSE, sorted, plot, vrdebug = FALSE, randmode, outputmode;
+Xfloat vxmin, vxmax, vymin, vymax, vdeltax, vdeltay;
+X
+Xchar execdir[80];
+X
+Xstruct Site _sites[MAXSITES], *sites = _sites;
+X
+Xint nsites;
+Xint siteidx;
+Xint sqrt_nsites;
+Xint nvertices;
+Xstruct Freelist sfl;
+Xstruct Site *bottomsite;
+X
+Xint nedges;
+Xstruct	Freelist efl;
+X
+Xstruct Freelist	hfl;
+Xstruct Halfedge *ELleftend, *ELrightend;
+Xint ELhashsize;
+Xstruct Halfedge **ELhash;
+X
+Xint PQhashsize;
+Xstruct Halfedge *PQhash;
+Xint PQcount;
+Xint PQmin;
+X
+X/* sort sites on y, then x, coord */
+Xint scomp(s1,s2)
+Xstruct Point *s1,*s2;
+X{
+X    if(s1->y < s2->y) return(-1);
+X    if(s1->y > s2->y) return(1);
+X    if(s1->x < s2->x) return(-1);
+X    if(s1->x > s2->x) return(1);
+X    return(0);
+X}
+X
+X/* sort GLsites on y, then x, coord */
+Xint GLscomp(s1,s2)
+XVERT *s1,*s2;
+X{
+X    if(s1->y < s2->y) return(-1);
+X    if(s1->y > s2->y) return(1);
+X    if(s1->x < s2->x) return(-1);
+X    if(s1->x > s2->x) return(1);
+X    return(0);
+X}
+X
+X/* return a single in-storage site */
+Xstruct Site *
+Xnextone()
+X{
+X    if(siteidx < nsites)
+X	return (&sites[siteidx++]);
+X    else
+X	return( (struct Site *)NULL);
+X}
+X
+XsortGLsites()
+X{
+Xfloat vx, vy;
+Xint k, sid;
+Xchar *a = NULL;
+Xfloat dx, dy;
+X
+X    qsort((char *)GLsites, nsites, sizeof (VERT), GLscomp);
+X
+X#ifdef EXCISE
+X    /* excise any coincident sites */
+X    for (k = sid = 0; k < nsites; k++)	{
+X	if (k == 0 || (GLsites[k-1].y != GLsites[k].y) || (GLsites[k-1].x != GLsites[k].x)) {
+X	    GLsites[sid  ].x = GLsites[k].x;
+X	    GLsites[sid++].y = GLsites[k].y;
+X	    }
+X	}
+X
+X    if (sid != nsites)	{
+X	fprintf (stderr, "voronoi: excised %d coincident sites\n", nsites - sid);
+X	nsites = sid;
+X	}
+X#endif
+X}
+X
+X/* implicit parameters: nsites, sqrt_nsites, xmin, xmax, ymin, ymax,
+X   deltax, deltay (can all be estimates).
+X   Performance suffers if they are wrong; better to make nsites,
+X   deltax, and deltay too big than too small.  (?) */
+Xvoronoi (nextsite)
+Xstruct Site *(*nextsite)();
+X{
+Xstruct Site *newsite, *bot, *top, *temp, *p;
+Xstruct Site *v;
+Xstruct Point newintstar;
+Xint pm;
+Xstruct Halfedge *lbnd, *rbnd, *llbnd, *rrbnd, *bisector;
+Xstruct Edge *e;
+X
+X    myfreeall ();
+X
+X    if (nsites <= 1)
+X	return;
+X
+X    freeinit(&sfl, sizeof (struct Site));
+X
+X    /* bboxinit();  */	    /* copies static array into nsites */
+X    geominit();		    /* internal use of deltax, deltay  */
+X
+X    PQinitialize();
+X    bottomsite = (*nextsite)();
+X    out_site(bottomsite);
+X    ELinitialize();
+X
+X    newsite = (*nextsite)();
+X    while(1) {
+X	if(!PQempty()) newintstar = PQ_min();
+X/* new site is smallest */
+X	if (newsite != (struct Site *)NULL && (PQempty() 
+X		 || newsite->coord.y < newintstar.y
+X			 || (newsite->coord.y == newintstar.y 
+X			     && newsite->coord.x < newintstar.x))) {
+X	    out_site(newsite);
+X	    lbnd = ELleftbnd(&(newsite->coord));
+X	    rbnd = ELright(lbnd);
+X	    bot = rightreg(lbnd);
+X	    e = bisect(bot, newsite);
+X	    bisector = HEcreate(e, le);
+X	    ELinsert(lbnd, bisector);
+X	    if ((p = sintersect(lbnd, bisector)) != (struct Site *) NULL) {
+X		PQdelete(lbnd);
+X		PQinsert(lbnd, p, dist(p,newsite));
+X	    }
+X	    lbnd = bisector;
+X	    bisector = HEcreate(e, re);
+X	    ELinsert(lbnd, bisector);
+X	    if ((p = sintersect(bisector, rbnd)) != (struct Site *) NULL) {
+X		PQinsert(bisector, p, dist(p,newsite));	
+X	    }
+X	    newsite = (*nextsite)();	
+X	} else if (!PQempty()) {
+X	/* intersection is smallest */
+X	    lbnd = PQextractmin();
+X	    llbnd = ELleft(lbnd);
+X	    rbnd = ELright(lbnd);
+X	    rrbnd = ELright(rbnd);
+X	    bot = leftreg(lbnd);
+X	    top = rightreg(rbnd);
+X	    out_triple(bot, top, rightreg(lbnd));
+X	    v = lbnd->vertex;
+X	    makevertex(v);
+X	    v_endpoint(lbnd->ELedge,lbnd->ELpm,v);
+X	    v_endpoint(rbnd->ELedge,rbnd->ELpm,v);
+X	    ELdelete(lbnd); 
+X	    PQdelete(rbnd);
+X	    ELdelete(rbnd); 
+X	    pm = le;
+X	    if (bot->coord.y > top->coord.y) {	
+X		temp = bot; 
+X		bot = top; 
+X		top = temp; 
+X		pm = re;
+X	    }
+X	    e = bisect(bot, top);
+X	    bisector = HEcreate(e, pm);
+X	    ELinsert(llbnd, bisector);
+X	    v_endpoint(e, re-pm, v);
+X	    deref(v);
+X	    if((p = sintersect(llbnd, bisector)) != (struct Site *) NULL) {
+X		PQdelete(llbnd);
+X		PQinsert(llbnd, p, dist(p,bot));
+X	    }
+X	    if((p = sintersect(bisector, rrbnd)) != (struct Site *) NULL) 
+X		PQinsert(bisector, p, dist(p,bot));
+X	} else 
+X	    break;
+X    }
+X
+X    for(lbnd=ELright(ELleftend); lbnd != ELrightend; lbnd=ELright(lbnd)) {
+X	e = lbnd->ELedge;
+X	out_ep(e);
+X        }
+X}
+X
+X
+END_OF_FILE
+  if test 4483 -ne `wc -c <'voronoi.c'`; then
+    echo shar: \"'voronoi.c'\" unpacked with wrong size!
+  fi
+  # end of 'voronoi.c'
+fi
+if test -f 'voronoi.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'voronoi.h'\"
+else
+  echo shar: Extracting \"'voronoi.h'\" \(2977 characters\)
+  sed "s/^X//" >'voronoi.h' <<'END_OF_FILE'
+X#define MAXSITES 4096
+X
+X/* GL DRAWING STUFF */
+X
+X/* vertex: x, y */
+Xstruct vertstruct {
+X    float x, y;
+X    int vpid;
+X    };
+X
+X/* vertex id w/neighbors */
+Xstruct nvertstruct {
+X    int nbr1, nbr2, onhull;
+X    int vpid;
+X    };
+X
+X/* vertex: x, y, theta */
+Xstruct vertthetastruct {
+X    float x, y, theta;
+X    int e1, e2;
+X    };
+X
+X/* edge: CLIPPED to reasonable bounds */
+Xstruct edgestruct {
+X    float x1, y1, x2, y2;
+X    int nbr1, nbr2;
+X    float xm, ym;	    /* halfway between inducing voronoi sites */
+X    };
+X
+Xtypedef struct vertstruct VERT;
+Xtypedef struct nvertstruct NVERT;
+Xtypedef struct vertthetastruct VERTTHETA;
+Xtypedef struct edgestruct EDGE;
+X
+X/* triangle: holds POINTERS to three verts */
+Xstruct tristruct {
+X    VERT *v1, *v2, *v3;
+X    };
+X
+Xstruct circstruct {
+X    float cx, cy, r;
+X    int nbr1, nbr2, nbr3;
+X    };
+X
+Xtypedef struct tristruct TRI;
+Xtypedef struct circstruct CIRC;
+X
+X#define MAXVERTS (3 * MAXSITES)
+X#define MAXEDGES (2 * MAXSITES)
+X#define MAXTRIS  (MAXEDGES)
+X
+Xextern VERT GLsites[MAXVERTS];
+Xextern VERT verts[MAXVERTS];
+Xextern EDGE vedges[MAXEDGES];
+Xextern NVERT chverts[MAXVERTS];
+Xextern TRI  tris[MAXTRIS];
+Xextern CIRC circles[MAXTRIS];
+X
+X/* load_vsites(): 
+X    accept the n voronoi sites (x_n, y_n)
+X    calculate and store the voronoi diagram over the n sites,
+X    clipping all infinite edges to bbox: [xmin, ymin, xmax, ymax].
+X    
+X    note: if (xmin,ymin,xmax,ymax are all == 0.0), OR
+X	if these do not enclose the data, a bounding box
+X	 will be computed over the input.
+X
+X    returns:
+X	-1 if error
+X	 0 otherwise
+X*/
+Xint
+Xload_vsites (
+X    int n,
+X    float usites[][2],	/* sites in x,y order */
+X    float uxmin, float uymin, float uxmax, float uymax);
+X
+X/*
+X    find_vregion(sid, plen, pverts)
+X	given a site id 'sid' from 0..nsites-1 inclusive, 
+X	returns the voronoi polygon associated with that site
+X	in the array 'pverts', and its length on call stack.
+X
+X	the vertices are returned in counterclockwise order.
+X
+X    returns:
+X	-1 if error condition
+X	plen > 2 [i.e., the # of verts in the voronoi polygon] otherwise
+X*/
+Xint
+Xfind_vregion (
+X    int vsid,
+X    float pverts[][2]);
+X
+X/*
+X    int
+X    find_dtriangles (**dtris)
+X
+X    returns:
+X	-1 if error condition, *dtris == NULL
+X	o/wise, # of delaunay triangles, *dtris == array of TRIS (see voronoi.h)
+X*/
+Xint
+Xfind_dtriangles (
+X    TRI **dtris);
+X
+X/*
+X    int
+X    find_dtadjacency (*(int[][2]))
+X
+X    returns:
+X	-1 if error condition, *dtadj == NULL
+X	o/wise, # of adjacency pairs, and all pairs
+X	indices refer to triangle ids as returned by find_dtriangles()
+X*/
+X
+Xint
+Xfind_dtadjacencies (
+X    int (**dtadj)[][2]);	    /* pointer to array of nx2 integers */
+X
+X/*
+X    int
+X    find_convexhull (**chverts)
+X
+X    returns:
+X	if error condition
+X	     *chverts == NULL
+X	    returns -1 
+X	o/wise, 
+X	    *chverts == array of named VERTs (see voronoi.h), in order around convex hull
+X	    *chvert[k].vpid == index of point in point set given to load_vertices()
+X	    returns # of convex hull vertices
+X*/
+Xint
+Xfind_convexhull(
+X    NVERT **chvertices);
+END_OF_FILE
+  if test 2977 -ne `wc -c <'voronoi.h'`; then
+    echo shar: \"'voronoi.h'\" unpacked with wrong size!
+  fi
+  # end of 'voronoi.h'
+fi
+if test -f 'vortest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vortest.c'\"
+else
+  echo shar: Extracting \"'vortest.c'\" \(3292 characters\)
+  sed "s/^X//" >'vortest.c' <<'END_OF_FILE'
+X/*
+X
+Xcompile as cc -float -g -prototypes -c vortest2.c
+X
+Xlink as cc -o vortest2 vortest2.o ~/base/lib/libvor.a -lm
+X
+X*/
+X
+X#include <stdio.h>
+X#include "voronoi.h"
+X
+X#define E	(0.02)
+X
+X/* example for use of voronoi region package	*/
+X/*  create data in xy float array		*/
+X/*  call load_vsites() to create vor diagram	*/
+X/*  call find_vregion() to query structure	*/
+X
+Xfloat data[][2] = {
+X		    {-1.0448985, 0.6952569},
+X		    {-0.2643085,-0.1562872},
+X		    {-0.3617359,-0.8812830},
+X		    {-0.9136937,-0.6788232},
+X		    {-0.9266945, 0.3022859},
+X		    {-0.3424, 0.6394},
+X		    {-0.1645, 0.895443},
+X		    {-0.9345435, 0.4523450},
+X
+X		    /* sentinel entry */
+X		    { -9999.0, -9999.0 }
+X		  };
+X
+Xmain()
+X{
+Xint n=0, sid, vid, plen;
+Xfloat pverts[256][2];
+Xint ntris, tid, nchverts;
+XTRI *dtris;
+XNVERT *chverts;
+Xchar nstr[32];
+X
+X    /* count the number of sites in data array (sizeof() should work, but doesn't) */
+X    while (data[n][0] != -9999.0 || data[n][1] != -9999.0)
+X	n++;
+X
+X    printf ("found %d vertices in data:\n", n);
+X    for (sid = 0; sid < n; sid++)
+X	printf ("site %d:\t(%f, %f)\n", sid, data[sid][0], data[sid][1]);
+X
+X    printf ("calling load_vsites() with user bbox\n");
+X    load_vsites (n, data, -2.0, -2.0, 2.0, 2.0);
+X
+X    for (sid = 0; sid < n; sid++) {
+X	plen = find_vregion (sid, pverts);
+X	printf ("region of site %d has length %d\n", sid, plen);
+X
+X	for (vid = 0; vid < plen; vid++)
+X	    printf ("\t%f %f\n", pverts[vid][0], pverts[vid][1]);
+X        }
+X
+X    ntris = find_dtriangles (&dtris);
+X    for (tid = 0; tid < ntris; tid++)	{
+X	printf ("delaunay triangle %d has vertices %d, %d, %d\n", 
+X	    tid, dtris[tid].v1->vpid, dtris[tid].v2->vpid, dtris[tid].v3->vpid);
+X	printf ("\tcoords (%f, %f)  (%f, %f)  (%f, %f)\n", 
+X	    dtris[tid].v1->x, dtris[tid].v1->y, 
+X	    dtris[tid].v2->x, dtris[tid].v2->y, 
+X	    dtris[tid].v3->x, dtris[tid].v3->y);
+X	}
+X
+X    nchverts = find_convexhull (&chverts);
+X    for (vid = 0; vid < nchverts; vid++)
+X	printf ("convex hull vertex %d has id %d [bk %d, fw %d]\n", vid, 
+X		chverts[vid].vpid, chverts[vid].nbr1, chverts[vid].nbr2);
+X
+X    printf ("calling load_vsites() with no bbox\n");
+X    load_vsites (n, data, 0.0, 0.0, 0.0, 0.0);
+X
+X    for (sid = 0; sid < n; sid++) {
+X	plen = find_vregion (sid, pverts);
+X	printf ("region of site %d has length %d\n", sid, plen);
+X	for (vid = 0; vid < plen; vid++)
+X	    printf ("\t%f %f\n", pverts[vid][0], pverts[vid][1]);
+X	}
+X
+X    ntris = find_dtriangles (&dtris);
+X    for (tid = 0; tid < ntris; tid++)	{
+X	printf ("delaunay triangle %d has vertices %d, %d, %d\n", 
+X	    tid, dtris[tid].v1->vpid, dtris[tid].v2->vpid, dtris[tid].v3->vpid);
+X	printf ("\tcoords (%f, %f)  (%f, %f)  (%f, %f)\n", 
+X	    dtris[tid].v1->x, dtris[tid].v1->y, 
+X	    dtris[tid].v2->x, dtris[tid].v2->y, 
+X	    dtris[tid].v3->x, dtris[tid].v3->y);
+X	}
+X
+X    nchverts = find_convexhull (&chverts);
+X    for (vid = 0; vid < nchverts; vid++)	{
+X	printf ("convex hull vertex %d has id %d [bk %d, fw %d]\n", vid, 
+X	    chverts[vid].vpid, chverts[vid].nbr1, chverts[vid].nbr2);
+X	}
+X
+X    {
+X    int k, nadjs, (*adjs)[][2];	    /* pointer  to nx2 array of ints */
+X
+X    nadjs = find_dtadjacencies (&adjs);
+X
+X    if (nadjs > 0)  {
+X	for (k = 0; k < nadjs; k++) {	
+X	    printf ("found adj between tri %d and %d\n", (*adjs)[k][0], (*adjs)[k][1]);
+X	    } 
+X	}
+X
+X    }
+X    
+X    exit(0);
+X}
+X
+X
+END_OF_FILE
+  if test 3292 -ne `wc -c <'vortest.c'`; then
+    echo shar: \"'vortest.c'\" unpacked with wrong size!
+  fi
+  # end of 'vortest.c'
+fi
+if test -f 'vregion.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vregion.c'\"
+else
+  echo shar: Extracting \"'vregion.c'\" \(24021 characters\)
+  sed "s/^X//" >'vregion.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include <assert.h>
+X#include "vordefs.h"
+X
+X#define LBND 0
+X#define BBND 1
+X#define RBND 2
+X#define TBND 3
+X
+X#define FALSE (0)
+X#define TRUE  (1)
+X
+X#define ABS(A) ((A) < 0 ? (-(A)) : (A))
+X#define MAX(a,b) ((a) > (b) ? (a) : (b))
+X#define MIN(a,b) ((a) < (b) ? (a) : (b))
+X#define AVG(a,b) (((a)+(b))*0.5)
+X
+X/* left, right, top bottom */
+X#define NBOUND(x,y) (x >= Pxmax ? RBND : (x <= Pxmin ? LBND : (y >= Pymax ? TBND : (y <= Pymin ? BBND : -1))))
+X
+X#define BBOX_THERE() ((pxmin == txmin) && (pxmax == txmax) && (pymin == tymin) && (pymax && pymax))
+X#define BBOX_NOT_THERE() (!BBOX_THERE())
+X
+Xstatic float Pxmin, Pxmax, Pymin, Pymax;	/* floating point tolerance values */
+Xstatic float pxmin = 1E10, pxmax = -1E10, pymin = 1E10, pymax = -1E10;
+X
+X/* space for theta after x*y* */
+Xstatic float xminymin[3], xminymax[3], xmaxymax[3], xmaxymin[3];
+X
+X/* these point to the x*y* */
+Xstatic VERTTHETA *corner[4];
+X
+Xstatic int numverts = 0, numvedges = 0, numtris;
+X
+X/* sites[i].coord.x,y defined and sorted in main() */
+X
+XVERT    GLsites[MAXVERTS];
+XVERT	Usites[MAXVERTS];
+X/*     static int nUsites; */
+X
+Xstatic VERT verts[MAXVERTS];
+Xstatic EDGE vedges[MAXEDGES];
+Xstatic TRI  tris[MAXTRIS];
+Xstatic int  inverse[MAXVERTS];
+Xstatic NVERT chverts[MAXVERTS];
+Xstatic NVERT uchverts[MAXVERTS];
+X
+X
+X/* null out extern refs */
+Xvoid out_site(struct Site *s){}
+Xvoid out_bisector(struct Edge *e){}
+X
+Xstatic int
+Xclip_line(
+X    struct Edge *e)
+X{
+Xstruct Site *s1, *s2;
+Xstruct Site *r1, *r2;
+Xfloat x1,x2,y1,y2;
+X
+X    if(e->a == 1.0 && e->b >= 0.0) {	
+X	s1 = e->ep[1];
+X	s2 = e->ep[0];
+X
+X	r1 = e->reg[1];
+X	r2 = e->reg[0];
+X    } else {	
+X	s1 = e->ep[0];
+X	s2 = e->ep[1];
+X
+X	r1 = e->reg[0];
+X	r2 = e->reg[1];
+X    }
+X
+X    /* mark convex hull sites and add edge to ch list */
+X    if (s1 == NULL || s2 == NULL)   {
+X	NVERT *vA, *vB;
+X	int A, B;
+X
+X        vA = &chverts[A = r1->sitenbr];
+X        vB = &chverts[B = r2->sitenbr];
+X    
+X        vA->onhull = vB->onhull = TRUE;
+X
+X        if (vA->nbr1 == -1)
+X            vA->nbr1 = B;
+X        else if (vA->nbr2 == -1)    {
+X	    if (vA->nbr1 != B)
+X		vA->nbr2 = B;
+X	    }
+X
+X        if (vB->nbr1 == -1)
+X            vB->nbr1 = A;
+X        else if (vB->nbr2 == -1)    {
+X	    if (vB->nbr1 != A)
+X		vB->nbr2 = A;
+X	    }
+X/*
+X        if (vrdebug)
+X            printf ("setting hull on %d, %d\n", r1->sitenbr, r2->sitenbr);
+X*/
+X        }
+X
+X    if(e->a == 1.0) {
+X	y1 = pymin;
+X	if (s1!=(struct Site *)NULL && s1->coord.y > pymin)
+X	    y1 = s1->coord.y;
+X	if(y1>pymax)
+X	    return;
+X	x1 = e->c - e->b * y1;
+X	y2 = pymax;
+X	if (s2!=(struct Site *)NULL && s2->coord.y < pymax)
+X	    y2 = s2->coord.y;
+X	if(y2<pymin)
+X	    return(0);
+X	x2 = e->c - e->b * y2;
+X	if ((x1> pxmax && x2>pxmax) || (x1<pxmin && x2<pxmin)) 
+X	    return;
+X	if(x1> pxmax) {
+X	    x1 = pxmax;
+X	    y1 = (e->c - x1)/e->b;
+X	}
+X	if(x1<pxmin) {
+X	    x1 = pxmin;
+X	    y1 = (e->c - x1)/e->b;
+X	}
+X	if(x2>pxmax) {
+X	    x2 = pxmax;
+X	    y2 = (e->c - x2)/e->b;
+X	}
+X	if(x2<pxmin) {
+X	    x2 = pxmin;
+X	    y2 = (e->c - x2)/e->b;
+X	}
+X    } else {
+X	x1 = pxmin;
+X	if (s1!=(struct Site *)NULL && s1->coord.x > pxmin) 
+X	    x1 = s1->coord.x;
+X	if(x1>pxmax)
+X	    return(0);
+X	y1 = e->c - e->a * x1;
+X	x2 = pxmax;
+X	if (s2!=(struct Site *)NULL && s2->coord.x < pxmax)
+X	    x2 = s2->coord.x;
+X	if(x2<pxmin)
+X	    return(0);
+X	y2 = e->c - e->a * x2;
+X	if ((y1> pymax && y2>pymax) || (y1<pymin && y2<pymin))
+X	    return(0);
+X	if(y1> pymax) {
+X	    y1 = pymax;
+X	    x1 = (e->c - y1)/e->a;
+X	}
+X	if(y1<pymin) {
+X	    y1 = pymin;
+X	    x1 = (e->c - y1)/e->a;
+X	}
+X	if(y2>pymax) {
+X	    y2 = pymax;
+X	    x2 = (e->c - y2)/e->a;
+X	}
+X	if(y2<pymin) {
+X	    y2 = pymin;
+X	    x2 = (e->c - y2)/e->a;
+X	}
+X    }
+X
+X/*  fprintf (stderr, "clip_line(): edge %d is (%10.7f, %10.7f) to (%10.7f, %10.7f)\n", numvedges, x1, y1, x2, y2);*/
+X
+X    if (!triangulate)	{
+X	vedges[numvedges].x1 = x1;
+X	vedges[numvedges].y1 = y1;
+X
+X	vedges[numvedges].x2 = x2;
+X	vedges[numvedges].y2 = y2;
+X
+X	vedges[numvedges].nbr1 = (r1 != NULL ? r1->sitenbr : -9998);
+X	vedges[numvedges].nbr2 = (r2 != NULL ? r2->sitenbr : -9999);
+X
+X	if (r1 != NULL && r2 != NULL)	{
+X	    vedges[numvedges].xm = AVG (r1->coord.x, r2->coord.x);
+X	    vedges[numvedges].ym = AVG (r1->coord.y, r2->coord.y);
+X	    }
+X
+X	if (vrdebug)
+X	    printf ("clip_line puts edge induced by %d and %d\n", r1->sitenbr, r2->sitenbr);
+X
+X	if (numvedges < MAXEDGES)
+X	    numvedges++;
+X	else	{
+X	    fprintf (stderr, "clip_line(): edge list overflow!\n");
+X	    exit (-1);
+X	    }
+X	}
+X}
+X
+X/* extern ref */
+Xvoid 
+Xout_ep(
+X    struct Edge *e)
+X{
+X    if(!triangulate)
+X	clip_line(e);
+X
+X    if(vrdebug)	{
+X	printf("out_ep(): edge %d", e->edgenbr);
+X	printf(" ep %d", e->ep[le] != (struct Site *)NULL ? e->ep[le]->sitenbr : -1);
+X	printf(" ep %d", e->ep[re] != (struct Site *)NULL ? e->ep[re]->sitenbr : -1);
+X	printf(" reg %d", e->reg[le] != (struct Site *)NULL ? e->reg[le]->sitenbr : -1);
+X	printf(" reg %d\n", e->reg[re] != (struct Site *)NULL ? e->reg[re]->sitenbr : -1);
+X	}
+X}
+X
+X/* extern ref */
+Xvoid
+Xout_vertex(
+X    struct Site *v)
+X{
+X    if (!triangulate)	{
+X	verts[numverts].x = v->coord.x;
+X	verts[numverts].y = v->coord.y;
+X	if (numverts < MAXVERTS)
+X	    numverts++;
+X	else	{
+X	    fprintf (stderr, "\nvert list overflow!");
+X	    exit (-1);
+X	    }
+X	}
+X
+X    if(vrdebug)
+X	printf("vertex(%d) at %10.7f %10.7f\n", v->sitenbr, v->coord.x, v->coord.y);
+X}
+X
+X/* this version courtesy vel kahan */
+X/* predicate: true iff point c leftof directed line ab */
+X/* observation: we should use two shortest disp vectors */
+Xstatic int 
+XCHS_LEFTOF(float cx, float cy, float ax, float ay, float bx, float by)
+X{
+Xdouble dist_ab, dist_bc, dist_ca, max_dist;
+Xdouble det_b, det_a, det_c;
+Xdouble err_b, err_a, err_c;
+X
+X    /* complain if line is indeterminate */
+X    if (ax == bx && ay == by)	{
+X	fprintf (stderr, "indeterminate line in leftof() predicate!\n");
+X	return (0);
+X	}
+X
+X    /* detect coincidences */
+X    if ((cx == ax && cy == ay) || (cx == bx && cy == by))
+X	return (0);
+X
+X    /* find pairwise distances */
+X    dist_ab = sqrt ((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+X    dist_bc = sqrt ((cx - bx) * (cx - bx) + (cy - by) * (cy - by));
+X    dist_ca = sqrt ((ax - cx) * (ax - cx) + (ay - cy) * (ay - cy));
+X
+X    max_dist = MAX (dist_ab, MAX(dist_bc, dist_ca));
+X
+X    if (max_dist == dist_bc)	{
+X        /* use a as a pivot point [ie., form (c-a) x (b-a)] */
+X	det_a = (ax - cx) * (by - ay) - (ay - cy) * (bx - ax);
+X        if (det_a == 0.0)
+X	    return (0);
+X        err_a = (fabs((ax - cx) * (by - ay)) + fabs((ay - cy) * (bx - ax))) / det_a;
+X	if ((fabs(det_a) > 1.0E-6) || (err_a < 1.0E-7))
+X	    return (det_a > 0.0);
+X	else
+X	    return (0);
+X	}
+X    else if (max_dist == dist_ca)   {
+X        /* use b as a pivot point [ie., form (a-b) x (c-b)] */
+X	det_b = (cx - bx) * (ay - by) - (cy - by) * (ax - bx);
+X        if (det_b == 0.0)
+X	    return (0);
+X        err_b = (fabs((cx - bx) * (ay - by)) + fabs((cy - by) * (ax - bx))) / det_b;
+X	if ((fabs(det_b) > 1.0E-6) || (err_b < 1.0E-7))
+X	    return (det_b > 0.0);
+X	else
+X	    return (0);
+X	}
+X    else    {
+X	assert (max_dist == dist_ab);
+X
+X        /* use c as a pivot point [ie., form (b-c) x (a-c)] */
+X	det_c = (ax - cx) * (by - cy) - (ay - cy) * (bx - cx);
+X        if (det_c == 0.0)
+X	    return (0);
+X        err_c = (fabs((cx - ax) * (by - cy)) + fabs((cy - ay) * (bx - cx))) / det_c;
+X	if ((fabs(det_c) > 1.0E-6) || (err_c < 1.0E-7))
+X	    return (det_c > 0.0);
+X	else
+X	    return (0);
+X	}
+X}
+X
+X/* extern ref */
+Xvoid
+Xout_triple(
+X    struct Site *s1, struct Site *s2, struct Site *s3)
+X{
+XVERT *tmp;
+XTRI *tri;
+X
+X    if(triangulate) {
+X	if (numtris < MAXTRIS)
+X	    tri = &tris[numtris++];
+X	else	{
+X	    fprintf (stderr, "out_triple(): triangle list overflow!\n");
+X	    exit (-1);
+X	    }
+X
+X	tri->v1 = (VERT *)&(sites[s1->sitenbr].coord);
+X	tri->v2 = (VERT *)&(sites[s2->sitenbr].coord);
+X	tri->v3 = (VERT *)&(sites[s3->sitenbr].coord);
+X
+X	/* order the triangle ccw */
+X	if (!CHS_LEFTOF (tri->v3->x, tri->v3->y, tri->v1->x, tri->v1->y, tri->v2->x, tri->v2->y))   { 
+X	    tmp = tri->v3;
+X	    tri->v3 = tri->v2;
+X	    tri->v2 = tmp;
+X	    }
+X	}
+X}
+X
+Xstatic void
+Xvdinit(void)
+X{
+X    numverts = numvedges = numtris = 0;
+X}
+X
+Xstatic void
+Xemit_sites (
+X    struct Site *vsites, int nsites)
+X{
+Xstatic char fname[128];
+Xstatic int fid = 0;
+XFILE *f;
+Xint k;
+X
+X    sprintf (fname, "vsites.%04d", fid++);
+X    if ((f = fopen(fname, "w")) != NULL)
+X	fprintf (stderr, "opened file '%s' for write\n", fname);
+X    else
+X	fprintf (stderr, "couldn't open file '%s' for write\n", fname);    
+X
+X    for(k = 0; k < nsites; k++)
+X	fprintf (f, "%8.6f %8.6f\n", sites[k].coord.x, sites[k].coord.y);
+X
+X    fclose (f);
+X}
+X
+X
+X/* here, want to copy the gl sites INTO the voronoi array */
+X/* gl sites are written exactly once at beginning of time */
+Xstatic void
+Xbboxinit(void)
+X{
+Xint k;
+Xfloat dx, dy, x, y;
+X
+X    /* get tight bounding box */
+X    vxmin =  1e10;
+X    vxmax = -1e10;
+X
+X    vymin =  1e10;
+X    vymax = -1e10;
+X
+X    for(k = 0; k < nsites; k++) {	
+X	x = sites[k].coord.x = GLsites[k].x;
+X	y = sites[k].coord.y = GLsites[k].y;
+X
+X        sites[k].refcnt = 0;
+X	sites[k].sitenbr = k;
+X
+X	if (x < vxmin) vxmin = x;
+X	if (y < vymin) vymin = y;
+X
+X	if (x > vxmax) vxmax = x;
+X	if (y > vymax) vymax = y;
+X	}
+X
+X    if (vrdebug)
+X	emit_sites (sites, nsites);
+X
+X    /* NOW: xmin, ymin, xmax, ymax EXACT, as required by voronoi() */
+X    /* we shall fool with pxmin, pymin, pxmax, pymax, as used by clip() */
+X
+X#define EPSILON 1.0
+X
+X    /* compute 'loose' bounding box */
+X    dx = vxmax - vxmin;
+X    dx = MAX (dx, EPSILON);
+X
+X    dy = vymax - vymin;
+X    dy = MAX (dy, EPSILON);
+X
+X    pxmin = vxmin - dx * 0.25;
+X    pymin = vymin - dy * 0.25;
+X
+X    pxmax = vxmax + dx * 0.25;
+X    pymax = vymax + dy * 0.25;
+X
+X#ifdef STUPID_C_COMPILER
+X    printf ("/* xmin, ymin %10.7f %10.7f; xmax, ymax %10.7f %10.7f; */\n", vxmin, vymin, vxmax, vymax);
+X    printf ("/* pxmin, pymin %10.7f %10.7f; pxmax, pymax %10.7f %10.7f; crad %10.7f; */\n", pxmin, pymin, pxmax, pymax, cradius);
+X#endif
+X}
+X
+X/* load_vsites(): 
+X    accept the n voronoi sites (x_n, y_n)
+X    calculate and store the voronoi diagram over the n sites,
+X    clipping all infinite edges to bbox: [xmin, ymin, xmax, ymax].
+X    
+X    note: if (xmin,ymin,xmax,ymax are all == 0.0), OR
+X	if these do not enclose the data, a bounding box
+X	 will be computed over the input.
+X
+X    returns:
+X	-1 if error
+X	 0 otherwise
+X*/
+Xint
+Xload_vsites (
+X    int n,
+X    float usites[][2],	/* sites in x,y order */
+X    float uxmin, float uymin, float uxmax, float uymax)
+X{
+Xint k, compute_bbox, sid, tid;
+Xfloat dx, dy, x, y;
+X
+X    if (n >= MAXSITES)	{
+X	fprintf (stderr, "load_vsites(): can't handle >= %d sites.\n", MAXSITES);
+X	return (-1);
+X	}
+X
+X    compute_bbox = (uxmin == 0.0) && (uymin == 0.0) && (uxmax == 0.0) && (uymax == 0.0);
+X
+X    /* copy the sites into GLsites and Usites, and set global nsites */
+X    for (k = 0; k < n; k++) {
+X	Usites[k].x = GLsites[k].x = usites[k][0];
+X	Usites[k].y = GLsites[k].y = usites[k][1];
+X	/* Usites[k].vpid = */	GLsites[k].vpid = k;		/* user's integer site id */
+X
+X	chverts[k].nbr1 = chverts[k].nbr2 = -1;
+X	chverts[k].onhull = FALSE;
+X	}
+X
+X    /* nUsites = n; */
+X    if ((nsites = n) <= 2)  {
+X	for (k = 0; k < nsites; k++)	{
+X	    uchverts[k].vpid = k;
+X	    uchverts[k].nbr1 = (k-1+nsites) % nsites;
+X	    uchverts[k].nbr2 = (k+1+nsites) % nsites;
+X	    }
+X	return;
+X	}
+X
+X    /* sort GL sites lexicographically by position */
+X    sortGLsites();
+X
+X    /* copy sorted GLsites into voronoi alg sites */
+X    bboxinit();
+X
+X    /* now, if user punted on bbox calculation, OR if user bbox does not truly enclose
+X       user data, we use our bbox (computed in initbbox).  otherwise we take the user's. */
+X    if (!(compute_bbox || uxmin > vxmin || uymin > vymin || uxmax < vxmax || uymax < vymax))	{
+X	pxmin = uxmin;
+X	pymin = uymin;
+X
+X	pxmax = uxmax;
+X	pymax = uymax;
+X	}
+X
+X    xminymax [0] = xminymin[0] = pxmin;
+X    xminymin [1] = xmaxymin[1] = pymin;
+X
+X    xmaxymax [0] = xmaxymin[0] = pxmax;
+X    xmaxymax [1] = xminymax[1] = pymax;
+X
+X    corner[0] = (VERTTHETA *)xminymin;
+X    corner[1] = (VERTTHETA *)xmaxymin;
+X    corner[2] = (VERTTHETA *)xmaxymax;
+X    corner[3] = (VERTTHETA *)xminymax;
+X
+X    /* now: set the floating point tolerance values P*** to be 1 or 2 significant bits inside the p*** */
+X    /* be careful to use RELATIVE error; that is, to scale the tolerance to the bbox values themselves */
+X    /* now, if some user puts points way out in left field, our technique handles the ranges correctly */
+X    {
+X    float dx = (pxmax - pxmin) * (1.0 / (4096.0));      /* twelve binary digits out */
+X    float dy = (pymax - pymin) * (1.0 / (4096.0));      /* twelve binary digits out */
+X
+X    Pxmin = pxmin + dx;
+X    Pxmax = pxmax - dx;
+X
+X    Pymin = pymin + dy;
+X    Pymax = pymax - dy;
+X    }
+X
+X    /* compute inverse of external->internal sid mapping */
+X    /* given an internal site number, returns user index */
+X    for (sid = 0; sid < nsites; sid++)
+X	inverse[sid] = GLsites[sid].vpid;
+X
+X    for (sid = 0; sid < nsites; sid++)	{
+X	assert (sites[sid].coord.x == Usites[inverse[sid]].x);
+X	assert (sites[sid].coord.y == Usites[inverse[sid]].y);
+X	}
+X
+X    /* zero list lengths out */
+X    vdinit ();
+X
+X    /* run the voronoi code, no triangulate */
+X    triangulate = FALSE;
+X    voronoi (nextone);
+X
+X    /* RE-copy sorted GLsites into voronoi alg sites */
+X    bboxinit();
+X
+X    /* run the voronoi code, do triangulate */
+X    triangulate = TRUE;
+X    voronoi (nextone);
+X
+X    /* invert the integer id's in sites[], for find_dtriangles() */
+X    /* and restore the original vertex values (from GLsites)	 */
+X    for (sid = 0; sid < nsites; sid++)	{
+X        sites[sid].sitenbr = GLsites[sid].vpid;
+X	sites[sid].coord.x = GLsites[sid].x;
+X	sites[sid].coord.y = GLsites[sid].y;
+X	}
+X
+X    return (0);
+X}
+X
+Xstatic VERTTHETA vtlist[1024], slist[1024];
+Xstatic int  vtnum;
+X
+Xstatic int
+Xvtcomp (
+X    VERTTHETA *vt1, VERTTHETA *vt2)
+X{
+X    if (vt1->theta < vt2->theta)
+X	return (-1);
+X    else if (vt1->theta > vt2->theta)
+X	return (1);
+X    else
+X	return (0);
+X}	
+X
+X/*
+X    find_vregion(sid, plen, pverts)
+X	given a site id 'sid' from 0..nsites-1 inclusive, 
+X	returns the voronoi polygon associated with that site
+X	in the array 'pverts', and its length on call stack.
+X
+X	the vertices are returned in counterclockwise order.
+X
+X    returns:
+X	-1 if error condition
+X	plen > 2 [i.e., the # of verts in the voronoi polygon] otherwise
+X*/
+Xint
+Xfind_vregion (
+X    int vsid,
+X    float pverts[][2])
+X{
+Xint sid, b, k, vnum, bnd1, bnd2, bdiff, sleft, lag, lead, p1a, p1b, p2a, p2b;
+Xfloat x, y, x1, y1, x2, y2, theta1, theta2, lasttheta, dtheta, h;
+X
+X/* note that PUTV(v,sid,vid) has the side effect of incrementing vid */
+X#define PUTV(v,sid,vid)	{ pverts[vid][0] = (v)->x; pverts[vid][1] = (v)->y; vid++; }
+X
+X#ifdef BY_CONTENTS
+X    if (vsid < 0 || vsid >= nUsites) {
+X	fprintf (stderr, "find_vregion(%d) called with illegal site id.\n", vsid);
+X	return (-1);
+X	}
+X
+X    /* look up user's virtual site _by contents_ */
+X    x = Usites[vsid][0];
+X    y = Usites[vsid][0];
+X    for (sid = 0; sid < nsites; sid++)	{
+X	if (GLsites[sid].x == x && GLsites[sid].y == y)
+X	    break;
+X	}
+X#endif
+X
+X    if (vsid < 0 || vsid >= nsites) {
+X	fprintf (stderr, "find_vregion(%d) called with illegal site id.\n", vsid);
+X	return (-1);
+X	}
+X
+X    for (sid = 0; sid < nsites; sid++)	{
+X	if (GLsites[sid].vpid == vsid)
+X	    break;
+X	}
+X
+X    if (sid == nsites)	{
+X	fprintf (stderr, "find_vregion(%d) can't find requested site at (%6.2f, %6.2f).\n", vsid, x, y);
+X	return (-1);
+X	}
+X
+X    for (k = 0; k < 4; k++)
+X	corner[k]->theta = fatan2 (corner[k]->y - GLsites[sid].y, corner[k]->x - GLsites[sid].x);
+X
+X    for (vtnum = 0, k = 0; k < numvedges; k++)
+X	if (vedges[k].nbr1 == sid || vedges[k].nbr2 == sid)   {
+X	    /* add both ends of the edge, and their thetas, to unsorted list (parent is edge k) */
+X	    slist[vtnum  ].e1 = slist[vtnum  ].e2 = k;
+X	    slist[vtnum  ].theta = fatan2 (vedges[k].y1 - GLsites[sid].y, vedges[k].x1 - GLsites[sid].x);
+X	    slist[vtnum  ].x = vedges[k].x1;
+X	    slist[vtnum++].y = vedges[k].y1;
+X
+X	    slist[vtnum  ].e1 = slist[vtnum  ].e2 = k;
+X            slist[vtnum  ].theta = fatan2 (vedges[k].y2 - GLsites[sid].y, vedges[k].x2 - GLsites[sid].x);
+X	    slist[vtnum  ].x = vedges[k].x2;
+X	    slist[vtnum++].y = vedges[k].y2;
+X	    }
+X
+X    /* now we have a list of vtnum thetas and vertices.  sort it on theta */
+X    qsort ((char *)slist, vtnum, sizeof (VERTTHETA), vtcomp);
+X
+X    /* next, install the unique slist entries into vtlist */
+X    lag = lead = 0;
+X    vtlist[lag] = slist[lead];
+X    lasttheta = -10.0;
+X
+X    while (lead < vtnum)	{
+X        if (fabs (slist[lead].theta - lasttheta) > 1E-4) {
+X	    lasttheta = slist[lead].theta;
+X	    vtlist[lag++] = slist[lead++];
+X	    }
+X	else    {
+X	    vtlist[lag-1].e2 = slist[lead++].e1;
+X	    }
+X	}
+X
+X    vtnum = lag;
+X/*
+X    printf ("\n");
+X    for (k = 0; k < vtnum; k++)
+X        printf ("vtlist[%d]: x,y %f,%f; theta %f; edges %d %d\n",
+X		k, vtlist[k].x, vtlist[k].y, vtlist[k].theta, vtlist[k].e1, vtlist[k].e2);
+X*/
+X
+X    for (vnum = 0, k = 0; k < vtnum; k++)	{
+X        if (fabs(vtlist[(k + vtnum - 1) % vtnum].theta - vtlist[k].theta) < 1E-4)   {
+X	    fprintf (stderr,"find_vregion(%d): vtlist %d, %d identical?\n", sid, (k + vtnum - 1) % vtnum, k);
+X	    return (-1);
+X	    }
+X
+X        x1 = vtlist[(k + vtnum - 1) % vtnum].x;
+X        y1 = vtlist[(k + vtnum - 1) % vtnum].y;
+X	p1a = vtlist[(k + vtnum - 1) % vtnum].e1;
+X	p1b = vtlist[(k + vtnum - 1) % vtnum].e2;
+X
+X	x2 = vtlist[k].x;
+X	y2 = vtlist[k].y;
+X	p2a = vtlist[k].e1;
+X	p2b = vtlist[k].e2;
+X
+X	/* now: if the two vertices come from the same edge, output and continue */
+X	if (((p1a == p2a) || (p1a == p2b) || (p1b == p2a) || (p1b == p2b))  && (vtnum > 2))	{
+X	    PUTV (&vtlist[k], sid, vnum);
+X	    continue;
+X	    }
+X
+X	/* otherwise must fill in missing corners between x1,y1 and x2,y2 */
+X	bnd1 = NBOUND(x1,y1);
+X	bnd2 = NBOUND(x2,y2);
+X
+X	/* find number of CLOCKWISE steps around bbox */
+X	if (bnd1 >= 0 && bnd2 >= 0)
+X	    bdiff = ((bnd2 - bnd1) + 4) % 4;	/* from 0 to 3 */
+X	else
+X	    bdiff = 0;
+X
+X	/* if they were on the same bounding box edge, output and continue */
+X	if (bdiff == 0) {		    
+X	    PUTV (&vtlist[k], sid, vnum);
+X	    continue;
+X	    }
+X
+X	/* special case: exactly two vertices */
+X	if (vtnum == 2) {
+X	    theta1 = vtlist[0].theta;
+X	    theta2 = vtlist[1].theta;
+X	    dtheta = theta2 - theta1;    
+X
+X	    /* add all corners OUTSIDE the angular range of the edge as seen from the site */
+X	    for (b = 0; b < 4; b++)	{
+X		if ((dtheta >= M_PI) && (corner[b]->theta > theta1) && (corner[b]->theta < theta2))
+X		    vtlist[vtnum++] = *corner[b];
+X		else if ((dtheta < M_PI) && ((corner[b]->theta < theta1) || (corner[b]->theta > theta2)))
+X		    vtlist[vtnum++] = *corner[b];
+X		}
+X
+X	    /* resort the (small) vertex list by theta */
+X	    qsort ((char *)vtlist, vtnum, sizeof (VERTTHETA), vtcomp);
+X
+X	    /* and output */
+X	    for (b = 0; b < vtnum; b++)
+X		PUTV (&vtlist[b], sid, vnum);
+X
+X	    break;
+X	    }
+X
+X	for (b = 0; b < bdiff; b++)
+X	    PUTV (corner[(bnd1 + b) % 4], sid, vnum);
+X
+X	PUTV (&vtlist[k], sid, vnum);
+X	}	/* k 0 ..vtnum */
+X
+X    return (vnum);
+X}
+X
+X/*
+X    int
+X    find_dtriangles (**dtris)
+X
+X    returns:
+X	-1 if error condition, *dtris == NULL
+X	o/wise, # of delaunay triangles, *dtris == array of TRIS (see voronoi.h)
+X*/
+Xint
+Xfind_dtriangles (
+X    TRI **dtris)
+X{
+X    if (numtris <= 0)	{
+X	*dtris = NULL;
+X	return (-1);
+X	}
+X    else    {
+X	*dtris = tris;
+X	return (numtris);
+X	}
+X}
+X
+X/*
+X    int
+X    find_dtadjacency (*(int[][2]))
+X
+X    returns:
+X	-1 if error condition, *dtadj == NULL
+X	o/wise, # of adjacency pairs, and all pairs
+X	indices refer to triangle ids as returned by find_dtriangles()
+X*/
+Xint adjlist[MAXVERTS * 3][2];
+X
+Xint
+Xfind_dtadjacencies (
+X    int (**dtadj)[][2])	    /* pointer to array of nx2 integers */
+X{
+Xint nadj = 0, j, k, nematched;
+XTRI *trij, *trik;
+X
+X#define EMATCH(Ap, Aq, Bp, Bq) (Ap == Bp && Aq == Bq)
+X
+X    if (numtris <= 0)	{
+X	*dtadj = NULL;
+X	return (-1);
+X	}
+X    else    {
+X	for (j = 0; j < numtris; j++)	{
+X	    trij = &tris[j];
+X	    nematched = 0;
+X	    for (k = j+1; k < numtris; k++)   {
+X	        trik = &tris[k];
+X		if (   EMATCH(trij->v1, trij->v2, trik->v3, trik->v2)
+X		    || EMATCH(trij->v1, trij->v2, trik->v2, trik->v1)
+X		    || EMATCH(trij->v1, trij->v2, trik->v1, trik->v3)) {
+X		    adjlist[nadj  ][0] = j;
+X		    adjlist[nadj++][1] = k;
+X		    nematched++;
+X		    }
+X		else if (EMATCH(trij->v2, trij->v3, trik->v3, trik->v2)
+X		      || EMATCH(trij->v2, trij->v3, trik->v2, trik->v1)
+X		      || EMATCH(trij->v2, trij->v3, trik->v1, trik->v3)) {
+X		    adjlist[nadj  ][0] = j;
+X		    adjlist[nadj++][1] = k;
+X		    nematched++;
+X		    }
+X		else if (EMATCH(trij->v3, trij->v1, trik->v3, trik->v2)
+X		      || EMATCH(trij->v3, trij->v1, trik->v2, trik->v1)
+X		      || EMATCH(trij->v3, trij->v1, trik->v1, trik->v3)) {
+X		    adjlist[nadj  ][0] = j;
+X		    adjlist[nadj++][1] = k;
+X		    nematched++;
+X		    }
+X    
+X		if (nematched == 3)
+X		    break;
+X		}
+X	    }
+X	*dtadj = (int (*)[][2])adjlist;
+X	return (nadj);
+X	}
+X}
+X
+X#define IEPS (2E-7)
+X
+Xstatic int
+Xfident(float a, float b)
+X{
+Xfloat sum;
+X
+X    sum = ABS(a) + ABS(b);
+X
+X    if (sum == 0.0)
+X	return (TRUE);
+X    else    {
+X	sum = (a-b) / sum;
+X	return (sum > -IEPS && sum < IEPS);
+X	}
+X}
+X
+Xstatic int
+Xxycollinear (
+Xfloat ax, float ay, 
+Xfloat bx, float by, 
+Xfloat cx, float cy)
+X{
+Xfloat Ax, Ay, Bx, By;
+X
+X    Ax = bx-ax;
+X    Ay = by-ay;
+X
+X    Bx = cx-bx;
+X    By = cy-by;
+X
+X    return (fident (Ax * By, Bx * Ay));
+X}
+X
+X/*
+X    int
+X    find_convexhull (**chverts)
+X
+X    returns:
+X	if error condition
+X	     *chverts == NULL
+X	    returns -1 
+X	o/wise, 
+X	    *chverts == array of named VERTs (see voronoi.h), in order around convex hull
+X	    *chvert[k].vpid == index of point in point set given to load_vertices()
+X	    returns # of convex hull vertices
+X*/
+Xint
+Xfind_convexhull(
+X    NVERT **chvertices)
+X{
+Xint k, nchverts, nbr1, nbr2;
+XNVERT *v1, *v2, T;
+Xint start, lag, lead;
+X
+X    if (nsites <= 2)	{
+X        *chvertices = uchverts;	    /* arranged correctly in load_vsites() */
+X        return (nsites);
+X	}
+X
+X    /* find first convex hull edge */
+X    for (k = 0; k < nsites; k++) {
+X        v1 = &chverts[k];
+X
+X        if (v1->onhull && v1->nbr1 != -1 && v1->nbr2 != -1)
+X            break;
+X        }
+X
+X    if (k == nsites) {
+X        fprintf (stderr, "no hull edge found!\n");
+X	*chvertices = NULL;
+X        return (-1);
+X        }
+X
+X    /* vpids are _internal_ indices */
+X    start = lag = v1->vpid;
+X    lead = v1->nbr2;
+X
+X    k = 0;
+X    do  {
+X	if (k > 0)
+X	    uchverts[k].nbr1 = uchverts[k-1].vpid;
+X	uchverts[k].vpid = inverse[lag];
+X	uchverts[k++].nbr2 = inverse[lead];
+X	/* assert (lag == chverts[lead].nbr1 || lag == chverts[lead].nbr2); */
+X        if (lag == chverts[lead].nbr1)  {
+X            lag = lead;
+X            lead = chverts[lead].nbr2;
+X            }
+X        else if (lag == chverts[lead].nbr2)  {
+X            lag = lead;
+X            lead = chverts[lead].nbr1;
+X            }
+X	else	{
+X	    fprintf (stderr, "inconsistent convex hull?\n");
+X	    return (0);
+X	    }
+X        } while (lag != start);
+X
+X    uchverts[0].nbr1 = uchverts[k-1].vpid;
+X
+X#define UX(k) (Usites[uchverts[k].vpid].x)
+X#define UY(k) (Usites[uchverts[k].vpid].y)
+X
+X    nchverts = k;
+X
+X#define EXCISE_CPTS
+X#ifdef EXCISE_CPTS
+X    /* strip out any contiguous coincident vertices */
+X    /* excise degenerate vertices */
+X    for (lag = k = 0; k < nchverts; k++)
+X	if (!(fident(UX(k), UX((k+1) % nchverts)) && fident(UY(k), UY((k+1) % nchverts))))
+X	    uchverts[lag++] = uchverts[k];
+X
+X    if (lag != nchverts)    {
+X	fprintf (stderr, "excised %d coincident convex hull vertices\n", nchverts - lag);
+X	k = nchverts = lag;
+X	}
+X#endif
+X
+X#ifdef EXCISE_DEDGES
+X    /* strip out any contiguous collinear vertices */
+X    if (nchverts > 2)	{   /* excise degenerate edges */
+X        for (lag = k = 0; k < nchverts; k++)
+X	  if (!xycollinear (UX(k), UY(k), UX((k+1) % nchverts), UY((k+1) % nchverts), UX((k+2) % nchverts), UY((k+2) % nchverts))) 
+X	    uchverts[lag++] = uchverts[k];
+X
+X        if (lag != nchverts)    {
+X	  fprintf (stderr, "excised %d degenerate convex hull edges\n", nchverts - lag);
+X	    k = nchverts = lag;
+X	  }
+X	}
+X#endif
+X
+X    /* sanity check: vertices _must_ form a list around contour, especially after excisions */
+X/*
+X    if (nchverts > 0)	{
+X        int n, v;
+X
+X	for (v = n = 0; n < nchverts; n++)  {
+X	    v = uchverts[v].nbr2;
+X	    }
+X	}
+X*/
+X
+X    *chvertices = uchverts;
+X    return (k);
+X}
+END_OF_FILE
+  if test 24021 -ne `wc -c <'vregion.c'`; then
+    echo shar: \"'vregion.c'\" unpacked with wrong size!
+  fi
+  # end of 'vregion.c'
+fi
+if test -f 'vregion.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vregion.man'\"
+else
+  echo shar: Extracting \"'vregion.man'\" \(3209 characters\)
+  sed "s/^X//" >'vregion.man' <<'END_OF_FILE'
+X.TH VREGION 3G
+X.SH NAME
+X\fBload_vsites(), find_vregions()\fP - subroutine package to compute Voronoi regions of sites in the plane
+X.SH SYNOPSIS
+X
+X.nf
+X.B #include "voronoi.h"
+X
+X.B int
+X\fBload_vsites (n, sites, uxmin, uymin, uxmax, uymax)\fP
+X.B int n;
+X\fBfloat sites[][2];	/* [][0] is x, [][1] is y */\fP
+X.B float uxmin, uymin, uxmax, uymax;
+X
+X/* load_vsites(): 
+X    accept the n voronoi sites (x_k, y_k)  0 <= k < n
+X    calculate and store the voronoi diagram over the n sites,
+X    clipping all infinite edges to user's bounding box:
+X	[uxmin <= x <= uxmax; uymin <= y <= uymax].
+X    
+X    note: if (uxmin,uymin,uxmax,uymax are all == 0.0), OR
+X	if these do not enclose the data, load_vsites()
+X	will compute a correct bounding box over the input.
+X
+X    returns:
+X	-1 if error
+X	 0 otherwise
+X*/
+X
+X.B int
+X.B find_vregion (vsid, pverts)
+X.B int vsid;
+X.B float pverts[][2];
+X
+X/*
+X    find_vregion(sid, plen, pverts)
+X	given a site id 'sid' from 0..nsites-1 inclusive, 
+X	returns the voronoi polygon associated with that site
+X	in the array 'pverts', and its length on call stack.
+X
+X	the vertices are returned in counterclockwise order.
+X
+X    returns:
+X	-1 if error condition
+X	number of vertices in voronoi polygon, otherwise
+X*/
+X
+X.B int
+X.B find_dtriangles (dtris)
+X.B TRI **dtris;
+X
+X/*
+X    find_dtriangles (dtris)
+X	returns location of list of delaunay triangles induced 
+X	by n sites in *dtris, and its length on call stack.
+X	see voronoi.h for a definition of the TRI struct
+X
+X    returns:
+X	-1 if error condition
+X	number of delaunay triangles, otherwise
+X*/
+X
+X.B int
+X.B find_dtriangles (dtadj)
+X.B int (**dtadj)[][2])
+X
+X/*
+X    int
+X    find_dtadjacency (*(int[][2]))
+X
+X    returns:
+X	-1 if error condition, *dtadj == NULL
+X	o/wise, # of adjacency pairs, and all pairs
+X	indices refer to triangle ids as returned by find_dtriangles()
+X*/
+X
+X.B int
+X.B find_convexhull(
+X.B   NVERT **chvertices)
+X
+X/*
+X    int
+X    find_convexhull (**chverts)
+X
+X    returns:
+X	if error condition
+X	     *chverts == NULL
+X	    returns -1 
+X	o/wise, 
+X	    *chverts == array of named VERTs (see voronoi.h), in order around convex hull
+X	    *chvert[k].vpid == index of point in point set given to load_vertices()
+X	    returns # of convex hull vertices
+X*/
+X
+X.SH DESCRIPTION
+XThe \fBvregion\fP package builds on netlib code believed to be written
+Xby Fortune.  The first routine, \fBload_vsites()\fP, accepts the set of
+Xsites {x,y} and generates a voronoi diagram over the sites, which
+Xit stores internally.  Thereafter, the data structure may be
+Xqueried with \fBfind_vregion\fP which, given an integer id
+Xof a site, returns the voronoi polygon induced by that site (with
+Xany infinite edges suitably clipped).  Calling \fBfind_dtriangles\fP
+Xreturns a list of delaunay triangles whose vertices are the 
+Xsites originally loaded with \fBload_vsites()\fP.
+X
+X.SH USAGE
+XSome usage notes: \fBload_vsites()\fP must be called each time the 
+Xdata or desired bounding box changes.  The time complexity of
+X\fBload_vsites()\fP is approximately \fBO(n lg n)\fP, where n is the 
+Xnumber of sites.
+X
+X.SH FILES
+X.nf
+X\fB
+X    voronoi.h	misc.h	vector.h    headers.h    
+X    geometry.c heap.c    memory.c    edgelist.c   
+X    vregion.c
+X\fP
+X.SH AUTHOR
+XSeth Teller, from netlib code possibly authored by Fortune.
+X
+X
+END_OF_FILE
+  if test 3209 -ne `wc -c <'vregion.man'`; then
+    echo shar: \"'vregion.man'\" unpacked with wrong size!
+  fi
+  # end of 'vregion.man'
+fi
+if test -f 'vrgeometry.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vrgeometry.c'\"
+else
+  echo shar: Extracting \"'vrgeometry.c'\" \(4006 characters\)
+  sed "s/^X//" >'vrgeometry.c' <<'END_OF_FILE'
+X#include <math.h>
+X#include "vordefs.h"
+X
+Xgeominit()
+X{
+X    struct Edge e;
+X    float sn;
+X
+X    freeinit (&efl, sizeof (struct Edge));
+X    nvertices = 0;
+X    nedges = 0;
+X    sn = nsites + 4;
+X    sqrt_nsites = sqrt(sn);
+X    vdeltay = vymax - vymin;
+X    vdeltax = vxmax - vxmin;
+X    siteidx = 0;
+X}
+X
+Xstruct Edge *bisect(s1,s2)
+Xstruct	Site *s1,*s2;
+X{
+X    float dx,dy,adx,ady;
+X    struct Edge *newedge;
+X
+X    newedge = (struct Edge *) getfree(&efl);
+X
+X    newedge->reg[0] = s1;
+X    newedge->reg[1] = s2;
+X    ref(s1); 
+X    ref(s2);
+X    newedge->ep[0] = (struct Site *) NULL;
+X    newedge->ep[1] = (struct Site *) NULL;
+X
+X    dx = s2->coord.x - s1->coord.x;
+X    dy = s2->coord.y - s1->coord.y;
+X    adx = dx>0 ? dx : -dx;
+X    ady = dy>0 ? dy : -dy;
+X    newedge->c = s1->coord.x * dx + s1->coord.y * dy + (dx*dx + dy*dy)*0.5;
+X    if (adx>ady) {	
+X	newedge->a = 1.0; 
+X	newedge->b = dy/dx; 
+X	newedge->c /= dx;
+X    } else {	
+X	newedge->b = 1.0; 
+X	newedge->a = dx/dy; 
+X	newedge->c /= dy;
+X    }
+X    newedge->edgenbr = nedges;
+X    out_bisector(newedge);
+X    nedges += 1;
+X    return(newedge);
+X}
+X
+Xstruct Site *sintersect(el1, el2, p)
+Xstruct Halfedge *el1, *el2;
+Xstruct Point *p;
+X{
+X    struct Edge *e1,*e2, *e;
+X    struct Halfedge *el;
+X    float d, xint, yint;
+X    int right_of_site;
+X    struct Site *v;
+X
+X    e1 = el1->ELedge;
+X    e2 = el2->ELedge;
+X    if (e1 == (struct Edge*)NULL || e2 == (struct Edge*)NULL) 
+X	return ((struct Site *) NULL);
+X    if (e1->reg[1] == e2->reg[1]) 
+X	return ((struct Site *) NULL);
+X    d = e1->a * e2->b - e1->b * e2->a;
+X    if (-1.0e-10<d && d<1.0e-10) 
+X	return ((struct Site *) NULL);
+X    xint = (e1->c*e2->b - e2->c*e1->b)/d;
+X    yint = (e2->c*e1->a - e1->c*e2->a)/d;
+X    if ((e1->reg[1]->coord.y < e2->reg[1]->coord.y) ||
+X	    (e1->reg[1]->coord.y == e2->reg[1]->coord.y &&
+X		e1->reg[1]->coord.x < e2->reg[1]->coord.x) ) {	
+X	el = el1; 
+X	e = e1;
+X    } else {	
+X	el = el2; 
+X	e = e2;
+X    }
+X    right_of_site = xint >= e->reg[1]->coord.x;
+X    if ((right_of_site && el->ELpm == le) ||
+X	   (!right_of_site && el->ELpm == re)) 
+X	return ((struct Site *) NULL);
+X    v = (struct Site *) getfree(&sfl);
+X    v->refcnt = 0;
+X    v->coord.x = xint;
+X    v->coord.y = yint;
+X    return(v);
+X}
+X
+X/* returns 1 if p is to right of halfedge e */
+Xint right_of(el, p)
+Xstruct Halfedge *el;
+Xstruct Point *p;
+X{
+X    struct Edge *e;
+X    struct Site *topsite;
+X    int right_of_site, above, fast;
+X    float dxp, dyp, dxs, t1, t2, t3, yl;
+X
+X    e = el->ELedge;
+X    topsite = e->reg[1];
+X    right_of_site = p->x > topsite->coord.x;
+X    if (right_of_site && el->ELpm == le) 
+X	return(1);
+X    if (!right_of_site && el->ELpm == re) 
+X	return (0);
+X    if (e->a == 1.0) {	
+X	dyp = p->y - topsite->coord.y;
+X	dxp = p->x - topsite->coord.x;
+X	fast = 0;
+X	if ((!right_of_site && e->b<0.0) || (right_of_site && e->b>=0.0) ) {	
+X	    above = dyp>= e->b*dxp;	
+X	    fast = above;
+X	} else {	
+X	    above = p->x + p->y*e->b > e->c;
+X	    if (e->b<0.0) 
+X		above = !above;
+X	    if (!above) 
+X		fast = 1;
+X	}
+X	if (!fast) {	
+X	    dxs = topsite->coord.x - (e->reg[0])->coord.x;
+X	    above = e->b * (dxp*dxp - dyp*dyp) <
+X				    dxs*dyp*(1.0+2.0*dxp/dxs + e->b*e->b);
+X	    if (e->b<0.0) 
+X		above = !above;
+X	}
+X    } else {	/*e->b==1.0 */
+X	yl = e->c - e->a*p->x;
+X	t1 = p->y - yl;
+X	t2 = p->x - topsite->coord.x;
+X	t3 = yl - topsite->coord.y;
+X	above = t1*t1 > t2*t2 + t3*t3;
+X    }
+X    return (el->ELpm==le ? above : !above);
+X}
+X
+Xvoid
+Xv_endpoint(e, lr, s)
+Xstruct Edge *e;
+Xint	lr;
+Xstruct Site *s;
+X{
+X    e->ep[lr] = s;
+X    ref(s);
+X    if (e->ep[re-lr]==(struct Site *)NULL) 
+X	return;
+X    out_ep(e);
+X    deref(e->reg[le]);
+X    deref(e->reg[re]);
+X    makefree(e, &efl);
+X}
+X
+Xfloat dist(s,t)
+Xstruct Site *s,*t;
+X{
+X    float dx,dy;
+X    dx = s->coord.x - t->coord.x;
+X    dy = s->coord.y - t->coord.y;
+X    return(sqrt(dx*dx + dy*dy));
+X}
+X
+X
+Xint makevertex(v)
+Xstruct Site *v;
+X{
+X    v->sitenbr = nvertices;
+X    nvertices += 1;
+X    out_vertex(v);
+X}
+X
+X
+Xderef(v)
+Xstruct	Site *v;
+X{
+X    v->refcnt -= 1;
+X    if (v->refcnt == 0) 
+X	makefree(v, &sfl);
+X}
+X
+Xref(v)
+Xstruct Site *v;
+X{
+X    v->refcnt += 1;
+X}
+END_OF_FILE
+  if test 4006 -ne `wc -c <'vrgeometry.c'`; then
+    echo shar: \"'vrgeometry.c'\" unpacked with wrong size!
+  fi
+  # end of 'vrgeometry.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

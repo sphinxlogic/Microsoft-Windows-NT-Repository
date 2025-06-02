@@ -1,0 +1,2042 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i015:  pexdraw - A PEX drawing program, Part05/14
+Message-ID: <1993Jun8.150120.18870@sparky.imd.sterling.com>
+X-Md4-Signature: a85436da20844dcda299c0a0fd767a00
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:01:20 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 15
+Archive-name: pexdraw/part05
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  plogo.c ui.c
+# Wrapped by chris@sparky on Tue Jun  8 09:46:32 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 14)."'
+if test -f 'plogo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plogo.c'\"
+else
+  echo shar: Extracting \"'plogo.c'\" \(13664 characters\)
+  sed "s/^X//" >'plogo.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)plcube.c	1.1 Oki 93/05/18";
+X#endif
+X/*
+X * plogo.c - PEXlib logo
+X   cc -o plcube plcube.c -lPEX5 -lm -lX11                    -lnsl
+X   
+X			Copyright (c) 1992, 1993 by 
+X			Oki Electric Industry Co., Ltd.
+X			All Rights Reserved
+X	
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X*/
+X
+X#define NeedFunctionPrototypes 1
+X
+X#include <X11/Xlib.h>
+X#include <X11/PEX5/PEXlib.h>
+X
+X#define SET_POINT(p,a,b,c) {(p)->x=(a);(p)->y=(b);(p)->z=(c);}
+X
+X#define RADIAN(x) ((x)*(3.1415927 / 180.0))
+X
+X
+XPEXColorRGB red     = {1,0,0};
+XPEXColorRGB green   = {0,1,0};
+XPEXColorRGB blue    = {0,0,1};
+XPEXColorRGB cyan    = {0,1,1};
+XPEXColorRGB magenta = {1,0,1};
+XPEXColorRGB yellow  = {1,1,0};
+X
+XPEXColorRGB purple  = {1,0,0.8};
+X
+XDisplay		*theDisplay;
+XPEXStructure     theStrux;
+X
+Xmain (argc, argv)
+X     int argc;
+X     char  *argv[];
+X{
+X  char			*displayString = (char *)0;
+X  PEXExtensionInfo	*info_return;
+X  char			err_msg[PEXErrorStringLength];
+X  int                   i;
+X  PEXCoord p[2];
+X  PEXCoord verts[30], *pts;
+X  PEXVector normals[30], *ns;
+X  PEXArrayOfFacetData fData;
+X  PEXArrayOfVertex vData;
+X
+X  PEXVector shift, scale;
+X  PEXMatrix bldmat, scaleMatrix;
+X  PEXCoord  pt;
+X  double x_ang, y_ang, z_ang;
+X
+X  for ( i = 1; i<argc; i++ ) {
+X    if ((strncmp(argv[i],"-display",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      displayString = argv[i];
+X    } else if ((strncmp(argv[i],"-strux",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      theStrux = atoi(argv[i]);
+X    }
+X  }
+X
+X  /*
+X   * Open the display and initialize the PEX extension.
+X   */
+X  
+X  if (!(theDisplay = XOpenDisplay(displayString)))
+X    {
+X      printf ( "Could not open display %s\n",displayString);
+X      exit (1);
+X    }
+X  
+X  if (PEXInitialize(theDisplay, &info_return, PEXErrorStringLength, err_msg))
+X    {
+X      printf ("%s\n", err_msg);
+X      exit (1);	    
+X    }
+X
+X  PEXSetLineColorIndex( theDisplay, theStrux, PEXOCStore, 2);
+X  p[0].x = -3; p[0].y = -2; p[0].z = 0;
+X  p[1].x = 3; p[1].y = -2; p[1].z = 0;
+X  PEXPolyline(theDisplay, theStrux, PEXOCStore, 2, p );
+X
+X  scale.x = 0.7; scale.y = -0.7; scale.z = 0.7;
+X  PEXScale(&scale,scaleMatrix);
+X  shift.x = -3; shift.y = 0; shift.z = 0;
+X  PEXTranslate(&shift,bldmat);
+X  PEXMatrixMult( scaleMatrix, bldmat, bldmat );
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PutPEXlib();
+X  
+X  XSync(theDisplay,0); /* must sync before we exit, we care about the strux */
+X}
+X
+X
+XPutPEXlib()
+X{
+X  PEXCoord points[30], *pts;
+X  PEXListOfCoord lop[2];
+X  
+X  pts = points;
+X  
+X  pts->x = 0.1434; pts->y = 1.625; pts->z = -0.1; pts++;
+X  pts->x = 0.1434; pts->y = 0.92486; pts->z = -0.1; pts++;
+X  pts->x = 0.39947; pts->y = 0.92486; pts->z = -0.1; pts++;
+X  pts->x = 0.39947; pts->y = 1.625; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&red );
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 4, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 0.1434; pts->y = 0.87487; pts->z = -0.1; pts++;
+X  pts->x = 0.1434; pts->y = 0.77489; pts->z = -0.1; pts++;
+X  pts->x = 0.61286; pts->y = 0.77489; pts->z = -0.1; pts++;
+X  pts->x = 0.7409; pts->y = 0.7249; pts->z = -0.1; pts++;
+X  pts->x = 0.82625; pts->y = 0.67491; pts->z = -0.1; pts++;
+X  pts->x = 0.86893; pts->y = 0.57492; pts->z = -0.1; pts++;
+X  pts->x = 0.86893; pts->y = 0.42495; pts->z = -0.1; pts++;
+X  pts->x = 0.82625; pts->y = 0.32497; pts->z = -0.1; pts++;
+X  pts->x = 0.7409; pts->y = 0.27498; pts->z = -0.1; pts++;
+X  pts->x = 0.61286; pts->y = 0.22499; pts->z = -0.1; pts++;
+X  pts->x = 0.39947; pts->y = 0.22499; pts->z = -0.1; pts++;
+X  pts->x = 0.39947; pts->y = 0.7249; pts->z = -0.1; pts++;
+X  pts->x = 0.1434; pts->y = 0.7249; pts->z = -0.1; pts++;
+X  pts->x = 0.1434; pts->y = 0.125; pts->z = -0.1; pts++;
+X  pts->x = 0.7409; pts->y = 0.125; pts->z = -0.1; pts++;
+X  pts->x = 0.91161; pts->y = 0.17499; pts->z = -0.1; pts++;
+X  pts->x = 0.99697; pts->y = 0.22499; pts->z = -0.1; pts++;
+X  pts->x = 1.08232; pts->y = 0.32497; pts->z = -0.1; pts++;
+X  pts->x = 1.125; pts->y = 0.42495; pts->z = -0.1; pts++;
+X  pts->x = 1.125; pts->y = 0.57492; pts->z = -0.1; pts++;
+X  pts->x = 1.08232; pts->y = 0.67491; pts->z = -0.1; pts++;
+X  pts->x = 0.99697; pts->y = 0.77489; pts->z = -0.1; pts++;
+X  pts->x = 0.91161; pts->y = 0.82488; pts->z = -0.1; pts++;
+X  pts->x = 0.7409; pts->y = 0.87487; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&red );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 24, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 1.25; pts->y = 1.625; pts->z = -0.1; pts++;
+X  pts->x = 1.25; pts->y = 0.92512; pts->z = -0.1; pts++;
+X  pts->x = 1.50608; pts->y = 0.92512; pts->z = -0.1; pts++;
+X  pts->x = 1.50608; pts->y = 1.52499; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 1.52499; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 1.625; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&green );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 6, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 1.25; pts->y = 0.87513; pts->z = -0.1; pts++;
+X  pts->x = 1.25; pts->y = 0.77514; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 0.77514; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 0.87513; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&green );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 4, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 1.25; pts->y = 0.72376; pts->z = -0.1; pts++;
+X  pts->x = 1.25; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 2.14625; pts->y = 0.22385; pts->z = -0.1; pts++;
+X  pts->x = 1.50608; pts->y = 0.22385; pts->z = -0.1; pts++;
+X  pts->x = 1.50608; pts->y = 0.72376; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&green );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 6, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 2.40232; pts->y = 1.62386; pts->z = -0.1; pts++;
+X  pts->x = 2.82911; pts->y = 0.87373; pts->z = -0.1; pts++;
+X  pts->x = 2.40232; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 2.65839; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 2.99982; pts->y = 0.72376; pts->z = -0.1; pts++;
+X  pts->x = 2.48768; pts->y = 1.62386; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&blue );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 6, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 3.25589; pts->y = 1.62386; pts->z = -0.1; pts++;
+X  pts->x = 2.91447; pts->y = 1.02371; pts->z = -0.1; pts++;
+X  pts->x = 3.42661; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 3.51233; pts->y = 0.12386; pts->z = -0.1; pts++;
+X  pts->x = 3.08518; pts->y = 0.87373; pts->z = -0.1; pts++;
+X  pts->x = 3.51233; pts->y = 1.62386; pts->z = -0.1; pts++;
+X  pts->x = 3.25589; pts->y = 1.62386; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&blue );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 7, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 3.75; pts->y = 0.375; pts->z = -0.1; pts++;
+X  pts->x = 3.875; pts->y = 0.25; pts->z = -0.1; pts++;
+X  pts->x = 4.02367; pts->y = 0.14236; pts->z = -0.1; pts++;
+X  pts->x = 4.125; pts->y = 0.125; pts->z = -0.1; pts++;
+X  pts->x = 4.21117; pts->y = 0.15972; pts->z = -0.1; pts++;
+X  pts->x = 4.25; pts->y = 0.25; pts->z = -0.1; pts++;
+X  pts->x = 4.0; pts->y = 1.375; pts->z = -0.1; pts++;
+X  pts->x = 4.04798; pts->y = 1.48264; pts->z = -0.1; pts++;
+X  pts->x = 4.22506; pts->y = 1.45139; pts->z = -0.1; pts++;
+X  pts->x = 4.375; pts->y = 1.375; pts->z = -0.1; pts++;
+X  pts->x = 4.25; pts->y = 1.5; pts->z = -0.1; pts++;
+X  pts->x = 4.10354; pts->y = 1.60417; pts->z = -0.1; pts++;
+X  pts->x = 4.0; pts->y = 1.625; pts->z = -0.1; pts++;
+X  pts->x = 3.91951; pts->y = 1.58333; pts->z = -0.1; pts++;
+X  pts->x = 3.875; pts->y = 1.5; pts->z = -0.1; pts++;
+X  pts->x = 4.125; pts->y = 0.375; pts->z = -0.1; pts++;
+X  pts->x = 4.08617; pts->y = 0.26042; pts->z = -0.1; pts++;
+X  pts->x = 3.90562; pts->y = 0.29861; pts->z = -0.1; pts++;
+X  pts->x = 3.75; pts->y = 0.375; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&cyan );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 19, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 4.54104; pts->y = 0.84028; pts->z = -0.1; pts++;
+X  pts->x = 4.69034; pts->y = 0.69792; pts->z = -0.1; pts++;
+X  pts->x = 4.77715; pts->y = 0.64583; pts->z = -0.1; pts++;
+X  pts->x = 4.87437; pts->y = 0.64236; pts->z = -0.1; pts++;
+X  pts->x = 4.9334; pts->y = 0.71875; pts->z = -0.1; pts++;
+X  pts->x = 4.93687; pts->y = 0.85069; pts->z = -0.1; pts++;
+X  pts->x = 4.81944; pts->y = 1.36806; pts->z = -0.1; pts++;
+X  pts->x = 4.86742; pts->y = 1.47569; pts->z = -0.1; pts++;
+X  pts->x = 5.04451; pts->y = 1.44444; pts->z = -0.1; pts++;
+X  pts->x = 5.19444; pts->y = 1.36806; pts->z = -0.1; pts++;
+X  pts->x = 5.06944; pts->y = 1.49306; pts->z = -0.1; pts++;
+X  pts->x = 4.92298; pts->y = 1.59722; pts->z = -0.1; pts++;
+X  pts->x = 4.81944; pts->y = 1.61806; pts->z = -0.1; pts++;
+X  pts->x = 4.73895; pts->y = 1.57639; pts->z = -0.1; pts++;
+X  pts->x = 4.69444; pts->y = 1.49306; pts->z = -0.1; pts++;
+X  pts->x = 4.8327; pts->y = 0.86458; pts->z = -0.1; pts++;
+X  pts->x = 4.8084; pts->y = 0.75694; pts->z = -0.1; pts++;
+X  pts->x = 4.72854; pts->y = 0.75694; pts->z = -0.1; pts++;
+X  pts->x = 4.54104; pts->y = 0.84028; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&magenta );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 19, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 4.84312; pts->y = 0.30208; pts->z = -0.1; pts++;
+X  pts->x = 4.95423; pts->y = 0.30208; pts->z = -0.1; pts++;
+X  pts->x = 5.02367; pts->y = 0.37153; pts->z = -0.1; pts++;
+X  pts->x = 5.02367; pts->y = 0.48611; pts->z = -0.1; pts++;
+X  pts->x = 4.9577; pts->y = 0.54514; pts->z = -0.1; pts++;
+X  pts->x = 4.85354; pts->y = 0.54514; pts->z = -0.1; pts++;
+X  pts->x = 4.78409; pts->y = 0.48611; pts->z = -0.1; pts++;
+X  pts->x = 4.78756; pts->y = 0.36458; pts->z = -0.1; pts++;
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&magenta );
+X  
+X  
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X	      PEXShapeComplex, True, 8, points );
+X  
+X  pts = points;
+X  
+X  pts->x = 5.38889; pts->y = 0.375; pts->z = -0.1; pts++;
+X  pts->x = 5.51389; pts->y = 0.25; pts->z = -0.1; pts++;
+X  pts->x = 5.66256; pts->y = 0.14236; pts->z = -0.1; pts++;
+X  pts->x = 5.76389; pts->y = 0.125; pts->z = -0.1; pts++;
+X  pts->x = 5.85006; pts->y = 0.15972; pts->z = -0.1; pts++;
+X  pts->x = 5.88889; pts->y = 0.25; pts->z = -0.1; pts++;
+X  pts->x = 5.72159; pts->y = 0.99306; pts->z = -0.1; pts++;
+X  pts->x = 5.81534; pts->y = 0.89236; pts->z = -0.1; pts++;
+X  pts->x = 5.92992; pts->y = 0.82986; pts->z = -0.1; pts++;
+X  pts->x = 6.10006; pts->y = 0.82986; pts->z = -0.1; pts++;
+X  pts->x = 6.22159; pts->y = 0.95833; pts->z = -0.1; pts++;
+X  pts->x = 6.14173; pts->y = 1.34375; pts->z = -0.1; pts++;
+X  pts->x = 6.1; pts->y = 1.42; pts->z = -0.1; pts++;
+X  pts->x = 6.01389; pts->y = 1.51736; pts->z = -0.1; pts++;
+X  pts->x = 5.81534; pts->y = 1.59375; pts->z = -0.1; pts++;
+X  pts->x = 5.63889; pts->y = 1.625; pts->z = -0.1; pts++;
+X  pts->x = 5.5584; pts->y = 1.58333; pts->z = -0.1; pts++;
+X  pts->x = 5.51389; pts->y = 1.5; pts->z = -0.1; pts++;
+X  pts->x = 5.76389; pts->y = 0.375; pts->z = -0.1; pts++;
+X  pts->x = 5.72506; pts->y = 0.26042; pts->z = -0.1; pts++;
+X  pts->x = 5.54451; pts->y = 0.29861; pts->z = -0.1; pts++;
+X  pts->x = 5.38889; pts->y = 0.375; pts->z = -0.1; pts++;
+X  
+X  /* start inside of b */
+X  
+X  pts->x = 5.70423; pts->y = 1.10417; pts->z = -0.1; pts++;
+X  pts->x = 5.63826; pts->y = 1.41667; pts->z = -0.1; pts++;
+X  pts->x = 5.72506; pts->y = 1.50694; pts->z = -0.1; pts++;
+X  pts->x = 5.87437; pts->y = 1.46528; pts->z = -0.1; pts++;
+X  pts->x = 6.01326; pts->y = 1.34028; pts->z = -0.1; pts++;
+X  pts->x = 6.08965; pts->y = 1.0; pts->z = -0.1; pts++;
+X  pts->x = 6.01673; pts->y = 0.93403; pts->z = -0.1; pts++;
+X  pts->x = 5.82229; pts->y = 0.98958; pts->z = -0.1; pts++;
+X  
+X  lop[0].count = 22;
+X  lop[0].points = &points[0];
+X  lop[1].count = 8;
+X  lop[1].points = &points[22];
+X  
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X		     PEXColorTypeRGB, (PEXColor *)&yellow );
+X  
+X  
+X  PEXFillAreaSet(  theDisplay, theStrux, PEXOCStore,
+X		 PEXShapeComplex, True, PEXContourNested, 2, lop );
+X}
+END_OF_FILE
+  if test 13664 -ne `wc -c <'plogo.c'`; then
+    echo shar: \"'plogo.c'\" unpacked with wrong size!
+  fi
+  # end of 'plogo.c'
+fi
+if test -f 'ui.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ui.c'\"
+else
+  echo shar: Extracting \"'ui.c'\" \(43663 characters\)
+  sed "s/^X//" >'ui.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)ui.c	1.19 Oki Electric Industry Co., Ltd. 93/05/24";
+X#endif
+X/*
+X	This file is under sccs control at Stardent in:
+X	/nfs/sole/root/sccs1.p/X11R5/mit/demos/pexdraw/s.ui.c
+X*/
+X/*
+X *			Copyright (c) 1992 by
+X *			Oki Electric Industry Co., Ltd.
+X *			All Rights Reserved
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X *
+X * This supercedes the Stardent copyright granting the same rights that
+X * appeared in the pdraw predecessor to pexdraw.
+X *
+X *************************************************************************
+X *
+X *             User Interface for   P E X D R A W
+X *
+X *		The Motif Version.
+X *   
+X *  void InitUserInterface(argc, argv)
+X *  void MainLoop()
+X *  int  applyViewSet(int viewNumber)
+X *  void GetVPN( int viewNumber,   PEXVector  *vpn )
+X *  void SetVPN( int viewNumber,   PEXVector  *vpn )
+X *  void GetVUP( int viewNumber,   PEXVector  *vup )
+X *  void SetVUP( int viewNumber,   PEXVector  *vup )
+X *  void AddWorkProc(int (*worker)(), char *info)
+X *  void ApplySurfaceAttrs()
+X *  GC CreateDynGC()
+X *  GetSomeTextFromUI(int x, int y, int *length, char **charStr, int *flags )
+X *  void FinishExec(XButtonReleasedEvent *event );
+X *  
+X * What about WM_COLORMAP_WINDOWS???
+X *************************************************************************/
+X
+X#include <stdlib.h>         /* for strtod() */
+X#include <stdio.h>
+X#include <Xm/Xm.h>          /* Motif Toolkit */
+X#include <Mrm/MrmPublic.h>   /* Mrm */
+X#include <Xm/ToggleB.h>     /* for XmToggleButtonGetState() */
+X
+X#include <math.h>
+X
+X#include <X11/PEX5/PEXlib.h>
+X
+X#include "pexdraw.h"
+X
+Xstatic MrmHierarchy theMrmHierarchy;     /* MRM database hierarchy ID */
+X
+XXtAppContext    theAppContext;
+Xint theDBFlag = 1;
+X
+Xstatic Widget theDrawingArea = NULL, /* the PEX area */
+X              theViewForm = NULL,    /* the View Paramter Form */
+X              theLightForm = NULL,   /* the Light Form */
+X	      theSurfaceForm = NULL, /* the surface form */
+X              theTopLevel = NULL,    /* global parent */
+X  	      theFileForm = NULL,    /* archive file handler */
+X  	      theSpinForm = NULL,    /* spin options */
+X  	      theColorForm = NULL;   /* spin options */
+X
+X/* Widget array declared after constants */
+X
+X       /* forward declaration of interface procedures */
+Xstatic void proc_pexdraw_create();
+Xstatic void proc_pexdraw_expose();
+Xstatic void proc_pexdraw_resize();
+Xstatic void proc_pexdraw_input();
+Xstatic void proc_pexdraw_exit();
+Xstatic void proc_pexdraw_activate();
+Xstatic void proc_pexdraw_file();
+X
+X#if NeedFunctionPrototypes
+Xstatic void FinishExec(XButtonReleasedEvent * /* event */ );
+X#else
+Xstatic void FinishExec();
+X#endif
+X
+X
+X       /* binding of uil procedure names with C functions */
+Xstatic MRMRegisterArg	regvec[] = {
+X	{"proc_pexdraw_exit",(caddr_t)proc_pexdraw_exit},
+X	{"proc_pexdraw_create",(caddr_t)proc_pexdraw_create},
+X	{"proc_pexdraw_expose",(caddr_t)proc_pexdraw_expose},
+X	{"proc_pexdraw_resize",(caddr_t)proc_pexdraw_resize},
+X	{"proc_pexdraw_input",(caddr_t)proc_pexdraw_input},
+X	{"proc_pexdraw_activate",(caddr_t)proc_pexdraw_activate},
+X	{"proc_pexdraw_file",(caddr_t)proc_pexdraw_file}
+X	};
+Xstatic MrmCount regnum = sizeof(regvec) / sizeof(MRMRegisterArg);
+X
+X/*************************************************************************
+X *
+X *   C O N S T A N T S   U S E D   B Y   U I L
+X *
+X *
+X * why the &^%&^% these are not generated by UIL!.
+X * 
+X */
+X#define    k_drawing_area 0
+X#define    k_view_set 1
+X#define    k_apply_vs 2
+X#define    k_reset_vs 3
+X#define    k_dismiss_vs 4
+X#define    k_view_ref_pt_x 5
+X#define    k_view_ref_pt_y 6
+X#define    k_view_ref_pt_z 7
+X#define    k_view_pl_norm_x 8
+X#define    k_view_pl_norm_y 9
+X#define    k_view_pl_norm_z 10
+X#define    k_view_up_vect_x 11
+X#define    k_view_up_vect_y 12
+X#define    k_view_up_vect_z 13
+X#define    k_proj_ref_pt_x 14
+X#define    k_proj_ref_pt_y 15
+X#define    k_proj_ref_pt_z 16
+X#define    k_view_window_minx 17
+X#define    k_view_window_maxx 18
+X#define    k_view_window_miny 19
+X#define    k_view_window_maxy 20
+X#define    k_view_plane_dist 21
+X#define    k_view_plane_back 22
+X#define    k_view_plane_front 23
+X#define    k_proj_vp_minx 24
+X#define    k_proj_vp_maxx 25
+X#define    k_proj_vp_miny 26
+X#define    k_proj_vp_maxy 27
+X#define    k_proj_vp_minz 28
+X#define    k_proj_vp_maxz 29
+X#define    k_proj_type_para 30
+X#define    k_proj_type_persp 31
+X#define    k_dump_strux 32
+X#define    k_refresh 33
+X#define    k_tool_pointer 34
+X#define    k_tool_line 35
+X#define    k_tool_view 36
+X#define    k_tool_tristrip 37
+X#define    k_delete 38
+X#define    k_light 39
+X#define    k_light_on1 40
+X#define    k_light_on2 41
+X#define    k_light_on3 42
+X#define    k_light_on4 43
+X#define    k_light_on5 44
+X#define    k_light_on6 45
+X#define    k_light_on7 46
+X#define    k_light_on8 47
+X#define    k_light_edit1 48
+X#define    k_light_edit2 49
+X#define    k_light_edit3 50
+X#define    k_light_edit4 51
+X#define    k_light_edit5 52
+X#define    k_light_edit6 53
+X#define    k_light_edit7 54
+X#define    k_light_edit8 55
+X#define    k_light_type_ambient 56
+X#define    k_light_type_directional 57
+X#define    k_light_type_positional 58
+X#define    k_light_type_spot 59
+X#define    k_light_pos_x 60
+X#define    k_light_pos_y 61
+X#define    k_light_pos_z 62
+X#define    k_light_color_red 63
+X#define    k_light_color_green 64
+X#define    k_light_color_blue 65
+X#define    k_light_direction_x 66
+X#define    k_light_direction_y 67
+X#define    k_light_direction_z 68
+X#define    k_light_coeff_const 69
+X#define    k_light_coeff_dist 70
+X#define    k_light_conc_exp 71
+X#define    k_light_spread_angle 72
+X#define    k_apply_light 73
+X#define    k_reset_light 74
+X#define    k_dismiss_light 75
+X#define    k_surface 76
+X#define    k_tool_mclip 77
+X#define    k_reset_model  78
+X#define    k_spin_slowly  79
+X#define    k_save 80
+X#define    k_read 81
+X#define    k_file 82
+X#define    k_undo 83
+X#define    k_file_help 84
+X#define    k_delete_all 85
+X#define    k_face_cull 86
+X#define    k_sphere 87
+X#define    k_dismiss_surface 88
+X#define    k_reset_surface 89
+X#define    k_apply_surface 90
+X#define    k_surface_refl_transparency 91
+X#define    k_surface_refl_specexp 92
+X#define    k_surface_refl_specular 93
+X#define    k_surface_refl_diffuse 94
+X#define    k_surface_refl_ambient 95
+X#define    k_sstyle_empty 96
+X#define    k_sstyle_solid 97
+X#define    k_sstyle_hollow 98
+X#define    k_sshade_flat 99
+X#define    k_sshade_gouraud 100
+X#define    k_sshade_dot 101
+X#define    k_sshade_phong 102
+X#define    k_cull_none 103
+X#define    k_cull_back 104
+X#define    k_cull_front 105
+X#define    k_tool_zoom 106
+X#define    k_tool_nurbc 107
+X#define    k_tool_text 108
+X#define    k_tool_pgon 109
+X#define    k_tool_circle 110
+X#define    k_spin_form 111
+X#define    k_spinf_strux 112
+X#define    k_spinf_px 113
+X#define    k_spinf_py 114
+X#define    k_spinf_pz 115
+X#define    k_spinf_ox 116
+X#define    k_spinf_oy 117
+X#define    k_spinf_oz 118
+X#define    k_spinf_xang 119
+X#define    k_spinf_yang 120
+X#define    k_spinf_zang 121
+X#define    k_spinf_dx 122
+X#define    k_spinf_dy 123
+X#define    k_spinf_dz 124
+X#define    k_spinf_stop 125
+X#define    k_spinf_scale 126
+X#define    k_apply_spin 127
+X#define    k_dismiss_spin 128
+X#define    k_reset_spin 129
+X#define    k_color_form 130
+X#define    k_color_red 131
+X#define    k_color_green 132
+X#define    k_color_blue 133
+X#define    k_apply_color 134
+X#define    k_dismiss_color 135
+X#define    k_reset_color 136
+X#define    k_color_strux 137
+X#define    k_color_elem 138
+X#define    k_delete_strux 139
+X#define    k_exec_strux 140
+X#define    k_unpost_strux 141
+X
+X#define MAX_WIDGET 140
+Xstatic Widget widgetArray[MAX_WIDGET]; /* just the widgets with constants +1 */
+X
+X/*
+X * number strings
+X */
+Xstatic char *numberStrings[] = {
+X  "",				/* k_drawing_area 0 */
+X  "",				/* k_view_set 1 */
+X  "",				/* k_apply_vs 2 */
+X  "",				/* k_reset_vs 3 */
+X  "",				/* k_dismiss_vs 4 */
+X  "view_ref_pt_x",		/* k_view_ref_pt_x 5 */
+X  "view_ref_pt_y",		/* k_view_ref_pt_y 6 */
+X  "view_ref_pt_z",		/* k_view_ref_pt_z 7 */
+X  "view_pl_norm_x",		/* k_view_pl_norm_x 8 */
+X  "view_pl_norm_y",		/* k_view_pl_norm_y 9 */
+X  "view_pl_norm_z",		/* k_view_pl_norm_z 10 */
+X  "view_up_vect_x",		/* k_view_up_vect_x 11 */
+X  "view_up_vect_y",		/* k_view_up_vect_y 12 */
+X  "view_up_vect_z",		/* k_view_up_vect_z 13 */
+X  "view_window_minx",		/* k_view_window_minx 17 */
+X  "view_window_maxx",		/* k_view_window_maxx 18 */
+X  "view_window_miny",		/* k_view_window_miny 19 */
+X  "view_window_maxy",		/* k_view_window_maxy 20 */
+X  "view_plane_dist",		/* k_view_plane_dist 21 */
+X  "view_plane_back",		/* k_view_plane_back 22 */
+X  "view_plane_front",		/* k_view_plane_front 23 */
+X  "proj_vp_minx",		/* k_proj_vp_minx 24 */
+X  "proj_vp_maxx",		/* k_proj_vp_maxx 25 */
+X  "proj_vp_miny",		/* k_proj_vp_miny 26 */
+X  "proj_vp_maxy",		/* k_proj_vp_maxy 27 */
+X  "proj_vp_minz",		/* k_proj_vp_minz 28 */
+X  "proj_vp_maxz",		/* k_proj_vp_maxz 29 */
+X  "proj_type_para",		/* k_proj_type_para 30 */
+X  "proj_type_persp",		/* k_proj_type_persp 31 */
+X    "dump_strux",		/* k_dump_strux 32 */
+X    "refresh",		/* k_refresh 33 */
+X    "tool_pointer",		/* k_tool_pointer 34 */
+X    "tool_line",		/* k_tool_line 35 */
+X    "tool_view",		/* k_tool_view 36 */
+X    "tool_tristrip",		/* k_tool_tristrip 37 */
+X    "delete",		/* k_delete 38 */
+X    "light",		/* k_light 39 */
+X    "light_on1",		/* k_light_on1 40 */
+X    "light_on2",		/* k_light_on2 41 */
+X    "light_on3",		/* k_light_on3 42 */
+X    "light_on4",		/* k_light_on4 43 */
+X    "light_on5",		/* k_light_on5 44 */
+X    "light_on6",		/* k_light_on6 45 */
+X    "light_on7",		/* k_light_on7 46 */
+X    "light_on8",		/* k_light_on8 47 */
+X    "light_edit1",		/* k_light_edit1 48 */
+X    "light_edit2",		/* k_light_edit2 49 */
+X    "light_edit3",		/* k_light_edit3 50 */
+X    "light_edit4",		/* k_light_edit4 51 */
+X    "light_edit5",		/* k_light_edit5 52 */
+X    "light_edit6",		/* k_light_edit6 53 */
+X    "light_edit7",		/* k_light_edit7 54 */
+X    "light_edit8",		/* k_light_edit8 55 */
+X    "light_type_ambient",		/* k_light_type_ambient 56 */
+X    "light_type_directional",		/* k_light_type_directional 57 */
+X    "light_type_positional",		/* k_light_type_positional 58 */
+X    "light_type_spot",		/* k_light_type_spot 59 */
+X    "light_pos_x",		/* k_light_pos_x 60 */
+X    "light_pos_y",		/* k_light_pos_y 61 */
+X    "light_pos_z",		/* k_light_pos_z 62 */
+X    "light_color_red",		/* k_light_color_red 63 */
+X    "light_color_green",		/* k_light_color_green 64 */
+X    "light_color_blue",		/* k_light_color_blue 65 */
+X    "light_direction_x",		/* k_light_direction_x 66 */
+X    "light_direction_y",		/* k_light_direction_y 67 */
+X    "light_direction_z",		/* k_light_direction_z 68 */
+X    "light_coeff_const",		/* k_light_coeff_const 69 */
+X    "light_coeff_dist",		/* k_light_coeff_dist 70 */
+X    "light_conc_exp",		/* k_light_conc_exp 71 */
+X    "light_spread_angle",		/* k_light_spread_angle 72 */
+X    "apply_light",		/* k_apply_light 73 */
+X    "reset_light",		/* k_reset_light 74 */
+X    "dismiss_light",		/* k_dismiss_light 75 */
+X    "surface",		/* k_surface 76 */
+X    "FREE",		/* k_FREE 77 */
+X    "reset_model",		/* k_spin_strux  78 */
+X    "spin_slowly",		/* k_spin_slowly  79 */
+X    "save",		/* k_save 80 */
+X    "read",		/* k_read 81 */
+X    "file",		/* k_file 82 */
+X    "undo",		/* k_undo 83 */
+X    "file_help",		/* k_file_help 84 */
+X    "delete_all",		/* k_delete_all 85 */
+X    "face_cull",		/* k_face_cull 86 */
+X    "sphere",		/* k_sphere 87 */
+X    "dismiss_surface",		/* k_dismiss_surface 88 */
+X    "reset_surface",		/* k_reset_surface 89 */
+X    "apply_surface",		/* k_apply_surface 90 */
+X    "surface_refl_transparency",		/* k_surface_refl_transparency 91 */
+X    "surface_refl_specexp",		/* k_surface_refl_specexp 92 */
+X    "surface_refl_specular",		/* k_surface_refl_specular 93 */
+X    "surface_refl_diffuse",		/* k_surface_refl_diffuse 94 */
+X    "surface_refl_ambient",		/* k_surface_refl_ambient 95 */
+X    "sstyle_empty",		/* k_sstyle_empty 96 */
+X    "sstyle_solid",		/* k_sstyle_solid 97 */
+X    "sstyle_hollow",		/* k_sstyle_hollow 98 */
+X    "sshade_flat",		/* k_sshade_flat 99 */
+X    "sshade_gouraud",		/* k_sshade_gouraud 100 */
+X    "sshade_dot",		/* k_sshade_dot 101 */
+X    "sshade_phong",		/* k_sshade_phong 102 */
+X    "cull_none",		/* k_cull_none 103 */
+X    "cull_back",		/* k_cull_back 104 */
+X    "cull_front",		/* k_cull_front 105 */
+X  "", 			/* k_tool_zoom : 106; */
+X      "", 			/* k_tool_nurbc : 107; */
+X      "", 			/* k_tool_text : 108; */
+X      "", 			/* k_tool_pgon : 109; */
+X      "", 			/* k_tool_circle : 110; */
+X      "", 			/* k_spin_form : 111; */
+X      "strux_id", 			/* k_spinf_strux : 112; */
+X      "spinf_pnt_x", 			/* k_spinf_px : 113; */
+X      "spinf_pnt_y", 			/* k_spinf_py : 114; */
+X      "spinf_pnt_z", 			/* k_spinf_pz : 115; */
+X      "spinf_offset_x", 			/* k_spinf_ox : 116; */
+X  "spinf_offset_y", 			/* k_spinf_oy : 117; */
+X  "spinf_offset_z", 			/* k_spinf_oz : 118; */
+X  "spinf_ang_x", 			/* k_spinf_xang : 119; */
+X  "spinf_ang_y", 			/* k_spinf_yang : 120; */
+X  "spinf_ang_z", 			/* k_spinf_zang : 121; */
+X  "spinf_delta_x", 			/* k_spinf_dx : 122; */
+X  "spinf_delta_y", 			/* k_spinf_dy : 123; */
+X  "spinf_delta_z", 			/* k_spinf_dz : 124; */
+X  "", 			/* k_spinf_stop : 125; */
+X  "spinf_scale", 			/* k_spinf_scale : 126; */
+X  "", 			/* k_apply_spin : 127; */
+X  "", 			/* k_dismiss_spin : 128; */
+X  "", 			/* k_reset_spin : 129; */
+X  "",			/* k_color_form : 130; */
+X  "color_red",			/* k_color_red : 131; */
+X  "color_green",			/* k_color_green : 132; */
+X  "color_blue",			/* k_color_blue : 133; */
+X  "",			/* k_apply_color : 134; */
+X  "",			/* k_dismiss_color : 135; */
+X  "",			/* k_reset_color : 136; */
+X  "",			/* k_color_strux : 137; */
+X  ""			/* k_color_elem : 138; */
+X};
+Xstatic int numberStringCount = sizeof(numberStrings) / sizeof(char *);
+X
+X/*
+X * event handler
+X */
+Xstatic XtEventHandler motionHandler(
+X#if NeedFunctionPrototypes
+X				    Widget  /* widget */,
+X				    XtPointer  /* unused */,
+X				    XMotionEvent * /* event */, 
+X				    Boolean * /* continue_to_dispatch */
+X#endif
+X);
+X
+Xstatic theSpecialExecMode = 0;
+X
+X/******************************************************************
+X *
+X *     M A I N
+X */
+Xvoid
+XInitUserInterface(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  Widget pexdrawmain = NULL;
+X  Arg arglist[1];
+X  int n, i;
+X  MrmCode class;
+X  char *files[1];
+X
+X  for ( i = 1; i<argc; i++ ) {
+X    if ((strncmp(argv[i],"-pmdb",strlen(argv[i]))) == 0) {
+X      thePMDBFlag = 1; 
+X    } else if ((strncmp(argv[i],"-nodb",strlen(argv[i]))) == 0) {
+X      theDBFlag = 0; 
+X    } else if ((strncmp(argv[i],"-wks",strlen(argv[i]))) == 0) {
+X      theForceWKSFlag = 1; 
+X    } else if ((strncmp(argv[i],"-nodither",strlen(argv[i]))) == 0) {
+X      theNoDitherFlag = 1; 
+X    }
+X  }
+X
+X  MrmInitialize ();
+X
+X  theTopLevel = XtAppInitialize(&theAppContext, "pexdraw", 
+X				(XrmOptionDescList)NULL , 0,
+X			        &argc, (String*)argv, 
+X				(String*)NULL, (ArgList)NULL, 0);
+X
+X  /*
+X   *  Open the User Interface Description file. 
+X   *    pexdraw.uil is compiled into pexdraw.uid
+X   */ 
+X  files[0] = "pexdraw.uid";
+X  if (MrmOpenHierarchy( 1, files, NULL, &theMrmHierarchy) != MrmSUCCESS) {
+X    printf ("can't open pexdraw.uid\n");
+X    exit(0);
+X  }
+X
+X  if (MrmRegisterNames (regvec, regnum) != MrmSUCCESS) {
+X    printf("can't register names\n");
+X    exit(0) ;
+X  }
+X
+X  if (MrmFetchWidget (theMrmHierarchy, "pexdraw_obj_main",
+X		      theTopLevel, &pexdrawmain, &class)
+X      != MrmSUCCESS) {
+X    printf("can't fetch interface\n");
+X    exit(0);
+X  }
+X
+X  XtManageChild(pexdrawmain);
+X    
+X  XtRealizeWidget(theTopLevel);
+X
+X  /* iquire what the default too is and ... */
+X  set_tool_line();
+X
+X  theTopWindow = XtWindow(theTopLevel);
+X  theDisplay = XtDisplay(theDrawingArea);
+X  theWindow = XtWindow(theDrawingArea);
+X}
+X
+Xvoid
+XMainLoop()
+X{
+X  XtAppMainLoop(theAppContext);  /* Hand over control to the UI & User */
+X}
+X
+X/*************************************************************************
+X *
+X *    U S E R    I N T E R F A C E    C A L L B A C K S
+X *
+X *  All UI callbacks are also defined in pexdraw.uil and begin proc_pexdraw_??
+X *
+X */
+X
+Xstatic void proc_pexdraw_create( widget, tag, cbData )
+X	Widget	widget;
+X	int    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X    Arg arg ;
+X    int which = *(int *)tag;
+X
+X    switch (which) {
+X    case k_drawing_area:
+X	theDrawingArea = widget;
+X	XtAddEventHandler( theDrawingArea, ButtonMotionMask, FALSE, 
+X			  (XtEventHandler)motionHandler, NULL );
+X
+X	break;
+X
+X      case k_view_set:
+X	theViewForm = widget;
+X	break;
+X	
+X      case k_light:
+X	theLightForm = widget;
+X	break;
+X
+X      case k_file:
+X	theFileForm = widget;
+X	break;
+X
+X      case k_spin_form:
+X	theSpinForm = widget;
+X	break;
+X
+X      case k_color_form:
+X	theColorForm = widget;
+X	break;
+X
+X      default: 
+X	if (which > MAX_WIDGET) {
+X	  printf(" got widget #%d, MAX is still %d\n",which,MAX_WIDGET);
+X	  return;
+X	}
+X	widgetArray[which] = widget;
+X	break;
+X    }
+X}
+X
+Xstatic void proc_pexdraw_expose( widget, tag, cbData )
+X	Widget	widget;
+X	int    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X  theRenderProcs.ReDraw();
+X}
+X
+X
+Xstatic void proc_pexdraw_resize( widget, tag, cbData )
+X	Widget	widget;
+X	int    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X  XWindowAttributes winAttrs;
+X
+X  /*
+X   * I'm positive this is a terrible hack in violation of all of Xt
+X   * rules and regulations, but event was not comming back in call_back data.
+X   */
+X  XGetWindowAttributes(XtDisplay(theDrawingArea), XtWindow(theDrawingArea),
+X		       &winAttrs );
+X
+X  theWinHeight =  winAttrs.height;
+X
+X  ResizeWindow( XtWindow(theDrawingArea), winAttrs.width, winAttrs.height );
+X  theRenderProcs.ReDraw();
+X}
+X
+X/*
+X * Handle button presses. See fb.c for the actual handler routines.
+X */
+Xstatic void proc_pexdraw_input( widget, tag, cbData )
+X	Widget	widget;
+X	int    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X  XEvent *event = cbData->event;
+X
+X  if (event->xbutton.button < 1 || event->xbutton.button > 3) return;
+X
+X  if (theSpecialExecMode) {
+X    if (event->type !=  ButtonRelease) return;
+X    FinishExec((XButtonReleasedEvent *)event);
+X    theSpecialExecMode = 0;
+X  }
+X
+X  if (event->type ==  ButtonPress) {
+X    thePressHandlerTable[event->xbutton.button-1](event);
+X  } else if (event->type ==  ButtonRelease) {
+X    theReleaseHandlerTable[event->xbutton.button-1](event);
+X  }
+X}
+X
+X/* good-bye */
+Xstatic void proc_pexdraw_exit( widget, tag, cbData )
+X	Widget	widget;
+X	char    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X    exit(0);
+X}
+X
+X/*************************************************************************
+X *
+X *   P R O C _ P D R A W _ A C T I V A T E
+X */
+Xstatic void proc_pexdraw_activate( widget, tag, cbData )
+X	Widget	widget;
+X	char    *tag;
+X	XmAnyCallbackStruct *cbData;
+X{
+X  int which = *(int *)tag;
+X  MrmCode class;
+X  PEXCoord offset;
+X
+X  switch (which) {
+X  case k_view_set:
+X    if (theViewForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "view_set_dialog", theTopLevel,
+X			 &theViewForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch view_set_dialog");
+X	return;
+X      }
+X    }
+X
+X    if (XtIsManaged(theViewForm))
+X      XtUnmanageChild(theViewForm);
+X    else
+X      XtManageChild(theViewForm);
+X    break;
+X
+X  case k_apply_vs:
+X    applyViewSet(1);
+X    break;
+X
+X  case k_reset_vs:
+X    break;
+X
+X  case k_dismiss_vs:
+X    XtUnmanageChild(theViewForm);
+X    break;
+X
+X  case k_dump_strux:
+X    DumpStruxCmd(1);
+X    break;
+X
+X  case k_refresh:
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case k_tool_pointer:
+X    set_tool_pointer();
+X    break;
+X
+X  case k_tool_line:
+X    set_tool_line();
+X    break;
+X
+X  case k_tool_view:
+X    set_tool_view();
+X    break;
+X
+X  case k_tool_tristrip:
+X    set_tool_tristrip();
+X    break;
+X
+X  case k_tool_nurbc:
+X    set_tool_nurbc();
+X    break;
+X
+X  case k_tool_text:
+X    set_tool_text();
+X    break;
+X
+X  case k_tool_zoom:
+X    set_tool_zoom();
+X    break;
+X
+X  case k_tool_pgon:
+X    set_tool_pgon();
+X    break;
+X
+X  case k_tool_mclip:
+X    set_tool_mclip();
+X    break;
+X
+X  case k_tool_circle:
+X    set_tool_circle();
+X    break;
+X
+X  case k_delete:
+X    DeleteSelected();
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case k_light:
+X    if (theLightForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "light_dialog", theTopLevel,
+X			 &theLightForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch light form widget");
+X	return;
+X      }
+X    }
+X
+X    if (XtIsManaged(theLightForm))
+X      XtUnmanageChild(theLightForm);
+X    else
+X      XtManageChild(theLightForm);
+X    break;
+X
+X  case k_apply_light:
+X    break;
+X
+X  case k_reset_light:
+X    break;
+X
+X  case k_dismiss_light:
+X    XtUnmanageChild(theLightForm);
+X    break;
+X
+X
+X  case k_surface:
+X    if (theSurfaceForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "surface_dialog", theTopLevel,
+X			 &theSurfaceForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch surface form widget");
+X	return;
+X      }
+X    }
+X
+X    if (XtIsManaged(theSurfaceForm))
+X      XtUnmanageChild(theSurfaceForm);
+X    else
+X      XtManageChild(theSurfaceForm);
+X    break;
+X
+X  case k_apply_surface:
+X    ApplySurfaceAttrs();
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case k_reset_surface:
+X    break;
+X
+X  case k_dismiss_surface:
+X    XtUnmanageChild(theSurfaceForm);
+X    break;
+X
+X  case k_reset_model:
+X    break;
+X
+X  case k_spin_slowly: {
+X    PEXStructure sid;
+X    
+X    if ( theSelectedElement != -1 ) {
+X      sid = theSelectedStrux;
+X    } else if (theNewStrux != 0) {
+X      sid = theNewStrux;
+X    } else break;
+X
+X    if (!StartSpinning(sid)) { /* could not start, must be spinning */
+X      StopSpinning(sid);
+X    }}
+X    break;
+X
+X  case k_spin_form:
+X    if (theSpinForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "spin_dialog", theTopLevel,
+X			 &theSpinForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch Spin form widget");
+X	return;
+X      }
+X    }
+X
+X    {
+X      PEXStructure sid;
+X      SpinInfo *si;
+X
+X      if ( theSelectedElement != -1 ) {
+X	sid = theSelectedStrux;
+X      } else if (theNewStrux != 0) {
+X	sid = theNewStrux;
+X      } else { return; }
+X      si = GetSpinInfo(sid);
+X      if (!si) return;
+X      LoadSpinWidget(si);
+X    }
+X
+X    if (XtIsManaged(theSpinForm))
+X      XtUnmanageChild(theSpinForm);
+X    else
+X      XtManageChild(theSpinForm);
+X    break;
+X
+X  case k_apply_spin: /* must clean this up !!! */
+X    {
+X      PEXStructure sid;
+X      SpinInfo *si;
+X
+X      if ( theSelectedElement != -1 ) {
+X	sid = theSelectedStrux;
+X      } else if (theNewStrux != 0) {
+X	sid = theNewStrux;
+X      } else { return; }
+X      si = GetSpinInfo(sid);
+X      if (!si) return;
+X      ApplySpin(si);
+X    }
+X    break;
+X
+X  case k_reset_spin:
+X    {
+X      PEXStructure sid;
+X      SpinInfo *si;
+X
+X      if ( theSelectedElement != -1 ) {
+X	sid = theSelectedStrux;
+X      } else if (theNewStrux != 0) {
+X	sid = theNewStrux;
+X      } else { return; }
+X      si = GetSpinInfo(sid);
+X      if (!si) return;
+X      LoadSpinWidget(si);
+X    }
+X    break;
+X
+X  case k_dismiss_spin:
+X    XtUnmanageChild(theSpinForm);
+X    break;
+X
+X  case k_color_form:
+X    if (theColorForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "color_dialog", theTopLevel,
+X			 &theColorForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch Color form widget");
+X	return;
+X      }
+X    }
+X
+X    { PEXColorRGB rgb;
+X      GetColorAttribute(theSelectedStrux, theSelectedElement, &rgb);
+X      LoadColorWidget(theSelectedStrux, theSelectedElement, &rgb); }
+X
+X    if (XtIsManaged(theColorForm))
+X      XtUnmanageChild(theColorForm);
+X    else
+X      XtManageChild(theColorForm);
+X    break;
+X
+X  case k_apply_color: /* must clean this up !!! */
+X    ApplyColor(theSelectedStrux, theSelectedElement);
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case k_reset_color:
+X    { PEXColorRGB rgb;
+X      GetColorAttribute(theSelectedStrux, theSelectedElement, &rgb);
+X      LoadColorWidget(theSelectedStrux, theSelectedElement, &rgb); }
+X    break;
+X
+X  case k_dismiss_color:
+X    XtUnmanageChild(theColorForm);
+X    break;
+X
+X  case k_read:
+X  case k_save:
+X    if (theFileForm == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, "file_dialog", theTopLevel,
+X			 &theFileForm, &class) != MrmSUCCESS) {
+X	printf("can't fetch order box widget");
+X	return;
+X      }
+X    }
+X
+X
+X    theFileCmd = (which == k_read)?ReadArchiveFile:WriteArchiveFile;
+X
+X    if (XtIsManaged(theFileForm))
+X      XtUnmanageChild(theFileForm);
+X    else
+X      XtManageChild(theFileForm);
+X    break;
+X
+X  case k_undo:
+X    break;
+X
+X  case k_file_help:
+X    break;
+X
+X  case k_delete_all:
+X    StopSpinning((PEXStructure)-1);
+X    PEXRotate(PEXXAxis, 0.0, theMCMatrix.matrix );
+X    theMCMatrix.seqNo = 0;
+X    theRenderProcs.DeleteAll();
+X    break;
+X
+X  case k_sphere:
+X    offset.x = 1.0;
+X    offset.y = 1.0;
+X    offset.z = 1.0;
+X    Cubeoctahedron(&offset, 0.9);
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case k_delete_strux:
+X    if ( theSelectedElement != -1 ) {
+X      theRenderProcs.Unpost(theSelectedStrux);
+X      DeleteStrux(theSelectedStrux);
+X      StopSpinning(theSelectedStrux); /* just in case */
+X      theRenderProcs.ReDraw();
+X    }
+X    break;
+X
+X  case k_exec_strux:
+X    if ( theSelectedElement != -1 ) {
+X      theSpecialExecMode = 1;          /* see FinishExec */
+X    }
+X    break;
+X
+X  case k_unpost_strux:
+X    if ( theSelectedElement != -1 ) {
+X      theRenderProcs.Unpost(theSelectedStrux);
+X      theRenderProcs.ReDraw();
+X    }
+X    break;
+X
+X  default:
+X    break;
+X  }
+X    
+X}
+X
+X/*************************************************************************
+X * proc_pexdraw_file
+X *
+X * handle callback fron file selection mechanism.
+X */
+Xstatic void proc_pexdraw_file( widget, tag, cbData )
+X	Widget	widget;
+X	char    *tag;
+X	XmFileSelectionBoxCallbackStruct *cbData;
+X{
+X  char *filename;
+X  int status;
+X
+X  switch (cbData->reason) {
+X  case XmCR_OK:
+X  case XmCR_APPLY:
+X    if (!XmStringGetLtoR(cbData->value, XmSTRING_DEFAULT_CHARSET, 
+X			 &filename )) {
+X      printf("imagine a popup...\n");
+X    } else {
+X      status = theFileCmd(filename);
+X    }
+X    if (cbData->reason == XmCR_OK) XtUnmanageChild(theFileForm);
+X    break;
+X
+X  case XmCR_CANCEL:
+X    XtUnmanageChild(theFileForm);
+X    break;
+X
+X  case XmCR_HELP:
+X    break;
+X
+X  default:
+X    break;
+X  }
+X}
+X
+X
+X
+X/*************************************************************************
+X * applyViewSet - get values from widget and set the view representation
+X */
+Xint
+XapplyViewSet(viewNumber)
+X  int viewNumber;
+X{
+X  PEXCoord  vrp;  /* view reference point */
+X  PEXVector  vpn;  /* view plane normal    */
+X  PEXVector  vup;  /* view up vector       */
+X
+X/* clean this up, why use a view struct? use view entry */
+X  
+X  PEXViewRep vrep;                           /*  view structure */
+X
+X  PEXCoord2D          frame[2];
+X  PEXNPCSubVolume     viewport;
+X  int                 perspective;
+X  PEXCoord            prp;
+X  float               view_plane, back_plane, front_plane;
+X 
+X  int err;
+X
+X  int persp;
+X  MrmCode class;
+X
+X  if (theViewForm == NULL) {     /* The first time, fetch order box. */
+X    if (MrmFetchWidget(theMrmHierarchy, "view_set_dialog", theTopLevel,
+X		       &theViewForm, &class) != MrmSUCCESS) {
+X      printf("can't fetch view set dialog");
+X      return;
+X    }
+X  }
+X
+X#define FetchValue(_a,_b)  {if (getNumberWidgetValue((_a), (_b))) return(1);}
+X
+X  /* View Reference Point */
+X  FetchValue(k_view_ref_pt_x, &vrp.x);
+X  FetchValue(k_view_ref_pt_y, &vrp.y);
+X  FetchValue(k_view_ref_pt_z, &vrp.z);
+X
+X  /* view plane normal */
+X  FetchValue(k_view_pl_norm_x, &vpn.x);
+X  FetchValue(k_view_pl_norm_y, &vpn.y);
+X  FetchValue(k_view_pl_norm_z, &vpn.z);
+X
+X  /*  view up vector */
+X  FetchValue(k_view_up_vect_x, &vup.x);
+X  FetchValue(k_view_up_vect_y, &vup.y);
+X  FetchValue(k_view_up_vect_z, &vup.z);
+X  
+X  err = PEXViewOrientationMatrix( &vrp, &vpn, &vup, vrep.view.orientation);
+X  if (err != 0) {
+X    printf( "view orientation error %d\n",err); return (1);
+X  }
+X
+X  FetchValue(k_proj_ref_pt_x, &prp.x);
+X  FetchValue(k_proj_ref_pt_y, &prp.y);
+X  FetchValue(k_proj_ref_pt_z, &prp.z);
+X
+X  FetchValue(k_view_window_minx, &frame[0].x);
+X  FetchValue(k_view_window_maxx, &frame[1].x);
+X  FetchValue(k_view_window_miny, &frame[0].y);
+X  FetchValue(k_view_window_maxy, &frame[1].y);
+X
+X  FetchValue(k_view_plane_dist, &view_plane);
+X  FetchValue(k_view_plane_back, &back_plane);
+X  FetchValue(k_view_plane_front, &front_plane);
+X
+X  FetchValue(k_proj_vp_minx, &viewport.min.x);
+X  FetchValue(k_proj_vp_maxx, &viewport.max.x);
+X  FetchValue(k_proj_vp_miny, &viewport.min.y);
+X  FetchValue(k_proj_vp_maxy, &viewport.max.y);
+X  FetchValue(k_proj_vp_minz, &viewport.min.z);
+X  FetchValue(k_proj_vp_maxz, &viewport.max.z);
+X
+X  if (widgetArray[k_proj_type_persp] == NULL) {
+X      /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, numberStrings[k_proj_type_persp],
+X                         theTopLevel, &widgetArray[k_proj_type_persp],
+X			 &class) != MrmSUCCESS) {
+X	printf("can't fetch number perspective\n");
+X	return (1);
+X      }
+X    }
+X 
+X  /* View Reference Point */
+X  persp = XmToggleButtonGetState(widgetArray[k_proj_type_persp]);
+X
+X  err = PEXViewMappingMatrix( frame, &viewport, persp, &prp,
+X		       view_plane, back_plane, front_plane,
+X		       vrep.view.mapping);
+X  
+X  if (err != 0) { printf( "view mapping error %d\n",err); return (1); }
+X  
+X  vrep.view.clip_limits.min.x = viewport.min.x;
+X  vrep.view.clip_limits.min.y = viewport.min.y;
+X  vrep.view.clip_limits.min.z = viewport.min.z;
+X  vrep.view.clip_limits.max.x = viewport.max.x;
+X  vrep.view.clip_limits.max.y = viewport.max.y;
+X  vrep.view.clip_limits.max.z = viewport.max.z;
+X  vrep.view.clip_flags = PEXClipXY | PEXClipBack | PEXClipFront;
+X  vrep.index = viewNumber;
+X
+X  theRenderProcs.SetView( 1, &vrep.view );
+X
+X  bcopy((char *)&vrep.view.orientation, (char *)&theMatOri,sizeof(PEXMatrix));
+X  bcopy((char *)&vrep.view.mapping, (char *)&theMatMap, sizeof(PEXMatrix));
+X
+X  theRenderProcs.ReDraw();
+X
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * getNumberWidgetValue - get a number from a string widget.
+Xint getNumberWidgetValue(int id, float *value)
+X */
+Xint getNumberWidgetValue(id, value)
+X     int id; 
+X     float *value;
+X{
+X  double number;
+X  char *text, *notText;
+X  MrmCode class;
+X
+X  if (id > numberStringCount) return (1);
+X
+X  if (widgetArray[id] == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, numberStrings[id], theTopLevel,
+X			 &widgetArray[id], &class) != MrmSUCCESS) {
+X	printf("can't fetch number %d\n",id);
+X	return (1);
+X      }
+X    }
+X 
+X  /* View Reference Point */
+X  XtVaGetValues(widgetArray[id], XmNvalue, &text, NULL);
+X
+X  number = strtod(text,&notText);
+X  if (number == 0.0 && text == notText) {
+X    printf(" could get a number %s, %s\n",numberStrings[id],text);
+X    return (1);
+X  }
+X
+X  *value = (float) number;
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * setNumberWidgetValue - set a number into a string widget.
+Xint setNumberWidgetValue(int id, float value)
+X */
+Xint setNumberWidgetValue( id, value)
+Xint id; 
+Xfloat value;
+X{
+X  double number;
+X  char text[80];
+X  MrmCode class;
+X  Arg al[1];
+X    
+X  if (id > numberStringCount) return (1);
+X
+X  if (widgetArray[id] == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, numberStrings[id], theTopLevel,
+X			 &widgetArray[id], &class) != MrmSUCCESS) {
+X	printf("can't fetch number %d\n",id);
+X	return (1);
+X      }
+X    }
+X
+X  sprintf(text, "%1.6f", value);
+X
+X  XtSetArg(al[0],  XmNvalue, text );
+X  XtSetValues(widgetArray[id], al, 1);
+X
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * getWidgetValue - get a floating point number from an integer 
+Xstatic int getWidgetValue(int id, float *value)
+X */
+Xstatic int getWidgetValue( id, value)
+Xint id;
+X float *value;
+X{
+X  double number;
+X  char *text, *notText;
+X  MrmCode class;
+X  int intVal, i;
+X  short decVal;
+X  
+X
+X  if (id > numberStringCount) return (1);
+X
+X  if (widgetArray[id] == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, numberStrings[id], theTopLevel,
+X			 &widgetArray[id], &class) != MrmSUCCESS) {
+X	printf("can't fetch number %d\n",id);
+X	return (1);
+X      }
+X    }
+X 
+X  /* View Reference Point */
+X  XtVaGetValues(widgetArray[id],
+X		XmNvalue, &intVal, 
+X		XmNdecimalPoints, &decVal,
+X		NULL);
+X
+X  number = (double)intVal;
+X
+X  for (i = 0; i < (int)decVal; i++ ) number = number / 10.0;
+X
+X/*  printf ("getWidgetValue %d, %d, %d, %g\n", id, intVal, decVal, number); */
+X
+X  *value = (float) number;
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * setWidgetValue - get a floating point number from an integer 
+X * static int getWidgetValue(int id, float *value)
+X */
+Xstatic int setWidgetValue( id, value)
+X     int id;
+X     float *value;
+X{
+X  double number;
+X  MrmCode class;
+X  int intVal, i;
+X  short decVal;
+X  
+X  if (id > numberStringCount) return (1);
+X
+X  if (widgetArray[id] == NULL) {     /* The first time, fetch order box. */
+X      if (MrmFetchWidget(theMrmHierarchy, numberStrings[id], theTopLevel,
+X			 &widgetArray[id], &class) != MrmSUCCESS) {
+X	printf("can't fetch number %d\n",id);
+X	return (1);
+X      }
+X    }
+X
+X  XtVaGetValues(widgetArray[id],
+X		XmNvalue, &intVal, 
+X		XmNdecimalPoints, &decVal,
+X		NULL);
+X
+X  number = (double)*value;
+X
+X  for (i = 0; i < (int)decVal; i++ ) number = number * 10.0;
+X
+X  intVal = (int)number;
+X  XtVaSetValues(widgetArray[id],
+X		XmNvalue, &intVal, 
+X		NULL);
+X
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * AddWorkProc - give us something to do when not busy
+Xvoid AddWorkProc(int (*worker)(), char *info)
+X */
+Xvoid AddWorkProc(worker, info)
+Xint (*worker)();
+Xchar *info;
+X{
+X  XtAppAddWorkProc(theAppContext,(XtWorkProc)worker,(XtPointer)info);
+X}
+X
+X
+X/*************************************************************************
+X * motionHandler
+X *
+X * Registered for button motion, meaning when the mouse moves while the
+X * button is down, this routine gets called. 
+X XtEventHandler motionHandler( Widget widget,  XtPointer unused,
+X			  XMotionEvent *event,  Boolean *continue_to_dispatch )
+X */
+X
+Xstatic XtEventHandler motionHandler( widget, unused,event,continue_to_dispatch)
+X     Widget widget;
+X     XtPointer unused;
+X     XMotionEvent *event;
+X     Boolean *continue_to_dispatch;
+X{
+X  int button;
+X
+X  if ( event->state == Button1MotionMask ) {
+X    button = 0;
+X  } else if ( event->state == Button2MotionMask ) {
+X    button = 1;
+X  } else if ( event->state == Button3MotionMask ) {
+X    button = 2;
+X  } else {
+X    return;
+X  }
+X
+X  theMotionHandlerTable[button](event);
+X  
+X  *continue_to_dispatch = 1;  /* tells whether to call other dispatchers */
+X}
+X
+X/*************************************************************************
+X * CreateDynGC - create an X GC Resource for Dynamics.
+X *
+X * Got the rubberbanding methodology from contrib/clients/xfig/w_drawPrim.c
+X * But just the idea, no code was copied, hence no copyright.
+X *
+X * The idea is to xor ( exclusive or ) the foreground and the background
+X * together. When it is xor'd with the background it produces the foreground.
+X * 
+X * must be called after the window is set up.
+X */
+XGC CreateDynGC()
+X{
+X  XGCValues values;
+X  unsigned long fg, bg;
+X  GC tGC;
+X
+X  if (theWimpyWindow) {
+X    values.foreground = -1;
+X    values.background = 0;
+X  } else {
+X    XtVaGetValues(theDrawingArea, XmNforeground, &fg, XmNbackground, &bg, NULL);
+X    values.foreground = fg ^ bg;
+X    values.background = bg;
+X  }
+X  values.function = GXxor;
+X  tGC = XCreateGC(XtDisplay(theDrawingArea), theWindow,
+X		  GCFunction | GCForeground | GCBackground, &values );
+X  return (tGC);
+X}
+X
+X#define GetNumValue(_a,_b)  {if (getNumberWidgetValue((_a), (_b))) return;}
+X
+X/*
+Xvoid GetVPN( int viewNumber,   PEXVector  *vpn )
+X*/
+Xvoid GetVPN( viewNumber, vpn )
+X     int viewNumber;
+X     PEXVector  *vpn;
+X{
+X  /* view plane normal */
+X  GetNumValue(k_view_pl_norm_x, &vpn->x);
+X  GetNumValue(k_view_pl_norm_y, &vpn->y);
+X  GetNumValue(k_view_pl_norm_z, &vpn->z);
+X}
+X
+Xvoid SetVPN( viewNumber, vpn )
+X     int viewNumber;
+X     PEXVector  *vpn;
+X{
+X  setNumberWidgetValue(k_view_pl_norm_x, vpn->x);
+X  setNumberWidgetValue(k_view_pl_norm_y, vpn->y);
+X  setNumberWidgetValue(k_view_pl_norm_z, vpn->z);
+X}
+X
+X
+Xvoid GetVUP( viewNumber, vup )
+X     int viewNumber;
+X     PEXVector  *vup;
+X{
+X  /* view plane normal */
+X  GetNumValue(k_view_pl_norm_x, &vup->x);
+X  GetNumValue(k_view_pl_norm_y, &vup->y);
+X  GetNumValue(k_view_pl_norm_z, &vup->z);
+X}
+X
+Xvoid SetVUP( viewNumber, vup )
+X     int viewNumber;
+X     PEXVector  *vup;
+X{
+X  setNumberWidgetValue(k_view_pl_norm_x, vup->x);
+X  setNumberWidgetValue(k_view_pl_norm_y, vup->y);
+X  setNumberWidgetValue(k_view_pl_norm_z, vup->z);
+X}
+X
+X/*************************************************************************
+X * ApplySurfaceAttrs
+X */
+Xvoid
+XApplySurfaceAttrs()
+X{
+X  int error, ptr;
+X  int style;
+X  int shade;
+X  int cull;
+X  float value;
+X  PEXReflectionAttributes reflAttrs;
+X
+X  MrmCode class;
+X
+X  if (theSurfaceForm == NULL) {     /* The first time, fetch order box. */
+X    if (MrmFetchWidget(theMrmHierarchy, "surface_dialog", theTopLevel,
+X		       &theSurfaceForm, &class) != MrmSUCCESS) {
+X      printf("can't fetch Surface set dialog");
+X      return;
+X    }
+X  }
+X
+X  if (XmToggleButtonGetState(widgetArray[k_sstyle_hollow]))
+X    style = PEXInteriorStyleHollow;
+X  else if (XmToggleButtonGetState(widgetArray[k_sstyle_solid]))
+X    style = PEXInteriorStyleSolid;
+X  else if (XmToggleButtonGetState(widgetArray[k_sstyle_empty]))
+X    style = PEXInteriorStyleEmpty;
+X  else {
+X    printf("bad style\n");
+X    style = PEXInteriorStyleHollow;
+X  }
+X
+X  InteriorStyleCmd(style);
+X
+X  if (XmToggleButtonGetState(widgetArray[k_sshade_flat]))
+X    shade = PEXSurfaceInterpNone;
+X  else if (XmToggleButtonGetState(widgetArray[k_sshade_gouraud]))
+X    shade = PEXSurfaceInterpColor;
+X  else if (XmToggleButtonGetState(widgetArray[k_sshade_dot]))
+X    shade = PEXSurfaceInterpDotProduct;
+X  else if (XmToggleButtonGetState(widgetArray[k_sshade_phong]))
+X    shade = PEXSurfaceInterpNormal;
+X  else {
+X    printf("bad shade\n");
+X    shade = PEXSurfaceInterpNone;
+X  }
+X
+X  SurfaceInterpCmd(shade); /* let this be done in pexdraw */
+X
+X  if (XmToggleButtonGetState(widgetArray[k_cull_none]))
+X    cull = PEXNone;
+X  else if (XmToggleButtonGetState(widgetArray[k_cull_back]))
+X    cull = PEXBackFaces;
+X  else if (XmToggleButtonGetState(widgetArray[k_cull_front]))
+X    cull = PEXFrontFaces;
+X  else {
+X    printf("bad cull\n");
+X    cull = PEXNone;
+X  }
+X
+X  FacetCullingCmd(cull);
+X
+X#ifndef NO_TRANS
+X  if (getWidgetValue(k_surface_refl_transparency, &value)) return;
+X  if (value > /* arbitrary threshold for transparency */0.00001 ) {
+X    reflAttrs.transmission = value;
+X  } else reflAttrs.transmission = 0.0;
+X#endif
+X    
+X  if (getWidgetValue(k_surface_refl_ambient, &value)) return;
+X  reflAttrs.ambient = value;	/* ambient coefficient */
+X  if (getWidgetValue(k_surface_refl_diffuse, &value)) return;
+X  reflAttrs.diffuse = value;	/* diffuse coefficient */
+X  if (getWidgetValue(k_surface_refl_specular, &value)) return;
+X  reflAttrs.specular = value;	/* specular coefficient */
+X  /* set specular color to white */
+X  if (getWidgetValue(k_surface_refl_specexp, &value)) return;
+X  reflAttrs.specular_conc = value;	/* specular exponent */
+X  reflAttrs.specular_color.type = PEXColorTypeRGB;
+X  reflAttrs.specular_color.value.rgb.red   = 1.0;
+X  reflAttrs.specular_color.value.rgb.green = 1.0;
+X  reflAttrs.specular_color.value.rgb.blue  = 1.0;
+X
+X  ReflectionAttributesCmd(&reflAttrs);
+X
+X}
+X
+X/*
+XGetSomeTextFromUI(int x, int y, int *length, char **charStr, int *flags )
+X*/
+XGetSomeTextFromUI( x, y, length, charStr, flags )
+X     int x;
+X     int y;
+X     int *length;
+X     char **charStr;
+X     int *flags;
+X{
+X  *length = strlen("hello world");
+X  *charStr = malloc(*length+1);
+X  strcpy(*charStr, "hello world");
+X  *flags = 0;
+X}
+X
+X/*************************************************************************
+X * ApplySpin
+X */
+Xint
+XApplySpin(si)
+X     SpinInfo *si;
+X{
+X  int error, okToSet;
+X  float value;
+X
+X  MrmCode class;
+X
+X  if (theSpinForm == NULL) {     /* The first time, fetch order box. */
+X    if (MrmFetchWidget(theMrmHierarchy, "spin_dialog", theTopLevel,
+X		       &theSpinForm, &class) != MrmSUCCESS) {
+X      printf("can't fetch Spin set dialog");
+X      return;
+X    }
+X  }
+X    
+X  FetchValue(k_spinf_px, &si->point.x);
+X  FetchValue(k_spinf_py, &si->point.y);
+X  FetchValue(k_spinf_pz, &si->point.z);
+X
+X  FetchValue(k_spinf_ox, &si->offset.x);
+X  FetchValue(k_spinf_oy, &si->offset.y);
+X  FetchValue(k_spinf_oz, &si->offset.z);
+X
+X  okToSet = XmToggleButtonGetState(widgetArray[k_spinf_stop]);
+X
+X  if (okToSet) {
+X    FetchValue(k_spinf_xang, &si->x_ang);
+X    FetchValue(k_spinf_yang, &si->y_ang);
+X    FetchValue(k_spinf_zang, &si->z_ang);
+X  }
+X
+X  FetchValue(k_spinf_dx, &si->delta_x);
+X  FetchValue(k_spinf_dy, &si->delta_y);
+X  FetchValue(k_spinf_dz, &si->delta_z);
+X
+X  FetchValue(k_spinf_scale, &value);
+X
+X  si->scale.x = value;
+X  si->scale.y = value;
+X  si->scale.z = value;
+X
+X}
+X
+Xint
+XLoadSpinWidget(si)
+X     SpinInfo *si;
+X{
+X  char text[80];
+X  Arg al[1];
+X
+X  setNumberWidgetValue(k_spinf_px, si->point.x);
+X  setNumberWidgetValue(k_spinf_py, si->point.y);
+X  setNumberWidgetValue(k_spinf_pz, si->point.z);
+X
+X  setNumberWidgetValue(k_spinf_ox, si->offset.x);
+X  setNumberWidgetValue(k_spinf_oy, si->offset.y);
+X  setNumberWidgetValue(k_spinf_oz, si->offset.z);
+X
+X  setNumberWidgetValue(k_spinf_xang, si->x_ang);
+X  setNumberWidgetValue(k_spinf_yang, si->y_ang);
+X  setNumberWidgetValue(k_spinf_zang, si->z_ang);
+X
+X  setNumberWidgetValue(k_spinf_dx, si->delta_x);
+X  setNumberWidgetValue(k_spinf_dy, si->delta_y);
+X  setNumberWidgetValue(k_spinf_dz, si->delta_z);
+X
+X  setNumberWidgetValue(k_spinf_scale, si->scale.x);
+X
+X  XmToggleButtonSetState(widgetArray[k_spinf_stop],False,False);
+X
+X  sprintf(text, "%x", si->strux);
+X
+X  XtSetArg(al[0],  XmNvalue, text );
+X  XtSetValues(widgetArray[k_spinf_strux], al, 1);
+X
+X}
+X/*************************************************************************
+X * LoadColorWidget - actually, that is all widget in form
+X */
+Xint
+XLoadColorWidget(strux, elem, rgb)
+X     PEXStructure strux;
+X     long  elem;
+X     PEXColorRGB *rgb;
+X{
+X  char text[80];
+X  Arg al[1];
+X
+X  setWidgetValue(k_color_red, &rgb->red);
+X  setWidgetValue(k_color_green, &rgb->green);
+X  setWidgetValue(k_color_blue, &rgb->blue);
+X
+X  sprintf(text, "%x", strux);
+X  XtSetArg(al[0],  XmNvalue, text );
+X  XtSetValues(widgetArray[k_color_strux], al, 1);
+X
+X  sprintf(text, "%d", elem);
+X  XtSetArg(al[0],  XmNvalue, text );
+X  XtSetValues(widgetArray[k_color_elem], al, 1);
+X
+X}
+X
+X/*************************************************************************
+X * ApplyColor, get the color, call SetColorAttribute
+X */
+Xint
+XApplyColor(strux, elem)
+X     PEXStructure strux;
+X     long  elem;
+X{
+X  PEXColorRGB rgb;
+X
+X  if (elem == -1 ) {printf("nothing selected, can't change colour\n"); return;}
+X
+X  getWidgetValue(k_color_red, &rgb.red);
+X  getWidgetValue(k_color_green, &rgb.green);
+X  getWidgetValue(k_color_blue, &rgb.blue);
+X
+X  SetColorAttribute( strux, elem, &rgb);
+X}
+X
+X
+X/***********************************************************************
+X * FinishExec - last minute hacking for the sake of a cheap example
+X */
+Xstatic void
+XFinishExec(event)
+X XButtonReleasedEvent *event;
+X{
+X  long s;
+X  int e;
+X
+X  if ( theSelectedElement != -1 ) {
+X    theRenderProcs.PickOne( event->x, event->y, &s, &e);
+X    if ( e != -1 )
+X      ExecStrux(s);
+X    theRenderProcs.ReDraw();
+X  }
+X}
+END_OF_FILE
+  if test 43663 -ne `wc -c <'ui.c'`; then
+    echo shar: \"'ui.c'\" unpacked with wrong size!
+  fi
+  # end of 'ui.c'
+fi
+echo shar: End of archive 5 \(of 14\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

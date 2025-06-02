@@ -1,0 +1,1145 @@
+Path: uunet!mcsun!chsun!pega!dr_who
+From: dr_who@pegasus.ch (Sysop of PEGASUS)
+Newsgroups: vmsnet.sources.games
+Subject: SPCEMP.C   Part 01/06
+Message-ID: <1993Jun7.092834.122@pegasus.ch>
+Date: 7 Jun 93 09:28:34 +0200
+Organization: Pegasus BBS, Switzerland
+Lines: 1135
+Xref: uunet vmsnet.sources.games:734
+
+----> START OF PART 1 <----
+/***********************************************************************/
+/**         VAX-SUPER SPACE EMPIRE           (c) by DR_WHO,MOMO  1993  */
+/***********************************************************************/
+/*  call PEGASUS for HELP : ++41 (0)71715577 (c) by R.Sieber & N.Kuemin*/
+/***********************************************************************/
+/* V0.96a     New prgversion - temporary userdata has been changed     */ 
+/*      b     Used Transport capacity                                  */
+/*      c     GET_DATAS(INT NR) is the routine to read datas now       */
+/*            PUT_DATAS(INT NR) is the routine to write datas now      */
+/*            GET_SCORE(INT NR) Calculates scores now                  */
+/*            New Highscore                                            */
+/*      d     Sell_item has been removed (CHEAT PROTECTION)            */
+/* V0.97a     New spy/covert option menu also new possibilities        */ 
+/*      b     Steal freighters and bug fixed                           */ 
+/* V0.98a     Races added                                              */ 
+/*      b     Price Range from 80 to 120 %                             */ 
+/*      c     Starfighters and Deathstars added                        */
+/*      d     Destruction Report / Lottery higher / news for stealing  */
+/*      e     some bugs fixed / Agents get killed in battles           */
+/*            steal option only gets 10% of the availble freighters    */
+/*            or ywings                                                */
+/*      f     Missile Bug removed                                      */
+/*                                                                     */
+/* THINGS TO DO : ALLIANCES ... (may I`ll never include this one)      */
+/*                DELETE_FILE (should be fixed checkit would work then */
+/*                NEW SCORE-LIST with structure and top 10             */
+/*                                                                     */
+/* KNOWN BUGS: none ?                                                  */
+/*                                                                     */
+/*                                                                     */
+/* NOTE: Sorry its a smaller spagetti-code but we`re cleaning it up    */
+/*       (It's our first C code ;-)                                    */
+/* PRIVS: Nessesary privs: READALL, WORLD for the Page()               */
+/*        Install it with PRIVS: readall,shared and world              */
+/*                                                                     */
+/* ASSIGNS: -> SPCEMP: for the Mainprogramm and main-datas             */
+/*          -> SPCEMP_PLAYERS: player datas (#.sdat / #.trade          */
+/*                                           MSG_#.txt)                */
+/*                                                                     */
+/***********************************************************************/
+/* Config File  : [ SPCEMP:EMPIRE.CFG ]                                */
+/*                                                                     */
+/* LINE 1 : Welcometext                                                */
+/* LINE 2 : Name of the Bank                                           */
+/* LINE 3 : Lottery after # turns (0=no lottery)                       */
+/* LINE 4 : New Player Protection Moves                                */
+/* LINE 5 : New Player Moves                                           */
+/* LINE 6 : Moves per day    (NOT IN USE after V0.93)                  */
+/* LINE 7 : Max. Money transfer (max: 2mio)                            */
+/* LINE 8 : How many moves to access the uridium throne                */
+/* LINE 9 : Score limit to access the throne                           */
+/* LINE 10: Multiuser 0=No 1=Yes (NOT USED)                            */
+/***********************************************************************/
+/* Programm creates the following files:                               */
+/*                                                                     */
+/* SPCEMP:EMPIRE.DAT     -> Empire Datafile                            */
+/*        EMPIRE.CFG     -> see above                                  */
+/*        LOTTERY.USER                                                 */
+/*        LOTTERY.DAT                                                  */
+/*        IN.USE         -> Somebody is playin the game                */
+/*        BUSY.STATUS    -> Who played last                            */
+/*        PLAYERS.SCORES -> High-Score                                 */
+/*        HIGH.SCORES    -> File listed at the beginning of the game   */
+/*                                                                     */
+/*        USERS.SDAT     -> not in use yet                             */
+/*        TEAMS.SDAT     -> not in use yet                             */
+/*                                                                     */
+/* SPCEMP_PLAYERS:#.SDAT    -> Userdatas (structure)                   */
+/*                MSG_#.TXT -> News text for player #                  */
+/*                #.TRADE   -> Trade Datasof player #                  */
+/*                                                                     */
+/***********************************************************************/
+/*                                                                     */
+/*  GameMgrMenu Access code : Var long supervisor : 343434             */
+/*                                                                     */
+/***********************************************************************/
+/*                                                                     */
+/* BugReports, Suggestions, Money and Food (?), Spaceships (????) to : */
+/* MAIL : R.Sieber, Hauptstr. 102, 9434 Au/SG, Switzerland             */
+/* EMAIL: DR_WHO@PEGASUS.CH or RSIEBER@PEGASUS.CH                      */
+/* FAX  : ++41 [0]71712787                                             */
+/* PHONE: ++41 [0]71717042                                             */
+/* or:                                                                 */
+/* EMAIL: MOMO@PEGASUS.CH                                              */
+/*                                                                     */
+/***********************************************************************/
+
+/* #include usenet.h */           /* by sunshine */
+
+#include brkdef
+#include descrip
+#include dvidef
+#include iodef
+#include jpidef
+#include lnmdef
+#include rmsdef
+#include secdef
+#include signal
+#include ssdef
+#include stdio
+#include stdlib
+#include string
+#include time
+
+#define YES    		1
+#define NO	   	0
+#define SUCCESS         1
+#define FAIL            0
+#define MORE            1
+#define NO_MORE         0
+#define TRUE            1
+#define FALSE           0
+
+#define TT_RESET        0
+#define TT_BOLD         1
+#define TT_UNDERLINE    2
+#define TT_BLINKING     3
+#define TT_NEGATIV      4
+#define TT_INVISIBLE    5
+#define TT_CLS          6
+#define TT_FORBLACK     7
+#define TT_FORRED       8
+#define TT_FORGREEN     9
+#define TT_FORYELLOW    10
+#define TT_FORBLUE      11
+#define TT_FORDARKRED   12
+#define TT_FORCYAN      13
+#define TT_FORWHITE     14
+#define TT_BACKBLACK    15
+#define TT_BACKRED      16
+#define TT_BACKGREEN    17
+#define TT_BACKYELLOW   18
+#define TT_BACKBLUE     19
+#define TT_BACKDARKRED  20
+#define TT_BACKCYAN     21
+#define TT_BACKWHITE    22
+#define TT_SAVECSR      23
+#define TT_RESTORECSR   24
+#define TT_UP           25
+#define TT_DOWN         26
+#define TT_LEFT         27
+#define TT_RIGHT        28
+#define TT_DELLINE      29
+
+#define planet_price    10000
+
+#define price_soldiers  1000
+#define price_pilots    3000
+#define price_agents    5000
+
+static int price_fighters=1800;
+static int price_ywings=1900;
+static int price_defense=2000;
+static int price_cruisers=4000;
+static int price_carriers=8000;
+static int price_freighters=5000;
+static int price_missiledefense=5000;
+static long price_deathstars=10000000;
+static int price_starfighters=10000;
+
+long  int status;
+
+struct descriptor {long int len;
+                   char    *adr;};
+
+struct	user_str {
+	struct	user_str	*link;
+	char			username[12+1];
+	char			owner[31+1+1];
+	int			newmail;
+	};
+
+struct	user_str	*user_lh = 0;
+
+struct item_list_3 {
+     unsigned short  buffer_length;
+     unsigned short  item_code;
+     union           {  char   *char_type;
+                        int    *int_type;
+                        short  *word_type;
+                     } buffer_address;
+     int             *return_length;
+     int             terminator;
+  };
+
+/***********************************************************************************/
+
+static int racecount=12;
+
+static struct aliens	{char name[20];
+			 int dexterity;			/*-for foodneed			*/
+			 int knowledge;			/*-for techlevel & battle	*/
+			 int mechanical;		/*-for the prices of the ships 	*/
+			 int perception;		/*-for spying & health  	*/			 
+			 int strength;			/*-for battle 			*/
+			 int technical; };		/*-for techlevel 		*/
+
+static struct aliens race[]=	{"NAME",10,10,10,10,15,10,
+				 "Ewok",14,6,8,18,12,8,
+				 "Gamorrean",18,6,6,12,24,6,
+				 "Ithorian",12,14,7,13,12,8,
+				 "Jawa",12,12,18,6,6,18,
+				 "Mon Calamari",12,12,13,7,12,13,
+				 "Quarren",12,7,12,13,13,8,
+				 "Sand People",13,12,6,12,20,6,
+				 "Sullustan",12,7,18,12,12,8,
+				 "Twi`lek",12,12,8,19,6,12,
+				 "Wookie",12,6,12,6,25,8,
+				 "Human",10,6,6,6,12,6,
+				 "Vulcan",14,12,18,13,24,13};
+
+/***********************************************************************************/
+
+struct  user_struct {
+			int	nr;		/* Usernummer - 50? */
+			char	username[30];	/* Username on System */
+			char	player[30];	/* Player Name in Game */
+			int	terminal;
+			int	tax;
+			int	space_lord;
+
+			long	credits;	/* Credits */
+			long	acredits;	/* Credits on Bank */
+			int	moves;		/* Free Moves */
+			int	played_moves;	/* Played Moves */
+			char	last_game[12];	/* Last played */
+			time_t	last_time;      /* systemtime */
+			int	protection;	/* Protected Moves left */
+			long	score;
+			long	score_modifier;
+
+			long 	food;		
+			long	population;
+			int	harmony;
+			int	harmony_modifier;
+			int	morale;
+			int	morale_modifier;
+			int	health;
+			int	health_radioactivity;
+			int	tech_level;
+			int	tech_support;
+
+			int	orep;
+			int	foodp;
+			int	defensep;
+			int	tradep;
+			int	tourismp;
+			int	supplyp;
+			int	governp;
+			
+			int	soldiers;
+			int	fighters;
+			int	ywings;
+			int	defense;
+			int	carriers;
+			int	cruisers;
+			int	agents;
+			int	freighters;
+			int	pilots;
+			int	missiledefense;
+			
+			int	teamleader;
+			char	teamname[30];
+			int	team_defense;
+			int	team_soldiers;
+			int	team_cruisers;
+			int	team_num;
+			int	team_apply;
+
+			int	alive;
+			char	pchar[2];
+			int	race;
+			int	deathstars;
+			int	starfighters;
+			char	dummy3[77];
+			time_t	dummy4;
+
+			};
+
+static struct user_struct player[50];
+
+/***********************************************************************************/
+
+static long usedtransport=0;
+
+/* for checkit() */
+static char sendto[13];
+static unsigned status2;
+char message[80];
+static struct dsc$descriptor_s  message_struct = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, message};
+static struct dsc$descriptor_s  sendto_struct = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, sendto};
+
+static FILE *busy_fp;  /* for the new checkit() */
+
+static char date[12];
+static char filename[80];
+static char version[6]="0.98f";
+static char file_ver[10]="2";
+static char reldate[9]="28.05.93";
+static char mainpath[20]="SPCEMP:";
+static char username[30]="USER";
+static int debug=FALSE;
+static long supervisor=121212;
+
+/* Data from the Config-file */
+
+static char welcometxt[78]="MSG from Galactic Advisor : Good luck, new Emperor.";
+static char BankName[78]="Beeblebrox bank";
+static int lottery_turn=0;
+static long original_prot=20;
+static long new_moves=20;
+static long old_moves=5;
+static int uridium_turn=0;
+static int uridium_limit=0;
+static long max_transfer=1000000;
+static int multiuser=0;
+
+/****/
+
+static int attacking=TRUE;
+static int rocket_use=TRUE;
+
+static char dummy[80];
+static int lord_count=0;
+static int lord_days=0;
+static char lord_name[80]="Nobody";
+
+static float zins1=0.05;
+static float zins2=0.04;
+static float zins3=0.03;
+
+/* PLAYER SPECIFIC VARS */
+
+static int pn=0;
+static int epn=1;
+
+static long sol_work=0;
+static long cov_work=0;
+
+static long pop_increase=0;
+
+static float def_soldiers=0;
+static float def_fighters=0.18;
+static float def_defense=0.4;
+static float def_cruisers=0.4;
+static float def_carriers=0;
+static float def_freighters=0;
+static float def_pilots=0;
+
+static char enemy[20]="NONE";
+
+/***/
+
+
+static long e_sol_work=0;
+static long e_cov_work=0;
+
+static char e_teamname[20]="NONE";
+static long e_team_num=0;
+static long e_team_apply=0;
+static long e_team_defense=0;
+static long e_team_soldiers=0;
+static long e_team_cruisers=0;
+static int  e_teamleader=FALSE;
+
+
+static long textiles,minerals,aloys,machines,computers,silver,gems;
+static int p_food,p_textiles,p_minerals,p_aloys,p_machines,p_computers,p_silver,p_gems;
+static unsigned long transport,free_transport;
+
+/********************************************************************/
+delete_file(char *filename)
+{
+delete(filename);
+/*
+unsigned int status;
+char file[80];
+unsigned int context = 0;
+struct dsc$descriptor_s file_spec = 
+
+	{0,DSC$K_DTYPE_T,DSC$K_CLASS_S, file};
+
+	sprintf(file,"%s;*", filename);
+	file_spec.dsc$w_length=strlen(filename);
+	do
+		{
+		status= LIB$DELETE_FILE(&file_spec,0,0,0,0,0,0,0,&context);
+		if((status != SS$_NORMAL) && ( status != RMS$_NMF) && (status != RMS$_FNF))
+			LIB$STOP(status);
+		}
+	while((status!= RMS$_NMF) && (status != RMS$_FNF));
+	LIB$FILE_SCAN_END(0,&context);
+return(SUCCESS);
+*/
+}
+
+/********************************************************************/
+char *ansi(int command)
+{
+switch(player[pn].terminal) {
+  case 0 : return("");
+  case 1 : {
+           switch(command) {
+             case TT_RESET : return("[0m");
+             case TT_CLS : return("[2J[;H");
+             case TT_BOLD : return("[1m");
+             case TT_UNDERLINE : return("[4m");
+             case TT_BLINKING : return("[5m");
+             case TT_NEGATIV : return("[7m");
+             case TT_INVISIBLE : return("[8m");
+             case TT_FORBLACK : return("[30m");
+             case TT_SAVECSR : return("7");
+             case TT_RESTORECSR : return("8");
+             case TT_UP : return("[A");
+             case TT_DOWN : return("[B");
+             case TT_RIGHT : return("[C");
+             case TT_LEFT : return("[D");
+             default : return("");
+             }
+           }
+  case 2 : {
+           switch(command) {
+             case TT_RESET : return("[0m");
+             case TT_CLS : return("[2J[;H");
+             case TT_BOLD : return("[1m");
+             case TT_UNDERLINE : return("[4m");
+             case TT_BLINKING : return("[5m");
+             case TT_NEGATIV : return("[7m");
+             case TT_INVISIBLE : return("[8m");
+             case TT_SAVECSR : return("[s");
+             case TT_RESTORECSR : return("[u");
+             case TT_FORBLACK : return("[30m");
+             case TT_FORRED : return("[31m");
+             case TT_FORGREEN : return("[32m");
+             case TT_FORYELLOW : return("[33m");
+             case TT_FORBLUE : return("[34m");
+             case TT_FORDARKRED : return("[35m");
+             case TT_FORCYAN : return("[36m");
+             case TT_FORWHITE : return("[37m");
+             case TT_BACKBLACK : return("[40m");
+             case TT_BACKRED : return("[41m");
+             case TT_BACKGREEN : return("[42m");
+             case TT_BACKYELLOW : return("[43m");
+             case TT_BACKBLUE : return("[44m");
+             case TT_BACKDARKRED : return("[45m");
+             case TT_BACKCYAN : return("[46m");
+             case TT_BACKWHITE : return("[47m");
+             case TT_UP : return("[A");
+             case TT_DOWN : return("[B");
+             case TT_RIGHT : return("[C");
+             case TT_LEFT : return("[D");
+             default : return("");
+             }
+           }
+  default : return("");
+  }
+}
+
+/********************************************************************/
+char *gotoxy(int y,int x)
+{
+
+if(player[pn].terminal>0)
+  return("\033[%d;%dH",y,x);
+ else
+  return("");
+
+}
+
+/********************************************************************/
+char *harmony_level(int type,int level)
+{
+
+if(type==1) /* Morale */ 
+	{ 
+	if( (level>-3) && (level<3) ) 
+		return "average";
+	if( level > 20) 
+		return "very high";
+	if( level > 8) 
+		return "high";
+	if( level > 2) 
+		return "above average";
+	if( level < -20) 
+		return "very low";
+	if( level < -8) 
+		return "low";
+	if( level < -2) 
+		return "below average";
+	}
+
+if(type==2)  /* Population Harmony */ 
+	{ 
+	if( (level>-3) && (level<3) ) 
+		return "Satisfied";
+	if( level > 20 ) 
+		return "Exalted";
+	if( level > 8 ) 
+		return "Happy";
+	if( level > 2 ) 
+		return "Content";
+	if( level < -20) 
+		return "Enraged";
+	if( level < -8 ) 
+		return "Restless";
+	if( level < -2 ) 
+		return "Discontent";
+	}
+if(type==3)  /* Population health */ 
+	{ 
+	if( level ==0 ) 
+		return "Normal";
+	if( level > 4 ) 
+		return "Very healthy";
+	if( level >= 1 ) 
+		return "Healthy";
+	if( level < -5) 
+		return "Severe health problems";
+	if( level < -2 ) 
+		return "Bigger health problems";
+	if( level < 0 ) 
+		return "Health problems";
+	}
+if(type==4)  /* Player Tech-level */ 
+	{ 
+	if( level > 25 ) 
+		return "Galaxy-Age";
+	if( level > 8 ) 
+		return "Universe-Age";
+	if( level > 4 ) 
+		return "Solaris-Age";
+	if( level >  0 ) 
+		return "Space-Age";
+	if( level < -10) 
+		return "DO RESEARCH";
+	if( level < -5 ) 
+		return "Tech-Age";
+	if( level <= 0 ) 
+		return "HighTech-Age";
+	}
+
+}
+
+/********************************************************************/
+strip_crlf(char *string)
+{
+int x,y;
+x=strlen(string);
+for(y=0; y<=x; y++) 
+	{
+	if((string[y]=='\r')||(string[y]=='\n')) string[y]=0;
+	}
+}
+
+
+/********************************************************************/
+/* page(user,text)		pages the user if he is in the game */
+/*   user    = pointer to userstring  (0-terminated)                */
+/*   text    = pointer to text        (0-terminated)                */
+/********************************************************************/
+page(user,text)
+char *user;
+char *text;
+   {
+   int                     channel;
+   int                     textlen;
+   char                    *image;
+   char	                   imagename[100];
+   unsigned short          length;
+   unsigned                sndtyp;
+   char 		   proc_name[15];
+   unsigned short 	   proc_name_length=0;
+   struct item_list_3 	   itmlst;
+   unsigned 		   pid;
+   unsigned 		   old_pid;
+   struct dsc$descriptor_s proc_name_struct = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 
+proc_name};
+   unsigned  		   master_pid=0;
+ 
+   if (multiuser==FALSE)
+      return;
+
+   textlen=strlen(text);
+   if (textlen==0)
+      return;
+
+   /* search the process */
+   pid = -1;
+   do
+    {
+     old_pid = pid;
+     itmlst.buffer_length            = 15;
+     itmlst.item_code                = JPI$_USERNAME;
+     itmlst.buffer_address.char_type = &proc_name;
+     itmlst.return_length            = &proc_name_length;
+     itmlst.terminator               = 0;
+     status = SYS$GETJPI(0, &pid, 0, &itmlst, 0, 0, 0);
+     if((status==SS$_NORMAL)&&(proc_name_length>0))
+      {
+       for (; (proc_name[proc_name_length]<33) && (proc_name_length>0); 
+         proc_name[proc_name_length]=0, proc_name_length--);
+      }
+     if ((status==SS$_NORMAL) && (strcmp(&proc_name, user)==0))
+      {
+       /***** GET DEVICE-NAME INTO SENDTO-string ******/
+       proc_name_struct.dsc$w_length = proc_name_length;
+       itmlst.item_code = JPI$_MASTER_PID;
+       itmlst.buffer_address.int_type = &master_pid;
+       status = SYS$GETJPI(0, &old_pid, 0, &itmlst, 0, 0, 0);
+       if (status != SS$_NORMAL)  /* don't find user anymore... perhaps he is currently 
+                                     switching the channel or he just logged out */
+         return;
+       itmlst.item_code = JPI$_TERMINAL;
+       itmlst.buffer_address.char_type = &sendto;
+       itmlst.buffer_length = 7;
+       status = SYS$GETJPI(0, &master_pid, 0, &itmlst, 0, 0, 0);
+       if (status != SS$_NORMAL)  /* don't find user anymore... perhaps he is currently 
+                                     switching the channel or he just logged out */
+         return;
+       sendto_struct.dsc$w_length = proc_name_length;
+       sndtyp = BRK$C_DEVICE;
+       channel = BRK$C_GENERAL;
+
+       /* User found now look if he is playing space empire */
+       itmlst.buffer_length            = 99;
+       itmlst.item_code                = JPI$_IMAGNAME;
+       itmlst.terminator               = 0;
+       itmlst.return_length            = &length;
+       itmlst.buffer_address.char_type = &imagename;
+       status = SYS$GETJPI(0, &master_pid, 0, &itmlst, 0, 0, 0);
+       if (status != SS$_NORMAL)  /* don't find user anymore... perhaps he is currently 
+                                     switching the channel or he just logged out */
+         return;
+
+       /* User is in VMS */
+       if(length>0)
+        {
+         imagename[length]=0;
+         for (; (imagename[length]!='.') && (length>0); 
+             imagename[length]=0, length--);
+         if (length>0)
+          {
+           imagename[length]=0;
+           image=strrchr(imagename,']');
+           if (image!=0)
+             image++;
+          }
+         if (strcmp(image,"EMPIRE")==0)
+           break;
+        }
+      }
+    }
+   while (status != SS$_NOMOREPROC);
+   if (status==SS$_NOMOREPROC)
+     return;
+   message_struct.dsc$a_pointer = text;
+   message_struct.dsc$w_length = textlen;
+
+   /* check if user is currently in the game */
+   /* send the message */
+   if (((status = SYS$BRKTHRUW(0, &message_struct, &sendto_struct, sndtyp,
+              0, 32, 0, channel, 0, 0, 0)) & 1) != 1)
+      LIB$STOP(status);
+   }  /* end of page */
+
+
+
+/********************************************************************/
+/* checkit()		check if empire is allready running         */
+/********************************************************************/
+int checkit()
+{
+
+  busy_fp=fopen("SPCEMP:IN.USE;1","a");
+  if (busy_fp!=0)
+	{
+	printf ("Nobody is in the game you're able to play ...\n");
+	return(FALSE);
+	}
+  if (busy_fp==0)
+	{
+	printf ("Can't open file -> File locked -> You can't play.\n");
+	return(TRUE);
+	}
+
+}
+
+
+/********************************************************************/
+/* cls()					   Clears the screen*/
+/********************************************************************/
+cls()
+{
+	printf("%s",ansi(TT_CLS));
+}  /* End of CLS */
+
+/********************************************************************/
+/* create_files()     creates missing files nessessary to run spcemp*/
+/********************************************************************/
+create_files()
+{
+FILE *fp;
+char string[78];
+
+/*
+if (check_file("SPCEMP:TEAMS.DAT")==FALSE)
+ {
+ printf("SPCEMP:TEAMS.DAT missing ......\n");
+ printf("Creating ......\n");
+ fp=fopen("SPCEMP:TEAMS.DAT","w");
+ printf("");
+ fclose(fp);
+ }
+*/
+
+if (check_file("SPCEMP:NEWS.TXT")==FALSE)
+ {
+ printf("SPCEMP:NEWS.TXT missing ......\n");
+ printf("Creating ......\n");
+ fp=fopen("SPCEMP:NEWS.TXT","w");
+ printf("");
+ fclose(fp);
+ }
+
+}
+ 
+/********************************************************************/
+/* LOAD_CONFIG()     Loads the configuration from SPCEMP:EMPIRE.CFG */
+/********************************************************************/
+Load_Config()
+{
+FILE *fp;
+char string[82];
+
+if (check_file("SPCEMP:EMPIRE.CFG")==FALSE)
+ {
+ printf("SPCEMP:EMPIRE.CFG missing ......\n");
+ printf("Please check reference manual.\n");
+ sleep(10);
+ }
+else
+ {
+  fp=fopen("SPCEMP:EMPIRE.CFG","r");
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        {
+        strcpy(welcometxt,string);
+        strip_crlf(welcometxt);
+        }
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        {
+        strcpy(BankName,string);
+        strip_crlf(BankName);
+        }
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&lottery_turn);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&original_prot);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&new_moves);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&old_moves);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%ld",&max_transfer);
+      if(max_transfer>2000000)
+	max_transfer=2000000;
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&uridium_turn);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&uridium_limit);
+      }
+    if(feof(fp)==FALSE)
+      {
+      fgets(string,78,fp);
+      if(strcmp(string," ")>0)
+        sscanf(string,"%d",&multiuser);
+      }
+  fclose(fp);
+ }
+}
+
+/********************************************************************/
+/* GET_USERNAME(name_str, name_length)   outputs username as string */
+/********************************************************************/
+get_username(name)
+char *name;
+   {
+   unsigned short len_short;
+   struct item_list_3 itmlst;
+
+   itmlst.buffer_length            = 15;
+   itmlst.item_code                = JPI$_USERNAME;
+   itmlst.buffer_address.char_type = name;
+   itmlst.return_length            = &len_short;
+   itmlst.terminator               = 0;
+   
+   if (((status=SYS$GETJPI(0, 0, 0, &itmlst, 0, 0, 0)) & 1) != 1)
+      LIB$STOP(status);
+   name[len_short]=0;
+   for (; (len_short>=0) && (name[len_short]<33); 
+        name[len_short]=0, len_short--);
+   }
+
+/*****************************************************************/
+/* CHECK FILE                                                    */
+/*****************************************************************/
+check_file(char *filename)
+   {
+   char  outname[80];
+   unsigned long status;
+   unsigned long context_dir;
+
+   struct dsc$descriptor_s in_name =
+         {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
+   struct dsc$descriptor_s out_name =
+         {80, DSC$K_DTYPE_T, DSC$K_CLASS_S, outname};
+
+   in_name.dsc$a_pointer = filename;
+   in_name.dsc$w_length = strlen(filename);
+   context_dir = 0;
+   status = LIB$FIND_FILE(&in_name, &out_name, &context_dir, 0, 0, 0, 0);
+   LIB$FIND_FILE_END(&context_dir);  /* end file_find */
+   if ((status & 1) != 1)  /* file not found */
+      return(FALSE);
+   else
+      return(TRUE);
+   }
+
+
+/********************************************************************/
+int rnd(int x)
+{
+int r;
+
+r=(rand() % (x+1));
+
+return(r);
+}
+
+/********************************************************************/
+char rndfile()
+{
+   char *filechar;
+
+   short outlen;
+   $DESCRIPTOR (ctr_string, "!%T");
+   struct dsc$descriptor_s  outbuffer
+       = {20, DSC$K_DTYPE_T, DSC$K_CLASS_S, filename};
+
+   SYS$FAO (&ctr_string, &outlen, &outbuffer, 0);
+   filename[outlen] = 0;
+   filechar = strchr(filename,':');
+   *filechar = '$';
+   filechar = strchr(filename,':');
+   *filechar = '$';
+}
+
+
+/********************************************************************/
+get_date()
+{
+long outlen;
+
+   $DESCRIPTOR (ctr_string, "!11%D");
+   struct dsc$descriptor_s  outbuffer
+       = {11, DSC$K_DTYPE_T, DSC$K_CLASS_S, date};
+
+   SYS$FAO (&ctr_string, &outlen, &outbuffer, 0);
+   date[outlen] = 0;
+
+}
+
+
+/********************************************************************/
+check_user(char *username)
+{
+   struct dsc$descriptor_s id_desc =
+         {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
+   unsigned long id;
+   unsigned long status;
+
+   id_desc.dsc$a_pointer = username;
+
+   for (id_desc.dsc$w_length=0; username[id_desc.dsc$w_length]>32; 
+        id_desc.dsc$w_length++);
+   status = SYS$ASCTOID(&id_desc, &id, 0);
+   if (status==SS$_NORMAL)
+      return(YES);
+   else
+      return(NO);
+}  /* end of check_user */
+
+
+/********************************************************************/
+get_yn(int default_value)
+{
+char tempstring[80];
+int ok;
+
+	for(;;)
+		{
+		gets(tempstring);
+		if (strlen(tempstring)==0)
+			return(default_value);
+		tempstring[0] = toupper(tempstring[0]);
+		if (tempstring[0]=='Y')
+			return(SUCCESS);
+		if (tempstring[0]=='N')
+			return(FAIL);
+		printf("\nEnter (Y)es or (N)o! [%c] ",(default_value ? 'Y' : 'N'));
+		}
+}  /* End of Y/N */
+
+
+/********************************************************************/
+press_return()
+{
+	char tempstring[80];
+	printf(" --- Press [ RETURN ] ...");
+	gets(tempstring);
+}  /* End of any_key */
+
+
+/********************************************************************/
+get_letter()
+{
+char tempstring[80];
+
+	for (;;)
+	{
+		printf ("\n Your choice ? ");
+		gets(tempstring);
+		if (strlen(tempstring)>0)
+			{
+			tempstring[0] = toupper(tempstring[0]);
+			return(tempstring[0]);
+			}
+	} /* End for ever loop*/
+}  /* End of get_letter */
+
+
+/********************************************************************/
+strtoup(char *str_ptr)
+{
+ while (*str_ptr != 0)
+  {if ((*str_ptr >= 'a') && (*str_ptr <= 'z')) *str_ptr &= 0xDF;
+   str_ptr++;}
+}
+
+/********************************************************************/
+display_file(char *file_name,int more)
+{
+int  line_count = 0;
+FILE *file_stream;
+char text_line[81];
+ 
+	file_stream = fopen(file_name, "r");
+	while (fgets(text_line, 81, file_stream) != NULL)
+		{
+		line_count++;
+		printf("%s",text_line);
+		if ((line_count>22) && more)
+			{
+                        press_return();
+			line_count=0;
+			}
+		}
+	fclose(file_stream);
+} /* end of display_file */
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+check_busy()
+{
+FILE *fp;
+char string[80];
+char ostring[80];
+char lastplayer[80]="ERROR";
+int busy=TRUE;
+
+player[pn].terminal=1;
+
+cls();
+printf(" THIS GAME IS SHAREWARE - IF YOU INSTALL IT, SEND SOME MONEY TO THE PROGRAMMERS.\n");
+printf("                   .                        .              .\n");
+printf("                 +                   SUPER\n");
+printf("                                                                 +\n");
+printf("  *          *          #####  #####   ###  ######  ######                *\n");
+printf("                       ##     ##   #  ## ##  ##     ##          *       .\n");
+printf("        *               ##   ######  #######  ##     ####\n");
+printf("                    ##  ##  ##      ##     ##  ##     ##                   .\n");
+printf("            .       ####   ##      ##       ##   ####  ######\n");
+printf("                                                      *               +\n");
+printf("        .         #####  #### ###  ######   ##   #####    #####              .\n");
+printf("    +             ##      ## ## ##  ##   #  ##  ##   #   ##        .\n");
+printf("         .         ####    ##   ##  ######  ##  #####    ###              *\n");
+printf("   .           +    ##      ##   ##  ##    ##  ##   ##  ##      *           .\n");
+printf("           .         #####  ##   ##  ##    ##  ##   ##  #####          .\n");
+printf("   .                          .                          .               .\n");
+printf(" VAX / OPEN VMS Version %s (27.02.93-%s)  (c)'93  R.Sieber & N.Kuemin\n",version,reldate);
+printf("            For suggestions or BugReports: Email to DR_WHO@PEGASUS.CH\n"); 
+printf("              or call ++41 [0]71715577 or (x.25) ++228 475212574 \n");
+printf("                        dedicated to Eveline Rudigier\n");
+printf("            Thanks to BIG_ONE and FERX for debugging and bugreports.\n");
+printf("\n");
+press_return();
+cls();
+printf("\n");
+if (check_file("SPCEMP:HIGH.SCORES")==TRUE)
+  {
+  display_file("SPCEMP:HIGH.SCORES",NO_MORE);
+  press_return();
+  cls();
+  }
+
+if (check_file("SPCEMP:BUSY.STATUS")==FALSE)
+ {
+  sleep(1); /* Just wait a second */
+  if (check_file("SPCEMP:BUSY.STATUS")==FALSE)
+   {
+    busy=FALSE;
+   }
+  else
+   {
+    fp=fopen("SPCEMP:BUSY.STATUS","r");
+      if(!feof(fp))
+       {
+        fgets(string,60,fp);
+        sscanf(string,"%d",&busy);
+       }
+      if(!feof(fp))
+       {
+        fgets(string,60,fp);
+        sscanf(string,"%s",&lastplayer);
+       }
+    fclose(fp);
+   }
+ }
+else
+ {
+  fp=fopen("SPCEMP:BUSY.STATUS","r");
+  if(!feof(fp))
+   {
+    fgets(string,60,fp);
+    sscanf(string,"%d",&busy);
+   }
+  if(!feof(fp))
+   {
+    fgets(string,60,fp);
+    sscanf(string,"%s",&lastplayer);
+   }
+  fclose(fp);
+ }
+
+if(multiuser==FALSE)
+ {
+	if(checkit()==TRUE)
+          {
+	  printf("Sorry, it is not possible to play at the moment...\n\n");
+	  printf("      1) There is already %s in the game...\n",lastplayer);
+	  printf("         Try again later... \n\n\n");
+	  printf("Do you want to see the Scores ? (Y/n) ");
+	  gets(ostring);
+	  if (toupper(ostring[0])!='N')  
+		display_users();
+          exit(0);
+          }
+        else
+          {
+	  printf("Last player was %s. ",lastplayer);
+	  if(busy==TRUE)
+		  printf("(He hung up the line.)");
+	  printf("\n");
+	  get_username(player[pn].player);
+	  get_username(username);
+          if(strcmp(player[pn].player,"GUEST")==0)
+           {
+	    printf("Sorry, no access from the GUEST-Account...\n\n\n");
+            exit(0);
+           }
+
+	  busy=TRUE;
+          if(check_file("SPCEMP:BUSY.STATUS")==TRUE)
+            delete_file("SPCEMP:BUSY.STATUS");
+	  fp = fopen("SPCEMP:BUSY.STATUS", "w");
+	   fprintf(fp,"%d\n",busy);
+	   fprintf(fp,"%s\n",player[pn].player);
+          fclose(fp);
+          }
+ }          
+}
+----> END OF PART 1 <----
+-- 
+      Internet: Dr_who@pegasus.ch         __
+      Phone   : ++41-71-71 70 42         ///
+      FAX     : ++41-71-71 27 87    __  ///    "I'M THE DOCTORE BECAUSE 
+                                    \\\///      IT'S FUN FUN FUN ! "
+     BBS Phone: ++41-71-71 55 77     \XX/       - TOM BAKER 
+      X.25    : +228 4752 1 2574        

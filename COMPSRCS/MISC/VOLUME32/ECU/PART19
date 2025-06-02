@@ -1,0 +1,2614 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i054:  ecu - ECU Asynchronous Communications v3.20, Part19/40
+Message-ID: <1992Sep13.153820.5799@sparky.imd.sterling.com>
+X-Md4-Signature: 34b83be9cbc3ddc1c5153db8340cb9d5
+Date: Sun, 13 Sep 1992 15:38:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 54
+Archive-name: ecu/part19
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.19 (part 19 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file pcmd.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 19; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping pcmd.c'
+else
+echo 'x - continuing file pcmd.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'pcmd.c' &&
+X			interval = hzmsec;		/* SCO nap bug */
+X		if(proctrace && (interval > 100))	/* short naps hurt by pprintf */
+X			pprintf("nap %ld msec\n",interval);
+X		if(Nap(interval) == -1)		/* EINTR is the only error returned ... */
+X		{							/* but check anyway */
+X			if(errno == EINTR)
+X				erc = eCONINT;
+X		}
+X	}
+X	return(erc);
+X}	/* end of pcmd_nap */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_nice(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_nice(param)
+XESD *param;
+X{
+Xlong new_nice;
+Xint erc;
+Xint old_nice;
+Xint nice();
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	if(erc = gint(param,&new_nice))
+X		return(erc);
+X	if((new_nice < 0) || (new_nice > 39))
+X	{
+X		pprintf("warning: invalid nice %ld ignored (valid range 0-39)\n",
+X			new_nice);
+X		return(0);
+X	}
+X
+X	old_nice = nice(0) + 20;
+X	nice(-old_nice + (int)new_nice);
+X
+X	if(proctrace)
+X		pprintf("nice desired %u, set to %u\n",(uint)new_nice,nice(0) + 20);
+X	return(0);
+X
+X}	/* end of pcmd_nice */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_parity(param)
+Xparity [e | o | n]
+Xparity ['e' | 'o' | 'n']
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_parity(param)
+XESD *param;
+X{
+Xint erc;
+Xint new_parity = 0;
+XESD *tesd;
+Xchar s64[64];
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X	if(!(tesd = esdalloc(64)))
+X		return(eNoMemory);
+X	if(!gstr(param,tesd,0))
+X		new_parity = to_lower(*tesd->pb);
+X	else if(!get_alpha_zstr(param,s64,sizeof(s64)))
+X		new_parity = to_lower(s64[0]);
+X	else
+X	{
+X		erc = eSyntaxError;
+X		goto RETURN;
+X	}
+X	esdfree(tesd);
+X
+X	switch(new_parity)
+X	{
+X		case 'n':
+X			new_parity = 0;
+X		case 'e':
+X		case 'o':
+X			shm->Lparity = new_parity;
+X			if(shm->Liofd < 0)
+X				lset_parity(1);
+X			break;
+X		default:
+X			erc = eBadParameter;
+X	}
+X	if(proctrace && !erc)
+X	{
+X		pprintf("parity set to %s\n",
+X			(shm->Lparity) ? ((shm->Lparity == 'e') ? "even" : "odd")
+X			               : "none");
+X	}
+X
+XRETURN:
+X	esdfree(tesd);
+X	return(erc);
+X
+X}	/* end of pcmd_parity */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_prompt(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_prompt(param)
+XESD *param;
+X{
+Xextern ESD *icmd_prompt;
+X
+X	return(gstr(param,icmd_prompt,0));
+X}	/* end of pcmd_prompt */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ptrace(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ptrace(param)
+XESD *param;
+X{
+Xchar s8[8];
+X
+X	if(get_alpha_zstr(param,s8,sizeof(s8)))
+X		return(eSyntaxError);
+X	if(isdigit(s8[0]))
+X		proctrace = atoi(s8);
+X	if(!strcmp(s8,"on"))
+X		proctrace = 1;
+X	else if(!strcmp(s8,"off"))
+X		proctrace = 0;
+X	else
+X		return(eSyntaxError);
+X	return(0);
+X}	/* end of pcmd_ptrace */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rname(param) - set remote name
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rname(param)
+XESD *param;
+X{
+Xint erc;
+XESD *rname;
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X	if(!shm->Lconnected)
+X	{
+X		pputs("Not connected\n");
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if((rname = esdalloc(sizeof(shm->Lrname) - 1)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(!(erc = gstr(param,rname,0)))
+X	{
+X		strcpy(shm->Lrname,rname->pb);
+X		if(proctrace)
+X			pprintf("rname set to '%s'\n",rname->pb);
+X	}
+X	esdfree(rname);
+X	return(erc);
+X
+X}	/* end of pcmd_rname */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_send(param)
+Xsend [-n] <str>
+X-n do not send trailing CR
+X-v turn on proctrace for just this statement
+X-p## pace characters ## msec apart
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_send(param)
+XESD *param;
+X{
+Xint erc;
+Xchar *cptr;
+XESD *buf;
+Xchar switches[32];
+Xint send_cr;
+Xint tell_it;
+Xlong pace_msec = 0L;
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	if((buf = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X	send_cr = !strchr(switches,'n');
+X	tell_it = !!strchr(switches,'v');
+X	if(cptr = strchr(switches,'p'))
+X		sscanf(cptr + 1,"%ld",&pace_msec);
+X
+X	if(erc = gstr(param,buf,1))
+X	{
+X		esdfree(buf);
+X		return(erc);
+X	}
+X
+X	if(proctrace || tell_it)
+X	{
+X		hex_dump(buf->pb,buf->cb,
+X			(send_cr) ? "send with CR" : "send w/o CR",1);
+X	}
+X
+X	if(pace_msec)
+X		lputs_paced(pace_msec,buf->pb);
+X	else
+X		lputs(buf->pb);
+X
+X	if(send_cr)
+X		lputc(CRET);
+X	if(pace_msec)
+X		Nap(pace_msec);
+X
+X	esdfree(buf);
+X	return(erc);
+X}	/* end of pcmd_send */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_set(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_set(param)
+XESD *param;
+X{
+Xint erc;
+Xint itmp;
+Xulong varnum;
+Xuint varmax;
+Xchar vartype;
+Xchar varstr[16];
+Xint show_status;
+Xlong *ivptr;
+XESD *svptr;
+Xchar *cptr;
+Xchar *make_char_graphic();
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X
+X	do {
+X
+X		/* $ is optional */
+X		if((erc = skip_cmd_char(param,'$')) && (erc != eSyntaxError))
+X			return(erc);
+X
+X		/* get variable type */
+X		if(get_cmd_char(param,&vartype))
+X			return(eSyntaxError);
+X
+X		/* validate variable type */
+X		vartype = to_lower(vartype);
+X		switch(vartype)
+X		{
+X			case 'i':
+X				varmax = IVQUAN;
+X				break;
+X			case 's':
+X				varmax = SVQUAN;
+X				break;
+X			default:
+X				return(eIllegalVarType);
+X		}
+X
+X		if(!get_numeric_value(param,&varnum))
+X			goto TEST_VARNUM;
+X		else if(*(param->pb + param->index) == '[')
+X		{
+X			if(erc = get_subscript(param,&varnum))
+X				return(erc);
+XTEST_VARNUM:
+X			if((int)varnum >= varmax)
+X				return(eIllegalVarNumber);
+X			switch(vartype)
+X			{
+X				case 'i':
+X					ivptr = &iv[(int)varnum];
+X					break;
+X				default:
+X					svptr = sv[(int)varnum];
+X			}
+X		}
+X		else if(get_alphanum_zstr(param,varstr,sizeof(varstr)))
+X			return(eInvalidVarName);
+X		else
+X		{
+X			varnum = NAMED_VARIABLE_FLAG;
+X			switch(vartype)
+X			{
+X				case 'i':
+X					erc = find_mkvi(varstr,&ivptr,1);
+X					break;
+X				default:
+X					erc = find_mkvs(varstr,&svptr,1);
+X			}
+X			if(erc)
+X				return(erc);
+X		}
+X			
+X		show_status = 1;
+X		if(!skip_cmd_char(param,'='))	/* assignment */
+X		{
+X			switch(vartype)
+X			{
+X				case 'i':
+X					if(erc = gint(param,ivptr))
+X						return(erc);
+X					break;
+X				default:
+X					if(erc = gstr(param,svptr,1))
+X						return(erc);
+X					break;
+X			}
+X			if(!proctrace)
+X				show_status = 0;
+X		}
+X		if(show_status)
+X		{
+X			switch(vartype)
+X			{
+X				case 'i':
+X					if(varnum != NAMED_VARIABLE_FLAG)
+X						pprintf("$i%02ld = %7ld (0x%08lx,0%03lo",varnum,
+X							*ivptr,*ivptr,*ivptr);
+X					else
+X						pprintf("$i%s = %ld (0x%08lx,0%03lo",varstr,
+X							*ivptr,*ivptr,*ivptr);
+X					if((*ivptr >= 0) && (*ivptr <= 255))
+X						pprintf(",'%s'",make_char_graphic((char)*ivptr,1));
+X					pputs(")\n");
+X					break;
+X				default:
+X					if(varnum != NAMED_VARIABLE_FLAG)
+X						pprintf("$s%02ld = '",varnum);
+X					else
+X						pprintf("$s%s = '",varstr);
+X					itmp = svptr->cb;
+X					cptr = svptr->pb;
+X					while(itmp--)
+X						pputs(make_char_graphic(*cptr++,0));
+X					pputs("'\n");
+X					break;
+X			}
+X		}
+X	} while(!skip_comma(param));
+X
+X	if(!end_of_cmd(param))
+X		return(eSyntaxError);
+X
+X	return(0);
+X}	/* end of pcmd_set */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_system(param)
+X
+Xsystem [-l] 'cmd'
+X-l makes comm line stdin/stdout
+X-s keeps all fds the same
+X
+Xreturns $i0 set to exit status of program or 0x100 if interrupted
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_system(param)
+XESD *param;
+X{
+Xint erc;
+XESD *cmd;
+Xextern int last_child_wait_status;
+Xchar switches[8];
+X
+X	if((cmd = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X/* a hack */
+X	*cmd->pb++ = (strchr(switches,'s')) ? '>' : 
+X		((strchr(switches,'l')) ? '$' : '!');
+X
+X	cmd->maxcb--;
+X
+X	if(erc = gstr(param,cmd,1))
+X	{
+X		cmd->pb--;		/* be nice */
+X		cmd->maxcb++;	/* or surely this will haunt us one day */
+X		esdfree(cmd);
+X		return(erc);
+X	}
+X
+X/* rehack */
+X	cmd->pb--;
+X	cmd->cb++;
+X	cmd->maxcb++;
+X
+X	if(proctrace)
+X	{
+X		pputs(cmd->pb + 1);
+X		pputs("\n");
+X	}
+X
+X	last_child_wait_status = 0xFF00;
+X	shell(cmd->pb);
+X	iv[0] = (last_child_wait_status & 0xFF)
+X			? 0x100L : (long)last_child_wait_status >> 8;
+X	if(proctrace)
+X		pprintf("$i0 = %ld, (%s)\n",iv[0],
+X			(iv[0] == 0x100L) ? "interrupted" : "program exit status");
+X
+X	esdfree(cmd);
+X	return(0);
+X}	/* end of pcmd_system */
+X
+X/*+-------------------------------------------------------------------------
+X	get_big_endian_16(ptr)
+X--------------------------------------------------------------------------*/
+Xushort
+Xget_big_endian_16(ptr)
+Xregister uchar *ptr;
+X{
+Xregister ushort uint16 = ((ushort)ptr[0] << 8) | ptr[1];
+X 
+X	return(uint16);
+X 
+X}	/* end of get_big_endian_16 */
+X 
+X/*+-------------------------------------------------------------------------
+X	get_big_endian_32(ptr)
+X--------------------------------------------------------------------------*/
+Xulong
+Xget_big_endian_32(ptr)
+Xregister uchar *ptr;
+X{
+Xregister ulong uint32 = ((ulong)*ptr++) << 24;
+X	uint32 |= ((ulong)*ptr++) << 16;
+X	uint32 |= ((ulong)*ptr++) <<  8;
+X	uint32 |=  (ulong)*ptr++;
+X	return(uint32);
+X 
+X}	/* end of get_big_endian_32 */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_getf(param) - get friend memory
+X
+Xgetf -x <int-var-spec> <offset>
+Xwhere: -x ==
+X   -b byte
+X   -w word (little-endian)
+X   -W word (big-endian)
+X   -l 32-bits (little-endian)
+X   -L 32-bits (big-endian)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_getf(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+Xlong *piv;
+Xlong offset;
+Xint size;
+Xint big_endian;
+X
+X	if(erc = get_switches(param,switches,sizeof(switches)))
+X		return(erc);
+X	if((strlen(switches) != 2) || !strchr("bwWlL",switches[1]))
+X	{
+X		pputs("invalid switch\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	size = to_lower(switches[1]);
+X	big_endian = isupper(switches[1]);
+X
+X/*
+X	if(!get_svptr(param,&psv))
+X		return(eNotImplemented);
+X	else
+X*/
+X	if(!strncmp(param->pb + param->index,"$i",2))
+X		param->index += 2;
+X	if(erc = get_ivptr(param,&piv,1))
+X		return(erc);
+X
+X	if(erc = gint(param,&offset))
+X		return(erc);
+X
+X	if(proctrace)
+X		pprintf("getf %s offset=0x%lx",switches,offset);
+X
+X	switch(size)
+X	{
+X		case 'b':
+X			if(offset > ((long)sizeof(shm->friend_space) - 1))
+X				goto OFFSET_TOO_LARGE;
+X			*piv = *(((uchar *)shm->friend_space) + (int)offset) & 0xFF;
+X			break;
+X		case 'w':
+X			if(offset > ((long)sizeof(shm->friend_space) - 2))
+X				goto OFFSET_TOO_LARGE;
+X			if(big_endian)
+X				*piv = get_big_endian_16((uchar *)shm->friend_space +
+X						(int)offset);
+X			else
+X				*piv = *(((ushort *)shm->friend_space) + (int)offset) & 0xFFFF;
+X			break;
+X		case 'l':
+X			if(offset > ((long)sizeof(shm->friend_space) - 4))
+X				goto OFFSET_TOO_LARGE;
+X			if(big_endian)
+X			{
+X				*piv = get_big_endian_32((uchar *)shm->friend_space +
+X						(int)offset);
+X			}
+X			else
+X				*piv = *((long *)((char *)shm->friend_space + (int)offset));
+X			break;
+X	}
+X
+X	if(proctrace)
+X		pprintf(" value=%ld (%08lx)\n",*piv,*piv);
+X	return(0);
+X
+XOFFSET_TOO_LARGE:
+X	if(proctrace)
+X		pputs("\n");
+X	pprintf("offset 0x%02lx too large for -%c (0x%02x bytes available)\n",
+X		offset,switches[1],sizeof(shm->friend_space));
+X	return(eFATAL_ALREADY);
+X
+X}	/* end of pcmd_getf */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_putf(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_putf(param)
+XESD *param;
+X{
+X	return(eNotImplemented);
+X}	/* end of pcmd_putf */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_xon(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_xon(param)
+XESD *param;
+X{
+Xint erc;
+Xchar new_xonxoff[8];
+Xchar *xon_status();
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	if(erc = get_alpha_zstr(param,new_xonxoff,sizeof(new_xonxoff)))
+X		return(erc);
+X
+X	if(set_xon_xoff_by_arg(new_xonxoff))
+X		return(eBadParameter);
+X
+X	if(proctrace)
+X		pprintf("xon/xoff flow control set to %s\n",xon_status());
+X
+X	return(erc);
+X
+X}	/* end of pcmd_xon */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rtscts(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rtscts(param)
+XESD *param;
+X{
+Xint erc;
+Xchar new_rtscts[8];
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	if(erc = get_alphanum_zstr(param,new_rtscts,sizeof(new_rtscts)))
+X		return(erc);
+X
+X#if defined(HW_FLOW_CONTROL) /* see ecu.h */
+X	lRTSCTS_control(yes_or_no(new_rtscts));
+X
+X	if(proctrace)
+X		display_hw_flow_config();
+X#else
+X	if(proctrace)
+X		pprintf("hardware flow control not available .... rtscts ignored\n");
+X#endif /* RTSFLOW */
+X
+X	return(erc);
+X}	/* end of pcmd_rtscts */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_setline(param) - _rc.ep setline command
+X
+XThis command can be used to set the initial line in _rc.ep
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_setline(param)
+XESD *param;
+X{
+Xint erc;
+XESD *tesd;
+X
+X	if(rc_ep_has_run)
+X	{
+X		pprintf("command legal only in _rc.ep\n");
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if(!(tesd = esdalloc(sizeof(shm->Lline))))
+X		return(eNoMemory);
+X	if(erc = gstr(param,tesd,0))
+X		goto RETURN;
+X	shm->Lline[0] = 0;
+X	if(strncmp(tesd->pb,"/dev/",5))
+X		strcat(shm->Lline,"/dev/");
+X	strncat(shm->Lline,tesd->pb,sizeof(shm->Lline) - strlen(shm->Lline));
+X	shm->Lline[sizeof(shm->Lline) - 1] = 0;
+X	if(proctrace)
+X		pprintf("line set to %s\n",shm->Lline);
+X
+XRETURN:
+X	esdfree(tesd);
+X	return(erc);
+X}	/* end of pcmd_setline */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmd.c */
+SHAR_EOF
+echo 'File pcmd.c is complete' &&
+chmod 0644 pcmd.c ||
+echo 'restore of pcmd.c failed'
+Wc_c="`wc -c < 'pcmd.c'`"
+test 31521 -eq "$Wc_c" ||
+	echo 'pcmd.c: original size 31521, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmdfile.c ==============
+if test -f 'pcmdfile.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmdfile.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmdfile.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmdfile.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmdfile.c - ecu file-related procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	_file_not_open(filenum)
+X	_gfilenum(param,filenum)
+X	_param_to_stat(param,pstat_rtnd)
+X	ifunc_fatime(param,pvalue)
+X	ifunc_fmode(param,pvalue)
+X	ifunc_fmtime(param,pvalue)
+X	ifunc_fsize(param,pvalue)
+X	ifunc_ftell(param,pvalue)
+X	ifunc_ischr(param,pvalue)
+X	ifunc_isdir(param,pvalue)
+X	ifunc_isreg(param,pvalue)
+X	pcmd_fchmod(param)
+X	pcmd_fclose(param)
+X	pcmd_fdel(param)
+X	pcmd_fgetc(param)
+X	pcmd_fgets(param)
+X	pcmd_fopen(param)
+X	pcmd_fputc(param)
+X	pcmd_fputs(param)
+X	pcmd_fread(param)
+X	pcmd_fseek(param)
+X	pcmd_fwrite(param)
+X	pcmd_mkdir(param)
+X	pcmd_pclose(param)
+X	pcmd_popen(param)
+X	proc_file_reset()
+X	str_to_filemode(modestr,filemode)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-03-1992-12:48-wht@n4hgf-why not let fchmod set any bits? */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:06-27-1991-13:45-wht@n4hgf-$i0 wasn't always plugged on failures */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+X#if !defined(S_IRUSR)
+X#define	S_IRUSR	00400		/* read permission: owner */
+X#define	S_IWUSR	00200		/* write permission: owner */
+X#define	S_IXUSR	00100		/* execute permission: owner */
+X#define	S_IRWXG	00070		/* read, write, execute: group */
+X#define	S_IRGRP	00040		/* read permission: group */
+X#define	S_IWGRP	00020		/* write permission: group */
+X#define	S_IXGRP	00010		/* execute permission: group */
+X#define	S_IRWXO	00007		/* read, write, execute: other */
+X#define	S_IROTH	00004		/* read permission: other */
+X#define	S_IWOTH	00002		/* write permission: other */
+X#define	S_IXOTH	00001		/* execute permission: other */
+X#endif
+X
+Xextern PCB *pcb_stack[];
+X
+X#define FILE_MAX	5
+X
+Xtypedef struct pfile_struct
+X{
+X	FILE *f;	/* file pointer */
+X	ESD *n;		/* file name */
+X} PFILE;
+X
+XPFILE pfile[FILE_MAX];
+X
+Xchar fwrite_error_fmt[] = "file %d write error (not open for write?)\n";
+X
+X/*+-------------------------------------------------------------------------
+X	proc_file_reset()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xproc_file_reset()
+X{
+Xregister itmp;
+X
+X	for(itmp = 0; itmp < FILE_MAX; itmp++)
+X	{
+X		if(pfile[itmp].f)
+X		{
+X			fclose(pfile[itmp].f);
+X			pfile[itmp].f = (FILE *)0;
+X			esdfree(pfile[itmp].n);
+X		}
+X	}
+X}	/* end of proc_file_reset */
+X
+X/*+-------------------------------------------------------------------------
+X	_file_not_open(filenum)
+X--------------------------------------------------------------------------*/
+Xint
+X_file_not_open(filenum)
+Xint filenum;
+X{
+X	pprintf("file %d not open\n",filenum);
+X	return(eFATAL_ALREADY);
+X}	/* end of _file_not_open */
+X
+X/*+-------------------------------------------------------------------------
+X	_gfilenum(param,filenum)
+X--------------------------------------------------------------------------*/
+Xint
+X_gfilenum(param,filenum)
+XESD *param;
+Xint *filenum;
+X{
+Xint erc;
+Xulong lvarnum;
+Xint old_index;
+X
+X	skip_cmd_break(param);
+X	old_index = param->old_index;
+X	if(erc = gint(param,&lvarnum))
+X		return(erc);
+X	if(lvarnum > FILE_MAX)
+X		return(eBadFileNumber);
+X	*filenum = (int)lvarnum;
+X	param->old_index = old_index;
+X	return(0);
+X}	/* end of _gfilenum */
+X
+X/*+-------------------------------------------------------------------------
+X	str_to_filemode(modestr,filemode) - "rwxrwxrwx" to mode integer
+X--------------------------------------------------------------------------*/
+Xstr_to_filemode(modestr,filemode)
+Xchar *modestr;
+Xlong *filemode;
+X{
+Xregister i;
+Xregister mode = 0;
+Xint erc = 0;
+X
+X	if(strlen(modestr) != 9)
+X	{
+X		pprintf("bad length: '%s'\n",modestr);
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	for(i=0; i < 9; i++)
+X	{
+X		switch(modestr[i])
+X		{
+X
+X		case 'r':
+X			if(i == 0)
+X				mode |= S_IRUSR;
+X			else if(i == 3)
+X				mode |= S_IRGRP;
+X			else if(i == 6)
+X				mode |= S_IROTH;
+X			else
+X				erc = eSyntaxError;
+X			break;
+X
+X
+X		case 'w':
+X			if(i == 1)
+X				mode |= S_IWUSR;
+X			else if(i == 4)
+X				mode |= S_IWGRP;
+X			else if(i == 7)
+X				mode |= S_IWOTH;
+X			else
+X				erc = eSyntaxError;
+X			break;
+X
+X
+X		case 'x':
+X			if(i == 2)
+X				mode |= S_IXUSR;
+X			else if(i == 5)
+X				mode |= S_IXGRP;
+X			else if(i == 8)
+X				mode |= S_IXOTH;
+X			else
+X				erc = eSyntaxError;
+X			break;
+X
+X
+X		case 's':
+X			if(i == 2)
+X			{
+X				mode |= S_ISUID;
+X				mode |= S_IXUSR;
+X			}
+X			else if(i == 5)
+X			{
+X				mode |= S_ISGID;
+X				mode |= S_IXGRP;
+X			}
+X			else if(i == 7)
+X			{
+X				mode |= S_ISGID;
+X				mode |= S_IXGRP;
+X			}
+X			else
+X				erc = eSyntaxError;
+X			break;
+X
+X
+X		case 't':
+X#if defined(FULL_FEATURE_CHMODE)
+X			if(i == 8)
+X			{
+X				mode |= S_ISVTX;
+X				mode |= S_IXOTH;
+X			}
+X			else
+X				erc = eSyntaxError;
+X#else
+X			pputs("set sticky bit not allowed\n");
+X			erc = eFATAL_ALREADY;
+X#endif /* defined(FULL_FEATURE_CHMODE) */
+X			break;
+X		case 'l':
+X			if(i == 5)
+X			{
+X				mode |= S_ISGID;
+X				mode &= ~S_IXGRP;
+X			}
+X			else
+X				erc = eSyntaxError;
+X			break;
+X		case '-':
+X			break;
+X		default:
+X			erc = eSyntaxError;
+X		}	/* end switch */
+X
+X		if(erc)
+X			break;
+X
+X	}		/* end for */
+X
+X	if(erc)
+X	{
+X		if(erc != eFATAL_ALREADY)
+X			pputs("invalid mode specifier\n");
+X		pputs(modestr);
+X		while(i--)
+X			pputc(' ');
+X		pputs("^\n");
+X		
+X	}
+X	else
+X		*filemode = (long)mode;
+X
+X	return(erc);
+X
+X}	/* end of str_to_filemode */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fgetc(param)
+X
+Xfgetc <filenum-int> [$][i<varspec> | $s<varspec>]
+Xint variable receives 0 if EOF
+Xstr var receives null str on eof
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fgetc(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+Xint vartype;
+Xint inchar;
+XESD *svptr;
+Xlong *ivptr;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X
+X	skip_cmd_char(param,'$');
+X	if((param->index >= param->cb) ||
+X		( ((vartype = to_lower(*(param->pb + param->index))) != 'i') &&
+X			(vartype != 's')))
+X		return(eIllegalVarType);
+X	param->index++;
+X	switch(vartype)
+X	{
+X		case 'i':
+X			erc = get_ivptr(param,&ivptr,1);
+X			break;
+X		default:
+X			erc = get_svptr(param,&svptr,1);
+X			break;
+X	}
+X	if(erc)
+X		return(erc);
+X
+X	if((inchar = fgetc(pfile[filenum].f)) == EOF)
+X	{
+X		if(proctrace)
+X			pputs("fgetc EOF\n");
+X		if(vartype == 'i')
+X			*ivptr = -1;
+X		else
+X			esdzero(svptr);
+X	}
+X	else if(vartype == 'i')
+X		*ivptr = inchar;
+X	else
+X	{
+X		*svptr->pb = inchar;
+X		svptr->cb = 1;
+X	}
+X
+X	if(proctrace)
+X	{
+X		pputs("fgetc set ");
+X		pputs((vartype == 'i') ? "int" : "str");
+X		pprintf(" var = %lu (0x%02x)\n",inchar,inchar);
+X	}
+X	return(0);
+X
+X}	/* end of pcmd_fgetc */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fread(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_fread(param)
+XESD *param;
+X{
+X	return(eNotImplemented);
+X}	/* end of pcmd_fread */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fgets(param)
+Xfgetc <filenum-int> [$][s]<varspec>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fgets(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+Xchar ctmp;
+XESD *svptr;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X
+X	skip_cmd_char(param,'$');
+X	if(erc = get_cmd_char(param,&ctmp))
+X		return(erc);
+X	if(to_lower(ctmp) != 's')
+X		return(eIllegalVarType);
+X	if(erc = get_svptr(param,&svptr,1))
+X		return(erc);
+X	*svptr->pb = 0;
+X	svptr->cb = 0;
+X	if(!(iv[0] = !fgets(svptr->pb,svptr->maxcb + 1,pfile[filenum].f)))
+X	{
+X		svptr->cb = strlen(svptr->pb);
+X		if(*(svptr->pb + svptr->cb - 1) == NL)
+X		{
+X			svptr->cb--;
+X			esd_null_terminate(svptr);
+X		}
+X	}
+X	if(proctrace)
+X		pprintf("fgets set str var = '%s'\n",svptr->pb);
+X	return(0);
+X
+X}	/* end of pcmd_fgets */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fclose(param)
+Xfclose <filenum-int>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fclose(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(pfile[filenum].f)
+X	{
+X		fclose(pfile[filenum].f);
+X		pfile[filenum].f = (FILE *)0;
+X		esdfree(pfile[filenum].n);
+X	}
+X
+X	return(0);
+X
+X}	/* end of pcmd_fclose */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fputc(param)
+Xfputc <file-num> <int>
+Xfputc <file-num> <str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fputc(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+XESD *buf = (ESD *)0;
+Xchar outchar = 0;
+Xlong outlong;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X
+X	if(!gint(param,&outlong))
+X		outchar = (char)outlong;
+X	else
+X	{
+X		if((buf = esdalloc(64)) == (ESD *)0)
+X			return(eNoMemory);
+X		if(erc = gstr(param,buf,1))
+X			goto RETURN;
+X		if(!buf->cb)
+X		{
+X			pputs("cannot fputc: zero length string\n");
+X			erc = eFATAL_ALREADY;
+X			goto RETURN;
+X		}
+X		outchar = *buf->pb;
+X	}
+X
+X	if(fputc(outchar,pfile[filenum].f) < 0)
+X	{
+X		pprintf(fwrite_error_fmt,filenum);
+X		erc = eFATAL_ALREADY;
+X	}
+X
+XRETURN:
+X	if(buf)
+X		esdfree(buf);
+X	return(erc);
+X}	/* end of pcmd_fputc */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fopen(param)
+X
+Xfopen [-<fopen_switches>] <filenum-int> <filename-str>
+Xsets $i0 with result
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fopen(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+XESD *fname = (ESD *)0;
+Xchar switches[8];
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(get_switches(param,switches,sizeof(switches)))
+X	{
+X		strcpy(switches,"-r");
+X		if(proctrace)
+X		{
+X			pputs("Warning: fopen defaulting to read\n");
+X			show_error_position(pcb_stack[proc_level - 1]);
+X		}
+X	}
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(pfile[filenum].f)
+X	{
+X		pprintf("file %d already open\n",filenum);
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,fname,1))
+X		goto RETURN;
+X
+X	iv[0] = 0;
+X	if(pfile[filenum].f = fopen(fname->pb,switches + 1))
+X	{
+X		iv[0] = (long)errno;
+X		if(proctrace)
+X		{
+X			pprintf("'%s'",fname->pb);
+X			pperror(" ");
+X		}
+X	}
+X	else if(proctrace)
+X		pprintf("opened '%s' as file %d\n",fname->pb,filenum);
+X
+X	if(!erc)
+X		pfile[filenum].n = fname;
+X
+XRETURN:
+X	if(erc)
+X		esdfree(fname);
+X	return(erc);
+X}	/* end of pcmd_fopen */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fputs(param)
+Xfputs [-n] <filenum-int> <str>
+X-n do not output newline after <str>
+X<filenum-int> file number for operation
+X<str> string to write to file
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fputs(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+XESD *buf = (ESD *)0;
+Xchar switches[8];
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X
+X	if((buf = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,buf,1))
+X		goto RETURN;
+X
+X	if(!fputs(buf->pb,pfile[filenum].f) && strlen(buf->pb))
+X	{
+X		pprintf(fwrite_error_fmt,filenum);
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X
+X	if(!strchr(switches,'n'))
+X		fputc(NL,pfile[filenum].f);
+X
+XRETURN:
+X	esdfree(buf);
+X	return(erc);
+X}	/* end of pcmd_fputs */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fwrite(param)
+Xfwrite <filenum-int> <str>
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_fwrite(param)
+XESD *param;
+X{
+X	return(eNotImplemented);
+X#ifdef USE_FWRITE
+Xint erc;
+Xint filenum;
+XESD *buf = (ESD *)0;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X
+X	if((buf = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,buf,1))
+X		goto RETURN;
+X
+X	if(!fputs(buf->pb,pfile[filenum].f) && strlen(buf->pb))
+X	{
+X		pprintf(fwrite_error_fmt,filenum);
+X		erc = eFATAL_ALREADY;
+X	}
+X
+XRETURN:
+X	esdfree(buf);
+X	return(erc);
+X#endif
+X}	/* end of pcmd_fwrite */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fchmod(param)
+X
+Xfchmod <mode-str> | <mode-int> <filenum-int> | <filename-str>
+X$i0 = 0 if successful, else errno
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fchmod(param)
+XESD *param;
+X{
+X	int erc;
+X	int filenum;
+X	ESD *fname = (ESD *)0;
+X	ESD *mode = (ESD *)0;
+X	long new_mode;
+X	char *path = "??";;
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if((mode = esdalloc(64)) == (ESD *)0)
+X	{
+X		esdfree(fname);
+X		return(eNoMemory);
+X	}
+X
+X	if(erc = skip_cmd_break(param))
+X		goto RETURN;
+X	else if(!gstr(param,mode,0))
+X	{
+X		if(erc = str_to_filemode(mode->pb,&new_mode))
+X			goto RETURN;
+X	}
+X	else if(erc = gint(param,&new_mode))
+X	{
+X		erc = eBadParameter;
+X		goto RETURN;
+X	}
+X
+X	if(erc = skip_cmd_break(param))
+X		goto RETURN;
+X	else if(!gstr(param,fname,1))
+X	{
+X		path = fname->pb;
+X		if(iv[0] = (long)(chmod(path,(unsigned short)new_mode)))
+X		{
+X			iv[0] = (long)errno;
+X			if(proctrace)
+X				pperror(path);
+X		}
+X	}
+X	else if(!_gfilenum(param,&filenum))
+X	{
+X		if(!pfile[filenum].f)
+X		{
+X			erc = (_file_not_open(filenum));
+X			iv[0] = EBADF;
+X		}
+X		else if(iv[0] = (long)chmod(pfile[filenum].n->pb,
+X			(unsigned short)new_mode))
+X		{
+X			iv[0] = (long)errno;
+X			if(proctrace)
+X			{
+X				sprintf(fname->pb,"file %d",filenum);
+X				pperror(fname->pb);
+X			}
+X		}
+X		if(!iv[0])
+X			path = pfile[filenum].n->pb;
+X	}
+X	else
+X		erc = eBadParameter;
+X
+X	if(proctrace && !erc && !iv[0])
+X		pprintf("'%s' mode set to %o\n",path,(int)new_mode);
+X
+XRETURN:
+X	esdfree(mode);
+X	esdfree(fname);
+X
+X	return(erc);
+X
+X}	/* end of pcmd_fchmod */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fdel(param)
+X
+Xfdel <filename-str>
+X$i0 = 0 if successful, else errno
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fdel(param)
+XESD *param;
+X{
+Xint erc;
+XESD *fname = (ESD *)0;
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,fname,1))
+X		goto RETURN;
+X
+X	if(iv[0] = (long)unlink(fname->pb))
+X		iv[0] = (long)errno;
+X
+X	if(proctrace)
+X	{
+X		if(iv[0])
+X			pperror(fname->pb);
+X		else
+X			pprintf("'%s' deleted\n",fname->pb);
+X	}
+X
+XRETURN:
+X	esdfree(fname);
+X	return(erc);
+X}	/* end of pcmd_fdel */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fseek(param)
+Xfseek <filenum-int> <filepos-int>
+Xsets $i0 with result
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_fseek(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+Xlong seekpos;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X	if(erc = gint(param,&seekpos))
+X		return(erc);
+X
+X	iv[0] = 0;
+X	if(fseek(pfile[filenum].f,seekpos,0) < 0)
+X	{
+X		iv[0] = (long)errno;
+X		if(proctrace)
+X		{
+X			pprintf("file %d ",filenum);
+X			pperror("seekerror");
+X		}
+X	}
+X	else if(proctrace)
+X		pprintf("file %d set to position %ld\n",filenum,seekpos);
+X
+X	return(erc);
+X
+X}	/* end of pcmd_fseek */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_mkdir(param)
+X
+Xmkdir <filename-str>
+X$i0 = 0 if successful, else errno
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_mkdir(param)
+XESD *param;
+X{
+Xint erc;
+XESD *fname = (ESD *)0;
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,fname,1))
+X		goto RETURN;
+X
+X	if(iv[0] = (long)mkdir(fname->pb,0755))
+X		iv[0] = (long)errno;
+X
+X	if(proctrace)
+X	{
+X		if(iv[0])
+X			pperror(fname->pb);
+X		else
+X			pprintf("'%s' deleted\n",fname->pb);
+X	}
+X
+XRETURN:
+X	esdfree(fname);
+X	return(erc);
+X}	/* end of pcmd_mkdir */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_pclose(param)
+Xpclose <filenum-int>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_pclose(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(pfile[filenum].f)
+X	{
+X		pclose(pfile[filenum].f);
+X		pfile[filenum].f = (FILE *)0;
+X		esdfree(pfile[filenum].n);
+X	}
+X
+X	return(0);
+X
+X}	/* end of pcmd_pclose */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_popen(param)
+X
+Xpopen [-<popen_switches>] <filenum-int> <filename-str>
+Xsets $i0 with result
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_popen(param)
+XESD *param;
+X{
+Xint erc;
+Xint filenum;
+XESD *fname = (ESD *)0;
+Xchar switches[8];
+X#if !defined(M_UNIX)
+XFILE *popen();
+X#endif
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(get_switches(param,switches,sizeof(switches)))
+X	{
+X		strcpy(switches,"-r");
+X		if(proctrace)
+X		{
+X			pputs("Warning: popen defaulting to read\n");
+X			show_error_position(pcb_stack[proc_level - 1]);
+X		}
+X	}
+X
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X
+X	if(pfile[filenum].f)
+X	{
+X		pprintf("file %d already open\n",filenum);
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,fname,1))
+X		goto RETURN;
+X
+X	iv[0] = 0;
+X	if(pfile[filenum].f = popen(fname->pb,switches + 1))
+X	{
+X		iv[0] = (long)errno;
+X		if(proctrace)
+X		{
+X			pprintf("'%s'",fname->pb);
+X			pperror(" ");
+X		}
+X	}
+X	else if(proctrace)
+X		pprintf("opened '%s' as file %d\n",fname->pb,filenum);
+X
+X	if(!erc)
+X		pfile[filenum].n = fname;
+X
+XRETURN:
+X	if(erc)
+X		esdfree(fname);
+X	return(erc);
+X}	/* end of pcmd_popen */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_ftell(param,pvalue)
+X%ftell(<filenum-int>)
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_ftell(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xint erc;
+Xint filenum;
+Xlong ftell();
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	if(erc = skip_paren(param,1))
+X		return(erc);
+X	if(erc = _gfilenum(param,&filenum))
+X		return(erc);
+X	if(!pfile[filenum].f)
+X		return(_file_not_open(filenum));
+X	if(erc = skip_paren(param,0))
+X		return(erc);
+X
+X	*pvalue = ftell(pfile[filenum].f);
+X	return(0);
+X}	/* end of ifunc_ftell */
+X
+X/*+-------------------------------------------------------------------------
+X	_param_to_stat(param,pstat_rtnd)
+X--------------------------------------------------------------------------*/
+Xint
+X_param_to_stat(param,pstat_rtnd)
+XESD *param;
+Xstruct stat **pstat_rtnd;
+X{
+Xint erc;
+Xint filenum;
+Xstatic struct stat fst;
+Xstruct stat *pstat = &fst;
+XESD *fname;
+X
+X	errno = 0;
+X
+X	if(erc = skip_paren(param,1))
+X		return(erc);
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(!gstr(param,fname,1))
+X	{
+X		if(stat(fname->pb,pstat))
+X			pstat = (struct stat *)0;
+X	}
+X	else if(param->index = param->old_index,!_gfilenum(param,&filenum))
+X	{
+X		if(!pfile[filenum].f)
+X		{
+X			esdfree(fname);
+X			return(_file_not_open(filenum));
+X		}
+X		if(stat(pfile[filenum].n->pb,pstat))
+X			pstat = (struct stat *)0;
+X	}
+X	else
+X		erc = eBadParameter;
+X
+X	esdfree(fname);
+X
+X	if(erc)
+X		return(erc);
+X
+X	if(erc = skip_paren(param,0))
+X		return(erc);
+X
+X	*pstat_rtnd = pstat;
+X	if(proctrace && !pstat)
+X		pperror("stat");
+X	return(0);
+X
+X}	/* end of _param_to_stat */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_fsize(param,pvalue)
+X%fsize(<filenum-int>)
+X%fsize('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_fsize(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+Xstruct stat *pstat;
+X
+X	if(erc = _param_to_stat(param,&pstat))
+X		return(erc);
+X	if(!pstat)
+X		*pvalue = -1;
+X	else
+X		*pvalue = pstat->st_size;
+X	return(0);
+X}	/* end of ifunc_fsize */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_fatime(param,pvalue)
+X%fatime(<filenum-int>)
+X%fatime('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_fatime(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+Xstruct stat *pstat;
+X
+X	if(erc = _param_to_stat(param,&pstat))
+X		return(erc);
+X	if(!pstat)
+X		*pvalue = -1;
+X	else
+X		*pvalue = pstat->st_atime;
+X	return(0);
+X}	/* end of ifunc_fatime */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_fmtime(param,pvalue)
+X%fmtime(<filenum-int>)
+X%fmtime('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_fmtime(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+Xstruct stat *pstat;
+X
+X	if(erc = _param_to_stat(param,&pstat))
+X		return(erc);
+X	if(!pstat)
+X		*pvalue = -1;
+X	else
+X		*pvalue = pstat->st_mtime;
+X	return(0);
+X}	/* end of ifunc_fmtime */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_fmode(param,pvalue)
+X%fmode(<filenum-int>)
+X%fmode('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_fmode(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+Xstruct stat *pstat;
+X
+X	if(erc = _param_to_stat(param,&pstat))
+X		return(erc);
+X	if(!pstat)
+X		*pvalue = -1;
+X	else
+X		*pvalue = (long)pstat->st_mode;
+X	return(0);
+X}	/* end of ifunc_fmode */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_isreg(param,pvalue)
+X%isreg(<filenum-int>)
+X%isreg('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_isreg(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+X
+X	if(erc = ifunc_fmode(param,pvalue))
+X		return(erc);
+X	if(*pvalue != -1)
+X		*pvalue = ((*pvalue & S_IFMT) == S_IFREG);
+X	return(0);
+X}	/* end of ifunc_isreg */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_isdir(param,pvalue)
+X%isdir(<filenum-int>)
+X%isdir('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_isdir(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+X
+X	if(erc = ifunc_fmode(param,pvalue))
+X		return(erc);
+X	if(*pvalue != -1)
+X		*pvalue = ((*pvalue & S_IFMT) == S_IFDIR);
+X	return(0);
+X}	/* end of ifunc_isdir */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_ischr(param,pvalue)
+X%ischr(<filenum-int>)
+X%ischr('filename')
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_ischr(param,pvalue)
+XESD *param;
+Xlong *pvalue;
+X{
+Xregister erc;
+X
+X	if(erc = ifunc_fmode(param,pvalue))
+X		return(erc);
+X	if(*pvalue != -1)
+X		*pvalue = ((*pvalue & S_IFMT) == S_IFCHR);
+X	return(0);
+X}	/* end of ifunc_ischr */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmdfile.c */
+SHAR_EOF
+chmod 0644 pcmdfile.c ||
+echo 'restore of pcmdfile.c failed'
+Wc_c="`wc -c < 'pcmdfile.c'`"
+test 22996 -eq "$Wc_c" ||
+	echo 'pcmdfile.c: original size 22996, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmdif.c ==============
+if test -f 'pcmdif.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmdif.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmdif.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmdif.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmdif.c - ecu if procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X    IFI $i0 rel-op $i1 cmd
+X    IFS $s0 rel-op $s1 cmd
+X	IFLT, IFLE, IFZ, IFNZ, IFGE, IFGT $i0
+X
+X    where rel-op is "=", "==", "!=", "<>", ">", "<", ">=", "=<"
+X
+X  Defined functions:
+X	_cmd_ifrel_common(param,relop)
+X	_if_common(param,truth)
+X	get_logicop(param,op_returned)
+X	get_relop(param,op_returned)
+X	get_truth_int(param,truth)
+X	get_truth_str(param,truth)
+X	pcmd_else(param)
+X	pcmd_ifge(param)
+X	pcmd_ifgt(param)
+X	pcmd_ifi(param)
+X	pcmd_ifle(param)
+X	pcmd_iflt(param)
+X	pcmd_ifnz(param)
+X	pcmd_ifs(param)
+X	pcmd_ifz(param)
+X	test_truth_int(int1,relop,int2)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-26-1990-22:23-wht@n4hgf-fix zero-relative if commands */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <ctype.h>
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X#include "relop.h"
+X
+Xextern PCB *pcb_stack[];
+Xextern int proctrace;
+X
+X#define MAX_IF 40	/* damn enough */
+Xuchar if_level = 0;
+Xuchar truth_already[MAX_IF];
+X
+X/*+-------------------------------------------------------------------------
+X    get_relop(param,&op_returned)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_relop(param,op_returned)
+XESD *param;
+Xint *op_returned;
+X{
+X	if(end_of_cmd(param))
+X		return(eInvalidRelOp);
+X
+X	switch(param->pb[param->index++]) /* index decremented in default */
+X	{
+X	case '=':
+X		if((param->cb != param->index) && (param->pb[param->index] == '='))
+X			param->index++;
+X		*op_returned = OP_EQ;
+X		return(0);
+X
+X	case '!':
+X		if(param->cb == param->index)
+X			return(eInvalidRelOp);
+X		switch(param->pb[param->index])
+X		{
+X		case '=':
+X			param->index++;
+X			*op_returned = OP_NE;
+X			return(0);
+X		default:
+X			return(eInvalidRelOp);
+X		}
+X
+X	case '<':
+X		if(param->cb == param->index)
+X		{
+X			*op_returned = OP_LT;
+X			return(0);
+X		}
+X		switch(param->pb[param->index])
+X		{
+X		case '>':
+X			param->index++;
+X			*op_returned = OP_NE;
+X			return(0);
+X		case '=':
+X			param->index++;
+X			*op_returned = OP_LE;
+X			return(0);
+X		default:
+X			*op_returned = OP_LT;
+X			return(0);
+X		}
+X
+X	case '>':
+X		if(param->cb == param->index)
+X		{
+X			*op_returned = OP_LT;
+X			return(0);
+X		}
+X		switch(param->pb[param->index])
+X		{
+X		case '=':
+X			param->index++;
+X			*op_returned = OP_GE;
+X			return(0);
+X		default:
+X			*op_returned = OP_GT;
+X			return(0);
+X		}
+X	default:
+X		param->index--;
+X	}
+X	return(eInvalidRelOp);
+X}   /* end of get_relop */
+X
+X/*+-------------------------------------------------------------------------
+X	get_logicop(param,op_returned)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_logicop(param,op_returned)
+XESD *param;
+Xint *op_returned;
+X{
+Xregister erc;
+Xregister char *cptr;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(eInvalidLogicOp);
+X
+X	if((param->cb - param->index) < 2)
+X		return(eInvalidLogicOp);
+X
+X	cptr = param->pb + param->index;
+X	erc = eInvalidLogicOp;
+X	if(!strncmp(cptr,"&&",2))
+X	{
+X		*op_returned = OP_AND;
+X		erc = 0;
+X	}
+X	else if(!strncmp(cptr,"||",2))
+X	{
+X		*op_returned = OP_OR;
+X		erc = 0;
+X	}
+X	if(!erc)
+X		param->index += 2;
+X	return(erc);
+X
+X}	/* end of get_logicop */
+X
+X/*+-------------------------------------------------------------------------
+X	test_truth_int(int1,relop,int2)
+X--------------------------------------------------------------------------*/
+Xint
+Xtest_truth_int(int1,relop,int2)
+Xlong int1;
+Xint relop;
+Xlong int2;
+X{
+Xregister truth = 0;
+X
+X	switch(relop)
+X	{
+X	case OP_EQ:
+X		truth = (int1 == int2);
+X		break;
+X	case OP_NE:
+X		truth = (int1 != int2);
+X		break;
+X	case OP_GT:
+X		truth = (int1 > int2);
+X		break;
+X	case OP_LT:
+X		truth = (int1 < int2);
+X		break;
+X	case OP_GE:
+X		truth = (int1 >= int2);
+X		break;
+X	case OP_LE:
+X		truth = (int1 <= int2);
+X		break;
+X	}
+X	return(truth);
+X
+X}	/* end of test_truth_int */
+X
+X/*+-------------------------------------------------------------------------
+X	get_truth_int(param,truth)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_truth_int(param,truth)
+XESD *param;
+Xint *truth;
+X{
+Xregister erc;
+Xlong int1;
+Xlong int2;
+Xint operator;
+Xint truth2;
+X
+X	if(erc = gint(param,&int1))
+X		return(erc);
+X	if(erc = get_relop(param,&operator))
+X		return(erc);
+X	if(erc = gint(param,&int2))
+X		return(erc);
+X	*truth = test_truth_int(int1,operator,int2);
+X
+X	while(!get_logicop(param,&operator))
+X	{
+X		if(erc = get_truth_int(param,&truth2))
+X			return(erc);
+X		switch(operator)
+X		{
+X			case OP_AND:
+X				*truth &= truth2;
+X				break;
+X
+X			case OP_OR:
+X				*truth |= truth2;
+X				break;
+X		}
+X	}
+X	return(0);
+X
+X}	/* end of get_truth_int */
+X
+X/*+-------------------------------------------------------------------------
+X    get_truth_str(param,truth)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_truth_str(param,truth)
+XESD *param;
+Xint *truth;
+X{
+Xregister erc;
+XESD *tesd1 = (ESD *)0;
+XESD *tesd2 = (ESD *)0;
+Xint operator;
+Xint strcmp_result;
+Xint truth2;
+X
+X	if(!(tesd1 = esdalloc(256)) || !(tesd2 = esdalloc(256)))
+X	{
+X		erc = eNoMemory;
+X		goto RETURN;
+X	}	
+X
+X	if(erc = gstr(param,tesd1,1))
+X		goto RETURN;
+X	if(erc = get_relop(param,&operator))
+X		goto RETURN;
+X	if(erc = gstr(param,tesd2,1))
+X		goto RETURN;
+X
+X	strcmp_result = strcmp(tesd1->pb,tesd2->pb);
+X
+X	switch(operator)
+X	{
+X		case OP_EQ:
+X			*truth = (strcmp_result == 0);
+X			break;
+X		case OP_NE:
+X			*truth = (strcmp_result != 0);
+X			break;
+X		case OP_GT:
+X			*truth = (strcmp_result > 0);
+X			break;
+X		case OP_LT:
+X			*truth = (strcmp_result < 0);
+X			break;
+X		case OP_GE:
+X			*truth = (strcmp_result >= 0);
+X			break;
+X		case OP_LE:
+X			*truth = (strcmp_result <= 0);
+X			break;
+X		default:
+X			return(eInvalidStrOp);
+X	}
+X
+X	while(!get_logicop(param,&operator))
+X	{
+X		if(erc = get_truth_str(param,&truth2))
+X			return(erc);
+X		switch(operator)
+X		{
+X			case OP_AND:
+X				*truth &= truth2;
+X				break;
+X
+X			case OP_OR:
+X				*truth |= truth2;
+X				break;
+X		}
+X	}
+X
+X	erc = 0;
+X
+XRETURN:
+X	if(tesd1)
+X		esdfree(tesd1);
+X	if(tesd2)
+X		esdfree(tesd2);
+X	return(erc);
+X
+X}   /* end of get_truth_str */
+X
+X/*+-------------------------------------------------------------------------
+X	_if_common(param,truth)
+X--------------------------------------------------------------------------*/
+Xint
+X_if_common(param,truth)
+XESD *param;
+Xint truth;
+X{
+Xregister erc = 0;
+Xchar s80[80];
+XPCB *pcb;
+XESD *else_line;
+Xint label_on_else_line;
+Xint truth2;
+Xint save_index;
+Xlong int1;
+X
+X	if(proctrace > 1)
+X	{
+X		pprintf("if condition %s",(truth) ? "TRUE: " : "FALSE\n");
+X		if(truth)
+X		{
+X			skip_cmd_break(param);
+X			pputs(param->pb + param->index);
+X			pputc('\n');
+X		}
+X	}
+X
+X	truth_already[if_level] = truth;
+X
+X/* if end of command, execute frame else conditionally execute rest of esd */
+X	s80[0] = 0;
+X	if(end_of_cmd(param))
+X		erc = execute_frame(truth);
+X	else if(truth)
+X		erc = execute_esd(param);
+X	else
+X		param->index = param->cb;
+X
+X	if(erc)
+X		return(erc);
+X
+X/* check for else statement */
+X	pcb = pcb_stack[proc_level - 1];
+X	if(!pcb->current->next)		/* if no next line, no "else" */
+X		return(0);
+X
+X	else_line = pcb->current->next->text;
+X	else_line->index = else_line->old_index = 0;
+X	if(label_on_else_line = (*else_line->pb != 0x20))
+X	{	/* strip label */
+X		if(get_alphanum_zstr(else_line,s80,sizeof(s80)))
+X			return(eInvalidLabel);
+X	}
+X	if(get_alphanum_zstr(else_line,s80,sizeof(s80)))
+X		return(0);		/* not "else" */
+X	if(strcmp(s80,"else"))
+X		return(0);		/* not "else" */
+X	if(label_on_else_line)
+X	{
+X		else_line->old_index = 0;
+X		pputs("label not allowed on else statement\n");
+X		return(eFATAL_ALREADY);
+X	}
+X
+X/* we have an "else" condition */
+X	truth = !truth;
+X	pcb->current = pcb->current->next;
+X
+X	trace_proc_cmd(pcb);
+X
+X	if(end_of_cmd(else_line))
+X		erc = execute_frame(truth);
+X	else
+X	{
+X		save_index = else_line->old_index = else_line->index;
+X		s80[0] = 0;
+X		if((*(else_line->pb + else_line->index) != '$') &&
+X			get_alpha_zstr(else_line,s80,sizeof(s80)))
+X		{
+X			pputs("illegal command after 'else'\n");
+X			return(eFATAL_ALREADY);
+X		}
+X		if(!strcmp(s80,"ifi"))
+X		{
+X			if(erc = get_truth_int(else_line,&truth2))
+X				return(erc);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifs"))
+X		{
+X			if(erc = get_truth_str(else_line,&truth2))
+X				return(erc);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifz"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_EQ,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifnz"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_NE,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"iflt"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_LT,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifle"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_LE,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifgt"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_GT,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strcmp(s80,"ifge"))
+X		{
+X			if(erc = gint(else_line,&int1))
+X				return(erc);
+X			truth2 = test_truth_int(int1,OP_GE,0L);
+X			erc = _if_common(else_line,!truth_already[if_level] & truth2);
+X			truth_already[if_level] |= truth2;
+X		}
+X		else if(!strncmp(s80,"while",5))
+X		{
+X			pputs("'while' command not allowed as 'else' conditional\n");
+X			return(eFATAL_ALREADY);
+X		}
+X		else
+X		{
+X			else_line->index = save_index;
+X			if(truth)
+X				erc = execute_esd(else_line);
+X		}
+X	}
+X
+X	return(erc);
+X}	/* end of _if_common */
+X
+X/*+-------------------------------------------------------------------------
+X    pcmd_ifi(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifi(param)
+XESD *param;
+X{
+Xregister erc;
+Xint truth;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(if_level == MAX_IF)
+X	{
+X		pputs("if statements nested too deeply\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	if_level++;
+X	truth_already[if_level] = 0;
+X
+X	if(!(erc = get_truth_int(param,&truth)))
+X		erc = _if_common(param,truth);
+X	if_level--;
+X	return(erc);
+X
+X}   /* end of pcmd_ifi */
+X
+X/*+-------------------------------------------------------------------------
+X	_cmd_ifrel_common(param,relop)
+X--------------------------------------------------------------------------*/
+Xint
+X_cmd_ifrel_common(param,relop)
+XESD *param;
+Xint relop;
+X{
+Xregister erc;
+Xint truth;
+Xlong int1;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(if_level == MAX_IF)
+X	{
+X		pputs("if statements nested too deeply\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	if_level++;
+X	truth_already[if_level] = 0;
+X
+X	if(erc = gint(param,&int1))
+X		return(erc);
+X	truth = test_truth_int(int1,relop,0L);
+X	erc = _if_common(param,truth);
+X	if_level--;
+X	return(erc);
+X
+X}	/* end of _cmd_ifrel_common */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ifz(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifz(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_EQ));
+X}	/* end of pcmd_ifz */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ifnz(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifnz(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_NE));
+X}	/* end of pcmd_ifnz */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ifle(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifle(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_LE));
+X}	/* end of pcmd_ifle */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ifge(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifge(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_GE));
+X}	/* end of pcmd_ifge */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_iflt(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_iflt(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_LT));
+X}	/* end of pcmd_iflt */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ifgt(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifgt(param)
+XESD *param;
+X{
+X	return(_cmd_ifrel_common(param,OP_GT));
+X}	/* end of pcmd_ifgt */
+X
+X/*+-------------------------------------------------------------------------
+X    pcmd_ifs(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ifs(param)
+XESD *param;
+X{
+Xregister erc;
+Xint truth;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	if(if_level == MAX_IF)
+X	{
+X		pputs("if statements nested too deeply\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	if_level++;
+X	truth_already[if_level] = 0;
+X
+X	if(!(erc = get_truth_str(param,&truth)))
+X		erc = _if_common(param,truth);
+X	if_level--;
+X	return(erc);
+X
+X}   /* end of pcmd_ifs */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_else(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_else(param)
+XESD *param;
+X{
+X	return(eElseCommand);
+X}	/* end of pcmd_else */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmdif.c */
+SHAR_EOF
+chmod 0644 pcmdif.c ||
+echo 'restore of pcmdif.c failed'
+Wc_c="`wc -c < 'pcmdif.c'`"
+test 13936 -eq "$Wc_c" ||
+	echo 'pcmdif.c: original size 13936, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmdtty.c ==============
+if test -f 'pcmdtty.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmdtty.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmdtty.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmdtty.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmdtty.c - tty (console) related procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	ifunc_colors(pvalue)
+X	pcmd_cls(param)
+X	pcmd_color(param)
+X	pcmd_cursor(param)
+X	pcmd_delline(param)
+X	pcmd_eeol(param)
+X	pcmd_fkey(param)
+X	pcmd_fkmap(param)
+X	pcmd_home(param)
+X	pcmd_icolor(param)
+X	pcmd_insline(param)
+X	pcmd_scrdump(param)
+X	pcmd_vidcolor(param)
+X	pcmd_vidnorm(param)
+X	pcmd_vidrev(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-30-1992-23:15-wht@n4hgf-add fkmap */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:05-21-1991-00:45-wht@n4hgf-added -3 error code to keyset_read */
+X/*:01-23-1991-01:58-wht@n4hgf-illegal color name make hi_white on hi_white */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "ecutty.h"
+X#include "esd.h"
+X#include "proc.h"
+X
+Xextern int proctrace;
+Xextern ulong colors_current;
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_color(param)
+X
+XUsage:   color [-r] [argument] [argument]
+XOptions:
+X   color color      Set foreground and background normal video colors
+X   -r color color   Set foreground & background reverse video colors
+X
+XColor names
+X   blue      magenta      brown      black
+X   lt_blue   lt_magenta   yellow     gray
+X   cyan      white        green      red
+X   lt_cyan   hi_white     lt_green   lt_red
+X
+X--------------------------------------------------------------------------*/
+Xpcmd_color(param)
+XESD *param;
+X{
+X	register erc;
+X	char switches[8];
+X	int normal;
+X	char s32[32];
+X	ulong foreground;
+X	ulong background;
+X
+X	get_switches(param,switches,sizeof(switches));
+X	if(!strlen(switches))
+X		normal = 1;
+X	else if(switches[1] == 'r')
+X		normal = 0;		/* reverse */
+X	else
+X	{
+X		pputs("unrecognized switch\n");
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if((erc = get_alpha_zstr(param,s32,sizeof(s32))) ||
+X			((int)(foreground = color_name_to_num(s32)) < 0))
+X		goto ERROR;
+X
+X	if(erc = get_alpha_zstr(param,s32,sizeof(s32)))
+X	{
+X		if(!end_of_cmd(param))
+X			goto ERROR;
+X		background = 0;
+X	}
+X	else if((int)(background = color_name_to_num(s32)) < 0)
+X		goto ERROR;
+X
+X	if(normal)
+X	{
+X		colors_current &= 0xFFFF0000;
+X		colors_current |= (foreground << 8) | background;
+SHAR_EOF
+true || echo 'restore of pcmdtty.c failed'
+fi
+echo 'End of ecu320 part 19'
+echo 'File pcmdtty.c is continued in part 20'
+echo 20 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

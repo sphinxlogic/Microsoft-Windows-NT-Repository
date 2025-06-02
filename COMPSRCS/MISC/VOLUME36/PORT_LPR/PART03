@@ -1,0 +1,651 @@
+Newsgroups: comp.sources.misc
+From: moore@cs.utk.edu (Keith Moore)
+Subject: v36i012:  port-lpr - "portable" lpr client for UNIX, VMS, Part03/03
+Message-ID: <1993Mar12.042253.19520@sparky.imd.sterling.com>
+X-Md4-Signature: e0dc838f5a6e1719b6520a3ef0214e61
+Date: Fri, 12 Mar 1993 04:22:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: moore@cs.utk.edu (Keith Moore)
+Posting-number: Volume 36, Issue 12
+Archive-name: port-lpr/part03
+Environment: UNIX w/TCP, VMS w/either TCP or DECnet.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  MANIFEST BLURB Makefile descrip.mms unix-tcp.c
+#   vms-decnet.c
+# Wrapped by kent@sparky on Thu Mar 11 21:55:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 3)."'
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(910 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XBLURB - brief description
+XREADME - general information file
+XMANIFEST - this file
+XLICENSE - GNU General Public License, Version 2, which applies to this source
+XChangeLog - history of source changes
+Xlpr.c - main program
+Xcommon.h - defines variables shared between modules
+XMakefile - you do use make, don't you?
+Xpatchlevel.h - indicates current patch level/version #
+Xunix-tcp.c - back-end interface for UNIX systems with BSD socket libraries
+Xvms-ucx-tcp.c - back-end interface for VMS systems with UCX tcp
+Xvms-win-tcp.c - back-end interface for VMS systems with Wollongong WIN/TCP
+Xvms-decnet.c - back-end interface for VMS systems using DECnet-VAX
+Xdescrip.mms - Makefile for VMS systems using DEC/MMS
+Xdnet-lpd-gw.c - UNIX program that gateways DECnet-based lpr to the local
+X	        print spooler
+Xlpr.man - {n,t}roff source for lpr man page
+Xlpr.cat - preformatted man page for those systems that don't have nroff
+END_OF_FILE
+  if test 910 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'BLURB' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'BLURB'\"
+else
+  echo shar: Extracting \"'BLURB'\" \(1451 characters\)
+  sed "s/^X//" >'BLURB' <<'END_OF_FILE'
+XThis is a standalone lpr client that can be used to submit print jobs
+Xover a network to a machine that runs a Berkeley-style lpd server.
+XThe code is reasonably portable (not just to UNIX) and attempts to
+Xcompensate for the differences in the way text files are stored on
+Xvarious systems.
+X
+XIt might be useful, for instance:
+X
+X- on a UNIX machine that doesn't support printing to remote
+X  Berkeley-style print queues, or
+X
+X- on a UNIX machine that *does* support printing to remote Berkeley-style
+X  print queues, but that doesn't have any remote printers, or
+X
+X- to print files to a UNIX print queue from a VAX/VMS machine, either over
+X  TCP/IP or DECnet.  A gateway from DECnet-based lpr protocol to TCP-based
+X  lpr protocol is supplied, but you must have a UNIX box that speaks the
+X  DECnet protocol in order to use this.
+X
+XOne of the major problems with porting lpr to non-UNIX systems is the
+Xfact that the lpr protocol requires that the client determine the size
+Xof a file to be printed, as it would be stored on UNIX, before sending
+Xthe file.  This program accomplishes this by reading the entire file
+Xinto memory before transmitting it to the print server.  This allows
+Xthis lpr client to work on non-UNIX systems that store files in a
+Xdifferent format, but it cannot print any file that is too big to fit
+Xin memory.
+X
+Xport-lpr is (almost) freely redistributable under the terms of the GNU
+XGeneral Public License.
+X
+XEnjoy!
+X
+XKeith Moore
+Xmoore@cs.utk.edu
+END_OF_FILE
+  if test 1451 -ne `wc -c <'BLURB'`; then
+    echo shar: \"'BLURB'\" unpacked with wrong size!
+  fi
+  # end of 'BLURB'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3314 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# fix SysV brain-damage
+XSHELL=/bin/sh
+X#
+XDEFAULT_SERVER=
+X#
+X# pick a back-end driver from one of the following:
+X#
+XDRIVER=unix-tcp.o		# UNIX w/BSD-style sockets
+X# (others to follow...maybe)
+X#
+X# This program was originally developed with GCC, but it doesn't always
+X# use the same calling sequence as the system libraries (particularly
+X# inet_ntoa()), so I don't use it for this anymore.
+X# If your C compiler runs on UNIX, but doesn't define "unix" as a macro,
+X# define it on the CFLAGS line with -Dunix
+X# Don't get nervous, I always compile with -g.
+X#
+X#CC=gcc -ansi -g -Dunix
+XCFLAGS=-g -Dunix
+X#
+X# nroff (or some facsimile thereof) is used to format the man pages.
+X# I used groff because that way I don't end up with man pages that say
+X# "SunOS" or "Ultrix" or some such.
+X#
+X#NROFF=nroff
+XNROFF=groff -Tascii
+X#
+X# Set BINDIR to the directory where the program will be installed.
+X# This doesn't affect the compilation, so you can set this after
+X# compiling.
+X#
+XBINDIR=/usr/local/bin
+X#
+X# Set GWDIR to where the (optional) dnet-to-tcp lpr gateway will
+X# be installed.  This doesn't affect compilation either.
+X#
+XGWDIR=/usr/sunlink/dni
+X#
+X# List of sources, for bundling together in a package
+X#
+XSRCS=lpr.c common.h patchlevel.h \
+X	unix-tcp.c Makefile \
+X	vms-ucx-tcp.c vms-decnet.c vms-win-tcp.c descrip.mms \
+X	dnet-lpd-gw.c \
+X	lpr.man lpr.cat
+X#
+X# other stuff that goes with the package
+X#
+XPKG=BLURB README MANIFEST LICENSE ChangeLog $(SRCS)
+X
+X#
+X# The -lsocket stuff is an attempt to get this to work on machines
+X# that have a BSD socket library built on top of STREAMS-based tcp
+X# without having to have a hairy configuration program just to compile
+X# this.
+X#
+Xlpr: lpr.c $(DRIVER)
+X	-if [ -f /usr/lib/libsocket.a ] ; then \
+X		$(CC) $(CFLAGS) -o lpr lpr.c $(DRIVER) -lsocket ; \
+X	else \
+X		$(CC) $(CFLAGS) -o lpr lpr.c $(DRIVER) ; \
+X	fi
+X
+Xdnet-lpd-gw: dnet-lpd-gw.c unix-tcp.o
+X	$(CC) $(CFLAGS)  -o dnet-lpd-gw dnet-lpd-gw.c unix-tcp.o
+X
+X#
+X# preformatted man page, in case someone doesn't have nroff
+X#
+Xlpr.cat: lpr.man
+X	$(NROFF) -man lpr.man > lpr.cat
+X
+X#
+X# The wierd "rm || mv" stuff is an attempt to work around SysV brain
+X# damage that won't let you rm a program that is running.
+X#
+Xinstall: lpr
+X	cp lpr $(BINDIR)/lpr.new
+X	chown root $(BINDIR)/lpr.new
+X	chmod 4711 $(BINDIR)/lpr.new
+X	-rm  $(BINDIR)/lpr || mv $(BINDIR)/lpr $(BINDIR)/lpr.old
+X	mv $(BINDIR)/lpr.new $(BINDIR)/lpr
+X	-rm $(BINDIR)/lprm || mv $(BINDIR)/lprm $(BINDIR)/lprm.old
+X	ln $(BINDIR)/lpr $(BINDIR)/lprm
+X	-rm $(BINDIR)/lpq || mv $(BINDIR)/lpq $(BINDIR)/lpq.old
+X	ln $(BINDIR)/lpr $(BINDIR)/lpq
+X
+Xinstall-gw: dnet-lpd-gw
+X	rm -f $(GWDIR)/dnet-lpd-gw
+X	cp dnet-lpd-gw $(GWDIR)
+X	chown root $(GWDIR)/dnet-lpd-gw
+X	chmod 4711 $(GWDIR)/dnet-lpd-gw
+X
+Xclean:
+X	rm -f lpr dnet-lpd-gw *.o
+X
+X#
+X# various packaging routines.
+X#
+Xport-lpr.vms: $(PKG)
+X	/bin/true > port-lpr.vms
+X	for i in $(PKG) ; do \
+X		echo '$$ write sys$$output "creating' $$i'"' ; \
+X		echo '$$ CREATE' $$i ; \
+X		cat $$i ; \
+X	done >> port-lpr.vms
+X	echo '$$ exit' >> port-lpr.vms
+X
+Xport-lpr.tar: $(PKG)
+X	tar cf port-lpr.tar $(PKG)
+X
+Xport-lpr.tar.Z.uu: $(PKG)
+X	tar cf - $(PKG) | compress | uuencode port-lpr.tar.Z > port-lpr.tar.Z.uu
+X
+Xport-lpr.uushar: $(PKG)
+X	for i in $(PKG) ; do uuencode $$i < $$i ; done > port-lpr.uushar
+X
+Xport-lpr.shar: $(PKG)
+X	shar $(PKG) > port-lpr.shar
+X
+Xprint:
+X	enscript -2r `ls $(SRCS) | grep '.*\.[ch]'`
+END_OF_FILE
+  if test 3314 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'descrip.mms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'descrip.mms'\"
+else
+  echo shar: Extracting \"'descrip.mms'\" \(764 characters\)
+  sed "s/^X//" >'descrip.mms' <<'END_OF_FILE'
+X# Makefile for VMS MMS (Module Management System)
+X# You may have to modify this file slightly to work on other VMS make clones
+X#
+XCFLAGS=/debug
+XLDFLAGS=
+X#
+Xdefault :
+X	@ write sys$output "type..."
+X	@ write sys$output "mms ucxlpr.exe to make lpr for UCX"
+X	@ write sys$output "mms winlpr.exe to make lpr for WIN/TCP"
+X	@ write sys$output "mms dnetlpr.exe to make lpr for DECnet"
+X
+Xucxlpr.exe : lpr.obj vms-ucx-tcp.obj
+X	LINK/exe=ucxlpr $(LDFLAGS) lpr,vms-ucx-tcp,sys$library:ucx$ipc.olb/lib
+X
+Xwinlpr.exe : lpr.obj vms-win-tcp.obj
+X	LINK/exe=winlpr $(LDFLAGS) lpr,vms-win-tcp,twg$tcp:[netdist.lib]twglib.olb/lib
+X
+Xdnetlpr.exe : lpr.obj vms-decnet.obj
+X	LINK/exe=dnetlpr $(LDFLAGS) lpr,vms-decnet
+X
+Xlpr.obj : lpr.c config.h
+X	$(CC) $(CFLAGS) lpr.c
+X
+Xclean :
+X	del lpr.exe;*,*.obj;*
+END_OF_FILE
+  if test 764 -ne `wc -c <'descrip.mms'`; then
+    echo shar: \"'descrip.mms'\" unpacked with wrong size!
+  fi
+  # end of 'descrip.mms'
+fi
+if test -f 'unix-tcp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unix-tcp.c'\"
+else
+  echo shar: Extracting \"'unix-tcp.c'\" \(4502 characters\)
+  sed "s/^X//" >'unix-tcp.c' <<'END_OF_FILE'
+X/*
+X * lpr interface for UNIX (i.e. BSD-ish) tcp
+X */
+X
+X#include "common.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <pwd.h>
+X#include <netdb.h>
+X#include <sys/socket.h>
+X#include <errno.h>
+X#include <netinet/in.h>
+X
+X#ifndef MAKE_EMAIL_ADDRESS
+X#define MAKE_EMAIL_ADDRESS(buf,user,dom) sprintf (buf, "%s@%s", user, dom)
+X#endif
+X
+X
+Xstruct hostent *
+Xgethostbynameoraddr (hostname)
+Xchar *hostname;
+X{
+X    if (isdigit (*hostname)) {
+X	static struct hostent x;
+X	static char *alias_list[1];
+X	static unsigned long *addr_list[2];
+X	static unsigned long ip_address;
+X
+X	ip_address = inet_addr (hostname);
+X
+X	addr_list[0] = &ip_address;
+X	addr_list[1] = NULL;
+X	alias_list[0] = NULL;
+X
+X	x.h_name = hostname;
+X	x.h_aliases = alias_list;
+X	x.h_addrtype = AF_INET;
+X	x.h_length = sizeof (unsigned long);
+X	x.h_addr_list = (char **) addr_list;
+X	return &x;
+X    }
+X    return gethostbyname (hostname);
+X}
+X
+Xvoid sysdep()
+X{
+X    struct passwd *pwd;
+X    char *p;
+X    struct hostent *hp;
+X    char *getenv ();
+X
+X    gethostname (hostname, sizeof hostname);
+X
+X    if (pwd = getpwuid (getuid ()))
+X	strcpy (username, pwd->pw_name);
+X    else {
+X	fprintf (stderr, "lpr: system problem: can't get your username!\n");
+X	exit (1);
+X    }
+X    endpwent ();
+X
+X    hp = gethostbyname (hostname);
+X    MAKE_EMAIL_ADDRESS(email_address, username, hp ? hp->h_name : hostname);
+X}
+X
+X
+X/*
+X * Allocate a socket and bind it to a local privileged port
+X * We have to be running set-uid to root to do this.
+X */
+X
+Xint
+Xget_priv_tcp_socket ()
+X{
+X    int fd;
+X    int port;
+X    struct sockaddr_in s;
+X
+X    if ((fd = socket (AF_INET, SOCK_STREAM, 0)) == EOF) {
+X	perror ("socket");
+X	return EOF;
+X    }
+X    for (port = IPPORT_RESERVED-1; port > IPPORT_RESERVED / 2; port--) {
+X	extern int errno;
+X	s.sin_family = AF_INET;
+X	s.sin_addr.s_addr = INADDR_ANY;
+X	s.sin_port = htons (port);
+X	if (bind (fd, (struct sockaddr *) &s, sizeof (s)) == 0)
+X	    return fd;
+X	if (errno == EACCES) {
+X	    fprintf (stderr, "lpr warning: bind: cannot bind to privileged port\n");
+X	    return fd;
+X	}
+X    }
+X    close (fd);
+X    return EOF;
+X}
+X
+X/*
+X * Open a TCP connection to an lpd-server.
+X * This requires that this program be run set-uid to root in order to be able
+X * to bind a socket to a privileged port.
+X */
+X
+Xint
+Xopen_lpd (server)
+Xchar *server;
+X{
+X    int fd;
+X    int i;
+X    int last_connect_failed;
+X    struct hostent *hp;
+X    struct servent *sp;
+X    struct sockaddr_in s;
+X
+X    if (server == NULL || *server == '\0') {
+X	fprintf (stderr, "lpr: no server host was specified.\n");
+X	fprintf (stderr, "     Supply one with the -S option, or\n");
+X	fprintf (stderr, "     by setting the LPD_SERVER environment variable\n");
+X	return EOF;
+X    }
+X    if ((hp = gethostbynameoraddr (server)) == NULL) {
+X	fprintf (stderr, "lpr: can't find network address for %s\n",
+X		 server);
+X	fflush (stderr);
+X	return EOF;
+X    }
+X
+X    s.sin_family = AF_INET;
+X    if ((sp = getservbyname ("printer", "tcp")) == NULL)
+X	s.sin_port = htons (515);
+X    else
+X	s.sin_port = sp->s_port;
+X
+X    /*
+X     * On some systems h_addr is a macro that is defined to be h_addr_list[0]
+X     * On other (ancient) systems, h_addr is a member of the hostent structure.
+X     * So if h_addr is defined as a macro, then we must have the list...
+X     */
+X
+X#ifdef h_addr
+X    for (i = 0; hp->h_addr_list[i] ; ++i) {
+X	fd = get_priv_tcp_socket ();
+X	disable_special_privileges ();
+X	if (fd < 0)
+X	    return EOF;
+X	bcopy (hp->h_addr_list[i], &s.sin_addr, sizeof (s.sin_addr));
+X	if (debug)
+X	    fprintf (stderr, "Trying %s...", inet_ntoa (s.sin_addr));
+X	last_connect_failed = 0; /* "I'm ashamed of this." - SMK */
+X	if (connect (fd, &s, sizeof s) == 0) {
+X	    if (debug)
+X		fprintf (stderr, "open\n");
+X	    break;
+X	}
+X	else {
+X	    close (fd);		/* reuse fd */
+X	    if (debug)
+X		perror ("");
+X	    last_connect_failed = 1;
+X	}
+X    }
+X    if (last_connect_failed) {
+X	perror ("connect");
+X	return EOF;
+X    }
+X#else
+X    fd = get_priv_tcp_socket ();
+X    disable_special_privileges ();
+X    if (fd < 0)
+X	return EOF;
+X    bcopy (hp->h_addr, (char *) &s.sin_addr, sizeof(s.sin_addr));
+X    if (connect (fd, &s, sizeof s) < 0) {
+X	perror ("connect");
+X	close (fd);
+X	return EOF;
+X    }
+X#endif
+X
+X    max_net_read = max_net_write = 32767;
+X    return fd;
+X}
+X
+X/*
+X * Turn off set-uid privileges.
+X * We have to be running set-uid to root in order to bind to a privileged
+X * port.  In order to minimize the security risk, this function is called
+X * from open_job() immediately after open_lpd() returns.
+X */
+X
+Xdisable_special_privileges ()
+X{
+X    setuid (getuid ());
+X}
+END_OF_FILE
+  if test 4502 -ne `wc -c <'unix-tcp.c'`; then
+    echo shar: \"'unix-tcp.c'\" unpacked with wrong size!
+  fi
+  # end of 'unix-tcp.c'
+fi
+if test -f 'vms-decnet.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms-decnet.c'\"
+else
+  echo shar: Extracting \"'vms-decnet.c'\" \(3428 characters\)
+  sed "s/^X//" >'vms-decnet.c' <<'END_OF_FILE'
+X/*
+X * lpr interface for VAX/VMS DECnet
+X */
+X
+X#include "common.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <lnmdef.h>
+X
+Xstruct item_list {
+X    unsigned short buffer_length;
+X    unsigned short item_code;
+X    char *buffer_address;
+X    char *length_address;
+X};
+X
+Xstruct descrip {
+X    int length;
+X    char *ptr;
+X};
+X
+X/*
+X * Translate a VAX/VMS logical name, given the name we want to translate
+X * and the table name we want to search with.
+X */
+X
+Xint
+Xtranslate_logical_name (table, name, buf, size)
+Xchar *table; char *name; char *buf; int size;
+X{
+X    struct descrip table_d;
+X    struct descrip name_d;
+X    struct item_list item_list[2];
+X    int foo;
+X    int status;
+X
+X    table_d.length = strlen (table);
+X    table_d.ptr = table;
+X    name_d.length = strlen (name);
+X    name_d.ptr = name;
+X    item_list[0].buffer_length = size - 1;
+X    item_list[0].item_code = LNM$_STRING;
+X    item_list[0].buffer_address = buf;
+X    item_list[0].length_address = &foo;
+X    item_list[1].buffer_length = 0;
+X    item_list[1].item_code = 0;
+X    item_list[1].buffer_address = 0;
+X    item_list[1].length_address = 0;
+X    status = SYS$TRNLNM (0, &table_d, &name_d, 0, item_list);
+X    if ((status & 01) != 01)
+X	lib$signal (status);
+X    if (foo >= 0 && foo < size)
+X	buf[foo] = '\0';
+X    return ((status & 01) ? 0 : EOF);
+X}
+X
+X/*
+X * Determine the DECnet node name by translating the system logical name
+X * SYS$NODE.  We use this function rather than the getenv() function,
+X * just to make sure the user doesn't define his/her own SYS$NODE variable
+X * and pretend he/she is submitting the print job from somewhere else.
+X */
+X
+Xint
+Xget_decnet_node_name (buf, size)
+Xchar *buf; int size;
+X{
+X    char *strrchr ();
+X    if (!translate_logical_name ("LNM$SYSTEM_TABLE", "SYS$NODE", buf, size)) {
+X	char *p;
+X	while (p = strrchr (buf, ':'))
+X	    *p = '\0';
+X	return 0;
+X    }
+X    return EOF;
+X}
+X
+X#ifndef MAKE_EMAIL_ADDRESS
+X#define MAKE_EMAIL_ADDRESS(buf,user,dom) sprintf (buf, "%s@%s", user, dom)
+X#endif
+X
+Xvoid 
+Xsysdep()
+X{
+X    struct passwd *pwd;
+X    char *p;
+X    struct hostent *hp;
+X    char *getenv ();
+X    char nodename[100];
+X
+X    get_decnet_node_name (nodename, sizeof(nodename));
+X    strcpy (hostname, nodename);
+X
+X    /* get user name (will be in ALL CAPS - yikes!) */
+X    cuserid (username);
+X
+X    MAKE_EMAIL_ADDRESS(email_address, username, hostname);
+X
+X    /* lower case host name and user name */
+X    for (p = hostname; *p; ++p)
+X	if (isupper (*p))
+X	    *p = tolower (*p);
+X
+X    for (p = username; *p; ++p)
+X	if (isupper (*p))
+X	    *p = tolower (*p);
+X}
+X
+X/*
+X * Open a DECnet connection to an lpd-server.
+X */
+X
+Xint
+Xopen_lpd (server)
+Xchar *server;
+X{
+X    int fd;
+X    char buf[512];
+X
+X    if (server == NULL || *server == '\0') {
+X	fprintf (stderr, "lpr: no printer server host is defined\n");
+X	fprintf (stderr, "     Either specify one using -S, or\n");
+X	fprintf (stderr, "     using the logical name LPD_SERVER.\n");
+X	return EOF;
+X    }
+X    sprintf (buf, "%s::\"223=\"", server);
+X    if ((fd = open (buf, 2)) < 0) {
+X	fprintf (stderr, "cannot open remote DECnet object '%s'\n", buf);
+X	perror ("");
+X    }
+X    max_net_read = max_net_write = 512;
+X    return fd;
+X}
+X
+X/*
+X * unlink() is not provided by the VMS C library (for reasons which have
+X * always eluded me).  delete() does essentially the same thing, but
+X * doesn't return the same error codes as unlink.  It is, however, sufficient 
+X * for our purposes.
+X */
+X
+Xint
+Xunlink (filename)
+Xchar *filename;
+X{
+X    return delete (filename);
+X}
+X
+END_OF_FILE
+  if test 3428 -ne `wc -c <'vms-decnet.c'`; then
+    echo shar: \"'vms-decnet.c'\" unpacked with wrong size!
+  fi
+  # end of 'vms-decnet.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

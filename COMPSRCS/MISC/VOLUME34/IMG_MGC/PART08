@@ -1,0 +1,1642 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i036:  imagemagick - X11 image processing and display v2.2, Part08/26
+Message-ID: <1992Dec13.202750.9650@sparky.imd.sterling.com>
+X-Md4-Signature: 4741345e10680ae21b1746a8b2adcdff
+Date: Sun, 13 Dec 1992 20:27:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 36
+Archive-name: imagemagick/part08
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.08 (part 8 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/import.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/import.c'
+else
+echo 'x - continuing file ImageMagick/import.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/import.c' &&
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                 IIIII  M   M  PPPP    OOO   RRRR    TTTTT                   %
+%                   I    MM MM  P   P  O   O  R   R     T                     %
+%                   I    M M M  PPPP   O   O  RRRR      T                     %
+%                   I    M   M  P      O   O  R R       T                     %
+%                 IIIII  M   M  P       OOO   R  R      T                     %
+%                                                                             %
+%                                                                             %
+%             Import X11 image to a machine independent format.               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Import is an X Window System window dumping utility.  Import allows X
+%  users to store window images in a specially formatted dump file.  This
+%  file can then be read by the Display utility for redisplay, printing,
+%  editing, formatting, archiving, image processing, etc.  The target
+%  window can be specified by id or name or be selected by clicking the
+%  mouse in the desired window.  The keyboard bell is rung once at the
+%  beginning of the dump and twice when the dump is completed.
+%
+%  The import program command syntax is:
+%
+%  Usage: import [options ...] file
+%
+%  Where options include:
+%    -border          include image borders in the output image
+%    -compress type   RunlengthEncoded or QEncoded
+%    -delay seconds   pause before selecting target window
+%    -display server  X server to contact
+%    -frame           include window manager frame
+%    -monochrome      transform image to black and white
+%    -scene value     image scene number
+%    -screen          select image from root window
+%    -verbose         print detailed information about the image
+%    -window id       select window with this id or name
+%
+%  Change '-' to '+' in any option above to reverse its effect.
+%  For example, +frame means do not window manager frame.
+%
+%  By default, 'file' is written in the MIFF image format.  To specify
+%  a particular image format, precede the filename with an image format
+%  name and a colon (i.e. mtv:image) or specify the image type as the
+%  filename suffix (i.e. image.mtv).  Specify 'file' as '-' for standard
+%  input or output.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "alien.h"
+#include "X.h"
+X
+/*
+X  Global declarations.
+*/
+char
+X  *application_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",application_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Usage displays the program usage;
+%
+%  The format of the Usage routine is:
+%
+%      Usage()
+%
+%
+*/
+static void Usage()
+{
+X  char
+X    **p;
+X
+X  static char
+X    *options[]=
+X    {
+X      "-border          include image borders in the output image",
+X      "-compress type   RunlengthEncoded or QEncoded",
+X      "-delay seconds   pause before selecting target window",
+X      "-display server  X server to contact",
+X      "-frame           include window manager frame",
+X      "-monochrome      transform image to black and white",
+X      "-scene value     image scene number",
+X      "-screen          select image from root window",
+X      "-verbose         print detailed information about the image",
+X      "-window id       select window with this id or name",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,"Usage: %s [options ...] file\n",application_name);
+X  (void) fprintf(stderr,"\nWhere options include:\n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.\n");
+X  (void) fprintf(stderr,
+X    "For example, +frame means do not include window manager frame.\n");
+X  (void) fprintf(stderr,
+X  "\nBy default, 'file' is written in the MIFF image format.  To specify a\n");
+X  (void) fprintf(stderr,
+X    "particular image format, precede the filename with an image format\n");
+X  (void) fprintf(stderr,
+X    "name and a colon (i.e. mtv:image) or specify the image type as the\n");
+X  (void) fprintf(stderr,
+X    "filename suffix (i.e. image.mtv).  Specify 'file' as '-' for standard\n");
+X  (void) fprintf(stderr,"input or output.\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%    M a i n                                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  *argv[];
+{
+X  char
+X    *filename,
+X    *option,
+X    *resource_value,
+X    *server_name,
+X    *target_window;
+X
+X  Display
+X    *display;
+X
+X  Image
+X    *image;
+X
+X  int
+X    i,
+X    x;
+X
+X  time_t
+X    start_time;
+X
+X  unsigned int
+X    borders,
+X    compression,
+X    frame,
+X    scene,
+X    screen,
+X    verbose;
+X
+X  XResourceInfo
+X    resource_info;
+X
+X  XrmDatabase
+X    resource_database,
+X    server_database;
+X
+X  /*
+X    Display usage profile if there are no command line arguments.
+X  */
+X  application_name=(*argv);
+X  if (argc < 2)
+X    Usage();
+X  /*
+X    Connect to X server.
+X  */
+X  server_name=(char *) NULL;
+X  for (i=1; i < argc; i++)
+X  {
+X    /*
+X      Check command line for server name.
+X    */
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      if (strncmp("dis",option+1,3) == 0)
+X        {
+X          /*
+X            User specified server name.
+X          */
+X          i++;
+X          if (i == argc)
+X            Error("missing server name on -display",(char *) NULL);
+X          server_name=argv[i];
+X          break;
+X        }
+X  }
+X  display=XOpenDisplay(server_name);
+X  if (display == (Display *) NULL)
+X    Error("unable to connect to X server",XDisplayName(server_name));
+X  /*
+X    Set our forgiving error handler.
+X  */
+X  XSetErrorHandler(XError);
+X  /*
+X    Initialize resource database.
+X  */
+X  XrmInitialize();
+X  resource_database=XrmGetDatabase(display);
+X  resource_value=XResourceManagerString(display);
+X  if (resource_value == (char *) NULL)
+X    resource_value="";
+X  server_database=XrmGetStringDatabase(resource_value);
+X  XrmMergeDatabases(server_database,&resource_database);
+X  /*
+X    Get user defaults from X resource database.
+X  */
+X  XGetResourceInfo(resource_database,application_name,&resource_info);
+X  resource_value=XGetResource(resource_database,application_name,"borders",
+X    (char *) NULL,"False");
+X  borders=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,
+X    "compression",(char *) NULL,"Runlength");
+X  if (Latin1Compare("qencoded",resource_value) == 0)
+X    compression=QEncodedCompression;
+X  else
+X    compression=RunlengthEncodedCompression;
+X  resource_value=XGetResource(resource_database,application_name,"frame",
+X    (char *) NULL,"False");
+X  frame=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,"scene",
+X    (char *) NULL,"0");
+X  scene=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,"screen",
+X    (char *) NULL,"False");
+X  screen=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,"verbose",
+X    (char *) NULL,"False");
+X  verbose=IsTrue(resource_value);
+X  /*
+X    Check command syntax.
+X  */
+X  filename=(char *) NULL;
+X  target_window=(char *) NULL;
+X  for (i=1; i < argc; i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) < 2) || ((*option != '-') && (*option != '+')))
+X      filename=argv[i];
+X    else
+X      switch(*(option+1))
+X      {
+X        case 'b':
+X        {
+X          borders=(*option == '-');
+X          break;
+X        }
+X        case 'c':
+X        {
+X          compression=NoCompression;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing type on -compress",(char *) NULL);
+X              if ((*argv[i] == 'R') || (*argv[i] == 'r'))
+X                compression=RunlengthEncodedCompression;
+X              else
+X                if ((*argv[i] == 'Q') || (*argv[i] == 'q'))
+X                  compression=QEncodedCompression;
+X                else
+X                  Error("invalid compression type on -compress",(char *) NULL);
+X            }
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("delay",option+1,2) == 0)
+X            {
+X              resource_info.delay=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing seconds on -delay",(char *) NULL);
+X                  resource_info.delay=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'h':
+X        {
+X          Usage();
+X          break;
+X        }
+X        case 'f':
+X        {
+X          frame=(*option == '-');
+X          break;
+X        }
+X        case 'm':
+X        {
+X          resource_info.monochrome=(*option == '-');
+X          break;
+X        }
+X        case 's':
+X        {
+X          if (strncmp("scene",option+1,4) == 0)
+X            {
+X              i++;
+X              if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                Error("missing scene on -scene",(char *) NULL);
+X              scene=atoi(argv[i]);
+X              break;
+X            }
+X          if (strncmp("screen",option+1,4) == 0)
+X            {
+X              screen=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'w':
+X        {
+X          i++;
+X          if (i == argc)
+X            Error("missing id, name, or 'root' on -window",(char *) NULL);
+X          target_window=argv[i];
+X          break;
+X        }
+X        case 'v':
+X        {
+X          verbose=(*option == '-');
+X          break;
+X        }
+X        default:
+X        {
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X      }
+X  }
+X  if (filename == (char *) NULL)
+X    Error("missing an image file name",(char *) NULL);
+X  /*
+X    Read image from X server.
+X  */
+X  if (resource_info.delay > 0)
+X    (void) sleep(resource_info.delay);
+X  start_time=time((time_t *) 0);
+X  image=ReadXImage(target_window,server_name,frame,screen,borders);
+X  if (image == (Image *) NULL)
+X    exit(1);
+X  image->scene=scene;
+X  if (resource_info.monochrome)
+X    QuantizeImage(image,2,8,False,GRAYColorspace,True);
+X  if (compression != UndefinedCompression)
+X    image->compression=compression;
+X  (void) strcpy(image->filename,filename);
+X  (void) WriteAlienImage(image);
+X  if (verbose)
+X    {
+X      /*
+X        Display detailed info about the image.
+X      */
+X      if (image->class == DirectClass)
+X        image->colors=NumberColors(image);
+X      (void) fprintf(stderr,"[%u] %s %ux%u",image->scene,image->filename,
+X        image->columns,image->rows);
+X      if (image->class == DirectClass)
+X        (void) fprintf(stderr," DirectClass ");
+X      else
+X        (void) fprintf(stderr," PseudoClass ");
+X      (void) fprintf(stderr,"%dc %s %ds\n",image->colors,image->magick,
+X        time((time_t *) 0)-start_time+1);
+X    }
+X  DestroyImage(image);
+X  XCloseDisplay(display);
+X  return(False);
+}
+SHAR_EOF
+echo 'File ImageMagick/import.c is complete' &&
+chmod 0644 ImageMagick/import.c ||
+echo 'restore of ImageMagick/import.c failed'
+Wc_c="`wc -c < 'ImageMagick/import.c'`"
+test 16580 -eq "$Wc_c" ||
+	echo 'ImageMagick/import.c: original size 16580, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/import.man ==============
+if test -f 'ImageMagick/import.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/import.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/import.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/import.man' &&
+.ad l
+.nh
+.TH IMPORT 1 "10 October 1992" "ImageMagick"
+.SH NAME
+import - capture some or all of an X server screen and save to file in the
+MIFF image format.
+.SH SYNOPSIS
+.B "import"
+[ \fIoptions\fP ... ] \fIfile\fP
+.SH DESCRIPTION
+.PP
+.I Import
+reads an image from any visible window on an X server and outputs it as
+an image file.  You can capture a single window, the entire screen, or any
+rectangular portion of the screen.  You can use \fIdisplay\fP (see
+\fBdisplay(1)\fP) utility for redisplay, printing, editing, formatting,
+archiving, image processing, etc. of the captured image.
+.PP
+The target window can be specified by id, name, or may be selected by
+clicking the mouse in the desired window.  If you press a button and
+then drag, a rectangle will form which expands and contracts as
+the mouse moves.  To save the portion of the screen  defined by the
+rectangle, just release the button.  The keyboard bell is rung once at
+the beginning of the screen capture and twice when it completes.
+.PP
+.SH EXAMPLES
+.PP
+To select an X window with the mouse and save it in the MIFF image
+format to a file on disk titled window.miff, use:
+.PP
+X     import window.miff
+.PP
+To select an X window and save it in the MIFF image format to a file on
+disk titled figure.miff to include in another document, use:
+.PP
+X     import -geometry +0+0 figure.miff
+.PP
+To capture the entire X server screen as the MIFF image format in a file on
+disk titled root.miff, use:
+.PP
+X     import -window root root.miff
+.SH OPTIONS
+\fIImport\fP options can appear on the command line or in your X resources
+file (see \fBX(1)\fP).  Options on the command line supersede values specified
+in your X resources file.
+.TP 5
+.B "-border"
+include image borders in the output image.
+.TP 5
+.B "-compress \fItype\fP"
+the type of image compression: \fIQEncoded\fP or \fIRunlengthEncoded\fP.
+See \fBMIFF(5)\fP for details.
+X
+Specify \fB\+compress\fP to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+.TP 5
+.B "-delay \fIseconds\fP"
+pause before selecting target window.
+X
+This option is useful when you need time to ready the target window before
+it is captured to a file.
+.TP 5
+.B "-display \fIhost:display[.screen]\fP"
+specifies the X server to contact; see \fBX(1)\fP.
+.TP 5
+.B "-frame"
+include window manager frame.
+.TP 5
+.B "-monochrome"
+transform image to black and white.
+.TP 5
+.B "-scene \fIvalue\fP"
+image scene number.
+.TP 5
+.B "-screen"
+This option indicates that the GetImage request used to obtain the image
+should be done on the root window, rather than directly on the specified
+window.  In this way, you can obtain pieces of other windows that overlap
+the specified window, and more importantly, you can capture menus or other
+popups that are independent windows but appear over the specified window.
+.TP 5
+.B -verbose
+print detailed information about the image.
+X 
+This information is printed: image scene number;  image name;  image size;  
+the image class (\fIDirectClass\fP or \fIPseudoClass\fP);  the total
+number of unique colors;  and the number of seconds to read and write the 
+image.
+.TP 5
+.B "-window \fIid\fP"
+select window with this id or name.
+X
+With this option you can specify the target window by id or name rather
+than using the mouse.  Specify 'root' to select X's root window as the
+target window.
+.PP
+Change \fI-\fP to \fI+\fP in any option above to reverse its effect.  For
+example \fB+frame\fP means do include window manager frame.
+.PP
+\fIfile\fP specifies the image filename.  By default, the image is
+written in the MIFF image format (see \fBMIFF(5)\fP).  To specify a
+particular image format, precede the filename with an image format name 
+and a colon (i.e.  mtv:image) or specify the image type as the filename
+suffix (i.e. image.mtv).  See \fBCONVERT(1)\fP for a list of valid
+image formats.  Specify \fIfile\fP as \fI-\fP for standard input or
+output.  If \fIfile\fP has the extension \fB.Z\fP, the file is encoded
+with \fIcompress\fP.
+.SH ENVIRONMENT
+.PP
+.TP 5
+.B DISPLAY
+To get the default host, display number, and screen.
+.SH SEE ALSO
+display(1), animate(1), mogrify(1), convert(1), Quantize(9), X(1)
+MIFF(5)
+.SH COPYRIGHT
+Copyright 1992 E. I. du Pont de Nemours & Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+& Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours & Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. du Pont de Nemours & Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours & Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of this software.
+.SH AUTHORS
+John Cristy, E.I. du Pont De Nemours & Company Incorporated
+SHAR_EOF
+chmod 0644 ImageMagick/import.man ||
+echo 'restore of ImageMagick/import.man failed'
+Wc_c="`wc -c < 'ImageMagick/import.man'`"
+test 5476 -eq "$Wc_c" ||
+	echo 'ImageMagick/import.man: original size 5476, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/images/README ==============
+if test ! -d 'ImageMagick/images'; then
+    echo 'x - creating directory ImageMagick/images'
+    mkdir 'ImageMagick/images'
+fi
+if test -f 'ImageMagick/images/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/images/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/images/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/images/README' &&
+The aquarium image was rendered with rayshade from a script written 
+by kilian@cray.com and Jerome A. Farm.
+X
+Image `montage.miff' was created with this command:
+X
+X  montage -colors 256 -gravity center -title "Image Montage"
+X    -geometry 128x128+5+5 dna.miff swan.miff aquarium.miff montage.miff
+SHAR_EOF
+chmod 0644 ImageMagick/images/README ||
+echo 'restore of ImageMagick/images/README failed'
+Wc_c="`wc -c < 'ImageMagick/images/README'`"
+test 295 -eq "$Wc_c" ||
+	echo 'ImageMagick/images/README: original size 295, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/quantize.c ==============
+if test -f 'ImageMagick/quantize.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/quantize.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/quantize.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/quantize.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%           QQQ   U   U   AAA   N   N  TTTTT  IIIII   ZZZZZ  EEEEE            %
+%          Q   Q  U   U  A   A  NN  N    T      I        ZZ  E                %
+%          Q   Q  U   U  AAAAA  N N N    T      I      ZZZ   EEEEE            %
+%          Q  QQ  U   U  A   A  N  NN    T      I     ZZ     E                %
+%           QQQQ   UUU   A   A  N   N    T    IIIII   ZZZZZ  EEEEE            %
+%                                                                             %
+%                                                                             %
+%              Reduce the Number of Unique Colors in an Image                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Realism in computer graphics typically requires using 24 bits/pixel to
+%  generate an image.  Yet many graphic display devices do not contain
+%  the amount of memory necessary to match the spatial and color
+%  resolution of the human eye.  The QUANTIZE program takes a 24 bit
+%  image and reduces the number of colors so it can be displayed on
+%  raster device with less bits per pixel.  In most instances, the
+%  quantized image closely resembles the original reference image.
+%
+%  A reduction of colors in an image is also desirable for image
+%  transmission and real-time animation.
+%
+%  Function Quantize takes a standard RGB or monochrome images and quantizes
+%  them down to some fixed number of colors.
+%
+%  For purposes of color allocation, an image is a set of n pixels, where
+%  each pixel is a point in RGB space.  RGB space is a 3-dimensional
+%  vector space, and each pixel, pi,  is defined by an ordered triple of
+%  red, green, and blue coordinates, (ri, gi, bi).
+%
+%  Each primary color component (red, green, or blue) represents an
+%  intensity which varies linearly from 0 to a maximum value, cmax, which
+%  corresponds to full saturation of that color.  Color allocation is
+%  defined over a domain consisting of the cube in RGB space with
+%  opposite vertices at (0,0,0) and (cmax,cmax,cmax).  QUANTIZE requires
+%  cmax = 255.
+%
+%  The algorithm maps this domain onto a tree in which each node
+%  represents a cube within that domain.  In the following discussion
+%  these cubes are defined by the coordinate of two opposite vertices:
+%  The vertex nearest the origin in RGB space and the vertex farthest
+%  from the origin.
+%
+%  The tree's root node represents the the entire domain, (0,0,0) through
+%  (cmax,cmax,cmax).  Each lower level in the tree is generated by
+%  subdividing one node's cube into eight smaller cubes of equal size.
+%  This corresponds to bisecting the parent cube with planes passing
+%  through the midpoints of each edge.
+%
+%  The basic algorithm operates in three phases: Classification,
+%  Reduction, and Assignment.  Classification builds a color
+%  description tree for the image.  Reduction collapses the tree until
+%  the number it represents, at most, the number of colors desired in the
+%  output image.  Assignment defines the output image's color map and
+%  sets each pixel's color by reclassification in the reduced tree.
+%
+%  Classification begins by initializing a color description tree of
+%  sufficient depth to represent each possible input color in a leaf.
+%  However, it is impractical to generate a fully-formed color
+%  description tree in the classification phase for realistic values of
+%  cmax.  If colors components in the input image are quantized to k-bit
+%  precision, so that cmax= 2k-1, the tree would need k levels below the
+%  root node to allow representing each possible input color in a leaf.
+%  This becomes prohibitive because the tree's total number of nodes is
+%  1 + sum(i=1,k,8k).
+%
+%  A complete tree would require 19,173,961 nodes for k = 8, cmax = 255.
+%  Therefore, to avoid building a fully populated tree, QUANTIZE: (1)
+%  Initializes data structures for nodes only as they are needed;  (2)
+%  Chooses a maximum depth for the tree as a function of the desired
+%  number of colors in the output image (currently log2(colormap size)).
+%
+%  For each pixel in the input image, classification scans downward from
+%  the root of the color description tree.  At each level of the tree it
+%  identifies the single node which represents a cube in RGB space
+%  containing the pixel's color.  It updates the following data for each
+%  such node:
+%
+%    n1 : Number of pixels whose color is contained in the RGB cube
+%    which this node represents;
+%
+%    n2 : Number of pixels whose color is not represented in a node at
+%    lower depth in the tree;  initially,  n2 = 0 for all nodes except
+%    leaves of the tree.
+%
+%    Sr, Sg, Sb : Sums of the red, green, and blue component values for
+%    all pixels not classified at a lower depth. The combination of
+%    these sums and n2  will ultimately characterize the mean color of a
+%    set of pixels represented by this node.
+%
+%  Reduction repeatedly prunes the tree until the number of nodes with
+%  n2 > 0 is less than or equal to the maximum number of colors allowed
+%  in the output image.  On any given iteration over the tree, it selects
+%  those nodes whose n1  count is minimal for pruning and merges their
+%  color statistics upward. It uses a pruning threshold, ns, to govern
+%  node selection as follows:
+%
+%    ns = 0
+%    while number of nodes with (n2 > 0) > required maximum number of colors
+%      prune all nodes such that n1 <= ns
+%      Set ns to minimum n1 in remaining nodes
+%
+%  When a node to be pruned has offspring, the pruning procedure invokes
+%  itself recursively in order to prune the tree from the leaves upward.
+%  n2,  Sr, Sg,  and  Sb in a node being pruned are always added to the
+%  corresponding data in that node's parent.  This retains the pruned
+%  node's color characteristics for later averaging.
+%
+%  For each node, n2 pixels exist for which that node represents the
+%  smallest volume in RGB space containing those pixel's colors.  When n2
+%  > 0 the node will uniquely define a color in the output image. At the
+%  beginning of reduction,  n2 = 0  for all nodes except a the leaves of
+%  the tree which represent colors present in the input image.
+%
+%  The other pixel count, n1, indicates the total number of colors
+%  within the cubic volume which the node represents.  This includes n1 -
+%  n2  pixels whose colors should be defined by nodes at a lower level in
+%  the tree.
+%
+%  Assignment generates the output image from the pruned tree.  The
+%  output image consists of two parts: (1)  A color map, which is an
+%  array of color descriptions (RGB triples) for each color present in
+%  the output image;  (2)  A pixel array, which represents each pixel as
+%  an index into the color map array.
+%
+%  First, the assignment phase makes one pass over the pruned color
+%  description tree to establish the image's color map.  For each node
+%  with n2  > 0, it divides Sr, Sg, and Sb by n2 .  This produces the
+%  mean color of all pixels that classify no lower than this node.  Each
+%  of these colors becomes an entry in the color map.
+%
+%  Finally,  the assignment phase reclassifies each pixel in the pruned
+%  tree to identify the deepest node containing the pixel's color.  The
+%  pixel's value in the pixel array becomes the index of this node's mean
+%  color in the color map.
+%
+%  For efficiency, QUANTIZE requires that the reference image be in a
+%  run-length encoded format.
+%
+%  With the permission of USC Information Sciences Institute, 4676 Admiralty
+%  Way, Marina del Rey, California  90292, this code was adapted from module
+%  ALCOLS written by Paul Raveling.
+%
+%  The names of ISI and USC are not used in advertising or publicity
+%  pertaining to distribution of the software without prior specific
+%  written permission from ISI.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+X
+/*
+X  Define declarations.
+*/
+#define color_number  number_colors
+#define MaxNodes  266817
+#define MaxShift  8
+#define MaxTreeDepth  8  /* Log2(MaxRGB) */
+#define NodesInAList  2048
+X
+/*
+X  Structures.
+*/
+typedef struct _Node
+{
+X  struct _Node
+X    *parent,
+X    *child[8];
+X
+X  unsigned char
+X    id,
+X    level,
+X    children,
+X    mid_red,
+X    mid_green,
+X    mid_blue;
+X
+X  unsigned long int
+X    number_colors,
+X    number_unique,
+X    total_red,
+X    total_green,
+X    total_blue;
+} Node;
+X
+typedef struct _Nodes
+{
+X  Node
+X    nodes[NodesInAList];
+X
+X  struct _Nodes
+X    *next;
+} Nodes;
+X
+typedef struct _Cube
+{
+X  Node
+X    *root;
+X
+X  ColorPacket
+X    color,
+X    *colormap;
+X
+X  unsigned int
+X    depth;
+X
+X  unsigned long int
+X    colors,
+X    pruning_threshold,
+X    next_pruning_threshold,
+X    distance,
+X    shift[MaxTreeDepth+1],
+X    squares[MaxRGB+MaxRGB+1];
+X
+X  unsigned int
+X    nodes,
+X    free_nodes,
+X    color_number;
+X
+X  Node
+X    *next_node;
+X
+X  Nodes
+X    *node_queue;
+} Cube;
+X
+/*
+X  Global variables.
+*/
+static Cube
+X  cube;
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *application_name;
+X
+/*
+X  Forward declarations.
+*/
+static Node
+X  *InitializeNode _Declare((unsigned int,unsigned int,Node *,unsigned int,
+X    unsigned int,unsigned int));
+X
+static unsigned int
+X  DitherImage _Declare((Image *));
+X
+static void
+X  ClosestColor _Declare((Node *)),
+X  Colormap _Declare((Node *)),
+X  PruneLevel _Declare((Node *));
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  A s s i g n m e n t                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Assignment generates the output image from the pruned tree.  The
+%  output image consists of two parts: (1)  A color map, which is an
+%  array of color descriptions (RGB triples) for each color present in
+%  the output image;  (2)  A pixel array, which represents each pixel as
+%  an index into the color map array.
+%
+%  First, the assignment phase makes one pass over the pruned color
+%  description tree to establish the image's color map.  For each node
+%  with n2  > 0, it divides Sr, Sg, and Sb by n2 .  This produces the
+%  mean color of all pixels that classify no lower than this node.  Each
+%  of these colors becomes an entry in the color map.
+%
+%  Finally,  the assignment phase reclassifies each pixel in the pruned
+%  tree to identify the deepest node containing the pixel's color.  The
+%  pixel's value in the pixel array becomes the index of this node's mean
+%  color in the color map.
+%
+%  The format of the Assignment routine is:
+%
+%      Assignment(image,dither,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+static void Assignment(image,dither,optimal)
+Image
+X  *image;
+X
+unsigned int
+X  dither,
+X  optimal;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Allocate image colormap.
+X  */
+X  image->alpha=False;
+X  image->class=PseudoClass;
+X  if (image->colormap != (ColorPacket *) NULL)
+X    (void) free((char *) image->colormap);
+X  image->colormap=(ColorPacket *)
+X    malloc((unsigned int) cube.colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("unable to quantize image","memory allocation failed");
+X      exit(1);
+X    }
+X  if (image->signature != (char *) NULL)
+X    (void) free((char *) image->signature);
+X  image->signature=(char *) NULL;
+X  cube.colormap=image->colormap;
+X  cube.colors=0;
+X  Colormap(cube.root);
+X  image->colors=(unsigned int) cube.colors;
+X  /*
+X    Create a reduced color image.  For the non-optimal case we trade
+X    accuracy for speed improvements.
+X  */
+X  if (dither)
+X    dither=!DitherImage(image);
+X  p=image->pixels;
+X  if (!dither)
+X    if (!optimal)
+X      for (i=0; i < image->packets; i++)
+X      {
+X        /*
+X          Identify the deepest node containing the pixel's color.
+X        */
+X        node=cube.root;
+X        do
+X        {
+X          id=(p->red > node->mid_red ? 1 : 0) |
+X            (p->green > node->mid_green ? 1 : 0) << 1 |
+X            (p->blue > node->mid_blue ? 1 : 0) << 2;
+X          if ((node->children & (1 << id)) == 0)
+X            break;
+X          node=node->child[id];
+X        } while (True);
+X        p->index=(unsigned short) node->color_number;
+X        p++;
+X      }
+X    else
+X      for (i=0; i < image->packets; i++)
+X      {
+X        /*
+X          Identify the deepest node containing the pixel's color.
+X        */
+X        node=cube.root;
+X        do
+X        {
+X          id=(p->red > node->mid_red ? 1 : 0) |
+X            (p->green > node->mid_green ? 1 : 0) << 1 |
+X            (p->blue > node->mid_blue ? 1 : 0) << 2;
+X          if ((node->children & (1 << id)) == 0)
+X            break;
+X          node=node->child[id];
+X        }
+X        while (True);
+X        /*
+X          Find closest color among siblings and their children.
+X        */
+X        cube.color.red=p->red;
+X        cube.color.green=p->green;
+X        cube.color.blue=p->blue;
+X        cube.distance=(~0);
+X        ClosestColor(node->parent);
+X        p->index=cube.color_number;
+X        p++;
+X      }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C l a s s i f i c a t i o n                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Classification begins by initializing a color description tree
+%  of sufficient depth to represent each possible input color in a leaf.
+%  However, it is impractical to generate a fully-formed color
+%  description tree in the classification phase for realistic values of
+%  cmax.  If colors components in the input image are quantized to k-bit
+%  precision, so that cmax= 2k-1, the tree would need k levels below the
+%  root node to allow representing each possible input color in a leaf.
+%  This becomes prohibitive because the tree's total number of nodes is
+%  1 + sum(i=1,k,8k).
+%
+%  A complete tree would require 19,173,961 nodes for k = 8, cmax = 255.
+%  Therefore, to avoid building a fully populated tree, QUANTIZE: (1)
+%  Initializes data structures for nodes only as they are needed;  (2)
+%  Chooses a maximum depth for the tree as a function of the desired
+%  number of colors in the output image (currently log2(colormap size)).
+%
+%  For each pixel in the input image, classification scans downward from
+%  the root of the color description tree.  At each level of the tree it
+%  identifies the single node which represents a cube in RGB space
+%  containing It updates the following data for each such node:
+%
+%    n1 : Number of pixels whose color is contained in the RGB cube
+%    which this node represents;
+%
+%    n2 : Number of pixels whose color is not represented in a node at
+%    lower depth in the tree;  initially,  n2 = 0 for all nodes except
+%    leaves of the tree.
+%
+%    Sr, Sg, Sb : Sums of the red, green, and blue component values for
+%    all pixels not classified at a lower depth. The combination of
+%    these sums and n2  will ultimately characterize the mean color of a
+%    set of pixels represented by this node.
+%
+%  The format of the Classification routine is:
+%
+%      Classification(image)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+static void Classification(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    bisect,
+X    count,
+X    id,
+X    level;
+X
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    if (cube.nodes > MaxNodes)
+X      {
+X        /*
+X          Prune one level if the color tree is too large.
+X        */
+X        PruneLevel(cube.root);
+X        cube.depth--;
+X      }
+X    /*
+X      Start at the root and descend the color cube tree.
+X    */
+X    count=p->length+1;
+X    node=cube.root;
+X    for (level=1; level < cube.depth; level++)
+X    {
+X      id=(p->red > node->mid_red ? 1 : 0) |
+X        (p->green > node->mid_green ? 1 : 0) << 1 |
+X        (p->blue > node->mid_blue ? 1 : 0) << 2;
+X      if (node->child[id] == (Node *) NULL)
+X        {
+X          /*
+X            Set colors of new node to contain pixel.
+X          */
+X          node->children|=1 << id;
+X          bisect=(unsigned int) (1 << (MaxTreeDepth-level)) >> 1;
+X          node->child[id]=InitializeNode(id,level,node,
+X            node->mid_red+(id & 1 ? bisect : -bisect),
+X            node->mid_green+(id & 2 ? bisect : -bisect),
+X            node->mid_blue+(id & 4 ? bisect : -bisect));
+X          if (node->child[id] == (Node *) NULL)
+X            {
+X              Warning("unable to quantize image","memory allocation failed");
+X              exit(1);
+X            }
+X          if (level == (cube.depth-1))
+X            cube.colors++;
+X        }
+X      /*
+X        Record the number of colors represented by this node.  Shift by level
+X        in the color description tree.
+X      */
+X      node=node->child[id];
+X      node->number_colors+=count << cube.shift[level];
+X    }
+X    /*
+X      Increment unique color count and sum RGB values for this leaf for later
+X      derivation of the mean cube color.
+X    */
+X    node->number_unique+=count;
+X    node->total_red+=p->red*count;
+X    node->total_green+=p->green*count;
+X    node->total_blue+=p->blue*count;
+X    p++;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C l o s e s t C o l o r                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure ClosestColor traverses the color cube tree at a particular node
+%  and determines which colormap entry best represents the input color.
+%
+%  The format of the ClosestColor routine is:
+%
+%      ClosestColor(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: The address of a structure of type Node which points to a
+%      node in the color cube tree that is to be pruned.
+%
+%
+*/
+static void ClosestColor(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children > 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        ClosestColor(node->child[id]);
+X  if (node->number_unique > 0)
+X    {
+X      register ColorPacket
+X        *color;
+X
+X      register unsigned int
+X        blue_distance,
+X        green_distance,
+X        red_distance;
+X
+X      register unsigned long int
+X        distance;
+X
+X      /*
+X        Determine if this color is "closest".
+X      */
+X      color=cube.colormap+node->color_number;
+X      red_distance=(int) color->red-(int) cube.color.red+MaxRGB;
+X      green_distance=(int) color->green-(int) cube.color.green+MaxRGB;
+X      blue_distance=(int) color->blue-(int) cube.color.blue+MaxRGB;
+X      distance=cube.squares[red_distance]+cube.squares[green_distance]+
+X        cube.squares[blue_distance];
+X      if (distance < cube.distance)
+X        {
+X          cube.distance=distance;
+X          cube.color_number=(unsigned short) node->color_number;
+X        }
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C o l o r m a p                                                            %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Colormap traverses the color cube tree and notes each colormap
+%  entry.  A colormap entry is any node in the color cube tree where the
+%  number of unique colors is not zero.
+%
+%  The format of the Colormap routine is:
+%
+%      Colormap(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: The address of a structure of type Node which points to a
+%      node in the color cube tree that is to be pruned.
+%
+%
+*/
+static void Colormap(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children > 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        Colormap(node->child[id]);
+X  if (node->number_unique > 0)
+X    {
+X      /*
+X        Colormap entry is defined by the mean color in this cube.        
+X      */
+X      cube.colormap[cube.colors].red=(unsigned char)
+X        ((node->total_red+(node->number_unique >> 1))/node->number_unique);
+X      cube.colormap[cube.colors].green=(unsigned char)
+X        ((node->total_green+(node->number_unique >> 1))/node->number_unique);
+X      cube.colormap[cube.colors].blue=(unsigned char)
+X        ((node->total_blue+(node->number_unique >> 1))/node->number_unique);
+X      node->color_number=cube.colors++;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  D i t h e r I m a g e                                                      %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure DitherImage uses the Floyd-Steinberg algorithm to dither the
+%  image.  Refer to "An Adaptive Algorithm for Spatial GreySscale", Robert W.
+%  Floyd and Louis Steinberg, Proceedings of the S.I.D., Volume 17(2), 1976.
+%
+%  First find the closest representation to the reference pixel color in the
+%  colormap, the node pixel is assigned this color.  Next, the colormap color
+%  is subtracted from the reference pixels color, this represents the
+%  quantization error.  Various amounts of this error are added to the pixels
+%  ahead and below the node pixel to correct for this error.  The error
+%  proportions are:
+%
+%            P     7/16
+%      3/16  5/16  1/16
+%
+%  The error is distributed left-to-right for even scanlines and right-to-left
+%  for odd scanlines.
+%
+%  The format of the DitherImage routine is:
+%
+%      DitherImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+static unsigned int DitherImage(image)
+Image
+X  *image;
+{
+X  typedef struct _ScaledColorPacket
+X  {
+X    int
+X      red,
+X      green,
+X      blue;
+X  } ScaledColorPacket;
+X
+X  Image
+X    *dithered_image;
+X
+X  int
+X    *cache,
+X    odd_scanline;
+X
+X  register int
+X    blue_error,
+X    green_error,
+X    red_error,
+X    step;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register ScaledColorPacket
+X    *cs,
+X    *ns;
+X
+X  register unsigned int
+X    id;
+X
+X  register unsigned short
+X    index;
+X
+X  ScaledColorPacket
+X    *scanline;
+X
+X  unsigned char
+X    *range_limit,
+X    *range_table;
+X
+X  unsigned int
+X    i,
+X    x,
+X    y;
+X
+X  /*
+X    Initialize dithered image attributes.
+X  */
+X  image->orphan=True;
+X  dithered_image=CopyImage(image,image->columns,image->rows,False);
+X  image->orphan=False;
+X  if (dithered_image == (Image *) NULL)
+X    {
+X      Warning("unable to dither image","memory allocation failed");
+X      return(True);
+X    }
+X  /*
+X    Allocate the cache & scanline buffers to keep track of quantization error.
+X  */
+X  cache=(int *) malloc((1 << 18)*sizeof(int));
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  scanline=(ScaledColorPacket *)
+X    malloc(2*(image->columns+2)*sizeof(ScaledColorPacket));
+X  if ((cache == (int *) NULL) || (range_table == (unsigned char *) NULL) ||
+X      (scanline == (ScaledColorPacket *) NULL))
+X    {
+X      Warning("unable to dither image","memory allocation failed");
+X      return(True);
+X    }
+X  /*
+X    Initialize tables.
+X  */
+X  for (i=0; i < (1 << 18); i++)
+X    cache[i]=(-1);
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  /*
+X    Preload first scanline.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  cs=scanline+1;
+X  for (i=0; i < image->columns; i++)
+X  {
+X    if (image->runlength > 0)
+X      image->runlength--;
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X      }
+X    cs->red=p->red;
+X    cs->green=p->green;
+X    cs->blue=p->blue;
+X    cs++;
+X  }
+X  odd_scanline=False;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    if (y < (image->rows-1))
+X      {
+X        /*
+X          Read another scanline.
+X        */
+X        ns=scanline+1;
+X        if (!odd_scanline)
+X          ns+=(image->columns+2);
+X        for (i=0; i < image->columns; i++)
+X        {
+X          if (image->runlength > 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          ns->red=p->red;
+X          ns->green=p->green;
+X          ns->blue=p->blue;
+X          ns++;
+X        }
+X      }
+X    if (!odd_scanline)
+X      {
+X        /*
+X          Distribute error left-to-right for even scanlines.
+X        */
+X        q=dithered_image->pixels+image->columns*y;
+X        cs=scanline+1;
+X        ns=scanline+(image->columns+2)+1;
+X        step=1;
+X      }
+X    else
+X      {
+X        /*
+X          Distribute error right-to-left for odd scanlines.
+X        */
+X        q=dithered_image->pixels+image->columns*y+(image->columns-1);
+X        cs=scanline+(image->columns+2)+(image->columns-1)+1;
+X        ns=scanline+(image->columns-1)+1;
+X        step=(-1);
+X      }
+X    for (x=0; x < image->columns; x++)
+X    {
+X      q->red=range_limit[cs->red];
+X      q->green=range_limit[cs->green];
+X      q->blue=range_limit[cs->blue];
+X      i=(q->red >> 2) << 12 | (q->green >> 2) << 6 | q->blue >> 2;
+X      if (cache[i] < 0)
+X        {
+X          /*
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+X          do
+X          {
+X            id=(q->red > node->mid_red ? 1 : 0) |
+X              (q->green > node->mid_green ? 1 : 0) << 1 |
+X              (q->blue > node->mid_blue ? 1 : 0) << 2;
+X            if ((node->children & (1 << id)) == 0)
+X              break;
+X            node=node->child[id];
+X          }
+X          while (True);
+X          /*
+X            Find closest color among siblings and their children.
+X          */
+X          cube.color.red=q->red;
+X          cube.color.green=q->green;
+X          cube.color.blue=q->blue;
+X          cube.distance=(~0);
+X          ClosestColor(node->parent);
+X          cache[i]=cube.color_number;
+X        }
+X      index=(unsigned short) cache[i];
+X      red_error=(int) q->red-(int) cube.colormap[index].red;
+X      green_error=(int) q->green-(int) cube.colormap[index].green;
+X      blue_error=(int) q->blue-(int) cube.colormap[index].blue;
+X      q->index=index;
+SHAR_EOF
+true || echo 'restore of ImageMagick/quantize.c failed'
+fi
+echo 'End of  part 8'
+echo 'File ImageMagick/quantize.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

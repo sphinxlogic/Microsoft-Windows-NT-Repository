@@ -1,0 +1,2301 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v31i036:  jgraph - A filter for plotting postscript graphs v8.0, Part06/07
+Message-ID: <1992Jul14.151945.11202@sparky.imd.sterling.com>
+X-Md4-Signature: 8896463471b40d917bf6e5c91dd6ee60
+Date: Tue, 14 Jul 1992 15:19:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 31, Issue 36
+Archive-name: jgraph/part06
+Environment: UNIX, VMS, postscript
+Supersedes: jgraph: Volume 16, Issue 20
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  descrip.mms jgraph.c jgraph.h jmalloc.c printline.c show.c
+#   token.c
+# Wrapped by kent@sparky on Sun Jul 12 20:04:04 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 7)."'
+if test -f 'descrip.mms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'descrip.mms'\"
+else
+  echo shar: Extracting \"'descrip.mms'\" \(1241 characters\)
+  sed "s/^X//" >'descrip.mms' <<'END_OF_FILE'
+X# VMS MMS makefile
+X#
+X# In the link you will get a warning because of the multiple definition
+X# of exit(). This may be ignored; in order to get MMS completing without
+X# trouble you will have to call MMS as follows:
+X#	$ MMS/IGNORE
+X#
+X.ifdef DEBUG
+XCFLAGS=/INCLUDE=(SYS$DISK:[],SYS$SHARE:)/noopt/debug
+XLFLAGS=/debug
+X.else
+XCFLAGS=/INCLUDE=(SYS$DISK:[],SYS$SHARE:)
+XLFLAGS=
+X.endif
+X
+XOBJS = draw.obj, \
+X		edit.obj, \
+X		jgraph.obj, \
+X		list.obj, \
+X		printline.obj, \
+X		prio_list.obj, \
+X		process.obj, \
+X		show.obj, \
+X		token.obj, \
+X		exit.obj
+X
+Xall :	jgraph.exe
+X	! done
+X
+X# Do not link against the shareable image VAXCRTL.EXE, or you will
+X# miss the reference to the local exit() routine.
+X# EXIT will be reported as being multiply defined - ignore that.
+Xjgraph.exe : $(OBJS)
+X	link $(LFLAGS) /exe=jgraph $(OBJS),sys$library:vaxcrtl/libr
+X
+X###
+Xdraw.obj :	draw.c jgraph.h list.h prio_list.h
+Xedit.obj :	edit.c jgraph.h list.h prio_list.h
+Xjgraph.obj :	jgraph.c jgraph.h list.h prio_list.h
+Xlist.obj :	list.c list.h
+Xprintline.obj :	printline.c jgraph.h list.h prio_list.h
+Xprio_list.obj :	prio_list.c list.h prio_list.h
+Xprocess.obj :	process.c jgraph.h list.h prio_list.h
+Xshow.obj :	show.c jgraph.h list.h prio_list.h
+Xtoken.obj :	token.c list.h
+Xexit.obj :	exit.c
+END_OF_FILE
+  if test 1241 -ne `wc -c <'descrip.mms'`; then
+    echo shar: \"'descrip.mms'\" unpacked with wrong size!
+  fi
+  # end of 'descrip.mms'
+fi
+if test -f 'jgraph.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jgraph.c'\"
+else
+  echo shar: Extracting \"'jgraph.c'\" \(7360 characters\)
+  sed "s/^X//" >'jgraph.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:15:54 $
+X * $Author: jsp $
+X */
+X
+X#include <stdio.h>
+X
+X#ifdef VMS 
+X#include <redexp.VMS>
+Xextern FILE *IOSTREAM;	/* for token.c, q.v. -hdd */
+X#endif
+X
+X#include "jgraph.h"
+X
+Xint NMARKTYPES = 16;
+Xint NORMALMARKTYPES = 6;
+X
+Xchar *MARKTYPESTRS[] = { "circle", "box", "diamond", "triangle", "x", "cross", 
+X                         "ellipse", "general", "general_nf", "general_bez",
+X                         "general_bez_nf", "postscript", 
+X                         "xbar", "ybar", "none", "text"};
+Xchar MARKTYPES[] = {     'o',      'b',   'd',       't',        'x', 'c', 
+X			 'e',       'g',       'G',          'Z',
+X                         'B',              'p',          
+X                         'X',    'Y',    'n',    'l' };
+X
+XLabel new_label()
+X{
+X  Label l;
+X  int i;
+X
+X  l = (Label) malloc (sizeof(struct label));
+X  l->label = CNULL;
+X  l->hj = 'c';
+X  l->vj = 'b';
+X  l->font = "Times-Roman";
+X  l->fontsize = 9.0;
+X  l->rotate = 0;
+X  l->graytype = 'n';
+X  for (i = 0; i < 3; i++) l->gray[i] = 0.0;
+X  l->linesep = FSIG;
+X
+X  return l;
+X}
+X
+X
+XCurve new_curve(c, num)
+XCurve c;
+Xint num;
+X{
+X  Curve new_c;
+X  int i;
+X
+X  new_c = (Curve) get_node(c);
+X  new_c->num = num;
+X  new_c->l = new_label();
+X  new_c->l->vj = 't';
+X  new_c->lmark = new_label();
+X  new_c->lmark->hj = 'c';
+X  new_c->lmark->vj = 'c';
+X  new_c->clip = 0;
+X  new_c->graytype = 'n';
+X  for (i = 0; i < 3; i++) new_c->gray[i] = 0.0;
+X  new_c->afilltype = 'g';
+X  for (i = 0; i < 3; i++) new_c->afill[i] = 0.0;
+X  new_c->pts = (Point) make_list(sizeof(struct point));
+X  new_c->yepts = (Point) make_list(sizeof(struct point));
+X  new_c->xepts = (Point) make_list(sizeof(struct point));
+X  new_c->npts = 0;
+X  new_c->gen_linetype = (Flist) make_list(sizeof(struct flist));
+X  new_c->marktype = MARKTYPES[num % NORMALMARKTYPES];
+X  new_c->linetype = '0';
+X  new_c->linethick = 1.0;
+X  new_c->marksize[0] = FSIG;
+X  new_c->marksize[1] = FSIG;
+X  new_c->mrotate = 0.0;
+X  new_c->general_marks = (Point) make_list(sizeof(struct point));
+X  new_c->filltype = 'n';
+X  for (i = 0; i < 3; i++) new_c->fill[i] = 0.0;
+X  new_c->pfilltype = 'n';
+X  for (i = 0; i < 3; i++) new_c->pfill[i] = 0.0;
+X  new_c->poly = 0;
+X  new_c->rarrow = 0;
+X  new_c->larrow = 0;
+X  new_c->rarrows = 0;
+X  new_c->larrows = 0;
+X  new_c->asize[0] = FSIG;
+X  new_c->asize[1] = FSIG;
+X  new_c->bezier = 0;
+X  new_c->postscript = CNULL;
+X  new_c->postfile = 0;
+X  prio_insert(new_c, c, 0);
+X  return new_c;
+X}
+X
+XCurve new_line(c, num)
+XCurve c;
+Xint num;
+X{
+X  Curve new_c;
+X  new_c = new_curve(c, num);
+X  new_c->linetype = 's';
+X  new_c->marktype = 'n';
+X  return new_c;
+X}
+X
+X
+XCurve get_curve(c, num)
+XCurve c;
+Xint num;
+X{
+X  Curve new_c;
+X  for(new_c = last(c); new_c != nil(c) && new_c->num > num; new_c = prev(new_c));
+X  if (new_c == nil(c) || new_c->num < num) return new_curve(c, num);
+X  return new_c;
+X}
+X
+XAxis new_axis(is_x)
+Xint is_x;
+X{
+X  int i;
+X  Axis a;
+X
+X  a = (Axis) malloc (sizeof(struct axis));
+X  a->label = new_label();
+X  a->label->x = FSIG;
+X  a->label->y = FSIG;
+X  a->label->font = "Times-Bold";
+X  a->label->fontsize = 10.0;
+X  a->label->rotate = FSIG;
+X  a->label->hj = '0';
+X  a->label->vj = '0';
+X  a->size = 3.0;
+X  a->max = FSIG;
+X  a->min = FSIG;
+X  a->pmax = FSIG;
+X  a->pmin = FSIG;
+X  a->hash_interval = -1.0;
+X  a->log_base = 10.0;
+X  a->minor_hashes = -1;
+X  a->precision = -1;
+X  a->hl = new_label();
+X  a->hl->label = "";
+X  a->hl->font = "Times-Roman";
+X  a->hl->fontsize = 9.0;
+X  a->hl->rotate = 0.0;
+X  a->hl->hj = '0';
+X  a->hl->vj = '0';
+X  a->draw_at = FSIG;
+X  a->draw_hash_marks_at = FSIG;
+X  a->draw_hash_labels_at = FSIG;
+X  a->draw_hash_labels = 1;
+X  a->draw_axis_line = 1;
+X  a->draw_hash_marks = 1;
+X  a->draw_axis_label = 1;
+X  a->auto_hash_labels = 1;
+X  a->auto_hash_marks = 1;
+X  a->start_given = 0;
+X  a->hash_scale = -1.0;
+X  a->grid_lines = 0;
+X  a->mgrid_lines = 0;
+X  a->graytype = 'n';
+X  for (i = 0; i < 3; i++) a->gray[i] = 0.0;
+X  a->gr_graytype = '0';
+X  for (i = 0; i < 3; i++) a->gr_gray[i] = 0.0;
+X  a->mgr_graytype = '0';
+X  for (i = 0; i < 3; i++) a->mgr_gray[i] = 0.0;
+X  a->is_x = is_x;
+X  a->is_lg = 0;
+X  a->hash_labels = (String) make_list (sizeof(struct string));
+X  a->hash_lines = (Hash) make_list (sizeof(struct hash));
+X  return a;
+X}
+X
+XLegend new_legend()
+X{
+X  Legend l;
+X  l = (Legend) malloc (sizeof(struct legend));
+X  l->linelength = FSIG;
+X  l->linebreak = FSIG;
+X  l->midspace = FSIG;
+X  l->type = 'u';
+X  l->l = new_label();
+X  l->l->label = "";
+X  l->l->hj = 'l';
+X  l->l->vj = 'c';
+X  l->l->x = FSIG;
+X  l->l->y = FSIG;
+X  return l;
+X}
+X
+XLabel new_title()
+X{
+X  Label t;
+X
+X  t = new_label();
+X  t->x = FSIG;
+X  t->y = FSIG;
+X  t->rotate = 0.0;
+X  t->hj = 'c';
+X  t->vj = 't';
+X  t->fontsize = 12.0;
+X  return t;
+X}
+X
+XString new_string(s, num)
+XString s;
+Xint num;
+X{
+X  String new_s;
+X
+X  new_s = (String) get_node(s);
+X  new_s->num = num;
+X  new_s->s = new_label();
+X  prio_insert(new_s, s, 0);
+X  return new_s;
+X}
+X
+XString get_string(s, num)
+XString s;
+Xint num;
+X{
+X  String new_s;
+X  for(new_s = last(s); new_s != nil(s) && new_s->num > num; new_s = prev(new_s));
+X  if (new_s == nil(s) || new_s->num < num) return new_string(s, num);
+X  return new_s;
+X}
+X
+X/*
+XDefault new_default()
+X{
+X  Default new_d;
+X  new_d = (Default) malloc (sizeof(default));
+X  new_d->rotate = FSIG;
+X  new_d->fontsize = FSIG;
+X  new_d->general_marks = GMNULL;
+X  new_d->fill = FSIG;
+X  new_d->linethick = FSIG;
+X  new_d->font = CNULL;
+X  new_d->hj = '!';
+X  new_d->vj = '!';
+X  new_d->marktype = '!';
+X  new_d->linetype = '!';
+X  new_d->marksize[0] = FSIG;
+X  new_d->marksize[1] = FSIG;
+X}
+X*/
+X  
+XGraph new_graph(gs, num)
+XGraph gs;
+Xint num;
+X{
+X  Graph g;
+X
+X  g = (Graph) get_node(gs);
+X  g->num = num;
+X  g->xminval = 0.0;
+X  g->yminval = 0.0;
+X  g->xmaxval = 0.0;
+X  g->ymaxval = 0.0;
+X  g->x_axis = new_axis(1);
+X  g->y_axis = new_axis(0);
+X  g->x_translate = 0.0;
+X  g->y_translate = 0.0;
+X  g->curves = (Curve) make_list(sizeof(struct curve));
+X  g->strings = (String) make_list(sizeof(struct string));
+X  g->title = new_title();
+X  g->clip = 0;
+X  g->border = 0;
+X  g->legend = new_legend();
+X/*  g->def = new_default(); */
+X  prio_insert(g, gs, 0);
+X  return g;
+X}
+X
+XGraph get_graph(g, num)
+XGraph g;
+Xint num;
+X{
+X  Graph new_g;
+X  for(new_g = last(g); new_g != nil(g) && new_g->num > num; new_g = prev(new_g));
+X  if (new_g == nil(g) || new_g->num < num) return new_graph(g, num);
+X  return new_g;
+X}
+X
+Xnew_graphs(gs)
+XGraphs gs;
+X{
+X  Graphs newg;
+X
+X  newg = (Graphs) get_node(gs);
+X  newg->g = (Graph) make_list(sizeof(struct graph));
+X  newg->height = 0.0;
+X  newg->width = 0.0;
+X  newg->bb[0] = FSIG; newg->bb[1] = FSIG;
+X  newg->bb[2] = FSIG; newg->bb[3] = FSIG;
+X  newg->preamble = CNULL;
+X  newg->epilogue = CNULL;
+X  newg->prefile = 0;
+X  newg->epifile = 0;
+X  insert(newg, gs);
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  Graphs gs;
+X  int i;
+X  int show, pp;
+X  int landscape;
+X  int comments;
+X
+X#ifdef VMS 
+X  IOSTREAM = stdin;	/* for token.c -hdd */
+X#endif
+X  show = 0;
+X  pp = 0;
+X  comments = 0;
+X  landscape = 0;
+X
+X  for (i = 1; i < argc; i++) {
+X    if (strcmp(argv[i], "-p") == 0) show = 1;
+X    else if (strcmp(argv[i], "-comments") == 0) comments = 1;
+X    else if (strcmp(argv[i], "-P") == 0) pp = 1;
+X    else if (strcmp(argv[i], "-L") == 0) landscape = 1;
+X  }
+X  gs = (Graphs) make_list(sizeof(struct graphs));
+X  set_comment(comments);
+X  new_graphs(gs);
+X  edit_graphs(gs);
+X  process_graphs(gs);
+X  if (show) show_graphs(gs); else draw_graphs(gs, pp, landscape);
+X  exit(0);
+X  return 0;
+X}
+X
+X
+END_OF_FILE
+  if test 7360 -ne `wc -c <'jgraph.c'`; then
+    echo shar: \"'jgraph.c'\" unpacked with wrong size!
+  fi
+  # end of 'jgraph.c'
+fi
+if test -f 'jgraph.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jgraph.h'\"
+else
+  echo shar: Extracting \"'jgraph.h'\" \(3993 characters\)
+  sed "s/^X//" >'jgraph.h' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:15:58 $
+X * $Author: jsp $
+X */
+X
+X#include "list.h"
+X#include "prio_list.h"
+X#ifdef LCC
+X#include <stdlib.h>
+X#endif
+X
+X#define PPI 120
+X#define FPPI 120.0
+X#define CPI 72.0
+X#define FCPI 72.0
+X#define CNULL ((char *)0)
+X#define GMNULL ((Point)0)
+X#define FSIG -10010.0
+X#define HASH_SIZE 5.0
+X#define MHASH_SIZE 2.0
+X
+Xtypedef struct point {
+X  struct point *flink;
+X  struct point *blink;
+X  float x;
+X  float y;
+X  char e;          /* 'x' for x_ebars, 'y' for y_ebars, 'p' for neither */
+X} *Point;
+X
+Xtypedef struct flist {
+X  struct flist *flink;
+X  struct flist *blink;
+X  float f;
+X} *Flist;
+X
+Xtypedef struct label {
+X  char *label;
+X  float x;
+X  float y;
+X  float rotate;
+X  char *font;
+X  float fontsize;
+X  char hj;
+X  char vj;
+X  float gray[3];
+X  char graytype;
+X  float linesep;
+X  float xmin;
+X  float xmax;
+X  float ymin;
+X  float ymax;
+X  int nlines;
+X} *Label;
+X
+Xtypedef struct curve {
+X  struct curve *flink;
+X  struct curve *blink;
+X  int num;
+X  Label l;
+X  Label lmark;
+X  Point pts;
+X  Point yepts;
+X  Point xepts;
+X  int npts;
+X  Point general_marks;
+X  float marksize[2];
+X  float fill[3];
+X  float gray[3];
+X  float afill[3];
+X  float pfill[3];
+X  float linethick;
+X  float mrotate;
+X  Flist gen_linetype;
+X  char graytype ;
+X  char filltype ;
+X  char afilltype;
+X  char pfilltype;
+X  char marktype;
+X  char linetype;
+X  char *postscript;
+X  int postfile;
+X  int rarrow;
+X  int larrow;
+X  int rarrows;
+X  int larrows;
+X  int bezier;
+X  int poly;
+X  float asize[2];
+X  int clip;
+X} *Curve;
+X
+Xtypedef struct string {
+X  struct string *flink;
+X  struct string *blink;
+X  int num;
+X  Label s;
+X} *String;
+X
+Xtypedef struct hash {
+X  struct hash *flink;
+X  struct hash *blink;
+X  float loc;
+X  float size;
+X  int major;
+X} *Hash;
+X
+Xtypedef struct deflt {
+X  float rotate;
+X  float fontsize;
+X  Point general_marks;
+X  float fill;
+X  float linethick;
+X  float marksize[2];
+X  char *font;
+X  char hj;
+X  char vj;
+X  char marktype;
+X} *Default;
+X  
+Xtypedef struct axis {
+X  Label label;
+X  Label hl;
+X  float max;
+X  float min;
+X  float pmax;
+X  float pmin;
+X  float logmin;
+X  float logfactor;
+X  float size;
+X  float psize;
+X  float factor;
+X  float hash_interval;
+X  float hash_start;
+X  float hash_scale;
+X  float log_base;
+X  float draw_hash_marks_at;
+X  float draw_hash_labels_at;
+X  float draw_at;
+X  float gray[3];
+X  char graytype;
+X  float gr_gray[3];
+X  char gr_graytype;
+X  float mgr_gray[3];
+X  char mgr_graytype;
+X  int grid_lines;
+X  int mgrid_lines;
+X  int draw_hash_labels;
+X  int draw_axis_line;
+X  int draw_hash_marks;
+X  int draw_axis_label;
+X  int auto_hash_labels;
+X  int auto_hash_marks;
+X  int minor_hashes;
+X  int precision;
+X  int start_given;
+X  String hash_labels;
+X  Hash hash_lines;
+X  int is_x;
+X  int is_lg;
+X} *Axis;
+X
+Xtypedef struct legend {
+X  float linelength;
+X  float linebreak;
+X  int anylines;
+X  float midspace;
+X  char type; /* 'n' = off, 'u' = userdefined (use Label), 'c' = custom */
+X  Label l;
+X} *Legend;
+X
+Xtypedef struct graph {
+X  struct graph *flink;
+X  struct graph *blink;
+X  int num;
+X  float xminval;
+X  float yminval;
+X  float xmaxval;
+X  float ymaxval;
+X  float x_translate;
+X  float y_translate;
+X  Axis x_axis;
+X  Axis y_axis;
+X  Curve curves;
+X  Legend legend;
+X  String strings;
+X  Label title;
+X  int clip;
+X  int border;
+X  Default def;
+X} *Graph;
+X
+Xtypedef struct graphs {
+X  struct graphs *flink;
+X  struct graphs *blink;
+X  Graph g;
+X  float height;
+X  float width;
+X  float bb[4]; /* Bounding box */
+X  char *preamble; 
+X  char *epilogue; 
+X  int prefile;
+X  int epifile;
+X} *Graphs;
+X
+Xextern float ctop();
+Xextern float disttop();
+Xextern float intop();
+Xextern float ptoc();
+Xextern float ptodist();
+X
+Xextern char *getlabel();
+Xextern char *getmultiline();
+X
+X/* Stuff defined in jgraph.c */
+X
+Xextern Curve new_line();
+Xextern Curve new_curve();
+Xextern Curve get_curve();
+Xextern Graph new_graph();
+Xextern Graph get_graph();
+Xextern String new_string();
+Xextern String get_string();
+Xextern Label new_label();
+Xextern char *MARKTYPESTRS[];
+Xextern char MARKTYPES[];
+Xextern int NMARKTYPES;
+Xextern int NORMALMARKTYPES;
+END_OF_FILE
+  if test 3993 -ne `wc -c <'jgraph.h'`; then
+    echo shar: \"'jgraph.h'\" unpacked with wrong size!
+  fi
+  # end of 'jgraph.h'
+fi
+if test -f 'jmalloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmalloc.c'\"
+else
+  echo shar: Extracting \"'jmalloc.c'\" \(11525 characters\)
+  sed "s/^X//" >'jmalloc.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <malloc.h>
+X
+X/* Each memory block has 8 extra 32-bit values associated with it.  If malloc
+X   returns the pointer p to you, the state really looks like:
+X
+Xjmal(p)------>  |------------------------------------------------------------|
+X                | flink (next malloc block in absolute order)                |
+X                |------------------------------------------------------------|
+X                | blink (prev malloc block in absolute order)                |
+X                |------------------------------------------------------------|
+X                | nextfree (next free malloc block - no particular order)    |
+X                |------------------------------------------------------------|
+X                | prevfree (next free malloc block - no particular order)    |
+X                |------------------------------------------------------------|
+X                | size (size of memory allocated)                            |
+X                |------------------------------------------------------------|
+X                | cs2 (pointer to the second checksum, which is right after  |
+X                |   the mem block)                                           |
+X                |------------------------------------------------------------|
+X                | cs (checksum right before mem block.  used to determine if |
+X                |   there is an error of writing around the memory block)    |
+Xp------------>  |------------------------------------------------------------|
+X                | space: the memory block                                    |
+X                |                  ...                                       |
+X                |                  ...                                       |
+X                |------------------------------------------------------------|
+X	        | the second checksum                                        |
+X                |------------------------------------------------------------|
+X*/
+X
+X
+Xtypedef struct jmalloc {
+X  struct jmalloc *flink;
+X  struct jmalloc *blink;
+X  struct jmalloc *nextfree;
+X  struct jmalloc *prevfree;
+X  int size;
+X  int *cs2;
+X  int cs;
+X  char *space;
+X} *Jmalloc;
+X
+X#define JMSZ (sizeof(struct jmalloc))
+X#define PTSZ (sizeof(char *))  /* Also assuming its > sizeof int */
+X#define CHUNK_SIZE (16384 - JMSZ)	/* 16K */
+X#define MASK 0x17826a9b
+X#define JNULL ((Jmalloc) 0)
+X
+Xstatic struct jmalloc j_head;
+Xstatic Jmalloc memlist;
+Xstatic int nfree = 0;
+Xstatic int nblocks = 0;
+Xstatic int init = 0;
+Xstatic Jmalloc start;
+Xstatic int free_called = 0;
+Xstatic int malloc_called = 0;
+Xstatic int used_mem = 0;
+Xstatic int free_mem = 0;
+Xstatic int used_blocks = 0;
+Xstatic int free_blocks = 0;
+X
+X#define cksum(p) (((int) &(p->cs)) - 1)
+X#define jloc(l) ((char *) (&l->space))
+X#define jmal(l) ((Jmalloc) (((char *)l) - JMSZ + PTSZ))
+X#define isfree(l) (l->nextfree != JNULL)
+X
+X#define do_init() \
+X  if (!init) {\
+X    memlist = &j_head;\
+X    memlist->flink = memlist;\
+X    memlist->blink = memlist;\
+X    memlist->nextfree = memlist;\
+X    memlist->prevfree = memlist;\
+X    memlist->size = 0;\
+X    memlist->cs = cksum(memlist);\
+X    memlist->cs2 = &memlist->cs;\
+X    memlist->space = (char *) 0;\
+X    start = memlist;\
+X    init = 1;\
+X  }
+X
+Xdump_core()
+X{
+X  memlist->space[0] = 0;
+X}
+X
+Xchar *set_used(l)
+XJmalloc l;
+X{
+X  start = l->nextfree;
+X  l->prevfree->nextfree = l->nextfree;
+X  l->nextfree->prevfree = l->prevfree;
+X  l->prevfree = JNULL;
+X  l->nextfree = JNULL;
+X  used_mem += l->size;
+X  free_mem -= l->size;
+X  used_blocks++;
+X  free_blocks--;
+X
+X  return jloc(l);
+X}
+X
+Xvoid *malloc(size)
+Xint size;
+X{
+X  int redo;
+X  int done;
+X  Jmalloc l;
+X  char *tmp;
+X  Jmalloc newl;
+X  int newsize;
+X  
+X  do_init();
+X  malloc_called++;
+X  if (size <= 0) {
+X    fprintf(stderr, "Error: Malloc(%d) called\n", size);
+X    /* Dump core */
+X    dump_core();
+X  }
+X    
+X  if (size % PTSZ != 0) size += PTSZ - (size % PTSZ);
+X
+X  done = 0;
+X  l = start;
+X  while(!done) {
+X    if (l->size >= size) {
+X      done = 1;
+X      redo = 0;
+X    } else {
+X      l = l->nextfree;
+X      done = (l == start);
+X      redo = done;
+X    } 
+X  }
+X      
+X  if (redo) {
+X    if (size > CHUNK_SIZE) 
+X      newsize = size + JMSZ; 
+X      else newsize = CHUNK_SIZE + JMSZ;
+X    newl = (Jmalloc) sbrk(newsize);
+X    while (newl == (Jmalloc) -1 && newsize > size + JMSZ) {
+X      newsize /= 2;
+X      if (newsize < size + JMSZ) newsize = size + JMSZ;
+X      newl = (Jmalloc) sbrk(newsize);
+X    }
+X      
+X    if (newl == (Jmalloc) -1) {
+X/*       fprintf(stderr, "Jmalloc: out of memory\n"); */
+X/*       fprintf(stderr, "Used bytes = %d, Free bytes = %d\n",  */
+X/*               used_mem, free_mem); */
+X/*       fprintf(stderr, "Trying to get %d bytes (chunk of %d)\n",  */
+X/*               size, newsize); */
+X      return NULL;
+X    }
+X    newl->flink = memlist;
+X    newl->blink = memlist->blink;
+X    newl->flink->blink = newl;
+X    newl->blink->flink = newl;
+X    newl->nextfree = memlist;
+X    newl->prevfree = memlist->prevfree;
+X    newl->nextfree->prevfree = newl;
+X    newl->prevfree->nextfree = newl;
+X    newl->size = ((char *) sbrk(0)) - jloc(newl) - PTSZ;
+X    free_mem += newl->size;
+X    newl->cs = cksum(newl);
+X    newl->cs2 = ((int *) (jloc(newl) + newl->size));
+X    *(newl->cs2) = cksum(newl);
+X    if(newl->size < size) {
+X      fprintf(stderr, "Newl->size(%d) < size(%d)\n", newl->size, size);
+X      exit(1);
+X    }
+X    free_blocks++;
+X    l = newl;
+X  } 
+X
+X  if (l->size - size < JMSZ) {
+X    return set_used(l);
+X  } else {
+X    tmp = jloc(l);
+X    newl = (Jmalloc) (tmp + size + PTSZ);
+X    newl->flink = l->flink;
+X    newl->blink = l;
+X    newl->flink->blink = newl;
+X    newl->blink->flink = newl;
+X    newl->nextfree = l->nextfree;
+X    newl->prevfree = l;
+X    newl->nextfree->prevfree = newl;
+X    newl->prevfree->nextfree = newl;
+X    newl->size = l->size - size - JMSZ;
+X    newl->cs = cksum(newl);
+X    newl->cs2 = (int *) (jloc(newl) + newl->size);
+X    *(newl->cs2) = cksum(newl);
+X    free_mem += size + newl->size - l->size;
+X    free_blocks++;
+X    l->size = size;
+X    l->cs2 = ((int *) (jloc(l) + l->size));
+X    *(l->cs2) = cksum(l);
+X    return set_used(l);
+X  }
+X}
+X
+Xjmalloc_print_mem()
+X{
+X  Jmalloc l;
+X  int done;
+X  char *bufs[100];
+X  int sizes[100];
+X  int mc;
+X  int fc;
+X  int i, j;
+X
+X  do_init();
+X  mc = malloc_called;
+X  fc = free_called;
+X  if (jmal(jloc(memlist)) != memlist) {
+X    fprintf(stderr, "TROUBLE: memlist=0x%x, jmal(jloc(memlist))=0x%x)\n",
+X            memlist, jmal(jloc(memlist)));
+X    exit(1);
+X  }
+X  done = 0;
+X  l = start;
+X  i = 0;
+X  while (!done) {
+X    if (cksum(l) != l->cs) {
+X      printf("Memory location 0x%x corrupted\n", jloc(l));
+X      exit(1);
+X    } else if (cksum(l) != *(l->cs2)) {
+X      printf("Memory location 0x%x corrupted\n", jloc(l));
+X      exit(1);
+X    }
+X    
+X    bufs[i] = jloc(l);
+X    sizes[i] = l->size;
+X    if (l->nextfree == 0) sizes[i] = -sizes[i];
+X    i++;
+X    l = l->flink;
+X    done = ((l == start) || i >= 100);
+X  }
+X  printf("Malloc called %d times\n", mc);
+X  printf("Free called %d times\n", fc);
+X  for (j = 0; j < i; j++) {
+X    printf("Loc = 0x%x, size = %d, free = %d\n", bufs[j], 
+X           (sizes[j] > 0) ? sizes[j] : -sizes[j], (sizes[j] >= 0));
+X  }
+X}
+X
+Xjmalloc_check_mem()
+X{
+X  Jmalloc l;
+X  int done;
+X
+X  done = 0;
+X
+X  l = start;
+X
+X  while (!done) {
+X    if (cksum(l) != l->cs) {
+X      fprintf(stderr, "Memory chunk violated: 0x%x: %s 0x%x.  %s 0x%x\n", 
+X              jloc(l), "Checksum 1 is ", l->cs, "It should be", cksum(l));
+X      dump_core();
+X    } else if (cksum(l) != *(l->cs2)) {
+X      fprintf(stderr, "Memory chunk violated: 0x%x: %s 0x%x.  %s 0x%x\n", 
+X              jloc(l), "Checksum 2 is ", *(l->cs2), "It should be", cksum(l));
+X      dump_core();
+X    }
+X    l = l->flink;
+X    done = (l == start);
+X  }
+X}
+X
+X  
+Xvoid free(loc)
+Xchar *loc;
+X{
+X  Jmalloc l;
+X  Jmalloc pl, nl;
+X
+X  do_init();
+X  free_called++;
+X  l = jmal(loc); 
+X
+X  if (cksum(l) != l->cs) {
+X    fprintf(stderr, "Error on free: memory chunk violated: 0x%x\n", loc);
+X    dump_core();
+X  } else if (cksum(l) != *(l->cs2)) {
+X    fprintf(stderr, "Error on free: memory chunk violated: 0x%x\n", loc);
+X    dump_core();
+X  }
+X
+X  used_mem -= l->size;
+X  free_mem += l->size;
+X  free_blocks++;
+X  used_blocks--;
+X
+X  pl = l->blink;
+X  nl = l->flink;
+X  if (isfree(pl) && (jloc(pl)+pl->size + PTSZ == (char *) l)) {
+X    free_mem += JMSZ;
+X    pl->size += l->size + JMSZ;
+X    pl->flink = nl;
+X    pl->flink->blink = pl;
+X    l = pl;
+X    free_blocks--;
+X  } else {
+X    l->prevfree = start;
+X    l->nextfree = start->nextfree;
+X    l->nextfree->prevfree = l;
+X    l->prevfree->nextfree = l;
+X  }
+X
+X  if (isfree(nl) && jloc(l)+l->size + PTSZ == (char *) nl) {
+X    free_mem += JMSZ;
+X    l->size += nl->size + JMSZ;
+X    l->flink = nl->flink;
+X    l->flink->blink = l;
+X    free_blocks--;
+X    nl->nextfree->prevfree = nl->prevfree;
+X    nl->prevfree->nextfree = nl->nextfree;
+X  }
+X  start = l;
+X}
+X
+Xvoid *realloc(loc, size)
+Xchar *loc;
+Xint size;
+X{
+X  Jmalloc l;
+X  Jmalloc l2, nl;
+X  char *loc2;
+X  int i;
+X  Jmalloc newl;
+X
+X
+X  do_init();
+X
+X  if (size <= 0) {
+X    fprintf(stderr, "Error: Malloc(%d) called\n", size);
+X    /* Dump core */
+X    dump_core();
+X  }
+X    
+X  if (size % PTSZ != 0) size += PTSZ - (size % PTSZ);
+X
+X  l = jmal(loc); 
+X
+X  if (cksum(l) != l->cs) {
+X    fprintf(stderr, "Error on realloc: memory chunk violated: 0x%x\n", loc);
+X    dump_core();
+X  } else if (cksum(l) != *(l->cs2)) {
+X    fprintf(stderr, "Error on realloc: memory chunk violated: 0x%x\n", loc);
+X    dump_core();
+X  }
+X
+X  if (size < l->size) {
+X    if (l->size - size < JMSZ + 4) return loc;
+X    newl = (Jmalloc) (loc + size + PTSZ);
+X    newl->flink = l->flink;
+X    newl->blink = l;
+X    newl->flink->blink = newl;
+X    newl->blink->flink = newl;
+X    newl->nextfree = start->nextfree;
+X    newl->prevfree = start;
+X    newl->nextfree->prevfree = newl;
+X    newl->prevfree->nextfree = newl;
+X    newl->size = l->size - size - JMSZ;
+X    newl->cs = cksum(newl);
+X    newl->cs2 = (int *) (jloc(newl) + newl->size);
+X    *(newl->cs2) = cksum(newl);
+X    used_mem += size - l->size;
+X    free_mem += newl->size;
+X    free_blocks++;
+X    l->size = size;
+X    l->cs2 = ((int *) (jloc(l) + l->size));
+X    *(l->cs2) = cksum(l);
+X    start = newl;
+X    return loc;
+X  }
+X
+X
+X  nl = l->flink;
+X
+X  if (isfree(nl) && (jloc(l)+l->size + PTSZ == (char *) nl) &&
+X      l->size + JMSZ + nl->size >= size) {
+X    start = nl;
+X    i = size - l->size - JMSZ;
+X    if (i < 0) i = 4;
+X    loc2 = malloc(i);
+X    l2 = jmal(loc2);
+X    if (l2 != nl) {
+X      fprintf(stderr, "Realloc internal error: l2 != nl\n");
+X      dump_core();
+X    }
+X
+X    nl->flink->blink = nl->blink;
+X    nl->blink->flink = nl->flink;
+X    free_mem -= nl->size;
+X    used_mem += nl->size + JMSZ;
+X    free_blocks--;
+X    l->size += nl->size + JMSZ;
+X    l->cs2 = ((int *) (jloc(l) + l->size));
+X    *(l->cs2) = cksum(l);
+X    return loc;
+X  } else {
+X    loc2 = malloc(size);
+X    for (i = 0; i < l->size; i++) loc2[i] = loc[i];
+X    free(loc);
+X    return loc2;
+X  }
+X}
+X
+Xchar *calloc(nelem, elsize)
+Xint nelem, elsize;
+X{
+X  int *iptr;
+X  char *ptr;
+X  int sz;
+X  int i;
+X
+X  sz = nelem*elsize;
+X  ptr = malloc(sz);
+X  iptr = (int *) ptr;
+X  
+X  for (i = 0; i < sz/sizeof(int); i++) iptr[i] = 0;
+X  for (i = i * sizeof(int); i < sz; i++) ptr[i] = 0;
+X  return ptr;
+X}
+X
+Xint mallopt(cmd, value)
+Xint cmd, value;
+X{
+X  fprintf(stderr, "Mallopt is not defined...\n");
+X  exit(1);
+X}
+X
+X
+Xjmalloc_usage()
+X{
+X  fprintf(stderr, "Jmalloc: %d %s %d block%s. %d %s %d block%s\n",
+X                    used_mem, "bytes used in", used_blocks, 
+X                    (used_blocks == 1) ? "" : "s", 
+X                    free_mem, "bytes free in", free_blocks,
+X                    (free_blocks == 1) ? "" : "s");
+X}
+END_OF_FILE
+  if test 11525 -ne `wc -c <'jmalloc.c'`; then
+    echo shar: \"'jmalloc.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmalloc.c'
+fi
+if test -f 'printline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'printline.c'\"
+else
+  echo shar: Extracting \"'printline.c'\" \(6292 characters\)
+  sed "s/^X//" >'printline.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:05 $
+X * $Author: jsp $
+X */
+X
+X#include "jgraph.h"
+X#include <stdio.h>
+X
+X#define LINEWIDTHFACTOR 0.700
+X#define MAX(a, b) ((a > b) ? (a) : (b))
+X
+Xtypedef struct fontlist {
+X  struct fontlist *flink;
+X  struct fontlist *blink;
+X  int level;
+X  float s;
+X  char *f;
+X} *Fontlist;
+X
+Xstatic Fontlist Jgraph_fonts;
+Xstatic int Jgraph_gsave_level = -100;
+Xstatic int Jgraph_comment;
+X
+Xgsave()
+X{
+X  if (Jgraph_gsave_level == -100) {
+X    Jgraph_gsave_level = 0;
+X    Jgraph_fonts = (Fontlist) make_list(sizeof(struct fontlist));
+X  } 
+X  Jgraph_gsave_level++;
+X  printf(" gsave ");
+X}
+X
+Xgrestore()
+X{
+X  Fontlist l;
+X
+X  if (last(Jgraph_fonts) != nil(Jgraph_fonts)) {
+X    l = last(Jgraph_fonts);
+X    if (l->level == Jgraph_gsave_level) {
+X      delete_item(l);
+X      free_node(l, Jgraph_fonts);
+X    }
+X  }
+X  Jgraph_gsave_level--;
+X  printf(" grestore ");
+X}
+X
+Xsetfont(f, s)
+Xchar *f;
+Xfloat s;
+X{
+X  Fontlist l;
+X  int ins;
+X
+X  if (last(Jgraph_fonts) != nil(Jgraph_fonts)) {
+X    l = last(Jgraph_fonts);
+X    ins = (strcmp(l->f, f) != 0 || s != l->s);
+X    if (ins) {
+X      delete_item(l);
+X      free_node(l, Jgraph_fonts);
+X    }
+X  } else {
+X    ins = 1;
+X  }
+X  if (ins) {
+X    l = (Fontlist) get_node(Jgraph_fonts);
+X    l->level = Jgraph_gsave_level;
+X    l->s = s;
+X    l->f = f;
+X    insert(l, Jgraph_fonts);
+X    printf("/%s findfont %f scalefont setfont\n", f, s);
+X  }
+X}
+X  
+Xsetfill( t, f)
+Xchar t ;
+Xfloat f[] ;
+X{
+X    if ( t == 'g' )  {
+X       if( f[0] >= 0.0 ) printf("gsave %f setgray fill grestore ", f[0] );
+X    } else if ( t == 'c' )  {
+X       printf("gsave %f %f %f setrgbcolor fill grestore ", f[0], f[1], f[2] );
+X    } else {
+X       printf("fill ");
+X    }
+X}
+X
+Xsetgray( t, f)
+Xchar t ;
+Xfloat f[] ;
+X{
+X    if ( t == 'g' )  {
+X       if( f[0] >= 0.0 ) printf("%f setgray\n", f[0] );
+X    } else if ( t == 'c' )  {
+X       printf("%f %f %f setrgbcolor\n", f[0], f[1], f[2] );
+X    }
+X}
+X
+Xprintline(x1, y1,x2, y2, orientation)
+Xfloat x1, y1, x2, y2;
+Xchar orientation;
+X{
+X  if (orientation == 'x') 
+X    printf("newpath %f %f moveto %f %f lineto stroke\n",
+X          x1, y1, x2, y2);
+X  else
+X    printf("newpath %f %f moveto %f %f lineto stroke\n",
+X          y1, x1, y2, x2);
+X} 
+X
+Xprint_ebar(x1, y1, x2, ms, orientation)
+Xfloat x1, y1, x2, ms;
+Xchar orientation;
+X{
+X  printline(x1, y1, x2, y1, orientation);
+X  printline(x2, y1-ms, x2, y1+ms, orientation);
+X}
+X
+Xstart_line(x1, y1, c)
+Xfloat x1, y1;
+XCurve c;
+X{
+X  setlinewidth(c->linethick);
+X  setlinestyle(c->linetype, c->gen_linetype);
+X  printf("%f %f moveto ", x1, y1);
+X}
+X
+Xcont_line(x1, y1)
+Xfloat x1, y1;
+X{
+X  printf("  %f %f lineto\n", x1, y1);
+X}
+X
+Xend_line()
+X{
+X  printf("stroke\n");
+X  setlinewidth(1.0);
+X  setlinestyle('s', (Flist) 0);
+X
+X}
+X
+Xbezier_control(x1, y1)
+Xfloat x1, y1;
+X{
+X  printf("  %f %f ", x1, y1);
+X}
+X
+Xbezier_end(x1, y1)
+Xfloat x1, y1;
+X{
+X  printf("  %f %f curveto\n", x1, y1);
+X}
+X
+X
+Xstart_poly(x1, y1)
+Xfloat x1, y1;
+X{
+X  printf("newpath %f %f moveto ", x1, y1);
+X}
+X
+Xcont_poly(x1, y1)
+Xfloat x1, y1;
+X{
+X  printf("  %f %f lineto\n", x1, y1);
+X}
+X
+Xend_poly(ftype, fill)
+Xchar  ftype ;
+Xfloat fill[];
+X{
+X  printf("closepath ");
+X  setfill( ftype, fill );
+X  printf("stroke\n");
+X}
+X
+Xprintellipse(x, y, radius1, radius2, ftype, fill)
+Xchar ftype ;
+Xfloat x, y, radius1, radius2, fill[];
+X{
+X  printf("newpath %f %f %f %f 0 360 DrawEllipse ", x, y, radius1, radius2);
+X  setfill( ftype, fill );
+X  printf("stroke\n");
+X}
+X
+Xset_comment(c)
+Xint c;
+X{
+X  Jgraph_comment = c;
+X}
+X
+Xcomment(s)
+Xchar *s;
+X{
+X  if (Jgraph_comment) printf("%% %s\n", s);
+X}
+X
+Xprintline_c(x1, y1, x2, y2, g)
+Xfloat x1, y1, x2, y2;
+XGraph g;
+X{
+X  printline(ctop(x1, g->x_axis), ctop(y1, g->y_axis),
+X            ctop(x2, g->x_axis), ctop(y2, g->y_axis), 'x');
+X}
+X
+Xprint_label(l)
+XLabel l;
+X{
+X  int f, i, nlines;
+X  float fnl;
+X  char *s;
+X
+X  if (l->label == CNULL) return;
+X
+X  nlines = 0;
+X  for (i = 0; l->label[i] != '\0'; i++) {
+X    if (l->label[i] == '\n') {
+X      l->label[i] = '\0';
+X      nlines++;
+X    }
+X  }
+X  fnl = (float) nlines;
+X
+X  setfont(l->font, l->fontsize);
+X  printf("gsave %f %f translate %f rotate\n", l->x, l->y, l->rotate);
+X  if (l->graytype == 'g') {
+X    printf("  %f setgray\n", l->gray[0]);
+X  } else if (l->graytype == 'c') {
+X    printf("  %f %f %f setrgbcolor\n", l->gray[0], l->gray[1], 
+X           l->gray[2]);
+X  }
+X
+X  if (l->vj == 'b') {
+X    printf("0 %f translate ", fnl * (l->fontsize + l->linesep) * FCPI / FPPI);
+X  } else if (l->vj == 'c') {
+X    if (nlines % 2 == 0) {
+X      printf("0 %f translate ", 
+X             (fnl/2.0*(l->fontsize + l->linesep) - l->fontsize/2.0)
+X              * FCPI / FPPI);
+X    } else {
+X      printf("0 %f translate ", 
+X             ((fnl-1.0)/2.0*(l->fontsize + l->linesep) + l->linesep/2.0)
+X              * FCPI / FPPI);
+X    }
+X  } else {
+X    printf("0 %f translate ", -l->fontsize * FCPI / FPPI);
+X  }
+X
+X  s = l->label;
+X  for (i = 0; i <= nlines; i++) {
+X    printf("(%s) dup stringwidth pop ", s);
+X    if (l->hj == 'c') {
+X      printf("2 div neg 0 moveto\n");
+X    } else if (l->hj == 'r') {
+X      printf("neg 0 moveto\n");
+X    } else {
+X      printf("pop 0 0 moveto\n");
+X    }
+X    /* I would put string blanking in here if I had the time... */
+X 
+X    if (i != nlines) {
+X      f = strlen(s);
+X      s[f] = '\n';
+X      s = &(s[f+1]);
+X      printf("show 0 %f translate\n", 
+X              - (l->fontsize + l->linesep) * FCPI / FPPI);
+X    } else {
+X      printf("show\n");
+X    }
+X  }
+X  printf("grestore\n");
+X}
+X
+Xsetlinewidth(size)
+Xfloat size;
+X{
+X  printf("%f setlinewidth\n", size * LINEWIDTHFACTOR);
+X}
+X
+Xsetlinestyle(style, glist)
+Xchar style;
+XFlist glist;
+X{
+X  Flist fl;
+X
+X  switch(style) {
+X    case '0': printf("\t[0 2] setdash\n"); break;
+X    case 's': printf("\t[] 0 setdash\n"); break;
+X    case '.': printf("\t [1 3.200000] 0 setdash\n"); break;
+X    case '-': printf("\t [4.00000] 0 setdash\n"); break;
+X    case 'l': printf("\t [7 2] 0 setdash\n"); break;
+X    case 'd': printf("\t [5 3 1 3] 0 setdash\n"); break;
+X    case 'D': printf("\t [5 3 1 2 1 3] 0 setdash\n"); break;
+X    case '2': printf("\t [5 3 5 3 1 2 1 3] 0 setdash\n"); break;
+X    case 'g': 
+X      printf("\t [");
+X      for (fl = first(glist); fl != nil(glist); fl = next(fl))
+X        printf("%f ", fl->f);
+X      printf("] 0 setdash\n");
+X      break;
+X    default: fprintf(stderr, "Error: Unknown line type: %c\n", style);
+X             exit(1);
+X             break;
+X  }
+X}
+X
+END_OF_FILE
+  if test 6292 -ne `wc -c <'printline.c'`; then
+    echo shar: \"'printline.c'\" unpacked with wrong size!
+  fi
+  # end of 'printline.c'
+fi
+if test -f 'show.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'show.c'\"
+else
+  echo shar: Extracting \"'show.c'\" \(11318 characters\)
+  sed "s/^X//" >'show.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:15 $
+X * $Author: jsp $
+X */ 
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "jgraph.h"
+X
+Xstatic spaces(nsp)
+Xint nsp;
+X{
+X  while(nsp-- > 0) putchar(' ');
+X}
+X
+Xfloat ptoin(p)
+Xfloat p;
+X{
+X  return p / FCPI;
+X}
+X
+Xfloat ptoc(p, a)
+Xfloat p;
+XAxis a;
+X{
+X  if (a->is_lg) {
+X    return (float) exp((p / a->factor + a->logmin) * a->logfactor);
+X  } else {
+X    return (p / a->factor) + a->min;
+X  }
+X}
+X
+Xfloat ptodist(p, a)
+Xfloat p;
+XAxis a;
+X{
+X  if (a->is_lg) {
+X    return p  / FCPI;
+X  } else {
+X    return (p / a->factor);
+X  }
+X}
+X
+Xstatic show_mltiline(s)
+Xchar *s;
+X{
+X  int i;
+X
+X  if (s != CNULL) {
+X    for (i = 0; s[i] != '\0'; i++) {
+X      if (s[i] == '\n') putchar('\\');
+X      putchar(s[i]);
+X    }
+X  }
+X  putchar('\n');
+X}
+X
+Xshow_string(s)
+Xchar *s;
+X{
+X  int i;
+X
+X  if (s != CNULL) {
+X    printf(": ");
+X    for (i = 0; s[i] != '\0'; i++) {
+X      if (s[i] == '\n') putchar('\\');
+X      if (s[i] == '\\') i++;
+X      putchar(s[i]);
+X    }
+X  }
+X  putchar('\n');
+X}
+X    
+X   
+Xshow_label(l, nsp, g)
+XLabel l;
+Xint nsp;
+XGraph g;
+X{
+X  spaces(nsp); 
+X  show_string(l->label);
+X  spaces(nsp); printf("x %f ", ptoc(l->x, g->x_axis));
+X               printf("y %f\n", ptoc(l->y, g->y_axis));
+X  spaces(nsp); printf("hj%c vj%c ", l->hj, l->vj);
+X               printf("rotate %f\n", l->rotate);
+X  spaces(nsp); printf("font %s ", l->font);
+X               printf("fontsize %f ", l->fontsize);
+X	       printf("linesep %f\n", l->linesep);
+X  if (l->graytype == 'g') {
+X    spaces(nsp);
+X    printf("lgray %f\n", l->gray[0]);
+X  } else if (l->graytype == 'c') {
+X    spaces(nsp);
+X    printf("lcolor %f %f %f\n", l->gray[0], l->gray[1], l->gray[2]);
+X  }
+X  return;
+X}
+X
+Xshow_lmark(l, nsp, g)
+XLabel l;
+Xint nsp;
+XGraph g;
+X{
+X  spaces(nsp); show_string(l->label);
+X  spaces(nsp); printf("x %f ", ptodist(l->x, g->x_axis));
+X               printf("y %f\n", ptodist(l->y, g->y_axis));
+X  spaces(nsp); printf("hj%c vj%c ", l->hj, l->vj);
+X               printf("rotate %f\n", l->rotate);
+X  spaces(nsp); printf("font %s ", l->font);
+X               printf("fontsize %f\n", l->fontsize);
+X  return;
+X}
+X
+Xshow_curve(c, nsp, g)
+XCurve c;
+Xint nsp;
+XGraph g;
+X{
+X  Point p;
+X  Point px;
+X  Point py;
+X  int i;
+X  Flist fl;
+X
+X  if (c->l->label != CNULL) {
+X    spaces(nsp); printf("label\n");
+X    spaces(nsp+2);
+X    printf("(* unless <legend custom>, this label\'s x\'s and y\'s will be ignored *)\n");
+X    show_label(c->l, nsp+2, g);
+X  }
+X  
+X  px = first(c->xepts);
+X  py = first(c->yepts);
+X  for(p = first(c->pts); p != nil(c->pts); p = next(p)) {
+X    if (p->e == 'p') {
+X      spaces(nsp); printf("pts %f %f\n", p->x, p->y);
+X    } else if (p->e == 'x') {
+X      spaces(nsp); 
+X      printf("x_epts %f %f %f %f\n", p->x, p->y, px->x, next(px)->x);
+X      px = next(next(px));
+X    } else if (p->e == 'y') {
+X      spaces(nsp); 
+X      printf("y_epts %f %f %f %f\n", p->y, p->y, py->y, next(py)->y);
+X      py = next(next(py));
+X    } else {
+X      fprintf(stderr, "Internal error: p->e == %c\n", p->e);
+X      exit(1);
+X    }
+X  }
+X  if (c->postscript != CNULL) {
+X    spaces(nsp);
+X    printf("postscript ");
+X    if (!c->postfile) printf(": ");
+X    show_mltiline(c->postscript);
+X  }
+X  spaces(nsp); printf("marktype ");
+X  for (i = 0; i < NMARKTYPES && c->marktype != MARKTYPES[i]; i++) ;
+X  if (i == NMARKTYPES) {
+X    error_header();
+X    fprintf(stderr, "Unknown mark type %c\n", c->marktype);
+X    exit(1);
+X  } else printf("%s ", MARKTYPESTRS[i]);
+X  if (c->marktype == 'l') {
+X    show_lmark(c->lmark, nsp+2, g);
+X    spaces(nsp);
+X  }
+X  printf("marksize %f %f ", ptodist(c->marksize[0], g->x_axis), 
+X                            ptodist(c->marksize[1], g->y_axis));
+X  printf("mrotate %f ", c->mrotate);
+X  if (c->filltype == 'g') {
+X     printf("fill %f\n", c->fill[0] );
+X  } else if (c->filltype == 'c')  {
+X     printf("cfill %f %f %f\n", c->fill[0], c->fill[1], c->fill[2] );
+X  }
+X  if (first(c->general_marks) != c->general_marks) {
+X    spaces(nsp); printf("gmarks");
+X    for(p = first(c->general_marks); p != nil(c->general_marks); p = next(p))
+X      printf(" %f %f ", p->x, p->y);
+X  }
+X  printf("\n");
+X  spaces(nsp);
+X  if(!c->poly) printf("no"); printf("poly ");
+X  if (c->pfilltype == 'g') {
+X     printf("pfill %f", c->pfill[0] );
+X  } else if (c->pfilltype == 'c')  {
+X     printf("pcfill %f %f %f", c->pfill[0], c->pfill[1], c->pfill[2] );
+X  }
+X  printf("\n");
+X  
+X  spaces(nsp); printf("linetype ");
+X  if (c->linetype == '0')  printf("none ");
+X  else if (c->linetype == 's') printf("solid ");
+X  else if (c->linetype == '.') printf("dotted ");
+X  else if (c->linetype == '-') printf("dashed ");
+X  else if (c->linetype == 'l') printf("longdash ");
+X  else if (c->linetype == 'd') printf("dotdash ");
+X  else if (c->linetype == 'D') printf("dotdotdash ");
+X  else if (c->linetype == '2') printf("dotdotdashdash ");
+X  else if (c->linetype == 'g') {
+X    printf("general\n");
+X    spaces(nsp+2);
+X    printf("glines "); 
+X    i = 0;
+X    for (fl = first(c->gen_linetype); fl != nil(c->gen_linetype); 
+X                                      fl = next(fl)) {
+X      if (i == 6) {
+X        printf("\n");
+X        spaces(nsp + 9);
+X        i = 0;
+X      }
+X      printf("%f ", fl->f);
+X      i++;
+X    }
+X    printf("\n");
+X    spaces(nsp);
+X  }
+X  printf("linethickness %f\n", c->linethick);
+X  spaces(nsp); 
+X  if (c->graytype == 'g') {
+X    printf("gray %f ", c->gray[0]);
+X  } else if (c->graytype == 'c') {
+X    printf("color %f %f %f ", c->gray[0], c->gray[1], c->gray[2]);
+X  }
+X  if(!c->clip) printf("no"); printf("clip\n");
+X  spaces(nsp); 
+X  if(!c->rarrow) printf("no"); printf("rarrow ");
+X  if(!c->larrow) printf("no"); printf("larrow ");
+X  if(!c->rarrows) printf("no"); printf("rarrows ");
+X  if(!c->larrows) printf("no"); printf("larrows ");
+X  if (c->afilltype == 'g') {
+X     printf("afill %f\n", c->afill[0] );
+X  } else if (c->afilltype == 'c')  {
+X     printf("acfill %f %f %f\n", c->afill[0], c->afill[1], c->afill[2] );
+X  }
+X  spaces(nsp);
+X  if(!c->bezier) printf("no"); printf("bezier ");
+X  printf("asize %f %f\n", ptodist(c->asize[0], g->x_axis), 
+X                          ptodist(c->asize[1], g->y_axis) * 2.0);
+X}
+X
+Xshow_axis(a, nsp, g)
+XAxis a;
+Xint nsp;
+XGraph g;
+X{
+X  Axis other;
+X  Hash h;
+X  String s;
+X
+X  if (a->is_x) other = g->y_axis; else other = g->x_axis;
+X  spaces(nsp); printf("size %f\n", a->size);
+X  spaces(nsp); printf("min %f max %f %s\n", a->min, a->max,
+X                      (a->is_lg) ? "log" : "linear");
+X  if (!(a->draw_hash_labels || a->draw_axis_line ||
+X        a->draw_hash_marks || a->draw_axis_label)) {
+X    spaces(nsp);
+X    printf("nodraw\n");
+X    return;
+X  }
+X  spaces(nsp); printf("draw_at %f\n", ptoc(a->draw_at, other));
+X  if (a->label->label != CNULL) {
+X    spaces(nsp); printf("label\n");
+X    show_label(a->label, nsp+2, g);
+X  }
+X  spaces(nsp); 
+X  printf("%sdraw_hash_labels\n", (a->draw_hash_labels) ? "" : "no_");
+X  spaces(nsp); 
+X  printf("%sdraw_axis_line\n", (a->draw_axis_line) ? "" : "no_");
+X  spaces(nsp); 
+X  printf("%sdraw_hash_marks\n", (a->draw_hash_marks) ? "" : "no_");
+X  spaces(nsp); 
+X  printf("%sgrid_lines\n", (a->grid_lines) ? "" : "no_");
+X  spaces(nsp); 
+X  printf("%smgrid_lines\n", (a->mgrid_lines) ? "" : "no_");
+X  spaces(nsp); 
+X  printf("%sdraw_axis_label\n", (a->draw_axis_label) ? "" : "no_");
+X  spaces(nsp); 
+X  if (a->graytype == 'g') {
+X    printf("gray %f\n", a->gray[0]);
+X  } else if (a->graytype == 'c') {
+X    printf("color %f %f %f\n", a->gray[0], a->gray[1], a->gray[2]);
+X  }
+X  spaces(nsp); 
+X  if (a->gr_graytype == 'g') {
+X    printf("gr_gray %f ", a->gr_gray[0]);
+X  } else if (a->gr_graytype == 'c') {
+X    printf("color %f %f %f ", a->gr_gray[0], a->gr_gray[1], a->gr_gray[2]);
+X  }
+X  if (a->mgr_graytype == 'g') {
+X    printf("mgr_gray %f\n", a->mgr_gray[0]);
+X  } else if (a->mgr_graytype == 'c') {
+X    printf("color %f %f %f\n", a->mgr_gray[0], a->mgr_gray[1], a->mgr_gray[2]);
+X  }
+X
+X  spaces(nsp);
+X
+X  printf("(* The real settings for generating auto_hash_labels:\n");
+X  spaces(nsp+5);
+X  printf("%sauto_hash_marks ", (a->auto_hash_marks) ? "" : "no_");
+X  printf("%sauto_hash_labels\n", (a->auto_hash_labels) ? "" : "no_");
+X  spaces(nsp+5); printf("hash %f shash %f mhash %d\n", a->hash_interval, 
+X                       a->hash_start, a->minor_hashes);
+X  spaces(nsp+5);
+X  if (a->is_lg) {
+X    printf("log_base %f ", a->log_base);
+X  }
+X  printf("hash_scale %f ", a->hash_scale);
+X  printf("precision %d\n", a->precision);
+X  spaces(nsp+3);
+X  printf("The following are explicit and implicit hash marks and labels *)\n");
+X  
+X  spaces(nsp); 
+X  printf("hash 0 draw_hash_marks_at %f draw_hash_labels_at %f\n",
+X         ptoc(a->draw_hash_marks_at, other), 
+X         ptoc(a->draw_hash_labels_at, other));
+X  spaces(nsp); printf("hash_labels (* The :, x, and y values are ignored *)\n");
+X  show_label(a->hl, nsp + 2, g);
+X  
+X  for (h = first(a->hash_lines); h != nil(a->hash_lines); h = next(h)) {
+X    spaces(nsp);
+X    printf("%s %f\n", ((h->size == HASH_SIZE) ? "hash_at" : "mhash_at"),
+X           ptoc(h->loc, a));
+X  }
+X  for (s = first(a->hash_labels); s != nil(a->hash_labels); s = next(s)) {
+X    spaces(nsp);
+X    printf("hash_label at %f ", ptoc(s->s->x, a));
+X    show_string(s->s->label);
+X  }
+X}
+X
+Xshow_legend(l, nsp, g)
+XLegend l;
+Xint nsp;
+XGraph g;
+X{
+X  if (l->type == 'c') {
+X    spaces(nsp); printf("custom\n");
+X  } else if (l->type == 'n') {
+X    spaces(nsp); printf("off\n");
+X  }
+X
+X  spaces(nsp); printf("linelength %f linebreak %f midspace %f\n",
+X     ptodist(l->linelength, g->x_axis), ptodist(l->linebreak, g->y_axis),
+X     ptodist(l->midspace, g->x_axis));
+X  if (l->type == 'u') {
+X    spaces(nsp); printf("defaults");
+X    show_label(l->l, nsp+2, g);
+X  }
+X}
+X
+Xshow_graph(g, nsp)
+XGraph g;
+Xint nsp;
+X{
+X
+X  Curve c;
+X  String s;    
+X  spaces(nsp); printf("x_translate %f y_translate %f\n", 
+X                       ptoin(g->x_translate), ptoin(g->y_translate));
+X  spaces(nsp); printf("xaxis\n"); show_axis(g->x_axis, nsp+2, g);
+X  spaces(nsp); printf("yaxis\n"); show_axis(g->y_axis, nsp+2, g);
+X  spaces(nsp); if(!g->clip) printf("no"); printf("clip ");
+X               if(!g->border) printf("no"); printf("border\n");
+X  for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    spaces(nsp);
+X    printf("curve %d\n", c->num);
+X    show_curve(c, nsp+2, g);
+X  }
+X  spaces(nsp); printf("legend\n");
+X  show_legend(g->legend, nsp+2, g);
+X  if (g->title->label != CNULL) {
+X    spaces(nsp);
+X    printf("title\n");
+X    show_label(g->title, nsp+2, g);
+X  }
+X  for (s = first(g->strings); s != nil(g->strings); s = next(s)) {
+X    spaces(nsp);
+X    printf("string %d\n", s->num);
+X    show_label(s->s, nsp+2, g);
+X  }
+X}
+X
+Xshow_graphs(gs)
+XGraphs gs;
+X{
+X  Graphs the_g;
+X  Graph g;
+X  char started;
+X  int i;
+X
+X  started = 0;
+X  for (the_g = first(gs); the_g != nil(gs); the_g = next(the_g)) {
+X    if (started) printf("\nnewpage\n");
+X    started = 1;
+X    printf("X %f Y %f\n", ptoin(the_g->width), ptoin(the_g->height));
+X    if (the_g->preamble != CNULL) {
+X      printf("preamble ");
+X      if (!the_g->prefile) printf(": ");
+X      show_mltiline(the_g->preamble);
+X    }
+X    if (the_g->epilogue != CNULL) {
+X      printf("epilogue ");
+X      if (!the_g->epifile) printf(": ");
+X      show_mltiline(the_g->epilogue);
+X    }
+X    printf("bbox"); 
+X    for (i = 0; i < 4; i++) printf(" %f", the_g->bb[i]);
+X    printf("\n");
+X    for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) {
+X      printf("graph %d\n", g->num);
+X      show_graph(g, 2);
+X    }
+X  }
+X}
+X
+X
+END_OF_FILE
+  if test 11318 -ne `wc -c <'show.c'`; then
+    echo shar: \"'show.c'\" unpacked with wrong size!
+  fi
+  # end of 'show.c'
+fi
+if test -f 'token.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'token.c'\"
+else
+  echo shar: Extracting \"'token.c'\" \(7542 characters\)
+  sed "s/^X//" >'token.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:17 $
+X * $Author: jsp $
+X */
+X
+X#include <math.h>
+X#ifdef LCC
+X#include <stdlib.h>
+X#endif
+X/* On VMS, math.h does not have a definition for atof. Grrr. */
+X#ifdef VMS 
+X#include <stdlib.h>
+X#endif
+X#include <stdio.h>
+X
+X#include "list.h"
+X
+X#define CNULL ((char *)0)
+X
+Xtypedef struct iostack {
+X  struct iostack *flink;
+X  struct iostack *blink;
+X  char *filename;
+X  FILE *stream;
+X  int oldcharvalid;
+X  char oldchar;
+X  char pipe;
+X  int line;
+X} *Iostack;
+X
+Xstatic char INPUT[1000];
+Xstatic int getnew = 1;
+Xstatic char oldchar = '\0';
+Xstatic oldcharvalid = 0;
+Xstatic char pipe = 0;
+Xstatic int eof = 0;
+Xstatic int init = 0;
+Xstatic Iostack stack;
+Xstatic char real_eof = EOF;
+X
+X#ifndef VMS 
+Xstatic FILE *IOSTREAM = stdin;
+X#else
+XFILE *IOSTREAM; /* VMS cannot initialize streams, init in jgraph.c -hdd */
+X#endif
+Xstatic char FILENAME[300];
+Xstatic int line = 1;
+X
+X#define iostackinit() {\
+X                        if (init == 0) {\
+X                          strcpy(FILENAME, "<stdin>"); \
+X                          stack = (Iostack) make_list(sizeof(struct iostack)); \
+X                          init = 1; }}
+X
+X#ifdef VMS
+X/* On VMS, there are no popen() and pclose(), so we provide dummies here. */
+XFILE *popen(command, type)
+Xchar *command, *type;
+X{
+X    return(NULL);
+X}
+Xint pclose(stream)
+XFILE *stream;
+X{
+X    return(-1);
+X}
+X#endif /*VMS*/
+X
+Xerror_header()
+X{
+X  iostackinit();
+X  fprintf(stderr, "%s,%d: ", FILENAME, line);
+X}
+X  
+Xint gettokenchar()
+X{
+X  if (oldcharvalid == 0) oldchar = getc(IOSTREAM);
+X  oldcharvalid = 0;
+X  if (oldchar == '\n') line++;
+X  return oldchar;
+X}
+X
+Xungettokenchar()
+X{
+X  oldcharvalid = 1;
+X  if (oldchar == '\n') line--;
+X}
+X
+Xint gettoken(s)
+Xchar *s;
+X{
+X  int i;
+X  char c;
+X
+X  for (c = gettokenchar(); 
+X       c == ' ' || c == '\t' || c == '\n';
+X       c = gettokenchar()) ;
+X  for (i = 0;
+X       c != real_eof && c != ' ' && c != '\t' && c != '\n';
+X       c = gettokenchar()) {
+X    s[i++] = c;
+X  }
+X  s[i] = '\0';
+X  ungettokenchar();
+X  return i;
+X}
+X
+Xget_comment()
+X{
+X  if (eof) return;
+X  while (1) {
+X    if (gettoken(INPUT) == 0) return;
+X    else if (strcmp(INPUT, "(*") == 0)
+X      get_comment();
+X    else if (strcmp(INPUT, "*)") == 0) 
+X      return;
+X  }
+X}
+X
+Xstatic int iostackempty()
+X{
+X  iostackinit();
+X  return (first(stack) == nil(stack));
+X}
+X
+Xstatic push_iostack(p)
+Xint p;
+X{
+X  Iostack n;
+X
+X  iostackinit();
+X  n = (Iostack) get_node(stack);
+X  n->stream = IOSTREAM;
+X  n->filename = (char *) malloc (sizeof(char)*(strlen(FILENAME)+2));
+X  n->oldchar = oldchar;
+X  n->oldcharvalid = oldcharvalid;
+X  n->pipe = pipe;
+X  n->line = line;
+X  strcpy(n->filename, FILENAME);
+X  insert(n, stack);
+X  if (p) {
+X    IOSTREAM = (FILE *) popen(INPUT, "r");
+X  } else {
+X    IOSTREAM = fopen(INPUT, "r");
+X  }
+X  pipe = p;
+X  line = 1;
+X  if (IOSTREAM == NULL) {
+X    error_header();
+X    fprintf(stderr, "Include file \"%s\" does not exist\n", INPUT);
+X    exit(1);
+X  }
+X  strcpy(FILENAME, INPUT);
+X}
+X
+Xstatic pop_iostack()
+X{
+X  Iostack n;
+X
+X/*  error_header();
+X  fprintf(stderr, "\nCalled pop_io_stack.  Pipe = %d\n", pipe); */
+X  fflush(IOSTREAM);
+X  iostackinit();
+X  if (pipe) {
+X    if (pclose(IOSTREAM)) {
+X      /*error_header();
+X      fprintf(stderr, "\n\nPipe returned a non-zero error code.\n");
+X      exit(1); */
+X    }
+X  } else {
+X    fclose(IOSTREAM);
+X  }
+X  n = last(stack);
+X  IOSTREAM = n->stream;
+X  strcpy(FILENAME, n->filename);
+X/*  free(n->filename); */
+X  pipe = n->pipe;
+X  line = n->line;
+X  oldchar = n->oldchar;
+X  oldcharvalid = n->oldcharvalid;
+X  delete_item(n);
+X  free_node(n, stack);
+X}
+X
+Xstatic nexttoken()
+X{
+X  if (eof) return;
+X  if (getnew) {
+X    while (1) {
+X      if (gettoken(INPUT) == 0) {
+X        iostackinit();
+X        if (iostackempty()) {
+X          eof = 1;
+X          getnew = 0;
+X          return;
+X        } else {
+X          pop_iostack();
+X        }
+X      } else if (strcmp(INPUT, "(*") == 0) {
+X        get_comment();
+X      } else if (strcmp(INPUT, "include") == 0) {
+X        if (gettoken(INPUT) == 0) {
+X          error_header();
+X          fprintf(stderr, "Empty include statement\n");
+X          exit(1);
+X        } else {
+X          push_iostack(0);
+X        }
+X      } else if (strcmp(INPUT, "shell") == 0) {
+X#ifdef VMS 
+X        fprintf(stderr, "No shell option on VMS, sorry.\n");
+X        exit(1);
+X#endif /*VMS*/	
+X        if (gettoken(INPUT) == 0 || strcmp(INPUT, ":") != 0) {
+X          error_header();
+X          fprintf(stderr, "'shell' must be followed by ':'\n");
+X          exit(1);
+X        } 
+X        if (getsystemstring() == 0) {
+X          fprintf(stderr, "Empty shell statement\n");
+X          exit(1);
+X        }
+X        push_iostack(1);
+X      } else {
+X        getnew = 1;
+X        return;
+X      }
+X    }
+X  }
+X  getnew = 1;
+X  return;
+X}
+X
+Xint getstring(s)
+Xchar *s;
+X{
+X  nexttoken();
+X  if (eof) return 0;
+X  strcpy(s, INPUT);
+X  return 1;
+X}
+X
+Xint getint(i)
+Xint *i;
+X{
+X  int j;
+X
+X  nexttoken();
+X  if (eof) return 0;
+X  *i = atoi(INPUT);
+X  if (*i == 0) {
+X    for (j = 0; INPUT[j] != '\0'; j++)
+X      if (INPUT[j] != '0') return 0;
+X  }
+X  return 1;
+X}
+X
+Xint getfloat(f)
+Xfloat *f;
+X{
+X  int j;
+X
+X  nexttoken();
+X  if (eof) return 0;
+X  *f = (float) atof(INPUT);
+X  if (*f == 0.0) {
+X    for (j = 0; INPUT[j] == '-'; j++);
+X    while (INPUT[j] == '0') j++;
+X    if (INPUT[j] == '.') j++;
+X    while (INPUT[j] == '0') j++;
+X    if (INPUT[j] == 'e' || INPUT[j] == 'E') {
+X      j++;
+X      if (INPUT[j] == '+' || INPUT[j] == '-') j++;
+X      while (INPUT[j] == '0') j++;
+X    }
+X    return (INPUT[j] == '\0');
+X  } else return 1;
+X}
+X
+Xstatic char *new_printable_text(s)
+Xchar *s;
+X{
+X  char *new_s;
+X  int to_pad, i, j;
+X
+X  to_pad = 0;
+X  for (i = 0; s[i] != '\0'; i++) {
+X    if (s[i] == '\\' || s[i] == ')' || s[i] == '(') {
+X       to_pad++;
+X    }
+X  }
+X
+X  j = sizeof(char) * (i + to_pad + 2);
+X  if ((j % 8) != 0) j += 8 - j % 8;
+X  new_s = (char *) malloc (j);
+X  j = 0;
+X  for (i = 0; s[i] != '\0'; i++) {
+X    if (s[i] == '\\' || s[i] == ')' || s[i] == '(') {
+X      new_s[j++] = '\\';
+X    }
+X    new_s[j++] = s[i];
+X  }
+X  new_s[j] = '\0';		/* added: tie off -hdd */
+X  return new_s;
+X}
+X
+Xchar *getmultiline()
+X{
+X  char c;
+X  int i, j, done, len, started;
+X  char *out_str;
+X
+X  if (getnew == 0) return CNULL;
+X  
+X  c = gettokenchar();
+X  if (c == real_eof) {
+X    ungettokenchar();
+X    return CNULL;
+X  }
+X  done = 0;
+X  started = 0;
+X  while (!done) {
+X    i = 0;
+X    for (c = gettokenchar(); c != real_eof && c != '\n';  c = gettokenchar()) {
+X      INPUT[i++] = c;
+X    }
+X    INPUT[i] = '\0';
+X    if (!started) {
+X      out_str = (char *) malloc (sizeof(char)*(i+1));
+X      strcpy(out_str, INPUT);
+X      len = i;
+X      started = 1;
+X    } else {
+X      out_str = (char *) realloc(out_str, (len + i + 3) * sizeof(char));
+X      sprintf(&(out_str[len]), "\n%s", INPUT);
+X      len += i+1;
+X    }
+X    if (c == '\n' && len != 0 && out_str[len-1] == '\\') {
+X      len--;
+X    } else {
+X      done = 1;
+X    }
+X  }
+X  ungettokenchar();
+X  return out_str;
+X}
+X
+Xchar *getlabel()
+X{
+X  char c;
+X  char *txt, *new;
+X  int i;
+X
+X  txt = getmultiline();
+X  if (txt == CNULL) return CNULL;
+X  new = new_printable_text(txt);
+X  free(txt);
+X  return new;
+X}
+X
+Xint getsystemstring()
+X{
+X  char c;
+X  int i;
+X  int done;
+X
+X  if (getnew == 0) return 0;
+X  
+X  c = gettokenchar();
+X  if (c == real_eof) {
+X    ungettokenchar();
+X    return 0;
+X  }
+X  i = 0;
+X  done = 0;
+X  while (!done) {
+X    for (c = gettokenchar(); c != real_eof && c != '\n';  c = gettokenchar()) {
+X      INPUT[i++] = c;
+X    }
+X    if (c == '\n' && i > 0 && INPUT[i-1] == '\\') {
+X      INPUT[i++] = '\n';
+X    } else {
+X      done = 1;
+X    }
+X  }
+X  ungettokenchar();
+X  INPUT[i] = '\0';
+X  return 1;
+X}
+X
+Xrejecttoken()
+X{
+X  getnew = 0;
+X}
+END_OF_FILE
+  if test 7542 -ne `wc -c <'token.c'`; then
+    echo shar: \"'token.c'\" unpacked with wrong size!
+  fi
+  # end of 'token.c'
+fi
+echo shar: End of archive 6 \(of 7\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

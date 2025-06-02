@@ -1,0 +1,1681 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v34i080:  remind - A replacement for calendar, Patch01b/2
+Message-ID: <1992Dec18.212216.15166@sparky.imd.sterling.com>
+X-Md4-Signature: 0e3d67773c7fb0af6f8e468daa10c4d3
+Date: Fri, 18 Dec 1992 21:22:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 34, Issue 80
+Archive-name: remind/patch01b
+Environment: UNIX, MS-DOS
+Patch-To: remind: Volume 33, Issue 58-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  defs.rem makefile.os2 patch.01.A rem2ps.1 rem2ps.h
+# Wrapped by kent@sparky on Fri Dec 18 15:00:44 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'defs.rem' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'defs.rem'\"
+else
+  echo shar: Extracting \"'defs.rem'\" \(3194 characters\)
+  sed "s/^X//" >'defs.rem' <<'END_OF_FILE'
+X# ---------------------------------------------------------------------------
+X#
+X# DEFS.REM
+X#
+X# This file is a reminder script, which contains a few handy definitions.
+X# Cut and paste as desired!
+X#
+X# This file is part of REMIND.
+X# Copyright (C) 1992 by David F. Skoll
+X#
+X# ---------------------------------------------------------------------------
+X
+X# It's handy to have symbolic constants for weekdays and month names
+XSET Sunday    0
+XSET Monday    1
+XSET Tuesday   2
+XSET Wednesday 3
+XSET Thursday  4
+XSET Friday    5
+XSET Saturday  6
+X
+X# ---------------------------------------------------------------------------
+X
+XSET Jan 1
+XSET Feb 2
+XSET Mar 3
+XSET Apr 4
+XSET May 5
+XSET Jun 6
+XSET Jul 7
+XSET Aug 8
+XSET Sep 9
+XSET Oct 10
+XSET Nov 11
+XSET Dec 12
+X
+X# ---------------------------------------------------------------------------
+X
+XSET January   1
+XSET February  2
+XSET March     3
+XSET April     4
+XSET May       5
+XSET June      6
+XSET July      7
+XSET August    8
+XSET September 9
+XSET October   10
+XSET November  11
+XSET December  12
+X
+X# ---------------------------------------------------------------------------
+X
+X# A function which, given a time, returns a string in "AM/PM" format.
+X# Unfortunately, has a leading zero.  Example call:
+X#	set a ampm(now())
+X
+XFSET ampm(x) iif(x<1:00, x+12*60+"am", \
+X	         iif(x<12:00, x+"am", \
+X	             iif(x<13:00, x+"pm", x-12*60+"pm")))
+X
+X# A function which knocks off a single leading zero from a string
+X
+XFSET no_lz(s) iif(substr(s, 1, 1)=="0", substr(s, 2), s)
+X
+X# ---------------------------------------------------------------------------
+X
+X# Here's a tricky problem:  The 4th of July is a holiday in the U.S.
+X# However, if it falls on a Saturday, the previous Friday is a holiday.
+X# If it falls on a Sunday, the next Monday is a holiday.  Here's how
+X# to do it.  NOTE that the following procedure makes the OMIT context
+X# dependent upon the current date.  SInce it only depends on the current
+X# year, which is not likely to change while producing a calendar, we
+X# are fairly safe.  However, reminders with huge DELTA or BACK components
+X# may not operate as expected.  In general, any time you make OMIT
+X# dependent upon the current date, it's tricky and results may not be
+X# what you expect.  You should try to make sure that the OMIT context
+X# "near" any current reminders will not change during a calendar run.
+X
+Xset thisyear year(today())
+X
+XOMIT 4 July MSG The real thing!
+X
+X# Check for Saturday case
+Xif wkdaynum(date(thisyear, 7, 4)) == Saturday
+X   OMIT 3 July [thisyear] MSG 4 July (observed)
+Xendif
+X
+X# Check for Sunday case
+Xif wkdaynum(date(thisyear, 7, 4)) == Sunday
+X   OMIT 5 July [thisyear] MSG 4 July (observed)
+Xendif
+X
+X# ---------------------------------------------------------------------------
+X
+X# Here's the since() function - quite useful for remembering how
+X# old kids are:
+X
+Xfset since(x) ord(year(trigdate())-x)
+X
+X# Here's an example of how to use it:
+XREM 1 Nov ++12 MSG %"Dean's [since(1984)] birthday%" is %b.
+X
+X# ---------------------------------------------------------------------------
+X
+X# How do we get a double-quote into a string????  Only works on ASCII
+X# machines
+X
+Xset example "The last word of this sentence is in " \
+X	+ char(34) + "quotes." + char(34)
+END_OF_FILE
+  if test 3194 -ne `wc -c <'defs.rem'`; then
+    echo shar: \"'defs.rem'\" unpacked with wrong size!
+  fi
+  # end of 'defs.rem'
+fi
+if test -f 'makefile.os2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.os2'\"
+else
+  echo shar: Extracting \"'makefile.os2'\" \(2335 characters\)
+  sed "s/^X//" >'makefile.os2' <<'END_OF_FILE'
+X# Makefile for REMIND for Microsoft C 6.00A for OS/2 and MSDOS
+X# This copy was modified from the original to permit creation of 
+X#   remind.exe   OS/2 1.x--2.0 executable
+X#   remindb.exe  OS/2 and MSDOS bound executable
+X#
+X# Darrel Hankerson hank@ducvax.auburn.edu
+X# 11 November 1992
+X
+XO = .obj
+X
+XCC= cl
+X
+X# Put any additional flags for the C compiler here
+XMODEL = S
+XDEFINES= -D__MSDOS__ -D__MSC__ -D__STDC__ -DOS2
+XCFLAGS= -A$(MODEL) $(DEFINES)
+X
+XLINK = cl
+XLFLAGS = -A$(MODEL) -Lp
+XBIND = bind
+X
+Xall: remind.exe remindb.exe rem2ps.exe
+X
+X#-----------------------------------------------------------------------------
+X# YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X# in config.h; then, you should be able to type 'make'.
+X#-----------------------------------------------------------------------------
+XVERSION= 03.00.01
+X
+XHDRS= config.h err.h expr.h globals.h protos.h types.h version.h
+X
+XSTDHDRS= config.h types.h protos.h globals.h err.h
+X
+XSRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+Xmain.c omit.c token.c trigger.c userfns.c utils.c var.c
+X
+XMANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+Xremind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+Xmakefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+Xdefs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1
+X
+XOBJS= $(SRCS:.c=$O)
+X
+Xrem2ps.exe: rem2ps.obj remind.def
+X	copy remind.def rem2ps.def
+X	$(LINK) -o $@ $(LFLAGS) $<
+X
+Xrem2ps.obj: rem2ps.c
+X	$(CC) -c $(CFLAGS) rem2ps.c
+X
+Xremind.exe: $(OBJS) remind.def
+X	$(LINK) -o $@ $(LFLAGS) $< 
+X
+Xremindb.exe: remind.exe
+X	$(BIND) -o $@ $<
+X
+Xrem2psb.exe: rem2ps.exe
+X	$(BIND) -o $@ $<
+X
+X.c.$O:
+X	$(CC) -c $(CFLAGS) $<
+X
+Xclean:
+X	rm -f *$O
+X
+Xrem2ps$O: rem2ps.c rem2ps.h config.h
+Xcalendar$O: calendar.c $(STDHDRS) expr.h
+Xdorem$O: dorem.c $(STDHDRS) expr.h
+Xdosubst$O: dosubst.c $(STDHDRS)
+Xexpr$O: expr.c $(STDHDRS) expr.h
+Xfiles$O: files.c $(STDHDRS)
+Xfuncs$O: funcs.c $(STDHDRS) expr.h version.h
+Xglobals$O: globals.c config.h types.h globals.h err.h
+Xinit$O: init.c $(STDHDRS) expr.h version.h
+Xmain$O: main.c $(STDHDRS) expr.h
+Xomit$O: omit.c $(STDHDRS)
+Xtoken$O: token.c $(STDHDRS)
+Xtrigger$O: trigger.c $(STDHDRS) expr.h
+Xuserfns$O: userfns.c $(STDHDRS) expr.h
+Xutils$O: utils.c $(STDHDRS)
+Xvar$O: var.c $(STDHDRS) expr.h
+END_OF_FILE
+  if test 2335 -ne `wc -c <'makefile.os2'`; then
+    echo shar: \"'makefile.os2'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.os2'
+fi
+if test -f 'patch.01.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.01.A'\"
+else
+  echo shar: Extracting \"'patch.01.A'\" \(32698 characters\)
+  sed "s/^X//" >'patch.01.A' <<'END_OF_FILE'
+XPrereq: "03.00.00"
+X*** ../p0/version.h	Mon Nov  9 14:12:11 1992
+X--- ./version.h	Wed Dec 16 10:51:27 1992
+X***************
+X*** 5,12 ****
+X  /*  What version of remind do we have?                         */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1991 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! #define VERSION "03.00.00"
+X--- 5,12 ----
+X  /*  What version of remind do we have?                         */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! #define VERSION "03.00.01"
+X*** ../p0/MANIFEST.DOS	Mon Nov  9 14:12:36 1992
+X--- ./MANIFEST.DOS	Wed Dec 16 10:51:55 1992
+X***************
+X*** 1,6 ****
+X--- 1,7 ----
+X  calendar.c
+X  config.h
+X  copyrigh
+X+ defs.rem
+X  dorem.c
+X  dosubst.c
+X  err.h
+X***************
+X*** 18,23 ****
+X--- 19,25 ----
+X  main.c
+X  makefile
+X  makefile.msc
+X+ makefile.os2
+X  makefile.tc
+X  manifest.dos
+X  manifest.unx
+X***************
+X*** 25,36 ****
+X--- 27,43 ----
+X  protos.h
+X  queue.c
+X  readme.dos
+X+ readme.os2
+X  readme.uni
+X  rem
+X  rem.1
+X+ rem2ps.1
+X+ rem2ps.c
+X+ rem2ps.h
+X  remind-a.csh
+X  remind-a.sh
+X  remind.1
+X+ remind.def
+X  test-rem
+X  test.cmp
+X  test.rem
+X*** ../p0/MANIFEST.UNX	Mon Nov  9 14:12:36 1992
+X--- ./MANIFEST.UNX	Wed Dec 16 10:51:55 1992
+X***************
+X*** 1,6 ****
+X  calendar.c
+X  config.h
+X! COPYRIGHT
+X  dorem.c
+X  dosubst.c
+X  err.h
+X--- 1,14 ----
+X+ COPYRIGHT
+X+ MANIFEST.DOS
+X+ MANIFEST.UNX
+X+ Makefile
+X+ README.DOS
+X+ README.OS2
+X+ README.UNIX
+X+ WHATSNEW.30
+X  calendar.c
+X  config.h
+X! defs.rem
+X  dorem.c
+X  dosubst.c
+X  err.h
+X***************
+X*** 16,36 ****
+X  lnk.msc
+X  lnk.tc
+X  main.c
+X- Makefile
+X  makefile.msc
+X  makefile.tc
+X- MANIFEST.DOS
+X- MANIFEST.UNX
+X  omit.c
+X  protos.h
+X  queue.c
+X- README.DOS
+X- README.UNIX
+X  rem
+X  rem.1
+X  remind-all.csh
+X  remind-all.sh
+X  remind.1
+X  test-rem
+X  test.cmp
+X  test.rem
+X--- 24,44 ----
+X  lnk.msc
+X  lnk.tc
+X  main.c
+X  makefile.msc
+X+ makefile.os2
+X  makefile.tc
+X  omit.c
+X  protos.h
+X  queue.c
+X  rem
+X  rem.1
+X+ rem2ps.1
+X+ rem2ps.c
+X+ rem2ps.h
+X  remind-all.csh
+X  remind-all.sh
+X  remind.1
+X+ remind.def
+X  test-rem
+X  test.cmp
+X  test.rem
+X***************
+X*** 41,44 ****
+X  utils.c
+X  var.c
+X  version.h
+X- WHATSNEW.30
+X--- 49,51 ----
+X*** ../p0/Makefile	Mon Nov  9 14:12:26 1992
+X--- ./Makefile	Wed Dec 16 10:54:10 1992
+X***************
+X*** 7,13 ****
+X  # Uncomment the next line if you are running on a SYSV system
+X  # SYSV= -DSYSV
+X  
+X! # Uncomment the next line if you are running on any type of UNIX system
+X  UNIX= -DUNIX
+X  
+X  # Uncomment the next line if you want to use gcc instead of default compiler
+X--- 7,13 ----
+X  # Uncomment the next line if you are running on a SYSV system
+X  # SYSV= -DSYSV
+X  
+X! # Uncomment the next line if you are running under UNIX (including SYSV!)
+X  UNIX= -DUNIX
+X  
+X  # Uncomment the next line if you want to use gcc instead of default compiler
+X***************
+X*** 17,27 ****
+X  CFLAGS= -O -ansi
+X  CDEFS=
+X  
+X  #-----------------------------------------------------------------------------
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.00
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h
+X  STDHDRS= config.h types.h protos.h globals.h err.h
+X--- 17,51 ----
+X  CFLAGS= -O -ansi
+X  CDEFS=
+X  
+X+ #### INSTALLATION LOCATIONS ####
+X+ # Note that I use 'cp' rather than 'install' for improved portability.
+X+ #
+X+ # BINDIR:  Where should the Remind executable be installed?
+X+ BINDIR= /usr/local/bin
+X+ 
+X+ # SCRIPTDIR:  Where should the kall and rem shell scripts be installed?
+X+ SCRIPTDIR= /usr/share/bin
+X+ 
+X+ # MANDIR:  Where should the man pages be installed?
+X+ MANDIR= /usr/local/man
+X+ 
+X+ # MANSECT:  Which man section should the man pages go into?
+X+ MANSECT= 1
+X+ 
+X+ # EXEMODE:  What file protection mode should be used for the executables?
+X+ EXEMODE= 755
+X+ 
+X+ # MANMODE:  What file protection mode should be used for the man pages?
+X+ MANMODE= 644
+X+ 
+X+ # OWNER:  What owner and group to use for executables, scripts and man pages?
+X+ OWNER=bin.bin
+X+ 
+X  #-----------------------------------------------------------------------------
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.01
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h
+X  STDHDRS= config.h types.h protos.h globals.h err.h
+X***************
+X*** 30,48 ****
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X! makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1
+X  
+X  OBJS= $(SRCS:.c=.o)
+X  
+X! remind: $(OBJS)
+X! 	$(CC) -o remind $(OBJS)
+X  
+X  .c.o:
+X  	$(CC) $(UNIX) $(SYSV) -c -o $*.o $(CFLAGS) $(CDEFS) $*.c
+X  
+X  clean:
+X  	rm -f *.o *~
+X  
+X  calendar.o: calendar.c $(STDHDRS) expr.h
+X  dorem.o: dorem.c $(STDHDRS) expr.h
+X  dosubst.o: dosubst.c $(STDHDRS)
+X--- 54,79 ----
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X! makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+X! defs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1
+X  
+X  OBJS= $(SRCS:.c=.o)
+X  
+X! all: remind rem2ps
+X  
+X  .c.o:
+X  	$(CC) $(UNIX) $(SYSV) -c -o $*.o $(CFLAGS) $(CDEFS) $*.c
+X  
+X+ rem2ps: rem2ps.o
+X+ 	$(CC) -o rem2ps rem2ps.o
+X+ 
+X+ remind: $(OBJS)
+X+ 	$(CC) -o remind $(OBJS)
+X+ 
+X  clean:
+X  	rm -f *.o *~
+X  
+X+ rem2ps.o: rem2ps.c
+X  calendar.o: calendar.c $(STDHDRS) expr.h
+X  dorem.o: dorem.c $(STDHDRS) expr.h
+X  dosubst.o: dosubst.c $(STDHDRS)
+X***************
+X*** 61,75 ****
+X  var.o: var.c $(STDHDRS) expr.h
+X  
+X  tarZ:
+X! 	tar cvf remind-3.0.0.tar $(MANIFEST)
+X! 	compress -v remind-3.0.0.tar
+X  
+X  shar:
+X  	shar -x -n"Remind $(VERSION)" -l45 -o./Shar $(MANIFEST)
+X  
+X  todos:
+X- 	mdel 'a:*.*'
+X- 	mdel 'a:*'
+X  	mcopy -tn $(MANIFEST) a:
+X  
+X  fromdos:
+X--- 92,104 ----
+X  var.o: var.c $(STDHDRS) expr.h
+X  
+X  tarZ:
+X! 	tar cvf remind-3.0.1.tar $(MANIFEST)
+X! 	compress -v remind-3.0.1.tar
+X  
+X  shar:
+X  	shar -x -n"Remind $(VERSION)" -l45 -o./Shar $(MANIFEST)
+X  
+X  todos:
+X  	mcopy -tn $(MANIFEST) a:
+X  
+X  fromdos:
+X***************
+X*** 76,81 ****
+X--- 105,111 ----
+X  	mcopy -tn 'a:*' .
+X  	-mv -f copyrigh COPYRIGHT
+X  	-mv -f makefile Makefile
+X+ 	-mv -f readme.os2 README.OS2
+X  	-mv -f readme.dos README.DOS
+X  	-mv -f readme.uni README.UNIX
+X  	-mv -f remind-a.csh remind-all.csh
+X***************
+X*** 89,92 ****
+X  	cp $(MANIFEST) ../backup
+X  
+X  transmit:
+X! 	sz -a -Z -e $(MANIFEST)
+X--- 119,154 ----
+X  	cp $(MANIFEST) ../backup
+X  
+X  transmit:
+X! 	sz -a -e $(MANIFEST)
+X! 
+X! install:  install-bin install-scripts install-man
+X! 
+X! install-bin: remind rem2ps
+X! 	cp remind $(BINDIR)/remind
+X! 	-chmod $(EXEMODE) $(BINDIR)/remind
+X! 	-chown $(OWNER) $(BINDIR)/remind
+X! 	cp rem2ps $(BINDIR)/rem2ps
+X! 	-chmod $(EXEMODE) $(BINDIR)/rem2ps
+X! 	-chown $(OWNER) $(BINDIR)/rem2ps
+X! 
+X! install-scripts:
+X! 	cp kall $(SCRIPTDIR)/kall
+X! 	-chmod $(EXEMODE) $(SCRIPTDIR)/kall
+X! 	-chown $(OWNER) $(SCRIPTDIR)/kall
+X! 	cp rem $(SCRIPTDIR)/rem
+X! 	-chmod $(EXEMODE) $(SCRIPTDIR)/rem
+X! 	-chown $(OWNER) $(SCRIPTDIR)/rem
+X! 
+X! install-man:
+X! 	cp remind.1 $(MANDIR)/man$(MANSECT)/remind.$(MANSECT)
+X! 	-chmod $(MANMODE) $(MANDIR)/man$(MANSECT)/remind.$(MANSECT)
+X! 	-chown $(OWNER) $(MANDIR)/man$(MANSECT)/remind.$(MANSECT)
+X! 	cp rem.1 $(MANDIR)/man$(MANSECT)/rem.$(MANSECT)
+X! 	-chmod $(MANMODE) $(MANDIR)/man$(MANSECT)/rem.$(MANSECT)
+X! 	-chown $(OWNER) $(MANDIR)/man$(MANSECT)/rem.$(MANSECT)
+X! 	cp kall.1 $(MANDIR)/man$(MANSECT)/kall.$(MANSECT)
+X! 	-chmod $(MANMODE) $(MANDIR)/man$(MANSECT)/kall.$(MANSECT)
+X! 	-chown $(OWNER) $(MANDIR)/man$(MANSECT)/kall.$(MANSECT)
+X! 	cp rem2ps.1 $(MANDIR)/man$(MANSECT)/rem2ps.$(MANSECT)
+X! 	-chmod $(MANMODE) $(MANDIR)/man$(MANSECT)/rem2ps.$(MANSECT)
+X! 	-chown $(OWNER) $(MANDIR)/man$(MANSECT)/rem2ps.$(MANSECT)
+X*** ../p0/README.DOS	Mon Nov  9 14:12:05 1992
+X--- ./README.DOS	Wed Dec 16 10:51:22 1992
+X***************
+X*** 15,19 ****
+X--- 15,27 ----
+X  
+X  This will create REMIND.EXE, which is ready to be executed.
+X  
+X+ The file "defs.rem" has some sample Remind definitions and commands.
+X+ 
+X  --
+X  David F. Skoll <dfs@doe.carleton.ca>
+X+ 4-317 LeBreton Street South
+X+ Ottawa, Ontario K1S 4L4
+X+ CANADA
+X+ 
+X+ Tel. (613) 567-3662
+X+ 
+X*** ../p0/README.UNIX	Mon Nov  9 14:12:05 1992
+X--- ./README.UNIX	Wed Dec 16 10:51:21 1992
+X***************
+X*** 16,25 ****
+X  
+X  5 - Type 'make'
+X  
+X! 6 - Type 'test-rem' to run the acceptance test
+X  
+X! 7 - Copy the remind executable to the appropriate directory, and copy
+X!     the man page to the man directory.
+X  
+X  Two shell scripts, "remind-all.csh" and "remind-all.sh" are provided.
+X  These allow automatic mailing of reminders to all users who create a
+X--- 16,25 ----
+X  
+X  5 - Type 'make'
+X  
+X! 6 - Type 'sh test-rem' to run the acceptance test
+X  
+X! 7 - Type 'make install' to install Remind, kall, rem and the man
+X!     pages.
+X  
+X  Two shell scripts, "remind-all.csh" and "remind-all.sh" are provided.
+X  These allow automatic mailing of reminders to all users who create a
+X***************
+X*** 38,46 ****
+X--- 38,61 ----
+X  is provided.  You should examine the script to ensure that the defaults
+X  are correct.
+X  
+X+ Many people have asked me why I supply the "rem" script instead of
+X+ having Remind assume a default file.  The answer is: That's how I like
+X+ it!  My personal preference is for a program which normally takes
+X+ parameters to display usage information when invoked with no
+X+ parameters.  I like that behaviour so I can quickly get an idea of
+X+ what a program does without poring through the man page.  And I think
+X+ I'll keep Remind that way.  Sorry to all who dislike it. :-)
+X+ 
+X  A shell script called "kall" is provided so you can kill your background
+X  remind processes when you log out.  See the man page.  Note that kall
+X  depends on the output of "ps", and may not be portable.
+X  
+X+ The file "defs.rem" has some sample Remind definitions and commands.
+X+ 
+X  --
+X  David F. Skoll <dfs@doe.carleton.ca>
+X+ 4-317 LeBreton Street South
+X+ Ottawa, Ontario K1S 4L4
+X+ CANADA
+X+ 
+X+ Tel. (613) 567-3662
+X*** ../p0/WHATSNEW.30	Mon Nov  9 14:12:37 1992
+X--- ./WHATSNEW.30	Wed Dec 16 10:51:56 1992
+X***************
+X*** 1,5 ****
+X--- 1,50 ----
+X  CHANGES TO REMIND
+X  
+X+ *** PLEASE NOTE:  AFTER 24 FEBRUARY, 1993, MY NEW ADDRESS WILL BE:
+X+ 986 Eiffel Avenue,
+X+ Ottawa, Ontario
+X+ Canada
+X+ 
+X+ * Version 3.0 Patch 1
+X+ 
+X+ - Wrote the Rem2ps program to produce PostScript calendars
+X+ 
+X+ - Added an 'install' target to the Makefile
+X+ 
+X+ - Fixed a bug which allowed the shell() function to execute in timed
+X+   reminders which were queued with RUN disabled.
+X+ 
+X+ - Added support for OS/2, courtesy of DARREL HANKERSON
+X+   <HANK@DUCVAX.AUBURN.EDU>
+X+ 
+X+ - In expressions, can now specify literal dates as 'yyyy/mm/dd' rather than
+X+   using the date() function.
+X+ 
+X+ - Fixed all the source files to include "config.h" first.
+X+ 
+X+ - Changed the way triggers are calculated so that trigger dates are 
+X+   always valid if year, month and day are specified, and there is no
+X+   UNTIL clause.  See MAN page section "DETAILS ABOUT TRIGVALID()."
+X+ 
+X+ - Defined _POSIX_SOURCE so Remind will compile on SGI workstations (and
+X+   be more portable... I hope.)
+X+ 
+X+ - Fixed some rather brain-dead definitions of UPPER and LOWER, as pointed
+X+   out by <rsalz@osf.org>
+X+ 
+X+ - Added more details to the Man page concerning how triggers are computed,
+X+   and added warnings about computing OMIT dates.
+X+ 
+X+ - Added the file defs.rem which contains examples of useful definitions and
+X+   triggers.
+X+ 
+X+ - Changed the script test-rem to be a sh script instead of csh for improved
+X+   portability.
+X+ 
+X+ - Fixed up the README.* files to reflect the changes.
+X+ 
+X+ - Re-formatted the WHATSNEW.30 file.
+X+ 
+X  * Version 3.0
+X  
+X  - Total rewrite from previous versions
+X***************
+X*** 21,100 ****
+X  - Fixed a lurking bug in trigger date calculation which, amazingly, had not
+X    been caught in the couple of years that Remind has been out!
+X  
+X! * Version 2.4 Patch 5 - Added the "c+n" option for printing a calendar by
+X! weeks instead of months, courtesy Dennis Cottel (dennis@peanuts.nosc.mil).
+X  
+X! * Version 2.3 Patch 4 - Made the init.c file nicer.  Made the Makefile
+X! prettier.  Added "make test", "make tar" and "make shar" Makefile targets.
+X  
+X! * Version 2.3 Patch 3 - Added a command-line option for Remind to process
+X! queued reminders in the foreground.  This makes automatic termination
+X! of Remind processes from within X-Windows and Sunview easier.
+X  
+X! * Version 2.3 Patch 2 - Fixed up a problem with timed reminders which resulted
+X! in cursor not starting from left side of screen on some systems.
+X  
+X! Fixed the SIGINT handler for SYSV systems - this was interrupting the
+X! sleep(2) system call.
+X  
+X! Closed stdin and stdout if remind was part of a pipe - this prevents other
+X! sections of the pipe from hanging as remind puts itself in the background.
+X  
+X! Added the "-h" (Hush mode) option
+X  
+X! Added the "%#" and "%@" modifiers for the current time.
+X  
+X! Made the Makefile more portable
+X  
+X! * Version 2.3 Patch 1 - Added the "-t" command-line option to get Remind
+X! to trigger all non-expired reminders.
+X  
+X! Added Turbo C support courtesy of Rhys Weatherly
+X  
+X! Added the "RUN ON" and "RUN OFF" commands for a secure interface with
+X! the Elm mail system.
+X  
+X! Added the "rem" shell script for running Remind with a default script.
+X  
+X! Added manual pages for "kall" and "rem".
+X  
+X! * Version 2.3 - Added the UNTIL keyword for forcing reminders to expire.
+X  
+X! Added the "++" form of 'back' and the "--" form of 'delta' for
+X! ignoring OMIT information.
+X  
+X! Added the CLEAR-OMIT-CONTEXT, PUSH-OMIT-CONTEXT and POP-OMIT-CONTEXT
+X! keywords for isolating personal or peculiar reminders from the global
+X! OMIT context.
+X  
+X! Speeded up the parsing of tokens.
+X  
+X! Changed the source to recognize and exploit ANSI-C compilers which
+X! accept function prototypes.
+X  
+X! Added the "-n" option to output the next occurrence of each reminder
+X! in SimpleCalendar format
+X  
+X! Modified the calendar and SimpleCalendar formats so that the % escape
+X! substitutions ARE performed.
+X  
+X! * Version 2.2 - Patch 5 - Added the BEFORE, AFTER and SKIP tokens to make the
+X! handling of holidays more sensible.  Also corrected a few more bugs.
+X  
+X! * Version 2.2 - Patch 3  - Added the MSG or RUN tokens in an OMIT command; also
+X! allowed RUN-type reminders to be explicitly included in the calendar by
+X! using the %" escape sequence.
+X  
+X! * Version 2.2 - Added the AT keyword, the timed reminders daemon, and the
+X! calendar facility.
+X  
+X! * Version 2.1 - Added the "repeat" token for repeating reminders with a period
+X! other than 7 days.  Also fixed some bugs from version 2.0
+X  
+X! * Version 2.0 - first public release.  Included advanced date specifications,
+X! character substitution, and the RUN keyword.
+X  
+X! * Version 1.0 - never publicly released.
+X  
+X  
+X  
+X--- 66,169 ----
+X  - Fixed a lurking bug in trigger date calculation which, amazingly, had not
+X    been caught in the couple of years that Remind has been out!
+X  
+X! * Version 2.4 Patch 5 
+X  
+X! - Added the "c+n" option for printing a calendar by
+X!   weeks instead of months, courtesy Dennis Cottel (dennis@peanuts.nosc.mil).
+X  
+X! * Version 2.3 Patch 4
+X  
+X! - Made the init.c file nicer.  Made the Makefile
+X!   prettier.  Added "make test", "make tar" and "make shar" Makefile targets.
+X  
+X! * Version 2.3 Patch 3
+X  
+X! - Added a command-line option for Remind to process
+X!   queued reminders in the foreground.  This makes automatic termination
+X!   of Remind processes from within X-Windows and Sunview easier.
+X  
+X! * Version 2.3 Patch 2
+X  
+X! - Fixed up a problem with timed reminders which resulted
+X!   in cursor not starting from left side of screen on some systems.
+X  
+X! - Fixed the SIGINT handler for SYSV systems - this was interrupting the
+X!   sleep(2) system call.
+X  
+X! - Closed stdin and stdout if remind was part of a pipe - this prevents other
+X!   sections of the pipe from hanging as remind puts itself in the background.
+X  
+X! - Added the "-h" (Hush mode) option
+X  
+X! - Added the "%#" and "%@" modifiers for the current time.
+X  
+X! - Made the Makefile more portable
+X  
+X! * Version 2.3 Patch 1
+X  
+X! - Added the "-t" command-line option to get Remind
+X!   to trigger all non-expired reminders.
+X  
+X! - Added Turbo C support courtesy of Rhys Weatherly
+X  
+X! - Added the "RUN ON" and "RUN OFF" commands for a secure interface with
+X!   the Elm mail system.
+X  
+X! - Added the "rem" shell script for running Remind with a default script.
+X  
+X! - Added manual pages for "kall" and "rem".
+X  
+X! * Version 2.3
+X  
+X! - Added the UNTIL keyword for forcing reminders to expire.
+X  
+X! - Added the "++" form of 'back' and the "--" form of 'delta' for
+X!   ignoring OMIT information.
+X  
+X! - Added the CLEAR-OMIT-CONTEXT, PUSH-OMIT-CONTEXT and POP-OMIT-CONTEXT
+X!   keywords for isolating personal or peculiar reminders from the global
+X!   OMIT context.
+X  
+X! - Speeded up the parsing of tokens.
+X  
+X! - Changed the source to recognize and exploit ANSI-C compilers which
+X!   accept function prototypes.
+X  
+X! - Added the "-n" option to output the next occurrence of each reminder
+X!   in SimpleCalendar format
+X  
+X! - Modified the calendar and SimpleCalendar formats so that the % escape
+X!   substitutions ARE performed.
+X! 
+X! * Version 2.2 - Patch 5
+X! 
+X! - Added the BEFORE, AFTER and SKIP tokens to make the
+X!   handling of holidays more sensible.  Also corrected a few more bugs.
+X! 
+X! * Version 2.2 - Patch 3
+X! 
+X! - Added the MSG or RUN tokens in an OMIT command; also
+X!   allowed RUN-type reminders to be explicitly included in the calendar by
+X!   using the %" escape sequence.
+X! 
+X! * Version 2.2
+X! 
+X! - Added the AT keyword, the timed reminders daemon, and the
+X!   calendar facility.
+X! 
+X! * Version 2.1
+X! 
+X! - Added the "repeat" token for repeating reminders with a period
+X!   other than 7 days.  Also fixed some bugs from version 2.0
+X! 
+X! * Version 2.0
+X! 
+X! - first public release.  Included advanced date specifications,
+X!   character substitution, and the RUN keyword.
+X! 
+X! * Version 1.0
+X! 
+X! - never publicly released.
+X  
+X  
+X  
+X*** ../p0/calendar.c	Mon Nov  9 14:12:13 1992
+X--- ./calendar.c	Wed Dec 16 10:51:29 1992
+X***************
+X*** 173,182 ****
+X--- 173,202 ----
+X  static void DoCalendarOneMonth()
+X  #endif
+X  {
+X+    int y, m, d, mm, yy;
+X+ 
+X     if (!DoSimpleCalendar) WriteCalHeader();
+X  
+X+    if (PsCal) {
+X+       FromJulian(JulianToday, &y, &m, &d);
+X+       printf("%s\n", PSBEGIN);
+X+       printf("%s %d %d %d\n",
+X+               MonthName[m], y, DaysInMonth(m, y), (JulianToday+1) % 7);
+X+       mm = m-1;
+X+       if (mm<0) {
+X+          mm = 11; yy = y-1;
+X+       } else yy=y;
+X+ 
+X+       printf("%s %d\n", MonthName[mm], DaysInMonth(mm,yy));
+X+       mm = m+1;
+X+       if (mm>11) {
+X+          mm = 0; yy = y+1;
+X+       } else yy=y;
+X+       printf("%s %d\n", MonthName[mm], DaysInMonth(mm,yy));
+X+    }
+X     while (WriteCalendarRow()) continue;
+X  
+X+    if (PsCal) printf("%s\n", PSEND);
+X     if (!DoSimpleCalendar) WriteCalTrailer();
+X  }   
+X  
+X*** ../p0/config.h	Mon Nov  9 14:12:07 1992
+X--- ./config.h	Wed Dec 16 10:51:23 1992
+X***************
+X*** 7,13 ****
+X  /*  care of certain system dependencies.                       */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1991 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X--- 7,13 ----
+X  /*  care of certain system dependencies.                       */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X***************
+X*** 109,115 ****
+X--- 109,117 ----
+X  /*---------------------------------------------------------------------*/
+X  /* Do we have the <unistd.h> header?  If not, use sys/files.h          */
+X  /*---------------------------------------------------------------------*/
+X+ #ifdef UNIX
+X  #define HAVE_UNISTD 1
+X+ #endif
+X  
+X  /*---------------------------------------------------------------------*/
+X  /* How many attempts to resolve a weird date spec?                     */
+X***************
+X*** 151,153 ****
+X--- 153,162 ----
+X  /*---------------------------------------------------------------------*/
+X  #define PUBLIC
+X  #define PRIVATE static
+X+ 
+X+ #ifdef UNIX
+X+ #define _POSIX_SOURCE
+X+ #endif
+X+ 
+X+ #define PSBEGIN "# rem2ps begin"
+X+ #define PSEND   "# rem2ps end"
+X*** ../p0/dorem.c	Mon Nov  9 14:12:13 1992
+X--- ./dorem.c	Wed Dec 16 10:51:30 1992
+X***************
+X*** 10,17 ****
+X  /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X- #include <stdio.h>
+X  #include "config.h"
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X--- 10,17 ----
+X  /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X+ #include <stdio.h>
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X*** ../p0/dosubst.c	Mon Nov  9 14:12:14 1992
+X--- ./dosubst.c	Wed Dec 16 10:51:30 1992
+X***************
+X*** 9,17 ****
+X  /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include <stdio.h>
+X  #include <ctype.h>
+X- #include "config.h"
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X--- 9,17 ----
+X  /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X+ #include "config.h"
+X  #include <stdio.h>
+X  #include <ctype.h>
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X***************
+X*** 110,116 ****
+X        if (err) return err;
+X        if (c == '\n') continue;
+X        if (!c) {
+X!          if (mode != CAL_MODE) *s++ = '\n';
+X  	 *s++ = 0;
+X  	 break;
+X        }
+X--- 110,116 ----
+X        if (err) return err;
+X        if (c == '\n') continue;
+X        if (!c) {
+X!          if (mode != CAL_MODE && t->typ != RUN_TYPE) *s++ = '\n';
+X  	 *s++ = 0;
+X  	 break;
+X        }
+X***************
+X*** 346,352 ****
+X  	    s += strlen(s);
+X  	    break;
+X  
+X!          case '_': sprintf(s, "%s", NL);
+X  	    s += strlen(s);
+X  	    break;
+X  
+X--- 346,356 ----
+X  	    s += strlen(s);
+X  	    break;
+X  
+X!          case '_': 
+X!             if (mode != CAL_MODE)
+X!                sprintf(s, "%s", NL);
+X!             else
+X!                sprintf(s, " ");
+X  	    s += strlen(s);
+X  	    break;
+X  
+X*** ../p0/err.h	Mon Nov  9 14:12:07 1992
+X--- ./err.h	Wed Dec 16 10:51:24 1992
+X***************
+X*** 5,11 ****
+X  /*  Error definitions.                                         */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1991 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X--- 5,11 ----
+X  /*  Error definitions.                                         */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X*** ../p0/expr.c	Mon Nov  9 14:12:16 1992
+X--- ./expr.c	Wed Dec 16 10:51:32 1992
+X***************
+X*** 5,23 ****
+X  /*  This file contains routines to parse and evaluate          */
+X  /*  expressions.                                               */
+X  /*                                                             */
+X! /*  Copyright 1991 by David F. Skoll.                          */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! /* If we're using Turbo C, turn off annoying warning messages! */
+X! #ifdef __TURBOC__
+X! #pragma warn -pia
+X! #endif
+X! 
+X  #include <stdio.h>
+X  #include <ctype.h>
+X  #include <string.h>
+X- #include "config.h"
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X--- 5,18 ----
+X  /*  This file contains routines to parse and evaluate          */
+X  /*  expressions.                                               */
+X  /*                                                             */
+X! /*  Copyright 1992 by David F. Skoll.                          */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! #include "config.h"
+X  #include <stdio.h>
+X  #include <ctype.h>
+X  #include <string.h>
+X  #ifdef HAVE_STDLIB_H
+X  #include <stdlib.h>
+X  #endif
+X***************
+X*** 62,67 ****
+X--- 57,63 ----
+X  PRIVATE int MakeValue ARGS ((char *s, Value *v, Var *locals));
+X  PRIVATE int PushOpStack ARGS ((Operator *op));
+X  PRIVATE int PopOpStack ARGS ((Operator *op));
+X+ PRIVATE int ParseLiteralDate ARGS ((char **s, int *jul));
+X  
+X  /* Binary operators - all left-associative */
+X  
+X***************
+X*** 236,243 ****
+X        if (c == '\"') return OK ; else return E_MISS_QUOTE;
+X     }
+X  
+X!    if (!ISID(c)) return E_ILLEGAL_CHAR;
+X  
+X     /* Parse a constant, variable name or function */
+X     while (ISID(**in) || **in == ':') *out++ = *(*in)++;
+X  
+X--- 232,249 ----
+X        if (c == '\"') return OK ; else return E_MISS_QUOTE;
+X     }
+X  
+X!    /* Dates can be specified with single-quotes */
+X!    if (c == '\'') {
+X!       while (**in) if ((c = *out++ = *(*in)++) == '\'') break;
+X!       *out = 0;
+X!       if (c == '\'') return OK ; else return E_MISS_QUOTE;
+X!    }
+X  
+X+    if (!ISID(c)) {
+X+       Eprint("%s '%c'", ErrMsg[E_ILLEGAL_CHAR], c);
+X+       return E_ILLEGAL_CHAR;
+X+    }
+X+ 
+X     /* Parse a constant, variable name or function */
+X     while (ISID(**in) || **in == ':') *out++ = *(*in)++;
+X  
+X***************
+X*** 337,343 ****
+X  	       r = Evaluate(s, locals);
+X  	       if (r) return r;
+X  	       if (*ExprBuf == ')') break;
+X! 	       else if (*ExprBuf != ',') return E_ILLEGAL_CHAR;
+X              }
+X  	    if (f) r = CallFunc(f, args);
+X  	    else {
+X--- 343,352 ----
+X  	       r = Evaluate(s, locals);
+X  	       if (r) return r;
+X  	       if (*ExprBuf == ')') break;
+X! 	       else if (*ExprBuf != ',') {
+X!  		  Eprint("Expecting comma, found '%c'", *ExprBuf);
+X! 	          return E_ILLEGAL_CHAR;
+X!                }
+X              }
+X  	    if (f) r = CallFunc(f, args);
+X  	    else {
+X***************
+X*** 352,358 ****
+X              r = PushOpStack(f);
+X              if (r) return r;
+X  	    continue;  /* Still looking for an atomic vlue */
+X! 	 } else if (!ISID(*ExprBuf) && *ExprBuf != '"') {
+X  	    return E_ILLEGAL_CHAR;
+X  	 } else { /* Must be a literal value */
+X  	    r = MakeValue(ExprBuf, &va, locals);
+X--- 361,368 ----
+X              r = PushOpStack(f);
+X              if (r) return r;
+X  	    continue;  /* Still looking for an atomic vlue */
+X! 	 } else if (!ISID(*ExprBuf) && *ExprBuf != '"' && *ExprBuf != '\'') {
+X!             Eprint("%s '%c'", ErrMsg[E_ILLEGAL_CHAR], *ExprBuf);
+X  	    return E_ILLEGAL_CHAR;
+X  	 } else { /* Must be a literal value */
+X  	    r = MakeValue(ExprBuf, &va, locals);
+X***************
+X*** 408,415 ****
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  MakeValue                                                  */
+X! /*  Generate a literal value.  It's either a string, a number  */
+X! /*  or the value of a symbol.                                  */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X--- 418,425 ----
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  MakeValue                                                  */
+X! /*  Generate a literal value.  It's either a string, a number, */
+X! /*  a date or the value of a symbol.                           */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X***************
+X*** 435,440 ****
+X--- 445,457 ----
+X        strncpy(v->v.str, s+1, len-1);
+X        *(v->v.str+len-1) = 0;
+X        return OK;
+X+    } else if (*s == '\'') { /* It's a literal date */
+X+       s++;
+X+       if ((r=ParseLiteralDate(&s, &h))) return r;
+X+       if (*s != '\'') return E_BAD_DATE;
+X+       v->type = DATE_TYPE;
+X+       v->v.val = h;
+X+       return OK;
+X     } else if (isdigit(*s)) { /* It's a number - use len to hold it.*/
+X        len = 0;
+X        while (*s && isdigit(*s)) {
+X***************
+X*** 640,670 ****
+X  	       } else return E_2LOW;
+X  
+X  	    case STR_TYPE:
+X- 	       y=0; m=0; d=0;
+X  	       s = v->v.str;
+X! 	       if (!isdigit(*s)) return E_CANT_COERCE;
+X! 	       while (isdigit(*s)) {
+X! 		  y *= 10;
+X! 		  y += *s++ - '0';
+X! 	       }
+X! 	       if (*s++ != '/') return E_CANT_COERCE;
+X! 	       if (!isdigit(*s)) return E_CANT_COERCE;
+X! 	       while (isdigit(*s)) {
+X! 		  m *= 10;
+X! 		  m += *s++ - '0';
+X! 	       }
+X! 	       m--;
+X! 	       if (*s++ != '/') return E_CANT_COERCE;
+X! 	       if (!isdigit(*s)) return E_CANT_COERCE;
+X! 	       while (isdigit(*s)) {
+X! 		  d *= 10;
+X! 		  d += *s++ - '0';
+X! 	       }
+X! 	       if (*s || y < BASE || y > BASE+YR_RANGE ||
+X! 		    m>11 || d<1 || d>DaysInMonth(m, y)) return E_CANT_COERCE;
+X  	       v->type = DATE_TYPE;
+X  	       free(v->v.str);
+X! 	       v->v.val = Julian(y, m, d);
+X  	       return OK;
+X  
+X  	    default: return E_CANT_COERCE;
+X--- 657,668 ----
+X  	       } else return E_2LOW;
+X  
+X  	    case STR_TYPE:
+X  	       s = v->v.str;
+X! 	       if (ParseLiteralDate(&s, &i)) return E_CANT_COERCE;
+X! 	       if (*s) return E_CANT_COERCE;
+X  	       v->type = DATE_TYPE;
+X  	       free(v->v.str);
+X! 	       v->v.val = i;
+X  	       return OK;
+X  
+X  	    default: return E_CANT_COERCE;
+X***************
+X*** 1209,1212 ****
+X--- 1207,1255 ----
+X        dest->v.val = src->v.val;
+X        return OK;
+X     }
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  ParseLiteralDate                                           */
+X+ /*                                                             */
+X+ /*  Parse a literal date.  Return result in jul, update s.     */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int ParseLiteralDate(char **s, int *jul)
+X+ #else
+X+ static int ParseLiteralDate(s, jul)
+X+ char **s;
+X+ int *jul;
+X+ #endif
+X+ {
+X+    int y, m, d;
+X+ 
+X+    y=0; m=0; d=0;
+X+ 
+X+    if (!isdigit(**s)) return E_BAD_DATE;
+X+    while (isdigit(**s)) {
+X+       y *= 10;
+X+       y += *(*s)++ - '0';
+X+    }
+X+    if (*(*s)++ != '/') return E_BAD_DATE;
+X+    if (!isdigit(**s)) return E_BAD_DATE;
+X+    while (isdigit(**s)) {
+X+       m *= 10;
+X+       m += *(*s)++ - '0';
+X+    }
+X+    m--;
+X+    if (*(*s)++ != '/') return E_BAD_DATE;
+X+    if (!isdigit(**s)) return E_BAD_DATE;
+X+    while (isdigit(**s)) {
+X+       d *= 10;
+X+       d += *(*s)++ - '0';
+X+    }
+X+    if (y < BASE || y > BASE+YR_RANGE || m<0 ||
+X+         m>11 || d<1 || d>DaysInMonth(m, y)) return E_BAD_DATE;
+X+ 
+X+    *jul = Julian(y, m, d);
+X+ 
+X+    return OK;
+X  }
+END_OF_FILE
+  if test 32698 -ne `wc -c <'patch.01.A'`; then
+    echo shar: \"'patch.01.A'\" unpacked with wrong size!
+  elif test -f 'patch.01.B'; then 
+    echo shar: Combining  \"'patch.01'\" \(67490 characters\) 
+    cat 'patch.01.A' 'patch.01.B' > 'patch.01' 
+    if test 67490 -ne `wc -c <'patch.01'`; then 
+      echo shar: \"'patch.01'\" combined with wrong size! 
+    else 
+      rm patch.01.A patch.01.B 
+    fi 
+  fi
+  # end of 'patch.01.A'
+fi
+if test -f 'rem2ps.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rem2ps.1'\"
+else
+  echo shar: Extracting \"'rem2ps.1'\" \(3542 characters\)
+  sed "s/^X//" >'rem2ps.1' <<'END_OF_FILE'
+X.TH REM2PS 1 "25 November 1992"
+X.UC4
+X.SH NAME
+Xrem2ps \- draw a PostScript calendar from Remind output
+X.SH SYNOPSIS
+X.B rem2ps [\fIoptions\fR]
+X.SH DESCRIPTION
+X\fBRem2ps\fR reads the standard input, which should be the results of running
+X\fBRemind\fR with the \fB\-p\fR option.  It emits PostScript code (which
+Xdraws a calendar) to the standard output.
+X.SH OPTIONS
+X.TP
+X.B \-l
+XProduce the calendar in landscape mode rather than the default
+Xportrait mode.
+X.TP
+X.B \-c
+XDo not generate small calendars for the next and previous months.  By
+Xdefault, these small calendars are generated and placed on the main
+Xcalendar.
+X.TP
+X.B \-m media
+XSet the page size.  You must specify the media type, which can be one of the
+Xfollowing.  (Sizes are approximate.  For a list of media types, type
+X"rem2ps -m help".)
+X.RS
+X.TP
+XLetter
+X8.5 x 11 in.
+X.TP
+XLegal
+X11 x 17 in.
+X.TP
+XLedger
+X8.5 x 14 in.
+X.TP
+XStatement
+X5.5 x 8.5 in.
+X.TP
+XExecutive
+X7.5 x 10 in.
+X.TP
+XA3
+X29.7 x 42 cm.
+X.TP
+XA4
+X21 x 29.7 cm.
+X.TP
+XA5
+X14.8 x 21 cm.
+X.TP
+XB4
+X25.7 x 36.4 cm.
+X.TP
+XB5
+X18.3 x 25.7 cm.
+X.TP
+XFolio
+X8.5 x 13 in.
+X.TP
+XQuarto
+X8.5 x 10.8 in.
+X.TP
+X10x14
+X10 x 14 in.
+X.PP
+XType "rem2ps -m help" for a list of available media.  Note that the media
+Xtype (and all \fBRem2ps\fR options) are case-sensitive.
+X.RE
+X.TP
+X\fB\-f\fR[\fBshed\fR] \fIfont\fR
+XSet the font for the small calendar, the calendar headings, the calendar
+Xentries, and the day numbers, respectively.  \fIFont\fR must be the
+Xname of a valid PostScript font.  The default fonts are equivalent to
+Xspecifying:
+X.RS
+X.PP
+X.nf
+X	-fhes Helvetica -fd Helvetica-BoldOblique
+X.fi
+X.PP
+XIn other words, the heading, entry and small-calendar fonts are set
+Xto Helvetica, and the font for the day numbers is set to
+XHelvetica-BoldOblique.
+X.RE
+X.TP
+X\fB\-s\fR[\fBhed\fR] \fIsize\fR
+XSet the size (in points) of the text for the the calendar headings,
+Xthe calendar entries, and the day numbers, respectively.  \fISize\fR
+Xmust be a decimal number.  The default sizes are equivalent to
+Xspecifying:
+X.RS
+X.PP
+X.nf
+X	-sdh 14 -se 8
+X.fi
+X.PP
+XIn other words, the heading and day numbers are 14-point fonts, and the
+Xcalendar entries are printed in 8-point text.
+X.RE
+X.TP
+X\fB\-b\fR \fIsize\fR
+XSet the size of the blank white border in each calendar box to \fIsize\fR
+Xpoints.  The default border size is 6 points, or 1/12 in.
+X.TP
+X\fB\-t\fR \fIsize\fR
+XSet the thickness of the black calendar grid lines.  The default is 1,
+Xfor a line thickness of one point (1/72 in.)
+X.SH USAGE
+XTo use \fBRem2ps\fR, you should pipe the output of \fBRemind\fR with the \fB\-p\fR
+Xoption to \fBRem2ps\fR, and then send the result to a printer.  This is most easily
+Xillustrated with examples:
+X.PP
+X.nf
+X	remind -p12 /dev/null 1 jan 1994 | rem2ps | lpr -Plaser
+X.fi
+X.PP
+XThat example creates a blank calendar for the entire year of 1994, and
+Xsends it the the printer named "laser."
+X.PP
+X.nf
+X	remind -p ~/.reminders | rem2ps -l -sd 18 > cal.ps
+X.fi
+X.PP
+XThis reminder creates a calendar for the current month, filling in
+Xentries from the reminder file "~/.reminders."  The calendar is produced
+Xin landscape mode, with a font size of 18 for the day numbers.  The result
+Xis put in the PostScript file "cal.ps."
+X.SH AUTHOR
+XDavid F. Skoll
+X.SH BUGS
+XAll \fBRem2ps\fR options are case-sensitive, unlike \fBRemind\fR.  Any time you supply
+Xa font name or size, line thickness, or border width, it is treated as a
+Xstring and sent straight to the PostScript interpreter.  Thus, if you
+Xsupply invalid fonts or sizes, \fBRem2ps\fR will not complain, but the resulting
+XPostScript output will probably not work.
+X.SH SEE ALSO
+X\fBRemind\fR
+END_OF_FILE
+  if test 3542 -ne `wc -c <'rem2ps.1'`; then
+    echo shar: \"'rem2ps.1'\" unpacked with wrong size!
+  fi
+  # end of 'rem2ps.1'
+fi
+if test -f 'rem2ps.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rem2ps.h'\"
+else
+  echo shar: Extracting \"'rem2ps.h'\" \(5685 characters\)
+  sed "s/^X//" >'rem2ps.h' <<'END_OF_FILE'
+X/***************************************************************/
+X/*                                                             */
+X/*  REM2PS.H                                                   */
+X/*                                                             */
+X/*  Define the PostScript prologue                             */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X
+Xchar *PSProlog[] =
+X{
+X   "% L - Draw a line",
+X   "/L {",
+X   "   newpath moveto lineto stroke",
+X   "} bind def",
+X   "% string1 string2 strcat string",
+X   "% Function: Concatenates two strings together.",
+X   "/strcat {",
+X   "         2 copy length exch length add",
+X   "         string dup",
+X   "         4 2 roll",
+X   "         2 index 0 3 index",
+X   "         putinterval",
+X   "         exch length exch putinterval",
+X   "} bind def",
+X   "% string doheading",
+X   "/doheading",
+X   "{",
+X   "   /monthyr exch def",
+X   "   ",
+X   "   HeadFont findfont",
+X   "   HeadSize scalefont setfont   ",
+X   "   monthyr stringwidth",
+X   "   pop",
+X   "   2 div MaxX MinX add 2 div exch sub /x exch def",
+X   "   MaxY HeadSize 1.5 mul sub /y exch def",
+X   "   newpath x y moveto monthyr show",
+X   "   y HeadSize 0.5 mul sub /y exch def",
+X   "   MinX y MaxX y L",
+X   "   /topy y def",
+X   "% Do the days of the week",
+X   "   MaxX MinX sub 7 div /xincr exch def",
+X   "   /x MinX def",
+X   "  [(Sunday) (Monday) (Tuesday) (Wednesday) (Thursday) (Friday) (Saturday)]",
+X   "  {",
+X   "     HeadSize x y HeadSize 2 mul sub x xincr add y CenterText",
+X   "     x xincr add /x exch def",
+X   "  } forall",
+X   "  y HeadSize 2 mul sub /y exch def",
+X   "  MinX y MaxX y L",
+X   "  /ytop y def /ymin y def",
+X   "}",
+X   "def",
+X   "/CenterText",
+X   "{",
+X   "   /maxy exch def",
+X   "   /maxx exch def",
+X   "   /miny exch def",
+X   "   /minx exch def",
+X   "   /sz exch def",
+X   "   /str exch def",
+X   "   str stringwidth pop",
+X   "   2 div maxx minx add 2 div exch sub",
+X   "   sz 2 div maxy miny add 2 div exch sub",
+X   "   moveto str show",
+X   "} def",
+X   "% Variables:",
+X   "% curline - a string holding the current line",
+X   "% y - current y pos",
+X   "% yincr - increment to next line",
+X   "% xleft - left margin",
+X   "% width - max width.",
+X   "% EnterOneWord - given a word, enter it into the box.",
+X   "% string EnterOneWord",
+X   "/EnterOneWord {",
+X   "   { EnterOneWordAux",
+X   "     {exit} if }",
+X   "   loop",
+X   "} bind def",
+X   "% EnterOneWordAux - if the word fits, enter it into box and return true.",
+X   "% If it doesn't fit, put as much as will fit and return the string and false.",
+X   "/EnterOneWordAux {",
+X   "   /word exch def",
+X   "   /tmpline curline word strcat def",
+X   "   tmpline stringwidth pop width gt",
+X   "   {MoveToNewLine}",
+X   "   {/curline tmpline ( ) strcat def /word () def}",
+X   "   ifelse",
+X   "   word () eq",
+X   "   {true}",
+X   "   {word false}",
+X   "   ifelse",
+X   "} bind def",
+X   "% MoveToNewLine - move to a new line, resetting word as appropriate",
+X   "/MoveToNewLine {",
+X   "   curline () ne",
+X   "   {newpath xleft y moveto curline show /curline () def /y y yincr add def}   ",
+X   "   {ChopWord}",
+X   "   ifelse",
+X   "} bind def",
+X   "% ChopWord - word won't fit.  Chop it and find biggest piece that will fit",
+X   "/ChopWord {",
+X   "   /curline () def",
+X   "   /len word length def",
+X   "   /Fcount len 1 sub def",
+X   "   ",
+X   "   {",
+X   "     word 0 Fcount getinterval stringwidth pop width le",
+X   "     {exit} if",
+X   "     /Fcount Fcount 1 sub def",
+X   "   } loop",
+X   "% Got the count.  Display it and reset word",
+X   "   newpath xleft y moveto word 0 Fcount getinterval show",
+X   "   /y y yincr add def",
+X   "   /word word Fcount len Fcount sub getinterval def",
+X   "} bind def",
+X   "/FinishFormatting {",
+X   "   word () ne",
+X   "   {newpath xleft y moveto word show /word () def",
+X   "    /curline () def /y y yincr add def}",
+X   "   {curline () ne",
+X   "     {newpath xleft y moveto curline show /word () def",
+X   "      /curline () def /y y yincr add def} if}",
+X   "   ifelse",
+X   "} bind def",
+X   "% FillBoxWithText - fill a box with text",
+X   "% text-array xleft width yincr y FillBoxWithText new-y",
+X   "% Returns the new Y-coordinate.",
+X   "/FillBoxWithText {",
+X   "   /y exch def",
+X   "   /yincr exch def",
+X   "   /width exch def",
+X   "   /xleft exch def",
+X   "   /curline () def",
+X   "   {EnterOneWord} forall",
+X   "   FinishFormatting",
+X   "   y",
+X   "} bind def",
+X   "% Variables for calendar boxes:",
+X   "% ytop - current top position",
+X   "% ymin - minimum y reached for current row",
+X   "% border ytop xleft width textarray daynum DoCalBox ybot",
+X   "% Do the entries for one calendar box.  Returns lowest Y-coordinate reached",
+X   "/DoCalBox {",
+X   "   /daynum exch def",
+X   "   /textarr exch def",
+X   "   /wid exch def",
+X   "   /xl exch def",
+X   "   /yt exch def",
+X   "   /border exch def",
+X   "% Do the day number",
+X   "   DayFont findfont DaySize scalefont setfont",
+X   "   xl wid add border sub daynum stringwidth pop sub",
+X   "   yt border sub DaySize sub moveto daynum show",
+X   "% Do the text entries.  Precharge the stack with current y pos.",
+X   "   /ycur yt border sub DaySize sub DaySize sub 2 add def",
+X   "   EntryFont findfont EntrySize scalefont setfont",
+X   "   ycur",
+X   "   textarr",
+X   "   { exch 2 sub /ycur exch def xl border add wid border sub border sub EntrySize 2 add neg",
+X   "     ycur FillBoxWithText }",
+X   "    forall",
+X   "} bind def",
+X   "2 setlinecap",
+X   NULL
+X};
+END_OF_FILE
+  if test 5685 -ne `wc -c <'rem2ps.h'`; then
+    echo shar: \"'rem2ps.h'\" unpacked with wrong size!
+  fi
+  # end of 'rem2ps.h'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

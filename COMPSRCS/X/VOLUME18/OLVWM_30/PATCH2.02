@@ -1,0 +1,1573 @@
+Newsgroups: comp.sources.x
+Path: uunet!munnari.oz.au!mips!mips!msi!dcmartin
+From: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Subject: v18i049: olvwm 3.0, Patch2, Part02/04
+Message-ID: <1992Jul22.152507.19187@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i048-olvwm-3.0@uunet.UU.NET>
+Date: Wed, 22 Jul 1992 15:25:07 GMT
+Approved: dcmartin@msi.com
+Lines: 1560
+
+Submitted-by: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Posting-number: Volume 18, Issue 49
+Archive-name: olvwm-3.0/patch2.02
+Patch-To: olvwm-3.0: Volume 15, Issue 167
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file olvwm3.Patch02 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping olvwm3.Patch02'
+else
+echo 'x - continuing file olvwm3.Patch02'
+sed 's/^X//' << 'SHAR_EOF' >> 'olvwm3.Patch02' &&
+!     menu = GetEnabledMenu(win->core.client, fullsize,
+X  				False, win->core.client->sticky);
+X  
+X      if (!menu)
+*** BUILD/moveresize.c	Sat Jun 13 15:51:02 1992
+--- src/moveresize.c	Sat Jun 13 15:48:41 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident "@(#)moveresize.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident "@(#)moveresize.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 130,136 ****
+X      ScreenInfo *scrinfo;
+X      char *proto;
+X  {
+-     int width, height;
+X      XSetWindowAttributes attr;
+X      StatusWinInfo *sw;
+X      int	changed, x, y, w, h;
+--- 130,135 ----
+***************
+*** 274,280 ****
+X  {
+X  Region		new;
+X  XRectangle	rect;
+- int		stacking_order;
+X  
+X      if (!cli->framewin)
+X  	return NULL;
+--- 273,278 ----
+***************
+*** 345,353 ****
+X  	Window		root;
+X  
+X  	vdm = cli->scrInfo->vdm;
+! 	if (vdm && vdm->client->wmState != IconicState &&
+! 		vdm->client != cli && GRV.AllowMoveIntoDesktop) {
+! 	    mstuff.check_vdm = True;
+X  	    XGetGeometry(dpy, vdm->client->framewin->core.self,
+X  			 &root, &x, &y, &w, &h, &bw, &d);
+X  	    mstuff.vdm_screenX = x;
+--- 343,350 ----
+X  	Window		root;
+X  
+X  	vdm = cli->scrInfo->vdm;
+! 	if (vdm && vdm->client->wmState != IconicState && vdm->client != cli) {
+! 	    mstuff.check_vdm = GRV.AllowMoveIntoDesktop;
+X  	    XGetGeometry(dpy, vdm->client->framewin->core.self,
+X  			 &root, &x, &y, &w, &h, &bw, &d);
+X  	    mstuff.vdm_screenX = x;
+***************
+*** 362,369 ****
+X  	    rect.width = w;
+X  	    rect.height = h;
+X  	}
+! 	else mstuff.check_vdm = False;
+!         mstuff.vdm = vdm;
+X      }
+X  
+X      mstuff.dpy = dpy;
+--- 359,376 ----
+X  	    rect.width = w;
+X  	    rect.height = h;
+X  	}
+! 	else {
+! 	    mstuff.vdm = vdm;
+! 	    mstuff.check_vdm = False;
+! 	}
+! 	if (first) {
+! 	    if (first->xmotion.window == PANEWINOFCLIENT(vdm->client))
+! 	        mstuff.inVDM = True;
+! 	    else if (VGetInfo(first->xmotion.window))
+! 	        mstuff.inVDM = True;
+! 	    else mstuff.inVDM = False;
+! 	}
+! 	else mstuff.inVDM = False;
+X      }
+X  
+X      mstuff.dpy = dpy;
+***************
+*** 432,438 ****
+X  		mstuff.num_children = 0;
+X  	    mstuff.vdm_stacking_order =
+X  		getWindowStackingOrder(mstuff.vdm->client->framewin->core.self,
+! 					mstuff);
+X  	    ListApply(ActiveClientList, moveAddRegion, &mstuff);
+X  	}
+X  	else mstuff.region = NULL;
+--- 439,445 ----
+X  		mstuff.num_children = 0;
+X  	    mstuff.vdm_stacking_order =
+X  		getWindowStackingOrder(mstuff.vdm->client->framewin->core.self,
+! 					&mstuff);
+X  	    ListApply(ActiveClientList, moveAddRegion, &mstuff);
+X  	}
+X  	else mstuff.region = NULL;
+***************
+*** 526,534 ****
+X  	        mstuff->inVDM = True;
+X  	    else if (mstuff->dragwin) {
+X  	        /*
+! 	         * If we're dragging the window and the event is on the window's
+! 	         * frame (ie we moved just a little) see if we're over the vdm.
+! 	         * If so, move into the vdm
+X  	         */
+X  	    }    
+X  	    else mstuff->inVDM = False;
+--- 533,541 ----
+X  	        mstuff->inVDM = True;
+X  	    else if (mstuff->dragwin) {
+X  	        /*
+! 	         * If we're dragging the window, then we took care of setting
+! 		 * the VDM when we do the regioning stuff.
+! 		 * REMIND:  Can we ever get here?
+X  	         */
+X  	    }    
+X  	    else mstuff->inVDM = False;
+***************
+*** 536,542 ****
+X  	else mstuff->inVDM = XPointInRegion(mstuff->region,
+X  				event->xmotion.x_root, event->xmotion.y_root);
+X      }
+!     else mstuff->inVDM = False;
+X  
+X      if (mstuff->inVDM) {
+X          mstuff->offX = (mstuff->curX - mstuff->vdm_screenX) *
+--- 543,557 ----
+X  	else mstuff->inVDM = XPointInRegion(mstuff->region,
+X  				event->xmotion.x_root, event->xmotion.y_root);
+X      }
+! #if 0
+!     else if (!GRV.AllowMoveIntoDesktop) {
+! 	if (VGetInfo(event->xmotion.window))
+! 	    mstuff->inVDM = True;
+! 	else if (event->xmotion.window == PANEWINOFCLIENT(mstuff->vdm->client))
+! 	    mstuff->inVDM = True;
+!         else mstuff->inVDM = False;
+!     }
+! #endif
+X  
+X      if (mstuff->inVDM) {
+X          mstuff->offX = (mstuff->curX - mstuff->vdm_screenX) *
+***************
+*** 935,941 ****
+X  int	dw, dh;
+X  int 	offX, offY;
+X  int	newScreenX, curScreenX,	newScreenY, curScreenY;
+- int	width, height;
+X  Client	*leader;
+X  
+X      if (win->core.client->flags & CLMoved)
+--- 950,955 ----
+***************
+*** 943,950 ****
+X      dw = DisplayWidth(win->core.client->dpy, win->core.client->screen);
+X      dh = DisplayHeight(win->core.client->dpy, win->core.client->screen);
+X      windowOff(win, mstuff, &offX, &offY);
+-     width = win->core.width;
+-     height = win->core.height;
+X      if (GRV.VirtualMoveGroups) {
+X  	switch(win->core.client->groupmask) {
+X  	    case GROUP_LEADER:
+--- 957,962 ----
+***************
+*** 961,971 ****
+X  		doConfigOneWindow(win, mstuff);
+X  		return (void *) 0;
+X  	}
+! 	curScreenX = (win->core.x - mstuff->vdm->offsetX) / dw;
+! 	newScreenX = (win->core.x + offX - mstuff->vdm->offsetX) / dw;
+X  	mstuff->targetScreenX = newScreenX - curScreenX;
+! 	curScreenY = (win->core.y - mstuff->vdm->offsetY) / dh;
+! 	newScreenY = (win->core.y + offY - mstuff->vdm->offsetY) / dh;
+X  	mstuff->targetScreenY = newScreenY - curScreenY;
+X  	if (mstuff->targetScreenY == 0 && mstuff->targetScreenX == 0)
+X  	    doConfigOneWindow(win, mstuff);
+--- 973,987 ----
+X  		doConfigOneWindow(win, mstuff);
+X  		return (void *) 0;
+X  	}
+! 	curScreenX = (win->core.x + (win->core.width / 2) -
+! 				mstuff->vdm->offsetX) / dw;
+! 	newScreenX = (win->core.x + (win->core.width / 2) +
+! 				offX - mstuff->vdm->offsetX) / dw;
+X  	mstuff->targetScreenX = newScreenX - curScreenX;
+! 	curScreenY = (win->core.y + (win->core.height / 2) -
+! 				mstuff->vdm->offsetY) / dh;
+! 	newScreenY = (win->core.y + (win->core.height / 2) +
+! 				offY - mstuff->vdm->offsetY) / dh;
+X  	mstuff->targetScreenY = newScreenY - curScreenY;
+X  	if (mstuff->targetScreenY == 0 && mstuff->targetScreenX == 0)
+X  	    doConfigOneWindow(win, mstuff);
+***************
+*** 1147,1154 ****
+X      drawDouble(rstuff->cli->dpy,
+X  		PANEWINOFCLIENT(rstuff->cli->scrInfo->vdm->client),
+X  		WinGC(rstuff->cli->framewin, ROOT_GC),
+! 		rstuff->winX / rstuff->cli->scrInfo->vdm->resources->scale,
+! 		rstuff->winY / rstuff->cli->scrInfo->vdm->resources->scale,
+X  		rstuff->winW / rstuff->cli->scrInfo->vdm->resources->scale,
+X  		rstuff->winH / rstuff->cli->scrInfo->vdm->resources->scale);
+X  }
+--- 1163,1172 ----
+X      drawDouble(rstuff->cli->dpy,
+X  		PANEWINOFCLIENT(rstuff->cli->scrInfo->vdm->client),
+X  		WinGC(rstuff->cli->framewin, ROOT_GC),
+! 		(rstuff->winX - rstuff->cli->scrInfo->vdm->offsetX) /
+! 				rstuff->cli->scrInfo->vdm->resources->scale,
+! 		(rstuff->winY - rstuff->cli->scrInfo->vdm->offsetY) /
+! 				rstuff->cli->scrInfo->vdm->resources->scale,
+X  		rstuff->winW / rstuff->cli->scrInfo->vdm->resources->scale,
+X  		rstuff->winH / rstuff->cli->scrInfo->vdm->resources->scale);
+X  }
+***************
+*** 1455,1461 ****
+X      WinGeneric *w;
+X      ResizeClosure *rstuff;
+X  {
+-     int dx, dy;
+X      unsigned int mask;
+X      SemanticAction action;
+X  
+--- 1473,1478 ----
+***************
+*** 1572,1578 ****
+--- 1589,1600 ----
+X      Window root = WinRootID(cli->framewin);
+X      Time timestamp;
+X      int frameMinWidth, frameMinHeight;
++     Cursor	resizePointer;
+X  
++     if (GRV.SpecialResizePointers)
++ 	resizePointer = GRV.ResizePointers[corner];
++     else resizePointer = GRV.ResizePointer;
++ 
+X      if (trigger == NULL || trigger->type == KeyPress) {
+X  	if (trigger == NULL)
+X  	    timestamp = CurrentTime;
+***************
+*** 1610,1616 ****
+X      if (XGrabPointer(cli->dpy, root, True,
+X  		     ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+X  		     GrabModeAsync, GrabModeAsync, root,
+! 		     GRV.ResizePointer, timestamp) != GrabSuccess)
+X      {
+X  	ErrorWarning(gettext("failed to grab pointer"));
+X  	return;
+--- 1632,1638 ----
+X      if (XGrabPointer(cli->dpy, root, True,
+X  		     ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+X  		     GrabModeAsync, GrabModeAsync, root,
+! 		     resizePointer, timestamp) != GrabSuccess)
+X      {
+X  	ErrorWarning(gettext("failed to grab pointer"));
+X  	return;
+*** BUILD/ol_button.c	Sat Jun 13 15:50:28 1992
+--- src/ol_button.c	Sat Jun 13 15:43:24 1992
+***************
+*** 1,4 ****
+! #ident "@(#)ol_button.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 1,4 ----
+! #ident "@(#)ol_button.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 338,344 ****
+X  {
+X  
+X  
+!     char            string[2];
+X      XSegment        seg[4];
+X  
+X  
+--- 338,344 ----
+X  {
+X  
+X  
+!     unsigned char   string[2];
+X      XSegment        seg[4];
+X  
+X  
+*** BUILD/olvwm.man	Sat Jun 13 15:51:03 1992
+--- src/olvwm.man	Sat Jun 13 15:43:25 1992
+***************
+*** 1,7 ****
+! .\" @(#)olvwm.man	1.2 olvwm version 1/27/92
+! .TH OLVWM 1 "15 November 1991"
+X  .SH NAME
+! olvwm \- OPEN LOOK virtual window manager for OpenWindows
+X  .SH SYNOPSIS
+X  .B olvwm
+X  [
+--- 1,7 ----
+! .\" @(#)olvwm.man	1.3 olvwm version 6/13/92
+! .TH OLVWM 1 "22 May 1992"
+X  .SH NAME
+! olvwm \- OPEN LOOK virtual window manager for X11 and OpenWindows
+X  .SH SYNOPSIS
+X  .B olvwm
+X  [
+***************
+*** 34,41 ****
+X  .\" ========================================================================
+X  .SH OPTIONS
+X  .LP
+! There are no new options to
+X  .B olvwm.
+X  .\" ========================================================================
+X  .SH TERMINOLOGY
+X  Throughout this manual, the following terms are used:
+--- 34,46 ----
+X  .\" ========================================================================
+X  .SH OPTIONS
+X  .LP
+! There is one new option to
+X  .B olvwm.
++ .TP
++ -allowSynthetic
++ Allow the receipt of synthetic events.  Note that this argument only
++ permits synthetic events to be enabled; whether or not synthetic events
++ are delivered is controlled via the SyntheticEvents resource variable.
+X  .\" ========================================================================
+X  .SH TERMINOLOGY
+X  Throughout this manual, the following terms are used:
+***************
+*** 69,75 ****
+X  displays a virtual desktop manager window.
+X  The VDM is a reduced display of all windows active on the desktop at any
+X  time.  The current view is outlined in the virtual desktop manager.
+! The VDM always appears on the monitor.
+X  .LP
+X  By default, the VDM (and hence the desktop) is divided into a grid; each
+X  square of the grid represents a screen size.  The dividing lines between
+--- 74,80 ----
+X  displays a virtual desktop manager window.
+X  The VDM is a reduced display of all windows active on the desktop at any
+X  time.  The current view is outlined in the virtual desktop manager.
+! The VDM always appears on the screen.
+X  .LP
+X  By default, the VDM (and hence the desktop) is divided into a grid; each
+X  square of the grid represents a screen size.  The dividing lines between
+***************
+*** 100,107 ****
+X  .LP
+X  SELECTing and dragging one or more virtual windows will move the real and
+X  virtual windows (just as in 
+! .B olwm
+! ).  Note that if you drag the mouse outside of the VDM, the window can be
+X  moved onto to the screen.  Conversely, when dragging
+X  a window on the screen, if the mouse moves into the VDM, the window will then
+X  be moved to the location on the displayed within the VDM.
+--- 105,111 ----
+X  .LP
+X  SELECTing and dragging one or more virtual windows will move the real and
+X  virtual windows (just as in 
+! \fBolwm\fP).  Note that if you drag the mouse outside of the VDM, the window can be
+X  moved onto to the screen.  Conversely, when dragging
+X  a window on the screen, if the mouse moves into the VDM, the window will then
+X  be moved to the location on the displayed within the VDM.
+***************
+*** 118,129 ****
+X  .SH EVENTS ON THE VDM BACKGROUND
+X  .LP
+X  Events on the VDM background all work to change the current view, bringing
+! windows which were formerly outside of the viewing area onto the screen (and
+! moving windows which were on the screen outside of the viewing area).
+! Keyboard events are described given the default Sun-4 keyboard mappings,
+X  but you can use xmodmap to set up your particular keyboard.
+X  .IP \fBKeyboard\ Events:\fP
+! The arrow keys (and other keys) can be used to shift the logical screen in
+X  the direction specified.  See the section on ADDITIONAL KEY BINDINGS
+X  below.  Keyboard events are also active if they occur on the root window
+X  in addition to the VDM background.
+--- 122,133 ----
+X  .SH EVENTS ON THE VDM BACKGROUND
+X  .LP
+X  Events on the VDM background all work to change the current view, bringing
+! windows which were formerly outside of the current view onto the screen (and
+! moving windows which were on the screen outside of the current view).
+! Keyboard events are described given the default Sun Type-4 keyboard mappings,
+X  but you can use xmodmap to set up your particular keyboard.
+X  .IP \fBKeyboard\ Events:\fP
+! The arrow keys (and other keys) can be used to shift the current view in
+X  the direction specified.  See the section on ADDITIONAL KEY BINDINGS
+X  below.  Keyboard events are also active if they occur on the root window
+X  in addition to the VDM background.
+***************
+*** 186,192 ****
+X  will always appear in the same place on the screen no matter which part
+X  of the virtual desktop you're looking at.  Windows which are not sticky
+X  (by default, all windows except the VDM) will move when you change the
+! view on the virtual desktop.
+X  .\" ========================================================================
+X  .SH CHANGES TO ROOT MENU
+X  .LP
+--- 190,196 ----
+X  will always appear in the same place on the screen no matter which part
+X  of the virtual desktop you're looking at.  Windows which are not sticky
+X  (by default, all windows except the VDM) will move when you change the
+! current view on the virtual desktop.
+X  .\" ========================================================================
+X  .SH CHANGES TO ROOT MENU
+X  .LP
+***************
+*** 195,201 ****
+X  .IP COLUMNS
+X  This specifies the number of columns you'd like the menu to have.  Each column
+X  within a menu will be filled in order of the items in the menu.  The menu
+! name must appear before this keyword, but the keyword itself must appear
+X  before the end of the menu.
+X  .IP STICK_UNSTICK_SELN
+X  This specifies that the sticky state of the selected windows should
+--- 199,205 ----
+X  .IP COLUMNS
+X  This specifies the number of columns you'd like the menu to have.  Each column
+X  within a menu will be filled in order of the items in the menu.  The menu
+! name must appear before this keyword, and the keyword itself must appear
+X  before the end of the menu.
+X  .IP STICK_UNSTICK_SELN
+X  This specifies that the sticky state of the selected windows should
+***************
+*** 202,220 ****
+X  be toggled.
+X  .IP WINMENU
+X  brings up a pull-right menu containing the name of every window on the
+! virtual desktop.  Windows which are iconified are preceded with a graphic
+X  symbol.  Selecting one of these windows causes the view into the desktop
+X  to shift so that the selected window is visible; the selected window will
+X  be opened if iconic and raised to the top of the stacking order.  This
+! behavior can be altered; see the 
+X  .I olvwmrc(5)
+! for more details.  You may specify that the number of columns in the pull-right
+! menu by using a number after the WINMENU keyword.
+X  .IP DIRMENU
+X  brings up a pull-right menu containing the name of every file given in the
+! named directory.  This allow syou to use a local programs directory for a
+X  tool repository; whenever tools are added to the directory, users will see
+! the new choices.
+X  .IP X11\ Bitmaps
+X  can be specified in the menu by specifying a filename enclosed in <> brackets.
+X  The filename specified must be in X11 bitmap form.  You can mix bitmap and
+--- 206,233 ----
+X  be toggled.
+X  .IP WINMENU
+X  brings up a pull-right menu containing the name of every window on the
+! current monitor (if
+! .B olvwm
+! is managing multiple monitors, only windows on the current monitor will be
+! shown).  Windows which are iconified are preceded with a graphic
+X  symbol.  Selecting one of these windows causes the view into the desktop
+X  to shift so that the selected window is visible; the selected window will
+X  be opened if iconic and raised to the top of the stacking order.  This
+! behavior can be altered; see 
+X  .I olvwmrc(5)
+! for more details.  You may specify the number of columns in the pull-right
+! menu by using a number after the WINMENU keyword.  By default, the order of
+! the menu is alphabetic; see the SortMenuType resource below for more options.
+X  .IP DIRMENU
+X  brings up a pull-right menu containing the name of every file given in the
+! named directory.  This allows you to use a local programs directory for a
+X  tool repository; whenever tools are added to the directory, users will see
+! the new choices.  The directory name may contain environmental variables
+! (e.g. $OPENWINHOME).  You may also specify a regular expression as the
+! file part of DIRMENU; e.g. $OPENWINHOME/bin/x* would display only those
+! programs in the openwindows bin directory which begin with an x.  Regular
+! expressions do not apply to the directory name; $OPENWINHOME/b*/x* is 
+! an invalid DIRMENU entry.
+X  .IP X11\ Bitmaps
+X  can be specified in the menu by specifying a filename enclosed in <> brackets.
+X  The filename specified must be in X11 bitmap form.  You can mix bitmap and
+***************
+*** 233,239 ****
+X  .sp
+X  Programs                 MENU
+X  Programs		COLUMNS 2
+!         <usr/openwin/include/X11/bitmaps/terminal>  DEFAULT cmdtool
+X          "Text Editor"           textedit
+X          Mail                    mailtool
+X          "File Manager"          filemgr
+--- 246,252 ----
+X  .sp
+X  Programs                 MENU
+X  Programs		COLUMNS 2
+!         </usr/openwin/include/X11/bitmaps/terminal>  DEFAULT cmdtool
+X          "Text Editor"           textedit
+X          Mail                    mailtool
+X          "File Manager"          filemgr
+***************
+*** 256,261 ****
+--- 269,288 ----
+X  Exit            EXIT
+X  .fi
+X  .\" ========================================================================
++ .SH MISCELLANEOUS NEW FEATURES
++ .LP
++ This section describes miscellaneous window manager features which are not
++ directly related to the virtual nature of
++ .B olvwm.
++ .LP
++ Upon receiving a USR1 signal,
++ .B olvwm
++ will execute a RESTART function just like the restart function available from
++ the root menu.
++ .LP
++ The root workspace will not be repainted on exit if the PaintWorkspace
++ resource is False.
++ .\" ==========================================================================
+X  .SH RESOURCES TO CONTROL THE VIRTUAL DESKTOP
+X  See the man page for
+X  .B olwm
+***************
+*** 277,283 ****
+X  Specifies the size of the virtual desktop.  You can specify this in
+X  terms of screen sizes, so that a virtual desktop of 3 screens across
+X  and 2 screens high would appear as the string 3x2.  You may also
+! specify this in terms of absolute pixel sizes, e.g. 3800x1800 as
+X  long as the pixel size is greater than the size of your framebuffer.
+X  .I
+X  Default value: 3x2
+--- 304,310 ----
+X  Specifies the size of the virtual desktop.  You can specify this in
+X  terms of screen sizes, so that a virtual desktop of 3 screens across
+X  and 2 screens high would appear as the string 3x2.  You may also
+! specify this in terms of absolute pixel sizes, e.g. 3800x1800, as
+X  long as the pixel size is greater than the size of your framebuffer.
+X  .I
+X  Default value: 3x2
+***************
+*** 305,311 ****
+X  Default value: +0+0
+X  .P
+X  .TP
+! .BI VirtualIconic " (Boolean)"
+X  If true, the virtual desk manager will come up iconic.
+X  .I
+X  Default value:  False
+--- 332,338 ----
+X  Default value: +0+0
+X  .P
+X  .TP
+! .BI VirtualIconic " (Boolean)" *
+X  If true, the virtual desk manager will come up iconic.
+X  .I
+X  Default value:  False
+***************
+*** 373,379 ****
+X  The list of windows which should be sticky by default.  Like the olwm
+X  MinimalDecor, this should be the list windows which should be sticky when
+X  they are created.  The matching of these strings is done by the first word
+! of the window's WM_NAME (string in it's title bar), or by its WM_CLASS
+X  class/instance variables.
+X  .I
+X  Default value:  Null
+--- 400,406 ----
+X  The list of windows which should be sticky by default.  Like the olwm
+X  MinimalDecor, this should be the list windows which should be sticky when
+X  they are created.  The matching of these strings is done by the first word
+! of the window's WM_NAME (string in its title bar), or by its WM_CLASS
+X  class/instance variables.
+X  .I
+X  Default value:  Null
+***************
+*** 418,424 ****
+X  Default value:  False
+X  .P
+X  .TP
+! .BI VirtualMoveGroups " (Boolean)"
+X  If true, then whenever a window is moved to a different logical screen,
+X  then all followers of that window will also be moved a similar
+X  amount:  this affects the window's icon and popups.  In this way, icons
+--- 445,451 ----
+X  Default value:  False
+X  .P
+X  .TP
+! .BI VirtualMoveGroup " (Boolean)"
+X  If true, then whenever a window is moved to a different logical screen,
+X  then all followers of that window will also be moved a similar
+X  amount:  this affects the window's icon and popups.  In this way, icons
+***************
+*** 426,448 ****
+X  corresponding base frame.  Otherwise, only the
+X  selected windows will move when you move them, and related windows could
+X  possibly appear on different logical screens in the desktop.  The trigger
+! for changing between logical screens is the window's upper-left-hand corner;
+! see VirtualGroupThreshold below.
+X  .I
+X  Default value:	True
+X  .P
+X  .TP
+- .BI VirtualGroupThreshold " (Integer)"
+- If VirtualMoveGroups, this is the amount by which the upper-left-hand
+- corner of a window must be moved off the monitor for
+- .I olvwm
+- to consider the window to have switched logical screens.  Setting this to
+- a positive value allows the left edge of windows to appear off the
+- monitor without moving the window's popups.
+- .I
+- Default value:  0
+- .P
+- .TP
+X  .BI UseImages " (UseNone, UseVDM, or UseAll)"
+X  If set to UseNone, then window frame menus and the VDM motion menu
+X  will be text-based.
+--- 453,465 ----
+X  corresponding base frame.  Otherwise, only the
+X  selected windows will move when you move them, and related windows could
+X  possibly appear on different logical screens in the desktop.  The trigger
+! for changing between logical screens is the window's mid-point; all windows
+! in the group will appear on the same logical screen as the mid-point of the
+! moved window.
+X  .I
+X  Default value:	True
+X  .P
+X  .TP
+X  .BI UseImages " (UseNone, UseVDM, or UseAll)"
+X  If set to UseNone, then window frame menus and the VDM motion menu
+X  will be text-based.
+***************
+*** 454,473 ****
+X  Default value:	UseVDM
+X  .P
+X  .TP
+! .BI PointerWorkspace " (Boolean)"
+! If set to True, olvwm will not change the pointer when it is over a window
+! frame.  This is useful in conjunction with xsetroot -cursor if you want
+! the specified cursor to be active over frames.
+X  .I
+! Default value:  False
+! .P
+! .TP
+! .BI SaveWorkspaceCmd " (String)"
+! If set, this is the command that will be run when the SAVE_WORKSPACE command
+! is selected off the main menu.  Otherwise, the default command is run.
+! .I
+! Default value: owplaces -silent -multi -script -tw -output $HOME/.openwin-init
+! .P
+X  .\" ========================================================================
+X  .SH ADDITIONAL MISCELLANEOUS RESOURCES
+X  .LP
+--- 471,483 ----
+X  Default value:	UseVDM
+X  .P
+X  .TP
+! .BI SortMenuType " (Enum)"
+! This option controls how windows appearing in the WINMENU command are sorted.
+! If it is set to Alphabetic, then windows will be sorted alphabetically
+! by name.  If it is set to Youngest, then windows will be sorted from youngest
+! to oldest.
+X  .I
+! Default value:  Alphabetic
+X  .\" ========================================================================
+X  .SH ADDITIONAL MISCELLANEOUS RESOURCES
+X  .LP
+***************
+*** 525,531 ****
+X  .I olvwm
+X  to ignore completely the window, while this attribute does not adorn the
+X  window or give it a menu, but still allows it to be manipulated via the
+! WINMENU and Hot Key actions.
+X  .P
+X  .TP
+X  .BI ResizeMoveGeometry " (X geometry string or the word center)"
+--- 535,542 ----
+X  .I olvwm
+X  to ignore completely the window, while this attribute does not adorn the
+X  window or give it a menu, but still allows it to be manipulated via the
+! WINMENU and Hot Key actions.  Normal olwm keys are ignored by these windows,
+! however.
+X  .P
+X  .TP
+X  .BI ResizeMoveGeometry " (X geometry string or the word center)"
+***************
+*** 538,558 ****
+X  .I
+X  Default value:	+0+0
+X  .P
+X  .\" ========================================================================
+X  .SH ADDITIONAL KEY BINDINGS
+X  .LP
+X  Like
+! .I olwm, olvwm
+X  uses key bindings for certain actions:  all actions specified in
+! .I olwm
+X  as well as an additional set of actions to control the view into the desktop.
+X  In the following list, the key mentioned in parentheses is the default binding
+X  for the given action; items marked with a plus sign '+' are items which
+X  exist in
+! .I olwm;
+X  they are included here to describe what action they have when they occur
+X  on the root window or within the VDM.  All other bindings are specific to
+! .I olvwm;
+X  those items marked  with an asterisk '*' involve keyboard grabs.  Bindings
+X  which involve a keyboard grab (those with an asterisk) are always active,
+X  no matter where the input focus is;
+--- 549,704 ----
+X  .I
+X  Default value:	+0+0
+X  .P
++ .TP
++ .BI PointerWorkspace " (Boolean)"
++ If true,
++ .B olvwm
++ will change the cursor when it is over window frames and other olvwm-owned
++ windows.  If False,
++ .B olvwm
++ will not change the cursor.  This is useful in conjunction with
++ \fIxsetroot -cursor\fP
++ if you want the specified cursor to be active over frames.
++ .I
++ Default value:  True
++ .P
++ .TP
++ .BI SaveWorkspaceCmd " (String)"
++ If set, this is the command that will be run when the SAVE_WORKSPACE command
++ is selected off the main menu.  Otherwise, the default command is run.
++ .I
++ Default value: owplaces -silent -multi -script -tw -output $HOME/.openwin-init
++ .P
++ .TP
++ .BI SyntheticEvents " (boolean)"
++ This resource controls the delivery of synthetic events.  This resource is
++ only valid if the -allowSynthetic argument was given to olvwm on startup;
++ if that argument was present and this resource is set to True, then olvwm
++ will process synthetic events.  Otherwise, synthetic events are ignored.
++ .I
++ Default value:  False
++ .P
+X  .\" ========================================================================
++ .SH CURSOR RESOURCES
++ .LP
++ These set of resources change the default cursors the window
++ manager gives certain classes it creates, such as resize buttons,
++ close buttons, frames, icons, etc.  The <cursor string> is described
++ as follows:
++ .IP
++ <cursor font name> <cursor index> [<fore color> [<back color>]]
++ .LP
++ where options enclosed in []'s are optional.  If the <back color>
++ is left out, the default back color (which, in this version of
++ OLVWM, is white) is used.  If the <fore color> is left out, then
++ the default cursor (foreground) color is used, which is black
++ by default, unless set by the cursorColor resource (see below).
++ Note that to supply the <back color>, you must supply the
++ <fore color>.  Also, if the color name you provide is invalid,
++ OLVWM will return to the default colors, as described above.  As
++ per usual with resources, no errors are reported.  The cursor font
++ is assumed to be encoded so that the valid mask for the cursor follows
++ the cursor index in the font; this is the usual behavior for font files.
++ .LP
++ There is an alternate form of <cursor string>:
++ .IP
++ <cursor name> [<fore color> [<back color>]]
++ .LP
++ where <cursor name> is either the name of the X cursor as defined in
++ cursorfont.h (eg: XC_X_cursor, XC_cross, etc), or the name of an
++ OPEN LOOK cursor as defined in olcursor.h (eg: OLC_basic, OLC_busy).
++ .LP
++ The valid <cursor>s are:
++ .TP
++ .BI CursorBasic ""
++ Specify the root window cursor.
++ .I
++ Default: Basic Pointer (arrow pointing NW)
++ .P
++ .TP
++ .BI CursorMove ""
++ Specify the cursor when a window is moved.
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorBusy ""
++ Specify the cursor for when a window is "busy".
++ .I
++ Default: Busy Pointer (pocket watch)
++ .P
++ .TP
++ .BI CursorIcon ""
++ Specify cursor for the icon windows.
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorResize ""
++ Specify cursor for the resize buttons and
++ when window is being "rubber-band" resized.
++ .I
++ Default: Bull's Eye
++ .P
++ .TP
++ .BI CursorMenu ""
++ Specify cursor for menu windows.
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorTarget ""
++ Specify cursor for window frames.
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorCloseUp ""
++ Specify cursor for close button, when NOT pressed (the button is UP).
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorCloseDown ""
++ Specify cursor for close button, when pressed (the button is DOWN).
++ .I
++ Default: Basic Pointer
++ .P
++ .TP
++ .BI CursorSpecialResize " <Bool> [<fg corner> <bg corner> <fg move> <bg move>]"
++ This is a special Cursor resource which turns on specialized
++ resize cursors.  If <Bool> is false, then the cursor for the
++ resize button decorations and the "rubber-band" window are
++ all specified by "Cursor.Resize" as discussed above.  If
++ <Bool> is true, then the following modifications are turned on:
++ When the cursor is within the resize button decorations
++ on a frame, the cursor becomes a corner of the appropriate
++ orientation.  When the button is selected and the window is
++ being "rubber-band" resized, the cursor becomes the appropriate
++ corner with an appropriately oriented arrow.  The colors that
++ you can specify are limited to prevent an obscene number
++ of resources.  You can specify the colors (foreground and
++ background) of the cursors when placed in the resize decoration
++ without the mouse button down (described above as <fg corner>
++ and <bg corner>), and you can specify the colors of the
++ cursors when the mouse button is down the window is being
++ resized (described above as <fg move> and <bg move>).  Note
++ that you must specify either all four colors or no colors.
++ .\" ========================================================================
+X  .SH ADDITIONAL KEY BINDINGS
+X  .LP
+X  Like
+! .B olwm, olvwm
+X  uses key bindings for certain actions:  all actions specified in
+! .B olwm
+X  as well as an additional set of actions to control the view into the desktop.
+X  In the following list, the key mentioned in parentheses is the default binding
+X  for the given action; items marked with a plus sign '+' are items which
+X  exist in
+! .B olwm;
+X  they are included here to describe what action they have when they occur
+X  on the root window or within the VDM.  All other bindings are specific to
+! .B olvwm;
+X  those items marked  with an asterisk '*' involve keyboard grabs.  Bindings
+X  which involve a keyboard grab (those with an asterisk) are always active,
+X  no matter where the input focus is;
+***************
+*** 563,568 ****
+--- 709,721 ----
+X  .B olwm
+X  man page for more details.
+X  .TP
++ VirtualGrabKeys " (Boolean)"
++ This resource controls whether the keys below marked as involving grabs will
++ be active or not.  If this resource is set to False, then none of the bindings
++ marked below with an asterisk will ever be active.
++ .I
++ Default value:  True
++ .TP
+X  Up  \fI(up-arrow)\fP +
+X  Move the view up one screen.
+X  .TP
+***************
+*** 646,652 ****
+X  Move the view to the upper left corner.
+X  
+X  .TP
+! RowStart \fI(Home, R7)\fP +
+X  Move the view NorthWest one screen.
+X  .TP
+X  JumpUpLeft \fI(R7+Ctrl)\fP +
+--- 799,805 ----
+X  Move the view to the upper left corner.
+X  
+X  .TP
+! UpLeft \fI(Home, R7)\fP +
+X  Move the view NorthWest one screen.
+X  .TP
+X  JumpUpLeft \fI(R7+Ctrl)\fP +
+***************
+*** 665,671 ****
+X  Move the view NorthWest one-half screen.
+X  
+X  .TP
+! RowEnd \fI(End, R13)\fP +
+X  Move the view SouthWest one screen.
+X  .TP
+X  JumpDownLeft \fI(R13+Ctrl)\fP +
+--- 818,824 ----
+X  Move the view NorthWest one-half screen.
+X  
+X  .TP
+! DownLeft \fI(End, R13)\fP +
+X  Move the view SouthWest one screen.
+X  .TP
+X  JumpDownLeft \fI(R13+Ctrl)\fP +
+***************
+*** 781,786 ****
+--- 934,954 ----
+X  .TP
+X  VirtualScreen10	\fI(F10+Meta)\fP *
+X  Move to the tenth logical screen in the desktop.
++ .TP
++ SaveWorkspace \fI(F10+Meta+Alt+Shift)\fP *
++ Execute a Save Workspace command
++ .TP
++ ToggleDragWindows \fI(F6+Alt+Shift)\fP *
++ Toggles the setting of the DragWindow resource
++ .TP
++ ToggleMoveGroups \fI(g+Alt)\fP *
++ Toggles the setting of the VirtualMoveGroup resource
++ .TP
++ ToggleSizeFullZoomX \fI(F3+Alt+Shift)\fP *
++ Toggles the setting of the FullSizeZoomX resource
++ .TP
++ ToggleSticky \fI(s+Alt)\fP *
++ Toggles the sticky state of the window with input focus.
+X  .\" ========================================================================
+X  .SH ADVANCED USAGE
+X  .I olvwm
+***************
+*** 844,852 ****
+X  work contained in this application.
+X  .br
+X  Addition fixes and enhancements have been provided by Rich Berlin,
+! David Chase and David Plotkin at Sun, Ken West at Protocol Systems,
+X  Russel Kegley at General Dynamics, Chuck Musciano at Harris Systems,
+X  Alexander Dupuy at Columbia, David Boyd at Sterling Software, Duane
+! Gibson at Unify, Eric Fifer at Salomon, Andreas Stolcke, and Paul Eggert.
+X  In addition, several people from the net are not mentioned here but
+X  contributed duplicate fixes.
+--- 1012,1023 ----
+X  work contained in this application.
+X  .br
+X  Addition fixes and enhancements have been provided by Rich Berlin,
+! David Chase, Hinrich Tobaben and David Plotkin at Sun, Ken West at Protocol Systems,
+X  Russel Kegley at General Dynamics, Chuck Musciano at Harris Systems,
+X  Alexander Dupuy at Columbia, David Boyd at Sterling Software, Duane
+! Gibson at Unify, Eric Fifer and Harry Protoolis at Salomon,
+! Andreas Stolcke, Paul Eggert, Murray Laing at the University of Edinburgh,
+! Nir Samburski at Zoran Microelectronics LTD, Jimmy Guggemos at Lawrence
+! Berkeley Labs, and Matthias Pfuetzner.
+X  In addition, several people from the net are not mentioned here but
+X  contributed duplicate fixes.
+*** BUILD/olvwmrc.man	Sat Jun 13 15:50:10 1992
+--- src/olvwmrc.man	Sat Jun 13 15:43:25 1992
+***************
+*** 1,5 ****
+! .\" @(#)olvwmrc.man	1.1 olvwm version 1/3/92
+! .TH OLVWMRC 5 "15 November 1991"
+X  .SH NAME
+X  olvwmrc \- Resource file for the OPEN LOOK Virtual Window Manager
+X  .SH SYNOPSIS
+--- 1,5 ----
+! .\" @(#)olvwmrc.man	1.2 olvwm version 6/13/92
+! .TH OLVWMRC 5 "22 May 1992"
+X  .SH NAME
+X  olvwmrc \- Resource file for the OPEN LOOK Virtual Window Manager
+X  .SH SYNOPSIS
+***************
+*** 64,70 ****
+X  Key (F1-F10), or a Right Key (R1-R15).  The key may be specified by itself
+X  or with any one or more of the following modifiers:  Shift, Control, Alt,
+X  Meta, Hyper, Super, Shift Lock, or Caps Lock, in which case the key
+! must be pressed with the given modifiers.  Keyboards other than Sun-4
+X  will have to set up key mappings to generate X function or right key symbols.
+X  .LP
+X  The functionality for a key specified in a binding in
+--- 64,70 ----
+X  Key (F1-F10), or a Right Key (R1-R15).  The key may be specified by itself
+X  or with any one or more of the following modifiers:  Shift, Control, Alt,
+X  Meta, Hyper, Super, Shift Lock, or Caps Lock, in which case the key
+! must be pressed with the given modifiers.  Keyboards other than Sun Type-4
+X  will have to set up key mappings to generate X function or right key symbols.
+X  .LP
+X  The functionality for a key specified in a binding in
+***************
+*** 80,86 ****
+X  it is recommend that at least one modifier be
+X  used for keys in this manner so as not to conflict with other key meanings.
+X  .LP
+! There are six valid actions which can be associated with a key:
+X  .IP \fBWarp\fR
+X  This action requires a single identifier.  The youngest window
+X  matching this identifier will be located, and the view into the desktop
+--- 80,86 ----
+X  it is recommend that at least one modifier be
+X  used for keys in this manner so as not to conflict with other key meanings.
+X  .LP
+! There are eight valid actions which can be associated with a key:
+X  .IP \fBWarp\fR
+X  This action requires a single identifier.  The youngest window
+X  matching this identifier will be located, and the view into the desktop
+***************
+*** 102,107 ****
+--- 102,118 ----
+X  window will be matched against this list and those which match any
+X  identifier in the list will be raised.  Windows will be raised youngest
+X  first, so that the oldest windows in the list will end up on top.
++ .IP \fBLower\fR
++ This action requires a list of identifiers separated by commas.  Each
++ window will be matched against this list and those which match any
++ identifier in the list will be lowered.  Windows will be lowered youngest
++ first, so that the oldest windows in the list will end up on the bottom.
++ .IP \fBRaiseLower\fR
++ This action requires a list of identifiers separated by commas.  Each
++ window will be matched against this list and those which match any
++ identifier in the list will be raised to the top of the stack if they
++ are partially obscured or lowered to the bottom of the stack if they are
++ on top.
+X  .IP \fBExecute\fR
+X  This action requires a list of commands separated by commas.  Each
+X  command will be executed via a Bourne-shell in the same manner as
+***************
+*** 215,221 ****
+X  }
+X  .SH
+X  .LP
+! If you select the Calendar Manager from your WINMENU, then the view will
+X  warp to your Mail Tool instead of your file manager, and your file
+X  manager, if closed, will be opened.  [This isn't that contrived an example:
+X  pretend your file manager is sticky and your mail tool isn't, and you
+--- 226,232 ----
+X  }
+X  .SH
+X  .LP
+! If you select the File Manager from your WINMENU, then the view will
+X  warp to your Mail Tool instead of your file manager, and your file
+X  manager, if closed, will be opened.  [This isn't that contrived an example:
+X  pretend your file manager is sticky and your mail tool isn't, and you
+***************
+*** 240,245 ****
+--- 251,309 ----
+X  xterm { Raise:  OLVWM_USE_SELECTION }
+X  .LP
+X  will raise only the xterm corresponding to the one selected via the WINMENU.
++ .SH RESOURCES AND KEY BINDINGS
++ .LP
++ There are a few resources which are particular to the operation of olvwmrc.
++ .P
++ .TP
++ .BI VirtualReRead " (boolean)"
++ When this resource is True,
++ .B olvwm
++ will re-read the .olvwmrc file whenever it receives a Function Key event.
++ This will happen whenever a function key is pressed in the VDM or on the
++ root window, or whenever a function key grabbed by
++ .B olvwm
++ is pressed.
++ .I
++ Default value:  True
++ .P
++ .TP
++ .BI NoVirtualKey " (list of windows)"
++ This resource disables the virtual keys set up in .olvwmrc for a particular
++ window.  The list of windows follows the same syntax as other resource lists
++ like MinimalDecor and VirtualSticky.  When a window in this list has the input
++ focus and the user executes a key sequence which is mentioned in .olvwmrc,
++ that key sequence will be passed to the application rather than initiating
++ the olvwmrc action.  Note that this disabling applies only to bindings
++ established via entries in .olvwmrc; normal
++ .B olvwm
++ and
++ .B olwm
++ bindings are not affected.
++ .I
++ Default value:  None
++ .P
++ .TP
++ .BI NoVirtualFKey " (list of windows)"
++ This resource is like NoVirtualKey, but only the Function keys F1 to F10
++ will be disabled for the given window.
++ .I
++ Default value:  None
++ .P
++ .TP
++ .BI NoVirtualLKey " (list of windows)"
++ This resource is like NoVirtualKey, but only the keys L1 to L10 (which map to
++ F11-F20 on non-Sun keyboards)
++ will be disabled for the given window.
++ .I
++ Default value:  None
++ .P
++ .TP
++ .BI NoVirtualRKey " (list of windows)"
++ This resource is like NoVirtualKey, but only the keys R1 to R15
++ will be disabled for the given window.
++ .I
++ Default value:  None
+X  .SH SEE ALSO
+X  .LP
+X  olvwm(1), olwm(1)
+***************
+*** 246,249 ****
+X  .SH NOTES
+X  .LP
+X  Please see the LEGAL_NOTICES file for full disclosure of copyright
+! information.
+--- 310,317 ----
+X  .SH NOTES
+X  .LP
+X  Please see the LEGAL_NOTICES file for full disclosure of copyright
+! information and olvwm(1) for acknowledgments.
+! .SH BUGS
+! .LP
+! The multiple interfaces for NoVirtualKeys is something only a Wall Street
+! trader could appreciate.
+*** BUILD/olvwmrc.y	Sat Jun 13 15:51:04 1992
+--- src/olvwmrc.y	Sat Jun 13 15:43:25 1992
+***************
+*** 4,10 ****
+X   */ 
+X  
+X  %{
+! #ident  "@(#)olvwmrc.y	1.2 olvwm version 1/27/92"
+X  
+X  #include <stdio.h>
+X  #include <string.h>
+--- 4,10 ----
+X   */ 
+X  
+X  %{
+! #ident  "@(#)olvwmrc.y	1.3 olvwm version 6/13/92"
+X  
+X  #include <stdio.h>
+X  #include <string.h>
+***************
+*** 28,42 ****
+X  
+X  extern CheckForKeyProg();
+X  char	*LookupToken();
+X  
+- static char     sccsid[] = "@(#)olvwmrc.y	1.1 olvwm version 1/2/92";
+- 
+X  typedef struct progscreen {
+X      char        *target;
+X      int         screen;
+X  } ProgScreen;
+X  
+! typedef enum { Warp, Open, Raise, Execute, Goto, Close, Quit } Action;
+X  
+X  typedef struct progkeynode {
+X      Action	action;
+--- 28,42 ----
+X  
+X  extern CheckForKeyProg();
+X  char	*LookupToken();
++ char	*FindOlvwmRC();
+X  
+X  typedef struct progscreen {
+X      char        *target;
+X      int         screen;
+X  } ProgScreen;
+X  
+! typedef enum { Warp, Open, Raise, Execute, Goto, Close, Quit,
+! 		RaiseLower, Lower } Action;
+X  
+X  typedef struct progkeynode {
+X      Action	action;
+***************
+*** 91,96 ****
+--- 91,98 ----
+X  %token	<sval> ENDDQUOTE
+X  %token	<ival> WINMENU
+X  %token  <ival> PLUS
++ %token	<ival> RAISELOWER
++ %token	<ival> LOWER
+X  
+X  %type	<sval> List
+X  %type	<ival> Modifier
+***************
+*** 99,104 ****
+--- 101,108 ----
+X  %type	<sval> WarpAction
+X  %type	<sval> OpenAction
+X  %type	<sval> RaiseAction
++ %type	<sval> RaiseLowerAction
++ %type	<sval> LowerAction
+X  %type	<sval> GotoAction
+X  %type	<sval> ExecuteAction
+X  %type	<sval> CloseAction
+***************
+*** 184,189 ****
+--- 188,197 ----
+X  		{ $$ = ListCons($2, $1); }
+X  	|	Actions QuitAction
+X  		{ $$ = ListCons($2, $1); }
++ 	|	Actions RaiseLowerAction
++ 		{ $$ = ListCons($2, $1); }
++ 	|	Actions LowerAction
++ 		{ $$ = ListCons($2, $1); }
+X  
+X  WarpAction :	WARP COLON String
+X  			{ 
+***************
+*** 225,230 ****
+--- 233,258 ----
+X  			    $$ = p;
+X  			}
+X  			
++ RaiseLowerAction:	RAISELOWER COLON List
++ 			{ 
++ 			    ProgKeyNode	*p;
++ 
++ 			    p = (ProgKeyNode *) MemAlloc(sizeof(ProgKeyNode));
++ 			    p->action = RaiseLower;
++ 			    p->parameter = $3;
++ 			    $$ = p;
++ 			}
++ 			
++ LowerAction:	LOWER COLON List
++ 			{ 
++ 			    ProgKeyNode	*p;
++ 
++ 			    p = (ProgKeyNode *) MemAlloc(sizeof(ProgKeyNode));
++ 			    p->action = Lower;
++ 			    p->parameter = $3;
++ 			    $$ = p;
++ 			}
++ 			
+X  RaiseAction:	RAISE COLON List
+X  			{ 
+X  			    ProgKeyNode	*p;
+***************
+*** 524,529 ****
+--- 552,591 ----
+X  	    free(s);
+X  	    break;
+X  
++ 	case RaiseLower:
++ 	    s = strdup(p->parameter);
++ 	    t = LookupToken(s, ",");
++ 	    while (t) {
++ 	        l = ActiveClientList;
++ 		if (!strcmp(t, OLVWM_USE_SELECTION))
++ 		    ClientToggleStacking(cli);
++ 		else for (c = ListEnum(&l); c != NULL; c = ListEnum(&l))
++ 			if (findClient(c, t))
++ 			    ClientToggleStacking(c);
++ 		t = LookupToken(NULL, ",");
++ 	    }
++ 	    free(s);
++ 	    break;
++ 
++ 	case Lower:
++ 	    s = strdup(p->parameter);
++ 	    t = LookupToken(s, ",");
++ 	    while (t) {
++ 	        l = ActiveClientList;
++ 		if (!strcmp(t, OLVWM_USE_SELECTION))
++ 		    if (cli->wmState == IconicState)
++ 			 LowerWindow(cli->iconwin);
++ 		    else LowerWindow(cli->framewin);
++ 		else for (c = ListEnum(&l); c != NULL; c = ListEnum(&l))
++ 			if (findClient(c, t))
++ 			    if (c->wmState == IconicState)
++ 			        LowerWindow(c->iconwin);
++ 			    else LowerWindow(c->framewin);
++ 		t = LookupToken(NULL, ",");
++ 	    }
++ 	    free(s);
++ 	    break;
++ 
+X  	case Execute:
+X  	    s = strdup(p->parameter);
+X  	    t = LookupToken(s, ",");
+***************
+*** 568,594 ****
+X  	ClientSetFocus(c, True, CurrentTime);
+X  }
+X  
+X  InitOlvwmRC(ldpy)
+X      Display	*ldpy;
+X  
+X  {
+! char	*path, s[256];
+! extern char	*getenv();
+X  
+!     while (1) {
+! 	/* try reading OLVWMRC */
+! 	path = getenv("OLVWMRC");
+! 	if (path)
+! 	    if (yyin = fopen(path, "r"))
+! 		break;
+!         sprintf(s, ".olvwmrc");
+!         if (yyin = fopen(s, "r"))
+! 	    break;
+! 	sprintf(s, "%s/.olvwmrc", getenv("HOME"));
+! 	if (yyin = fopen(s, "r"))
+! 	    break;
+X  	return;
+!     }
+X      dpy = ldpy;
+X      yyparse();
+X  #ifdef DEBUG
+--- 630,677 ----
+X  	ClientSetFocus(c, True, CurrentTime);
+X  }
+X  
++ char *
++ FindOlvwmRC(buf)
++     struct stat	*buf;
++ {
++ char	*path;
++ static char	s[256];
++ extern char	*getenv();
++ struct stat	tmp;
++ 
++     if (buf == NULL)
++ 	buf = &tmp;
++ 
++     /* try reading OLVWMRC */
++     path = getenv("OLVWMRC");
++     if (path && stat(path, buf) == 0)
++ 	return path;
++ 
++     /* try reading current directory */
++     sprintf(s, ".olvwmrc");
++     if (stat(s, buf) == 0)
++ 	return s;
++ 
++     if ((path = getenv("HOME")) != NULL) {
++         sprintf(s, "%s/.olvwmrc", getenv("HOME"));
++ 	if (stat(s, buf) == 0)
++ 	    return s;
++     }
++     return NULL;
++ }
++ 
++ static struct stat olvwmBuf;
++ static struct stat olvwmOldBuf;
++ 
+X  InitOlvwmRC(ldpy)
+X      Display	*ldpy;
+X  
+X  {
+! char	*path = FindOlvwmRC(&olvwmBuf);
+X  
+!     if (path == NULL || (yyin = fopen(path, "r")) == NULL)
+X  	return;
+!     olvwmOldBuf = olvwmBuf;
+X      dpy = ldpy;
+X      yyparse();
+X  #ifdef DEBUG
+***************
+*** 599,604 ****
+--- 682,705 ----
+X      fclose(yyin);
+X  }
+X  
++ /*
++  * Check to see if olvwmrc has been changed since we last read it
++  */
++ CheckOlvwmRC(dpy)
++     Display *dpy;
++ {
++ char *p = FindOlvwmRC(&olvwmBuf);
++ 
++     if (p == NULL
++           || olvwmBuf.st_mtime != olvwmOldBuf.st_mtime
++           || olvwmBuf.st_size != olvwmOldBuf.st_size
++           || olvwmBuf.st_dev != olvwmOldBuf.st_dev
++           || olvwmBuf.st_ino != olvwmOldBuf.st_ino) {
++       RefreshKeyGrabs(dpy);
++       olvwmOldBuf = olvwmBuf;
++     }
++ }
++ 
+X  DestroyProgScreen(p)
+X      ProgScreen	*p;
+X  {
+***************
+*** 616,622 ****
+X  DestroyProgKey(p)
+X      ProgKey	*p;
+X  {
+!     ListApply(p->todo, DestroyProgKeyNode);
+X      ListDestroy(p->todo);
+X      return False;
+X  }
+--- 717,723 ----
+X  DestroyProgKey(p)
+X      ProgKey	*p;
+X  {
+!     ListApply(p->todo, DestroyProgKeyNode, 0);
+X      ListDestroy(p->todo);
+X      return False;
+X  }
+***************
+*** 624,631 ****
+X  DestroyWinMenuActions(p)
+X      WinMenuActions	*p;
+X  {
+!     ListApply(p->actions, DestroyProgKeyNode);
+X      ListDestroy(p->actions);
+X  }
+X  
+X  ReInitOlvwmRC(ldpy)
+--- 725,733 ----
+X  DestroyWinMenuActions(p)
+X      WinMenuActions	*p;
+X  {
+!     ListApply(p->actions, DestroyProgKeyNode, 0);
+X      ListDestroy(p->actions);
++     return False;
+X  }
+X  
+X  ReInitOlvwmRC(ldpy)
+***************
+*** 632,642 ****
+X      Display	*ldpy;
+X  
+X  {
+!     ListApply(ProgScreenList, DestroyProgScreen);
+X      ListDestroy(ProgScreenList);
+!     ListApply(ProgKeyList, DestroyProgKey);
+X      ListDestroy(ProgKeyList);
+!     ListApply(WinMenuActionsList, DestroyWinMenuActions);
+X      ListDestroy(WinMenuActionsList);
+X      ProgScreenList = NULL;
+X      ProgKeyList = NULL;
+--- 734,744 ----
+X      Display	*ldpy;
+X  
+X  {
+!     ListApply(ProgScreenList, DestroyProgScreen, 0);
+X      ListDestroy(ProgScreenList);
+!     ListApply(ProgKeyList, DestroyProgKey, 0);
+X      ListDestroy(ProgKeyList);
+!     ListApply(WinMenuActionsList, DestroyWinMenuActions, 0);
+X      ListDestroy(WinMenuActionsList);
+X      ProgScreenList = NULL;
+X      ProgKeyList = NULL;
+***************
+*** 824,829 ****
+--- 926,933 ----
+X  
+X      if (!cli->framewin)
+X  	return NULL;
++     if (findClient_rootid != cli->screen)
++ 	return NULL;
+X      if (!menu->buttonCount++)
+X  	menu->buttons = (Button **) MemAlloc(sizeof(Button *));
+X      else menu->buttons = (Button **)
+***************
+*** 837,843 ****
+X  
+X      b->label[0].kind = StringLabel;
+X      b->label[1].kind = NoType;
+!     b->label[0].string = MemAlloc(len + 3);
+X      b->label[0].string[0] = '\0';
+X      if (cli->wmState == IconicState)
+X          strcat(b->label[0].string, "\244");
+--- 941,947 ----
+X  
+X      b->label[0].kind = StringLabel;
+X      b->label[1].kind = NoType;
+!     b->label[0].string = MemAlloc(len + 4);
+X      b->label[0].string[0] = '\0';
+X      if (cli->wmState == IconicState)
+X          strcat(b->label[0].string, "\244");
+***************
+*** 856,861 ****
+--- 960,994 ----
+X      return NULL;
+X  }
+X  
++ static int
++ cmpButton(b1, b2)
++     Button	**b1, **b2;
++ 
++ {
++ int	type;
++ char	buf1[256], buf2[256];
++ 
++     type = ((*b1)->label[0].string[0] == '\244') |
++ 	   (((*b2)->label[0].string[0] == '\244') << 1);
++ 
++     switch(type) {
++ 	default:
++ 	case 0:
++     	    return strcmp(gettext((*b1)->label[0].string),
++ 		  	  gettext((*b2)->label[0].string));
++ 	case 1:
++ 	    return 1;
++ 	case 2:
++ 	    return -1;
++ 	case 3:
++ 	    strnlower(buf1, gettext((*b1)->label[0].string + 1),
++ 		      strlen(gettext((*b1)->label[0].string + 1)));
++ 	    strnlower(buf2, gettext((*b2)->label[0].string + 1),
++ 		      strlen(gettext((*b2)->label[0].string + 1)));
++     	    return strcmp(buf1, buf2);
++     }
++ }
++ 
+X  GenWinMenuFunc(dpy, menuInfo, bindex, cache, winInfo, depth)
+X      Display	*dpy;
+X      MenuInfo	*menuInfo;
+SHAR_EOF
+true || echo 'restore of olvwm3.Patch02 failed'
+fi
+echo 'End of  part 2'
+echo 'File olvwm3.Patch02 is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

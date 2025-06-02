@@ -1,0 +1,1588 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i074:  imagemagic - X11 image processing and display, Part18/38
+Message-ID: <1993Jul14.175727.1805@sparky.sterling.com>
+X-Md4-Signature: 46ead8a54308e026cc7f23507f2a19e7
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:57:27 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 74
+Archive-name: imagemagic/part18
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.18 (part 18 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/decode.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 18; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/decode.c'
+else
+echo 'x - continuing file ImageMagick/decode.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/decode.c' &&
+X            q->length=0;
+X            q++;
+X          }
+X        }
+X      else
+X        for (y=0; y < image->rows; y++)
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            color=(pixel >> red_shift) & red_mask;
+X            q->red=(unsigned char)
+X              ((((unsigned long) color*65535)/red_mask) >> 8);
+X            color=(pixel >> green_shift) & green_mask;
+X            q->green=(unsigned char)
+X              ((((unsigned long) color*65535)/green_mask) >> 8);
+X            color=(pixel >> blue_shift) & blue_mask;
+X            q->blue=(unsigned char)
+X              ((((unsigned long) color*65535)/blue_mask) >> 8);
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Convert X image to PseudoClass packets.
+X      */
+X      image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X      if (image->colormap == (ColorPacket *) NULL)
+X        {
+X          Warning("unable to allocate memory",(char *) NULL);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[i].red=colors[i].red >> 8;
+X        image->colormap[i].green=colors[i].green >> 8;
+X        image->colormap[i].blue=colors[i].blue >> 8;
+X      }
+X      for (y=0; y < image->rows; y++)
+X        for (x=0; x < image->columns; x++)
+X        {
+X          pixel=XGetPixel(ximage,x,y);
+X          q->red=(unsigned char) (colors[pixel].red >> 8);
+X          q->green=(unsigned char) (colors[pixel].green >> 8);
+X          q->blue=(unsigned char) (colors[pixel].blue >> 8);
+X          q->index=(unsigned short) pixel;
+X          q->length=0;
+X          q++;
+X        }
+X      CompressColormap(image);
+X      break;
+X    }
+X  }
+X  /*
+X    Free image and colormap.
+X  */
+X  (void) free((char *) window_name);
+X  if (header.ncolors != 0)
+X    (void) free((char *) colors);
+X  XDestroyImage(ximage);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d Y U V I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadYUVImage reads an image with raw Y, U, and V bytes and returns
+%  it.  It allocates the memory necessary for the new Image structure and
+%  returns a pointer to the new image.  U and V, normally -0.5 through 0.5,
+%  are expected to be normalized to the range 0 through 255 fit withing a byte.
+%
+%  The format of the ReadYUVImage routine is:
+%
+%      image=ReadYUVImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadYUVImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadYUVImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *yuv_pixels;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("YUV");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  width=512;
+X  height=512;
+X  if (image_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(image_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  yuv_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*3*sizeof(unsigned char));
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if ((yuv_pixels == (unsigned char *) NULL) ||
+X      (image->pixels == (RunlengthPacket *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert raster image to runlength-encoded packets.
+X  */
+X  (void) ReadData((char *) yuv_pixels,3,(int) (image->columns*image->rows),
+X    image->file);
+X  p=yuv_pixels;
+X  switch (image_info->interlace)
+X  {
+X    case NoneInterlace:
+X    default:
+X    {
+X      /*
+X        No interlacing:  YUVYUVYUVYUVYUVYUV...
+X      */
+X      q=image->pixels;
+X      for (i=0; i < (image->columns*image->rows); i++)
+X      {
+X        q->red=(*p++);
+X        q->green=(*p++);
+X        q->blue=(*p++);
+X        q->index=0;
+X        q->length=0;
+X        q++;
+X      }
+X      break;
+X    }
+X    case LineInterlace:
+X    {
+X      /*
+X        Line interlacing:  YYY...UUU...VVV...YYY...UUU...VVV...
+X      */
+X      for (y=0; y < image->rows; y++)
+X      {
+X        q=image->pixels+y*image->columns;
+X        for (x=0; x < image->columns; x++)
+X        {
+X          q->red=(*p++);
+X          q->index=0;
+X          q->length=0;
+X          q++;
+X        }
+X        q=image->pixels+y*image->columns;
+X        for (x=0; x < image->columns; x++)
+X        {
+X          q->green=(*p++);
+X          q++;
+X        }
+X        q=image->pixels+y*image->columns;
+X        for (x=0; x < image->columns; x++)
+X        {
+X          q->blue=(*p++);
+X          q++;
+X        }
+X      }
+X      break;
+X    }
+X    case PlaneInterlace:
+X    {
+X      /*
+X        Plane interlacing:  YYYYYY...UUUUUU...VVVVVV...
+X      */
+X      q=image->pixels;
+X      for (i=0; i < (image->columns*image->rows); i++)
+X      {
+X        q->red=(*p++);
+X        q->index=0;
+X        q->length=0;
+X        q++;
+X      }
+X      q=image->pixels;
+X      for (i=0; i < (image->columns*image->rows); i++)
+X      {
+X        q->green=(*p++);
+X        q++;
+X      }
+X      q=image->pixels;
+X      for (i=0; i < (image->columns*image->rows); i++)
+X      {
+X        q->blue=(*p++);
+X        q++;
+X      }
+X      break;
+X    }
+X  }
+X  (void) free((char *) yuv_pixels);
+X  TransformRGBImage(image,YUVColorspace);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e a d I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadImage reads an image and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.  By default, the image format is determined by its magic
+%  number. To specify a particular image format, precede the filename with an
+%  explicit image format name and a colon (i.e.  ps:image) or as the filename
+%  suffix  (i.e. image.ps).
+%
+%  The format of the ReadImage routine is:
+%
+%      image=ReadImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image: Function ReadImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+Image *ReadImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  static char
+X    *ImageTypes[]=
+X    {
+X      "ALPHA",
+X      "AVS",
+X      "BMP",
+X      "CMYK",
+X      "EPS",
+X      "FAX",
+X      "GIF",
+X      "GRAY",
+X      "HISTOGRAM",
+X      "IRIS",
+X      "JPEG",
+X      "JPG",
+X      "MIFF",
+X      "MTV",
+X      "PBM",
+X      "PCX",
+X      "PGM",
+X      "PICT",
+X      "PPM",
+X      "PNM",
+X      "PS",
+X      "PS2",
+X      "RAS",
+X      "RGB",
+X      "RLE",
+X      "SUN",
+X      "TGA",
+X      "TEXT",
+X      "TIFF",
+X      "VICAR",
+X      "VIFF",
+X      "X",
+X      "XBM",
+X      "XC",
+X      "XV",
+X      "XWD",
+X      "YUV",
+X      (char *) NULL,
+X    };
+X
+X  char
+X    magick[12],
+X    magic_number[12],
+X    *p;
+X
+X  Image
+X    decode_image,
+X    *image;
+X
+X  register char
+X    c,
+X    *q;
+X
+X  register int
+X    i;
+X
+X  unsigned int
+X    temporary_file;
+X
+X  /*
+X    Look for explicit 'format:image' in filename.
+X  */
+X  *magick='\0';
+X  (void) strcpy(decode_image.filename,image_info->filename);
+X  p=decode_image.filename;
+X  while ((*p != ':') && (*p != '\0'))
+X    p++;
+X  if ((*p == ':') && ((p-decode_image.filename) < sizeof(magic_number)))
+X    {
+X      /*
+X        User specified image format.
+X      */
+X      (void) strncpy(magic_number,decode_image.filename,
+X        p-decode_image.filename);
+X      magic_number[p-decode_image.filename]='\0';
+X      for (q=magic_number; *q != '\0'; q++)
+X      {
+X        c=(*q);
+X        if (isascii(c) && islower(c))
+X          *q=toupper(c);
+X      }
+X      for (i=0; ImageTypes[i] != (char *) NULL; i++)
+X        if (strcmp(magic_number,ImageTypes[i]) == 0)
+X          {
+X            /*
+X              Strip off image format prefix.
+X            */
+X            p++;
+X            (void) strcpy(decode_image.filename,p);
+X            (void) strcpy(magick,magic_number);
+X            break;
+X          }
+X    }
+X  temporary_file=False;
+X  if (*magick == '\0')
+X    {
+X      /*
+X        Look for 'image.format' in filename.
+X      */
+X      (void) strcpy(magick,"MIFF");
+X      p=decode_image.filename+strlen(decode_image.filename)-1;
+X      while ((*p != '.') && (p > decode_image.filename))
+X        p--;
+X      if ((*p == '.') && (strlen(p) < sizeof(magic_number)))
+X        {
+X          /*
+X            File specified image format?
+X          */
+X          (void) strcpy(magic_number,p+1);
+X          for (q=magic_number; *q != '\0'; q++)
+X          {
+X            c=(*q);
+X            if (isascii(c) && islower(c))
+X              *q=toupper(c);
+X          }
+X          for (i=0; ImageTypes[i] != (char *) NULL; i++)
+X            if (strcmp(magic_number,ImageTypes[i]) == 0)
+X              {
+X                (void) strcpy(magick,magic_number);
+X                break;
+X              }
+X        }
+X      /*
+X        Determine type from image magic number.
+X      */
+X      temporary_file=(*decode_image.filename == '-');
+X      if (temporary_file)
+X        {
+X          char
+X            *directory;
+X
+X          int
+X            c;
+X
+X          /*
+X            Copy standard input to temporary file.
+X          */
+X          directory=(char *) getenv("TMPDIR");
+X          if (directory == (char *) NULL)
+X            directory="/tmp";
+X          (void) sprintf(decode_image.filename,"%s/magickXXXXXX",directory);
+X          (void) mktemp(decode_image.filename);
+X          decode_image.file=fopen(decode_image.filename,"w");
+X          if (decode_image.file == (FILE *) NULL)
+X            return((Image *) NULL);
+X          c=getchar();
+X          while (c != EOF)
+X          {
+X            (void) putc(c,decode_image.file);
+X            c=getchar();
+X          }
+X          (void) fclose(decode_image.file);
+X        }
+X      /*
+X        Open image file.
+X      */
+X      *magic_number='\0';
+X      OpenImage(&decode_image,"r");
+X      if (decode_image.file != (FILE *) NULL)
+X        {
+X          /*
+X            Read magic number.
+X          */
+X          (void) ReadData(magic_number,sizeof(char),sizeof(magic_number),
+X            decode_image.file);
+X          CloseImage(&decode_image);
+X        }
+X      /*
+X        Determine the image format.
+X      */
+X      if (strncmp(magic_number,"BM",2) == 0)
+X        (void) strcpy(magick,"BMP");
+X      if (strncmp(magic_number,"GIF8",4) == 0)
+X        (void) strcpy(magick,"GIF");
+X      if (strncmp(magic_number,"\001\332",2) == 0)
+X        (void) strcpy(magick,"IRIS");
+X      if (strncmp(magic_number,"\377\330\377",3) == 0)
+X        (void) strcpy(magick,"JPEG");
+X      else
+X        if ((strcmp(magick,"JPEG") == 0) || (strcmp(magick,"JPG") == 0))
+X          (void) strcpy(magick,"MIFF");
+X      if ((unsigned char) *magic_number == 0x0a)
+X        (void) strcpy(magick,"PCX");
+X      if ((*magic_number == 'P') && isdigit(magic_number[1]))
+X        (void) strcpy(magick,"PNM");
+X      if (strncmp(magic_number,"%!",2) == 0)
+X        (void) strcpy(magick,"PS");
+X      if (strncmp(magic_number,"\131\246\152\225",4) == 0)
+X        (void) strcpy(magick,"SUN");
+X      if ((strncmp(magic_number,"\115\115",2) == 0) ||
+X          (strncmp(magic_number,"\111\111",2) == 0))
+X        (void) strcpy(magick,"TIFF");
+X      if (strncmp(magic_number,"\122\314",2) == 0)
+X        (void) strcpy(magick,"RLE");
+X      if ((strncmp(magic_number,"LBLSIZE",7) == 0) ||
+X         (strncmp(magic_number,"NJPL1I",6) == 0))
+X        (void) strcpy(magick,"VICAR");
+X      if ((unsigned char) *magic_number == 0xab)
+X        (void) strcpy(magick,"VIFF");
+X      if (strncmp(magic_number,"#define",7) == 0)
+X        (void) strcpy(magick,"XBM");
+X      if ((magic_number[1] == 0x00) && (magic_number[2] == 0x00))
+X        if ((magic_number[5] == 0x00) && (magic_number[6] == 0x00))
+X          if ((magic_number[4] == 0x07) || (magic_number[7] == 0x07))
+X            (void) strcpy(magick,"XWD");
+X    }
+X  /*
+X    Call appropriate image reader based on image type.
+X  */
+X  (void) strcpy(image_info->filename,decode_image.filename);
+X  switch (*magick)
+X  {
+X    case 'A':
+X    {
+X      if (strcmp(magick,"ALPHA") == 0)
+X        image=ReadALPHAImage(image_info);
+X      else
+X        image=ReadAVSImage(image_info);
+X      break;
+X    }
+X    case 'B':
+X    {
+X      image=ReadBMPImage(image_info);
+X      break;
+X    }
+X    case 'C':
+X    {
+X      image=ReadCMYKImage(image_info);
+X      break;
+X    }
+X    case 'E':
+X    {
+X      image=ReadPSImage(image_info);
+X      break;
+X    }
+X    case 'F':
+X    {
+X      image=ReadFAXImage(image_info);
+X      break;
+X    }
+X    case 'G':
+X    {
+X      if (strcmp(magick,"GIF") == 0)
+X        image=ReadGIFImage(image_info);
+X      else
+X        image=
+X          ReadGRAYImage(image_info);
+X      break;
+X    }
+X    case 'H':
+X    {
+X      image=ReadHISTOGRAMImage(image_info);
+X      break;
+X    }
+X    case 'I':
+X    {
+X      image=ReadIRISImage(image_info);
+X      break;
+X    }
+X    case 'J':
+X    {
+X      image=ReadJPEGImage(image_info);
+X      break;
+X    }
+X    case 'M':
+X    {
+X      if (strcmp(magick,"MIFF") == 0)
+X        image=ReadMIFFImage(image_info);
+X      else
+X        image=ReadMTVImage(image_info);
+X      break;
+X    }
+X    case 'P':
+X    {
+X      if (strcmp(magick,"PCX") == 0)
+X        image=ReadPCXImage(image_info);
+X      else
+X        if (strcmp(magick,"PICT") == 0)
+X          image=ReadPICTImage(image_info);
+X        else
+X          if ((strcmp(magick,"PS") == 0) || (strcmp(magick,"PS2") == 0))
+X            image=ReadPSImage(image_info);
+X          else
+X            image=ReadPNMImage(image_info);
+X      break;
+X    }
+X    case 'R':
+X    {
+X      if (strcmp(magick,"RAS") == 0)
+X        image=ReadSUNImage(image_info);
+X      else
+X        if (strcmp(magick,"RGB") == 0)
+X          image=ReadRGBImage(image_info);
+X        else
+X          image=ReadRLEImage(image_info);
+X      break;
+X    }
+X    case 'S':
+X    {
+X      image=ReadSUNImage(image_info);
+X      break;
+X    }
+X    case 'T':
+X    {
+X      if (strcmp(magick,"TGA") == 0)
+X        image=ReadTARGAImage(image_info);
+X      else
+X        if (strcmp(magick,"TIFF") == 0)
+X          image=ReadTIFFImage(image_info);
+X        else
+X          image=ReadTEXTImage(image_info);
+X      break;
+X    }
+X    case 'V':
+X    {
+X      if (strcmp(magick,"VICAR") == 0)
+X        image=ReadVICARImage(image_info);
+X      else
+X        image=ReadVIFFImage(image_info);
+X      break;
+X    }
+X    case 'X':
+X    {
+X      if (strcmp(magick,"X") == 0)
+X        image=ReadXImage(image_info->filename,image_info->server_name,False,
+X          False,False,True);
+X      else
+X        if (strcmp(magick,"XC") == 0)
+X          image=ReadXCImage(image_info);
+X        else
+X          if (strcmp(magick,"XBM") == 0)
+X            image=ReadXBMImage(image_info);
+X          else
+X            if (strcmp(magick,"XV") == 0)
+X              image=ReadVIFFImage(image_info);
+X            else
+X              image=ReadXWDImage(image_info);
+X      break;
+X    }
+X    case 'Y':
+X    {
+X      image=ReadYUVImage(image_info);
+X      break;
+X    }
+X    default:
+X      image=ReadMIFFImage(image_info);
+X  }
+X  if (temporary_file)
+X    (void) unlink(image_info->filename);
+X  if (image != (Image *) NULL)
+X    if (image->status)
+X      {
+X        Warning("an error has occurred reading from file",image->filename);
+X        return((Image *) NULL);
+X      }
+X  return(image);
+}
+SHAR_EOF
+echo 'File ImageMagick/decode.c is complete' &&
+chmod 0644 ImageMagick/decode.c ||
+echo 'restore of ImageMagick/decode.c failed'
+Wc_c="`wc -c < 'ImageMagick/decode.c'`"
+test 230407 -eq "$Wc_c" ||
+	echo 'ImageMagick/decode.c: original size 230407, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/animate.c ==============
+if test -f 'ImageMagick/animate.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/animate.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/animate.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/animate.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%              AAA   N   N  IIIII  M   M   AAA   TTTTT  EEEEE                 %
+%             A   A  NN  N    I    MM MM  A   A    T    E                     %
+%             AAAAA  N N N    I    M M M  AAAAA    T    EEE                   %
+%             A   A  N  NN    I    M   M  A   A    T    E                     %
+%             A   A  N   N  IIIII  M   M  A   A    T    EEEEE                 %
+%                                                                             %
+%                                                                             %
+%          Animate Machine Independent File Format Image via X11.             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Animate displays a sequence of images in the MIFF format on any
+%  workstation display running an X server.  Animate first determines the
+%  hardware capabilities of the workstation.  If the number of unique
+%  colors in an image is less than or equal to the number the workstation
+%  can support, the image is displayed in an X window.  Otherwise the
+%  number of colors in the image is first reduced to match the color
+%  resolution of the workstation before it is displayed.
+%
+%  This means that a continuous-tone 24 bits-per-pixel image can display on a
+%  8 bit pseudo-color device or monochrome device.  In most instances the
+%  reduced color image closely resembles the original.  Alternatively, a
+%  monochrome or pseudo-color image can display on a continuous-tone 24
+%  bits-per-pixel device.
+%
+%  The Animate program command syntax is:
+%
+%  Usage: animate [options ...] file [ [options ...] file ...]
+%
+%  Where options include:
+%    -backdrop            display image centered on a backdrop
+%    -clip geometry       preferred size and location of the clipped image
+%    -colormap type       Shared or Private
+%    -colors value        preferred number of colors in the image
+%    -colorspace type     GRAY, RGB, XYZ, YCbCr, YIQ, or YUV
+%    -delay milliseconds  display the next image after pausing
+%    -density geometry    vertical and horizonal density of the image
+%    -display server      display image to this X server
+%    -dither              apply Floyd/Steinberg error diffusion to image
+%    -gamma value         level of gamma correction
+%    -geometry geometry   preferred size and location of the image window
+%    -interlace type      NONE, LINE, or PLANE
+%    -map type            display image using this Standard Colormap
+%    -monochrome          transform image to black and white
+%    -reflect             reverse image scanlines
+%    -rotate degrees      apply Paeth rotation to the image
+%    -scale geometry      preferred size factors of the image
+%    -treedepth value     depth of the color classification tree
+%    -verbose             print detailed information about the image
+%    -visual type         display image using this visual type
+%
+%  In addition to those listed above, you can specify these standard X
+%  resources as command line options:  -background, -bordercolor,
+%  -borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or
+%  -title.
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example, specify +compress to store the image as uncompressed.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. ps:image) or specify the
+%  image type as the filename suffix (i.e. image.ps).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%  Buttons:
+%    1    press and drag to select a command from a pop-up menu
+%
+%  Keyboard accelerators:
+%    p    press to animate the sequence of images
+%    s    press to display the next image in the sequence
+%    .    press to continually display the sequence of images
+%    a    press to automatically reverse the sequence of images
+%    <    press to slow the display of the images
+%    >    press to speed-up the display of the images
+%    f    press to animate in the forward direction
+%    r    press to animate in the reverse direction
+%    i    press to display information about the image
+%    q    press to discard all images and exit program
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "X.h"
+#include "compress.h"
+X
+/*
+X  State declarations.
+*/
+#define AutoReverseAnimationState 0x0001
+#define ConfigureWindowState  0x0002
+#define DefaultState  0x0004
+#define ExitState  0x0008
+#define ForwardAnimationState 0x0010
+#define HighlightState  0x0020
+#define InfoMappedState  0x0040
+#define PlayAnimationState 0x0080
+#define RepeatAnimationState 0x0100
+#define StepAnimationState 0x0200
+X
+/*
+X  Global declarations.
+*/
+char
+X  *client_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   D e l a y                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Delay suspends animation for the number of milliseconds specified.
+%
+%  The format of the Delay routine is:
+%
+%      Delay(milliseconds)
+%
+%  A description of each parameter follows:
+%
+%    o milliseconds: Specifies the number of milliseconds to delay before
+%      returning.
+%
+%
+*/
+static void Delay(milliseconds)
+unsigned long
+X  milliseconds;
+{
+#ifndef vms
+#ifdef SYSV
+#include <sys/poll.h>
+X  if (milliseconds == 0)
+X    return;
+X  (void) poll((struct pollfd *) NULL,(unsigned long) NULL,
+X    (int) (milliseconds/1000));
+#else
+X  struct timeval
+X    timer;
+X
+X  if (milliseconds == 0)
+X    return;
+X  timer.tv_sec=milliseconds/1000;
+X  timer.tv_usec=(milliseconds % 1000)*1000;
+X  (void) select(0,(fd_set *) NULL,(fd_set *) NULL,(fd_set *) NULL,&timer);
+#endif
+#endif
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",client_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Usage displays the program command syntax.
+%
+%  The format of the Usage routine is:
+%
+%      Usage(terminate)
+%
+%  A description of each parameter follows:
+%
+%    o terminate: The program will exit if the value is not zero.
+%
+%
+*/
+static void Usage(terminate)
+unsigned int
+X  terminate;
+{
+X  char
+X    **p;
+X
+X  static char
+X    *buttons[]=
+X    {
+X      "1    press and drag to select a command from a pop-up menu",
+X      (char *) NULL
+X    },
+X    *keys[]=
+X    {
+X      "0-9  press to change the level of delay",
+X      "p    press to animate the sequence of images",
+X      "s    press to display the next image in the sequence",
+X      ".    press to continually display the sequence of images",
+X      "a    press to automatically reverse the sequence of images",
+X      "<    press to slow the display of the images",
+X      ">    press to speed-up the display of images",
+X      "f    press to animate in the forward direction",
+X      "r    press to animate in the reverse direction",
+X      "i    press to display information about the image",
+X      "q    press to discard all images and exit program",
+X      (char *) NULL
+X    },
+X    *options[]=
+X    {
+X      "-backdrop            display image centered on a backdrop",
+X      "-clip geometry       preferred size and location of the clipped image",
+X      "-colormap type       Shared or Private",
+X      "-colors value        preferred number of colors in the image",
+X      "-colorspace type     GRAY, RGB, XYZ, YCbCr, YIQ, or YUV",
+X      "-delay milliseconds  display the next image after pausing",
+X      "-density geometry    vertical and horizonal density of the image",
+X      "-display server      display image to this X server",
+X      "-dither              apply Floyd/Steinberg error diffusion to image",
+X      "-gamma value         level of gamma correction",
+X      "-geometry geometry   preferred size and location of the image window",
+X      "-interlace type       NONE, LINE, or PLANE",
+X      "-map type            display image using this Standard Colormap",
+X      "-monochrome          transform image to black and white",
+X      "-reflect             reflect the image scanlines",
+X      "-rotate degrees      apply Paeth rotation to the image",
+X      "-scale geometry      preferred size factors of the image",
+X      "-treedepth value     depth of the color classification tree",
+X      "-verbose             print detailed information about the image",
+X      "-visual type         display image using this visual type",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,
+X    "Usage: %s [-options ...] file [ [-options ...] file ...]\n",client_name);
+X  (void) fprintf(stderr,"\nWhere options include: \n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nIn addition to those listed above, you can specify these standard X\n");
+X  (void) fprintf(stderr,
+X    "resources as command line options:  -background, -bordercolor,\n");
+X  (void) fprintf(stderr,
+X    "-borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or\n");
+X  (void) fprintf(stderr,"-title.\n");
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.  For\n");
+X  (void) fprintf(stderr,
+X    "example, specify +compress to store the image as uncompressed.\n");
+X  (void) fprintf(stderr,
+X    "\nBy default, the image format of `file' is determined by its magic\n");
+X  (void) fprintf(stderr,
+X    "number.  To specify a particular image format, precede the filename\n");
+X  (void) fprintf(stderr,
+X    "with an image format name and a colon (i.e. ps:image) or specify the\n");
+X  (void) fprintf(stderr,
+X    "image type as the filename suffix (i.e. image.ps).  Specify 'file' as\n");
+X  (void) fprintf(stderr,"'-' for standard input or output.\n");
+X  (void) fprintf(stderr,"\nButtons: \n");
+X  for (p=buttons; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,"\nKeyboard accelerators: \n");
+X  for (p=keys; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  if (terminate)
+X    exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s e r C o m m a n d                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UserCommand makes a transform to the image or image window as
+%  specified by a user menu button or keyboard command.
+%
+%  The format of the UserCommand routine is:
+%
+%    UserCommand(display,resource_info,window,image,key_symbol,state);
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure;  UserCommand
+%      may transform the image and return a new image pointer.
+%
+%    o state: Specifies an unsigned int;  UserCommand may return a
+%      modified state.
+%
+%
+*/
+static void UserCommand(display,resource_info,window,key_symbol,image,state)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+KeySym
+X  key_symbol;
+X
+Image
+X  **image;
+X
+unsigned int
+X  *state;
+{
+X  if (*state & InfoMappedState)
+X    XWithdrawWindow(display,window->info.id,window->info.screen);
+X  /*
+X    Process user command.
+X  */
+X  switch (key_symbol)
+X  {
+X    case XK_KP_Space:
+X      break;
+X    case XK_Help:
+X    {
+X      Usage(False);
+X      break;
+X    }
+X    case XK_less:
+X    {
+X      resource_info->delay<<=1;
+X      if (resource_info->delay == 0)
+X        resource_info->delay=1;
+X      break;
+X    }
+X    case XK_greater:
+X    {
+X      resource_info->delay>>=1;
+X      break;
+X    }
+X    case XK_period:
+X    {
+X      *state|=RepeatAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      *state|=PlayAnimationState;
+X      break;
+X    }
+X    case XK_a:
+X    {
+X      *state|=AutoReverseAnimationState;
+X      *state&=(~RepeatAnimationState);
+X      *state|=PlayAnimationState;
+X      break;
+X    }
+X    case XK_f:
+X    {
+X      *state=ForwardAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    case XK_i:
+X    {
+X      char
+X        text[2048];
+X
+X      /*
+X        Display information about the image in the info window.
+X      */
+X      (void) sprintf(text," [%u] %s %ux%u ",(*image)->scene,
+X        (*image)->filename,window->image.width,window->image.height);
+X      if ((*image)->colors > 0)
+X        (void) sprintf(text,"%s%uc ",text,(*image)->colors);
+X      (void) strcat(text,(*image)->magick);
+X      XSetWindowExtents(display,&window->info,text);
+X      XMapWindow(display,window->info.id);
+X      XDisplayInfoString(display,&window->info,text);
+X      break;
+X    }
+X    case XK_p:
+X    {
+X      *state|=PlayAnimationState;
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    case XK_s:
+X    case XK_Return:
+X    {
+X      *state|=StepAnimationState;
+X      *state&=(~PlayAnimationState);
+X      break;
+X    }
+X    case XK_q:
+X    {
+X      /*
+X        Exit program
+X      */
+X      *state|=ExitState;  /* exit program */
+X      break;
+X    }
+X    case XK_r:
+X    case XK_BackSpace:
+X    {
+X      *state&=(~ForwardAnimationState);
+X      *state&=(~AutoReverseAnimationState);
+X      break;
+X    }
+X    default:
+X    {
+X      if (!IsModifierKey(key_symbol))
+X        XBell(display,0);
+X      break;
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X A n i m a t e I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XAnimateImage displays an image via X11.
+%
+%  The format of the XAnimateImage routine is:
+%
+%      XAnimateImage(display,resource_info,argv,argc,image,number_scenes)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o argv: Specifies the application's argument list.
+%
+%    o argc: Specifies the number of arguments.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+%    o number_scenes: Specifies the number of scenes to animate.
+%
+%
+*/
+static int LinearCompare(x,y)
+const void
+X  *x,
+X  *y;
+{
+X  Image
+X    **image_1,
+X    **image_2;
+X
+X  image_1=(Image **) x;
+X  image_2=(Image **) y;
+X  return((int) (*image_1)->scene-(int) (*image_2)->scene);
+}
+X
+static void XAnimateImage(display,resource_info,argv,argc,images,number_scenes)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+char
+X  **argv;
+X
+int
+X  argc;
+X
+Image
+X  **images;
+X
+unsigned int
+X  number_scenes;
+{
+#define MaxWindows  9
+X
+X  Atom
+X    delete_property,
+X    protocols_property;
+X
+X  char
+X    text[2048];
+X
+X  Image
+X    *image;
+X
+X  int
+X    i,
+X    scene;
+X
+X  unsigned int
+X    number_windows,
+X    state,
+X    status;
+X
+X  Window
+X    root_window;
+X
+X  XClassHint
+X    *class_hint;
+X
+X  XEvent
+X    event;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  XPixelInfo
+X    pixel_info,
+X    scene_info;
+X
+X  XStandardColormap
+X    *map_info;
+X
+X  XVisualInfo
+X    *visual_info;
+X
+X  XWindowInfo
+X    *magick_windows[MaxWindows];
+X
+X  XWindows
+X    *window;
+X
+X  XWMHints
+X    *manager_hints;
+X
+X  /*
+X    Allocate standard colormap.
+X  */
+X  if (resource_info->debug)
+X    XSynchronize(display,True);
+X  map_info=XAllocStandardColormap();
+X  if (map_info == (XStandardColormap *) NULL)
+X    Error("unable to create standard colormap","memory allocation failed");
+X  map_info->colormap=(Colormap) NULL;
+X  pixel_info.pixels=(unsigned long *) NULL;
+X  /*
+X    Get the best visual this server supports.
+X  */
+X  visual_info=XBestVisualInfo(display,resource_info->visual_type,
+X    resource_info->map_type,map_info);
+X  if (visual_info == (XVisualInfo *) NULL)
+X    Error("unable to get visual",resource_info->visual_type);
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"Visual:\n");
+X      (void) fprintf(stderr,"  visual id: 0x%lx\n",visual_info->visualid);
+X      (void) fprintf(stderr,"  class: %s\n",XVisualClassName(visual_info));
+X      (void) fprintf(stderr,"  depth: %d planes\n",visual_info->depth);
+X      (void) fprintf(stderr,"  size of colormap: %d entries\n",
+X        visual_info->colormap_size);
+X      (void) fprintf(stderr,"  red, green, blue masks: 0x%lx 0x%lx 0x%lx\n",
+X        visual_info->red_mask,visual_info->green_mask,visual_info->blue_mask);
+X      (void) fprintf(stderr,"  significant bits in color: %d bits\n",
+X        visual_info->bits_per_rgb);
+X    }
+X  /*
+X    Initialize atoms.
+X  */
+X  protocols_property=XInternAtom(display,"WM_PROTOCOLS",False);
+X  delete_property=XInternAtom(display,"WM_DELETE_WINDOW",False);
+X  if ((protocols_property == (Atom) NULL) || (delete_property == (Atom) NULL))
+X    Error("unable to create property",(char *) NULL);
+X  /*
+X    Allocate class and manager hints.
+X  */
+X  class_hint=XAllocClassHint();
+X  manager_hints=XAllocWMHints();
+X  if ((class_hint == (XClassHint *) NULL) ||
+X      (manager_hints == (XWMHints *) NULL))
+X    Error("unable to allocate X hints",(char *) NULL);
+X  /*
+X    Initialize window id's.
+X  */
+X  root_window=XRootWindow(display,visual_info->screen);
+X  window=(XWindows *) malloc(sizeof(XWindows));
+X  if (window == (XWindows *) NULL)
+X    Error("unable to create X windows","memory allocation failed");
+X  number_windows=0;
+X  magick_windows[number_windows++]=(&window->backdrop);
+X  magick_windows[number_windows++]=(&window->icon);
+X  magick_windows[number_windows++]=(&window->image);
+X  magick_windows[number_windows++]=(&window->info);
+X  magick_windows[number_windows++]=(&window->popup);
+X  for (i=0; i < number_windows; i++)
+X    magick_windows[i]->id=(Window) NULL;
+X  /*
+X    Sort images by increasing scene number.
+X  */
+X  i=0;
+X  for (scene=0; scene < number_scenes; scene++)
+X    i+=images[scene]->scene;
+X  if (i > 0)
+X    (void) qsort((void *) images,number_scenes,sizeof(Image *),LinearCompare);
+X  if (resource_info->map_type == (char *) NULL)
+X    if ((visual_info->class != TrueColor) &&
+X        (visual_info->class != DirectColor))
+X      {
+X        unsigned int
+X          identical_colormap;
+X
+X        /*
+X          Determine if the sequence of images has the identical colormap.
+X        */
+X        identical_colormap=True;
+X        for (scene=0; scene < number_scenes; scene++)
+X        {
+X          if ((images[scene]->class == DirectClass) ||
+X              (images[scene]->colors > visual_info->colormap_size))
+X            {
+X              /*
+X                Image has more colors than the visual supports.
+X              */
+X              status=RunlengthDecodeImage(images[scene]);
+X              if (status == False)
+X                Error("unable to unpack image",(char *) NULL);
+X              QuantizeImage(images[scene],(unsigned int)
+X                visual_info->colormap_size,resource_info->tree_depth,
+X                resource_info->dither,resource_info->colorspace,False);
+X            }
+X          if (images[scene]->signature == (char *) NULL)
+X            ColormapSignature(images[scene]);
+X          status=strcmp(images[scene]->signature,images[0]->signature);
+X          if (status != 0)
+X            identical_colormap=False;
+X        }
+X        if (!identical_colormap)
+X          {
+X            /*
+X              Create a single colormap for the sequence of images.
+X            */
+X            for (scene=0; scene < number_scenes; scene++)
+X              if (images[scene]->packed_pixels != (unsigned char *) NULL)
+X                {
+X                  status=RunlengthDecodeImage(images[scene]);
+X                  if (status == False)
+X                    Error("unable to unpack image",(char *) NULL);
+X                }
+X            QuantizeImages(images,number_scenes,(Image *) NULL,(unsigned int)
+X              visual_info->colormap_size,resource_info->tree_depth,
+X              resource_info->dither,resource_info->colorspace,False);
+X          }
+X      }
+X  /*
+X    Initialize Standard Colormap.
+X  */
+X  if (images[0]->packed_pixels != (unsigned char *) NULL)
+X    {
+X      status=RunlengthDecodeImage(images[0]);
+X      if (status == False)
+X        Error("unable to unpack image",(char *) NULL);
+X    }
+X  XMakeStandardColormap(display,visual_info,resource_info,&pixel_info,
+X    images[0],map_info);
+X  /*
+X    Initialize font info.
+X  */
+X  (void) sprintf(text," [%u] %s %ux%u ",images[0]->scene,images[0]->filename,
+X    images[0]->columns,images[0]->rows);
+X  if (images[0]->colors != 0)
+X    (void) sprintf(text,"%s%uc ",text,images[0]->colors);
+X  font_info=XBestFont(display,resource_info,text,images[0]->columns);
+X  if (font_info == (XFontStruct *) NULL)
+X    Error("unable to load font",resource_info->font);
+X  /*
+X    Initialize class hints.
+X  */
+X  if (resource_info->name == (char *) NULL)
+X    class_hint->res_name=client_name;
+X  else
+X    class_hint->res_name=resource_info->name;
+X  class_hint->res_class=(char *) "ImageMagick";
+X  /*
+X    Initialize graphic context.
+X  */
+X  window->context.id=(Window) NULL;
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->context);
+X  manager_hints->flags=InputHint | StateHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=WithdrawnState;
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->context);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (context)\n",window->context.id);
+X  graphic_context_value.background=pixel_info.background_color.pixel;
+X  graphic_context_value.foreground=pixel_info.foreground_color.pixel;
+X  graphic_context_value.font=font_info->fid;
+X  graphic_context_value.function=GXcopy;
+X  graphic_context_value.line_width=2;
+X  graphic_context_value.graphics_exposures=False;
+X  graphic_context_value.plane_mask=AllPlanes;
+X  pixel_info.graphic_context=XCreateGC(display,window->context.id,GCBackground |
+X    GCFont | GCForeground | GCFunction | GCGraphicsExposures | GCLineWidth |
+X    GCPlaneMask,&graphic_context_value);
+X  if (pixel_info.graphic_context == (GC) NULL)
+X    Error("unable to create graphic context",(char *) NULL);
+X  graphic_context_value.background=pixel_info.foreground_color.pixel;
+X  graphic_context_value.foreground=pixel_info.background_color.pixel;
+X  pixel_info.highlight_context=XCreateGC(display,window->context.id,
+X    GCBackground | GCFont | GCForeground | GCFunction | GCGraphicsExposures |
+X    GCLineWidth | GCPlaneMask,&graphic_context_value);
+X  if (pixel_info.highlight_context == (GC) NULL)
+X    Error("unable to create graphic context",(char *) NULL);
+X  XDestroyWindow(display,window->context.id);
+X  /*
+X    Initialize icon window.
+X  */
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->icon);
+X  XBestIconSize(display,&window->icon,images[0]);
+X  window->icon.attributes.event_mask=ExposureMask | StructureNotifyMask;
+X  manager_hints->flags=InputHint | StateHint;
+X  manager_hints->input=False;
+X  manager_hints->initial_state=IconicState;
+X  XMakeWindow(display,root_window,argv,argc,class_hint,manager_hints,
+X    delete_property,&window->icon);
+X  if (resource_info->debug)
+X    (void) fprintf(stderr,"Window id: 0x%lx (icon)\n",window->icon.id);
+X  /*
+X    Initialize image window.
+X  */
+X  XGetWindowInfo(display,visual_info,map_info,&pixel_info,font_info,
+X    resource_info,&window->image);
+X  window->image.name=(char *) malloc(2048*sizeof(char));
+X  window->image.icon_name=(char *) malloc(2048*sizeof(char));
+X  if ((window->image.name == NULL) || (window->image.icon_name == NULL))
+X    Error("unable to create image window","memory allocation failed");
+X  if (resource_info->title != (char *) NULL)
+X    {
+X      /*
+X        User specified window name.
+X      */
+X      (void) strcpy(window->image.name,resource_info->title);
+X      (void) strcpy(window->image.icon_name,resource_info->title);
+X    }
+X  else
+X    {
+X      register char
+X        *p;
+X
+X      /*
+X        Window name is the base of the filename.
+X      */
+X      p=images[0]->filename+strlen(images[0]->filename)-1;
+X      while ((p > images[0]->filename) && (*(p-1) != '/'))
+X        p--;
+X      (void) strcpy(window->image.name,"ImageMagick: ");
+X      (void) strcat(window->image.name,p);
+X      p=window->image.name;
+X      while (*p != '\0')
+X      {
+X        if (*p == '.')
+X          {
+X            *p='\0';
+X            break;
+X          }
+X        p++;
+X      }
+X      (void) strcpy(window->image.icon_name,images[0]->filename);
+X      p=window->image.icon_name;
+X      while (*p != '\0')
+X      {
+X        if (*p == '.')
+X          {
+X            *p='\0';
+X            break;
+X          }
+X        p++;
+X      }
+X    }
+X  window->image.geometry=resource_info->image_geometry;
+X  window->image.width=images[0]->columns;
+X  if (window->image.width >= XDisplayWidth(display,visual_info->screen))
+X    window->image.width=XDisplayWidth(display,visual_info->screen);
+X  window->image.height=images[0]->rows;
+X  if (window->image.height >= XDisplayHeight(display,visual_info->screen))
+X    window->image.height=XDisplayHeight(display,visual_info->screen);
+SHAR_EOF
+true || echo 'restore of ImageMagick/animate.c failed'
+fi
+echo 'End of ImageMagick part 18'
+echo 'File ImageMagick/animate.c is continued in part 19'
+echo 19 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

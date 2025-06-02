@@ -1,0 +1,1030 @@
+Newsgroups: comp.sources.misc
+From: pefv700@hermes.chpc.utexas.edu (Christopher Phillips)
+Subject: v40i166:  ddb - dynamic memory database library, Patch01
+Message-ID: <1993Nov26.161712.440@sparky.sterling.com>
+X-Md4-Signature: b495dbbd7085cc6694b944629e017692
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: pefv700@utpe.pe.utexas.edu
+Organization: Sterling Software
+Date: Fri, 26 Nov 1993 16:17:12 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: pefv700@hermes.chpc.utexas.edu (Christopher Phillips)
+Posting-number: Volume 40, Issue 166
+Archive-name: ddb/patch01
+Environment: ANSI-C
+Patch-To: ddb: Volume 40, Issue 82
+
+This is patch01 for ddb, a library of dynamic memory database routines.
+
+There are a few changes:
+
+- errno is now set upon failure
+- The manual page has been modified accordingly
+- ddb_bdelete returned NULL instead of -1 for invalid descriptors
+
+Just cd to the source directory and unshar this file.  Then type 
+
+	patch -p0 < Patch01
+
+Chris
+pefv700@utpe.pe.utexas.edu
+--------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Patch01
+# Wrapped by pefv700@hermes on Thu Nov 18 00:15:47 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Patch01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Patch01'\"
+else
+echo shar: Extracting \"'Patch01'\" \(19727 characters\)
+sed "s/^X//" >'Patch01' <<'END_OF_FILE'
+X*** ../ddb.old/Makefile	Thu Nov 18 00:08:26 1993
+X--- Makefile	Wed Nov 17 23:53:07 1993
+X***************
+X*** 1,5 ****
+X  OPT=-O
+X! CFLAGS=$(OPT) -I.
+X  CDBS=hash.c list.c queue.c stack.c binary.c bit.c
+X  CSRCS=new.c $(CDBS)
+X  COBJS=$(CSRCS:.c=.o)
+X--- 1,5 ----
+X  OPT=-O
+X! CFLAGS=$(OPT)
+X  CDBS=hash.c list.c queue.c stack.c binary.c bit.c
+X  CSRCS=new.c $(CDBS)
+X  COBJS=$(CSRCS:.c=.o)
+X*** ../ddb.old/binary.c	Thu Nov 18 00:08:27 1993
+X--- binary.c	Thu Nov 18 00:01:03 1993
+X***************
+X*** 21,27 ****
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  #define MIN(a,b)	((a) < (b) ? (a) : (b))
+X  
+X--- 21,28 ----
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  #define MIN(a,b)	((a) < (b) ? (a) : (b))
+X  
+X***************
+X*** 48,53 ****
+X--- 49,56 ----
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  
+X+ extern int	errno;
+X+ 
+X  int
+X  ddb_memcmp(const DATUM *dp1, const DATUM *dp2)
+X  {
+X***************
+X*** 65,71 ****
+X  static int
+X  validbd(int bd)
+X  {
+X! 	return binary && bd < maxbinaries && binary[bd].used;
+X  }
+X  
+X  static int
+X--- 68,78 ----
+X  static int
+X  validbd(int bd)
+X  {
+X! 	int	valid = binary && bd < maxbinaries && binary[bd].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  static int
+X***************
+X*** 77,82 ****
+X--- 84,90 ----
+X  	case DDB_DUPLICATE:
+X  		return 1;
+X  	default:
+X+ 		errno = EINVAL;
+X  		return 0;
+X  	}
+X  }
+X***************
+X*** 167,172 ****
+X--- 175,181 ----
+X  			bp->left = bp_new;
+X  		} else /* DDB_INSERT */ {
+X  			bfree(bp_new);
+X+ 			errno = EEXIST;
+X  			return -1;
+X  		}
+X  	} else
+X***************
+X*** 191,198 ****
+X  	if (bp = find(bd, key, cmp, NULL))
+X  #endif
+X  		return &bp->data;
+X! 	else
+X  		return NULL;
+X  }
+X  
+X  int
+X--- 200,209 ----
+X  	if (bp = find(bd, key, cmp, NULL))
+X  #endif
+X  		return &bp->data;
+X! 	else {
+X! 		errno = ENOENT;
+X  		return NULL;
+X+ 	}
+X  }
+X  
+X  int
+X***************
+X*** 206,212 ****
+X  #endif
+X  
+X  	if (!validbd(bd))
+X! 		return NULL;
+X  	if (!cmp)
+X  		cmp = ddb_memcmp;
+X  
+X--- 217,223 ----
+X  #endif
+X  
+X  	if (!validbd(bd))
+X! 		return -1;
+X  	if (!cmp)
+X  		cmp = ddb_memcmp;
+X  
+X***************
+X*** 254,261 ****
+X  			free(bp);
+X  		}
+X  		return 0;
+X! 	} else
+X  		return -1;
+X  }
+X  
+X  static void
+X--- 265,274 ----
+X  			free(bp);
+X  		}
+X  		return 0;
+X! 	} else {
+X! 		errno = ENOENT;
+X  		return -1;
+X+ 	}
+X  }
+X  
+X  static void
+X***************
+X*** 385,422 ****
+X  {
+X  	if (validbd(bd))
+X  		recurse(binary[bd].root, f, order);
+X- }
+X- 
+X- DATUM *
+X- ddb_blargestkey(int bd)
+X- {
+X- 	BELEM	*bp;
+X- 
+X- 	if (!validbd(bd))
+X- 		return NULL;
+X- 
+X- 	if (bp = binary[bd].root) {
+X- 		while (bp->right)
+X- 			bp = bp->right;
+X- 		return &bp->key;
+X- 	} else
+X- 		return NULL;
+X- }
+X- 
+X- DATUM *
+X- ddb_bsmallestkey(int bd)
+X- {
+X- 	BELEM	*bp;
+X- 
+X- 	if (!validbd(bd))
+X- 		return NULL;
+X- 
+X- 	if (bp = binary[bd].root) {
+X- 		while (bp->left)
+X- 			bp = bp->left;
+X- 		return &bp->key;
+X- 	} else
+X- 		return NULL;
+X  }
+X  
+X  #ifdef DEBUG
+X--- 398,403 ----
+X*** ../ddb.old/bit.c	Thu Nov 18 00:08:27 1993
+X--- bit.c	Thu Nov 18 00:07:35 1993
+X***************
+X*** 20,26 ****
+X  #include <string.h>
+X  #include <limits.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  #define MIN(a,b)	((a) < (b) ? (a) : (b))
+X  
+X--- 20,27 ----
+X  #include <string.h>
+X  #include <limits.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  #define MIN(a,b)	((a) < (b) ? (a) : (b))
+X  
+X***************
+X*** 42,54 ****
+X  static BIT	*vector = NULL;
+X  static int	maxvectors = 0;
+X  
+X! #define CHECK_MAXBIT	1
+X  
+X  static int
+X! validbd(int bd, unsigned long bit, int check)
+X  {
+X! 	return vector && bd < maxvectors && vector[bd].used
+X! 	  && (check != CHECK_MAXBIT || bit <= vector[bd].maxbit);
+X  }
+X  
+X  static int
+X--- 43,58 ----
+X  static BIT	*vector = NULL;
+X  static int	maxvectors = 0;
+X  
+X! extern int	errno;
+X  
+X  static int
+X! validbd(int bd)
+X  {
+X! 	int	valid = vector && bd < maxvectors && vector[bd].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  static int
+X***************
+X*** 60,65 ****
+X--- 64,70 ----
+X  	case DDB_DUPLICATE:
+X  		return 1;
+X  	default:
+X+ 		errno = EINVAL;
+X  		return 0;
+X  	}
+X  }
+X***************
+X*** 71,78 ****
+X  	unsigned long	nints1, nints2;
+X  	unsigned long	bit;
+X  
+X! 	if (maxbit > (unsigned long)LONG_MAX)
+X  		return -1;
+X  
+X  	nints1 = vector[bd].maxbit / WORD_BIT + 1;
+X  	nints2 = maxbit / WORD_BIT + 1;
+X--- 76,85 ----
+X  	unsigned long	nints1, nints2;
+X  	unsigned long	bit;
+X  
+X! 	if (maxbit > (unsigned long)LONG_MAX) {
+X! 		errno = EDOM;
+X  		return -1;
+X+ 	}
+X  
+X  	nints1 = vector[bd].maxbit / WORD_BIT + 1;
+X  	nints2 = maxbit / WORD_BIT + 1;
+X***************
+X*** 94,100 ****
+X  int
+X  ddb_bitwrite(int bd, unsigned long bit, int mode)
+X  {
+X! 	if (!validbd(bd, bit, !CHECK_MAXBIT) || !validmode(mode))
+X  		return -1;
+X  	if (bit > vector[bd].maxbit && enlarge(bd, bit) == -1)
+X  		return -1;
+X--- 101,107 ----
+X  int
+X  ddb_bitwrite(int bd, unsigned long bit, int mode)
+X  {
+X! 	if (!validbd(bd) || !validmode(mode))
+X  		return -1;
+X  	if (bit > vector[bd].maxbit && enlarge(bd, bit) == -1)
+X  		return -1;
+X***************
+X*** 101,108 ****
+X  
+X  	if (!isset(vector[bd].bits, bit))
+X  		setbit(vector[bd].bits, bit);
+X! 	else if (mode & DDB_INSERT)
+X  		return -1;
+X  
+X  	return 0;
+X  }
+X--- 108,117 ----
+X  
+X  	if (!isset(vector[bd].bits, bit))
+X  		setbit(vector[bd].bits, bit);
+X! 	else if (mode & DDB_INSERT) {
+X! 		errno = EEXIST;
+X  		return -1;
+X+ 	}
+X  
+X  	return 0;
+X  }
+X***************
+X*** 110,140 ****
+X  int
+X  ddb_bitread(int bd, unsigned long bit)
+X  {
+X! 	if (!validbd(bd, bit, !CHECK_MAXBIT))
+X  		return -1;
+X  
+X! 	if (bit > vector[bd].maxbit)
+X  		return 0;
+X- 	return isset(vector[bd].bits, bit) != 0;
+X  }
+X  
+X  int
+X  ddb_bitdelete(int bd, unsigned long bit)
+X  {
+X! 	if (!validbd(bd, bit, CHECK_MAXBIT))
+X  		return -1;
+X! 
+X! 	if (isset(vector[bd].bits, bit)) {
+X  		clrbit(vector[bd].bits, bit);
+X  		return 0;
+X! 	} else
+X! 		return -1;
+X  }
+X  
+X  int
+X  ddb_bitclose(int bd)
+X  {
+X! 	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X  		return -1;
+X  
+X  	vector[bd].used = 0;
+X--- 119,152 ----
+X  int
+X  ddb_bitread(int bd, unsigned long bit)
+X  {
+X! 	if (!validbd(bd))
+X  		return -1;
+X  
+X! 	if (bit > vector[bd].maxbit || !isset(vector[bd].bits, bit)) {
+X! 		errno = ENOENT;
+X! 		return -1;
+X! 	} else
+X  		return 0;
+X  }
+X  
+X  int
+X  ddb_bitdelete(int bd, unsigned long bit)
+X  {
+X! 	if (!validbd(bd))
+X  		return -1;
+X! 	if (bit > vector[bd].maxbit || !isset(vector[bd].bits, bit)) {
+X! 		errno = ENOENT;
+X! 		return -1;
+X! 	} else {
+X  		clrbit(vector[bd].bits, bit);
+X  		return 0;
+X! 	}
+X  }
+X  
+X  int
+X  ddb_bitclose(int bd)
+X  {
+X! 	if (!validbd(bd))
+X  		return -1;
+X  
+X  	vector[bd].used = 0;
+X***************
+X*** 147,153 ****
+X  int
+X  ddb_bitset(int bd, int on)
+X  {
+X! 	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X  		return -1;
+X  
+X  	(void)memset(vector[bd].bits, on ? ~0 : '\0',
+X--- 159,165 ----
+X  int
+X  ddb_bitset(int bd, int on)
+X  {
+X! 	if (!validbd(bd))
+X  		return -1;
+X  
+X  	(void)memset(vector[bd].bits, on ? ~0 : '\0',
+X***************
+X*** 164,171 ****
+X  	int		j;
+X  	BIT		*vtmp;
+X  
+X! 	if (maxbit > (unsigned long)LONG_MAX)
+X  		return -1;
+X  
+X  	for (i = 0; i < maxvectors && vector[i].used; i++)
+X  		;
+X--- 176,185 ----
+X  	int		j;
+X  	BIT		*vtmp;
+X  
+X! 	if (maxbit > (unsigned long)LONG_MAX) {
+X! 		errno = EDOM;
+X  		return -1;
+X+ 	}
+X  
+X  	for (i = 0; i < maxvectors && vector[i].used; i++)
+X  		;
+X***************
+X*** 243,250 ****
+X  {
+X  	unsigned long	index;
+X  
+X! 	if (!validbd(bd, 0, !CHECK_MAXBIT) || (index = findword(vector[bd].bits,
+X! 	  0, vector[bd].maxbit / WORD_BIT, 0)) == -1)
+X  		return -1;
+X  	else
+X  		return vector[bd].lastbit = findlowset(vector[bd].bits[index],
+X--- 257,264 ----
+X  {
+X  	unsigned long	index;
+X  
+X! 	if (!validbd(bd) || (index = findword(vector[bd].bits, 0,
+X! 	  vector[bd].maxbit / WORD_BIT, 0)) == -1)
+X  		return -1;
+X  	else
+X  		return vector[bd].lastbit = findlowset(vector[bd].bits[index],
+X***************
+X*** 259,265 ****
+X  	unsigned int	mask;
+X  	unsigned long	index;
+X  
+X! 	if (!validbd(bd, 0, !CHECK_MAXBIT))
+X  		return -1;
+X  	mask = wordmask(vector[bd].lastbit % WORD_BIT);
+X  	if ((index = findword(vector[bd].bits, vector[bd].lastbit / WORD_BIT,
+X--- 273,279 ----
+X  	unsigned int	mask;
+X  	unsigned long	index;
+X  
+X! 	if (!validbd(bd))
+X  		return -1;
+X  	mask = wordmask(vector[bd].lastbit % WORD_BIT);
+X  	if ((index = findword(vector[bd].bits, vector[bd].lastbit / WORD_BIT,
+X*** ../ddb.old/ddb.3	Thu Nov 18 00:08:27 1993
+X--- ddb.3	Wed Nov 17 23:53:08 1993
+X***************
+X*** 126,145 ****
+X  .BR write(\|)
+X  functions use to add to the databases.
+X  Must include only one of the following values:
+X! .IP DDB_INSERT
+X  Insert the pair only if the key is not currently in the database.
+X! .IP DDB_REPLACE
+X  Add the pair to the database.
+X  If the key is already in the database, delete that entry.
+X! .IP DDB_DUPLICATE
+X  Add the pair to the database.
+X  If the key is already in the database, do not delete that entry.
+X! 
+X  For the
+X  .BR ddb_lwrite(\|)
+X! function, the value
+X! .IR DDB_TAIL
+X! can be inclusively OR'ed into
+X  .IR flag
+X  to specify writing at the tail of the list.
+X  .IP \fIf\fP
+X--- 126,145 ----
+X  .BR write(\|)
+X  functions use to add to the databases.
+X  Must include only one of the following values:
+X! .RS
+X! .IP DDB_INSERT 14
+X  Insert the pair only if the key is not currently in the database.
+X! .IP DDB_REPLACE 14
+X  Add the pair to the database.
+X  If the key is already in the database, delete that entry.
+X! .IP DDB_DUPLICATE 14
+X  Add the pair to the database.
+X  If the key is already in the database, do not delete that entry.
+X! .RE
+X! .IP
+X  For the
+X  .BR ddb_lwrite(\|)
+X! function, the value DDB_TAIL can be inclusively OR'ed into
+X  .IR flag
+X  to specify writing at the tail of the list.
+X  .IP \fIf\fP
+X***************
+X*** 229,240 ****
+X  functions.
+X  .LP
+X  Functions returning type pointer\-to\-DATUM return NULL on failure.
+X! .SH NOTES
+X! All of the
+X  .BR read(\|)
+X! functions except
+X! .BR ddb_bitread(\|)
+X! return pointers to memory which should be freed when unneeded.
+X  .LP
+X  Altering a database and then calling a
+X  .BR next(\|)
+X--- 229,329 ----
+X  functions.
+X  .LP
+X  Functions returning type pointer\-to\-DATUM return NULL on failure.
+X! .SH ERRORS
+X! .LP
+X! If an
+X! .BR open(\|)
+X! function fails, errno will be set to one of the following values:
+X! .IP [ENOMEM] 9
+X! Sufficient memory could not be allocated.
+X! .IP [EDOM] 9
+X! .BR ddb_bitopen(\|)
+X! has been called with
+X! .IR maxbit
+X! larger than LONG_MAX.
+X! .LP
+X! If a
+X! .BR close(\|)
+X! function fails, errno will be set to
+X! .IP [EBADF] 9
+X! The
+X! .IR dbd
+X! argument is not a valid database descriptor.
+X! .LP
+X! If a
+X  .BR read(\|)
+X! function fails, errno may be set to one of the following values:
+X! .IP [EBADF] 9
+X! The
+X! .IR dbd
+X! argument is not a valid database descriptor.
+X! .IP [ENOENT] 9
+X! The
+X! .IR key
+X! argument does not specify an entry in the database.
+X! .LP
+X! Errno is not changed when the relevant database is empty
+X! and
+X! .BR ddb_lread(\|)
+X! is called with
+X! .IR key
+X! NULL or
+X! .BR ddb_qread(\|)
+X! or
+X! .BR ddb_sread(\|)
+X! are called.
+X! .LP
+X! If a
+X! .BR write(\|)
+X! function fails, errno will be set to one of the following values:
+X! .IP [EBADF] 9
+X! The
+X! .IR dbd
+X! argument is not a valid database descriptor.
+X! .IP [EINVAL] 9
+X! The
+X! .IR flag
+X! argument is not valid.
+X! .IP [EEXIST] 9
+X! The entry indicated by
+X! .IR key
+X! is already present in the database and DDB_INSERT was specified.
+X! .IP [ENOMEM] 9
+X! Sufficient memory could not be allocated.
+X! .IP [EDOM] 9
+X! .BR ddb_bitwrite(\|)
+X! has been called with
+X! .IR bit
+X! larger than LONG_MAX.
+X! .LP
+X! If a
+X! .BR delete(\|)
+X! function fails, errno will be set to one of the following values:
+X! .IP [EBADF] 9
+X! The
+X! .IR dbd
+X! argument is not a valid database descriptor.
+X! .IP [ENOENT] 9
+X! The
+X! .IR key
+X! argument does not specify an entry in the database.
+X! .LP
+X! When the
+X! .BR first(\|)
+X! and
+X! .BR next(\|)
+X! functions fail because the all of the entries in a database have
+X! been returned, errno is not changed.
+X! However, they can fail with errno set to
+X! .IP [EBADF] 9
+X! The
+X! .IR dbd
+X! argument is not a valid database descriptor.
+X! .SH NOTES
+X! The
+X! .BR ddb_qread(\|)
+X! function
+X! returns a pointer to memory which should be freed when unneeded.
+X  .LP
+X  Altering a database and then calling a
+X  .BR next(\|)
+X*** ../ddb.old/ddb.h	Thu Nov 18 00:08:27 1993
+X--- ddb.h	Wed Nov 17 23:53:08 1993
+X***************
+X*** 46,53 ****
+X  extern DATUM	*ddb_bfirst(int);
+X  extern DATUM	*ddb_bnext(int);
+X  extern void	ddb_bfunc(int, void (*)(const DATUM *, const DATUM *), int);
+X- extern DATUM	*ddb_blargestkey(int);
+X- extern DATUM	*ddb_bsmallestkey(int);
+X  #ifdef DEBUG
+X  extern void	ddb_bdump(int, void (*)(const DATUM *), void (*)(const DATUM *),
+X  		  int);
+X--- 46,51 ----
+X***************
+X*** 61,68 ****
+X  extern int	ddb_bitread(int, unsigned long);
+X  extern long	ddb_bitfirst(int);
+X  extern long	ddb_bitnext(int);
+X- extern long	ddb_bitlargestkey(int);
+X- extern long	ddb_bitsmallestkey(int);
+X  extern int	ddb_bitset(int, int);
+X  #ifdef DEBUG
+X  extern void	ddb_bitdump(int);
+X--- 59,64 ----
+X*** ../ddb.old/hash.c	Thu Nov 18 00:08:28 1993
+X--- hash.c	Wed Nov 17 23:53:08 1993
+X***************
+X*** 19,25 ****
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  typedef struct hashent {
+X  	DATUM		key;
+X--- 19,26 ----
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  typedef struct hashent {
+X  	DATUM		key;
+X***************
+X*** 46,51 ****
+X--- 47,54 ----
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  extern int	ddb_memcmp(const DATUM *, const DATUM *);
+X  
+X+ extern int	errno;
+X+ 
+X  static size_t
+X  def_hash(const char *key, size_t keysize, size_t nbuckets)
+X  {
+X***************
+X*** 60,66 ****
+X  static int
+X  validhd(int hd)
+X  {
+X! 	return hashtable && hd < maxtables && hashtable[hd].used;
+X  }
+X  
+X  static DATUM *
+X--- 63,73 ----
+X  static int
+X  validhd(int hd)
+X  {
+X! 	int	valid =  hashtable && hd < maxtables && hashtable[hd].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  static DATUM *
+X***************
+X*** 88,100 ****
+X  		}
+X  
+X  	if (action == H_READ)
+X! 		return ptr ? &ptr->data : NULL;
+X  
+X! 	if (ptr && action == DDB_INSERT)
+X  		return NULL;
+X  
+X! 	if (!ptr && action == H_DELETE)
+X  		return NULL;
+X  
+X  	if (ptr && action != DDB_DUPLICATE) {	/* H_DELETE || DDB_REPLACE */
+X  		free(ptr->data.addr);
+X--- 95,116 ----
+X  		}
+X  
+X  	if (action == H_READ)
+X! 		if (ptr)
+X! 			return &ptr->data;
+X! 		else {
+X! 			errno = ENOENT;
+X! 			return NULL;
+X! 		}
+X  
+X! 	if (ptr && action == DDB_INSERT) {
+X! 		errno = EEXIST;
+X  		return NULL;
+X+ 	}
+X  
+X! 	if (!ptr && action == H_DELETE) {
+X! 		errno = ENOENT;
+X  		return NULL;
+X+ 	}
+X  
+X  	if (ptr && action != DDB_DUPLICATE) {	/* H_DELETE || DDB_REPLACE */
+X  		free(ptr->data.addr);
+X***************
+X*** 140,148 ****
+X  ddb_hwrite(int hd, const DATUM *key, const DATUM *data, ddb_cmp_t cmp, int mode,
+X    ddb_hash_t hash)
+X  {
+X! 	if (mode != DDB_INSERT && mode != DDB_REPLACE && mode != DDB_DUPLICATE)
+X  		return -1;
+X! 	else if (hashop(hd, mode, key, data, cmp, hash))
+X  		return 0;
+X  	else
+X  		return -1;
+X--- 156,166 ----
+X  ddb_hwrite(int hd, const DATUM *key, const DATUM *data, ddb_cmp_t cmp, int mode,
+X    ddb_hash_t hash)
+X  {
+X! 	if (mode != DDB_INSERT && mode != DDB_REPLACE
+X! 	  && mode != DDB_DUPLICATE) {
+X! 		errno = EINVAL;
+X  		return -1;
+X! 	} else if (hashop(hd, mode, key, data, cmp, hash))
+X  		return 0;
+X  	else
+X  		return -1;
+X*** ../ddb.old/list.c	Thu Nov 18 00:08:28 1993
+X--- list.c	Wed Nov 17 23:53:08 1993
+X***************
+X*** 19,25 ****
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  extern int	ddb_memcmp(const DATUM *, const DATUM *);
+X--- 19,26 ----
+X  #include <stdlib.h>
+X  #include <string.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  extern int	ddb_memcmp(const DATUM *, const DATUM *);
+X***************
+X*** 38,47 ****
+X  static LIST	*list = NULL;
+X  static int	maxlists = 0;
+X  
+X  static int
+X  validld(int ld)
+X  {
+X! 	return list && ld < maxlists && list[ld].used;
+X  }
+X  
+X  static int
+X--- 39,54 ----
+X  static LIST	*list = NULL;
+X  static int	maxlists = 0;
+X  
+X+ extern int	errno;
+X+ 
+X  static int
+X  validld(int ld)
+X  {
+X! 	int	valid = list && ld < maxlists && list[ld].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  static int
+X***************
+X*** 53,58 ****
+X--- 60,66 ----
+X  	case DDB_DUPLICATE:
+X  		return 1;
+X  	default:
+X+ 		errno = EINVAL;
+X  		return 0;
+X  	}
+X  }
+X***************
+X*** 99,107 ****
+X  		if (mode & DDB_TAIL)
+X  			(void)find(ld, NULL, cmp, &le_prev);
+X  	} else if (le = find(ld, key, cmp, NULL))
+X! 		if (mode & DDB_INSERT)
+X  			return -1;
+X! 		else /* DDB_REPLACE */ {
+X  			free(le->key.addr);
+X  			free(le->data.addr);
+X  			le->key = le_new->key;
+X--- 107,116 ----
+X  		if (mode & DDB_TAIL)
+X  			(void)find(ld, NULL, cmp, &le_prev);
+X  	} else if (le = find(ld, key, cmp, NULL))
+X! 		if (mode & DDB_INSERT) {
+X! 			errno = EEXIST;
+X  			return -1;
+X! 		} else /* DDB_REPLACE */ {
+X  			free(le->key.addr);
+X  			free(le->data.addr);
+X  			le->key = le_new->key;
+X***************
+X*** 144,149 ****
+X--- 153,159 ----
+X  	if (le = find(ld, key, cmp, NULL))
+X  		return &le->data;
+X  
+X+ 	errno = ENOENT;
+X  	return NULL;
+X  }
+X  
+X***************
+X*** 173,178 ****
+X--- 183,189 ----
+X  		return 0;
+X  	}
+X  
+X+ 	errno = ENOENT;
+X  	return -1;
+X  }
+X  
+X*** ../ddb.old/new.c	Thu Nov 18 00:08:28 1993
+X--- new.c	Wed Nov 17 23:53:08 1993
+X***************
+X*** 19,25 ****
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X  #include <string.h>
+X! #include <ddb.h>
+X  
+X  void *
+X  ddb_new(const DATUM *key, const DATUM *data, size_t size)
+X--- 19,25 ----
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X  #include <string.h>
+X! #include "ddb.h"
+X  
+X  void *
+X  ddb_new(const DATUM *key, const DATUM *data, size_t size)
+X*** ../ddb.old/patchlevel.h	Thu Nov 18 00:08:28 1993
+X--- patchlevel.h	Wed Nov 17 23:53:09 1993
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL	0
+X--- 1 ----
+X! #define PATCHLEVEL	1
+X*** ../ddb.old/queue.c	Thu Nov 18 00:08:28 1993
+X--- queue.c	Wed Nov 17 23:53:09 1993
+X***************
+X*** 18,24 ****
+X  #include <stdio.h>
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  typedef struct qent {
+X  	DATUM		data;
+X--- 18,25 ----
+X  #include <stdio.h>
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  typedef struct qent {
+X  	DATUM		data;
+X***************
+X*** 35,44 ****
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  
+X  static int
+X  validqd(int qd)
+X  {
+X! 	return queue && qd < maxqueues && queue[qd].used;
+X  }
+X  
+X  int
+X--- 36,51 ----
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  
+X+ extern int	errno;
+X+ 
+X  static int
+X  validqd(int qd)
+X  {
+X! 	int	valid = queue && qd < maxqueues && queue[qd].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  int
+X*** ../ddb.old/stack.c	Thu Nov 18 00:08:29 1993
+X--- stack.c	Wed Nov 17 23:53:09 1993
+X***************
+X*** 18,24 ****
+X  #include <stdio.h>
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X! #include <ddb.h>
+X  
+X  typedef struct {
+X  	int	used;
+X--- 18,25 ----
+X  #include <stdio.h>
+X  #include <stdlib.h>
+X  #include <sys/types.h>
+X! #include <errno.h>
+X! #include "ddb.h"
+X  
+X  typedef struct {
+X  	int	used;
+X***************
+X*** 31,40 ****
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  
+X  static int
+X  validsd(int sd)
+X  {
+X! 	return stack && sd < maxstacks && stack[sd].used;
+X  }
+X  
+X  int
+X--- 32,47 ----
+X  
+X  extern void	*ddb_new(const DATUM *, const DATUM *, size_t);
+X  
+X+ extern int	errno;
+X+ 
+X  static int
+X  validsd(int sd)
+X  {
+X! 	int	valid = stack && sd < maxstacks && stack[sd].used;
+X! 
+X! 	if (!valid)
+X! 		errno = EBADF;
+X! 	return valid;
+X  }
+X  
+X  int
+END_OF_FILE
+if test 19727 -ne `wc -c <'Patch01'`; then
+    echo shar: \"'Patch01'\" unpacked with wrong size!
+fi
+# end of 'Patch01'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

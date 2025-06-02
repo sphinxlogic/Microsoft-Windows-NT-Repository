@@ -1,0 +1,2316 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v37i008:  vim - Vi IMitation editor v1.27, Part08/24
+Message-ID: <1993Apr23.173136.16790@sparky.imd.sterling.com>
+X-Md4-Signature: 828bada50568f29a1bbd1595b9b8f97b
+Date: Fri, 23 Apr 1993 17:31:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 37, Issue 8
+Archive-name: vim/part08
+Environment: UNIX, AMIGA, MS-DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 23)."
+# Contents:  vim/src/edit.c vim/src/param.c vim/src/unix.c
+# Wrapped by mool@oce-rd2 on Mon Apr 19 15:50:09 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/edit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/edit.c'\"
+else
+echo shar: Extracting \"'vim/src/edit.c'\" \(16324 characters\)
+sed "s/^X//" >'vim/src/edit.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * edit.c: functions for insert mode
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X#include "ops.h"	/* for operator */
+X
+Xextern u_char *get_inserted();
+Xstatic void start_arrow __ARGS((void));
+Xstatic void stop_arrow __ARGS((void));
+Xstatic void stop_insert __ARGS((void));
+X
+Xint arrow_used;			/* Normally FALSE, set to TRUE after hitting
+X							 * cursor key in insert mode. Used by vgetorpeek()
+X							 * to decide when to call u_sync() */
+Xint restart_edit;		/* call edit when next command finished */
+Xstatic u_char	*last_insert = NULL;
+X							/* the text of the previous insert */
+Xstatic int		last_insert_skip;
+X							/* number of chars in front of the previous insert */
+Xstatic int		new_insert_skip;
+X							/* number of chars in front of the current insert */
+X
+X	void
+Xedit(count)
+X	long count;
+X{
+X	u_char		 c;
+X	u_char		 cc;
+X	u_char		*ptr;
+X	linenr_t	 lnum;
+X	int 		 temp = 0, mode;
+X	int			 nextc = 0;
+X
+X#ifdef DIGRAPHS
+X	int			 inserted = 0;		/* last 'normal' inserted char */
+X	int			 backspaced = 0;	/* last backspace char */
+X#endif /* DIGRAPHS */
+X
+X	if (restart_edit)
+X	{
+X		arrow_used = TRUE;
+X		restart_edit = FALSE;
+X	}
+X	else
+X		arrow_used = FALSE;
+X
+X/*
+X * Get the current length of the redo buffer, those characters have to be
+X * skipped if we want to get to the inserted characters.
+X */
+X
+X	ptr = get_inserted();
+X	new_insert_skip = strlen((char *)ptr);
+X	free(ptr);
+X
+X	for (;;)
+X	{
+X		if (arrow_used)		/* don't repeat insert when arrow key used */
+X			count = 0;
+X
+X		set_want_col = TRUE;	/* set Curswant in case of K_DARROW or K_UARROW */
+X		cursupdate();		/* Figure out where the cursor is based on Curpos. */
+X		setcursor();
+X		if (nextc)			/* character remaining from CTRL-V */
+X		{
+X			c = nextc;
+X			nextc = 0;
+X		}
+X		else
+X			c = vgetc();
+X
+X#ifdef DIGRAPHS
+X		if (p_dg)
+X		{
+X			if (backspaced)
+X				c = getdigraph(backspaced, c);
+X			backspaced = 0;
+X			if (c == BS && inserted)
+X				backspaced = inserted;
+X			else
+X				inserted = c;
+X		}
+X#endif /* DIGRAPHS */
+X
+X		if (c == Ctrl('V'))
+X		{
+X				outchar('^');
+X				AppendToRedobuff("\026");	/* CTRL-V */
+X				cursupdate();
+X				setcursor();
+X
+X				c = get_literal(&nextc);
+X
+X			/* erase the '^' */
+X				if ((cc = gcharCurpos()) == NUL)
+X					outchar(' ');
+X				else
+X					outstrn(transchar(cc));
+X
+X				insertchar(c);
+X				continue;
+X		}
+X		switch (c)		/* handle character in insert mode */
+X		{
+X			  case Ctrl('O'):		/* execute one command */
+X			  	count = 0;
+X				restart_edit = TRUE;
+X				/*FALLTHROUGH*/
+X
+X			  case ESC: /* an escape ends input mode */
+X		doESCkey:
+X				if (!arrow_used)
+X				{
+X					AppendToRedobuff(ESC_STR);
+X
+X					if (--count > 0)		/* repeat what was typed */
+X					{
+X							start_redo_ins();
+X							continue;
+X					}
+X					stop_insert();
+X				}
+X				set_want_col = TRUE;
+X
+X				/*
+X				 * The cursor should end up on the last inserted character.
+X				 */
+X				if (Curpos.col != 0 && (!restart_edit || gcharCurpos() == NUL))
+X					decCurpos();
+X				State = NORMAL;
+X				script_winsize_pp();	/* may need to put :winsize in script */
+X					/* inchar() may have deleted the "INSERT" message */
+X				if (Recording)
+X					showmode();
+X				else if (p_mo)
+X					msg("");
+X				return;
+X
+X			  	/*
+X				 * Insert the previously inserted text.
+X				 * Last_insert actually is a copy of the redo buffer, so we
+X				 * first have to remove the command.
+X				 * For ^@ the trailing ESC will end the insert.
+X				 */
+X			  case K_ZERO:
+X			  case Ctrl('A'):
+X				stuff_inserted(NUL, 1L, (c == Ctrl('A')));
+X				break;
+X
+X			  	/*
+X				 * insert the contents of a register
+X				 */
+X			  case Ctrl('B'):
+X			  	if (!insertbuf(vgetc()))
+X					beep();
+X				break;
+X
+X				/*
+X				 * If the cursor is on an indent, ^T/^D insert/delete one
+X				 * shiftwidth. Otherwise ^T/^D behave like a TAB/backspace.
+X				 * This isn't completely compatible with
+X				 * vi, but the difference isn't very noticeable and now you can
+X				 * mix ^D/backspace and ^T/TAB without thinking about which one
+X				 * must be used.
+X				 */
+X			  case Ctrl('T'):		/* make indent one shiftwidth greater */
+X			  case Ctrl('D'): 		/* make indent one shiftwidth smaller */
+X				stop_arrow();
+X				AppendToRedobuff(mkstr(c));
+X
+X					/* determine offset from first non-blank */
+X				temp = Curpos.col;
+X				beginline(TRUE);
+X				temp -= Curpos.col;
+X
+X		  		shift_line(c == Ctrl('D'));
+X
+X					/* try to put cursor on same character */
+X				temp += Curpos.col;
+X				if (temp <= 0)
+X					Curpos.col = 0;
+X				else
+X					Curpos.col = temp;
+X				did_ai = FALSE;
+X				did_si = FALSE;
+X				can_si = FALSE;
+X		  		goto redraw;
+X
+X			  case BS:
+X			  case DEL:
+Xnextbs:
+X				mode = 0;
+Xdodel:
+X				/* can't backup past first character in buffer */
+X				/* can't backup past starting point unless "backspace" > 1 */
+X				/* can backup to a previous line if "backspace" == 0 */
+X				if ((Curpos.lnum == 1 && Curpos.col <= 0) ||
+X						(p_bs < 2 && (arrow_used ||
+X							(Curpos.lnum == Insstart.lnum &&
+X							Curpos.col <= Insstart.col) ||
+X							(Curpos.col <= 0 && p_bs == 0))))
+X				{
+X					beep();
+X					goto redraw;
+X				}
+X
+X				stop_arrow();
+X				if (Curpos.col <= 0)		/* delete newline! */
+X				{
+X					if (Curpos.lnum == Insstart.lnum)
+X					{
+X						if (!u_save((linenr_t)(Curpos.lnum - 2), (linenr_t)(Curpos.lnum + 1)))
+X							goto redraw;
+X						--Insstart.lnum;
+X						Insstart.col = 0;
+X					}
+X				/* in replace mode with 'repdel' off we only move the cursor */
+X					if (State != REPLACE || p_rd)
+X					{
+X						temp = gcharCurpos();		/* remember current char */
+X						--Curpos.lnum;
+X						dojoin(FALSE);
+X						if (temp == NUL && gcharCurpos() != NUL)
+X							++Curpos.col;
+X					}
+X					else
+X						decCurpos();
+X					did_ai = FALSE;
+X				}
+X				else
+X				{
+X					/* delete upto starting point, start of line or previous word */
+X					do
+X					{
+X						decCurpos();
+X								/* start of word? */
+X						if (mode == 1 && !isspace(gcharCurpos()))
+X						{
+X							mode = 2;
+X							temp = isidchar(gcharCurpos());
+X						}
+X								/* end of word? */
+X						if (mode == 2 && isidchar(gcharCurpos()) != temp)
+X						{
+X							incCurpos();
+X							break;
+X						}
+X						if (State != REPLACE || p_rd)
+X							delchar(TRUE);
+X						if (mode == 0)		/* just a single backspace */
+X							break;
+X					} while (Curpos.col > 0 && (Curpos.lnum != Insstart.lnum ||
+X							Curpos.col != Insstart.col));
+X				}
+X				did_si = FALSE;
+X				can_si = FALSE;
+X				if (Curpos.col <= 1)
+X					did_ai = FALSE;
+X				/*
+X				 * It's a little strange to put backspaces into the redo
+X				 * buffer, but it makes auto-indent a lot easier to deal
+X				 * with.
+X				 */
+X				AppendToRedobuff(mkstr(c));
+X				if (vpeekc() == BS)
+X				{
+X						c = vgetc();
+X						goto nextbs;	/* speedup multiple backspaces */
+X				}
+Xredraw:
+X				cursupdate();
+X				updateline();
+X				break;
+X
+X			  case Ctrl('W'):
+X			  	/* delete word before cursor */
+X			  	mode = 1;
+X			  	goto dodel;
+X
+X			  case Ctrl('U'):
+X				mode = 3;
+X			  	goto dodel;
+X
+X			  case K_LARROW:
+X			  	if (oneleft())
+X					start_arrow();
+X				else
+X					beep();
+X				break;
+X
+X			  case K_SLARROW:
+X			  	if (Curpos.lnum > 1 || Curpos.col > 0)
+X				{
+X					bck_word(1L, 0);
+X					start_arrow();
+X				}
+X				else
+X					beep();
+X				break;
+X
+X			  case K_RARROW:
+X				if (gcharCurpos() != NUL)
+X				{
+X					set_want_col = TRUE;
+X					start_arrow();
+X					++Curpos.col;
+X				}
+X				else
+X					beep();
+X				break;
+X
+X			  case K_SRARROW:
+X			  	if (Curpos.lnum < line_count || gcharCurpos() != NUL)
+X				{
+X					fwd_word(1L, 0);
+X					start_arrow();
+X				}
+X				else
+X					beep();
+X				break;
+X
+X			  case K_UARROW:
+X			  	if (oneup(1L))
+X					start_arrow();
+X				else
+X					beep();
+X				break;
+X
+X			  case K_SUARROW:
+X			  	if (onepage(BACKWARD, 1L))
+X					start_arrow();
+X				else
+X					beep();
+X				break;
+X
+X			  case K_DARROW:
+X			  	if (onedown(1L))
+X					start_arrow();
+X				else
+X					beep();
+X				break;
+X
+X			  case K_SDARROW:
+X			  	if (onepage(FORWARD, 1L))
+X					start_arrow();
+X				else
+X					beep();
+X				break;
+X
+X			  case TAB:
+X			  	if (!p_et)
+X					goto normalchar;
+X										/* expand a tab into spaces */
+X				stop_arrow();
+X				did_ai = FALSE;
+X				did_si = FALSE;
+X				can_si = FALSE;
+X				insstr("                " + 16 - (p_ts - Curpos.col % p_ts));
+X				AppendToRedobuff("\t");
+X				goto redraw;
+X
+X			  case CR:
+X			  case NL:
+X				stop_arrow();
+X				if (State == REPLACE)           /* DMT added, 12/89 */
+X					delchar(FALSE);
+X				AppendToRedobuff(NL_STR);
+X				if (!Opencmd(FORWARD, TRUE))
+X					goto doESCkey;		/* out of memory */
+X				break;
+X
+X#ifdef DIGRAPHS
+X			  case Ctrl('K'):
+X				outchar('?');
+X				AppendToRedobuff("\026");	/* CTRL-V */
+X				setcursor();
+X			  	c = vgetc();
+X				outstrn(transchar(c));
+X				setcursor();
+X				c = getdigraph(c, vgetc());
+X				goto normalchar;
+X#endif /* DIGRAPHS */
+X
+X			  case Ctrl('R'):
+X				/*
+X				 * addition by mool: copy from previous line
+X				 */
+X				lnum = Curpos.lnum - 1;
+X				goto copychar;
+X
+X			  case Ctrl('E'):
+X				lnum = Curpos.lnum + 1;
+Xcopychar:
+X				if (lnum < 1 || lnum > line_count)
+X				{
+X					beep();
+X					break;
+X				}
+X
+X				/* try to advance to the cursor column */
+X				temp = 0;
+X				ptr = (u_char *)nr2ptr(lnum);
+X				while (temp < Cursvcol && *ptr)
+X						temp += chartabsize(*ptr++, temp);
+X
+X				if (temp > Cursvcol)
+X						--ptr;
+X				if ((c = *ptr) == NUL)
+X				{
+X					beep();
+X					break;
+X				}
+X
+X				/*FALLTHROUGH*/
+X			  default:
+Xnormalchar:
+X				if (Curpos.col > 0 && ((can_si && c == '}') || (did_si && c == '{')))
+X					shift_line(TRUE);
+X				insertchar(c);
+X				break;
+X			}
+X	}
+X}
+X
+X/*
+X * Next character is interpreted literally.
+X * A one, two or three digit decimal number is interpreted as its byte value.
+X * If one or two digits are entered, *nextc is set to the next character.
+X */
+X	int
+Xget_literal(nextc)
+X	int *nextc;
+X{
+X	u_char		 cc;
+X	u_char		 nc;
+X	int			 oldstate;
+X	int			 i;
+X
+X	oldstate = State;
+X	State = NOMAPPING;		/* next characters not mapped */
+X
+X	cc = 0;
+X	for (i = 0; i < 3; ++i)
+X	{
+X		nc = vgetc();
+X		if (!isdigit(nc))
+X			break;
+X		cc = cc * 10 + nc - '0';
+X		nc = 0;
+X	}
+X	if (i == 0)		/* no number entered */
+X	{
+X		cc = nc;
+X		nc = 0;
+X	}
+X	else if (cc == 0)		/* NUL is stored as NL */
+X		cc = '\n';
+X
+X	State = oldstate;
+X	*nextc = nc;
+X	return cc;
+X}
+X
+X/*
+X * Special characters in this context are those that need processing other
+X * than the simple insertion that can be performed here. This includes ESC
+X * which terminates the insert, and CR/NL which need special processing to
+X * open up a new line. This routine tries to optimize insertions performed by
+X * the "redo", "undo" or "put" commands, so it needs to know when it should
+X * stop and defer processing to the "normal" mechanism.
+X */
+X#define ISSPECIAL(c)	((c) < ' ' || (c) >= DEL)
+X
+X	void
+Xinsertchar(c)
+X	unsigned	c;
+X{
+X	int		must_redraw = FALSE;
+X
+X	stop_arrow();
+X	/*
+X	 * If the cursor is past 'textwidth' and we are inserting a non-space,
+X	 * try to break the line in two or more pieces. If c == NUL then we have
+X	 * been called to do formatting only.
+X	 */
+X	if (c == NUL || !isspace(c))
+X	{
+X		while (Cursvcol >= p_tw)
+X		{
+X			int		startcol;		/* Cursor column at entry */
+X			int		wantcol;		/* column at textwidth border */
+X			int		foundcol;		/* column for start of word */
+X			int		mincol;			/* minimum column for break */
+X
+X			if ((startcol = Curpos.col) == 0)
+X				break;
+X			coladvance((int)p_tw);	/* find column of textwidth border */
+X			wantcol = Curpos.col;
+X			beginline((int)p_ai);			/* find start of text */
+X			mincol = Curpos.col;
+X
+X			Curpos.col = startcol - 1;
+X			foundcol = 0;
+X			while (Curpos.col > mincol)	/* find position to break at */
+X			{
+X				if (isspace(gcharCurpos()))
+X				{
+X					foundcol = Curpos.col + 1;
+X					while (Curpos.col > 1 && isspace(gcharCurpos()))
+X						--Curpos.col;
+X					if (Curpos.col < wantcol)
+X						break;
+X				}
+X				--Curpos.col;
+X			}
+X
+X			if (foundcol == 0)	/* no spaces, cannot break line */
+X			{
+X				Curpos.col = startcol;
+X				break;
+X			}
+X			Curpos.col = foundcol;
+X			startcol -= Curpos.col;
+X			Opencmd(FORWARD, FALSE);
+X			Curpos.col += startcol;
+X			curs_columns();			/* update Cursvcol */
+X			must_redraw = TRUE;
+X		}
+X		if (c == NUL)		/* formatting only */
+X			return;
+X		if (must_redraw)
+X			updateScreen(CURSUPD);
+X	}
+X
+X	did_ai = FALSE;
+X	did_si = FALSE;
+X	can_si = FALSE;
+X
+X	/*
+X	 * If there's any pending input, grab up to MAX_COLUMNS at once.
+X	 * This speeds up normal text input considerably.
+X	 */
+X	if (vpeekc() != NUL && State != REPLACE)
+X	{
+X		char			p[MAX_COLUMNS + 1];
+X		int 			i;
+X
+X		p[0] = c;
+X		i = 1;
+X		while ((c = vpeekc()) != NUL && !ISSPECIAL(c) && i < MAX_COLUMNS &&
+X					(Cursvcol += charsize(p[i - 1])) < p_tw)
+X			p[i++] = vgetc();
+X		p[i] = '\0';
+X		insstr(p);
+X		AppendToRedobuff(p);
+X	}
+X	else
+X	{
+X		inschar(c);
+X		AppendToRedobuff(mkstr(c));
+X	}
+X
+X	updateline();
+X}
+X
+X
+X/*
+X * start_arrow() is called when an arrow key is used in insert mode.
+X * It resembles hitting the <ESC> key.
+X */
+X	static void
+Xstart_arrow()
+X{
+X	if (!arrow_used)		/* something has been inserted */
+X	{
+X		AppendToRedobuff(ESC_STR);
+X		arrow_used = TRUE;		/* this means we stopped the current insert */
+X		stop_insert();
+X	}
+X}
+X
+X/*
+X * stop_arrow() is called before a change is made in insert mode.
+X * If an arrow key has been used, start a new insertion.
+X */
+X	static void
+Xstop_arrow()
+X{
+X	if (arrow_used)
+X	{
+X		u_saveCurpos();			/* errors are ignored! */
+X		Insstart = Curpos;		/* new insertion starts here */
+X		ResetBuffers();
+X		AppendToRedobuff("1i");	/* pretend we start an insertion */
+X		arrow_used = FALSE;
+X	}
+X}
+X
+X/*
+X * do a few things to stop inserting
+X */
+X	static void
+Xstop_insert()
+X{
+X	stop_redo_ins();
+X
+X	/*
+X	 * save the inserted text for later redo with ^@
+X	 */
+X	free(last_insert);
+X	last_insert = get_inserted();
+X	last_insert_skip = new_insert_skip;
+X
+X	/*
+X	 * If we just did an auto-indent, truncate the line, and put
+X	 * the cursor back.
+X	 */
+X	if (did_ai && !arrow_used)
+X	{
+X		*nr2ptr(Curpos.lnum) = NUL;
+X		canincrease(0);
+X		Curpos.col = 0;
+X	}
+X	did_ai = FALSE;
+X	did_si = FALSE;
+X	can_si = FALSE;
+X}
+X
+X/*
+X * oneright oneleft onedown oneup
+X *
+X * Move one char {right,left,down,up}.	Return TRUE when sucessful, FALSE when
+X * we hit a boundary (of a line, or the file).
+X */
+X
+X	int
+Xoneright()
+X{
+X	char *ptr;
+X
+X	ptr = pos2ptr(&Curpos);
+X	set_want_col = TRUE;
+X
+X	if (*ptr++ == NUL || *ptr == NUL)
+X		return FALSE;
+X	++Curpos.col;
+X	return TRUE;
+X}
+X
+X	int
+Xoneleft()
+X{
+X	set_want_col = TRUE;
+X
+X	if (Curpos.col == 0)
+X		return FALSE;
+X	--Curpos.col;
+X	return TRUE;
+X}
+X
+X	void
+Xbeginline(flag)
+X	int			flag;
+X{
+X	Curpos.col = 0;
+X	if (flag)
+X	{
+X		register char *ptr;
+X
+X		for (ptr = nr2ptr(Curpos.lnum); isspace(*ptr); ++ptr)
+X			++Curpos.col;
+X	}
+X	set_want_col = TRUE;
+X}
+X
+X	int
+Xoneup(n)
+X	long n;
+X{
+X	if (n != 0 && Curpos.lnum == 1)
+X		return FALSE;
+X	if (n >= Curpos.lnum)
+X		Curpos.lnum = 1;
+X	else
+X		Curpos.lnum -= n;
+X
+X	if (operator == NOP)
+X		cursupdate();				/* make sure Topline is valid */
+X
+X	/* try to advance to the column we want to be at */
+X	coladvance(Curswant);
+X	return TRUE;
+X}
+X
+X	int
+Xonedown(n)
+X	long n;
+X{
+X	if (n != 0 && Curpos.lnum == line_count)
+X		return FALSE;
+X	Curpos.lnum += n;
+X	if (Curpos.lnum > line_count)
+X		Curpos.lnum = line_count;
+X
+X	if (operator == NOP)
+X		cursupdate();				/* make sure Topline is valid */
+X
+X	/* try to advance to the column we want to be at */
+X	coladvance(Curswant);
+X	return TRUE;
+X}
+X
+X	int
+Xonepage(dir, count)
+X	int		dir;
+X	long	count;
+X{
+X	linenr_t		lp;
+X	long			n;
+X
+X	if (line_count == 1)	/* nothing to do */
+X		return FALSE;
+X	for ( ; count > 0; --count)
+X	{
+X		if (dir == FORWARD ? (Topline >= line_count - 1) : (Topline == 1))
+X		{
+X			beep();
+X			return FALSE;
+X		}
+X		lp = Topline;
+X		n = 0;
+X		if (dir == BACKWARD)
+X		{
+X			if (lp < line_count)
+X				++lp;
+X			Curpos.lnum = lp;
+X		}
+X		while (n < Rows - 1 && lp >= 1 && lp <= line_count)
+X		{
+X			n += plines(lp);
+X			lp += dir;
+X		}
+X		if (dir == FORWARD)
+X		{
+X			if (--lp > 1)
+X				--lp;
+X			Topline = Curpos.lnum = lp;
+X		}
+X		else
+X			Topline = lp + 1;
+X	}
+X	beginline(TRUE);
+X	updateScreen(VALID);
+X	return TRUE;
+X}
+X
+X	void
+Xstuff_inserted(c, count, no_esc)
+X	int		c;
+X	long	count;
+X	int		no_esc;
+X{
+X	u_char		*esc_ptr = NULL;
+X	u_char		*ptr;
+X
+X	if (last_insert == NULL)
+X	{
+X		beep();
+X		return;
+X	}
+X	if (c)
+X		stuffReadbuff(mkstr(c));
+X	if (no_esc && (esc_ptr = (u_char *)strrchr((char *)last_insert, 27)) != NULL)
+X		*esc_ptr = NUL;		/* remove the ESC */
+X
+X			/* skip the command */
+X	ptr = last_insert + last_insert_skip;
+X
+X	do
+X		stuffReadbuff((char *)ptr);
+X	while (--count > 0);
+X
+X	if (no_esc && esc_ptr)
+X		*esc_ptr = 27;		/* put the ESC back */
+X}
+END_OF_FILE
+if test 16324 -ne `wc -c <'vim/src/edit.c'`; then
+    echo shar: \"'vim/src/edit.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/edit.c'
+fi
+if test -f 'vim/src/param.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/param.c'\"
+else
+echo shar: Extracting \"'vim/src/param.c'\" \(16498 characters\)
+sed "s/^X//" >'vim/src/param.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * Code to handle user-settable parameters. This is all pretty much table-
+X * driven. To add a new parameter, put it in the params array, and add a
+X * variable for it in param.h. If it's a numeric parameter, add any necessary
+X * bounds checks to doset().
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstruct param
+X{
+X	char		*fullname;		/* full parameter name */
+X	char		*shortname; 	/* permissible abbreviation */
+X	int 		flags;			/* see below */
+X	char		*var;			/* pointer to variable */
+X};
+X
+X/*
+X * Flags
+X */
+X#define P_BOOL			0x01	/* the parameter is boolean */
+X#define P_NUM			0x02	/* the parameter is numeric */
+X#define P_STRING		0x04	/* the parameter is a string */
+X#define P_CHANGED		0x08	/* the parameter has been changed */
+X
+X/*
+X * The param structure is initialized here.
+X * The order of the parameters should be alfabetic
+X */
+Xstruct param params[] =
+X{
+X		{"autoindent",	"ai",	P_BOOL,		(char *)&p_ai},
+X/*		{"autoprint",	"ap",	P_BOOL,		(char *)&p_ap}, */
+X		{"autowrite",	"aw",	P_BOOL,		(char *)&p_aw},
+X		{"backspace",	"bs",	P_NUM,		(char *)&p_bs},
+X		{"backup",		"bk",	P_BOOL,		(char *)&p_bk},
+X#ifdef UNIX
+X 		{"backupdir",	"bdir",	P_STRING,	(char *)&p_bdir},
+X#endif
+X/*		{"beautify",	"bf",	P_BOOL,		(char *)&p_bf}, */
+X		{"columns",		"co",	P_NUM,		(char *)&Columns},
+X		{"compatible",	"cp",	P_BOOL,		(char *)&p_cp},
+X#ifdef DIGRAPHS
+X		{"digraph",		"dg",	P_BOOL,		(char *)&p_dg},
+X#endif /* DIGRAPHS */
+X 		{"directory",	"dir",	P_STRING,	(char *)&p_dir},
+X		{"equalprg",	"ep",  	P_STRING,	(char *)&p_ep},
+X		{"errorbells",	"eb",	P_BOOL,		(char *)&p_eb},
+X		{"errorfile",	"ef",  	P_STRING,	(char *)&p_ef},
+X		{"expandtab",	"et",	P_BOOL,		(char *)&p_et},
+X		{"graphic",		"gr",	P_BOOL,		(char *)&p_gr},
+X/*		{"hardtabs",	"ht",	P_NUM,		(char *)&p_ht}, */
+X		{"helpfile",	"hf",  	P_STRING,	(char *)&p_hf},
+X		{"history", 	"hi", 	P_NUM,		(char *)&p_hi},
+X		{"ignorecase",	"ic",	P_BOOL,		(char *)&p_ic},
+X		{"insertmode",	"im",	P_BOOL,		(char *)&p_im},
+X		{"joinspaces", 	"js",	P_BOOL,		(char *)&p_js},
+X		{"keywordprg",	"kp",  	P_STRING,	(char *)&p_kp},
+X		{"lines",		NULL, 	P_NUM,		(char *)&Rows},
+X/*		{"lisp",		NULL,	P_BOOL		(char *)&p_lisp}, */
+X		{"list",		NULL,	P_BOOL,		(char *)&p_list},
+X		{"magic",		NULL,	P_BOOL,		(char *)&p_magic},
+X		{"modelines",	"ml",	P_NUM,		(char *)&p_ml},
+X		{"number",		"nu",	P_BOOL,		(char *)&p_nu},
+X/*		{"open",		NULL,	P_BOOL,		(char *)&p_open}, */
+X/*		{"optimize",	"opt",	P_BOOL,		(char *)&p_opt}, */
+X		{"paragraphs",	"para",	P_STRING,	(char *)&p_para},
+X/*		{"prompt",		NULL,	P_BOOL,		(char *)&p_prompt}, */
+X		{"readonly",	"ro",	P_BOOL,		(char *)&p_ro},
+X/*		{"redraw",		NULL,	P_BOOL,		(char *)&p_redraw}, */
+X		{"remap",		NULL,	P_BOOL,		(char *)&p_remap},
+X		{"repdel",		"rd",	P_BOOL,		(char *)&p_rd},
+X		{"report",		NULL,	P_NUM,		(char *)&p_report},
+X		{"ruler",		"ru",	P_BOOL,		(char *)&p_ru},
+X		{"scroll",		NULL, 	P_NUM,		(char *)&p_scroll},
+X		{"scrolljump",	"sj", 	P_NUM,		(char *)&p_sj},
+X		{"sections",	NULL,	P_STRING,	(char *)&p_sections},
+X		{"shell",		"sh",	P_STRING,	(char *)&p_sh},
+X		{"shelltype",	"st",	P_NUM,		(char *)&p_st},
+X		{"shiftround",	"sr",	P_BOOL,		(char *)&p_sr},
+X		{"shiftwidth",	"sw",	P_NUM,		(char *)&p_sw},
+X#ifndef MSDOS
+X		{"shortname",	"sn",	P_BOOL,		(char *)&p_sn},
+X#endif
+X		{"showcmd",		"sc",	P_BOOL,		(char *)&p_sc},
+X		{"showmatch",	"sm",	P_BOOL,		(char *)&p_sm},
+X		{"showmode",	"mo",	P_BOOL,		(char *)&p_mo},
+X/*		{"slowopen",	"slow",	P_BOOL,		(char *)&p_slow}, */
+X		{"smartindent", "si",	P_BOOL,		(char *)&p_si},
+X		{"suffixes",	"su",	P_STRING,	(char *)&p_su},
+X		{"tabstop", 	"ts",	P_NUM,		(char *)&p_ts},
+X		{"taglength",	"tl",	P_NUM,		(char *)&p_tl},
+X		{"tags",		NULL,	P_STRING,	(char *)&p_tags},
+X		{"term",		NULL,	P_STRING,	(char *)&term_strings.t_name},
+X		{"terse",		NULL,	P_BOOL,		(char *)&p_terse},
+X#ifdef MSDOS
+X		{"textmode",	"tx",	P_BOOL,		(char *)&p_tx},
+X#endif
+X		{"textwidth",	"tw",	P_NUM,		(char *)&p_tw},
+X		{"tildeop", 	"to",	P_BOOL,		(char *)&p_to},
+X		{"timeout", 	NULL,	P_BOOL,		(char *)&p_timeout},
+X		{"ttimeout", 	NULL,	P_BOOL,		(char *)&p_ttimeout},
+X		{"undolevels",	"ul",	P_NUM,		(char *)&p_ul},
+X		{"updatecount",	"uc",	P_NUM,		(char *)&p_uc},
+X		{"updatetime",	"ut",	P_NUM,		(char *)&p_ut},
+X		{"visualbell",	"vb",	P_BOOL,		(char *)&p_vb},
+X		{"warn",		NULL,	P_BOOL,		(char *)&p_warn},
+X/*		{"window",		NULL, 	P_NUM,		(char *)&p_window}, */
+X/*		{"w300",		NULL, 	P_NUM,		(char *)&p_w300}, */
+X/*		{"w1200",		NULL, 	P_NUM,		(char *)&p_w1200}, */
+X/*		{"w9600",		NULL, 	P_NUM,		(char *)&p_w9600}, */
+X		{"wrapscan",	"ws",	P_BOOL,		(char *)&p_ws},
+X		{"wrapmargin",	"wm",	P_NUM,		(char *)&p_wm},
+X		{"writeany",	"wa",	P_BOOL,		(char *)&p_wa},
+X		{"writebackup",	"wb",	P_BOOL,		(char *)&p_wb},
+X		{"yankendofline", "ye",	P_BOOL,		(char *)&p_ye},
+X
+X/* terminal output codes */
+X		{"t_el",		NULL,	P_STRING,	(char *)&term_strings.t_el},
+X		{"t_il",		NULL,	P_STRING,	(char *)&term_strings.t_il},
+X		{"t_cil",		NULL,	P_STRING,	(char *)&term_strings.t_cil},
+X		{"t_dl",		NULL,	P_STRING,	(char *)&term_strings.t_dl},
+X		{"t_cdl",		NULL,	P_STRING,	(char *)&term_strings.t_cdl},
+X		{"t_ed",		NULL,	P_STRING,	(char *)&term_strings.t_ed},
+X		{"t_ci",		NULL,	P_STRING,	(char *)&term_strings.t_ci},
+X		{"t_cv",		NULL,	P_STRING,	(char *)&term_strings.t_cv},
+X		{"t_tp",		NULL,	P_STRING,	(char *)&term_strings.t_tp},
+X		{"t_ti",		NULL,	P_STRING,	(char *)&term_strings.t_ti},
+X		{"t_cm",		NULL,	P_STRING,	(char *)&term_strings.t_cm},
+X		{"t_sr",		NULL,	P_STRING,	(char *)&term_strings.t_sr},
+X		{"t_cri",		NULL,	P_STRING,	(char *)&term_strings.t_cri},
+X		{"t_vb",		NULL,	P_STRING,	(char *)&term_strings.t_vb},
+X		{"t_ks",		NULL,	P_STRING,	(char *)&term_strings.t_ks},
+X		{"t_ke",		NULL,	P_STRING,	(char *)&term_strings.t_ke},
+X		{"t_ts",		NULL,	P_STRING,	(char *)&term_strings.t_ts},
+X		{"t_te",		NULL,	P_STRING,	(char *)&term_strings.t_te},
+X
+X/* terminal key codes */
+X		{"t_ku",		NULL,	P_STRING,	(char *)&term_strings.t_ku},
+X		{"t_kd",		NULL,	P_STRING,	(char *)&term_strings.t_kd},
+X		{"t_kr",		NULL,	P_STRING,	(char *)&term_strings.t_kr},
+X		{"t_kl",		NULL,	P_STRING,	(char *)&term_strings.t_kl},
+X		{"t_sku",		NULL,	P_STRING,	(char *)&term_strings.t_sku},
+X		{"t_skd",		NULL,	P_STRING,	(char *)&term_strings.t_skd},
+X		{"t_skr",		NULL,	P_STRING,	(char *)&term_strings.t_skr},
+X		{"t_skl",		NULL,	P_STRING,	(char *)&term_strings.t_skl},
+X		{"t_f1",		NULL,	P_STRING,	(char *)&term_strings.t_f1},
+X		{"t_f2",		NULL,	P_STRING,	(char *)&term_strings.t_f2},
+X		{"t_f3",		NULL,	P_STRING,	(char *)&term_strings.t_f3},
+X		{"t_f4",		NULL,	P_STRING,	(char *)&term_strings.t_f4},
+X		{"t_f5",		NULL,	P_STRING,	(char *)&term_strings.t_f5},
+X		{"t_f6",		NULL,	P_STRING,	(char *)&term_strings.t_f6},
+X		{"t_f7",		NULL,	P_STRING,	(char *)&term_strings.t_f7},
+X		{"t_f8",		NULL,	P_STRING,	(char *)&term_strings.t_f8},
+X		{"t_f9",		NULL,	P_STRING,	(char *)&term_strings.t_f9},
+X		{"t_f10",		NULL,	P_STRING,	(char *)&term_strings.t_f10},
+X		{"t_sf1",		NULL,	P_STRING,	(char *)&term_strings.t_sf1},
+X		{"t_sf2",		NULL,	P_STRING,	(char *)&term_strings.t_sf2},
+X		{"t_sf3",		NULL,	P_STRING,	(char *)&term_strings.t_sf3},
+X		{"t_sf4",		NULL,	P_STRING,	(char *)&term_strings.t_sf4},
+X		{"t_sf5",		NULL,	P_STRING,	(char *)&term_strings.t_sf5},
+X		{"t_sf6",		NULL,	P_STRING,	(char *)&term_strings.t_sf6},
+X		{"t_sf7",		NULL,	P_STRING,	(char *)&term_strings.t_sf7},
+X		{"t_sf8",		NULL,	P_STRING,	(char *)&term_strings.t_sf8},
+X		{"t_sf9",		NULL,	P_STRING,	(char *)&term_strings.t_sf9},
+X		{"t_sf10",		NULL,	P_STRING,	(char *)&term_strings.t_sf10},
+X		{"t_help",		NULL,	P_STRING,	(char *)&term_strings.t_help},
+X		{"t_undo",		NULL,	P_STRING,	(char *)&term_strings.t_undo},
+X		{NULL, NULL, 0, NULL}			/* end marker */
+X};
+X
+Xstatic void	showparams __ARGS((int));
+Xstatic void showonep __ARGS((struct param *));
+Xstatic int  istermparam __ARGS((struct param *));
+X
+X/*
+X * Initialize the shell parameter and scroll size.
+X */
+X	void
+Xset_init()
+X{
+X		char *p;
+X
+X		if ((p = (char *)vimgetenv("SHELL")) != NULL)
+X			p_sh = strsave(p);
+X		p_scroll = (Rows >> 1);
+X}
+X
+X	void
+Xdoset(arg)
+X	char		*arg;	/* parameter string */
+X{
+X	register int i;
+X	char		*s;
+X	char		*errmsg;
+X	char		*startarg;
+X	int			prefix;	/* 0: nothing, 1: "no", 2: "inv" in front of name */
+X	int 		nextchar;
+X	int 		len = 0;
+X	int 		flags;
+X	int			olduc = p_uc;	/* remember old update count */
+X
+X	if (*arg == NUL)
+X	{
+X		showparams(0);
+X		return;
+X	}
+X
+X	while (*arg)		/* loop to process all parameters */
+X	{
+X		errmsg = NULL;
+X		startarg = arg;		/* remember for error message */
+X		if (strncmp(arg, "all", (size_t)3) == 0)
+X				showparams(1);
+X		else if (strncmp(arg, "termcap", (size_t)7) == 0)
+X				showparams(2);
+X		else
+X		{
+X			prefix = 1;
+X			if (strncmp(arg, "no", (size_t)2) == 0)
+X			{
+X				prefix = 0;
+X				arg += 2;
+X			}
+X			else if (strncmp(arg, "inv", (size_t)3) == 0)
+X			{
+X				prefix = 2;
+X				arg += 3;
+X			}
+X			for (i = 0; (s = params[i].fullname) != NULL; i++)
+X			{
+X				if (strncmp(arg, s, (size_t)(len = strlen(s))) == 0) /* match full name */
+X					break;
+X			}
+X			if (s == NULL)
+X			{
+X				for (i = 0; params[i].fullname != NULL; i++)
+X				{
+X						s = params[i].shortname;
+X						if (s != NULL && strncmp(arg, s, (size_t)(len = strlen(s))) == 0) /* match short name */
+X							break;
+X						s = NULL;
+X				}
+X			}
+X
+X			if (s == NULL)		/* found a mismatch: skip the rest */
+X			{
+X				errmsg = "Unknown option:   ";	/* must be 18 chars */
+X				goto skip;
+X			}
+X
+X			flags = params[i].flags;
+X			nextchar = arg[len];
+X			/*
+X			 * allow '=' and ':' as MSDOS command.com allows only one
+X			 * '=' character per "set" command line. grrr. (jw)
+X			 */
+X			if (nextchar == '?' || 
+X			    (prefix == 1 && nextchar != '=' &&
+X				 nextchar != ':' && !(flags & P_BOOL)))
+X			{										/* print value */
+X				gotocmdline(TRUE, NUL);
+X				showonep(&params[i]);
+X			}
+X			else if (nextchar != NUL && strchr("=: \t", nextchar) == NULL)
+X			{
+X				errmsg = e_setarg;
+X				goto skip;
+X			}
+X			else if (flags & P_BOOL)					/* boolean */
+X			{
+X					if (nextchar == '=' || nextchar == ':')
+X					{
+X						errmsg = e_setarg;
+X						goto skip;
+X					}
+X					if (prefix == 2)
+X						*(int *)(params[i].var) ^= 1;	/* invert it */
+X					else
+X						*(int *)(params[i].var) = prefix;
+X					if ((int *)params[i].var == &p_cp && p_cp)	/* handle cp here */
+X					{
+X						p_bs = 0;		/* normal backspace */
+X						p_bk = 0;		/* no backup file */
+X#ifdef DIGRAPHS
+X						p_dg = 0;		/* no digraphs */
+X#endif /* DIGRAPHS */
+X						p_et = 0;		/* no expansion of tabs */
+X						p_hi = 0;		/* no history */
+X						p_im = 0;		/* do not start in insert mode */
+X						p_js = 1;		/* insert 2 spaces after period */
+X						p_ml = 0;		/* no modelines */
+X						p_rd = 1;		/* del replaces char */
+X						p_ru = 0;		/* no ruler */
+X						p_sj = 1;		/* no scrolljump */
+X						p_sr = 0;		/* do not round indent to shiftwidth */
+X						p_sc = 0;		/* no showcommand */
+X						p_mo = 0;		/* no showmode */
+X						p_si = 0;		/* no smartindent */
+X						p_tw = 9999;	/* maximum textwidth */
+X						p_to = 0;		/* no tilde operator */
+X						p_ttimeout = 0;	/* no terminal timeout */
+X						p_ul = 0;		/* no multilevel undo */
+X						p_uc = 0;		/* no autoscript file */
+X						p_wb = 0;		/* no backup file */
+X						p_ye = 0;		/* no yank to end of line */
+X					}
+X			}
+X			else								/* numeric or string */
+X			{
+X				if ((nextchar != '=' && nextchar != ':') || prefix != 1)
+X				{
+X					errmsg = e_setarg;
+X					goto skip;
+X				}
+X				if (flags & P_NUM)				/* numeric */
+X				{
+X					len = atoi(arg + len + 1);
+X					if ((long *)params[i].var == &p_wm)	/* wrapmargin is translated into textlength */
+X					{
+X						if (len >= Columns)
+X							len = Columns - 1;
+X						p_tw = Columns - len;
+X					}
+X					*(long *)(params[i].var) = len;
+X				}
+X				else							/* string */
+X				{
+X					arg += len + 1;
+X					s = alloc((unsigned)(strlen(arg) + 1)); /* get a bit too much */
+X					if (s == NULL)
+X						break;
+X					if (flags & P_CHANGED)
+X						free(*(char **)(params[i].var));
+X					*(char **)(params[i].var) = s;
+X								/* copy the string */
+X					while (*arg && *arg != ' ' && *arg != '\t')
+X					{
+X						if (*arg == '\\' && *(arg + 1)) /* skip over escaped chars */
+X								++arg;
+X						*s++ = *arg++;
+X					}
+X					*s = NUL;
+X					/*
+X					 * options that need some action
+X					 * to perform when changed (jw)
+X					 */
+X					if (params[i].var == (char *)&term_strings.t_name)
+X					    set_term(term_strings.t_name);
+X					else if (istermparam(&params[i]))
+X						ttest(FALSE);
+X				}
+X			}
+X			params[i].flags |= P_CHANGED;
+X		}
+X
+Xskip:
+X		if (errmsg)
+X		{
+X			strcpy(IObuff, errmsg);
+X			s = IObuff + 18;
+X			while (*startarg && !isspace(*startarg))
+X				*s++ = *startarg++;
+X			*s = NUL;
+X			emsg(IObuff);
+X			arg = startarg;		/* skip to next argument */
+X		}
+X
+X		skiptospace(&arg);				/* skip to next white space */
+X		skipspace(&arg);				/* skip spaces */
+X	}
+X
+X	/*
+X	 * Check the bounds for numeric parameters here
+X	 */
+X	if (Rows < 2)
+X	{
+X		Rows = 2;
+X		emsg("Need at least 2 lines");
+X	}
+X	if (p_ts <= 0 || p_ts > 16)
+X	{
+X		emsg(e_tabsize);
+X		p_ts = 8;
+X	}
+X	if (p_scroll <= 0 || p_scroll > Rows)
+X	{
+X		emsg(e_scroll);
+X		p_scroll = Rows >> 1;
+X	}
+X	if (p_report < 0)
+X	{
+X		emsg(e_positive);
+X		p_report = 1;
+X	}
+X	if (p_sj < 0 || p_sj >= Rows)
+X	{
+X		emsg(e_scroll);
+X		p_sj = 1;
+X	}
+X	if (p_ul < 0)
+X	{
+X		emsg(e_positive);
+X		p_ul = 100;
+X	}
+X	if (p_uc < 0)
+X	{
+X		emsg(e_positive);
+X		p_uc = 100;
+X	}
+X	if (p_uc == 0 && olduc != 0)		/* p_uc changed from on to off */
+X		stopscript();
+X	if (p_uc > 0 && olduc == 0)		/* p_uc changed from off to on */
+X		startscript();
+X#ifdef MSDOS
+X	textfile(p_tx);
+X#endif
+X	if (p_ut < 0)
+X	{
+X		emsg(e_positive);
+X		p_ut = 2000;
+X	}
+X
+X	/*
+X	 * Update the screen in case we changed something like "tabstop" or
+X	 * "lines" or "list" that will change its appearance.
+X	 */
+X	updateScreen(NOT_VALID);
+X}
+X
+X/*
+X * if 'all' == 0: show changed parameters
+X * if 'all' == 1: show all normal parameters
+X * if 'all' == 2: show all terminal parameters
+X */
+X	static void
+Xshowparams(all)
+X	int			all;
+X{
+X	struct param   *p;
+X	int				col = 0;
+X	int				inc;
+X	int				isterm;
+X
+X	gotocmdline(TRUE, NUL);
+X	outstrn("Parameters:\n");
+X
+X#ifdef AMIGA
+X	settmode(0);				/* set cooked mode so output can be halted */
+X#endif
+X	for (p = &params[0]; p->fullname != NULL; p++)
+X	{
+X		isterm = istermparam(p);
+X		if ((all == 2 && isterm) ||
+X			(all == 1 && !isterm) ||
+X			(all == 0 && (p->flags & P_CHANGED)))
+X		{
+X			if ((p->flags & P_STRING) && *(char **)(p->var) != NULL)
+X				inc = strlen(p->fullname) + strsize(*(char **)(p->var)) + 1;
+X			else
+X				inc = 1;
+X			if (col + inc >= Columns)
+X			{
+X				outchar('\n');
+X				col = 0;
+X			}
+X
+X			showonep(p);
+X			col += inc;
+X			col += 19 - col % 19;
+X			if (col < Columns - 19)
+X				windgoto((int)Rows - 1, col); /* make columns */
+X			else
+X			{
+X				col = 0;
+X				outchar('\n');
+X			}
+X			flushbuf();
+X		}
+X	}
+X
+X	if (col)
+X		outchar('\n');
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+X
+X	static void
+Xshowonep(p)
+X		struct param *p;
+X{
+X	char			buf[64];
+X
+X	if ((p->flags & P_BOOL) && !*(int *)(p->var))
+X		outstrn("no");
+X	outstrn(p->fullname);
+X	if (!(p->flags & P_BOOL))
+X	{
+X		outchar('=');
+X		if (p->flags & P_NUM)
+X		{
+X			sprintf(buf, "%ld", *(long *)(p->var));
+X			outstrn(buf);
+X		}
+X		else if (*(char **)(p->var) != NULL)
+X			outtrans(*(char **)(p->var), -1);
+X	}
+X}
+X
+X/*
+X * Write modified parameters as set command to a file.
+X * Return 1 on error.
+X */
+X	int
+Xmakeset(fd)
+X	FILE *fd;
+X{
+X	struct param	*p;
+X	char			*s;
+X	int				e;
+X
+X	for (p = &params[0]; p->fullname != NULL; p++)
+X		if (p->flags & P_CHANGED)
+X		{
+X			if (p->flags & P_BOOL)
+X				e = fprintf(fd, "set %s%s\n", *(int *)(p->var) ? "" : "no", p->fullname);
+X			else if (p->flags & P_NUM)
+X				e = fprintf(fd, "set %s=%ld\n", p->fullname, *(long *)(p->var));
+X			else
+X			{
+X				fprintf(fd, "set %s=", p->fullname);
+X				s = *(char **)(p->var);
+X				if (s != NULL)
+X					for ( ; *s; ++s)
+X					{
+X						if (*s < ' ' || *s > '~')
+X							putc(Ctrl('V'), fd);
+X						putc(*s, fd);
+X					}
+X				e = putc('\n', fd);
+X			}
+X			if (e < 0)
+X				return 1;
+X		}
+X	return 0;
+X}
+X
+X/*
+X * Clear all the terminal parameters.
+X * If the parameter has been changed, free the allocated memory.
+X * Reset the "changed" flag, so the new value will not be freed.
+X */
+X	void
+Xclear_termparam()
+X{
+X	struct param   *p;
+X
+X	for (p = &params[0]; p->fullname != NULL; p++)
+X		if (istermparam(p))
+X		{
+X			if (p->flags & P_CHANGED)
+X				free(*(char **)(p->var));
+X			*(char **)(p->var) = NULL;
+X			p->flags &= ~P_CHANGED;
+X		}
+X}
+X
+X	static int
+Xistermparam(p)
+X	struct param *p;
+X{
+X	return (p->fullname[0] == 't' && p->fullname[1] == '_');
+X}
+END_OF_FILE
+if test 16498 -ne `wc -c <'vim/src/param.c'`; then
+    echo shar: \"'vim/src/param.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/param.c'
+fi
+if test -f 'vim/src/unix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/unix.c'\"
+else
+echo shar: Extracting \"'vim/src/unix.c'\" \(15625 characters\)
+sed "s/^X//" >'vim/src/unix.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X *
+X * VIM - Vi IMitation
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X/*
+X * unix.c -- BSD and SYSV code
+X *
+X * A lot of this file was written by Juergen Weigert.
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "param.h"
+X#include "proto.h"
+X
+X#include <fcntl.h>
+X#if !defined(pyr) && !defined(NOT_BOTH_TIME)
+X# include <time.h>			/* on some systems time.h should not be
+X							   included together with sys/time.h */
+X#endif
+X#include <sys/ioctl.h>
+X#ifndef M_XENIX
+X# include <sys/types.h>
+X#endif
+X#include <signal.h>
+X
+X#ifdef SYSV
+X# ifdef M_XENIX
+X#  include <sys/select.h>
+X#  define bzero(a, b)	memset((a), 0, (b))
+X# else
+X#  include <poll.h>
+X# endif
+X# include <termio.h>
+X#else	/* SYSV */
+X# include <sys/time.h>
+X# ifdef hpux
+X#  include <termio.h>
+X#  define SIGWINCH SIGWINDOW
+X# else
+X#  include <sgtty.h>
+X# endif	/* hpux */
+X#endif	/* SYSV */
+X
+X#if (defined(pyr) || defined(NO_FD_ZERO)) && defined(SYSV) && defined(FD_ZERO)
+X# undef FD_ZERO
+X#endif
+X
+X#ifdef ESIX
+X# ifdef SIGWINCH
+X#  undef SIGWINCH
+X# endif
+X# ifdef TIOCGWINSZ
+X#  undef TIOCGWINSZ
+X# endif
+X#endif
+X
+Xstatic int	Read __ARGS((char *, long));
+Xstatic int	WaitForChar __ARGS((int));
+Xstatic int	RealWaitForChar __ARGS((int));
+Xstatic void fill_inbuf __ARGS((void));
+X#if defined(SIGWINCH) && !defined(linux)
+Xstatic void sig_winch __ARGS((int, int, struct sigcontext *));
+X#endif
+X
+Xstatic int do_resize = FALSE;
+X
+X/*
+X * At this point TRUE and FALSE are defined as 1L and 0L, but we want 1 and 0.
+X */
+X#undef TRUE
+X#define TRUE 1
+X#undef FALSE
+X#define FALSE 0
+X
+X/*
+X * the number of calls to Write is reduced by using the buffer "outbuf"
+X */
+X#define BSIZE	2048
+Xstatic u_char	outbuf[BSIZE];
+Xstatic int		bpos = 0;
+X
+X/*
+X * flushbuf(): flush the output buffer
+X */
+X	void
+Xflushbuf()
+X{
+X	if (bpos != 0)
+X		write(1, (char *)outbuf, (long)bpos);
+X	bpos = 0;
+X}
+X
+X/*
+X * outchar(c): put a character into the output buffer. Flush it if it becomes full.
+X */
+X	void
+Xoutchar(c)
+X	unsigned c;
+X{
+X	if (c == '\n')		/* turn LF into CR-LF (CRMOD does not seem to do this) */
+X		outchar('\r');
+X	outbuf[bpos] = c;
+X	++bpos;
+X	if (bpos >= BSIZE)
+X		flushbuf();
+X}
+X
+X/*
+X * GetChars(): low level input funcion.
+X * Get a characters from the keyboard.
+X * If type == T_PEEK do not wait for characters.
+X * If type == T_WAIT wait a short time for characters.
+X * If type == T_BLOCK wait for characters.
+X */
+X	int
+XGetChars(buf, maxlen, type)
+X	char	*buf;
+X	int		maxlen;
+X	int		type;
+X{
+X	int		len;
+X	int		time = 1000;	/* one second */
+X
+X	switch (type)
+X	{
+X	case T_PEEK:
+X		time = 20;
+X	case T_WAIT:
+X		if (WaitForChar(time) == 0)		/* no character available */
+X			return 0;
+X		break;
+X
+X	case T_BLOCK:
+X	/*
+X	 * If there is no character available within 2 seconds (default)
+X	 * write the autoscript file to disk
+X	 */
+X		if (WaitForChar((int)p_ut) == 0)
+X			updatescript(0);
+X	}
+X
+X	for (;;)	/* repeat until we got a character */
+X	{
+X		/* 
+X		 * we want to be interrupted by the winch signal
+X		 */
+X		WaitForChar(-1);
+X		if (do_resize)
+X		{
+X			debug("do_resize!\n");
+X			set_winsize(0, 0, FALSE);
+X			do_resize = FALSE;
+X			continue;
+X		}
+X		len = Read(buf, (long)maxlen);
+X		if (len > 0)
+X			return len;
+X	}
+X}
+X
+X	void
+Xvim_delay()
+X{
+X#if defined(SYSV) && !defined(M_XENIX)
+X	poll(0, 0, 500);
+X#else
+X	struct timeval tv;
+X
+X	tv.tv_sec = 25 / 50;
+X	tv.tv_usec = (25 % 50) * (1000000/50);
+X	select(0, 0, 0, 0, &tv);
+X#endif
+X}
+X
+X	static void
+Xsig_winch(sig, code, scp)
+X	int		sig;
+X	int		code;
+X	struct sigcontext *scp;
+X{
+X#if defined(SIGWINCH) && (defined(SYSV) || defined(linux) || defined(hpux))
+X	signal(SIGWINCH, sig_winch);
+X#endif
+X	do_resize = TRUE;
+X}
+X
+X/*
+X * If the machine has job control, use it to suspend the program,
+X * otherwise fake it by starting a new shell.
+X */
+X	void
+Xmch_suspend()
+X{
+X#ifdef SIGTSTP
+X	settmode(0);
+X	stoptermcap();
+X	kill(0, SIGTSTP);		/* send ourselves a STOP signal */
+X	settmode(1);
+X	starttermcap();
+X#else
+X	outstr("new shell started\n");
+X	stoptermcap();
+X	call_shell(NULL, 0);
+X	starttermcap();
+X#endif
+X}
+X
+X	void
+Xmch_windinit()
+X{
+X	Columns = 80;
+X	Rows = 24;
+X
+X	flushbuf();
+X
+X	mch_get_winsize();
+X#if defined(SIGWINCH)
+X	signal(SIGWINCH, sig_winch);
+X#endif
+X}
+X
+X/*
+X * Check_win checks whether we have an interactive window.
+X * If not, a new window is opened with the newcli command.
+X * If we would open a window ourselves, the :sh and :! commands would not
+X * work properly (Why? probably because we are then running in a background CLI).
+X * This also is the best way to assure proper working in a next Workbench release.
+X *
+X * For the -e option (quickfix mode) we open our own window and disable :sh.
+X * Otherwise we would never know when editing is finished.
+X */
+X#define BUF2SIZE 320		/* lenght of buffer for argument with complete path */
+X
+X	void
+Xcheck_win(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	if (!isatty(0) || !isatty(1))
+X    {
+X		fprintf(stderr, "VIM: no controlling terminal\n");
+X		exit(2);
+X    }
+X}
+X
+X/*
+X * fname_case(): Set the case of the filename, if it already exists.
+X *				 This will cause the filename to remain exactly the same.
+X */
+X	void
+Xfname_case(name)
+X	char *name;
+X{
+X}
+X
+X	void
+Xsettitle(str)
+X	char *str;
+X{
+X}
+X
+X	void
+Xresettitle()
+X{
+X}
+X
+X/*
+X * get name of current directory into buffer 'buf' of length 'len' bytes
+X */
+X	int 
+Xdirname(buf, len)
+X	char *buf;
+X	int len;
+X{
+X#if defined(SYSV) || defined(hpux)
+X	extern int		errno;
+X	extern char		*sys_errlist[];
+X
+X	if (getcwd(buf,len) == NULL)
+X	{
+X	    strcpy(buf, sys_errlist[errno]);
+X	    return 1;
+X	}
+X    return 0;
+X#else
+X	return (int)getwd(buf);
+X#endif
+X}
+X
+X/*
+X * get absolute filename into buffer 'buf' of length 'len' bytes
+X */
+X	int 
+XFullName(fname, buf, len)
+X	char *fname, *buf;
+X	int len;
+X{
+X	*buf = 0;
+X#if defined(linux) || defined(UNIX_WITHOUT_AMD)
+X    {
+X    	int l;
+X
+X    	if (*fname != '/')
+X		{
+X#if defined(SYSV) || defined(hpux)
+X			(void)getcwd(buf,len);
+X#else
+X			(void)getwd(buf);
+X#endif
+X			l = strlen(buf);
+X			if (l && buf[l-1] != '/')
+X				strcat(buf, "/");
+X		}
+X    }
+X#endif /* UNIX_WITHOUT_AMD */
+X	strcat(buf, fname);
+X	return 0;
+X}
+X
+X/*
+X * get file permissions for 'name'
+X */
+X	long 
+Xgetperm(name)
+X	char *name;
+X{
+X	struct stat statb;
+X
+X	if (stat(name, &statb))
+X		return -1;
+X	return statb.st_mode;
+X}
+X
+X/*
+X * set file permission for 'name' to 'perm'
+X */
+X	int
+Xsetperm(name, perm)
+X	char *name;
+X	int perm;
+X{
+X	return chmod(name, perm);
+X}
+X
+X/*
+X * check if "name" is a directory
+X */
+X	int 
+Xisdir(name)
+X	char *name;
+X{
+X	struct stat statb;
+X
+X	if (stat(name, &statb))
+X		return -1;
+X	return (statb.st_mode & S_IFMT) != S_IFREG;
+X}
+X
+X	void
+Xmch_windexit(r)
+X	int r;
+X{
+X	settmode(0);
+X	stoptermcap();
+X	flushbuf();
+X	stopscript();					/* remove autoscript file */
+X	exit(r);
+X}
+X
+X	void
+Xmch_settmode(raw)
+X	int				raw;
+X{
+X#if defined(ECHOE) && defined(ICANON)
+X	/* for "new" tty systems */
+X	static struct termio told;
+X		   struct termio tnew;
+X
+X	if (raw)
+X	{
+X		ioctl(0, TCGETA, &told);
+X		tnew = told;
+X		tnew.c_iflag &= ~ICRNL;			/* enables typing ^V^M */
+X		tnew.c_iflag &= ~IXON;			/* enables typing ^Q */
+X		tnew.c_lflag &= ~(ICANON | ECHO | ISIG | ECHOE);
+X		tnew.c_cc[VMIN] = 1;			/* return after 1 char */
+X		tnew.c_cc[VTIME] = 0;			/* don't wait */
+X		ioctl(0, TCSETA, &tnew);
+X	}
+X	else
+X		ioctl(0, TCSETA, &told);
+X#else
+X# ifndef TIOCSETN
+X#  define TIOCSETN TIOCSETP		/* for hpux 9.0 */
+X# endif
+X	/* for "old" tty systems */
+X	static struct sgttyb ttybold;
+X		   struct sgttyb ttybnew;
+X
+X	if (raw)
+X	{
+X		ioctl(0, TIOCGETP, &ttybold);
+X		ttybnew = ttybold;
+X		ttybnew.sg_flags &= ~(CRMOD | ECHO);
+X		ttybnew.sg_flags |= RAW;
+X		ioctl(0, TIOCSETN, &ttybnew);
+X	}
+X	else
+X		ioctl(0, TIOCSETN, &ttybold);
+X#endif
+X}
+X
+X	int
+Xmch_get_winsize()
+X{
+X	int				old_Rows = Rows;
+X	int				old_Columns = Columns;
+X	char			*p;
+X
+X	Columns = 0;
+X	Rows = 0;
+X
+X/*
+X * when called without a signal, get winsize from environment
+X */
+X	if (!do_resize)
+X	{
+X	    if ((p = (char *)getenv("LINES")))
+X			Rows = atoi(p);
+X	    if ((p = (char *)getenv("COLUMNS")))
+X			Columns = atoi(p);
+X	    if (Columns <= 0 || Rows <= 0)
+X			do_resize = TRUE;
+X	}
+X
+X/*
+X * when got a signal, or no size in environment, try using an ioctl
+X */
+X	if (do_resize)
+X	{
+X# ifdef TIOCGSIZE
+X		struct ttysize	ts;
+X
+X	    if (ioctl(0, TIOCGSIZE, &ts) == 0)
+X	    {
+X			if (Columns == 0)
+X				Columns = ts.ts_cols;
+X			if (Rows == 0)
+X				Rows = ts.ts_lines;
+X	    }
+X# else /* TIOCGSIZE */
+X#  ifdef TIOCGWINSZ
+X		struct winsize	ws;
+X
+X	    if (ioctl(0, TIOCGWINSZ, &ws) == 0)
+X	    {
+X			if (Columns == 0)
+X				Columns = ws.ws_col;
+X			if (Rows == 0)
+X				Rows = ws.ws_row;
+X	    }
+X#  endif /* TIOCGWINSZ */
+X# endif /* TIOCGSIZE */
+X	    do_resize = FALSE;
+X	}
+X
+X#ifdef TERMCAP
+X/*
+X * if previous work fails, try reading the termcap
+X */
+X	if (Columns == 0 || Rows == 0)
+X	{
+X		extern void getlinecol();
+X
+X		getlinecol();	/* get "co" and "li" entries from termcap */
+X	}
+X#endif
+X
+X/*
+X * If everything fails, use the old values
+X */
+X	if (Columns <= 0 || Rows <= 0)
+X	{
+X		Columns = old_Columns;
+X		Rows = old_Rows;
+X		return 1;
+X	}
+X	debug2("mch_get_winsize: %dx%d\n", (int)Columns, (int)Rows);
+X
+X	check_winsize();
+X	script_winsize();
+X
+X/* if size changed: screenalloc will allocate new screen buffers */
+X	return (0);
+X}
+X
+X	void
+Xmch_set_winsize()
+X{
+X	/* should try to set the window size to Rows and Columns */
+X}
+X
+X	int 
+Xcall_shell(cmd, dummy)
+X	char	*cmd;
+X	int		dummy;
+X{
+X	int		x;
+X	char	newcmd[1024];
+X
+X	flushbuf();
+X
+X	settmode(0); 				/* set to cooked mode */
+X
+X	if (cmd == NULL)
+X		x = system(p_sh);
+X	else
+X	{			/* we use "sh" to start the shell, slow but easy */
+X		sprintf(newcmd, "%s -c \"%s\"", p_sh, cmd);
+X		x = system(newcmd);
+X	}
+X	if (x == 127)
+X	{
+X		smsg("Cannot execute shell sh");
+X		outchar('\n');
+X	}
+X	else if (x)
+X	{
+X		smsg("%d returned", x);
+X		outchar('\n');
+X	}
+X
+X	settmode(1); 						/* set to raw mode */
+X	return x;
+X}
+X
+X/*
+X * The input characters are buffered to be able to check for a CTRL-C.
+X * This should be done with signals, but I don't know how to do that in
+X * a portable way for a tty in RAW mode.
+X */
+X
+X#define INBUFLEN 50
+Xstatic char		inbuf[INBUFLEN];	/* internal typeahead buffer */
+Xstatic int		inbufcount = 0;		/* number of chars in inbuf[] */
+X
+X	static int
+XRead(buf, maxlen)
+X	char	*buf;
+X	long	maxlen;
+X{
+X	if (inbufcount == 0)		/* if the buffer is empty, fill it */
+X		fill_inbuf();
+X	if (maxlen > inbufcount)
+X		maxlen = inbufcount;
+X	memmove(buf, inbuf, maxlen);
+X	inbufcount -= maxlen;
+X	if (inbufcount)
+X			memmove(inbuf, inbuf + maxlen, inbufcount);
+X	return (int)maxlen;
+X}
+X
+X	void
+Xbreakcheck()
+X{
+X/*
+X * check for CTRL-C typed by reading all available characters
+X */
+X	if (RealWaitForChar(0))		/* if characters available */
+X		fill_inbuf();
+X}
+X
+X	static void
+Xfill_inbuf()
+X{
+X	int		len;
+X
+X	if (inbufcount >= INBUFLEN)		/* buffer full */
+X		return;
+X	len = read(0, inbuf + inbufcount, (long)(INBUFLEN - inbufcount));
+X	if (len <= 0)	/* cannot read input??? */
+X	{
+X		fprintf(stderr, "Vim: Error reading input, exiting...\n");
+X		exit(1);
+X	}
+X	while (len-- > 0)
+X	{
+X		/*
+X		 * if a CTRL-C was typed, remove it from the buffer and set got_int
+X		 */
+X		if (inbuf[inbufcount] == 3)
+X		{
+X			/* remove everything typed before the CTRL-C */
+X			memmove(inbuf, inbuf + inbufcount, len + 1);
+X			inbufcount = 0;
+X			got_int = TRUE;
+X			flush_buffers();		/* remove all typeahead */
+X		}
+X		++inbufcount;
+X	}
+X}
+X
+X/* 
+X * Wait "ticks" until a character is available from the keyboard or from inbuf[]
+X * ticks = -1 will block forever
+X */
+X
+X	static int
+XWaitForChar(ticks)
+X	int ticks;
+X{
+X	if (inbufcount)		/* something in inbuf[] */
+X		return 1;
+X	return RealWaitForChar(ticks);
+X}
+X
+X/* 
+X * Wait "ticks" until a character is available from the keyboard
+X * ticks = -1 will block forever
+X */
+X	static int
+XRealWaitForChar(ticks)
+X	int ticks;
+X{
+X#ifndef FD_ZERO
+X	struct pollfd fds;
+X
+X	fds.fd = 0;
+X	fds.events = POLLIN;
+X	return (poll(&fds, 1, ticks));
+X#else
+X	struct timeval tv;
+X	fd_set fdset;
+X
+X	if (ticks >= 0)
+X    {
+X   		tv.tv_sec = ticks / 1000;
+X		tv.tv_usec = (ticks % 1000) * (1000000/1000);
+X    }
+X
+X	FD_ZERO(&fdset);
+X	FD_SET(0, &fdset);
+X	return (select(1, &fdset, NULL, NULL, (ticks >= 0) ? &tv : NULL));
+X#endif
+X}
+X
+X	int 
+Xremove(buf)
+X#ifdef linux
+X	const
+X#endif
+X			char *buf;
+X{
+X	return unlink(buf);
+X}
+X
+X#ifdef WILD_CARDS
+X/*
+X * ExpandWildCard() - this code does wild-card pattern matching using the shell
+X *
+X * Mool: return 0 for success, 1 for error (you may loose some memory) and
+X *       put an error message in *file.
+X *
+X * num_pat is number of input patterns
+X * pat is array of pointers to input patterns
+X * num_file is pointer to number of matched file names
+X * file is pointer to array of pointers to matched file names
+X * On Unix we do not check for files only yet
+X * list_notfound is ignored
+X */
+X
+Xextern char *mktemp __ARGS((char *));
+X#ifndef SEEK_SET
+X# define SEEK_SET 0
+X#endif
+X#ifndef SEEK_END
+X# define SEEK_END 2
+X#endif
+X
+X	int
+XExpandWildCards(num_pat, pat, num_file, file, files_only, list_notfound)
+X	int 			num_pat;
+X	char		  **pat;
+X	int 		   *num_file;
+X	char		 ***file;
+X	int				files_only;
+X	int				list_notfound;
+X{
+X	char	tmpname[TMPNAMELEN];
+X	char	*command;
+X	int		i;
+X	size_t	len;
+X	FILE	*fd;
+X	char	*buffer;
+X	char	*p;
+X
+X	*num_file = 0;		/* default: no files found */
+X	*file = (char **)"";
+X
+X/*
+X * get a name for the temp file
+X */
+X	strcpy(tmpname, TMPNAME2);
+X	if (*mktemp(tmpname) == NUL)
+X	{
+X		emsg(e_notmp);
+X	    return 1;
+X	}
+X
+X/*
+X * let the shell expand the patterns and write the result into the temp file
+X */
+X	len = TMPNAMELEN + 10;
+X	for (i = 0; i < num_pat; ++i)		/* count the length of the patterns */
+X		len += strlen(pat[i]) + 3;
+X	command = (char *)alloc(len);
+X	if (command == NULL)
+X		return 1;
+X	strcpy(command, "echo > ");			/* built the shell command */
+X	strcat(command, tmpname);
+X	for (i = 0; i < num_pat; ++i)
+X	{
+X		strcat(command, " \"");
+X		strcat(command, pat[i]);
+X		strcat(command, "\"");
+X	}
+X	i = call_shell(command, 0);				/* execute it */
+X	free(command);
+X	if (i)									/* call_shell failed */
+X	{
+X		remove(tmpname);
+X		sleep(1);			/* give the user a chance to read error messages */
+X		updateScreen(CLEAR);			/* probably messed up screen */
+X		return 1;
+X	}
+X
+X/*
+X * read the names from the file into memory
+X */
+X 	fd = fopen(tmpname, "r");
+X	if (fd == NULL)
+X	{
+X		emsg(e_notopen);
+X		return 1;
+X	}
+X	fseek(fd, 0L, SEEK_END);
+X	len = ftell(fd);				/* get size of temp file */
+X	fseek(fd, 0L, SEEK_SET);
+X	buffer = (char *)alloc(len + 1);
+X	if (buffer == NULL)
+X	{
+X		remove(tmpname);
+X		fclose(fd);
+X		return 1;
+X	}
+X	i = fread(buffer, 1, len, fd);
+X	fclose(fd);
+X	remove(tmpname);
+X	if (i != len)
+X	{
+X		emsg(e_notread);
+X		free(buffer);
+X		return 1;
+X	}
+X	buffer[len] = '\n';				/* make sure the buffers ends in NL */
+X
+X	p = buffer;
+X	for (i = 0; *p != '\n'; ++i)		/* get number of entries */
+X	{
+X		while (*p != ' ' && *p != '\n')	/* skip entry */
+X			++p;
+X		skipspace(&p);					/* skip to next entry */
+X	}
+X	*num_file = i;
+X	*file = (char **)alloc(sizeof(char *) * i);
+X	if (*file == NULL)
+X	{
+X		free(buffer);
+X		*file = (char **)"";
+X		return 1;
+X	}
+X	p = buffer;
+X	for (i = 0; i < *num_file; ++i)
+X	{
+X		(*file)[i] = p;
+X		while (*p != ' ' && *p != '\n')
+X			++p;
+X		if (*p == '\n')
+X		{
+X			*p = NUL;
+X			break;
+X		}
+X		*p++ = NUL;
+X		skipspace(&p);
+X	}
+X	return 0;
+X}
+X
+X	void
+XFreeWild(num, file)
+X	int		num;
+X	char	**file;
+X{
+X	if (file == NULL || num <= 0)
+X		return;
+X	free(file[0]);
+X	free(file);
+X}
+X
+X	int
+Xhas_wildcard(p)
+X	char *p;
+X{
+X	for ( ; *p; ++p)
+X		if (strchr("*?[{`~$", *p) != NULL)
+X			return 1;
+X	return 0;
+X}
+X#endif	/* WILD_CARDS */
+X
+X#ifdef M_XENIX
+X/*
+X * Scaled-down version of rename, which is missing in Xenix.
+X * This version can only move regular files and will fail if the
+X * destination exists.
+X */
+X	int
+Xrename(src, dst)
+X	char *src, *dst;
+X{
+X	struct stat		st;
+X
+X	if (stat(dest, &st) >= 0)	/* fail if destination exists */
+X		return -1;
+X	if (link(src, dest) != 0)	/* link file to new name */
+X		return -1;
+X	if (unlink(src) == 0)		/* delete link to old name */
+X		return 0;
+X	return -1;
+X}
+X#endif /* M_XENIX */
+END_OF_FILE
+if test 15625 -ne `wc -c <'vim/src/unix.c'`; then
+    echo shar: \"'vim/src/unix.c'\" unpacked with wrong size!
+fi
+# end of 'vim/src/unix.c'
+fi
+echo shar: End of archive 8 \(of 23\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 23 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-------------8<----------------8<----------------8<---------------8<--------
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595450 | whatever will be accepted.
+
+exit 0 # Just in case...

@@ -1,0 +1,2296 @@
+Newsgroups: comp.sources.misc
+From: aburt@du.edu (Andrew Burt)
+Subject: v38i067:  menushell - A Unix Menuing Shell, Part02/03
+Message-ID: <1993Jul30.192523.27864@sparky.sterling.com>
+X-Md4-Signature: 0a9354636eb85ed4b2ce1f5f03424e0a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 30 Jul 1993 19:25:23 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: aburt@du.edu (Andrew Burt)
+Posting-number: Volume 38, Issue 67
+Archive-name: menushell/part02
+Environment: BSD, with untested SVR4 diffs
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  functions2.c mshell.1 mshell.h sample.men string.c
+#   sysvdiffs.A
+# Wrapped by kent@sparky on Mon Jul 26 16:41:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'functions2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'functions2.c'\"
+else
+  echo shar: Extracting \"'functions2.c'\" \(6544 characters\)
+  sed "s/^X//" >'functions2.c' <<'END_OF_FILE'
+X#include "mshell.h"
+X
+X
+Xextern char     G_homevar      [];
+Xextern char     G_uservar      [];
+Xextern char 	G_termvar      [];
+Xextern char     G_mailfile     [WORDLEN];
+Xextern char     G_mail_message [WORDLEN];
+Xextern int      G_mailsize; 
+Xextern struct   stat G_st;
+X
+X/* ======================================================================= */
+Xexecute_command (command, args)
+X/* ======================================================================= */
+Xchar *command, *args [];
+X{
+X	/*
+X	char * var_args [2 * MAXARGS]; 
+X	char * new_var_args [MAXARGS][MAXARGS];
+X	*/
+X	int pid, i, j, count = 0;
+X	extern int G_limited;
+X
+X	G_mail_message[0] = EOS;
+X
+X	if (G_limited && invalidcommand(args[0])) {
+X		printf("Invalid option in restricted menus, sorry.\n");
+X		printf("See the 'info' menu for how to get a real menu or shell.  (It's free.)\n");
+X		return;
+X	}
+X	if (strcontains(command, "*;|<>&()[]?'\"`~\\")) {
+X		/* let shell handle these */
+X		system(command);
+X		return;
+X	}
+X
+X	if (strcmp (args[0], CHANGE_DIR) == 0)
+X		change_directory (args[1]);
+X	else if (strcmp (args[0], SETENV) == 0)
+X		/* remove $ sign from environment variable */
+X		setenv (args[1], args[2]);
+X
+X	 /* invoke the command using fork & exec *
+X	  * ==================================== */
+X	 else if ( ( pid = fork () ) == 0 ) {	/* 	child process */
+X		signal (SIGINT,  SIG_DFL); 
+X		signal (SIGQUIT, SIG_DFL); 
+X		execvp(args[0], args);
+X		perror(args[0]);
+X		exit(1);
+X	}
+X	else
+X		while ( wait (0) !=  -1 )    /*    parent waits for  */
+X			;		     /*    child            */
+X}
+X
+X/* ========================================================= */
+Xget_actions (input_string, exec_string, args)
+X/* ========================================================= */
+Xchar *input_string, *exec_string, *args[];
+X{
+X	char *p = input_string, word[WORDLEN], *val, *type, *realval;
+X	char *index(), *prompt(), *ufix(), *strsave(), *strcatsave();
+X	int    i = 0;
+X
+X	/* Display a helpfile, if appropriate *
+X	 * ================================== */
+X	extract_action_word    (input_string, HELPVAL, word, 0);
+X	if (word[0])
+X		helpfile_display(word);
+X
+X	/* pull out the actual value of args *
+X	 * ==================================*/
+X
+X	i = -1;
+X	exec_string[0] = EOS;
+X
+X	/* XXX - should check i not out of bounds */
+X	while ( sscanf(p, "%s", word) == 1 ) {
+X		while (isspace(*p))	/* skip spaces, then word... */
+X			p++;
+X		p += strlen(word);	/* ...for sscanf next time */
+X
+X		if ((val = index(word, '=')) == NULL) {
+X			/* default: treat like arg= */
+X			val = word;
+X			type = "arg";
+X		}
+X		else {
+X			val[0] = EOS;	/* split word into selector and value */
+X			val++;		/* make val point to value part */
+X			type = word;
+X		}
+X
+X		/* build an argv entry */
+X		if (strcmp(type, "cmd") == 0 || strcmp(type, "arg") == 0)
+X			args[++i] = realval = ufix(strsave(val));
+X		else if (strcmp(type, "prompt") == 0)
+X			args[++i] = realval = strsave(prompt(val));
+X		else if (strcmp(type, "aarg") == 0)
+X			args[i] = realval = ufix(strcatsave(args[i], val));
+X		else if (strcmp(type, "aprompt") == 0)
+X			args[i] = realval = strcatsave(args[i], prompt(val));
+X
+X		/* build string for 'system' just in case */
+X		if (strcmp(type, "aarg") != 0 && strcmp(type, "aprompt") != 0)
+X			strcat(exec_string, " ");
+X		strcat(exec_string, realval);
+X	}
+X
+X	args[++i] = NULL;
+X}
+X
+X/* function to reorder various command line args based on original string *
+X ======================================================================== */
+Xassign_parameters (varg_ptr, input_line, command, args, aargs, promptval)
+Xchar * varg_ptr [2 * MAXARGS];
+Xchar input_line  [DESCLEN];
+Xchar command     [WORDLEN];
+Xchar args        [MAXARGS][WORDLEN];
+Xchar aargs       [MAXARGS][WORDLEN];
+Xchar promptval   [MAXARGS][WORDLEN];
+X
+X{
+X	char target_string [DESCLEN];
+X	int position, i = 0;
+X	
+X	i = 0;
+X	while ( strcmp (input_line, NULLSTR) != 0 ) {
+X
+X		filter_leading_trailing_blanks_tabs (input_line);
+X		if ( (position = strsearch (input_line, " ")) < 0 ) 
+X			position = strlen(input_line) - 1;
+X
+X		target_string[0] = EOS;
+X		strncpy ( target_string, input_line, position + 1);
+X		target_string [position+1] = EOS;
+X		remove_string (input_line, 0, position + 1);
+X
+X		if ( strsearch (target_string, CMDVAL) >= 0)
+X			varg_ptr [i++] = command;
+X		else if ( strsearch (target_string, ARGVAL) >= 0) 
+X			varg_ptr [i++] = (args++);
+X		else if ( strsearch (target_string, AARGVAL) >= 0)
+X			varg_ptr [i++] = (aargs++);
+X		else if ( strsearch (target_string, PROMPTVAL) >= 0)
+X			varg_ptr [i++] = (promptval++);
+X		else if (index(target_string, '=') == NULL) /* same as ARGVAL */
+X			varg_ptr [i++] = (args++);
+X		
+X	}	/* while */
+X}		/* assign_parameters */
+X
+Xreorganize (var_args, new_var_args, rcount)
+Xchar * var_args [2 * MAXARGS];
+Xchar * new_var_args [MAXARGS][MAXARGS];
+Xint  * rcount;
+X
+X{
+X	int i, j=0, k=0;
+X	char * temp;
+X
+X	for ( i=0; var_args[i] != NULL; ) {
+X
+X		while (( !index (var_args[i], PIPECHAR)) && (var_args[i] != NULL))
+X			new_var_args[j][k++] = var_args[i++];
+X
+X		if ( index (var_args[i], PIPECHAR) ) {
+X			new_var_args[j++][k] = NULL;
+X			k = 0;
+X			temp = var_args[i++];
+X			temp++;
+X			new_var_args[j]  [k++] = temp;
+X		}
+X	}
+X
+X	new_var_args [j][k] = NULL;
+X	*rcount = j + 1;
+X}
+X
+Xdoexec(args)
+Xchar *args[];	/* assumes is run in child process */
+X{
+X	int fds [2], rpid, i = MAXARGS;
+X
+X	while (--i > 0)
+X		if (args[i] && args[i][0] == PIPECHAR)
+X			break;
+X
+X	if (i > 0) {		/* not first command in pipeline */
+X		args[i]++;	/* skip PIPECHAR */
+X		pipe(fds);
+X		if (fork()) {
+X			dup2(fds[1], 1);
+X			close(fds[0]);
+X			close(fds[1]);
+X		}
+X		else {	/* child */
+X			close(0);
+X			dup(fds[0]);
+X			close (fds[0]);
+X			close (fds[1]);
+X
+X			while (i < MAXARGS)
+X				args[i++] = NULL;
+X
+X			doexec(args);
+X		}
+X	}
+X
+X	execvp(args[i], args+i);
+X	perror(args[i]);
+X	exit(0);
+X}
+X
+Xstruct command {
+X	DL_NODE n;
+X	char *c;
+X};
+X
+Xinvalidcommand(cmd)
+Xchar *cmd;
+X{
+X	static int initialized;
+X	static DLIST commands;
+X	int iscmd();
+X
+X	if (!initialized) {
+X		FILE *fp;
+X		char line[256], *p;
+X		struct command *c;
+X
+X		if ((fp = fopen(COMMAND_LIST, "r")) == NULL) {
+X			printf("Command list missing!\n");
+X			return TRUE;
+X		}
+X
+X		if ((commands = dl_create(DL_FREE)) == NULL) {
+X			printf("Out of memory!\n");
+X			exit(1);
+X		}
+X
+X		while (fgets(line, sizeof(line), fp)) {
+X			if ((p = malloc(strlen(line)+1)) == NULL ||
+X			    (c = getnode(sizeof(struct command))) == NULL) {
+X				printf("Out of memory!\n");
+X				exit(1);
+X			}
+X			strcpy(p, line);
+X			p[strlen(p)-1] = '\0';
+X			c->c = p;
+X			dl_append(commands, c);
+X		}
+X
+X		fclose(fp);
+X		initialized = TRUE;
+X	}
+X
+X	return(!dl_lsearch(commands, dl_head(commands), NULL, cmd, iscmd));
+X}
+X
+Xiscmd(c, cmd)
+Xstruct command *c;
+Xchar *cmd;
+X{
+X	return(strcmp(cmd, c->c) == 0);
+X}
+END_OF_FILE
+  if test 6544 -ne `wc -c <'functions2.c'`; then
+    echo shar: \"'functions2.c'\" unpacked with wrong size!
+  fi
+  # end of 'functions2.c'
+fi
+if test -f 'mshell.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mshell.1'\"
+else
+  echo shar: Extracting \"'mshell.1'\" \(10343 characters\)
+  sed "s/^X//" >'mshell.1' <<'END_OF_FILE'
+X.TH Mshell 1 "13 July 1993"
+X.SH NAME
+Xmshell \- menu oriented shell
+X.SH SYNOPSIS
+X.B mshell
+X.RB "[\|" \-r "\|]"
+X.RB "[\|" \-s "\|]"
+X.B initial-menu 
+X.SH DESCRIPTION
+X.LP
+X.B mshell
+Xis a menuing program designed to be used as a login shell or as the primary
+Xprogram in a wrapper shell script (to set environment, etc.).  Menus are
+Xintended to be simple to create without sacrificing flexibility.
+X.SH OPTIONS
+X.TP
+X.B \-r
+X.B mshell
+Xruns in "restricted" mode, where only commands found in a command-list file
+Xcan be executed.  I.e., some users may have full access to all menu options
+Xwhile others run under restriction.  The command-list file is currently
+Xhardwired via the COMMAND_LIST #define in the source, but could easily be
+Xturned into a command line parameter.  Further, -r inhibits user replies to
+Xprompts even for options that are active (to prevent users from entering
+Xmetacharacters which may allow unintended access).  Commands must match
+X*exactly* the way they are listed in the menu's "cmd=..." line, e.g.,
+Xfull path or no path.  See below for additional thoughts on security.
+X.TP
+X.B \-s
+XPrevents the execution of !command at the menu prompt and prevents users from
+Xtyping shell meta-characters in their replies to prompts.
+XSee below for additional thoughts on security.
+X.TP
+X.B initial-menu
+XThe name or path to the initial menu:
+XIf the name has a / in it, that is used as the path to the starting menu;
+Xif no /, then $MENUDIR/\fIinitial-menu\fP is used as the menu.
+X.br
+X.SH NOTES
+X.LP
+X.SS Startup files
+XIf the file .mshellrc exists in $HOME, it is run
+Xvia "sh".  Useful to run some intro commands (e.g., personal stty settings),
+Xbut note it cannot be used to set variables or other internal state elements.
+X.SS Logging
+XIf you define LOGDIR (in Makefile) to an existing dir,
+Xthen user activity will be logged.  (I suggest the dir should be mode 733 so
+Xusers can't poke around as easily).  Every menu pick a user makes is appended to
+Xa file named with their username; these files grows without bound and 
+Xmust be cleaned up manually.
+X.SS Environment variables
+XWork inside menu values (as $VAR), as does ~ for home dir.
+X.SS Built-in commands
+Xcd and setenv are built in.  The built-in command 'menu' invokes
+Xmshell recursively (i.e., does not create a new process for submenus).
+X.SS Security
+XTake great care if you want to use mshell in a secure environment.  It can
+Xbe an experiment in futility.  Using the -s and -r options you can control
+Xwhat programs users may run; however, note that with just -s users can
+Xlikely find clever ways to subvert the security and get a shell.  Even with
+Xboth -r and -s in effect, many of the programs you're likely to allow users
+Xto run may have ways to gain unintended access.  For example, 'more' allows
+Xusers to invoke the shell ('!' command) or vi (e.g. the 'v' command),
+Xfrom which they can gain instant
+Xshell access.  Monitor what commands you allow in -r \fIvery\fP carefully.
+XEven the simplest shell scripts may be subvertible!
+X.LP
+XIt helps to set the
+XSHELL environment variable to something like /bin/true, or better yet, a
+Xcommand that echoes "You can't have a shell, sorry."  This still won't foil
+Xa determined attack, of course.
+X.LP
+X.mshellrc is obviously a security risk.
+XConsider a wrapper around the menu that removes .mshellrc, for example.
+X.LP
+XNote that even with all this, mshell
+Xshouldn't be trusted for genuine security, since it's nearly impossible to
+Xeliminate the ways one can get a shell (I gave it a good whack, modifying
+Xbinaries of various programs, hacking on source for others, etc.; it's too
+Xmuch hassle and still can be circumvented).
+X.SS Multiple commands
+XIf the user types pick1,pick2,pick3 then
+Xeach will be executed as if the ',' were newlines.  Use 'top,...' to get
+X"absolute" picks, starting at the top of the menu tree.
+X.SS Macros
+XA file named $HOME/.mshellmac is read at startup for macros.  Macros look
+Xlike:
+X.RS
+Xname=commands
+X.RE
+XFor example:
+X.RS
+Xhist=top,i,h,x
+X.RE
+Xwhich on Nyx means <top, info menu, 'h' for history, 'x' to exit menu
+Xback to main>.
+XExecute macros as
+X.RS
+X#name
+X.RE
+Xsuch as
+X.RS
+X#hist
+X.RE
+XMacros may be execute inside multi-command lines, as in
+X.RS
+Xfoo,#hist,bar
+X.RE
+Xand inside other macros, like
+X.RS
+Xfoo=a,#hist,b,c
+X.RE
+X.SS Online help
+XIf a menu item has help=filename in the definition, that filename is
+Xprinted prior to execution or prompt input.
+XUsers can do 'help o' for an option 'o', in which case,
+Xif man=xxx is set, "man xxx" is invoked.  Failing that,
+X"cmd=zzz" causes "man zzz" to be run.  Thus one may let the cmd= setting
+Xdefault except where this invokes the wrong manual page or one wants to
+Xspecific a non-man(1) manual page.
+X.br
+X.ne 4
+X.SH MENU DEFINITION
+X.LP
+XFormat of menu file:
+X.RS
+X.nf
+X
+Xscreen layout
+X*****
+Xkeyword <tab> action_description
+X...
+X
+X.fi
+X.RE
+XThe top part of the screen is what the users sees -- it is just text,
+Xput whatever you want there; there is no specific format rules, just
+Xmake it look good.  The bottom describes what commands have what action.
+XThe bottom is comprised of two tab-separated columns: a keyword and an
+Xaction description.  The keyword can be any string (without a tab in it),
+Xusually alpha-numeric.  Presumably these keywords are displayed in the
+Xlayout portion so users know what to type, but that's up to you to ensure.
+X(That is, there is no marking of items in the top unless you want to for
+Xvisual effect.  Further, you can have "invisible" menu options by listing
+Xthem in the bottom but not the top; the drawback is that you could have
+Xinoperative options if you list them above and forget to list them below.)
+X.LP
+XThe simplest action description is just a shell command, as in
+X.RS
+Xw	who | sort
+X.RE
+Xwhich would execute "who|sort" when a user selects 'w' from the menu.
+XThe actions can be any shell code.
+X.LP
+XThe action descriptions can be built using keywords as follows:
+X.TP
+Xcmd=name_of_command
+Xlike arg=, but no _ translation.  In addition, it specifies this this as
+Xthe command to run 'man' for help.
+X.TP
+Xprompt=prompt_to_print
+XPrints prompt
+X(will be followed by colon and space).
+XThe user's response is interpolated as the next parameter.
+X.TP
+Xarg=literal
+XArgument is included at this position in command string.
+XThis is also the default if no \fIkeyword\fP= is given.
+X.TP
+Xaarg=literal_to_append
+XLike arg=, but no space put before it; e.g., to
+Xappend a filename extension after a prompted value.
+X.TP
+Xaprompt=prompt_to_append
+XPrompts and appends to previous argument (e.g., a literal value).
+X.TP
+Xhelp=name_of_helpfile
+XPrints said helpfile (printed immediately, i.e., before input or
+Xexecution of command).
+X.TP
+Xman=name_of_manual
+XSpecifies manual entry to use for 'help'; useful if cmd= isn't set to something
+Xyou want a 'man' on or there isn't anything interesting to set cmd= to.
+X.LP
+XNotice that no <type>= is the same as "arg=".
+X.LP
+XIn [a]prompt= and [a]arg=, underscores will be translated to spaces on
+Xoutput and
+Xare mandatory in multi-word strings (i.e., if you have "prompt=foo bar" the
+Xprompt will be foo and bar will be looked on as the next action description
+Xword; instead do "prompt=foo_bar").  Tabs in strings don't work (could be
+Xhandled similar to _ for space, but aren't at present).
+X.LP
+XThe result is put into a string; if it has any meta-characters that
+Xshould be handled by a shell, then the result is fed to system() so
+Xthe shell (csh in particular) can deal with it.  Otherwise, mshell
+Xexecutes the command directly.
+X.LP
+XIf the first keyword listed in the description section is "_init",
+Xthis command will be executed upon entry into the menu (before any selection).
+X.LP
+XAt "Enter choice" prompt, a response beginning with ! causes the remainder
+Xof the line to be executed verbatim.  (E.g., !who will run a who.)  (Assuming
+Xthis has not been disabled by -s.)
+X.LP
+XAll menus respond to certain built-in options, namely 'x' to exit the menu,
+X'bye' to leave the program, 'top' to return to the top level (initial
+Xmenu), and 'help xxx' to invoke the help for option xxx.
+X.LP
+XA sample menu file might be:
+X.RS
+X.nf
+X				Main menu
+X				=========
+X
+Xf	Upload/Download file menu 	i	Information...
+Xs	Status/options/users menu	u	Unix file access menu
+X
+Xc	Communications menu -- bulletins, NetNews, mail, chat
+X
+Xp	Programming menu
+Xe	Education menu			w	Word processing menu
+Xg	Games menu			gr	Graphics menu 		
+Xfaq	Frequently Asked Questions	o	Organization menus
+X
+Xin      Introduce yourself to other Nyx users
+X
+Xfund	Info on the "fund drive" to speed up ol' Nyx
+X
+Xfb	Send feedback to sysop (comments, questions, etc.)
+X*****
+Xu	cmd=menu arg=$mendir/file.men
+Xc	cmd=menu $mendir/comm.men
+Xw	cmd=menu $mendir/wp.men
+Xp	cmd=menu $mendir/prog.men
+Xg	cmd=menu $mendir/games.men
+Xs	cmd=menu $mendir/stat.men
+Xgr	cmd=menu $mendir/graphics.men
+Xi	cmd=menu $mendir/info.men
+Xf	cmd=menu $mendir/updownload.men
+Xe	cmd=menu $mendir/edu.men
+Xo	cmd=menu $mendir/org.men
+Xfb	/u5/bin/comment
+Xin	/u5/bin/introduction
+Xfund	cmd=more -d $mendir/info/fund.drive
+Xfaq	cmd=more -d $mendir/info/faq
+X
+XSome other random example commands:
+X
+X_init	cmd=cd $downloaddir
+Xused	cmd=du -s $HOME
+Xs	cmd=fgrep prompt=String_to_find prompt=Files_to_search_(sep._by_spaces)
+Xfn	cmd=find $HOME_-name prompt=File -print
+Xco	echo 'lines____words____chars'; cmd=wc prompt=File
+Xec	cmd=crypt prompt=Input_file > prompt=Output_file
+Xa	cd $dldir/.areas/ aprompt=Area# help=$dldir/.areas/.list
+Xl	(echo -n "Current area: ";pwd;sort .catalog)|lineup|more
+Xs	mail prompt=To help=$mendir/facmain.help
+X.fi
+X.RE
+X.SH RECOMMENDATIONS
+X.SS Use full pathnames for filenames.
+X.SS Use multiple main menus for different classes of users.
+X.SS You'll need various script files as wrappers around commands.
+X.SS Look on Nyx (nyx.cs.du.edu, login as 'new') for various examples.
+X.SH AUTHOR
+X.LP
+XOriginal shell script version by Andrew Burt
+Xof the University of Denver department of math and computer science.
+XInitially coded in C by Dinesh Punjabi (yes, as a student project).
+XSubsequent hacks and maintenance by Andrew Burt, reachable as aburt@du.edu.
+X.SH BUGS
+X.LP
+XNo doubt.  I've heard tales of occasional glitches where the menus get
+Xvery hosed up, but haven't searched for causes.  I suspect there are some
+Xmemory leaks lurking around as well in some of the older code.  The reliance
+Xon fixed size strings stems from the original, and should be replaced.
+XThe original System V code has not been tested in ages and may no longer even
+Xcompile; the newer diffs haven't been tested.
+END_OF_FILE
+  if test 10343 -ne `wc -c <'mshell.1'`; then
+    echo shar: \"'mshell.1'\" unpacked with wrong size!
+  fi
+  # end of 'mshell.1'
+fi
+if test -f 'mshell.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mshell.h'\"
+else
+  echo shar: Extracting \"'mshell.h'\" \(2501 characters\)
+  sed "s/^X//" >'mshell.h' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <curses.h>
+X#include <sys/signal.h>
+X#include <pwd.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifdef BSD
+X#include <sys/dir.h>		/* accessing the directory structure	*/
+X#include <sgtty.h>		/* struct for terminal attributes       */
+X#endif
+X#ifdef SYSV
+X#define index	strchr
+X#define rindex	strrchr
+X/* #include <termio.h>		/* do this if curses.h doesn't */
+X#endif
+X#include "dl.h"
+X
+X#define  BLANK           ' '
+X#define  COLUMNS         256
+X#define  DESCLEN         128
+X#define  EOS             '\0'
+X#define  EXCLAIM         '!'
+X#define  LINES           80
+X#define  MAXARGS         10
+X#define  MAXLEN          256
+X#define  NULLSTR         ""
+X#define  MAIL_MESSAGE    "	[You have new mail]"
+X#define  OPTLEN          16
+X#define  PIPECHAR        '|'
+X#define  DELIM_LINE      "*****\n"	/* \n since fgets is used */
+X#define  SUFFIX          ".men"
+X#define  TAB             '\t'
+X#define  HOME_CHAR       "~"
+X#define  VISIBLE_SPACE   '_'
+X#define  WORDLEN         64
+X
+X#define  CMDVAL          "cmd="
+X#define  ARGVAL          "arg="
+X#define  AARGVAL         "aarg="
+X#define  HELPVAL         "help="
+X#define  PROMPTVAL       "prompt="
+X#define  APROMPTVAL      "aprompt="
+X#define  HELP            "help"
+X#define  MAN             "man="
+X#define  BYE             "bye"
+X#define  QUIT            "x"
+X#define  CHANGE_DIR      "cd"
+X#define  SETENV		 "setenv"
+X
+X#ifndef  MAILDIR
+X#define  MAILDIR         "/usr/spool/mail/"
+X#endif
+X#ifndef  MENUDIR
+X#define  MENUDIR         "/nyx/lib/menus"
+X#endif
+X#ifndef  GLOBAL_MACRO_FILE
+X#define  GLOBAL_MACRO_FILE         "/nyx/lib/menus/macros"
+X#endif
+X#ifndef  COMMAND_LIST
+X#define  COMMAND_LIST         "/nyx/lib/menus/commands"
+X#endif
+X
+X#ifndef TRUE	/* curses.h may #define */
+X#define TRUE   1
+X#define FALSE  0
+X#endif
+X
+Xstruct   menu_struct {
+X	char curr [WORDLEN];
+X	char prev [WORDLEN];
+X};
+X
+X#define void	int
+Xint 	all_blanks ();
+Xvoid    change_directory();
+Xvoid    check_for_new_mail ();
+Xvoid 	helpfile_display ();
+Xvoid 	display_menu ();
+Xvoid 	display_prompts ();
+Xvoid 	execute_command ();
+Xvoid 	extract_actions ();
+Xvoid 	extract_action_word ();
+Xvoid	filter_leading_trailing_blanks_tabs ();
+Xchar * 	find_string ();
+Xvoid    find_user_details ();
+Xchar *  in_string ();
+Xvoid    initialize ();
+Xvoid 	insert_string ();
+Xvoid    invoke_unix_system ();
+Xvoid 	M_Shell ();
+Xvoid 	read_input_line ();
+Xvoid 	remove_string ();
+Xint 	replace_string ();
+Xvoid 	search_menu_array ();
+Xint 	strsearch ();
+Xvoid 	set_terminal_attributes ();
+Xint    	setenv ();
+Xvoid 	wait_for_user ();
+END_OF_FILE
+  if test 2501 -ne `wc -c <'mshell.h'`; then
+    echo shar: \"'mshell.h'\" unpacked with wrong size!
+  fi
+  # end of 'mshell.h'
+fi
+if test -f 'sample.men' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample.men'\"
+else
+  echo shar: Extracting \"'sample.men'\" \(1455 characters\)
+  sed "s/^X//" >'sample.men' <<'END_OF_FILE'
+X				Main menu
+X				=========
+X
+Xf	Upload/Download file menu 	i	Information...
+Xs	Status/options/users menu	u	Unix file access menu
+X
+Xc	Communications menu -- bulletins, NetNews, mail, chat
+X
+Xt	TTCC Resources			p	Programming menu
+Xe	Education menu			w	Word processing menu
+Xg	Games menu			gr	Graphics menu 		
+Xfaq	Frequently Asked Questions	o	Organization menus
+X
+Xin      Introduce yourself to other Nyx users
+X
+Xfund	Info on the "fund drive" to speed up ol' Nyx
+X
+Xfb	Send feedback to sysop (comments, questions, etc.)
+X*****
+Xu	cmd=menu arg=$mendir/file.men
+Xc	cmd=menu $mendir/comm.men
+Xw	cmd=menu $mendir/wp.men
+Xp	cmd=menu $mendir/prog.men
+Xg	cmd=menu $mendir/games.men
+Xs	cmd=menu $mendir/stat.men
+Xgr	cmd=menu $mendir/graphics.men
+Xi	cmd=menu $mendir/info.men
+Xf	cmd=menu $mendir/updownload.men
+Xe	cmd=menu $mendir/edu.men
+Xo	cmd=menu $mendir/org.men
+Xfb	cmd=/u5/bin/comment
+Xt	cmd=/u1/bin/ttcclogin
+Xin	cmd=/u5/bin/introduction
+Xfund	cmd=more -d $mendir/info/fund.drive
+Xfaq	cmd=more -d $mendir/info/faq
+X
+XSome other random example commands:
+X
+X_init	cmd=cd $dldir
+Xused	cmd=du -s $HOME
+Xs	cmd=fgrep prompt=String_to_find prompt=Files_to_search_(sep._by_spaces)
+Xfn	cmd=find $HOME_-name prompt=File -print
+Xco	cmd=echo 'lines____words____chars'; wc prompt=File
+Xec	cmd=crypt prompt=Input_file > prompt=Output_file
+Xa	cmd=cd $dldir/.areas/ aprompt=Area# help=$dldir/.areas/.list
+Xl	cmd=(echo_-n_"Current_area:_";pwd;sort_.catalog)|lineup|more
+Xs	cmd=mail help=$mendir/facmain.help prompt=To
+END_OF_FILE
+  if test 1455 -ne `wc -c <'sample.men'`; then
+    echo shar: \"'sample.men'\" unpacked with wrong size!
+  fi
+  # end of 'sample.men'
+fi
+if test -f 'string.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'string.c'\"
+else
+  echo shar: Extracting \"'string.c'\" \(8418 characters\)
+  sed "s/^X//" >'string.c' <<'END_OF_FILE'
+X#include "mshell.h"
+X
+X#ifdef BSD
+X#define strchr	index
+X#endif
+X
+X
+X/* function to find the position of sub_string in main_string 
+X * ---------------------------------------------------------- */
+X
+Xstrsearch (main_string, sub_string)
+Xchar main_string[], sub_string[];
+X{
+X	int start_mstring = 0, start_sstring = 0, 
+X	    factor = 0, answer, main_pos = 0;
+X
+X		while ( main_string[start_mstring] != EOS  &&
+X			sub_string[start_sstring] != EOS )       {
+X
+X			if ( main_string[start_mstring] !=
+X		              sub_string[start_sstring] )  {
+X				++main_pos;
+X				start_mstring = main_pos;
+X				start_sstring = 0;
+X				factor = 0;
+X			}
+X			else   {
+X				++factor;
+X				++start_mstring;
+X				++start_sstring;
+X			}		/* end if-else */
+X
+X		}			/* end while */
+X
+X		if (( sub_string[start_sstring] == EOS && factor > 0 ) ||
+X		    ( main_string[start_mstring] == EOS &&
+X		       sub_string[start_sstring] == EOS ))   {
+X
+X			answer = main_pos;
+X			return(answer);
+X		}
+X		else 
+X			return(-1);	/* end if-else */
+X}					/* end function strsearch */
+X
+X/* function to remove string starting at a specified position  
+X * ----------------------------------------------------------  */
+X
+Xremove_string (main_string, start_index, no_of_bytes )
+Xchar main_string[];
+Xint  start_index, no_of_bytes;
+X
+X{
+X	int index, offset;
+X
+X	offset = strlen (main_string) - no_of_bytes;
+X	/* offset is defined as the index no of the last element which
+X	 * will be present in the new string or the unremoved bytes +
+X	 * bytes that need to be repositioned */
+X
+X	for ( index = start_index; index < offset; ++ index ) 
+X		main_string [index] = main_string [index + no_of_bytes];
+X
+X	main_string[index] = EOS;
+X
+X}				/* end of function remove_string */
+X
+X/* replace string function 
+X * ----------------------- */
+X
+Xint replace_string (main_string, old_string, new_string)
+Xchar main_string[256], old_string[256], new_string[256]; 
+X
+X{
+X	int  pos;
+X
+X	pos = strsearch (main_string, old_string);
+X
+X	if ( pos >= 0 ) {
+X		remove_string (main_string, pos, strlen(old_string));
+X		insert_string (main_string, new_string, pos);
+X		return (TRUE);
+X	/* 	printf ("\n\n\tnew string is  %s\n\n", main_string); */
+X	}
+X	else
+X		return (FALSE);
+X} 	/* end function replace_string */
+X
+X/* function to find insert sub-string in main-string at a specific position
+X * ------------------------------------------------------------------------ */
+X
+Xinsert_string ( main_string, sub_string, position )
+Xchar main_string [], sub_string [];
+Xint  position;
+X
+X{
+X	int i, j, offset;
+X
+X	if (sub_string) {
+X		offset = strlen(sub_string);
+X		j = strlen (main_string);
+X
+X		for (i = j; i >= position; i--)
+X			main_string [i+offset] = main_string [i];
+X
+X		for (i=0; i < offset ; i++) 
+X			main_string [i+position] = sub_string [i];
+X
+X		main_string [j+offset] = EOS;
+X	}
+X}
+X
+X#include <ctype.h>
+X
+X#define NULL	0
+X#define STRLEN	256
+X
+Xchar *
+Xfindvar(s)
+Xchar *s;
+X{
+X	static char var[STRLEN];
+X	char *p, *v = var, *strchr();
+X
+X	if ((p = strchr(s, '$')) == NULL)
+X		return (NULL);
+X
+X	p++;	/* skip $ */
+X
+X	while (isalnum(*p))
+X		*v++ = *p++;
+X
+X	*v = '\0';
+X
+X	return(var);
+X}
+X
+Xsubstitute(s)
+Xchar *s;
+X{
+X	char var[STRLEN], *v_in_s, *getenv();
+X
+X	if ((v_in_s = findvar(s)) == NULL)
+X		return(0);
+X	
+X	sprintf(var, "$%s", v_in_s);
+X	replace_string(s, var, getenv(v_in_s));
+X	return(1);
+X}
+X
+X#ifdef DEBUGGING
+Xmain()
+X{
+X	char s[STRLEN];
+X
+X	while (1) {
+X		printf("s-> ");
+X		gets(s);
+X		substitute(s);
+X		printf("--> %s\n", s);
+X	}
+X}
+X#endif
+X
+Xall_blanks (string)
+Xchar * string;
+X{
+X	for ( ; ((*string == BLANK) && (*string != EOS)) ; ++string);
+X
+X	if ( *string == EOS ) 
+X		return (TRUE);
+X	else
+X		return (FALSE);
+X}
+X
+X/* function to find position  of sub string in a main string 
+X * ---------------------------------------------------------- */
+X
+X/* ========================================= */
+Xchar * find_string (main_string, sub_string)
+X/* ========================================= */
+Xchar main_string[], sub_string[];
+X{
+X	int start_mstring = 0, start_sstring = 0, 
+X	    factor = 0, answer, main_pos = 0;
+X
+X		while ( main_string[start_mstring] != EOS  &&
+X			sub_string[start_sstring] != EOS )       {
+X
+X			if ( main_string[start_mstring] !=
+X		              sub_string[start_sstring] )  {
+X				++main_pos;
+X				start_mstring = main_pos;
+X				start_sstring = 0;
+X				factor = 0;
+X			}
+X			else   {
+X				++factor;
+X				++start_mstring;
+X				++start_sstring;
+X			}		/* end if-else */
+X
+X		}			/* end while */
+X
+X		if (( sub_string[start_sstring] == EOS && factor > 0 ) ||
+X		    ( main_string[start_mstring] == EOS &&
+X		       sub_string[start_sstring] == EOS ))   {
+X
+X			answer = main_pos;
+X			return(&main_string[main_pos]);
+X		}
+X		else  {
+X			/* answer = -1; */
+X			return(NULL);	/* end if-else */
+X		}
+X}					/* end function find_string */
+X
+X/******************************************************************************
+X * reads a line of input string from the terminal and keeps doing so until    *
+X * input string contains no colons                                            *
+X *****************************************************************************/
+X
+X
+Xstruct inp_link {
+X	DL_NODE n;
+X	char *input;
+X};
+Xstatic DLIST inputstack;
+X
+Xread_input_line(string)
+Xchar *string;
+X{
+X	extern int G_shell_ok;
+X	char *p;
+X
+X	if (string == NULL) {	/* just read and trash line */
+X		int c;
+X		while ((c = getchar()) != '\n' && c != EOF)
+X			;
+X		return;
+X	}
+X
+X	if (inputstack == NULL)
+X		inputstack = dl_create(DL_FREE);
+X
+X	do {
+X		/* if any input (e.g., from last time) on stack use that... */
+X		if (dl_size(inputstack) > 0) {
+X			struct inp_link *l;
+X			l = (struct inp_link *) dl_shead(inputstack);
+X			strcpy(string, l->input);
+X			free(l->input);
+X			dl_delete(inputstack);
+X		} /* ... else get some new input */
+X		else if (gets(string) == NULL) {
+X			printf("End of input -- quitting...\n");
+X			exit(1);
+X		}
+X
+X		/* if it has a multi-command delim, save rest for next time */
+X#define MULTI_CMD_DELIM ','
+X		if (p = index(string, MULTI_CMD_DELIM)) {
+X			char *strsave();
+X			struct inp_link *l;
+X			*p++ = EOS;
+X			if ((l=getnode(sizeof(*l))) && (l->input=strsave(p)))
+X				dl_prepend(inputstack, l);
+X		}
+X
+X		filter_leading_trailing_blanks_tabs (string);
+X
+X		/* if macro, then expand & push definition on stack */
+X#define MACRO_DELIM '#'
+X		if (string[0] == MACRO_DELIM) {
+X			char *mac_lookup();
+X			char *def = mac_lookup(string+1);
+X			struct inp_link *l;
+X			if (def && (l = getnode(sizeof(*l))) &&
+X						(l->input = strsave(def)))
+X				dl_prepend(inputstack, l);
+X		}
+X	} while (string[0] == MACRO_DELIM);
+X
+X	/* if not allowing shell, then chop off at funny chars */
+X	if (! G_shell_ok)
+X		truncate_at_invalid_chars (string);
+X
+X}  /* end function read_input_line */
+X
+Xint moreinput()
+X{
+X	return (inputstack && dl_size(inputstack) > 0);
+X}
+X
+X
+X/****************************************************************************
+X * Function to filter out all leading and trailing blanks from a strings    *
+X * Takes a character string as a parameter                                  *
+X ****************************************************************************/
+X
+Xvoid filter_leading_trailing_blanks_tabs ( string )
+Xchar * string;
+X{
+X	int i, j ;
+X
+X	for ( i = 0 ; (( string[i] != EOS ) && (( string[i] == BLANK )
+X					    ||  ( string[i] == TAB   )) ); ++i )
+X		;
+X	for ( j = 0 ; ( string[j] != EOS ) ; ++j ) 
+X		string[j] = string[j + i];
+X
+X	string[j] = EOS;
+X
+X	for ( i = strlen(string) - 1 ; ( i >= 0 ) ; --i )
+X		if (( string[i] != BLANK ) && ( string[i] != TAB ))
+X			break;
+X
+X	string[i+1] = EOS; 
+X
+X	return ;
+X}
+X
+Xchar *
+Xstrsave(s)
+Xchar *s;
+X{
+X	char *p, *malloc();
+X	if (s == NULL || (p=malloc(strlen(s)+1)) == NULL)
+X		return(NULL);
+X	strcpy(p, s);
+X
+X	return(p);
+X}
+X
+X/* assumes d was malloc'd -- then makes large enough to cat s onto it */
+Xchar *
+Xstrcatsave(d, s)
+Xchar *d, *s;
+X{
+X	char *realloc();
+X
+X	if (d && (d = realloc(d, strlen(d)+strlen(s)+2)))
+X		strcat(d, s);
+X
+X	return(d);
+X}
+X
+X/* replace _ with space */
+Xchar *
+Xufix(s)
+Xchar *s;
+X{
+X	char *p;
+X	for (p = s; p && *p; p++)
+X		if (*p == '_')
+X			*p = ' ';
+X	return(s);
+X}
+X
+Xstrcontains(s, chars)
+Xchar *s, *chars;
+X{
+X	while (*chars)
+X		if (index(s, *chars++))
+X			return(1);
+X	return(0);
+X}
+X
+X/* remove string from no-no chars on */
+Xtruncate_at_invalid_chars (string)
+Xchar *string;
+X{
+X	char *p, *index();
+X	/* XXX - update to use strpbrk */
+X	if (p = index(string, ';'))
+X		*p = EOS;
+X	if (p = index(string, '`'))
+X		*p = EOS;
+X	if (p = index(string, '|'))
+X		*p = EOS;
+X	if (p = index(string, '<'))
+X		*p = EOS;
+X	if (p = index(string, '>'))
+X		*p = EOS;
+X	if (p = index(string, '^'))
+X		*p = EOS;
+X	if (p = index(string, '('))
+X		*p = EOS;
+X	if (p = index(string, '&'))
+X		*p = EOS;
+X}
+END_OF_FILE
+  if test 8418 -ne `wc -c <'string.c'`; then
+    echo shar: \"'string.c'\" unpacked with wrong size!
+  fi
+  # end of 'string.c'
+fi
+if test -f 'sysvdiffs.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sysvdiffs.A'\"
+else
+  echo shar: Extracting \"'sysvdiffs.A'\" \(25319 characters\)
+  sed "s/^X//" >'sysvdiffs.A' <<'END_OF_FILE'
+XFrom szebra!Saigon.COM!root@sonyusa.Sony.COM Sun Mar 21 22:15:30 1993
+XReturn-Path: <szebra!Saigon.COM!root@sonyusa.Sony.COM>
+XReceived: from Sony.COM by nyx.cs.du.edu (4.1/SMI-4.1)
+X	id AA18581; Sun, 21 Mar 93 22:15:20 MST
+XX-Disclaimer: Nyx is a public access Unix system run by the University
+X	of Denver.  The University has neither control over nor
+X	responsibility for the opinions or correct identity of users.
+XReceived: from sonyusa.Sony.COM!szebra!Saigon.COM by Sony.COM (5.65+/1.34)
+X	id AA18833; Sun, 21 Mar 93 21:05:20 -0800
+XReceived: by sonyusa.Sony.COM (4.0/SMI-4.0)
+X	id AA00651; Sun, 21 Mar 93 21:01:06 PST
+XReceived: by szebra.Saigon.COM (4.1/SVR4.i386-1.02)
+X	id AA19888; Sun, 21 Mar 93 21:55:21 PST
+XDate: Sun, 21 Mar 93 21:55:21 PST
+XMessage-Id: <9303220555.AA19888@szebra.Saigon.COM>
+XFrom: root@szebra.Saigon.COM
+XTo: aburt@nyx.cs.du.edu
+XCc: tin@smsc.Sony.COM
+XSubject: MSH cdifs
+XStatus: OR
+X
+XAndrew,
+X
+X  Here is the context dif of the changes I made to msh.  It is running
+Xon Saigon.COM, or will be when I have all the menus ready.
+X
+XRegards,
+XTin Le
+X
+X-----------------------------------------------------------------
+Xdiff -rc msh/Makefile msh.orig/Makefile
+X*** msh/Makefile	Tue Mar  9 20:37:53 1993
+X--- msh.orig/Makefile	Mon Mar 15 23:26:26 1993
+X***************
+X*** 8,23 ****
+X  #
+X  # Check mshell.h for other options, e.g., max menu sizes.
+X  
+X! MENUDIR='"/usr/local/mshell/menus"'
+X! LOGDIR='"/usr/local/mshell/logs"'
+X! 
+X! CFLAGS =  -g -DSYSV -DMENUDIR=$(MENUDIR) -DLOGDIR=$(LOGDIR) -Xa
+X! LFLAGS= -lcurses -ltermcap
+X  OBJS =	mshell.o main.o string.o functions1.o functions2.o chdir.o mail.o \
+X  	settatr.o setenv.o xsystem.o dl.o macro.o
+X  
+X  mshell: $(OBJS)
+X! 	cc $(CFLAGS) $(OBJS) $(LFLAGS) -o mshell
+X  
+X  $(OBJS) : mshell.h
+X  
+X--- 8,19 ----
+X  #
+X  # Check mshell.h for other options, e.g., max menu sizes.
+X  
+X! CFLAGS =  -O -DBSD -DMENUDIR='"/nyx/lib/menus"' -DLOGDIR='"/nyx/lib/logs"'
+X  OBJS =	mshell.o main.o string.o functions1.o functions2.o chdir.o mail.o \
+X  	settatr.o setenv.o xsystem.o dl.o macro.o
+X  
+X  mshell: $(OBJS)
+X! 	cc $(CFLAGS) $(OBJS) -lcurses -ltermcap -o mshell
+X  
+X  $(OBJS) : mshell.h
+X  
+XOnly in msh: RCS
+Xdiff -rc msh/chdir.c msh.orig/chdir.c
+X*** msh/chdir.c	Sun Mar 14 11:32:15 1993
+X--- msh.orig/chdir.c	Mon Mar 15 23:26:26 1993
+X***************
+X*** 1,7 ****
+X  #include "mshell.h"
+X  
+X- static char chdir_rcsid[] = "$Header: /usr3/src/msh/RCS/chdir.c,v 1.1 1993/03/14 19:32:07 root Exp root $";
+X- 
+X  extern char     G_homevar      [];
+X  extern char     G_uservar      [];
+X  extern char 	G_termvar      [];
+X--- 1,5 ----
+X***************
+X*** 10,33 ****
+X  extern int      G_mailsize; 
+X  extern struct   stat G_st;
+X  
+X! void change_directory(char *new_dir)
+X  {
+X  	char old_dir [MAXLEN]; 
+X  	int i;
+X  
+X  #ifdef BSD
+X! 	getwd(old_dir);
+X  #endif
+X  #ifdef SYSV
+X  	getcwd(old_dir, sizeof(old_dir));
+X  #endif
+X  
+X! 	if ( strcmp(new_dir, NULLSTR) == 0 )
+X! 		printw("\tno directory change requested !!\n\n");
+X  		/* XXX - could cd home */
+X  	else {
+X! 		printw("\n\n");
+X! 		if (chdir(new_dir) != 0) 
+X! 			printw("\tNo such directory as %s\n\n\n", new_dir);
+X  	}		/* end else strcmp */
+X  }			/* terminate function change_directory */
+X--- 8,33 ----
+X  extern int      G_mailsize; 
+X  extern struct   stat G_st;
+X  
+X! void change_directory(new_dir)
+X! char *new_dir;
+X! 
+X  {
+X  	char old_dir [MAXLEN]; 
+X  	int i;
+X  
+X  #ifdef BSD
+X! 	getwd (old_dir);
+X  #endif
+X  #ifdef SYSV
+X  	getcwd(old_dir, sizeof(old_dir));
+X  #endif
+X  
+X! 	if ( strcmp ( new_dir, NULLSTR ) == 0 )
+X! 		printf ("\t no directory change requested !!\n\n");
+X  		/* XXX - could cd home */
+X  	else {
+X! 		printf ("\n\n");
+X! 		if ( chdir (new_dir) != 0 ) 
+X! 			printf ("\t No such directory as %s\n\n\n", new_dir );
+X  	}		/* end else strcmp */
+X  }			/* terminate function change_directory */
+Xdiff -rc msh/dl.c msh.orig/dl.c
+X*** msh/dl.c	Sun Mar 14 11:32:15 1993
+X--- msh.orig/dl.c	Mon Mar 15 23:26:29 1993
+X***************
+X*** 1,15 ****
+X  /* ============================== dl.c ============================== */
+X  #include "dl.h"
+X  
+X- static char dl_rcsid[] = "$Header: /usr3/src/msh/RCS/dl.c,v 1.1 1993/03/14 19:32:07 root Exp root $";
+X- 
+X- #ifdef SYSV
+X- #include <stdlib.h>
+X- #else
+X  void *malloc();
+X- #endif
+X  
+X! char *getnode(int size)
+X  {
+X  	DL_NODE *n;
+X  
+X--- 1,9 ----
+X  /* ============================== dl.c ============================== */
+X  #include "dl.h"
+X  
+X  void *malloc();
+X  
+X! char *getnode(size)
+X  {
+X  	DL_NODE *n;
+X  
+X***************
+X*** 17,26 ****
+X  		memset(n, '\0', size);
+X  		n->size = size;
+X  	}
+X! 	return((char *)n);
+X  }
+X  
+X! freenode(DL_NODE *n)
+X  {
+X  	free(n);
+X  }
+X--- 11,21 ----
+X  		memset(n, '\0', size);
+X  		n->size = size;
+X  	}
+X! 	return(n);
+X  }
+X  
+X! freenode(n)
+X! DL_NODE *n;
+X  {
+X  	free(n);
+X  }
+X***************
+X*** 28,38 ****
+X  /*
+X   * Create an empty list
+X   */
+X! DLIST dl_create(int flags)
+X  {
+X  	DLIST l;
+X  
+X! 	if ((l = (DLIST)malloc(sizeof(struct dl))) == NULL)
+X  		return NULL;
+X  
+X  	l->head = l->tail = l->curr = NULL;
+X--- 23,34 ----
+X  /*
+X   * Create an empty list
+X   */
+X! DLIST dl_create(flags)
+X! int flags;
+X  {
+X  	DLIST l;
+X  
+X! 	if ((l = (DLIST) malloc(sizeof(struct dl))) == NULL)
+X  		return NULL;
+X  
+X  	l->head = l->tail = l->curr = NULL;
+X***************
+X*** 44,50 ****
+X  /*
+X   * Free entire list
+X   */
+X! dl_destroy(DLIST l)
+X  {
+X  	while (dl_shead(l))
+X  		dl_delete(l);
+X--- 40,47 ----
+X  /*
+X   * Free entire list
+X   */
+X! dl_destroy(l)
+X! DLIST l;
+X  {
+X  	while (dl_shead(l))
+X  		dl_delete(l);
+X***************
+X*** 52,64 ****
+X  	 * it is assumed that the list head structure itself was
+X  	 * from dl_create, thus will always be free'd.
+X  	 */
+X! 	free((char *)l);
+X  }
+X  
+X  /*
+X   * Delete specific node
+X   */
+X! dl_delete_node(DLIST l, DL_NODE *n)
+X  {
+X  	if (n) {
+X  		dl_detach_node(l, n);
+X--- 49,63 ----
+X  	 * it is assumed that the list head structure itself was
+X  	 * from dl_create, thus will always be free'd.
+X  	 */
+X! 	free(l);
+X  }
+X  
+X  /*
+X   * Delete specific node
+X   */
+X! dl_delete_node(l, n)
+X! DLIST l;
+X! DL_NODE *n;
+X  {
+X  	if (n) {
+X  		dl_detach_node(l, n);
+X***************
+X*** 71,77 ****
+X  /*
+X   * Delete node, but leave memory alone
+X   */
+X! dl_detach_node(DLIST l, DL_NODE *n)
+X  {
+X  	l->size--;
+X  
+X--- 70,78 ----
+X  /*
+X   * Delete node, but leave memory alone
+X   */
+X! dl_detach_node(l, n)
+X! DLIST l;
+X! DL_NODE *n;
+X  {
+X  	l->size--;
+X  
+X***************
+X*** 89,95 ****
+X  /*
+X   * Insert node n before the current location in list l
+X   */
+X! dl_ins_before_node(DLIST l, DL_NODE *n_on_list, DL_NODE *new_n)
+X  {
+X  	l->size++;
+X  
+X--- 90,98 ----
+X  /*
+X   * Insert node n before the current location in list l
+X   */
+X! dl_ins_before_node(l, n_on_list, new_n)
+X! DLIST l;
+X! DL_NODE *n_on_list, *new_n;
+X  {
+X  	l->size++;
+X  
+X***************
+X*** 114,120 ****
+X  	l->curr = new_n;
+X  }
+X  
+X! dl_ins_after_node(DLIST l, DL_NODE *n_on_list, DL_NODE *new_n)
+X  {
+X  	l->size++;
+X  
+X--- 117,125 ----
+X  	l->curr = new_n;
+X  }
+X  
+X! dl_ins_after_node(l, n_on_list, new_n)
+X! DLIST l;
+X! DL_NODE *n_on_list, *new_n;
+X  {
+X  	l->size++;
+X  
+X***************
+X*** 142,148 ****
+X  /*
+X   * Join l2 to the end of l1; l2 is no longer usable
+X   */
+X! dl_cat(DLIST l1, DLIST l2)
+X  {
+X  	l1->size += l2->size;
+X  	l1->tail->next = l2->head;
+X--- 147,154 ----
+X  /*
+X   * Join l2 to the end of l1; l2 is no longer usable
+X   */
+X! dl_cat(l1, l2)
+X! DLIST l1, l2;
+X  {
+X  	l1->size += l2->size;
+X  	l1->tail->next = l2->head;
+X***************
+X*** 157,163 ****
+X   *  return pointer to new list.
+X   */
+X  /*  Uncomment and do as exercise
+X! DLIST dl_split_at_node(DLIST l, DL_NODE *n)
+X  {
+X  	DLIST newl;
+X  
+X--- 163,171 ----
+X   *  return pointer to new list.
+X   */
+X  /*  Uncomment and do as exercise
+X! DLIST dl_split_at_node(l, n)
+X! DLIST l;
+X! DL_NODE *n;
+X  {
+X  	DLIST newl;
+X  
+X***************
+X*** 173,179 ****
+X  }
+X  */
+X  
+X! DLIST dl_copy(DLIST l)
+X  {
+X  	DLIST newl;
+X  	DL_NODE *n, *newn;
+X--- 181,188 ----
+X  }
+X  */
+X  
+X! DLIST dl_copy(l)
+X! DLIST l;
+X  {
+X  	DLIST newl;
+X  	DL_NODE *n, *newn;
+X***************
+X*** 182,188 ****
+X  		return(NULL);
+X  
+X  	foreachnode(l, n) {
+X! 		newn = (DL_NODE *)getnode(n->size);
+X  		if (newn == NULL) {
+X  			dl_destroy(newl);
+X  			return(NULL);
+X--- 191,197 ----
+X  		return(NULL);
+X  
+X  	foreachnode(l, n) {
+X! 		newn = getnode(n->size);
+X  		if (newn == NULL) {
+X  			dl_destroy(newl);
+X  			return(NULL);
+X***************
+X*** 194,200 ****
+X  	return(newl);
+X  }
+X  
+X! dl_compare(DLIST l1, DLIST l2, int (*func)())
+X  {
+X  	int comp;
+X  
+X--- 203,211 ----
+X  	return(newl);
+X  }
+X  
+X! dl_compare(l1, l2, func)
+X! DLIST l1, l2;
+X! int (*func)();
+X  {
+X  	int comp;
+X  
+X***************
+X*** 212,218 ****
+X  		return(0);	/* both ran out at same time */
+X  }
+X  
+X! dl_apply(DLIST l, int (*func)(), char *arg)
+X  {
+X  	foreach(l)
+X  		(*func)(dl_curr(l), arg);
+X--- 223,232 ----
+X  		return(0);	/* both ran out at same time */
+X  }
+X  
+X! dl_apply(l, func, arg)
+X! DLIST l;
+X! int (*func)();
+X! char *arg;
+X  {
+X  	foreach(l)
+X  		(*func)(dl_curr(l), arg);
+X***************
+X*** 221,228 ****
+X  /*
+X   * Do a linear search on the list, given a start/end point
+X   */
+X! dl_lsearch(DLIST l, DL_NODE *begin, DL_NODE *end,
+X! 		void *key, int (*func)())
+X  {
+X  	DL_NODE *n;
+X  
+X--- 235,245 ----
+X  /*
+X   * Do a linear search on the list, given a start/end point
+X   */
+X! dl_lsearch(l, begin, end, key, func)
+X! DLIST l;
+X! DL_NODE *begin, *end;
+X! void *key;
+X! int (*func)();
+X  {
+X  	DL_NODE *n;
+X  
+X***************
+X*** 246,257 ****
+X  
+X  static int (*dl_sort_user_cmp_fun)();
+X  
+X! dl_sort_cmp_fun(DL_NODE **p1, DL_NODE **p2)
+X  {
+X  	return((*dl_sort_user_cmp_fun)(*p1, *p2));
+X  }
+X  
+X! dl_sort(DLIST l, int (*func)())
+X  {
+X  	DL_NODE **array;
+X  	int i, last;
+X--- 263,277 ----
+X  
+X  static int (*dl_sort_user_cmp_fun)();
+X  
+X! dl_sort_cmp_fun(p1, p2)
+X! DL_NODE **p1, **p2;
+X  {
+X  	return((*dl_sort_user_cmp_fun)(*p1, *p2));
+X  }
+X  
+X! dl_sort(l, func)
+X! DLIST l;
+X! int (*func)();
+X  {
+X  	DL_NODE **array;
+X  	int i, last;
+X***************
+X*** 273,279 ****
+X  }
+X  
+X  /* from a list, make an array of pointers to the list items */
+X! DL_NODE **dl_l2a(DLIST l)
+X  {
+X  	DL_NODE *n, **array, **a;
+X  
+X--- 293,301 ----
+X  }
+X  
+X  /* from a list, make an array of pointers to the list items */
+X! DL_NODE **
+X! dl_l2a(l)
+X! DLIST l;
+X  {
+X  	DL_NODE *n, **array, **a;
+X  
+X***************
+X*** 288,294 ****
+X  }
+X  
+X  /* turn an array of pointers to the list items into a list */
+X! dl_a2l(DLIST l, DL_NODE **array)
+X  {
+X  	int i, last;
+X  
+X--- 310,318 ----
+X  }
+X  
+X  /* turn an array of pointers to the list items into a list */
+X! dl_a2l(l, array)
+X! DLIST l;
+X! DL_NODE **array;
+X  {
+X  	int i, last;
+X  
+Xdiff -rc msh/dl.h msh.orig/dl.h
+X*** msh/dl.h	Sun Mar 14 11:32:16 1993
+X--- msh.orig/dl.h	Mon Mar 15 23:26:29 1993
+X***************
+X*** 68,72 ****
+X  
+X  #define foreach(l)		for (dl_shead(l); dl_curr(l); dl_snext(l))
+X  #define foreachnode(l,p)	for ((p)=dl_shead(l); (p); (p)=dl_snext(l))
+X! 
+X! #endif /* DL_H */
+X--- 68,71 ----
+X  
+X  #define foreach(l)		for (dl_shead(l); dl_curr(l); dl_snext(l))
+X  #define foreachnode(l,p)	for ((p)=dl_shead(l); (p); (p)=dl_snext(l))
+X! #endif
+Xdiff -rc msh/functions1.c msh.orig/functions1.c
+X*** msh/functions1.c	Sun Mar 14 11:32:16 1993
+X--- msh.orig/functions1.c	Mon Mar 15 23:26:27 1993
+X***************
+X*** 1,12 ****
+X  #include "mshell.h"
+X  
+X- static char functions1_rcsid[] = "$Header: /usr3/src/msh/RCS/functions1.c,v 1.1 1993/03/14 19:32:07 root Exp root $";
+X- 
+X- #ifdef SYSV
+X- #include <string.h>
+X- #include <stdlib.h>
+X- #endif
+X- 
+X  extern char     G_homevar      [];
+X  extern char     G_uservar      [];
+X  extern char 	G_termvar      [];
+X--- 1,5 ----
+X***************
+X*** 15,68 ****
+X  extern int      G_mailsize; 
+X  extern struct   stat G_st;
+X  
+X! void helpfile_display (char *filename)
+X  {
+X  	FILE * fp;
+X  	char record [DESCLEN];
+X  	if (( fp = fopen (filename, "r")) == NULL ) {
+X! 		printw("\tNo such helpfile as %s!!\n", filename);
+X  		return;
+X  	}
+X  
+X  	while ( fgets (record, sizeof(record), fp) )
+X  		fputs (record, stdout);
+X! 	printw("\n");
+X  	fclose (fp);
+X  }
+X  
+X  /* ================================ */
+X! char *prompt(char *p)
+X  /* ================================ */
+X  {
+X  	static char ans[WORDLEN];
+X  	extern int G_limited;
+X  
+X! 	printw("%s : ", ufix(p));
+X  	if (!G_limited) {
+X! 		read_input_line(ans);
+X! 		replace_string(ans, HOME_CHAR, getenv(&G_homevar[1])) ;
+X  	}
+X  	else {
+X  		strcpy(ans, "XXX");
+X! 		printw("(no input for unvalidated users)");
+X  	}
+X! 	printw("\n");
+X  	return(ans);
+X  }
+X  
+X  /* ================================================ */
+X! void extract_action_word(char *str, char *sub_str, char *dest_str, int flag)
+X  /* ================================================ */
+X  {
+X  	char *position, *target;
+X  	int startpos = 0, string_length = 0, i = 0;
+X  	unsigned  no_of_chars = 0;
+X  
+X! 	*dest_str = EOS;		/* initialize dest_str */
+X  
+X  	startpos = strsearch (str, sub_str);
+X! 					/* find position of sub-string 
+X! 					   in main string             */
+X  
+X  	if ( startpos != -1 )				/* if it exists */
+X  		target = &str[startpos] + strlen (sub_str);	
+X--- 8,68 ----
+X  extern int      G_mailsize; 
+X  extern struct   stat G_st;
+X  
+X! helpfile_display (filename)
+X! char * filename;
+X! 
+X  {
+X  	FILE * fp;
+X  	char record [DESCLEN];
+X  	if (( fp = fopen (filename, "r")) == NULL ) {
+X! 		printf ("\tNo such helpfile as %s\!\!\n", filename);
+X  		return;
+X  	}
+X  
+X  	while ( fgets (record, sizeof(record), fp) )
+X  		fputs (record, stdout);
+X! 	printf ("\n");
+X  	fclose (fp);
+X  }
+X  
+X  /* ================================ */
+X! char *
+X! prompt(p)
+X  /* ================================ */
+X+ char *p;
+X  {
+X  	static char ans[WORDLEN];
+X  	extern int G_limited;
+X  
+X! 	printf ("%s : ", ufix(p));
+X  	if (!G_limited) {
+X! 		read_input_line (ans);
+X! 		replace_string (ans, HOME_CHAR, getenv(&G_homevar[1])) ;
+X  	}
+X  	else {
+X  		strcpy(ans, "XXX");
+X! 		printf("(no input for unvalidated users)");
+X  	}
+X! 	printf ("\n");
+X  	return(ans);
+X  }
+X  
+X  /* ================================================ */
+X! extract_action_word ( str, sub_str, dest_str, flag)
+X  /* ================================================ */
+X+ char *str, *sub_str, *dest_str;
+X+ int  flag;
+X+ 
+X  {
+X  	char *position, *target;
+X  	int startpos = 0, string_length = 0, i = 0;
+X  	unsigned  no_of_chars = 0;
+X  
+X! 	strcpy (dest_str, NULLSTR);		/* initialize dest_str */
+X  
+X  	startpos = strsearch (str, sub_str);
+X! 						/* find position of sub-string 
+X! 						   in main string             */
+X  
+X  	if ( startpos != -1 )				/* if it exists */
+X  		target = &str[startpos] + strlen (sub_str);	
+X***************
+X*** 72,78 ****
+X  
+X  	for (position = target; 		/* actual value of parameter */
+X  	    (*position != BLANK) && (*position != EOS);
+X! 	     ++position, ++no_of_chars) ;
+X  
+X  	strncpy (dest_str, target, no_of_chars);  /* copy the required value */
+X  	dest_str[no_of_chars] = EOS;
+X--- 72,78 ----
+X  
+X  	for (position = target; 		/* actual value of parameter */
+X  	    (*position != BLANK) && (*position != EOS);
+X! 	     ++position, ++no_of_chars);
+X  
+X  	strncpy (dest_str, target, no_of_chars);  /* copy the required value */
+X  	dest_str[no_of_chars] = EOS;
+X***************
+X*** 91,103 ****
+X  }
+X  
+X  /* ===================== */
+X! int display_menu(char *menu_name, char *menu_array[],
+X! 			int *menu_flag, int *idx)
+X  /* ===================== */
+X  {
+X  	FILE * fp;
+X  	char junk[COLUMNS] , keyword[DESCLEN], description[DESCLEN],
+X! 		action_description[DESCLEN], *fgets(), *index();
+X  	register int i;
+X  	int delay;
+X  
+X--- 91,107 ----
+X  }
+X  
+X  /* ===================== */
+X! display_menu (menu_name, menu_array, menu_flag, idx)
+X  /* ===================== */
+X+ char * menu_name;
+X+ char * menu_array [];
+X+ int  * menu_flag;
+X+ int  * idx;
+X+ 
+X  {
+X  	FILE * fp;
+X  	char junk[COLUMNS] , keyword[DESCLEN], description[DESCLEN],
+X! 		action_description[DESCLEN], *strsave(), *fgets(), *index();
+X  	register int i;
+X  	int delay;
+X  
+X***************
+X*** 104,120 ****
+X  	if (!moreinput())
+X  		clear_screen();
+X  
+X! 	check_for_new_mail(G_mail_message);
+X  
+X! 	if (*menu_flag == FALSE) {
+X  		*menu_flag = TRUE;
+X  		if (index(menu_name, '/'))
+X  			strcpy(junk, menu_name);
+X  		else
+X  			sprintf(junk, "%s/%s%s", MENUDIR, menu_name, SUFFIX);
+X! 		if ((fp = fopen(junk, "r")) == NULL) {
+X! 			printw("\tNo such menu as %s!!!\n", junk);
+X! 			refresh();
+X  			return(0);
+X  		}
+X  
+X--- 108,123 ----
+X  	if (!moreinput())
+X  		clear_screen();
+X  
+X! 	check_for_new_mail (G_mail_message);
+X  
+X! 	if ( *menu_flag == FALSE ) {
+X  		*menu_flag = TRUE;
+X  		if (index(menu_name, '/'))
+X  			strcpy(junk, menu_name);
+X  		else
+X  			sprintf(junk, "%s/%s%s", MENUDIR, menu_name, SUFFIX);
+X! 		if (( fp = fopen (junk, "r")) == NULL ) {
+X! 			printf ("\tNo such menu as %s!!\n", junk);
+X  			return(0);
+X  		}
+X  
+X***************
+X*** 124,133 ****
+X  			(menu_array[i] = strsave(fgets(junk, COLUMNS, fp)));
+X  		      i++
+X  		    )
+X! 		{
+X! 			if ( strcmp(menu_array[i], DELIM_LINE) == 0 )
+X  				*idx = i;
+X- 		}
+X  		
+X  		fclose (fp);
+X  
+X--- 127,134 ----
+X  			(menu_array[i] = strsave(fgets(junk, COLUMNS, fp)));
+X  		      i++
+X  		    )
+X! 			if ( strcmp (menu_array[i], DELIM_LINE) == 0 )
+X  				*idx = i;
+X  		
+X  		fclose (fp);
+X  
+X***************
+X*** 138,144 ****
+X  	if (strcmp(G_mail_message, "") != 0) {
+X  		junk[0] = EOS;
+X  		sscanf(menu_array[0], "%[^\n]", junk);
+X! 		printw("%s%s\n", junk, G_mail_message);
+X  		i = 1;
+X  	}
+X  	else
+X--- 139,145 ----
+X  	if (strcmp(G_mail_message, "") != 0) {
+X  		junk[0] = EOS;
+X  		sscanf(menu_array[0], "%[^\n]", junk);
+X! 		printf("%s%s\n", junk, G_mail_message);
+X  		i = 1;
+X  	}
+X  	else
+X***************
+X*** 146,155 ****
+X  
+X  	if (!moreinput())
+X  		for (; i < *idx; i++)
+X! 			printw("%s", menu_array[i]);
+X! 	addch('\n');
+X! 	refresh();
+X  
+X  	return(1);
+X  }
+X  
+X--- 147,155 ----
+X  
+X  	if (!moreinput())
+X  		for (; i < *idx; i++)
+X! 			fputs(menu_array[i], stdout);
+X  
+X+ 	printf ("\n");
+X  	return(1);
+X  }
+X  
+X***************
+X*** 156,166 ****
+X  /* find the home directory of the person invoking M_Shell */
+X  /* ====================================================== */
+X  
+X! void find_user_details (char *home_dir, char *user_name)
+X  {
+X  	struct passwd *pw, *getpwuid();
+X  
+X! 	pw = getpwuid (getuid());
+X  
+X   	strcpy (home_dir, pw->pw_dir);
+X  	strcpy (user_name, pw->pw_name);
+X--- 156,168 ----
+X  /* find the home directory of the person invoking M_Shell */
+X  /* ====================================================== */
+X  
+X! find_user_details (home_dir, user_name)
+X! char * home_dir;
+X! char * user_name;
+X  {
+X  	struct passwd *pw, *getpwuid();
+X  
+X! 	pw = getpwuid (getuid ());
+X  
+X   	strcpy (home_dir, pw->pw_dir);
+X  	strcpy (user_name, pw->pw_name);
+X***************
+X*** 167,175 ****
+X  }
+X  
+X  /* ====================================================== */
+X! void search_menu_array (char *menu_array[], int ind,
+X! 			char *option, char *string, int *invalid)
+X  /* ====================================================== */
+X  {
+X  	int i;
+X  	char keyword [WORDLEN];
+X--- 169,181 ----
+X  }
+X  
+X  /* ====================================================== */
+X! search_menu_array (menu_array, ind, option, string, invalid)
+X  /* ====================================================== */
+X+ char * menu_array [];
+X+ int    ind;
+X+ char * option, * string;
+X+ int  * invalid;
+X+ 
+X  {
+X  	int i;
+X  	char keyword [WORDLEN];
+X***************
+X*** 176,190 ****
+X  	char action_description[DESCLEN], junk[DESCLEN];
+X  	char opt1[OPTLEN], opt2[OPTLEN];
+X  
+X! 	for (i = ++ind; i < LINES ; ++i) {
+X! 		sscanf(menu_array[i], "%s	%[^\n]", keyword, action_description);
+X! 		if (index (option, BLANK) != NULL) 
+X! 			sscanf(option, "%s %[^\n]", opt1, opt2);
+X  		else
+X! 			strcpy(opt1, option);
+X  
+X! 		if ( strcmp(opt1, keyword) == 0 ) {
+X! 			strcpy(string, action_description);
+X  			*invalid = FALSE;
+X  			return;
+X  		}
+X--- 182,196 ----
+X  	char action_description[DESCLEN], junk[DESCLEN];
+X  	char opt1[OPTLEN], opt2[OPTLEN];
+X  
+X! 	for ( i = ++ind; i < LINES ; ++i ) {
+X! 		sscanf (menu_array[i], "%s	%[^\n]", keyword, action_description);
+X! 		if ( index (option, BLANK) != NULL ) 
+X! 			sscanf (option, "%s %[^\n]", opt1, opt2);
+X  		else
+X! 			strcpy (opt1, option);
+X  
+X! 		if ( strcmp (opt1, keyword) == 0 ) {
+X! 			strcpy (string, action_description);
+X  			*invalid = FALSE;
+X  			return;
+X  		}
+X***************
+X*** 197,213 ****
+X  	else
+X  		*invalid = TRUE;
+X  
+X! 	*string = '\0';
+X  }
+X  
+X! void wait_for_user ()
+X  {
+X! 	printw("\nPress ENTER to continue ... ");
+X! 	refresh();
+X! 	read_input_line(NULL);
+X  }
+X  
+X! void clear_screen()
+X  {
+X  	static int doneinit = 0;
+X  
+X--- 203,218 ----
+X  	else
+X  		*invalid = TRUE;
+X  
+X! 	strcpy (string, NULLSTR);
+X  }
+X  
+X! wait_for_user ()
+X  {
+X! 	printf("\nHit ENTER to continue ... ");
+X! 	read_input_line (NULL);
+X  }
+X  
+X! clear_screen()
+X  {
+X  	static int doneinit = 0;
+X  
+Xdiff -rc msh/functions2.c msh.orig/functions2.c
+X*** msh/functions2.c	Sun Mar 14 11:32:17 1993
+X--- msh.orig/functions2.c	Mon Mar 15 23:26:27 1993
+X***************
+X*** 1,12 ****
+X  #include "mshell.h"
+X  
+X- static char functions2_rcsid[] = "$Header: /usr3/src/msh/RCS/functions2.c,v 1.1 1993/03/14 19:32:07 root Exp root $";
+X  
+X- #ifdef SYSV
+X- #include <string.h>
+X- #include <stdlib.h>
+X- #endif
+X- 
+X  extern char     G_homevar      [];
+X  extern char     G_uservar      [];
+X  extern char 	G_termvar      [];
+X--- 1,6 ----
+X***************
+X*** 16,23 ****
+X  extern struct   stat G_st;
+X  
+X  /* ======================================================================= */
+X! void execute_command(char *command, char *args[])
+X  /* ======================================================================= */
+X  {
+X  	/*
+X  	char * var_args [2 * MAXARGS]; 
+X--- 10,18 ----
+X  extern struct   stat G_st;
+X  
+X  /* ======================================================================= */
+X! execute_command (command, args)
+X  /* ======================================================================= */
+X+ char *command, *args [];
+X  {
+X  	/*
+X  	char * var_args [2 * MAXARGS]; 
+X***************
+X*** 29,36 ****
+X  	G_mail_message[0] = EOS;
+X  
+X  	if (G_limited && invalidcommand(args[0])) {
+X! 		printw("Invalid option in restricted menus, sorry.\n");
+X! 		printw("See the 'info' menu for how to get a real menu or shell.  (It's free.)\n");
+X  		return;
+X  	}
+X  	if (strcontains(command, "*;|<>&()[]?'\"`~\\")) {
+X--- 24,31 ----
+X  	G_mail_message[0] = EOS;
+X  
+X  	if (G_limited && invalidcommand(args[0])) {
+X! 		printf("Invalid option in restricted menus, sorry.\n");
+X! 		printf("See the 'info' menu for how to get a real menu or shell.  (It's free.)\n");
+X  		return;
+X  	}
+X  	if (strcontains(command, "*;|<>&()[]?'\"`~\\")) {
+X***************
+X*** 118,124 ****
+X  
+X  /* function to reorder various command line args based on original string *
+X   ======================================================================== */
+X! assign_parameters(varg_ptr, input_line, command, args, aargs, promptval)
+X  char * varg_ptr [2 * MAXARGS];
+X  char input_line  [DESCLEN];
+X  char command     [WORDLEN];
+X--- 113,119 ----
+X  
+X  /* function to reorder various command line args based on original string *
+X   ======================================================================== */
+X! assign_parameters (varg_ptr, input_line, command, args, aargs, promptval)
+X  char * varg_ptr [2 * MAXARGS];
+X  char input_line  [DESCLEN];
+X  char command     [WORDLEN];
+X***************
+X*** 125,130 ****
+X--- 120,126 ----
+X  char args        [MAXARGS][WORDLEN];
+X  char aargs       [MAXARGS][WORDLEN];
+X  char promptval   [MAXARGS][WORDLEN];
+X+ 
+X  {
+X  	char target_string [DESCLEN];
+X  	int position, i = 0;
+X***************
+X*** 144,156 ****
+X  		if ( strsearch (target_string, CMDVAL) >= 0)
+X  			varg_ptr [i++] = command;
+X  		else if ( strsearch (target_string, ARGVAL) >= 0) 
+X! 			varg_ptr [i++] = *(args++);
+X  		else if ( strsearch (target_string, AARGVAL) >= 0)
+X! 			varg_ptr [i++] = *(aargs++);
+X  		else if ( strsearch (target_string, PROMPTVAL) >= 0)
+X! 			varg_ptr [i++] = *(promptval++);
+X  		else if (index(target_string, '=') == NULL) /* same as ARGVAL */
+X! 			varg_ptr [i++] = *(args++);
+X  		
+X  	}	/* while */
+X  }		/* assign_parameters */
+X--- 140,152 ----
+X  		if ( strsearch (target_string, CMDVAL) >= 0)
+X  			varg_ptr [i++] = command;
+X  		else if ( strsearch (target_string, ARGVAL) >= 0) 
+X! 			varg_ptr [i++] = (args++);
+X  		else if ( strsearch (target_string, AARGVAL) >= 0)
+X! 			varg_ptr [i++] = (aargs++);
+X  		else if ( strsearch (target_string, PROMPTVAL) >= 0)
+X! 			varg_ptr [i++] = (promptval++);
+X  		else if (index(target_string, '=') == NULL) /* same as ARGVAL */
+X! 			varg_ptr [i++] = (args++);
+X  		
+X  	}	/* while */
+X  }		/* assign_parameters */
+X***************
+X*** 231,253 ****
+X  
+X  	if (!initialized) {
+X  		FILE *fp;
+X! 		char line[256], *p, *malloc();
+X  		struct command *c;
+X  
+X  		if ((fp = fopen(COMMAND_LIST, "r")) == NULL) {
+X! 			printw("Command list missing!\n");
+X  			return TRUE;
+X  		}
+X  
+X  		if ((commands = dl_create(DL_FREE)) == NULL) {
+X! 			printw("Out of memory!\n");
+X  			exit(1);
+X  		}
+X  
+X  		while (fgets(line, sizeof(line), fp)) {
+X  			if ((p = malloc(strlen(line)+1)) == NULL ||
+X! 			    (c = (struct command *)getnode(sizeof(struct command))) == NULL) {
+X! 				printw("Out of memory!\n");
+X  				exit(1);
+X  			}
+X  			strcpy(p, line);
+X--- 227,249 ----
+X  
+X  	if (!initialized) {
+X  		FILE *fp;
+X! 		char line[256], *p;
+X  		struct command *c;
+X  
+X  		if ((fp = fopen(COMMAND_LIST, "r")) == NULL) {
+X! 			printf("Command list missing!\n");
+X  			return TRUE;
+X  		}
+X  
+X  		if ((commands = dl_create(DL_FREE)) == NULL) {
+X! 			printf("Out of memory!\n");
+X  			exit(1);
+X  		}
+X  
+X  		while (fgets(line, sizeof(line), fp)) {
+X  			if ((p = malloc(strlen(line)+1)) == NULL ||
+X! 			    (c = getnode(sizeof(struct command))) == NULL) {
+X! 				printf("Out of memory!\n");
+X  				exit(1);
+X  			}
+X  			strcpy(p, line);
+END_OF_FILE
+  if test 25319 -ne `wc -c <'sysvdiffs.A'`; then
+    echo shar: \"'sysvdiffs.A'\" unpacked with wrong size!
+  elif test -f 'sysvdiffs.B' ; then
+    echo shar: Combining  \"'sysvdiffs.mar93'\" \(61693 characters\)
+    cat 'sysvdiffs.A' 'sysvdiffs.B' > 'sysvdiffs.mar93'
+    if test 61693 -ne `wc -c <'sysvdiffs.mar93'`; then
+      echo shar: \"'sysvdiffs.mar93'\" combined with wrong size!
+    else
+      rm sysvdiffs.A sysvdiffs.B
+    fi
+  fi
+  # end of 'sysvdiffs.A'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

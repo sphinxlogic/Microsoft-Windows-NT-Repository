@@ -1,0 +1,1958 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject:  v28i015:  psf3 - Postscript print filter system, Patch01b/2
+Message-ID: <1992Feb6.222350.21393@sparky.imd.sterling.com>
+X-Md4-Signature: 32192a15b1e36489a5d0635efd02cbce
+Date: Thu, 6 Feb 1992 22:23:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 28, Issue 15
+Archive-name: psf3/patch01b
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+Part 2 of a 2-part patch to psf3.
+
+apply this patch with:
+
+	patch -p -N < this.article
+
+-----------------------------------
+*** ../psf3.net/Makefile.dos	Fri Jan 31 19:19:18 1992
+--- Makefile.dos	Sun Jan 26 21:32:23 1992
+***************
+*** 14,27 ****
+--- 14,29 ----
+  
+  
+  # Location of binaries and scripts
+  # ^^^^^^^^^^^^^^^^^^^^
+  BINDIR=c:/bin
++ XCOPYBIN=c:\bin\
+  
+  # Loation of psfprint.def:
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  DEFFILE=c:/lib/psfprint.def
++ XCOPYDEF=c:\lib\
+  
+  
+  CFLAGS =-DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\"
+  
+  all:	psf.exe psfdoub.exe selectde.exe psfbs.exe
+***************
+*** 55,69 ****
+  	@echo      First: 'make printer'
+  	@echo		  'make pack    (exepack)'
+  	@echo      Then:  'make installdos'
+  
+  installdos:
+! 	xcopy psf.exe $(BINDIR)
+! 	xcopy psfdoub.exe $(BINDIR)
+! 	xcopy psfprint.def $(DEFFILE)
+! 	xcopy psfbs.exe $(BINDIR)
+! 	xcopy psfnroff.bat $(BINDIR)
+  
+  pack:
+  	exepack psf.exe  z9901
+  	xcopy z9901 psf.exe
+  	exepack psfdoub.exe  z9901
+--- 57,71 ----
+  	@echo      First: 'make printer'
+  	@echo		  'make pack    (exepack)'
+  	@echo      Then:  'make installdos'
+  
+  installdos:
+! 	xcopy psf.exe $(XCOPYBIN)
+! 	xcopy psfdoub.exe $(XCOPYBIN)
+! 	xcopy psfprint.def $(XCOPYDEF)
+! 	xcopy psfbs.exe $(XCOPYBIN)
+! 	xcopy psfnroff.bat $(XCOPYBIN)
+  
+  pack:
+  	exepack psf.exe  z9901
+  	xcopy z9901 psf.exe
+  	exepack psfdoub.exe  z9901
+*** ../psf3.net/README	Fri Jan 31 19:18:23 1992
+--- README	Wed Jan 29 21:56:04 1992
+***************
+*** 11,20 ****
+--- 11,22 ----
+  		o  double sided printing
+  		o  pages scaled by row and column count
+  		o  lp banner page printing
+  		o  reverse order printing
+  		o  languages other than English
++ 		o  left, right, top, bottom margin sizes
++ 		o  line clipping or left/right justified line wrap
+  
+     If the printer normally stacks output paper "face up", psf
+     automatically reverses the order of the printed pages to ensure
+     manual reordering is not needed.
+  
+***************
+*** 78,88 ****
+--- 80,94 ----
+     a reasonable approximation to many other printers.  Psf can then 
+     be used with:
+  
+  		psf this.file  | lp
+  
++    If the left or right ends of lines, the top of the first line, or the
++    bottom of the last line on a page are clipped, then try:
+  
++    		psf -M1,1,1,1,c this.file | lp
++ 
+  EUROPEAN LANGUAGES and PAPER SIZES
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     Rudimentary provision have been made for languages other than
+     English. An example Scandinavian font setup is provided in file
+     "language.PSF". This is NOT a working example: it must be modified
+***************
+*** 111,120 ****
+--- 117,132 ----
+  
+     The "psfprint.new" now become the psfprint.def file for use with
+     the new language description. Copy it to the destination location as
+     set up in the Makefile.
+  
++    If multiple character set translations are necessary, such as
++    IBM-8bit or DEC-8bit, then multiple versions of the psfprint.def
++    file may be created with the appropriate translations.  The
++    correct version may be selected with the "-u" option.
++    E.G.  "-u ibm",  "-u dec".
++    
+     Only psf honours the font extensions correctly. If proper support is
+     needed for banner printing, the source for psfbanner.c must be modified.
+     Other sources are not concerned with language translation.
+  
+     The various scripts (psfnroff, psfman, psfmbox) have not been used with
+*** ../psf3.net/language.PSF	Fri Jan 31 19:19:29 1992
+--- language.PSF	Fri Jan 31 19:17:30 1992
+***************
+*** 110,119 ****
+--- 110,122 ----
+  	from the ttymap(1) table for the target language.
+  
+  	Of course, this table is not "real", it is an example only -
+  	used for testing! Replace this with real translation
+  	information.
++ 	
++ 	This translation table need not be needed if the desired
++ 	characters can be simply re-encoded.
+  
+  %%translate 141/300 142/311 143/321 144/322 145/323 146/324 147/325 150/330 
+  %%translate 151/331 152/332 153/333 154/334 155/340 156/342 157/344 160/347
+  %%translate 161/360 162/362 163/364 164/367
+  	----------------------------------------------------------------
+***************
+*** 121,130 ****
+--- 124,185 ----
+  	An external file may be copied to the printer with "%%copy file"
+  	This file is inserted into the "prologue" code. It must be
+  	postscript.
+  
+           %%copy /etc/some.file
++ 
++ 	----------------------------------------------------------------
++ 	From: Jan Fernquist fer@gorbie.n.tvt.se
++ 	---------------------------------------
++ 	I used a minimum vector for translations in sevenbit ASCII that
++ 	just fixed the [\] and {|}, which is six of the letters that is
++ 	very common in swedish lanaguage. To be conformant with 7bit
++ 	ISO-standard nationalreplacement codes, ~^@` should be converted
++ 	to but i prefer the american look of those letters. This is the
++ 	vector i used. I removed the %%%translate feature, from the
++ 	langauage.PSF file.
++ 
++ 	I compiled psf on a sysV R3 machine. Since we for the moment is
++ 	running it in sevenbit ascii and using swedish national
++ 	replacement on the terminals and non-postscript printers, it's
++ 	just common knowledge for us to reencode those special
++ 	characters.
++ 
++ 	There is two common formats to represent international charcters
++ 	when using 8-bit wide tables, the IBM-PC 8-bit and the ISO-8 bit
++ 	which i think is the same as HP-Roman 8 table and the DEC-8bit.
++ 
++ 	Here are examples how the anoying swedish characters would be
++ 	remapped. Im sitting at home right now and have no access to the
++ 	standards. These language vectors do NOT need the "%%translat"
++ 	table - however the re-encoding must be done with new font names
++ 	(i.e. %%fonXX must be set and re-encoded in % ENCODE below)
++ 
++ 	Two .def files could be constructed with appropriate language
++ 	vectors (see below). The names of the files should be "ibm" and
++ 	"iso" and placed in the directory containing the default
++ 	psfprint.def file. The appropriate character encoding is
++ 	selected with "-u ibm" or "-u iso". The default "psfprint.def"
++ 	file should be a link to one to these files.
++ 	
++ 	/languagevec [ %% IBM encoding vector for file "ibm"
++ 		8#216 /Adieresis
++ 		8#231 /Odieresis
++ 		8#217 /Aring
++ 		8#204 /adieresis
++ 		8#224 /odieresis
++ 		8#206 /aring
++ 	 ]def
++ 
++ 	 /languagevec [ %% DEC-8 Bit which i think is ISO, for file "iso"
++ 		8#196 /Adieresis
++ 		8#214 /Odieresis
++ 		8#197 /Aring
++ 		8#228 /adieresis
++ 		8#246 /odieresis
++ 		8#229 /aring
++ 	 ]def
+  
+  %%PsfEnd
+  
+  
+  %  Psf and psbanner add the following code to the Prologue
+*** ../psf3.net/patchlevel.h	Fri Jan 31 19:18:41 1992
+--- patchlevel.h	Wed Jan 22 23:44:11 1992
+***************
+*** 11,16 ****
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 2
+--- 11,16 ----
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 3
+*** ../psf3.net/psfdoub.c	Fri Jan 31 19:19:40 1992
+--- psfdoub.c	Fri Jan 24 18:20:04 1992
+***************
+*** 83,93 ****
+  */
+  
+  #include <stdio.h>
+  #include <string.h>
+  #include <signal.h>
+- #include <malloc.h>
+  #include <ctype.h>
+  #include "psf.h"
+  
+  /*	If books are made by generating two print files with the -s side count
+  	then set SIDECOUNT = 0  (i.e. no alternate paper hopper is available.
+--- 83,92 ----
+***************
+*** 103,112 ****
+--- 102,112 ----
+  static int nsheets, nhalves;
+  static int row;
+  static int lpage, rpage;
+  void catch();
+  void trim();
++ char *malloc();
+  
+  char	slots[NSLOTS][200] = 
+  {			"statusdict begin 1 setpapertray end",
+  			"statusdict begin 2 setpapertray end",
+  			"", "", "", ""
+*** ../psf3.net/psfdouble.SH	Fri Jan 31 19:19:00 1992
+--- psfdouble.SH	Thu Jan 30 00:11:35 1992
+***************
+*** 1,6 ****
+! :
+  # $Id: psfdouble.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	An example of setting up a script for doublesided printing
+  #
+  #	usage:		psfdouble file
+  #		where	  "file" is the file to be printed
+--- 1,6 ----
+! #! /bin/sh
+  # $Id: psfdouble.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	An example of setting up a script for doublesided printing
+  #
+  #	usage:		psfdouble file
+  #		where	  "file" is the file to be printed
+*** ../psf3.net/psflpd.DEF	Fri Jan 31 19:18:42 1992
+--- psflpd.DEF	Fri Jan 24 18:16:07 1992
+***************
+*** 3,14 ****
+  #       ----   -----------------------  ---------------------------
+  *psflpd	p2up -2				# 2-up printing, default landscape
+  *psflpd	p4up -4x			# 4-up printing, default portrait
+  *psflpd	p132x60 -c132 -l60 -w		# 132 columns, 60 lines, landscape
+  *psflpd paccount -c132 -l60 -R2 -r6 -w	# 132x60 accounting reports, landscape
+! *psflpd psource -2xn			# source listings, 2-up, portrait
+! *psflpd post -z2xn			# postscript source listings, 2-up
+  *psflpd plegal -g legal			# standard print, legal paper
+  *psflpd pspread -g legal -p 8 -w	# big spreadsheets: legal,8pt,landscape
+  #
+  # printer definition for psf and friends (no comments allowed after *printer)
+  #
+--- 3,14 ----
+  #       ----   -----------------------  ---------------------------
+  *psflpd	p2up -2				# 2-up printing, default landscape
+  *psflpd	p4up -4x			# 4-up printing, default portrait
+  *psflpd	p132x60 -c132 -l60 -w		# 132 columns, 60 lines, landscape
+  *psflpd paccount -c132 -l60 -R2 -r6 -w	# 132x60 accounting reports, landscape
+! *psflpd psource -2xnE			# source listings, 2-up, portrait
+! *psflpd post -z2xnE			# postscript source listings, 2-up
+  *psflpd plegal -g legal			# standard print, legal paper
+  *psflpd pspread -g legal -p 8 -w	# big spreadsheets: legal,8pt,landscape
+  #
+  # printer definition for psf and friends (no comments allowed after *printer)
+  #
+*** ../psf3.net/psfman.SH	Fri Jan 31 19:19:26 1992
+--- psfman.SH	Thu Jan 30 00:11:39 1992
+***************
+*** 1,6 ****
+! :
+  # $Id: psfman.SH,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+  #	Print man pages using psf filters -- guess about chapters,
+  #	even allow Xenix chapter conventions.
+  #
+  #	The "-r 3" option in psfbs below removes 3 blank lines between
+--- 1,6 ----
+! #! /bin/sh
+  # $Id: psfman.SH,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+  #	Print man pages using psf filters -- guess about chapters,
+  #	even allow Xenix chapter conventions.
+  #
+  #	The "-r 3" option in psfbs below removes 3 blank lines between
+***************
+*** 10,20 ****
+  
+  #	If European paper sizes are used, possibly "force" psf to
+  #	use 63 lines of output.  This may (i.e. untested) work for A4:
+  #
+  #   	psfbs -i -r 3 | psf -l63 -c80 -2 | PRINTER $banneropt
+! 
+  # set the binary name for man:
+  # MANBIN="/usr/bin/man"
+  MANBIN=man
+  
+  # Some man systems require additional options such as -Tlp
+--- 10,24 ----
+  
+  #	If European paper sizes are used, possibly "force" psf to
+  #	use 63 lines of output.  This may (i.e. untested) work for A4:
+  #
+  #   	psfbs -i -r 3 | psf -l63 -c80 -2 | PRINTER $banneropt
+! #
+! #	If margin offsets are desired for hole-punching, try:
+! #
+! #	psfbs -i -r3 | psf -l63 -c80 -M 0.7,,,,i | PRINTER $banneropt
+! #
+  # set the binary name for man:
+  # MANBIN="/usr/bin/man"
+  MANBIN=man
+  
+  # Some man systems require additional options such as -Tlp
+*** ../psf3.net/psfmbox.SH	Fri Jan 31 19:19:01 1992
+--- psfmbox.SH	Thu Jan 30 00:11:45 1992
+***************
+*** 1,6 ****
+! :
+  # $Id: psfmbox.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	Print multiple mail-box files using psf filters
+  
+  #	This prints a file name header with date at the top of 
+  #	each mailbox page for identification purposes.
+--- 1,6 ----
+! #! /bin/sh
+  # $Id: psfmbox.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	Print multiple mail-box files using psf filters
+  
+  #	This prints a file name header with date at the top of 
+  #	each mailbox page for identification purposes.
+***************
+*** 30,40 ****
+  
+  while test "$1" != ""
+  do
+  	if test -f $1
+  	then
+! 		psfmail "$1" | psf -c 80 -4x -H "$1" | PRINTER
+  	else
+  		echo "$0: mail box $1 does not exist."
+  	fi
+  	shift
+  done
+--- 30,40 ----
+  
+  while test "$1" != ""
+  do
+  	if test -f $1
+  	then
+! 		psfmail "$1" | psf -c 80 -4xE -H "$1" | PRINTER
+  	else
+  		echo "$0: mail box $1 does not exist."
+  	fi
+  	shift
+  done
+*** ../psf3.net/psfnroff.SH	Fri Jan 31 19:19:16 1992
+--- psfnroff.SH	Thu Jan 30 00:11:49 1992
+***************
+*** 1,6 ****
+! :
+  # $Id: psfnroff.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	Print nroff'ed pages using psf filters
+  #
+  #	The "-r 3" option in psfbs below removes 3 blank lines between
+  #	pages (to allow correct printing in the imageable area of the
+--- 1,6 ----
+! #! /bin/sh
+  # $Id: psfnroff.SH,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #	Print nroff'ed pages using psf filters
+  #
+  #	The "-r 3" option in psfbs below removes 3 blank lines between
+  #	pages (to allow correct printing in the imageable area of the
+***************
+*** 12,21 ****
+--- 12,26 ----
+  
+  #	If European paper sizes are used, possibly "force" psf to
+  #	use 63 lines of output.  This may (i.e. untested) work:
+  #
+  #   	nroff $OPTIONS $i | psfbs -i -r 3 | psf -l63 -c80 -2 | PRINTER $banneropt
++ #
++ #	If margin offsets are desired for hole-punching, try:
++ #
++ #   	nroff $OPTIONS $i | psfbs -i -r 3 | psf -M 0.7,,,,i -l63 -c80 -2 | PRINTER $banneropt
++ #
+  
+  usage () {
+  	echo "Usage:  $0 [nroff options] doc.nroff doc.nroff ..."
+  	echo "  e.g.  $0 -ms document.ms"
+  	exit 0
+*** ../psf3.net/psfproto.h	Fri Jan 31 19:19:26 1992
+--- psfproto.h	Wed Jan 29 01:27:17 1992
+***************
+*** 29,38 ****
+--- 29,39 ----
+  void replacement_fonts(void);
+  int otoi(char *s);
+  void usage(void);
+  void size_display(void);
+  void output_trouble(int);
++ double cvt_unit (char *y);
+  #else
+  /* psf.c */
+  int main();
+  void scale_factors();
+  void prologue();
+***************
+*** 62,67 ****
+--- 63,69 ----
+  void replacement_fonts();
+  int otoi();
+  void usage();
+  void size_display();
+  void output_trouble();
++ double cvt_unit();
+  #endif
+*** ../psf3.net/table.c	Fri Jan 31 19:19:37 1992
+--- table.c	Fri Jan 24 18:20:04 1992
+***************
+*** 311,321 ****
+  }
+  
+  
+  display (fp_out)
+  FILE	*fp_out;
+! {
+  	int		i;
+  	
+  	fprintf (fp_out, "*printer\n");
+  	fprintf (fp_out, "%s\n", nickname);
+  	fprintf (fp_out, "*paper %d\n", nprinter);
+--- 311,321 ----
+  }
+  
+  
+  display (fp_out)
+  FILE	*fp_out;
+! {	char	pn[100], *p;
+  	int		i;
+  	
+  	fprintf (fp_out, "*printer\n");
+  	fprintf (fp_out, "%s\n", nickname);
+  	fprintf (fp_out, "*paper %d\n", nprinter);
+***************
+*** 326,339 ****
+  			printer[i].sx, printer[i].sy,
+  			printer[i].lx, printer[i].ly, printer[i].ux, printer[i].uy);
+  
+  /*		print the actual size of the image area 
+  
+! 		printf ("%-20s %-20s %4d %4d\n", pname, printer[i].name,
+  			printer[i].ux - printer[i].lx + 1,
+  			printer[i].uy - printer[i].ly + 1);
+  */
+  	}
+  
+  	
+  	if (order.normal[0]  ||  order.reverse[0])
+  		fprintf (fp_out, "*order 3\n");
+--- 326,347 ----
+  			printer[i].sx, printer[i].sy,
+  			printer[i].lx, printer[i].ly, printer[i].ux, printer[i].uy);
+  
+  /*		print the actual size of the image area 
+  
+! 		strcpy (pn, nickname);
+! 		p = pn;
+! 		while (*p)
+! 		{	if (*p == ' ')
+! 				*p = '.';
+! 			p++;
+! 		}
+! 		printf ("%-55s %-20s %4d %4d\n", pn, printer[i].name,
+  			printer[i].ux - printer[i].lx + 1,
+  			printer[i].uy - printer[i].ly + 1);
+  */
++ 
+  	}
+  
+  	
+  	if (order.normal[0]  ||  order.reverse[0])
+  		fprintf (fp_out, "*order 3\n");
+*** ../psf3.net/man/Makefile	Fri Jan 31 19:19:14 1992
+--- ./man/Makefile	Thu Jan 23 20:31:16 1992
+***************
+*** 11,28 ****
+  
+  # install man files
+  # ^^^^^^^^^^^^^^^^^
+  
+  installman:
+! 	@for f in $(MANS) ; do echo "	$$f" ; cp $$f $(MANDIR)/$$f ; done
+  
+  installcat:
+! 	@for f in $(MANS) ; do echo "	$$f" ; $(NROFF) -man $$f $(COL) > $(MANDIR)/$$f ; done
+  
+  installdoc:
+  	@test -r psf.doc || ( echo "make doc  first" ; exit 1 )
+! 	@for f in $(DOCS) ; do ff=`basename $$f .doc` ; echo "	$$ff.1" ; cp $$f $(MANDIR)/$$ff.1 ; done
+  
+  
+  # create *.doc from *.1 files
+  # ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  doc:
+--- 11,30 ----
+  
+  # install man files
+  # ^^^^^^^^^^^^^^^^^
+  
+  installman:
+! 	@for f in $(MANS) ; do echo "	$$f" ;\
+! 		 cp $$f $(MANDIR)/`basename $$f .1`.$(MANSUF) ; done
+  
+  installcat:
+! 	@for f in $(MANS) ; do echo "	$$f" ;\
+! 		 $(NROFF) -man $$f $(COL) > $(MANDIR)/`basename $$f .1`.$(MANSUF) ; done
+  
+  installdoc:
+  	@test -r psf.doc || ( echo "make doc  first" ; exit 1 )
+! 	@for f in $(DOCS) ; do ff=`basename $$f .doc` ; echo "	$$ff.1" ; cp $$f $(MANDIR)/$$ff.$(MANSUF) ; done
+  
+  
+  # create *.doc from *.1 files
+  # ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  doc:
+*** ../psf3.net/man/psf.1	Fri Jan 31 19:19:42 1992
+--- ./man/psf.1	Wed Jan 29 23:50:50 1992
+***************
+*** 13,65 ****
+  .I n
+  ] [
+  .B -c
+  .I n
+  ] [
+  .B -f
+  .I n
+! ] [
+  .B -g
+  .I type
+  ] [
+  .B -h
+! ]
+!     [
+  .B -H
+  .I text
+  ] [
+  .B -i
+! .I n
+  ] [
+  .B -l
+  .I n
+! ] [
+  .B -L
+  .I n
+  ] [
+  .B -m
+! .I n
+  ] [
+  .B -n
+  ] 
+      [
+  .B -p
+  .I n
+  ] [
+  ] [
+  .B -R
+  .I n
+  ] [
+  .B -r
+  .I n
+  ] [
+  .B -s 
+- ] [
+- .B -t
+- .I n
+  ] 
+      [
+  .B -u
+  .I f.def
+  ] [
+  .B -v
+  ] [
+--- 13,77 ----
+  .I n
+  ] [
+  .B -c
+  .I n
+  ] [
++ .B -e
++ ] [
++ .B -E
++ ] [
+  .B -f
+  .I n
+! ] 
+!     [
+  .B -g
+  .I type
+  ] [
+  .B -h
+! ] [
+  .B -H
+  .I text
+  ] [
+  .B -i
+! .I n[,pic]
+  ] [
+  .B -l
+  .I n
+! ] 
+!     [
+  .B -L
+  .I n
+  ] [
+  .B -m
+! .I n[,pic]
+! ] [
+! .B -M
+! .I lm,rm,tm,bm[,pci]
+  ] [
+  .B -n
+  ] 
+      [
+  .B -p
+  .I n
+  ] [
++ ]   [
++ .B -p
++ .I n
++ ] [
+  ] [
+  .B -R
+  .I n
+  ] [
+  .B -r
+  .I n
+  ] [
+  .B -s 
+  ] 
+      [
++ .B -t
++ .I n
++ ] [
+  .B -u
+  .I f.def
+  ] [
+  .B -v
+  ] [
+***************
+*** 74,93 ****
+  
+   where -1|2|4    print 1,2 or 4 up on a page (default = 1)
+         -b n      select paper bin n
+         -c n      print columns (based on Courier font)
+         -d        allow double sided printing
+         -f n      font number/name (default = 0 = Courier)
+         -g type   page type (default = letter)
+         -h        put file name as header on each page
+         -H text   put text as header on each page
+!        -i n      indent left margin n points
+         -l n      print lines per page
+         -L n      page length in lines
+!        -m n      indent top margin in points
+         -n        set portrait (narrow) format
+         -p n      set point size to n
+         -R n      remove n lines from beginning of file
+         -r n      remove n lines between pages
+         -s        show page stats (line+column count)
+         -t n      set tabs to n (default = 8)
+         -u f.def  use this printer definition file
+--- 86,109 ----
+  
+   where -1|2|4    print 1,2 or 4 up on a page (default = 1)
+         -b n      select paper bin n
+         -c n      print columns (based on Courier font)
+         -d        allow double sided printing
++        -e        left-justified line wrap for long lines
++        -E        right-justified line wrap for long lines
+         -f n      font number/name (default = 0 = Courier)
+         -g type   page type (default = letter)
+         -h        put file name as header on each page
+         -H text   put text as header on each page
+!        -i n[pic] indent left margin n points/inch/cm
+         -l n      print lines per page
+         -L n      page length in lines
+!        -m n[pic] indent top margin in points/inch/cm
+!        -M xxx    set all margins
+         -n        set portrait (narrow) format
+         -p n      set point size to n
++        -P n      set point size to n, preserve point size
+         -R n      remove n lines from beginning of file
+         -r n      remove n lines between pages
+         -s        show page stats (line+column count)
+         -t n      set tabs to n (default = 8)
+         -u f.def  use this printer definition file
+***************
+*** 128,137 ****
+--- 144,158 ----
+  setting point size, column count and line count:
+  all of which allow you to place more printed information on a page.
+  Additional options are for special formatting purposes and may be
+  used if desired.
+  
++ By default, lines wider than the page width are truncated.
++ Line wrap may be enabled with the
++ .B -e
++ option.
++ 
+  Special formatting for 
+  .I nroff'ed
+  documents and mail box
+  printing are encapsulated in shell scripts such as
+  .I psfnroff
+***************
+*** 156,165 ****
+--- 177,187 ----
+      psf -2  my.file        (print 2 up on a page)
+      psf -2xn my.c          (typical source listing)
+      psf -4x my.file        (print 4 up on a page)
+      psf -p8 my.fil         (print 8 point)
+      psf -l66 -c132 -w a.b  (print 66 lines, 132 cols, landscape)
++     psf -M 1,1,1,1,c a.b   (set 1 cm margins)
+  .fi
+  
+  .SH PRINT SIZE
+  Two ways are available to adjust the print size.
+  If the
+***************
+*** 190,202 ****
+  
+  .nf
+        psf -w -c132 -l60 my.fil | lp
+  .fi
+  
+- If "unfortunate" row and column counts are selected,
+- the resulting letters could be squashed or elongated.
+- 
+  .SH OPTIONS
+  .TP
+  .B \-1\|2\|4
+  Specify the number of logical pages that are to be printed
+  on a physical page.  By default, 
+--- 212,221 ----
+***************
+*** 294,303 ****
+--- 313,337 ----
+  Refer to the man page for
+  .I psfdoub
+  for operational details.
+  
+  .TP
++ .B \-e
++ By default, lines longer than the page width are truncated.
++ This option enables line wrap: long lines will cascade onto
++ successive print lines.  Each wrapped portion of the line
++ is left-justified.
++ 
++ .TP
++ .B \-E
++ This operates similar to
++ .B -e
++ however each wrapped portion of the line
++ is right-justified:   the end of the wrapped portion
++ of the line is placed at the right paper margin.
++ 
++ .TP
+  .B \-f n
+  Any of the standard postscript 
+  fonts may be selected in lieu
+  of the default Courier.  These are selected from the following
+  table:
+***************
+*** 371,385 ****
+  ) however use 
+  .I text
+  rather than the filename.
+  
+  .TP
+! .B \-i n
+! Indent the left margin by 
+  .I n
+! points.  This may be used to center
+! the text in the page.
+  
+  .TP
+  .B \-l n
+  Sets the number of printed lines per page.  The default is 63 lines for
+  letter sized paper.  If more than 63 lines per page are specified, the
+--- 405,432 ----
+  ) however use 
+  .I text
+  rather than the filename.
+  
+  .TP
+! .B \-i n[pic]
+! Indent the physical page's left margin by 
+  .I n
+! points
+! .B (p)
+! , inches 
+! .B (i)
+! or centimeters
+! .B (c).
+! Text is scaled by the amount of the indentation to preserve
+! nominal line and column counts.
+! This is useful to offset the left margin for binding or hole-punch.
+! 
+! If indentation is desired without causing scaling (i.e. a true "offset"
+! only), then a point size must be selected with
+! .B -P.
+! 
+! 	psf -i2c -P12 doc.file | lpr
+  
+  .TP
+  .B \-l n
+  Sets the number of printed lines per page.  The default is 63 lines for
+  letter sized paper.  If more than 63 lines per page are specified, the
+***************
+*** 411,425 ****
+  line count.   However, only the number of lines specified by the
+  .B -l
+  option will actually print.
+  
+  .TP
+! .B \-m n
+! Move the top margin down by 
+  .I n
+! points.  This may be used to center
+! the text in the page.
+  
+  .TP
+  .B \-n
+  The page is printed in portrait (narrow) format.  This is the default
+  for 1-up and 4-up printing.
+--- 458,532 ----
+  line count.   However, only the number of lines specified by the
+  .B -l
+  option will actually print.
+  
+  .TP
+! .B \-m n[pic]
+! Move the physical page's top margin down by 
+! .I n
+! points
+! .B (p)
+! , inches 
+! .B (i)
+! or centimeters
+! .B (c).
+! Text is scaled by the amount of the indentation to
+! preserve nominal line and column counts.
+! This is useful to offset the top margin for binding or hole-punch.
+! 
+! .TP
+! .B \-M lm,rm,tm,bm[,pic]
+! All four margins on the each logical page (1,2, or 4 up) 
+! may be set with the
+! .B -M
+! option. The size of the left (lm), right (rm), top (tm) and bottom (bm)
+! margins may be set in points (p), inches (i) or centimeters (c). 
+! 
+! This option affects each logical page: margins set with
+! .B -i
+! or
+! .B -m
+! are used to offset physical margins.
+! 
+! For example,
+! 
+!     -M 2,3,4.2,5,c
+! 
+! will set a left margin of 2cm, right margin of 3cm, top margin of 4.2cm
+! and a bottom margin of 5cm.
+! 
+! If the type of unit is omitted, then "point" is assumed.
+! 
+! Only those margin settings desired need be provided. The missing values
+! are assumed to be printer defaults. For example, to offset (left margin
+! only) a page by 1.25 inches, a possible command might be:
+! 
+!      psf -M 1.25,,,,i my.file
+! 
+! Margin sizes are absolute and not scaled when printing in 2-up or 4-up
+! modes.
+! 
+! Margins to do not cause line clipping:  long text lines may overflow the
+! right margin.  Line wrap with
+! .B -e
+! or
+! .B -E
+! may be used to preserve the right margin.
+! 
+! The margin setting could be used in conjunction with the line and column
+! count to provide positioning within the page. For example, an 80 column
+! by 60 line page can be centered with 50 point margins with:
+! 
+!      psf -M 50,50,50,50,p -l 60 -c 80 my.file
+! 
+! If margins are set but the line and column count are not provided, the
+! printing is scaled to use the default number of lines and columns for the
+! page and point size in use.  Scaling for point size may be defeated
+! with the
+! .B -P
+  .I n
+! option.
+  
+  .TP
+  .B \-n
+  The page is printed in portrait (narrow) format.  This is the default
+  for 1-up and 4-up printing.
+***************
+*** 435,444 ****
+--- 542,583 ----
+  "1-up, landscape" printing is desired, the nominal point size is
+  automatically scaled.
+  
+  The selected point size becomes the new "default point size".
+  
++ Character shape is retained
++ as much as possible: however margin adjustment with
++ .B -M,
++ .B -i,
++ and
++ .B -m
++ do cause general scaling.
++ 
++ Line count set with
++ .B -l
++ and column count sent with
++ .B -c
++ are honoured, however the point height is preserved.  This may
++ result in horizontally squashed/elongated characters if the
++ .B -c
++ option is used and/or changes in the spacing between lines
++ if the
++ .B -l
++ option is used.
++ 
++ .TP
++ .B\-P n
++ Sets the nominal point size to
++ .I n.
++ however the point size is not be scaled if the margin
++ size is adjusted with
++ .B -M.
++ .B -i,
++ or
++ .B -m.
++ Scaling still take place in 2-up and 4-up printing.
++ 
+  .TP
+  .B \-R n
+  removes
+  .I n
+  lines from the beginning of the file.
+***************
+*** 510,519 ****
+--- 649,667 ----
+  .TP
+  .B \-u f.def
+  causes the specified file to be used rather than the 
+  default printer definition file
+  .I psfprint.def.
++ If the file cannot be found, the directory containing
++ the default
++ .I psfprint.def
++ file is also searched.
++ 
++ Display the fonts and paper tray assignment applicable to the
++ alternate .def file with:
++ 
++ 	psf -u f.def -\\?
+  
+  .TP
+  .B \-v
+  Print pages in reverse order.
+  
+***************
+*** 700,711 ****
+--- 848,861 ----
+  paper bin greater than maximum for printer
+  Double sided or book in reverse ordered not supported
+  Font number invalid
+          - use 'psf -' to see a list of fonts available
+  cannot create work file
++ 	- directory permission?
+  cannot allocate enough memory
+  Cannot open output file
++ 	- directory permission?
+  Unknown file xxxx
+  Bad psfprint.def file
+          - the psfprint.def file is corrupted.  Contact
+            your systems administrator.
+  .fi
+***************
+*** 713,726 ****
+  .SH BUGS
+  Double sided reverse ordered printing with the
+  .B -dv
+  options is not supported.
+  
+  .SH FILES
+  .nf
+  \/usr/spool/lp/model/psfprint.def:  printer definition file
+! psfbook.psd:  output file for double sided printing.
+  .fi
+  
+  .SH SEE ALSO
+  
+  psfmail psfbs psfman psfnroff psfmbox psfdoub lp lpadmin lpr lpd
+--- 863,888 ----
+  .SH BUGS
+  Double sided reverse ordered printing with the
+  .B -dv
+  options is not supported.
+  
++ Line wrap with the
++ .B -e
++ option works correctly for Courier font only.  If other
++ fonts are used, inappropriate line wraps may result.
++ Psf does not know about font metrics.
++ 
++ Double sided printing may not work correctly with
++ top margin or left margin indentation.
++ 
++ Psf has far to many options.
++ 
+  .SH FILES
+  .nf
+  \/usr/spool/lp/model/psfprint.def:  printer definition file
+! \/usr/local/lib/psf/psfprint.def:   printer definition file
+! psfbook.psd:  temp output file for double sided printing.
+  .fi
+  
+  .SH SEE ALSO
+  
+  psfmail psfbs psfman psfnroff psfmbox psfdoub lp lpadmin lpr lpd
+*** ../psf3.net/man/psf.doc	Fri Jan 31 19:19:43 1992
+--- ./man/psf.doc	Thu Jan 30 11:28:38 1992
+***************
+*** 8,37 ****
+       NAME
+  	  psf -	postscript filter
+  
+  
+       SYNOPSIS
+! 	  psf [	-1|2|4 ] [ -b n	] [ -c n ] [ -f	n ] [ -g type ]	[ -h ]
+! 	      [	-H text	] [ -i n ] [ -l	n ] [ -L n ] [ -m n ] [	-n ]
+! 	      [	-p n ] [ ] [ -R	n ] [ -r n ] [ -s ] [ -t n ]
+! 	      [	-u f.def ] [ -v	] [ -w ] [ -x ]
+  	      [	-z ] file... >out.file
+  
+  	   where -1|2|4	   print 1,2 or	4 up on	a page (default	= 1)
+  		 -b n	   select paper	bin n
+  		 -c n	   print columns (based	on Courier font)
+  		 -d	   allow double	sided printing
+  		 -f n	   font	number/name (default = 0 = Courier)
+  		 -g type   page	type (default =	letter)
+  		 -h	   put file name as header on each page
+  		 -H text   put text as header on each page
+! 		 -i n	   indent left margin n	points
+  		 -l n	   print lines per page
+  		 -L n	   page	length in lines
+! 		 -m n	   indent top margin in	points
+  		 -n	   set portrait	(narrow) format
+  		 -p n	   set point size to n
+  		 -R n	   remove n lines from beginning of file
+  		 -r n	   remove n lines between pages
+  		 -s	   show	page stats (line+column	count)
+  		 -t n	   set tabs to n (default = 8)
+  		 -u f.def  use this printer definition file
+--- 8,42 ----
+       NAME
+  	  psf -	postscript filter
+  
+  
+       SYNOPSIS
+! 	  psf [	-1|2|4 ] [ -b n	] [ -c n ] [ -e	] [ -E ] [ -f n	]
+! 	      [	-g type	] [ -h ] [ -H text ] [ -i n[,pic] ] [ -l n ]
+! 	      [	-L n ] [ -m n[,pic] ] [	-M lm,rm,tm,bm[,pci] ] [ -n ]
+! 	      [	-p n ] [ ]   [ -p n ] [	] [ -R n ] [ -r	n ] [ -s ]
+! 	      [	-t n ] [ -u f.def ] [ -v ] [ -w	] [ -x ]
+  	      [	-z ] file... >out.file
+  
+  	   where -1|2|4	   print 1,2 or	4 up on	a page (default	= 1)
+  		 -b n	   select paper	bin n
+  		 -c n	   print columns (based	on Courier font)
+  		 -d	   allow double	sided printing
++ 		 -e	   left-justified line wrap for	long lines
++ 		 -E	   right-justified line	wrap for long lines
+  		 -f n	   font	number/name (default = 0 = Courier)
+  		 -g type   page	type (default =	letter)
+  		 -h	   put file name as header on each page
+  		 -H text   put text as header on each page
+! 		 -i n[pic] indent left margin n	points/inch/cm
+  		 -l n	   print lines per page
+  		 -L n	   page	length in lines
+! 		 -m n[pic] indent top margin in	points/inch/cm
+! 		 -M xxx	   set all margins
+  		 -n	   set portrait	(narrow) format
+  		 -p n	   set point size to n
++ 		 -P n	   set point size to n,	preserve point size
+  		 -R n	   remove n lines from beginning of file
+  		 -r n	   remove n lines between pages
+  		 -s	   show	page stats (line+column	count)
+  		 -t n	   set tabs to n (default = 8)
+  		 -u f.def  use this printer definition file
+***************
+*** 50,68 ****
+  		 a Helvetica-Condensed	 b ZapfChancery-MediumItalic
+  
+  
+       DESCRIPTION
+  	  Psf accepts text and filters it to print on postscript
+- 	  printers.  The print may be "1-up", "2-up", or "4-up"	on a
+- 	  page.	Psf is a general purpose filter	for most text and
+- 	  programme listings.  By using	various	escape sequences
+- 	  (described below), any portion of the	text may be printed in
+- 	  different fonts and at different point sizes.
+  
+  
+  
+!      Page 1					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 55,68 ----
+  		 a Helvetica-Condensed	 b ZapfChancery-MediumItalic
+  
+  
+       DESCRIPTION
+  	  Psf accepts text and filters it to print on postscript
+  
+  
+  
+!      Page 1					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 69,78 ****
+--- 69,84 ----
+  
+       PSF(1)		       Unix System V			PSF(1)
+  
+  
+  
++ 	  printers.  The print may be "1-up", "2-up", or "4-up"	on a
++ 	  page.	Psf is a general purpose filter	for most text and
++ 	  programme listings.  By using	various	escape sequences
++ 	  (described below), any portion of the	text may be printed in
++ 	  different fonts and at different point sizes.
++ 
+  	  If "letter" sized paper is used, the page is assumed to have
+  	  63 lines and 80 columns wide.	 For "legal" sized paper, the
+  	  effective size is 81 lines by	80 columns.  These dimensions
+  	  account for the "print region" (excluding margins) of	the
+  	  page.
+***************
+*** 84,93 ****
+--- 90,102 ----
+  	  point	size, column count and line count: all of which	allow
+  	  you to place more printed information	on a page.  Additional
+  	  options are for special formatting purposes and may be used
+  	  if desired.
+  
++ 	  By default, lines wider than the page	width are truncated.
++ 	  Line wrap may	be enabled with	the -e option.
++ 
+  	  Special formatting for nroff'ed documents and	mail box
+  	  printing are encapsulated in shell scripts such as psfnroff
+  	  and psfmbox. These scripts hide some of the more complex
+  	  options.
+  
+***************
+*** 105,153 ****
+  	      psf -2  my.file	     (print 2 up on a page)
+  	      psf -2xn my.c	     (typical source listing)
+  	      psf -4x my.file	     (print 4 up on a page)
+  	      psf -p8 my.fil	     (print 8 point)
+  	      psf -l66 -c132 -w	a.b  (print 66 lines, 132 cols,	landscape)
+  
+  
+       PRINT SIZE
+  	  Two ways are available to adjust the print size.  If the
+  	  point	size (using the	-p option) is used, choosing a smaller
+  	  point	size than the default of 12 results in smaller letters
+- 	  and more printed lines.  Choosing a larger points size
+- 	  results in larger letters and	reduces	the number of printed
+- 	  lines	and columns on a page.
+  
+- 	  A table of various point sizes, page sizes and their
+- 	  associated line and column count is printed with:
+  
+- 		psf -s
+  
+! 	  If the column	count (-c) or the line count (-l) is adjusted,
+  
+  
+  
+-      Page 2					     (printed 1/18/92)
+  
+  
+  
+  
+  
+  
+!      PSF(1)		       Unix System V			PSF(1)
+  
+  
+  
+  	  the number of	printed	rows and colums	can be changed form
+  	  the defaults for the paper size.  For	example, a 132 column,
+  	  60 line page in landscape layout may be selected with:
+  
+  		psf -w -c132 -l60 my.fil | lp
+  
+- 	  If "unfortunate" row and column counts are selected, the
+- 	  resulting letters could be squashed or elongated.
+- 
+  
+       OPTIONS
+  	  -124 Specify the number of logical pages that	are to be
+  	       printed on a physical page.  By default,	psf will print
+  	       one logical page	per physical page.
+--- 114,160 ----
+  	      psf -2  my.file	     (print 2 up on a page)
+  	      psf -2xn my.c	     (typical source listing)
+  	      psf -4x my.file	     (print 4 up on a page)
+  	      psf -p8 my.fil	     (print 8 point)
+  	      psf -l66 -c132 -w	a.b  (print 66 lines, 132 cols,	landscape)
++ 	      psf -M 1,1,1,1,c a.b   (set 1 cm margins)
+  
+  
+       PRINT SIZE
+  	  Two ways are available to adjust the print size.  If the
+  	  point	size (using the	-p option) is used, choosing a smaller
+  	  point	size than the default of 12 results in smaller letters
+  
+  
+  
+!      Page 2					     (printed 1/30/92)
+  
+  
+  
+  
+  
+  
++      PSF(1)		       Unix System V			PSF(1)
+  
+  
+  
+! 	  and more printed lines.  Choosing a larger points size
+! 	  results in larger letters and	reduces	the number of printed
+! 	  lines	and columns on a page.
+  
++ 	  A table of various point sizes, page sizes and their
++ 	  associated line and column count is printed with:
+  
++ 		psf -s
+  
++ 	  If the column	count (-c) or the line count (-l) is adjusted,
+  	  the number of	printed	rows and colums	can be changed form
+  	  the defaults for the paper size.  For	example, a 132 column,
+  	  60 line page in landscape layout may be selected with:
+  
+  		psf -w -c132 -l60 my.fil | lp
+  
+  
+       OPTIONS
+  	  -124 Specify the number of logical pages that	are to be
+  	       printed on a physical page.  By default,	psf will print
+  	       one logical page	per physical page.
+***************
+*** 180,200 ****
+  		     |	 pg 3	 |   pg	4    |
+  		     |		 |	     |
+  		     +-----------+-----------+
+  
+  	       Each logical page printed in 2-up or 4-up format
+- 	       contains	the same number	of lines and print columns as
+- 	       if it were printed in 1-up portrait format.  The
+- 	       characters may be compressed or expanded	horizontally
+- 	       to fill to the logical page width.  For example,
+- 	       printing	with:
+  
+- 		      psf -4 my.text | lp
+- 
+  
+  
+!      Page 3					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 187,200 ----
+  		     |	 pg 3	 |   pg	4    |
+  		     |		 |	     |
+  		     +-----------+-----------+
+  
+  	       Each logical page printed in 2-up or 4-up format
+  
+  
+  
+!      Page 3					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 201,210 ****
+--- 201,218 ----
+  
+       PSF(1)		       Unix System V			PSF(1)
+  
+  
+  
++ 	       contains	the same number	of lines and print columns as
++ 	       if it were printed in 1-up portrait format.  The
++ 	       characters may be compressed or expanded	horizontally
++ 	       to fill to the logical page width.  For example,
++ 	       printing	with:
++ 
++ 		      psf -4 my.text | lp
++ 
+  	       creates four miniature pages, each of which would
+  	       contain 63 print	lines and 80 characters	on a line.
+  
+  	       Printing	2-up or	4-up preserves the number of lines on
+  	       a logical printed paged.	Identical results (in terms of
+***************
+*** 237,246 ****
+--- 245,280 ----
+  	       stream is written to psfbook.psd	which must be
+  	       subsequently filtered with psfdoub. Refer to the	man
+  	       page for	psfdoub	for operational	details.
+  
+  
++ 	  -e   By default, lines longer	than the page width are
++ 	       truncated.  This	option enables line wrap: long lines
++ 	       will cascade onto successive print lines.  Each wrapped
++ 	       portion of the line is left-justified.
++ 
++ 
++ 	  -E   This operates similar to	-e however each	wrapped
++ 	       portion of the line is right-justified:	 the end of
++ 
++ 
++ 
++      Page 4					     (printed 1/30/92)
++ 
++ 
++ 
++ 
++ 
++ 
++      PSF(1)		       Unix System V			PSF(1)
++ 
++ 
++ 
++ 	       the wrapped portion of the line is placed at the	right
++ 	       paper margin.
++ 
++ 
+  	  -f n Any of the standard postscript fonts may	be selected in
+  	       lieu of the default Courier.  These are selected	from
+  	       the following table:
+  
+  			0 Courier
+***************
+*** 254,276 ****
+  			8 Garamond-Light
+  			9 Korinna-Regular
+  			a Helvetica-Condensed
+  			b ZapfChancery-MediumItalic
+  
+- 
+- 
+-      Page 4					     (printed 1/18/92)
+- 
+- 
+- 
+- 
+- 
+- 
+-      PSF(1)		       Unix System V			PSF(1)
+- 
+- 
+- 
+  	       The target printer may not have exactly these fonts.
+  	       To see which fonts are configured, display the psf
+  	       usage information with:
+  
+  		    psf	-
+--- 288,297 ----
+***************
+*** 298,307 ****
+--- 319,342 ----
+  
+  		       type	  lines	    columns
+  		      -------	  -----	    -------
+  		      letter	   63	      80
+  		      legal	   81	      80
++ 
++ 
++ 
++      Page 5					     (printed 1/30/92)
++ 
++ 
++ 
++ 
++ 
++ 
++      PSF(1)		       Unix System V			PSF(1)
++ 
++ 
++ 
+  		      a4	   67	      78
+  		      b5	   58	      67
+  
+  	       The number of lines/columns represents the number of
+  	       possible	lines/columns in the printable region of the
+***************
+*** 319,346 ****
+  	  -H text
+  	       Place a header (like -h ) however use text rather than
+  	       the filename.
+  
+  
+! 
+! 
+! 
+!      Page 5					     (printed 1/18/92)
+! 
+! 
+! 
+! 
+  
+  
+-      PSF(1)		       Unix System V			PSF(1)
+- 
+- 
+- 
+- 	  -i n Indent the left margin by n points.  This may be	used
+- 	       to center the text in the page.
+  
+- 
+  	  -l n Sets the	number of printed lines	per page.  The default
+  	       is 63 lines for letter sized paper.  If more than 63
+  	       lines per page are specified, the point size is
+  	       automatically reduced to	accomodate the line count.
+  
+--- 354,377 ----
+  	  -H text
+  	       Place a header (like -h ) however use text rather than
+  	       the filename.
+  
+  
+! 	  -i n[pic]
+! 	       Indent the physical page's left margin by n points (p)
+! 	       , inches	(i) or centimeters (c).	Text is	scaled by the
+! 	       amount of the indentation to preserve nominal line and
+! 	       column counts.  This is useful to offset	the left
+! 	       margin for binding or hole-punch.
+! 
+! 	       If indentation is desired without causing scaling (i.e.
+! 	       a true "offset" only), then a point size	must be
+! 	       selected	with -P.
+  
++ 		    psf	-i2c -P12 doc.file | lpr
+  
+  
+  	  -l n Sets the	number of printed lines	per page.  The default
+  	       is 63 lines for letter sized paper.  If more than 63
+  	       lines per page are specified, the point size is
+  	       automatically reduced to	accomodate the line count.
+  
+***************
+*** 354,370 ****
+  	       page would be blank.
+  
+  
+  	  -L n Specifies the number of possible	print lines available
+  	       on the page.  If	-L is specified, then the page scale
+  	       is adjusted to accomodate the line count.   However,
+  	       only the	number of lines	specified by the -l option
+  	       will actually print.
+  
+  
+! 	  -m n Move the	top margin down	by n points.  This may be used
+! 	       to center the text in the page.
+  
+  
+  	  -n   The page	is printed in portrait (narrow)	format.	 This
+  	       is the default for 1-up and 4-up	printing.  If portrait
+  	       layout is desired for 2-up printing, then the -n	option
+--- 385,479 ----
+  	       page would be blank.
+  
+  
+  	  -L n Specifies the number of possible	print lines available
+  	       on the page.  If	-L is specified, then the page scale
++ 
++ 
++ 
++      Page 6					     (printed 1/30/92)
++ 
++ 
++ 
++ 
++ 
++ 
++      PSF(1)		       Unix System V			PSF(1)
++ 
++ 
++ 
+  	       is adjusted to accomodate the line count.   However,
+  	       only the	number of lines	specified by the -l option
+  	       will actually print.
+  
+  
+! 	  -m n[pic]
+! 	       Move the	physical page's	top margin down	by n points
+! 	       (p) , inches (i)	or centimeters (c). Text is scaled by
+! 	       the amount of the indentation to	preserve nominal line
+! 	       and column counts.  This	is useful to offset the	top
+! 	       margin for binding or hole-punch.
+! 
+! 
+! 	  -M lm,rm,tm,bm[,pic]
+! 	       All four	margins	on the each logical page (1,2, or 4
+! 	       up) may be set with the -M option. The size of the left
+! 	       (lm), right (rm), top (tm) and bottom (bm) margins may
+! 	       be set in points	(p), inches (i)	or centimeters (c).
+! 
+! 	       This option affects each	logical	page: margins set with
+! 	       -i or -m	are used to offset physical margins.
+! 
+! 	       For example,
+! 
+! 		   -M 2,3,4.2,5,c
+! 
+! 	       will set	a left margin of 2cm, right margin of 3cm, top
+! 	       margin of 4.2cm and a bottom margin of 5cm.
+! 
+! 	       If the type of unit is omitted, then "point" is
+! 	       assumed.
+! 
+! 	       Only those margin settings desired need be provided.
+! 	       The missing values are assumed to be printer defaults.
+! 	       For example, to offset (left margin only) a page	by
+! 	       1.25 inches, a possible command might be:
+! 
+! 		    psf	-M 1.25,,,,i my.file
+! 
+! 	       Margin sizes are	absolute and not scaled	when printing
+! 	       in 2-up or 4-up modes.
+! 
+! 	       Margins to do not cause line clipping:  long text lines
+! 	       may overflow the	right margin.  Line wrap with -e or -E
+! 	       may be used to preserve the right margin.
+! 
+! 	       The margin setting could	be used	in conjunction with
+! 	       the line	and column count to provide positioning	within
+! 	       the page. For example, an 80 column by 60 line page can
+! 	       be centered with	50 point margins with:
+! 
+! 		    psf	-M 50,50,50,50,p -l 60 -c 80 my.file
+! 
+! 
+! 
+!      Page 7					     (printed 1/30/92)
+! 
+! 
+! 
+! 
+! 
+! 
+!      PSF(1)		       Unix System V			PSF(1)
+! 
+! 
+! 
+! 	       If margins are set but the line and column count	are
+! 	       not provided, the printing is scaled to use the default
+! 	       number of lines and columns for the page	and point size
+! 	       in use.	Scaling	for point size may be defeated with
+! 	       the -P n	option.
+  
+  
+  	  -n   The page	is printed in portrait (narrow)	format.	 This
+  	       is the default for 1-up and 4-up	printing.  If portrait
+  	       layout is desired for 2-up printing, then the -n	option
+***************
+*** 377,398 ****
+  	       point size is automatically scaled.
+  
+  	       The selected point size becomes the new "default	point
+  	       size".
+  
+  
+  	  -R n removes n lines from the	beginning of the file.
+  
+  
+  	  -r n removes n lines between pages of	the file.
+  
+  	       Use this	option if the text file	has blank lines	that
+  	       must be removed between pages.  For example, a typical
+  
+  
+  
+!      Page 6					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 486,530 ----
+  	       point size is automatically scaled.
+  
+  	       The selected point size becomes the new "default	point
+  	       size".
+  
++ 	       Character shape is retained as much as possible:
++ 	       however margin adjustment with -M, -i, and -m do	cause
++ 	       general scaling.
++ 
++ 	       Line count set with -l and column count sent with -c
++ 	       are honoured, however the point height is preserved.
++ 	       This may	result in horizontally squashed/elongated
++ 	       characters if the -c option is used and/or changes in
++ 	       the spacing between lines if the	-l option is used.
++ 
++ 
++ 	  -P n Sets the	nominal	point size to n. however the point
++ 	       size is not be scaled if	the margin size	is adjusted
++ 	       with -M.	-i, or -m. Scaling still take place in 2-up
++ 	       and 4-up	printing.
++ 
+  
+  	  -R n removes n lines from the	beginning of the file.
+  
+  
+  	  -r n removes n lines between pages of	the file.
+  
+  	       Use this	option if the text file	has blank lines	that
+  	       must be removed between pages.  For example, a typical
++ 	       "accounting" report may print 60	lines and 132 columns
++ 	       of text.	 Usually, such reports have two	blank lines
++ 	       before the first	printed	text on	a page	and 6 blank
++ 	       lines to	skip to	the top	of the next page.
++ 
++ 	       To generate exactly 60 printed lines with psf, the
++ 	       first two blank lines should be removed with -R2	and
+  
+  
+  
+!      Page 8					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 399,415 ****
+  
+       PSF(1)		       Unix System V			PSF(1)
+  
+  
+  
+- 	       "accounting" report may print 60	lines and 132 columns
+- 	       of text.	 Usually, such reports have two	blank lines
+- 	       before the first	printed	text on	a page	and 6 blank
+- 	       lines to	skip to	the top	of the next page.
+- 
+- 	       To generate exactly 60 printed lines with psf, the
+- 	       first two blank lines should be removed with -R2	and
+  	       the blank lines between pages removed with -r6:
+  
+  		      psf -R2 -r 6 -l 60 -c 132	account.rpt | lp
+  
+  	       The -r and -R may be used together as needed.
+--- 531,540 ----
+***************
+*** 448,464 ****
+  	       space of	4.
+  
+  
+  	  -u f.def
+  	       causes the specified file to be used rather than	the
+! 	       default printer definition file psfprint.def.
+  
+  
+  
+  
+  
+!      Page 7					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 573,596 ----
+  	       space of	4.
+  
+  
+  	  -u f.def
+  	       causes the specified file to be used rather than	the
+! 	       default printer definition file psfprint.def. If	the
+! 	       file cannot be found, the directory containing the
+! 	       default psfprint.def file is also searched.
+! 
+! 	       Display the fonts and paper tray	assignment applicable
+! 	       to the alternate	.def file with:
+! 
+! 		    psf	-u f.def -\?
+  
+  
+  
+  
+  
+!      Page 9					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 520,530 ****
+  
+  		   "^E"	is a true ctrl-E character, not
+  
+  
+  
+!      Page 8					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 652,662 ----
+  
+  		   "^E"	is a true ctrl-E character, not
+  
+  
+  
+!      Page 10					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 586,596 ****
+  
+       ENVIRONMENT
+  
+  
+  
+!      Page 9					     (printed 1/18/92)
+  
+  
+  
+  
+  
+--- 718,728 ----
+  
+       ENVIRONMENT
+  
+  
+  
+!      Page 11					     (printed 1/30/92)
+  
+  
+  
+  
+  
+***************
+*** 624,635 ****
+--- 756,769 ----
+  	  paper	bin greater than maximum for printer
+  	  Double sided or book in reverse ordered not supported
+  	  Font number invalid
+  		  - use	'psf -'	to see a list of fonts available
+  	  cannot create	work file
++ 	       - directory permission?
+  	  cannot allocate enough memory
+  	  Cannot open output file
++ 	       - directory permission?
+  	  Unknown file xxxx
+  	  Bad psfprint.def file
+  		  - the	psfprint.def file is corrupted.	 Contact
+  		    your systems administrator.
+  
+***************
+*** 636,649 ****
+  
+       BUGS
+  	  Double sided reverse ordered printing	with the -dv options
+  	  is not supported.
+  
+  
+       FILES
+  	  /usr/spool/lp/model/psfprint.def:  printer definition	file
+! 	  psfbook.psd:	output file for	double sided printing.
+  
+  
+       SEE ALSO
+  	  psfmail psfbs	psfman psfnroff	psfmbox	psfdoub	lp lpadmin lpr
+  	  lpd
+--- 770,807 ----
+  
+       BUGS
+  	  Double sided reverse ordered printing	with the -dv options
+  	  is not supported.
+  
++ 	  Line wrap with the -e	option works correctly for Courier
++ 	  font only.  If other fonts are used, inappropriate line
++ 	  wraps	may result.  Psf does not know about font metrics.
++ 
++ 	  Double sided printing	may not	work correctly with top	margin
++ 	  or left margin indentation.
++ 
++ 	  Psf has far to many options.
++ 
+  
+       FILES
++ 
++ 
++ 
++      Page 12					     (printed 1/30/92)
++ 
++ 
++ 
++ 
++ 
++ 
++      PSF(1)		       Unix System V			PSF(1)
++ 
++ 
++ 
+  	  /usr/spool/lp/model/psfprint.def:  printer definition	file
+! 	  /usr/local/lib/psf/psfprint.def:   printer definition	file
+! 	  psfbook.psd:	temp output file for double sided printing.
+  
+  
+       SEE ALSO
+  	  psfmail psfbs	psfman psfnroff	psfmbox	psfdoub	lp lpadmin lpr
+  	  lpd
+***************
+*** 652,660 ****
+       AUTHOR
+  	  Tony Field.	      tony@ajfcal.cuc.ab.ca
+  
+  
+  
+!      Page 10					     (printed 1/18/92)
+  
+  
+  
+--- 810,858 ----
+       AUTHOR
+  	  Tony Field.	      tony@ajfcal.cuc.ab.ca
+  
+  
+  
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+!      Page 13					     (printed 1/30/92)
+  
+  
+  
+  
+  
+  $ $ $ end of patch 2/2 $ $ $
+
+exit 0 # Just in case...

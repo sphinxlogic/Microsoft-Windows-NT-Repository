@@ -1,0 +1,2071 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i049:  imagemagick - X11 image processing and display v2.2, Part21/26
+Message-ID: <1992Dec15.035748.22863@sparky.imd.sterling.com>
+X-Md4-Signature: ed06e1550203d0f677953f2d588ea2de
+Date: Tue, 15 Dec 1992 03:57:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 49
+Archive-name: imagemagick/part21
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.21 (part 21 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/alien.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 21; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/alien.c'
+else
+echo 'x - continuing file ImageMagick/alien.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/alien.c' &&
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create linear colormap.
+X  */
+X  image->class=PseudoClass;
+X  image->colors=256;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  for (i=0; i < image->colors; i++)
+X  {
+X    image->colormap[i].red=(unsigned char) i;
+X    image->colormap[i].green=(unsigned char) i;
+X    image->colormap[i].blue=(unsigned char) i;
+X  }
+X  /*
+X    Create image.
+X  */
+X  width=512;
+X  height=512;
+X  if (alien_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(alien_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  gray_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*sizeof(unsigned char));
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if ((gray_pixels == (unsigned char *) NULL) ||
+X      (image->pixels == (RunlengthPacket *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert raster image to runlength-encoded packets.
+X  */
+X  (void) ReadData((char *) gray_pixels,1,(int) (image->columns*image->rows),
+X    image->file);
+X  p=gray_pixels;
+X  q=image->pixels;
+X  for (i=0; i < (image->columns*image->rows); i++)
+X  {
+X    index=(*p++);
+X    q->red=index;
+X    q->green=index;
+X    q->blue=index;
+X    q->index=(unsigned short) index;
+X    q->length=0;
+X    q++;
+X  }
+X  (void) free((char *) gray_pixels);
+X  CompressColormap(image);
+X  CloseImage(image);
+X  return(image);
+}
+X
+#ifdef AlienJPEG
+#undef FREAD
+#undef FWRITE
+#undef const
+#include "jinclude.h"
+static Image
+X  *jpeg_image;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d J P E G I m a g e                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadJPEGImage reads an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.
+%
+%  The format of the ReadJPEGImage routine is:
+%
+%      image=ReadJPEGImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadJPEGImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o filename:  Specifies the name of the jpeg_image to read.
+%
+%
+*/
+X
+static void MIFFInitializeImage(jpeg_info)
+decompress_info_ptr
+X  jpeg_info;
+{
+X  /*
+X    Create jpeg_image.
+X  */
+X  jpeg_image->columns=jpeg_info->image_width;
+X  jpeg_image->rows=jpeg_info->image_height;
+X  jpeg_image->packets=jpeg_image->columns*jpeg_image->rows;
+X  jpeg_image->pixels=(RunlengthPacket *)
+X    malloc(jpeg_image->packets*sizeof(RunlengthPacket));
+X  jpeg_image->comments=(char *)
+X    malloc((strlen(jpeg_image->filename)+2048)*sizeof(char));
+X  if ((jpeg_image->pixels == (RunlengthPacket *) NULL) ||
+X      (jpeg_image->comments == (char *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      exit(1);
+X    }
+X  (void) sprintf(jpeg_image->comments,
+X    "\n  Imported from JFIF JPEG image:  %s\n",jpeg_image->filename);
+X  jpeg_image->packet=jpeg_image->pixels;
+}
+X
+static void MIFFOutputTermMethod(jpeg_info)
+decompress_info_ptr
+X  jpeg_info;
+{
+}
+X
+static void MIFFWriteGRAY(jpeg_info,number_rows,pixel_data)
+decompress_info_ptr
+X  jpeg_info;
+X
+int
+X  number_rows;
+X
+JSAMPIMAGE
+X  pixel_data;
+{
+X  register int
+X    column,
+X    row;
+X
+X  register JSAMPROW
+X    gray;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Transfer grayscale JPEG pixel data to MIFF pixels.
+X  */
+X  p=jpeg_image->packet;
+X  for (row=0; row < number_rows; row++)
+X  {
+X    gray=pixel_data[0][row];
+X    for (column=jpeg_info->image_width; column > 0; column--)
+X    {
+X      p->red=GETJSAMPLE(*gray);
+X      p->green=GETJSAMPLE(*gray);
+X      p->blue=GETJSAMPLE(*gray);
+X      p->index=(unsigned short) GETJSAMPLE(*gray);
+X      p->length=0;
+X      p++;
+X      gray++;
+X    }
+X  }
+X  jpeg_image->packet=p;
+}
+X
+static void MIFFWriteRGB(jpeg_info,number_rows,pixel_data)
+decompress_info_ptr
+X  jpeg_info;
+X
+int
+X  number_rows;
+X
+JSAMPIMAGE
+X  pixel_data;
+{
+X  register int
+X    column,
+X    row;
+X
+X  register JSAMPROW
+X    blue,
+X    green,
+X    red;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Transfer JPEG pixel data to MIFF pixels.
+X  */
+X  p=jpeg_image->packet;
+X  for (row=0; row < number_rows; row++)
+X  {
+X    red=pixel_data[0][row];
+X    green=pixel_data[1][row];
+X    blue=pixel_data[2][row];
+X    for (column=jpeg_info->image_width; column > 0; column--)
+X    {
+X      p->red=GETJSAMPLE(*red++);
+X      p->green=GETJSAMPLE(*green++);
+X      p->blue=GETJSAMPLE(*blue++);
+X      p->index=0;
+X      p->length=0;
+X      p++;
+X    }
+X  }
+X  jpeg_image->packet=p;
+}
+X
+static void MIFFSelectMethod(jpeg_info)
+decompress_info_ptr
+X  jpeg_info;
+{
+X  jpeg_info->methods->put_pixel_rows=MIFFWriteRGB;
+X  jpeg_info->out_color_space=CS_RGB;
+X  if (jpeg_info->jpeg_color_space == CS_GRAYSCALE)
+X    {
+X      jpeg_info->out_color_space=CS_GRAYSCALE;
+X      jpeg_info->methods->put_pixel_rows=MIFFWriteGRAY;
+X    }
+X  jpeg_info->data_precision=8;
+}
+X
+static Image *ReadJPEGImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  struct Decompress_info_struct
+X    jpeg_info;
+X
+X  struct Decompress_methods_struct
+X    jpeg_methods;
+X
+X  struct External_methods_struct
+X    external_methods;
+X
+X  /*
+X    Allocate jpeg_image structure.
+X  */
+X  jpeg_image=AllocateImage("JPEG");
+X  if (jpeg_image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(jpeg_image->filename,alien_info->filename);
+X  OpenImage(jpeg_image,"r");
+X  if (jpeg_image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",jpeg_image->filename);
+X      DestroyImage(jpeg_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize the JPEG system-dependent methods.
+X  */
+X  jpeg_info.methods=(&jpeg_methods);
+X  jpeg_info.emethods=(&external_methods);
+X  jselerror(&external_methods);
+X  jselmemmgr(&external_methods);
+X  jpeg_info.methods->output_init=MIFFInitializeImage;
+X  jpeg_info.methods->output_term=MIFFOutputTermMethod;
+X  jpeg_methods.d_ui_method_selection=MIFFSelectMethod;
+X  j_d_defaults(&jpeg_info,True);
+X  /*
+X    Read a JFIF JPEG file.
+X  */
+X  jpeg_info.input_file=jpeg_image->file;
+X  jpeg_info.output_file=(FILE *) NULL;
+X  jselrjfif(&jpeg_info);
+X  jpeg_decompress(&jpeg_info);
+X  if (jpeg_info.jpeg_color_space == CS_GRAYSCALE)
+X    {
+X      register int
+X        i;
+X
+X      /*
+X        Initialize grayscale colormap.
+X      */
+X      jpeg_image->class=PseudoClass;
+X      jpeg_image->colors=256;
+X      jpeg_image->colormap=(ColorPacket *)
+X        malloc(jpeg_image->colors*sizeof(ColorPacket));
+X      if (jpeg_image->colormap == (ColorPacket *) NULL)
+X        {
+X          Warning("unable to create image colormap","memory allocation failed");
+X          DestroyImage(jpeg_image);
+X          return((Image *) NULL);
+X        }
+X      for (i=0; i < jpeg_image->colors; i++)
+X      {
+X        jpeg_image->colormap[i].red=(unsigned short) i;
+X        jpeg_image->colormap[i].green=(unsigned short) i;
+X        jpeg_image->colormap[i].blue=(unsigned short) i;
+X      }
+X    }
+X  CloseImage(jpeg_image);
+X  return(jpeg_image);
+}
+#else
+static Image *ReadJPEGImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Warning("JPEG library is not available",alien_info->filename);
+X  return(ReadImage(alien_info->filename));
+}
+#endif
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d M T V I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadMTVImage reads an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.
+%
+%  The format of the ReadMTVImage routine is:
+%
+%      image=ReadMTVImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadMTVImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadMTVImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    count;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *mtv_pixels;
+X
+X  unsigned int
+X    columns,
+X    rows;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("MTV");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read MTV image.
+X  */
+X  count=fscanf(image->file,"%u %u\n",&columns,&rows);
+X  if (count == 0)
+X    {
+X      Warning("not a MTV image,",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    /*
+X      Allocate image pixels.
+X    */
+X    mtv_pixels=(unsigned char *) malloc(3*columns*rows*sizeof(unsigned char));
+X    if (mtv_pixels == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    /*
+X      Read image pixels.
+X    */
+X    (void) ReadData((char *) mtv_pixels,1,(int) (columns*rows*3),image->file);
+X    /*
+X      Create image.
+X    */
+X    image->columns=columns;
+X    image->rows=rows;
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) sprintf(image->comments,"\n  Imported from MTV raster image:  %s\n",
+X      image->filename);
+X    /*
+X      Convert MTV raster image to runlength-encoded packets.
+X    */
+X    p=mtv_pixels;
+X    q=image->pixels;
+X    for (i=0; i < image->columns*image->rows; i++)
+X    {
+X      q->red=(*p++);
+X      q->green=(*p++);
+X      q->blue=(*p++);
+X      q->index=0;
+X      q->length=0;
+X      q++;
+X    }
+X    (void) free((char *) mtv_pixels);
+X    /*
+X      Proceed to next image.
+X    */
+X    count=fscanf(image->file,"%u %u\n",&columns,&rows);
+X    if (count > 0)
+X      {
+X        /*
+X          Allocate next image structure.
+X        */
+X        image->next=AllocateImage("MTV");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u\0",alien_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->last=image;
+X        image=image->next;
+X      }
+X  } while (count > 0);
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d P N M I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadPNMImage reads an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.
+%
+%  The format of the ReadPNMImage routine is:
+%
+%      image=ReadPNMImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadPNMImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+X
+static unsigned int GetInteger(file)
+FILE
+X  *file;
+{
+X  char
+X    c;
+X
+X  int
+X    status;
+X
+X  unsigned int
+X    value;
+X
+X  /*
+X    Skip any leading whitespace.
+X  */
+X  do
+X  {
+X    status=ReadData(&c,1,1,file);
+X    if (status == False)
+X      return(0);
+X    if (c == '#')
+X      do
+X      {
+X        /*
+X          Skip any comments.
+X        */
+X        status=ReadData(&c,1,1,file);
+X        if (status == False)
+X          return(0);
+X      } while (c != '\n');
+X  } while (!isdigit(c));
+X  /*
+X    Evaluate number.
+X  */
+X  value=0;
+X  do
+X  {
+X    value*=10;
+X    value+=c-'0';
+X    status=ReadData(&c,1,1,file);
+X    if (status == False)
+X      return(0);
+X  }
+X  while (isdigit(c));
+X  return(value);
+}
+X
+static Image *ReadPNMImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  char
+X    format;
+X
+X  Image
+X    *image;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  register unsigned short int
+X    index;
+X
+X  unsigned char
+X    *pixels,
+X    *scale;
+X
+X  unsigned int
+X    max_value,
+X    status;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("PNM");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read PNM image.
+X  */
+X  status=ReadData((char *) &format,1,1,image->file);
+X  if ((status == False) || (format != 'P'))
+X    {
+X      Warning("not a PNM image file",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    /*
+X      Create image.
+X    */
+X    status=ReadData((char *) &format,1,1,image->file);
+X    image->columns=GetInteger(image->file);
+X    image->rows=GetInteger(image->file);
+X    if ((image->columns*image->rows) == 0)
+X      {
+X        Warning("unable to read image","image dimensions are zero");
+X        return((Image *) NULL);
+X      }
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) sprintf(image->comments,"\n  Imported from PNM raster image:  %s\n",
+X      image->filename);
+X    if ((format == '1') || (format == '4'))
+X      max_value=1;  /* bitmap */
+X    else
+X      max_value=GetInteger(image->file);
+X    scale=(unsigned char *) NULL;
+X    if (max_value > MaxRGB)
+X      {
+X        /*
+X          Compute pixel scaling table.
+X        */
+X        scale=(unsigned char *) malloc((max_value+1)*sizeof(unsigned char));
+X        if (scale == (unsigned char *) NULL)
+X          {
+X            Warning("unable to read image","memory allocation failed");
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        for (i=0; i <= max_value; i++)
+X          scale[i]=(unsigned char) ((i*MaxRGB+(max_value >> 1))/max_value);
+X      }
+X    if ((format != '3') && (format != '6'))
+X      {
+X        /*
+X          Create gray scale colormap.
+X        */
+X        image->class=PseudoClass;
+X        image->colors=Min(max_value,MaxRGB)+1;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        if (image->colormap == (ColorPacket *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        for (i=0; i < image->colors; i++)
+X        {
+X          image->colormap[i].red=(MaxRGB*i)/(image->colors-1);
+X          image->colormap[i].green=(MaxRGB*i)/(image->colors-1);
+X          image->colormap[i].blue=(MaxRGB*i)/(image->colors-1);
+X        }
+X      }
+X    /*
+X      Convert PNM pixels to runlength-encoded MIFF packets.
+X    */
+X    q=image->pixels;
+X    switch (format)
+X    {
+X      case '1':
+X      {
+X        /*
+X          Convert PBM image to runlength-encoded packets.
+X        */
+X        for (i=0; i < image->packets; i++)
+X        {
+X          index=GetInteger(image->file);
+X          if (index > 1)
+X            index=1;
+X          q->red=image->colormap[index].red;
+X          q->green=image->colormap[index].green;
+X          q->blue=image->colormap[index].blue;
+X          q->index=index;
+X          q->length=0;
+X          q++;
+X        }
+X        break;
+X      }
+X      case '2':
+X      {
+X        /*
+X          Convert PGM image to runlength-encoded packets.
+X        */
+X        if (max_value <= MaxRGB)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=GetInteger(image->file);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=scale[GetInteger(image->file)];
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        break;
+X      }
+X      case '3':
+X      {
+X        /*
+X          Convert PNM image to runlength-encoded packets.
+X        */
+X        if (max_value <= MaxRGB)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            q->red=GetInteger(image->file);
+X            q->green=GetInteger(image->file);
+X            q->blue=GetInteger(image->file);
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            q->red=scale[GetInteger(image->file)];
+X            q->green=scale[GetInteger(image->file)];
+X            q->blue=scale[GetInteger(image->file)];
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        break;
+X      }
+X      case '4':
+X      {
+X        unsigned char
+X          bit,
+X          byte;
+X
+X        unsigned int
+X          x,
+X          y;
+X
+X        /*
+X          Convert PBM raw image to runlength-encoded packets.
+X        */
+X        for (y=0; y < image->rows; y++)
+X        {
+X          bit=0;
+X          for (x=0; x < image->columns; x++)
+X          {
+X            if (bit == 0)
+X              (void) ReadData((char *) &byte,1,1,image->file);
+X            q->index=(byte & 0x80) ? 0 : 1;
+X            byte<<=1;
+X            q->red=image->colormap[q->index].red;
+X            q->green=image->colormap[q->index].green;
+X            q->blue=image->colormap[q->index].blue;
+X            q->length=0;
+X            q++;
+X            bit++;
+X            if (bit == 8)
+X              bit=0;
+X          }
+X        }
+X        break;
+X      }
+X      case '5':
+X      {
+X        /*
+X          Convert PGM raw image to runlength-encoded packets.
+X        */
+X        pixels=(unsigned char *)
+X          malloc((unsigned int) image->packets*sizeof(unsigned char));
+X        if (pixels == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        status=ReadData((char *) pixels,1,(int) image->packets,image->file);
+X        if (status == False)
+X          {
+X            Warning("insufficient image data in file",image->filename);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        /*
+X          Convert PNM raw image to runlength-encoded packets.
+X        */
+X        p=pixels;
+X        if (max_value <= MaxRGB)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=scale[*p++];
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        break;
+X      }
+X      case '6':
+X      {
+X        /*
+X          Convert PNM raster image to runlength-encoded packets.
+X        */
+X        pixels=(unsigned char *)
+X          malloc((unsigned int) image->packets*3*sizeof(unsigned char));
+X        if (pixels == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        status=ReadData((char *) pixels,1,(int) image->packets*3,image->file);
+X        if (status == False)
+X          {
+X            Warning("insufficient image data in file",image->filename);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        p=pixels;
+X        if (max_value <= MaxRGB)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            q->red=(*p++);
+X            q->green=(*p++);
+X            q->blue=(*p++);
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            q->red=scale[*p++];
+X            q->green=scale[*p++];
+X            q->blue=scale[*p++];
+X            q->index=0;
+X            q->length=0;
+X            q++;
+X          }
+X        break;
+X      }
+X      default:
+X      {
+X        Warning("not a PNM image file",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    }
+X    if (scale != (unsigned char *) NULL)
+X      (void) free((char *) scale);
+X    if (image->class == PseudoClass)
+X      CompressColormap(image);
+X    /*
+X      Proceed to next image.
+X    */
+X    status=ReadData((char *) &format,1,1,image->file);
+X    if ((status == True) && (format == 'P'))
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("PNM");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u\0",alien_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->last=image;
+X        image=image->next;
+X      }
+X  } while ((status == True) && (format == 'P'));
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d P S I m a g e                                                      %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadPSImage reads a Postscript image file and returns it.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the ReadPSImage routine is:
+%
+%      image=ReadPSImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadPSImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%    o density: Specifies a pointer to a image density string;  horizonal
+%      and vertical dots per inch.
+%
+%
+*/
+static Image *ReadPSImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+#define XResolution  72
+#define YResolution  72
+X
+X  char
+X    command[2048],
+X    clip_geometry[2048],
+X    *directory,
+X    filename[2048],
+X    options[2048];
+X
+X  Image
+X    *image,
+X    *next_image;
+X
+X  unsigned int
+X    status;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("PS");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Determine if Postscript specifies a bounding box.
+X  */
+X  *clip_geometry='\0';
+X  while (fgets(command,sizeof(command)-1,image->file) != (char *) NULL)
+X    if (strncmp("%%BoundingBox:",command,strlen("%%BoundingBox:")) == 0)
+X      {
+X        int
+X          count,
+X          lower_x,
+X          lower_y,
+X          upper_x,
+X          upper_y,
+X          x,
+X          y;
+X
+X        unsigned int
+X          x_resolution,
+X          y_resolution;
+X
+X        count=sscanf(command,"%%%%BoundingBox: %d %d %d %d",&lower_x,&lower_y,
+X          &upper_x,&upper_y);
+X        if (count != 4)
+X          break;
+X        /*
+X          Set clip geometry as specified by the bounding box.
+X        */
+X        x_resolution=XResolution;
+X        y_resolution=YResolution;
+X        if (alien_info->density != (char *) NULL)
+X          {
+X            int
+X              flags;
+X
+X            /*
+X              User specified density.
+X            */
+X            flags=XParseGeometry(alien_info->density,&x,&y,&x_resolution,
+X              &y_resolution);
+X            if ((flags & WidthValue) == 0)
+X              x_resolution=XResolution;
+X            if ((flags & HeightValue) == 0)
+X              y_resolution=x_resolution;
+X          }
+X        (void) sprintf(clip_geometry,"%ux%u+%u-%u\0",
+X          ((upper_x-lower_x)*x_resolution+(XResolution >> 1))/XResolution,
+X          ((upper_y-lower_y)*y_resolution+(YResolution >> 1))/YResolution,
+X          (lower_x*x_resolution+(XResolution >> 1))/XResolution,
+X          ((lower_y*y_resolution+(YResolution >> 1))/YResolution));
+X        break;
+X      }
+X  CloseImage(image);
+X  /*
+X    Rendered Postscript goes to temporary PNM file.
+X  */
+X  directory=(char *) getenv("TMPDIR");
+X  if (directory == (char *) NULL)
+X    directory="/tmp";
+X  (void) sprintf(filename,"%s/magickXXXXXX",directory);
+X  (void) mktemp(filename);
+X  /*
+X    Determine if geometry or density options are specified.
+X  */
+X  *options='\0';
+X  if (alien_info->geometry != (char *) NULL)
+X    {
+X      (void) strcat(options," -g");
+X      (void) strcat(options,alien_info->geometry);
+X    }
+X  if (alien_info->density != (char *) NULL)
+X    {
+X      (void) strcat(options," -r");
+X      (void) strcat(options,alien_info->density);
+X    }
+X  /*
+X    Use Ghostscript to convert Postscript image.
+X  */
+X  (void) sprintf(command,"gs -q -sDEVICE=ppmraw -sOutputFile=%s %s %s",
+X    filename,options,alien_info->filename);
+X  (void) strcat(command," < /dev/null > /dev/null");
+X  status=system(command);
+X  if (status != 0)
+X    {
+X      Warning("unable to execute ghostscript (gs)",alien_info->filename);
+X      return((Image *) NULL);
+X    }
+X  (void) strcpy(alien_info->filename,filename);
+X  (void) strcpy(filename,image->filename);
+X  DestroyImage(image);
+X  image=ReadPNMImage(alien_info);
+X  (void) unlink(alien_info->filename);
+X  if (image == (Image *) NULL)
+X    {
+X      Warning("Postscript translation failed",alien_info->filename);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    if (image->last == (Image *) NULL)
+X      (void) strcpy(image->filename,filename);
+X    else
+X      (void) sprintf(image->filename,"%s.%u\0",filename,image->scene);
+X    (void) strcpy(image->magick,"PS");
+X    if (*clip_geometry != '\0')
+X      {
+X        /*
+X          Clip image as specified by the bounding box.
+X        */
+X        TransformImage(&image,clip_geometry,(char *) NULL,(char *) NULL);
+X        if (image->next != (Image *) NULL)
+X          image->next->last=image;
+X      }
+X    next_image=image->next;
+X    if (next_image != (Image *) NULL)
+X      image=next_image;
+X  } while (next_image != (Image *) NULL);
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d R G B I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadRGBImage reads an image file and returns it.  It allocates the
+%  memory necessary for the new Image structure and returns a pointer to the
+%  new image.
+%
+%  The format of the ReadRGBImage routine is:
+%
+%      image=ReadRGBImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadRGBImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadRGBImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *rgb_pixels;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("RGB");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  width=512;
+X  height=512;
+X  if (alien_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(alien_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  rgb_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*3*sizeof(unsigned char));
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if ((rgb_pixels == (unsigned char *) NULL) ||
+X      (image->pixels == (RunlengthPacket *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert raster image to runlength-encoded packets.
+X  */
+X  (void) ReadData((char *) rgb_pixels,3,(int) (image->columns*image->rows),
+X    image->file);
+X  p=rgb_pixels;
+X  q=image->pixels;
+X  for (i=0; i < (image->columns*image->rows); i++)
+X  {
+X    q->red=(*p++);
+X    q->green=(*p++);
+X    q->blue=(*p++);
+X    q->index=0;
+X    q->length=0;
+X    q++;
+X  }
+X  (void) free((char *) rgb_pixels);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d R L E I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadRLEImage reads a run-length encoded Utah Raster Toolkit
+%  image file and returns it.  It allocates the memory necessary for the new
+%  Image structure and returns a pointer to the new image.
+%
+%  The format of the ReadRLEImage routine is:
+%
+%      image=ReadRLEImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadRLEImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadRLEImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+#define SkipLinesOp  0x01
+#define SetColorOp  0x02
+#define SkipPixelsOp  0x03
+#define ByteDataOp  0x05
+#define RunDataOp  0x06
+#define EOFOp  0x07
+X
+X  char
+X    magick[12];
+X
+X  Image
+X    *image;
+X
+X  int
+X    opcode,
+X    operand,
+X    status,
+X    x,
+X    y;
+X
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    background_color[256],
+X    *colormap,
+X    header[2048],
+X    integer[2],
+X    pixel,
+X    plane,
+X    *rle_pixels;
+X
+X  unsigned int
+X    bits_per_pixel,
+X    flags,
+X    map_length,
+X    number_colormaps,
+X    number_planes;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("RLE");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Determine if this is a RLE file.
+X  */
+X  status=ReadData((char *) magick,1,2,image->file);
+X  if ((status == False) || (strncmp(magick,"\122\314",2) != 0))
+X    {
+X      Warning("not a RLE image file",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    /*
+X      Read image header.
+X    */
+X    status=ReadData((char *) header,1,13,image->file);
+X    if (status == False)
+X      {
+X        Warning("unable to read RLE image header",(char *) NULL);
+X        DestroyImage(image);
+X        return((Image *) NULL);
+X      }
+X    image->columns=header[4]+(header[5] << 8);
+X    image->rows=header[6]+(header[7] << 8);
+X    image->packets=image->columns*image->rows;
+X    flags=header[8];
+X    image->alpha=flags & 0x04;
+X    number_planes=header[9];
+X    bits_per_pixel=header[10];
+X    number_colormaps=header[11];
+X    map_length=1 << header[12];
+X    if ((number_planes == 0) || (number_planes == 2) || (bits_per_pixel != 8) ||
+X        ((image->columns*image->rows) == 0))
+X      {
+X        Warning("unsupported RLE image file",(char *) NULL);
+X        DestroyImage(image);
+X        return((Image *) NULL);
+X      }
+X    if (flags & 0x02)
+X      {
+X        /*
+X          No background color-- initialize to black.
+X        */
+X        for (i=0; i < number_planes; i++)
+X          background_color[i]=(unsigned char) 0;
+X        (void) fgetc(image->file);
+X      }
+X    else
+X      {
+X        /*
+X          Initialize background color.
+X        */
+X        p=background_color;
+X        for (i=0; i < number_planes; i++)
+X          *p++=(unsigned char) fgetc(image->file);
+X        if ((number_planes % 2) == 0)
+X          (void) fgetc(image->file);
+X      }
+X    if (number_colormaps > 0)
+X      {
+X        /*
+X          Read image colormaps.
+X        */
+X        colormap=(unsigned char *)
+X          malloc(number_colormaps*map_length*sizeof(unsigned char));
+X        if (colormap == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImage(image);
+X            return((Image *) NULL);
+X          }
+X        p=colormap;
+X        for (i=0; i < number_colormaps; i++)
+X          for (j=0; j < map_length; j++)
+X          {
+X            (void) fgetc(image->file);
+X            *p++=(unsigned char) fgetc(image->file);
+X          }
+X      }
+X    /*
+X      Allocate image comment.
+X    */
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    if (image->comments == (char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImage(image);
+X        return((Image *) NULL);
+X      }
+X    (void) sprintf(image->comments,"\n  Imported from Utah raster image:  %s\n",
+X      image->filename);
+X    if (flags & 0x08)
+X      {
+X        unsigned int
+X          comment_length;
+X
+X        /*
+X          Read image comment.
+X        */
+X        (void) ReadData((char *) integer,1,2,image->file);
+X        comment_length=integer[0]+(integer[1] << 8);
+X        image->comments=(char *) realloc((char *) image->comments,
+X          (unsigned int) (strlen(image->comments)+comment_length+2048));
+X        if (image->comments == (char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImage(image);
+X            return((Image *) NULL);
+X          }
+X        (void) strcat(image->comments,"\n  ");
+X        status=ReadData((char *) image->comments+strlen(image->comments),1,
+X          (int) comment_length+(comment_length % 2 ? 0 : 1),image->file);
+X        if (status == False)
+X          {
+X            Warning("unable to read RLE comment",(char *) NULL);
+X            DestroyImage(image);
+X            return((Image *) NULL);
+X          }
+X        (void) strcat(image->comments,"\n");
+X      }
+X    /*
+X      Allocate RLE pixels.
+X    */
+X    if (image->alpha)
+X      number_planes++;
+X    rle_pixels=(unsigned char *)
+X      malloc((unsigned int) image->packets*number_planes*sizeof(unsigned char));
+X    if (rle_pixels == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImage(image);
+X        return((Image *) NULL);
+X      }
+X    if ((flags & 0x01) && ((~flags) & 0x02))
+X      {
+X        /*
+X          Set background color.
+X        */
+X        p=rle_pixels;
+X        for (i=0; i < image->packets; i++)
+X        {
+X          if (!image->alpha)
+X            for (j=0; j < number_planes; j++)
+X              *p++=background_color[j];
+X          else
+X            {
+X              for (j=0; j < (number_planes-1); j++)
+X                *p++=background_color[j];
+X              *p++=0;  /* initialize alpha channel */
+X            }
+X        }
+X      }
+X    /*
+X      Read runlength-encoded image.
+X    */
+X    plane=0;
+X    x=0;
+X    y=0;
+X    (void) fgetc(image->file);
+X    opcode=fgetc(image->file);
+X    while (((opcode & 0x3f) != EOFOp) && (opcode != EOF))
+X    {
+X      switch (opcode & 0x3f)
+X      {
+X        case SkipLinesOp:
+X        {
+X          operand=fgetc(image->file);
+X          if (opcode & 0x40)
+X            {
+X              (void) ReadData((char *) integer,1,2,image->file);
+X              operand=integer[0]+(integer[1] << 8);
+X            }
+X          x=0;
+X          y+=operand;
+X          break;
+X        }
+X        case SetColorOp:
+X        {
+X          operand=fgetc(image->file);
+X          plane=operand;
+X          if (plane == 255)
+X            plane=number_planes-1;
+X          x=0;
+X          break;
+X        }
+X        case SkipPixelsOp:
+X        {
+X          operand=fgetc(image->file);
+X          if (opcode & 0x40)
+X            {
+X              (void) ReadData((char *) integer,1,2,image->file);
+X              operand=integer[0]+(integer[1] << 8);
+X            }
+X          x+=operand;
+X          break;
+X        }
+X        case ByteDataOp:
+X        {
+X          operand=fgetc(image->file);
+X          if (opcode & 0x40)
+X            {
+X              (void) ReadData((char *) integer,1,2,image->file);
+X              operand=integer[0]+(integer[1] << 8);
+X            }
+X          p=rle_pixels+((image->rows-y-1)*image->columns*number_planes)+
+X            x*number_planes+plane;
+X          operand++;
+X          for (i=0; i < operand; i++)
+X          {
+X            pixel=fgetc(image->file);
+X            if ((y < image->rows) && ((x+i) < image->columns))
+X              *p=pixel;
+X            p+=number_planes;
+X          }
+X          if (operand & 0x01)
+X            (void) fgetc(image->file);
+X          x+=operand;
+X          break;
+X        }
+X        case RunDataOp:
+X        {
+X          operand=fgetc(image->file);
+X          if (opcode & 0x40)
+X            {
+X              (void) ReadData((char *) integer,1,2,image->file);
+X              operand=integer[0]+(integer[1] << 8);
+X            }
+X          pixel=fgetc(image->file);
+X          (void) fgetc(image->file);
+X          operand++;
+X          p=rle_pixels+((image->rows-y-1)*image->columns*number_planes)+
+X            x*number_planes+plane;
+X          for (i=0; i < operand; i++)
+X          {
+X            if ((y < image->rows) && ((x+i) < image->columns))
+X              *p=pixel;
+X            p+=number_planes;
+X          }
+X          x+=operand;
+X          break;
+X        }
+X        default:
+X        {
+X          Warning("Unrecognized RLE opcode",image->filename);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      }
+X      opcode=fgetc(image->file);
+X    }
+X    if (number_colormaps > 0)
+X      {
+X        unsigned char
+X          pixel;
+X
+X        unsigned int
+X          mask;
+X
+X        /*
+X          Apply colormap transformation to image.
+X        */
+X        mask=(map_length-1);
+X        p=rle_pixels;
+X        for (i=0; i < image->packets; i++)
+X          for (j=0; j < number_planes; j++)
+X          {
+X            pixel=colormap[j*map_length+(*p & mask)];
+X            *p++=pixel;
+X          }
+X        (void) free((char *) colormap);
+X      }
+X    /*
+X      Create image.
+X    */
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    if (image->pixels == (RunlengthPacket *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImage(image);
+X        return((Image *) NULL);
+X      }
+X    p=rle_pixels;
+X    q=image->pixels;
+X    if (number_planes >= 3)
+X      {
+X        /*
+X          Convert raster image to DirectClass runlength-encoded packets.
+X        */
+X        for (i=0; i < (image->columns*image->rows); i++)
+X        {
+X          q->red=(*p++);
+X          q->green=(*p++);
+X          q->blue=(*p++);
+X          q->index=(unsigned short) (image->alpha ? (*p++) : 0);
+X          q->length=0;
+X          q++;
+X        }
+X      }
+X    else
+X      {
+X        unsigned short
+X          index;
+X
+X        /*
+X          Create grayscale map.
+X        */
+X        image->class=PseudoClass;
+X        image->colors=256;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        if (image->colormap == (ColorPacket *) NULL)
+X          {
+X            Warning("unable to read image","memory allocation failed");
+X            DestroyImage(image);
+X            return((Image *) NULL);
+X          }
+X        for (i=0; i < image->colors; i++)
+X        {
+X          image->colormap[i].red=(unsigned char) i;
+X          image->colormap[i].green=(unsigned char) i;
+X          image->colormap[i].blue=(unsigned char) i;
+X        }
+X        /*
+X          Convert raster image to PseudoClass runlength-encoded packets.
+X        */
+X        for (i=0; i < (image->columns*image->rows); i++)
+X        {
+X          index=(unsigned short) (*p++);
+X          q->red=image->colormap[index].red;
+X          q->green=image->colormap[index].green;
+X          q->blue=image->colormap[index].blue;
+X          q->index=index;
+X          q->length=0;
+X          q++;
+X        }
+X      }
+X    (void) free((char *) rle_pixels);
+X    /*
+X      Proceed to next image.
+X    */
+X    (void) fgetc(image->file);
+X    status=ReadData((char *) magick,1,2,image->file);
+X    if ((status == True) && (strncmp(magick,"\122\314",2) == 0))
+X      {
+X        /*
+X          Allocate next image structure.
+X        */
+X        image->next=AllocateImage("RLE");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u\0",alien_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->last=image;
+X        image=image->next;
+X      }
+X  } while ((status == True) && (strncmp(magick,"\122\314",2) == 0));
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d S U N I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadSUNImage reads an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.
+%
+%  The format of the ReadSUNImage routine is:
+%
+%      image=ReadSUNImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadSUNImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadSUNImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+#define RMT_EQUAL_RGB  1
+#define RMT_NONE  0
+#define RMT_RAW  2
+#define RT_STANDARD  1
+#define RT_ENCODED  2
+#define RT_FORMAT_RGB  3
+X
+X  typedef struct _Rasterfile
+X  {
+X    int
+X      magic,
+X      width,
+X      height,
+X      depth,
+X      length,
+X      type,
+X      maptype,
+X      maplength;
+X  } Rasterfile;
+X
+X  Image
+X    *image;
+X
+X  Rasterfile
+X    sun_header;
+X
+X  register int
+X    bit,
+X    i,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *sun_data,
+X    *sun_pixels;
+X
+X  unsigned long
+X    lsb_first;
+X
+X  unsigned short
+X    index;
+X
+X  unsigned int
+X    status;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("SUN");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read raster image.
+X  */
+X  status=ReadData((char *) &sun_header,1,sizeof(Rasterfile),image->file);
+X  if (status == False)
+X    {
+X      Warning("not a SUN image file",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    /*
+X      Ensure the header byte-order is most-significant byte first.
+X    */
+X    lsb_first=1;
+X    if (*(char *) &lsb_first)
+X      MSBFirstOrderLong((char *) &sun_header,sizeof(sun_header));
+X    if (sun_header.magic != 0x59a66a95)
+X      {
+X        Warning("not a SUN raster,",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    switch (sun_header.maptype)
+X    {
+X      case RMT_NONE:
+X      {
+X        if (sun_header.depth < 24)
+X          {
+X            /*
+X              Create linear color ramp.
+X            */
+X            image->colors=1 << sun_header.depth;
+X            image->colormap=(ColorPacket *)
+X              malloc(image->colors*sizeof(ColorPacket));
+X            if (image->colormap == (ColorPacket *) NULL)
+X              {
+X                Warning("memory allocation error",(char *) NULL);
+X                return((Image *) NULL);
+X              }
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=(255*i)/(image->colors-1);
+X              image->colormap[i].green=(255*i)/(image->colors-1);
+X              image->colormap[i].blue=(255*i)/(image->colors-1);
+X            }
+X          }
+X        break;
+X      }
+X      case RMT_EQUAL_RGB:
+X      {
+X        unsigned char
+X          *sun_colormap;
+X
+X        /*
+X          Read Sun raster colormap.
+X        */
+X        image->colors=sun_header.maplength/3;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        sun_colormap=(unsigned char *)
+X          malloc(image->colors*sizeof(unsigned char));
+X        if ((image->colormap == (ColorPacket *) NULL) ||
+X            (sun_colormap == (unsigned char *) NULL))
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        (void) ReadData((char *) sun_colormap,1,(int) image->colors,
+X          image->file);
+X        for (i=0; i < image->colors; i++)
+X          image->colormap[i].red=sun_colormap[i];
+X        (void) ReadData((char *) sun_colormap,1,(int) image->colors,
+X          image->file);
+X        for (i=0; i < image->colors; i++)
+X          image->colormap[i].green=sun_colormap[i];
+X        (void) ReadData((char *) sun_colormap,1,(int) image->colors,
+X          image->file);
+X        for (i=0; i < image->colors; i++)
+X          image->colormap[i].blue=sun_colormap[i];
+X        (void) free((char *) sun_colormap);
+X        break;
+X      }
+X      case RMT_RAW:
+X      {
+X        unsigned char
+X          *sun_colormap;
+X
+X        /*
+X          Read Sun raster colormap.
+X        */
+X        sun_colormap=(unsigned char *)
+X          malloc(sun_header.maplength*sizeof(unsigned char));
+X        if (sun_colormap == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        (void) ReadData((char *) sun_colormap,1,sun_header.maplength,
+X          image->file);
+X        (void) free((char *) sun_colormap);
+X        break;
+X      }
+X      default:
+X      {
+X        Warning("colormap type is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    }
+X    sun_data=(unsigned char *) malloc(sun_header.length*sizeof(unsigned char));
+X    if (sun_data == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) ReadData((char *) sun_data,1,sun_header.length,image->file);
+X    sun_pixels=sun_data;
+X    if (sun_header.type == RT_ENCODED)
+X      {
+X        register int
+X          count,
+X          number_pixels;
+X
+X        register unsigned char
+X          byte,
+X          *q;
+X
+X        /*
+X          Read run-length encoded raster pixels.
+X        */
+X        number_pixels=(sun_header.width+(sun_header.width % 2))*
+X          sun_header.height*(((sun_header.depth-1) >> 3)+1);
+X        sun_pixels=(unsigned char *)
+X          malloc(number_pixels*sizeof(unsigned char));
+X        if (sun_pixels == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        p=sun_data;
+X        q=sun_pixels;
+X        while ((q-sun_pixels) <= number_pixels)
+X        {
+X          byte=(*p++);
+X          if (byte != 128)
+X            *q++=byte;
+X          else
+X            {
+X              /*
+X                Runlength-encoded packet: <count><byte>
+X              */
+X              count=(*p++);
+X              if (count > 0)
+X                byte=(*p++);
+X              while (count >= 0)
+X              {
+X                *q++=byte;
+X                count--;
+X              }
+X           }
+X        }
+X      (void) free((char *) sun_data);
+X    }
+X    /*
+X      Create image.
+X    */
+X    image->alpha=(sun_header.depth == 32);
+X    image->class=(sun_header.depth < 24 ? PseudoClass : DirectClass);
+X    image->columns=sun_header.width;
+X    image->rows=sun_header.height;
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    (void) sprintf(image->comments,
+X      "\n  Imported from Sun raster image:  %s\n\0",image->filename);
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    /*
+X      Convert Sun raster image to runlength-encoded packets.
+X    */
+X    p=sun_pixels;
+X    q=image->pixels;
+X    if (sun_header.depth == 1)
+X      for (y=0; y < image->rows; y++)
+X      {
+X        /*
+X          Convert bitmap scanline to runlength-encoded color packets.
+X        */
+X        for (x=0; x < (image->columns >> 3); x++)
+X        {
+X          for (bit=7; bit >= 0; bit--)
+X          {
+X            index=((*p) & (0x01 << bit) ? 0x00 : 0x01);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            q++;
+X          }
+X          p++;
+X        }
+X        if ((image->columns % 8) != 0)
+X          {
+X            for (bit=7; bit >= (8-(image->columns % 8)); bit--)
+X            {
+X              index=((*p) & (0x01 << bit) ? 0x00 : 0x01);
+X              q->red=image->colormap[index].red;
+X              q->green=image->colormap[index].green;
+X              q->blue=image->colormap[index].blue;
+X              q->index=index;
+SHAR_EOF
+true || echo 'restore of ImageMagick/alien.c failed'
+fi
+echo 'End of  part 21'
+echo 'File ImageMagick/alien.c is continued in part 22'
+echo 22 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

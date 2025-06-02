@@ -1,0 +1,1729 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 8/8
+Message-ID: <1992Apr12.182146.15622@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:46 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1718
+
+Archive-name: empireclient_110/part8
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 8 -+-+-+-+-+-+-+-+
+X    if (food == UNKNOWN_num `124`124 civ == UNKNOWN_num `124`124 uw == UNKNO
+VWN_num
+X`009`124`124 fert == UNKNOWN_num `124`124 mil == UNKNOWN_num)
+X`009return 0;   /* no information */
+X
+X    left = food;
+X   `032
+X    /* production food */
+X    temp = VD_update_etu * ( VD_pro_food * fert / 100.0);
+X    /* harvest food */
+X    temp2 = VD_update_etu * ( VD_harv_food * (civ + uw) / 1000.0 +
+X`009VD_harv_food * civ / 1000.0 / 5);   /*      `094`094   ??? */
+X
+X    if (temp > temp2) temp = temp2;
+X   `032
+X    left += temp;
+X
+X    /* people eats */
+X    left -= VD_update_etu * ((civ + uw + mil) / 1000.0 * VD_use_food);
+X
+X   `032
+X    if (left < 0) return 1; /* don't birth any */
+X
+X    /* can use only half of food */
+X    left /= 2;
+X
+X    *civ_b = VD_update_etu * (civ / 1000.0 * VD_pro_civ);
+X    *uw_b  = VD_update_etu * (uw / 1000.0 * VD_pro_uw);
+X
+X    if (civ > MAX_POP) *civ_b = 0;
+X    else if (civ + *civ_b > MAX_POP) *civ_b = MAX_POP - civ;
+X
+X    if (uw > MAX_POP) *uw_b = 0;
+X    else if (uw + *uw_b > MAX_POP) *uw_b = MAX_POP - uw;
+X
+X    if (left < *civ_b / 1000.0 * VD_buse_food)`032
+X`009*civ_b = left * 1000.0 / VD_buse_food;
+X    left -= *civ_b / 1000.0 * VD_buse_food;
+X
+X    if (left < *uw_b / 1000.0 * VD_buse_food)
+X`009*uw_b = left * 1000.0 / VD_buse_food;
+X    left -= *uw_b / 1000.0 * VD_buse_food;
+X   `032
+X    return 1;
+X`125
+X
+Xstatic int check_desig(sector_data *sector,int *comm, int *peff)
+X`123
+X    char des = (*sector)`091F_des`093.U_num;
+X    int eff   = (*sector)`091F_eff`093.U_num;
+X    dump_fields  field;
+X    int i;
+X
+X    if (des == UNKNOWN_char `124`124 eff == UNKNOWN_num) return 0;
+X
+X    *comm = -1;
+X    *peff = 0;
+X
+X    for (i = 0; i < sizeof(commodities) / sizeof(struct COMMODITY); i++)`032
+X`009if (commodities`091i`093.des == des) `123
+X`009    *comm = i;
+X`009    break;
+X`009`125
+X
+X    if (*comm == -1) return -1;
+X    field = commodities`091*comm`093.ore;
+X    if (field == F_NULL) return -1;
+X
+X    *peff = (*sector)`091field`093.U_num;
+X    if (*peff == UNKNOWN_num) return 0;
+X    return 1;
+X`125
+X   `032
+Xstatic int C_desigcheck(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093,buffer3`091C
+VOMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,var = -1;
+X    int all = 0;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: desigcheck area ?selector all =$var",E_none,NULL);
+X`009write_line("       desigcheck area ?selector all +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reask prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if (StrEQ(buffer,"all",1)) `123
+X`009all = 1;
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X    else if (StrEQ(buffer,"",1) `124`124 buffer`0910`093 == '=' `124`124 buf
+Vfer`0910`093 == '+')`032
+X`009all = 0;
+X    else write_line("bad parameter",E_tool,buffer);
+X
+X    if (strlen(buffer) && init_var(&var,buffer) == -1) return 1;
+X
+X    sprintf(buffer,"Sector  des comm peff");
+X    write_line(buffer,E_none,NULL);
+X
+X    for(i = 0; i < dump_database.count; i++)`032
+X`009if (table`091i`093) `123
+X`009    int peff,comm,code;
+X`009    sprintf(buffer,"%3d,%-3d %c   ",
+X`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_y`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_des`093.U_char);
+X
+X`009    if (code = check_desig(&dump_database.sectors`091i`093,&comm,&peff))
+V `123
+X`009`009if (code < 0) `123
+X`009`009    if (comm < 0) sprintf(buffer3,"          Not checked");
+X`009`009    else sprintf(buffer3,"%c         Not checked",
+X`009`009`009commodities`091comm`093.C);
+X`009`009`125 else `123
+X`009`009    sprintf(buffer3,"%c    %-3d ",
+X`009`009`009commodities`091comm`093.C,peff);
+X`009`009    if (peff > 5) strcpy(buffer2," OK");
+X`009`009    else `123
+X`009`009`009sprintf(buffer2," Will not produce much %s",
+X`009`009`009    commodities`091comm`093.name);
+X`009`009`009add_to_var(var,
+X`009`009`009    dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009`009    dump_database.sectors`091i`093`091F_y`093.U_num);
+X`009`009    `125
+X`009`009    strcat(buffer3,buffer2);
+X`009`009`125
+X`009    `125 else `123
+X`009`009sprintf(buffer3,"          No information");
+X`009`009peff = 0;
+X`009`009comm = -1;
+X`009    `125
+X
+X`009    strcat(buffer,buffer3);
+X`009    if ((peff < 6 && comm >= 0) `124`124 all)
+X`009    write_line(buffer,E_none,NULL);
+X`009`125   `032
+X    return 1; /* reask prompt */
+X`125
+X
+X
+Xstatic int C_foodcheck(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093,buffer3`091C
+VOMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,var = -1;
+X    int all = 0;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: foodcheck area ?selector all =$var",E_none,NULL);
+X`009write_line("       foodcheck area ?selector all +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reask prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if (StrEQ(buffer,"all",1)) `123
+X`009all = 1;
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X    else if (StrEQ(buffer,"",1) `124`124 buffer`0910`093 == '=' `124`124 buf
+Vfer`0910`093 == '+')`032
+X`009all = 0;
+X    else write_line("bad parameter",E_tool,buffer);
+X
+X    if (strlen(buffer) && init_var(&var,buffer) == -1) return 1;
+X
+X    sprintf(buffer,"Sector  des food");
+X    write_line(buffer,E_none,NULL);
+X
+X    for(i = 0; i < dump_database.count; i++)`032
+X`009if (table`091i`093) `123
+X`009    int left;
+X`009    sprintf(buffer,"%3d,%-3d %c  ",
+X`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_y`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_des`093.U_char);
+X`009    Text(&dump_database.sectors`091i`093,F_food,buffer2);
+X`009    sprintf(buffer3," %4s ",buffer2);
+X`009    strcat(buffer,buffer3);
+X
+X`009    if (check_food(&dump_database.sectors`091i`093,&left)) `123
+X`009`009if (left < 0) `123
+X`009`009    sprintf(buffer3,"Need %d unit%s food",
+X`009`009    -left, -left == 1 ? "": "s" );
+X`009`009    add_to_var(var,
+X`009`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009`009dump_database.sectors`091i`093`091F_y`093.U_num);
+X`009`009`125
+X`009`009if (left > 0) sprintf(buffer3,"%d unit%s food left",
+X`009`009    left, left == 1 ? "" : "s" );
+X`009`009if (left == 0) sprintf(buffer3,"ok");
+X`009    `125 else `123
+X`009`009sprintf(buffer3,"No information");
+X`009`009left = 0;
+X`009    `125
+X
+X`009    strcat(buffer,buffer3);
+X`009    if (left < 0 `124`124 all)
+X`009    write_line(buffer,E_none,NULL);
+X`009`125   `032
+X    return 1; /* reask prompt */
+X`125
+X
+Xstatic int C_birthcheck(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093,buffer2`091COMMAND_SIZE`093,buffer3`091C
+VOMMAND_SIZE`093;
+X    selector table;
+X    dump_fields field;
+X    int i,j,counter=0,var = -1;
+X    int all = 0;
+X
+X    if (*param == '\0' `124`124 StrEQ (param,"?",0)) `123
+X`009write_line("Usage: birthcheck area ?selector all =$var",E_none,NULL);
+X`009write_line("       birthcheck area ?selector all +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,table,buffer)) return 1; /* reask prompt */
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if (StrEQ(buffer,"all",1)) `123
+X`009all = 1;
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X    else if (StrEQ(buffer,"",1) `124`124 buffer`0910`093 == '=' `124`124 buf
+Vfer`0910`093 == '+')`032
+X`009all = 0;
+X    else `123
+X`009write_line("bad parameter",E_tool,buffer);
+X`009return 1; /* reask prompt */
+X    `125
+X
+X    if (strlen(buffer) && init_var(&var,buffer) == -1) return 1;
+X
+X    sprintf(buffer,"Sector  des civ  uw");
+X    write_line(buffer,E_none,NULL);
+X
+X    for(i = 0; i < dump_database.count; i++)`032
+X`009if (table`091i`093) `123
+X`009    int civ,uw;
+X`009    sprintf(buffer,"%3d,%-3d %c  ",
+X`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_y`093.U_num,
+X`009`009dump_database.sectors`091i`093`091F_des`093.U_char);
+X
+X`009    Text(&dump_database.sectors`091i`093,F_civ,buffer2);
+X`009    sprintf(buffer3," %3s",buffer2);
+X`009    strcat(buffer,buffer3);
+X
+X`009    Text(&dump_database.sectors`091i`093,F_uw,buffer2);
+X`009    sprintf(buffer3," %3s",buffer2);
+X`009    strcat(buffer,buffer3);
+X
+X`009    if (check_baby(&dump_database.sectors`091i`093,&civ,&uw)) `123
+X`009`009buffer3`0910`093 = '\0';
+X`009`009if (civ > 0 && all) `123
+X`009`009    sprintf(buffer2,"%s gives %d civ%s",
+X`009`009`009buffer3`0910`093 ? "," : "",
+X`009`009`009civ, civ == 1 ? "" : "s" );
+X`009`009    strcat(buffer3,buffer2);
+X`009`009`125
+X`009`009if (civ <= 0 &&`032
+X`009`009    (all `124`124 dump_database.sectors`091i`093`091F_civ`093.U_num
+V > 1)) `123
+X`009`009    sprintf(buffer2,"%s not give any civs",
+X`009`009`009buffer3`0910`093 ? "," : "");
+X`009`009    strcat(buffer3,buffer2);
+X
+X`009`009    add_to_var(var,
+X`009`009`009dump_database.sectors`091i`093`091F_x`093.U_num,
+X`009`009`009dump_database.sectors`091i`093`091F_y`093.U_num);
+X`009`009`125
+X
+X`009`009if (uw > 0 && all) `123
+X`009`009    sprintf(buffer2,"%s gives %d uw%s",
+X`009`009`009buffer3`0910`093 ? "," : "",
+X`009`009`009uw, uw == 1 ? "" : "s" );
+X`009`009    strcat(buffer3,buffer2);
+X`009`009`125
+X`009`009if (uw <= 0 &&`032
+X`009`009    (all `124`124 dump_database.sectors`091i`093`091F_uw`093.U_num >
+V 1)) `123
+X`009`009    sprintf(buffer2,"%s not give any uws",
+X`009`009`009buffer3`0910`093 ? "," : "");
+X`009`009    strcat(buffer3,buffer2);
+X`009`009`125
+X
+X`009`009strcat(buffer,buffer3);
+X`009`009if (buffer3`0910`093) write_line(buffer,E_none,NULL);
+X
+X`009    `125 else `123
+X`009`009sprintf(buffer3,"  No information");
+X
+X`009`009strcat(buffer,buffer3);
+X`009`009if (all) write_line(buffer,E_none,NULL);
+X`009    `125
+X
+X`009`125   `032
+X    return 1; /* reask prompt */
+X`125
+X
+Xstatic int C_autodump(char *comm, char *param)
+X`123
+X    if (StrEQ(param,"?",0)) `123
+X`009write_line("Usage: autodump on/off",E_none,NULL);
+X`009return 1;   /* reask prompt */
+X    `125
+X
+X    if (!param`0910`093) `123
+X`009if (auto_update) write_line("Autodump is ON",E_none,NULL);
+X`009else write_line("Autodump is OFF",E_none,NULL);
+X`009return 1;   /* reask prompt */
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    if (StrEQ(param,"on",1)) `123
+X`009auto_update = 1;
+X`009cancel_updatetimer();
+X`009write_line("Autodump is now ON",E_none,NULL);
+X`009feed_command("update",parse_update);
+X`009return 0;  /* don't reask prompt */
+X    `125
+X
+X    if (StrEQ(param,"off",1)) `123
+X`009auto_update = 0;
+X`009write_line("Autodump is now OFF",E_none,NULL);
+X`009cancel_updatetimer();
+X`009return 1;   /* reask prompt */
+X    `125
+X
+X    write_line("Bad parameter",E_tool,param);
+X    return 1;`009/* reask prompt */
+X`125
+X
+X#define MAX_MOVE_PATH 50
+X
+Xstatic int C_move(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    char path`091MAX_MOVE_PATH+2`093;
+X    sector_data *from,*tar,*B = dump_database.sectors;
+X    cost_table costtable;
+X    dir_table dirtable;
+X    int commodity,amount,mob,temp_X,temp_Y,var = -1;
+X    expression amount_e;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: move com from amount target =$var",E_none,NULL);
+X`009write_line("       move com from amount target +$var",E_none,NULL);
+X`009write_line("   amount can be expression (depending of target-sector)",
+X`009    E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if((move_field = MatchCom(buffer,&commodity)) == F_NULL) return 1;
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d,%d",&start_X,&start_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(from = Locate(&dump_database,start_X,start_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    amount = (*from)`091move_field`093.U_num;
+X    mob = (*from)`091F_mob`093.U_num;
+X
+X    if (amount == UNKNOWN_num `124`124 mob == UNKNOWN_num) `123
+X`009write_line("Not enaugh data for that sector",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if (move_field == F_civ) amount--;`009    /* not move last */
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009!parse_expression(&amount_e,buffer)) `123
+X`009write_line("No such amount",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d,%d",&tar_X,&tar_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125 else if ((move_amount = execute_expression(amount_e,tar)) ==`032
+X`009UNKNOWN_num) `123
+X`009write_line("Can't calculate amount expression",E_tool,NULL);
+X`009return 1;
+X    `125 else if (move_amount <= 0) `123
+X`009sprintf(buffer,"%d",move_amount);
+X`009write_line("Non-positive amount - nothing need to move",E_tool,buffer);
+X`009return 1;
+X    `125 else if (move_amount > amount) `123
+X`009sprintf(buffer,"%d (only %d)",move_amount,amount);
+X`009write_line("No such amount to move",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    calculate_cost(&dump_database,start_X,start_Y,
+X`009costtable,dirtable,MAX_MOVE_PATH);
+X
+X    if (costtable`091tar - B`093 * move_amount * commodities`091commodity`09
+V3.mob_mul`032
+X`009> mob) `123
+X`009write_line("No enough mobility",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    give_path(&dump_database,dirtable,path,tar - B,&temp_X,&temp_Y);
+X    if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009write_line("Something is wrong with path",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    move_auto = 0;
+X    move_stat = 0;
+X    cur_mob = UNKNOWN_num;
+X    move_var = var;
+X
+X    sprintf(buffer,"move %c %d,%d %d %s",
+X`009commodities`091commodity`093.C,start_X,start_Y,move_amount,path);
+X    feed_command(buffer,parse_dump_move);
+X    return 0;`009/* no prompt */
+X`125
+X
+Xstatic selector move_table;
+Xstatic int`009move_ind = 0;
+Xstatic int`009move_com_i = 0;
+Xstatic expression move_amount_expression;
+X
+Xstatic void move_next(void)`032
+X`123
+X    char path`091MAX_MOVE_PATH+2`093;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar,*B = dump_database.sectors;
+X    cost_table costtable;
+X    dir_table dirtable;
+X    int amount,mob,temp_X,temp_Y;
+X
+X    int again = 1;
+X
+X    if (BTU_left <= btu_limit) `123
+X`009sprintf(buffer, "No BTU left - Collected %d %s%s",
+X`009    move_stat,commodities`091move_com_i`093.name,`032
+X`009    move_stat == 1 ? "" : "s");
+X`009write_line(buffer,E_none,NULL);
+X        call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    while(again) `123
+X`009again = 0;
+X`009if (move_ind >= dump_database.count) `123
+X`009    sprintf(buffer, "Collected %d %s%s",
+X`009`009move_stat,commodities`091move_com_i`093.name,`032
+X`009`009move_stat == 1 ? "" : "s");
+X`009    write_line(buffer,E_none,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009if (!move_table`091move_ind`093) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009start_X = dump_database.sectors`091move_ind`093`091F_x`093.U_num;
+X`009start_Y = dump_database.sectors`091move_ind`093`091F_y`093.U_num;
+X
+X`009if (start_X == UNKNOWN_num `124`124 start_Y == UNKNOWN_num) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009if (start_X == tar_X && start_Y == tar_Y) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009amount = dump_database.sectors`091move_ind`093`091move_field`093.U_num;
+X`009mob = dump_database.sectors`091move_ind`093`091F_mob`093.U_num;
+X
+X`009if (amount == UNKNOWN_num `124`124 mob == UNKNOWN_num) `123
+X`009    sprintf(buffer,"Not enaugh data for sector %d,%d",
+X`009`009start_X,start_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009if (move_field == F_civ) amount--;`009    /* not move last */
+X
+X`009if (amount < 1) `123
+X`009    sprintf(buffer,"No %s to move from sector %d,%d",
+X`009`009commodities`091move_com_i`093.name, start_X,start_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009if(!(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009    write_line("Target sector not found",E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009move_amount = execute_expression(move_amount_expression,
+X`009    dump_database.sectors`091move_ind`093);
+X`009if (move_amount == UNKNOWN_num) `123
+X `009    sprintf(buffer,"Can't calculate amount of %s to move from sector %d
+V,%d",
+X`009`009commodities`091move_com_i`093.name, start_X,start_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125 else if (move_amount <= 0) `123
+X`009    sprintf(buffer,"Amount of %s to move from sector %d,%d is non-positi
+Vve: %d",
+X`009`009commodities`091move_com_i`093.name, start_X,start_Y,move_amount);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125`032
+X
+X`009if (move_amount > amount) `123
+X`009    move_amount = amount;
+X
+X`009    sprintf(buffer,"Collecting only %d %s%s from sector %d,%d",
+X`009`009move_amount,
+X`009`009commodities`091move_com_i`093.name, move_amount == 1 ? "" : "s",`032
+X`009`009start_X,start_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009`125
+X
+X`009calculate_cost(&dump_database,start_X,start_Y,
+X`009    costtable,dirtable,MAX_MOVE_PATH);
+X
+X`009if (costtable`091tar - B`093 * move_amount *`032
+X`009    commodities`091move_com_i`093.mob_mul  > mob) `123
+X`009    int tmp = move_amount;
+X
+X`009    if (commodities`091move_com_i`093.mob_mul`009* costtable`091tar - B`
+V093 > 0)
+X`009`009move_amount = mob /`032
+X`009`009    (commodities`091move_com_i`093.mob_mul* costtable`091tar - B`093
+V);
+X`009    else move_amount = 0;
+X
+X`009    if (move_amount <= 0) `123
+X`009`009sprintf(buffer,"Not enough mobility in sector %d,%d",
+X`009`009    start_X,start_Y);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009`009again = 1;
+X`009`009move_ind++;
+X`009`009continue;
+X`009    `125 else `123
+X`009`009sprintf(buffer,
+X"Not enough mobility in sector %d,%d - moving only %d (of %d)",
+X`009`009    start_X,start_Y,move_amount,tmp);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009    `125
+X`009`125
+X
+X`009give_path(&dump_database,dirtable,path,tar - B,&temp_X,&temp_Y);
+X`009if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009    write_line("Something is wrong with path",E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X    `125
+X    move_ind++;
+X
+X    move_auto = 1; /* 1 = collect, 2 = automove */
+X    cur_mob = UNKNOWN_num;
+X    sprintf(buffer,"move %c %d,%d %d %s",
+X`009commodities`091move_com_i`093.C,start_X,start_Y,move_amount,path);
+X    feed_command(buffer,parse_dump_move);
+X
+X`125
+X
+Xstatic cost_table moveauto_costtable;
+Xstatic dir_table moveauto_dirtable;
+X
+X
+Xstatic void moveauto_next(void)`032
+X`123
+X    char path`091MAX_MOVE_PATH+2`093;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *from,*B = dump_database.sectors;
+X    int amount,mob,temp_X,temp_Y;
+X
+X    int again = 1;
+X
+X    if (BTU_left <= btu_limit) `123
+X`009sprintf(buffer, "No BTU left - Moved %d %s%s",
+X`009    move_stat,commodities`091move_com_i`093.name,`032
+X`009    move_stat == 1 ? "" : "s");
+X`009write_line(buffer,E_none,NULL);
+X        call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    while(again) `123
+X`009again = 0;
+X`009if (move_ind >= dump_database.count) `123
+X`009    sprintf(buffer, "Moved %d %s%s",
+X`009`009move_stat,commodities`091move_com_i`093.name,`032
+X`009`009move_stat == 1 ? "" : "s");
+X`009    write_line(buffer,E_none,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009if (!move_table`091move_ind`093) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009tar_X = dump_database.sectors`091move_ind`093`091F_x`093.U_num;
+X`009tar_Y = dump_database.sectors`091move_ind`093`091F_y`093.U_num;
+X
+X`009if (tar_X == UNKNOWN_num `124`124 tar_Y == UNKNOWN_num) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009if (start_X == tar_X && start_Y == tar_Y) `123
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125
+X
+X`009if(!(from = Locate(&dump_database,start_X,start_Y))) `123
+X`009    write_line("Sector not found",E_tool,buffer);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009amount = (*from)`091move_field`093.U_num;
+X`009mob = (*from)`091F_mob`093.U_num;
+X
+X`009if (amount == UNKNOWN_num `124`124 mob == UNKNOWN_num) `123
+X`009    sprintf(buffer,"Not enaugh data for sector %d,%d",
+X`009`009start_X,start_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X`009if (move_field == F_civ) amount--;`009    /* not move last */
+X
+X`009if (amount < 1) `123
+X`009    sprintf(buffer,"No %s to move from sector %d,%d - Moved %d %s%s",
+X`009`009commodities`091move_com_i`093.name, start_X,start_Y,
+X`009`009move_stat,commodities`091move_com_i`093.name,`032
+X`009`009move_stat == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X
+X`009move_amount = execute_expression(move_amount_expression,
+X`009    dump_database.sectors`091move_ind`093);
+X`009if (move_amount == UNKNOWN_num) `123
+X `009    sprintf(buffer,"Can't calculate amount of %s to move to sector %d,%
+Vd",
+X`009`009commodities`091move_com_i`093.name, tar_X,tar_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125 else if (move_amount <= 0) `123
+X`009    sprintf(buffer,"Amount of %s to move to sector %d,%d is non-positive
+V: %d",
+X`009`009commodities`091move_com_i`093.name, tar_X,tar_Y,move_amount);
+X`009    write_line(buffer,E_tool,NULL);
+X`009    again = 1;
+X`009    move_ind++;
+X`009    continue;
+X`009`125`032
+X
+X`009if (move_amount > amount) `123
+X`009    move_amount = amount;
+X
+X`009    sprintf(buffer,"Moving only %d %s%s from sector %d,%d to %d,%d",
+X`009`009move_amount,
+X`009`009commodities`091move_com_i`093.name, move_amount == 1 ? "" : "s",`032
+X`009`009start_X,start_Y,tar_X,tar_Y);
+X`009    write_line(buffer,E_tool,NULL);
+X`009`125
+X
+X`009if (moveauto_costtable`091move_ind`093 * move_amount *`032
+X`009    commodities`091move_com_i`093.mob_mul  > mob) `123
+X`009    int tmp = move_amount;
+X
+X`009    if (commodities`091move_com_i`093.mob_mul`009*`032
+X`009`009moveauto_costtable`091move_ind`093 > 0)
+X`009`009move_amount = mob /`032
+X`009`009    (commodities`091move_com_i`093.mob_mul*`032
+X`009`009    moveauto_costtable`091move_ind`093);
+X`009    else move_amount = 0;
+X
+X`009    if (move_amount <= 0) `123
+X`009`009sprintf(buffer,
+X"Not enough mobility in sector %d,%d - Moved %d %s%s",
+X`009`009    start_X,start_Y,
+X`009`009    move_stat,commodities`091move_com_i`093.name,`032
+X`009`009    move_stat == 1 ? "" : "s");
+X`009`009write_line(buffer,E_tool,NULL);
+X`009`009call_empiretool_handler();
+X`009`009return;
+X`009    `125 else `123
+X`009`009sprintf(buffer,
+X"Not enough mobility in sector %d,%d - moving only %d (of %d) to %d,%d",
+X`009`009    start_X,start_Y,move_amount,tmp,tar_X,tar_Y);
+X`009`009write_line(buffer,E_tool,NULL);
+X`009    `125
+X`009`125
+X
+X`009give_path(&dump_database,moveauto_dirtable,path,move_ind,&temp_X,&temp_Y
+V);
+X`009if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009    write_line("Something is wrong with path",E_tool,NULL);
+X`009    call_empiretool_handler();
+X`009    return;
+X`009`125
+X
+X    `125
+X    move_ind++;
+X
+X    move_auto = 2; /* 1 = collect, 2 = automove */
+X    cur_mob = UNKNOWN_num;
+X    sprintf(buffer,"move %c %d,%d %d %s",
+X`009commodities`091move_com_i`093.C,start_X,start_Y,move_amount,path);
+X    feed_command(buffer,parse_dump_move);
+X
+X`125
+X
+Xstatic int C_collect(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar;
+X    int btu;
+X
+X    move_var = -1;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line(
+X`009"Usage: collect com from_area ?selector... amount target btu =$var",
+X`009    E_none,NULL);
+X`009write_line(
+X`009"       collect com from_area ?selector... amount target btu +$var",
+X`009    E_none,NULL);
+X`009write_line("  amount can be expression (depending of from-sector)",
+X`009    E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if((move_field = MatchCom(buffer,&move_com_i)) == F_NULL) return 1;
+X
+X    InitSelector(move_table);
+X    move_ind = 0;
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,move_table,buffer)) return 1; /* reask prompt *
+V/
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,move_table,buffer)) return 1; /* reask prompt
+V */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if(!parse_expression(&move_amount_expression,buffer)) `123
+X`009write_line("No such amount",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d,%d",&tar_X,&tar_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    btu = BTU_left - 20;
+X    if (btu < 0) `123
+X`009write_line("No BTU's for collect!",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (stepper(&param,buffer,sizeof(buffer)) &&`032
+X`009(sscanf(buffer,"%d",&btu) != 1 `124`124
+X`009    btu > BTU_left)) `123
+X`009write_line("No such btu",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&move_var,buffer) == -1) return 1;
+X
+X    btu_limit = BTU_left - btu;
+X    move_ind = 0;
+X    move_auto = 1;
+X    move_stat = 0;
+X    move_next();
+X    return 0;`009/* no prompt */
+X`125
+X
+Xstatic int C_automove(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *from;
+X    int btu;
+X
+X    move_var = -1;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line(
+X`009"Usage: automove com from amount target_area ?selector... btu =$var",
+X`009    E_none,NULL);
+X`009write_line(
+X`009"       automove com from amount target_area ?selector... btu +$var",
+X`009    E_none,NULL);
+X`009write_line("  amount can be expression (depending of target-sector)",
+X`009    E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if((move_field = MatchCom(buffer,&move_com_i)) == F_NULL) return 1;
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if(sscanf(buffer,"%d,%d",&start_X,&start_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(from = Locate(&dump_database,start_X,start_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if(!parse_expression(&move_amount_expression,buffer)) `123
+X`009write_line("No such amount",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    InitSelector(move_table);
+X    move_ind = 0;
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,move_table,buffer)) return 1; /* reask prompt *
+V/
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,move_table,buffer)) return 1; /* reask prompt
+V */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    btu = BTU_left - 20;
+X    if (btu < 0) `123
+X`009write_line("No BTU's for collect!",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if ((sscanf(buffer,"%d",&btu) != 1 `124`124
+X`009    btu > BTU_left)) `123
+X`009write_line("No such btu",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&move_var,buffer) == -1) return 1;
+X
+X    calculate_cost(&dump_database,start_X,start_Y,
+X`009moveauto_costtable,moveauto_dirtable,MAX_MOVE_PATH);
+X
+X    btu_limit = BTU_left - btu;
+X    move_ind = 0;
+X    move_auto = 2;
+X    move_stat = 0;
+X    moveauto_next();
+X    return 0;`009/* no prompt */
+X`125
+X
+X
+Xstatic int C_path(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093,buffer2`091ERROR_LEN`093;
+X    char path`091MAX_MOVE_PATH+2`093;
+X    sector_data *from,*tar,*B = dump_database.sectors;
+X    cost_table costtable;
+X    dir_table dirtable;
+X    int temp_X,temp_Y;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: path from target",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if(sscanf(buffer,"%d,%d",&start_X,&start_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(from = Locate(&dump_database,start_X,start_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d,%d",&tar_X,&tar_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    calculate_cost(&dump_database,start_X,start_Y,
+X`009costtable,dirtable,MAX_MOVE_PATH);
+X
+X    if (costtable`091tar - B`093 > 1000) `123
+X`009sprintf(buffer2,"No path from %d,%d to %d,%d",
+X`009    start_X,start_Y,tar_X,tar_Y);
+X`009write_line(buffer2,E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    give_path(&dump_database,dirtable,path,tar - B,&temp_X,&temp_Y);
+X    if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009write_line("Something is wrong with path",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    sprintf(buffer2,"Best path from %d,%d to %d,%d is %s",
+X`009start_X,start_Y,tar_X,tar_Y,path);
+X    write_line(buffer2,E_none,NULL);
+X    sprintf(buffer2,"with cost %.2f (lengt %d).",
+X`009costtable`091tar - B`093,strlen(path));
+X    write_line(buffer2,E_none,NULL);
+X    return 1;
+X`125
+X
+Xstatic int C_autodist(char *comm, char *param)`032
+X`123
+X    dump_fields array`091MAX_ARGS`093;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar;
+X    int btu,var = -1,targ;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: autodistribute area ?selector X,Y btu =$var",
+X`009    E_none,NULL);
+X`009write_line("       autodistribute area ?selector X,Y btu +$var",
+X`009    E_none,NULL);
+X
+X`009write_line("       autodistribute area ?selector dc_area ?selector btu =
+V$var",
+X`009    E_none,NULL);
+X`009write_line("       autodistribute area ?selector dc_area ?selector btu +
+V$var",
+X`009    E_none,NULL);
+X
+X`009return 1;
+X    `125
+X    InitSelector(dist_table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&dump_database,dist_table,buffer)) return 1; /* reask prompt *
+V/
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&dump_database,dist_table,buffer)) return 1; /* reask prompt
+V */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if(sscanf(buffer,"%d,%d",&tar_X,&tar_Y) != 2) `123
+X`009targ = 0;
+X`009InitSelector(dist_targ_table);
+X
+X`009if (!Base(&dump_database,dist_targ_table,buffer)) return 1; /* reask pro
+Vmpt */
+X
+X`009stepper(&param,buffer,sizeof(buffer));
+X`009if (*buffer == '?') `123
+X`009    if (!Filter(&dump_database,dist_targ_table,buffer)) return 1; /* rea
+Vsk prompt */
+X`009    stepper(&param,buffer,sizeof(buffer));
+X`009`125
+X    `125 else `123
+X`009stepper(&param,buffer,sizeof(buffer));
+X`009targ = 1;
+X    `125
+X
+X    if(targ && !(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    btu = BTU_left - 20;
+X    if (btu < 0) `123
+X`009write_line("No BTU's for distribute!",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (buffer`0910`093 && (sscanf(buffer,"%d",&btu) != 1 `124`124
+X`009    btu > BTU_left)) `123
+X`009write_line("No such btu",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    btu_limit = BTU_left - btu;
+X    dist_count = 0;
+X    dist_auto = 1;
+X    dist_targ = targ;
+X    dist_var = var;
+X
+X    dist_cur = -1;
+X    next_distribute();
+X    return 0; /* no prompt */
+X`125
+X
+Xstatic int C_save(char *comm, char *param)`032
+X`123
+X    dump_fields array`091MAX_ARGS`093;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar;
+X    int btu;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: save file",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    write_database(param,&dump_database, dump_area);
+X
+X    return 1;
+X`125
+X
+Xstatic int C_distribute(char *comm, char *param)`032
+X`123
+X    cost_table costtable;
+X    dir_table dirtable;
+X    char *oldpath;
+X    int temp_X,temp_Y,var = -1;
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar,*from,*B = dump_database.sectors;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: distribute from to =$var",E_none,NULL);
+X`009write_line("       distribute from to +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124
+X`009sscanf(buffer,"%d,%d",&start_X,&start_Y) != 2) `123
+X`009write_line("Give from-sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if (!(from = Locate(&dump_database,start_X,start_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    oldpath = (*from)`091F_dist_path`093.U_string;
+X    if (oldpath == UNKNOWN_string) `123
+X`009write_line("No enaugh information for sector",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124
+X`009sscanf(buffer,"%d,%d",&tar_X,&tar_Y) != 2) `123
+X`009write_line("Give to-sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    calculate_cost(&dump_database,start_X,start_Y,
+X`009costtable,dirtable,MAX_DIST_PATH);
+X
+X    if (costtable`091tar - B`093 > 1000) `123
+X`009sprintf(buffer,"No path from %d,%d to %d,%d",
+X`009    start_X,start_Y,tar_X,tar_Y);
+X`009write_line(buffer,E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    give_path(&dump_database,dirtable,dist_path,tar - B,&temp_X,&temp_Y);
+X    if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009write_line("Something is wrong with path",E_tool,NULL);
+X`009return 1;
+X    `125
+X
+X    if (oldpath && (StrEQ(oldpath,dist_path,0) `124`124
+X`009(StrEQ(oldpath,"_",0) && StrEQ(dist_path,"",0)))) `123
+X`009sprintf(buffer,"Path from %d,%d to %d,%d OK!",
+X`009start_X,start_Y,tar_X,tar_Y);
+X`009write_line(buffer,E_none,NULL);
+X`009return 1; /* prompt */
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    dist_auto = 0;
+X    dist_var = var;
+X    sprintf(buffer,"distribute %d,%d %sh",
+X`009start_X,start_Y,dist_path);
+X    feed_command(buffer,parse_dump_dist);
+X
+X    return 0; /* no prompt */
+X`125
+X
+Xstatic int C_desig(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    sector_data *tar;
+X    int var = -1;
+X
+X    if (*param == '\0' `124`124 StrEQ(param,"?",0)) `123
+X`009write_line("Usage: designate sector designation =$var",E_none,NULL);
+X`009write_line("       designate sector designation +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124
+X`009sscanf(buffer,"%d,%d",&des_X,&des_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if (!(tar = Locate(&dump_database,des_X,des_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if ((*tar)`091F_eff`093.U_num == UNKNOWN_num) `123
+X`009write_line("No enaugh information for sector",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124
+X`009strlen(buffer) != 1 `124`124
+X`009sscanf(buffer,"%c",&des_C) != 1) `123
+X`009write_line("Give designation in form D",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    des_var = var;
+X    des_explore = 0;
+X    sprintf(buffer,"designate %d,%d %c",des_X,des_Y,des_C);
+X    feed_command(buffer,parse_dump_desig);
+X    return 0;
+X`125
+X
+Xstatic int C_thre(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    char path`091MAX_MOVE_PATH+2`093;
+X    sector_data *from;
+X    int commodity,amount;
+X    dump_fields field;
+X    int var = -1;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: threshold com X,Y amount =$var",E_none,NULL);
+X`009write_line("       threshold com X,Y amount +$var",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X
+X    if((field = MatchCom(buffer,&commodity)) == F_NULL) return 1;
+X    thre_field = commodities`091commodity`093.thre;
+X
+X    if (thre_field == F_NULL) `123
+X`009write_line("No such commodity",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d,%d",&thre_X,&thre_Y) != 2) `123
+X`009write_line("Give sector in format X,Y",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!(from = Locate(&dump_database,thre_X,thre_Y))) `123
+X`009write_line("Sector not found",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if ((*from)`091field`093.U_num == UNKNOWN_num `124`124 `032
+X`009(*from)`091thre_field`093.U_num == UNKNOWN_num) `123
+X`009write_line("Not enaugh data for that sector",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(!stepper(&param,buffer,sizeof(buffer)) `124`124`032
+X`009sscanf(buffer,"%d",&thre_amount) != 1) `123
+X`009write_line("No such amount",E_tool,buffer);
+X`009return 1;
+X    `125
+X
+X    if(stepper(&param,buffer,sizeof(buffer)) &&
+X`009init_var(&var,buffer) == -1) return 1;
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009return 1;
+X    `125
+X
+X    thre_var = var;
+X   `032
+X    sprintf(buffer,"threshold %c %d,%d %d",
+X`009commodities`091commodity`093.C,thre_X,thre_Y,thre_amount);
+X    feed_command(buffer,parse_dump_thre);
+X    return 0;`009/* no prompt */
+X`125
+X
+Xstatic int C_compare(char *comm, char *param)`032
+X`123
+X    char buffer`091COMMAND_SIZE`093,area`091COMMAND_SIZE`093,
+X`009database_name`091COMMAND_SIZE`093;
+X    selector table;
+X    int var = -1,i;
+X    int ok = 1;
+X
+X    if (!stepper(&param,buffer,sizeof(buffer)) `124`124 StrEQ(buffer,"?",0))
+V `123
+X`009write_line("Usage: compare file-name area ?selector... =$var",
+X`009    E_none,NULL);
+X`009write_line("       compare file-name area ?selector... +$var",
+X`009    E_none,NULL);
+X`009write_line("       compare old area ?selector... =$var",`032
+X`009    E_none,NULL);
+X`009write_line("       compare old area ?selector... +$var",`032
+X`009    E_none,NULL);
+X`009write_line("  \"old\" as file-name means old empiretool database",
+X`009    E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    strcpy(database_name,buffer);
+X
+X    if (!temp_database.sectors) `123
+X`009if(!init_database(&temp_database)) `123
+X`009    return 1;
+X`009`125
+X    `125 else reset_database(&temp_database);
+X
+X    if (StrEQ(database_name,"old",1)) `123
+X`009update_database(&temp_database,&old_database);
+X    `125 else `123
+X`009if (!load_database(database_name,&temp_database,area,0)) return 1;
+X    `125
+X
+X    InitSelector(table);
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (!Base(&temp_database,table,buffer)) return 1;
+X
+X    stepper(&param,buffer,sizeof(buffer));
+X    if (*buffer == '?') `123
+X`009if (!Filter(&temp_database,table,buffer)) return 1; /* reask prompt */
+X`009stepper(&param,buffer,sizeof(buffer));
+X    `125
+X
+X    if(init_var(&var,buffer) == -1) return 1;
+X
+X    for(i = 0; i < temp_database.count; i++) if (table`091i`093) `123
+X`009int X = temp_database.sectors`091i`093`091F_x`093.U_num;
+X`009int Y = temp_database.sectors`091i`093`091F_y`093.U_num;
+X`009char des = temp_database.sectors`091i`093`091F_des`093.U_char;
+X`009int own = temp_database.sectors`091i`093`091F_OWNED`093.U_bool;
+X`009sector_data *sector = Locate(&dump_database,X,Y);
+X`009if (!sector) `123
+X`009    if (own == 1) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,
+X`009`009    "Sector %d,%d (%c) not found from database, possible losed.",
+X`009`009    X,Y,des);
+X`009`009write_line(buffer,E_none,NULL);
+X`009`009add_to_var(var,X,Y);
+X`009`009ok = 0;
+X`009    `125
+X`009`125 else `123
+X`009    if (own == 1 && (*sector)`091F_OWNED`093.U_bool == 0) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"Sector %d,%d (%c) losed.",
+X`009`009    X,Y,des);
+X`009`009write_line(buffer,E_none,NULL);
+X`009`009add_to_var(var,X,Y);
+X`009`009ok = 0;
+X`009    `125
+X`009`125`009
+X    `125
+X   `032
+X    if (ok) write_line("No losed sectors found",E_tool,NULL);
+X
+X    return 1;
+X`125
+X
+Xstatic int C_remember(char *comm, char *param)
+X`123
+X    int pos;
+X    int oldcount = dump_database.count;
+X
+X    if (StrEQ(param,"?",0)) `123
+X`009write_line("Usage: remember",E_none,NULL);
+X`009return 1;
+X    `125
+X
+X    if (!old_database.sectors) `123
+X`009write_line("No old database for remembering",E_tool,NULL);
+X`009return 1;
+X    `125
+X   `032
+X    if (!temp_database.sectors) `123
+X`009if(!init_database(&temp_database)) return 1;`009/* FAILED */
+X    `125 else reset_database(&temp_database);
+X   `032
+X    /* Make copy so we can modify it */
+X    update_database(&temp_database,&old_database);
+X
+X    /* What sectors haven't current dump we don't owned */
+X
+X    for (pos = 1; pos < temp_database.count; pos++) `123
+X`009if (temp_database.sectors`091pos`093`091F_OWNED`093.U_bool != UNKNOWN_bo
+Vol
+X`009    && temp_database.sectors`091pos`093`091F_OWNED`093.U_bool) `123
+X
+X`009    temp_database.sectors`091pos`093`091F_OWNED`093.U_bool = UNKNOWN_boo
+Vl;
+X`009    temp_database.sectors`091pos`093`091F_own`093.U_num = UNKNOWN_num;
+X`009`125
+X    `125
+X
+X    /* add current up of date data to this old database */
+X    update_database(&temp_database,&dump_database);
+X    /* and then move this database to dump database`032
+X       (updated data is taken from dump_database so temp_database dont
+X        overwrite now right data from dump_database) */
+X    update_database(&dump_database,&temp_database);
+X    check_visual();
+X
+X    `123`009char buffer`09130`093;
+X`009sprintf(buffer,"%d sectors added", dump_database.count - oldcount);
+X`009write_line("Old database remembered",E_tool,buffer);
+X    `125
+X    return 1;
+X`125
+X
+X/*  VISUAL mode ********************************************************** *
+V/
+X
+Xstatic int visual_X = 0, visual_Cx = 0;
+Xstatic int visual_Y = 0, visual_Cy = 0;
+Xstatic int visual_on = 0;
+X
+Xstatic void visual_update(int Cx,int cY);
+Xstatic void visual_cursor(int Cx,int cY);
+X
+X
+Xstatic void VS_up`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    count_new(visual_X,visual_Y,0,-1,&visual_X,&visual_Y);
+X    visual_cursor(visual_X,visual_Y);
+X`125
+X
+Xstatic void VS_down`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    count_new(visual_X,visual_Y,0,1,&visual_X,&visual_Y);
+X    visual_cursor(visual_X,visual_Y);
+X`125
+X
+Xstatic void VS_left`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    count_new(visual_X,visual_Y,-1,0,&visual_X,&visual_Y);
+X    visual_cursor(visual_X,visual_Y);
+X`125
+X
+Xstatic void VS_right`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    count_new(visual_X,visual_Y,1,0,&visual_X,&visual_Y);
+X    visual_cursor(visual_X,visual_Y);
+X`125
+X
+Xstatic void VS_return`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    visual_quit();
+X`125
+X
+Xstatic void VS_key(struct screen_data  *screen, prompt_type PR)
+X`123
+X
+X`125
+X
+Xstatic void visual_topic(void)
+X`123
+X
+X    screen_clear(P_screen,prompts`091P_screen`093.screen);
+X`125
+X
+X#define VISUAL_SCROLL 21
+X#define SH_TOP 2
+X
+Xstatic void visual_cursor(int x, int y)
+X`123
+X    char sbuffer`09110`093,lbuffer`09120`093;
+X    int Xlen = prompts`091P_screen`093.screen -> Xmax - 32;
+X    int Ylen = VISUAL_SCROLL -3 - 2*SH_TOP;
+X    sector_data *sector;
+X
+X    int X1 = visual_Cx - Xlen/2;
+X    int X2 = visual_Cx + Xlen/2;
+X    int Y1 = visual_Cy - Ylen/2;
+X    int Y2 = visual_Cy + Ylen/2;
+X
+X    if (x < X1 `124`124 x > X2 `124`124 y < Y1 `124`124 y > Y2) `123
+X`009visual_Cx = x;
+X`009visual_Cy = y;
+X
+X`009visual_update(visual_Cx,visual_Cy);
+X
+X`009X1 = visual_Cx - Xlen/2;
+X`009X2 = visual_Cx + Xlen/2;
+X`009Y1 = visual_Cy - Ylen/2;
+X`009Y2 = visual_Cy + Ylen/2;
+X
+X    `125
+X
+X    sprintf(lbuffer,"Sec: %3d,%-3d",x,y);
+X    screen_write(P_screen,Xlen+10,3,0,lbuffer);
+X
+X    sector = Locate(&dump_database,x,y);
+X
+X    if (sector) Text(sector,F_des,sbuffer);
+X    else sbuffer`0910`093 = '\0';
+X    sprintf(lbuffer,"Des:   %1s",sbuffer);
+X    screen_write(P_screen,Xlen+10,4,0,lbuffer);
+X
+X    if (sector) Text(sector,F_civ,sbuffer);
+X    else sbuffer`0910`093 = '\0';
+X    sprintf(lbuffer,"Civ:   %4s",sbuffer);
+X    screen_write(P_screen,Xlen+10,5,0,lbuffer);
+X
+X    if (sector) Text(sector,F_mil,sbuffer);
+X    else sbuffer`0910`093 = '\0';
+X    sprintf(lbuffer,"Mil:   %4s",sbuffer);
+X    screen_write(P_screen,Xlen+10,6,0,lbuffer);
+X
+X    if (sector && (*sector)`091F_OWNED`093.U_bool != UNKNOWN_bool &&
+X`009(*sector)`091F_OWNED`093.U_bool) strcpy(lbuffer,"Owned");
+X    else strcpy(lbuffer,"     ");;
+X    screen_write(P_screen,Xlen+10,7,0,lbuffer);
+X
+X    if (sector) Text(sector,F_own,sbuffer);
+X    else sbuffer`0910`093 = '\0';
+X    sprintf(lbuffer,"Owner: %4s",sbuffer);
+X    screen_write(P_screen,Xlen+10,8,0,lbuffer);
+X
+X    screen_prompt(P_screen, x - X1 + 4, y - Y1 + 2 + SH_TOP);
+X`125
+X
+X
+Xstatic void visual_update(int Cx, int Cy)
+X`123
+X    char line`091MAX_X+10`093, temp`09110`093, data`091MAX_X+10`093;
+X    char tops`091SH_TOP`093`091MAX_X+1`093;
+X    selector table;
+X    int x,y,i;
+X    int X1 = (-MAX_X)/2,X2=MAX_X/2-1,
+X`009Y1= (-MAX_Y)/2,Y2=MAX_Y/2-1;
+X    int Xlen = prompts`091P_screen`093.screen -> Xmax - 32;
+X    int Ylen = VISUAL_SCROLL -3 - 2*SH_TOP;
+X
+X    sprintf(line,"%3d,%-3d",Cx,Cy);
+X    screen_write(P_screen,1,1,0,"Center: ");
+X    screen_write(P_screen,9,1,SM_BOLD,line);
+X
+X    X1 = Cx - Xlen/2;
+X    X2 = Cx + Xlen/2;
+X    Y1 = Cy - Ylen/2;
+X    Y2 = Cy + Ylen/2;
+X
+X    for (x = X1; x <= X2; x++) `123
+X`009sprintf(temp,"%2d",x);
+X`009for (i = 0; i < SH_TOP; i++) tops`091i`093`091x-X1`093 = temp`091i`093;
+X    `125
+X    for (i = 0; i < SH_TOP; i++) tops`091i`093`091X2-X1+1`093 = '\0';
+X
+X    for (i = 0; i < SH_TOP; i++) `123
+X`009sprintf(line,"   %s",tops`091i`093);
+X`009screen_write(P_screen,1,i+2,0,line);
+X    `125
+X
+X    for (y = Y1; y <= Y2; y++) `123
+X`009char tmp1`09110`093,tmp2`09110`093;
+X`009for (x = X1; x <= X2; x++) `123
+X`009    int XR,YR;
+X`009    unsigned char s = ' ';
+X`009    sector_data *temp;
+X
+X`009    count_new(x,y,0,0,&XR,&YR);
+X
+X`009    temp  = Locate(&dump_database,XR,YR);
+X`009    if (temp) `123
+X`009`009int I = temp - dump_database.sectors;
+X`009`009s = (*temp)`091F_des`093.U_char;
+X`009    `125
+X`009    data`091x-X1`093=s;`009   `032
+X`009`125
+X`009data`091X2-X1+1`093 = '\0';
+X`009sprintf(tmp1,"%2d",y); tmp1`091SH_TOP`093 = '\0';
+X`009sprintf(tmp2,"%-2d",y); tmp2`091SH_TOP`093 = '\0';
+X`009sprintf(line,"%2s %s %2s",tmp1,data,tmp2);
+X`009screen_write(P_screen, 1, y - Y1 + 2 + SH_TOP, 0,line);
+X    `125
+X
+X    for (x = X1; x <= X2; x++) `123
+X`009sprintf(temp,"%-2d",x);
+X`009for (i = 0; i < SH_TOP; i++) tops`091i`093`091x-X1`093 = temp`091i`093;
+X    `125
+X    for (i = 0; i < SH_TOP; i++) tops`091i`093`091X2-X1+1`093 = '\0';
+X
+X    for (i = 0; i < SH_TOP; i++) `123
+X`009sprintf(line,"   %s",tops`091i`093);
+X`009screen_write(P_screen, 1 , i + Y2 - Y1 + 3 + SH_TOP, 0, line);
+X    `125
+X
+X`125
+X
+Xstatic void visual_start (void)`032
+X`123
+X    static struct SK_entry K`091`093 =
+X    `123
+X`009`123 SK_up,    VS_up `125,
+X`009`123 SK_down,  VS_down `125,
+X`009`123 SK_left,  VS_left `125,
+X`009`123 SK_right, VS_right `125,
+X`009`123 SK_return, VS_return `125,
+X`009`123 SK_key,   VS_key `125,
+X
+X    `125;
+X    static struct screen_data D =
+X`009`123 0,0,0,0, NULL, NULL,`032
+X`009    sizeof(K)/sizeof(struct SK_entry), &K,
+X`009    VISUAL_SCROLL `125;
+X
+X    visual_Cx = 0; visual_X = 0;
+X    visual_Cy = 0; visual_Y = 0;
+X    visual_on = 1;
+X   `032
+X    screen_clear(P_screen,&D);
+X    screen_write(P_screen,30,1,SM_REVERSE, "VISUAL mode");
+X    change_prompt(P_screen);
+X    visual_update(visual_Cx,visual_Cy);
+X    visual_cursor(visual_X,visual_Y);
+X`125
+X
+Xstatic int visual_quit(void)
+X`123
+X    if (visual_on) `123
+X`009disable_prompt(P_screen,1);
+X`009screen_clear(P_screen,NULL);
+X`009change_prompt(P_tool);
+X    `125
+X    visual_on = 0;
+X`125
+X
+Xstatic int C_visual(char *comm, char *param)`032
+X`123
+X
+X    if (StrEQ(param,"?",0)) `123
+X`009write_line("Usage: visual",E_none,NULL);
+X`009write_line("       visual on/off",E_none,NULL);
+X`009return 1;
+X    `125
+X    if (StrEQ(param,"",0) `124`124 StrEQ(param,"on",1)) visual_start();
+X    else if (StrEQ(param,"off",1)) visual_quit();
+X    else write_line("Bad argument",E_tool,param);
+X    return 1;
+X`125
+X
+X/* is called when dump_database is changed */
+Xstatic void check_visual(void)
+X`123
+X    if (visual_on) `123
+X`009visual_update(visual_Cx,visual_Cy);
+X`009visual_cursor(visual_X,visual_Y);
+X    `125
+X`125
+$ CALL UNPACK EMPIRETOOL.C;685 482063386
+$ create/nolog 'f'
+X$ CC/NOOPTIMIZE CLIENT,EMPIRETOOL
+X$ LINK CLIENT,EMPIRETOOL,SYS$INPUT:/OPT
+XMULTINET:MULTINET_SOCKET_LIBRARY/SHARE
+XSYS$SHARE:VAXCRTL/SHARE
+X$ EXIT
+$ CALL UNPACK MAKE.COM;1 1801980739
+$ EXIT

@@ -1,0 +1,1158 @@
+Newsgroups: comp.sources.misc
+From: drt@chinet.chi.il.us (Donald Tveter)
+Subject:  v31i129:  backprop - Fast Backpropagation, Part01/04
+Message-ID: <csm-v31i129=backprop.130027@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 412f11eddccad5739dd0a89dffa28abf
+Date: Wed, 2 Sep 1992 18:06:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: drt@chinet.chi.il.us (Donald Tveter)
+Posting-number: Volume 31, Issue 129
+Archive-name: backprop/part01
+Supersedes: backprop: Volume 28, Issue 63-66
+Environment: UNIX, DOS
+
+   The programs described below were produced for my own use in studying
+back-propagation and for doing some examples that are found in my
+introduction to Artificial Intelligence textbook, The Basis of
+Artificial Intelligence, to be published by Computer Science Press.  (I
+hope some time before the sun burns out or before the Cubs win the World
+Series or before Congress balances the budget or ...  .) I have
+copyrighted these files but I hereby give permission to anyone to use
+them for experimentation, educational purposes or to redistribute them
+on a not for profit basis.  All others that want to use these programs
+for business or commercial purposes I will charge you a small fee.  You
+should contact me by mail at the address in the readme.
+
+Changes/Additions vs. the February 1992 Version
+
+   The programs now have the quickprop algorithm included with a few
+experimental modifications of this algorithm as well.
+
+Also I would be interested in hearing from anyone with suggestions,
+bug reports and major successes or failures.  (Caution though:  email
+in and out of the whole Chicago area is often unreliable.  Also from
+time to time I get email and reply but the reply bounces.  If its
+really important include a physical mail address.)
+
+   There are four simulators that can be constructed from the included
+files.  The program, rbp, does back-propagation using real weights and
+arithmetic.  The program, bp, does back-propagation using 16-bit integer
+weights, 16 and 32-bit integer arithmetic and some floating point
+arithmetic.  The program, sbp, uses 16-bit integer symmetric weights but
+only allows two-layer networks.  The program srbp does the same using
+real weights.  The purpose of sbp and srbp is to produce networks that
+can be used with the Boltzman machine relaxation algorithm (not
+included).
+
+   In general the 16-bit integer programs are the most useful because
+they are the fastest.  Unfortunately, sometimes 16-bit integer weights
+don't have enough range or precision and then using the floating point
+versions may be necessary.  Many other speed-up techniques are included
+in these programs.
+
+See the file readme for more information.
+
+Dr. Donald R. Tveter
+5228 N. Nashville Ave.
+Chicago, Illinois   60656
+USENET:  drt@chinet.chi.il.us
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 4)."
+# Contents:  readme
+# Wrapped by drt@chinet on Mon Aug 24 08:57:28 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme'\"
+else
+echo shar: Extracting \"'readme'\" \(46585 characters\)
+sed "s/^X//" >'readme' <<'END_OF_FILE'
+XFast Back-Propagation
+XCopyright (c) 1990, 1991, 1992 by Donald R. Tveter
+X
+X
+X1. Introduction
+X
+X   The programs described below were produced for my own use in studying
+Xback-propagation and for doing some examples that are found in my
+Xintroduction to Artificial Intelligence textbook, The Basis of
+XArtificial Intelligence, to be published by Computer Science Press.  (I
+Xhope some time before the sun burns out or before the Cubs win the World
+XSeries or before Congress balances the budget or ...  .) I have
+Xcopyrighted these files but I hereby give permission to anyone to use
+Xthem for experimentation, educational purposes or to redistribute them
+Xon a not for profit basis.  All others that want to use these programs
+Xfor business or commercial purposes I will charge you a small fee.  You
+Xshould contact me by mail at:
+X
+XDr. Donald R. Tveter
+X5228 N. Nashville Ave.
+XChicago, Illinois   60656
+XUSENET:  drt@chinet.chi.il.us
+X
+XAlso I would be interested in hearing from anyone with suggestions,
+Xbug reports and major successes or failures.  (Caution though:  email
+Xin and out of the whole Chicago area is often unreliable.  Also from
+Xtime to time I get email and reply but the reply bounces.  If its
+Xreally important include a physical mail address.)
+X
+X   Note:  this is use at your own risk software:  there is no guarantee
+Xthat it is bug-free.  Use of this software constitutes acceptance for
+Xuse in an as is condition.  There are no warranties with regard to this
+Xsoftware. In no event shall the author be liable for any damages
+Xwhatsoever arising out of or in connection with the use or performance
+Xof this software.
+X
+X   There are four simulators that can be constructed from the included
+Xfiles.  The program, rbp, does back-propagation using real weights and
+Xarithmetic.  The program, bp, does back-propagation using 16-bit integer
+Xweights, 16 and 32-bit integer arithmetic and some floating point
+Xarithmetic.  The program, sbp, uses 16-bit integer symmetric weights but
+Xonly allows two-layer networks.  The program srbp does the same using
+Xreal weights.  The purpose of sbp and srbp is to produce networks that
+Xcan be used with the Boltzman machine relaxation algorithm (not
+Xincluded).
+X
+X   In general the 16-bit integer programs are the most useful because
+Xthey are the fastest.  Unfortunately, sometimes 16-bit integer weights
+Xdon't have enough range or precision and then using the floating point
+Xversions may be necessary.  Many other speed-up techniques are included
+Xin these programs.
+X
+XChanges/Additions vs. the February 1992 Version
+X
+X   The programs now have the quickprop algorithm included with a few
+Xexperimental modifications of this algorithm as well.
+X
+X2. Making the Simulators
+X
+X   See the file, readme.mak.  (This file is getting too large for some
+Xmailers.)
+X
+X3. A Simple Example
+X
+X  Each version would normally be called with the name of a file to read
+Xcommands from, as in:
+X
+Xbp xor
+X
+XWhen no file name is specified bp will take commands from the keyboard
+X(UNIX stdin file).  After the data file is read commands are then taken
+Xfrom the keyboard.
+X
+X   The commands are one letter commands and most of them have optional
+Xparameters.  The `A', `B', `d' and `f' commands allow a number of
+Xsub-commands on a line.  The maximum length of any line is 256
+Xcharacters.  An `*' is a comment and it can be used to make the
+Xremainder of the line a comment.  Here is an example of a data file to
+Xdo the xor problem:
+X           
+X* input file for the xor problem
+X           
+Xm 2 1 1           * make a 2-1-1 network
+Xc 1 1 3 1         * add this extra connection
+Xc 1 2 3 1         * add this extra connection
+Xs 7               * seed the random number function
+Xk 0 1             * give the network random weights
+X
+Xn 4               * read four new patterns into memory
+X1 0 1
+X0 0 0
+X0 1 1
+X1 1 0
+X
+Xe 0.5             * set eta to 0.5 (and eta2 to 0.5)
+Xa 0.9             * set alpha to 0.9
+X
+XFirst in this example, the m command will make a network with 2 units
+Xin the input layer, 1 unit in the second layer and 1 unit in the third
+Xlayer.  The following c commands create extra connections from layer 1
+Xunit 1 to layer 3 unit 1 and from layer 1 unit 2 to layer 3 unit 1.  The
+X`s' command sets the seed for the random number function.  The `k'
+Xcommand then gives the network random weights.  The `k' command has
+Xanother use as well.  It can be used to try to kick a network out of a
+Xlocal minimum.  Here, the meaning of "k 0 1" is to examine all the
+Xweights in the network and for every weight equal to 0 (and they all
+Xstart out at 0), add in a random number between -1 and +1.  The `n'
+Xcommand specifies four new patterns to be read into memory.  With the
+X`n' command, any old patterns that may have been present are removed.
+XThere is also an `x' command that behaves like the `n' command, except
+Xthe `x' commands ADDS the extra patterns to the current training
+Xset.  The input pattern comes first followed by the output pattern.
+XThe statement, e 0.5, sets eta, the learning rate for the upper layer to
+X0.5 and eta2 for the lower layers to 0.5 as well.  The last line sets
+Xalpha, the momentum parameter, to 0.9.
+X
+X   After these commands are executed the following messages and prompt
+Xappears:
+X
+XFast Back-Propagation Copyright (c) 1990, 1991, 1992 by Donald R. Tveter
+Xtaking commands from stdin now
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]?
+X
+XThe characters within the square brackets are a list of the possible
+Xcommands.  To run 100 iterations of back-propagation and print out the
+Xstatus of the learning every 20 iterations type "r 100 20" at the
+Xprompt:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? r 100 20
+X
+XThis gives:
+X 
+Xrunning . . .
+X   20 iterations    0.00% right (0 right   4 wrong)   0.49927 error/unit
+X   40 iterations    0.00% right (0 right   4 wrong)   0.43188 error/unit
+X   60 iterations   75.00% right (3 right   1 wrong)   0.09033 error/unit
+X   62 iterations  100.00% right (4 right   0 wrong)   0.07129 error/unit
+Xpatterns learned to within 0.10 at iteration^G 62
+X
+XThe program immediately prints out the "running . . ." message.  After
+Xeach 20 iterations a summary of the learning process is printed giving
+Xthe percentage of patterns that are right, the number right and wrong
+Xand the average value of the absolute values of the errors of the output
+Xunits.  The program stops when the each output for each pattern has been
+Xlearned to within the required tolerance, in this case the default value
+Xof 0.1.  A ctrl-G is normally printed out as well to sound the bell.  If
+Xthe second number defining how often to print out a summary is omitted
+Xthe summaries will not be printed.  Sometimes the integer versions will
+Xdo a few extra iterations before declaring the problem done because of
+Xtruncation errors in the arithmetic done to check for convergence.  The
+Xstatus figures for iteration i are computed when making the forward pass
+Xof the iteration and before the weights are updated so these values are
+Xone iteration out of date.  This saves on CPU time, however, if you
+Xreally need up-do-date statistics use the u+ option described in the
+Xformat specifications.
+X
+XListing Patterns
+X
+X   To get a listing of the status of each pattern use the `P' command
+Xto give:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? P
+X  1  0.90  (0.098) ok
+X  2  0.05  (0.052) ok
+X  3  0.94  (0.062) ok
+X  4  0.07  (0.074) ok
+X   62 iterations  100.00% right (4 right   0 wrong)   0.07129 error/unit
+X
+XThe numbers in parentheses give the sum of the absolute values of the
+Xoutput errors for each pattern.  An `ok' is given to every pattern that
+Xhas been learned to within the required tolerance.  To get the status of
+Xone pattern, say, the fourth pattern, type "P 4" to give:
+X
+X 0.07  (0.074) ok
+X
+XTo get a summary without the complete listing use "P 0".  To get the
+Xoutput targets for a given pattern, say pattern 3, use "O 3".
+X
+X   A particular test pattern can be input to the network with the `p'
+Xcommand, as in:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? p 1 0
+X 0.90 
+X
+XExamining Weights
+X
+X   It is often interesting to see the values of some particular weights
+Xin the network.  To see a listing of all the weights in a network use
+Xthe save weights command described below and then cat the file weights,
+Xhowever, to see the weights leading into a particular node, say the node
+Xin row 2, node 1 use the w command as in:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? w 2 1
+Xlayer unit  unit value     weight         input from unit
+X  1      1    1.00000     9.53516             9.53516
+X  1      2    0.00000    -8.40332             0.00000
+X  2      t    1.00000     4.13086             4.13086
+X                                      sum =  13.66602
+X
+XThis listing also gives data on how the current activation value of the
+Xnode is computed using the weights and the activations values of the
+Xnodes feeding into unit 1 of layer 2.  The `t' unit is the threshold
+Xunit.
+X
+XThe Help Command
+X
+X   To get a short description of any command, type `h' followed by the
+Xletter of the command.  Here, we type h h for help with help:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? h h
+X
+Xh <letter> gives help for command <letter>.
+X
+XTo list the status of all the parameters in the program, use `?'.
+X
+XTo Quit the Program
+X
+X   Finally, to end the program, the `q' (for quit) command is entered:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? q
+X
+X
+X4. The Format Command
+X
+X   There are several ways to input and output patterns, numbers and
+Xother values and there is one format command, `f', that is used to set
+Xthese options.  In the format command a number of options can be
+Xspecified on a single line as for example in:
+X
+Xf b+ ir oc s- wB
+X
+XInput Patterns
+X
+X   The programs are able to read pattern values in two different
+Xformats.  The default input format is the compressed format.  In it,
+Xeach value is one character and it is not necessary to have blanks
+Xbetween the characters.  For example, in compressed format the patterns
+Xfor xor could be written out in either of the following ways:
+X
+X101      10 1
+X000      00 0
+X011      01 1
+X110      11 0
+X
+XThe second example is preferable because it makes it easier to see the
+Xinput and the output patterns.  Compressed format can also be used to
+Xinput patterns with the `p' command.  In addition to using 1 and 0 as
+Xinput the character, `?' can be used.  This character is initially
+Xdefined to be 0.5, but it can be redefined using the Q command like so:
+X
+XQ -1
+X
+XThis sets the value of ?  to -1.  Other valid input characters are the
+Xletters, `h', `i', `j' and `k'.  The `h' stands for `hidden'.  Its
+Xmeaning in an input string is that the value at this point in the string
+Xshould be taken from the next unit in the second layer of the network.
+XThis notation is useful for specifying simple recurrent networks.
+XNaturally, `i', `j' and `k' stand for taking input values from the
+Xthird, fourth and fifth layers (if they exist).  A simple example of a
+Xrecurrent network is given later.
+X
+X   The other input format for numbers is real.  The number portion must
+Xstart with a digit (.35 is not allowed, but 0.35 is).  Exponential
+Xnotation is not allowed.  Real numbers have to be separated by a space.
+XThe `h', `i', `j', `k' and `?' characters are also allowed with real
+Xinput patterns.  To take input in the real format it is necessary to
+Xset the input format to be real using the `f' (format) command as in:
+X
+Xf ir
+X
+XTo change back to the compressed format use:
+X
+Xf ic
+X
+XOutput of Patterns
+X
+X   Output format is controlled with the `f' command as in:
+X
+Xf or
+Xf oc
+Xf oa
+X
+XThe first sets the output to real numbers.  The second sets the output
+Xto be compressed mode where the value printed will be a `1' when the
+Xunit value is greater than 1.0 - tolerance, a `^' when the value is
+Xabove 0.5 but less than 1.0 - tolerance, a `v' when the value is less
+Xthan 0.5 but greater than the tolerance.  Below the tolerance value a
+X`0' is printed.  The tolerance can be changed using the `t' command (not
+Xa part of the format command).  For example, to make all values greater
+Xthan 0.8 print as `1' and all values less than 0.2 print as `0' use:
+X
+Xt 0.2
+X
+XOf course this same tolerance value is also used to check to see if all
+Xthe patterns have converged.  The third output format is meant to give
+X"analog compressed" output.  In this format a `c' is printed when a
+Xvalue is close enough to its target value.  Otherwise, if the answer is
+Xclose to 1, a `1' is printed, if the answer is close to 0, a `0' is
+Xprinted, if the answer is above the target but not close to 1, a `^' is
+Xprinted and if the answer is below the target but not close to 0, a `v'
+Xis printed.  This output format is designed for problems where the
+Xoutput is a real number, as for instance, when the problem is to make a
+Xnetwork learn sin(x).
+X
+X   For the sake of convenience the output format (and only the output
+Xformat) can be set without using the `f' so that:
+X
+Xor
+X
+Xwill also make the output format real.
+X
+XBreaking up the Output Values
+X
+X   In the compressed formats the default is to print a blank after
+Xevery 10 values.  This can be altered using the `b' (for inserting
+Xbreaks) command.  The use for this command is to separate output values
+Xinto logical groups to make the output more readable.  For instance, you
+Xmay have 24 output units where it makes sense to insert blanks after the
+X4th, 7th and 19th positions.  To do this, specify:
+X
+Xb 4 7 19
+X
+XThen for example the output will look like:
+X
+X  1 10^0 10^ ^000v00000v0 01000 (0.17577)
+X  2 1010 01v 0^0000v00000 ^1000 (0.16341)
+X  3 0101 10^ 00^00v00000v 00001 (0.16887)
+X  4 0100 0^0 000^00000v00 00^00 (0.19880)
+X
+XThe `b' command allows up to 20 break positions to be specified.  The
+Xdefault output format is the real format with 10 numbers per line.  For
+Xthe output of real values the `b' command specifies when to print a
+Xcarriage return rather than when to print a blank.  (Note:  the `b'
+Xcommand is not part of the `f' command.)
+X
+XPattern Formats
+X
+X   There are two different types of problems that back-propagation can
+Xhandle, the general type of problem where every output unit can take on
+Xan arbitrary value and the classification type of problem where the goal
+Xis to turn on output unit i and turn off all the other output units when
+Xthe pattern is of class i.  The xor problem is an example of the general
+Xtype of problem.  For an example of a classification problem, suppose
+Xyou have a number of data points scattered about through two-dimensional
+Xspace and you have to classify the points as either class 1, class 2 or
+Xclass 3.  For a pattern of class 1 you can always set up the output:
+X"1 0 0", for class 2: "0 1 0" and for class 3: "0 0 1", however doing
+Xthe translation to bit patterns can be annoying so another notation can
+Xbe used.  Instead of specifying the bit patterns you can set the pattern
+Xformat option to classification (as opposed to the default value of
+Xgeneral) like so:
+X
+Xf pc
+X
+Xand then the program will read data in the form:
+X
+X   1.33   3.61   1   *  shorthand for 1 0 0
+X   0.42  -2.30   2   *  shorthand for 0 1 0
+X  -0.31   4.30   3   *  shorthand for 0 0 1
+X
+Xand translate it to the bit string form when the pattern is loaded onto
+Xthe output units.  To switch to the general form use "f pg".
+X
+X   In addition to controlling the input of data the p command within
+Xthe format command is used to control the output of patterns from a set
+Xof test patterns kept on a file.  If the format is either c or g then
+Xwhen the test set is run thru the network you will only get a summary of
+Xhow many patterns are correct.  If the format is either C or G you will
+Xget a listing of the output values for each pattern as well as the
+Xsummary.  When reading patterns, C works the same as c and G works the
+Xsame as g.
+X
+XControlling Summaries
+X
+X   When the program is learning patterns you can have it print out the
+Xstatus of the learning process at regular intervals.  The default is to
+Xprint out only a summary of how learning is going however you can also
+Xprint out the status of every pattern at regular intervals.  To get the
+Xwhole set of patterns use "f s-" to turn off the summary format and "f
+Xs+" to go back to summarizing.
+X
+XRinging the Bell
+X
+X   To ring the bell when the learning has been completed use "f b+" and
+Xto turn off the bell use "f b-".
+X
+XEchoing Input
+X
+X   When you are reading commands from a file it is often worthwhile to
+Xsee those commands echoed on the screen.  To do this, use "f e+" and to
+Xturn off the echoing, use "f e-".
+X
+XPaging
+X
+X   The program is set up to write 24 lines to the screen and then pause.
+XAt the pause the program prints out a ":" (as does the UNIX System V
+Xpager, pg).  At this point typing a carriage return will get you one
+Xmore page.  Typing a "q" followed by a carriage return will quit the
+Xprocess you're working on and give you another prompt.  So, if you're
+Xrunning for example the xor problem and you type, "r 100 1" you will run
+X24 iterations through the program, these will print out and then there
+Xwill be a pause.  Notice that the program will not be busy computing
+Xanything more during the pause.  To reset the number of lines written to
+Xthe screen to say, 12, use "f P 12".  Setting the value to 0 will drop
+Xthe paging altogether.
+X
+X   Note that the program will not be paging at all if you take a series
+Xof commands from the original data file or some other input file and the
+Xoutput produced by these commands is less than the page size.  That is
+Xto say, a new line count is started every time a new command is read and
+Xif the output of that command is less than the page size there won't be
+Xany paging.
+X
+XMaking a Copy of Your Session
+X
+X   To make a copy of what appears on the screen use "f c+" to start
+Xwriting to the file "copy" and "f c-" to stop writing to this file.
+XEnding the session automatically closes this file as well.
+X
+XUp-To-Date Statistics
+X
+X   During the ith pass thru the network the program will collect
+Xstatistics on how many patterns are correct and how much error there is
+Xoverall.  These numbers are gathered before the weights are updated and
+Xso the results listed for iteration i really show the situation after
+Xthe weight update for iteration i-1.  To complicate matters more the
+Xweight updates can be done continuously instead of after all the
+Xpatterns have been presented so the statistics you get here are skewed
+Xeven more.  If you want to have up-to-date statistics with either
+Xmethod use "f u+" and to go back to statistics that are out of date
+Xuse "f u-".  The penalty with "f u+" is that the program needs to do
+Xanother forward pass.  When using the continuous update method it is
+Xhighly advisable to use "f u+" at least when you get close to complete
+Xconvergence because the default method of checking may claim the
+Xlearning is finished when it isn't or it may continue training after the
+Xtolerances have been met.
+X
+X 5. Taking Training and Testing Patterns from Files
+X
+X   In the xor example given above the four patterns were part of the
+Xdata file and to read them in the following lines were used:
+X
+Xn 4
+X1 0 1
+X0 0 0
+X0 1 1
+X1 1 0
+X
+XHowever it is also convenient to take patterns from a file that
+Xcontains nothing but a list of patterns (and possibly comments).  To
+Xread a new set of patterns from some file, patterns, use:
+X
+Xn f patterns
+X
+XTo add an extra group of patterns to the current set you can use:
+X
+Xx f patterns
+X
+X   In addition to keeping a set of training patterns you can take
+Xtesting patterns from a file as well.  To specify the file you can
+Xinvoke the program with a second file name as in:
+X
+Xbp xor xtest
+X
+XIn addition, if you do the following:
+X
+Xt f xtest
+X
+Xthe program will set xtest as the test file and immediately do the
+Xtesting.  Once the file has been defined you can test the patterns on
+Xthe test file by "t f" or just "t".  (This leaves the t command doing
+Xdouble duty since "t <real>" will set the tolerance to <real>.) Also in
+Xaddition, the test file can be set without being tested by using
+X
+XB t f xtest
+X
+Xas explained in the benchmarking section.
+X
+X
+X6. Saving and Restoring Weights and Related Values
+X
+X   Sometimes the amount of time and effort needed to produce a set of
+Xweights to solve a problem is so great that it is more convenient to
+Xsave the weights rather than constantly recalculate them.  Weights can
+Xbe saved as real values in an ASCII format (the default) or as binary
+Xto save space.  The old way to save the weights (which still works) is
+Xto enter the command, "S".  The weights are then written on a file
+Xcalled "weights" or to the last file name you have specified, if you're
+Xusing the new version of the command.  The following file comes from the
+Xxor problem:
+X
+X62r   file = ../xor3
+X    9.5351562500
+X   -8.4033203125
+X    4.1308593750
+X    5.5800781250
+X   -4.9755859375
+X  -11.3095703125
+X    8.0527343750
+X
+XTo write the weights the program starts with the second layer, writes
+Xout the weights leading into these units in order with the threshold
+Xweight last, then it moves on to the third layer, and so on.  To
+Xrestore these weights type an `R' for restore.  At this time the
+Xprogram reads the header line and sets the total number of iterations
+Xthe program has gone through to be the first number it finds on the
+Xheader line.  It then reads the character immediately after the number.
+XThe `r' indicates that the weights will be real numbers represented as
+Xcharacter strings.  If the weights were binary the character would be a
+X`b' rather than an `r'.  Also, if the character is `b', the next
+Xcharacter is read.  This next character indicates how many bytes are
+Xused per value.  The integer versions bp and sbp write files with 2
+Xbytes per weight while the real versions rbp and srbp write files with
+X8 bytes per weight for double precision reals and 4 bytes per weight for
+Xsingle precision reals.  With this notation weight files written by one
+Xprogram can be read by the other.  A binary weight format is specified
+Xwithin the `f' command by using "f wb".  A real format is specified by
+Xusing "f wr".  If your program specifies that weights should be written
+Xin one format but the weight file you read from is different a notice
+Xwill be given.  There is no check made to see if the number of weights
+Xon the file equals the number of weights in the network.
+X
+X   The above formats specify that only weights are written out and this
+Xis all you need once the patterns have converged.  However, if you're
+Xstill training the network and want to break off training and pick up
+Xthe training from exactly the same point later on you need to save the
+Xold weight changes when using momentum and the parameters for the
+Xdelta-bar-delta method if you are using this technique.  To save these
+Xextra parameters on the weights file use "f wR" to write the extra
+Xvalues as real and "f wB" to write the extra values as binary.
+X
+X   In the above example the command, S, was used to save the weights
+Ximmediately.  Another alternative is to save weights at regular
+Xintervals.  The command, S 100, will automatically save weights every
+X100 iterations the program does.  The default rate at which to save
+Xweights is set at 32767 for 16-bit compilers and 2147483647 for 32-bit
+Xcompilers which generally means that no weights will ever be saved.
+X
+X   To save weights to a file other than "weights" you can say:
+X"s w <filename>", where, of course, <filename> is the file you want to
+Xsave to.  To continue saving to the same file you can just do "s w".
+XNaturally if you restore weights it will be from this current weights
+Xfile as well.  You can restore weights from another file by using:
+X"r w <filename>".  Of course this also sets the name of the file to
+Xwrite to so if you're not careful you could lose your original weights
+Xfile.
+X
+X7. Initializing Weights and Giving the Network a `Kick'
+X
+X   All the weights in the network initially start out at 0.  In
+Xsymmetric networks then no learning may result because error signals
+Xcancel themselves out.  Even in non-symmetric networks the training
+Xprocess will usually converge faster if the weights start out at small
+Xrandom values.  To do this the `k' command will take the network and
+Xalter the weights in the following ways.  Suppose the command given is:
+X
+Xk 0 0.5
+X
+XNow if a weight is exactly 0, then the weight will be changed to a
+Xrandom value between +0.5 and -0.5.  The above command can therefore be
+Xused to initialize the weights in the network.  A more complex use of
+Xthe `k' command is to decrease the magnitude of large weights in the
+Xnetwork by a certain random amount.  For instance in the following
+Xcommand:
+X
+Xk 2 8
+X
+Xall the weights in the network that are greater than or equal to 2 will
+Xbe decreased by a random number between 0 and 8.  Weights less than or
+Xequal to -2 will be increased by a random number between 0 and 8.  The
+Xseed to the random number generator can be changed using the `s' command
+Xas in "s 7".  The integer parameter in the `s' command is of type,
+Xunsigned.
+X
+X   Another method of giving a network a kick is to add hidden layer
+Xunits.  The command:
+X
+XH 2 0.5
+X
+Xadds one unit to layer 2 of the network and all the weights that are
+Xcreated are initialized to between - 0.5 and + 0.5.
+X
+X   The subject of kicking a back-propagation network out of local minima
+Xhas barely been studied and there is no guarantee that the above methods
+Xare very useful in general.
+X
+X8. Setting the Algorithm to Use
+X
+X   A number of different variations on the original back-propagation
+Xalgorithm have been proposed in order to speed up convergence and some
+Xof these have been built into these simulators.  These options are set
+Xusing the `A' command and a number of options can go on the one line.
+X
+XActivation Functions
+X
+X   To set the activation function use:
+X
+XA al * for the linear activation function
+XA ap * for the piece-wise activation function
+XA as * for the smooth activation function
+XA at * for the piecewise near-tanh function that runs from -1 to +1
+XA aT * for the continuous near-tanh function that runs from -1 to +1
+X
+XWhen using the linear activation function it is only appropriate to use
+Xthe differential step-size derivative and a two-layer network.  The
+Xsmooth activation function is:
+X
+Xf = 1.0 / (1.0 + exp(-x))
+X
+Xwhere x is the input to a unit.  The piece-wise function is an
+Xapproximation to the function, f and it will normally save some CPU
+Xtime even though it may increase the number of iterations you need to
+Xsolve the problem.  The continuous near-tanh function is 2f - 1 and the
+Xpiece-wise version approximates this function with a series of straight
+Xlines.
+X
+XSharpness (or Gain)
+X
+X   The sharpness (or gain) is the parameter, D, in the function:
+X
+X1.0 / (1.0 + exp(-D*x)).
+X
+XA sharper sigmoid shaped activation function (larger D) will produce
+Xfaster convergence (see "Speeding Up Back Propagation" by Yoshio Izui
+Xand Alex Pentland in the Proceedings of IJCNN-90-WASH-DC, Lawrence
+XErlbaum Associates, 1990).  To set this parameter to say, 8, use
+X"A D 8".  The default value is 1.  Unfortunately, too large a value
+Xfor D will hurt convergence so this is not a perfect solution to
+Xspeeding up learning.  Sometimes the best value for D may be less than
+X1.0.  A larger D is also useful in the integer version of
+Xback-propagation where the weights are limited to between -32 and
+X+31.999.  A larger D value in effect magnifies the weights and makes it
+Xpossible for the weights to stay smaller.  Values of D less than one may
+Xbe useful in extracting a network from a local minima (see "Handwritten
+XNumeral Recognition by Multi-layered Neural Network with Improved
+XLearning Algorithm" by Yamada, Kami, Temma and Tsukumo in Proceedings of
+Xthe 1989 IJCNN, IEEE Press).  A smaller value of D will also force the
+Xweights and the weight changes to be larger and this may be of value
+Xwhen the weight changes become less than the weight resolution of 0.001
+Xin the integer version.
+X
+XThe Derivatives
+X
+X   The correct derivative for the standard activation function is s(1-s)
+Xwhere s is the activation value of a unit however when s is near 0 or 1
+Xthis term will give only very small weight changes during the learning
+Xprocess.  To counter this problem Fahlman proposed the following one
+Xfor the output layer:
+X
+X0.1 + s(1-s)
+X
+X(For the original description of this method see "Faster Learning
+XVariations of Back-Propagation:  An Empirical Study", by Scott E.
+XFahlman, in Proceedings of the 1988 Connectionist Models Summer School,
+XMorgan Kaufmann, 1989.)  Besides Fahlman's derivative and the original
+Xone the differential step size method (see "Stepsize Variation Methods
+Xfor Accelerating the Back-Propagation Algorithm", by Chen and Mars, in
+XIJCNN-90-WASH-DC, Lawrence Erlbaum, 1990) takes the derivative to be 1
+Xin the layer going into the output units and uses the correct derivative
+Xterm for all other layers.  The learning rate for the inner layers is
+Xnormally set to some smaller value.  To set a value for eta2 give two
+Xvalues in the `e' command as in:
+X
+Xe 0.1 0.01
+X
+XTo set the derivative use the `A' command as in:
+X
+XA dd   * use the differential step size derivative (default)
+XA dF   * use Fahlman's derivative in only the output layer
+XA df   * use Fahlman's derivative in all layers
+XA do   * use the original, correct derivative
+X
+XUpdate Methods
+X
+X   The choices are the periodic (batch) method, the continuous (online)
+Xmethod, delta-bar-delta and quickprop.  The following commands set the
+Xupdate methods:
+X
+XA uc   * for the continuous update method
+XA ud   * for the delta-bar-delta method
+XA up   * for the original periodic update method (default)
+XA uq   * for the quickprop algorithm
+X
+XThe delta-bar-delta method uses a number of special parameters and these
+Xare set using the `d' command.  Delta-bar-delta can be used with any of
+Xthe derivatives and the algorithm will find its own value of eta for
+Xeach weight.
+X
+XOther Algorithm Options
+X
+X   The `b' command controls whether or not to backpropagate error for
+Xunits that have learned their response to within a given tolerance.  The
+Xdefault is to always backpropagate error.  The advantage to not
+Xbackpropagating error is that this can save computer time.  This
+Xparameter can be set like so:
+X
+XA b+   * always backpropagate error
+XA b-   * don't backpropagate error when close
+X
+X   The `s' sub-command will set the number of times to skip a pattern
+Xwhen the pattern has been learned to within the desired tolerance.  To
+Xskip 3 iterations, use "A s 3", to reset to not skip any patterns
+Xuse "A s 0".
+X
+X   The `t' sub-command will take the given pattern (only one at a
+Xtime) out of the training set so that you can then train the other
+Xpatterns and test the network's response to this one pattern that was
+Xremoved.  To test pattern 3 use "A t 3" and to reset to use all the
+Xpatterns use "A t 0".
+X
+X
+X9. The Delta-Bar-Delta Method
+X
+X   The delta-bar-delta method attempts to find a learning rate, eta, for
+Xeach individual weight.  The parameters are the initial value for the
+Xetas, the amount by which to increase an eta that seems to be too small,
+Xthe rate at which to decrease an eta that is too large, a maximum value
+Xfor each eta and a parameter used in keeping a running average of the
+Xslopes.  Here are examples of setting these parameters:
+X
+Xd d 0.5    * sets the decay rate to 0.5
+Xd e 0.1    * sets the initial etas to 0.1
+Xd k 0.25   * sets the amount to increase etas by (kappa) to 0.25
+Xd m 10     * sets the maximum eta to 10
+Xd n 0.005  * an experimental noise parameter
+Xd t 0.7    * sets the history parameter, theta, to 0.7
+X
+XThese settings can all be placed on one line:
+X
+Xd d 0.5  e 0.1  k 0.25  m 10  t 0.7
+X
+XThe version implemented here does not use momentum.  The symmetric
+Xversions sbp and srbp do not implement delta-bar-delta.
+X
+X   The idea behind the delta-bar-delta method is to let the program find
+Xits own learning rate for each weight.  The `e' sub-command sets the
+Xinitial value for each of these learning rates.  When the program sees
+Xthat the slope of the error surface averages out to be in the same
+Xdirection for several iterations for a particular weight the program
+Xincreases the eta value by an amount, kappa, given by the `k' parameter.
+XThe network will then move down this slope faster.  When the program
+Xfinds the slope changes signs the assumption is that the program has
+Xstepped over to the other side of the minimum and so it cuts down the
+Xlearning rate by the decay factor given by the `d' parameter.  For
+Xinstance, a d value of 0.5 cuts the learning rate for the weight in
+Xhalf.  The `m' parameter specifies the maximum allowable value for an
+Xeta.  The `t' parameter (theta) is used to compute a running average of
+Xthe slope of the weight and must be in the range 0 <= t < 1.  The
+Xrunning average at iteration i, a[i], is defined as:
+X
+Xa[i] = (1 - t) * slope[i] + t * a[i-1],
+X
+Xso small values for t make the most recent slope more important than the
+Xprevious average of the slope.  Determining the learning rate for
+Xback-propagation automatically is, of course, very desirable and this
+Xmethod often speeds up convergence by quite a lot.  Unfortunately, bad
+Xchoices for the delta-bar-delta parameters give bad results and a lot of
+Xexperimentation may be necessary.  If you have n patterns in the
+Xtraining set try starting e and k around 1/n.  The n parameter is an
+Xexperimental noise term that is only used in the integer version.  It
+Xchanges a weight in the wrong direction by the amount indicated when the
+Xprevious weight change was 0 and the new weight change would be 0 and
+Xthe slope is non-zero.  (I found this to be effective in an integer
+Xversion of quickprop so I tossed it into delta-bar-delta as well.  If
+Xyou find this helps please let me know.)  For more on delta-bar-delta
+Xsee "Increased Rates of Convergence" by Robert A. Jacobs, in Neural
+XNetworks, Volume 1, Number 4, 1988.
+X
+X10. Quickprop
+X
+X    Quickprop (see "Faster-Learning Variations on Back-Propagation: An
+XEmpirical Study", by Scott E. Fahlman, in Proceedings of the 1988
+XConnectionist Models Summer School", Morgan Kaufmann, 1989.) is similar
+Xto delta-bar-delta in that the algorithm attempts to increase the size
+Xof a weight change for each weight while the process continues to go
+Xdownhill in terms of error.  The main acceleration technique is to make
+Xthe next weight change mu times the previous weight change.  Fahlman
+Xsuggests mu = 1.75 is generally quite good so this is the initial value
+Xfor mu but slightly larger or slightly smaller values are sometimes
+Xbetter.  In addition when this is done Fahlman also adds in a value,
+Xeta times the current slope, in the traditional backprop fashion.  I had
+Xto wonder if this was a good idea so in this code I've included a
+Xcapability to add it in or not add it in.  So far it seems to me that
+Xsometimes adding in this extra term helps and sometimes it doesn't.  The
+Xdefault is to always use the extra term.
+X
+X   A second key property of quickprop is that when a weight change
+Xchanges the slope of the error curve from positive to negative or
+Xvice-versa, quickprop attempts to jump to the minimum by assuming the
+Xcurve is a parabola.
+X
+X   A third factor involved in quickprop comes about from the fact that
+Xthe weights often grow very large very quickly.  To minimize this
+Xproblem there is a decay factor designed to keep the weights small.
+XFahlman does not mention a value for this parameter but I usually try
+X0.0001 to 0.00001.  I've found that too large a decay factor can stall
+Xout the learning process so that if your network isn't learning fast
+Xenough or isn't learning at all one possible fix is to decrease the
+Xdecay factor.  The small values you need present a problem for the
+Xinteger version since the smallest value you can represent is about
+X0.001.  To get around this problem the decay value you input should be
+X1000 times larger than the value you intend to use.  So to get 0.0001,
+Xinput 0.1, to get 0.00001, input 0.01, etc.  The code has been written
+Xso that the factor of 1000 is taken into account during the calculations
+Xinvolving the decay factor.  To keep the values consistent both the
+Xinteger and floating point versions use this convention.  If you use
+Xquickprop elsewhere you need to take this factor of 1000 into account.
+XThe default value for the decay factor is 0.1 (=0.0001).
+X
+X   I built in one additional feature for the integer version.  I found
+Xthat by adding small amounts of noise the time to convergence can be
+Xbrought down and the number of failures can be decreased somewhat.  This
+Xseems to be especially true when the weight changes get very small.  The
+Xnoise consists of moving uphill in terms of error by a small amount when
+Xthe previous weight change was zero.  Good values for the noise seem to
+Xbe around 0.005.
+X
+X   The parameters for quickprop are all set in the `qp' command like
+Xso:
+X
+Xqp d 0.1  * the default decay factor
+Xqp e 0.5  * the default value for eta
+Xqp m 1.75 * the default value for mu
+Xqp n 0    * the default value for noise
+Xqp s+     * always include the slope
+X
+Xor a whole series can go on one line:
+X
+Xqp d 0.1 e 0.5 m 1.75 n 0 s+
+X
+X
+X11. Recurrent Networks
+X
+X   Recurrent back-propagation networks take values from higher level
+Xunits and use them as activation values for lower level units.  This
+Xgives a network a simple kind of short-term memory, possibly a little
+Xlike human short-term memory.  For instance, suppose you want a network
+Xto memorize the two short sequences, "acb" and "bcd".  In the middle of
+Xboth of these sequences is the letter, "c".  In the first case you want
+Xa network to take in "a" and output "c", then take in "c" and output
+X"b".  In the second case you want a network to take in "b" and output
+X"c", then take in "c" and output "d".  To do this a network needs a
+Xsimple memory of what came before the "c".
+X
+X   Let the network be an 7-3-4 network where input units 1-4 and output
+Xunits 1-4 stand for the letters a-d.  Furthermore, let there be 3 hidden
+Xlayer units.  The hidden units will feed their values back down to the
+Xinput units 5-7 where they become input for the next step.  To see why
+Xthis works, suppose the patterns have been learned by the network.
+XInputting the "a" from the first string produces some random pattern of
+Xactivation, p1, on the hidden layer units and "c" on the output units.
+XThe pattern p1 is copied down to units 5-7 of the input layer.  Second,
+Xthe letter, "c" is presented to the network together with p1 now on
+Xunits 5-7.  This will give "b" on the output units.  However, if the "b"
+Xfrom the second string is presented first there will be a different
+Xrandom pattern, p2, on the hidden layer units.  These values are copied
+Xdown to input units 5-7.  These values combine with the "c" to produce
+Xthe output, "d".
+X
+X   The training patterns for the network can be:
+X
+X     1000 000   0010  * "a" prompts the output, "c"
+X     0010 hhh   0100  * inputting "c" should produce "b"
+X
+X     0100 000   0010  * "b" prompts the output, "c"
+X     0010 hhh   0001  * inputting "c" should produce "d"
+X
+Xwhere the first four values on each line are the normal input, the
+Xmiddle three either start out all zeros or take their values from the
+Xprevious values of the hidden units.  The code for taking these values
+Xfrom the hidden layer units is "h".  The last set of values represents
+Xthe output that should be produced.  To take values from the third layer
+Xof a network, the code is "i".  For the fourth and fifth layers (if they
+Xexist) the codes are "j" and "k".  Training recurrent networks can take
+Xmuch longer than training standard networks and the average error can
+Xjump up and down quite a lot.
+X
+X
+X12. The Benchmarking Command
+X
+X   The main purpose of the benchmarking command is to make it possible
+Xto run a number of tests of a problem with different initial weights and
+Xaverage the number of iterations and CPU time for networks that
+Xconverged.  A second purpose is to run a training set thru the network a
+Xnumber of times and for each try a test pattern or a test set can be
+Xchecked at regular intervals.
+X
+X   A typical command to simply test the current parameters on a number
+Xof networks is:
+X
+XB g 5 m 15 k 1 r 1000 200
+X
+XThe "g 5" specifies that you'd like to set the goal of getting 5
+Xnetworks to converge but the "m 15" sets a maximum of 15 tries to
+Xreach this goal.  The k specifies that each initial network will get
+Xa kick by setting each weight to a random number between -1 and 1.
+XThe "r 1000 200" portion specifies that you should run up to 1000
+Xiterations on a network and print the status of learning every 200
+Xiterations.  This follows the normal run command and the second
+Xparameter defining how often to print the statistics can be omitted.
+XFor example, here is some output from benchmarking with the xor problem:
+X
+X[?!*AaBbCcdefHhiklmnOoPpQqRrSstWwx]? B g 5 m 5 k 1 r 200
+X seed =      7; running . . .
+Xpatterns learned to within 0.10 at iteration 62
+X seed =      7; running . . .
+X seed =      7; running . . .
+Xpatterns learned to within 0.10 at iteration 54
+X seed =      7; running . . .
+Xpatterns learned to within 0.10 at iteration 39
+X seed =      7; running . . .
+Xpatterns learned to within 0.10 at iteration 44
+X1 failures; 4 successes; average = 49.750000     0.333320 sec/network
+X
+XThe time/network includes however much time is used to print messages so
+Xto time the process effectively all printing should be minimized.  When
+Xthe timing is done on a UNIX PC the time returned by clock will overflow
+Xafter 2147 seconds or about 36 minutes.  If you system has the same
+Xlimitation take care that ALL of the benchmarking you do in a single
+Xcall of the program adds up to less than 36 minutes.
+X
+X   In the above example the seed that was used to set the random values
+Xfor the weights was set to 7 (outside the benchmarking command) however
+Xif you set a number of seeds as in:
+X
+Xs 3 5 7 18484 99
+X
+Xthe seeds will be taken in order for each network.  When there are more
+Xnetworks to try than there are seeds the random values keep coming from
+Xthe last seed value so actually you can get by using a single seed.
+XThe idea behind allowing multiple seeds is so that if one network does
+Xsomething interesting you can use that seed to run a network with the
+Xsame initial weights outside of the benchmarking command.
+X
+X   Once the benchmarking parameters have been set it is only necessary
+Xto include the run portion in order to start the benchmarking process
+Xagain, thus, "B r 200" will run benchmarking again using the current set
+Xof parameters.  Also, the parameters can be set without starting the
+Xbenchmarking process by just not including the `r' parameters in the B
+Xcommand as in:
+X
+XB g 5 m 5 k 1
+X
+X   In addition to getting data on convergence you can have the program
+Xrun test patterns thru the network at the print statistics rate given
+Xin the `r' sub-command.  To specify the test file, test100, use:
+X
+XB t f test100
+X
+XTo run the training data thru for up to 1000 iterations and test every
+X200 iterations use:
+X
+XB r 1000 200
+X
+XIf the pattern format specification p is set to either c or g you will
+Xget a summary of the patterns on the test file.  If p is either C or G
+Xyou will get the results for each pattern listed as well as the summary.
+XTo stop testing the data on the data file use "B t 0".
+X
+X   Sometimes you may have so little data available that it is difficult
+Xto separate the patterns into a training set and a test set.  One
+Xsolution is to remove each pattern from the training set, train the
+Xnetwork on the remaining patterns and then test the network on the
+Xpattern that was removed.  To remove a pattern, say pattern 1 from the
+Xtraining set use:
+X
+XB t 1
+X
+XTo systematically remove each pattern from the training set use a data
+Xfile with the following commands:
+X
+XB t 1 r 200 50
+XB t 2 r 200 50
+XB t 3 r 200 50
+X ... etc.
+X
+Xand the pattern will be tested every 50 iterations.  If, in the course
+Xof training the network, all the patterns converge, the program will
+Xprint out a line starting with a capital S followed by a test of the
+Xtest pattern.  If the programs hits the point where statistics on the
+Xlearning process have to be printed and the network has not converged
+Xthen a capital F will print out followed by a test of the test pattern.
+XTo stop this testing use "B t 0".
+X
+X   It would be nice to have the program average up and tabulate all the
+Xdata that comes out of the benchmarking command but I thought I'd leave
+Xthat to users for now.  You can use the record command to save the
+Xoutput from the entire session and then run it thru some other program,
+Xsuch as an awk program in order to sort everything out.
+X
+X
+X13. Miscellaneous Commands
+X
+X   Below is a list of some miscellaneous commands, a short example of
+Xeach and a short description of the command.
+X
+X
+X!   Example: ! ls
+X
+XAnything after `!' will be passed on to the OS as a command to execute.
+X
+X
+XC   Example: C
+X
+XThe C command will clear the network of values, reset the number of
+Xiterations to 0 and reset other values so that another run can be made.
+XThe seed value is reset so you can run the same network over with the
+Xsame initial weights but with different learning parameters.  Even
+Xthough the seed is reset the weights are not initialized so you
+Xmust do this step after clearing the network.
+X
+X
+Xi   Example: i f
+X
+XEntering "i f" will read commands from the file, f.  When there are no
+Xmore commands on the file the program resumes reading from the previous
+Xfile being used.  You can also have an `i' command within the file f,
+Xhowever the depth to which you can nest the number of active files is 4
+Xand stdin itself counts as the first one.  Once an input file has been
+Xspecified you can simply type "i" to read from the file again.
+X
+X
+Xl   Example: l 2
+X
+XEntering "l 2" will print the values of the units on layer 2, or
+Xwhatever layer is specified.
+X
+X
+XT   Example: T -3
+X
+XIn sbp and srbp only, "T -3" sets all the threshold weights to -3 or
+Xwhatever value is specified and freezes them at this value.
+X
+X
+XW   Example: W 0.9
+X
+XEntering "W 0.9" will remove (whittle away) all the weights with
+Xabsolute values less than 0.9.
+X
+XIn addition, under UNIX when a user generated interrupt occurs (by
+Xtyping DEL) the program will drop its current task and take the next
+Xcommand from the keyboard.  Under DOS you can use ctrl-C to stop the
+Xcurrent task and take the next command from the keyboard.  Also under
+XDOS, when the program is executing a run command hitting the escape key
+Xwill get the program to stop after the current iteration.
+X
+X
+X13. Limitations
+X
+X   Weights in the bp and sbp programs are 16-bit integer weights where
+Xthe real value of the weight has been multiplied by 1024.  The integer
+Xversions cannot handle weights less than -32 or greater than 31.999.
+XThe weight changes are all checked for overflow but there are other
+Xplaces in these programs where calculations can possibly overflow as
+Xwell and none of these places are checked.  Input values for the integer
+Xversions can run from -31.994 to 31.999.  Due to the method used to
+Ximplement recurrent connections, input values in the real version are
+Xlimited to -31994.0 and above.
+END_OF_FILE
+if test 46585 -ne `wc -c <'readme'`; then
+    echo shar: \"'readme'\" unpacked with wrong size!
+fi
+# end of 'readme'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

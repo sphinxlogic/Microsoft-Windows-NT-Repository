@@ -1,0 +1,2514 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i055:  ecu - ECU Asynchronous Communications v3.20, Part20/40
+Message-ID: <1992Sep14.143459.20269@sparky.imd.sterling.com>
+X-Md4-Signature: c117b1baec7dea4b0c5c92f345f27007
+Date: Mon, 14 Sep 1992 14:34:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 55
+Archive-name: ecu/part20
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.20 (part 20 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file pcmdtty.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 20; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping pcmdtty.c'
+else
+echo 'x - continuing file pcmdtty.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'pcmdtty.c' &&
+X		if(proctrace > 1)
+X		{
+X			pprintf("normal %ld,%ld current=0x%08lx\n",
+X				foreground,background,colors_current);
+X		}
+X	}
+X	else
+X	{
+X		colors_current &= 0x0000FFFF;
+X		colors_current |= (foreground << 24) | (background << 16);
+X		if(proctrace > 1)
+X		{
+X			pprintf("reverse %ld,%ld current=0x%08lx\n",
+X				foreground,background,colors_current);
+X		}
+X	}
+X
+X	setcolor(colors_current);
+X	return(0);
+X
+XERROR:
+X	if(erc)
+X		return(erc);
+X	pputs("invalid color\n");
+X	return(eFATAL_ALREADY);
+X
+X}	/* end of pcmd_color */
+X
+X/*+-------------------------------------------------------------------------
+X	ifunc_colors(pvalue)
+X--------------------------------------------------------------------------*/
+Xint
+Xifunc_colors(pvalue)
+Xulong *pvalue;
+X{
+X	*pvalue = colors_current;
+X	return(0);
+X}	/* end of ifunc_colors */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_icolor(param)
+X--------------------------------------------------------------------------*/
+Xpcmd_icolor(param)
+XESD *param;
+X{
+X	int erc;
+X	ulong new_colors;
+X
+X	if(erc = gint(param,&new_colors))
+X		return(erc);
+X
+X	setcolor(new_colors);
+X	return(0);
+X}	/* end of pcmd_icolor */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_cls(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_cls(param)
+XESD *param;
+X{
+X	tcap_clear_screen();
+X	return(0);
+X}	/* end of pcmd_cls */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_cursor(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_cursor(param)
+XESD *param;
+X{
+X	int erc;
+X	long row;
+X	long col = 0;
+X
+X	if(erc = gint(param,&row))
+X		return(erc);
+X	if(gint(param,&col))
+X	{
+X		/* if something there non-integer */
+X		if(!end_of_cmd(param))
+X			return(eSyntaxError);
+X	}
+X	tcap_cursor((int)row,(int)col);
+X	return(0);
+X}	/* end of pcmd_cursor */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_scrdump(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_scrdump(param)
+XESD *param;
+X{
+X	int erc;
+X	ESD *fname;
+X	FILE *fp;
+X
+X	if((fname = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,fname,1))
+X	{
+X		if(!end_of_cmd(param))
+X		{
+X			erc = eSyntaxError;
+X			goto RETURN;
+X		}
+X	}
+X
+X	if(fname->cb)
+X	{
+X		if(!(fp = fopen(fname->pb,"a")))
+X		{
+X			pperror(fname->pb);
+X			erc = eFATAL_ALREADY;
+X			goto RETURN;
+X		}
+X		fclose(fp);
+X	}
+X
+X	screen_dump((fname->cb) ? fname->pb : (char *)0);
+X
+XRETURN:
+X	esdfree(fname);
+X	return(erc);
+X}	/* end of pcmd_scrdump */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_vidnorm(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_vidnorm(param)
+XESD *param;
+X{
+X	tcap_stand_end();
+X	return(0);
+X}	/* end of pcmd_vidnorm */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_vidrev(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_vidrev(param)
+XESD *param;
+X{
+X	tcap_stand_out();
+X	return(0);
+X}	/* end of pcmd_vidrev */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fkey(param)
+X--------------------------------------------------------------------------*/
+Xpcmd_fkey(param)
+XESD *param;
+X{
+X	int erc;
+X	ESD *tesd;
+X
+X	if((tesd = esdalloc(64)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,tesd,0))
+X		goto RETURN;
+X
+X	switch(keyset_read(tesd->pb))
+X	{
+X		case  0:
+X			if(proctrace)
+X				keyset_display();
+X			break;
+X		case -1:
+X			pprintf("cannot find ~/.ecu/keys\n");
+X			erc = eFATAL_ALREADY;
+X			break;
+X		case -2:
+X			pprintf("'%s' not found in ~/.ecu/keys\n",tesd->pb);
+X			erc = eFATAL_ALREADY;
+X			break;
+X		case -3:
+X			pprintf("'%s' has a syntax error\n",tesd->pb);
+X			erc = eFATAL_ALREADY;
+X			break;
+X	}
+X
+XRETURN:
+X	esdfree(tesd);
+X	return(erc);
+X}	/* end of pcmd_fkey */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_fkmap(param)
+X--------------------------------------------------------------------------*/
+Xpcmd_fkmap(param)
+XESD *param;
+X{
+X	int erc = 0;
+X	int in_quotes = 0;
+X	char *cmd;
+X	char *cptr;
+X	char ch;
+X#define FKMAP_MAXARGS 36
+X	char *arg[FKMAP_MAXARGS];
+X	int narg;
+X
+X	skip_cmd_break(param);
+X
+X	if(!(cmd = strdup(param->pb + param->index)))
+X		return(eNoMemory);
+X
+X	cptr = cmd;
+X	while(ch = *cptr++)
+X	{
+X		if(ch == '\'')
+X		{
+X			in_quotes = !in_quotes;
+X			continue;
+X		}
+X		else if(ch == '\\')
+X		{
+X			cptr++;
+X			continue;
+X		}
+X		else if(!in_quotes && strchr("#;",ch))
+X			break;
+X	}
+X	param->index += (int)(cptr - cmd);
+X	*cptr = 0;
+X
+X	arg[0] = "fkmap";
+X	build_arg_array(cmd,arg + 1,FKMAP_MAXARGS - 1,&narg);
+X	narg++;
+X	erc = fkmap_command(narg,arg);
+X	free(cmd);
+X	return(erc);
+X
+X}	/* end of pcmd_fkmap */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_vidcolor(param)
+X
+Xvidcolor normal|reverse|notify|success|alert|error fcolor [bcolor]
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_vidcolor(param)
+XESD *param;
+X{
+X	int erc;
+X	int ntokens = 0;
+X	char *tokens[3];
+X	int param_index[3];
+X	char tokenbuf[64];
+X
+X	tokens[0] = tokenbuf;
+X	tokens[1] = tokenbuf + 20;
+X	tokens[2] = tokenbuf + 40;
+X
+X	while(ntokens < 3)
+X	{
+X		skip_cmd_break(param);
+X		param_index[ntokens] = param->index;
+X		if(erc = get_word_zstr(param,tokens[ntokens],20))
+X			break;
+X		ntokens++;
+X	}
+X
+X	if(erc && ((erc != eNoParameter) || (ntokens < 2)))
+X		return(erc);
+X
+X	switch(erc = setcolor_internal(ntokens,tokens))
+X	{
+X		case 0:
+X			break;
+X		default:
+X			param->old_index = param->index = param_index[erc - 1];
+X			erc = eBadParameter;
+X	}
+X	return(erc);
+X}	/* end of pcmd_vidcolor */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_home(param) - home the cursor
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_home(param)
+XESD *param;
+X{
+X	tcap_cursor(0,0);
+X	return(0);
+X}	/* end of pcmd_home */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_eeol(param) - erase to end of line
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_eeol(param)
+XESD *param;
+X{
+X	tcap_eeol();
+X	return(0);
+X}	/* end of pcmd_eeol */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_insline(param) - insert line in display
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_insline(param)
+XESD *param;
+X{
+X	tcap_insert_lines(1);
+X	return(0);
+X}	/* end of pcmd_insline */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_delline(param) - delete line from display
+X--------------------------------------------------------------------------*/
+X/*ARGSUNUSED*/
+Xint
+Xpcmd_delline(param)
+XESD *param;
+X{
+X	tcap_delete_lines(1);
+X	return(0);
+X}	/* end of pcmd_delline */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmdtty.c */
+SHAR_EOF
+echo 'File pcmdtty.c is complete' &&
+chmod 0644 pcmdtty.c ||
+echo 'restore of pcmdtty.c failed'
+Wc_c="`wc -c < 'pcmdtty.c'`"
+test 9422 -eq "$Wc_c" ||
+	echo 'pcmdtty.c: original size 9422, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmdwhile.c ==============
+if test -f 'pcmdwhile.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmdwhile.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmdwhile.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmdwhile.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmdwhile.c - ecu while procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X    WHILEI $i0 rel-op $i1 cmd
+X    WHILES $s0 rel-op $s1 cmd
+X
+X    where rel-op is "=", "==", "!=", "<>", ">", "<", ">=", "=<"
+X
+X  Defined functions:
+X	pcmd_whilei(param)
+X	pcmd_whiles(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <ctype.h>
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X#include "relop.h"
+X
+Xextern PCB *pcb_stack[];
+X
+X/*+-------------------------------------------------------------------------
+X    pcmd_whilei(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_whilei(param)
+XESD *param;
+X{
+Xregister erc;
+Xint truth;
+XPCB *pcb;
+XLCB *condition_lcb;
+Xint condition_index = param->index;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	pcb = pcb_stack[proc_level - 1];
+X	condition_lcb = pcb->current;
+X
+XREPEAT_WHILE:
+X
+X	if(erc = get_truth_int(param,&truth))
+X		return(erc);
+X
+X/* if end of command, execute frame */
+X	if(end_of_cmd(param))
+X	{
+X		if(erc = execute_frame(truth))
+X		{
+X			if(erc == eContinueCommand)
+X				goto CONTINUE;
+X			if(erc == eBreakCommand)
+X				erc = 0;
+X			return(erc);
+X		}
+X	}
+X	else if(truth)
+X	{
+X		if(erc = execute_esd(param))
+X			return(erc);
+X	}
+X
+X/* repeat if indicated */
+XCONTINUE:
+X	if(truth)
+X	{
+X		pcb->current = condition_lcb;
+X		param->index = param->old_index = condition_index;
+X		goto REPEAT_WHILE;
+X	}
+X
+X	return(0);
+X}   /* end of pcmd_whilei */
+X
+X/*+-------------------------------------------------------------------------
+X    pcmd_whiles(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_whiles(param)
+XESD *param;
+X{
+Xregister erc;
+Xint truth;
+XPCB *pcb;
+XLCB *condition_lcb;
+Xint condition_index = param->index;
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X
+X	pcb = pcb_stack[proc_level - 1];
+X	condition_lcb = pcb->current;
+X
+XREPEAT_WHILE:
+X
+X	if(erc = get_truth_str(param,&truth))
+X		return(erc);
+X
+X/* if end of command, execute frame */
+X	if(end_of_cmd(param))
+X	{
+X		if(erc = execute_frame(truth))
+X		{
+X			if(erc == eContinueCommand)
+X				goto CONTINUE;
+X			if(erc == eBreakCommand)
+X				erc = 0;
+X			return(erc);
+X		}
+X	}
+X	else if(truth)
+X	{
+X		if(erc = execute_esd(param))
+X			return(erc);
+X	}
+X
+X/* repeat if indicated */
+XCONTINUE:
+X	if(truth)
+X	{
+X		pcb->current = condition_lcb;
+X		param->index = param->old_index = condition_index;
+X		goto REPEAT_WHILE;
+X	}
+X
+X	return(0);
+X}   /* end of pcmd_whiles */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmdwhile.c */
+SHAR_EOF
+chmod 0644 pcmdwhile.c ||
+echo 'restore of pcmdwhile.c failed'
+Wc_c="`wc -c < 'pcmdwhile.c'`"
+test 2818 -eq "$Wc_c" ||
+	echo 'pcmdwhile.c: original size 2818, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmdxfer.c ==============
+if test -f 'pcmdxfer.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmdxfer.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmdxfer.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmdxfer.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmdxfer.c - ecu file transfer related procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	_adjust_erc_and_iv0(adj_erc)
+X	_make_bottom_label(param,default_flag,sending_flag)
+X	_pcmd_report_send_status()
+X	_smart_sender_common(cmd)
+X	pcmd_rk(param)
+X	pcmd_rs(param)
+X	pcmd_rx(param)
+X	pcmd_ry(param)
+X	pcmd_rz(param)
+X	pcmd_sk(param)
+X	pcmd_ss(param)
+X	pcmd_sx(param)
+X	pcmd_sy(param)
+X	pcmd_sz(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-15:35-wht@n4hgf-add -r to sz */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:04-23-1991-23:44-wht@n4hgf-big time overhaul - better but flames expected */
+X/*:04-23-1991-05:10-wht@n4hgf-new cmd build mechanism for long file lists */
+X/*:01-17-1991-17:01-wht@n4hgf-skipped files in sz aborted proc */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+X/*
+X * file transmission command and pathname list ESD initial size
+X * (lengths can grow to ESD_MAXSIZE)
+X */
+X#define CMDESD_INITIAL_SIZE  384 /* executable command initial size */
+X#define PATHESD_INITIAL_SIZE 256 /* pathname list initial size */
+X#define CMDSTR_SIZE          384 /* receive command string size */
+X
+Xextern int proctrace;
+Xextern int last_child_wait_status;
+Xextern char curr_dir[CURR_DIRSIZ];
+X
+Xstatic char bottom_label[80];
+X
+X/*+-------------------------------------------------------------------------
+X	_make_bottom_label(param,default_flag)
+X--------------------------------------------------------------------------*/
+Xint
+X_make_bottom_label(param,default_flag,sending_flag)
+XESD *param;
+Xint default_flag;
+Xint sending_flag;
+X{
+Xregister erc;
+XESD *label = (ESD *)0;
+X
+X	if(default_flag)
+X	{
+X		sprintf(bottom_label,
+X			(sending_flag) ? "-C \"'Connected to %s'\" "
+X			               : "-C 'Connected to %s' ",
+X			(shm->Lrname[0]) ? shm->Lrname : "?");
+X		return(0);
+X	}
+X	if((label = esdalloc(64)) == (ESD *)0)
+X		return(eNoMemory);
+X	if(erc = gstr(param,label,0))
+X	{
+X		esdfree(label);
+X		return(erc);
+X	}
+X	strcpy(bottom_label,(sending_flag) ? "-C \"'" : "-C '");
+X	strcat(bottom_label,label->pb);
+X	strcat(bottom_label,(sending_flag) ? "'\"" : "'");
+X	esdfree(label);
+X	return(0);
+X
+X}	/* end of _make_bottom_label */
+X
+X/*+-------------------------------------------------------------------------
+X	_adjust_erc_and_iv0(adj_erc)
+X--------------------------------------------------------------------------*/
+Xint
+X_adjust_erc_and_iv0(adj_erc)
+Xint adj_erc;
+X{
+X
+X	if(adj_erc)
+X		return(adj_erc);
+X
+X	iv[0] = (last_child_wait_status & 0xFF)
+X			? 0x100L : (long)((last_child_wait_status >> 8) & 0xFFFF);
+X
+X	if(proctrace)
+X		pprintf("$i00 = %ld (transfer %s)\n",iv[0],
+X			(iv[0] == 0x100L) ? "interrupted" : "program exit status");
+X
+X	return(0);
+X
+X}	/* end of _adjust_erc_and_iv0 */
+X
+X/*+-------------------------------------------------------------------------
+X	_pcmd_report_send_status() - report file transmission result
+X
+Xfor "ecu knowledgeable" protocols only
+Xreturns proc-type erc
+X--------------------------------------------------------------------------*/
+Xint
+X_pcmd_report_send_status()
+X{
+Xregister ushort ustmp;
+Xint erc = eFATAL_ALREADY;
+Xint iv0_set = 0;
+Xchar *signal_name_text();
+X
+X	ustmp = last_child_wait_status;
+X	if((ustmp & 0xFF) == 0)	/* exit() called */
+X	{
+X		ustmp >>= 8;
+X		if(!ustmp)
+X		{
+X			if(proctrace)
+X				pputs("transfer successful\n");
+X			erc = 0;
+X		}
+X		else if(ustmp == 255)
+X			pputs("ecu error: transfer program usage error\n");
+X		else if(ustmp == 254)
+X		{
+X			pputs(
+X			"protocol failure: bad line conditions or remote not ready\n");
+X		}
+X		else if(ustmp == 253)
+X			pputs("no requested files exist\n");
+X		else if(ustmp < 128)
+X		{
+X			if(proctrace)
+X			{
+X				if(ustmp == 127)
+X					pputs("127 or more files skipped\n");
+X				else
+X					pprintf("%u files rejected\n",ustmp);
+X			}
+X			iv[0] = (long)ustmp;
+X			iv0_set = 1;
+X			last_child_wait_status = 0;
+X			erc = 0;
+X		}
+X		else
+X		{
+X			pprintf("transfer aborted by %s\n",signal_name_text(ustmp & 0x7F));
+X			erc = eProcAttn_Interrupt;
+X		}
+X	}
+X	else
+X	{
+X		pprintf("transfer killed by %s\n",signal_name_text(ustmp & 0x7F));
+X		erc = eProcAttn_Interrupt;
+X	}
+X
+X	if(!iv0_set)
+X	{
+X		iv[0] = (last_child_wait_status & 0xFF)
+X			? 0x100L : (long)((last_child_wait_status >> 8) & 0xFFFF);
+X	}
+X
+X	if(proctrace)
+X		pprintf("$i00 = %ld (transfer %s)\n",iv[0],
+X			(iv[0] == 0x100L) ? "interrupted" : "program exit status");
+X
+X	return(erc);
+X
+X}	/* end of _pcmd_report_send_status */
+X
+X/*+-------------------------------------------------------------------------
+X	_smart_sender_common(cmd) - common exec and bottom processing
+X
+Xfor "ecu knowledgeable" protocols only
+Xreturns proc-type erc
+X--------------------------------------------------------------------------*/
+Xint
+X_smart_sender_common(cmd)
+Xchar *cmd;
+X{
+Xint erc = 0;
+X
+X	last_child_wait_status = 0;
+X	file_xfer_start();
+X
+X	if(find_shell_chars(cmd))
+X	{
+X	char *expcmd;
+X
+X		if(expand_wildcard_list(cmd,&expcmd))
+X		{
+X			pputs("No files match wildcard list\n");
+X			iv[0] = -1;
+X			return(0);
+X		}
+X		else
+X		{
+X			exec_cmd(expcmd);
+X			erc = _pcmd_report_send_status();
+X			free(expcmd);
+X		}
+X	}
+X	else
+X	{
+X		exec_cmd(cmd);
+X		erc = _pcmd_report_send_status();
+X	}
+X
+X	lreset_ksr();
+X	file_xfer_done_bell();
+X
+X	return(erc);
+X
+X}	/* end of _smart_sender_common */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_sx(param)
+X
+Xsx [-ak[l]] [<label-str>] <filelist-str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_sx(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+XESD *pathesd = (ESD *)0;
+XESD *cmdesd = esdalloc(CMDESD_INITIAL_SIZE);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),1))
+X		return(erc);
+X
+X	/*
+X	 * build command at beginning of 'cmdesd' ESD
+X	 */
+X	sprintf(cmdesd->pb,"ecusz -X -. %d ",shm->Liofd);
+X	strcat(cmdesd->pb,bottom_label);
+X
+X#if defined(WHT)	/* for testing */
+X	if(strchr(switches,'p'))
+X		strcat(cmdesd->pb,"-, ");
+X#endif
+X
+X	if(strchr(switches,'a'))
+X		strcat(cmdesd->pb,"-a ");
+X
+X	if(strchr(switches,'k'))
+X		strcat(cmdesd->pb,"-k");
+X
+X	/*
+X	 * update cmdesd esd
+X	 */
+X	cmdesd->cb = strlen(cmdesd->pb);
+X
+X	if(!(pathesd = esdalloc(PATHESD_INITIAL_SIZE)))
+X	{
+X		erc = eNoMemory;
+X		goto FREE_MEM_AND_EXIT;
+X	}
+X
+X	/*
+X	 * get list of pathnames to send
+X	 */
+X	if(erc = gstr(param,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * append filelist to command
+X	 */
+X	if(erc = esdcat(cmdesd,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * perform the operation
+X	 */
+X	erc = _smart_sender_common(cmdesd->pb);
+X
+XFREE_MEM_AND_EXIT:
+X	if(pathesd)
+X		esdfree(pathesd);
+X	if(cmdesd)
+X		esdfree(cmdesd);
+X	return(erc);
+X
+X}	/* end of pcmd_sx */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_sy(param)
+X
+Xsy [-a[l]] [<label-str>] <filelist-str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_sy(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+XESD *pathesd = (ESD *)0;
+XESD *cmdesd = esdalloc(CMDESD_INITIAL_SIZE);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),1))
+X		return(erc);
+X
+X	/*
+X	 * build command at beginning of 'cmdesd' ESD
+X	 */
+X	sprintf(cmdesd->pb,"ecusz -Y -. %d -k ",shm->Liofd);
+X	strcat(cmdesd->pb,bottom_label);
+X	if(strchr(switches,'a'))
+X		strcat(cmdesd->pb,"-a ");
+X	else
+X		strcat(cmdesd->pb,"-b ");
+X
+X	/*
+X	 * update cmdesd esd
+X	 */
+X	cmdesd->cb = strlen(cmdesd->pb);
+X
+X	if(!(pathesd = esdalloc(PATHESD_INITIAL_SIZE)))
+X	{
+X		erc = eNoMemory;
+X		goto FREE_MEM_AND_EXIT;
+X	}
+X
+X	/*
+X	 * get list of pathnames to send
+X	 */
+X	if(erc = gstr(param,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * append filelist to command
+X	 */
+X	if(erc = esdcat(cmdesd,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * perform the operation
+X	 */
+X	erc = _smart_sender_common(cmdesd->pb);
+X
+XFREE_MEM_AND_EXIT:
+X	if(pathesd)
+X		esdfree(pathesd);
+X	if(cmdesd)
+X		esdfree(cmdesd);
+X	return(erc);
+X
+X}	/* end of pcmd_sy */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_sz(param)
+X
+Xsz [-anf[l]] [<label-str>] <filelist-str>
+X-a ascii, else binary
+X-n send only newer, else all files
+X-f full, else simple pathnames
+X-r resume interrupted xfer
+X-l non-default bottom line label on transfer string
+X$i0 set to:
+X	0: file transfer completely successful
+X	-1 program did not run
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_sz(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+XESD *pathesd = (ESD *)0;
+XESD *cmdesd = esdalloc(CMDESD_INITIAL_SIZE);
+X
+X	if(!cmdesd)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),1))
+X		return(erc);
+X
+X	/*
+X	 * build command at beginning of 'cmdesd' ESD
+X	 */
+X	sprintf(cmdesd->pb,"ecusz -Z -. %d -y ",shm->Liofd);
+X	strcat(cmdesd->pb,bottom_label);
+X
+X	if(strchr(switches,'N'))		/* force "no curses" */
+X		strcat(cmdesd->pb,"-@ ");
+X
+X	if(strchr(switches,'a'))
+X		strcat(cmdesd->pb,"-a ");
+X
+X	if(strchr(switches,'n'))
+X		strcat(cmdesd->pb,"-n ");	/* overrides -y choice earlier */
+X
+X	if(strchr(switches,'f'))
+X		strcat(cmdesd->pb,"-f ");
+X
+X	if(strchr(switches,'r'))
+X		strcat(cmdesd->pb,"-r ");
+X
+X#if defined(WHT)	/* for testing */
+X	if(strchr(switches,'p'))
+X		strcat(cmdesd->pb,"-, ");
+X#endif
+X
+X	/*
+X	 * update cmdesd esd
+X	 */
+X	cmdesd->cb = strlen(cmdesd->pb);
+X
+X	if(!(pathesd = esdalloc(PATHESD_INITIAL_SIZE)))
+X	{
+X		erc = eNoMemory;
+X		goto FREE_MEM_AND_EXIT;
+X	}
+X
+X	/*
+X	 * get list of pathnames to send
+X	 */
+X	if(erc = gstr(param,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * append filelist to command
+X	 */
+X	if(erc = esdcat(cmdesd,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * perform the operation
+X	 */
+X	erc = _smart_sender_common(cmdesd->pb);
+X
+XFREE_MEM_AND_EXIT:
+X	if(pathesd)
+X		esdfree(pathesd);
+X	if(cmdesd)
+X		esdfree(cmdesd);
+X	return(erc);
+X
+X}	/* end of pcmd_sz */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_sk(param)
+X
+Xsk [-a] <str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_sk(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+XESD *pathesd = (ESD *)0;
+XESD *cmdesd = esdalloc(CMDESD_INITIAL_SIZE);
+X
+X	if(!cmdesd)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	/*
+X	 * build command at beginning of 'cmdesd' ESD
+X	 */
+X	sprintf(cmdesd->pb,"ckermit -l %d -b %u -p %c%s%s -s ",
+X		shm->Liofd,shm->Lbaud,
+X		(shm->Lparity) ? shm->Lparity : 'n',
+X		(strchr(switches,'a')) ? "" : " -i",
+X		(1 /* overwrite*/ ) ? "" : " -w");
+X
+X	if(strchr(switches,'b'))
+X		strcat(cmdesd->pb,"-a ");
+X	else
+X		strcat(cmdesd->pb,"-b ");
+X
+X	if(strchr(switches,'n'))
+X		strcat(cmdesd->pb,"-n ");	/* overrides -y choice earlier */
+X	if(strchr(switches,'f'))
+X		strcat(cmdesd->pb,"-f ");
+X
+X	/*
+X	 * update cmdesd esd
+X	 */
+X	cmdesd->cb = strlen(cmdesd->pb);
+X
+X	if(!(pathesd = esdalloc(PATHESD_INITIAL_SIZE)))
+X	{
+X		erc = eNoMemory;
+X		goto FREE_MEM_AND_EXIT;
+X	}
+X
+X	/*
+X	 * get list of pathnames to send
+X	 */
+X	if(erc = gstr(param,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * append filelist to command
+X	 */
+X	if(erc = esdcat(cmdesd,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * perform the operation
+X	 */
+X	last_child_wait_status = 0;
+X	if(exec_cmd(cmdesd->pb))
+X		erc = eFATAL_ALREADY;
+X
+XFREE_MEM_AND_EXIT:
+X	if(pathesd)
+X		esdfree(pathesd);
+X	if(cmdesd)
+X		esdfree(cmdesd);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(_adjust_erc_and_iv0(erc));
+X
+X}	/* end of pcmd_sk */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ss(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ss(param)
+XESD *param;
+X{
+Xint erc;
+XESD *pathesd = (ESD *)0;
+XESD *cmdesd = esdalloc(CMDESD_INITIAL_SIZE);
+X
+X	if(!cmdesd)
+X		return(eNoMemory);
+X
+X	/*
+X	 * build command at beginning of 'cmdesd' ESD
+X	 */
+X	sprintf(cmdesd->pb,"ecusea -. %d -/ %s -s ",shm->Liofd,curr_dir);
+X
+X	/*
+X	 * update cmdesd esd
+X	 */
+X	cmdesd->cb = strlen(cmdesd->pb);
+X
+X	if(!(pathesd = esdalloc(PATHESD_INITIAL_SIZE)))
+X	{
+X		erc = eNoMemory;
+X		goto FREE_MEM_AND_EXIT;
+X	}
+X
+X	/*
+X	 * get list of pathnames to send
+X	 */
+X	if(erc = gstr(param,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * append filelist to command
+X	 */
+X	if(erc = esdcat(cmdesd,pathesd,1))
+X		goto FREE_MEM_AND_EXIT;
+X
+X	/*
+X	 * perform the operation
+X	 */
+X	last_child_wait_status = 0;
+X	if(exec_cmd(cmdesd->pb))
+X		erc = eFATAL_ALREADY;
+X
+XFREE_MEM_AND_EXIT:
+X	if(pathesd)
+X		esdfree(pathesd);
+X	if(cmdesd)
+X		esdfree(cmdesd);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(_adjust_erc_and_iv0(erc));
+X
+X}	/* end of pcmd_ss */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rx(param)
+X
+Xrx [-b] <str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rx(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xchar cmdstr[CMDSTR_SIZE];
+Xchar switches[8];
+XESD *pathesd = esdalloc(PATHESD_INITIAL_SIZE);
+X
+X	if(!pathesd)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = gstr(param,pathesd,1))
+X	{
+X		esdfree(pathesd);
+X		return(erc);
+X	}
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),0))
+X		return(erc);
+X
+X	/*
+X	 * build command in 'cmdstr' string
+X	 */
+X	sprintf(cmdstr,"ecurz -X -. %d -c ",shm->Liofd);
+X	strcat(cmdstr,bottom_label);
+X	if(!strchr(switches,'b'))
+X		strcat(cmdstr,"-b ");
+X	else
+X		strcat(cmdstr,"-a ");
+X	strcat(cmdstr,pathesd->pb);
+X	esdfree(pathesd);
+X	file_xfer_start();
+X
+X	last_child_wait_status = 0;
+X
+X	if(exec_cmd(cmdstr))
+X		erc = eFATAL_ALREADY;
+X	else
+X		erc = _adjust_erc_and_iv0(erc);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X	return(erc);
+X
+X}	/* end of pcmd_rx */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_ry(param)
+X
+Xry
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_ry(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xchar cmdstr[CMDSTR_SIZE];
+Xchar switches[8];
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	last_child_wait_status = 0;
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),0))
+X		return(erc);
+X
+X	/*
+X	 * build command in 'cmdstr' string
+X	 */
+X	sprintf(cmdstr,"ecurz -Y -. %d -y ",shm->Liofd);
+X	strcat(cmdstr,bottom_label);
+X	file_xfer_start();
+X	if(exec_cmd(cmdstr))
+X		erc = eFATAL_ALREADY;
+X	else
+X		erc = _adjust_erc_and_iv0(erc);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(erc);
+X}	/* end of pcmd_ry */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rz(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rz(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xchar cmdstr[CMDSTR_SIZE];
+Xchar switches[8];
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	last_child_wait_status = 0;
+X
+X	if(erc = _make_bottom_label(param,!strchr(switches,'l'),0))
+X		return(erc);
+X
+X	/*
+X	 * build command in 'cmdstr' string
+X	 */
+X	sprintf(cmdstr,"ecurz -Z -. %d ",shm->Liofd);
+X	strcat(cmdstr,bottom_label);
+X
+X	if(strchr(switches,'N'))		/* force "no curses" */
+X		strcat(cmdstr,"-@ ");
+X#if defined(WHT)	/* for testing */
+X	if(strchr(switches,'c'))
+X		strcat(cmdstr,"-: ");
+X	if(strchr(switches,'p'))
+X		strcat(cmdstr,"-, ");
+X#endif
+X	file_xfer_start();
+X	if(exec_cmd(cmdstr))
+X		erc = eFATAL_ALREADY;
+X	else
+X		erc = _adjust_erc_and_iv0(erc);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(erc);
+X}	/* end of pcmd_rz */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rk(param)
+X
+Xrk [-a]
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rk(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xchar cmdstr[CMDSTR_SIZE];
+Xchar switches[8];
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	last_child_wait_status = 0;
+X	sprintf(cmdstr,"ckermit -r -e 512 -l %d -b %d -p %c",
+X		shm->Liofd,shm->Lbaud,(shm->Lparity) ? shm->Lparity : 'n');
+X	if(strchr(switches,'a'))
+X		strcat(cmdstr,"-i ");
+X	file_xfer_start();
+X
+X	if(exec_cmd(cmdstr))
+X		erc = eFATAL_ALREADY;
+X	else
+X		erc = _adjust_erc_and_iv0(erc);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(erc);
+X}	/* end of pcmd_rk */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rs(param)
+Xrs
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_rs(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xchar cmdstr[CMDSTR_SIZE];
+X
+X	file_xfer_start();
+X	sprintf(cmdstr,"ecusea -r -. %d -/ %s",shm->Liofd,curr_dir);
+X
+X	if(exec_cmd(cmdstr))
+X		erc = eFATAL_ALREADY;
+X	else
+X		erc = _adjust_erc_and_iv0(erc);
+X
+X	file_xfer_done_bell();
+X	lreset_ksr();
+X
+X	return(erc);
+X}	/* end of pcmd_rs */
+X
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pcmdxfer.c */
+SHAR_EOF
+chmod 0644 pcmdxfer.c ||
+echo 'restore of pcmdxfer.c failed'
+Wc_c="`wc -c < 'pcmdxfer.c'`"
+test 16669 -eq "$Wc_c" ||
+	echo 'pcmdxfer.c: original size 16669, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= poutput.c ==============
+if test -f 'poutput.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping poutput.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting poutput.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'poutput.c' &&
+X/*+-------------------------------------------------------------------------
+X	poutput.c - ecu procedure output routines
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	pcmd_plog(param)
+X	pflush()
+X	plog_control(fname)
+X	plogc(ch)
+X	plogs(str)
+X	poutput_init()
+X	pperror(str)
+X	pputc(ch)
+X	pputs(str)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X
+Xextern int proctrace;
+Xextern FILE *rcvr_log_fp;
+X
+XFILE *plog_fp = (FILE *)0;
+XESD *plog_name = (ESD *)0;
+X
+X/*+-------------------------------------------------------------------------
+X	plogs(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xplogs(str)
+Xchar *str;
+X{
+X	if(plog_fp)
+X		fputs(str,plog_fp);
+X}	/* end of plogs */
+X
+X/*+-------------------------------------------------------------------------
+X	plogc(ch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xplogc(ch)
+Xchar ch;
+X{
+X	if(plog_fp)
+X		fputc(ch,plog_fp);
+X}	/* end of plogc */
+X
+X/*+-------------------------------------------------------------------------
+X	pputc(ch) - put procedure output character to stderr and log
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpputc(ch)
+Xchar ch;
+X{
+X	if(ch == NL)
+X		fputc(CRET,se);
+X	fputc(ch,se);
+X	if(plog_fp && (ch != CRET))
+X		fputc(ch,plog_fp);
+X	if(rcvr_log_fp && (ch != CRET))
+X		fputc(ch,rcvr_log_fp);
+X}	/* end of pputc */
+X
+X/*+-------------------------------------------------------------------------
+X	pputs(str) - put procedure output string to stderr and log
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpputs(str)
+Xregister char *str;
+X{
+X	while(*str)
+X	{
+X		if(*str == NL)
+X			fputc(CRET,se);
+X		fputc(*str,se);
+X		if(plog_fp && (*str != CRET))
+X			fputc(*str,plog_fp);
+X		if(rcvr_log_fp && (*str != CRET))
+X			fputc(*str,rcvr_log_fp);
+X		str++;
+X	}
+X}	/* end of pputs */
+X
+X/*+-------------------------------------------------------------------------
+X	pflush()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpflush()
+X{
+X	if(plog_fp)
+X		fflush(plog_fp);
+X}	/* end of pflush */
+X
+X/*+-------------------------------------------------------------------------
+X	pperror(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpperror(str)
+Xchar *str;
+X{
+Xint save_errno = errno;
+X
+X	if(str && *str)
+X	{
+X		pputs(str);
+X		pputs(": ");
+X	}
+X	pputs(errno_text(save_errno));
+X	pputs("\n");
+X}	/* end of pperror */
+X
+X/*+-------------------------------------------------------------------------
+X	plog_control(fname)
+X fname == 0, close
+X fname == 1, plog_name already plugged
+X--------------------------------------------------------------------------*/
+Xint
+Xplog_control(fname)
+Xchar *fname;
+X{
+X	if(!fname)	/* close */
+X	{
+X		if(plog_fp)
+X			fclose(plog_fp);
+X		plog_fp = (FILE *)0;
+X		return(0);
+X	}
+X
+X	if(plog_fp)
+X		plog_control((char *)0);
+X
+X	if(fname != (char *)1)
+X	{
+X		strcpy(plog_name->pb,fname);
+X		plog_name->cb = strlen(fname);
+X	}
+X
+X	if((plog_fp = fopen(plog_name->pb,"a")) == NULL)
+X	{
+X		pperror(plog_name->pb);
+X		return(eFATAL_ALREADY);
+X	}
+X	return(0);
+X}	/* end of plog_control */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_plog(param)
+X
+Xplog $s0     log to file
+Xplog off     stop logging
+Xplog         show status
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_plog(param)
+XESD *param;
+X{
+Xint erc = eSyntaxError;
+Xchar off_str[8];
+X
+X	if(!skip_cmd_break(param))	/* if arguments */
+X	{
+X		if(!get_alpha_zstr(param,off_str,sizeof(off_str)))
+X		{
+X			if(strcmp(off_str,"off"))
+X				return(eBadParameter);
+X			erc = plog_control((char *)0);
+X		}
+X		else
+X		{
+X			if(erc = gstr(param,plog_name,1))
+X				return(erc);
+X			erc = plog_control((char *)1);
+X		}
+X	}
+X	return(erc);
+X
+X}	/* end of pcmd_plog */
+X
+X/*+-------------------------------------------------------------------------
+X	poutput_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpoutput_init()
+X{
+X	if((plog_name = esdalloc(256)) == (ESD *)0)
+X	{
+X		ff(se,"Out of memory\r\n");
+X		termecu(TERMECU_MALLOC);
+X	}
+X}	/* end of poutput_init */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of poutput.c */
+SHAR_EOF
+chmod 0644 poutput.c ||
+echo 'restore of poutput.c failed'
+Wc_c="`wc -c < 'poutput.c'`"
+test 4481 -eq "$Wc_c" ||
+	echo 'poutput.c: original size 4481, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pprintf.c ==============
+if test -f 'pprintf.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pprintf.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pprintf.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pprintf.c' &&
+X/*+-------------------------------------------------------------------------
+X	pprintf.c - procedure printf
+X
+X  This module has been hacked a bit to work for ECU applications
+X  as of its writing.  If you use this with SCO MSC, the ifdefs
+X  will work in any environment.  Using it without any SCO
+X  predefines will cause %p to print as a 32-bit linear pointer.
+X  M_I286 assumes %p is a segmented pointer unless M_SDATA is
+X  supplied too, in which case %p prints as a 16-bit segment offset.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1991-02:12-wht@n4hgf-handle char *sprintf */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X/* based on Portable vsprintf  by Robert A. Larson <blarson@skat.usc.edu> */
+X
+X/* Copyright 1989 Robert A. Larson.
+X * Distribution in any form is allowed as long as the author
+X * retains credit, changes are noted by their author and the
+X * copyright message remains intact.  This program comes as-is
+X * with no warentee of fitness for any purpouse.
+X *
+X * Thanks to Doug Gwen, Chris Torek, and others who helped clarify
+X * the ansi printf specs.
+X *
+X * Please send any bug fixes and improvments to blarson@skat.usc.edu .
+X * The use of goto is NOT a bug.
+X */
+X
+X#if !defined(BUILDING_PROTOTYPES)
+X
+X#include <stdio.h>
+X#include <varargs.h>
+X
+X#if defined(M_I386) || defined(i386)
+X#define LONGINT
+X#endif
+X
+X/* This must be a typedef not a #define! */
+X#define NOVOID
+X#if defined(NOVOID)
+Xtypedef char *pointer;
+X#else
+Xtypedef void *pointer;
+X#endif
+X
+Xtypedef int *intp;
+X
+X/*+-------------------------------------------------------------------------
+X	pprintf(format,va_alist)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpprintf(format,va_alist)
+Xregister char *format;
+Xva_dcl
+X{
+Xva_list args;
+Xregister char c;
+Xregister char *tp;
+Xchar tempfmt[64];
+X#if !defined(LONGINT)
+Xint longflag;
+X#endif
+Xchar accum_string[256];
+Xregister char *dp = accum_string;
+X
+X	va_start(args);
+X
+X	tempfmt[0] = '%';
+X	while(c = *format++)
+X	{
+X		if(c=='%')
+X		{
+X			tp = &tempfmt[1];
+X#if !defined(LONGINT)
+X			longflag = 0;
+X#endif
+Xcontinue_format:
+X			switch(c = *format++)
+X			{
+X			case 's':
+X				*tp++ = c;
+X				*tp = '\0';
+X#if defined(INT_SPRINTF)
+X				dp += sprintf(dp,tempfmt,va_arg(args,char *));
+X#else
+X				sprintf(dp,tempfmt,va_arg(args,char *));
+X				dp += strlen(dp);
+X#endif
+X				break;
+X			case 'u':
+X			case 'x':
+X			case 'o':
+X			case 'X':
+X#if defined(UNSIGNEDSPECIAL)
+X				*tp++ = c;
+X				*tp = '\0';
+X#if !defined(LONGINT)
+X				if(longflag)
+X				{
+X#if defined(INT_SPRINTF)
+X					dp += sprintf(dp,tempfmt,va_arg(args,unsigned long));
+X#else
+X					sprintf(dp,tempfmt,va_arg(args,unsigned long));
+X					dp += strlen(dp);
+X#endif
+X				}
+X				else
+X#endif /* LONGINT */
+X				{
+X#if defined(INT_SPRINTF)
+X					dp += sprintf(dp,tempfmt,va_arg(args,unsigned));
+X#else
+X					sprintf(dp,tempfmt,va_arg(args,unsigned));
+X					dp += strlen(dp);
+X#endif
+X				break;
+X#endif
+X			case 'd':
+X			case 'c':
+X			case 'i':
+X				*tp++ = c;
+X				*tp = '\0';
+X#if !defined(LONGINT)
+X				if(longflag)
+X				{
+X#if defined(INT_SPRINTF)
+X					dp += sprintf(dp,tempfmt,va_arg(args,long));
+X#else
+X					sprintf(dp,tempfmt,va_arg(args,long));
+X					dp += strlen(dp);
+X#endif
+X				}
+X				else
+X#endif
+X				{
+X#if defined(INT_SPRINTF)
+X					dp += sprintf(dp,tempfmt,va_arg(args,int));
+X#else
+X					sprintf(dp,tempfmt,va_arg(args,int));
+X					dp += strlen(dp);
+X#endif
+X				}
+X				break;
+X			case 'f':
+X			case 'e':
+X			case 'E':
+X			case 'g':
+X			case 'G':
+X				*tp++ = c;
+X				*tp = '\0';
+X#if defined(INT_SPRINTF)
+X				dp += sprintf(dp,tempfmt,va_arg(args,double));
+X#else
+X				sprintf(dp,tempfmt,va_arg(args,double));
+X				dp += strlen(dp);
+X#endif
+X				break;
+X			case 'p':
+X#if defined(M_I286)
+X				tp = va_arg(args,pointer);
+X#if defined(M_SDATA)
+X				dp += sprintf(dp,"0x%04x",tp);
+X#else
+X				dp += sprintf(dp,"%04x:%04x",(int)tp,(int)((long)tp >> 16));
+X#endif /* M_SDATA */
+X#else
+X#if defined(INT_SPRINTF)
+X				dp += sprintf(dp,"0x%08lx",va_arg(args,pointer));
+X#else
+X				sprintf(dp,"0x%08lx",va_arg(args,pointer));
+X				dp += strlen(dp);
+X#endif
+X#endif /* M_I286 */
+X				break;
+X			case '-':
+X			case '+':
+X			case '0':
+X			case '1':
+X			case '2':
+X			case '3':
+X			case '4':
+X			case '5':
+X			case '6':
+X			case '7':
+X			case '8':
+X			case '9':
+X			case '.':
+X			case ' ':
+X			case '#':
+X			case 'h':
+X				*tp++ = c;
+X				goto continue_format;
+X			case 'l':
+X#if !defined(LONGINT)
+X				longflag = 1;
+X				*tp++ = c;
+X#endif
+X				goto continue_format;
+X			case '*':
+X#if defined(INT_SPRINTF)
+X				tp += sprintf(tp,"%d",va_arg(args,int));
+X#else
+X				printf(tp,"%d",va_arg(args,int));
+X				tp += strlen(tp);
+X#endif
+X				goto continue_format;
+X			case '%':
+X			default:
+X				*dp++ = c;
+X				break;
+X			}
+X		}
+X		else *dp++ = c;
+X	}
+X	*dp = '\0';
+X	va_end(args);
+X	pputs(accum_string);
+X}	/* end of pprintf */
+X#endif /* !defined(BUILDING_PROTOTYPES) */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pprintf.c */
+SHAR_EOF
+chmod 0644 pprintf.c ||
+echo 'restore of pprintf.c failed'
+Wc_c="`wc -c < 'pprintf.c'`"
+test 5047 -eq "$Wc_c" ||
+	echo 'pprintf.c: original size 5047, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= proc.c ==============
+if test -f 'proc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping proc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting proc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'proc.c' &&
+X/*+-------------------------------------------------------------------------
+X	proc.c - procedure command and control
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	_cmd_gosub_common(param,type)
+X	_get_goto_label(param)
+X	do_proc(argc,argv)
+X	dump_proc(pcb)
+X	execute_esd(tesd)
+X	execute_goto(pcb,goto_type)
+X	execute_labelled_esd(tesd)
+X	execute_proc(pcb,use_goto_label)
+X	find_labelled_lcb(label,first,last)
+X	find_proc_cmd(cmd_list,cmd)
+X	find_procedure(name)
+X	free_lcb_chain(lcb)
+X	pcmd_do(param)
+X	pcmd_gosub(param)
+X	pcmd_gosubb(param)
+X	pcmd_goto(param)
+X	pcmd_gotob(param)
+X	pcmd_return(param)
+X	pcmd_upon(param)
+X	proc_dcdloss_handler(pcb)
+X	show_error_position(pcb)
+X	trace_proc_cmd(pcb)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:11-16-1991-15:39-wht@n4hgf2-add pcmd_upon stub */
+X/*:11-16-1991-14:53-wht@n4hgf2-add proc_dcdloss_handler */
+X/*:11-16-1991-14:01-wht@n4hgf-calloc pcb instead of malloc */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:07-01-1991-01:53-wht@n4hgf-fix return with value */
+X/*:05-01-1991-04:18-wht@n4hgf-new find_procedure failed on home subdir match */
+X/*:04-30-1991-03:19-root@n4hgf-add search for .ep in ecu lib ep subdir */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "ecukey.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+X#define NEED_P_CMD
+X#include "ecucmd.h"
+X
+XPCB *pcb_stack[PROC_STACK_MAX];
+X
+Xint proc_level = 0;
+Xint proctrace = 0;
+X
+Xchar goto_label[64];
+X
+X/*+-------------------------------------------------------------------------
+X	_get_goto_label(param)
+X--------------------------------------------------------------------------*/
+Xint
+X_get_goto_label(param)
+XESD *param;
+X{
+X	register erc;
+X	register ESD *label_esd;
+X
+X	goto_label[0] = 0;
+X	if(erc = get_alphanum_zstr(param,goto_label,sizeof(goto_label)))
+X	{
+X		if((label_esd = esdalloc(64)) == (ESD *)0)
+X			return(eNoMemory);
+X		if(!(erc = gstr(param,label_esd,0)))
+X			strcpy(goto_label,label_esd->pb);
+X		esdfree(label_esd);
+X	}
+X
+X	return(erc);
+X
+X}	/* end of _get_goto_label */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_goto(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_goto(param)
+XESD *param;
+X{
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	if(_get_goto_label(param))
+X		return(eInvalidLabel);
+X	return(eProcAttn_GOTO);
+X
+X}	/* end of pcmd_goto */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_gotob(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_gotob(param)
+XESD *param;
+X{
+X
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	if(_get_goto_label(param))
+X		return(eInvalidLabel);
+X	return(eProcAttn_GOTOB);
+X
+X}	/* end of pcmd_gotob */
+X
+X/*+-------------------------------------------------------------------------
+X	_cmd_gosub_common(param,type)
+X--------------------------------------------------------------------------*/
+Xint
+X_cmd_gosub_common(param,type)
+XESD *param;
+Xint type;
+X{
+X	int erc;
+X	LCB *current_save;
+X	int index_save;
+X
+X	if(_get_goto_label(param))
+X		return(eInvalidLabel);
+X	current_save = pcb_stack[proc_level - 1]->current;
+X	index_save = current_save->text->index;
+X	if(!(erc = execute_proc(pcb_stack[proc_level - 1],type)))
+X	{
+X		pcb_stack[proc_level - 1]->current = current_save;
+X		current_save->text->index = index_save;
+X	}
+X	return(erc);
+X
+X}	/* end of _cmd_gosub_common */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_gosub(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_gosub(param)
+XESD *param;
+X{
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	return(_cmd_gosub_common(param,eProcAttn_GOTO));
+X}	/* end of pcmd_gosub */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_return(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_upon(param)
+XESD *param;
+X{
+X	pprintf("'upon' not implimented\n");
+X	param->index = param->cb;
+X	return(0);
+X}	/* end of pcmd_return */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_gosubb(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_gosubb(param)
+XESD *param;
+X{
+X	if(!proc_level)
+X		return(eNotExecutingProc);
+X	return(_cmd_gosub_common(param,eProcAttn_GOTO));
+X}	/* end of pcmd_gosubb */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_return(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_return(param)
+XESD *param;
+X{
+X	long value = 0;
+X	if(!gint(param,&value))
+X	{
+X		if((value < 0) || (value > 255))
+X			value = 255;
+X		if(proctrace)
+X			pprintf("return value %ld\n",value);
+X		if(value)
+X			value += e_USER;
+X		return((int)value);
+X	}
+X	return(eProcAttn_RETURN);
+X}	/* end of pcmd_return */
+X
+X/*+-------------------------------------------------------------------------
+X	find_labelled_lcb(label,first,last)
+Xsearch for match between label
+X--------------------------------------------------------------------------*/
+XLCB *
+Xfind_labelled_lcb(label,first,last)
+Xchar *label;
+Xregister LCB *first;
+XLCB *last;
+X{
+X	register llen = strlen(label);
+X	ESD *text;
+X
+X	while(first)
+X	{
+X		text = first->text;
+X		if((text->cb >= llen) && (!strncmp(text->pb,label,llen))
+X			&& (!text->pb[llen] || isspace(text->pb[llen])))
+X			return(first);
+X
+X		if(first == last)
+X			return((LCB *)0);
+X		first = first->next;
+X	}
+X	pputs("find_labelled_lab logic error\n");
+X	return((LCB *)0);
+X
+X}	/* end of find_labelled_lcb */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_goto(pcb,goto_type)
+X--------------------------------------------------------------------------*/
+Xexecute_goto(pcb,goto_type)
+XPCB *pcb;
+Xint goto_type;
+X{
+X	LCB *next = (LCB *)0;	/* next lcb to execute */
+X
+X	switch(goto_type)
+X	{
+X		case eProcAttn_GOTO:
+X			if(!(next = find_labelled_lcb(goto_label,pcb->current,pcb->last)))
+X				next = find_labelled_lcb(goto_label,pcb->first,pcb->current);
+X			break;
+X		case eProcAttn_GOTOB:
+X			if(!(next = find_labelled_lcb(goto_label,pcb->first,pcb->current)))
+X				next = find_labelled_lcb(goto_label,pcb->current,pcb->last);
+X			break;
+X	}
+X	if(next)
+X	{
+X		pcb->current = next;
+X		return(0);
+X	}
+X	pprintf("goto/gosub label not found: %s\n",goto_label);
+X	return(eFATAL_ALREADY);
+X
+X}	/* end of execute_goto */
+X
+X/*+-------------------------------------------------------------------------
+X	show_error_position(pcb)
+Xcursor MUST be at left margin when this is called
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshow_error_position(pcb)
+XPCB *pcb;
+X{
+X	ESD *tesd = pcb->current->text;
+X	register itmp = tesd->old_index;
+X	char tag[64];
+X
+X	sprintf(tag,"%s %u> ",pcb->argv[0],pcb->current->lineno);
+X	pputs(tag);
+X	pputs(tesd->pb);
+X	pputs("\n");
+X	itmp = strlen(tag) + tesd->old_index;
+X	while(itmp--)
+X		pputc(' ');
+X	pputs("^\n");
+X
+X}	/* end of show_error_position */
+X
+X/*+-------------------------------------------------------------------------
+X	find_proc_cmd(cmd_list,cmd)
+X--------------------------------------------------------------------------*/
+XP_CMD *
+Xfind_proc_cmd(cmd_list,cmd)
+Xregister P_CMD *cmd_list;
+Xregister char *cmd;
+X{
+X	while(cmd_list->token != -1)
+X	{
+X		if(!strcmp(cmd_list->cmd,cmd))
+X			break;
+X		cmd_list++;
+X	}
+X	return((cmd_list->token == -1) ? (P_CMD *)0 : cmd_list);
+X
+X}	/* end of find_proc_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_esd(tesd)
+X--------------------------------------------------------------------------*/
+Xint
+Xexecute_esd(tesd)
+XESD *tesd;
+X{
+X	int erc;
+X	P_CMD *pcmd;
+X	static P_CMD *set_pcmd = (P_CMD *)0;	/* quick access to 'set' */
+X	char cmd[32];
+X	extern int proc_interrupt;
+X
+X	/* if interrupt, exit */
+X	if(sigint | proc_interrupt)
+X		return(eCONINT);
+X
+X	/* if blank, skip it */
+X	if(skip_cmd_break(tesd))
+X		return(0);
+X
+X	/* if comment, skip it */
+X	if(!skip_cmd_char(tesd,'#'))
+X		return(0);
+X
+X	if(*(tesd->pb + tesd->index) == '{')
+X	{
+X		pputs("invalid '{'\n");
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	while(1)
+X	{
+X		/* get command -- allow leading '$' to assume 'set' command */
+X		if(*(tesd->pb + tesd->index) == '$')
+X		{
+X			/* find 'set' in the list -- save for rapid access later */
+X			if(set_pcmd)
+X				pcmd = set_pcmd;
+X			else if((pcmd = find_proc_cmd(icmd_cmds,"set")) == (P_CMD *)0)
+X				return(eInternalLogicError);
+X			else
+X				set_pcmd = pcmd;
+X		}
+X		else
+X		{
+X			if(get_alphanum_zstr(tesd,cmd,sizeof(cmd)))
+X				return(eIllegalCommand);
+X			/* find it in the list */
+X			if((pcmd = find_proc_cmd(icmd_cmds,cmd)) == (P_CMD *)0)
+X				return(eIllegalCommand);
+X		}
+X
+X		/* check to see if this command available for procedure */
+X		if(!pcmd->proc)
+X			return(eInteractiveCmd);
+X
+X		/* execute the command */
+X		if(erc = (*pcmd->proc)(tesd))
+X			return(erc);
+X
+X		/* look for comment */
+X		if(!skip_cmd_char(tesd,'#'))
+X			break;
+X
+X		/* look for multiple commands on line */
+X		if(skip_cmd_char(tesd,';'))
+X			break;
+X
+X		/* if blank after ';', skip it */
+X		if(skip_cmd_break(tesd))
+X			break;
+X	}
+X	return(0);
+X		
+X}	/* end of execute_esd */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_labelled_esd(tesd)
+X--------------------------------------------------------------------------*/
+Xexecute_labelled_esd(tesd)
+XESD *tesd;
+X{
+X	register index = 0;
+X	register cb = tesd->cb;
+X	register char *pb = tesd->pb;
+X
+X/* reset indices */
+X	tesd->index = index;
+X	tesd->old_index = index;
+X
+X/* if comment, skip it */
+X	if(!skip_cmd_char(tesd,'#'))
+X		return(0);
+X
+X/* skip over any label */
+X	while(!isspace(*(pb + index)) && (index < cb))
+X		index++;
+X	tesd->index = index;
+X	tesd->old_index = index;
+X
+X	return(execute_esd(tesd));
+X}	/* end of execute_labelled_esd */
+X
+X/*+-------------------------------------------------------------------------
+X	dump_proc(pcb)
+X--------------------------------------------------------------------------*/
+X#if 0
+Xvoid
+Xdump_proc(pcb)
+XPCB *pcb;
+X{
+X	int itmp;
+X	LCB *lcb;
+X
+X	pprintf("------ pcb @ 0x%08lx -----------------\n",pcb);
+X	pprintf("argc=%d first=0x%08lx last=0x%08lx\n",pcb->argc,
+X		pcb->first,pcb->last);
+X	for(itmp = 0; itmp < pcb->argc; itmp++)
+X	{
+X		pprintf("argv(%d) @ 0x%lx: '%s'\n",itmp,pcb->argv[itmp],
+X			pcb->argv[itmp]);
+X	}
+X	pputs("\n");
+X	lcb = pcb->first;
+X	while(lcb)
+X	{
+X		pprintf("lcb @ 0x%08lx   lineno=%u\n",lcb,lcb->lineno);
+X		pputs("\n");
+X		lcb = lcb->next;
+X	}
+X	pflush();
+X}	/* end of dump_proc */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	trace_proc_cmd(pcb) - if asked, show command
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtrace_proc_cmd(pcb)
+XPCB *pcb;
+X{
+X	if(proctrace)
+X	{
+X		pprintf("%s %u> ",pcb->argv[0],pcb->current->lineno);
+X		pputs(pcb->current->text->pb);
+X		pputc('\n');
+X	}
+X
+X}	/* end of trace_proc_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	proc_dcdloss_handler(pcb) - a statement execution found DCD loss
+X--------------------------------------------------------------------------*/
+Xint
+Xproc_dcdloss_handler(pcb)
+XPCB *pcb;
+X{
+X	int erc = 0;
+X	int itmp;
+X	ESD esdcopy;
+X	ESD *tesd;
+X
+X	if(pcb->upon_dcdloss.pb)
+X	{
+X		esdcopy = pcb->upon_dcdloss;	/* a copy to preserve pcb->index */	
+X		tesd = &esdcopy;
+X		if(proctrace)
+X		{
+X			pprintf("%s DCDLOSS> ",pcb->argv[0]);
+X			pputs(tesd->pb + tesd->index);
+X			pputc('\n');
+X		}
+X		if(erc = execute_esd(tesd))
+X		{
+X			if(erc != eFATAL_ALREADY)
+X				proc_error(erc);
+X			pprintf("error in 'upon dcdloss' statement\n");
+X			pputs(tesd->pb + pcb->upon_dcdloss.index);
+X			pputs("\n");
+X			itmp = tesd->old_index - pcb->upon_dcdloss.index;;
+X			while(itmp--)
+X				pputc(' ');
+X			pputs("^\ninvoked while executing:\n");
+X			erc = eFATAL_ALREADY;
+X		}
+X	}
+X	else	/* DCD watch enabled but no 'upon dcdloss' in effect */
+X	{
+X		pprintf("Connection terminated during procedure execution\n");
+X		pputs("while executing:\n");
+X		erc = eFATAL_ALREADY;
+X	}
+X	return(erc);
+X}	/* end of proc_dcdloss_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_proc(pcb,use_goto_label) - execute a memory-resident procedure
+X--------------------------------------------------------------------------*/
+Xexecute_proc(pcb,use_goto_label)
+XPCB *pcb;
+Xint use_goto_label;
+X{
+X	int erc = 0;
+X	extern int proc_interrupt;
+X
+X	if(proc_level == PROC_STACK_MAX)
+X		return(eProcStackTooDeep);
+X
+X	pcb_stack[proc_level++] = pcb;
+X	if(use_goto_label)
+X	{
+X		if(erc = execute_goto(pcb,use_goto_label))
+X			return(erc);
+X	}
+X	else
+X		pcb->current = pcb->first;
+X
+X	mkv_proc_starting(pcb);
+X
+X	while(pcb->current)
+X	{
+X		/* execute the command */
+X		trace_proc_cmd(pcb);
+X		if(erc = execute_labelled_esd(pcb->current->text))
+X		{
+X			/* handle other classes of errors */
+X			switch(erc & 0xF000)
+X			{
+X				case e_WARNING:		/* warning */
+X					erc = 0;
+X					break;
+X
+X				case e_FATAL:		/* fatal */
+X					goto PROC_RETURN;
+X
+X				case e_ProcAttn:	/* proc attention */
+X					switch(erc)
+X					{
+X						case eProcAttn_GOTO:
+X						case eProcAttn_GOTOB:
+X							if(erc = execute_goto(pcb,erc))
+X								break;	/* didn't find it */
+X							continue;	/* pcb->current is now goto target */
+X
+X						case eProcAttn_RETURN:
+X							erc = 0;
+X							break;
+X
+X						case eProcAttn_Interrupt:
+X						case eProcAttn_ESCAPE:
+X							pprintf(
+X								"procedure %s interrupted.\n",pcb->argv[0]);
+X							erc = eFATAL_ALREADY;
+X							break;
+X
+X						case eProcAttn_DCDloss:
+X							erc = proc_dcdloss_handler(pcb);
+X							break;
+X
+X						default:
+X							pprintf("procedure error 0x%x\n",erc);
+X							erc = eFATAL_ALREADY;
+X							break;
+X					}
+X					goto PROC_RETURN;
+X
+X				default:	/* must be proc return error code */
+X					goto PROC_RETURN;
+X			}
+X		}
+X
+X		if(sigint || proc_interrupt)
+X		{
+X			proc_interrupt = 0;
+X			sigint = 0;
+X			pprintf("procedure %s interrupted\n",pcb->argv[0]);
+X			erc = eFATAL_ALREADY;
+X		}
+X
+X		if(erc)
+X			break;
+X		pcb->current = pcb->current->next;
+X	}
+X
+XPROC_RETURN:
+X	mkv_proc_terminating(pcb);
+X	if(erc)
+X	{
+X		if((erc > 0) && (erc < e_USER))
+X		{
+X			pprintf(">>procedure %s returned %d\n",pcb->argv[0],erc);
+X			erc |= e_USER;
+X		}
+X		else if((erc > e_USER) && (erc <= 0x1FFF))
+X		{
+X			;	/* already said it */
+X		}
+X		else
+X		{
+X			if(erc != eFATAL_ALREADY)
+X			{
+X				proc_error(erc);
+X				erc = eFATAL_ALREADY;
+X			}
+X			show_error_position(pcb);
+X		}
+X	}
+X	pcb_stack[--proc_level] = (PCB *)0;
+X#if 0
+X	if(erc && !proc_level)
+X		plog_control((char *)0);
+X#endif
+X	return(erc);
+X}	/* end of execute_proc */
+X
+X/*+-------------------------------------------------------------------------
+X	free_lcb_chain(lcb)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfree_lcb_chain(lcb)
+Xregister LCB *lcb;
+X{
+X	LCB *plcb;
+X
+X	while(lcb)
+X	{
+X		if(lcb->text)
+X			esdfree(lcb->text);
+X		plcb  = lcb;
+X		lcb = lcb->next;
+X		free((char *)plcb);
+X	}
+X
+X}	/* end of free_lcb_chain */
+X
+X/*+-------------------------------------------------------------------------
+X	find_procedure(name) - find procedure if it exists
+X--------------------------------------------------------------------------*/
+Xchar *
+Xfind_procedure(name)
+Xchar *name;
+X{
+X	static char procpath[256];
+X
+X/*
+X * try to find proc file in current directory
+X */
+X	strcpy(procpath,name);
+X	strcat(procpath,".ep");
+X	if(!access(procpath,4))
+X		return(procpath);
+X	if(proctrace && (errno != ENOENT))
+X		pperror(procpath);
+X
+X/*
+X * try to find proc file in home .ecu subdirectory
+X */
+X	get_home_dir(procpath);
+X	strcat(procpath,"/.ecu/");
+X	strcat(procpath,name);
+X	strcat(procpath,".ep");
+X	if(!access(procpath,4))
+X		return(procpath);
+X	if(proctrace && (errno != ENOENT))
+X		pperror(procpath);
+X
+X/*
+X * try to find proc file in library ep subdirectory
+X */
+X	strcpy(procpath,ECULIBDIR);
+X	strcat(procpath,"/ep/");
+X	strcat(procpath,name);
+X	strcat(procpath,".ep");
+X	if(!access(procpath,4))
+X		return(procpath);
+X	if(proctrace && (errno != ENOENT) && (errno != ENOTDIR))
+X		pperror(procpath);
+X
+X/*
+X * no luck
+X */
+X	return((char *)0);
+X
+X}	/* end of find_procedure */
+X
+X/*+-------------------------------------------------------------------------
+X	do_proc(argc,argv) - read in a disk-based procedure and execute it
+X--------------------------------------------------------------------------*/
+SHAR_EOF
+true || echo 'restore of proc.c failed'
+fi
+echo 'End of ecu320 part 20'
+echo 'File proc.c is continued in part 21'
+echo 21 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

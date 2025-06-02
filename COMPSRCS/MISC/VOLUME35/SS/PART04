@@ -1,0 +1,2208 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i090:  ss - Simple Spreadsheet program, v1.2b, Part04/11
+Message-ID: <1993Feb22.152816.21461@sparky.imd.sterling.com>
+X-Md4-Signature: 1c5ad4f067f87f39bbefffc21a26105f
+Date: Mon, 22 Feb 1993 15:28:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 90
+Archive-name: ss/part04
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/Prog.doc ss_12b/lex.c ss_12b/ss.man.B
+# Wrapped by kent@sparky on Sat Feb 20 16:01:02 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 11)."'
+if test -f 'ss_12b/Prog.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/Prog.doc'\"
+else
+  echo shar: Extracting \"'ss_12b/Prog.doc'\" \(2680 characters\)
+  sed "s/^X//" >'ss_12b/Prog.doc' <<'END_OF_FILE'
+X
+X    	    	    Programmer's Notes
+X    	    	    ------------------
+X
+XSome Random information (undoubtedly poorly organized) that might be
+Xof some help to a programmer looking to comprehend this beast of a
+Xsoftware package.
+X
+X    	    	    ------------------
+X
+XIf I'd known how much work this was going to be when I started it, I
+Xprobably wouldn't have.  ``How difficult could it be'' I thought, ``To
+Xchange the user-interface portion of the PD sc spreadsheet into
+Xsomething more menu-ish''.
+X
+X    	    	    ------------------
+XHIST:
+X  This was originally based upon the Public Domain spreadshet ``sc'',
+Xversion 6.19.  Later, I merged in some/most of the patches for the
+X6.21 release of sc.
+X
+X    	    	    ------------------
+XCOMMENTS:
+X
+X  When making modifications to a file that I otherwise hardly touched,
+X  (For example: 'cmds.c')  I would insert comments, detailing my
+X  changes.  Usually I would distinguish these comments with either my
+X  name (ie: "Art Mulder Modified") or with "**" comments.
+X
+X  An example from 'cmds.c':
+X
+X	/** void closecol (cs, numcol) **/
+X	void closecol (startcol, endcol)
+X
+X  The double-star  (**) indicate a comment by myself.  In this case, it
+X  is a rather terse comment.  I commented out the old function
+X  definition, and put in a new one.
+X
+X  In my opinion, the original code is painfully undercommented.
+X  However, this fact will usually help you find code that I have
+X  changed in files otherwise untouched, since I would then comment the
+X  part I changed.  (I freely admit that I tend to go overboard with the
+X  comments.  I prefer a few too much, over too few.  All IMHO of course!)
+X
+X    	    	    ------------------
+XPARSER AND 'line':
+X
+X  The parser in gram.y is the heart of the program.
+X
+X  Simplistic explanation:  The program works by building commands.  These
+X  commands are stored in the global string variable 'line', which is then
+X  processed, interpreted, and executed by the parser.
+X
+X  Example:
+X
+X    To load a Spreadsheet file into memory, the FileLoad() function
+X    in menu_file.c stores a string such as
+X	get ["source"] myfile.ss
+X    in the global variable `line'.
+X
+X    Then it calls the parser to process `line'.  The parser interprets the
+X    command stored in `line' and loads the spreadsheet file "myfile.ss".
+X
+X  The advantage to this set up is that the spreadsheet data files are just
+X  ascii files containing all these parser commands/instructions.  So,
+X  loading a spreadsheet file is a simple matter of reading in all the lines
+X  in the data file and passing them to the parser one at a time.
+X
+X
+X    	    	    ------------------
+X
+X    	    	    ------------------
+X
+X    	    	    ------------------
+X
+X    	    	    ------------------
+END_OF_FILE
+  if test 2680 -ne `wc -c <'ss_12b/Prog.doc'`; then
+    echo shar: \"'ss_12b/Prog.doc'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/Prog.doc'
+fi
+if test -f 'ss_12b/lex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/lex.c'\"
+else
+  echo shar: Extracting \"'ss_12b/lex.c'\" \(18332 characters\)
+  sed "s/^X//" >'ss_12b/lex.c' <<'END_OF_FILE'
+X/*	SC	A Spreadsheet Calculator
+X *		Lexical analyser
+X *
+X *		original by James Gosling, September 1982
+X *		modifications by Mark Weiser and Bruce Israel,
+X *			University of Maryland
+X *
+X *              More mods Robert Bond, 12/86
+X *		More mods by Alan Silverstein, 3/88, see list of changes.
+X *		$Revision: 6.19 $
+X *
+X */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X
+X#include <sys/types.h>
+X#ifdef BSD42
+X#   include <strings.h>
+X#else
+X#   ifndef SYSIII
+X#      include <string.h>
+X#   endif
+X#endif
+X
+X/** #if defined(BSD42) || defined(BSD43) **/
+X#if defined(BSD42) || defined(BSD43) || defined (ULTRIX)
+X#   include <sys/ioctl.h>
+X#endif 
+X
+X#ifdef IEEE_MATH
+X#   include <ieeefp.h>
+X#endif /* IEEE_MATH */
+X
+X#include "curses_stuff.h"
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <ctype.h>
+X
+X#include "ss.h"
+X#include "keys.h"
+X
+X#ifdef NONOTIMEOUT
+X#   define	notimeout(a1, a2)
+X#endif
+X
+X#ifdef VMS
+X#   include "gram_tab.h"
+X    typedef union {
+X	int ival;
+X	double fval;
+X	struct ent *ent;
+X	struct enode *enode;
+X	char *sval;
+X	struct range_s rval;
+X    } YYSTYPE;
+X    extern YYSTYPE yylval;
+X    extern int VMS_read_raw;   /*sigh*/
+X#else	/* VMS */
+X#   if defined(MSDOS)
+X#      include "y_tab.h"
+X#   else
+X#      include "y.tab.h"
+X#   endif /* MSDOS */
+X#endif /* VMS */
+X
+X#ifdef hpux
+X    extern YYSTYPE yylval;
+X#endif /* hpux */
+X
+Xchar *strtof();
+X
+Xjmp_buf wakeup;
+Xjmp_buf fpe_buf;
+X
+X
+X/*      Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+X
+XVOID_OR_INT fpe_trap(signo)
+Xint signo;
+X{
+X#if defined(i386) && !defined(M_XENIX)
+X	asm("	fnclex");
+X	asm("	fwait");
+X#else
+X#   ifdef IEEE_MATH
+X	(void)fpsetsticky((fp_except)0);	/* Clear exception */
+X#   endif /* IEEE_MATH */
+X#   ifdef PC
+X	_fpreset();
+X#   endif
+X#endif
+X    longjmp(fpe_buf, 1);
+X}
+X
+Xstruct key {
+X    char *key;
+X    int val;
+X};
+X
+Xstruct key experres[] = {
+X#include "experres.h"
+X    0, 0};
+X
+Xstruct key statres[] = {
+X#include "statres.h"
+X    0, 0};
+X
+Xint
+Xyylex ()
+X{
+X    register char *p = line+linelim;
+X    int ret;
+X    while (isspace(*p)) p++;
+X    if (*p == '\0') ret = -1;
+X    else if (isalpha(*p)) {
+X	char *tokenst = p;
+X	register tokenl;
+X	register struct key *tblp;
+X	tokenl = 0;
+X	/*
+X	 * This picks up either 1 or 2 alpha characters (a column) or
+X	 * tokens with at least three leading alphas and '_' or digits
+X	 * (a function or token or command or a range name)
+X	*/
+X	while ( isalpha(*p) || (*p == '_') || 
+X		((isdigit(*p)) && (tokenl > 2)) ) {
+X	    p++;
+X	    tokenl++;
+X	}
+X	if (tokenl <= 2) { /* a COL is 1 or 2 char alpha
+X		(but not pi, ln, fv, pv, if -- this should be fixed!) */
+X	    if (tokenl == 2 && tokenst[0] == 'p' && tokenst[1] == 'i') {
+X		ret = K_PI;
+X	    } else if (tokenl == 2 && tokenst[0] == 'l' && tokenst[1] == 'n') {
+X		ret = K_LN;
+X	    } else if (tokenl == 2 && tokenst[0] == 'f' && tokenst[1] == 'v') {
+X		ret = K_FV;
+X	    } else if (tokenl == 2 && tokenst[0] == 'p' && tokenst[1] == 'v') {
+X		ret = K_PV;
+X	    } else if (tokenl == 2 && tokenst[0] == 'i' && tokenst[1] == 'f') {
+X		ret = K_IF;
+X
+X	    } else {
+X		ret = COL;
+X		yylval.ival = atocol (tokenst, tokenl);
+X	    }
+X	} else {
+X	    ret = WORD;
+X	    for (tblp = linelim ? experres : statres; tblp->key; tblp++)
+X		    if (((tblp->key[0]^tokenst[0])&0137)==0
+X		     && tblp->key[tokenl]==0) {
+X			register i = 1;
+X			while (i<tokenl && ((tokenst[i]^tblp->key[i])&0137)==0)
+X			    i++;
+X			if (i>=tokenl) {
+X			    ret = tblp->val;
+X			    break;
+X			}
+X		    }
+X	    if (ret==WORD) { 
+X		struct range *r;
+X		if (r = find_range(tokenst, tokenl,
+X				   (struct ent *)0, (struct ent *)0)) {
+X		    yylval.rval.left = r->r_left;
+X		    yylval.rval.right = r->r_right;
+X		    if (r->r_is_range)
+X		        ret = RANGE;
+X		    else
+X			ret = VAR;
+X		} else {
+X		    linelim = p-line;
+X		    yyerror ("Unintelligible word");
+X		}
+X	    }
+X	}
+X    } else if ((*p == '.') || isdigit(*p)) {
+X	VOID_OR_INT (*sig_save)();
+X	double v = 0.0;
+X	int temp;
+X	char *nstart = p;
+X
+X	sig_save = signal(SIGFPE, fpe_trap);
+X	if (setjmp(fpe_buf)) {
+X	    (void) signal(SIGFPE, sig_save);
+X	    yylval.fval = v;
+X	    error("Floating point exception\n");
+X	    return FNUMBER;
+X	}
+X
+X	if (*p != '.') {
+X	    do v = v*10.0 + (double) ((unsigned) *p - '0');
+X	    while (isdigit(*++p));
+X	}
+X	if (*p=='.' || *p == 'e' || *p == 'E') {
+X	    ret = FNUMBER;
+X	    p = strtof(nstart, &yylval.fval);
+X	} else {
+X	    /* A NUMBER must hold at least MAXROW and MAXCOL */
+X	    /* This is consistent with a short row and col in struct ent */
+X	    if (v > (double)32767 || v < (double)-32768) {
+X		ret = FNUMBER;
+X		yylval.fval = v;
+X	    } else {
+X		temp = (int)v;
+X		if((double)temp != v) {
+X		    ret = FNUMBER;
+X		    yylval.fval = v;
+X		} else {
+X		    ret = NUMBER;
+X		    yylval.ival = temp;
+X		}
+X	    }
+X	}
+X	(void) signal(SIGFPE, sig_save);
+X    } else if (*p=='"') {
+X	char *ptr;
+X        ptr = p+1;	/* "string" or "string\"quoted\"" */
+X        while(*ptr && ((*ptr != '"') || (*(ptr-1) == '\\')))
+X		ptr++;
+X        ptr = Malloc((unsigned)(ptr-p));
+X	yylval.sval = ptr;
+X	p += 1;
+X	while (*p && ((*p != '"') || (*(p-1) == '\\')))
+X		*ptr++ = *p++;
+X	*ptr = 0;
+X	if (*p)
+X		p += 1;
+X	ret = STRING;
+X    } else if (*p=='[') {
+X	while (*p && *p!=']')
+X		p++;
+X	if (*p)
+X		p++;
+X	linelim = p-line;
+X	return yylex();
+X    } else ret = *p++;
+X    linelim = p-line;
+X    return ret;
+X}
+X
+X
+X/*
+X * Given a token string starting with a symbolic column name and its valid
+X * length, convert column name ("A"-"Z" or "AA"-"ZZ") to a column number (0-N).
+X * Never mind if the column number is illegal (too high).  The procedure's name
+X * and function are the inverse of coltoa().
+X * 
+X * Case-insensitivity is done crudely, by ignoring the 040 bit.
+X */
+X
+Xint
+Xatocol (string, len)
+X	char	*string;
+X	int	len;
+X{
+X	register int col;
+X
+X	col = (string [0] & 0137) - 'A';
+X
+X	if (len == 2)		/* has second char */
+X	    col = ((col + 1) * 26) + ((string [1] & 0137) - 'A');
+X
+X	return (col);
+X}
+X
+X
+X/*      
+X *----------------------------------------------------------------------
+X */
+Xstatic int hold_flag = FALSE;	/* Flag: are we holding a character? */
+Xstatic int hold_c = 0; 		/* Character being held */
+X
+Xint nmungetch(c)
+X/*----------------------------------------------------------------------
+X** Place c back onto the input queue to  be  returned  by
+X** the next call to nmgetch().
+X**
+X** In various places throughout the code we make use of the System V
+X** curses function "ungetch()" [ similar to the standard library
+X** function ungetc() ].  Unfortunately some systems do not have 
+X** that function, so we fake it here by having our own internal
+X** one character buffer.
+X**
+X** NOTE: this requires that all nmgetch() functions first check this
+X** buffer before reading the real input stream.
+X*/
+X    register int   c;	/* character to be pushed back on inp. stream */
+X{
+X#if defined(NOUNGETCH)
+X   hold_c = c;
+X   hold_flag = TRUE;
+X#else
+X   ungetch(c);
+X#endif
+X}
+X
+X/*
+X * a)	Input Routines [ nmgetch() ], for "SIMPLE" version.
+X *----------------------------------------------------------------------
+X */
+X#ifdef SIMPLE
+X
+Xvoid initkbd() {}
+Xvoid kbd_again() {}
+Xvoid resetkbd() {}
+X
+X#ifndef VMS
+X
+X/*
+X * Non-VMS "SIMPLE" input routine 
+X */
+Xint nmgetch()
+X{
+X    Refresh(); 	/* refresh screen before getting input */
+X
+X/** This section of code required by above nmungetch() function **/
+X    if (hold_flag == TRUE) {	/* check if we are holding a char */
+X      hold_flag = FALSE;
+X      c = hold_c;
+X      return (toascii(hold_c));
+X    } else {
+X      return (toascii(getchar()));
+X    }
+X}
+X
+X#else /* VMS */
+X
+X/*
+X * VMS "SIMPLE" input routine 
+X */
+Xint nmgetch()
+X/*
+X   This is not perfect, it doesn't move the cursor when goraw changes
+X   over to deraw, but it works well enough since the whole sc package
+X   is incredibly stable (loop constantly positions cursor).
+X
+X   Question, why didn't the VMS people just implement cbreak?
+X
+X   NOTE: During testing it was discovered that the DEBUGGER and curses
+X   and this method of reading would collide (the screen was not updated
+X   when continuing from screen mode in the debugger).
+X*/
+X{
+X    short c;
+X    static int key_id=0;
+X    int status;
+X#define VMScheck(a) {if (~(status = (a)) & 1) VMS_MSG (status);}
+X
+X    Refresh(); 	/* refresh screen before getting input */
+X
+X/** This section of code required by above nmungetch() function **/
+X    if (hold_flag == TRUE) {	/* check if we are holding a char */
+X      hold_flag = FALSE;
+X      c = hold_c;
+X    } else {
+X      if (VMS_read_raw) {
+X	VMScheck(smg$read_keystroke (&stdkb->_id, &c, 0, 0, 0));
+X      } else {
+X	 c = getchar();
+X      }
+X    }
+X
+X    switch (c) {
+X    case SMG$K_TRM_LEFT:  c = ctl('b'); break;
+X    case SMG$K_TRM_RIGHT: c = ctl('f'); break;
+X    case SMG$K_TRM_UP:    c = ctl('p'); break;
+X    case SMG$K_TRM_DOWN:  c = ctl('n'); break;
+X    default:   c = c & A_CHARTEXT;
+X    }
+X    return (c);
+X}
+X
+X
+XVMS_MSG (status)
+Xint status;
+X/*
+X   Routine to put out the VMS operating system error (if one occurs).
+X*/
+X{
+X#include <descrip.h>
+X   char errstr[81], buf[120];
+X   $DESCRIPTOR(errdesc, errstr);
+X   short int length;
+X#define err_out(msg) fprintf (stderr,msg)
+X
+X/* Check for no error or standard error */
+X
+X   if (~status & 1) {
+X      status = status & 0x8000 ? status & 0xFFFFFFF : status & 0xFFFF;
+X      if (SYS$GETMSG(status, &length, &errdesc, 1, 0) == SS$_NORMAL) {
+X	 errstr[length] = '\0';
+X	 (void) sprintf (buf, "<0x%x> %s", status, errdesc.dsc$a_pointer);
+X	 err_out (buf);
+X      }
+X      else
+X         err_out ("System error");
+X   }
+X}
+X#endif /* VMS */
+X
+X#else /* Not SIMPLE*/
+X
+X
+X/*
+X * b)	Input Routines for Some Regular (Non-SIMPLE) versions. 
+X *----------------------------------------------------------------------
+X */
+X#if defined(BSD42) || defined (SYSIII) || defined(BSD43)
+X
+X#define N_KEY 4
+X
+Xstruct key_map {
+X    char *k_str;
+X    char k_val;
+X    char k_index;
+X}; 
+X
+Xstruct key_map km[N_KEY];
+X
+Xchar keyarea[N_KEY*30];
+X
+Xchar *tgetstr();
+Xchar *getenv();
+Xchar *ks;
+Xchar ks_buf[20];
+Xchar *ke;
+Xchar ke_buf[20];
+X
+X#ifdef TIOCSLTC
+Xstruct ltchars old_chars, new_chars;
+X#endif
+X
+Xchar dont_use[] = {
+X	ctl('['), ctl('a'), ctl('b'), ctl('c'), ctl('e'), ctl('f'), ctl('g'), ctl('h'),
+X	ctl('i'), ctl('j'),  ctl('l'), ctl('m'), ctl('n'), ctl('p'), ctl('q'),
+X	ctl('r'), ctl('s'), ctl('t'), ctl('u'), ctl('v'),  ctl('w'), ctl('x'),
+X	ctl('z'), 0
+X};
+X
+Xvoid
+Xcharout(c)
+Xint c;
+X{
+X	(void)putchar(c);
+X}
+X
+Xvoid
+Xinitkbd()
+X{
+X    register struct key_map *kp;
+X    register i,j;
+X    char *p = keyarea;
+X    char *ktmp;
+X    static char buf[1024]; /* Why do I have to do this again? */
+X
+X    if (!(ktmp = getenv("TERM"))) {
+X	(void) fprintf(stderr, "TERM environment variable not set\n");
+X	exit (1);
+X    }
+X    if (tgetent(buf, ktmp) <= 0)
+X	return;
+X
+X    km[0].k_str = tgetstr("kl", &p); km[0].k_val = ctl('b');
+X    km[1].k_str = tgetstr("kr", &p); km[1].k_val = ctl('f');
+X    km[2].k_str = tgetstr("ku", &p); km[2].k_val = ctl('p');
+X    km[3].k_str = tgetstr("kd", &p); km[3].k_val = ctl('n');
+X    ktmp = tgetstr("ks",&p);
+X    if (ktmp)  {
+X	(void) strcpy(ks_buf, ktmp);
+X	ks = ks_buf;
+X	tputs(ks, 1, charout);
+X    }
+X    ktmp = tgetstr("ke",&p);
+X    if (ktmp)  {
+X	(void) strcpy(ke_buf, ktmp);
+X	ke = ke_buf;
+X    }
+X
+X    /* Unmap arrow keys which conflict with our ctl keys   */
+X    /* Ignore unset, longer than length 1, and 1-1 mapped keys */
+X
+X    for (i = 0; i < N_KEY; i++) {
+X	kp = &km[i];
+X	if (kp->k_str && (kp->k_str[1] == 0) && (kp->k_str[0] != kp->k_val))
+X	    for (j = 0; dont_use[j] != 0; j++)
+X	        if (kp->k_str[0] == dont_use[j]) {
+X		     kp->k_str = (char *)0;
+X		     break;
+X		}
+X    }
+X
+X
+X#ifdef TIOCSLTC
+X    (void)ioctl(fileno(stdin), TIOCGLTC, (char *)&old_chars);
+X    new_chars = old_chars;
+X    if (old_chars.t_lnextc == ctl('v'))
+X	new_chars.t_lnextc = -1;
+X    if (old_chars.t_rprntc == ctl('r'))
+X	new_chars.t_rprntc = -1;
+X    (void)ioctl(fileno(stdin), TIOCSLTC, (char *)&new_chars);
+X#endif
+X}
+X
+Xvoid
+Xkbd_again()
+X{
+X    if (ks) 
+X	tputs(ks, 1, charout);
+X
+X#ifdef TIOCSLTC
+X    (void)ioctl(fileno(stdin), TIOCSLTC, (char *)&new_chars);
+X#endif
+X}
+X
+Xvoid
+Xresetkbd()
+X{
+X    if (ke) 
+X	tputs(ke, 1, charout);
+X
+X#ifdef TIOCSLTC
+X    (void)ioctl(fileno(stdin), TIOCSLTC, (char *)&old_chars);
+X#endif
+X}
+X
+Xint
+Xnmgetch() 
+X{
+X    register int c;
+X    register struct key_map *kp;
+X    register struct key_map *biggest;
+X    register int i;
+X    int almost;
+X    int maybe;
+X
+X    static char dumpbuf[10];
+X    static char *dumpindex;
+X
+X    VOID_OR_INT time_out();
+X
+X    if (dumpindex && *dumpindex)
+X	    return (*dumpindex++);
+X
+X    Refresh(); 	/* refresh screen before getting input */
+X
+X/** This section of code required by above nmungetch() function **/
+X    if (hold_flag == TRUE) {	/* check if we are holding a char */
+X      hold_flag = FALSE;
+X      c = hold_c;
+X    } else {
+X      c = toascii(getchar());
+X    }
+X/** c = toascii(getchar()); **/
+X
+X    biggest = 0;
+X    almost = 0;
+X
+X    for (kp = &km[0]; kp < &km[N_KEY]; kp++) {
+X	if (!kp->k_str)
+X	    continue;
+X	if (c == kp->k_str[kp->k_index]) {
+X	    almost = 1;
+X	    kp->k_index++;
+X	    if (kp->k_str[kp->k_index] == 0) {
+X		c = kp->k_val;
+X	        for (kp = &km[0]; kp < &km[N_KEY]; kp++)
+X	            kp->k_index = 0;
+X	        return(c);
+X	    }
+X	}
+X	if (!biggest && kp->k_index)
+X	    biggest = kp;
+X        else if (kp->k_index && biggest->k_index < kp->k_index)
+X	    biggest = kp;
+X    }
+X
+X    if (almost) { 
+X        (void) signal(SIGALRM, time_out);
+X        (void) alarm(1);
+X
+X	if (setjmp(wakeup) == 0) { 
+X	    maybe = nmgetch();
+X	    (void) alarm(0);
+X	    return(maybe);
+X	}
+X    }
+X    
+X    if (biggest) {
+X	for (i = 0; i<biggest->k_index; i++) 
+X	    dumpbuf[i] = biggest->k_str[i];
+X	if (!almost)
+X	    dumpbuf[i++] = c;
+X	dumpbuf[i] = '\0';
+X	dumpindex = &dumpbuf[1];
+X	for (kp = &km[0]; kp < &km[N_KEY]; kp++)
+X	    kp->k_index = 0;
+X	return (dumpbuf[0]);
+X    }
+X
+X    return(c);
+X}
+X
+X#endif
+X
+X
+X/*
+X * c)	Input Routines for Other Regular (Non-SIMPLE) versions. 
+X *----------------------------------------------------------------------
+X */
+X
+X#if defined(SYSV2) || defined(SYSV3) || defined(ULTRIX) || defined(MSDOS)
+X/** #if defined(SYSV2) || defined(SYSV3) || defined(MSDOS) **/
+X
+X/* 
+X * The notimeout() function (see the curses man page) is useful on
+X * slower systems.  
+X */
+Xvoid
+Xinitkbd()
+X{
+X    keypad(stdscr, TRUE);
+X    notimeout(stdscr,TRUE);
+X}
+X
+Xvoid
+Xkbd_again()
+X{
+X    keypad(stdscr, TRUE);
+X    notimeout(stdscr,TRUE);
+X}
+X
+Xvoid
+Xresetkbd()
+X{
+X    keypad(stdscr, FALSE);
+X    notimeout(stdscr, FALSE);
+X}
+X
+Xint
+Xnmgetch()
+X{
+X    register int c;
+X
+X/*
+X * Non-SystemV curses don't have the KEY_* definitions for function
+X * keys.  So, here we convert all KEY_* to something else.
+X * Therefore SystemV function key dependence only is found here.
+X *
+X * Doing it here raises the problem of KEY_* macros which convert to
+X * to multi-key command combinations (ie: ESC-v).  ungetch() is
+X * the way around that,.
+X */
+X
+X		/* Unix SystemV R3 does a refresh in getch */ 
+X#ifndef SYSV3	/* HP/Ux 3.1 this may not be wanted */
+X    Refresh(); 	/* refresh screen before getting input */
+X#endif
+X
+X/** This section of code required by above nmungetch() function **/
+X    if (hold_flag == TRUE) {	/* check if we are holding a char */
+X      hold_flag = FALSE;
+X      c = hold_c;
+X    } else {
+X      c = wgetch(stdscr);
+X    }
+X
+X    switch (c) {
+X
+X/*
+X * if KEY_LEFT is defined, then we assume that *all* System-V Curses
+X * function key names are defined also.
+X */
+X#ifdef KEY_LEFT
+X      case KEY_LEFT:  	   c = kLEFT; 	break;
+X      case KEY_RIGHT: 	   c = kRIGHT; 	break;
+X      case KEY_UP:    	   c = kUP; 	break;
+X      case KEY_DOWN:  	   c = kDOWN; 	break;
+X      case KEY_BACKSPACE:  c = kBS; 	break;
+X      case KEY_NPAGE:	   c = kPGDN;	break;
+X  
+X   /* With the two key combinations we have to get tricky ... */
+X      case KEY_PPAGE:  c = kMETA;  nmungetch(kPGUP);    break;
+X      case KEY_HOME:   c = kMETA;  nmungetch(kHOME);    break;
+X# ifndef ULTRIX
+X/* /usr/include/cursesX.h is missing these in Ultrix */
+X      case KEY_END:    c = kMETA;  nmungetch(kEND);     break;
+X      case KEY_SLEFT:  c = kCTRLX; nmungetch(kPGLEFT);  break;
+X      case KEY_SRIGHT: c = kCTRLX; nmungetch(kPGRIGHT); break;
+X# endif
+X#endif  /* #ifdef KEY_LEFT */
+X
+X#ifdef KEY_C1
+X/* This stuff works for a wyse wy75 in ANSI mode under 5.3.  Good luck. */
+X/* It is supposed to map the curses keypad back to the numeric equiv. */
+X    case KEY_C1:    c = '0'; break;
+X    case KEY_A1:    c = '1'; break;
+X    case KEY_B2:    c = '2'; break;
+X    case KEY_A3:    c = '3'; break;
+X    case KEY_F(5):  c = '4'; break;
+X    case KEY_F(6):  c = '5'; break;
+X    case KEY_F(7):  c = '6'; break;
+X    case KEY_F(9):  c = '7'; break;
+X    case KEY_F(10): c = '8'; break;
+X    case KEY_F0:    c = '9'; break;
+X    case KEY_C3:    c = '.'; break;
+X    case KEY_ENTER: c = ctl('m'); break;
+X#endif  /* #ifdef KEY_C1 */
+X
+X    }
+X    return (c);
+X}
+X
+X#endif /* SYSV2 || SYSV3 || ULTRIX || MSDOS */
+X
+X#endif /* SIMPLE */
+X/*----------------------------------------------------------------------
+X * 	END of input routines
+X */
+X
+XVOID_OR_INT time_out(signo)
+Xint signo;
+X{
+X    longjmp(wakeup, 1);
+X}
+X
+X/*
+X * This converts a floating point number of the form
+X * [s]ddd[.d*][esd*]  where s can be a + or - and e is E or e.
+X * to floating point. 
+X * p is advanced.
+X */
+X
+Xchar *
+Xstrtof(p, res)
+Xregister char *p;
+Xdouble *res;
+X{
+X    double acc;
+X    int sign;
+X    double fpos;
+X    int exp;
+X    int exps;
+X    VOID_OR_INT (*sig_save)();
+X    sig_save = signal(SIGFPE, fpe_trap);
+X    if (setjmp(fpe_buf)) {
+X	error("Floating point exception\n");
+X	*res = 0.0; 
+X        (void) signal(SIGFPE, sig_save);
+X	return(p);
+X    }
+X    acc = 0.0;
+X    sign = 1;
+X    exp = 0;
+X    exps = 1;
+X    if (*p == '+')
+X        p++;
+X    else if (*p == '-') {
+X        p++;
+X        sign = -1;
+X    }
+X    while (isdigit(*p)) {
+X        acc = acc * 10.0 + (double)(*p - '0');
+X        p++;
+X    }
+X    if (*p == 'e' || *p == 'E') {
+X	    p++;
+X        if (*p == '+')
+X	    p++;
+X        else if (*p == '-') {
+X	    p++;
+X	    exps = -1;
+X        }
+X        while(isdigit(*p)) {
+X	    exp = exp * 10 + (*p - '0');
+X	    p++;
+X        }
+X    }
+X    if (*p == '.') {
+X	fpos = 1.0/10.0;
+X	p++;
+X	while(isdigit(*p)) {
+X	    acc += (*p - '0') * fpos;
+X	    fpos *= 1.0/10.0;
+X	    p++;
+X	}
+X    }
+X    if (*p == 'e' || *p == 'E') {
+X	exp = 0;
+X	exps = 1;
+X        p++;
+X	if (*p == '+')
+X	    p++;
+X	else if (*p == '-') {
+X	    p++;
+X	    exps = -1;
+X	}
+X	while(isdigit(*p)) {
+X	    exp = exp * 10 + (*p - '0');
+X	    p++;
+X	}
+X    }
+X    if (exp) {
+X	if (exps > 0)
+X	    while (exp--)
+X		acc *= 10.0;
+X	else
+X	    while (exp--)
+X		acc *= 1.0/10.0;
+X    }
+X    if (sign > 0)
+X        *res = acc;
+X    else
+X	*res = -acc;
+X
+X    (void) signal(SIGFPE, sig_save);
+X    return(p);
+X}
+END_OF_FILE
+  if test 18332 -ne `wc -c <'ss_12b/lex.c'`; then
+    echo shar: \"'ss_12b/lex.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/lex.c'
+fi
+if test -f 'ss_12b/ss.man.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/ss.man.B'\"
+else
+  echo shar: Extracting \"'ss_12b/ss.man.B'\" \(36654 characters\)
+  sed "s/^X//" >'ss_12b/ss.man.B' <<'END_OF_FILE'
+X.B <Esc> v, <PgUp>
+XJump a (half) page up.
+X.TP 
+X.B ^V, <PgDn>
+XJump a (half) page down.
+X.TP
+X.B ^X <, <Shift><Left Arrow>
+XJump a (half) page left.
+X.TP
+X.B ^X >, <Shift><Right Arrow>
+XJump a (half) page right.
+X.RE
+X.\"
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XSpecial Movement:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP 1in
+X.B <Esc> b
+XMove the cursor backward to the previous valid cell.
+X.TP
+X.B <Esc> f
+XMove the cell cursor forward to the next valid cell.
+XThese two commands do not ``wrap around'' when the end of the
+Xspreadsheet is encountered.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^J
+XJump the cursor to the end of a (user-specified) range.  The user is
+Xprompted for a direction (Any of the Up,Down,Left,Right commands
+Xabove), and the cell cursor is then jumped to the last valid cell in
+Xthat direction.
+X.IP
+XThe user can enter a <Space> or <Return> to abort this procedure.
+X.RE
+X.\" ----------------------------------------------------------------------
+X.SS Menu Short-Cuts
+XThese commands all duplicate functions that are also available through
+Xmenu's.  They exist here because I felt that they would be used often
+Xenough to warrant a quicker access to their functionality.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XCell Menu Short-Cuts:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP
+X.B ^G
+XGoto a Cell.  See ``Goto'' on the Cell Menu.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^W
+XMark a Cell for later copying.  See ``Mark''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^Y 
+XCopy a previously marked cell to the current cell.  See ``Copy''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^X V
+XEdit the Value of the Current Cell.  See  ``edit Value''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^X L
+XEdit the Label of the Current Cell.  See  ``edit Label''.
+X.RE
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XEdit Menu Short-Cuts:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP
+X.B <Del>, <BackSpace>, ^D
+XErase the contents (Label and Value) of the current cell.  This is
+Xsimilar to choosing the ``Erase'' item on the Edit Menu with no range
+Xdefined, and therefore the ``Yank'' and ``Merge'' commands on the Row
+X& Column menus with undo this deletion.  See the relevant sections of
+Xthis man page for more details.
+X.RE
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XMisc Menu Short-Cuts:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP
+X.B ^L
+XRedraw the screen.  (This isn't a menu shortcut, but it does belong
+Xwith the next two commands).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^R
+XRedraw the Screen and Highlight all Values.  See ``Show Values''
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^K
+XRedraw the Screen and Highlight all Expressions.  See ``Show Expr''
+X.RE
+X.\" ----------------------------------------------------------------------
+X.SS Other Commands
+XThese commands do not fit into either of the the two previous
+Xcategories, so they are dumped here into that wonderful category known
+Xas ``Miscellaneous''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 1in
+X.B <Tab>
+XToggle Range display/definition mode.  See the section below on 
+X.B RANGES
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 1in
+X.B <Return>
+X(or ^M)  The cell-cursor is moved in one of a number of directions.
+XSee ``/ Misc - Options - Return''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 1in
+X.B ^Z
+XStop.  On systems where this is possible, the program is stopped, and 
+Xcontrol is given to the shell.
+X.\"
+X.\" **********************************************************************
+X.SH ENTERING DATA (Emacs Command/Entry Editing)
+X.\" ***********
+X.I pname
+Xfrequently prompts the user to enter a line of data on the top line of
+Xthe display.  When entering such data, a number of Emacs-compatible
+Xcommands are supported for the editing of the data as it is entered.
+X.LP
+XThere are two kinds of these data input modes.  In the general case,
+X(Cursor Terminated), the user is simply entering a number, function, or
+Xlabel into the spreadsheet (See ``How Input Is Processed'' above).  In
+Xthat general case, input is terminated with a <Return> or with an
+Xarrow key (or ^N, ^P, ^F, ^B).  When input is ended with an arrow key,
+Xthe cell cursor is then moved in that direction.  (This sounds
+Xconfusing, but really it isn't.)
+X.LP
+XIn the other case, (<CR> Terminated), the user is either editing the
+Xcontents of a cell (through one of the cell editing commands discussed
+Xabove), or is entering input in response to a question from the program.
+X(For example: Enter the name of a filename to load).  In this case,
+Xonly a <CR> is accepted as terminating input.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.SS Input Editing Commands:
+X.TP
+X.B ^A
+XMove the cursor to the beginning of the line
+X.TP
+X.B ^B, <Left Arrow>
+XMove the cursor left.  This command obviously does not apply to the
+X``Cursor Terminated'' mode.
+X.TP
+X.B ^G
+XAbort input.  If you are editing a cell, this command will abort the
+Xoperation and leave the cells contents unchanged.
+X.TP
+X.B ^D
+XDelete the character ``under'' cursor.
+X.TP
+X.B ^E
+XMove to the end of the line.
+X.TP
+X.B ^F, <Right Arrow>
+XMove the cursor right.  This command obviously does not apply to the
+X``Cursor Terminated'' mode.
+X.TP
+X.B ^H, <Del>
+XDelete the character to the left of cursor.
+X.TP
+X.B ^K
+XKill from the cursor to the end of the line.
+X.TP
+X.B ^L
+XRedraw the line.
+X.TP
+X.B ^M, <Return>
+XTerminate input.
+X.TP
+X.B ^O
+XToggle Overwrite (versus insert) mode.  In Overwrite, text to the
+Xright of the cursor is overwritten instead of ``pushed'' right.
+X.TP
+X.B ^T
+XTranspose the character to the left of the cursor, with the character
+X``under'' the cursor.
+X.TP
+X.B ^Y
+XAt the current cursor location, Yank back text killed with ^K.
+X.\"
+X.\" **********************************************************************
+X.SH FORMATTING CELL CONTENTS
+X.\" ***********
+X.LP
+XThe following characters can be used in building a format string:
+X.RS
+X.TP
+X.BR #
+XDigit placeholder.  If the number has fewer digits on either side of
+Xthe decimal point than there are `#' characters in the format, the
+Xextra `#' characters are ignored.  The number is rounded to the number
+Xof digit placeholders as there are to the right of the decimal point.
+XIf there are more digits in the number than there are digit
+Xplaceholders on the left side of the decimal point, then those digits
+Xare displayed.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR 0
+XDigit placeholder.  Same as for `#' except that the number is padded
+Xwith zeroes on either side of the decimal point.  The number of zeroes
+Xused in padding is determined by the number of digit placeholders
+Xafter the `0' for digits on the left side of the decimal point and by
+Xthe number of digit placeholders before the `0' for digits on the
+Xright side of the decimal point.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR .
+XDecimal point.  Determines how many digits are placed on the right and
+Xleft sides of the decimal point in the number.  Note that numbers
+Xsmaller than 1 will begin with a decimal point if the left side of the
+Xdecimal point contains only a `#' digit placeholder.  Use a `0'
+Xplaceholder to get a leading zero in decimal formats.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR %
+XPercentage.  For each `%' character in the format, the actual number
+Xgets multiplied by 100 (only for purposes of formatting \- the
+Xoriginal number is left unmodified) and the `%' character is placed in
+Xthe same position as it is in the format.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR ,
+XThousands separator (comma).  The presence of a `,' in the format
+X(multiple commas are treated as one) will cause the number to be
+Xformatted with a `,' separating each set of three digits in the
+Xinteger part of the number with numbering beginning from the right end
+Xof the integer.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR \e
+XQuote.  This character causes the next character to be inserted into
+Xthe formatted string directly with no special interpretation.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR E-\ E+\ e-\ e+
+XScientific format.  Causes the number to formatted in scientific
+Xnotation.  The case of the `E' or `e' given is preserved.  If the
+Xformat uses a `+', then the sign is always given for the exponent
+Xvalue.  If the format uses a `-', then the sign is only given when the
+Xexponent value is negative.  Note that if there is no digit
+Xplaceholder following the `+' or `-', then that part of the formatted
+Xnumber is left out.  In general, there should be one or more digit
+Xplaceholders after the `+' or `-'.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.BR ;
+XFormat selector.  Use this character to separate the format into two
+Xdistinct formats.  The format to the left of the `;' character will be
+Xused if the number given is zero or positive.  The format to the right
+Xof the `;' character is used if the number given is negative.
+X.\" ----------------------------------------------------------------------
+X.RE
+X.IP
+XSome example formats:
+X.TS
+Xcenter;
+Xl   l.
+XInteger	``0'' or ``#''
+XFixed	``0.00''
+XPercentage	``0%'' or ``0.00%''
+XScientific	``0.00E+00''
+XCurrency 	``$#,0.00;($#,0.00)''
+X.TE
+X.\"
+X.\" **********************************************************************
+X.SH WORKING WITH RANGES
+X.\" ***********
+X.LP
+XA Range is defined as being some rectangular block of cells.  A range
+Xis identified by the cells in the top right and bottom left corners of
+Xthe block.  For example, the range C3:F5 refers to the rectangular
+Xblock of cells:
+X.TS
+Xcenter;
+Xl   l	l   l.
+XC3  D3	E3  F3
+XC4  D4	E4  F4
+XC5  D5	E5  F5
+X.TE
+X.LP
+XA number of commands operate upon ranges.  Most of those commands will
+Xalso function without a range, in that case there is some default
+Xeffect.  For example, the ``/-File-Save'' command will save the entire
+Xspreadsheet by default.  If a range of cells is defined, then that
+Xcommand will instead just save the defined range of cells.
+XIn contrast, the ``/-Edit-Erase'' command will by default just
+Xerase the cell at the current cursor location.  If a range is defined,
+Xit will erase the entire range of cells.
+X.LP
+X.I PNAME
+Xfollows the ``Select then execute'' philosophy, much like
+Xmouse-oriented systems do.  For example, instead of choosing the erase
+Xcommand, and then entering a range of cells to be erase, you first
+Xselect a range of cells, and then choose the erase command.
+X.LP
+XTo start defining a range, use the <Tab> key.  Then, use any of the
+Xcursor motion keys (arrow keys, PdDn, etc) to move your cursor.  All
+Xcells making up the rectangular region between the current cell, and
+Xthe cell where you first typed the <Tab> key, will be highlighted,
+Xindicating the range of cells you are defining.
+X.LP
+XOnce you have highlighted the desired range, simply use the menu
+Xcommands, like always, to choose an operation to perform upon the
+Xrange you have defined.  See the section above on MENUS to find out
+Xwhich commands also apply to ranges.
+X.LP
+XIf, for some reason, you decide that you don't want to do anything
+Xwith the range you have defined, you can type the <Tab> key a second
+Xtime to discontinue defining a range.  The highlighted section will
+Xthen be returned to normal video, and you will no longer have a range defined.
+X.LP
+X.\"
+X.\" **********************************************************************
+X.\" **********************************************************************
+X.\" SO FAR UPDATED (updated carefully, that is)
+X.\" **********************************************************************
+X.\" **********************************************************************
+X.\"
+X.\" **********************************************************************
+X.SH WORKING WITH PNAME
+X.\" ***********
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Spreadsheet Update
+X.\" ----------------------------------------------------------------------
+XReevaluation of spreadsheet expressions is done by row or by column
+Xdepending on the selected calculation order.  Evaluation is repeated up
+Xto
+X.I iterations
+Xtimes for each update if necessary, so forward references usually work
+Xas expected.  See ``Settings'' under the Misc Menu above.  If
+Xstability is not reached after ten iterations, a warning is printed.
+XThis is usually due to a long series of forward references, or to
+Xunstable cyclic references (for example, set
+X.IR A0 's
+Xexpression to ``A0+1'').
+X.\" ----------------------------------------------------------------------
+X.SS About Cells
+X.\" ----------------------------------------------------------------------
+XCells can contain both a numeric value and a string value.  Either
+Xvalue can be the result of an expression, but not both at once, i.e.
+Xeach cell can have only one expression associated with it.  Entering a
+Xvalid numeric expression alters the cell's previous numeric value, if
+Xany, and replaces the cell's previous string expression, if any,
+Xleaving only the previously computed constant label string.  Likewise,
+Xentering a valid string expression alters the cell's the previous
+Xlabel string, if any, and replaces the cell's previous numeric
+Xexpression, if any, leaving only the previously computed constant
+Xnumeric value.
+X.\" ----------------------------------------------------------------------
+X.SS Variable Names
+X.\" ----------------------------------------------------------------------
+XNormally, a variable name is just the name of a cell, such as
+X.IR K20 .
+XThe value is the numeric or string value of the cell, according to
+Xcontext.
+X.\" ----------
+X.PP
+XWhen a cell's expression (formula) is copied to another location via
+X.I copy
+Xor
+X.IR range-copy ,
+Xvariable references are by default offset by the amount the formula
+Xmoved.  This allows the new formula to work on new data.  If cell
+Xreferences are not to change, you can either use the
+X.I fixed
+Xoperator (see below),
+Xor one of the following variations on the cell name.
+X.\" ----------
+X.TP
+X.I K20
+XReferences cell
+X.IR K20 ;
+Xthe reference changes when the formula is copied.
+X.\" ----------
+X.TP
+X.BI $ K $ 20
+XAlways refers to cell
+X.IR K20 ;
+Xthe reference stays fixed when the formula is copied.
+X.\" ----------
+X.TP
+X.BI $ K20
+XKeeps the column fixed at column K;
+Xthe row is free to vary.
+X.\" ----------
+X.TP
+X.IB K $ 20
+XSimilarly, this fixes the row and allows the column to vary.
+X.\" ----------
+X.PP
+XThese conventions also hold on defined ranges.  Range references vary
+Xwhen formulas containing them are copied.  If the range is defined with
+Xfixed variable references, the references do not change.
+X.\" ----------
+X.TP
+X.B fixed
+XTo make a variable not change automatically when a cell moves, put the
+Xword
+X.I fixed
+Xin front of the reference, for example:  B1 \(** fixed C3.
+X.\" ----------------------------------------------------------------------
+X.SS Numeric Expressions
+X.\" ----------------------------------------------------------------------
+XNumeric expressions used with the ``='' and
+X.I e
+Xcommands have a fairly conventional syntax.  Terms may be constants,
+Xvariable names, parenthesized expressions, and negated terms.  Ranges
+Xmay be operated upon with range functions such as sum
+X.RI ( @sum ())
+Xand average
+X.RI ( @avg ()).
+XTerms may be combined using binary operators.
+X.\" ----------
+X.TP
+X.BR \- e
+XNegation.
+X.\" ----------
+X.TP
+X.RB e + e
+XAddition.
+X.\" ----------
+X.TP
+X.RB e \- e
+XSubtraction.
+X.\" ----------
+X.TP
+X.RB e \(** e
+XMultiplication.
+X.\" ----------
+X.TP
+X.RB e / e
+XDivision.
+X.\" ----------
+X.TP
+X.RB e1 % e2
+Xe1 mod e2.
+X.\" ----------
+X.TP
+X.RB e ^ e
+XExponentiation.
+X.\" ----------
+X.TP
+X.RB e < e
+X.PD 0
+X.TP
+X.RB e <= e
+X.TP
+X.RB e = e
+X.TP
+X.RB e != e
+X.TP
+X.RB e >= e
+X.TP
+X.RB e > e
+XRelationals:  true (1) if and only if the indicated relation holds,
+Xelse false (0).  Note that ``<='', ``!='', and ``>='' are converted to
+Xtheir ``~()'' equivalents.
+X.PD
+X.\" ----------
+X.TP
+X.BR ~ e
+XBoolean operator
+X.SM NOT.
+X.\" ----------
+X.TP
+X.RB e & e
+XBoolean operator
+X.SM AND.
+X.\" ----------
+X.TP
+X.RB e | e
+XBoolean operator
+X.SM OR.
+X.\" ----------
+X.TP
+X.RB @if (e, e, e)
+X.PD 0
+X.TP
+X.RB e ? e : e
+XConditional:  If the first expression is true then the value of the
+Xsecond is returned, otherwise the value of the third.
+X.\" ----------
+X.PP
+XOperator precedence from highest to lowest is:
+X.PP
+X.nf
+X.RS
+X\-, ~ ^ \(**, / +, \- <, <=, =, !=, >=, > & | ?:
+X.RE
+X.fi
+X.\" ----------------------------------------------------------------------
+X.SS String Expressions
+X.\" ----------------------------------------------------------------------
+XString expressions are made up of constant strings (characters
+Xsurrounded by double quotation marks), variables (cell names, which
+Xrefer to the cells's label strings or expressions), and string
+Xfunctions.  Note that string expressions are only allowed when
+Xentering a cell's label string, not its numeric part.  Also note that
+Xstring expression results may be left or right flushed or centered,
+Xaccording to the type of the cell's string label.
+X.TP
+X.B #
+XConcatenate strings.  For example, the string expression
+X.IP ""
+X	A0 # "zy dog"
+X.IP ""
+Xdisplays the string ``the lazy dog'' in the cell if the value of
+X.IR A0 's
+Xstring is ``the la''.
+X.\"
+X.\" **********************************************************************
+X.SH FUNCTIONS
+X.\" ***********
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Cell Functions
+X.\" ----------------------------------------------------------------------
+X.B "@myrow, @mycol"
+XAre functions that return the row or column of the current cell respectively.
+Xex: The cell directly above a cell in the D column could then be accessed
+Xby @nval("d",@myrow-1).
+XNOTE: @myrow and @mycol can't be used in specifying ranges.
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Range Functions
+X.\" ----------------------------------------------------------------------
+XThese functions return numeric values.
+X.TP 18
+X.BR @sum (r)
+XSum all valid (non-blank) entries in the region whose two corners are
+Xdefined by the two variable names (e.g.
+X.IR c5:e14 )
+Xor the range name specified.
+X.\" ----------
+X.TP 18
+X.BR @prod (r)
+XMultiply together all valid (non-blank) entries in the specified
+Xregion.
+X.\" ----------
+X.TP 18
+X.BR @avg (r)
+XAverage all valid (non-blank) entries in the specified region.
+X.\" ----------
+X.TP 18
+X.BR @count (r)
+XCount all valid (non-blank) entries in the specified region.
+X.\" ----------
+X.TP 18
+X.BR @max (r)
+XReturn the maximum value in the specified region.  See also the multi
+Xargument version of
+X.I @max
+Xbelow.
+X.\" ----------
+X.TP 18
+X.BR @min (r)
+XReturn the minimum value in the specified region.  See also the multi
+Xargument version of
+X.I @min
+Xbelow.
+X.\" ----------
+X.TP 18
+X.BR @stddev (r)
+XReturn the sample standard deviation of the cells in the specified
+Xregion.
+X.\" ----------
+X.TP 18
+X.BR @lookup (e,r)
+X.PD 0
+X.TP 18
+X.BR @lookup (se,r)
+X.PD
+XEvaluates the expression then searches through the range
+X.I r
+Xfor a matching value.  The range should be either a single row or a
+Xsingle column.  The expression can be either a string expression or a
+Xnumeric expression.  If it is a numeric expression, the range is
+Xsearched for the the last value less than or equal to
+X.IR e .
+XIf the expression is a string expression, the string portions of the
+Xcells in the range are searched for an exact string match.  The value
+Xreturned is the numeric value from the next row and the same column as
+Xthe match, if the range was a single row, or the value from the next
+Xcolumn and the same row as the match if the range was a single column.
+X.\" ----------
+X.TP 18
+X.BR @hlookup (e,r,n)
+X.PD 0
+X.TP 18
+X.BR @hlookup (se,r,n)
+X.PD
+XEvaluates the expression then searches through the first row in the
+Xrange
+X.I r
+Xfor a matching value.  The expression can be either a string expression
+Xor a numeric expression.  If it is a numeric expression, the row is
+Xsearched for the the last value less than or equal to
+X.IR e .
+XIf the expression is a string expression, the string portions of the
+Xcells in the row are searched for an exact string match.  The value
+Xreturned is the numeric value from the same column
+X.I n
+Xrows below the match.
+X.\" ----------
+X.TP 18
+X.BR @vlookup (e,r,n)
+X.PD 0
+X.TP 18
+X.BR @vlookup (se,r,n)
+X.PD
+XEvaluates the expression then searches through the first column in the
+Xrange
+X.I r
+Xfor a matching value.  The expression can be either a string expression
+Xor a numeric expression.  If it is a numeric expression, the column is
+Xsearched for the the last value less than or equal to
+X.IR e .
+XIf the expression is a string expression, the string portions of the
+Xcells in the column are searched for an exact string match.  The value
+Xreturned is the numeric value from the same row
+X.I n
+Xcolumns to the right of the match.
+X.\" ----------
+X.TP 18
+X.BR @index (e,r)
+XUse the value of the expression
+X.I e
+Xto index into the range
+X.IR r .
+XThe numeric value at that position is returned.  The value 1 selects
+Xthe first item in the range, 2 selects the second item, etc.
+X.I R
+Xshould be either a single row or a single column.
+X.\" ----------
+X.TP 18
+X.BR @stindex (e,r)
+XUse the value of
+X.I e
+Xto index into the range
+X.IR r .
+XThe string value at that position is returned.  The value 1 selects the
+Xfirst item in the range, 2 selects the second item, etc.  The range
+Xshould be either a single row or a single column.
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Numeric Functions
+X.\" ----------------------------------------------------------------------
+XAll of these functions operate on floating point numbers (doubles) and
+Xreturn numeric values.  Most of them are standard system functions more
+Xfully described in
+X.IR math (3).
+XThe trig functions operate with angles in radians.
+X.\" ----------
+X.TP 18
+X.BR @sqrt (e)
+XReturn the square root of
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @exp (e)
+XReturn the exponential function of
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @ln (e)
+XReturn the natural logarithm of
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @log (e)
+XReturn the base 10 logarithm of
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @floor (e)
+XReturn the largest integer not greater than
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @ceil (e)
+XReturn the smallest integer not less than
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @rnd (e)
+XRound
+X.I e
+Xto the nearest integer.  default: round-to-even (banker's round), *.5
+Xwill round to the closest even number; 'set rndinfinity' will round *.5
+Xup to the next integer.
+X.TP 18
+X.BR @round (e,n)
+XRound
+X.I e
+Xto
+X.I n
+Xdecimal places.  n may be positive to round off the right side of the
+Xdecimal, and negative to round off the left side. See @rnd(e) above for
+Xrounding types.
+X.\" ----------
+X.TP 18
+X.BR @abs (e)
+X.PD 0
+X.TP 18
+X.BR @fabs (e)
+XReturn the absolute value of
+X.IR e .
+X.\" ----------
+X.TP 18
+X.BR @pow (e1,e2)
+XReturn
+X.I e1
+Xraised to the power of
+X.IR e2 .
+X.\" ----------
+X.TP 18
+X.BR @hypot (e1,e2)
+XReturn sqrt(e1\(**e1+e2\(**e2), taking precautions against unwarranted
+Xoverflows.
+X.\" ----------
+X.TP 18
+X.B pi\ \ @pi
+XA constant quite close to pi.
+X.\" ----------
+X.TP 18
+X.BR @dtr (e)
+XConvert
+X.I e
+Xin degrees to radians.
+X.\" ----------
+X.TP 18
+X.BR @rtd (e)
+XConvert
+X.I e
+Xin radians to degrees.
+X.\" ----------
+X.TP 18
+X.BR @sin (e)
+X.PD 0
+X.TP 18
+X.BR @cos (e)
+X.TP 18
+X.BR @tan (e)
+XReturn trigonometric functions of radian arguments.  The magnitude of
+Xthe arguments are not checked to assure meaningful results.
+X.PD
+X.\" ----------
+X.TP 18
+X.BR @asin (e)
+XReturn the arc sine of
+X.I e
+Xin the range -pi/2 to pi/2.
+X.\" ----------
+X.TP 18
+X.BR @acos (e)
+XReturn the arc cosine of
+X.I e
+Xin the range 0 to pi.
+X.\" ----------
+X.TP 18
+X.BR @atan (e)
+XReturn the arc tangent of
+X.I e
+Xin the range -pi/2 to pi/2.
+X.\" ----------
+X.TP 18
+X.BR @atan2 (e1,e2)
+XReturns the arc tangent of
+X.IR e1 / e2
+Xin the range -pi to pi.
+X.\" ----------
+X.TP 18
+X.BR @max (e1,e2,...)
+XReturn the maximum of the values of the expressions.  Two or more
+Xexpressions may be specified.  See also the range version of
+X.I @max
+Xabove.
+X.\" ----------
+X.TP 18
+X.BR @min (e1,e2,...)
+XReturn the minimum of the values of the expressions.  Two or more
+Xexpressions may be specified.  See also the range version of
+X.I @min
+Xabove.
+X.\" ----------
+X.TP 18
+X.BR @ston (se)
+XConvert string expression
+X.I se
+Xto a numeric value.
+X.\" ----------
+X.TP 18
+X.BR @eqs (se1,se2)
+XReturn 1 if string expression
+X.I se1
+Xhas the same value as string expression
+X.IR se2 ,
+X0 otherwise.
+X.\" ----------
+X.TP 18
+X.BR @nval (se,e)
+XReturn the numeric value of a cell selected by name.  String expression
+X.I se
+Xmust evaluate to a column name (``A''-``AE'') and
+X.I e
+Xmust evaluate to a row number (0-199).  If
+X.I se
+Xor
+X.I e
+Xis out of bounds, or the cell has no numeric value, the result is 0.
+XYou can use this for simple table lookups.  Be sure the table doesn't
+Xmove unexpectedly!  See also
+X.IR @sval ()
+Xbelow.
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS String Functions
+X.\" ----------------------------------------------------------------------
+X.PD 0
+X.TP 18
+X.BR @substr (se,e1,e2)
+XExtract and return from string expression
+X.I se
+Xthe substring indexed by character number
+X.I e1
+Xthrough character number
+X.I e2
+X(defaults to the size of
+X.I se
+Xif beyond the end of it).
+XIf
+X.I e1
+Xis less than 1 or greater than
+X.IR e2 ,
+Xthe result is the null string.
+XFor example,
+X.PD
+X.IP ""
+X	@substr ("Nice jacket", 4, 7)
+X.IP ""
+Xreturns the string ``e jac''.
+X.\" ----------
+X.TP 18
+X.BR @fmt (se,e)
+XConvert a number to a string.
+XThe argument
+X.I se
+Xmust be a valid
+X.IR printf (3)
+Xformat string.
+X.I e
+Xis converted according to the standard rules.
+XFor example, the expression
+X.IP ""
+X	@fmt ("\(**\(**%6.3f\(**\(**", 10.5)
+X.IP ""
+Xyields the string ``\(**\(**10.500\(**\(**''.
+X.I e
+Xis a double, so applicable formats are e, E, f, g, and G.
+XTry ``%g'' as a starting point.
+X.\" ----------
+X.TP 18
+X.BR @sval (se,e)
+XReturn the string value of a cell selected by name.
+XString expression
+X.I se
+Xmust evaluate to a column name (``A''-``AE'') and
+X.I e
+Xmust evaluate to a row number (0-199). 
+XIf
+X.I se
+Xor
+X.I e
+Xis out of bounds, or the cell has no string value,
+Xthe result is the null string.
+XYou can use this for simple table lookups.
+XBe sure the table doesn't move unexpectedly!
+X.\" ----------
+X.TP 18
+X.BR @upper (e)
+Xand
+X.BR @lower (e)
+Xwill case the string expression to upper or lower.
+X.\" ----------
+X.TP 18
+X.BR @capital (e)
+Xwill convert the first letter of words in a string
+Xinto upper case and other letters to lower case
+X(the latter if all letters of the string are upper case).
+X.\" ----------
+X.TP 18
+X.BR @upper (e)
+Xand
+X.BR @lower (e)
+Xwill case the string expression to upper or lower.
+X.\" ----------
+X.TP 18
+X.BR @capital (e)
+Xwill convert the first letter of words in a string
+Xinto upper case.
+X.\" ----------
+X.TP 18
+X.BR @ext (se,e)
+XCall an external function (program or script).
+XThe purpose is to allow arbitrary functions on values,
+Xe.g. table lookups and interpolations.
+XString expression
+X.I se
+Xis a command or command line to call with
+X.IR popen (3).
+XThe value of
+X.I e
+Xis converted to a string and appended to the command line as an argument.
+XThe result of
+X.IR @ext ()
+Xis a string:
+Xthe first line printed to standard output by the command.
+XThe command should emit exactly one output line.
+XAdditional output, or output to standard error, messes up the screen.
+X.IR @ext ()
+Xreturns a null string and prints an appropriate warning
+Xif external functions are disabled,
+X.I se
+Xis null, or the attempt to run the command fails.
+X.IP ""
+XExternal functions can be slow to run,
+Xand if enabled are called at each screen update,
+Xso they are disabled by default.
+XYou can enable them with
+X.I ^T
+Xwhen you really want them called.
+X.IP ""
+XA simple example:
+X.IP ""
+X	@ext ("echo", a1)
+X.IP ""
+XYou can use
+X.IR @ston ()
+Xto convert the
+X.IR @ext ()
+Xresult back to a number.
+XFor example:
+X.IP ""
+X	@ston (@ext ("form.sc.ext", a9 + b9))
+X.IP ""
+XNote that you can built a command line (including more argument values)
+Xfrom a string expression with concatenation.
+XYou can also "hide" the second argument by ending the command line
+X(first argument) with `` #'' (shell comment).
+X.\" ----------
+X.TP 18
+X.BR @coltoa (e)
+XReturns a string name for a column from the numeric argument.
+XFor example:
+X.IP ""
+X	@coltoa(@mycol-1)
+X	@nval(coltoa(@mycol-1), @myrow+1)
+X.IP ""
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Financial Functions
+X.\" ----------------------------------------------------------------------
+XFinancial functions compute the mortgage (or loan) payment, future value,
+Xand the present value functions.  Each accepts
+Xthree arguments, an amount, a rate of interest (per period), and 
+Xthe number of periods.
+XThese functions are the same as those commonly found in other spreadsheets
+Xand financial calculators
+X.\" ----------
+X.TP 18
+X.BR @pmt (e1,e2,e3)
+X.IR @pmt (60000,.01,360)
+Xcomputes the monthly payments for a $60000 mortgage at 12% annual interest
+X(.01 per month) for 30 years (360 months).
+X.\" ----------
+X.TP 18
+X.BR @fv (e1,e2,e3)
+X.IR @fv (100,.005,36)
+Xcomputes the future value for of 36 monthly payments of $100 at 6% 
+Xinterest (.005 per month).  It answers the question: "How much
+Xwill I have in 36 months if I deposit $100 per month in a savings
+Xaccount paying 6% interest compounded monthly?"
+X.\" ----------
+X.TP 18
+X.BR @pv (e1,e2,e3)
+X.IR @pv (1000,.015,36)
+Xcomputes the present value of an a ordinary annuity of
+X36 monthly payments of $1000 at 18% annual interest.
+XIt answers the question: "How much can I borrow at 18% for 30 years
+Xif I pay $1000 per month?"
+X.\" ----------------------------------------------------------------------
+X\0 \" exactly one blank line (hard to get)
+X.SS Date and Time Functions
+X.\" ----------------------------------------------------------------------
+XTime for
+X.I pname
+Xfollows the system standard:
+Xthe number of seconds since 1970.
+XAll date and time functions except
+X.IR @date ()
+Xreturn numbers, not strings.
+X.\" ----------
+X.TP 18
+X.B @now
+XReturn the current time encoded
+Xas the number of seconds since the beginning of the
+Xepoch (December 31, 1969, midnight, GMT.)
+X.\" ----------
+X.TP 18
+X.BR @dts (e1,e2,e3)
+X.IR @dts (9,14,1988)
+Xconverts the date September 14, 1988
+Xto the number of seconds from the epoch
+Xto the first second of 9/14/88, local time.
+XFor example,
+X.IR @date ( @dts (12,14,1976))
+Xyields
+X.IP ""
+X.I "	Tue Dec 14 00:00:00 1976"
+X.IP ""
+XThe month should be range from  1 to 12, the day should range from
+X1 to the number of days in the specified month, and the year should
+Xrange from 1970 to 1999.
+X.\" ----------
+X.TP 18
+X.BR @tts (e1,e2,e3)
+X.IR @tts (8,20,45)
+Xconverts the time 8:40:45 to the number of seconds since
+Xmidnight, the night before.  The hour should range from 0 to 23;
+Xthe minutes and seconds should range from 0 to 59.
+X.\" ----------
+X.PP
+XThe following functions take the time in seconds
+X(e.g. from
+X.IR @now )
+Xas an argument and return the specified value.
+XThe functions all convert from GMT to local time.
+X.\" ----------
+X.TP 18
+X.BR @date (e)
+XConvert the time in seconds to a date string
+X24 characters long in the following form:
+X.IP ""
+X.I "	Sun Sep 16 01:03:52 1973"
+X.IP ""
+XNote that you can extract parts of this fixed-format string with
+X.IR @substr ().
+X.\" ----------
+X.TP 18
+X.BR @year (e)
+XReturn the year.  Valid years begin with 1970.  The last legal year is
+Xsystem dependent.
+X.\" ----------
+X.TP 18
+X.BR @month (e)
+XReturn the month, encoded as 1 (January) to 12 (December).
+X.\" ----------
+X.TP 18
+X.BR @day (e)
+XReturn the day of the month, encoded as 1 to 31.
+X.\" ----------
+X.TP 18
+X.BR @hour (e)
+XReturn the number of hours since midnight, encoded as 0 to 23.
+X.\" ----------
+X.TP 18
+X.BR @minute (e)
+XReturn the number of minutes since the last full hour, encoded as 0 to
+X59.
+X.\" ----------
+X.TP 18
+X.BR @second (e)
+XReturn the number of seconds since the last full minute, encoded as 0
+Xto 59.
+X.\"
+X.\" **********************************************************************
+X.\".SH FILES
+X.\" ***********
+X.\" .TP 4in
+X.\" #LIBDIR#/tutorial.pname
+X.\" tutorial spreadsheet
+X.\"
+X.\" **********************************************************************
+X.SH SEE ALSO
+X.\" ***********
+Xbc(1), dc(1), crypt(1), ppname(1), sc(1)
+X.\"
+X.\" **********************************************************************
+X.SH BUGS
+X.\" ***********
+XTop-to-bottom, left-to-right evaluation of expressions is silly.
+XA proper following of the dependency graph
+Xwith (perhaps) recourse to relaxation should be implemented.
+X.\" ----------------------------------------------------------------------
+X.PP
+XOnly one previous value is saved from any call of
+X.IR @ext ().
+XIf it is used more than once in a spreadsheet and external functions
+Xare enabled and later disabled, the last returned value pops up in
+Xseveral places.
+X.\" ----------------------------------------------------------------------
+X.PP
+XOn some systems, if the cell cursor is in column 0 with topline enabled
+X(so the current cell is highlighted), or if any cell in column 0 is
+Xhighlighted, the corresponding row number gets displayed and then
+Xblanked during a screen refresh.  This looks like a bug in
+X.IR curses .
+X.\" ----------------------------------------------------------------------
+X.PP
+XMany commands give no indication (a message or beep) if they have null effect.
+XSome should give confirmation of their action, but they don't.
+X.\"
+X.\" **********************************************************************
+X.SH AUTHORS
+X.\" ***********
+XThis is a much modified version of a public domain spread sheet
+Xoriginally authored by James Gosling, and subsequently modified and
+Xposted to USENET by Mark Weiser under the name
+X.IR vc .
+X.PP
+XThe program was subsequently renamed
+X.IR sc ,
+Xand further modified by numerous contributors, Jeff Buhrt
+Xof Proslink, Inc.  ({sequent, uunet}!sawmill!prslnk!buhrt)
+Xand Robert Bond of Sequent, prominent among them.
+X.PP
+XOther contributors include:
+XTom Anderson,
+XGlenn T. Barry,
+XGregory Bond,
+XStephen (Steve) M. Brooks,
+XPeter Brower,
+XJohn Campbell,
+XLawrence Cipriani,
+XJim Clausing,
+XDave Close,
+XChris Cole,
+XJonathan Crompron,
+XDavid I. Dalva,
+XGlen Ditchfield,
+XSam Drake,
+XJames P. Dugal,
+XPaul Eggert,
+XAndy Fyfe,
+XJack Goral,
+XPiercarlo "Peter" Grandi,
+XHenk Hesselink,
+XJeffrey C Honig,
+XKurt Horton,
+XJonathan I. Kamens,
+XPeter King,
+XTom Kloos,
+XCasey Leedom,
+XJay Lepreau,
+XDave Lewis,
+XRick Linck,
+XSoren Lundsgaard,
+XTad Mannes,
+XRob McMahon,
+XChris Metcalf,
+XMark Nagel,
+XUlf Noren,
+XMarius Olafsson,
+XGene H. Olson,
+XHenk P. Penning,
+XRick Perry,
+XLarry Philps,
+XEric Putz,
+XJim Richardson,
+XMichael Richardson,
+XR. P. C. Rodgers,
+XKim Sanders,
+XMike Schwartz,
+XAlan Silverstein,
+XLowell Skoog,
+XHerr Soeryantono,
+XTim Theisen,
+XTom Tkacik,
+XAndy Valencia,
+XAdri Verhoef,
+XRick Walker,
+XPetri Wessman,
+Xand
+XTim Wilson.
+X.\" ----------------------------------------------------------------------
+X.LP
+XFinally, Art Mulder ( art@cs.ualberta.ca ) took
+X.I sc
+Xversion 6.19 and radically overhauled the user interface of it, to
+Xcreate
+X.IR ss .
+X.LP
+XApologies are freely offered to all 
+X.I sc 
+Xadherents offended by what has been done to ``their'' program.
+X.\"
+X.\" **********************************************************************
+X.SH COPYRIGHT
+X.\" ***********
+XCopyright (c) 1992 by Arthur E. Mulder.
+X.LP
+XAll Rights Reserved
+X.LP
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appears in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the names of any persons or
+Xorganizations involved not be used in advertising or publicity
+Xpertaining to distribution of the software without specific, written
+Xprior permission.
+X.LP
+XALL PERSONS AND ORGANIZATIONS INVOLVED IN THE CREATION OF THIS SOFTWARE
+XDISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+XIMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.  IN NO EVENT SHALL
+XANY OF THEM BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+XDAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+XPROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+XACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+XTHIS SOFTWARE.
+X.\" ---------- ---------- ---------- ---------- ---------- ----------
+X.\" end of man page
+END_OF_FILE
+  if test 36654 -ne `wc -c <'ss_12b/ss.man.B'`; then
+    echo shar: \"'ss_12b/ss.man.B'\" unpacked with wrong size!
+  elif test -f 'ss_12b/ss.man.A'; then
+    echo shar: Combining  \"'ss_12b/ss.man'\" \(80770 characters\)
+    cat 'ss_12b/ss.man.A' 'ss_12b/ss.man.B' > 'ss_12b/ss.man'
+    if test 80770 -ne `wc -c <'ss_12b/ss.man'`; then
+      echo shar: \"'ss_12b/ss.man'\" combined with wrong size!
+    else
+      rm ss_12b/ss.man.A ss_12b/ss.man.B
+    fi
+  fi
+  # end of 'ss_12b/ss.man.B'
+fi
+echo shar: End of archive 4 \(of 11\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

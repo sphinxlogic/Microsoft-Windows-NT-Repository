@@ -1,0 +1,1869 @@
+Newsgroups: comp.sources.misc
+From: brendan@cygnus.com (Brendan Kehoe)
+Subject:  v33i053:  archie - A client to query the Archie FTP databases, v1.4.1, Part04/07
+Message-ID: <1992Nov5.210345.25162@sparky.imd.sterling.com>
+X-Md4-Signature: 861e6a15a74812d0893e91df5696bb69
+Date: Thu, 5 Nov 1992 21:03:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cygnus.com (Brendan Kehoe)
+Posting-number: Volume 33, Issue 53
+Archive-name: archie/part04
+Environment: UNIX, VMS, DOS
+Supersedes: archie: Volume 27, Issue 79-84
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  get_vdir.c make.com msdos/netevent.h regex.c
+# Wrapped by kent@sparky on Thu Nov  5 12:53:08 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 7)."'
+if test -f 'get_vdir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'get_vdir.c'\"
+else
+  echo shar: Extracting \"'get_vdir.c'\" \(14094 characters\)
+  sed "s/^X//" >'get_vdir.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <stdio.h>
+X
+X#include <pfs.h>
+X#include <pprot.h>
+X#include <perrno.h>
+X#include <pcompat.h>
+X#include <pauthent.h>
+X#include <pmachine.h>
+X
+X#ifdef NEED_STRING_H
+X# include <string.h>
+X#else
+X# include <strings.h>
+X#endif
+X
+X#ifdef DEBUG
+Xextern int	pfs_debug;
+X#endif
+X
+Xextern int	pwarn;
+Xextern char	p_warn_string[];
+Xextern int	perrno;
+Xextern char	p_err_string[];
+X
+X/*
+X * get_vdir - Get contents of a directory given its location
+X *
+X *	      GET_VDIR takes a directory location, a list of desired
+X *	      components, a pointer to a directory structure to be 
+X *	      filled in, and flags.  It then queries the appropriate 
+X *	      directory server and retrieves the desired information.
+X *
+X *      ARGS:   dhost       - Host on which directory resides
+X *              dfile       - Directory on that host
+X *              components  - The names from the directory we want
+X *		dir	    - Structure to be filled in
+X *	        flags       - Options.  See FLAGS
+X *		filters     - filters to be applied to result 
+X *              acomp       - Pointer to remaining components
+X *
+X *     FLAGS:	GVD_UNION   - Do not expand union links
+X *		GVD_EXPAND  - Expand union links locally
+X *		GVD_REMEXP  - Request remote expansion (& local if refused)
+X *		GVD_LREMEXP - Request remote expansion of local union links
+X *		GVD_VERIFY  - Only verify that args are for a directory
+X *              GVD_ATTRIB  - Request attributes from directory server
+X *              GVD_NOSORT  - Do not sort links when adding to directory
+X *
+X *   RETURNS:   PSUCCESS (0) or error code
+X *		On some codes addition information in p_err_string
+X *
+X *     NOTES:   If acomp is non-null the string it points to might be modified
+X *
+X *              If the directory passed as an argument already has
+X *		links or union links, then those lists will be freed
+X *              before the new contents are filled in.
+X *
+X *              If a filter is passed to the procedure, and application of
+X *              the filter results in additional union link, then those links
+X *              will (or will not) be expanded as specified in the FLAGS field.
+X *
+X *              If the list of components in NULL, or the null string, then
+X *              get_vdir will return all links in the requested directory.
+X *
+X *      BUGS:   Doesn't process union links yet
+X *              Doesn't process errors returned from server
+X *		Doesn't expand union links if requested to
+X */
+Xint
+Xget_vdir(dhost,dfile,components,dir,flags,filters,acomp)
+X    char	*dhost;		/* Host on which directory resides           */
+X    char	*dfile;		/* Name of file on that host	             */
+X    char	*components;	/* Component name (wildcards allowed)        */
+X    PVDIR	dir;		/* Structure to be filled in		     */
+X    long	flags;		/* Flags			             */
+X    VLINK	filters;	/* Filters to be applied to result           */
+X    char	*acomp;		/* Components left to be resolved            */
+X    {
+X        PTEXT	request;	/* Text of request to dir server             */
+X	PTEXT	resp;	    	/* Response from dir server	             */
+X
+X	char	ulcomp[MAX_VPATH];/* Work space for new current component    */
+X	char	*comp = components;
+X
+X	VLINK	cur_link = NULL;/* Current link being filled in              */
+X	VLINK 	exp = NULL; 	/* The current ulink being expanded	     */
+X	VLINK	pul = NULL;     /* Prev union link (insert new one after it) */
+X	VLINK	l;		/* Temp link pointer 			     */
+X	int	mcomp;		/* Flag - check multiple components          */
+X	int	unresp;		/* Flag - received unresolved response       */
+X	int	getattrib = 0;  /* Get attributes from server                */
+X	int	vl_insert_flag; /* Flags to vl_insert                        */
+X
+X	int	fwdcnt = MAX_FWD_DEPTH;
+X
+X	int	no_links = 0;   /* Count of number of links found	     */
+X
+X	char	options[40];    /* LIST option                               */
+X	char	*opt;           /* After leading +                           */
+X
+X	PAUTH	authinfo;
+X
+X	/* Treat null string like NULL (return entire directory) */
+X	if(!components || !*components) comp = NULL;
+X
+X	if(acomp && !filters) mcomp = 1;
+X	else mcomp = 0;
+X
+X	if(flags&GVD_ATTRIB) {
+X	    getattrib++;
+X	    flags &= (~GVD_ATTRIB);
+X	}
+X
+X	if(flags&GVD_NOSORT) vl_insert_flag = VLI_NOSORT;
+X	else vl_insert_flag = VLI_ALLOW_CONF;
+X	flags &= (~GVD_NOSORT);
+X
+X	if(filters) comp = NULL;
+X
+X	perrno = 0;
+X
+X	authinfo = get_pauth(PFSA_UNAUTHENTICATED);
+X
+X	*options = '\0';
+X
+X	if(getattrib) {
+X	    strcat(options,"+ATTRIBUTES");
+X	    flags &= (~GVD_ATTRIB);
+X	}
+X
+X	if(!filters) { /* Can't do remote expansion if filters to be applied */
+X	    if(flags == GVD_REMEXP) strcat(options,"+EXPAND");
+X	    if(flags == GVD_LREMEXP) strcat(options,"+LEXPAND");
+X	}
+X
+X	/* If all we are doing is verifying that dfile is a directory */
+X	/* then we do not want a big response from the directory      */
+X	/* server.  A NOT-FOUND is sufficient.			      */
+X	if(flags == GVD_VERIFY)
+X#ifdef NEWVERIFYOPT
+X	    strcat(options,"+VERIFY");
+X#else
+X	comp = "%#$PRobably_nOn_existaNT$#%";
+X#endif
+X
+X	if(*options) opt = options+1;
+X	else opt = "''";
+X
+X    startover:
+X	request = ptalloc();
+X
+X	sprintf(request->start,
+X		"VERSION %d %s\nAUTHENTICATOR %s %s\nDIRECTORY ASCII %s\nLIST %s COMPONENTS %s%s%s\n",
+X		VFPROT_VNO, PFS_SW_ID, authinfo->auth_type,
+X		authinfo->authenticator, dfile, opt,
+X		(comp ? comp : ""), (mcomp ? "/" : ""),
+X		(mcomp ? acomp : ""));
+X
+X	request->length = strlen(request->start);
+X
+X#ifdef DEBUG
+X	if(pfs_debug > 2)
+X	    fprintf(stderr,"Sending message to dirsrv:\n%s",request->start);
+X#endif
+X
+X#if defined(MSDOS)
+X	resp = dirsend(request,dhost,0L);
+X#else
+X	resp = dirsend(request,dhost,0);
+X#endif
+X
+X#ifdef DEBUG
+X	if(pfs_debug && (resp == NULL)) {
+X	    fprintf(stderr,"Dirsend failed: %d\n",perrno);
+X	}
+X#endif
+X
+X	/* If we don't get a response, then if the requested       */
+X	/* directory, return error, if a ulink, mark it unexpanded */
+X	if(resp == NULL) {
+X	    if(exp) exp->expanded = FAILED;
+X	    else return(perrno);
+X	}
+X
+X	unresp = 0;
+X
+X	/* Here we must parse reponse and put in directory */
+X	/* While looking at each packet 		   */
+X	while(resp) {
+X	    PTEXT		vtmp;
+X	    char		*line;
+X
+X	    vtmp = resp;
+X#ifdef DEBUG
+X	    if(pfs_debug > 3) fprintf(stderr,"%s\n",resp->start);
+X#endif
+X	    /* Look at each line in packet */
+X	    for(line = resp->start;line != NULL;line = nxtline(line)) {
+X		switch (*line) {
+X		    
+X		    /* Temporary variables to hold link info */
+X		    char	l_linktype;
+X		    char 	l_name[MAX_DIR_LINESIZE];
+X		    char	l_type[MAX_DIR_LINESIZE];
+X		    char 	l_htype[MAX_DIR_LINESIZE];
+X		    char 	l_host[MAX_DIR_LINESIZE];
+X		    char 	l_ntype[MAX_DIR_LINESIZE];
+X		    char 	l_fname[MAX_DIR_LINESIZE];
+X		    int		l_version;
+X		    char 	t_unresolved[MAX_DIR_LINESIZE];
+X		    int		l_magic;
+X		    int		tmp;
+X
+X		case 'L': /* LINK or LINK-INFO */
+X		    if(strncmp(line,"LINK-INFO",9) == 0) {
+X			PATTRIB		at;
+X			PATTRIB		last_at;
+X			at = parse_attribute(line);
+X			if(!at) break;
+X
+X			/* Cant have link info without a link */
+X			if(!cur_link) {
+X			    perrno = DIRSRV_BAD_FORMAT;
+X			    atfree(at);
+X			    break;
+X			}
+X			
+X			if(cur_link->lattrib) {
+X			    last_at = cur_link->lattrib;
+X			    while(last_at->next) last_at = last_at->next;
+X			    at->previous = last_at;
+X			    last_at->next = at;
+X			}
+X			else {
+X			    cur_link->lattrib = at;
+X			    at->previous = NULL;
+X			}
+X			break;
+X		    }
+X
+X		    /* Not LINK-INFO, must be LINK - if not check for error */
+X		    if(strncmp(line,"LINK",4) != 0) goto scanerr;
+X
+X		    /* If only verifying, don't want to change dir */
+X		    if(flags == GVD_VERIFY) {
+X			break;
+X		    }
+X		    /* If first link and some links in dir, free them */
+X		    if(!no_links++) {
+X			if(dir->links) vllfree(dir->links); dir->links=NULL;
+X			if(dir->ulinks) vllfree(dir->ulinks); dir->ulinks=NULL;
+X			}
+X			
+X		    cur_link = vlalloc();
+X
+X		    /* parse and insert file info */
+X		    tmp = sscanf(line,"LINK %c %s %s %s %s %s %s %d %d", &l_linktype,
+X				 l_type, l_name, l_htype, l_host, 
+X				 l_ntype, l_fname, &(cur_link->version),
+X				 &(cur_link->f_magic_no));
+X
+X		    if(tmp != 9) {
+X			perrno = DIRSRV_BAD_FORMAT;
+X			vlfree(cur_link);
+X			break;
+X		    }
+X
+X		    cur_link->linktype = l_linktype;
+X		    cur_link->type = stcopyr(l_type,cur_link->type);
+X		    cur_link->name = stcopyr(unquote(l_name),cur_link->name);
+X		    cur_link->hosttype = stcopyr(l_htype,cur_link->hosttype);
+X		    cur_link->host = stcopyr(l_host,cur_link->host);
+X		    cur_link->nametype = stcopyr(l_ntype,cur_link->nametype);
+X		    cur_link->filename = stcopyr(l_fname,cur_link->filename);
+X
+X		    /* Double check to make sure we don't get */
+X		    /* back unwanted components		      */
+X		    /* OK to keep if special (URP) links      */
+X		    /* or if mcomp specified                  */
+X		    if(!mcomp && (cur_link->linktype == 'L') && 
+X		       (!wcmatch(cur_link->name,comp))) {
+X			vlfree(cur_link);
+X			break;
+X		    }
+X
+X		    /* If other optional info was sent back, it must */
+X		    /* also be parsed before inserting link     ***  */
+X		    
+X		    
+X		    if(cur_link->linktype == 'L') 
+X			vl_insert(cur_link,dir,vl_insert_flag);
+X		    else {
+X			tmp = ul_insert(cur_link,dir,pul);
+X
+X			/* If inserted after pul, next one after cur_link */
+X			if(pul && (!tmp || (tmp == UL_INSERT_SUPERSEDING)))
+X			    pul = cur_link;
+X		    }
+X		    
+X		    break;
+X
+X		case 'F': /* FILTER, FAILURE or FORWARDED */
+X		    /* FORWARDED */
+X		    if(strncmp(line,"FORWARDED",9) == 0) {
+X			if(fwdcnt-- <= 0) {
+X			    ptlfree(resp);
+X			    perrno = PFS_MAX_FWD_DEPTH;
+X			    return(perrno);
+X			}
+X			/* parse and start over */
+X
+X			tmp = sscanf(line,"FORWARDED %s %s %s %s %d %d", 
+X				     l_htype,l_host,l_ntype,l_fname,
+X				     &l_version, &l_magic);
+X
+X			dhost = stcopy(l_host);
+X			dfile = stcopy(l_fname);
+X
+X			if(tmp < 4) {
+X			    perrno = DIRSRV_BAD_FORMAT;
+X			    break;
+X			}
+X
+X			ptlfree(resp);
+X			goto startover;
+X		    }
+X		    if(strncmp(line,"FILTER",6) != 0) goto scanerr;
+X		    break;
+X
+X
+X		case 'M': /* MULTI-PACKET (processed by dirsend) */
+X		case 'P': /* PACKET (processed by dirsend) */
+X		    break;
+X
+X		case 'N': /* NOT-A-DIRECTORY or NONE-FOUND */
+X		    /* NONE-FOUND, we just have no links to insert */
+X		    /* It is not an error, but we must clear any   */
+X		    /* old links in the directory arg              */
+X		    if(strncmp(line,"NONE-FOUND",10) == 0) {
+X			/* If only verifying, don't want to change dir */
+X			if(flags == GVD_VERIFY) {
+X			    break;
+X			}
+X
+X			/* If first link and some links in dir, free them */
+X			if(!no_links++) {
+X			    if(dir->links) vllfree(dir->links);
+X			    if(dir->ulinks) vllfree(dir->ulinks);
+X			    dir->links = NULL;
+X			    dir->ulinks = NULL;
+X			}
+X			break;
+X		    }
+X		    /* If NOT-A-DIRECTORY or anything else, scan error */
+X		    goto scanerr;
+X
+X		case 'U': /* UNRESOLVED */
+X		    if(strncmp(line,"UNRESOLVED",10) != 0) {
+X			goto scanerr;
+X		    }
+X		    tmp = sscanf(line,"UNRESOLVED %s", t_unresolved);
+X		    if(tmp < 1) {
+X			perrno = DIRSRV_BAD_FORMAT;
+X			break;
+X		    }
+X		    /* If multiple components were resolved */
+X		    if(strlen(t_unresolved) < strlen(acomp)) {
+X			strcpy(ulcomp,acomp);
+X			/* ulcomp is the components that were resolved */
+X			*(ulcomp+strlen(acomp)-strlen(t_unresolved)-1) = '\0';
+X			/* Comp gets the last component resolved */
+X			comp = (char *) rindex(ulcomp,'/');
+X			if(comp) comp++;
+X			else comp = ulcomp;
+X			/* Let rd_vdir know what remains */
+X			strcpy(acomp,t_unresolved);
+X		    }
+X		    unresp = 1;
+X		    break;
+X
+X		case 'V': /* VERSION-NOT-SUPPORTED */
+X		    if(strncmp(line,"VERSION-NOT-SUPPORTED",21) == 0) {
+X			perrno = DIRSRV_BAD_VERS;
+X			return(perrno);
+X		    }
+X		    goto scanerr;
+X
+X		scanerr:
+X		default:
+X		    if(*line && (tmp = scan_error(line))) {
+X			ptlfree(resp);
+X			return(tmp);
+X		    }
+X		    break;
+X		}
+X	    }
+X
+X	    resp = resp->next;
+X
+X	    ptfree(vtmp);
+X	}
+X
+X	/* We sent multiple components and weren't told any */
+X	/* were unresolved                                  */
+X	if(mcomp && !unresp) {
+X	    /* ulcomp is the components that were resolved */
+X	    strcpy(ulcomp,acomp);
+X	    /* Comp gets the last component resolved */
+X	    comp = (char *) rindex(ulcomp,'/');
+X	    if(comp) comp++;
+X	    else comp = ulcomp;
+X	    /* If we have union links to resolve, only one component remains */
+X	    mcomp = 0;
+X	    /* Let rd_vdir know what remains */
+X	    *acomp = '\0';
+X	}
+X
+X	/* If only verifying, we already know it is a directory */
+X	if(flags == GVD_VERIFY) return(PSUCCESS);
+X
+X	/* Don't return if matching was delayed by the need to filter    */
+X	/* if FIND specified, and dir->links is non null, then we have   */
+X	/* found a match, and should return.                             */
+X	if((flags & GVD_FIND) && dir->links && (!filters))
+X	    return(PSUCCESS);
+X
+X	/* If expand specified, and ulinks must be expanded, making sure */
+X        /* that the order of the links is maintained properly            */
+X
+Xexpand_ulinks:
+X
+X	if((flags != GVD_UNION) && (flags != GVD_VERIFY)) {
+X
+X	    l = dir->ulinks;
+X
+X	    /* Find first unexpanded ulink */
+X	    while(l && l->expanded && (l->linktype == 'U')) l = l->next;
+X	    
+X	    /* Only expand if a FILE or DIRECTORY -  Mark as  */
+X            /* failed otherwise                               */
+X	    /* We must still add support for symbolic ulinks */
+X	    if(l) {
+X		if ((strcmp(l->type,"DIRECTORY") == 0) || 
+X		    (strcmp(l->type,"FILE") == 0)) {
+X		    l->expanded = TRUE;
+X		    exp = l;
+X		    pul = l;
+X		    dhost = l->host;
+X		    dfile = l->filename;
+X		    goto startover; /* was get_contents; */
+X		}
+X		else l->expanded = FAILED;
+X	    }
+X	}
+X
+X	/* Double check to make sure we don't get */
+X	/* back unwanted components		  */
+X	/* OK to keep if special (URP) links      */
+X	if(components && *components) {
+X	    l = dir->links;
+X	    while(l) {
+X		VLINK	ol;
+X		if((l->linktype == 'L') && (!wcmatch(l->name,components))) {
+X		    if(l == dir->links)
+X			dir->links = l->next;
+X		    else l->previous->next = l->next;
+X		    if(l->next) l->next->previous = l->previous;
+X		    ol = l;
+X		    l = l->next;
+X		    vlfree(ol);
+X		}
+X		else l = l->next;
+X	    }
+X	}
+X
+X	return(PSUCCESS);
+X    }
+END_OF_FILE
+  if test 14094 -ne `wc -c <'get_vdir.c'`; then
+    echo shar: \"'get_vdir.c'\" unpacked with wrong size!
+  fi
+  # end of 'get_vdir.c'
+fi
+if test -f 'make.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'make.com'\"
+else
+  echo shar: Extracting \"'make.com'\" \(17686 characters\)
+  sed "s/^X//" >'make.com' <<'END_OF_FILE'
+X$! --- MAKE.COM ---						!x=f$verify(0)
+X$! Description:
+X$!  build the Archie client for VAX/VMS
+X$!
+X$! Written by Luke Brennan  <brennan@cchs.su.oz.AU>
+X$!
+X$! Modifications:
+X$!    Date	Programmer	Reason for modification.
+X$! 26-Oct-92	   bpk		1.11 Remove ALLOCA.
+X$! 26-Oct-92       ldcb         1.10 HMMM... alloca.c required by VAXC!!!!
+X$!                                   (this is a built-in for GNU_CC)
+X$!                                   add support for NON_GNU_CC (p3 arg) on
+X$!                                   source entries.
+X$! 26-Oct-92       ldcb         1.09 Add NOGNU command-line switch so that I
+X$!                                   can force it to use VAXC rather than GNU.
+X$! 26-Oct-92       ldcb         1.08 Add GETOPT sources for Archie 1.4
+X$! 13-Oct-92	   bpk		1.07 Add Japan and Taiwan servers.
+X$! 10-Oct-92	   ldcb		1.06 Add (Israel) archie server.
+X$! 25-Sep-92	   ldcb		1.05 Add (USA [NE]) archie server.
+X$! 23-Sep-92	   ldcb   	1.04 Details... details..
+X$!                                   cope with SUPPORT files being used...
+X$!                                   You will need to enter your OWN stuff
+X$!                                   into the CREATE_SUPPORT_OPTIONS gosub,
+X$!                                   as I don't know what you're using!
+X$! 22-Sep-92       ldcb         1.03 Oops! GCC now works correctly...
+X$! 22-Sep-92	   ldcb		1.02 Clean up a few tiny details.
+X$! 22-Jan-92       ldcb		1.01 Fix some bugs (so I rushed..)
+X$! 20-Jan-92	   ldcb		1.00 Initial coding.
+X$!
+X$ make_version := 1.10
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$ Archie_EXECUTABLE := "archie.exe"
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! add a new call here with the appropriate new Archie server host(s)
+X$!
+X$ arg == 1
+X$ Call AddHost "archie.au"		"(Australia)"
+X$ Call AddHost "archie.mcgill.ca"	"(Canada)"
+X$ Call AddHost "archie.doc.ic.ac.uk"	"(Great Britain/Ireland)"
+X$ Call AddHost "archie.funet.fi"	"(Finland/Mainland Europe)"
+X$ Call AddHost "archie.cs.huji.ac.il"	"(Israel)
+X$ Call AddHost "archie.wide.ad.jp"	"(Japan)"
+X$ Call AddHost "archie.ncu.edu.tw"	"(Taiwan)"
+X$ Call AddHost "archie.unl.edu"		"(USA [NE])"
+X$ Call AddHost "archie.ans.net"		"(USA [NY])"
+X$ Call AddHost "archie.rutgers.edu"	"(USA [NJ])"
+X$ Call AddHost "archie.sura.net"	"(USA [MD])"
+X$ MAXHOSTS = arg - 1
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! add a new call here with any new source file(s)
+X$! (P2 should be "SUPPORT" if intended for supporting an unknown TCPIP)
+X$! (P3 should be "NON_GNU_CC" if a GNU_CC supported function isn't yet in VAXC,
+X$!                            which means WE have to provide it to VAXC)
+X$!
+X$ arg == 1
+X$ Call AddSource "AQUERY"
+X$ Call AddSource "ARCHIE"
+X$ Call AddSource "ATALLOC"
+X$ Call AddSource "DIRSEND"
+X$ Call AddSource "GETOPT"
+X$ Call AddSource "GETOPT1"
+X$ Call AddSource "GET_PAUTH"
+X$ Call AddSource "GET_VDIR"
+X$ Call AddSource "PERRMESG"
+X$ Call AddSource "PROCQUERY"
+X$ Call AddSource "PTALLOC"
+X$ Call AddSource "REGEX"
+X$ Call AddSource "STCOPY"
+X$ Call AddSource "SUPPORT"
+X$ Call AddSource "VLALLOC"
+X$ Call AddSource "VL_COMP"
+X$ Call AddSource "VMS_SUPPORT"	"SUPPORT"
+X$ MAXSOURCEFILES = arg - 1
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! add a call here with any supported TCP/IP implementations
+X$!  P1 = name of TCP/IP product, P2 = cc/define to set,
+X$!  P3 = logical to look for,    P4 = location of link/OPT,
+X$!  P5 = MINIMUM VERSION of TCP/IP to support
+X$!
+X$!  Multinet should be last, as it can 'fake' a UCX if you want it to, so
+X$!  UCX would come up as the 'real' net even though Multinet is used.
+X$!
+X$ arg == 1
+X$ Call AddTCPIP "UCX"        "UCX"         "UCX$DEVICE" "[.vms]ucx.opt"
+X$ Call AddTCPIP "WOLLONGONG" "WOLLONGONG"  "TWG$TCP"    "[.vms]woll.opt"
+X$ Call AddTCPIP "MULTINET"   "MULTINET_30" "MULTINET"   "[.vms]multi.opt" "V3.0"
+X$ MAXTCPIPTYPES = arg - 1
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$ YES = (1.eq.1)
+X$ NO  = (1.eq.0)
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$ GoSub get_command_line_args
+X$ GoSub check_for_GNU_cc		! use GNU if it's available..
+X$ GoSub check_which_TCPIP
+X$ GoSub ask_nearest_ARCHIE_HOST
+X$ GoSub check_for_strings_H
+X$ GoSub set_cc_defines
+X$ GoSub do_compiles
+X$ If (LINKAGE_REQUIRED)
+X$ Then GoSub do_link
+X$ Else Write Sys$OutPut "ARCHIE is up to date."
+X$ EndIF
+X$ Exit
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$get_command_line_args:
+X$ cmdline = P1 + P2 + P3 + P4 + P5 + P6 + P7 + P8
+X$ If ((f$locate("DEBUG",cmdline) .ne. f$length(cmdline)) -
+X .or. (f$locate("DBG",cmdline)   .ne. f$length(cmdline)))
+X$ Then debug := "/DeBug"
+X$ Else debug := "/NOdebug"
+X$ EndIF
+X$ If (f$locate("FORCE",cmdline) .ne. f$length(cmdline))
+X$ Then FORCEBUILD = YES
+X$ Else FORCEBUILD = NO
+X$ EndIF
+X$ If (f$locate("LINK",cmdline) .ne. f$length(cmdline))
+X$ Then FORCELINK = YES
+X$ Else FORCELINK = NO
+X$ EndIF
+X$ If (f$locate("NOGNU",cmdline) .ne. f$length(cmdline))
+X$ Then FORCEVAXCC = YES
+X$ Else FORCEVAXCC = NO
+X$ EndIF
+X$ If ((f$locate("?",cmdline) .ne. f$length(cmdline)) -
+X .or. (f$locate("H",cmdline) .ne. f$length(cmdline)))
+X$ Then
+X$   Write Sys$Output "Usage:"
+X$   Write Sys$OutPut "     @MAKE [<debug>|<force>|<link>|<nognu>|<help>]
+X$   EXIT
+X$ EndIF
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$CHECK_FOR_GNU_CC:
+X$ If (f$trnlnm("GNU_CC") .nes. "")
+X$ Then
+X$   If (.NOT. FORCEVAXCC)
+X$   Then
+X$     cc := "GCC/Optimize/Include=([])"
+X$     gnu_cc = YES
+X$   Else		! I'm forcing it to use VAXC
+X$     cc := "CC/Optimize=NOinline/Include=([])"
+X$     gnu_cc = NO
+X$   EndIF
+X$ Else			! I can only use VAXC..
+X$   cc := "CC/Optimize=NOinline/Include=([])"
+X$   gnu_cc = NO
+X$ EndIF
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! for product P1, cc/define=P2 if logical P3 present on system.
+X$! Libs/option = P4 if present. ALL get disregarded if less than version P5
+X$!
+X$CHECK_WHICH_TCPIP:
+X$ tcpip_flag :=
+X$ tcpip_libs :=
+X$ NO_TCPIP_SUPPORT = YES
+X$ i = 1
+X$tcp_loop:
+X$ If (i .gt. MAXTCPIPTYPES) Then GoTo tcp_check_done
+X$ If (f$type(tcpip_P2_'i') .eqs. "") Then GoTo tcp_check_done
+X$ If (f$type(tcpip_P3_'i') .nes. "")
+X$ Then
+X$   tcpip_logical = tcpip_P3_'i'
+X$   If (tcpip_logical .nes. "")
+X$   Then					! logical to look for
+X$     If (f$logical(tcpip_logical) .nes. "")
+X$     Then
+X$       tcpip_flag = tcpip_P2_'i'
+X$       tcpip_flag = f$fao(",!AS=1",tcpip_flag)
+X$       NO_TCPIP_SUPPORT = NO
+X$       If (f$type(tcpip_P4_'i') .nes. "")
+X$       Then					! link/OPT file location
+X$  	  tcpip_linkOPTs = tcpip_P4_'i'
+X$         If (tcpip_linkOPTs .nes. "")
+X$         Then
+X$           If (f$search(tcpip_linkOPTs) .nes. "")
+X$           Then
+X$             tcpip_libs = tcpip_P4_'i'
+X$             tcpip_libs = f$fao("!AS/Option",tcpip_libs)
+X$           EndIF
+X$         EndIF
+X$       EndIF
+X$       If (f$type(tcpip_P5_'i') .nes. "")
+X$       Then					! minimum version specified
+X$         If (tcpip_P5_'i' .nes. "")
+X$         Then
+X$           GoSub CheckIfVersionOK
+X$           If VERSION_TOO_EARLY
+X$           Then				! too early.. use SUPPORT files
+X$             tcpip_flag :=
+X$             tcpip_libs :=
+X$             NO_TCPIP_SUPPORT = YES
+X$	      tcp_ver = tcpip_P5_'i'
+X$             tcp_name = tcpip_P1_'i'
+X$             Write Sys$OutPut f$fao( -
+X		   "Your version of !AS is earlier than !AS.",tcp_name,tcp_ver)
+X	      Write Sys$OutPut "MAKE will use STD support files instead."
+X$	      If (f$mode() .eqs. "INTERACTIVE")
+X$	      Then
+X$	        Read/Prompt="enter <CR> to continue" SYS$COMMAND dummy
+X$	      EndIF
+X$           EndIF
+X$         EndIF
+X$       EndIF
+X$     EndIF
+X$   EndIF
+X$ EndIF
+X$ i = i + 1
+X$ Goto tcp_loop
+X$tcp_check_done:
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$ASK_NEAREST_ARCHIE_HOST:
+X$GoSub CLRSCN
+X$ Write Sys$OutPut f$fao("archie make V!AS!/!/!AS!/!/", -
+X	make_version, -
+X	"           Enter the number of the ARCHIE HOST nearest you.")
+X$!
+X$ i = 1
+X$_display_loop:
+X$ If (i .gt. MAXHOSTS) Then GoTo _display_done
+X$  Write Sys$OutPut f$fao("!2SL) !25AS  !AS",i,host_P1_'i',host_P2_'i')
+X$  i = i + 1
+X$ GoTo _display_loop
+X$_display_done:
+X$!
+X$ If (f$mode() .eqs. "INTERACTIVE")
+X$ Then
+X$   Assign/User_Mode/NOlog Sys$Command Sys$InPut
+X$_select_loop:				! get their selection
+X$   selection = 99
+X$   Read	 Sys$Command selection	-
+X		/End=_selection_made	-
+X		/Prompt="Enter number of your selection: "
+X$_selection_made:
+X$   If (selection .gt. MAXHOSTS)
+X$   Then
+X$     Write Sys$Error f$fao("!AS !2SL", "error: Options only go to", MAXHOSTS)
+X$     GoTo _select_loop
+X$   EndIF
+X$   ascii_string = f$edit(selection,"COLLAPSE,UPCASE")
+X$   ascii_char = f$extract(0,1,ascii_string)
+X$   If (ascii_char .eqs. "Q") Then EXIT
+X$   If (f$length(ascii_string) .eq. 1) Then ascii_string = "0" + ascii_string
+X$   If .NOT. (("00".lts.ascii_string) .and. (ascii_string.les."''MAXHOSTS'"))
+X$   Then
+X$     Write Sys$Error -
+X	    f$fao("error: Enter option NUMBER (up to !2SL)", MAXHOSTS)
+X$     Goto _select_loop
+X$   EndIF
+X$ Else			! BATCH can't be queried - assume selection 1
+X$   selection = 1
+X$ EndIF
+X$!
+X$ local_archie = host_P1_'selection'
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! If we're using VAXC then we need to grab STRINGS.H from SYS$LIBRARY.
+X$CHECK_FOR_STRINGS_H:
+X$ delete := delete
+X$ copy   := copy
+X$ If (f$search("strings.h") .nes. "") Then delete/nolog/noconfirm []strings.h;*
+X$ If ((.NOT. (GNU_CC)) -
+X  .or. (FORCEVAXCC)) Then copy/noconfirm sys$library:string.h []strings.h
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! **NOTE** use of global symbol!!!
+X$! **NOTE** this is the only way I could pass it to the compile subroutine
+X$! **NOTE** without DCL and/or CC stripping off too many layers of quotes..
+X$! **NOTE** yeah.. I know.. It's ugly...  you work it out!! :-)
+X$SET_CC_DEFINES:
+X$ archie_host = " """"""ARCHIE_HOST=""""""""''local_archie'"""""""" """""" "
+X$ cflags :== /define=(debug=1,funcs=1,noregex=1'tcpip_flag','archie_host')
+X$!
+X$RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$DO_COMPILES:
+X$ GoSub CLRSCN
+X$ LINKAGE_REQUIRED == NO
+X$ If ("''f$type(Archie_EXECUTABLE)'" .nes. "")
+X$ Then
+X$   If (Archie_EXECUTABLE .nes. "")
+X$   Then If (f$search(Archie_EXECUTABLE) .eqs. "") Then LINKAGE_REQUIRED == YES
+X$   Else If (f$search("Archie.exe") .eqs. "") Then LINKAGE_REQUIRED == YES
+X$   EndIF
+X$ Else
+X$   If (f$search("Archie.exe") .nes. "") Then LINKAGE_REQUIRED == YES
+X$ EndIF
+X$ i = 1
+X$cc_loop:
+X$ If (i .gt. MAXSOURCEFILES) Then GoTo cc_done
+X$ source_file = source_P1_'i'
+X$ If ((.NOT. GNU_CC) -
+X  .or.((GNU_CC).and.((f$type(source_P3_'i').eqs."").or.(source_P3_'i'.eqs.""))))
+X$ Then
+X$   If ((f$type(source_P2_'i') .eqs. "") .or. (source_P2_'i' .eqs. ""))
+X$   Then Call Compile "''cc'" "''source_file'" "''debug'" 'FORCEBUILD'
+X$   Else
+X$     If ((NO_TCPIP_SUPPORT) .and. (source_P2_'i' .eqs. "SUPPORT"))
+X$     Then Call Compile "''cc'" "''source_file'" "''debug'" 'FORCEBUILD'
+X$     EndIF
+X$   EndIF
+X$ EndIF
+X$ i = i + 1
+X$ GoTo cc_loop
+X$cc_done:
+X$ If (FORCELINK) Then LINKAGE_REQUIRED == YES
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$DO_LINK:
+X$ If (f$type(Archie_EXECUTABLE) .nes. "")
+X$ Then
+X$   If (Archie_EXECUTABLE .nes. "")
+X$   Then executable := /Exec='Archie_EXECUTABLE'
+X$   Else executable := /Exec=Archie.exe
+X$   EndIF
+X$ Else
+X$   executable := /Exec=Archie.exe
+X$ EndIF
+X$ i = 1
+X$ object_files :=
+X$object_files_loop:
+X$ If (i .gt. MAXSOURCEFILES) Then GoTo object_files_done
+X$ object_file = source_P1_'i'
+X$ If ((.NOT. GNU_CC) -
+X  .or.((GNU_CC).and.((f$type(source_P3_'i').eqs."").or.(source_P3_'i'.eqs.""))))
+X$ Then
+X$   If ((f$type(source_P2_'i') .eqs. "") .or. (source_P2_'i' .eqs. ""))
+X$   Then object_files := 'object_files'+'object_file'
+X$   Else
+X$     If ((NO_TCPIP_SUPPORT) .and. (source_P2_'i' .eqs. "SUPPORT"))
+X$     Then object_files := 'object_files'+'object_file'
+X$     EndIF
+X$   EndIF
+X$ EndIF
+X$ i = i + 1
+X$ GoTo object_files_loop
+X$object_files_done:
+X$ If (f$extract(0,1,object_files) .eqs. "+")
+X$ Then object_files = f$extract(1,f$length(object_files),object_files)
+X$ EndIF
+X$!
+X$ If (gnu_cc)
+X$ Then
+X$   If (tcpip_libs .nes. "")
+X$   Then tcpip_libs = tcpip_libs + ",GNU_CC:[000000]GCCLIB/Library"
+X$   Else tcpip_libs = "GNU_CC:[000000]GCCLIB/Library"
+X$   EndIF
+X$ EndIF
+X$!
+X$ If (NO_TCPIP_SUPPORT)
+X$ Then
+X$   dev=f$TrnLnm("SYS$DISK")
+X$   If (f$search("NO_SUPPORT.OPT") .eqs. "") Then GoSub Create_Support_Options
+X$   If (tcpip_libs .nes. "")
+X$   Then tcpip_libs = tcpip_libs + ",'dev'[]No_Support.opt/OPTION"
+X$   Else tcpip_libs = "'dev'[]No_Support.opt/OPTION"
+X$   EndIF
+X$ EndIF
+X$!
+X$ If (tcpip_libs .nes. "")
+X$ Then object_files = object_files + ","
+X$ EndIF
+X$!
+X$ Set Verify
+X$ Link'debug''executable' 'object_files''tcpip_libs'
+X$ x='f$verify(0)'
+X$!
+X$ here =f$environment("procedure") ! assume .EXE is in same directory as MAKE.
+X$ here = f$parse(here,,,"DEVICE") + f$parse(here,,,"DIRECTORY")
+X$!
+X$ Write Sys$OutPut " "
+X$ Write Sys$OutPut " "
+X$ Write Sys$OutPut "Done! Define the symbol ARCHIE & fire away."
+X$ Write Sys$OutPut "e.g."
+X$ Write Sys$OutPut f$fao("  $ archie :== $!AS!AS",here,archie_executable)
+X$ Write Sys$OutPut "  $ archie GOPHER"
+X$!
+X$ RETURN
+X$!
+X$! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$CLRSCN:
+X$If (f$GetDVI("TT:","TT_ANSICRT"))			! ANSI compatible?
+X$Then
+X$  CSI = "x["
+X$  CSI[0,8] = 27
+X$  CLS = CSI + "H" + CSI +"2J"
+X$  Write Sys$OutPut CLS
+X$Else					! otherwise pump out some <CR>s..
+X$  lines=f$GetDVI("TT:","TT_PAGE")
+X$  Write Sys$Output f$fao("!''lines'(/)")
+X$EndIF
+X$Return
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$AddHOST: SUBROUTINE
+X$ host_P1_'arg' :== "''P1'"
+X$ host_P2_'arg' :== "''P2'"
+X$ arg == arg + 1	! *NOTE* global symbols used...
+X$ENDSUBROUTINE
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$AddSOURCE: SUBROUTINE
+X$ source_P1_'arg' :== "''P1'"
+X$ source_P2_'arg' :== "''P2'"
+X$ source_P3_'arg' :== "''P3'"
+X$ arg == arg + 1	! *NOTE* global symbols used...
+X$ENDSUBROUTINE
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$AddTCPIP: SUBROUTINE
+X$ tcpip_P1_'arg' :== "''P1'"
+X$ tcpip_P2_'arg' :== "''P2'"
+X$ tcpip_P3_'arg' :== "''P3'"
+X$ tcpip_P4_'arg' :== "''P4'"
+X$ tcpip_P5_'arg' :== "''P5'"
+X$ arg == arg + 1	! *NOTE* global symbols used...
+X$ENDSUBROUTINE
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$! **NOTE** cflags is a GLOBAL symbol due to problems with quoted /Defines
+X$! **NOTE** not passing down correctly.. (I gave up!)
+X$Compile: SUBROUTINE
+X$ YES = (1.eq.1)
+X$! --- do a Make of only that source which has been modified since its
+X$!     object code was generated or that is missing its object code.
+X$ cc       = "''P1'"
+X$ source   = "''P2'"
+X$ dbg      = "''P3'"
+X$ FORCED   = P4
+X$!
+X$source = source - ".C" + ".C"
+X$ t1 = f$search("''source'")				! source exists?
+X$  If (t1 .eqs. "") Then GoTo _error_source_missing	! YIPE!
+X$   source = source - ".C"
+X$    if (FORCED) Then GoTo _compile_the_source		! forced to compile
+X$     t1 = f$search("''source'.OBJ")			! object exist?
+X$     If (t1 .eqs. "") Then GoTo _compile_the_source	! object missing
+X$     t1 = f$file_attributes("''source'.OBJ","RDT")	! when was the OBJECT
+X$    t1 = f$cvtime(t1)					! produced? (rev date)
+X$   t2 = f$file_attributes("''source'.C","RDT")		! when was source last
+X$  t2 = f$cvtime(t2)					! modified?
+X$ If (t1 .ges. t2) Then GoTo _bypass_compile		! object still current
+X$_compile_the_source:
+X$ set verify
+X$ 'cc -
+X  'cflags -
+X  'dbg 'source
+X$ x='f$verify(0)'
+X$ LINKAGE_REQUIRED == YES
+X$  GoTo _cc_done
+X$_bypass_compile:					! didn't need to
+X$  GoTo _cc_done					! generate new OBJ file
+X$_error_source_missing:
+X$ Write Sys$Error "ERROR: unable to locate source file ''source'"
+X$_cc_done:
+X$ENDSUBROUTINE
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$CHECKIFVERSIONOK:
+X$ required_version = tcpip_P5_'i'
+X$ tcpip_type = tcpip_P1_'i'
+X$ If ("MULTINET" .eqs. tcpip_type)
+X$ Then						! I know how to check MULTINET
+X$   If (f$search("MULTINET:MULTINET_VERSION.;") .nes. "")
+X$   Then
+X$     Open/share=READ fd MULTINET:MULTINET_VERSION.;
+X$     Read fd buffer
+X$     Close fd
+X$     v = buffer - "VERSION"
+X$     v = f$edit(v,"TRIM,COMPRESS")
+X$     If (v .ges. required_version)
+X$     Then VERSION_TOO_EARLY = NO
+X$     Else VERSION_TOO_EARLY = YES
+X$     EndIF
+X$   Else
+X$     VERSION_TOO_EARLY = YES
+X$   EndIF
+X$ Else						! don't know, so assume current
+X$   VERSION_TOO_EARLY = NO
+X$ EndIF
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$CREATE_SUPPORT_OPTIONS:
+X$ Open/Write fd No_Support.OPT
+X$ Write fd "! --- No_Support.OPT ---"
+X$ Write fd "!"
+X$ Write fd "! provides the VaxCrtl linkage for the client that has no"
+X$ Write fd "! known supported TCP/IP implementation."
+X$ Write fd "!"
+X$ Write fd "Sys$Share:VaxCrtl.exe/Share"
+X$ Write fd "!"
+X$ Write fd "! You will have to add in your specific TCP/IP libraries here."
+X$!
+X$! Early MULTINETs would look something like this... (I don't remember!)
+X$! I assume CMUTEK would need something along these lines too...
+X$!
+X$! If (F$TrnLnm("MULTINET") .nes. "")
+X$! Then
+X$!   Write fd "Multinet:Multinet_Socket_Library.exe/Share
+X$! EndIF
+X$!
+X$ Write fd "!"
+X$ Close fd
+X$!
+X$ RETURN
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+END_OF_FILE
+  if test 17686 -ne `wc -c <'make.com'`; then
+    echo shar: \"'make.com'\" unpacked with wrong size!
+  fi
+  # end of 'make.com'
+fi
+if test -f 'msdos/netevent.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/netevent.h'\"
+else
+  echo shar: Extracting \"'msdos/netevent.h'\" \(2703 characters\)
+  sed "s/^X//" >'msdos/netevent.h' <<'END_OF_FILE'
+X/* hfile.inc - placed into all .h files to set up for PVCS 
+X   $Header: /tmp_mnt/com/projects/archie/msdos/RCS/netevent.h,v 1.2 1991/12/13 20:08:56 brendan Exp $
+X   Revision History ----------------------------------------------------
+X   $Log: netevent.h,v $
+X * Revision 1.2  1991/12/13  20:08:56  brendan
+X * entered into RCS
+X *
+X * 
+X *    Rev 1.0   15 Jan 1990 19:29:26   bkc
+X*/
+X
+X
+X/*
+X*  Events for event processing in NCSA Telnet.
+X*  Used for netgetevent().
+X*/
+X
+X
+X#define USERCLASS	1	/* the user program will accept these events */
+X#define ICMPCLASS	2	/* ICMP in netsleep will look for these */
+X#define ERRCLASS    4	/* the user may or may not read these error messages */
+X#define SCLASS		8	/* the background server will take these */
+X#define CONCLASS    0x10	/* the application manages connections with these */
+X
+X#define ERR1	1		/* an error message is waiting, ERRCLASS */
+X
+X#define IREDIR	1		/* ICMP redirect, ICMPCLASS */
+X
+X#define CONOPEN 1		/* connection has opened, CONCLASS */
+X#define CONDATA 2       /* there is data available on this connection */
+X#define CONCLOSE 3		/* the other side has closed its side of the connection */
+X#define CONFAIL 4		/* connection open attempt has failed */
+X
+X#define UDPDATA 1		/* UDP data has arrived on listening port, USERCLASS */
+X#define DOMOK	2		/* domain name ready */
+X#define DOMFAIL 3		/* domain name lookup failed */
+X#define FTPCOPEN 20     /* FTP command connection has opened */
+X#define FTPCLOSE 21     /* FTP command connection has closed */
+X#define FTPBEGIN 22     /* FTP transfer beginning, dat =1 for get, 0 for put */
+X#define FTPEND   23     /* FTP transfer ending */
+X#define FTPLIST  24     /* FTP file listing taking place */
+X#define FTPUSER  25     /* FTP user name has been entered */
+X#define FTPPWOK	26		/* FTP password verified */
+X#define FTPPWNO 27		/* FTP password failed */
+X#define RCPBEGIN 30		/* RCP beginning */
+X#define RCPEND 31		/* RCP ending */
+X
+X#define UDPTO 1			/* UDP request from DOMAIN timed out, SCLASS */
+X#define FTPACT 2		/* FTP transfer is active, keep sending */
+X#define TCPTO  3		/* TCP for DOMAIN timed out */
+X#define RCPACT 4		/* rcp is active, needs CPU time */
+X#define RETRYCON 5		/* retry connection packet, might be lost */
+X#define DOMNEXT 6               /* search next domain list entry */
+X#define E_CLOCK 7
+X#ifdef	SCRIPT
+X#define	SCRIPT_EVENT	1	/* script next step */
+X#define	SCRIPT_DATA	2	/* received some data */
+X#define	SCRIPT_PROC	3	/* just process stuff */
+X#define	SCRIPT_CLOSE	4	/* connection was closed */
+X#define	SCRIPT_FORCE	5	/* user forced connection closed */
+X#define	SCRIPT_DOMAIN	6	/* domain name lookup ok */
+X#define	SCRIPT_FUNC	8
+X/* int Script_Event(int type, void *twin, unsigned int data); */
+X#endif
+END_OF_FILE
+  if test 2703 -ne `wc -c <'msdos/netevent.h'`; then
+    echo shar: \"'msdos/netevent.h'\" unpacked with wrong size!
+  fi
+  # end of 'msdos/netevent.h'
+fi
+if test -f 'regex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regex.c'\"
+else
+  echo shar: Extracting \"'regex.c'\" \(16197 characters\)
+  sed "s/^X//" >'regex.c' <<'END_OF_FILE'
+X#include <pmachine.h>
+X
+X#ifdef NOREGEX
+X/*
+X * These routines are BSD regex(3)/ed(1) compatible regular-expression
+X * routines written by Ozan S. Yigit, Computer Science, York University.
+X * Parts of the code that are not needed by Prospero have been removed,
+X * but most of the accompanying information has been left intact. 
+X * This file is to be included on those operating systems that do not
+X * support re_comp and re_exec.
+X */
+X
+X/*
+X * regex - Regular expression pattern matching
+X *         and replacement
+X *
+X * by:  Ozan S. Yigit (oz@nexus.yorku.ca)
+X *	Dept. of Computing Services
+X *      York University
+X *
+X * These routines are the PUBLIC DOMAIN equivalents 
+X * of regex routines as found in 4.nBSD UN*X, with minor
+X * extensions.
+X *
+X * Modification history:
+X *
+X * $Log: regex.c,v $
+X * Revision 1.1  1991/11/20  02:32:13  brendan
+X * entered into RCS
+X *
+X * Revision 1.1  1991/11/20  02:32:13  brendan
+X * entered into RCS
+X *
+X * Revision 1.3  89/04/01  14:18:09  oz
+X * Change all references to a dfa: this is actually an nfa.
+X * 
+X * Revision 1.2  88/08/28  15:36:04  oz
+X * Use a complement bitmap to represent NCL.
+X * This removes the need to have seperate 
+X * code in the pmatch case block - it is 
+X * just CCL code now.
+X * 
+X * Use the actual CCL code in the CLO
+X * section of pmatch. No need for a recursive
+X * pmatch call.
+X * 
+X * Use a bitmap table to set char bits in an
+X * 8-bit chunk.
+X * 
+X * Routines:
+X *      re_comp:        compile a regular expression into
+X *                      a NFA.
+X *
+X *			char *re_comp(s)
+X *			char *s;
+X *
+X *      re_exec:        execute the NFA to match a pattern.
+X *
+X *			int re_exec(s)
+X *			char *s;
+X *
+X * Regular Expressions:
+X *
+X *      [1]     char    matches itself, unless it is a special
+X *                      character (metachar): . \ [ ] * + ^ $
+X *
+X *      [2]     .       matches any character.
+X *
+X *      [3]     \       matches the character following it, except
+X *			when followed by a left or right round bracket,
+X *			a digit 1 to 9 or a left or right angle bracket. 
+X *			(see [7], [8] and [9])
+X *			It is used as an escape character for all 
+X *			other meta-characters, and itself. When used
+X *			in a set ([4]), it is treated as an ordinary
+X *			character.
+X *
+X *      [4]     [set]   matches one of the characters in the set.
+X *                      If the first character in the set is "^",
+X *                      it matches a character NOT in the set, i.e. 
+X *			complements the set. A shorthand S-E is 
+X *			used to specify a set of characters S upto 
+X *			E, inclusive. The special characters "]" and 
+X *			"-" have no special meaning if they appear 
+X *			as the first chars in the set.
+X *                      examples:        match:
+X *
+X *                              [a-z]    any lowercase alpha
+X *
+X *                              [^]-]    any char except ] and -
+X *
+X *                              [^A-Z]   any char except uppercase
+X *                                       alpha
+X *
+X *                              [a-zA-Z] any alpha
+X *
+X *      [5]     *       any regular expression form [1] to [4], followed by
+X *                      closure char (*) matches zero or more matches of
+X *                      that form.
+X *
+X *      [6]     +       same as [5], except it matches one or more.
+X *
+X *      [7]             a regular expression in the form [1] to [10], enclosed
+X *                      as \(form\) matches what form matches. The enclosure
+X *                      creates a set of tags, used for [8] and for
+X *                      pattern substution. The tagged forms are numbered
+X *			starting from 1.
+X *
+X *      [8]             a \ followed by a digit 1 to 9 matches whatever a
+X *                      previously tagged regular expression ([7]) matched.
+X *
+X *	[9]	\<	a regular expression starting with a \< construct
+X *		\>	and/or ending with a \> construct, restricts the
+X *			pattern matching to the beginning of a word, and/or
+X *			the end of a word. A word is defined to be a character
+X *			string beginning and/or ending with the characters
+X *			A-Z a-z 0-9 and _. It must also be preceded and/or
+X *			followed by any character outside those mentioned.
+X *
+X *      [10]            a composite regular expression xy where x and y
+X *                      are in the form [1] to [10] matches the longest
+X *                      match of x followed by a match for y.
+X *
+X *      [11]	^	a regular expression starting with a ^ character
+X *		$	and/or ending with a $ character, restricts the
+X *                      pattern matching to the beginning of the line,
+X *                      or the end of line. [anchors] Elsewhere in the
+X *			pattern, ^ and $ are treated as ordinary characters.
+X *
+X *
+X * Acknowledgements:
+X *
+X *	HCR's Hugh Redelmeier has been most helpful in various
+X *	stages of development. He convinced me to include BOW
+X *	and EOW constructs, originally invented by Rob Pike at
+X *	the University of Toronto.
+X *
+X * References:
+X *              Software tools			Kernighan & Plauger
+X *              Software tools in Pascal        Kernighan & Plauger
+X *              Grep [rsx-11 C dist]            David Conroy
+X *		ed - text editor		Un*x Programmer's Manual
+X *		Advanced editing on Un*x	B. W. Kernighan
+X *		regexp routines			Henry Spencer
+X *
+X * Notes:
+X *
+X *	This implementation uses a bit-set representation for character
+X *	classes for speed and compactness. Each character is represented 
+X *	by one bit in a 128-bit block. Thus, CCL always takes a 
+X *	constant 16 bytes in the internal nfa, and re_exec does a single
+X *	bit comparison to locate the character in the set.
+X *
+X * Examples:
+X *
+X *	pattern:	foo*.*
+X *	compile:	CHR f CHR o CLO CHR o END CLO ANY END END
+X *	matches:	fo foo fooo foobar fobar foxx ...
+X *
+X *	pattern:	fo[ob]a[rz]	
+X *	compile:	CHR f CHR o CCL bitset CHR a CCL bitset END
+X *	matches:	fobar fooar fobaz fooaz
+X *
+X *	pattern:	foo\\+
+X *	compile:	CHR f CHR o CHR o CHR \ CLO CHR \ END END
+X *	matches:	foo\ foo\\ foo\\\  ...
+X *
+X *	pattern:	\(foo\)[1-3]\1	(same as foo[1-3]foo)
+X *	compile:	BOT 1 CHR f CHR o CHR o EOT 1 CCL bitset REF 1 END
+X *	matches:	foo1foo foo2foo foo3foo
+X *
+X *	pattern:	\(fo.*\)-\1
+X *	compile:	BOT 1 CHR f CHR o CLO ANY END EOT 1 CHR - REF 1 END
+X *	matches:	foo-foo fo-fo fob-fob foobar-foobar ...
+X * 
+X */
+X
+X#define MAXNFA  1024
+X#define MAXTAG  10
+X
+X#define OKP     1
+X#define NOP     0
+X
+X#define CHR     1
+X#define ANY     2
+X#define CCL     3
+X#define BOL     4
+X#define EOL     5
+X#define BOT     6
+X#define EOT     7
+X#define BOW	8
+X#define EOW	9
+X#define REF     10
+X#define CLO     11
+X
+X#define END     0
+X
+X/*
+X * The following defines are not meant
+X * to be changeable. They are for readability
+X * only.
+X *
+X */
+X#define MAXCHR	128
+X#define CHRBIT	8
+X#define BITBLK	MAXCHR/CHRBIT
+X#define BLKIND	0170
+X#define BITIND	07
+X
+X#define ASCIIB	0177
+X
+Xtypedef /*unsigned*/ char CHAR;
+X
+Xstatic int  tagstk[MAXTAG];             /* subpat tag stack..*/
+Xstatic CHAR nfa[MAXNFA];		/* automaton..       */
+Xstatic int  sta = NOP;               	/* status of lastpat */
+X
+Xstatic CHAR bittab[BITBLK];		/* bit table for CCL */
+X					/* pre-set bits...   */
+Xstatic CHAR bitarr[] = {1,2,4,8,16,32,64,128};
+X
+Xstatic int internal_error;
+X
+Xstatic void
+Xchset(c)
+Xregister CHAR c;
+X{
+X	bittab[((c) & BLKIND) >> 3] |= bitarr[(c) & BITIND];
+X}
+X
+X#define badpat(x)	return (*nfa = END, x)
+X#define store(x)	*mp++ = x
+X 
+Xchar *     
+Xre_comp(pat)
+Xchar *pat;
+X{
+X	register char *p;               /* pattern pointer   */
+X	register CHAR *mp = nfa;        /* nfa pointer       */
+X	register CHAR *lp;              /* saved pointer..   */
+X	register CHAR *sp = nfa;        /* another one..     */
+X
+X	register int tagi = 0;          /* tag stack index   */
+X	register int tagc = 1;          /* actual tag count  */
+X
+X	register int n;
+X	register CHAR mask;		/* xor mask -CCL/NCL */
+X	int c1, c2;
+X		
+X	if (!pat || !*pat)
+X		if (sta)
+X			return 0;
+X		else
+X			badpat("No previous regular expression");
+X	sta = NOP;
+X
+X	for (p = pat; *p; p++) {
+X		lp = mp;
+X		switch(*p) {
+X
+X		case '.':               /* match any char..  */
+X			store(ANY);
+X			break;
+X
+X		case '^':               /* match beginning.. */
+X			if (p == pat)
+X				store(BOL);
+X			else {
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		case '$':               /* match endofline.. */
+X			if (!*(p+1))
+X				store(EOL);
+X			else {
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		case '[':               /* match char class..*/
+X			store(CCL);
+X
+X			if (*++p == '^') {
+X				mask = 0377;	
+X				p++;
+X			}
+X			else
+X				mask = 0;
+X
+X			if (*p == '-')		/* real dash */
+X				chset(*p++);
+X			if (*p == ']')		/* real brac */
+X				chset(*p++);
+X			while (*p && *p != ']') {
+X				if (*p == '-' && *(p+1) && *(p+1) != ']') {
+X					p++;
+X					c1 = *(p-2) + 1;
+X					c2 = *p++;
+X					while (c1 <= c2)
+X						chset(c1++);
+X				}
+X#ifdef EXTEND
+X				else if (*p == '\\' && *(p+1)) {
+X					p++;
+X					chset(*p++);
+X				}
+X#endif
+X				else
+X					chset(*p++);
+X			}
+X			if (!*p)
+X				badpat("Missing ]");
+X
+X			for (n = 0; n < BITBLK; bittab[n++] = (char) 0)
+X				store(mask ^ bittab[n]);
+X	
+X			break;
+X
+X		case '*':               /* match 0 or more.. */
+X		case '+':               /* match 1 or more.. */
+X			if (p == pat)
+X				badpat("Empty closure");
+X			lp = sp;		/* previous opcode */
+X			if (*lp == CLO)		/* equivalence..   */
+X				break;
+X			switch(*lp) {
+X
+X			case BOL:
+X			case BOT:
+X			case EOT:
+X			case BOW:
+X			case EOW:
+X			case REF:
+X				badpat("Illegal closure");
+X			default:
+X				break;
+X			}
+X
+X			if (*p == '+')
+X				for (sp = mp; lp < sp; lp++)
+X					store(*lp);
+X
+X			store(END);
+X			store(END);
+X			sp = mp;
+X			while (--mp > lp)
+X				*mp = mp[-1];
+X			store(CLO);
+X			mp = sp;
+X			break;
+X
+X		case '\\':              /* tags, backrefs .. */
+X			switch(*++p) {
+X
+X			case '(':
+X				if (tagc < MAXTAG) {
+X					tagstk[++tagi] = tagc;
+X					store(BOT);
+X					store(tagc++);
+X				}
+X				else
+X					badpat("Too many \\(\\) pairs");
+X				break;
+X			case ')':
+X				if (*sp == BOT)
+X					badpat("Null pattern inside \\(\\)");
+X				if (tagi > 0) {
+X					store(EOT);
+X					store(tagstk[tagi--]);
+X				}
+X				else
+X					badpat("Unmatched \\)");
+X				break;
+X			case '<':
+X				store(BOW);
+X				break;
+X			case '>':
+X				if (*sp == BOW)
+X					badpat("Null pattern inside \\<\\>");
+X				store(EOW);
+X				break;
+X			case '1':
+X			case '2':
+X			case '3':
+X			case '4':
+X			case '5':
+X			case '6':
+X			case '7':
+X			case '8':
+X			case '9':
+X				n = *p-'0';
+X				if (tagi > 0 && tagstk[tagi] == n)
+X					badpat("Cyclical reference");
+X				if (tagc > n) {
+X					store(REF);
+X					store(n);
+X				}
+X				else
+X					badpat("Undetermined reference");
+X				break;
+X#ifdef EXTEND
+X			case 'b':
+X				store(CHR);
+X				store('\b');
+X				break;
+X			case 'n':
+X				store(CHR);
+X				store('\n');
+X				break;
+X			case 'f':
+X				store(CHR);
+X				store('\f');
+X				break;
+X			case 'r':
+X				store(CHR);
+X				store('\r');
+X				break;
+X			case 't':
+X				store(CHR);
+X				store('\t');
+X				break;
+X#endif
+X			default:
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		default :               /* an ordinary char  */
+X			store(CHR);
+X			store(*p);
+X			break;
+X		}
+X		sp = lp;
+X	}
+X	if (tagi > 0)
+X		badpat("Unmatched \\(");
+X	store(END);
+X	sta = OKP;
+X	return 0;
+X}
+X
+X
+Xstatic char *bol;
+Xstatic char *bopat[MAXTAG];
+Xstatic char *eopat[MAXTAG];
+Xchar *pmatch();
+X
+X/*
+X * re_exec:
+X * 	execute nfa to find a match.
+X *
+X *	special cases: (nfa[0])	
+X *		BOL
+X *			Match only once, starting from the
+X *			beginning.
+X *		CHR
+X *			First locate the character without
+X *			calling pmatch, and if found, call
+X *			pmatch for the remaining string.
+X *		END
+X *			re_comp failed, poor luser did not
+X *			check for it. Fail fast.
+X *
+X *	If a match is found, bopat[0] and eopat[0] are set
+X *	to the beginning and the end of the matched fragment,
+X *	respectively.
+X *
+X */
+X
+Xint
+Xre_exec(lp)
+Xregister char *lp;
+X{
+X	register char c;
+X	register char *ep = 0;
+X	register CHAR *ap = nfa;
+X
+X	bol = lp;
+X
+X	bopat[0] = 0;
+X	bopat[1] = 0;
+X	bopat[2] = 0;
+X	bopat[3] = 0;
+X	bopat[4] = 0;
+X	bopat[5] = 0;
+X	bopat[6] = 0;
+X	bopat[7] = 0;
+X	bopat[8] = 0;
+X	bopat[9] = 0;
+X
+X	switch(*ap) {
+X
+X	case BOL:			/* anchored: match from BOL only */
+X		ep = pmatch(lp,ap);
+X		break;
+X	case CHR:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		while (*lp && *lp != c)
+X			lp++;
+X		if (!*lp)		/* if EOS, fail, else fall thru. */
+X			return 0;
+X	default:			/* regular matching all the way. */
+X		while (*lp) {
+X			if ((ep = pmatch(lp,ap)))
+X				break;
+X			lp++;
+X		}
+X		break;
+X	case END:			/* munged automaton. fail always */
+X		return 0;
+X	}
+X	if (!ep)
+X		return 0;
+X
+X	if (internal_error)
+X		return -1;
+X
+X	bopat[0] = lp;
+X	eopat[0] = ep;
+X	return 1;
+X}
+X
+X/* 
+X * pmatch: 
+X *	internal routine for the hard part
+X *
+X * 	This code is mostly snarfed from an early
+X * 	grep written by David Conroy. The backref and
+X * 	tag stuff, and various other mods are by oZ.
+X *
+X *	special cases: (nfa[n], nfa[n+1])
+X *		CLO ANY
+X *			We KNOW ".*" will match ANYTHING
+X *			upto the end of line. Thus, go to
+X *			the end of line straight, without
+X *			calling pmatch recursively. As in
+X *			the other closure cases, the remaining
+X *			pattern must be matched by moving
+X *			backwards on the string recursively,
+X *			to find a match for xy (x is ".*" and 
+X *			y is the remaining pattern) where
+X *			the match satisfies the LONGEST match
+X *			for x followed by a match for y.
+X *		CLO CHR
+X *			We can again scan the string forward
+X *			for the single char without recursion, 
+X *			and at the point of failure, we execute 
+X *			the remaining nfa recursively, as
+X *			described above.
+X *
+X *	At the end of a successful match, bopat[n] and eopat[n]
+X *	are set to the beginning and end of subpatterns matched
+X *	by tagged expressions (n = 1 to 9).	
+X *
+X */
+X
+X/*
+X * character classification table for word boundary
+X * operators BOW and EOW. the reason for not using 
+X * ctype macros is that we can let the user add into 
+X * our own table. see re_modw. This table is not in
+X * the bitset form, since we may wish to extend it
+X * in the future for other character classifications. 
+X *
+X *	TRUE for 0-9 A-Z a-z _
+X */
+Xstatic char chrtyp[MAXCHR] = {
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 
+X	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 0, 0, 0, 0, 0
+X	};
+X
+X#define inascii(x)	(0177&(x))
+X#define iswordc(x) 	chrtyp[inascii(x)]
+X#define isinset(x,y) 	((x)[((y)&BLKIND)>>3] & bitarr[(y)&BITIND])
+X
+X/*
+X * skip values for CLO XXX to skip past the closure
+X *
+X */
+X
+X#define ANYSKIP	2 	/* [CLO] ANY END ...	     */
+X#define CHRSKIP	3	/* [CLO] CHR chr END ...     */
+X#define CCLSKIP 18	/* [CLO] CCL 16bytes END ... */
+X
+Xstatic char *
+Xpmatch(lp, ap)
+Xregister char *lp;
+Xregister CHAR *ap;
+X{
+X	register int op, c, n;
+X	register char *e;		/* extra pointer for CLO */
+X	register char *bp;		/* beginning of subpat.. */
+X	register char *ep;		/* ending of subpat..	 */
+X	char *are;			/* to save the line ptr. */
+X
+X	while ((op = *ap++) != END)
+X		switch(op) {
+X
+X		case CHR:
+X			if (*lp++ != *ap++)
+X				return 0;
+X			break;
+X		case ANY:
+X			if (!*lp++)
+X				return 0;
+X			break;
+X		case CCL:
+X			c = *lp++;
+X			if (!isinset(ap,c))
+X				return 0;
+X			ap += BITBLK;
+X			break;
+X		case BOL:
+X			if (lp != bol)
+X				return 0;
+X			break;
+X		case EOL:
+X			if (*lp)
+X				return 0;
+X			break;
+X		case BOT:
+X			bopat[*ap++] = lp;
+X			break;
+X		case EOT:
+X			eopat[*ap++] = lp;
+X			break;
+X 		case BOW:
+X			if (lp!=bol && iswordc(lp[-1]) || !iswordc(*lp))
+X				return 0;
+X			break;
+X		case EOW:
+X			if (lp==bol || !iswordc(lp[-1]) || iswordc(*lp))
+X				return 0;
+X			break;
+X		case REF:
+X			n = *ap++;
+X			bp = bopat[n];
+X			ep = eopat[n];
+X			while (bp < ep)
+X				if (*bp++ != *lp++)
+X					return 0;
+X			break;
+X		case CLO:
+X			are = lp;
+X			switch(*ap) {
+X
+X			case ANY:
+X				while (*lp)
+X					lp++;
+X				n = ANYSKIP;
+X				break;
+X			case CHR:
+X				c = *(ap+1);
+X				while (*lp && c == *lp)
+X					lp++;
+X				n = CHRSKIP;
+X				break;
+X			case CCL:
+X				while ((c = *lp) && isinset(ap+1,c))
+X					lp++;
+X				n = CCLSKIP;
+X				break;
+X			default:
+X				internal_error++;
+X				return 0;
+X			}
+X
+X			ap += n;
+X
+X			while (lp >= are) {
+X				if (e = pmatch(lp, ap))
+X					return e;
+X				--lp;
+X			}
+X			return 0;
+X		default:
+X			internal_error++;
+X			return 0;
+X		}
+X	return lp;
+X}
+X#endif /* Need regex libraries? Compile to nothing if not.  */
+END_OF_FILE
+  if test 16197 -ne `wc -c <'regex.c'`; then
+    echo shar: \"'regex.c'\" unpacked with wrong size!
+  fi
+  # end of 'regex.c'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

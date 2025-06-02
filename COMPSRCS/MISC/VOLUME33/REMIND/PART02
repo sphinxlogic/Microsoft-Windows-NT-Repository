@@ -1,0 +1,1389 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v33i059:  remind - A replacement for calendar, Part02/12
+Message-ID: <1992Nov10.041822.771@sparky.imd.sterling.com>
+X-Md4-Signature: 7ddd6efa3b103bcd631ef0008cc9a0eb
+Date: Tue, 10 Nov 1992 04:18:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 33, Issue 59
+Archive-name: remind/part02
+Environment: UNIX, MS-DOS
+Supersedes: remind: Volume 17, Issue 3-6
+
+#!/bin/sh
+# This is part 02 of Remind 03.00.00
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= calendar.c ==============
+if test X"$1" != X"-c" -a -f 'calendar.c'; then
+	echo "File already exists: skipping 'calendar.c'"
+else
+echo "x - extracting calendar.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > calendar.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  CALENDAR.C                                                 */
+X/*                                                             */
+X/*  The code for generating a calendar.                        */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X#include "config.h"
+X#include <stdio.h>
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include <ctype.h>
+X#include "types.h"
+X#include "protos.h"
+X#include "expr.h"
+X#include "globals.h"
+X#include "err.h"
+X
+X/* Data structures used by the calendar */
+Xtypedef struct _cal_entry {
+X   struct _cal_entry *next;
+X   char *text;
+X   char *pos;
+X   int time;
+X} CalEntry;
+X
+X/* Global variables */
+Xstatic CalEntry *CalColumn[7];
+X
+Xstatic int ColSpaces;
+X
+XPRIVATE void SortColByTime ARGS((int col));
+XPRIVATE void DoCalendarOneWeek ARGS ((void));
+XPRIVATE void DoCalendarOneMonth ARGS ((void));
+XPRIVATE int WriteCalendarRow ARGS ((void));
+XPRIVATE void PrintLeft ARGS ((char *s, int width, char pad));
+XPRIVATE void PrintCentered ARGS ((char *s, int width, char pad));
+XPRIVATE int WriteOneCalLine ARGS ((void));
+XPRIVATE int WriteOneColLine ARGS ((int col));
+XPRIVATE void GenerateCalEntries ARGS ((int col));
+XPRIVATE void WriteCalHeader ARGS ((void));
+XPRIVATE void WriteCalTrailer ARGS ((void));
+XPRIVATE int DoCalRem ARGS ((ParsePtr p, int col));
+XPRIVATE void WriteSimpleEntries ARGS ((int col, int jul));
+XPRIVATE void WriteSolidCalLine ARGS ((void));
+XPRIVATE void WriteIntermediateCalLine ARGS ((void));
+XPRIVATE void WriteCalDays ARGS ((void));
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ProduceCalendar                                            */
+X/*                                                             */
+X/*  Main loop for generating a calendar.                       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC void ProduceCalendar(void)
+X#else
+Xvoid ProduceCalendar()
+X#endif
+X{
+X   int y, m, d;
+X
+X   ShouldCache = 1;
+X
+X   ColSpaces = (CalWidth - 9) / 7;
+X   CalWidth = 7*ColSpaces + 8;
+X
+X   if (CalMonths) {
+X      FromJulian(JulianToday, &y, &m, &d);
+X      JulianToday = Julian(y, m, 1);   
+X      while (CalMonths--)
+X         DoCalendarOneMonth();
+X      return;
+X   } else {
+X      JulianToday -= ((JulianToday+1)%7);
+X
+X      WriteIntermediateCalLine();
+X      WriteCalDays();
+X      WriteIntermediateCalLine();
+X
+X      while (CalWeeks--)
+X         DoCalendarOneWeek();
+X      return;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoCalendarOneWeek                                          */
+X/*                                                             */
+X/*  Write a calendar for a single week                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void DoCalendarOneWeek(void)
+X#else
+Xstatic void DoCalendarOneWeek()
+X#endif
+X{
+X   int y, m, d, done, i;
+X   char buf[81];
+X   int LinesWritten = 0;
+X   int OrigJul = JulianToday;
+X
+X/* Fill in the column entries */
+X   for (i=0; i<7; i++) {
+X      GenerateCalEntries(i);
+X      JulianToday++;
+X   }
+X
+X/* Output the entries */
+X
+X/* Here come the first two lines... */
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      FromJulian(OrigJul+i, &y, &m, &d);
+X      sprintf(buf, "%d %c%c%c ", d, MonthName[m][0], MonthName[m][1], 
+X                                   MonthName[m][2]);
+X      if (OrigJul+i == RealToday)				  
+X         PrintLeft(buf, ColSpaces, '*');
+X      else
+X         PrintLeft(buf, ColSpaces, ' ');
+X      putchar('|');
+X   }
+X   putchar('\n');
+X/*** Take out blank line in weekly calendar display - takes up room
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      PrintLeft("", ColSpaces, ' ');
+X      putchar('|');
+X   }
+X   putchar('\n');
+X***/
+X/* Write the body lines */
+X   done = 0;
+X   while (!done) {
+X      done = WriteOneCalLine();
+X      LinesWritten++;
+X   }
+X
+X/* Write any blank lines required */
+X   while (LinesWritten++ < CAL_LINES) {
+X      putchar('|');
+X      for (i=0; i<7; i++) {
+X         PrintLeft("", ColSpaces, ' ');
+X         putchar('|');
+X      }
+X      putchar('\n');
+X   }
+X
+X/* Write the final line */   
+X   WriteIntermediateCalLine();
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoCalendarOneMonth                                         */
+X/*                                                             */
+X/*  Produce a calendar for the current month.                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void DoCalendarOneMonth(void)
+X#else
+Xstatic void DoCalendarOneMonth()
+X#endif
+X{
+X   if (!DoSimpleCalendar) WriteCalHeader();
+X
+X   while (WriteCalendarRow()) continue;
+X
+X   if (!DoSimpleCalendar) WriteCalTrailer();
+X}   
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteCalendarRow                                           */
+X/*                                                             */
+X/*  Write one row of the calendar                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int WriteCalendarRow(void)
+X#else
+Xstatic int WriteCalendarRow()
+X#endif
+X{
+X   int y, m, d, wd, i;
+X   int done;
+X   char buf[81];
+X   int OrigJul = JulianToday;
+X   int LinesWritten = 0;
+X
+X/* Get the date of the first day */
+X   FromJulian(JulianToday, &y, &m, &d);
+X   wd = (JulianToday + 1) % 7;
+X
+X/* Fill in the column entries */
+X   for (i=wd; i<7; i++) {
+X      if (d+i-wd > DaysInMonth(m, y)) break;
+X      GenerateCalEntries(i);
+X      JulianToday++;
+X   }
+X
+X/* Output the entries */
+X
+X/* If it's "Simple Calendar" format, do it simply... */
+X   if (DoSimpleCalendar) {
+X      for (i=wd; i<7 && d+i-wd<=DaysInMonth(m, y); i++) {
+X         WriteSimpleEntries(i, OrigJul+i-wd);
+X      }
+X      return (d+7-wd <= DaysInMonth(m, y));
+X   }
+X 
+X
+X/* Here come the first two lines... */
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      if (i < wd || d+i-wd>DaysInMonth(m, y))
+X         PrintLeft("", ColSpaces, ' ');
+X      else {
+X         sprintf(buf, "%d", d+i-wd);
+X	 PrintLeft(buf, ColSpaces, ' ');
+X      }
+X      putchar('|');
+X   }
+X   putchar('\n');
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      PrintLeft("", ColSpaces, ' ');
+X      putchar('|');
+X   }
+X   putchar('\n');
+X
+X/* Write the body lines */
+X   done = 0;
+X   while (!done) {
+X      done = WriteOneCalLine();
+X      LinesWritten++;
+X   }
+X
+X/* Write any blank lines required */
+X   while (LinesWritten++ < CAL_LINES) {
+X      putchar('|');
+X      for (i=0; i<7; i++) {
+X         PrintLeft("", ColSpaces, ' ');
+X         putchar('|');
+X      }
+X      putchar('\n');
+X   }
+X
+X   WriteIntermediateCalLine();
+X
+X/* Return non-zero if we have not yet finished */
+X   return (d+7-wd <= DaysInMonth(m, y));
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PrintLeft                                                  */
+X/*                                                             */
+X/*  Left-justify a piece of text.                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void PrintLeft(char *s, int width, char pad)
+X#else
+Xstatic void PrintLeft(s, width, pad)
+Xchar *s;
+Xint width;
+Xchar pad;
+X#endif
+X{
+X   int len = strlen(s);
+X   printf("%s", s);
+X   while (len++ < width) putchar(pad);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PrintCentered                                              */
+X/*                                                             */
+X/*  Center a piec of text                                      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void PrintCentered(char *s, int width, char pad)
+X#else
+Xstatic void PrintCentered(s, width, pad)
+Xchar *s;
+Xint width;
+Xchar pad;
+X#endif
+X{
+X   int len = strlen(s);
+X   int d = (width - len) / 2;
+X   int i;
+X
+X   for (i=0; i<d; i++) putchar(pad);
+X   printf("%s", s);
+X   for (i=d+len; i<width; i++) putchar(pad);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteOneCalLine                                            */
+X/*                                                             */
+X/*  Write a single line.                                       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int WriteOneCalLine(void)
+X#else
+Xstatic int WriteOneCalLine()
+X#endif
+X{
+X   int done = 1, i;
+X
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      if (CalColumn[i]) {
+X         if (WriteOneColLine(i)) done = 0;
+X      } else {
+X         PrintCentered("", ColSpaces, ' ');
+X      }
+X      putchar('|');
+X   }
+X   putchar('\n');
+X
+X   return done;
+X}
+X
+X     
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteOneColLine                                            */
+X/*                                                             */
+X/*  Write a single line for a specified column.  Return 1 if   */
+X/*  the column still has entries; 0 otherwise.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int WriteOneColLine(int col)
+X#else
+Xstatic int WriteOneColLine(col)
+Xint col;
+X#endif
+X{
+X   CalEntry *e = CalColumn[col];
+X   char *s;
+X   char *space;
+X   int numwritten = 0;
+X
+X/* Print as many characters as possible within the column */
+X   space = NULL;
+X   s = e->pos;
+X
+X/* If we're at the end, and there's another entry, do a blank line and move
+X   to next entry. */
+X   if (!*s && e->next) {
+X      PrintLeft("", ColSpaces, ' ');
+X      CalColumn[col] = e->next;
+X      free(e->text);
+X      free(e);
+X      return 1;
+X   }
+X
+X/* Find the last space char within the column. */
+X   while (s - e->pos <= ColSpaces) {
+X      if (!*s) {space = s; break;}
+X      if (*s == ' ') space = s;
+X      s++;
+X   }
+X
+X/* If we couldn't find a space char, print what we have. */
+X   if (!space) {
+X      for (s = e->pos; s - e->pos < ColSpaces; s++) {
+X         if (!*s) break;
+X	 numwritten++;
+X         putchar(*s);
+X      }
+X      e->pos = s;
+X   } else {
+X
+X/* We found a space - print everything before it. */
+X      for (s = e->pos; s<space; s++) {
+X         if (!*s) break;
+X	 numwritten++;
+X	 putchar(*s);
+X      }
+X   }
+X
+X/* Flesh out the rest of the column */
+X   while(numwritten++ < ColSpaces) putchar(' ');
+X
+X/* Skip any spaces before next word */
+X   while (*s == ' ') s++;
+X
+X/* If done, free memory if no next entry. */
+X   if (!*s && !e->next) {
+X      CalColumn[col] = e->next;
+X      free(e->text);
+X      free(e);
+X   } else {
+X      e->pos = s;
+X   }
+X   if (CalColumn[col]) return 1; else return 0;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  GenerateCalEntries                                         */
+X/*                                                             */
+X/*  Generate the calendar entries for the ith column           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void GenerateCalEntries(int col)
+X#else
+Xstatic void GenerateCalEntries(col)
+Xint col;
+X#endif
+X{
+X   int r;
+X   Token tok;
+X   char *s;
+X   Parser p;
+X
+X/* Do some initialization first... */
+X   ClearGlobalOmits();
+X   DestroyOmitContexts();
+X   DestroyVars();
+X
+X   r=OpenFile(InitialFile);
+X   if (r) {
+X      fprintf(ErrFp, "Can't read %s: %s\n", InitialFile, ErrMsg[r]);
+X      exit(1);
+X   }
+X
+X   while(1) {
+X      r = ReadLine();
+X      if (r == E_EOF) return;
+X      if (r) {
+X	 Eprint("Error reading file: %s", ErrMsg[r]);
+X	 exit(1);
+X      }
+X      s = FindInitialToken(&tok, CurLine);
+X
+X      /* Should we ignore it? */
+X      if (NumIfs &&
+X          tok.type != T_If &&
+X          tok.type != T_Else &&
+X          tok.type != T_EndIf &&
+X          tok.type != T_IfTrig &&
+X          ShouldIgnoreLine())
+X      {
+X	  /* DO NOTHING */
+X      }
+X      else {
+X         /* Create a parser to parse the line */
+X         CreateParser(s, &p);
+X
+X         switch(tok.type) {
+X
+X            case T_Empty:
+X	    case T_Comment:
+X		   break;
+X
+X	    case T_ErrMsg:  r=DoErrMsg(&p);  break;
+X	    case T_Rem:     r=DoCalRem(&p, col); break;
+X	    case T_If:      r=DoIf(&p);      break;
+X	    case T_IfTrig:  r=DoIfTrig(&p);  break;
+X	    case T_Else:    r=DoElse(&p);    break;
+X	    case T_EndIf:   r=DoEndif(&p);   break;
+X	    case T_Include: r=DoInclude(&p); break;
+X	    case T_Exit:    exit(99);
+X	    case T_Set:     r=DoSet(&p);     break;
+X	    case T_Fset:    r=DoFset(&p);    break;
+X	    case T_UnSet:   r=DoUnset(&p);   break;
+X	    case T_Clr:     r=DoClear(&p);   break;
+X            case T_Debug:   break;  /* IGNORE DEBUG CMD */
+X	    case T_Dumpvars: break; /* IGNORE DUMPVARS CMD */
+X	    case T_Banner:  break;  /* IGNORE BANNER CMD */
+X	    case T_Omit:    r=DoOmit(&p);
+X   		            if (r == E_PARSE_AS_REM) {
+X			       DestroyParser(&p);
+X			       CreateParser(s, &p);
+X			       r=DoCalRem(&p, col);
+X			    }
+X                            break;
+X	    case T_Pop:     r=PopOmitContext(&p);     break;
+X	    case T_Push:    r=PushOmitContext(&p);    break;
+X            case T_Preserve: r=DoPreserve(&p);        break;
+X	    case T_RemType: if (tok.val == RUN_TYPE) {
+X                               r=DoRun(&p);
+X                               break;
+X			     } else {
+X			        CreateParser(CurLine, &p);
+X				r=DoCalRem(&p, col);
+X				break;
+X			     }
+X
+X	 /* If we don't recognize the command, do a REM by default */
+X	 /* Note:  Since the parser hasn't been used yet, we don't */
+X	 /* need to destroy it here. */
+X
+X	    default:        CreateParser(CurLine, &p);
+X			    r=DoCalRem(&p, col);
+X			    break;
+X         }
+X         if (r && (!Hush || r != E_RUN_DISABLED)) Eprint("%s", ErrMsg[r]);
+X
+X         /* Destroy the parser - free up resources it may be tying up */
+X         DestroyParser(&p);
+X      }
+X   }
+X}
+X
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteCalHeader                                             */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteCalHeader(void)
+X#else
+Xstatic void WriteCalHeader()
+X#endif
+X{
+X   char buf[80];
+X   int y, m, d;
+X
+X   FromJulian(JulianToday, &y, &m, &d);
+X   sprintf(buf, "%s %d", MonthName[m], y);
+X
+X   WriteSolidCalLine();
+X
+X   putchar('|');
+X   PrintCentered(buf, CalWidth-2, ' ');
+X   putchar('|');
+X   putchar('\n');
+X
+X   WriteIntermediateCalLine();
+X   WriteCalDays();
+X   WriteIntermediateCalLine();
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteCalTrailer                                            */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteCalTrailer(void)
+X#else
+Xstatic void WriteCalTrailer()
+X#endif
+X{
+X   putchar('\f');
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoCalRem                                                   */
+X/*                                                             */
+X/*  Do the REM command in the context of a calendar.           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int DoCalRem(ParsePtr p, int col)
+X#else
+Xstatic int DoCalRem(p, col)
+XParsePtr p;
+Xint col;
+X#endif
+X{
+X
+X   Trigger trig;
+X   TimeTrig tim;
+X   int r;
+X   int jul;
+X   CalEntry *CurCol = CalColumn[col];
+X   CalEntry *e;
+X   char *s;
+X
+X   /* Parse the trigger date and time */
+X   if (r=ParseRem(p, &trig, &tim)) return r;
+X
+X   if (trig.typ == NO_TYPE) return E_EOLN;
+X   if (trig.typ == SAT_TYPE) return DoSatRemind(&trig, &tim, p);
+X   /* Calculate the trigger date */
+X   jul = ComputeTrigger(JulianToday, &trig, &r);
+X   if (r) return r;
+X
+X   /* If trigger date == today, add it to the current entry */   
+X   if (jul == JulianToday) {
+X      s = SubstBuffer;
+X      if (DoSimpleCalendar || tim.ttime != NO_TIME)
+X         s += strlen(SimpleTime(tim.ttime, s));
+X      if (r=DoSubst(p, s, &trig, &tim, jul, CAL_MODE)) return r;
+X      if (!*s) return OK;
+X      s = SubstBuffer;
+X      if (!DoSimpleCalendar) while (isspace(*s)) s++;
+X      e = NEW(CalEntry);
+X      if (!e) return E_NO_MEM;
+X      e->text = StrDup(s);
+X      if (!e->text) {
+X         free(e);
+X	 return E_NO_MEM;
+X      }
+X      e->pos = e->text;
+X      e->time = tim.ttime;
+X      e->next = CurCol;
+X      CalColumn[col] = e;
+X      SortColByTime(col);
+X   }
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  WriteSimpleEntries                                         */
+X/*                                                             */
+X/*  Write entries in 'simple calendar' format.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteSimpleEntries(int col, int jul)
+X#else
+Xstatic void WriteSimpleEntries(col, jul)
+Xint col, jul;
+X#endif
+X{
+X   CalEntry *e = CalColumn[col];
+X   CalEntry *n;
+X   int y, m, d;
+X
+X   FromJulian(jul, &y, &m, &d);
+X   while(e) {
+X      printf("%04d/%02d/%02d ", y, m+1, d);
+X      printf("%s\n", e->text);
+X      free(e->text);
+X      n = e->next;
+X      free(e);
+X      e = n;
+X   }
+X   CalColumn[col] = NULL;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Various functions for writing different types of lines.    */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteSolidCalLine(void)
+X#else
+Xstatic void WriteSolidCalLine()
+X#endif
+X{
+X   putchar('+');
+X   PrintCentered("", CalWidth-2, '-');
+X   putchar('+');
+X   putchar('\n');
+X}
+X
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteIntermediateCalLine(void)
+X#else
+Xstatic void WriteIntermediateCalLine()
+X#endif
+X{
+X   int i;
+X
+X   putchar('+');
+X   for (i=0; i<7; i++) {
+X      PrintCentered("", ColSpaces, '-');
+X      putchar('+');
+X   }
+X   putchar('\n');
+X}
+X
+X#ifdef HAVE_PROTOS
+XPRIVATE void WriteCalDays(void)
+X#else
+Xstatic void WriteCalDays()
+X#endif
+X{
+X   int i;
+X   putchar('|');
+X   for (i=0; i<7; i++) {
+X      PrintCentered(DayName[(i+6)%7], ColSpaces, ' ');
+X      putchar('|');
+X   }
+X   putchar('\n');
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  SimpleTime                                                 */
+X/*                                                             */
+X/*  Format the time according to simple time format.           */
+X/*  If out is NULL, result placed in internal static buffer.   */
+X/*  A trailing space is always added.                          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC char *SimpleTime(int tim, char *out)
+X#else
+Xchar *SimpleTime(tim, out)
+Xint tim;
+Xchar *out;
+X#endif
+X{
+X   static buf[9];
+X   int h, min, hh;
+X   
+X   if (!out) out = (char *) buf;
+X
+X   *out = 0;
+X   
+X   switch(ScFormat) {
+X
+X      case SC_AMPM:
+X	 if (tim == NO_TIME) sprintf(out, "        ");
+X	 else {
+X	    h = tim / 60;
+X	    min = tim % 60;
+X	    if (h == 0) hh=12;
+X	    else if (h > 12) hh=h-12;
+X	    else hh=h;
+X	    sprintf(out, "%2d:%02d%s ", hh, min, (h>=12) ? "pm" : "am");
+X         }
+X	 break;
+X
+X      case SC_MIL:
+X	 if (tim == NO_TIME) sprintf(out, "      ");
+X	 else {
+X	    h = tim / 60;
+X	    min = tim % 60;
+X	    sprintf(out, "%02d:%02d ", h, min);
+X         }
+X	 break;
+X   }
+X   return out;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  SortColByTime                                              */
+X/*                                                             */
+X/*  Sort the calendar entries in a column by time.             */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void SortColByTime(int col)
+X#else
+Xstatic void SortColByTime(col)
+Xint col;
+X#endif
+X{
+X   CalEntry *cur, *prev, *next;
+X
+X   cur = CalColumn[col];
+X   prev = NULL;
+X
+X/* Note that we use >= comparison rather than > comparison to preserve the
+X   file order of reminders which have the same time! */
+X
+X   while (cur->next && cur->time >= cur->next->time) {
+X      next = cur->next;
+X   /* Swap cur and next */
+X      if (!prev) {
+X         CalColumn[col] = next;
+X	 cur->next = next->next;
+X	 next->next = cur;
+X	 prev = next;
+X      } else {
+X         prev->next = next;
+X	 cur->next = next->next;
+X	 next->next = cur;
+X	 prev = next;
+X      }
+X   }
+X}
+X
+SHAR_EOF
+$TOUCH -am 1109141292 calendar.c &&
+chmod 0600 calendar.c ||
+echo "restore of calendar.c failed"
+set `wc -c calendar.c`;Wc_c=$1
+if test "$Wc_c" != "22448"; then
+	echo original size 22448, current size $Wc_c
+fi
+fi
+# ============= dorem.c ==============
+if test X"$1" != X"-c" -a -f 'dorem.c'; then
+	echo "File already exists: skipping 'dorem.c'"
+else
+echo "x - extracting dorem.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > dorem.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  DOREM.C                                                    */
+X/*                                                             */
+X/*  Contains routines for parsing reminders and evaluating     */
+X/*  triggers.  Also contains routines for parsing OMIT         */
+X/*  commands.                                                  */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X#include <stdio.h>
+X#include "config.h"
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include "globals.h"
+X#include "err.h"
+X#include "types.h"
+X#include "protos.h"
+X#include "expr.h"
+X
+XPRIVATE int ParseTimeTrig ARGS ((ParsePtr s, TimeTrig *tim));
+XPRIVATE int ParseLocalOmit ARGS ((ParsePtr s, Trigger *t));
+XPRIVATE int ParseUntil ARGS ((ParsePtr s, Trigger *t));
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoRem                                                      */
+X/*                                                             */
+X/*  Do the REM command.                                        */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoRem(ParsePtr p)
+X#else
+Xint DoRem(p)
+XParsePtr p;
+X#endif
+X{
+X
+X   Trigger trig;
+X   TimeTrig tim;
+X   int r;
+X   int jul;
+X
+X   /* Parse the trigger date and time */
+X   if (r=ParseRem(p, &trig, &tim)) return r;
+X
+X   if (trig.typ == NO_TYPE) return E_EOLN;
+X   if (trig.typ == SAT_TYPE) return DoSatRemind(&trig, &tim, p);
+X   /* Calculate the trigger date */
+X   jul = ComputeTrigger(JulianToday, &trig, &r);
+X   if (r) return r;
+X   
+X/* Queue the reminder, if necessary */
+X#ifdef HAVE_QUEUED
+X   if (jul == JulianToday &&
+X       !(!IgnoreOnce &&
+X	  trig.once != NO_ONCE &&
+X	  FileAccessDate == JulianToday))
+X      QueueReminder(p, trig.typ, &tim);
+X/* If we're in daemon mode, do nothing over here */
+X   if (Daemon) return OK;
+X#endif
+X
+X
+X   if (ShouldTriggerReminder(&trig, &tim, jul)) {
+X      if (r=TriggerReminder(p, &trig, &tim, jul)) return r;
+X   }
+X
+X   return OK;
+X}   
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ParseRem                                                   */
+X/*                                                             */
+X/*  Given a parse pointer, parse line and fill in a            */
+X/*  trigger structure.                                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int ParseRem(ParsePtr s, Trigger *trig, TimeTrig *tim)
+X#else
+Xint ParseRem(s, trig, tim)
+XParsePtr s;
+XTrigger *trig;
+XTimeTrig *tim;
+X#endif
+X{
+X   register int r;
+X   Token tok;
+X
+X   trig->y = NO_YR;
+X   trig->m = NO_MON;
+X   trig->d = NO_DAY;
+X   trig->wd = NO_WD;
+X   trig->back = NO_BACK;
+X   trig->delta = NO_DELTA;
+X   trig->until = NO_UNTIL;
+X   trig->rep  = NO_REP;
+X   trig->localomit = NO_WD;
+X   trig->skip = NO_SKIP;
+X   trig->once = NO_ONCE;
+X   trig->typ = NO_TYPE;
+X   tim->ttime = NO_TIME;
+X   tim->delta = NO_DELTA;
+X   tim->rep   = NO_REP;
+X
+X   while(1) {
+X      /* Read space-delimited string */
+X      r = ParseToken(s, TokBuffer);
+X      if (r) return r;
+X
+X      /* Figure out what we've got */
+X      FindToken(TokBuffer, &tok);
+X      switch(tok.type) {
+X	 case T_WkDay:
+X	    if (trig->wd & (1 << tok.val)) {
+X	       Eprint("Weekday specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->wd |= (1 << tok.val);
+X	    break;
+X
+X	 case T_Month:
+X	    if (trig->m != NO_MON) {
+X	       Eprint("Month specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->m = tok.val;
+X	    break;
+X
+X	 case T_Skip:
+X	    if (trig->skip != NO_SKIP) {
+X	       Eprint("Only use one of BEFORE, AFTER or SKIP");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->skip = tok.val;
+X	    break;
+X
+X	 case T_At:
+X	    r=ParseTimeTrig(s, tim);
+X	    if (r) return r;
+X	    break;
+X
+X	 case T_RemType:
+X	    trig->typ = tok.val;
+X	    if (s->isnested) {
+X	       Eprint("Can't nest '%s' in expression", TokBuffer);
+X	       return E_PARSE_ERR;
+X            }
+X	    return OK;
+X
+X	 case T_Until:
+X	    r=ParseUntil(s, trig);
+X	    if (r) return r;
+X	    break;
+X
+X	 case T_Year:
+X	    if (trig->y != NO_YR) {
+X	       Eprint("Year specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->y = tok.val;
+X	    break;
+X
+X	 case T_Day:
+X	    if (trig->d != NO_DAY) {
+X	       Eprint("Day of month specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->d = tok.val;
+X	    break;
+X
+X	 case T_Rep:
+X	    if (trig->rep != NO_REP) {
+X	       Eprint("Repeat value specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->rep = tok.val;
+X	    break;
+X
+X	 case T_Delta:
+X	    if (trig->delta != NO_DELTA) {
+X	       Eprint("Delta value specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->delta = tok.val;
+X	    break;
+X
+X	 case T_Back:
+X	    if (trig->back != NO_BACK) {
+X	       Eprint("Back value specified twice");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->back = tok.val;
+X	    break;
+X
+X	 case T_Once:
+X	    if (trig->once != NO_ONCE) {
+X	       Eprint("ONCE specified twice.  (Hah.)");
+X	       return E_PARSE_ERR;
+X	    }
+X	    trig->once = ONCE_ONCE;
+X	    break;
+X
+X	 case T_Omit:
+X	    r = ParseLocalOmit(s, trig);
+X	    if (r) return r;
+X	    break;
+X
+X	 case T_Empty:
+X	    return OK;
+X
+X	 default:
+X	    Eprint("Unknown token in REM command: %s", TokBuffer);
+X	    return E_PARSE_ERR;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ParseTimeTrig - parse the AT part of a timed reminder      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int ParseTimeTrig(ParsePtr s, TimeTrig *tim)
+X#else
+Xstatic int ParseTimeTrig(s, tim)
+XParsePtr s;
+XTimeTrig *tim;
+X#endif
+X{
+X   Token tok;
+X   int r;
+X
+X   while(1) {
+X      r = ParseToken(s, TokBuffer);
+X      if (r) return r;
+X      FindToken(TokBuffer, &tok);
+X      switch(tok.type) {
+X	 case T_Time:
+X	    tim->ttime = tok.val;
+X            break;
+X
+X	 case T_Delta:
+X	    tim->delta = (tok.val > 0) ? tok.val : -tok.val;
+X	    break;
+X
+X	 case T_Rep:
+X	    tim->rep = tok.val;
+X	    break;
+X
+X         default:
+X            if (tim->ttime == NO_TIME) {
+X               Eprint("Expecting time after AT.");
+X               return E_PARSE_ERR;
+X	    }
+X/* Save in global variable */
+X	    LastTriggerTime = tim->ttime;
+X	    PushToken(TokBuffer);
+X            return OK;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ParseLocalOmit - parse the local OMIT portion of a         */
+X/*  reminder.                                                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int ParseLocalOmit(ParsePtr s, Trigger *t)
+X#else
+Xstatic int ParseLocalOmit(s, t)
+XParsePtr s;
+XTrigger *t;
+X#endif
+X{
+X   Token tok;
+X   int r;
+X
+X   while(1) {
+X      r = ParseToken(s, TokBuffer);
+X      if (r) return r;
+X      FindToken(TokBuffer, &tok);
+X      switch(tok.type) {
+X	 case T_WkDay:
+X	    t->localomit |= (1 << tok.val);
+X	    break;
+X
+X	 default:
+X	    PushToken(TokBuffer);
+X	    return OK;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ParseUntil - parse the UNTIL portion of a reminder         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int ParseUntil(ParsePtr s, Trigger *t)
+X#else
+Xstatic int ParseUntil(s, t)
+XParsePtr s;
+XTrigger *t;
+X#endif
+X{
+X   int y = NO_YR,
+X       m = NO_MON,
+X       d = NO_DAY;
+X
+X   Token tok;
+X   int r;
+X
+X   if (t->until != NO_UNTIL) {
+X      Eprint("Cannot specify UNTIL twice");
+X      return E_PARSE_ERR;
+X   }
+X
+X   while(1) {
+X      r = ParseToken(s, TokBuffer);
+X      if (r) return r;
+X      FindToken(TokBuffer, &tok);
+X      switch(tok.type) {
+X	 case T_Year:
+X	    if (y != NO_YR) {
+X	       Eprint("Year specified twice in UNTIL");
+X	       return E_PARSE_ERR;
+X	    }
+X	    y = tok.val;
+X	    break;
+X
+X	 case T_Month:
+X	    if (m != NO_MON) {
+X	       Eprint("Month specified twice in UNTIL");
+X	       return E_PARSE_ERR;
+X	    }
+X	    m = tok.val;
+X	    break;
+X
+X	 case T_Day:
+X	    if (d != NO_DAY) {
+X	       Eprint("Day specified twice in UNTIL");
+X	       return E_PARSE_ERR;
+X	    }
+X	    d = tok.val;
+X	    break;
+X
+X	 default:
+X	    if (y == NO_YR || m == NO_MON || d == NO_DAY) {
+X	       Eprint("Incompletely specified UNTIL");
+X	       return E_PARSE_ERR;
+X	    }
+X	    t->until = Julian(y, m, d);
+X	    PushToken(TokBuffer);
+X	    return OK;
+X      }
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  TriggerReminder                                            */
+X/*                                                             */
+X/*  Trigger the reminder if it's a RUN or MSG type.            */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int TriggerReminder(ParsePtr p, Trigger *t, TimeTrig *tim, int jul)
+X#else
+Xint TriggerReminder(p, t, tim, jul)
+XParsePtr p;
+XTrigger *t;
+XTimeTrig *tim;
+Xint jul;
+X#endif
+X{
+X   int r, y, m, d;
+X   Trigger tempTrig;
+X   TimeTrig tempTime;
+X   Parser tempP;
+X
+X   if (t->typ == RUN_TYPE && RunDisabled) return E_RUN_DISABLED;
+X   if (t->typ == CAL_TYPE) return OK;
+X
+X/* If we're in Daemon mode, do nothing over here... */
+X
+X/* If it's a MSG-type reminder, issue the banner. */
+X   if (t->typ == MSG_TYPE && !NumTriggered && !NextMode) {
+X      CreateParser(Banner, &tempP);
+X      tempP.allownested = 0;
+X      tempTrig.typ = MSG_TYPE;
+X      tempTime.ttime = SystemTime()/60;
+X      if (!(r=DoSubst(&tempP, SubstBuffer, &tempTrig,
+X           &tempTime, JulianToday, NORMAL_MODE)))
+X         if (*SubstBuffer) printf("%s\n", SubstBuffer);
+X      DestroyParser(&tempP);
+X   }
+X
+X/* If it's NextMode, process as a CAL-type entry, and issue simple-calendar
+X   format. */
+X   if (NextMode) {
+X      if (r=DoSubst(p, SubstBuffer, t, tim, jul, CAL_MODE)) return r;
+X      if (!*SubstBuffer) return OK;
+X      FromJulian(jul, &y, &m, &d);
+X      printf("%04d/%02d/%02d %s%s\n", y, m+1, d,
+X                                      SimpleTime(tim->ttime, NULL),
+X                                      SubstBuffer);
+X      return OK;
+X   }
+X
+X/* Put the substituted string into the SubstBuffer */
+X   if (r=DoSubst(p, SubstBuffer, t, tim, jul, NORMAL_MODE)) return r;
+X
+X/* Go for it... */
+X   if (t->typ == MSG_TYPE) printf("%s\n", SubstBuffer);
+X   else system(SubstBuffer);
+X
+X   NumTriggered++;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ShouldTriggerReminder                                      */
+X/*                                                             */
+X/*  Return 1 if we should trigger a reminder, based on today's */
+X/*  date and the trigger.  Return 0 if reminder should not be  */
+X/*  triggered.                                                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef __TURBOC__
+X#pragma argsused
+X#endif
+X#ifdef HAVE_PROTOS
+XPUBLIC int ShouldTriggerReminder(Trigger *t, TimeTrig *tim, int jul)
+X#else
+Xint ShouldTriggerReminder(t, tim, jul)
+XTrigger *t;
+XTimeTrig *tim;
+Xint jul;
+X#endif
+X{
+X   int r;
+X
+X   /* Handle the ONCE modifier in the reminder. */
+X   if (!IgnoreOnce && t->once !=NO_ONCE && FileAccessDate == JulianToday)
+X      return 0;
+X   
+X   if (jul < JulianToday) return 0;
+X
+X   /* Don't trigger timed reminders if DontIssueAts is true, and if the
+X      reminder is for today */
+X
+X#ifdef HAVE_QUEUED
+X   if (jul == JulianToday && DontIssueAts && tim->ttime != NO_TIME) return 0;
+X#endif
+X
+X   /* Don't trigger "old" timed reminders */
+X/*** REMOVED...
+X      if (jul == JulianToday &&
+X       tim->ttime != NO_TIME &&
+X       tim->ttime < SystemTime() / 60) return 0;
+X *** ...UNTIL HERE */
+X
+X   /* If "infinite delta" option is chosen, always trigger future reminders */
+X   if (InfiniteDelta || NextMode) return 1;
+X
+X   /* Move back by delta days, if any */
+X   if (t->delta != NO_DELTA) {
+X      if (t->delta < 0)
+X	 jul = jul + t->delta;
+X      else {
+X	 r = t->delta;
+X	 while(r && jul > JulianToday) {
+X	    jul--;
+X	    if (!IsOmitted(jul, t->localomit)) r--;
+X	 }
+X      }
+X   }
+X
+X   /* Should we trigger the reminder? */
+X   return (jul <= JulianToday);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoSatRemind                                                */
+X/*                                                             */
+X/*  Do the "satisfying..." remind calculation.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef __TURBOC__
+X#pragma argsused
+X#endif
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoSatRemind(Trigger *trig, TimeTrig *tim, ParsePtr p)
+X#else
+Xint DoSatRemind(trig, tim, p)
+XTrigger *trig;
+XTimeTrig *tim;
+XParsePtr p;
+X#endif
+X{
+X   int iter, jul, r;
+X   Value v;
+X   char *s;
+X
+X   iter = 0;
+X   jul = JulianToday;
+X   while (iter++ < MaxSatIter) {
+X      jul = ComputeTrigger(jul, trig, &r);
+X      if (r) {
+X         if (r == E_CANT_TRIG) return OK; else return r;
+X      }
+X      s = p->pos;
+X      r = EvaluateExpr(p, &v);
+X      p->pos = s;
+X      if (r) return r;
+X      if (v.type != INT_TYPE && v.type != STR_TYPE) return E_BAD_TYPE;
+X      if (v.type == INT_TYPE && v.v.val) return OK;
+X      if (v.type == STR_TYPE && *v.v.str) return OK;
+X      jul++;
+X   }
+X   LastTrigValid = 0;
+X   return OK;
+X}
+X
+SHAR_EOF
+$TOUCH -am 1109141292 dorem.c &&
+chmod 0600 dorem.c ||
+echo "restore of dorem.c failed"
+set `wc -c dorem.c`;Wc_c=$1
+if test "$Wc_c" != "14531"; then
+	echo original size 14531, current size $Wc_c
+fi
+fi
+echo "End of part 2, continue with part 3"
+exit 0
+
+exit 0 # Just in case...

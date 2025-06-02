@@ -1,0 +1,1493 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v38i062:  remind - A replacement for calendar, Patch07a/3
+Message-ID: <csm-v38i062=remind.163723@sparky.Sterling.COM>
+X-Md4-Signature: 2ce1700591aef22a24fb7f7501eba57d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Dept. of Electronics, Carleton University
+Date: Thu, 22 Jul 1993 21:37:44 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 38, Issue 62
+Archive-name: remind/patch07a
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+This is patch 7 for version 3.0 of Remind.
+
+Remind is a sophisticated calendar/alarm program, which runs under
+MS-DOS, UNIX and OS/2.
+
+>From the WHATSNEW file:
+
+* Version 3.0 Patch 7
+
++ MAJOR ENHANCEMENTS
+
+- Added "system variables" to allow the user more control over
+  Remind operation, and to allow queries about the command-line
+  options from within a reminder script.  They allow for specification
+  of longitude and latitude for use by sunrise/sunset calculations.
+
+- Added sunrise(), sunset(), isdst() and minsfromutc() functions -
+  these are needed to support sunrise and sunset calculations.
+
++ MINOR ENHANCEMENTS
+
+- Allowed the MSG, RUN, CAL, PS and PSF keywords to be used in the
+  same reminder as the SATISFY keyword.  This makes many complex
+  reminders more compact.
+
+- Added the filedir() function to enable Remind's include to emulate
+  CPP's #include more closely.
+
+- Allowed non-root users to use the "-u" option.  It only affects
+  the "SHELL", "HOME", "USER" and "LOGNAME" environment variables -
+  it doesn't change the effective uid and gid when run by non-root.
+
+- Added built-in function "easterdate" to calculate date of Easter
+  Sunday - function courtesy of Michael Salmon.
+
+- Improved the Jewish holiday reminders in "defs.rem" to give advance
+  notice of holidays.
+
+- Allowed the "simple calendar" option (-s) to specify a number of
+  weeks as well as a number of months, in the same fashion as the
+  -c option.  Thanks to Dave Rickel.
+
++ BUG FIXES
+
+- Corrected the behaviour of "hebdate" for jahrzeits; added an additional
+  parameter to specify the behaviour of dates in Adar during leap years.
+
+- Changed kall so that "kall sh" doesn't commit suicide - patch courtesy
+  of Michael Salmon.
+
+Availability: Remind is available via anonymous ftp at ftp.doe.carleton.ca
+(134.117.9.35) in the directory /pub/remind-3.0 - see the file README.1st
+in that directory for a list of files.
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.07.C
+# Wrapped by kent@sparky on Thu Jul 22 16:19:13 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'patch.07.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.07.C'\"
+else
+  echo shar: Extracting \"'patch.07.C'\" \(47360 characters\)
+  sed "s/^X//" >'patch.07.C' <<'END_OF_FILE'
+X+ 
+X+ #if !defined(HAVE_MKTIME)
+X+    loc_t = timelocal(&local);
+X+    local.tm_isdst = 0;
+X+    utc_t = timegm(&local);
+X+ #else
+X+    loc_t = mktime(&local);
+X+    if (loc_t == -1) return 1;
+X+    temp = gmtime(&loc_t);
+X+    utc = *temp;
+X+    utc.tm_isdst = 0;
+X+    utc_t = mktime(&utc);
+X+    if (utc_t == -1) return 1;
+X+ #endif
+X+    temp = localtime(&loc_t);
+X+ #ifdef HAVE_MKTIME
+X+    if (mins) *mins = (int)  ( ((temp->tm_isdst) ? 60 : 0) +
+X+                              (loc_t - utc_t) / 60 );  /* Should use difftime */
+X+ #else
+X+    if (mins) *mins = (int) ((utc_t - loc_t) / 60);
+X+ #endif   
+X+    if (isdst) *isdst = temp->tm_isdst;
+X+    return 0;
+X+ }
+X*** ../p6/makefile.os2	Fri Apr 23 13:00:11 1993
+X--- ./makefile.os2	Mon Jun 28 12:30:19 1993
+X***************
+X*** 25,31 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.06
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h
+X--- 25,31 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.07
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h
+X*** ../p6/makefile.tc	Fri Apr 23 13:00:07 1993
+X--- ./makefile.tc	Mon Jun 28 12:30:09 1993
+X***************
+X*** 1,6 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.06
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h
+X--- 1,6 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.07
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h
+X*** ../p6/protos.h	Thu Apr 22 10:24:12 1993
+X--- ./protos.h	Mon Jun 28 12:37:30 1993
+X***************
+X*** 90,98 ****
+X  void FindToken ARGS ((const char *s, Token *tok));
+X  void FindNumericToken ARGS ((const char *s, Token *t));
+X  int ComputeTrigger ARGS ((int today, Trigger *trig, int *err));
+X- int StrEq ARGS ((const char *s1, const char *s2));
+X- int StriEq ARGS ((const char *s1, const char *s2));
+X- int StrinEq ARGS ((const char *s1, const char *s2, int n));
+X  char *StrnCpy ARGS ((char *dest, const char *source, int n));
+X  int StrMatch ARGS ((const char *s1, const char *s2, int n));
+X  int StrinCmp ARGS ((const char *s1, const char *s2, int n));
+X--- 90,95 ----
+X***************
+X*** 125,130 ****
+X  int DaysInHebYear ARGS((int y));
+X  char *DaysInHebMonths ARGS((int ylen));
+X  int HebToJul ARGS((int hy, int hm, int hd));
+X! int GetValidHebDate ARGS((int yin, int min, int din, int *mout, int *dout, int yahr));
+X! int GetNextHebrewDate ARGS((int julstart, int hm, int hd, int yahr, int *ans));
+X  int ComputeJahr ARGS ((int y, int m, int d, int *ans));
+X--- 122,131 ----
+X  int DaysInHebYear ARGS((int y));
+X  char *DaysInHebMonths ARGS((int ylen));
+X  int HebToJul ARGS((int hy, int hm, int hd));
+X! int GetValidHebDate ARGS((int yin, int min, int din, int adarbehave, int *mout, int *dout, int yahr));
+X! int GetNextHebrewDate ARGS((int julstart, int hm, int hd, int yahr, int adarbehave, int *ans));
+X  int ComputeJahr ARGS ((int y, int m, int d, int *ans));
+X+ int GetSysVar ARGS ((const char *name, Value *val));
+X+ int SetSysVar ARGS ((const char *name, int value));
+X+ void DumpSysVarByName ARGS ((const char *name));
+X+ int CalcMinsFromUTC ARGS ((int jul, int tim, int *mins, int *isdst));
+X*** ../p6/rem2ps.c	Mon May  3 10:37:57 1993
+X--- ./rem2ps.c	Mon Jun 28 12:30:22 1993
+X***************
+X*** 139,145 ****
+X        }
+X     }
+X     if (!validfile) {
+X!       fprintf(stderr, "Couldn't find any calendar data!\n");
+X        exit(1);
+X     }
+X     printf("%%%%Trailer\n");
+X--- 139,146 ----
+X        }
+X     }
+X     if (!validfile) {
+X!       fprintf(stderr, "rem2ps: Couldn't find any calendar data - are you\n");
+X!       fprintf(stderr, "        sure you fed me input produced by remind -p ...?\n");
+X        exit(1);
+X     }
+X     printf("%%%%Trailer\n");
+X***************
+X*** 163,169 ****
+X     int days, wkday, prevdays, nextdays;
+X     int sfirst;
+X     int i;
+X!    int smallcol;
+X     int is_ps;
+X     CalEntry *c, *d;
+X  
+X--- 164,170 ----
+X     int days, wkday, prevdays, nextdays;
+X     int sfirst;
+X     int i;
+X!    int smallcol = 0; /* Stop GCC from complaining about uninit var */
+X     int is_ps;
+X     CalEntry *c, *d;
+X  
+X*** ../p6/remind.1	Mon May  3 15:28:18 1993
+X--- ./remind.1	Mon Jul 19 11:31:13 1993
+X***************
+X*** 46,57 ****
+X  The \fB\-s\fR option is very similar to the \fB\-c\fR option, except
+X  that the output calendar is not formatted.  It is listed in a "simple
+X  format" which can be used as input for more sophisticated calendar-drawing
+X! programs.
+X  .TP
+X  .B \-p\fR\fIn\fR
+X  The \fB\-p\fR option is very similar to the \fB\-s\fR option, except
+X  that the output contains additional information for use by the
+X! \fBrem2ps\fR program, which creates a PostScript calendar.
+X  .TP
+X  .B \-v
+X  The \fB\-v\fR option makes the output of \fBRemind\fR slightly more verbose.
+X--- 46,59 ----
+X  The \fB\-s\fR option is very similar to the \fB\-c\fR option, except
+X  that the output calendar is not formatted.  It is listed in a "simple
+X  format" which can be used as input for more sophisticated calendar-drawing
+X! programs.  If \fIn\fR starts with "+", then it is interpreted as a number
+X! of weeks.
+X  .TP
+X  .B \-p\fR\fIn\fR
+X  The \fB\-p\fR option is very similar to the \fB\-s\fR option, except
+X  that the output contains additional information for use by the
+X! \fBrem2ps\fR program, which creates a PostScript calendar.  For this
+X! option, \fIn\fR cannot start with "+"; it must specify a number of months.
+X  .TP
+X  .B \-v
+X  The \fB\-v\fR option makes the output of \fBRemind\fR slightly more verbose.
+X***************
+X*** 169,180 ****
+X  .TP
+X  \fB\-u\fR\fIname\fR
+X  Runs \fBRemind\fR with the uid and gid of the user specified by \fIname\fR.
+X! The \fB\-u\fR option is available only to root, and cannot be used by normal
+X! users.  The option changes the uid and gid as described, and sets the
+X  environment variables HOME, SHELL and USER to the home directory, shell,
+X  and user name, respectively, of the specified user.  LOGNAME is also
+X  set to the specified user name.  This option is meant for
+X  use in shell scripts which mail reminders to all users.
+X  .TP
+X  \fB\-i\fR\fIvar\fR\fB=\fR\fIexpr\fR
+X  Sets the value of the specified \fIvar\fR to \fIexpr\fR, and \fBpreserves\fR
+X--- 171,187 ----
+X  .TP
+X  \fB\-u\fR\fIname\fR
+X  Runs \fBRemind\fR with the uid and gid of the user specified by \fIname\fR.
+X! The option changes the uid and gid as described, and sets the
+X  environment variables HOME, SHELL and USER to the home directory, shell,
+X  and user name, respectively, of the specified user.  LOGNAME is also
+X  set to the specified user name.  This option is meant for
+X  use in shell scripts which mail reminders to all users.
+X+ .PP
+X+ .RS
+X+ Non-root users can also use the \fB\-u\fR option.  However, in this
+X+ case, it only changes the environment variables as described above.
+X+ It does not change the effective uid or gid.
+X+ .RE
+X  .TP
+X  \fB\-i\fR\fIvar\fR\fB=\fR\fIexpr\fR
+X  Sets the value of the specified \fIvar\fR to \fIexpr\fR, and \fBpreserves\fR
+X***************
+X*** 1438,1443 ****
+X--- 1445,1583 ----
+X  	UNSET a b mydir time date
+X  .fi
+X  .PP
+X+ .B SYSTEM VARIABLES
+X+ .PP
+X+ In addition to the regular user variables, \fBRemind\fR has several
+X+ "system variables" which are used to query or control the operating
+X+ state of \fBRemind\fR.  System variables are available starting from
+X+ version 03.00.07 of \fBRemind\fR.
+X+ .PP
+X+ All system variables begin with a dollar sign '$'.  They can be used
+X+ in \fBSET\fR commands and expressions just as regular variables can.  However,
+X+ system variables always hold values of type \fBINT\fR.  In addition,
+X+ some system variables cannot be modified, and you cannot create new
+X+ system variables.  System variables can be initialized on the command
+X+ line with the \fB\-i\fR option, but you may need to quote them to avoid
+X+ having the shell interpret the dollar sign.  System variable names are
+X+ not case-sensitive.
+X+ .PP
+X+ The following system variables are defined.  Those marked
+X+ "read-only" cannot be changed with the \fBSET\fR command.
+X+ .TP
+X+ .B $CalcUTC 
+X+ If 1 (the default), then \fBRemind\fR uses C library functions
+X+ to calculate the number of minutes between local and universal time.
+X+ This affects astronomical calculations (\fBsunrise()\fR for example.)
+X+ If 0, then you must supply the number of minutes between local and
+X+ universal time in the \fB$MinsFromUTC\fR system variable.
+X+ .TP
+X+ .B $CalMode (read-only)
+X+ If non-zero, then the \fB\-c\fR option was supplied on the command line.
+X+ .TP
+X+ .B $Daemon (read-only)
+X+ If the daemon mode \fB\-z\fR was invoked, contains the number of
+X+ minutes between wakeups.  If not running in daemon mode, contains
+X+ 0.  For the MS-DOS version, always contains 0.
+X+ .TP
+X+ .B $DontFork (read-only)
+X+ If non-zero, then the \fB\-c\fR option was supplied on the command line.
+X+ For the MS-DOS version, always contains 1.
+X+ .TP
+X+ .B $DontTrigAts (read-only)
+X+ If non-zero, then the \fB\-a\fR option was supplied on the command line.
+X+ For the MS-DOS version, always contains 0.
+X+ .TP
+X+ .B $DontQueue (read-only)
+X+ If non-zero, then the \fB\-q\fR option was supplied on the command line.
+X+ For the MS-DOS version, always contains 1.
+X+ .TP
+X+ .B $FoldYear
+X+ The standard Unix library functions may have difficulty dealing with dates
+X+ later than 2037.  If this variable is set to 1, then the UTC calculations
+X+ "fold back" years later than 2037 before using the Unix library functions.
+X+ For example, to find out whether or not daylight savings time is in
+X+ effect in June, 2077, the year is "folded back" to 2010, because both
+X+ years begin on a Monday, and both are non-leapyears.  The rules for
+X+ daylight savings time are thus presumed to be identical for both
+X+ years, and the Unix library functions can handle 2010.  By default,
+X+ this variable is 0.  Set it to 1 if the sun or UTC functions misbehave
+X+ for years greater than 2037.
+X+ .TP
+X+ .B $HushMode (read-only)
+X+ If non-zero, then the \fB\-h\fR option was supplied on the command line.
+X+ .TP
+X+ .B $IgnoreOnce (read-only)
+X+ If non-zero, then the \fB\-o\fR option was supplied on the command line,
+X+ or a date different from today's true date was supplied.  If non-zero,
+X+ then \fBONCE\fR directives will be ignored.
+X+ .TP
+X+ .B $InfDelta (read-only)
+X+ If non-zero, then the \fB\-t\fR option was supplied on the command line.
+X+ .TP
+X+ .B $LatDeg, $LatMin, $LatSec
+X+ These specify the latitude of your location.  \fB$LatDeg\fR can
+X+ range from -90 to 90, and the others from -59 to 59.  Northern latitudes
+X+ are positive; southern ones are negative.  For southern latitudes, all
+X+ three components should be negative.
+X+ .TP
+X+ .B $LongDeg, $LongMin, $LongSec
+X+ These specify the longitude of your location.  \fB$LongDeg\fR can
+X+ range from -180 to 180.  Western longitudes are positive; eastern
+X+ ones are negative.
+X+ .RS
+X+ .PP
+X+ The latitude and longitude information is required for the functions
+X+ \fBsunrise()\fR and \fBsunset()\fR.  Default values can be compiled
+X+ into \fBRemind\fR, or you can \fBSET\fR the correct values at the
+X+ start of your reminder scripts.
+X+ .RE
+X+ .TP
+X+ .B $MaxSatIter
+X+ The maximum number of iterations for the \fBSATISFY\fR clause
+X+ (described later.)  Must be at least 10.
+X+ .TP
+X+ .B $MinsFromUTC
+X+ The number of minutes between Universal Time and local time.  If
+X+ \fB$CalcUTC\fR is non-zero, this is calculated upon startup of \fBRemind\fR.
+X+ Otherwise, you must set it explicitly.  If \fB$CalcUTC\fR is zero,
+X+ then \fB$MinsFromUTC\fR is used in the astronomical calculations.  You
+X+ must adjust it for daylight savings time yourself.  Also, if you
+X+ want to initialize \fB$MinsFromUTC\fR
+X+ using the \fB\-i\fR command-line option, you
+X+ must also set \fB$CalcUTC\fR to 0 with the \fB\-i\fR option.
+X+ .TP
+X+ .B $NextMode (read-only)
+X+ If non-zero, then the \fB\-n\fR option was supplied on the command line.
+X+ .TP
+X+ .B $NumQueued (read-only)
+X+ Contains the number of reminders queued so far for background
+X+ timed triggering.  For MS-DOS, always returns 0.
+X+ .TP
+X+ .B $NumTrig (read-only)
+X+ Contains the number of reminders triggered for the current date.  One
+X+ use for this variable is as follows:  Suppose you wish to shade in
+X+ the box of a PostScript calendar whenever a holiday is triggered.  You
+X+ could save the value of \fB$NumTrig\fR in a regular variable
+X+ prior to executing a block of
+X+ holiday reminders.  If the value of \fB$NumTrig\fR after the holiday
+X+ block is greater than the saved value, then at least one holiday
+X+ was triggered, and you can execute the command to shade in the
+X+ calendar box.  (See the section "Calendar Mode".)
+X+ .TP
+X+ .B $PSCal (read-only)
+X+ If non-zero, then the \fB\-p\fR option was supplied on the command line.
+X+ .TP
+X+ .B $RunOff (read-only)
+X+ If non-zero, the \fBRUN\fR directives are disabled.
+X+ .TP
+X+ .B $SimpleCal (read-only)
+X+ Set to a non-zero value if \fIeither\fR of the \fB\-p\fR or \fB\-s\fR
+X+ command-line options was supplied.
+X+ .PP
+X+ Note:  If any of the calendar modes are in effect, then the
+X+ values of $Daemon, $DontFork, $DontTrigAts, $DontQueue, $HushMode,
+X+ $IgnoreOnce, $InfDelta, and $NextMode are not meaningful.
+X+ .PP
+X  .B BUILT-IN FUNCTIONS
+X  .PP
+X  \fBRemind\fR has a plethora of built-in functions.  The syntax for a function
+X***************
+X*** 1596,1601 ****
+X--- 1736,1761 ----
+X  \fBRemind\fR.
+X  .RE
+X  .TP
+X+ .B easterdate(di_arg)
+X+ If \fIarg\fR is an \fBINT\fR, then returns the date of Easter Sunday
+X+ for the specified year.  If \fIarg\fR is a \fBDATE\fR, then returns the
+X+ date of the next Easter Sunday on or after \fIarg\fR.
+X+ .TP
+X+ .B filedir()
+X+ Returns the directory which contains the current file being
+X+ processed.  It may be a relative or absolute pathname, but
+X+ is guaranteed to be correct for use in an \fBINCLUDE\fR command as
+X+ follows:
+X+ .PP
+X+ .nf
+X+ 		INCLUDE [filedir()]/stuff
+X+ .fi
+X+ .PP
+X+ .RS
+X+ This includes the file "stuff" in the same directory as the
+X+ current file being processed.
+X+ .RE
+X+ .TP
+X  .B filename()
+X  Returns (as a \fBSTRING\fR) the name of the current file being processed
+X  by \fBRemind\fR.  Inside included files, returns the name of the
+X***************
+X*** 1630,1635 ****
+X--- 1790,1805 ----
+X  \fIsearch\fR at which to start looking for \fItarget\fR.
+X  .RE
+X  .TP
+X+ .B isdst([d_date [,t_time]])
+X+ Returns a positive number if daylight savings time is in
+X+ effect on the specified date and time.  \fIDate\fR
+X+ defaults to \fBtoday()\fR and \fItime\fR defaults to midnight.
+X+ .RS
+X+ .PP
+X+ Note that this function is only as reliable as the C run-time library
+X+ functions.  It is available starting with version 03.00.07 of \fBRemind\fR.
+X+ .RE
+X+ .TP
+X  .B isleap(id_arg)
+X  Returns 1 if \fIarg\fR is a leap year, and 0 otherwise.  \fIArg\fR can
+X  be either an \fBINT\fR or a \fBDATE\fR object.  If a \fBDATE\fR is
+X***************
+X*** 1639,1645 ****
+X  Returns 1 if \fIdate\fR is omitted, given the current global \fBOMIT\fR
+X  context.  Returns 0 otherwise.
+X  .TP
+X! .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahrflag]])
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X  .B hebday(d_date)
+X--- 1809,1815 ----
+X  Returns 1 if \fIdate\fR is omitted, given the current global \fBOMIT\fR
+X  context.  Returns 0 otherwise.
+X  .TP
+X! .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahr [,i_aflag]]])
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X  .B hebday(d_date)
+X***************
+X*** 1648,1654 ****
+X  .B hebmon(d_date)
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X! .Bhebyear(d_date)
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X  .B language()
+X--- 1818,1824 ----
+X  .B hebmon(d_date)
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X! .B hebyear(d_date)
+X  Support for Hebrew dates - see the section "The Hebrew Calendar"
+X  .TP
+X  .B language()
+X***************
+X*** 1673,1678 ****
+X--- 1843,1860 ----
+X  can be of any type, but must all be of the same type.  They are compared
+X  as with the < operator.
+X  .TP
+X+ .B minsfromutc([d_date [,t_time]])
+X+ Returns the number of minutes from Universal Time (formerly GMT) to
+X+ local time on the specified date and time.  \fIDate\fR defaults to
+X+ \fBtoday()\fR and \fItime\fR defaults to midnight.  If local time
+X+ is before UT, the result is negative.  Otherwise, the result is
+X+ positive.
+X+ .RS
+X+ .PP
+X+ Note that this function is only as reliable as the C run-time library
+X+ functions.  It is available starting with version 03.00.07 of \fBRemind\fR.
+X+ .RE
+X+ .TP
+X  .B minute(t_time)
+X  Returns the minute component of \fItime\fR.
+X  .TP
+X***************
+X*** 1735,1740 ****
+X--- 1917,1945 ----
+X  from 1.  If \fIend\fR is not supplied, then it defaults to the length
+X  of \fIstr\fR.
+X  .TP
+X+ .B sunrise([d_date])
+X+ Returns a \fBTIME\fR indicating the time of sunrise on the specified
+X+ \fIdate\fR (default \fBtoday()\fR.)  In high lattitudes, there
+X+ may be no sunrise on a particular day, in which case \fBsunrise()\fR
+X+ returns the \fBINT\fR 0.
+X+ .TP
+X+ .B sunset([d_date])
+X+ Returns a \fBTIME\fR indicating the time of sunset on the specified
+X+ \fIdate\fR (default \fBtoday()\fR.)  In high lattitudes, there
+X+ may be no sunset on a particular day, in which case \fBsunset()\fR
+X+ returns the \fBINT\fR 0.
+X+ .RS
+X+ .PP
+X+ The functions \fBsunrise()\fR and \fBsunset()\fR are based on
+X+ an algorithm in "Almanac for Computers for the year 1978" by
+X+ L. E. Doggett, Nautical Almanac Office, USNO.  They require
+X+ the latitude and longitude to be specified by setting the appropriate
+X+ system variables.  (See "System Variables".)  The sun functions
+X+ should be accurate to within about 2 minutes for latitudes lower
+X+ than 60 degrees.  The functions are available starting from version
+X+ 03.00.07 of \fBRemind\fR.
+X+ .RE
+X+ .TP
+X  .B time(i_hr, i_min)
+X  Creates a \fBTIME\fR with the hour and minute components specified by
+X  \fIhr\fR and \fImin\fR.
+X***************
+X*** 2126,2131 ****
+X--- 2331,2365 ----
+X  It is probably best to stay away from computing \fBOMIT\fR
+X  trigger dates unless you keep these pitfalls in mind.
+X  .PP
+X+ For versions of \fBRemind\fR starting from 03.00.07, you can include
+X+ a \fBMSG\fR, \fBRUN\fR, etc. clause in a \fBSATISFY\fR clause as
+X+ follows:
+X+ .PP
+X+ .nf
+X+ 	REM trigger_stuff SATISFY [expr] MSG body
+X+ .fi
+X+ .PP
+X+ Note that for this case only, the \fIexpr\fR after \fBSATISFY\fR
+X+ \fImust\fR be enclosed in braces.  It must come after all the other
+X+ components of the trigger, and immediately before the \fBMSG\fR,
+X+ \fBRUN\fR, etc. keyword.  If \fIexpr\fR cannot be satisfied, then
+X+ the reminder is not triggered.
+X+ .PP
+X+ Thus, the "Friday the 13th" example can be expressed more compactly as:
+X+ .PP
+X+ .nf
+X+ 	REM 13 +2 SATISFY [wkdaynum(trigdate()) == 5] \\
+X+ 		MSG Friday the 13th is %b.
+X+ .fi
+X+ .PP
+X+ And you can trigger a reminder on Mondays, Wednesdays and Thursdays
+X+ occurring on odd-numbered days of the month with the following:
+X+ .PP
+X+ .nf
+X+ 	REM Mon Wed Thu SATISFY [day(trigdate())%2] \\
+X+ 		MSG Here it is!!!
+X+ .fi
+X+ .PP
+X  .SH DEBUGGING REMINDER SCRIPTS
+X  .PP
+X  Although the command-line \fB\-d\fR option is useful for debugging, it
+X***************
+X*** 2157,2163 ****
+X  .PP
+X  If you supply a space-separated list of variable names, the corresponding
+X  variables are displayed.  If you do not supply a list of variables, then
+X! all variables in memory are displayed.
+X  .PP
+X  .B THE ERRMSG COMMAND
+X  .PP
+X--- 2391,2400 ----
+X  .PP
+X  If you supply a space-separated list of variable names, the corresponding
+X  variables are displayed.  If you do not supply a list of variables, then
+X! all variables in memory are displayed.  To dump a system variable,
+X! put its name in the list of variables to dump.  If you put a lone
+X! dollar sign in the list of variables to dump, then all system variables
+X! will be dumped.
+X  .PP
+X  .B THE ERRMSG COMMAND
+X  .PP
+X***************
+X*** 2547,2553 ****
+X  Returns the Hebrew year corresponding to \fIdate\fR.  For example,
+X  hebyear('1993/04/12') returns 5753.
+X  .TP
+X! .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahrflag]])
+X  The \fBhebdate()\fR function is the most complex of the Hebrew support
+X  functions.  It can take from 2 to 4 arguments.  It returns a \fBDATE\fR
+X  corresponding to the Hebrew date.
+X--- 2784,2790 ----
+X  Returns the Hebrew year corresponding to \fIdate\fR.  For example,
+X  hebyear('1993/04/12') returns 5753.
+X  .TP
+X! .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahr [,i_aflag]]])
+X  The \fBhebdate()\fR function is the most complex of the Hebrew support
+X  functions.  It can take from 2 to 4 arguments.  It returns a \fBDATE\fR
+X  corresponding to the Hebrew date.
+X***************
+X*** 2582,2590 ****
+X  .PP
+X  If \fIyrstart\fR is not supplied, it defaults to \fBtoday()\fR.
+X  .PP
+X! The \fIjahrflag\fR modifies the behaviour of \fBhebdate()\fR as follows:
+X  .PP
+X! If \fIjahrflag\fR is 0 (the default),
+X  then \fBhebdate()\fR keeps scanning until it
+X  finds a date which exactly satisfies the other parameters.  For example:
+X  .PP
+X--- 2819,2827 ----
+X  .PP
+X  If \fIyrstart\fR is not supplied, it defaults to \fBtoday()\fR.
+X  .PP
+X! The \fIjahr\fR modifies the behaviour of \fBhebdate()\fR as follows:
+X  .PP
+X! If \fIjahr\fR is 0 (the default),
+X  then \fBhebdate()\fR keeps scanning until it
+X  finds a date which exactly satisfies the other parameters.  For example:
+X  .PP
+X***************
+X*** 2596,2602 ****
+X  next occurrence of 30 Adar A after 1 January, 1993.  This behaviour is
+X  appropriate for Purim Katan, which only appears in leap years.
+X  .PP
+X! If \fIjahrflag\fR is 1, then the date is modified as follows:
+X  .TP
+X  o
+X  30 Heshvan is converted to 1 Kislev in years when Heshvan is chaser
+X--- 2833,2839 ----
+X  next occurrence of 30 Adar A after 1 January, 1993.  This behaviour is
+X  appropriate for Purim Katan, which only appears in leap years.
+X  .PP
+X! If \fIjahr\fR is 1, then the date is modified as follows:
+X  .TP
+X  o
+X  30 Heshvan is converted to 1 Kislev in years when Heshvan is chaser
+X***************
+X*** 2614,2620 ****
+X  This behaviour is appropriate for smachot (joyous occasions) and for
+X  some jahrzeits - see "JAHRZEITS."
+X  .PP
+X! if \fIjahrflag\fR is 2, then the date is modified as follows:
+X  .TP
+X  o
+X  30 Kislev and 30 Heshvan are converted to 29 Kislev and 29 Heshvan,
+X--- 2851,2857 ----
+X  This behaviour is appropriate for smachot (joyous occasions) and for
+X  some jahrzeits - see "JAHRZEITS."
+X  .PP
+X! if \fIjahr\fR is 2, then the date is modified as follows:
+X  .TP
+X  o
+X  30 Kislev and 30 Heshvan are converted to 29 Kislev and 29 Heshvan,
+X***************
+X*** 2627,2635 ****
+X  Other dates in Adar A are moved to the corresponding day in Adar in
+X  non-leapyears
+X  .PP
+X! if \fIjahrflag\fR is not 0, 1, or 2, it is interpreted as a Hebrew year,
+X  and the behaviour is calculated as described in the next section,
+X  "JAHRZEITS."
+X  .RE
+X  .PP
+X  .B JAHRZEITS
+X--- 2864,2894 ----
+X  Other dates in Adar A are moved to the corresponding day in Adar in
+X  non-leapyears
+X  .PP
+X! if \fIjahr\fR is not 0, 1, or 2, it is interpreted as a Hebrew year,
+X  and the behaviour is calculated as described in the next section,
+X  "JAHRZEITS."
+X+ .PP
+X+ The \fIaflag\fR parameter modifies the behaviour of the function for
+X+ dates in Adar during leap years.  The \fIaflag\fR is \fIonly\fR used
+X+ if \fIyrstart\fR is a \fBDATE\fR type (or is omitted, defaulting to
+X+ \fBtoday()\fR.)
+X+ .PP
+X+ The \fIaflag\fR only affects date calculations if \fIhebmon\fR is
+X+ specified as "Adar".  In leap years, the following algorithm is followed:
+X+ .TP
+X+ o
+X+ If \fIaflag\fR is 0, then the date is triggered in Adar B.  This is
+X+ the default.
+X+ .TP
+X+ o
+X+ If \fIaflag\fR is 1, then the date is triggered in Adar A.  This may
+X+ be appropriate for jahrzeits in the Ashkenazi tradition; consult a
+X+ rabbi.
+X+ .TP
+X+ o
+X+ If \fIaflag\fR is 2, then the date is triggered in both Adar A and Adar
+X+ B of a leap year.  Some Ashkenazim perform jahrzeit in both Adar A and
+X+ Adar B.
+X  .RE
+X  .PP
+X  .B JAHRZEITS
+X***************
+X*** 2661,2669 ****
+X  If the death occurred on 30 Adar A, it is observed on 30 Shvat in a
+X  non-leapyear.
+X  .PP
+X! Specifying a Hebrew year for the \fIjahrflag\fR parameter causes the
+X! correct behaviour to be selected for a death in that year.
+X  .PP
+X  .SH MISCELLANEOUS
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X--- 2920,2933 ----
+X  If the death occurred on 30 Adar A, it is observed on 30 Shvat in a
+X  non-leapyear.
+X  .PP
+X! Specifying a Hebrew year for the \fIjahr\fR parameter causes the
+X! correct behaviour to be selected for a death in that year.  You may
+X! also have to specify \fIaflag\fR, depending on your tradition.
+X  .PP
+X+ The jahrzeit information was supplied by Frank Yellin, who quoted
+X+ "The Comprehensive Hebrew Calendar" by Arthur Spier, and "Calendrical
+X+ Calculations" by E. M. Reingold and Nachum Dershowitz.
+X+ .PP
+X  .SH MISCELLANEOUS
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X***************
+X*** 2840,2846 ****
+X--- 3104,3116 ----
+X  David F. Skoll
+X  .SH BUGS
+X  .PP
+X+ There's no good reason why read-only system variables are not
+X+ implemented as functions, or why functions like \fBversion()\fR, etc.
+X+ are not implemented as read-only system variables.
+X+ .PP
+X  Hebrew dates change at midnight, not sunset.
+X+ .PP
+X+ The UTC functions are not reliable under MS-DOS.
+X  .PP
+X  The MS-DOS and OS/2 versions of \fBRemind\fR do not support queuing or timed
+X  activation of reminders.
+X*** ../p6/test-rem	Thu Apr 22 10:24:17 1993
+X--- ./test-rem	Mon Jun 28 12:30:08 1993
+X***************
+X*** 11,17 ****
+X  # ---------------------------------------------------------------------------
+X  
+X  TEST_GETENV="foo bar baz" ; export TEST_GETENV
+X! ./remind -e -dxtev ./test.rem 16 feb 1991 > ./test.out
+X  cmp -s ./test.out ./test.cmp
+X  if [ "$?" = "0" ]; then
+X     echo "Remind:  Acceptance test PASSED"
+X--- 11,17 ----
+X  # ---------------------------------------------------------------------------
+X  
+X  TEST_GETENV="foo bar baz" ; export TEST_GETENV
+X! ./remind -e -dxte ./test.rem 16 feb 1991 > ./test.out
+X  cmp -s ./test.out ./test.cmp
+X  if [ "$?" = "0" ]; then
+X     echo "Remind:  Acceptance test PASSED"
+X*** ../p6/test.cmp	Fri Apr 23 12:59:58 1993
+X--- ./test.cmp	Mon Jun 28 12:30:09 1993
+X***************
+X*** 631,637 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.06"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 631,637 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.07"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 712,723 ****
+X  "foo" * 11:33 => Type mismatch
+X  ./test.rem(240): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X! 
+X      Variable  Value
+X  
+X          a017  29
+X          a036  "bar"
+X          a055  1
+X          a008  "11:44"
+X          a027  0
+X          a046  "ies"
+X--- 712,758 ----
+X  "foo" * 11:33 => Type mismatch
+X  ./test.rem(240): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X! set a074 dosubst("%a %b %c %d %e %f %g %h", '1992/5/5')
+X! dosubst("%a %b %c %d %e %f %g %h", 1992/05/05) => "on Tuesday, 5 May, 1992 in 444 days' tim"...
+X! msg [a074]%
+X! ./test.rem(242): Trig = Saturday, 16 February, 1991
+X! a074 => "on Tuesday, 5 May, 1992 in 444 days' tim"...
+X! on Tuesday, 5 May, 1992 in 444 days' time on Tuesday 5 on 05/05/1992 on 05/05/1992 on Tuesday, 5 May on 05/05
+X! set a075 dosubst("%i %j %k %l %m %n %o %p", '1992/5/5')
+X! dosubst("%i %j %k %l %m %n %o %p", 1992/05/05) => "on 05/05 on Tuesday, May 5th, 1992 on Tu"...
+X! msg [a075]%
+X! ./test.rem(244): Trig = Saturday, 16 February, 1991
+X! a075 => "on 05/05 on Tuesday, May 5th, 1992 on Tu"...
+X! on 05/05 on Tuesday, May 5th, 1992 on Tuesday, May 5th on 1992/05/05 May 5  s
+X! set a076 dosubst("%q %r %s %t %u %v %w %x", '1992/5/5')
+X! dosubst("%q %r %s %t %u %v %w %x", 1992/05/05) => "s' 05 th 05 on Tuesday, 5th May, 1992 on"...
+X! msg [a076]%
+X! ./test.rem(246): Trig = Saturday, 16 February, 1991
+X! a076 => "s' 05 th 05 on Tuesday, 5th May, 1992 on"...
+X! s' 05 th 05 on Tuesday, 5th May, 1992 on Tuesday, 5th May Tuesday 444
+X! set a077 dosubst("%y %z", '1992/5/5')
+X! dosubst("%y %z", 1992/05/05) => "1992 92
+X! "
+X! msg [a077]%
+X! ./test.rem(248): Trig = Saturday, 16 February, 1991
+X! a077 => "1992 92
+X! "
+X! 1992 92
+X! set a078 easterdate(today())
+X! today() => 1991/02/16
+X! easterdate(1991/02/16) => 1991/03/31
+X! set a079 easterdate(1992)
+X! easterdate(1992) => 1992/04/19
+X! set a080 easterdate(1995)
+X! easterdate(1995) => 1995/04/16
+X! set a081 ""
+X! dump
+X      Variable  Value
+X  
+X          a017  29
+X          a036  "bar"
+X          a055  1
+X+         a074  "on Tuesday, 5 May, 1992 in 444 days' tim"...
+X          a008  "11:44"
+X          a027  0
+X          a046  "ies"
+X***************
+X*** 725,730 ****
+X--- 760,766 ----
+X          a018  1
+X          a037  1991/02/15
+X          a056  "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X+         a075  "on 05/05 on Tuesday, May 5th, 1992 on Tu"...
+X          a028  1
+X          a047  -1
+X          a066  0
+X***************
+X*** 731,745 ****
+X          a019  0
+X          a038  33
+X          a057  "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X          a029  0
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.06"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X          a069  "TIME"
+X          a000  1
+X          a010  12
+X          a001  1
+X--- 767,786 ----
+X          a019  0
+X          a038  33
+X          a057  "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X+         a076  "s' 05 th 05 on Tuesday, 5th May, 1992 on"...
+X          a029  0
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.07"
+X!         a077  "1992 92
+X! "
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X+         a078  1991/03/31
+X          a069  "TIME"
+X+         a079  1992/04/19
+X          a000  1
+X          a010  12
+X          a001  1
+X***************
+X*** 762,767 ****
+X--- 803,809 ----
+X          a023  1
+X          a042  "4th"
+X          a061  1991
+X+         a080  1995/04/16
+X          a033  "foo"
+X          a052  03:07
+X          a071  2
+X***************
+X*** 769,774 ****
+X--- 811,817 ----
+X          a024  0
+X          a043  "UNIX"
+X          a062  -19
+X+         a081  ""
+X          a015  16
+X          a034  1991/02/17
+X          a053  1992/01/10
+X***************
+X*** 784,786 ****
+X--- 827,830 ----
+X          a026  7
+X          a045  "iess"
+X          a064  1
+X+ 
+X*** ../p6/test.rem	Thu Apr 22 10:24:19 1993
+X--- ./test.rem	Mon Jun 28 12:30:07 1993
+X***************
+X*** 238,240 ****
+X--- 238,253 ----
+X  set a071 g(1, 2)
+X  set a072 h(2, 3)
+X  set a073 h("foo", 11:33)
+X+ set a074 dosubst("%a %b %c %d %e %f %g %h", '1992/5/5')
+X+ msg [a074]%
+X+ set a075 dosubst("%i %j %k %l %m %n %o %p", '1992/5/5')
+X+ msg [a075]%
+X+ set a076 dosubst("%q %r %s %t %u %v %w %x", '1992/5/5')
+X+ msg [a076]%
+X+ set a077 dosubst("%y %z", '1992/5/5')
+X+ msg [a077]%
+X+ set a078 easterdate(today())
+X+ set a079 easterdate(1992)
+X+ set a080 easterdate(1995)
+X+ set a081 ""
+X+ dump
+X*** ../p6/trigger.c	Thu Apr 22 10:24:20 1993
+X--- ./trigger.c	Mon Jun 28 12:29:57 1993
+X***************
+X*** 143,149 ****
+X  	    if (JMonth(j) == trig->m) return j;
+X  	 }
+X  	 if (m >= trig->m) j = Julian(y+1, trig->m, 1);
+X! 	 else if (m < trig->m) j = Julian(y, trig->m, 1);
+X  	 while(! (trig->wd & (1 << (j%7)))) j++;
+X  	 return j; /* Guaranteed to be within the month */
+X  
+X--- 143,149 ----
+X  	    if (JMonth(j) == trig->m) return j;
+X  	 }
+X  	 if (m >= trig->m) j = Julian(y+1, trig->m, 1);
+X! 	 else j = Julian(y, trig->m, 1);
+X  	 while(! (trig->wd & (1 << (j%7)))) j++;
+X  	 return j; /* Guaranteed to be within the month */
+X  
+X*** ../p6/userfns.c	Thu Apr 22 10:24:21 1993
+X--- ./userfns.c	Mon Jun 28 12:38:47 1993
+X***************
+X*** 75,80 ****
+X--- 75,81 ----
+X  
+X     /* Get the function name */
+X     if ( (r=ParseIdentifier(p, TokBuffer)) ) return r;
+X+    if (*TokBuffer == '$') return E_BAD_ID;
+X  
+X     /* Should be followed by '(' */
+X     c = ParseNonSpaceChar(p, &r, 0);
+X***************
+X*** 108,113 ****
+X--- 109,115 ----
+X     else {
+X        while(1) {
+X  	 if ( (r=ParseIdentifier(p, TokBuffer)) ) return r;
+X+          if (*TokBuffer == '$') return E_BAD_ID;
+X  	 v = NEW(Var);
+X  	 func->nargs++;
+X  	 v->v.type = ERR_TYPE;
+X***************
+X*** 211,217 ****
+X     cur = FuncHash[h];
+X     prev = NULL;
+X     while(cur) {
+X!       if (StrinEq(name, cur->name, VAR_NAME_LEN)) break;
+X        prev = cur;
+X        cur = cur->next;
+X     }
+X--- 213,219 ----
+X     cur = FuncHash[h];
+X     prev = NULL;
+X     while(cur) {
+X!       if (! StrinCmp(name, cur->name, VAR_NAME_LEN)) break;
+X        prev = cur;
+X        cur = cur->next;
+X     }
+X***************
+X*** 261,267 ****
+X  
+X     /* Search for the function */
+X     f = FuncHash[h];
+X!    while (f && !StrinEq(name, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) {
+X        Eprint("Undefined function '%s'", name);
+X        return E_UNDEF_FUNC;
+X--- 263,269 ----
+X  
+X     /* Search for the function */
+X     f = FuncHash[h];
+X!    while (f && StrinCmp(name, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) {
+X        Eprint("Undefined function '%s'", name);
+X        return E_UNDEF_FUNC;
+X***************
+X*** 391,397 ****
+X     int h = HashVal(fn) % FUNC_HASH_SIZE;
+X  
+X     f = FuncHash[h];
+X!    while (f && !StrinEq(fn, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) return -1;
+X     else return f->nargs;
+X  }
+X--- 393,399 ----
+X     int h = HashVal(fn) % FUNC_HASH_SIZE;
+X  
+X     f = FuncHash[h];
+X!    while (f && StrinCmp(fn, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) return -1;
+X     else return f->nargs;
+X  }
+X*** ../p6/utils.c	Thu Apr 22 10:24:22 1993
+X--- ./utils.c	Mon Jun 28 12:37:05 1993
+X***************
+X*** 25,94 ****
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X- /*  StrEq                                                      */
+X- /*                                                             */
+X- /*  Are two strings equal?                                     */
+X- /*                                                             */
+X- /***************************************************************/
+X- #ifdef HAVE_PROTOS
+X- PUBLIC int StrEq(const char *s1, const char *s2)
+X- #else
+X- int StrEq(s1, s2)
+X- char *s1, *s2;
+X- #endif
+X- {
+X-    while (*s1 && *s2) {
+X-       if (*s1++ != *s2++) return 0;
+X-    }
+X-    if (*s1 || *s2) return 0 ; else return 1;
+X- }
+X- 
+X- /***************************************************************/
+X- /*                                                             */
+X- /*  StriEq                                                     */
+X- /*                                                             */
+X- /*  Are two strings equal, ignoring case?                      */
+X- /*                                                             */
+X- /***************************************************************/
+X- #ifdef HAVE_PROTOS
+X- PUBLIC int StriEq(const char *s1, const char *s2)
+X- #else
+X- int StriEq(s1, s2)
+X- char *s1, *s2;
+X- #endif
+X- {
+X-    while (*s1 && *s2) {
+X-       if (UPPER(*s1) != UPPER(*s2)) return 0;
+X-       s1++;
+X-       s2++;
+X-    }
+X-    if (*s1 || *s2) return 0 ; else return 1;
+X- }
+X- 
+X- /***************************************************************/
+X- /*                                                             */
+X- /*  StrinEq                                                    */
+X- /*  Are two strings equal to a given number of chars?          */
+X- /*                                                             */
+X- /***************************************************************/
+X- #ifdef HAVE_PROTOS
+X- PUBLIC int StrinEq(const char *s1, const char *s2, int n)
+X- #else
+X- int StrinEq(s1, s2, n)
+X- char *s1, *s2;
+X- int n;
+X- #endif
+X- {
+X-    while (*s1 && *s2 && n--) {
+X-       if (UPPER(*s1) != UPPER(*s2)) return 0;
+X-       s1++;
+X-       s2++;
+X-    }
+X-    if (n && (*s1 || *s2)) return 0 ; else return 1;
+X- }
+X- 
+X- /***************************************************************/
+X- /*                                                             */
+X  /*  StrnCpy                                                    */
+X  /*                                                             */
+X  /*  Just like strncpy EXCEPT we ALWAYS copy the trailing 0.    */
+X--- 25,30 ----
+X***************
+X*** 128,134 ****
+X  {
+X     int l;
+X     if ((l = strlen(s1)) < n) return 0;
+X!    return StrinEq(s1, s2, l);
+X  }
+X  
+X  /***************************************************************/
+X--- 64,70 ----
+X  {
+X     int l;
+X     if ((l = strlen(s1)) < n) return 0;
+X!    return !StrinCmp(s1, s2, l);
+X  }
+X  
+X  /***************************************************************/
+X*** ../p6/var.c	Thu Apr 22 10:24:22 1993
+X--- ./var.c	Mon Jul 19 10:58:54 1993
+X***************
+X*** 81,87 ****
+X     prev = NULL;
+X  
+X     while(v) {
+X!       if (StrinEq(str, v->name, VAR_NAME_LEN)) return v;
+X        prev = v;
+X        v = v-> next;
+X     }
+X--- 81,87 ----
+X     prev = NULL;
+X  
+X     while(v) {
+X!       if (! StrinCmp(str, v->name, VAR_NAME_LEN)) return v;
+X        prev = v;
+X        v = v-> next;
+X     }
+X***************
+X*** 123,129 ****
+X     prev = NULL;
+X  
+X     while(v) {
+X!       if (StrinEq(str, v->name, VAR_NAME_LEN)) break;
+X        prev = v;
+X        v = v-> next;
+X     }
+X--- 123,129 ----
+X     prev = NULL;
+X  
+X     while(v) {
+X!       if (! StrinCmp(str, v->name, VAR_NAME_LEN)) break;
+X        prev = v;
+X        v = v-> next;
+X     }
+X***************
+X*** 179,185 ****
+X     /* Try searching local variables first */
+X     v = locals;
+X     while (v) {
+X!       if (StrinEq(str, v->name, VAR_NAME_LEN))
+X  	 return CopyValue(val, &v->v);
+X        v = v->next;
+X     }
+X--- 179,185 ----
+X     /* Try searching local variables first */
+X     v = locals;
+X     while (v) {
+X!       if (! StrinCmp(str, v->name, VAR_NAME_LEN))
+X  	 return CopyValue(val, &v->v);
+X        v = v->next;
+X     }
+X***************
+X*** 214,222 ****
+X     r = EvaluateExpr(p, &v);
+X     if (r) return r;
+X  
+X!    r = SetVar(TokBuffer, &v);
+X! 
+X!    return r;
+X  }
+X  
+X  /***************************************************************/
+X--- 214,224 ----
+X     r = EvaluateExpr(p, &v);
+X     if (r) return r;
+X  
+X!    if (*TokBuffer == '$') {
+X!       if (v.type != INT_TYPE) return E_BAD_TYPE;
+X!       return SetSysVar(TokBuffer+1, v.v.val);
+X!    }
+X!    return SetVar(TokBuffer, &v);
+X  }
+X  
+X  /***************************************************************/
+X***************
+X*** 273,285 ****
+X     }
+X     fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X     while(1) {
+X!       v = FindVar(TokBuffer, 0);
+X!       TokBuffer[VAR_NAME_LEN] = 0;
+X!       if (!v) fprintf(ErrFp, "%*s  *UNDEFINED*\n", VAR_NAME_LEN, TokBuffer);
+X!       else {
+X!          fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X!          PrintValue(&(v->v), ErrFp);
+X! 	 fprintf(ErrFp, "\n");
+X        }
+X        r = ParseToken(p, TokBuffer);
+X        if (r) return r;
+X--- 275,291 ----
+X     }
+X     fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X     while(1) {
+X!       if (*TokBuffer == '$') {
+X!          DumpSysVarByName(TokBuffer+1);
+X!       } else {
+X!          v = FindVar(TokBuffer, 0);
+X!          TokBuffer[VAR_NAME_LEN] = 0;
+X!          if (!v) fprintf(ErrFp, "%*s  *UNDEFINED*\n", VAR_NAME_LEN, TokBuffer);
+X!          else {
+X!             fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X!             PrintValue(&(v->v), ErrFp);
+X!             fprintf(ErrFp, "\n");
+X!          }
+X        }
+X        r = ParseToken(p, TokBuffer);
+X        if (r) return r;
+X***************
+X*** 405,409 ****
+X--- 411,611 ----
+X        r = PreserveVar(TokBuffer);
+X        if (r) return r;
+X     }
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  SYSTEM VARIABLES                                           */
+X+ /*                                                             */
+X+ /*  Interface for modifying and reading system variables.      */
+X+ /*                                                             */
+X+ /*  All system variables are of type "INT".                    */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ 
+X+ /* The structure of a system variable */
+X+ typedef struct {
+X+    char *name;
+X+    char modifiable;
+X+    int *value;   
+X+    int min;
+X+    int max;
+X+ } SysVar;
+X+ 
+X+ #define NO_CONSTRAINT 4532
+X+ /* All of the system variables sorted alphabetically */
+X+ static SysVar SysVarArr[] = {
+X+        /* name		  modifiable	value		min	max */
+X+    {   "CalcUTC",	  1,		&CalculateUTC,	0,	1   },
+X+    {   "CalMode",	  0,		&DoCalendar,	0,	0   },
+X+    {   "Daemon",	  0,		&Daemon,	0,	0   },
+X+    {   "DontFork",	  0,		&DontFork,	0,	0   },
+X+    {   "DontQueue",	  0,		&DontQueue,	0,	0   },
+X+    {   "DontTrigAts",	  0,		&DontIssueAts,	0,	0   },
+X+    {   "FoldYear",	  1,		&FoldYear,	0,	1   },
+X+    {   "HushMode",	  0,		&Hush,		0,	0   },
+X+    {   "IgnoreOnce",	  0,		&IgnoreOnce,	0,	0   },
+X+    {   "InfDelta",	  0,		&InfiniteDelta,	0,	0   },
+X+    {   "LatDeg",	  1,		&LatDeg,	-90,	90  },
+X+    {   "LatMin",	  1,		&LatMin,	-59,	59  },
+X+    {   "LatSec",	  1,		&LatSec,	-59,	59  },
+X+    {   "LongDeg",	  1,		&LongDeg,	-180,	180  },
+X+    {   "LongMin",	  1,		&LongMin,	-59,	59  },
+X+    {   "LongSec",	  1,		&LongSec,	-59,	59  },
+X+    {   "MaxSatIter",	  1,		&MaxSatIter,	10,	NO_CONSTRAINT },
+X+    {   "MinsFromUTC",	  1,		&MinsFromUTC,	-13*60,	13*60 },
+X+    {   "NextMode",	  0,		&NextMode,	0,	0   },
+X+    {   "NumQueued",	  0,		&NumQueued,	0,	0   },
+X+    {   "NumTrig",	  0,		&NumTriggered,	0,	0   },
+X+    {   "PSCal",		  0,		&PsCal,		0,	0   },
+X+    {   "RunOff",	  0,		&RunDisabled,	0,	0   },
+X+    {   "SimpleCal",	  0,		&DoSimpleCalendar,	0,  0 }
+X+ };
+X+ 
+X+ #define NUMSYSVARS ( sizeof(SysVarArr) / sizeof(SysVar) )
+X+ PRIVATE SysVar *FindSysVar ARGS((const char *name));
+X+ PRIVATE void DumpSysVar ARGS((const char *name, const SysVar *v));
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  SetSysVar                                                  */
+X+ /*                                                             */
+X+ /*  Set a system variable to the indicated value.              */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int SetSysVar(const char *name, int value)
+X+ #else
+X+ int SetSysVar(name, value)
+X+ char *name;
+X+ int value;
+X+ #endif
+X+ {
+X+    SysVar *v = FindSysVar(name);
+X+    if (!v) return E_NOSUCH_VAR;
+X+    if (!v->modifiable) {
+X+       Eprint("Cannot modify system variable '$%s'", name);
+X+       return E_CANT_MODIFY;
+X+    }
+X+    if (v->max != NO_CONSTRAINT && value > v->max) return E_2HIGH;
+X+    if (v->min != NO_CONSTRAINT && value < v->min) return E_2LOW;
+X+    *(v->value) = value;
+X+    return OK;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  GetSysVar                                                  */
+X+ /*                                                             */
+X+ /*  Get the value of a system variable                         */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int GetSysVar(const char *name, Value *val)
+X+ #else
+X+ int GetSysVar(name, val)
+X+ char *name;
+X+ Value *val;
+X+ #endif
+X+ {
+X+    SysVar *v = FindSysVar(name);
+X+ 
+X+    val->type = INT_TYPE;
+X+    val->v.val = 0;
+X+    if (!v) return E_NOSUCH_VAR;
+X+    val->v.val = *(v->value);
+X+    return OK;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /* FindSysVar                                                  */
+X+ /*                                                             */
+X+ /* Find a system var with specified name.                      */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE SysVar *FindSysVar(const char *name)
+X+ #else
+X+ static SysVar *FindSysVar(name)
+X+ char *name;
+X+ #endif
+X+ {
+X+    int top=NUMSYSVARS-1, bottom=0;
+X+    int mid=(top + bottom) / 2;
+X+    int r;
+X+ 
+X+    while (top >= bottom) {
+X+       r = StrCmpi(name, SysVarArr[mid].name);
+X+       if (!r) return &SysVarArr[mid];
+X+       else if (r>0) bottom = mid+1;
+X+       else	    top = mid-1;
+X+       mid = (top+bottom) / 2;
+X+    }
+X+    return NULL;
+X+ }
+X+    
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  DumpSysVarByName                                           */
+X+ /*                                                             */
+X+ /*  Given the name of a system variable, display it.           */
+X+ /*  If name is "", dump all system variables.                  */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC void DumpSysVarByName(const char *name)
+X+ #else
+X+ void DumpSysVarByName(name)
+X+ char *name;
+X+ #endif
+X+ {
+X+    int i;
+X+    SysVar *v;
+X+ 
+X+    if (!name || !*name) {
+X+       for (i=0; i<NUMSYSVARS; i++) DumpSysVar(name, SysVarArr + i);
+X+       return;
+X+    }
+X+    
+X+    v = FindSysVar(name);
+X+    DumpSysVar(name, v);
+X+    return;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  DumpSysVar                                                 */
+X+ /*                                                             */
+X+ /*  Dump the system variable.                                  */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE void DumpSysVar(const char *name, const SysVar *v)
+X+ #else
+X+ static void DumpSysVar(name, v)
+X+ char *name;
+X+ SysVar *v;
+X+ #endif
+X+ {
+X+    char buffer[VAR_NAME_LEN+10];
+X+ 
+X+    if (name && !*name) name=NULL;
+X+    if (!v && !name) return;  /* Shouldn't happen... */
+X+    
+X+    buffer[0]='$'; buffer[1] = 0;
+X+    if (name) strcat(buffer, name); else strcat(buffer, v->name);
+X+    fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, buffer);
+X+    if (v) {
+X+       if (!v->modifiable) fprintf(ErrFp, "%d\n", *v->value);
+X+       else {
+X+          fprintf(ErrFp, "%-10d  Allowed range: ", *v->value);
+X+ 	 if (v->min == NO_CONSTRAINT) fprintf(ErrFp, "(-Inf, ");
+X+ 	 else                         fprintf(ErrFp, "[%d, ", v->min);
+X+ 	 if (v->max == NO_CONSTRAINT) fprintf(ErrFp, "Inf)\n");
+X+ 	 else                         fprintf(ErrFp, "%d]\n", v->max);
+X+       }
+X+    } else   fprintf(ErrFp, "*UNDEFINED*\n");
+X+ 
+X+    return;
+X  }
+X  
+END_OF_FILE
+  if test 47360 -ne `wc -c <'patch.07.C'`; then
+    echo shar: \"'patch.07.C'\" unpacked with wrong size!
+  elif test -f 'patch.07.A' && test -f 'patch.07.B'; then
+    echo shar: Combining  \"'patch.07'\" \(117693 characters\)
+    cat 'patch.07.A' 'patch.07.B' 'patch.07.C' > 'patch.07'
+    if test 117693 -ne `wc -c <'patch.07'`; then
+      echo shar: \"'patch.07'\" combined with wrong size!
+    else
+      rm patch.07.A patch.07.B patch.07.C
+    fi
+  fi
+  # end of 'patch.07.C'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

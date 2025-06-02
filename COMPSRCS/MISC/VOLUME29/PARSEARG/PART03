@@ -1,0 +1,2253 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i118:  parseargs - functions to parse command line arguments, Part03/10
+Message-ID: <1992May17.182317.28636@sparky.imd.sterling.com>
+X-Md4-Signature: 1fcf04e7ebe1ade2be1e35eed3760767
+Date: Sun, 17 May 1992 18:23:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 118
+Archive-name: parseargs/part03
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 10)."
+# Contents:  arglist.c doc/argtype.man3 doc/parseflags.inc
+#   doc/sh_arrays.inc parseargs.awk patchlevel.h syserr.c test.awk
+#   vprintf.c winsize.c
+# Wrapped by brad@hcx1 on Thu May  7 12:12:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'arglist.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'arglist.c'\"
+else
+echo shar: Extracting \"'arglist.c'\" \(6159 characters\)
+sed "s/^X//" >'arglist.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: arglist.c - argList manipulation routines.
+X**
+X** ^DESCRIPTION:
+X**    This file contains routines to add an item to the end of an arglist,
+X**    and to delete all items in an arglist.
+X**
+X** ^HISTORY:
+X**    27/08/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**       - Use get_argpfx() when accessing arg_sname().
+X**
+X**    01/02/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**       - Added structured comments
+X**       - Changed arglists to always be kept in FIFO order (hence
+X**         reverse_list() and cleanup_list() were no longer needed).
+X**         The lists are maintained in FIFO order by forcing the very
+X**         first item of the list to maintain an additional link to the
+X**         last item of the list (to make it easy to append an item).
+X**       - Added listFree() function
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>	Created
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X
+X#define  PARSEARGS_NARGTYPES  /* exclude arg-type externs */
+X#include "parseargs.h"
+X
+XEXTERN  VOID    syserr  ARGS((const char *, ...));
+XEXTERN  VOID    usrerr  ARGS((const char *, ...));
+X
+X/***************************************************************************
+X** ^FUNCTION: listStr - string-list argument translation routine
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   BOOL listStr( ad, vp, copyf )
+X/*  
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *ad;
+X/*    -- the argument descriptor for this parameter.
+X*/
+X   char *vp;
+X/*    -- a pointer to the string input value.
+X*/
+X   BOOL copyf;
+X/*    -- if TRUE, the value will be destroyed later, and so should
+X**       be copied if it will be retained (as for a string).
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    ListStr converts a string-parameter value into its internal form,
+X**    including validity checking. If <copyf> is TRUE then <vp> is copied
+X**    to the end of the list, otherwise <vp> itself is placed at the end.
+X**
+X** ^REQUIREMENTS:
+X**    <ad> must point to the argdesc element corresponding to the matched
+X**    string-list argument. The ad_valp field of ad MUST be either NULL or
+X**    point to a valid arglist-head structure.
+X**
+X** ^SIDE-EFFECTS:
+X**    If successful, arglist pointed to by arg_valp(ad) is appended with
+X**    the given string, <vp> is unchanged.
+X**
+X** ^RETURN-VALUE:
+X**    TRUE -- if the conversion was successful.  The actual
+X**            value should be added appended to the list.
+X**    FALSE -- if the conversion failed.  The reason for failure
+X**             should be diagnosed using usrerr().
+X**
+X** ^ALGORITHM:
+X**    - verify the validity of <vp> as a string argument
+X**    - if ( isEmpty(arglist) )
+X**       - allocate a listhead structure
+X**       - assign the item pointer to <vp> (or a copy of <vp>)
+X**       - assign the NEXT and LAST elements to NULL
+X**    - else
+X**       - allocate a new arglist structure and append it after
+X**         listhead.LAST
+X**       - assign listhead.LAST to the address of the new item
+X**       - assign the NEXT element of the new item to NULL
+X**      end-if
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   BOOL listStr( ARGDESC *ad, char *vp, BOOL copyf )
+X#endif
+X{
+X   char *cp;
+X   BOOL  badalloc = FALSE;
+X   argName_t   argname;
+X   ArgListHead *nl;
+X   ArgList *nd;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X   if (copyf) {
+X      register int i;
+X
+X      i = strlen(vp) + 1;
+X      cp = (char *) malloc(i * sizeof(char));
+X      if(!cp) {
+X         usrerr("out of memory saving string %s", argname );
+X         return FALSE;
+X      }
+X      memcpy(cp, vp, i);
+X   }
+X   else {
+X      cp = vp;
+X   }
+X
+X      /* if list is empty - need to new up a listhead,
+X      ** otherwise just use a normal link.
+X      */
+X   nl = *((ArgListHead **) arg_valp(ad));
+X   if ( nl ) {
+X      nd = (ArgList *) malloc( sizeof(ArgList) );
+X      if ( !nd )  badalloc = TRUE;
+X   }
+X   else {
+X      nl = (ArgListHead *) malloc( sizeof(ArgListHead) );
+X      nd = (ArgList *)NULL;
+X      if ( !nl )  badalloc = TRUE;
+X   }
+X
+X   if ( badalloc ) {
+X      usrerr("out of memory saving arg %.*s", get_argpfx(arg_sname(ad)),
+X                                              arg_sname(ad));
+X      if(copyf) free(cp);
+X      return FALSE;
+X   }
+X
+X   if ( nd ) {
+X      nl -> nl_tail -> nl_next = (ArgList *)nd;
+X      nl -> nl_tail  = (ArgList *)nd;
+X      nd -> nl_next  = (ArgList *)NULL;
+X      nd -> nl_val   = (ARBPTR)cp;
+X      nd -> nl_flags = arg_flags(ad);
+X      if ( copyf )  BSET( nd->nl_flags, ARGCOPYF );
+X   }
+X   else {
+X      *((ArgListHead **) arg_valp(ad)) = nl;
+X      nl -> nl_tail  = (ArgList *)nl;
+X      nl -> nl_next  = (ArgList *)NULL;
+X      nl -> nl_val   = (ARBPTR)cp;
+X      nl -> nl_flags = arg_flags(ad);
+X      if ( copyf )  BSET( nl->nl_flags, ARGCOPYF );
+X   }
+X
+X   return (TRUE);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: listFree - free the items in an arglist
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID listFree( argls )
+X/*  
+X** ^PARAMETERS:
+X*/
+X   ArgList *argls;
+X/*    -- the list to be freed
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    ListFree will free storage for each node in <argls>. Furthermore,
+X**    if <copyf> is true then the actual storage for each item in the
+X**    list is also released.
+X**
+X** ^REQUIREMENTS:
+X**    argls must point to a valid arglist-head structure.
+X**
+X** ^SIDE-EFFECTS:
+X**    each item in argls is removed, argls itself should be set to NULL
+X**    after this routine is invoked.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - For each node in argls
+X**       - if ( copyf ) free the item storage
+X**       - free the node
+X**      end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void listFree( ArgList *argls )
+X#endif
+X{
+X   register  ArgList *ls = argls;
+X   ArgList  *nd;
+X
+X   if ( !ls )  return;
+X
+X   while ( ls ) {
+X      nd = L_NEXT(ls);
+X      if ( BTEST(L_FLAGS(ls), ARGCOPYF) )  free( ls->nl_val );
+X      free( ls );
+X      ls = nd;
+X   }/*while*/
+X}
+X
+END_OF_FILE
+if test 6159 -ne `wc -c <'arglist.c'`; then
+    echo shar: \"'arglist.c'\" unpacked with wrong size!
+fi
+# end of 'arglist.c'
+fi
+if test -f 'doc/argtype.man3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/argtype.man3'\"
+else
+echo shar: Extracting \"'doc/argtype.man3'\" \(7369 characters\)
+sed "s/^X//" >'doc/argtype.man3' <<'END_OF_FILE'
+X.\" $Header: argtype.3,v 1.0 90/11/17 11:34:06 brad Exp $
+X.TH ARGTYPE 3
+X.SH NAME
+Xargtype \- argument type functions used by parseargs(3)
+X.SH SYNOPSIS
+X#include <parseargs.h>
+X.PP
+X.nf
+X\s-1BOOL\s+1  argUsage(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argEnd(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argDummy(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argBool(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argSBool(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argUBool(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argTBool(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argChar(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argStr(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argInt(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argShort(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argLong(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argFloat(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  argDouble(  argdesc,  argstr,  copyf  );
+X\s-1BOOL\s+1  listStr(  argdesc,  argstr,  copyf  );
+X\s-1void\s+1  listFree(  arglist  );
+X\s-1void\s+1  vecFree(  argvec, type  );
+X\s-1void\s+1  vecDeepFree(  argvec, type  );
+X
+X\s-1ARGDESC\s+1  *argdesc;
+Xchar  *argstr;
+X\s-1BOOL\s+1  copyf;
+XArgList  *arglist;
+X.fi
+X.SH "DESCRIPTION"
+X.PP
+XEach of these converts a parameter value to the internal form,
+Xincluding validity checking.  Their parameters and return values
+Xall behave similarly. One of these routines is called when an
+Xargument of that particular type is matched by one of the argument
+Xparsing function in \fIparseargs\fP(3). When such an argument is matched,
+Xits argument translation routine is invoked and is passed (1) the address of
+Xthe argument descriptor for the matched argument, (2) the possible argument
+Xstring for that matched argument, and (3) a boolean field that is \s-1TRUE\s+1
+Xonly if the second parameter points to temporary storage (indicating that
+Xsome copying may need to be done instead of just pointing to the same object).
+X
+XOnce the argument translation routine is invoked, it is responsible for
+Xconverting the argument string to the desired internal form (perhaps a number),
+Xand assigning the resultant value to the \fIarg_valp(ad)\fP field of the
+Xargument descriptor (this includes handling any necessary (re)allocation if
+Xthe matched argument has the \s-1ARGVEC\s+1 flag enabled). If the argument is
+Xan \s-1ARGVEC\s+1 or \s-1ARGLIST\s+1 then the routine is responsible for
+Xallocating any space, copying the arg-flags to the value-specific flags, and
+Xsetting the \s-1ARGCOPYF\s+1 flag for the value if it needs to be allocated
+Xas well.
+X
+X.SH "RETURN VALUE"
+X.IP "TRUE" 8
+XThe conversion was successful and the entire value was used.
+X
+X.IP "FALSE" 8
+XThe conversion failed.  The reason for failure should be
+Xdiagnosed using \fIusrerr\fP(3).
+X
+X.IP "-\fIN\fP" 8
+XThe conversion was successful but only \fIN\fP characters of the value
+Xwere used, the remaining characters may still match other arguments.
+X
+X.SH "PSEUDO-TYPES: argUsage, argDummy, argEnd"
+X.PP
+X.I ArgUsage
+Xis used to specify an argument that causes the command usage to be printed.
+X
+X.I ArgDummy
+Xis used to force an item to show up in usage-messages but
+Xthe item itself is never matched against any arguments from the
+Xcommand-line.
+X
+X.I ArgEnd
+Xis used by Amiga style command-lines to indicate an argument
+Xthat forces all remaining arguments to be considered positional args.
+X
+XThese three are dummy functions. The routines themselves do nothing
+Xof importance, we just need to have their addresses available for
+Xidentification in the corresponding command-line styles.
+X.SH "STRING-TYPES: argStr"
+X.PP
+X\fIArgStr\fP is one of the few argument translation routines that actually
+Xuses the \fIcopyf\fP flag. If \fIcopyf\fP is true then the string is
+Xduplicated.
+X
+X\fIArgStr\fP assigns the given string (or a copy of it) to the value
+Xreferenced by \fIarg_valp(ad)\fP (unless the argument is a vector in which
+Xcase the given string is appended to the end).
+X
+X\fIArgStr\fP ensures that the very last item in a vector of strings (the one
+Xaccessed as \f4vec.array[ vec.count ]\fP) will always be \s-1NULL\s+1.
+X.SH "CHARACTER-TYPES: argChar"
+X.PP
+X.I ArgChar
+Xassigns the given character to the value referenced by \fIarg_valp(ad)\fP
+X(unless the argument is a vector in which case the given character
+Xis appended to the end).
+X
+X.I ArgChar
+Xensures that the very last item in a vector of character (the one
+Xaccessed as \f4vec.array[ vec.count ]\fP) will always be a \s-1NULL\s+1
+Xbyte so that the resulting vector may also be used as a \s-1NULL\s+1
+Xterminated string.
+X
+XUnlike \fIargStr\fP, \fIargChar\fP will translate character escape sequences
+Xsuch as `\\n' and `\\012'.
+X.SH "INTEGER-TYPES: argInt, argShort, argLong"
+X.PP
+XEach of these functions converts the given string to the desired
+Xintegral type. The value may be specified as an octal number by
+Xspecifying the first digit to be 0. Similarly, If the first two 
+Xcharacters are `0x' then the number is treated as hexadecimal.
+X.SH "FLOATING-POINT-TYPES: argFloat, argDouble"
+X.PP
+XEach of these functions converts the given string to the desired
+Xfloating-point type.
+X.SH "BOOLEAN-TYPES: argBool, argSBool, argTBool, argUBool"
+X.PP
+X\fIArgBool\fP and \fIargSBool\fP set a boolean value (if no value is given).
+X\fIArgUBool\fP unsets a boolean value (if no value is given). \fIArgTBool\fP
+Xtoggles a boolean value (if no value is given). If a value is
+Xsupplied to any of these routines, then the string is looked up
+Xin a table and assigned the corresponding value.
+X
+XIf a value is supplied for an argument that was matched via its
+Xsingle character name and is part of the same \f4argv\fP element as the
+Xargument-name (so that both \fBARGKEYWORD\fP and \fBARGVALSEP\fP
+Xare not set),
+Xthen only the first character of the value is used (unless it is
+Xnot found in our table, in which case the value is ignored and the
+Xdefault action is taken). The table used for single-character-options
+Xis the following:
+X.IP "`0' or `-'"
+XThe corresponding boolean flag is set to \s-1FALSE\s+1.
+X.IP "`1' or `+'"
+XThe corresponding boolean flag is set to \s-1TRUE\s+1.
+X.IP "`^' or `~'"
+XThe corresponding boolean flag is toggled.
+X.PP
+XThe possible argument strings for long-options (keywords) are as follows
+X(case-insensitive):
+X.IP "``0'', ``-'', ``OFF'', or ``FALSE''"
+XThe corresponding boolean flag is set to \s-1FALSE\s+1.
+X.IP "``1'', ``+'', ``ON'', or ``TRUE''"
+XThe corresponding boolean flag is set to \s-1TRUE\s+1.
+X.SH "LIST TYPES: listStr"
+X.PP
+XThe \fIlistStr\fP argument translation routine is only intended for use
+Xon behalf of arguments that have the \s-1ARGLIST\s+1 flag enabled. It will
+Xallocate space for a new node (and for the new string if \fIcopyf\fP is
+Xset) and append it to the end of the list. The argument-list may later
+Xbe deallocated by invoking the function \fIlistFree\fP and passing it
+Xthe address of the first item in the list.
+X
+X.PP
+X\fIVecFree\fP is a macro that is used to deallocate argument-vectors.
+XIt will free the array and flags fields of a vector, set them to
+X\s-1NULL\s+1, and set the count field to zero. \fIVecDeepFree\fP is
+Xa macro that is similar to \fIvecFree\fP but will additionally look
+Xat each item in the array; any component of the array that had
+X\s-1ARGCOPYF\s+1 enabled will also be deallocated.
+XBoth macros are given the vector structure to free followed by the
+Xtype of the items in the vector.
+X.SH SEE ALSO
+X.IR parseargs (3),
+X.IR parseargs (1),
+X.IR parsecntl (3)
+END_OF_FILE
+if test 7369 -ne `wc -c <'doc/argtype.man3'`; then
+    echo shar: \"'doc/argtype.man3'\" unpacked with wrong size!
+fi
+# end of 'doc/argtype.man3'
+fi
+if test -f 'doc/parseflags.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/parseflags.inc'\"
+else
+echo shar: Extracting \"'doc/parseflags.inc'\" \(5352 characters\)
+sed "s/^X//" >'doc/parseflags.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s PARSE-FLAGS ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH "PARSE FLAGS"
+X.PP
+XThe following bitmasks may be combined in order to modify the
+Xbehavior of the \fIparseargs\fP library. The parse flags for a given
+Xmay be set through the use of the \fIparsecntl\fP(3) function.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1PROMPT\s+1\fP"
+XPrompt the user for any missing arguments that are required on the
+Xcommand-line. No special escaping or quoting is performed on the
+Xuser input. Required arguments that expect a list of values will
+Xbe repeatedly prompted for (one item per line) until a blank line
+X(followed by a carriage return) is entered.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1IGNORE\s+1\fP"
+XIgnore any unrecognized or improperly specified command-line arguments
+Xand continue execution of the program. Normally, if a required argument is
+Xunmatched (or an argument is improperly specified), a usage message is printed
+Xprogram execution is terminated.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1OPTSONLY\s+1\fP"
+XUnder \s-1UNIX\s+1, setting this flag will disable the parsing of long-option
+Xsyntax. This will cause all arguments starting with `+' to always be
+Xtreated as a positional parameter (instead of a long-option).
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1KWDSONLY\s+1\fP"
+XUnder \s-1UNIX\s+1, setting this flag disables the parsing of single-character
+Xoptions.  This will cause all arguments starting with `\-' to always
+Xbe treated as a positional parameter (instead of an option).
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1FLAGS1ST\s+1\fP"
+XSetting this flag causes the parseargs library to force any and all
+Xnon-positional arguments to be specified before any positional ones.
+XAs an example, under \s-1UNIX\s+1, if this flag is \s-1SET\s+1 then
+X.I parseargs
+Xwill consider the command line "\fBcmd \-x\fI arg\fR" to consist of one
+Xoption and one positional argument; however the command line
+X"\fBcmd\fI arg -x\fR" would be considered to consist of two positional
+Xarguments (the \fB\-x\fP option will be unmatched).
+X
+XIf this flag is \s-1UNSET\s+1, then both of the previous examples are
+Xconsidered to consist of one option and one positional argument.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1ANYCASE\s+1\fP"
+XSetting this flag will cause character-case to be ignored when attempting
+Xto match single-character argument names (i.e. causes "\fB\-i\fP" and
+X"\fB\-I\fP" to be considered equivalent).
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1ARGV0\s+1\fP"
+XNormally, the \fIparseargs\fP library will assume that the first argument
+Xon the command-line is the name of the command. Setting this flag tells
+X\fIparseargs\fP that this is \s-1NOT\s+1 the case and that the very first
+Xargument on the command-line is a bona-fide argument to the command.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1NOCHECK\s+1\fP"
+XSetting this flag will prevent \fIparseargs\fP from checking for any 
+Xrequired arguments that were not given on the command-line. This
+Xis useful when more than one call to the \fIparseargs\fP library is needed
+Xto parse all the command-line arguments (which could occur if the
+Xcommand-line argument came from a file or from two \f4argv\fP-vectors).
+XWhen this flag is set, then each call to parseargs will check for missing
+Xrequired arguments (and will prompt the user for them if desired).
+X
+XKeeping this flag on until the final set of arguments is parsed will
+Xcause \fIparseargs\fP to not check for missing arguments until the last set
+Xof arguments has been parsed (by the final call to one of the functions 
+Xin the \fIparseargs\fP library).
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1CONTINUE\s+1\fP"
+XSetting this flag will cause subsequent calls to the parseargs library
+Xto \s-1NOT\s+1 reset the current command-state. Hence, all arguments will not
+Xbe initially set to "\s-1NOT GIVEN\s+1" and other (normal) initializations are
+Xnot be performed.  This is useful in conjunction with the
+X\fIpa_\s-1NOCHECK\s+1\fP flag when more than one call to
+X.I parseargs
+Xis required to parse all the command arguments. In this scenario,
+X\fIpa_\s-1CONTINUE\s+1\fP should be unset (the default setting) for the very
+Xfirst call to
+X.I parseargs,
+Xbut should then be set before any subsequent calls to
+X.I parseargs
+Xare made.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1NOCMDENV\s+1\fP"
+XSetting this flag prevents parseargs from checking the
+X\s-1\fICMD-NAME\fP_ARGS\s+1 environment variable (or symbol) for any
+Xuser-defined default command arguments.
+X.\"---------------------------------------------
+X.IP "\fIpa_\s-1COPYF\s+1\fP"
+XWhen this flag is \s-1OFF\s+1 (the default), a value of \s-1FALSE\s+1 is
+Xprovided as the \fIcopyf\fP argument to all the arg-type
+X.I (argXxxxx)
+Xfunctions when an argument is matched. Setting this flag will cause a value of
+X\s-1TRUE\s+1 to be provided as the \fIcopyf\fP argument to all the arg-type
+X.I (argXxxxx)
+Xfunctions when an argument is matched.
+X.\"---------------------------------------------
+END_OF_FILE
+if test 5352 -ne `wc -c <'doc/parseflags.inc'`; then
+    echo shar: \"'doc/parseflags.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/parseflags.inc'
+fi
+if test -f 'doc/sh_arrays.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/sh_arrays.inc'\"
+else
+echo shar: Extracting \"'doc/sh_arrays.inc'\" \(7679 characters\)
+sed "s/^X//" >'doc/sh_arrays.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -n -p '[ \t]*' -I DESCRIPTION -f put_argvector ../parseargs.c
+X.\"----------------------------------------------------------------------------
+X.SH ARGUMENT LISTS
+X.PP
+X.B Parseargs
+Xtreats \s-1ARGLIST\s+1 arguments in a special way. The method used for
+Xsetting up an argument list depends largely upon the syntax of shell
+Xthat was specified on the command line via the \fB\-s\fP option
+X(although \s-1ARGLIST\s+1 arguments are treated exactly the same as
+X\s-1ARGVEC\s+1 arguments). With the exception of \fIperl\fP which always
+Xuses a comma to separate array elements, all shells will use the string
+Xspecified with the \fB\-S\fP option as the field separator between elements
+Xof an array (the default field separator is a space character).
+X.\"---------------
+X.SS "Resetting the Positional Parameters to an Argument List"
+X.PP
+XFor the Bourne, Bourne-Again, and Korn shells,
+Xif the variable name corresponding to the \s-1ARGLIST\s+1 argument is
+X``\fB\-\^\-\fP'', then the positional parameters of the calling program
+Xwill be re-assigned to the contents of the argument list ($1 will be the
+Xfirst item, $2 the second item, and so on). In this particular case, the
+Xcalling program may wish to use the \fB\-u\fP option to reset the positional
+Xparameters to \s-1NULL\s+1 before making any shell-variable assignments
+X(this way, the positional parameters will be unset if the associated list
+Xof command line arguments is not encountered).
+X.PP
+XSimilarly for the C & Z shells (\fIzsh, csh, tcsh, itcsh\fP),
+Xif the variable name corresponding to the \s-1ARGLIST\s+1 argument is
+X``\fBargv\fP'', then the positional parameters of the calling program
+Xwill be re-assigned to the contents of the argument list.
+X.PP
+XFor the Plan 9 shell (rc),
+Xif the variable name corresponding to the \s-1ARGLIST\s+1 argument is
+X``\fB*\fP'', then the positional parameters of the calling program
+Xwill be re-assigned to the contents of the argument list.
+X.PP
+XFor \fIawk\fP and \fIperl\fP,
+Xif the variable name corresponding to the \s-1ARGLIST\s+1 argument is
+X``\fBARGV\fP'', then the positional parameters of the calling program
+Xwill be re-assigned to the contents of the argument list.
+X.SS "Bourne Shell Argument Lists"
+X.PP
+XFor the Bourne shell, if the associated variable name is \s-1NOT\s+1
+X``\fB\-\^\-\fP'' and the \fB\-A\fP option was \s-1NOT\s+1 specified,
+Xthen that variable is treated as a regular shell variable and is assigned
+Xusing the following syntax:
+X.sp 2p
+X.RS
+X\f4name\^=\^'arg1 arg2\fP  \fI...\fP\f4'\fP
+X.RE
+X.sp 2p
+XAfter invoking \fBparseargs\fP, if you wish to go through all the
+Xwords in the variable \fIname\fP and one of the words in \fIname\fP
+Xcontains an \s-1IFS\s+1 character (such as a space or a tab), then
+Xthat particular word will be treated by the Bourne shell as two distinct words.
+X.sp 8p
+XAlso for the Bourne shell,
+XIf the associated variable name is \s-1NOT\s+1 ``\fB\-\^\-\fP'' and the
+X\fB\-A\fP option \s-1WAS\s+1 specified, then that variable is treated as
+Xthe root name of an array that is set using the following syntax:
+X.sp 2p
+X.RS
+X.nf
+X\f4name1\^=\^'arg1'\fP
+X\f4name2\^=\^'arg2'\fP
+X\0\0\0 ...
+X.fi
+X.RE
+X.sp 2p
+Xand the variable ``\f4name_count\fP'' will be set to contain the number of
+Xitems in the array.  The user may then step through all the items in the array
+Xusing the following syntax:
+X.sp 2p
+X.RS
+X.nf
+X.ft 4
+Xi=1
+Xwhile [ $i -le $name_count ] ; do
+X  eval echo "item #$i is: " \\$name$i
+X  i=`expr $i + 1`
+Xdone
+X.ft R
+X.fi
+X.RE
+X.SS "Korn Shell Argument Lists"
+X.PP
+XFor the Korn shell, if the associated variable name is \s-1NOT\s+1
+X``\fB\-\^\-\fP'', then that variable is treated as an array and is assigned
+Xusing the \fB\-A\fP option of the set command. The first item will be in
+X\f4${name[0]}\fP, the second item will be in \f4${name[1]}\fP, etc ...,
+Xand all items may be given by \f4${name[*]}\fP or \f4${name[@]}\fP.
+XIf the associated variable name is \s-1NOT\s+1 ``\fB\-\^\-\fP'' and the
+X\fB\-A\fP option \s-1WAS\s+1 specified, then that variable is assigned
+Xusing the \fB+A\fP option of the set command (which preserves any array
+Xelements that were not overwritten by the set command).
+X.sp 2p
+XIt should be noted that there is a bug in versions of the Korn shell
+Xearlier than 11/16/88a, in which the following:
+X.sp 2p
+X.RS
+X\f4set  \-A  name  'arg1'  'arg2'\fP  \fI...\fP
+X.RE
+X.sp 2p
+Xcauses the positional parameters to be overwritten as an unintentional
+Xside-effect. If your version of the Korn shell is earlier than this and you
+Xwish to keep the contents of your positional parameters after invoking
+X\fBparseargs\fP than you must save them yourself before you call
+X\fBparseargs\fP. This may be accomplished by the following:
+X.sp 2p
+X.RS
+X\f4set  \-A  save_parms  "$@"\fP
+X.RE
+X.SS "C Shell Argument Lists"
+X.PP
+XFor the C shells (\fIcsh, tcsh, itcsh\fP),
+X\s-1ARGLIST\s+1 variables are treated as word-lists
+Xand are assigned using the following syntax:
+X.sp 2p
+X.RS
+X\f4set  name = ( 'arg1'  'arg2'\fP  \fI...\fP\f4 )\fP
+X.RE
+X.sp 2p
+XThe first item will be in \f4$name[1]\fP, the second item will be in
+X\f4$name[2]\fP, etc ..., and all items may be given by \f4$name\fP.
+XNotice that Korn shell arrays start at index zero whereas C shell
+Xword-lists start at index one.
+X.SS "Bourne-Again Shell Argument Lists"
+X.PP
+XAt present, the Free Software Foundation's Bourne-Again shell is treated
+Xexactly the same as the Bourne Shell. This will change when \fIbash\fP
+Xsupports arrays.
+X.SS "Plan 9 Shell Argument Lists"
+X.PP
+XFor the Plan 9 shell, if the associated variable name is not ``*'' then
+Xit is considered to be a word-list and set using the following syntax:
+X.nf
+X.RS
+X.ft 4
+Xname=( 'arg1'  'arg2'  ... )
+X.ft R
+X.RE
+X.fi
+X.SS "Z Shell Argument Lists"
+X.PP
+XFor the Z shell, \s-1ARGLIST\s+1 variables are treated as word-lists
+Xand are assigned using the following syntax:
+X.sp 2p
+X.RS
+X\f4name = ( 'arg1'  'arg2'\fP  \fI...\fP\f4 )\fP
+X.RE
+X.sp 2p
+XThe first item will be in \f4$name[1]\fP, the second item will be in
+X\f4$name[2]\fP, etc ..., and all items may be given by \f4$name\fP.
+XNotice that Korn shell arrays start at index zero whereas Z and C shell
+Xword-lists start at index one.
+X.SS "Awk Argument Lists"
+XFor \fIawk\fP, if the \fB\-A\fP option is not given, then the output for the
+Xvariable-list will be a line with the variable name, followed by a line with
+Xeach of the values (each value will be separated with the field separator
+Xspecified using the \fB\-S\fP option - which defaults to a space). 
+X.nf
+X.RS
+X.ft 4
+Xname
+Xarg1  arg2  ...
+X.ft R
+X.RE
+X.fi
+XIf the \fB\-A\fP option is given, then the associated variable is considered
+Xthe root name of an array. The ouput for the array
+Xwill consist of two lines for each item in the list (as in the following
+Xexample):
+X.nf
+X.RS
+X.ft 4
+Xname1
+Xarg1
+X
+Xname2
+Xarg2
+X
+X\...
+X.ft R
+X.RE
+X.fi
+Xand the variable ``\f4name_count\fP'' will have an output line showing the
+Xnumber of items in the array.
+X.PP
+X.SS "Perl Argument Lists"
+X.PP
+XFor \fIperl\fP, each argument list is considered an array and is set using 
+Xthe following syntax:
+X.nf
+X.RS
+X.ft 4
+X@name=( 'arg1' , 'arg2' ,  ... );
+X.ft R
+X.RE
+X.fi
+X.SS "A Final Note on Argument Lists"
+X.PP
+XThe word-lists used by the C and Z shells, the arrays used by the Korn shell,
+Xthe Plan 9 shell, \fIawk\fP, \fIperl\fP, and the positional parameters used by
+Xall shells (if overwritten by \fBparseargs\fP) will preserve any \s-1IFS\s+1
+Xcharacters in their contents.  That is to say that if an item in one of the
+Xaforementioned multi-word lists contains any \s-1IFS\s+1 characters, it will
+Xnot be split up into multiple items but will remain a single item which
+Xcontains \s-1IFS\s+1 characters.
+END_OF_FILE
+if test 7679 -ne `wc -c <'doc/sh_arrays.inc'`; then
+    echo shar: \"'doc/sh_arrays.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/sh_arrays.inc'
+fi
+if test -f 'parseargs.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parseargs.awk'\"
+else
+echo shar: Extracting \"'parseargs.awk'\" \(6751 characters\)
+sed "s/^X//" >'parseargs.awk' <<'END_OF_FILE'
+X#!/usr/bin/awk -f
+X
+X##########################################################################
+X## ^FILE: parseargs.awk - parseargs for awk programs
+X##
+X## ^DESCRIPTION:
+X##    This file defines an awk function named parseargs to parse
+X##    command-line arguments for awk scripts. It also contains a
+X##    bare-bones template of what such an awk-script might contain.
+X##
+X## ^HISTORY:
+X##    02/21/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X###^^#####################################################################
+X
+X
+X#########
+X## ^FUNCTION: parseargs - parse command-line argument vectors
+X##
+X## ^SYNOPSIS:
+X##    parseargs( argc, argv, argd, arr )
+X##
+X## ^PARAMETERS:
+X##    argc -- the number of elements in argv (usually ARGC-1).
+X##    argv -- the vector of command-line arguments (usually ARGV).
+X##    argd -- the argument-description string
+X##    arr  -- the associative array to assign command-line values from
+X##
+X## ^DESCRIPTION:
+X##    Parseargs will invoke parseargs(1) to parse the command-line given
+X##    in <argv> for the command defined by <argd>.  The resulting values
+X##    will be assigned to elements of the associative array given by <arr>.
+X##    Values are assigned using using the syntax: arr [ "argname" ] = value;
+X##    The exception to this is that if the <argname> is "ARGV" then the global
+X##    array ARGV is reset to the given array (using tab separated fields).
+X##
+X## ^REQUIREMENTS:
+X##    Any desired initial values for items in <arr> should be assigned BEFORE
+X##    calling this function (using the syntax: arr[ "argname" ] = initial-val).
+X##
+X##    The following global variables may be assigned before calling parseargs:
+X##
+X##       PROGNAME -- name of the current awk script (default= ARGV[0])
+X##       PARSEOPTS -- any extra options to pass to parseargs() (default="-ul")
+X##       PARSEINPUT -- input file for parseargs(1) (default=unique-name)
+X##       PARSEOUTPUT -- output file for parseargs(1) (default=unique-name)
+X##
+X## ^SIDE-EFFECTS:
+X##    The files PARSEINPUT and PARSEOUTPUT are created and then deleted.
+X##
+X##    The return value from parseargs(1) will be stored in the global-variable
+X##    named PARSESTATUS.
+X##
+X##    The global variable PARSEARGS will contain the command-line used to
+X##    invoke parseargs(1).
+X##
+X##    ARGV and ARGC may be reset, all other values are (re)set in <arr>.
+X##
+X## ^RETURN-VALUE:
+X##    The exit code returned by parseargs(1).
+X##
+X## ^BUGS:
+X##    Assumes that short-options are NOT disabled by $PARSECNTL.
+X##
+X##    Due to the limited ability of awk, scripts using parseargs(1) cannot
+X##    use short-options (with a  dash '-') because awk will attempt to interpret
+X##    any such arguments as options to awk and remove them from ARGV (regardless
+X##    of whether or not they are valid awk-options). Keyword options (with a
+X##    plus sign '+') may still be used without this difficulty. Dash-options
+X##    may be successfully processed if they did not first appear on the command
+X##    to the awk-script, so the full syntax of unix-style options could be 
+X##    provided in an array other than ARGV.
+X##
+X## ^ALGORITHM:
+X##    - set defaults for PROGNAME, PARSEOPTS, PARSEINPUT, and PARSEOUTPUT.
+X##    - build the parseargs command (dont forget to quote arguments).
+X##    - redirect input and output of the parseargs command.
+X##    - run parseargs(1)
+X##    - assign the exit-code from parseargs(1) to PARSESTATUS
+X##    - remove PARSEINPUT
+X##    - if PARSESTATUS != 0
+X##      - save RS and FS and reset RS = "" and FS = "\n"
+X##      - for each record in PARSEOUTPUT
+X##        - $1 is the argname and $2 is the value
+X##        - if $1 is "ARGV" reset ARGV and ARGC ($2 is a tab separated array)
+X##        - else assign arr[ $1 ] = $2
+X##      end-for
+X##      - restore RS and FS to previous values
+X##      - remove PARSEOUTPUT
+X##      - return PARSESTATUS
+X###^^####
+X
+Xfunction parseargs(argc, argv, argd, arr) {
+X      ## set defaults -- use $$ to get a unique suffix string
+X   if ( ! PROGNAME )     PROGNAME = ARGV[0];
+X   if ( ! PARSEOPTS )    PARSEOPTS = "-u -l";
+X
+X   "echo  ${TMP:-/tmp}/parseargs.${$}_"  |  getline TMPFILE;
+X   if ( ! PARSEINPUT )   PARSEINPUT = TMPFILE "in";
+X   if ( ! PARSEOUTPUT )  PARSEOUTPUT = TMPFILE "out";
+X
+X      ## build the options and required arguments for parseargs(1)
+X   PARSEARGS = sprintf( "parseargs -s awk %s -S '\t' -- '%s'",
+X                            PARSEOPTS, PROGNAME );
+X
+X      ## quote each elemnt in argv and append it to the parseargs-command
+X   for ( i = 1 ; i <= argc ; i++ ) {
+X      arg = argv[i];
+X      gsub( /'/, "'\\''", arg );
+X      PARSEARGS = PARSEARGS " '" arg "'";
+X   }
+X
+X      ## set up i/o redirection
+X   PARSEARGS = PARSEARGS  " <" PARSEINPUT  " >" PARSEOUTPUT;
+X   print  argd > PARSEINPUT;
+X
+X      ## invoke parseargs(1) and save the status
+X   PARSESTATUS = system( PARSEARGS );
+X   system( "/bin/rm -f " PARSEINPUT );  ## dont need input anymore
+X
+X      ## if successful status, read the result
+X   if ( PARSESTATUS == 0 ) {
+X      save_RS = RS; save_FS = FS;
+X      RS = ""; FS = "\n";
+X      while ( getline  < PARSEOUTPUT  > 0 ) {
+X         gsub( /\034/, "\n" );
+X         if ( $1 == "ARGV" ) {
+X            ARGC = 1 + split( $2, ARGV, "\t" );
+X            ARGV[0] = PROGNAME;
+X         }
+X         else  arr[ $1 ] = $2;
+X      }
+X      RS = save_RS; FS = save_FS;
+X   }
+X   system( "/bin/rm -f " PARSEOUTPUT );
+X
+X   return  PARSESTATUS;
+X}
+X
+X
+XBEGIN {
+X  PROGNAME = "test.awk";
+X  ARGD = sprintf( "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
+X    "'?', ARGHIDDEN, argUsage, NULL,    'Help : print usage and exit'" ,
+X    "'S', ARGVALOPT, argStr,   string,  'STRing : optional string arg'" ,
+X    "'g', ARGLIST,   argStr,   groups,  'newsGROUPS : groups to test'" ,
+X    "'r', ARGOPT,    argInt,   count,   'REPcount : group repeat count'" ,
+X    "'d', ARGOPT,    argStr,   dirname, 'DIRectory : working directory'" ,
+X    "'x', ARGOPT,    argBool,  xflag,   'Xflag : turn on X-mode'" ,
+X    "'y', ARGOPT,    argUBool, yflag,   'Yflag : turn off Y-mode'" ,
+X    "'s', ARGOPT,    argChar,  sepch,   'SEPchar : field separator'" ,
+X    "'f', ARGLIST,   argStr,   files,   'files : files to process'" ,
+X    "' ', ARGREQ,    argStr,   name,    'name : name to use'" ,
+X    "' ', ARGLIST,   argStr,   argv,    'argv : any remaining arguments'" ,
+X    "ENDOFARGS" );
+X
+X  Args[ "count" ] = 1;
+X  Args[ "dirname" ] = ".";
+X  Args[ "sepch" ] = ",";
+X  Args[ "yflag" ] = "TRUE";
+X
+X  rc = parseargs( ARGC-1, ARGV, ARGD, Args );
+X  if ( rc != 0 )  exit( rc );
+X
+X  ## print  the parsed arguments (use defaults if not defined)
+X  print "ARGUMENTS:";
+X  print "==========";
+X
+X  for ( i in Args )
+X    printf( "Args[\"%s\"] = \"%s\"\n", i, Args[i] );
+X
+X  argc = split( Args[ "argv" ], argv, "\t" );
+X  for ( i = 1 ; i <= argc ; i++ )
+X    printf( "argv[%d] = \"%s\"\n", i, argv[i] );
+X    
+X}
+END_OF_FILE
+if test 6751 -ne `wc -c <'parseargs.awk'`; then
+    echo shar: \"'parseargs.awk'\" unpacked with wrong size!
+fi
+# end of 'parseargs.awk'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(7694 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: patchlevel.h - current patchlevel for parseargs
+X**
+X** ^HISTORY:
+X**
+X**    01/02/92	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch11
+X**    - Added strndup() to strfuncs.[ch]
+X**    - vms_args.c:vms_parse was not setting avstr if ps_NOTCMDLINE was set.
+X**    - made a few other fixes for VMS. Gratuitous "thank you"s go out to
+X**      Mike Levin for helping me find and test these fixes (thanx Mike!).
+X**    - added VMSbuild.com (contributed by Luke Brennan) to build parseargs
+X**      on VAX/VMS.
+X**    - fixed unix_man.c to call indent_para() properly.
+X**    - added support for TCL to parseargs(1).
+X**    - changed the way that parseargs(1) handles escape-sequences.
+X**
+X**    12/05/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch10
+X**    - Fix bug that was introduced in last patch. Pgopen() was not
+X**      using $USAGE_PAGER, it was only using $PAGER.
+X**    - When Earl added the extra argument to indent_para(), he forgot to
+X**      include the argument when printing the command description. I added
+X**      this into *_args.c
+X**    - Added #ifdef POSIX_SOURCE stuff to unix_args.c to allow the use 
+X**      of '--' instead of '+' as the long option prefix.
+X**
+X**    08/27/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    08/27/91	Earl Chew	<cechew@bruce.cs.monash.edu.au>
+X**    Patch09
+X**    - Added proper support for unwritable strings
+X**    - strfuncs.c/strsplit():
+X**      Leading, and in particular, trailing space trimming may spin off
+X**      the end of the token string. This occurs when the string is empty,
+X**      or when it has trailing space.
+X**      Out of memory error doesn't call syserr() like the rest of the
+X**      routines do.
+X**    - xparse.c/parsecntl():
+X**      Documentation says that the fourth parameter for pc_ARGFLAGS and
+X**      pc_PARSEARGS should be either argMask_t (promoted to int) in the
+X**      case of writes, or argMask_t * in the case of reads. The code is 
+X**      at odds with the documentation and requires (int *) on reads.
+X**      Also, should check for NULL cmd-name before passing it to strdup().
+X**    - vms_args.c/is_cmdline():
+X**      Mike Levin pointed out to me that if lib$get_foreign returns a
+X**      zero-length string then the proper actions are not taken. This
+X**      has been fixed.
+X**    - vms_args.c, parseargs.h, xparse.c
+X**      For vms_style I added a new parse-state called ps_NOTCMDLINE.
+X**      When this flag is SET, then vms_parse() knows for a fact that
+X**      the given argv[] array is NOT from the cmdline so it doesnt even
+X**      need to call is_cmdline(). SO Now I just have the proper routines
+X**      in xparse.c set this flag before calling vms_parse() (and unset
+X**      the flag when they are done).
+X**    - vms_args.c/vms_parse():
+X**      ARGVALGIVEN was set instead of ARGGIVEN (this was wrong).
+X**
+X**
+X**    08/15/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch08
+X**    - fixed some typos in the comments (SIDE-EFFECTS was misspelled
+X**      everywhere in the comments for the functions).
+X**    - fixed up external definition of ProgName to work for C++
+X**      (added extern "C").
+X**    - fixed up lparseargs() and vparseargs to free the argument vector
+X**      when it was finished with it.
+X**    - added some more comments to xparse.c and parseargs.c.
+X**
+X**    06/05/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch07
+X**    - fixed the "Intro" file to correctly show how to invoke parseargs(3)
+X**      (the arguments where in the wrong order).
+X**    - added stuff in #ifdef UNWRITABLE_STRING_LITERALS to work for machines
+X**      and compilers that dont allow the programmer to modify string literals.
+X**    - documented in the README file, all the various compile-time constants
+X**      that may change the behavior of parseargs.
+X**    - sparseargs neglected to free the argument-vector when it was done
+X**      using it.
+X**
+X**    05/11/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch06
+X**    - parsecntl(3) now correctly handles mispelled keywords for the
+X**      pc_ARGFLAGS request (it was looping forever).
+X**    - fixed an error in the documentation (a "NOT" was omitted).
+X**    - added #ifdef SVR4 stuff to unix_man.c to print System V Release 4
+X**      style manual pages.
+X**    - allowed "sname=aname" syntax in the ad_prompt field of an ARGDESC
+X**      in addition to the existing syntax. This new syntax allows argument
+X**      names to be be completely different from keyword names.
+X**    - changed get_name() & get_keyword to get_argname() & get_kwdname()
+X**      (respectively) in strfuncs.[ch]. Also sped up the algorithm to get
+X**      the keyword (since it no longer needs malloc).
+X**
+X**    04/25/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch05
+X**    - documented support for zsh in parseargs(1)
+X**    - added missing call to pclose() in pgopen.c:pgclose()
+X**    - added zsh to the list of shells supported by parseargs(1)
+X**      (I have yet to document this in the man-pages)
+X**    - changed the shell_info structure used by parseargs(1) to 
+X**      represent different shells. It should now be much simpler
+X**      to add new shells to parseargs.c
+X**    - fixed a bug in strfuncs.c:basename() for VMS systems
+X**    - added more comments to explain whats going on in each <os>_args.c
+X**    - updated the README file to correspond with the patchlevel(s)
+X**    - updated dependencies in doc/Makefile
+X**
+X**    04/10/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch04
+X**    - fixed problem with prompting in xparse.c:prompt_user()
+X**    - under VMS, getenv was defined to be 'getsymbol', it should
+X**      be 'get_symbol' (note the underscore).
+X**    - now includes <errno.h> to declare errno
+X**    - parseargs no longer includes <fcntl.h>
+X**    - fix bug in vms_args.c printing '[]' for required args and vis-a-vis
+X**    - fixed bug in argInput and argOutput in argtype.c for VMS
+X**    - fixed bug in <os>_args.c where ARGVALGIVEN was improperly being
+X**      cleared if the argument was a list or a vector. This was causing
+X**      parseargs(1) to screw up on optional lists.
+X**    - fixed bug in strfuncs.c:strnicmp() (it was ignoring the length)
+X**    - changed strfuncs.[ch] so that my version of strdup is always used
+X**      (my version exits if malloc failed, others return NULL).
+X**    - Added some changes for SUN and VAX
+X**    - Added -1 option to parseargs(1)
+X**    - Unhid the -# option to parseargs(1)
+X**    - More documentation fixes
+X**
+X**    04/04/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch04 (continued)
+X**    - fixed bug in xparse.c with PARSECNTL='Prompt' being ignored.
+X**    - fixed newline printing error in perl-scripts for parseargs(1)
+X**    - added -C option to parseargs(1) and to the docs
+X**    - added "patchlevel.h" to distribution
+X**    - added "what" string with version and patch level for parseargs(1)
+X**    - added hidden -# option to parseargs(1)
+X**    - add "doc/effects.inc" to distribution
+X**    - fix docs
+X**    - fix test.rc for Plan 9 shell
+X**    - fix parseargs(1) quoting for perl
+X**
+X**    03/22/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch03
+X**    - ascii docs fix
+X**
+X**    03/21/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch02
+X**    - documentation fix
+X**
+X**    03/12/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    Patch01
+X**    - documentation fix
+X**
+X**    03/02/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X***^^********************************************************************/
+X
+X#define  VERSION     2
+X#define  REVISION    0
+X#define  PATCHLEVEL  11
+X
+X#ifdef __STDC__
+X   static const char
+X#else
+X   static char
+X#endif
+X   _Ident[] = "@(#)parseargs  2.0  patchlevel 11";
+END_OF_FILE
+if test 7694 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'syserr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syserr.c'\"
+else
+echo shar: Extracting \"'syserr.c'\" \(6183 characters\)
+sed "s/^X//" >'syserr.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: syserr.c - error-message printing routines
+X**
+X** ^DESCRIPTION:
+X**    This fill implements various routines for printing diagnostic
+X**    messages on standard diagnostic output (stderr). The routines are:
+X**
+X**       usrerr()  --  print message and any system message(s) and return
+X**       syserr()  --  print message and any system message(s) and exit
+X**       eprintf() --  print to stderr and return
+X**
+X** ^HISTORY:
+X**    27/08/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Use ProgNameLen when accessing ProgName
+X**
+X**    01/02/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**       - Changed to use varargs/stdargs
+X**       - Added structured comment blocks
+X**       - Added eprintf()
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>
+X**
+X**    --/--/--	Eric P. Allman	<eric@Berkeley.EDU> 	Created
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <useful.h>
+X/* #include <funclist.h> */
+X
+X#ifdef vms
+X# include <ssdef.h>
+X# define  e_FATAL  SS$_CANCEL
+X#else
+X# define  e_FATAL  127
+X#endif
+X
+XVERSIONID("$Header: syserr.c,v 2.0 89/12/24 00:56:31 eric Exp $");
+X
+Xextern  char *ProgName;
+Xextern  int ProgNameLen;
+XEXTERN  int   vfprintf  ARGS((FILE *, const char *, va_list));
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: _error_message - generic message printing routine.
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID _error_message( format, ap )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *format;
+X/*    -- the formatted message-string to print.
+X*/
+X   va_list ap;
+X/*    -- the list of variable arguments for vfprintf().
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    _error_message will print the program name followed by the
+X**    formatted message. If errno is non-zero, the corresponding
+X**    system message will also be printed.
+X**
+X** ^REQUIREMENTS:
+X**    None.
+X**
+X** ^SIDE-EFFECTS:
+X**    Writes to stderr.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - print the program name
+X**    - print the message
+X**    - if errno is non-zero, call perror()
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void _error_message( const char *format, va_list ap )
+X#endif
+X{
+X   int save_err;
+X
+X   save_err = errno;
+X   if (ProgName  &&  *ProgName)
+X      fprintf(stderr, "%.*s: ", ProgNameLen, ProgName);
+X
+X   (VOID) vfprintf(stderr, format, ap);
+X
+X   fputc('\n', stderr);
+X   if ( save_err ) {
+X      errno = save_err;
+X      perror("System error");
+X   }
+X   fflush(stderr);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: syserr - print a formatted message and exit
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID syserr( format, va_alist )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *format;
+X/*    -- the format string to pass to vfprintf()
+X*/
+X   va_dcl  
+X/*    -- the arguments to be formatted
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Syserr will print the current program name followed by the
+X**    formatted message. If errno is non-zero, it will use perror
+X**    to print the corresponding system error message. Lastly, Syserr
+X**    will terminate execution with an exit code of 1.
+X**
+X** ^REQUIREMENTS:
+X**    No special requirements.
+X**
+X** ^SIDE-EFFECTS:
+X**    All output is written to stderr. Program execution is terminated.
+X**
+X** ^RETURN-VALUE:
+X**    None (Does not return).
+X**
+X** ^ALGORITHM:
+X**    - print the error message(s)
+X**    - take care of recursive calls to syserr()
+X**    - exit
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void syserr( const char *format, ... )
+X#endif
+X{
+X   static BOOL exiting = FALSE;
+X   va_list ap;
+X
+X   /* print the error message */
+X   VA_START(ap, format);
+X   _error_message(format, ap);
+X   VA_END(ap);
+X
+X   /* if we recursively syserr during exit, drop out now! */
+X   if (exiting)  exit(e_FATAL);
+X
+X   /* try a clean exit */
+X   exiting = TRUE;
+X   exit(e_FATAL);
+X   /*NOTREACHED*/
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: eprintf - print a formatted message on stderr.
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int eprintf( format, va_alist )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *format;
+X/*    -- the printf() message to print.
+X*/
+X   va_dcl
+X/*    -- the arguments to be formatted
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Eprintf() will behaves exactly like printf with the sole
+X**    exception being that it writes to stderr instead of stdout.
+X**
+X** ^REQUIREMENTS:
+X**    None.
+X**
+X** ^SIDE-EFFECTS:
+X**    Writes to stderr.
+X**
+X** ^RETURN-VALUE:
+X**    Same as printf(3).
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int eprintf( const char *format, ... )
+X#endif
+X{
+X   int rc;
+X   va_list ap;
+X
+X   VA_START(ap, format);
+X   rc = vfprintf( stderr, format, ap );
+X   VA_END(ap);
+X
+X   fflush(stderr);
+X   return rc;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: usrerr - print a user error message
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID usrerr( format, va_alist )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *format;
+X/*    -- the format string to pass to vfprintf()
+X*/
+X   va_dcl
+X/*    -- the arguments to be formatted
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Usrerr will print the current program name followed by the
+X**    formatted message. If errno is non-zero, it will use perror
+X**    to print the corresponding system error message.
+X**
+X** ^REQUIREMENTS:
+X**    No special requirements.
+X**
+X** ^SIDE-EFFECTS:
+X**    All output is written to stderr.  Errno is cleared.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - print the error message(s)
+X**    - set errno to zero
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void usrerr( const char *format, ... )
+X#endif
+X{
+X   va_list ap;
+X
+X   /* print the error message */
+X   VA_START(ap, format);
+X   _error_message(format, ap);
+X   VA_END(ap);
+X
+X   /* give us a clean slate */
+X   errno = 0;
+X}
+END_OF_FILE
+if test 6183 -ne `wc -c <'syserr.c'`; then
+    echo shar: \"'syserr.c'\" unpacked with wrong size!
+fi
+# end of 'syserr.c'
+fi
+if test -f 'test.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.awk'\"
+else
+echo shar: Extracting \"'test.awk'\" \(6643 characters\)
+sed "s/^X//" >'test.awk' <<'END_OF_FILE'
+X#!/usr/bin/awk -f
+X
+X##########################################################################
+X## ^FILE: test.awk - parseargs for awk programs
+X##
+X## ^DESCRIPTION:
+X##    This file defines an awk function named parseargs to parse
+X##    command-line arguments for awk scripts. It also contains a
+X##    bare-bones template of what such an awk-script might contain.
+X##
+X## ^HISTORY:
+X##    02/21/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X###^^#####################################################################
+X
+X
+X#########
+X## ^FUNCTION: parseargs - parse command-line argument vectors
+X##
+X## ^SYNOPSIS:
+X##    parseargs( argc, argv, argd, arr )
+X##
+X## ^PARAMETERS:
+X##    argc -- the number of elements in argv (usually ARGC-1).
+X##    argv -- the vector of command-line arguments (usually ARGV).
+X##    argd -- the argument-description string
+X##    arr  -- the associative array to assign command-line values from
+X##
+X## ^DESCRIPTION:
+X##    Parseargs will invoke parseargs(1) to parse the command-line given
+X##    in <argv> for the command defined by <argd>.  The resulting values
+X##    will be assigned to elements of the associative array given by <arr>.
+X##    Values are assigned using using the syntax: arr [ "argname" ] = value;
+X##    The exception to this is that if the <argname> is "ARGV" then the global
+X##    array ARGV is reset to the given array (using tab separated fields).
+X##
+X## ^REQUIREMENTS:
+X##    Any desired initial values for items in <arr> should be assigned BEFORE
+X##    calling this function (using the syntax: arr[ "argname" ] = initial-val).
+X##
+X##    The following global variables may be assigned before calling parseargs:
+X##
+X##       PROGNAME -- name of the current awk script (default= ARGV[0])
+X##       PARSEOPTS -- any extra options to pass toi parseargs() (default="-ul")
+X##       PARSEINPUT -- input file for parseargs(1) (default=unique-name)
+X##       PARSEOUTPUT -- output file for parseargs(1) (default=unique-name)
+X##
+X## ^SIDE-EFFECTS:
+X##    The files PARSEINPUT and PARSEOUTPUT are created and then deleted.
+X##
+X##    The return value from parseargs(1) will be stored in the global-variable
+X##    named PARSESTATUS.
+X##
+X##    The global variable PARSEARGS will contain the command-line used to
+X##    invoke parseargs(1).
+X##
+X##    ARGV and ARGC may be reset, all other values are (re)set in <arr>.
+X##
+X## ^RETURN-VALUE:
+X##    The exit code returned by parseargs(1).
+X##
+X## ^BUGS:
+X##    Due to the limited ability of awk, scripts using parseargs(1) cannot
+X##    use short-options (with a  dash '-') because awk will attempt to interpret
+X##    any such arguments as options to awk and remove them from ARGV (regardless
+X##    of whether or not they are valid awk-options). Keyword options (with a
+X##    plus sign '+') may still be used without this difficulty. Dash-options
+X##    may be successfully processed if they did not first appear on the command
+X##    to the awk-script, so the full syntax of unix-style options could be 
+X##    provided in an array other than ARGV.
+X##
+X## ^ALGORITHM:
+X##    - set defaults for PROGNAME, PARSEOPTS, PARSEINPUT, and PARSEOUTPUT.
+X##    - build the parseargs command (dont forget to quote arguments).
+X##    - redirect input and output of the parseargs command.
+X##    - run parseargs(1)
+X##    - assign the exit-code from parseargs(1) to PARSESTATUS
+X##    - remove PARSEINPUT
+X##    - if PARSESTATUS != 0
+X##      - save RS and FS and reset RS = "" and FS = "\n"
+X##      - for each record in PARSEOUTPUT
+X##        - $1 is the argname and $2 is the value
+X##        - if $1 is "ARGV" reset ARGV and ARGC ($2 is a tab separated array)
+X##        - else assign arr[ $1 ] = $2
+X##      end-for
+X##      - restore RS and FS to previous values
+X##      - remove PARSEOUTPUT
+X##      - return PARSESTATUS
+X###^^####
+X
+Xfunction parseargs(argc, argv, argd, arr) {
+X      ## set defaults -- use $$ to get a unique suffix string
+X   if ( ! PROGNAME )     PROGNAME = ARGV[0];
+X   if ( ! PARSEOPTS )    PARSEOPTS = "-u -l";
+X
+X   "echo  ${TMP:-/tmp}/parseargs.${$}_"  |  getline TMPFILE;
+X   if ( ! PARSEINPUT )   PARSEINPUT = TMPFILE "in";
+X   if ( ! PARSEOUTPUT )  PARSEOUTPUT = TMPFILE "out";
+X
+X      ## build the options and required arguments for parseargs(1)
+X   PARSEARGS = sprintf( "parseargs -s awk %s -- '%s'", PARSEOPTS, PROGNAME );
+X
+X      ## quote each elemnt in argv and append it to the parseargs-command
+X   for ( i = 1 ; i <= argc ; i++ ) {
+X      arg = argv[i];
+X      gsub( /'/, "'\\''", arg );
+X      PARSEARGS = PARSEARGS " '" arg "'";
+X   }
+X
+X      ## set up i/o redirection
+X   PARSEARGS = PARSEARGS  " <" PARSEINPUT  " >" PARSEOUTPUT;
+X   print  argd > PARSEINPUT;
+X
+X      ## invoke parseargs(1) and save the status
+X   PARSESTATUS = system( PARSEARGS );
+X   system( "/bin/rm -f " PARSEINPUT );  ## dont need input anymore
+X
+X      ## if successful status, read the result
+X   if ( PARSESTATUS == 0 ) {
+X      save_RS = RS; save_FS = FS;
+X      RS = ""; FS = "\n";
+X      while ( getline  < PARSEOUTPUT  > 0 ) {
+X         gsub( /\034/, "\n" );
+X         if ( $1 == "ARGV" ) {
+X            ARGC = 1 + split( $2, ARGV, "\t" );
+X            ARGV[0] = PROGNAME;
+X         }
+X         else  arr[ $1 ] = $2;
+X      }
+X      RS = save_RS; FS = save_FS;
+X   }
+X   system( "/bin/rm -f " PARSEOUTPUT );
+X
+X   return  PARSESTATUS;
+X}
+X
+X
+XBEGIN {
+X  PROGNAME = "test.awk";
+X  ARGD = sprintf( "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
+X    "'?', ARGHIDDEN, argUsage, NULL,    'Help : print usage and exit'" ,
+X    "'S', ARGVALOPT, argStr,   string,  'STRing : optional string arg'" ,
+X    "'g', ARGLIST,   argStr,   groups,  'newsGROUPS : groups to test'" ,
+X    "'r', ARGOPT,    argInt,   count,   'REPcount : group repeat count'" ,
+X    "'d', ARGOPT,    argStr,   dirname, 'DIRectory : working directory'" ,
+X    "'x', ARGOPT,    argBool,  xflag,   'Xflag : turn on X-mode'" ,
+X    "'y', ARGOPT,    argUBool, yflag,   'Yflag : turn off Y-mode'" ,
+X    "'s', ARGOPT,    argChar,  sepch,   'SEPchar : field separator'" ,
+X    "'f', ARGLIST,   argStr,   files,   'files : files to process'" ,
+X    "'n', ARGREQ|ARGPOS, argStr, name,  'name : name to use'" ,
+X    "' ', ARGLIST,   argStr,   argv,    'argv : any remaining arguments'" ,
+X    "ENDOFARGS" );
+X
+X  Args[ "count" ] = 1;
+X  Args[ "dirname" ] = ".";
+X  Args[ "sepch" ] = ",";
+X  Args[ "yflag" ] = "TRUE";
+X
+X  rc = parseargs( ARGC-1, ARGV, ARGD, Args );
+X  if ( rc != 0 )  exit( rc );
+X
+X  ## print  the parsed arguments (use defaults if not defined)
+X  print "ARGUMENTS:";
+X  print "==========";
+X
+X  for ( i in Args )
+X    printf( "Args[\"%s\"] = \"%s\"\n", i, Args[i] );
+X
+X  argc = split( Args[ "argv" ], argv, "\t" );
+X  for ( i = 1 ; i <= argc ; i++ )
+X    printf( "argv[%d] = \"%s\"\n", i, argv[i] );
+X    
+X}
+END_OF_FILE
+if test 6643 -ne `wc -c <'test.awk'`; then
+    echo shar: \"'test.awk'\" unpacked with wrong size!
+fi
+chmod +x 'test.awk'
+# end of 'test.awk'
+fi
+if test -f 'vprintf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vprintf.c'\"
+else
+echo shar: Extracting \"'vprintf.c'\" \(8146 characters\)
+sed "s/^X//" >'vprintf.c' <<'END_OF_FILE'
+X/* Portable vsprintf  by Robert A. Larson <blarson@skat.usc.edu> */
+X
+X/* Copyright 1989 Robert A. Larson.
+X * Distribution in any form is allowed as long as the author
+X * retains credit, changes are noted by their author and the
+X * copyright message remains intact.  This program comes as-is
+X * with no warentee of fitness for any purpose.
+X *
+X * Thanks to Doug Gwyn, Chris Torek, and others who helped clarify
+X * the ansi printf specs.
+X *
+X * Please send any bug fixes and improvements to blarson@skat.usc.edu .
+X * The use of goto is NOT a bug.
+X */
+X
+X/* Feb	7, 1989		blarson		First usenet release */
+X/* Oct 20, 1990     Brad Appleton -- enclosed in #ifdef BSD for parseargs */
+X/* Oct 21, 1990     Brad Appleton -- added test in #ifdef VPRINTF_TEST */
+X/* Feb 25, 1990     Brad Appleton -- #included "useful.h" and added #ifdefs
+X *                                   to compile for ANSI-C as well as K&R
+X */
+X
+X
+X/* This code implements the vsprintf function, without relying on
+X * the existance of _doprint or other system specific code.
+X *
+X * Define NOVOID if void * is not a supported type.
+X *
+X * Two compile options are available for efficency:
+X *	INTSPRINTF	should be defined if sprintf is int and returns
+X *			    the number of chacters formated.
+X *	LONGINT		should be defined if sizeof(long) == sizeof(int)
+X *
+X *	They only make the code smaller and faster, they need not be
+X *	defined.
+X *
+X * UNSIGNEDSPECIAL should be defined if unsigned is treated differently
+X * than int in argument passing.  If this is definded, and LONGINT is not,
+X * the compiler must support the type unsingned long.
+X *
+X * Most quirks and bugs of the available sprintf fuction are duplicated,
+X * however * in the width and precision fields will work correctly
+X * even if sprintf does not support this, as will the n format.
+X *
+X * Bad format strings, or those with very long width and precision
+X * fields (including expanded * fields) will cause undesired results.
+X */
+X
+X   /* Parseargs only needs this stuff for BSD Unix  -- Brad Appleton */
+X#include <useful.h>
+X
+X#ifdef BSD
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef OSK		/* os9/68k can take advantage of both */
+X# define LONGINT
+X# define INTSPRINTF
+X#endif
+X
+X/* This must be a typedef not a #define! */
+X#ifdef NOVOID
+X  typedef char *pointer;
+X#else
+X  typedef void *pointer;
+X#endif
+X
+X#ifdef	INTSPRINTF
+X# define Sprintf(string,format,arg)	(sprintf((string),(format),(arg)))
+X#else
+X# define Sprintf(string,format,arg)	(\
+X   sprintf((string),(format),(arg)),\
+X   strlen(string)\
+X)
+X#endif
+X
+Xtypedef int *intp;
+X
+X#ifdef __ANSI_C__
+X  int vsprintf(char *dest, register const char *format, va_list args)
+X#else
+X  int vsprintf(dest, format, args)
+X  char *dest;
+X  register char *format;
+X  va_list args;
+X#endif
+X{
+X      register char *dp = dest;
+X      register char c;
+X      register char *tp;
+X      char tempfmt[64];
+X#ifndef LONGINT
+X      int longflag;
+X#endif
+X
+X      tempfmt[0] = '%';
+X      while( (c = *format++) != 0) {
+X   if(c=='%') {
+X       tp = &tempfmt[1];
+X#ifndef LONGINT
+X       longflag = 0;
+X#endif
+Xcontinue_format:
+X       switch(c = *format++) {
+X      case 's':
+X          *tp++ = c;
+X          *tp = '\0';
+X          dp += Sprintf(dp, tempfmt, VA_ARG(args, char *));
+X          break;
+X      case 'u':
+X      case 'x':
+X      case 'o':
+X      case 'X':
+X#ifdef UNSIGNEDSPECIAL
+X          *tp++ = c;
+X          *tp = '\0';
+X#ifndef LONGINT
+X          if(longflag)
+X         dp += Sprintf(dp, tempfmt, VA_ARG(args, unsigned long));
+X          else
+X#endif
+X         dp += Sprintf(dp, tempfmt, VA_ARG(args, unsigned));
+X          break;
+X#endif
+X      case 'd':
+X      case 'c':
+X      case 'i':
+X          *tp++ = c;
+X          *tp = '\0';
+X#ifndef LONGINT
+X          if(longflag)
+X         dp += Sprintf(dp, tempfmt, VA_ARG(args, long));
+X          else
+X#endif
+X         dp += Sprintf(dp, tempfmt, VA_ARG(args, int));
+X          break;
+X      case 'f':
+X      case 'e':
+X      case 'E':
+X      case 'g':
+X      case 'G':
+X          *tp++ = c;
+X          *tp = '\0';
+X          dp += Sprintf(dp, tempfmt, VA_ARG(args, double));
+X          break;
+X      case 'p':
+X          *tp++ = c;
+X          *tp = '\0';
+X          dp += Sprintf(dp, tempfmt, VA_ARG(args, pointer));
+X          break;
+X      case '-':
+X      case '+':
+X      case '0':
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '.':
+X      case ' ':
+X      case '#':
+X      case 'h':
+X          *tp++ = c;
+X          goto continue_format;
+X      case 'l':
+X#ifndef LONGINT
+X          longflag = 1;
+X          *tp++ = c;
+X#endif
+X          goto continue_format;
+X      case '*':
+X          tp += Sprintf(tp, "%d", VA_ARG(args, int));
+X          goto continue_format;
+X      case 'n':
+X          *VA_ARG(args, intp) = dp - dest;
+X          break;
+X      case '%':
+X      default:
+X          *dp++ = c;
+X          break;
+X       }
+X   } else *dp++ = c;
+X      }
+X      *dp = '\0';
+X      return dp - dest;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X  int vfprintf(FILE *dest, register const char *format, va_list args)
+X#else
+X  int vfprintf(dest, format, args)
+X  FILE *dest;
+X  register char *format;
+X  va_list args;
+X#endif
+X{
+X      register char c;
+X      register char *tp;
+X      register int count = 0;
+X      char tempfmt[64];
+X#ifndef LONGINT
+X      int longflag;
+X#endif
+X
+X      tempfmt[0] = '%';
+X      while(c = *format++) {
+X   if(c=='%') {
+X       tp = &tempfmt[1];
+X#ifndef LONGINT
+X       longflag = 0;
+X#endif
+Xcontinue_format:
+X       switch(c = *format++) {
+X      case 's':
+X          *tp++ = c;
+X          *tp = '\0';
+X          count += fprintf(dest, tempfmt, VA_ARG(args, char *));
+X          break;
+X      case 'u':
+X      case 'x':
+X      case 'o':
+X      case 'X':
+X#ifdef UNSIGNEDSPECIAL
+X          *tp++ = c;
+X          *tp = '\0';
+X#ifndef LONGINT
+X          if(longflag)
+X         count += fprintf(dest, tempfmt, VA_ARG(args, unsigned long));
+X          else
+X#endif
+X         count += fprintf(dest, tempfmt, VA_ARG(args, unsigned));
+X          break;
+X#endif
+X      case 'd':
+X      case 'c':
+X      case 'i':
+X          *tp++ = c;
+X          *tp = '\0';
+X#ifndef LONGINT
+X          if(longflag)
+X         count += fprintf(dest, tempfmt, VA_ARG(args, long));
+X          else
+X#endif
+X         count += fprintf(dest, tempfmt, VA_ARG(args, int));
+X          break;
+X      case 'f':
+X      case 'e':
+X      case 'E':
+X      case 'g':
+X      case 'G':
+X          *tp++ = c;
+X          *tp = '\0';
+X          count += fprintf(dest, tempfmt, VA_ARG(args, double));
+X          break;
+X      case 'p':
+X          *tp++ = c;
+X          *tp = '\0';
+X          count += fprintf(dest, tempfmt, VA_ARG(args, pointer));
+X          break;
+X      case '-':
+X      case '+':
+X      case '0':
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '.':
+X      case ' ':
+X      case '#':
+X      case 'h':
+X          *tp++ = c;
+X          goto continue_format;
+X      case 'l':
+X#ifndef LONGINT
+X          longflag = 1;
+X          *tp++ = c;
+X#endif
+X          goto continue_format;
+X      case '*':
+X          tp += Sprintf(tp, "%d", VA_ARG(args, int));
+X          goto continue_format;
+X      case 'n':
+X          *VA_ARG(args, intp) = count;
+X          break;
+X      case '%':
+X      default:
+X          putc(c, dest);
+X          count++;
+X          break;
+X       }
+X   } else {
+X       putc(c, dest);
+X       count++;
+X   }
+X      }
+X      return count;
+X}
+X
+X#ifdef __ANSI_C__
+X  int vprintf(const char *format, va_list args)
+X#else
+X  int vprintf(format, args)
+X  char *format;
+X  va_list args;
+X#endif
+X{
+X      return vfprintf(stdout, format, args);
+X}
+X#endif  /* BSD Unix ONLY */
+X
+X	/* use a VERY SIMPLE test case to test this out -- Brad Appleton */
+X#ifdef VPRINTF_TEST
+X
+X/*VARARGS1*/
+X#ifdef __ANSI_C__
+X  int vtest( char *fmt, ... )
+X#else
+X  int vtest( fmt, va_alist )
+X  char *fmt;
+X  va_dcl
+X#endif
+X{
+X   va_list   ap;
+X   int   rc;
+X
+X   VA_START(ap, fmt);
+X   rc = vprintf( fmt, ap );
+X   VA_END(ap);
+X
+X   return   rc;
+X}
+X
+Xvoid main()
+X{
+X   printf( "its a %s %% day in the %d neighborhood for %*s\n",
+X          "pitiful", 4, 8, "fun" );
+X
+X   vtest( "its a %s %% day in the %d neighborhood for %*s\n",
+X          "pitiful", 4, 8, "fun" );
+X}
+X
+X#endif  /* VPRINTF_TEST */
+END_OF_FILE
+if test 8146 -ne `wc -c <'vprintf.c'`; then
+    echo shar: \"'vprintf.c'\" unpacked with wrong size!
+fi
+# end of 'vprintf.c'
+fi
+if test -f 'winsize.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'winsize.c'\"
+else
+echo shar: Extracting \"'winsize.c'\" \(7176 characters\)
+sed "s/^X//" >'winsize.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: winsize.c - implement the routine get_winsize()
+X**
+X** ^DESCRIPTION:
+X**    Implement the get_winsize() function for various windowing and
+X**    operating systems.
+X**
+X** ^HISTORY:
+X**    10/01/90 	Brad Appleton 	<brad@ssd.csd.harris.com> 	Created
+X***^^**********************************************************************/
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_winsize - get the current window size
+X**
+X** ^SYNOPSIS:
+X**    void get_winsize( fd, nrows, ncols )
+X**
+X** ^PARAMETERS:
+X**    int fd;
+X**    -- file-descriptor associated with the "output-window"
+X**
+X**    int *nrows;
+X**    -- pointer to number of rows in window
+X**
+X**    int *ncols;
+X**    -- pointer to number of columns in window
+X**
+X** ^DESCRIPTION:
+X**    Get_winsize will attempt to determine the maximum number of
+X**    rows and colums that will fit on one screen-full of the associated
+X**    output device. If it fails to do this, it will assume the "window"
+X**    is a 24x80 (rows by columns) display.
+X**
+X** ^REQUIREMENTS:
+X**    fd must correspond to a valid output device.
+X**
+X** ^SIDE-EFFECTS:
+X**    The memory addressed by nrows and ncols is assigned the corresponding
+X**    appropriate value(s).
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**     System dependent.
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X
+X#ifdef __ANSI_C__
+X# define  GET_WINSIZE(fd,nrows,ncols)  \
+X	void get_winsize( int fd, int *nrows, int *ncols )
+X#else
+X# define  GET_WINSIZE(fd,nrows,ncols)  \
+X	void get_winsize( fd, nrows, ncols ) \
+X	int fd, *nrows, *ncols;   /* nrows and ncols are passed by reference */
+X#endif
+X
+X#define  DEFAULT_ROWS  24
+X#define  DEFAULT_COLS  80
+X
+X#ifdef vms
+X
+X#include <stdio.h>
+X#include <iodef.h>
+X#include <ssdef.h>
+X#include <descrip.h>
+X#include <useful.h>
+X
+X   /* structure to contain terminal characteristics */
+Xtypedef  struct {
+X      short garb1, cols;
+X      char   garb2, garb3, garb4, rows;
+X} termchar_t;
+X
+Xint sys$assign();
+Xint sys$qiow();
+Xint sys$dassgn();
+X
+XGET_WINSIZE( fd, nrows, ncols )
+X{
+X   int c, charlen = 8;
+X   termchar_t   termchar;
+X   int chan;
+X   $DESCRIPTOR( devnam,"SYS$COMMAND" );
+X
+X   sys$assign( &devnam, &chan, 0, 0 );
+X   sys$qiow( 0, chan, IO$_SENSEMODE, 0, 0, 0, &termchar, &charlen, 0, 0, 0, 0 );
+X   sys$dassgn( chan );
+X
+X   *nrows = ( termchar.rows > 0 ) ? (int) termchar.rows : DEFAULT_ROWS;
+X   *ncols = ( termchar.cols > 0 ) ? (int) termchar.cols : DEFAULT_COLS;
+X}
+X
+X#else
+X#ifdef unix
+X
+X   /*
+X   ** we will either try to access terminfo through the termcap-interface
+X   ** in the curses library (which would require linking with -lcurses)
+X   ** or use termcap directly (which would require linking with -ltermcap)
+X   */
+X#ifndef USE_TERMCAP
+X#if ( defined(USE_TERMINFO) || defined(USE_CURSES) )
+X#define USE_TERMCAP
+X#endif
+X#endif
+X
+X
+X#ifdef USE_TERMCAP
+X# define TERMBUFSIZ    1024
+X# define UNKNOWN_TERM  "unknown"
+X# define DUMB_TERMBUF  "dumb:co#80:hc:"
+Xextern int  tgetent();
+Xextern int  tgetnum();
+X#endif
+X
+X
+X   /* try to get TIOCGWINSZ from termios.h, then from sys/ioctl.h */
+X#include <termios.h>
+X#if ( !defined(TIOCGWINSZ)  &&  !defined(TIOCGSIZE)  &&  !defined(WIOCGETD) )
+X#include <sys/ioctl.h>
+X#endif
+X
+X   /* if still dont have TIOCGWINSZ (or TIOCGSIZE) try for WIOCGETD */
+X#if ( !defined(TIOCGWINSZ)  &&  !defined(TIOCGSIZE)  &&  !defined(WIOCGETD) )
+X#include <sgtty.h>
+X#endif
+X
+X#include <useful.h>
+X
+X/*
+X** get_winsize() -- determine # of rows/columns that will fit on the screen.
+X**
+X**     The environment variables $LINES and $COLUMNS will be used if they exist.
+X**     If not, then the TIOCGWINSZ call to ioctl() is used (if it is defined).
+X**     If not, then the TIOCGSIZE call to ioctl() is used (if it is defined).
+X**     If not, then the WIOCGETD call to ioctl() is used (if it is defined).
+X**     If not, then get the info from terminfo/termcap (if it is there)
+X**     Otherwise, assume we have a 24x80 screen.
+X*/
+X
+Xextern  int   ioctl();
+Xextern  int   isatty();
+Xextern  long  atol();
+Xextern  char *getenv();
+X
+XGET_WINSIZE( fd, nrows, ncols )
+X{
+X   char  *lines_env, *cols_env;
+X   long  lrow = 0, lcol = 0;
+X   int   lines = 0, cols = 0;
+X#ifdef USE_TERMCAP
+X   char  term_buf[ TERMBUFSIZ ], *term_env;
+X#endif
+X#ifdef TIOCGWINSZ
+X   struct winsize  win;
+X#else
+X#ifdef TIOCGSIZE
+X   struct ttysize  win;
+X#else
+X#ifdef WIOCGETD
+X   struct uwdata  win;
+X#endif
+X#endif
+X#endif
+X
+X      /* make sure that fd corresponds to a terminal */
+X   if ( !isatty( fd ) ) {
+X      *nrows = DEFAULT_ROWS;
+X      *ncols = DEFAULT_COLS;
+X      return;
+X   }
+X
+X      /* LINES & COLUMNS environment variables override everything else */
+X   lines_env = getenv( "LINES" );
+X   if ( lines_env  &&  (lrow = atol(lines_env)) > 0 ) {
+X      *nrows = lines = (int) lrow;
+X   }
+X
+X   cols_env = getenv( "COLUMNS" );
+X   if ( cols_env  &&  (lcol = atol(cols_env)) > 0 ) {
+X      *ncols = cols = (int) lcol;
+X   }
+X
+X#ifdef TIOCGWINSZ
+X      /* see what ioctl() has to say (overrides terminfo & termcap) */
+X   if ( (!lines || !cols)  &&  ioctl(fd, TIOCGWINSZ, &win) != -1 ) {
+X      if ( !lines  &&  win.ws_row > 0 ) {
+X         *nrows = lines = (int) win.ws_row;
+X      }
+X
+X      if ( !cols  &&  win.ws_col > 0 ) {
+X         *ncols = cols = (int) win.ws_col;
+X      }
+X   }/*if*/
+X#else
+X#ifdef TIOCGSIZE
+X      /* see what ioctl() has to say (overrides terminfo & termcap) */
+X   if ( (!lines || !cols)  &&  ioctl(fd, TIOCGSIZE, &win) != -1 ) {
+X      if ( !lines  &&  win.ts_lines > 0 )
+X         *nrows = lines = (int) win.ts_lines;
+X
+X      if ( !cols  &&  win.ts_cols > 0 )
+X         *ncols = cols = (int) win.ts_cols;
+X   }/*if*/
+X#else
+X#ifdef WIOCGETD
+X      /* see what ioctl() has to say (overrides terminfo & termcap) */
+X   if ( (!lines || !cols)  &&  ioctl(fd, WIOCGETD, &win) != -1 ) {
+X      if ( !lines  &&  win.uw_height > 0 )
+X         *nrows = lines = (int) (win.uw_height / win.uw_vs);
+X
+X      if ( !cols  &&  win.uw_width > 0 )
+X         *ncols = cols = (int) (win.uw_width / win.uw_hs);
+X   }/*if*/
+X#endif
+X#endif
+X#endif
+X
+X#ifdef USE_TERMCAP
+X      /* see what terminfo/termcap has to say */
+X   if ( !lines || !cols ) {
+X      if ( !(term_env = getenv("TERM")) )
+X         term_env = UNKNOWN_TERM;
+X
+X      if ( (tgetent(term_buf, term_env) <= 0) )
+X         strcpy( term_buf, DUMB_TERMBUF );
+X
+X          if ( !lines   &&   (lrow = tgetnum("li")) > 0 )
+X            *nrows = lines = (int) lrow;
+X
+X          if ( !cols   &&   (lcol = tgetnum("co")) > 0 )
+X            *ncols = cols = (int) lcol;
+X   }
+X#endif
+X
+X      /* use 80x24 if all else fails */
+X   if ( !lines )  *nrows = DEFAULT_ROWS;
+X   if ( !cols )   *ncols = DEFAULT_COLS;
+X
+X}/*get_winsize()*/
+X
+X#else
+X
+XGET_WINSIZE( fd, nrows, ncols )
+X{
+X      /* just use 80x24 */
+X   *nrows = DEFAULT_ROWS;
+X   *ncols = DEFAULT_COLS;
+X}
+X
+X#endif  /* not a vms system */
+X#endif  /* not a unix-system */
+X
+X#ifdef WINSIZE_TEST
+X
+X#ifdef vms
+X# include <ssdef.h>
+X#endif
+X
+X   /* test get_winsize to see if it works */
+Xmain()
+X{
+X   int rows, cols;
+X
+X   get_winsize( fileno(stderr), &rows, &cols );
+X   printf( "Output will be %d rows by %d columns\n", rows, cols );
+X
+X#ifdef vms
+X   exit( SS$_NORMAL );
+X#else
+X   exit( 0 );
+X#endif
+X
+X}
+X
+X#endif
+END_OF_FILE
+if test 7176 -ne `wc -c <'winsize.c'`; then
+    echo shar: \"'winsize.c'\" unpacked with wrong size!
+fi
+# end of 'winsize.c'
+fi
+echo shar: End of archive 3 \(of 10\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

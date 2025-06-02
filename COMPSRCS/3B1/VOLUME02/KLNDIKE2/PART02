@@ -1,0 +1,1954 @@
+Path: comp-sources-3b1
+From: vern@zebra.alphacdc.com (vern)
+Subject:  v02i010:  Klondike, version 2, Part02/06
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 1f225e0a b4781641 023709aa 7718a40d
+
+Submitted-by: vern@zebra.alphacdc.com (vern)
+Posting-number: Volume 2, Issue 10
+Archive-name: klondike2/part02
+
+This part 2 of 6 parts to the 'klondike' gane for the 7300/3b1.
+
+Place this in directory with the other parts and 'unshar'.
+
+vern
+
+Vernon C. Hoxie                            {ncar,boulder}!scicom!zebra!vern
+3975 W. 29th Ave.                                       voice: 303-477-1780
+Denver, Colo., 80212                                     uucp: 303-455-2670
+
+--------------------------------- cut here --------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 6)."
+# Contents:  check.c klondike.c other.c
+# Wrapped by vern@zebra on Tue Jun 23 07:22:42 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f check.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"check.c\"
+else
+echo shar: Extracting \"check.c\" \(10196 characters\)
+sed "s/^X//" >check.c <<'END_OF_check.c'
+X#include "klondike.h"
+X#include <errno.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <status.h>
+X#include <stdio.h>
+X#include <sys/window.h>
+X#include <pwd.h>
+X#include <sys/param.h>
+X
+Xextern int over;
+Xextern int indeck;
+Xextern int deck[];
+Xextern int vegas_style;
+Xextern int score_now;
+Xextern int score_tot;
+Xextern int score_sum;
+X
+X/* Check to see if player has overlooked a move.
+X * Return TRUE if there is a move. */
+X
+X#ifdef CHEAT
+Xstatic char *suit_name[] = {
+X	"Spades",
+X	"Hearts",
+X	"Clubs",
+X	"Diamonds"
+X};
+X
+Xstatic char *color_name[] = {
+X	"Black",
+X	"Red"
+X};
+Xstatic char *card_num[] = {
+X	"Blank",
+X	"Ace",
+X	"2",
+X	"3",
+X	"4",
+X	"5",
+X	"6",
+X	"7",
+X	"8",
+X	"9",
+X	"10",
+X	"Jack",
+X	"Queen",
+X	"King"
+X};
+X
+Xint
+Xany_moves()
+X{
+X	int i, j;
+X	int card1, card2;
+X
+X				/* Move a card to outdeck? */
+X	for ( i = 0; i < 8; i++ ) {
+X		if ( i == 7 ) {
+X			if ( !over ) break;
+X			card1 = deck[indeck - over];
+X		}
+X		else card1 = up[i][numup[i] - 1];
+X		card2 = card1 - 1;
+X		if ( outcard[SUIT(card1)] == 0 ) card2 = 100;
+X			/* If card1 one greater than outdeck, move */
+X		if ( outcard[SUIT(card1)] == VALUE(card1) - 1 ) goto quit;
+X	}
+X				/* Move from one column to another? */
+X	for ( i = 0; i < 8; i++ ) {
+X		if ( i == 7 ) {
+X			if ( !over ) break;
+X			card1 = deck[indeck - over];
+X		}
+X		else card1 = up[i][0];
+X		for ( j = 0; j < 7; j++ ) {
+X			if ( j == i ) continue;
+X					/* Test for moving from one column to another */
+X					/* If test card is King, move to empty column */
+X			if (VALUE(card1) == 13) {
+X				card2 = 100;
+X				if ( numdown[j] == 0 && numup[j] == 0 &&
+X					( numdown[i] > 0 && numup[i] > 0 || i == 7 )) goto quit;
+X			}
+X			card2 = up[j][numup[j] - 1];
+X			if ( VALUE(card2) == VALUE(card1) + 1 &&
+X				COLOR(card2) != COLOR(card1) ) goto quit;
+X		}
+X	}
+X	clear_clue();
+X	return(0);
+Xquit:
+X	wgoto(wn, 21, 2 );
+X	if ( card2 == 100 )
+X		wprintf( wn, "Move %s of %s to Blank.                   ",
+X			card_num[VALUE(card1)], suit_name[SUIT(card1)]);
+X	else
+X		wprintf( wn, "Move %s of %s to %s of %s.                ",
+X			card_num[VALUE(card1)], suit_name[SUIT(card1)],
+X			card_num[VALUE(card2)], suit_name[SUIT(card2)]);
+X	return(1);
+X}
+X
+X		/* Clear the line of move clue */
+Xclear_clue()
+X{
+X	wgoto(wn, 21, 2 );
+X	wprintf( wn, "                                                   " );
+X}
+X
+X#endif	/* CHEAT */
+X
+X#ifdef SCORES
+X/* Get the history score from disk. */
+Xchar fname[50];
+X
+Xread_file()
+X{
+X	struct passwd *getpwnam(), *pwd;
+X	int seek_score();
+X	char user[10];
+X	int uid, gid;
+X
+X	strcpy( user, getenv("LOGNAME"));
+X 	if (( pwd = getpwnam( user )) == NULL ) {
+X			/* owner 2 = bin, group 2 = bin */
+X		uid = 2;
+X		gid = 2;
+X	}
+X	else {
+X		uid = pwd->pw_uid;
+X		gid = pwd->pw_gid;
+X	}
+X	
+X	strcat( strcpy( fname, SFILE ), user );
+X	if ( access( fname, 0 ) == -1 ) {
+X		if ( errno == ENOENT ) {
+X			umask( 0 );
+X			creat( fname, 0666 );
+X			chown( fname, uid, gid );
+X		}
+X		else {
+X			eprintf( ST_SYS, ST_DISPLAY, NULL,
+X					"Can't access %s.", fname );
+X			exit( 1 );
+X		}
+X	}
+X	score_sum = seek_score();
+X	score_tot = 0;
+X}
+X
+X/* Find the users entry in SFILE and return the
+X * value of historic scores. */
+X
+Xint
+Xseek_score()
+X{
+X	char *pname;
+X	int num, fs;
+X	str_score ps;
+X
+X	if (( fs = open( fname, O_RDONLY )) == 0 ) {
+X		eprintf( ST_SYS, ST_DISPLAY, NULL,
+X				"Can't open %s for reading.", fname );
+X		exit( 1 );
+X	}
+X	pname = (char *)getlogin();
+X	while (( num = read( fs, &ps, sizeof(ps)))
+X			== sizeof(ps)) {
+X		if ( strncmp( pname, ps.name, sizeof(ps.name)) == 0) break;
+X	}
+X	close( fs );
+X	if ( num < sizeof( ps )) return 0;
+X	return ( ps.score );
+X}
+X
+X/* Find the users entry in SFILE and save the sum of
+X * score_now, score_tot, and score_sum. */
+X
+Xvoid
+Xsave_score( zap )
+Xint zap;
+X{
+X	char *pname;
+X	int num, fs;
+X	long sum;
+X	str_score ps;
+X
+X	if (( fs = open( fname, O_RDWR )) == 0 ) {
+X		eprintf( ST_SYS, ST_DISPLAY, NULL,
+X				"Can't open %s for writing.", fname );
+X		return;
+X	}
+X	pname = (char *)getlogin();
+X	sum = 0;
+X	while (( num = read( fs, &ps, sizeof(ps))) == sizeof(ps)) {
+X		if ( strncmp( pname, ps.name, sizeof(ps.name)) == 0) break;
+X		sum += (long)num;
+X	}
+X	if ( num == 0 ) {
+X		strncpy( ps.name, pname, sizeof(ps.name) - 1);
+X		ps.name[sizeof(ps.name) - 1] = '\0';
+X	}
+X	if ( zap ) {
+X		ps.score = 0;
+X		score_tot = 0;
+X		score_sum = 0;
+X	}
+X	else {
+X#ifdef CHEAT
+X			/* include score of last game only if finished */
+X		if ( ! any_moves() ) score_tot += score_now;
+X#else
+X		score_tot += score_now;
+X#endif
+X		ps.score = score_tot + score_sum;
+X	}
+X	lseek( fs, sum, 0 );
+X	if ( write( fs, &ps, sizeof(ps)) < sizeof(ps)) {
+X		eprintf( ST_SYS, ST_DISPLAY, NULL, "Can't write to %s.", fname );
+X	}
+X	close( fs );
+X}
+X
+X/*
+X * Display the ongoing scores at bottom of playing area.
+X */
+X
+Xvoid
+Xshow_score()
+X{
+X	register int i;
+X
+X	if (vegas_style) {
+X		for ( score_now = -52, i = 0; i < 4; i++ ) {
+X			if ( outcard[i] > 1 ) score_now += 5 * outcard[i];
+X		}
+X		wgoto( wn, 22, 2 );
+X		wprintf( wn, "This game: %d, Today %d, Since forever %d.        ",
+X			score_now, score_tot, score_sum );
+X		if ( score_now < 208 ) wcmd(wn, "");
+X	}
+X	else score_now = 0;
+X}
+X#endif	/* SCORES */
+X
+X#ifdef UNDO
+X
+Xint fu;					/* undo file descriptor */
+Xint rec_num;			/* number of records in file */
+X
+Xopen_undo()
+X{
+X	if (( fu = open( UFILE, O_RDWR | O_CREAT, 0666 )) < 0 ) {
+X		eprintf( ST_SYS, ST_DISPLAY, NULL,
+X				"Can't open %s for writing.", UFILE );
+X	}
+X	rec_num = 0;
+X	return;
+X}
+X
+Xadd_undo()
+X{
+X	record undo;
+X	register int i, j;
+X	int f_pntr;
+X
+X	f_pntr = rec_num++ * sizeof( undo );
+X	lseek( fu, f_pntr, 0 );
+X	undo.rec_indeck = indeck;
+X	undo.rec_over = over;
+X	for ( i = 0; i < 52; i++ ) undo.rec_deck[i] = deck[i];
+X	for ( i = 0; i < 4; i++ ) undo.rec_outcard[i] = outcard[i];
+X	for ( i = 0; i < 7; i++ ) {
+X		for ( j = 0; j < 7; j++ ) undo.rec_down[i][j] = down[i][j];
+X	}
+X	for ( i = 0; i < 7; i++ ) undo.rec_numdown[i] = numdown[i];
+X	for ( i = 0; i < 7; i++ ) {
+X		for ( j = 0; j < 13; j++ ) undo.rec_up[i][j] = up[i][j];
+X	}
+X	for ( i = 0; i < 7; i++ ) undo.rec_numup[i] = numup[i];
+X	write( fu, &undo, sizeof( undo ));
+X}
+X
+Xdo_undo()
+X{
+X	record undo;
+X	register int i, j;
+X	int f_pntr;
+X	unsigned short x_pos, y_pos;
+X
+X#ifdef RUN
+X	extern int run_deck;
+X
+X	if ( run_deck ) {
+X		run_deck = 0;
+X		do_slk( );
+X	}
+X#endif
+X	if ( --rec_num < 0 ) {
+X		rec_num = 0;
+X		wgoto(wn, 20, 2 );
+X		wprintf( wn, "Undo file depleted." );
+X		return;
+X	} else {
+X		wgoto(wn, 20, 2 );
+X		wprintf( wn, "                     " );
+X	}
+X	f_pntr = rec_num * sizeof( undo );
+X	lseek( fu, f_pntr, 0 );
+X	read( fu, &undo, sizeof( undo ));
+X
+X				/* Redo the stock area. */
+X	if ( over != undo.rec_over || indeck != undo.rec_indeck ) {
+X		over = undo.rec_over;
+X		indeck = undo.rec_indeck;
+X		for ( i = 0; i < 52; i++ ) deck[i] = undo.rec_deck[i];
+X		if ( over == 0 ) {
+X			wrastop(wn, blank[0], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X		else {
+X			wrastop(wn, images[deck[indeck-over]], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X		if ( indeck-over == 0 ) {
+X			wrastop(wn, blank[0], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK, TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X		else {
+X			wrastop(wn, back[0], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK,TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X	}
+X	for ( i = 0; i < 4; i++ ) {
+X		if ( outcard[i] != undo.rec_outcard[i] ) {
+X			outcard[i] = undo.rec_outcard[i];
+X			if ( outcard[i] == 0 ) {
+X				wrastop(wn, blank[0], 10,
+X					(unsigned short *)0, 0, 0, 0,
+X					LEFT+((CARD_W+ROW_SEP)*(i*2)), TOP,
+X					CARD_W, CARD_H, SRCSRC, DSTSRC,
+X					(unsigned short *)0);
+X			} else {
+X				wrastop(wn, images[i*13+outcard[i]-1], 10,
+X					(unsigned short *)0, 0, 0, 0,
+X 					LEFT+((CARD_W+ROW_SEP)*(i*2)), TOP,
+X					CARD_W, CARD_H, SRCSRC, DSTSRC,
+X					(unsigned short *)0);
+X			}
+X		}
+X	}
+X	for ( i = 0; i < 7; i++ ) {
+X		if ( numdown[i] != undo.rec_numdown[i]
+X				||	numup[i] != undo.rec_numup[i] ) {
+X			x_pos = LEFT+((CARD_W+ROW_SEP)*i);
+X			y_pos = TOP + CARD_H + SUIT_SEP;
+X			wrastop(wn, (unsigned short *)0, 0,
+X				(unsigned short *)0, 0, 0, 0,
+X				x_pos, y_pos,
+X				CARD_W,
+X				CARD_H + BACK_SEP*numdown[i] + FACE_SEP*(numup[i]-1),
+X				SRCPAT, DSTSRC,
+X				patblack);
+X			numdown[i] = undo.rec_numdown[i];
+X			numup[i] = undo.rec_numup[i];
+X			for ( j = 0; j < 7; j++ ) {
+X				down[i][j] = undo.rec_down[i][j];
+X				if ( down[i][j] == -1 ) break;
+X
+X				wrastop(wn, back[0], 10,
+X					(unsigned short *)0, 0, 0, 0,
+X					x_pos, y_pos,
+X					CARD_W, CARD_H, SRCSRC, DSTSRC,
+X					(unsigned short *)0);
+X				y_pos += BACK_SEP;
+X			}
+X			for ( j = 0; j < 13; j++ ) {
+X				up[i][j] = undo.rec_up[i][j];
+X				if ( up[i][j] == -1 ) break;
+X				wrastop(wn, images[up[i][j]], 10,
+X					(unsigned short *)0, 0, 0, 0,
+X					x_pos, y_pos,
+X					CARD_W, CARD_H, SRCSRC, DSTSRC,
+X					(unsigned short *)0);
+X				y_pos += FACE_SEP;
+X			}
+X		}
+X	}
+X	lseek( fu, f_pntr, 0 );
+X}
+X
+X#endif
+X
+X#ifdef MARKS
+X
+Xstatic int num_marks;
+Xstatic int marks[60];
+X
+X#endif
+X
+X#ifdef MARKS
+X
+Xsay_marks( num )
+Xint num;
+X{
+X	wgoto( wn, 16, 1 );
+X	if ( num == 0 )       wprintf( wn, "          ");
+X	else if ( num < 0 )   wprintf( wn, "No Marks  ");
+X	else if ( num == 60 ) wprintf( wn, "Too Many  ");
+X	else if ( num == 61 ) wprintf( wn, "You Goofed");
+X	else		             wprintf( wn, "%2d Marks  ", num);
+X}
+X
+X#endif	/* MARKS */
+X
+X#ifdef RUN
+X
+X#define CLOCK_TICK 1000/HZ		/* HZ = 60 for unix-pc */
+X
+X/* This routine "borrowed" from kermit.  Its a handy little routine */
+X/* and if you are building your own library of pets, consider this  */
+X/* for inclusion - vch.  m = msec of delay			    */
+X
+Xint mpause( m )
+Xint m;
+X
+X{
+X	extern long times( );
+X	long t1, t2, tarray[4];
+X	int t3;
+X
+X	if ( m <= 0 ) return( 0 );
+X 	if (( t1 = times( tarray )) < 0) return( -1 );
+X	while (1)
+X	{
+X		if (( t2 = times( tarray )) < 0) return( -1 );
+X		t3 = (( int )( t2 - t1 )) * CLOCK_TICK;
+X		if ( t3 > m ) return( t3 );
+X	}
+X}					/* mpause() */
+X
+X/*
+X * Move all exposed cards to the outcard stacks when all
+X * the down cards have been turned over.
+X */
+X
+Xvoid
+Xdo_run()
+X{
+X	register int i, j;
+X
+X	for ( i = 1; i <= 13; i++ ) {
+X		for ( j = 0; j < 7; j++ ) {
+X			if ( VALUE(up[j][numup[j]-1]) == i ) {
+X				playcard(j+1);
+X				mpause( 250 );		/* short delay for effect */
+X			}
+X		}
+X	}
+X}
+X#endif
+END_OF_check.c
+if test 10196 -ne `wc -c <check.c`; then
+    echo shar: \"check.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f klondike.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"klondike.c\"
+else
+echo shar: Extracting \"klondike.c\" \(21642 characters\)
+sed "s/^X//" >klondike.c <<'END_OF_klondike.c'
+X/*
+X *	Copyright 1990, Thomas E. Tkacik
+X *			tkacik@kyzyl.mi.org
+X *
+X *	Acknowledgments to Kent Quander allowing me to
+X *	 use and distribute his wonderfully drawn playing cards.
+X *
+X *	Permission is given to copy and distribute for non-profit purposes.
+X *
+X */
+X
+X#include "klondike.h"
+X#include <kcodes.h>
+X#include <stdio.h>
+X#include <sys/mouse.h>
+X#include <sys/window.h>
+X
+Xdouble drand48();
+Xlong   lrand48();
+Xvoid   srand48();
+Xlong   time();
+Xlong   atol();
+Xint    getpid();
+Xvoid   exit();
+X
+X/* number used to generate the current board */
+Xlong board;
+X
+X/* number of card remaining in the deck */
+Xint indeck;
+X
+X/* number of cards in the deck that have been turned over */
+Xint over;
+X
+X/* card stack selected by the player */
+Xint src_stack;
+X
+X/* card selected by the player */
+Xint ucard;
+X
+X/* 1 if dragging cards around with the mouse */
+Xint dragging = 0;
+X
+X/* 1 if vegas style of play -- turn one card at a time, */
+X/* go through deck once */
+Xint vegas_style = VEGAS;
+X
+X/* one or more cards that will get dragged by the mouse */
+Xunsigned short cards[12*FACE_SEP+CARD_H][5];
+X
+X/* size of cards to be dragged, in pixels */
+Xint h_cards, w_cards;
+X
+X#ifdef SCORES
+X/* scores */
+Xint score_now, score_tot, score_sum;
+Xextern void show_score();
+Xextern void save_score();
+Xextern void read_file();
+X#endif
+X
+X#ifdef CHEAT
+X/* Check for more moves */
+Xstatic int first_pass = 1;
+Xextern void do_slk();
+Xint cheat;
+X#endif
+X
+X#ifdef UNDO
+Xextern void open_undo();
+Xextern void add_undo();
+Xextern void do_undo();
+X#endif
+X
+X#ifdef MARKS
+Xstatic int num_marks;
+Xstatic int marks[60];
+X#endif
+X
+X#ifdef RUN
+Xint run_deck;
+Xvoid do_deck();
+X#endif
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int c, errflg = 0;
+X	extern int optind;
+X	extern char *optarg;
+X
+X     /* initialize random number generator */
+X
+X	srand48(getpid()+time((long *)0));
+X
+X     /* let board be the first number in the random sequence */
+X     /*  this will vary more than (getpid+time) does */
+X
+X	board = lrand48()>>8;  /* use only high 24 bits */
+X	srand48(board);
+X
+X
+X     /* parse arguments */
+X
+X	while((c = getopt(argc, argv, "vn:")) != EOF) {
+X		switch(c) {
+X			case 'n':
+X				board = atol(optarg);
+X				srand48(board);
+X				break;
+X			case 'v':
+X				vegas_style = 1;
+X				break;
+X			default:
+X				errflg = 1;
+X		}
+X	}
+X	if(errflg == 1) {
+X		fprintf(stderr, "Usage: %s [-v] [-n #]\n", argv[0]);
+X		exit(1);
+X	}
+X
+X#ifdef SCORES
+X	read_file();
+X#endif
+X#ifdef UNDO
+X	open_undo();
+X#endif
+X#ifdef CHEAT
+X	cheat = 1;						/* Set default to CHEAT on */
+X#endif
+X	initwindow();
+X
+X	set_up();
+X
+X	play();
+X
+X	leave();
+X
+X	return(0);
+X}
+X
+X/*
+X * play another game
+X */
+X
+Xnew_game()
+X{
+X     /* use only the high 24 significant bits of board */
+X
+X	board = lrand48()>>8;
+X
+X	set_up();
+X}
+X
+X/*
+X * set up the board for a new game
+X */
+X
+Xset_up()
+X{
+X	char prompt[40];
+X
+X     /* clear the playing area */
+X
+X	wrastop(wn, (unsigned short *)0, 0, (unsigned short *)0, 0,
+X		0, 0, SIDEBORDER, TOPBORDER, WIND_W-(2*SIDEBORDER),
+X		WIND_H-(2*TOPBORDER), SRCPAT, DSTSRC, patblack);
+X
+X	sprintf(prompt, "Hand: %ld        ", board);
+X	wprompt(wn, prompt);
+X
+X	srand48(board);
+X	shuffle();
+X	setup();
+X	dragging = 0;
+X#ifdef CHEAT
+X	first_pass = 1;
+X#endif
+X#ifdef UNDO
+X	rec_num = 0;
+X#endif
+X#ifdef MARKS
+X	num_marks = 0;
+X	say_marks( 0 );
+X#endif
+X#ifdef [BRUN
+X	run_deck = 0;
+X#endif
+X}
+X
+X/*
+X * take user input and play the game
+X */
+X
+Xplay()
+X{
+X	int c;
+X
+X	for(;;) {
+X#ifdef RUN
+X		int down_cards;
+X
+X		down_cards = 0;
+X		for ( c = 0; c < 7; c++ ) down_cards += numdown[c];
+X		if ( run_deck && ( indeck || over || down_cards )) {
+X			run_deck = 0;
+X			do_slk( );
+X		}
+X		else if ( ! run_deck && ! ( indeck || over || down_cards )) {
+X			run_deck = 1;
+X			do_slk( );
+X		}
+X#endif
+X		c = wgetc(wn);
+X		switch(c) {
+X			case F1:
+X				vegas_style = 1;
+X				new_game();
+X				break;
+X			case F2:
+X				vegas_style = 0;
+X				new_game();
+X				break;
+X			case F3:
+X				set_up();
+X				break;
+X#ifdef CHEAT
+X			case F4:
+X				cheat = !cheat;
+X				do_slk( );
+X				break;
+X#endif
+X#ifdef UNDO
+X			case Undo:
+X			case F5:
+X				do_undo();				/* was first attempted */
+X				show_score();
+X				break;
+X#endif
+X#ifdef RUN
+X			case F6:
+X				add_undo();
+X				if ( run_deck ) do_run();
+X				break;
+X#endif
+X#ifdef SCORES
+X			case F7:
+X				score_now = 0;
+X				save_score(1);
+X				show_score();
+X				break;
+X#endif
+X			case F8:
+X			case Exit:
+X				quit();
+X				return;
+X				break;
+X			case Mouse:
+X				domouse();
+X				break;
+X#ifdef MARKS
+X			case Mark:
+X				if ( num_marks >= 59 ) {
+X					say_marks(60);
+X					num_marks = 59;
+X				}
+X				else {
+X					if ( num_marks > rec_num ) say_marks( 61 );
+X					else {
+X						marks[num_marks++] = rec_num + 1;
+X						say_marks( num_marks );
+X					}
+X				}
+X				break;
+X			case Slect:
+X				if ( --num_marks < 0 ) {
+X					say_marks( -1 );
+X					num_marks = 0;
+X				} else {
+X					if ( marks[num_marks] > rec_num ) say_marks( 61 );
+X					else {
+X						rec_num = marks[num_marks];
+X						do_undo();
+X						say_marks( num_marks );
+X					}
+X				}
+X				show_score();
+X				break;
+X#endif
+X			default:
+X			     /* ignore all other input */
+X				break;
+X		}
+X	}
+X}
+X
+X/*
+X * when the quit button is pushed
+X */
+X
+Xquit()
+X{
+X#ifdef SCORES
+X	void save_score();
+X
+X	save_score(0);
+X#endif
+X#ifdef UNDO
+X	close(fu);
+X	unlink( UFILE );
+X#endif
+X	wcmd(wn, "quit");
+X	wprompt(wn, "");
+X}
+X
+X/*
+X * shuffle the cards in the deck (in place)
+X * 
+X * while there are unshuffled cards,
+X *   select a random unshuffled card
+X *   remove it from the unshuffled and put it in the shuffled part
+X */
+X
+Xshuffle()
+X{
+X	int i;
+X
+X     /* put the cards in the deck unshuffled */
+X
+X	for(i=0; i<52; i++) {
+X		deck[i] = i;
+X	}
+X
+X     /* shuffle them */
+X
+X	for(i=51; i>=1; --i) {
+X		int x, temp;
+X
+X	     /* pick a card, any card */
+X
+X		x = drand48()*(i+1);
+X
+X	     /* remove it from the unshuffled deck and put it */
+X	     /* into the shuffled deck by */
+X	     /* swapping card i with card x */
+X
+X		temp = deck[i];
+X		deck[i] = deck[x];
+X		deck[x] = temp;
+X	}
+X}
+X
+X/*
+X * deal the cards and show the initial card setup
+X */
+X
+Xsetup()
+X{
+X	int i, j;
+X
+X	int x_pos, y_pos;
+X
+X	indeck = 52;	/* cards still in the deck */
+X	over = 0;	/* cards turned over */
+X
+X     /* initialize the columns of the tableau */
+X
+X	for(i = 0; i < 7; i++) {
+X		for(j = 0; j < 7; j++) {
+X			down[i][j] = -1;
+X		}
+X		for(j = 0; j < 13; j++) {
+X			up[i][j] = -1;
+X		}
+X	}
+X
+X     /* there are no outcards initially */
+X
+X	for(i = 0; i < 4; i++) {
+X		outcard[i] = 0;
+X	}
+X
+X     /* deal the cards */
+X
+X	for(i = 0; i < 7; i++) {
+X
+X		numdown[i] = i;
+X		numup[i] = 1;
+X
+X	     /* deal up card */
+X
+X		indeck -= 1;
+X
+X		up[i][0] = deck[indeck];
+X		deck[indeck] = -1;
+X
+X	     /* display up card */
+X
+X		x_pos = LEFT+((CARD_W+ROW_SEP)*i);
+X		y_pos = TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[i]);
+X
+X		wrastop(wn, images[up[i][0]], 10, (unsigned short *)0, 0,
+X				0, 0, x_pos, y_pos,
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X
+X	     /* deal down cards */
+X
+X		for(j = i + 1; j < 7; j++) {
+X
+X			indeck -= 1;
+X
+X			down[j][i] = deck[indeck];
+X			deck[indeck] = -1;
+X
+X		     /* display back of card */
+X
+X			x_pos = LEFT+((CARD_W+ROW_SEP)*j);
+X			y_pos = TOP + CARD_H + SUIT_SEP + (BACK_SEP*i);
+X
+X			wrastop(wn, back[0], 10, (unsigned short *)0, 0,
+X				0, 0, x_pos, y_pos,
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X		
+X
+X	}
+X
+X     /* turn over the remainder of the deck */
+X
+X	wrastop(wn, back[0], 10, (unsigned short *)0, 0, 0, 0,
+X		DECK, TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X		CARD_W, CARD_H, SRCSRC, DSTSRC, (unsigned short *)0);
+X
+X     /* there are no cards showing yet */
+X
+X	wrastop(wn, blank[0], 10, (unsigned short *)0, 0, 0, 0, 
+X		DECK, TOP + (CARD_H/2),
+X		CARD_W, CARD_H, SRCSRC, DSTSRC, (unsigned short *)0);
+X
+X     /* blanks showing where to play the cards */
+X
+X	for(i=0; i<7; i+=2) {
+X		wrastop(wn, blank[0], 10, (unsigned short *)0, 0, 0, 0,
+X			LEFT+((CARD_W+ROW_SEP)*i), TOP,
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X	}
+X
+X     /* accept input from the mouse */
+X
+X	resetmouse(0, 0, MSDOWN);
+X
+X	dragging = 0;
+X	wcmd(wn, " ");
+X
+X#ifdef SCORES
+X		/* Scoring code added by vch */
+X	if ( vegas_style ) {
+X		score_tot += score_now;
+X		show_score();
+X	}
+X#endif
+X}
+X
+X/*
+X * when one of the mouse buttons is pushed
+X */
+X
+Xdomouse()
+X{
+X	int x, y, buttons, reason;
+X#ifdef BADMOUSE
+X	static old_buttons = 0;
+X#endif
+X
+X     /* read the mouse info */
+X
+X	wreadmouse(wn, &x, &y, &buttons, &reason);
+X
+X     /* only interested in button pushes, not releases */
+X
+X#ifdef BADMOUSE
+X	if((~old_buttons & buttons) || (reason & MSDOWN)) {/* } vch */
+X#else
+X	if(reason & MSDOWN) {
+X#endif
+X		if(buttons & MBUTL) {	/* left button down */
+X
+X		     /* if not dragging a card, start */
+X
+X			if(!dragging) {
+X 		     /* what stack of cards did the player select */
+X
+X				src_stack = stack(x, y);
+X
+X			     /* was a visible card selected? */
+X
+X				if(src_stack >= 0){
+X				     /* start dragging the card */
+X
+X					dragging = 1;
+X					get_drag_region(src_stack);
+X					start_dragging(x,y);
+X					resetmouse(x, y, MSDOWN|MSOUT);
+X				} else {
+X			     /* maybe we should show the next card? */
+X
+X					if(src_stack == -1) {
+X						turn_deck();
+X					} else {
+X						beep();
+X					}
+X					resetmouse(0, 0, MSDOWN);
+X				}
+X			} else {
+X			     /* player has made a move */
+X			     /* stop dragging card */
+X				dragging = 0;
+X				stop_dragging();
+X				if(place(x, y) < 0) {
+X					put_drag_region(src_stack);
+X					beep();
+X				}
+X				
+X#ifdef CHEAT
+X				resetmouse(0, 0, MSDOWN | 0100);
+X#else
+X				resetmouse(0, 0, MSDOWN);
+X#endif
+X			}
+X		} else if(buttons & MBUTM) {	/* middle button down */
+X		     /* unselect the selected card */
+X
+X			if(dragging) {
+X				dragging = 0;
+X				stop_dragging();
+X				put_drag_region(src_stack);
+X#ifdef CHEAT
+X				resetmouse(0, 0, MSDOWN | 0100 );
+X#else
+X				resetmouse(0, 0, MSDOWN);
+X#endif
+X			}
+X
+X		} else if(buttons & MBUTR) {	/* right button down */
+X
+X			if(!dragging) {
+X		     /* what stack of cards did the player select */
+X
+X				src_stack = stack(x, y);
+X
+X			     /* was a card selected that can be moved */
+X			     /* to the outstack? */
+X
+X				if((src_stack >= 0) &&
+X					(match(src_stack, 8))) {
+X					playcard(src_stack);
+X				} else {
+X					beep();
+X				}
+X#ifdef CHEAT
+X				resetmouse(0, 0, MSDOWN|MSOUT|0100);
+X			} else {
+X				beep();
+X				resetmouse(x, y, MSDOWN|MSOUT|0100);
+X			}
+X			clear_clue();
+X#else
+X				resetmouse(0, 0, MSDOWN|MSOUT);
+X			} else {
+X				beep();
+X				resetmouse(x, y, MSDOWN|MSOUT);
+X			}
+X#endif
+X		}
+X	}
+X
+X     /* or if the the mouse moved */
+X
+X	else if(reason & MSOUT) {
+X
+X		if(dragging) {
+X		     /* drag card with mouse pointer */
+X
+X			keep_dragging(x,y);
+X			resetmouse(x, y, MSDOWN|MSOUT);
+X		}
+X	}
+X
+X#ifdef BADMOUSE
+X	old_buttons = buttons;
+X#endif
+X}
+X
+X/*
+X * what stack of cards was selected
+X * -2 is error
+X * -1 is unturned deck
+X * 0 is the visible deck
+X * 1-7 is a column
+X */
+X
+Xint
+Xstack(x, y)
+Xint x, y;
+X{
+X     /* is it the unturned deck? */
+X
+X	if((x > DECK) && (x < (DECK + CARD_W)) &&
+X	   (y > TOP + (CARD_H/2) + CARD_H + FACE_SEP) &&
+X	   (y < TOP + (CARD_H/2) + CARD_H + CARD_H + FACE_SEP)) {
+X		return(-1);
+X
+X     /* maybe the visible deck? */
+X
+X	} else if((x > DECK) && (x < (DECK + CARD_W)) &&
+X	   	  (y > TOP + (CARD_H/2)) && (y < TOP + (CARD_H/2) + CARD_H)) {
+X
+X	     /* if no cards from the deck are showing then its an error */
+X
+X		if(over > 0) {
+X			ucard = deck[indeck-over];
+X			return(0);
+X		} else {
+X			return(-2);
+X		}
+X
+X     /* perhaps a column of the tableau? */
+X
+X	} else if((x > LEFT) && (y > TOP+CARD_H+SUIT_SEP)) {
+X		int i;
+X	     /* which column of cards? */
+X
+X		x -= LEFT;
+X		i = (x / (CARD_W+ROW_SEP)) + 1;
+X		x =       x % (CARD_W+ROW_SEP);
+X		if((x > CARD_W) || (i > 7) || (numup[i-1]==0)) {
+X			return(-2);
+X		} else {
+X			ucard = up[i-1][numup[i-1]-1];
+X			return(i);
+X		}
+X	}
+X
+X     /* oops, it's none of the above */
+X      
+X	return(-2);
+X}
+X
+X/*
+X * get the cards from the selected column
+X */
+X
+Xget_drag_region(col)
+Xint col;
+X{
+X     /* a card from the stock */
+X
+X	if(col == 0) {
+X
+X	     /* size of the drag region */
+X
+X		h_cards = CARD_H;
+X		w_cards = CARD_W;
+X
+X	     /* grab the card */
+X
+X		wrastop(wn, (unsigned short *)0, 0, cards[0], 10,
+X			DECK, TOP + (CARD_H/2), 0, 0,
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X
+X	     /* show the card below it, if there is one */
+X
+X		if(over > 1) {
+X			wrastop(wn, images[deck[indeck-(over-1)]], 10,
+X				(unsigned short *)0, 0,
+X				0, 0, DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X		else {
+X			wrastop(wn, blank[0], 10, (unsigned short *)0,
+X				0, 0, 0, DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X
+X		}
+X	}
+X
+X     /* or from one of the columns */
+X
+X	else {
+X
+X	     /* the column arrays all begin at 0, not 1 */
+X
+X		col -= 1;
+X
+X	     /* size of the drag region */
+X
+X		h_cards = CARD_H + (numup[col]-1)*FACE_SEP;
+X		w_cards = CARD_W;
+X
+X	     /* grab the up cards in this column */
+X
+X		wrastop(wn, (unsigned short *)0, 0, cards[0], 10,
+X			LEFT + ((CARD_W + ROW_SEP)*col),
+X			TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[col]),
+X			0, 0, w_cards, h_cards,
+X			SRCSRC, DSTSRC, (unsigned short *)0);
+X
+X	     /* black out where the cards where */
+X
+X		wrastop(wn, (unsigned short *)0, 0,
+X			(unsigned short *)0, 0,
+X			0, 0, LEFT + ((CARD_W + ROW_SEP)*col),
+X			TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[col]),
+X			w_cards, h_cards,
+X			SRCPAT, DSTSRC, patblack);
+X
+X	     /* redraw the top down card, if there is one */
+X
+X		if(numdown[col] > 0) {
+X			wrastop(wn, back[0], 10, (unsigned short *)0, 0,
+X				0, 0, LEFT + ((CARD_W + ROW_SEP)*col),
+X				TOP + CARD_H + SUIT_SEP +
+X					(BACK_SEP*(numdown[col] - 1)),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X	}
+X
+X}
+X
+X/*
+X * put the selected cards back where they came from
+X */
+X
+Xput_drag_region(col)
+Xint col;
+X{
+X     /* a card from the stock */
+X
+X	if(col == 0) {
+X		wrastop(wn, cards[0], 10, (unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2),
+X			w_cards, h_cards, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X	}
+X
+X     /* or from one of the columns */
+X
+X	else {
+X
+X	     /* the column arrays all begin at 0, not 1 */
+X
+X		col -= 1;
+X
+X	     /* put back the up cards in this column */
+X
+X		wrastop(wn, cards[0], 10, (unsigned short *)0, 0, 0, 0,
+X			LEFT + ((CARD_W + ROW_SEP)*col),
+X			TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[col]),
+X			w_cards, h_cards, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X	}
+X}
+X
+X/*
+X * turn up the next cards from the stock
+X */
+X
+Xturn_deck()
+X{
+X	int turn = (vegas_style ? 1 : 3);
+X
+X#ifdef CHEAT
+X	extern int any_moves();
+X
+X		/* Check if user has over looked a move.
+X		 * Checking code added by vch. */
+X	if ( first_pass && cheat && any_moves() ) {
+X		beep();
+X		first_pass = 0;
+X		return;
+X	}
+X	first_pass = 1;
+X#endif
+X     /* are there any more to turn over? */
+X
+X#ifdef UNDO
+X	add_undo();
+X#endif
+X	if((indeck == 0) || (vegas_style && (over == indeck))) {
+X#ifdef UNDO
+X		rec_num--;
+X#endif
+X		beep();
+X
+X     /* are all cards showing? hide them all */
+X
+X	} else if(!vegas_style && (over == indeck)) {
+X	     /* hide all of the cards */
+X
+X		over = 0;
+X		wrastop(wn, blank[0], 10, (unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2),
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X		wrastop(wn, back[0], 10, (unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X
+X     /* fewer than three showing, turn them all up */
+X
+X	} else if(over + turn >= indeck) {
+X		over = indeck;
+X		wrastop(wn, images[deck[0]], 10,
+X			(unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2),
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X		wrastop(wn, blank[0], 10, (unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X
+X     /* turn up the next cards */
+X
+X	} else {
+X		over += turn;
+X		wrastop(wn, images[deck[indeck-over]], 10,
+X			(unsigned short *)0, 0, 0, 0,
+X			DECK, TOP + (CARD_H/2),
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X		wrastop(wn, back[0], 10, (unsigned short *)0, 0, 0, 0,
+X			DECK,TOP + (CARD_H/2) + CARD_H + FACE_SEP,
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X	}
+X}
+X
+X/*
+X * determine destination column, and move the cards there
+X * if the cards do not match, return -1
+X */
+X
+Xplace(x,y)
+Xint x, y;
+X{
+X	int dst_column;
+X
+X	if((x > LEFT) && (y > TOP+CARD_H+SUIT_SEP)) {
+X	     /* which column of cards? */
+X
+X		x -= LEFT;
+X		dst_column = (x / (CARD_W+ROW_SEP)) + 1;
+X		x =      x % (CARD_W+ROW_SEP);
+X
+X	     /* is it a legal column, and do the cards match */
+X
+X		if(((x < CARD_W)&&(dst_column <= 7))&&
+X			    (match(src_stack, dst_column))) {
+X		     /* yes, move them */
+X
+X			movecard(src_stack, dst_column);
+X
+X			return(0);
+X		} else {
+X			return(-1);
+X		}
+X	} else {
+X		return(-1);
+X	}	
+X}
+X
+X/*
+X * does the card on the bottom of column x match that on top of column y
+X * 0 is the deck
+X * 8 is the outcard stack
+X */
+X
+Xmatch(x,y)
+Xint x,y;
+X{
+X	int color1, color2;
+X	int value1, value2;
+X	int suit1,  suit2;
+X	int card1;
+X
+X	int ok;
+X
+X     /* what is the bottom card of the selected stack */
+X     /* 0 <= x <= 7 --- cannot be from the outcard stack */
+X     /* 1 <= y <= 8 --- cannot be put on the deck */
+X	
+X	if(x == 0) {
+X		card1  = deck[indeck-over];
+X	} else if(y == 8) {
+X		card1 = up[x-1][numup[x-1]-1];
+X	} else {
+X		card1  = up[x-1][0];
+X	}
+X	color1 = COLOR(card1);
+X	value1 = VALUE(card1);
+X	suit1  =  SUIT(card1);
+X
+X     /* what is the top card of the destination stack */
+X
+X	if(y == 8) {
+X	     /* move to the output stack */
+X
+X		color2 = color1;
+X		suit2  = suit1;
+X		value2 = outcard[suit2];
+X
+X	     /* outcard must be 1 less than played card */
+X
+X		ok = (value1 == (value2+1))?1:0;
+X	} else {
+X	     /* move to one of the columns */
+X
+X		if(numup[y-1] > 0) {
+X			color2 = COLOR(up[y-1][numup[y-1]-1]);
+X			value2 = VALUE(up[y-1][numup[y-1]-1]);
+X			suit2  =  SUIT(up[y-1][numup[y-1]-1]);
+X
+X	     /*they must be different colors and must differ by one*/
+X
+X			ok = ((color1 != color2) && ((value1 + 1) == value2)) ? 1 : 0;
+X		} else {
+X		     /* the column is empty */
+X		     /* new card must be a king */
+X
+X			ok = (value1 == 13) ? 1 : 0;
+X		}
+X	}
+X#ifdef UNDO
+X 	if ( ok ) add_undo();
+X#endif
+X	return(ok);
+X}
+X
+X/*
+X * move cards from column x to column y
+X */
+X
+X
+Xmovecard(x, y)
+Xint  x, y;
+X{
+X	y -= 1;
+X
+X     /* place the card images in the proper column */
+X
+X	wrastop(wn, cards[0], 10, (unsigned short *)0, 0, 0, 0,
+X		LEFT+((CARD_W+ROW_SEP)*y),
+X		TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[y])
+X				+ (FACE_SEP*numup[y]),
+X		w_cards, h_cards, SRCSRC, DSTSRC, (unsigned short *)0);
+X
+X     /* card came from the stock */
+X
+X	if(x == 0) {
+X		int i;
+X
+X	     /* add to column */
+X
+X		up[y][numup[y]] = deck[indeck-over];
+X		numup[y] += 1;
+X
+X	     /* remove card from deck */
+X
+X		for(i = indeck - over; i < indeck - 1; i++) {
+X			deck[i] = deck[i+1];
+X		}
+X		deck[indeck] = -1;
+X		indeck -= 1;
+X		over -= 1;
+X
+X     /* cards came from a column of the tableau */
+X
+X	} else {
+X		int i;
+X
+X	     /* move all up cards from x to y */
+X
+X		x -= 1;
+X
+X		for(i=0; i<numup[x]; i++) {
+X			up[y][numup[y]] = up[x][i];
+X			up[x][i] = -1;
+X			numup[y] += 1;
+X		}
+X		numup[x] = 0;
+X		update_column(x);
+X	}
+X#ifdef CHEAT
+X	clear_clue();
+X#endif
+X}
+X
+X/*
+X * move card from column x to outcard area
+X */
+X
+Xplaycard(x)
+Xint x;
+X{
+X	int card, value, suit;
+X	int i;
+X
+X     /* card is from the stock */
+X
+X	if(x == 0) {
+X		card  = deck[indeck-over];
+X
+X     /* card is from the tableau */
+X
+X	} else {
+X		card  = up[x-1][numup[x-1]-1];
+X	}
+X	value = VALUE(card);
+X	suit  =  SUIT(card);
+X
+X
+X     /* place outcard */
+X
+X	outcard[suit] = value;
+X	wrastop(wn, images[card], 10, (unsigned short *)0, 0, 0, 0,
+X		LEFT+((CARD_W+ROW_SEP)*suit*2),
+X		TOP, CARD_W, CARD_H, SRCSRC, DSTSRC, (unsigned short *)0);
+X
+X     /* remove card from stock */
+X
+X	if(x == 0) {
+X		for(i=indeck-over; i<indeck-1; i++) {
+X			deck[i] = deck[i+1];
+X		}
+X		deck[indeck] = -1;
+X		indeck -= 1;
+X		over -= 1;
+X	
+X	     /* show next card in the stock */
+X
+X		if(over > 0) {
+X			wrastop(wn, images[deck[indeck-over]], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		} else {
+X			wrastop(wn, blank[0], 10,
+X				(unsigned short *)0, 0, 0, 0,
+X				DECK, TOP + (CARD_H/2),
+X				CARD_W, CARD_H, SRCSRC, DSTSRC,
+X				(unsigned short *)0);
+X		}
+X
+X     /* remove card from playing area */
+X
+X	} else {
+X		up[x-1][numup[x-1]-1] = -1;
+X		numup[x-1] -= 1;
+X		update_column(x-1);
+X	}
+X
+X     /* if there are no cards left, player wins */
+X	
+X	card = indeck;
+X	for(i = 0; i <= 6; i += 1) {
+X		card += numup[i];
+X	}
+X
+X	if(card == 0) {
+X		if(vegas_style == 1) 
+X	   wcmd(wn, "You broke the bank!  Bet you can't do it again?");
+X		else
+X	   wcmd(wn, "You win this hand!  Think you can do it again?");
+X	}
+X
+X#ifdef SCORES
+X	if (vegas_style) show_score();
+X#endif
+X}
+X
+X/*
+X * turn over the next card, if there is one
+X * and redraw the column
+X */
+X
+Xupdate_column(col)
+Xint col;
+X{
+X
+X /* remove the top face up card, we may be moving it to the foundation */
+X
+X	wrastop(wn, (unsigned short *)0, 0,
+X		(unsigned short *)0, 0, 0, 0,
+X		LEFT+((CARD_W+ROW_SEP)*col),
+X		TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[col]) +
+X			(FACE_SEP*numup[col]),
+X		CARD_W, CARD_H, SRCPAT, DSTSRC, patblack);
+X
+X     /* do we need to turn one over */
+X
+X	if((numup[col]==0)&&(numdown[col]>0)) {
+X	     /* turn over another card */
+X
+X		up[col][0] = down[col][numdown[col]-1];
+X		numup[col] = 1;
+X		down[col][numdown[col]-1] = -1;
+X		numdown[col] -= 1;
+X	}
+X
+X     /* redraw the column */
+X
+X	if(numup[col] > 0) {
+X		wrastop(wn, images[up[col][numup[col]-1]], 10,
+X			(unsigned short *)0, 0, 0, 0,
+X			LEFT+((CARD_W+ROW_SEP)*col),
+X			TOP + CARD_H + SUIT_SEP + (BACK_SEP*numdown[col])
+X				+ (FACE_SEP*(numup[col]-1)),
+X			CARD_W, CARD_H, SRCSRC, DSTSRC,
+X			(unsigned short *)0);
+X	}
+X}
+X
+X/*
+X * reset the mouse report flags
+X */
+X
+Xresetmouse(x, y, flags)
+Xint x, y;	/* current mouse position */
+Xint flags;
+X{
+X	struct umdata um;
+X#ifdef CHEAT
+X			/* 0100 flag added to provide selective cheating */
+X			/* Reset the flag to check for more moves */
+X 	if ( flags & 0100 ) first_pass = 1;
+X	um.um_flags = flags & ~0100;
+X#else
+X	um.um_flags = flags;
+X#endif
+X	um.um_x = x;
+X	um.um_y = y;
+X	um.um_w = 1;
+X	um.um_h = 1;
+X	wsetmouse (wn, &um);
+X}
+END_OF_klondike.c
+if test 21642 -ne `wc -c <klondike.c`; then
+    echo shar: \"klondike.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f other.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"other.c\"
+else
+echo shar: Extracting \"other.c\" \(7015 characters\)
+sed "s/^X//" >other.c <<'END_OF_other.c'
+X/*
+X *	Copyright 1990, Thomas E. Tkacik
+X *			tkacik@kyzyl.mi.org
+X *
+X *	Acknowledgments to Kent Quander allowing me to
+X *	 use and distribute his wonderfully drawn playing cards.
+X *
+X *	Permission is given to copy and distribute for non-profit purposes.
+X *
+X */
+X
+X/*
+XObject Name: joker
+X  Pels Wide: 71
+X  Pels High: 65
+X       Srcx: 416
+X       Srcy: 92
+X*/
+X
+Xunsigned short joker[65][5] ={
+X	{0x0,0x0,0x0,0x0,0x0},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfe7e,0xffff,0xffff,0xffff,0x3f},
+X	{0xfe7e,0xffff,0xffff,0xffff,0x3f},
+X	{0xfe7e,0xffff,0xffff,0xffff,0x3f},
+X	{0x1e4e,0x0,0x0,0xfc00,0x3f},
+X	{0xde4e,0xffff,0xffff,0xfdff,0x3f},
+X	{0xdf1e,0xc1ff,0xfff,0xfde0,0x3f},
+X	{0xdffe,0xd581,0x57c0,0xfdd5,0x3f},
+X	{0xdf1e,0x491c,0x2b9c,0xfda8,0x3f},
+X	{0xde4e,0x553e,0xd5be,0xfd57,0x3f},
+X	{0xde4e,0x2a36,0xc9b6,0xfd27,0x3f},
+X	{0xde4e,0x1479,0x15cf,0xfd50,0x3f},
+X	{0xdf1e,0xaaff,0xa9ff,0xfd2a,0x3f},
+X	{0xdffe,0x3f,0x95fe,0xfd52,0x3f},
+X	{0xde4e,0x7f0f,0xa9f8,0xfd2a,0x3f},
+X	{0xde4e,0x4967,0x95f3,0xfd52,0x3f},
+X	{0xdf0e,0x7773,0xabe7,0xfdaa,0x3f},
+X	{0xde4e,0x6f7f,0x97ff,0xfdd2,0x3f},
+X	{0xde4e,0x677f,0x8fff,0xfde2,0x3f},
+X	{0xdffe,0x5d7f,0xbfff,0xfdfa,0x3f},
+X	{0xde0e,0x6377,0xb87f,0xfdfa,0x3f},
+X	{0xdfce,0xbee3,0xbb7f,0xfdfa,0x3f},
+X	{0xdf0e,0xc1c1,0xa007,0xfdfa,0x3f},
+X	{0xdfce,0xff80,0xaff7,0xfdfa,0x3f},
+X	{0xde0e,0xfb94,0x2ff7,0xfdd9,0x3f},
+X	{0xdffe,0xf1f7,0xa037,0xfd67,0x3f},
+X	{0xde0e,0xe4e3,0x7b00,0xfdaf,0x3f},
+X	{0xde4e,0xca7f,0x7bfe,0xfdde,0x3f},
+X	{0xdf0e,0xe4ff,0xbbfe,0xfdbd,0x3f},
+X	{0xde4e,0xf1ff,0xf806,0xfdb9,0x3f},
+X	{0xde4e,0xfbb1,0xffb6,0x3dc6,0x39},
+X	{0xdffe,0xfce,0x88b0,0x3dff,0x39},
+X	{0xdffe,0xeede,0xa2bf,0x7dff,0x38},
+X	{0xdffe,0xef3c,0x94bf,0x3de3,0x39},
+X	{0x5ffe,0x6f7b,0xc980,0x3de3,0x38},
+X	{0xdffe,0x2f3,0xe3f6,0xfd94,0x3f},
+X	{0xdffe,0xfa4d,0x77f7,0x3d00,0x38},
+X	{0xdffe,0xfaaf,0xfff7,0xfd94,0x39},
+X	{0xdffe,0x2af,0xc1f0,0x7df7,0x38},
+X	{0xdffe,0x6eaf,0xbeff,0xfde3,0x39},
+X	{0xdffe,0xeaf,0x637f,0x3dff,0x38},
+X	{0xdffe,0xfeaf,0x5d7f,0xfdff,0x3f},
+X	{0xdffe,0xf8a3,0x737f,0x3dff,0x39},
+X	{0xdffe,0xf4a5,0x7b7f,0x3dff,0x39},
+X	{0xdffe,0xeaaa,0x7773,0x7de7,0x38},
+X	{0x5ffe,0xd4a5,0x4967,0x3df3,0x39},
+X	{0x5ffe,0xcaaa,0x7f0f,0x3df8,0x39},
+X	{0x5ffe,0xd4a5,0x3f,0xfdfe,0x3f},
+X	{0x5ffe,0xcaaa,0xaaff,0x7dff,0x3c},
+X	{0x5ffe,0xd405,0x1479,0x3dcf,0x39},
+X	{0x5ffe,0xc9f2,0x2a36,0x3db6,0x39},
+X	{0x5ffe,0xd5f5,0x553e,0x3dbe,0x39},
+X	{0xdffe,0xea0a,0x491e,0x7dbc,0x3c},
+X	{0xdffe,0xf555,0xd581,0xfdc0,0x3f},
+X	{0xdffe,0xf803,0xc1ff,0x7dff,0x3c},
+X	{0xdffe,0xffff,0xffff,0x3dff,0x39},
+X	{0x1ffe,0x0,0x0,0x3c00,0x39},
+X	{0xfffe,0xffff,0xffff,0x3fff,0x3f},
+X	{0xfffe,0xffff,0xffff,0x3fff,0x3f},
+X	{0xfffe,0xffff,0xffff,0x3fff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0x0,0x0,0x0,0x0,0x0}
+X};
+X/*
+XObject Name: back
+X  Pels Wide: 71
+X  Pels High: 65
+X       Srcx: 340
+X       Srcy: 160
+X*/
+X
+Xunsigned short back[65][5] ={
+X	{0x0,0x0,0x0,0x0,0x0},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0x637e,0x6363,0x6363,0x6363,0x3f},
+X	{0x555e,0x5555,0x5555,0x5555,0x3d},
+X	{0x363e,0x3636,0x3636,0x3636,0x3e},
+X	{0x889e,0x8888,0x8888,0x8888,0x3c},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0x0,0x0,0x0,0x0,0x0}
+X};
+X/*
+XObject Name: blank
+X  Pels Wide: 71
+X  Pels High: 65
+X       Srcx: 188
+X       Srcy: 160
+X*/
+X
+Xunsigned short blank[65][5] ={
+X	{0x0,0x0,0x0,0x0,0x0},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0x2,0x0,0x0,0x0,0x20},
+X	{0xfffe,0xffff,0xffff,0xffff,0x3f},
+X	{0x0,0x0,0x0,0x0,0x0}
+X};
+END_OF_other.c
+if test 7015 -ne `wc -c <other.c`; then
+    echo shar: \"other.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 2 \(of 6\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

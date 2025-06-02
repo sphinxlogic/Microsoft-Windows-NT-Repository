@@ -1,0 +1,2143 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i095:  ss - Simple Spreadsheet program, v1.2b, Part09/11
+Message-ID: <1993Feb22.154115.22000@sparky.imd.sterling.com>
+X-Md4-Signature: d2c20e4200f6426ad0f7b3e8b7571b01
+Date: Mon, 22 Feb 1993 15:41:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 95
+Archive-name: ss/part09
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/ctrl.c ss_12b/disprange.c ss_12b/examples/borrow.ss
+#   ss_12b/examples/payments.ss ss_12b/help.c ss_12b/menu_cell.c
+#   ss_12b/range.c ss_12b/sunfkeys/f1.c ss_12b/vmtbl.c
+# Wrapped by kent@sparky on Sat Feb 20 16:01:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 11)."'
+if test -f 'ss_12b/ctrl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/ctrl.c'\"
+else
+  echo shar: Extracting \"'ss_12b/ctrl.c'\" \(12902 characters\)
+  sed "s/^X//" >'ss_12b/ctrl.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* ss 	:	A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Process Control Character Commands (NOT menu options)
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X#include "ss.h"
+X#include "keys.h"
+X
+X#include "disprange.h"
+X#include "ctrl.h"
+X#include "menu_cell.h"
+X#include "menu_misc.h"
+X
+X/*	Local Macro Definitions
+X *----------------------------------------------------------------------
+X */
+X
+X/* 
+X * Move the cursor to the HOME position (Cell A0) in the Spreadsheet. 
+X */
+X#define doHOME	{ currow = 0; curcol = 0; FullUpdate++; Message("<Home>"); }
+X
+X/*
+X * Jump to the Last Valid Row in the current column.
+X */
+X#define doEND 	{	 					\
+X	register struct ent *p;					\
+X	currow = maxrows - 1;					\
+X	while (!VALID_CELL(p, currow, curcol) && currow > 0)	\
+X	    currow--;						\
+X	Message("<End>");					\
+X	}
+X
+X#define doSCROLL_LEFT 	backcol((curcol-stcol+1)+1)
+X#define doSCROLL_RIGHT	forwcol(lcols -(curcol-stcol)+1)
+X
+X/*	Function Prototypes  (Local Functions)
+X *----------------------------------------------------------------------
+X */
+X
+X    void ProcessControls();
+X    int ProcessCursors();
+X
+X    void doForwardCell();
+X    void doBackwardCell();
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X    extern int running;		/* from main.c */
+X    extern int ClearScreen;	/* ditto */
+X    extern int showneed;	/* ditto */
+X    extern int showexpr;	/* ditto */
+X
+X    extern int lcols;		/* From screen.c */
+X
+X
+X/*	Local Global variables
+X *----------------------------------------------------------------------
+X */
+X
+Xstatic int meta_flag = FALSE;	/* Flag: indicates <ESC> prefix */
+Xstatic int ctrlx_flag = FALSE;	/* Flag: indicates ^X prefix */
+X
+X/*      Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+X/************************
+X*************************
+X** NOTE: This whole setup is a bit (!) of a kludge to allow
+X** functins to *just* process cursor commands, and no other forms of
+X** input.  Due to the fact that both cell-cursor
+X** motion commands, and regular control-key commands make use of
+X** the <Esc>- and ^X- prefix's, it becomes difficult to separate the
+X** the two operations.
+X**
+X** Currently, only the function "RangeForceInput()" in "disprange.c"
+X** calls the "ProcessCursorCommands()" function.  That function is
+X** removable, if/when we move to a CUT/COPY/PASTE ``clipboard'' style
+X** of editing the spreadsheet. 
+X**
+X** When no functions call "ProcessCursorCommands()" any longer,
+X** then we can safely take all the functions in this file and
+X** merge them into one, clean, comprehensible, function.
+X*************************
+X************************/
+X
+Xvoid ProcessControlCommands(c)
+X/*----------------------------------------------------------------------
+X** Process all Control-Key (& Related) Commands.
+X**
+X** This function serves as a "front end" to the actual
+X** Control-key / Function-key command processor function
+X** ``ProcessControls()''.
+X** The reason for this front-end is to handle two-key control-key
+X** combinations --> the <Esc>- and ^X- prefixed commands.
+X*/
+X    register int   c;	/* Control character command to process */
+X{
+X
+X    /*
+X     * Procedure: Go process/parse the control key command ``c''.
+X     * If one of the flag's indicating an <Esc>- or ^X- prefix is then
+X     * set to be true, then grab the next character and process it
+X     * also.
+X     */
+X
+X    ProcessControls(c);	 
+X    if ( (meta_flag == TRUE) || (ctrlx_flag == TRUE) ) {
+X	if (meta_flag == TRUE)
+X	    Message("** Meta -");
+X	else
+X	    Message("** Ctrl X - ");
+X	
+X	c = nmgetch();
+X	ProcessControls(c);
+X	meta_flag = ctrlx_flag = FALSE;
+X    }
+X
+X} /* ProcessControlCommands() */
+X
+X
+Xint ProcessCursorCommands(c)
+X/*----------------------------------------------------------------------
+X** Process all Cell-cursor motion commands... ONLY
+X**
+X** This function serves as a "front end" to the actual
+X** Cursor-motion  command processor function ``ProcessCursors()''.
+X**
+X** This function is derived from "ProcessControlCommands()".
+X**
+X** RETURNS: TRUE if `c' was in fact a cursor motion,
+X**          FALSE otherwise.
+X*/
+X    register int   c;	/* Control character command to process */
+X{
+X    int return_val;		/* To be returned... */
+X    
+X    return_val = ProcessCursors(c);
+X    
+X    if ( (meta_flag == TRUE) || (ctrlx_flag == TRUE) ) {
+X	if (meta_flag == TRUE)
+X	    Message("** Meta -");
+X	else
+X	    Message("** Ctrl X - ");
+X	
+X	c = nmgetch();
+X	return_val = ProcessCursors(c);
+X	meta_flag = ctrlx_flag = FALSE;
+X
+X	if (return_val != TRUE)	/* INVALID Meta- or ^X- command! */
+X	    beep();
+X    }
+X    return return_val;
+X    
+X} /* ProcessCursorCommands() */
+X
+X/*      Internal Functions
+X ***********************************************************************
+X */
+X
+Xvoid ProcessControls(c)
+X/*----------------------------------------------------------------------
+X** NOTE: see 'keys.h' for definitions of control characters
+X*/
+X    register int   c;	/* Control character command to process */
+X{
+X/* (1)
+X * First go see if it is a Cell-Cursor Movement command.  If so,
+X * process it in that function.
+X */
+X    if (ProcessCursors(c) != TRUE) {
+X
+X/* (2)
+X * Else, check ``meta_flag'' to see if we are processing the second
+X * character of a Meta (<Esc>-) prefixed command sequence.
+X */
+X	if (meta_flag == TRUE)
+X	    switch (c) {
+X/**
+X ** Currently, only cursor-movement keys use Meta- prefixes
+X **/
+X	      default:
+X		Message("** Invalid Meta- command");
+X		beep();		/* error bell */
+X		break;
+X	    }
+X/* (3)
+X * Else, check ``ctrlx_flag'' to see if we are processing the second
+X * character of a Control-X prefixed command sequence.
+X */
+X  	else if (ctrlx_flag == TRUE)
+X	    switch (c) {
+X	/*
+X	 * Menu Shortcuts: Edit Menu.
+X	 */
+X	      case kEDVAL:	CellEditValue();	break;
+X	      case kEDLABL:	CellEditLabel();	break;
+X		
+X	      default:
+X		Message("** Invalid Meta- command");
+X		beep();		/* error bell */
+X		break;
+X	    } 
+X
+X	else
+X/* (4)
+X * Else, it must just be a single Control-Key/Function-Key command.
+X */
+X	    switch (c) {
+X
+X	/*
+X	 * General Commands
+X	 */
+X	      case kMETA:	meta_flag = TRUE;	break;
+X	      case kCTRLX:	ctrlx_flag = TRUE;	break;
+X		
+X	      case kTAB: 	RangeToggle();		break;
+X
+X	      case ctl('m'):		/* ^M = <Return> */
+X		  switch(craction) {
+X		    case CRROWS:
+X		      if ((rowlimit >= 0) && (currow >= rowlimit)) {
+X			  forwcol(1);
+X			  currow = 0;
+X		      } else {
+X			  forwrow(1);
+X		      }
+X		      break;
+X		    case CRCOLS:
+X		      if ((collimit >= 0) && (curcol >= collimit)) {
+X			  forwrow(1);
+X			  curcol = 0;
+X		      } else {
+X			  forwcol(1);
+X		      }
+X		      break;
+X		    default:
+X		      break;
+X		  }
+X		break;
+X
+X	      case kBREAK: 	running = 0;    break; /* Quit Program */
+X
+X#ifdef SIGTSTP
+X	      case kSTOP:	/* Stop process */
+X		(void) deraw();
+X		(void) kill(0, SIGTSTP); /* Nail process group */
+X
+X				/* the pc stops here */
+X
+X		(void) goraw();
+X		break;
+X#endif
+X
+X      /*
+X       * Menu Shortcuts: Edit Menu.
+X       */
+X	      case DEL: case kBS:	/* <DEL> & <BackSpc>, Erase Cur Cell */
+X	      case kDEL:
+X		/* NOTE: For clean code, may prefer to substitute a call
+X		 * to EditErase().  With no range defined, it will erase
+X		 * the current cell.  However it will also prompt for
+X		 * confirmation.  Perhaps If/When a proper cut/paste/undo
+X		 * is written in, that be an appropriate fix.
+X		 */
+X		Sprintf(line,"erase [range]");
+X		PROCESS_line;
+X		break;
+X	  		
+X      /*
+X       * Menu Shortcuts: Misc Menu.
+X       */
+X	      case kREDRAW: MiscRedraw(FALSE); break;
+X	      case kVAL:    MiscRedraw(TRUE);  break; /* & hilite Values */
+X	      case kEXP:    MiscRedraw_Expr(); break; /* & hilite Expr'ns */
+X
+X      /*
+X       * Menu Shortcuts: CellMenu.
+X       */
+X	      case kGOTO:	CellGoto();	break; /* Goto a Cell */
+X	      case kMARK:	CellMark();	break; /* Mark a Cell */
+X	      case kCOPY:	CellCopy();	break; /* Copy a Marked Cell */
+X	
+X      /*
+X       * Unknown
+X       */
+X	      default:		/* Unknown */
+X		Message ("No such command (^%c)", c + 0100);
+X		break;
+X	    } 
+X    } /* end "if (ProcessCursors(c) != TRUE)" */
+X
+X} /* ProcessControls() */
+X
+Xint ProcessCursors(c)
+X/*----------------------------------------------------------------------
+X** Process all Cell-Cursor Movement Commands.
+X** - When inputting a range of cells, (ie: for copying a range of cells)
+X**   It is desirable to move the cursor around in the spread sheet.
+X** - Therefore, seperate all the Cell-Cursor movement commands into
+X**   a seperate function, here, so that they can be referenced from
+X**   more than one place in the program.
+X** RETURNS: TRUE:  If a cursor command was processed.
+X**	    FALSE: Otherwise.
+X** NOTE: see 'keys.h' for definitions of control characters
+X**
+X** Is this a hack?  We'll see.
+X*/
+X    register int   c;	/* Control character command to process */
+X{
+X    static int arg = 1;	/* numeric argument, sc holdover */
+X
+X
+X/* 
+X * (1) Check ``meta_flag'' to see if we are processing the second
+X * character of a Meta (<Esc>-) prefixed command sequence.
+X */
+X    if (meta_flag == TRUE)
+X	switch (c) {
+X
+X	  case kHOME: 	doHOME; 			break;
+X	  case kEND: 	doEND; 				break;
+X	  case kPGUP: 	backrow((currow-strow+1)+3);
+X	    break;		/* (Half-) Page Up */
+X	  case kBACK: 	doBackwardCell();		break;
+X	  case kFORW: 	doForwardCell(); 		break;
+X
+X	  default:
+X	    return FALSE;
+X	    break;
+X	}
+X/*
+X * (2) Else, check ``ctrlx_flag'' to see if we are processing the second
+X * character of a Control-X prefixed command sequence.
+X */
+X    else if (ctrlx_flag == TRUE)
+X	switch (c) {
+X	  case kPGLEFT:    doSCROLL_LEFT;  break; /* Scroll Half-page left */
+X	  case kPGRIGHT:   doSCROLL_RIGHT; break; /* Scroll Half-page right */
+X
+X	  default:
+X	    return FALSE;
+X	    break;
+X	} 
+X
+X    else
+X/* 
+X * (3) Else, it must just be a single Control-Key/Function-Key command.
+X */
+X	switch (c) {
+X
+X    /*
+X     * CURSOR KEYS:  Move the Cell Cursor 1 Cell in different directions
+X     */
+X	  case kLEFT:	backcol(arg);	break;
+X	  case kRIGHT: forwcol(arg);
+X#ifdef RIGHT_CBUG
+X	    wasforw++;
+X#endif
+X	    break;
+X	  case kDOWN:	forwrow(arg);	break;
+X	  case kUP:	backrow(arg);	break;
+X
+X    /*
+X     * CURSOR MOVEMENT:	Moves the Cell Cursor...
+X     */
+X	  case kJUMP:		/* to the end of a range */
+X	    Message("(** Jump to the End of a range)");
+X	    Prompt("Choose Direction to jump in, or <CR> to abort :");
+X
+X	    switch (nmgetch()) {
+X	      case kUP: 	doend(-1, 0); break;
+X	      case kDOWN: 	doend( 1, 0); break;
+X	      case kLEFT:  	doend( 0,-1); break;
+X	      case kRIGHT: 	doend( 0, 1); break;
+X
+X	      case kABORT:		/* Abort current command */
+X	      case ' ':
+X		ClearMessage;
+X		/** Refresh(); Jan 25/93 **/
+X		break;
+X	      default:
+X		Message("** Invalid Jump command");
+X		beep();		/* error bell */
+X		break;
+X	    }
+X	    break;
+X
+X	  case kTOP:    currow = 0; break; /* to Top row in cur. col. */
+X
+X	  case kSTART:  curcol = 0; break; /* to col. 0 in cur. row */
+X	  case kFINISH:		/* Jump to End of current row */
+X	    {
+X		register struct ent *p;
+X
+X		curcol = maxcols - 1;
+X		while (!VALID_CELL(p, currow, curcol) && curcol > 0)
+X		    curcol--;
+X		break;
+X	    }
+X
+X	  case kPGDN:	/* (Half-) Page Down */
+X	    forwrow(LINES-RESROW-(currow-strow)+1);
+X	    break;
+X
+X	  default:		/* not a cursor movement command */
+X	    return(FALSE);
+X	} /* switch */
+X
+X    return(TRUE);
+X
+X} /* ProcessCursors() */
+X
+Xvoid doForwardCell()
+X/*----------------------------------------------------------------------
+X** - Forward to next valid cell
+X*/
+X{
+X    register struct ent *p;
+X
+X    do {
+X        if (curcol < maxcols - 1)
+X            curcol++;
+X	else {
+X	    if (currow < maxrows - 1) {
+X	        while(++currow < maxrows - 1 && row_hidden[currow])
+X		    /* NULL BODY */;
+X	        curcol = 0;
+X            } else {
+X		    Message("At end of table");
+X		    break;
+X            }
+X        }
+X    } while(col_hidden[curcol] || !VALID_CELL(p, currow, curcol));
+X
+X} /* doForwardCell() */
+X
+Xvoid doBackwardCell()
+X/*----------------------------------------------------------------------
+X** - Backward to next valid cell
+X*/
+X{
+X    register struct ent *p;
+X
+X    do {
+X        if (curcol) 
+X		curcol--;
+X        else {
+X            if (currow) {
+X	        while(--currow && row_hidden[currow])
+X                    /* NULL */;
+X	        curcol = maxcols - 1;
+X	    } else {
+X	        Message ("At start of table");
+X	        return;
+X            }
+X	}
+X    } while(col_hidden[curcol] || !VALID_CELL(p, currow, curcol));
+X
+X} /* doBackwardCell() */
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 12902 -ne `wc -c <'ss_12b/ctrl.c'`; then
+    echo shar: \"'ss_12b/ctrl.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/ctrl.c'
+fi
+if test -f 'ss_12b/disprange.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/disprange.c'\"
+else
+  echo shar: Extracting \"'ss_12b/disprange.c'\" \(5755 characters\)
+  sed "s/^X//" >'ss_12b/disprange.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* ss 	:	A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Range Display/Manip functions.
+X***********************************************************************
+X* Functions for displaying ranges' on the spreadsheet.
+X* Also, utility functions for accessing/manipulating those ranges.
+X***********************************************************************
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X#include "ss.h"
+X#include "keys.h"
+X#include "disprange.h"
+X
+X/*	Function Prototypes
+X *----------------------------------------------------------------------
+X */
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X    extern int showneed;	/* From main.c */
+X    extern int  showrange;	/* ditto */
+X    extern int running;		/* ditto */
+X    extern int anychanged; 	/* ditto */
+X    extern int showexpr;	/* ditto */
+X    extern int ClearScreen;	/* ditto */
+X
+X    extern int lastmx, lastmy;	/* From screen.c */
+X    extern int lastcol, lcols;	/* ditto */
+X
+X/*********************************************************************/
+X
+Xvoid RangeToggle()
+X/*----------------------------------------------------------------------
+X** Toggle Range Display mode.
+X** -> If NOT in Range Display Mode, then START Range Display Mode.
+X** -> If IN Range Display Mode, then STOP Range Display Mode.
+X*/
+X{
+X  if (showrange == TRUE) {	/* currently IN Range mode */
+X    showrange = FALSE;
+X    
+X  } else {			/* currently NOT in Range mode */
+X    showrange = TRUE;
+X    showsr = currow;		/* Starting Row of Range */
+X    showsc = curcol;		/* Starting Col of Range */
+X  }
+X  
+X} /* RangeToggle() */
+X
+X/* TEMP */
+Xvoid startshow()
+X{
+X  showrange = 1;
+X  showsr = currow;
+X  showsc = curcol;
+X}
+X/* END TEMP */
+X
+X
+X/* insert the range we defined by moving around the screen, see startshow() */
+Xvoid showdr()
+X{
+X    int     minsr, minsc, maxsr, maxsc;
+X
+X    minsr = showsr < currow ? showsr : currow;
+X    minsc = showsc < curcol ? showsc : curcol;
+X    maxsr = showsr > currow ? showsr : currow;
+X    maxsc = showsc > curcol ? showsc : curcol;
+X    (void) sprintf (line+linelim,"%s", r_name(minsr, minsc, maxsr, maxsc));
+X}
+X
+Xchar * RangeGet()
+X/*----------------------------------------------------------------------
+X** Get & Return the currently highlighted range.  Return "" if
+X** no range is currently highlighted.  TURNS OFF RANGE HIGHLIGHTING.
+X*/
+X{
+X    static char CurrentRange[8];	/* no need for more space */
+X    int     minsr, minsc, maxsr, maxsc;
+X
+X    
+X    if (showrange == TRUE) {	/* Range IS being displayed */
+X        minsr = showsr < currow ? showsr : currow;
+X        minsc = showsc < curcol ? showsc : curcol;
+X        maxsr = showsr > currow ? showsr : currow;
+X        maxsc = showsc > curcol ? showsc : curcol;
+X	Sprintf (CurrentRange,"%s", r_name(minsr, minsc, maxsr, maxsc));
+X	RangeToggle();
+X	
+X    } else
+X	CurrentRange[0] = '\0';	/* Null Range */
+X
+X    return CurrentRange;
+X    
+X} /* RangeGet() */
+X
+Xvoid RangeGetNum(minr,minc,maxr,maxc)
+X/*----------------------------------------------------------------------
+X** Get & Return the currently highlighted range -- In numeric form.
+X** Return the current cell location (as a range) if no range is
+X** currently highlighted.  TURNS OFF RANGE HIGHLIGHTING.
+X*/
+X   int *minr, *minc,	/* starting row/column of range selected */
+X       *maxr, *maxc;	/* ending   row/column of range selected */
+X{
+X    if (showrange == TRUE) {	/* Range IS being displayed */
+X	*minr = showsr < currow ? showsr : currow;
+X	*minc = showsc < curcol ? showsc : curcol;
+X	*maxr = showsr > currow ? showsr : currow;
+X	*maxc = showsc > curcol ? showsc : curcol;
+X	RangeToggle();
+X	
+X    } else {			/* No Range */
+X	*minr = currow;	*minc = curcol;
+X	*maxr = currow;	*maxc = curcol;
+X    }
+X} /* RangeGetNum() */
+X
+X
+Xchar *RangeForceInput()
+X/*----------------------------------------------------------------------
+X** Force the user to input a range (using cursor keys).  Only cursor
+X** motion keys are considered to be legal input.  Terminate with a
+X** <Tab> or <CR>
+X*/
+X{
+X    register int   c;		/* input */
+X    int	anychanged = FALSE;
+X
+X    /* NOTE: Range display MUST be off before calling
+X     * this function.
+X     */
+X
+X    Prompt("Enter Range.  <CR>/<Tab> to accept.");
+X    
+X    for(;;) {			/* Loop Forever... */
+X	update(anychanged); 	/* Update Screen */
+X
+X#ifndef SYSV3			/* HP/Ux 3.1 this may not be wanted */
+X/**	(void) refresh();  **/	/* Unix SystemV R3 does a refresh in getch */ 
+X#endif
+X        c = nmgetch();		/* get next character of input */
+X
+X	/*
+X	 * 1) If the input is a cursor-movement command, then
+X	 * deal with it.
+X	 */
+X	if (ProcessCursorCommands(c) != TRUE) {
+X
+X	    /*
+X	     * 2) ELSE if it is a <Tab> then start range-show
+X	     *    mode ONLY if we are not already in range-show
+X	     *    mode.
+X	     */
+X	    if ( (c == kTAB) && (! showrange) )
+X		RangeToggle();
+X
+X	    /*
+X	     * 3) ELSE a <CR> or a <Tab> (in range-show mode)
+X	     *    signals that the user is done entering a range.
+X	     */
+X	    else if ( (c == ctl('m')) || (c == kTAB) )
+X		return RangeGet();
+X
+X/**	    else if (c == ' '){ 
+X***		Message("** aborted"); 
+X***		return NULL;
+X***	    }
+X**/		
+X	    /*
+X	     * 4) ELSE, bogus input, beep!
+X	     */
+X	    else
+X		beep();
+X	}
+X    }  /* for */
+X
+X} /* RangeForceInput() */
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 5755 -ne `wc -c <'ss_12b/disprange.c'`; then
+    echo shar: \"'ss_12b/disprange.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/disprange.c'
+fi
+if test -f 'ss_12b/examples/borrow.ss' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/examples/borrow.ss'\"
+else
+  echo shar: Extracting \"'ss_12b/examples/borrow.ss'\" \(5491 characters\)
+  sed "s/^X//" >'ss_12b/examples/borrow.ss' <<'END_OF_FILE'
+X# This data file was generated by the Spreadsheet Calculator.
+X# You almost certainly shouldn't edit it.
+X
+Xformat A 10 4 0
+Xformat B 3 1 0
+Xformat C 8 2 0
+Xformat F 3 2 0
+Xleftstring A0 = "How Much Can I Borrow?"
+Xleftstring E0 = "If I Can Afford..."
+Xlabel B2 = "|"
+Xleftstring C2 = "Monthly Payments"
+Xlabel F2 = "|"
+Xleftstring G2 = "BIWEEKLY payments of:"
+Xlet G2 = 0
+Xlabel B3 = "|"
+Xlet D3 = 700
+Xlabel F3 = "|"
+Xlet H3 = 300
+Xlabel B4 = "|"
+Xlabel F4 = "|"
+Xrightstring A5 = "Interest"
+Xlabel B5 = "|"
+Xrightstring C5 = "15 Yrs"
+Xrightstring D5 = "20 Yrs"
+Xrightstring E5 = "25 Yrs"
+Xlabel F5 = "|"
+Xrightstring G5 = "15 Yrs"
+Xrightstring H5 = "20 Yrs"
+Xrightstring I5 = "25 Yrs"
+Xrightstring A6 = "--------"
+Xlabel B6 = "|"
+Xrightstring C6 = "--------"
+Xrightstring D6 = "--------"
+Xrightstring E6 = "--------"
+Xlabel F6 = "|"
+Xrightstring G6 = "--------"
+Xrightstring H6 = "--------"
+Xrightstring I6 = "--------"
+Xlet A7 = 0.08
+Xlabel B7 = "|"
+Xlet C7 = @pv($D$3,$A7/12,15*12)
+Xlet D7 = @pv($D$3,$A7/12,20*12)
+Xlet E7 = @pv($D$3,$A7/12,25*12)
+Xlabel F7 = "|"
+Xlet G7 = @pv($H$3,$A7/26,15*26)
+Xlet H7 = @pv($H$3,$A7/26,20*26)
+Xlet I7 = @pv($H$3,$A7/26,25*26)
+Xlet A8 = 0.085
+Xlabel B8 = "|"
+Xlet C8 = @pv($D$3,$A8/12,15*12)
+Xlet D8 = @pv($D$3,$A8/12,20*12)
+Xlet E8 = @pv($D$3,$A8/12,25*12)
+Xlabel F8 = "|"
+Xlet G8 = @pv($H$3,$A8/26,15*26)
+Xlet H8 = @pv($H$3,$A8/26,20*26)
+Xlet I8 = @pv($H$3,$A8/26,25*26)
+Xlet A9 = 0.09
+Xlabel B9 = "|"
+Xlet C9 = @pv($D$3,$A9/12,15*12)
+Xlet D9 = @pv($D$3,$A9/12,20*12)
+Xlet E9 = @pv($D$3,$A9/12,25*12)
+Xlabel F9 = "|"
+Xlet G9 = @pv($H$3,$A9/26,15*26)
+Xlet H9 = @pv($H$3,$A9/26,20*26)
+Xlet I9 = @pv($H$3,$A9/26,25*26)
+Xlet A10 = 0.095
+Xlabel B10 = "|"
+Xlet C10 = @pv($D$3,$A10/12,15*12)
+Xlet D10 = @pv($D$3,$A10/12,20*12)
+Xlet E10 = @pv($D$3,$A10/12,25*12)
+Xlabel F10 = "|"
+Xlet G10 = @pv($H$3,$A10/26,15*26)
+Xlet H10 = @pv($H$3,$A10/26,20*26)
+Xlet I10 = @pv($H$3,$A10/26,25*26)
+Xlet A11 = 0.1
+Xlabel B11 = "|"
+Xlet C11 = @pv($D$3,$A11/12,15*12)
+Xlet D11 = @pv($D$3,$A11/12,20*12)
+Xlet E11 = @pv($D$3,$A11/12,25*12)
+Xlabel F11 = "|"
+Xlet G11 = @pv($H$3,$A11/26,15*26)
+Xlet H11 = @pv($H$3,$A11/26,20*26)
+Xlet I11 = @pv($H$3,$A11/26,25*26)
+Xlet A12 = 0.105
+Xlabel B12 = "|"
+Xlet C12 = @pv($D$3,$A12/12,15*12)
+Xlet D12 = @pv($D$3,$A12/12,20*12)
+Xlet E12 = @pv($D$3,$A12/12,25*12)
+Xlabel F12 = "|"
+Xlet G12 = @pv($H$3,$A12/26,15*26)
+Xlet H12 = @pv($H$3,$A12/26,20*26)
+Xlet I12 = @pv($H$3,$A12/26,25*26)
+Xlet A13 = 0.11
+Xlabel B13 = "|"
+Xlet C13 = @pv($D$3,$A13/12,15*12)
+Xlet D13 = @pv($D$3,$A13/12,20*12)
+Xlet E13 = @pv($D$3,$A13/12,25*12)
+Xlabel F13 = "|"
+Xlet G13 = @pv($H$3,$A13/26,15*26)
+Xlet H13 = @pv($H$3,$A13/26,20*26)
+Xlet I13 = @pv($H$3,$A13/26,25*26)
+Xlet A14 = 0.115
+Xlabel B14 = "|"
+Xlet C14 = @pv($D$3,$A14/12,15*12)
+Xlet D14 = @pv($D$3,$A14/12,20*12)
+Xlet E14 = @pv($D$3,$A14/12,25*12)
+Xlabel F14 = "|"
+Xlet G14 = @pv($H$3,$A14/26,15*26)
+Xlet H14 = @pv($H$3,$A14/26,20*26)
+Xlet I14 = @pv($H$3,$A14/26,25*26)
+Xlet A15 = 0.12
+Xlabel B15 = "|"
+Xlet C15 = @pv($D$3,$A15/12,15*12)
+Xlet D15 = @pv($D$3,$A15/12,20*12)
+Xlet E15 = @pv($D$3,$A15/12,25*12)
+Xlabel F15 = "|"
+Xlet G15 = @pv($H$3,$A15/26,15*26)
+Xlet H15 = @pv($H$3,$A15/26,20*26)
+Xlet I15 = @pv($H$3,$A15/26,25*26)
+Xlet A16 = 0.125
+Xlabel B16 = "|"
+Xlet C16 = @pv($D$3,$A16/12,15*12)
+Xlet D16 = @pv($D$3,$A16/12,20*12)
+Xlet E16 = @pv($D$3,$A16/12,25*12)
+Xlabel F16 = "|"
+Xlet G16 = @pv($H$3,$A16/26,15*26)
+Xlet H16 = @pv($H$3,$A16/26,20*26)
+Xlet I16 = @pv($H$3,$A16/26,25*26)
+Xlet A17 = 0.13
+Xlabel B17 = "|"
+Xlet C17 = @pv($D$3,$A17/12,15*12)
+Xlet D17 = @pv($D$3,$A17/12,20*12)
+Xlet E17 = @pv($D$3,$A17/12,25*12)
+Xlabel F17 = "|"
+Xlet G17 = @pv($H$3,$A17/26,15*26)
+Xlet H17 = @pv($H$3,$A17/26,20*26)
+Xlet I17 = @pv($H$3,$A17/26,25*26)
+Xlet A18 = 0.135
+Xlabel B18 = "|"
+Xlet C18 = @pv($D$3,$A18/12,15*12)
+Xlet D18 = @pv($D$3,$A18/12,20*12)
+Xlet E18 = @pv($D$3,$A18/12,25*12)
+Xlabel F18 = "|"
+Xlet G18 = @pv($H$3,$A18/26,15*26)
+Xlet H18 = @pv($H$3,$A18/26,20*26)
+Xlet I18 = @pv($H$3,$A18/26,25*26)
+Xlet A19 = 0.14
+Xlabel B19 = "|"
+Xlet C19 = @pv($D$3,$A19/12,15*12)
+Xlet D19 = @pv($D$3,$A19/12,20*12)
+Xlet E19 = @pv($D$3,$A19/12,25*12)
+Xlabel F19 = "|"
+Xlet G19 = @pv($H$3,$A19/26,15*26)
+Xlet H19 = @pv($H$3,$A19/26,20*26)
+Xlet I19 = @pv($H$3,$A19/26,25*26)
+Xlet A20 = 0.145
+Xlabel B20 = "|"
+Xlet C20 = @pv($D$3,$A20/12,15*12)
+Xlet D20 = @pv($D$3,$A20/12,20*12)
+Xlet E20 = @pv($D$3,$A20/12,25*12)
+Xlabel F20 = "|"
+Xlet G20 = @pv($H$3,$A20/26,15*26)
+Xlet H20 = @pv($H$3,$A20/26,20*26)
+Xlet I20 = @pv($H$3,$A20/26,25*26)
+Xlet A21 = 0.15
+Xlabel B21 = "|"
+Xlet C21 = @pv($D$3,$A21/12,15*12)
+Xlet D21 = @pv($D$3,$A21/12,20*12)
+Xlet E21 = @pv($D$3,$A21/12,25*12)
+Xlabel F21 = "|"
+Xlet G21 = @pv($H$3,$A21/26,15*26)
+Xlet H21 = @pv($H$3,$A21/26,20*26)
+Xlet I21 = @pv($H$3,$A21/26,25*26)
+Xleftstring A23 = "This spreadsheet answers the question:  How much money can I borrow"
+Xleftstring A24 = "(presumably for a mortgage) if I can afford to make payments of X?"
+Xleftstring A25 = "The spreadsheet is split into 3 sections.  Column A shows a variety of"
+Xleftstring A26 = "different interest rates.  Column C/D/E show how much you can borrow"
+Xleftstring A27 = "for 15/20/25 years, at various interest rates, based upon monthly"
+Xleftstring A28 = "payments.  Columns G/H/I show what you can borrow if you make"
+Xleftstring A29 = "biweekly (every other week) payments."
+Xleftstring A31 = "Cell D3 and H3 are the key cells.  You change the value here, to show"
+Xleftstring A32 = "how much you can afford as a payment, and then the relevant portion"
+Xleftstring A33 = "of the spreadsheet recalculates itself to show how much you can afford"
+Xleftstring A34 = "to borrow."
+Xgoto A35
+END_OF_FILE
+  if test 5491 -ne `wc -c <'ss_12b/examples/borrow.ss'`; then
+    echo shar: \"'ss_12b/examples/borrow.ss'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/examples/borrow.ss'
+fi
+if test -f 'ss_12b/examples/payments.ss' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/examples/payments.ss'\"
+else
+  echo shar: Extracting \"'ss_12b/examples/payments.ss'\" \(5573 characters\)
+  sed "s/^X//" >'ss_12b/examples/payments.ss' <<'END_OF_FILE'
+X# This data file was generated by the Spreadsheet Calculator.
+X# You almost certainly shouldn't edit it.
+X
+Xformat A 8 4 0
+Xformat B 2 1 0
+Xformat F 2 1 0
+Xleftstring C1 = "If we borrow:"
+Xlet E1 = 100000
+Xfmt E1 "###,###.00"
+Xrightstring B3 = "|"
+Xleftstring C3 = " What are the..."
+Xrightstring F3 = "|"
+Xleftstring G3 = " What are the..."
+Xrightstring B4 = "|"
+Xleftstring D4 = "Monthly Payments"
+Xrightstring F4 = "|"
+Xleftstring H4 = "BIWEEKLY payments"
+Xrightstring B5 = "|"
+Xrightstring F5 = "|"
+Xrightstring A6 = "Interest"
+Xrightstring B6 = "|"
+Xrightstring C6 = "15 Yrs"
+Xrightstring D6 = "20 Yrs"
+Xrightstring E6 = "25 Yrs"
+Xrightstring F6 = "|"
+Xrightstring G6 = "15 Yrs"
+Xrightstring H6 = "20 Yrs"
+Xrightstring I6 = "25 Yrs"
+Xrightstring A7 = "--------"
+Xrightstring B7 = "|"
+Xrightstring C7 = "--------"
+Xrightstring D7 = "--------"
+Xrightstring E7 = "--------"
+Xrightstring F7 = "|"
+Xrightstring G7 = "--------"
+Xrightstring H7 = "--------"
+Xrightstring I7 = "--------"
+Xlet A8 = 0.08
+Xrightstring B8 = "|"
+Xlet C8 = @pmt($E$1,$A8/12,15*12)
+Xlet D8 = @pmt($E$1,$A8/12,20*12)
+Xlet E8 = @pmt($E$1,$A8/12,25*12)
+Xrightstring F8 = "|"
+Xlet G8 = @pmt($E$1,$A8/26,15*26)
+Xlet H8 = @pmt($E$1,$A8/26,20*26)
+Xlet I8 = @pmt($E$1,$A8/26,25*26)
+Xlet A9 = 0.085
+Xrightstring B9 = "|"
+Xlet C9 = @pmt($E$1,$A9/12,15*12)
+Xlet D9 = @pmt($E$1,$A9/12,20*12)
+Xlet E9 = @pmt($E$1,$A9/12,25*12)
+Xrightstring F9 = "|"
+Xlet G9 = @pmt($E$1,$A9/26,15*26)
+Xlet H9 = @pmt($E$1,$A9/26,20*26)
+Xlet I9 = @pmt($E$1,$A9/26,25*26)
+Xlet A10 = 0.09
+Xrightstring B10 = "|"
+Xlet C10 = @pmt($E$1,$A10/12,15*12)
+Xlet D10 = @pmt($E$1,$A10/12,20*12)
+Xlet E10 = @pmt($E$1,$A10/12,25*12)
+Xrightstring F10 = "|"
+Xlet G10 = @pmt($E$1,$A10/26,15*26)
+Xlet H10 = @pmt($E$1,$A10/26,20*26)
+Xlet I10 = @pmt($E$1,$A10/26,25*26)
+Xlet A11 = 0.095
+Xrightstring B11 = "|"
+Xlet C11 = @pmt($E$1,$A11/12,15*12)
+Xlet D11 = @pmt($E$1,$A11/12,20*12)
+Xlet E11 = @pmt($E$1,$A11/12,25*12)
+Xrightstring F11 = "|"
+Xlet G11 = @pmt($E$1,$A11/26,15*26)
+Xlet H11 = @pmt($E$1,$A11/26,20*26)
+Xlet I11 = @pmt($E$1,$A11/26,25*26)
+Xlet A12 = 0.1
+Xrightstring B12 = "|"
+Xlet C12 = @pmt($E$1,$A12/12,15*12)
+Xlet D12 = @pmt($E$1,$A12/12,20*12)
+Xlet E12 = @pmt($E$1,$A12/12,25*12)
+Xrightstring F12 = "|"
+Xlet G12 = @pmt($E$1,$A12/26,15*26)
+Xlet H12 = @pmt($E$1,$A12/26,20*26)
+Xlet I12 = @pmt($E$1,$A12/26,25*26)
+Xlet A13 = 0.105
+Xrightstring B13 = "|"
+Xlet C13 = @pmt($E$1,$A13/12,15*12)
+Xlet D13 = @pmt($E$1,$A13/12,20*12)
+Xlet E13 = @pmt($E$1,$A13/12,25*12)
+Xrightstring F13 = "|"
+Xlet G13 = @pmt($E$1,$A13/26,15*26)
+Xlet H13 = @pmt($E$1,$A13/26,20*26)
+Xlet I13 = @pmt($E$1,$A13/26,25*26)
+Xlet A14 = 0.11
+Xrightstring B14 = "|"
+Xlet C14 = @pmt($E$1,$A14/12,15*12)
+Xlet D14 = @pmt($E$1,$A14/12,20*12)
+Xlet E14 = @pmt($E$1,$A14/12,25*12)
+Xrightstring F14 = "|"
+Xlet G14 = @pmt($E$1,$A14/26,15*26)
+Xlet H14 = @pmt($E$1,$A14/26,20*26)
+Xlet I14 = @pmt($E$1,$A14/26,25*26)
+Xlet A15 = 0.115
+Xrightstring B15 = "|"
+Xlet C15 = @pmt($E$1,$A15/12,15*12)
+Xlet D15 = @pmt($E$1,$A15/12,20*12)
+Xlet E15 = @pmt($E$1,$A15/12,25*12)
+Xrightstring F15 = "|"
+Xlet G15 = @pmt($E$1,$A15/26,15*26)
+Xlet H15 = @pmt($E$1,$A15/26,20*26)
+Xlet I15 = @pmt($E$1,$A15/26,25*26)
+Xlet A16 = 0.12
+Xrightstring B16 = "|"
+Xlet C16 = @pmt($E$1,$A16/12,15*12)
+Xlet D16 = @pmt($E$1,$A16/12,20*12)
+Xlet E16 = @pmt($E$1,$A16/12,25*12)
+Xrightstring F16 = "|"
+Xlet G16 = @pmt($E$1,$A16/26,15*26)
+Xlet H16 = @pmt($E$1,$A16/26,20*26)
+Xlet I16 = @pmt($E$1,$A16/26,25*26)
+Xlet A17 = 0.125
+Xrightstring B17 = "|"
+Xlet C17 = @pmt($E$1,$A17/12,15*12)
+Xlet D17 = @pmt($E$1,$A17/12,20*12)
+Xlet E17 = @pmt($E$1,$A17/12,25*12)
+Xrightstring F17 = "|"
+Xlet G17 = @pmt($E$1,$A17/26,15*26)
+Xlet H17 = @pmt($E$1,$A17/26,20*26)
+Xlet I17 = @pmt($E$1,$A17/26,25*26)
+Xlet A18 = 0.13
+Xrightstring B18 = "|"
+Xlet C18 = @pmt($E$1,$A18/12,15*12)
+Xlet D18 = @pmt($E$1,$A18/12,20*12)
+Xlet E18 = @pmt($E$1,$A18/12,25*12)
+Xrightstring F18 = "|"
+Xlet G18 = @pmt($E$1,$A18/26,15*26)
+Xlet H18 = @pmt($E$1,$A18/26,20*26)
+Xlet I18 = @pmt($E$1,$A18/26,25*26)
+Xlet A19 = 0.135
+Xrightstring B19 = "|"
+Xlet C19 = @pmt($E$1,$A19/12,15*12)
+Xlet D19 = @pmt($E$1,$A19/12,20*12)
+Xlet E19 = @pmt($E$1,$A19/12,25*12)
+Xrightstring F19 = "|"
+Xlet G19 = @pmt($E$1,$A19/26,15*26)
+Xlet H19 = @pmt($E$1,$A19/26,20*26)
+Xlet I19 = @pmt($E$1,$A19/26,25*26)
+Xlet A20 = 0.14
+Xrightstring B20 = "|"
+Xlet C20 = @pmt($E$1,$A20/12,15*12)
+Xlet D20 = @pmt($E$1,$A20/12,20*12)
+Xlet E20 = @pmt($E$1,$A20/12,25*12)
+Xrightstring F20 = "|"
+Xlet G20 = @pmt($E$1,$A20/26,15*26)
+Xlet H20 = @pmt($E$1,$A20/26,20*26)
+Xlet I20 = @pmt($E$1,$A20/26,25*26)
+Xlet A21 = 0.145
+Xrightstring B21 = "|"
+Xlet C21 = @pmt($E$1,$A21/12,15*12)
+Xlet D21 = @pmt($E$1,$A21/12,20*12)
+Xlet E21 = @pmt($E$1,$A21/12,25*12)
+Xrightstring F21 = "|"
+Xlet G21 = @pmt($E$1,$A21/26,15*26)
+Xlet H21 = @pmt($E$1,$A21/26,20*26)
+Xlet I21 = @pmt($E$1,$A21/26,25*26)
+Xlet A22 = 0.15
+Xrightstring B22 = "|"
+Xlet C22 = @pmt($E$1,$A22/12,15*12)
+Xlet D22 = @pmt($E$1,$A22/12,20*12)
+Xlet E22 = @pmt($E$1,$A22/12,25*12)
+Xrightstring F22 = "|"
+Xlet G22 = @pmt($E$1,$A22/26,15*26)
+Xlet H22 = @pmt($E$1,$A22/26,20*26)
+Xlet I22 = @pmt($E$1,$A22/26,25*26)
+Xleftstring D24 = "NOTES"
+Xleftstring A26 = "* Cell E1 contains the amount that we are considering borrowing.  "
+Xleftstring A27 = "  This is the value that the entire spreadsheet depends upon.  "
+Xleftstring A28 = "  This spreadsheet plays a game of 'what-if'.  You choose a value"
+Xleftstring A29 = "  for E1, and then the spreadsheet shows you what the payments would"
+Xleftstring A30 = "  be to pay back a mortgage in that amount."
+Xleftstring A32 = "EG:  Cell D14 shows what the monthly payments would be on a 20 year"
+Xleftstring A33 = "     mortgage, at 11% interest.  (On $100,000.00 this is $1,032.19)"
+Xgoto A33
+END_OF_FILE
+  if test 5573 -ne `wc -c <'ss_12b/examples/payments.ss'`; then
+    echo shar: \"'ss_12b/examples/payments.ss'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/examples/payments.ss'
+fi
+if test -f 'ss_12b/help.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/help.c'\"
+else
+  echo shar: Extracting \"'ss_12b/help.c'\" \(5617 characters\)
+  sed "s/^X//" >'ss_12b/help.c' <<'END_OF_FILE'
+X/*
+X * -> writing "help" has begun, but only just, and so it is
+X *    currently not installed.  I'm not sure whether it is 
+X *    worth the work involved to install it.
+X */
+X
+X/**********************************************************************
+X* %M%
+X* ss 	:	A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Help Module
+X***********************************************************************
+X* Functions for displaying help
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X#include "ss.h"
+X#include "keys.h"
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X    extern int showneed;	/* From main.c */
+X    extern int showrange;	/* ditto */
+X    extern int running;		/* ditto */
+X    extern int anychanged; 	/* ditto */
+X    extern int showexpr;	/* ditto */
+X    extern int ClearScreen;	/* ditto */
+X
+X    extern int FullUpdate;	/* ditto */
+X
+X    extern int lastmx, lastmy;	/* From screen.c */
+X    extern int lastcol, lcols;	/* ditto */
+X
+X/*	Internal Global variables
+X *----------------------------------------------------------------------
+X */
+X
+X#define HelpSize 21
+Xstatic char *Help[] =  {
+X "- Top-Level Commands: --------------------------------------------------",
+X "  / : Main Menu |  0-9 @ = - + . : Number or Function Entry",
+X "  ? : Help      |  \" < >         : Centred, Right, Left Justified String",
+X "      Any other input results in entering a Left Justifed string",
+X "",
+X "- Cursor Movement: -----------------------------------------------------",
+X "   <Left>, ^B : Left one Cell  | <Home>, <Esc> < : Go to A0",
+X "  <Right>, ^F : Right one Cell | <End>, <Esc> > : End of Col",
+X "   <Down>, ^N : Down one Cell  | <PgUp>, <Esc> v : Page Up",
+X "     <Up>, ^P : Up one Cell    | <PgDn>, ^V,     : Page Down",
+X "           ^T : Top of Col     | <Sh><Left>, ^X <    : Page Left",
+X "           ^A : Start of Row   | <Sh><Right>, ^X >    : Page Right",
+X "           ^E : End of Row     | <Esc> b : Back, to previous valid Cell",
+X "                               | <Esc> f : Forward, to next valid Cell",
+X "- Operations: ----------------------------------------------------------",
+X "  ^X-v           : Edit Cell Value  | ^L    : Redraw screen                ",
+X "  ^X-l           : Edit Cell Label  | ^R    : Redraw; Highlight Values     ",
+X "  ^G             : Goto a Cell      | ^K    : Redraw; Highlight Expressions",
+X "  ^W             : Mark Cell        | <Tab> : Toggle Range display. ",
+X "  ^Y             : Yank marked Cell | ^Z    : Stop program",
+X " <Del>, <BS>, ^D : Erase Cell",
+X  };
+X/*
+X * Keep an alternate arrangement also:
+X *
+X- Top-Level Commands: --------------------------------------------------
+X              /       : Main Menu",
+X              ?       : Help",
+X        0-9 @ = - + . : Number or Function Entry",
+X           \" < >     : Centred, Right or Left Justified String",
+X
+X    Any other input results in entering a Left Justifed string",
+X
+X- Cursor Movement: -----------------------------------------------------
+X      <Left>, ^B      : Left one Cell
+X     <Right>, ^F      : Right one Cell
+X      <Down>, ^N      : Down one Cell
+X        <Up>, ^P      : Up one Cell
+X      <Home>, <Esc> < : Go to A0
+X       <End>, <Esc> > : End of Col
+X      <PgUp>, <Esc> v : Page Up
+X      <PgDn>, ^V,     : Page Down
+X  <Sh><Left>, ^X <    : Page Left
+X <Sh><Right>, ^X >    : Page Right
+X              ^T      : Top of Col
+X              ^A      : Start of Row
+X              ^E      : End of Row 
+X              <Esc> b : Back, to previous valid Cell
+X              <Esc> f : Forward, to next valid Cell
+X             <Return> : Move right or down (depends on -C,-R program flag)
+X
+X- Operations: ----------------------------------------------------------
+X              ^G      : Goto a Cell
+X              ^W      : Mark Cell
+X              ^Y      : Yank previously marked Cell
+X              ^X-v    : Edit Cell Value
+X              ^X-l    : Edit Cell Label
+X      <Del>, <BS>, ^D : Erase the current Cell (Value and Label)
+X              ^L      : Redraw screen                 | 
+X              ^R      : Redraw; Highlight Values      |
+X              ^K      : Redraw; Highlight Expressions |
+X              <Tab>   : Toggle Range display. 
+X              ^Z      : Stop program
+X------------------------------------------------------------------------
+X**/
+X
+X/*	Internal Function Prototypes
+X ***********************************************************************
+X */
+X
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+Xvoid help(context)
+X/*----------------------------------------------------------------------
+X** 
+X*/
+X  int context;		/* Help Context */
+X{
+X    int row = 3;
+X    int x;
+X
+X    (void) move(0,0);
+X    (void) clrtobot();
+X
+X    switch (context) {
+X      case HELP:	/* top level help */
+X	for (x=0; x<HelpSize; x++)
+X	  mvaddstr(row++, 0, Help[x]);
+X	break;
+X
+X      default:		/* unknown help context */
+X	break;		/* shouldn't happen */
+X    }
+X
+X    Prompt("** Strike any key to continue");
+X    (void) nmgetch();
+X
+X    FullUpdate++;
+X    Refresh();	
+X
+X} /* help() */
+X
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 5617 -ne `wc -c <'ss_12b/help.c'`; then
+    echo shar: \"'ss_12b/help.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/help.c'
+fi
+if test -f 'ss_12b/menu_cell.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/menu_cell.c'\"
+else
+  echo shar: Extracting \"'ss_12b/menu_cell.c'\" \(5259 characters\)
+  sed "s/^X//" >'ss_12b/menu_cell.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Cell Menu Operations
+X***********************************************************************
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include "curses_stuff.h"
+X
+X#include "ss.h"
+X#include "getinput.h"
+X#include "menu_cell.h" 
+X
+X/*	Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+X
+Xvoid CellGoto()
+X/*----------------------------------------------------------------------
+X** Goto a Cell (or the location of a ``name'').
+X*/
+X{
+X    Message("** Goto: Enter Cell (or cell name) to go to");
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    Sprintf (line, "goto [v] %s", buff);
+X    ClearMessage;
+X    PROCESS_line;
+X} /* CellGoto() */
+X
+Xvoid CellMark()
+X/*----------------------------------------------------------------------
+X** Mark a cell.  The cell is then available to the CellCopy command.
+X*/
+X{
+X    Message("** Cell marked for later copying.");
+X    savedrow = currow;
+X    savedcol = curcol;
+X} /* CellMark() */
+X
+Xvoid CellCopy()
+X/*----------------------------------------------------------------------
+X** Copy a cell that was previous Marked [ CellMark() ] into the
+X** current cell.
+X*/
+X{
+X     
+X    register struct ent *p = *ATBL(tbl, savedrow, savedcol);
+X    register struct ent *n;
+X    
+X    if (!p)			/* Make sure the marked cell exists */
+X	return;
+X
+X    Message("** Previously marked cell copied.");
+X    n = lookat (currow, curcol);
+X    (void) clearent(n);
+X    copyent( n, p, currow - savedrow, curcol - savedcol);
+X    FullUpdate++;
+X    modflg++;
+X	
+X} /* CellCopy() */
+X
+Xvoid CellEditLabel()
+X/*----------------------------------------------------------------------
+X** Edit the String portion of a cell's contents.
+X**
+X** NOTE: based on edits() in interp.c
+X*/
+X{
+X    register struct ent *p;	/* To point to the current cell */
+X     
+X    if (locked_cell(currow, curcol)) { 
+X	Message("** Current cell is LOCKED, Edit aborted");
+X	beep();
+X	return;
+X    }
+X
+X    Message("** Edit Cell Label");
+X    p = lookat (currow, curcol);
+X    if (p->label)		/* A Label exists */
+X	buff = gi_editline( p->label);
+X    else			/* No Label exists, input one! */
+X	buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X
+X    if( p->flags&is_label )
+X        Sprintf(line, "label %s = \"%s\"", v_name(currow, curcol),
+X		buff);
+X    else
+X	Sprintf(line, "%sstring %s = \"%s\"",
+X		((p->flags&is_leftflush) ? "left" : "right"),
+X		v_name(currow, curcol),
+X		buff);
+X
+X    ClearMessage;
+X
+X    linelim = 0;	
+X    (void) yyparse ();
+X    linelim = -1;	
+X
+X} /* CellEditLabel() */
+X
+X
+Xvoid CellEditValue()
+X/*----------------------------------------------------------------------
+X** Edit the Value (number/function etc) portion of a cell's contents.
+X*/
+X{
+X    register struct ent *p;
+X   
+X    if (locked_cell(currow, curcol)) { 
+X	Message("** Current cell is LOCKED, Edit aborted");
+X	beep();
+X	return;
+X    }
+X
+X    Message("** Edit Cell Value");
+X    p = lookat (currow, curcol);
+X
+X    /*
+X     * Ugh, this is a Horrible Hack -> to take the easy way
+X     * out and avoid figuring out some obscure code.
+X     * Fix it some time!
+X     *
+X     * NOTE: based on editv() in interp.c
+X     */
+X    line[0] = '\0';
+X    linelim = 0;
+X    if (p->flags & is_strexpr || p->expr == 0) {
+X        Sprintf (line+linelim, "%.15g", p->v);
+X        linelim += strlen (line+linelim);
+X    } else {
+X        editexp(currow,curcol);
+X    }
+X    /** END "Horrible Hack", continue with regular hack :-) **/
+X
+X    buff = gi_editline( line );
+X    linelim = -1;
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    
+X    Sprintf(line, "let %s = %s", v_name(currow, curcol), buff);
+X    ClearMessage;
+X    PROCESS_line;
+X
+X} /* CellEditValue() */
+X
+X
+X/*	Internal Functions
+X ***********************************************************************
+X */
+X
+X/*
+X** NOTE: the ability to erase a single cell is not considered
+X** necessary, since you can achieve the same thing through the
+X** Edit menu.  the function is preserved here for informative
+X** purposes.
+X**
+X** HMMMM: May want to bind this to like the backspace key, to zap
+X** the contents of the cell under the ptr.  Bear it in mind.
+X**/
+X
+X/*----------------------------------------------------------------------
+X** Erase the contents of the current cell.
+X*/
+X
+X/* void CellErase()
+X** {
+X**     register struct ent **pp;
+X**
+X**     flush_saved();
+X**     pp = ATBL(tbl, currow, curcol);
+X**     if ((*pp) && !locked_cell(currow, curcol)) {
+X**        if (*pp) {
+X**	   free_ent(*pp);
+X**	   *pp = (struct ent *)0;
+X**        }
+X**     }
+X**     sync_refs();
+X**     modflg++;
+X**     FullUpdate++;
+X** 
+X** }
+X*/
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 5259 -ne `wc -c <'ss_12b/menu_cell.c'`; then
+    echo shar: \"'ss_12b/menu_cell.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/menu_cell.c'
+fi
+if test -f 'ss_12b/range.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/range.c'\"
+else
+  echo shar: Extracting \"'ss_12b/range.c'\" \(5887 characters\)
+  sed "s/^X//" >'ss_12b/range.c' <<'END_OF_FILE'
+X
+X/*	SC	A Spreadsheet Calculator
+X *		Range Manipulations
+X *
+X *              Robert Bond, 4/87
+X *
+X *		$Revision: 6.21 $
+X */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X#include <sys/types.h>
+X#ifdef BSD42
+X#include <strings.h>
+X#else
+X#ifndef SYSIII
+X#include <string.h>
+X#endif
+X#endif
+X
+X#include <stdio.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X#include "ss.h"
+X
+Xstatic struct range *rng_base;
+X
+Xvoid
+Xadd_range(name, left, right, is_range)
+Xchar *name;
+Xstruct ent_ptr left, right;
+Xint is_range;
+X{
+X    struct range *r;
+X    register char *p;
+X    int len;
+X    int minr,minc,maxr,maxc;
+X    int minrf, mincf, maxrf, maxcf;
+X    register struct ent *rcp;
+X
+X    if (left.vp->row < right.vp->row) {
+X	minr = left.vp->row; minrf = left.vf & FIX_ROW;
+X	maxr = right.vp->row; maxrf = right.vf & FIX_ROW;
+X    } else {
+X	minr = right.vp->row; minrf = right.vf & FIX_ROW;
+X	maxr = left.vp->row; maxrf = right.vf & FIX_ROW;
+X    } 
+X
+X    if (left.vp->col < right.vp->col) {
+X	minc = left.vp->col; mincf = left.vf & FIX_COL;
+X	maxc = right.vp->col; maxcf = right.vf & FIX_COL;
+X    } else {
+X	minc = right.vp->col; mincf = right.vf & FIX_COL;
+X	maxc = left.vp->col; maxcf = left.vf & FIX_COL;
+X    } 
+X
+X    left.vp = lookat(minr, minc);
+X    left.vf = minrf | mincf;
+X    right.vp = lookat(maxr, maxc);
+X    right.vf = maxrf | maxcf;
+X
+X    if (find_range(name, strlen(name), (struct ent *)0, (struct ent *)0)) {
+X	error("Error: range name already defined");
+X	Free(name);
+X	return;
+X    }
+X
+X    if (strlen(name) <= 2) {
+X	error("Invalid range name - too short");
+X	Free(name);
+X	return;
+X    }
+X
+X    for(p=name, len=0; *p; p++, len++)
+X	if (!((isalpha(*p) && (len<=2)) ||
+X	    ((isdigit(*p) || isalpha(*p) || (*p == '_')) && (len>2)))) {
+X	    error("Invalid range name - illegal combination");
+X	    Free(name);
+X	    return;
+X	}
+X 
+X    if(autolabel && minc>0 && !is_range) {
+X	rcp = lookat(minr,minc-1);
+X	if (rcp->label==0 && rcp->expr==0 && rcp->v==0)
+X		label(rcp, name, 0);
+X    }
+X
+X    r = (struct range *)Malloc((unsigned)sizeof(struct range));
+X    r->r_name = name;
+X    r->r_left = left;
+X    r->r_right = right;
+X    r->r_next = rng_base;
+X    r->r_prev = (struct range *)0;
+X    r->r_is_range = is_range;
+X    if (rng_base)
+X        rng_base->r_prev = r;
+X    rng_base = r;
+X}
+X
+Xvoid
+Xdel_range(left, right)
+Xstruct ent *left, *right;
+X{
+X    register struct range *r;
+X    int minr,minc,maxr,maxc;
+X
+X    minr = left->row < right->row ? left->row : right->row;
+X    minc = left->col < right->col ? left->col : right->col;
+X    maxr = left->row > right->row ? left->row : right->row;
+X    maxc = left->col > right->col ? left->col : right->col;
+X
+X    left = lookat(minr, minc);
+X    right = lookat(maxr, maxc);
+X
+X    if (!(r = find_range((char *)0, 0, left, right))) 
+X	return;
+X
+X    if (r->r_next)
+X        r->r_next->r_prev = r->r_prev;
+X    if (r->r_prev)
+X        r->r_prev->r_next = r->r_next;
+X    else
+X	rng_base = r->r_next;
+X    Free((char *)(r->r_name));
+X    Free((char *)r);
+X}
+X
+Xvoid
+Xclean_range()
+X{
+X    register struct range *r;
+X    register struct range *nextr;
+X
+X    r = rng_base;
+X    rng_base = (struct range *)0;
+X
+X    while (r) {
+X	nextr = r->r_next;
+X	Free((char *)(r->r_name));
+X	Free((char *)r);
+X	r = nextr;
+X    }
+X}
+X
+X/* Match on name or lmatch, rmatch */
+X
+Xstruct range *
+Xfind_range(name, len, lmatch, rmatch)
+Xchar *name;
+Xint len;
+Xstruct ent *lmatch;
+Xstruct ent *rmatch;
+X{
+X    struct range *r;
+X    register char *rp, *np;
+X    register int c;
+X
+X    if (name) {
+X	for (r = rng_base; r; r = r->r_next) {
+X	    for (np = name, rp = r->r_name, c = len;
+X		 c && *rp && (*rp == *np);
+X		 rp++, np++, c--) /* */;
+X	    if (!c && !*rp)
+X		return(r);
+X	}
+X	return((struct range *)0);
+X    }
+X
+X    for (r = rng_base; r; r= r->r_next) {
+X	if ((lmatch == r->r_left.vp) && (rmatch == r->r_right.vp)) 
+X	    return(r);
+X    }
+X    return((struct range *)0);
+X}
+X
+Xvoid
+Xsync_ranges()
+X{
+X    register struct range *r;
+X
+X    r = rng_base;
+X    while(r) {
+X	r->r_left.vp = lookat(r->r_left.vp->row, r->r_left.vp->col);
+X	r->r_right.vp = lookat(r->r_right.vp->row, r->r_right.vp->col);
+X	r = r->r_next;
+X    }
+X}
+X
+Xvoid
+Xwrite_range(f)
+XFILE *f;
+X{
+X    register struct range *r;
+X
+X    for (r = rng_base; r; r = r->r_next) {
+X	(void) fprintf(f, "define \"%s\" %s%s%s%d",
+X			r->r_name,
+X			r->r_left.vf & FIX_COL ? "$":"",
+X			coltoa(r->r_left.vp->col), 
+X			r->r_left.vf & FIX_ROW ? "$":"",
+X			r->r_left.vp->row);
+X	if (r->r_is_range)
+X	    (void) fprintf(f, ":%s%s%s%d\n",
+X			    r->r_right.vf & FIX_COL ? "$":"",
+X			    coltoa(r->r_right.vp->col), 
+X			    r->r_right.vf & FIX_ROW ? "$":"",
+X			    r->r_right.vp->row);
+X	else
+X	    (void) fprintf(f, "\n");
+X    }
+X}
+X
+Xvoid
+Xlist_range(f)
+XFILE *f;
+X{
+X    register struct range *r;
+X
+X    (void) fprintf(f, "%-30s %s\n\n","Name","Definition");
+X
+X    for (r = rng_base; r; r = r->r_next) {
+X	(void) fprintf(f, "%-30s %s%s%s%d",
+X			    r->r_name,
+X			    r->r_left.vf & FIX_COL ? "$":"",
+X			    coltoa(r->r_left.vp->col), 
+X			    r->r_left.vf & FIX_ROW ? "$":"",
+X			    r->r_left.vp->row);
+X	if (r->r_is_range)
+X	    (void) fprintf(f, ":%s%s%s%d\n",
+X			    r->r_right.vf & FIX_COL ? "$":"",
+X			    coltoa(r->r_right.vp->col), 
+X			    r->r_right.vf & FIX_ROW ? "$":"",
+X			    r->r_right.vp->row);
+X	else
+X	    (void) fprintf(f, "\n");
+X    }
+X}
+X
+Xchar *
+Xv_name(row, col)
+Xint row, col;
+X{
+X    struct ent *v;
+X    struct range *r;
+X    static char buf[20];
+X
+X    v = lookat(row, col);
+X    if (r = find_range((char *)0, 0, v, v)) {
+X	return(r->r_name);
+X    } else {
+X        (void) sprintf(buf, "%s%d", coltoa(col), row);
+X	return(buf);
+X    }
+X}
+X
+Xchar *
+Xr_name(r1, c1, r2, c2)
+Xint r1, c1, r2, c2;
+X{
+X    struct ent *v1, *v2;
+X    struct range *r;
+X    static char buf[100];
+X
+X    v1 = lookat(r1, c1);
+X    v2 = lookat(r2, c2);
+X    if (r = find_range((char *)0, 0, v1, v2)) {
+X	return(r->r_name);
+X    } else {
+X        (void) sprintf(buf, "%s", v_name(r1, c1));
+X	(void) sprintf(buf+strlen(buf), ":%s", v_name(r2, c2));
+X	return(buf);
+X    }
+X}
+X
+Xint
+Xare_ranges()
+X{
+X	return (rng_base != 0);
+X}
+END_OF_FILE
+  if test 5887 -ne `wc -c <'ss_12b/range.c'`; then
+    echo shar: \"'ss_12b/range.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/range.c'
+fi
+if test -f 'ss_12b/sunfkeys/f1.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/sunfkeys/f1.c'\"
+else
+  echo shar: Extracting \"'ss_12b/sunfkeys/f1.c'\" \(2254 characters\)
+  sed "s/^X//" >'ss_12b/sunfkeys/f1.c' <<'END_OF_FILE'
+X
+X/*
+X * Art Mulder.  arc@cs.ualberta.ca
+X *
+X * A simple curses program to see if we can identify function keys.  
+X *
+X * USAGE: f1
+X *   Then try pressing function keys.  The program will identify
+X *   which key you have pressed, IF IT CAN.  Enter an 'x' to exit
+X *   the program.
+X */
+X
+X#include<curses.h>
+X
+Xmain()
+X{
+X  int c;
+X
+X/*
+X * Initialize Curses
+X */
+X  initscr();
+X  noecho();
+X  cbreak();	/* start cbreak mode on terminal */
+X  nonl();	/* stop mapping return to newline */
+X  scrollok(stdscr,TRUE);
+X  idlok(stdscr,TRUE);
+X
+X  keypad(stdscr, TRUE);
+X  notimeout(stdscr,TRUE);	/* for slower systems (ie: Sun3) */
+X  refresh();
+X
+X/* 
+X * begin input/display loop
+X */
+X  move (0,0);
+X  printw("Enter Function Key, 'x' to exit.\n");
+X
+X  while ( (c = getch()) != 'x' ) {		/* x = exit */
+X    clrtoeol();
+X    printw("%o: ",c);
+X    switch(c) {
+X    case KEY_F(1) : printw("F1\n"); break;	/* Function keys */
+X    case KEY_F(2) : printw("F2\n"); break;
+X    case KEY_F(3) : printw("F3\n"); break;
+X    case KEY_F(4) : printw("F4\n"); break;
+X    case KEY_F(5) : printw("F5\n"); break;
+X    case KEY_F(6) : printw("F6\n"); break;
+X    case KEY_F(7) : printw("F7\n"); break;
+X    case KEY_F(8) : printw("F8\n"); break;
+X    case KEY_F(9) : printw("F9\n"); break;
+X    case KEY_F(10) : printw("F10\n"); break;
+X    case KEY_F(11) : printw("F11\n"); break;
+X    case KEY_F(12) : printw("F12\n"); break;
+X
+X    case KEY_LEFT:  printw("Left Arrow\n"); break;	/* Keypad keys */
+X    case KEY_RIGHT: printw("Right Arrow\n"); break;
+X    case KEY_UP:    printw("Up Arrow\n"); break;
+X    case KEY_DOWN:  printw("Down Arrow\n"); break;
+X    case KEY_HOME:  printw("HOME\n"); break;
+X    case KEY_END:   printw("END\n"); break;
+X    case KEY_PPAGE: printw("PgUp\n"); break;
+X    case KEY_NPAGE: printw("PgDn\n"); break;
+X    case KEY_IC: printw("Insert\n"); break;
+X    case KEY_ENTER: printw("Enter\n"); break;
+X    case KEY_SLEFT: printw("<shift>LEFT\n"); break;
+X    case KEY_SRIGHT: printw("<shift>RIGHT\n"); break;
+X    case KEY_SHOME: printw("<shift>HOME\n"); break;
+X    case KEY_SEND: printw("<shift>END\n"); break;
+X
+X    default:
+X      printw("Unkown input.\n");
+X    }
+X
+X    refresh();
+X  }
+X
+X/*
+X * Move cursor to bottom left corner of screen and end curses.
+X */
+X  move((LINES-1),0);
+X  refresh();
+X  endwin();
+X}
+END_OF_FILE
+  if test 2254 -ne `wc -c <'ss_12b/sunfkeys/f1.c'`; then
+    echo shar: \"'ss_12b/sunfkeys/f1.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/sunfkeys/f1.c'
+fi
+if test -f 'ss_12b/vmtbl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/vmtbl.c'\"
+else
+  echo shar: Extracting \"'ss_12b/vmtbl.c'\" \(5353 characters\)
+  sed "s/^X//" >'ss_12b/vmtbl.c' <<'END_OF_FILE'
+X/*	SC	A Spreadsheet Calculator
+X *		Spreadsheet 'tbl' creation
+X *
+X *		original by James Gosling, September 1982
+X *		modifications by Mark Weiser and Bruce Israel,
+X *			University of Maryland
+X *
+X *              More mods Robert Bond, 12/86
+X *		More mods by Alan Silverstein, 3-4/88, see list of changes.
+X *		Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+X *		$Revision: 6.21 $
+X *
+X */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X#ifdef PSC
+X# include <stdio.h>
+X#else /* PSC */
+X# include "curses_stuff.h"
+X#endif /* PSC */
+X
+X#include "ss.h"
+X
+X/*
+X * check to see if *rowp && *colp are currently allocated, if not expand the
+X * current size if we can.
+X */
+X#ifndef PSC
+Xvoid
+Xcheckbounds(rowp, colp)
+Xint	*rowp;
+Xint	*colp;
+X{
+X	if (*rowp < 0)
+X		*rowp = 0;
+X	else if (*rowp >= maxrows)
+X	{	if (*colp >= maxcols)
+X		{	if (!growtbl(GROWBOTH, *rowp, *colp))
+X			{	*rowp = maxrows -1;
+X				*colp = maxcols -1;
+X			}
+X			return;
+X		}
+X		else
+X		{	if (!growtbl(GROWROW, *rowp, 0))
+X				*rowp = maxrows-1;
+X			return;
+X		}
+X	}
+X	if (*colp < 0) 
+X		*colp = 0;
+X	else if (*colp >= maxcols)
+X	{	if (!growtbl(GROWCOL, 0, *colp))
+X			*colp = maxcols-1;
+X	}
+X}
+X#endif /* !PSC */
+X	
+X/* Realloc will just Malloc if oldptr is == NULL */
+X#define GROWALLOC(newptr, oldptr, nelem, type, msg) \
+X	newptr = (type *)Realloc((char *)oldptr, \
+X					 (unsigned)(nelem*sizeof(type))); \
+X	if (newptr == (type *)NULL) \
+X	{   error(msg); \
+X	    return(FALSE); \
+X	} \
+X	oldptr = newptr /* wait incase we can't alloc */
+X
+Xstatic	char	nolonger[] = "The table can't be any longer";
+Xstatic	char	nowider[] = "The table can't be any wider";
+X
+X/*
+X * grow the main && auxiliary tables (reset maxrows/maxcols as needed)
+X * toprow &&/|| topcol tell us a better guess of how big to become.
+X * we return TRUE if we could grow, FALSE if not....
+X */
+Xint
+Xgrowtbl(rowcol, toprow, topcol)
+Xint	rowcol;
+Xint	toprow, topcol;
+X{
+X	struct ent ***tbl2;
+X	struct ent ** nullit;
+X	int	cnt;
+X	int	*fwidth2;
+X	int	*precision2;
+X	int     *realfmt2;
+X	char	*col_hidden2;
+X	char	*row_hidden2;
+X	int	newrows, newcols;
+X	int	i;
+X
+X#ifndef PSC
+X	newrows = maxrows;
+X#endif /* !PSC */
+X
+X	newcols = maxcols;
+X	if (rowcol == GROWNEW)
+X	{
+X#ifndef PSC
+X		maxrows = toprow = 0;
+X		/* when we first start up, fill the screen w/ cells */
+X		{	int startval;
+X			startval = LINES - RESROW;
+X			newrows = startval > MINROWS ? startval : MINROWS;
+X			startval = ((COLS) - RESCOL) / DEFWIDTH;
+X			newcols = startval > MINCOLS ? startval : MINCOLS;
+X		}
+X#else
+X		newcols = MINCOLS;
+X#endif /* !PSC */
+X		maxcols = topcol = 0;
+X	}
+X#ifndef PSC
+X	/* set how much to grow */
+X	if ((rowcol == GROWROW) || (rowcol == GROWBOTH))
+X	{	if (toprow > maxrows)
+X			newrows = GROWAMT + toprow;
+X		else
+X			newrows += GROWAMT;
+X	}
+X#endif /* !PSC */
+X	if ((rowcol == GROWCOL) || (rowcol == GROWBOTH))
+X	{	if ((rowcol == GROWCOL) && ((maxcols == ABSMAXCOLS) ||
+X					(topcol >= ABSMAXCOLS)))
+X		{	error(nowider);
+X			return(FALSE);
+X		}
+X
+X		if (topcol > maxcols)
+X			newcols = GROWAMT + topcol;
+X		else
+X			newcols += GROWAMT;
+X
+X		if (newcols > ABSMAXCOLS)
+X			newcols = ABSMAXCOLS;
+X	}
+X
+X#ifndef PSC
+X	if ((rowcol == GROWROW) || (rowcol == GROWBOTH) || (rowcol == GROWNEW))
+X	{
+X		struct ent *** lnullit;
+X		int	lcnt;
+X
+X		GROWALLOC(row_hidden2, row_hidden, newrows, char, nolonger);
+X		memset(row_hidden+maxrows, 0, (newrows-maxrows)*sizeof(char));
+X
+X		/*
+X		 * alloc tbl row pointers, per net.lang.c, calloc does not
+X		 * necessarily fill in NULL pointers
+X		 */
+X		GROWALLOC(tbl2, tbl, newrows, struct ent **, nolonger);
+X		for(lnullit = tbl+maxrows, lcnt = 0; lcnt < newrows-maxrows;
+X							lcnt++, lnullit++)
+X			*lnullit = (struct ent **)NULL;
+X/*		memset(tbl+maxrows, (char *)NULL, (newrows-maxrows)*(sizeof(struct ent **)));*/
+X	}
+X#endif /* !PSC */
+X
+X	if ((rowcol == GROWCOL) || (rowcol == GROWBOTH) || (rowcol == GROWNEW))
+X	{
+X		GROWALLOC(fwidth2, fwidth, newcols, int, nowider);
+X		GROWALLOC(precision2, precision, newcols, int, nowider);
+X		GROWALLOC(realfmt2, realfmt, newcols, int, nowider);
+X#ifdef PSC
+X		memset(fwidth+maxcols, 0, (newcols-maxcols)*sizeof(int));
+X		memset(precision+maxcols, 0, (newcols-maxcols)*sizeof(int));
+X		memset(realfmt+maxcols, 0, (newcols-maxcols)*sizeof(int));
+X	}
+X#else
+X		GROWALLOC(col_hidden2, col_hidden, newcols, char, nowider);
+X		memset(col_hidden+maxcols, 0, (newcols-maxcols)*sizeof(char));
+X		for (i = maxcols; i < newcols; i++) {
+X			fwidth[i] = DEFWIDTH;
+X			precision[i] = DEFPREC;
+X			realfmt[i]= DEFREFMT;
+X		}
+X
+X		/* [re]alloc the space for each row */
+X		for (i = 0; i < maxrows; i++)
+X		{
+X		    if ((tbl[i] = (struct ent **)Realloc((char *)tbl[i],
+X			(unsigned)(newcols * sizeof(struct ent **)))) == (struct ent **)0)
+X			{	error(nowider);
+X				return(FALSE);
+X			}
+X		for(nullit = ATBL(tbl, i, maxcols), cnt = 0;
+X				cnt < newcols-maxcols; cnt++, nullit++)
+X			*nullit = (struct ent *)NULL;
+X/*		memset((char *)ATBL(tbl,i, maxcols), 0,
+X			   (newcols-maxcols)*sizeof(struct ent **));
+X*/			   
+X		}
+X	}
+X	else
+X		i = maxrows;
+X
+X	/* fill in the bottom of the table */
+X	for (; i < newrows; i++)
+X	{	if ((tbl[i] = (struct ent **)Malloc((unsigned)(newcols *
+X				sizeof(struct ent **)))) == (struct ent **)0)
+X		{	error(nowider);
+X			return(FALSE);
+X		}
+X		for(nullit = tbl[i], cnt = 0; cnt < newcols; cnt++, nullit++)
+X			*nullit = (struct ent *)NULL;
+X/*		memset((char *)tbl[i], 0, newcols*sizeof(struct ent **));*/
+X	}
+X
+X	FullUpdate++;
+X	maxrows = newrows;
+X#endif /* PSC */
+X
+X	maxcols = newcols;
+X	return(TRUE);
+X}
+END_OF_FILE
+  if test 5353 -ne `wc -c <'ss_12b/vmtbl.c'`; then
+    echo shar: \"'ss_12b/vmtbl.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/vmtbl.c'
+fi
+echo shar: End of archive 9 \(of 11\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

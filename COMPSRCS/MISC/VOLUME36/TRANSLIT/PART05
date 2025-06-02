@@ -1,0 +1,4724 @@
+Newsgroups: comp.sources.misc
+From: jkl@osc.edu (Jan Labanowski)
+Subject: v36i027:  translit - transliterate foreign alphabets, Part05/10
+Message-ID: <1993Mar19.224507.12175@sparky.imd.sterling.com>
+X-Md4-Signature: 08c9478b1437e2887013713c3cd1b5df
+Date: Fri, 19 Mar 1993 22:45:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jkl@osc.edu (Jan Labanowski)
+Posting-number: Volume 36, Issue 27
+Archive-name: translit/part05
+Environment: UNIX, MS-DOS, VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  pho-8sim.rus reg_sub.c translit.ps.C
+# Wrapped by kent@sparky on Fri Mar 19 16:00:12 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 10)."'
+if test -f 'pho-8sim.rus' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pho-8sim.rus'\"
+else
+  echo shar: Extracting \"'pho-8sim.rus'\" \(11342 characters\)
+  sed "s/^X//" >'pho-8sim.rus' <<'END_OF_FILE'
+X# Jan Labanowski, jkl@osc.edu, Jan. 10, 1992 # File lc_koi8.dat
+X
+X# This is a transliteration data file for converting from various phonetic
+X# transliteration schemes to KOI-8 as used by RELCOM (GOST 19768-74).
+X# This is a simple, dirty conversion. If you want a more elaborate one
+X# look at pho-koi8.rus file.
+X# It is not possible to exactly represent phonetic transliteration
+X# since it is very flexible and frequently contradictory.
+X# The English text should be embraced in braces {}, while Russian one,
+X# is outside the braces.
+X# To be used with translit.c program by Jan Labanowski. For a format of
+X# this file consult translit documenation
+X
+X   1            file version number
+X
+X   "    "      # string delimiters
+X   [    ]      # list delimites
+X   {    }      # regular expression delimiters
+X
+X
+X
+X#starting sequence
+X""
+X
+X#ending sequence
+X""
+X
+X   2     # number of input SHIFT sequences, only one set of input characters
+X""  ""  ""  ""  ""  ""    # no SHIFT-OUT/IN for Russian letters
+X"{" ""  ""  ""  "}" ""    # Latin text in braces {}
+X
+X   0     # number of output SHIFT sequences, two sets of input characters
+X
+X# conversion table
+X# inp_set     inp_seq           out_set    out_seq
+X
+X# Latin(ASCII) is embraced in {}
+X     2         ["'A-Za-z]           0  ["'A-Za-z]
+X
+X# Cyrillic letters
+X
+X# If already converted to KOI8 by backstepping, send it to output
+X     1 {([\0x80-\0xFF])}    0         {\1}
+X
+X# Convert " followed by a capital letter to capital Tvyordyj znak and backstep
+X# otherwise " will be treated as a small tvyordyj znak
+X     1 {"([^A-Za-z])}  0         {"\1}             # " at the end
+X     1 {([^A-Za-z])"}  0         {\1"}             # " at the beginning
+X     1 {"([A-Z])}     -2         {\0xFF\1}         # capital Tvyordyj znak
+X     
+X
+X     1 {Q[Hh]}         0         "\0xFF"           # Some use it as Tvyordyj
+X     1 "qh"            0         "\0xDF"           # Some use it as tvyordyj
+X     1 "\0x22"         0         "\0xDF"           # tvyordyj znak
+X
+X# Convert ' preceded by a capital letter to capital Myagkij znak and backstep
+X# otherwise ' will be trated as a small myagkij znak
+X
+X     1 "''"                 0         "''"              # double quote
+X     1 {([^A-Za-z])'}       0         {\1'}             # opening quote
+X     1 {(S[Hh][Cc][Hh])'}  -1         {\1\0xF8}
+X     1 {(S[Hh])'}          -1         {\1\0xF8}
+X     1 {(C[Hh])'}          -1         {\1\0xF8}
+X     1 {(T[Cc][Hh])'}      -1         {\1\0xF8}
+X     1 {([A-Z])'}          -1         {\1\0xF8}
+X                       
+X     1       "Q"            0         "\0xF8"
+X
+X     1       "'"            0         "\0xD8"           # myagkij znak
+X     1       "q"            0         "\0xD8"
+X
+X     1 {([YIJ]?[EOUA])Y([^A-Za-z])}         -1     {\1\0xEA\2}    #-J
+X     1 {([yij]?[eoua])y([^A-Za-z])}         -1     {\1\0xCA\2}    #-j
+X     1 {([J]?[EOAUY])[IJ]([^A-Za-z])}       -1     {\1\0xEA\2}    #-J -YI,YJ
+X     1 {([j]?[eoauy])[ij]([^A-Za-z])}       -1     {\1\0xCA\2}    #-j -yi,yj
+X
+X# the story of ts versus c (the ts for c was a stupid idea of Library of
+X# Congress --- very, very stupid... T and S should be T and S, not C).
+X     1 "INTS"                       0       "\0xE9\0xED\0xE3"  #INC
+X     1 "INC"                        0       "\0xE9\0xED\0xE3"  #INC
+X     1 "ints"                       0       "\0xC9\0xCD\0xC3"  #inc
+X     1 "inc"                        0       "\0xC9\0xCD\0xC3"  #inc
+X     1 "CI"                         0       "\0xE3\0xE9"
+X     1 "ci"                         0       "\0xC3\0xC9"
+X     1 {AVIA(TS|C)}                 0       "\0xE1\0xE2\0xE9\0xE1\0xE3" #aviac
+X     1 {avia(ts|c)}                 0       "\0xC1\0xC2\0xC9\0xC1\0xC3" 
+X     1 {tsi([iyjo])}               -2       {\0xC3\0xC9\1}    # ci
+X     1 {TSI([IYJO])}               -2       {\0xE3\0xE9\1}    # ci
+X     1 {T[Ss]([Aa])}               -2       {\0xE3\1}         # CA
+X     1 {t[Ss]([Aa])}               -2       {\0xC3\1}         # ca
+X     1 {([DdKk])T[Ss]}             -1       {\1\0xE3}         # DC or KC
+X     1 {([DdKk])t[Ss]}             -1       {\1\0xC3}         # dc or kc
+X     1 {TS([^A-Za-z])}             -2       {\0xE3\1}         # C
+X     1 {ts([^A-Za-z])}             -2       {\0xC3\1}         # c
+X
+X#    Je --- people frequently write e instead of Je. E oborotnoje is
+X#    frequently at the beginning of foreign origin words
+X
+X     1 "AER"                                       0   "\0xE1\0xFC\0xF2"
+X     1 {([Aa])er}                                 -1   {\1\0xDC\0xD2}
+X
+X     1 {([^A-Za-z])e([Mm][Uu]?[^A-Za-z])}         -1   {\1\0xC5\2}   # je
+X     1 {([^A-Za-z])E([Mm][Uu]?[^A-Za-z])}         -1   {\1\0xE5\2}   # Je
+X     1 {([^A-Za-z])e([Mm][Ll])}                   -1   {\1\0xC5\2}   # je
+X     1 {([^A-Za-z])E([Mm][Ll])}                   -1   {\1\0xE5\2}   # Je
+X
+X     1 {([A-Za-z])'[IiYyJj]?E}                    -1   {\1\0xF8\0xE5} # Je
+X     1 {([A-Za-z])'[IiYyJj]?e}                    -1   {\1\0xD8\0xC5} # je
+X
+X     1 {([^A-Za-z])E([Ll][^EeIiLlYyJj'])}         -1   {\1\0xE5\2}   # Je
+X     1 {([^A-Za-z])e([Ll][^EeIiLlYyJj'])}         -1   {\1\0xC5\2}   # Je
+X
+X     1 {([^A-Za-z])e([Ll][YyIiJj]?[Ee][^A-Za-z])} -1   {\1\0xC5\2}   # je
+X     1 {([^A-Za-z])E([Ll][YyIiJj]?[Ee][^A-Za-z])} -1   {\1\0xE5\2}   # Je
+X
+X     1 {([^A-Za-z])e([Rr][Uu])}                   -1   {\1\0xC5\2}   # je
+X     1 {([^A-Za-z])E([Rr][Uu])}                   -1   {\1\0xE5\2}   # Je
+X
+X     1 {([^A-Za-z])e([Ss][HhTtLl])}               -1   {\1\0xC5\2}   # je
+X     1 {([^A-Za-z])E([Ss][HhTtLl])}               -1   {\1\0xE5\2}   # Je
+X
+X     1 {([^A-Za-z])E([Ll][Ee][KkGg])}             -1   {\1\0xFC\2}   # `Elek,g
+X     1 {([^A-Za-z])e([Ll][Ee][KkGg])}             -1   {\1\0xDC\2}   # `elek,g
+X
+X     1 {([^A-Za-z])E([Kk][Aa])}                   -1   {\1\0xE5\2}   # Jekater
+X     1 {([^A-Za-z])e([Kk][Aa])}                   -1   {\1\0xC5\2}   # jekater
+X
+X     1 {([^A-Za-z])e([KLMNPRSTFklmnprstf])}       -1   {\1\0xDC\2}   #e oborotn
+X     1 {([^A-Za-z])E([KLMNPRSTFklmnprstf])}       -1   {\1\0xFC\2}   #E oborotn
+X
+X     1 {([iIOoPpUuFfYy])i[Ee]}                    -1   {\1\0xC5}     # ie->je
+X     1 {([iIOoPpUuFfYy])I[Ee]}                    -1   {\1\0xE5}     # ie->je
+X
+X#   Eh is e oborotnoje but not at the end of the word
+X     1 {E[Hh]([^A-Za-z]+)}  0    {\0xE5\0xE8\1}
+X     1 {e[Hh]([^A-Za-z]+)}  0    {\0xC5\0xC8\1}
+X     1       {E[Hh]}        0         "\0xFC"           # E oborotnoje
+X     1       "eh"           0         "\0xDC"           # e oboritnoje
+X
+X#   Various I kratkoe
+X     1       {J[Ii]}        0         "\0xEA"           # I kratkoje
+X     1       {J[Jj]}        0         "\0xEA"
+X     1       "ji"           0         "\0xCA"           # i kratkoje
+X     1       "jj"           0         "\0xCA"
+X
+X
+X
+X# SHCH
+X     1 {s[Hh][Cc][Hh]}      0         "\0xDD"
+X     1       "w"            0         "\0xDD"
+X     1 {S[Hh][Cc][Hh]}      0         "\0xFD"         
+X     1       "W"            0         "\0xFD"
+X
+X                       
+X     1       {[YJ][Oo]}     0         "\0xB3"           # capital Jo
+X     1       {J[Ee]}        0         "\0xE5"           # Je
+X     1 {RIU(M[^A-Za-z])}   -1       {\0xF2\0xE9\0xF5\2} # IU
+X     1 {([^A-Za-z])I([Uu][Dd])} -1    {\1\0xE9\2}
+X     1 "DIUS"                    0    "\0xE4\0xE9\0xF5\0xF3"
+X     1       {[IYJ][Uu]}    0         "\0xE0"           # Ju
+X     1 {([Dd])I([Aa][KkGgPp])} -1     {\1\0xE9\2}       # dia
+X     1 "RIAL"               0         "\0xF2\0xE9\0xE1\0xEC"       # rial
+X     1 "KIA"                0         "\0xEB\0xE9\0xE1" # kia
+X     1       {[IYJ][Aa]}    0         "\0xF1"           # Ja
+X     1       {Z[Hh]}        0         "\0xF6"         
+X     1       {K[Hh]}        0         "\0xE8"         
+X     1       {H[Hh]}        0         "\0xE8"
+X     1       {C[Hh]}        0         "\0xFE"         
+X     1       {S[Hh]}        0         "\0xFB"         
+X     1       "zh"           0         "\0xD6"         
+X     1       "kh"           0         "\0xC8"
+X     1       "hh"           0         "\0xC8"
+X     1       "ch"           0         "\0xDE"         
+X     1       "sh"           0         "\0xDB"         
+X     1       {[yj]o}        0         "\0xA3"    #jo
+X     1       "je"           0         "\0xC5"    #je
+X
+X     1 {([Rr])iu([Mm][^A-Za-z])} -1   {\1\0xC9\0xD5\2} # iu
+X     1 {([^A-Za-z])i(ud)}        -1   {\1\0xC9\2}
+X     1 "dius"                     0   "\0xC4\0xC9\0xD5\0xD3"
+X     1 {[iyj]u}                   0   "\0xC0"    #ju
+X     1 {([Dd])ia([kgp])}         -1   {\1\0xC9\0xC1\2}  # dia
+X     1 "rial"                     0   "\0xD2\0xC9\0xC1\0xCC"       # rial
+X     1 "kia"                      0   "\0xCB\0xC9\0xC1"            # kia
+X     1 {[iyj]a}                   0   "\0xD1"    #ja
+X
+X     1       "A"            0         "\0xE1"         
+X     1       "B"            0         "\0xE2"         
+X     1       "V"            0         "\0xF7"         
+X     1       "G"            0         "\0xE7"         
+X     1       "D"            0         "\0xE4"         
+X     1       "Z"            0         "\0xFA"         
+X     1       "I"            0         "\0xE9"         
+X     1       "J"            0         "\0xEA"           # I kratkoje
+X     1       "K"            0         "\0xEB"         
+X     1       "L"            0         "\0xEC"         
+X     1       "M"            0         "\0xED"         
+X     1       "N"            0         "\0xEE"         
+X     1       "O"            0         "\0xEF"         
+X     1       "P"            0         "\0xF0"         
+X     1       "R"            0         "\0xF2"         
+X     1       "S"            0         "\0xF3"         
+X     1       "T"            0         "\0xF4"         
+X     1       "U"            0         "\0xF5"         
+X     1       "F"            0         "\0xE6"         
+X     1       "X"            0         "\0xE8"          # Kha
+X     1       "H"            0         "\0xE8"          # Kha
+X     1       "C"            0         "\0xE3"         
+X     1       "Y"            0         "\0xF9"         
+X     1       "E"            0         "\0xE5"          #Je
+X     1       "a"            0         "\0xC1"         
+X     1       "b"            0         "\0xC2"         
+X     1       "v"            0         "\0xD7"         
+X     1       "g"            0         "\0xC7"         
+X     1       "d"            0         "\0xC4"         
+X     1       "z"            0         "\0xDA"         
+X     1       "i"            0         "\0xC9"         
+X     1       "j"            0         "\0xCA"         
+X     1       "k"            0         "\0xCB"         
+X     1       "l"            0         "\0xCC"         
+X     1       "m"            0         "\0xCD"         
+X     1       "n"            0         "\0xCE"         
+X     1       "o"            0         "\0xCF"         
+X     1       "p"            0         "\0xD0"         
+X     1       "r"            0         "\0xD2"         
+X     1       "s"            0         "\0xD3"         
+X     1       "t"            0         "\0xD4"         
+X     1       "u"            0         "\0xD5"         
+X     1       "f"            0         "\0xC6"         
+X     1       "x"            0         "\0xC8"      # kha
+X     1       "h"            0         "\0xC8"      # kha
+X     1       "c"            0         "\0xC3"         
+X     1       "y"            0         "\0xD9"         
+X     1       "e"            0         "\0xC5"      # je
+X
+X
+END_OF_FILE
+  if test 11342 -ne `wc -c <'pho-8sim.rus'`; then
+    echo shar: \"'pho-8sim.rus'\" unpacked with wrong size!
+  fi
+  # end of 'pho-8sim.rus'
+fi
+if test -f 'reg_sub.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'reg_sub.c'\"
+else
+  echo shar: Extracting \"'reg_sub.c'\" \(2173 characters\)
+  sed "s/^X//" >'reg_sub.c' <<'END_OF_FILE'
+X/*
+X * regsub
+X *
+X *	Copyright (c) 1986 by University of Toronto.
+X *	Written by Henry Spencer.  Not derived from licensed software.
+X *
+X *	Permission is granted to anyone to use this software for any
+X *	purpose on any computer system, and to redistribute it freely,
+X *	subject to the following restrictions:
+X *
+X *	1. The author is not responsible for the consequences of use of
+X *		this software, no matter how awful, even if they arise
+X *		from defects in it.
+X *
+X *	2. The origin of this software must not be misrepresented, either
+X *		by explicit claim or by omission.
+X *
+X *	3. Altered versions must be plainly marked as such, and must not
+X *		be misrepresented as being the original software.
+X */
+X
+X#include "paths.h"
+X#include "reg_exp.h"         /* modified by jkl */
+X/* #include "reg_magic.h" reg_magic included in reg_exp.h , jkl */
+X
+X/*  substituted with my charcode routine 
+X   #ifndef CHARBITS
+X   #define	UCHARAT(p)	((int)*(unsigned char *)(p))
+X   #else
+X   #define	UCHARAT(p)	((int)*(p)&CHARBITS)
+X   #endif
+X*/
+X
+X#define UCHARAT(p)     (intcode(*(p)))
+Xextern int intcode();
+X
+X/*
+X - reg_sub - perform substitutions after a regexp match
+X */
+Xvoid
+Xreg_sub(prog, source, dest)
+Xreg_exp *prog;
+Xchar *source;
+Xchar *dest;
+X{
+X	register char *src;
+X	register char *dst;
+X	register char c;
+X	register int no;
+X	register int len;
+X/*	extern char *strncpy();   jkl */
+X
+X	if (prog == NULL || source == NULL || dest == NULL) {
+X		reg_error("NULL parm to regsub");
+X		return;
+X	}
+X	if (UCHARAT(prog->program) != MAGIC) {
+X		reg_error("damaged regexp fed to regsub");
+X		return;
+X	}
+X
+X	src = source;
+X	dst = dest;
+X	while ((c = *src++) != '\0') {
+X		if (c == '&')
+X			no = 0;
+X		else if (c == '\\' && '0' <= *src && *src <= '9')
+X			no = *src++ - '0';
+X		else
+X			no = -1;
+X
+X		if (no < 0) {	/* Ordinary character. */
+X			if (c == '\\' && (*src == '\\' || *src == '&'))
+X				c = *src++;
+X			*dst++ = c;
+X		} else if (prog->startp[no] != NULL && prog->endp[no] != NULL) {
+X			len = prog->endp[no] - prog->startp[no];
+X			(void) strncpy(dst, prog->startp[no], len);
+X			dst += len;
+X			if (len != 0 && *(dst-1) == '\0') {/* strncpy hit NUL. */
+X				reg_error("damaged match string");
+X				return;
+X			}
+X		}
+X	}
+X	*dst++ = '\0';
+X}
+END_OF_FILE
+  if test 2173 -ne `wc -c <'reg_sub.c'`; then
+    echo shar: \"'reg_sub.c'\" unpacked with wrong size!
+  fi
+  # end of 'reg_sub.c'
+fi
+if test -f 'translit.ps.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'translit.ps.C'\"
+else
+  echo shar: Extracting \"'translit.ps.C'\" \(44359 characters\)
+  sed "s/^X//" >'translit.ps.C' <<'END_OF_FILE'
+X738 1518(5\))U
+X808(If)S
+X868(matched,)S
+X1108(restore)S
+X1292(previous)S
+X1519(set)S
+X1606(number)S
+X768 1590(\))U
+X808(If)S
+X868(matched,)S
+X1108(restore)S
+X1292(previous)S
+X1519(set)S
+X1606(nest)S
+X1723(counter)S
+X738 1734(8)U
+X738 1662(7\))U
+X808(Match/substitute)S
+X1230(translitera)S
+X1472(tion)S
+X1586(sequences)S
+X768 1734(\))U
+X819(If)S
+X890(matched)S
+X1126(and)S
+X1244(code)S
+X1389(=)S
+X1453(-1)S
+X1534(make)S
+X1696(substitution)S
+X2008(in)S
+X2086(input)S
+X2241(buffer)S
+X2419(and)S
+X2537(continue)S
+X2776(matching)S
+X3032(the)S
+X3136(next)S
+X738 1878(9)U
+X828 1806(sequence.)U
+X768 1878(\))U
+X808(If)S
+X868(matched)S
+X1093(and)S
+X1200(code)S
+X1334(=)S
+X1387(-2)S
+X1457(make)S
+X1608(substitution)S
+X1909(and)S
+X2016(goto)S
+X2143(7\))S
+X2173 1950(\))U
+X708 2022(1)U
+X708 1950(10\))U
+X808(If)S
+X868(matched)S
+X1093(and)S
+X1200(code)S
+X1334(=)S
+X1387(-3)S
+X1457(make)S
+X1608(substitution)S
+X1909(and)S
+X2016(goto)S
+X2143(1)S
+X738 2022(1\))U
+X808(Match)S
+X982(\(no)S
+X1082(substitution\))S
+X1403(NEST-up)S
+X1653(and)S
+X1760(NEST-down)S
+X2083(to)S
+X2150(input)S
+X2294(buffer)S
+X708 2166(1)U
+X708 2094(12\))U
+X808(If)S
+X868(NEST-up)S
+X1118(matched,)S
+X1358(increment)S
+X1620(counter)S
+X1821(for)S
+X1911(current)S
+X2102(set)S
+X738 2166(3\))U
+X808(If)S
+X868(NEST-down)S
+X1191(matched,)S
+X1431(decreme)S
+X1636(nt)S
+X1703(counter)S
+X1904(for)S
+X1994(current)S
+X2185(set)S
+X708 2310(1)U
+X708 2238(14\))U
+X808(If)S
+X868(match)S
+X1036(in)S
+X1103(7\))S
+X1173(send)S
+X1303(substitute)S
+X1554(sequence)S
+X1795(to)S
+X1862(output)S
+X738 2310(5\))U
+X808(If)S
+X868(no)S
+X948(match)S
+X1116(in)S
+X1183(7\))S
+X1253(\(or)S
+X1343(code)S
+X1477(-1\))S
+X1567(output)S
+X1741(current)S
+X1932(input)S
+X2076(charact)S
+X2251(er)S
+X708 2454(1)U
+X708 2382(16\))U
+X808(Advance)S
+X1042(input)S
+X1186(pointer)S
+X1377(to)S
+X1444(point)S
+X1588(at)S
+X1652(new)S
+X1772(charact)S
+X1947(ers)S
+X738 2454(7\))U
+X808(If)S
+X868(End)S
+X985(of)S
+X1055(File,)S
+X1184(break)S
+X3 F
+X54 Z
+X432 2697(A)U
+X1 F
+X60 Z
+X708 2526(18\))U
+X808(Goto)S
+X948(1\))S
+X3 F
+X54 Z
+X471 2697(SCII)U
+X609(CHARACTER)S
+X984(CODES)S
+X1 F
+X60 Z
+X768 2769(d)U
+X(ec)R
+X1008(hx)S
+X1188(oct)S
+X1428(ch)S
+X1848(dec)S
+X1968(hx)S
+X2208(oct)S
+X2388(ch)S
+X828 2985(1)U
+X828 2913(0)U
+X1008(00)S
+X1188(000)S
+X5 F
+X1428(\303@)S
+X1 F
+X1608(NUL)S
+X1878(64)S
+X1968(40)S
+X2208(100)S
+X5 F
+X2388(@)S
+X1 F
+X1008 2985(01)U
+X1188(001)S
+X5 F
+X1428(\303)S
+X1 F
+X(A)R
+X1608(SOH)S
+X1878(65)S
+X1968(41)S
+X2208(101)S
+X2388(A)S
+X2388 3057(B)U
+X828 3129(3)U
+X828 3057(2)U
+X1008(02)S
+X1188(002)S
+X5 F
+X1428(\303)S
+X1 F
+X(B)R
+X1608(STX)S
+X1878(66)S
+X1968(42)S
+X2208(102)S
+X1008 3129(03)U
+X1188(003)S
+X5 F
+X1428(\303)S
+X1 F
+X(C)R
+X1608(ETX)S
+X1878(67)S
+X1968(43)S
+X2208(103)S
+X2388(C)S
+X2388 3201(D)U
+X828 3273(5)U
+X828 3201(4)U
+X1008(04)S
+X1188(004)S
+X5 F
+X1428(\303)S
+X1 F
+X(D)R
+X1608(EOT)S
+X1878(68)S
+X1968(44)S
+X2208(104)S
+X1008 3273(05)U
+X1188(005)S
+X5 F
+X1428(\303)S
+X1 F
+X(E)R
+X1608(ENQ)S
+X1878(69)S
+X1968(45)S
+X2208(105)S
+X2388(E)S
+X2388 3345(F)U
+X828 3417(7)U
+X828 3345(6)U
+X1008(06)S
+X1188(006)S
+X5 F
+X1428(\303)S
+X1 F
+X(F)R
+X1608(ACK)S
+X1878(70)S
+X1968(46)S
+X2208(106)S
+X1008 3417(07)U
+X1188(007)S
+X5 F
+X1428(\303)S
+X1 F
+X(G)R
+X1608(BEL)S
+X1878(71)S
+X1968(47)S
+X2208(107)S
+X2388(G)S
+X2388 3489(H)U
+X828 3561(9)U
+X828 3489(8)U
+X1008(08)S
+X1188(010)S
+X5 F
+X1428(\303)S
+X1 F
+X(H)R
+X1608(BS)S
+X1878(72)S
+X1968(48)S
+X2208(110)S
+X1008 3561(09)U
+X1188(011)S
+X5 F
+X1428(\303)S
+X1 F
+X(I)R
+X1608(HT)S
+X1878(73)S
+X1968(49)S
+X2208(111)S
+X2388(I)S
+X2388 3633(J)U
+X798 3705(1)U
+X798 3633(10)U
+X1008(0a)S
+X1188(012)S
+X5 F
+X1428(\303)S
+X1 F
+X(J)R
+X1608(LF)S
+X1878(74)S
+X1968(4a)S
+X2208(112)S
+X828 3705(1)U
+X1008(0b)S
+X1188(013)S
+X5 F
+X1428(\303)S
+X1 F
+X(K)R
+X1608(VT)S
+X1878(75)S
+X1968(4b)S
+X2208(113)S
+X2388(K)S
+X2388 3777(L)U
+X798 3849(1)U
+X798 3777(12)U
+X1008(0c)S
+X1188(014)S
+X5 F
+X1428(\303)S
+X1 F
+X(L)R
+X1608(FF)S
+X1878(76)S
+X1968(4c)S
+X2208(114)S
+X828 3849(3)U
+X1008(0d)S
+X1188(015)S
+X5 F
+X1428(\303)S
+X1 F
+X(M)R
+X1608(CR)S
+X1878(77)S
+X1968(4d)S
+X2208(115)S
+X2388(M)S
+X2388 3921(N)U
+X798 3993(1)U
+X798 3921(14)U
+X1008(0e)S
+X1188(016)S
+X5 F
+X1428(\303)S
+X1 F
+X(N)R
+X1608(SO)S
+X1878(78)S
+X1968(4e)S
+X2208(116)S
+X828 3993(5)U
+X1008(0f)S
+X1188(017)S
+X5 F
+X1428(\303)S
+X1 F
+X(O)R
+X1608(SI)S
+X1878(79)S
+X1968(4f)S
+X2208(117)S
+X2388(O)S
+X2388 4065(P)U
+X798 4137(1)U
+X798 4065(16)U
+X1008(10)S
+X1188(020)S
+X5 F
+X1428(\303)S
+X1 F
+X(P)R
+X1608(DLE)S
+X1878(80)S
+X1968(50)S
+X2208(120)S
+X828 4137(7)U
+X1008(11)S
+X1188(021)S
+X5 F
+X1428(\303)S
+X1 F
+X(Q)R
+X1608(DC1)S
+X1878(81)S
+X1968(51)S
+X2208(121)S
+X2388(Q)S
+X2388 4209(R)U
+X798 4281(1)U
+X798 4209(18)U
+X1008(12)S
+X1188(022)S
+X5 F
+X1428(\303)S
+X1 F
+X(R)R
+X1608(DC2)S
+X1878(82)S
+X1968(52)S
+X2208(122)S
+X828 4281(9)U
+X1008(13)S
+X1188(023)S
+X5 F
+X1428(\303)S
+X1 F
+X(S)R
+X1608(DC3)S
+X1878(83)S
+X1968(53)S
+X2208(123)S
+X2388(S)S
+X3210 4569(3)U
+X432(JKL)S
+X1520(Last)S
+X1644(change:)S
+X1852(23-Jan-1993)S
+X3180(1)S
+XEP
+X%%Page: ? 14
+XBP
+X1 F
+X60 Z
+X432 222(T)U
+X(RANSLIT)R
+X732(\()S
+X762(JKL)S
+X875(\))S
+X1693(Version)S
+X1903(1.0)S
+X2777(TRANSLIT)S
+X3077(\()S
+X3107(JKL)S
+X3220(\))S
+X798 582(2)U
+X798 510(20)U
+X1008(14)S
+X1188(024)S
+X5 F
+X1428(\303)S
+X1 F
+X(T)R
+X1608(DC4)S
+X1878(84)S
+X1968(54)S
+X2208(124)S
+X2388(T)S
+X828 582(1)U
+X1008(15)S
+X1188(025)S
+X5 F
+X1428(\303)S
+X1 F
+X(U)R
+X1608(NAK)S
+X1878(85)S
+X1968(55)S
+X2208(125)S
+X2388(U)S
+X2388 654(V)U
+X798 726(2)U
+X798 654(22)U
+X1008(16)S
+X1188(026)S
+X5 F
+X1428(\303)S
+X1 F
+X(V)R
+X1608(SYN)S
+X1878(86)S
+X1968(56)S
+X2208(126)S
+X828 726(3)U
+X1008(17)S
+X1188(027)S
+X5 F
+X1428(\303)S
+X1 F
+X(W)R
+X1608(ETB)S
+X1878(87)S
+X1968(57)S
+X2208(127)S
+X2388(W)S
+X2388 798(X)U
+X798 870(2)U
+X798 798(24)U
+X1008(18)S
+X1188(030)S
+X5 F
+X1428(\303)S
+X1 F
+X(X)R
+X1608(CAN)S
+X1878(88)S
+X1968(58)S
+X2208(130)S
+X828 870(5)U
+X1008(19)S
+X1188(031)S
+X5 F
+X1428(\303)S
+X1 F
+X(Y)R
+X1608(EM)S
+X1878(89)S
+X1968(59)S
+X2208(131)S
+X2388(Y)S
+X2388 942(Z)U
+X798 1014(2)U
+X798 942(26)U
+X1008(1a)S
+X1188(032)S
+X5 F
+X1428(\303)S
+X1 F
+X(Z)R
+X1608(SUB)S
+X1878(90)S
+X1968(5a)S
+X2208(132)S
+X828 1014(7)U
+X1008(1b)S
+X1188(033)S
+X5 F
+X1428(\303)S
+X1 F
+X([)R
+X1608(ESC)S
+X1878(91)S
+X1968(5b)S
+X2208(133)S
+X2388([)S
+X5 F
+X2388 1086(\\)U
+X1 F
+X798 1158(2)U
+X798 1086(28)U
+X1008(1c)S
+X1188(034)S
+X5 F
+X1428(\303\\)S
+X1 F
+X1608(FS)S
+X1878(92)S
+X1968(5c)S
+X2208(134)S
+X828 1158(9)U
+X1008(1d)S
+X1188(035)S
+X5 F
+X1428(\303)S
+X1 F
+X(])R
+X1608(GS)S
+X1878(93)S
+X1968(5d)S
+X2208(135)S
+X2388(])S
+X5 F
+X2388 1230(\303)U
+X1 F
+X798 1302(3)U
+X798 1230(30)U
+X1008(1e)S
+X1188(036)S
+X5 F
+X1428(\303\303)S
+X1 F
+X1608(RS)S
+X1878(94)S
+X1968(5e)S
+X2208(136)S
+X828 1302(1)U
+X1008(1f)S
+X1188(037)S
+X5 F
+X1428(\303)S
+X6 F
+X(i)R
+X1 F
+X1608(US)S
+X1878(95)S
+X1968(5f)S
+X2208(137)S
+X6 F
+X2388(i)S
+X1 F
+X2388 1374(`)U
+X798 1446(3)U
+X798 1374(32)U
+X1008(20)S
+X1188(040)S
+X1608(SP)S
+X1878(96)S
+X1968(60)S
+X2208(140)S
+X828 1446(3)U
+X1008(21)S
+X1188(041)S
+X1428(!)S
+X1878(97)S
+X1968(61)S
+X2208(141)S
+X2388(a)S
+X2388 1518(b)U
+X798 1590(3)U
+X798 1518(34)U
+X1008(22)S
+X1188(042)S
+X5 F
+X1428(")S
+X1 F
+X1878(98)S
+X1968(62)S
+X2208(142)S
+X828 1590(5)U
+X1008(23)S
+X1188(043)S
+X4 F
+X1428(#)S
+X1 F
+X1878(99)S
+X1968(63)S
+X2208(143)S
+X2388(c)S
+X2388 1662(d)U
+X798 1734(3)U
+X798 1662(36)U
+X1008(24)S
+X1188(044)S
+X1428($)S
+X1848(100)S
+X1968(64)S
+X2208(144)S
+X828 1734(7)U
+X1008(25)S
+X1188(045)S
+X1428(%)S
+X1848(101)S
+X1968(65)S
+X2208(145)S
+X2388(e)S
+X2388 1806(f)U
+X798 1878(3)U
+X798 1806(38)U
+X1008(26)S
+X1188(046)S
+X1428(&)S
+X1848(102)S
+X1968(66)S
+X2208(146)S
+X828 1878(9)U
+X1008(27)S
+X1188(047)S
+X1428(')S
+X1848(103)S
+X1968(67)S
+X2208(147)S
+X2388(g)S
+X2388 1950(h)U
+X798 2022(4)U
+X798 1950(40)U
+X1008(28)S
+X1188(050)S
+X1428(\()S
+X1848(104)S
+X1968(68)S
+X2208(150)S
+X828 2022(1)U
+X1008(29)S
+X1188(051)S
+X1428(\))S
+X1848(105)S
+X1968(69)S
+X2208(151)S
+X2388(i)S
+X2388 2094(j)U
+X798 2166(4)U
+X798 2094(42)U
+X1008(2a)S
+X1188(052)S
+X4 F
+X1428(*)S
+X1 F
+X1848(106)S
+X1968(6a)S
+X2208(152)S
+X828 2166(3)U
+X1008(2b)S
+X1188(053)S
+X1428(+)S
+X1848(107)S
+X1968(6b)S
+X2208(153)S
+X2388(k)S
+X2388 2238(l)U
+X798 2310(4)U
+X798 2238(44)U
+X1008(2c)S
+X1188(054)S
+X1428(,)S
+X1848(108)S
+X1968(6c)S
+X2208(154)S
+X828 2310(5)U
+X1008(2d)S
+X1188(055)S
+X1428(-)S
+X1848(109)S
+X1968(6d)S
+X2208(155)S
+X2388(m)S
+X2388 2382(n)U
+X798 2454(4)U
+X798 2382(46)U
+X1008(2e)S
+X1188(056)S
+X1428(.)S
+X1848(110)S
+X1968(6e)S
+X2208(156)S
+X828 2454(7)U
+X1008(2f)S
+X1188(057)S
+X1428(/)S
+X1848(111)S
+X1968(6f)S
+X2208(157)S
+X2388(o)S
+X2388 2526(p)U
+X798 2598(4)U
+X798 2526(48)U
+X1008(30)S
+X1188(060)S
+X1428(0)S
+X1848(112)S
+X1968(70)S
+X2208(160)S
+X828 2598(9)U
+X1008(31)S
+X1188(061)S
+X1428(1)S
+X1848(113)S
+X1968(71)S
+X2208(161)S
+X2388(q)S
+X2388 2670(r)U
+X798 2742(5)U
+X798 2670(50)U
+X1008(32)S
+X1188(062)S
+X1428(2)S
+X1848(114)S
+X1968(72)S
+X2208(162)S
+X828 2742(1)U
+X1008(33)S
+X1188(063)S
+X1428(3)S
+X1848(115)S
+X1968(73)S
+X2208(163)S
+X2388(s)S
+X2388 2814(t)U
+X798 2886(5)U
+X798 2814(52)U
+X1008(34)S
+X1188(064)S
+X1428(4)S
+X1848(116)S
+X1968(74)S
+X2208(164)S
+X828 2886(3)U
+X1008(35)S
+X1188(065)S
+X1428(5)S
+X1848(117)S
+X1968(75)S
+X2208(165)S
+X2388(u)S
+X2388 2958(v)U
+X798 3030(5)U
+X798 2958(54)U
+X1008(36)S
+X1188(066)S
+X1428(6)S
+X1848(118)S
+X1968(76)S
+X2208(166)S
+X828 3030(5)U
+X1008(37)S
+X1188(067)S
+X1428(7)S
+X1848(119)S
+X1968(77)S
+X2208(167)S
+X2388(w)S
+X2388 3102(x)U
+X798 3174(5)U
+X798 3102(56)U
+X1008(38)S
+X1188(070)S
+X1428(8)S
+X1848(120)S
+X1968(78)S
+X2208(170)S
+X828 3174(7)U
+X1008(39)S
+X1188(071)S
+X1428(9)S
+X1848(121)S
+X1968(79)S
+X2208(171)S
+X2388(y)S
+X2388 3246(z)U
+X798 3318(5)U
+X798 3246(58)U
+X1008(3a)S
+X1188(072)S
+X1428(:)S
+X1848(122)S
+X1968(7a)S
+X2208(172)S
+X828 3318(9)U
+X1008(3b)S
+X1188(073)S
+X1428(;)S
+X1848(123)S
+X1968(7b)S
+X2208(173)S
+X5 F
+X2388({)S
+X6 F
+X2388 3390(e)U
+X1 F
+X798 3462(6)U
+X798 3390(60)U
+X1008(3c)S
+X1188(074)S
+X4 F
+X1428(<)S
+X1 F
+X1848(124)S
+X1968(7c)S
+X2208(174)S
+X828 3462(1)U
+X1008(3d)S
+X1188(075)S
+X1428(=)S
+X1848(125)S
+X1968(7d)S
+X2208(175)S
+X5 F
+X2388(})S
+X2388 3534(\304)U
+X1 F
+X798 3606(6)U
+X798 3534(62)U
+X1008(3e)S
+X1188(076)S
+X4 F
+X1428(>)S
+X1 F
+X1848(126)S
+X1968(7e)S
+X2208(176)S
+X828 3606(3)U
+X1008(3f)S
+X1188(077)S
+X1428(?)S
+X1848(127)S
+X1968(7f)S
+X2208(177)S
+X2388(DEL)S
+X3 F
+X54 Z
+X432 3849(CONVERSION:)U
+X843(DECIMAL)S
+X4 F
+X(<)R
+X3 F
+X(--)R
+X4 F
+X(>)R
+X3 F
+X(OCTAL)R
+X4 F
+X(<)R
+X3 F
+X(--)R
+X4 F
+X(>)R
+X3 F
+X(HEX.)R
+X1 F
+X60 Z
+X693 3921(0)U
+X733(0)S
+X773(0)S
+X893(0)S
+X933(0)S
+X973(0)S
+X1093(0)S
+X1133(0)S
+X1373(0)S
+X1413(6)S
+X1453(4)S
+X1573(1)S
+X1613(0)S
+X1653(0)S
+X1773(4)S
+X1813(0)S
+X2053(1)S
+X2093(2)S
+X2133(8)S
+X2253(2)S
+X2293(0)S
+X2333(0)S
+X2453(8)S
+X2493(0)S
+X2733(1)S
+X2773(9)S
+X2813(2)S
+X2933(3)S
+X2973(0)S
+X3013(0)S
+X3128(C)S
+X3173(0)S
+X3173 3993(1)U
+X693 4065(0)U
+X693 3993(0)U
+X733(0)S
+X773(1)S
+X893(0)S
+X933(0)S
+X973(1)S
+X1093(0)S
+X1133(1)S
+X1373(0)S
+X1413(6)S
+X1453(5)S
+X1573(1)S
+X1613(0)S
+X1653(1)S
+X1773(4)S
+X1813(1)S
+X2053(1)S
+X2093(2)S
+X2133(9)S
+X2253(2)S
+X2293(0)S
+X2333(1)S
+X2453(8)S
+X2493(1)S
+X2733(1)S
+X2773(9)S
+X2813(3)S
+X2933(3)S
+X2973(0)S
+X3013(1)S
+X3128(C)S
+X733 4065(0)U
+X773(2)S
+X893(0)S
+X933(0)S
+X973(2)S
+X1093(0)S
+X1133(2)S
+X1373(0)S
+X1413(6)S
+X1453(6)S
+X1573(1)S
+X1613(0)S
+X1653(2)S
+X1773(4)S
+X1813(2)S
+X2053(1)S
+X2093(3)S
+X2133(0)S
+X2253(2)S
+X2293(0)S
+X2333(2)S
+X2453(8)S
+X2493(2)S
+X2733(1)S
+X2773(9)S
+X2813(4)S
+X2933(3)S
+X2973(0)S
+X3013(2)S
+X3128(C)S
+X3173(2)S
+X3173 4137(3)U
+X693 4209(0)U
+X693 4137(0)U
+X733(0)S
+X773(3)S
+X893(0)S
+X933(0)S
+X973(3)S
+X1093(0)S
+X1133(3)S
+X1373(0)S
+X1413(6)S
+X1453(7)S
+X1573(1)S
+X1613(0)S
+X1653(3)S
+X1773(4)S
+X1813(3)S
+X2053(1)S
+X2093(3)S
+X2133(1)S
+X2253(2)S
+X2293(0)S
+X2333(3)S
+X2453(8)S
+X2493(3)S
+X2733(1)S
+X2773(9)S
+X2813(5)S
+X2933(3)S
+X2973(0)S
+X3013(3)S
+X3128(C)S
+X733 4209(0)U
+X773(4)S
+X893(0)S
+X933(0)S
+X973(4)S
+X1093(0)S
+X1133(4)S
+X1373(0)S
+X1413(6)S
+X1453(8)S
+X1573(1)S
+X1613(0)S
+X1653(4)S
+X1773(4)S
+X1813(4)S
+X2053(1)S
+X2093(3)S
+X2133(2)S
+X2253(2)S
+X2293(0)S
+X2333(4)S
+X2453(8)S
+X2493(4)S
+X2733(1)S
+X2773(9)S
+X2813(6)S
+X2933(3)S
+X2973(0)S
+X3013(4)S
+X3128(C)S
+X3173(4)S
+X3173 4281(5)U
+X440 4569(J)U
+X693 4281(0)U
+X733(0)S
+X773(5)S
+X893(0)S
+X933(0)S
+X973(5)S
+X1093(0)S
+X1133(5)S
+X1373(0)S
+X1413(6)S
+X1453(9)S
+X1573(1)S
+X1613(0)S
+X1653(5)S
+X1773(4)S
+X1813(5)S
+X2053(1)S
+X2093(3)S
+X2133(3)S
+X2253(2)S
+X2293(0)S
+X2333(5)S
+X2453(8)S
+X2493(5)S
+X2733(1)S
+X2773(9)S
+X2813(7)S
+X2933(3)S
+X2973(0)S
+X3013(5)S
+X3128(C)S
+X471 4569(KL)U
+X1357(L)S
+X1402(a)S
+X1444(s)S
+X1487(t)S
+X1562(c)S
+X1601(h)S
+X1642(a)S
+X1681(n)S
+X1721(g)S
+X1762(e)S
+X1807(:)S
+X1881(2)S
+X1921(3)S
+X1966(-)S
+X2004(J)S
+X2042(a)S
+X2081(n)S
+X2126(-)S
+X2161(1)S
+X2201(9)S
+X2241(9)S
+X2281(3)S
+X3165(1)S
+X3205(4)S
+XEP
+X%%Page: ? 15
+XBP
+X1 F
+X60 Z
+X3210 222(\))U
+X433(T)S
+X472(RA)S
+X551(NS)S
+X633(L)S
+X682(I)S
+X713(T)S
+X802(\()S
+X880(J)S
+X911(KL)S
+X1042(\))S
+X1615(V)S
+X1662(e)S
+X1706(r)S
+X1744(s)S
+X1787(i)S
+X1821(o)S
+X1861(n)S
+X1941(1)S
+X1988(.)S
+X2021(0)S
+X2601(T)S
+X2640(RA)S
+X2719(NS)S
+X2801(L)S
+X2850(I)S
+X2881(T)S
+X2970(\()S
+X3048(J)S
+X3079(KL)S
+X693 510(0)U
+X733(0)S
+X773(6)S
+X893(0)S
+X933(0)S
+X973(6)S
+X1093(0)S
+X1133(6)S
+X1373(0)S
+X1413(7)S
+X1453(0)S
+X1573(1)S
+X1613(0)S
+X1653(6)S
+X1773(4)S
+X1813(6)S
+X2053(1)S
+X2093(3)S
+X2133(4)S
+X2253(2)S
+X2293(0)S
+X2333(6)S
+X2453(8)S
+X2493(6)S
+X2733(1)S
+X2773(9)S
+X2813(8)S
+X2933(3)S
+X2973(0)S
+X3013(6)S
+X3128(C)S
+X3173(6)S
+X3173 582(7)U
+X693 654(0)U
+X693 582(0)U
+X733(0)S
+X773(7)S
+X893(0)S
+X933(0)S
+X973(7)S
+X1093(0)S
+X1133(7)S
+X1373(0)S
+X1413(7)S
+X1453(1)S
+X1573(1)S
+X1613(0)S
+X1653(7)S
+X1773(4)S
+X1813(7)S
+X2053(1)S
+X2093(3)S
+X2133(5)S
+X2253(2)S
+X2293(0)S
+X2333(7)S
+X2453(8)S
+X2493(7)S
+X2733(1)S
+X2773(9)S
+X2813(9)S
+X2933(3)S
+X2973(0)S
+X3013(7)S
+X3128(C)S
+X733 654(0)U
+X773(8)S
+X893(0)S
+X933(1)S
+X973(0)S
+X1093(0)S
+X1133(8)S
+X1373(0)S
+X1413(7)S
+X1453(2)S
+X1573(1)S
+X1613(1)S
+X1653(0)S
+X1773(4)S
+X1813(8)S
+X2053(1)S
+X2093(3)S
+X2133(6)S
+X2253(2)S
+X2293(1)S
+X2333(0)S
+X2453(8)S
+X2493(8)S
+X2733(2)S
+X2773(0)S
+X2813(0)S
+X2933(3)S
+X2973(1)S
+X3013(0)S
+X3128(C)S
+X3173(8)S
+X3173 726(9)U
+X693 798(0)U
+X693 726(0)U
+X733(0)S
+X773(9)S
+X893(0)S
+X933(1)S
+X973(1)S
+X1093(0)S
+X1133(9)S
+X1373(0)S
+X1413(7)S
+X1453(3)S
+X1573(1)S
+X1613(1)S
+X1653(1)S
+X1773(4)S
+X1813(9)S
+X2053(1)S
+X2093(3)S
+X2133(7)S
+X2253(2)S
+X2293(1)S
+X2333(1)S
+X2453(8)S
+X2493(9)S
+X2733(2)S
+X2773(0)S
+X2813(1)S
+X2933(3)S
+X2973(1)S
+X3013(1)S
+X3128(C)S
+X733 798(1)U
+X773(0)S
+X893(0)S
+X933(1)S
+X973(2)S
+X1093(0)S
+X1127(A)S
+X1373(0)S
+X1413(7)S
+X1453(4)S
+X1573(1)S
+X1613(1)S
+X1653(2)S
+X1773(4)S
+X1807(A)S
+X2053(1)S
+X2093(3)S
+X2133(8)S
+X2253(2)S
+X2293(1)S
+X2333(2)S
+X2453(8)S
+X2487(A)S
+X2733(2)S
+X2773(0)S
+X2813(2)S
+X2933(3)S
+X2973(1)S
+X3013(2)S
+X3128(CA)S
+X3168 870(B)U
+X693 942(0)U
+X693 870(0)U
+X733(1)S
+X773(1)S
+X893(0)S
+X933(1)S
+X973(3)S
+X1093(0)S
+X1128(B)S
+X1373(0)S
+X1413(7)S
+X1453(5)S
+X1573(1)S
+X1613(1)S
+X1653(3)S
+X1773(4)S
+X1808(B)S
+X2053(1)S
+X2093(3)S
+X2133(9)S
+X2253(2)S
+X2293(1)S
+X2333(3)S
+X2453(8)S
+X2488(B)S
+X2733(2)S
+X2773(0)S
+X2813(3)S
+X2933(3)S
+X2973(1)S
+X3013(3)S
+X3128(C)S
+X733 942(1)U
+X773(2)S
+X893(0)S
+X933(1)S
+X973(4)S
+X1093(0)S
+X1128(C)S
+X1373(0)S
+X1413(7)S
+X1453(6)S
+X1573(1)S
+X1613(1)S
+X1653(4)S
+X1773(4)S
+X1808(C)S
+X2053(1)S
+X2093(4)S
+X2133(0)S
+X2253(2)S
+X2293(1)S
+X2333(4)S
+X2453(8)S
+X2488(C)S
+X2733(2)S
+X2773(0)S
+X2813(4)S
+X2933(3)S
+X2973(1)S
+X3013(4)S
+X3128(CC)S
+X693 1086(0)U
+X693 1014(0)U
+X733(1)S
+X773(3)S
+X893(0)S
+X933(1)S
+X973(5)S
+X1093(0)S
+X1127(D)S
+X1373(0)S
+X1413(7)S
+X1453(7)S
+X1573(1)S
+X1613(1)S
+X1653(5)S
+X1773(4)S
+X1807(D)S
+X2053(1)S
+X2093(4)S
+X2133(1)S
+X2253(2)S
+X2293(1)S
+X2333(5)S
+X2453(8)S
+X2487(D)S
+X2733(2)S
+X2773(0)S
+X2813(5)S
+X2933(3)S
+X2973(1)S
+X3013(5)S
+X3128(CD)S
+X733 1086(1)U
+X773(4)S
+X893(0)S
+X933(1)S
+X973(6)S
+X1093(0)S
+X1129(E)S
+X1373(0)S
+X1413(7)S
+X1453(8)S
+X1573(1)S
+X1613(1)S
+X1653(6)S
+X1773(4)S
+X1809(E)S
+X2053(1)S
+X2093(4)S
+X2133(2)S
+X2253(2)S
+X2293(1)S
+X2333(6)S
+X2453(8)S
+X2489(E)S
+X2733(2)S
+X2773(0)S
+X2813(6)S
+X2933(3)S
+X2973(1)S
+X3013(6)S
+X3128(CE)S
+X3171 1158(F)U
+X693 1230(0)U
+X693 1158(0)U
+X733(1)S
+X773(5)S
+X893(0)S
+X933(1)S
+X973(7)S
+X1093(0)S
+X1131(F)S
+X1373(0)S
+X1413(7)S
+X1453(9)S
+X1573(1)S
+X1613(1)S
+X1653(7)S
+X1773(4)S
+X1811(F)S
+X2053(1)S
+X2093(4)S
+X2133(3)S
+X2253(2)S
+X2293(1)S
+X2333(7)S
+X2453(8)S
+X2491(F)S
+X2733(2)S
+X2773(0)S
+X2813(7)S
+X2933(3)S
+X2973(1)S
+X3013(7)S
+X3128(C)S
+X733 1230(1)U
+X773(6)S
+X893(0)S
+X933(2)S
+X973(0)S
+X1093(1)S
+X1133(0)S
+X1373(0)S
+X1413(8)S
+X1453(0)S
+X1573(1)S
+X1613(2)S
+X1653(0)S
+X1773(5)S
+X1813(0)S
+X2053(1)S
+X2093(4)S
+X2133(4)S
+X2253(2)S
+X2293(2)S
+X2333(0)S
+X2453(9)S
+X2493(0)S
+X2733(2)S
+X2773(0)S
+X2813(8)S
+X2933(3)S
+X2973(2)S
+X3013(0)S
+X3127(D)S
+X3173(0)S
+X3173 1302(1)U
+X693 1374(0)U
+X693 1302(0)U
+X733(1)S
+X773(7)S
+X893(0)S
+X933(2)S
+X973(1)S
+X1093(1)S
+X1133(1)S
+X1373(0)S
+X1413(8)S
+X1453(1)S
+X1573(1)S
+X1613(2)S
+X1653(1)S
+X1773(5)S
+X1813(1)S
+X2053(1)S
+X2093(4)S
+X2133(5)S
+X2253(2)S
+X2293(2)S
+X2333(1)S
+X2453(9)S
+X2493(1)S
+X2733(2)S
+X2773(0)S
+X2813(9)S
+X2933(3)S
+X2973(2)S
+X3013(1)S
+X3127(D)S
+X733 1374(1)U
+X773(8)S
+X893(0)S
+X933(2)S
+X973(2)S
+X1093(1)S
+X1133(2)S
+X1373(0)S
+X1413(8)S
+X1453(2)S
+X1573(1)S
+X1613(2)S
+X1653(2)S
+X1773(5)S
+X1813(2)S
+X2053(1)S
+X2093(4)S
+X2133(6)S
+X2253(2)S
+X2293(2)S
+X2333(2)S
+X2453(9)S
+X2493(2)S
+X2733(2)S
+X2773(1)S
+X2813(0)S
+X2933(3)S
+X2973(2)S
+X3013(2)S
+X3127(D)S
+X3173(2)S
+X3173 1446(3)U
+X693 1518(0)U
+X693 1446(0)U
+X733(1)S
+X773(9)S
+X893(0)S
+X933(2)S
+X973(3)S
+X1093(1)S
+X1133(3)S
+X1373(0)S
+X1413(8)S
+X1453(3)S
+X1573(1)S
+X1613(2)S
+X1653(3)S
+X1773(5)S
+X1813(3)S
+X2053(1)S
+X2093(4)S
+X2133(7)S
+X2253(2)S
+X2293(2)S
+X2333(3)S
+X2453(9)S
+X2493(3)S
+X2733(2)S
+X2773(1)S
+X2813(1)S
+X2933(3)S
+X2973(2)S
+X3013(3)S
+X3127(D)S
+X733 1518(2)U
+X773(0)S
+X893(0)S
+X933(2)S
+X973(4)S
+X1093(1)S
+X1133(4)S
+X1373(0)S
+X1413(8)S
+X1453(4)S
+X1573(1)S
+X1613(2)S
+X1653(4)S
+X1773(5)S
+X1813(4)S
+X2053(1)S
+X2093(4)S
+X2133(8)S
+X2253(2)S
+X2293(2)S
+X2333(4)S
+X2453(9)S
+X2493(4)S
+X2733(2)S
+X2773(1)S
+X2813(2)S
+X2933(3)S
+X2973(2)S
+X3013(4)S
+X3127(D)S
+X3173(4)S
+X3173 1590(5)U
+X693 1662(0)U
+X693 1590(0)U
+X733(2)S
+X773(1)S
+X893(0)S
+X933(2)S
+X973(5)S
+X1093(1)S
+X1133(5)S
+X1373(0)S
+X1413(8)S
+X1453(5)S
+X1573(1)S
+X1613(2)S
+X1653(5)S
+X1773(5)S
+X1813(5)S
+X2053(1)S
+X2093(4)S
+X2133(9)S
+X2253(2)S
+X2293(2)S
+X2333(5)S
+X2453(9)S
+X2493(5)S
+X2733(2)S
+X2773(1)S
+X2813(3)S
+X2933(3)S
+X2973(2)S
+X3013(5)S
+X3127(D)S
+X733 1662(2)U
+X773(2)S
+X893(0)S
+X933(2)S
+X973(6)S
+X1093(1)S
+X1133(6)S
+X1373(0)S
+X1413(8)S
+X1453(6)S
+X1573(1)S
+X1613(2)S
+X1653(6)S
+X1773(5)S
+X1813(6)S
+X2053(1)S
+X2093(5)S
+X2133(0)S
+X2253(2)S
+X2293(2)S
+X2333(6)S
+X2453(9)S
+X2493(6)S
+X2733(2)S
+X2773(1)S
+X2813(4)S
+X2933(3)S
+X2973(2)S
+X3013(6)S
+X3127(D)S
+X3173(6)S
+X3173 1734(7)U
+X693 1806(0)U
+X693 1734(0)U
+X733(2)S
+X773(3)S
+X893(0)S
+X933(2)S
+X973(7)S
+X1093(1)S
+X1133(7)S
+X1373(0)S
+X1413(8)S
+X1453(7)S
+X1573(1)S
+X1613(2)S
+X1653(7)S
+X1773(5)S
+X1813(7)S
+X2053(1)S
+X2093(5)S
+X2133(1)S
+X2253(2)S
+X2293(2)S
+X2333(7)S
+X2453(9)S
+X2493(7)S
+X2733(2)S
+X2773(1)S
+X2813(5)S
+X2933(3)S
+X2973(2)S
+X3013(7)S
+X3127(D)S
+X733 1806(2)U
+X773(4)S
+X893(0)S
+X933(3)S
+X973(0)S
+X1093(1)S
+X1133(8)S
+X1373(0)S
+X1413(8)S
+X1453(8)S
+X1573(1)S
+X1613(3)S
+X1653(0)S
+X1773(5)S
+X1813(8)S
+X2053(1)S
+X2093(5)S
+X2133(2)S
+X2253(2)S
+X2293(3)S
+X2333(0)S
+X2453(9)S
+X2493(8)S
+X2733(2)S
+X2773(1)S
+X2813(6)S
+X2933(3)S
+X2973(3)S
+X3013(0)S
+X3127(D)S
+X3173(8)S
+X3173 1878(9)U
+X693 1950(0)U
+X693 1878(0)U
+X733(2)S
+X773(5)S
+X893(0)S
+X933(3)S
+X973(1)S
+X1093(1)S
+X1133(9)S
+X1373(0)S
+X1413(8)S
+X1453(9)S
+X1573(1)S
+X1613(3)S
+X1653(1)S
+X1773(5)S
+X1813(9)S
+X2053(1)S
+X2093(5)S
+X2133(3)S
+X2253(2)S
+X2293(3)S
+X2333(1)S
+X2453(9)S
+X2493(9)S
+X2733(2)S
+X2773(1)S
+X2813(7)S
+X2933(3)S
+X2973(3)S
+X3013(1)S
+X3127(D)S
+X733 1950(2)U
+X773(6)S
+X893(0)S
+X933(3)S
+X973(2)S
+X1093(1)S
+X1127(A)S
+X1373(0)S
+X1413(9)S
+X1453(0)S
+X1573(1)S
+X1613(3)S
+X1653(2)S
+X1773(5)S
+X1807(A)S
+X2053(1)S
+X2093(5)S
+X2133(4)S
+X2253(2)S
+X2293(3)S
+X2333(2)S
+X2453(9)S
+X2487(A)S
+X2733(2)S
+X2773(1)S
+X2813(8)S
+X2933(3)S
+X2973(3)S
+X3013(2)S
+X3127(D)S
+X3167(A)S
+X3168 2022(B)U
+X693 2094(0)U
+X693 2022(0)U
+X733(2)S
+X773(7)S
+X893(0)S
+X933(3)S
+X973(3)S
+X1093(1)S
+X1128(B)S
+X1373(0)S
+X1413(9)S
+X1453(1)S
+X1573(1)S
+X1613(3)S
+X1653(3)S
+X1773(5)S
+X1808(B)S
+X2053(1)S
+X2093(5)S
+X2133(5)S
+X2253(2)S
+X2293(3)S
+X2333(3)S
+X2453(9)S
+X2488(B)S
+X2733(2)S
+X2773(1)S
+X2813(9)S
+X2933(3)S
+X2973(3)S
+X3013(3)S
+X3127(D)S
+X733 2094(2)U
+X773(8)S
+X893(0)S
+X933(3)S
+X973(4)S
+X1093(1)S
+X1128(C)S
+X1373(0)S
+X1413(9)S
+X1453(2)S
+X1573(1)S
+X1613(3)S
+X1653(4)S
+X1773(5)S
+X1808(C)S
+X2053(1)S
+X2093(5)S
+X2133(6)S
+X2253(2)S
+X2293(3)S
+X2333(4)S
+X2453(9)S
+X2488(C)S
+X2733(2)S
+X2773(2)S
+X2813(0)S
+X2933(3)S
+X2973(3)S
+X3013(4)S
+X3127(D)S
+X3168(C)S
+X693 2238(0)U
+X693 2166(0)U
+X733(2)S
+X773(9)S
+X893(0)S
+X933(3)S
+X973(5)S
+X1093(1)S
+X1127(D)S
+X1373(0)S
+X1413(9)S
+X1453(3)S
+X1573(1)S
+X1613(3)S
+X1653(5)S
+X1773(5)S
+X1807(D)S
+X2053(1)S
+X2093(5)S
+X2133(7)S
+X2253(2)S
+X2293(3)S
+X2333(5)S
+X2453(9)S
+X2487(D)S
+X2733(2)S
+X2773(2)S
+X2813(1)S
+X2933(3)S
+X2973(3)S
+X3013(5)S
+X3127(D)S
+X3167(D)S
+X733 2238(3)U
+X773(0)S
+X893(0)S
+X933(3)S
+X973(6)S
+X1093(1)S
+X1129(E)S
+X1373(0)S
+X1413(9)S
+X1453(4)S
+X1573(1)S
+X1613(3)S
+X1653(6)S
+X1773(5)S
+X1809(E)S
+X2053(1)S
+X2093(5)S
+X2133(8)S
+X2253(2)S
+X2293(3)S
+X2333(6)S
+X2453(9)S
+X2489(E)S
+X2733(2)S
+X2773(2)S
+X2813(2)S
+X2933(3)S
+X2973(3)S
+X3013(6)S
+X3127(DE)S
+X3171 2310(F)U
+X693 2382(0)U
+X693 2310(0)U
+X733(3)S
+X773(1)S
+X893(0)S
+X933(3)S
+X973(7)S
+X1093(1)S
+X1131(F)S
+X1373(0)S
+X1413(9)S
+X1453(5)S
+X1573(1)S
+X1613(3)S
+X1653(7)S
+X1773(5)S
+X1811(F)S
+X2053(1)S
+X2093(5)S
+X2133(9)S
+X2253(2)S
+X2293(3)S
+X2333(7)S
+X2453(9)S
+X2491(F)S
+X2733(2)S
+X2773(2)S
+X2813(3)S
+X2933(3)S
+X2973(3)S
+X3013(7)S
+X3127(D)S
+X733 2382(3)U
+X773(2)S
+X893(0)S
+X933(4)S
+X973(0)S
+X1093(2)S
+X1133(0)S
+X1373(0)S
+X1413(9)S
+X1453(6)S
+X1573(1)S
+X1613(4)S
+X1653(0)S
+X1773(6)S
+X1813(0)S
+X2053(1)S
+X2093(6)S
+X2133(0)S
+X2253(2)S
+X2293(4)S
+X2333(0)S
+X2447(A)S
+X2493(0)S
+X2733(2)S
+X2773(2)S
+X2813(4)S
+X2933(3)S
+X2973(4)S
+X3013(0)S
+X3129(E)S
+X3173(0)S
+X3173 2454(1)U
+X693 2526(0)U
+X693 2454(0)U
+X733(3)S
+X773(3)S
+X893(0)S
+X933(4)S
+X973(1)S
+X1093(2)S
+X1133(1)S
+X1373(0)S
+X1413(9)S
+X1453(7)S
+X1573(1)S
+X1613(4)S
+X1653(1)S
+X1773(6)S
+X1813(1)S
+X2053(1)S
+X2093(6)S
+X2133(1)S
+X2253(2)S
+X2293(4)S
+X2333(1)S
+X2447(A)S
+X2493(1)S
+X2733(2)S
+X2773(2)S
+X2813(5)S
+X2933(3)S
+X2973(4)S
+X3013(1)S
+X3129(E)S
+X733 2526(3)U
+X773(4)S
+X893(0)S
+X933(4)S
+X973(2)S
+X1093(2)S
+X1133(2)S
+X1373(0)S
+X1413(9)S
+X1453(8)S
+X1573(1)S
+X1613(4)S
+X1653(2)S
+X1773(6)S
+X1813(2)S
+X2053(1)S
+X2093(6)S
+X2133(2)S
+X2253(2)S
+X2293(4)S
+X2333(2)S
+X2447(A)S
+X2493(2)S
+X2733(2)S
+X2773(2)S
+X2813(6)S
+X2933(3)S
+X2973(4)S
+X3013(2)S
+X3129(E)S
+X3173(2)S
+X3173 2598(3)U
+X693 2670(0)U
+X693 2598(0)U
+X733(3)S
+X773(5)S
+X893(0)S
+X933(4)S
+X973(3)S
+X1093(2)S
+X1133(3)S
+X1373(0)S
+X1413(9)S
+X1453(9)S
+X1573(1)S
+X1613(4)S
+X1653(3)S
+X1773(6)S
+X1813(3)S
+X2053(1)S
+X2093(6)S
+X2133(3)S
+X2253(2)S
+X2293(4)S
+X2333(3)S
+X2447(A)S
+X2493(3)S
+X2733(2)S
+X2773(2)S
+X2813(7)S
+X2933(3)S
+X2973(4)S
+X3013(3)S
+X3129(E)S
+X733 2670(3)U
+X773(6)S
+X893(0)S
+X933(4)S
+X973(4)S
+X1093(2)S
+X1133(4)S
+X1373(1)S
+X1413(0)S
+X1453(0)S
+X1573(1)S
+X1613(4)S
+X1653(4)S
+X1773(6)S
+X1813(4)S
+X2053(1)S
+X2093(6)S
+X2133(4)S
+X2253(2)S
+X2293(4)S
+X2333(4)S
+X2447(A)S
+X2493(4)S
+X2733(2)S
+X2773(2)S
+X2813(8)S
+X2933(3)S
+X2973(4)S
+X3013(4)S
+X3129(E)S
+X3173(4)S
+X3173 2742(5)U
+X693 2814(0)U
+X693 2742(0)U
+X733(3)S
+X773(7)S
+X893(0)S
+X933(4)S
+X973(5)S
+X1093(2)S
+X1133(5)S
+X1373(1)S
+X1413(0)S
+X1453(1)S
+X1573(1)S
+X1613(4)S
+X1653(5)S
+X1773(6)S
+X1813(5)S
+X2053(1)S
+X2093(6)S
+X2133(5)S
+X2253(2)S
+X2293(4)S
+X2333(5)S
+X2447(A)S
+X2493(5)S
+X2733(2)S
+X2773(2)S
+X2813(9)S
+X2933(3)S
+X2973(4)S
+X3013(5)S
+X3129(E)S
+X733 2814(3)U
+X773(8)S
+X893(0)S
+X933(4)S
+X973(6)S
+X1093(2)S
+X1133(6)S
+X1373(1)S
+X1413(0)S
+X1453(2)S
+X1573(1)S
+X1613(4)S
+X1653(6)S
+X1773(6)S
+X1813(6)S
+X2053(1)S
+X2093(6)S
+X2133(6)S
+X2253(2)S
+X2293(4)S
+X2333(6)S
+X2447(A)S
+X2493(6)S
+X2733(2)S
+X2773(3)S
+X2813(0)S
+X2933(3)S
+X2973(4)S
+X3013(6)S
+X3129(E)S
+X3173(6)S
+X3173 2886(7)U
+X693 2958(0)U
+X693 2886(0)U
+X733(3)S
+X773(9)S
+X893(0)S
+X933(4)S
+X973(7)S
+X1093(2)S
+X1133(7)S
+X1373(1)S
+X1413(0)S
+X1453(3)S
+X1573(1)S
+X1613(4)S
+X1653(7)S
+X1773(6)S
+X1813(7)S
+X2053(1)S
+X2093(6)S
+X2133(7)S
+X2253(2)S
+X2293(4)S
+X2333(7)S
+X2447(A)S
+X2493(7)S
+X2733(2)S
+X2773(3)S
+X2813(1)S
+X2933(3)S
+X2973(4)S
+X3013(7)S
+X3129(E)S
+X733 2958(4)U
+X773(0)S
+X893(0)S
+X933(5)S
+X973(0)S
+X1093(2)S
+X1133(8)S
+X1373(1)S
+X1413(0)S
+X1453(4)S
+X1573(1)S
+X1613(5)S
+X1653(0)S
+X1773(6)S
+X1813(8)S
+X2053(1)S
+X2093(6)S
+X2133(8)S
+X2253(2)S
+X2293(5)S
+X2333(0)S
+X2447(A)S
+X2493(8)S
+X2733(2)S
+X2773(3)S
+X2813(2)S
+X2933(3)S
+X2973(5)S
+X3013(0)S
+X3129(E)S
+X3173(8)S
+X3173 3030(9)U
+X693 3102(0)U
+X693 3030(0)U
+X733(4)S
+X773(1)S
+X893(0)S
+X933(5)S
+X973(1)S
+X1093(2)S
+X1133(9)S
+X1373(1)S
+X1413(0)S
+X1453(5)S
+X1573(1)S
+X1613(5)S
+X1653(1)S
+X1773(6)S
+X1813(9)S
+X2053(1)S
+X2093(6)S
+X2133(9)S
+X2253(2)S
+X2293(5)S
+X2333(1)S
+X2447(A)S
+X2493(9)S
+X2733(2)S
+X2773(3)S
+X2813(3)S
+X2933(3)S
+X2973(5)S
+X3013(1)S
+X3129(E)S
+X733 3102(4)U
+X773(2)S
+X893(0)S
+X933(5)S
+X973(2)S
+X1093(2)S
+X1127(A)S
+X1373(1)S
+X1413(0)S
+X1453(6)S
+X1573(1)S
+X1613(5)S
+X1653(2)S
+X1773(6)S
+X1807(A)S
+X2053(1)S
+X2093(7)S
+X2133(0)S
+X2253(2)S
+X2293(5)S
+X2333(2)S
+X2447(A)S
+X2487(A)S
+X2733(2)S
+X2773(3)S
+X2813(4)S
+X2933(3)S
+X2973(5)S
+X3013(2)S
+X3129(EA)S
+X3168 3174(B)U
+X693 3246(0)U
+X693 3174(0)U
+X733(4)S
+X773(3)S
+X893(0)S
+X933(5)S
+X973(3)S
+X1093(2)S
+X1128(B)S
+X1373(1)S
+X1413(0)S
+X1453(7)S
+X1573(1)S
+X1613(5)S
+X1653(3)S
+X1773(6)S
+X1808(B)S
+X2053(1)S
+X2093(7)S
+X2133(1)S
+X2253(2)S
+X2293(5)S
+X2333(3)S
+X2447(A)S
+X2488(B)S
+X2733(2)S
+X2773(3)S
+X2813(5)S
+X2933(3)S
+X2973(5)S
+X3013(3)S
+X3129(E)S
+X733 3246(4)U
+X773(4)S
+X893(0)S
+X933(5)S
+X973(4)S
+X1093(2)S
+X1128(C)S
+X1373(1)S
+X1413(0)S
+X1453(8)S
+X1573(1)S
+X1613(5)S
+X1653(4)S
+X1773(6)S
+X1808(C)S
+X2053(1)S
+X2093(7)S
+X2133(2)S
+X2253(2)S
+X2293(5)S
+X2333(4)S
+X2447(A)S
+X2488(C)S
+X2733(2)S
+X2773(3)S
+X2813(6)S
+X2933(3)S
+X2973(5)S
+X3013(4)S
+X3129(E)S
+X3168(C)S
+X693 3390(0)U
+X693 3318(0)U
+X733(4)S
+X773(5)S
+X893(0)S
+X933(5)S
+X973(5)S
+X1093(2)S
+X1127(D)S
+X1373(1)S
+X1413(0)S
+X1453(9)S
+X1573(1)S
+X1613(5)S
+X1653(5)S
+X1773(6)S
+X1807(D)S
+X2053(1)S
+X2093(7)S
+X2133(3)S
+X2253(2)S
+X2293(5)S
+X2333(5)S
+X2447(A)S
+X2487(D)S
+X2733(2)S
+X2773(3)S
+X2813(7)S
+X2933(3)S
+X2973(5)S
+X3013(5)S
+X3129(ED)S
+X733 3390(4)U
+X773(6)S
+X893(0)S
+X933(5)S
+X973(6)S
+X1093(2)S
+X1129(E)S
+X1373(1)S
+X1413(1)S
+X1453(0)S
+X1573(1)S
+X1613(5)S
+X1653(6)S
+X1773(6)S
+X1809(E)S
+X2053(1)S
+X2093(7)S
+X2133(4)S
+X2253(2)S
+X2293(5)S
+X2333(6)S
+X2447(AE)S
+X2733(2)S
+X2773(3)S
+X2813(8)S
+X2933(3)S
+X2973(5)S
+X3013(6)S
+X3129(E)S
+X3169(E)S
+X3171 3462(F)U
+X693 3534(0)U
+X693 3462(0)U
+X733(4)S
+X773(7)S
+X893(0)S
+X933(5)S
+X973(7)S
+X1093(2)S
+X1131(F)S
+X1373(1)S
+X1413(1)S
+X1453(1)S
+X1573(1)S
+X1613(5)S
+X1653(7)S
+X1773(6)S
+X1811(F)S
+X2053(1)S
+X2093(7)S
+X2133(5)S
+X2253(2)S
+X2293(5)S
+X2333(7)S
+X2447(AF)S
+X2733(2)S
+X2773(3)S
+X2813(9)S
+X2933(3)S
+X2973(5)S
+X3013(7)S
+X3129(E)S
+X733 3534(4)U
+X773(8)S
+X893(0)S
+X933(6)S
+X973(0)S
+X1093(3)S
+X1133(0)S
+X1373(1)S
+X1413(1)S
+X1453(2)S
+X1573(1)S
+X1613(6)S
+X1653(0)S
+X1773(7)S
+X1813(0)S
+X2053(1)S
+X2093(7)S
+X2133(6)S
+X2253(2)S
+X2293(6)S
+X2333(0)S
+X2448(B)S
+X2493(0)S
+X2733(2)S
+X2773(4)S
+X2813(0)S
+X2933(3)S
+X2973(6)S
+X3013(0)S
+X3131(F)S
+X3173(0)S
+X3173 3606(1)U
+X693 3678(0)U
+X693 3606(0)U
+X733(4)S
+X773(9)S
+X893(0)S
+X933(6)S
+X973(1)S
+X1093(3)S
+X1133(1)S
+X1373(1)S
+X1413(1)S
+X1453(3)S
+X1573(1)S
+X1613(6)S
+X1653(1)S
+X1773(7)S
+X1813(1)S
+X2053(1)S
+X2093(7)S
+X2133(7)S
+X2253(2)S
+X2293(6)S
+X2333(1)S
+X2448(B)S
+X2493(1)S
+X2733(2)S
+X2773(4)S
+X2813(1)S
+X2933(3)S
+X2973(6)S
+X3013(1)S
+X3131(F)S
+X733 3678(5)U
+X773(0)S
+X893(0)S
+X933(6)S
+X973(2)S
+X1093(3)S
+X1133(2)S
+X1373(1)S
+X1413(1)S
+X1453(4)S
+X1573(1)S
+X1613(6)S
+X1653(2)S
+X1773(7)S
+X1813(2)S
+X2053(1)S
+X2093(7)S
+X2133(8)S
+X2253(2)S
+X2293(6)S
+X2333(2)S
+X2448(B)S
+X2493(2)S
+X2733(2)S
+X2773(4)S
+X2813(2)S
+X2933(3)S
+X2973(6)S
+X3013(2)S
+X3131(F)S
+X3173(2)S
+X3173 3750(3)U
+X693 3822(0)U
+X693 3750(0)U
+X733(5)S
+X773(1)S
+X893(0)S
+X933(6)S
+X973(3)S
+X1093(3)S
+X1133(3)S
+X1373(1)S
+X1413(1)S
+X1453(5)S
+X1573(1)S
+X1613(6)S
+X1653(3)S
+X1773(7)S
+X1813(3)S
+X2053(1)S
+X2093(7)S
+X2133(9)S
+X2253(2)S
+X2293(6)S
+X2333(3)S
+X2448(B)S
+X2493(3)S
+X2733(2)S
+X2773(4)S
+X2813(3)S
+X2933(3)S
+X2973(6)S
+X3013(3)S
+X3131(F)S
+X733 3822(5)U
+X773(2)S
+X893(0)S
+X933(6)S
+X973(4)S
+X1093(3)S
+X1133(4)S
+X1373(1)S
+X1413(1)S
+X1453(6)S
+X1573(1)S
+X1613(6)S
+X1653(4)S
+X1773(7)S
+X1813(4)S
+X2053(1)S
+X2093(8)S
+X2133(0)S
+X2253(2)S
+X2293(6)S
+X2333(4)S
+X2448(B)S
+X2493(4)S
+X2733(2)S
+X2773(4)S
+X2813(4)S
+X2933(3)S
+X2973(6)S
+X3013(4)S
+X3131(F)S
+X3173(4)S
+X3173 3894(5)U
+X693 3966(0)U
+X693 3894(0)U
+X733(5)S
+X773(3)S
+X893(0)S
+X933(6)S
+X973(5)S
+X1093(3)S
+X1133(5)S
+X1373(1)S
+X1413(1)S
+X1453(7)S
+X1573(1)S
+X1613(6)S
+X1653(5)S
+X1773(7)S
+X1813(5)S
+X2053(1)S
+X2093(8)S
+X2133(1)S
+X2253(2)S
+X2293(6)S
+X2333(5)S
+X2448(B)S
+X2493(5)S
+X2733(2)S
+X2773(4)S
+X2813(5)S
+X2933(3)S
+X2973(6)S
+X3013(5)S
+X3131(F)S
+X733 3966(5)U
+X773(4)S
+X893(0)S
+X933(6)S
+X973(6)S
+X1093(3)S
+X1133(6)S
+X1373(1)S
+X1413(1)S
+X1453(8)S
+X1573(1)S
+X1613(6)S
+X1653(6)S
+X1773(7)S
+X1813(6)S
+X2053(1)S
+X2093(8)S
+X2133(2)S
+X2253(2)S
+X2293(6)S
+X2333(6)S
+X2448(B)S
+X2493(6)S
+X2733(2)S
+X2773(4)S
+X2813(6)S
+X2933(3)S
+X2973(6)S
+X3013(6)S
+X3131(F)S
+X3173(6)S
+X3173 4038(7)U
+X693 4110(0)U
+X693 4038(0)U
+X733(5)S
+X773(5)S
+X893(0)S
+X933(6)S
+X973(7)S
+X1093(3)S
+X1133(7)S
+X1373(1)S
+X1413(1)S
+X1453(9)S
+X1573(1)S
+X1613(6)S
+X1653(7)S
+X1773(7)S
+X1813(7)S
+X2053(1)S
+X2093(8)S
+X2133(3)S
+X2253(2)S
+X2293(6)S
+X2333(7)S
+X2448(B)S
+X2493(7)S
+X2733(2)S
+X2773(4)S
+X2813(7)S
+X2933(3)S
+X2973(6)S
+X3013(7)S
+X3131(F)S
+X733 4110(5)U
+X773(6)S
+X893(0)S
+X933(7)S
+X973(0)S
+X1093(3)S
+X1133(8)S
+X1373(1)S
+X1413(2)S
+X1453(0)S
+X1573(1)S
+X1613(7)S
+X1653(0)S
+X1773(7)S
+X1813(8)S
+X2053(1)S
+X2093(8)S
+X2133(4)S
+X2253(2)S
+X2293(7)S
+X2333(0)S
+X2448(B)S
+X2493(8)S
+X2733(2)S
+X2773(4)S
+X2813(8)S
+X2933(3)S
+X2973(7)S
+X3013(0)S
+X3131(F)S
+X3173(8)S
+X3173 4182(9)U
+X693 4254(0)U
+X693 4182(0)U
+X733(5)S
+X773(7)S
+X893(0)S
+X933(7)S
+X973(1)S
+X1093(3)S
+X1133(9)S
+X1373(1)S
+X1413(2)S
+X1453(1)S
+X1573(1)S
+X1613(7)S
+X1653(1)S
+X1773(7)S
+X1813(9)S
+X2053(1)S
+X2093(8)S
+X2133(5)S
+X2253(2)S
+X2293(7)S
+X2333(1)S
+X2448(B)S
+X2493(9)S
+X2733(2)S
+X2773(4)S
+X2813(9)S
+X2933(3)S
+X2973(7)S
+X3013(1)S
+X3131(F)S
+X733 4254(5)U
+X773(8)S
+X893(0)S
+X933(7)S
+X973(2)S
+X1093(3)S
+X1127(A)S
+X1373(1)S
+X1413(2)S
+X1453(2)S
+X1573(1)S
+X1613(7)S
+X1653(2)S
+X1773(7)S
+X1807(A)S
+X2053(1)S
+X2093(8)S
+X2133(6)S
+X2253(2)S
+X2293(7)S
+X2333(2)S
+X2448(BA)S
+X2733(2)S
+X2773(5)S
+X2813(0)S
+X2933(3)S
+X2973(7)S
+X3013(2)S
+X3131(F)S
+X3167(A)S
+X3205 4542(5)U
+X440(J)S
+X471(KL)S
+X1357(L)S
+X1402(a)S
+X1444(s)S
+X1487(t)S
+X1562(c)S
+X1601(h)S
+X1642(a)S
+X1681(n)S
+X1721(g)S
+X1762(e)S
+X1807(:)S
+X1881(2)S
+X1921(3)S
+X1966(-)S
+X2004(J)S
+X2042(a)S
+X2081(n)S
+X2126(-)S
+X2161(1)S
+X2201(9)S
+X2241(9)S
+X2281(3)S
+X3165(1)S
+XEP
+X%%Page: ? 16
+XBP
+X1 F
+X60 Z
+X433 222(T)U
+X472(RA)S
+X551(NS)S
+X633(L)S
+X682(I)S
+X713(T)S
+X802(\()S
+X880(J)S
+X911(KL)S
+X1042(\))S
+X1615(V)S
+X1662(e)S
+X1706(r)S
+X1744(s)S
+X1787(i)S
+X1821(o)S
+X1861(n)S
+X1941(1)S
+X1988(.)S
+X2021(0)S
+X2601(T)S
+X2640(RA)S
+X2719(NS)S
+X2801(L)S
+X2850(I)S
+X2881(T)S
+X2970(\()S
+X3048(J)S
+X3079(KL)S
+X3210(\))S
+X693 582(0)U
+X693 510(0)U
+X733(5)S
+X773(9)S
+X893(0)S
+X933(7)S
+X973(3)S
+X1093(3)S
+X1128(B)S
+X1373(1)S
+X1413(2)S
+X1453(3)S
+X1573(1)S
+X1613(7)S
+X1653(3)S
+X1773(7)S
+X1808(B)S
+X2053(1)S
+X2093(8)S
+X2133(7)S
+X2253(2)S
+X2293(7)S
+X2333(3)S
+X2448(BB)S
+X2733(2)S
+X2773(5)S
+X2813(1)S
+X2933(3)S
+X2973(7)S
+X3013(3)S
+X3131(F)S
+X3168(B)S
+X733 582(6)U
+X773(0)S
+X893(0)S
+X933(7)S
+X973(4)S
+X1093(3)S
+X1128(C)S
+X1373(1)S
+X1413(2)S
+X1453(4)S
+X1573(1)S
+X1613(7)S
+X1653(4)S
+X1773(7)S
+X1808(C)S
+X2053(1)S
+X2093(8)S
+X2133(8)S
+X2253(2)S
+X2293(7)S
+X2333(4)S
+X2448(BC)S
+X2733(2)S
+X2773(5)S
+X2813(2)S
+X2933(3)S
+X2973(7)S
+X3013(4)S
+X3131(F)S
+X3168(C)S
+X693 726(0)U
+X693 654(0)U
+X733(6)S
+X773(1)S
+X893(0)S
+X933(7)S
+X973(5)S
+X1093(3)S
+X1127(D)S
+X1373(1)S
+X1413(2)S
+X1453(5)S
+X1573(1)S
+X1613(7)S
+X1653(5)S
+X1773(7)S
+X1807(D)S
+X2053(1)S
+X2093(8)S
+X2133(9)S
+X2253(2)S
+X2293(7)S
+X2333(5)S
+X2448(BD)S
+X2733(2)S
+X2773(5)S
+X2813(3)S
+X2933(3)S
+X2973(7)S
+X3013(5)S
+X3131(F)S
+X3167(D)S
+X733 726(6)U
+X773(2)S
+X893(0)S
+X933(7)S
+X973(6)S
+X1093(3)S
+X1129(E)S
+X1373(1)S
+X1413(2)S
+X1453(6)S
+X1573(1)S
+X1613(7)S
+X1653(6)S
+X1773(7)S
+X1809(E)S
+X2053(1)S
+X2093(9)S
+X2133(0)S
+X2253(2)S
+X2293(7)S
+X2333(6)S
+X2448(BE)S
+X2733(2)S
+X2773(5)S
+X2813(4)S
+X2933(3)S
+X2973(7)S
+X3013(6)S
+X3131(F)S
+X3169(E)S
+X3171 798(F)U
+X3 F
+X54 Z
+X432 1041(I)U
+X1 F
+X60 Z
+X693 798(0)U
+X733(6)S
+X773(3)S
+X893(0)S
+X933(7)S
+X973(7)S
+X1093(3)S
+X1131(F)S
+X1373(1)S
+X1413(2)S
+X1453(7)S
+X1573(1)S
+X1613(7)S
+X1653(7)S
+X1773(7)S
+X1811(F)S
+X2053(1)S
+X2093(9)S
+X2133(1)S
+X2253(2)S
+X2293(7)S
+X2333(7)S
+X2448(B)S
+X2491(F)S
+X2733(2)S
+X2773(5)S
+X2813(5)S
+X2933(3)S
+X2973(7)S
+X3013(7)S
+X3131(F)S
+X3 F
+X54 Z
+X453 1041(NSTALLATION)U
+X1 F
+X60 Z
+X648 1113(P)U
+X(rogram)R
+X877(is)S
+X939(given)S
+X1095(in)S
+X1164(a)S
+X1213(source)S
+X1392(form.)S
+X1546(It)S
+X1605(was)S
+X1720(tried)S
+X1853(under)S
+X2012(UN)S
+X4 F
+X(*)R
+X1 F
+X(X,)R
+X2208(VMS)S
+X2359(and)S
+X2468(MS-DOS)S
+X2714(systems)S
+X2925(and)S
+X3033(ran.)S
+X3146(The)S
+X648 1257(a)U
+X648 1185(\256le)U
+X2 F
+X746(readme.doc)S
+X1 F
+X1049(contains)S
+X1271(the)S
+X1366(details)S
+X1545(on)S
+X1626(how)S
+X1750(to)S
+X1818(obtain)S
+X1990(the)S
+X2085(whole)S
+X2253(package.)S
+X2487(You)S
+X2610(can)S
+X2714(retrieve)S
+X2919(this)S
+X3026(\256le)S
+X3123(from)S
+X675 1257(nonymous)U
+X953(ftp)S
+X1048(on)S
+X1136(kekule.osc.edu)S
+X1522(in)S
+X1597(the)S
+X1699(directory)S
+X1945(/pub/russian/transli)S
+X2407(t.)S
+X2487(You)S
+X2618(can)S
+X2729(also)S
+X2853(obtain)S
+X3031(it)S
+X3092(via)S
+X3193(e-)S
+X648 1329(mail)U
+X776(by)S
+X856(sending)S
+X1063(a)S
+X1110(message:)S
+X768 1401(get)U
+X862(translit/re)S
+X1094(adme.doc)S
+X1347(from)S
+X1484(russian)S
+X2082 1473(.)U
+X648 1617(T)U
+X648 1473(to)U
+X715(OSCPOST)S
+X5 F
+X(@)R
+X1 F
+X(os)R
+X1085(c.edu)S
+X1234(or)S
+X1304(OSCPOST)S
+X5 F
+X(@)R
+X1 F
+X(O)R
+X1664(HSTPY.BITNET)S
+X685 1617(he)U
+X762(source)S
+X939(of)S
+X1009(the)S
+X1103(program)S
+X1327(consists)S
+X1537(of)S
+X1607(several)S
+X1798(\256les:)S
+X2 F
+X648 1716(p)U
+X(aths.h)R
+X1 F
+X864(must)S
+X1008(be)S
+X1092(edited)S
+X1267(before)S
+X1448(compilat)S
+X1660(ion.)S
+X1779(It)S
+X1843(contains)S
+X2071(its)S
+X2155(own)S
+X2285(comments)S
+X2560(what)S
+X2703(to)S
+X2776(do.)S
+X2877(The)S
+X2997(de\256nes)S
+X3193(in)S
+X3220 1788(-)U
+X864 1860(t)U
+X864 1788(this)U
+X974(\256le)S
+X1074(relate)S
+X1232(to)S
+X1302(the)S
+X1399(operating)S
+X1650(system)S
+X1840(you)S
+X1953(are)S
+X2050(using)S
+X2203(and)S
+X2312(the)S
+X2408(default)S
+X2598(path)S
+X2724(for)S
+X2816(searching)S
+X3069(transli)S
+X881 1860(eration)U
+X1069(table.)S
+X2 F
+X648 1959(translit.c)U
+X1 F
+X864 2031(It)U
+X921(contains)S
+X1142(the)S
+X1236(main)S
+X1377(program.)S
+X1636(This)S
+X1763(was)S
+X1876(intended)S
+X2104(to)S
+X2171(be)S
+X2248(a)S
+X2295(portable)S
+X2513(code.)S
+X2 F
+X648 2130(reg)U
+X6 F
+X(i)R
+X2 F
+X(exp.h)R
+X1 F
+X864 2202(the)U
+X963(include)S
+X1166(\256le)S
+X1268(for)S
+X1363(regular)S
+X1559(expression)S
+X1841(matching)S
+X2091(library)S
+X2277(of)S
+X2352(Henry)S
+X2527(Spencer)S
+X2746(from)S
+X2888(the)S
+X2986(University)S
+X3210 2274(o)U
+X864 2346(4)U
+X864 2274(of)U
+X935(Toronto.)S
+X1165(This)S
+X1293(regular)S
+X1485(expression)S
+X1763(package)S
+X1982(was)S
+X2096(posted)S
+X2274(to)S
+X2342(comp.sources.misc)S
+X2821(\(volume)S
+X3042(3\).)S
+X3127(Als)S
+X917 2346(patches)U
+X1121(were)S
+X1261(posted)S
+X1441(\(in)S
+X1531(volumes:)S
+X1775(3,)S
+X1843(4,)S
+X1911(4,)S
+X1979(10\).)S
+X2097(I)S
+X2140(applied)S
+X2341(the)S
+X2438(patches)S
+X2642(to)S
+X2711(the)S
+X2807(original)S
+X3017(code)S
+X3153(and)S
+X2 F
+X648 2517(reg)U
+X6 F
+X(i)R
+X2 F
+X(exp.c)R
+X1 F
+X864 2418(made)U
+X1015(small)S
+X1166(modi\256cations)S
+X1514(to)S
+X1581(the)S
+X1675(code,)S
+X1824(which)S
+X1991(are)S
+X2085(marked)S
+X2286(in)S
+X2353(the)S
+X2447(source)S
+X2624(code.)S
+X864 2589(the)U
+X958(regular)S
+X1149(expression)S
+X1426(library)S
+X1607(for)S
+X1697(compilat)S
+X1909(ion)S
+X2006(and)S
+X2113(matching)S
+X2358(of)S
+X2428(regular)S
+X2619(expressions.)S
+X2 F
+X648 2688(reg)U
+X6 F
+X(i)R
+X2 F
+X(sub.c)R
+X1 F
+X864 2760(the)U
+X958(regular)S
+X1149(expression)S
+X1426(substitution)S
+X1727(routine.)S
+X648 2931(B)U
+X(efore)R
+X835(you)S
+X948(compile)S
+X1165(this)S
+X1274(program)S
+X1500(you)S
+X1612(have)S
+X1748(to)S
+X1817(edit)S
+X2 F
+X1930(paths.h)S
+X1 F
+X(.)R
+X2162(Read)S
+X2308(comments)S
+X2578(in)S
+X2647(the)S
+X2743(\256le.)S
+X2877(During)S
+X3069(compi-)S
+X648 3075(T)U
+X648 3003(lation,)U
+X821(all)S
+X902(source)S
+X1079(code)S
+X1213(should)S
+X1393(reside)S
+X1557(in)S
+X1624(the)S
+X1718(current)S
+X1909(directory.)S
+X685 3075(hen)U
+X792(you)S
+X902(may)S
+X1026(compile)S
+X1241(the)S
+X1335(program)S
+X1559(under)S
+X1716(UN)S
+X4 F
+X(*)R
+X1 F
+X(X)R
+X1895(as)S
+X1965(\(for)S
+X2075(example\):)S
+X648 3219(a)U
+X768 3147(cc)U
+X842(-o)S
+X912(translit)S
+X1100(translit.c)S
+X1330(reg)S
+X6 F
+X(i)R
+X1 F
+X(exp.c)R
+X1586(reg)S
+X6 F
+X(i)R
+X1 F
+X(sub.c)R
+X675 3219(nd)U
+X772(copy)S
+X926(the)S
+X1037(program)S
+X2 F
+X1278(translit)S
+X1 F
+X1489(to)S
+X1573(some)S
+X1737(standard)S
+X1977(directory)S
+X2231(which)S
+X2414(is)S
+X2490(in)S
+X2573(users')S
+X2752(path)S
+X2892(\(for)S
+X3018(example:)S
+X2 F
+X648 3363(p)U
+X1 F
+X648 3291(/usr/local/)U
+X890(bin\).)S
+X1027(Then)S
+X1176(you)S
+X1291(need)S
+X1430(to)S
+X1502(copy)S
+X1643(translitera)S
+X1885(tion)S
+X2003(tables)S
+X2168(to)S
+X2239(the)S
+X2337(directory)S
+X2579(which)S
+X2750(you)S
+X2864(have)S
+X3002(chosen)S
+X3193(in)S
+X2 F
+X678 3363(aths.h)U
+X1 F
+X(.)R
+X879(If)S
+X940(you)S
+X1051(get)S
+X1146(errors,)S
+X1322(then)S
+X1447(it)S
+X1502(is)S
+X1563(not)S
+X1661(OK.)S
+X1783(Please,)S
+X1973(report)S
+X2137(them)S
+X2278(to)S
+X2345(the)S
+X2439(author)S
+X2613(\(with)S
+X2760(all)S
+X2841(the)S
+X2935(gory)S
+X3065(details:)S
+X648 3579(U)U
+X648 3435(error)U
+X785(message,)S
+X1024(line)S
+X1135(number,)S
+X1354(machine,)S
+X1594(operating)S
+X1842(system,)S
+X2044(etc.\).)S
+X691 3579(nder)U
+X818(VMS)S
+X967(\(VAXes\))S
+X1206(you)S
+X1316(need)S
+X1450(to)S
+X1517(compile)S
+X1732(it)S
+X1786(as:)S
+X768 3723(c)U
+X768 3651(cc)U
+X842(translit)S
+X795 3723(c)U
+X842(reg)S
+X6 F
+X(i)R
+X1 F
+X(exp)R
+X768 3867(l)U
+X768 3795(cc)U
+X842(reg)S
+X6 F
+X(i)R
+X1 F
+X(sub)R
+X785 3867(ink)U
+X882(translit+reg)S
+X6 F
+X(i)R
+X1 F
+X(exp+reg)R
+X6 F
+X(i)R
+X1 F
+X(sub,sys$library:vaxc)R
+X1913(rtl/lib)S
+X3212 3939(:)U
+X648(and)S
+X755(before)S
+X929(you)S
+X1039(can)S
+X1143(use)S
+X1243(the)S
+X1337(program,)S
+X1576(you)S
+X1686(need)S
+X1820(to)S
+X1887(type)S
+X2011(\(or)S
+X2101(better)S
+X2259(put)S
+X2356(into)S
+X2470(your)S
+X2600(LOGIN.COM)S
+X2957(\256le\))S
+X3074(a)S
+X3121(line)S
+X768 4011(translit)U
+X956(==)S
+X5 F
+X1042(")S
+X1 F
+X($SYS$USER:[ME.TRA]TRANSLIT.EXE)R
+X5 F
+X(")R
+X1 F
+X3213 4083(e)U
+X648 4155(q)U
+X648 4083(or)U
+X725(whatever)S
+X973(is)S
+X1040(the)S
+X1141(full)S
+X1252(path)S
+X1383(to)S
+X1457(the)S
+X2 F
+X1557(translit)S
+X1 F
+X1757(executa)S
+X1942(ble)S
+X2042(image)S
+X2216(which)S
+X2389(you)S
+X2505(create)S
+X2650(d)S
+X2706(with)S
+X2839(LINK.)S
+X3023(Note)S
+X3166(th)S
+X678 4155(uotes)U
+X825(and)S
+X932(the)S
+X1026($)S
+X1076(sign)S
+X1196(in)S
+X1263(front)S
+X1400(of)S
+X1470(program)S
+X1694(path.)S
+X432 4587(J)U
+X648 4299(On)U
+X741(an)S
+X818(IBM-PC)S
+X1044(I)S
+X1084(used)S
+X1214(MicroSoft)S
+X1481(C)S
+X1541(5.1)S
+X1636(as:)S
+X455 4587(KL)U
+X1520(Last)S
+X1644(change:)S
+X1852(23-Jan-1993)S
+X3180(16)S
+XEP
+X%%Page: ? 17
+XBP
+X1 F
+X60 Z
+X3220 222(\))U
+X432(TRANSLIT)S
+X732(\()S
+X762(JKL)S
+X875(\))S
+X1693(Version)S
+X1903(1.0)S
+X2777(TRANSLIT)S
+X3077(\()S
+X3107(JKL)S
+X708 510(cl)U
+X772(/FeTRANSLIT)S
+X1159(/AL)S
+X1276(/FPc)S
+X1406(/W1)S
+X1530(/F)S
+X1600(5000)S
+X1740(/Ox)S
+X1850(/Gs)S
+X1953(translit.c)S
+X2183(reg)S
+X6 F
+X(i)R
+X1 F
+X(exp.c)R
+X2439(reg)S
+X6 F
+X(i)R
+X1 F
+X(sub.c)R
+X3 F
+X54 Z
+X432 753(RULES,)U
+X653(CONDITIONS)S
+X1028(AND)S
+X1172(AUTHOR'S)S
+X1484(WHISHES)S
+X1 F
+X60 Z
+X648 825(You)U
+X771(can)S
+X875(distribute)S
+X1123(this)S
+X1230(code)S
+X1364(and)S
+X1471(associated)S
+X1739(\256les)S
+X1859(under)S
+X2016(these)S
+X2160(conditions:)S
+X3220 897(-)U
+X808(1\))S
+X883(You)S
+X1011(will)S
+X1130(distribute)S
+X1383(all)S
+X1469(\256les)S
+X1593(\(even)S
+X1751(if)S
+X1812(you)S
+X1926(think)S
+X2074(that)S
+X2189(they)S
+X2317(are)S
+X2415(garbage\).)S
+X2665(You)S
+X2792(may)S
+X2920(get)S
+X3018(the)S
+X3116(com)S
+X888 969(plete)U
+X1032(set)S
+X1125(from)S
+X1268(anonymous)S
+X1571(ftp)S
+X1664(at)S
+X1734(kekule.osc.edu)S
+X2117(in)S
+X2189(/pub/russian/transli)S
+X2651(t.)S
+X2708(You)S
+X2836(can)S
+X2945(also)S
+X3067(get)S
+X3166(the)S
+X3213 1041(a)U
+X888 1113(l)U
+X888 1041(program)U
+X1116(and)S
+X1227(associated)S
+X1499(\256les)S
+X1623(via)S
+X1721(e-mail.)S
+X1915(To)S
+X2006(get)S
+X2104(the)S
+X2202(instructions)S
+X2507(for)S
+X2601(e-mail)S
+X2779(distribution)S
+X3080(send)S
+X905 1113(ine:)U
+X1028 1185(send)U
+X1158(translit/re)S
+X1390(adme.doc)S
+X1643(from)S
+X1780(russian)S
+X888 1257(t)U
+X(o)R
+X960(OSCPOST)S
+X5 F
+X(@)R
+X1 F
+X(os)R
+X1330(c.edu)S
+X1484(or)S
+X1559(OSCPOST)S
+X5 F
+X(@)R
+X1 F
+X(O)R
+X1919(HSTPY.BITNET.)S
+X2397(You)S
+X2525(are)S
+X2624(not)S
+X2726(allowed)S
+X2941(to)S
+X3012(distribute)S
+X888 1329(the)U
+X982(incomplet)S
+X1224(e)S
+X1271(distribution.)S
+X1584(The)S
+X1698(following)S
+X1952(\256les)S
+X2072(should)S
+X2252(be)S
+X2329(present)S
+X2523(in)S
+X2590(the)S
+X2684(distribution:)S
+X1008 1401(alt-gos.rus)U
+X1548(-)S
+X1588(ALT)S
+X1725(to)S
+X1792(GOSTCII)S
+X2048(table)S
+X1008 1545(e)U
+X1008 1473(alt-koi8.rus)U
+X1548(-)S
+X1588(ALT)S
+X1725(to)S
+X1792(KOI8)S
+X1948(table)S
+X1035 1545(xample.al)U
+X1272(t.uu)S
+X1548(-)S
+X1588(uuencoded)S
+X1869(example)S
+X2094(in)S
+X2161(ALT)S
+X2267 1617(8)U
+X1008 1689(e)U
+X1008 1617(example.ko8.uu)U
+X1548(-)S
+X1588(uuencoded)S
+X1869(example)S
+X2094(in)S
+X2161(KOI)S
+X1035 1689(xample.pho)U
+X1548(-)S
+X1588(phonetic)S
+X1816(translitera)S
+X2058(tion)S
+X2172(example)S
+X1008 1833(g)U
+X1008 1761(example.t)U
+X1245(ex)S
+X1548(-)S
+X1588(LaTeX)S
+X1779(example)S
+X1038 1833(os-alt.rus)U
+X1548(-)S
+X1588(GOSTCII)S
+X1844(to)S
+X1911(ALT)S
+X2048(table)S
+X2158 1905(e)U
+X1008 1977(k)U
+X1008 1905(gos-koi8.rus)U
+X1548(-)S
+X1588(GOSTCII)S
+X1844(to)S
+X1911(KOI8)S
+X2067(tabl)S
+X1038 1977(oi7-8.rus)U
+X1548(-)S
+X1588(KOI7)S
+X1744(to)S
+X1811(KOI8)S
+X1967(table)S
+X2326 2049(e)U
+X1008 2121(k)U
+X1008 2049(koi7nl-8.rus)U
+X1548(-)S
+X1588(KOI7)S
+X1744(\(no)S
+X1844(Latin\))S
+X2012(to)S
+X2079(KOI8)S
+X2235(tabl)S
+X1038 2121(oi8-7.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(KOI7)S
+X1967(table)S
+X1008 2265(k)U
+X1008 2193(koi8-alt.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(ALT)S
+X1948(table)S
+X1038 2265(oi8-gos.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(GOSTCII)S
+X2067(table)S
+X2416 2337(e)U
+X1008 2409(k)U
+X1008 2337(koi8-lc.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(Library)S
+X2012(of)S
+X2082(Congress)S
+X2325(tabl)S
+X1038 2409(oi8-phg.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(GOST)S
+X1987(translitera)S
+X2229(tion)S
+X2393 2481(n)U
+X1008 2553(k)U
+X1008 2481(koi8-php.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(Pokrovsky)S
+X2087(translitera)S
+X2329(tio)S
+X1038 2553(oi8-tex.rus)U
+X1548(-)S
+X1588(KOI8)S
+X1744(to)S
+X1811(LaTeX)S
+X2002(conversion)S
+X2450 2625(m)U
+X1008 2697(p)U
+X1008 2625(order.txt)U
+X1548(-)S
+X1588(Order)S
+X1748(form)S
+X1885(for)S
+X1975(ordering)S
+X2199(the)S
+X2293(progra)S
+X1038 2697(aths.h)U
+X1548(-)S
+X1588(Include)S
+X1789(\256le)S
+X1886(for)S
+X1976(translit.c)S
+X2293 2769(8)U
+X1008 2841(p)U
+X1008 2769(phg-koi8.rus)U
+X1548(-)S
+X1588(GOST)S
+X1764(translitera)S
+X2006(tion)S
+X2120(to)S
+X2187(KOI)S
+X1038 2841(ho-8sim.rus)U
+X1548(-)S
+X1588(Simple)S
+X1779(phonetic)S
+X2007(to)S
+X2074(KOI8)S
+X2199 2913(8)U
+X1008 2985(p)U
+X1008 2913(pho-koi8.rus)U
+X1548(-)S
+X1588(Various)S
+X1798(phonetic)S
+X2026(to)S
+X2093(KOI)S
+X1038 2985(hp-koi8.rus)U
+X1548(-)S
+X1588(Pokrovsky)S
+X1864(to)S
+X1931(KOI8)S
+X2257 3057(s)U
+X1008 3129(r)U
+X1008 3057(readme.doc)U
+X1548(-)S
+X1588(short)S
+X1728(description)S
+X2016(of)S
+X2086(the)S
+X2180(\256le)S
+X1028 3129(eg)U
+X6 F
+X(i)R
+X1 F
+X(exp.c)R
+X1548(-)S
+X1588(regular)S
+X1779(expression)S
+X2056(code)S
+X2190(by)S
+X2270(Henry)S
+X2440(Spencer)S
+X1008 3273(r)U
+X1008 3201(reg)U
+X6 F
+X(i)R
+X1 F
+X(exp.h)R
+X1548(-)S
+X1588(include)S
+X1786(for)S
+X1876(reg)S
+X6 F
+X(i)R
+X1 F
+X(exp.c)R
+X2132(and)S
+X2239(reg)S
+X6 F
+X(i)R
+X1 F
+X(sub.c)R
+X1028 3273(eg)U
+X6 F
+X(i)R
+X1 F
+X(sub.c)R
+X1548(-)S
+X1588(regular)S
+X1779(expression)S
+X2056(code)S
+X2190(by)S
+X2270(H.)S
+X2348(Spencer)S
+X1008 3417(t)U
+X1008 3345(tex-koi8.rus)U
+X1548(-)S
+X1588(LaTeX)S
+X1779(to)S
+X1846(KOI8)S
+X1025 3417(ranslit.c)U
+X1548(-)S
+X1588(TRANSLIT)S
+X1898(main)S
+X2039(program)S
+X2393 3489(t)U
+X1008 3561(t)U
+X1008 3489(translit.ps)U
+X1548(-)S
+X1588(TRANSLIT)S
+X1898(manual)S
+X2096(in)S
+X2163(PostScrip)S
+X1025 3561(ranslit.1)U
+X1548(-)S
+X1588(TRANSLIT)S
+X1898(manual)S
+X2096(in)S
+X4 F
+X2163(*)S
+X1 F
+X(roff)R
+X2379 3633(l)U
+X808 3777(2)U
+X1008 3633(translit.txt)U
+X1548(-)S
+X1588(Plain)S
+X1732(ASCII)S
+X1908(TRANSLIT)S
+X2218(manua)S
+X838 3777(\))U
+X882(You)S
+X1009(may)S
+X1137(expand/cha)S
+X1412(nge)S
+X1522(the)S
+X1619(\256les)S
+X1742(and)S
+X1852(the)S
+X1949(program)S
+X2176(and)S
+X2286(distribute)S
+X2537(modi\256ed)S
+X2774(\256les,)S
+X2912(provided)S
+X3149(that)S
+X888 3921(c)U
+X888 3849(you)U
+X1012(do)S
+X1106(not)S
+X1217(delete)S
+X1396(anything)S
+X1641(\(you)S
+X1784(can)S
+X1901(always)S
+X2101(comment)S
+X2359(the)S
+X2466(unnecessary)S
+X2793(portions)S
+X3023(out\))S
+X3153(and)S
+X915 3921(learly)U
+X1075(mark)S
+X1221(your)S
+X1352(changes.)S
+X1582(Please)S
+X1757(send)S
+X1888(the)S
+X1983(copy)S
+X2121(of)S
+X2192(the)S
+X2287(modi\256ed)S
+X2522(version)S
+X2720(to)S
+X2788(the)S
+X2883(author,)S
+X3073(though)S
+X3210 3993(y)U
+X888 4065(w)U
+X888 3993(you)U
+X1001(are)S
+X1098(not)S
+X1198(required)S
+X1422(to)S
+X1492(do)S
+X1575(so.)S
+X1686(I)S
+X1729(will)S
+X1846(give)S
+X1973(you)S
+X2086(all)S
+X2170(the)S
+X2267(credit)S
+X2428(for)S
+X2521(your)S
+X2654(enhancem)S
+X2899(ents.)S
+X3034(I)S
+X3076(simpl)S
+X931 4065(ish)U
+X1031(that)S
+X1152(there)S
+X1303(is)S
+X1373(a)S
+X1430(single)S
+X1604(point)S
+X1758(of)S
+X1838(distribution)S
+X2146(for)S
+X2246(this)S
+X2363(code,)S
+X2522(so)S
+X2605(it)S
+X2669(is)S
+X2739(maintai)S
+X2921(ned)S
+X3037(to)S
+X3113(some)S
+X3220 4137(f)U
+X888 4209(y)U
+X888 4137(extent.)U
+X1072(If)S
+X1132(you)S
+X1242(create)S
+X1407(additional)S
+X1669(translitera)S
+X1911(tion)S
+X2025(de\256nition)S
+X2276(\256les,)S
+X2411(please,)S
+X2597(send)S
+X2727(them)S
+X2868(to)S
+X2935(the)S
+X3029(author)S
+X3203(i)S
+X918 4209(ou)U
+X1001(may.)S
+X1142(I)S
+X1184(will)S
+X1300(add)S
+X1409(them)S
+X1552(to)S
+X1621(the)S
+X1717(program)S
+X1943(distribution.)S
+X2258(I)S
+X2300(want)S
+X2439(to)S
+X2508(\256x)S
+X2593(bugs)S
+X2728(and)S
+X2837(expand/optim)S
+X3169(ize)S
+X3223 4281(t)U
+X432 4569(J)U
+X888 4281(this)U
+X998(code,)S
+X1150(but)S
+X1250(I)S
+X1293(need)S
+X1430(your)S
+X1563(help.)S
+X1725(I)S
+X1767(need)S
+X1903(your)S
+X2035(translitera)S
+X2277(tion)S
+X2393(\256les)S
+X2515(for)S
+X2607(languages)S
+X2870(which)S
+X3039(I)S
+X3081(do)S
+X3163(no)S
+X455 4569(KL)U
+X1520(Last)S
+X1644(change:)S
+X1852(23-Jan-1993)S
+X3180(17)S
+XEP
+X%%Page: ? 18
+XBP
+X1 F
+X60 Z
+X3220 222(\))U
+X432(TRANSLIT)S
+X732(\()S
+X762(JKL)S
+X875(\))S
+X1693(Version)S
+X1903(1.0)S
+X2777(TRANSLIT)S
+X3077(\()S
+X3107(JKL)S
+X888 510(know)U
+X1046(or)S
+X1121(do)S
+X1206(not)S
+X1308(use)S
+X1413(currently.)S
+X1691(Your)S
+X1838(suggestions)S
+X2142(for)S
+X2236(improving)S
+X2511(documentat)S
+X2793(ion)S
+X2894(are)S
+X2992(most)S
+X3133(wel-)S
+X768 654(3)U
+X888 582(come)U
+X1039(\(I)S
+X1099(am)S
+X1193(not)S
+X1290(a)S
+X1337(native)S
+X1505(English)S
+X1709(speaker\).)S
+X798 654(\))U
+X841(You)S
+X967(will)S
+X1084(not)S
+X1184(charge)S
+X1368(money)S
+X1555(for)S
+X1647(the)S
+X1743(program)S
+X1969(and/or)S
+X2145(associated)S
+X2415(\256les,)S
+X2552(except)S
+X2732(for)S
+X2824(media)S
+X2994(and)S
+X3103(copy-)S
+X3220 726(-)U
+X888 798(s)U
+X888 726(ing)U
+X988(costs.)S
+X1146(If)S
+X1209(you)S
+X1322(want)S
+X1462(to)S
+X1532(sell)S
+X1639(it,)S
+X1711(contact)S
+X1908(the)S
+X2004(author)S
+X2180(\256rst.)S
+X2310(Bear)S
+X2446(in)S
+X2515(mind)S
+X2661(that)S
+X2774(the)S
+X2870(regular)S
+X3063(expres)S
+X911 798(ion)U
+X1014(package)S
+X1238(by)S
+X1324(Henry)S
+X1500(Spencer)S
+X1720(has)S
+X1826(some)S
+X1979(copyright)S
+X2235(restrictions.)S
+X2563(But)S
+X2675(there)S
+X2821(are)S
+X2920(other)S
+X3069(regular)S
+X888 942(o)U
+X888 870(expression)U
+X1178(packages)S
+X1432(which)S
+X1612(do)S
+X1705(not)S
+X1815(have)S
+X1962(these)S
+X2119(restrictions)S
+X2420(\(which)S
+X2619(are)S
+X2725(not)S
+X2834(violated)S
+X3061(by)S
+X3153(this)S
+X918 942(ffering\).)U
+X768 1014(4)U
+X(\))R
+X845(I)S
+X892(will)S
+X1013(gladly)S
+X1191(help)S
+X1322(you)S
+X1439(with)S
+X1573(advice)S
+X1758(on)S
+X1845(compiling)S
+X2117(this)S
+X2231(software)S
+X2465(and)S
+X2579(try)S
+X2673(to)S
+X2747(\256x)S
+X2837(bugs)S
+X2976(when)S
+X3132(time)S
+X3220 1086(-)U
+X888 1158(n)U
+X888 1086(allows.)U
+X1082(However,)S
+X1338(if)S
+X1396(you)S
+X1507(want)S
+X1645(a)S
+X1693(ready)S
+X1848(to)S
+X1916(run)S
+X2017(executa)S
+X2202(ble,)S
+X2312(you)S
+X2423(need)S
+X2558(to)S
+X2626(order)S
+X2774(it)S
+X2829(for)S
+X2920(a)S
+X2968(very)S
+X3096(nomi)S
+X918 1158(al)U
+X984(fee)S
+X1080(from)S
+X2 F
+X1219(JKL)S
+X1341(ENTERPRISES,)S
+X1753(INC.)S
+X1 F
+X1890(as)S
+X1962(described)S
+X2215(in)S
+X2284(the)S
+X2380(\256le)S
+X2 F
+X2479(order.txt)S
+X1 F
+X2710(which)S
+X2879(must)S
+X3018(be)S
+X3097(a)S
+X3146(part)S
+X3 F
+X54 Z
+X432 1401(AUTHOR)U
+X1 F
+X60 Z
+X888 1230(of)U
+X958(a)S
+X1005(complete)S
+X1247(distribution.)S
+X648 1473(Jan)U
+X781(Labanowski,)S
+X1143(P.O.)S
+X1302(Box)S
+X1455(21821,)S
+X1673(Columbus,)S
+X1988(OH)S
+X2127(43221-0821,)S
+X2484(USA.)S
+X2690(E-mail:)S
+X2924(jkl)S
+X5 F
+X(@)R
+X1 F
+X(osc.edu,)R
+X432 4542(J)U
+X648 1545(JKL)U
+X5 F
+X(@)R
+X1 F
+X(OHSTPY)R
+X1038(.BITNET.)S
+X455 4542(KL)U
+X1520(Last)S
+X1644(change:)S
+X1852(23-Jan-1993)S
+X3180(18)S
+XEP
+X%%Trailer
+Xpscatsave end restore
+X%%Pages: 18
+END_OF_FILE
+  if test 44359 -ne `wc -c <'translit.ps.C'`; then
+    echo shar: \"'translit.ps.C'\" unpacked with wrong size!
+  elif test -f 'translit.ps.A' && test -f 'translit.ps.B'; then
+    echo shar: Combining  \"'translit.ps'\" \(153379 characters\)
+    cat 'translit.ps.A' 'translit.ps.B' 'translit.ps.C' > 'translit.ps'
+    if test 153379 -ne `wc -c <'translit.ps'`; then
+      echo shar: \"'translit.ps'\" combined with wrong size!
+    else
+      rm translit.ps.A translit.ps.B translit.ps.C
+    fi
+  fi
+  # end of 'translit.ps.C'
+fi
+echo shar: End of archive 5 \(of 10\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

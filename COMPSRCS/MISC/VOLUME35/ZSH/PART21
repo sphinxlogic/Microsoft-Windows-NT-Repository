@@ -1,0 +1,2071 @@
+Newsgroups: comp.sources.misc
+From: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Subject: v35i071:  zsh - The Z Shell, version 2.3.1, Part21/22
+Message-ID: <1993Feb20.212933.29601@sparky.imd.sterling.com>
+X-Md4-Signature: 3af96160e13951c12d61a0b6f809ec60
+Date: Sat, 20 Feb 1993 21:29:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Posting-number: Volume 35, Issue 71
+Archive-name: zsh/part21
+Environment: UNIX
+Supersedes: zsh2.2: Volume 29, Issue 97-113
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  NOTES func/run-help func/zed help/alias help/cd
+#   help/compctl help/dirs help/echo help/elif help/else help/for
+#   help/foreach help/function help/getopts help/if help/kill
+#   help/print help/select help/set help/ttyctl help/ulimit
+#   help/unhash help/unset help/whence help/which src/cond.c
+#   src/loop.c src/mem.c src/zle_move.c src/zle_utils.c
+# Wrapped by mattson@odin on Sat Feb  6 14:41:56 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 21 (of 22)."'
+if test -f 'NOTES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'NOTES'\"
+else
+  echo shar: Extracting \"'NOTES'\" \(507 characters\)
+  sed "s/^X//" >'NOTES' <<'END_OF_FILE'
+XImportant notes:
+X
+X1. Stuff like "ls *.sdofij 2>/dev/null" to suppress error messages
+X   produced by the shell doesn't work anymore.  Filename generation is
+X   done BEFORE redirection.  To avoid the error message, use the
+X   nonomatch option, or do "( ls *.sdofij ) 2>/dev/null".
+X
+X2. History substitution is no longer done inside startup files.  If you
+X   have sequences like \! or !" in your startup files, they will break.
+X   (Especially !").  So check for those; remove the !", and change the
+X   \! to !.
+END_OF_FILE
+  if test 507 -ne `wc -c <'NOTES'`; then
+    echo shar: \"'NOTES'\" unpacked with wrong size!
+  fi
+  # end of 'NOTES'
+fi
+if test -f 'func/run-help' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'func/run-help'\"
+else
+  echo shar: Extracting \"'func/run-help'\" \(376 characters\)
+  sed "s/^X//" >'func/run-help' <<'END_OF_FILE'
+X#! /bin/zsh
+X# zsh script to peruse the help directory
+X#
+Xif [[ $1 = "-l" ]]; then
+X  if [[ ${HELPDIR:-} != "" ]]; then
+X    echo 'Here is a list of topics for which help is available:'
+X    echo ""
+X    ls $HELPDIR
+X  else
+X    echo 'There is no help available at this time'
+X  fi
+Xelif [[ ${HELPDIR:-} != "" && -r $HELPDIR/$1 ]]
+Xthen
+X    ${PAGER:-more} $HELPDIR/$1
+Xelse
+X    man $1
+Xfi
+END_OF_FILE
+  if test 376 -ne `wc -c <'func/run-help'`; then
+    echo shar: \"'func/run-help'\" unpacked with wrong size!
+  fi
+  chmod +x 'func/run-help'
+  # end of 'func/run-help'
+fi
+if test -f 'func/zed' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'func/zed'\"
+else
+  echo shar: Extracting \"'func/zed'\" \(511 characters\)
+  sed "s/^X//" >'func/zed' <<'END_OF_FILE'
+X#!/bin/zsh
+X# Edit small files with the command line editor.
+X# You can even stick bits of the history list in it.
+X
+Xlocal var
+X
+X# (Don't) catch interrupts
+X# trap 'bindkey "^M" accept-line ; trap - 2 3; return 0' 2 3
+X
+Xbindkey "^M" self-insert-unmeta
+Xbindkey "^X^W" accept-line
+X
+X[[ -z "$1" ]] && echo 'Usage: zed filename' && return 1
+X[[ -f $1 ]] && var="$(<$1)"
+Xvared var
+Xprint -R "$var" >! $1
+X
+Xbindkey "^M" accept-line
+Xbindkey "^X^W" undefined-key
+X
+X# (Don't) release interrupts
+X# trap - 2 3
+X
+Xreturn 0
+X
+X#End of zed
+END_OF_FILE
+  if test 511 -ne `wc -c <'func/zed'`; then
+    echo shar: \"'func/zed'\" unpacked with wrong size!
+  fi
+  chmod +x 'func/zed'
+  # end of 'func/zed'
+fi
+if test -f 'help/alias' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/alias'\"
+else
+  echo shar: Extracting \"'help/alias'\" \(781 characters\)
+  sed "s/^X//" >'help/alias' <<'END_OF_FILE'
+X     alias [ -g ] [ name[=value] ] ...
+X          With no arguments, print the list  of  aliases  in  the
+X          form  name=value on the standard output.  For each name
+X          with a corresponding value, define an alias  with  that
+X          value.   A trailing space in value causes the next word
+X          to be checked for alias substitution.  If the  -g  flag
+X          is  present,  define a global alias; global aliases are
+X          expanded even if they do not occur in command position.
+X          For  each  name with no value, print the value of name,
+X          if any.  The exit status is nonzero if a name (with  no
+X          value) given for which no alias has been defined.
+X     unalias name ...
+X          The alias definition, if any, for each name is removed.
+END_OF_FILE
+  if test 781 -ne `wc -c <'help/alias'`; then
+    echo shar: \"'help/alias'\" unpacked with wrong size!
+  fi
+  # end of 'help/alias'
+fi
+if test -f 'help/cd' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/cd'\"
+else
+  echo shar: Extracting \"'help/cd'\" \(934 characters\)
+  sed "s/^X//" >'help/cd' <<'END_OF_FILE'
+X     cd [ arg ]
+X     cd old new
+X     cd +-n
+X          Change the  current  directory.   In  the  first  form,
+X          change the current directory to arg, or to the value of
+X          HOME if arg is not specified.  If arg is -,  change  to
+X          the  value  of  OLDPWD,  the  previous directory.  If a
+X          directory named arg is not found in the current  direc-
+X          tory  and  arg does not begin with a slash, search each
+X          component of the shell parameter cdpath.  If the option
+X          CDABLEVARS  is  set,  and  a parameter named arg exists
+X          whose value begins with a slash, treat its value as the
+X          directory.
+X
+X          The second form of cd substitutes the  string  new  for
+X          the  string  old  in the name of the current directory,
+X          and tries to change to this new directory.
+X
+X          The third form of cd is equivalent to popd.
+X
+X     chdir
+X          Same as cd.
+END_OF_FILE
+  if test 934 -ne `wc -c <'help/cd'`; then
+    echo shar: \"'help/cd'\" unpacked with wrong size!
+  fi
+  # end of 'help/cd'
+fi
+if test -f 'help/compctl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/compctl'\"
+else
+  echo shar: Extracting \"'help/compctl'\" \(906 characters\)
+  sed "s/^X//" >'help/compctl' <<'END_OF_FILE'
+X     compctl [ -cfhovbCD ] [ -k name ] [ arg ... ]
+X          Control the editor's completion behavior  when  one  of
+X          arg  is the current command.  With the -D flag, control
+X          default completion behavior for commands  not  assigned
+X          any  special behavior; with -C, control completion when
+X          there is no current  command.   The  remaining  options
+X          specify  the type of command arguments to look for dur-
+X          ing completion.  For example,  compctl  -hf  rlogin  is
+X          equivalent to hostcmds=(rlogin).
+X          -c   Expect command names.
+X          -f   Expect filenames and filesystem paths.
+X          -h   Expect hostnames taken from the $hosts variable.
+X          -o   Expect option names.
+X          -v   Expect variable names.
+X          -b   Expect key binding names.
+X          -k name
+X               Expect names taken from the elements of $name.
+END_OF_FILE
+  if test 906 -ne `wc -c <'help/compctl'`; then
+    echo shar: \"'help/compctl'\" unpacked with wrong size!
+  fi
+  # end of 'help/compctl'
+fi
+if test -f 'help/dirs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/dirs'\"
+else
+  echo shar: Extracting \"'help/dirs'\" \(517 characters\)
+  sed "s/^X//" >'help/dirs' <<'END_OF_FILE'
+X     dirs [ -v ] [ arg ... ]
+X          With no arguments, print the contents of the  directory
+X          stack.   If  the  -v option is given, number the direc-
+X          tories in the stack  when  printing.   Directories  are
+X          added to this stack with the pushd command, and removed
+X          with the cd or popd commands.  If arguments are  speci-
+X          fied,  load  them  onto  the directory stack, replacing
+X          anything that was there, and push the current directory
+X          onto the stack.
+END_OF_FILE
+  if test 517 -ne `wc -c <'help/dirs'`; then
+    echo shar: \"'help/dirs'\" unpacked with wrong size!
+  fi
+  # end of 'help/dirs'
+fi
+if test -f 'help/echo' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/echo'\"
+else
+  echo shar: Extracting \"'help/echo'\" \(555 characters\)
+  sed "s/^X//" >'help/echo' <<'END_OF_FILE'
+X     echo [ -n ] [ arg ... ]
+X          Write each arg on the standard  output,  with  a  space
+X          separating  each  one.   If the -n flag is not present,
+X          print a newline at the end.  echo recognizes  the  fol-
+X          lowing escape sequences:
+X          \b   backspace
+X          \c   don't print an ending newline
+X          \e   escape
+X          \f   form feed
+X          \n   newline
+X          \r   carriage return
+X          \t   horizontal tab
+X          \v   vertical tab
+X          \\   backslash
+X          \xxx character code in octal
+END_OF_FILE
+  if test 555 -ne `wc -c <'help/echo'`; then
+    echo shar: \"'help/echo'\" unpacked with wrong size!
+  fi
+  # end of 'help/echo'
+fi
+if test -f 'help/elif' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/elif'\"
+else
+  echo shar: Extracting \"'help/elif'\" \(550 characters\)
+  sed "s/^X//" >'help/elif' <<'END_OF_FILE'
+X      if list
+X      then list
+X      [ elif list ; then list ] ...
+X      [ else list ]
+X      fi   The if list is executed, and, if it returns a zero
+X	   exit  status,  the  then list is executed.  Other-
+X	   wise, the elif list is executed and, if its  value
+X	   is  zero, the then list is executed.  If each elif
+X	   list returns nonzero, the else list is executed.
+X
+X      if ( list ) sublist
+X	   A short form of if.
+X
+X      if ( list ) {
+X      list
+X      } elif ( list ) {
+X      list
+X      } ... else {
+X      list
+X      }    An alternate form of if.
+END_OF_FILE
+  if test 550 -ne `wc -c <'help/elif'`; then
+    echo shar: \"'help/elif'\" unpacked with wrong size!
+  fi
+  # end of 'help/elif'
+fi
+if test -f 'help/else' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/else'\"
+else
+  echo shar: Extracting \"'help/else'\" \(550 characters\)
+  sed "s/^X//" >'help/else' <<'END_OF_FILE'
+X      if list
+X      then list
+X      [ elif list ; then list ] ...
+X      [ else list ]
+X      fi   The if list is executed, and, if it returns a zero
+X	   exit  status,  the  then list is executed.  Other-
+X	   wise, the elif list is executed and, if its  value
+X	   is  zero, the then list is executed.  If each elif
+X	   list returns nonzero, the else list is executed.
+X
+X      if ( list ) sublist
+X	   A short form of if.
+X
+X      if ( list ) {
+X      list
+X      } elif ( list ) {
+X      list
+X      } ... else {
+X      list
+X      }    An alternate form of if.
+END_OF_FILE
+  if test 550 -ne `wc -c <'help/else'`; then
+    echo shar: \"'help/else'\" unpacked with wrong size!
+  fi
+  # end of 'help/else'
+fi
+if test -f 'help/for' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/for'\"
+else
+  echo shar: Extracting \"'help/for'\" \(793 characters\)
+  sed "s/^X//" >'help/for' <<'END_OF_FILE'
+X      for name [ in word ... ]
+X      do list
+X      done Expand the list of words, and  set  the  parameter
+X	   name  to each of them in turn, executing list each
+X	   time.  If the in word is omitted,  use  the  posi-
+X	   tional parameters instead of the words.
+X
+X      for name [ in word ... ] ; sublist
+X	   This is a shorthand for for.  Though it may  cause
+X	   confusion, it is included for convenience; its use
+X	   in scripts is discouraged,  unless  sublist  is  a
+X	   command of the form { list }.
+X
+X      foreach name ( word ... )
+X      list
+X      end  Another form of for.
+X
+X      for name in word ...
+X      {
+X      list
+X      }    Another form of for.
+X
+X      for name ( word ... ) {
+X      list
+X      }    Another form of for.
+X
+X      for name ( word ... ) sublist
+X	   Another form of for.
+END_OF_FILE
+  if test 793 -ne `wc -c <'help/for'`; then
+    echo shar: \"'help/for'\" unpacked with wrong size!
+  fi
+  # end of 'help/for'
+fi
+if test -f 'help/foreach' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/foreach'\"
+else
+  echo shar: Extracting \"'help/foreach'\" \(793 characters\)
+  sed "s/^X//" >'help/foreach' <<'END_OF_FILE'
+X      for name [ in word ... ]
+X      do list
+X      done Expand the list of words, and  set  the  parameter
+X	   name  to each of them in turn, executing list each
+X	   time.  If the in word is omitted,  use  the  posi-
+X	   tional parameters instead of the words.
+X
+X      for name [ in word ... ] ; sublist
+X	   This is a shorthand for for.  Though it may  cause
+X	   confusion, it is included for convenience; its use
+X	   in scripts is discouraged,  unless  sublist  is  a
+X	   command of the form { list }.
+X
+X      foreach name ( word ... )
+X      list
+X      end  Another form of for.
+X
+X      for name in word ...
+X      {
+X      list
+X      }    Another form of for.
+X
+X      for name ( word ... ) {
+X      list
+X      }    Another form of for.
+X
+X      for name ( word ... ) sublist
+X	   Another form of for.
+END_OF_FILE
+  if test 793 -ne `wc -c <'help/foreach'`; then
+    echo shar: \"'help/foreach'\" unpacked with wrong size!
+  fi
+  # end of 'help/foreach'
+fi
+if test -f 'help/function' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/function'\"
+else
+  echo shar: Extracting \"'help/function'\" \(360 characters\)
+  sed "s/^X//" >'help/function' <<'END_OF_FILE'
+X      function word [ () ] ... { list }
+X      word ... () { list }
+X      word ... () sublist
+X	   Define a function which is referenced by  any  one
+X	   of  word.   Normally,  only  one word is provided;
+X	   multiple words are usually only useful for setting
+X	   traps.   The  body  of  the  function  is the list
+X	   between the { and }.  See FUNCTIONS below.
+END_OF_FILE
+  if test 360 -ne `wc -c <'help/function'`; then
+    echo shar: \"'help/function'\" unpacked with wrong size!
+  fi
+  # end of 'help/function'
+fi
+if test -f 'help/getopts' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/getopts'\"
+else
+  echo shar: Extracting \"'help/getopts'\" \(1207 characters\)
+  sed "s/^X//" >'help/getopts' <<'END_OF_FILE'
+X     getopts optstring name [ arg ... ]
+X          Checks arg for legal options.  If arg is  omitted,  use
+X          the  positional  parameters.   A  valid option argument
+X          begins with a + or a -.  An argument not beginning with
+X          a + or a -, or the argument --, ends the options.  opt-
+X          string contains the letters  that  getopts  recognizes.
+X          If  a  letter  is  followed  by  a  `:', that option is
+X          expected to have  an  argument.   The  options  can  be
+X          separated from the argument by blanks.
+X
+X          Each time it is  invoked,  getopts  places  the  option
+X          letter  it finds in the shell parameter name, prepended
+X          with a + when arg begins with a +.  The  index  of  the
+X          next  arg is stored in OPTIND.  The option argument, if
+X          any, is stored in OPTARG.
+X
+X          A leading : in optstring causes getopts  to  store  the
+X          letter of the invalid option in OPTARG, and to set name
+X          to `?' for an unknown option and to `:' when a required
+X          option  is missing.  Otherwise, getopts prints an error
+X          message.  The exit status is nonzero when there are  no
+X          more options.
+END_OF_FILE
+  if test 1207 -ne `wc -c <'help/getopts'`; then
+    echo shar: \"'help/getopts'\" unpacked with wrong size!
+  fi
+  # end of 'help/getopts'
+fi
+if test -f 'help/if' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/if'\"
+else
+  echo shar: Extracting \"'help/if'\" \(550 characters\)
+  sed "s/^X//" >'help/if' <<'END_OF_FILE'
+X      if list
+X      then list
+X      [ elif list ; then list ] ...
+X      [ else list ]
+X      fi   The if list is executed, and, if it returns a zero
+X	   exit  status,  the  then list is executed.  Other-
+X	   wise, the elif list is executed and, if its  value
+X	   is  zero, the then list is executed.  If each elif
+X	   list returns nonzero, the else list is executed.
+X
+X      if ( list ) sublist
+X	   A short form of if.
+X
+X      if ( list ) {
+X      list
+X      } elif ( list ) {
+X      list
+X      } ... else {
+X      list
+X      }    An alternate form of if.
+END_OF_FILE
+  if test 550 -ne `wc -c <'help/if'`; then
+    echo shar: \"'help/if'\" unpacked with wrong size!
+  fi
+  # end of 'help/if'
+fi
+if test -f 'help/kill' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/kill'\"
+else
+  echo shar: Extracting \"'help/kill'\" \(524 characters\)
+  sed "s/^X//" >'help/kill' <<'END_OF_FILE'
+X     kill [ -sig ] job ...
+X     kill -l
+X          Sends either SIGTERM or the  specified  signal  to  the
+X          given  jobs  or processes.  Signals are given by number
+X          or by names (with the prefix "SIG"  removed).   If  the
+X          signal  being  sent  is  not KILL or CONT, then the job
+X          will be sent a CONT signal if it is stopped.  The argu-
+X          ment  job can be the process id of a job not in the job
+X          list.  In the second form, kill -l,  the  signal  names
+X          are listed.
+END_OF_FILE
+  if test 524 -ne `wc -c <'help/kill'`; then
+    echo shar: \"'help/kill'\" unpacked with wrong size!
+  fi
+  # end of 'help/kill'
+fi
+if test -f 'help/print' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/print'\"
+else
+  echo shar: Extracting \"'help/print'\" \(1151 characters\)
+  sed "s/^X//" >'help/print' <<'END_OF_FILE'
+X     print [ -RnrslzpNDP ] [ -un ] [ arg ... ]
+X          With no flags or with flag -, the arguments are printed
+X          on the standard output as described by echo.
+X          -R, -r
+X               ignore the escape conventions  of  echo.   The  -R
+X               option  will  print  all  subsequent arguments and
+X               options.
+X          -s   place the results in the history list  instead  of
+X               on the standard output.
+X          -n   do not add a newline to the output.
+X          -l   print the arguments separated by newlines  instead
+X               of spaces.
+X          -N   print the arguments separated  and  terminated  by
+X               nulls.
+X          -un  print the arguments to file descriptor n.
+X          -p   print the arguments to the input of the coprocess.
+X          -z   push the arguments onto the editing buffer  stack,
+X               separated  by  spaces;  no  escape  sequences  are
+X               recognized.
+X          -D   treat the arguments as directory names,  replacing
+X               prefixes with ~ expressions, as appropriate.
+X          -P   recognize the same  escape  sequences  as  in  the
+END_OF_FILE
+  if test 1151 -ne `wc -c <'help/print'`; then
+    echo shar: \"'help/print'\" unpacked with wrong size!
+  fi
+  # end of 'help/print'
+fi
+if test -f 'help/select' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/select'\"
+else
+  echo shar: Extracting \"'help/select'\" \(812 characters\)
+  sed "s/^X//" >'help/select' <<'END_OF_FILE'
+X      select name [ in word ... ]
+X      do list
+X      done Print the set of words, each preceded by a number.
+X	   If  the  in  word  is  omitted, use the positional
+X	   parameters.  The PROMPT3 prompt is printed  and  a
+X	   line  is  read  from standard input.  If this line
+X	   consists of the number of one of the listed words,
+X	   then  the  parameter  name  is  set  to  the  word
+X	   corresponding to this number.   If  this  line  is
+X	   empty,  the selection list is printed again.  Oth-
+X	   erwise, the value of the parameter name is set  to
+X	   null.  The contents of the line read from standard
+X	   input is saved in the parameter  REPLY.   list  is
+X	   executed  for each selection until a break or end-
+X	   of-file is encountered.
+X
+X      select name [ in word ] ; sublist
+X	   A short form of select.
+END_OF_FILE
+  if test 812 -ne `wc -c <'help/select'`; then
+    echo shar: \"'help/select'\" unpacked with wrong size!
+  fi
+  # end of 'help/select'
+fi
+if test -f 'help/set' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/set'\"
+else
+  echo shar: Extracting \"'help/set'\" \(745 characters\)
+  sed "s/^X//" >'help/set' <<'END_OF_FILE'
+X     set [ +-options ] [ +-o option name ] ... [ -A name ] [ arg ] ...
+X          Set the options for the shell and/or set the positional
+X          parameters, or declare an array.  For  the  meaning  of
+X          the  flags,  see OPTIONS above.  Flags may be specified
+X          by name using the -o option.  If the -A flag is  speci-
+X          fied,  name  is  set  to  an array containing the given
+X          args.  Otherwise the positional parameters are set.  If
+X          no  arguments  are  given, then the names and values of
+X          all parameters are printed on the standard output.   If
+X          the only argument is +, the names of all parameters are
+X          printed.
+X     unset name ...
+X          Each named parameter is unset.
+END_OF_FILE
+  if test 745 -ne `wc -c <'help/set'`; then
+    echo shar: \"'help/set'\" unpacked with wrong size!
+  fi
+  # end of 'help/set'
+fi
+if test -f 'help/ttyctl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/ttyctl'\"
+else
+  echo shar: Extracting \"'help/ttyctl'\" \(437 characters\)
+  sed "s/^X//" >'help/ttyctl' <<'END_OF_FILE'
+X     ttyctl -fu
+X          The -f option freezes the tty,  and  -u  unfreezes  it.
+X          When the tty is frozen, no changes made to the tty set-
+X          tings by external  programs  will  be  honored  by  the
+X          shell;  the  shell  will  simply  reset the settings to
+X          their previous values as soon as  each  command  exits.
+X          Thus, stty and similar programs have no effect when the
+X          tty is frozen.
+END_OF_FILE
+  if test 437 -ne `wc -c <'help/ttyctl'`; then
+    echo shar: \"'help/ttyctl'\" unpacked with wrong size!
+  fi
+  # end of 'help/ttyctl'
+fi
+if test -f 'help/ulimit' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/ulimit'\"
+else
+  echo shar: Extracting \"'help/ulimit'\" \(890 characters\)
+  sed "s/^X//" >'help/ulimit' <<'END_OF_FILE'
+X     ulimit [ -HSacdfmnt ] [ limit ]
+X          Set or display a resource limit.  The  value  of  limit
+X          can  be  a  number  in  the unit specified below or the
+X          value unlimited.  The H and S flags specify whether the
+X          hard  limit or the soft limit for the given resource is
+X          set.
+X          -a   Lists all of the current resource limits.
+X          -c   The number of 512-byte blocks on the size of  core
+X               dumps.
+X          -d   The number of K-bytes on the size of the data seg-
+X               ment.
+X          -f   The number of 512-byte blocks on the size of files
+X               written.
+X          -m   The number of K-bytes  on  the  size  of  physical
+X               memory.
+X          -n   The number of file descriptors.
+X          -s   The number of K-bytes on the size of the stack.
+X          -t   The number of CPU seconds to be used.
+END_OF_FILE
+  if test 890 -ne `wc -c <'help/ulimit'`; then
+    echo shar: \"'help/ulimit'\" unpacked with wrong size!
+  fi
+  # end of 'help/ulimit'
+fi
+if test -f 'help/unhash' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/unhash'\"
+else
+  echo shar: Extracting \"'help/unhash'\" \(362 characters\)
+  sed "s/^X//" >'help/unhash' <<'END_OF_FILE'
+X     hash name path
+X          Puts name in the command  hash  table,  associating  it
+X          with  the  pathname  path.   Whenever name is used as a
+X          command argument, the shell will  try  to  execute  the
+X          file given by path.
+X     unhash name ...
+X          The entry in the command hash table, if any,  for  each
+X          name is removed.
+END_OF_FILE
+  if test 362 -ne `wc -c <'help/unhash'`; then
+    echo shar: \"'help/unhash'\" unpacked with wrong size!
+  fi
+  # end of 'help/unhash'
+fi
+if test -f 'help/unset' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/unset'\"
+else
+  echo shar: Extracting \"'help/unset'\" \(745 characters\)
+  sed "s/^X//" >'help/unset' <<'END_OF_FILE'
+X     set [ +-options ] [ +-o option name ] ... [ -A name ] [ arg ] ...
+X          Set the options for the shell and/or set the positional
+X          parameters, or declare an array.  For  the  meaning  of
+X          the  flags,  see OPTIONS above.  Flags may be specified
+X          by name using the -o option.  If the -A flag is  speci-
+X          fied,  name  is  set  to  an array containing the given
+X          args.  Otherwise the positional parameters are set.  If
+X          no  arguments  are  given, then the names and values of
+X          all parameters are printed on the standard output.   If
+X          the only argument is +, the names of all parameters are
+X          printed.
+X     unset name ...
+X          Each named parameter is unset.
+END_OF_FILE
+  if test 745 -ne `wc -c <'help/unset'`; then
+    echo shar: \"'help/unset'\" unpacked with wrong size!
+  fi
+  # end of 'help/unset'
+fi
+if test -f 'help/whence' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/whence'\"
+else
+  echo shar: Extracting \"'help/whence'\" \(515 characters\)
+  sed "s/^X//" >'help/whence' <<'END_OF_FILE'
+X     whence [ -acpv ] name ...
+X          For each name, indicate how it would be interpreted  if
+X          used  as  a  command name.  The -v flag produces a more
+X          verbose report.  The -p flag does  a  path  search  for
+X          name even if it is a shell function, alias, or reserved
+X          word.  The -c flag prints the  results  in  a  csh-like
+X          format.   The  -a flag does a search for all occurences
+X          of name throughout the command path.
+X
+X     which
+X          Same as whence -c.
+END_OF_FILE
+  if test 515 -ne `wc -c <'help/whence'`; then
+    echo shar: \"'help/whence'\" unpacked with wrong size!
+  fi
+  # end of 'help/whence'
+fi
+if test -f 'help/which' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/which'\"
+else
+  echo shar: Extracting \"'help/which'\" \(515 characters\)
+  sed "s/^X//" >'help/which' <<'END_OF_FILE'
+X     whence [ -acpv ] name ...
+X          For each name, indicate how it would be interpreted  if
+X          used  as  a  command name.  The -v flag produces a more
+X          verbose report.  The -p flag does  a  path  search  for
+X          name even if it is a shell function, alias, or reserved
+X          word.  The -c flag prints the  results  in  a  csh-like
+X          format.   The  -a flag does a search for all occurences
+X          of name throughout the command path.
+X
+X     which
+X          Same as whence -c.
+END_OF_FILE
+  if test 515 -ne `wc -c <'help/which'`; then
+    echo shar: \"'help/which'\" unpacked with wrong size!
+  fi
+  # end of 'help/which'
+fi
+if test -f 'src/cond.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cond.c'\"
+else
+  echo shar: Extracting \"'src/cond.c'\" \(4069 characters\)
+  sed "s/^X//" >'src/cond.c' <<'END_OF_FILE'
+X/*
+X *
+X * cond.c - evaluate conditional expressions
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X
+Xint evalcond(c) /**/
+XCond c;
+X{
+Xstruct stat *st;
+X
+X	switch (c->type)
+X		{
+X		case COND_NOT: return !evalcond(c->left);
+X		case COND_AND: return evalcond(c->left) && evalcond(c->right);
+X		case COND_OR: return evalcond(c->left) || evalcond(c->right);
+X		}
+X	singsub((char **) &c->left);
+X	untokenize(c->left);
+X	if (c->right)
+X		{
+X		singsub((char **) &c->right);
+X		if (c->type != COND_STREQ && c->type != COND_STRNEQ)
+X			untokenize(c->right);
+X		}
+X	switch (c->type)
+X		{
+X		case COND_STREQ: return matchpat(c->left,c->right);
+X		case COND_STRNEQ: return !matchpat(c->left,c->right);
+X		case COND_STRLT: return strcmp(c->left,c->right) < 0;
+X		case COND_STRGTR: return strcmp(c->left,c->right) > 0;
+X		case 'e': case 'a': return(doaccess(c->left,F_OK));
+X		case 'b': return(S_ISBLK(dostat(c->left)));
+X		case 'c': return(S_ISCHR(dostat(c->left)));
+X		case 'd': return(S_ISDIR(dostat(c->left)));
+X		case 'f': return(S_ISREG(dostat(c->left)));
+X		case 'g': return(!!(dostat(c->left) & S_ISGID));
+X		case 'k': return(!!(dostat(c->left) & S_ISVTX));
+X		case 'n': return(!!strlen(c->left));
+X		case 'o': return(optison(c->left));
+X		case 'p': return(S_ISFIFO(dostat(c->left)));
+X		case 'r': return(doaccess(c->left,R_OK));
+X		case 's': return((st = getstat(c->left)) && !!(st->st_size));
+X		case 'S': return(S_ISSOCK(dostat(c->left)));
+X		case 'u': return(!!(dostat(c->left) & S_ISUID));
+X		case 'w': return(doaccess(c->left,W_OK));
+X		case 'x': return(doaccess(c->left,X_OK));
+X		case 'z': return(!strlen(c->left));
+X		case 'h': case 'L': return(S_ISLNK(dolstat(c->left)));
+X		case 'O': return((st = getstat(c->left)) && st->st_uid == geteuid());
+X		case 'G': return((st = getstat(c->left)) && st->st_gid == getegid());
+X		case 't': return isatty(matheval(c->left));
+X		case COND_EQ: return matheval(c->left) == matheval(c->right);
+X		case COND_NE: return matheval(c->left) != matheval(c->right);
+X		case COND_LT: return matheval(c->left) < matheval(c->right);
+X		case COND_GT: return matheval(c->left) > matheval(c->right);
+X		case COND_LE: return matheval(c->left) <= matheval(c->right);
+X		case COND_GE: return matheval(c->left) >= matheval(c->right);
+X		case COND_NT: case COND_OT:
+X			{
+X			time_t a;
+X			if (!(st = getstat(c->left)))
+X				return 0;
+X			a = st->st_mtime;
+X			if (!(st = getstat(c->right)))
+X				return 0;
+X			return (c->type == COND_NT) ? a > st->st_mtime : a < st->st_mtime;
+X			}
+X		case COND_EF:
+X			{
+X			dev_t d;
+X			ino_t i;
+X
+X			if (!(st = getstat(c->left)))
+X				return 0;
+X			d = st->st_dev;
+X			i = st->st_ino;
+X			if (!(st = getstat(c->right)))
+X				return 0;
+X			return d == st->st_dev && i == st->st_ino;
+X			}
+X		default: zerr("bad cond structure",NULL,0);
+X		}
+X	return 0;
+X}
+X
+Xint doaccess(s,c) /**/
+Xchar *s;int c;
+X{
+X	return !access(s,c);
+X}
+X
+Xstatic struct stat st;
+X
+Xstruct stat *getstat(s) /**/
+Xchar *s;
+X{
+X	if (!strncmp(s,"/dev/fd/",8))
+X		{
+X		if (fstat(atoi(s+8),&st))
+X			return NULL;
+X		}
+X	else if (stat(s,&st))
+X		return NULL;
+X	return &st;
+X}
+X
+Xunsigned short dostat(s) /**/
+Xchar *s;
+X{
+Xstruct stat *st;
+X
+X	if (!(st = getstat(s)))
+X		return 0;
+X	return st->st_mode;
+X}
+X
+X/* pem@aaii.oz; needed since dostat now uses "stat" */
+X
+Xunsigned short dolstat(s) /**/
+Xchar *s;
+X{
+X	if (lstat(s, &st) < 0)
+X		return 0;
+X	return st.st_mode;
+X}
+X
+Xint optison(s) /**/
+Xchar *s;
+X{
+Xint i;
+X
+X	if (strlen(s) == 1)
+X		return opts[(int)*s];
+X	if ((i = optlookup(s)) != -1)
+X		return opts[i];
+X	zerr("no such option: %s",s,0);
+X	return 0;
+X}
+X
+END_OF_FILE
+  if test 4069 -ne `wc -c <'src/cond.c'`; then
+    echo shar: \"'src/cond.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/cond.c'
+fi
+if test -f 'src/loop.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/loop.c'\"
+else
+  echo shar: Extracting \"'src/loop.c'\" \(4787 characters\)
+  sed "s/^X//" >'src/loop.c' <<'END_OF_FILE'
+X/*
+X *
+X * loop.c - loop execution
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X
+Xint execfor(cmd) /**/
+XCmd cmd;
+X{
+XList list;
+Xstruct forcmd *node;
+Xchar *str;
+XLklist args;
+Xint cj = thisjob;
+X
+X	loops++;
+X	exiting = 0;
+X	node = cmd->u.forcmd;
+X	args = cmd->args;
+X	if (!node->inflag)
+X		{
+X		char **x;
+X
+X		args = newlist();
+X		for (x = pparams; *x; x++)
+X			addnode(args,ztrdup(*x));
+X		}
+X	pushheap();
+X	while (str = ugetnode(args))
+X		{
+X		setsparam(node->name,ztrdup(str));
+X		list = dupstruct(node->list);
+X		execlist(list);
+X		if (breaks)
+X			{
+X			breaks--;
+X			if (breaks || !contflag)
+X				break;
+X			contflag = 0;
+X			}
+X		if (errflag)
+X			{
+X			lastval = 1;
+X			break;
+X			}
+X		freeheap();
+X		}
+X	popheap();
+X	thisjob = cj;
+X	loops--;
+X	return lastval;
+X}
+X
+Xint execselect(cmd) /**/
+XCmd cmd;
+X{
+XList list;
+Xstruct forcmd *node;
+Xchar *str,*s;
+XLklist args;
+XLknode n;
+Xint cj = thisjob,t0;
+XFILE *inp;
+X
+X	node = cmd->u.forcmd;
+X	args = cmd->args;
+X	if (!node->inflag) {
+X		char **x;
+X
+X		args = newlist();
+X		for (x = pparams; *x; x++)
+X			addnode(args,ztrdup(*x));
+X	}
+X	if (empty(args))
+X		return 1;
+X	loops++;
+X	exiting = 0;
+X	pushheap();
+X	inp = fdopen(dup((SHTTY==-1)?0:SHTTY),"r");
+X	for (;;)
+X		{
+X		do
+X			{
+X			int pl;
+X			selectlist(args);
+X			str = putprompt(prompt3,&pl,0);
+X			if (full(bufstack)) str = (char *) getnode(bufstack);
+X			else if (interact && SHTTY != -1 && isset(USEZLE)) {
+X				str = (char *)zleread((unsigned char *)str,NULL,pl);
+X			} else {
+X				fprintf(stderr,"%s",str);
+X				fflush(stderr);
+X				str = fgets(zalloc(256),256,inp);
+X			}
+X			if (!str || errflag)
+X				{
+X				fprintf(stderr,"\n");
+X				fflush(stderr);
+X				goto done;
+X				}
+X			if (s = strchr(str,'\n'))
+X				*s = '\0';
+X			}
+X		while (!*str);
+X		setsparam("REPLY",ztrdup(str));
+X		t0 = atoi(str);
+X		if (!t0)
+X			str = "";
+X		else
+X			{
+X			for (t0--,n = firstnode(args); n && t0; incnode(n),t0--);
+X			if (n)
+X				str = getdata(n);
+X			else
+X				str = "";
+X			}
+X		setsparam(node->name,ztrdup(str));
+X		list = dupstruct(node->list);
+X		execlist(list);
+X		freeheap();
+X		if (breaks)
+X			{
+X			breaks--;
+X			if (breaks || !contflag)
+X				break;
+X			contflag = 0;
+X			}
+X		if (errflag)
+X			break;
+X		}
+Xdone:
+X	popheap();
+X	fclose(inp);
+X	thisjob = cj;
+X	loops--;
+X	return lastval;
+X}
+X 
+Xint execwhile(cmd) /**/
+XCmd cmd;
+X{
+XList list;
+Xstruct whilecmd *node;
+Xint cj = thisjob; 
+X
+X	node = cmd->u.whilecmd;
+X	exiting = 0;
+X	pushheap();
+X	loops++;
+X	for(;;)
+X		{
+X		list = dupstruct(node->cont);
+X		execlist(list);
+X		if (!((lastval == 0) ^ node->cond)) {
+X			if (breaks) breaks--;
+X			break;
+X		}
+X		list = dupstruct(node->loop);
+X		execlist(list);
+X		if (breaks)
+X			{
+X			breaks--;
+X			if (breaks || !contflag)
+X				break;
+X			contflag = 0;
+X			}
+X		freeheap();
+X		if (errflag)
+X			{
+X			lastval = 1;
+X			break;
+X			}
+X		}
+X	popheap();
+X	thisjob = cj;
+X	loops--;
+X	return lastval;
+X}
+X 
+Xint execrepeat(cmd) /**/
+XCmd cmd;
+X{
+XList list;
+Xint cj = thisjob,count;
+X
+X	exiting = 0;
+X	if (empty(cmd->args) || nextnode(firstnode(cmd->args)))
+X		{
+X		zerr("bad argument for repeat",NULL,0);
+X		return 1;
+X		}
+X	count = atoi(peekfirst(cmd->args));
+X	pushheap();
+X	loops++;
+X	while (count--)
+X		{
+X		list = dupstruct(cmd->u.list);
+X		execlist(list);
+X		freeheap();
+X		if (breaks)
+X			{
+X			breaks--;
+X			if (breaks || !contflag)
+X				break;
+X			contflag = 0;
+X			}
+X		if (lastval)
+X			break;
+X		if (errflag)
+X			{
+X			lastval = 1;
+X			break;
+X			}
+X		}
+X	popheap();
+X	thisjob = cj;
+X	loops--;
+X	return lastval;
+X}
+X 
+Xint execif(cmd) /**/
+XCmd cmd;
+X{
+Xstruct ifcmd *node;
+Xint cj = thisjob;
+X
+X	node = cmd->u.ifcmd;
+X	exiting = 0;
+X	while (node)
+X		{
+X		if (node->ifl)
+X			{
+X			execlist(node->ifl);
+X			if (lastval)
+X				{
+X				node = node->next;
+X				continue;
+X				}
+X			}
+X		execlist(node->thenl);
+X		break;
+X		}
+X	thisjob = cj;
+X	return lastval;
+X}
+X 
+Xint execcase(cmd) /**/
+XCmd cmd;
+X{
+Xstruct casecmd *node;
+Xchar *word;
+XLklist args;
+Xint cj = thisjob;
+X
+X	node = cmd->u.casecmd;
+X	args = cmd->args;
+X	exiting = 0;
+X	if (firstnode(args) && nextnode(firstnode(args)))
+X		{
+X		zerr("too many arguments to case",NULL,0);
+X		return 1;
+X		}
+X	if (empty(args))
+X		word = strdup("");
+X	else
+X		word = peekfirst(args);
+X	while (node)
+X		{
+X		singsub(&(node->pat));
+X		if (matchpat(word,node->pat))
+X			break;
+X		else
+X			node = node->next;
+X		}
+X	if (node && node->list)
+X		execlist(node->list);
+X	thisjob = cj;
+X	return lastval;
+X}
+END_OF_FILE
+  if test 4787 -ne `wc -c <'src/loop.c'`; then
+    echo shar: \"'src/loop.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/loop.c'
+fi
+if test -f 'src/mem.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mem.c'\"
+else
+  echo shar: Extracting \"'src/mem.c'\" \(5032 characters\)
+  sed "s/^X//" >'src/mem.c' <<'END_OF_FILE'
+X/*
+X *
+X * mem.c - memory management
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X/*
+X
+X	mem.c - memory management
+X
+X	This file is part of zsh, the Z shell.
+X
+X	zsh is free software; no one can prevent you from reading the source
+X   code, or giving it to someone else.
+X
+X   This file is copyrighted under the GNU General Public License, which
+X   can be found in the file called COPYING.
+X
+X   Copyright (C) 1990, 1991 Paul Falstad
+X
+X*/
+X
+X#include "zsh.h"
+X#define HEAPSIZE 8192
+X
+X/*
+X
+X	There are two ways to allocate memory in zsh.  The first way is
+X	to call zalloc/zcalloc, which call malloc/calloc directly.  It
+X	is legal to call realloc() or free() on memory allocated this way.
+X	The second way is to call halloc/hcalloc, which allocates memory
+X	from one of the memory pools on the heap stack.  A pool can be
+X	created by calling pushheap(), and destroyed by calling popheap().
+X	To free the memory in the pool without destroying it, call
+X	freeheap(); this is equivalent to { popheap(); pushheap(); }
+X	Memory allocated in this way does not have to be freed explicitly;
+X	it will all be freed when the pool is destroyed.  In fact,
+X	attempting to free this memory may result in a core dump.
+X	The pair of pointers ncalloc and alloc may point to either
+X	zalloc & zcalloc or halloc & hcalloc; permalloc() sets them to the
+X	former, and heapalloc() sets them to the latter. This can be useful.
+X	For example, the dupstruct() routine duplicates a syntax tree,
+X	allocating the new memory for the tree using alloc().  If you want
+X	to duplicate a structure for a one-time use (i.e. to execute the list
+X	in a for loop), call heapalloc(), then dupstruct().  If you want
+X	to duplicate a structure in order to preserve it (i.e. a function
+X	definition), call permalloc(), then dupstruct().
+X
+X*/
+X
+X/* initialize heap stack */
+X
+Xvoid meminit() /**/
+X{
+X	permalloc();
+X	heaplist = newlist();
+X	pushheap();
+X}
+X
+X/* set default allocation to heap stack */
+X
+Xvoid heapalloc() /**/
+X{
+X	alloc = hcalloc;
+X	ncalloc = halloc;
+X	useheap = 1;
+X}
+X
+Xstatic vptr (*lastcalloc) DCLPROTO((int));
+Xstatic vptr (*lastncalloc) DCLPROTO((int));
+Xstatic int lastuseheap;
+X
+X/* set default allocation to malloc() */
+X
+Xvoid permalloc() /**/
+X{
+X	lastcalloc = alloc;
+X	lastncalloc = ncalloc;
+X	lastuseheap = useheap;
+X	alloc = zcalloc;
+X	ncalloc = zalloc;
+X	useheap = 0;
+X}
+X
+X/* reset previous default allocation */
+X
+Xvoid lastalloc() /**/
+X{
+X	alloc = lastcalloc;
+X	ncalloc = lastncalloc;
+X	useheap = lastuseheap;
+X}
+X
+Xstruct heap {
+X	char *pool,*ptr;
+X	int free;
+X	struct heap *next;
+X	};
+X
+X/* create a memory pool */
+X
+Xvoid pushheap() /**/
+X{
+XHeap h;
+X
+X	h = (Heap) zalloc(sizeof *h);
+X	h->pool = h->ptr = zalloc(HEAPSIZE);
+X	h->free = HEAPSIZE;
+X	h->next = NULL;
+X	permalloc();
+X	pushnode(heaplist,h);
+X	lastalloc();
+X}
+X
+X/* reset a memory pool */
+X
+Xvoid freeheap() /**/
+X{
+XHeap h = (Heap) peekfirst(heaplist);
+X
+X	freeh(h->next);
+X	h->next = NULL;
+X	h->free += (h->ptr-h->pool);
+X	h->ptr = h->pool;
+X}
+X
+X/* destroy a memory pool */
+X
+Xvoid popheap() /**/
+X{
+XHeap h = (Heap) getnode(heaplist);
+X
+X	freeh(h);
+X}
+X
+Xvoid freeh(h) /**/
+XHeap h;
+X{
+X	if (h)
+X		{
+X		freeh(h->next);
+X		free(h->pool);
+X		free(h);
+X		}
+X}
+X
+X/* allocate memory from the current memory pool */
+X
+Xvptr halloc(size) /**/
+Xint size;
+X{
+XHeap h = (Heap) peekfirst(heaplist),h2;
+Xchar *ret;
+X
+X	size = (size|7)+1;
+X	while (h && h->free-size < 0)
+X		h = h->next;
+X	if (!h) {
+X		h2 = (Heap) zalloc(sizeof *h2);
+X		h2->pool = h2->ptr = zalloc(h2->free = 
+X			(size < HEAPSIZE) ? HEAPSIZE : (size|(HEAPSIZE-1))+1);
+X		h2->next = (Heap) peekfirst(heaplist);
+X		setdata(firstnode(heaplist),(vptr) h2);
+X		h = h2;
+X	}
+X	h->free -= size;
+X	ret = h->ptr;
+X	h->ptr += size;
+X	return ret;
+X}
+X
+X/* allocate memory from the current memory pool and clear it */
+X
+Xvptr hcalloc(size) /**/
+Xint size;
+X{
+Xvptr ptr;
+X
+X	ptr = halloc(size);
+X	memset(ptr,0,size);
+X	return ptr;
+X}
+X
+Xvptr hrealloc(p,old,new) /**/
+Xchar *p;int old;int new;
+X{
+Xchar *ptr;
+X
+X	ptr = halloc(new);
+X	memcpy(ptr,p,old);
+X	return ptr;
+X}
+X
+X/* allocate permanent memory */
+X
+Xvptr zalloc(l) /**/
+Xint l;
+X{
+Xvptr z;
+X 
+X	if (!l) l = 1;
+X	if (!(z = malloc(l)))
+X		{
+X		zerr("fatal error: out of memory",NULL,0);
+X		exit(1);
+X		}
+X	return z;
+X}
+X
+Xvptr zcalloc(size) /**/
+Xint size;
+X{
+Xvptr ptr;
+X
+X	ptr = zalloc(size);
+X	memset(ptr,0,size);
+X	return ptr;
+X}
+X
+Xchar *strdup(s) /**/
+Xconst char *s;
+X{
+Xchar *t;
+X
+X	if (!s)
+X		return NULL;
+X	t = ncalloc(strlen(s)+1);
+X	strcpy(t,s);
+X	return t;
+X}
+X
+Xchar *ztrdup(s) /**/
+Xconst char *s;
+X{
+Xchar *t;
+X
+X	if (!s)
+X		return NULL;
+X	t = zalloc(strlen(s)+1);
+X	strcpy(t,s);
+X	return t;
+X}
+X
+END_OF_FILE
+  if test 5032 -ne `wc -c <'src/mem.c'`; then
+    echo shar: \"'src/mem.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mem.c'
+fi
+if test -f 'src/zle_move.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/zle_move.c'\"
+else
+  echo shar: Extracting \"'src/zle_move.c'\" \(5167 characters\)
+  sed "s/^X//" >'src/zle_move.c' <<'END_OF_FILE'
+X/*
+X *
+X * zle_move.c - editor movement
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+Xvoid beginningofline() /**/
+X{
+X	if (mult < 0) { mult = -mult; endofline(); return; }
+X	while (mult--) {
+X		if (cs == 0)
+X			return;
+X		if (line[cs-1] == '\n')
+X			if (!--cs)
+X				return;
+X		while (cs && line[cs-1] != '\n') cs--;
+X	}
+X}
+X
+Xvoid endofline() /**/
+X{
+X	if (mult < 0) { mult = -mult; beginningofline(); return; }
+X	while (mult--) {
+X		if (cs >= ll) {
+X			cs = ll;
+X			return;
+X		}
+X		if (line[cs] == '\n')
+X			if (++cs == ll)
+X				return;
+X		while (cs != ll && line[cs] != '\n') cs++;
+X	}
+X}
+X
+Xvoid beginningoflinehist() /**/
+X{
+X	if (mult < 0) { mult = -mult; endoflinehist(); return; }
+X	while (mult) {
+X		if (cs == 0)
+X			break;
+X		if (line[cs-1] == '\n')
+X			if (!--cs)
+X				break;
+X		while (cs && line[cs-1] != '\n') cs--;
+X		mult--;
+X	}
+X	if (mult) {
+X		uphistory();
+X		cs = 0;
+X	}
+X}
+X
+Xvoid endoflinehist() /**/
+X{
+X	if (mult < 0) { mult = -mult; beginningoflinehist(); return; }
+X	while (mult) {
+X		if (cs >= ll) {
+X			cs = ll;
+X			break;
+X		}
+X		if (line[cs] == '\n')
+X			if (++cs == ll)
+X				break;
+X		while (cs != ll && line[cs] != '\n') cs++;
+X		mult--;
+X	}
+X	if (mult)
+X		downhistory();
+X}
+X
+Xvoid forwardchar() /**/
+X{
+X	cs += mult;
+X	if (cs > ll) cs = ll;
+X	if (cs <  0) cs = 0;
+X}
+X
+Xvoid backwardchar() /**/
+X{
+X	cs -= mult;
+X	if (cs > ll) cs = ll;
+X	if (cs <  0) cs = 0;
+X}
+X
+Xvoid setmarkcommand() /**/
+X{
+X	mark = cs;
+X}
+X
+Xvoid exchangepointandmark() /**/
+X{
+Xint x;
+X
+X	x = mark;
+X	mark = cs;
+X	cs = x;
+X	if (cs > ll)
+X		cs = ll;
+X}
+X
+Xvoid vigotocolumn() /**/
+X{
+Xint x,y,ocs = cs;
+X
+X	if (mult > 0) mult--;
+X	findline(&x,&y);
+X	if (mult >= 0) cs = x+mult; else cs = y+mult;
+X	if (cs < x || cs > y) {
+X		feep();
+X		cs = ocs;
+X	}
+X}
+X
+Xvoid vimatchbracket() /**/
+X{
+Xint ocs = cs,dir,ct;
+Xunsigned char oth,me;
+X
+Xotog:
+X	if (cs == ll)
+X		{
+X		feep();
+X		cs = ocs;
+X		return;
+X		}
+X	switch(me = line[cs])
+X		{
+X		case '{': dir = 1; oth = '}'; break;
+X		case '}': dir = -1; oth = '{'; break;
+X		case '(': dir = 1; oth = ')'; break;
+X		case ')': dir = -1; oth = '('; break;
+X		case '[': dir = 1; oth = ']'; break;
+X		case ']': dir = -1; oth = '['; break;
+X		default: cs++; goto otog;
+X		}
+X	ct = 1;
+X	while (cs >= 0 && cs < ll && ct)
+X		{
+X		cs += dir;
+X		if (line[cs] == oth)
+X			ct--;
+X		else if (line[cs] == me)
+X			ct++;
+X		}
+X	if (cs < 0 || cs >= ll)
+X		{
+X		feep();
+X		cs = ocs;
+X		}
+X}
+X
+Xvoid viforwardchar() /**/
+X{
+X	if (mult < 0) { mult = -mult; vibackwardchar(); return; }
+X	while (mult--) {
+X		cs++;
+X		if (cs >= ll || line[cs] == '\n') {
+X			cs--;
+X			break;
+X		}
+X	}
+X}
+X
+Xvoid vibackwardchar() /**/
+X{
+X	if (mult < 0) { mult = -mult; viforwardchar(); return; }
+X	while (mult--) {
+X		cs--;
+X		if (cs < 0 || line[cs] == '\n') {
+X			cs++;
+X			break;
+X		}
+X	}
+X}
+X
+Xvoid viendofline() /**/
+X{
+X	cs = findeol();
+X	if (!virangeflag && cs != 0 && line[cs-1] != '\n') cs--;
+X}
+X
+Xvoid vibeginningofline() /**/
+X{
+X	cs = findbol();
+X}
+X
+X
+Xstatic int vfindchar,vfinddir,tailadd;
+X
+Xvoid vifindnextchar() /**/
+X{
+X	if (vfindchar = vigetkey())
+X		{
+X		vfinddir = 1;
+X		tailadd = 0;
+X		virepeatfind();
+X		}
+X}
+X
+Xvoid vifindprevchar() /**/
+X{
+X	if (vfindchar = vigetkey())
+X		{
+X		vfinddir = -1;
+X		tailadd = 0;
+X		virepeatfind();
+X		}
+X}
+X
+Xvoid vifindnextcharskip() /**/
+X{
+X	if (vfindchar = vigetkey())
+X		{
+X		vfinddir = 1;
+X		tailadd = -1;
+X		virepeatfind();
+X		}
+X}
+X
+Xvoid vifindprevcharskip() /**/
+X{
+X	if (vfindchar = vigetkey())
+X		{
+X		vfinddir = -1;
+X		tailadd = 1;
+X		virepeatfind();
+X		}
+X}
+X
+Xvoid virepeatfind() /**/
+X{
+Xint ocs = cs;
+X
+X	if (!vfinddir) { feep(); return; }
+X	if (mult < 0) { mult = -mult; virevrepeatfind(); return; }
+X	while (mult--)
+X		{
+X		do
+X			cs += vfinddir;
+X		while (cs >= 0 && cs < ll && line[cs] != vfindchar && line[cs] != '\n');
+X		if (cs < 0 || cs >= ll || line[cs] == '\n')
+X			{
+X			feep();
+X			cs = ocs;
+X			return;
+X			}
+X		}
+X	cs += tailadd;
+X	if (vfinddir == 1 && virangeflag) cs++;
+X}
+X
+Xvoid virevrepeatfind() /**/
+X{
+X	if (mult < 0) { mult = -mult; virepeatfind(); return; }
+X	vfinddir = -vfinddir;
+X	virepeatfind();
+X	vfinddir = -vfinddir;
+X}
+X
+Xvoid vifirstnonblank() /**/
+X{
+X	cs = findbol();
+X	while (cs != ll && iblank(line[cs]))
+X		cs++;
+X}
+X
+Xvoid visetmark() /**/
+X{
+Xint ch;
+X
+X	ch = getkey(1);
+X	if (ch < 'a' || ch > 'z') {
+X		feep();
+X		return;
+X	}
+X	ch -= 'a';
+X	vimarkcs[ch] = cs;
+X	vimarkline[ch] = histline;
+X}
+X
+Xvoid vigotomark() /**/
+X{
+Xint ch;
+X
+X	ch = getkey(1);
+X	if (ch == c) ch = 26;
+X	else {
+X		if (ch < 'a' || ch > 'z') {
+X			feep();
+X			return;
+X		}
+X		ch -= 'a';
+X	}
+X	if (!vimarkline[ch]) {
+X		feep();
+X		return;
+X	}
+X	if (curhist != vimarkline[ch]) {
+X		mult = vimarkline[ch];
+X		vifetchhistory();
+X		if (curhist != vimarkline[ch]) return;
+X	}
+X	cs = vimarkcs[ch];
+X}
+X
+Xvoid vigotomarkline() /**/
+X{
+X	vigotomark();
+X	cs = findbol();
+X}
+END_OF_FILE
+  if test 5167 -ne `wc -c <'src/zle_move.c'`; then
+    echo shar: \"'src/zle_move.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/zle_move.c'
+fi
+if test -f 'src/zle_utils.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/zle_utils.c'\"
+else
+  echo shar: Extracting \"'src/zle_utils.c'\" \(4714 characters\)
+  sed "s/^X//" >'src/zle_utils.c' <<'END_OF_FILE'
+X/*
+X *
+X * zle_utils.c - miscellaneous line editor utilities
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+X/* make sure that the line buffer has at least sz chars */
+X
+Xvoid sizeline(sz) /**/
+Xint sz;
+X{
+X	while (sz > linesz)
+X		line = (unsigned char *)realloc(line,(linesz *= 4)+1);
+X}
+X
+X/* insert space for ct chars at cursor position */
+X
+Xvoid spaceinline(ct) /**/
+Xint ct;
+X{
+Xint i;
+X
+X	while (ct+ll > linesz)
+X		line = (unsigned char *)realloc(line,(linesz *= 4)+1);
+X	for (i = ll; i >= cs; i--)
+X		line[i+ct] = line[i];
+X	ll += ct;
+X	line[ll] = '\0';
+X}
+X
+Xvoid backkill(ct,dir) /**/
+Xint ct;int dir;
+X{
+Xint i = (cs -= ct);
+X
+X	cut(i,ct,dir);
+X	while (line[i] = line[i+ct])
+X		i++;
+X	ll -= ct;
+X}
+X
+Xvoid forekill(ct,dir) /**/
+Xint ct;int dir;
+X{
+Xint i = cs;
+X
+X	cut(i,ct,dir);
+X	while (line[i] = line[i+ct])
+X		i++;
+X	ll -= ct;
+X}
+X
+Xvoid cut(i,ct,dir) /**/
+Xint i;int ct;int dir;
+X{
+X	if (vibufspec) {
+X		int owrite = 1;
+X		if (vibufspec >= 'A' && vibufspec <= 'Z') {
+X			owrite = 0; vibufspec = tolower(vibufspec);
+X		}
+X		vibufspec += (idigit(vibufspec)) ? - '1' +26 : - 'a';
+X		if (owrite || !vibuf[vibufspec]) {
+X			if (vibuf[vibufspec]) free(vibuf[vibufspec]);
+X			vibuf[vibufspec] = zalloc(ct+1);
+X			ztrncpy(vibuf[vibufspec],UTOSCP(line+i),ct);
+X		} else {
+X			int len = strlen(vibuf[vibufspec]);
+X			vibuf[vibufspec] = realloc(vibuf[vibufspec],ct+len);
+X			ztrncpy(vibuf[vibufspec]+len,UTOSCP(line+i),ct);
+X		}
+X		vibufspec = 0;
+X		return;
+X	}
+X	if (!cutbuf)
+X		cutbuf = ztrdup("");
+X	else if (!(lastcmd & ZLE_KILL)) {
+X		kringnum = (kringnum+1)&(KRINGCT-1);
+X		if (kring[kringnum])
+X			free(kring[kringnum]);
+X		kring[kringnum] = cutbuf;
+X		cutbuf = ztrdup("");
+X	}
+X	if (dir) {
+X		char *s = zalloc(strlen(cutbuf)+ct+1);
+X		strncpy(s,(char *) line+i,ct);
+X		strcpy(s+ct,cutbuf);
+X		free(cutbuf);
+X		cutbuf = s;
+X	} else {
+X		int x;
+X
+X		cutbuf = realloc(cutbuf,(x = strlen(cutbuf))+ct+1);
+X		ztrncpy(cutbuf+x,UTOSCP(line+i),ct);
+X	}
+X}
+X
+Xvoid backdel(ct) /**/
+Xint ct;
+X{
+Xint i = (cs -= ct);
+X
+X	while (line[i] = line[i+ct])
+X		i++;
+X	ll -= ct;
+X}
+X
+Xvoid foredel(ct) /**/
+Xint ct;
+X{
+Xint i = cs;
+X
+X	while (line[i] = line[i+ct])
+X		i++;
+X	ll -= ct;
+X}
+X
+Xvoid setline(s) /**/
+Xchar *s;
+X{
+X	sizeline(strlen(s));
+X	strcpy((char *) line,s);
+X	cs = ll = strlen(s);
+X	if (cs && bindtab == altbindtab) cs--;
+X}
+X
+Xvoid sethistline(s) /**/
+Xunsigned char *s;
+X{
+X	setline(UTOSCP(s));
+X	for (s = line; *s; s++)
+X		if (*s == STOUC(HISTSPACE))
+X			*s = ' ';
+X}
+X
+Xint findbol() /**/
+X{
+Xint x = cs;
+X
+X	while (x > 0 && line[x-1] != '\n') x--;
+X	return x;
+X}
+X
+Xint findeol() /**/
+X{
+Xint x = cs;
+X
+X	while (x != ll && line[x] != '\n') x++;
+X	return x;
+X}
+X
+Xvoid findline(a,b) /**/
+Xint *a;int *b;
+X{
+X	*a = findbol();
+X	*b = findeol();
+X}
+X
+Xstatic int lastlinelen;
+X
+Xvoid initundo() /**/
+X{
+Xint t0;
+X
+X	for (t0 = 0; t0 != UNDOCT; t0++)
+X		undos[t0].change = NULL;
+X	undoct = 0;
+X	lastline = zalloc(lastlinelen = (ll+1 < 32) ? 32 : ll+1);
+X	strcpy((char *) lastline,(char *) line);
+X	lastcs = cs;
+X}
+X
+Xvoid addundo() /**/
+X{
+Xint pf,sf;
+Xunsigned char *s,*s2,*t,*t2;
+Xstruct undoent *ue;
+X
+X	for (s = line, t = lastline; *s && *s==*t; s++,t++);
+X	if (!*s && !*t)
+X		return;
+X	pf = s-line;
+X	for (s2 = (unsigned char *)line+strlen((char *) line),
+X			t2 = lastline+strlen((char *) lastline);
+X		s2 > s && t > t2 && s2[-1] == t2[-1]; s2--,t2--);
+X	sf = strlen((char *) s2);
+X	ue = undos+(undoct = (UNDOCT-1) & (undoct+1));
+X	ue->pref = pf;
+X	ue->suff = sf;
+X	ue->len = t2-t;
+X	ue->cs = lastcs;
+X	strncpy(ue->change = halloc(ue->len),(char *) t,ue->len);
+X	while (ll+1 > lastlinelen)
+X		{
+X		free(lastline);
+X		lastline = zalloc(lastlinelen *= 2);
+X		}
+X	strcpy((char *) lastline,(char *) line);
+X	lastcs = cs;
+X}
+X
+Xvoid freeundo() /**/
+X{
+X	free(lastline);
+X}
+X
+Xint hstrncmp(s,t,len) /**/
+Xchar *s;char *t;int len;
+X{
+X	while (len && *s && (*s == *t || (*s == ' ' && *t == HISTSPACE) ||
+X			(*s == HISTSPACE && *t == ' ')))
+X		s++,t++,len--;
+X	return len;
+X}
+X
+Xint hstrcmp(s,t) /**/
+Xchar *s;char *t;
+X{
+X	while (*s && (*s == *t || (*s == ' ' && *t == HISTSPACE) ||
+X			(*s == HISTSPACE && *t == ' ')))
+X		s++,t++;
+X	return !(*s == '\0' && *t == '\0');
+X}
+X
+Xchar *hstrnstr(s,t,len) /**/
+Xchar *s;char *t;int len;
+X{
+X	for (; *s; s++)
+X		if (!hstrncmp(t,s,len))
+X			return s;
+X	return NULL;
+X}
+X
+END_OF_FILE
+  if test 4714 -ne `wc -c <'src/zle_utils.c'`; then
+    echo shar: \"'src/zle_utils.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/zle_utils.c'
+fi
+echo shar: End of archive 21 \(of 22\).
+cp /dev/null ark21isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

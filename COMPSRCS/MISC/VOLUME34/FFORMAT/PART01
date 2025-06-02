@@ -1,0 +1,1852 @@
+Newsgroups: comp.sources.misc
+From: kirkwood@qucis.queensu.ca (Scott Kirkwood)
+Subject:  v34i023:  fformat - C++ class for formatting floating point numbers, Part01/01
+Message-ID: <1992Dec13.013912.26325@sparky.imd.sterling.com>
+X-Md4-Signature: 203cfd1b465072f658aab68596cdf158
+Date: Sun, 13 Dec 1992 01:39:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kirkwood@qucis.queensu.ca (Scott Kirkwood)
+Posting-number: Volume 34, Issue 23
+Archive-name: fformat/part01
+Environment: C++
+
+WHAT IS FFormat?
+================
+
+FFormat is a C++ class that is designed to output formatted
+floating point numbers (float, double, etc.).  By formatted I mean:
+
+   1,234,567.8901 2345
+
+FFormat can format to a specified total character width, if the
+number doesn't fit it will be divided down until it does and then
+the appropriate SI notation will be affixed.  For instance, if
+you gave IFormat the number 1234567 and set the width to 6 you would
+get:
+   1,235K
+
+Note that this is just a class to be plugged into your programs.  It
+is not a standalone program.
+
+WHAT IS TFormat?
+================
+
+TFormat is a template version of FFormat (actually a subclass of
+FFormat) that is designed to be flexible enough to plug in your own
+extended numeric classes.  For instance, I have successfully used
+g++'s Integer class with TFormat.  I have also given an example
+class (Money) that does the minimum necessary to work with
+TFormat (ex. output  $1,234,567.89).
+
+OTHER FEATURES
+==============
+
+You can change the comma or the space to different characters and the
+width of each grouping as well.  For instance you could have
+   1234'5678.901,123  
+ (here, SetSepWidth(4); SetSep('\''); SetDeciWidth(3); SetDeciSep(',');)
+
+You can change the SI postfixes to be different.  For instance, you
+might like K=1,024 instead of 1,000.
+
+You can toggle whether to use SI postfixes, right adjusting, and
+whether separators are used.  You can allow scientific notation (ex.
+1.23e+999). 
+
+Can be used with non-floating point values like int, long.
+
+EXAMPLE
+=======
+
+	FFormat FForm;
+	cout << FForm.Str(1234567.890123) << endl;
+
+outputs -> 1,234,567.8901 23
+
+TESTED SYSTEMS
+==============
+
+IBM (Borland C++ 3.0, djgcc 2.2.2) and Unix (AT&T CC, GNU g++ 2.2.2).
+
+COPYRIGHT
+=========
+
+This is free software.  Use it and distribute it freely. Please keep
+the copyright notices.  Also, please e-mail me for comments, updates,
+corrections or bugs.
+
+-- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE --
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 1)."
+# Contents:  MANIFEST Makefile README fformat.C fformat.h make.bor
+#   my.out test.C test.bat test.sh
+# Wrapped by kirkwood@forelle on Thu Dec 10 13:12:02 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(325 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XMANIFEST	
+XREADME      More information
+Xfformat.C   Main C++ routines
+Xfformat.h   C++ header file (imbedded help)
+XMakefile    UNIX makefile
+Xtest.C      Test program 
+Xtest.sh     UNIX Bourne shell test program
+Xtest.bat    DOS batch test program
+Xmake.bor    Borland C++ make file
+Xmy.out      My output from test, for comparison
+END_OF_FILE
+if test 325 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(1337 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X.KEEP_STATE:
+X.SUFFIXES: .C .o
+X
+X# Change to your C++ extensions on your system.
+X# (sometimes .c, .cpp, .H, .hpp, .obj)
+XC=.C
+XH=.h
+XO=.o
+X
+X# Name of your C++ compiler
+XCC=g++
+X#CC= CC
+X#CC=gcc
+X
+X# Here some defs you might be interested in
+X# Do you have "signed" keyword
+X#DEFS += -DSIGNED_IMPLEMENTED
+X
+X# Do you have the long double functions modfl() and fabsl()
+X# Note:Some compilers need +a1 compiler switch to allow long doubles.
+X#DEFS += -DUSE_LONG_DOUBLE
+X
+X# Does your compiler support templates?
+XDEFS += -DHAVE_TEMPLATES
+X
+X# Do you want assert statments, or do you trust me :)
+X#DEFS += -DNDEBUG
+X
+X# Want a nice POSIX mu simbol
+XDEFS += -DNICE_MU
+X
+X# Ya want rounding for your template class? 
+X# Note: you'll need mod() defined.
+X#DEFS += TFORMAT_ROUND
+X
+XPNAME =fformat  
+XFILES.C=$(PNAME)$(C) 
+XFILES.H=$(FILES.C:%$(C)=%$(H))
+XFILES.O=$(FILES.C:%$(C)=%$(O))
+X
+X# Use -O for optimizing and -g for debugging
+XCFLAGS=-O
+X#CFLAGS=-g
+X
+X$(C)$(O):
+X	$(CC) -I$(ARGS_D) $(CFLAGS) $(DEFS) -c $*$(C)
+X
+X$(FILES.O): $(FILES.C) $(FILES.H)
+X	$(CC) -c $(DEFS) $(CFLAGS) $(FILES.C) $(LDFLAGS)
+X
+Xtest: fformat$(C) fformat$(H)
+X	$(CC) $(DEFS) $(CFLAGS) test$(C) fformat$(C) -lm -o fformat
+X
+Xsample: fformat$(C) fformat$(H)
+X	$(CC) $(DEFS) -DSAMPLE_FFORMAT fformat$(C) -o fformat
+X
+Xclean:
+X	rm -f core *$(O) your.out $(PNAME) TAGS
+X
+X# Dependancy list
+X$(PNAME)$(O): $(FILES.C) $(FILES.H)
+END_OF_FILE
+if test 1337 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2950 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XFFormat and TFormat C++ classes.
+X
+XWHAT IS FFormat?
+X================
+X
+XFFormat is a C++ class that is designed to output formatted
+Xfloating point numbers (float, double, etc.).  By formatted I mean:
+X
+X   1,234,567.8901 2345
+X
+XFFormat can format to a specified total character width, if the
+Xnumber doesn't fit it will be divided down until it does and then
+Xthe appropriate SI notation will be affixed.  For instance, if
+Xyou gave IFormat the number 1234567 and set the width to 6 you would
+Xget:
+X   1,235K
+X
+XNote that this is just a class to be plugged into your programs.  It
+Xis not a standalone program.
+X
+XWHAT IS TFormat?
+X================
+X
+XTFormat is a template version of FFormat (actually a subclass of
+XFFormat) that is designed to be flexible enough to plug in your own
+Xextended numeric classes.  For instance, I have successfully used
+Xg++'s Integer class with TFormat.  I have also given an example
+Xclass (Money) that does the minimum necessary to work with
+XTFormat (ex. output  $1,234,567.89).
+X
+XOTHER FEATURES
+X==============
+X
+XYou can change the comma or the space to different characters and the
+Xwidth of each grouping as well.  For instance you could have
+X   1234'5678.901,123  
+X (here, SetSepWidth(4); SetSep('\''); SetDeciWidth(3); SetDeciSep(',');)
+X
+XYou can change the SI postfixes to be different.  For instance, you
+Xmight like K=1,024 instead of 1,000.
+X
+XYou can toggle whether to use SI postfixes, right adjusting, and
+Xwhether separators are used.  You can allow scientific notation (ex.
+X1.23e+999). 
+X
+XCan be used with non-floating point values like int, long.
+X
+XSee fformat.h for more information.
+X
+XTESTING
+X=======
+X
+XUNIX
+X====
+X
+X  Edit the Makefile for either CC or g++ (g++ by default).
+X  Run the Borne shell "test.sh" which will compile and run the
+X  demo program.  The shell also runs "diff" to see if your output
+X  is identical with my output.
+X
+XDOS
+X===
+X
+XRename all the .c files to .cc (or .cpp or whatever your standard is).
+X
+X  Borland
+X  -------
+X  Either edit the file "make.bor" or open a new project and add the
+X  two (renamed) files to the project list.  Press F9 to make (as usual).
+X   -or-
+X  If you edited the file "make.bor" then run "make -f make.bor".
+X
+X  GCC
+X  ---
+X  Edit the file "makefile".  Uncomment "CC=gcc" change the extension
+X  to "C=.cc" and run "make test".
+X  Edit the file "test.bat" so that it will run go32.
+X
+X  Both
+X  ----
+X  Run "test.bat"
+X
+XEXAMPLE
+X=======
+X
+X	FFormat FForm;
+X	cout << FForm.Str(1234567.890123) << endl;
+X
+Xoutputs -> 1,234,567.8901 23
+X
+XTESTED SYSTEMS
+X==============
+X
+XIBM (Borland C++ 3.0, djgcc 2.2.2) and Unix (AT&T CC, GNU g++ 2.2.2).
+X
+XCOPYRIGHT
+X=========
+X
+XThis is free software.  Use it and distribute it freely. Please keep
+Xthe copyright notices.  Also, please e-mail me for comments, updates,
+Xcorrections or bugs.
+X
+XAUTHOR / ADDRESS
+X================
+X
+XScott Kirkwood : kirkwood@qucis.queensu.ca
+XVoice phone: (613) 531-2674
+XGraduate Studies - Computer Information Science
+XQueens University
+XKingston, CANADA
+END_OF_FILE
+if test 2950 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'fformat.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fformat.C'\"
+else
+echo shar: Extracting \"'fformat.C'\" \(12475 characters\)
+sed "s/^X//" >'fformat.C' <<'END_OF_FILE'
+X// Copyright (C) 1992 Scott Kirkwood (Queen's University, Ontario, Canada)
+X// Voice phone : (613) 531-2674, internet: kirkwood@qucis.queensu.ca
+X// This program is given as freeware with no warantees.  Not liable for
+X// any loss or damage resulting from this code.  Please acknowledge authorship.
+X// Note: Tabs in are size 4
+X
+X#include "fformat.h"
+X#include "assert.h"
+X#include <iostream.h>
+X#include <string.h>
+X#include <math.h>
+X#include <ctype.h>
+X#include <values.h>
+X#include <stdlib.h>
+X
+X#ifndef USE_LONG_DOUBLE
+X#define fabsl fabs
+X#define modfl modf
+X#endif
+X
+X// Define statics.
+X// Mega, Giga, Tera, Penta?, Exa
+Xchar FFormat::ext[] = {' ','K', 'M', 'G',  'T',  'P',  'E'};
+Xld FFormat::exp[]    = {1, 1E3, 1E6, 1E9, 1E12, 1E15, 1E18};
+X// Milli, Micro, Nano, Pico, Femto, Atto
+X#ifdef NICE_MU
+X#	ifdef __MSDOS__
+X		char FFormat::txe[] = {' ','m', 230, 'n',  'p',  'f',  'a'};
+X#	else
+X		char FFormat::txe[] = {' ','m', 181, 'n',  'p',  'f',  'a'};
+X#	endif
+X#else
+X	char FFormat::txe[] = {' ','m', 'u', 'n',  'p',  'f',  'a'};
+X#endif
+Xld FFormat::pxe[]    = {1,1E-3,1E-6,1E-9,1E-12,1E-15,1E-18};
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : FFormat.h
+X// Description :
+X// Constructor, sets the variables to the defaults.
+X
+XFFormat::FFormat()
+X{
+X	putseps      = 1; // Should we use a separator
+X	width        = 0; // Width to output from 0, 2-  0=infinity
+X	use_si       = 1;
+X	right_adjust = 1;
+X	sep          = ',';
+X	sep_width    = 3;
+X	deci_sep     = ' ';
+X	deci_width   = 4;
+X	precision    = 9;
+X	work         = 0;
+X	worklen      = 0;
+X	allowexp     = 0;
+X	nodeci       = 0;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : format.h
+X// Description :
+X// Main routine, handles output of doubles.
+X// Note: setting width to anything but 0 causes a big speed penalty.
+Xconst char *FFormat::Str(ld num) {
+X	int as = 0;
+X	int sa = 0;
+X	int intlen; // Length of integer part
+X	int decilen; // Length of decimal part
+X	int otherlen; // everthing else (except \0)
+X	int total_len; // Length with commas dots and \0
+X	char *str;
+X	ld tnum = num;
+X	int tprecision   = precision;
+X	int tnodeci      = nodeci;
+X
+X	do {
+X		str = itoa(num);
+X		getinfo(str, intlen, decilen, otherlen);
+X		total_len = estimate_length(intlen, decilen, otherlen);
+X		if (as || sa)
+X			total_len++;
+X		if (width && total_len - 1 > width) {
+X			if (fabsl(num) >= 1) { // big number
+X				if (!nodeci) {
+X					delete str;
+X					int xtralen = decilen;
+X					if (deci_width)
+X						xtralen += (xtralen - 1) / deci_width;
+X
+X					if (width >= total_len - xtralen) {
+X						precision = width - intlen - otherlen;
+X						if (sep_width)
+X							precision -= (intlen - 1) / sep_width;
+X						if (deci_width)
+X							precision -= (precision - 1) / deci_width;
+X						if (precision < 0) {
+X							precision = 0;
+X							nodeci = 1;
+X						}
+X					}
+X					else {
+X						precision = 0;
+X						nodeci = 1;
+X					}
+X				}
+X				else if (use_si && !allowexp && as < 6) {
+X					delete str;
+X					num = tnum / exp[++as];
+X				}
+X				else
+X					break;
+X			}
+X			else { // number is small
+X				// because of the way "precision" works we need to know
+X				// number of zeros between the point and the 1st num
+X				int leadingzeroes = 0;
+X				char *p = str;
+X				while (*p && *p != '.')
+X					p++;
+X				p++;
+X				while (*p && *p++ == '0')
+X					leadingzeroes++;
+X
+X				if (deci_width)
+X					decilen += (decilen - 1) / deci_width;
+X				
+X				if (width - leadingzeroes > total_len - decilen) {
+X					precision = decilen - leadingzeroes -
+X						(total_len - width);
+X					delete str;
+X				}
+X				else if (use_si && !allowexp && sa < 6) {
+X					delete str;
+X					num = tnum / pxe[++sa];
+X				}
+X				else
+X					break;
+X			}
+X		}
+X	} while (width && total_len - 1 > width);
+X	if (width >= total_len - 1) {
+X		total_len = width + 1;
+X	}
+X	if (!work || total_len > worklen) {
+X		if (work)
+X			delete work;
+X		work = new char [total_len];
+X		worklen = total_len;
+X	}
+X	PutCommas(str, intlen, work);
+X	if (as || sa) {
+X		int len = strlen(work);
+X
+X		work[len]     = as?ext[as]:txe[sa];
+X		work[len + 1] = '\0';
+X	}
+X
+X	if (width && right_adjust) {
+X		RightAdjust(work, width);
+X	}
+X	nodeci = tnodeci;
+X	precision = tprecision;
+X	assert(strlen(work) < worklen);
+X
+X	return work;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// I'm using ostrstream to handle the itoa() function.  You 
+X// could use you own (faster) routine if you'd like.
+X
+Xchar *FFormat::itoa(ld num) {
+X	ostrstream mys; // Dynamically allocated string.
+X	char *str;
+X
+X	if (!allowexp) {
+X		mys.setf(ios::fixed);
+X	}
+X	else {
+X		mys.setf(ios::scientific);
+X	}
+X	mys.precision(precision);
+X	if (nodeci) { // compensate for lack of rounding
+X		if (modfl(num, &num) >= .5)
+X			num += 1;
+X	}
+X	mys.setf(0, ios::showpoint); // no trailing zeroes or unnecessary points
+X	mys << num;
+X	mys << ends;
+X
+X	str = mys.str();
+X	if (!allowexp && str && strchr(str, '.')) {
+X		// Fix bug in iostream!
+X		char *p = str + strlen(str) - 1;
+X		while (*p == '0') {
+X			*p-- = '\0'; // kill off trailing 000.
+X		}
+X		if (*p == '.')
+X			*p = '\0';
+X	}
+X	return str;
+X}
+X
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Gets information about the string.  
+X// PS. Also zaps any trailing 00000 after the dot.
+X// Examples
+X// Num     -123456.789
+X//         ^
+X//         p      intlen=6,decilen=3,prelen=1,otherlen=2
+X//
+X// Num     123456
+X//         ^
+X//         p      intlen=6,decilen=0,prelen=0,otherlen=0;
+X//
+X// Num     123456.789E23
+X//         ^
+X//         p      intlen=6,decilen=3,prelen=0,otherlen=4
+Xvoid FFormat::getinfo(char *p, int &intlen, int &decilen,
+X	int &otherlen)
+X{
+X
+X	intlen = decilen = otherlen = 0;
+X	// Skip over - or + or spaces?
+X
+X	while (*p && !isdigit(*p)) {
+X		p++;
+X		otherlen++;
+X	}
+X
+X	while (*p && isdigit(*p)) {
+X		intlen++;
+X		p++;
+X	}
+X	if (*p == '.' && *(p + 1)) {
+X		otherlen++; // Count dot
+X		p++;
+X		while (*p && isdigit(*p)) {
+X			decilen++;
+X			p++;
+X		}
+X	}
+X	while (*p) {
+X		p++;
+X		otherlen++;
+X	}
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : FFormat.h
+X// Description :
+X// Right adjust the string to the width specified.  Fill with spaces
+X// on the left.
+Xvoid FFormat::RightAdjust(char *str, int width)
+X{
+X	int len = strlen(str);
+X	if (len >= width)
+X		return;
+X
+X	register char *p = str + len;
+X	register char *g = p + (width - len);
+X	int spaces = width - len;
+X	len++;
+X	while (len--) {
+X		*g-- = *p--;
+X	}
+X	while (spaces--) {
+X		*g-- = ' ';
+X	}
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Make an exact estimate of the total length required to fit the
+X// string including the trailing '\0'.
+X
+Xint FFormat::estimate_length(int intlen, int decilen, int otherlen) {
+X	int len;
+X
+X	len = intlen + otherlen + 1;
+X	if (sep_width && putseps)
+X		len += (intlen - 1) / sep_width;
+X
+X	if (!nodeci) {
+X		len += decilen;
+X		if (deci_width && putseps)
+X			len += (decilen - 1) / deci_width;
+X	}
+X	else if (decilen)
+X		len--; // chop off '.'
+X
+X	return len;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : FFormat.h
+X// Description :
+X// Put commas etc. in the proper places.
+X// Work points to some location inside a string that is large
+X// enough to hold the final output.
+X// Example
+X//    123456.890123E123    ????????????????????
+X//         ^ ^             ^
+X//       end afterdot     work
+X//   After call
+X//                         123,456.8901 23E123\0
+X// Update: Made PutCommas() delete trailing zeroes that some libraries
+X// put in (even when you specify unsetf(showpoint)).
+X
+Xvoid FFormat::PutCommas(char *from, int intlen, char *to)
+X{
+X	int count = 0;
+X
+X	if (!from || !*from || !to)
+X		return; // abort, abort!
+X
+X	while (!isdigit(*from))
+X		*to++ = *from++;
+X
+X	if (putseps)
+X		count = sep_width - (intlen % sep_width) + 1;
+X	else
+X		count = sep_width + 1;
+X
+X	if (count > sep_width)
+X		count = 1;
+X	while (*from && intlen--) {
+X		*to++ = *from++;
+X		if (sep_width && count == sep_width && intlen && putseps) {
+X			count = 0;
+X			*to++ = sep;
+X		}
+X		count++;
+X	}
+X	if (*from == '.') {
+X		if (nodeci) {
+X			from++;
+X			while (*from && isdigit(*from))
+X				from++;
+X		}
+X		else {
+X			*to++ = *from++;
+X			count = 1;
+X
+X			while (*from && isdigit(*from)) {
+X				*to++ = *from++;
+X				if (deci_width && putseps && 
+X					count == deci_width && *from &&
+X					!strchr("EeGg", *from)) {
+X					count = 0;
+X					*to++ = deci_sep;
+X				}
+X				count++;
+X			}
+X		}
+X	}
+X	while (*from) {
+X		*to++ = *from++;
+X	}
+X	*to = '\0';
+X}
+X
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Set the exponent character to c.  Ignored if i is out of range
+X// Warning: These values are static and will affect all output by this
+X// class! 
+Xvoid FFormat::SetSI(int i, char c) {
+X	if (i > 0 && i < 7) 
+X		ext[i] = c;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Set the exponent value to val.  Ignored if i is out of range.
+X// Warning: These values are static and will affect all output by this
+X// class! 
+Xvoid FFormat::SetSI(int i, ld val) {
+X	if (i > 0 && i < 7)
+X		exp[i] = val;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Set the exponent character to c.  Ignored if i is out of range.
+X// Warning: These values are static and will affect all output by this
+X// class! 
+Xvoid FFormat::SetIS(int i, char c) {
+X	if (i > 0 && i < 7)
+X		txe[i] = c;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Dec  8 1992
+X// 
+X// Prototype   : fformat.h
+X// Description : 
+X// Set the exponent value to val.  Ignored if i is out of range. 
+X// Warning: These values are static and will affect all output by this
+X// class! 
+X
+Xvoid FFormat::SetIS(int i, ld val) {
+X	if (i > 0 && i < 7)
+X		pxe[i] = val;
+X}
+X
+X#ifdef SAMPLE_FFORMAT
+X// The following is a rather an example of some of the ways you
+X// can use this class.  
+X// Inside main() is the simplest way of using FFormat.
+X// Inside try_template() is an example using:
+X//    Integer class from GNU's C++ library.
+X//    Dollar  class defined below.
+X#include <iostream.h>
+X
+Xvoid try_template();
+X
+Xint main() {
+X	FFormat FForm;
+X	double dbl = 123456.7890;
+X
+X	cout << "Standard format     : " << FForm.Str(dbl) << endl;
+X	try_template();
+X	return 0;
+X}
+X
+X#ifdef HAVE_TEMPLATES
+X#ifdef __GNUC__
+X#include <Integer.h>
+Xvoid try_template() {
+X	const num_width = 33;
+X	Integer test;
+X	TFormat<Integer> IForm; // Hey man, were using the Integer class!
+X	
+X	test = 1;
+X	for (int i = 0; i < num_width; i++) {
+X		test *= 10;
+X		test += (i + 2) % 10;
+X	}
+X	cout << "Using Template class<Integer>: " << IForm.Str(test) << endl;
+X}
+X#else
+Xclass Dollar { // MINIMAL money class, use as an example only.
+X	long money;// 12345 => 123.45
+Xpublic: 
+X	Dollar() { money = 0L; }
+X	Dollar(long v) { money = v; }
+X	operator long() const { return money; }
+X	friend ostream& operator <<(ostream &o, Dollar &d);
+X	friend Dollar operator /(const Dollar &a, const Dollar &b);
+X	friend void mod(const Dollar &a, const Dollar &b, Dollar &c);
+X	friend long  abs(const Dollar &a);
+X	friend void operator +=(Dollar &a, const int i);
+X};
+XDollar operator /(const Dollar &a, const Dollar &b) {
+X	Dollar tmp(a); tmp.money /= b.money; return tmp;
+X}
+Xvoid mod(const Dollar &a, const Dollar &b, Dollar &c) {
+X	c.money = a.money % b.money;
+X}
+Xlong  abs(const Dollar &a) {
+X	return (a.money > 0)?a.money:-a.money;
+X}
+Xvoid operator +=(Dollar &a, const int i) {
+X	a.money += i; 
+X}
+Xostream& operator <<(ostream &o, Dollar &d) {
+X	return o << '$' << d.money / 100 << '.' << d.money % 100;
+X}
+X
+Xvoid try_template() {
+X	TFormat<Dollar> DForm;
+X	Dollar money(12345678L);
+X
+X	cout << "Using Template class: " << DForm.Str(money) << endl;
+X}
+X#endif
+X#else
+Xvoid try_template() { } // Nothing....
+X#endif /* HAVE_TEMPLATE */
+X#endif
+END_OF_FILE
+if test 12475 -ne `wc -c <'fformat.C'`; then
+    echo shar: \"'fformat.C'\" unpacked with wrong size!
+fi
+# end of 'fformat.C'
+fi
+if test -f 'fformat.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fformat.h'\"
+else
+echo shar: Extracting \"'fformat.h'\" \(11858 characters\)
+sed "s/^X//" >'fformat.h' <<'END_OF_FILE'
+X#ifndef _FFORMAT_H
+X#define _FFORMAT_H
+X
+X// Copyright (C) 1992 Scott Kirkwood (Queen's University, Ontario, Canada)
+X// Voice phone : (613) 531-2674, internet: kirkwood@qucis.queensu.ca
+X// This program is given as freeware with no warantees.  Not liable for
+X// any loss or damage resulting from this code.  Please acknowledge authorship.
+X// Note: Tabs in are size 4
+X
+X#include <strstream.h>
+X
+X#ifdef SIGNED_IMPLEMENTED
+X#define SIGNED signed
+X#else
+X#define SIGNED
+X#endif
+X
+X#ifdef USE_LONG_DOUBLE
+Xtype long double ld;
+X#else
+Xtypedef double ld;
+X#endif
+X
+X// Description
+X// ===========
+X//
+X// FFormat is a C++ class that is designed to output formatted
+X// floating point numbers (float, double, etc.).  By formatted I mean:
+X//	1,234,567.8901 2345
+X//
+X// TFormat is a template version of FFormat (actually a subclass of
+X// FFormat) that is designed to be flexible enough to plug in your own
+X// extended numeric classes.  For instance, I have successfully used
+X// g++'s Integer class and Fix class.  I have also given a minimal
+X// example of a Money class where "Money" uses a long to store its
+X// value and divides the value by a 100 to get dollars and cents.  It
+X// also show's that FFormat can handle funny leading characters like
+X// the dollar sign with no probs. 
+X//
+X// OTHER FEATURES
+X// ==============
+X//
+X// FFormat can format to a specified total character width, if the
+X// number doesn't fit it will be divided down until it does and then
+X// the appropriate SI notation will be affixed.  For instance, if
+X// you gave IFormat the number 1234567 and set the width to 6 you would
+X// get:
+X//  1,235K
+X//
+X// You can change these values if you prefer the computer science
+X// K = 1,024, for instance.
+X//
+X// IFormat will, by default, right adjust number if the ouput is smaller
+X// than the width passed.  Where a width of 0 signifies variable width.
+X// For instance, here's 123 with a width of 5 (vertical bars for clarity)
+X//   |  123|
+X//
+X// You can toggle whether to use SI postfixes, right adjusting, and
+X// whether separators are used.
+X//
+X// DEFAULTS
+X// ========
+X// putseps      = true (use the separator characters)
+X// width        = 0    (unlimited length of output)
+X// use_si       = true (that is, if width set to something)
+X// right_adjust = true (numbers are right adjusted)
+X// sep          = ','  (comma is integer separator)
+X// sep_width    = 3    (123,456 etc.  in groups of 3)
+X// deci_sep     = ' '  (space is the fractional part separator)
+X// deci_width   = 4    (.1234 5678 etc. in groups of 4)
+X// precision    = 0    (unlimited)
+X// allowexp     = 0    (do not use exponent notation)
+X//
+X// By default the postfixes are:
+X// Kilo  'K' 1E3       Milli 'm' 1E-3 
+X// Mega  'M' 1E6       Micro 'u' 1E-6 (or the mu character)
+X// Giga  'G' 1E9       Nano  'n' 1E-9 
+X// Tera  'T' 1E12      Pico  'p' 1E-12
+X// Penta 'P' 1E15      Femto 'f' 1E-15
+X// Exa   'E' 1E18      Atto  'a' 1E-18
+X//
+X// WIDTH
+X// =====
+X// When specifying a width to shoot for, FFormat goes into a different
+X// mode.  In fact most of the code deals with the problems we get when
+X// a width is specified.  Here's a synopsis of what happens.
+X// - If the string fits, great.  Right adjust if necessary.
+X// else if it doesn't fit then
+X//   - If the number is not tiny then
+X//     - chop off as many decimal places as needed to make it fit.
+X//     - If that doesn't work,
+X//       - Divide the number by the minimum SI value to make it fit.
+X//   else if the number is tiny (like 1E-10) then
+X//     - chop off as many decimal places as needed to fit (but leave 1)
+X//     - if that doesn't work,
+X//       - Divide the number by the largest SI value (ex. micro) to make
+X//         it fit. 
+X// 
+X// DYNAMIC ALLOCATION
+X// ==================
+X// The string pointer "work" is dynamically allocated (with new and
+X// delete).  You can safely delete work if you need the space, just
+X// make sure that work points to NULL before you call Str() again.  
+X// If you haven't deleted "work" then the space will be either a)
+X// re-used if the new number will fit, or b) deleted and a new (larger)
+X// block of memory allocated.  It is better, therefore, to print your
+X// large numbers first and work down to your smaller numbers later to
+X// prevent heap fragmentation.  Alternatively, use Str(1E100), for instace,
+X// to get FFormat to make a lot of space available. 
+X//
+X// TO DO
+X// =====
+X// I guess some people would like even more formatting features. Like:
+X//   - Aligning numbers at the decimal point.
+X//   - Allowing a space between the SI postfix and the numbers.
+X//   - Allowing limits with the postfix notation.  i.e. allow the use of
+X//     K for 1,000 but not the use of M or higher.
+X// - It could be smarter about using exponents.
+X// - Could eliminate one or both separators in order to squeeze the
+X//   number in the width asked for.
+X// - Make it faster.
+X// - I wanted to use "locale.h" to figure out the standards for the
+X//   system, but I found the functions didn't work very well.  I think
+X//   that someone with more experience with these problems should make
+X//   a "locale" aware subclass of FFormat. (and send it to me!)
+X
+Xclass FFormat {
+X	protected:
+X	int    putseps;      // Should we use a separator
+X	int    width;        // Total output width.
+X	int    use_si;       // Should we use SI postfix notations?
+X	int    right_adjust; // Should we right adjust
+X	char   sep;          // Usually a comma
+X	short  sep_width;    // Usually three
+X	short  deci_width;   // Usually four
+X	char   deci_sep;     // Usually a space
+X	int    precision;    // Number of digits after the decimal point
+X	char   *work;	     // Output string, dynamically allocated.
+X	int    worklen;      // Size of allocated string
+X	int    allowexp;     // allow exponent notation.
+X	int    nodeci;       // Don't show past decimal point
+X
+X	void Show();
+X	void SetVars();
+X	void getinfo(char *p, int &intlen, int &decilen, int &otherlen);
+X	void getinfo(char *p, char *&end, int &intlen,
+X		int &decilen, int &otherlen, char *&afterdot);
+X	int  estimate_length(int intlen, int decilen, int otherlen);
+X	void PutCommas(char *end, int len, char *work);
+X	void RightAdjust(char *, int);
+Xprotected:
+X	static char ext[];
+X	static char txe[];
+X	static ld exp[];
+X	static ld pxe[];
+X	char *itoa(ld);      // Make your own itoa...
+Xpublic:
+X	FFormat();           // Constructor
+X
+X	const char *Str(SIGNED int num)   { return Str((ld)num); }
+X	const char *Str(SIGNED long num)  { return Str((ld)num); }
+X	const char *Str(unsigned int num) { return Str((ld)num); }
+X	const char *Str(unsigned long num){ return Str((ld)num); }
+X	const char *Str(float num)        { return Str((ld)num); }
+X	const char *Str(char num)         { return Str((ld)num); }
+X#ifdef USE_LONG_DOUBLE
+X	const char *Str(double num)       { return Str((ld)num); }
+X#endif
+X	const char *Str(ld num);
+X	void  SetSepWidth(int i)          { sep_width = i; }
+X	void  SetSep(char ch)             { sep = ch; }
+X	void  SetDeciWidth(int i)         { deci_width = i; }
+X	void  SetDeciSep(char ch)         { deci_sep = ch; }
+X	void  SetWidth(int i)             { width = i; }
+X	void  SetUseSeparators(int i)     { putseps = i; }
+X	void  SetRightAdjust(int i)       { right_adjust = i; }
+X	void  SetUseSI(int i)             { use_si = i; }
+X	void  SetUseExp(int i)            { allowexp = i; }
+X	void  SetPrecision(int i)         { precision = i; }
+X	void  SetSI(int i, char c);       // set big SI character (i=1->'K')
+X	void  SetSI(int i, ld val);       // Set big SI value     (i=1->1E3)
+X	void  SetIS(int i, char c);       // set small SI character (i=1->'m')
+X	void  SetIS(int i, ld val);       // Set small SI value   (i=1->1E-3)
+X
+X	int   SepWidth()                  { return sep_width; }
+X	char  Sep()                       { return sep; }
+X	int   DeciWidth()                 { return deci_width; }
+X	char  DeciSep()                   { return deci_sep; }
+X	int   Width()                     { return width; }
+X	int   UseSeparators()             { return putseps; }
+X	int   RightAdjust()               { return right_adjust; }
+X	int   Precision()                 { return precision; }
+X	int   UseSI()                     { return use_si; }
+X	int   UseExp()                    { return allowexp; }
+X};
+X
+X#ifdef HAVE_TEMPLATES
+X// OK If we have templates, then let's make a template class.
+X// This template class allows you to ADD extra ability to Format.
+X// For instance, I have successfully used TFormat<Integer> from the
+X// GNU library of variable length integers.  The class you are adding
+X// should have (the equivalent of):
+X//
+X//     friend ostream& operator <<(ostream &, const YourClass &)
+X//     friend YourClass operator /(const YourClass, const YourClass)
+X//     friend void mod(const YourClass, const YourClass, YourClass &Result)
+X//     friend int  abs(const YourClass)
+X//     friend void operator +=(YourClass, const int)
+X//     operator int();
+X//
+X// defined and declared.  (Of course you know that it doesn't have to
+X// be declared exactly as above)
+X// My experience is that the entire template definition/declaration
+X// must be included in the header file to work correctly. So here it is...
+X
+Xtemplate <class T>
+Xclass TFormat : public FFormat {
+X	protected:
+X	char *itoa(T);
+Xpublic:
+X	const char *Str(T);
+X};
+X
+X// This is a copy of the code contained in FFormat (pretty much).
+Xtemplate <class T>
+Xconst char *TFormat<T>::Str(T num) {
+X	int as = 0;
+X	int sa = 0;
+X	int intlen; // Length of integer part
+X	int decilen; // Length of decimal part
+X	int otherlen; // everthing else (except \0)
+X	int total_len; // Length with commas dots and \0
+X	char *str;
+X	T tnum = num;
+X	int tprecision   = precision;
+X	int tnodeci      = nodeci;
+X
+X	do {
+X		str = itoa(num);
+X		getinfo(str, intlen, decilen, otherlen);
+X		total_len = estimate_length(intlen, decilen, otherlen);
+X		if (as || sa)
+X			total_len++;
+X		if (width && total_len - 1 > width) {
+X			if (abs(num) >= 1) { // big number
+X				if (!nodeci) {
+X					delete str;
+X					int xtralen = decilen;
+X					if (deci_width)
+X						xtralen += (xtralen - 1) / deci_width;
+X
+X					if (width >= total_len - xtralen) {
+X						precision = width - intlen - otherlen;
+X						if (sep_width)
+X							precision -= (intlen - 1) / sep_width;
+X						if (deci_width)
+X							precision -= (precision - 1) / deci_width;
+X						if (precision < 0) {
+X							precision = 0;
+X							nodeci = 1;
+X						}
+X					}
+X					else {
+X						precision = 0;
+X						nodeci = 1;
+X					}
+X				}
+X				else if (use_si && as < 6) {
+X					delete str;
+X					num = tnum / (T)(exp[++as]);
+X				}
+X				else
+X					break;
+X			}
+X			else { // number is small
+X				int leadingzeroes = 0;
+X				char *p = str;
+X				while (*p && *p != '.')
+X					p++;
+X				p++;
+X				while (*p && *p++ == '0')
+X					leadingzeroes++;
+X
+X				if (deci_width)
+X					decilen += (decilen - 1) / deci_width;
+X				
+X				if (width - leadingzeroes > total_len - decilen) {
+X					precision = decilen - leadingzeroes -
+X						(total_len - width);
+X					delete str;
+X				}
+X				else if (use_si && sa < 6) {
+X					delete str;
+X					num = tnum / (T)(pxe[++sa]);
+X				}
+X				else
+X					break;
+X			}
+X		}
+X	} while (width && total_len - 1 > width);
+X	if (width >= total_len - 1) {
+X		total_len = width + 1;
+X	}
+X	if (!work || total_len > worklen) {
+X		if (work)
+X			delete work;
+X		work = new char [total_len];
+X		worklen = total_len;
+X	}
+X	PutCommas(str, intlen, work);
+X	if (as || sa) {
+X		int len = strlen(work);
+X
+X		work[len]   = as?ext[as]:txe[sa];
+X		work[len + 1] = '\0';
+X	}
+X
+X	if (width && right_adjust) {
+X		RightAdjust(work, width);
+X	}
+X	nodeci = tnodeci;
+X	precision = tprecision;
+X//	assert(strlen(work) < worklen);
+X
+X	return work;
+X}
+X
+Xtemplate <class T>
+Xchar *TFormat<T>::itoa(T num) {
+X	ostrstream mys; // Dynamically allocated string.
+X	if (!allowexp) {
+X		mys.setf(ios::fixed);
+X	}
+X	else {
+X		mys.setf(ios::scientific);
+X	}
+X	mys.precision(precision);
+X#ifdef TFORMAT_ROUND
+X	if (nodeci) { // compensate for lack of rounding
+X		T result;
+X		mod(num, num, result);
+X		if (10 * result >= 5)
+X			num += 1;
+X	}
+X#endif
+X	mys << num;
+X	mys << ends;
+X	return mys.str();
+X}
+X
+X#endif
+X#endif
+END_OF_FILE
+if test 11858 -ne `wc -c <'fformat.h'`; then
+    echo shar: \"'fformat.h'\" unpacked with wrong size!
+fi
+# end of 'fformat.h'
+fi
+if test -f 'make.bor' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'make.bor'\"
+else
+echo shar: Extracting \"'make.bor'\" \(1041 characters\)
+sed "s/^X//" >'make.bor' <<'END_OF_FILE'
+X.AUTODEPEND
+X
+X#		*Translator Definitions*
+XCC = bcc +FFORMAT.CFG
+XTASM = TASM
+XTLIB = tlib
+XTLINK = tlink
+XLIBPATH = C:\BC3\LIB
+XINCLUDEPATH = C:\BC3\INCLUDE
+X
+X
+X#		*Implicit Rules*
+X.c.obj:
+X  $(CC) -c {$< }
+X
+X.cpp.obj:
+X  $(CC) -c {$< }
+X
+X#		*List Macros*
+X
+X
+XEXE_dependencies =  \
+X fformat.obj \
+X test.obj
+X
+X#		*Explicit Rules*
+Xfformat.exe: fformat.cfg $(EXE_dependencies)
+X  $(TLINK) /v/x/c/P-/L$(LIBPATH) @&&|
+Xc0s.obj+
+Xfformat.obj+
+Xtest.obj
+Xfformat
+X		# no map file
+Xemu.lib+
+Xmaths.lib+
+Xcs.lib
+X|
+X
+X
+X#		*Individual File Dependencies*
+Xfformat.obj: fformat.cfg fformat.cc 
+X	$(CC) -c fformat.cc
+X
+Xtest.obj: fformat.cfg test.cc 
+X	$(CC) -c test.cc
+X
+X#		*Compiler Configuration File*
+Xfformat.cfg: fformat.mak
+X  copy &&|
+X-v
+X-G
+X-O
+X-Og
+X-Oe
+X-Om
+X-Ov
+X-Ol
+X-Ob
+X-Op
+X-Oi
+X-Z
+X-k-
+X-vi
+X-w-ret
+X-w-nci
+X-w-inl
+X-wpin
+X-wamb
+X-wamp
+X-w-par
+X-wasm
+X-wcln
+X-w-cpt
+X-wdef
+X-w-dup
+X-w-pia
+X-wsig
+X-wnod
+X-w-ill
+X-w-sus
+X-wstv
+X-wucp
+X-wuse
+X-w-ext
+X-w-ias
+X-w-ibc
+X-w-pre
+X-w-nst
+X-I$(INCLUDEPATH)
+X-L$(LIBPATH)
+X-DNICE_MU NDEBUG HAVE_TEMPLATES USE_LONG_DOUBLE SIGNED_IMPLEMENTED TFORMAT_ROUND
+X-P
+X| fformat.cfg
+X
+X
+END_OF_FILE
+if test 1041 -ne `wc -c <'make.bor'`; then
+    echo shar: \"'make.bor'\" unpacked with wrong size!
+fi
+# end of 'make.bor'
+fi
+if test -f 'my.out' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'my.out'\"
+else
+echo shar: Extracting \"'my.out'\" \(12068 characters\)
+sed "s/^X//" >'my.out' <<'END_OF_FILE'
+XDefault.
+X                    Input    |Unlimited|
+X                        1 -> |1|
+X                       12 -> |12|
+X                      123 -> |123|
+X                    1,234 -> |1,234|
+X                   12,345 -> |12,345|
+X                  123,456 -> |123,456|
+X                1,234,567 -> |1,234,567|
+X               12,345,678 -> |12,345,678|
+X             12,345,678.1 -> |12,345,678.1|
+X   12,345,678.1199 9999 9 -> |12,345,678.1199 9999 9|
+X           12,345,678.123 -> |12,345,678.123|
+X   12,345,678.1233 9999 9 -> |12,345,678.1233 9999 9|
+X        12,345,678.1234 5 -> |12,345,678.1234 5|
+X                       -1 -> |-1|
+X                      -12 -> |-12|
+X                     -123 -> |-123|
+X                   -1,234 -> |-1,234|
+X                  -12,345 -> |-12,345|
+X                 -123,456 -> |-123,456|
+X               -1,234,567 -> |-1,234,567|
+X              -12,345,678 -> |-12,345,678|
+X            -12,345,678.1 -> |-12,345,678.1|
+X  -12,345,678.1199 9999 9 -> |-12,345,678.1199 9999 9|
+X          -12,345,678.123 -> |-12,345,678.123|
+X  -12,345,678.1233 9999 9 -> |-12,345,678.1233 9999 9|
+X       -12,345,678.1234 5 -> |-12,345,678.1234 5|
+X                      9.1 -> |9.1|
+X                     9.12 -> |9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.1234|
+X                 9.1234 5 -> |9.1234 5|
+X                      0.1 -> |0.1|
+X                     0.02 -> |0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> |0.0004|
+X                 0.0000 5 -> |0.0000 5|
+XDon't use the separators.
+X                    Input    |Unlimited|
+X                        1 -> |1|
+X                       12 -> |12|
+X                      123 -> |123|
+X                    1,234 -> |1234|
+X                   12,345 -> |12345|
+X                  123,456 -> |123456|
+X                1,234,567 -> |1234567|
+X               12,345,678 -> |12345678|
+X             12,345,678.1 -> |12345678.1|
+X   12,345,678.1199 9999 9 -> |12345678.119999999|
+X           12,345,678.123 -> |12345678.123|
+X   12,345,678.1233 9999 9 -> |12345678.123399999|
+X        12,345,678.1234 5 -> |12345678.12345|
+X                       -1 -> |-1|
+X                      -12 -> |-12|
+X                     -123 -> |-123|
+X                   -1,234 -> |-1234|
+X                  -12,345 -> |-12345|
+X                 -123,456 -> |-123456|
+X               -1,234,567 -> |-1234567|
+X              -12,345,678 -> |-12345678|
+X            -12,345,678.1 -> |-12345678.1|
+X  -12,345,678.1199 9999 9 -> |-12345678.119999999|
+X          -12,345,678.123 -> |-12345678.123|
+X  -12,345,678.1233 9999 9 -> |-12345678.123399999|
+X       -12,345,678.1234 5 -> |-12345678.12345|
+X                      9.1 -> |9.1|
+X                     9.12 -> |9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.1234|
+X                 9.1234 5 -> |9.12345|
+X                      0.1 -> |0.1|
+X                     0.02 -> |0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> |0.0004|
+X                 0.0000 5 -> |0.00005|
+XSet width to 7 and don't right adjust.
+X                    Input    |-------|
+X                        1 -> |1|
+X                       12 -> |12|
+X                      123 -> |123|
+X                    1,234 -> |1,234|
+X                   12,345 -> |12,345|
+X                  123,456 -> |123,456|
+X                1,234,567 -> |1,235K|
+X               12,345,678 -> |12,346K|
+X             12,345,678.1 -> |12,346K|
+X   12,345,678.1199 9999 9 -> |12,346K|
+X           12,345,678.123 -> |12,346K|
+X   12,345,678.1233 9999 9 -> |12,346K|
+X        12,345,678.1234 5 -> |12,346K|
+X                       -1 -> |-1|
+X                      -12 -> |-12|
+X                     -123 -> |-123|
+X                   -1,234 -> |-1,234|
+X                  -12,345 -> |-12,345|
+X                 -123,456 -> |-123K|
+X               -1,234,567 -> |-1,234K|
+X              -12,345,678 -> |-12M|
+X            -12,345,678.1 -> |-12M|
+X  -12,345,678.1199 9999 9 -> |-12M|
+X          -12,345,678.123 -> |-12M|
+X  -12,345,678.1233 9999 9 -> |-12M|
+X       -12,345,678.1234 5 -> |-12M|
+X                      9.1 -> |9.1|
+X                     9.12 -> |9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.1234|
+X                 9.1234 5 -> |9.1235|
+X                      0.1 -> |0.1|
+X                     0.02 -> |0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> |0.0004|
+X                 0.0000 5 -> |0.05m|
+XSet width to 7 and don't use SI.
+X                    Input    |-------|
+X                        1 -> |      1|
+X                       12 -> |     12|
+X                      123 -> |    123|
+X                    1,234 -> |  1,234|
+X                   12,345 -> | 12,345|
+X                  123,456 -> |123,456|
+X                1,234,567 -> |1,234,567|
+X               12,345,678 -> |12,345,678|
+X             12,345,678.1 -> |12,345,678|
+X   12,345,678.1199 9999 9 -> |12,345,678|
+X           12,345,678.123 -> |12,345,678|
+X   12,345,678.1233 9999 9 -> |12,345,678|
+X        12,345,678.1234 5 -> |12,345,678|
+X                       -1 -> |     -1|
+X                      -12 -> |    -12|
+X                     -123 -> |   -123|
+X                   -1,234 -> | -1,234|
+X                  -12,345 -> |-12,345|
+X                 -123,456 -> |-123,456|
+X               -1,234,567 -> |-1,234,567|
+X              -12,345,678 -> |-12,345,678|
+X            -12,345,678.1 -> |-12,345,678|
+X  -12,345,678.1199 9999 9 -> |-12,345,678|
+X          -12,345,678.123 -> |-12,345,678|
+X  -12,345,678.1233 9999 9 -> |-12,345,678|
+X       -12,345,678.1234 5 -> |-12,345,678|
+X                      9.1 -> |    9.1|
+X                     9.12 -> |   9.12|
+X                    9.123 -> |  9.123|
+X                   9.1234 -> | 9.1234|
+X                 9.1234 5 -> | 9.1235|
+X                      0.1 -> |    0.1|
+X                     0.02 -> |   0.02|
+X                    0.003 -> |  0.003|
+X                   0.0004 -> | 0.0004|
+X                 0.0000 5 -> |0.0000 5|
+XSet separator width to 4 and Sep is a space.
+X                    Input    |Unlimited|
+X                        1 -> |1|
+X                       12 -> |12|
+X                      123 -> |123|
+X                    1,234 -> |1234|
+X                   12,345 -> |1 2345|
+X                  123,456 -> |12 3456|
+X                1,234,567 -> |123 4567|
+X               12,345,678 -> |1234 5678|
+X             12,345,678.1 -> |1234 5678.1|
+X   12,345,678.1199 9999 9 -> |1234 5678.1199 9999 9|
+X           12,345,678.123 -> |1234 5678.123|
+X   12,345,678.1233 9999 9 -> |1234 5678.1233 9999 9|
+X        12,345,678.1234 5 -> |1234 5678.1234 5|
+X                       -1 -> |-1|
+X                      -12 -> |-12|
+X                     -123 -> |-123|
+X                   -1,234 -> |-1234|
+X                  -12,345 -> |-1 2345|
+X                 -123,456 -> |-12 3456|
+X               -1,234,567 -> |-123 4567|
+X              -12,345,678 -> |-1234 5678|
+X            -12,345,678.1 -> |-1234 5678.1|
+X  -12,345,678.1199 9999 9 -> |-1234 5678.1199 9999 9|
+X          -12,345,678.123 -> |-1234 5678.123|
+X  -12,345,678.1233 9999 9 -> |-1234 5678.1233 9999 9|
+X       -12,345,678.1234 5 -> |-1234 5678.1234 5|
+X                      9.1 -> |9.1|
+X                     9.12 -> |9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.1234|
+X                 9.1234 5 -> |9.1234 5|
+X                      0.1 -> |0.1|
+X                     0.02 -> |0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> |0.0004|
+X                 0.0000 5 -> |0.0000 5|
+XNormal SepWidth, but Width set to 5
+X                    Input    |-----|
+X                        1 -> |    1|
+X                       12 -> |   12|
+X                      123 -> |  123|
+X                    1,234 -> |1,234|
+X                   12,345 -> |  12K|
+X                  123,456 -> | 123K|
+X                1,234,567 -> |   1M|
+X               12,345,678 -> |  12M|
+X             12,345,678.1 -> |  12M|
+X   12,345,678.1199 9999 9 -> |  12M|
+X           12,345,678.123 -> |  12M|
+X   12,345,678.1233 9999 9 -> |  12M|
+X        12,345,678.1234 5 -> |  12M|
+X                       -1 -> |   -1|
+X                      -12 -> |  -12|
+X                     -123 -> | -123|
+X                   -1,234 -> |  -1K|
+X                  -12,345 -> | -12K|
+X                 -123,456 -> |-123K|
+X               -1,234,567 -> |  -1M|
+X              -12,345,678 -> | -12M|
+X            -12,345,678.1 -> | -12M|
+X  -12,345,678.1199 9999 9 -> | -12M|
+X          -12,345,678.123 -> | -12M|
+X  -12,345,678.1233 9999 9 -> | -12M|
+X       -12,345,678.1234 5 -> | -12M|
+X                      9.1 -> |  9.1|
+X                     9.12 -> | 9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.123|
+X                 9.1234 5 -> |9.123|
+X                      0.1 -> |  0.1|
+X                     0.02 -> | 0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> | 0.4m|
+X                 0.0000 5 -> |0.05m|
+XWidth set to 5 and don't use seps.
+X                    Input    |-----|
+X                        1 -> |    1|
+X                       12 -> |   12|
+X                      123 -> |  123|
+X                    1,234 -> | 1234|
+X                   12,345 -> |12345|
+X                  123,456 -> | 123K|
+X                1,234,567 -> |1235K|
+X               12,345,678 -> |  12M|
+X             12,345,678.1 -> |  12M|
+X   12,345,678.1199 9999 9 -> |  12M|
+X           12,345,678.123 -> |  12M|
+X   12,345,678.1233 9999 9 -> |  12M|
+X        12,345,678.1234 5 -> |  12M|
+X                       -1 -> |   -1|
+X                      -12 -> |  -12|
+X                     -123 -> | -123|
+X                   -1,234 -> |-1234|
+X                  -12,345 -> | -12K|
+X                 -123,456 -> |-123K|
+X               -1,234,567 -> |  -1M|
+X              -12,345,678 -> | -12M|
+X            -12,345,678.1 -> | -12M|
+X  -12,345,678.1199 9999 9 -> | -12M|
+X          -12,345,678.123 -> | -12M|
+X  -12,345,678.1233 9999 9 -> | -12M|
+X       -12,345,678.1234 5 -> | -12M|
+X                      9.1 -> |  9.1|
+X                     9.12 -> | 9.12|
+X                    9.123 -> |9.123|
+X                   9.1234 -> |9.123|
+X                 9.1234 5 -> |9.123|
+X                      0.1 -> |  0.1|
+X                     0.02 -> | 0.02|
+X                    0.003 -> |0.003|
+X                   0.0004 -> | 0.4m|
+X                 0.0000 5 -> |0.05m|
+XWidth set to 15
+X                    Input    |---------------|
+X                        1 -> |              1|
+X                       12 -> |             12|
+X                      123 -> |            123|
+X                    1,234 -> |          1,234|
+X                   12,345 -> |         12,345|
+X                  123,456 -> |        123,456|
+X                1,234,567 -> |      1,234,567|
+X               12,345,678 -> |     12,345,678|
+X             12,345,678.1 -> |   12,345,678.1|
+X   12,345,678.1199 9999 9 -> |  12,345,678.12|
+X           12,345,678.123 -> | 12,345,678.123|
+X   12,345,678.1233 9999 9 -> |12,345,678.1234|
+X        12,345,678.1234 5 -> |12,345,678.1234|
+X                       -1 -> |             -1|
+X                      -12 -> |            -12|
+X                     -123 -> |           -123|
+X                   -1,234 -> |         -1,234|
+X                  -12,345 -> |        -12,345|
+X                 -123,456 -> |       -123,456|
+X               -1,234,567 -> |     -1,234,567|
+X              -12,345,678 -> |    -12,345,678|
+X            -12,345,678.1 -> |  -12,345,678.1|
+X  -12,345,678.1199 9999 9 -> | -12,345,678.12|
+X          -12,345,678.123 -> |-12,345,678.123|
+X  -12,345,678.1233 9999 9 -> |-12,345,678.123|
+X       -12,345,678.1234 5 -> |-12,345,678.123|
+X                      9.1 -> |            9.1|
+X                     9.12 -> |           9.12|
+X                    9.123 -> |          9.123|
+X                   9.1234 -> |         9.1234|
+X                 9.1234 5 -> |       9.1234 5|
+X                      0.1 -> |            0.1|
+X                     0.02 -> |           0.02|
+X                    0.003 -> |          0.003|
+X                   0.0004 -> |         0.0004|
+X                 0.0000 5 -> |       0.0000 5|
+END_OF_FILE
+if test 12068 -ne `wc -c <'my.out'`; then
+    echo shar: \"'my.out'\" unpacked with wrong size!
+fi
+# end of 'my.out'
+fi
+if test -f 'test.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.C'\"
+else
+echo shar: Extracting \"'test.C'\" \(2719 characters\)
+sed "s/^X//" >'test.C' <<'END_OF_FILE'
+X#include "fformat.h"
+X#include <math.h>
+X
+X// Function prototypes
+X
+Xconst SAMPLEWIDTH = 25;
+X
+Xvoid test_switches();
+Xvoid show_width(int width);
+Xint main()
+X{
+X	test_switches();
+X	
+X	return 0;
+X}
+X
+Xvoid test_switches()
+X{
+X	const width2 = 7;
+X	const width3 = 7;
+X	const sepw4 = 4;
+X	const width5 = 5;
+X	const width6 = 5;
+X	const width7 = 15;
+X
+X	const max_sig = 7;
+X	ld l;
+X	FFormat sample;
+X	sample.SetWidth(SAMPLEWIDTH);
+X
+X	for (int j = 0; j <= 7; j++) {
+X		FFormat a;
+X
+X//		a.SetUseExp(1);
+X		switch (j) {
+X		case 0:
+X			cout << "Default." << endl;
+X			break;
+X		case 1:
+X			cout << "Don't use the separators." << endl;
+X			a.SetUseSeparators(0);
+X			break;
+X		case 2:
+X			cout << "Set width to " << width2 <<
+X				" and don't right adjust." << endl;
+X			a.SetWidth(width2);
+X			a.SetRightAdjust(0);
+X			break;
+X		case 3:
+X			cout << "Set width to " << width3 <<
+X				" and don't use SI." << endl;
+X			a.SetWidth(width3);
+X			a.SetUseSI(0);
+X			break;
+X		case 4:
+X			cout << "Set separator width to " << sepw4 <<
+X				" and Sep is a space." << endl;
+X
+X			a.SetSep(' ');
+X			a.SetSepWidth(sepw4);
+X			break;
+X		case 5:
+X			cout << "Normal SepWidth, but Width set to " << width5 << endl;
+X			a.SetWidth(width5);
+X			break;
+X		case 6:
+X			cout << "Width set to " << width6 << " and don't use seps." << endl;
+X			a.SetWidth(width6);
+X			a.SetUseSeparators(0);
+X			break;
+X		case 7:
+X			cout << "Width set to " << width7 << endl;
+X			a.SetWidth(width7);
+X			break;
+X		}
+X		l = 1;
+X		show_width(a.Width());
+X		for (int i = 0; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << "|" << endl;
+X			l *= 10;
+X			l += (i + 2) % 10;
+X		}
+X		for (i = 1; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << '|' << endl;
+X			l += i / pow(10, i);
+X		}
+X		l = -1;
+X		for (i = 0; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << "|" << endl;
+X			l *= 10;
+X			l -= (i + 2) % 10;
+X		}
+X		for (i = 1; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << '|' << endl;
+X			l -= i / pow(10, i);
+X		}
+X		l = 9.1;
+X		for (i = 2; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << '|' << endl;
+X			l += i / pow(10, i);
+X		}
+X		l = .1;
+X		for (i = 2; i < max_sig; i++) {
+X			cout << sample.Str(l) << flush;
+X			cout << " -> |";
+X			cout << a.Str(l);
+X			cout << '|' << endl;
+X			l = i / pow(10, i);
+X		}
+X
+X	}
+X}
+X
+Xvoid show_width(int width)
+X{
+X	int i;
+X
+X	for (i = 0; i < SAMPLEWIDTH - 5; i++) 
+X		cout << ' ';
+X	cout << "Input";
+X	cout << "    |";
+X	if (width) {
+X		for (i = 0; i < width; i++)
+X			cout << '-';
+X	}
+X	else {
+X		cout << "Unlimited";
+X	}
+X	cout << '|' << endl;;
+X}
+END_OF_FILE
+if test 2719 -ne `wc -c <'test.C'`; then
+    echo shar: \"'test.C'\" unpacked with wrong size!
+fi
+# end of 'test.C'
+fi
+if test -f 'test.bat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.bat'\"
+else
+echo shar: Extracting \"'test.bat'\" \(208 characters\)
+sed "s/^X//" >'test.bat' <<'END_OF_FILE'
+X@echo on
+Xrem set prog=go32 test
+Xset prog=fformat
+Xecho Renaming all *.c to *.cc
+Xren *.c *.cc
+Xecho Test routine for IFormat - should read "FC: no differences encountered"
+X%prog% > your.out
+Xfc my.out your.out
+X
+X
+END_OF_FILE
+if test 208 -ne `wc -c <'test.bat'`; then
+    echo shar: \"'test.bat'\" unpacked with wrong size!
+fi
+# end of 'test.bat'
+fi
+if test -f 'test.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.sh'\"
+else
+echo shar: Extracting \"'test.sh'\" \(403 characters\)
+sed "s/^X//" >'test.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X## Test routine for IFormat
+X
+Xmake test
+Xfformat > your.out
+Xlines=`diff my.out your.out | wc -l`
+Xif (test $lines -ne 0) then
+X	echo "Your output is different then my output, but then"
+X	echo "different machines round differntly (probably not serious)."
+X	echo "Here's what diff gave me"
+X	echo "diff my.out your.out"
+X	diff my.out your.out
+Xelse
+X	fformat | more
+X	echo 'Passed test'
+X	rm -f your.out
+Xfi
+END_OF_FILE
+if test 403 -ne `wc -c <'test.sh'`; then
+    echo shar: \"'test.sh'\" unpacked with wrong size!
+fi
+chmod +x 'test.sh'
+# end of 'test.sh'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+
+-- 
+-------------------- kirkwood@qucis.queensu.ca ----------------------
+      299,792,458 m/s it's not just a good idea, it's the law!
+
+
+exit 0 # Just in case...

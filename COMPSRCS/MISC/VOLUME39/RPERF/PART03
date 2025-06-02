@@ -1,0 +1,766 @@
+Newsgroups: comp.sources.misc
+From: fitz@rpi.edu (Brian P. Fitzgerald)
+Subject: v39i071:  rperf - performance monitoring of network hosts, v2.1, Part03/03
+Message-ID: <1993Aug30.212026.21063@sparky.sterling.com>
+X-Md4-Signature: eec20065afd8ea04b7b001820f8d7c25
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Rensselaer Polytechnic Institute, Troy NY
+Date: Mon, 30 Aug 1993 21:20:26 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: fitz@rpi.edu (Brian P. Fitzgerald)
+Posting-number: Volume 39, Issue 71
+Archive-name: rperf/part03
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  The tool that generated this
+# shell archive is called "shar", and is available by anonymous ftp
+# from ftp.uu.net in subdirectory /usenet/comp.sources.unix, and from many
+# other places. Check 'archie' for the latest locations.  If this archive
+# is complete, you will see the following message at the end:
+#		"End of archive 3 (of 3)."
+# Contents:  strftime.c
+# Wrapped by fitzgb@mml0.meche.rpi.edu on Mon Aug 30 15:01:25 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'strftime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strftime.c'\"
+else
+echo shar: Extracting \"'strftime.c'\" \(17080 characters\)
+sed "s/^X//" >'strftime.c' <<'END_OF_FILE'
+X/*
+X * strftime.c
+X *
+X * Public-domain relatively quick-and-dirty implementation of
+X * ANSI library routine for System V Unix systems.
+X *
+X * It's written in old-style C for maximal portability.
+X * However, since I'm used to prototypes, I've included them too.
+X *
+X * If you want stuff in the System V ascftime routine, add the SYSV_EXT define.
+X * For extensions from SunOS, add SUNOS_EXT.
+X * For stuff needed to implement the P1003.2 date command, add POSIX2_DATE.
+X * For complete POSIX semantics, add POSIX_SEMANTICS.
+X *
+X * The code for %c, %x, and %X is my best guess as to what's "appropriate".
+X * This version ignores LOCALE information.
+X * It also doesn't worry about multi-byte characters.
+X * So there.
+X *
+X * This file is also shipped with GAWK (GNU Awk), gawk specific bits of
+X * code are included if GAWK is defined.
+X *
+X * Arnold Robbins
+X * January, February, March, 1991
+X * Updated March, April 1992
+X * Updated May, 1993
+X *
+X * Fixes from ado@elsie.nci.nih.gov
+X * February 1991, May 1992
+X * Fixes from Tor Lillqvist tor@tik.vtt.fi
+X * May, 1993
+X */
+X
+X#ifndef GAWK
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <time.h>
+X#include <sys/types.h>
+X#endif
+X
+X/* defaults: season to taste */
+X#define SYSV_EXT	1	/* stuff in System V ascftime routine */
+X#define SUNOS_EXT	1	/* stuff in SunOS strftime routine */
+X#define POSIX2_DATE	1	/* stuff in Posix 1003.2 date command */
+X#define VMS_EXT		1	/* include %v for VMS date format */
+X#ifndef GAWK
+X#define POSIX_SEMANTICS	1	/* call tzset() if TZ changes */
+X#endif
+X
+X#if defined(POSIX2_DATE)
+X#if ! defined(SYSV_EXT)
+X#define SYSV_EXT	1
+X#endif
+X#if ! defined(SUNOS_EXT)
+X#define SUNOS_EXT	1
+X#endif
+X#endif
+X
+X#if defined(POSIX2_DATE)
+X#define adddecl(stuff)	stuff
+X#else
+X#define adddecl(stuff)
+X#endif
+X
+X#undef strchr	/* avoid AIX weirdness */
+X
+X#ifndef __STDC__
+X#define const	/**/
+Xextern void *malloc();
+Xextern void *realloc();
+Xextern void tzset();
+Xextern char *strchr();
+Xextern char *getenv();
+Xstatic int weeknumber();
+Xadddecl(static int iso8601wknum();)
+X#else
+Xextern void *malloc(unsigned count);
+Xextern void *realloc(void *ptr, unsigned count);
+Xextern void tzset(void);
+Xextern char *strchr(const char *str, int ch);
+Xextern char *getenv(const char *v);
+Xstatic int weeknumber(const struct tm *timeptr, int firstweekday);
+Xadddecl(static int iso8601wknum(const struct tm *timeptr);)
+X#endif
+X
+X#ifdef __GNUC__
+X#define inline	__inline__
+X#else
+X#define inline	/**/
+X#endif
+X
+X#define range(low, item, hi)	max(low, min(item, hi))
+X
+X#if !defined(MSDOS) && !defined(TZNAME_MISSING)
+Xextern char *tzname[2];
+Xextern int daylight;
+X#endif
+X
+X/* min --- return minimum of two numbers */
+X
+X#ifndef __STDC__
+Xstatic inline int
+Xmin(a, b)
+Xint a, b;
+X#else
+Xstatic inline int
+Xmin(int a, int b)
+X#endif
+X{
+X	return (a < b ? a : b);
+X}
+X
+X/* max --- return maximum of two numbers */
+X
+X#ifndef __STDC__
+Xstatic inline int
+Xmax(a, b)
+Xint a, b;
+X#else
+Xstatic inline int
+Xmax(int a, int b)
+X#endif
+X{
+X	return (a > b ? a : b);
+X}
+X
+X/* strftime --- produce formatted time */
+X
+X#ifndef __STDC__
+Xsize_t
+Xstrftime(s, maxsize, format, timeptr)
+Xchar *s;
+Xsize_t maxsize;
+Xconst char *format;
+Xconst struct tm *timeptr;
+X#else
+Xsize_t
+Xstrftime(char *s, size_t maxsize, const char *format, const struct tm *timeptr)
+X#endif
+X{
+X	char *endp = s + maxsize;
+X	char *start = s;
+X	char tbuf[100];
+X	int i;
+X	static short first = 1;
+X#ifdef POSIX_SEMANTICS
+X	static char *savetz = NULL;
+X	static int savetzlen = 0;
+X	char *tz;
+X#endif /* POSIX_SEMANTICS */
+X
+X	/* various tables, useful in North America */
+X	static char *days_a[] = {
+X		"Sun", "Mon", "Tue", "Wed",
+X		"Thu", "Fri", "Sat",
+X	};
+X	static char *days_l[] = {
+X		"Sunday", "Monday", "Tuesday", "Wednesday",
+X		"Thursday", "Friday", "Saturday",
+X	};
+X	static char *months_a[] = {
+X		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+X	};
+X	static char *months_l[] = {
+X		"January", "February", "March", "April",
+X		"May", "June", "July", "August", "September",
+X		"October", "November", "December",
+X	};
+X	static char *ampm[] = { "AM", "PM", };
+X
+X	if (s == NULL || format == NULL || timeptr == NULL || maxsize == 0)
+X		return 0;
+X
+X	if (strchr(format, '%') == NULL && strlen(format) + 1 >= maxsize)
+X		return 0;
+X
+X#ifndef POSIX_SEMANTICS
+X	if (first) {
+X		tzset();
+X		first = 0;
+X	}
+X#else	/* POSIX_SEMANTICS */
+X	tz = getenv("TZ");
+X	if (first) {
+X		if (tz != NULL) {
+X			int tzlen = strlen(tz);
+X
+X			savetz = (char *) malloc(tzlen + 1);
+X			if (savetz != NULL) {
+X				savetzlen = tzlen + 1;
+X				strcpy(savetz, tz);
+X			}
+X		}
+X		tzset();
+X		first = 0;
+X	}
+X	/* if we have a saved TZ, and it is different, recapture and reset */
+X	if (tz && savetz && (tz[0] != savetz[0] || strcmp(tz, savetz) != 0)) {
+X		i = strlen(tz) + 1;
+X		if (i > savetzlen) {
+X			savetz = (char *) realloc(savetz, i);
+X			if (savetz) {
+X				savetzlen = i;
+X				strcpy(savetz, tz);
+X			}
+X		} else
+X			strcpy(savetz, tz);
+X		tzset();
+X	}
+X#endif	/* POSIX_SEMANTICS */
+X
+X	for (; *format && s < endp - 1; format++) {
+X		tbuf[0] = '\0';
+X		if (*format != '%') {
+X			*s++ = *format;
+X			continue;
+X		}
+X	again:
+X		switch (*++format) {
+X		case '\0':
+X			*s++ = '%';
+X			goto out;
+X
+X		case '%':
+X			*s++ = '%';
+X			continue;
+X
+X		case 'a':	/* abbreviated weekday name */
+X			if (timeptr->tm_wday < 0 || timeptr->tm_wday > 6)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, days_a[timeptr->tm_wday]);
+X			break;
+X
+X		case 'A':	/* full weekday name */
+X			if (timeptr->tm_wday < 0 || timeptr->tm_wday > 6)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, days_l[timeptr->tm_wday]);
+X			break;
+X
+X#ifdef SYSV_EXT
+X		case 'h':	/* abbreviated month name */
+X#endif
+X		case 'b':	/* abbreviated month name */
+X			if (timeptr->tm_mon < 0 || timeptr->tm_mon > 11)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, months_a[timeptr->tm_mon]);
+X			break;
+X
+X		case 'B':	/* full month name */
+X			if (timeptr->tm_mon < 0 || timeptr->tm_mon > 11)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, months_l[timeptr->tm_mon]);
+X			break;
+X
+X		case 'c':	/* appropriate date and time representation */
+X			sprintf(tbuf, "%s %s %2d %02d:%02d:%02d %d",
+X				days_a[range(0, timeptr->tm_wday, 6)],
+X				months_a[range(0, timeptr->tm_mon, 11)],
+X				range(1, timeptr->tm_mday, 31),
+X				range(0, timeptr->tm_hour, 23),
+X				range(0, timeptr->tm_min, 59),
+X				range(0, timeptr->tm_sec, 61),
+X				timeptr->tm_year + 1900);
+X			break;
+X
+X		case 'd':	/* day of the month, 01 - 31 */
+X			i = range(1, timeptr->tm_mday, 31);
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'H':	/* hour, 24-hour clock, 00 - 23 */
+X			i = range(0, timeptr->tm_hour, 23);
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'I':	/* hour, 12-hour clock, 01 - 12 */
+X			i = range(0, timeptr->tm_hour, 23);
+X			if (i == 0)
+X				i = 12;
+X			else if (i > 12)
+X				i -= 12;
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'j':	/* day of the year, 001 - 366 */
+X			sprintf(tbuf, "%03d", timeptr->tm_yday + 1);
+X			break;
+X
+X		case 'm':	/* month, 01 - 12 */
+X			i = range(0, timeptr->tm_mon, 11);
+X			sprintf(tbuf, "%02d", i + 1);
+X			break;
+X
+X		case 'M':	/* minute, 00 - 59 */
+X			i = range(0, timeptr->tm_min, 59);
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'p':	/* am or pm based on 12-hour clock */
+X			i = range(0, timeptr->tm_hour, 23);
+X			if (i < 12)
+X				strcpy(tbuf, ampm[0]);
+X			else
+X				strcpy(tbuf, ampm[1]);
+X			break;
+X
+X		case 'S':	/* second, 00 - 61 */
+X			i = range(0, timeptr->tm_sec, 61);
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'U':	/* week of year, Sunday is first day of week */
+X			sprintf(tbuf, "%d", weeknumber(timeptr, 0));
+X			break;
+X
+X		case 'w':	/* weekday, Sunday == 0, 0 - 6 */
+X			i = range(0, timeptr->tm_wday, 6);
+X			sprintf(tbuf, "%d", i);
+X			break;
+X
+X		case 'W':	/* week of year, Monday is first day of week */
+X			sprintf(tbuf, "%d", weeknumber(timeptr, 1));
+X			break;
+X
+X		case 'x':	/* appropriate date representation */
+X			sprintf(tbuf, "%s %s %2d %d",
+X				days_a[range(0, timeptr->tm_wday, 6)],
+X				months_a[range(0, timeptr->tm_mon, 11)],
+X				range(1, timeptr->tm_mday, 31),
+X				timeptr->tm_year + 1900);
+X			break;
+X
+X		case 'X':	/* appropriate time representation */
+X			sprintf(tbuf, "%02d:%02d:%02d",
+X				range(0, timeptr->tm_hour, 23),
+X				range(0, timeptr->tm_min, 59),
+X				range(0, timeptr->tm_sec, 61));
+X			break;
+X
+X		case 'y':	/* year without a century, 00 - 99 */
+X			i = timeptr->tm_year % 100;
+X			sprintf(tbuf, "%d", i);
+X			break;
+X
+X		case 'Y':	/* year with century */
+X			sprintf(tbuf, "%d", 1900 + timeptr->tm_year);
+X			break;
+X
+X		case 'Z':	/* time zone name or abbrevation */
+X			i = 0;
+X			if (
+X#ifndef TZNAME_MISSING
+X			    daylight &&
+X#endif
+X			    timeptr->tm_isdst)
+X				i = 1;
+X#ifdef TZNAME_MISSING
+X			strcpy(tbuf, timeptr->tm_zone);
+X#else
+X			strcpy(tbuf, tzname[i]);
+X#endif
+X			break;
+X
+X#ifdef SYSV_EXT
+X		case 'n':	/* same as \n */
+X			tbuf[0] = '\n';
+X			tbuf[1] = '\0';
+X			break;
+X
+X		case 't':	/* same as \t */
+X			tbuf[0] = '\t';
+X			tbuf[1] = '\0';
+X			break;
+X
+X		case 'D':	/* date as %m/%d/%y */
+X			strftime(tbuf, sizeof tbuf, "%m/%d/%y", timeptr);
+X			break;
+X
+X		case 'e':	/* day of month, blank padded */
+X			sprintf(tbuf, "%2d", range(1, timeptr->tm_mday, 31));
+X			break;
+X
+X		case 'r':	/* time as %I:%M:%S %p */
+X			strftime(tbuf, sizeof tbuf, "%I:%M:%S %p", timeptr);
+X			break;
+X
+X		case 'R':	/* time as %H:%M */
+X			strftime(tbuf, sizeof tbuf, "%H:%M", timeptr);
+X			break;
+X
+X		case 'T':	/* time as %H:%M:%S */
+X			strftime(tbuf, sizeof tbuf, "%H:%M:%S", timeptr);
+X			break;
+X#endif
+X
+X#ifdef SUNOS_EXT
+X		case 'k':	/* hour, 24-hour clock, blank pad */
+X			sprintf(tbuf, "%2d", range(0, timeptr->tm_hour, 23));
+X			break;
+X
+X		case 'l':	/* hour, 12-hour clock, 1 - 12, blank pad */
+X			i = range(0, timeptr->tm_hour, 23);
+X			if (i == 0)
+X				i = 12;
+X			else if (i > 12)
+X				i -= 12;
+X			sprintf(tbuf, "%2d", i);
+X			break;
+X#endif
+X
+X
+X#ifdef VMS_EXT
+X		case 'v':	/* date as dd-bbb-YYYY */
+X			sprintf(tbuf, "%2d-%3.3s-%4d",
+X				range(1, timeptr->tm_mday, 31),
+X				months_a[range(0, timeptr->tm_mon, 11)],
+X				timeptr->tm_year + 1900);
+X			for (i = 3; i < 6; i++)
+X				if (islower(tbuf[i]))
+X					tbuf[i] = toupper(tbuf[i]);
+X			break;
+X#endif
+X
+X
+X#ifdef POSIX2_DATE
+X		case 'C':
+X			sprintf(tbuf, "%02d", (timeptr->tm_year + 1900) / 100);
+X			break;
+X
+X
+X		case 'E':
+X		case 'O':
+X			/* POSIX locale extensions, ignored for now */
+X			goto again;
+X
+X		case 'V':	/* week of year according ISO 8601 */
+X#if defined(GAWK) && defined(VMS_EXT)
+X		{
+X			extern int do_lint;
+X			extern void warning();
+X			static int warned = 0;
+X
+X			if (! warned && do_lint) {
+X				warned = 1;
+X				warning(
+X	"conversion %%V added in P1003.2/11.3; for VMS style date, use %%v");
+X			}
+X		}
+X#endif
+X			sprintf(tbuf, "%d", iso8601wknum(timeptr));
+X			break;
+X
+X		case 'u':
+X		/* ISO 8601: Weekday as a decimal number [1 (Monday) - 7] */
+X			sprintf(tbuf, "%d", timeptr->tm_wday == 0 ? 7 :
+X					timeptr->tm_wday);
+X			break;
+X#endif	/* POSIX2_DATE */
+X		default:
+X			tbuf[0] = '%';
+X			tbuf[1] = *format;
+X			tbuf[2] = '\0';
+X			break;
+X		}
+X		i = strlen(tbuf);
+X		if (i)
+X			if (s + i < endp - 1) {
+X				strcpy(s, tbuf);
+X				s += i;
+X			} else
+X				return 0;
+X	}
+Xout:
+X	if (s < endp && *format == '\0') {
+X		*s = '\0';
+X		return (s - start);
+X	} else
+X		return 0;
+X}
+X
+X#ifdef POSIX2_DATE
+X/* iso8601wknum --- compute week number according to ISO 8601 */
+X
+X#ifndef __STDC__
+Xstatic int
+Xiso8601wknum(timeptr)
+Xconst struct tm *timeptr;
+X#else
+Xstatic int
+Xiso8601wknum(const struct tm *timeptr)
+X#endif
+X{
+X	/*
+X	 * From 1003.2 D11.3:
+X	 *	If the week (Monday to Sunday) containing January 1
+X	 *	has four or more days in the new year, then it is week 1;
+X	 *	otherwise it is week 53 of the previous year, and the
+X	 *	next week is week 1.
+X	 *
+X	 * ADR: This means if Jan 1 was Monday through Thursday,
+X	 *	it was week 1, otherwise week 53.
+X	 */
+X
+X	int simple_wknum, jan1day, diff, ret;
+X
+X	/* get week number, Monday as first day of the week */
+X	simple_wknum = weeknumber(timeptr, 1) + 1;
+X
+X	/*
+X	 * With thanks and tip of the hatlo to tml@tik.vtt.fi
+X	 *
+X	 * What day of the week does January 1 fall on?
+X	 * We know that
+X	 *	(timeptr->tm_yday - jan1.tm_yday) MOD 7 ==
+X	 *		(timeptr->tm_wday - jan1.tm_wday) MOD 7
+X	 * and that
+X	 * 	jan1.tm_yday == 0
+X	 * and that
+X	 * 	timeptr->tm_wday MOD 7 == timeptr->tm_wday
+X	 * from which it follows that. . .
+X 	 */
+X	jan1day = timeptr->tm_wday - (timeptr->tm_yday % 7);
+X	if (jan1day < 0)
+X		jan1day += 7;
+X
+X	/*
+X	 * If Jan 1 was a Monday through Thursday, it was in
+X	 * week 1.  Otherwise it was last year's week 53, which is
+X	 * this year's week 0.
+X	 */
+X	if (jan1day >= 1 && jan1day <= 4)
+X		diff = 0;
+X	else
+X		diff = 1;
+X	ret = simple_wknum - diff;
+X	if (ret == 0)	/* we're in the first week of the year */
+X		ret = 53;
+X	return ret;
+X}
+X#endif
+X
+X/* weeknumber --- figure how many weeks into the year */
+X
+X/* With thanks and tip of the hatlo to ado@elsie.nci.nih.gov */
+X
+X#ifndef __STDC__
+Xstatic int
+Xweeknumber(timeptr, firstweekday)
+Xconst struct tm *timeptr;
+Xint firstweekday;
+X#else
+Xstatic int
+Xweeknumber(const struct tm *timeptr, int firstweekday)
+X#endif
+X{
+X	if (firstweekday == 0)
+X		return (timeptr->tm_yday + 7 - timeptr->tm_wday) / 7;
+X	else
+X		return (timeptr->tm_yday + 7 -
+X			(timeptr->tm_wday ? (timeptr->tm_wday - 1) : 6)) / 7;
+X}
+X
+X#if 0
+X/* ADR --- I'm loathe to mess with ado's code ... */
+X
+XDate:         Wed, 24 Apr 91 20:54:08 MDT
+XFrom: Michal Jaegermann <audfax!emory!vm.ucs.UAlberta.CA!NTOMCZAK>
+XTo: arnold@audiofax.com
+X
+XHi Arnold,
+Xin a process of fixing of strftime() in libraries on Atari ST I grabbed
+Xsome pieces of code from your own strftime.  When doing that it came
+Xto mind that your weeknumber() function compiles a little bit nicer
+Xin the following form:
+X/*
+X * firstweekday is 0 if starting in Sunday, non-zero if in Monday
+X */
+X{
+X    return (timeptr->tm_yday - timeptr->tm_wday +
+X	    (firstweekday ? (timeptr->tm_wday ? 8 : 1) : 7)) / 7;
+X}
+XHow nicer it depends on a compiler, of course, but always a tiny bit.
+X
+X   Cheers,
+X   Michal
+X   ntomczak@vm.ucs.ualberta.ca
+X#endif
+X
+X#ifdef	TEST_STRFTIME
+X
+X/*
+X * NAME:
+X *	tst
+X *
+X * SYNOPSIS:
+X *	tst
+X *
+X * DESCRIPTION:
+X *	"tst" is a test driver for the function "strftime".
+X *
+X * OPTIONS:
+X *	None.
+X *
+X * AUTHOR:
+X *	Karl Vogel
+X *	Control Data Systems, Inc.
+X *	vogelke@c-17igp.wpafb.af.mil
+X *
+X * BUGS:
+X *	None noticed yet.
+X *
+X * COMPILE:
+X *	cc -o tst -DTEST_STRFTIME strftime.c
+X */
+X
+X/* ADR: I reformatted this to my liking, and deleted some unneeded code. */
+X
+X#ifndef NULL
+X#include	<stdio.h>
+X#endif
+X#include	<sys/time.h>
+X#include	<string.h>
+X
+X#define		MAXTIME		132
+X
+X/*
+X * Array of time formats.
+X */
+X
+Xstatic char *array[] =
+X{
+X	"(%%A)      full weekday name, var length (Sunday..Saturday)  %A",
+X	"(%%B)       full month name, var length (January..December)  %B",
+X	"(%%C)                                               Century  %C",
+X	"(%%D)                                       date (%%m/%%d/%%y)  %D",
+X	"(%%E)                           Locale extensions (ignored)  %E",
+X	"(%%H)                          hour (24-hour clock, 00..23)  %H",
+X	"(%%I)                          hour (12-hour clock, 01..12)  %I",
+X	"(%%M)                                       minute (00..59)  %M",
+X	"(%%O)                           Locale extensions (ignored)  %O",
+X	"(%%R)                                 time, 24-hour (%%H:%%M)  %R",
+X	"(%%S)                                       second (00..61)  %S",
+X	"(%%T)                              time, 24-hour (%%H:%%M:%%S)  %T",
+X	"(%%U)    week of year, Sunday as first day of week (00..53)  %U",
+X	"(%%V)                    week of year according to ISO 8601  %V",
+X	"(%%W)    week of year, Monday as first day of week (00..53)  %W",
+X	"(%%X)     appropriate locale time representation (%H:%M:%S)  %X",
+X	"(%%Y)                           year with century (1970...)  %Y",
+X	"(%%Z) timezone (EDT), or blank if timezone not determinable  %Z",
+X	"(%%a)          locale's abbreviated weekday name (Sun..Sat)  %a",
+X	"(%%b)            locale's abbreviated month name (Jan..Dec)  %b",
+X	"(%%c)           full date (Sat Nov  4 12:02:33 1989)%n%t%t%t  %c",
+X	"(%%d)                             day of the month (01..31)  %d",
+X	"(%%e)               day of the month, blank-padded ( 1..31)  %e",
+X	"(%%h)                                should be same as (%%b)  %h",
+X	"(%%j)                            day of the year (001..366)  %j",
+X	"(%%k)               hour, 24-hour clock, blank pad ( 0..23)  %k",
+X	"(%%l)               hour, 12-hour clock, blank pad ( 0..12)  %l",
+X	"(%%m)                                        month (01..12)  %m",
+X	"(%%p)              locale's AM or PM based on 12-hour clock  %p",
+X	"(%%r)                   time, 12-hour (same as %%I:%%M:%%S %%p)  %r",
+X	"(%%u) ISO 8601: Weekday as decimal number [1 (Monday) - 7]   %u",
+X	"(%%v)                                VAX date (dd-bbb-YYYY)  %v",
+X	"(%%w)                       day of week (0..6, Sunday == 0)  %w",
+X	"(%%x)                appropriate locale date representation  %x",
+X	"(%%y)                      last two digits of year (00..99)  %y",
+X	(char *) NULL
+X};
+X
+X/* Main routine. */
+X
+Xint
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	long time();
+X
+X	char *next;
+X	char string[MAXTIME];
+X
+X	int k;
+X	int length;
+X
+X	struct tm *tm;
+X
+X	long clock;
+X
+X	/* Call the function. */
+X
+X	clock = time((long *) 0);
+X	tm = localtime(&clock);
+X
+X	for (k = 0; next = array[k]; k++) {
+X		length = strftime(string, MAXTIME, next, tm);
+X		printf("%s\n", string);
+X	}
+X
+X	exit(0);
+X}
+X#endif	/* TEST_STRFTIME */
+END_OF_FILE
+if test 17080 -ne `wc -c <'strftime.c'`; then
+    echo shar: \"'strftime.c'\" unpacked with wrong size!
+fi
+# end of 'strftime.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    echo "Now do 'sh ./configure'"
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

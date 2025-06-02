@@ -1,0 +1,1435 @@
+Newsgroups: comp.sources.misc
+From: ross@teserv.den.mmc.com (Perry R. Ross)
+Subject: v36i107:  ldb - Play backgammon by e-mail, v1.3, Part10/12
+Message-ID: <1993Apr11.233218.18742@sparky.imd.sterling.com>
+X-Md4-Signature: d277b24b5b00d91c7093c66e5eafc4cd
+Date: Sun, 11 Apr 1993 23:32:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ross@teserv.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 36, Issue 107
+Archive-name: ldb/part10
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Supersedes: ldb: Volume 28, Issue 93-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 12)."
+# Contents:  fe_curses.c
+# Wrapped by ross@teserv.den.mmc.com on Tue Apr  6 14:52:24 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'fe_curses.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fe_curses.c'\"
+else
+echo shar: Extracting \"'fe_curses.c'\" \(41435 characters\)
+sed "s/^X//" >'fe_curses.c' <<'END_OF_FILE'
+X/*	fe_curses.c		9/5/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file is the "curses" front-end for ldb.  It performs all
+X * display output and keyboard input in a way that will (hopefully)
+X * allow other front-ends to be added later.  These could include
+X * MAC's (blech), IBM PC's (double blech), and X, although it must
+X * be stated that, as of this writing, ldb is not organized in an
+X * event-driven manner, so it will take more work to port to X than
+X * just writing fe_motif.c or what have you.  But I'm working on it.
+X *
+X * All publicly-accessible functions in the front-end begin with Fe.
+X * These are the functions that must be written to implement a new
+X * front-end.  There are a few private functions in this file, which
+X * begin with P.  These are used internally by fe_curses.c and need not
+X * be implemented in other front-ends.
+X *
+X * The front-end is activated by calling FeInitialize.  In addition to
+X * performing any required initialization, it is mandatory for FeInitialize
+X * to set FeIsActive to non-zero.  The front-end is closed down by
+X * calling FeFinishSession, which must set FeIsActive to 0.  No calls
+X * to any Fe functions may be made while FeIsActive is 0.
+X *======================================================================
+X */
+X
+XPRIVATE char PGetChr();
+XPRIVATE PGetString();
+XPRIVATE PDrawComment();
+XPRIVATE PReverseText();
+XPRIVATE PEndReverse();
+X
+XPRIVATE struct game *Current_Game = NULL;
+X
+X
+X/* VAX C doesn't have tgetstr, but if you're using vax-c,	*/
+X/* you're probably using a DEC terminal anyway.			*/
+X#ifdef vaxc
+X#define PClearScreen() fputs("\33[H\33[2J",stdout);fflush(stdout)
+X#else
+XPRIVATE PClearScreen();
+X#endif
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeInitialize -- initialize the front end
+X *
+X * This function initializes the curses package, turns off echo,
+X * turns on cbreak mode (to allow reading one character at a time),
+X * turns off mapping return to newline, and sets the FeIsActive flag.
+X * If FeWaitInit is set, the user is prompted to press <return> before
+X * the screen is cleared.  FeWaitInit is set by message() to indicate
+X * that there are messages on the screen that the user will want to
+X * read before the screen is cleared.
+X *----------------------------------------------------------------------
+X */
+X
+XFeInitialize()
+X{
+Xchar buf[80];
+X
+Xif (FeIsActive)
+X	return;
+Xif (FeWaitInit) {
+X	fprintf(stderr,"Press <return> to continue...");
+X	fflush(stdout);
+X	fflush(stderr);
+X	fgets(buf,sizeof(buf),stdin);
+X	FeWaitInit = 0;
+X	}
+Xinitscr();
+Xnoecho();
+Xcbreak();
+Xnonl();
+XFeIsActive = 1;
+XCurrent_Game = NULL;
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeFinishSession -- shut down the front end
+X *
+X * This function clears the screen, closes down the curses package,
+X * and clears the FeIsActive flag.
+X *----------------------------------------------------------------------
+X */
+X
+XFeFinishSession()
+X{
+X
+Xif (FeIsActive) {
+X	clear();
+X	refresh();
+X	endwin();
+X	FeIsActive = 0;
+X	Current_Game = NULL;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawScreen -- draw the constant parts of the screen
+X *
+X * This function draws the parts of the screen that don't change for
+X * each game.  This includes the board outline and a few other
+X * miscellaneous things.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawScreen()
+X{
+Xstatic char horz[] = "_____________________________________________________";
+Xint i;
+X
+Xclear();
+Xmvaddstr(2,5,horz);
+Xmvaddstr(17,5,horz);
+Xfor (i = 3; i < 18; i++) {
+X	mvaddch(i,5,'|');
+X	mvaddch(i,29,'|');
+X	mvaddch(i,33,'|');
+X	mvaddch(i,57,'|');
+X	}
+Xmvaddstr(3,61,"----------------");
+Xmvaddstr(4,63,"Roll  Move");
+Xmvaddstr(12,61,"----------------");
+Xmvaddstr(13,63,"Roll  Move");
+Xmvaddstr(18,62,"------[ ]------");
+Xfor (i = 19; i < 24; i++)
+X	mvaddch(i,62,'|');
+Xmvaddstr(18,0,"Messages:");
+Xmvaddstr(19,0,"Sent:");
+Xmvaddstr(21,0,"Rcvd:");
+Xrefresh();
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawGame -- draw all items associated with a game
+X *
+X * This function displays all information related to a specific game.
+X * This includes the point labels, move blocks, cube; shoot, just
+X * about everything you can think of.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawGame(g)
+Xstruct game *g;
+X{
+Xint i, p, r1, r2;
+Xchar blots[12], tmp[60], *n;
+Xchar addr[68];		/* all of e-mail address that will fit on top line */
+Xint bgflag;		/* 1 = gammon, 2 = backgammon, 0 = neither */
+Xint gval;		/* game value (when game is over) */
+Xstatic char pts1[] = " 1   2   3   4   5   6 |   | 7   8   9  10  11  12";
+Xstatic char pts2[] = "24  23  22  21  20  19 |   |18  17  16  15  14  13";
+Xstatic char *events[] = { "", "Gammon!  ", "Backgammon!  " };
+X
+XCurrent_Game = g;
+Xmove(0,0);
+Xclrtoeol();
+Xmove(0,0);
+Xn = (g->opname != NULL) ? g->opname : PPL_ANON;
+Xi = sizeof(addr) - strlen(n) - 1;  /* longest e-mail addr we can display */
+Xif (strlen(g->opaddr) > i) {	/* too long, truncate */
+X	strncpy(addr,g->opaddr,i-3);	/* leave space for ... */
+X	strcpy(&addr[i-3],"...");	/* add ellipsis & null terminate */
+X	}
+Xelse
+X	strcpy(addr,g->opaddr);
+Xprintw("Playing: %s (%s)",n,addr);		/* who am I playing? */
+Xif (g->flags & F_INVERT) {		/* board is inverted?  */
+X	mvaddstr(16,6,pts2);		/* draw inverted point labels */
+X	mvaddstr(4,6,pts1);
+X	r1 = 11;			/* remember which move block to use */
+X	r2 = 2;
+X	p = 1;
+X	}
+Xelse {
+X	mvaddstr(4,6,pts2);		/* draw normal point labels */
+X	mvaddstr(16,6,pts1);
+X	r1 = 2;				/* remember which move block to use */
+X	r2 = 11;
+X	p = 0;
+X	}
+Xif (g->mydir > 0) {		/* I'm playing up, switch move blocks */
+X	i = r1;
+X	r1 = r2;
+X	r2 = i;
+X	p = 1 - p;
+X	}
+Xmove(r1,63);
+Xprintw("Opponent  (%c)",g->opcolor);
+Xmove(r2,63);
+Xprintw("You       (%c)",g->mycolor);
+X
+Xswitch (g->curbd) {			/* which board should I draw? */
+Xcase BD_BEFOP:
+X	FeDrawBoard(g->opbd,g->opmvs,g->opdir,0,g->flags & F_INVERT);
+X	FeDrawPip(g->opbd,g);
+X	break;
+Xcase BD_AFTOP:
+X	FeDrawBoard(g->mybd,g->opmvs,g->opdir,1,g->flags & F_INVERT);
+X	FeDrawPip(g->mybd,g);
+X	break;
+Xcase BD_CUR:
+X	FeDrawBoard(g->board,NULL,g->mydir,0,g->flags & F_INVERT);
+X	FeDrawPip(g->board,g);
+X	break;
+X	}
+XFeLabelBoard(g);
+Xmvaddch(5,59,'|');			/* draw those little arrows */
+Xmvaddch(4,59,'-');
+Xmvaddch(14,59,'|');			/* that tell us which direction */
+Xmvaddch(15,59,'|');			/* we are going */
+Xmvaddch(16,59,'-');
+Xif (p == 0) {
+X	mvaddstr(4,1,"-->");
+X	mvaddch(4,58,'-');
+X	mvaddch(6,59,'V');
+X	mvaddch(16,58,'<');
+X	mvaddstr(16,1,"<--");
+X	mvaddstr(13,58,"   ");
+X	mvaddch(12,59,' ');
+X	mvaddstr(4,30,"-->");
+X	mvaddstr(16,30,"<--");
+X	}
+Xelse {
+X	mvaddstr(4,1,"<--");
+X	mvaddch(4,58,'<');
+X	mvaddch(6,59,'|');
+X	mvaddch(16,58,'-');
+X	mvaddstr(16,1,"-->");
+X	mvaddstr(13,58,"/|\\");
+X	mvaddch(12,59,'.');
+X	mvaddstr(16,30,"-->");
+X	mvaddstr(4,30,"<--");
+X	}
+X*blots = '\0';				/* did any of our blots get hit? */
+Xfor (i = 0, p = 0; i < 4; i++) {
+X	FeDrawMove(g,WHO_ME,i);		/* draw my moves */
+X	FeDrawMove(g,WHO_OPP,i);	/* draw opponent's moves */
+X	if (g->blot[i] > 0) {
+X		strcat(blots," ");	/* add a blot to the list */
+X		sprintf(tmp,"%d",g->blot[i]);
+X		strcat(blots,tmp);
+X		p++;
+X		}
+X	}
+XFeDrawCube(g);		/* draw the current game value */
+XPDrawComment(WHO_ME, g);	/* draw my old comment */
+XPDrawComment(WHO_OPP, g);	/* draw opponent's comment */
+Xif (g->state == ST_MYACCEPT)
+X	strcpy(tmp,"Opponent has doubled.");
+Xelse if (g->state == ST_GAMEOVER) {	/* game is over, find out why */
+X	bgflag = gvalue(g,&gval);		/* calculate game value */
+X	switch (g->term) {
+X	case T_IWIN:		/* I won, check for gammon/backgammon */
+X		sprintf(tmp,"%sYou win %d point%s.",events[bgflag],
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X	case T_ILOSE:		/* I lost, check for gammon/backgammon */
+X		sprintf(tmp,"%sYou lose %d point%s.",events[bgflag],
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X	case T_ICONCEDE:			/* I wimped out */
+X		sprintf(tmp,"You conceded.  You lose %d point%s.",
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X	case T_OPCONCEDE:			/* Opponent wimped out */
+X		sprintf(tmp,"Opponent conceded.  You win %d point%s.",
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X	case T_IDECLINE:			/* I declined the double */
+X		sprintf(tmp,"Double declined.  You lose %d point%s.",
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X	case T_OPDECLINE:		/* Opponent declined my double */
+X		sprintf(tmp,"Double declined.  You win %d point%s.",
+X			gval,(gval == 1) ? "" : "s");
+X		break;
+X		}
+X	}
+Xelse if (*blots)
+X	sprintf(tmp,"Blot%s hit:%s",(p == 1) ? "" : "s",blots);
+Xelse
+X	*tmp = '\0';
+XFeStatusLine(tmp);
+XFeMessage(g->dispmsg);		/* put message (if any) on message line */
+Xif (g->dispmsg != NULL) {	/* if there was a message, it has been */
+X	free(g->dispmsg);	/* displayed, so it can thrown away */
+X	g->dispmsg = NULL;
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawPip -- display the PIP count
+X *
+X * This function displays the current pip count.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawPip(b,g)
+Xboard b;			/* the current board array */
+Xstruct game *g;			/* the current game structure */
+X{
+Xint mypip, oppip;
+X
+Xpipcount(b,g,&mypip,&oppip);
+Xmove(1,29);
+Xclrtoeol();
+Xmove(1,29);
+Xprintw("You: %3d  Op: %3d  ", mypip, oppip);
+Xif (mypip > oppip)
+X	printw("(%d behind)", mypip - oppip);
+Xelse if (oppip > mypip)
+X	printw("(%d ahead)", oppip - mypip);
+Xelse
+X	printw("(even)");
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawPoint -- draw all pieces on a point
+X *
+X * This function redraws all 15 slots on a point.  It is passed a
+X * board image and the index of the point to draw, from which it
+X * extracts the number of pieces on that point and the character used
+X * to represent pieces.  It will draw as many of these pieces as
+X * exist on the point, and will draw blanks over the remaining slots
+X * to erase any pieces that may have existed before.
+X * If the nh argument is greater than 0, it specifies how many of
+X * the pieces drawn should be highlighted.  This is used to highlight
+X * pieces moved by the opponent.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawPoint(b,pt,nh,inv)
+Xboard b;		/* the board array */
+Xint pt;			/* which point are we to draw */
+Xint nh;			/* how many pieces should be highlighted */
+Xint inv;		/* is the board inverted? */
+X{
+Xstatic int cols[BOARDSIZE] = {  31,7,11,15,19,23,27,35,39,43,47,51,55,
+X				55,51,47,43,39,35,27,23,19,15,11,7,31,2,2};
+Xint sr, r;		/* the row we are at */
+Xint c;		/* the column we are at */
+Xint d;		/* which direction does the column grow 1/-1 */
+Xint i;		/* counter */
+Xchar x;		/* char to draw piece with */
+Xint nn;		/* number of normal pieces */
+X
+Xif ( (pt > 12) && (pt != DOWNOFF)) {
+X	sr = inv ? 15 : 5;	/* starting row is 5 (unless inverted) */
+X	d = inv ? -1 : 1;	/* direction is down (unless inverted) */
+X	}
+Xelse {
+X	sr = inv ? 5 : 15;	/* starting row is 15 (unless inverted) */
+X	d = inv ? 1 : -1;	/* direction is up (unless inverted) */
+X	}
+Xc = cols[pt];
+Xx = b[pt].color;		/* char to draw piece with */
+Xif (nh < 0)
+X	nh = 0;
+Xelse if (nh > b[pt].qty)
+X	nh = b[pt].qty;
+Xnn = b[pt].qty - nh;		/* how many normal pcs */
+Xr = sr;
+Xfor (i = 0; i < 15; i++) {		/* draw all 15 slots on this point */
+X	if (nn <= 0) {		/* no more normal pieces */
+X		if (nh <= 0)	/* and no highlighted pieces */
+X			x = ' ';	/* so draw blanks */
+X		else {
+X			PReverseText();
+X			nh--;
+X			}
+X		}
+X	else
+X		nn--;
+X	mvaddch(r,c,x);			/* draw this piece */
+X	PEndReverse();
+X	if (i == 4) {
+X		r = sr;			/* reset row */
+X		c--;			/* use col to left of first row */
+X		}
+X	else if (i == 9) {
+X		r = sr;			/* reset row */
+X		c += 2;			/* use col to right of first row */
+X		}
+X	else
+X		r += d;			/* bump row number */
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawMove -- draw a line in a move block
+X *
+X * This function draws one line in a move block.  This consists of the
+X * value of the roll, the starting and ending position of the piece
+X * moved, and an asterisk if the move was from the opponent and hit
+X * one of our blots.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawMove(g,who,mn)
+Xstruct game *g;			/* the game structure */
+Xint who;			/* WHO_ME or WHO_OPP */
+Xint mn;				/* which move to draw */
+X{
+Xint p, r, d;
+Xstruct mv *m;
+X
+Xd = (who == WHO_ME) ? g->mydir : g->opdir;/* this move upbound or downbound? */
+Xp = (d > 0);				/* upper or lower block? */
+Xif (g->flags & F_INVERT)		/* inverted board */
+X	p = !p;				/* switch move blocks */
+Xr = mn + (p ? 5 : 14);			/* figure out the row number */
+Xm = (who == WHO_ME) ? &g->mvs[mn] : &g->opmvs[mn];/* find the move structure */
+Xmove(r,64);
+Xclrtoeol();				/* clear the old move */
+Xif (m->roll > 0) {
+X	move(r,64);
+X	printw("%d",m->roll);		/* draw the roll */
+X	move(r,69);
+X	if (m->pt < 0) {		/* if it is unused, say so */
+X		addstr("UNUSED");
+X		return;
+X		}
+X	if ( ( (p = m->pt) == UPBAR) || (m->pt == DOWNBAR) ) {
+X		p = BARPT(d);		/* if coming off bar, say so */
+X		printw("BAR-");
+X		}
+X	else
+X		printw("%d-",m->pt);	/* draw starting point */
+X	if ( ( (p += d*m->roll) <= 0) || (p >= 25) )
+X		printw("OFF");		/* if bearing off, say so */
+X	else
+X		printw("%d",p);		/* draw ending point */
+X	if ( (who == WHO_OPP) && g->blot[mn])	/* if op move hit a blot */
+X		mvaddch(r,76,'*');	/* mark it */
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawBoard -- draw all points on a board
+X *
+X * This is a convenience function that calls FeDrawPoint for all
+X * points on a board.  It takes as an argument an array of moves,
+X * as well as an argument that determines whether DrawPoint should be
+X * instructed to highlight the source of those moves, the destination,
+X * or nothing.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawBoard(b,mvs,dir,sd,inv)
+Xboard b;			/* board image */
+Xstruct mv mvs[4];		/* moves to highlight (NULL = none) */
+Xint dir;			/* direction */
+Xint sd;				/* 0=highlight source, 1=dest */
+Xint inv;			/* is the board inverted? */
+X{
+Xint i, s, e;
+Xstatic char hcnt[BOARDSIZE];	/* number of pieces to highlight */
+X
+Xfor (i = 0; i < BOARDSIZE; i++)
+X	hcnt[i] = 0;		/* init to no highlight */
+Xif (mvs != NULL) {	/* find all points that should be highlighted */
+X	for (i = 0; i < 4; i++) {
+X		if ( (mvs[i].roll <= 0) || ( (s = mvs[i].pt) < 0) )
+X			continue;	/* this move is unused */
+X		if ( (s < 1) || (s > 24) )	/* if coming off bar */
+X			s = BARPT(dir);		/* use correct bar point */
+X		e = s + dir*mvs[i].roll;	/* add in the roll used */
+X		if ( (e < 1) || (e > 24) )	/* off the board */
+X			e = OFFPT(dir);	/* use correct off point */
+X		if (sd > 0) {			/* we are showing dest */
+X			hcnt[e]++;		/* inc destination count */
+X			hcnt[s]--;		/* handle continued moves */
+X			}
+X		else {				/* we are showing start */
+X			hcnt[s]++;		/* inc start count */
+X			hcnt[e]--;		/* handle continued moves */
+X			}
+X		}
+X	}
+Xfor (i = 0; i < BOARDSIZE; i++)		/* draw each point */
+X	FeDrawPoint(b,i,hcnt[i],inv);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeLabelBoard -- draw board info
+X *
+X * This function displays information about the board currently
+X * being displayed.  This includes its label, any special rule flags,
+X * and the current match score.
+X *----------------------------------------------------------------------
+X */
+X
+XFeLabelBoard(g)
+Xstruct game *g;
+X{
+Xint i;
+Xstatic char *bdlbl[] = {"Bef", "Aft", "Cur"};
+X
+Xmvaddstr(1,5,BLANKS(24));		/* clear old stuff */
+Xmvaddstr(1,5,bdlbl[g->curbd]);		/* draw the board label */
+Xif (g->flags & F_JACOBY)		/* label special rules flags */
+X	mvaddch(1,10,'J');
+Xif (g->flags & F_CRAWFORD) {
+X	if (g->flags & F_CRGAME)	/* if this is crawford rule game */
+X		PReverseText();		/* highlight the C indicator */
+X	mvaddch(1,11,'C');
+X	if (g->flags & F_CRGAME)
+X		PEndReverse();
+X	}
+Xif (g->flags & F_EUROPE)
+X	mvaddch(1,12,'E');
+Xif (g->flags & F_PERM)
+X	mvaddch(1,13,'P');
+Xif (g->mtotal > 0) {			/* if this is a match */
+X	move(1,16);			/* draw the match score */
+X	printw("%02d:%02d to %2d",
+X		g->mcurrent[WHO_ME], g->mcurrent[WHO_OPP], g->mtotal);
+X	}
+XFeCheckContact(g);
+X}
+X
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeCheckContact -- check for contact after a move is made.
+X *
+X * This routine keeps the BAR indicator up to date as moves are made.
+X * The BAR indicator changes to "---" when no further contact is
+X * possible for a game.  Note that the BAR indicator only reflects
+X * the value of the current board, and is not affected by which
+X * board is being displayed.
+X *----------------------------------------------------------------------
+X */
+X
+XFeCheckContact(g)
+Xstruct game *g;
+X{
+X
+Xif (iscontact(g))			/* if contact is possible */
+X	mvaddstr(10,30,"BAR");		/* draw BAR label */
+Xelse					/* change BAR indicator to */
+X	mvaddstr(10,30,"---");		/* no contact indicator */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeGetPoint -- read a point number from the user
+X *
+X * This function prompts the user for a point number.  The user types
+X * the input on the line of the move block corresponding to the
+X * roll being used.  Normally, the input is a number between 1 and 24.  
+X * Point numbers are two digits unless:
+X *	- The first digit is 3 .. 9.
+X * OR	- The first digit is 1 and there is no point in 10 .. 19
+X *	  that could use the selected roll.
+X * OR	- The first digit is 2 and there is no point in 20 .. 24
+X *	  that could use the selected roll.
+X * Otherwise, there must be a non-digit entered to finish a 1-digit
+X * point number.  Alternatively, the user may enter them
+X * with a leading 0.  There are a number of special characters that
+X * are also recognized:
+X *	char			return value
+X *	---------------------------------------------------------------
+X *	space			the "spdflt" argument.
+X *	return/linefeed		the "crdflt" argument.
+X *	DEL/ESC/BS		cancel move.
+X *	p/P			the point from which a piece would have
+X *				to be moved to land on spdflt.
+X *	o/O			The point from which the selected roll
+X *				could be used to bear off.  If that point
+X *				is unoccupied, the next lower occupied
+X *				point is returned.
+X * If there are pieces on the bar, the bar point is returned immediately,
+X * since there could be no other possible choice the user would make.
+X *----------------------------------------------------------------------
+X */
+X
+XFeGetPoint(g,r,crdflt,spdflt)
+Xstruct game *g;				/* game structure */
+Xint r;					/* which row in move block */
+Xint crdflt;				/* what to return for cr/nl */
+Xint spdflt;				/* what to return for space */
+X{
+Xint n, row;
+Xchar buf[4];
+X
+X
+Xif (g->board[BARPT(g->mydir)].qty > 0)	/* pieces on the bar */
+X	return(BARPT(g->mydir));	/* no need to even ask */
+Xrow = r;
+Xif (g->flags & F_INVERT)		/* which move block do I use? */
+X	row += (g->mydir < 0) ? 5 : 14;	/* inverted board */
+Xelse
+X	row += (g->mydir > 0) ? 5 : 14;	/* normal board */
+Xmove(row,69);
+Xclrtoeol();
+Xmove(row,69);
+Xrefresh();
+X*buf = PGetChr(0,1);
+Xif ( (*buf == '\n') || (*buf == '\r') )	/* return means repeat move */
+X	return(crdflt);
+Xif (*buf == ' ')			/* space means continue move */
+X	return(spdflt);
+Xif ( (*buf == '\177') || (*buf == '\033') || (*buf == '\b') )
+X	return(-1);			/* DEL/ESC/BS means cancel move */
+Xif ( (*buf == 'b') || (*buf == 'B') )	/* bar */
+X	return(BARPT(g->mydir));
+Xif ( (*buf == 'p') || (*buf == 'P') ) {	/* P means spdflt - roll*dir */
+X	n = spdflt - g->mvs[r].roll*g->mydir;	/* make point */
+X	if ( (n < 1) || (n > 24) )		/* not on board */
+X		n = 99;				/* force invalid point */
+X	return(n);
+X	}
+Xif ( (*buf == 'o') || (*buf == 'O') ) {	/* O means bear a piece off */
+X	n = ( (g->mydir > 0) ? 25 : 0 ) - g->mydir*g->mvs[r].roll;
+X	while ( (n > 0) && (n <= 24) &&
+X	   ( (g->board[n].qty <= 0) || (g->board[n].color != g->mycolor)) )
+X		n += g->mydir;
+X	if ( (n < 1) || (n > 24) )	/* no piece found */
+X		n = 99;			/* force invalid point */
+X	return(n);
+X	}
+Xif ( ! isdigit(*buf))
+X	return(99);			/* force invalid point message */
+Xif ( (*buf >= '3') && (*buf <= '9') )	/* 3 .. 9 */
+X	return(*buf - '0');		/* don't bother with 2nd digit */
+Xif (*buf == '1') {			/* look for valid move in 10 .. 19 */
+X	if (canmove(g,r,10,19) == 0)	/* no valid move */
+X		return(1);		/* don't bother with second digit */
+X	}
+Xelse if (*buf == '2') {			/* look for valid move in 20 .. 24 */
+X	if (canmove(g,r,20,24) == 0)	/* no valid move */
+X		return(2);		/* don't bother with second digit */
+X	}
+Xaddch(*buf);				/* echo the char */
+Xrefresh();
+Xbuf[1] = PGetChr(0,1);
+Xbuf[2] = '\0';				/* null terminate */
+Xif ( ((n = atoi(buf)) == UPBAR) || (n == DOWNBAR) )
+X	return(BARPT(g->mydir));
+Xreturn(n);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	PGetChr -- get a single character
+X *
+X * This function gets one character from the user and returns it.
+X * If the "e" argument is non-zero, the character is echoed at the
+X * current cursor position.  If the "h" argument is non-zero, the
+X * online help is displayed by pressing "H", "h", or "?".  The ^L and ^R
+X * characters are intercepted and cause the screen to be redrawn without
+X * returning from PGetChr.  Null characters are discarded.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE char PGetChr(e,h)
+Xint e, h;
+X{
+Xchar c;
+Xint y, x;
+X
+X#ifdef VMS
+Xchar Prompt[4] = "_$ ";
+Xstruct dsc$descriptor_s *cmd = 0, *prmpt=0;
+X$DESCRIPTOR(cm_dsc,rc.supercmd);
+X$DESCRIPTOR(prmpt_dsc,Prompt);
+X#endif
+X
+Xloop:
+Xif ( (c = getch() & 0x7f) == '\0')
+X	goto loop;
+Xif ( (c == 0x0c) || (c == 0x12) ) {	/* ^L or ^R? */
+X	clearok(curscr, TRUE);
+X	wrefresh(curscr);	/* repaint current screen */
+X	goto loop;		/* and get another char */
+X	}
+Xif (c == rc.superkey) {			/* uh oh, we're busted */
+X	getyx(stdscr,y,x);		/* save old cursor postition */
+X	PClearScreen();			/* get the screen cleared fast */
+X	nl();				/* set tty back to normal */
+X	nocbreak();
+X	echo();
+X#ifdef VMS
+X	cm_dsc.dsc$w_length = strlen(rc.supercmd);	/* length of cmd */
+X	cmd = &cm_dsc;			/* set up the command argument */
+X	prmpt_dsc.dsc$w_length = strlen(Prompt);
+X	prmpt = &prmpt_dsc;			/* set up the command argument */
+X	lib$spawn(cmd,0,0,0,0,0,0,0,0,0,prmpt,0);	/* spawn a subprocess */
+X#else
+X	system(rc.supercmd);		/* run the supervisor command */
+X#endif
+X	noecho();
+X	cbreak();
+X	nonl();				/* ok, we're safe again */
+X	PClearScreen();			/* clear old junk */
+X	clearok(curscr, TRUE);
+X	wrefresh(curscr);		/* repaint current screen */
+X	move(y,x);			/* put cursor back where it was */
+X	refresh();
+X	goto loop;			/* and get another character */
+X	}
+Xif (h && (c == '?' || c == 'h' || c == 'H')) {	/* user needs help */
+X	dohelp();			/* give it to 'em */
+X	touchwin(stdscr);		/* Make sure the screen gets updated */
+X	wrefresh(stdscr);		/* Now refresh it */
+X	goto loop;			/* and get another character */
+X	}
+Xif (h && (c == '%' || c == '#')) {	/* user wants stats */
+X	dostats(Current_Game);		/* give it to 'em */
+X	touchwin(stdscr);		/* Make sure the screen gets updated */
+X	wrefresh(stdscr);		/* Now refresh it */
+X	goto loop;			/* and get another character */
+X	}
+Xif (e && isprint(c)) {		/* echo char? */
+X	addch(c);		/* yup */
+X	refresh();
+X	}
+Xreturn(c);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	PClearScreen -- clear the screen somehow
+X *
+X * This function clears the physical display without affecting what
+X * the curses package thinks is there.  If the "cl" (clear screen)
+X * capability is defined, it uses that.  If that fails, it tries
+X * to move to 0,0 and use the "cd" (clear to end of display).
+X * Failing that, it goes to the bottom of the screen and scrolls
+X * it 24 times.
+X *----------------------------------------------------------------------
+X */
+X
+X#ifndef vaxc
+XPRIVATE PClearScreen()
+X{
+Xchar *s, *x, buf[80];
+X
+Xx = buf;
+Xif ( (s = tgetstr("cl",&x)) == NULL) {		/* no clear screen */
+X	if ( (s = tgetstr("cd",&x)) != NULL) {	/* do we have clr to end? */
+X		move(0,0);		/* yup, use it */
+X		refresh();
+X		fputs(s,stdout);
+X		}
+X	else {			/* well, do it the hard way */
+X		move(23,0);
+X		refresh();
+X		printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+X		}
+X	}
+Xelse
+X	fputs(s,stdout);	/* send clear screen */
+Xfflush(stdout);			/* git along, li'l characters */
+X}
+X#endif
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeGetComment -- prompt for a comment to send along with a move
+X *
+X * This function allows the user to enter a 2-line comment.  If the
+X * user types a non-empty string, it is stored in the mycmt/mycmt2
+X * fields of the game structure passed as an argument.  The previous comment,
+X * if any, is discarded.  The number of lines read is returned,
+X * or -1 if PGetString was terminated by ESC.  This has the effect of
+X * aborting the Send command.
+X *----------------------------------------------------------------------
+X */
+X
+XFeGetComment(g)
+Xstruct game *g;
+X{
+Xchar buf[120];
+Xchar *lptrs[2];
+Xint n;
+X
+Xn = PGetString(buf,56,lptrs,2,19,6);	/* get new comment */
+Xif (n < 0) {			/* user hit escape, back out of send */
+X	PDrawComment(WHO_ME, g);		/* put my old comment back */
+X	return(-1);			/* return "escape" code */
+X	}
+Xif (g->mycmt != NULL)		/* throw away old comment */
+X	free(g->mycmt);
+Xif (g->mycmt2 != NULL)
+X	free(g->mycmt2);
+Xif (n > 0)
+X	g->mycmt = save(lptrs[0]);	/* save first line */
+Xelse
+X	g->mycmt = NULL;	/* mark comment as empty */
+Xif (n > 1)
+X	g->mycmt2 = save(lptrs[1]);	/* save second line */
+Xelse
+X	g->mycmt2 = NULL;
+Xreturn(n);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	PGetString -- read a multi-line string from the user
+X *
+X * This function allows the user to enter multiple lines of a fixed maximum
+X * length.  The normal line editing characters are recognized and
+X * processed.  These include:
+X *	DEL/BS		The character before the cursor is deleted.
+X *	^X/^U		The entire line is erased.
+X *	^L/^R		The screen is redrawn.
+X *	^W/^B		The word before the cursor is erased.
+X * Typing past the end of a line automatically causes a word-
+X * wrap to the next line.  Words are delimited by spaces.  Typing
+X * a carriage return or line feed on the last line, or on an empty
+X * line, terminates PGetString; otherwise, it moves to the next line.
+X * ESC terminates PGetString regardless of the cursor position.
+X * Backspacing from the beginning of one line to the end of the previous
+X * is allowed.  PGetString returns the number of lines entered,
+X * or -1 if it was terminated by an ESC.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE PGetString(buf,len,lines,nls,y,x)
+Xchar *buf, *lines[];
+Xint len, nls, y, x;
+X{
+Xchar c, *bp, *p;
+Xint cl, l;
+X
+Xfor (cl = 0; cl < nls; cl++) {
+X	lines[cl] = NULL;		/* clear line pointers */
+X	mvaddstr(y+cl,x,BLANKS(len));	/* clear line */
+X	}
+Xcl = 0;					/* current line = 0 */
+Xl = 0;				/* length of current line */
+Xmove(y,x);			/* go to first location in field */
+Xbp = buf;			/* ptr to next storage location */
+Xlines[0] = buf;			/* init first line pointer */
+Xrefresh();
+Xwhile (1) {
+X	switch (c = PGetChr(0,0)) {
+X	case '\177':		/* DEL */
+X	case '\b':		/* BS */
+X		if (l <= 0) {	/* at beginning of line */
+X			if (cl <= 0)	/* on first line */
+X				break;		/* nothing to delete */
+X			cl--;		/* back up one line */
+X			*--bp = '\0';	/* back up buffer pointer */
+X			l = strlen(lines[cl]);	/* load line length */
+X			move(y+cl,x+l);	/* move cursor to end of prev line */
+X			}
+X		else {
+X			bp--;		/* back up buffer pointer */
+X			l--;		/* decrement length */
+X			move(y+cl,x+l);
+X			addch(' ');	/* erase the char from the screen */
+X			move(y+cl,x+l);
+X			}
+X		refresh();
+X		break;
+X	case '\2':		/* ^B -- erase previous character */
+X	case '\27':		/* ^W */
+X		if (l <= 0) {		/* beginning of line */
+X			if (cl <= 0)	/* on first line */
+X				break;		/* nothing to delete */
+X			cl--;		/* back up one line */
+X			*--bp = '\0';	/* back up buffer pointer */
+X			l = strlen(lines[cl]);	/* load line length */
+X			}
+X		while (l > 0) {		/* skip leading spaces, if any */
+X			if (*--bp != ' ') {
+X				bp++;
+X				break;
+X				}
+X			l--;
+X			*bp = '\0';
+X			}
+X		while (l > 0) {		/* delete to last space */
+X			if (*--bp == ' ') {
+X				bp++;
+X				break;
+X				}
+X			*bp = '\0';
+X			l--;
+X			mvaddch(y+cl,x+l,' ');
+X			}
+X		move(y+cl,x+l);
+X		refresh();
+X		break;
+X	case '\33':		/* ESC */
+X		*bp++ = '\0';		/* terminate the string */
+X		return(-1);		/* return abort code */
+X	case '\r':		/* CR */
+X	case '\n':		/* NL */
+X		*bp++ = '\0';	/* terminate the string */
+X		if (l <= 0)		/* empty line */
+X			return(cl);	/* don't include it in #lines */
+X		if (cl >= nls-1)		/* last line */
+X			return(cl+1);	/* return number of lines */
+X		lines[++cl] = bp;	/* go to next line */
+X		l = 0;
+X		move(y+cl,x);
+X		refresh();
+X		break;
+X	case '\30':		/* ^X -- erase entire line & goto prev line */
+X	case '\25':		/* ^U */
+X		mvaddstr(y+cl,x,BLANKS(len));
+X		if (cl > 0) {	/* back up one line */
+X			bp = lines[cl--] - 1;
+X			l = strlen(lines[cl]);
+X			}
+X		else {		/* already on top line, go to beginning */
+X			bp = buf;
+X			l = 0;
+X			}
+X		move(y+cl,x+l);
+X		refresh();
+X		break;
+X	case '\t':			/* convert tab to a space */
+X		c = ' ';
+X		/* fall through */
+X	default:
+X		if (iscntrl(c)){		/* bad char */
+X			fputc('\7',stderr);	/* beep */
+X			fflush(stderr);
+X			break;			/* & ignore character */
+X			}
+X		if (l >= len) {		/* typed up to end of line */
+X			if (cl >= nls-1) {	/* last line, can't go on */
+X				fputc('\7',stderr);	/* beep */
+X				fflush(stderr);
+X				break;		/* & ignore character */
+X				}
+X			*bp++ = c;		/* store rcvd char */
+X			for (p = bp-1; (l > 0) && (! isspace(*p)); p--, l--);
+X			if ( (p <= buf) || (*p == '\0') ) {
+X				*bp++ = '\0';
+X				lines[++cl] = bp;	/* didn't find word */
+X				l = 0;
+X				}
+X			else {
+X				*p++ = '\0';	/* terminate previous line */
+X				mvaddstr(y+cl,x,BLANKS(len));	/* redraw */
+X				mvaddstr(y+cl,x,lines[cl]);	/* w/o word */
+X				lines[++cl] = p;	/* start new line */
+X				*bp = '\0';		/* terminate word */
+X				l = strlen(p);		/* set line len */
+X				mvaddstr(y+cl,x,p);	/* draw word */
+X				}
+X			move(y+cl,x+l);
+X			}
+X		else {
+X			*bp++ = c;		/* put char in string */
+X			l++;			/* bump length */
+X			addch(c);		/* echo char to screen */
+X			}
+X		refresh();
+X		break;
+X		}
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawMenu -- draw menu choices in menu box
+X *
+X * This function takes an array of strings, terminated by a NULL
+X * pointer, and writes each string into successive lines of the
+X * menu box in the bottom right corner of the screen.  If there are
+X * more strings than will fit in the box, the extra strings are
+X * ignored.  If NULL is passed as the menu array, the menu box
+X * is cleared.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawMenu(m)
+Xchar *m[];
+X{
+Xint i;
+X
+Xfor (i = 0; i < 5; i++) {		/* clear all lines in menu box */
+X	move(19+i,63);
+X	clrtoeol();
+X	}
+Xif (m == NULL)				/* no menu to display */
+X	return;
+Xfor (i = 0; (m[i] != NULL) && (i < 5); i++) {
+X	if (strlen(m[i]) > 15)		/* menu string is too long */
+X		m[15] = '\0';		/* so shorten it */
+X	mvaddstr(19+i,64,m[i]);		/* put string in menu area */
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeMenu -- get menu choice from user
+X *
+X * This function accepts a menu choice from the user.  The menu choices
+X * are passed as an array of strings, terminated by a NULL pointer.
+X * Users select one of these strings by typing the first letter of the
+X * string, thus the first letter of the strings must be unique.
+X *
+X * FeMenu also handles two special cases:
+X *	1. The user types a number between 1 and 6 (a roll)
+X *	2. The user types some character that the caller wishes
+X *	   to handle directly.
+X * If a roll entry is valid, the caller may pass up to two different
+X * rolls that are valid in the r1 and r2 arguments.  Any characters
+X * the caller wishes to handle are passed as a string in the
+X * "extra" argument.  These typically include space and newline.
+X *
+X * When a menu item is selected, it is highlighted before FeMenu
+X * returns.  If the caller calls FeMenu again without posting a
+X * new menu (via FeDrawMenu), the character returned by FeMenu
+X * on the first call should be passed in the "prev" argument so
+X * that choice can be un-highlighted.  If there is no previous
+X * choice to unhighlight, prev can be '\0'.
+X *----------------------------------------------------------------------
+X */
+X
+Xchar FeMenu(m,r1,r2,extra,prev)
+Xchar *m[];			/* array of menu choices */
+Xint r1, r2;			/* rolls (pass 0 if no roll valid) */
+Xchar *extra;			/* chars that caller wants to handle */
+Xchar prev;			/* previous choice we should un-highlight */
+X{
+Xint i;
+Xchar c, x;
+X
+XFeOffMenuItem(m,prev);
+Xwhile (1) {
+X	mvaddch(18,69,' ');
+X	move(18,69);			/* put cursor in its little box */
+X	refresh();
+X	c = PGetChr(1,1);		/* get a character */
+X	FeMessage(NULL);		/* clear message line */
+X	if ( (extra != NULL) && (strchr(extra,c) != NULL) )
+X		return(c);		/* these chars are handled by caller */
+X	if ( (c >= '1') && (c <= '6') ) {	/* handle digits differently */
+X		if (r1 <= 0) {
+X			FeMessage("Roll not valid here.");
+X			continue;
+X			}
+X		x = c - '0';		/* convert to number */
+X		if ( (x == r1) || (x == r2) )	/* is it a valid roll? */
+X			return(c);		/* yup, return it */
+X		FeMessage("No such roll.");
+X		continue;
+X		}
+X	if (islower(c))			/* ignore case */
+X		c = toupper(c);
+X	for (i = 0; m[i] != NULL; i++) {	/* search menu strings */
+X		x = *m[i];
+X		if (islower(x))			/* ignore case */
+X			x = toupper(x);
+X		if (c != x)			/* this isn't it */
+X			continue;		/* keep looking */
+X		FeOnMenuItem(m,c);		/* highlight selection */
+X		return(c);
+X		}
+X	FeMessage("Invalid command.");
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeMessage -- print a highlighted message on bottom line
+X *
+X * This function prints a string in reverse video on line 23.
+X * The message length is restricted to 62 characters to avoid
+X * running into the menu box.  If NULL is passed as a message,
+X * the message line is cleared.
+X *----------------------------------------------------------------------
+X */
+X
+XFeMessage(s)
+Xchar *s;
+X{
+Xchar c = 0;
+X
+Xmvaddstr(23,0,BLANKS(62));		/* clear message line */
+Xif (s != NULL) {		/* if we have a message to print */
+X	if (strlen(s) > 62) {	/* check that it's not too long */
+X		c = s[62];	/* save char at this position */
+X		s[62] = '\0';	/* and end the string */
+X		}
+X	move(23,0);
+X	PReverseText();
+X	addstr(s);		/* print the message */
+X	PEndReverse();
+X	if (c != '\0')		/* if we shortened it, restore it */
+X		s[62] = c;
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeStatusLine -- draw string on status line
+X *
+X * This function puts a string on line 18 in reverse video.  It is
+X * used to display blots hit, double offers, etc.
+X *----------------------------------------------------------------------
+X */
+X
+XFeStatusLine(s)
+Xchar *s;
+X{
+Xchar c = 0;
+Xint l;
+X
+Xmvaddstr(18,10,BLANKS(50));	/* clear status line */
+Xif (s != NULL) {		/* if we have a message to print */
+X	if ( (l = strlen(s)) > 50) {	/* check that it's not too long */
+X		c = s[50];	/* save char at this position */
+X		s[50] = '\0';	/* and end the string */
+X		l = 50;
+X		}
+X	move(18,(50 - l)/2 + 10);
+X	PReverseText();
+X	addstr(s);		/* print the message */
+X	PEndReverse();
+X	if (c != '\0')		/* if we shortened it, restore it */
+X		s[50] = c;
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawCube -- draw doubling cube
+X *
+X * This function draws the doubling cube.  The cube is displayed beside
+X * the inner table of the player who owns it (i.e. the one who didn't
+X * double last).  If neither player has doubled, the cube is drawn
+X * in the middle of the board.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDrawCube(g)
+Xstruct game *g;
+X{
+Xint r, c;
+Xchar buf[8];
+X
+Xmvaddstr(3,0,"    ");		/* clear all cube locations */
+Xmvaddstr(10,0,"    ");
+Xmvaddstr(17,0,"    ");
+Xif (g->gameval == (1 << g->adcnt))	/* nobody has doubled */
+X	r = 10;			/* cube is in the middle of the board */
+Xelse {			/* assume I didn't double last, mydir is up, */
+X	r = 0;		/* and board is not inverted */
+X	if (g->flags & F_IDOUBLED)	/* if I did double last */
+X		r = 1 - r;		/* switch rows */
+X	if (g->mydir < 0)		/* if my direction is down */
+X		r = 1 - r;		/* switch rows */
+X	if (g->flags & F_INVERT)	/* if board is inverted */
+X		r = 1 - r;		/* switch rows */
+X	r = r ? 17 : 3;			/* which row am I left with? */
+X	}
+X
+Xsprintf(buf,"%d",g->gameval);		/* generate the game value */
+Xif ( (c = 4 - strlen(buf)) < 0) {	/* doubled past 4 digits? */
+X	strcpy(buf,"****");		/* we are out of columns */
+X	c = 0;
+X	}
+Xmove(r,c);
+XPReverseText();
+Xmvaddstr(r,c,buf);		/* go there and draw game value */
+XPEndReverse();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	PDrawComment -- print a comment stored in a game
+X *
+X * This function takes a pointer to a game and draws the comment
+X * strings to the screen.  If "who" is WHO_ME, the "mycmt" strings
+X * are drawn on lines 19 and 20.  Otherwise, the "opcmt" strings
+X * are drawn on lines 21 and 22.  Any unused space on these lines
+X * is cleared.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE PDrawComment(who,g)
+Xint who;
+Xstruct game *g;
+X{
+Xint line;
+Xchar *s1, *s2;
+X
+Xline = (who == WHO_OPP) ? 21 : 19;
+Xs1 = (who == WHO_OPP) ? g->opcmt : g->mycmt;
+Xs2 = (who == WHO_OPP) ? g->opcmt2 : g->mycmt2;
+Xmvaddstr(line,6,BLANKS(56));
+Xmvaddstr(line+1,6,BLANKS(56));
+Xif (s1 != NULL) {
+X	if (strlen(s1) > 56)
+X		s1[56] = '\0';
+X	mvaddstr(line,6,s1);
+X	}
+Xif (s2 != NULL) {
+X	if (strlen(s2) > 56)
+X		s2[56] = '\0';
+X	mvaddstr(line+1,6,s2);
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	PReverseText -- go into reverse video mode
+X *
+X * This function goes into what is hopefully reverse video.  It
+X * uses the standout() call from curses, which actually only
+X * does whatever :so is set to in termcap (or the equivalent
+X * in terminfo).  This is not necessarily reverse, but the
+X * only way to be sure of getting reverse (setattr) is not
+X * portable.  For VMS, the standout call uses bold rather than
+X * reverse, so we use setattr.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE PReverseText()
+X{
+X
+X#ifdef VMS
+Xsetattr(_REVERSE);
+X#else
+Xstandout();
+X#endif
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	PEndReverse -- go back to normal text
+X *
+X * This function reverses PReverseText, going back to unhighlighted text.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE PEndReverse()
+X{
+X
+X#ifdef VMS
+Xclrattr(_REVERSE);
+X#else
+Xstandend();
+X#endif
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeOnMenuItem -- highlight a menu item
+X *
+X * This function highlights a menu item.  This is used to show the menu
+X * selection that was picked.  It stays highlighted until FeOffMenuItem
+X * is called or a new menu is displayed.
+X *----------------------------------------------------------------------
+X */
+X
+XFeOnMenuItem(m,p)
+Xchar *m[];
+Xchar p;
+X{
+Xint i;
+X
+Xfor (i = 0; m[i] && (i < 5); i++) {
+X	if (*m[i] == p) {
+X		move(19+i,63);
+X		clrtoeol();
+X		move(19+i,64);
+X		PReverseText();
+X		addstr(m[i]);
+X		PEndReverse();
+X		}
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeOffMenuItem -- unhighlight a menu item
+X *
+X * This function un-highlights a menu item.  This is used when another
+X * pick is going to be made from the same menu.
+X *----------------------------------------------------------------------
+X */
+X
+XFeOffMenuItem(m,p)
+Xchar *m[];
+Xchar p;
+X{
+Xint i;
+X
+Xfor (i = 0; m[i] && (i < 5); i++) {
+X	if (*m[i] == p) {
+X		move(19+i,63);
+X		clrtoeol();
+X		move(19+i,64);
+X		addstr(m[i]);
+X		}
+X	}
+Xrefresh();
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDumpScreen -- copy screen image to a file
+X *
+X * This function reads all characters off the screen and copies
+X * them to a file.  It uses the inch() function from the curses
+X * library to read the screen.  It returns 1 for success, 0 for failure.
+X *----------------------------------------------------------------------
+X */
+X
+XFeDumpScreen(fn)
+Xchar *fn;
+X{
+XFILE *fp;
+Xint x, y;
+X
+Xif ( (fp = fopen(fn,"w")) == NULL)
+X	return(0);
+Xfor (y = 0; y < 24; y++) {
+X	for (x = 0; x < 80; x++) {
+X		move(y,x);
+X		putc(inch(),fp);
+X		}
+X	putc('\n',fp);
+X	}
+Xfclose(fp);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeYesNo -- see if user knows what he's doing
+X *
+X * This function displays a message and waits for a single character
+X * from the user.  If it is Y or y, 1 is returned, otherwise
+X * 0 is returned.
+X *----------------------------------------------------------------------
+X */
+XFeYesNo(msg)
+Xchar *msg;
+X{
+Xchar c;
+X
+Xif (msg == NULL)
+X	msg = "Are you sure? [yn]";
+XFeMessage(msg);
+Xc = PGetChr(0,0);
+XFeMessage(NULL);
+Xreturn( (c == 'y') || (c == 'Y') );
+X}
+END_OF_FILE
+if test 41435 -ne `wc -c <'fe_curses.c'`; then
+    echo shar: \"'fe_curses.c'\" unpacked with wrong size!
+fi
+# end of 'fe_curses.c'
+fi
+echo shar: End of archive 10 \(of 12\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

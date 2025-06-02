@@ -1,0 +1,119 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject: v35i109:  psf3 - Postscript print filter system, Patch04
+Message-ID: <1993Mar3.161841.15806@sparky.imd.sterling.com>
+X-Md4-Signature: 0ce3f0cf469da91337398d5df716e851
+Date: Wed, 3 Mar 1993 16:18:41 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 35, Issue 109
+Archive-name: psf3/patch04
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+The following patch to psf fixes problems with CTL/D processing as well
+as the usage of ISO-LATIN encoding using the -I switch.
+
+apply this patch with:
+
+                  patch -p -N < this.file
+               
+*** old/patchlevel.h	Tue Jun  2 02:19:22 1992
+--- patchlevel.h	Fri Feb  5 18:13:57 1993
+***************
+*** 31,36 ****
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 5
+--- 31,36 ----
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 6
+*** old/psf.c	Tue Jun  2 02:18:45 1992
+--- psf.c	Fri Feb  5 18:03:31 1993
+***************
+*** 299,308 ****
+--- 299,309 ----
+  	char	*getenv();
+  	int		narrow2x;
+  	char	*alt_cmd;
+  	char	*new_marg;
+  	int		want_stats = 0;
++ 	char	*first_line;
+  	char	alt_def_file[200];
+  	double	atof();
+  	int		modified_argv = 0;
+  
+  	pid = getpid();
+***************
+*** 896,906 ****
+  	else
+  		*fname = 0;	
+  
+  	if (fgets (line, LONG_STR, input_fp) == NULL)
+  		exit (JOB_IS_DONE);
+! 	if ((strncmp (line, "%!", 2) == 0  ||  strncmp (line, "%%!", 3) == 0)
+  			&&  print_postscript == 0)
+  	{	/*	already postscript  copy to output */
+  		char	last_char;
+  
+  		if (read_access)
+--- 897,910 ----
+  	else
+  		*fname = 0;	
+  
+  	if (fgets (line, LONG_STR, input_fp) == NULL)
+  		exit (JOB_IS_DONE);
+! 	first_line = line;
+! 	while (*first_line == CTLD_EOJ)			/* skip leading ctl/d */
+! 		first_line++;
+! 	if ((strncmp (first_line, "%!", 2) == 0  ||  strncmp (first_line, "%%!", 3) == 0)
+  			&&  print_postscript == 0)
+  	{	/*	already postscript  copy to output */
+  		char	last_char;
+  
+  		if (read_access)
+***************
+*** 2162,2177 ****
+  	this = (font_number * 4) + (print_attribute & 0x03);
+  	fonts_used[this] = 1;
+  
+  	if (isolatin)
+  	{
+  		strcpy (new_font_name, fonts[this]);
+  		strcat (new_font_name, "-ISO");
+! 		if (fonts_iso[this] == 0)
+! 		{	fprintf (output_fp, "/%s /%s ReEncodeISO\n", new_font_name, fonts[this]);
+! 			fonts_iso[this] = 1;
+! 		}
+  		fontname = new_font_name;
+  	}
+  	else
+  		fontname = fonts[this];
+  
+--- 2166,2181 ----
+  	this = (font_number * 4) + (print_attribute & 0x03);
+  	fonts_used[this] = 1;
+  
+  	if (isolatin)
+  	{
++ 		/*	re-encode on every page! */
++ 	
+  		strcpy (new_font_name, fonts[this]);
+  		strcat (new_font_name, "-ISO");
+! 		fprintf (output_fp, "/%s /%s ReEncodeISO\n", new_font_name, fonts[this]);
+! 		fonts_iso[this] = 1;
+  		fontname = new_font_name;
+  	}
+  	else
+  		fontname = fonts[this];
+  
+
+exit 0 # Just in case...

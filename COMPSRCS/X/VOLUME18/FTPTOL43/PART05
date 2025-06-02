@@ -1,0 +1,2043 @@
+Newsgroups: comp.sources.x
+Path: uunet!decwrl!mips!msi!dcmartin
+From: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Subject: v18i087: Ftptool 4.3 (XVIEW), Part05/12
+Message-ID: <1992Aug18.153630.28788@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i083-ftptool-4.3@uunet.UU.NET>
+Date: Tue, 18 Aug 1992 15:36:30 GMT
+Approved: dcmartin@msi.com
+Lines: 2030
+
+Submitted-by: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Posting-number: Volume 18, Issue 87
+Archive-name: ftptool-4.3/part05
+
+#!/bin/sh
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file event.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping event.c'
+else
+echo 'x - continuing file event.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'event.c' &&
+X				resize_text_item(host_window.advanced.panel, item);
+X		} PANEL_END_EACH;
+X
+X		y = xv_get(host_window.basic.panel, XV_HEIGHT);
+X		y -= 25;
+X		xv_set(host_window.basic.plus,
+X			XV_X, panelwidth - xv_get(host_window.basic.plus, XV_WIDTH) - 5,
+X			XV_Y, y,
+X			NULL);
+X		xv_set(host_window.advanced.minus,
+X			XV_Y, y,
+X			NULL);
+X		connect_rect = (Rect *)xv_get(host_window.basic.connect,
+X			XV_RECT);
+X		if (!openlook_mode) {
+X			dismiss_rect = (Rect *)xv_get(host_window.basic.dismiss, 
+X				XV_RECT);
+X			space = xv_col(host_window.basic.panel, 1);
+X			pos = (panelwidth-
+X				(connect_rect->r_width+space+dismiss_rect->r_width))/2;
+X			xv_set(host_window.basic.connect,
+X				XV_X, pos,
+X				XV_Y, y,
+X				NULL);
+X			xv_set(host_window.basic.dismiss,
+X				XV_X, pos + connect_rect->r_width + space,
+X				XV_Y, y,
+X				NULL);
+X		} else {
+X			xv_set(host_window.basic.connect,
+X				XV_X, panelwidth/2  - connect_rect->r_width/ 2,
+X				XV_Y, y,
+X				NULL);
+X			xv_set(host_window.basic.dismiss,
+X				XV_Y, y,
+X				NULL);
+X		}
+X		break;
+X	default:
+X		break;
+X	}
+}
+X
+int	fired;
+X
+#ifdef USE_PROTOTYPES
+void send_noop_command(void)
+#else
+void send_noop_command()
+#endif
+{
+X	if (!keepalive)
+X		return;
+X	(void)command("NOOP");
+X	fired++;
+X	footer_message("Kept connection alive, time = %d", fired, (char *)NULL);
+}
+X
+/* 10 minutes */
+static struct itimerval keepalive_itimer = {
+X	{600, 0,},
+X	{600, 0,}
+};
+X
+#ifdef USE_PROTOTYPES
+void idle_timer_on(void)
+#else
+void idle_timer_on()
+#endif
+{
+X	fired = 0;
+X	notify_set_itimer_func(base_window.frame, (Notify_func)send_noop_command, 
+X		ITIMER_REAL, &keepalive_itimer, (struct itimerval *)NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void idle_timer_off(void)
+#else
+void idle_timer_off()
+#endif
+{
+X	notify_set_itimer_func(base_window.frame, NOTIFY_FUNC_NULL, ITIMER_REAL,
+X		&keepalive_itimer, (struct itimerval *)NULL);
+}
+SHAR_EOF
+echo 'File event.c is complete' &&
+chmod 0644 event.c ||
+echo 'restore of event.c failed'
+Wc_c="`wc -c < 'event.c'`"
+test 13307 -eq "$Wc_c" ||
+	echo 'event.c: original size 13307, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= menu_funcs.c ==============
+if test -f 'menu_funcs.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping menu_funcs.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting menu_funcs.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'menu_funcs.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+Menu file_menu_gen(Menu m, Menu_generate op)
+#else
+Menu file_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item copy_item;
+X	static Menu_item delete_item;
+X	static Menu_item dir_item;
+X	static Menu_item compress_file_item;
+X	static Menu_item uncompress_file_item;
+X	static Menu_item create_tar_file_item;
+X	static Menu_item extract_tar_file_item;
+X	int	ns,nr;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X			Copy ->
+X			Delete ->
+X			Directory ->
+X			Compress File
+X			Uncompress File
+X			Create Tar File
+X			Extract Tar File
+X		 */
+X			if (copy_item == 0) {
+X				copy_item = xv_get(m, MENU_NTH_ITEM, 1);
+X				delete_item = xv_get(m, MENU_NTH_ITEM, 2);
+X				dir_item = xv_get(m, MENU_NTH_ITEM, 3);
+X				compress_file_item = xv_get(m, MENU_NTH_ITEM, 4);
+X				uncompress_file_item = xv_get(m, MENU_NTH_ITEM, 5);
+X				create_tar_file_item = xv_get(m, MENU_NTH_ITEM, 6);
+X				extract_tar_file_item = xv_get(m, MENU_NTH_ITEM, 7);
+X			}
+X
+X			xv_set(copy_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(delete_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(dir_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(uncompress_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(extract_tar_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(compress_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(create_tar_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X
+X			if ((local_list_nfiles + local_list_ndirs) == 0) {
+X				xv_set(create_tar_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			if (!(local_list_nfiles || local_list_ndirs 
+X				|| local_list_nothers || remote_list_nfiles 
+X				|| remote_list_ndirs || remote_list_nothers)) {
+X				xv_set(delete_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X				ns = (int)xv_get(schedule_window.send_list, PANEL_LIST_NROWS);
+X				nr = (int)xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X				if ((ns + nr) == 0)
+X					xv_set(copy_item, 
+X						MENU_INACTIVE, TRUE, 
+X						NULL);
+X			}
+X
+X			if (!connected) {
+X				xv_set(copy_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X				xv_set(dir_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			if (local_list_nfiles == 0) {
+X				xv_set(uncompress_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X				xv_set(extract_tar_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X				xv_set(compress_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+Menu file_copy_menu_gen(Menu m, Menu_generate op)
+#else
+Menu file_copy_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item remote_to_local_item;
+X	static Menu_item local_to_remote_item;
+X	static Menu_item batch_remote_to_local_item;
+X	static Menu_item batch_local_to_remote_item;
+X	int	ns,nr;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* pullright menu looks like */
+X		/*
+X			Remote to Local
+X			Local to Remote
+X			Remote to Local (Batch)
+X			Local to Remote (Batch)
+X		 */
+X			if (remote_to_local_item == 0) {
+X				remote_to_local_item = xv_get(m, MENU_NTH_ITEM, 1);
+X				local_to_remote_item = xv_get(m, MENU_NTH_ITEM, 2);
+X				batch_remote_to_local_item = xv_get(m, MENU_NTH_ITEM, 3);
+X				batch_local_to_remote_item = xv_get(m, MENU_NTH_ITEM, 4);
+X			}
+X
+X			xv_set(remote_to_local_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(local_to_remote_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(batch_remote_to_local_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(batch_local_to_remote_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if ((local_list_nfiles + local_list_ndirs) == 0 || !connected) 
+X				xv_set(local_to_remote_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			if ((remote_list_nfiles + remote_list_ndirs) == 0) {
+X				xv_set(remote_to_local_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			nr = (int)xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X			if (nr == 0) {
+X				xv_set(batch_remote_to_local_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			ns = (int)xv_get(schedule_window.send_list, PANEL_LIST_NROWS);
+X			if (!connected || ns == 0) {
+X				xv_set(batch_local_to_remote_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+Menu file_delete_menu_gen(Menu m, Menu_generate op)
+#else
+Menu file_delete_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item delete_remote_file_item;
+X	static Menu_item delete_local_file_item;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X			Remote File
+X			Local File
+X		 */
+X			if (delete_remote_file_item == 0) {
+X				delete_remote_file_item = xv_get(m, MENU_NTH_ITEM, 1);
+X				delete_local_file_item = xv_get(m, MENU_NTH_ITEM, 2);
+X			}
+X
+X			xv_set(delete_remote_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(delete_local_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if ((local_list_nfiles + local_list_ndirs) == 0) {
+X				xv_set(delete_local_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			if ((remote_list_nfiles + remote_list_ndirs) == 0) {
+X				xv_set(delete_remote_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+X
+#ifdef USE_PROTOTYPES
+Menu view_menu_gen(Menu m, Menu_generate op)
+#else
+Menu view_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item remote_file_item;
+X	static Menu_item local_file_item;
+X	static Menu_item local_dir_item;
+X	static Menu_item session_log_item;
+X	static Menu_item host_info_item;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X			Remote File
+X			Local File
+X			Local Directory
+X			Session Log
+X			Current Host Information
+X			Batch Schedule
+X			About Ftptool...
+X		 */
+X			if (remote_file_item == 0) {
+X				remote_file_item = xv_get(m, MENU_NTH_ITEM, 1);
+X				local_file_item = xv_get(m, MENU_NTH_ITEM, 2);
+X				local_dir_item = xv_get(m, MENU_NTH_ITEM, 3);
+X				session_log_item = xv_get(m, MENU_NTH_ITEM, 4);
+X				host_info_item = xv_get(m, MENU_NTH_ITEM, 5);
+X			}
+X
+X			xv_set(remote_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(local_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(local_dir_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(session_log_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(host_info_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if (remote_list_nfiles == 0)
+X				xv_set(remote_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			if (local_list_nfiles == 0)
+X				xv_set(local_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			if (!logging)
+X				xv_set(session_log_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+void change_local_list_menu(void)
+#else
+void change_local_list_menu()
+#endif
+{
+X	Menu	m;
+X	static Menu_item cd_selection_item;
+X	static Menu_item local_to_remote_item;
+X	static Menu_item add_batch_send_item;
+X	static Menu_item local_file_item;
+X	static Menu_item delete_local_file_item;
+X	static Menu_item local_file_props_item;
+X
+X
+X	/* menu looks like */
+X	/*
+X	 Local Files (Title)
+X	 -----------------
+X	 Locate Next Choice
+X	 Clear All Choices
+X
+X	 CD to Selection
+X	 Up One Level
+X	 Copy to Remote
+X	 Add to Batch Send List
+X	 View File
+X	 Delete File
+X	 File Properties
+X	 */
+X	if (cd_selection_item == 0) {
+X		m = xv_get(local_window.list, PANEL_ITEM_MENU);
+X		cd_selection_item = xv_get(m, MENU_NTH_ITEM, 5);
+X		local_to_remote_item = xv_get(m, MENU_NTH_ITEM, 7);
+X		add_batch_send_item = xv_get(m, MENU_NTH_ITEM, 8);
+X		local_file_item = xv_get(m, MENU_NTH_ITEM, 9);
+X		delete_local_file_item = xv_get(m, MENU_NTH_ITEM, 10);
+X		local_file_props_item = xv_get(m, MENU_NTH_ITEM, 11);
+X	}
+X	xv_set(local_to_remote_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(add_batch_send_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(local_file_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(delete_local_file_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(local_file_props_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X
+X	if (local_list_ndirs ==1  && local_list_nfiles == 0) {
+X		xv_set(cd_selection_item, 
+X			MENU_INACTIVE, FALSE, 
+X			NULL);
+X	} else {
+X		xv_set(cd_selection_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X	}
+X
+X	if ((local_list_nfiles + local_list_ndirs) == 0 || !connected) 
+X		xv_set(local_to_remote_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X
+X	if ((local_list_nfiles + local_list_ndirs) == 0)
+X		xv_set(add_batch_send_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X
+X	if (local_list_nfiles == 0)
+X		xv_set(local_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X	if ((local_list_nfiles+local_list_ndirs+local_list_nothers) == 0) {
+X		xv_set(local_file_props_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(delete_local_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+void change_remote_list_menu(void)
+#else
+void change_remote_list_menu()
+#endif
+{
+X	Menu	m;
+X	static Menu_item cd_selection_item;
+X	static Menu_item up_one_level_item;
+X	static Menu_item remote_to_local_item;
+X	static Menu_item add_batch_receive_item;
+X	static Menu_item remote_file_item;
+X	static Menu_item delete_remote_file_item;
+X	static Menu_item remote_file_props_item;
+X
+X	/* menu looks like */
+X	/*
+X	 Remote File (title)
+X	 -----------------
+X	 Locate Next Choice
+X	 Clear All Choices
+X
+X	 CD to Selection
+X	 Up One Level
+X	 Copy to Local
+X	 Add to Batch Receive List
+X	 View File
+X	 Delete
+X	 File Properties
+X	 */
+X	if (cd_selection_item == 0) {
+X		m = xv_get(base_window.list, PANEL_ITEM_MENU), 
+X		cd_selection_item = xv_get(m, MENU_NTH_ITEM, 5);
+X		up_one_level_item = xv_get(m, MENU_NTH_ITEM, 6);
+X		remote_to_local_item = xv_get(m, MENU_NTH_ITEM, 7);
+X		add_batch_receive_item = xv_get(m, MENU_NTH_ITEM, 8);
+X		remote_file_item = xv_get(m, MENU_NTH_ITEM, 9);
+X		delete_remote_file_item = xv_get(m, MENU_NTH_ITEM, 10);
+X		remote_file_props_item = xv_get(m, MENU_NTH_ITEM, 11);
+X	}
+X	if (!connected) {
+X		xv_set(cd_selection_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(remote_to_local_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(up_one_level_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(add_batch_receive_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(remote_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(delete_remote_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(remote_file_props_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		return;
+X	}
+X
+X	xv_set(up_one_level_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(remote_to_local_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(add_batch_receive_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(remote_file_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(delete_remote_file_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(remote_file_props_item, 
+X		MENU_INACTIVE, FALSE, 
+X		NULL);
+X
+X	if (remote_list_ndirs ==1  && remote_list_nfiles == 0) {
+X		xv_set(cd_selection_item, 
+X			MENU_INACTIVE, FALSE, 
+X			NULL);
+X	} else {
+X		if (non_unix && remote_list_nfiles == 1) {
+X			xv_set(cd_selection_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X		} else {
+X			xv_set(cd_selection_item, 
+X				MENU_INACTIVE, TRUE, 
+X				NULL);
+X		}
+X	}
+X
+X	if ((remote_list_nfiles + remote_list_ndirs) == 0) {
+X		xv_set(remote_to_local_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(add_batch_receive_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X	}
+X
+X	if (remote_list_nfiles == 0)
+X		xv_set(remote_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X
+X	if ((remote_list_nfiles+remote_list_ndirs+remote_list_nothers) == 0) {
+X		xv_set(remote_file_props_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X		xv_set(delete_remote_file_item, 
+X			MENU_INACTIVE, TRUE, 
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+Menu props_menu_gen(Menu m, Menu_generate op)
+#else
+Menu props_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item local_file_item;
+X	static Menu_item remote_file_item;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X		 Tool
+X		 Local File
+X		 Remote File
+X		 */
+X			if (local_file_item == 0) {
+X				local_file_item = xv_get(m, MENU_NTH_ITEM, 2);
+X				remote_file_item = xv_get(m, MENU_NTH_ITEM, 3);
+X			}
+X			xv_set(local_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(remote_file_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if ((local_list_nfiles+local_list_ndirs+local_list_nothers) == 0)
+X				xv_set(local_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			if ((remote_list_nfiles+remote_list_ndirs+remote_list_nothers) == 0)
+X				xv_set(remote_file_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+Menu send_list_menu_gen(Menu m, Menu_generate op)
+#else
+Menu send_list_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item delete_item;
+X	static Menu_item copy_remote_item;
+X	static Menu_item load_item;
+X	static Menu_item save_item;
+X	int	ns;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X		 Title
+X		 Locate Choice
+X		 Clear all choices
+X
+X		 Delete
+X		 Copy to Remote
+X		 Load
+X		 Save
+X		 */
+X			if (delete_item == 0) {
+X				delete_item = xv_get(m, MENU_NTH_ITEM, 5);
+X				copy_remote_item = xv_get(m, MENU_NTH_ITEM, 6);
+X				load_item = xv_get(m, MENU_NTH_ITEM, 7);
+X				save_item = xv_get(m, MENU_NTH_ITEM, 8);
+X			}
+X			xv_set(delete_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(copy_remote_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(load_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(save_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if (nsenditems == 0) {
+X				xv_set(delete_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			ns = (int)xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X			if (ns == 0) {
+X				xv_set(save_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			if (!connected || ns == 0 )
+X				xv_set(copy_remote_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X				
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+Menu receive_list_menu_gen(Menu m, Menu_generate op)
+#else
+Menu receive_list_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item delete_item;
+X	static Menu_item copy_local_item;
+X	static Menu_item load_item;
+X	static Menu_item save_item;
+X	int	nr;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X		 Title
+X		 Locate Choice
+X		 Clear all choices
+X
+X		 Delete
+X		 Copy to Local
+X		 Load
+X		 Save
+X		 */
+X			if (delete_item == 0) {
+X				delete_item = xv_get(m, MENU_NTH_ITEM, 5);
+X				copy_local_item = xv_get(m, MENU_NTH_ITEM, 6);
+X				load_item = xv_get(m, MENU_NTH_ITEM, 7);
+X				save_item = xv_get(m, MENU_NTH_ITEM, 8);
+X			}
+X			xv_set(delete_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(copy_local_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(load_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X			xv_set(save_item, 
+X				MENU_INACTIVE, FALSE, 
+X				NULL);
+X
+X			if (nreceiveitems == 0) {
+X				xv_set(delete_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X 			nr = (int)xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X			if (nr == 0) {
+X				xv_set(save_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X		
+X			if (nr == 0 || !connected) {
+X				xv_set(copy_local_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X			}
+X
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+X
+#ifdef USE_PROTOTYPES
+Menu host_menu_gen(Menu m, Menu_generate op)
+#else
+Menu host_menu_gen(m,op)
+Menu m;
+Menu_generate op;
+#endif
+{
+X	static Menu_item save_item;
+X	static Menu_item append_netrc_item;
+X
+X	switch(op)
+X	{
+X		case MENU_DISPLAY:
+X		/* menu looks like */
+X		/*
+X			Save
+X			Load
+X			Append .netrc
+X			Add
+X			Change
+X			Delete
+X		 */
+X			if (save_item == 0) {
+X				save_item = xv_get(m, MENU_NTH_ITEM, 1);
+X				append_netrc_item = xv_get(m, MENU_NTH_ITEM, 3);
+X			}
+X
+X			if (netrc_filename == NULL)
+X				xv_set(append_netrc_item, 
+X					MENU_INACTIVE, TRUE, 
+X					NULL);
+X
+X			if (timestamped || list_changed) {
+X				xv_set(save_item, 
+X					MENU_STRING, "Save (needed)", 
+X					NULL);
+X			} else {
+X				xv_set(save_item, 
+X					MENU_STRING, "Save", 
+X					NULL);
+X			}
+X
+X			break;
+X		case MENU_DISPLAY_DONE:
+X			break;
+X		case MENU_NOTIFY_DONE:
+X			break;
+X		case MENU_NOTIFY:
+X			break;
+X	}
+X	return(m);
+}
+SHAR_EOF
+chmod 0644 menu_funcs.c ||
+echo 'restore of menu_funcs.c failed'
+Wc_c="`wc -c < 'menu_funcs.c'`"
+test 16551 -eq "$Wc_c" ||
+	echo 'menu_funcs.c: original size 16551, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= HISTORY ==============
+if test -f 'HISTORY' -a X"$1" != X"-c"; then
+	echo 'x - skipping HISTORY (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting HISTORY (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'HISTORY' &&
+--------
+(Intended, perhaps)
+X
+Drag & Drop (would be great!)
+X
+Mark files already transferred?
+X
+Add FONT_SIZE to panel font creation?
+X
+For each cached directory, save last selected object so it can be
+restored?
+X
+When login fails, capture all errors and put them in a notice?
+X
+-------------------
+Ftptool 4.3 7/10/92
+-------------------
+X
+Changed how it handles PWD responses. Should work a bit better as long
+as PWD responses are 257 or 251, and enclose the directory in double-quotes.
+X
+Can now be compiled with OW2.
+X
+No longer dies if the remote system runs out of space.
+X
+New 'ignore case' property for directory lists and host menu.
+X
+Added directory, file, dot-dot, and unknown-type glyphs to the remote
+and local lists.
+X
+Added Delete buttons to local and remote list menus.
+X
+Fixed it so it doesn't die when the remote machine runs out of
+space.
+X
+The code is now fully prototyped for ANSI C
+X
+You can now use tab to move between text items in the host info window.
+X
+Ftptool now breaks up command lines for viewers into arguments,
+so you can pass options to the viewers. %f specifies the filename
+to view, so you can do something like this to use a larger font
+in textedit: 'textedit -scale extra_large %f'.
+X
+Added a property to cause ftptool to ignore the case of aliases
+when sorting the host menu.
+X
+If you changed your host list, but did not want to save it when
+quitting (said 'quit anyway' to the pop up), ftptool would still
+save it if it you had connected to any sites (to update the
+timestamp). Now, it won't save, but any timestamps will be lost.
+X
+Fixed a problem where the session window could come up even if the
+tool is started iconic, if you are logging.
+X
+Added code to make it compule under Ultrix (from Robert.Evans@cm.cf.ac.uk)
+and 386 SVR4 (guru@stasi.bradley.edu). I don't have any way of knowing
+if it work on those systems or fixing it if there's something specific
+to those systems that it breaks on, however.
+X
+No longer uses saved window heights and widths if they are smaller
+than the default window size. 
+X
+Fixed the order of size changes when pressing '+' and '-' to
+avoid an apparent server bug. It seems that in 5.0, changing the
+parent frames size to be smaller than the childs can cause the
+server to crash. At least, that's what I think happened.
+X
+Fixed (hopefully) the Total transfer gauge to work, and not crash.
+I've been transferring 100's of megabytes for a few hours, and it seems
+OK.
+X
+Added "Total transferred" to status window. I think it actually works!
+X
+Changed the layout of the Connect window to be simpler.
+X
+Made 'Delete' and 'Change' in the Batch window work.
+X
+Now automatically tries proxy FTP if it can't resolve the remote
+host name (if enabled). It is NOT enabled by default!!!
+X
+Double-clicking a file tries to View it.
+X
+Fixed line 113 of main.c from
+X	CURSOR_MASK_CHAR, OLC_BASIC_MASK_PTR,
+to
+X	CURSOR_MASK_CHAR, OLC_BUSY_MASK_PTR,
+X
+Changed password size in host_list.c.
+X
+Made deletion routines ignore '..'.
+X
+Made it look up 'ftp' and 'ftp-passthru' values using getservbyname(),
+defaulting to values only if it can't find the services.
+X
+Fixed the the writing out of boolean values to only "True" and "False".
+X
+-------------------
+Ftptool 4.2 3/27/92
+-------------------
+X
+Reads and appends .signature when sending feedback.
+X
+Stores defaults in .ftptooldefaults in home directory. At startup, reads
+$XAPPLRESDIR/Ftptool if present, then $HOME/.ftptooldefaults if present.
+For simplicity, $HOME/.ftptoollayout contains the layout.
+X
+Removed the locking code.
+X
+Looks for a system ftptoolrc (/usr/local/lib/ftptoolrc) if no 
+$HOME/.ftptoolrc found.
+X
+Dismisses host window if return pressed in password field.
+X
+Allow 'm' as the first entry in the permissions field?
+X		case 'm': /* Cray and Convex migrated files */
+X				mode = S_IFREG;
+X				break;
+X
+Allows various uppercase letters from AIX 'ls' output.
+X
+Added 'Save layout' option to Properties menu. Also made it a bit more
+accurate.
+X
+If connect fails (with 421, it still says Connecting.
+Same thing for reading directory.
+X
+USER and GROUP now take all non-whitespace characters in the field.
+X
+-------------------
+Ftptool 4.1 2/7/91
+-------------------
+X
+Ported to SunOS 5.0 (SVR4). Added Makefile.50 temporarily.
+X
+4.0 skipped since other people are using test versions of 4.0, and the
+format of the host list changed again.
+X
+Asks for confirmation of quit if you are still connected.
+X
+Instead of 'connected', the icon label now shows the first 8 characters of 
+the host name you're connected to.
+X
+Option to compile against the resolver library for places without NIS
+(static executable compiled against /usr/lib/libresolv.a)
+X
+Locks .ftptoolrc when reading/writing.
+X
+Abort button actually works now.
+X
+Added sunique/runique ability.
+X
+Added 'percent complete' gauge.
+X
+Added berkeley ftp code to ftptool. Fixes problems with some ftp servers
+providing welcome messages before login.
+X
+Shows free space and percent free for local filesystem.
+X
+Merged Host Information window and Host List window.
+X
+Can schedule file transfer at later time.
+X
+Transfer mode now a per-host attribute.
+X
+Automatically saves host list if only timestamps have been changed.
+X
+Fixed encryption routines to only output printable characters.
+X
+Fixed bug that could cause dotfile symbolic links to appear even if
+you don't want to show dotfiles.
+X
+Handles underscore and dash in login name.
+X
+Fixed tar viewer to work.
+X
+Dismiss buttons on pop-ups. Quit button on tar file viewer
+X
+Doesn't quit on 'recoverable' errors during transfers, such as if
+you don't have permission to transfer a file, or the file has been
+deleted since you selected it.
+X
+Fixed it to kill ftp if you quit via the button.
+X
+-------------------
+Ftptool 3.3 1/10/92
+-------------------
+X
+If you double-click on a symbolic link, it will attempt to 'cd' there.
+You can (hopefully) view and transfer files (and directories) pointed to by 
+symbolic links. Transfers are accomplished by trying to transfer the link
+as a file, and if that fails, transfer as a directory. However, it won't 
+recursively do links in directories (it would not be nice if one was 
+pointing into the directory structure being transferred.
+X
+Displays 'Reading directory' when reading a directory (fancy that).
+X
+Can now sort by type of file, so you can group directories.
+X
+Would hang (then dump on Quit) if you ran out of space on the local
+system.
+X
+Passwords now encrypted in .ftptoolrc file. NOT a strong encryptions,
+especially since the source is available!
+X
+Quit button was not displayed on startup if OPEN LOOK mode not set.
+X
+OPEN LOOK mode changed to boolean (shouldn't affect anything).
+X
+Fixed hang problem if remote site allowed you to partially log in,
+but then didn't because of a limit.
+X
+Can now use ~ and $ expansion in auto-local-cd field.
+X
+Lowercase mode to change remote filenames to lowercase. This is for
+better VMS-type support along with below.
+X
+User defined dir output format to (hopefully) handle non-UNIX cases!
+UNIX default:
+X	PERMS LINKS USER GROUP SIZE MONTH DAY TIME NAME
+X
+<NAME> causes remote filenames to be converted to lowercase.
+X
+You can set non-unix mode with NONUNIX in the above field, so it always
+uses 'ls' for that host. Also, because non-unix machines might really
+use $ in the directory name, non-unix mode now disables $ expansion
+in the remote text field.
+X
+Last Visited timestamp.
+X
+-------------------
+Ftptool 3.2 12/16/91
+-------------------
+X
+No longer stops operation if the local directory is modified.
+X
+No longer have to be connected to do local operations (compress/uncompress/
+make tarfiles from local files)
+X
+Host list now resizable.
+X
+Now creates .Xdefaults if you don't have one.
+X
+Tar viewer works (instead of crashing!)
+X
+Properties now split into separate categories.
+X
+Can sort local and remote directory lists independently.
+X
+Can now automatically cd to a specific local directory for each host.
+X
+-------------------
+Ftptool 3.1 11/25/91
+-------------------
+X
+If you kill it with SIGTERM, no longer gets error, and also kills ftp process.
+X
+To somewhat handle non-OPEN LOOK Window Managers, set OpenLookMode property:
+X	1. displays Quit button on main window.
+X	2. Allows you to dismiss popups by selecting the View option again.
+X
+props key on base window brings up properties window
+X
+Fixed a bug where ftptool would crash when trying to view a local file
+if not connected.
+X
+PostScript viewer now a property.
+X
+Now uses the default password if you leave the password field blank.
+X
+Removed batch mode. Now, you do batch transfers over the batch windows,
+and non-batch transfers over the directory lists.
+X
+Fixed (hopefully) a freeze on timeouts (added too much again, and broke
+something).
+X
+Caches the last directories now, so you can avoid the time delays. This
+will be settable via a property, since too many directories might cause
+exhaustion of memory. Though improving speed, it also causes listings
+to be out of date (local directories are stat'ed so they can be reread if
+they change).
+X
+Fixed the delays on reading directories. Now it shouldn't hang when reading
+a remote directory, and shouldn't hang the whole window system (or at least,
+not as much).
+X
+-------------------
+Ftptool 3.0 11/8/91
+-------------------
+X
+Doesn't have to reread the directory if you change sort modes.
+X
+Defaults host info to first one in host list.
+X
+Properties can open windows automatically.
+X
+Geometry of windows can be saved.
+X
+Batch mode! Can select a bunch of files to retrieve, in separate directories,
+then transfer them all at one time.
+X
+".." is back on the lists.
+X
+-------------------
+Ftptool 2.8 11/1/91
+-------------------
+X
+If you have a '.' in your hostname, the domain will not be appended
+to your anonymous password (fix for non-Sun internal sites)
+X
+property for the default password.
+X
+won't core dump if you ^C it.
+X
+doesn't hang if you don't have permission to read the directory.
+X
+Changed "Within Sun/Outside Sun' to 'Directly Reachable/Indirect through Proxy"
+X
+Man page (first attempt, bear with me)
+X
+Imakefile (first attempt, bear with me)
+X
+Fixed it to show the correct sort order in the properties window if you
+change it in your .Xdefaults
+X
+Now sets your transfer mode only before a transfer, and sets to ASCII before
+reading the remote dir. This _may_ fix some bugs.
+X
+-------------------
+Ftptool 2.7 10/25/91
+-------------------
+X
+blank lines in your .ftptoolrc don't break ftptool anymore.
+X
+symbolic link values shown again (broke earlier, oops!)
+X
+moved 'About Ftptool' to View menu
+X
+Made it show more of the ftp error messages rather than its own (more accurate
+error messages)
+X
+A machine was found that didn't understand 'pwd' or 'cdup'. Now, use
+'quote xpwd' or 'quote xcup' if the first ones fail.
+X
+-------------------
+Ftptool 2.6 10/16/91
+-------------------
+X
+I hate to have more and more releases, but another couple of sever bugs.
+X
+X	Doesn't hang anymore if the remote server dies while transferring.
+X
+X	Fixed a core dump bug with non-unix machines (left off a parameter to 
+X	xv_set :-()
+X
+Bonus (which means I probably broke this): Can pin remote and local list menus.
+X
+-------------------
+Ftptool 2.5 10/14/91
+-------------------
+X
+2 major bugs fixed (major enough for another release):
+X
+X	Now that the temporary directory is deleted at each disconnect, a second
+X	View fails. fixed.
+X
+X	fixed broken 'cd to selection' on local window list.
+X
+Make it back off and use 'ls' if it thinks it's a non-unix machine.
+X
+Add "Custom command" button. Allows you to type whatever command you
+want ('mget *' would be a good one). Doesn't care about the response, just
+outputs until an 'ftp>' prompt (may have to care if the return is 'timeout')
+X
+-------------------
+Ftptool 2.4 10/11/91
+-------------------
+X
+Final bug fixing and code cleanup (hopefully)
+X
+Ability to delete files.
+X
+Fixed a bug in "dir" output parsing.
+X
+Now print ftp errors in some instances ("host unknown" vs. "connect timed out")
+X
+fixed bug which could hang it when transferring zero-length files.
+X
+If the locations of the various windows end up outside the screen, they
+will now be placed at 0,0.
+X
+Fixed "cd to selection". Also cleaned up a lot of code dealing with
+retrieving filenames from the selection window.
+X
+Made "copy" and "delete" pull-rights on the File menu.
+X
+-------------------
+Ftptool 2.3 10/7/91
+-------------------
+X
+Now copy arguments before xview consumes them, so they can be passed
+to viewer (things like -scale extra_large now work).
+X
+Wouldn't create .ftptoolrc if it didn't exist.
+X
+Clean up /var/tmp/ftp* at disconnect instead of exit?
+X
+Exited upon a "Save Workspace". Oops.
+X
+Sort by date was not sorting correctly.
+X
+Change Outside/Inside Sun to Direct/Proxy, with proxy host on a per-host
+bases in .ftptoolrc. (The names weren't changed since I don't have better
+ones).
+X
+Add initial directory to host info.
+X
+Tries to be able to read the old format .ftptoolrc.
+X
+Now sorts the host list.
+X
+-------------------
+Ftptool 2.2 9/28/91
+-------------------
+X
+Oops. Bug fixes. 
+X
+Fixed bug in counting selected directories.
+X
+Fixed painting of lists when busy.
+X
+Fixed double-clicking on directories that are selected already.
+X
+-------------------
+Ftptool 2.1 9/27/91
+-------------------
+X
+Local and remote functions go in their own windows, To add ability to resize 
+scrolling lists, perhaps by placing them side-by-side?
+X
+Machine connected to appears in title bar of remote window. Local machine
+appears in local window title bar.
+X
+Additional exclusive properties for file transfer mode (binary, ascii, etc).
+X
+A property sheet for local and remote files, showing all file information
+available when selecting file (shows last file selected, if multiple ones
+are selected).
+X
+Ability to handle non-unix machines (and machines which have banner
+messages and such). Non-unix machines should work (VMS has been tested),
+but since the list format is non-standard and machine/OS dependent, 
+only the filename (if that) can be determined. 
+X
+Ability to create tar files, and compress files..
+X
+Properties:
+X
+X	hash marks are a property
+X
+X	Don't display dot files (based on property)
+X
+X	Option to sort by name or date or size, and ascending or descending
+X	order.
+X
+X
+Resizing windows and lists pretty much correctly (at least they do it!).
+X
+Slightly more OPEN LOOK compliant.
+X
+"Use" on personal host list window now connects automatically, if
+not already connected.
+X
+Will notify you if you try to quit without saving your host list.
+Also, will put (needed) on the save option if you modified it.
+X
+'connected' on icon when connected.
+X
+tilde and environment variable expansion.
+X
+X
+Double-clicking on a directory will cd there.
+X
+Save defaults (logging, option mode, etc) to .Xdefaults. Read them at startup.
+X
+Reading .netrc to create selectable ftp accounts/passwords (encrypted on menu)
+X
+Default viewer property
+X
+Archive viewer property
+X
+Keepalive option to send a noop command every 600 seconds if you're idle
+X
+If you try to cd to a directory that doesn't exist, create the directory
+X
+Session Log and about window now pinned.
+X
+Locate Choice and Clear all choices now back on scrolling list menus.
+X
+Doesn't bring up Local Directory window if iconic.
+X
+Status image in the corner, changes for every three blocks transfered
+(if hashing enabled)
+X
+Spot help! (Install ftptool.info in $OPENWINHOME/lib/help)
+X
+-------------------
+Ftptool 2.0 9/19/91 
+-------------------
+X
+"Connect" button changes to "Disconnect" when connected.
+X
+Button layout is somewhat OPEN LOOK compliant.  At the top of the window:
+X 
+X [Connect] [File v]      [View v]	[Abort]		[Props...]  
+X   			Get	  			View files
+X   			Put				Show pop-ups.
+X 
+X
+Login, password, remote host is, and host on separate pop-up which 
+connect brings up. (perhaps, but then you lose the notion of who you're
+connected to).
+X
+Logging window can be brought up with Props.
+X
+Determine file type in View and start appropriate editor
+(Pageview probably, what about Frame and Interleaf files?)
+X
+Add ability to uncompress compressed files.
+X
+Pressing a return in the directory text fields executes a CD.
+X
+Change cursor to stopwatch when busy.
+X
+Instead of error messages on choosing options that don't apply (using
+'get file' when no remote file is selected), options are grayed out
+when they don't apply.
+X
+Fixed bug with local directories (if you change your local directory between
+ftp sessions, it doesn't pick it up)
+X
+Catch out-of-space errors.
+X
+If you hit return in the Password text field, it will connect.
+X
+View, get, put, and CD are in scrolling lists menus also.
+X
+Add ability to extract tar files into specified direction (Viewing a
+tar file lists the contents, then you can extract it from there, or
+directly extract from View menu)
+X
+Ftp site list (local to user, with comments).  .ftptoolrc aliases sites to 
+personal names and comments.
+X
+connect button moved to host info popup.
+X
+-------------------
+Ftptool 1.4 9/15/91 
+-------------------
+X
+Fixed to repaint when blocked for ftp responses (notify_do_dispatch() and
+notify_no_dispatch())
+X
+Ability to View local files.
+X
+Inactivate buttons and lists when putting/getting/viewing a file, since
+FRAME_BUSY is no longer allowable.
+X
+Busy and Idle icons. Busy is inverted from the idle icon, and cycles
+between 4 icons while transferring.
+X
+Ability to interrupt a file transfer (between files. No interrupting a current
+transfer yet).
+X
+When doing transfers file, stat() the local directory to see whether it has
+been modified since we drew it, and reread it if so (losing local selection
+information). If we can't stat the local directory, it's possible that it
+was deleted, so change to /tmp (arbitraty choice).
+For remote dirs, may have to assume they won't change.
+X
+-------------------
+Ftptool 1.3 9/-3/91 
+-------------------
+X
+Fixed completion messages.
+X
+Added date to file list.
+X
+Now Sorts local directory listing.
+X
+-------------------
+Ftptool 1.2 9/13/91
+-------------------
+X
+Fixed directory transfers, which I broke with the '/' above.
+X
+X
+-------------------
+Ftptool 1.1 9/12/91
+-------------------
+X
+Fixed it to use getpwuid(getuid()) rather than getlogin().
+Since ftptool failed on at least one machine in engineering,
+also changed it to not exit(1) when it can't find the username.
+Assumes "unknown".
+X
+Added a '/' to the end of directory names, since it wasn't obvious
+(and I agreed) that directories were bold. Now it looks like 'ls -F'
+X
+Changed it to not print the directory name when reading it.
+X
+SHAR_EOF
+chmod 0644 HISTORY ||
+echo 'restore of HISTORY failed'
+Wc_c="`wc -c < 'HISTORY'`"
+test 18272 -eq "$Wc_c" ||
+	echo 'HISTORY: original size 18272, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= schedule.c ==============
+if test -f 'schedule.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping schedule.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting schedule.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'schedule.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+struct schedule *new_schedule(char *menu_name, int direction, 
+X	time_t date, char *filename, struct hostlist *hl)
+#else
+struct schedule *new_schedule(menu_name, direction, date, filename, hl)
+char	*menu_name;
+int		direction;
+time_t	date;
+char	*filename;
+struct hostlist *hl;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X
+X	tmp = (struct schedule *)malloc(sizeof(struct schedule));
+X	if (tmp == NULL)
+X		return NULL;
+X	bzero((char *)tmp, sizeof(struct schedule));
+X	tmp->menu_name = (char *)malloc((unsigned int)(2+strlen(menu_name)+1));
+X	if (tmp->menu_name == NULL) {
+X		free_schedule(tmp);
+X		return NULL;
+X	}
+X	sprintf(tmp->menu_name, "%c:%s", direction == RECV ? 'R' : 'S',
+X		menu_name);
+X
+X	tmp->direction = direction;
+X	tmp->date = date;
+X	tmp->filename = strdup(filename);
+X	if (tmp->filename == NULL) {
+X		free_schedule(tmp);
+X		return NULL;
+X	}
+X	tmp->hl = (struct hostlist *)malloc(sizeof(struct hostlist));
+X	if (tmp->hl == NULL) {
+X		free_schedule(tmp);
+X		return NULL;
+X	}
+X	bcopy((char *)hl, (char *)tmp->hl, sizeof(struct hostlist));
+X	tmp->next = NULL;
+X	return tmp;
+}
+X
+#ifdef USE_PROTOTYPES
+struct schedule *add_schedule(struct schedule *head, char *menu_name, 
+X	int direction, time_t date, char *filename, struct hostlist *hl)
+#else
+struct schedule *add_schedule(head, menu_name, direction, date, filename, hl)
+struct schedule *head;
+char	*menu_name;
+int		direction;
+time_t	date;
+char	*filename;
+struct hostlist *hl;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X	struct schedule *oldnext=NULL;
+X
+X	for (tmp = head; tmp->next != NULL; tmp = tmp->next)
+X		if (date < tmp->next->date)
+X			break;
+X
+X	oldnext = tmp->next;
+X	tmp->next = new_schedule(menu_name, direction, date, filename, hl);
+X	if (tmp->next == NULL) {
+X		tmp->next = oldnext;
+X		return NULL;
+X	}
+X
+X	tmp->next->next = oldnext;
+X	return head;
+}
+X
+#ifdef USE_PROTOTYPES
+void free_schedule(struct schedule *head)
+#else
+void free_schedule(head)
+struct schedule *head;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X	struct schedule *item=NULL;
+X
+X	item = head;
+X	while (item) {
+X		tmp = item->next;
+X		if (item->menu_name)
+X			free(item->menu_name);
+X		if (item->filename) {
+X			(void)unlink(item->filename);
+X			free(item->filename);
+X		}
+X		if (item->hl)
+X			free_hostlist(item->hl);
+X		free((char *)item);
+X		item = tmp;
+X	}
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void delete_schedule(struct schedule *head, char *menu_name, int direction)
+#else
+void delete_schedule(head, menu_name, direction)
+struct schedule *head;
+char	*menu_name;
+int		direction;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X	struct schedule *item=NULL;
+X
+X	for (tmp = head; tmp->next != NULL; tmp = tmp->next)
+X		if (tmp->next->direction == direction &&
+X			!strcmp(menu_name, &tmp->next->menu_name[2])) {
+X			item = tmp->next;
+X			tmp->next = tmp->next->next;
+X			item->next = NULL;
+X			free_schedule(item);
+X			return;
+X		}
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void reorder_list(struct schedule *head)
+#else
+void reorder_list(head)
+struct schedule *head;
+#endif
+{
+X	struct schedule *tmp = NULL;
+X	struct schedule nl;
+X	struct schedule *newlist = &nl;
+X	struct schedule *item = NULL;
+X	struct schedule *oldnext = NULL;
+X
+X	newlist->next = NULL;
+X	item = head->next; 
+X	while (item != NULL) {
+X		/* insert item in tmp */
+X		for (tmp = newlist; tmp->next != NULL; tmp = tmp->next)
+X			if (item->date < tmp->next->date) 
+X				break;
+X		oldnext = tmp->next;
+X		tmp->next = item;
+X		item = item->next;
+X		tmp->next->next = oldnext;
+X	}
+X	head->next = newlist->next;
+}
+X
+#ifdef USE_PROTOTYPES
+void load_schedule(void)
+#else
+void load_schedule()
+#endif
+{
+X	static char scratch[2 * MAXHOSTNAMELEN + 4];
+X	char	*host=NULL;
+X	char	*login=NULL;
+X
+X	schedule_footer_message("", (char *)NULL);
+X	host = (char *)xv_get(host_window.basic.host, PANEL_VALUE);
+X	login = (char *)xv_get(host_window.basic.login, PANEL_VALUE);
+X	sprintf(scratch, "%s@%s", login, host);
+X	xv_set(schedule_window.menu_name,
+X		PANEL_VALUE, scratch,
+X		NULL);
+X	update_date(1);
+X	xv_set(schedule_window.frame,
+X		XV_SHOW, TRUE,
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void set_current_schedule_proc(Menu menu, Menu_item menu_item)
+#else
+void set_current_schedule_proc(menu, menu_item)
+Menu	menu;
+Menu_item	menu_item;
+#endif
+{
+X	load_schedule();
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+int schedule_exists(struct schedule *head, char *menu_name, 
+X	int direction)
+#else
+int schedule_exists(head, menu_name, direction)
+struct schedule *head;
+char	*menu_name;
+int		direction;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X
+X	for (tmp = head->next; tmp != NULL; tmp = tmp->next) {
+X		if (direction == tmp->direction 
+X			&& !strcmp(menu_name, &tmp->menu_name[2]))
+X			return 1;
+X	}
+X	return 0;
+}
+X
+#ifdef USE_PROTOTYPES
+void enter_schedule_info(int warnchange)
+#else
+void enter_schedule_info(warnchange)
+int	warnchange;
+#endif
+{
+X	char	*menu_name = NULL;
+X	int		direction;
+X	time_t		date;
+X	struct tm	tm;
+X	char	*filename = NULL;
+X	int		answer;
+X	struct hostlist *hl = NULL;
+X	int		nitems;
+X	int		ret;
+#ifdef XVIEW3
+X	Xv_notice notice;
+#endif
+X
+X	direction = (int)xv_get(schedule_window.direction, PANEL_VALUE);
+X	if (direction == RECV)
+X		nitems = (int)xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X	else
+X		nitems = (int)xv_get(schedule_window.send_list, PANEL_LIST_NROWS);
+X
+X	if (nitems == 0) {
+X		schedule_footer_message("Select items to transfer first.", (char *)NULL);
+X		goto out;
+X	}
+X
+X	menu_name = (char *)xv_get(schedule_window.menu_name, PANEL_VALUE);
+X	if (menu_name == '\0') {
+X		schedule_footer_message("Specify login@host first.", (char *)NULL);
+X		goto out;
+X	}
+X	if (schedule_exists(&schedule_list, menu_name, direction)) {
+X		if (warnchange) {
+#ifdef XVIEW3
+X			notice = xv_create(schedule_window.panel, NOTICE,
+X				NOTICE_MESSAGE_STRINGS,
+X					"That host/action is scheduled. Do you really",
+X					"want to change it?",
+X					NULL,
+X				NOTICE_BUTTON_YES, "Yes",
+X				NOTICE_BUTTON_NO, "No",
+X				NOTICE_STATUS, &answer,
+X				XV_SHOW, TRUE,
+X				NULL);
+X			xv_destroy_safe(notice);
+#else
+X			answer = notice_prompt(schedule_window.panel, NULL,
+X				NOTICE_MESSAGE_STRINGS,
+X					"That host/action is scheduled. Do you really",
+X					"want to change it?",
+X					NULL,
+X				NOTICE_BUTTON_YES, "Yes",
+X				NOTICE_BUTTON_NO, "No",
+X				NULL);
+#endif
+X			if (answer != NOTICE_YES)
+X				goto out;
+X		}
+X		delete_schedule(&schedule_list, menu_name, direction);
+X	}
+X	bzero((char *)&tm, sizeof(tm));
+X	tm.tm_hour = (int)xv_get(schedule_window.hour, PANEL_VALUE);
+X	tm.tm_min = (int)xv_get(schedule_window.minute, PANEL_VALUE);
+X	tm.tm_mon = (int)xv_get(schedule_window.month, PANEL_VALUE);
+X	tm.tm_mday = (int)xv_get(schedule_window.day, PANEL_VALUE);
+X	tm.tm_year = (int)xv_get(schedule_window.year, PANEL_VALUE) - 1900;
+#if defined(SYSV) || defined(ultrix) || defined(SYSV386)
+X	date = mktime(&tm);
+#else
+X	date = timelocal(&tm);
+#endif
+X	filename = tempnam("/var/tmp", "sched");
+X	if (filename == NULL) {
+X		schedule_footer_message("Can't create temporary file.", (char *)NULL);
+X		goto out;
+X	}
+X	if (direction == RECV)
+X		ret = save_batch_list(schedule_window.receive_list, filename);
+X	else
+X		ret = save_batch_list(schedule_window.send_list, filename);
+X	if (ret)
+X		goto out;
+X
+X	hl = new_hostlist();
+X	if (hl == NULL)
+X		goto out;
+X	bzero((char *)hl, sizeof(struct hostlist));
+X	hl->aliasname = strdup((char *)(xv_get(host_window.advanced.alias, 
+X		PANEL_VALUE)));
+X	if (hl->aliasname == NULL) {
+X		goto out;
+X	}
+X
+X	hl->proxy = strdup((char *)(xv_get(host_window.advanced.proxy, 
+X		PANEL_VALUE)));
+X	if (hl->proxy == NULL) {
+X		goto out;
+X	}
+X
+X	hl->last_visited = strdup((char *)(xv_get(host_window.advanced.last_visited, 
+X		PANEL_LABEL_STRING)));
+X	if (hl->last_visited == NULL) {
+X		goto out;
+X	}
+X
+X	hl->host = strdup((char *)(xv_get(host_window.basic.host, PANEL_VALUE)));
+X	if (hl->host == NULL) {
+X		goto out;
+X	}
+X
+X	hl->login = strdup((char *)(xv_get(host_window.basic.login, PANEL_VALUE)));
+X	if (hl->login == NULL) {
+X		goto out;
+X	}
+X
+X	hl->password = strdup((char *)(xv_get(host_window.basic.password, 
+X		PANEL_VALUE)));
+X	if (hl->password == NULL) {
+X		goto out;
+X	}
+X
+X	hl->transfer_mode = (int)xv_get(host_window.advanced.transfer_mode, 
+X		PANEL_VALUE);
+X
+X	hl->remote_directory = strdup((char *)
+X		(xv_get(host_window.advanced.remote_auto_cd, PANEL_VALUE)));
+X	if (hl->remote_directory == NULL) {
+X		goto out;
+X	}
+X
+X	hl->local_directory = strdup((char *)
+X		(xv_get(host_window.advanced.local_auto_cd, PANEL_VALUE)));
+X	if (hl->local_directory == NULL) {
+X		goto out;
+X	}
+X
+X	hl->dir_parse = strdup((char *)
+X		(xv_get(host_window.advanced.dir_parse, PANEL_VALUE)));
+X	if (hl->dir_parse == NULL) {
+X		goto out;
+X	}
+X
+X	hl->comment = strdup((char *)
+X		(xv_get(host_window.advanced.comment, PANEL_VALUE)));
+X	if (hl->comment == NULL) {
+X		goto out;
+X	}
+X
+X	if (add_schedule(&schedule_list, menu_name, direction, date, filename, hl)
+X		== NULL) {
+X		xv_set(schedule_window.frame,
+X			FRAME_SHOW_FOOTER, TRUE,
+X			FRAME_LEFT_FOOTER, "Add failed.",
+X			NULL);
+X		goto out;
+X	}
+X	reload_schedule_menu(&schedule_list);
+X	return;
+out:
+X	if (hl)
+X		free_hostlist(hl);
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void schedule_add_proc(Menu menu, Menu_item menu_item)
+#else
+void schedule_add_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	schedule_footer_message("", (char *)NULL);
+X	enter_schedule_info(1);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void schedule_change_proc(Menu menu, Menu_item menu_item)
+#else
+void schedule_change_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	schedule_footer_message("", (char *)NULL);
+X	enter_schedule_info(0);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void schedule_delete_proc(Menu menu, Menu_item menu_item)
+#else
+void schedule_delete_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	char	*menu_name;
+X	int		direction;
+X
+X	schedule_footer_message("", (char *)NULL);
+X	menu_name = (char *)xv_get(schedule_window.menu_name, PANEL_VALUE);
+X	direction = (int)xv_get(schedule_window.direction, PANEL_VALUE);
+X	delete_schedule(&schedule_list, menu_name, direction);
+X	reload_schedule_menu(&schedule_list);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void schedule_item_proc(Menu menu, Menu_item menu_item)
+#else
+void schedule_item_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	struct schedule *tmp=NULL;
+X	struct tm *tm=NULL;
+X
+X	schedule_footer_message("", (char *)NULL);
+X	tmp = (struct schedule *)xv_get(menu_item, MENU_CLIENT_DATA);
+X	xv_set(schedule_window.menu_name,
+X		PANEL_VALUE, tmp->menu_name + 2,
+X		NULL);
+X	xv_set(schedule_window.direction,
+X		PANEL_VALUE, tmp->direction,
+SHAR_EOF
+true || echo 'restore of schedule.c failed'
+fi
+echo 'End of  part 5'
+echo 'File schedule.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

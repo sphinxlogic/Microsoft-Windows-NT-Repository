@@ -1,0 +1,2228 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v41i055:  vim - Vi IMitation editor, v2.0, Part05/25
+Message-ID: <1993Dec21.034431.27236@sparky.sterling.com>
+X-Md4-Signature: 519b164347498c27e1c825aea76ade13
+Keywords: utility, editor, vi, vim
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 21 Dec 1993 03:44:31 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 41, Issue 55
+Archive-name: vim/part05
+Environment: UNIX, AMIGA, MS-DOS
+Supersedes: vim: Volume 37, Issue 1-24
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 25)."
+# Contents:  vim/src/csearch.c vim/src/digrap_c.uue vim/src/main.c
+#   vim/src/mark.c vim/src/quickfix.c
+# Wrapped by mool@oce-rd2 on Wed Dec 15 09:50:04 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/csearch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/csearch.c'\"
+else
+echo shar: Extracting \"'vim/src/csearch.c'\" \(11434 characters\)
+sed "s/^X//" >'vim/src/csearch.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony
+X *							G. R. (Fred) Walter     watmath!watcgl!grwalter
+X */
+X
+X/*
+X *
+X * csearch.c: command line searching commands
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+X/* we use modified Henry Spencer's regular expression routines */
+X#include "regexp.h"
+X
+Xint global_busy = 0;			/* set to 1 if global busy, 2 if global has
+X									been called during a global command */
+Xint global_wait;				/* set to 1 if wait_return has to be called
+X									after global command */
+Xextern regexp *myregcomp __ARGS((char *));
+X
+X/* dosub(lp, up, cmd)
+X *
+X * Perform a substitution from line 'lp' to line 'up' using the
+X * command pointed to by 'cmd' which should be of the form:
+X *
+X * /pattern/substitution/gc
+X *
+X * The trailing 'g' is optional and, if present, indicates that multiple
+X * substitutions should be performed on each line, if applicable.
+X * The trailing 'c' is optional and, if present, indicates that a confirmation
+X * will be asked for each replacement.
+X * The usual escapes are supported as described in the regexp docs.
+X */
+X
+X	void
+Xdosub(lp, up, cmd, nextcommand)
+X	linenr_t	lp;
+X	linenr_t	up;
+X	char		*cmd;
+X	u_char		**nextcommand;
+X{
+X	linenr_t		lnum;
+X	long			i;
+X	char		   *ptr;
+X	regexp		   *prog;
+X	long			nsubs = 0;
+X	linenr_t		nlines = 0;
+X	static int		do_all = FALSE; 	/* do multiple substitutions per line */
+X	static int		do_ask = FALSE; 	/* ask for confirmation */
+X	char		   *pat, *sub = NULL;
+X	static char    *old_sub = NULL;
+X	int 			delimiter;
+X	int 			sublen;
+X	int				got_quit = FALSE;
+X	int				got_match = FALSE;
+X	int				temp;
+X
+X	if (strchr("0123456789gc|\"#", *cmd) == NULL)       /* new pattern and substitution */
+X	{
+X		delimiter = *cmd++;			/* remember delimiter character */
+X		pat = cmd;					/* remember the start of the regexp */
+X
+X		/*
+X		 * do the next loop twice:
+X		 *  i == 0: find the end of the regexp
+X		 *  i == 1: find the end of the substitution
+X		 */
+X		for (i = 0; ; ++i)
+X		{
+X			while (cmd[0])
+X			{
+X				if (cmd[0] == delimiter)			/* end delimiter found */
+X				{
+X					*cmd++ = NUL;					/* replace it by a NUL */
+X					break;
+X				}
+X				if (cmd[0] == '\\' && cmd[1] != 0)	/* skip escaped characters */
+X					++cmd;
+X				++cmd;
+X			}
+X			if (i == 1)
+X				break;
+X			sub = cmd;				/* remember the start of the substitution */
+X		}
+X		free(old_sub);
+X		old_sub = strsave(sub);
+X	}
+X	else								/* use previous pattern and substitution */
+X	{
+X		if (old_sub == NULL)    /* there is no previous command */
+X		{
+X			beep();
+X			return;
+X		}
+X		pat = NULL; 			/* myregcomp() will use previous pattern */
+X		sub = old_sub;
+X	}
+X
+X	/*
+X	 * find trailing options
+X	 */
+X	if (!p_ed)
+X	{
+X		do_all = FALSE;
+X		do_ask = FALSE;
+X	}
+X	while (*cmd)
+X	{
+X		if (*cmd == 'g')
+X			do_all = !do_all;
+X		else if (*cmd == 'c')
+X			do_ask = !do_ask;
+X		else
+X			break;
+X		++cmd;
+X	}
+X
+X	/*
+X	 * check for a trailing count
+X	 */
+X	skipspace(&cmd);
+X	if (isdigit(*cmd))
+X	{
+X		i = getdigits(&cmd);
+X		if (i <= 0)
+X		{
+X			emsg(e_zerocount);
+X			return;
+X		}
+X		lp = up;
+X		up += i - 1;
+X	}
+X
+X	/*
+X	 * check for trailing '|', '"' or '#'
+X	 */
+X	skipspace(&cmd);
+X	if (*cmd)
+X	{
+X		if (strchr("|\"#", *cmd) != NULL)
+X		{
+X			*nextcommand = (u_char *)cmd;
+X		}
+X		else
+X		{
+X			emsg(e_trailing);
+X			return;
+X		}
+X	}
+X
+X	if ((prog = myregcomp(pat)) == NULL)
+X	{
+X		emsg(e_invcmd);
+X		return;
+X	}
+X
+X	/*
+X	 * ~ in the substitute pattern is replaced by the old pattern.
+X	 * We do it here once to avoid it to be replaced over and over again.
+X	 */
+X	sub = regtilde(sub, (int)p_magic);
+X
+X	for (lnum = lp; lnum <= up && !(got_int || got_quit); ++lnum)
+X	{
+X		ptr = nr2ptr(lnum);
+X		if (regexec(prog, ptr, TRUE))  /* a match on this line */
+X		{
+X			char		*new_end, *new_start = NULL;
+X			char		*old_match, *old_copy;
+X			char		*prev_old_match = NULL;
+X			char		*p1, *p2;
+X			int			did_sub = FALSE;
+X			int			match, lastone;
+X
+X			if (!got_match)
+X			{
+X				setpcmark();
+X				got_match = TRUE;
+X			}
+X
+X			/*
+X			 * Save the line that was last changed for the final cursor
+X			 * position (just like the real vi).
+X			 */
+X			Curpos.lnum = lnum;
+X
+X			old_copy = old_match = ptr;
+X			for (;;)			/* loop until nothing more to replace */
+X			{
+X				Curpos.col = (int)(prog->startp[0] - ptr);
+X				/*
+X				 * Match empty string does not count, except for first match.
+X				 * This reproduces the strange vi behaviour.
+X				 * This also catches endless loops.
+X				 */
+X				if (old_match == prev_old_match && old_match == prog->endp[0])
+X				{
+X					++old_match;
+X					goto skip2;
+X				}
+X				while (do_ask)		/* loop until 'y', 'n' or 'q' typed */
+X				{
+X					temp = RedrawingDisabled;
+X					RedrawingDisabled = FALSE;
+X					updateScreen(CURSUPD);
+X					smsg("replace by %s (y/n/q)? ", sub);
+X					setcursor();
+X					RedrawingDisabled = temp;
+X					if ((i = vgetc()) == 'q' || i == ESC || i == Ctrl('C'))
+X					{
+X						got_quit = TRUE;
+X						break;
+X					}
+X					else if (i == 'n')
+X						goto skip;
+X					else if (i == 'y')
+X						break;
+X				}
+X				if (got_quit)
+X					break;
+X
+X						/* get length of substitution part */
+X				sublen = regsub(prog, sub, ptr, 0, (int)p_magic);
+X				if (new_start == NULL)
+X				{
+X					/*
+X					 * Get some space for a temporary buffer to do the substitution
+X					 * into.
+X					 */
+X					if ((new_start = alloc((unsigned)(strlen(ptr) + sublen + 5))) == NULL)
+X						goto outofmem;
+X					*new_start = NUL;
+X				}
+X				else
+X				{
+X					/*
+X					 * extend the temporary buffer to do the substitution into.
+X					 */
+X					if ((p1 = alloc((unsigned)(strlen(new_start) + strlen(old_copy) + sublen + 1))) == NULL)
+X						goto outofmem;
+X					strcpy(p1, new_start);
+X					free(new_start);
+X					new_start = p1;
+X				}
+X
+X				for (new_end = new_start; *new_end; new_end++)
+X					;
+X				/*
+X				 * copy up to the part that matched
+X				 */
+X				while (old_copy < prog->startp[0])
+X					*new_end++ = *old_copy++;
+X
+X				regsub(prog, sub, new_end, 1, (int)p_magic);
+X				nsubs++;
+X				did_sub = TRUE;
+X
+X				/*
+X				 * Now the trick is to replace CTRL-Ms with a real line break.
+X				 * This would make it impossible to insert CTRL-Ms in the text.
+X				 * That is the way vi works. In Vim the line break can be
+X				 * avoided by preceding the CTRL-M with a CTRL-V. Now you can't
+X				 * precede a line break with a CTRL-V, big deal.
+X				 */
+X				while ((p1 = strchr(new_end, CR)) != NULL)
+X				{
+X					if (p1 == new_end || p1[-1] != Ctrl('V'))
+X					{
+X						if (u_inssub(lnum))				/* prepare for undo */
+X						{
+X							*p1 = NUL;					/* truncate up to the CR */
+X							if ((p2 = save_line(new_start)) != NULL)
+X							{
+X								appendline(lnum - 1, p2);
+X								++lnum;
+X								++up;					/* number of lines increases */
+X							}
+X							strcpy(new_start, p1 + 1);	/* copy the rest */
+X							new_end = new_start;
+X						}
+X					}
+X					else							/* remove CTRL-V */
+X					{
+X						strcpy(p1 - 1, p1);
+X						new_end = p1;
+X					}
+X				}
+X
+X				old_copy = prog->endp[0];	/* remember next character to be copied */
+X				/*
+X				 * continue searching after the match
+X				 * prevent endless loop with patterns that match empty strings,
+X				 * e.g. :s/$/pat/g or :s/[a-z]* /(&)/g
+X				 */
+Xskip:
+X				old_match = prog->endp[0];
+X				prev_old_match = old_match;
+Xskip2:
+X				match = -1;
+X				lastone = (*old_match == NUL || got_int || got_quit || !do_all);
+X				if (lastone || do_ask || (match = regexec(prog, old_match, (int)FALSE)) == 0)
+X				{
+X					if (new_start)
+X					{
+X						/*
+X						 * copy the rest of the line, that didn't match
+X						 */
+X						strcat(new_start, old_copy);
+X						i = old_match - ptr;
+X
+X						if ((ptr = save_line(new_start)) != NULL && u_savesub(lnum))
+X							replaceline(lnum, ptr);
+X
+X						free(new_start);          /* free the temp buffer */
+X						new_start = NULL;
+X						old_match = ptr + i;
+X						old_copy = ptr;
+X					}
+X					if (match == -1 && !lastone)
+X						match = regexec(prog, old_match, (int)FALSE);
+X					if (match <= 0)		/* quit loop if there is no more match */
+X						break;
+X				}
+X					/* breakcheck is slow, don't call it too often */
+X				if ((nsubs & 15) == 0)
+X					breakcheck();
+X
+X			}
+X			if (did_sub)
+X				++nlines;
+X		}
+X			/* breakcheck is slow, don't call it too often */
+X		if ((lnum & 15) == 0)
+X			breakcheck();
+X	}
+X
+Xoutofmem:
+X	if (nsubs)
+X	{
+X		CHANGED;
+X		updateScreen(CURSUPD); /* need this to update LineSizes */
+X		beginline(TRUE);
+X		if (nsubs > p_report)
+X			smsg("%s%ld substitution%s on %ld line%s",
+X								got_int ? "(Interrupted) " : "",
+X								nsubs, plural(nsubs),
+X								(long)nlines, plural((long)nlines));
+X		else if (got_int)
+X				msg(e_interr);
+X		else if (do_ask)
+X				msg("");
+X	}
+X	else if (got_int)		/* interrupted */
+X		msg(e_interr);
+X	else if (got_match)		/* did find something but nothing substituted */
+X		msg("");
+X	else					/* nothing found */
+X		msg(e_nomatch);
+X
+X	free((char *) prog);
+X}
+X
+X/*
+X * doglob(cmd)
+X *
+X * Execute a global command of the form:
+X *
+X * g/pattern/X : execute X on all lines where pattern matches
+X * v/pattern/X : execute X on all lines where pattern does not match
+X *
+X * where 'X' is an EX command
+X *
+X * The command character (as well as the trailing slash) is optional, and
+X * is assumed to be 'p' if missing.
+X *
+X * This is implemented in two passes: first we scan the file for the pattern and
+X * set a mark for each line that (not) matches. secondly we execute the command
+X * for each line that has a mark. This is required because after deleting
+X * lines we do not know where to search for the next match.
+X */
+X
+X	void
+Xdoglob(type, lp, up, cmd)
+X	int 		type;
+X	linenr_t	lp, up;
+X	char		*cmd;
+X{
+X	linenr_t		lnum;		/* line number according to old situation */
+X	linenr_t		old_lcount; /* line_count before the command */
+X	int 			ndone;
+X
+X	char			delim;		/* delimiter, normally '/' */
+X	char		   *pat;
+X	regexp		   *prog;
+X	int				match;
+X
+X	if (global_busy)
+X	{
+X		emsg("Cannot do :global recursive");
+X		++global_busy;
+X		return;
+X	}
+X
+X	delim = *cmd; 			/* get the delimiter */
+X	if (delim)
+X		++cmd;				/* skip delimiter if there is one */
+X	pat = cmd;
+X
+X	while (cmd[0])
+X	{
+X		if (cmd[0] == delim)				/* end delimiter found */
+X		{
+X			*cmd++ = NUL;					/* replace it by a NUL */
+X			break;
+X		}
+X		if (cmd[0] == '\\' && cmd[1] != 0)	/* skip escaped characters */
+X			++cmd;
+X		++cmd;
+X	}
+X
+X	reg_ic = p_ic;           /* set "ignore case" flag appropriately */
+X
+X	if ((prog = myregcomp(pat)) == NULL)
+X	{
+X		emsg(e_invcmd);
+X		return;
+X	}
+X	msg("");
+X
+X/*
+X * pass 1: set marks for each (not) matching line
+X */
+X	ndone = 0;
+X	for (lnum = lp; lnum <= up && !got_int; ++lnum)
+X	{
+X		match = regexec(prog, nr2ptr(lnum), (int)TRUE);     /* a match on this line? */
+X		if ((type == 'g' && match) || (type == 'v' && !match))
+X		{
+X			setmarked(lnum);
+X			ndone++;
+X		}
+X			/* breakcheck is slow, don't call it too often */
+X		if ((lnum & 15) == 0)
+X			breakcheck();
+X	}
+X
+X/*
+X * pass 2: execute the command for each line that has been marked
+X */
+X	if (got_int)
+X		msg("Interrupted");
+X	else if (ndone == 0)
+X		msg(e_nomatch);
+X	else
+X	{
+X		global_busy = 1;
+X		global_wait = 0;
+X		RedrawingDisabled = TRUE;
+X		old_lcount = line_count;
+X		while (!got_int && (lnum = firstmarked()) != 0 && global_busy == 1)
+X		{
+X			Curpos.lnum = lnum;
+X			Curpos.col = 0;
+X			if (*cmd == NUL)
+X				docmdline((u_char *)"p");
+X			else
+X				docmdline((u_char *)cmd);
+X			breakcheck();
+X		}
+X
+X		RedrawingDisabled = FALSE;
+X		global_busy = 0;
+X		if (global_wait)                /* wait for return */
+X			wait_return(FALSE);
+X		screenclear();
+X		updateScreen(CURSUPD);
+X		msgmore(line_count - old_lcount);
+X	}
+X
+X	clearmarked();      /* clear rest of the marks */
+X	free((char *) prog);
+X}
+END_OF_FILE
+if test 11434 -ne `wc -c <'vim/src/csearch.c'`; then
+    echo shar: \"'vim/src/csearch.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/csearch.c'
+# end of 'vim/src/csearch.c'
+fi
+if test -f 'vim/src/digrap_c.uue' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/digrap_c.uue'\"
+else
+echo shar: Extracting \"'vim/src/digrap_c.uue'\" \(11106 characters\)
+sed "s/^X//" >'vim/src/digrap_c.uue' <<'END_OF_FILE'
+X
+Xbegin 644 digraph.c
+XM+RH@=FDZ=',]-#IS=STT"B`J"B`J(%9)32`M(%9I($E-<')O=F5D"B`J"B`J-
+XM($-O9&4@0V]N=')I8G5T:6]N<R!">3H)0G)A;2!-;V]L96YA87()"0EM;V]L>
+XM0&]C92YN;`H@*@D)"0D)"0E4:6T@5&AO;7!S;VX)"0ET=VET8V@A=&IT"B`JI
+XM"0D)"0D)"51O;GD@06YD<F5W<PD)"6]N96-O;2%W;&1R9&<A=&]N>2`*("H)&
+XM"0D)"0D)1RX@4BX@*$9R960I(%=A;'1E<@D)=V%T;6%T:"%W871C9VPA9W)WH
+XM86QT97(@"B`J+PH*(VEF9&5F($1)1U)!4$A3"B\J"B`J(&1I9W)A<&@N8SH@#
+XM8V]D92!F;W(@9&EG<F%P:',*("HO"@HC:6YC;'5D92`B=FEM+F@B"B-I;F-LK
+XM=61E(")G;&]B86QS+F@B"B-I;F-L=61E(")P<F]T;RYH(@HC:6YC;'5D92`BN
+XM<&%R86TN:"(*"G-T871I8R!V;VED('!R:6YT9&EG<F%P:"!?7T%21U,H*'5?2
+XM8VAA<B`J*2D["@IU7V-H87()*"ID:6=R87!H;F5W*5LS73L)"0DO*B!P;VEN8
+XM=&5R('1O(&%D9&5D(&1I9W)A<&AS("HO"FEN=`D)9&EG<F%P:&-O=6YT(#T@W
+XM,#L)"0DO*B!N=6UB97(@;V8@861D960@9&EG<F%P:',@*B\*"B-I9F1E9B!-<
+XM4T1/4PIU7V-H87()9&EG<F%P:&1E9F%U;'1;75LS72`](`D)+RH@<W1A;F1AH
+XM<F0@35-$3U,@9&EG<F%P:',@*B\*"2`@('M[)T,G+"`G+"<L(#$R.'TL"2\J9
+XM((`@*B\*"0E[)W4G+"`G(B<L(#$R.7TL"2\J(($@*B\*"0E[)V4G+"`G7"<GC
+XM+"`Q,S!]+`DO*B""("HO"@D)>R=A)RP@)UXG+"`Q,S%]+`DO*B"#("HO"@D)H
+XM>R=A)RP@)R(G+"`Q,S)]+`DO*B"$("HO"@D)>R=A)RP@)V`G+"`Q,S-]+`DOT
+XM*B"%("HO"@D)>R=A)RP@)T`G+"`Q,S1]+`DO*B"&("HO"@D)>R=C)RP@)RPG$
+XM+"`Q,S5]+`DO*B!^1R`H4T%3($,@8V%N)W0@:&%N9&QE('1H92!R96%L(&-HP
+XM87(I("HO"@D)>R=E)RP@)UXG+"`Q,S9]+`DO*B!^2"`H4T%3($,@8V%N)W0@M
+XM:&%N9&QE('1H92!R96%L(&-H87(I("HO"@D)>R=E)RP@)R(G+"`Q,S=]+`DO_
+XM*B")("HO"@D)>R=E)RP@)V`G+"`Q,SA]+`DO*B"*("HO"@D)>R=I)RP@)R(GP
+XM+"`Q,SE]+`DO*B"+("HO"@D)>R=I)RP@)UXG+"`Q-#!]+`DO*B",("HO"@D)+
+XM>R=I)RP@)V`G+"`Q-#%]+`DO*B"-("HO"@D)>R=!)RP@)R(G+"`Q-#)]+`DOE
+XM*B".("HO"@D)>R=!)RP@)T`G+"`Q-#-]+`DO*B"/("HO"@D)>R=%)RP@)UPG(
+XM)RP@,30T?2P)+RH@D"`J+PH)"7LG82<L("=E)RP@,30U?2P)+RH@D2`J+PH)S
+XM"7LG02<L("=%)RP@,30V?2P)+RH@DB`J+PH)"7LG;R<L("=>)RP@,30W?2P)U
+XM+RH@DR`J+PH)"7LG;R<L("<B)RP@,30X?2P)+RH@E"`J+PH)"7LG;R<L("=@=
+XM)RP@,30Y?2P)+RH@E2`J+PH)"7LG=2<L("=>)RP@,34P?2P)+RH@EB`J+PH)+
+XM"7LG=2<L("=@)RP@,34Q?2P)+RH@ER`J+PH)"7LG>2<L("<B)RP@,34R?2P)/
+XM+RH@F"`J+PH)"7LG3R<L("<B)RP@,34S?2P)+RH@F2`J+PH)"7LG52<L("<BK
+XM)RP@,34T?2P)+RH@FB`J+PH)("`@('LG8R<L("=\)RP@,34U?2P)+RH@FR`J7
+XM+PH)("`@('LG)"<L("<D)RP@,34V?2P)+RH@G"`J+PH)("`@('LG62<L("<MJ
+XM)RP@,34W?2P)+RH@?ET@*%-!4R!#(&-A;B=T(&AA;F1L92!T:&4@<F5A;"!C)
+XM:&%R*2`J+PH)("`@('LG4"<L("=T)RP@,34X?2P)+RH@GB`J+PH)("`@('LGX
+XM9B<L("=F)RP@,34Y?2P)+RH@GR`J+PH)"7LG82<L("=<)R<L(#$V,'TL"2\J,
+XM(*`@*B\*"0E[)VDG+"`G7"<G+"`Q-C%]+`DO*B"A("HO"@D)>R=O)RP@)UPG7
+XM)RP@,38R?2P)+RH@HB`J+PH)"7LG=2<L("=<)R<L(#$V,WTL"2\J('AX("A3E
+XM05,@0R!C86XG="!H86YD;&4@=&AE(')E86P@8VAA<BD@*B\*"0E[)VXG+"`G[
+XM?B<L(#$V-'TL"2\J(*0@*B\*"0E[)TXG+"`G?B<L(#$V-7TL"2\J(*4@*B\*:
+XM"0E[)V$G+"`G82<L(#$V-GTL"2\J(*8@*B\*"0E[)V\G+"`G;R<L(#$V-WTL:
+XM"2\J(*<@*B\*"0E[)WXG+"`G/R<L(#$V.'TL"2\J(*@@*B\*"0E[)RTG+"`G:
+XM82<L(#$V.7TL"2\J(*D@*B\*"0E[)V$G+"`G+2<L(#$W,'TL"2\J(*H@*B\**
+XM"0E[)S$G+"`G,B<L(#$W,7TL"2\J(*L@*B\*"0E[)S$G+"`G-"<L(#$W,GTL_
+XM"2\J(*P@*B\*"0E[)WXG+"`G(2<L(#$W,WTL"2\J(*T@*B\*"0E[)SPG+"`G1
+XM/"<L(#$W-'TL"2\J(*X@*B\*"0E[)SXG+"`G/B<L(#$W-7TL"2\J(*\@*B\*>
+XM"@D)>R=S)RP@)W,G+"`R,C5]+`DO*B#A("HO"@D)>R=J)RP@)W4G+"`R,S!]+
+XM+`DO*B#F("HO"@D)>R=O)RP@)R\G+"`R,S=]+`DO*B#M("HO"@D)>R<K)RP@_
+XM)RTG+"`R-#%]+`DO*B#Q("HO"@D)>R<^)RP@)STG+"`R-#)]+`DO*B#R("HOG
+XM"@D)>R<\)RP@)STG+"`R-#-]+`DO*B#S("HO"@D)>R<Z)RP@)RTG+"`R-#9]_
+XM+`DO*B#V("HO"@D)>R=^)RP@)WXG+"`R-#=]+`DO*B#W("HO"@D)>R=^)RP@+
+XM)V\G+"`R-#A]+`DO*B#X("HO"@D)>R<R)RP@)S(G+"`R-3-]+`DO*B#]("HOM
+XM"@D)>TY53"P@3E5,+"!.54Q]"@D)?3L*"B-E;'-E"2\J($U31$]3("HO"@IUW
+XM7V-H87()9&EG<F%P:&1E9F%U;'1;75LS72`](`D)+RH@<W1A;F1A<F0@25-/1
+XM(&1I9W)A<&AS("HO"@D@("![>R=^)RP@)R$G+"`Q-C%]+`DO*B"A("HO"@D@W
+XM("`@>R=C)RP@)WPG+"`Q-C)]+`DO*B"B("HO"@D@("`@>R<D)RP@)R0G+"`Q(
+XM-C-]+`DO*B"C("HO"@D@("`@>R=O)RP@)W@G+"`Q-C1]+`DO*B"D("HO"@D@O
+XM("`@>R=9)RP@)RTG+"`Q-C5]+`DO*B"E("HO"@D@("`@>R=\)RP@)WPG+"`QE
+XM-C9]+`DO*B"F("HO"@D@("`@>R=P)RP@)V$G+"`Q-C=]+`DO*B"G("HO"@D@E
+XM("`@>R<B)RP@)R(G+"`Q-CA]+`DO*B"H("HO"@D@("`@>R=C)RP@)T\G+"`QC
+XM-CE]+`DO*B"I("HO"@D)>R=A)RP@)RTG+"`Q-S!]+`DO*B"J("HO"@D)>R<\U
+XM)RP@)SPG+"`Q-S%]+`DO*B"K("HO"@D)>R<M)RP@)RPG+"`Q-S)]+`DO*B"L&
+XM("HO"@D)>R<M)RP@)RTG+"`Q-S-]+`DO*B"M("HO"@D)>R=R)RP@)T\G+"`Q'
+XM-S1]+`DO*B"N("HO"@D)>R<M)RP@)STG+"`Q-S5]+`DO*B"O("HO"@D)>R=^>
+XM)RP@)V\G+"`Q-S9]+`DO*B"P("HO"@D)>R<K)RP@)RTG+"`Q-S=]+`DO*B"Q,
+XM("HO"@D)>R<R)RP@)S(G+"`Q-SA]+`DO*B"R("HO"@D)>R<S)RP@)S,G+"`Q`
+XM-SE]+`DO*B"S("HO"@D)>R=<)R<L("=<)R<L(#$X,'TL"2\J(+0@*B\*"0E[@
+XM)VHG+"`G=2<L(#$X,7TL"2\J(+4@*B\*"0E[)W`G+"`G<"<L(#$X,GTL"2\J7
+XM(+8@*B\*"0E[)WXG+"`G+B<L(#$X,WTL"2\J(+<@*B\*"0E[)RPG+"`G+"<L`
+XM(#$X-'TL"2\J(+@@*B\*"0E[)S$G+"`G,2<L(#$X-7TL"2\J(+D@*B\*"0E[8
+XM)V\G+"`G+2<L(#$X-GTL"2\J(+H@*B\*"0E[)SXG+"`G/B<L(#$X-WTL"2\J_
+XM(+L@*B\*"0E[)S$G+"`G-"<L(#$X.'TL"2\J(+P@*B\*"0E[)S$G+"`G,B<L3
+XM(#$X.7TL"2\J(+T@*B\*"0E[)S,G+"`G-"<L(#$Y,'TL"2\J(+X@*B\*"0E[H
+XM)WXG+"`G/R<L(#$Y,7TL"2\J(+\@*B\*"0E[)T$G+"`G8"<L(#$Y,GTL"2\J"
+XM(,`@*B\*"0E[)T$G+"`G7"<G+"`Q.3-]+`DO*B#!("HO"@D)>R=!)RP@)UXG(
+XM+"`Q.31]+`DO*B#"("HO"@D)>R=!)RP@)WXG+"`Q.35]+`DO*B##("HO"@D)\
+XM>R=!)RP@)R(G+"`Q.39]+`DO*B#$("HO"@D)>R=!)RP@)T`G+"`Q.3=]+`DOH
+XM*B#%("HO"@D)>R=!)RP@)T4G+"`Q.3A]+`DO*B#&("HO"@D)>R=#)RP@)RPG3
+XM+"`Q.3E]+`DO*B#'("HO"@D)>R=%)RP@)V`G+"`R,#!]+`DO*B#(("HO"@D)D
+XM>R=%)RP@)UPG)RP@,C`Q?2P)+RH@R2`J+PH)"7LG12<L("=>)RP@,C`R?2P)K
+XM+RH@RB`J+PH)"7LG12<L("<B)RP@,C`S?2P)+RH@RR`J+PH)"7LG22<L("=@S
+XM)RP@,C`T?2P)+RH@S"`J+PH)"7LG22<L("=<)R<L(#(P-7TL"2\J(,T@*B\*B
+XM"0E[)TDG+"`G7B<L(#(P-GTL"2\J(,X@*B\*"0E[)TDG+"`G(B<L(#(P-WTLJ
+XM"2\J(,\@*B\*"0E[)T0G+"`G+2<L(#(P.'TL"2\J(-`@*B\*"0E[)TXG+"`GZ
+XM?B<L(#(P.7TL"2\J(-$@*B\*"0E[)T\G+"`G8"<L(#(Q,'TL"2\J(-(@*B\*.
+XM"0E[)T\G+"`G7"<G+"`R,3%]+`DO*B#3("HO"@D)>R=/)RP@)UXG+"`R,3)]H
+XM+`DO*B#4("HO"@D)>R=/)RP@)WXG+"`R,3-]+`DO*B#5("HO"@D)>R=/)RP@B
+XM)R(G+"`R,31]+`DO*B#6("HO"@D)>R<O)RP@)UQ<)RP@,C$U?2P)+RH@UR`JC
+XM+PH)"7LG3R<L("<O)RP@,C$V?2P)+RH@V"`J+PH)"7LG52<L("=@)RP@,C$WG
+XM?2P)+RH@V2`J+PH)"7LG52<L("=<)R<L(#(Q.'TL"2\J(-H@*B\*"0E[)U4GS
+XM+"`G7B<L(#(Q.7TL"2\J(-L@*B\*"0E[)U4G+"`G(B<L(#(R,'TL"2\J(-P@<
+XM*B\*"0E[)UDG+"`G7"<G+"`R,C%]+`DO*B#=("HO"@D)>R=))RP@)W`G+"`R,
+XM,C)]+`DO*B#>("HO"@D)>R=S)RP@)W,G+"`R,C-]+`DO*B#?("HO"@D)>R=A0
+XM)RP@)V`G+"`R,C1]+`DO*B#@("HO"@D)>R=A)RP@)UPG)RP@,C(U?2P)+RH@\
+XMX2`J+PH)"7LG82<L("=>)RP@,C(V?2P)+RH@XB`J+PH)"7LG82<L("=^)RP@N
+XM,C(W?2P)+RH@XR`J+PH)"7LG82<L("<B)RP@,C(X?2P)+RH@Y"`J+PH)"7LG2
+XM82<L("=`)RP@,C(Y?2P)+RH@Y2`J+PH)"7LG82<L("=E)RP@,C,P?2P)+RH@E
+XMYB`J+PH)"7LG8R<L("<L)RP@,C,Q?2P)+RH@YR`J+PH)"7LG92<L("=@)RP@J
+XM,C,R?2P)+RH@Z"`J+PH)"7LG92<L("=<)R<L(#(S,WTL"2\J(.D@*B\*"0E[2
+XM)V4G+"`G7B<L(#(S-'TL"2\J(.H@*B\*"0E[)V4G+"`G(B<L(#(S-7TL"2\J5
+XM(.L@*B\*"0E[)VDG+"`G8"<L(#(S-GTL"2\J(.P@*B\*"0E[)VDG+"`G7"<GN
+XM+"`R,S=]+`DO*B#M("HO"@D)>R=I)RP@)UXG+"`R,SA]+`DO*B#N("HO"@D)6
+XM>R=I)RP@)R(G+"`R,SE]+`DO*B#O("HO"@D)>R=D)RP@)RTG+"`R-#!]+`DO^
+XM*B#P("HO"@D)>R=N)RP@)WXG+"`R-#%]+`DO*B#Q("HO"@D)>R=O)RP@)V`GD
+XM+"`R-#)]+`DO*B#R("HO"@D)>R=O)RP@)UPG)RP@,C0S?2P)+RH@\R`J+PH)Z
+XM"7LG;R<L("=>)RP@,C0T?2P)+RH@]"`J+PH)"7LG;R<L("=^)RP@,C0U?2P)\
+XM+RH@]2`J+PH)"7LG;R<L("<B)RP@,C0V?2P)+RH@]B`J+PH)"7LG.B<L("<MX
+XM)RP@,C0W?2P)+RH@]R`J+PH)"7LG;R<L("<O)RP@,C0X?2P)+RH@^"`J+PH)A
+XM"7LG=2<L("=@)RP@,C0Y?2P)+RH@^2`J+PH)"7LG=2<L("=<)R<L(#(U,'TL,
+XM"2\J(/H@*B\*"0E[)W4G+"`G7B<L(#(U,7TL"2\J(/L@*B\*"0E[)W4G+"`G7
+XM(B<L(#(U,GTL"2\J(/P@*B\*"0E[)WDG+"`G7"<G+"`R-3-]+`DO*B#]("HO0
+XM"@D)>R=I)RP@)W`G+"`R-31]+`DO*B#^("HO"@D)>R=Y)RP@)R(G+"`R-35]@
+XM+`DO*B#_("HO"@D)>TY53"P@3E5,+"!.54Q]"@D)?3L*(V5N9&EF"2\J($U3(
+XM1$]3("HO"B`*+RH*("H@:&%N9&QE(&1I9W)A<&AS(&%F=&5R('1Y<&EN9R!AL
+XM(&-H87)A8W1E<@H@*B\*"6EN=`ID;V1I9W)A<&@H8RD*"6EN=`D)8SL*>PH)$
+XM<W1A=&EC(&EN=`EB86-K<W!A8V5D.PD)+RH@8VAA<F%C=&5R(&)E9F]R92!"E
+XM4R`J+PH)<W1A=&EC(&EN=`EL87-T8VAA<CL)"2\J(&QA<W0@='EP960@8VAAY
+XM<F%C=&5R("HO"@H):68@*&,@/3T@+3$I"0DO*B!I;FET('9A;'5E<R`J+PH)-
+XM>PH)"6)A8VMS<&%C960@/2`M,3L*"7T*"65L<V4@:68@*'!?9&<I"@E["@D)>
+XM:68@*&)A8VMS<&%C960@/CT@,"D*"0D)8R`](&=E=&1I9W)A<&@H8F%C:W-PL
+XM86-E9"P@8RD["@D)8F%C:W-P86-E9"`]("TQ.PH)"6EF("AC(#T]($)3("8FD
+XM(&QA<W1C:&%R(#X](#`I"@D)"6)A8VMS<&%C960@/2!L87-T8VAA<CL*"7T*0
+XM"6QA<W1C:&%R(#T@8SL*"7)E='5R;B!C.PI]"@HO*@H@*B!L;V]K=7`@=&AE*
+XM('!A:7(@8VAA<C$L(&-H87(R(&EN('1H92!D:6=R87!H('1A8FQE<PH@*B!IF
+XM9B!N;R!M871C:"P@<F5T=7)N(&-H87(R"B`J+PH):6YT"F=E=&1I9W)A<&@H>
+XM8VAA<C$L(&-H87(R*0H):6YT"6-H87(Q.PH):6YT"6-H87(R.PI["@EI;G0)C
+XM"6D["@EI;G0)"7)E='9A;#L*"@ER971V86P@/2`P.PH)9F]R("AI(#T@,#L@,
+XM.R`K*VDI"0D)+RH@<V5A<F-H(&%D9&5D(&1I9W)A<&AS(&9I<G-T("HO"@E[@
+XM"@D):68@*&D@/3T@9&EG<F%P:&-O=6YT*0DO*B!E;F0@;V8@861D960@=&%B>
+XM;&4L('-E87)C:"!D969A=6QT<R`J+PH)"7L*"0D)9F]R("AI(#T@,#L@9&EGT
+XM<F%P:&1E9F%U;'1;:5U;,%T@(3T@,#L@*RMI*0H)"0D):68@*&1I9W)A<&ADR
+XM969A=6QT6VE=6S!=(#T](&-H87(Q("8F(&1I9W)A<&AD969A=6QT6VE=6S%=M
+XM(#T](&-H87(R*0H)"0D)>PH)"0D)"7)E='9A;"`](&1I9W)A<&AD969A=6QTB
+XM6VE=6S)=.PH)"0D)"6)R96%K.PH)"0D)?0H)"0EB<F5A:SL*"0E]"@D):68@Q
+XM*&1I9W)A<&AN97=;:5U;,%T@/3T@8VAA<C$@)B8@9&EG<F%P:&YE=UMI75LQ%
+XM72`]/2!C:&%R,BD*"0E["@D)"7)E='9A;"`](&1I9W)A<&AN97=;:5U;,ET[&
+XM"@D)"6)R96%K.PH)"7T*"7T*"@EI9B`H<F5T=F%L(#T](#`I"2\J(&1I9W)AL
+XM<&@@9&5L971E9"!O<B!N;W0@9F]U;F0@*B\*"0ER971U<FX@8VAA<C(["@ERB
+XM971U<FX@<F5T=F%L.PI]"@HO*@H@*B!P=70@=&AE(&1I9W)A<&AS(&EN('1H>
+XM92!A<F=U;65N="!S=')I;F<@:6X@=&AE(&1I9W)A<&@@=&%B;&4*("H@9F]R9
+XM;6%T.B![8S%]>V,R?2!C:&%R('MC,7U[8S)](&-H87(@+BXN"B`J+PH)=F]IX
+XM9`IP=71D:6=R87!H*'-T<BD*"6-H87(@*G-T<CL*>PH):6YT"0EC:&%R,2P@O
+XM8VAA<C(L(&X["@EU7V-H87()*"IN97=T86(I6S-=.PH):6YT"0EI.PH*"7=H%
+XM:6QE("@J<W1R*0H)>PH)"7-K:7!S<&%C92@F<W1R*3L*"0EC:&%R,2`]("ISK
+XM='(K*SL*"0EC:&%R,B`]("IS='(K*SL*"0EI9B`H8VAA<C$@/3T@,"!\?"!C[
+XM:&%R,B`]/2`P*0H)"0ER971U<FX["@D)<VMI<'-P86-E*"9S='(I.PH)"6EF5
+XM("@A:7-D:6=I="@J<W1R*2D*"0E["@D)"65M<V<H95]N=6UB97(I.PH)"0ERK
+XM971U<FX["@D)?0H)"6X@/2!G971D:6=I=',H)G-T<BD["@D):68@*&1I9W)A2
+XM<&AN97<I"0DO*B!S96%R8V@@=&AE('1A8FQE(&9O<B!E>&ES=&EN9R!E;G1R@
+XM>2`J+PH)"7L*"0D)9F]R("AI(#T@,#L@:2`\(&1I9W)A<&AC;W5N=#L@*RMIU
+XM*0H)"0D):68@*&1I9W)A<&AN97=;:5U;,%T@/3T@8VAA<C$@)B8@9&EG<F%PL
+XM:&YE=UMI75LQ72`]/2!C:&%R,BD*"0D)"7L*"0D)"0ED:6=R87!H;F5W6VE=9
+XM6S)=(#T@;CL*"0D)"0EB<F5A:SL*"0D)"7T*"0D):68@*&D@/"!D:6=R87!HR
+XM8V]U;G0I"@D)"0EC;VYT:6YU93L*"0E]"@D);F5W=&%B(#T@*'5?8VAA<B`HU
+XM*BE;,UTI86QL;V,H9&EG<F%P:&-O=6YT("H@,R`K(#,I.PH)"6EF("AN97=TR
+XM86(I"@D)>PH)"0EM96UM;W9E*"AC:&%R("HI;F5W=&%B+"`H8VAA<B`J*61I2
+XM9W)A<&AN97<L("AS:7IE7W0I*&1I9W)A<&AC;W5N="`J(#,I*3L*"0D)9G)E#
+XM92AD:6=R87!H;F5W*3L*"0D)9&EG<F%P:&YE=R`](&YE=W1A8CL*"0D)9&EGZ
+XM<F%P:&YE=UMD:6=R87!H8V]U;G1=6S!=(#T@8VAA<C$["@D)"61I9W)A<&AN6
+XM97=;9&EG<F%P:&-O=6YT75LQ72`](&-H87(R.PH)"0ED:6=R87!H;F5W6V1I#
+XM9W)A<&AC;W5N=%U;,ET@/2!N.PH)"0DK*V1I9W)A<&AC;W5N=#L*"0E]"@E]/
+XM"GT*"@EV;VED"FQI<W1D:6=R87!H<R@I"GL*"6EN=`D):3L*"@EP<FEN=&1IO
+XM9W)A<&@H3E5,3"D["@EF;W(@*&D@/2`P.R!D:6=R87!H9&5F875L=%MI75LP<
+XM73L@*RMI*0H)"6EF("AG971D:6=R87!H*&1I9W)A<&AD969A=6QT6VE=6S!=G
+XM+"!D:6=R87!H9&5F875L=%MI75LQ72D@/3T@9&EG<F%P:&1E9F%U;'1;:5U;]
+XM,ETI"@D)"7!R:6YT9&EG<F%P:"AD:6=R87!H9&5F875L=%MI72D["@EF;W(@4
+XM*&D@/2`P.R!I(#P@9&EG<F%P:&-O=6YT.R`K*VDI"@D)<')I;G1D:6=R87!HQ
+XM*&1I9W)A<&AN97=;:5TI.PH);W5T8VAA<B@G7&XG*3L*"7=A:71?<F5T=7)N*
+XM*%12544I.PI]"@H)<W1A=&EC('9O:60*<')I;G1D:6=R87!H*'`I"@EU7V-H3
+XM87(@*G`["GL*"6-H87()"6)U9ELY73L*"7-T871I8R!I;G0);&5N.PH*"6EFN
+XM("AP(#T]($Y53$PI"@D);&5N(#T@,#L*"65L<V4@:68@*'!;,ET@(3T@,"D*G
+XM"7L*"0EI9B`H;&5N(#X@0V]L=6UN<R`M(#$Q*0H)"7L*"0D);W5T8VAA<B@G.
+XM7&XG*3L*"0D);&5N(#T@,#L*"0E]"@D):68@*&QE;BD*"0D);W5T<W1R;B@BC
+XM("`@(BD["@D)<W!R:6YT9BAB=68L("(E8R5C("5C("4S9"(L('!;,%TL('!;,
+XM,5TL('!;,ETL('!;,ETI.PH)"6]U='-T<FXH8G5F*3L*"0EL96X@*ST@,3$[B
+X="@E]"GT*"B-E;F1I9B`O*B!$24=205!(4R`J+PIFH
+X``
+Xend
+Xsize 7904
+END_OF_FILE
+if test 11106 -ne `wc -c <'vim/src/digrap_c.uue'`; then
+    echo shar: \"'vim/src/digrap_c.uue'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/digrap_c.uue'
+# end of 'vim/src/digrap_c.uue'
+fi
+if test -f 'vim/src/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/main.c'\"
+else
+echo shar: Extracting \"'vim/src/main.c'\" \(11534 characters\)
+sed "s/^X//" >'vim/src/main.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X#define EXTERN
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstatic void usage __PARMS((int));
+X
+X	static void
+Xusage(n)
+X	int n;
+X{
+X	register int i;
+X	static char *(use[]) = {"[file ..]\n",
+X							"-t tag\n",
+X							"+[command] file ..\n",
+X							"-c {command} file ..\n",
+X							"-e [errorfile]\n"};
+X	static char *(errors[]) =  {"Unknown option\n",			/* 0 */
+X								"Too many arguments\n",		/* 1 */
+X								"Argument missing\n",		/* 2 */
+X								};
+X
+X	fprintf(stderr, errors[n]);
+X	fprintf(stderr, "usage:");
+X	for (i = 0; ; ++i)
+X	{
+X		fprintf(stderr, " vim [options] ");
+X		fprintf(stderr, use[i]);
+X		if (i == (sizeof(use) / sizeof(char *)) - 1)
+X			break;
+X		fprintf(stderr, "   or:");
+X	}
+X#ifdef AMIGA
+X	fprintf(stderr, "\noptions: -v -n -b -r -x -d device -s scriptin -w scriptout -T terminal\n");
+X#else
+X	fprintf(stderr, "\noptions: -v -n -b -r -s scriptin -w scriptout -T terminal\n");
+X#endif
+X	mch_windexit(1);
+X}
+X
+X#ifdef USE_LOCALE
+X# include <locale.h>
+X#endif
+X
+X	void
+Xmain(argc, argv)
+X	int				argc;
+X	char		  **argv;
+X{
+X	char		   *initstr;		/* init string from the environment */
+X	char		   *term = NULL;	/* specified terminal name */
+X	char		   *fname = NULL;	/* file name from command line */
+X	char		   *command = NULL;	/* command from + option */
+X	char		   *tagname = NULL;	/* tag from -t option */
+X	int 			c;
+X	int				doqf = 0;
+X	int				i;
+X	int				bin_mode = FALSE;	/* -b option used */
+X
+X#ifdef DEBUG
+X# ifdef MSDOS
+X	OPENDEBUG("#debug#");
+X# else
+X	OPENDEBUG("/tmp/debug/vim");
+X# endif
+X#endif
+X
+X/*
+X * Check if we have an interactive window.
+X * If not, open one with a newcli command (needed for :! to work).
+X * check_win will also handle the -d argument (for the Amiga).
+X */
+X	check_win(argc, argv);
+X
+X/*
+X * If the executable is called "view" we start in readonly mode.
+X */
+X	if (strcmp(gettail(argv[0]), "view") == 0)
+X	{
+X		readonlymode = TRUE;
+X		p_ro = TRUE;
+X		p_uc = 0;
+X	}
+X
+X	++argv;
+X	/*
+X	 * Process the command line arguments
+X	 * 		'-s scriptin'	read from script file
+X	 *		'-w scriptout'	write to script file
+X	 *		'-v'			view
+X	 *		'-b'			binary
+X	 *		'-n'			no .vim file
+X	 *		'-r'			recovery mode
+X	 *		'-x'			open window directly, not with newcli
+X	 *		'-T terminal'	terminal name
+X	 */
+X	while (argc > 1 && argv[0][0] == '-' &&
+X			strchr("vnbrxswTd", c = argv[0][1]) != NULL && c)
+X	{
+X		--argc;
+X		switch (c)
+X		{
+X		case 'v':
+X			readonlymode = TRUE;
+X			p_ro = TRUE;
+X			/*FALLTHROUGH*/
+X
+X		case 'n':
+X			p_uc = 0;
+X			break;
+X
+X		case 'b':
+X			bin_mode = TRUE;		/* postpone to after reading .exrc files */
+X			break;
+X
+X		case 'r':
+X			recoverymode = 1;
+X			break;
+X		
+X		case 'x':
+X			break;	/* This is ignored as it is handled in check_win() */
+X
+X		default:	/* options with argument */
+X			++argv;
+X			--argc;
+X			if (argc < 1)
+X				usage(2);
+X
+X			switch (c)
+X			{
+X			case 's':
+X				if ((scriptin[0] = fopen(argv[0], READBIN)) == NULL)
+X				{
+X						fprintf(stderr, "cannot open %s for reading\n", argv[0]);
+X						mch_windexit(2);
+X				}
+X				break;
+X			
+X			case 'w':
+X				if ((scriptout = fopen(argv[0],
+X#ifdef MSDOS
+X													"ab"
+X#else
+X													"a"
+X#endif
+X														)) == NULL)
+X				{
+X						fprintf(stderr, "cannot open %s for output\n", argv[0]);
+X						mch_windexit(2);
+X				}
+X				break;
+X
+X/*
+X * The -T term option is always available and when TERMCAP is supported it
+X * overrides the environment variable TERM.
+X */
+X			case 'T':
+X				term = *argv;
+X				break;
+X			
+X		/*	case 'd':		This is ignored as it is handled in check_win() */
+X			}
+X		}
+X		++argv;
+X	}
+X
+X	/*
+X	 * Allocate space for the generic buffer
+X	 */
+X	if ((IObuff = alloc(IOSIZE)) == NULL)
+X		mch_windexit(0);
+X
+X	/* note that we may use mch_windexit() before mch_windinit()! */
+X	mch_windinit();
+X	set_init();			/* after mch_windinit because Rows is used */
+X
+X	/*
+X	 * Process the other command line arguments.
+X	 */
+X	if (argc > 1)
+X	{
+X		c = argv[0][1];
+X		switch (argv[0][0])
+X		{
+X		  case '-':
+X		    switch (c)
+X			{
+X		  	case 'e':			/* -e QuickFix mode */
+X				switch (argc)
+X				{
+X					case 2:
+X							if (argv[0][2])		/* -eerrorfile */
+X								p_ef = argv[0] + 2;
+X							break;				/* -e */
+X
+X					case 3:						/* -e errorfile */
+X							++argv;
+X							p_ef = argv[0];
+X							break;
+X
+X					default:					/* argc > 3: too many arguments */
+X							usage(1);
+X				}
+X				doqf = 1;
+X				break;
+X
+X			case 'c':			/* -c {command} file .. */
+X				if (argc <= 3)
+X					usage(2);
+X				++argv;
+X				--argc;
+X				command = &(argv[0][0]);
+X				goto getfiles;
+X
+X			case 't':			/* -t tag  or -ttag */
+X				switch (argc)
+X				{
+X					case 2:
+X							if (argv[0][2])		/* -ttag */
+X							{
+X								tagname = argv[0] + 2;
+X								break;
+X							}
+X							usage(2);			/* argument missing */
+X							break;
+X
+X					case 3:						/* -t tag */
+X							++argv;
+X							tagname = argv[0];
+X							break;
+X
+X					default:					/* argc > 3: too many arguments */
+X							usage(1);
+X				}
+X				break;
+X
+X			default:
+X				usage(0);
+X			}
+X			break;
+X
+X		  case '+': 			/* + or +{number} or +/{pat} or +{command} */
+X			if (argc < 3)		/* no filename */
+X					usage(2);
+X			if (c == NUL)
+X				command = "$";
+X			else
+X				command = &(argv[0][1]);
+X
+Xgetfiles:
+X			++argv;
+X			--argc;
+X			/*FALLTHROUGH*/
+X
+X		  default:				/* must be a file name */
+X#if !defined(UNIX)
+X			ExpandWildCards(argc - 1, argv, &numfiles, &files, TRUE, TRUE);
+X			if (numfiles != 0)
+X			{
+X				fname = files[0];
+X				files_exp = TRUE;
+X			}
+X#else
+X			files = argv;
+X			numfiles = argc - 1;
+X			fname = argv[0];
+X#endif
+X			if (numfiles > 1)
+X				printf("%d files to edit\n", numfiles);
+X			break;
+X		}
+X	}
+X
+X	RedrawingDisabled = TRUE;
+X	filealloc();				/* Initialize storage structure */
+X	init_yank();				/* init yank buffers */
+X	termcapinit(term);			/* get terminal capabilities */
+X
+X#ifdef USE_LOCALE
+X	setlocale(LC_ALL, "");		/* for ctype() and the like */
+X#endif
+X
+X#ifdef MSDOS /* default mapping for some often used keys */
+X	domap(0, "#1 :help\r", NORMAL);			/* F1 is help key */
+X	domap(0, "\316R i", NORMAL);			/* INSERT is 'i' */
+X	domap(0, "\316S \177", NORMAL);			/* DELETE is 0x7f */
+X	domap(0, "\316G 0", NORMAL);			/* HOME is '0' */
+X	domap(0, "\316w H", NORMAL);			/* CTRL-HOME is 'H' */
+X	domap(0, "\316O $", NORMAL);			/* END is '$' */
+X	domap(0, "\316u L", NORMAL);			/* CTRL-END is 'L' */
+X	domap(0, "\316I \002", NORMAL);			/* PageUp is '^B' */
+X	domap(0, "\316\204 1G", NORMAL);		/* CTRL-PageUp is '1G' */
+X	domap(0, "\316Q \006", NORMAL);			/* PageDown is '^F' */
+X	domap(0, "\316v G", NORMAL);			/* CTRL-PageDown is 'G' */
+X			/* insert mode */
+X	domap(0, "#1 \017:help\r", INSERT);		/* F1 is help key */
+X	domap(0, "\316R \033", INSERT);			/* INSERT is ESC */
+X			/* note: extra space needed to avoid the same memory used for this
+X			   and the one above, domap() will add a NUL to it */
+X	domap(0, "\316S  \177", INSERT+CMDLINE);	/* DELETE is 0x7f */
+X	domap(0, "\316G \017""0", INSERT);		/* HOME is '^O0' */
+X	domap(0, "\316w \017H", INSERT);		/* CTRL-HOME is '^OH' */
+X	domap(0, "\316O \017$", INSERT);		/* END is '^O$' */
+X	domap(0, "\316u \017L", INSERT);		/* CTRL-END is '^OL' */
+X	domap(0, "\316I \017\002", INSERT);		/* PageUp is '^O^B' */
+X	domap(0, "\316\204 \017\061G", INSERT);	/* CTRL-PageUp is '^O1G' */
+X	domap(0, "\316Q \017\006", INSERT);		/* PageDown is '^O^F' */
+X	domap(0, "\316v \017G", INSERT);		/* CTRL-PageDown is '^OG' */
+X#endif
+X
+X/*
+X * get system wide defaults (for unix)
+X */
+X#ifdef DEFVIMRC_FILE
+X	dosource(DEFVIMRC_FILE);
+X#endif
+X
+X/*
+X * Try to read initialization commands from the following places:
+X * - environment variable VIMINIT
+X * - file s:.vimrc ($HOME/.vimrc for Unix)
+X * - environment variable EXINIT
+X * - file s:.exrc ($HOME/.exrc for Unix)
+X * The first that exists is used, the rest is ignored.
+X */
+X	if ((initstr = (char *)vimgetenv("VIMINIT")) != NULL)
+X		docmdline((u_char *)initstr);
+X	else if (dosource(SYSVIMRC_FILE))
+X	{
+X		if ((initstr = (char *)vimgetenv("EXINIT")) != NULL)
+X			docmdline((u_char *)initstr);
+X		else
+X			dosource(SYSEXRC_FILE);
+X	}
+X
+X/*
+X * Read initialization commands from ".vimrc" or ".exrc" in current directory.
+X * This is only done if the 'exrc' option is set.
+X * Because of security reasons we disallow shell and write commands now,
+X * except for unix if the file is owned by the user or 'secure' option has been
+X * reset in environmet of global ".exrc" or ".vimrc".
+X * Only do this if VIMRC_FILE is not the same as SYSVIMRC_FILE or DEFVIMRC_FILE.
+X */
+X	if (p_exrc)
+X	{
+X#ifdef UNIX
+X		{
+X			struct stat s;
+X
+X				/* if ".vimrc" file is not owned by user, set 'secure' mode */
+X			if (stat(VIMRC_FILE, &s) || s.st_uid != getuid())
+X				secure = p_secure;
+X		}
+X#else
+X		secure = p_secure;
+X#endif
+X
+X		i = 1;
+X		if (fullpathcmp(SYSVIMRC_FILE, VIMRC_FILE)
+X#ifdef DEFVIMRC_FILE
+X				&& fullpathcmp(DEFVIMRC_FILE, VIMRC_FILE)
+X#endif
+X				)
+X			i = dosource(VIMRC_FILE);
+X#ifdef UNIX
+X		if (i)
+X		{
+X			struct stat s;
+X
+X				/* if ".exrc" file is not owned by user set 'secure' mode */
+X			if (stat(EXRC_FILE, &s) || s.st_uid != getuid())
+X				secure = p_secure;
+X			else
+X				secure = 0;
+X		}
+X#endif
+X		if (i && fullpathcmp(SYSEXRC_FILE, EXRC_FILE))
+X			dosource(EXRC_FILE);
+X	}
+X
+X/*
+X * Call settmode and starttermcap here, so the T_KS and T_TS may be defined
+X * by termcapinit and redifined in .exrc.
+X */
+X	settmode(1);
+X	starttermcap();
+X
+X	if (secure == 2)		/* done something that is not allowed */
+X		wait_return(TRUE);		/* must be called after settmode(1) */
+X	secure = 0;
+X
+X#ifdef AMIGA
+X	fname_case(fname);		/* set correct case for file name */
+X#endif
+X	setfname(fname, NULL);
+X	maketitle();
+X
+X	if (bin_mode)			/* -b option used */
+X	{
+X		p_bin = 1;			/* binary file I/O */
+X		p_tw = 0;			/* no automatic line wrap */
+X		p_tx = 0;			/* no text mode */
+X		p_ta = 0;			/* no text auto */
+X		p_ml = 0;			/* no modelines */
+X		p_et = 0;			/* no expand tab */
+X	}
+X
+X/*
+X * Start putting things on the screen.
+X * Clear screen first, so file message will not be cleared.
+X */
+X	starting = FALSE;
+X	screenclear();
+X	if (Filename != NULL)
+X		readfile(Filename, sFilename, (linenr_t)0, TRUE);
+X	else
+X		msg("Empty Buffer");
+X	UNCHANGED;
+X
+X	setpcmark();
+X	if (!tagname)
+X		startscript();				/* start writing to auto script file */
+X
+X	if (recoverymode && !scriptin[curscript])	/* first do script file, then recover */
+X		openrecover();
+X
+X	/* position the display and the cursor at the top of the file. */
+X	Topline = 1;
+X	Curpos.lnum = 1;
+X	Curpos.col = 0;
+X	Cursrow = Curscol = 0;
+X
+X	if (doqf && qf_init())		/* if reading error file fails: exit */
+X		mch_windexit(3);
+X
+X	if (command)
+X		docmdline((u_char *)command);
+X	/*
+X	 * put the :ta command in the stuff buffer here, so that it will not
+X	 * be erased by an emsg().
+X	 */
+X	if (tagname)
+X	{
+X		stuffReadbuff(":ta ");
+X		stuffReadbuff(tagname);
+X		stuffReadbuff("\n");
+X	}
+X
+X	RedrawingDisabled = FALSE;
+X	updateScreen(NOT_VALID);
+X
+X		/* start in insert mode (already taken care of for :ta command) */
+X	if (p_im && stuff_empty())
+X		stuffReadbuff("i");
+X/*
+X * main command loop
+X */
+X	for (;;)
+X	{
+X		if (got_int)
+X		{
+X			(void)vgetc();				/* flush all buffers */
+X			got_int = FALSE;
+X		}
+X		adjustCurpos();
+X		if (stuff_empty())				/* only when no command pending */
+X		{
+X			cursupdate();	/* Figure out where the cursor is based on Curpos. */
+X			showruler(0);
+X
+X			if (Visual.lnum)
+X				updateScreen(INVERTED);		/* update inverted part */
+X			if (must_redraw)
+X				updateScreen(VALID);
+X			setcursor();
+X		}
+X
+X		normal();						/* get and execute a command */
+X	}
+X	/*NOTREACHED*/
+X}
+X
+X	void
+Xgetout(r)
+X	int 			r;
+X{
+X	windgoto((int)Rows - 1, 0);
+X	outchar('\r');
+X	outchar('\n');
+X	mch_windexit(r);
+X}
+END_OF_FILE
+if test 11534 -ne `wc -c <'vim/src/main.c'`; then
+    echo shar: \"'vim/src/main.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/main.c'
+# end of 'vim/src/main.c'
+fi
+if test -f 'vim/src/mark.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/mark.c'\"
+else
+echo shar: Extracting \"'vim/src/mark.c'\" \(9757 characters\)
+sed "s/^X//" >'vim/src/mark.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * mark.c: functions for setting marks and jumping to them
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "mark.h"
+X#include "ops.h"		/* for endop and startop */
+X
+X/*
+X * This file contains routines to maintain and manipulate marks.
+X */
+X
+X#define NMARKS			26			/* max. # of named marks */
+X#define JUMPLISTSIZE	50			/* max. # of marks in jump list */
+X
+Xstatic struct mark pcmark;					/* previous context mark */
+Xstatic struct mark namedm[NMARKS];			/* original vi marks */
+Xstatic struct filemark namedfm[NMARKS];		/* new marks with file nr */
+Xstatic struct filemark jumplist[JUMPLISTSIZE];	/* list of old pcmarks */
+X
+Xstatic int jumplistlen = 0;
+Xstatic int jumplistidx = 0;
+X
+Xstatic FPOS *mark2pos __ARGS((struct mark *));
+X
+X#ifdef NEW
+Xstruct markptr
+X{
+X	int					mp_ident;		/* 'a' - 'z', 'A' - 'Z' or jumplist */
+X	struct	filemark	mp_fm;
+X} marklist[NMARKS + NMARKS + JUMPLISTSIZE];
+Xint marklistlen = 0;
+X
+Xadjustmark(old, new)
+X{
+X	max = marklistlen - 1;
+X	min = 0;
+X	while (max > min)
+X	{
+X		i = (max + min) / 2;
+X		t = marklist[i].mp_fm.ptr;
+X		if (t > old)
+X			max = i - 1;
+X		else if (t < old)
+X			min = i + 1;
+X	}
+X	if (max == min && marklist[i].mp_fm.ptr == old)
+X	{
+X	}
+X}
+X#endif
+X
+X/*
+X * setmark(c) - set named mark 'c' at current cursor position
+X *
+X * Returns TRUE on success, FALSE if no room for mark or bad name given.
+X */
+X	int
+Xsetmark(c)
+X	int			c;
+X{
+X	int 			i;
+X
+X	if (islower(c))
+X	{
+X		i = c - 'a';
+X		namedm[i].ptr = nr2ptr(Curpos.lnum);
+X		namedm[i].col = Curpos.col;
+X		return TRUE;
+X	}
+X	if (isupper(c))
+X	{
+X		i = c - 'A';
+X		namedfm[i].mark.ptr = nr2ptr(Curpos.lnum);
+X		namedfm[i].mark.col = Curpos.col;
+X		namedfm[i].lnum = Curpos.lnum;
+X		namedfm[i].fnum = 0;
+X		return TRUE;
+X	}
+X	return FALSE;
+X}
+X
+X/*
+X * setpcmark() - set the previous context mark to the current position
+X *				 and insert it into the jump list
+X */
+X	void
+Xsetpcmark()
+X{
+X	int i;
+X#ifdef ROTATE
+X	struct filemark tempmark;
+X#endif
+X
+X	pcmark.ptr = nr2ptr(Curpos.lnum);
+X	pcmark.col = Curpos.col;
+X
+X#ifndef ROTATE
+X	/*
+X	 * simply add the new entry at the end of the list
+X	 */
+X	jumplistidx = jumplistlen;
+X#else
+X	/*
+X	 * If last used entry is not at the top, put it at the top by rotating
+X	 * the stack until it is (the newer entries will be at the bottom).
+X	 * Keep one entry (the last used one) at the top.
+X	 */
+X	if (jumplistidx < jumplistlen)
+X		++jumplistidx;
+X	while (jumplistidx < jumplistlen)
+X	{
+X		tempmark = jumplist[jumplistlen - 1];
+X		for (i = jumplistlen - 1; i > 0; --i)
+X			jumplist[i] = jumplist[i - 1];
+X		jumplist[0] = tempmark;
+X		++jumplistidx;
+X	}
+X#endif
+X
+X		/* only add new entry if it differs from the last one */
+X	if (jumplistlen == 0 || jumplist[jumplistidx - 1].mark.ptr != pcmark.ptr)
+X	{
+X			/* if jumplist is full: remove oldest entry */
+X		if (++jumplistlen > JUMPLISTSIZE)
+X		{
+X			jumplistlen = JUMPLISTSIZE;
+X			for (i = 1; i < jumplistlen; ++i)
+X				jumplist[i - 1] = jumplist[i];
+X			--jumplistidx;
+X		}
+X
+X		jumplist[jumplistidx].mark = pcmark;
+X		jumplist[jumplistidx].lnum = Curpos.lnum;
+X		jumplist[jumplistidx].fnum = 0;
+X		++jumplistidx;
+X	}
+X}
+X
+X/*
+X * move "count" positions in the jump list (count may be negative)
+X */
+X	FPOS *
+Xmovemark(count)
+X	int count;
+X{
+X	FPOS		*pos;
+X
+X	if (jumplistlen == 0)			/* nothing to jump to */
+X		return (FPOS *)NULL;
+X
+X	if (jumplistidx + count < 0 || jumplistidx + count >= jumplistlen)
+X		return (FPOS *)NULL;
+X
+X	/*
+X	 * if first CTRL-O or CTRL-I command after a jump, add cursor position to list
+X	 */
+X	if (jumplistidx == jumplistlen)
+X	{
+X		setpcmark();
+X		--jumplistidx;		/* skip the new entry */
+X	}
+X
+X	jumplistidx += count;
+X	if (jumplist[jumplistidx].mark.ptr == NULL)	/* jump to other file */
+X	{
+X		if (getaltfile(jumplist[jumplistidx].fnum - 1, jumplist[jumplistidx].lnum, FALSE))
+X			return (FPOS *)NULL;
+X		Curpos.col = jumplist[jumplistidx].mark.col;
+X		jumplist[jumplistidx].fnum = 0;
+X		jumplist[jumplistidx].mark.ptr = nr2ptr(Curpos.lnum);
+X		pos = (FPOS *)-1;
+X	}
+X	else
+X		pos = mark2pos(&jumplist[jumplistidx].mark);
+X	return pos;
+X}
+X
+X/*
+X * getmark(c) - find mark for char 'c'
+X *
+X * Return pointer to FPOS if found
+X *        NULL if no such mark.
+X *        -1 if mark is in other file (only if changefile is TRUE)
+X */
+X	FPOS *
+Xgetmark(c, changefile)
+X	int			c;
+X	int			changefile;
+X{
+X	FPOS	*posp;
+X
+X	posp = NULL;
+X	if (c == '\'' || c == '`')			/* previous context mark */
+X		posp = mark2pos(&pcmark);
+X	else if (c == '[')					/* to start of previous operator */
+X	{
+X		if (startop.lnum > 0 && startop.lnum <= line_count)
+X			posp = &startop;
+X	}
+X	else if (c == ']')					/* to end of previous operator */
+X	{
+X		if (endop.lnum > 0 && endop.lnum <= line_count)
+X			posp = &endop;
+X	}
+X	else if (islower(c))				/* normal named mark */
+X		posp = mark2pos(&(namedm[c - 'a']));
+X	else if (isupper(c))				/* named file mark */
+X	{
+X		c -= 'A';
+X		posp = mark2pos(&(namedfm[c].mark));
+X		if (posp == NULL && namedfm[c].lnum != 0 && (changefile || samealtfile(namedfm[c].fnum - 1)))
+X		{
+X			if (!getaltfile(namedfm[c].fnum - 1, namedfm[c].lnum, TRUE))
+X			{
+X				Curpos.col = namedfm[c].mark.col;
+X				namedfm[c].fnum = 0;
+X				namedfm[c].mark.ptr = nr2ptr(Curpos.lnum);
+X				posp = (FPOS *)-1;
+X			}
+X		}
+X	}
+X	return posp;
+X}
+X
+X	static FPOS *
+Xmark2pos(markp)
+X	struct mark *markp;
+X{
+X	static FPOS pos;
+X
+X	if (markp->ptr != NULL && (pos.lnum = ptr2nr(markp->ptr, (linenr_t)1)) != 0)
+X	{
+X		pos.col = markp->col;
+X		return (&pos);
+X	}
+X	return (FPOS *)NULL;
+X}
+X
+X/*
+X * clrallmarks() - clear all marks
+X *
+X * Used mainly when trashing the entire buffer during ":e" type commands
+X */
+X	void
+Xclrallmarks()
+X{
+X	static int 			i = -1;
+X
+X	if (i == -1)		/* first call ever: initialize */
+X		for (i = 0; i < NMARKS; i++)
+X			namedfm[i].lnum = 0;
+X
+X	for (i = 0; i < NMARKS; i++)
+X	{
+X		namedm[i].ptr = NULL;
+X		namedfm[i].mark.ptr = NULL;
+X	}
+X	pcmark.ptr = NULL;
+X	qf_clrallmarks();
+X	for (i = 0; i < jumplistlen; ++i)
+X		jumplist[i].mark.ptr = NULL;
+X}
+X
+X/*
+X * increment the file number for all filemarks
+X * called when adding a file to the file stack
+X */
+X	void
+Xincrmarks()
+X{
+X	int			i;
+X
+X	for (i = 0; i < NMARKS; i++)
+X		++namedfm[i].fnum;
+X
+X	for (i = 0; i < jumplistlen; ++i)
+X	{
+X#if 0		/* this would take too much time */
+X		if (jumplist[i].fnum == 0)	/* current file */
+X			jumplist[i].lnum = ptr2nr(jumplist[i].mark.ptr, 1);
+X#endif
+X		++jumplist[i].fnum;
+X	}
+X}
+X
+X/*
+X * decrement the file number for the filemarks of the current file
+X * called when not adding the current file name to the file stack
+X */
+X	void
+Xdecrmarks()
+X{
+X	int			i;
+X
+X	for (i = 0; i < NMARKS; i++)
+X		if (namedfm[i].fnum == 1)
+X			namedfm[i].fnum = 0;
+X
+X	for (i = 0; i < jumplistlen; ++i)
+X		if (jumplist[i].fnum == 1)
+X			jumplist[i].fnum = 0;
+X}
+X
+X/*
+X * adjustmark: set new ptr for a mark
+X * if new == NULL the mark is effectively deleted
+X * (this is slow: we have to check about 100 pointers!)
+X */
+X   void
+Xadjustmark(old, new)
+X		char *old, *new;
+X{
+X	register int i, j;
+X
+X	for (i = 0; i < NMARKS; ++i)
+X	{
+X		if (namedm[i].ptr == old)
+X			namedm[i].ptr = new;
+X		if (namedfm[i].mark.ptr == old)
+X		{
+X			namedfm[i].mark.ptr = new;
+X			if (new == NULL)
+X				namedfm[i].lnum = 0;		/* delete this mark */
+X		}
+X	}
+X	if (pcmark.ptr == old)
+X		pcmark.ptr = new;
+X	for (i = 0; i < jumplistlen; ++i)
+X		if (jumplist[i].mark.ptr == old)
+X		{
+X			if (new == NULL)				/* delete this mark */
+X			{
+X				--jumplistlen;
+X				if (jumplistidx > jumplistlen)
+X					--jumplistidx;
+X				for (j = i; j < jumplistlen; ++j)
+X					jumplist[j] = jumplist[j + 1];
+X			}
+X			else
+X				jumplist[i].mark.ptr = new;
+X		}
+X	qf_adjustmark(old, new);
+X}
+X
+X/*
+X * get name of file from a filemark (use the occasion to update the lnum)
+X */
+X	char *
+Xfm_getname(fmark)
+X	struct filemark *fmark;
+X{
+X	linenr_t	nr;
+X	char		*name;
+X
+X	if (fmark->fnum != 0)						/* maybe not current file */
+X	{
+X		name = getaltfname(fmark->fnum - 1);
+X		if (name == NULL)
+X			return "-none-";
+X		if (Filename == NULL || fnamecmp(name, Filename) != 0)	/* not current file */
+X			return name;
+X		fmark->fnum = 0;
+X	}
+X	if (fmark->mark.ptr == NULL)
+X	{
+X		if (fmark->lnum <= line_count)				/* safety check */
+X			fmark->mark.ptr = nr2ptr(fmark->lnum);	/* update ptr */
+X	}
+X	else
+X	{
+X		nr = ptr2nr(fmark->mark.ptr, (linenr_t)1);
+X		if (nr != 0)
+X			fmark->lnum = nr;					/* update lnum */
+X	}
+X	return "-current-";
+X}
+X
+X/*
+X * print the marks (use the occasion to update the line numbers)
+X */
+X	void
+Xdomarks()
+X{
+X	int			i;
+X	char		*name;
+X
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode, so output can be halted */
+X#endif
+X	outstrn("\nmark line  file\n");
+X	for (i = 0; i < NMARKS; ++i)
+X	{
+X		if (namedm[i].ptr != NULL)
+X		{
+X			sprintf(IObuff, " %c %5ld\n",
+X				i + 'a',
+X				ptr2nr(namedm[i].ptr, (linenr_t)1));
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X	for (i = 0; i < NMARKS; ++i)
+X	{
+X		if (namedfm[i].lnum != 0)
+X		{
+X			name = fm_getname(&namedfm[i]);
+X			if (name == NULL)		/* file name not available */
+X				continue;
+X
+X			sprintf(IObuff, " %c %5ld  %s\n",
+X				i + 'A',
+X				namedfm[i].lnum,
+X				name);
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+X
+X/*
+X * print the jumplist (use the occasion to update the line numbers)
+X */
+X	void
+Xdojumps()
+X{
+X	int			i;
+X	char		*name;
+X
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode, so output can be halted */
+X#endif
+X	outstrn("\n jump line  file\n");
+X	for (i = 0; i < jumplistlen; ++i)
+X	{
+X		if (jumplist[i].lnum != 0)
+X		{
+X			name = fm_getname(&jumplist[i]);
+X			if (name == NULL)		/* file name not available */
+X				continue;
+X
+X			sprintf(IObuff, "%c %2d %5ld  %s\n",
+X				i == jumplistidx ? '>' : ' ',
+X				i + 1,
+X				jumplist[i].lnum,
+X				name);
+X			outstrn(IObuff);
+X		}
+X		flushbuf();
+X	}
+X	if (jumplistidx == jumplistlen)
+X		outstrn(">\n");
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+END_OF_FILE
+if test 9757 -ne `wc -c <'vim/src/mark.c'`; then
+    echo shar: \"'vim/src/mark.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/mark.c'
+# end of 'vim/src/mark.c'
+fi
+if test -f 'vim/src/quickfix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/quickfix.c'\"
+else
+echo shar: Extracting \"'vim/src/quickfix.c'\" \(9863 characters\)
+sed "s/^X//" >'vim/src/quickfix.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * quickfix.c: functions for quickfix mode, using a file with error messages
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstatic void qf_free __ARGS((void));
+Xstatic char *qf_types __ARGS((int, int));
+X
+X/*
+X * for each error the next struct is allocated and linked in a list
+X */
+Xstruct qf_line
+X{
+X	struct qf_line	*qf_next;	/* pointer to next error in the list */
+X	struct qf_line	*qf_prev;	/* pointer to previous error in the list */
+X	linenr_t		 qf_lnum;	/* line number where the error occurred */
+X	char			*qf_mark;	/* pointer to that line (if != NULL) */
+X	int				 qf_col;	/* column where the error occurred */
+X	int				 qf_nr;		/* error number */
+X	char			*qf_fname;	/* file name where the error occurred */
+X	char			*qf_text;	/* description of the error */
+X	char			 qf_cleared;/* set to TRUE if qf_mark has been cleared */
+X	char			 qf_type;	/* type of the error (mostly 'E') */
+X	char			 qf_valid;	/* valid error message detected */
+X};
+X
+Xstatic struct qf_line *qf_start;		/* pointer to the first error */
+Xstatic struct qf_line *qf_ptr;			/* pointer to the current error */
+X
+Xstatic int	qf_count = 0;		/* number of errors (0 means no error list) */
+Xstatic int	qf_index;			/* current index in the error list */
+Xstatic int	qf_nonevalid;		/* set to TRUE if not a single valid entry found */
+Xstatic int	qf_marksset;		/* set to 1 when qf_mark-s have been set */
+X
+X/*
+X * Read the errorfile into memory, line by line, building the error list.
+X * Return 1 for error, 0 for success.
+X */
+X	int
+Xqf_init()
+X{
+X	char 			namebuf[CMDBUFFSIZE + 1];
+X	char			errmsg[CMDBUFFSIZE + 1];
+X	int				col;
+X	char			type;
+X	char			valid;
+X	long			lnum;
+X	int				enr;
+X	FILE			*fd;
+X	struct qf_line	*qfp = NULL;
+X	struct qf_line	*qfprev = NULL;		/* init to make SASC shut up */
+X	char			*pfmt, *fmtstr;
+X#ifdef UTS2
+X	char			*(adr[7]);
+X#else
+X	void			*(adr[7]);
+X#endif
+X	int				adr_cnt = 0;
+X	int				maxlen;
+X	int				i;
+X
+X	if (p_ef == NULL || *p_ef == NUL)
+X	{
+X		emsg(e_errorf);
+X		return 1;
+X	}
+X	if ((fd = fopen(p_ef, "r")) == NULL)
+X	{
+X		emsg(e_openerrf);
+X		return 1;
+X	}
+X	qf_free();
+X	qf_index = 0;
+X	for (i = 0; i < 7; ++i)
+X		adr[i] = NULL;
+X
+X/*
+X * The format string is copied and modified from p_efm to fmtstr.
+X * Only a few % characters are allowed.
+X */
+X		/* get some space to modify the format string into */
+X		/* must be able to do the largest expansion 7 times (7 x 3) */
+X	maxlen = strlen(p_efm) + 25;
+X	fmtstr = (char *)alloc(maxlen);
+X	if (fmtstr == NULL)
+X		goto error2;
+X	for (pfmt = p_efm, i = 0; *pfmt; ++pfmt, ++i)
+X	{
+X		if (pfmt[0] != '%')				/* copy normal character */
+X			fmtstr[i] = pfmt[0];
+X		else
+X		{
+X			fmtstr[i++] = '%';
+X			switch (pfmt[1])
+X			{
+X			case 'f':		/* filename */
+X					adr[adr_cnt++] = namebuf;
+X
+X			case 'm':		/* message */
+X					if (pfmt[1] == 'm')
+X						adr[adr_cnt++] = errmsg;
+X					fmtstr[i++] = '[';
+X					fmtstr[i++] = '^';
+X					if (pfmt[2])
+X						fmtstr[i++] = pfmt[2];
+X					else
+X#ifdef MSDOS
+X						fmtstr[i++] = '\r';
+X#else
+X						fmtstr[i++] = '\n';
+X#endif
+X					fmtstr[i] = ']';
+X					break;
+X			case 'c':		/* column */
+X					adr[adr_cnt++] = &col;
+X					fmtstr[i] = 'd';
+X					break;
+X			case 'l':		/* line */
+X					adr[adr_cnt++] = &lnum;
+X					fmtstr[i++] = 'l';
+X					fmtstr[i] = 'd';
+X					break;
+X			case 'n':		/* error number */
+X					adr[adr_cnt++] = &enr;
+X					fmtstr[i] = 'd';
+X					break;
+X			case 't':		/* error type */
+X					adr[adr_cnt++] = &type;
+X					fmtstr[i] = 'c';
+X					break;
+X			case '%':		/* %% */
+X			case '*':		/* %*: no assignment */
+X					fmtstr[i] = pfmt[1];
+X					break;
+X			default:
+X					emsg("invalid % in format string");
+X					goto error2;
+X			}
+X			if (adr_cnt == 7)
+X			{
+X				emsg("too many % in format string");
+X				goto error2;
+X			}
+X			++pfmt;
+X		}
+X		if (i >= maxlen - 6)
+X		{
+X			emsg("invalid format string");
+X			goto error2;
+X		}
+X	}
+X	fmtstr[i] = NUL;
+X
+X	while (fgets(IObuff, CMDBUFFSIZE, fd) != NULL)
+X	{
+X		if ((qfp = (struct qf_line *)alloc((unsigned)sizeof(struct qf_line))) == NULL)
+X			goto error2;
+X
+X		IObuff[CMDBUFFSIZE] = NUL;	/* for very long lines */
+X		namebuf[0] = NUL;
+X		errmsg[0] = NUL;
+X		lnum = 0;
+X		col = 0;
+X		enr = -1;
+X		type = 0;
+X		valid = TRUE;
+X
+X		if (sscanf(IObuff, fmtstr, adr[0], adr[1], adr[2], adr[3],
+X												adr[4], adr[5]) != adr_cnt)
+X		{
+X			namebuf[0] = NUL;			/* something failed, remove file name */
+X			valid = FALSE;
+X			strcpy(errmsg, IObuff);		/* copy whole line to error message */
+X			if ((pfmt = strrchr(errmsg, '\n')) != NULL)
+X				*pfmt = NUL;
+X#ifdef MSDOS
+X			if ((pfmt = strrchr(errmsg, '\r')) != NULL)
+X				*pfmt = NUL;
+X#endif
+X		}
+X
+X		if ((qfp->qf_fname = strsave(namebuf)) == NULL)
+X			goto error1;
+X		if ((qfp->qf_text = strsave(errmsg)) == NULL)
+X		{
+X			free(qfp->qf_fname);
+X			goto error1;
+X		}
+X		qfp->qf_lnum = lnum;
+X		qfp->qf_col = col;
+X		qfp->qf_nr = enr;
+X		qfp->qf_type = type;
+X		qfp->qf_valid = valid;
+X
+X		if (qf_count == 0)		/* first element in the list */
+X		{
+X			qf_start = qfp;
+X			qfp->qf_prev = qfp;	/* first element points to itself */
+X		}
+X		else
+X		{
+X			qfp->qf_prev = qfprev;
+X			qfprev->qf_next = qfp;
+X		}
+X		qfp->qf_next = qfp;		/* last element points to itself */
+X		qfp->qf_mark = NULL;
+X		qfp->qf_cleared = FALSE;
+X		qfprev = qfp;
+X		++qf_count;
+X		if (qf_index == 0 && qfp->qf_valid)		/* first valid entry */
+X		{
+X			qf_index = qf_count;
+X			qf_ptr = qfp;
+X		}
+X	}
+X	free(fmtstr);
+X	if (!ferror(fd))
+X	{
+X		if (qf_index == 0)		/* no valid entry found */
+X		{
+X			qf_ptr = qf_start;
+X			qf_index = 1;
+X			qf_nonevalid = TRUE;
+X		}
+X		else
+X			qf_nonevalid = FALSE;
+X		fclose(fd);
+X		qf_jump(0);				/* display first error */
+X		return 0;
+X	}
+X	emsg(e_readerrf);
+Xerror1:
+X	free(qfp);
+Xerror2:
+X	fclose(fd);
+X	qf_free();
+X	return 1;
+X}
+X
+X/*
+X * jump to quickfix line "errornr"; if "errornr" is zero, redisplay the same line
+X */
+X	void
+Xqf_jump(errornr)
+X	int errornr;
+X{
+X	struct qf_line *qfp;
+X	linenr_t		i;
+X	char			*msgp;
+X
+X	if (qf_count == 0)
+X	{
+X		emsg(e_quickfix);
+X		return;
+X	}
+X
+X	if (errornr == -1)		/* next valid entry */
+X	{
+X		do
+X		{
+X			if (qf_index == qf_count)
+X				break;
+X			++qf_index;
+X			qf_ptr = qf_ptr->qf_next;
+X		} while (!qf_nonevalid && !qf_ptr->qf_valid);
+X	}
+X	else if (errornr == -2)		/* previous valid entry */
+X	{
+X		do
+X		{
+X			if (qf_index == 1)
+X				break;
+X			--qf_index;
+X			qf_ptr = qf_ptr->qf_prev;
+X		} while (!qf_nonevalid && !qf_ptr->qf_valid);
+X	}
+X	else if (errornr != 0)		/* go to specified number */
+X	{
+X		while (errornr < qf_index && qf_index > 1)
+X		{
+X			--qf_index;
+X			qf_ptr = qf_ptr->qf_prev;
+X		}
+X		while (errornr > qf_index && qf_index < qf_count)
+X		{
+X			++qf_index;
+X			qf_ptr = qf_ptr->qf_next;
+X		}
+X	}
+X
+X	/*
+X	 * If there is a file name, 
+X	 * read the wanted file if needed, and check autowrite etc.
+X	 */
+X	if (qf_ptr->qf_fname[0] == NUL || getfile(qf_ptr->qf_fname, NULL, TRUE) <= 0)
+X	{
+X		/*
+X		 * Use mark if possible, because the line number may be invalid
+X		 * after line inserts / deletes.
+X		 * If qf_lnum is 0, stay on the same line.
+X		 */
+X		i = 0;
+X		msgp = "";
+X		if ((qf_ptr->qf_mark != NULL && (i = ptr2nr(qf_ptr->qf_mark, (linenr_t)0)) == 0) || qf_ptr->qf_cleared)
+X			msgp = "(line changed) ";
+X		if (i == 0)
+X			i = qf_ptr->qf_lnum;
+X		if (i > line_count)
+X			i = line_count;
+X		if (i > 0)
+X			Curpos.lnum = i;
+X		Curpos.col = qf_ptr->qf_col;
+X		adjustCurpos();
+X		cursupdate();
+X		smsg("(%d of %d) %s%s: %s", qf_index, qf_count, msgp,
+X					qf_types(qf_ptr->qf_type, qf_ptr->qf_nr), qf_ptr->qf_text);
+X
+X		if (!qf_marksset)		/* marks not set yet: try to find them for
+X									the errors in the curren file */
+X		{
+X			for (i = 0, qfp = qf_start; i < qf_count; ++i, qfp = qfp->qf_next)
+X				if (qfp->qf_fname != NUL && strcmp(qfp->qf_fname, qf_ptr->qf_fname) == 0 && qfp->qf_lnum <= line_count && qfp->qf_lnum > 0)
+X					qfp->qf_mark = nr2ptr(qfp->qf_lnum);
+X			qf_marksset = 1;
+X		}
+X	}
+X}
+X
+X/*
+X * list all errors
+X */
+X	void
+Xqf_list()
+X{
+X	struct qf_line *qfp;
+X	int i;
+X
+X	if (qf_count == 0)
+X	{
+X		emsg(e_quickfix);
+X		return;
+X	}
+X	qfp = qf_start;
+X	gotocmdline(TRUE, NUL);
+X#ifdef AMIGA
+X	settmode(0);		/* set cooked mode so output can be halted */
+X#endif
+X	for (i = 1; i <= qf_count; ++i)
+X	{
+X		sprintf(IObuff, "%2d line %3ld col %2d %s: %s",
+X			i,
+X			(long)qfp->qf_lnum,
+X			qfp->qf_col,
+X			qf_types(qfp->qf_type, qfp->qf_nr),
+X			qfp->qf_text);
+X		outstr(IObuff);
+X		outchar('\n');
+X		qfp = qfp->qf_next;
+X		flushbuf();
+X	}
+X#ifdef AMIGA
+X	settmode(1);
+X#endif
+X	wait_return(TRUE);
+X}
+X
+X/*
+X * free the error list
+X */
+X	static void
+Xqf_free()
+X{
+X	struct qf_line *qfp;
+X
+X	while (qf_count)
+X	{
+X		qfp = qf_start->qf_next;
+X		free(qf_start->qf_fname);
+X		free(qf_start->qf_text);
+X		free(qf_start);
+X		qf_start = qfp;
+X		--qf_count;
+X	}
+X	qf_marksset = 0;
+X}
+X
+X/*
+X * qf_clrallmarks() - clear all marks
+X *
+X * Used mainly when trashing the entire buffer during ":e" type commands
+X */
+X	void
+Xqf_clrallmarks()
+X{
+X	int 			i;
+X	struct qf_line *qfp;
+X
+X	if (qf_count)
+X		for (i = 0, qfp = qf_start; i < qf_count; i++, qfp = qfp->qf_next)
+X			qfp->qf_mark = NULL;
+X	qf_marksset = 0;
+X}
+X
+X/*
+X * qf_adjustmark: set new ptr for a mark
+X */
+X   void
+Xqf_adjustmark(old, new)
+X	char		*old, *new;
+X{
+X	register int i;
+X	struct qf_line *qfp;
+X
+X	if (qf_count)
+X	{
+X		for (i = 0, qfp = qf_start; i < qf_count; ++i, qfp = qfp->qf_next)
+X			if (qfp->qf_mark == old)
+X			{
+X				qfp->qf_mark = new;
+X				if (new == NULL)
+X					qfp->qf_cleared = TRUE;
+X			}
+X	}
+X}
+X
+X/*
+X * Make a nice message out of the error character and the error number:
+X *	char	number		message
+X *  e or E    0			"  Error"
+X *  w or W    0			"Warning"
+X *  other     0			 ""
+X *  w or W    n			"Warning n"
+X *  other     n			"  Error n"
+X */
+X	static char *
+Xqf_types(c, nr)
+X	int c, nr;
+X{
+X	static char	buf[20];
+X	char		*p1;
+X
+X	p1 = "  Error";
+X	if (c == 'W' || c == 'w')
+X		p1 =  "Warning";
+X	else if (nr <= 0 && c != 'E' && c != 'e')
+X		p1 = "";
+X
+X	if (nr <= 0)
+X		return p1;
+X
+X	sprintf(buf, "%s %3d", p1, nr);
+X	return buf;
+X}
+END_OF_FILE
+if test 9863 -ne `wc -c <'vim/src/quickfix.c'`; then
+    echo shar: \"'vim/src/quickfix.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/quickfix.c'
+# end of 'vim/src/quickfix.c'
+fi
+echo shar: End of archive 5 \(of 25\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+===============================================================================
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595473 | whatever will be accepted.
+
+exit 0 # Just in case...

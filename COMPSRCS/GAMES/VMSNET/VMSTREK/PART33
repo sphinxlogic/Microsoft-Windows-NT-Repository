@@ -1,0 +1,558 @@
+Path: uunet!usc!sol.ctr.columbia.edu!destroyer!cs.ubc.ca!bcsystems!spruce.pfc.forestry.ca!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+Newsgroups: vmsnet.sources.games
+Subject: Vmsnetrek 33/47
+Message-ID: <1992Nov20.200638.1@acad2.alaska.edu>
+From: asdmf@acad2.alaska.edu
+Date: Sat, 21 Nov 1992 00:06:38 GMT
+Sender: news@raven.alaska.edu (USENET News System)
+Organization: University of Alaska
+Nntp-Posting-Host: acad2.alaska.edu
+Lines: 546
+Xref: uunet vmsnet.sources.games:532
+
+-+-+-+-+-+-+-+-+ START OF PART 33 -+-+-+-+-+-+-+-+
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct playlock_cpacket `123
+X    char type;`009`009/* CP_PLAYLOCK */
+X    char pnum;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct bomb_cpacket `123
+X    char type;`009`009/* CP_BOMB */
+X    char state;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct beam_cpacket `123
+X    char type;`009`009/* CP_BEAM */
+X    char state;
+X    char pad1;`032
+X    char pad2;
+X`125;
+X
+Xstruct cloak_cpacket `123
+X    char type;`009`009/* CP_CLOAK */
+X    char state;`009`009
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct det_torps_cpacket `123
+X    char type;`009`009/* CP_DET_TORPS */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct det_mytorp_cpacket `123
+X    char type;`009`009/* CP_DET_MYTORP */
+X    char pad1;
+X    short tnum;
+X`125;
+X
+Xstruct copilot_cpacket `123
+X    char type;`009`009/* CP_COPLIOT */
+X    char state;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct refit_cpacket `123
+X    char type;`009`009/* CP_REFIT */
+X    char ship;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct tractor_cpacket `123
+X    char type;`009`009/* CP_TRACTOR */
+X    char state;
+X    char pnum;
+X    char pad2;
+X`125;
+X
+Xstruct repress_cpacket `123
+X    char type;`009`009/* CP_REPRESS */
+X    char state;
+X    char pnum;
+X    char pad2;
+X`125;
+X
+Xstruct coup_cpacket `123
+X    char type;`009`009/* CP_COUP */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct socket_cpacket `123
+X    char type;`009`009/* CP_SOCKET */
+X    char version;
+X    char udp_version;`009/* was pad2 */
+X    char pad3;
+X    unsigned socket;
+X`125;
+X
+Xstruct options_cpacket `123
+X    char type;`009`009/* CP_OPTIONS */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    unsigned flags;
+X    char keymap`09196`093;
+X`125;
+X
+Xstruct bye_cpacket `123
+X    char type;`009`009/* CP_BYE */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct dockperm_cpacket `123
+X    char type;`009`009/* CP_DOCKPERM */
+X    char state;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct updates_cpacket `123
+X    char type;`009`009/* CP_UPDATES */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    unsigned usecs;
+X`125;
+X
+Xstruct resetstats_cpacket `123
+X    char type;`009`009/* CP_RESETSTATS */
+X    char verify;`009/* 'Y' - just to make sure he meant it */
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct reserved_cpacket `123
+X    char type;`009`009/* CP_RESERVED */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    char data`09116`093;
+X    char resp`09116`093;
+X`125;
+X
+Xstruct scan_cpacket `123`009`009/* ATM */
+X    char type;`009`009/* CP_SCAN */
+X    char pnum;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct udp_req_cpacket `123`009/* UDP */
+X    char type;`009`009/* CP_UDP_REQ */
+X    char request;
+X    char connmode;`009/* respond with port # or just send UDP packet? */
+X    char pad2;
+X    int  port;`009`009/* compensate for hosed recvfrom() */
+X`125;
+X
+Xstruct sequence_cpacket `123`009/* UDP */
+X    char type;`009`009/* CP_SEQUENCE */
+X    char pad1;
+X    unsigned short sequence;
+X`125;
+X
+$ CALL UNPACK PACKETS.H;1 1410954082
+$ create/nolog 'f'
+X/*
+X * planetlist.c
+X */
+X#include "copyright.h"
+X#include <stdio.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+Xstatic char *teamname`0919`093 = `123
+X    "IND",
+X    "FED",
+X    "ROM",
+X    "",
+X    "KLI",
+X    "",
+X    "",
+X    "",
+X    "ORI"
+X`125;
+X
+X/*
+X** Open a window which contains all the planets and their current
+X** statistics.  Players will not know about planets that their team
+X** has not orbited.
+X*/
+X
+Xplanetlist()
+X`123
+X    register int i;
+X    register int k = 0;
+X    char buf`091BUFSIZ`093;
+X    register struct planet *j;
+X
+X    W_ClearWindow(planetw);
+X    (void) sprintf(buf, "Planet Name      own armies REPAIR FUEL AGRI info")
+V;
+X    W_WriteText(planetw, 2, 1, textColor, buf, strlen(buf), W_RegularFont);
+X    k = 2;
+X    for (i = 0, j = &planets`091i`093; i < MAXPLANETS; i++, j++) `123
+X`009if (j->pl_info & me->p_team) `123
+X`009    (void) sprintf(buf, "%-16s %3s %3d    %6s %4s %4s %c%c%c%c",
+X`009`009j->pl_name,
+X`009`009teamname`091j->pl_owner`093,
+X`009`009j->pl_armies,
+X`009`009(j->pl_flags & PLREPAIR ? "REPAIR" : "      "),
+X`009`009(j->pl_flags & PLFUEL ? "FUEL" : "    "),
+X`009`009(j->pl_flags & PLAGRI ? "AGRI" : "    "),
+X`009`009(j->pl_info & FED ? 'F' : ' '),
+X`009`009(j->pl_info & ROM ? 'R' : ' '),
+X`009`009(j->pl_info & KLI ? 'K' : ' '),
+X`009`009(j->pl_info & ORI ? 'O' : ' '));
+X`009    W_WriteText(planetw, 2, k++, planetColor(j), buf, strlen(buf),
+X`009`009planetFont(j));
+X`009`125
+X`009else `123
+X`009    (void) sprintf(buf, "%-16s",
+X`009`009j->pl_name);
+X`009    W_WriteText(planetw, 2, k++, unColor, buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009`125
+X    `125
+X`125
+$ CALL UNPACK PLANETLIST.C;1 1294516970
+$ create/nolog 'f'
+X/*`032
+X * planets.c
+X *
+X * Kevin P. Smith  2/21/89
+X *
+X * This file contains the galaxy definition as well as some support for`032
+X *  determining when parts of the galactic map need to be redrawn.
+X */
+X#include "copyright2.h"
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+X/* Note:  DETAIL * MUST * be a factor of GWIDTH. */
+X#define DETAIL 40`009`009/* Size of redraw array */
+X#define DIST 4500`009`009/* Distance to turn on redraw flag */
+X#define SIZE (GWIDTH/DETAIL)
+X
+Xint redraws`091DETAIL`093`091DETAIL`093;
+Xstatic int initialized=0;
+X
+XinitPlanets()
+X`123
+X    int i,j,k;
+X    int endi, endj;
+X    struct planet *pl;
+X    int offset=DIST/SIZE+1;
+X    float dist;
+X
+X    for (i=0; i<DETAIL; i++) `123
+X`009for (j=0; j<DETAIL; j++) `123
+X`009    redraws`091i`093`091j`093= -1;
+X`009`125
+X    `125
+X
+X    for (k=0, pl=planets; k<MAXPLANETS; k++, pl++) `123
+X`009endi=pl->pl_x / SIZE+offset+1;
+X`009for (i=(pl->pl_x / SIZE)-offset; i<endi && i<DETAIL; i++) `123
+X`009    if (i<0) i=0;
+X`009    endj=pl->pl_y / SIZE+offset+1;
+X`009    for (j=(pl->pl_y / SIZE) - offset; j<endj && j<DETAIL; j++) `123
+X`009`009dist=hypot((float) (pl->pl_x - (i*SIZE + SIZE/2)),
+X`009`009`009   (float) (pl->pl_y - (j*SIZE + SIZE/2)));
+X`009`009if (dist<=DIST) `123
+X`009`009    redraws`091i`093`091j`093=k;
+X`009`009`125
+X`009    `125
+X`009`125
+X    `125
+X    initialized=1;
+X`125
+X
+XcheckRedraw(x,y)
+Xint x,y;
+X`123
+X    int i;
+X
+X    if (!initialized `124`124 x<0 `124`124 y<0 `124`124 x>=GWIDTH `124`124 y
+V>=GWIDTH) return;
+X    i=redraws`091x/SIZE`093`091y/SIZE`093;
+X    if (i==-1) return;
+X    planets`091i`093.pl_flags `124= PLREDRAW;
+X`125
+$ CALL UNPACK PLANETS.C;1 812796066
+$ create/nolog 'f'
+X/*
+X * playerlist.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+Xstatic char *classes`091NUM_TYPES`093 = `123
+X`009"SC", "DD", "CA", "BB", "AS", "SB", "GA", "??"`009/* ATM - Galaxy */
+X`125;
+X
+Xplayerlist()
+X`123
+X    int i;
+X    char buf`091100`093;
+X
+X    W_ClearWindow(playerw);
+X    (void) strcpy(buf, "  Type Rank      Name            Kills   Win  Loss
+V  Ratio Offense Defense     DI");
+X    W_WriteText(playerw, 0, 1, textColor, buf, strlen(buf), W_RegularFont);
+X    for (i=0; i<MAXPLAYER; i++) `123
+X`009updatePlayer`091i`093=1;
+X    `125
+X    playerlist2();
+X`125
+X
+Xplayerlist2()
+X`123
+X    register int i;
+X    char buf`091100`093;
+X    register struct player *j;
+X    int kills, losses;
+X    double ratio;
+X    float pRating, oRating, dRating, bRating;
+X
+X    if (!W_IsMapped(playerw)) return;
+X    for (i = 0, j = &players`091i`093; i < MAXPLAYER; i++, j++) `123
+X`009if (!updatePlayer`091i`093) continue;
+X`009if (!j->p_stats.st_tticks) continue;`009/* avoid bronco FP exception */
+X`009updatePlayer`091i`093=0;
+X`009if (j->p_status != PALIVE) `123
+X`009    W_ClearArea(playerw, 0, i+2, 83, 1, backColor);
+X`009    continue;
+X`009`125
+X`009if (j->p_ship.s_type == STARBASE) `123
+X`009    kills=j->p_stats.st_sbkills;
+X`009    losses=j->p_stats.st_sblosses;
+X`009`125 else `123
+X`009    kills=j->p_stats.st_kills + j->p_stats.st_tkills;
+X`009    losses=j->p_stats.st_losses + j->p_stats.st_tlosses;
+X`009`125
+X`009if (losses==0) `123
+X`009    ratio=kills;
+X`009`125 else `123
+X`009    ratio=(double) kills/losses;
+X`009`125
+X`009oRating = offenseRating(j);
+X`009dRating = defenseRating(j);
+X`009pRating = planetRating(j);
+X`009bRating = bombingRating(j);
+X`009(void) sprintf(buf, "%c%c %s  %-9.9s %-16.16s%5.2f %5d %5d %6.2lf   %5.2
+Vf   %5.2f %8.2f",
+X`009    teamlet`091j->p_team`093,
+X`009    shipnos`091j->p_no`093,
+X`009    classes`091j->p_ship.s_type`093,
+X`009    ranks`091j->p_stats.st_rank`093.name,
+X`009    j->p_name,
+X`009    j->p_kills,
+X`009    kills,
+X`009    losses,
+X`009    ratio,
+X`009    oRating,
+X`009    dRating,
+X`009    (oRating+pRating+bRating)*(j->p_stats.st_tticks/36000.0));
+X`009W_WriteText(playerw, 0, i+2, playerColor(j), buf, strlen(buf),
+X`009    shipFont(j));
+X    `125
+X`125
+$ CALL UNPACK PLAYERLIST.C;1 1752417274
+$ create/nolog 'f'
+X/*`032
+X * ranklist.c
+X *
+X * Kevin P. Smith 12/5/88
+X *
+X */
+X#include "copyright2.h"
+X
+X#include <stdio.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+Xranklist()
+X`123
+X    register int i;
+X    char buf`09180`093;
+X
+X    W_ClearWindow(rankw);
+X    (void) strcpy(buf, "  Rank       Hours  Defense  Ratings      DI");
+X    W_WriteText(rankw, 1, 1, textColor, buf, strlen(buf), W_BoldFont);
+X    for (i = 0; i < NUMRANKS; i++) `123
+X`009sprintf(buf, "%-11.11s %5.0f %8.2f %8.2f   %7.2f",
+X`009    ranks`091i`093.name,
+X`009    ranks`091i`093.hours,
+X`009    ranks`091i`093.defense,
+X`009    ranks`091i`093.ratings,
+X`009    ranks`091i`093.ratings * ranks`091i`093.hours);
+X`009if (mystats->st_rank==i) `123
+X`009    W_WriteText(rankw, 1, i+2, W_Cyan, buf, strlen(buf), W_BoldFont);
+X`009`125 else `123
+X`009    W_WriteText(rankw, 1, i+2, textColor, buf, strlen(buf), W_RegularFon
+Vt);
+X`009`125
+X    `125
+X    strcpy(buf, "To achieve a rank, you need a high enough defense, and");
+X    W_WriteText(rankw, 1, i+3, textColor, buf, strlen(buf), W_RegularFont);
+X    strcpy(buf, "either enough hours, and bombing + planet + offense ratings
+V");
+X    W_WriteText(rankw, 1, i+4, textColor, buf, strlen(buf), W_RegularFont);
+X    strcpy(buf, "above shown ratings, or too few hours, and a DI rating abov
+Ve");
+X    W_WriteText(rankw, 1, i+5, textColor, buf, strlen(buf), W_RegularFont);
+X    strcpy(buf, "the shown DI rating.");
+X    W_WriteText(rankw, 1, i+6, textColor, buf, strlen(buf), W_RegularFont);
+X`125
+$ CALL UNPACK RANKLIST.C;1 1649156320
+$ create/nolog 'f'
+Xnetrek
+X `032
+X  The client half of the xtrek code.
+X
+X  This half of the code will call up the xtrek server, and interfaces
+X  the user with the game.  It also reads a .xtrekrc file to set up the`032
+X  user defaults (a different file may be specified by netrek -r filename).
+X  A sample .xtrekrc file is provided herein.
+X `032
+X  Currently, there is an X10 version, and an X11 version and an SGI
+X  gl version.  It would conceivably be "easy" to add another graphics`032
+X  interface, though, by simply writing another module like x10window.c,
+X  x11window.c, or glwindow.c (about 1300 lines of code).
+X
+X  Options include:
+X
+X  -r defaultfile:`009Specify your own .xtrekrc file.
+X  -s socketnum:`009`009Use a specific socket number for connection.  This`03
+V2
+X`009`009`009requires the ntserv program to be started up by hand.
+X  -h hostname:`009`009Specify xtrek host to connect to.
+X  -d display:`009`009Specify display to connect to.
+X  -p socketnum:`009`009Specifies the foreign port to attempt a connection
+X`009`009`009to.
+X
+XAdditional notes:
+X  Many people don't like it when the client gets those window manager border
+Vs.
+X  If you don't like them, then remove all XSetClassHints() calls, and the`03
+V2
+X  XSetWMHints() calls which immediately follow them.  Also, set all of`032
+X  the override_redirect flags to True (they are all being explicitly set`032
+X  to false currently).
+$ CALL UNPACK README._1;1 509809021
+$ create/nolog 'f'
+X/*
+X * redraw.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <math.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X#include "packets.h"
+X
+Xstatic int clearzone`0914`093`091(MAXTORP + 1) * MAXPLAYER +`032
+X`009`009`009(MAXPLASMA + 1) * MAXPLAYER + MAXPLANETS`093;
+Xstatic int clearcount;
+Xstatic int clearline`0914`093`091MAXPLAYER`093;
+Xstatic int clearlcount;
+Xstatic int mclearzone`0916`093`091MAXPLAYER`093;`009/* For map window */
+X
+Xstatic short nplayers;
+Xstatic int vissup = 0;`009`009/* vis tractor sup: 0=unk, 1=sup, -1=notsup */
+X
+Xintrupt()
+X`123
+X    static long lastread;
+X    long time();
+X
+X    udcounter++;
+X    if (readFromServer()) `123
+X`009lastread=time(NULL);
+X`009redraw();
+X`009playerlist2();
+X    `125
+X    if (reinitPlanets) `123
+X`009initPlanets();
+X`009reinitPlanets=0;
+X    `125
+X    if (lastread+3 < time(NULL)) `123
+X`009/* We haven't heard from server for awhile...`032
+X`009 * Strategy:  send a useless packet to "ping" server.
+X`009 */
+X`009sendWarReq(me->p_hostile);
+X    `125
+X    if (me->p_status==POUTFIT) `123
+X`009death();
+X    `125
+X`125
+X
+Xredraw()
+X`123
+X
+X    /* erase warning line if necessary */
+X    if ((warntimer <= udcounter) && (warncount > 0)) `123
+X`009W_ClearArea(warnw, 5, 5, W_Textwidth * warncount, W_Textheight, backColo
+Vr);
+X`009warncount = 0;
+X    `125
+X
+X    if (W_FastClear) `123
+X`009W_ClearWindow(w);
+X`009clearcount=0;
+X`009clearlcount=0;
+X    `125 else `123
+X`009while (clearcount) `123
+X`009    clearcount--;
+X`009    W_ClearArea(w, clearzone`0910`093`091clearcount`093, clearzone`0911`
+V093`091clearcount`093,
+X`009`009clearzone`0912`093`091clearcount`093, clearzone`0913`093`091clearcou
+Vnt`093,
+X`009`009backColor);
+X`009`125
+X`009while (clearlcount) `123
+X`009    clearlcount--;
+X`009    W_MakeLine(w, clearline`0910`093`091clearlcount`093, clearline`0911`
+V093`091clearlcount`093,
+X`009`009clearline`0912`093`091clearlcount`093, clearline`0913`093`091clearlc
+Vount`093,
+X`009`009backColor);
+X`009`125
+X    `125
+X
++-+-+-+-+-+-+-+-  END  OF PART 33 +-+-+-+-+-+-+-+-

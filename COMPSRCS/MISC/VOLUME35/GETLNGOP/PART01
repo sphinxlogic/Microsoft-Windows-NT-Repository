@@ -1,0 +1,717 @@
+Newsgroups: comp.sources.misc
+From: sam@dcs.ed.ac.uk (S Manoharan)
+Subject: v35i075:  getlongopt - a C++ class for parsing long options, Part01/01
+Message-ID: <1993Feb22.034330.14554@sparky.imd.sterling.com>
+X-Md4-Signature: dea4547ac7f0bc643ae83ac4e35a9aa6
+Date: Mon, 22 Feb 1993 03:43:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sam@dcs.ed.ac.uk (S Manoharan)
+Posting-number: Volume 35, Issue 75
+Archive-name: getlongopt/part01
+Environment: C++
+
+Appended is a neat (!) C++ class for parsing command line options.
+Long options are supported; abbreviations are allowed. Parsing of
+environment variables is also possible. Good error handling. See
+man page and README.cc for details.
+
+Share and Enjoy.
+------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README.cc GetLongOpt.3 GetLongOpt.h GetLongOpt.cc
+#   sample.runs
+# Wrapped by mano@arch04 on Sat Jan 30 16:39:32 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'README.cc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README.cc'\"
+else
+  echo shar: Extracting \"'README.cc'\" \(5675 characters\)
+  sed "s/^X//" >'README.cc' <<'END_OF_FILE'
+X/* $Id: README.cc,v 1.1 1993/01/02 19:11:54 mano Exp mano $ */
+X/* S Manoharan. Advanced Computer Research Institute. Lyon. France */
+X
+X/*
+X
+XYes. Yet another GetLongOpt. What's special here?
+X
+XGetLongOpt supports long options. In fact, there is no support for
+Xexplicit short options. For example, -a -b *cannot* be shortened
+Xto -ab. However, long options can be abbreviated as long as there
+Xis no ambiguity. An ambiguity is resolved by using the last option
+Xin the sequence of options (we will come to this later).
+XIf an option requires a value, then the value should be separated
+Xfrom the option either by whitespace  or by a "=".
+X
+XOther features:
+Xo	GetLongOpt can be used to parse options given through environments.
+Xo	GetLongOpt provides a usage function to print usage.
+Xo	Flags & options with optional or mandatory values are supported.
+Xo	The option marker ('-' in Unix) can be customized.
+Xo	Parsing of command line returns optind (see getopt(3)).
+Xo	Descriptive error messages.
+X
+XLet's take a walk through the usage. 
+X*/
+X
+X
+X#include "GetLongOpt.h"
+X#include <iostream.h>
+X#include <stdlib.h>
+X
+Xint debug_index = 0;
+X
+Xint
+Xmain(int argc, char **argv)
+X{
+X   GetLongOpt option;
+X// Constructor for GetLongOpt takes an optional argument: the option
+X// marker. If unspecified, this defaults to '-', the standard (?)
+X// Unix option marker. For example, a DOS addict may want to have
+X// "GetLongOpt option('/');" instead!!
+X
+X   char *scid = "a.out version 1.0 dated 21.01.1993";
+X
+X   option.usage("[options and args]");
+X
+X// GetLongOpt::usage is overloaded. If passed a string "s", it sets the
+X// internal usage string to "s". Otherwise it simply prints the
+X// command usage. More on it in a while.
+X
+X   option.enroll("help", GetLongOpt::NoValue,
+X      "print this option summary", 0);
+X   option.enroll("version", GetLongOpt::NoValue,
+X      "print the version", 0);
+X   option.enroll("output", GetLongOpt::MandatoryValue,
+X      "print output in file $val", "a.out.output");
+X   option.enroll("verify", GetLongOpt::NoValue,
+X      "verify if ambiguities are resolved as they should be", "");
+X#ifdef DEBUG
+X   option.enroll("debug", GetLongOpt::MandatoryValue,
+X      "set debug level to $val", "0");
+X#endif DEBUG
+X
+X// GetLongOpt::enroll adds option specifications to its internal
+X// database. The first argument is the option sting. The second
+X// is an enum saying if the option is a flag (GetLongOpt::NoValue),
+X// if it requires a mandatory value (GetLongOpt::MandatoryValue) or
+X// if it takes an optional value (GetLongOpt::OptionalValue).
+X// The third argument is a string giving a brief description of
+X// the option. This description will be used by GetLongOpt::usage.
+X// GetLongOpt, for usage-printing, uses $val to represent values
+X// needed by the options. <$val> is a mandatory value and [$val]
+X// is an optional value. The final argument to GetLongOpt::enroll
+X// is the default string to be returned if the option is not
+X// specified. For flags (options with NoValue), use "" (empty
+X// string, or in fact any arbitrary string) for specifying TRUE
+X// and 0 (null pointer) to specify FALSE.
+X
+X// Usage is printed with GetLongOpt::usage. The options and their 
+X// descriptions (as specified during enroll) are printed in the
+X// order they are enrolled.
+X
+X   if ( option.parse(getenv("A_OUT"), "A_OUT") < 1 )
+X      return -1;
+X
+X// GetLongOpt::parse is overloaded. It can either parse a string of
+X// options (typically given from the environment), or it can parse
+X// the command line args (argc, argv). In either case a return
+X// value < 1 represents a parse error. Appropriate error messages
+X// are printed when errors are seen. GetLongOpt::parse, in its first
+X// form, takes two strings: the first one is the string to be
+X// parsed and the second one is a string to be prefixed to the
+X// parse errors. In ts second form, GetLongOpt::parse returns the
+X// the optind (see getopt(3)) if parsing is successful.
+X
+X   int optind = option.parse(argc, argv);
+X   if ( optind < 1 )
+X       return -1;
+X
+X   const char *outfile = option.retrieve("output");
+X
+X#ifdef DEBUG
+X   debug_index = atoi(option.retrieve("debug"));
+X#endif DEBUG
+X
+X   if ( option.retrieve("help") ) {
+X      option.usage();
+X      return 0;
+X   }
+X   if ( option.retrieve("version") ) {
+X      cout << scid << "\n";
+X      return 0;
+X   }
+X   if ( option.retrieve("verify") ) {
+X      cout << "verify turned on by default" << "\n";
+X   }
+X   else {
+X      cout << "verify turned off" << "\n";
+X   }
+X
+X// The values of the options that are enrolled in the database
+X// can be retrieved using GetLongOpt::retrieve. This returns a string
+X// and this string should be converted to whatever type you want.
+X// See atoi, atof, atol etc. I suppose you would do a "parse" before
+X// retrieving. Otherwise all you would get are the default values
+X// you gave while enrolling!
+X// Ambiguities while retrieving (may happen when options are
+X// abbreviated) are resolved by taking the matching option that 
+X// was enrolled last. For example, -v will expand to -verify.
+X
+X   
+X   for ( ; optind < argc; ++optind ) {
+X   } /* process all the arguments here */
+X
+X   option.retrieve("foo");
+X
+X// If you try to retrieve something you didn't enroll, you will
+X// get a warning message. If you had made a typo somewhere while
+X// enrolling or retrieving, now is the time to correct it.
+X
+X   return 0;
+X}
+X
+X/*
+X
+XI tested GetLongOpt on gcc 2.3.3 and cfront 2.1 on Sun4s. It worked.
+X(Therefore, it works on all C++ compilers and all machines! :-))
+X
+XS Manoharan                                 Email    : mano@acri.fr
+XAdvanced Computer Research Institute        Fax      : +33 72 35 84 10
+X1 Boulevard Marius Vivier-Merle             Voice    : +33 72 35 80 44
+X69443 Lyon Cedex 03 France		    
+X
+X*/
+X
+END_OF_FILE
+  if test 5675 -ne `wc -c <'README.cc'`; then
+    echo shar: \"'README.cc'\" unpacked with wrong size!
+  fi
+  # end of 'README.cc'
+fi
+if test -f 'GetLongOpt.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'GetLongOpt.3'\"
+else
+  echo shar: Extracting \"'GetLongOpt.3'\" \(4159 characters\)
+  sed "s/^X//" >'GetLongOpt.3' <<'END_OF_FILE'
+X.\" @(#)GetLongOpt.3 2.0 12/01/1993
+X.TH GETLONGOPT 3 "12 January 1993" "" "C++ LIBRARY CLASSES"
+X.UC 4
+X.SH NAME
+XGetLongOpt - C++ class for parsing command line and strings for options
+X.SH SYNOPSIS
+X.nf
+X.ft B
+X.ss 18
+X#include <GetLongOpt.h>
+X
+XGetLongOpt::GetLongOpt(const char optmark = '-');
+Xint GetLongOpt::parse(int argc, char * const *argv);
+Xint GetLongOpt::parse(char * const str, char * const p);
+Xint GetLongOpt::enroll(const char * const opt, const OptType t,
+X   const char * const desc, const char * const val);
+Xconst char * GetLongOpt::retrieve(const char * const opt) const;
+Xvoid GetLongOpt::usage(ostream &outfile = cout) const;
+Xvoid GetLongOpt::usage(const char *str);
+X.ft
+X.fi
+X.ss
+X
+X.SH DESCRIPTION
+XGetLongOpt is a C++ class for getting options from the command line
+Xand from strings. GetLongOpt supports long options. These options
+Xmay be flags or require optional or mandatory values.
+XIf an option requires a value, then the value should be separated
+Xfrom the option either by whitespace or by a "=". Long options
+Xcan be abbreviated. GetLongOpt can also be used to parse options given 
+Xthrough environments.
+X
+XThe constructor for GetLongOpt takes an optional argument: the option
+Xmarker. If unspecified, this defaults to '-', the standard (?)
+XUnix option marker. For example, a DOS addict may want to 
+Xspecify '/' for the option marker!
+X
+X.I GetLongOpt::enroll
+Xadds option specifications to its internal
+Xdatabase. The first argument is the option sting. The second
+Xis an enum saying if the option is a flag (GetLongOpt::NoValue),
+Xif it requires a mandatory value (GetLongOpt::MandatoryValue) or
+Xif it takes an optional value (GetLongOpt::OptionalValue).
+XThe third argument is a string giving a brief description of
+Xthe option. This description will be used by 
+X.I GetLongOpt::usage.
+XGetLongOpt, for usage-printing, uses $val to represent values
+Xneeded by the options. <$val> is a mandatory value and [$val]
+Xis an optional value. The final argument to 
+X.I GetLongOpt::enroll
+Xis the default string to be returned if the option is not
+Xspecified. For flags (options with NoValue), use "" (empty
+Xstring, or in fact any arbitrary string) for specifying TRUE
+Xand 0 (null pointer) to specify FALSE.
+X
+X.I GetLongOpt::usage
+Xis overloaded. If passed a string 
+X.I s,
+Xit sets the
+Xinternal usage string to 
+X.I s.
+XOtherwise it simply prints the
+Xcommand usage. The options and their
+Xdescriptions (as specified during enroll) are printed in the
+Xorder they are enrolled.
+X
+X.I GetLongOpt::parse
+Xis also overloaded. It can either parse a string of
+Xoptions (typically given from the environment), or it can parse
+Xthe command line args (argc, argv). In either case a return
+Xvalue < 1 represents a parse error. Appropriate error messages
+Xare printed when errors are seen. GetLongOpt::parse, in its first
+Xform, takes two strings: the first one is the string to be
+Xparsed and the second one is a string to be prefixed to the
+Xparse errors. In its second form, 
+X.I GetLongOpt::parse
+Xtakes in argc and argv and returns the
+Xthe optind (see getopt(3)) if parsing is successful.
+XSuccessful parsing, in either form of
+X.I GetLongOpt::parse,
+Xupdates the values of the options within the internal database.
+X
+XThe values of the options that are enrolled in the database
+Xcan be retrieved using 
+X.I GetLongOpt::retrieve.
+XThis returns a string
+Xand this string should be converted to whatever type you want.
+XSee atoi(3), atof(3), atol(3) etc. I suppose you would do a 
+X.I GetLongOpt::parse
+Xbefore
+Xretrieving. Otherwise all you would get are the default values
+Xyou gave while enrolling!
+XAmbiguities while retrieving (may happen when options are
+Xabbreviated) are resolved by taking the matching option that
+Xwas enrolled last.
+X
+XIf you try to retrieve something you did not enroll, you will
+Xget a warning message. This means that you probably had made
+Xa typo somewhere while enrolling or retrieving.
+X
+X.SH BUGS
+XThey should be there well-hidden. If you spot one report it.
+X
+X.SH "SEE ALSO"
+Xgetopt(3),
+Xgetopts(1),
+Xatoi(3), atof(3), atol(3).
+X
+X.SH AUTHOR
+X.nf
+XS Manoharan
+XAdvanced Computer Research Institute
+X1 Boulevard Marius Vivier-Merle
+X69443 Lyon Cedex 03 France
+X
+Xmano@acri.fr
+X.fi
+X
+X.\" end of man page
+END_OF_FILE
+  if test 4159 -ne `wc -c <'GetLongOpt.3'`; then
+    echo shar: \"'GetLongOpt.3'\" unpacked with wrong size!
+  fi
+  # end of 'GetLongOpt.3'
+fi
+if test -f 'GetLongOpt.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'GetLongOpt.h'\"
+else
+  echo shar: Extracting \"'GetLongOpt.h'\" \(1478 characters\)
+  sed "s/^X//" >'GetLongOpt.h' <<'END_OF_FILE'
+X/* $Id: GetLongOpt.h,v 1.1 1993/01/23 14:35:44 mano Exp mano $ */
+X/* S Manoharan. Advanced Computer Research Institute. Lyon. France */
+X
+X#ifndef _GetLongOpt_h_
+X#define _GetLongOpt_h_
+X
+X#include <iostream.h>
+X#include <string.h>
+X
+Xclass GetLongOpt {
+Xpublic:
+X   enum OptType { 
+X      NoValue, OptionalValue, MandatoryValue
+X   };
+Xprivate:
+X   struct Cell {
+X      const char *option;	// option name
+X      OptType type;		// option type
+X      const char *description;	// a description of option
+X      const char *value;	// value of option (string)
+X      Cell *next;		// pointer to the next cell
+X
+X      Cell() { option = description = value = 0; next = 0; }
+X   };
+Xprivate:
+X  Cell *table;				// option table
+X  const char *ustring;			// usage message
+X  char *pname;				// program basename
+X  char optmarker;			// option marker
+X
+X  int enroll_done;			// finished enrolling
+X  Cell *last;				// last entry in option table 
+X
+Xprivate:
+X  char *basename(char * const p) const;
+X  int setcell(Cell *c, char *valtoken, char *nexttoken, char *p);
+Xpublic:
+X   GetLongOpt(const char optmark = '-');
+X   ~GetLongOpt();
+X
+X   int parse(int argc, char * const *argv);
+X   int parse(char * const str, char * const p);
+X
+X   int enroll(const char * const opt, const OptType t,
+X      const char * const desc, const char * const val);
+X   const char *retrieve(const char * const opt) const;
+X
+X   void usage(ostream &outfile = cout) const;
+X   void usage(const char *str)		{ ustring = str; }
+X};
+X
+X#endif /* _GetLongOpt_h_ */
+END_OF_FILE
+  if test 1478 -ne `wc -c <'GetLongOpt.h'`; then
+    echo shar: \"'GetLongOpt.h'\" unpacked with wrong size!
+  fi
+  # end of 'GetLongOpt.h'
+fi
+if test -f 'GetLongOpt.cc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'GetLongOpt.cc'\"
+else
+  echo shar: Extracting \"'GetLongOpt.cc'\" \(6598 characters\)
+  sed "s/^X//" >'GetLongOpt.cc' <<'END_OF_FILE'
+X/* $Id: GetLongOpt.cc,v 1.1 1993/01/23 14:35:44 mano Exp mano $ */
+X/* S Manoharan. Advanced Computer Research Institute. Lyon. France */
+X
+X#include "GetLongOpt.h"
+X
+XGetLongOpt::GetLongOpt(const char optmark)
+X{
+X   table = last = 0;
+X   ustring = "[valid options and arguments]";
+X   enroll_done = 0;
+X   optmarker = optmark;
+X}
+X
+XGetLongOpt::~GetLongOpt()
+X{
+X   Cell *t = table;
+X
+X   while ( t ) {
+X      Cell *tmp = t;
+X      t = t->next;
+X      delete tmp;
+X   }
+X}
+X
+Xchar *
+XGetLongOpt::basename(char * const pname) const
+X{
+X   char *s;
+X
+X   s = strrchr(pname, '/');
+X   if ( s == 0 ) s = pname;
+X   else ++s;
+X
+X   return s;
+X}
+X
+Xint
+XGetLongOpt::enroll(const char * const opt, const OptType t,
+Xconst char * const desc, const char * const val)
+X{
+X   if ( enroll_done ) return 0;
+X
+X   Cell *c = new Cell;
+X   c->option = opt;
+X   c->type = t;
+X   c->description = desc ? desc : "no description available";
+X   c->value = val;
+X   c->next = 0;
+X
+X   if ( last == 0 ) {
+X      table = last = c;
+X   }
+X   else {
+X      last->next = c;
+X      last = c;
+X   }
+X
+X   return 1;
+X}
+X
+Xconst char *
+XGetLongOpt::retrieve(const char * const opt) const
+X{
+X   Cell *t;
+X   for ( t = table; t != 0; t = t->next ) {
+X      if ( strcmp(opt, t->option) == 0 )
+X	 return t->value;
+X   }
+X   cerr << "GetLongOpt::retrieve - unenrolled option ";
+X   cerr << optmarker << opt << "\n";
+X   return 0;
+X}
+X
+Xint
+XGetLongOpt::parse(int argc, char * const *argv)
+X{
+X   int optind = 1;
+X
+X   pname = basename(*argv);
+X   enroll_done = 1;
+X   if ( argc-- <= 1 ) return optind;
+X
+X   while ( argc >= 1 ) {
+X      char *token = *++argv; --argc;
+X
+X      if ( token[0] != optmarker || token[1] == optmarker )
+X	 break;	/* end of options */
+X
+X      ++optind;
+X      char *tmptoken = ++token;
+X      while ( *tmptoken && *tmptoken != '=' )
+X	 ++tmptoken;
+X      /* (tmptoken - token) is now equal to the command line option
+X	 length. */
+X
+X      Cell *t;
+X      enum { NoMatch, ExactMatch, PartialMatch } matchStatus = NoMatch;
+X      Cell *pc = 0;	// pointer to the partially-matched cell
+X      for ( t = table; t != 0; t = t->next ) {
+X	 if ( strncmp(t->option, token, (tmptoken - token)) == 0 ) {
+X	    if ( strlen(t->option) == (tmptoken - token) ) {
+X	       /* an exact match found */
+X	       int stat = setcell(t, tmptoken, *(argv+1), pname);
+X	       if ( stat == -1 ) return -1;
+X	       else if ( stat == 1 ) {
+X		  ++argv; --argc; ++optind;
+X	       }
+X	       matchStatus = ExactMatch;
+X	       break;
+X	    }
+X	    else {
+X	       /* partial match found */
+X	       matchStatus = PartialMatch;
+X	       pc = t;
+X	    }
+X	 } /* end if */
+X      } /* end for */
+X
+X      if ( matchStatus == PartialMatch ) {
+X	 int stat = setcell(pc, tmptoken, *(argv+1), pname);
+X	 if ( stat == -1 ) return -1;
+X	 else if ( stat == 1 ) {
+X	    ++argv; --argc; ++optind;
+X	 }
+X      }
+X      else if ( matchStatus == NoMatch ) {
+X	 cerr << pname << ": unrecognized option ";
+X	 cerr << optmarker << strtok(token,"= ") << "\n";
+X	 return -1;		/* no match */
+X      }
+X
+X   } /* end while */
+X
+X   return optind;
+X}
+X
+Xint
+XGetLongOpt::parse(char * const str, char * const p)
+X{
+X   enroll_done = 1;
+X   char *token = strtok(str, " \t");
+X   char *name = p ? p : "GetLongOpt";
+X
+X   while ( token ) {
+X      if ( token[0] != optmarker || token[1] == optmarker ) {
+X	 cerr << name << ": nonoptions not allowed\n";
+X	 return -1;	/* end of options */
+X      }
+X
+X      char *ladtoken = 0;	/* lookahead token */
+X      char *tmptoken = ++token;
+X      while ( *tmptoken && *tmptoken != '=' )
+X	 ++tmptoken;
+X      /* (tmptoken - token) is now equal to the command line option
+X	 length. */
+X
+X      Cell *t;
+X      enum { NoMatch, ExactMatch, PartialMatch } matchStatus = NoMatch;
+X      Cell *pc =0;	// pointer to the partially-matched cell
+X      for ( t = table; t != 0; t = t->next ) {
+X	 if ( strncmp(t->option, token, (tmptoken - token)) == 0 ) {
+X	    if ( strlen(t->option) == (tmptoken - token) ) {
+X	       /* an exact match found */
+X	       ladtoken = strtok(0, " \t");
+X	       int stat = setcell(t, tmptoken, ladtoken, name);
+X	       if ( stat == -1 ) return -1;
+X	       else if ( stat == 1 ) {
+X		  ladtoken = 0;
+X	       }
+X	       matchStatus = ExactMatch;
+X	       break;
+X	    }
+X	    else {
+X	       /* partial match found */
+X	       matchStatus = PartialMatch;
+X	       pc = t;
+X	    }
+X	 } /* end if */
+X      } /* end for */
+X
+X      if ( matchStatus == PartialMatch ) {
+X	 ladtoken = strtok(0, " \t");
+X	 int stat = setcell(pc, tmptoken, ladtoken, name);
+X	 if ( stat == -1 ) return -1;
+X	 else if ( stat == 1 ) {
+X	    ladtoken = 0;
+X	 }
+X      }
+X      else if ( matchStatus == NoMatch ) {
+X	 cerr << name << ": unrecognized option ";
+X	 cerr << optmarker << strtok(token,"= ") << "\n";
+X	 return -1;		/* no match */
+X      }
+X
+X      token = ladtoken ? ladtoken : strtok(0, " \t");
+X   } /* end while */
+X
+X   return 1;
+X}
+X
+X/* ----------------------------------------------------------------
+XGetLongOpt::setcell returns
+X   -1	if there was an error
+X    0	if the nexttoken was not consumed
+X    1	if the nexttoken was consumed
+X------------------------------------------------------------------- */
+X
+Xint
+XGetLongOpt::setcell(Cell *c, char *valtoken, char *nexttoken, char *name)
+X{
+X   if ( c == 0 ) return -1;
+X
+X   switch ( c->type ) {
+X   case GetLongOpt::NoValue :
+X      if ( *valtoken == '=' ) {
+X	 cerr << name << ": unsolicited value for flag ";
+X	 cerr << optmarker << c->option << "\n";
+X	 return -1;	/* unsolicited value specification */
+X      }
+X      c->value = (c->value) ? 0 : (char *) ~0;
+X      return 0;
+X   case GetLongOpt::OptionalValue :
+X      if ( *valtoken == '=' ) {
+X	 c->value = ++valtoken;
+X	 return 0;
+X      }
+X      else {
+X	 if ( nexttoken != 0 && nexttoken[0] != optmarker ) {
+X	    c->value = nexttoken;
+X	    return 1;
+X	 }
+X	 else return 0;
+X      }
+X      break;
+X   case GetLongOpt::MandatoryValue :
+X      if ( *valtoken == '=' ) {
+X	 c->value = ++valtoken;
+X	 return 0;
+X      }
+X      else {
+X	 if ( nexttoken != 0 && nexttoken[0] != optmarker ) {
+X	    c->value = nexttoken;
+X	    return 1;
+X	 }
+X	 else {
+X	    cerr << name << ": mandatory value for ";
+X	    cerr << optmarker << c->option << " not specified\n";
+X	    return -1;	/* mandatory value not specified */
+X	 }
+X      }
+X      break;
+X   default :
+X      break;
+X   }
+X   return -1;
+X}
+X
+Xvoid
+XGetLongOpt::usage(ostream &outfile) const
+X{
+X   Cell *t;
+X
+X   outfile << "usage: " << pname << " " << ustring << "\n";
+X   for ( t = table; t != 0; t = t->next ) {
+X      outfile << "\t" << optmarker << t->option;
+X      if ( t->type == GetLongOpt::MandatoryValue )
+X	 outfile << " <$val>";
+X      else if ( t->type == GetLongOpt::OptionalValue )
+X	 outfile << " [$val]";
+X      outfile << " (" << t->description << ")\n";
+X   }
+X   outfile.flush();
+X}
+X
+END_OF_FILE
+  if test 6598 -ne `wc -c <'GetLongOpt.cc'`; then
+    echo shar: \"'GetLongOpt.cc'\" unpacked with wrong size!
+  fi
+  # end of 'GetLongOpt.cc'
+fi
+if test -f 'sample.runs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample.runs'\"
+else
+  echo shar: Extracting \"'sample.runs'\" \(625 characters\)
+  sed "s/^X//" >'sample.runs' <<'END_OF_FILE'
+X# a.out
+Xverify turned on by default
+XGetLongOpt::retrieve - unenrolled option -foo
+X# a.out -h
+Xusage: a.out [options and args]
+X        -help (print this option summary)
+X        -version (print the version)
+X        -output <$val> (print output in file $val)
+X        -verify (verify if ambiguities are resolved as they should be)
+X# a.out -hopeless
+Xa.out: unrecognized option -hopeless
+X# a.out -vers
+Xa.out version 1.0 dated 21.01.1993
+X# a.out -v   
+Xverify turned off
+XGetLongOpt::retrieve - unenrolled option -foo
+X# a.out -o
+Xa.out: mandatory value for -output not specified
+X# a.out -v=1  
+Xa.out: unsolicited value for flag -verify
+END_OF_FILE
+  if test 625 -ne `wc -c <'sample.runs'`; then
+    echo shar: \"'sample.runs'\" unpacked with wrong size!
+  fi
+  # end of 'sample.runs'
+fi
+echo shar: End of archive.
+exit 0
+
+-- 
+S Manoharan                      Bitnet   : sam%dcs.ed@ukacrl.bitnet
+Department of Computer Science   Uucp     : sam%dcs.ed@uknet.uucp
+University of Edinburgh          Fax      : +44 31 667 7209
+Edinburgh EH9 3JZ    UK          Voice    : +44 31 650 5115 (Office)
+
+exit 0 # Just in case...

@@ -1,0 +1,2100 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Newsgroups: comp.sources.x
+Subject: v18i092: Ftptool 4.3 (XVIEW), Part10/12
+Message-ID: <1992Aug18.153754.29083@msi.com>
+Date: 18 Aug 92 15:37:54 GMT
+References: <csx-18i083-ftptool-4.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2087
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Posting-number: Volume 18, Issue 92
+Archive-name: ftptool-4.3/part10
+
+#!/bin/sh
+# this is part.10 (part 10 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file host_list.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping host_list.c'
+else
+echo 'x - continuing file host_list.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'host_list.c' &&
+X			netrc_filename, (char *)NULL);
+X		return;
+X	}
+X	/* read each line */
+X	/* looking for "machine" surrounded by white space */
+X	/* if we find it, then look for other tokens until EOF or "machine" */
+X	/* look for "login" name or "password" name */
+X	/* machine ray login demo password mypassword */
+X
+X	for (;;) {
+X		switch(netrc_token(fp)) {
+X		case MACHINE:
+X			if (foundmachine)
+X				add_netrc(machine, login, password);
+X			foundmachine = 1;
+X			strcpy(machine, "");
+X			strcpy(login, "");
+X			strcpy(password, "");
+X			if (fscanf(fp, "%s", machine) == EOF) {
+X				goto out;
+X			}
+X			break;
+X		case LOGIN:
+X			if (!foundmachine || fscanf(fp, "%s", login) == EOF) {
+X				footer_message("Error in .netrc", (char *)NULL);
+X				goto out;
+X			}
+X			break;
+X		case PASSWORD:
+X			if (!foundmachine || fscanf(fp, "%s", password) == EOF) {
+X				footer_message("Error in .netrc", (char *)NULL);
+X				goto out;
+X			}
+X			break;
+X		case EOF:
+X			add_netrc(machine, login, password);
+X			goto out;
+X		default:
+X			break;
+X		}
+X	}
+X
+out:
+X	fclose(fp);
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void add_netrc(char *machine, char *login, char *password)
+#else
+void add_netrc(machine, login, password)
+char	*machine;
+char	*login;
+char	*password;
+#endif
+{
+X	if (machine[0] == '\0' || login[0] == '\0') {
+X		footer_message("Incomplete .netrc entry", (char *)NULL);
+X		return;
+X	}
+X	sprintf(scratch, "%s %s", machine, login);
+X	if (gethostlist(hostlist_head, scratch)) {
+X		footer_message("Alias \"%s\" already exists.", scratch, (char *)NULL);
+X		return;
+X	}
+X	if ((hostlist_head = add_hostalias(hostlist_head, scratch, "Never",
+X		DEFAULT_PROXY, machine, login, password, BINARY,
+X		".", ".", DEFAULT_PARSE, "From .netrc")) == NULL) {
+X		xv_set(host_window.frame, 
+X			FRAME_LEFT_FOOTER, "Add failed",
+X			NULL);
+X		return;
+X	}
+X	list_changed++;
+X	reload_host_list_menu(hostlist_head);
+}
+X
+#ifdef USE_PROTOTYPES
+char key_to_char(char *key)
+#else
+char key_to_char(key)
+char	*key;
+#endif
+{
+X	char	*tmp = key;
+X	char	c = '\0';
+X
+X	while (*tmp) {
+X		c ^= *tmp;
+X		tmp++;
+X	}
+X	c &= 0x7f;
+X	return c;
+}
+X
+#ifdef USE_PROTOTYPES
+char *ftptool_encrypt(char *s, char *key)
+#else
+char *ftptool_encrypt(s, key)
+char	*s;
+char	*key;
+#endif
+{
+X	char	k;
+X	char	c;
+X	char	*es;
+X	char	*scanstr;
+X	char	*changestr;
+X
+X	k = key_to_char(key);
+X	es = (char *)malloc((unsigned int)(2 * strlen(s) + 1));
+X	if (es == NULL) {
+X		fprintf(stderr, "Out of memory\n");
+X		return NULL;
+X	}
+X	scanstr = s;
+X	changestr = es;
+X	while (*scanstr) {
+X		c = *scanstr++ ^ k;
+X		if (iscntrl(c)) {
+X			*changestr++ = '^';
+X			if (c == '\177')
+X				*changestr++ = '?';
+X			else
+X				*changestr++ = c + 'A';
+X		} else if (c == '^') {
+X			*changestr++ = '^';
+X			*changestr++ = '~';
+X		} else {
+X			*changestr++ = c;
+X		}
+X	}
+X	*changestr = '\0';
+X	return es;
+}
+X
+#ifdef USE_PROTOTYPES
+char *ftptool_decrypt(char *s, char *key)
+#else
+char *ftptool_decrypt(s, key)
+char	*s;
+char	*key;
+#endif
+{
+X	char	k;
+X	char	c;
+X	char	*ds;
+X	char	*scanstr;
+X	char	*changestr;
+X
+X	k = key_to_char(key);
+X	ds = (char *)malloc((unsigned int)(strlen(s) + 1));
+X	if (ds == NULL) {
+X		fprintf(stderr, "Out of memory\n");
+X		return NULL;
+X	}
+X	scanstr = s;
+X	changestr = ds;
+X	while (*scanstr) {
+X		c = *scanstr++;
+X		if (c != '^') {
+X			*changestr++ = c ^ k;
+X		} else {
+X			c = *scanstr++;
+X			if (c == '?') {
+X				*changestr = '\177';
+X			} else if (c == '~') {
+X				*changestr = '^';
+X			} else {
+X				*changestr = c - 'A';
+X			}
+X			*changestr++ ^= k;
+X		}
+X	}
+X	*changestr = '\0';
+X	return ds;
+}
+X
+#ifdef USE_PROTOTYPES
+char *old_ftptool_decrypt(char *s, char *key)
+#else
+char *old_ftptool_decrypt(s, key)
+char	*s;
+char	*key;
+#endif
+{
+X	char	k;
+X	char	*ds;
+X	char	*tmp;
+X
+X	k = key_to_char(key);
+X	ds = strdup(s);
+X	if (ds == NULL) {
+X		fprintf(stderr, "Out of memory\n");
+X		return NULL;
+X	}
+X	tmp = ds;
+X	while (*tmp) {
+X		*tmp++ ^= k;
+X	}
+X	return ds;
+}
+X
+#ifdef USE_PROTOTYPES
+struct hostlist *sort_hostlist(struct hostlist *head)
+#else
+struct hostlist *sort_hostlist(head)
+struct hostlist *head;
+#endif
+{
+X	struct hostlist *tmp;
+X	struct hostlist *newhead, *current;
+X	int	rval;
+X
+X	newhead = new_hostlist();
+X	if (newhead == NULL)
+X		return head;
+X
+X	while (head->next != NULL) {
+X		/* remove first element */
+X		current = head->next;
+X		head->next = current->next;
+X		current->next = NULL;
+X		/* insert in proper place */
+X		for (tmp = newhead; tmp->next != NULL; tmp = tmp->next)  {
+X			if (ignore_case)
+X				rval = strcasecmp(current->aliasname, tmp->next->aliasname);
+X			else
+X				rval = strcmp(current->aliasname, tmp->next->aliasname);
+X			if (rval < 0) {
+X				break;
+X			}
+X		}
+X		current->next = tmp->next;
+X		tmp->next = current;
+X	}
+X	free_hostlist(head);
+X	return newhead;
+}
+SHAR_EOF
+echo 'File host_list.c is complete' &&
+chmod 0644 host_list.c ||
+echo 'restore of host_list.c failed'
+Wc_c="`wc -c < 'host_list.c'`"
+test 30792 -eq "$Wc_c" ||
+	echo 'host_list.c: original size 30792, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ftptool.info ==============
+if test -f 'ftptool.info' -a X"$1" != X"-c"; then
+	echo 'x - skipping ftptool.info (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ftptool.info (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ftptool.info' &&
+#################################################
+#	ftptool.info	
+#
+#	Install this in $OPENWINHOME/lib/help so you
+#   can use the Help/F1 key for spot help.
+################################################
+X
+:FileButton
+File 
+X
+Provides these functions:
+X
+X - Copy a file or directory from the remote host 
+X   to the local host
+X - Copy a file or directory from the local host 
+X   to the remote host
+X - Uncompress selected local files
+X - Extract selected local tar files
+X - Compress selected local files
+X - Create a tar file of the selected items
+X - Show information about ftptool
+#
+:FileCopyRemote
+Copy from Remote to local
+X
+Copy the selected files from the remote host to 
+the local host. Normal files or directories may
+be copied.
+X 
+You will not be able to select this if you are
+not connected to a remote host or you have no
+remote files or directories selected.
+#
+:FileCopyLocal
+Copy from Local to Remote
+X
+Copy the selected files from the local host to 
+the remote host. Normal files or directories may
+be copied.
+X 
+You will not be able to select this if you are
+not connected to a remote host or you have no
+local files or directories selected.
+#
+:FileDeleteRemote
+Delete Remote File
+X
+Delete the selected remote files(s). Directories
+will be recursively deleted. If you have set
+the "Confirm Deletes" property, then you will
+be asked whether you want to really delete each
+file (this _may_ be quite annoying for
+directories!). There is _no way_ to retrieve
+deleted files.
+#
+:FileDeleteLocal
+Delete Local File
+X
+Delete the selected local files(s). Directories
+will be recursively deleted. If you have set
+the "Confirm Deletes" property, then you will
+be asked whether you want to really delete each
+file (this _may_ be quite annoying for
+directories!). There is _no way_ to retrieve
+deleted files.
+#
+:FileCompress
+Compress File
+X
+Compress the selected local files. Only normal
+files may be compressed. The compressed files
+will have a '.Z' extension.
+X
+You will not be able to select this if you have
+no local files selected.
+#
+:FileUncompress
+Uncompress File
+X
+Uncompress the selected local files. Only normal
+files may be uncompressed. Compressed files must
+end in '.Z'.
+X
+You will not be able to select this if you have
+no local files selected.
+#
+:FileCreateTar
+Create Tar File
+X
+Place the selected local files and directories in
+a tar file. You will be asked for the name of
+the tarfile. Use a name ending in '.tar', or 
+Ftptool will not understand it is a tar file
+if you try to View it later. The original files
+will not be removed.
+X 
+You will not be able to select this if you have
+no local files or directories selected.
+#
+:FileExtractTar
+Extract Tar File
+X
+If the files selected are compressed, they will
+first be uncompressed. If they end in '.tar', 
+they are assumed to be tar archives. A tar file
+viewer is started. The default viewer allows
+listing of the contents of the tar file, and
+extracting the contents into a specified directory.
+X
+You will not be able to select this if you have
+no local files selected.
+#
+:FileAbout
+About Ftptool
+X
+This displays a window with information about 
+ftptool.
+#
+:ViewButton
+View
+X
+Provides these functions:
+X
+X - View a remote file
+X - View a local file
+X - View the local directory pop-up
+X - View the ftp session log
+X - View the host information pop-up
+#
+:ViewRemote
+Remote File
+X
+Copies the remote file(s) to /var/tmp on the 
+local machine. It then tries to determine the
+file type, and start the appropriate viewer.
+The file types understood are:
+X
+X - compressed - this is determined from the
+X   file itself, although it must have a '.Z'
+X   extension for uncompress to work.
+X - postscript - if the first two characters
+X   are '%!', then it assumed to be a postscript
+X   file, and pageview is used to view it.
+X - tar - this is determined from the extension,
+X   which must be '.tar' (not required by tar,
+X   currently just an easy way for ftptool to
+X   determine the type). As ftptool gets more
+X   intelligent, more archives may be understood.
+X   The default viewer is ftptool for archives,
+X   but may be changed by a property.
+X - other - anything else. The default viewer
+X   for these files is textedit, but may be
+X   changed by a property.
+X
+You will not be able to select this if you
+are not currently connected, or do not have
+any remote files selected.
+#
+:ViewLocal
+Local File
+X
+The current files are examined to determine the
+file type, then the appropriate viewer is 
+started.  The file types understood are:
+X
+X - compressed - this is determined from the
+X   file itself, although it must have a '.Z'
+X   extension for uncompress to work.
+X - postscript - if the first two characters
+X   are '%!', then it assumed to be a postscript
+X   file, and pageview is used to view it.
+X - tar - this is determined from the extension,
+X   which must be '.tar' (not required by tar,
+X   currently just an easy way for ftptool to
+X   determine the type). As ftptool gets more
+X   intelligent, more archives may be understood.
+X   The default viewer is ftptool for archives,
+X   but may be changed by a property.
+X - other - anything else. The default viewer
+X   for these files is textedit, but may be
+X   changed by a property.
+X
+You will not be able to select this if you
+do not have any local files selected.
+#
+:ViewLocalDirectory
+Local Directory List
+X
+Display the local directory window.
+#
+:ViewSessionLog
+Session Log
+X
+Display the FTP session log (log of FTP
+responses to Ftptool). You can only select this
+if you have enabled logging.
+#
+:ViewCurrentHost
+Host Information
+X
+Display the Host Information pop-up.
+#
+:EditButton
+Edit
+X
+Provides these functions:
+X
+X - Add to your personal host list
+X - Change an entry in the host list
+X - Delete an entry from the host list
+#
+:EditAdd
+Add to Host List
+X
+Add the information listed in the host list
+window to your list of hosts. Addition is
+based on the value given in the Host Alias
+field. If you try to add an alias that
+already exists, you will be asked if you really
+want to replace the existing entry.
+#
+:EditChange
+Change Host List Entry
+X
+Add the information listed in the host list
+window to your list of hosts. Addition is
+based on the value given in the Host Alias
+field. If you try to add an alias that
+already exists, you will not be asked if you 
+really want to replace the existing entry.
+#
+:EditDelete
+Delete Host List Entry
+X
+Delete the entry in the host list that matches
+the value in the Host Alias field. Note that
+selecting an entry is not required to delete
+it, although selecting it will fill in the
+host information. A delete operation will
+then delete that entry.
+#
+:PropertiesButton
+Properties
+X
+Provides these functions:
+X
+X - View Ftptool properties.
+X - View local file properties
+X - View remote file properties.
+#
+:PropertiesTool
+Tool
+X
+Display Ftptool property window. This includes
+how to sort, and various FTP options.
+#
+:PropertiesLocal
+Local File
+X
+Display local file properties, such as owner
+and permissions.
+X
+This will not be selectable if no local file is
+currently selected.
+#
+:PropertiesRemote
+Remote File
+X
+Display remote file properties, such as owner
+and permissions.
+X
+This will not be selectable if you are not
+connected or no remote file is currently 
+selected.
+#
+:ConnectButton
+Connect
+X
+Connect to a remote host. If the Host 
+Information window is not displayed, selecting
+this button will just display the window. 
+Otherwise, it will attempt to connect to the
+host specified in the Host Information
+Window.
+#
+:DisconnectButton
+Disconnect
+X
+Disconnect from the remote host. 
+#
+:AbortButton
+Abort
+X
+Selecting Abort will abort the transfer after
+the current file is finished.
+X
+You will not be able to select abort unless you
+are transferring files. Aborting a single file
+transfer is not useful.
+#
+:RemoteDirectory
+Remote Directory
+X
+This field initially displays the current 
+remote directory. You can change to a new 
+directory by typing in a directory name and 
+pressing return.
+#
+:RemoteList
+Remote File List
+X
+This list displays the remote files in the
+current remote directory. The time the
+file was last modified, the size, and the
+name of the file is shown. Directories, in
+the fashion of 'ls', have a '/' appended
+to the name, and are also in bold.
+X
+If the listing from the remote machine does
+not appear to be 'ls' style output, only
+the filename will be displayed. All other
+properties are unknown for non-UNIX 
+machines
+X
+Double-clicking on a directory will change
+to that directory.
+#
+:RemoteCDButton
+cd
+X
+Change to the remote directory specified by 
+the text, by the directory selected, or up
+one level (to the parent).
+#
+:RemoteCDButtonText
+Use Text
+X
+Select this to change to the directory you 
+typed in to the text field. This will be
+the default if you have not selected a 
+remote directory from the list, or if you
+have more than one selected.
+#
+:RemoteCDButtonSelection
+Use Selection
+X
+Change to the remote directory selected from
+the list. This is only active if you have
+only one item selected, and it is a 
+directory. If so, it is the default.
+X
+You can also double-click on a directory entry 
+to change to it. This does not require you
+to clear all other selections first.
+#
+:RemoteCDButtonUp
+Up One Level
+X
+Change to the parent of this directory.
+#
+:RemoteMenuCDSelection
+CD to Selection
+X
+Change to the remote directory selected from
+the list. This is only active if you have
+only one item selected, and it is a 
+directory.
+X
+You can also double-click on a directory entry 
+to change to it. This does not require you
+to clear all other selections first.
+#
+:RemoteMenuCDUp
+Up One Level
+X
+Change to the parent of this directory.
+#
+:RemoteMenuCopyLocal
+Copy to Local
+X
+Copy the selected files from the remote host to 
+the local host. Normal files or directories may
+be copied.
+X 
+You will not be able to select this if you are
+not connected to a remote host or you have no
+remote files or directories selected.
+#
+:RemoteMenuView
+View File
+X
+Copies the remote file(s) to /var/tmp on the 
+local machine. It then tries to determine the
+file type, and start the appropriate viewer.
+The file types understood are:
+X
+X - compressed - this is determined from the
+X   file itself, although it must have a '.Z'
+X   extension for uncompress to work.
+X - postscript - if the first two characters
+X   are '%!', then it assumed to be a postscript
+X   file, and pageview is used to view it.
+X - tar - this is determined from the extension,
+X   which must be '.tar' (not required by tar,
+X   currently just an easy way for ftptool to
+X   determine the type). As ftptool gets more
+X   intelligent, more archives may be understood.
+X   The default viewer is ftptool for archives,
+X   but may be changed by a property.
+X - other - anything else. The default viewer
+X   for these files is textedit, but may be
+X   changed by a property.
+X
+You will not be able to select this if you
+are not currently connected, or do not have
+any remote files selected.
+#
+:RemoteMenuProperties
+Properties
+X
+Display remote file properties, such as owner
+and permissions.
+X
+This will not be selectable if you are not
+connected or no remote file is currently 
+selected.
+#
+:LocalDirectory
+Local Directory
+X
+This field initially displays the current 
+local directory. You can change to a new 
+directory by typing in a directory name 
+and pressing return.
+#
+:LocalList
+Local File List
+X
+This list displays the local files in the
+current local directory. The time the
+file was last modified, the size, and the
+name of the file is shown. Directories, in
+the fashion of 'ls', have a '/' appended
+to the name, and are also in bold.
+X
+Double-clicking on a directory will change
+to that directory.
+#
+:LocalCDButton
+cd
+X
+Change to the local directory specified by 
+the text, by the directory selected, or up
+one level (to the parent).
+#
+:LocalCDButtonText
+Use Text
+X
+Select this to change to the directory you 
+typed in to the text field. This will be
+the default if you have not selected a 
+local directory from the list, or if you
+have more than one selected.
+#
+:LocalCDButtonSelection
+Use Selection
+X
+Change to the local directory selected from
+the list. This is only active if you have
+only one item selected, and it is a 
+directory. If so, it is the default.
+X
+You can also double-click on a directory entry 
+to change to it. This does not require you
+to clear all other selections first.
+#
+:LocalCDButtonUp
+Up One Level
+X
+Change to the parent of this directory.
+#
+:LocalMenuCDSelection
+CD to Selection
+X
+Change to the local directory selected from
+the list. This is only active if you have
+only one item selected, and it is a 
+directory.
+X
+You can also double-click on a directory entry 
+to change to it. This does not require you
+to clear all other selections first.
+#
+:LocalMenuCDUp
+Up One Level
+X
+Change to the parent of this directory.
+#
+:LocalMenuCopyRemote
+Copy to Remote
+X
+Copy the selected files from the local host to 
+the remote host. Normal files or directories may
+be copied.
+X 
+You will not be able to select this if you are
+not connected to a remote host or you have no
+local files or directories selected.
+#
+:LocalMenuView
+View File
+X
+The current files are examined to determine the
+file type, then the appropriate viewer is 
+started.  The file types understood are:
+X
+X - compressed - this is determined from the
+X   file itself, although it must have a '.Z'
+X   extension for uncompress to work.
+X - postscript - if the first two characters
+X   are '%!', then it assumed to be a postscript
+X   file, and pageview is used to view it.
+X - tar - this is determined from the extension,
+X   which must be '.tar' (not required by tar,
+X   currently just an easy way for ftptool to
+X   determine the type). As ftptool gets more
+X   intelligent, more archives may be understood.
+X   The default viewer is ftptool for archives,
+X   but may be changed by a property.
+X - other - anything else. The default viewer
+X   for these files is textedit, but may be
+X   changed by a property.
+X
+You will not be able to select this if you
+do not have any local files selected.
+#
+:LocalMenuProperties
+Properties
+X
+Display local file properties, such as owner
+and permissions.
+X
+This will not be selectable if no local file 
+is currently selected.
+#
+:SessionLog
+Session Log
+X
+Any output from FTP will be logged here. If hashing
+is turned on, then hash marks will appear in this
+window for each buffer transferred.
+#
+:PropertyPassword
+Default Password
+X
+The default password you want ftptool to use when
+first starting, and when the password field is
+blank. It defaults to user@machine[.domain].
+#
+:PropertyOptions
+FTP Options
+X
+Several options for FTP:
+X - Log session - enables Session Log window
+X - Hashing - printing of a '#' character for
+X   each buffer transferred. Let's you know
+X   something is still happening.
+X - Keep connection alive - by default, after
+X   15 minutes of inactivity, the ftp 
+X   connection will be broken. To prevent this,
+X   this option will cause a NOOP command to
+X   be sent every 10 minutes of inactivity.
+X
+The default is to not log, hashing is off, and 
+to not keep the connection alive.
+#
+:PropertyHidden
+Hidden Files
+X
+Hidden files (files beginning with a '.') can
+be ignored or shown.
+X
+The default is to hide hidden files.
+#
+:PropertyConfirm
+Confirm Deletions
+X
+If TRUE, asks for confirmation when deleting
+a file.
+#
+:PropertySortChoice
+Sort remote files by
+X
+You can sort by filename, modification date,
+size, or type.
+X
+The default is to sort by name.
+#
+:PropertyLocalSortChoice
+Sort local files by
+X
+You can sort by filename, modification date,
+size, or type.
+X
+The default is to sort by name.
+#
+:PropertySortDirection
+Sort order
+X
+The sort can be in forward or reverse order.
+Specifically, the directions are:
+X - alphabetical or reverse alphabetical	
+X - least or most recently modified
+X - smallest to largest.
+X
+The default is to sort in alphabetical order.
+#
+:PropertyViewer
+File Viewer
+X
+The command line to use to view files of
+unkonwn types (such as text). This should be
+an X program, and will be broken up into
+appropriate arguments. '%f' represents the
+program name; if not specified, it will 
+recieve the filename as the final argument.
+X
+The default is 'textedit %f'.
+#
+:PropertyArchiveViewer
+Archive Viewer
+X
+The command line to use to view files of
+type tar (probably others in the future). 
+This should be an X program, and will be 
+broken up into appropriate arguments. 
+'%f' represents the program name; if not 
+specified, it will recieve the filename 
+as the final argument.
+X
+The default is ftptool.
+#
+:PropertyPostScriptViewer
+PostScript Viewer
+X
+The command line to use to view files of
+type PostScript. This should be an X 
+program, and will be broken up into 
+appropriate arguments. '%f' represents 
+the program name; if not specified, it 
+will recieve the filename as the final 
+argument.
+X
+The default is 'pageview %f'.
+#
+:PropertySortApply
+Apply
+X
+Apply changes. You will be given the option to
+apply the changes permanently. If you choose
+to do so, your .Xdefaults file will be modified.
+A backup will be saved in .Xdefaults.bak.
+#
+:PropertySortReset
+Reset
+X
+Lose all changes made since the last apply.
+#
+:HostListWindow
+Personal FTP Host List
+X
+This is your personal FTP host list. It allows
+you to save your most recently used sites and
+logins in a menu, as the .netrc ftp uses does.
+This menu is saved in .ftptoolrc (which is
+constructed from .netrc if it doesn't exist)
+in ASCII, so you can edit it by hand.
+X
+Be careful when saving password information, as
+it is stored in non-encrypted form! This is
+as ftp does. Ftptool will create the .ftptool
+rc with mode 600, but it is still a risk. You
+might want to only save anonymous ftp passwords
+here, and always type your password in when
+you connect.
+#
+:AboutWindow
+About Ftptool
+X
+Displays a message about ftptool. 
+X
+:FeedbackWindow
+Send Feedback
+X
+Allows you to send mail to the developer
+of ftptool. 
+#
+#
+:FileProperty
+Ftptool:File Properties
+X
+Properties of the remote or local file. This is
+more than the list will show. It is only updated 
+whenever a list element is selected, so it will
+only show information about the most recently
+selected item.
+X
+If you have no items selected, you will not be
+able to bring up the appropriate property window.
+X
+File properties can not be changed from within
+Ftptool.
+#
+:FilePropertyName
+Name
+X
+The name of the file.
+#
+:FilePropertyOwner
+Owner
+X
+The owner of the file. This will be either a
+user name, or a user id if the name can not
+be determined.
+X
+For non-unix remote hosts, this will show up
+as "unknown".
+#
+:FilePropertyGroup
+Group
+X
+The group of the file. This will be either a
+group name, or a group id if the name can not
+be determined.
+X
+For non-unix remote hosts, this will show up
+as "unknown".
+#
+:FilePropertyModtime
+X
+The last time the file was modified.
+X
+For non-unix remote hosts, this will show up
+as "unknown".
+#
+:FilePropertySize
+Size
+X
+The size of the file in bytes.
+X
+For non-unix remote hosts, this will show up
+as -1.
+#
+:FilePropertyType
+Type
+X
+The type of the file.
+For non-unix remote hosts, this will show up
+as "unknown".
+#
+:FilePropertyUserPerms
+Owner
+X
+The permissions granted to the owner of the
+file.
+X
+For non-unix remote hosts, the check boxes
+will be blank.
+#
+:FilePropertyGroupPerms
+Group
+X
+The permissions granted to users in the
+group of the file.
+X
+For non-unix remote hosts, the check boxes
+will be blank.
+#
+:FilePropertyOtherPerms
+Other
+X
+The permissions granted to users that do not
+own the file and that are not in the file's
+group.
+X
+For non-unix remote hosts, the check boxes
+will be blank.
+#
+:TarFileViewer
+Tar File Viewer
+X
+A simple tar file viewer and extractor.
+#
+:TarFileListContents
+List Contents
+X
+Lists the contents of the tar file to the
+window. 
+#
+:TarFileExtract Files
+Extract Files
+X
+Asks for the directory where you wish to extract 
+contents of the tar file.
+#
+:TarFileNameText
+Directory
+X
+Enter the name of the directory where you wish
+to extract the tar file. You will have the option
+of creating it if it doesn't exist.
+#
+:TarFileNameButton
+Extract
+X
+Begin the extraction.
+#
+:BatchReceiveWindow
+Batch Receive
+X
+The window listing the files pending transfer from
+the remote system to the local one.
+#
+:BatchReceiveList
+Batch Receive List
+X
+The list of files pending transfer to the local
+system. You can delete from the list or start the 
+transfer in the pop-up.
+#
+:BatchReceiveDelete
+Delete
+X
+Delete the selected files from the receive list.
+#
+:BatchReceiveCopy
+Copy to Local
+X
+Copy all files listed in the batch receive list
+to the local system.
+#
+:BatchLoad
+Load
+X
+Load a batch list file (created by Save) into the
+batch list. Discard the current list.
+#
+:BatchSave
+Save
+X
+Save the current batch list into a file which
+can be loaded later with Load.
+#
+:BatchSendWindow
+Batch Send
+X
+The window listing the files pending transfer from
+the local system to the remote one.
+#
+:BatchSendList
+Batch Send List
+X
+The list of files pending transfer to the remote
+system. You can delete from the list or start the 
+transfer in the pop-up.
+#
+:BatchSendDelete
+Delete
+X
+Delete the selected files from the send list.
+#
+:BatchSendCopy
+Copy to Remote
+X
+Copy all files listed in the batch send list to 
+the remote system.
+#
+:LoadSaveBatchFilename
+Load/Save Batch List
+X
+The file to name to load or save into the 
+appropriate batch list.
+#
+:BatchReceiveAdd
+Add to Batch Receive List
+X
+Add the selected remote file(s) to the batch 
+receive list.
+#
+:BatchSendAdd
+Add to Batch Send List
+X
+Add the selected local file(s) to the batch 
+send list.
+#
+:PropertyCacheSize
+Directory Cache Size
+X
+Determines how many directory listings ftptool 
+will remember. This is managed as an LRU cache,
+so everytime you CD into a directory ftptool
+first looks in the cache. If it finds it, then
+instead of actually reading the directory it
+just displays the list in the cache. This can
+speed up directory listings on slow links.
+The larger you make the cache, the more memory
+you will use and (if you keep listing the same
+directories) the less likely you'll have to
+talk to the remote server. However, the larger
+the cache, the less likely it is that you'll
+see any changes being made on the cached
+directories. To effectively not cache at all,
+set this to 1.
+X
+There are two caches, one for local directories
+and one for remote. This property controls
+both (setting it to 2 actually means you'll
+cache 4 directories: 2 local and 2 remote).
+#
+:PropertyCacheInf
+Unlimit Cache Size
+X
+See Directory Cache Size for an explanation.
+This option causes ftptool to cache _all_
+directories. It could be quite a memory
+waster.
+#
+:QuitButton
+Quit
+X
+Quit ftptool.
+#
+:PropertyOpenLook
+OPEN LOOK Mode
+X
+If set, indicates that you are using an OPEN
+LOOK Window Manager. Currently if this is
+_not_ set, ftptool and the tar viewer will 
+have a Quit button, and most of the pop-ups
+will have Dismiss buttons.
+X
+Also, if you try to View a window that is 
+already displayed it will be hidden. 
+#
+:PropertySortGrouping
+Group files by type
+X
+If set, files are grouped by their
+types (directories first, then regular
+files, ...) in addition to being sorted
+normally.
+#
+:PropertyLocalSortGrouping
+Group files by type
+X
+If set, files are grouped by their
+types (directories first, then regular
+files, ...) in addition to being sorted
+normally.
+#
+:TarQuitButton
+Quit
+X
+Quit the tar viewer.
+#
+:DismissButton
+Dismiss
+X
+Dismiss the pop-up. 
+#
+:HostSaveHostList
+Save Host List
+X
+Saves your personal host list in .ftptoolrc. It 
+will first attempt to save it in your home 
+directory ($HOME), or the current directory if 
+that fails. If you have made changes to the list, 
+(needed) will appear in the option.
+#
+:HostLoadHostList
+Load Host List
+X
+Loads your personal host list from .ftptoolrc, 
+first looking in your home directory ($HOME) and 
+then looking in the current directory if needed.  
+This can be used if you want to discard changes 
+you've made since the last save, or if you modify 
+the .ftptoolrc file outside of ftptool (otherwise 
+ftptool won't know about it).
+#
+:HostAppendNetRC
+Append .netrc
+X
+Looks for a .netrc in your home directory, then 
+the current directory if needed. Loads 'machine' 
+entries into your host list, using a name of 
+'machinename loginname'. You can then change the 
+name to something more meaningful. Valid entries 
+must contain at least a 'machine' keyword and a 
+'login' entry. 'macdef' is not recognized.
+X 
+If you do not have a .ftptoolrc, then ftptool 
+will look for a .netrc file at startup.
+X  
+You will not be able to select this if you do 
+not have a .netrc.
+#
+:HostWindow
+Host Information
+X
+This is the host window. It allows you to
+connect to ftp servers.
+X
+It is also your personal FTP host list. It 
+allows you to save your most recently used sites 
+and logins in a menu, as the .netrc ftp uses does.
+This menu is saved in .ftptoolrc (which is
+constructed from .netrc if it doesn't exist)
+in ASCII, so you can edit it by hand.
+X
+Be careful when saving password information, as
+it is stored in a weakly-encrypted form! 
+Ftptool will also create the .ftptoolrc with mode 
+600, but it is still a risk. 
+#
+:HostsButton
+Hosts
+X
+This is the menu containing your host aliases.
+Selecting one will cause the information about
+the host to be loaded. If the auto-connect
+option is set, then it will also attempt to
+connect to that host.
+#
+:HostListAdd
+Add
+X
+Add the information listed in the host list
+window to your list of hosts. Addition is
+based on the value given in the Host Alias
+field. If you try to add an alias that
+already exists, you will be asked if you really
+want to replace the existing entry.
+#
+:HostListChange
+Change
+X
+Add the information listed in the host list
+window to your list of hosts. Addition is
+based on the value given in the Host Alias
+field. If you try to add an alias that
+already exists, you will not be asked if you 
+really want to replace the existing entry.
+#
+:HostListDelete
+Delete
+X
+Delete the entry in the host list that matches
+the value in the Host Alias field. Note that
+selecting an entry is not required to delete
+it, although selecting it will fill in the
+host information. A delete operation will
+then delete that entry.
+#
+:HostListOptions
+List Options
+X
+Provides these functions:
+X
+X - Save your personal host list
+X - Load your original host list
+X - Load your FTP .netrc (if you have one)
+X - Add to your personal host list
+X - Change an entry in the host list
+X - Delete an entry from the host list
+#
+:HostWindowAlias
+Alias
+X
+A name to identify this entry. It can be any
+printable characters not including newline. The
+initial setting, which is not added to the list,
+is "Sun Education" to refer to anonymous ftp to
+yavin.ebay.
+#
+:HostWindowDirect
+Remote host is
+X 
+Specify the location of the remote host. Is it
+directly reachable, or does it require passing
+through a gateway provided by Sun Consulting.
+#
+:HostWindowLastVisited
+Last Visited
+X
+The last time you successfully
+connected to the host described by
+this alias. This is only updated
+if you connect through the host
+list, and _not_ the current host
+window.
+#
+:HostWindowComment
+Comment
+X
+A one line comment about the ftp site (X11 
+software, Demos).
+#
+:HostWindowProxy
+Proxy host
+X
+Give the hostname of the proxy host to use. This 
+should be the full name (including domain) to 
+make sure the right host is connected to. 
+This defaults to sun-barr.EBay.
+X
+Internet addresses can be used if you wish.
+#
+:HostWindowHostname
+Remote host
+X
+The hostname of the host to connect to. This 
+should be the full name (including domain) to 
+make sure the right host is connected to. 
+This defaults to yavin.EBay.
+X
+Internet addresses can be used if you wish.
+#
+:HostWindowLogin
+Login
+X
+The login name to use when connecting to the
+remote host. This defaults to 'anonymous'.
+#
+:HostWindowPassword
+Password
+X
+The password to give when logging in to the remote
+host. It will be displayed as '*'s instead of
+the actual characters. Pressing return in this 
+field will automatically attempt to connect.
+X
+If this field is empty, the default password
+will be used.
+#
+:HostWindowDirectory
+Remote Directory
+X
+The remote directory to change to upon connecting.
+#
+:HostWindowLocalDirectory
+Local Directory
+X
+The local directory to change to upon connecting.
+#
+:HostWindowDirTemplate
+DIR Template
+X
+The template is a series of keywords 
+separated by whitespace or characters
+that must match (so if there are dashes in 
+the date, you theoretically give 
+MONTH-DAY-YEAR). See the manual page for 
+more information. The keywords are:
+.in +4 
+PERMS   - Normal UNIX permissions 
+X		  (drwxrwxrwx) 
+LINKS   - Link count. Currently matched, 
+X		  but discarded
+USER    - User name/number 
+GROUP   - Group name/number
+SIZE    - File size 
+MONTH   - Month (Dec, Jan, ...) 
+DAY     - Day of week (number) 
+TIME    - Hour:minute (09:49) or 
+X		  year (1991) 
+NAME    - Filename
+SKIP    - Discard characters until the 
+X		  next whitespace.
+X
+NONUNIX is a special case. Its appearence
+anywhere in the string sets non-UNIX mode
+(use 'ls' and not 'dir', assume everything
+is a file, but you can still try to cd
+by double-clicking)
+X
+LOWERNAMES is also a special case. It
+causes all filenames read from the remote
+machine to be converted to lowercase.
+#
+:HostWindowConnectButton
+Connect
+Disconnect
+X
+Attempt to connect to the remote host. 
+X
+While you are connected to a remote host, the
+connect button will be a 'Disconnect' button,
+and will disconnect you from the remote host.
+#
+:ViewSchedule
+Schedule
+X
+Display the batch schedule pop-up.
+#
+:ScheduleWindow
+Schedule Batch Transfer
+X
+This window allows you to schedule files
+to be transferred at a later time. Most
+necessary information is taken from the 
+current Host Information window values.
+#
+:ProcessBatch
+Process Batch
+X
+Switch from interactive mode to batch mode,
+and process the batch list.
+#
+:AbortBatch
+Abort Batch
+X
+Go back to interactive mode. Stop doing
+the batch list after the current transfer.
+#
+:ScheduleHosts
+Hosts
+X
+The list of pending transfers. 'R' indicates
+a 'receive from' login@host, 'S' indicates a
+'send to' login@host.
+#
+:ScheduleCurrent
+Set Current
+X
+Use the current host information defaults.
+Primarily, this consists of creating the
+menu label from the login and host fields.
+#
+:ScheduleAdd
+Add
+X
+Add the current target and file list to
+the batch list. Many defaults, such as 
+remote and local directories, are taken
+from the host information window.
+#
+:ScheduleChange
+Change
+X
+Add the current target and file list to
+the batch list. Same as Add, but does
+not ask for confirmation if the entry 
+exists. 
+#
+:ScheduleDelete
+Delete
+X
+Delete the current target and direction
+from the batch list.
+#
+:ScheduleOptions
+Options
+X
+A menu of various options, such as Add 
+and Delete, to apply to the batch list.
+#
+:ScheduleTime
+Time Now
+X
+The current time.
+#
+:ScheduleDirection
+Action
+X
+The action to perform. Either send or
+receive. It also determines which batch
+list is shown below.
+#
+:ScheduleTarget
+Target
+X
+The remote target, in the form of
+login@host.
+#
+:ScheduleHour
+Hour
+X
+The hour (24-hour) to start the transfer.
+#
+:ScheduleMinute
+Minute
+X
+The minute to start the transfer.
+#
+:ScheduleMonth
+Month
+X
+The month to start the transfer.
+#
+:ScheduleDay
+Day
+X
+The day to start the transfer.
+#
+:ScheduleYear
+Year
+X
+The year to start the transfer.
+#
+:TransferMode
+Transfer Mode
+X
+Either Binary, ASCII, or Tenex mode.
+X
+The default is binary mode.
+#
+:FileDIR
+DIR
+X
+Do a DIR command in the session log.
+This allows you to determine what the
+DIR template should be.
+#
+:FileLS
+LS
+X
+Do a LS command in the session log.
+#
+:TotalGauge
+Total Gauge
+X
+The gauge shows how far the total
+transfer has progressed, from 0 to 
+100% complete.
+#
+:FileGauge
+File Gauge
+X
+The gauge shows how far the transfer
+has progressed on the current file, 
+from 0 to 100% complete.
+#
+:StatusWindow
+Status Window
+X
+This window shows what you are
+transferring, how large it is, and how
+far along the transfer is.
+#
+:PropertiesSaveLayout
+Save Layout
+X
+Save the layout of ftptool. This includes
+the sizes and locations of most of the
+windows, along with whether the main 
+windows are visible.
+#
+:PropertyIgnoreCase
+Ignore Case
+X
+When generating the host menu, ignore
+the case of the alias. Also, ignore
+case in the remote and local lists.
+#
+:PropertyAuto
+Connect
+X
+If set, when you select a host from the
+menu ftptool will try to connect to that
+host. If not, selecting a host will just
+fill in the host information window.
+X
+Show Status
+X
+Always show the transfer status window
+when doing a transfer. If not set, don't
+display it. You can still bring it
+up from the View menu.
+X
+Try Sun Proxy FTP 
+X
+If TRUE, ftptool will automatically try to use
+Sun's proxy FTP (from Sun Consulting) if it
+cannot resolve the hostname (the host is 
+unkown) or it receives a 'Network unreachable'
+error when trying to connect. This is primarily 
+used by Sun folks trying to get out to the Internet.
+#
+SHAR_EOF
+chmod 0644 ftptool.info ||
+echo 'restore of ftptool.info failed'
+Wc_c="`wc -c < 'ftptool.info'`"
+test 32541 -eq "$Wc_c" ||
+	echo 'ftptool.info: original size 32541, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= create_other.c ==============
+if test -f 'create_other.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping create_other.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting create_other.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'create_other.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+void create_host_popup(void)
+#else
+void create_host_popup()
+#endif
+{
+X	struct passwd *pwd;
+X	char	domainname[MAXHOSTNAMELEN + 1];
+X	char	*sundomain;
+X	Rect	rect;
+X	int		width, height, x, y;
+X	Menu	host_menu;
+X	Menu	host_list_menu;
+X	Panel	message;
+X
+X	XSync(dpy, False);
+X	frame_get_rect(base_window.frame, &rect);
+X
+X	host_window.frame = (Frame)xv_create(base_window.frame, FRAME_CMD,
+X		XV_LABEL, "Ftptool: Host Information",
+X		FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		NULL);
+X
+X    host_window.panel = xv_get(host_window.frame, FRAME_CMD_PANEL);
+X	xv_set(host_window.panel,
+X		XV_HELP_DATA, "ftptool:HostWindow",
+X		NULL);
+X
+X	host_window.new = xv_create(host_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "New",
+X		PANEL_NOTIFY_PROC, host_list_clean_proc,
+X		NULL);
+X
+X	host_window.anonymous = xv_create(host_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Anonymous",
+X		PANEL_NOTIFY_PROC, host_list_clean_proc,
+X		NULL);
+X
+X	host_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PIN_WINDOW, base_window.frame, "Hosts",
+X		MENU_TITLE_ITEM, "Hosts",
+X		MENU_ITEM,
+X			MENU_STRING, "No Hosts!",
+X			NULL,
+X		NULL);
+X
+X	host_window.hosts = xv_create(host_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Hosts",
+X		PANEL_ITEM_MENU, host_menu,
+X		XV_HELP_DATA, "ftptool:HostsButton",
+X		NULL);
+X
+#ifdef LINT
+X	host_list_menu = NULL;
+X	host_list_menu = host_list_menu;
+#else
+X	host_list_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, host_menu_gen,
+X		MENU_ITEM,
+X			MENU_STRING, "Save",
+X			MENU_NOTIFY_PROC, host_save_proc,
+X			XV_HELP_DATA, "ftptool:HostSaveHostList",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Load",
+X			MENU_NOTIFY_PROC, host_load_proc,
+X			XV_HELP_DATA, "ftptool:HostLoadHostList",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Append .netrc",
+X			MENU_NOTIFY_PROC, host_append_netrc_proc,
+X			XV_HELP_DATA, "ftptool:HostAppendNetRC",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Add",
+X			MENU_NOTIFY_PROC, host_list_add_proc,
+X			XV_HELP_DATA, "ftptool:HostListAdd",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Change",
+X			MENU_NOTIFY_PROC, host_list_change_proc,
+X			XV_HELP_DATA, "ftptool:HostListChange",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Delete",
+X			MENU_NOTIFY_PROC, host_list_delete_proc,
+X			XV_HELP_DATA, "ftptool:HostListDelete",
+X			NULL,
+X		NULL);
+#endif
+X
+X	host_window.host_list_ops = xv_create(host_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Host List",
+X		PANEL_ITEM_MENU, host_list_menu,
+X		XV_HELP_DATA, "ftptool:HostListOptions",
+X		NULL);
+X
+X	xv_set(host_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL, 
+X		NULL);
+X
+X	window_fit_height(host_window.panel);
+X	
+X	host_window.basic.panel = xv_create(host_window.frame, PANEL,
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		WIN_BORDER, TRUE,
+X		XV_SHOW, TRUE,
+X		NULL);
+X	
+X    host_window.basic.host = xv_create(host_window.basic.panel, PANEL_TEXT,
+X		PANEL_NEXT_ROW, xv_row(host_window.basic.panel, 1),
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXHOSTNAMELEN,
+X        PANEL_LABEL_STRING, "Remote host:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, DEFAULT_HOST,
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_STRING, " ",
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, reject_spaces,
+X		XV_HELP_DATA, "ftptool:HostWindowHostname",
+X        NULL);
+X
+X    host_window.basic.login = xv_create(host_window.basic.panel, PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXLOGINLEN,
+X        PANEL_LABEL_STRING, "Login:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, "anonymous",
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_STRING, " ",
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, reject_spaces,
+X		XV_HELP_DATA, "ftptool:HostWindowLogin",
+X        NULL);
+X
+X	pwd = getpwuid(getuid());
+X	if (pwd == NULL) {
+X		fprintf(stderr, "Who are you?\n");
+X		login_name = "unknown";
+X	} else {
+X		login_name = strdup(pwd->pw_name);
+X		if (login_name == NULL) {
+X			fprintf(stderr, "Out of memory.\n");
+X			login_name = "unknown";
+X		}
+X	}
+X
+X	if (getdomainname(domainname, MAXHOSTNAMELEN) == -1) {
+X		fprintf(stderr, "What domain is this?\n");
+X		strcpy(domainname, "unknown");
+X	}
+X
+X	sundomain = index(domainname, '.');
+X	if (sundomain != NULL)
+X		sundomain++; /* assume domain XX.Domain.Sun.COM */
+X	else
+X		sundomain = domainname;
+X
+X
+X	if (anonftp_password == NULL) {
+X		if (index(myhostname, '.'))
+X			sprintf(scratch, "%s@%s",login_name, myhostname);
+X		else
+X			sprintf(scratch, "%s@%s.%s",login_name, myhostname, sundomain);
+X
+X		anonftp_password = strdup(scratch);
+X	} else {
+X		strcpy(scratch, anonftp_password);
+X	}
+X
+X	footer_message("Initial password for ftp is %s.", scratch, (char *)NULL);
+X    host_window.basic.password = xv_create(host_window.basic.panel, PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXPASSWORDLEN,
+X        PANEL_LABEL_STRING, "Password:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_VALUE, anonftp_password,
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, connect_proc,
+X		PANEL_MASK_CHAR, '*',
+X		XV_HELP_DATA, "ftptool:HostWindowPassword",
+X        NULL);
+X
+X	window_fit_width(host_window.basic.panel);
+X
+X    host_window.basic.connect = xv_create(host_window.basic.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, " Connect  ",
+X		PANEL_NOTIFY_PROC, connect_proc,
+X		XV_HELP_DATA, "ftptool:HostWindowConnectButton",
+X        NULL);
+X
+X	xv_set(host_window.basic.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X    host_window.basic.dismiss = xv_create(host_window.basic.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Dismiss",
+X		PANEL_NOTIFY_PROC, dismiss_host_window,
+X		XV_SHOW, openlook_mode ? FALSE : TRUE,
+X		XV_HELP_DATA, "ftptool:DismissButton",
+X        NULL);
+X
+X    host_window.basic.plus = xv_create(host_window.basic.panel, 
+X		PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "+",
+X		PANEL_NOTIFY_PROC, plus_proc,
+X        NULL);
+X
+X	xv_set(host_window.basic.panel, 
+X		PANEL_DEFAULT_ITEM, host_window.basic.connect, 
+X		NULL);
+X
+X	xv_set(host_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL, 
+X		NULL);
+X	
+X	host_window.advanced.panel = xv_create(host_window.frame, PANEL,
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		XV_SHOW, FALSE,
+X		NULL);
+X	
+X	host_window.advanced.alias = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXALIASLEN,
+X        PANEL_LABEL_STRING, "Alias:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, "Sun Education",
+X        XV_HELP_DATA, "ftptool:HostWindowAlias",
+X        PANEL_READ_ONLY, FALSE,
+X        NULL);
+X
+X    message = xv_create(host_window.advanced.panel, PANEL_MESSAGE,
+X        PANEL_LABEL_STRING, "Last Visited:",
+X        PANEL_LABEL_BOLD, TRUE,
+X        XV_HELP_DATA, "ftptool:HostWindowLastVisited",
+X        NULL);
+X
+X    host_window.advanced.comment = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXCOMMENTLEN,
+X        PANEL_LABEL_STRING, "Comment:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, "East Bay Ftp site (home of Ftptool :-)",
+X        PANEL_READ_ONLY, FALSE,
+X        XV_HELP_DATA, "ftptool:HostWindowComment",
+X        NULL);
+X
+X    host_window.advanced.proxy = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXHOSTNAMELEN,
+X        PANEL_LABEL_STRING, "Proxy host:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, DEFAULT_PROXY,
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_STRING, " ",
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, reject_spaces,
+X		XV_HELP_DATA, "ftptool:HostWindowProxy",
+X        NULL);
+X
+X
+X	host_window.advanced.transfer_mode = xv_create(host_window.advanced.panel, 
+X		PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Transfer mode:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_CHOICE_STRINGS,
+X			"Binary",
+X			"ASCII",
+X			"Tenex",
+X			/*
+X			"Image",
+X			"EBCDIC",
+X			 */
+X			NULL,
+X		XV_HELP_DATA, "ftptool:TransferMode",
+X		NULL);
+X
+X    host_window.advanced.remote_auto_cd = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X        PANEL_LABEL_STRING, "Remote CD to:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, ".",
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_STRING, " ",
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, reject_spaces,
+X		XV_HELP_DATA, "ftptool:HostWindowDirectory",
+X        NULL);
+X
+X
+X    host_window.advanced.local_auto_cd = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X        PANEL_LABEL_STRING, "Local CD to:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, ".",
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_STRING, " ",
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, reject_spaces,
+X		XV_HELP_DATA, "ftptool:HostWindowLocalDirectory",
+X        NULL);
+X
+X    host_window.advanced.dir_parse = xv_create(host_window.advanced.panel, 
+X		PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 25,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X        PANEL_LABEL_STRING, "DIR Template:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_VALUE, DEFAULT_PARSE,
+X        PANEL_READ_ONLY, FALSE,
+X		XV_HELP_DATA, "ftptool:HostWindowDirTemplate",
+X        NULL);
+X
+X	host_window.advanced.minus = xv_create(host_window.advanced.panel,
+X		PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "-",
+X		PANEL_NOTIFY_PROC, minus_proc,
+X		NULL);
+X
+X	xv_set(host_window.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X
+X	/*
+X	window_fit(host_window.panel);
+X	justify_items(host_window.panel, TRUE);
+X	 */
+X
+X	/*
+X	window_fit(host_window.basic.panel);
+X	 */
+X	justify_items(host_window.basic.panel, TRUE);
+X
+X	window_fit_width(host_window.advanced.panel);
+X	justify_items(host_window.advanced.panel, TRUE);
+X
+X	xv_set(host_window.advanced.panel, 
+X		WIN_FIT_HEIGHT, 20,
+X		XV_X, (int)xv_get(host_window.advanced.panel, XV_X) - 3,
+X		NULL);
+X
+X	/*
+X	height = (int)xv_get(host_window.advanced.panel, XV_HEIGHT);
+X	xv_set(host_window.basic.panel, 
+X		XV_HEIGHT, height, 
+X		NULL);
+X	 */
+X
+X	y = (int)xv_get(host_window.advanced.minus, XV_Y);
+X	x = (int)xv_get(host_window.basic.panel, XV_WIDTH) 
+X		- (int)xv_get(host_window.basic.plus, XV_WIDTH) - 5;
+X
+X	xv_set(host_window.basic.connect, 
+X		XV_Y, y,
+X		NULL);
+X	xv_set(host_window.basic.dismiss, 
+X		XV_Y, y,
+X		NULL);
+X	xv_set(host_window.basic.plus, 
+X		XV_Y, y,
+X		XV_X, x - 2,
+X		NULL);
+X
+X	xv_set(host_window.basic.panel, 
+X		WIN_FIT_HEIGHT, 20,
+X		NULL);
+X
+X
+X    host_window.advanced.last_visited = xv_create(host_window.advanced.panel,
+X        PANEL_MESSAGE,
+X        PANEL_ITEM_X, xv_get(message, XV_X) + xv_get(message, XV_WIDTH)
+X            + xv_col(host_window.advanced.panel, 1) / 2,
+X        PANEL_ITEM_Y, xv_get(message, XV_Y),
+X        PANEL_LABEL_STRING, "Never",
+X        XV_HELP_DATA, "ftptool:HostWindowLastVisited",
+SHAR_EOF
+true || echo 'restore of create_other.c failed'
+fi
+echo 'End of  part 10'
+echo 'File create_other.c is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

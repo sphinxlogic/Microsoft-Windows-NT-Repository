@@ -1,0 +1,2153 @@
+Newsgroups: comp.sources.x
+From: jjm@hplb.hpl.hp.com (Jean-Jacques Moreau)
+Subject: v20i027:  xmps - Motif process monitor, Part02/03
+Message-ID: <1993Jun15.140923.17040@sparky.imd.sterling.com>
+X-Md4-Signature: 8d9d13712f857f833b108e8d209c12f3
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 14:09:23 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jjm@hplb.hpl.hp.com (Jean-Jacques Moreau)
+Posting-number: Volume 20, Issue 27
+Archive-name: xmps/part02
+Environment: HP-UX, X11. OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  command.c format.c process.c search.c snapshot.c status.c
+#   xmps.h
+# Wrapped by chris@sparky on Tue Jun 15 08:52:05 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'command.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'command.c'\"
+else
+  echo shar: Extracting \"'command.c'\" \(5589 characters\)
+  sed "s/^X//" >'command.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include <sys/ioctl.h>
+X#include <sys/fcntl.h>
+X#include <sys/signal.h>
+X#include <sys/wait.h>
+X#include <errno.h>
+X
+X#include "xmps.h"
+X
+X
+Xtypedef struct _BufferRec {
+X     String data;
+X     int len;
+X} BufferStruct, *BufferRec;
+X
+X
+Xtypedef struct _CommandRec {
+X     XtInputId outputId;
+X     int outputPipe[2];
+X     BufferStruct outputBuffer;
+X     XtInputId errorId;
+X     int errorPipe[2];
+X     BufferStruct errorBuffer;
+X} CommandStruct, *CommandRec;
+X
+X
+XBoolean childDied (clientData)
+X     XtPointer clientData;
+X{
+X     int *pid = (int *) clientData;
+X     
+X     /*
+X      * This function just prevents XtProcessEvent() to hang if
+X      * our child dies when it is being executed and there is no
+X      * data left in the pipes : XtProcessEvent() will exit after
+X      * calling that function, instead of blocking on select().
+X      */
+X
+X     return (waitpid (*pid, NULL, WNOHANG));
+X}
+X
+X	  
+Xvoid readInput (pipe, buffer)
+X     int pipe;
+X     BufferRec buffer;
+X{
+X     char tempbuf[BUFSIZ];
+X     long charsCount;
+X     int oldPipeMode;
+X
+X     /*
+X      * Set the read mode of the pipe to non-blocking.
+X      */
+X     if ((oldPipeMode = fcntl (pipe, F_GETFL)) == -1) {
+X	  error ("Cannot get ouput of command", (char *) 0);
+X	  return;
+X     }
+X     if (fcntl (pipe, F_SETFL, (oldPipeMode | O_NONBLOCK)) == -1) {
+X	  error ("Cannot get output of command", (char *) 0);
+X	  return;
+X     }
+X     
+X     /*
+X      * Read as many characters as are available.
+X      */
+X     charsCount = read (pipe, tempbuf, BUFSIZ);
+X     while ((charsCount != 0) && (charsCount != -1)) {
+X	  buffer->data = XtRealloc (buffer->data,
+X				    (Cardinal) (buffer->len + charsCount + 1));
+X	  bcopy (tempbuf, buffer->data + buffer->len, charsCount);
+X	  buffer->len = buffer->len + charsCount;
+X
+X	  charsCount = read (pipe, tempbuf, BUFSIZ);
+X     }
+X
+X     /*
+X      * Restore the old pipe's mode, and return the output of ps.
+X      */
+X     (void) fcntl (pipe, F_SETFL, oldPipeMode);
+X
+X     if ((charsCount == -1) && (errno != EAGAIN)) {
+X	  error ("Cannot read output of command", (char *) 0);
+X	  return;
+X     }
+X
+X     if (buffer->data != NULL)
+X	  buffer->data[buffer->len] = '\0';
+X     return;
+X}
+X
+X
+XXtInputCallbackProc inputReady (clientData, pipe, unused)
+X     XtPointer clientData;
+X     int *pipe;
+X     XtInputId *unused;
+X{
+X     BufferRec buffer = (BufferRec) clientData;
+X
+X     readInput (*pipe, buffer);
+X}
+X
+X
+XString executeCommand (argv)
+X     String *argv;
+X{
+X     CommandStruct command;
+X     int oldStdout, oldStderr;
+X     int pid;
+X     
+X     command.outputBuffer.data = NULL;
+X     command.outputBuffer.len = 0;
+X     command.errorBuffer.data = NULL;
+X     command.errorBuffer.len = 0;
+X
+X     /*
+X      * Redirect stdout to a pipe.
+X      */
+X     if (pipe (command.outputPipe) != -1) {
+X	  oldStdout = dup (fileno (stdout));
+X	  (void) dup2 (command.outputPipe[1], fileno (stdout));
+X     } else {
+X	  error ("Cannot redirect standard output", (char *) 0);
+X	  return (XtNewString (" \n"));
+X     }
+X     
+X     /*
+X      * Redirect stderr to a pipe too.
+X      */
+X     if (pipe (command.errorPipe) != -1) {
+X	  oldStderr = dup (fileno (stderr));
+X	  (void) dup2 (command.errorPipe[1], fileno (stderr));
+X     } else {
+X	  error ("Cannot redirect standard error", (char *) 0);
+X	  return (XtNewString (" \n"));
+X     }
+X     
+X     /*
+X      * Create a sub-process that will run ps.
+X      */
+X     if ((pid = fork ()) == -1) {
+X	  error ("Cannot fork", (char *) 0);
+X	  return (XtNewString (" \n"));
+X
+X     } else if (pid == 0) {
+X	  /*
+X	   * Close unused file descriptors.
+X	   */
+X	  close (fileno (stdin));
+X	  close (oldStdout);
+X	  close (oldStderr);
+X	  close (command.outputPipe[0]);
+X	  close (command.errorPipe[0]);
+X
+X	  /*
+X	   * Execute ps.
+X	   */
+X	  (void) execv (argv[0], argv);
+X
+X	  /*
+X	   * If we ever reach this point, then exec failed.
+X	   */
+X	  error ("Cannot run command", (char *) 0);
+X	  return (XtNewString (" \n"));
+X
+X     } else {
+X	  /*
+X	   * Restore the original stdout and stderr.
+X	   */
+X	  dup2 (oldStdout, fileno (stdout));
+X	  dup2 (oldStderr, fileno (stderr));
+X
+X	  /*
+X	   * Close unused file descriptors.
+X	   */
+X	  close (oldStdout);
+X	  close (oldStderr);
+X	  close (command.outputPipe[1]);
+X	  close (command.errorPipe[1]);
+X
+X	  /*
+X	   * Install handlers to take care of pipes overflow.
+X	   */
+X	  command.outputId = XtAddInput (command.outputPipe[0],
+X					 (XtPointer) XtInputReadMask,
+X					 (XtInputCallbackProc) inputReady,
+X					 (XtPointer) &command.outputBuffer);
+X	  command.errorId = XtAddInput (command.errorPipe[0],
+X					(XtPointer) XtInputReadMask,
+X					(XtInputCallbackProc) inputReady,
+X					(XtPointer) &command.errorBuffer);
+X
+X	  /*
+X	   * Install a handlers to take care of dead locks.
+X	   */
+X	  XtAddWorkProc ((XtWorkProc) childDied, &pid);
+X
+X	  /*
+X	   * Read as much as we can to prevent pipe overflows
+X	   * whilst our child is still alive.
+X	   */
+X	  while (!waitpid (pid, NULL, WNOHANG))
+X	       XtProcessEvent (XtIMAlternateInput);
+X
+X	  (void) waitpid (pid, NULL, 0);
+X	  
+X	  /*
+X	   * Get the output of ps, if any.
+X	   */
+X	  readInput (command.outputPipe[0], &command.outputBuffer);
+X
+X	  (void) close (command.outputPipe[0]);
+X	  XtRemoveInput (command.outputId);
+X
+X	  /*
+X	   * Check for any errors.
+X	   */
+X	  readInput (command.errorPipe[0], &command.errorBuffer);
+X
+X	  (void) close (command.errorPipe[0]);
+X	  XtRemoveInput (command.errorId);
+X
+X	  if (command.errorBuffer.data != NULL) {
+X	       error (command.errorBuffer.data, (char *) 0);
+X	       XtFree (command.errorBuffer.data);
+X	  }
+X
+X	  /*
+X	   * Return the output of ps.
+X	   */
+X	  return (command.outputBuffer.data);
+X     }
+X}
+END_OF_FILE
+  if test 5589 -ne `wc -c <'command.c'`; then
+    echo shar: \"'command.c'\" unpacked with wrong size!
+  fi
+  # end of 'command.c'
+fi
+if test -f 'format.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format.c'\"
+else
+  echo shar: Extracting \"'format.c'\" \(10822 characters\)
+  sed "s/^X//" >'format.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X#include <Xm/XmStrDefs.h>
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+X#include "xmps.h"
+X
+X
+Xtypedef struct _Process {
+X     int pid;
+X     int ppid;
+X     String data;
+X     struct _Process *child;
+X     int childCount;
+X     struct _Process *brother;
+X     struct _Process *next;
+X     struct _Process *nexthash;
+X} *Process;
+X
+Xtypedef struct _ProcessList {
+X     Process first;
+X     Process *hashtable;
+X     Process root;
+X} *ProcessList;
+X
+Xtypedef struct _Field {
+X     int start;
+X     int end;
+X} *Field;
+X
+X
+XField pidField;
+XField ppidField;
+XField commandField;
+X
+Xint indentation = 2;
+Xint hashvalue = 97;
+X
+X
+XField newField (x, y)
+X     int x;
+X     int y;
+X{
+X     Field result;
+X
+X     result = (Field) XtMalloc (sizeof (*result));
+X
+X     result->start = x;
+X     result->end = y;
+X
+X     return (result);
+X}
+X
+X
+Xvoid deleteField (field)
+X     Field field;
+X{
+X     if (field != NULL) 
+X	  XtFree ((char *) field);
+X}
+X
+X
+XField fieldPosition (string, name)
+X     String string;
+X     String name;
+X{
+X     Field field = newField (0, 0);
+X     String origin = string;
+X     String endOfString = string + strlen (string);
+X
+X     /*
+X      * Move to which'th field.
+X      */
+X     field->start = string - origin;
+X     string = string + strspn (string, " ");		/* Skip blank(s) */
+X     while (string < endOfString) {
+X	  if (!strncmp (string, name, strlen (name))) {
+X	       if ((string = strchr (string, ' ')) != NULL)
+X		    field->end = string - origin;	/* To next blank(s) */
+X	       else
+X		    field->end = endOfString - origin;
+X	       return (field);
+X	  }
+X	  if ((string = strchr (string, ' ')) == NULL)
+X	       return (NULL);				/* To next blank(s) */
+X	  field->start = string - origin;
+X	  string = string + strspn (string, " ");	/* Skip them */
+X     }
+X
+X     return (NULL);
+X}
+X
+X
+Xint intFieldValue (string, field)
+X     String string;
+X     Field field;
+X{
+X     char value[32];
+X     int length = field->end - field->start;
+X     int i;
+X
+X     string = string + field->start;
+X     strncpy (value, string, length);
+X     value[length] = '\0';
+X
+X     return (atoi (value));
+X}
+X
+X
+Xint pid (string)
+X     String string;
+X{
+X     return (intFieldValue (string, pidField));
+X}
+X
+X
+Xint ppid (string)
+X     String string;
+X{
+X     return (intFieldValue (string, ppidField));
+X}
+X
+X
+Xvoid parseHeader (string)
+X     String string;
+X{
+X     deleteField (pidField);
+X     deleteField (ppidField);
+X     deleteField (commandField);
+X     
+X     pidField = fieldPosition (string, "PID");
+X     ppidField = fieldPosition (string, "PPID");
+X     if (ppidField == NULL)
+X	  ppidField = pidField;
+X     commandField = fieldPosition (string, "COM");
+X}
+X
+X
+XProcess newRootProcess ()
+X{
+X     Process root;
+X     
+X     root = (Process) XtMalloc (sizeof (*root));
+X     root->pid = -1;
+X     root->ppid = -1;
+X     root->child = NULL;
+X     root->brother = NULL;
+X     root->next = NULL;
+X     root->nexthash = NULL;
+X     
+X     return (root);
+X}
+X
+X
+XProcess newProcess (string)
+X     String string;
+X{
+X     Process result;
+X
+X     result = (Process) XtMalloc (sizeof (*result));
+X     result->data = string;
+X     result->pid = pid (string);
+X     result->ppid = ppid (string);
+X     result->child = NULL;
+X     result->brother = NULL;
+X     result->next = NULL;
+X     result->nexthash = NULL;
+X
+X     return (result);
+X}
+X
+X
+Xvoid deleteProcess (process)
+X     Process process;
+X{
+X     if (process != NULL) 
+X	  XtFree ((char *) process);
+X}
+X
+X
+Xint hash (id)
+X     int id;
+X{
+X     return (id % hashvalue);
+X}
+X
+X
+XProcessList newProcessList ()
+X{
+X     ProcessList result;
+X     int i;
+X
+X     result = (ProcessList) XtMalloc (sizeof (*result));
+X     result->first = NULL;
+X     result->root = newRootProcess ();
+X     result->hashtable = (Process) XtMalloc (sizeof (Process) *
+X					     (hashvalue + 1));
+X     for (i = 0; i < hashvalue; i++)
+X	  result->hashtable[i] = NULL;
+X
+X     return (result);
+X}
+X
+X
+Xvoid deleteProcessList (list)
+X     ProcessList list;
+X{
+X     Process current = list->first;
+X     Process next;
+X
+X     deleteProcess (list->root);
+X     while (current != NULL) {
+X	  next = current->next;
+X	  deleteProcess (current);
+X	  current = next;
+X     }
+X
+X     XtFree ((char *) (list->hashtable));
+X     XtFree ((char *) list);
+X}
+X
+X
+Xvoid addProcess (list, process)
+X     ProcessList list;
+X     Process process;
+X{
+X     Process current;
+X     
+X     /*
+X      * Add process to list.
+X      */
+X     process->next = list->first;
+X     list->first = process;
+X}
+X
+X
+Xvoid hashAddProcess (list, process)
+X     ProcessList list;
+X     Process process;
+X{
+X     Process current;
+X     
+X     /*
+X      * Add process to list.
+X      */
+X     addProcess (list, process);
+X
+X     /*
+X      * Setup the hashtable for this process
+X      * for a faster access.
+X      */
+X     current = list->hashtable[hash (process->pid)];
+X     if (current == NULL)
+X	  list->hashtable[hash (process->pid)] = process;
+X     else {
+X	  Process previous;
+X
+X	  while (current != NULL) {
+X	       previous = current;
+X	       current = current->nexthash;
+X	  }
+X	  process->nexthash = current;
+X	  previous->nexthash = process;
+X     }
+X}
+X
+X
+Xvoid addChild (parent, child)
+X     Process parent;
+X     Process child;
+X{
+X     /*
+X      * Add child as a child of parent.
+X      * Sort childs by pid.
+X      */
+X     if (parent->child == NULL)
+X	  parent->child = child;
+X     else if (parent->child->pid > child->pid) {
+X	  child->brother = parent->child;
+X	  parent->child = child;
+X     } else {
+X	  Process current;
+X	  Process previous;
+X
+X	  current = parent->child;
+X	  while ((current != NULL) && (child->pid >= current->pid)) {
+X	       previous = current;
+X	       current = current->brother;
+X	  }
+X	  
+X	  child->brother = current;
+X	  previous->brother = child;
+X     }
+X}
+X
+X
+Xvoid sortAddChild (parent, child)
+X     Process parent;
+X     Process child;
+X{
+X     /*
+X      * Add child as a child of parent.
+X      * Sort childs by number of number of children.
+X      */
+X     if (parent->child == NULL)
+X	  parent->child = child;
+X     else if (parent->child->childCount > child->childCount) {
+X	  child->brother = parent->child;
+X	  parent->child = child;
+X     } else {
+X	  Process current;
+X	  Process previous;
+X
+X	  current = parent->child;
+X	  while ((current != NULL) &&
+X		 (child->childCount >= current->childCount)) {
+X	       previous = current;
+X	       current = current->brother;
+X	  }
+X	  
+X	  child->brother = current;
+X	  previous->brother = child;
+X     }
+X}
+X
+X
+XProcess parentProcess (list, process)
+X     ProcessList list;
+X     Process process;
+X{
+X     Process current = NULL;
+X
+X     /*
+X      * Only look for the parent of process if the process is not
+X      * its own parent.
+X      */
+X     if (process->pid != process->ppid) {
+X          current = list->hashtable[hash (process->ppid)];
+X          while ((current != NULL) && (current->pid != process->ppid))
+X	       current = current->nexthash;
+X     }
+X
+X     /*
+X      * If no parent could be found, return the dummy
+X      * head of the process tree.
+X      */
+X     if (current == NULL)
+X          current = list->root;
+X
+X     return (current);
+X}
+X
+X
+Xint countChilds (parent)
+X     Process parent;
+X{
+X     Process child = parent->child;
+X     int childCount = 0;
+X
+X     while (child != NULL) {
+X	  childCount = childCount + countChilds (child);
+X	  child = child->brother;
+X     }
+X     parent->childCount = childCount;
+X
+X     return (childCount + 1);
+X}
+X
+X
+Xvoid sort (parent)
+X     Process parent;
+X{
+X     Process child = parent->child;
+X     Process next;
+X
+X     parent->child = NULL;
+X     while (child != NULL) {
+X	  next = child->brother;
+X	  child->brother = NULL;
+X	  sortAddChild (parent, child);
+X	  sort (child);
+X	  child = next;
+X     }
+X}
+X
+X
+XString indent (string, level)
+X     String string;
+X     int level;
+X{
+X     String result = (String) XtMalloc (strlen (string)
+X					+ indentation * level
+X					+ 2);
+X     int separation = commandField->start;
+X
+X     /*
+X      * Some fields overrun, so we need to go to the real start of
+X      * the command (if any).
+X      */
+X     if (string[separation] && (string [separation] != ' ')) {
+X	  separation = strchr (string + separation, ' ') - string;
+X	  separation = separation + strspn (string + separation, " ");
+X     }
+X
+X     /*
+X      * Use printf to indent the command within string.
+X      */
+X     sprintf (result,
+X	      "%.*s%*s%-s\n",
+X	      separation, string,
+X	      indentation * level, "",
+X	      string + separation);
+X
+X     return (result);
+X}
+X
+X
+XString indentHierarchy (current, level)
+X     Process current;
+X     int level;
+X{
+X     String result = XtNewString ("");
+X     String partialResult;
+X
+X     /*
+X      * Do me first, if I am not the dummy root.
+X      */
+X     if (current->pid != -1) {
+X          partialResult = indent (current->data, level);
+X          result = XtRealloc (result,
+X			      strlen (result) + strlen (partialResult) + 1);
+X          strcat (result, partialResult);
+X          XtFree (partialResult);
+X     }
+X
+X     /*
+X      * Do all my childs.
+X      */
+X     if (current->child != NULL) {
+X	  partialResult = indentHierarchy (current->child, level + 1);
+X	  result = XtRealloc (result,
+X			      strlen (result) + strlen (partialResult) + 1);
+X	  strcat (result, partialResult);
+X	  XtFree (partialResult);
+X     }
+X
+X     /*
+X      * Finally, do all my brothers.
+X      */
+X     if (current->brother != NULL) {
+X	  partialResult = indentHierarchy (current->brother, level);
+X	  result = XtRealloc (result,
+X			      strlen (result) + strlen (partialResult) + 1);
+X	  strcat (result, partialResult);
+X	  XtFree (partialResult);
+X     }
+X
+X     return (result);
+X}
+X
+X
+XString format (lines)
+X     String lines;
+X{
+X     String line;
+X     String result;
+X     String partialResult;
+X     Process process;
+X     ProcessList processList = newProcessList ();
+X
+X     if ((line = strtok (lines, "\n")) == NULL)
+X	  return (lines);
+X
+X     parseHeader (line);
+X     
+X     /*
+X      * Store the header first.
+X      */
+X     result = XtNewString (line);
+X     result = XtRealloc (result, strlen (result) + 1);
+X     strcat (result, "\n");
+X
+X     /*
+X      * Transform the input string into a linked list of processes.
+X      */
+X     while ((line = strtok (NULL, "\n")) != NULL) {
+X	  process = newProcess (line);
+X	  hashAddProcess (processList, process);
+X     }
+X
+X     /*
+X      * For each process, find its parent.
+X      */
+X     process = processList->first;
+X     while (process != NULL) {
+X	  addChild (parentProcess (processList, process), process);
+X	  process = process->next;
+X     }
+X     
+X     /*
+X      * Sort the process list based on the number of children
+X      * per process.
+X      */
+X     (void) countChilds (processList->root);
+X     sort (processList->root);
+X     
+X     /*
+X      * Display the process list according to a parent-child relationship.
+X      */
+X     partialResult = indentHierarchy (processList->root, -1);
+X     result = XtRealloc (result,
+X			 strlen (result) + strlen (partialResult) + 1);
+X     strcat (result, partialResult);
+X     XtFree (partialResult);
+X     
+X     /*
+X      * Free all the garbage we have generated.
+X      */
+X     deleteProcessList (processList);
+X     
+X     return (result);
+X}
+END_OF_FILE
+  if test 10822 -ne `wc -c <'format.c'`; then
+    echo shar: \"'format.c'\" unpacked with wrong size!
+  fi
+  # end of 'format.c'
+fi
+if test -f 'process.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'process.c'\"
+else
+  echo shar: Extracting \"'process.c'\" \(8922 characters\)
+  sed "s/^X//" >'process.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X#include <Xm/XmStrDefs.h>
+X#include <Xm/List.h>
+X#include <Xm/Text.h>
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X#include <pwd.h>
+X#include <grp.h>
+X#include <sys/utsname.h>
+X
+X#include "xmps.h"
+X
+X
+Xint selectAllProcesses (widget, clientData, callData)
+X     Widget widget;
+X     caddr_t clientData;
+X     caddr_t callData;
+X{
+X     int itemCount;
+X     int current;
+X
+X     Arg arglist[2];
+X     Cardinal i;
+X     
+X     i = 0;
+X     XtSetArg (arglist[i], XmNitemCount, &itemCount); i++;
+X     XtGetValues (listArea, arglist, i);
+X     
+X     XtUnmapWidget (processArea);
+X     XmListDeselectAllItems (listArea);
+X     for (current = 1; current <= itemCount; current++)
+X	  XmListSelectPos (listArea, current, True);
+X     XtMapWidget (processArea);
+X}
+X
+X
+Xint unselectAllProcesses (widget, clientData, callData)
+X     Widget widget;
+X     caddr_t clientData;
+X     caddr_t callData;
+X{
+X     XtUnmapWidget (processArea);
+X     XmListDeselectAllItems (listArea);
+X     XtMapWidget (processArea);
+X}
+X
+X
+Xvoid highlightProcess (processPosition)
+X     int processPosition;
+X{
+X     XmListSelectPos (listArea, processPosition, True);
+X}
+X
+X
+Xvoid centerProcess (processPosition, topProcessPosition, visibleProcessCount)
+X     int processPosition;
+X     int topProcessPosition;
+X     int visibleProcessCount;
+X{
+X     /*
+X      * Center the requested process.
+X      */
+X     if (! ((processPosition >= topProcessPosition) &&
+X	    (processPosition <= (topProcessPosition +
+X				 visibleProcessCount - 1)))) {
+X	  if (processPosition > visibleProcessCount/2) {
+X	       XmListSetPos (listArea, processPosition - visibleProcessCount/2);
+X	  } else {
+X	       XmListSetPos (listArea, processPosition);
+X	  }
+X     }
+X}
+X
+X
+Xvoid reDisplayProcessesIfNecessary ()
+X{
+X     if (resources.automaticRefresh)
+X	  reDisplayProcesses ();
+X}
+X
+X
+Xint reDisplayProcesses (widget, clientData, callData)
+X     Widget widget;
+X     caddr_t clientData;
+X     caddr_t callData;
+X{
+X     int oldTopItemPosition;
+X     int oldItemCount;
+X     int itemCount;
+X     int topItemPosition;
+X
+X     Arg arglist[4];
+X     Cardinal i;
+X     
+X     extern void displayProcesses ();
+X
+X     /*
+X      * Disable alarms while we refresh the display.
+X      */
+X     if (resources.periodicRefresh)
+X	  setTimer (False);
+X     
+X     /*
+X      * Hide the list while we update it.
+X      */
+X     setBusyIndicator ();
+X     XtUnmapWidget (processArea);
+X
+X     /*
+X      * Remember where the top of the list is.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNtopItemPosition, &oldTopItemPosition); i++;
+X     XtSetArg (arglist[i], XmNitemCount, &oldItemCount); i++;
+X     XtGetValues (listArea, arglist, i);
+X     
+X     /*
+X      * Xm bug fix.
+X      * Go to the beginning of the list.
+X      */
+X     XmListSetPos (listArea, 1);
+X     XmListSetHorizPos (listArea, 1);
+X
+X     /*
+X      * Recreate the processes information.
+X      */
+X     XmListDeleteAllItems (listArea);
+X     displayProcesses ();
+X
+X     /*
+X      * Go back we were.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNitemCount, &itemCount); i++;
+X     XtGetValues (listArea, arglist, i);
+X     
+X     i = 0;
+X     if (itemCount >= oldItemCount)
+X	  topItemPosition = oldTopItemPosition;
+X     else {
+X	  topItemPosition = oldTopItemPosition - (oldItemCount - itemCount);
+X	  if (topItemPosition <= 0)
+X	       topItemPosition = 1;
+X     }
+X     XtSetArg (arglist[i], XmNtopItemPosition, topItemPosition); i++;
+X     XtSetValues (listArea, arglist, i);
+X
+X     /*
+X      * Make the list visible again.
+X      */
+X     XtMapWidget (processArea);
+X     unsetBusyIndicator ();
+X
+X     /*
+X      * Reenable alarms.
+X      */
+X     if (resources.periodicRefresh)
+X	  setTimer (True);
+X}
+X
+X
+Xint applyAction ()
+X{
+X     XmStringTable selectedItems;
+X     int selectedItemCount;
+X     int current;
+X     String line;
+X     char command[512];
+X     char *argv[4];
+X     Boolean remote;
+X     struct utsname name;
+X
+X     Arg arglist[4];
+X     Cardinal i;
+X     
+X     /*
+X      * Find out whether or not we need to use remsh.
+X      */
+X     if ((strcmp (currentHost, "localhost") == 0) ||
+X	 ((uname (&name) != -1) && (strcmp (currentHost, name.nodename) == 0)))
+X	  remote = False;
+X     else
+X	  remote = True;
+X
+X     /*
+X      * Get the selected processes.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNselectedItems, &selectedItems); i++;
+X     XtSetArg (arglist[i], XmNselectedItemCount, &selectedItemCount); i++;
+X     XtGetValues (listArea, arglist, i);
+X     
+X     /*
+X      * Apply the current action on them.
+X      */
+X     setBusyIndicator ();
+X     for (current = 1; current <= selectedItemCount; current++) {
+X	  
+X	  XmStringGetLtoR (selectedItems[current-1],
+X			   XmSTRING_DEFAULT_CHARSET,
+X			   &line);
+X	  if (remote)
+X	       sprintf (command, "%s %s -n %s %d",
+X			resources.rshCommand, currentHost,
+X			currentAction, pid (line));
+X	  else
+X	       sprintf (command, "%s %d", currentAction, pid (line));
+X
+X	  argv[0] = "/bin/sh";
+X	  argv[1] = "-c";
+X	  argv[2] = command;
+X	  argv[3] = 0;
+X	  (void) executeCommand (argv);
+X
+X          XtFree (line);
+X     }
+X     unsetBusyIndicator ();
+X}
+X
+X
+XString buildCommandLine ()
+X{
+X     String command;
+X     struct utsname name;
+X
+X     command = (char *) XtMalloc (sizeof (char) * 512);
+X
+X     /*
+X      * Store the process command first.
+X      */
+X     if ((strcmp (currentHost, "localhost") == 0) ||
+X	 ((uname (&name) != -1) && (strcmp (currentHost, name.nodename) == 0)))
+X	  strcpy (command, resources.psCommand);
+X     else
+X	  sprintf (command,"%s %s -n %s",
+X		   resources.rshCommand, currentHost, resources.psCommand);
+X     
+X     /*
+X      * Add a hyphen now for eventual options and do not bother any more.
+X      */
+X     strcat (command, " -");
+X     
+X     /*
+X      * Add the process type options.
+X      */
+X     if (resources.allProcesses)
+X	  strcat (command, resources.allProcessesOption);
+X     else if (resources.noNonTerminal)
+X	  strcat (command, resources.noNonTerminalOption);
+X     else if (resources.noGroupLeader)
+X	  strcat (command, resources.noGroupLeaderOption);
+X
+X     /*
+X      * Add the listing options.
+X      */
+X     if (resources.fullListing)
+X	  strcat (command, resources.fullListingOption);
+X     else if (resources.longListing)
+X	  strcat (command, resources.longListingOption);
+X
+X     /*
+X      * Add the user name to look for.
+X      */
+X     if (strcmp (currentUser, "all") != 0) {
+X#ifdef notdef
+X	  struct passwd *passwd = getpwnam (currentUser);
+X	  if (passwd != NULL) {
+X	       sprintf (command, "%s -%s %d",
+X			command, resources.usersOption, passwd->pw_uid);
+X	  } else
+X	       error ("Cannot find selected user :\n%s",
+X		      currentUser, (char *) 0);
+X#else
+X	  sprintf (command, "%s -%s %s",
+X		   command, resources.usersOption, currentUser);
+X#endif
+X     }
+X
+X     /*
+X      * Add the group name to look for.
+X      */
+X     if (strcmp (currentGroup, "all") != 0) {
+X#ifdef notdef
+X	  struct group *group = getgrnam (currentGroup);
+X	  if (group != NULL) {
+X	       sprintf (command, "%s -%s %d",
+X			command, resources.groupsOption, group->gr_gid);
+X	  } else
+X	       error ("Cannot find selected group :\n%s",
+X		      currentGroup, (char *) 0);
+X#else
+X	  sprintf (command, "%s -%s %s",
+X		   command, resources.groupsOption, currentGroup);
+X#endif
+X     }
+X
+X     /*
+X      * Add the terminal to look for.
+X      */
+X     if (strcmp (currentTerminal, "") != 0)
+X	  sprintf (command, "%s -%s %s",
+X		   command, resources.terminalsOption, currentTerminal);
+X
+X     /*
+X      * Add the beautifier.
+X      */
+X     if (resources.beautify && !internalBeautifier)
+X	  sprintf (command, "%s | %s",
+X		   command, resources.beautifyCommand);
+X
+X     return (command);
+X}
+X
+X
+Xvoid displayProcesses ()
+X{
+X     char *argv[4];
+X     String command;
+X     String line;
+X     String lines;
+X     String oldLines;
+X     XmString label;
+X     int processCount = 0;
+X
+X     Arg arglist[4];
+X     Cardinal i;
+X
+X     extern void infoLineUpdate ();
+X     
+X     /*
+X      * Construct the appropriate command line.
+X      */
+X     command = buildCommandLine ();
+X     
+X     /*
+X      * Get processes information.
+X      */
+X     argv[0] = "/bin/sh";
+X     argv[1] = "-c";
+X     argv[2] = command;
+X     argv[3] = 0;
+X     lines = executeCommand (argv);
+X
+X     /*
+X      * Format it eventually.
+X      */
+X     if (resources.beautify && internalBeautifier)
+X	  lines = format (lines);
+X     oldLines = lines;
+X
+X     /*
+X      * Print the title line.
+X      */
+X     if ((line = strtok (lines, "\n")) != NULL) {
+X	  parseHeader (line);
+X
+X	  label = XmStringCreateLtoR (line, XmSTRING_DEFAULT_CHARSET);
+X	  
+X	  i = 0;
+X	  XtSetArg (arglist[i], XmNlabelString, label); i++;
+X	  XtSetValues (headerArea, arglist, i);
+X	  XmStringFree (label);
+X
+X	  /*
+X	   * Print each process information.
+X	   */
+X	  while ((line = strtok (NULL, "\n")) != NULL) {
+X	       label = XmStringCreateLtoR (line, XmSTRING_DEFAULT_CHARSET);
+X	       XmListAddItemUnselected (listArea, label, 0);
+X	       XmStringFree (label);
+X	       processCount = processCount + 1;
+X	  }
+X     }
+X
+X     XtFree (oldLines);
+X
+X     infoLineUpdate (processCount);
+X}
+X
+X
+END_OF_FILE
+  if test 8922 -ne `wc -c <'process.c'`; then
+    echo shar: \"'process.c'\" unpacked with wrong size!
+  fi
+  # end of 'process.c'
+fi
+if test -f 'search.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'search.c'\"
+else
+  echo shar: Extracting \"'search.c'\" \(5315 characters\)
+  sed "s/^X//" >'search.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X#include <Xm/XmStrDefs.h>
+X#include <Xm/List.h>
+X
+X#include <stdio.h>
+X#include <regex.h>
+X
+X#include "xmps.h"
+X
+X
+Xvoid setSearch (state)
+X     Boolean state;
+X{
+X     Arg arglist[2];
+X     Cardinal i;
+X     
+X     i = 0;
+X     XtSetArg (arglist[i], XmNsensitive, state); i++;
+X     XtSetValues (XtNameToWidget (processPane, "previous"), arglist, i);
+X     XtSetValues (XtNameToWidget (processPane, "next"), arglist, i);
+X}
+X
+X
+Xvoid enableSearch ()
+X{
+X     setSearch (True);
+X}
+X
+X
+Xvoid disableSearch ()
+X{
+X     setSearch (False);
+X}
+X
+X
+Xint searchProcessPrompt (widget, clientData, callData)
+X     Widget widget;
+X     caddr_t clientData;
+X     caddr_t callData;
+X{
+X     extern int searchProcess ();
+X     
+X     if (! searchDialog) {
+X	  XmString title, label;
+X	  
+X	  Arg arglist[4];
+X	  Cardinal i;
+X	  
+X	  title = XmStringCreateLtoR ("Search Dialog",
+X				      XmSTRING_DEFAULT_CHARSET);
+X	  label = XmStringCreateLtoR ("Search For...",
+X				      XmSTRING_DEFAULT_CHARSET);
+X
+X	  i = 0;
+X	  XtSetArg (arglist[i], XmNdialogTitle, title); i++;
+X	  XtSetArg (arglist[i], XmNselectionLabelString, label); i++;
+X	  searchDialog = (Widget) XmCreatePromptDialog (topLevel,
+X							"searchDialog",
+X							arglist,i);
+X
+X	  XtUnmanageChild ((Widget) XmMessageBoxGetChild (searchDialog,
+X							  XmDIALOG_HELP_BUTTON));
+X	  XtAddCallback (searchDialog,
+X			 XmNokCallback,
+X			 (XtCallbackProc) searchProcess,
+X			 (XtPointer) ACTION_SEARCH);
+X
+X	  XmStringFree (title);
+X	  XmStringFree (label);
+X     }
+X     
+X     XtManageChild (searchDialog);
+X}
+X
+X
+Xint searchProcess (widget, typeOfSearch, callData)
+X     Widget widget;
+X     int typeOfSearch;
+X     caddr_t callData;
+X{
+X     XmStringTable items;
+X     XmString currentItem;
+X     String pattern;
+X     regex_t compiledPattern;
+X     int flag;
+X     String line;
+X     Boolean foundItem = False;
+X     int itemCount;
+X     int topItemPosition;
+X     int visibleItemCount;
+X     int current;
+X     enum {forward, backward} direction;
+X     static int lastSearchPosition = 1;
+X     int endOfSearchPosition;
+X     Boolean firstOccurrence = True;
+X     int regErrorCode;
+X
+X     Arg arglist[5];
+X     Cardinal i;
+X     
+X     i = 0;
+X     XtSetArg (arglist[i], XmNitemCount, &itemCount); i++;
+X     XtSetArg (arglist[i], XmNtopItemPosition, &topItemPosition); i++;
+X     XtSetArg (arglist[i], XmNvisibleItemCount, &visibleItemCount); i++;
+X     XtSetArg (arglist[i], XmNitems, &items); i++;
+X     XtGetValues (listArea, arglist, i);
+X     
+X     /*
+X      * Disable temporarily the Next and Previous buttons.
+X      */
+X     disableSearch ();
+X
+X     /*
+X      * Get the process name to search for.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNtextString, &currentItem); i++;
+X     XtGetValues (searchDialog, arglist, i);
+X     XmStringGetLtoR (currentItem, XmSTRING_DEFAULT_CHARSET, &pattern);
+X
+X     if (strcmp (pattern, "") == 0) {
+X	  XtFree (pattern);
+X	  return;
+X     }
+X
+X     flag = REG_EXTENDED | REG_NEWLINE | REG_NOSUB;
+X     if (resources.ignoreCase)
+X	  flag |= REG_ICASE;
+X     regErrorCode = regcomp (&compiledPattern, pattern, flag);
+X     if (regErrorCode != 0) {
+X	  char regErrorMsg[256];
+X
+X	  (void) regerror (regErrorCode, &compiledPattern,
+X			   regErrorMsg, sizeof (regErrorMsg));
+X	  error ("Malformed regular expression :\n%s",
+X		 regErrorMsg, (char *) 0);
+X	  XtFree (pattern);
+X	  return;
+X     }
+X
+X     /*
+X      * Find where to search.
+X      */
+X     if (typeOfSearch == ACTION_SEARCH) {
+X	  current = lastSearchPosition;
+X	  endOfSearchPosition = current;
+X	  direction = forward;
+X     } else if (typeOfSearch == ACTION_SEARCH_NEXT) {
+X	  if (lastSearchPosition != itemCount)
+X	       current = lastSearchPosition + 1;
+X	  else
+X	       current = 1;
+X	  endOfSearchPosition = current;
+X	  direction = forward;
+X     } else if (typeOfSearch == ACTION_SEARCH_PREVIOUS) {
+X	  if (lastSearchPosition != 1)
+X	       current = lastSearchPosition - 1;
+X	  else
+X	       current = itemCount;
+X	  endOfSearchPosition = current;
+X	  direction = backward;
+X     } else {
+X	  error ("Invalid type of search :\ninternal error", (char *) 0);
+X          regfree (&compiledPattern);
+X          XtFree (pattern);
+X	  return;
+X     }
+X     
+X     /*
+X      * Search now.
+X      */
+X     XmListDeselectAllItems (listArea);
+X     XmListSetAddMode (listArea, True);
+X     do {
+X	  XmStringGetLtoR (items[current-1],
+X			   XmSTRING_DEFAULT_CHARSET,
+X			   &line);
+X	  if (regexec (&compiledPattern, line, (size_t) 0, NULL, 0) == 0) {
+X	       if (firstOccurrence)
+X		    centerProcess (current, topItemPosition, visibleItemCount);
+X	       highlightProcess (current);
+X	       foundItem = True;
+X	       if (! resources.multipleOccurrences)
+X		    break;
+X	       firstOccurrence = False;
+X	  }
+X	  if (((direction == forward) && (current < itemCount)) ||
+X	      ((direction == backward) && (current > 1)))
+X	       current += (direction == forward) ? 1 : -1;
+X	  else
+X	       current = (direction == forward) ? 1 : itemCount;
+X	  XtFree (line);
+X     } while (current != endOfSearchPosition);
+X     XmListSetAddMode (listArea, False);
+X     regfree (&compiledPattern);
+X
+X     /*
+X      * Remember the position of the found item.
+X      */
+X     if (foundItem) {
+X	  lastSearchPosition = current;
+X
+X	  if (! resources.multipleOccurrences)
+X	       enableSearch ();
+X     } else {
+X	  XmListDeselectAllItems (listArea);
+X	  error ("No such string :\n%s", pattern, (char *) 0);
+X     }
+X     XtFree (pattern);
+X}
+END_OF_FILE
+  if test 5315 -ne `wc -c <'search.c'`; then
+    echo shar: \"'search.c'\" unpacked with wrong size!
+  fi
+  # end of 'search.c'
+fi
+if test -f 'snapshot.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'snapshot.c'\"
+else
+  echo shar: Extracting \"'snapshot.c'\" \(8857 characters\)
+  sed "s/^X//" >'snapshot.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X#include <Xm/XmStrDefs.h>
+X#include <Xm/Frame.h>
+X#include <Xm/MainW.h>
+X#include <Xm/List.h>
+X#include <Xm/PushBG.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ScrolledW.h>
+X#include <Xm/SeparatoG.h>
+X#include <Xm/Text.h>
+X#include <Xm/ToggleBG.h>
+X
+X#include <stdio.h>
+X
+X#include "xmps.h"
+X
+X
+Xint closeSnapshot (widget, clientData, callData)
+X     Widget widget;
+X     XtPointer clientData;
+X     caddr_t callData;
+X{
+X     Widget snapshotTopLevel = (Widget) clientData;
+X     
+X     XtPopdown (snapshotTopLevel);
+X     XtDestroyWidget (snapshotTopLevel);
+X}
+X
+X
+Xint printSnapshotProcesses (widget, clientData, callData)
+X     Widget widget;
+X     XtPointer clientData;
+X     caddr_t callData;
+X{
+X     Widget listArea = (Widget) clientData;
+X
+X     printProcessesFrom (listArea);
+X}
+X
+X
+Xint takeSnapshot (widget, clientData, callData)
+X     Widget widget;
+X     caddr_t clientData;
+X     caddr_t callData;
+X{
+X     extern void createSnapshot ();
+X
+X     setBusyIndicator ();
+X     createSnapshot (topLevel);
+X     unsetBusyIndicator ();
+X}
+X
+X
+Xvoid duplicateList (parent, status, header, list)
+X     Widget parent;
+X     Widget status;
+X     Widget header;
+X     Widget list;
+X{
+X     Widget snapshotTopWindow;
+X     Widget snapshotStatusArea;
+X     Widget snapshotSeparator;
+X     Widget snapshotHeaderArea;
+X     Widget snapshotProcessArea;
+X     Widget snapshotButtonArea;
+X     Widget snapshotCloseArea;
+X     Widget snapshotPrintArea;
+X     
+X     XmFontList fontList;
+X     XmString label;
+X     Dimension height;
+X     XmStringTable items;
+X     int itemCount;
+X     int current;
+X
+X     Arg arglist[15];
+X     Cardinal i;
+X     
+X     /*
+X      * Create a form.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNorientation, XmVERTICAL); i++;
+X     XtSetArg (arglist[i], XmNpacking, XmPACK_NONE); i++;
+X     snapshotTopWindow = (Widget) XmCreateForm (parent,
+X						"snapshotTopWindow",
+X						arglist, i);
+X     XtManageChild (snapshotTopWindow);
+X
+X     /*
+X      * Add a status line.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, &label); i++;
+X     XtSetArg (arglist[i], XmNfontList, &fontList); i++;
+X     XtSetArg (arglist[i], XmNheight, &height); i++;
+X     XtGetValues (status, arglist, i);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetArg (arglist[i], XmNfontList, fontList); i++;
+X     XtSetArg (arglist[i], XmNalignment, XmALIGNMENT_BEGINNING); i++;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_NONE); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X     snapshotStatusArea = (Widget) XmCreateLabelGadget (snapshotTopWindow,
+X							"snapshotStatusArea",
+X							arglist, i);
+X     XtManageChild (snapshotStatusArea);
+X     
+X     /*
+X      * Add a separator.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_WIDGET); i++;
+X     XtSetArg (arglist[i], XmNtopWidget, snapshotStatusArea); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_NONE); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X     snapshotSeparator = XmCreateSeparatorGadget (snapshotTopWindow,
+X						  "snapshotSeparator",
+X						  arglist, i);
+X
+X     XtManageChild (snapshotSeparator);
+X
+X     /*
+X      * Add a header.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, &label); i++;
+X     XtSetArg (arglist[i], XmNfontList, &fontList); i++;
+X     XtGetValues (header, arglist, i);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetArg (arglist[i], XmNfontList, fontList); i++;
+X     XtSetArg (arglist[i], XmNalignment, XmALIGNMENT_BEGINNING); i++;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_WIDGET); i++;
+X     XtSetArg (arglist[i], XmNtopWidget, snapshotSeparator); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_NONE); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X     snapshotHeaderArea = (Widget) XmCreateLabelGadget (snapshotTopWindow,
+X							"snapshotHeaderArea",
+X							arglist, i);
+X     XtManageChild (snapshotHeaderArea);
+X     
+X     /*
+X      * Add a scrolledList.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNfontList, &fontList); i++;
+X     XtSetArg (arglist[i], XmNitems, &items); i++;
+X     XtSetArg (arglist[i], XmNitemCount, &itemCount); i++;
+X     XtGetValues (list, arglist, i);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNfontList, fontList); i++;
+X
+X     XtSetArg (arglist[i], XmNlistSizePolicy, XmCONSTANT); i++;
+X     XtSetArg (arglist[i], XmNselectionPolicy, XmSINGLE_SELECT); i++;
+X
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_WIDGET); i++;
+X     XtSetArg (arglist[i], XmNtopWidget, snapshotHeaderArea); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomOffset, height); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X
+X     snapshotProcessArea = XmCreateScrolledList (snapshotTopWindow, 
+X						 "snapshotProcessArea",
+X						 arglist, i);
+X     XtManageChild (snapshotProcessArea);
+X
+X     /*
+X      * Add the items of the current list to the new list.
+X      */
+X     for (current = 0; current < itemCount; current++)
+X	  XmListAddItemUnselected (snapshotProcessArea, items[current], 0);
+X
+X     /*
+X      * Add a form to enclose buttons.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNheight, height); i++;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_NONE); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X     
+X     snapshotButtonArea = XmCreateForm (snapshotTopWindow,
+X					"snapshotButtonArea",
+X					arglist, i);
+X     XtManageChild (snapshotButtonArea);
+X
+X     /*
+X      * Add a print button.
+X      */
+X     label = XmStringCreateLtoR ("Print", XmSTRING_DEFAULT_CHARSET);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNleftOffset, 50); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_NONE); i++;
+X     
+X     snapshotPrintArea = XmCreatePushButtonGadget (snapshotButtonArea,
+X						   "snapshotPrintArea",
+X						   arglist, i);
+X     XtManageChild (snapshotPrintArea);
+X     XmStringFree (label);
+X
+X     XtAddCallback (snapshotPrintArea,
+X		    XmNactivateCallback,
+X		    (XtCallbackProc) printSnapshotProcesses,
+X		    (XtPointer) snapshotProcessArea);
+X
+X     /*
+X      * Add a close button.
+X      */
+X     label = XmStringCreateLtoR ("Close", XmSTRING_DEFAULT_CHARSET);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetArg (arglist[i], XmNtopAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNleftAttachment, XmATTACH_NONE); i++;
+X     XtSetArg (arglist[i], XmNbottomAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNrightAttachment, XmATTACH_FORM); i++;
+X     XtSetArg (arglist[i], XmNrightOffset, 50); i++;
+X     
+X     snapshotCloseArea = XmCreatePushButtonGadget (snapshotButtonArea,
+X						   "snapshotCloseArea",
+X						   arglist, i);
+X     XtManageChild (snapshotCloseArea);
+X     XmStringFree (label);
+X
+X     XtAddCallback (snapshotCloseArea,
+X		    XmNactivateCallback,
+X		    (XtCallbackProc) closeSnapshot,
+X		    (XtPointer) parent);
+X}
+X
+X
+Xvoid createSnapshot (parent)
+X     Widget parent;
+X{
+X     Widget snapshotTopLevel;
+X     Widget statusArea = XtNameToWidget (topLevel,
+X					 "topWindow.selectionArea.statusArea");
+X     Dimension width, height;
+X
+X     Arg arglist[3];
+X     Cardinal i;
+X
+X     /*
+X      * Create a shell to have a separate window and interact directly with
+X      * the window manager.
+X      */
+X     i = 0;
+X     XtSetArg (arglist[i], XmNwidth, &width); i++;
+X     XtSetArg (arglist[i], XmNheight, &height); i++;
+X     XtGetValues (topLevel, arglist, i);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNwidth, width); i++;
+X     XtSetArg (arglist[i], XmNheight, height); i++;
+X     snapshotTopLevel = XtCreatePopupShell ("Process Browser",
+X					    topLevelShellWidgetClass,
+X					    parent,
+X					    arglist, i);
+X     
+X     /*
+X      * Replicate the current window.
+X      */
+X     (void) duplicateList (snapshotTopLevel, statusArea, headerArea, listArea);
+X     
+X     /*
+X      * Display the new window.
+X      */
+X     XtRealizeWidget (snapshotTopLevel);
+X     XtMapWidget (snapshotTopLevel);
+X     XRaiseWindow (XtDisplay (snapshotTopLevel), XtWindow (snapshotTopLevel));
+X}
+X
+X
+END_OF_FILE
+  if test 8857 -ne `wc -c <'snapshot.c'`; then
+    echo shar: \"'snapshot.c'\" unpacked with wrong size!
+  fi
+  # end of 'snapshot.c'
+fi
+if test -f 'status.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'status.c'\"
+else
+  echo shar: Extracting \"'status.c'\" \(5378 characters\)
+  sed "s/^X//" >'status.c' <<'END_OF_FILE'
+X#include <Xm/Xm.h>
+X#include <Xm/XmStrDefs.h>
+X#include <Xm/Text.h>
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "xmps.h"
+X
+X
+Xint menuParameterChange (widget, newValue, callData)
+X     Widget widget;
+X     String newValue;
+X     caddr_t callData;
+X{
+X     String widgetName = XtName (XtParent (widget));
+X     
+X     if (strcmp (widgetName, "hostPane") == 0) {
+X	  strcpy (currentHost, newValue);
+X	  reDisplayProcessesIfNecessary ();
+X
+X     } else if (strcmp (widgetName, "userPane") == 0) {
+X	  strcpy (currentUser, newValue);
+X	  reDisplayProcessesIfNecessary ();
+X
+X     } else if (strcmp (widgetName, "groupPane") == 0) {
+X	  strcpy (currentGroup, newValue);
+X	  reDisplayProcessesIfNecessary ();
+X
+X     } else if (strcmp (widgetName, "terminalPane") == 0) {
+X	  strcpy (currentTerminal, newValue);
+X	  reDisplayProcessesIfNecessary ();
+X
+X     } else if (strcmp (widgetName, "actionPane") == 0) {
+X	  strcpy (currentAction, newValue);
+X	  if (resources.automaticRefresh)
+X	       applyAction ();
+X
+X     } else
+X	  error ("Invalid option menu selection :\ninternal error", (char *) 0);
+X
+X     noInputMode ();
+X}
+X
+X
+Xvoid textParameterUpdate (currentValue, newValue, menuPane)
+X     String currentValue;
+X     String newValue;
+X     Widget menuPane;
+X{
+X     if (! strcmp (currentValue, newValue))
+X	  return;
+X     
+X     strcpy (currentValue, newValue);
+X     
+X     if (resources.automaticMemory) {
+X	  Widget menuElement;
+X	  XmString label;
+X	  
+X	  Arg arglist[3];
+X	  Cardinal i;
+X	  
+X	  label = XmStringCreateLtoR (newValue, XmSTRING_DEFAULT_CHARSET);
+X
+X	  i = 0;
+X	  XtSetArg (arglist[i], XmNlabelString, label); i++;
+X	  menuElement = (Widget) XmCreatePushButtonGadget (menuPane,
+X							   newValue,
+X							   arglist, i);
+X	  XtManageChild (menuElement);
+X	  XtAddCallback (menuElement,
+X			 XmNactivateCallback,
+X			 (XtCallbackProc) menuParameterChange, newValue);
+X	  
+X	  XmStringFree (label);
+X     }
+X}
+X
+X
+Xvoid textParameterChange (widget, event, parameters, parameterCount)
+X     Widget widget;
+X     XEvent *event;
+X     String *parameters;
+X     Cardinal *parameterCount;
+X{
+X     String newValue = XmTextGetString (widget);
+X     Boolean error = False;
+X     Boolean noTerminal = False;
+X
+X     String newUser;
+X     String newGroup;
+X     String newTerminal = "";
+X     String newHost;
+X     String newAction;
+X
+X     extern void statusLineUpdate ();
+X
+X     if (strstr (newValue, "()") != NULL)
+X	  noTerminal = True;
+X     
+X     if ((newUser = strtok (newValue, ":")) == NULL)
+X	  error = True;
+X
+X     if ((newGroup = strtok (NULL, "(")) == NULL)
+X	  error = True;
+X
+X     if (! noTerminal)
+X	  newTerminal = strtok (NULL, ")");
+X
+X     if ((newHost = strtok (NULL, " ")) == NULL)
+X	  error = True;
+X     else
+X	  newHost = newHost + (noTerminal ? 2 : 1);
+X
+X     if ((newAction = strtok (NULL, ")")) == NULL)
+X	  error = True;
+X     else
+X	  newAction = newAction + 2;
+X
+X     if (!error) {
+X	  textParameterUpdate (currentUser, newUser, userPane);
+X	  textParameterUpdate (currentGroup, newGroup, groupPane);
+X	  textParameterUpdate (currentTerminal, newTerminal, terminalPane);
+X	  textParameterUpdate (currentHost, newHost, hostPane);
+X	  textParameterUpdate (currentAction, newAction, actionPane);
+X
+X	  reDisplayProcessesIfNecessary ();
+X     }
+X     noInputMode ();
+X
+X     XtFree (newValue);
+X}
+X
+X
+Xvoid inputMode ()
+X{
+X     Widget statusArea = XtNameToWidget (topLevel,
+X					 "topWindow.selectionArea.statusArea");
+X     Widget textArea = XtNameToWidget (topLevel,
+X				       "topWindow.selectionArea.textArea");
+X
+X     extern void textLineUpdate ();
+X
+X     XtUnmanageChild (statusArea);
+X     textLineUpdate ();
+X     XtManageChild (textArea);
+X}
+X
+X
+Xvoid noInputMode ()
+X{
+X     Widget statusArea = XtNameToWidget (topLevel,
+X					 "topWindow.selectionArea.statusArea");
+X     Widget textArea = XtNameToWidget (topLevel,
+X				       "topWindow.selectionArea.textArea");
+X
+X     extern void statusLineUpdate ();
+X
+X     XtUnmanageChild (textArea);
+X     statusLineUpdate ();
+X     XtManageChild (statusArea);
+X}
+X
+X
+Xvoid infoLineUpdate (processCount)
+X     int processCount;
+X{
+X     Widget infoArea = XtNameToWidget (topLevel,
+X				       "topWindow.selectionArea.infoArea");
+X     XmString label;
+X     char infoLine[512];
+X
+X     Arg arglist[2];
+X     Cardinal i;
+X     
+X     sprintf (infoLine, "%d Processes", processCount);
+X
+X     label = XmStringCreateLtoR (infoLine, XmSTRING_DEFAULT_CHARSET);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetValues (infoArea, arglist, i);
+X
+X     XmStringFree (label);
+X}
+X
+X
+Xvoid statusLineUpdate ()
+X{
+X     Widget statusArea = XtNameToWidget (topLevel,
+X					 "topWindow.selectionArea.statusArea");
+X     XmString label;
+X     char statusLine[512];
+X
+X     Arg arglist[2];
+X     Cardinal i;
+X     
+X     sprintf (statusLine,
+X	      "%s:%s(%s)@%s  (%s)",
+X	      currentUser, currentGroup, currentTerminal, currentHost,
+X	      currentAction);
+X
+X     label = XmStringCreateLtoR (statusLine, XmSTRING_DEFAULT_CHARSET);
+X
+X     i = 0;
+X     XtSetArg (arglist[i], XmNlabelString, label); i++;
+X     XtSetValues (statusArea, arglist, i);
+X
+X     XmStringFree (label);
+X}
+X
+X
+Xvoid textLineUpdate ()
+X{
+X     Widget textArea = XtNameToWidget (topLevel,
+X				       "topWindow.selectionArea.textArea");
+X     char statusLine[512];
+X     
+X     sprintf (statusLine,
+X	      "%s:%s(%s)@%s  (%s)",
+X	      currentUser, currentGroup, currentTerminal, currentHost,
+X	      currentAction);
+X
+X     XmTextSetString (textArea, statusLine);
+X}
+END_OF_FILE
+  if test 5378 -ne `wc -c <'status.c'`; then
+    echo shar: \"'status.c'\" unpacked with wrong size!
+  fi
+  # end of 'status.c'
+fi
+if test -f 'xmps.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmps.h'\"
+else
+  echo shar: Extracting \"'xmps.h'\" \(4496 characters\)
+  sed "s/^X//" >'xmps.h' <<'END_OF_FILE'
+X/*
+X * Copyright (C) 1991, 1992 Jean-Jacques Moreau.
+X *
+X * Permission to use, copy, modify and distribute this software
+X * and its documentation for any purpose is hereby granted without fee,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.  The author makes no representations
+X * about the suitability of this software for any purpose.  It is
+X * provided "as is" without express or implied warranty.
+X *
+X * THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+X * NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+X * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+X * USE OR PERFORMANCE OF THIS SOFTWARE.
+X */
+X
+X
+X#ifdef GLOBAL
+X#define EXTERN
+X#else
+X#define EXTERN extern
+X#endif
+X
+X
+XEXTERN Widget topLevel;
+XEXTERN Widget processArea;
+XEXTERN Widget headerArea;
+XEXTERN Widget listArea;
+X
+XEXTERN Widget searchDialog;
+X
+XEXTERN Widget processPane;
+XEXTERN Widget hostPane;
+XEXTERN Widget userPane;
+XEXTERN Widget groupPane;
+XEXTERN Widget terminalPane;
+XEXTERN Widget actionPane;
+XEXTERN Widget viewPane;
+XEXTERN Widget optionPane;
+XEXTERN Widget helpPane;
+X
+X#ifdef GLOBAL
+Xchar currentHost[512];
+Xchar currentUser[512];
+Xchar currentGroup[512];
+Xchar currentTerminal[512];
+Xchar currentAction[512];
+X#else
+Xextern char currentHost[];
+Xextern char currentUser[];
+Xextern char currentGroup[];
+Xextern char currentTerminal[];
+Xextern char currentAction[];
+X#endif
+X
+XBoolean internalBeautifier;
+X
+XEXTERN Cursor busyCursor;
+X
+X
+X#define ACTION_SEARCH		101
+X#define ACTION_SEARCH_NEXT	102
+X#define ACTION_SEARCH_PREVIOUS	103
+X#define ACTION_NEW_VIEW		104
+X
+X#define MENU_AUTOMATIC_REFRESH	201
+X#define MENU_FULL_LISTING	202
+X#define MENU_LONG_LISTING	203
+X#define MENU_ALL_PROCESSES	205
+X#define MENU_NO_GROUP_LEADER	206
+X#define MENU_NO_NON_TERMINAL	207
+X#define MENU_AUTOMATIC_MEMORY	208
+X#define MENU_BEAUTIFY		209
+X#define MENU_MULTIPLE_OCCURRENCES 210
+X#define MENU_PERIODIC_REFRESH	211
+X#define MENU_IGNORE_CASE	212
+X#define MENU_PRINT_SELECTED	213
+X
+X
+Xextern void textParameterChange ();
+Xextern int menuParameterChange ();
+Xextern void reDisplayProcessesIfNecessary ();
+Xextern int reDisplayProcesses ();
+Xextern int selectAllProcesses ();
+Xextern int unselectAllProcesses ();
+Xextern int applyAction ();
+Xextern int searchProcessPrompt ();
+Xextern int searchProcess ();
+Xextern int exitXmPs ();
+Xextern int createNewView ();
+Xextern int takeSnapshot ();
+Xextern int changeOption ();
+Xextern int versionXmPs ();
+Xextern int printProcesses ();
+Xextern int printSnapshotProcesses ();
+Xextern void printProcessesFrom ();
+Xextern String executeCommand ();
+Xextern int pid ();
+Xextern int ppid ();
+Xextern String format ();
+Xextern void inputMode ();
+Xextern void noInputMode ();
+Xextern String concat ();
+Xextern void parseHeader ();
+Xextern void error ();
+X
+X
+Xtypedef struct _ResourceRec {
+X     String hosts;
+X     String actions;
+X     String users;
+X     String usersOption;
+X     String groups;
+X     String groupsOption;
+X     String terminals;
+X     String terminalsOption;
+X
+X     String psCommand;
+X     String rshCommand;
+X     String printCommand;
+X     String beautifyCommand;
+X
+X     int refreshPeriod;
+X
+X     Boolean automaticRefresh;
+X     Boolean periodicRefresh;
+X     Boolean automaticMemory;
+X     Boolean beautify;
+X     Boolean multipleOccurrences;
+X     Boolean ignoreCase;
+X     Boolean printSelected;
+X
+X     Boolean allProcesses;
+X     Boolean noGroupLeader;
+X     Boolean noNonTerminal;
+X     String allProcessesOption;
+X     String noGroupLeaderOption;
+X     String noNonTerminalOption;
+X
+X     Boolean fullListing;
+X     Boolean longListing;
+X     String fullListingOption;
+X     String longListingOption;
+X} ResourceStruct, *ResourceRec;
+X
+Xtypedef struct _MenuDescRec {
+X     String label;		/* button label ("[-^]Label") */
+X     String id;			/* button internal identifier */
+X     char mnemonic;		/* button mnemonic */
+X     String acceleratorText;	/* button accelerator label */
+X     String accelerator;	/* button accelerator */
+X     int (*callback) ();	/* activateCallback or valueChangedCallback */
+X     XtPointer callbackData;	/* data passed to callback when called */
+X     Boolean *state;		/* initial state if toggle button ("^Label") */
+X} MenuDescStruct, *MenuDescRec;
+X
+X
+XEXTERN ResourceStruct resources;
+END_OF_FILE
+  if test 4496 -ne `wc -c <'xmps.h'`; then
+    echo shar: \"'xmps.h'\" unpacked with wrong size!
+  fi
+  # end of 'xmps.h'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

@@ -1,0 +1,1861 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject:  v28i014:  psf3 - Postscript print filter system, Patch01a/2
+Message-ID: <csm-v28i014=psf3.162118@sparky.IMD.Sterling.COM>
+X-Md4-Signature: d1e88dd47bc7ff17e9db90a6cb70776c
+Date: Thu, 6 Feb 1992 22:23:01 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 28, Issue 14
+Archive-name: psf3/patch01a
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+        The following is part 1 of a two part patch to psf3 corrects a 
+        few problems and adds new options.  The Makefile is modified
+        by this patch:  Please save your "working" Makefile.
+        
+        After the patches have been applied, re-edit the Makefile
+        to ensure your configuration parameters are valid.  Recompile
+        the system and install the update (using the NEW Makefile):
+        
+        Rebuild system and reinstall binaries:
+
+                make all                (compile sources)
+                make update             (install spooler+user binaries)
+        or:
+                make updateuser         (install only user binaries)
+                
+        If desired, a complete reinstallation could be performed instead.
+        
+        Various shell scripts do not need to be updated, although minor
+        cosmetic changes have been made in the various .SH files.
+
+        The man pages have been modified to reflect new features:
+        
+                make installman         (or installcat, installdoc)
+        
+        If psf is part of your lpr/lpd spooler system, you may be inclined
+        to add the -E or -e (enable line wrap) options to some
+        of your print options in psfprint.def.
+
+CORRECTIONS
+	1. column count (-c) now works for 2-up, portraint layout.
+	2. scaling when point size (-p) specified corrected
+	   for 2/4up and other transformations.
+	3. a couple of "why didn't my compiler detect" errors are fixed.
+	   (i.e. sloppy programming was fixed up...)
+	4. the -i and -m options correctly offsets the physical page
+	   The units of indentation may be points/inches/centimeters
+	5. use of the "language" feature resulted in the loss of the
+	   first print line.  (fixed by fer@gorbie.n.tv.se)
+	6. The "-u file.def" option now can search the directory
+	   contain the defaut "psfprint.def" file.  This allows
+	   multiple printers (or language translations) to easily
+	   selected with "-u apple", "-u iso8", etc...
+	  
+ADDITIONS
+	1. psf did not allow line wrap.  The following options now do:
+		-e = enable line wrap.  The last wrapped portion of
+		     a line is LEFT justified on the page.
+		-E = enable line wrap.  The last wrapped portion of
+		     a line is RIGHT justified on the page.
+
+	2. margins man now be set around each logical plage.
+		-M lm,rm,tm,bm[,pic]  sets margins around for the
+		   top (tm), bottom (bm), left (lm) and right (rm)
+		   side of the page.  The amount of indentation
+		   is in points (p), inches (i) or centimenters (c).
+	
+	3. Harv Dayhoff (dayhoff@amac.plk.af.mil) contributed a
+	   printer definition file for a DEC LN03 printer.
+	
+	4. Jan Fernquist (fer@gorbie.n.tv.se) added some helpful
+	   instructions for the "language.PSF" feature.
+
+APPLY THIS PATCH WITH:
+
+	patch -p -n <this.note.
+
+tony     (tony@ajfcal.cuc.ab.ca)
+         (*********************)	
+-------------------		
+*** /dev/null	Fri Jan 31 15:12:24 1992
+--- defs/decln03.def	Thu Jan 30 11:16:43 1992
+***************
+*** 0 ****
+--- 1,25 ----
++ *printer
++ DEC ScriptPrinter LN03R v47.2 (manually constructed)
++ *paper 2
++ Letter
++ 
++   612   792    18     8   593   775
++ A4
++ 
++   595   842    18    10   577   825
++ *order 1
++ Normal
++ *fonts 11
++ AvantGarde-Book
++ AvantGarde-Demi
++ LubalinGraph-Book
++ LubalinGraph-Demi
++ Courier
++ Helvetica
++ NewCenturySchlbk-Roman
++ Souvenir-Light
++ Souvenir-Demi
++ Symbol
++ Times-Roman
++ *slots 0
++ *eof
+*** ../psf3.net/psf.c	Fri Jan 31 19:19:45 1992
+--- psf.c	Thu Jan 30 11:22:50 1992
+***************
+*** 19,29 ****
+  		psflpd:		used with lpr/lpd.  does not accept command line
+  					arguments.  compile with -DPSFFILTER -DFORLPD
+   */
+  
+  #include <stdio.h>
+- #include <malloc.h>
+  #include <string.h>
+  #include <setjmp.h>
+  #include <math.h>
+  #include <time.h>
+  #include <signal.h>
+--- 19,28 ----
+***************
+*** 50,60 ****
+  
+  /*	set up the mechanism for underline display */
+  
+  #define SHOWU(fp,ps)	fprintf (fp, ") %d showuline\n", ps)
+  
+! #define NOMINAL_CWIDE	7.2001	/* point width for Courier 12-point			*/
+  #define NOMINAL_POINTS	12		/* standard 12-point for printing			*/
+  
+  #define NORMAL		0x00		/* bitset for  print_attributes				*/
+  #define ITALICS		0x01
+  #define BOLD		0x02
+--- 49,59 ----
+  
+  /*	set up the mechanism for underline display */
+  
+  #define SHOWU(fp,ps)	fprintf (fp, ") %d showuline\n", ps)
+  
+! #define NOMINAL_CWIDE	7.2		/* point width for Courier 12-point			*/
+  #define NOMINAL_POINTS	12		/* standard 12-point for printing			*/
+  
+  #define NORMAL		0x00		/* bitset for  print_attributes				*/
+  #define ITALICS		0x01
+  #define BOLD		0x02
+***************
+*** 115,124 ****
+--- 114,126 ----
+  			"statusdict begin 2 setpapertray end",
+  			"", "", "", ""
+  } ;
+  int		nslots = 2;
+  
++ int		nominal_high;			/*	save original width and height for		*/
++ int		nominal_wide;			/*		defaults when -M is used.			*/
++ 
+  int		y_top_offset;			/*	offsets for each frame					*/
+  int		x_left_offset;
+  int		dx_home[4];				/*	page frame home (0,0) translations		*/
+  int		dy_home[4];
+  
+***************
+*** 136,154 ****
+--- 138,164 ----
+  int		chars_on_line 	= 80;	/* default number of chars on line			*/
+  int		landscape 		= 0;	/* 1 = landscape, 0 = portrait layout		*/
+  int		header    		= 0;	/* 1 = print header at top of each page		*/
+  int		cross	  		= 0;	/* 1 = print cross on 4-up pages			*/
+  int		line_number		= 0;	/* current logical line number on page		*/
++ int		enable_wrap		= 0;	/* enable line wrap if 1.					*/
++ int		rational_wrap	= 0;	/* wrap lines to right if 1					*/
+  int		tab_size   		= 8;	/* space translation for tabs.				*/
+  int		font_number 	= 0;	/* one of the valid fonts in the printer	*/
+  int		point_size		= 12;	/* can be changed with the -p option		*/
++ int		extra_space		= 0;	/* if point size and line count specified	*/
+  int		x_user_offset 	= 0;	/* offsets specified buy user				*/
+  int		y_user_offset 	= 0;	/* points from physical page edge.			*/
++ #ifdef FORCETYPE
++ int		set_paper_tray 	= 1;	/* user has set paper tray selection		*/
++ #else
+  int		set_paper_tray 	= 0;	/* user has set paper tray selection		*/
++ #endif
+  int		set_line_count 	= 0;	/*				print line count on page	*/
+  int		set_total_count	= 0;	/*			    total line count on page	*/
+  int		set_point_size 	= 0;	/*				point size					*/
++ int		preserve_point	= 0;	/*				preserve point size with -M	*/
+  int		set_char_count 	= 0;	/*				characters on a line		*/
+  int		set_paper_bin	= 0;	/*				paper bin (not page size)	*/
+  char	header_text[100];		/*				header line text			*/
+  
+  int		print_attribute = 0;	/* such as BOLD, UNDERLINE, ITALICS			*/
+***************
+*** 219,228 ****
+--- 229,239 ----
+  FILE	*input_fp, *output_fp;
+  
+  /*	input line and input line pointer */
+  char	*c;
+  char	line[LONG_STR + 1];
++ char	shortline[150];
+  
+  char	*pgmname;
+  
+  void catch();
+  jmp_buf eof_env;
+***************
+*** 231,240 ****
+--- 242,253 ----
+  FILE	*pdef = NULL;		/*	psfprint.def file	*/
+  
+  char *ascii_hex = "0123456789abcdefghijklmnopqrstuvwxyz";
+  extern int atoi(), getpid();
+  
++ char *malloc();
++ 
+  /****************************************************************************
+  *	main ()																	*
+  ****************************************************************************/
+  
+  main (argc, argv)
+***************
+*** 246,255 ****
+--- 259,270 ----
+  	char	bookfile[100];
+  	char	*env_fname;			/*	environment specified output file */
+  	char	*getenv();
+  	int		narrow2x;
+  	char	alt_cmd[200];
++ 	char	*new_marg;
++ 	int		want_stats = 0;
+  
+  	if ((pgmname = strrchr (argv[0], '/'))
+  			|| (pgmname = strrchr (argv[0], '\\'))
+  			|| (pgmname = strrchr (argv[0], ':')))
+  		pgmname++;
+***************
+*** 260,269 ****
+--- 275,285 ----
+  	for (i = 0; i < 256;  i++)			/*	initial xlate = no translation */
+  		xlate[i] = i;
+  	for (i = font_count;  i < NFONTS;  i++)
+  		fonts[i] = "N/A";
+  
++ 	defref = NULL;
+  	for (i = 0;  i < argc;  i++)		/*	if user sets -u alt.def */
+  	{	if (strncmp (argv[i], "-u", 2) == 0)
+  		{	if (strlen (argv[i]) > 2)
+  				defref = argv[i] + 2;
+   		else
+***************
+*** 277,286 ****
+--- 293,321 ----
+  	}
+  
+  	/*	Read the .def file if it exists	*/
+  
+  	alt_cmd[0] = '\0';
++ 	if (access (defref, 0)  &&  defref != PDEF
++ 							&&  strchr (defref, '/') == NULL  
++ 							&&  strchr (defref, '\\') == NULL)
++ 	{	/* see if file is in same directory as PDEF */
++ 		char *c, *strrchr();
++ 		strcpy (shortline, PDEF);
++ 		if ((c = strrchr (shortline, '/')) == NULL)
++ 		{	if ((c = strrchr (shortline, '\\')) == NULL)
++ 				c = shortline;
++ 			else
++ 				c++;
++ 		}
++ 		else
++ 			c++;
++ 		*c = 0;
++ 		strcat (c, defref);
++ 		defref = shortline;
++ 	}
++ 		
+  	if ((pdef = fopen (defref, "r")) != NULL)
+  	{	char	line_type[50];
+  #if defined(FORLPD)
+  		char	*quote, *word;
+  		int		modified_argv = 0;
+***************
+*** 423,442 ****
+  	else /* if no .def, assume all fonts exist */
+  	{	for (i = 0;  i < font_count;  i++)
+  			fonts_have[i] = 1;
+  	}
+  
+- 	for (i = 0;  page_types[i].paper_name[0];  i++)
+- 	{	page_types[i].left_marg  = page_types[i].lx;
+- 		page_types[i].bot_marg   = page_types[i].ly;
+- 		page_types[i].top_marg   = (page_types[i].height - 1) - page_types[i].uy;
+- 		page_types[i].right_marg = (page_types[i].width  - 1) - page_types[i].ux;
+- 
+- 		page_types[i].x_size = page_types[i].ux - page_types[i].lx + 1;
+- 		page_types[i].y_size = page_types[i].uy - page_types[i].ly + 1;
+- 	}
+- 		
+  #ifdef PAPERTYPE
+  	for (i = 0;  page_types[i].paper_name[0];  i++)
+  	{	if (strcmp (page_types[i].paper_name, PAPERTYPE) == 0)
+  		{	p = &page_types[i];
+  			break;
+--- 458,467 ----
+***************
+*** 451,461 ****
+  	*header_text = '\0';
+  	if (argc > 1  &&  (strcmp (argv[1], "-") == 0  || strcmp (argv[1], "--") == 0))
+  		usage();
+  
+  	narrow2x = 0;
+! 	while ((c = getopt(argc, argv, "124xhnwdvzsi:m:b:c:g:H:l:L:f:t:p:r:R:u:-?")) != -1)
+  	{	switch (c)
+  		{
+  		case '1':
+  			max_frame = 1;
+  			break;
+--- 476,487 ----
+  	*header_text = '\0';
+  	if (argc > 1  &&  (strcmp (argv[1], "-") == 0  || strcmp (argv[1], "--") == 0))
+  		usage();
+  
+  	narrow2x = 0;
+! 	new_marg = NULL;
+! 	while ((c = getopt(argc, argv, "124Eexhnwdvzsi:m:b:c:g:H:l:L:M:f:t:P:p:r:R:u:-?")) != -1)
+  	{	switch (c)
+  		{
+  		case '1':
+  			max_frame = 1;
+  			break;
+***************
+*** 470,480 ****
+  			max_frame = 4;
+  			break;
+  			
+  		case 'b':
+  			if ((set_paper_bin = atoi (optarg)) > nslots)
+! 			{	if (nslots = 0)
+  					fprintf (stderr, "%s: no alternate bins permitted\n", nslots);
+  				else
+  					fprintf (stderr, "%s: paper bin greater than %d\n", pgmname, nslots);
+  				exit (1);
+  			}
+--- 496,506 ----
+  			max_frame = 4;
+  			break;
+  			
+  		case 'b':
+  			if ((set_paper_bin = atoi (optarg)) > nslots)
+! 			{	if (nslots == 0)
+  					fprintf (stderr, "%s: no alternate bins permitted\n", nslots);
+  				else
+  					fprintf (stderr, "%s: paper bin greater than %d\n", pgmname, nslots);
+  				exit (1);
+  			}
+***************
+*** 487,496 ****
+--- 513,531 ----
+  
+  		case 'd':
+  			book = 1;
+  			break;
+  					
++ 		case 'e':
++ 			enable_wrap = 1;
++ 			break;
++ 	
++ 		case 'E':
++ 			enable_wrap = 1;
++ 			rational_wrap = 1;
++ 			break;
++ 	
+  		case 'f':
+  			if (*optarg > '9'  &&  optarg[1])		/*	at least 2 chars */
+  			{	/*	character string name of font */
+  				for (i = 0;  i < font_count;  i += 4)
+  				{	if (partial_compare (optarg, fonts[i]) == 0)
+***************
+*** 530,540 ****
+  			header = 2;
+  			strcpy (header_text, optarg);
+  			break;
+  
+  		case 'i':
+! 			x_user_offset = atoi (optarg);
+  			break;
+  
+  		case 'l':
+  			lines_on_page = atoi (optarg);
+  			set_line_count = 1;
+--- 565,575 ----
+  			header = 2;
+  			strcpy (header_text, optarg);
+  			break;
+  
+  		case 'i':
+! 			x_user_offset = atoi (optarg) * cvt_unit (optarg) + 0.01;
+  			break;
+  
+  		case 'l':
+  			lines_on_page = atoi (optarg);
+  			set_line_count = 1;
+***************
+*** 544,555 ****
+  			lines_total = atoi (optarg);
+  			set_total_count = 1;
+  			break;
+  
+  		case 'm':
+! 			y_user_offset = atoi (optarg);
+  			break;
+  
+  		case 'n':
+  			landscape = 0;
+  			narrow2x = 1;
+  			break;
+--- 579,594 ----
+  			lines_total = atoi (optarg);
+  			set_total_count = 1;
+  			break;
+  
+  		case 'm':
+! 			y_user_offset = atoi (optarg) * cvt_unit(optarg) + 0.01;
+  			break;
++ 		
++ 		case 'M':
++ 			new_marg = optarg;
++ 			break;
+  
+  		case 'n':
+  			landscape = 0;
+  			narrow2x = 1;
+  			break;
+***************
+*** 557,578 ****
+  		case 'p':
+  			point_size = atoi (optarg);
+  			set_point_size = 1;
+  			break;
+  
+  		case 'r':
+  			remove_between = atoi (optarg);
+  			break;
+  		
+  		case 'R':
+  			remove_beginning = atoi (optarg);
+  			break;
+  			
+  		case 's':
+! 			size_display();
+! 			exit (1);
+! 	
+  		case 't':
+  			tab_size = atoi (optarg);
+  			break;
+  			
+  		case 'u':		/* already processed */
+--- 596,623 ----
+  		case 'p':
+  			point_size = atoi (optarg);
+  			set_point_size = 1;
+  			break;
+  
++ 		case 'P':
++ 			point_size = atoi (optarg);
++ 			set_point_size = 1;
++ 			preserve_point = 1;
++ 			break;
++ 
+  		case 'r':
+  			remove_between = atoi (optarg);
+  			break;
+  		
+  		case 'R':
+  			remove_beginning = atoi (optarg);
+  			break;
+  			
+  		case 's':
+! 			want_stats = 1;
+! 			break;
+! 
+  		case 't':
+  			tab_size = atoi (optarg);
+  			break;
+  			
+  		case 'u':		/* already processed */
+***************
+*** 612,643 ****
+  	else if (reverse_order == 0  &&  order_normal[0])	/*	Force normal order tray?*/
+  		order_command = order_normal;					/*		yes					*/
+  	else
+  		order_command = NULL;							/*	use default action 		*/
+  
+  	if (reverse_requested && book)
+  	{	fprintf (stderr, "Double sided or book in reverse ordered not supported\n");
+  		exit (1);
+  	}
+  
+  
+  	if (nslots <= 1)
+  		hopper_available = 0;
+  	if (reverse_order  ||  (book  &&  hopper_available))
+  		sprintf (bookfile, "%s%d.bok", TEMPFILE, getpid());
+  	else
+  		strcpy (bookfile, BOOKFILE);
+  
+- 	if (max_frame == 2  &&  landscape == 0)
+- 		set_point_size = 1;
+  	if (optind >=  argc  &&  header == 1)	/* no file name header on stdin */
+  		header = 0;
+  	save_point_size = point_size;
+  	
+  	(void)	signal (SIGINT, catch);		/*	for lpd quit */
+  
+- 
+  #ifdef PSFFILTER
+  
+  	output_fp = stdout;
+  	input_fp  = stdin;
+  	if (header == 1)
+--- 657,751 ----
+  	else if (reverse_order == 0  &&  order_normal[0])	/*	Force normal order tray?*/
+  		order_command = order_normal;					/*		yes					*/
+  	else
+  		order_command = NULL;							/*	use default action 		*/
+  
++ 	nominal_high = p->uy - p->ly + 1;					/* for default row/col scaling */
++ 	nominal_wide = p->ux - p->lx + 1;		
++ 
+  	if (reverse_requested && book)
+  	{	fprintf (stderr, "Double sided or book in reverse ordered not supported\n");
+  		exit (1);
+  	}
++ 	/*	if -M specified, set the imageable area coordinates to reflect
++ 		the deisred margin size.
++ 	*/
++ 	if (new_marg)
++ 	{	char *mc, *v[6];
++ 		int	iv;
++ 		double	fact, atof();
++ 
++ 		mc = new_marg;
++ 		iv = 1;
++ 		v[0] = mc;
++ 		while (*mc  &&  iv < 6)
++ 		{	if (*mc == ',')
++ 			{	v[iv++] = mc + 1;
++ 				*mc = 0;
++ 			}
++ 			mc++;
++ 		}
++ 		if (iv < 4)
++ 		{	fprintf (stderr, "Must have 4 margin sizes specified\n");
++ 			exit (1);
++ 		}
++ 		if (iv > 4)
++ 			fact = cvt_unit (v[4]);
++ 		else
++ 			fact = cvt_unit (v[3]);
+  
++ 		if (landscape)
++ 		{	if ((iv = atof (v[3]) * fact) > 0)
++ 				p->lx = max (p->lx, (iv + 1));
++ 			if ((iv = atof (v[2]) * fact) > 0)
++ 				p->ux = min (p->ux, p->width  - (iv + 1));
++ 			if ((iv = atof (v[1]) * fact) > 0)
++ 				p->uy = min (p->uy, p->height - (iv + 1));
++ 			if ((iv = atof (v[0]) * fact) > 0)
++ 				p->ly = max (p->ly, (iv + 1));
++ 		}
++ 		else
++ 		{	if ((iv = atof (v[0]) * fact) > 0)
++ 				p->lx = max (p->lx, (iv + 1));
++ 			if ((iv = atof (v[1]) * fact) > 0)
++ 				p->ux = min (p->ux, p->width  - (iv + 1));
++ 			if ((iv = atof (v[2]) * fact) > 0)
++ 				p->uy = min (p->uy, p->height - (iv + 1));
++ 			if ((iv = atof (v[3]) * fact) > 0)
++ 				p->ly = max (p->ly, (iv + 1));
++ 		}
++ 		if (p->ux - p->lx < 200  ||  p->uy - p->ly < 200)
++ 		{	fprintf (stderr, "Margin size is inappropriate\n");
++ 				exit (1);
++ 		}
++ 	}
++ 	for (i = 0;  page_types[i].paper_name[0];  i++)
++ 	{	page_types[i].left_marg  = page_types[i].lx;
++ 		page_types[i].bot_marg   = page_types[i].ly;
++ 		page_types[i].top_marg   = (page_types[i].height - 1) - page_types[i].uy;
++ 		page_types[i].right_marg = (page_types[i].width  - 1) - page_types[i].ux;
+  
++ 		page_types[i].x_size = page_types[i].ux - page_types[i].lx + 1;
++ 		page_types[i].y_size = page_types[i].uy - page_types[i].ly + 1;
++ 	}
++ 	if (want_stats)
++ 	{	size_display();
++ 		exit (1);
++ 	}
+  	if (nslots <= 1)
+  		hopper_available = 0;
+  	if (reverse_order  ||  (book  &&  hopper_available))
+  		sprintf (bookfile, "%s%d.bok", TEMPFILE, getpid());
+  	else
+  		strcpy (bookfile, BOOKFILE);
+  
+  	if (optind >=  argc  &&  header == 1)	/* no file name header on stdin */
+  		header = 0;
+  	save_point_size = point_size;
+  	
+  	(void)	signal (SIGINT, catch);		/*	for lpd quit */
+  
+  #ifdef PSFFILTER
+  
+  	output_fp = stdout;
+  	input_fp  = stdin;
+  	if (header == 1)
+***************
+*** 683,693 ****
+  		line_number = 32000;
+  		default_point_size = point_size;
+  		default_font_number = font_number;
+  		bookwork = book  &&  landscape  &&  (max_frame == 2);
+  
+- 		input_fp = stdin;
+  		get_time (now);		
+  		scale_factors ();
+  		prologue ();
+  		start_file ();
+  		process_file ();
+--- 791,800 ----
+***************
+*** 772,781 ****
+--- 879,919 ----
+  	exit (0);
+  }
+  
+  
+  /****************************************************************************
++ *	cvt_unit ()																*
++ *	Determine the margin offset conversion factor to points.				*
++ ****************************************************************************/
++ 
++ double cvt_unit (which)
++ char *which;
++ {	double	fact;
++ 
++ 	fact = 1.0;
++ 	while (*which)
++ 	{
++ 		if (isdigit (*which))
++ 		{	which++;
++ 			continue;
++ 		}
++ 		switch (toupper (*which))
++ 		{
++ 		case 'I':	fact = 72.0;		break;		/* inches 	*/
++ 		case 'C':	fact = 72.0 / 2.54;	break;		/* cm	  	*/
++ 		case 'P':	fact = 1.0;			break;		/* points	*/
++ 		case ',':	break;
++ 		default :	fprintf (stderr, "invalid margin unit '%c'\n", *which);
++ 					exit (1);
++ 		}
++ 		if (*which++ != ',')
++ 			break;
++ 	}
++ 	return (fact);
++ }
++ 
++ /****************************************************************************
+  *	scale_factors ()														*
+  *	Compute the x and y scale factors.										*
+  ****************************************************************************/
+  
+  /*					total paper size - unprintable size
+***************
+*** 788,861 ****
+  	int	high;				/*	points needed for line count		*/
+  	int	n_lines;			/*	number of lines on a page			*/
+  	int	i;
+  	double	char_width, scale;
+  	double	char_sf, line_sf;
+! 	int		nominal_high, nominal_wide;
+! 	int		on_portrait;
+! 
+! 	/*	use either the "portrait" or landscape width/height for basic scaling
+! 	*/
+! 	switch (max_frame)
+! 	{
+! 	case 1:	on_portrait = 0;
+! 			break;
+! 	case 2: if (landscape)
+! 				on_portrait = 1;
+! 			else
+! 				on_portrait = 0;
+! 			break;
+! 	case 4: if (landscape)
+! 				on_portrait = 0;
+! 			else
+! 				on_portrait = 1;
+! 	}
+! 
+  	real_width = p->width;		/* for initial axis translate only	*/
+  
+- 	/*	if 4up in portrait or 2up, we want to shrink the image as
+- 		though it were a proper 8.5x11 page.  thus do all calculations
+- 		of line and column count as though it were a normal portrait page.
+- 	*/
+- 	if (on_portrait)
+- 	{	nominal_high = p->y_size;
+- 		nominal_wide = p->x_size;
+- 	}
+  	if (landscape)
+! 	{
+  		i = p->height;      p->height    = p->width;        p->width      = i;
+  		i = p->left_marg;   p->left_marg = p->bot_marg;     p->bot_marg   = i;
+  		i = p->top_marg;    p->top_marg  = p->right_marg;   p->right_marg = i;
+  		i = p->lx;		    p->lx        = p->ly;		    p->ly		  = i;
+  		i = p->ux;		    p->ux        = p->uy;		    p->uy		  = i;
+  		i = p->x_size;	    p->x_size    = p->y_size;	    p->y_size	  = i;
+  	}
+! 	if (on_portrait == 0)
+! 	{	nominal_high = p->y_size;
+! 		nominal_wide = p->x_size;
+! 	}
+! 
+! 	if (set_point_size)
+! 	{	/*	if point size specified, ignore changes to rows and columns
+! 			with -L, -l & -c.  They destroy character shape.
+! 		*/
+! 		char_width = point_size / 12.0 * NOMINAL_CWIDE;
+! 		n_chars = ceil ((double) nominal_wide / (double) char_width);
+  		n_lines = (double) nominal_high / (double) point_size;
+! 		char_sf = 1.0;
+  		line_sf = 1.0;
+  
+! 		if (set_total_count == 0  ||  lines_total > n_lines)
+  			lines_total = n_lines;
+! 		if (set_line_count == 0  ||  lines_on_page > n_lines)
+  			lines_on_page = n_lines;
+  		if (lines_total < lines_on_page)
+! 			lines_on_page = lines_total;
+  		if (header)				/* compress scale to allow headers */
+  		{	lines_on_page += 2;
+  			lines_total += 2;
+! 			line_sf = (double) n_lines / (double) lines_total;
+  		}
+  	}
+  	else
+  	{	/*	determine independent scale factors to lines and columns
+  			based on user line and column count. This changes
+--- 926,992 ----
+  	int	high;				/*	points needed for line count		*/
+  	int	n_lines;			/*	number of lines on a page			*/
+  	int	i;
+  	double	char_width, scale;
+  	double	char_sf, line_sf;
+! 	
+  	real_width = p->width;		/* for initial axis translate only	*/
+  
+  	if (landscape)
+! 	{	if ((max_frame == 1) || ( max_frame == 4)  ||  set_point_size)
+! 		{	/* use landscape as basis for line/col counts */
+! 			i = nominal_high;
+! 			nominal_high = nominal_wide;
+! 			nominal_wide = i;
+! 		}
+  		i = p->height;      p->height    = p->width;        p->width      = i;
+  		i = p->left_marg;   p->left_marg = p->bot_marg;     p->bot_marg   = i;
+  		i = p->top_marg;    p->top_marg  = p->right_marg;   p->right_marg = i;
+  		i = p->lx;		    p->lx        = p->ly;		    p->ly		  = i;
+  		i = p->ux;		    p->ux        = p->uy;		    p->uy		  = i;
+  		i = p->x_size;	    p->x_size    = p->y_size;	    p->y_size	  = i;
+  	}
+! 	x_user_offset = max (0, x_user_offset - p->left_marg);
+! 	y_user_offset = max (0, y_user_offset - p->top_marg);
+! 	p->width -= x_user_offset;		/* reduce effective page size */
+! 	p->height -= y_user_offset;
+! 	p->x_size -= x_user_offset;
+! 	p->y_size -= y_user_offset;
+! 
+! 	if (set_point_size)		/*	Attempt to honour point size */
+! 	{	if (preserve_point)
+! 		{	nominal_high = p->y_size;
+! 			nominal_wide = p->x_size;
+! 		}
+! 		char_width = (double) point_size / 12.0 * (double) NOMINAL_CWIDE;
+! 		n_chars = ceil ((double) nominal_wide / char_width);
+! 		char_sf = (double) (nominal_wide) / (double) (char_width * n_chars);
+  		n_lines = (double) nominal_high / (double) point_size;
+! 		if (set_char_count)
+! 			char_sf *= (double) n_chars / (double) chars_on_line;
+! 		else
+! 			chars_on_line = n_chars;
+  		line_sf = 1.0;
+  
+! 		if (set_total_count == 0)
+  			lines_total = n_lines;
+! 		if (set_line_count == 0)
+  			lines_on_page = n_lines;
+  		if (lines_total < lines_on_page)
+! 		{	if (set_total_count)
+! 				lines_on_page = lines_total;
+! 			else
+! 				lines_total = lines_on_page;
+! 		}
+! 		if (n_lines != lines_total)
+! 			extra_space = (double) (nominal_high - (lines_total * point_size)) 
+! 							/ (double) (lines_total);
+! 
+  		if (header)				/* compress scale to allow headers */
+  		{	lines_on_page += 2;
+  			lines_total += 2;
+! 			line_sf = (double) (lines_total - 2) / (double) (lines_total);
+  		}
+  	}
+  	else
+  	{	/*	determine independent scale factors to lines and columns
+  			based on user line and column count. This changes
+***************
+*** 896,944 ****
+  		for descenders for the last line.
+  	*/
+  	high = ceil ((double) point_size * ((double) n_lines + 0.51));
+  	wide = ceil (n_chars * char_width);
+  
+- 	x_user_offset = max (0, x_user_offset - p->left_marg);
+- 	y_user_offset = max (0, y_user_offset - p->top_marg );
+- 
+  	switch (max_frame)
+  	{
+  	case 1:
+  		scale_x = (double) (p->x_size) / (double) wide * char_sf;
+  		scale_y = (double) (p->y_size) / (double) high * line_sf;
+! 		x_left_offset  = (int) ceil ((double) (p->left_marg + x_user_offset) / scale_x);
+! 		y_top_offset   = (int) ceil ((double) (p->top_marg  + y_user_offset) / scale_y);
+! 		dx_home[0] = 0;
+! 		dy_home[0] = 0;
+! 		p->height = ceil ((double) p->height / scale_y);
+! 		p->width  = ceil ((double) p->width / scale_x);
+  		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
+  		break;
+  
+  	case 2:
+  		scale_x = (double) (p->width - 2 * p->left_marg - 2 * p->right_marg)
+  				/ (double) (2 * wide) * char_sf;
+  		scale_y = (double) (p->y_size) / (double) high * line_sf;
+  
+! 		if (landscape == 0)
+  		{	scale_y /= 2.0;
+  			lines_total *= 2.0;
+  			lines_on_page *= 2.0;
+  		}
+- 
+  		/*	point offsets for margins account for physical "forbidden" area */
+  
+  		x_left_offset  = (int) ceil ((double) p->left_marg / scale_x);
+  		y_top_offset   = (int) ceil ((double) p->top_marg / scale_y);
+  
+  		/*	page origin translation vectors	*/
+  
+! 		p->height = ceil ((double) p->height / scale_y);
+! 		p->width  = ceil ((double) p->width  / (scale_x * 2.0));
+! 		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
+! 		dx_home[0] = 0;
+  		dy_home[0] = 0;
+  		dx_home[1] = p->width;
+  		dy_home[1] = 0;
+  		break;
+  	
+--- 1027,1080 ----
+  		for descenders for the last line.
+  	*/
+  	high = ceil ((double) point_size * ((double) n_lines + 0.51));
+  	wide = ceil (n_chars * char_width);
+  
+  	switch (max_frame)
+  	{
+  	case 1:
+  		scale_x = (double) (p->x_size) / (double) wide * char_sf;
+  		scale_y = (double) (p->y_size) / (double) high * line_sf;
+! 		x_left_offset  = (int) ceil ((double) (p->left_marg) / scale_x);
+! 		y_top_offset   = (int) ceil ((double) (p->top_marg) / scale_y);
+! 		x_user_offset = (double) x_user_offset / scale_x;
+! 		y_user_offset = (double) y_user_offset / scale_y;
+! 		p->height = (int)((double) p->height / scale_y);
+! 		p->width  = (int)((double) p->width / scale_x);
+  		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
++ 
++ 		/*	page origin translation vectors	*/
++ 
++ 		dx_home[0] = x_user_offset;
++ 		dy_home[0] = 0;
+  		break;
+  
+  	case 2:
+  		scale_x = (double) (p->width - 2 * p->left_marg - 2 * p->right_marg)
+  				/ (double) (2 * wide) * char_sf;
+  		scale_y = (double) (p->y_size) / (double) high * line_sf;
+  
+! 		if (landscape == 0  &&  set_line_count == 0)
+  		{	scale_y /= 2.0;
+  			lines_total *= 2.0;
+  			lines_on_page *= 2.0;
+  		}
+  		/*	point offsets for margins account for physical "forbidden" area */
+  
+  		x_left_offset  = (int) ceil ((double) p->left_marg / scale_x);
+  		y_top_offset   = (int) ceil ((double) p->top_marg / scale_y);
+  
++ 		p->height = (int)((double) p->height / scale_y);
++ 		p->width  = (int)((double) (p->width)  / (scale_x * 2.0));
++ 		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
++ 
++ 		x_user_offset = (double) x_user_offset / scale_x;
++ 		y_user_offset = (double) y_user_offset / scale_y;
++ 
+  		/*	page origin translation vectors	*/
+  
+! 		dx_home[0] = x_user_offset;
+  		dy_home[0] = 0;
+  		dx_home[1] = p->width;
+  		dy_home[1] = 0;
+  		break;
+  	
+***************
+*** 951,966 ****
+  		/*	point offsets for margins account for physical "forbidden" area */
+  
+  		x_left_offset = (int) ceil ((double) p->left_marg / scale_x);
+  		y_top_offset  = (int) ceil ((double) p->top_marg / scale_y);
+  
+  		/*	page origin tranlsation vectors	*/
+  
+! 		p->height = ceil ((double) p->height / (scale_y * 2.0));
+! 		p->width  = ceil ((double) p->width  / (scale_x * 2.0));
+! 		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
+! 		dx_home[0] = 0;
+  		dy_home[0] = p->height;
+  		dx_home[1] = p->width;
+  		dy_home[1] = 0;
+  		dx_home[2] = -p->width;
+  		dy_home[2] = -p->height;
+--- 1087,1106 ----
+  		/*	point offsets for margins account for physical "forbidden" area */
+  
+  		x_left_offset = (int) ceil ((double) p->left_marg / scale_x);
+  		y_top_offset  = (int) ceil ((double) p->top_marg / scale_y);
+  
++ 		p->height = (int)((double) (p->height)  / (scale_y * 2.0));
++ 		p->width  = (int)((double) (p->width)  / (scale_x * 2.0));
++ 		p->bot_marg = ceil ((double) p->bot_marg / scale_y);
++ 
++ 		x_user_offset = (double) x_user_offset / scale_x;
++ 		y_user_offset = (double) y_user_offset / scale_y;
++ 
+  		/*	page origin tranlsation vectors	*/
+  
+! 		dx_home[0] = x_user_offset;
+  		dy_home[0] = p->height;
+  		dx_home[1] = p->width;
+  		dy_home[1] = 0;
+  		dx_home[2] = -p->width;
+  		dy_home[2] = -p->height;
+***************
+*** 968,982 ****
+  		dy_home[3] = 0;
+  		break;
+  
+  	default: ;
+  	}
+- 
+- 	if (max_frame > 1)
+- 	{	x_left_offset += x_user_offset;
+- 		y_top_offset  += y_user_offset;
+- 	}
+  }
+  
+  
+  /****************************************************************************
+  *	prologue ()																*
+--- 1108,1117 ----
+***************
+*** 1023,1033 ****
+  
+  	/*	add additional startup prologue code from psfprint.def
+  		probably for non-English language support.
+  	*/
+  	if (pdef)
+! 	{	while (fgets (line, LONG_STR, pdef))
+  		{	if (fputs (line, output_fp) == EOF)
+  				output_trouble (2);
+  		}
+  		fclose (pdef);
+  		pdef = NULL;
+--- 1158,1173 ----
+  
+  	/*	add additional startup prologue code from psfprint.def
+  		probably for non-English language support.
+  	*/
+  	if (pdef)
+! 	{
+! #ifdef PSFILTER
+!  		char	line[LONG_STR + 1];		/* line already has text stream		   */
+! 										/* Jan Fernquist (fer@gorbie.n.tvt.se) */
+! #endif
+! 		while (fgets (line, LONG_STR, pdef))
+  		{	if (fputs (line, output_fp) == EOF)
+  				output_trouble (2);
+  		}
+  		fclose (pdef);
+  		pdef = NULL;
+***************
+*** 1123,1140 ****
+  		findfont();
+  	}
+  
+  	set_y_coord ();
+  
+! 	if (max_frame > 1  &&  bookwork == 0)
+  		fprintf (output_fp, "%d %d translate\n", dx_home[frame], dy_home[frame]);
+- 
+- 	if (frame == 0  &&  cross)
+- 		draw_cross();
+- 
+  	if (max_frame > 1)
+! 	{	fprintf (output_fp, "gsave\n");
+  		set_clip_path (0, 0, p->width, p->height);
+  	}
+  }
+  
+  
+--- 1263,1279 ----
+  		findfont();
+  	}
+  
+  	set_y_coord ();
+  
+! 	if (bookwork == 0)
+  		fprintf (output_fp, "%d %d translate\n", dx_home[frame], dy_home[frame]);
+  	if (max_frame > 1)
+! 	{
+! 		if (frame == 0  &&  cross)
+! 			draw_cross();
+! 		fprintf (output_fp, "gsave\n");
+  		set_clip_path (0, 0, p->width, p->height);
+  	}
+  }
+  
+  
+***************
+*** 1143,1153 ****
+  *	position next line to the top of a logical page.						*
+  *****************************************************************************/
+  
+  void set_y_coord ()
+  {
+! 	y_coord = p->height - y_top_offset - point_size;
+  }
+  
+  /****************************************************************************
+  *	put_top																	*
+  *	put a header line at the top of the page								*
+--- 1282,1295 ----
+  *	position next line to the top of a logical page.						*
+  *****************************************************************************/
+  
+  void set_y_coord ()
+  {
+! 	if (extra_space > 0)
+! 		y_coord = p->height - y_top_offset - (point_size + extra_space / 2);
+! 	else
+! 		y_coord = p->height - y_top_offset - point_size;
+  }
+  
+  /****************************************************************************
+  *	put_top																	*
+  *	put a header line at the top of the page								*
+***************
+*** 1169,1179 ****
+  	sprintf (fmt, "(%%-%ds%%3d     %%s)show\n", nc);
+  
+  	findfont();
+  	moveto (0, y_coord, 1);
+  	fprintf (output_fp, fmt, hd, page_number + 1, now);
+! 	y_coord -= point_size * 2;
+  	x_coord = 0;
+  	print_attribute = save_attr;
+  	point_size = save_point;
+  	findfont();
+  }
+--- 1311,1322 ----
+  	sprintf (fmt, "(%%-%ds%%3d     %%s)show\n", nc);
+  
+  	findfont();
+  	moveto (0, y_coord, 1);
+  	fprintf (output_fp, fmt, hd, page_number + 1, now);
+! 	y_coord -= ((point_size + extra_space)  * 2);
+! 
+  	x_coord = 0;
+  	print_attribute = save_attr;
+  	point_size = save_point;
+  	findfont();
+  }
+***************
+*** 1183,1195 ****
+  *	Read the file, look for escape sequences, put text in postscript form	*
+  ****************************************************************************/
+  
+  void process_file ()
+  {	int		char_type, char_count, i, set_page, esc_type;
+! 	char	*strchr ();
+  	int		previous_attribute;
+  	int		lcount = 0;
+  	unsigned char	*xln;
+  
+  	set_page = 0;
+  	i = remove_beginning;
+  	while (i--  &&  fgets (line, LONG_STR, input_fp))
+--- 1326,1340 ----
+  *	Read the file, look for escape sequences, put text in postscript form	*
+  ****************************************************************************/
+  
+  void process_file ()
+  {	int		char_type, char_count, i, set_page, esc_type;
+! 	char	*strchr (), *lc;
+  	int		previous_attribute;
+  	int		lcount = 0;
++ 	int		line_is_wrapped;
++ 	char	line_tab[LONG_STR + 1];
+  	unsigned char	*xln;
+  
+  	set_page = 0;
+  	i = remove_beginning;
+  	while (i--  &&  fgets (line, LONG_STR, input_fp))
+***************
+*** 1200,1215 ****
+  	}
+  
+  	if (setjmp (eof_env))
+  	{	return;
+  	}
+  
+  #ifdef PSFFILTER
+  	/*	psffilter already has a first line,  psf does not */
+  	do
+  #else
+! 	while (fgets (line, LONG_STR, input_fp) != NULL)
+  #endif
+  	{
+  		if (*line == CTLD_EOJ)		/* printing postscript code: ^D at end	*/
+  			break;					/* assume it is end of file also		*/
+  
+--- 1345,1361 ----
+  	}
+  
+  	if (setjmp (eof_env))
+  	{	return;
+  	}
++ 	line_is_wrapped = 0;
+  
+  #ifdef PSFFILTER
+  	/*	psffilter already has a first line,  psf does not */
+  	do
+  #else
+! 	while (line_is_wrapped  ||  fgets (line, LONG_STR, input_fp) != NULL)
+  #endif
+  	{
+  		if (*line == CTLD_EOJ)		/* printing postscript code: ^D at end	*/
+  			break;					/* assume it is end of file also		*/
+  
+***************
+*** 1240,1249 ****
+--- 1386,1424 ----
+  			is_a_formfeed = 1;
+  		}
+  		else
+  			c = line;
+  
++ 		if (enable_wrap  &&  line_is_wrapped == 0)
++ 		{	/* for wrapped line, do tab analysis now */
++ 			char_count = 0;
++ 			lc = line_tab;
++ 			c = line;
++ 			while (*c)
++ 			{
++ 				if (*c == ESCAPE)
++ 				{	*lc++ = *c++;
++ 					if (*c == 'P')
++ 						*lc++ = *c++;		/* point size = 2 chars */
++ 					if (*c)
++ 						*lc++ = *c++;
++ 				}
++ 				else if (*c == '\t')
++ 				{	*lc++ = ' ';
++ 					while (++char_count % tab_size)
++ 						*lc++ = ' ';
++ 					c++;
++ 				}
++ 				else
++ 				{	*lc++ = *c++;
++ 					char_count++;
++ 				}
++ 			}
++ 			*lc = '\0';
++ 			c = line_tab;
++ 		}
++ 
+  		if (line_number >= lines_on_page * 10)
+  		{	page_number++;
+  			showpage (0);
+  			line_number = 10;
+  			if (header)
+***************
+*** 1289,1301 ****
+  								output_trouble (2);
+  						}
+  						if (esc_type == '+'  ||  esc_type == '-')
+  						{	/*	check for +/- 1/2 line feed		*/
+  							if (esc_type == '+')
+! 								y_coord -= point_size / 2;
+  							else
+! 								y_coord += point_size / 2;
+  							moveto (x_coord, y_coord, 1);
+  							char_type = -1;
+  							c++;
+  							if (*c != '\n')
+  							{	if (fputc ('(', output_fp) == EOF)
+--- 1464,1476 ----
+  								output_trouble (2);
+  						}
+  						if (esc_type == '+'  ||  esc_type == '-')
+  						{	/*	check for +/- 1/2 line feed		*/
+  							if (esc_type == '+')
+! 								y_coord -= ((point_size + extra_space) / 2);
+  							else
+! 								y_coord += ((point_size + extra_space)  / 2);
+  							moveto (x_coord, y_coord, 1);
+  							char_type = -1;
+  							c++;
+  							if (*c != '\n')
+  							{	if (fputc ('(', output_fp) == EOF)
+***************
+*** 1309,1355 ****
+  					char_type = 0;
+  				}
+  				break;
+  
+  			default:
+  				if (*c == '\t')
+  				{	fputc (' ', output_fp);
+  					while (++char_count % tab_size)
+  					{	if (fputc (' ', output_fp) == EOF)
+  							output_trouble (2);
+  					}
+  				}
+  				else
+  				{	if (strchr ("\r\b\\()", *c) != NULL)
+! 					if (fputc ('\\', output_fp) == EOF)
+! 						output_trouble (2);
+  					if (fputc (*c, output_fp) == EOF)
+  						output_trouble (2);
+  					char_count++;
+  				}
+- 				char_type = 1;
+  				break;
+  			}
+  			c++;
+  		}
+  		if (char_type == 1)
+  		{	if (print_attribute & UNDERLINE)
+  				SHOWU (output_fp, point_size);
+  			else
+  			{	if (fputs (")show\n", output_fp) == EOF)
+  					output_trouble (2);
+  			}
+  		}
+  
+! 		y_coord -= point_size;
+  		x_coord = 0;
+  		if (set_page)
+  		{	line_number = 32000;
+  			set_page = 0;
+  		}
+  #ifdef PSFFILTER
+! 	} while (fgets (line, LONG_STR, input_fp) != NULL);
+  #else
+  	}
+  #endif
+  	if (end_of_file == 0)
+  		showpage (1);
+--- 1484,1548 ----
+  					char_type = 0;
+  				}
+  				break;
+  
+  			default:
++ 				char_type = 1;
++ 				if (enable_wrap  &&  char_count >= chars_on_line)
++ 				{	int	  nb;
++ 					lc = line;
++ 					if (rational_wrap)	/* right-justify */
++ 					{	nb = chars_on_line - strlen (c) + 1;
++ 						if (nb > 0)
++ 						{	while (nb--)
++ 								*lc++ = ' ';
++ 						}
++ 					}
++ 					while (*c)
++ 						*lc++ = *c++;
++ 					*lc = 0;
++ 					line_is_wrapped = 1;
++ 					goto wrapit;
++ 				}
+  				if (*c == '\t')
+  				{	fputc (' ', output_fp);
+  					while (++char_count % tab_size)
+  					{	if (fputc (' ', output_fp) == EOF)
+  							output_trouble (2);
+  					}
+  				}
+  				else
+  				{	if (strchr ("\r\b\\()", *c) != NULL)
+! 						if (fputc ('\\', output_fp) == EOF)
+! 							output_trouble (2);
+  					if (fputc (*c, output_fp) == EOF)
+  						output_trouble (2);
+  					char_count++;
+  				}
+  				break;
+  			}
+  			c++;
+  		}
++ 		line_is_wrapped = 0;
++ wrapit:
+  		if (char_type == 1)
+  		{	if (print_attribute & UNDERLINE)
+  				SHOWU (output_fp, point_size);
+  			else
+  			{	if (fputs (")show\n", output_fp) == EOF)
+  					output_trouble (2);
+  			}
+  		}
+  
+! 		y_coord -= (point_size + extra_space);
+  		x_coord = 0;
+  		if (set_page)
+  		{	line_number = 32000;
+  			set_page = 0;
+  		}
+  #ifdef PSFFILTER
+! 	} while (line_is_wrapped  ||  fgets (line, LONG_STR, input_fp) != NULL);
+  #else
+  	}
+  #endif
+  	if (end_of_file == 0)
+  		showpage (1);
+***************
+*** 1545,1564 ****
+  
+  	if (max_frame > 1)
+  	{	p_w = p->width;
+  		p_h = p->height;
+  		if (max_frame == 4)
+! 		{	set_clip_path (0, -p_h, p_w * 2, p_h);
+! 			fprintf (output_fp,"gsave %d %d moveto\n", p_w, p_h);
+  			fprintf (output_fp,"%d %d lineto\n", p_w, -p_h);
+  			fprintf (output_fp,"%d %d moveto\n", 0, 0);
+  			fprintf (output_fp,"%d %d lineto\n", p_w * 2, 0);
+  			fprintf (output_fp,"%s\n", "stroke grestore");
+  		}
+  		else
+! 		{	set_clip_path (0, 0, p_w * 2+ 1, p_h + 1);
+! 			fprintf (output_fp,"gsave %d %d moveto\n", p_w, p_h);
+  			fprintf (output_fp,"%d %d lineto\n", p_w, 0);
+  			fprintf (output_fp,"%s\n", "stroke grestore");
+  		}
+  	}
+  }
+--- 1738,1755 ----
+  
+  	if (max_frame > 1)
+  	{	p_w = p->width;
+  		p_h = p->height;
+  		if (max_frame == 4)
+! 		{	fprintf (output_fp,"gsave %d %d moveto\n", p_w, p_h);
+  			fprintf (output_fp,"%d %d lineto\n", p_w, -p_h);
+  			fprintf (output_fp,"%d %d moveto\n", 0, 0);
+  			fprintf (output_fp,"%d %d lineto\n", p_w * 2, 0);
+  			fprintf (output_fp,"%s\n", "stroke grestore");
+  		}
+  		else
+! 		{	fprintf (output_fp,"gsave %d %d moveto\n", p_w, p_h);
+  			fprintf (output_fp,"%d %d lineto\n", p_w, 0);
+  			fprintf (output_fp,"%s\n", "stroke grestore");
+  		}
+  	}
+  }
+***************
+*** 1891,1918 ****
+  
+  #else	/* not PSFFILTER */
+  
+  static char *usage_text[] =
+  {
+! 	"Usage: %s [-1|2|4] [-b n] [-c n] [-d] [-f n] [-g type ] [-h]\n",
+! 	"           [-H text] [-i n] [-l n] [-m n] [-n] [-p n] [-R n]",
+! 	"           [-r n] [-s] [-t n] [-u fil] [-w] [-x] file ...",
+  	"where:",
+  	"   -1|2|4  print 1,2,4 up (default=1)",
+  	"   -b n    paper bin n",
+  	"   -c n    print columns",
+  	"   -d      double sided",
+  	"   -f n    font number (def=0:Courier)",
+  	"   -g type letter legal a4 b5",
+  	"   -h      file name header",
+  	"   -H text text header",
+! 	"   -i n    indent left margin points",
+  	"   -l n    print lines per page",
+  	"   -L n    lines per page",
+! 	"   -m n    top margin points",
+  	"   -n      portrait (narrow) format",
+  	"   -p n    point size n",
+  	"   -R n    remove lines from beginning",
+  	"   -r n    remove lines between pages",
+  	"   -s      show page stats",
+  	"   -t n    tabs to n (default=8)",
+  	"   -u fil  use this file as psfprint.def",
+--- 2082,2112 ----
+  
+  #else	/* not PSFFILTER */
+  
+  static char *usage_text[] =
+  {
+! 	"Usage: %s [-124dEehnswx] [-b n] [-c n] [-f n] [-g type] [-H txt] [-i n] [-l n]\n",
+! 	"     [-m n] [-M l,r,t,b[,pic]] [-p n] [-P n] [-R n] [-r n] [-t n] [-u f] file..",
+  	"where:",
+  	"   -1|2|4  print 1,2,4 up (default=1)",
+  	"   -b n    paper bin n",
+  	"   -c n    print columns",
+  	"   -d      double sided",
++ 	"   -e      left-justified line wrap",
++ 	"   -E      right-justified line wrap",
+  	"   -f n    font number (def=0:Courier)",
+  	"   -g type letter legal a4 b5",
+  	"   -h      file name header",
+  	"   -H text text header",
+! 	"   -i n[pic] indent left margin points",
+  	"   -l n    print lines per page",
+  	"   -L n    lines per page",
+! 	"   -m n[pic] top margin points",
+! 	"   -M xxx  set all margins",
+  	"   -n      portrait (narrow) format",
+  	"   -p n    point size n",
++ 	"   -P n    preserve point size n",
+  	"   -R n    remove lines from beginning",
+  	"   -r n    remove lines between pages",
+  	"   -s      show page stats",
+  	"   -t n    tabs to n (default=8)",
+  	"   -u fil  use this file as psfprint.def",
+***************
+*** 1922,1932 ****
+  	"   file..  name of files (or stdin)",
+  	"   output: stdout",
+  	""
+  } ;
+  
+! #define TOPCOUNT 4
+  
+  void usage ()
+  {	int		i, many, n, ff;
+  
+  	fprintf (stderr, usage_text[0], pgmname);
+--- 2116,2126 ----
+  	"   file..  name of files (or stdin)",
+  	"   output: stdout",
+  	""
+  } ;
+  
+! #define TOPCOUNT 3
+  
+  void usage ()
+  {	int		i, many, n, ff;
+  
+  	fprintf (stderr, usage_text[0], pgmname);
+***************
+*** 2005,2015 ****
+  			}
+  			fprintf (stderr, "%10.10s %9s: ", page_types[ps].paper_name, which);
+  			for (point_size = 6;  point_size < 17;  point_size += 2)
+  			{	char_width = point_size / 12.0 * NOMINAL_CWIDE;
+  				n_chars = ceil ((double) nominal_wide / (double) char_width);
+! 				n_lines = (double) nominal_high / (double) point_size;
+  				fprintf (stderr, " %4d%4d", n_lines, n_chars);
+  			}
+  			fprintf (stderr, "\n");
+  		}
+  	}
+--- 2199,2209 ----
+  			}
+  			fprintf (stderr, "%10.10s %9s: ", page_types[ps].paper_name, which);
+  			for (point_size = 6;  point_size < 17;  point_size += 2)
+  			{	char_width = point_size / 12.0 * NOMINAL_CWIDE;
+  				n_chars = ceil ((double) nominal_wide / (double) char_width);
+! 				n_lines = (double) nominal_high / (double) point_size + 0.0001;
+  				fprintf (stderr, " %4d%4d", n_lines, n_chars);
+  			}
+  			fprintf (stderr, "\n");
+  		}
+  	}
+*** ../psf3.net/Install.unix	Fri Jan 31 19:19:36 1992
+--- Install.unix	Thu Jan 30 00:09:50 1992
+***************
+*** 53,65 ****
+       4.	Make shell scripts:
+       
+  	Some man systems may require additional options before the shell
+  	script "psfman" can successfully process man pages through the
+  	psf filters system. Examine and modify the file "psfman.SH" for
+! 	additional man options needed.  On some systems, you man
+  	need to specify the full path to the "man" programme and/or
+  	force the option "-Tlp".
+  	
+  	Now build the shell scripts.
+  
+  		make scripts
+  
+--- 53,70 ----
+       4.	Make shell scripts:
+       
+  	Some man systems may require additional options before the shell
+  	script "psfman" can successfully process man pages through the
+  	psf filters system. Examine and modify the file "psfman.SH" for
+! 	additional man options needed.  On some systems, you may
+  	need to specify the full path to the "man" programme and/or
+  	force the option "-Tlp".
++ 	
++ 	Each of the prototype scripts assumes that /bin/sh is the
++ 	desired shell for execution.  If /bin/ksh is desired
++ 	(as in the case of most Aplllo versions of unix), then
++ 	edit each *.SH file to reflect the desired shell.
+  	
+  	Now build the shell scripts.
+  
+  		make scripts
+  
+*** ../psf3.net/Makefile	Fri Jan 31 19:19:37 1992
+--- Makefile	Fri Jan 31 15:22:19 1992
+***************
+*** 13,28 ****
+  
+  # - - - - Begin configuration - - - - -
+  #
+  # set compiler, tar and nroff names
+  
+! # CC=cc
+! CC = gcc
+  # CC=lpicc -sys -xid
+  
+! # TAR = tar
+! TAR = gtar
+  
+  NROFF = nroff
+  # NROFF = cawf
+  
+  # man directory  (if you have man or catman directories)
+--- 13,28 ----
+  
+  # - - - - Begin configuration - - - - -
+  #
+  # set compiler, tar and nroff names
+  
+! CC=cc
+! # CC = gcc
+  # CC=lpicc -sys -xid
+  
+! TAR = tar
+! # TAR = gtar
+  
+  NROFF = nroff
+  # NROFF = cawf
+  
+  # man directory  (if you have man or catman directories)
+***************
+*** 30,39 ****
+--- 30,43 ----
+  # MANDIR=/usr/man/man1
+  # MANDIR=/usr/catman/u_man/manl
+  # MANDIR=/usr/catman/u_man/man1
+  # MANDIR=/usr/man/man.1
+  
++ # suffix for man pages
++ MANSUF=l
++ # MANSUF=1
++ 
+  # If catman/formatted pages should be filtered with col
+  # COL=
+  COL=| col -b 
+  
+  # user print interface
+***************
+*** 54,71 ****
+  # DEFFILE=/usr/spool/lp/model/psfprint.def
+  
+  # Set the default paper type  (letter, legal, a4, b5, etc.)
+  PSPTYPE = letter
+  
+  # if 2 paper trays, specifiy -DHOPPER  for double sided printing.
+  #		Second tray should be reserved for double sided printing only!
+! # TRAYS=
+! TRAYS=-DHOPPER
+  
+  # compile and library options
+  LDFLAGS = -lm
+! CFLAGS = -O $(NAMES) $(PAPTYPE) $(TRAYS) -DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\" 
+  
+  # extra things for SysV or Xenix with lp/lpsched
+  MODEL=/usr/spool/lp/model
+  
+  # if getopt isn't a standard part of your system
+--- 58,80 ----
+  # DEFFILE=/usr/spool/lp/model/psfprint.def
+  
+  # Set the default paper type  (letter, legal, a4, b5, etc.)
+  PSPTYPE = letter
+  
++ # Psf assumes that the default paper tray is enabled by default
++ # in the printer.  If the default paper tray cannot be set as defined
++ # in PSTYPE above, or to always force tray selection, activate the following:
++ # FORCETYPE=-DFORCETYPE
++ 
+  # if 2 paper trays, specifiy -DHOPPER  for double sided printing.
+  #		Second tray should be reserved for double sided printing only!
+! TRAYS=
+! # TRAYS=-DHOPPER
+  
+  # compile and library options
+  LDFLAGS = -lm
+! CFLAGS = -O $(NAMES) $(PAPTYPE) $(TRAYS) $(FORCETYPE) -DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\" 
+  
+  # extra things for SysV or Xenix with lp/lpsched
+  MODEL=/usr/spool/lp/model
+  
+  # if getopt isn't a standard part of your system
+***************
+*** 78,89 ****
+  PSFDOUB = psfdoub
+  PSFBANNER = psfbanner
+  PSFFILTER = psffilter
+  PSFLPD = psflpd
+  
+! RCSVER = 3.2
+! RCSCOM="psf3, patch 2"
+  
+  # - - - - - end configuration - - - - - - - -
+  #           ^^^^^^^^^^^^^^^^^
+  
+  # psf uses NAMES to find the current name of psfdoub
+--- 87,98 ----
+  PSFDOUB = psfdoub
+  PSFBANNER = psfbanner
+  PSFFILTER = psffilter
+  PSFLPD = psflpd
+  
+! RCSVER = 3.3
+! RCSCOM="psf3, patch 3"
+  
+  # - - - - - end configuration - - - - - - - -
+  #           ^^^^^^^^^^^^^^^^^
+  
+  # psf uses NAMES to find the current name of psfdoub
+***************
+*** 128,138 ****
+  	@echo "  'make scripts'      tailor scripts"
+  	@echo " "
+  	@echo "Then:  select one of the following installations"
+  	@echo "  'make install'      install all user and spooler files"
+  	@echo "  'make installuser'  install only user binaries and scripts"
+! 	@echo "  'make installbin'   re-install binaries only after a source patch"
+  	@echo "  'make installxenix' may work - no longer spported"
+  	@echo " "
+  	@echo "Others:"
+  	@echo "  'make installman'   install unformatted $(MANDIR) pages"
+  	@echo "  'make installcat'   format/install $(MANDIR) pages (needs nroff)"
+--- 137,148 ----
+  	@echo "  'make scripts'      tailor scripts"
+  	@echo " "
+  	@echo "Then:  select one of the following installations"
+  	@echo "  'make install'      install all user and spooler files"
+  	@echo "  'make installuser'  install only user binaries and scripts"
+! 	@echo "  'make update'       re-install all binaries after a source patch"
+! 	@echo "  'make updateuser'   re-install only user binaries after a source patch"
+  	@echo "  'make installxenix' may work - no longer spported"
+  	@echo " "
+  	@echo "Others:"
+  	@echo "  'make installman'   install unformatted $(MANDIR) pages"
+  	@echo "  'make installcat'   format/install $(MANDIR) pages (needs nroff)"
+***************
+*** 194,204 ****
+  
+  
+  # Create a printer selection
+  # ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  printer:
+! 	selectdef defs/*.def
+  	@test -r psfprint.def || ( echo "Error: cannot find psfprint.def" ;  exit 1)
+  	@chmod 644 psfprint.def
+  	@if ( test  $(UPRINT) = lpr )  then rm -f zz91 ; \
+  		 mv psfprint.def zz91 ; \
+  		 cat psflpd.DEF zz91 > psfprint.def ; \
+--- 204,214 ----
+  
+  
+  # Create a printer selection
+  # ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  printer:
+! 	./selectdef defs/*.def
+  	@test -r psfprint.def || ( echo "Error: cannot find psfprint.def" ;  exit 1)
+  	@chmod 644 psfprint.def
+  	@if ( test  $(UPRINT) = lpr )  then rm -f zz91 ; \
+  		 mv psfprint.def zz91 ; \
+  		 cat psflpd.DEF zz91 > psfprint.def ; \
+***************
+*** 264,302 ****
+  	chown lp $(MODEL)/psf $(DEFFILE)
+  	chgrp bin $(MODEL)/psf $(DEFFILE)
+  	strip $(BINARIES) $(SUPPORT)
+  	cp $(BINARIES) $(SCRIPTS) $(BINDIR)
+  
+! installbin:
+! 	@echo "Binary re-install."
+  	@test -w $(BINDIR) || ( echo Directory $(BINDIR) not available ; exit 1)
+  	strip $(BINARIES)
+  	cp $(BINARIES) $(BINDIR)
+  
+  
+  # Man page generation
+  # ^^^^^^^^^^^^^^^^^^^
+  
+  installman:
+! 	cd man ; make installman MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  installcat:
+! 	cd man ; make installcat MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  installdoc:
+! 	cd man ; make installdoc MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  doc:
+! 	cd man ; make doc MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  # Copy distribution files
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  tar:
+  	$(TAR) cvf /tmp/psf.tar $(SOURCES) man $(OTHERS) defs Makefile.dis Makefile.ajf patchlevel.h
+  
+  shar:
+! 	makekit -m -s54k defs man man/*.1 man/*.doc man/Makefile defs/* $(SOURCES) $(OTHERS) patchlevel.h
+  
+  dostar:
+  	$(TAR) cvf /tmp/psfdos.tar $(DOSSRC) $(DOSMAN) $(DOSDOC) $(DOSOTHER) defs
+  
+  
+--- 274,330 ----
+  	chown lp $(MODEL)/psf $(DEFFILE)
+  	chgrp bin $(MODEL)/psf $(DEFFILE)
+  	strip $(BINARIES) $(SUPPORT)
+  	cp $(BINARIES) $(SCRIPTS) $(BINDIR)
+  
+! update:
+! 	@if ( test $(UPRINT) = lpr ) then make updatebsd ; \
+! 	    else make updatesysv ; fi
+! 
+! updatebsd:
+! 	@echo "Binary only update for lpr/lpd spooler systems."
+! 	@test -w $(LPDDIR) || ( echo Directory $(LPDDIR) not available ; exit 1)
+! 	@test -w $(BINDIR) || ( echo Directory $(BINDIR) not available ; exit 1)
+! 	strip $(LPDBIN) $(LPBIN) $(BINARIES) $(SUPPORT)
+! 	cp $(LPDBIN) $(LPDDIR)
+! 	cp $(BINARIES) $(BINDIR)
+! 
+! updatesysv:
+! 	@echo "Binary only update for lp/lpsched spooler systems."
+! 	@test -w $(BINDIR) || ( echo Directory $(BINDIR) not available ; exit 1)
+! 	strip $(BINARIES) $(LPBIN) $(SUPPORT)
+! 	cp $(BINARIES) $(LPBIN) $(BINDIR)
+! 
+! updateuser:
+! 	@echo "User binary re-install"
+  	@test -w $(BINDIR) || ( echo Directory $(BINDIR) not available ; exit 1)
+  	strip $(BINARIES)
+  	cp $(BINARIES) $(BINDIR)
+  
+  
+  # Man page generation
+  # ^^^^^^^^^^^^^^^^^^^
+  
+  installman:
+! 	cd man ; make installman MANSUF=$(MANSUF) MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  installcat:
+! 	cd man ; make installcat MANSUF=$(MANSUF) MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  installdoc:
+! 	cd man ; make installdoc MANSUF=$(MANSUF) MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  doc:
+! 	cd man ; make doc MANSUF=$(MANSUF) MANDIR=$(MANDIR) NROFF=$(NROFF) COL="$(COL)"
+  
+  # Copy distribution files
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  tar:
+  	$(TAR) cvf /tmp/psf.tar $(SOURCES) man $(OTHERS) defs Makefile.dis Makefile.ajf patchlevel.h
+  
+  shar:
+! 	makekit -m -s59k defs man man/*.1 man/*.doc man/Makefile defs/* $(SOURCES) $(OTHERS) patchlevel.h
+  
+  dostar:
+  	$(TAR) cvf /tmp/psfdos.tar $(DOSSRC) $(DOSMAN) $(DOSDOC) $(DOSOTHER) defs
+  
+  
+***************
+*** 321,332 ****
+  	co -l $(SOURCES) $(OTHERS) Makefile.dis Makefile.ajf Makefile patchlevel.h lines.c
+  
+  coman:
+  	cd man ; make co RCSVER=$(RCSVER)
+  
+! # Remove anything that cannot be rebuilt
+! # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  clean:
+  	rm -f $(BINARIES) $(SCRIPTS) $(SUPPORT) $(LPBIN) $(LPDBIN) psfdouble
+  	rm -f *.o 
+  	rm -f *.B
+  	rm -f *.doc
+--- 349,360 ----
+  	co -l $(SOURCES) $(OTHERS) Makefile.dis Makefile.ajf Makefile patchlevel.h lines.c
+  
+  coman:
+  	cd man ; make co RCSVER=$(RCSVER)
+  
+! # Remove anything that can be rebuilt
+! # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  clean:
+  	rm -f $(BINARIES) $(SCRIPTS) $(SUPPORT) $(LPBIN) $(LPDBIN) psfdouble
+  	rm -f *.o 
+  	rm -f *.B
+  	rm -f *.doc
+  
+
+ $ $ $ end of patch 1/2 $ $ $
+
+exit 0 # Just in case...

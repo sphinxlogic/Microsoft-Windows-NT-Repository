@@ -1,0 +1,1711 @@
+Newsgroups: comp.sources.x
+From: ttsai@crhc.uiuc.edu (Timothy Tsai)
+Subject: v19i004:  xtmines - A game where you try to cross a minefield, Part01/02
+Message-ID: <csx-v19i004=xtmines.145640@sparky.IMD.Sterling.COM>
+X-Md4-Signature: ea564b61f2eb771d11a0d1e40f8e3a1b
+Date: Mon, 8 Mar 1993 20:58:06 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ttsai@crhc.uiuc.edu (Timothy Tsai)
+Posting-number: Volume 19, Issue 4
+Archive-name: xtmines/part01
+Environment: X11
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  init.c play.c
+# Wrapped by ttsai@haydn.crhc.uiuc.edu on Fri Feb 26 12:01:35 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'init.c'\"
+else
+echo shar: Extracting \"'init.c'\" \(16843 characters\)
+sed "s/^X//" >'init.c' <<'END_OF_FILE'
+X/* xtmines: game where you try to cross a minefield */
+X/* windows.c: routines to initialize windows, fonts, GCs, etc */
+X/* Written by Timothy Tsai  April 13, 1992 */
+X
+X#include "xtmines.h"
+X
+X/* open_display:  open the display;                */
+X/*                set up default values            */
+X/*                   (eg. root, white, black, etc) */
+X/*                set random seed                  */
+Xvoid open_display()
+X{
+X	if ((disp = XOpenDisplay(NULL)) == NULL) {
+X		fprintf(stderr, "Can't Open Display\n");
+X		exit(1);
+X	}
+X	root	= DefaultRootWindow(disp);
+X	screen	= DefaultScreen(disp);
+X	depth	= DefaultDepth(disp,screen);
+X	visual	= DefaultVisual(disp,screen);
+X	white	= WhitePixel(disp,screen);
+X	black	= BlackPixel(disp,screen);
+X
+X	srandom(time(0));
+X}
+X
+X/* load_fonts:  load 3 fonts:  fonts (status line and showfig) */
+X/*                             fontm (main -- for most text)   */
+X/*                             fontt (time and hiscores list)  */
+Xvoid load_fonts()
+X{
+X	fonts		= XLoadFont(disp,FONTS);
+X	fontsstruct	= XQueryFont(disp,fonts);
+X	/* fontsw, fontsh, fontsa are used by PrintStr() for status line */
+X	fontsw		= fontsstruct->max_bounds.rbearing -
+X				fontsstruct->min_bounds.lbearing;
+X	fontsh		= fontsstruct->ascent + fontsstruct->descent;
+X	fontsa		= fontsstruct->ascent;
+X	/* fonstshoww, fontshowh, fontshowa are used by draw() for showfig */
+X	fontshoww	= (fontsstruct->per_char + '0')->rbearing -
+X				(fontsstruct->per_char + '0')->lbearing;
+X	fontshowh	= (fontsstruct->per_char + '0')->ascent +
+X				(fontsstruct->per_char + '0')->descent;
+X	fontshowa	= (fontsstruct->per_char + '0')->ascent;
+X
+X	fontm		= XLoadFont(disp,FONTM);
+X	fontmstruct	= XQueryFont(disp,fontm);
+X	fontmw		= fontmstruct->max_bounds.rbearing -
+X				fontmstruct->min_bounds.lbearing;
+X	fontmh		= fontmstruct->ascent + fontmstruct->descent;
+X	fontma		= fontmstruct->ascent;
+X
+X	fontt		= XLoadFont(disp,FONTT);
+X	fonttstruct	= XQueryFont(disp,fontt);
+X	fonttw		= fonttstruct->max_bounds.rbearing -
+X				fonttstruct->min_bounds.lbearing;
+X	fontth		= fonttstruct->ascent + fonttstruct->descent;
+X	fontta		= fonttstruct->ascent;
+X}
+X
+X/* create_map_frame:  actually create each window and map to screen */
+X/*                    this is where each window's position and size */
+X/*                    are specified;  also, create all bitmaps and  */
+X/*                    initialize bitmaps dimension arrays           */
+Xvoid create_map_frame()
+X{
+X	int	ww,	/* window width of small button windows */
+X		wh1,	/* window height of status line right under field */
+X		wh2,	/*                  2nd row of buttons */
+X		wh3,	/*                  3rd row of buttons */
+X		wh4;	/*                  last row of buttons */
+X
+X	/*---First, create and map windows----------------------------*/
+X
+X	/* first wind button widths and heights */
+X	/* NUM1WINDS = num of buttons in one row */
+X	ww = (w-(NUM1WINDS+1)*bw)/(NUM1WINDS);
+X	wh1 = wh2 = wh3 = (h-fh-6*bw)/4;  wh4 = h-fh-6*bw-wh1-wh2-wh3;
+X
+X	/* create frame and field */
+X	frame	= XCreateSimpleWindow(disp,root,x,y,w,h,bw,black,white);
+X	field			= XCreateSimpleWindow(disp,frame,
+X					0,0,w-2*bw,fh,bw,
+X					black,white);
+X
+X	/* create status line */
+X	wind[status]		= XCreateSimpleWindow(disp,frame,
+X					0,fh+bw,w-2*bw,wh1,bw,
+X					black,white);
+X
+X	/* create 2nd button row */
+X	wind[bombs_left]	= XCreateSimpleWindow(disp,frame,
+X					0,fh+wh1+2*bw,ww,
+X					wh2,bw,black,white);
+X	wind[bonus_wind]	= XCreateSimpleWindow(disp,frame,
+X					bonus_wind*(ww+bw),
+X					fh+wh1+2*bw,ww,
+X					wh2,bw,black,white);
+X	wind[time_left]		= XCreateSimpleWindow(disp,frame,
+X					time_left*(ww+bw),
+X					fh+wh1+2*bw,ww,
+X					wh2,bw,black,white);
+X	wind[score]		= XCreateSimpleWindow(disp,frame,
+X					score*(ww+bw),
+X					fh+wh1+2*bw,ww,
+X					wh2,bw,black,white);
+X	wind[grenades_left]	= XCreateSimpleWindow(disp,frame,
+X					grenades_left*(ww+bw),
+X					fh+wh1+2*bw,ww,
+X					wh2,bw,black,white);
+X	wind[rank]		= XCreateSimpleWindow(disp,frame,
+X					rank*(ww+bw),
+X					fh+wh1+2*bw,w-2*bw-(rank)*(ww+bw),
+X					wh2,bw,black,white);
+X
+X	/* create 3rd button row */
+X	wind[quit_wind]		= XCreateSimpleWindow(disp,frame,
+X					rank*(ww+bw),
+X					fh+3*bw+wh1+wh2,w-2*bw-(rank)*(ww+bw),
+X					wh3,bw,black,white);
+X	wind[show_wind]		= XCreateSimpleWindow(disp,frame,
+X					grenades_left*(ww+bw),
+X					fh+3*bw+wh1+wh2,ww,
+X					wh3,bw,black,white);
+X	wind[tgrenade_wind]	= XCreateSimpleWindow(disp,frame,
+X					score*(ww+bw),
+X					fh+3*bw+wh1+wh2,ww,
+X					wh3,bw,black,white);
+X	wind[giveup_wind]	= XCreateSimpleWindow(disp,frame,
+X					time_left*(ww+bw),
+X					fh+3*bw+wh1+wh2,ww,
+X					wh3,bw,black,white);
+X	wind[automark_wind]	= XCreateSimpleWindow(disp,frame,
+X					bonus_wind*(ww+bw),
+X					fh+3*bw+wh1+wh2,ww,
+X					wh3,bw,black,white);
+X	wind[lives_left]	= XCreateSimpleWindow(disp,frame,
+X					0,fh+3*bw+wh1+wh2,ww,
+X					wh3,bw,black,white);
+X
+X	/* create last button row */
+X/* These are for future expansion
+X	wind[]			= XCreateSimpleWindow(disp,frame,
+X					rank*(ww+bw),
+X					fh+4*bw+wh1+wh2+wh3,
+X					w-2*bw-(rank)*(ww+bw),
+X					wh4,bw,black,white);
+X	wind[]			= XCreateSimpleWindow(disp,frame,
+X					grenades_left*(ww+bw),
+X					fh+4*bw+wh1+wh2+wh3,ww,
+X					wh4,bw,black,white);
+X*/
+X	wind[pause_wind]	= XCreateSimpleWindow(disp,frame,
+X					score*(ww+bw),
+X					fh+4*bw+wh1+wh2+wh3,ww,
+X					wh4,bw,black,white);
+X	wind[sanitycheck_wind]	= XCreateSimpleWindow(disp,frame,
+X					time_left*(ww+bw),
+X					fh+4*bw+wh1+wh2+wh3,ww,
+X					wh4,bw,black,white);
+X	wind[eautomark_wind]	= XCreateSimpleWindow(disp,frame,
+X					bonus_wind*(ww+bw),
+X					fh+4*bw+wh1+wh2+wh3,ww,
+X					wh4,bw,black,white);
+X	wind[refresh_wind]	= XCreateSimpleWindow(disp,frame,
+X					0,fh+4*bw+wh1+wh2+wh3,ww,
+X					wh4,bw,black,white);
+X
+X	/* set window and icon names */
+X	XStoreName(disp,frame,"xtmines");
+X	XSetIconName(disp,frame,"xtmines");
+X
+X	/* Map all windows to screen */
+X	XMapRaised(disp,frame);
+X	XMapRaised(disp,field);
+X	XMapRaised(disp,wind[bombs_left]);
+X	XMapRaised(disp,wind[bonus_wind]);
+X	XMapRaised(disp,wind[time_left]);
+X	XMapRaised(disp,wind[score]);
+X	XMapRaised(disp,wind[grenades_left]);
+X	XMapRaised(disp,wind[rank]);
+X	XMapRaised(disp,wind[quit_wind]);
+X	XMapRaised(disp,wind[show_wind]);
+X	XMapRaised(disp,wind[tgrenade_wind]);
+X	XMapRaised(disp,wind[giveup_wind]);
+X	XMapRaised(disp,wind[automark_wind]);
+X	XMapRaised(disp,wind[lives_left]); 
+X	XMapRaised(disp,wind[pause_wind]); 
+X	XMapRaised(disp,wind[sanitycheck_wind]); 
+X	XMapRaised(disp,wind[eautomark_wind]); 
+X	XMapRaised(disp,wind[refresh_wind]); 
+X	XMapRaised(disp,wind[status]);
+X
+X	/*---Now initialize all bitmaps and accompanying dimensions---*/
+X	
+X	/* load all bitmaps into memory */
+X	bitmap[bm_safe]		= XCreateBitmapFromData(disp,field, 
+X					safe_bits,safe_width,safe_height);
+X	bitmap[bm_man]		= XCreateBitmapFromData(disp,field,
+X					man_bits,man_width,man_height);
+X	bitmap[bm_bomb]		= XCreateBitmapFromData(disp,field,
+X					bomb_bits,bomb_width,bomb_height);
+X	bitmap[bm_tombstone]	= XCreateBitmapFromData(disp,field,
+X					tstone_bits,tstone_width,tstone_height);
+X	bitmap[bm_goal]		= XCreateBitmapFromData(disp,field,
+X					goal_bits,goal_width,goal_height);
+X	bitmap[bm_trail]	= XCreateBitmapFromData(disp,field,
+X					trail_bits,trail_width,trail_height);
+X	bitmap[bm_pow]		= XCreateBitmapFromData(disp,field,
+X					pow_bits,pow_width,pow_height);
+X	bitmap[bm_bombmark]	= XCreateBitmapFromData(disp,field,
+X					bombmark_bits,bombmark_width,
+X					bombmark_height);
+X	bitmap[bm_safewrong]	= XCreateBitmapFromData(disp,field,
+X					safewrong_bits,safewrong_width,
+X					safewrong_height);
+X	bitmap[bm_bombmarkwrong]= XCreateBitmapFromData(disp,field,
+X					bombmarkwrong_bits,bombmarkwrong_width,
+X					bombmarkwrong_height);
+X
+X	/* put all bitmap dimensions into width and height arrays */
+X	bmwidth[bm_safe]	= safe_width;
+X	bmwidth[bm_man]		= man_width;
+X	bmwidth[bm_bomb]	= bomb_width;
+X	bmwidth[bm_tombstone]	= tstone_width;
+X	bmwidth[bm_goal]	= goal_width;
+X	bmwidth[bm_trail]	= trail_width;
+X	bmwidth[bm_pow]		= pow_width;
+X	bmwidth[bm_bombmark]	= bombmark_width;
+X	bmwidth[bm_safewrong]	= safewrong_width;
+X	bmwidth[bm_bombmarkwrong]	= bombmarkwrong_width;
+X
+X	bmheight[bm_safe]	= safe_height;
+X	bmheight[bm_man]	= man_height;
+X	bmheight[bm_bomb]	= bomb_height;
+X	bmheight[bm_tombstone]	= tstone_height;
+X	bmheight[bm_goal]	= goal_height;
+X	bmheight[bm_trail]	= trail_height;
+X	bmheight[bm_pow]	= pow_height;
+X	bmheight[bm_bombmark]	= bombmark_height;
+X	bmheight[bm_safewrong]	= safewrong_height;
+X	bmheight[bm_bombmarkwrong]	= bombmarkwrong_height;
+X}
+X
+X/* create_GC_colormap:  set up Graphics Contexts and colormaps             */
+X/*                      right now, there are only 2 colors (black & white) */
+Xvoid create_GC_colormap()
+X{
+X	XGCValues	gcv;	/* to determine attributes to set */
+X	XColor		exact;	/* used by XAllocNamedColor;     */
+X				/*    return value is never used */
+X	
+X	/* set up gcs -- GC for status line and showfig */
+X	gcv.font = fonts;
+X	gcv.line_width = 1;
+X	gcv.graphics_exposures = FALSE;
+X	gcs	 = XCreateGC(disp,frame,
+X			GCFont | GCLineWidth | GCGraphicsExposures,
+X			&gcv);
+X
+X	/* set up gcm -- GC for main (most text) */
+X	gcv.font = fontm;
+X	gcv.line_width = 1;
+X	gcv.graphics_exposures = FALSE;
+X	gcm	 = XCreateGC(disp,frame,
+X			GCFont | GCLineWidth | GCGraphicsExposures,
+X			&gcv);
+X
+X	/* set up gct -- GC for time and hiscores list */
+X	gcv.font = fontt;
+X	gcv.line_width = 1;
+X	gcv.graphics_exposures = FALSE;
+X	gct	 = XCreateGC(disp,frame,
+X			GCFont | GCLineWidth | GCGraphicsExposures,
+X			&gcv);
+X
+X	/* Set up colormap */
+X	cmap	 = XDefaultColormap(disp,screen);
+X	XAllocNamedColor(disp,cmap,FONTCOLOR,&color[font_color],&exact);
+X	XAllocNamedColor(disp,cmap,BACKGROUNDCOLOR,&color[background_color],
+X		&exact);
+X	XAllocNamedColor(disp,cmap,FIELDCOLOR,&color[field_color],
+X		&exact);
+X}
+X
+X/* set_event_masks:  all event masks are set here */
+Xvoid set_event_masks()
+X{
+X	int i;
+X	windtype windownum;
+X
+X	/* set exposure mask for all windows */
+X	XSelectInput(disp,frame,ExposureMask);
+X	for (windownum=0;windownum<NUMWINDS;windownum++)
+X		XSelectInput(disp,wind[windownum],ExposureMask);
+X
+X	/* check to see if quit */
+X	XSelectInput(disp,wind[quit_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if toggle show */
+X	XSelectInput(disp,wind[show_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if throw grenades */
+X	XSelectInput(disp,wind[tgrenade_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if give up */
+X	XSelectInput(disp,wind[giveup_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if toggle automark */
+X	XSelectInput(disp,wind[automark_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if toggle pause */
+X	XSelectInput(disp,wind[pause_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if toggle sanity check */
+X	XSelectInput(disp,wind[sanitycheck_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if toggle extended_automark */
+X	XSelectInput(disp,wind[eautomark_wind],ButtonPressMask|ExposureMask);
+X
+X	/* check to see if refresh */
+X	XSelectInput(disp,wind[refresh_wind],ButtonPressMask|ExposureMask);
+X
+X	/* allow mouse button and key presses in field */
+X	XSelectInput(disp,field,KeyPressMask|ButtonPressMask|ExposureMask);
+X}
+X
+X/* init_values:  called at the beginning of every level      */
+X/*               sets num_bombs_left, num_time_left_at_start */
+X/*                    num_time_left, used_showfig,           */
+X/*                    used_sanity, used_eautomark            */
+Xint	num_bombs_at_start[NUMRANKS];
+Xvoid init_values()
+X{
+X	num_bombs_at_start[grunt]	= 50;
+X	num_bombs_at_start[corporal]	= 100;
+X	num_bombs_at_start[lieutenant]	= 150;
+X	num_bombs_at_start[captain]	= 200;
+X	num_bombs_at_start[mmajor]	= 250;
+X	num_bombs_at_start[general]	= 300;
+X	num_bombs_at_start[president]	= 350;
+X	num_bombs_at_start[king]	= 400;
+X	num_bombs_at_start[emperor]	= 450;
+X	num_bombs_at_start[angel]	= 500;
+X
+X	num_tombstones		= 0;
+X	num_bombs_left		= num_bombs_at_start[level];
+X	num_time_left_at_start	= SECONDS_PER_LEVEL*(level+1);
+X	num_time_left		= num_time_left_at_start;
+X	pause_time		= 0;
+X	used_showfig		= (show==sh_fig) ? TRUE : FALSE;
+X	used_sanity		= (sanity) ? TRUE : FALSE;
+X	used_eautomark		= (extended_automark) ? TRUE : FALSE;
+X
+X	num_bonus		= current_bonus();
+X}
+X
+X/* illegal_bomb_position:  input a virtual field position             */
+X/*                         output a boolean=is bomb allowed here?     */
+X/*                         illegal is more than two bombs around goal */
+X/*                                    4 most top-left squares         */
+Xint illegal_bomb_position(vx,vy)
+Xint vx,vy;
+X{
+X	int	num_bombs_around_goal;
+X
+X	/* find how many of the 3 squares around the goal has bombs */
+X	num_bombs_around_goal =
+X		(FIELD[NUMCOLS-1][NUMROWS-2].c==fc_bomb) +
+X		(FIELD[NUMCOLS-2][NUMROWS-2].c==fc_bomb) +
+X		(FIELD[NUMCOLS-2][NUMROWS-1].c==fc_bomb);
+X
+X	/* check to see if 4 most top-left squares are free */ 
+X	if (((vx==0) && (vy==0)) || ((vx==0) && (vy==1)) ||
+X	    ((vx==1) && (vy==0)) || ((vx==1) && (vy==1)) ||
+X	    ((vx==NUMCOLS-1) && (vy==NUMROWS-1)) ||
+X	    (FIELD[vx][vy].c==fc_bomb) ||
+X	    ((((vx==NUMCOLS-1) && (vy=NUMROWS-2)) ||
+X	      ((vx==NUMCOLS-2) && (vy=NUMROWS-2)) ||
+X	      ((vx==NUMCOLS-2) && (vy=NUMROWS-1))) &&
+X	     (num_bombs_around_goal==2)))
+X		return (TRUE);
+X	else
+X		return (FALSE);
+X}
+X
+X/* blocked:  returns a boolean indicating whether a continuous line of bombs */
+X/*              from square vx,vy (where vx,vy is on top or right edge) to   */
+X/*              the bottom or left edge of the field.  If so, then return    */
+X/*              TRUE, else return FALSE.  As each */
+Xint blocked(vx,vy)
+Xint vx,vy;
+X{
+X	/* marked as safe means that square has already been looked at */
+X	if (FIELD[vx][vy].m == fm_safe)
+X		return (FALSE);		/* square has already been looked at */
+X	else
+X		FIELD[vx][vy].m = fm_safe;	
+X					/* else mark square as having */
+X					/*    been looked at          */
+X
+X	if (FIELD[vx][vy].c != fc_bomb)
+X		return (FALSE);		/* square has no bomb; thus, */
+X					/*    no path through here   */
+X	else {
+X		if ((vx==0) || (vy==NUMROWS-1))
+X		   return (TRUE);	/* we have reached the bottom or */
+X					/*    left edge and found a bomb */
+X		if ((vy>0) && (FIELD[vx][vy-1].m==fm_nomark) &&
+X			(blocked(vx,vy-1)))
+X				return (TRUE);
+X		if ((vy<NUMROWS-1) && (FIELD[vx][vy+1].m==fm_nomark) &&
+X			(blocked(vx,vy+1)))
+X				return (TRUE);
+X		if ((vx>0) && (FIELD[vx-1][vy].m==fm_nomark) &&
+X			(blocked(vx-1,vy)))
+X				return (TRUE);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].m==fm_nomark) &&
+X			(blocked(vx+1,vy)))
+X				return (TRUE);
+X
+X		/* if we got this far, then there are no path of bombs */
+X		/*    through this square;  thus, return not blocked   */
+X		return (FALSE);
+X	} /* else FIELD[vx][vy] == fc_bomb */
+X}
+X
+X/* guaranteed_path:  returns a boolean indicating whether there is a path     */
+X/*                      through the from start to goal without using grenades */
+X/*                   all field contents must be set first                     */
+X/*                   all field marks must be cleared first                    */
+Xint guaranteed_path()
+X{
+X	int	c,r;	/* current column and row being considered */
+X
+X	for (c=1;c<NUMCOLS;c++)		/* c=1, skip starting square */
+X		if (blocked(c,0))
+X			return (FALSE);	/* no path from start to finish */
+X	for (r=0;r<NUMROWS-1;r++)	/* NUMROWS-1, skip goal square */
+X		if (blocked(NUMCOLS-1,r))
+X			return (FALSE);	/* no path from start to finish */
+X
+X	return (TRUE);			/* else there is a guaranteed path */
+X}
+X
+X/* manvx, manvy:  current virtual man position on field */
+Xint	manvx,manvy;
+X
+X/* set_field:  will put the appropriate number of bombs in field */
+X/*                according to level (makes sure that no illegal */
+X/*                squares have bombs                             */
+X/*             places man in top-left corner                     */
+X/*             places goal in bottom-right corner                */
+X/*             guarantees that there is a path from start to end */
+X/*                by repeating until that is true                */
+Xvoid set_field()
+X{
+X	int	c,r,	/* column and row for clearing field */
+X		i;	/* counter for number of bombs */
+X			/*    placed so far            */
+X	int	vx,vy;	/* current bomb position being considered */
+X
+X	do {
+X		/* first clear the entire field of all contents and marks */
+X		for (c=0;c<NUMCOLS;c++)
+X		   for (r=0;r<NUMROWS;r++) {
+X			FIELD[c][r].c = fc_empty;	/* clear contents */
+X			FIELD[c][r].m = fm_nomark;	/* clear marks */
+X			clear(c,r);			/* erase bitmaps */
+X		   }
+X
+X		/* put man in top-left corner */
+X		FIELD[0][0].c = fc_man;
+X		manvx = 0; manvy = 0;
+X
+X		/* place bombs in field */
+X		for (i=0;i<num_bombs_at_start[level];i++) {
+X		   do {
+X			vx = random()%NUMCOLS;
+X			vy = random()%NUMROWS;
+X		   } while (illegal_bomb_position(vx,vy));
+X		   FIELD[vx][vy].c = fc_bomb;
+X		}
+X
+X		/* place goal in bottom-right corner */
+X		FIELD[NUMCOLS-1][NUMROWS-1].c = fc_goal;
+X
+X	} while (!guaranteed_path());
+X
+X	/* now clear all marks from field */
+X	for (c=0;c<NUMCOLS;c++)
+X	   for (r=0;r<NUMROWS;r++)
+X		FIELD[c][r].m = fm_nomark;      /* clear marks */
+X}
+END_OF_FILE
+if test 16843 -ne `wc -c <'init.c'`; then
+    echo shar: \"'init.c'\" unpacked with wrong size!
+fi
+# end of 'init.c'
+fi
+if test -f 'play.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'play.c'\"
+else
+echo shar: Extracting \"'play.c'\" \(29521 characters\)
+sed "s/^X//" >'play.c' <<'END_OF_FILE'
+X/* xtmines: game where you try to cross a minefield */
+X/* play.c: */
+X/* Written by Timothy Tsai  April 13, 1992 */
+X
+X#include "xtmines.h"
+X
+X/* This is a kludge for systems without usleep() */
+X#ifdef NOUSLEEP
+X#define USLEEP_LOOPS	15000
+Xvoid usleep(usecs)
+Xunsigned usecs;
+X{
+X	int	i;
+X	for (i=0;i<USLEEP_LOOPS;i++);
+X}
+X#endif
+X
+Xvoid PrintStr(window,str)
+Xwindtype window;
+Xchar *str;
+X{
+X	unsigned int	ww,wh;	/* get width and height of window */
+X	unsigned int	wbw;	/*     border width               */
+X	Font		font;
+X	XFontStruct	*fs;
+X	Window		a;
+X	int		b,c;	/* dummy vars */
+X	unsigned int	e;	/* dummy vars */
+X	GC		gc;
+X
+X	gc = (window==status) ? gcs : (window==time_left) ? gct : gcm;
+X	XSetForeground(disp,gc,color[font_color].pixel);
+X	XSetBackground(disp,gc,color[background_color].pixel);
+X	XGetGeometry(disp,wind[window],&a,&b,&c,&ww,&wh,&wbw,&e);
+X	fs = (window==status) ? fontsstruct : 
+X	     (window==time_left) ? fonttstruct : fontmstruct;
+X	XDrawImageString(disp,wind[window],gc,
+X		((ww-2*wbw)-XTextWidth(fs,str,strlen(str)))/2,
+X		(wh - fs->ascent - fs->descent)/2 +
+X			fs->ascent,str,strlen(str));
+X	XFlush(disp);
+X}
+X
+Xvoid InvPrintStr(window,str)
+Xwindtype window;
+Xchar *str;
+X{
+X	unsigned int	ww,wh;	/* get width and height of window */
+X	unsigned int	wbw;	/*     border width               */
+X	Font		font;
+X	XFontStruct	*fs;
+X	Window		a;
+X	int		b,c;	/* dummy vars */
+X	unsigned int	e;	/* dummy vars */
+X	GC		gc;
+X
+X	gc = (window==status) ? gcs : (window==time_left) ? gct : gcm;
+X	XSetForeground(disp,gc,color[background_color].pixel);
+X	XSetBackground(disp,gc,color[font_color].pixel);
+X	XGetGeometry(disp,wind[window],&a,&b,&c,&ww,&wh,&wbw,&e);
+X	fs = (window==status) ? fontsstruct : 
+X	     (window==time_left) ? fonttstruct : fontmstruct;
+X	XDrawImageString(disp,wind[window],gc,
+X		((ww-2*wbw)-XTextWidth(fs,str,strlen(str)))/2,
+X		(wh - fs->ascent - fs->descent)/2 +
+X			fs->ascent,str,strlen(str));
+X	XFlush(disp);
+X}
+X
+Xvoid WindPrint(window,str)
+Xwindtype window;
+Xchar *str;
+X{
+X	XClearWindow(disp,wind[window]);
+X	PrintStr(window,str);
+X}
+X
+Xchar *num_rank_to_words(num_rank)
+Xranktype num_rank;
+X{
+X	switch (num_rank) {
+X		case grunt	: return ("grunt"); break;
+X		case corporal	: return ("corporal"); break;
+X		case lieutenant	: return ("lieutenant"); break;
+X		case captain	: return ("captain"); break;
+X		case mmajor	: return ("major"); break;
+X		case general	: return ("general"); break;
+X		case president	: return ("president"); break;
+X		case king	: return ("king"); break;
+X		case emperor	: return ("emperor"); break;
+X		case angel	: return ("angel"); break;
+X		case god	: return ("god"); break;
+X		default		: fprintf(stderr,"Error: Illegal rank\n");
+X				  exit(2);
+X	}
+X}
+X
+Xchar	last_status_str[MAXSTRLEN];
+Xvoid print_status(str)
+Xchar *str;
+X{
+X
+X	strcpy(last_status_str,str);
+X	WindPrint(status,str);
+X}
+X
+Xchar	*clock_time_str(time)
+Xint time;
+X{
+X	int		h,m,s;
+X	static char	str[MAXSTRLEN];
+X
+X	h = time/3600;
+X	m = (time-(h*3600))/60;
+X	s = (time-(h*3600)-(m*60));
+X	if (h != 0)
+X		sprintf(str,"%d:%02d:%02d",h,m,s);
+X	else if (m != 0)
+X		sprintf(str,"%d:%02d",m,s);
+X	else
+X		sprintf(str,"%d",s);
+X	return (str);
+X}
+X
+Xvoid print_display()
+X{
+X	char		str[MAXSTRLEN];
+X
+X	sprintf(str,"Bombs: %d",num_bombs_left);
+X	WindPrint(bombs_left,str);
+X
+X	sprintf(str,"Bonus: %d",num_bonus);
+X	WindPrint(bonus_wind,str);
+X
+X	sprintf(str,"Time: %s",clock_time_str(num_time_left));
+X	WindPrint(time_left,str);
+X
+X	sprintf(str,"Score: %d",num_score);
+X	WindPrint(score,str);
+X
+X	sprintf(str,"Grenades: %d",num_grenades_left);
+X	WindPrint(grenades_left,str);
+X
+X	sprintf(str,"Rank: %s",num_rank_to_words(level));
+X	WindPrint(rank,str);
+X
+X	WindPrint(quit_wind,"Quit");
+X
+X	if (used_showfig)
+X		sprintf(str,"Show = *%s", (show==sh_man) ? "man" : "fig");
+X	else
+X		sprintf(str,"Show = %s", (show==sh_man) ? "man" : "fig");
+X	WindPrint(show_wind,str);
+X
+X	WindPrint(tgrenade_wind,"Throw Grenade");
+X
+X	WindPrint(giveup_wind,"Surrender");
+X
+X	sprintf(str,"Automark = %s",automark ? "on" : "off");
+X	WindPrint(automark_wind,str);
+X
+X	sprintf(str,"Lives: %d",num_lives);
+X	WindPrint(lives_left,str);
+X
+X	WindPrint(pause_wind,"Pause");
+X
+X	if (used_sanity)
+X		sprintf(str,"Sanity = *%s",sanity ? "on" : "off");
+X	else
+X		sprintf(str,"Sanity = %s",sanity ? "on" : "off");
+X	WindPrint(sanitycheck_wind,str);
+X
+X	if (used_eautomark)
+X		sprintf(str,"ExtAmark = *%s",extended_automark ? "on" : "off");
+X	else
+X		sprintf(str,"ExtAmark = %s",extended_automark ? "on" : "off");
+X	WindPrint(eautomark_wind,str);
+X
+X	WindPrint(refresh_wind,"Refresh");
+X
+X	WindPrint(status,last_status_str);
+X
+X	XFlush(disp);
+X}
+X
+XPixmap bitmap[NUMBITMAPS];
+Xint bmwidth[NUMBITMAPS];
+Xint bmheight[NUMBITMAPS];
+X/* This function will draw the bitmap indicated by bm in the field at the */
+X/*   position (vx,vy).  If show==sh_fig, then a figure will be drawn      */
+X/*   instead of the man bitmap.  The figure is the number of surrounding  */
+X/*   bombs.  The font for figures is the same as the font for the status. */
+Xvoid draw(bm,vx,vy)
+Xbmtype bm;
+Xint vx,vy;
+X{
+X	int	x,y;
+X	int	numbombs;
+X	char	str[2];
+X
+X	setxy(vx,vy,&x,&y);
+X	if ((bm==bm_man) && (show==sh_fig)) {
+X	   clear(vx,vy);
+X	   numbombs = bomb_status(vx,vy);
+X	   str[0] = '0' + numbombs; str[1]=NULL;
+X	   XDrawString(disp,field,gcs,
+X		1+vx*(man_width+1)+(man_width-fontshoww)/2,
+X		1+vy*(man_height+1)+(man_height-fontshowa)/2+fontshowa,
+X		str,strlen(str));
+X	}
+X	else
+X	   XCopyPlane(disp,bitmap[bm],field,gcm,0,0,bmwidth[bm],bmheight[bm],
+X		x+1,y+1,1);
+X	XFlush(disp);
+X}
+X
+Xvoid clear(vx,vy)
+Xint vx,vy;
+X{
+X	int	x,y;
+X
+X	setxy(vx,vy,&x,&y);
+X	XClearArea(disp,field,x+1,y+1,bmwidth[bm_man],bmwidth[bm_safe],FALSE);
+X}
+X
+Xfieldstruct FIELD[NUMCOLS][NUMROWS];
+Xvoid draw_field()
+X{
+X	int	r,c;
+X	double	rowsep,colsep;
+X
+X	/* draw vertical lines */
+X	colsep = ((double)(w-2*bw)/(double)NUMCOLS);
+X	for (c=0; c<NUMCOLS; c++) {
+X		XSetForeground(disp,gcm,color[field_color].pixel);
+X		XSetBackground(disp,gcm,color[background_color].pixel);
+X		XDrawLine(disp,field,gcm,(int)(c*colsep),0,(int)(c*colsep),fh);
+X	}
+X
+X	/* draw horizontal lines */
+X	rowsep = ((double)fh/(double)NUMROWS);
+X	for (r=0; r<NUMROWS; r++) {
+X		XSetForeground(disp,gcm,color[field_color].pixel);
+X		XSetBackground(disp,gcm,color[background_color].pixel);
+X		XDrawLine(disp,field,gcm,0,(int)(r*rowsep),w,(int)(r*rowsep));
+X	}
+X
+X	/* draw contents */
+X	for (c=0;c<NUMCOLS;c++)
+X		for (r=0;r<NUMROWS;r++)
+X			if (FIELD[c][r].m==fm_safe)
+X				draw(bm_safe,c,r);
+X			else if (FIELD[c][r].m==fm_bomb)
+X				draw(bm_bombmark,c,r);
+X			else switch (FIELD[c][r].c) {
+X				case fc_empty	: break;
+X				case fc_man	: draw(bm_man,c,r); break;
+X				case fc_bomb	: if (dead)
+X							draw(bm_bomb,c,r);
+X						  break;
+X				case fc_tombstone
+X						: draw(bm_tombstone,c,r); break;
+X				case fc_goal	: draw(bm_goal,c,r); break;
+X				case fc_trail	: draw(bm_trail,c,r); break;
+X				default		: fprintf(stderr,
+X					"Error: Illegal FIELD content\n");
+X					exit(1);
+X			}
+X	XFlush(disp);
+X}
+X
+X/* remove all Exposure events from the events queue; return the number
+X   of actual events removed */
+Xint remove_expose_events()
+X{
+X	int	r=0;		/* number of events removed so far */
+X	XEvent	event;		/* not used */
+X
+X	while (XCheckMaskEvent(disp,ExposureMask,&event))
+X		r++;
+X	return (r);
+X}
+X
+Xvoid refresh()
+X{
+X	XEvent		event;
+X	int		done=FALSE;	/* finished dequeuing all exposes? */
+X
+X	print_display();
+X	draw_field();
+X	draw(bm_man,manvx,manvy);
+X	XFlush(disp);
+X
+X	/* now dequeue all immediately succeeding exposure events */
+X	/*    to prevent multiple, useless refreshes              */
+X	remove_expose_events();
+X}
+X
+X/* set up windows for pausing;  the field should be blanked to prevent
+X   cheating;  the time should be adjusted so there is no penalty for pausing;
+X*/
+Xint do_pause()
+X{
+X	int		time_at_start_of_pause;
+X
+X	char		str[MAXSTRLEN];
+X	unsigned int	ww,wh;	/* get width and height of window */
+X	unsigned int	wbw;	/*     border width               */
+X	XFontStruct	*fs;
+X	Window		a;
+X	int		b,c;	/* dummy vars */
+X	unsigned int	e;	/* dummy vars */
+X
+X	int			wait=TRUE;
+X	XEvent			event;
+X	XButtonPressedEvent	*eventbp;
+X	XKeyPressedEvent	*eventkp;
+X	KeySym			ksym;
+X	char			s;
+X	int			done;
+X
+X	WindPrint(pause_wind,"Continue");
+X	time_at_start_of_pause = time(0);
+X
+X	/* blank out field and write "P-A-U-S-E" message on field */
+X	XClearWindow(disp,field);
+X	strcpy(str,"P-A-U-S-E");
+X	XSetForeground(disp,gcs,color[font_color].pixel);
+X	XSetBackground(disp,gcs,color[background_color].pixel);
+X	XGetGeometry(disp,field,&a,&b,&c,&ww,&wh,&wbw,&e);
+X	fs = fontsstruct;
+X	XDrawImageString(disp,field,gcs,
+X		((ww-2*wbw)-XTextWidth(fs,str,strlen(str)))/2,
+X		(wh - fs->ascent - fs->descent)/2 +
+X			fs->ascent,str,strlen(str));
+X	XFlush(disp);
+X
+X	/* Wait for keypress or button click to signal done with pause */
+X	while (wait == TRUE) {
+X	   while (!XPending(disp))
+X		usleep(XPENDING_UDELAY);
+X	   XNextEvent(disp,&event);
+X	   if (event.type==ButtonPress) {
+X		eventbp = (XButtonPressedEvent *) &event;
+X		if (eventbp->window == wind[pause_wind])
+X	                wait = FALSE;
+X	   }
+X	   else if (event.type == KeyPress) {
+X		eventkp = (XKeyPressedEvent *) &event;
+X		XLookupString(&event,&s,1,&ksym,NULL);
+X		if ((s == 'c') || (s == 'C'))
+X			wait = FALSE;
+X	   }
+X	   else if (event.type == Expose) {
+X	   /* do refresh in pause mode; pause_wind and field are different */
+X		print_display();
+X		WindPrint(pause_wind,"Continue");
+X		sprintf(str,"Time: %s",clock_time_str(
+X			num_time_left_at_start-
+X			(time_at_start_of_pause-time_at_start_of_level
+X					       -pause_time)));
+X		WindPrint(time_left,str);
+X
+X		/* blank out field and write "P-A-U-S-E" message on field */
+X		WindPrint(pause_wind,"Continue");
+X		XClearWindow(disp,field);
+X		strcpy(str,"P-A-U-S-E");
+X		XSetForeground(disp,gcs,color[font_color].pixel);
+X		XSetBackground(disp,gcs,color[background_color].pixel);
+X		XGetGeometry(disp,field,&a,&b,&c,&ww,&wh,&wbw,&e);
+X		fs = fontsstruct;
+X		XDrawImageString(disp,field,gcs,
+X			((ww-2*wbw)-XTextWidth(fs,str,strlen(str)))/2,
+X			(wh - fs->ascent - fs->descent)/2 +
+X				fs->ascent,str,strlen(str));
+X		XFlush(disp);
+X	
+X		/* now dequeue all immediately succeeding exposure events */
+X		/*    to prevent multiple, useless refreshes              */
+X		remove_expose_events();
+X	   }
+X	}
+X
+X	pause_time += time(0) - time_at_start_of_pause;
+X
+X	/* Restore windows to continue game */
+X	XClearWindow(disp,field);
+X	refresh();
+X
+X	WindPrint(pause_wind,"Pause");
+X}
+X
+Xint setxy(vx,vy,x,y)
+Xint vx,vy,*x,*y;
+X{
+X/* convert virtual coordinates to actual field pixel coordinates */
+X	double	rowsep,colsep;
+X
+X	if (((vx>=0) && (vx<NUMCOLS)) &&
+X	    ((vy>=0) && (vy<NUMROWS))) {
+X		colsep = ((double)(w-2*bw)/(double)NUMCOLS);
+X		rowsep = ((double)fh/(double)NUMROWS);
+X		*x = vx*colsep;
+X		*y = vy*rowsep;
+X		return (SUCCESS);
+X	}
+X	else
+X		return (OUT_OF_RANGE);
+X}
+X
+Xint setvxvy(x,y,vx,vy)
+Xint x,y,*vx,*vy;
+X{
+X/* convert actual field pixel coordinates to virtual coordinates */
+X	double	rowsep,colsep;
+X
+X	if (((x>=0) && (x<w-2*bw)) &&
+X	    ((y>=0) && (y<fh))) {
+X		colsep = ((double)(w-2*bw)/(double)NUMCOLS);
+X		rowsep = ((double)fh/(double)NUMROWS);
+X		*vx = x/colsep;
+X		*vy = y/rowsep;
+X		return (SUCCESS);
+X	}
+X	else
+X		return (OUT_OF_RANGE);
+X}
+X
+Xint bomb_status(vx,vy)
+Xint vx,vy;
+X{
+X	int	numbombs=0;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].c==fc_bomb))
+X			numbombs++;
+X		if (FIELD[vx][vy-1].c==fc_bomb)
+X			numbombs++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].c==fc_bomb))
+X			numbombs++;
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].c==fc_bomb))
+X			numbombs++;
+X		if (FIELD[vx][vy+1].c==fc_bomb)
+X			numbombs++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].c==fc_bomb))
+X			numbombs++;
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].c==fc_bomb))
+X		numbombs++;
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].c==fc_bomb))
+X		numbombs++;
+X
+X	return (numbombs);
+X}
+X
+Xvoid show_bomb_status(vx,vy)
+Xint vx,vy;
+X{
+X	int	numbombs;
+X	char	str[MAXSTRLEN];
+X
+X	numbombs = bomb_status(vx,vy);
+X
+X	sprintf(str,"%d surrounding bomb%c",numbombs,numbombs==1 ? ' ' : 's');
+X	print_status(str);
+X
+X	if ((automark) && (numbombs==0))
+X		mark_allaround_ok(manvx,manvy,0);
+X} 
+X
+X/* show_all_bombs:  shows all bombs on field   */
+X/*                  if any marks are incorrect */
+X/*                     highlight those squares */
+Xvoid show_all_bombs()
+X{
+X	int	c,r;	/* column and row under consideration */
+X
+X	for (c=0;c<NUMCOLS;c++)
+X	   for (r=0;r<NUMROWS;r++)
+X		if (FIELD[c][r].c == fc_bomb)
+X		   if (FIELD[c][r].m == fm_safe)
+X			draw(bm_safewrong,c,r);	/* bomb, marked safe */
+X		   else
+X			draw(bm_bomb,c,r);	/* bomb, unmarked or correct */
+X		else if (FIELD[c][r].m == fm_bomb)
+X		   draw(bm_bombmarkwrong,c,r);	/* no bomb, marked unsafe */
+X}
+X
+Xvoid do_promotion()
+X{
+X        char                    str[MAXSTRLEN];
+X	XEvent			event;
+X        XButtonPressedEvent     *eventbp;
+X        XKeyPressedEvent        *eventkp;
+X        int                     wait = TRUE;
+X
+X	finished = TRUE;
+X	num_score += current_bonus();
+X	printf("Your bonus for reaching the goal at rank %s is\n",
+X		num_rank_to_words(level));
+X	printf("     %5d = %d*%d \t (level*Time left)\n",
+X		current_bonus(),level+1,num_time_left);
+X	if (num_bombs_left>0)
+X		printf("           + %d    \t (Num bombs left)\n",
+X		num_bombs_left);
+X	if (num_grenades_left>0)
+X		printf("           + %d*%d \t (Num grenades left*ppg)\n",
+X		num_grenades_left,POINTS_PER_GRENADE);
+X	if (num_tombstones>0)
+X		printf("           - %d*%d \t (Num tombstones*ppts)\n",
+X		num_tombstones,POINTS_PER_TOMBSTONE);
+X/* This used to be used for ver 1.0
+X	if (used_showfig)
+X		printf("           - %d \t (Used showfig?)\n",
+X		POINTS_FOR_USED_SHOWFIG);
+X*/
+X	if (used_sanity)
+X		printf("           - %d \t (Used sanity check?)\n",
+X		(PERCENT_FOR_USED_SANITY*bonus_without_penalties())/100);
+X	if (used_eautomark)
+X		printf("           - %d \t (Used extended_automark?)\n",
+X		(PERCENT_FOR_USED_EAUTOMARK*bonus_without_penalties())/100);
+X	printf("Your current score is %d = %d + %d\n",
+X		num_score,num_score-current_bonus(),current_bonus());
+X
+X	show_all_bombs();
+X
+X	/* now update score on screen incrementally */
+X	{
+X		int i;
+X		/* this will make sure that at most 100 steps are made */
+X		int step = current_bonus()/100;
+X
+X		for (i=num_score-current_bonus();i<num_score;i+=step) {
+X			sprintf(str,"Score: %d",i);
+X			PrintStr(score,str);
+X		}
+X		sprintf(str,"Score: %d",num_score);
+X		WindPrint(score,str);
+X	}
+X
+X	if (level == HIGHEST_PLAYABLE_RANK) {
+X	   sprintf(str,
+X	   "Congratulations, you have reached completed the highest rank!");
+X	   level++;
+X	   show_and_add_scores();
+X	}
+X	else
+X	   sprintf(str,"Congratulations, you have been promoted to %s",
+X		num_rank_to_words(level+1));
+X	print_status(str);
+X
+X	/* reward additional lives and grenades */
+X	if ((level>=LOWEST_LEVEL_FOR_REWARD) &&
+X	    (num_score>=LOWEST_SCORE_FOR_REWARD)) {
+X		if (++num_grenades_left > NUM_GRENADES_AT_START)
+X			num_grenades_left = NUM_GRENADES_AT_START;
+X		sprintf(str,"Grenades: %d",num_grenades_left);
+X		WindPrint(grenades_left,str);
+X		if (++num_lives>MAXLIVES) num_lives=MAXLIVES;
+X		sprintf(str,"Lives: %d",num_lives);
+X		WindPrint(lives_left,str);
+X	}
+X
+X	sleep(3);
+X
+X	print_status ("In the field, press key or click button to continue");
+X	while (wait == TRUE) {
+X	   while (!XPending(disp))
+X		usleep(XPENDING_UDELAY);
+X	   XNextEvent(disp,&event);
+X	   if (event.type==ButtonPress) {
+X		eventbp = (XButtonPressedEvent *) &event;
+X		if (eventbp->window == field)
+X			wait = FALSE;
+X		else if (eventbp->window == wind[quit_wind]) {
+X			level++;
+X			show_and_add_scores();
+X		}
+X	   }
+X	   else if (event.type == KeyPress) {
+X		eventkp = (XKeyPressedEvent *) &event;
+X		if (eventkp->window == field)
+X			wait = FALSE;
+X	   }
+X	   else if (event.type == Expose) {
+X		refresh();
+X		show_all_bombs();
+X	   }
+X	}
+X}
+X
+X/* next_to_trail:  returns TRUE is at least one of the up to eight adjacent */
+X/*                 squares is already traversed and marked as fc_trail;     */
+X/*                 vx and vy is the square in question                      */
+Xint next_to_trail(vx,vy)
+Xint vx,vy;
+X{
+X	int	numbombs=0;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].c==fc_trail))
+X			return (TRUE);
+X		if (FIELD[vx][vy-1].c==fc_trail)
+X			return (TRUE);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].c==fc_trail))
+X			return (TRUE);
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].c==fc_trail))
+X			return (TRUE);
+X		if (FIELD[vx][vy+1].c==fc_trail)
+X			return (TRUE);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].c==fc_trail))
+X			return (TRUE);
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].c==fc_trail))
+X		return (TRUE);
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].c==fc_trail))
+X		return (TRUE);
+X
+X	return (FALSE);
+X}
+X
+Xint move_man(vx,vy)
+Xint vx,vy;
+X{
+X	int	ax,ay;		/* adjusted x and y */
+X	int	reached_goal=FALSE;
+X
+X	setxy(vx,vy,&ax,&ay);
+X
+X	if (FIELD[vx][vy].m == fm_bomb) {
+X		XBell(disp,0);
+X		print_status("Square is marked as unsafe!");
+X		return (SQUARE_IS_UNSAFE);
+X	}
+X	if (((abs(manvx-vx)<=1) && (abs(manvy-vy)<=1)) ||
+X	    (FIELD[vx][vy].c==fc_trail) ||
+X	    (next_to_trail(vx,vy) && (FIELD[vx][vy].m==fm_safe))) {
+X	   switch (FIELD[vx][vy].c) {
+X		case fc_goal	:
+X		case fc_trail	:
+X		case fc_empty	: /* only allow movement of one square */
+X				  if ((FIELD[vx][vy].c==fc_goal) && (!dead))
+X					reached_goal = TRUE;
+X				  draw(bm_trail,manvx,manvy);
+X				  FIELD[manvx][manvy].c = fc_trail;
+X				  manvx = vx; manvy = vy;
+X				  draw(bm_man,vx,vy);
+X				  FIELD[manvx][manvy].c = fc_man;
+X				  FIELD[manvx][manvy].m = fm_nomark;
+X				  if (reached_goal)
+X					do_promotion();
+X				  break;
+X		case fc_man	: show_bomb_status(manvx,manvy);
+X				  draw(bm_man,manvx,manvy);
+X				  break;
+X		case fc_bomb	: draw(bm_trail,manvx,manvy);
+X				  FIELD[manvx][manvy].c = fc_trail;
+X				  die(vx,vy);
+X				  break;
+X		case fc_tombstone:
+X				  break;
+X		default		: fprintf(stderr,
+X					"Error: Illegal FIELD contents\n");
+X				  exit(2);
+X	   }
+X	   show_bomb_status(manvx,manvy);
+X	}
+X	else {
+X	   print_status("Can't move that far!");
+X	   XBell(disp,0);	      
+X	}
+X	return (SUCCESS);
+X}
+X
+Xint remove_mark(vx,vy)
+Xint vx,vy;
+X{
+X	if (FIELD[vx][vy].m == fm_nomark)
+X		return (NO_MARK_TO_REMOVE);	
+X	else {
+X		FIELD[vx][vy].m = fm_nomark;
+X		clear(vx,vy);
+X		return (SUCCESS);
+X	}
+X}
+X
+Xint mark_ok(vx,vy)
+Xint vx,vy;
+X{
+X	switch (FIELD[vx][vy].c) {
+X		case fc_empty:
+X		case fc_bomb:	FIELD[vx][vy].m = fm_safe;
+X				draw(bm_safe,vx,vy);
+X				return (SUCCESS);
+X		case fc_trail:
+X		case fc_man:
+X		case fc_tombstone:
+X		case fc_goal:	return (CANT_MARK);
+X		default:	fprintf(stderr,
+X					"Error: Illegal FIELD contents\n");
+X				exit(3);
+X	}
+X}
+X
+X/* if level<0, then only mark immediately surrounding squares;  don't do
+X   extended automarking
+X*/
+Xint mark_allaround_ok(vx,vy,level)
+Xint vx,vy,level;	/* level=level of recursion */
+X{
+X	int	c,r;	/* col and row to clear FIELD[][].done flags */
+X
+X	/* clear all done flags if on original call */
+X	if (level==0)
+X		for (c=0;c<NUMCOLS;c++)
+X		   for (r=0;r<NUMROWS;r++)
+X			FIELD[c][r].done = FALSE;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].m==fm_nomark))
+X			mark_ok(vx-1,vy-1);
+X		if (FIELD[vx][vy-1].m==fm_nomark)
+X			mark_ok(vx,vy-1);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].m==fm_nomark))
+X			mark_ok(vx+1,vy-1);
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].m==fm_nomark))
+X			mark_ok(vx-1,vy+1);
+X		if (FIELD[vx][vy+1].m==fm_nomark)
+X			mark_ok(vx,vy+1);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].m==fm_nomark))
+X			mark_ok(vx+1,vy+1);
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].m==fm_nomark))
+X		mark_ok(vx-1,vy);
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].m==fm_nomark))
+X		mark_ok(vx+1,vy);
+X
+X	if ((level>=0) && (extended_automark) && (!FIELD[vx][vy].done)) {
+X	/* mark square as being already marked-allaround to prevent repeat */
+X		FIELD[vx][vy].done = TRUE;
+X		if (bomb_status(vx,vy) == 0) {
+X			draw(bm_trail,vx,vy);
+X			FIELD[vx][vy].c = fc_trail;
+X			FIELD[vx][vy].m = fm_nomark;
+X		}
+X		if (vy>0) {
+X			if ((vx>0) && (FIELD[vx-1][vy-1].m==fm_safe) &&
+X			    (bomb_status(vx-1,vy-1)==0))
+X				mark_allaround_ok(vx-1,vy-1,level+1);
+X			if ((FIELD[vx][vy-1].m==fm_safe) &&
+X			    (bomb_status(vx,vy-1)==0))
+X				mark_allaround_ok(vx,vy-1,level+1);
+X			if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].m==fm_safe) &&
+X			    (bomb_status(vx+1,vy-1)==0))
+X				mark_allaround_ok(vx+1,vy-1,level+1);
+X		}
+X		if (vy<NUMROWS-1) {
+X			if ((vx>0) && (FIELD[vx-1][vy+1].m==fm_safe) &&
+X			    (bomb_status(vx-1,vy+1)==0))
+X				mark_allaround_ok(vx-1,vy+1,level+1);
+X			if ((FIELD[vx][vy+1].m==fm_safe) &&
+X			    (bomb_status(vx,vy+1)==0))
+X				mark_allaround_ok(vx,vy+1,level+1);
+X			if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].m==fm_safe) &&
+X			    (bomb_status(vx+1,vy+1)==0))
+X				mark_allaround_ok(vx+1,vy+1,level+1);
+X		}
+X		if ((vx>0) && (FIELD[vx-1][vy].m==fm_safe) &&
+X		    (bomb_status(vx-1,vy)==0))
+X			mark_allaround_ok(vx-1,vy,level+1);
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].m==fm_safe) &&
+X		    (bomb_status(vx+1,vy)==0))
+X			mark_allaround_ok(vx+1,vy,level+1);
+X	}
+X
+X	/* put man marker back on field */
+X	if (level<=0)
+X		draw(bm_man,manvx,manvy);
+X
+X	return (SUCCESS);
+X}
+X
+Xint mark_bomb(vx,vy)
+Xint vx,vy;
+X{
+X	switch (FIELD[vx][vy].c) {
+X		case fc_empty:
+X		case fc_bomb:	FIELD[vx][vy].m = fm_bomb;
+X				draw(bm_bombmark,vx,vy);
+X				return (SUCCESS);
+X		case fc_trail:
+X		case fc_man:
+X		case fc_tombstone:
+X		case fc_goal:	return (CANT_MARK);
+X		default:	fprintf(stderr,
+X					"Error: Illegal FIELD contents\n");
+X				exit(3);
+X	}
+X}
+X
+Xvoid die(vx,vy)
+Xint vx,vy;
+X{
+X	char			str[MAXSTRLEN];
+X
+X	explode(vx,vy);
+X	draw(bm_tombstone,vx,vy);
+X	FIELD[vx][vy].c = fc_tombstone;
+X	num_tombstones++;
+X	if (--num_lives<0)
+X		num_lives = 0;
+X	sprintf(str,"Lives: %d",num_lives);
+X	WindPrint(lives_left,str);
+X	if ((num_lives<=0) && (!dead)) {
+X		show_bomb_status(manvx,manvy);
+X		dead = TRUE;
+X		show_all_bombs();
+X		print_status("You have just died!  GAME OVER!");
+X		XBell(disp,0);
+X		XBell(disp,0);
+X		XBell(disp,0);
+X		XFlush(disp);
+X		sleep(3);
+X	}
+X	draw(bm_man,0,0);
+X	FIELD[0][0].c = fc_man;
+X	FIELD[0][0].m = fm_nomark;
+X	manvx = manvy = 0;
+X	show_bomb_status(manvx,manvy);
+X}
+X
+Xint explode(vx,vy)
+Xint vx,vy;
+X{
+X	int	i;
+X	char	str[MAXSTRLEN];
+X
+X	if (FIELD[vx][vy].c == fc_bomb) {
+X		num_bombs_left--;
+X		sprintf(str,"Bombs: %d",num_bombs_left);
+X		WindPrint(bombs_left,str);
+X	}
+X
+X	/* simulate explosion on screen */
+X	for (i=0;i<10;i++) {
+X		draw(bm_pow,vx,vy);
+X		usleep(BOMB_EXPLODE_UDELAY);
+X		draw(bm_bomb,vx,vy);
+X		usleep(BOMB_EXPLODE_UDELAY);
+X	}
+X	clear(vx,vy);
+X	FIELD[vx][vy].c = fc_empty;
+X	FIELD[vx][vy].m = fm_nomark;
+X
+X
+X	/* check to see if other bombs nearby--Manhattan dirs only */
+X	if ((vx>0) && (FIELD[vx-1][vy].c==fc_bomb)) explode(vx-1,vy);
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].c==fc_bomb)) explode(vx+1,vy);
+X	if ((vy>0) && (FIELD[vx][vy-1].c==fc_bomb)) explode(vx,vy-1);
+X	if ((vy<NUMROWS-1) && (FIELD[vx][vy+1].c==fc_bomb)) explode(vx,vy+1);
+X
+X	/* check to see if man nearby--Manhattan dirs only */
+X	if ((vx>0) && (FIELD[vx-1][vy].c==fc_man)) die(vx-1,vy);
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].c==fc_man)) die(vx+1,vy);
+X	if ((vy>0) && (FIELD[vx][vy-1].c==fc_man)) die(vx,vy-1);
+X	if ((vy<NUMROWS-1) && (FIELD[vx][vy+1].c==fc_man)) die(vx,vy+1);
+X
+X	return(SUCCESS);
+X}
+X
+X/* bonus_without_penalties:  returns the current bonus remaining for */
+X/*	this level, without used_* penalties                         */
+Xint bonus_without_penalties()
+X{
+X	int	b;	/* temp value for current bonus */
+X
+X	b = (level+1)*num_time_left
+X		+ num_bombs_left
+X		+ num_grenades_left*POINTS_PER_GRENADE
+X		- num_tombstones*POINTS_PER_TOMBSTONE;
+X
+X	if (b < 0)
+X		b = 0;
+X
+X	return (b);
+X}
+X
+X/* current_bonus:  returns the current amount of bonus */
+X/*                    remaining for this level         */
+Xint current_bonus()
+X{
+X	int	b;	/* temp value for current bonus */
+X
+X	b = bonus_without_penalties()
+X/* This used to be used for ver 1.0
+X		- used_showfig*POINTS_FOR_USED_SHOWFIG;
+X*/
+X		- used_sanity*
+X		   (PERCENT_FOR_USED_SANITY*bonus_without_penalties())/100
+X		- used_eautomark*
+X		   (PERCENT_FOR_USED_EAUTOMARK*bonus_without_penalties())/100;
+X
+X	if (b < 0)
+X		b = 0;
+X
+X	return (b);
+X}
+X		
+X
+X/* update_bonus:  recalculate the amount of bonus remaining for this level */
+X/*                display the correct new bonus on screen                  */
+Xint update_bonus()
+X{
+X	char		str[MAXSTRLEN];
+X	static int	last_bonus;
+X
+X	if ((num_bonus = current_bonus()) != last_bonus) {
+X		sprintf(str,"Bonus: %d",num_bonus);
+X		WindPrint(bonus_wind,str);
+X		last_bonus = num_bonus;
+X	}
+X}
+X
+Xint update_time()
+X{
+X	long	st,ct;	/* starting and current times */
+X	char	str[MAXSTRLEN];
+X	int	previous_num_time_left=num_time_left;
+X
+X	st = time_at_start_of_level;
+X	ct = time(0);
+X	num_time_left = num_time_left_at_start - (ct-st-pause_time);
+X	update_bonus();
+X	if (num_time_left<=0) {
+X		print_status("Time is out!  GAME OVER!");
+X		sprintf(str,"Time: %s",clock_time_str(num_time_left));
+X		WindPrint(time_left,str);
+X		XBell(disp,0);
+X		XBell(disp,0);
+X		XBell(disp,0);
+X		return (TIME_IS_OVER);	/* TIME_IS_OVER = TRUE */
+X	}
+X	else if (num_time_left != previous_num_time_left) {
+X		sprintf(str,"Time: %s",clock_time_str(num_time_left));
+X		WindPrint(time_left,str);
+X		return (SUCCESS);
+X	}
+X	return (SUCCESS);
+X}
+X
+Xint throw_grenade()
+X{
+X	char			str[MAXSTRLEN];
+X	XEvent			event;
+X	XButtonPressedEvent	*eventbp;
+X	int			vx,vy;
+X
+X	if (num_grenades_left==0) {
+X		print_status("No grenades left!");
+X		XBell(disp,0);
+X		return (NO_GRENADES_LEFT);
+X	}
+X
+X	XClearWindow(disp,wind[tgrenade_wind]);
+X	InvPrintStr(tgrenade_wind,"Throw Grenade");
+X	print_status("Ready to throw grenade");
+X
+X	/* Get position to throw grenade */
+X	while (!XPending(disp))
+X		usleep(XPENDING_UDELAY);
+X	XNextEvent(disp,&event);
+X	eventbp = (XButtonPressedEvent *) &event;
+X	if ((event.type != ButtonPress) || (eventbp->window != field) ||
+X	    (setvxvy(eventbp->x,eventbp->y,&vx,&vy) == OUT_OF_RANGE)) {
+X		print_status("Click on the position to throw grenade!");
+X		XBell(disp,0);
+X		WindPrint(tgrenade_wind,"Throw Grenade");
+X		return (ILLEGAL_POSITION);
+X	}
+X
+X	/* check to see if within range */
+X	if (abs(manvx-vx) + abs(manvy-vy) > GRENADE_DISTANCE) {
+X		sprintf(str,
+X			"Can't toss grenade that far!  Max distance is %d.\n",
+X			GRENADE_DISTANCE);
+X		print_status(str);
+X		XBell(disp,0);
+X		WindPrint(tgrenade_wind,"Throw Grenade");
+X		return (TOO_FAR_TO_TOSS_GRENADE);
+X	}
+X
+X	/* passed checks -- toss grenade */
+X	if (FIELD[vx][vy].c == fc_man) {
+X		die(vx,vy);
+X		sprintf(str,"Grenades: %d",--num_grenades_left);
+X		WindPrint(grenades_left,str);
+X		WindPrint(tgrenade_wind,"Throw Grenade");
+X		return (DIED);
+X	}
+X	else if ((FIELD[vx][vy].c != fc_tombstone) && 
+X	    (FIELD[vx][vy].c != fc_goal)) {
+X		explode(vx,vy);
+X		show_bomb_status(manvx,manvy);
+X		draw(bm_man,manvx,manvy);
+X		sprintf(str,"Grenades: %d",--num_grenades_left);
+X		WindPrint(grenades_left,str);
+X		WindPrint(tgrenade_wind,"Throw Grenade");
+X		return (SUCCESS);
+X	}
+X	else {
+X		strcpy(str,"No bomb at that position.  ");
+X		strcat(str,"Can't blow up tombstone or goal.");
+X		print_status(str);
+X		XBell(disp,0);
+X		WindPrint(tgrenade_wind,"Throw Grenade");
+X		return (CANT_EXPLODE);
+X	}
+X}
+X
+X/* num_adj_squares_marked_bomb: returns num adjacent squares user has marked
+X	as being unsafe
+X*/
+Xint num_adj_squares_marked_bomb(vx,vy)
+Xint vx,vy;
+X{
+X	int	nummarks=0;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].m==fm_bomb))
+X			nummarks++;
+X		if (FIELD[vx][vy-1].m==fm_bomb)
+X			nummarks++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].m==fm_bomb))
+X			nummarks++;
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].m==fm_bomb))
+X			nummarks++;
+X		if (FIELD[vx][vy+1].m==fm_bomb)
+X			nummarks++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].m==fm_bomb))
+X			nummarks++;
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].m==fm_bomb))
+X		nummarks++;
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].m==fm_bomb))
+X		nummarks++;
+X
+X	return (nummarks);
+X}
+X
+X/* num_adj_squares_marked_safe: returns num adjacent squares user has marked
+X	as being safe
+X*/
+Xint num_adj_squares_marked_safe(vx,vy)
+Xint vx,vy;
+X{
+X	int	nummarks=0;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].m==fm_safe))
+X			nummarks++;
+X		if (FIELD[vx][vy-1].m==fm_safe)
+X			nummarks++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].m==fm_safe))
+X			nummarks++;
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].m==fm_safe))
+X			nummarks++;
+X		if (FIELD[vx][vy+1].m==fm_safe)
+X			nummarks++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].m==fm_safe))
+X			nummarks++;
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].m==fm_safe))
+X		nummarks++;
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].m==fm_safe))
+X		nummarks++;
+X
+X	return (nummarks);
+X}
+X
+X/* num_unvisited_adj_squares: returns num adjacent squares user has
+X	not yet visited (not marked with fc_trail)
+X*/
+Xint num_unvisited_adj_squares(vx,vy)
+Xint vx,vy;
+X{
+X	int	num_unvisited=0;
+X
+X	if (vy>0) {
+X		if ((vx>0) && (FIELD[vx-1][vy-1].c!=fc_trail))
+X			num_unvisited++;
+X		if (FIELD[vx][vy-1].c!=fc_trail)
+X			num_unvisited++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy-1].c!=fc_trail))
+X			num_unvisited++;
+X	}
+X	if (vy<NUMROWS-1) {
+X		if ((vx>0) && (FIELD[vx-1][vy+1].c!=fc_trail))
+X			num_unvisited++;
+X		if (FIELD[vx][vy+1].c!=fc_trail)
+X			num_unvisited++;
+X		if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy+1].c!=fc_trail))
+X			num_unvisited++;
+X	}
+X	if ((vx>0) && (FIELD[vx-1][vy].c!=fc_trail))
+X		num_unvisited++;
+X	if ((vx<NUMCOLS-1) && (FIELD[vx+1][vy].c!=fc_trail))
+X		num_unvisited++;
+X
+X	return (num_unvisited);
+X}
+X
+X/* do_sanity_check: Make sure user is not losing his mind!
+X	If more adjacent squares are marked unsafe than is indicated by the
+X	current bomb status, warn the user.
+X	If more adjacent squares are marked safe than the number of unvisited
+X	squares - the current bomb status, warn the user.
+X*/
+Xint do_sanity_check(vx,vy)
+Xint vx,vy;
+X{
+X	/* Check first for too many squares marked unsafe */
+X	if (num_adj_squares_marked_bomb(vx,vy) > bomb_status(vx,vy)) {
+X		print_status("WARNING: too many squares marked UNsafe!");
+X		XBell(disp,0);
+X		return (CHECK_FAILED);
+X	}
+X
+X	/* Next check for too many squares marked safe */
+X	if (num_adj_squares_marked_safe(vx,vy) > 
+X	   num_unvisited_adj_squares(vx,vy) - bomb_status(vx,vy)) {
+X		print_status("WARNING: too many squares marked safe!");
+X		XBell(disp,0);
+X		return (CHECK_FAILED);
+X	}
+X
+X	return (SUCCESS);
+X}
+END_OF_FILE
+if test 29521 -ne `wc -c <'play.c'`; then
+    echo shar: \"'play.c'\" unpacked with wrong size!
+fi
+# end of 'play.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

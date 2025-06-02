@@ -1,0 +1,2208 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Newsgroups: comp.sources.x
+Subject: v18i088: Ftptool 4.3 (XVIEW), Part06/12
+Message-ID: <1992Aug18.153646.28847@msi.com>
+Date: 18 Aug 92 15:36:46 GMT
+References: <csx-18i083-ftptool-4.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2195
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Posting-number: Volume 18, Issue 88
+Archive-name: ftptool-4.3/part06
+
+#!/bin/sh
+# this is part.06 (part 6 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file schedule.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping schedule.c'
+else
+echo 'x - continuing file schedule.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'schedule.c' &&
+X		NULL);
+X	update_date(0);
+X	tm = localtime(&tmp->date);
+X	xv_set(schedule_window.frame,
+X		XV_SHOW, TRUE,
+X		NULL);
+X	xv_set(schedule_window.hour,
+X		PANEL_VALUE, tm->tm_hour,
+X		NULL);
+X	xv_set(schedule_window.minute,
+X		PANEL_VALUE, tm->tm_min,
+X		NULL);
+X	xv_set(schedule_window.month,
+X		PANEL_VALUE, tm->tm_mon,
+X		NULL);
+X	xv_set(schedule_window.day,
+X		PANEL_VALUE, tm->tm_mday,
+X		NULL);
+X	xv_set(schedule_window.year,
+X		PANEL_VALUE, tm->tm_year + 1900,
+X		NULL);
+X
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void reload_schedule_menu(struct schedule *head)
+#else
+void reload_schedule_menu(head)
+struct schedule *head;
+#endif
+{
+X	Menu	menu = xv_get(schedule_window.hosts, PANEL_ITEM_MENU);
+X	int	nitems = xv_get(menu, MENU_NITEMS);
+X	int	row;
+X	Menu_item	mi;
+X	Frame	frame;
+X	int		isshown;
+X	int		maxwidth=0;
+X	int		width=0;
+X	double	cols;
+X	struct schedule *tmp=NULL;
+X
+X	frame = (Panel)xv_get(menu, MENU_PIN_WINDOW);
+X	isshown = FALSE;
+X	if (frame) 
+X		isshown = xv_get(frame, XV_SHOW);
+X
+X	if (isshown) {
+X		xv_set(frame, 
+#ifdef XVIEW3
+X			FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_OUT,
+#else
+X			FRAME_CMD_PUSHPIN_IN, FALSE,
+#endif
+X			XV_SHOW, FALSE,
+X			NULL);
+X	}
+X	/* 2 items minimum, 1 for title */
+X	for (row = nitems; row > 1; row--)
+X		xv_set(menu,
+X			MENU_REMOVE, row,
+X			NULL);
+X
+X	nitems = 0;
+X	for (tmp=head->next; tmp != NULL; tmp=tmp->next) {
+X		width = strlen(tmp->menu_name);
+X		maxwidth = MAX(maxwidth, width);
+X		mi = (Menu_item)xv_create(XV_NULL, MENUITEM,
+X			MENU_STRING, tmp->menu_name,
+X			MENU_NOTIFY_PROC, schedule_item_proc,
+X			MENU_CLIENT_DATA, tmp,
+X			MENU_RELEASE,
+X			NULL);
+X		if (mi == XV_NULL) {
+X			fprintf(stderr, "Out of memory for menu item.\n");
+X			exit(1);
+X		}
+X		xv_set(menu,
+X			MENU_APPEND_ITEM, mi,
+X			PANEL_PAINT, PANEL_NONE,
+X			NULL);
+X		nitems++;
+X	}
+X	if (nitems == 0) {
+X		mi = (Menu_item)xv_create(XV_NULL, MENUITEM,
+X			MENU_STRING, "No Hosts!",
+X			MENU_RELEASE,
+X			NULL);
+X		if (mi == XV_NULL) {
+X			fprintf(stderr, "Out of memory for menu item.\n");
+X			exit(1);
+X		}
+X		xv_set(menu,
+X			MENU_APPEND_ITEM, mi,
+X			NULL);
+X	}
+X
+X	if (maxwidth == 0)
+X		maxwidth = 1;
+X	
+X	cols = 2.0 * nitems;
+X	cols /= maxwidth;
+X	cols = ceil(sqrt(cols));
+X	xv_set(menu,
+X		MENU_NCOLS,(int)cols,
+X		NULL);
+X	if (isshown) {
+X		xv_set(frame, 
+#ifdef XVIEW3
+X			FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_IN,
+#else
+X			FRAME_CMD_PUSHPIN_IN, TRUE,
+#endif
+X			XV_SHOW, TRUE,
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+void action_choice_proc(Panel_item item, unsigned int value, 
+X	Event *event)
+#else
+void action_choice_proc(item, value, event)
+Panel_item	item;
+unsigned int	value;
+Event	*event;
+#endif
+{
+X	schedule_footer_message("", (char *)NULL);
+X	if (value == RECV) {
+X		xv_set(schedule_window.send_list,
+X			XV_SHOW, FALSE,
+X			NULL);
+X		xv_set(schedule_window.receive_list,
+X			XV_SHOW, TRUE,
+X			NULL);
+X	} else {
+X		xv_set(schedule_window.receive_list,
+X			XV_SHOW, FALSE,
+X			NULL);
+X		xv_set(schedule_window.send_list,
+X			XV_SHOW, TRUE,
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+Notify_value schedule_timer_proc(void)
+#else
+Notify_value schedule_timer_proc()
+#endif
+{
+X	dowhat = DOSCHEDULE;
+X	notify_stop();
+X	return NOTIFY_DONE;
+}
+X
+#ifdef USE_PROTOTYPES
+void activate_schedule_timer(void)
+#else
+void activate_schedule_timer()
+#endif
+{
+X	time_t	t;
+X	struct itimerval itimer;
+X
+X	if (schedule_list.next == NULL) {
+X		xv_set(schedule_window.process,
+X			PANEL_LABEL_STRING, "Process Batch",
+X			XV_HELP_DATA, "ftptool:ProcessBatch",
+X			NULL);
+X		return;
+X	}
+X	if (!strcmp((char *)xv_get(schedule_window.process, PANEL_LABEL_STRING),
+X		"Process Batch"))
+X			return;	/* cancelled already */
+X	t = time((time_t *)NULL);
+X	itimer.it_value.tv_sec = schedule_list.next->date - t;
+X	itimer.it_value.tv_usec = 0;
+X	itimer.it_interval.tv_sec = 0;
+X	itimer.it_interval.tv_usec = 0;
+X	if (itimer.it_value.tv_sec < 0)
+X		itimer.it_value.tv_sec = 1;
+X	notify_set_itimer_func(schedule_window.frame, schedule_timer_proc,
+X		ITIMER_REAL, &itimer, (struct itimerval *)NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void batch_process_proc(Panel_item item, Event *event)
+#else
+void batch_process_proc(item, event)
+Panel_item	item;
+Event	*event;
+#endif
+{
+X	schedule_footer_message("", (char *)NULL);
+X	if (!strcmp("Process Batch", (char *)xv_get(item, PANEL_LABEL_STRING))) {
+X		if (schedule_list.next == NULL) {
+X			schedule_footer_message("Nothing to process.", (char *)NULL);
+X			xv_set(item,
+X				PANEL_NOTIFY_STATUS, XV_ERROR,
+X				NULL);
+X			return;
+X		}
+X		xv_set(item,
+X			PANEL_LABEL_STRING, "Abort Batch",
+X			XV_HELP_DATA, "ftptool:AbortBatch",
+X			NULL);
+X		xv_set(base_window.connect,
+X			PANEL_INACTIVE, TRUE,
+X			NULL);
+X		xv_set(host_window.basic.connect,
+X			PANEL_INACTIVE, TRUE,
+X			NULL);
+X		activate_schedule_timer();
+X	} else {
+X		xv_set(item,
+X			PANEL_LABEL_STRING, "Process Batch",
+X			XV_HELP_DATA, "ftptool:ProcessBatch",
+X			NULL);
+X		xv_set(base_window.connect,
+X			PANEL_INACTIVE, FALSE,
+X			NULL);
+X		xv_set(host_window.basic.connect,
+X			PANEL_INACTIVE, FALSE,
+X			NULL);
+X		notify_set_itimer_func(schedule_window.frame, NOTIFY_FUNC_NULL,
+X			ITIMER_REAL, (struct itimerval *)NULL, (struct itimerval *)NULL);
+X	}
+X	xv_set(item,
+X		PANEL_NOTIFY_STATUS, XV_ERROR,
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void doschedule(void)
+#else
+void doschedule()
+#endif
+{
+X	struct schedule *tmp = schedule_list.next;
+X
+X	xv_set(host_window.advanced.alias, 
+X		PANEL_VALUE, tmp->hl->aliasname, 
+X		NULL);
+X	xv_set(host_window.advanced.last_visited, 
+X		PANEL_LABEL_STRING, tmp->hl->last_visited, 
+X		NULL);
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_VALUE, tmp->hl->proxy, 
+X		NULL);
+X	xv_set(host_window.basic.host, 
+X		PANEL_VALUE, tmp->hl->host, 
+X		NULL);
+X	xv_set(host_window.basic.login, 
+X		PANEL_VALUE, tmp->hl->login, 
+X		NULL);
+X	xv_set(host_window.basic.password, 
+X		PANEL_VALUE, tmp->hl->password, 
+X		NULL);
+X	xv_set(host_window.advanced.transfer_mode, 
+X		PANEL_VALUE, tmp->hl->transfer_mode, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_VALUE, tmp->hl->remote_directory, 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_VALUE, tmp->hl->local_directory, 
+X		NULL);
+X	xv_set(host_window.advanced.dir_parse, 
+X		PANEL_VALUE, tmp->hl->dir_parse, 
+X		NULL);
+X	xv_set(host_window.advanced.comment, 
+X		PANEL_VALUE, tmp->hl->comment, 
+X		NULL);
+X
+X	if (try_proxy) {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, TRUE, 
+X			NULL);
+X	} else {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, FALSE, 
+X			NULL);
+X	}
+X	if (doconnect()) {
+X		/* failed. Try again later. */
+X		schedule_list.next->date += 300;
+X		reorder_list(&schedule_list);
+X		goto out;
+X	}
+X	if (tmp->direction == RECV) {
+X		load_batch_list(schedule_window.receive_list, tmp->filename);
+X		dobatchget();
+X	} else {
+X		load_batch_list(schedule_window.send_list, tmp->filename);
+X		dobatchput();
+X	}
+X	disconnect();
+X	delete_schedule(&schedule_list, &tmp->menu_name[2], tmp->direction);
+out:
+X	reload_schedule_menu(&schedule_list);
+X	activate_schedule_timer();
+}
+SHAR_EOF
+echo 'File schedule.c is complete' &&
+chmod 0644 schedule.c ||
+echo 'restore of schedule.c failed'
+Wc_c="`wc -c < 'schedule.c'`"
+test 17319 -eq "$Wc_c" ||
+	echo 'schedule.c: original size 17319, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= transfer.c ==============
+if test -f 'transfer.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping transfer.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting transfer.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'transfer.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+int get_file(char *name, char *localname, size_t size)
+#else
+int get_file(name, localname, size)
+char	*name;
+char	*localname;
+size_t	size;
+#endif
+{
+X	char	*ftperr;
+X	int		rval;
+X
+X	footer_message("Receiving %s...", name, (char *)NULL);
+X	if (abort_transfer) {
+X		return EINTR;
+X	}
+X	xv_set(base_window.abort,
+X		PANEL_INACTIVE, FALSE,
+X		NULL);
+X	restart_point = 0;
+X	settype((int)xv_get(host_window.advanced.transfer_mode, PANEL_VALUE));
+X	rval = recvrequest("RETR", localname, name, "w", size);
+X	restart_point = 0;
+X	switch (rval) {
+X	case 1:
+X		/* non_fatal error */
+X		ftperr = index(response_line, ':');
+X		if (ftperr != NULL) {
+X			ftperr++;
+X			if (!strncmp(ftperr, "Permission", 10))
+X				rval = EPERM;
+X			else if (!strncmp(ftperr, "not a plain file", 16))
+X				rval = EISDIR;
+X			else
+X				rval = 0;
+X		} else
+X			rval = 0;
+X		break;
+X	case 2:
+X		rval = EIO;
+X		break;
+X	default:
+X		break;
+X	}
+X
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+int put_file(char *name, char *remote_name, size_t size)
+#else
+int put_file(name, remote_name, size)
+char	*name;
+char	*remote_name;
+size_t	size;
+#endif
+{
+X	char	*ftperr;
+X	int		rval;
+X
+X	local_footer_message("Sending %s...", name, (char *)NULL);
+X	if (abort_transfer) {
+X		return EINTR;
+X	}
+X	xv_set(base_window.abort,
+X		PANEL_INACTIVE, FALSE,
+X		NULL);
+X
+X	restart_point = 0;
+X	settype((int)xv_get(host_window.advanced.transfer_mode, PANEL_VALUE));
+X	/* if unique, then use STOU */
+X	if (unique_remote_names)
+X		rval = sendrequest("STOU", name, remote_name, size);
+X	else
+X		rval = sendrequest("STOR", name, remote_name, size);
+X	restart_point = 0;
+X	switch (rval) {
+X	case 1:
+X		/* non_fatal error */
+X		ftperr = index(response_line, ':');
+X		if (ftperr != NULL) {
+X			ftperr++;
+X			if (!strncmp(ftperr, "Permission", 10))
+X				rval = EPERM;
+X			else
+X				rval = 0;
+X		} else
+X			rval = 0;
+X		break;
+X	case 2:
+X		rval = EIO;
+X		break;
+X	default:
+X		break;
+X	}
+X
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+int get_dir(char *parent_remote_dir, char *parent_local_dir, 
+X	char *name, char *localname)
+#else
+int get_dir(parent_remote_dir, parent_local_dir, name, localname)
+char	*parent_remote_dir;
+char	*parent_local_dir;
+char	*name;
+char	*localname;
+#endif
+{
+X	int		rval = 0;
+X	extern int errno;
+X	struct dirlist *head = NULL;
+X	struct dirlist *tmp;
+X	char	*ftperr;
+X	char	*rdir = NULL;
+X	char	*ldir = NULL;
+X
+X	/* transfer a remote subdirectory and its contents to the local machine */
+X
+X	/* First, make a directory */
+X	if (rval = make_dirs(localname, 1)) {
+X		if (rval != EEXIST) {
+X			/* XXX - this message is clobbered by 'done reading' message */
+X			return errno;
+X		}
+X	}
+X
+X	/* cd to that dir */
+X	if (command("CWD %s", name) == ERROR && code == 250) {
+X		sprintf(scratch, "Remote cd to %s failed.", name);
+X		ftperr = ftp_error(' ', scratch);
+X		footer_message(ftperr, (char *)NULL);
+X		return 1;
+X	}
+X	/* local cd */
+X	if (chdir(localname) == -1) {
+X		/* go back up */
+X		footer_message("Local cd to %s failed.", localname, (char *)NULL);
+X
+X		(void)command("CWD %s", parent_remote_dir);
+X		return errno;
+X	}
+X
+X	head = read_remote_dir((char *)NULL);
+X	if (head == NULL)
+X		goto out;
+X
+X	/* do files first */
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		if (S_ISREG(tmp->mode)) {
+X			if (rval = get_file(tmp->name, tmp->name, tmp->size))
+X				goto out;
+X		} 
+X	}
+X
+X	rdir = make_path(parent_remote_dir, name);
+X	if (rdir == NULL)
+X		goto out;
+X
+X	ldir = make_path(parent_local_dir, localname);
+X	if (ldir == NULL)
+X		goto out;
+X
+X	/* recursively do directories */
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		if (!S_ISDIR(tmp->mode)) 
+X			continue;
+X		if (rval = get_dir(rdir, ldir, tmp->name, tmp->name))
+X			goto out;
+X	}
+X
+out:
+X	if (head)
+X		free_dirlist(head);
+X	if (rdir)
+X		free(rdir);
+X	if (ldir)
+X		free(ldir);
+X	/* go back up */
+X
+X	(void)command("CWD %s", parent_remote_dir);
+X	chdir(parent_local_dir);
+X
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+int put_dir(char *parent_remote_dir, char *parent_local_dir, 
+X	char *name, char *localname)
+#else
+int put_dir(parent_remote_dir, parent_local_dir, name, localname)
+char	*parent_remote_dir;
+char	*parent_local_dir;
+char	*name;
+char	*localname;
+#endif
+{
+X	extern int errno;
+X	int	rval = 0;
+X	struct dirlist *head = NULL;
+X	struct dirlist *tmp;
+X	char	*ftperr;
+X	char	*rdir = NULL;
+X	char	*ldir = NULL;
+X
+X	/* transfer a local subdirectory and its contents to the remote machine */
+X
+X	/* First, make a directory */
+X	if (make_remote_dirs(name, 1)) {
+X	/* XXX - error? */
+X	/*
+X		goto out;
+X	*/
+X	}
+X	/* cd to that dir */
+X	if (command("CWD %s", name) == ERROR && code == 250) {
+X		sprintf(scratch, "Remote cd to %s failed.", name);
+X		ftperr = ftp_error(' ', scratch);
+X		local_footer_message(ftperr, (char *)NULL);
+X		return 1;
+X	}
+X	/* local cd */
+X	if (chdir(localname) == -1) {
+X		local_footer_message("Local cd to %s failed.", localname, (char *)NULL);
+X		/* go back up */
+X		(void)command("CWD %s", parent_remote_dir);
+X		return errno;
+X	}
+X
+X	head = read_local_dir(".");
+X
+X	if (head == NULL) {
+X		rval = ENOMEM;
+X		goto out;
+X	}
+X
+X	/* do files first */
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		if (!S_ISREG(tmp->mode))
+X			continue;
+X		if (rval = put_file(tmp->name, tmp->name, tmp->size))
+X			goto out;
+X	}
+X
+X	rdir = make_path(parent_remote_dir, name);
+X	if (rdir == NULL)
+X		goto out;
+X
+X	ldir = make_path(parent_local_dir, localname);
+X	if (ldir == NULL)
+X		goto out;
+X
+X	/* recursively do directories */
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		if (!S_ISDIR(tmp->mode)) 
+X			continue;
+X		if (rval = put_dir(rdir, ldir, tmp->name, tmp->name))
+X			goto out;
+X	}
+X
+out:
+X	if (head)
+X		free_dirlist(head);
+X	if (rdir)
+X		free(rdir);
+X	if (ldir)
+X		free(ldir);
+X	/* go back up */
+X	(void)command("CWD %s", parent_remote_dir);
+X	chdir(parent_local_dir);
+X
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+char *make_path(char *parent, char *curdir)
+#else
+char *make_path(parent, curdir)
+char	*parent;
+char	*curdir;
+#endif
+{
+X	char	*tmp;
+X
+X	if (*curdir == '/') {
+X		tmp = (char *)strdup(curdir);
+X	} else {
+X		tmp = (char *)malloc((unsigned int)(strlen(parent)+1+strlen(curdir)+1));
+X		if (tmp == NULL)
+X			return NULL;
+X		strcpy(tmp, parent);
+X		if (strcmp(parent, "/"))
+X			strcat(tmp, "/");
+X		strcat(tmp, curdir);
+X	}
+X	return tmp;
+}
+X
+#define FILE_PERCENT	5.0
+#define TOTAL_PERCENT	5.0
+X
+static double last_percent;
+static double last_total_percent;
+static int total_so_far;
+static int total_transfer_size;
+static struct timeval start;
+X
+#ifdef USE_PROTOTYPES
+void init_status(int total)
+#else
+void init_status(total)
+int	total;
+#endif
+{
+X	total_so_far = 0;
+X	total_transfer_size = total;
+X	last_total_percent = 0;
+X	xv_set(status_window.total_gauge,
+X		PANEL_INACTIVE, FALSE,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	(void)gettimeofday(&start, (struct timezone *)NULL);
+X	status_footer_message("Total transfer size: %d bytes.", 
+X		total_transfer_size, (char *)NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void end_status(void)
+#else
+void end_status()
+#endif
+{
+X	struct timeval stop;
+X	double	total_time;
+X	double	rate;
+X	char	*unit;
+X
+X	(void)gettimeofday(&stop, (struct timezone *)NULL);
+#ifdef notdef
+X	xv_set(status_window.file_gauge,
+X		PANEL_INACTIVE, FALSE,
+X		PANEL_VALUE, 0,
+X		NULL);
+#endif
+X	xv_set(status_window.total_gauge,
+X		PANEL_INACTIVE, FALSE,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	total_time = (stop.tv_sec + stop.tv_usec/1000000.0)
+X		- (start.tv_sec + start.tv_usec/1000000.0);
+X	rate = (double)total_so_far/total_time;
+X	if (rate >= 1048576.0) {
+X		unit = "Mbyte";
+X		rate /= 1048576.0;
+X	} else if (rate >= 1024.0) {
+X		unit = "Kbyte";
+X		rate /= 1024.0;
+X	} else
+X		unit = "byte";
+X	status_footer_message("%5.2f seconds, %5.2f %ss/second",
+X		total_time, rate, unit, (char *)NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void update_status_label(char *direction, char *name, size_t size)
+#else
+void update_status_label(direction, name, size)
+char	*direction;
+char	*name;
+size_t	size;
+#endif
+{
+X	static char sizestr[40];
+X	static char	string[MAXPATHLEN + 30];
+X	Rect	*butrect;
+X
+X	sprintf(string, "%s %s", direction, name);
+X	xv_set(status_window.message, 
+X		PANEL_LABEL_STRING, string,
+X		NULL);
+X	if (size >= 0) {
+X		sprintf(sizestr, "%d bytes", size);
+X		xv_set(status_window.size, 
+X			PANEL_LABEL_STRING, sizestr,
+X			NULL);
+X		last_percent = 0;
+#ifdef notdef
+X		xv_set(status_window.file_gauge,
+X			PANEL_VALUE, 0,
+X			PANEL_INACTIVE, FALSE,
+X			NULL);
+#endif
+X		xv_set(status_window.total_gauge,
+X			PANEL_INACTIVE, FALSE,
+X			NULL);
+X	} else {
+X		xv_set(status_window.size,
+X			PANEL_LABEL_STRING, "Symbolic links not counted.",
+X			NULL);
+#ifdef notdef
+X		xv_set(status_window.file_gauge,
+X			PANEL_INACTIVE, TRUE,
+X			PANEL_VALUE, 0,
+X			NULL);
+#endif
+X		xv_set(status_window.total_gauge,
+X			PANEL_INACTIVE, TRUE,
+X			NULL);
+X	}
+#ifdef notdef
+X	window_fit_width(status_window.panel);
+X	window_fit_width(status_window.frame);
+#endif
+X	butrect = (Rect *)xv_get(status_window.dismiss, XV_RECT);
+X	xv_set(status_window.dismiss,
+X		XV_X, xv_get(status_window.panel, XV_WIDTH) / 2
+X			- butrect->r_width / 2,
+X		NULL);
+}
+X
+X
+#ifdef USE_PROTOTYPES
+void update_status_gauge(long bytes)
+#else
+void update_status_gauge(bytes)
+long	bytes;
+#endif
+{
+X	double	percent;
+X
+X	if (bytes <= 0) /* shouldn't happen */
+X		return;
+#ifdef notdef
+X	if (bytes >= (int)size) {
+X		xv_set(status_window.file_gauge, 
+X			PANEL_VALUE, 100,
+X			NULL);
+X		return;
+X	}
+X	if (size != 0)
+X		percent = (double)bytes / (double)size * 100.0;
+X	else
+X		percent = 0;
+X	if (percent < 0)
+X		percent = 0;
+X	if (percent > 100)
+X		percent = 100;
+X	/* file gauge */
+X	if (percent >= (last_percent + FILE_PERCENT)) {
+X		while ((last_percent + FILE_PERCENT) < percent)
+X			last_percent += FILE_PERCENT;
+X		xv_set(status_window.file_gauge, 
+X			PANEL_VALUE, (int)last_percent,
+X			NULL);
+X	}
+#endif
+X
+X
+X	total_so_far += bytes;
+X	if (total_so_far > total_transfer_size)
+X		total_so_far = total_transfer_size;
+X
+X	if (total_transfer_size > 0.0)
+X		percent = (double)total_so_far / (double)total_transfer_size * 100.0;
+X	else
+X		percent = 0.0;
+X	if (percent < 0.0)
+X		percent = 0.0;
+X	if (percent > 100.0)
+X		percent = 100.0;
+X
+X	if (percent >= (last_total_percent + TOTAL_PERCENT)) {
+X		while ((last_total_percent + TOTAL_PERCENT) < percent)
+X			last_total_percent += TOTAL_PERCENT;
+X		xv_set(status_window.total_gauge, 
+X			PANEL_VALUE, (int)last_total_percent,
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+int sum_local_dir(char *parent, char *dir)
+#else
+int sum_local_dir(parent, dir)
+char	*parent, *dir;
+#endif
+{
+X	int total=0;
+X	char *ldir=NULL;
+X	struct dirlist *head=NULL;
+X	struct dirlist *tmp;
+X
+X	ldir = make_path(parent, dir);
+X	if (ldir == NULL)
+X		return 0;
+X
+X    if (chdir(ldir) == -1) {
+X		status_footer_message("Could not change to directory: %s",
+X				sys_errlist[errno], (char *)NULL);
+X		goto out;
+X	}
+X
+X	head = read_local_dir(".");
+X
+X	if (head == NULL) {
+X		goto out;
+X	}
+X
+X	/* do files first */
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		switch(tmp->mode & S_IFMT) {
+X		case S_IFREG:
+X			total += tmp->size;
+X			break;
+X		case S_IFDIR:
+X			total += sum_local_dir(ldir, tmp->name);
+X			break;
+X		default:
+X			break;
+X		}
+X	}
+X	if (chdir(parent) == -1) {
+X		status_footer_message("Could not change to parent: %s",
+X				sys_errlist[errno], (char *)NULL);
+X	}
+X
+out:
+X	if (ldir)
+X		free(ldir);
+X	if (head)
+X		free_dirlist(head);
+X	return total;
+}
+X
+/*
+X Called to sum all the sizes from the currently selected local items.
+X */
+#ifdef USE_PROTOTYPES
+int sum_local_size(void)
+#else
+int sum_local_size()
+#endif
+{
+X	int		nitems;
+X	int		row;
+X	int		total=0;
+X	struct dirlist *tmp;
+X
+X	status_footer_message("Determining send total...", (char *)NULL);
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(local_window.list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(local_window.list, PANEL_LIST_SELECTED, row)) {
+X			tmp = (struct dirlist *)xv_get(local_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			switch(tmp->mode & S_IFMT) {
+X			case S_IFDIR:
+X				total += sum_local_dir(local_dircache.first->name, tmp->name);
+X				break;
+X			case S_IFREG:
+X				total += tmp->size;
+X				break;
+X			case S_IFLNK:
+X				status_footer_message("Ignoring symlink %s...", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only sum sizes of files and directories.\n");
+X				break;
+X			default:
+X				status_footer_message("Ignoring non-file/directory %s.", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only transfer files and directories.\n");
+X				break;
+X			}
+X		}
+X	return total;
+}
+X
+#ifdef USE_PROTOTYPES
+int sum_remote_dir(char *parent, char *dir)
+#else
+int sum_remote_dir(parent, dir)
+char	*parent, *dir;
+#endif
+{
+X	int total=0;
+X	char *rdir=NULL;
+X	struct dirlist *head=NULL;
+X	struct dirlist *tmp;
+X
+X	if (!strcmp(dir, ".."))
+X		return 0;
+X
+X	rdir = make_path(parent, dir);
+X	if (rdir == NULL)
+X		return 0;
+X
+X	code = -1;
+X	command("CWD %s", rdir);
+X	if (code == 550) {
+X		goto out;
+X	}
+X	head = read_remote_dir((char *)NULL);
+X
+X	if (head == NULL) {
+X		goto out;
+X	}
+X
+X	for (tmp=head->next; tmp != NULL; tmp = tmp->next) {
+X		switch(tmp->mode & S_IFMT) {
+X		case S_IFREG:
+X			if (tmp->size != -1)
+X				total += tmp->size;
+X			else
+X				status_footer_message("Size of %s not available", 
+X					tmp->name, (char *)NULL);
+X			break;
+X		case S_IFDIR:
+X			total += sum_remote_dir(rdir, tmp->name);
+X			break;
+X		default:
+X			break;
+X		}
+X	}
+X	(void)command("CWD %s", parent);
+X
+out:
+X	if (rdir)
+X		free(rdir);
+X	if (head)
+X		free_dirlist(head);
+X	return total;
+}
+X
+/*
+X Called to sum all the sizes from the currently selected local items.
+X */
+#ifdef USE_PROTOTYPES
+int sum_remote_size(void)
+#else
+int sum_remote_size()
+#endif
+{
+X	int		nitems;
+X	int		row;
+X	int		total=0;
+X	struct dirlist *tmp;
+X	int		mode;
+X
+X	status_footer_message("Determining receive total...", (char *)NULL);
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(base_window.list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(base_window.list, PANEL_LIST_SELECTED, row)) {
+X			tmp = (struct dirlist *)xv_get(base_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			mode = tmp->mode & S_IFMT;
+X			if (non_unix)
+X				mode = S_IFREG;
+X			switch(mode) {
+X			case S_IFDIR:
+X				total += sum_remote_dir(remote_dircache.first->name, tmp->name);
+X				break;
+X			case S_IFREG:
+X				if (tmp->size != -1)
+X					total += tmp->size;
+X				else
+X					status_footer_message("Size of %s not available", 
+X						tmp->name, (char *)NULL);
+X				break;
+X			case S_IFLNK:
+X				status_footer_message("Ignoring symlink %s...", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only sum sizes of files and directories.\n");
+X				break;
+X			default:
+X				status_footer_message("Ignoring non-file/directory %s.", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only transfer files and directories.\n");
+X				break;
+X			}
+X		}
+X	return total;
+}
+X
+#ifdef USE_PROTOTYPES
+int sum_remote_batch_size(void)
+#else
+int sum_remote_batch_size()
+#endif
+{
+X	int		nitems;
+X	int		row;
+X	int		total=0;
+X	struct batchlist *tmp;
+X	int		mode;
+X
+X	status_footer_message("Determining receive total...", (char *)NULL);
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(schedule_window.receive_list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++) {
+X		tmp = (struct batchlist *)xv_get(schedule_window.receive_list, 
+X			PANEL_LIST_CLIENT_DATA, row);
+X		mode = tmp->mode & S_IFMT;
+X		if (non_unix)
+X			mode = S_IFREG;
+X		switch(mode) {
+X		case S_IFDIR:
+X			total += sum_remote_dir(remote_dircache.first->name, tmp->name);
+X			break;
+X		case S_IFREG:
+X			if (tmp->size != -1)
+X				total += tmp->size;
+X			else
+X				status_footer_message("Size of %s not available", 
+X					tmp->name, (char *)NULL);
+X			break;
+X		case S_IFLNK:
+X			status_footer_message("Ignoring symlink %s...", 
+X				tmp->name, (char *)NULL);
+X			log_message("Can only sum sizes of files and directories.\n");
+X			break;
+X		default:
+X			status_footer_message("Ignoring non-file/directory %s.", 
+X				tmp->name, (char *)NULL);
+X			log_message("Can only transfer files and directories.\n");
+X			break;
+X		}
+X	}
+X	return total;
+}
+X
+#ifdef USE_PROTOTYPES
+int sum_local_batch_size(void)
+#else
+int sum_local_batch_size()
+#endif
+{
+X	int		nitems;
+X	int		row;
+X	int		total=0;
+X	struct batchlist *tmp;
+X
+X	status_footer_message("Determining send total...", (char *)NULL);
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(schedule_window.send_list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++) {
+X		tmp = (struct batchlist *)xv_get(schedule_window.send_list, 
+X			PANEL_LIST_CLIENT_DATA, row);
+X		switch(tmp->mode & S_IFMT) {
+X		case S_IFDIR:
+X			total += sum_local_dir(local_dircache.first->name, tmp->name);
+X			break;
+X		case S_IFREG:
+X			total += tmp->size;
+X			break;
+X		case S_IFLNK:
+X			status_footer_message("Ignoring symlink %s...", 
+X				tmp->name, (char *)NULL);
+X			log_message("Can only sum sizes of files and directories.\n");
+X			break;
+X		default:
+X			status_footer_message("Ignoring non-file/directory %s.", 
+X				tmp->name, (char *)NULL);
+X			log_message("Can only transfer files and directories.\n");
+X			break;
+X		}
+X	
+X	}
+X	return total;
+}
+SHAR_EOF
+chmod 0644 transfer.c ||
+echo 'restore of transfer.c failed'
+Wc_c="`wc -c < 'transfer.c'`"
+test 16747 -eq "$Wc_c" ||
+	echo 'transfer.c: original size 16747, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= dofuncs.c ==============
+if test -f 'dofuncs.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping dofuncs.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting dofuncs.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'dofuncs.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+int	doconnect(void)
+#else
+int	doconnect()
+#endif
+{
+X	char	*ftphost;
+X	char	*proxyhost;
+X	char	*login;
+X	char	*password;
+X	char	crap[50];
+X	int		rval;
+X
+#ifdef notdef
+X	if (!openlook_mode || (xv_get(host_window.frame, FRAME_CMD_PIN_STATE)
+X		== FRAME_CMD_PIN_OUT)) {
+X		xv_set(host_window.frame,
+X			XV_SHOW, FALSE,
+X			FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_OUT,
+X			NULL);
+X	}
+#endif
+X	/* used to make sure we are connected */
+X	/* with PANEL_INACTIVE, don't need to anymore */
+X	footer_message("", (char *)NULL);
+X	local_footer_message("", (char *)NULL);
+X	password = (char *)xv_get(host_window.basic.password, PANEL_VALUE);
+X	if (*password == '\0') 
+X		password = anonftp_password;
+X
+X	login = (char *)xv_get(host_window.basic.login, PANEL_VALUE);
+X	if (*login == '\0') {
+X		login = "anonymous";
+X	}
+X
+X	ftphost = (char *)xv_get(host_window.basic.host, PANEL_VALUE);
+X	rval = openhost(ftphost, login, password, ftp_port);
+X	if (rval != 1)
+X		return rval;
+X	if (!try_proxy)
+X		return 1;
+X	proxyhost = (char *)xv_get(host_window.advanced.proxy, PANEL_VALUE);
+X	/* crap for Iftp */
+X	/* login must be 'user@ftphost' */
+X	sprintf(crap, "%s@%s", login, ftphost);
+X	return openhost(proxyhost, crap, password, ftp_passthru_port);
+}
+X
+#ifdef USE_PROTOTYPES
+int openhost(char *ftphost, char *login, char *password, int port)
+#else
+int openhost(ftphost, login, password, port)
+char	*ftphost;
+char	*login;
+char	*password;
+int		port;
+#endif
+{
+X	char	*atsign;
+X	char	*auto_cd;
+X	int		rval = 0;
+X
+X	timedout = 0;
+X	cursor_busy();
+X	xv_set(host_window.basic.connect, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X	xv_set(base_window.connect, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X
+X	xv_set(host_window.basic.host, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(host_window.basic.login, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(host_window.basic.password, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X
+X	xv_set(local_window.list, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X	xv_set(local_window.directory, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X
+X	xv_set(base_window.list, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X	xv_set(base_window.directory, 
+X		PANEL_READ_ONLY, TRUE, 
+X		NULL);
+X	xv_set(tool_property_window.apply, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X	xv_set(tool_property_window.category, 
+X		PANEL_INACTIVE, TRUE, 
+X		NULL);
+X
+X	start_busy_cycle();
+X	footer_message("Connecting...", (char *)NULL);
+X	rval = ftp_hookup(ftphost, port);
+X	switch (rval) {
+X	case 0:	/* error */
+X		rval = 2;
+X		goto out;
+X		break;
+X	case 1:
+X		/* couldn't resolve hostname: try proxy*/
+X		goto out;
+X		break;
+X	default:
+X		rval = 0;
+X		break;
+X	}
+X	if ((rval = ftp_login(login, password)) == 0) {
+X		rval = 2;
+X		goto out;
+X	}
+X	footer_message("Initializing...", (char *)NULL);
+X
+X	connected = 1;
+X
+X	xv_set(schedule_window.process,
+X		PANEL_INACTIVE, TRUE,
+X		NULL);
+X
+X	update_timestamp();
+X
+X	(void)strncpy(icon_label, (char *)xv_get(host_window.basic.host, 
+X		PANEL_VALUE), 8);
+X	icon_label[8] = '\0';
+X
+X	xv_set(frame_icon,
+X		ICON_LABEL, icon_label,
+X		NULL);
+X
+X	xv_set(base_window.directory,
+X		PANEL_INACTIVE, FALSE,
+X		NULL);
+X
+X	/* ftphost is not the name of outside machines. Need to extract outside */
+X	/* name from login */
+X	if (atsign = index(login, '@'))
+X		sprintf(scratch, "%s - %s", header_name, atsign + 1);
+X	else
+X		sprintf(scratch, "%s - %s", header_name, ftphost);
+X	xv_set(base_window.frame, 
+X		XV_LABEL, scratch, 
+X		NULL);
+X
+X	dir_pattern = (char *)xv_get(host_window.advanced.dir_parse, PANEL_VALUE);
+X	if (dir_pattern=='\0') {
+X		footer_message("No DIR template specified. Defaulting to UNIX-style.",
+X			(char *)NULL);
+X		dir_pattern = dir_parse_to_pattern(DEFAULT_PARSE);
+X	} else if ((dir_pattern = dir_parse_to_pattern(dir_pattern)) == NULL) {
+X		footer_message("Defaulting to UNIX.", (char *)NULL);
+X		dir_pattern = dir_parse_to_pattern(DEFAULT_PARSE);
+X	}
+X
+X	if (dir_pattern[0] == (char)NONUNIX) {
+X		non_unix = 1;
+X		remote_sort_mode = SORTBYNAME;
+X		xv_set(tool_property_window.directory_lists.remote_sort,
+X			PANEL_VALUE, remote_sort_mode,
+X			PANEL_INACTIVE, TRUE,
+X			NULL);
+X		set_remote_sort_order(SORTBYNAME);
+X	}
+X
+X	auto_cd = (char *)xv_get(host_window.advanced.remote_auto_cd, PANEL_VALUE);
+X	if (*auto_cd == '\0' || change_remote_dir(auto_cd, 0))
+X		change_remote_dir(".", 0);
+X	footer_message("", (char *)NULL);
+X	auto_cd = (char *)xv_get(host_window.advanced.local_auto_cd, PANEL_VALUE);
+X	if (*auto_cd != '\0' && strcmp(auto_cd, ".") != 0)
+X		change_local_dir(auto_cd, 0);
+X	local_footer_message("", (char *)NULL);
+X	change_local_list_menu();
+X
+X	end_busy_cycle();
+X	cursor_normal();
+X	idle_timer_on();
+X
+X	/* activate buttons */
+X
+X	/* connect already inactive */
+X	xv_set(host_window.basic.connect, 
+X		PANEL_INACTIVE, FALSE, 
+X		PANEL_LABEL_STRING, "Disconnect",
+X		XV_HELP_DATA, "ftptool:DisconnectButton",
+X		NULL);
+X
+X	xv_set(base_window.connect, 
+X		PANEL_INACTIVE, FALSE, 
+X		PANEL_LABEL_STRING, "Disconnect",
+X		XV_HELP_DATA, "ftptool:DisconnectButton",
+X		NULL);
+X
+X	xv_set(host_window.basic.host, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.basic.login, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.basic.password, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X
+X	xv_set(local_window.list, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(base_window.list, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(local_window.directory, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(base_window.directory, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.apply, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.category, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X
+X	return 0;
+out:
+X	end_busy_cycle();
+X	cursor_normal();
+X	xv_set(host_window.basic.connect, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(base_window.connect, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(host_window.basic.host, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.basic.login, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.basic.password, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(base_window.list, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(local_window.list, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(local_window.directory, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(base_window.directory, 
+X		PANEL_READ_ONLY, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.apply, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.category, 
+X		PANEL_INACTIVE, FALSE, 
+X		NULL);
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+void	doget(void)
+#else
+void	doget()
+#endif
+{
+X	int 	nitems, row;
+X	struct dirlist *tmp;
+X	int		rval;
+X	int		mode;
+X	char	*name = NULL;
+X	int		dirchanged = 0;
+X
+X	xfer_buttons_inactive();
+X	abort_transfer = 0;
+X	if (dirwasmodified()) {
+X	/*
+X		goto out;
+X	*/
+X	}
+X	if (ping_server())
+X		goto out;
+X	if (show_status)
+X		xv_set(status_window.frame,
+X			XV_SHOW, TRUE,
+X			NULL);
+X	init_status(sum_remote_size());
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(base_window.list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(base_window.list, PANEL_LIST_SELECTED, row)) {
+X			tmp = (struct dirlist *)xv_get(base_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			mode = tmp->mode & S_IFMT;
+X			if (non_unix) {
+X				/* we can't transfer whole dirs on non-unix machines */
+X				mode = S_IFREG;
+X			}
+X			switch(mode) {
+X			case S_IFDIR:
+X				dirchanged++;
+X				if (rval = get_dir(remote_dircache.first->name, 
+X					local_dircache.first->name, tmp->name, tmp->name)) {
+X					if (rval == EEXIST) {
+X						footer_message("%s already exists.", 
+X							tmp->name, (char *)NULL);
+X					}
+X					goto out;
+X				}
+X				remote_list_ndirs--;
+X				break;
+X			case S_IFREG:
+X				dirchanged++;
+X				if (get_file(tmp->name, tmp->name, tmp->size))
+X					goto out;
+X				remote_list_nfiles--;
+X				break;
+X			case S_IFLNK:
+X				name = linkname(tmp->name);
+X				if (name == NULL)
+X					goto out;
+X				/* try as a file */
+X				dirchanged++;
+X				rval = get_file(name, name, (size_t)-1);
+X				if (rval == EISDIR) {
+X					/* try as a directory */
+X					if (rval = get_dir(remote_dircache.first->name, 
+X						local_dircache.first->name, name, name) > 1) {
+X						/*
+X						if (rval == EEXIST) {
+X							footer_message("%s already exists.", 
+X								name, (char *)NULL);
+X						}
+X						 */
+X						goto out;
+X					}
+X				} else if (rval != 0) {
+X					goto out;
+X				}
+X				free(name);
+X				name = NULL;
+X				remote_list_nfiles--;
+X				break;
+X			default:
+X				remote_list_nothers--;
+X				footer_message("Ignoring non-file/directory %s.", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only transfer files.\n");
+X				break;
+X			}
+X			xv_set(base_window.list, 
+X				PANEL_LIST_SELECT, row, FALSE, 
+X				NULL);
+X			remote_show_items();
+X		}
+X
+out:
+X	if (dirchanged)
+X		change_local_dir(".", 1);
+X	if (show_status)
+X		xv_set(status_window.frame,
+X			XV_SHOW, FALSE,
+X			NULL);
+X	update_status_label("Not", "transferring", (size_t)0);
+X	end_status();
+X	if (name)
+X		free(name);
+X	change_remote_list_menu();
+X	xfer_buttons_active();
+X	if (timedout)
+X		timeout_disconnect();
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void	doput(void)
+#else
+void	doput()
+#endif
+{
+X	int 	nitems, row;
+X	struct dirlist *tmp;
+X	int		rval = 0;
+X	int		mode;
+X	char	*name = NULL;
+X	int		dirchanged = 0;
+X
+X	xfer_buttons_inactive();
+X	abort_transfer = 0;
+X	if (dirwasmodified()) {
+X		goto out;
+X	}
+X	if (ping_server())
+X		goto out;
+X	if (show_status)
+X		xv_set(status_window.frame,
+X			XV_SHOW, TRUE,
+X			NULL);
+X	init_status(sum_local_size());
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(local_window.list, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(local_window.list, PANEL_LIST_SELECTED, row)) {
+X			tmp = (struct dirlist *)xv_get(local_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			mode = tmp->mode & S_IFMT;
+X			if (non_unix) {
+X				/* we can't transfer whole dirs on non-unix machines */
+X				mode = S_IFREG;
+X			}
+X			switch(mode) {
+X			case S_IFDIR:
+X				dirchanged++;
+X				if (rval = put_dir(remote_dircache.first->name, 
+X					local_dircache.first->name, tmp->name, tmp->name)) {
+X					goto out;
+X				}
+X				local_list_ndirs--;
+X				break;
+X			case S_IFREG:
+X				dirchanged++;
+X				if (rval = put_file(tmp->name, tmp->name, tmp->size))
+X					goto out;
+X				local_list_nfiles--;
+X				break;
+X			case S_IFLNK:
+X				name = linkname(tmp->name);
+X				if (name == NULL)
+X					goto out;
+X				/* try as a file */
+X				dirchanged++;
+X				rval = put_file(name, name, (size_t)-1);
+X				if (rval == EPERM) {
+X					if (rval = put_dir(remote_dircache.first->name, 
+X						local_dircache.first->name, name, name)) {
+X						goto out;
+X					}
+X				} else if (rval != 0) {
+X					goto out;
+X				}
+X				local_list_nfiles--;
+X				free(name);
+X				name = NULL;
+X				break;
+X			default:
+X				local_list_nothers--;
+X				local_footer_message("Ignoring non-file/directory %s.", 
+X					tmp->name, (char *)NULL);
+X				log_message("Can only transfer files.\n");
+X				break;
+X			}
+X			xv_set(local_window.list, 
+X				PANEL_LIST_SELECT, row, FALSE, 
+X				NULL);
+X			local_show_items();
+X		}
+X
+out:
+X	if (dirchanged)
+X		change_remote_dir(".", 1);
+X	if (show_status)
+X		xv_set(status_window.frame,
+X			XV_SHOW, FALSE,
+X			NULL);
+X	update_status_label("Not", "transferring", (size_t)0);
+X	end_status();
+X	if (name)
+X		free(name);
+X	change_local_list_menu();
+X	xfer_buttons_active();
+X	if (rval == ENOSPC) {
+X		disconnect();
+X	}
+X	if (timedout)
+X		timeout_disconnect();
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void	dofileop(int which)
+#else
+void	dofileop(which)
+int		which; /* uncompress or extract */
+#endif
+{
+X	int 	nitems, row;
+X	struct dirlist *tmp;
+X	int		mode;
+X	int		dirchanged = 0;
+X	char	*name = NULL;
+X	struct stat buf;
+X	extern char	*sys_errlist[];
+X
+X	xfer_buttons_inactive();
+X	abort_transfer = 0;
+X	if (dirwasmodified()) {
+X	/*
+X		goto out;
+X	*/
+X	}
+X	if (which == DOGETTARFILENAME) {
+X		xv_set(tar_frame, 
+X			XV_SHOW, TRUE, 
+X			NULL);
+X		goto out;
+X	} else if (which == DOTAR) {
+X		create_tar_file();
+X		goto out;
+X	}
+X	nitems = xv_get(local_window.list, PANEL_LIST_NROWS);
+X	/* loop over each selected element, and do a get, then unselect */
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(local_window.list, PANEL_LIST_SELECTED, row)) {
+X			/* perhaps should recursively get directories? */
+X			tmp = (struct dirlist *)xv_get(local_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			mode = tmp->mode & S_IFMT;
+X			if (non_unix) {
+X				/* we can't do anything to whole dirs on non-unix machines */
+X				mode = S_IFREG;
+X			}
+X			switch(mode) {
+X			case S_IFDIR:
+X				local_footer_message("Ignoring directory.", (char *)NULL);
+X				local_list_ndirs--;
+X				break;
+X			case S_IFLNK:
+X			case S_IFREG:
+X				if (S_ISLNK(mode))
+X					name = linkname(tmp->name);
+X				else
+X					name = strdup(tmp->name);
+X				if (name == NULL) {
+X					fprintf(stderr, "Out of memory.\n");
+X					goto out;
+X				}
+X				if (stat(name, &buf) == -1) {
+X					local_footer_message("%s: %s.", name, sys_errlist[errno]);
+X					goto out;
+X				}
+X				if (!S_ISREG(buf.st_mode)) {
+X					local_footer_message("%s is not a regular file.", name);
+X					goto out;
+X				}
+X				switch(which) {
+X				case DOUNCOMPRESS:
+X					if (file_type(name) == COMPRESSED) {
+X						local_footer_message("Uncompressing %s\n", 
+X							name, (char *)NULL);
+X						uncompress_file(name, "-vf");
+X					} else
+X						local_footer_message("%s not compressed.\n", 
+X							name, (char *)NULL);
+X					break;
+X				case DOEXTRACT:
+X					if (file_type(name) == COMPRESSED) {
+X						char *dot;
+X
+X						local_footer_message("Uncompressing %s\n", 
+X							name, (char *)NULL);
+X						uncompress_file(name, "-vf");
+X						dot = rindex(name, '.');
+X						if (dot) {
+X							*dot = '\0';
+X						}
+X					}
+X					if (file_type(name) == TARFILE) {
+X						start_viewer(name, 0); /* will do tar viewer */
+X					} else {
+X						local_footer_message("%s is not a tar file\n", 
+X							name, (char *)NULL);
+X					}
+X					break;
+X				case DOCOMPRESS:
+X					if (file_type(name) != COMPRESSED) {
+X						local_footer_message("Compressing %s\n", 
+X							name, (char *)NULL);
+X						compress_file(name, "-vf");
+X					} else {
+X						local_footer_message("%s already compressed\n", 
+X							name, (char *)NULL);
+X					}
+X					break;
+X				}
+X				free(name);
+X				name = NULL;
+X				local_list_nfiles--;
+X				dirchanged++;
+X				break;
+X			default:
+X				local_list_nothers--;
+X				local_footer_message("Ignoring non-file/directory %s.",
+X					tmp->name, (char *)NULL);
+X				log_message("Ignoring non-file.\n");
+X				break;
+X			}
+X			xv_set(local_window.list, 
+X				PANEL_LIST_SELECT, row, FALSE, 
+X				NULL);
+X			local_show_items();
+X		}
+X
+out:
+X	if (name)
+X		free(name);
+X	change_local_list_menu();
+X	if (dirchanged)
+X		change_local_dir(".", 1);
+X	xfer_buttons_active();
+X	if (timedout)
+X		timeout_disconnect();
+X	return;
+X
+}
+X
+#ifdef USE_PROTOTYPES
+void	doview(int which)
+#else
+void	doview(which)
+int		which; /* local or remote */
+#endif
+{
+X	int 	nitems, row;
+X	struct dirlist *tmp;
+X	Panel	list_panel;
+X	int		mode;
+X	int		dirchanged=0;
+X	char	*name = NULL;
+X
+X	xfer_buttons_inactive();
+X	abort_transfer = 0;
+X	if (dirwasmodified()) {
+X	/*
+X		goto out;
+X	*/
+X	}
+X	if (which == DOREMOTEVIEW) {
+X		list_panel = base_window.list;
+X		if (ping_server())
+X			goto out;
+X		if (show_status)
+X			xv_set(status_window.frame,
+X				XV_SHOW, TRUE,
+X				NULL);
+X		init_status(sum_remote_size());
+X	} else
+X		list_panel = local_window.list;
+X	/* loop over each selected element, and do a get, then unselect */
+X	nitems = xv_get(list_panel, PANEL_LIST_NROWS);
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(list_panel, PANEL_LIST_SELECTED, row)) {
+X			/* perhaps should recursively get directories? */
+X			tmp = (struct dirlist *)xv_get(list_panel, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			mode = tmp->mode & S_IFMT;
+X			if (non_unix) {
+X				/* we can't do anything to whole dirs on non-unix machines */
+X				mode = S_IFREG;
+X			}
+X			switch(mode) {
+X			case S_IFDIR:
+X				if (which == DOREMOTEVIEW) {
+X					footer_message("Can't View a directory.", (char *)NULL);
+X					remote_list_ndirs--;
+X				} else {
+X					local_footer_message("Can't View a directory.", 
+X						(char *)NULL);
+X					local_list_ndirs--;
+X				}
+X				break;
+X			case S_IFLNK:
+X			case S_IFREG:
+X				if (S_ISLNK(mode))
+X					name = linkname(tmp->name);
+X				else
+X					name = strdup(tmp->name);
+X				if (name == NULL) {
+X					fprintf(stderr, "Out of memory.\n");
+X					goto out;
+X				}
+X				if (which == DOREMOTEVIEW) {
+X					if (view_remote_file(name, tmp->size))
+X						goto out;
+X					remote_list_nfiles--;
+X				} else {
+X					if (view_local_file(name, which, &dirchanged))
+X						goto out;
+X					local_list_nfiles--;
+X				}
+X				free(name);
+X				name = NULL;
+X				break;
+X			default:
+X				log_message("Can only transfer files.\n");
+X				if (which == DOREMOTEVIEW) {
+X					footer_message("Ignoring non-file/directory %s.", 
+X						tmp->name, (char *)NULL);
+X					remote_list_nothers--;
+X				} else {
+X					local_footer_message("Ignoring non-file/directory %s.",
+X						tmp->name, (char *)NULL);
+X					local_list_nothers--;
+X				}
+X				break;
+X			}
+X			xv_set(list_panel, 
+X				PANEL_LIST_SELECT, row, FALSE, 
+X				NULL);
+X			local_show_items();
+X			remote_show_items();
+X		}
+X
+out:
+X	if (name)
+X		free(name);
+X	if (which == DOREMOTEVIEW) {
+X		change_remote_list_menu();
+X		if (show_status)
+X			xv_set(status_window.frame,
+X				XV_SHOW, FALSE,
+X				NULL);
+X	} else
+X		change_local_list_menu();
+X	update_status_label("Not", "transferring", (size_t)0);
+X	end_status();
+X	if (dirchanged)
+X		change_local_dir(".", 1);
+X	xfer_buttons_active();
+X	if (timedout)
+X		timeout_disconnect();
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void create_tar_file(void)
+#else
+void create_tar_file()
+#endif
+{
+X	int 	nitems, row;
+X	char	*filename = 0;
+X	struct dirlist *tmp;
+X	char	**argv;
+X	char	*slash;
+X	int		ix;
+X
+X
+X	xfer_buttons_inactive();
+X
+X	if (dirwasmodified()) {
+X	/*
+X		goto out;
+X	*/
+X	}
+X
+X	filename = (char *)xv_get(tar_text, PANEL_VALUE);
+X	if (*filename == '\0') {
+X		local_footer_message("Type in a name for the tar file", (char *)NULL);
+X		goto out;
+X	}
+X
+X	local_footer_message("Creating tar file %s", filename, (char *)NULL);
+X	nitems = xv_get(local_window.list, PANEL_LIST_NROWS);
+X	/* slightly different - take ALL seletctions and put them in a */
+X	/* tar file */
+X	if ((argv = (char **)malloc((unsigned int)((3+nitems+1)*sizeof(char *)))) 
+X		== NULL) {
+X		fprintf(stderr, "Out of memory.\n");
+X		goto out;
+X	}
+X	ix = 3;
+X	for (row = 0; row < nitems; row++)
+X		if (xv_get(local_window.list, PANEL_LIST_SELECTED, row)) {
+X			tmp = (struct dirlist *)xv_get(local_window.list, 
+X				PANEL_LIST_CLIENT_DATA, row);
+X			if (!S_ISDIR(tmp->mode) && !S_ISREG(tmp->mode) 
+X				&& !S_ISLNK(tmp->mode))
+X				continue;
+X			argv[ix] = strdup(tmp->name);
+X			if (argv[ix] == NULL) {
+X				fprintf(stderr, "Out of memory.\n");
+X				for (ix--; ix > 2; ix--)
+X					free(argv[ix]);
+X				free((char *)argv);
+X				goto out;
+X			}
+X			slash = index(argv[ix], '/');
+X			if (slash)
+X				*slash = '\0';
+X			ix++;
+X			if (S_ISDIR(tmp->mode))
+X				local_list_ndirs--;
+X			else
+X				local_list_nfiles--;
+X			xv_set(local_window.list, 
+X				PANEL_LIST_SELECT, row, FALSE, 
+X				NULL);
+X			local_show_items();
+X		}
+X	argv[0] = "tar";
+X	argv[1] = "cvf";
+X	argv[2] = filename;
+X	argv[ix] = NULL;
+X	if (ix == 2)
+X		goto out;
+X	pipe_program(argv);
+X	xv_set(local_window.list, 
+X		XV_SHOW, TRUE, 
+X		NULL);
+X	for (ix--; ix > 2; ix--)
+X		free(argv[ix]);
+X	free((char *)argv);
+X	change_local_dir(".", 1);
+out:
+X	xfer_buttons_active();
+X	if (timedout)
+X		timeout_disconnect();
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void	doremotecd(int force)
+#else
+void	doremotecd(force)
+int		force;
+#endif
+{
+X	if (which_remote_file == NULL)
+X		return;
+X	xfer_buttons_inactive();
+X	change_remote_dir(which_remote_file, force);
+X	free(which_remote_file);
+X	which_remote_file = NULL;
+X	xfer_buttons_active();
+X	if (timedout)
+X		timeout_disconnect();
+}
+X
+SHAR_EOF
+chmod 0644 dofuncs.c ||
+echo 'restore of dofuncs.c failed'
+Wc_c="`wc -c < 'dofuncs.c'`"
+test 20039 -eq "$Wc_c" ||
+	echo 'dofuncs.c: original size 20039, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= main.c ==============
+if test -f 'main.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping main.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting main.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'main.c' &&
+#define EXTERN
+X
+#include "ftptool.h"
+X
+unsigned short icon_array[] = {
+#include "./ftptool.icon"
+};
+X
+static unsigned short busy1_icon_array[] = {
+#include "./busy1.ftptool.icon"
+};
+X
+static unsigned short busy2_icon_array[] = {
+#include "./busy2.ftptool.icon"
+};
+X
+static unsigned short busy3_icon_array[] = {
+#include "./busy3.ftptool.icon"
+};
+X
+static unsigned short busy4_icon_array[] = {
+#include "./busy4.ftptool.icon"
+};
+X
+static unsigned short directory_pr_array[] = {
+#include "./directory.pr"
+};
+X
+static unsigned short file_pr_array[] = {
+#include "./file.pr"
+};
+X
+static unsigned short dotdot_pr_array[] = {
+#include "./dotdot.pr"
+};
+X
+static unsigned short unknown_pr_array[] = {
+#include "./unknown.pr"
+};
+X
+int nbusyicons = 4;
+Server_image busy_glyphs[4];
+X
+Server_image ftptool_glyph;
+X
+static struct itimerval date_timer = {
+X	{300, 0},
+X	{300, 0},
+};
+X
+#ifdef USE_PROTOTYPES
+int main(int argc, char **argv)
+#else
+int main(argc, argv)
+int		argc;
+char	**argv;
+#endif
+{
+X	char	*helppath;
+X	int	closed=0;
+X	struct servent *servent;
+X
+X	/* FTP inits */
+X	data = -1;
+X	abrtflag = 0;
+X	ptflag = 0;
+X	verbose = 1;
+X	debug = 0;
+X	code = -1;
+X	cpend = 0;
+X	curtype = 0;
+X	crflag = 1;
+X	runique = 0;
+X	sendport = -1;
+X	restart_point = 0;
+X
+X	bzero((char *)&local_dircache, sizeof(local_dircache));
+X	bzero((char *)&remote_dircache, sizeof(remote_dircache));
+X
+X	bzero((char *)&schedule_list, sizeof(schedule_list));
+X
+X	program_name = argv[0];
+X
+X	/*
+X	 * Determine port numbers to use
+X	 */
+X	servent = getservbyname("ftp", "tcp");
+X	if (servent != NULL) {
+X		ftp_port = servent->s_port;
+X	} else {
+X		fprintf(stderr, "Couldn't find 'ftp' service. Using %d.\n", 
+X			FTP_PORT);
+X		ftp_port = htons(FTP_PORT);
+X	}
+X	servent = getservbyname("ftp-passthru", "tcp");
+X	if (servent != NULL) {
+X		ftp_passthru_port = servent->s_port;
+X	} else {
+X		fprintf(stderr, "Couldn't find 'ftp-passthru' service. Using %d.\n", 
+X			FTP_PASSTHRU_PORT);
+X		ftp_passthru_port = htons(FTP_PASSTHRU_PORT);
+X	}
+X
+X	try_proxy = 1;
+X
+X	sprintf(scratch, "Ftptool Version %d.%d", VERSION, PATCHLEVEL);
+X	/*
+X	sprintf(scratch, "Ftptool Version %d.%d (Beta9)", VERSION, PATCHLEVEL);
+X	 */
+X	header_name = strdup(scratch);
+X	if (header_name == NULL) {
+X		perror("malloc");
+X		exit(1);
+X	}
+X
+X	/*
+X	 * Initialize XView.
+X	 */
+X	xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, NULL);
+X	
+X	if ((helppath = getenv("HELPPATH")) == NULL) {
+X		putenv("HELPPATH=/usr/local/lib/help:.");
+X	} else {
+X		sprintf(scratch, "HELPPATH=%s:/usr/local/lib/help:.", helppath);
+X		putenv(strdup(scratch));
+X	}
+X
+X	load_xdefaults();
+X
+X	netrc_filename = find_dotfile(".netrc");
+X
+X	if (argc > 1) {
+X		handle_tarfile(argv[1]);
+X	}
+X
+X    ftptool_glyph = (Server_image )xv_create(XV_NULL,SERVER_IMAGE,
+X        XV_WIDTH, 64,
+X        XV_HEIGHT,64,
+X        SERVER_IMAGE_DEPTH, 1,
+X        SERVER_IMAGE_BITS,icon_array,
+X        NULL);
+X
+X    directory_glyph = (Server_image )xv_create(XV_NULL,SERVER_IMAGE,
+X        XV_WIDTH, 16,
+X        XV_HEIGHT,16,
+X        SERVER_IMAGE_DEPTH, 1,
+X        SERVER_IMAGE_BITS,directory_pr_array,
+X        NULL);
+X
+X    file_glyph = (Server_image )xv_create(XV_NULL,SERVER_IMAGE,
+SHAR_EOF
+true || echo 'restore of main.c failed'
+fi
+echo 'End of  part 6'
+echo 'File main.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

@@ -1,0 +1,341 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject: v30i072: parseargs - functions to parse command line arguments, Patch12
+Message-ID: <1992Jun20.172839.3412@sparky.imd.sterling.com>
+X-Md4-Signature: 0a84aaa4ee17c3aa804c021c442a30ba
+Date: Sat, 20 Jun 1992 17:28:39 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 30, Issue 72
+Archive-name: parseargs/patch12
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Patch-To: parseargs: Volume 29, Issue 115-125
+
+This is patchlevel twelve of parseargs. It fixes a minor bug in
+strfuncs.h and attempts to add Tcl to the list of shells supported
+by parseargs(1).
+
+To apply this patch:
+
+1) cd to your parseargs source directory
+2) unshar this file to create the file PATCH12
+3) type "patch -p0 < PATCH12
+
+ ______________________ "And miles to go before I sleep." ______________________
+ Brad Appleton                         Harris Corp., Computer Systems Division
+   Senior Software Engineer            2101 West Cypress Creek Road,  M/S 161 
+     brad@ssd.csd.harris.com           Fort Lauderdale, FL  33309-1892  USA
+       ...!uunet!travis!brad                 Phone: (305) 973-5190
+ ~~~~~~~~~~~~~~~~~~~~ Disclaimer: I said it, not my company! ~~~~~~~~~~~~~~~~~~~
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  PATCH12
+# Wrapped by brad@hcx1 on Mon Jun 15 09:52:14 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'PATCH12' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PATCH12'\"
+else
+echo shar: Extracting \"'PATCH12'\" \(10305 characters\)
+sed "s/^X//" >'PATCH12' <<'END_OF_FILE'
+X*** Makefile.OLD	Thu May 21 11:06:41 1992
+X--- Makefile	Mon May 18 12:15:47 1992
+X***************
+X*** 22,28 ****
+X  LOCAL =  /usr/local
+X  LIBDIR = ${LOCAL}/lib
+X  INCDIR = ${LOCAL}/include
+X! PERLLIB = ${LIB}/perl
+X  
+X  ###
+X  # compilation options
+X--- 22,28 ----
+X  LOCAL =  /usr/local
+X  LIBDIR = ${LOCAL}/lib
+X  INCDIR = ${LOCAL}/include
+X! PERLLIB = ${LIBDIR}/perl
+X  
+X  ###
+X  # compilation options
+X***************
+X*** 101,107 ****
+X  		doc/vparseargs3.inc
+X  SCRIPTS =	test.sh  test.csh  test.ksh  test.rc  test.awk  test.pl
+X  PERLSUB =	${NAME}.pl
+X! XXFILES =	Intro  README  MANIFEST  Makefile  Makefile.cpp
+X  
+X  HDRS =	${NAME}.h \
+X  		patchlevel.h \
+X--- 101,107 ----
+X  		doc/vparseargs3.inc
+X  SCRIPTS =	test.sh  test.csh  test.ksh  test.rc  test.awk  test.pl
+X  PERLSUB =	${NAME}.pl
+X! XXFILES =	Intro  README  MANIFEST  Makefile  VMSbuild.com
+X  
+X  HDRS =	${NAME}.h \
+X  		patchlevel.h \
+X*** doc/sh_arrays.inc.OLD	Thu May 21 11:07:07 1992
+X--- doc/sh_arrays.inc	Mon May 18 11:54:44 1992
+X***************
+X*** 199,210 ****
+X  .ft R
+X  .RE
+X  .fi
+X  .SS "A Final Note on Argument Lists"
+X  .PP
+X! The word-lists used by the C and Z shells, the arrays used by the Korn shell,
+X! the Plan 9 shell, \fIawk\fP, \fIperl\fP, and the positional parameters used by
+X! all shells (if overwritten by \fBparseargs\fP) will preserve any \s-1IFS\s+1
+X! characters in their contents.  That is to say that if an item in one of the
+X! aforementioned multi-word lists contains any \s-1IFS\s+1 characters, it will
+X! not be split up into multiple items but will remain a single item which
+X! contains \s-1IFS\s+1 characters.
+X--- 199,221 ----
+X  .ft R
+X  .RE
+X  .fi
+X+ .SS "Tcl Argument Lists"
+X+ .PP
+X+ For \fItcl\fP, each argument list is considered a list and is set using 
+X+ the following syntax:
+X+ .nf
+X+ .RS
+X+ .ft 4
+X+ set name [ list 'arg1'  'arg2'   ... ] ;
+X+ .ft R
+X+ .RE
+X+ .fi
+X  .SS "A Final Note on Argument Lists"
+X  .PP
+X! The word-lists used by the \fIcsh\fP and \fIzsh\fP, the arrays used by
+X! \fIksh\fP, \fIrc\fP, \fIawk\fP, \fIperl\fP, \fItcl\fP, and the positional
+X! parameters used by all shells (if overwritten by \fBparseargs\fP) will
+X! preserve any \s-1IFS\s+1 characters in their contents.  That is to say that
+X! if an item in one of the aforementioned multi-word lists contains any
+X! \s-1IFS\s+1 characters, it will not be split up into multiple items but
+X! will remain a single item which contains \s-1IFS\s+1 characters.
+X*** parseargs.c.OLD	Thu May 21 11:07:24 1992
+X--- parseargs.c	Mon May 18 12:03:13 1992
+X***************
+X*** 1700,1709 ****
+X  **    for setting up an argument list depends largely upon the syntax of
+X  **    shell that was specified on the command line via the -s option
+X  **    (although ARGLIST arguments are treated exactly the same as ARGVEC
+X! **    arguments).  With the exception perl which always uses a comma to
+X! **    separate array elements, all shells will use the string specified
+X! **    with the -S option as the field separator between elements of an
+X! **    array (the default field separator is a space character).
+X  **
+X  ** ^Resetting_the_Positional_Parameters_to_an_Argument_List:
+X  **    For the Bourne, Bourne-Again, and Korn shells, if the variable name
+X--- 1700,1709 ----
+X  **    for setting up an argument list depends largely upon the syntax of
+X  **    shell that was specified on the command line via the -s option
+X  **    (although ARGLIST arguments are treated exactly the same as ARGVEC
+X! **    arguments). With the exception of perl which always uses a comma to
+X! **    separate array elements, all shells will use the string specified with
+X! **    the -S option as the field separator between elements of an array (the
+X! **    default field separator is a space character).
+X  **
+X  ** ^Resetting_the_Positional_Parameters_to_an_Argument_List:
+X  **    For the Bourne, Bourne-Again, and Korn shells, if the variable name
+X***************
+X*** 1722,1729 ****
+X  **    to the contents of the argument list.
+X  **
+X  **    For the Plan 9 shell (rc), if the variable name corresponding to the
+X! **    ARGLIST argument is "*", then the positional parameters of then calling
+X! **    program will be re-assigned to the contents of the argument list.
+X  **
+X  **    For awk and perl, if the variable name corresponding to the ARGLIST
+X  **    argument is "ARGV", then the positional parameters of the calling
+X--- 1722,1730 ----
+X  **    to the contents of the argument list.
+X  **
+X  **    For the Plan 9 shell (rc), if the variable name corresponding to the
+X! **    ARGLIST argument is "*", then the positional parameters of the
+X! **    calling program will be re-assigned to the contents of the argument
+X! **    list.
+X  **
+X  **    For awk and perl, if the variable name corresponding to the ARGLIST
+X  **    argument is "ARGV", then the positional parameters of the calling
+X***************
+X*** 1843,1856 ****
+X  **
+X  **         @name=( 'arg1' , 'arg2' ,  ... );
+X  **
+X  ** ^A_Final_Note_on_Argument_Lists:
+X! **    The word-lists used by the C and Z shells, the arrays used by the Korn
+X! **    shell, the Plan 9 shell, awk, perl, and the positional parameters used
+X! **    by all shells (if overwritten by parseargs) will preserve any IFS
+X! **    characters in their contents.  That is to say that if an item in one
+X! **    of the aforementioned multi-word lists contains any IFS characters, it
+X! **    will not be split up into multiple items but will remain a single item
+X! **    which contains IFS characters.
+X  **
+X  ** ^REQUIREMENTS:
+X  **    <val> should correspond to the vlue of the argument indicated by <ad>
+X--- 1844,1872 ----
+X  **
+X  **         @name=( 'arg1' , 'arg2' ,  ... );
+X  **
+X+ ** ^Tcl_Argument_Lists:
+X+ **    For tcl, each argument list is considered a list and is set using the
+X+ **    following syntax:
+X+ **
+X+ **         set name [ list 'arg1'  'arg2'   ... ] ;
+X+ **
+X  ** ^A_Final_Note_on_Argument_Lists:
+X! **    The word-lists used by the csh and zsh, the arrays used by ksh, rc,
+X! **    awk, perl, tcl, and the positional parameters used by all shells (if
+X! **    overwritten by parseargs) will preserve any IFS characters in their
+X! **    contents.  That is to say that if an item in one of the aforementioned
+X! **    multi-word lists contains any IFS characters, it will not be split up
+X! **    into multiple items but will remain a single item which contains IFS
+X! **    characters.
+X! **
+X! **    Parseargs treats ARGLIST arguments in a special way. The method used
+X! **    for setting up an argument list depends largely upon the syntax of
+X! **    shell that was specified on the command line via the -s option
+X! **    (although ARGLIST arguments are treated exactly the same as ARGVEC
+X! **    arguments).  With the exception perl which always uses a comma to
+X! **    separate array elements, all shells will use the string specified
+X! **    with the -S option as the field separator between elements of an
+X! **    array (the default field separator is a space character).
+X  **
+X  ** ^REQUIREMENTS:
+X  **    <val> should correspond to the vlue of the argument indicated by <ad>
+X*** patchlevel.h.OLD	Thu May 21 11:07:39 1992
+X--- patchlevel.h	Thu May 21 11:06:03 1992
+X***************
+X*** 3,8 ****
+X--- 3,14 ----
+X  **
+X  ** ^HISTORY:
+X  **
+X+ **    05/18/92	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ **    Patch12
+X+ **    - Fixes to the Makefile and for tcl.
+X+ **    - Added tcl to the documentation
+X+ **    - Fixed error in strfuncs.h for strndup prototypes.
+X+ **
+X  **    01/02/92	Brad Appleton	<brad@ssd.csd.harris.com>
+X  **    Patch11
+X  **    - Added strndup() to strfuncs.[ch]
+X***************
+X*** 155,161 ****
+X  
+X  #define  VERSION     2
+X  #define  REVISION    0
+X! #define  PATCHLEVEL  11
+X  
+X  #ifdef __STDC__
+X     static const char
+X--- 161,167 ----
+X  
+X  #define  VERSION     2
+X  #define  REVISION    0
+X! #define  PATCHLEVEL  12
+X  
+X  #ifdef __STDC__
+X     static const char
+X***************
+X*** 162,165 ****
+X  #else
+X     static char
+X  #endif
+X!    _Ident[] = "@(#)parseargs  2.0  patchlevel 11";
+X--- 168,171 ----
+X  #else
+X     static char
+X  #endif
+X!    _Ident[] = "@(#)parseargs  2.0  patchlevel 12";
+X*** strfuncs.h.OLD	Thu May 21 11:07:49 1992
+X--- strfuncs.h	Mon May 18 14:29:59 1992
+X***************
+X*** 23,30 ****
+X  EXTERN  char  *strlwr       ARGS(( char * ));
+X  EXTERN  int    stricmp      ARGS(( const char *, const char * ));
+X  EXTERN  int    strnicmp     ARGS(( const char *, const char *, size_t ));
+X! EXTERN  char  *strndup      ARGS(( const char * ));
+X! EXTERN  char  *strndup      ARGS(( const char * ));
+X  EXTERN  char  *strdup       ARGS(( const char * ));
+X  
+X  #ifdef BSD
+X--- 23,30 ----
+X  EXTERN  char  *strlwr       ARGS(( char * ));
+X  EXTERN  int    stricmp      ARGS(( const char *, const char * ));
+X  EXTERN  int    strnicmp     ARGS(( const char *, const char *, size_t ));
+X! EXTERN  char  *strdup       ARGS(( const char * ));
+X! EXTERN  char  *strndup      ARGS(( const char *, unsigned len ));
+X  EXTERN  char  *strdup       ARGS(( const char * ));
+X  
+X  #ifdef BSD
+X*** test.tcl.OLD	Thu May 21 11:07:59 1992
+X--- test.tcl	Mon May 18 14:45:39 1992
+X***************
+X*** 31,46 ****
+X  eval [ parseargs -u -a $arguments $scriptName $argv ]
+X  
+X  ## print  the parsed arguments (use defaults if not defined)
+X! puts stdout "ARGUMENTS:"
+X! puts stdout "=========="
+X! puts stdout "Groups = $groups"
+X! puts stdout "Count = $count"
+X! puts stdout "Directory = $dirname"
+X! puts stdout "XFlag = $xflag"
+X! puts stdout "YFlag = $yflag"
+X! puts stdout "SepChar = $sepch"
+X! puts stdout "Name = $name"
+X! puts stdout "Files = $files"
+X  if {( "$string_flag" != "") } {
+X    if {( "$string" == "" )} {
+X      set string "!string arg ommitted on cmd-line!"
+X--- 31,46 ----
+X  eval [ parseargs -u -a $arguments $scriptName $argv ]
+X  
+X  ## print  the parsed arguments (use defaults if not defined)
+X! echo "ARGUMENTS:"
+X! echo "=========="
+X! echo "Groups = $groups"
+X! echo "Count = $count"
+X! echo "Directory = $dirname"
+X! echo "XFlag = $xflag"
+X! echo "YFlag = $yflag"
+X! echo "SepChar = $sepch"
+X! echo "Name = $name"
+X! echo "Files = $files"
+X  if {( "$string_flag" != "") } {
+X    if {( "$string" == "" )} {
+X      set string "!string arg ommitted on cmd-line!"
+X***************
+X*** 48,53 ****
+X  } else {
+X    set string "default string"
+X  }
+X! puts stdout "String = $string"
+X! puts stdout "argv = $argv"
+X  
+X--- 48,53 ----
+X  } else {
+X    set string "default string"
+X  }
+X! echo "String = $string"
+X! echo "argv = $argv"
+X  
+END_OF_FILE
+if test 10305 -ne `wc -c <'PATCH12'`; then
+    echo shar: \"'PATCH12'\" unpacked with wrong size!
+fi
+# end of 'PATCH12'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

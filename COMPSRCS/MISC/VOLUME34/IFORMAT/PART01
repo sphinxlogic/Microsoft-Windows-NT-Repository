@@ -1,0 +1,1568 @@
+Newsgroups: comp.sources.misc
+From: kirkwood@qucis.queensu.ca (Scott Kirkwood)
+Subject:  v34i024:  iformat - Fast C++ class for formatting integer numbers, Part01/01
+Message-ID: <1992Dec13.013941.26401@sparky.imd.sterling.com>
+X-Md4-Signature: 9794428bdd46d24394911f6be6d1cd50
+Date: Sun, 13 Dec 1992 01:39:41 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kirkwood@qucis.queensu.ca (Scott Kirkwood)
+Posting-number: Volume 34, Issue 24
+Archive-name: iformat/part01
+Environment: C++
+
+WHAT IS IFormat?
+================
+
+IFormat is a C++ class that is designed to output formatted
+integers (int, long).  By formatted we mean:
+	1,234,567
+
+One of the main concerns of IFormat was to make it FAST.
+On some Unix machines using gcc and CC IFormat was between
+50% to 200% faster than sprintf() -- and sprintf won't put in commas!
+With Borland's C++ v3 IFormat was 25% to 50% SLOWER, darn.
+But with gcc 2.2.2 on the PC I got IFormat to be about even 
+in speed with sprintf().
+
+Note that this is just a class to be plugged into your programs.  It
+is not a standalone program.
+
+OTHER FEATURES
+==============
+
+IFormat can format to a specified total character width and if the
+number doesn't fit it will be divided down until it does and then
+the appropriate SI notation will be affixed.  For instance, if
+you gave IFormat the number 1234567 and set the width to 6 you would
+get:
+	1,234K
+
+By default the postfixes are K=1,000,  M=1,000,000,  G=1,000,000,000
+but you can change these values if you prefer the computer science
+K = 1,024, for instance.
+
+You can also have output in hexadecimal or octal.
+
+IFormat will, by default, right adjust number if the ouput is smaller
+than the width passed.  Where a width of 0 signifies variable width.
+For instance, here's 123 with a width of 5 (vertical bars for clarity)
+	|  123|
+
+You can toggle whether to use SI postfixes, right adjusting, and
+whether separators are used.
+
+You can change the `separator width' to any number greater than 2.
+A common setting, for instance, is a separator width of 4 
+and the separator character set to a space.
+
+	12 3456 7890
+
+TESTED SYSTEMS
+==============
+
+IBM (Borland C++ 3.0, djgcc 2.2.2) and Unix (AT&T CC, GNU g++ 2.2.2).
+
+COPYRIGHT
+=========
+
+This is free software.  Use it and distribute it freely. Please keep
+the copyright notices.
+
+-- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE -- CUT HERE --
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 1)."
+# Contents:  MANIFEST Makefile README iformat.C iformat.h make.bor
+#   my.out test.C test.bat test.sh
+# Wrapped by kirkwood@gauss on Thu Dec 10 13:24:15 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(325 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XMANIFEST 
+XREADME      More information
+Xiformat.C   Main C++ routines
+Xiformat.h   C++ header file (imbedded help)
+XMakefile    UNIX and GCC makefile
+Xmake.bor    Borland C++ makefile.
+Xtest.C      Test program
+Xtest.sh     Test file (Bourne Shell)
+Xtest.bat    Test file (DOS batch)
+Xmy.out	    What my output was (for comparison)
+X
+END_OF_FILE
+if test 325 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(749 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X.KEEP_STATE:
+X.SUFFIXES: .C .o  
+X
+X# Run "make test" to make test program (called iformat)
+X# Change to your C++ extensions on your system.
+X# (sometimes .c, .cxx, .cc, .cpp, .hpp, .obj)
+XC=.C
+XH=.h
+XO=.o
+X
+X# Name of your C++ compiler
+XCC=g++
+X#CC= CC
+X#CC=gcc
+X
+XPNAME =iformat 
+XFILES.C=$(PNAME)$(C) 
+XFILES.H=$(FILES.C:%$(C)=%$(H))
+XFILES.O=$(FILES.C:%$(C)=%$(O))
+X
+X# Use -O for optimizing and -g for debugging
+XCFLAGS=-O
+X#CFLAGS=-g
+X
+X# Set BIG_NUMBERS if your machine has 64 bit longs
+X#DEFS=-DBIG_NUMBERS
+X
+X$(C)$(O):
+X	$(CC) -I$(ARGS_D) $(CFLAGS) $(DEFS) -c $*$(C)
+X
+Xtest: iformat$(C) iformat$(H) test$(C)
+X	$(CC) $(DEFS) $(CFLAGS) test$(C) iformat$(C) -o iformat
+X
+Xclean:
+X	rm -f core *$(O) your.out $(PNAME) TAGS
+X
+X# Dependancy list
+X$(PNAME)$(O): $(FILES.C) $(FILES.H)
+END_OF_FILE
+if test 749 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(5524 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XIFormat C++ class.
+X
+XWHAT IS IFormat?
+X================
+X
+XIFormat is a C++ class that is designed to output formatted
+Xintegers (int, long).  By formatted we mean:
+X	1,234,567
+X
+XOne of the main concerns of IFormat was to make it FAST.
+XOn some Unix machines using gcc and CC IFormat was between
+X50% to 200% faster than sprintf() -- and sprintf won't put in commas!
+XWith Borland's C++ v3 IFormat was 25% to 50% SLOWER, darn.
+XBut with gcc 2.2.2 on the PC I got IFormat to be about even 
+Xin speed with sprintf().
+X
+XNote that this is just a class to be plugged into your programs.  It
+Xis not a standalone program.
+X
+XOTHER FEATURES
+X==============
+X
+XIFormat can format to a specified total character width and if the
+Xnumber doesn't fit it will be divided down until it does and then
+Xthe appropriate SI notation will be affixed.  For instance, if
+Xyou gave IFormat the number 1234567 and set the width to 6 you would
+Xget:
+X	1,234K
+X
+XBy default the postfixes are K=1,000,  M=1,000,000,  G=1,000,000,000
+Xbut you can change these values if you prefer the computer science
+XK = 1,024, for instance.
+X
+XYou can also have output in hexadecimal or octal.
+X
+XIFormat will, by default, right adjust number if the ouput is smaller
+Xthan the width passed.  Where a width of 0 signifies variable width.
+XFor instance, here's 123 with a width of 5 (vertical bars for clarity)
+X	|  123|
+X
+XYou can toggle whether to use SI postfixes, right adjusting, and
+Xwhether separators are used.
+X
+XYou can change the `separator width' to any number greater than 2.
+XA common setting, for instance, is a separator width of 4 
+Xand the separator character set to a space.
+X
+X	12 3456 7890
+X
+XTESTING
+X=======
+X
+XUNIX
+X====
+X 
+X  Edit the Makefile for either CC or g++ (g++ by default).
+X  Run the Borne shell "test.sh" which will compile and run the
+X  demo program.  The shell also runs "diff" to see if your output
+X  is identical with my output.
+X
+XDOS
+X===
+X  Rename all the .c files to .cc (or .cpp or whatever your standard is).
+X
+X  Borland
+X  -------
+X  Either edit the file "make.bor" or open a new project and add the
+X  two (renamed) files to the project list.  Press F9 to make (as usual).
+X   -or-
+X  If you edited the file "make.bor" then run "make -f make.bor".
+X
+X  GCC
+X  ---
+X  Edit the file Makefile.  Uncomment the "CC=gcc".  Change C to "C=.cc"
+X  Edit the file "test.bat" so that it will run go32.
+X
+X  Both
+X  ----
+X  Run "test.bat"
+X
+XIf you have longs that are 64 bits long then you will need to compile
+Xwith -DBIG_NUMBERS switch set.  (Although I haven't tested to see if
+Xthis really works -- e-mail me if it does!).
+X
+XI've included every test I could think of (with the help of a profiler).
+X
+XEXAMPLE
+X=======
+X
+X#include <iostream.h>
+X#include "iformat.h"
+X
+Xmain() {
+X	IFormat a;
+X
+X	a.SetWidth(5);
+X	cout << '|' << a.Str(12345) << '|' << endl;
+X	a.SetWidth(6);
+X	cout << '|' << a.Str(12345) << '|' << endl;
+X	a.SetWidth(7);
+X	cout << '|' << a.Str(12345) << '|' << endl;
+X}
+X
+Xproduces:
+X	|  12K|
+X	|12,345|
+X	| 12,345|
+X
+X
+XCLASS DEFINITION
+X================
+X
+Xclass IFormat{
+X//  Private stuff
+Xpublic:
+X	IFormat(); // Constructor
+X
+X	const char *Str(signed int num);    // Use Str, it's overloaded
+X	const char *Str(signed long num);
+X	const char *Str(unsigned int num);
+X	const char *Str(unsigned long num); // main routine
+X	const char *Str(char num); // why not?
+X
+X	// Mutators
+X	void  SetSepWidth(int i);  // Default is 3 but 4 is nice too
+X	void  SetWidth(int i);     // Default is 0 (for infinite)
+X	void  SetSep(char ch);     // Default is a comma (but space is nice too)
+X	void  SetUseSeparators(int i); // Default is to use separators
+X	void  SetRightAdjust(int i);   // Default is to right adjust numbers
+X	void  SetUseSI(int i);         // Default is to use SI postfix chars
+X	void  SetMode(int i);      // either ios::dec, ios::hex, ios::oct
+X	void  SetSI(int i, char c); // Set SI character (affects a static) 
+X	void  SetSI(int i, unsigned long div); // Set SI divisor (affects a static)
+X
+X	// Accessers
+X	int   SepWidth();  // returns width between separator characters
+X	int   Width();     // returns the format width set, not string width
+X	char  Sep();       // returns the separator character (usually comma)
+X	int   UseSeparators();
+X	int   RightAdjust(); // Used only if Width() != 0.
+X	int   UseSI();       // only applicable if Width() != 0.
+X};
+X
+XCAVEATS
+X=======
+X
+XIFormat returns a pointer to a string withing IFormat.  When the
+XIFormat instance is destroyed so is the string.  So in some cases you
+Xwill have to copy the string somewhere safe.  
+X
+XIf the string does not fit in width specified and every attempt has
+Xbeen made to shrink the string, then the string will be larger than
+Xthe width (instead of the other standard of putting ******).
+X
+XIFormat rounds down (aka floor).  For example, if you set a width of 2
+Xand passed the number 5678 would be converted to "5K" not "6K".
+X
+XYou cannot give a separation width less than 3.
+X
+XWidths that are too large for the class's internal string structure
+Xthe width will be set to the maximum allowable.
+X
+XAny changes you make to the SI characters ('K', 'M', etc.) and their
+Xvalues (1000, 1000000, etc.) will affect every instance of the class
+XIFormat (they're static).  
+X
+XTESTED SYSTEMS
+X==============
+X
+XIBM (Borland C++ 3.0, djgcc 2.2.2) and Unix (AT&T CC, GNU g++ 2.2.2).
+X
+XCOPYRIGHT
+X=========
+X
+XThis is free software.  Use it and distribute it freely. Please keep
+Xthe copyright notices.
+X
+XAUTHOR / ADDRESS
+X================
+X
+XScott Kirkwood : kirkwood@qucis.queensu.ca
+XVoice phone: (613) 531-2674
+XGraduate Studies - Computer Information Science
+XQueens University
+XKingston, CANADA
+END_OF_FILE
+if test 5524 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'iformat.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'iformat.C'\"
+else
+echo shar: Extracting \"'iformat.C'\" \(9885 characters\)
+sed "s/^X//" >'iformat.C' <<'END_OF_FILE'
+X// Copyright (C) 1992 Scott Kirkwood (Queen's University, Ontario, Canada)
+X// Voice phone : (613) 531-2674, internet: kirkwood@qucis.queensu.ca
+X// This program is given as freeware with no warantees.  Not liable for
+X// any loss or damage resulting from this code.  Please acknowledge authorship.
+X// Note: Tabs in are size 4
+X
+X// IFormat.C : routines for the IFormat class.
+X// Please read IFormat.h for more information.
+X
+X#include "iformat.h"
+X#include <iostream.h>
+X#include <string.h>
+X#include <math.h>
+X
+X// Note: may get wrong results for negative number equal to LONGMIN
+X// I also haven't been able to test REALLY_BIG
+X// Notes to myself...
+X// 18,446,744,073,709,551,616  (64 bits) 20+6(commas)+3 = 29
+X//              2,147,483,647  (32 bits) 10+3+3(-,K,\0) = 16
+X
+X#ifndef REALLY_BIG
+X	char IFormat::ext[IFormatMAXSI] = {0, 'K', 'M', 'G'};
+X	unsigned long IFormat::divby[IFormatMAXSI] = {1, 1000, 1000000,
+X										  1000000000};
+X#else
+X	const MAXSI = 5;
+X	char IFormat::ext[IFormatMAXSI] = {0, 'K', 'M', 'G','T'};
+X	unsigned long IFormat::divby[IFormatMAXSI] = {1, 1000, 1000000,
+X			  1000000000, 1000000000000};
+X#endif
+X
+X// Function prototypes.
+Xchar* uconv10(unsigned long i, char* bufend, int &len);
+Xchar* conv8(register unsigned long i, register char* p, register int &len);
+Xchar* conv16(register unsigned long i, register char* p, register int &len);
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Constructor, sets the variables to the defaults.
+X
+XIFormat::IFormat()
+X{
+X	putseps = 1; // Should we use a separator
+X	width   = 0; // Width to output from 0, 2-  0=infinity
+X	use_si  = 1;
+X	right_adjust = 1;
+X	sep     = ',';
+X	sep_width = 3;
+X	mode    = ios::dec;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X
+Xconst char *IFormat::Str(long num) {
+X	int neg = 0;
+X
+X	if (num < 0) {
+X		neg = 1;
+X		num = -num;
+X	}
+X	return Str((unsigned long)num, neg);
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Nov 10 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Main routine, handles output of unsigned longs.
+X// Note: setting width to anything but 0 causes a big speed penalty.
+X//
+Xconst char *IFormat::Str(unsigned long num, int neg) {
+X	int as = 0;
+X	int old_putseps = putseps;
+X	// Commas will move the string to the right need 2 bytes for
+X	// the potential SI postfix and the null.
+X	char *last = str + sizeof(str) - IFormatMaxCommas - 2;
+X	char *first;
+X	int len = 0;
+X
+X	if (width) {
+X		if (use_si) {
+X			int tempwidth = width;
+X			register unsigned long tempnum = num;
+X			while (as < IFormatMAXSI - 1 && Size(tempnum, neg) > tempwidth) {
+X				if (as == 0)
+X					tempwidth--; // because of the postfix character
+X				as++;
+X				tempnum = num / divby[as];
+X			}
+X			num = tempnum;
+X		}
+X		else {
+X			if (putseps && Size(num, neg) > width) {
+X				putseps = 0;
+X				if (Size(num, neg) > width)
+X					putseps = old_putseps;
+X			}
+X		}
+X	}
+X	// The converter routines grows the string backwards from the least sig.
+X	// digit to the m.s. digit.  No null is placed.
+X	switch (mode) {
+X	case ios::hex:
+X		first = conv16(num, last, len);
+X		break;
+X	case ios::oct:
+X		first = conv8(num, last, len);
+X		break;
+X	default:
+X		first = uconv10(num, last, len);
+X		break;
+X	}
+X	last++;
+X	*last = 0;
+X	if (putseps)
+X		PutCommas(last, len);
+X
+X	if (neg) {
+X		first--;
+X		*first = '-';
+X		len++;
+X	}
+X
+X	if (width) {
+X		if (use_si && as) {
+X			*last++ = ext[as];
+X			*last   = 0;
+X			len++;
+X		}
+X		if (right_adjust)
+X			RightAdjust(first, len, width);
+X	}
+X	putseps = old_putseps;
+X	return first;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Right adjust the string to the width specified.  Fill with spaces
+X// on the left.
+X
+Xvoid IFormat::RightAdjust(register char *&first, int len, int width)
+X{
+X	register int spaces = width - len;
+X	if (spaces < 1)
+X		return;
+X
+X	while (spaces--) {
+X		*--first = ' ';
+X	}
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Return the expected number of characters the number will take.
+X// Calculates the number of separators (commas) and the minus sign,
+X// but does not assume any postfix characters.
+X
+Xint IFormat::Size(register unsigned long num, int neg)
+X{
+X#ifdef REALLY_BIG
+X	static long arr[] = {1,10,100,1000,10000,100000,1000000,
+X	  10000000,100000000,1000000000,10000000000,100000000000,
+X	  1000000000000,10000000000000,100000000000000,
+X	  1000000000000000,10000000000000000,100000000000000000,
+X	  1000000000000000000,10000000000000000000};
+X#else
+X	static long arr[] = {1,10,100,1000,10000,100000,1000000,
+X	10000000,100000000,1000000000};
+X#endif
+X
+X	register len = 0;
+X	while (len < 10 && num > arr[len]) {
+X		len++;
+X	}
+X	if (len == 0)
+X		len = 1; // 0 = size 1;
+X
+X	// Ok, how many commas will be used for a string
+X	// of length len.
+X	if (len == 1)
+X		len = neg ? 2 : 1;
+X	else {
+X		// Count commas and possibly the minus sign
+X		if (putseps)
+X			len += ((len - 1) / sep_width) + (neg ? 1 : 0);
+X		else
+X			len += neg ? 1: 0;
+X	}
+X	return len;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Mon Nov  2 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Put commas in the proper places.  Does this in place and therefore
+X// assumes that you have enough room in the string for the operation.
+X// Goes from right to left.
+X// P points to the null character.
+X
+Xvoid IFormat::PutCommas(char *&last, int &length)
+X{
+X	register int len = length;
+X	int count = 0;
+X
+X	// If length is <= sep_width then we don't need any stinking commas.
+X	if (len <= sep_width)
+X		return;
+X
+X	register char *p = last;
+X	int diff = (len - 1) / sep_width;
+X	length += diff;
+X	last   += diff;
+X	
+X	register char *g = p + diff;
+X
+X	count = sep_width;
+X	while (len--) {
+X		*g-- = *p--;
+X		if (count-- == 0 && *p != '-') {
+X			count = sep_width - 1;
+X			*g-- = sep;
+X		}
+X	}
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Nov 10 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Sets the total format width, making sure it's not too big.
+Xvoid IFormat::SetWidth(int w) {
+X	if (w < IFormatMaxLen - 2) // null, and K not included
+X		width = w;
+X	else
+X		width = IFormatMaxLen - 2;
+X}
+X
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Nov 10 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Sets the separation width making sure it's greater than or
+X// equal to 3.
+X
+Xvoid IFormat::SetSepWidth(int sw)
+X{
+X	if (sw < 3)
+X		sep_width = 3;
+X	else
+X		sep_width = sw;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Nov 10 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Set the SI postfix character (checks bounds)
+X
+Xvoid IFormat::SetSI(int i, char c)
+X{
+X	if (i > 0 && i < IFormatMAXSI)
+X		IFormat::ext[i] = c;
+X}
+X
+X// ============================================================
+X// Author      : Scott Kirkwood
+X// Date        : Tue Nov 10 1992
+X//
+X// Prototype   : iformat.h
+X// Description :
+X// Set the SI representation (checks bounds)
+X
+Xvoid IFormat::SetSI(int i, unsigned long val)
+X{
+X
+X	if (i > 0 && i < IFormatMAXSI)
+X		IFormat::divby[i] = val;
+X}
+X
+Xstatic const char digit1[] = {
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	'0','1','2','3','4','5','6','7','8','9',
+X	};
+X
+Xstatic const char digit2[] = {
+X	'0','0','0','0','0','0','0','0','0','0',
+X	'1','1','1','1','1','1','1','1','1','1',
+X	'2','2','2','2','2','2','2','2','2','2',
+X	'3','3','3','3','3','3','3','3','3','3',
+X	'4','4','4','4','4','4','4','4','4','4',
+X	'5','5','5','5','5','5','5','5','5','5',
+X	'6','6','6','6','6','6','6','6','6','6',
+X	'7','7','7','7','7','7','7','7','7','7',
+X	'8','8','8','8','8','8','8','8','8','8',
+X	'9','9','9','9','9','9','9','9','9','9',
+X	};
+X
+X
+X// ============================================================
+X// Description :
+X// This routine converts the long unsigned number to decimal.
+X// The variable p points to RIGHT end of a buffer. Function uconv10 returns
+X// pointer to left end of converted number.  The buffer is
+X// is not 0 terminated.
+X
+Xchar* uconv10(unsigned long i, char* bufend, int &len)
+X{
+X	register unsigned long j = i;
+X	register char* p = bufend;
+X	register int diff;
+X
+X	len = 0;
+X	do {
+X		long register by100 = j/100;
+X		diff = (int)(j-100*by100);
+X		*p-- = digit1[diff];
+X		*p-- = digit2[diff];
+X		len += 2;
+X		j = by100;
+X	} while ( j > 0 );
+X	if ( diff<10 ) {
+X		++p; //compensate for extra 0
+X		len--;
+X	}
+X	return p + 1;
+X}
+X
+X
+X// ============================================================
+X// Description :
+X// This one converts to octal.
+X
+Xchar* conv8(register unsigned long i, register char* p, register int &len)
+X{
+X	len = 0;
+X	do {
+X		*p-- = (char)('0' + i%8);
+X		len++;
+X	} while ( (i >>= 3) > 0 );
+X
+X	return p + 1;
+X}
+X
+X
+X// ============================================================
+X// Description :
+X// This routine converts to hexadecimal.
+X
+Xchar* conv16(register unsigned long i, register char* p, register int &len)
+X{
+X	len = 0;
+X	do {
+X		register dig = (int)(i%16);
+X
+X		if (dig < 10)
+X			*p-- = (char)('0' + i%16);
+X		else
+X			*p-- = (char)('A'-10 + dig);
+X		len++;
+X	} while ( (i >>= 4) > 0 );
+X
+X	return p + 1;
+X}
+END_OF_FILE
+if test 9885 -ne `wc -c <'iformat.C'`; then
+    echo shar: \"'iformat.C'\" unpacked with wrong size!
+fi
+# end of 'iformat.C'
+fi
+if test -f 'iformat.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'iformat.h'\"
+else
+echo shar: Extracting \"'iformat.h'\" \(4231 characters\)
+sed "s/^X//" >'iformat.h' <<'END_OF_FILE'
+X#ifndef _FORMAT_H
+X#define _FORMAT_H
+X// Copyright (C) 1992 Scott Kirkwood (Queen's University, Ontario, Canada)
+X// Voice phone : (613) 531-2674, internet: kirkwood@qucis.queensu.ca
+X// This program is given as freeware with no warantees.  Not liable for
+X// any loss or damage resulting from this code.  Please acknowledge authorship.
+X// Note: Tabs in are size 4
+X
+X
+X//Description
+X//===========
+X//
+X// IFormat is a C++ class that is designed to output formatted
+X// integers (int, long, etc.).  By formatted I mean:
+X//	1,234,567
+X//
+X// One of the main concerns of IFormat was to make it FAST.
+X// On some Unix machines using gcc and CC IFormat was between
+X// 50% to 200% faster than sprintf() -- and sprintf won't put in commas!
+X// With Borlands C++ v3 IFormat was 25% to 50% SLOWER.
+X// With gcc 2.2.2 on the PC IFormat about even with sprintf().
+X//
+X// OTHER FEATURES
+X// ==============
+X//
+X// IFormat can format to a specified total character width, if the
+X// number doesn't fit it will be divided down until it does and then
+X// the appropriate SI notation will be affixed.  For instance, if
+X// you gave IFormat the number 1234567 and set the width to 6 you would
+X// get:
+X//  1,234K           (note, it was truncated not rounded)
+X//
+X// By default the postfixes are K=1,000,  M=1,000,000,  G=1,000,000,000
+X// but you can change these values if you prefer the computer science
+X// K = 1,024, for instance.
+X//
+X// You can also have output in hexadecimal or octal.
+X//
+X// IFormat will, by default, right adjust number if the ouput is smaller
+X// than the width passed.  Where a width of 0 signifies variable width.
+X// For instance, here's 123 with a width of 5 (vertical bars for clarity)
+X//   |  123|
+X//
+X// You can toggle whether to use SI postfixes, right adjusting, and
+X// whether separators are used.
+X//
+X// The width must be less than or equal to 14 otherwise it will
+X// be ignored (unless you have BIG_NUMBERS set).
+X// Note: I have only tested this program with 4 byte longs.  If you
+X// have large longs #define BIG_NUMBERS and try it, but I'm not sure
+X// if it will work with larger longs (haven't tested it).
+X
+X#ifndef BIG_NUMBERS
+Xconst IFormatMAXSI = 4;
+Xconst IFormatMaxCommas = 3;
+Xconst IFormatMaxLen = 16; // including -, comma, K and null
+X#else
+Xconst IFormatMAXSI = 5;
+Xconst IFormatMaxCommas = 6;
+Xconst IFormatMaxLen = 29;
+X#endif
+X
+Xclass IFormat {
+X	char   sep;                // Usually a comma
+X	short  sep_width;          // Usually three
+X	static char ext[IFormatMAXSI];
+X	static unsigned long divby[IFormatMAXSI];
+X	char   str[IFormatMaxLen]; // string where I number is stored.
+X	int    putseps;            // Should we use a separator?
+X	int    right_adjust;       // Should we right adjust?
+X	int    use_si;             // Should we use SI postfix notations?
+X	int    width;              // Width to output from 0-(MaxLen - 2)
+X	int    mode;               // oct, hex or (default) dec.
+X
+X	void Show();
+X	void SetVars();
+X	int  Size(register unsigned long num, int neg);
+X	void PutCommas(char *&end, int &len);
+X	void KillDot(char *str);
+X	void RightAdjust(register char *&last, int len, int width);
+Xpublic:
+X	IFormat(); // Constructor
+X	
+X	const char *Str(int num)          { return Str((long)num); }
+X	const char *Str(long num);
+X	const char *Str(unsigned int num) { return Str((long)num); }
+X	const char *Str(unsigned long num, int neg = 0);
+X	const char *Str(char num)         { return Str((long)num); }
+X	void  SetSepWidth(int i);
+X	void  SetWidth(int i);
+X	void  SetSep(char ch)             { sep = ch; }
+X	void  SetUseSeparators(int i)     { putseps = i; }
+X	void  SetRightAdjust(int i)       { right_adjust = i; }
+X	void  SetUseSI(int i)             { use_si = i; }
+X	// use SetMode(ios::hex or ios::dec or ios::oct)
+X	void  SetMode(int i)              { mode = i; }
+X	void  SetSI(int i, char c);            // set SI character ex. i=1 ->'K'
+X	void  SetSI(int i, unsigned long val); // Set SI value     ex. i=1->1000
+X	int   SepWidth()                  { return sep_width; }
+X	int   Width()                     { return width; }
+X	char  Sep()                       { return sep; }
+X	int   UseSeparators()             { return putseps; }
+X	int   RightAdjust()               { return right_adjust; }
+X	int   UseSI()                     { return use_si; }
+X};
+X
+X#endif
+END_OF_FILE
+if test 4231 -ne `wc -c <'iformat.h'`; then
+    echo shar: \"'iformat.h'\" unpacked with wrong size!
+fi
+# end of 'iformat.h'
+fi
+if test -f 'make.bor' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'make.bor'\"
+else
+echo shar: Extracting \"'make.bor'\" \(886 characters\)
+sed "s/^X//" >'make.bor' <<'END_OF_FILE'
+X.AUTODEPEND
+X
+X#		*Translator Definitions*
+XCC = bcc +IFORMAT.CFG
+XTASM = TASM
+XTLIB = tlib
+XTLINK = tlink
+XLIBPATH = C:\BC3\LIB
+XINCLUDEPATH = C:\BC3\INCLUDE
+X
+X
+X#		*Implicit Rules*
+X.c.obj:
+X  $(CC) -c {$< }
+X
+X.cpp.obj:
+X  $(CC) -c {$< }
+X
+X#		*List Macros*
+X
+X
+XEXE_dependencies =  \
+X iformat.obj \
+X test.obj
+X
+X#		*Explicit Rules*
+Xiformat.exe: iformat.cfg $(EXE_dependencies)
+X  $(TLINK) /v/x/c/P-/L$(LIBPATH) @&&|
+Xc0s.obj+
+Xiformat.obj+
+Xtest.obj
+Xiformat
+X		# no map file
+Xcs.lib
+X|
+X
+X
+X#		*Individual File Dependencies*
+Xiformat.obj: iformat.cfg iformat.cc
+X	$(CC) -c iformat.cc
+X
+Xtest.obj: iformat.cfg test.cc
+X	$(CC) -c test.cc
+X
+X#		*Compiler Configuration File*
+Xiformat.cfg: iformat.mak
+X  copy &&|
+X-f-
+X-ff-
+X-G
+X-O
+X-Og
+X-Oe
+X-Om
+X-Ov
+X-Ol
+X-Ob
+X-Op
+X-Oi
+X-Z
+X-k-
+X-vi
+X-w-ret
+X-w-nci
+X-w-inl
+X-w-par
+X-w-cpt
+X-w-dup
+X-w-pia
+X-w-ill
+X-w-sus
+X-w-ext
+X-w-ias
+X-w-ibc
+X-w-pre
+X-w-nst
+X-I$(INCLUDEPATH)
+X-L$(LIBPATH)
+X-DSPEED
+X-P
+X| iformat.cfg
+X
+X
+END_OF_FILE
+if test 886 -ne `wc -c <'make.bor'`; then
+    echo shar: \"'make.bor'\" unpacked with wrong size!
+fi
+# end of 'make.bor'
+fi
+if test -f 'my.out' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'my.out'\"
+else
+echo shar: Extracting \"'my.out'\" \(2529 characters\)
+sed "s/^X//" >'my.out' <<'END_OF_FILE'
+XDefault.
+X|Unlimited|
+X|1|
+X|12|
+X|123|
+X|1,234|
+X|12,345|
+X|123,456|
+X|1,234,567|
+X|12,345,678|
+X|123,456,789|
+X|1,234,567,890|
+X|2,147,483,647| (LONG_MAX)
+X|0| (ZERO)
+X|-1|
+X|-12|
+X|-123|
+X|-1,234|
+X|-12,345|
+X|-123,456|
+X|-1,234,567|
+X|-12,345,678|
+X|-123,456,789|
+X|-1,234,567,890|
+X|-2,147,483,648| (LONG_MIN)
+XDon't use the separators.
+X|Unlimited|
+X|1|
+X|12|
+X|123|
+X|1234|
+X|12345|
+X|123456|
+X|1234567|
+X|12345678|
+X|123456789|
+X|1234567890|
+X|2147483647| (LONG_MAX)
+X|0| (ZERO)
+X|-1|
+X|-12|
+X|-123|
+X|-1234|
+X|-12345|
+X|-123456|
+X|-1234567|
+X|-12345678|
+X|-123456789|
+X|-1234567890|
+X|-2147483648| (LONG_MIN)
+XSet width to 7 and don't right adjust.
+X|-------|
+X|1|
+X|12|
+X|123|
+X|1,234|
+X|12,345|
+X|123,456|
+X|1,234K|
+X|12,345K|
+X|123M|
+X|1,234M|
+X|2,147M| (LONG_MAX)
+X|0| (ZERO)
+X|-1|
+X|-12|
+X|-123|
+X|-1,234|
+X|-12,345|
+X|-123K|
+X|-1,234K|
+X|-12M|
+X|-123M|
+X|-1,234M|
+X|-2,147M| (LONG_MIN)
+XSet width to 7 and don't use SI.
+X|-------|
+X|      1|
+X|     12|
+X|    123|
+X|  1,234|
+X| 12,345|
+X|123,456|
+X|1234567|
+X|12,345,678|
+X|123,456,789|
+X|1,234,567,890|
+X|2,147,483,647| (LONG_MAX)
+X|      0| (ZERO)
+X|     -1|
+X|    -12|
+X|   -123|
+X| -1,234|
+X|-12,345|
+X|-123456|
+X|-1,234,567|
+X|-12,345,678|
+X|-123,456,789|
+X|-1,234,567,890|
+X|-2,147,483,648| (LONG_MIN)
+XSet separator width to 4 and Sep is a space.
+X|Unlimited|
+X|1|
+X|12|
+X|123|
+X|1234|
+X|1 2345|
+X|12 3456|
+X|123 4567|
+X|1234 5678|
+X|1 2345 6789|
+X|12 3456 7890|
+X|21 4748 3647| (LONG_MAX)
+X|0| (ZERO)
+X|-1|
+X|-12|
+X|-123|
+X|-1234|
+X|-1 2345|
+X|-12 3456|
+X|-123 4567|
+X|-1234 5678|
+X|-1 2345 6789|
+X|-12 3456 7890|
+X|-21 4748 3648| (LONG_MIN)
+XNormal SepWidth, but Width set to 5
+X|-----|
+X|    1|
+X|   12|
+X|  123|
+X|1,234|
+X|  12K|
+X| 123K|
+X|   1M|
+X|  12M|
+X| 123M|
+X|   1G|
+X|   2G| (LONG_MAX)
+X|    0| (ZERO)
+X|   -1|
+X|  -12|
+X| -123|
+X|  -1K|
+X| -12K|
+X|-123K|
+X|  -1M|
+X| -12M|
+X|-123M|
+X|  -1G|
+X|  -2G| (LONG_MIN)
+XWidth set to 5 and don't use seps.
+X|-----|
+X|    1|
+X|   12|
+X|  123|
+X| 1234|
+X|12345|
+X| 123K|
+X|1234K|
+X|  12M|
+X| 123M|
+X|1234M|
+X|2147M| (LONG_MAX)
+X|    0| (ZERO)
+X|   -1|
+X|  -12|
+X| -123|
+X|-1234|
+X| -12K|
+X|-123K|
+X|  -1M|
+X| -12M|
+X|-123M|
+X|  -1G|
+X|  -2G| (LONG_MIN)
+XDifferent widths
+X================
+X|-2,147,483,648| width = 0
+X|-2G| width = 1
+X|-2G| width = 2
+X|-2G| width = 3
+X| -2G| width = 4
+X|  -2G| width = 5
+X|   -2G| width = 6
+X|-2,147M| width = 7
+X| -2,147M| width = 8
+X|  -2,147M| width = 9
+X|   -2,147M| width = 10
+X|-2,147,483K| width = 11
+X| -2,147,483K| width = 12
+X|  -2,147,483K| width = 13
+X|-2,147,483,648| width = 14
+X|-2,147,483,648| max width
+XTesting type long.
+X12,345
+XTesting type unsigned long.
+X12,345
+XTesting type int.
+X12,345
+XTesting type unsigned int.
+X12,345
+XTesting type char.
+X65
+END_OF_FILE
+if test 2529 -ne `wc -c <'my.out'`; then
+    echo shar: \"'my.out'\" unpacked with wrong size!
+fi
+# end of 'my.out'
+fi
+if test -f 'test.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.C'\"
+else
+echo shar: Extracting \"'test.C'\" \(6413 characters\)
+sed "s/^X//" >'test.C' <<'END_OF_FILE'
+X// Copyright (C) 1992 Scott Kirkwood (Queen's University, Ontario, Canada)
+X// Voice phone : (613) 531-2674, internet: kirkwood@qucis.queensu.ca
+X// This program is given as freeware with no warantees.  Not liable for
+X// any loss or damage resulting from this code.  Please acknowledge authorship.
+X// Note: Tabs in are size 4
+X
+X// This program is a test suite for the IFormat C++ class.
+X
+X#include <iostream.h>
+X#include "iformat.h"
+X#include <time.h>
+X#include <stdio.h>
+X#include <limits.h>
+X
+X// Function prototypes
+X
+Xvoid test_switches(int mode);
+Xvoid show_width(int width);
+Xvoid speed_test();
+Xvoid type_test();
+Xvoid other_test();
+X
+Xint main(int argc, char **argv)
+X{
+X	if (argc == 2) {
+X		speed_test();
+X	}
+X	else {
+X		test_switches(ios::dec);
+X		//      test_switches(ios::hex);
+X		//      test_switches(ios::oct);
+X
+X		other_test();
+X		type_test();
+X	}
+X
+X	return 0;
+X}
+X
+X#ifndef __TURBOC__
+X#include <sys/time.h>
+X#include <sys/resource.h>
+Xinline	unsigned long CLOCK() {
+X		struct rusage RU;
+X			
+X		getrusage(RUSAGE_SELF,&RU);
+X		return RU.ru_utime.tv_sec * 1000000UL + RU.ru_utime.tv_usec;
+X	}
+X#else
+Xinline long CLOCK() { return clock(); }
+X#endif
+X
+Xvoid speed_test() {
+X#ifdef __TURBOC__
+X	const long factor = 5;
+X	const char *mes = " clock ticks.";
+X#else
+X	const char *mes = " micro-seconds.";
+X	const long factor = -5;
+X#endif
+X	unsigned long iter;
+X	unsigned long time_start;
+X	register unsigned long int i;
+X	char work[81];
+X
+X	cout << "Performing speed check please wait..." << endl;
+X	// Let's do a quick and dirty speed check
+X	long speed = 0;
+X
+X	time_start = time(0);
+X	while (time(0) == time_start) // sychronize on clock edge
+X		;
+X	time_start = time(0) + 1;
+X	while (time(0) < time_start)
+X		speed++;
+X
+X	if (factor < 0)
+X		iter = speed / (-factor);
+X	else
+X		iter = speed * factor;
+X
+X
+X	IFormat a, b;
+X	a.SetWidth(2);
+X
+X	cout << "Performing tests (loops of " << b.Str(iter) << 
+X		" iterations) ..." << endl;
+X	time_start = CLOCK();
+X
+X	for (i = 0; i < iter; i++) {
+X		a.Str(LONG_MAX);
+X	}
+X
+X	long time_worst = CLOCK() - time_start;
+X	cout << "IFormat (worst case)      : " << b.Str(time_worst) <<
+X		mes << endl;
+X	cout << "Sample:" << a.Str(LONG_MAX) << endl;
+X	a.SetWidth(0);
+X
+X	time_start = CLOCK();
+X
+X	for (i = 0; i < iter; i++) {
+X		a.Str(123456);
+X	}
+X
+X	long time_avg = CLOCK() - time_start;
+X	cout << "IFormat (avg case)        : " << b.Str(time_avg) <<
+X		mes << endl;
+X	cout << "Sample:" << a.Str(123456) << endl;
+X
+X	a.SetUseSeparators(0);
+X	a.SetRightAdjust(0);
+X	a.SetUseSI(0);
+X
+X	time_start = CLOCK();
+X
+X	for (i = 0; i < iter; i++) {
+X		a.Str(123456);
+X	}
+X	long time_best = CLOCK() - time_start;
+X	cout << "IFormat (best case)       : " << b.Str(time_best) <<
+X		mes << endl;
+X	cout << "Sample:" << a.Str(123456) << endl;
+X
+X	time_start = CLOCK();
+X
+X	for (i = 0; i < iter; i++) {
+X		sprintf(work,"%li", 123456L);
+X	}
+X
+X	long time_sprintf = CLOCK() - time_start;
+X	cout << "Sprintf (fast)            : " << b.Str(time_sprintf) <<
+X		mes << endl;
+X	cout << "Sample:" << work << endl;
+X
+X	time_start = CLOCK();
+X
+X	for (i = 0; i < iter; i++) {
+X		sprintf(work, "%7li", 123456L);
+X	}
+X	long time_sprintf_slow = CLOCK() - time_start;
+X	cout << "Sprintf (width specified) : " << b.Str(time_sprintf_slow) <<
+X		mes << endl;
+X	cout << "Sample:" << work << endl;
+X
+X
+X	cout << "IFormat is between ";
+X	if (time_worst)
+X		cout << (100 * time_sprintf / time_worst) - 100;
+X	else
+X		cout << "more than " << (time_sprintf * 100) - 100;
+X	cout << "% and ";
+X	if (time_best)
+X		cout << (100 * time_sprintf_slow / time_best) - 100;
+X	else
+X		cout << "more than " << (time_sprintf_slow * 100) - 100;
+X
+X	cout << "% faster than sprintf." << endl;
+X	cout << "Negative numbers mean it's slower." << endl;
+X}
+X
+Xvoid test_switches(int mode)
+X{
+X	long l;
+X
+X	for (int j = 0; j <= 6; j++) {
+X		IFormat a;
+X
+X		a.SetMode(mode);
+X		switch (j) {
+X		case 0:
+X			cout << "Default." << endl;
+X			break;
+X		case 1:
+X			cout << "Don't use the separators." << endl;
+X			a.SetUseSeparators(0);
+X			break;
+X		case 2: {
+X			const width2 = 7;
+X			cout << "Set width to " << width2 <<
+X				" and don't right adjust." << endl;
+X			a.SetWidth(width2);
+X			a.SetRightAdjust(0);
+X		}       break;
+X		case 3: {
+X			const width3 = 7;
+X			cout << "Set width to " << width3 <<
+X				" and don't use SI." << endl;
+X			a.SetWidth(width3);
+X			a.SetUseSI(0);
+X		}       break;
+X		case 4: {
+X			const sepw4 = 4;
+X			cout << "Set separator width to " << sepw4 <<
+X				" and Sep is a space." << endl;
+X
+X			a.SetSep(' ');
+X			a.SetSepWidth(sepw4);
+X		}       break;
+X		case 5: {
+X			const width5 = 5;
+X			cout << "Normal SepWidth, but Width set to " << width5 << endl;
+X			a.SetWidth(width5);
+X		}       break;
+X		case 6: {
+X			const width6 = 5;
+X			cout << "Width set to " << width6 << " and don't use seps." << endl;
+X			a.SetWidth(width6);
+X			a.SetUseSeparators(0);
+X		}       break;
+X		}
+X		l = 1;
+X		show_width(a.Width());
+X		for (int i = 0; i < 10; i++) {
+X			cout << "|" << a.Str(l) << "|" << endl;
+X			switch (mode) {
+X			default: // ios::dec
+X				l *= 10;
+X				l += (i + 2) % 10;
+X				break;
+X			case ios::hex:
+X				l <<= 4;
+X				l += (i + 2) % 16;
+X				break;
+X			case ios::oct:
+X				l <<= 3;
+X				l += (i + 2) % 8;
+X				break;
+X			}
+X		}
+X		l = -1;
+X		cout << "|" << a.Str(LONG_MAX) << "| (LONG_MAX)" << endl;
+X		cout << "|" << a.Str(0) << "| (ZERO)" << endl;
+X
+X		for (i = 0; i < 10; i++) {
+X			cout << "|" <<  a.Str(l) << "|" << endl;
+X			switch (mode) {
+X			default: // ios::dec
+X				l *= 10;
+X				l -= (i + 2) % 10;
+X				break;
+X			case ios::hex:
+X				l <<= 4;
+X				l -= (i + 2) % 16;
+X				break;
+X			case ios::oct:
+X				l <<= 3;
+X				l -= (i + 2) % 8;
+X				break;
+X			}
+X		}
+X		cout << "|" << a.Str(LONG_MIN) << "| (LONG_MIN)" << endl;
+X	}
+X}
+X
+Xvoid show_width(int width)
+X{
+X	int i;
+X
+X	cout << '|';
+X	if (width) {
+X		for (i = 0; i < width; i++)
+X			cout << '-';
+X	}
+X	else {
+X		cout << "Unlimited";
+X	}
+X	cout << '|' << endl;;
+X}
+X
+Xvoid type_test() {
+X	IFormat a;
+X	cout << "Testing type long." << endl;
+X	cout << a.Str(12345L) << endl;
+X	cout << "Testing type unsigned long."  << endl;
+X	cout << a.Str(12345UL) << endl;
+X	cout << "Testing type int." << endl;
+X	cout << a.Str(12345) << endl;
+X	cout << "Testing type unsigned int." << endl;
+X	cout << a.Str(12345U) << endl;
+X	cout << "Testing type char." << endl;
+X	cout << a.Str('A') << endl;
+X}
+X
+Xvoid other_test() {
+X	IFormat a;
+X	cout << "Different widths" << endl;
+X	cout << "================" << endl;
+X	for (int i = 0; i < IFormatMaxLen - 1; i++) {
+X		a.SetWidth(i);
+X		cout << '|' << a.Str(LONG_MIN) << "| width = " << i << endl;
+X	}
+X	a.SetWidth(999);
+X	cout << '|' << a.Str(LONG_MIN) << "| max width" << endl;
+X}
+END_OF_FILE
+if test 6413 -ne `wc -c <'test.C'`; then
+    echo shar: \"'test.C'\" unpacked with wrong size!
+fi
+# end of 'test.C'
+fi
+if test -f 'test.bat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.bat'\"
+else
+echo shar: Extracting \"'test.bat'\" \(219 characters\)
+sed "s/^X//" >'test.bat' <<'END_OF_FILE'
+X@echo on
+Xrem set prog=go32 test
+Xset prog=iformat
+Xecho Renaming all *.c to *.cc
+Xren *.c *.cc
+Xecho Test routine for IFormat - should read "FC: no differences encountered"
+X%prog% > your.out
+Xfc my.out your.out
+X%prog% speed
+END_OF_FILE
+if test 219 -ne `wc -c <'test.bat'`; then
+    echo shar: \"'test.bat'\" unpacked with wrong size!
+fi
+# end of 'test.bat'
+fi
+if test -f 'test.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.sh'\"
+else
+echo shar: Extracting \"'test.sh'\" \(387 characters\)
+sed "s/^X//" >'test.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X## Test routine for IFormat
+X
+Xmake test
+Xiformat > your.out
+Xlines=`diff my.out your.out | wc -l`
+Xif (test $lines -ne 0) then
+X	echo "Hmm. your output is different then my output"
+X	echo "Here's what diff gave me"
+X	echo "diff my.out your.out"
+X	diff my.out your.out
+Xelse
+X	iformat | more
+X	echo 'Passed test'
+Xfi
+Xecho "Speed test"
+Xecho "=========="
+Xecho "Please wait..."
+Xiformat speed 
+END_OF_FILE
+if test 387 -ne `wc -c <'test.sh'`; then
+    echo shar: \"'test.sh'\" unpacked with wrong size!
+fi
+chmod +x 'test.sh'
+# end of 'test.sh'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+-------------------- kirkwood@qucis.queensu.ca ----------------------
+      299,792,458 m/s it's not just a good idea, it's the law!
+
+
+exit 0 # Just in case...

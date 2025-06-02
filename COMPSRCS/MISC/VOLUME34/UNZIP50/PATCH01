@@ -1,0 +1,2104 @@
+Newsgroups: comp.sources.misc
+From: Info-ZIP group (zip-bugs@wkuvx1.bitnet)
+Subject: v34i124:  unzip50 - Info-ZIP portable UnZip, version 5.0, Patch01
+Message-ID: <1993Jan19.040513.27713@sparky.imd.sterling.com>
+X-Md4-Signature: 20984326977f40d15917f01025eb6a89
+Date: Tue, 19 Jan 1993 04:05:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Info-ZIP group (zip-bugs@wkuvx1.bitnet)
+Posting-number: Volume 34, Issue 124
+Archive-name: unzip50/patch01
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+Patch-To: unzip50: Volume 31, Issue 104-117
+
+UnZip version 5.0, patchlevel 1, 15 January 1993
+
+This patch mainly fixes two compatibility problems with PKZIP 2.04c
+and one old bug in the password-checking of the decryption code.  (Note
+that the zcrypt19 sources, also posted in comp.sources.misc volume 31,
+are still required for decryption support.)  The full list of changes
+is as follows:
+
+ - inflate:  various bugfixes
+    - fixed to work with PKZIP 2.04c (allow empty code sets in huft_build)
+    - ifdef'd fixes to deal with PKZIP beta bugs (PKZIP_BUG_WORKAROUND)
+    - inflate_entry -> inflate; fixed comment; removed memory error message
+ - funzip:  various bugfixes
+    - added final exit(0) to avoid gnutar problem
+    - OS/2 and MS-DOS read/write modes
+    - improved/fixed inflation error messages; inflate_entry() -> inflate()
+    - fixed crypt/store bug
+    - fixed decryption check (single byte)
+ - updated decryption password test to work with PKZIP 2.04c
+ - fixed decryption header bug (double decryption of header in some cases)
+ - fixed non-definition of UNIX macro under Xenix and Convex Unix
+ - MS-DOS/Windows:  fixed DISPLAY bug in misc.c
+ - fixed ecrec offsets reported by zipinfo -v (real, expected were reversed)
+ - fixed extract.c error messages for explode(), inflate()
+ - removed extraneous ')' for 386BSD in misc.c
+ - various Makefile changes/fixes
+ - updated Contents, README, Where files
+
+Other changes:
+
+ - renamed Readme to README as per comp.sources.misc guidelines
+ - renamed thinkc.rsrc.hqx to thinkc_rsrc.hqx (fatal bug in MS-DOS SHEZ80)
+
+These changes have been contributed by various people, but Mark Adler
+(inflate) and Jean-loup Gailly (crypt) are due extra credit.  Thanks
+to the entire Info-ZIP beta test group, as well.
+
+Please report problems with UnZip (and Zip) to zip-bugs@wkuvx1.bitnet.
+
+Greg Roelofs (Info-ZIP UnZip guy)
+roe2@midway.uchicago.edu
+----------------------------------
+diff -cb unzip50/Contents unz50p1/Contents
+*** unzip50/Contents	Fri Aug 21 08:19:52 1992
+--- unz50p1/Contents	Sun Jan 10 21:48:38 1993
+***************
+*** 1,10 ****
+! Contents of the UnZip 5.0 archive (the OS-specific subdirectories at the
+  end contain their own Contents listings):
+  
+    Contents	this file
+!   Readme	what UnZip is; general information
+    Where		where Zip/UnZip and encryption/decryption support can be found
+!   History.500	new features and fixes in this release
+    ZipRules	Info-ZIP guidelines on contributions to the cause
+    BUGS		known bugs, problems, and (possible) features to be added
+    unzip.1	UnZip manual page, nroff format
+--- 1,10 ----
+! Contents of the UnZip 5.0p1 archive (the OS-specific subdirectories at the
+  end contain their own Contents listings):
+  
+    Contents	this file
+!   README	what UnZip is; general information
+    Where		where Zip/UnZip and encryption/decryption support can be found
+!   History.501	new features and fixes in this release
+    ZipRules	Info-ZIP guidelines on contributions to the cause
+    BUGS		known bugs, problems, and (possible) features to be added
+    unzip.1	UnZip manual page, nroff format
+***************
+*** 31,37 ****
+    unzip.h	main UnZip header file (required*)
+    zip.h		header for using crypt.c with UnZip (required for decryption)
+    zipinfo.c	zipfile information utility (useful, but optional)
+!   Makefile	main Unix and OS/2 makefile (required)
+    AMIGA/	support files for compiling on Amiga (not recently tested)
+    ATARI/	support files for compiling v4.1 on Atari ST
+    MAC/		support files for compiling on Macintosh
+--- 31,37 ----
+    unzip.h	main UnZip header file (required*)
+    zip.h		header for using crypt.c with UnZip (required for decryption)
+    zipinfo.c	zipfile information utility (useful, but optional)
+!   Makefile	main Unix makefile (required)
+    AMIGA/	support files for compiling on Amiga (not recently tested)
+    ATARI/	support files for compiling v4.1 on Atari ST
+    MAC/		support files for compiling on Macintosh
+***************
+*** 42,55 ****
+  
+  Files marked "required*" are also needed to compile ZipInfo.  There are Unix
+  and MS-DOS targets to make ZipInfo in Makefile (zipinfo, zi_indigo, zi_gcc, 
+! zi_dos).  FUnZip is a new, last-minute program of limited capabilities; for
+! now, it can only extract the first member in a zipfile from stdin and send
+! it to stdout, and only if the member is either deflated or stored.  It will 
+! probably have evolved by the time you read this, and it may even be absorbed 
+! into UnZip itself.
+  
+  The Atari ST support is in the form of patches against UnZip 4.1; there
+  are more details in the ATARI sub-archive Contents file.  Amiga support
+! has not been tested since version 4.1 or earlier (the makefiles, however,
+! have been updated to reflect the new code structure, and any changes
+! required shouldn't be TOO extensive).
+--- 42,54 ----
+  
+  Files marked "required*" are also needed to compile ZipInfo.  There are Unix
+  and MS-DOS targets to make ZipInfo in Makefile (zipinfo, zi_indigo, zi_gcc, 
+! zi_dos).  FUnZip is a new program of limited capabilities; for now, it can 
+! only extract the first member in a zipfile from stdin and send it to stdout,
+! and only if the member is either deflated or stored.  It works under Unix,
+! OS/2 and MS-DOS, at least, although it doesn't appear in all of the makefiles
+! yet.  It may eventually be absorbed into UnZip itself.
+  
+  The Atari ST support is in the form of patches against UnZip 4.1; there
+  are more details in the ATARI sub-archive Contents file.  Amiga support
+! is only partial for this release, but full support is almost complete in 
+! the current UnZip 5.1 betas.
+diff -cb unzip50/History.501 unz50p1/History.501
+*** unzip50/History.501	Sun Jan 10 22:07:58 1993
+--- unz50p1/History.501	Tue Jan 12 19:45:01 1993
+***************
+*** 0 ****
+--- 1,30 ----
++ UnZip version 5.0p1, 12 January 1993
++ 
++ Bugs fixed:
++ 
++  - inflate:  various bugfixes
++     - fixed to work with PKZIP 2.04c (allow empty code sets in huft_build)
++     - ifdef'd fixes to deal with PKZIP beta bugs (PKZIP_BUG_WORKAROUND)
++     - inflate_entry -> inflate; fixed comment; removed memory error message
++  - funzip:  various bugfixes
++     - added final exit(0) to avoid gnutar problem
++     - OS/2 and MS-DOS read/write modes
++     - improved/fixed inflation error messages; inflate_entry() -> inflate()
++     - fixed crypt/store bug
++     - fixed decryption check (single byte)
++  - updated decryption password test to work with PKZIP 2.04c
++  - fixed decryption header bug (double decryption of header in some cases)
++  - fixed non-definition of UNIX macro under Xenix and Convex Unix
++  - MS-DOS/Windows:  fixed DISPLAY bug in misc.c
++  - fixed ecrec offsets reported by zipinfo -v (real, expected were reversed)
++  - fixed extract.c error messages for explode(), inflate()
++  - removed extraneous ')' for 386BSD in misc.c
++  - various Makefile changes/fixes
++  - updated Contents, README, Where files
++ 
++ Other changes:
++ 
++  - renamed Readme to README as per comp.sources.misc guidelines
++  - renamed thinkc.rsrc.hqx to thinkc_rsrc.hqx (fatal bug in MS-DOS SHEZ80)
++ 
++ Greg Roelofs (a.k.a. Cave Newt)
+diff -cb unzip50/Makefile unz50p1/Makefile
+*** unzip50/Makefile	Thu Aug 20 09:09:22 1992
+--- unz50p1/Makefile	Sun Jan 10 12:51:24 1993
+***************
+*** 409,415 ****
+  #	 LF="/noi/nol" LF2=",unzip;"
+  
+  msc_dos:	rsp
+! 	$(MAKE) unzip.exe CF="-Ox $(LOC) -nologo" CC=cl LD=link E=.exe\
+  	 O=.obj LOBJS="" LF="@rsp" LF2=""
+  	del rsp
+  
+--- 409,415 ----
+  #	 LF="/noi/nol" LF2=",unzip;"
+  
+  msc_dos:	rsp
+! 	$(MAKE) unzip.exe CF="-Oait -Gs $(LOC) -nologo" CC=cl LD=link E=.exe\
+  	 O=.obj LOBJS="" LF="@rsp" LF2=""
+  	del rsp
+  
+***************
+*** 521,527 ****
+  	$(MAKE) zipinfo CF="-cckr -O -DUNIX $(LOC)"
+  
+  zi_dos:			# MSC 6.0 + nmake, MS-DOS
+! 	$(MAKE) zipinfo.exe CF="-Ox -nologo $(LOC) -G2" CC=cl\
+  	 LD=link E=.exe O=.obj ZL="/noi /nol" ZL2=",zipinfo;"\
+  	 LN="copy" RM="DEL"
+  
+--- 521,527 ----
+  	$(MAKE) zipinfo CF="-cckr -O -DUNIX $(LOC)"
+  
+  zi_dos:			# MSC 6.0 + nmake, MS-DOS
+! 	$(MAKE) zipinfo.exe CF="-Oait -Gs -nologo $(LOC)" CC=cl\
+  	 LD=link E=.exe O=.obj ZL="/noi /nol" ZL2=",zipinfo;"\
+  	 LN="copy" RM="DEL"
+  
+diff -cb unzip50/Readme unz50p1/README
+*** unzip50/Readme	Fri Aug 21 09:49:20 1992
+--- unz50p1/README	Sun Jan 10 21:53:36 1993
+***************
+*** 1,11 ****
+! File Readme for:
+  
+! unzip50.zip	generic Unix/VMS/OS2/MSDOS/Mac/Windows[/Amiga/Atari] UnZip 5.0
+! unzip50.zoo	same as above, but ZOO format
+! unzip50.tar.Z	same as above, but compressed tar format
+  
+  A public distribution version of the Info-ZIP project's generic UnZip
+! utility; 21 August 1992.
+  
+  __________________________________________________________________________
+  
+--- 1,11 ----
+! File README for:
+  
+! unz50p1.zip	portable UnZip (zipfile extraction utility), version 5.0p1
+! unz50p1.zoo	same as above, but ZOO format
+! unz50p1.tar.Z	same as above, but compressed tar format
+  
+  A public distribution version of the Info-ZIP project's generic UnZip
+! utility; 10 January 1993.
+  
+  __________________________________________________________________________
+  
+***************
+*** 12,33 ****
+  BEFORE YOU ASK:  UnZip, its companion utility Zip, and related utilities
+  and support files can be found in many places; read the file "Where" for
+  further details.  To contact the authors with suggestions, bug reports, or
+! fixes, continue reading this file (Readme) and the file "ZipRules".  For
+  a list of known bugs and possible future features, read "BUGS".  And for a
+  commented listing of the files included in the source distribution, read
+  "Contents" in said distribution.
+  
+! ALSO NOTE:  Info-ZIP's mailing addresses and ftp site will be changing
+! within the next month.  The current e-mail addresses should hold for a
+! while via mail-forwarding, but watch for the new addresses in our next
+! release.
+  __________________________________________________________________________
+  
+  
+! This version of UnZip has been ported to a wide array of Unix and other
+! mainframes, minis, and micros (including VMS, OS/2, Minix, MSDOS, Windows,
+! Amiga (not tested recently), and Macintosh).  Although highly compatible 
+! with PKware's PKZIP and PKUNZIP utilities of MSDOS fame, our primary ob-
+  jective has been one of portability and other-than-MSDOS functionality.  
+  Features not found in the PKWare version include default extraction of 
+  directory trees (with a switch to defeat this, rather than the other way 
+--- 12,34 ----
+  BEFORE YOU ASK:  UnZip, its companion utility Zip, and related utilities
+  and support files can be found in many places; read the file "Where" for
+  further details.  To contact the authors with suggestions, bug reports, or
+! fixes, continue reading this file (README) and the file "ZipRules".  For
+  a list of known bugs and possible future features, read "BUGS".  And for a
+  commented listing of the files included in the source distribution, read
+  "Contents" in said distribution.
+  
+! ALSO NOTE:  Info-ZIP's mailing addresses have changed!  The most important
+! one:  zip-bugs@wkuvx1.bitnet (or zip-bugs%wkuvx1.bitnet@ukcc.uky.edu, for
+! those without a direct Bitnet connection).  See below for other addresses.
+  __________________________________________________________________________
+  
+  
+! This version of UnZip has been ported to a wide array of hardware--from 
+! micros to supercomputers--and operating systems:  Unix (many flavors),
+! VMS, OS/2, Minix, MSDOS, Windows, NT, Amiga (partially) and Macintosh.
+! [The current 5.1 beta has additionally been ported to TOPS-20 and Atari
+! TOS, and the Amiga port has been completed.]  Although highly compatible
+! with PKWARE's PKZIP and PKUNZIP utilities of MSDOS fame, our primary ob-
+  jective has been one of portability and other-than-MSDOS functionality.  
+  Features not found in the PKWare version include default extraction of 
+  directory trees (with a switch to defeat this, rather than the other way 
+***************
+*** 40,46 ****
+  you're not compiling under Unix.
+  
+  New features in this version include support for deflation (the new, high-
+! performance compression method introduced in the PKZIP 1.93 alpha); much
+  faster decompression; relaxed copyright restrictions, due to rewritten
+  code (see COPYING for details); multiple password guessing, for encrypted
+  zipfiles; support for options stored in an environment variable, to change
+--- 41,47 ----
+  you're not compiling under Unix.
+  
+  New features in this version include support for deflation (the new, high-
+! performance compression method introduced in the PKZIP 1.93a beta); much
+  faster decompression; relaxed copyright restrictions, due to rewritten
+  code (see COPYING for details); multiple password guessing, for encrypted
+  zipfiles; support for options stored in an environment variable, to change
+***************
+*** 48,64 ****
+  Many bugs were fixed as well.  The History file details the changes, and 
+  BUGS indicates the ones we haven't nailed just yet. :-)
+  
+! See unzip.1 or unzip.man for usage (or zipinfo.1/zipinfo.man for ZipInfo
+! usage, or funzip.1/funzip.man--do you sense a pattern here?--for FUnZip
+  usage).  Unfortunately the VMS versions of these documents are out of date
+! now; we hope to correct this soon.
+  
+  All bug reports and patches (context diffs only, please!) should go to 
+! zip-bugs@cs.ucla.edu, and suggestions for new features can be sent to 
+! info-zip@cs.ucla.edu (although we don't promise to use all suggestions).
+  If it's something which is manifestly useful, sending the required patches 
+  to zip-bugs directly is likely to produce a quicker response than asking 
+! us to do it.  Those directly responsible for updating the code are somewhat
+  short on time these days.  If you're considering a port, however, please 
+  check in with Info-ZIP FIRST, since the code is constantly being updated 
+  behind the scenes.  We'll arrange to send you the latest source.  The 
+--- 49,65 ----
+  Many bugs were fixed as well.  The History file details the changes, and 
+  BUGS indicates the ones we haven't nailed just yet. :-)
+  
+! See unzip.1 or unzip.doc for usage (or zipinfo.1/zipinfo.doc for ZipInfo
+! usage, or funzip.1/funzip.doc--do you sense a pattern here?--for FUnZip
+  usage).  Unfortunately the VMS versions of these documents are out of date
+! now; we hope to correct this some day. :-)
+  
+  All bug reports and patches (context diffs only, please!) should go to 
+! zip-bugs@wkuvx1.bitnet, and suggestions for new features can be sent to 
+! info-zip@wkuvx1.bitnet (although we don't promise to use all suggestions).
+  If it's something which is manifestly useful, sending the required patches 
+  to zip-bugs directly is likely to produce a quicker response than asking 
+! us to do it.  Those directly responsible for updating the code are very
+  short on time these days.  If you're considering a port, however, please 
+  check in with Info-ZIP FIRST, since the code is constantly being updated 
+  behind the scenes.  We'll arrange to send you the latest source.  The 
+***************
+*** 67,74 ****
+  
+  If you'd like to keep up to date with our UnZip (and companion Zip utility)
+  development, join the ranks of BETA testers, add your own thoughts and con-
+! tributions, etc., send your request to Info-ZIP-Request@cs.ucla.edu and 
+! Rich Wales will add you to the Info-ZIP newsletter mailing list.
+  
+  Greg Roelofs (Cave Newt), UnZip maintainer,
+  with inspiration from David Kirschbaum
+--- 68,79 ----
+  
+  If you'd like to keep up to date with our UnZip (and companion Zip utility)
+  development, join the ranks of BETA testers, add your own thoughts and con-
+! tributions, etc., send a two-line mail message containing the commands HELP
+! and LIST (on separate lines in the body of the message, not on the subject
+! line) to listserv@wkuvx1.bitnet.  You'll receive two messages listing the 
+! various Info-ZIP mailing-list formats which are available (and also various
+! unrelated lists) and instructions on how to subscribe to one or more of them
+! (courtesy of Hunter Goatley).
+  
+  Greg Roelofs (Cave Newt), UnZip maintainer,
+  with inspiration from David Kirschbaum
+diff -cb unzip50/Where unz50p1/Where
+*** unzip50/Where	Thu Aug 20 09:04:58 1992
+--- unz50p1/Where	Thu Jan 14 12:40:56 1993
+***************
+*** 1,37 ****
+  __________________________________________________________________________
+  
+!   This is the Info-ZIP file ``Where,'' last updated on 20 August 1992.
+  __________________________________________________________________________
+  
+  
+    SITE OWNERS:  If you're listed in here but the information is not
+    correct (or if you're a big site but aren't listed at all), please
+!   let us know!  E-mail to zip-bugs at the address given in Readme
+    and we'll update this file.
+  
+  Basic source-archive names for Info-ZIP's portable Zip, UnZip, and related
+  utilities (on some ftp sites, the .zip files may have a .zoo equivalent
+! in zoo 2.10 format):
+  
+! 	zip19.zip	Zip 1.9 (includes zipnote and zipsplit)
+! 	zip19.tar.Z	ditto, compress'd tar format
+  
+! 	unzip50.zip	UnZip 5.0 (includes zipinfo and funzip)
+! 	unzip50.tar.Z	ditto, compress'd tar format
+  
+! 	wunz12sr.zip	WizUnZip 1.2 support files for Windows 3.1, UnZip 5.0
+  
+  	zcrypt19.zip	encryption/decryption support (includes zipcloak)
+  
+  Related archives and files:
+  
+! 	UnzpHist.zip	changes history of UnZip, back to 2.0
+  
+! 	zip19x.zip      MSDOS executables and docs for zip, zipnote, zipsplit
+! 	unzip50.exe     MSDOS executable for unzip
+  
+! 	zip19_16.zip	OS/2 1.x 16-bit executables and docs
+! 	zip19_32.zip	OS/2 2.x 32-bit executables and docs
+  	unz50_16.exe	OS/2 1.x 16-bit executable
+  	unz50_32.exe	OS/2 2.x 32-bit executable
+  
+--- 1,45 ----
+  __________________________________________________________________________
+  
+!   This is the Info-ZIP file ``Where,'' last updated on 14 January 1993.
+  __________________________________________________________________________
+  
++    Note that some ftp sites may not yet have the latest versions of
++    Zip and UnZip when you read this.  The latest versions, including
++    the crypt sources, are always in the comp.sources.misc archives.
+  
+     SITE OWNERS:  If you're listed in here but the information is not
+     correct (or if you're a big site but aren't listed at all), please
+!    let us know!  E-mail to zip-bugs at the address given in README
+     and we'll update this file.
++ __________________________________________________________________________
+  
++ 
+  Basic source-archive names for Info-ZIP's portable Zip, UnZip, and related
+  utilities (on some ftp sites, the .zip files may have a .zoo equivalent
+! in Zoo 2.10 format):
+  
+!    zip19p1.zip     Zip 1.9, patchlevel 1 (deflation; includes zipnote, zipsplit)
+!    zip19p1.tar.Z   ditto, compress'd tar format
+  
+!    zip11.zip       Zip 1.1 (shrinking, implosion; compatible with PKUNZIP 1.1)
+!    zip11.tar.Z     ditto, compress'd tar format
+  
+!    unz50p1.zip     UnZip 5.0, patchlevel 1 (all methods; incl. zipinfo, funzip)
+!    unz50p1.tar.Z   ditto, compress'd tar format
+  
++    wunz13sr.zip    WizUnZip 1.3 support files for Windows 3.1, UnZip 5.0
++ 
+     zcrypt19.zip    encryption/decryption support (includes zipcloak)
+  
+  Related archives and files:
+  
+!    UnzpHist.zip    complete changes history of UnZip and precursors
+  
+!    zip19p1x.zip    MSDOS executables and docs for zip, zipnote, zipsplit
+!    unz50p1.exe     MSDOS self-extracting executable (contains unzip, docs)
+  
+!    zip19x16.zip    OS/2 1.x 16-bit executables and docs
+!    zip19x32.zip    OS/2 2.x 32-bit executables and docs
+     unz50_16.exe    OS/2 1.x 16-bit executable
+     unz50_32.exe    OS/2 2.x 32-bit executable
+  
+***************
+*** 38,56 ****
+  	zip19vms.zip	VMS executables and docs for zip, zipnote, zipsplit
+  	unz50vms.exe	VMS executable for unzip
+  
+! 	zip_unzip.hqx   Macinstosh executables (zip 1.0 only, 1.9 not ready)
+  
+! 	winunz12.zip    Windows 3.1 executables (zip 1.0 only, 1.9 not ready)
+  
+! 	pkz110eu.exe	MS-DOS PKZIP/PKUNZIP 1.1 (self-extracting archive)
+  	pkz193a.exe	MS-DOS PKZIP/PKUNZIP beta 1.93 (self-extracting)
+  	pkz102-2.exe	OS/2 PKZIP/PKUNZIP 1.02 (self-extracting)
+  
+! ftp sites for the US-exportable sources and executables.  Look for
+! the file names given above in the following directories.  Some sites
+! like to use slightly different names, such as zip-1.9.tar-z instead
+! of zip19.tar.Z.
+  
+  	wuarchive.wustl.edu:/packages/compression/...
+  	wuarchive.wustl.edu:/mirrors/misc/unix/...
+  	wuarchive.wustl.edu:/mirrors/misc/vaxvms/...
+--- 46,69 ----
+     zip19vms.zip    VMS executables and docs for zip, zipnote, zipsplit
+     unz50vms.exe    VMS executable for unzip
+  
+!    zip_unzip.hqx   Macintosh executables (zip 1.0 only, 1.9 not ready)
+  
+!    wunz13.zip      Windows 3.1 executable and docs for unzip (WizUnZip)
+  
+!    pkz204c.exe     MS-DOS PKZIP/PKUNZIP 2.04c (self-extracting archive)
+!    pkz110eu.exe    MS-DOS PKZIP/PKUNZIP 1.1 (self-extracting)
+     pkz193a.exe     MS-DOS PKZIP/PKUNZIP beta 1.93 (self-extracting)
+     pkz102-2.exe    OS/2 PKZIP/PKUNZIP 1.02 (self-extracting)
+  
+! ftp sites for the US-exportable sources and executables:
+  
++    NOTE:  Look for the file names given above in the following
++    directories.  Some sites like to use slightly different names,
++    such as zip-1.9p1.tar-z instead of zip19p1.tar.Z.  In the case
++    of comp.sources.misc archive sites, directories may be used
++    (zip19/part01.Z ... part11.Z, zip19/patch01.Z).
++ 
++    wuarchive.wustl.edu:/usenet/comp.sources.misc/volume31/...
+     wuarchive.wustl.edu:/packages/compression/...
+     wuarchive.wustl.edu:/mirrors/misc/unix/...
+     wuarchive.wustl.edu:/mirrors/misc/vaxvms/...
+***************
+*** 57,82 ****
+  	wuarchive.wustl.edu:/mirrors/msdos/zip/...
+  	wuarchive.wustl.edu:/mirrors/msdos/windows3/...
+  
+  	ftp.uu.net:/pub/zip/...
+  
+  	ftp-os2.nmsu.edu:/pub/os2/2.0/archivers/...
+  	ftp-os2.nmsu.edu:/pub/os2/all/archivers/...
+  
+- 	Zip 1.9 and UnZip 5.0 will also be available at any comp.sources.misc
+- 	archive site as soon as they are posted.
+- 
+  	wuarchive.wustl.edu:/mirrors/msdos/zip/pkz110eu.exe
+  	ux1.cso.uiuc.edu:/pc/exec-pc/pkz193a.exe	[128.174.5.59]
+  
+! ftp sites for the encryption and decryption sources:
+  
+! 	NOTE:  Non-US users, please do NOT ftp from the US site (US
+  	regulations and all that).  Likewise, US users, please do not
+  	ftp from the European sites (it's not illegal, but it sure is
+  	a waste of expensive bandwidth).
+  
+  	From the US:
+! 	   wuarchive.wustl.edu:/mirrors3/garbo.uwasa.fi/arcutil/zcrypt19.zip
+  
+  	Outside the US:
+  	   garbo.uwasa.fi:/pc/arcutil/zcrypt19.zip
+--- 70,100 ----
+     wuarchive.wustl.edu:/mirrors/msdos/zip/...
+     wuarchive.wustl.edu:/mirrors/msdos/windows3/...
+  
++    ftp.uu.net:/usenet/comp.sources.misc/volume31/...
+     ftp.uu.net:/pub/zip/...
+  
+     ftp-os2.nmsu.edu:/pub/os2/2.0/archivers/...
+     ftp-os2.nmsu.edu:/pub/os2/all/archivers/...
++    ftp-os2.nmsu.edu:/pub/downloads/Info-ZIP/...
+  
+     wuarchive.wustl.edu:/mirrors/msdos/zip/pkz110eu.exe
+     ux1.cso.uiuc.edu:/pc/exec-pc/pkz193a.exe        [128.174.5.59]
+  
+! ftp sites for the encryption and decryption sources and/or executables:
+  
+!    NOTE 1:  Non-US users, please do NOT ftp from the US sites (US
+     regulations and all that).  Likewise, US users, please do not
+     ftp from the European sites (it's not illegal, but it sure is
+     a waste of expensive bandwidth).
+  
++    NOTE 2:  Some sites may carry both encryption and non-encryption
++    executables with slightly different names; for example, zip19c32.zip
++    instead of zip19x32.zip ("c" == crypt version).
++ 
+     From the US:
+!       wuarchive.wustl.edu:/mirrors/garbo.uwasa.fi/arcutil/zcrypt19.zip
+!       wuarchive.wustl.edu:/usenet/comp.sources.misc/volume31/zcrypt19/part01.Z
+!       ftp.uu.net:/usenet/comp.sources.misc/volume31/zcrypt19/part01.Z
+  
+     Outside the US:
+        garbo.uwasa.fi:/pc/arcutil/zcrypt19.zip
+***************
+*** 85,90 ****
+--- 103,125 ----
+        ftp.informatik.tu-muenchen.de:/pub/utils/archiver/zcrypt19.zip
+           (mail server at ftp-mailer@ftp.informatik.tu-muenchen.de)
+  
++       ftp.uni-erlangen.de:/pub/pc/msdos/utilities/zip/...
++       ftp.uni-erlangen.de:/pub/pc/os2/fauern/arc/...
++          (131.188.1.43, 131.188.31.3, 131.188.34.43, 131.188.44.43)
++ 
++ ftp site for VMS-format Zip/UnZip package (sources and executables, no
++ encryption/decryption--see also "Mail servers" section below):
++ 
++    The ZIP-UNZIP package for VMS is available via anonymous ftp from
++    ftp.spc.edu [192.107.46.27]; the following files are needed:
++ 
++    [.MACRO32]AAAREADME.TXT
++    [.MACRO32]LZDCMP.EXE
++    [.MACRO32.SAVESETS]ZIP-UNZIP.BCK_Z
++ 
++    VMS sources and object files are also available from vmsnet.sources
++    archives (e.g., black.cerritos.edu:[.mailserv.zip_unzip]*.*).
++ 
+  To find other ftp sites:
+  
+     The "archie" ftp database utility can be used to find an ftp site
+***************
+*** 94,99 ****
+--- 129,135 ----
+  
+  UUCP sites:
+  
++ 	uunet!~/usenet/comp.sources.misc/volume31/...
+  	uunet!~/pub/zip/ ...
+  
+  Mail servers:
+***************
+*** 103,122 ****
+  	listserv@vm1.nodak.edu or listserv@vm.ecs.rpi.edu in order to
+  	get a copy via e-mail:
+  
+! 	/pdget mail pd:<misc.unix>unzip50.tar-z uuencode
+! 	/pdget mail pd:<misc.unix>zip19.zip uuencode
+!    or:	/pdget mail pd:<misc.unix>zip19.tar-z uuencode
+  
+! 	To get the encryption source by email, send the following commands
+  	to ftp-mailer@ftp.informatik.tu-muenchen.de:
+  
+  	get /pub/utils/archiver/zcrypt19.zip
+          quit
+  
+  __________________________________________________________________________
+  
+! Again, if someone repackages any of the source or executable archives in
+! VMS-, Mac- or Atari-specific formats, please let us know (send e-mail to 
+! zip-bugs at the address listed in README).
+  __________________________________________________________________________
+  
+--- 139,165 ----
+     listserv@vm1.nodak.edu or listserv@vm.ecs.rpi.edu in order to
+     get a copy via e-mail:
+  
+!       /pdget mail pd8:<misc.unix>unz50p1.tar-z uuencode
+!       /pdget mail pd8:<misc.unix>zip19p1.tar-z uuencode
+  
+!    To get the encryption source by e-mail, send the following commands
+     to ftp-mailer@ftp.informatik.tu-muenchen.de:
+  
+        get /pub/utils/archiver/zcrypt19.zip
+        quit
+  
++    To get the VMS Zip/UnZip package by e-mail, send the following
++    commands in the body of a mail message to fileserv@wkuvx1.bitnet
++    or fileserv%wkuvx1.bitnet@ukcc.uky.edu (the "HELP" command is
++    also accepted):
++ 
++       SEND ZIP-UNZIP
++       SEND FILESERV_TOOLS
++ 
+  __________________________________________________________________________
+  
+!    Again, if someone repackages any of the source or executable archives
+!    in Mac-, Amiga- or Atari-specific formats, please let us know (send
+!    e-mail to zip-bugs at the address listed in README).
+  __________________________________________________________________________
+  
+diff -cb unzip50/extract.c unz50p1/extract.c
+*** unzip50/extract.c	Fri Aug 14 05:49:58 1992
+--- unz50p1/extract.c	Mon Jan 11 23:47:42 1993
+***************
+*** 4,10 ****
+  
+    This file contains the high-level routines ("driver routines") for extrac-
+    ting and testing zipfile members.  It calls the low-level routines in files
+!   inflate.c, unimplod.c, unreduce.c and unshrink.c.
+  
+    ---------------------------------------------------------------------------*/
+  
+--- 4,10 ----
+  
+    This file contains the high-level routines ("driver routines") for extrac-
+    ting and testing zipfile members.  It calls the low-level routines in files
+!   explode.c, inflate.c, unreduce.c and unshrink.c.
+  
+    ---------------------------------------------------------------------------*/
+  
+***************
+*** 584,590 ****
+  #ifdef S_IFLNK
+      int symlnk=FALSE;
+  #endif /* S_IFLNK */
+!     int error=0;
+      UWORD b;
+  
+  
+--- 584,590 ----
+  #ifdef S_IFLNK
+      int symlnk=FALSE;
+  #endif /* S_IFLNK */
+!     int r, error=0;
+      UWORD b;
+  
+  
+***************
+*** 745,751 ****
+              error = 1;          /* 1:  warning error */
+          }
+  #endif /* S_IFLNK */
+!         explode();   /* ignore return code for now */
+          break;
+  
+      case DEFLATED:
+--- 745,761 ----
+              error = 1;          /* 1:  warning error */
+          }
+  #endif /* S_IFLNK */
+!         if (((r = explode()) != 0) && (r != 5)) {   /* ignore 5 if seekable */
+!             if ((tflag && quietflg) || (!tflag && (quietflg > 1)))
+!                 fprintf(stderr, "  error:  %s%s\n", r == 3?
+!                   "not enough memory to explode " :
+!                   "invalid compressed (imploded) data for ", filename);
+!             else
+!                 fprintf(stderr, "\n  error:  %s\n", r == 3?
+!                   "not enough memory for explode operation" :
+!                   "invalid compressed data for explode format");
+!             error = (r == 3)? 5 : 2;
+!         }
+          break;
+  
+      case DEFLATED:
+***************
+*** 761,767 ****
+              error = 1;          /* 1:  warning error */
+          }
+  #endif /* S_IFLNK */
+!         inflate();
+          break;
+  
+      default:   /* should never get to this point */
+--- 771,787 ----
+              error = 1;          /* 1:  warning error */
+          }
+  #endif /* S_IFLNK */
+!         if ((r = inflate()) != 0) {
+!             if ((tflag && quietflg) || (!tflag && (quietflg > 1)))
+!                 fprintf(stderr, "  error:  %s%s\n", r == 3?
+!                   "not enough memory to inflate " :
+!                   "invalid compressed (deflated) data for ", filename);
+!             else
+!                 fprintf(stderr, "\n  error:  %s\n", r == 3?
+!                   "not enough memory for inflate operation" :
+!                   "invalid compressed data for inflate format");
+!             error = (r == 3)? 5 : 2;
+!         }
+          break;
+  
+      default:   /* should never get to this point */
+***************
+*** 809,814 ****
+--- 829,837 ----
+      } /* endif (!symlnk) */
+  #endif /* S_IFLNK */
+  
++     if (error > 1)   /* don't print redundant CRC error if error already */
++         return error;
++ 
+      /* logical-AND crc32val for 64-bit machines */
+      if ((crc32val = ((~crc32val) & 0xFFFFFFFFL)) != lrec.crc32) {
+          /* if quietflg is set, we haven't output the filename yet:  do it */
+***************
+*** 848,858 ****
+      byte h[12];
+  
+  
+!     /* get header once */
+      for (n = 0; n < 12; n++) {
+          ReadByte(&b);
+          h[n] = (byte) b;
+      }
+  
+      /* if have key already, test it; else allocate memory for it */
+      if (key) {
+--- 871,884 ----
+      byte h[12];
+  
+  
+!     /* get header once (turn off "encrypted" flag temporarily so we don't
+!      * try to decrypt the same data twice) */
+!     pInfo->encrypted = FALSE;
+      for (n = 0; n < 12; n++) {
+          ReadByte(&b);
+          h[n] = (byte) b;
+      }
++     pInfo->encrypted = TRUE;
+  
+      /* if have key already, test it; else allocate memory for it */
+      if (key) {
+***************
+*** 900,906 ****
+  static int testp(h)   /* return -1 if bad password; 0 if OK */
+      byte *h;
+  {
+!     UWORD b, c;
+      int n, t;
+      byte *p;
+  
+--- 926,932 ----
+  static int testp(h)   /* return -1 if bad password; 0 if OK */
+      byte *h;
+  {
+!     UWORD b;
+      int n, t;
+      byte *p;
+  
+***************
+*** 908,916 ****
+      init_keys(key);
+  
+      /* check password */
+!     for (n = 0; n < 11; n++)
+!         c = DECRYPT(h[n]);
+!     b = DECRYPT(h[11]);
+  
+  #ifdef CRYPT_DEBUG
+      printf("   lrec.crc = %08lx  crec.crc = %08lx  pInfo->ExtLocHdr = %s\n",
+--- 934,941 ----
+      init_keys(key);
+  
+      /* check password */
+!     for (n = 0; n < 12; n++)
+!         b = DECRYPT(h[n]);
+  
+  #ifdef CRYPT_DEBUG
+      printf("   lrec.crc = %08lx  crec.crc = %08lx  pInfo->ExtLocHdr = %s\n",
+***************
+*** 917,929 ****
+        lrec.crc32, pInfo->crc, pInfo->ExtLocHdr? "true":"false");
+      printf("   incnt = %d  unzip offset into zipfile = %ld\n", incnt,
+        cur_zipfile_bufstart+(inptr-inbuf));
+!     printf("   (c | (b<<8)) = %04x  (crc >> 16) = %04x  lrec.time = %04x\n",
+!       (UWORD)(c | (b<<8)), (UWORD)(lrec.crc32 >> 16), lrec.last_mod_file_time);
+  #endif /* CRYPT_DEBUG */
+  
+!     /* same test as in zipbare() in crypt.c: */
+!     if ((UWORD)(c | (b<<8)) != (pInfo->ExtLocHdr? lrec.last_mod_file_time :
+!         (UWORD)(lrec.crc32 >> 16)))
+          return -1;  /* bad */
+  
+      /* password OK:  decrypt current buffer contents before leaving */
+--- 942,954 ----
+        lrec.crc32, pInfo->crc, pInfo->ExtLocHdr? "true":"false");
+      printf("   incnt = %d  unzip offset into zipfile = %ld\n", incnt,
+        cur_zipfile_bufstart+(inptr-inbuf));
+!     printf("   b = %02x  (crc >> 24) = %02x  (lrec.time >> 8) = %02x\n",
+!       b, (UWORD)(lrec.crc32 >> 24), (lrec.last_mod_file_time >> 8));
+  #endif /* CRYPT_DEBUG */
+  
+!     /* same test as in zipbare() in crypt.c (now check only one byte): */
+!     if (b != (pInfo->ExtLocHdr? lrec.last_mod_file_time >> 8 :
+!         (UWORD)(lrec.crc32 >> 24)))
+          return -1;  /* bad */
+  
+      /* password OK:  decrypt current buffer contents before leaving */
+***************
+*** 967,973 ****
+          return 0;
+  
+      if (mem_o_offset + outcnt <= mem_o_size) {
+!         memcpy((char *)(mem_o_buffer+mem_o_offset), (char *)outbuf, outcnt);
+          mem_o_offset += outcnt;
+          return 0;
+      } else
+--- 992,999 ----
+          return 0;
+  
+      if (mem_o_offset + outcnt <= mem_o_size) {
+!         memcpy((char *)(mem_o_buffer+(UWORD)mem_o_offset), (char *)outbuf,
+!           outcnt);
+          mem_o_offset += outcnt;
+          return 0;
+      } else
+***************
+*** 988,993 ****
+--- 1014,1020 ----
+  {
+      UWORD method, error = 0;
+      ULONG crc, oldcrc;
++     int r;
+  
+      method = makeword(src);
+      crc = makelong(src+2);
+***************
+*** 1014,1020 ****
+              memcpy(tgt, src + 2 + 4, (extent) (srcsize - 2 - 4));
+              break;
+          case DEFLATED:
+!             inflate();
+              FlushOutput();
+              break;
+          default:
+--- 1041,1052 ----
+              memcpy(tgt, src + 2 + 4, (extent) (srcsize - 2 - 4));
+              break;
+          case DEFLATED:
+!             if ((r = inflate()) != 0) {
+!                 fprintf(stderr, "error:  %s\n", r == 3 ?
+!                   "not enough memory for inflate operation" :
+!                   "invalid compressed data for the inflate format");
+!                 error = (r == 3)? 5 : 2;
+!             }
+              FlushOutput();
+              break;
+          default:
+diff -cb unzip50/file_io.c unz50p1/file_io.c
+*** unzip50/file_io.c	Wed Aug 19 12:17:34 1992
+--- unz50p1/file_io.c	Mon Jan 11 23:36:04 1993
+***************
+*** 9,15 ****
+    ---------------------------------------------------------------------------*/
+  
+  
+! #ifndef __GO32__
+  #  define const
+  #endif
+  
+--- 9,15 ----
+    ---------------------------------------------------------------------------*/
+  
+  
+! #if (!defined(__GO32__) && !defined(NeXT))
+  #  define const
+  #endif
+  
+diff -cb unzip50/funzip.c unz50p1/funzip.c
+*** unzip50/funzip.c	Sun Aug 16 04:40:06 1992
+--- unz50p1/funzip.c	Sun Jan 10 16:14:18 1993
+***************
+*** 1,7 ****
+! /* funzip.c -- Not copyrighted 1992 by Mark Adler
+!    version 1.3, 16 August 1992 */
+  
+  
+  /* You can do whatever you like with this source file, though I would
+     prefer that if you modify it and redistribute it that you include
+     comments to that effect with your name and the date.  Thank you.
+--- 1,8 ----
+! /* funzip.c -- Not copyrighted 1992 by Mark Adler */
+  
++ #define VERSION "1.3p1 of 10 January 1993"
+  
++ 
+  /* You can do whatever you like with this source file, though I would
+     prefer that if you modify it and redistribute it that you include
+     comments to that effect with your name and the date.  Thank you.
+***************
+*** 17,23 ****
+                                      entries, added more help.
+      1.3  16 Aug 92  M. Adler        removed redundant #define's, added
+                                      decryption.
+! 
+   */
+  
+  
+--- 18,32 ----
+                                      entries, added more help.
+      1.3  16 Aug 92  M. Adler        removed redundant #define's, added
+                                      decryption.
+!    1.3p1 10 Jan 93  G. Roelofs      incorporated fixes from 2.2 beta:
+!            [1.4]    G. Roelofs        added exit(0).
+!            [1.5]    K. U. Rommel      changed read/write modes for OS/2.
+!            [1.7]    G. Roelofs        changed to use DOS_OS2.
+!            [1.8]    M. Adler          improved inflation error msgs.
+!            [1.9]    G. Roelofs        changed ULONG/UWORD/byte to ulg/ush/uch;
+!                                       renamed inflate_entry() to inflate().
+!            [2.1]    J. Gailly         fixed crypt/store bug,
+!                     G. Roelofs        fixed decryption check (single byte).
+   */
+  
+  
+***************
+*** 37,48 ****
+  #include "unzip.h"
+  
+  /* enforce binary i/o if recognized */
+! #ifdef __STDC__
+  #  define FOPR "rb"
+! #  define FOPW "w+b"
+  #else
+  #  define FOPR "r"
+! #  define FOPW "w+"
+  #endif
+  
+  /* PKZIP header definitions */
+--- 46,61 ----
+  #include "unzip.h"
+  
+  /* enforce binary i/o if recognized */
+! #if defined(__STDC__) || defined(DOS_OS2)
+! #  define BINIO
+! #endif
+! 
+! #ifdef BINIO
+  #  define FOPR "rb"
+! #  define FOPW "wb"
+  #else
+  #  define FOPR "r"
+! #  define FOPW "w"
+  #endif
+  
+  /* PKZIP header definitions */
+***************
+*** 60,65 ****
+--- 73,80 ----
+  #define LOCHDR 30               /* size of local header, including sig */
+  #define EXTHDR 16               /* size of extended local header, inc sig */
+  
++ #define RAND_HEAD_LEN 12        /* length of encryption header */
++ 
+  /* Macros for getting two byte and four byte header values */
+  #define SH(p) ((UWORD)(byte)((p)[0]) | ((UWORD)(byte)((p)[1]) << 8))
+  #define LG(p) ((ULONG)(SH(p)) | ((ULONG)(SH((p)+2)) << 16))
+***************
+*** 66,72 ****
+  
+  /* Function prototypes */
+  ULONG updcrc OF((byte *, int));
+! int inflate_entry OF((void));
+  void err OF((int, char *));
+  void main OF((int, char **));
+  
+--- 81,87 ----
+  
+  /* Function prototypes */
+  ULONG updcrc OF((byte *, int));
+! int inflate OF((void));
+  void err OF((int, char *));
+  void main OF((int, char **));
+  
+***************
+*** 202,208 ****
+    if (outcnt)
+    {
+      updcrc(outbuf, outcnt);
+!     if (fwrite(outbuf, 1, outcnt, out) != outcnt)
+        err(9, "out of space on stdout");
+      outsiz += outcnt;
+      outptr = outbuf;
+--- 217,223 ----
+    if (outcnt)
+    {
+      updcrc(outbuf, outcnt);
+!     if (fwrite((char *)outbuf, 1,outcnt,out) != outcnt)
+        err(9, "out of space on stdout");
+      outsiz += outcnt;
+      outptr = outbuf;
+***************
+*** 222,228 ****
+    /* if stdin not redirected, give the user help */
+    if (isatty(0))
+    {
+!     fprintf(stderr,
+  #ifdef CRYPT
+        "usage: funzip [password] < infile.zip > outfile\n");
+  #else /* !CRYPT */
+--- 237,243 ----
+    /* if stdin not redirected, give the user help */
+    if (isatty(0))
+    {
+!     fprintf(stderr, "FUnZip (Filter UnZip), version %s\n%s", VERSION,
+  #ifdef CRYPT
+        "usage: funzip [password] < infile.zip > outfile\n");
+  #else /* !CRYPT */
+***************
+*** 236,243 ****
+--- 251,264 ----
+    /* prepare to be a binary filter */
+    if ((outbuf = (byte *)malloc(OUTBUFSIZ)) == NULL)
+      err(1, "out of memory");
++ #ifdef DOS_OS2
++   setmode(0, O_BINARY); /* some buggy C libraries require BOTH :-( the  */
++ #endif                  /*  setmode() call AND the fdopen() in binary mode */
+    if ((in = fdopen(0, FOPR)) == NULL)
+      err(2, "cannot find stdin");
++ #ifdef DOS_OS2
++   setmode(1, O_BINARY);
++ #endif
+    if ((out = fdopen(1, FOPW)) == NULL)
+      err(2, "cannot write to stdout");
+  
+***************
+*** 257,268 ****
+      if (argc < 2)
+        err(3, "need password on command line for encrypted entry");
+      init_keys(argv[1]);
+!     for (i = 0; i < 10; i++)
+        ReadByte(&e);
+!     ReadByte(&e);
+!     ReadByte(&i);
+!     e += i << 8;
+!     if (e != (h[LOCFLG] & EXTFLG ? SH(h + LOCTIM) : SH(h + LOCCRC + 2)))
+        err(3, "incorrect password for first entry");
+    }
+  #else /* !CRYPT */
+--- 278,286 ----
+      if (argc < 2)
+        err(3, "need password on command line for encrypted entry");
+      init_keys(argv[1]);
+!     for (i = 0; i < RAND_HEAD_LEN; i++)
+        ReadByte(&e);
+!     if (e != (ush)(h[LOCFLG] & EXTFLG ? h[LOCTIM + 1] : h[LOCCRC + 3]))
+        err(3, "incorrect password for first entry");
+    }
+  #else /* !CRYPT */
+***************
+*** 278,285 ****
+    /* decompress */
+    if (h[LOCHOW])
+    {                             /* deflated entry */
+!     if (inflate_entry())
+!       err(4, "invalid compressed data or out of memory");
+    }
+    else
+    {                             /* stored entry */
+--- 296,308 ----
+    /* decompress */
+    if (h[LOCHOW])
+    {                             /* deflated entry */
+!     int r;
+!  
+!     if ((r = inflate()) != 0)
+!       if (r == 3)
+!         err(1, "out of memory");
+!       else
+!         err(4, "invalid compressed data--format violated");
+    }
+    else
+    {                             /* stored entry */
+***************
+*** 286,296 ****
+      register ULONG n;
+  
+      n = LG(h + LOCLEN);
+!     if (n != LG(h + LOCSIZ))
+        err(4, "invalid compressed data--length mismatch");
+-     while (n--)
+-       OUTB(getc(in));
+    }
+    FlushOutput();
+    fflush(out);
+  
+--- 309,327 ----
+      register ULONG n;
+  
+      n = LG(h + LOCLEN);
+!     if (n != LG(h + LOCSIZ) - (decrypt ? RAND_HEAD_LEN : 0)) {
+!       fprintf(stderr, "len %ld, siz %ld\n", n, LG(h + LOCSIZ));
+        err(4, "invalid compressed data--length mismatch");
+      }
++     while (n--) {
++       ush c = getc(in);
++ #ifdef CRYPT
++       if (decrypt)
++         update_keys(c ^= decrypt_byte());
++ #endif
++       OUTB(c);
++     }
++   }
+    FlushOutput();
+    fflush(out);
+  
+***************
+*** 309,312 ****
+--- 340,345 ----
+    if (fread((char *)h, 1, 4, in) == 4 && LG(h) == LOCSIG)
+      fprintf(stderr,
+        "funzip warning: zip file has more than one entry--rest ignored\n");
++ 
++   exit(0);
+  }
+diff -cb unzip50/inflate.c unz50p1/inflate.c
+*** unzip50/inflate.c	Thu Aug 13 19:46:16 1992
+--- unz50p1/inflate.c	Sun Jan 10 17:50:38 1993
+***************
+*** 1,5 ****
+  /* inflate.c -- Not copyrighted 1992 by Mark Adler
+!    version c7, 27 June 1992 */
+  
+  
+  /* You can do whatever you like with this source file, though I would
+--- 1,5 ----
+  /* inflate.c -- Not copyrighted 1992 by Mark Adler
+!    version c10p1, 10 January 1993 */
+  
+  
+  /* You can do whatever you like with this source file, though I would
+***************
+*** 39,45 ****
+                                      the 32K window size for specialized
+                                      applications.
+      c6   31 May 92  M. Adler        added some typecasts to eliminate warnings
+!     c7   27 Jun 92  G. Roelofs      added some more typecasts (439:  MSC bug)
+   */
+  
+  
+--- 39,54 ----
+                                      the 32K window size for specialized
+                                      applications.
+      c6   31 May 92  M. Adler        added some typecasts to eliminate warnings
+!     c7   27 Jun 92  G. Roelofs      added some more typecasts (444:  MSC bug).
+!     c8    5 Oct 92  J-l. Gailly     added ifdef'd code to deal with PKZIP bug.
+!     c9    9 Oct 92  M. Adler        removed a memory error message (~line 416).
+!     c10  17 Oct 92  G. Roelofs      changed ULONG/UWORD/byte to ulg/ush/uch,
+!                                     removed old inflate, renamed inflate_entry
+!                                     to inflate, added Mark's fix to a comment.
+!    c10p1 10 Jan 93  G. Roelofs      version c10 plus Mark's c13 patch:
+!            [c13]    M. Adler          allow empty code sets in huft_build (the
+!     				      new pkz204c.exe file has a null distance
+! 				      tree for the file pkzip.exe)
+   */
+  
+  
+***************
+*** 61,69 ****
+     sliding window of previously emitted data.
+  
+     There are (currently) three kinds of inflate blocks: stored, fixed, and
+!    dynamic.  The compressor deals with some chunk of data at a time, and
+!    decides which method to use on a chunk-by-chunk basis.  A chunk might
+!    typically be 32K or 64K.  If the chunk is uncompressible, then the
+     "stored" method is used.  In this case, the bytes are simply stored as
+     is, eight bits per byte, with none of the above coding.  The bytes are
+     preceded by a count, since there is no longer an EOB code.
+--- 70,78 ----
+     sliding window of previously emitted data.
+  
+     There are (currently) three kinds of inflate blocks: stored, fixed, and
+!    dynamic.  The compressor outputs a chunk of data at a time, and decides
+!    which method to use on a chunk-by-chunk basis.  A chunk might typically
+!    be 32K to 64K, uncompressed.  If the chunk is uncompressible, then the
+     "stored" method is used.  In this case, the bytes are simply stored as
+     is, eight bits per byte, with none of the above coding.  The bytes are
+     preceded by a count, since there is no longer an EOB code.
+***************
+*** 75,84 ****
+     coded, and so is preceded by a description of that code.  These code
+     descriptions take up a little space, and so for small blocks, there is
+     a predefined set of codes, called the fixed codes.  The fixed method is
+!    used if the block codes up smaller that way (usually for quite small
+     chunks), otherwise the dynamic method is used.  In the latter case, the
+     codes are customized to the probabilities in the current block, and so
+!    can code it much better than the pre-determined fixed codes.
+   
+     The Huffman codes themselves are decoded using a mutli-level table
+     lookup, in order to maximize the speed of decoding plus the speed of
+--- 84,93 ----
+     coded, and so is preceded by a description of that code.  These code
+     descriptions take up a little space, and so for small blocks, there is
+     a predefined set of codes, called the fixed codes.  The fixed method is
+!    used if the block ends up smaller that way (usually for quite small
+     chunks), otherwise the dynamic method is used.  In the latter case, the
+     codes are customized to the probabilities in the current block, and so
+!    can code it much better than the pre-determined fixed codes can.
+   
+     The Huffman codes themselves are decoded using a mutli-level table
+     lookup, in order to maximize the speed of decoding plus the speed of
+***************
+*** 101,107 ****
+     5. There is no way of sending zero distance codes--a dummy must be
+        sent if there are none.  (History: a pre 2.0 version of PKZIP would
+        store blocks with no distance codes, but this was discovered to be
+!       too harsh a criterion.)
+     6. There are up to 286 literal/length codes.  Code 256 represents the
+        end-of-block.  Note however that the static length tree defines
+        288 codes just to fill out the Huffman codes.  Codes 286 and 287
+--- 110,118 ----
+     5. There is no way of sending zero distance codes--a dummy must be
+        sent if there are none.  (History: a pre 2.0 version of PKZIP would
+        store blocks with no distance codes, but this was discovered to be
+!       too harsh a criterion.)  Valid only for 1.93a.  2.04c does allow
+!       zero distance codes, which is sent as one code of zero bits in
+!       length.
+     6. There are up to 286 literal/length codes.  Code 256 represents the
+        end-of-block.  Note however that the static length tree defines
+        288 codes just to fill out the Huffman codes.  Codes 286 and 287
+***************
+*** 130,136 ****
+        the two sets of lengths.
+   */
+  
+! #include "unzip.h"      /* this must supply the slide[] (byte) array */
+  
+  #ifndef WSIZE
+  #  define WSIZE 0x8000  /* window size--must be a power of two, and at least
+--- 141,147 ----
+        the two sets of lengths.
+   */
+  
+! #include "unzip.h"      /* this must supply the slide[] (uch) array */
+  
+  #ifndef WSIZE
+  #  define WSIZE 0x8000  /* window size--must be a power of two, and at least
+***************
+*** 137,143 ****
+--- 148,160 ----
+                             32K for zip's deflate method */
+  #endif /* !WSIZE */
+  
++ #ifdef DEBUG
++ #  define Trace(x) fprintf x
++ #else
++ #  define Trace(x)
++ #endif
+  
++ 
+  /* Huffman code lookup table entry--this entry is four bytes for machines
+     that have 16-bit pointers (e.g. PC's in the small or medium model).
+     Valid extra bits are 0..13.  e == 15 is EOB (end of block), e == 16
+***************
+*** 146,155 ****
+     an unused code.  If a code with e == 99 is looked up, this implies an
+     error in the data. */
+  struct huft {
+!   byte e;               /* number of extra bits or operation */
+!   byte b;               /* number of bits in this code or subcode */
+    union {
+!     UWORD n;            /* literal, length base, or distance base */
+      struct huft *t;     /* pointer to next level of table */
+    } v;
+  };
+--- 163,172 ----
+     an unused code.  If a code with e == 99 is looked up, this implies an
+     error in the data. */
+  struct huft {
+!   uch e;                /* number of extra bits or operation */
+!   uch b;                /* number of bits in this code or subcode */
+    union {
+!     ush n;              /* literal, length base, or distance base */
+      struct huft *t;     /* pointer to next level of table */
+    } v;
+  };
+***************
+*** 156,162 ****
+  
+  
+  /* Function prototypes */
+! int huft_build OF((unsigned *, unsigned, unsigned, UWORD *, UWORD *,
+                     struct huft **, int *));
+  int huft_free OF((struct huft *));
+  void flush OF((unsigned));
+--- 173,179 ----
+  
+  
+  /* Function prototypes */
+! int huft_build OF((unsigned *, unsigned, unsigned, ush *, ush *,
+                     struct huft **, int *));
+  int huft_free OF((struct huft *));
+  void flush OF((unsigned));
+***************
+*** 165,172 ****
+  int inflate_fixed OF((void));
+  int inflate_dynamic OF((void));
+  int inflate_block OF((int *));
+! int inflate_entry OF((void));
+! void inflate OF((void));
+  
+  
+  /* The inflate algorithm uses a sliding 32K byte window on the uncompressed
+--- 182,188 ----
+  int inflate_fixed OF((void));
+  int inflate_dynamic OF((void));
+  int inflate_block OF((int *));
+! int inflate OF((void));
+  
+  
+  /* The inflate algorithm uses a sliding 32K byte window on the uncompressed
+***************
+*** 174,181 ****
+     circular buffer.  The index is updated simply by incrementing and then
+     and'ing with 0x7fff (32K-1). */
+  /* It is left to other modules to supply the 32K area.  It is assumed
+!    to be usable as if it were declared "byte slide[32768];" or as just
+!    "byte *slide;" and then malloc'ed in the latter case.  The definition
+     must be in unzip.h, included above. */
+  unsigned wp;            /* current position in slide */
+  
+--- 190,197 ----
+     circular buffer.  The index is updated simply by incrementing and then
+     and'ing with 0x7fff (32K-1). */
+  /* It is left to other modules to supply the 32K area.  It is assumed
+!    to be usable as if it were declared "uch slide[32768];" or as just
+!    "uch *slide;" and then malloc'ed in the latter case.  The definition
+     must be in unzip.h, included above. */
+  unsigned wp;            /* current position in slide */
+  
+***************
+*** 183,200 ****
+  /* Tables for deflate from PKZIP's appnote.txt. */
+  static unsigned border[] = {    /* Order of the bit length code lengths */
+          16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+! static UWORD cplens[] = {       /* Copy lengths for literal codes 257..285 */
+          3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+          35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0, 0};
+          /* note: see note #13 above about the 258 in this list. */
+! static UWORD cplext[] = {       /* Extra bits for literal codes 257..285 */
+          0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+          3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 99, 99}; /* 99==invalid */
+! static UWORD cpdist[] = {       /* Copy offsets for distance codes 0..29 */
+          1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+          257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+          8193, 12289, 16385, 24577};
+! static UWORD cpdext[] = {       /* Extra bits for distance codes */
+          0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+          7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+          12, 12, 13, 13};
+--- 199,216 ----
+  /* Tables for deflate from PKZIP's appnote.txt. */
+  static unsigned border[] = {    /* Order of the bit length code lengths */
+          16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+! static ush cplens[] = {         /* Copy lengths for literal codes 257..285 */
+          3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+          35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0, 0};
+          /* note: see note #13 above about the 258 in this list. */
+! static ush cplext[] = {         /* Extra bits for literal codes 257..285 */
+          0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+          3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 99, 99}; /* 99==invalid */
+! static ush cpdist[] = {         /* Copy offsets for distance codes 0..29 */
+          1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+          257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+          8193, 12289, 16385, 24577};
+! static ush cpdext[] = {         /* Extra bits for distance codes */
+          0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+          7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+          12, 12, 13, 13};
+***************
+*** 222,240 ****
+  
+     However, this assumption is not true for fixed blocks--the EOB code
+     is 7 bits, but the other literal/length codes can be 8 or 9 bits.
+!    (Why PK made the EOB code, which can only occur once in a block,
+!    the *shortest* code in the set, I'll never know.)  However, by
+!    making the first table have a lookup of seven bits, the EOB code
+!    will be found in that first lookup, and so will not require that too
+!    many bits be pulled from the stream.
+   */
+  
+! ULONG bb;                       /* bit buffer */
+  unsigned bk;                    /* bits in bit buffer */
+  
+! UWORD bytebuf;
+  #define NEXTBYTE    (ReadByte(&bytebuf), bytebuf)
+! #define NEEDBITS(n) {while(k<(n)){b|=((ULONG)NEXTBYTE)<<k;k+=8;}}
+  #define DUMPBITS(n) {b>>=(n);k-=(n);}
+  
+  
+--- 238,258 ----
+  
+     However, this assumption is not true for fixed blocks--the EOB code
+     is 7 bits, but the other literal/length codes can be 8 or 9 bits.
+!    (The EOB code is shorter than other codes becuase fixed blocks are
+!    generally short.  So, while a block always has an EOB, many other
+!    literal/length codes have a significantly lower probability of
+!    showing up at all.)  However, by making the first table have a
+!    lookup of seven bits, the EOB code will be found in that first
+!    lookup, and so will not require that too many bits be pulled from
+!    the stream.
+   */
+  
+! ulg bb;                         /* bit buffer */
+  unsigned bk;                    /* bits in bit buffer */
+  
+! ush bytebuf;
+  #define NEXTBYTE    (ReadByte(&bytebuf), bytebuf)
+! #define NEEDBITS(n) {while(k<(n)){b|=((ulg)NEXTBYTE)<<k;k+=8;}}
+  #define DUMPBITS(n) {b>>=(n);k-=(n);}
+  
+  
+***************
+*** 275,281 ****
+  int dbits = 6;          /* bits in base distance lookup table */
+  
+  
+! /* If BMAX needs to be larger than 16, then h and x[] should be ULONG. */
+  #define BMAX 16         /* maximum bit length of any code (16 for explode) */
+  #define N_MAX 288       /* maximum number of codes in any set */
+  
+--- 293,299 ----
+  int dbits = 6;          /* bits in base distance lookup table */
+  
+  
+! /* If BMAX needs to be larger than 16, then h and x[] should be ulg. */
+  #define BMAX 16         /* maximum bit length of any code (16 for explode) */
+  #define N_MAX 288       /* maximum number of codes in any set */
+  
+***************
+*** 287,294 ****
+  unsigned *b;            /* code lengths in bits (all assumed <= BMAX) */
+  unsigned n;             /* number of codes (assumed <= N_MAX) */
+  unsigned s;             /* number of simple-valued codes (0..s-1) */
+! UWORD *d;               /* list of base values for non-simple codes */
+! UWORD *e;               /* list of extra bits for non-simple codes */
+  struct huft **t;        /* result: starting table */
+  int *m;                 /* maximum lookup bits, returns actual */
+  /* Given a list of code lengths and a maximum table size, make a set of
+--- 305,312 ----
+  unsigned *b;            /* code lengths in bits (all assumed <= BMAX) */
+  unsigned n;             /* number of codes (assumed <= N_MAX) */
+  unsigned s;             /* number of simple-valued codes (0..s-1) */
+! ush *d;                 /* list of base values for non-simple codes */
+! ush *e;                 /* list of extra bits for non-simple codes */
+  struct huft **t;        /* result: starting table */
+  int *m;                 /* maximum lookup bits, returns actual */
+  /* Given a list of code lengths and a maximum table size, make a set of
+***************
+*** 324,331 ****
+    do {
+      c[*p++]++;                  /* assume all entries <= BMAX */
+    } while (--i);
+!   if (c[0] == n)
+!     return 2;                   /* bad input--all zero length codes */
+  
+  
+    /* Find minimum and maximum length, bound *m by those */
+--- 342,353 ----
+    do {
+      c[*p++]++;                  /* assume all entries <= BMAX */
+    } while (--i);
+!   if (c[0] == n)                /* null input--all zero length codes */
+!   {
+!     *t = (struct huft *)NULL;
+!     *m = 0;
+!     return 0;
+!   }
+  
+  
+    /* Find minimum and maximum length, bound *m by those */
+***************
+*** 413,419 ****
+          {
+            if (h)
+              huft_free(u[0]);
+-           fprintf(stderr, "\n*** inflate out of memory *** ");
+            return 3;             /* not enough memory */
+          }
+          hufts += z + 1;         /* track memory usage */
+--- 435,440 ----
+***************
+*** 425,432 ****
+          if (h)
+          {
+            x[h] = i;             /* save pattern for backing up */
+!           r.b = (byte)l;        /* bits to dump before this table */
+!           r.e = (byte)(16 + j); /* bits in this table */
+            r.v.t = q;            /* pointer to this table */
+            j = i >> (w - l);     /* (get around Turbo C bug) */
+            u[h-1][j] = r;        /* connect to last table */
+--- 446,453 ----
+          if (h)
+          {
+            x[h] = i;             /* save pattern for backing up */
+!           r.b = (uch)l;         /* bits to dump before this table */
+!           r.e = (uch)(16 + j);  /* bits in this table */
+            r.v.t = q;            /* pointer to this table */
+            j = i >> (w - l);     /* (get around Turbo C bug) */
+            u[h-1][j] = r;        /* connect to last table */
+***************
+*** 434,450 ****
+        }
+  
+        /* set up table entry in r */
+!       r.b = (byte)(k - w);
+        if (p >= v + n)
+          r.e = 99;               /* out of values--invalid code */
+        else if (*p < s)
+        {
+!         r.e = (byte)(*p < 256 ? 16 : 15);    /* 256 is end-of-block code */
+          r.v.n = *p++;           /* simple code is just the value */
+        }
+        else
+        {
+!         r.e = (byte)e[*p - s];  /* non-simple--look up in lists */
+          r.v.n = d[*p++ - s];
+        }
+  
+--- 455,471 ----
+        }
+  
+        /* set up table entry in r */
+!       r.b = (uch)(k - w);
+        if (p >= v + n)
+          r.e = 99;               /* out of values--invalid code */
+        else if (*p < s)
+        {
+!         r.e = (uch)(*p < 256 ? 16 : 15);    /* 256 is end-of-block code */
+          r.v.n = *p++;           /* simple code is just the value */
+        }
+        else
+        {
+!         r.e = (uch)e[*p - s];   /* non-simple--look up in lists */
+          r.v.n = d[*p++ - s];
+        }
+  
+***************
+*** 469,475 ****
+  
+  
+    /* Return true (1) if we were given an incomplete table */
+!   return y != 0 && n != 1;
+  }
+  
+  
+--- 490,496 ----
+  
+  
+    /* Return true (1) if we were given an incomplete table */
+!   return y != 0 && g != 1;
+  }
+  
+  
+***************
+*** 501,507 ****
+  /* Do the equivalent of OUTB for the bytes slide[0..w-1]. */
+  {
+    unsigned n;
+!   byte *p;
+  
+    p = slide;
+    while (w)
+--- 522,528 ----
+  /* Do the equivalent of OUTB for the bytes slide[0..w-1]. */
+  {
+    unsigned n;
+!   uch *p;
+  
+    p = slide;
+    while (w)
+***************
+*** 529,535 ****
+    unsigned w;           /* current window position */
+    struct huft *t;       /* pointer to table entry */
+    unsigned ml, md;      /* masks for bl and bd bits */
+!   register ULONG b;     /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+--- 550,556 ----
+    unsigned w;           /* current window position */
+    struct huft *t;       /* pointer to table entry */
+    unsigned ml, md;      /* masks for bl and bd bits */
+!   register ulg b;       /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+***************
+*** 556,562 ****
+      DUMPBITS(t->b)
+      if (e == 16)                /* then it's a literal */
+      {
+!       slide[w++] = (byte)t->v.n;
+        if (w == WSIZE)
+        {
+          flush(w);
+--- 577,583 ----
+      DUMPBITS(t->b)
+      if (e == 16)                /* then it's a literal */
+      {
+!       slide[w++] = (uch)t->v.n;
+        if (w == WSIZE)
+        {
+          flush(w);
+***************
+*** 631,637 ****
+  {
+    unsigned n;           /* number of bytes in block */
+    unsigned w;           /* current window position */
+!   register ULONG b;     /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+--- 652,658 ----
+  {
+    unsigned n;           /* number of bytes in block */
+    unsigned w;           /* current window position */
+!   register ulg b;       /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+***************
+*** 660,666 ****
+    while (n--)
+    {
+      NEEDBITS(8)
+!     slide[w++] = (byte)b;
+      if (w == WSIZE)
+      {
+        flush(w);
+--- 681,687 ----
+    while (n--)
+    {
+      NEEDBITS(8)
+!     slide[w++] = (uch)b;
+      if (w == WSIZE)
+      {
+        flush(w);
+***************
+*** 745,752 ****
+    unsigned nb;          /* number of bit length codes */
+    unsigned nl;          /* number of literal/length codes */
+    unsigned nd;          /* number of distance codes */
+    unsigned ll[286+30];  /* literal/length and distance code lengths */
+!   register ULONG b;     /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+--- 766,777 ----
+    unsigned nb;          /* number of bit length codes */
+    unsigned nl;          /* number of literal/length codes */
+    unsigned nd;          /* number of distance codes */
++ #ifdef PKZIP_BUG_WORKAROUND
++   unsigned ll[288+32];  /* literal/length and distance code lengths */
++ #else
+    unsigned ll[286+30];  /* literal/length and distance code lengths */
+! #endif
+!   register ulg b;       /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+***************
+*** 765,771 ****
+--- 790,800 ----
+    NEEDBITS(4)
+    nb = 4 + ((unsigned)b & 0xf);         /* number of bit length codes */
+    DUMPBITS(4)
++ #ifdef PKZIP_BUG_WORKAROUND
++   if (nl > 288 || nd > 32)
++ #else
+    if (nl > 286 || nd > 30)
++ #endif
+      return 1;                   /* bad lengths */
+  
+  
+***************
+*** 850,866 ****
+    bl = lbits;
+    if ((i = huft_build(ll, nl, 257, cplens, cplext, &tl, &bl)) != 0)
+    {
+!     if (i == 1)
+        huft_free(tl);
+      return i;                   /* incomplete code set */
+    }
+    bd = dbits;
+    if ((i = huft_build(ll + nl, nd, 0, cpdist, cpdext, &td, &bd)) != 0)
+    {
+!     if (i == 1)
+        huft_free(td);
+      huft_free(tl);
+      return i;                   /* incomplete code set */
+    }
+  
+  
+--- 879,904 ----
+    bl = lbits;
+    if ((i = huft_build(ll, nl, 257, cplens, cplext, &tl, &bl)) != 0)
+    {
+!     if (i == 1) {
+!       fprintf(stderr, " incomplete literal tree\n");
+        huft_free(tl);
++     }
+      return i;                   /* incomplete code set */
+    }
+    bd = dbits;
+    if ((i = huft_build(ll + nl, nd, 0, cpdist, cpdext, &td, &bd)) != 0)
+    {
+!     if (i == 1) {
+!       fprintf(stderr, " incomplete distance tree\n");
+! #ifdef PKZIP_BUG_WORKAROUND
+!       i = 0;
+!     }
+! #else
+        huft_free(td);
++     }
+      huft_free(tl);
+      return i;                   /* incomplete code set */
++ #endif
+    }
+  
+  
+***************
+*** 882,888 ****
+  /* decompress an inflated block */
+  {
+    unsigned t;           /* block type */
+!   register ULONG b;     /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+--- 920,926 ----
+  /* decompress an inflated block */
+  {
+    unsigned t;           /* block type */
+!   register ulg b;       /* bit buffer */
+    register unsigned k;  /* number of bits in bit buffer */
+  
+  
+***************
+*** 923,929 ****
+  
+  
+  
+! int inflate_entry()
+  /* decompress an inflated entry */
+  {
+    int e;                /* last block flag */
+--- 961,967 ----
+  
+  
+  
+! int inflate()
+  /* decompress an inflated entry */
+  {
+    int e;                /* last block flag */
+***************
+*** 942,948 ****
+--- 980,989 ----
+    do {
+      hufts = 0;
+      if ((r = inflate_block(&e)) != 0)
++     {
++       Trace((stderr, "\ninflate_block returned %d", r));
+        return r;
++     }
+      if (hufts > h)
+        h = hufts;
+    } while (!e);
+***************
+*** 957,967 ****
+    fprintf(stderr, "<%u> ", h);
+  #endif /* DEBUG */
+    return 0;
+- }
+- 
+- 
+- void inflate()
+- /* ignore the return code for now ... */
+- {
+-   inflate_entry();
+  }
+--- 998,1001 ----
+diff -cb unzip50/misc.c unz50p1/misc.c
+*** unzip50/misc.c	Wed Aug 19 12:17:36 1992
+--- unz50p1/misc.c	Tue Jan 12 19:38:02 1993
+***************
+*** 205,219 ****
+              outbuf[block_length] = '\0';        /* terminate w/zero:  ASCIIZ */
+  
+              A_TO_N(outbuf);     /* translate string to native */
+- 
+-             printf("%s", outbuf);
+-         }
+  #ifdef MSWIN
+          /* ran out of local mem -- had to cheat */
+          WriteStringToMsgWin(outbuf, bRealTimeMsgUpdate);
+  #else /* !MSWIN */
+!         printf("\n");   /* assume no newline at end */
+  #endif /* ?MSWIN */
+          break;
+  
+      /*
+--- 205,218 ----
+              outbuf[block_length] = '\0';        /* terminate w/zero:  ASCIIZ */
+  
+              A_TO_N(outbuf);     /* translate string to native */
+  #ifdef MSWIN
+              /* ran out of local mem -- had to cheat */
+              WriteStringToMsgWin(outbuf, bRealTimeMsgUpdate);
+  #else /* !MSWIN */
+!             printf("%s", outbuf);
+  #endif /* ?MSWIN */
++         }
++         printf("\n");   /* assume no newline at end */
+          break;
+  
+      /*
+***************
+*** 354,360 ****
+  #endif /* !MACOS && !__GO32__ */
+  
+  #ifdef __386BSD__
+!     m_time += localtime((time_t *) &m_time))->tm_gmtoff;
+  #else
+      if (localtime((time_t *)&m_time)->tm_isdst)
+          m_time -= 60L * 60L;    /* adjust for daylight savings time */
+--- 353,359 ----
+  #endif /* !MACOS && !__GO32__ */
+  
+  #ifdef __386BSD__
+!     m_time += localtime((time_t *) &m_time)->tm_gmtoff;
+  #else
+      if (localtime((time_t *)&m_time)->tm_isdst)
+          m_time -= 60L * 60L;    /* adjust for daylight savings time */
+diff -cb unzip50/unzip.c unz50p1/unzip.c
+*** unzip50/unzip.c	Fri Aug 21 08:32:30 1992
+--- unz50p1/unzip.c	Tue Jan 12 19:45:45 1993
+***************
+*** 50,56 ****
+  
+    ---------------------------------------------------------------------------
+  
+!   Version:  unzip50.{tar.Z | zip | zoo} for Unix, VMS, OS/2, MS-DOS, Windows,
+                Windows NT, Macintosh and Amiga.  Decryption requires sources
+                in zcrypt19.zip, and Windows (not NT) support requires sources
+                in wunz12sr.zip.  See accompanying file "Where" in the main
+--- 50,56 ----
+  
+    ---------------------------------------------------------------------------
+  
+!   Version:  unz50p1.{tar.Z | zip | zoo} for Unix, VMS, OS/2, MS-DOS, Windows,
+                Windows NT, Macintosh and Amiga.  Decryption requires sources
+                in zcrypt19.zip, and Windows (not NT) support requires sources
+                in wunz12sr.zip.  See accompanying file "Where" in the main
+***************
+*** 68,74 ****
+  #  include "wizunzip.h"          /* see History.500 for version history */
+  #endif
+  
+! #define VERSION  "v5.0 of 21 August 1992"
+  /* #define VERSION  "v5.0p BETA of 8-21-92" */   /* internal beta level */
+  #define PAKFIX   /* temporary(?) solution to PAK-created zipfiles */
+  
+--- 68,74 ----
+  #  include "wizunzip.h"          /* see History.500 for version history */
+  #endif
+  
+! #define VERSION  "5.0p1 of 12 January 1993"
+  /* #define VERSION  "v5.0p BETA of 8-21-92" */   /* internal beta level */
+  #define PAKFIX   /* temporary(?) solution to PAK-created zipfiles */
+  
+***************
+*** 755,763 ****
+          usagefp = (FILE *) stdout;
+  
+      fprintf(usagefp, "\
+! UnZip:  Zipfile Extract %s;  (c) 1989 S.H.Smith and others\n\
+! Versions 3.0 and later by Info-ZIP.  Bug reports ONLY to zip-bugs@cs.ucla.edu\
+! \n\n", VERSION);
+  
+      fprintf(usagefp, "\
+  Usage: unzip [ -options[modifiers] ] file[.zip] [filespec...]\n\
+--- 755,763 ----
+          usagefp = (FILE *) stdout;
+  
+      fprintf(usagefp, "\
+! UnZip %s, by Info-ZIP.  Portions (c) 1989 by S. H. Smith.\n\
+! Bug reports ONLY to zip-bugs%%wkuvx1.bitnet@ukcc.uky.edu; see README for detail\
+! s\n\n", VERSION);
+  
+      fprintf(usagefp, "\
+  Usage: unzip [ -options[modifiers] ] file[.zip] [filespec...]\n\
+***************
+*** 774,780 ****
+    -q  quiet mode (-qq => quieter)            -V  retain VMS version numbers\
+  \n\n\
+  Examples: (See manual for more information)\n\
+!   unzip data1 Readme   => extracts file Readme from zipfile data1.zip\n\
+    unzip -p foo | more  => send contents of foo.zip via pipe into program more\n\
+    unzip -fo foo        => quietly replace existing files if archive files newer\
+  \n", astring);
+--- 774,780 ----
+    -q  quiet mode (-qq => quieter)            -V  retain VMS version numbers\
+  \n\n\
+  Examples: (See manual for more information)\n\
+!   unzip data1 ReadMe   => extracts file ReadMe from zipfile data1.zip\n\
+    unzip -p foo | more  => send contents of foo.zip via pipe into program more\n\
+    unzip -fo foo        => quietly replace existing files if archive files newer\
+  \n", astring);
+diff -cb unzip50/unzip.h unz50p1/unzip.h
+*** unzip50/unzip.h	Thu Aug 13 08:55:00 1992
+--- unz50p1/unzip.h	Mon Jan 11 23:31:14 1993
+***************
+*** 20,28 ****
+  #  undef unix
+  #endif
+  
+! #if (defined(unix) && !defined(UNIX))
+  #  define UNIX
+! #endif /* unix && !UNIX */
+  
+  /* Much of the following is swiped from zip's tailor.h: */
+  
+--- 20,30 ----
+  #  undef unix
+  #endif
+  
+! #if defined(unix) || defined(__convexc__) || defined(M_XENIX)
+! #  ifndef UNIX
+  #    define UNIX
+! #  endif /* !UNIX */
+! #endif /* unix || __convexc__ || M_XENIX */
+  
+  /* Much of the following is swiped from zip's tailor.h: */
+  
+***************
+*** 643,648 ****
+--- 645,653 ----
+  typedef long              longint;
+  typedef unsigned short    UWORD;
+  typedef unsigned long     ULONG;
++ typedef unsigned char     uch;
++ typedef unsigned short    ush;
++ typedef unsigned long     ulg;
+  
+  typedef struct min_info {
+      unsigned unix_attr;
+***************
+*** 798,804 ****
+  
+  int    explode                   __((void));                    /* explode.c */
+  
+! void   inflate                   __((void));                    /* inflate.c */
+  
+  void   unReduce                  __((void));                   /* unreduce.c */
+  /* static void  LoadFollowers    __((void));                    * unreduce.c */
+--- 803,809 ----
+  
+  int    explode                   __((void));                    /* explode.c */
+  
+! int    inflate                   __((void));                    /* inflate.c */
+  
+  void   unReduce                  __((void));                   /* unreduce.c */
+  /* static void  LoadFollowers    __((void));                    * unreduce.c */
+diff -cb unzip50/zip.h unz50p1/zip.h
+*** unzip50/zip.h	Thu Apr 30 19:23:20 1992
+--- unz50p1/zip.h	Sun Jan 10 12:11:42 1993
+***************
+*** 4,11 ****
+  #define SKIP_TIME_H   /* don't include time.h again in crypt.c */
+  
+  #define local
+- typedef unsigned short ush;
+- typedef unsigned long ulg;
+  
+  extern ULONG crc_32_tab[];
+  #define crc32(c, b) (crc_32_tab[((int)(c) ^ (b)) & 0xff] ^ ((c) >> 8))
+--- 4,9 ----
+diff -cb unzip50/zipinfo.c unz50p1/zipinfo.c
+*** unzip50/zipinfo.c	Fri Aug 21 08:26:50 1992
+--- unz50p1/zipinfo.c	Sun Jan 10 18:01:18 1993
+***************
+*** 40,46 ****
+  
+    ---------------------------------------------------------------------------
+  
+!   Source:     unzip50.zip (.tar.Z, etc.) for Unix, VMS, OS/2 and MS-DOS; see
+                `Where' in source distribution for ftp, uucp and mail-server
+                sites.
+    Author:     Greg Roelofs, roelofs@nas.nasa.gov, 23 August 1990
+--- 40,46 ----
+  
+    ---------------------------------------------------------------------------
+  
+!   Source:     unz50p1.zip (.tar.Z, etc.) for Unix, VMS, OS/2 and MS-DOS; see
+                `Where' in source distribution for ftp, uucp and mail-server
+                sites.
+    Author:     Greg Roelofs, roelofs@nas.nasa.gov, 23 August 1990
+***************
+*** 57,63 ****
+  #endif /* !ZIPINFO */
+  #include "unzip.h"
+  
+! #define VERSION  "v1.0 of 21 August 92"
+  
+  #define LFLAG    3        /* for short "ls -l" type listing */
+  
+--- 57,63 ----
+  #endif /* !ZIPINFO */
+  #include "unzip.h"
+  
+! #define VERSION  "v1.0p1 of 10 January 1993"
+  
+  #define LFLAG    3        /* for short "ls -l" type listing */
+  
+***************
+*** 688,695 ****
+    Actual offset of end-of-central-dir record:   %9ld (%.8lXh)\n\
+    Expected offset of end-of-central-dir record: %9ld (%.8lXh)\n\
+    (based on the length of the central directory and its expected offset)\n\n",
+!           expect_ecrec_offset, expect_ecrec_offset,
+!           real_ecrec_offset, real_ecrec_offset);
+  
+          if (ecrec.number_this_disk == 0) {
+              printf("\
+--- 688,695 ----
+    Actual offset of end-of-central-dir record:   %9ld (%.8lXh)\n\
+    Expected offset of end-of-central-dir record: %9ld (%.8lXh)\n\
+    (based on the length of the central directory and its expected offset)\n\n",
+!           real_ecrec_offset, real_ecrec_offset,
+!           expect_ecrec_offset, expect_ecrec_offset);
+  
+          if (ecrec.number_this_disk == 0) {
+              printf("\
+***************
+*** 971,977 ****
+                        "reduced (factor 1)", "reduced (factor 2)",
+                        "reduced (factor 3)", "reduced (factor 4)",
+                        "imploded", "tokenized", "deflated", unkn};
+!     static char   *dtype[4] = {"normal", "maximum", "fastest", "undefined"};
+  
+  
+  /*---------------------------------------------------------------------------
+--- 971,977 ----
+                        "reduced (factor 1)", "reduced (factor 2)",
+                        "reduced (factor 3)", "reduced (factor 4)",
+                        "imploded", "tokenized", "deflated", unkn};
+!     static char   *dtype[4] = {"normal", "maximum", "fast", "superfast"};
+  
+  
+  /*---------------------------------------------------------------------------
+***************
+*** 1249,1255 ****
+      UWORD         hostver, xattr;
+      char          workspace[12], attribs[16];
+      static char   impl[5]="i#:#", defl[5]="def#", unkn[8];
+!     static char   dtype[5]="NXF?";  /* normal, maximum, fastest, undefined */
+      static char   *os[NUM_HOSTS+1] = {"dos", "ami", "vms", "unx", "cms",
+                        "atr", "os2", "mac", "zzz", "cpm", "???" };
+      static char   *method[NUM_METHODS+1] = {"stor", "shrk", "re:1", "re:2",
+--- 1249,1255 ----
+      UWORD         hostver, xattr;
+      char          workspace[12], attribs[16];
+      static char   impl[5]="i#:#", defl[5]="def#", unkn[8];
+!     static char   dtype[5]="NXFS";  /* normal, maximum, fast, superfast */
+      static char   *os[NUM_HOSTS+1] = {"dos", "ami", "vms", "unx", "cms",
+                        "atr", "os2", "mac", "zzz", "cpm", "???" };
+      static char   *method[NUM_METHODS+1] = {"stor", "shrk", "re:1", "re:2",
+
+exit 0 # Just in case...

@@ -1,0 +1,2381 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i016:  xbbs - A Bulletin Board System for System V, Part01/11
+Message-ID: <csm-v32i016=xbbs.234515@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 47d5316d2ff5601e4692e3181301276e
+Date: Wed, 9 Sep 1992 04:46:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 16
+Archive-name: xbbs/part01
+Environment: SYSV, Xenix
+
+This is XBBS, version 7.2. XBBS is a bulletin board system.  Please refer to 
+the file MAKEbbs for information on how to setup the system.
+
+-------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  allign bbsc1.c.B chatbbs files.bbs listuser locking.h
+#   msgpack purguser sealink today xbbsgen
+# Wrapped by kent@sparky on Fri Sep  4 12:48:47 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 11)."'
+if test ! -d 'allign' ; then
+    echo shar: Creating directory \"'allign'\"
+    mkdir 'allign'
+fi
+if test -f 'bbsc1.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbsc1.c.B'\"
+else
+  echo shar: Extracting \"'bbsc1.c.B'\" \(43634 characters\)
+  sed "s/^X//" >'bbsc1.c.B' <<'END_OF_FILE'
+Xfile_loc( strg )
+Xchar *strg;
+X{
+X	int             result;
+X	int             i;
+X	int             zz;
+X	int             outok;
+X	int             len_in, len_file, times;
+X	long            foo;
+X	char            timeptr[30];
+X	char           *fileptr;
+X	char            temp[15];
+X	char            string_loc[20];
+X	int             lnctx, xp;
+X	
+X	if (xpert)
+X		xp = 10;
+X	else
+X		xp = 5;
+X
+X
+X	lnctx = 1;
+X	substr(z_date, z_mm, 1, 2);
+X	substr(z_date, z_dd, 4, 2);
+X	substr(z_date, z_yy, 7, 2);
+X	xmm = atol(z_mm);
+X	xdd = atol(z_dd);
+X	xyy = atol(z_yy);
+X	foo = atol(yy);
+X	outok = FALSE;
+X	old_long_date = (xyy * 10000L) + (xmm * 100L) + xdd;
+X	if( strg == NULL) {
+X		portsout("\n\r\n\rInput file name substring (max 14 characters): ");
+X		portsin(string_loc, 14);
+X		portsout(CRLF);
+X		fileptr = strchr(string_loc, '*');
+X		if( fileptr != NULL ) {
+X			portsout("\n\rDo not use an asterisk as part of the string.\n\r\n\r");
+X			return;
+X		}
+X	} else {
+X		strcpy(string_loc, strg );
+X	}
+X	len_in = strlen(string_loc);
+X	if (!len_in)
+X		return;
+X	strcpy(buf128, f_pathname);
+X	strcat(buf128, FILES);
+X	if ((rdstatbuf = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rThe are NO files available!\n\r");
+X		return;
+X	}
+X	msgck();
+X	portsout("\n\rSearching for a comparison\n\r\n\r");
+X	while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X		zz = 0;
+X		if (x_filename[0] == '~') {
+X			goto finisx;	/* Special case so that that
+X					 * following files are not displayed
+X					 * - can be used to disallow uploads
+X					 * from being shown until they are
+X					 * validated. */
+X		}
+X		if (x_filename[0] == '+') {
+X			fileptr = x_filename + 1;
+X			strcpy(work_msg, fileptr);
+X			(void) fgets(buf128, 80, rdstatbuf);
+X			goto xend;
+X		}
+X		if (x_filename[0] == '.') {
+X			strcpy(x_filename, "   ");
+X			strcpy(who_am_i, "   ");
+X			strcpy(who_am_I, "   ");
+X			zz++;
+X		}
+X		if (result = fgets(buf128, 55, rdstatbuf) == NULL) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		strip(buf128);
+X		if (!zz)
+X			term_space(buf128);
+X		result = strlen(buf128);
+X		if (result == 0) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		if (!zz) {
+X			len_file = strlen(x_filename);
+X			if (len_file < len_in) {
+X				outok = FALSE;
+X				goto xend;
+X			}
+X			strcpy(x_pathandfile, f_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				strcpy(who_am_i, "OFFLINE");
+X				strcpy(who_am_I, "    ");
+X				outok = FALSE;
+X				goto xend;
+X			}
+X			xmm = statbuf.st_size;
+X			sprintf(who_am_i, "%6ld", xmm);
+X			xmm = statbuf.st_mtime;
+X			strcpy(timeptr, ctime(&xmm));
+X			substr(timeptr, bufx, 5, 6);
+X			strcpy(who_am_I, bufx);
+X			substr(timeptr, bufx, 5, 3);
+X			substr(timeptr, z_dd, 9, 2);
+X			substr(timeptr, z_yy, 23, 2);
+X			xdd = atol(z_dd);
+X			xyy = atol(z_yy);
+X			if (foo > xyy) {
+X				strcpy(who_am_I, bufx);
+X				strcat(who_am_I, "-");
+X				strcat(who_am_I, z_yy);
+X			}
+X			times = len_file - len_in + 1;
+X			outok = FALSE;
+X			for (result = 1; result <= times; result++) {
+X				substr(x_filename, temp, result, len_in);
+X				if (strcmp(temp, string_loc) == 0) {
+X					outok = TRUE;
+X					break;
+X				}
+X			}
+X		}
+X		if (!outok)
+X			goto xend;
+X		sprintf(work_msg, "%-15s%-7s%-6s%-50s", x_filename, who_am_i, who_am_I, buf128);
+X		strip(work_msg);
+X		term_space(work_msg);
+X
+X		sprintf(buf128, "%s\n\r", work_msg);
+X		portsout(buf128);
+X		if (stop_that) {
+X			fclose(rdstatbuf);
+X			stop_that = FALSE;
+X			return;
+X		}
+X		if (toggle) {
+X			lnctx++;
+X			if (lnctx == 23) {
+X				portsout(CRLF);
+X				portsout("*** Depress a key to continue ( control-k to quit ) ........ ");
+X				jnk[0] = portin();
+X				if (jnk[0] == CTL_K || stop_that) {
+X					stop_that = FALSE;
+X					fclose(rdstatbuf);
+X					return;
+X				}
+X				portsout(CRLF);
+X				lnctx = 1;
+X			}
+X		}
+Xxend:
+X		;
+X	}
+Xfinisx:
+X	fclose(rdstatbuf);
+X	if (toggle && lnctx > xp) {
+X		portsout(CRLF);
+X		portsout("*** Depress a key to continue ........ ");
+X		jnk[0] = portin();
+X		portsout(CRLF);
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X}
+Xfile_n()
+X{
+X	int             result;
+X	int             i;
+X	int             zz;
+X	int             outok;
+X	long            foo;
+X	char            timeptr[30];
+X	char           *fileptr;
+X	int             lnctx, xp;
+X	static char    *dates[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X				 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",};
+X	substr(z_date, z_mm, 1, 2);
+X	substr(z_date, z_dd, 4, 2);
+X	substr(z_date, z_yy, 7, 2);
+X	lnctx = 1;
+X	if (xpert)
+X		xp = 10;
+X	else
+X		xp = 5;
+X	xmm = atol(z_mm);
+X	xdd = atol(z_dd);
+X	xyy = atol(z_yy);
+X	foo = atol(yy);
+X	outok = FALSE;
+X	old_long_date = (xyy * 10000L) + (xmm * 100L) + xdd;
+X	strcpy(buf128, f_pathname);
+X	strcat(buf128, FILES);
+X	if ((rdstatbuf = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rThe are NO files available!\n\r");
+X		return;
+X	}
+X	strcpy(buf128, TMPFILE);
+X	strcat(buf128, port_id);
+X	msgck();
+X	portsout("\n\rStarting the new file search.\n\r\n\r");
+X	while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X		zz = 0;
+X		if (x_filename[0] == '~') {
+X			goto finisn;	/* Special case so that that
+X					 * following files are not displayed
+X					 * - can be used to disallow uploads
+X					 * from being shown until they are
+X					 * validated. */
+X		}
+X		if (x_filename[0] == '+') {
+X			fileptr = x_filename + 1;
+X			strcpy(work_msg, fileptr);
+X			(void) fgets(buf128, 80, rdstatbuf);
+X			goto nend;
+X		}
+X		if (x_filename[0] == '.') {
+X			strcpy(x_filename, "   ");
+X			strcpy(who_am_i, "   ");
+X			strcpy(who_am_I, "   ");
+X			zz++;
+X		}
+X		if (result = fgets(buf128, 55, rdstatbuf) == NULL) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		strip(buf128);
+X		if (!zz)
+X			term_space(buf128);
+X		result = strlen(buf128);
+X		if (result == 0) {
+X			if (!zz)
+X				strcpy(buf128, " ***** No description on file *****");
+X		}
+X		if (!zz) {
+X			strcpy(x_pathandfile, f_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				strcpy(who_am_i, "OFFLINE");
+X				strcpy(who_am_I, "    ");
+X				outok = FALSE;
+X				goto nend;
+X			}
+X			xmm = statbuf.st_size;
+X			sprintf(who_am_i, "%6ld", xmm);
+X			xmm = statbuf.st_mtime;
+X			strcpy(timeptr, ctime(&xmm));
+X			substr(timeptr, bufx, 5, 6);
+X			strcpy(who_am_I, bufx);
+X			substr(timeptr, bufx, 5, 3);
+X			substr(timeptr, z_dd, 9, 2);
+X			substr(timeptr, z_yy, 23, 2);
+X			xdd = atol(z_dd);
+X			xyy = atol(z_yy);
+X			if (foo > xyy) {
+X				strcpy(who_am_I, bufx);
+X				strcat(who_am_I, "-");
+X				strcat(who_am_I, z_yy);
+X			}
+X			for (result = 0; result < 12; result++) {
+X				i = strcmp(bufx, dates[result]);
+X				if (!i) {
+X					xmm = (long) result + 1;
+X					new_long_date = (xyy * 10000L) + (xmm * 100L) + xdd;
+X					if (new_long_date < old_long_date) {
+X						outok = FALSE;
+X						goto nend;
+X					}
+X					outok = TRUE;
+X					break;
+X				}
+X			}
+X
+X		}
+X		if (!outok)
+X			goto nend;
+Xaroundn:
+X		sprintf(work_msg, "%-15s%-7s%-6s%-50s", x_filename, who_am_i, who_am_I, buf128);
+Xarondn:
+X		strip(work_msg);
+X		term_space(work_msg);
+X
+X		sprintf(buf128, "%s\n\r", work_msg);
+X		portsout(buf128);
+X		if (stop_that) {
+X			fclose(rdstatbuf);
+X			stop_that = FALSE;
+X			return;
+X		}
+X		if (toggle) {
+X			lnctx++;
+X			if (lnctx == 23) {
+X				portsout(CRLF);
+X				portsout("*** Depress a key to continue ( control-k to quit ) ........ ");
+X				jnk[0] = portin();
+X				if (jnk[0] == CTL_K || stop_that) {
+X					stop_that = FALSE;
+X					fclose(rdstatbuf);
+X					return;
+X				}
+X				portsout(CRLF);
+X				lnctx = 1;
+X			}
+X		}
+Xnend:
+X		;
+X	}
+Xfinisn:
+X	fclose(rdstatbuf);
+Xfinisln:
+X	if (toggle && lnctx > xp) {
+X		portsout(CRLF);
+X		portsout("*** Depress a key to continue ........ ");
+X		jnk[0] = portin();
+X		portsout(CRLF);
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X}
+Xfile_u()
+X{
+X	char            choic1[2], *str_result;
+X	FILE           *storbuff;
+X	int             result, tryit, tryit1, code;
+Xfileu:
+X	tryit = FALSE;
+X	tryit1 = FALSE;
+X	if_kermit = 0;
+X	portsout("\n\rYour usage time will be STOPPED during uploads and \n\r");
+X	portsout("the size of the file(s) will be added to your limit.\n\r");
+X	portsout(CRLF);
+X	portsout("Input filename for upload:  ");
+X	portsin(x_filename, 15);
+X	if (strlen(x_filename) < 1)
+X		return;
+X	if (x_filename[0] == '.' || x_filename[0] == '/' || x_filename[0] == ' ') {
+X		portsout("\n\r\n\rIllegal Filename!\n\r");
+X		return;
+X	}
+X	code = strlen(x_filename);
+X	code--;
+X	if (x_filename[code] == '.' || x_filename[code] == '/' || x_filename[code] == ' ') {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	code = strcmp(x_filename, "files.bbs");
+X	if (code == 0) {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	code = legalname("|`><!;:", x_filename);
+X	if (code == 0) {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	portsout(CRLF);
+X	str_result = strchr(x_filename, '*');
+X	if (str_result != NULL)
+X		tryit = TRUE;
+X	strcpy(x_pathandfile, u_pathname);
+X	strcat(x_pathandfile, x_filename);
+X	if (!tryit) {
+X		result = stat(x_pathandfile, &statbuf);
+X		if (result == 0) {
+X			portsout("That file already exists!\n\r");
+X			return;
+X		}
+X	}
+X	portsout(CRLF);
+X	if ( tryit ) {
+X		portsout("Options: K(ermit),  B(atch ymodem),  Z(modem),\n\r\n\r");
+X		portsout("Commands: K,B,Z  ===> ");
+X	}
+X	else {
+X		portsout("Options: X(modem), C(rc xmodem), B(atch ymodem), Y(modem), Z(modem),\n\r");
+X		portsout("         K(ermit), S(EAlink),    A(scii)\n\r\n\r");
+X		portsout("Commands: X,C,B,Y,Z,K,S,A  ===> ");
+X	}
+X	portsin(choic1, 1);
+X	portsout(CRLF);
+X	*choic1 = toupper(*choic1);
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	code = fprintf(inbuf, "%s %s  ", "   UPLOAD  ", x_filename);
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	} 
+X	fclose(inbuf);
+X	if (choic1[0] == 'K' || choic1[0] == 'B' || choic1[0] == 'Z')
+X		tryit1 = TRUE;
+X	if (tryit && !tryit1) {
+X		portsout("\n\rIllegal use of wildcards - Must be KERMIT, YMODEM BATCH, or ZMODEM\n\r");
+X		typexfr(11);
+X		return;
+X	}
+X	switch (choic1[0]) {
+X	case ('X'):
+X		strcpy(x_pathandfile, RB);
+X		strcat(x_pathandfile, u_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(5);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		updatef();
+X		enabletime();
+X		break;
+X	case ('Y'):
+X		strcpy(x_pathandfile, YMDR);
+X		strcat(x_pathandfile, u_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(3);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		updatef();
+X		enabletime();
+X		break;
+X	case ('C'):
+X		strcpy(x_pathandfile, CRCR);
+X		strcat(x_pathandfile, u_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(4);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		updatef();
+X		enabletime();
+X		break;
+X	case ('S'):
+X		strcpy(x_pathandfile, SEAR);
+X		strcat(x_pathandfile, u_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(7);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		updatef();
+X		enabletime();
+X		break;
+X	case ('A'):
+X		strcpy(x_pathandfile, u_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(8);
+X		if ((storbuff = fopen(x_pathandfile, "w")) == NULL) {
+X			portsout("\n\rError opening upload file!\n\r");
+X			break;
+X		}
+X		fds = fileno(storbuff);
+X		rewind(storbuff);
+X		locking(fds, LK_LOCK, 0L);
+X		portsout("\n\rTerminate the ASCII upload with a control d ( ^d )");
+X		portsout("\n\rReady to receive ASCII upload....\n\r");
+X		uploadtime();
+X
+X		restoremodes();
+X		portrst();
+X
+X		while ((fgets(buf128, 132, stdin)) != NULL) {
+X			result = fputs(buf128, storbuff);
+X		}
+X		rewind(storbuff);
+X		locking(fds, LK_UNLCK, 0L);
+X		fclose(storbuff);
+X
+X		portinit();
+X		setmodes();
+X
+X		updatef();
+X		enabletime();
+X		break;
+X	case ('B'):
+X		strcpy(x_pathandfile, YMR);
+X		portsout("Please start your YMODEM transfer");
+X		portsout(CRLF);
+X		if_kermit = 1;
+X		typexfr(2);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		strcpy(x_pathandfile, KRE);
+X		result = system(x_pathandfile);
+X		if ((rdstatbuf = fopen(FLIST, "r")) == NULL) {
+X			portsout("\n\rERROR: Unable to update!\n\r");
+X			exit(1);
+X		}
+X		while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X			strcpy(x_pathandfile, u_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				updatef();
+X			} else {
+X				portsout(CRLF);
+X				portsout(x_filename);
+X				portsout(":  Duplicate file deleted!\n\r");
+X				strcpy(x_pathandfile, USRBBS);
+X				strcat(x_pathandfile, x_filename);
+X				result = unlink(x_pathandfile);
+X			}
+X		}
+X		enabletime();
+X		fclose(rdstatbuf);
+X		break;
+X	case ('K'):
+X		strcpy(x_pathandfile, KRA);
+X		portsout("Please start your KERMIT transfer");
+X		portsout(CRLF);
+X		if_kermit = 1;
+X		typexfr(6);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		strcpy(x_pathandfile, KRE);
+X		result = system(x_pathandfile);
+X		if ((rdstatbuf = fopen(FLIST, "r")) == NULL) {
+X			portsout("\n\rERROR: Unable to update!\n\r");
+X			exit(1);
+X		}
+X		while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X			strcpy(x_pathandfile, u_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				updatef();
+X			} else {
+X				portsout(CRLF);
+X				portsout(x_filename);
+X				portsout(":  Duplicate file deleted!\n\r");
+X				strcpy(x_pathandfile, USRBBS);
+X				strcat(x_pathandfile, x_filename);
+X				result = unlink(x_pathandfile);
+X			}
+X		}
+X		enabletime();
+X		fclose(rdstatbuf);
+X		break;
+X	case ('Z'):
+X		strcpy(x_pathandfile, RZ);
+X		portsout("Please start your ZMODEM transfer");
+X		portsout(CRLF);
+X		if_kermit = 1;
+X		typexfr(1);
+X		uploadtime();
+X		result = system(x_pathandfile);
+X		restoresig();
+X		strcpy(x_pathandfile, KRE);
+X		result = system(x_pathandfile);
+X		if ((rdstatbuf = fopen(FLIST, "r")) == NULL) {
+X			portsout("\n\rERROR: Unable to update!\n\r");
+X			exit(1);
+X		}
+X		while (fscanf(rdstatbuf, "%14s", x_filename) != EOF) {
+X			strcpy(x_pathandfile, u_pathname);
+X			strcat(x_pathandfile, x_filename);
+X			result = stat(x_pathandfile, &statbuf);
+X			if (result != 0) {
+X				updatef();
+X			} else {
+X				portsout(CRLF);
+X				portsout(x_filename);
+X				portsout(":  Duplicate file deleted!\n\r");
+X				strcpy(x_pathandfile, USRBBS);
+X				strcat(x_pathandfile, x_filename);
+X				result = unlink(x_pathandfile);
+X			}
+X		}
+X		enabletime();
+X		fclose(rdstatbuf);
+X		break;
+X	default:
+X		portsout("Illegal option");
+X		portsout(CRLF);
+X		typexfr(11);
+X		break;
+X	}
+X	portsout(CRLF);
+X}
+Xuploadtime()
+X{
+X	xsec = alarm(0);
+X	Ztime = xsec;
+X	alarm(32767);
+X}
+Xenabletime()
+X{
+X	sec = xsec;
+X	alarm(sec);
+X}
+Xdigit(datr) char *
+X	                datr;
+X{
+X	int             res;
+X	char           *datr1;
+X	datr1 = datr;
+X	while (*datr1) {
+X		res = *datr1;
+X		if (!isdigit(res))
+X			*datr1 = ' ';
+X		datr1++;
+X	}
+X}
+X
+X
+Xupdatef()
+X{
+X	/*
+X	 * The following modifications to "updatef()" allow you to have
+X	 * MAX_DEC_LINES lines of description for uploaded files instead of
+X	 * just one. 
+X	 */
+X#define MAX_DESC_LINES  5
+X	int             code;
+X	int             index, index2;
+X	char            buf50[MAX_DESC_LINES][51], tmp[51];
+X
+X	if (if_kermit == 0) {
+X		strcpy(buf128, u_pathname);
+X	} else {
+X		strcpy(buf128, USRBBS);
+X	}
+X	strcat(buf128, x_filename);
+X	(void) stat(buf128, &statbuf);
+X	if (statbuf.st_size == ((off_t) 0)) {
+X		unlink(buf128);
+X		return;
+X	}
+X	max_dload += statbuf.st_size;
+X	set_upd(-statbuf.st_size);
+X	portsout(CRLF);
+X	portsout("Please describe ");
+X	portsout(x_filename);
+X	sprintf(tmp, "    ( max of 50 characters on %d lines ) ", MAX_DESC_LINES);
+X	portsout(tmp);
+X	portsout(CRLF);
+X	portsout("NOTE: NO WORD WRAP.  Please watch how long your lines are!!");
+X	portsout(CRLF);
+X	portsout("Start with a / on line 1 for SYSOP ONLY!");
+X	portsout(CRLF);
+X	portsout("  ---------1---------2---------3---------4---------5");
+X	portsout(CRLF);
+X	index = 1;
+X	sprintf(tmp, "%1d:", index);
+X	portsout(tmp);
+X	portsin(buf50[0], 50);
+X	portsout(CRLF);
+X	while ((buf50[(index - 1)][0] != '\0') && (index < MAX_DESC_LINES)) {
+X		index++;
+X		sprintf(tmp, "%1d:", index);
+X		portsout(tmp);
+X		portsin(buf50[(index - 1)], 50);
+X		portsout(CRLF);
+X	}
+X	if (buf50[0][0] == '/') {
+X		portsout(CRLF);
+X		portsout(x_filename);
+X		portsout(" will NOT be logged\n\r");
+X		if ((inbuf = fopen(callers, "a")) == NULL) {
+X			portsout(CRLF);
+X			portsout("Can't open/create callers.bbs!");
+X			portsout(CRLF);
+X			return;
+X		}
+X		code = fprintf(inbuf, "%s %s", x_filename, buf50[0]);
+X		if (code < 0) {
+X			portsout(CRLF);
+X			portsout("Callers file has problem writing");
+X			portsout(CRLF);
+X		} else {
+X			fputs("\n", inbuf);
+X		}
+X		index2 = 1;
+X		while (index2 < index) {
+X			fprintf(inbuf, ". %s\n", buf50[index2]);
+X			index2++;
+X		}
+X		if( index == MAX_DESC_LINES )
+X			fprintf(inbuf, ".\n");
+X		fclose(inbuf);
+X		if (if_kermit == 0) {
+X			strcpy(x_pathandfile, u_pathname);
+X		} else {
+X			strcpy(x_pathandfile, USRBBS);
+X		}
+X		strcat(x_pathandfile, x_filename);
+X		strcpy(buf128, ORGPATH);
+X		strcat(buf128, x_filename);
+X		code = link(x_pathandfile, buf128);
+X		if( code == -1) {
+X			strcpy(buf128, "mv ");
+X			strcat(buf128, x_pathandfile);
+X			strcat(buf128, " ");
+X			strcat(buf128, ORGPATH);
+X			strcat(buf128, x_filename);
+X			(void)system(buf128);
+X			portsout("\n\r\n\rPlease leave a message to the sysop advising him that the\n");
+X			portsout("bbs users' home directory is NOT in the same filesystem as the upload path.\n\r\n\r");
+X		}
+X			
+X		(void)unlink(x_pathandfile);
+X		return;
+X	}
+X	strcpy(who_am_i, u_pathname);
+X	strcat(who_am_i, FILES);
+X	if ((inbuf = fopen(who_am_i, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create files.bbs!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	code = fprintf(inbuf, "%s %s", x_filename, buf50[0]);
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("List file has problem writing");
+X		portsout(CRLF);
+X	} else {
+X		fputs("\n", inbuf);	/* put lf on end of each record */
+X	}
+X	index2 = 1;
+X	while (index2 < index) {
+X		fprintf(inbuf, ". %s\n", buf50[index2]);
+X		index2++;
+X	}
+X	if( index == MAX_DESC_LINES )
+X		fprintf(inbuf, ".\n");
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X	if (if_kermit != 0) {
+X		strcpy(x_pathandfile, USRBBS);
+X		strcat(x_pathandfile, x_filename);
+X		strcpy(buf128, u_pathname);
+X		strcat(buf128, x_filename);
+X		code = link(x_pathandfile, buf128);
+X		if( code == -1) {
+X			strcpy(buf128, "mv ");
+X			strcat(buf128, x_pathandfile);
+X			strcat(buf128, " ");
+X			strcat(buf128, u_pathname);
+X			strcat(buf128, x_filename);
+X			(void)system(buf128);
+X			portsout("\n\r\n\rPlease leave a message to the sysop advising him that the\n");
+X			portsout("bbs users' home directory is NOT in the same filesystem as the upload path.\n\r\n\r");
+X		}
+X			
+X		code = unlink(x_pathandfile);
+X	}
+X}
+Xenough_time()
+X{
+X	long            lsec, lspeed;
+X	int             size, speed, code, result, astptr;
+X	static int      baud[15] = {0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+X	char            data_buffer[600];
+X	char 		*ppr, *locptr;
+X	locptr = strchr(x_pathandfile, '*');
+X	if( locptr == NULL )
+X		astptr = 0;
+X	else
+X		astptr = 1;
+X	strcpy(data_buffer, "ls ");
+X	strcat(data_buffer, x_pathandfile);
+X	strcat(data_buffer, " > /tmp/wild");
+X	strcat(data_buffer, port_id);
+X	code = system(data_buffer);
+X	if( !astptr )
+X		x_pathandfile[0] = '\0';
+X	code = 0;
+X	sum_size = 0L;
+X	sum_lsec = 0L;
+X	strcpy(data_buffer, "/tmp/wild");
+X	strcat(data_buffer, port_id);
+X	portsout("\n\rThe following files will be sent:\n\r");
+X	if ((inbuf = fopen(data_buffer, "r")) == NULL)
+X		return (FALSE);
+X	while (fscanf(inbuf, "%s", data_buffer) != EOF) {
+X		result = stat(data_buffer, &statbuf);
+X		if( !astptr ) {
+X			strcat(x_pathandfile, data_buffer);
+X			strcat(x_pathandfile, " ");
+X		}
+X		ppr = strrchr(data_buffer, '/');
+X		if (ppr == NULL)
+X			ppr = data_buffer;
+X		else
+X			ppr++;
+X		if (result != 0) {
+X			fclose(inbuf);
+X			strcpy(data_buffer, "/tmp/wild");
+X			strcat(data_buffer, port_id);
+X			result = unlink(data_buffer);
+X			return (FALSE);
+X		}
+X		result = strcmp(ppr, "files.bbs");
+X		if( result == 0 ) {
+X			portsout("\n\rIllegal file request\n\r");
+X			return(FALSE);
+X		}
+X		portsout(ppr);
+X		portsout(CRLF);
+X		size = (statbuf.st_size / 128) + 1;
+X		ioctl(0, TCGETA, &ttyhold);
+X		speed = baud[ttyhold.c_cflag & 017];
+X		lspeed = speed;
+X		lsec = size;
+X		sum_lsec = sum_lsec + (lsec * 128L * 11L / lspeed);
+X		sum_size = sum_size + statbuf.st_size;
+X		code++;
+X	}
+X	if( ! astptr ) {
+X		ppr = strrchr( x_pathandfile, ' ');
+X		if( ppr != NULL )
+X			*ppr = '\0';
+X	}
+X	fclose(inbuf);
+X	strcpy(data_buffer, "/tmp/wild");
+X	strcat(data_buffer, port_id);
+X	result = unlink(data_buffer);
+X	strcpy(buf128, "\n\rTotal number of files = ");
+X	itoa(data_buffer, code);
+X	strcat(buf128, data_buffer);
+X	strcat(buf128, "\n\r");
+X	portsout(buf128);
+X	strcpy(buf128, "Total number of bytes = ");
+X	sprintf(data_buffer, "%ld", sum_size);
+X	strcat(buf128, data_buffer);
+X	portsout(buf128);
+X	strcpy(buf128, "\n\rTotal download time = ");
+X	sprintf(data_buffer, "%ld", sum_lsec);
+X	strcat(buf128, data_buffer);
+X	strcat(buf128, " seconds\n\r");
+X	portsout(buf128);
+X	xsec = alarm(0);
+X	Ztime = xsec;
+X	sec = xsec;
+X	alarm(sec);
+X	if (sum_lsec > xsec)
+X		return (FALSE);
+X	if ((sum_size + dload_total) > max_dload)
+X		return (FALSE);
+X	if( sum_size == 0L )
+X		return (FALSE);
+X	return (TRUE);
+X}
+Xfile_d()
+X{
+X	FILE		*zipp;
+X	char            choic2[2], *str_result, *ptr, *ptr1;
+X	long            lsec, hold_sec, jsec, ksec;
+X	unsigned        start_sec, stop_sec;
+X	long            var_sec;
+X	int             result, tryit, tryit1, size, speed, default_flag, code;
+X	int		mult;
+X	static int      baud[15] = {0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+Xfiled:
+X	result = stat(DLMSG, &statbuf);
+X	if (!result) {
+X		portsout(CRLF);
+X		no_cntrl_k = TRUE;
+X		cmd_p(DLMSG);
+X		no_cntrl_k = FALSE;
+X		portsout(CRLF);
+X	}
+X	tryit = FALSE;
+X	tryit1 = FALSE;
+X	mult = FALSE;
+X	portsout(CRLF);
+X	portsout("Input file name(s) to download:  ");
+X	portsin(x_filename, 98);
+X	if (strlen(x_filename) < 1)
+X		return;
+X	if (x_filename[0] == '.' || x_filename[0] == '/' || x_filename[0] == ' ') {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	code = strlen(x_filename);
+X	code--;
+X	if (x_filename[code] == '.' || x_filename[code] == '/' || x_filename[code] == ' ') {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	code = strcmp(x_filename, "files.bbs");
+X	if (code == 0) {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	str_result = strchr(x_filename, '*');
+X	if (str_result != NULL)
+X		tryit = TRUE;
+X
+X	str_result = strchr(x_filename, ' ');
+X	if (str_result != NULL) {
+X		tryit = TRUE;
+X		mult = TRUE;
+X	}
+X
+X	portsout(CRLF);
+X	code = legalname("|`><!;:", x_filename);
+X	if (code == 0) {
+X		portsout("\n\r\n\rIllegal Filename! \n\r");
+X		return;
+X	}
+X	if( mult ) {
+X		ptr = x_filename;
+X		x_pathandfile[0] = '\0';
+X		while(1) {
+X			ptr1 = strchr(ptr, ' ');
+X			if(ptr1 == NULL)
+X				break;	
+X			*ptr1 = '\0';
+X			strcat(x_pathandfile, f_pathname);
+X			strcat(x_pathandfile, ptr);
+X			strcat(x_pathandfile, " ");
+X			*ptr1 = (char)' ';
+X			ptr = ptr1 + 1;
+X		}
+X		strcat(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, ptr);
+X	} else {
+X		strcpy(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X	}
+X	if (!tryit) {
+X		result = stat(x_pathandfile, &statbuf);
+X		if (result != 0) {
+X			portsout("\n\rThat file does not exist!\n\r");
+X			portsout("Remember that file names are CASE sensitive.\n\r");
+X			return;
+X		}
+X		size = (statbuf.st_size / 128) + 1;
+X		ioctl(0, TCGETA, &ttyhold);
+X		speed = baud[ttyhold.c_cflag & 017];
+X		lsec = size;
+X		lsec = lsec * 128L * 11L / speed;
+X		sum_size = statbuf.st_size;
+X		xsec = alarm(0);
+X		Ztime = xsec;
+X		sec = xsec;
+X		alarm(sec);
+X		hold_sec = lsec;
+X		if (lsec > xsec) {
+X			portsout("\n\rYou don't have enough time left to download that file.\n\r");
+X			return;
+X		}
+X		if ((statbuf.st_size + dload_total) > max_dload) {
+X			portsout("\n\rThis download will overrun your download limit.");
+X			portsout("\n\rUploads will increase your limit.\n\r");
+X			return;
+X		}
+X	} else {
+X		if (!enough_time()) {
+X			portsout("\n\rYou don't have enough time/bytes or an error was detected.\n\r");
+X			return;
+X		}
+X		hold_sec = sum_lsec;
+X	}
+X	hold_sec /= 2L;
+X	portsout(CRLF);
+X	if ( tryit ) 
+X		portsout("Multi-file options: Z(modem),  B(atch ymodem), K(ermit)");
+X	else {
+X		portsout("Options: Z(modem),  C(rc xmodem), X(modem), B(atch ymodem), Y(modem),\n\r");
+X		portsout("         K(ermit),  S(EAlink),    A(scii),  T(ype)");
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	if ( tryit )
+X		portsout("Commands: Z,B,K  ===> ");
+X	else
+X		portsout("Commands: Z,C,X,B,Y,K,S,A,T  ===> ");
+X	portsin(choic2, 1);
+X	portsout(CRLF);
+X	default_flag = 1;
+X	*choic2 = toupper(*choic2);
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	code = fprintf(inbuf, "%s %s  ", "   DNLOAD  ", x_filename);
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	} 
+X	fclose(inbuf);
+X	if (choic2[0] == 'K' || choic2[0] == 'B' || choic2[0] == 'Z')
+X		tryit1 = TRUE;
+X	if (tryit && !tryit1) {
+X		portsout("\n\rIllegal use of wildcards - Must be KERMIT, YMODEM BATCH, or ZMODEM\n\r");
+X		typexfr(11);
+X		return;
+X	}
+X	start_sec = stop_sec = 0;
+X	xsec = alarm(0);
+X	alarm(32767);
+X	switch (choic2[0]) {
+X	case ('T'):
+X		portsout("\n\r\n\rOne moment please while an ascii check is done on the file ......  ");
+X		if(!asciicheck(x_pathandfile)) {
+X			portsout("Sorry.\n\rEither the file does not exist or it is not printable ascii.\n\r\n\r");
+X			typexfr(10);
+X			return;
+X		}
+X		portsout("ok.\n\r\n\r");
+X		cmd_p(x_pathandfile);
+X		typexfr(9);
+X		break;
+X	case ('A'):
+X		strcpy(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		portsout("\n\r\n\rOne moment please while an ascii check is done on the file ......  ");
+X		if(!asciicheck(x_pathandfile)) {
+X			portsout("Sorry.\n\rEither the file does not exist or it is not printable ascii.\n\r\n\r");
+X			typexfr(10);
+X			return;
+X		}
+X		portsout("ok.\n\r\n\r");
+X		typexfr(8);
+X		portsout("\n\rOnce the transfer starts, you may terminate it by typing a Control-K");
+X		portsout("\n\rType a character to start the transfer when you are ready ===>  ");
+X		portsin(choic2, 1);
+X		portsout(CRLF);
+X		no_cntrl_k = TRUE;
+X		if (!toggle) {
+X			cmd_p(x_pathandfile);
+X		} else {
+X			toggle = FALSE;
+X			cmd_p(x_pathandfile);
+X			toggle = TRUE;
+X		}
+X		no_cntrl_k = FALSE;
+X		sleep(3);
+X		break;
+X	case ('X'):
+X		strcpy(x_pathandfile, SB);
+X		strcat(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(5);
+X		result = system(x_pathandfile);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('Y'):
+X		strcpy(x_pathandfile, YMDS);
+X		strcat(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(3);
+X		result = system(x_pathandfile);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('C'):
+X		strcpy(x_pathandfile, CRCS);
+X		strcat(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(4);
+X		result = system(x_pathandfile);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('S'):
+X		strcpy(x_pathandfile, SEAS);
+X		strcat(x_pathandfile, f_pathname);
+X		strcat(x_pathandfile, x_filename);
+X		typexfr(7);
+X		result = system(x_pathandfile);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('Z'):
+X		strcpy(msg_text, SZ);
+X		strcat(msg_text, x_pathandfile);
+X		typexfr(1);
+X		result = system(msg_text);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('B'):
+X		strcpy(msg_text, YMS);
+X		strcat(msg_text, x_pathandfile);
+X		typexfr(2);
+X		result = system(msg_text);
+X		restoresig();
+X		start_sec = result;
+X		sleep(1);
+X		break;
+X	case ('K'):
+X		strcpy(msg_text, KS);
+X		strcat(msg_text, x_pathandfile);
+X		typexfr(6);
+X		portsout("Ready to start KERMIT transfer");
+X		portsout(CRLF);
+X		result = system(msg_text);
+X		restoresig();
+X		start_sec = result;
+X		break;
+X	default:
+X		portsout("Illegal option");
+X		typexfr(11);
+X		default_flag = 0;
+X		portsout(CRLF);
+X		break;
+X	}
+X	sec = alarm(0);
+X	jsec = 32767L - (long) sec;
+X	ksec = (long) xsec;
+X	ksec -= jsec;
+X	if (ksec <= 2L)
+X		ksec = 2L;
+X	xsec = (unsigned int) ksec;
+X	code = 0;
+X	if (default_flag) {
+X		if ((zipp = fopen(callers, "a")) == NULL) {	/* create or open for
+X								 * append */
+X			portsout(CRLF);
+X			portsout("Can't open/create callers file!");
+X			portsout(CRLF);
+X			return;
+X		}
+X		if (start_sec == 0) {
+X			dload_total += sum_size;
+X			set_upd(sum_size);
+X			code = fprintf(zipp, "      Transfer seems to be OK.\n");
+X		} else 
+X			code = fprintf(zipp, "      Transfer seems to have failed.\n");
+X		if (code < 0) {
+X			portsout(CRLF);
+X			portsout("Caller file has problem writing");
+X			portsout(CRLF);
+X		} 
+X		fclose(zipp);
+X
+X	}
+X	alarm(xsec);
+X	portsout(CRLF);
+X}
+Xtypexfr(typex)  int typex;
+X{
+X	int code;
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	switch (typex) {
+X		case (1): code = fprintf(inbuf, " using ZMODEM\n");
+X			break;
+X		case (2): code = fprintf(inbuf, " using BATCH YMODEM\n");
+X			break;
+X		case (3): code = fprintf(inbuf, " using YMODEM\n");
+X			break;
+X		case (4): code = fprintf(inbuf, " using XMODEM-CRC\n");
+X			break;
+X		case (5): code = fprintf(inbuf, " using XMODEM-CHECKSUM\n");
+X			break;
+X		case (6): code = fprintf(inbuf, " using KERMIT\n");
+X			break;
+X		case (7): code = fprintf(inbuf, " using SEALINK\n");
+X			break;
+X		case (8): code = fprintf(inbuf, " using ASCII\n");
+X			break;
+X		case (9): code = fprintf(inbuf, " using TYPE\n");
+X			break;
+X		case (10): code = fprintf(inbuf, " NOT printable ASCII\n");
+X			break;
+X		default:  code = fprintf(inbuf, " ......... illegal option!\n");
+X			break;
+X	}
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	}
+X	fclose(inbuf);
+X}
+X
+Xcmd_e()
+X{				/* enter a message */
+X	int             entering, editing, char_cnt, temp_int, temp_int1;
+X	char            l_cnt[3], type[2], ans[2];
+X	char           *char_ptr;
+X	char            tmp[80];
+X
+X	entering = editing = TRUE;
+X	cnt1 = 0;
+X	strcpy(l_cnt, "00");
+X	msg_text[0] = '\0';	/* init message text area */
+X	portsout(CRLF);
+X	portsout("This will be message # ");
+X	portsout(h_act_msg);
+X	portsout(CRLF);
+X	if (!reply_sw) {
+X		entr_name();
+X		entr_subj();
+X	}
+X	if (!end_msg)
+X		entr_priv();
+X	if (end_msg)
+X		strcpy(pubpriv, "5");
+X
+X	portsout(CRLF);
+X	sprintf(tmp, "A line can contain 72 characters, up to %d lines.", MAX_MSG_LINES);
+X	portsout(tmp);
+X	portsout(CRLF);
+X	portsout("To end, enter a carriage return on an empty line.");
+X	portsout(CRLF);
+X	if(blocked_m)
+X		portsout("The lines will automatically word wrap and block.");
+X	else
+X		portsout("The lines will automatically word wrap.");
+X	portsout(CRLF);
+XEnter:
+X	portsout(CRLF);
+X	portsout("    .___.____1____.____2____.____3____.____4____.____5____.____6____.____7__");
+X	portsout(CRLF);
+X
+X	char_cnt = 72;
+X	work_msg[0] = '\0';
+X	while (entering) {	/* get the text of the message */
+X		linecnt(l_cnt);	/* calc line count */
+X
+X		portsout(l_cnt);/* show line count */
+X		portsout("> ");	/* and prompt */
+X		portsout(work_msg);
+X		strcpy(buf128, work_msg);
+X		in_the_buffer = strlen(buf128);
+X		work_msg[0] = '\0';
+X		portsinm(x_pathandfile, char_cnt, buf128);
+X		char_ptr = strrchr(x_pathandfile, ' ');
+X		temp_int = strlen(x_pathandfile);
+X		if (temp_int >= char_cnt) {
+X			if (x_pathandfile[temp_int - 1] == '\n' || x_pathandfile[temp_int - 1] == '\r' || x_pathandfile[temp_int - 1] == ' ') {
+X				char_cnt = 72;
+X				goto enter1;
+X			}
+X			if (char_ptr != NULL) {
+X				*char_ptr = '\0';
+X				char_ptr++;
+X				strcpy(work_msg, char_ptr);
+X				temp_int = strlen(work_msg);
+X				for (temp_int1 = 1; temp_int1 <= temp_int; temp_int1++)
+X					portsout("\b");
+X				for (temp_int1 = 1; temp_int1 <= temp_int; temp_int1++)
+X					portsout(" ");
+X				char_cnt = 72 - temp_int;
+X
+X			} else {
+X				char_cnt = 72;
+X			}
+X		} else {
+X			char_cnt = 72;
+X			work_msg[0] = '\0';
+X
+X		}
+Xenter1:
+X		strcat(buf128, x_pathandfile);
+X		portsout(CRLF);
+X
+X		strcat(buf128, "\n");	/* put a <lf> on each line */
+X		if(blocked_m) {
+X			strcpy(x_pathandfile, buf128);
+X			block_text();
+X		}
+X
+X		if (strlen(buf128) < 2) {	/* count cr too */
+X			entering = FALSE;	/* all done */
+X		} else {
+X			strcat(msg_text, buf128);	/* append each line to
+X							 * text */
+X		}
+X		if ((++cnt1) > MAX_MSG_LINES) {	/* only allow 20 lines */
+X			entering = FALSE;	/* all done */
+X		}
+X	}
+X
+X	while (editing) {	/* save it, fix it, list it, or get out */
+X		portsout(CRLF);
+X		portsout("(S)ave,    (L)ist,     (C)ontinue, or (Q)uit");
+X		portsout(CRLF);
+X		portsout("ce(N)ter,  (B)lock,    (D)elete,      (I)nsert,    (R)eplace,  or (E)dit line");
+X		portsout(CRLF);
+X		portsout("Change     sub(J)ect,  recei(V)er, or (P)rivilege ==> ");
+X		portsin(ans, 1);/* get a byte */
+X		portsout(CRLF);
+X
+X		*ans = toupper(*ans);
+X
+X		switch (ans[0]) {	/* get 1 byte */
+X		case ('S'):	/* save message */
+X			new_msg = atoi(h_act_msg);
+X			savemsg();
+X			editing = FALSE;	/* get out of while */
+X			break;
+X		case ('E'):	/* edit message */
+X		case ('I'):	/* edit message */
+X		case ('D'):	/* edit message */
+X		case ('R'):
+X		case ('N'):
+X		case ('B'):
+X			editmsg(*ans);
+X			break;
+X		case ('P'):
+X			if (end_msg) {
+X				portsout("\n\rCannot change the privilege on a log off message\n\r");
+X				break;
+X			}
+X			entr_priv();
+X			portsout(CRLF);
+X			break;
+X		case ('J'):
+X			if (end_msg) {
+X				portsout("\n\rCannot change the subject on a log off message\n\r");
+X				break;
+X			}
+X			if (reply_sw) {
+X				portsout("\n\rCannot change the subject on a reply to a message\n\r");
+X				break;
+X			}
+X			portsout(CRLF);
+X			entr_subj();
+X			portsout(CRLF);
+X			break;
+X		case ('V'):
+X			if (end_msg) {
+X				portsout("\n\rCannot change the name of the receiver on a log off message\n\r");
+X				break;
+X			}
+X			if (reply_sw) {
+X				portsout("\n\rCannot change the receiver's name on a message reply\n\r");
+X				break;
+X			}
+X			entr_name();
+X			break;
+X		case ('L'):	/* list message */
+X			listmsg();
+X			break;
+X		case ('Q'):	/* get out w/out saving */
+X			portsout("\n\r\n\rAre you sure you want to quit? (Y/n): ");
+X			portsin(ans, 1);
+X			portsout(CRLF);
+X			if (ans[0] == 'N' || ans[0] == 'n')
+X				break;
+X			editing = FALSE;	/* get out of while */
+X			break;
+X		case ('C'):
+X			if (cnt1 == MAX_MSG_LINES) {
+X				sprintf(tmp, "\n\rMessage is already %d lines!\n\r", MAX_MSG_LINES);
+X				portsout(tmp);
+X				break;
+X			}
+X			entering = TRUE;
+X			cnt1--;
+X			itoa(l_cnt, cnt1);
+X			goto Enter;
+X			break;
+X		default:
+X			portsout(CRLF);
+X			portsout("Shall we try that one again?\r\n");
+X			break;
+X		}
+X	}
+X
+X}
+X/* end of function               */
+Xentr_name()
+X{
+X	char            z_fname[11], z_lname[16], z_full[22];
+X	int             length, length1;
+X	char            firstz[20], lastz[20];
+X	char            priv[6];
+X	char            etime[9];
+X	char            esize[9];
+Xenter_it_again:
+X	length1 = 0;
+X	portsout(CRLF);
+X	portsout("                                           ____.____1\r\n");
+X	portsout("Enter the FIRST NAME of the receiver ===>  ");
+X	portsin(z_fname, 10);
+X	length = strlen(z_fname);
+X	if (!length) {
+X		strcpy(z_fname, "All");
+X		z_lname[0] = '\0';
+X		goto bobble;
+X	}
+X	portsout(CRLF);
+X	portsout("                                           ____.____1____.\r\n");
+X	portsout("Enter the LAST NAME of the receiver ====>  ");
+X	portsin(z_lname, 15);
+X	length1 = strlen(z_lname);
+Xbobble:
+X	portsout(CRLF);
+X	fix_name(z_fname);
+X	fix_name(z_lname);
+X	length += length1;
+X	if (length > 20) {
+X		portsout("\n\rI'm sorry; however, the name is TOO long to be posted!\n\r");
+X		goto enter_it_again;
+X	}
+X	strcpy(z_full, z_fname);
+X	strcat(z_full, " ");
+X	strcat(z_full, z_lname);
+X	strcpy(msg_to, z_full);
+X	portsout(CRLF);
+X	if ((inbuf = fopen(USERPRIV, "r")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open user priv file!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	while (fscanf(inbuf, "%s%s%s%s%s", firstz, lastz, priv, etime, esize) != EOF) {
+X		if ((strcmp(firstz, z_fname) == 0) &&
+X		    (strcmp(lastz, z_lname) == 0)) {
+X			return;
+X		}
+X	}
+X	fclose(inbuf);
+X	if( strcmp(z_fname, "Sysop") == 0 ) {
+X		strcpy(msg_to, SYSOP);
+X		return;
+X	}
+X	if( strcmp(z_fname, "All") == 0 ) {
+X		strcpy(msg_to, "All Users");
+X		return;
+X	}
+X	portsout("\n\rWarning: there is no user on this system by that name.\n\r");
+X	portsout("Do you still wish to use it? (Y/n): ");
+X	portsin(etime, 1);
+X	portsout(CRLF);
+X	if( etime[0] == 'N' || etime[0] == 'n' )
+X		goto enter_it_again;
+X}
+X
+Xentr_subj()
+X{
+X	int             length;
+X	portsout("                             ____.____1____.____2\n\r");
+X	portsout("What is the subject     ===> ");
+X	portsin(msg_subject, 20);
+X	length = strlen(msg_subject);
+X	if (!length) {
+X		strcpy(msg_subject, "*** NO SUBJECT ***");
+X	}
+X}
+Xentr_priv()
+X{
+X	char            type[2];
+X	portsout(CRLF);
+X	portsout("Do you wish the message to be P(ublic) or pri(V)ate) (P/V) ?  ");
+X	portsin(type, 1);
+X	*type = toupper(*type);
+X	switch (type[0]) {
+X	case ('P'):
+X		strcpy(pubpriv, "0");
+X		break;
+X	case ('V'):
+X		strcpy(pubpriv, "5");
+X		break;
+X	default:
+X		portsout("\n\rDefaulting to public!\n\r");
+X		strcpy(pubpriv, "0");
+X		break;
+X	}
+X}
+Xlinecnt(lcnt)			/* 2 byte string of line numbers */
+X	char           *lcnt;
+X{
+X	int             icnt;
+X	char            xcnt[4];
+X
+X	icnt = atoi(lcnt);
+X	if (++icnt < 10) {
+X		strcpy(lcnt, "0");
+X		itoa(xcnt, icnt);
+X		strcat(lcnt, xcnt);
+X	} else {
+X		itoa(xcnt, icnt);
+X		strcpy(lcnt, xcnt);
+X	}
+X	return;
+X}
+X/* end of function               */
+X
+Xsavemsg()
+X{				/* save a message */
+X	int             fd;
+X
+X	portsout("Saving...\r\n");
+X
+X	strcpy(msg_delete, pubpriv);	/* delete byte */
+X	strcpy(msg_date, mm);
+X	strcat(msg_date, "/");
+X	strcat(msg_date, dd);
+X	strcat(msg_date, "/");
+X	strcat(msg_date, yy);
+X
+X	strcpy(msg_time, ttime);/* and the time */
+X
+X	strcpy(msg_from, w_fname);	/* and the from name */
+X	strcat(msg_from, " ");
+X	strcat(msg_from, w_lname);
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	fd = fprintf(inbuf, "%s%s", "   Message being sent to ", msg_to);
+X	if (fd < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	} else {
+X		fputs("\n", inbuf);	/* put lf on end of each record */
+X	}
+X	fclose(inbuf);
+X	hdrread();		/* Guarantee proper header and table */
+X	if ((fd = msgopen(2)) == ERROR) {	/* open i/o */
+X		return (ERROR);
+X	}
+X	msgwrt(fd);		/* write the message */
+X	msgclose(fd);
+X
+X	strcpy(h_date, msg_date);
+X	hdrwrt();		/* update the header file */
+X}
+X/* end of function               */
+X
+X
+Xlistmsg()
+X{
+X	char           *ptr, byte, lcnt[3];
+X	int             i;
+X
+X	ptr = msg_text;		/* ptr points to start of text */
+X	strcpy(lcnt, "00");
+X
+X	portsout(CRLF);
+X	while (*ptr != 0) {
+X		linecnt(lcnt);
+X		portsout(lcnt);	/* put out line number */
+X		portsout(">");
+X		while (byte = *ptr++) {
+X			if (byte == '\n') {	/* we dont save <cr>, so add *//* i
+X						 * t here when find a <cr> */
+X				portsout(CRLF);
+X				break;
+X			} else
+X				portout(byte);
+X		}
+X	}
+X}
+X/* end of function               */
+X
+Xeditmsg(tflag) char
+X	tflag;
+X{
+X	char            ans[3];
+X	int             lnum;	/* line number to edit */
+X	char            tmp[80];
+X
+X	while (1) {
+X		portsout(CRLF);
+X		portsout("Enter line number to ");
+X		if (tflag == 'E')
+X			portsout("edit,");
+X		else if (tflag == 'D')
+X			portsout("delete,");
+X		else if (tflag == 'I')
+X			portsout("insert after,");
+X		else if (tflag == 'R')
+X			portsout("replace,");
+X		else if (tflag == 'N')
+X			portsout("center,");
+X		else if (tflag == 'B')
+X			portsout("block,");
+X		else
+X			return;
+X		portsout(CRLF);
+X		portsout("   or RETURN to exit ==> ");
+X		portsin(ans, 2);/* only MAX_MSG_LINES lines possible */
+X		portsout(CRLF);
+X		if (tflag == 'I' && cnt1 == MAX_MSG_LINES) {
+X			sprintf(tmp, "\n\rMessage is already %d lines!\n\r", MAX_MSG_LINES);
+X			portsout(tmp);
+X			return;
+X		}
+X		lnum = atoi(ans);
+X		if (lnum <= 0) {
+X			break;	/* out of while and return */
+X		}
+X		if ((lnum < MAX_MSG_LINES) || ((lnum == MAX_MSG_LINES) && (tflag != 'I'))) {
+X			editline(lnum, tflag);
+X			break;
+X		} else {	/* else slap on hand and loop around */
+X			sprintf(tmp, "Aw come on, there can only be %d lines!", MAX_MSG_LINES);
+X			portsout(tmp);
+X			portsout(CRLF);
+X			portsout("Shall we try that again?");
+X			portsout(CRLF);
+X		}
+X	}
+X}
+X/* end of function               */
+X
+Xusenet()
+X{				/* added for 7.2.1 USENET access */
+X
+X
+X#ifdef  SYSV
+X#define logname getlogin
+X#endif
+X
+X	char           *logname();
+X
+X	static char     shell[] = "SHELL=/bin/sh";
+X	static char     home[150];
+X	static char     logn[50];
+X	char            cmd[512];
+X	char            news[520];
+X	char            tmp[512];
+X	FILE           *newsf;
+X	int             mask;
+X	char            term;
+X
+X	strcpy(home, "HOME=");
+X	strcpy(logn,"LOGNAME=");
+X	strcat(home, ORGPATH);
+X	strcat(home, "usenet/");
+X	strcat(home, u_fname);
+X	strcat(home, "/");
+X	strcat(home, u_lname);
+X	strcat(logn, logname());
+X
+X	sprintf(news, "%susenet/%s/%s/.newsrc", ORGPATH, u_fname, u_lname);
+X	if (access(news, 00) == -1) {
+X		mask = umask(0000);
+X		portsout("creating necessary news files\n\r");
+X		portsout("\n\r");
+X		sprintf(tmp, "/bin/mkdir %susenet/%s", ORGPATH, u_fname);
+X		system(tmp);
+X		strcat(tmp, "/");
+X		strcat(tmp, u_lname);
+X		system(tmp);
+X		if ((newsf = fopen(news, "w")) == NULL) {
+X			portsout("open of .newsrc failed\n\r");
+X			exit(-1);
+X		}
+X		fprintf(newsf, "");
+X		fclose(newsf);
+X		umask(mask);
+X	}
+Xmenu:
+X	portsout("\n\rWhich type of terminal do you have:\n\r");
+X	portsout("1) Ansi Standard Monitor\n\r");
+X	portsout("2) ANSI.SYS for MS-DOS\n\r");
+X	portsout("3) VT100\n\r");
+X	portsout("4) Macintosh MacTerm in VT-100 mode\n\r");
+X	portsout("5) VT52 Terminal\n\r");
+X	portsout("6) Televideo 925\n\r");
+X	portsout("7) Televideo 910\n\r");
+X	portsout("8) Tandy DT-100\n\r");
+X	portsout("9) Dumb  - Use this when nothing else works correctly.\n\r");
+X	portsout("           Instead of the normal \"- MORE -\" inbetween pages\n\r");
+X	portsout("           You will see nothing, BUT you will hear a beep.\n\r");
+X	portsout("           This is the same thing. \"?\" is for help\n\r");
+X	portsout("\n\rQ) Return to main menu\n\r");
+X	portsout("===> ");
+X	term = portin();
+X	portsout("\n\r");
+X	switch (term) {
+X	case ('1'):
+X		putenv("TERM=ansi");
+X		break;
+X	case ('2'):
+X		putenv("TERM=dosansi");
+X		break;
+X	case ('3'):
+X		putenv("TERM=vt100");
+X		break;
+X	case ('4'):
+X		putenv("TERM=macterm");
+X		break;
+X	case ('5'):
+X		putenv("TERM=vt52so");
+X		break;
+X	case ('6'):
+X		putenv("TERM=tvi925co");
+X		break;
+X	case ('7'):
+X		putenv("TERM=tvi910");
+X		break;
+X	case ('8'):
+X		putenv("TERM=dt100");
+X		break;
+X	case ('9'):
+X		putenv("TERM=dumb");
+X		break;
+X	case ('Q'):
+X	case ('q'):
+X		portsout("\n\r");
+X		return (0);
+X		break;
+X	default:
+X		portsout("\n\rYou have selected an unsupported type. Please try again\n\r");
+X		goto menu;
+X		break;
+X	}
+X
+X	putenv(shell);
+X	putenv(home);
+X	putenv(logn);
+Xchoose:
+X	portsout("\n\rDo you wish to:\n\r");
+X	portsout("1) Readnews\n\r");
+X	portsout("2) Postnews\n\r");
+X	portsout("\n\rQ) Return to main menu\n\r");
+X	portsout("===>");
+X	term = portin();
+X	portsout("\n\r");
+X	switch (term) {
+X	case ('1'):
+X		restoremodes();
+X		portrst();
+X		STDerr = freopen("/dev/tty", "w+", stderr);
+X		sprintf(cmd, "%s -n all",READN);
+X		system(cmd);
+X		break;
+X	case ('2'):
+X		restoremodes();
+X		portrst();
+X		STDerr = freopen("/dev/tty", "w+", stderr);
+X		sprintf(cmd, "%s",POSTN);
+X		system(cmd);
+X		break;
+X	case ('Q'):
+X	case ('q'):
+X		portsout("\n\r");
+X		strcpy(home, "HOME=");
+X		strcpy(logn, "LOGNAME=");
+X		cmd[0] = '\0';
+X		news[0] = '\0';
+X		tmp[0] = '\0';
+X		return (0);
+X		break;
+X	default:
+X		portsout("Please try again\n\r");
+X		goto choose;
+X		break;
+X	}
+X
+X	strcpy(home, "HOME=");
+X	strcpy(logn, "LOGNAME=");
+X	cmd[0] = '\0';
+X	news[0] = '\0';
+X	tmp[0] = '\0';
+X
+X	strcpy(buf128, STDERR);
+X	strcat(buf128, port_id);
+X	STDerr = freopen(buf128, "w+", stderr);
+X	portinit();
+X	setmodes();
+X	restoresig();
+X
+X}
+Xrestoresig()
+X{
+X	signal(SIGALRM, timer);
+X	signal(SIGHUP, hanged);
+X	signal(SIGUSR1, mon_toggle);
+X	signal(SIGUSR2, sys_toggle);
+X	signal(SIGPIPE, chat);
+X
+X}
+END_OF_FILE
+  if test 43634 -ne `wc -c <'bbsc1.c.B'`; then
+    echo shar: \"'bbsc1.c.B'\" unpacked with wrong size!
+  elif test -f 'bbsc1.c.A'; then
+    echo shar: Combining  \"'bbsc1.c'\" \(83594 characters\)
+    cat 'bbsc1.c.A' 'bbsc1.c.B' > 'bbsc1.c'
+    if test 83594 -ne `wc -c <'bbsc1.c'`; then
+      echo shar: \"'bbsc1.c'\" combined with wrong size!
+    else
+      rm bbsc1.c.A bbsc1.c.B
+    fi
+  fi
+  # end of 'bbsc1.c.B'
+fi
+if test ! -d 'chatbbs' ; then
+    echo shar: Creating directory \"'chatbbs'\"
+    mkdir 'chatbbs'
+fi
+if test -f 'files.bbs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'files.bbs'\"
+else
+  echo shar: Extracting \"'files.bbs'\" \(12527 characters\)
+  sed "s/^X//" >'files.bbs' <<'END_OF_FILE'
+X+   ######  ######   #####          #######   ###   #       #######  #####
+X+   #     # #     # #     #         #          #    #       #       #     #
+X+   #     # #     # #               #          #    #       #       #
+X+   ######  ######   #####          #####      #    #       #####    #####
+X+   #     # #     #       #         #          #    #       #             #
+X+   #     # #     # #     #         #          #    #       #       #     #
+X+   ######  ######   #####          #         ###   ####### #######  #####
+X.
+X+                   ***********************************
+X+                   *                                 *
+X+                   *     ~  R E M E M B E R  ~       *
+X+                   *                                 *
+X+                   *  File names are CASE sensitive  *
+X+                   *                                 *
+X+                   ***********************************
+X.
+X+                   ************************************
+X+                   *       Available files for        *
+X+                   *           DOWNLOADING            *
+X+                   *  The size and date of the file   *
+X+                   *    is determined at LIST time    *
+X+                   ************************************
+X.
+X+          The following files are required to generate the BBS
+X+        The software now supports multiple file and message areas
+X+    Arc is required for the bbs and can be found in the unix directory
+X.
+X.
+X+                *******************************************
+X+                ********** Start of BBS Software **********
+X+                ****** Last Update  --   Apr 10, 92 *******
+X+                ************** Version 7.101 **************
+X+                *******************************************
+X+                *    Be sure that you have the .newsrc    *
+X+                *    file in ORGPATH for USENET access    *
+X+                *******************************************
+X.
+X.
+X+ Starting with version 7.6.0, "if you can see it, you can do it!" Commands
+X+ that are not allowed because of your privilege level will now not be made
+X+ known through the menu.
+X.
+X+     Starting with Version 7.101, you can NOW run this code under SysV.4
+X.
+X+     Starting with version 7.200, you no longer need an erternal arc 
+X+                             or unzip program.
+X.
+X+   Please note that ALL executables within this directory are for Xenix-386
+X.
+X+        For SCO Unix Sys5.3.2, Use Makefile.386 and NOT Makefile.SYSV
+X.
+X.
+XALLbbs.tar.Z All the files in this directory
+X. except the kermit files, rzsz318.tar.Z,
+X. locking.h, and compress/zcat
+X. ( external arc and unzip is
+X. no longer needed )
+X. for SCO/IBM Xenix SysV
+X. Version 7.200 - Aug 15, 1992 )
+X. For non-Xenix systems, you will need to
+X. download the file, locking.h, which is
+X. not included in this overall file.
+X. *** Contains the NEW msg packing code. ***
+X.
+X.
+XConfig.bbs My .config.bbs!
+X. Please note that this file is NOT included
+X. in the overall TAR file and is only here
+X. as an example.
+X. ( Version 7.89 )
+X. Modified on 03/09/90
+X.
+XMAKEbbs Description on how to make the BBS
+X. New version!
+X.
+XMAKEquestion Description on how to make your 
+X. questionnaire. New 3/16/87
+X.
+XMAKEfeatures Description on how to make your
+X. features.bbs file. New 3/22/87 (Ver 2.5)
+X.
+XMAKElistfile Description on how to make your
+X. listfile.bbs file. New 4/27/87 (Ver 2.8)
+X.
+XMAKEmsg.bbs How to make your daily messages.
+X. (optional feature --- 9/2/87 (Ver 4.10)
+X.
+XMAKEsig How to set up the NEW SIG option
+X. Version 7.51
+X.
+XMAKE_areas.bbs Description on how to make areas.bbs
+X.
+XMAKE_files.bbs Description on how to make files.bbs
+X. Modified on Apr 1, 1987 for new command
+X.
+XMAKE_msg.bbs Description on how to make msgareas.bbs
+X.
+XMakefile.386 Makefile for BBS
+X. for Xenix 386 and SCO Unix
+X.
+XMakefile.SVR4B Makefile for SVR4 (Big Endian)
+X.
+XMakefile.SVR4L Makefile for SVR4 (Little Endian)
+X.
+XMakefile.SYSV Makefile for SYSV
+X. For SCO Unix, use Makefile.386
+X.
+XMakefile.3B1 Makefile for the 3B1
+X.
+XSep02.msg Example of a daily message.
+X. This message would/will be
+X. displayed on September 2.
+X. (Optional) New for Ver 4.10
+X.
+Xallign.tar.Z Utility to make USERS file
+X. compatible with vi for editing
+X. ( Xenix executable included )
+X. ( 16 bit compression )
+X. Modified on 7/22/87 for 4.00 format
+X.
+Xareas.bbs Example of the file area file
+X.
+X. ***********************************
+Xbbsc1 Executable file for Xenix386
+X. Version 7.200
+X. ***********************************
+X.
+Xbbsc12.h.Z One of the files to make the BBS
+X. Version 7.200
+X.
+Xbbsc1.c.Z One of the files to make the BBS
+X. Version 7.200
+X.
+Xbbsc2.c.Z One of the files to make the BBS
+X. Version 7.99
+X.
+Xbbscadds.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscarc.c.Z One of the files to make the BBS
+X. Version 7.200 ( arc lister )
+X.
+Xbbscarea.c.Z One of the files to make the BBS
+X. Version 7.90
+X.
+Xbbscbult.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscconf.c.Z One of the files to make the BBS
+X. Version 7.101
+X.
+Xbbscdef.h.Z One of the files to make the BBS
+X. Version 7.91
+X.
+Xbbscfile.c.Z One of the files to make the BBS
+X. Version 7.92
+X.
+Xbbsclist.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscio.c.Z One of the files to make the BBS
+X. Version 5.10
+X. (Jan 11 - now is stdin buff)
+X. (Feb 01 - SIGINT = control-k)
+X.
+Xbbsclock.c.Z One of the files to make the BBS
+X. Version 7.101
+X.
+Xbbscmenu.c.Z One of the files to make the BBS
+X. Version 7.95
+X.
+Xbbscmisc.c.Z One of the files to make the BBS
+X. Version 7.91
+X.
+Xbbscmsga.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscport.c.Z One of the files to make the BBS
+X. Version 7.45
+X.
+Xbbscqust.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscsigs.c.Z One of the files to make the BBS
+X. Version 7.88
+X.
+Xbbscsumm.c.Z One of the files to make the BBS
+X. New for version 5.20
+X. (May 01 --- Modified for 6.00)
+X.
+Xbbscunzip.c.Z One of the files to make the BBS
+X. New for version 7.200
+X. ( zip file lister )
+X.
+Xbbsczip.c.Z One of the files to make the BBS
+X. Version 7.99
+X.
+Xbulletin.bbs An example of the bulletin file for the BBS
+X. New format as of version 2.4!
+X.
+Xchatbbs.tar.Z SYSOP'S chatting program for the BBS
+X. NOW compatible with SysV.4
+X.
+Xchecksum Executable form of checksum.c
+X.
+Xchecksum.c Xmodem-Checksum file for the BBS
+X. (Bug fixed on 10/7/86)
+X. (Modified on 5/20/87)
+X.
+Xcrc Executable form of crc.c
+X.
+Xcrc.c Xmodem-CRC file for the BBS
+X. (Bug fixed on 10/7/86)
+X. (Modified on 5/20/87)
+X.
+Xdlmsg.bbs An example of the download message sent
+X. to the user when he tries to download a file
+X. ( This is optional  1/7/87 )
+Xetc_profile An example of the modification to /etc/profile
+Xextra_info Extra information on how the bbs operates
+X.
+Xfeatures.bbs My features.bbs file
+X. New as of 3/22/87  Version 2.5
+X.
+Xfiles.bbs.ex An example of files.bbs for the BBS
+X. You can download this file to get a listing
+X. of all the files that are required to 
+X. make the BBS.
+X.
+Xfilepriv.bbs An example of filepriv.bbs for the BBS
+X.
+Xhelp.bbs The help file for the main menu
+X. Version 7.95
+X.
+Xhelpfile.bbs The help file for the file section
+X. Modified for version 7.80
+X.
+Xhelpmsg.bbs The help file for the message section
+X. Modified for version 7.41
+X.
+Xhelpsig.bbs The help file for the SIG section
+X. Version 7.84
+X.
+Xhumor.bbs An example of a humor file for the BBS
+X.
+Xinval_port.bbs An example file of the restricted
+X. sio line file. This file is optional
+X. and if it is not there, all lines
+X. are automatically available. With
+X. this file, you can reserve certain
+X. lines for NON-BBS use.
+X.
+Xkermit Compiled kermit for the BBS
+X. Sliding Windows!
+X.
+Xkermit.doc.Z Kermit documentation
+X.
+Xkermit.sld.tar Source code for Sliding Windows Kermit.
+X. ( internal files are compressed - 16 bit )
+X. ( Modifications done by Ken Brown )
+X. ( This is the version that is used by the bbs )
+X.
+Xlistfile.bbs My listfile.bbs - use as an example
+X. New for version 2.8
+X.
+Xlistuser.tar.Z My listuser program that is called
+X. by the A(dditional features) entry.
+X. Note: This is NOT presently in the
+X. overall tar file (ALLbbs.tar.Z).
+X.
+Xlocking.h An emulation of the Xenix function,
+X. locking. This file is ONLY for non-Xenix
+X. systems that wish to run this BBS. It
+X. is NOT included in the overall compressed
+X. tar file, ALLbbs.tar.Z.
+X. For 3b1, 3b2, etc, place this file on
+X. your system as /usr/include/sys/locking.h
+X. The conversion is handled by this
+X. include file; however, lock for read only
+X. is not supported and will do a complete
+X. lock on the file.
+X. Documentation for this file is included
+X. within the file as a long comment.
+X.
+Xmainpriv.bbs An example of mainpriv.bbs for the BBS
+X. Version 2.2 - Next to last entry is for chatting
+X. Version 2.3 - Last entry is for the questionnaire
+X. Version 2.5 - "A" is for A(dditional features
+X. Version 2.8 - "$" is for R(ead selected features)
+X. Version 4.33  "O" is added for c(O)nference
+X. Version 6.30 - "L" is added for L(ogged in)
+X. Version 7.22 - "I" is added for USENET ACCESS)
+X.
+Xmsgareas.bbs An example of msgareas.bbs for the BBS
+X.
+Xmsgpack.tar.Z Message "packing" "C" code
+X. Removes "deleted" messages from the msg base
+X. Contains its own Makefile
+X. The tar file is compressed 
+X. ( Brand new version..... 5/7/89 )
+X.
+Xpurge_mvfil.sh TWO utility SHELL SCRIPTS by
+X. Larry Dighera. One script allows you
+X. to purge your user files. The other
+X. allows you to move files from one
+X. directory to another (upload/download
+X. directories) along with their
+X. entry in files.bbs.
+X.
+Xpurguser.tar.Z A "C" program to purge the users file
+X. by Chuck Brandt.
+X.
+Xnewuser.bbs An example of a newusers file for the BBS
+X.
+Xquestion.bbs File which contains list of
+X. questionnaires to be presented to
+X. the user.
+X. New format for version 7.00
+X.
+Xquestion.qst My questionnaire
+X. Use as an example!
+X.
+Xrz Executable for receive zmodem
+X. (Make links to rx and rb)
+X. rx is not used by the bbs
+X. rb is used for Batch-ymodem
+X.
+Xrzsz318.tar.Z Ymodem & Zmodem for the BBS
+X. Xenix386 executables included
+X. New version 12/91
+X.
+Xsealink.tar.Z SEAlink protocal for XBBS
+X. New for Version 3.10 (7/13/87)
+X. Modified on 3/4/89
+X. ( Based on new SEA version 1.20 )
+X.
+Xsigs.bbs An example of the sigs.bbs file
+X.
+Xsigentry.bbs An example of a sigentry file
+X.
+Xsigwelcome.bbs An example of a sig welcome file
+X.
+Xsysop A sysops' utility shell script
+X. Written by Larry Dighera for XBBS
+X.
+Xsystem.bbs An example of the exit message for the BBS
+X.
+Xsystoggle An example of a SHELL SCRIPT to toggle
+X. the PRIVILEGES of the present user on the BBS
+X. This will set his time to MAXIMUM and his
+X. privilege to MAXIMUM. This is a toggle so that
+X. when it is issued again, it will return the
+X. old settings.
+X. ( This capability was added on Oct 14 )
+X. Modified on Feb 11 for multiuser operation
+X. (usage: systoggle 1A
+X. The 1A is the LAST 2 characters of the device
+X. This is ONLY an example and may be different
+X. on your system)
+X.
+Xsz Executable for send zmodem
+X. (make links to sx and sb)
+X. sx is not used by the bbs
+X. sb is for ymodem-batch (send)
+X.
+Xtoggle An example of a SHELL SCRIPT to toggle 
+X. the SYSOP's local monitoring of the BBS
+X. ( This capability was added on Sept 29 )
+X. Modified on Feb 11 for multiuser operation
+X. (usage: toggle 1A
+X. The 1A is the LAST 2 characters of the device
+X. This is ONLY an example and may be different
+X. on your system)
+X.
+Xtoday.tar.Z Required for the 'D' option in the main menu
+X. The compressed tar file contains its own Makefile
+X.
+Xunixmsg.bbs An example of the message that is sent to
+X. the BBS user when he opts to switch to Unix.
+X. This feature was added on 11/19 along with
+X. the removal of the internal message in the
+X. "C" code. This way, you can pass on any
+X. information that you desire.
+X.
+Xunzip20a.tar.Z Used to list the contents of .zip files
+X. Xenix386 executable included
+X.
+Xwelcome.bbs An example of a welcome message for the BBS
+X.
+Xxbbsgen.tar.Z NEW for version 2.00!
+X. This file generates the configuration file
+X. for the BBS. Now it is no longer necessary
+X. to recompile whenever this is a system
+X. configuration change!
+X. (Modified 9/02/87 for SHELL choice)
+X. (modified 9/10/87 for ZCAT & for msg scan)
+X. (modified 10/2/87 to initialize userpriv)
+X. (modified 11/5/87 for msg section help)
+X. (modified 12/2/87 for Zmodem)
+X. (modified 09/26/88 for Z/Ymodem)
+X. (modified 05/28/89 for .zip files)
+X. (modified 03/09/90 for USENET files)
+X. (modified 08/15/92 to bypass arc/unzip)
+X.
+Xymod Executable form of ymod.c
+X.
+Xymod.c Ymodem for the BBS
+X. (Modified on 5/20/87)
+X.
+X. 
+X. *****************************************
+X. ********** End of BBS Software **********
+X. *****************************************
+X~
+END_OF_FILE
+  if test 12527 -ne `wc -c <'files.bbs'`; then
+    echo shar: \"'files.bbs'\" unpacked with wrong size!
+  fi
+  # end of 'files.bbs'
+fi
+if test ! -d 'listuser' ; then
+    echo shar: Creating directory \"'listuser'\"
+    mkdir 'listuser'
+fi
+if test -f 'locking.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'locking.h'\"
+else
+  echo shar: Extracting \"'locking.h'\" \(2296 characters\)
+  sed "s/^X//" >'locking.h' <<'END_OF_FILE'
+X/*
+X
+X####### #     # #       #     #         ####### ####### ######
+X#     # ##    # #        #   #          #       #     # #     #
+X#     # # #   # #         # #           #       #     # #     #
+X#     # #  #  # #          #            #####   #     # ######
+X#     # #   # # #          #            #       #     # #   #
+X#     # #    ## #          #            #       #     # #    #
+X####### #     # #######    #            #       ####### #     #
+X
+X#     # ####### #     #         #     #
+X##    # #     # ##    #          #   #   ######  #    #     #    #    #
+X# #   # #     # # #   #           # #    #       ##   #     #     #  #
+X#  #  # #     # #  #  #  #####     #     #####   # #  #     #      ##
+X#   # # #     # #   # #           # #    #       #  # #     #      ##
+X#    ## #     # #    ##          #   #   #       #   ##     #     #  #
+X#     # ####### #     #         #     #  ######  #    #     #    #    #
+X
+X
+X          ####    #   #   ####    #####  ######  #    #   ####
+X         #         # #   #          #    #       ##  ##  #
+X          ####      #     ####      #    #####   # ## #   ####
+X              #     #         #     #    #       #    #       #
+X         #    #     #    #    #     #    #       #    #  #    #
+X          ####      #     ####      #    ######  #    #   ####
+X
+X   This as an attempt to emulate the 'locking' subroutine for non-Xenix
+X   systems. This has not been tested; however, it should work. One of
+X   the main differences is that Xenix can lock a file for writing;
+X   however, it can still be read ( LK_RLCK and LK_NBRLCK ). The only
+X   likely difference would be delays during a message read while
+X   another user is writing into the same message base.
+X   
+X   *************** ONLY FOR NON-XENIX SYSTEMS ********************
+X   This file should be added to the /usr/include/sys directory as locking.h
+X   *************** ONLY FOR NON-XENIX SYSTEMS ********************
+X
+X   Please report back to me how this emulation performs.
+X   Sanford Zelkovitz XBBS 714-821-9671
+X   ...........!ihnp4!hermix!ucla-an!alphacm!{root|sandy}
+X   ...........!ucbvax!ucivax!mickey!alphacm!{root|sandy}
+X*/
+X#include "/usr/include/unistd.h"
+X#define LK_UNLCK F_ULOCK
+X#define LK_LOCK F_LOCK
+X#define LK_NBLCK F_TLOCK
+X#define LK_RLCK F_LOCK
+X#define LK_NBRLCK F_TLOCK
+X#define locking lockf
+END_OF_FILE
+  if test 2296 -ne `wc -c <'locking.h'`; then
+    echo shar: \"'locking.h'\" unpacked with wrong size!
+  fi
+  # end of 'locking.h'
+fi
+if test ! -d 'msgpack' ; then
+    echo shar: Creating directory \"'msgpack'\"
+    mkdir 'msgpack'
+fi
+if test ! -d 'purguser' ; then
+    echo shar: Creating directory \"'purguser'\"
+    mkdir 'purguser'
+fi
+if test ! -d 'sealink' ; then
+    echo shar: Creating directory \"'sealink'\"
+    mkdir 'sealink'
+fi
+if test ! -d 'today' ; then
+    echo shar: Creating directory \"'today'\"
+    mkdir 'today'
+fi
+if test ! -d 'xbbsgen' ; then
+    echo shar: Creating directory \"'xbbsgen'\"
+    mkdir 'xbbsgen'
+fi
+echo shar: End of archive 1 \(of 11\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

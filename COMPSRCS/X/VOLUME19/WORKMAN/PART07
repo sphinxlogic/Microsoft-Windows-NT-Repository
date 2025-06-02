@@ -1,0 +1,1213 @@
+Newsgroups: comp.sources.x
+From: koreth@hyperion.com (Steven Grimm)
+Subject: v19i015:  workman - CD player for HP, Sun, DEC, Linux, Part07/09
+Message-ID: <1993Mar9.164437.1849@sparky.imd.sterling.com>
+X-Md4-Signature: bc3d9f015b26f5c1aa6ed011b227dedb
+Date: Tue, 9 Mar 1993 16:44:37 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: koreth@hyperion.com (Steven Grimm)
+Posting-number: Volume 19, Issue 15
+Archive-name: workman/part07
+Environment: X11R5 Xview3 HP Sun Dec Linux
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 9)."
+# Contents:  display.c
+# Wrapped by koreth@gerbilmeister on Thu Mar  4 10:04:51 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'display.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.c'\"
+else
+echo shar: Extracting \"'display.c'\" \(30562 characters\)
+sed "s/^X//" >'display.c' <<'END_OF_FILE'
+X/*
+X * @(#)display.c	1.61 12/17/92
+X *
+X * display.c - update the status indicators and other display elements.
+X */
+Xstatic char *ident = "@(#)display.c	1.61 12/17/92";
+X
+X#include <stdio.h>
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <xview/xview.h>
+X#include <xview/panel.h>
+X#include "workman_ui.h"
+X#include "struct.h"
+X
+Xvoid	continued();
+Xvoid	setup_itimer();
+Xvoid	init_stats();
+Xvoid	avoid_track();
+Xvoid	keep_settings();
+Xvoid	cd_volume();
+Xvoid	set_default_volume();
+Xchar *	listentry();
+Xchar *	trackname();
+Xint *	get_playlist();
+Xvoid	kill_stats();
+Xvoid	insert_into_playlist();
+Xvoid	scoot_stuff();
+Xint	switch_playlists();
+X
+Xextern Panel_item quitbutton;
+Xextern Rect	*track_rect;
+Xextern int	add_height, small_height, basic_spacing;
+X
+X/*
+X * Global object definitions.
+X */
+Xextern window1_objects	*Workman_window1;
+Xextern popup1_objects	*Workman_popup1;
+Xextern about_objects	*Workman_about;
+Xextern goodies_objects	*Workman_goodies;
+Xextern plpopup_objects	*Workman_plpopup;
+X
+Xextern int num_names, num_nalloc;
+Xextern int cur_track, cur_pos_abs, cur_pos_rel, cur_tracklen, cur_cdlen,
+X	cur_cdmode, cur_ntracks, cur_nsections, cur_lasttrack;
+Xextern int cur_frame;
+Xextern char *cur_cdname, *cur_artist;
+Xextern int displayed_track, pop_track, *pop_list, pop_listsize, pl_item,
+X	pl_listnum;
+Xextern char *empty;
+Xextern int min_lines;
+Xextern int mark_a, mark_b;
+Xextern int manual_volume;
+Xextern int window_is_open;
+Xextern int dont_retry;
+Xextern int dismiss_button;
+Xextern int show_titles;
+X
+X/*
+X * Change the icon label. 
+X */
+Xvoid
+Xicon_label(string)
+X	char	*string;
+X{
+X	Xv_opaque	icon;
+X
+X	icon = xv_get(Workman_window1->window1, FRAME_ICON);
+X	xv_set(icon, ICON_LABEL, string, NULL);
+X	xv_set(Workman_window1->window1, FRAME_ICON, icon, NULL);
+X}
+X
+X/*
+X * Center the track list.
+X */
+Xvoid
+Xcenter_tracks()
+X{
+X	Rect *tracks;
+X	int x, cwidth;
+X	
+X	cwidth = xv_get(Workman_window1->controls1, XV_WIDTH);
+X
+X	tracks = (Rect *) xv_get(Workman_window1->tracks, PANEL_ITEM_RECT);
+X	x = (cwidth - tracks->r_width) / 2;
+X	if (x < 0)
+X		x = 0;
+X	xv_set(Workman_window1->tracks, PANEL_ITEM_X, x, NULL);
+X}
+X
+Xstatic Xv_opaque *tracknames = NULL;
+X
+X/*
+X * Center all the read-only titles.
+X */
+Xvoid
+Xcenter_titles()
+X{
+X	Rect *message;
+X	int x, cwidth, i;
+X	
+X	cwidth = xv_get(Workman_window1->controls1, XV_WIDTH);
+X
+X	for (i = 0; num_nalloc && (i < num_nalloc); i++)
+X		if (tracknames[i] != XV_NULL)
+X		{
+X			message = (Rect *) xv_get(tracknames[i],
+X							PANEL_ITEM_RECT);
+X			x = (cwidth - message->r_width) / 2;
+X			if (x < 0)
+X				x = 0;
+X			xv_set(tracknames[i], PANEL_ITEM_X, x, NULL);
+X		}
+X}
+X
+X/*
+X * Find a polite place to split up a title line.  Search from right
+X * to left for each of these:
+X *
+X * 1. One of ",;-):]}" unless next char is the same (split point is next char)
+X * 2. One of "([{" unless prev char is the same
+X * 3. " "
+X *
+X * If none are found, split at the last character.
+X */
+Xint
+Xfind_polite_split(name, right)
+X	char	*name;
+X	int	right;
+X{
+X	int	i;
+X
+X	for (i = right; i >= right/2; i--)
+X		if ((name[i] == '-' || name[i] == ')' || name[i] == ':' ||
+X				name[i] == ']' || name[i] == '}' ||
+X				name[i] == ',' || name[i] == ';') &&
+X				name[i] != name[i + 1])
+X			return (i + 1);
+X	
+X	for (i = right; i > right/3; i--)
+X		if ((name[i] == '(' || name[i] == '[' || name[i] == '{') &&
+X				name[i] != name[i - 1])
+X			return (i);
+X	
+X	for (i = right; i >= 0; i--)
+X		if (name[i] == ' ')
+X			return (i);
+X	
+X	return (right);
+X}
+X
+X/*
+X * Put a line of track title onscreen.  If the line is too big to fit,
+X * split it up, attempting to do the split in a polite place if possible.
+X */
+Xvoid
+Xset_trackname(y, tnum, name, bold)
+X	int	*y, *tnum, bold;
+X	char	*name;
+X{
+X	char	c;
+X	int	i, jump;
+X	int	maxwidth = (int) xv_get(Workman_window1->controls1, XV_WIDTH) -
+X			basic_spacing * 2;
+X
+X	if (name == NULL)
+X		return;
+X	
+X	if (*tnum == num_nalloc)
+X	{
+X		if (tracknames == NULL)
+X			tracknames = (Xv_opaque *)malloc(++num_nalloc *
+X				sizeof(Xv_opaque));
+X		else
+X			tracknames = (Xv_opaque *)realloc(tracknames,
+X				++num_nalloc * sizeof(Xv_opaque));
+X		if (tracknames == NULL)
+X		{
+X			perror("set_trackname: tracknames");
+X			exit(1);
+X		}
+X
+X		tracknames[*tnum] = xv_create(Workman_window1->controls1,
+X			PANEL_MESSAGE, PANEL_ITEM_X, 0,
+X			XV_SHOW, FALSE, XV_HELP_DATA, "workman:tracknames",
+X			NULL);
+X		if (tracknames[*tnum] == XV_NULL)
+X		{
+X			perror("set_trackname: xv_create");
+X			exit(1);
+X		}
+X	}
+X
+X	xv_set(tracknames[*tnum], PANEL_LABEL_STRING, name, PANEL_LABEL_BOLD,
+X		bold, PANEL_ITEM_Y, *y, NULL);
+X	
+X	/*
+X	 * Wrap the name if it's too big.
+X	 */
+X	if ((int) xv_get(tracknames[*tnum], XV_WIDTH) > maxwidth)
+X	{
+X		i = strlen(name) / 2;
+X		jump = i / 2 + 1;
+X
+X		while (jump > 0)
+X		{
+X			c = name[i];
+X			name[i] = '\0';
+X			xv_set(tracknames[*tnum], PANEL_LABEL_STRING, name,
+X				NULL);
+X			if ((int) xv_get(tracknames[*tnum], XV_WIDTH) <
+X								maxwidth)
+X			{
+X				name[i] = c;
+X				i += jump;
+X			}
+X			else
+X			{
+X				name[i] = c;
+X				i -= jump;
+X			}
+X
+X			jump /= 2;
+X		}
+X
+X		i = find_polite_split(name, i - 1);
+X		c = name[i];
+X		name[i] = '\0';
+X		xv_set(tracknames[*tnum], PANEL_LABEL_STRING, name, NULL);
+X		name[i] = c;
+X
+X		*y += (int) xv_get(Workman_about->message3, XV_HEIGHT) +
+X			basic_spacing / 2;
+X		(*tnum)++;
+X
+X		set_trackname(y, tnum, name + i + (c == ' '), bold);
+X	}
+X	else
+X	{
+X		*y += (int) xv_get(Workman_about->message3, XV_HEIGHT) +
+X			basic_spacing / 2;
+X		(*tnum)++;
+X	}
+X}
+X
+X/*
+X * Preprocess a track name.  Split display lines up into 3 arrays of char*s,
+X * one for the CD title, one for the artist, and one for the track title.
+X * The program returns the three arrays and the number of elements in each.
+X * "spec" should be 0 to disallow special characters (+/@) and only stick
+X * entries in the title array.
+X *
+X * Note: the caller should free each array[0] and array when it's done.
+X *
+X * This routine is a mess.  It does way, way, way too much malloc()ing.
+X * And only fools tread willingly in the realm of the hideous triple pointer.
+X */
+Xvoid
+Xsplit_trackname(name, artist, nartist, cdname, ncdname, title, ntitle, spec)
+X	char	*name, ***artist, ***cdname, ***title;
+X	int	*nartist, *ncdname, *ntitle, spec;
+X{
+X	char	*c, *tmpbuf = NULL, ***list;
+X	int	*nlist;
+X
+X	if (spec)
+X	{
+X		*nartist = 0;
+X		*ncdname = 0;
+X		*cdname = NULL;
+X		*artist = NULL;
+X	}
+X	*ntitle = 0;
+X	*title = NULL;
+X
+X	/* Copy the name into a temporary buffer so we can mutilate it */
+X	strmcpy(&tmpbuf, name);
+X	name = tmpbuf;
+X
+X	while (*name != '\0')
+X	{
+X		if (*name == '+' && spec)
+X		{
+X			list = cdname;
+X			nlist = ncdname;
+X			name++;
+X		}
+X		else if (*name == '@' && spec)
+X		{
+X			list = artist;
+X			nlist = nartist;
+X			name++;
+X		}
+X		else
+X		{
+X			list = title;
+X			nlist = ntitle;
+X		}
+X
+X		if (*list == NULL)
+X		{
+X			/*
+X			 * There can't be more elements than strlen(name)/2+1,
+X			 * since it takes two characters just to delimit an
+X			 * element.  So we allocate that many elements to
+X			 * begin with.
+X			 */
+X			*list = (char **) malloc(sizeof (char *) *
+X				(strlen(name) / 2 + 1));
+X
+X			/*
+X			 * Each array's first element is really a pointer
+X			 * to a bunch of strings, one after the other,
+X			 * comprising that array's elements; the remaining
+X			 * elements point into that buffer.  Since the
+X			 * combined length of those strings can never
+X			 * exceed the remaining length of "name", it's
+X			 * safe to allocate that many characters at the
+X			 * start and not worry about growing the buffer
+X			 * later on.  This also makes freeing all the
+X			 * buffers easier.
+X			 */
+X			if (*list != NULL)
+X				**list = (char *) malloc(strlen(name) + 1);
+X		}
+X		else
+X		{
+X			/*
+X			 * Add another element to an array.  The new element
+X			 * will point just past the previous one's terminating
+X			 * '\0' (see above).
+X			 */
+X			(*list)[*nlist] = (*list)[*nlist - 1] +
+X					strlen((*list)[*nlist - 1]) + 1;
+X		}
+X			
+X		if (*list == NULL || **list == NULL)
+X		{
+X			perror("Couldn't expand list");
+X			exit(1);
+X		}
+X
+X		/* Search for a "//". */
+X		for (c = name; c[0] != '\0'; c++)
+X			if (c[0] == '/' && c[1] == '/')
+X				break;
+X
+X		/* No "//"?  End of the line! */
+X		if (c[0] == '\0')
+X		{
+X			strcpy((*list)[(*nlist)++], name);
+X			break;
+X		}
+X
+X		c[0] = '\0';
+X		strcpy((*list)[(*nlist)++], name);
+X		name = &c[2];
+X	}
+X
+X	free(tmpbuf);
+X}
+X
+X/*
+X * Search backwards for a particular line of a title/CD name/artist.
+X * Pass '@', '+', or '-' to determine which.
+X */
+Xchar *
+Xbacktitle(track, c, line)
+X	int	track, line;
+X	char	c;
+X{
+X	int	i, nartist = 0, ncdname = 0, ntrack = 0, *count;
+X	char	*p = NULL, **artist, **cdname, **title, ***list;
+X	static char *newname = NULL;
+X
+X	if (newname != NULL)
+X		free(newname);
+X	newname = NULL;
+X
+X	if (c == '+')
+X	{
+X		list = &cdname;
+X		count = &ncdname;
+X	}
+X	else if (c == '@')
+X	{
+X		list = &artist;
+X		count = &ntrack;
+X	}
+X	else
+X	{
+X		list = &title;
+X		count = &ntrack;
+X	}
+X
+X	for (i = track - 2; i > -1; i--)
+X	{
+X		split_trackname(trackname(i), &artist, &nartist, &cdname,
+X			&ncdname, &title, &ntrack, 1);
+X		
+X		if (*count <= line)
+X		{
+X			p = "";
+X			break;
+X		}
+X
+X		if ((*list)[line][0])
+X		{
+X			p = (*list)[line];
+X			break;
+X		}
+X
+X		if (nartist)
+X		{
+X			free(artist[0]);
+X			free(artist);
+X		}
+X		if (ncdname)
+X		{
+X			free(cdname[0]);
+X			free(cdname);
+X		}
+X		if (ntrack)
+X		{
+X			free(title[0]);
+X			free(title);
+X		}
+X	}
+X
+X	if (p == NULL)
+X		p = "";
+X	
+X	strmcpy(&newname, p);
+X
+X	if (nartist)
+X	{
+X		free(artist[0]);
+X		free(artist);
+X	}
+X	if (ncdname)
+X	{
+X		free(cdname[0]);
+X		free(cdname);
+X	}
+X	if (ntrack)
+X	{
+X		free(title[0]);
+X		free(title);
+X	}
+X
+X	return (newname);
+X}
+X
+X/*
+X * Update the track name, using "//" as a line delimiter.  Grow the number
+X * of tracks as necessary; never actually get rid of a message object, but
+X * rather hide all the unused ones.
+X */
+Xvoid
+Xnew_trackname_display(title, track)
+X	char	*title;
+X	int	track;
+X{
+X	int	tnum = 0, i, new_height, y, nartist, ncdname, ntitle;
+X	char	**artist, **cdname, **trackname, *scratch;
+X	static int old_height = 10, max_height = 0;
+X
+X	if (! show_titles)
+X		return;
+X
+X	if (title == NULL)
+X		title = show_titles > 0 ? "Unknown track name" : "";
+X
+X	for (i = 0; i < num_nalloc; i++)
+X		if (tracknames[i] != XV_NULL)
+X			xv_set(tracknames[i], XV_SHOW, FALSE, NULL);
+X
+X	split_trackname(title, &artist, &nartist, &cdname, &ncdname,
+X		&trackname, &ntitle, 1);
+X
+X	y = 10;
+X
+X	if (nartist)
+X		for (i = 0; i < nartist; i++)
+X			set_trackname(&y, &tnum, artist[i][0] == '\0' ?
+X				backtitle(track, '@', i) : artist[i], TRUE);
+X	else
+X	{
+X		scratch = (char *)xv_get(Workman_popup1->artist, PANEL_VALUE);
+X		if (! scratch[0] && show_titles > 0)
+X			scratch = "Unknown artist";
+X		split_trackname(scratch, NULL, NULL, NULL, NULL,
+X			&artist, &nartist, 0);
+X		for (i = 0; i < nartist; i++)
+X			set_trackname(&y, &tnum, artist[i], TRUE);
+X	}
+X
+X	if (artist != NULL)
+X	{
+X		y += basic_spacing / 2;
+X		free(artist[0]);
+X		free(artist);
+X	}
+X
+X	if (ncdname)
+X		for (i = 0; i < ncdname; i++)
+X			set_trackname(&y, &tnum, cdname[i][0] == '\0' ?
+X				backtitle(track, '+', i) : cdname[i], TRUE);
+X	else
+X	{
+X		scratch = (char *)xv_get(Workman_popup1->cdname, PANEL_VALUE);
+X		if (! scratch[0] && show_titles > 0)
+X			scratch = "Unknown CD name";
+X		split_trackname(scratch, NULL, NULL, NULL, NULL,
+X			&cdname, &ncdname, 0);
+X		for (i = 0; i < ncdname; i++)
+X			set_trackname(&y, &tnum, cdname[i], TRUE);
+X	}
+X
+X	if (cdname != NULL)
+X	{
+X		y += basic_spacing / 2;
+X		free(cdname[0]);
+X		free(cdname);
+X	}
+X
+X	if (ntitle)
+X	{
+X		for (i = 0; i < ntitle; i++)
+X			set_trackname(&y, &tnum,
+X				trackname[i][0] == '\0' ?
+X				backtitle(track, '-', i) : trackname[i], FALSE);
+X		y += basic_spacing / 2;
+X		free(trackname[0]);
+X		free(trackname);
+X	}
+X
+X	/*
+X	 * Now figure out how much to grow or shrink the display.  Always
+X	 * grow it if necessary; only shrink it if min_lines (-l option)
+X	 * is >= 0 and there were more than that many title lines before.
+X	 */
+X	tnum -= 2;	/* cd name and artist don't count at this point */
+X
+X	if (min_lines < 0)
+X		if (tnum < num_names)
+X			new_height = old_height;
+X		else
+X		{
+X			new_height = y;
+X			num_names = tnum;
+X		}
+X	else
+X		if (tnum < min_lines)
+X		{
+X			if (show_titles > 0 || min_lines || tnum != -2)
+X				new_height = (min_lines + 2) *
+X					((int)xv_get(Workman_about->message3,
+X					XV_HEIGHT) + basic_spacing / 2) +
+X					(basic_spacing / 2) * 3 + 10;
+X			else
+X				new_height = 10;
+X			num_names = min_lines;
+X		}
+X		else
+X		{
+X			new_height = y;
+X			num_names = tnum;
+X		}
+X
+X	scoot_stuff(new_height - old_height, 1);
+X
+X	center_titles();
+X
+X	for (i = 0; i < tnum + 2; i++)
+X		if (tracknames[i] != XV_NULL)	/* which it had better be */
+X			xv_set(tracknames[i], XV_SHOW, TRUE, NULL);
+X	
+X	old_height = new_height;
+X	if (new_height > max_height)
+X		max_height = new_height;
+X}
+X
+X/* A bunch of numbers for button labels. */
+Xchar **numbered_buttons = NULL;
+X
+X/*
+X * Update the per-track information.  This is called once every time we
+X * see we're on a new track.
+X */
+Xvoid
+Xnew_track(ip)
+Xwindow1_objects *ip;
+X{
+X	char	scratch[20];
+X
+X	if (cur_track <= 0)
+X		return;
+X	new_trackname_display(trackname(cur_track - 1)[0] ?
+X		trackname(cur_track - 1) : NULL, cur_track);
+X	xv_set(ip->songpos, PANEL_MIN_VALUE, 0, PANEL_MAX_VALUE, 
+X		tracklen(cur_track - 1), PANEL_INACTIVE, FALSE, PANEL_VALUE,
+X		cur_frame < cd->trk[cur_track - 1].start ? 0 : cur_pos_rel,
+X		NULL);
+X	sprintf(scratch, "%2d:%02d", tracklen(cur_track - 1) / 60,
+X		tracklen(cur_track - 1) % 60);
+X	xv_set(ip->tracklen, PANEL_LABEL_STRING, scratch, NULL);
+X	xv_set(ip->cdgauge, PANEL_MIN_VALUE, 0, PANEL_MAX_VALUE, get_runtime(),
+X		PANEL_INACTIVE, FALSE, NULL);
+X	sprintf(scratch, "%2d:%02d", get_runtime() / 60, get_runtime() % 60);
+X	xv_set(ip->cdlen, PANEL_LABEL_STRING, scratch, NULL);
+X	xv_set(ip->tracks, PANEL_VALUE, cur_track - 1, PANEL_CHOICE_STRING,
+X		cur_track - 1, numbered_buttons[cur_track - 1], NULL);
+X	xv_set(ip->cdgauge, PANEL_VALUE, cur_pos_abs, NULL);
+X	xv_set(Workman_goodies->split, PANEL_INACTIVE,
+X		cd->trk[cur_track - 1].data, NULL);
+X	xv_set(Workman_goodies->delete, PANEL_INACTIVE,
+X		cd->trk[cur_track - 1].section < 2, NULL);
+X	sprintf(scratch, "Track %d", cd->trk[cur_track - 1].track);
+X	if (cd->trk[cur_track - 1].section)
+X		sprintf(scratch + strlen(scratch), ".%d",
+X			cd->trk[cur_track - 1].section);
+X	icon_label(scratch);
+X	figure_volume(ip);
+X	displayed_track = cur_track;
+X}
+X
+X/*
+X * Update all the moving status indicators.
+X */
+Xvoid
+Xshow_stats(ip)
+Xwindow1_objects *ip;
+X{
+X	static char	trk_time[6], abs_time[6];
+X	static int	old_cdmode = -1;
+X	int		pos;
+X
+X/* If we're on a different track than we used to be, update the track info */
+X	if (displayed_track != cur_track && cur_cdmode != 5)
+X		new_track(ip);
+X
+X/* Update the current play mode */
+X	if (old_cdmode != cur_cdmode)
+X	{
+X		old_cdmode = cur_cdmode;
+X		xv_set(ip->mode, PANEL_VALUE, cur_cdmode, NULL);
+X	}
+X
+X	if (! window_is_open)
+X		return;
+X
+X/* Update the track timer and slider */
+X	if (displayed_track == -1)
+X		cur_tracklen = cur_cdlen;
+X
+X	if (xv_get(Workman_goodies->timemode_track, PANEL_VALUE) == 0)
+X		if (cur_track > 0 && cur_frame < cd->trk[cur_track - 1].start)
+X			(void) sprintf(trk_time, "-%1d:%02d", cur_pos_rel / 60,
+X				cur_pos_rel % 60);
+X		else
+X			(void) sprintf(trk_time, "%02d:%02d", cur_pos_rel / 60,
+X				cur_pos_rel % 60);
+X	else
+X	{
+X		pos = tracklen(cur_track - 1) - cur_pos_rel;
+X		if (pos < 0)	/* transitioning between tracks... */
+X			pos = 0;
+X		(void) sprintf(trk_time, "%02d:%02d", pos / 60, pos % 60);
+X	}
+X
+X	if (xv_get(Workman_goodies->timemode_cd, PANEL_VALUE) == 0)
+X		(void) sprintf(abs_time, "%02d:%02d", cur_pos_abs / 60,
+X			cur_pos_abs % 60);
+X	else
+X		(void) sprintf(abs_time, "%02d:%02d", (get_runtime() -
+X			cur_pos_abs) / 60, (get_runtime() - cur_pos_abs) % 60);
+X
+X	if (strcmp(trk_time, (char *)xv_get(ip->tracktimer,PANEL_LABEL_STRING)))
+X		xv_set(ip->tracktimer, PANEL_LABEL_STRING, trk_time, NULL);
+X	if ((cur_pos_rel % 5) == 0 && xv_get(ip->songpos, PANEL_VALUE) !=
+X								cur_pos_rel)
+X		xv_set(ip->songpos, PANEL_VALUE, (cur_track > 0 && cur_frame <
+X			cd->trk[cur_track - 1].start) ? 0 : cur_pos_rel, NULL);
+X
+X/* Update the CD gauge */
+X	if (strcmp(abs_time, (char *)xv_get(ip->cdtimer, PANEL_LABEL_STRING)))
+X		xv_set(ip->cdtimer, PANEL_LABEL_STRING, abs_time, NULL);
+X	if ((cur_pos_rel % 10) == 0 && xv_get(ip->cdgauge, PANEL_VALUE) !=
+X								cur_pos_abs)
+X		xv_set(ip->cdgauge, PANEL_VALUE, cur_pos_abs, NULL);
+X
+X/* Are we past the beginning of the a-b repeat block? */
+X	if (mark_a && cur_frame > mark_a)
+X	{
+X		if (xv_get(Workman_goodies->b, PANEL_INACTIVE) == TRUE)
+X			xv_set(Workman_goodies->b, PANEL_INACTIVE, FALSE, NULL);
+X	}
+X	else
+X		if (xv_get(Workman_goodies->b, PANEL_INACTIVE) == FALSE)
+X		{
+X			xv_set(Workman_goodies->b, PANEL_INACTIVE, TRUE, NULL);
+X			if (! xv_get(Workman_goodies->abrepeat, PANEL_VALUE))
+X				xv_set(Workman_goodies->blabel, PANEL_INACTIVE,
+X					TRUE, NULL);
+X		}
+X
+X	if (xv_get(Workman_goodies->a, PANEL_INACTIVE) == (cur_cdmode == 1 ||
+X		cur_cdmode == 3))
+X	{
+X		xv_set(Workman_goodies->a, PANEL_INACTIVE, cur_cdmode != 1 &&
+X			cur_cdmode != 3, NULL);
+X		if (cur_cdmode != 1 && cur_cdmode != 3)
+X			xv_set(Workman_goodies->b, PANEL_INACTIVE, TRUE, NULL);
+X	}
+X}
+X
+X/*
+X * Populate the numbered buttons.  This has to be done in a fairly stupid
+X * manner since XView doesn't copy choice strings to its own buffers.
+X */
+Xvoid
+Xfill_buttons()
+X{
+X	Xv_opaque t = Workman_window1->tracks;
+X	int	i, oldheight;
+X	char	temp[20];
+X
+X	xv_set(t, XV_SHOW, FALSE, NULL);
+X
+X	if (numbered_buttons != NULL)
+X	{
+X		for (i = 0; numbered_buttons[i]; i++)
+X			free(numbered_buttons[i]);
+X		free(numbered_buttons);
+X	}
+X
+X	numbered_buttons = (char **) calloc(cur_ntracks + 1, sizeof(char **));
+X	if (numbered_buttons == NULL)
+X	{
+X		perror("fill_buttons");
+X		exit(1);
+X	}
+X
+X	track_rect = (Rect *) xv_get(t, PANEL_ITEM_RECT);
+X	oldheight = track_rect->r_height;
+X
+X	xv_set(t, PANEL_CHOICE_STRINGS, " ", NULL, NULL);
+X
+X	for (i = 0; i < cur_ntracks; i++)
+X	{
+X		if (cd->trk[i].section)
+X			sprintf(temp, "%2d.%d", cd->trk[i].track,
+X				cd->trk[i].section);
+X		else
+X			sprintf(temp, "%*d", cur_nsections ? 3 : 2,
+X				cd->trk[i].track);
+X		
+X		numbered_buttons[i] = (char *) malloc(strlen(temp) + 1);
+X		if (numbered_buttons[i] == NULL)
+X		{
+X			perror("fill_buttons");
+X			exit(1);
+X		}
+X		strcpy(numbered_buttons[i], temp);
+X
+X		xv_set(t, PANEL_CHOICE_STRING, i, numbered_buttons[i], NULL);
+X	}
+X
+X	numbered_buttons[i] = NULL;
+X
+X	xv_set(t, PANEL_CHOICE_NROWS, 1, NULL);
+X	i = 1;
+X	while (xv_get(t, XV_WIDTH) + 5 >= xv_get(Workman_window1->controls1,
+X								XV_WIDTH))
+X		xv_set(t, PANEL_CHOICE_NROWS, ++i, NULL);
+X
+X	center_tracks();
+X
+X	track_rect = (Rect *) xv_get(t, PANEL_ITEM_RECT);
+X	add_height = track_rect->r_height - small_height;
+X	scoot_stuff(track_rect->r_height - oldheight, 0);
+X
+X	xv_set(t, XV_SHOW, TRUE, NULL);
+X}
+X
+X/*
+X * Set the CD length gauge to the right length for the whole CD.
+X */
+Xvoid
+Xreset_cdlen(ip)
+Xwindow1_objects *ip;
+X{
+X	char	scratch[16];
+X
+X	xv_set(ip->cdgauge, PANEL_MIN_VALUE, 0, PANEL_MAX_VALUE, get_runtime(),
+X		PANEL_INACTIVE, FALSE, NULL);
+X	sprintf(scratch, "%2d:%02d", get_runtime() / 60, get_runtime() % 60);
+X	xv_set(ip->cdlen, PANEL_LABEL_STRING, scratch, NULL);
+X}
+X
+X/*
+X * Fill up the track scrolling list and the track number menu.
+X */
+Xvoid
+Xfill_lists()
+X{
+X	popup1_objects	*pu = Workman_popup1;
+X	plpopup_objects	*pl = Workman_plpopup;
+X	int i;
+X
+X	xv_set(pu->tracklist, XV_SHOW, FALSE, NULL);
+X	for (i = 0; i < cur_ntracks; i++)
+X	{
+X		xv_set(xv_get(pl->playlist, PANEL_ITEM_MENU), MENU_APPEND_ITEM,
+X			xv_create(XV_NULL, MENUITEM, MENU_NOTIFY_PROC,
+X			insert_into_playlist, MENU_RELEASE,
+X			MENU_STRING, numbered_buttons[i], XV_KEY_DATA, 1234, i +
+X			1, NULL), NULL);
+X		xv_set(pu->tracklist, PANEL_LIST_INSERT, i, NULL);
+X		xv_set(pu->tracklist, PANEL_LIST_STRING, i, listentry(i), NULL);
+X	}
+X
+X	xv_set(pu->tracklist, XV_SHOW, TRUE, NULL);
+X
+X	xv_set(xv_get(pl->playlist, PANEL_ITEM_MENU), MENU_NCOLS,
+X		xv_get(Workman_window1->tracks, PANEL_CHOICE_NROWS), NULL);
+X}
+X
+X/*
+X * Initialize all the status indicators (a new CD has been inserted.)
+X * This only initializes the static values; the rest are done by show_stats().
+X */
+Xvoid
+Xinit_stats(ip)
+Xwindow1_objects *ip;
+X{
+X	popup1_objects	*pu = Workman_popup1;
+X	plpopup_objects	*pl = Workman_plpopup;
+X	int i;
+X	Panel_setting update_title();
+X
+X	reset_cdlen(ip);
+X	xv_set(ip->mode, PANEL_VALUE, 4, NULL);
+X	icon_label("Stop");
+X	xv_set(pu->artist, PANEL_VALUE, cur_artist, PANEL_INACTIVE, FALSE,
+X		NULL);
+X	xv_set(pu->cdname, PANEL_VALUE, cur_cdname, PANEL_INACTIVE, FALSE,
+X		NULL);
+X	for (i = 0; i < num_nalloc; i++)
+X		if (tracknames[i] != XV_NULL)
+X			xv_set(tracknames[i], PANEL_INACTIVE, FALSE, NULL);
+X#ifndef hpux
+X	xv_set(ip->volume, PANEL_INACTIVE, FALSE, NULL);
+X#endif
+X	xv_set(ip->songpos, PANEL_INACTIVE, FALSE, NULL);
+X	update_title(pu->cdname, NULL);
+X	xv_set(pu->tracklist, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->trackname, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->trackoptions, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->autoplay, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pl->playlist, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pl->playlists, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pl->listname, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pl->button7, PANEL_INACTIVE, FALSE, NULL);
+X#ifndef hpux
+X	xv_set(pu->whichvolume, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->defaultvolume, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->defaultspeaker, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(Workman_goodies->balance, PANEL_INACTIVE, FALSE, NULL);
+X#endif
+X	xv_set(Workman_goodies->indexscan, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->playmode, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->button1, PANEL_INACTIVE, FALSE, NULL);
+X	xv_set(pu->button8, PANEL_INACTIVE, FALSE, NULL);
+X	fill_buttons(ip);
+X	fill_lists();
+X
+X	xv_set(ip->tracks, PANEL_CHOOSE_ONE, TRUE, PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_VALUE, -1, NULL);
+X	xv_set(pu->whichvolume, PANEL_VALUE, 0, PANEL_DEFAULT_VALUE, 1, NULL);
+X	xv_set(pu->defaultvolume, PANEL_VALUE, get_default_volume(0), NULL);
+X	set_default_volume(pu->defaultvolume, get_default_volume(0), NULL);
+X	xv_set(pu->tracklist, PANEL_LIST_SELECT, 0, TRUE, NULL);
+X	update_trackname(pu->trackname, NULL, trackname(0),
+X		PANEL_LIST_OP_SELECT, NULL, 0);
+X
+X	if (cd->lists != NULL)
+X	{
+X		for (i = 0; cd->lists[i].name != NULL; i++)
+X		{
+X			xv_set(ip->shuffle, PANEL_CHOICE_STRING, i + 2,
+X				cd->lists[i].name, NULL);
+X			xv_set(pl->playlists, PANEL_LIST_INSERT, i,
+X				PANEL_LIST_STRING, i, cd->lists[i].name, NULL);
+X		}
+X
+X		(void) switch_playlists(pl->playlists, NULL, NULL,
+X			PANEL_LIST_OP_SELECT, NULL, 0);
+X	}
+X	else
+X		pop_listsize = 0;
+X
+X	xv_set(ip->shuffle, PANEL_VALUE, get_playmode(), PANEL_DEFAULT_VALUE,
+X		(get_playmode() + 1) % (cd->lists == NULL ? 2 : i + 2), NULL);
+X	next_playmode_default(ip->shuffle, get_playmode(), NULL);
+X
+X	xv_set(pu->autoplay, PANEL_VALUE, get_autoplay(), NULL);
+X	xv_set(pu->playmode, PANEL_VALUE, get_playmode(), NULL);
+X
+X	displayed_track = -1;
+X	cur_cdmode = 4;
+X}
+X
+X/*
+X * Clean out the lists/menus that contain track numbers.
+X */
+Xvoid
+Xcleanout_lists()
+X{
+X	popup1_objects	*pu = Workman_popup1;
+X	plpopup_objects	*pl = Workman_plpopup;
+X	Menu			m;
+X	int i;
+X
+X	xv_set(pu->tracklist, XV_SHOW, FALSE, NULL);
+X	i = xv_get(pu->tracklist, PANEL_LIST_NROWS);
+X	m = (Menu) xv_get(pl->playlist, PANEL_ITEM_MENU);
+X	while (--i > -1)
+X	{
+X		xv_set(m, MENU_REMOVE, i + 2, NULL);
+X		xv_set(pu->tracklist, PANEL_LIST_DELETE, i, NULL);
+X	}
+X	xv_set(pu->tracklist, XV_SHOW, TRUE, NULL);
+X}
+X
+X/*
+X * CD has been ejected.  Remove all the status information.
+X */
+Xvoid
+Xkill_stats(ip)
+Xwindow1_objects *ip;
+X{
+X	popup1_objects	*pu = Workman_popup1;
+X	plpopup_objects	*pl = Workman_plpopup;
+X	int		i;
+X
+X	/* If stats are already killed, don't kill 'em again */
+X	if (xv_get(ip->songpos, PANEL_INACTIVE) == TRUE)
+X		return;
+X
+X	xv_set(ip->songpos, PANEL_INACTIVE, TRUE, PANEL_VALUE, 0, NULL);
+X	xv_set(ip->cdgauge, PANEL_INACTIVE, TRUE, PANEL_VALUE, 0, NULL);
+X	xv_set(pu->artist, PANEL_INACTIVE, TRUE, PANEL_VALUE, "No artist",
+X		NULL);
+X	xv_set(pu->cdname, PANEL_INACTIVE, TRUE, PANEL_VALUE, "No CD name",
+X		NULL);
+X	new_trackname_display("", 0);
+X	for (i = 0; i < num_nalloc; i++)
+X		if (tracknames[i] != XV_NULL)
+X			xv_set(tracknames[i], PANEL_INACTIVE, TRUE, NULL);
+X
+X	xv_set(ip->volume, PANEL_INACTIVE, TRUE, NULL);
+X
+X	icon_label("No CD");
+X
+X	cleanout_lists();
+X
+X	xv_set(pl->playlist, XV_SHOW, FALSE, NULL);
+X	i = xv_get(pl->playlist, PANEL_LIST_NROWS);
+X	while (--i > -1)
+X		xv_set(pl->playlist, PANEL_LIST_DELETE, i, NULL);
+X	xv_set(pl->playlist, XV_SHOW, TRUE, NULL);
+X
+X	i = xv_get(pl->playlists, PANEL_LIST_NROWS);
+X	while (--i > -1)
+X	{
+X		xv_set(pl->playlists, PANEL_LIST_DELETE, i, NULL);
+X	}
+X
+X	xv_set(pu->tracklist, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->trackname, PANEL_INACTIVE, TRUE, PANEL_VALUE, empty, NULL);
+X	xv_set(pu->trackoptions, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->autoplay, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->playlist, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->playlists, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->listname, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->delete, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->button5, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->button6, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pl->button7, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->balance, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->a, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->b, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->alabel, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->blabel, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->abrepeat, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->split, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->delete, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(Workman_goodies->indexscan, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->whichvolume, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->defaultvolume, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->defaultspeaker, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->playmode, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->button1, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(pu->button8, PANEL_INACTIVE, TRUE, NULL);
+X	xv_set(ip->tracks, PANEL_CHOICE_STRINGS, "No CD in drive", NULL, NULL);
+X	xv_set(ip->tracktimer, PANEL_LABEL_STRING, "00:00", NULL);
+X	xv_set(ip->cdtimer, PANEL_LABEL_STRING, "00:00", NULL);
+X	xv_set(ip->tracklen, PANEL_LABEL_STRING, "0:00", NULL);
+X	xv_set(ip->cdlen, PANEL_LABEL_STRING, "0:00", NULL);
+X	xv_set(ip->shuffle, PANEL_CHOICE_STRINGS, "Normal", "Shuffle",
+X		NULL, PANEL_VALUE, 0, PANEL_DEFAULT_VALUE, 1, NULL);
+X	center_tracks();
+X
+X	if (track_rect != NULL)
+X		scoot_stuff(-add_height, 0);
+X
+X	pop_track = 0;
+X	pl_item = -1;
+X	displayed_track = 0;
+X	mark_a = mark_b = 0;
+X	manual_volume = 0;
+X}
+X
+X/*
+X * Event interpose function.  Update window_is_open and a bunch of the
+X * quiescent displays.  Check for a CD if we aren't polling the player
+X * and there wasn't a CD before.
+X */
+XNotify_value
+Xcheck_open(f, event, arg, type)
+X	Frame			f;
+X	Notify_event		event;
+X	Notify_arg		arg;
+X	Notify_event_type 	type;
+X{
+X	Notify_value	val;
+X	int		was_opened = window_is_open;
+X	int		old_retry;
+X
+X	val = (Notify_value) notify_next_event_func(f, event, arg, type);
+X	window_is_open = ! xv_get(f, FRAME_CLOSED);
+X
+X	if (window_is_open && ! was_opened)
+X	{
+X		show_stats(Workman_window1);
+X		xv_set(Workman_window1->cdgauge, PANEL_VALUE, cur_pos_abs,
+X			NULL);
+X		xv_set(Workman_window1->songpos, PANEL_VALUE, cur_pos_rel,
+X			NULL);
+X
+X		if (dont_retry && cur_cdmode == 5)
+X		{
+X			old_retry = dont_retry;
+X			dont_retry = 0;
+X			handle_timer(Workman_window1->window1, 0);
+X			dont_retry = old_retry;
+X		}
+X	}
+X
+X	return (val);
+X}
+X
+X/*
+X * Scoot stuff in the main window up or down, as appropriate.  Pass a code for
+X * the topmost thing to scoot (0 = sliders, 1 = tracks) and the distance to
+X * scoot, with negative meaning scoot up.
+X */
+Xvoid
+Xscoot_stuff(distance, topmost)
+X	int	distance, topmost;
+X{
+X#define ip Workman_window1
+X	if (distance < 0)
+X	{
+X		xv_set(ip->window1, XV_HEIGHT, xv_get(ip->window1,
+X			XV_HEIGHT) + distance, NULL);
+X		if (topmost >= 1)
+X			xv_set(ip->tracks, PANEL_ITEM_Y, xv_get(ip->tracks,
+X				PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->tracktimer, PANEL_ITEM_Y, xv_get(ip->tracktimer,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->songpos, PANEL_ITEM_Y, xv_get(ip->songpos,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->tracklen, PANEL_ITEM_Y, xv_get(ip->tracklen,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->speaker, PANEL_ITEM_Y, xv_get(ip->speaker,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->volume, PANEL_ITEM_Y, xv_get(ip->volume,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->mode, PANEL_ITEM_Y, xv_get(ip->mode,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->repeat, PANEL_ITEM_Y, xv_get(ip->repeat,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->shuffle, PANEL_ITEM_Y, xv_get(ip->shuffle,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdtimer, PANEL_ITEM_Y, xv_get(ip->cdtimer,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdgauge, PANEL_ITEM_Y, xv_get(ip->cdgauge,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdlen, PANEL_ITEM_Y, xv_get(ip->cdlen,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button4, PANEL_ITEM_Y, xv_get(ip->button4,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button3, PANEL_ITEM_Y, xv_get(ip->button3,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button2, PANEL_ITEM_Y, xv_get(ip->button2,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		if (dismiss_button)
+X			xv_set(quitbutton, PANEL_ITEM_Y, xv_get(quitbutton,
+X				PANEL_ITEM_Y) + distance, NULL);
+X	}
+X	else if (distance > 0)
+X	{
+X		xv_set(ip->window1, XV_HEIGHT, xv_get(ip->window1,
+X			XV_HEIGHT) + distance, NULL);
+X		if (dismiss_button)
+X			xv_set(quitbutton, PANEL_ITEM_Y, xv_get(quitbutton,
+X				PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button4, PANEL_ITEM_Y, xv_get(ip->button4,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button3, PANEL_ITEM_Y, xv_get(ip->button3,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->button2, PANEL_ITEM_Y, xv_get(ip->button2,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdtimer, PANEL_ITEM_Y, xv_get(ip->cdtimer,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdgauge, PANEL_ITEM_Y, xv_get(ip->cdgauge,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->cdlen, PANEL_ITEM_Y, xv_get(ip->cdlen,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->volume, PANEL_ITEM_Y, xv_get(ip->volume,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->speaker, PANEL_ITEM_Y, xv_get(ip->speaker,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->mode, PANEL_ITEM_Y, xv_get(ip->mode,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->shuffle, PANEL_ITEM_Y, xv_get(ip->shuffle,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->repeat, PANEL_ITEM_Y, xv_get(ip->repeat,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->tracktimer, PANEL_ITEM_Y, xv_get(ip->tracktimer,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->songpos, PANEL_ITEM_Y, xv_get(ip->songpos,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		xv_set(ip->tracklen, PANEL_ITEM_Y, xv_get(ip->tracklen,
+X			PANEL_ITEM_Y) + distance, NULL);
+X		if (topmost >= 1)
+X			xv_set(ip->tracks, PANEL_ITEM_Y, xv_get(ip->tracks,
+X				PANEL_ITEM_Y) + distance, NULL);
+X	}
+X}
+X#undef ip
+END_OF_FILE
+if test 30562 -ne `wc -c <'display.c'`; then
+    echo shar: \"'display.c'\" unpacked with wrong size!
+fi
+# end of 'display.c'
+fi
+echo shar: End of archive 7 \(of 9\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

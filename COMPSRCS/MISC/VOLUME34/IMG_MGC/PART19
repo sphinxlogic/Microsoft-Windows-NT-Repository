@@ -1,0 +1,1641 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i047:  imagemagick - X11 image processing and display v2.2, Part19/26
+Message-ID: <1992Dec15.035656.22715@sparky.imd.sterling.com>
+X-Md4-Signature: 3cb5459905553228c1861db89866fa68
+Date: Tue, 15 Dec 1992 03:56:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 47
+Archive-name: imagemagick/part19
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.19 (part 19 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/animate.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 19; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/animate.c'
+else
+echo 'x - continuing file ImageMagick/animate.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/animate.c' &&
+X            XSetWindowBackgroundPixmap(display,window->icon.id,
+X              window->icon.pixmap);
+X            XClearWindow(display,window->icon.id);
+X            break;
+X          }
+X        break;
+X      }
+X      case MappingNotify:
+X      {
+X        XRefreshKeyboardMapping(&event.xmapping);
+X        break;
+X      }
+X      case ReparentNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Reparent Notify: 0x%lx=>0x%lx\n",
+X            event.xreparent.parent,event.xreparent.window);
+X        break;
+X      }
+X      case UnmapNotify:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Unmap Notify: 0x%lx\n",event.xunmap.window);
+X        if (event.xunmap.window == window->info.id)
+X          {
+X            state&=(~InfoMappedState);
+X            break;
+X          }
+X        break;
+X      }
+X      default:
+X      {
+X        if (resource_info->debug)
+X          (void) fprintf(stderr,"Event type: %d\n",event.type);
+X        break;
+X      }
+X    }
+X  }
+X  while (!(state & ExitState));
+X  /*
+X    Free X resources.
+X  */
+X  (void) free((char *) window->image.name);
+X  (void) free((char *) window->image.icon_name);
+X  if (resource_info->backdrop)
+X    XFreeCursor(display,window->backdrop.cursor);
+X  XFreeGC(display,window->superclass.graphic_context);
+X  XFreeGC(display,window->superclass.highlight_context);
+X  XFreeFont(display,font_info);
+X  /*
+X    Destroy X windows.
+X  */
+X  for (i=0; i < number_windows; i++)
+X  {
+X    if (magick_windows[i]->id != (Window) NULL)
+X      XDestroyWindow(display,magick_windows[i]->id);
+X    if (magick_windows[i]->ximage != (XImage *) NULL)
+X      XDestroyImage(magick_windows[i]->ximage);
+X    if (magick_windows[i]->pixmap != (Pixmap) NULL)
+X      XFreePixmap(display,magick_windows[i]->pixmap);
+X  }
+X  for (scene=0; scene < number_scenes; scene++)
+X  {
+X    XFreePixmap(display,window->image.pixmaps[scene]);
+X    DestroyImage(images[scene]);
+X  }
+X  (void) free((char *) window->image.pixmaps);
+X  /*
+X    Free Standard Colormap.
+X  */
+X  if (resource_info->map_type == (char *) NULL)
+X    XFreeStandardColormap(display,visual_info,&pixel_info,map_info);
+X  XFreeCursor(display,arrow_cursor);
+X  XFreeCursor(display,watch_cursor);
+X  (void) free((void *) window);
+X  XFree((void *) manager_hints);
+X  XFree((void *) class_hint);
+X  XFree((void *) visual_info);
+X  XFree((void *) map_info);
+X  visual_info=(XVisualInfo *) NULL;
+X  XFlush(display);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%    M a i n                                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  **argv;
+{
+X  AlienInfo
+X    alien_info;
+X
+X  char
+X    *clip_geometry,
+X    *option,
+X    *resource_value,
+X    *scale_geometry,
+X    *server_name;
+X
+X  Display
+X    *display;
+X
+X  double
+X    gamma;
+X
+X  Image
+X    **images;
+X
+X  int
+X    degrees,
+X    i,
+X    x;
+X
+X  unsigned int
+X    image_number,
+X    maximum_images,
+X    reflect,
+X    verbose;
+X
+X  XResourceInfo
+X    resource_info;
+X
+X  XrmDatabase
+X    resource_database,
+X    server_database;
+X
+X  /*
+X    Display usage profile if there are no command line arguments.
+X  */
+X  application_name=(*argv);
+X  if (argc < 2)
+X    Usage(True);
+X  /*
+X    Set defaults.
+X  */
+X  GetAlienInfo(&alien_info);
+X  clip_geometry=(char *) NULL;
+X  degrees=0;
+X  display=(Display *) NULL;
+X  gamma=0.0;
+X  reflect=False;
+X  scale_geometry=(char *) NULL;
+X  server_name=(char *) NULL;
+X  verbose=False;
+X  maximum_images=2048;
+X  images=(Image **) malloc(maximum_images*sizeof(Image *));
+X  if (images == (Image **) NULL)
+X    Error("unable to animate images","memory allocation failed");
+X  /*
+X    Check for server name specified on the command line.
+X  */
+X  for (i=1; i < argc; i++)
+X  {
+X    /*
+X      Check command line for server name.
+X    */
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      if (strncmp("display",option+1,3) == 0)
+X        {
+X          /*
+X            User specified server name.
+X          */
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing server name on -display",(char *) NULL);
+X              server_name=argv[i];
+X              break;
+X            }
+X        }
+X  }
+X  /*
+X    Open X server connection.
+X  */
+X  display=XOpenDisplay(server_name);
+X  if (display == (Display *) NULL)
+X    Error("unable to connect to X server",XDisplayName(server_name));
+X  /*
+X    Set our forgiving error handler.
+X  */
+X  XSetErrorHandler(XError);
+X  /*
+X    Initialize resource database.
+X  */
+X  XrmInitialize();
+X  resource_database=XrmGetDatabase(display);
+X  resource_value=XResourceManagerString(display);
+X  if (resource_value == (char *) NULL)
+X    resource_value="";
+X  server_database=XrmGetStringDatabase(resource_value);
+X  XrmMergeDatabases(server_database,&resource_database);
+X  /*
+X    Get user defaults from X resource database.
+X  */
+X  XGetResourceInfo(resource_database,application_name,&resource_info);
+X  clip_geometry=XGetResource(resource_database,application_name,"clipGeometry",
+X    "ClipGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,application_name,"gamma",
+X    (char *) NULL,"0.0");
+X  gamma=atof(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,"reflect",
+X    (char *) NULL,"False");
+X  reflect=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,application_name,"rotate",
+X    (char *) NULL,"0");
+X  degrees=atoi(resource_value);
+X  scale_geometry=XGetResource(resource_database,application_name,
+X    "scaleGeometry","ScaleGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,application_name,"verbose",
+X    (char *) NULL,"False");
+X  verbose=IsTrue(resource_value);
+X  /*
+X    Parse command line.
+X  */
+X  image_number=0;
+X  for (i=1; i < argc; i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      switch (*(option+1))
+X      {
+X        case 'b':
+X        {
+X          if (strncmp("backdrop",option+1,5) == 0)
+X            {
+X              resource_info.backdrop=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("background",option+1,5) == 0)
+X            {
+X              resource_info.background_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -background",(char *) NULL);
+X                  resource_info.background_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("bordercolor",option+1,7) == 0)
+X            {
+X              resource_info.border_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -bordercolor",(char *) NULL);
+X                  resource_info.border_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("borderwidth",option+1,7) == 0)
+X            {
+X              resource_info.border_width=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing width on -borderwidth",(char *) NULL);
+X                  resource_info.border_width=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'c':
+X        {
+X          if (strncmp("clip",option+1,2) == 0)
+X            {
+X              clip_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -clip",(char *) NULL);
+X                  clip_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("colormap",option+1,6) == 0)
+X            {
+X              resource_info.colormap=PrivateColormap;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colormap",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colormap=UndefinedColormap;
+X                  if (Latin1Compare("private",option) == 0)
+X                    resource_info.colormap=PrivateColormap;
+X                  if (Latin1Compare("shared",option) == 0)
+X                    resource_info.colormap=SharedColormap;
+X                  if (resource_info.colormap == UndefinedColormap)
+X                    Error("invalid colormap type on -colormap",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("colors",option+1,7) == 0)
+X            {
+X              resource_info.number_colors=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing colors on -colors",(char *) NULL);
+X                  resource_info.number_colors=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("colorspace",option+1,7) == 0)
+X            {
+X              resource_info.colorspace=RGBColorspace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colorspace",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colorspace=UndefinedColorspace;
+X                  if (Latin1Compare("gray",option) == 0)
+X                    resource_info.colorspace=GRAYColorspace;
+X                  if (Latin1Compare("rgb",option) == 0)
+X                    resource_info.colorspace=RGBColorspace;
+X                  if (Latin1Compare("yiq",option) == 0)
+X                    resource_info.colorspace=YIQColorspace;
+X                  if (Latin1Compare("yuv",option) == 0)
+X                    resource_info.colorspace=YUVColorspace;
+X                  if (Latin1Compare("xyz",option) == 0)
+X                    resource_info.colorspace=XYZColorspace;
+X                  if (resource_info.colorspace == UndefinedColorspace)
+X                    Error("invalid colorspace type on -colorspace",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("debug",option+1,3) == 0)
+X            {
+X              resource_info.debug=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("delay",option+1,3) == 0)
+X            {
+X              resource_info.delay=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing seconds on -delay",(char *) NULL);
+X                  resource_info.delay=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("density",option+1,3) == 0)
+X            {
+X              alien_info.density=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing density on -density",(char *) NULL);
+X                  alien_info.density=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              alien_info.server_name=server_name;
+X              break;
+X            }
+X          if (strncmp("dither",option+1,3) == 0)
+X            {
+X              resource_info.dither=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'f':
+X        {
+X          if (strncmp("font",option+1,3) == 0)
+X            {
+X              resource_info.font=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing font name on -font",(char *) NULL);
+X                  resource_info.font=argv[i];
+X                }
+X              alien_info.font=resource_info.font;
+X              break;
+X            }
+X          if (strncmp("foreground",option+1,3) == 0)
+X            {
+X              resource_info.foreground_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing foreground on -foreground",(char *) NULL);
+X                  resource_info.foreground_color=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'g':
+X        {
+X          if (strncmp("gamma",option+1,2) == 0)
+X            {
+X              gamma=0.0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                    Error("missing gamma on -gamma",(char *) NULL);
+X                  gamma=atof(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("geometry",option+1,2) == 0)
+X            {
+X              resource_info.image_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -geometry",(char *) NULL);
+X                  resource_info.image_geometry=argv[i];
+X                }
+X              alien_info.geometry=resource_info.image_geometry;
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'h':
+X        {
+X          Usage(True);
+X          break;
+X        }
+X        case 'i':
+X        {
+X          if (strncmp("iconGeometry",option+1,5) == 0)
+X            {
+X              resource_info.icon_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -iconGeometry",(char *) NULL);
+X                  resource_info.icon_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("iconic",option+1,5) == 0)
+X            {
+X              resource_info.iconic=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'm':
+X        {
+X          if (strncmp("map",option+1,3) == 0)
+X            {
+X              resource_info.map_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing map type on -map",(char *) NULL);
+X                  resource_info.map_type=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("monochrome",option+1,2) == 0)
+X            {
+X              resource_info.monochrome=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'n':
+X        {
+X          resource_info.name=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing name on -name",(char *) NULL);
+X              resource_info.name=argv[i];
+X            }
+X          break;
+X        }
+X        case 'r':
+X        {
+X          if (strncmp("reflect",option+1,2) == 0)
+X            {
+X              reflect=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("rotate",option+1,3) == 0)
+X            {
+X              degrees=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing degrees on -rotate",(char *) NULL);
+X                  degrees=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 's':
+X        {
+X          scale_geometry=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                Error("missing scale geometry on -scale",(char *) NULL);
+X              scale_geometry=argv[i];
+X            }
+X          break;
+X        }
+X        case 't':
+X        {
+X          if (strncmp("title",option+1,2) == 0)
+X            {
+X              resource_info.title=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing title on -title",(char *) NULL);
+X                  resource_info.title=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("treedepth",option+1,2) == 0)
+X            {
+X              resource_info.tree_depth=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing depth on -treedepth",(char *) NULL);
+X                  resource_info.tree_depth=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'v':
+X        {
+X          if (strncmp("verbose",option+1,2) == 0)
+X            {
+X              verbose=(*option == '-');
+X              alien_info.verbose=verbose;
+X              break;
+X            }
+X          if (strncmp("visual",option+1,2) == 0)
+X            {
+X              resource_info.visual_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing visual class on -visual",(char *) NULL);
+X                  resource_info.visual_type=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        default:
+X        {
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X      }
+X    else
+X      {
+X        Image
+X          *image,
+X          info_image,
+X          *next_image;
+X
+X        time_t
+X          start_time;
+X
+X        unsigned long
+X          total_colors;
+X
+X        /*
+X          Option is a file name: begin by reading image from specified file.
+X        */
+X        start_time=time((time_t *) 0);
+X        (void) strcpy(alien_info.filename,option);
+X        image=ReadAlienImage(&alien_info);
+X        if (image == (Image *) NULL)
+X          if (*option == '-')
+X            break;
+X          else
+X            continue;
+X        do
+X        {
+X          info_image=(*image);
+X          /*
+X            Transform image as defined by the clip, image and scale geometries.
+X          */
+X          TransformImage(&image,clip_geometry,resource_info.image_geometry,
+X            scale_geometry);
+X          if (reflect)
+X            {
+X              Image
+X                *reflected_image;
+X
+X              /*
+X                Reverse image scanlines.
+X              */
+X              reflected_image=ReflectImage(image);
+X              if (reflected_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=reflected_image;
+X                }
+X            }
+X          if ((degrees % 360) != 0)
+X            {
+X              Image
+X                *rotated_image;
+X
+X              /*
+X                Rotate image.
+X              */
+X              rotated_image=RotateImage(image,(double) degrees,False);
+X              if (rotated_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=rotated_image;
+X                }
+X            }
+X          if (gamma > 0.0)
+X            GammaImage(image,gamma);
+X          if (verbose)
+X            {
+X              /*
+X                Initialize image error attributes.
+X              */
+X              if (image->class == DirectClass)
+X                image->colors=NumberColors(image);
+X              total_colors=image->colors;
+X            }
+X          if (resource_info.colorspace == GRAYColorspace)
+X            QuantizeImage(image,256,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.monochrome)
+X            QuantizeImage(image,2,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.number_colors > 0)
+X            if ((image->class == DirectClass) ||
+X                (image->colors > resource_info.number_colors))
+X              QuantizeImage(image,resource_info.number_colors,
+X                resource_info.tree_depth,resource_info.dither,
+X                resource_info.colorspace,True);
+X          if (verbose)
+X            {
+X              /*
+X                Display detailed info about the image.
+X              */
+X              (void) fprintf(stderr,"[%u] %s",
+X                image->scene == 0 ? image_number : image->scene,
+X                info_image.filename);
+X              (void) fprintf(stderr," %ux%u",info_image.columns,
+X                info_image.rows);
+X              if ((info_image.columns != image->columns) ||
+X                  (info_image.rows != image->rows))
+X                (void) fprintf(stderr,"=>%ux%u",image->columns,image->rows);
+X              if (image->class == DirectClass)
+X                (void) fprintf(stderr," DirectClass ");
+X              else
+X                (void) fprintf(stderr," PseudoClass ");
+X              if (total_colors != image->colors)
+X                (void) fprintf(stderr,"%lu=>",total_colors);
+X              (void) fprintf(stderr,"%uc",image->colors);
+X              if ((resource_info.number_colors > 0) || resource_info.monochrome)
+X                {
+X                  double
+X                    normalized_maximum_error,
+X                    normalized_mean_error;
+X
+X                  unsigned int
+X                    mean_error_per_pixel;
+X
+X                  /*
+X                    Measure quantization error.
+X                  */
+X                  QuantizationError(image,&mean_error_per_pixel,
+X                    &normalized_mean_error,&normalized_maximum_error);
+X                  (void) fprintf(stderr," %u/%.6f/%.6fe",mean_error_per_pixel,
+X                    normalized_mean_error,normalized_maximum_error);
+X                }
+X              (void) fprintf(stderr," %s %lds\n",image->magick,
+X                time((time_t *) 0)-start_time+1);
+X            }
+X          /*
+X            Pack image data to conserve memory (memory <=> speed).
+X          */
+X          image->alpha=False;
+X          (void) PackImage(image);
+X          (void) free((char *) image->pixels);
+X          image->pixels=(RunlengthPacket *) NULL;
+X          if (image_number == maximum_images)
+X            {
+X              /*
+X                Increase size of images array.
+X              */
+X              maximum_images<<=1;
+X              images=(Image **)
+X                realloc((char *) images,maximum_images*sizeof(Image *));
+X              if (images == (Image **) NULL)
+X                Error("unable to animate images","memory allocation failed");
+X            }
+X          images[image_number++]=image;
+X          next_image=image->next;
+X          if (next_image != (Image *) NULL)
+X            image=next_image;
+X        } while (next_image != (Image *) NULL);
+X      }
+X  }
+X  if (image_number == 0)
+X    Error("missing an image file name",(char *) NULL);
+X  XAnimateImage(display,&resource_info,argv,argc,images,image_number);
+X  (void) free((char *) images);
+X  XCloseDisplay(display);
+X  return(False);
+}
+SHAR_EOF
+echo 'File ImageMagick/animate.c is complete' &&
+chmod 0644 ImageMagick/animate.c ||
+echo 'restore of ImageMagick/animate.c failed'
+Wc_c="`wc -c < 'ImageMagick/animate.c'`"
+test 72608 -eq "$Wc_c" ||
+	echo 'ImageMagick/animate.c: original size 72608, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/miff.man ==============
+if test -f 'ImageMagick/miff.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/miff.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/miff.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/miff.man' &&
+.ad l
+.nh
+.TH MIFF 5 "10 October 1992" "ImageMagick"
+.SH NAME
+MIFF - ImageMagick's file format for raster images.
+.SH SYNOPSIS
+.B #include <image.h>
+.SH DESCRIPTION
+.PP
+A MIFF image file consist of two sections.  The first section is
+composed of keywords describing the image in text form.  The next
+section is the binary image data.  The two sections are separated by a
+\fB:\fP character immediately followed by a \fInewline\fP.  Generally,
+the first section has a \fIform-feed\fP and \fInewline\fP proceeding
+the \fB:\fP character.   You can then list the image keywords with
+\fImore\fP, without printing the binary image that follows the \fB:\fP
+separator.
+.PP
+Each keyword must be separated by at least one space but can be
+separated with control characters such a \fIform-feed\fP or
+\fInewline\fP.
+.PP
+A list of valid keywords follows:
+.TP 5
+.B "alpha=\fITrue | False\fP"
+specifies whether a continuous-tone image also has alpha data.  Alpha data is
+generally useful for image compositing.
+X
+This keyword is optional.  If it is not specified, no alpha data is assumed.
+This keyword has no meaning for pseudo-color images.
+.TP 5
+.B "class=\fIDirectClass | PseudoClass\fP"
+identifies the type of binary image stored within the file.
+X
+This keyword is optional.  If it is not specified, a \fIDirectClass\fP
+image format is assumed.  An explanation of \fIDirectClass\fP and
+\fIPseudoClass\fP image data follows this list.
+.TP 5
+.B "colors=\fIvalue\fP"
+specifies the number of colors in the image, and for pseudo-color
+images the size of the colormap.
+X
+This keyword is optional.  However, if a colormap size is not
+specified, a linear colormap is assumed for pseudo-color images.
+.TP 5
+.B "columns=\fIvalue\fP"
+is a required keyword and specifies the number of columns, or width in
+pixels, of the image.
+.TP 5
+.B "compression=\fIQEncoded | RunlengthEncoded\fP"
+identifies how the image stored within the file is compressed.
+X
+This keyword is optional.  If it is not specified, the image is assumed
+to be uncompressed.  \fIQEncoded\fP has no meaning for pseudo-color
+images.  A detailed explanation of runlength-encoded and predictive
+arithmetic image compression follows this list.
+.TP 5
+.B "id=\fIImageMagick\fP"
+is a required keyword and identifies this file as a MIFF image.
+.TP 5
+.B "montage=\fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP
+size and location of the individual tiles of a composite image.  See
+\fBX(1)\fP for details about the geometry specification.
+X
+Use this keyword when the image is a composite of a number of different
+tiles.  A tile consists of an image and optionally a border and a
+label.  \fI<width>\fP is the size in pixels of each individual tile in
+the horizonal direction and \fI<height>\fP is the size in the vertical
+direction.  Each tile must have an equal number of pixels in width and
+equal in height.  However, the width can differ from the height.  \fI<x
+offset>\fP is the offset in number of pixels from the vertical edge of
+the composite image where the first tile of a row begins and \fI<y
+offset>\fP is the offset from the horizonal edge where the first tile
+of a column begins.
+X
+If this keyword is specified, a directory of tile names must follow the
+image header.  The format of the directory is explained below.
+.TP 5
+.B "packets=\fIvalue\fP"
+specifies the number of compressed color packets in the image data
+section.
+X
+This keyword is optional, but recommended, for runlength-encoded image
+compression.  It is required for arithimetic encoded image compression.  A
+detailed explanation of image compression follows this list.
+.TP 5
+.B "rows=\fIvalue\fP"
+is a required keyword and specifies the number of rows, or height in pixels,
+of the image.
+.TP 5
+.B "scene=\fIvalue\fP"
+is an optional keyword and is a reference number for sequencing of
+images.
+X
+This keyword is typically useful for animating a sequence of images.
+.TP 5
+.B "signature=\fIvalue\fP"
+is an optional keyword and is a character string that uniquely identifies
+the image colormap.
+X
+A unique identifier for the colormap is useful for animating a sequence
+of \fIPseudoClass\fP images.  The default identifier is a digital
+signature computed from RSA's Data Security MD5 Digest Algorithm
+described in Internet draft [MD5], July 1992.  The colormap signature is
+usually computed for \fIPseudoClass\fP images.
+.PP
+Comments can be included in the keyword section.  Comments must begin with
+a \fB{\fP character and end with a \fI}\fP character.
+.PP
+An example keyword section follows:
+.PP
+X    {
+X      Rendered via Dore by Sandy Hause.
+X    }
+X    id=ImageMagick
+X    class=PseudoClass  colors=256  signature=d79e1c308aa5bbcdeea8ed63df412da9
+X    compression=RunlengthEncoded  packets=27601
+X    columns=1280  rows=1024
+X    scene=1  
+X    ^L
+X    :
+.PP
+If you specify \fImontage\fP in the image header, follow the header
+with a directory of image tiles.  This directory consists of a name for
+each tile of the composite image separated by a NEWLINE character.  The
+list is terminated with a NULL character.
+.PP
+The binary image data that follows the keyword text is stored in one of
+two binary classes as specified by the \fBclass\fP keyword:
+\fIDirectClass\fP or \fIPseudoClass\fP.
+.PP
+Use the \fIDirectClass\fP class to store continuous-tone images.
+\fIDirectClass\fP requires that the image pixels immediately follow the
+keyword text and be stored as binary red, green, and blue intensity
+values (and optional alpha value).  Each color component is stored as
+one binary byte (8 bit) and ranges from 0 through 255.  The total
+number of pixels expected is equal to the number of pixel columns times
+the number of pixel rows as specified by the \fBcolumns\fP and
+\fBrows\fP keywords.
+.PP
+If the \fBcompression\fP keyword is not specified, a red, green, and blue byte
+(and optional alpha byte) in that order is expected for each pixel of the
+image.
+.PP
+If \fBcompression\fP is \fIQEncoded\fP, each red, green, and blue byte
+intensity value (and optional alpha value) is encoded using the predictive
+arithmetic compression algorithm.  Use the \fBpackets\fP keyword to specify
+the total number of arithimetic encoded packets that comprise the image.
+Refer to "JPEG-9-R6 Working Draft for Development of JPEG CD", January
+1992, for implementation specific details.
+.PP
+If \fBcompression\fP is \fIRunlengthEncoded\fP, each red, green, and
+blue byte intensity value (and optional alpha value) is followed by a
+count byte. This value specifies the number of horizonally contiguous
+pixels in the image of that color.  The count (0-255) is one less than
+the actual number of contiguous pixels; thus a single packet can
+represent from 1 up to 256 identical pixels.  The total number of
+pixels specified by the individual count bytes must add up to the
+number of pixel columns times the number of pixel rows as specified by
+the \fBcolumns\fP and \fBrows\fP keywords.  Use \fBpackets\fP to
+specify the total number of runlength-encoded packets that comprise the
+image.
+.PP
+Use the \fIPseudoClass\fP class to store pseudo-color images.
+\fIPseudoClass\fP requires that the image colormap and pseudo-color
+pixels immediately follow the keyword text.  The colormap is stored as
+contiguous red, green, and blue intensity values.  Each color component
+is stored as one binary byte (8 bit) and ranges from 0 through 255. The
+number of intensity values expected is determined by the \fBcolors\fP
+keyword.  Note, an image colormap is restricted to at most 65535
+entries.  The binary pseudo-color image is stored as indexes into the
+colormap.  For colormaps of 256 colors or less, the indexes are stored
+as one binary byte (8 bit) and ranges from 0 through 255.  If the
+colormap size exceeds 256 entries, then each colormap index is two
+bytes each with the most-significant-byte first.  The total number of
+pixels expected is equal to the number of pixel columns times the
+number of pixel rows as specified by the \fBcolumns\fP and \fBrows\fP
+keywords.
+.PP
+If the \fBcompression\fP keyword is not specified, a colormap index is
+expected for each pixel of the image.
+.PP
+If \fBcompression\fP is \fIRunlengthEncoded\fP, each colormap index
+is followed by a count byte. This value  specifies the number of
+horizonally contiguous pixels in the image of that color.  The count
+(0-255) is one less than the actual number of contiguous pixels; thus a
+single packet can represent from 1 up to 256 identical pixels.  The
+total number of pixels specified by the individual count bytes must add
+up to the number of pixels expected in the image as specified by the
+\fBcolumns\fP and \fBrows\fP keywords.  Use \fBpackets\fP to specify the
+total number of runlength-encoded packets that comprise the image.
+.SH SEE ALSO
+display(1), animate(1), import(1), montage(1), mogrify(1), 
+convert(1), more(1), compress(1)
+.SH COPYRIGHT
+Copyright 1992 E. I. du Pont de Nemours & Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+& Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours & Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. du Pont de Nemours & Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours & Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of this software.
+.SH AUTHORS
+John Cristy, E.I. du Pont de Nemours & Company Incorporated
+SHAR_EOF
+chmod 0644 ImageMagick/miff.man ||
+echo 'restore of ImageMagick/miff.man failed'
+Wc_c="`wc -c < 'ImageMagick/miff.man'`"
+test 10068 -eq "$Wc_c" ||
+	echo 'ImageMagick/miff.man: original size 10068, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/montage.c ==============
+if test -f 'ImageMagick/montage.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/montage.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/montage.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/montage.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%             M   M   OOO   N   N  TTTTT   AAA    GGGG  EEEEE                 %
+%             MM MM  O   O  NN  N    T    A   A  G      E                     %
+%             M M M  O   O  N N N    T    AAAAA  G  GG  EEE                   %
+%             M   M  O   O  N  NN    T    A   A  G   G  E                     %
+%             M   M   OOO   N   N    T    A   A   GGGG  EEEEE                 %
+%                                                                             %
+%                                                                             %
+%          Montage Machine Independent File Format Image via X11.             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Montage creates a composite image by combining several separate
+%  images.  The images are tiled on the composite image with the name of
+%  the image appearing just above the individual tile.
+%
+%  The composite image is constructed in the following manner.  First,
+%  each image specified on the command line, except for the last, is
+%  scaled to fit the maximum tile size.  The maximum tile size by default
+%  is 256x256.  It can be modified with the -geometry command line
+%  argument or X resource.  Note that the maximum tile size need not be a
+%  square.  The original aspect ratio of each image is maintainted unless
+%  +aspect_ratio is specfified.
+%
+%  Next the composite image is initialized with the color specified by the
+%  -background command line argument or X resource.  The width and height
+%  of the composite image is determined by the maximum tile size, the
+%  number of tiles per row, the tile border width and height, the image
+%  border width, and the label height.  The number of tiles per row specifies
+%  how many images are to appear in each row of the composite image.  The
+%  default is to have an equal number of images in each row and column of the
+%  composite.  This value can be specified with -tiles_per_row.  The tile
+%  border width and height, and the image border width defaults to the value
+%  of the X resource -borderwidth.  It can be changed with the -borderwidth or
+%  -geometry command line argument or X resource.  The label height is
+%  determined by the font you specify with the -font command line argument or
+%  X resource.  If you do not specify a font, a font is choosen that allows
+%  the name of the image to fit the maximum width of a tiled area.  The label
+%  colors is determined by the -background and -foreground command line
+%  argument or X resource.  Note, that if the background and foreground colors
+%  are the same, labels will not appear.
+%
+%  Finally, each image is set onto the composite image, surrounded by its
+%  border color, with its name centered just below it.  The individual images
+%  are centered within the width of the tiled area.  The final argument on the
+%  command line is the name assigned to the composite image.  The image is
+%  written in the MIFF format and may by viewed or printed with `display'.
+%
+%  The Montage program command syntax is:
+%
+%  Usage: montage [options ...] file [ [options ...] file ...] file
+%
+%  Where options include:
+%    -aspect_ratio         respect aspect ratio of the image
+%    -clip geometry        preferred size and location of the clipped image
+%    -colors value         preferred number of colors in the image
+%    -colorspace type      GRAY, RGB, XYZ, YIQ, or YUV
+%    -compose operator     composite operator
+%    -compress type        RunlengthEncoded or QEncoded
+%    -density geometry     vertical and horizonal density of the image
+%    -display server       query fonts from this X server
+%    -dither               apply Floyd/Steinberg error diffusion to image
+%    -gamma value          level of gamma correction
+%    -geometry geometry    preferred tile and border sizes
+%    -gravity direction    which direction to gravitate towards
+%    -monochrome           transform image to black and white
+%    -rotate degrees       apply Paeth rotation to the image
+%    -tiles_per_row value  number of image tiles per row
+%    -treedepth value      depth of the color classification tree
+%    -verbose              print detailed information about the image
+%
+%  In addition to those listed above, you can specify these standard X
+%  resources as command line options:  -background, -bordercolor -borderwidth,
+%  -font, -foreground, or -title.
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example, specify +compress to store the image as uncompressed.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. mtv:image) or specify the
+%  image type as the filename suffix (i.e. image.mtv).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "alien.h"
+#include "X.h"
+X
+/*
+X  Global declarations.
+*/
+char
+X  *application_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",application_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   M o n t a g e I m a g e                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function MontageImage creates a composite image by combining several
+%  separate images.
+%
+%  The format of the MontageImage routine is:
+%
+%      MontageImage(display,resource_info,compose,tiles_per_row,image,
+%        number_tiles)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o compose: Specifies an image composite operator.
+%
+%    o tiles_per_row: Specifies the number of arguments.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+%    o number_tiles: Specifies the number of tiles to tile.
+%
+%
+*/
+static int LinearCompare(x,y)
+void
+X  *x,
+X  *y;
+{
+X  Image
+X    **image_1,
+X    **image_2;
+X
+X  image_1=(Image **) x;
+X  image_2=(Image **) y;
+X  return((int) (*image_1)->scene-(int) (*image_2)->scene);
+}
+X
+static Image *MontageImage(display,resource_info,compose,tiles_per_row,images,
+X  number_tiles)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+unsigned int
+X  compose,
+X  tiles_per_row;
+X
+Image
+X  **images;
+X
+unsigned int
+X  number_tiles;
+{
+X  ColorPacket
+X    border_color;
+X
+X  Image
+X    *image,
+X    *montage_image;
+X
+X  int
+X    tile_border_height,
+X    tile_border_width,
+X    x,
+X    y;
+X
+X  register char
+X    *q;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  unsigned int
+X    border_width,
+X    count,
+X    status,
+X    tile,
+X    tile_height,
+X    tile_width,
+X    x_offset,
+X    y_offset;
+X
+X  XAnnotateInfo
+X    annotate_info;
+X
+X  XColor
+X    background_color;
+X
+X  XWindowInfo
+X    image_window;
+X
+X  /*
+X    Determine tile sizes.
+X  */
+X  border_width=resource_info->border_width;
+X  tile_border_width=resource_info->border_width;
+X  tile_border_height=resource_info->border_width;
+X  tile_width=256;
+X  tile_height=256;
+X  if (resource_info->image_geometry != (char *) NULL)
+X    {
+X      XParseGeometry(resource_info->image_geometry,&tile_border_width,
+X        &tile_border_height,&tile_width,&tile_height);
+X      if (tile_border_width < 0)
+X        tile_border_width=0;
+X      if (tile_border_height < 0)
+X        tile_border_height=0;
+X    }
+X  if (tiles_per_row == 0)
+X    {
+X      /*
+X        Compute tiles per row.
+X      */
+X      tiles_per_row=1;
+X      while ((tiles_per_row*tiles_per_row) < number_tiles)
+X        tiles_per_row++;
+X    }
+X  /*
+X    Initialize tile colors.
+X  */
+X  background_color.red=0;
+X  background_color.green=0;
+X  background_color.blue=0;
+X  border_color.red=0;
+X  border_color.green=0;
+X  border_color.blue=0;
+X  XGetAnnotateInfo(&annotate_info);
+X  if (display)
+X    {
+X      char
+X        text[2048];
+X
+X      XFontStruct
+X        *font_info;
+X
+X      XPixelInfo
+X        pixel_info;
+X
+X      XStandardColormap
+X        map_info;
+X
+X      XVisualInfo
+X        *visual_info;
+X
+X      /*
+X        Initialize visual info.
+X      */
+X      visual_info=XBestVisualInfo(display,"default",(char *) NULL,
+X        (XStandardColormap *) NULL);
+X      if (visual_info == (XVisualInfo *) NULL)
+X         Error("unable to get visual",resource_info->visual_type);
+X      /*
+X        Initialize font info.
+X      */
+X      tile=0;
+X      for (i=1; i < number_tiles; i++)
+X        if ((int) strlen(images[i]->filename) >
+X            (int) strlen(images[tile]->filename))
+X          tile=i;
+X      (void) strcpy(text,images[tile]->filename);
+X      font_info=XBestFont(display,resource_info,text,tile_width);
+X      if (font_info == (XFontStruct *) NULL)
+X        Error("unable to load font",resource_info->font);
+X      annotate_info.text=(char *) malloc(2048*sizeof(char));
+X      if (annotate_info.text == (char *) NULL)
+X        Error("unable to montage images","memory allocation failed");
+X      annotate_info.font_info=font_info;
+X      annotate_info.height=font_info->ascent+font_info->descent;
+X      /*
+X        Determine background, border, and foreground colors.
+X      */
+X      map_info.colormap=XDefaultColormap(display,visual_info->screen);
+X      XGetPixelInfo(display,visual_info,&map_info,resource_info,(Image *) NULL,
+X        &pixel_info);
+X      background_color=pixel_info.background_color;
+X      border_color.red=pixel_info.border_color.red >> 8;
+X      border_color.green=pixel_info.border_color.green >> 8;
+X      border_color.blue=pixel_info.border_color.blue >> 8;
+X      /*
+X        Window superclass.
+X      */
+X      image_window.id=XRootWindow(display,visual_info->screen);
+X      image_window.screen=visual_info->screen;
+X      image_window.depth=visual_info->depth;
+X      image_window.visual_info=visual_info;
+X      image_window.pixel_info=(&pixel_info);
+X      image_window.font_info=font_info;
+X    }
+X  /*
+X    Allocate image structure.
+X  */
+X  montage_image=AllocateImage("MIFF");
+X  if (montage_image == (Image *) NULL)
+X    Error("memory allocation error",(char *) NULL);
+X  /*
+X    Initialize Image structure.
+X  */
+X  montage_image->comments=(char *) malloc(2048*sizeof(char));
+X  montage_image->columns=
+X    (tile_width+(tile_border_width+border_width)*2)*tiles_per_row;
+X  montage_image->rows=
+X    (tile_height+(tile_border_height+border_width)*2+annotate_info.height+4)*
+X    (number_tiles/tiles_per_row+((number_tiles % tiles_per_row) != 0))+
+X    ((tile_border_height+border_width) >> 1);
+X  if (resource_info->title != (char *) NULL)
+X    montage_image->rows+=((annotate_info.height+4) << 1)+
+X      (tile_border_height << 1);
+X  montage_image->montage=(char *) malloc(2048*sizeof(char));
+X  count=0;
+X  for (tile=0; tile < number_tiles; tile++)
+X    count+=strlen(images[tile]->filename)+1;
+X  montage_image->directory=(char *) malloc(count*sizeof(char));
+X  montage_image->packets=montage_image->columns*montage_image->rows;
+X  montage_image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) montage_image->packets*sizeof(RunlengthPacket));
+X  if ((montage_image->comments == (char *) NULL) ||
+X      (montage_image->montage == (char *) NULL) ||
+X      (montage_image->directory == (char *) NULL) ||
+X      (montage_image->pixels == (RunlengthPacket *) NULL))
+X    Error("memory allocation error",(char *) NULL);
+X  (void) sprintf(montage_image->comments,"\n  ImageMagick image montage.\n");
+X  /*
+X    Set montage geometry.
+X  */
+X  x_offset=0;
+X  y_offset=((tile_border_height+border_width) >> 1);
+X  if (resource_info->title != (char *) NULL)
+X    y_offset+=((annotate_info.height+4) << 1)+(tile_border_height << 1);
+X  *montage_image->directory='\0';
+X  (void) sprintf(montage_image->montage,"%dx%d%+d%+d",
+X    tile_width+(tile_border_width+border_width)*2,
+X    (tile_height+(tile_border_height+border_width)*2+annotate_info.height+4),
+X    x_offset,y_offset);
+X  /*
+X    Initialize montage image to background color.
+X  */
+X  p=montage_image->pixels;
+X  for (i=0; i < montage_image->packets; i++)
+X  {
+X    p->red=background_color.red >> 8;
+X    p->green=background_color.green >> 8;
+X    p->blue=background_color.blue >> 8;
+X    p->index=0;
+X    p->length=0;
+X    p++;
+X  }
+X  /*
+X    Sort images by increasing tile number.
+X  */
+X  (void) qsort((void *) images,(int) number_tiles,sizeof(Image *),
+X    LinearCompare);
+X  if (display && (resource_info->title != (char *) NULL))
+X    {
+X      /*
+X        Copy title to the composite image.
+X      */
+X      (void) strcpy(annotate_info.text,resource_info->title);
+X      annotate_info.width=XTextWidth(image_window.font_info,annotate_info.text,
+X        strlen(annotate_info.text));
+X      if ((annotate_info.width << 1) > montage_image->columns)
+X        {
+X          /*
+X            Label is too wide-- shorten.
+X          */
+X          q=annotate_info.text+strlen(annotate_info.text);
+X          do
+X          {
+X            *--q='\0';
+X            if ((int) strlen(annotate_info.text) > 2)
+X              (void) strcpy(q-2,"...");
+X            annotate_info.width=XTextWidth(image_window.font_info,
+X              annotate_info.text,strlen(annotate_info.text));
+X          } while ((annotate_info.width << 1) > montage_image->columns);
+X        }
+X      (void) sprintf(annotate_info.geometry,"%ux%u%+d%+d\0",
+X        annotate_info.width << 1,annotate_info.height << 1,tile_border_width+
+X        (int) (montage_image->columns >> 1)-(int) annotate_info.width,
+X        tile_border_height+4);
+X      (void) XAnnotateImage(display,&image_window,&annotate_info,True,
+X        montage_image);
+X    }
+X  /*
+X    Copy tile images to the composite image.
+X  */
+X  x_offset=tile_border_width;
+X  y_offset=tile_border_height;
+X  if (resource_info->title != (char *) NULL)
+X    y_offset+=((annotate_info.height+4) << 1)+(tile_border_height << 1);
+X  *montage_image->directory='\0';
+X  for (tile=0; tile < number_tiles; tile++)
+X  {
+X    /*
+X      Copy this tile to the composite image.
+X    */
+X    image=images[tile];
+X    (void) strcat(montage_image->directory,image->filename);
+X    (void) strcat(montage_image->directory,"\n");
+X    status=UnpackImage(image);
+X    if (status == False)
+X      Error("unable to unpack image",(char *) NULL);
+X    if (border_width > 0)
+X      {
+X        Image
+X          *bordered_image;
+X
+X        /*
+X          Put a border around the image.
+X        */
+X        bordered_image=
+X          BorderImage(image,border_width,border_width,border_color);
+X        if (bordered_image != (Image *) NULL)
+X          {
+X            DestroyImage(image);
+X            image=bordered_image;
+X          }
+X      }
+X    /*
+X      Gravitate image as specified by the tile gravity.
+X    */
+X    switch (resource_info->gravity)
+X    {
+X      case NorthWestGravity:
+X      {
+X        x=0;
+X        y=0;
+X        break;
+X      }
+X      case NorthGravity:
+X      {
+X        x=((tile_width+border_width*2)-image->columns)/2;
+X        y=0;
+X        break;
+X      }
+X      case NorthEastGravity:
+X      {
+X        x=(tile_width+border_width*2)-image->columns;
+X        y=0;
+X        break;
+X      }
+X      case WestGravity:
+X      {
+X        x=0;
+X        y=((tile_height+border_width*2)-image->rows)/2;
+X        break;
+X      }
+X      case ForgetGravity:
+X      case StaticGravity:
+X      case CenterGravity:
+X      {
+X        x=((tile_width+border_width*2)-image->columns)/2;
+X        y=((tile_height+border_width*2)-image->rows)/2;
+X        break;
+X      }
+X      case EastGravity:
+X      {
+X        x=(tile_width+border_width*2)-image->columns;
+X        y=((tile_height+border_width*2)-image->rows)/2;
+X        break;
+X      }
+X      case SouthWestGravity:
+X      {
+X        x=0;
+X        y=(tile_height+border_width*2)-image->rows;
+X        break;
+X      }
+X      case SouthGravity:
+X      {
+X        x=((tile_width+border_width*2)-image->columns)/2;
+X        y=(tile_height+border_width*2)-image->rows;
+X        break;
+X      }
+X      case SouthEastGravity:
+X      {
+X        x=(tile_width+border_width*2)-image->columns;
+X        y=(tile_height+border_width*2)-image->rows;
+X        break;
+X      }
+X    }
+X    /*
+X      Composite background image with tile image.
+X    */
+X    CompositeImage(montage_image,compose,image,x_offset+x,y_offset+y);
+SHAR_EOF
+true || echo 'restore of ImageMagick/montage.c failed'
+fi
+echo 'End of  part 19'
+echo 'File ImageMagick/montage.c is continued in part 20'
+echo 20 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

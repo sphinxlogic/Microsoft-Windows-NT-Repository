@@ -1,0 +1,1626 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 11/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.011834.4158@klaava.Helsinki.FI>
+Date: 14 Jun 92 01:18:34 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1614
+
+Archieve-name: monster_helsinki_104/part11
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 11/32
+
+-+-+-+-+-+-+-+-+ START OF PART 11 -+-+-+-+-+-+-+-+
+X`009real_user,`009`009`123 10 is real VMS username `125
+X`009spell_name`009`009`123 11 is spell's name `125
+X `009`009: `091global`093 namrec;
+X
+X`009anint   : `091global`093 intrec;  `123 info about game players `125
+X`009obj:      `091global`093 objectrec;
+X`009spell   : `091global`093 spellrec;
+X
+X`009block: `091global`093 descrec;    `123 a text block of descmax lines `12
+V5
+X`009indx: `091global`093 indexrec;    `123 an record allocation record `125
+X`009global: intrec;`009`009    `123 for global flags and values `125
+X`009read_global: `091global`093 boolean := TRUE; `123 global flags not in va
+Vlid `125
+X`009oneliner: `091global`093 linerec; `123 a line record `125
+X
+X`009heredsc: `091global`093 descrec;
+X
+X
+X    `123 Tiedostot : `125
+X
+X        headerfile: `091global`093 file of headerrec;`009    `123 tiedosto h
+Veader -tietueille    `125
+X`009roomfile :  `091global`093 file of room;
+X`009eventfile:  `091global`093 file of eventrec;
+X`009namfile:    `091global`093 file of namrec;
+X`009descfile:   `091global`093 file of descrec;
+X`009linefile:   `091global`093 file of linerec;
+X`009indexfile:  `091global`093 file of indexrec;
+X`009intfile:    `091global`093 file of intrec;
+X`009objfile:    `091global`093 file of objectrec;
+X`009spellfile:  `091global`093 file of spellrec;
+X
+X
+X`091global`093
+Xprocedure collision_wait;
+Xvar
+X`009wait_time: real;
+X
+Xbegin
+X`009wait_time := random;
+X`009if wait_time < 0.001 then
+X`009`009wait_time := 0.001;
+X`009wait(wait_time);
+Xend;
+X
+X
+X`123 increment err; if err is too high, suspect deadlock `125
+X`123 this is called by all getX procedures to ease deadlock checking `125
+X`091global`093
+Xprocedure deadcheck(var err: integer; s:string);
+X
+Xbegin
+X`009err := err + 1;
+X`009if err > maxerr then begin
+X`009`009writeln('%warning- ',s,' seems to be deadlocked; notify the Monster
+V Manager');
+X`009`009finish_guts;
+X`009`009halt;
+X`009`009err := 0;
+X`009end;
+Xend;
+X
+Xprocedure open_playing;
+Xbegin
+X    open(headerfile,root+'HEADER.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X    error := continue);
+X   `032
+X    open(roomfile,root+'ROOMS.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(namfile,root+'NAMS.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(eventfile,root+'EVENTS.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(descfile,root+'DESC.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(indexfile,root+'INDEX.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(linefile,root+'LINE.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(intfile,root+'INTFILE.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(objfile,root+'OBJECTS.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+X    open(spellfile,root+'SPELLS.MON',access_method := direct,
+X`009sharing := readwrite,
+X`009history := old,
+X`009error := continue);
+X
+Xend;
+X
+Xprocedure open_modify;
+Xbegin
+X    open(headerfile,root+'HEADER.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X    error := continue);
+X   `032
+X    open(roomfile,root+'ROOMS.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(namfile,root+'NAMS.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(eventfile,root+'EVENTS.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(descfile,root+'DESC.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(indexfile,root+'INDEX.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(linefile,root+'LINE.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(intfile,root+'INTFILE.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(objfile,root+'OBJECTS.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+X    open(spellfile,root+'SPELLS.MON',access_method := direct,
+X`009sharing := none,
+X`009history := unknown,
+X`009error := continue);
+X
+Xend;
+X
+X
+X
+X`091global`093
+Xfunction open_database(playing : boolean := true): boolean;
+Xbegin
+X    if debug then writeln('%open_database:',playing);
+X
+X    if playing then open_playing
+X    else open_modify;
+X
+X    if ((status(roomfile)<>0) or
+X`009(status(namfile)<>0) or
+X`009(status(eventfile)<>0) or
+X`009(status(descfile)<>0) or
+X`009(status(indexfile)<>0) or
+X`009(status(intfile)<>0) or
+X`009(status(objfile)<>0) or
+X`009(status(spellfile)<>0) or
+X`009(status(headerfile)<>0) )
+X    then begin
+X`009if debug then writeln('%open_database: fail');
+X`009open_database :=false
+X    end else begin
+X`009if debug then writeln('%open_database: succeed');
+X`009open_database :=true
+X    end;
+X
+Xend;`009`123 open_database `125
+X
+X`091global`093 procedure close_database;
+Xbegin
+X    close(roomfile);
+X    close(namfile);
+X    close(eventfile);
+X    close(descfile);
+X    close(indexfile);
+X    close(intfile);
+X    close(objfile);
+X    close(spellfile);
+X    close(headerfile);
+Xend;
+X
+X`091global`093
+Xprocedure getheader(n: integer);
+Xvar
+X    err: integer;
+Xbegin
+X    headerfile`094.validate := 0;
+X    err := 0;
+X    if debug then
+X`009writeln('%getheader(',n:1,')');
+X    find(headerfile,n,error := continue);
+X    while status(headerfile) > 0 do begin
+X`009deadcheck(err,'getheader');
+X`009collision_wait;
+X`009find(headerfile,n,error := continue);
+X    end;
+X
+X    if headerfile`094.validate <> n then begin
+X`009writeln('%Fatal error in getheader');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',headerfile`094.validate:1);
+X`009unlock (headerfile, error := continue);
+X`009halt;
+X    end;
+X
+X    header := headerfile`094;
+Xend;`009`123 getheader `125
+X
+X`091global`093
+Xprocedure putheader;
+Xbegin
+X    locate(headerfile,header.validate);
+X    headerfile`094 := header;
+X    put(headerfile);
+Xend; `123 putheader `125
+X
+X`091global`093
+Xprocedure freeheader;`009`123 unlock the record if you're not going to write
+V it `125
+Xbegin
+X    unlock(headerfile);
+Xend;
+X
+X`123 first procedure of form getX
+X  attempts to get given room record
+X  resolves record access conflicts, checks for deadlocks
+X  Locks record; use freeroom immediately after getroom if data is
+X  for read-only
+X`125
+X`091global`093
+Xprocedure getroom(n: integer:= 0);
+Xvar
+X    err: integer;
+Xbegin
+X    if n = 0 then
+X`009n := location;
+X    roomfile`094.valid := 0;
+X    err := 0;
+X    if debug then
+X`009    writeln('%getroom(',n:1,')');
+X    find(roomfile,n,error := continue);
+X    while status(roomfile) > 0 do begin
+X`009deadcheck(err,'getroom');
+X`009collision_wait;
+X`009find(roomfile,n,error := continue);
+X    end;
+X  `032
+X    if roomfile`094.valid <> n then begin
+X`009writeln('%Fatal error in getroom');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',roomfile`094.valid:1);
+X`009unlock (roomfile, error := continue);
+X`009halt;
+X    end;
+X
+X    here := roomfile`094;
+X
+X    inmem := false;
+X`009`009`123 since this getroom could be doing anything, we will
+X`009`009  assume that it is bozoing the correct here record for
+X`009`009  this room.  If this getroom called by gethere, then
+X`009`009  gethere will correct inmem immediately.  Otherwise
+X`009`009  the next gethere will restore the correct here record. `125
+Xend;`009`123 getroom `125
+X
+X`091global`093
+Xprocedure putroom;
+Xbegin
+X    locate(roomfile,here.valid);
+X    roomfile`094 := here;
+X    put(roomfile);
+Xend;`009`123 putroom `125
+X
+X`091global`093
+Xprocedure freeroom;`009`123 unlock the record if you're not going to write i
+Vt `125
+Xbegin
+X    unlock(roomfile);
+Xend;
+X
+X`123 generic namfile handlic procedures: hurtta@finuh `125
+X
+Xprocedure get_namfile(reccode: integer; var rec: namrec);
+Xvar err: integer;
+Xbegin
+X    namfile`094.validate := 0;
+X    err := 0;`032
+X    find(namfile,reccode,error := continue);
+X    while status(namfile) > 0 do begin
+X`009deadcheck(err,'get_namfile');
+X`009collision_wait;
+X`009find(namfile,reccode,error := continue);
+X    end;
+X    if namfile`094.validate <> reccode then begin
+X`009writeln('%Fatal error in get_namfile');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',reccode:1);
+X`009writeln('%Validate code = ',namfile`094.validate:1);
+X`009unlock (namfile, error := continue);
+X`009halt;
+X    end;
+X    rec := namfile`094;
+Xend; `123 get_namfile `125
+X
+Xprocedure put_namfile(reccode: integer; rec: namrec);
+Xbegin
+X    if rec.validate <> reccode then begin
+X`009writeln('%Fatal error in put_namfile');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',reccode:1);
+X`009writeln('%Validate code = ',rec.validate:1);
+X`009unlock(namfile, error := continue);
+X`009halt;
+X    end;
+X    locate(namfile,reccode);
+X    namfile`094:= rec;
+X    put(namfile);
+Xend; `123 put_namfile `125
+X
+X`091global`093
+Xprocedure getown;
+Xbegin
+X    get_namfile(T_OWN,own);
+Xend; `123 getown `125
+X
+X`091global`093
+Xprocedure freeown;
+Xbegin
+X    unlock(namfile);
+Xend; `123 freeown `125
+X
+X`091global`093
+Xprocedure putown;
+Xbegin
+X    put_namfile(T_OWN,own);
+Xend; `123 putown `125
+X
+X
+X`091global`093
+Xprocedure getnam;   `123 rooms' name `125
+Xbegin
+X    get_namfile(T_NAM,nam);
+Xend; `123 getnam `125
+X
+X`091global`093
+Xprocedure freenam;
+Xbegin
+X    unlock(namfile);
+Xend; `123 freenam `125
+X
+X`091global`093
+Xprocedure putnam;
+Xbegin
+X    put_namfile(T_NAM,nam);
+Xend; `123 putnam `125
+X
+X`091global`093
+Xprocedure getobj(n: integer);
+Xvar
+X`009err: integer;
+X
+Xbegin
+X    if n = 0 then
+X`009n := location;
+X    objfile`094.objnum := 0;
+X    err := 0;
+X    find(objfile,n,error := continue);
+X    while status(objfile) > 0 do begin
+X`009deadcheck(err,'getobj');
+X`009collision_wait;
+X`009find(objfile,n,error := continue);
+X    end;
+X    if objfile`094.objnum <> n then begin
+X`009writeln('%Fatal error in getobj');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',objfile`094.objnum:1);
+X`009unlock (objfile, error := continue);
+X`009halt;
+X    end;
+X
+X    obj := objfile`094;
+Xend;`009`123 getobj `125
+X
+X`091global`093
+Xprocedure putobj;
+Xbegin
+X    locate(objfile,obj.objnum);
+X    objfile`094 := obj;
+X    put(objfile);
+Xend;`009`123 putobj `125
+X
+X`091global`093
+Xprocedure freeobj;`009`123 unlock the record if you're not going to write it
+V `125
+Xbegin
+X    unlock(objfile);
+Xend;`009`123 freeobj `125
+X
+X
+X`091global`093
+Xprocedure getint(n: integer);
+Xvar
+X    err: integer;
+Xbegin
+X    intfile`094.intnum := 0;
+X    err := 0;
+X    find(intfile,n,error := continue);
+X    while status(intfile) > 0 do begin
+X`009deadcheck(err,'getint');
+X`009collision_wait;
+X`009find(intfile,n,error := continue);
+X    end;
+X
+X    if intfile`094.intnum <> n then begin
+X`009writeln('%Fatal error in getint');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',intfile`094.intnum:1);
+X`009unlock (intfile, error := continue);
+X`009halt;
+X    end;
+X
+X    anint := intfile`094;
+Xend;`009`123 getint `125
+X
+X
+X`091global`093
+Xprocedure freeint;
+Xbegin
+X    unlock(intfile);
+Xend;`009`123 getint `125
+X
+X`091global`093
+Xprocedure putint;
+Xvar
+X    n: integer;
+Xbegin
+X    n := anint.intnum;
+X    locate(intfile,n);
+X    intfile`094:= anint;
+X    put(intfile);
+Xend;`009`123 putint `125
+X
+X
+X`091global`093
+Xprocedure getspell(n: integer := 0);
+Xvar
+X    err: integer;
+Xbegin
+X    if n = 0 then
+X`009n := mylog;
+X
+X    spellfile`094.recnum := 0;
+X    err := 0;
+X    find(spellfile,n,error := continue);
+X    while status(spellfile) > 0 do begin
+X`009deadcheck(err,'getspell');
+X`009collision_wait;
+X`009find(spellfile,n,error := continue);
+X    end;
+X   `032
+X    if spellfile`094.recnum <> n then begin
+X`009writeln('%Fatal error in getspell');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',spellfile`094.recnum:1);
+X`009unlock (spellfile, error := continue);
+X`009halt;
+X    end;
+X
+X    spell := spellfile`094;
+Xend;`009`123 getspell `125
+X
+X`091global`093
+Xprocedure freespell;
+Xbegin
+X    unlock(spellfile);
+Xend;`009`123 freespell `125
+X
+X`091global`093
+Xprocedure putspell;
+Xvar
+X    n: integer;
+Xbegin
+X    n := spell.recnum;
+X    locate(spellfile,n);
+X    spellfile`094:= spell;
+X    put(spellfile);
+Xend;`009`123 putspell `125
+X
+X
+X`091global`093
+Xprocedure getuser;`009`123 get log rec with everyone's userids in it `125
+Xbegin
+X    get_namfile(T_USER,user);
+Xend;`009`123 getuser `125
+X
+X`091global`093
+Xprocedure freeuser;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freeuser `125
+X
+X`091global`093
+Xprocedure putuser;
+Xbegin
+X    put_namfile(T_USER,user);
+Xend;`009`123 putuser `125
+X
+X`091global`093
+Xprocedure getpasswd;`009`123 get log rec with everyone's password in it `125
+Xbegin
+X    get_namfile(T_PASSWD,passwd);
+Xend;`009`123 getpasswd `125
+X
+X`091global`093
+Xprocedure freepasswd;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freepasswd `125
+X
+X`091global`093
+Xprocedure putpasswd;
+Xbegin
+X    put_namfile(T_PASSWD,passwd);
+Xend;`009`123 putpasswd `125
+X
+X
+X`091global`093
+Xprocedure getreal_user;`009`123 get log rec with everyone's userids in it `1
+V25
+Xbegin
+X    get_namfile(T_REAL_USER,real_user);
+Xend;`009`123 getreal_user `125
+X
+X`091global`093
+Xprocedure freereal_user;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freereal_user `125
+X
+X`091global`093
+Xprocedure putreal_user;
+Xbegin
+X    put_namfile(T_REAL_USER,real_user);
+Xend;`009`123 putreal_user `125
+X
+X`091global`093
+Xprocedure getspell_name;`009`123 get spell name rec `125
+Xbegin
+X    get_namfile(T_SPELL_NAME,spell_name);
+Xend;`009`123 getspell_name `125
+X
+X`091global`093
+Xprocedure freespell_name;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freespell_name `125
+X
+X`091global`093
+Xprocedure putspell_name;
+Xbegin
+X    put_namfile(T_SPELL_NAME,spell_name);
+Xend;`009`123 putspell_name `125
+X
+X
+X`091global`093
+Xprocedure getdate;`009`123 get log rec with date of last play in it `125
+Xbegin
+X    get_namfile(T_DATE,adate);
+Xend;`009`123 getdate `125
+X
+X`091global`093
+Xprocedure freedate;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freedate `125
+X
+X`091global`093
+Xprocedure putdate;
+Xbegin
+X    put_namfile(T_DATE,adate);
+Xend;`009`123 freedate `125
+X
+X`091global`093
+Xprocedure gettime;`009`123 get log rec with time of last play in it `125
+Xbegin
+X    get_namfile(T_TIME,atime);
+Xend;`009`123 gettime `125
+X
+X`091global`093
+Xprocedure freetime;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freetime `125
+X
+X`091global`093
+Xprocedure puttime;
+Xbegin
+X    put_namfile(T_TIME,atime);
+Xend;`009`123 puttime `125
+X
+X`091global`093
+Xprocedure getobjnam;
+Xbegin
+X    get_namfile(T_OBJNAM,objnam);
+Xend;`009`123 getobjnam `125
+X
+X`091global`093
+Xprocedure freeobjnam;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freeobjnam `125
+X
+X`091global`093
+Xprocedure putobjnam;
+Xbegin
+X    put_namfile(T_OBJNAM,objnam);
+Xend;`009`123 putobjnam `125
+X
+X`091global`093
+Xprocedure getobjown;
+Xbegin
+X    get_namfile(T_OBJOWN,objown);
+Xend;`009`123 getobjown `125
+X
+X`091global`093
+Xprocedure freeobjown;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freeobjown `125
+X
+X`091global`093
+Xprocedure putobjown;
+Xbegin
+X    put_namfile(T_OBJOWN,objown);
+Xend;`009`123 putobjown `125
+X
+X`091global`093
+Xprocedure getpers;`009`123 get log rec with everyone's pers names in it `125
+Xbegin
+X    get_namfile(T_PERS,pers);
+Xend;`009`123 getpers `125
+X
+X`091global`093
+Xprocedure freepers;
+Xbegin
+X    unlock(namfile);
+Xend;`009`123 freepers `125
+X
+X`091global`093
+Xprocedure putpers;
+Xbegin
+X    put_namfile(T_PERS,pers);
+Xend;`009`123 putpers `125
+X
+X`091global`093
+Xprocedure getevent(n: integer := 0);
+Xvar
+X    err: integer;
+Xbegin
+X    if n = 0 then
+X`009    n := location;
+X
+X    n := (n mod numevnts) + 1;
+X
+X    eventfile`094.validat := 0;
+X    err := 0;
+X    find(eventfile,n,error := continue);
+X    while status(eventfile) > 0 do begin
+X`009deadcheck(err,'getevent');
+X`009collision_wait;
+X`009find(eventfile,n,error := continue);
+X    end;
+X
+X    if eventfile`094.validat <> n then begin
+X`009writeln('%Fatal error in getevent');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',eventfile`094.validat:1);
+X`009unlock (eventfile, error := continue);
+X`009halt;
+X    end;
+X
+X    event := eventfile`094;
+Xend;`009`123 getevent `125
+X
+X`091global`093
+Xprocedure freeevent;
+Xbegin
+X    unlock(eventfile);
+Xend;`009`123 freeevent `125
+X
+X`091global`093
+Xprocedure putevent;
+Xbegin
+X    locate(eventfile,event.validat);
+X    eventfile`094:= event;
+X    put(eventfile);
+Xend;`009`123 putevent `125
+X
+X`091global`093
+Xprocedure getblock(n: integer);
+Xvar
+X    err: integer;
+Xbegin
+X    if debug then
+X`009writeln('%getblock: ',n:1);
+X    descfile`094.descrinum := 0;
+X    err := 0;
+X    find(descfile,n,error := continue);
+X    while status(descfile) > 0 do begin
+X`009deadcheck(err,'getblock');
+X`009collision_wait;
+X`009find(descfile,n,error := continue);
+X    end;
+X
+X    if descfile`094.descrinum <> n then begin
+X`009writeln('%Fatal error in getblock');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',descfile`094.descrinum:1);
+X`009unlock (descfile, error := continue);
+X`009halt;
+X    end;
+X
+X    block := descfile`094;
+Xend;`009`123 getblock `125
+X
+X`091global`093
+Xprocedure putblock;
+Xvar
+X    n: integer;
+Xbegin
+X    n := block.descrinum;
+X    if debug then
+X`009writeln('%putblock: ',n:1);
+X    if n <> 0 then begin
+X`009locate(descfile,n);
+X`009descfile`094 := block;
+X`009put(descfile);
+X    end;
+Xend;`009`123 putblock `125
+X
+X`091global`093
+Xprocedure freeblock;`009`123 unlock the record if you're not going to write
+V it `125
+Xbegin
+X    unlock(descfile);
+Xend;`009`123 freeblock `125
+X
+X
+X`091global`093
+Xprocedure getline(n: integer);
+Xvar
+X    err: integer;
+Xbegin
+X    if n = -1 then begin
+X`009oneliner.theline := '';
+X    end else begin
+X`009err := 0;
+X`009linefile`094.linenum := 0;
+X`009find(linefile,n,error := continue);
+X`009while status (linefile) > 0 do begin
+X`009    deadcheck(err,'getline');
+X`009    collision_wait;
+X`009    find(linefile,n,error := continue);
+X`009end;
+X
+X`009if linefile`094.linenum <> n then begin
+X`009    writeln('%Fatal error in getline');
+X`009    writeln('%Wrong validate code');
+X`009    writeln('%Record number = ',n:1);
+X`009    writeln('%Validate code = ',linefile`094.linenum:1);
+X`009    unlock (descfile, error := continue);
+X`009    halt;
+X`009end;
+X
+X`009oneliner := linefile`094;
+X    end;
+Xend;`009`123 getline `125
+X
+X`091global`093
+Xprocedure putline;
+Xbegin
+X    if oneliner.linenum > 0 then begin
+X`009locate(linefile,oneliner.linenum);
+X`009linefile`094 := oneliner;
+X`009put(linefile);
+X    end;
+Xend;`009`123 putline `125
+X
+X`091global`093
+Xprocedure freeline;`009`123 unlock the record if you're not going to write i
+Vt `125
+Xbegin
+X    unlock(linefile);
+Xend;`009`123 freeline `125
+X
+X`123
+XIndex record 1 -- Description blocks that are free
+XIndex record 2 -- One liners that are free
+X`125
+X
+X`091global`093
+Xprocedure getindex(n: integer);
+Xvar
+X    err: integer;
+Xbegin
+X    indexfile`094.indexnum := 0;
+X    err := 0;
+X    find(indexfile,n,error := continue);
+X    while status(indexfile) > 0 do begin
+X`009deadcheck(err,'getindex');
+X`009collision_wait;
+X`009find(indexfile,n,error := continue);
+X    end;
+X
+X    if indexfile`094.indexnum <> n then begin
+X`009writeln('%Fatal error in getindex');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',n:1);
+X`009writeln('%Validate code = ',indexfile`094.indexnum:1);
+X`009unlock (indexfile, error := continue);
+X`009halt;
+X    end;
+X
+X    indx := indexfile`094;
+Xend;`009`123 getindex `125
+X
+X`091global`093
+Xprocedure putindex;
+Xbegin
+X    locate(indexfile,indx.indexnum);
+X    indexfile`094 := indx;
+X    put(indexfile);
+Xend;`009`123 putindex `125
+X
+X`091global`093
+Xprocedure freeindex;`009`123 unlock the record if you're not going to write
+V it `125
+Xbegin
+X    unlock(indexfile);
+Xend;`009`123 freeindex `125
+X
+Xprocedure getglobal;
+Xvar
+X    err: integer;
+Xbegin
+X    intfile`094.intnum := 0;
+X    err := 0;
+X    find(intfile,N_GLOBAL,error := continue);
+X    while status(intfile) > 0 do begin
+X`009deadcheck(err,'getglobal');
+X`009collision_wait;
+X`009find(intfile,N_GLOBAL,error := continue);
+X    end;
+X
+X    if intfile`094.intnum <> N_GLOBAL then begin
+X`009writeln('%Fatal error in getglobal');
+X`009writeln('%Wrong validate code');
+X`009writeln('%Record number = ',N_GLOBAL:1);
+X`009writeln('%Validate code = ',intfile`094.intnum:1);
+X`009unlock (intfile, error := continue);
+X`009halt;
+X    end;
+X
+X    global := intfile`094;
+Xend;`009`123 getglobal `125
+X
+Xprocedure putglobal;
+Xbegin
+X    locate(intfile,global.intnum);
+X    intfile`094 := global;
+X    put(intfile);
+Xend;`009`123 putglobal `125
+X
+Xprocedure freeglobal;
+Xbegin`032
+X    unlock(intfile);
+Xend;`009`123 freeglobal `125
+X
+X`091global`093
+Xprocedure log_event(`009send: integer := 0;`009`123 slot of sender `125
+X`009`009`009act:integer;`009`009`123 what event occurred `125
+X`009`009`009targ: integer := 0;`009`123 target of event `125
+X`009`009`009p: integer := 0;`009`123 expansion parameter `125
+X`009`009`009s: string := '';`009`123 string for messages `125
+X`009`009`009room: integer := 0`009`123 room to log event in `125
+X`009`009   );
+X
+Xbegin
+X`009if room = 0 then
+X`009`009room := location;
+X`009getevent(room);
+X`009event.point := event.point + 1;
+X`009if debug then
+X`009`009writeln('%logging event ',act:1,' to point ',event.point:1);
+X`009if event.point > maxevent then
+X`009`009event.point := 1;
+X`009with event.evnt`091event.point`093 do begin
+X`009`009sender := send;
+X`009`009action := act;
+X`009`009target := targ;
+X`009`009parm := p;
+X`009`009msg := s;
+X`009`009loc := room;
+X`009end;
+X`009putevent;
+Xend; `123 log_event `125
+X
+X
+X`091global`093
+Xfunction read_global_flag (flag: integer; force_read: boolean := false): boo
+Vlean;
+Xbegin
+X    if Gf_Types `091 flag`093 <> G_Flag then begin
+X`009writeln('%Error in function read_global_flag:');
+X        writeln('%Global value #',flag:1,' isn''t boolean flag.');
+X`009writeln('%Notify Monster Manager.');
+X    end;
+X    if read_global or force_read then begin
+X`009getglobal;
+X`009freeglobal;
+X`009read_global := false;
+X    end;
+X    read_global_flag := global.int`091 flag `093>0;
+Xend; `123 read_global-flag `125
+X
+X`091global`093
+Xprocedure set_global_flag (flag: integer; value: boolean;
+X`009`009`009    message: string := '');
+Xvar lcv: integer;
+Xbegin
+X    if Gf_Types `091 flag`093 <> G_Flag then begin
+X`009writeln('%Error in function set_global_flag:');
+X        writeln('%Global value #',flag:1,' isn''t boolean flag.');
+X`009writeln('%Notify Monster Manager.');
+X    end else begin
+X
+X`009getglobal;
+X`009if value then global.int`091flag`093 := 1
+X`009else global.int`091flag`093 := 0;
+X`009putglobal;
+X`009read_global := false;
+X  `032
+X`009for lcv :=1 to numevnts do
+X          log_event(0,E_GLOBAL_CHANGE,0,0,message,lcv);
+X
+X    end;
+Xend; `123 set_global_flag `125
+X
+X
+X`091global`093
+Xfunction view_global_value (flag: integer; force_read: boolean := false):`03
+V2
+X`009string;
+Xbegin
+X   `032
+X   if read_global or force_read then begin
+X`009getglobal;
+X`009freeglobal;
+X`009read_global := false;
+X    end;
+X
+X    case Gf_Types `091 flag`093 of`032
+X`009G_Flag: begin
+X`009    if global.int `091flag`093 > 0 then
+X`009`009view_global_value := 'Boolean: TRUE'
+X`009    else view_global_value := 'Boolean: FALSE'
+X`009end;
+X`009G_Int: begin
+X`009    if global.int `091flag`093 = 0 then
+X`009`009view_global_value := 'Integer: Zero'
+X`009    else view_global_value := 'Integer: NonZero'
+X`009end;
+X`009G_Text: begin
+X`009    if global.int `091flag`093 > 0 then
+X`009`009view_global_value := 'Description: Block'
+X`009    else if global.int `091flag`093 < 0 then
+X`009`009view_global_value := 'Desription: Line'
+X`009    else view_global_value := 'Description: None'
+X`009end;
+X`009G_Code: begin
+X`009    if global.int `091flag`093 > 0 then
+X`009`009view_global_value := 'Clobal Code: Exist'
+X`009    else view_global_value := 'Clobal Code: None'
+X`009end;
+X        otherwise view_global_value := 'Unknown';
+X`032
+X    end;
+Xend; `123 view_global_value `125
+X
+X
+X`091global`093
+Xfunction alloc_general(class: integer;`032
+X`009`009`009var n: integer):boolean; `123 hurtta@finuh `125
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(class);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_general := false
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_general := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009       `009writeln('%serious error in alloc_general; notify Monster
+V Manager');
+X`009`009`009alloc_general := false;
+X`009`009end;
+X`009end;
+Xend;                             `032
+X
+X`091global`093
+Xprocedure delete_general(class: integer; var n: integer); `123 hurtta@finuh
+V `125
+X
+Xbegin
+X`009if n <> 0 then begin
+X`009`009getindex(class);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X                n := 0;
+X`009end;
+Xend;
+X
+X
+X`091global`093
+Xfunction level(score: integer): integer;
+Xvar i : integer;
+Xbegin
+X  level := 1;
+X  for i := 1 to levels do if leveltable`091i`093.exp <= score then
+X     level := i;
+Xend; `123 level `125
+X
+X`091global`093
+Xprocedure command_help(command: shortstring);
+Xvar fd: text;
+X    line: string;
+X    found: boolean;
+X    count: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009line := '-';
+X    end;
+X
+Xbegin
+X    open(fd,root+'monster.help',readonly,error:=continue);
+X    if status(fd) > 0 then begin
+X`009writeln('Can''t open monster.help. Notify Monster Manager');
+X    end else begin
+X`009found := false;
+X`009reset(fd);
+X`009while not eof(fd) and not found do begin
+X`009    readln(fd,line);
+X`009    if line = ':'+command then found := true
+X`009end;
+X`009
+X`009if not found then
+X`009    writeln ('No entry for ''',command,'''.');
+X`009   `032
+X`009count := 0;
+X`009while not eof(fd) and found do begin
+X`009    readln(fd,line);
+X`009    if line > '' then begin
+X`009`009if line`0911`093 = ':' then found := false
+X`009`009else writeln(line);
+X`009    end else writeln;
+X`009    count := count + 1;
+X`009    if count > terminal_page_len-2 then begin
+X`009`009count := 0;
+X`009`009grab_line('-more-',line,erase := true,eof_handler := leave);
+X`009`009if line > '' then found := false;
+X`009    end;
+X`009end;
+X`009close(fd);
+X    end;
+Xend; `123 command_help `125
+X
+X`091global`093
+Xprocedure add_counter(rec: integer; player: integer; n: integer := 1);
+Xbegin
+X    getint(rec);
+X    anint.int`091player`093 := anint.int`091player`093 +n;
+X    putint;  `032
+Xend;
+X
+X`091global`093
+Xprocedure sub_counter(rec: integer; player: integer; n: integer := 1);
+Xbegin
+X    getint(rec);
+X    anint.int`091player`093 := anint.int`091player`093 -n;
+X    putint;  `032
+Xend;
+X
+X`091global`093
+Xfunction get_counter(rec: integer; player: integer): integer;
+Xbegin
+X    getint(rec);
+X    freeint;
+X    get_counter := anint.int`091player`093;
+Xend;
+X
+X`091global`093`032
+Xprocedure change_owner(source,target: integer);
+Xvar i: integer;
+X    acp: integer;
+Xbegin
+X
+X    acp := 0;
+X    for i := 1 to maxexit do
+X`009if here.exits`091i`093.kind = 5 then acp := acp +1;
+X
+X    if source > 0 then begin
+X`009sub_counter(N_NUMROOMS,source);
+X`009sub_counter(N_ACCEPT,source,acp);
+X    end ;
+X
+X    if target > 0 then begin
+X`009add_counter(N_NUMROOMS,target);
+X`009add_counter(N_ACCEPT,target,acp);
+X    end;
+Xend; `123 change_owner `125
+X
+X`123 for /REBUILD and /BUILD `125
+X
+X`091global`093
+Xprocedure addrooms(n: integer);
+Xvar`009i: integer;
+Xbegin
+X`009getindex(I_ROOM);
+X`009if indx.top + n > maxroom then begin `123 maxroom limits all kind names
+V `125
+X`009    writeln('Number for identifiers limited to ',maxroom:1,'.');
+X`009    writeln('Can''t add ',n:1,' rooms.');
+X`009    n := maxroom - indx.top;
+X`009    writeln('Adding only ',n:1,' rooms.');
+X`009end;
+X
+X`009if indx.top + n > maxindex then begin `123 maxindex limits all kind bloc
+Vks `125
+X`009    writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009    writeln('Can''t add ',n:1,' rooms.');
+X`009    n := maxindex - indx.top;
+X`009    writeln('Adding only ',n:1,' rooms.');
+X`009end;
+X
+X`009for i := indx.top+1 to indx.top+n do begin
+X`009`009locate(roomfile,i);
+X`009`009roomfile`094.valid := i;
+X`009`009roomfile`094.locnum := i;
+X`009`009roomfile`094.primary := 0;
+X`009`009roomfile`094.secondary := 0;
+X`009`009roomfile`094.which := 0;
+X`009`009put(roomfile);
+X`009end;
+X`009indx.top := indx.top + n;
+X`009putindex;
+Xend;
+X
+X`091global`093
+Xprocedure addints(n: integer);
+Xvar`009i: integer;
+Xbegin
+X`009getindex(I_INT);
+X`009if indx.top + n > maxindex then begin `123 maxindex limits all kind bloc
+Vks `125
+X`009    writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009    writeln('Can''t add ',n:1,' integertables.');
+X`009    n := maxindex - indx.top;
+X`009    writeln('Adding only ',n:1,' integertables.');
+X`009end;
+X`009for i := indx.top+1 to indx.top+n do begin
+X`009`009locate(intfile,i);
+X`009`009intfile`094.intnum := i;
+X`009`009put(intfile);
+X`009end;
+X`009indx.top := indx.top + n;
+X`009putindex;
+Xend;
+X
+X`091global`093
+Xprocedure addlines(n: integer);
+Xvar`009i: integer;
+Xbegin
+X`009getindex(I_LINE);
+X`009if indx.top + n > maxindex then begin `123 maxindex limits all kind bloc
+Vks `125
+X`009    writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009    writeln('Can''t add ',n:1,' line descriptions.');
+X`009    n := maxindex - indx.top;
+X`009    writeln('Adding only ',n:1,' line descriptions.');
+X`009end;
+X`009for i := indx.top+1 to indx.top+n do begin
+X`009`009locate(linefile,i);
+X`009`009linefile`094.linenum := i;
+X`009`009put(linefile);
+X`009end;
+X`009indx.top := indx.top + n;
+X`009putindex;
+Xend;
+X
+X`091global`093
+Xprocedure addblocks(n: integer);
+Xvar`009i: integer;
+Xbegin
+X`009getindex(I_BLOCK);
+X`009if indx.top + n > maxindex then begin `123 maxindex limits all kind bloc
+Vks `125
+X`009    writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009    writeln('Can''t add ',n:1,' block descriptions.');
+X`009    n := maxindex - indx.top;
+X`009    writeln('Adding only ',n:1,' block descriptions.');
+X`009end;
+X`009for i := indx.top+1 to indx.top+n do begin
+X`009`009locate(descfile,i);
+X`009`009descfile`094.descrinum := i;
+X`009`009put(descfile);
+X`009end;
+X`009indx.top := indx.top + n;
+X`009putindex;
+Xend;
+X
+X`091global`093
+Xprocedure addobjects(n: integer);
+Xvar`009i: integer;
+Xbegin
+X`009getindex(I_OBJECT);
+X`009if indx.top + n > maxroom then begin `123 maxroom limits all kind names
+V `125
+X`009    writeln('Number for identifiers limited to ',maxroom:1,'.');
+X`009    writeln('Can''t add ',n:1,' objects.');
+X`009    n := maxroom - indx.top;
+X`009    writeln('Adding only ',n:1,' objects.');
+X`009end;
+X`009if indx.top + n > maxindex then begin `123 maxindex limits all kind bloc
+Vks `125
+X`009    writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009    writeln('Can''t add ',n:1,' objects.');
+X`009    n := maxindex - indx.top;
+X`009    writeln('Adding only ',n:1,' objects.');
+X`009end;
+X`009for i := indx.top+1 to indx.top+n do begin
+X`009`009locate(objfile,i);
+X`009`009objfile`094.objnum := i;
+X`009`009put(objfile);
+X`009end;
+X`009indx.top := indx.top + n;
+X`009putindex;
+Xend;
+X
+X`091global`093
+Xfunction file_name(code: integer): mega_string;
+Xvar apu: mega_string;
+Xbegin
+X  writev(apu,coderoot,'CODE',code:1,'.MON');
+X  file_name := apu
+Xend; `123 file_name `125
+X
+X
+X`091global`093 `032
+Xprocedure addheaders(amount: integer);
+Xvar i: integer;
+X    fl: text;
+Xbegin                   `032
+X   getindex(I_HEADER);
+X    if indx.top + amount > maxindex then begin `123 maxindex limits all kind
+V blocks `125
+X`009writeln('Number for blocks limited to ',maxindex:1,'.');
+X`009writeln('Can''t add ',amount:1,' MDL headers.');
+X`009amount := maxindex - indx.top;
+X`009writeln('Adding only ',amount:1,' MDL headers.');
+X    end;
+X   for i := indx.top +1 to indx.top + amount  do begin
+X      indx.free`091i`093 := true; `032
+X
+X      locate(headerfile,i);
+X      headerfile`094.validate := i;
+X      put(headerfile);            `032
+X                               `032
+X      open(fl,file_name(i),new, record_length := mega_length +20);
+X      rewrite(fl);
+X      close(fl)                `032
+X   end;                        `032
+X
+X   indx.top := indx.top + amount;
+X   putindex;                   `032
+Xend;
+X
+Xend. `123 enf of module `125
+$ CALL UNPACK DATABASE.PAS;51 2064428185
+$ create/nolog 'f'
+X! DOG.MDL by Kari Hurtta
+X
+X- LABEL state tail(string tail(get state()))
+X
+X- LABEL state head(string head(get state()))
+X
+X- LABEL leave(if(=(player name,GOSUB state tail()),
+X`009`009 if (=("follow",GOSUB state head()),
+X`009`009     GOSUB follow(GOSUB state tail()),
+X`009`009     if (=("keep",GOSUB state head()),
+X`009`009         GOSUB keep it(GOSUB state tail())
+X                        )
+X                    )
+X                )
+X`009     )
+X
+X- LABEL say(if(privilege(player name,"wizard, manager"),
+X               GOSUB check(strip(speech))))
+X
+X- LABEL check(if(=(string head(p1),"dog"),
+X                 GOSUB check2(string tail(p1))
+X                )
+X             )
+X
+X
+X- LABEL check2(GOSUB case(string head(p1),string tail(p1)))
+X
+X- LABEL case(if(=(p1,"bite"),
+X                GOSUB bite(p2),
+X`009`009if(=(p1,"follow"),
+X                    GOSUB set(p2),
+X                    GOSUB case2(p1,p2)
+X                  )
+X               )
+X            )
+X
+X- LABEL case2(if(=(p1,"go"),
+X                 GOSUB go to(p2),
+X`009`009 if(=(p1,"home"),
+X                    GOSUB home(),
+X`009`009    GOSUB case3(p1,p2)
+X                   )
+X                )
+X             )
+X
+X- LABEL case3(if(=(p1,"stay"),
+X                 GOSUB stay(p2),
+X                 if(=(p1,"keep"),
+X                    GOSUB keep(p2)
+X                   )
+X                )
+X             )
+X
+X
+X- LABEL bite(if(lookup player(p1),
+X                SUBMIT attack("0",lookup player(p1))
+X               )
+X            )
+X
+X- LABEL attack(GOSUB bite it("7"))
+X
+X
+X- LABEL bite it(if(=(where(player name),where(monster name)),
+X                   if(attack(p1),
+X                      null(pprint("Dog bites you."),
+X`009                   oprint(+("Dog bites ",player name)),
+X`009`009`009   if(=(where(player name),"void"),
+X                              null(oprint(+("Dog eats ",player name)),
+X                                   GOSUB jump(where(GOSUB state tail()))
+X                                  )
+X                             )
+X`009                  ),
+X                      GOSUB jump(where(GOSUB state tail()))
+X                     ),
+X                   null(GOSUB jump(where(player name)),
+X                        SUBMIT attack("5",player name)
+X                       )
+X                  )
+X               )
+X
+X- LABEL`009follow(if(target,
+X`009`009  null(pprint("Dog follows you."),
+X`009`009       oprint(+("Dog follows ",p1)),
+X`009`009       if(move(target),print("Dog comes to here.")
+X                         )
+X`009`009      ),
+X`009`009  if(=(random("a, b"),"a"),
+X                     GOSUB home2()
+X`009`009    )
+X`009         )
+X              )
+X
+X- LABEL keep it(if(target,
+X                   null(set state(+("back ",where(player name))),
+X                        GOSUB jump(target)
+X                       )
+X                  )
+X               )
+X
+X- LABEL enter(if(=(GOSUB state head(),"back"),
+X                 null(GOSUB get back2(GOSUB state tail()),
+X                      set state(+("keep ",player name))
+X                     )
+X                )
+X             )
+X
+X- LABEL get back2(if(=(p1,where(player name)),
+X                     "",
+X                     null(pprint("Dog forces you back to ",p1),
+X                          oprint(+("Dog forces ",player name),
+X                                   " back to ",p2
+X                                  ),
+X                          null(GOSUB jump(p1),
+X                               if(pmove(p1),
+X                                   oprint("Dog forces ",player name,
+X                                          " back to here."
+X                                         )
+X                                 )
+X                              )
+X                         )
+X                    )
+X                 )
+X
+X- LABEL home2(null(GOSUB jump("kitchen"),
+X                   set state("")
+X                  )
+X             )
+X
+X- LABEL home(GOSUB home2(set state("")))
+X
+X- LABEL set(if(lookup player(p1),
+X               null(set state(+("follow",lookup player(p1))),
+X                    print("Dog: vuf !"),
+X                    GOSUB jump(where(lookup player(p1)))
+X                   ),
+X               if(not(p1),
+X                  null(set state(+("follow",player name)),
+X                       print("Dog: vuf !")
+X                      )
+X                 )
+X              )
+X           )
+X
+X- LABEL keep(if(lookup player(p1),
+X               null(set state(+("keep",lookup player(p1))),
+X                    print("Dog: vuf !"),
+X                    GOSUB jump(where(lookup player(p1)))
+X                   )
+X              )
+X           )
+X
+X- LABEL command(if(=(command,"state"),
+X                   pprint("State: ",get state()),
+X                   pprint("You can't",command,"Dog.")
+X                  )
+X               )
+X
+X- LABEL go to(GOSUB go2(lookup room(p1)))
+X
+X- LABEL go2(if(p1,
+X               null(GOSUB jump(p1),
+X                    set state("")
+X                   )
+X              )
+X           )
+X
+X- LABEL jump2(if(=(where(monster name),p1),
+X                "",
+X                null(print(+("Dog goes ",p1)),
+X                     if(move(p1),
+X                        print("Dog comes here.")
+X                       )
+X                    )
+X               )
+X             )
+X
+X- LABEL jump(if(p1,
+X                GOSUB jump2(p1),
+X                GOSUB jump2("kitchen")
+X               )
+X            )
+X
+X- LABEL stay(null(set state(""),
+X                  print("Dog: Vuf !")
+X                 )
+X            )
+X
+X- LABEL look you(if(=(GOSUB state head(),"keep"),
+X                    "",
+X                    if(=(random("a, b, c, d"),"a"),
+X                       GOSUB set()
+X                      )
+X                   )
+X                )
+X
+X- LABEL look()
+$ CALL UNPACK DOG.MDL;26 34433687
+$ create/nolog 'f'
+X! That file fix database errors
+X! Usage: MONSTER/BATCH=FIX.BATCH
+XGS                                    ! Mark monster shutdown
+XG-                                    ! Mark database as invalid
+XC                                     ! Create event file
+XD                                     ! Reallocate descriptions
+XK                                     ! Reallocate MDL codes
+XI                                     ! Repair index file
+XG                                     ! Calculate objects' number in existen
+Vce
+XN                                     ! Clear/create and recount quota datab
+Vase.
+XJ                                     ! Repair paths
+XL                                     ! repair monsters' location
+XOW                                    ! Check owners of rooms, objects and M
+VDLs
+XG+                                    ! Mark database as valid
+XGU                                    ! Mark monster active
+X! Let's hope that's all !
+XV                                     ! View database capacity
+XGV                                    ! View global flags
+X!
+X!                       - Kari Hurtta (hurtta@finuh)
+X
+$ CALL UNPACK FIX.BATCH;4 1648825448
+$ create/nolog 'f'
+X`091environment,inherit ('sys$library:starlet')`093
+XModule Global;`009    `123 global definations `125
+X
+Xconst
+X
+X        MAX_PING = 5;
+X                            `032
+X`009string_len = 80;
+X`009veryshortlen = 12;`009`123 very short string length for userid's etc `12
+V5
+X`009shortlen = 20;`009`009`123 ordinary short string `125
+X        MEGA_LENGTH = 1000;`009`123 must be same as string_length `125
+X`009`009`009`009`123 in module interpreter`009`125
+X`009RANDOM_EVENT_CYCLE = 80;`123 time between random evet checks`009`125
+X`009maxobjs = 15;`009`009`123 max objects allow on floor in a room `125
+X`009maxpeople = 10;`009`009`123 max people allowed in a room `125
+X`009maxplayers = 300;`009`123 max log entries to make for players `125
+X`009maxcmds = 99;`009`009`123 top value for cmd keyword slots `125
+X`009maxshow = 50;`009`009`123 top value for set/show keywords `125
+X`009maxexit = 6;`009`009`123 6 exits from each loc: NSEWUD `125
+X`009maxroom = 1000;`009`009`123 Total maximum ever possible`009`125
+X`009maxdetail = 5;`009`009`123 max num of detail keys/descriptions per room
+V `125
+X`009maxevent = 15;`009`009`123 event slots per event block `125
+X`009maxindex = 10000;`009`123 top value for bitmap allocation `125
+X`009maxhold = 6;`009`009`123 max # of things a player can be holding `125
+X`009maxerr = 15;`009`009`123 # of consecutive record collisions before the
+X`009`009`009`009  the deadlock error message is printed `125
+X`009numevnts = 10;`009`009`123 # of different event records to be maintained
+V `125
+X`009numpunches = 12;`009`123 # of different kinds of punches there are `125
+X`009maxparm = 20;`009`009`123 parms for object USEs `125
+X`009maxspells = 50;`009`009`123 total number of spells available `125
+X
+X`009descmax = 10;`009`009`123 lines per description block `125
++-+-+-+-+-+-+-+-  END  OF PART 11 +-+-+-+-+-+-+-+-

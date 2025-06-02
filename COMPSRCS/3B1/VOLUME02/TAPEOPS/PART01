@@ -1,0 +1,1565 @@
+Path: comp-sources-3b1
+From: vern@zebra.alphacdc.com (vern)
+Subject:  v02i035:  3B1 Tape processing utilities, Part01/04
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 77d30b12 0e0a9515 6508a26c 288abdcf
+
+Submitted-by: vern@zebra.alphacdc.com (vern)
+Posting-number: Volume 2, Issue 35
+Archive-name: tapeops/part01
+
+	This is a collection of shell scripts, 'c' code and perl scripts
+which I put together to archive certain newsgroups.  It is presented as
+a guide for others who might wish to use the AT&T 3b1 tape in a manner
+other than the one provided by AT&T.  The processes are slow and not
+very neat, but they serve me well.
+
+Vernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 4)."
+# Contents:  Files README src src/pick.files.c utils utils/wr.tape.sh
+#   wr.tape.sh
+# Wrapped by vern@zebra on Mon Mar  8 08:57:29 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f Files -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Files\"
+else
+echo shar: Extracting \"Files\" \(551 characters\)
+sed "s/^X//" >Files <<'END_OF_Files'
+X.
+X./README
+X./header.sh
+X./prep.sh
+X./rd.tape.sh
+X./save.list
+X./squirrel.sh
+X./src
+X./src/Makefile
+X./src/group.c
+X./src/pick.files.c
+X./src/read.vtoc.c
+X./src/fix.cpio.c
+X./src/mini-z.c
+X./wr.tape.sh
+X./Files
+X./params
+X./backup.sh
+X./link.list
+X./mk.index.sh
+X./utils
+X./utils/util.rd.sh
+X./utils/util.hdr.sh
+X./utils/wr.tape.sh
+X./utils/convert.sh
+X./utils/copy.sh
+X./utils/util.sq.sh
+X./utils/recov.sh
+X./utils/trim.sh
+X./utils/util.prep.sh
+X./utils/trim.pl
+X./utils/fix-1.sh
+X./utils/rewind.sh
+X./utils/panic.sh
+X./utils/wrk.pl
+X./utils/panic.pl
+X./utils/set_up.sh
+X./utils/zap.sh
+END_OF_Files
+if test 551 -ne `wc -c <Files`; then
+    echo shar: \"Files\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"README\"
+else
+echo shar: Extracting \"README\" \(8672 characters\)
+sed "s/^X//" >README <<'END_OF_README'
+X	This is a collection of shell scripts, 'c' code and perl scripts
+Xwhich I put together to archive certain newsgroups.  It is presented as
+Xa guide for others who might wish to use the AT&T 3b1 tape in a manner
+Xother than the one provided by AT&T.  The processes are slow and not
+Xvery neat, but they serve me well.
+X
+X	I hope that you will be able to get ideas from these for any
+Xapplication you may want to try to build.
+X
+X	There is no "manual" for these except this README.  If you have
+Xquestions, either post to the net or contact me as
+X'vern@zebra.alphacdc.com.
+X
+X	The information about the tape drive interface is scanty and
+Xmuch of what I do in these scripts is strictly by guess work.
+X
+Xheader.sh:
+X	This is a collection of parameters used by 'squirrel.sh', 'prep.sh',
+X'wr.tape.sh' and 'rd.tape.sh'.  I keep all the current news articles
+Xin '/news'.  This collection of scripts are kept in '/news/.tape.ops'
+Xfor no special reason.  They can be maintained in any directory but the
+Xowner of the news administration must have read/write permission.  At one
+Xtime, I keep the scripts in '/usr/lib/news' and the working files
+Xin '/news/.tape.ops' hence the two identical parameters of CMDDIR and
+XWRKDIR.
+X
+Xparams:
+X	This is a file which keep track of operations between some of
+Xthe other scripts.  You should move it to another name and let the working
+Xscripts generate one for your application.
+X
+Xsave.list:
+X	A manually generated list of the newsgroups you wish to archive.
+X
+Xlink.list:
+X	A collection of 'Message ID:'s of articles which have been
+Xarchived in the last two months.  It is maintained by 'squirrel.sh'.
+X
+Xsquirrel.sh:
+X	This script scans the NEWSPOOL directory for articles in the
+Xgroups designated for archiving in the 'save.list' file and which are
+Xnot in the 'link.list' file.  It is run daily.
+X
+X	When new articles for archiving are found, they are linked into
+Xthe 'arcdir'.  This protects the articles from getting zapped
+Xby 'expire' and does not consume extra disk space for articles still in
+Xtheir own newgroups.  Articles are linked in numerical order with the
+Xsequence continuity controlled by the 'Next fnum to Link:' entry in
+Xthe 'params' file.
+X
+X	After each run of 'squirrel.sh', a notice of the current status
+Xis mailed to OWN as defined in 'header.sh'.
+X
+X	The 'params' file entries for 'Next fnum to link:', 'Number of
+Xbytes held:' and 'Date last squirreled:' are updated.
+X
+Xprep.sh:
+X	This script extracts the 'Subject:' line from each of the
+Xarticles in the 'arcdir' and puts them into the 'contents' file.  The
+Xc-code program 'group' is called to reorder the subject into
+Xalphabetical order and to group follow-up articles next to the original
+Xarticle.  This is to make recover of like subject easier.
+X
+X	'Prep.sh' also compressed each article and moves it in 'savdir'
+Xfor transfer to tape.  An estimate of additional space available on the
+Xtape is made and a new 'Compression factor:' is entered into
+Xthe 'params' file.  The mathematical integrity of this number is in
+Xserious doubt.  It is used only in for estimating the number of bytes to
+X'squirrel' before the next taping session.
+X
+Xwr.tape.sh:
+X	This is the script which actually writes to the tape.  The call
+Xto 'Tgetname -v' generates a file, '/tmp/tape.vtoc' which contains
+Xinformation about the tape from the the tape header.  'Tgetname()' is
+Xpart of the tape library distributed by AT&T.  The c-code program in the
+X'src' directory reads and '/tmp/tape.vtoc' and presents the information for
+Xdisplay and for use in writing to the tape.  Refer to the comments at
+Xthe beginning of 'src/read.vtoc.c' for more information. 
+X
+X	Options to 'Tgetname()' are:
+X-v "Read the Volume Table of Contents from the tape and put it into
+X/tmp/tape.vtoc."
+X-r "Calculate the next free space from the /tmp/tape.vtoc' file."
+X-b "Same as -v and -b plus prints the name of the tape and the next free
+Xblock number.
+X-3 "For 3b2 type tapes"
+X-w "Write new parameters to the tape header."
+X
+X	Another program from the tape library is 'TmakessList()'.  This
+Xis used to generate the 'ss.filelist'.  This must be the first file in
+Xeach block ( or chapter as I call them -vch ) recorded.
+XThe 'ss.filelist' contains the offest into the block (chapter) for
+Xrecovery of individual files.  The 'rd.tape.sh' script will recover
+Xfiles by 'Subject:'.  The 'src/pick.files' cross references
+Xthe 'Subject:' line to the numeric name used in archiving the files
+Xin 'arcdir'.
+X
+X	I originally believed that 'TmakessList()' returned the number
+Xof tapes that would be required.  That is the reason for the 'while'
+Xloop in 'wr.tape.sh' which tests for '$numtps'.  I tried to trim the
+Xnumber of files so that they would exactly fill the ninth chapter.  This
+Xresulted in a disaster.  Even after trimming, there were more files
+Xavailable and the damned thing went back to the beginning of the tape
+Xand overwrote the first chapter.  I recommend that the ninth chapter of
+Xyour tape not be written to.  Use the scripts in the 'utils' directory
+Xto copy the tape and snuggly fit the files onto the available space.
+X
+X	'Wr.tape.sh' also updates the tape header by calling 'Tgetname
+X-w' and it updates the 'Compression Factor:' and 'Number of bytes held:'
+Xand other entries in the 'params' file.
+X
+X	Upon successful completion, it purges all the directories and
+Xfiles no longer needed.
+X
+Xrd.tape.sh:
+X	This displays the Tape Table of Contents and permits you to
+Xselect one chapter of the tape for examination.  When the chapter has
+Xbeen selected, the 'contents' file for that chapter is recovered and
+Xdisplayed by 'src/pick.files'.  The desired articles then recovered and
+Xput into subdirectories which consist of the name of the tape and the
+Xchapter read.
+X
+Xpick.files:
+X	This is a c-code program which displays the the 'Subject:' line
+Xfrom the articles which are in the selected chapter of the tape.  An
+Xincremental search for subjects is made with 'control-S' for searching
+Xforward and 'control-R' for reverse searching.  The 'Mark' key will
+Xhighlight the selected line.  All selected lines are converted to the
+Xarticle number and the desired articles are recovered from the tape.
+X
+X	This program has some glitches which I live with but which really
+Xshould be corrected.  Because of not properly accounting for line wrapping,
+Xthe marked article may be different from the article being displayed.
+XYou should 'Page Up' and 'Page Down' to refresh the display
+Xbefore 'Exit'ing the program.  Also, two 'Esc's are required to leave
+Xthe search mode and initiate a new search.
+X
+Xmk.index.sh:
+X	This script reads all the chapters on the tape and generates a
+Xcomposite table of contents.  This composite contains the
+Xcross-reference to the articles number required by 'cpio' to recover
+Xindividual articles and the chapter in which the article is stored.
+XThis last value is needed when recovering articles.
+X
+Xbackup.sh:
+X	This script creates a complete backup of the files on the disk.
+XThere is a sed script to ignore all news articles and to put all user
+Xfiles at the end of list for restoration.  This 'feature'? is intended
+Xto alleviate some disk fragmentation after restoration.
+X
+X	It is intended that the tapes generated by this script will be
+Xable to be run from a 'floppy boot' disk I have made according to the
+Xinstructions from Lenny Tropiano.  These are available at the osu
+Xarchive in ftp/pub/att7300/kernel/conf.sh.Z.  As yet, I haven't had the
+Xneed to use them for that purpose.  Anyone like to live dangerously?
+X
+Xutils: directory
+X	These are a collection of shell scripts and perl scripts which
+Xwill copy tapes recorded by 'wr.tape.sh' and pack them neatly into the
+Xnine available blocks.  The 'src/mini.z' program was written to
+Xuncompress each article up to the 'Subject:' line and then quit.  This
+Xwas needed to produce new 'contents' files when the data is rerecorded.
+X
+XOther comments:
+X	'tapecpio()' is a variation of the standard 'cpio' with addition
+Xof the -T and -O options.  The '-T' desigantes a buffer size in kilobytes,
+Xe.g. -T120 uses a buffer of 124 * 1024 bytes.  The '-O' ( Oh not zero )
+Xdesigantes an offest into the tape where transfer is to
+Xbegin. e.g. -O128 will begin writing at the 128th block of the tape.
+X
+X	'dbuf()' provides for souble buffering of the data to and
+Xfrom 'tapecpio'.  The -T and -O options have the same meaning as
+Xin 'tapecpio()'.
+X
+X	When working with the scripts in the 'utils' directory, I
+Xlearned that tape will write multiples of the block size designated
+Xwhether or not the block is filled with data.
+X
+XVernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+X3975 W. 29th Ave.                                   vern@zebra.alphacdc.COM
+XDenver, Colo., 80212          voice: 303-477-1780        uucp: 303-455-2670
+END_OF_README
+if test 8672 -ne `wc -c <README`; then
+    echo shar: \"README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test ! -d src ; then
+    echo shar: Creating directory \"src\"
+    mkdir src
+fi
+if test -f src/pick.files.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/pick.files.c\"
+else
+echo shar: Extracting \"src/pick.files.c\" \(11051 characters\)
+sed "s/^X//" >src/pick.files.c <<'END_OF_src/pick.files.c'
+X/* This is a program to display the 'contents' file a previously	*/
+X/* selected chapter of an archive tape produced by the 'prep' and 	*/
+X/* 'wr.tape' scripts.  This program is designed to be specifically 	*/
+X/* called by 'rd.tape'.  It expects that 'rd.tape' has already read 	*/
+X/* a 'contents' file from the tape and that file is in the current 	*/
+X/* working directory. 							*/
+X/* 	This file produces a scrollable menu from which specific 	*/
+X/* 	titles can be selected by positioning the cursor next to 	*/
+X/* 	the desired title and pressing the 'Mark' key.  Selected 	*/
+X/* 	titles are indicated by highlightling.  Any previoulsy 		*/
+X/* 	selected title can be de-selected by again positioning the 	*/
+X/* 	cursor next to the title and pressing the 'Mark' key. 		*/
+X/* The output of this program is to a 'pntrs' file in the current 	*/
+X/* working directory.  Since all files produced by 'prep' are numerical */
+X/* with a '.Z' suffix, this is the format of the entries in 'pntrs'. 	*/
+X/* 	Cursor motion is currently limited to the 'up-arrow', 		*/
+X/* 	'dn-arrow', 'Home', 'Shift-Home', 'Page' and 'Shift Page' keys. */
+X
+X#include <ctype.h>
+X#include <fcntl.h>
+X#include <malloc.h>
+X#include <stdio.h>
+X#include <sys/window.h>
+X#include <sys/termio.h>
+X
+X#define LINES 23
+X#define HALFL LINES/2
+X#define PFILE "r.pntrs"
+X/* Can we legally copy definitions from <mewu.h> ? */
+Xtypedef struct
+X{
+X	char		*mi_name;	/* name of item			*/
+X	char		mi_flags;	/* flags						*/
+X	int		mi_val;		/* user-supplied value	*/
+X} mitem_t;
+X
+Xmitem_t *curr_item, *start_item, *top_item, *end_item;
+X
+Xstruct termio tt;
+Xstatic struct uwdata uw = { 0, 12, 720, 276, 0x1 };
+X	/* 80 chars per line *  9 pixels per char = 720  */
+X	/* 23 LINES per page * 12 pixels per line = 276 */
+Xstatic struct umdata um = { 0x09, 0, 12, 720, 12, 0 };
+Xstatic struct utdata ud = { WTXTPROMPT,
+X"<Find>/^S = Search, <^Find>/^R = Reverse, <:q> or <Exit> to leave." };
+Xstatic struct utdata ue = { WTXTCMD,
+X"<Mark> to save/unsave item, <ESC><ESC> to reset." };
+X
+Xint lncnt;
+Xchar search_buf[64];
+XFILE *fn;
+X
+Xmain()
+X{
+X	int i, fd;
+X	if (( fd = open( "/dev/window", O_RDWR )) < 0 )
+X	{
+X		perror( "Opening window" );
+X		exit();
+X	}
+X	ioctl( fd, TCGETA, &tt );
+X	tt.c_iflag &= ~02000;	/* Disable start/stop */
+X	tt.c_lflag &= ~0112;		/* Set raw mode, no echo */
+X	tt.c_cc[VMIN] = 1;
+X	tt.c_cc[VTIME] = 1;
+X	ioctl( fd, TCSETA, &tt );
+X	ioctl( fd, WIOCSETD, &uw );
+X	ioctl( fd, WIOCSETTEXT, &ud );
+X	ioctl( fd, WIOCSETTEXT, &ue );
+X	ioctl( fd, WIOCSETMOUSE, &um );
+X	close(0); dup(fd);
+X	close(1); dup(fd);
+X	close(2); dup(fd);
+X	close(fd);
+X	lncnt = set_data();
+X	lncnt = 1;
+X	printf( "\033[2J" );		/* Erase screen */ 
+X	write_page( start_item );
+X	while ( do_funct( ));
+X		/* Home, Erase entire screen, Attributes to normal. */
+X	printf( "\033[2J\033[1;1H\033[0m" );
+X	fn = fopen( PFILE, "w+" );
+X	for ( curr_item = start_item; curr_item < end_item; curr_item++ )
+X		if ( curr_item->mi_flags )
+X					fprintf( fn, "%d.Z ", curr_item->mi_val );
+X	lncnt = ftell( fn );
+X	fclose( fn );
+X	exit( lncnt );
+X}
+X
+Xint
+Xset_data( )
+X{
+X	int in, lcnt;
+X	long size;
+X	char *p, *pq;
+X	char *r1;
+X	mitem_t *wrkptr;
+X	in = open("contents", O_RDONLY );
+X	size = lseek( in, 0, 2 );
+X	lseek( in, 0, 0 );
+X	r1 = malloc( size );
+X	read( in, r1, size );
+X	close( in );
+X	for( p = r1, lcnt = 0; p <= r1 + size ; p++ )
+X		if ( *p == '\n' ) lcnt++;
+X	start_item = (mitem_t *)calloc( lcnt, sizeof( mitem_t));
+X	for( p = pq = r1, wrkptr = start_item; p <= r1 + size; p++ ) {
+X		if ( *p == '\t' ) {
+X			*p = '\0';
+X			wrkptr->mi_name = pq;
+X			wrkptr->mi_val = atoi( ++p );
+X			wrkptr++;
+X		}
+X		else if ( *p == '\n' ) pq = ++p;
+X	}
+X	end_item = --wrkptr;
+X	return( lcnt );
+X}
+X
+Xdo_funct( ch )
+Xchar ch;
+X{
+X	int i, x, y, button, reason, pos;
+X	char report[25];
+X	char *r;
+X
+X	ch = getchar();
+X	if ( ch >= ' ' ) {
+X		if ( ch == ':' && ( ch = getchar()) == 'q' )
+X			return( 0 );
+X		search( toupper( ch ));
+X	}
+X	else if ( ch == '\022' || ch == '\023' || ch == '\b' )
+X		search( ch );		/* \022 = control S, \023 = control R */
+X	else if ( ch == '\033' ) {
+X		if (( ch = getchar()) == '[') {
+X			switch ( ch = getchar() ) {
+X			case 'A': 						/* "Up Arrow" */
+X				move_up();
+X				break;
+X			case 'B':						/* "Down Arrow" */
+X				move_down();
+X				break;
+X			case 'H':						/* "Home" */
+X				home();
+X				break;
+X			case 'U':
+X				write_page( top_item + LINES + HALFL);	/* "Page" */
+X				break;
+X			case 'V':
+X 				write_page( top_item - LINES + HALFL);	/* "^Page" */
+X				break;
+X			case '?':		/* "Mouse" */
+X				r = report;
+X				while (( ch = getchar( )) != 'M' ) 
+X					*r++ = ch;
+X				*r = '\0';
+X				r = report;
+X				x = 0;
+X				while ( *r != ';' )
+X					x = (x * 10)	+ ( *r++ & 0x0f );
+X				y = 0;
+X				r++;
+X				while ( *r != ';' )
+X					y = (y * 10)	+ ( *r++ & 0x0f );
+X				button = 0;
+X				r++;
+X				while ( *r != ';' )
+X					 button = (button * 10) + ( *r++ & 0x0f );
+X				reason = 0;
+X				r++;
+X				while ( *r )
+X					reason = (reason * 10) + ( *r++ & 0x0f );
+X				if ( reason & 0x8 ) {
+X					i = lncnt - 1;
+X					pos = y / 12;
+X					if ( pos < i ) move_up();
+X					else if ( pos > i ) move_down();
+X					um.um_y = 12 * i;
+X					ioctl( 1, WIOCSETMOUSE, &um );
+X				}
+X				switch ( button ) {
+X				case 1:  /* Right button */
+X					if ( lncnt < 12 ) home();
+X					else tail();
+X					break;
+X				case 2: /* Middle button */
+X					if ( lncnt == 1 )
+X						move_up();
+X					else if ( lncnt == LINES )
+X						move_down();
+X					else if ( lncnt < 12 ) {
+X						write_page( top_item + LINES + HALFL);	/* "Page" */
+X 				}
+X					else {
+X						write_page( top_item + LINES + HALFL);	/* "Page" */
+X					}
+X					break;
+X				case 4:  /* Left button */
+X					mark();
+X					break;
+X				}
+X			}
+X		}
+X		else if ( ch == 'O' ) {
+X			switch ( ch = getchar() ) {
+X			case 'k':						/* Exit */
+X			case 'o': return( 0 ); 		/* Save */
+X			case 'x':						/* Find */
+X				search( '\023' );
+X				break;
+X			case 'X':						/* ^Find */
+X				search( '\022' );
+X				break;
+X			}
+X		}
+X		else if ( ch == 'N' ) {
+X			switch ( ch = getchar() ) {
+X			case 'i':
+X				mark();	/* "Mark" */
+X				break;
+X			case 'M':
+X				tail();	/* "^Home" */
+X				break;
+X			}
+X		}
+X		else {
+X			search( 0 );
+X		}
+X	}
+X	return( 1 );
+X}
+X
+Xsearch( arg )
+Xchar arg;
+X{
+X	struct utdata uf;
+X	struct utdata ug;
+X	static mitem_t *anchor;
+X	static char *hdrp;
+X	static char *old_ptr = NULL;
+X	static char *search_ptr = search_buf;
+X	static int search_dir = 0;
+X	static int pass = 0;
+X	mitem_t *here;
+X	char *p, *q, *r;
+X	short n, m;
+X
+X	if ( arg > 0 && pass < 0 ) return;
+X	if ( arg >= ' ' ) {
+X		*search_ptr++ = arg;
+X		*search_ptr = '\0';
+X	}
+X	else if ( arg == '\022' ) {
+X		hdrp = "Reverse search: ";
+X		search_dir = -1;
+X	}
+X	else if ( arg == '\023' ) {
+X		hdrp = "Searching for:  ";
+X		search_dir = 1;
+X	}
+X	else if ( arg == '\b' ) {
+X		if ( search_ptr > search_buf ) {
+X			*--search_ptr = '\0';
+X			search_dir = - search_dir;
+X			search ( 2 );
+X			search_dir = - search_dir;
+X		}
+X		return;
+X	}
+X	else if ( arg == 0 ) {
+X		search_ptr = search_buf;
+X		search_dir = 0;
+X		hdrp = "";
+X		pass = -1;
+X		n = 0;
+X	}
+X	else if ( arg == 1 ) {
+X		if ( arg ) hdrp = "Search failed!";
+X		n = 0;
+X		pass = -3;
+X	}
+X	else if ( arg == 2 ) {;}	/* Dummy for backspace recursion. */
+X	else return;
+X
+X	if ( ++pass == 1 ) {
+X		anchor = curr_item - search_dir;
+X		if ( anchor < start_item ) anchor = end_item;
+X		else if ( anchor > end_item ) anchor = start_item;
+X	}
+X	if ( pass == 2 && search_ptr == search_buf )
+X			search_ptr = old_ptr;
+X
+X			/* Limit search pointer to search buffer. */
+X	if ( arg > 3  && ( n = search_ptr - search_buf ) < 0 )
+X			search_ptr = search_buf;
+X	else if ( n >= sizeof( search_buf ))
+X			search_ptr = search_buf + sizeof( search_buf ) - 1;
+X
+X	uf.ut_num = WTXTSLK1;
+X	sprintf( uf.ut_text, "%d %s%.*s", pass, hdrp, n, search_buf );
+X	ioctl( 1, WIOCSETTEXT, &uf );
+X
+X	if ( pass <= 1 ) return;
+X
+X	old_ptr = search_ptr;
+X	here = curr_item;
+X	while ( 1 )
+X	{
+X		here += search_dir;
+X		if ( here > end_item ) here = start_item;
+X		else if ( here < start_item ) here = end_item;
+X		if ( here == anchor ) {
+X			search( 1 );
+X			return;
+X		}
+X		q = here->mi_name;
+Xmore:
+X		p = search_buf;
+X		while ( *q && toupper(*q) != *p ) q++;
+X		if ( *q == '\0' ) continue;
+X
+X		r = q;
+X		while ( toupper(*q) == *p ) q++, p++;
+X		if ( *p == '\0' ) {
+X			if ( here < top_item || here > top_item + LINES )
+X				write_page( here );
+X
+X			m = r - here->mi_name;
+X			n = here - top_item + 1;
+X			printf( "\033[%d;%dH", n, m );
+X 			curr_item = here;
+X			break;
+X		}
+X		goto more;
+X	}
+X}
+X
+Xwrite_page( obj_item )
+Xmitem_t *obj_item;
+X{
+X	int i;
+X	mitem_t *wrkptr;
+X
+X	top_item = obj_item - HALFL;
+X	if (( top_item + LINES ) >= end_item ) top_item = end_item - LINES;
+X	if ( top_item < start_item ) top_item = start_item;
+X	printf( "\033[1;1H" );	/* Home */
+X	for ( i = 1, wrkptr = top_item; i <= LINES ; i++, wrkptr++ ) {
+X		if ( wrkptr > end_item ) break;
+X		if ( wrkptr->mi_flags ) printf( "\015\033[7m" ); /* Reverse */
+X		else printf( "\015\033[0m" );							/* Normal video */
+X		printf( "\033[=0w%s\033[0K", wrkptr->mi_name );
+X		if ( wrkptr == obj_item ) lncnt = i;
+X		if ( i < LINES ) putchar( '\n' );
+X	}
+X	curr_item = obj_item;
+X	printf( "\033[%d;1H", lncnt ); 		/* Cursor to 'lncnt' */
+X}
+X	
+Xmark()
+X{
+X	curr_item->mi_flags = ! curr_item->mi_flags;
+X	if ( curr_item->mi_flags )
+X		printf( "\033[7m" );			/* Reverse video */
+X	else
+X		printf( "\033[0m" );			/* Normal video */
+X	printf( "\015\033[=0w%s\033[0K", curr_item->mi_name );
+X}
+X
+Xtail()
+X{
+X	if ( curr_item == end_item )
+X	{
+X		putchar( '\007' ); /* Beep */
+X		return;
+X	}
+X	write_page( end_item );
+X}
+X
+Xhome()
+X{
+X	if ( curr_item == start_item )
+X	{
+X		putchar( '\007' ); /* Beep */
+X		return;
+X	}
+X	write_page( start_item );
+X}
+X
+X		/* Move up means move toward beginning of buffer. */
+Xmove_up()
+X{
+X	if ( --curr_item < start_item ) {
+X		putchar( '\007' ); /* Beep */
+X		curr_item = start_item;
+X		lncnt = 1;
+X	}
+X	else if ( curr_item < top_item ) {
+X		printf( "\033[1T" );					/* Scroll down 1 line */
+X		if ( curr_item->mi_flags )
+X			printf( "\033[7m" );				/* Reverse video */
+X		else
+X			printf( "\033[0m" );				/* Normal video */
+X/* 
+X * \033[1;1H	= go to line 1, col 1
+X * \033[=0w		= line wrapping off,
+X * %s				= write mi_name,
+X * \033[0K		= erase to end of line,
+X * \015			= put cursor at beginning of line
+X */
+X		printf( "\033[1;1H\033[=0w%s\033[0K\015",
+X				curr_item->mi_name );
+X		top_item = curr_item;
+X		lncnt = 1;
+X	}
+X	else {
+X		lncnt = curr_item - top_item + 1;
+X		printf( "\033[%d;1H", lncnt );
+X	}
+X}
+X
+X		/* Move down means move toward end of buffer. */
+Xmove_down()
+X{
+X	if ( ++curr_item >= end_item ) {
+X		curr_item = end_item;
+X		putchar( '\007' ); /* Beep */
+X		lncnt = LINES;
+X	}
+X	else if ( curr_item > top_item + LINES ) {
+X		printf( "\033[1S" );					/* scroll up 1 line */
+X		if ( curr_item->mi_flags )
+X			printf( "\033[7m" );				/* Reverse video */
+X		else
+X			printf( "\033[0m" );				/* Normal video */
+X/* 
+X * \033[1S			= scroll up 1 line,
+X * \033[%d;1		= %d = LINES, go to beginning of bottom line
+X * \033[=0w			= line wrapping off,
+X * %s					= write mi_name,
+X * \033[0K			= erase to end of line
+X * \015				= put cursor at beginning of line
+X */
+X		printf( "\033[%d;1H\033[=0w%s\033[0K\015",
+X					LINES, curr_item->mi_name );
+X		top_item = curr_item - LINES - 1;
+X		lncnt = LINES;
+X	}
+X	else {
+X		lncnt = curr_item - top_item + 1;
+X		printf( "\033[%d;1H", lncnt );
+X	}
+X}
+END_OF_src/pick.files.c
+if test 11051 -ne `wc -c <src/pick.files.c`; then
+    echo shar: \"src/pick.files.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test ! -d utils ; then
+    echo shar: Creating directory \"utils\"
+    mkdir utils
+fi
+if test -f utils/wr.tape.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/wr.tape.sh\"
+else
+echo shar: Extracting \"utils/wr.tape.sh\" \(8996 characters\)
+sed "s/^X//" >utils/wr.tape.sh <<'END_OF_utils/wr.tape.sh'
+X# This is the sequence of operations to write squirrelled files to tape.
+X# It requires that:
+X#    1. The files have been previously compressed and moved
+X# 	into the 'savdir'.
+X#    2.	A 'pntrs' file exists which is a listing of the 'savdir' sans .Z
+X#    3. A 'contents' file exists which contains the 'Subject: ' of each
+X#	file in 'savdir' with a cross reference to its name in 'arcdir'.
+X#
+X#	These files are normally generated by 'prep' and this program
+X# is called by 'prep'.  However, these operations may be aborted during
+X# a 'prep' run and resumed by calling this program as a separate
+X# operation if these three parameters exist.
+X
+Xfunction cleanup
+X{
+X	rm -fr $SAVDIR
+X	rm -f /tmp/tape.vtoc
+X	rm -f /tmp/ss.osets
+X	rm -f /tmp/size*
+X	rm -f ss.filelist
+X	rm -f $PNTRS
+X	rm -f $CPNTRS
+X	rm -f BUfiles
+X	rm -f $CONFILE
+X	rm -f bk.contents
+X	rm -f bk.pntrs
+X	rm -f /tmp/BUlist*
+X}
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	echo "This script must be run as a function of another process
+Xso that the correct files are accessed."
+X	exit 1
+Xfi
+X
+X# This should be the start of the program
+X
+Xecho `date +%T`" Starting write operations. "
+X
+Xif [ ! -f $PARAMS ]
+Xthen
+X	echo "Whoops! There is no 'params' file so we don't know
+Xwhat to write. "
+X	exit 1
+Xfi
+X
+Xif [ ! -f $CONFILE ]
+Xthen
+X	echo "Whoops! There is no 'contents' file so we don't know
+Xwhat to write. "
+X	exit 1
+Xfi
+X
+X# These copies are made so that 'wr.tape.sh' may be resumed after
+X# preparing another tape.
+Xcp $CONFILE bk.contents
+Xcp $CPNTRS bk.pntrs
+X
+X# Get params
+Xname=`sed -n 's/Name of work tape:\	//p' $PARAMS`
+Xpoffset=`sed -n 's/Blocks of offset:\	//p' $PARAMS`
+Xtdate=`sed -n 's/Date last taped:\	//p' $PARAMS`
+Xblks=`sed -n 's/Blocks available:\	//p' $PARAMS`
+Xpchap=`sed -n 's/Next chapter number:\	//p' $PARAMS`
+XSSCMNT=`sed -n 's/Comment:\	//p' $PARAMS`
+X
+Xpau=0
+Xwhile [ "$pau" = "0" ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret != 0 ]
+X	then
+X		echo "Please insert a tape. Q)uit or <cr> to continue. \c"
+X		read  ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X	else
+X		Tgetname -v > /dev/null
+X		ret=$?
+X		set `Tgetname -r | tr -d "'"`
+X		tname=$1
+X		toffset=$2
+X		Tgetname -b
+X		if [ $ret = 30 ]
+X		then
+X			echo "\n\tThis tape has the \"SAFE\" key set.
+X\tPlease exchange it for a tape we can write onto.
+X\t	<cr> to continue. Q)uit."
+X			read -r ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				exit 1
+X			fi
+X		else
+X			if [ "$tname" != "$name" ]
+X			then
+X				echo \
+X"\tYou may have inserted the wrong tape.
+X\tThis tape name is \"$tname\" and I was expecting \"$name\"."
+X				while
+X					echo \
+X					"\t\tIs '$name' okay? <y/n> \c"
+X					read ch
+X					[ "$ch" = "n" -o "$ch" = "N" ]
+X				do
+X					read name?"Enter new name: "
+X				done
+X			fi
+X# 'read.vtoc -w9' will write all used chapters to standard out in column
+X# format.  'read.vtoc -c' puts the next chapter number and the next offset
+X# on standard output.  A return of '10' indicates that the tape is full.
+X
+Xecho `date +%T`" The contents of tape \"$name\" are:"
+X			$SRCDIR/read.vtoc -w9
+X			set `$SRCDIR/read.vtoc -c$pchap`
+X			chap=$1
+X			offset=$2
+X			if [ "$pchap" -ne "$chap" ]
+X			then
+X				echo \
+X	"\n\tThere is a descrepancy about which chapter should be written next.
+X	The parameters file says chapter '$pchap' (default).
+X	The tape header says chapter '$chap'.
+X	Enter your choice for the chapter number. \c"
+X				read chap
+X				if [ "$chap" = "" ]
+X				then
+X					chap=$pchap
+X				fi
+X			fi
+X			if [ "$poffset" -ne "$offset" ]
+X			then
+X				echo \
+X	"\n\tThere is a descrepancy about the amount of offset.
+X	The parameters file says to start at '$poffset' (default).
+X	The tape header says to start at '$offset'.
+X	Enter your choice for the amount of offset. \c"
+X				read offset
+X				if [ "$offset" = "" ]
+X				then
+X					offset=$poffset
+X				fi
+X			fi
+X		pau=1
+X		fi
+X	fi
+X	if [ "$ch" = "n" -o "$ch" = "N" ]
+X	then
+Xecho "\tWaiting for another tape to be inserted.
+X\t<cr> to continue. Q)uit \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X		pau=0
+X	fi
+Xdone
+X
+X# Whew, don't ask me how we got through all those queries but I think
+X# that there is one path through there that doesn't have a stop.
+X
+Xecho `date +%T`\
+X" Preparing file lists. Chapter '$chap', Tape '$name', Offset $offset."
+Xscalped=0
+X
+Xcd $SAVDIR
+Xwhile
+X	rm -f contents
+X	ln $CONFILE contents
+X	echo "contents" > $WRKDIR/BUfiles
+X	while
+X		read pntr
+X	do
+X		echo "$pntr.Z" >> $WRKDIR/BUfiles
+X	done < $CPNTRS
+X	TmakessList $offset <$WRKDIR/BUfiles > ss.filelist
+X	numtps=$?
+X	[ $numtps -gt 1 ]
+Xdo
+X# This trims down the entries in the 'savdir' until it will fit on
+X# the end of the tape.  The CPNTRS file will also be trimmed.  Later
+X# we will remove the entries in ARCDIR which are still in CPNTRS.
+X# The rest of ARCDIR will be relabelled for the next tape.
+X	> $TMP2
+X	if [ $scalped -eq 0 ]
+X	then
+X		echo \
+X"\tStandby! The file list is being trimmed to fit the tape!!
+X\tThere will be some messages issued stating:
+X\t\t'insert next floppy tape'.
+X\tIgnore those messages and respond with a <cr>."
+X		scalped=1
+X	fi
+X	last=`sed -n '$ p;$ !w '$TMP2'' $CPNTRS`
+X	echo "last = $last"
+X# This line must be '/<tab>'$last'$/...
+X	sed -e '/	'$last'$/ d' $CONFILE > $TMP1
+X	if [ ! -d $WRKDIR/scalped ]
+X	then mkdir $WRKDIR/scalped; fi
+X	if [ "X_$COPY" = "X_1" ]
+X	then mv $SAVDIR/$last.Z $CACHE/$$$last.Z; fi
+X	mv $TMP1 $CONFILE
+X	mv $TMP2 $CPNTRS
+Xdone
+X
+Xif [ $chap -eq 9 -a $scalped -eq 0 ]
+Xthen
+X	echo \
+X"\tThis is the last chapter available on this tape and space is going
+X\tto be left over.  Do you want to abort now and rerun this after you
+X\thave collected more files? <y> to abort, <n> to continue. \c"
+X	read ch
+X	if [ "$ch" = "y" -o "$ch" = "Y" ]
+X	then
+X		cleanup
+X		exit 1
+X	fi
+Xfi
+X
+Xecho `date +%T`\
+X" Writing chapter '$chap' to tape '$name' starting at block $offset."
+Xecho "ss.filelist" > /tmp/BUlist$$
+Xcat /tmp/BUlist$$ $WRKDIR/BUfiles | tapecpio -ocvT124 2>/tmp/size$$ | \
+X	   dbuf -oT124O$offset > /dev/rft3
+Xret=$?
+Xif [ "$ret" != "0" ]
+Xthen
+X	if [ $ret = 4 ]
+X	then
+X		echo "This tape operation has been aborted."
+X		exit 1
+X	else
+X		echo "\
+X\tAn error has occurred while trying to create this backup-set.
+X\tCheck that a formatted tape has been properly inserted and has
+X\tfinished rewinding.  Enter <q> to quit. \c"
+X		read ch
+X		exit 1
+X	fi
+Xfi
+X
+Xeval set `grep "blocks" /tmp/size$$`
+XNBLOCKS=$1
+X
+Xset `wc -l ss.filelist`
+XNFILES=$1
+X
+Xecho "\
+X$NBLOCKS blocks and $NFILES files written to target chapter $chap\n" \
+X>> $WRKDIR/data
+X
+Xecho `date +%T`" Performing verify pass."
+X
+Xdbuf -iT124O$offset"S"$NBLOCKS /dev/rft3 > /dev/null
+Xret=$?
+X
+Xif [ "$ret" != "0" ]
+Xthen
+X	echo "\
+X\tAn error has been discovered while trying to verify this tape.
+X\tYou should use copy the existing data on this tape to another
+X\ttape using '/news/.tape.ops/start/copy.sh'.  Read the comments
+X\tat the beginning of that program before proceeding."
+X	read
+X	exit 1
+Xfi
+X
+Xecho `date +%T`" Updating data block."
+Xcase $chap in
+X	1) SSNAME="This";;
+X	2) SSNAME="need";;
+X	3) SSNAME="for";;
+X	4) SSNAME=" a ";;
+X	5) SSNAME="name";;
+X	6) SSNAME=" is ";;
+X	7) SSNAME="very";;
+X	8) SSNAME="silly";;
+X	9) SSNAME="stuff";;
+Xesac
+X
+Xif [ "$COPY" = "0" ]
+Xthen
+X	SSCMNT=`date '+%a, %h. %d 19%y %H:%M'`
+Xfi
+XTgetname -w "Backup by Names" "$name" "$SSNAME" "$SSCMNT" \
+X		$offset $NBLOCKS $NFILES
+X#            "$BTYPE"       "$TPNAME" "$SSNAME" "$SSCMNT"
+X#               $OFFSET $NBLOCKS $NFILES
+Xret=$?
+Xif [ "$ret" != "0" ]
+Xthen
+X	echo "\tAn error has occurred while trying to update the data block.
+X\tError number = "$ret
+X	exit 1
+Xfi
+X
+Xcd $WRKDIR
+X
+XTgetname -v
+Xecho `date +%T`" Verification complete.  The new contents are:"
+X$SRCDIR/read.vtoc -w9
+Xif [ "$COPY" = "0" ]
+Xthen
+X	chap=$?
+Xelse
+X	(( chap = chap + 1 ))
+Xfi
+X
+Xif [ $chap -gt 9 -o $scalped -ne 0 ]
+Xthen
+Xecho "\tThis tape should be marked FULL and a new tape used next time."
+X	offset=0
+X	name=`echo $name | awk - '{ FS = "-"
+X		printf("%s-%03d", $1, ++$2 ) }' -`
+X	blks=$MAXOFFSET
+X	chap=1
+Xelse
+X	set `$SRCDIR/read.vtoc -c$chap`
+X	chap=$1
+X	offset=$2
+X	(( blks = $MAXOFFSET - offset ))
+Xfi
+Xtoday=`date '+%y-%m-%d'`
+X
+X> $TMP1
+Xchgrp news $TMP1
+Xchown netnews $TMP1
+Xecho `date +%T`" Purging directories and support files."
+X
+Xif [ $COPY -eq 0 ]
+Xthen
+X	while
+X		read pntr
+X	do
+X		rm -f $ARCDIR/$pntr
+X	done <$CPNTRS
+X
+X	fnum=1
+X	ls -1 $ARCDIR > $PNTRS
+X	while
+X		read pntr
+X	do
+X		if [ ! -f $ARCDIR/$fnum ]
+X		then
+X			mv $ARCDIR/$pntr $ARCDIR/$fnum
+X			(( fnum = fnum + 1 ))
+X		fi
+X	done < $PNTRS
+X
+X	factor=`sed -n 's/Compression factor:\	//p' $PARAMS`
+X	nbytes=`sed -n 's/Number of bytes held:\	//p' $PARAMS`
+X	xbytes=`echo $nbytes | tr -d ","`
+X
+X	if [ $chap -gt 1 ]
+X	then
+X		(( factor = (( xbytes/NBLOCKS ) + factor)/2 ))
+X	fi
+Xfi
+X
+Xawk -F"	" - '{ if ( $0 ~ /Next fnum to link:/ ) $2 = "'"$fnum"'"
+X		if ( $0 ~ /Number of bytes held:/ ) $2 = 0
+X		if ( $0 ~ /Name of work tape:/ ) $2 = "'"$name"'"
+X		if ( $0 ~ /Blocks of offset:/ ) $2 = "'"$offset"'"
+X		if ( $0 ~ /Date last taped:/ ) $2 = "'"$today"'"
+X		if ( $0 ~ /Blocks available:/ ) $2 = "'"$blks"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = "'"$chap"'"
+X		if ( $0 ~ /Compression factor:/ ) $2 = "'"$factor"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $PARAMS
+Xmv $TMP1 $PARAMS
+X
+Xcleanup
+X
+Xecho `date +%T`" Taping finished."
+Xexit 0
+END_OF_utils/wr.tape.sh
+if test 8996 -ne `wc -c <utils/wr.tape.sh`; then
+    echo shar: \"utils/wr.tape.sh\" unpacked with wrong size!
+fi
+chmod +x utils/wr.tape.sh
+# end of overwriting check
+fi
+if test -f wr.tape.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"wr.tape.sh\"
+else
+echo shar: Extracting \"wr.tape.sh\" \(9244 characters\)
+sed "s/^X//" >wr.tape.sh <<'END_OF_wr.tape.sh'
+X# This is the sequence of operations to write squirrelled files to tape.
+X# It requires that:
+X#    1. The files have been previously compressed and moved
+X# 	into the 'savdir'.
+X#    2.	A 'pntrs' file exists which is a listing of the 'savdir' sans .Z
+X#    3. A 'contents' file exists which contains the 'Subject: ' of each
+X#	file in 'savdir' with a cross reference to its name in 'arcdir'.
+X#
+X#	These files are normally generated by 'prep' and this program
+X# is called by 'prep'.  However, these operations may be aborted during
+X# a 'prep' run and resumed by calling this program as a separate
+X# operation if these three parameters exist.
+X
+Xfunction cleanup
+X{
+X	rm -fr $SAVDIR
+X	rm -f /tmp/tape.vtoc
+X	rm -f /tmp/ss.osets
+X	rm -f /tmp/size*
+X	rm -f $PWD/ss.filelist
+X	rm -f $PNTRS
+X	rm -f $CPNTRS
+X	rm -f BUfiles
+X	rm -f $CONFILE
+X	rm -f bk.contents
+X	rm -f bk.pntrs
+X	rm -f /tmp/BUlist*
+X}
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	echo "This script must be run as a function of another process
+Xso that the correct files are accessed."
+X	exit 1
+Xfi
+X
+X# This should be the start of the program
+X
+Xecho `date +%T`" Starting writing operations. "
+X
+Xif [ ! -f $PARAMS ]
+Xthen
+X	echo "Whoops! There is no 'params' file so we don't know
+Xwhat to write. "
+X	exit 1
+Xfi
+X
+Xif [ ! -f $CONFILE ]
+Xthen
+X	echo "Whoops! There is no 'contents' file so we don't know
+Xwhat to write. "
+X	exit 1
+Xfi
+X
+X# These copies are made so that 'wr.tape.sh' may be resumed after
+X# preparing another tape.
+Xcp $CONFILE bk.contents
+Xcp $CPNTRS bk.pntrs
+X
+X# Get params
+Xname=`sed -n 's/Name of work tape:\	//p' $PARAMS`
+Xpoffset=`sed -n 's/Blocks of offset:\	//p' $PARAMS`
+Xtdate=`sed -n 's/Date last taped:\	//p' $PARAMS`
+Xblks=`sed -n 's/Blocks available:\	//p' $PARAMS`
+Xpchap=`sed -n 's/Next chapter number:\	//p' $PARAMS`
+X
+Xpau=0
+Xwhile [ $pau = 0 ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret != 0 ]
+X	then
+X		echo "Please insert a tape. Q)uit or <cr> to continue. \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X	else
+X# From here on, the tape drive is locked, any 'exit' must perform
+X# 'Tgetname -l' to unlock the drive before leaving.
+X		Tgetname -v > /dev/null
+X		ret=$?
+X		set `Tgetname -r | tr -d "'"`
+X		tname=$1
+X		toffset=$2
+X		if [ $ret = 30 ]
+X		then
+X			Tgetname -l
+X			echo "\n\tThis tape has the \"SAFE\" key set.
+X\tPlease exchange it for a tape we can write onto.
+X\t	<cr> to continue. Q)uit."
+X			read -r ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				exit 1
+X			fi
+X		elif
+X# 'read.vtoc -w9' will write all used chapters to standard out in column
+X# format.  'read.vtoc -c' puts the next chapter number and the next offset
+X# on standard output.  A return of '10' indicates that the tape is full.
+X
+Xecho `date +%T`" The contents of tape \""$tname"\" are:"
+X			$SRCDIR/read.vtoc -w9
+X			set `$SRCDIR/read.vtoc -c`
+X			chap=$1
+X			offset=$2
+X			[ $chap -gt 9 ]
+X		then
+X			Tgetname -l
+Xecho "\tWhoops!  This tape has all the chapters filled.  Shall we q)uit
+X\tnow so that you restart another day or w)ait for another tape to cycle?
+X\tEnter \"q\" or \"w\" to wait. \c"
+X			read ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				exit 1
+X			fi
+X		else
+X			if [ "$poffset" -ne "$offset" -o "$pchap" -ne "$chap" ]
+X			then
+X				echo \
+X	"\tThere is a descrepancy about which chapter should be written
+X	next.  The parameters file says chapter $pchap at offset $poffset
+X	while the tape says chapter $chap should be at $offset blocks.
+X	Enter your choice for the chapter number. \c"
+X				read ichap
+X				if [ "$ichap" = "$pchap" ]
+X				then
+X					chap=$pchap
+X					offset=$poffset
+X				fi
+X				echo \
+X"Enter a value for the offset if $offset is unsatisfactory.
+X		<cr> for OK. \c"
+X				read ch
+X				if [ "$ch" != "" ]
+X				then
+X					offset=$ch
+X				fi
+X			fi
+X			if [ "$tname" != "$name" ]
+X			then
+X				echo \
+X"\tYou may have inserted the wrong tape.
+X\tThis tape name is \""$tname"\" and I was expecting \""$name"\".
+X\tThere are "$toffset" blocks of data already on this tape.
+X\tOkay to write to this tape? <y/n> \c"
+X				read -r ch
+X				if [ "$ch" = "y" -o "$ch" = "Y" ]
+X				then
+Xecho "Shall we change the name to \""$name"\" or leave it \""$tname"\"?
+XEnter 'k' to keep it as \""$tname"\", <cr> to continue. \c"
+X					read ch
+X					if
+X					[ "$ch" = "k" -o "$ch" = "K" ]
+X					then
+X						name=$tname
+X					fi
+X				fi
+X			fi
+X		pau=1
+X		fi
+X	fi
+X	if [ "$ch" = "w" -o "$ch" = "W" -o "$ch" = "n" -o "$ch" = "N" ]
+X	then
+Xecho "\tWaiting for another tape to be inserted.
+X\t<cr> to continue. Q)uit \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			Tgetname -l
+X			exit 1
+X		fi
+X		ret=1
+X	fi
+Xdone
+X
+X# Whew, don't ask me how we got through all those queries but I think
+X# that there is one path through there that doesn't have a stop.
+X
+Xecho `date +%T`" Preparing file lists. "
+Xscalped=0
+X
+Xcd $SAVDIR
+Xwhile
+X	rm -f contents
+X	ln $CONFILE contents
+X	echo "contents" > $WRKDIR/BUfiles
+X	while
+X		read pntr
+X	do
+X		echo "$pntr.Z" >> $WRKDIR/BUfiles
+X	done < $CPNTRS
+X	TmakessList $offset <$WRKDIR/BUfiles > ss.filelist
+X	numtps=$?
+X	[ $numtps -gt 1 ]
+Xdo
+X# This trims down the entries in the 'savdir' until it will fit on
+X# the end of the tape.  The CPNTRS file will also be trimmed.  Later
+X# we will remove the entries in ARCDIR which are still in CPNTRS.
+X# The rest of ARCDIR will be relabelled for the next tape.
+X	> $TMP2
+X	if [ $scalped -eq 0 ]
+X	then
+X		echo \
+X"\tStandby! The file list is being trimmed to fit the tape!!
+X\tThere will be some messages issued stating:
+X\t\t'insert next floppy tape'.
+X\tIgnore those messages and respond with a <cr>."
+X		scalped=1
+X	fi
+X	last=`sed -n '$ !w '"$TMP2"'
+X			$ p' < $CPNTRS`
+X	sed '$ d' < $CONFILE > $TMP1
+X	mv $TMP1 $CONFILE
+X	mv $TMP2 $CPNTRS
+Xdone
+X
+Xif [ $chap -eq 9 -a $scalped -eq 0 ]
+Xthen
+X	echo \
+X"\tThis is the last chapter available on this tape and space is going
+X\tto be left over.  Do you want to abort now and rerun this after you
+X\thave collected more files? <y> to abort, <n> to continue. \c"
+X	read ch
+X	if [ "$ch" = "y" -o "$ch" = "Y" ]
+X	then
+X		Tgetname -l
+X		cleanup
+X		exit 1
+X	fi
+Xfi
+X
+Xecho `date +%T`\
+X" Writing chapter $chap to tape '$name' starting at block $offset."
+Xecho "ss.filelist" > /tmp/BUlist$$
+Xcat /tmp/BUlist$$ $WRKDIR/BUfiles | tapecpio -ocvT124 2>/tmp/size$$ | \
+X	   dbuf -oT124O$offset > /dev/rft3
+Xret=$?
+Xif [ "$ret" != "0" ]
+Xthen
+X	if [ $ret = 4 ]
+X	then
+X		echo "This tape operation has been aborted."
+X		Tgetname -l
+X		exit 1
+X	else
+X		echo "\
+X\tAn error has occurred while trying to create this backup-set.
+X\tCheck that a formatted tape has been properly inserted and has
+X\tfinished rewinding.  Enter <q> to quit. \c"
+X		read ch
+X		Tgetname -l
+X		exit 1
+X	fi
+Xfi
+X
+Xeval set `grep "blocks" /tmp/size$$`
+XNBLOCKS=$1
+X
+Xset `wc -l ss.filelist`
+XNFILES=$1
+X
+Xecho `date +%T`" Performing verify pass."
+X
+Xdbuf -iT124O$offset"S"$NBLOCKS /dev/rft3 | cat > /dev/null
+Xret=$?
+X
+Xif [ "$ret" != "0" ]
+Xthen
+X	echo "\
+X\tAn error has been discovered while trying to verify this tape.
+X\tYou should use copy the existing data on this tape to another
+X\ttape using '/news/.tape.ops/start/copy.sh'.  Read the comments
+X\tat the beginning of that program before proceeding."
+X	read
+X	Tgetname -l
+X	exit 1
+Xfi
+X
+Xif [ "$COPY" != "0" ]
+Xthen
+X	SSNAME="Copy"
+Xelse
+X	case $chap in
+X		1) SSNAME="This";;
+X		2) SSNAME="need";;
+X		3) SSNAME="for";;
+X		4) SSNAME=" a ";;
+X		5) SSNAME="name";;
+X		6) SSNAME=" is ";;
+X		7) SSNAME="very";;
+X		8) SSNAME="silly";;
+X		9) SSNAME="stuff";;
+X	esac
+Xfi
+XSSCMNT=`date '+%a, %h. %d 19%y %H:%M'`
+XTgetname -w "Backup by Names" "$name" "$SSNAME" "$SSCMNT" \
+X		$offset $NBLOCKS $NFILES
+X#            "$BTYPE"       "$TPNAME" "$SSNAME" "$SSCMNT"
+X#               $OFFSET $NBLOCKS $NFILES
+Xret=$?
+Xif [ "$ret" != "0" ]
+Xthen
+X	echo "\tAn error has occurred while trying to update the data block.
+X\tError number = "$ret
+X	Tgetname -l
+X	exit 1
+Xfi
+X
+Xcd $WRKDIR
+X
+XTgetname -v
+XTgetname -l
+Xecho `date +%T`" Verification complete.  The new contents are:"
+X$SRCDIR/read.vtoc -w9
+Xchap=$?
+X
+Xif [ $chap -gt 9 -o $scalped -ne 0 ]
+Xthen
+Xecho "\tThis tape should be marked FULL and a new tape used next time."
+X	offset=0
+X	name=`echo $name | awk - '{ FS = "-"
+X		printf("%s-%03d", $1, ++$2 ) }' -`
+X	blks=$MAXOFFSET
+X	chap=1
+Xelse
+X	Tgetname -v
+X	set `$SRCDIR/read.vtoc -c$chap`
+X	chap=$1
+X	offset=$2
+X	(( blks = $MAXOFFSET - offset ))
+Xfi
+Xtoday=`date '+%y-%m-%d'`
+X
+X> $TMP1
+Xchgrp news $TMP1
+Xchown netnews $TMP1
+Xecho `date +%T`" Purging directories and support files."
+X
+Xif [ $COPY -eq 0 ]
+Xthen
+X	while
+X		read pntr
+X	do
+X		rm -f $ARCDIR/$pntr
+X	done <$CPNTRS
+X
+X	fnum=1
+X	ls -1 $ARCDIR > $PNTRS
+X	while
+X		read pntr
+X	do
+X		if [ ! -f $ARCDIR/$fnum ]
+X		then
+X			mv $ARCDIR/$pntr $ARCDIR/$fnum
+X			(( fnum = fnum + 1 ))
+X		fi
+X	done < $PNTRS
+X
+X	factor=`sed -n 's/Compression factor:\	//p' $PARAMS`
+X	nbytes=`sed -n 's/Number of bytes held:\	//p' $PARAMS`
+X	xbytes=`echo $nbytes | tr -d ","`
+X
+X	if [ $chap -gt 1 ]
+X	then
+X		(( factor = (( xbytes/NBLOCKS ) + factor)/2 ))
+X	fi
+Xfi
+X
+Xawk -F"	" - '{ if ( $0 ~ /Next fnum to link:/ ) $2 = "'"$fnum"'"
+X		if ( $0 ~ /Number of bytes held:/ ) $2 = 0
+X		if ( $0 ~ /Name of work tape:/ ) $2 = "'"$name"'"
+X		if ( $0 ~ /Blocks of offset:/ ) $2 = "'"$offset"'"
+X		if ( $0 ~ /Date last taped:/ ) $2 = "'"$today"'"
+X		if ( $0 ~ /Blocks available:/ ) $2 = "'"$blks"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = "'"$chap"'"
+X		if ( $0 ~ /Compression factor:/ ) $2 = "'"$factor"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $PARAMS
+Xmv $TMP1 $PARAMS
+X
+Xcleanup
+X
+Xecho `date +%T`" Taping finished."
+Xexit 0
+END_OF_wr.tape.sh
+if test 9244 -ne `wc -c <wr.tape.sh`; then
+    echo shar: \"wr.tape.sh\" unpacked with wrong size!
+fi
+chmod +x wr.tape.sh
+# end of overwriting check
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+
+Vernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+3975 W. 29th Ave.                                   vern@zebra.alphacdc.COM
+Denver, Colo., 80212          voice: 303-477-1780        uucp: 303-455-2670
+
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Pardon me Professor, can I be excused, my brain is full. **

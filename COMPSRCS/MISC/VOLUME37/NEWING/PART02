@@ -1,0 +1,1924 @@
+Newsgroups: comp.sources.misc
+From: slantin@eis.calstate.edu (Sam Lantinga)
+Subject: v37i093:  newing - interface for your program, Part02/03
+Message-ID: <1993May29.183555.27590@sparky.imd.sterling.com>
+X-Md4-Signature: 47cd8065a92348035bb64f0868a5ddce
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Calif State Univ/Electronic Information Services
+Date: Sat, 29 May 1993 18:35:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: slantin@eis.calstate.edu (Sam Lantinga)
+Posting-number: Volume 37, Issue 93
+Archive-name: newing/part02
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config.c help-err.c history.c mem.c misc.c newing.c
+#   newing.h newing.hlp.UU trigger.c
+# Wrapped by kent@sparky on Sat May 29 13:21:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'config.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.c'\"
+else
+  echo shar: Extracting \"'config.c'\" \(3944 characters\)
+  sed "s/^X//" >'config.c' <<'END_OF_FILE'
+X
+X/* config.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<sys/types.h>
+X#include	<stdio.h>
+X#include	<sys/stat.h>
+X#include	<signal.h>
+X
+X/*#define DEBUG		/* Provides extra debugging info */
+X
+Xint exists(file)
+Xchar *file;
+X{
+X	struct stat statbuf;
+X
+X	if ( stat(file, &statbuf) == 0 )
+X		return(1);
+X	else
+X		return(0);
+X}
+X
+X
+Xmain()
+X{
+X	int  irix=0;
+X	char cflags[BUFSIZ], ldflags[BUFSIZ];
+X	char line[BUFSIZ];
+X	FILE *makefile;
+X
+X	if ( exists("Makefile") )
+X	{
+X		fprintf(stderr, "Makefile already exists.  Continue?  [y/n] ");
+X		fgets(line, BUFSIZ-1, stdin);
+X		if ( line[0] == 'y' )
+X			printf("Continuing...\n");
+X		else
+X		{
+X			printf("Configuration aborted. Exiting.\n");
+X			exit(0);
+X		}
+X	}
+X
+X	if ( (makefile=fopen("Makefile", "w")) == NULL )
+X	{
+X		perror("Can't create Makefile");
+X		printf("Configuration aborted. Exiting.\n");
+X		exit(2);
+X	}
+X
+X#ifdef DEBUG
+X	sprintf(cflags, " -g -DDEBUG");
+X#else
+X	sprintf(cflags, " -O");
+X#endif
+X	sprintf(ldflags, "");
+X
+X	if ( grep("/usr/include/unistd.h", "_getpty") )
+X	{
+X		strcat(cflags, " -DIRIX");
+X		irix=1;
+X	}
+X	if ( grep("/usr/include/utmp.h", "ut_host") )
+X		strcat(cflags, " -DHAVE_UTHOST");
+X
+X	if ( exists("/usr/include/termio.h") )
+X		strcat(cflags, " -DHAVE_TERMIO_H");
+X	if ( exists("/usr/include/sys/bsdtty.h") )
+X		strcat(cflags, " -DHAVE_BSDTTY_H");
+X	if ( exists("/usr/include/sys/inet.h") )
+X		strcat(cflags, " -DNEED_INET_H");
+X	if ( exists("/usr/include/sys/select.h") )
+X		strcat(cflags, " -DNEED_SELECT_H");
+X	if ( exists("/usr/lib/libtermcap.a") )
+X	{
+X		strcat(cflags, " -DHAVE_TERMCAP");
+X		strcat(ldflags, " -ltermcap");
+X	}
+X	if ( exists("/usr/lib/libnet.a") )
+X		strcat(ldflags, " -lnet");
+X	if ( exists("/usr/lib/libnsl_s.a") )
+X		strcat(ldflags, " -lnsl_s");
+X
+X	/* Solaris 2.1 */
+X	if ( exists("/usr/lib/libsocket.a") )
+X	{
+X		strcat(ldflags, "-lsocket");
+X		strcat(cflags, " -DSOLARIS");
+X	}
+X
+X	fprintf(makefile,"# This Makefile has been generated from the Configure script.\n# Shareware copyright 1993, by Sam Lantinga\n\n");
+X	fprintf(makefile, "# The Configure script should have configured newing correctly for\n# your system, but you may want to manually adjust the compiler\n# flags to make sure they conform to your system.\n# Or you can just type 'make' and see if anything breaks.\n\n");
+X	fprintf(makefile, "# 'newing' has been extensively tested on Sun/OS 4.1\n\n");
+X	fprintf(makefile, "# Current possible definitions:\n#\n#\t-DIRIX\t\t\tConfigure for IRIX System V UNIX\n#\t-DSOLARIS\t\tConfigure for Solaris 2.1 UNIX\n#\t-DHAVE_UTHOST\t\tYou have the ut_host field in your\n#\t\t\t\tutmp structure.  (check <utmp.h>)\n");
+X	fprintf(makefile, "#\t-DHAVE_TERMIO_H\t\tYou have /usr/include/termio.h\n#\t-DHAVE_BSDTTY_H\t\tYou have /usr/include/bsdtty.h\n#\t\t\t\t(Usually HP-UX systems)\n");
+X	fprintf(makefile, "#\t-DNEED_INET_H\t\tYou need /usr/include/sys/inet.h\n#\t\t\t\t(For AT&T 3b2 System V.3 UNIX)\n#\t-DNEED_SELECT_H\t\tYou need /usr/include/sys/select.h\n#\t\t\t\t(For AIX and Solaris systems)\n");
+X	fprintf(makefile, "#\t-DHAVE_TERMCAP\t\tYou have /etc/termcap and the\n#\t\t\t\ttermcap library functions.\n\n");
+X
+X	sprintf(line, "\nCFLAGS = %s\nLIBS = %s\n\n", cflags, ldflags);
+X	fprintf(makefile, "%s", line);
+X	fprintf(makefile, "CC = cc\nOBJECTS = newing.o tty.o misc.o cmds.o history.o ile.o alias.o \\\n          trigger.o startup.o utmp.o mem.o help-err.o\n\nnewing: $(OBJECTS)\n\t$(CC) -o $@ $(OBJECTS) $(LIBS)\n\nclean:\n\trm -f Makefile config core *.o newing tmp*\n");
+X
+X	fclose(makefile);
+X	exit(0);
+X}
+X
+X
+X/* Yeesh.  I have to write a word grep function.... */
+X
+Xint grep(file, word)
+Xchar *file;
+Xchar *word;
+X{
+X	FILE *fp;
+X	char *wptr, *ptr, buffer[BUFSIZ];
+X
+X	if ( (fp=fopen(file, "r")) == NULL )
+X		return(0);
+X	ptr=word;
+X
+X	while ( fgets(buffer, BUFSIZ-1, fp) != NULL )
+X	{
+X		for ( wptr=buffer; *wptr; ++wptr)
+X		{
+X			if ( *wptr == *ptr )
+X			{
+X				++ptr;
+X				if ( *ptr == '\0' )
+X				{
+X					(void) fclose(fp);
+X					return(1);
+X				}
+X			}
+X			else
+X				ptr=word;
+X		}
+X	}
+X	(void) fclose(fp);
+X	return(0);
+X}
+END_OF_FILE
+  if test 3944 -ne `wc -c <'config.c'`; then
+    echo shar: \"'config.c'\" unpacked with wrong size!
+  fi
+  # end of 'config.c'
+fi
+if test -f 'help-err.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help-err.c'\"
+else
+  echo shar: Extracting \"'help-err.c'\" \(5720 characters\)
+  sed "s/^X//" >'help-err.c' <<'END_OF_FILE'
+X
+X/* help-err.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include 	"newing.h"
+X
+Xchar *Usage=
+X"Usage: newing [-h] [-v] [-u] [-i] [-e escape_char] [-s label]\r\n              [-l logfile] [program [arguments]]\r\n";
+X
+Xstatic char *topics[] = { "usage", "editing", "escapes", "aliases", "triggers", NULL };
+X
+Xvoid print_help(topic)
+Xchar *topic;
+X{
+X	int i;
+X
+X	if ( topic == NULL )
+X	{
+X		printf("Current topics:\r\n\t");
+X		for ( i=0; topics[i]; ++i )
+X			printf("%s ", topics[i]);
+X		printf("\r\n");
+X		return;
+X	}
+X
+X	/* Print out the help for "usage" */
+X	if ( strcmp(topic, topics[0]) == 0 )
+X	{
+X		fprintf(stderr, "%s", Usage);
+X		fprintf(stderr, 
+X"\r\nOptions:\r\n");
+X		fprintf(stderr,
+X"\t-h\t\tPrint this help message\r\n");
+X		fprintf(stderr,
+X"\t-v\t\tRun newing in verbose mode\r\n");
+X		fprintf(stderr,
+X"\t-u\t\tCreate a utmp entry for newing\r\n");
+X		fprintf(stderr, 
+X"\t-i\t\tStart newing in line edit mode\r\n");
+X		fprintf(stderr,
+X"\t-e escape_char\tSet the escape character to 'escape_char'\r\n");
+X		fprintf(stderr, 
+X"\t-s label\tInitialize newing from 'label'\r\n");
+X		fprintf(stderr,
+X"\t-l logfile\tLog the output to 'logfile'\r\n");
+X		fprintf(stderr,
+X"\tprogram\t\tRun 'program' instead of %s\r\n", SHELL);
+X		return;
+X	}
+X
+X	/* Print out the help for "editing" */
+X	if ( strcmp(topic, topics[1]) == 0 )
+X	{
+X		printf(
+X"Editing keys:\r\n");
+X		printf(
+X"\tKey\t\tFunction\r\n");
+X		printf(
+X"\t------\t\t-----------------------------\r\n");
+X		printf(
+X"\t<left-arrow>\tMove left one space\r\n");
+X		printf(
+X"\t<right-arrow>\tMove right one space\r\n");
+X		printf(
+X"\tCtrl-B\t\tMove backward one word\r\n");
+X		printf(
+X"\tCtrl-F\t\tMove forward one word\r\n");
+X		printf(
+X"\tCtrl-A\t\tMove to the beginning of the line\r\n");
+X		printf(
+X"\tCtrl-E\t\tMove to the end of the line\r\n");
+X		printf("\r\n");
+X		printf(
+X"\t<backspace>\tDelete the character behind the \r\n");
+X		printf(
+X"\t\t\tcursor\r\n");
+X		printf(
+X"\tCtrl-W\t\tDelete the previous word\r\n");
+X		printf(
+X"\tCtrl-K\t\tDelete to the end of the line\r\n");
+X		printf(
+X"\tCtrl-U\t\tDelete the whole line\r\n");
+X		printf("\r\n");
+X		printf(
+X"\tCtrl-L\t\tRedraw the line on the next line\r\n");
+X		printf(
+X"\t<up-arrow>\tEdit the previous history buffer\r\n");
+X		printf(
+X"\t<down-arrow>\tEdit the next history buffer\r\n");
+X		printf(
+X"\tCtrl-Vx\t\tQuote character x into the line\r\n");
+X		return;
+X	}
+X
+X	/* Print out the help for "escapes" */
+X	if ( strcmp(topic, topics[2]) == 0 )
+X	{
+X		printf(
+X"Currently implemented escapes:\r\n\r\n");
+X		printf(
+X"\tEscape\t\t\tAction\r\n\t-----------\t\t------------------------\r\n");
+X		printf(
+X"\tverbose\t\t\tToggles verbose mode on and off\r\n");
+X		printf(
+X"\tedit\t\t\tToggles edit mode on and off.\r\n");
+X		printf(
+X"\tescape <escape_char>\tSets the escape character\r\n");
+X		printf(
+X"\thistchar <hist_char>\tSets the history character\r\n");
+X		printf(
+X"\thistory\t\t\tDisplays the current history list\r\n");
+X		printf(
+X"\talias <name> <def>\tDefine alias 'name' as 'def'\r\n");
+X		printf(
+X"\tunalias <name>\t\tRemove the alias 'name'\r\n");
+X		printf(
+X"\tlistalias\t\tList the current aliases\r\n");
+X		printf(
+X"\taddtrig <name> <trig> <resp>\tDefine a trigger: 'name'\r\n");
+X		printf(
+X"\tdeltrig <name>\t\tRemove the trigger 'name'\r\n");
+X		printf(
+X"\tshowtrigs\t\tList the current triggers\r\n");
+X		printf(
+X"\tcat <file>\t\tCat 'file' to the program\r\n");
+X		printf(
+X"\tstatus\t\t\tPrints out the current status\r\n");
+X		printf(
+X"\tsuspend\t\t\tSuspends newing or runs a subshell\r\n");
+X		printf(
+X"\tsubsh [command]\t\tRun a subshell, or 'command'\r\n");
+X		printf(
+X"\thelp <topic>\t\tPrints out help for 'topic'\r\n");
+X		printf(
+X"\tdie\t\t\tKills newing and the program\r\n");
+X		return;
+X	}
+X
+X	if ( strcmp(topic, topics[3]) == 0 )
+X	{
+X		printf(
+X"\tTo define an alias, use the escape 'alias'.  For example,\r\n");
+X		printf(
+X"to define an alias 'w' that will expand to 'who', you would type:\r\n");
+X		printf(
+X"\talias w who\r\n");
+X		printf(
+X"at the escape prompt.  To define a multiword alias, you must quote\r\n");
+X		printf(
+X"the definition with double quotes.\r\n");
+X		printf(
+X"\tTo expand an alias, type its name as though it were\r\n");
+X		printf(
+X"a regular escape.  Its definition will be placed on a line for\r\n");
+X		printf(
+X"you to edit, and then to be sent to the program by the press\r\n");
+X		printf(
+X"of a carriage return.\r\n");
+X		return;
+X	}
+X
+X	/* Print out the help for triggers */
+X	if ( strcmp(topic, topics[4]) == 0 )
+X	{
+X		printf(
+X"\tTriggers are bits of text that are searched for in the\r\n");
+X		printf(
+X"porogram output.  If they are found, then the response associated\r\n");
+X		printf(
+X"with the trigger is sent to the program, followed by a newline.\r\n");
+X		printf(
+X"Triggers are useful for automatically performing certain tasks.\r\n");
+X		printf(
+X"For instance, if I wanted to set my terminal type to vt100 when\r\n");
+X		printf(
+X"ever I was prompted, I would type the escape character, and\r\n");
+X		printf(
+X"type:\r\n");
+X		printf(
+X"\taddtrig vtadd \"erminal type:\" vt100\r\n");
+X		printf("\r\n");
+X		printf(
+X"Then, whenever the shell prompted me with:\r\n");
+X		printf(
+X"Enter terminal type: \r\n");
+X		printf(
+X"newing would respond by sending vt100 and a carriage return.\r\n");
+X		printf(
+X"\"vtadd\" is the label I associated with the trigger, and I\r\n");
+X		printf(
+X"can delete the trigger by pressing the escape character and\r\n");
+X		printf(
+X"then typing:\r\n");
+X		printf(
+X"\tdeltrig vtadd\r\n");
+X		return;
+X	}
+X
+X	printf("No help for \"%s\"\r\n", topic);
+X}
+X
+Xvoid print_status()
+X{
+X	printf("Newing Status:\r\n");
+X	printf("\tVerbose mode: %s\r\n", 
+X				(flag.verbose ? "on" : "off"));
+X	printf("\tLine editing: %s\r\n", 
+X				(flag.edit ? "on" : "off"));
+X	printf("\tLogging is %s.\r\n", 
+X				(flag.logstream ? "enabled" : "disabled"));
+X}
+END_OF_FILE
+  if test 5720 -ne `wc -c <'help-err.c'`; then
+    echo shar: \"'help-err.c'\" unpacked with wrong size!
+  fi
+  # end of 'help-err.c'
+fi
+if test -f 'history.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'history.c'\"
+else
+  echo shar: Extracting \"'history.c'\" \(4403 characters\)
+  sed "s/^X//" >'history.c' <<'END_OF_FILE'
+X
+X/* history.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<sys/types.h>
+X#ifdef HAVE_TERMIO_H
+X#include	<termio.h>		/* Just for VWERASE definition */
+X#endif
+X#include	<ctype.h>
+X#include	"newing.h"
+X
+X#define MAXHIST		10		/* The maximum of history buffers */
+X
+X#define ERASE_A		toctrl('H')	/* Erase character */
+X#define ERASE_B		'\177'		/* Alternate erase character (Del) */
+X#define ERASE_W		toctrl('W')	/* Word erase character */
+X#define ERASE_L		toctrl('U')	/* Line kill character */
+X
+Xint histchar=toctrl('P');		/* Default history character */
+X
+Xstatic struct history *temphist;
+Xstatic struct history *firsthist;
+Xstruct history *currhist;
+X
+X/* The routine to allocate and initialize the history buffers */
+X
+Xint init_history()
+X{
+X	if ( (firsthist=(struct history *)myalloc(sizeof(struct history)))
+X						 == (struct history *)NULL )
+X		return(-1);
+X	else
+X	{
+X		firsthist->prev=firsthist;
+X		firsthist->next=firsthist;
+X		firsthist->buf[0]='\0';
+X		currhist=firsthist;
+X		temphist=currhist;
+X	}
+X
+X	if ( init_ile() < 0 )
+X		fprintf(stderr, "Can't initialize ile: %s\n", ile_errmesg);
+X
+X	return(0);
+X}
+X
+X
+X/* Print out the history buffers on standard output */
+X
+Xvoid showhistory()
+X{
+X	struct history *temp;
+X
+X	printf("History:\r\n");
+X	for ( temp=currhist->next; ; temp=temp->next )
+X	{
+X		if ( temp == currhist )
+X			break;
+X		printf("\t%s\r\n", temp->buf);
+X	}
+X}
+X
+X
+X/* Add a new history buffer to the linked list.  */
+X
+Xstruct history *add_hist(buf)
+Xchar *buf;
+X{
+X	struct history *temp, *holder;
+X	int numhists=0;
+X
+X	/* Don't do anything with an empty buffer */
+X	if ( *buf == '\0' )
+X		return(NULL);
+X
+X	for ( temp=firsthist; ; temp=temp->next )
+X	{
+X		if ( numhists && (temp == firsthist) )
+X			break;
+X#ifdef BIGDEBUG
+X		fprintf(stderr, "temp->buf: %s\r\n", temp->buf);
+X#endif
+X		++numhists;
+X	}
+X
+X#ifdef BIGDEBUG
+X	fprintf(stderr, "numhists: %d\n", numhists);
+X#endif
+X	if ( numhists >= MAXHIST )
+X	{
+X		currhist=currhist->next;
+X		strcpy(currhist->buf, buf);
+X		return(currhist);
+X	}
+X
+X	holder=temp->prev;
+X
+X	if ((temp=(struct history *)myalloc(sizeof(struct history))) != NULL)
+X	{
+X		temp->next=firsthist;
+X		holder->next=temp;
+X		temp->prev=holder;
+X		firsthist->prev=temp;
+X		strcpy(temp->buf, buf);
+X		currhist=temp;
+X	}
+X	return(temp);
+X}
+X
+X
+X/* Process tty input, checking for escapes and history substitution */
+X
+X#define NORMAL	0
+X#define AT_NL	1
+X
+Xint state=AT_NL;
+Xint histind=0;
+Xchar histbuf[MAXLINE];
+X
+Xint hist_write(fd, buf, len)
+Xint fd;
+Xchar buf[];
+Xint len;
+X{
+X	char *ptr, runbuf[MAXLINE];
+X	int i, l=0;
+X	
+X	if ( flag.edit )
+X	{
+X		if ( len == 1 )
+X		{
+X			if ( *buf == histchar )
+X			{
+X				temphist=currhist;
+X				(void) add_hist(ile(fd, temphist->buf));
+X				return(len);
+X			}
+X			else if ( *buf == escape )
+X			{
+X				read_escape(NULL, fd);
+X				return(len);
+X			}
+X			else if ( *buf == '\r' || issignal(*buf) || 
+X				  *buf == toctrl('D') || *buf == '\n' )
+X			{
+X				write(fd, buf, 1);
+X				histind=0;
+X				return(len);
+X			}
+X		}
+X		*(buf+len)='\0';
+X		(void) add_hist(ile(fd, buf));
+X		return(len);
+X	}
+X
+X	for ( i=0; i<len; ++i )
+X	{
+X		/* Catch backspacing to the beginning of the line */
+X		if ( histind == 0 )
+X			state=AT_NL;
+X
+X		if ( state == AT_NL )
+X		{
+X			if ( buf[i] == histchar )
+X			{
+X				temphist=currhist;
+X				(void) add_hist(ile(fd, temphist->buf));
+X				state=AT_NL;
+X			}
+X			else if ( buf[i] == escape )
+X			{
+X				read_escape(NULL, fd);
+X				histind=0;
+X				state=AT_NL;
+X			}
+X			else
+X				state=NORMAL;
+X		}
+X
+X		if ( state == NORMAL )
+X		{
+X			if ( buf[i] == '\r' || buf[i] == '\n' )
+X			{
+X				state=AT_NL;
+X
+X				histbuf[histind++]='\0';
+X#ifdef BIGDEBUG
+X				fprintf(stderr, "histbuf: %s\r\n", histbuf);
+X#endif
+X				(void) add_hist(histbuf);
+X				histind=0;
+X
+X				runbuf[l++]='\r';
+X				writen(fd, runbuf, l);
+X				l=0;
+X			}
+X			else if ( buf[i] == ERASE_A || buf[i] == ERASE_B )
+X			{
+X				runbuf[l++]=buf[i];
+X				histind-=(histind ? 1 : 0);
+X			}
+X#ifdef VWERASE
+X			else if ( buf[i] == ERASE_W )
+X			{
+X				runbuf[l++]=buf[i];
+X				/* Skip whitespace */
+X				while ( histind > 0 )
+X				{
+X					if ( ! isspace(histbuf[histind-1]) )
+X						break;
+X					--histind;
+X				}
+X				/* Now skip word */
+X				while ( histind > 0 )
+X				{
+X					if ( isspace(histbuf[histind-1]) )
+X						break;
+X					--histind;
+X				}
+X			}
+X#endif
+X			else if ( buf[i] == toctrl('D') || 
+X			          buf[i] == ERASE_L || issignal(buf[i]) )
+X			{
+X				runbuf[l++]=buf[i];
+X				histind=0;
+X				state=AT_NL;
+X			}
+X			else
+X			{
+X				histbuf[histind++]=buf[i];
+X				runbuf[l++]=buf[i];
+X			}
+X		}
+X	}
+X	return(writen(fd, runbuf, l));
+X}
+X
+END_OF_FILE
+  if test 4403 -ne `wc -c <'history.c'`; then
+    echo shar: \"'history.c'\" unpacked with wrong size!
+  fi
+  # end of 'history.c'
+fi
+if test -f 'mem.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mem.c'\"
+else
+  echo shar: Extracting \"'mem.c'\" \(5693 characters\)
+  sed "s/^X//" >'mem.c' <<'END_OF_FILE'
+X
+X
+X/*  I have been having real problems with malloc() on an AT&T 3b2, so
+X    here is a customized memory handler specialized for many small
+X    requests for memory.  It allocates a large chunk with malloc, and
+X    then lops hunks off for the user routines.  Hopefully it is more
+X    efficient.  
+X
+X    mem.c    Shareware Copyright by Sam Lantinga	5/6/93	
+X*/
+X
+X#include	<stdio.h>
+X
+X#define MEMSIZ	BUFSIZ	/* The size of each block allocated */
+X#define MAXMEM	12	/* The most blocks that can be allocated at once */
+X#define GRAIN	16	/* This should be an optimum size for the requests */
+X#define GRAINS	(MEMSIZ/GRAIN)	/* The number of grains in a block */
+X
+Xstruct grain {
+X	int   size;		/* The request size in grains */
+X	int   used;		/* Have we been allocated?    */
+X	char *bit;		/* The grain of memory we are */
+X	};
+X
+Xstruct memblock {
+X	int   numfree;		/* The number of free grains  */
+X	char  *head;
+X	struct grain grains[GRAINS];
+X	struct memblock *next;
+X	} memstart;
+X
+Xstruct bigblock {
+X	char *data;
+X	struct bigblock *next;
+X	} Memstart;
+X
+Xstatic int havealloct=0;	/* Have we malloc'ed yet?  */
+Xvoid d_zero(), d_copy();	/* Replacements for bzero() and bcopy() */
+X
+X
+Xint meminit(blkptr)
+Xstruct memblock *blkptr;
+X{
+X	int   i;
+X	char *newarea;
+X
+X	if ( (blkptr->head=(char *)malloc(MEMSIZ)) == NULL )
+X		return(-1);
+X	blkptr->numfree=GRAINS;
+X
+X	for ( i=0, newarea=blkptr->head; i<GRAINS; ++i )
+X	{
+X		blkptr->grains[i].bit=newarea;
+X		blkptr->grains[i].used=0;
+X		newarea+=GRAIN;
+X	}
+X	blkptr->next=NULL;
+X	d_zero(blkptr->head, MEMSIZ);
+X	return(0);
+X}
+X
+X
+Xchar *myalloc(size)
+Xint size;
+X{
+X	int i=0;
+X	int needed=0;		/* The number of grains needed to fulfill */
+X	int need=0;		/* The size of request unfulfilled */
+X	int freestart=(-1);	/* The first free grain */
+X
+X	struct memblock *blk, *temp;
+X	struct bigblock *Blk, *Temp;
+X
+X	if ( ! havealloct )
+X	{  /* We need to initialize some memory */
+X		if ( meminit(&memstart) < 0 )
+X			return(NULL);
+X
+X		Memstart.data=NULL;
+X		Memstart.next=NULL;
+X
+X		havealloct=1;
+X	}
+X
+X	/* If no need, no problem! */
+X	if ( size == 0 )
+X		return(NULL);
+X
+X	/* Call malloc() directly if the request is larger than MEMSIZ */
+X	/* Create a big block, and attatch it to the linked list */
+X	if ( size > MEMSIZ )
+X	{
+X		for ( Blk=Memstart.next, Temp=(&Memstart);
+X					 Blk; Temp=Blk, Blk=Blk->next );
+X		
+X		if ( (Blk=(struct bigblock *)malloc(sizeof(struct bigblock)))
+X								== NULL )
+X			return(NULL);
+X		if ( (Blk->data=(char *)malloc(size)) == NULL )
+X		{
+X			free(Blk);
+X			return(NULL);
+X		}
+X		Temp=Blk;
+X		Blk->next=NULL;
+X		return(Blk->data);
+X	}
+X
+X	needed=((size/GRAIN)+(size%GRAIN ? 1 : 0));
+X
+X	for (blk=(&memstart),temp=blk; (blk != NULL); temp=blk,blk=blk->next )
+X	{
+X		if ( needed <= blk->numfree )
+X		{
+X			need=needed;
+X			for ( i=0; i<GRAINS; ++i )
+X			{
+X				if ( blk->grains[i].used )
+X				{
+X					freestart=(-1);
+X					need=needed;
+X					continue;
+X				}
+X
+X				if ( freestart < 0 )
+X					freestart=i;
+X				--need;
+X				
+X				if ( need == 0 )
+X				{
+X					for ( i=freestart;
+X					            i<(needed+freestart); ++i )
+X						blk->grains[i].used=1;
+X					blk->grains[freestart].size=needed;
+X					blk->numfree-=needed;
+X					d_zero(blk->grains[freestart].bit,
+X								(needed*GRAIN));
+X					return(blk->grains[freestart].bit);
+X				}
+X			}
+X		}
+X	}
+X
+X	/* We didn't get the memory from a pool.. allocate a new one */
+X
+X	if ( (blk=(struct memblock *)malloc(sizeof(struct memblock))) == NULL )
+X		return(NULL);
+X
+X	if ( meminit(blk) < 0 )
+X		return(NULL);
+X	else
+X		temp->next=blk;
+X
+X	for ( i=0; i<needed; ++i )
+X		blk->grains[i].used=1;
+X
+X	blk->grains[0].size=needed;
+X	blk->numfree-=needed;
+X	return(blk->grains[0].bit);
+X}
+X
+Xint myfree(ptr)
+Xchar *ptr;
+X{
+X	int i, cur;
+X	struct memblock *blk;
+X	struct bigblock *Blk, *Temp;
+X
+X	/* A little sanity please. :) */
+X	if ( ptr == NULL )
+X		return(0);
+X
+X	if ( ! havealloct )
+X		return(free(ptr));
+X
+X	for ( blk=(&memstart); (blk != NULL); blk=blk->next )
+X	{
+X		if ( (ptr >= blk->head) && (ptr < (blk->head+MEMSIZ)) )
+X		{   /* The area to be freed is in this block */
+X			for ( i=0; i<GRAINS; ++i )
+X			{
+X				if ( ptr == blk->grains[i].bit )
+X				{
+X					if ( ! blk->grains[i].used )
+X						return(-1);
+X
+X					for( cur=i;
+X						(i<(blk->grains[cur].size+cur));
+X					              ++i )
+X						blk->grains[i].used=0;
+X					blk->numfree+=blk->grains[cur].size;
+X					blk->grains[cur].size=0;
+X
+X					return(0);
+X				}
+X			}
+X			return(-1);
+X		}
+X	}
+X
+X	/* Either the user passed us a bogus address, or it's from malloc() */
+X
+X	for (Blk=Memstart.next,Temp=(&Memstart); Blk; Temp=Blk,Blk=Blk->next)
+X	{
+X		if ( ptr == Blk->data )
+X		{
+X			Temp->next=Blk->next;
+X			free(Blk->data);
+X			return(0);
+X		}
+X	}
+X	return(-1);
+X}
+X
+X#ifdef DEBUG		/* Memory debugging routine */
+Xvoid memstat()
+X{
+X	int i=0, k;
+X	struct memblock *blk;
+X
+X	if ( ! havealloct )
+X		return;
+X
+X	for ( blk=(&memstart); (blk != NULL); blk=blk->next )
+X	{
+X		fprintf(stderr, "Memory block #%d:\n", i++);
+X		fprintf(stderr, "\tfree grains: %d\n", blk->numfree);
+X		fprintf(stderr, "\tstarting address: %d\n", blk->head);
+X		fprintf(stderr, "\tending address: %d\n", blk->head+MEMSIZ);
+X
+X		for ( k=0; k<GRAINS; ++k )
+X		{
+X#ifdef BIGDEBUG
+X			if ( blk->grains[k].used )
+X				fprintf(stderr, "\tgrain #%d is used.\n", k);
+X#endif
+X			if ( blk->grains[k].size > 0 )
+X			{
+X				fprintf(stderr,
+X	 	"\tgrain #%d is a Grain %d grains long at address %d\n", k, 
+X				blk->grains[k].size, blk->grains[k].bit);
+X			}
+X		}
+X	}
+X}
+X
+X#endif  /* DEBUG */
+X
+X
+X
+X/* These are the binary data functions that I am using instead of 
+X   bcopy() and bzero(), written by Richard A. O'Keefe.
+X     Thanks!
+X*/
+X
+Xvoid d_copy(src, dst, len)
+X    register char *src, *dst;
+X    register int len;
+X    {
+X	while (--len >= 0) *dst++ = *src++;
+X    }
+X
+Xvoid d_zero(dst, len)
+X    register char *dst;
+X    register int len;
+X    {
+X	while (--len >= 0) *dst++ = 0;
+X    }
+X
+END_OF_FILE
+  if test 5693 -ne `wc -c <'mem.c'`; then
+    echo shar: \"'mem.c'\" unpacked with wrong size!
+  fi
+  # end of 'mem.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(2844 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*  Miscellaneous routines for the newing package  
+X
+X    misc.c    Shareware Copyright by Sam Lantinga	5/6/93	
+X*/
+X
+X#include	<signal.h>
+X
+X#ifdef HAVE_TERMIO_H
+X#include <termio.h>
+X#else
+X#include <sys/ioctl.h>
+X#endif  /* HAVE_TERMIO_H */
+X
+X#ifdef HAVE_BSDTTY_H
+X#include <sys/bsdtty.h>
+X#endif /* HAVE_BSDTTY_H */
+X
+X/* Include the local include file after all the system includes */
+X#include	"newing.h"
+X
+X/* The signal handlers and cleanup routines */
+X
+Xvoid finish(retval)
+Xint retval;
+X{
+X	/* Close the master fd, sending (I hope) an EOF to the 
+X	   pty process, then kill it with SIGHUP.  */
+X	close(masterfd);
+X	if ( kill(childpid, 0) >= 0 )
+X		sendsig(SIGHUP);
+X
+X	/* Reset the terminal */
+X	if ( tty_reset(ttyfd) < 0 )
+X	{
+X		fprintf(stderr, "tty_reset() failed! Going sane....\n");
+X		(void) tty_sane(ttyfd);
+X	}
+X
+X	/* Clear the utmp entry, if needed */
+X	if ( flag.utlog )
+X		(void) utmp(utinfo.tty, utinfo.name, time(NULL), 1);
+X
+X	exit(retval);
+X}
+X
+Xvoid sendsig(sig)
+Xint sig;
+X{
+X#ifdef TIOCGPGRP
+X	int pgrp;
+X
+X	if ( ioctl(masterfd, TIOCGPGRP, (char *) &pgrp) == 0 )
+X		(void) kill(-pgrp, sig);
+X	else
+X		(void) kill(childpid, sig);
+X#else  /* No TIOCGPGRP */
+X	(void) kill(childpid, sig);
+X#endif /* TIOCGPGRP */
+X}
+X
+X
+X/* Run a subshell from a tty in raw mode */
+X
+Xvoid subshell(command)
+Xchar *command;
+X{
+X	/* Reset the terminal */
+X	if ( tty_reset(ttyfd) < 0 )
+X		(void) tty_sane(ttyfd);
+X
+X	/* Execute a subshell */
+X	system(command);
+X
+X	/* Re-set the terminal raw */
+X	(void) tty_raw(ttyfd);
+X}
+X
+X
+X/* Cat the contents of a file to a file descriptor, returning 0
+X   if everything went well, or -1 if an error occurred.  */
+X
+Xint cat(file, fd)
+Xchar *file;
+Xint fd;
+X{
+X	char buffer[BUFSIZ];
+X	FILE *fp;
+X	int len;
+X
+X	if ( (fp=fopen(file, "r")) == NULL )
+X		return(-1);
+X
+X	while ( fgets(buffer, BUFSIZ-1, fp) != NULL )
+X	{
+X		len=strlen(buffer);
+X		if ( writen(fd, buffer, len) != len )
+X			return(-1);
+X	}
+X	return(0);
+X}
+X
+X
+X/* Write a buffer to a descriptor while stripping Ctrl-M's.
+X   Useful for writing terminal i/o to a logfile.  Returns the
+X   number of characters written to the descriptor   */
+X
+Xint writelog(fd, buf, len)
+Xint fd;
+Xchar *buf;
+Xint len;
+X{
+X	int   wlen=0, i;
+X	char *ptr, *bufptr;
+X	char *buffer;
+X
+X	if ( (buffer=myalloc(len)) == NULL )
+X		return(-1);
+X	else
+X		bufptr=buffer;
+X
+X	for ( ptr=buf, i=0; i<len; ++i, ++ptr )
+X	{
+X		if ( *ptr != ('M'^64) )
+X		{
+X			*bufptr=(*ptr);
+X			++bufptr;
+X			++wlen;
+X		}
+X	}
+X	wlen=write(fd, buffer, wlen);
+X
+X	(void) myfree(buffer);
+X	return(wlen);
+X}
+X
+X/*
+X * Write "n" bytes to a descriptor.
+X * Use in place of write() when fd is a stream socket.
+X */
+X
+Xint writen(fd, ptr, nbytes)
+Xregister int	fd;
+Xregister char	*ptr;
+Xregister int	nbytes;
+X{
+X	int	nleft, nwritten;
+X
+X	nleft = nbytes;
+X	while (nleft > 0) {
+X		nwritten = write(fd, ptr, nleft);
+X		if (nwritten <= 0)
+X			return(nwritten);		/* error */
+X
+X		nleft -= nwritten;
+X		ptr   += nwritten;
+X	}
+X	return(nbytes - nleft);
+X}
+END_OF_FILE
+  if test 2844 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+if test -f 'newing.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newing.c'\"
+else
+  echo shar: Extracting \"'newing.c'\" \(6176 characters\)
+  sed "s/^X//" >'newing.c' <<'END_OF_FILE'
+X
+X/*  newing.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X/* 
+X    This is the third time I'm writing shawing.  
+X    This time I'm calling it newing, and I am going to
+X    avoid some of that feeping creaturism that crept into 
+X    my last version.  This one will be well organized, 
+X    documented, and best of all, clean. :)
+X
+X				-Sam Lantinga	4/23/93
+X*/
+X
+X#ifndef lint
+Xstatic char copyright[] = "@(#) Shareware Copyright (c) 1993 Sam Lantinga\n";
+Xstatic char sccsid[] = "@(#) newing	Alpha release 1.0 () 5/6/93";
+X#endif /* lint */
+X
+X#include	<sys/types.h>
+X#include	<fcntl.h>
+X#include	<signal.h>
+X#include	<errno.h>
+X#include	<sys/time.h>
+X#include	"newing.h"
+X
+X#ifdef NEED_SELECT_H
+X#include	<sys/select.h>
+X#endif
+X
+X#ifdef NEED_INET_H
+X#include	<sys/inet.h>
+X#endif
+X
+X
+Xstruct flags 	flag;			/* The set of flags */
+Xstruct ut_info	utinfo;			/* The utmp info structure */
+Xint   escape='-';			/* the default escape character */
+Xint   logfd=(-1);			/* The logfile file descriptor  */
+Xchar *logfile=NULL;			/* The name of the logfile      */
+Xint   childpid;				/* The pid of the child process */
+Xint   masterfd;				/* The fd of the pty's master side */
+Xint   ttyfd;				/* The fd of the controlling tty */
+Xstruct passwd *dosuid=NULL;		/* The child suid passwd entry */
+X
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	extern char *optarg;
+X	extern int   optind;
+X	extern int   errno;
+X	extern char *sys_errlist[];
+X
+X	int maxfds, numready;
+X	int c, i, len;
+X	char buffer[MAXLINE], *args[MAXARGS];
+X	char *startup=NULL;
+X	char *goodopts, **response;
+X	fd_set read_mask;
+X	struct timeval tv, *tvptr;
+X	struct passwd *pw, chpw;
+X
+X#ifdef NEED_INET_H
+X	/* There is a bug in the Wallabong Group's implementation
+X	   of select().  It will not work properly with fd 0 */
+X
+X	if ( (ttyfd=dup(0)) < 0 )
+X	{
+X		perror("dup() error");
+X		exit(2);
+X	}
+X#else
+X	ttyfd=0;
+X#endif
+X
+X	/* Save the terminal settings */
+X	if ( tty_getmode(ttyfd) < 0 )
+X	{
+X		perror("Can't get the settings of your terminal");
+X		exit(2);
+X	}
+X
+X	/* Initialize some features */
+X	if ( init_history() < 0 )
+X	{
+X		perror("Can't initialize history");
+X		exit(2);
+X	}
+X	d_zero((char *)&utinfo, sizeof(utinfo));
+X
+X	/* Set default flags */
+X	flag.debug=0;
+X	flag.edit=0;
+X	flag.logstream=0;
+X	flag.restrict=0;
+X	flag.utlog=0;
+X	flag.verbose=0;
+X
+X	/* An undocumented feature:  
+X		If we are running as root, we can use the '-p'
+X		option to run the shell as a specific user.
+X		This can be helpful for system administrators.
+X	 */
+X
+X	/* Get the run-time arguments. */
+X
+X	if ( geteuid() == 0 )
+X		goodopts="ehil:p:rs:uvx";
+X	else
+X		goodopts="ehil:rs:uvx";
+X
+X	while ( (c=getopt(argc, argv, goodopts)) != EOF )
+X	{
+X		switch (c)
+X		{
+X			case 'e':  escape=optarg[0];
+X				   break;
+X			case 'h':  print_help("usage");
+X				   exit(0);
+X			case 'i':  flag.edit=1;
+X				   break;
+X			case 'l':  flag.logstream=1;
+X				   logfile=optarg;
+X			           break;
+X			case 'p':  /* Set up the user to setuid the child to */
+X				   if ( (pw=getpwnam(optarg)) == NULL )
+X				   {
+X					fprintf(stderr, 
+X					"Can't find user '%s'\n", optarg);
+X					exit(1);
+X				   }
+X				   dosuid=(&chpw);
+X				   d_copy(pw, dosuid, sizeof(struct passwd));
+X				   break;
+X			case 'r':  flag.restrict=1;
+X				   break;
+X			case 's':  startup=optarg;
+X				   break;
+X			case 'u':  flag.utlog=1;
+X				   break;
+X			case 'v':  flag.verbose=1;
+X				   break;
+X			case 'x':  flag.debug=1;
+X				   flag.verbose=1;
+X				   break;
+X			default:   fprintf(stderr, "%s", Usage);
+X				   exit(1);
+X		}
+X					
+X	}
+X	/* Set argv to the program on the command line, if any */
+X	argv=(&argv[optind]);
+X
+X	/* Open the logfile if we want */
+X	if ( logfile != NULL )
+X	{
+X		if ((logfd=open(logfile,(O_WRONLY|O_CREAT|O_APPEND),0666)) < 0)
+X		{
+X			fprintf(stderr, "Can't open %s: ", logfile);
+X			perror("");
+X			exit(2);
+X		}
+X	}
+X
+X	/* Set the shell */
+X	if ( argv[0] )
+X	{
+X		for ( i=0; argv[i]; ++i )
+X			args[i]=argv[i];
+X		args[i]=NULL;
+X	}
+X	else
+X	{
+X		args[0]=SHELL;
+X		args[1]=NULL;
+X	}
+X
+X	/* Prevent the child going <defunct> on us.  */
+X	signal(SIGCLD, SIG_IGN);
+X
+X	if ( (masterfd=pty_open(args, &childpid)) < 0 )
+X	{
+X		perror("pty_open() error");
+X		exit(2);
+X	}
+X
+X	/* Set the signal handlers and go raw! */
+X#ifdef SIGWINCH
+X	signal(SIGWINCH, updatewin);
+X#endif
+X	signal(SIGTERM, finish);
+X	(void) tty_raw(ttyfd);
+X
+X#if defined(SOLARIS) || defined(HAVE_BSDTTY_H)
+X	maxfds=32;		/* Any comments?  This is a WAG */
+X#else
+X	maxfds=getdtablesize();
+X#endif
+X	/* Set select() timeout, and zero out the read mask */
+X#ifdef NEED_INET_H
+X	tv.tv_sec=3;
+X	tv.tv_usec=0;
+X	tvptr=&tv;
+X#else
+X	tvptr=NULL;
+X#endif
+X	/* Initialize from the .newingrc, and Jam!!  */
+X	if ( startup )
+X		init_rc(startup, masterfd);
+X	FD_ZERO(&read_mask);
+X
+X	for ( ; ; )
+X	{
+X		/* Make sure the child is still alive */
+X		if ( kill(childpid, 0) < 0 )
+X			finish(0);
+X
+X		FD_SET(ttyfd, &read_mask);
+X		FD_SET(masterfd, &read_mask);
+X
+X		if ( (numready=select(maxfds, &read_mask, 0, 0, tvptr)) <= 0 )
+X		{
+X#ifndef NEED_INET_H			/* Wallabong select() is buggy */
+X			switch (errno)
+X			{
+X				case EIO:    /* The program is finished. */
+X					   	break;
+X				case EINTR:  /* Probably SIGWINCH */
+X						break;
+X				default:   	perror("select() error");
+X					   	fprintf(stderr, "\r");
+X					   	break;
+X			}
+X			if ( errno != EINTR )
+X				finish(0);
+X#endif
+X		}
+X
+X		if ( FD_ISSET(ttyfd, &read_mask) )
+X		{
+X			if ( (len=read(ttyfd, buffer, MAXLINE)) < 0 )
+X			{
+X				perror("Read error on ttyfd");
+X				exit(2);
+X			}
+X
+X			/* Check for escapes and stuff */
+X
+X			/* Pass what's left to the pty */
+X			if ( flag.restrict )
+X				writen(masterfd, buffer, len);
+X			else
+X				hist_write(masterfd, buffer, len);
+X		}
+X
+X		if  ( FD_ISSET(masterfd, &read_mask) )
+X		{
+X			if ( (len=read(masterfd, buffer, MAXLINE)) <= 0 )
+X			{
+X				switch (errno)
+X				{
+X					case EIO: /* The program is finished */
+X#ifdef DEBUG
+X						  fprintf(stderr, 
+X						"EIO on masterfd.\r\n");
+X#endif
+X					default:  finish(0);
+X				}
+X				continue;
+X			}
+X
+X			/* Log the output if we want */
+X			if ( flag.logstream )
+X				writelog(logfd, buffer, len);
+X
+X			/* Check for special strings */
+X			for ( (response=matchtrig(buffer, len));
+X							*response; ++response )
+X			{
+X				writen(masterfd,*response,strlen(*response));
+X				writen(masterfd, "\r", 1);
+X			}
+X
+X			/* Write to standard output */
+X			writen(1, buffer, len);
+X		}
+X
+X	}
+X}
+END_OF_FILE
+  if test 6176 -ne `wc -c <'newing.c'`; then
+    echo shar: \"'newing.c'\" unpacked with wrong size!
+  fi
+  # end of 'newing.c'
+fi
+if test -f 'newing.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newing.h'\"
+else
+  echo shar: Extracting \"'newing.h'\" \(4381 characters\)
+  sed "s/^X//" >'newing.h' <<'END_OF_FILE'
+X
+X/* A simple header file for newing */
+X
+X/* I owe a great deal to W. Richard Stevens who, through his
+X   books, basically taught me the inner workings of many UNIX
+X   mysteries.   Thank you!!
+X */
+X
+X/*  Shareware Copyright (c) 1993 Sam Lantinga
+X
+X    	newing		Alpha release 1.0 	5/6/93
+X*/
+X
+X#include	<stdio.h>	/* Common include file.  Include it here. */
+X#include	<pwd.h>		/* Actually here by request from a sysadm */
+X
+Xextern struct passwd *getpwnam();
+X
+X#define SHELL	"/bin/csh"	/* the default shell to run    */
+X
+X#ifndef MAXARGS			/* The maximum arguments for SHELL */
+X#define MAXARGS		25
+X#endif
+X#define MAXLINE		BUFSIZ		/* A good common line length */
+X
+X/* Macro that makes uppercase letter X a control char */
+X#undef toctrl
+X#define toctrl(X)		(X-'@')	
+X
+X/* Flags for newing */
+X
+Xstruct flags {
+X	int debug;		/* Are we in debug mode?       */
+X	int edit;		/* Are we in line edit mode?   */
+X	int logstream;		/* Do we log the pseudo tty?   */
+X	int restrict;		/* Do we restrict the user?    */
+X	int utlog;		/* Do we create a utmp entry?  */
+X	int verbose;		/* Are we in verbose mode?     */
+X	};
+X
+Xextern struct flags flag;	/* The actual flags            */
+X
+X
+X/* A structure that contains info on the pty process for utmp logging */
+X
+Xstruct ut_info {
+X	int   cpid;		/* The proccess id       */
+X	int   pgrp;		/* The process group id  */
+X	int   euid;		/* The effective user id */
+X	char  tty[24];		/* The tty name (ttyxy)  */
+X	char  name[12];		/* The user's name       */
+X	};
+X
+Xextern struct ut_info utinfo;	/* The actual structure used */
+X
+X
+X/* A doubly linked list of structures for the history feature. */
+X
+Xstruct history {
+X	struct history *prev;
+X	char buf[MAXLINE];
+X	struct history *next;
+X	};
+X
+Xextern struct history *currhist;
+X
+Xextern int   childpid;		/* The pid of the child process */
+Xextern int   masterfd;		/* The fd of the pty's master side */
+Xextern int   ttyfd;		/* The fd of the controlling tty */
+Xextern int   escape;		/* The escape character        */
+Xextern int   histchar;		/* The history character       */
+Xextern int   logfd;		/* The logfile file descriptor */
+Xextern char *logfile;		/* The logfile for the pty     */
+Xextern char *Usage;		/* The usage message           */
+Xextern char ile_errmesg[];	/* Error message from init_ile() */
+Xextern char alias_error[];	/* Error message from alias.c  */
+Xextern struct passwd *dosuid;	/* Suid passwd entry and flag  */
+X
+Xextern void  print_help();	/* Print out the help message  */
+Xextern void  print_status();	/* Print out the current flags */
+Xextern void  read_escape();	/* Process escape commands     */
+Xextern void  finish();		/* Clean up and quit.          */
+Xextern void  sendsig();		/* Send a signal to the pty    */
+Xextern void  subshell();	/* Run a subshell from newing  */
+Xextern void  d_zero();		/* Replacement for bzero()     */
+Xextern void  d_copy();		/* Replacement for bcopy()     */
+X
+Xextern char *ile();		/* Internal line editor        */
+Xextern char *getalias();	/* Get an alias definition     */
+Xextern char *myalloc();		/* Simple malloc() wrapper     */
+X
+Xextern int   myfree();		/* Complement to myalloc()     */
+Xextern int   init_history();	/* Initialize the history bufs */
+Xextern int   hist_write();	/* Process tty input to pty    */
+Xextern int   add_alias();	/* Add an alias definition     */
+Xextern int   del_alias();	/* Delete an alias definition  */
+Xextern int   add_trig();	/* Add a trigger to the list      */
+Xextern int   del_trig();	/* Remove a trigger from the list */
+Xextern char **matchtrig();	/* Return trigger match responses */
+Xextern int   issignal();	/* Do we have a signal character?     */
+Xextern int   writelog();	/* Write a buffer, stripping Ctrl-M's */
+Xextern int   pty_open();	/* Fork a process under a pty  */
+X
+Xextern void  init_rc();		/* Start up from .newingrc     */
+Xextern void  showhistory();	/* Show the current history list */ 
+Xextern void  showaliases();	/* Show the current alias list */ 
+Xextern void  showtriggers();	/* Show the current trigger list */
+Xextern void  updatewin();	/* Update the pty winsize      */
+Xextern int   tty_getmode();	/* Save the current tty modes  */
+Xextern int   tty_reset();       /* Reset the tty modes         */
+Xextern int   tty_sane();        /* Just make the tty sane      */
+Xextern int   tty_raw();		/* Enable raw input processing */
+Xextern int   tty_echo();        /* Set or unset tty echoing    */
+Xextern int   cat();		/* Type a file to the pty      */
+END_OF_FILE
+  if test 4381 -ne `wc -c <'newing.h'`; then
+    echo shar: \"'newing.h'\" unpacked with wrong size!
+  fi
+  # end of 'newing.h'
+fi
+if test -f 'newing.hlp.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newing.hlp.UU'\"
+else
+  echo shar: Extracting \"'newing.hlp.UU'\" \(11961 characters\)
+  sed "s/^X//" >'newing.hlp.UU' <<'END_OF_FILE'
+Xbegin 600 newing.hlp
+XM"@DG;F5W:6YG)R!I<R!D97-I9VYE9"!T;R!P<F]V:61E(&%N(&EN=&5R9F%C
+XM92!L87EE<@IB971W965N('EO=2!A;F0@>6]U<B!P<F]G<F%M+B @5VET:&EN
+XM('1H:7,@;&%Y97(L(&UA;GD@=&AI;F=S"F-A;B!B92!D;VYE+B *"@EO("!9
+XM;W4@8V%N('5S92!A(&AI<W1O<GD@9F5A='5R92!T;R!P<F5V96YT('EO=2!F
+XM<F]M( H)(" @:&%V:6YG('1O(')E='EP92!T:&4@<V%M92!T:&EN9R!O=F5R
+XM(&%N9"!O=F5R(&%G86EN+@H);R @66]U(&-A;B!L;V<@=&AE(&]U='!U="!O
+XM9B!Y;W5R('!R;V=R86T@:6X@82!S:6UI;&%R( H)(" @;6%N;F5R(&%S('1H
+XM92!P<F]G<F%M("=S8W)I<'0G+@H);R @66]U(&-A;B!S96YD('1H92!C;VYT
+XM96YT<R!O9B!A(&9I;&4@=&\@=&AE('!R;V=R86T@"@D@("!Y;W4@87)E(')U
+XM;FYI;F<L(&%S('1H;W5G:"!Y;W4@:&%D('1Y<&5D(&EN('1H90H)(" @=VAO
+XM;&4@9FEL92!B>2!Y;W5R<V5L9BX*"6\@(%EO=2!C86X@9&5T871C:"!P86EN
+XM;&5S<VQY(&9R;VT@82!P<F]G<F%M('1H870@:&%S( H)(" @9G)O>F5N('EO
+XM=7(@=&5R;6EN86P@;W(@;W1H97)W:7-E(&AU;F<N"@EO("!9;W4@8V%N(&5N
+XM86)L92!L:6YE(&5D:71I;F<@;VX@82!P<F]G<F%M('1H870@;F]R;6%L;'D@
+XM"@D@("!D;V5S;B=T(&AA=F4@:70L('-U8V@@87,@8W-H(&]R('1E;&YE="X*
+XM"6\@(%EO=2!C86X@:&%V92!N97=I;F<@<V5N9"!A=71O;6%T:6,@<F5S<&]N
+XM<V5S('1O('1H90H@(" @(" @(" @(&]U='!U="!O9B!T:&4@<')O9W)A;2X*
+XM"DEF('EO=2!A<F4@82!H86-K97(L(&]N92!O9B!T:&4@861V86YT86=E<R!O
+XM9B!T:&ES('!R;V=R86T@:7,@"G1H870@>6]U(&AA=F4@9G5L;"!S;W5R8V4L
+XM(&%N9"!C86X@:6UP;&5M96YT('1H92!F96%T=7)E<R!Y;W4@"FAA=F4@86QW
+XM87ES('=A;G1E9"P@8G5T(&YE=F5R(&AA9"!T:&4@=&EM92!T;R!W<FET92!F
+XM<F]M('-C<F%T8V@N"@H)16YJ;WDA"@D)+5-A;2!,86YT:6YG82 @(" @(" @
+XM(" @(#4O-B\Y,PH@(" @(" @(" @(" @(" @(" @(" @(" @(" @(" @(" @
+XM(" @(" @('-L;W5K96Y 8W,N=6-D879I<RYE9'4*"@I5<V%G93H@;F5W:6YG
+XM(%LM:%T@6RUV72!;+75=(%LM:5T@6RUE(&5S8V%P95]C:&%R72!;+7,@;&%B
+XM96Q="B @(" @(" @(" @(" @6RUL(&QO9V9I;&5=(%MP<F]G<F%M(%MA<F=U
+XM;65N='-=70H*3W!T:6]N<SH*"2UH"0E0<FEN="!A('-I;7!L92!H96QP(&UE
+XM<W-A9V4@86YD(&5X:70*"2UV"0E2=6X@;F5W:6YG(&EN('9E<F)O<V4@;6]D
+XM90H)+74)"4-R96%T92!A('5T;7 @96YT<GD@9F]R(&YE=VEN9PH)+6D)"5-T
+XM87)T(&YE=VEN9R!I;B!L:6YE(&5D:70@;6]D90H)+64@97-C87!E7V-H87()
+XM4V5T('1H92!E<V-A<&4@8VAA<F%C=&5R('1O("=E<V-A<&5?8VAA<B<*"2UL
+XM(&QO9V9I;&4)3&]G('1H92!O=71P=70@=&\@)VQO9V9I;&4G"@DM<R!L86)E
+XM; E);FET:6%L:7IE(&YE=VEN9R!F<F]M("=L86)E;"<@:6X@+FYE=VEN9W)C
+XM"@EP<F]G<F%M"0E2=6X@)W!R;V=R86TG(&EN<W1E860@;V8@=&AE(&1E9F%U
+XM;'0@<VAE;&PN"@H)3F]R;6%L;'DL(&5A8V@@8VAA<F%C=&5R(&ES('!A<W-E
+XM9"!D:7)E8W1L>2!T;R!T:&4@<')O9W)A;2P*8G5T(&EF('EO=2!S970@;&EN
+XM92!E9&ET(&UO9&4L(&5I=&AE<B!W:71H(&$@8V]M;6%N9"!L:6YE(&]P=&EO
+XM;BP*;W(@=VET:"!A;B!E<V-A<&4L(&YE=VEN9R!W:6QL(')E860@:6X@82!L
+XM:6YE(&]F('1E>'0L(&%L;&]W:6YG"GEO=2!T;R!E9&ET(&ET+"!A;F0@=&AE
+XM;B!I="!W:6QL('-E;F0@=&AE(&QI;F4@=&\@=&AE('!R;V=R86T@=&AA= IY
+XM;W4@87)E(')U;FYI;F<N(" *"45A8V@@;&EN92!T:&%T(&ES(&5N=&5R960@
+XM:7,@<V%V960@:6X@=&AE(&AI<W1O<GD@9F5A='5R90IO9B!N97=I;F<N("!%
+XM;G1E<FEN9R!T:&4@:&ES=&]R>2!C:&%R86-T97(@*&1E9F%U;'0Z($-T<FPM
+XM4"D@;VX@82 *;F5W(&QI;F4@9&ES<&QA>7,@=&AE(&QA<W0@;&EN92!T:&%T
+XM('=A<R!T>7!E9"!O;G1O('1H92!S8W)E96XL(&%N9" *86QL;W=S('EO=2!T
+XM;R!E9&ET(&ET+B @5&\@96YT97(@=&5X="P@:G5S="!T>7!E+"!A;F0@=VAE
+XM;B!Y;W4@<')E<W,@"G)E='5R;BP@=&AE(&QI;F4@=VEL;"!B92!S96YT('1O
+XM('1H92!R=6YN:6YG('!R;V=R86TN("!4:&4@961I=&EN9PIF96%T=7)E(&ES
+XM(&QO;W-E;'D@8F%S960@;VX@=&AE($MO<FX@4VAE;&P@96UA8W,@961I=&EN
+XM9R!M;V1E+B @20IQ=6]T92!T:&4@:6YT<F]D=6-T:6]N('1O('1H92!+;W)N
+XM(%-H96QL(&5D:71I;F<@9F5A='5R93H*"2)!;&P@961I=&EN9R!C;VUM86YD
+XM<R!C;VYS:7-T(&5I=&AE<B!O9B!C;VYT<F]L(&-H87)A8W1E<G,*;W(@97-C
+XM87!E('-E<75E;F-E<RX@($-O;G1R;VP@8VAA<F%C=&5R<R!A<F4@;F]T871E
+XM9"!B>2!#=')L+2!F;VQL;W=E9 IB>2!A(&-H87)A8W1E<BX@($9O<B!E>&%M
+XM<&QE+"!#=')L+5@@:7,@=&AE(&YO=&%T:6]N(&9O<B!P<F5S<VEN9PIT:&4@
+XM0W1R;"!K97D@86YD('1H92!X(&-H87)A8W1E<B!K97D@870@=&AE('-A;64@
+XM=&EM92X@($1O(&YO="!P<F5S<PIT:&4@<VAI9G0@:V5Y("AA;'1H;W5G:"!C
+XM;VYT<F]L('-E<75E;F-E<R!A<F4@:6YD:6-A=&5D('=I=&@@8V%P:71A; IL
+XM971T97)S*2X*"@E$96P@:6YD:6-A=&5S('1H870@=&AE(&1E;&5T92!K97D@
+XM<VAO=6QD(&)E('!R97-S960N"@H)17-C87!E('-E<75E;F-E<R!A<F4@<VAO
+XM=VX@87,@17-C+2!F;VQL;W=E9"!B>2!A( IC:&%R86-T97(N("!&;W(@97AA
+XM;7!L92P@>6]U(&5N=&5R($5S8RUD(&)Y('!R97-S:6YG('1H92!%<V,@:V5Y
+XM+ IR96QE87-I;F<@:70L(&%N9"!T:&5N('!R97-S:6YG('1H92!D(&ME>2XB
+XM"@H)22!H879E(&%T=&5M<'1E9"!T;R!K965P($5S8RT@<V5Q=65N8V5S(&%T
+XM(&$@;6EN:6UU;2P*8F5C875S92!)(&9I;F0@:70@8W5M8F5R<V]M92!T;R!K
+XM965P(')E86-H:6YG(&9O<B!T:&4@17-C(&ME>2P*86YD(&%L<V\@8F5C875S
+XM92!T:&4@87)R;W<@:V5Y<R!A<F4@=7-E9"X@(%1H92!A<G)O=R!K97ES(&%R
+XM90IA8W1U86QL>2!B;W5N9"!T;R!%<V,M6T$@=VAE<F4@02!I<R!O;F4@;V8@
+XM=&AE(&QE='1E<G,@02P@0BP@0RP@"F%N9"!$+"!F;W(@96%C:"!O9B!T:&4@
+XM87)R;W<@:V5Y<RX@(&%R<F]W+75P(&ES(&QE='1E<B!!+" *87)R;W<M9&]W
+XM;B!I<R!L971T97(@0BP@87)R;W<M<FEG:'0@:7,@0RP@86YD(&%R<F]W+6QE
+XM9G0@:7,@1"X*2&5R92!A<F4@=&AE(&5D:71I;F<@:V5Y<SH*"D-U<G-O<B!M
+XM;W9E;65N=#H*"4ME>0D)1G5N8W1I;VX*"2TM+2TM+0D)+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2T*"3QL969T+6%R<F]W/@E-;W9E(&QE9G0@;VYE
+XM('-P86-E"@D\<FEG:'0M87)R;W<^"4UO=F4@<FEG:'0@;VYE('-P86-E"@E#
+XM=')L+4()"4UO=F4@8F%C:W=A<F0@;VYE('=O<F0*"4-T<FPM1@D)36]V92!F
+XM;W)W87)D(&]N92!W;W)D"@E#=')L+4$)"4UO=F4@=&\@=&AE(&)E9VEN;FEN
+XM9R!O9B!T:&4@;&EN90H)0W1R;"U%"0E-;W9E('1O('1H92!E;F0@;V8@=&AE
+XM(&QI;F4*"4-T<FPM77@)"4UO=F4@=&\@=&AE(&YE>'0@8VAA<F%C=&5R('@@
+XM;VX@"@D)"71H92!L:6YE"@I%9&ET:6YG.@H)2V5Y"0E&=6YC=&EO;@H)+2TM
+XM+2TM"0DM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+0H)/&)A8VMS<&%C
+XM93X)1&5L971E('1H92!C:&%R86-T97(@8F5H:6YD('1H92 *"0D)8W5R<V]R
+XM"@E$96P)"5-A;64@87,@8F%C:W-P86-E"@E#=')L+40)"41E;&5T92!T:&4@
+XM8VAA<F%C=&5R('5N9&5R('1H92 *"0D)8W5R<V]R"@E#=')L+5<)"41E;&5T
+XM92!U<"!T;R!W:&ET92US<&%C92!T;R!T:&4*"0D);&5F="!O9B!T:&4@8W5R
+XM<V]R("AD96QE=&4@=V]R9"D*"4-T<FPM2PD)1&5L971E(&9R;VT@=&AE(&-U
+XM<G-O<B!T;R!T:&4*"0D)96YD(&]F('1H92!L:6YE"@E#=')L+54)"41E;&5T
+XM92!T:&4@=VAO;&4@;&EN90H)0W1R;"U9"0E);G-E<G0@=&AE(&QA<W0@=&5X
+XM="!T:&%T('=A<PH)"0ED96QE=&5D+"!F<F]M('1H92!D96QE=&EO;B!B=69F
+XM97(*"0D):6YT;R!W:&5R92!T:&4@8W5R<V]R(&ES(&YO=PH)0W1R;"U4"0E4
+XM<F%N<W!O<V4@=&AE(&-H87)A8W1E<B!U;F1E<B!T:&4*"0D)8W5R<V]R('=I
+XM=&@@=&AE(&]N92!T;R!T:&4@<FEG:'0N( H)17-C+70)"51R86YS<&]S92!T
+XM:&4@;6%R:V5D(&-H87)A8W1E<B *"0D)=VET:"!T:&4@;VYE('5N9&5R('1H
+XM92!C=7)S;W(*"45S8RUC"0E#87!I=&%L:7IE('1H92!C:&%R86-T97(@=6YD
+XM97(@=&AE"@D)"6-U<G-O<BP@:68@:70@:7,@;&]W97)C87-E+"!O<B!M86ME
+XM"@D)"6ET(&QO=V5R8V%S92!I9B!I="!I<R!C87!I=&%L:7IE9 H)17-C+3QS
+XM<&%C93X)4V5T('1H92!M87)K(&%T('1H92!C=7)R96YT(&-U<G-O<@H)"0EP
+XM;W-I=&EO;@H)17-C+7 )"4-O<'D@=&AE(&QI;F4@9G)O;2!T:&4@;6%R:R!T
+XM;R!T:&4*"0D)8W5R<F5N="!C=7)S;W(@<&]S:71I;VX@:6YT;R!T:&4*"0D)
+XM9&5L971I;VX@8G5F9F5R"@HH06QL('-I9VYA;',@:VEL;"!T:&4@8W5R<F5N
+XM="!L:6YE(&%N9"!A<F4@<V5N="!I;6UE9&EA=&5L>2!T;R!T:&4@<')O9W)A
+XM;2D*4VEG;F%L<SH*"4-T<FPM0PD)4V5N9"!#=')L+4,@=&\@=&AE(')U;FYI
+XM;F<@<')O9W)A;2P*"0D)=VAI8V@@:7,@;F]R;6%L;'D@:6YT97)P<F5T960@
+XM87,@86X*"0D):6YT97)R=7!T(&-H87)A8W1E<BX*"4-T<FPM7 D)4V5N9"!#
+XM=')L+5P@=&\@=&AE(')U;FYI;F<@<')O9W)A;2P*"0D)=VAI8V@@:7,@;F]R
+XM;6%L;'D@:6YT97)P<F5T960@87,@80H)"0EQ=6ET(&-H87)A8W1E<BX*"4-T
+XM<FPM6@D)4V5N9"!#=')L+5H@=&\@=&AE(')U;FYI;F<@<')O9W)A;2P*"0D)
+XM=VAI8V@@8V%N(&)E(&EN=&5R<')E=&5D(&%S(&$@<W1O< H)"0ES:6=N86P@
+XM:68@=&AE('!R;V=R86T@<F5C;V=N:7IE<PH)"0EJ;V(@8V]N=')O;"X@($EF
+XM(&IO8B!C;VYT<F]L(&ES(&YO= H)"0ES=7!P;W)T960@8GD@=&AE('-Y<W1E
+XM;2P@0W1R;"U:(&ES( H)"0EN;W0@=')E871E9"!A<R!S<&5C:6%L+@H*36ES
+XM8V5L;&%N96]U<SH*"4ME>0D)1G5N8W1I;VX*"2TM+2TM+0D)+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2T*"4-T<FPM3 D)4F5D<F%W('1H92!L:6YE
+XM(&]N('1H92!N97AT(&QI;F4*"3QU<"UA<G)O=SX)17)A<V4@=&AE(&-U<G)E
+XM;G0@;&EN92!A;F0@961I= H)"0ET:&4@;F5X="!P<F5V:6]U<R!H:7-T;W)Y
+XM(&)U9F9E<@H)0W1R;"U0"0E386UE(&%S('5P+6%R<F]W"@D\9&]W;BUA<G)O
+XM=SX)17)A<V4@=&AE(&-U<G)E;G0@;&EN92!A;F0@961I= H)"0ET:&4@;F5X
+XM="!H:7-T;W)Y(&)U9F9E<@H)0W1R;"U."0E386UE(&%S(&1O=VXM87)R;W<*
+XM"4-T<FPM5G@)"5%U;W1E('1H92!C:&%R86-T97(@>"!I;G1O('1H92 *"0D)
+XM;&EN92!A="!T:&4@8W5R<F5N="!P;W-I=&EO;@H)/')E='5R;CX)17AI="!E
+XM9&ET(&UO9&4@86YD('-E;F0@=&AE(&QI;F4*"0D)=&\@=&AE(')U;FYI;F<@
+XM<')O9W)A;0H)/&QI;F5F965D/@E386UE(&%S(')E='5R;@H*+2TM+2TM+2TM
+XM+2TM"@H)5VAE;B!T:&4@97-C87!E(&-H87)A8W1E<B H9&5F875L=#H@)RTG
+XM*2!I<R!I;G!U="!A= IT:&4@8F5G:6YN:6YG(&]F(&$@;&EN92P@)VYE=VEN
+XM9R<@=VEL;"!R96%D(&$@;&EN92!O9B!T97AT+@I4:&4@;&EN92!I<R!I;G1E
+XM<G!R971E9"!A<R!A('-P96-I86P@(F5S8V%P92!C;VUM86YD(BP@86YD"F%N
+XM>2!C;W)R97-P;VYD:6YG(&%C=&EO;B!I<R!T86ME;BX@(%1H97)E(&%R92!S
+XM979E<F%L( IC=7)R96YT;'D@:6UP;&5M96YT960@97-C87!E<SH*"@E%<V-A
+XM<&4)"0E!8W1I;VX*"2TM+2TM+2TM+2TM"0DM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2T*"79E<F)O<V4)"0E4;V=G;&5S('9E<F)O<V4@;6]D92!O;B!A;F0@
+XM;V9F"@H)97-C87!E(#QE<V-A<&5?8VAA<CX)4V5T<R G97-C87!E7V-H87(G
+XM(&%S('1H92!N97<*"0D)"65S8V%P92!C:&%R86-T97(N"@H):&ES=&-H87(@
+XM/&AI<W1O<GE?8VAA<CX)4V5T<R G:&ES=&]R>5]C:&%R)R!A<R!T:&4@;F5W
+XM"@D)"0EH:7-T;W)Y(&-H87)A8W1E<BX*"@EH:7-T;W)Y"0D)1&ES<&QA>7,@
+XM=&AE(&-U<G)E;G0@:&ES=&]R>2!L:7-T:6YG"@H)961I= D)"51O9V=L97,@
+XM;&EN92!E9&ET(&UO9&4@;VX@86YD(&]F9BX*"@ES=&%T=7,)"0E0<FEN=',@
+XM;W5T('1H92!C=7)R96YT('-T871U<R!O9@H)"0D);F5W:6YG"@H)8V%T(#QF
+XM:6QE/@D)3W!E;G,@=&AE('-P96-I9FEE9"!F:6QE(&%N9"!S96YD<PH)"0D)
+XM:71S(&-O;G1E;G1S('1O('1H92!P<F]G<F%M(&%S"@D)"0ET:&]U9V@@>6]U
+XM(&AA9"!T>7!E9"!T:&5M(&EN+@H*"6%L:6%S(#QN86UE/B \9&5F:6YI=&EO
+XM;CX*"0D)"41E9FEN92!A;B!A;&EA<R!O9B!T:&4@;F%M92 G;F%M92<L"@D)
+XM"0EW:71H('1H92!D969I;FET:6]N("=D969I;FET:6]N)RX*"0D)"4EF('1H
+XM92!D969I;FET:6]N(&ES(&UO<F4@=&AA;@H)"0D);VYE('=O<F0L(&ET(&UU
+XM<W0@8F4@(G%U;W1E9"(N"@H)=6YA;&EA<R \;F%M93X)"5)E;6]V92!T:&4@
+XM86QI87,@)VYA;64G+@H*"7-H;W=A;&EA<PD)3&ES="!T:&4@8W5R<F5N="!A
+XM;&EA<V5S+@H*"6%D9'1R:6<@/&YA;64^(#QT<FEG9V5R/B \<F5S<&]N<V4^
+XM"@D)"0E$969I;F4@82!T<FEG9V5R(&YA;65D("=N86UE)R *"0D)"71H870@
+XM=VEL;"!S96YD("=R97-P;VYS92<@=VAE;@H)"0D)=&AE('!R;V=R86T@;W5T
+XM<'5T<R G=')I9V=E<B<N"@H)9&5L=')I9R \;F%M93X)"5)E;6]V92!T:&4@
+XM=')I9V=E<B G;F%M92<N"@H)<VAO=W1R:6=S"0E,:7-T('1H92!C=7)R96YT
+XM('1R:6=G97)S+@H*"7-U8G-H(%MC;VUM86YD70D)4G5N<R!A('-U8G-H96QL
+XM+"!O<B G8V]M;6%N9"<*"0D)"6EF(&ET(&ES(&=I=F5N+@H*"6AE;' @6W1O
+XM<&EC70D)4')I;G1S(&]U="!H96QP(&9O<B!T:&4@;&ES=&5D"@D)"0ET;W!I
+XM8RX@($-O;6UO;B!T;W!I8W,@87)E(")U<V%G92(L"@D)"0DB961I=&EN9R(L
+XM(&%N9" B97-C87!E<R(N"@H)9&EE"0D)2VEL;',@;F5W:6YG(&%N9"!T:&4@
+XM<')O9W)A;2!I="!I<PH)"0D)<G5N;FEN9RX*"@ES=7-P96YD"0D)4W5S<&5N
+XM9',@;F5W:6YG('5S:6YG(&IO8B!C;VYT<F]L+ H)"0D);W(@<G5N<R!A('-U
+XM8G-H96QL(&EF(&IO8B!C;VYT<F]L"@D)"0EI<R!N;W0@<W5P<&]R=&5D+@H*
+XM"D%L:6%S97,@87)E(&)A<VEC86QL>2!E<V-A<&5S('1H870@97AP86YD('1O
+XM('1E>'0@=&AA="!I<R!S96YT"G1O('1H92!P<F]G<F%M+B @1F]R(&UO<F4@
+XM:&5L<"!O;B!A;&EA<V5S+"!U<V4@=&AE(&5S8V%P93H*"@EH96QP(&%L:6%S
+XM97,*"E1R:6=G97)S(&%R92!B:71S(&]F('1E>'0@=&AA="!A<F4@<V5A<F-H
+XM960@9F]R(&EN('1H92!P<F]G<F%M)W,*;W5T<'5T+B @268@;VYE(&ES(&9O
+XM=6YD+"!T:&4@=&5X="!R97-P;VYS92!I<R!S96YT(&%U=&]M871I8V%L;'D*
+XM=&\@=&AE('!R;V=R86TN("!&;W(@;6]R92!H96QP(&]N('1R:6=G97)S+"!U
+XM<V4@=&AE(&5S8V%P93H*"@EH96QP('1R:6=G97)S"@H*26YI=&EA;&EZ:6YG
+XM.@I)9B!T:&4@)RUS)R!O<'1I;VX@:7,@9VEV96XL(&YE=VEN9R!W:6QL(&EN
+XM:71I86QI>F4@9G)O;2!A( IS=&%R='5P(&9I;&4@*"1(3TU%+RYN97=I;F=R
+XM8RD@870@=&AE('-P96-I9FEE9"!L86)E;"X*02!L86)E;"!I;B!T:&4@<W1A
+XM<G1U<"!F:6QE('-T87)T<R!A="!T:&4@8F5G:6YN:6YG(&]F(&$@;&EN92P@
+XM"G=H:6QE(&5V97)Y=&AI;F<@8F5T=V5E;B!L86)E;',@:7,@8V]N<VED97)E
+XM9"!A('-T87)T=7 @;&EN92X@( I3=&%R='5P(&QI;F5S(&)E9VEN('=I=&@@
+XM=&%B<RP@86YD(&AA=F4@;W!T:6]N86P@=&EM:6YG(&EN9F\N(" *02!L:6YE
+XM(&)E9VEN;FEN9R!W:71H("<C)R!I<R!A(&-O;6UE;G0N("!)9B!T:&4@<W1A
+XM<G1U<"!L:6YE( IS=&%R=',@=VET:"!T:&4@8VAA<F%C=&5R("<J)RP@:70@
+XM:7,@8V]N<VED97)E9"!A;B!E<V-A<&4@86YD( II<R!P<F]C8V5S<V5D+B @
+XM3W1H97)W:7-E('1H92!L:6YE(&ES('-E;G0@=&\@=&AE('!R;V=R86TN"D]U
+XM='!U="!F<F]M('1H92!P<F]G<F%M(&ES('-A=F5D+"!A;F0@=&AE;B!S96YT
+XM('1O('1H92!S8W)E96X@"F%F=&5R(&YE=VEN9R!H87,@9FEN:7-H960@=VET
+XM:"!T:&4@<W1A<G1U<"!F:6QE+@H*17AA;7!L92!S=&%R='5P(&9I;&4Z"BTM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2T*(R!.;W1E.B @5&EM:6YG(&EN9F\@8V%N;F]T(&)E
+XM('5S960@=VET:"!E<V-A<&5S+@H*(R!4:&ES(&QA8F5L('-H;W5L9"!O;FQY
+XM(&)E('5S960@=VET:" O8FEN+W-H"D)O=7)N92!,;V=I;CH*"2X@)$A/344O
+XM+G!R;V9I;&4*"65C:&\@(E=E;&-O;64@=&\@=&AE($)O=7)N92!,;V=I;B$B
+XM"@IS>7-C:&5C:SH*"2IV97)B;W-E"@ER=VAO"B,@5V%I=" W('-E8V]N9',@
+XM869T97(@<G=H;R!B969O<F4@<V5N9&EN9R!T:&4@9FEN9V5R(&QI;F4@=&\@
+XM=&AE('-H96QL"@DW(&9I;F=E<B!M>69R:65N9$!U;FEX+G-Y<W1E;2YE9'4*
+XM"FYO=&AI;CH*"65C:&\[96-H;SME8VAO"@IV:3H*"2IA;&EA<R!A9&0@(D=O
+XM5&AI<R!I<R!A;B!A9&1E9"!L:6YE+AL5:51H:7,@:7,@86X@:6YS97)T960@
+XM;&EN92X;,4<B"@DJ<W1A='5S"@H)(R!786ET(#,@<V5C;VYD<R!A;F0@97AE
+XM8W5T92!V:2X*"3,@=FD*+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+X5+2TM+2TM+2TM+2TM+2TM+2U%3T8*
+X 
+Xend
+END_OF_FILE
+  if test 11961 -ne `wc -c <'newing.hlp.UU'`; then
+    echo shar: \"'newing.hlp.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'newing.hlp'\" \(8661 characters\)
+    cat newing.hlp.UU | uudecode
+    if test 8661 -ne `wc -c <'newing.hlp'`; then
+      echo shar: \"'newing.hlp'\" uudecoded with wrong size!
+    else
+      rm newing.hlp.UU
+    fi
+  fi
+  # end of 'newing.hlp.UU'
+fi
+if test -f 'trigger.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'trigger.c'\"
+else
+  echo shar: Extracting \"'trigger.c'\" \(3301 characters\)
+  sed "s/^X//" >'trigger.c' <<'END_OF_FILE'
+X/*  Trigger matching on stream input text
+X 
+X    trigger.c    Shareware Copyright by Sam Lantinga	5/6/93	
+X*/
+X
+X#include	"newing.h"
+X
+X/* Here are the functions:                                         */
+X
+X	void   showtriggers();	/* Prints the trigger list         */
+X	int    add_trig();	/* Adds a trigger to the list      */
+X	int    del_trig();	/* Removes a trigger from the list */
+X	char **matchtrig();	/* Returns match responses         */
+X
+X/* The maximum number of matching triggers allowed */
+X#define MAXTRIGS	8
+X
+X/* The array returned by matchtrig() */
+Xstatic char *keys[MAXTRIGS];
+X
+X/* The actual trigger structure */
+Xstatic struct trigger {
+X	char *label;
+X	char *trig;
+X	char *tptr;
+X	char *response;
+X	struct trigger *next;
+X	} basetrig = { NULL, NULL, NULL, NULL };
+X
+X
+X/* Print out the current trigger listing */
+X
+Xvoid showtriggers()
+X{
+X	struct trigger *here;
+X
+X	printf("Triggers:\r\n");
+X	for ( here=basetrig.next; here; here=here->next )
+X	{
+X		printf("\t%s\t%s\t%s\r\n", here->label, 
+X					here->trig, here->response);
+X	}
+X}
+X
+X
+X/* Add a trigger to the list of triggers.  Return 0, or (-1) if
+X   all the trigger slots are filled.  */
+X
+Xint add_trig(label, trig, response)
+Xchar *label;
+Xchar *trig;
+Xchar *response;
+X{
+X	struct trigger *prev, *here, *new;
+X
+X	for ( prev=(&basetrig), here=basetrig.next; 
+X			here; prev=here, here=here->next )
+X	{
+X		if ( strcmp(here->label, label) == 0 )
+X			goto create;
+X	}
+X
+X	/* Allocate memory for the new trigger */
+Xcreate:
+X	if ((new=(struct trigger *)myalloc(sizeof(struct trigger)))
+X								== NULL )
+X		return(-1);
+X	if ( (new->label=myalloc(strlen(label+1))) == NULL )
+X	{
+X		(void) myfree(new);
+X		return(-1);
+X	}
+X	if ( (new->trig=myalloc(strlen(trig+1))) == NULL )
+X	{
+X		(void) myfree(new->label);
+X		(void) myfree(new);
+X		return(-1);
+X	}
+X	if ( (new->response=myalloc(strlen(response+1))) == NULL )
+X	{
+X		(void) myfree(new->label);
+X		(void) myfree(new->trig);
+X		(void) myfree(new);
+X		return(-1);
+X	}
+X
+X	/* Initialize the new trigger */
+X	prev->next=new;
+X	strcpy(new->label, label);
+X	strcpy(new->trig, trig);
+X	strcpy(new->response, response);
+X	new->tptr=new->trig;
+X
+X	if ( here != NULL )
+X	{
+X		new->next=here->next;
+X		(void) myfree(here->label);
+X		(void) myfree(here->label);
+X		(void) myfree(here->label);
+X		(void) myfree(here);
+X	}
+X	else
+X		new->next=NULL;
+X	return(0);
+X}
+X
+X
+X/* Remove a trigger from the list of triggers.  Return (-1) if
+X   the trigger wasn't there, or 0 if everything went well.  */
+X
+Xint del_trig(label)
+Xchar *label;
+X{
+X	struct trigger *prev, *here, *new;
+X
+X	for ( prev=(&basetrig), here=basetrig.next; 
+X			here; prev=here, here=here->next )
+X	{
+X		if ( strcmp(here->label, label) == 0 )
+X		{
+X			prev->next=here->next;
+X			(void) myfree(here->label);
+X			(void) myfree(here->label);
+X			(void) myfree(here->label);
+X			(void) myfree(here);
+X			return(0);
+X		}
+X	}
+X	return(-1);
+X}
+X
+X
+X/* Match each trigger with the given text  */
+X
+Xchar **matchtrig(line, len)
+Xchar *line; 
+Xint len;
+X{
+X	struct trigger *here;
+X	char *ptr;
+X	int k=0, i;
+X
+X	for ( ptr=line, i=0; (i<len); ++i, ++ptr )
+X	{
+X		for (here=basetrig.next; here&&(k<MAXTRIGS); here=here->next)
+X		{
+X			if ( *(here->tptr) == *ptr )
+X			{
+X				/* Do we have a match? */
+X				if ( ! *(++here->tptr) )
+X				{
+X					keys[k++]=here->response;
+X					here->tptr=here->trig;
+X				}
+X			}
+X			else
+X				here->tptr=here->trig;
+X		}
+X	}
+X	keys[k]=NULL;
+X	return(keys);
+X}
+END_OF_FILE
+  if test 3301 -ne `wc -c <'trigger.c'`; then
+    echo shar: \"'trigger.c'\" unpacked with wrong size!
+  fi
+  # end of 'trigger.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

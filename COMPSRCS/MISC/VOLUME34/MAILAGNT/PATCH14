@@ -1,0 +1,599 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v34i026:  mailagent - Rule Based Mail Filtering, Patch14
+Message-ID: <1992Dec13.022430.243@sparky.imd.sterling.com>
+X-Md4-Signature: df91a91cac0f46022c035ec461e17658
+Date: Sun, 13 Dec 1992 02:24:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 34, Issue 26
+Archive-name: mailagent/patch14
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[The latest patch for mailagent version 2.9 is #14.]
+
+System: mailagent version 2.9
+Patch #: 14
+Priority: MEDIUM
+Subject: patch #13, continued
+Date: Tue Dec  1 10:14:37 PST 1992
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	See patch #13.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -d
+		make
+		make install
+		make install.man
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 13
+4c4
+< #define PATCHLEVEL 13
+---
+> #define PATCHLEVEL 14
+
+Index: agent/test/cmd/strip.t
+*** agent/test/cmd/strip.t.old	Tue Dec  1 09:48:39 1992
+--- agent/test/cmd/strip.t	Tue Dec  1 09:48:40 1992
+***************
+*** 2,7 ****
+--- 2,14 ----
+  do '../pl/cmd.pl';
+  unlink 'ok', 'no_resync';
+  
++ open(LIST, '>header-list') || print "17\n";
++ print LIST <<EOL;
++ Unusual-Header
++ X-Long*
++ EOL
++ close LIST;
++ 
+  &add_header('X-Tag: strip');
+  &add_header('X-Long-Line: this is a long line and has a continuation');
+  &add_header('  right below it with a MARK token');
+***************
+*** 9,14 ****
+--- 16,22 ----
+  &add_header('X-Kept-Line: this is a long line and has a continuation');
+  &add_header('  right below it with another mark TOKEN');
+  &add_header('  and another with the mark TOKEN');
++ &add_header('unusual-header: None');
+  `$cmd`;
+  $? == 0 || print "1\n";
+  -f "$user" && print "2\n";		# Mail saved...
+***************
+*** 20,29 ****
+  &check_log('^Subject:', 8);
+  &not_log('^X-None:', 9);
+  &not_log('MARK', 10);			# Continuation line must have been stripped too
+! &not_log('X-Long-Line:', 11);	# As well as its parent
+  &check_log('TOKEN', 12) == 2 || print "13\n";		# This one has been kept
+! &check_log('X-Kept-Line:', 14);
+  -f 'no_resync' || print "15\n";	# Ensure header not disturbed
+  
+! unlink 'ok', 'no_resync', 'mail';
+  print "0\n";
+--- 28,39 ----
+  &check_log('^Subject:', 8);
+  &not_log('^X-None:', 9);
+  &not_log('MARK', 10);			# Continuation line must have been stripped too
+! &not_log('^X-Long-Line:', 11);	# As well as its parent
+  &check_log('TOKEN', 12) == 2 || print "13\n";		# This one has been kept
+! &check_log('^X-Kept-Line:', 14);
+! &not_log('^unusual-header:', 16);
+  -f 'no_resync' || print "15\n";	# Ensure header not disturbed
+  
+! # Last: 17
+! unlink 'ok', 'no_resync', 'mail', 'header-list';
+  print "0\n";
+
+Index: agent/test/cmd/keep.t
+*** agent/test/cmd/keep.t.old	Tue Dec  1 09:48:37 1992
+--- agent/test/cmd/keep.t	Tue Dec  1 09:48:38 1992
+***************
+*** 2,7 ****
+--- 2,16 ----
+  do '../pl/cmd.pl';
+  unlink 'ok', 'no_resync';
+  
++ open(LIST, '>header-list') || print "17\n";
++ print LIST <<EOL;
++ To
++ Subject
++ U*
++ X*
++ EOL
++ close LIST;
++ 
+  &add_header('X-Tag: keep');
+  &add_header('X-Long-Line: this is a long line and has a continuation');
+  &add_header('  right below it with a MARK token');
+***************
+*** 9,14 ****
+--- 18,24 ----
+  &add_header('X-Removed-Line: this is a long line and has a continuation');
+  &add_header('  right below it with another mark TOKEN');
+  &add_header('  and another with the mark TOKEN');
++ &add_header('unusual-header: None');
+  `$cmd`;
+  $? == 0 || print "1\n";
+  -f "$user" && print "2\n";		# Mail saved...
+***************
+*** 20,29 ****
+  &check_log('^Subject:', 8);
+  &not_log('^X-None:', 9);
+  &check_log('MARK', 10) == 2 || print "11\n";		# Continuation line kept
+! &check_log('X-Long-Line:', 12);	# So is the parent field
+! &not_log('X-Removed-Line:', 13);
+  &not_log('TOKEN', 14);			# This continuation was removed
+  -f 'no_resync' || print "15\n";	# Ensure header not disturbed
+  
+! unlink 'ok', 'no_resync', 'mail';
+  print "0\n";
+--- 30,41 ----
+  &check_log('^Subject:', 8);
+  &not_log('^X-None:', 9);
+  &check_log('MARK', 10) == 2 || print "11\n";		# Continuation line kept
+! &check_log('^X-Long-Line:', 12);	# So is the parent field
+! &not_log('^X-Removed-Line:', 13);
+  &not_log('TOKEN', 14);			# This continuation was removed
++ &check_log('^unusual-header:', 16);
+  -f 'no_resync' || print "15\n";	# Ensure header not disturbed
+  
+! # Last: 17
+! unlink 'ok', 'no_resync', 'mail', 'header-list';
+  print "0\n";
+
+Index: agent/pl/stats.pl
+Prereq: 2.9.1.1
+*** agent/pl/stats.pl.old	Tue Dec  1 09:48:31 1992
+--- agent/pl/stats.pl	Tue Dec  1 09:48:32 1992
+***************
+*** 1,4 ****
+! ;# $Id: stats.pl,v 2.9.1.1 92/08/26 13:18:36 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: stats.pl,v 2.9.1.2 92/12/01 09:43:32 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	stats.pl,v $
++ ;# Revision 2.9.1.2  92/12/01  09:43:32  ram
++ ;# patch13: read statistics lines one at a time to limit memory usage
++ ;# 
+  ;# Revision 2.9.1.1  92/08/26  13:18:36  ram
+  ;# patch8: added statistics suppression code
+  ;# 
+***************
+*** 211,217 ****
+  	# not enough space on the device, we won't be able to append the whole
+  	# backup file, but then we have to discard previously saved statistics
+  	# anyway...
+! 	local($status) = print STATS <OLD>;
+  	close OLD;
+  	close STATS;
+  	if ($status) {						# Print ran ok
+--- 214,225 ----
+  	# not enough space on the device, we won't be able to append the whole
+  	# backup file, but then we have to discard previously saved statistics
+  	# anyway...
+! 	# Note: 'print STATS <OLD>' would cause an excessive memory consumption
+! 	# given that a statistics file can be several hundred Kbytes long.
+! 	local($status) = 1;					# Printing status
+! 	while (<OLD>) {
+! 		$status &= (print STATS);		# Status remains to 1 while successful
+! 	}
+  	close OLD;
+  	close STATS;
+  	if ($status) {						# Print ran ok
+
+Index: agent/pl/analyze.pl
+Prereq: 2.9.1.4
+*** agent/pl/analyze.pl.old	Tue Dec  1 09:48:04 1992
+--- agent/pl/analyze.pl	Tue Dec  1 09:48:04 1992
+***************
+*** 1,4 ****
+! ;# $Id: analyze.pl,v 2.9.1.4 92/11/01 15:45:26 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: analyze.pl,v 2.9.1.5 92/12/01 09:18:49 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	analyze.pl,v $
++ ;# Revision 2.9.1.5  92/12/01  09:18:49  ram
++ ;# patch13: fixed mode selection pattern (no brace allowed)
++ ;# 
+  ;# Revision 2.9.1.4  92/11/01  15:45:26  ram
+  ;# patch11: added some blank lines for easier reading
+  ;# 
+***************
+*** 141,147 ****
+  		undef %Matched;							# Reset matching patterns
+  		undef %Inverted;						# Reset negated patterns
+  		$rules = $_;							# Work on a copy
+! 		$rules =~ s/^(.*){// && ($mode = $1);		# First word is the mode
+  		$rules =~ s/\s*(.*)}// && ($action = $1);	# Followed by action
+  		$mode =~ s/\s*$//;							# Remove trailing spaces
+  		$rules =~ s/^\s+//;						# Remove leading spaces
+--- 144,150 ----
+  		undef %Matched;							# Reset matching patterns
+  		undef %Inverted;						# Reset negated patterns
+  		$rules = $_;							# Work on a copy
+! 		$rules =~ s/^([^{]*){// && ($mode = $1);	# First word is the mode
+  		$rules =~ s/\s*(.*)}// && ($action = $1);	# Followed by action
+  		$mode =~ s/\s*$//;							# Remove trailing spaces
+  		$rules =~ s/^\s+//;						# Remove leading spaces
+
+Index: agent/filter/main.c
+Prereq: 2.9.1.1
+*** agent/filter/main.c.old	Tue Dec  1 09:47:43 1992
+--- agent/filter/main.c	Tue Dec  1 09:47:43 1992
+***************
+*** 11,17 ****
+  */
+  
+  /*
+!  * $Id: main.c,v 2.9.1.1 92/08/12 21:30:38 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+--- 11,17 ----
+  */
+  
+  /*
+!  * $Id: main.c,v 2.9.1.2 92/12/01 09:12:53 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+***************
+*** 19,24 ****
+--- 19,27 ----
+   *  Licence as specified in the README file that comes with dist.
+   *
+   * $Log:	main.c,v $
++  * Revision 2.9.1.2  92/12/01  09:12:53  ram
++  * patch13: filter now also complains when using -t in setgid mode
++  * 
+   * Revision 2.9.1.1  92/08/12  21:30:38  ram
+   * patch6: option -t disallowed when running setuid (security hole)
+   * 
+***************
+*** 85,92 ****
+  	 * filter program.
+  	 */
+  	if (argc > 1 && 0 == strcmp(argv[1], "-t")) {
+! 		if (uid != euid) {
+! 			fprintf(stderr, "filter: no option allowed when setuid\n");
+  			exit(1);
+  		}
+  		env_home();						/* Get HOME form environment */
+--- 88,96 ----
+  	 * filter program.
+  	 */
+  	if (argc > 1 && 0 == strcmp(argv[1], "-t")) {
+! 		if (uid != euid || gid != egid) {
+! 			fprintf(stderr, "filter: no option allowed when set%s\n",
+! 				uid != euid ? "uid" : "gid");
+  			exit(1);
+  		}
+  		env_home();						/* Get HOME form environment */
+
+Index: Configure
+Prereq: 2.9
+*** Configure.old	Tue Dec  1 09:47:35 1992
+--- Configure	Tue Dec  1 09:47:36 1992
+***************
+*** 16,22 ****
+  # Write to ram@eiffel.com (Raphael Manfredi) and I will send you the
+  # latest revision of the dist package, which includes metaconfig.)
+  
+! # $Id: Configure,v 2.9 92/07/14 16:46:52 ram Exp $
+  #
+  # Generated on Tue Jul 14 19:38:33 PDT 1992 [metaconfig 2.8 PL13]
+  
+--- 16,22 ----
+  # Write to ram@eiffel.com (Raphael Manfredi) and I will send you the
+  # latest revision of the dist package, which includes metaconfig.)
+  
+! # $Id: Configure,v 2.9.1.1 92/12/01 09:09:08 ram Exp $
+  #
+  # Generated on Tue Jul 14 19:38:33 PDT 1992 [metaconfig 2.8 PL13]
+  
+***************
+*** 2004,2010 ****
+  
+  : see if union wait is available
+  echo " "
+! if $contains 'int.*w_status;' $usrinc/sys/wait.h >/dev/null 2>&1 ; then
+  	echo "Looks like we have to use 'union wait' pointer for wait()."
+  	val="$define"
+  else
+--- 2004,2010 ----
+  
+  : see if union wait is available
+  echo " "
+! if $contains 'union.*wait.*{' $usrinc/sys/wait.h >/dev/null 2>&1 ; then
+  	echo "Looks like we have to use 'union wait' pointer for wait()."
+  	val="$define"
+  else
+
+Index: MANIFEST
+*** MANIFEST.old	Tue Dec  1 09:48:42 1992
+--- MANIFEST	Tue Dec  1 09:48:43 1992
+***************
+*** 86,91 ****
+--- 86,93 ----
+  agent/pl/header.pl         Header-related routines
+  agent/pl/history.pl        Perl library to implement history mechanism
+  agent/pl/hook.pl           Mail hook wrapping functions
++ agent/pl/hostname.pl       Perl library to compute hostname
++ agent/pl/include.pl        Processing of "include file" requests
+  agent/pl/interface.pl      Perl interface with filter commands
+  agent/pl/jobnum.pl         Perl library to compute a job number
+  agent/pl/lexical.pl        Perl library for lexical analysis
+***************
+*** 100,105 ****
+--- 102,108 ----
+  agent/pl/parse.pl          Perl library to parse a mail message
+  agent/pl/period.pl         Perl library to compute periods
+  agent/pl/plsave.pl         Perl library to handle the plsave cache file
++ agent/pl/plural.pl         Perl library to pluralize words
+  agent/pl/pqueue.pl         Processing the queued mails
+  agent/pl/queue_mail.pl     Queuing mails
+  agent/pl/rangeargs.pl      Perl library to expand a list of patches
+
+Index: agent/pl/context.pl
+Prereq: 2.9
+*** agent/pl/context.pl.old	Tue Dec  1 09:48:06 1992
+--- agent/pl/context.pl	Tue Dec  1 09:48:07 1992
+***************
+*** 1,4 ****
+! ;# $Id: context.pl,v 2.9 92/07/14 16:49:43 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: context.pl,v 2.9.1.1 92/12/01 09:19:38 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	context.pl,v $
++ ;# Revision 2.9.1.1  92/12/01  09:19:38  ram
++ ;# patch13: remove context file lock when excessively old
++ ;# 
+  ;# Revision 2.9  92/07/14  16:49:43  ram
+  ;# 3.0 beta baseline.
+  ;# 
+***************
+*** 63,68 ****
+--- 66,72 ----
+  sub save {
+  	require 'ctime.pl';
+  	local($existed) = -f $cf'context;
++ 	&'checklock($cf'context);				# Ensure no eternal locking
+  	&'acs_rqst($cf'context) if $existed;	# Lock existing file
+  	unless (open(CONTEXT, ">$cf'context")) {
+  		&'add_log("ERROR cannot overwrite context file: $!") if $'loglvl > 1;
+
+Index: agent/pl/plural.pl
+*** agent/pl/plural.pl.old	Tue Dec  1 09:48:23 1992
+--- agent/pl/plural.pl	Tue Dec  1 09:48:24 1992
+***************
+*** 0 ****
+--- 1,28 ----
++ ;# $Id: plural.pl,v 2.9.1.1 92/12/01 09:26:44 ram Exp $
++ ;#
++ ;#  Copyright (c) 1992, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	plural.pl,v $
++ ;# Revision 2.9.1.1  92/12/01  09:26:44  ram
++ ;# patch13: created
++ ;# 
++ ;# 
++ # Pluralize names -- Adapted from a routine posted by Tom Christiansen in
++ # comp.lang.perl on June 20th, 1992.
++ sub plural {
++ 	local($_, $n) = @_;		# Word and amount (plural if not specified)
++ 	$n = 2 if $n eq '';		# Pluralize word by default
++ 	if ($n != 1) {			# 0 something is plural
++ 		if ($_ eq 'was') {
++ 			$_ = 'were';
++ 		} else {
++ 			s/y$/ies/   || s/s$/ses/  || s/([cs]h)$/$1es/ ||
++ 			s/sis$/ses/ || s/ium$/ia/ || s/$/s/;
++ 		}
++ 	}
++ 	"$_";			# How to write $n times the original $_
++ }
++ 
+
+Index: agent/pl/hostname.pl
+*** agent/pl/hostname.pl.old	Tue Dec  1 09:48:09 1992
+--- agent/pl/hostname.pl	Tue Dec  1 09:48:09 1992
+***************
+*** 0 ****
+--- 1,29 ----
++ ;# $Id: hostname.pl,v 2.9.1.1 92/12/01 09:20:23 ram Exp $
++ ;#
++ ;#  Copyright (c) 1992, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	hostname.pl,v $
++ ;# Revision 2.9.1.1  92/12/01  09:20:23  ram
++ ;# patch13: created
++ ;# 
++ ;# 
++ # Return only the hostname portion of the host name (no domain name)
++ sub myhostname {
++ 	local($_) = &hostname;
++ 	s/^([^.]*)\..*/$1/;			# Trim down domain name
++ 	$_;
++ }
++ 
++ # Compute hostname once and for all and cache its value (since we have to fork
++ # to get it).
++ sub hostname {
++ 	unless ($cache'hostname) {
++ 		chop($cache'hostname = `$phostname`);
++ 		$cache'hostname =~ tr/A-Z/a-z/;			# Cannonicalize to lower case
++ 	}
++ 	$cache'hostname;
++ }
++ 
+
+Index: agent/filter/parser.c
+Prereq: 2.9.1.2
+*** agent/filter/parser.c.old	Tue Dec  1 09:47:45 1992
+--- agent/filter/parser.c	Tue Dec  1 09:47:46 1992
+***************
+*** 11,17 ****
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.2 92/11/01 15:42:10 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+--- 11,17 ----
+  */
+  
+  /*
+!  * $Id: parser.c,v 2.9.1.3 92/12/01 09:13:21 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+***************
+*** 19,24 ****
+--- 19,27 ----
+   *  Licence as specified in the README file that comes with dist.
+   *
+   * $Log:	parser.c,v $
++  * Revision 2.9.1.3  92/12/01  09:13:21  ram
++  * patch13: removed spurious inclusion of <sys/types.h>
++  * 
+   * Revision 2.9.1.2  92/11/01  15:42:10  ram
+   * patch11: forgot inclusion of <sys/types.h> for possible pid_t
+   * 
+***************
+*** 41,47 ****
+  #include <stdio.h>
+  #include <ctype.h>
+  #include <pwd.h>
+- #include <sys/types.h>
+  #include <sys/stat.h>
+  
+  #ifdef I_STRING
+--- 44,49 ----
+
+Index: agent/test/actions
+*** agent/test/actions.old	Tue Dec  1 09:48:34 1992
+--- agent/test/actions	Tue Dec  1 09:48:35 1992
+***************
+*** 66,74 ****
+  
+  X-Tag: /keep/
+  {
+! 	KEEP From: To Subject X-None X-Long-Line;
+! 	KEEP To Subject X-Long-Line From X-None;
+! 	KEEP X-Long-Line: X-None: To: Subject: From:;
+  	SAVE ok;
+  	REJECT;
+  }
+--- 66,75 ----
+  
+  X-Tag: /keep/
+  {
+! 	KEEP From: To Subject X-None X-Long-* U*;
+! 	KEEP To Subject X-Long-* From X-None U*;
+! 	KEEP X-Long-*: Unu*-Head* X-None: To: Subject: From:;
+! 	KEEP "header-list" From;
+  	SAVE ok;
+  	REJECT;
+  }
+***************
+*** 165,172 ****
+  
+  X-Tag: /strip/
+  {
+! 	STRIP X-Long-Line: X-None: Received:;
+! 	STRIP Received X-Long-Line;
+  	SAVE ok;
+  	REJECT;
+  }
+--- 166,174 ----
+  
+  X-Tag: /strip/
+  {
+! 	STRIP X-N* Received:;
+! 	STRIP Received;
+! 	STRIP X-N* "header-list";
+  	SAVE ok;
+  	REJECT;
+  }
+
+*** End of Patch 14 ***
+
+exit 0 # Just in case...

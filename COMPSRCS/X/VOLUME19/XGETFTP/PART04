@@ -1,0 +1,1345 @@
+Newsgroups: comp.sources.x
+From: salim@tigger.cs.colorado.edu (Salim Alam)
+Subject: v19i025:  xgetftp - Friendly anonymous ftp tool, Part04/04
+Message-ID: <1993Mar10.164918.21761@sparky.imd.sterling.com>
+X-Md4-Signature: d5707a911ae842939e0c1d46f8175397
+Date: Wed, 10 Mar 1993 16:49:18 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: salim@tigger.cs.colorado.edu (Salim Alam)
+Posting-number: Volume 19, Issue 25
+Archive-name: xgetftp/part04
+Environment: X11, OSF/Motif
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  ui_funcs.c ui_funcs.h xgetftp.doc xgetftp.man
+# Wrapped by salim@anchor on Mon Mar  8 14:08:44 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'ui_funcs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ui_funcs.c'\"
+else
+echo shar: Extracting \"'ui_funcs.c'\" \(22906 characters\)
+sed "s/^X//" >'ui_funcs.c' <<'END_OF_FILE'
+X/*************************************************************************
+X * MODULE
+X *  ui_funcs
+X *
+X * DESCRIPTION
+X *  Provides misc. functions for creating and using the user interface
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X *
+X * MODIFICATION LOG:
+X *
+X **************************************************************************/
+X
+X#include <X11/cursorfont.h>
+X#include <Xm/Xm.h>
+X#include <Xm/MainW.h>
+X#include <Xm/List.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/PushBG.h>
+X#include <Xm/Form.h>
+X#include <Xm/CascadeB.h>
+X#include <Xm/Frame.h>
+X#include <Xm/LabelG.h>
+X#include <Xm/Text.h>
+X#include <Xm/MessageB.h>
+X#include <Xm/ToggleBG.h>
+X#include <Xm/SelectioB.h>
+X#include <stdio.h>
+X#include "prefs.h"
+X#include "control.h"
+X#include "ui_funcs.h"
+X
+X
+X/*
+X * Global & Exported variables
+X */
+XDisplay	     *display;			/* The X display	   */
+XXtAppContext app_context;		/* The application context */
+X
+XWidget toplevelW;			/* The top level Widget	   */
+XWidget mainwindowW;			/* The main window Widget  */
+XWidget workframeW;			/* Frame of list, currdir  */
+XWidget prefdialogW;			/* User Preferences dialog */
+XWidget aboutdialogW;			/* The "About..." Dialog   */
+XWidget menubarW;			/* The menu bar		   */
+XWidget filelistW;			/* The scrolled list widget*/
+XWidget statuslineW;			/* Status line label	   */
+XWidget cmdrowcolW;			/* The commands rowcolumn  */
+XWidget opendlgW;			/* Open Connection dialog  */
+XWidget viewbbW;				/* Dialog for text viewer  */
+XWidget viewtextW;			/* Text for file viewed    */
+XWidget archiebbW;			/* Dialog for Archie query */
+XWidget archietextW;			/* Result of Archie query  */
+XWidget archiefindtextW;			/* String to look for      */
+XWidget retrievedirdlgW;			/* Dialog for Retrieve dir */
+X
+X/*
+X * Private Global variables
+X */
+Xstatic Widget currdirtextW;		/* Curr Dir Label	   */
+Xstatic Widget currdirlabelW;		/* Text for curr dir	   */
+X
+X
+X
+Xvoid ui_initialize(int * pargc, char **argv)
+X{
+X    Arg args[2];
+X
+X    /*
+X     * init toolkit & create toplevel widgets 
+X     */
+X    toplevelW = XtAppInitialize(&app_context, "Xgetftp",
+X	NULL, 0, pargc, argv, NULL, NULL, 0);
+X
+X    display = XtDisplay(toplevelW);
+X
+X    XtSetArg(args[0], XmNmainWindowMarginWidth, 5);
+X    XtSetArg(args[1], XmNmainWindowMarginHeight, 1);
+X
+X    mainwindowW = XmCreateMainWindow(toplevelW, "mainw", (ArgList)args, 2);
+X    XtManageChild(mainwindowW);
+X}
+X
+X
+X
+Xvoid prefbtn_cb(Widget w, int what, XmPushButtonCallbackStruct *cb)
+X{
+X    switch (what)
+X    {
+X      case 0:
+X	prefs_save(user_prefs);
+X
+X      case 1:	
+X	XtUnmanageChild(prefdialogW);
+X	break;
+X    }
+X}
+X
+Xvoid ui_create_pref_dialog(Widget parent, XtCallbackProc cbproc, Prefs *pprefs)
+X{
+X    Widget rowcolW;
+X    Widget donebtnW;
+X    Widget savebtnW;
+X    Widget itemsW[5];
+X    int nargs;
+X    Arg args[3];
+X    XmString xmstr[1];
+X
+X    prefs_load(pprefs);
+X
+X    xmstr[0] = XmStringCreateSimple("User Preferences");
+X    XtSetArg(args[0], XmNdialogTitle, xmstr[0]);
+X    XtSetArg(args[1], XmNwidth, 200);
+X    XtSetArg(args[2], XmNheight, 250);
+X    prefdialogW = XmCreateBulletinBoardDialog(parent, "prefdlg", args, 3);
+X    XmStringFree(xmstr[0]);
+X
+X    XtSetArg(args[0], XmNpacking, XmPACK_COLUMN);
+X    rowcolW = XmCreateRowColumn(prefdialogW, "prefrowcol", args, 1);
+X    XtManageChild(rowcolW);
+X
+X    nargs = 0;
+X    if (pprefs->cache_view)
+X    {
+X	XtSetArg(args[nargs], XmNset, True);
+X	nargs++;
+X    }
+X    xmstr[0] = XmStringCreateSimple("View Cache On");
+X    XtSetArg(args[nargs], XmNlabelString, xmstr[0]);
+X    nargs++;
+X    itemsW[0] = XmCreateToggleButtonGadget(rowcolW, "preftb1", args, nargs);
+X    XmStringFree(xmstr[0]);
+X
+X    nargs = 0;
+X    if (pprefs->reuse_view)
+X    {
+X	XtSetArg(args[nargs], XmNset, True);
+X	nargs++;
+X    }
+X    xmstr[0] = XmStringCreateSimple("Reuse View Cache");
+X    XtSetArg(args[nargs], XmNlabelString, xmstr[0]);
+X    nargs++;
+X    itemsW[1] = XmCreateToggleButtonGadget(rowcolW, "preftb2", args, nargs);
+X    XmStringFree(xmstr[0]);
+X
+X    nargs = 0;
+X    if (pprefs->reuse_dir)
+X    {
+X	XtSetArg(args[nargs], XmNset, True);
+X	nargs++;
+X    }
+X    xmstr[0] = XmStringCreateSimple("Reuse Directory Cache");
+X    XtSetArg(args[nargs], XmNlabelString, xmstr[0]);
+X    nargs++;
+X    itemsW[2] = XmCreateToggleButtonGadget(rowcolW, "preftb3", args, nargs);
+X    XmStringFree(xmstr[0]);
+X
+X    nargs = 0;
+X    if (pprefs->autosave_dir)
+X    {
+X	XtSetArg(args[nargs], XmNset, True);
+X	nargs++;
+X    }
+X    xmstr[0] = XmStringCreateSimple("Autosave Directory Cache");
+X    XtSetArg(args[nargs], XmNlabelString, xmstr[0]);
+X    nargs++;
+X    itemsW[3] = XmCreateToggleButtonGadget(rowcolW, "preftb4", args, nargs);
+X    XmStringFree(xmstr[0]);
+X
+X    nargs = 0;
+X    if (pprefs->confirm)
+X    {
+X	XtSetArg(args[nargs], XmNset, True);
+X	nargs++;
+X    }
+X    xmstr[0] = XmStringCreateSimple("Confirm Cache Reuse");
+X    XtSetArg(args[nargs], XmNlabelString, xmstr[0]);
+X    nargs++;
+X    itemsW[4] = XmCreateToggleButtonGadget(rowcolW, "preftb5", args, nargs);
+X    XmStringFree(xmstr[0]);
+X
+X
+X    XtAddCallback(itemsW[0], XmNvalueChangedCallback, (XtCallbackProc)
+X	cbproc, (XtPointer) prefCACHE_VIEW);
+X    XtAddCallback(itemsW[1], XmNvalueChangedCallback, (XtCallbackProc)
+X	cbproc, (XtPointer) prefREUSE_VIEW);
+X    XtAddCallback(itemsW[2], XmNvalueChangedCallback, (XtCallbackProc)
+X	cbproc, (XtPointer) prefREUSE_DIR);
+X    XtAddCallback(itemsW[3], XmNvalueChangedCallback, (XtCallbackProc)
+X	cbproc, (XtPointer) prefAUTOSAVE_DIR);
+X    XtAddCallback(itemsW[4], XmNvalueChangedCallback, (XtCallbackProc)
+X	cbproc, (XtPointer) prefCONFIRM);
+X
+X
+X    XtManageChildren(itemsW, 5);
+X
+X
+X    XtSetArg(args[0], XmNx, 10);
+X    XtSetArg(args[1], XmNy, 215);
+X    xmstr[0] = XmStringCreateSimple("Done");
+X    XtSetArg(args[2], XmNlabelString, xmstr[0]);
+X    donebtnW = XmCreatePushButtonGadget(prefdialogW, "prefdone", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(donebtnW, XmNactivateCallback, (XtCallbackProc) prefbtn_cb,
+X	(XtPointer)1);
+X    XtManageChild(donebtnW);
+X
+X    XtSetArg(args[0], XmNx, 80);
+X    XtSetArg(args[1], XmNy, 215);
+X    xmstr[0] = XmStringCreateSimple("Save");
+X    XtSetArg(args[2], XmNlabelString, xmstr[0]);
+X    savebtnW = XmCreatePushButtonGadget(prefdialogW, "prefsave", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(savebtnW, XmNactivateCallback, (XtCallbackProc) prefbtn_cb,
+X	(XtPointer)0);
+X    XtManageChild(savebtnW);
+X}
+X
+X
+X
+Xvoid ui_create_about_dialog(Widget parent)
+X{
+X    Arg args[3];
+X    XmString xmstr[2];
+X    char mesg[] = "xgetftp v1.0\n\nSalim Alam\nUniversity of Colorado, Boulder\n\nPlease email all bug reports and\ncomments to: salim@cs.colorado.edu";
+X
+X    xmstr[0] = XmStringCreateLtoR(mesg, XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNmessageString, xmstr[0]);
+X    xmstr[1] = XmStringCreateLtoR("About xgetftp...", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[1], XmNdialogTitle, xmstr[1]);
+X    XtSetArg(args[2], XmNwidth, 275);
+X    aboutdialogW = XmCreateInformationDialog(parent, "aboutdlg", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XmStringFree(xmstr[1]);
+X
+X    XtUnmanageChild(XmMessageBoxGetChild(aboutdialogW, XmDIALOG_HELP_BUTTON));
+X}
+X
+X
+Xvoid ui_create_work_window(Widget parent, XtCallbackProc dblclkcb,
+X	XtCallbackProc selectcb)
+X{
+X    Widget workformW;
+X    Arg args[10];
+X
+X    XtSetArg(args[0], XmNmarginWidth, 5);
+X    XtSetArg(args[1], XmNmarginHeight, 5);
+X    workframeW = XmCreateFrame(parent, "frame", args, 2);
+X    XtManageChild(workframeW);
+X
+X    XtSetArg(args[0], XmNresizable, False);
+X    workformW = XmCreateForm(workframeW, "form", args, 1);
+X    XtManageChild(workformW);
+X
+X    ui_create_currdir_widget(workformW);
+X
+X    XtSetArg(args[0], XmNselectionPolicy, XmEXTENDED_SELECT);
+X    XtSetArg(args[1], XmNdoubleClickInterval, 400);
+X    filelistW = XmCreateScrolledList(workformW, "filelist", args, 2);
+X
+X    XtSetArg(args[0], XmNwidth, 500);
+X    XtSetArg(args[1], XmNheight, 390);
+X    XtSetArg(args[2], XmNleftOffset, 10);
+X    XtSetArg(args[3], XmNleftAttachment, XmATTACH_FORM);
+X    XtSetArg(args[4], XmNrightOffset, 10);
+X    XtSetArg(args[5], XmNrightAttachment, XmATTACH_FORM);
+X    XtSetArg(args[6], XmNtopOffset, 40);
+X    XtSetArg(args[7], XmNtopAttachment, XmATTACH_FORM);
+X    XtSetArg(args[8], XmNbottomOffset, 5);
+X    XtSetArg(args[9], XmNbottomAttachment, XmATTACH_FORM);
+X    XtSetValues(XtParent(filelistW), args, 10);
+X
+X    XtAddCallback(filelistW, XmNdefaultActionCallback, dblclkcb, NULL);
+X    XtAddCallback(filelistW, XmNextendedSelectionCallback, selectcb, NULL);
+X    XtManageChild(filelistW);
+X}
+X
+X
+Xvoid ui_create_commands(Widget parent, XtCallbackProc cmdcbproc,
+X	XtCallbackProc typecbproc)
+X{
+X    Widget cmdbtnsW[3];
+X    Widget typeboxW;
+X    Widget typebtnsW[2];
+X    Arg args[2];
+X    XmString xmstr[1];
+X
+X    /*
+X     * Create Command Buttons
+X     */
+X    XtSetArg(args[0], XmNorientation, XmHORIZONTAL);
+X    XtSetArg(args[1], XmNpacking, XmPACK_COLUMN);
+X    cmdrowcolW = XmCreateRowColumn(parent, "commands", args, 2);
+X    XtManageChild(cmdrowcolW);
+X
+X    xmstr[0] = XmStringCreateLtoR("View", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    cmdbtnsW[0] = XmCreatePushButtonGadget(cmdrowcolW, "cmdb1", args, 1);
+X    XmStringFree(xmstr[0]);
+X
+X    xmstr[0] = XmStringCreateLtoR("Retrieve", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    cmdbtnsW[1] = XmCreatePushButtonGadget(cmdrowcolW, "cmdb2", args, 1);
+X    XmStringFree(xmstr[0]);
+X
+X    xmstr[0] = XmStringCreateLtoR("Cd ..", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    cmdbtnsW[2] = XmCreatePushButtonGadget(cmdrowcolW, "cmdb3", args, 1);
+X    XmStringFree(xmstr[0]);
+X
+X    XtAddCallback(cmdbtnsW[0], XmNactivateCallback, cmdcbproc, 
+X	(XtPointer) cmdVIEW);
+X    XtAddCallback(cmdbtnsW[1], XmNactivateCallback, cmdcbproc, 
+X	(XtPointer) cmdRETRIEVE);
+X    XtAddCallback(cmdbtnsW[2], XmNactivateCallback, cmdcbproc, 
+X	(XtPointer) cmdCD_UP);
+X
+X    XtManageChildren(cmdbtnsW, 3);
+X
+X
+X    /*
+X     * Create "Type" Toggles
+X     */
+X    XtSetArg(args[0], XmNorientation, XmHORIZONTAL);
+X    typeboxW = XmCreateRadioBox(cmdrowcolW, "typebox", args, 1);
+X    XtManageChild(typeboxW);
+X
+X    xmstr[0] = XmStringCreateLtoR("ASCII", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    typebtnsW[0] = XmCreateToggleButtonGadget(typeboxW, "type_a", args, 1);
+X    XmStringFree(xmstr[0]);
+X
+X    xmstr[0] = XmStringCreateLtoR("BINARY", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    XtSetArg(args[1], XmNset, True);
+X    typebtnsW[1] = XmCreateToggleButtonGadget(typeboxW, "type_i", args, 2);
+X    XmStringFree(xmstr[0]);
+X
+X    XtAddCallback(typebtnsW[0], XmNvalueChangedCallback, typecbproc, 
+X	(XtPointer) cmdASCII);
+X    XtAddCallback(typebtnsW[1], XmNvalueChangedCallback, typecbproc, 
+X	(XtPointer) cmdIMAGE);
+X
+X    XtManageChildren(typebtnsW, 2);
+X}
+X
+X
+X
+Xvoid ui_create_menus(Widget parent, XtCallbackProc cbproc)
+X/*
+X * Create all the menus needed.  "parent" is the parent Widget,
+X * and "cbproc" is the callback procedure.  Returns the menubar
+X * Widget
+X */
+X{
+X    Widget pulldownsW[4];	/* The menu bar pulldows	*/
+X    Widget menubarbtnsW[4];	/* The menu bar buttons		*/
+X    Widget buttons1W[3];	/* Menu#1 items			*/
+X    Widget buttons2W[4];	/* Menu#2 items			*/
+X    Widget buttons3W[3];	/* Menu#3 items			*/
+X    Widget buttons4W[1];	/* Menu#4 items			*/
+X    Arg args[3];
+X    XmString xmstr[1];
+X
+X
+X    /*
+X     * create menubar, pulldowns and cascade buttons
+X     */
+X    menubarW = XmCreateMenuBar(parent, "menubar", (ArgList)NULL, 0);
+X    XtManageChild(menubarW);
+X
+X    pulldownsW[0] = XmCreatePulldownMenu(menubarW, "pulldown1", NULL, 0);
+X    XtSetArg(args[0], XmNsubMenuId, pulldownsW[0]);
+X    xmstr[0] = XmStringCreateLtoR("File", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[1], XmNlabelString, xmstr[0]);
+X    menubarbtnsW[0] = XmCreateCascadeButton(menubarW, "m1cascade", args, 2);
+X    XmStringFree(xmstr[0]);
+X
+X    pulldownsW[1] = XmCreatePulldownMenu(menubarW, "pulldown2", NULL, 0);
+X    XtSetArg(args[0], XmNsubMenuId, pulldownsW[1]);
+X    xmstr[0] = XmStringCreateLtoR("FTP", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[1], XmNlabelString, xmstr[0]);
+X    menubarbtnsW[1] = XmCreateCascadeButton(menubarW, "m2cascade", args, 2);
+X    XmStringFree(xmstr[0]);
+X
+X    pulldownsW[2] = XmCreatePulldownMenu(menubarW, "pulldown3", NULL, 0);
+X    XtSetArg(args[0], XmNsubMenuId, pulldownsW[2]);
+X    xmstr[0] = XmStringCreateLtoR("Cache", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[1], XmNlabelString, xmstr[0]);
+X    menubarbtnsW[2] = XmCreateCascadeButton(menubarW, "m3cascade", args, 2);
+X    XmStringFree(xmstr[0]);
+X
+X    pulldownsW[3] = XmCreatePulldownMenu(menubarW, "pulldown4", NULL, 0);
+X    XtSetArg(args[0], XmNsubMenuId, pulldownsW[3]);
+X    xmstr[0] = XmStringCreateLtoR("Archie", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[1], XmNlabelString, xmstr[0]);
+X    menubarbtnsW[3] = XmCreateCascadeButton(menubarW, "m4cascade", args, 2);
+X    XmStringFree(xmstr[0]);
+X
+X    XtManageChildren(menubarbtnsW, 4);
+X
+X
+X
+X    /*
+X     * add pushbuttons to menu cascade buttons 
+X     */
+X    xmstr[0] = XmStringCreateLtoR("About xgetftp...", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons1W[0] = XmCreatePushButtonGadget(pulldownsW[0], "m1b1", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons1W[0], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFILE_ABOUT);
+X
+X    xmstr[0] = XmStringCreateLtoR("Set Preferences...", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons1W[1] = XmCreatePushButtonGadget(pulldownsW[0], "m1b2", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons1W[1],XmNactivateCallback,cbproc,
+X	(XtPointer) menuFILE_SET_PREFS);
+X
+X    xmstr[0] = XmStringCreateLtoR("Exit", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons1W[2] = XmCreatePushButtonGadget(pulldownsW[0], "m1b3", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons1W[2], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFILE_EXIT);
+X
+X    XtManageChildren(buttons1W, 3);
+X
+X
+X    xmstr[0] = XmStringCreateLtoR("Open Connection...", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons2W[0] = XmCreatePushButtonGadget(pulldownsW[1], "m2b1", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons2W[0], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFTP_OPEN);
+X
+X    xmstr[0] = XmStringCreateLtoR("Close Connection", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons2W[1] = XmCreatePushButtonGadget(pulldownsW[1], "m2b2", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons2W[1], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFTP_CLOSE);
+X
+X    xmstr[0] = XmStringCreateLtoR("Set Destination Dir...",
+X	XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons2W[2] = XmCreatePushButtonGadget(pulldownsW[1], "m2b3", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons2W[2], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFTP_SET_DIR);
+X
+X/*
+X    buttons2W[3] = XmCreatePushButtonGadget(pulldownsW[1], "m2b4", NULL, 0);
+X    XtAddCallback(buttons2W[2], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuFTP_SHOW_WIN);
+X*/
+X
+X    XtManageChildren(buttons2W, 3);
+X
+X
+X    xmstr[0] = XmStringCreateLtoR("Purge Dir Cache", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons3W[0] = XmCreatePushButtonGadget(pulldownsW[2], "m3b1", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons3W[0], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuCACHE_PURGE_DIR);
+X
+X    xmstr[0] = XmStringCreateLtoR("Purge View Cache", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons3W[1] = XmCreatePushButtonGadget(pulldownsW[2], "m3b2", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons3W[1], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuCACHE_PURGE_VIEW);
+X
+X    xmstr[0] = XmStringCreateLtoR("Save Dir Cache", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons3W[2] = XmCreatePushButtonGadget(pulldownsW[2], "m3b3", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons3W[2], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuCACHE_SAVE_DIR);
+X
+X    XtManageChildren(buttons3W, 3);
+X
+X
+X    xmstr[0] = XmStringCreateLtoR("Search...", XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    buttons4W[0] = XmCreatePushButtonGadget(pulldownsW[3], "m4b1", args, 1);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(buttons4W[0], XmNactivateCallback, cbproc, 
+X	(XtPointer) menuARCHIE_SEARCH);
+X
+X    XtManageChildren(buttons4W, 1);
+X}
+X
+X
+X
+Xvoid ui_create_view_dialog(Widget parent)
+X{
+X    Arg args[6];
+X    XmString xmstr[1];
+X    Widget viewdoneW;
+X
+X    xmstr[0] = XmStringCreateSimple("File Viewer");
+X    XtSetArg(args[0], XmNdialogTitle, xmstr[0]);
+X    XtSetArg(args[1], XmNwidth, 550);
+X    XtSetArg(args[2], XmNheight, 430);
+X    viewbbW = XmCreateBulletinBoardDialog(parent, "popbb", args, 3);
+X    XmStringFree(xmstr[0]);
+X
+X    XtSetArg(args[0], XmNx, 10);
+X    XtSetArg(args[1], XmNy, 20);
+X    XtSetArg(args[2], XmNeditable, False);
+X    XtSetArg(args[3], XmNeditMode, XmMULTI_LINE_EDIT);
+X    XtSetArg(args[4], XmNrows, 24);
+X    XtSetArg(args[5], XmNcolumns, 80);
+X    viewtextW = XmCreateScrolledText(viewbbW, "poptext", args, 6);
+X    XtManageChild(viewtextW);
+X
+X    XtSetArg(args[0], XmNx, 15);
+X    XtSetArg(args[1], XmNy, 380);
+X    xmstr[0] = XmStringCreateSimple("Done");
+X    XtSetArg(args[2], XmNlabelString, xmstr[0]);
+X    viewdoneW = XmCreatePushButtonGadget(viewbbW, "popdone", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XtManageChild(viewdoneW);
+X    XtSetArg(args[0], XmNdefaultButton, viewdoneW);
+X    XtSetValues(viewbbW, args, 1);
+X}
+X
+X
+X
+Xvoid archiedoneCB(Widget w, caddr_t data, XmPushButtonCallbackStruct *cb)
+X{
+X    XtUnmanageChild(archiebbW);
+X}
+X
+Xvoid ui_create_archie_dialog(Widget parent, XtCallbackProc cbproc)
+X{
+X    Widget findlabelW;
+X    Widget archiedoneW;
+X    XmString xmstr[1];
+X    Arg args[5];
+X
+X    xmstr[0] = XmStringCreateSimple("Archie Search");
+X    XtSetArg(args[0], XmNdialogTitle, xmstr[0]);
+X    XtSetArg(args[1], XmNwidth, 550);
+X    XtSetArg(args[2], XmNheight, 430);
+X    XtSetArg(args[3], XmNautoUnmanage, False);
+X    archiebbW = XmCreateBulletinBoardDialog(parent, "popbb2", args, 4);
+X    XmStringFree(xmstr[0]);
+X
+X    xmstr[0] = XmStringCreateSimple("Find:");
+X    XtSetArg(args[0], XmNlabelString, xmstr[0]);
+X    XtSetArg(args[1], XmNx, 10);
+X    XtSetArg(args[2], XmNy, 13);
+X    findlabelW = XmCreatePushButtonGadget(archiebbW, "findlabel", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(findlabelW, XmNactivateCallback, cbproc, (XtPointer) NULL);
+X    XtManageChild(findlabelW);
+X
+X    XtSetArg(args[0], XmNx, 60);
+X    XtSetArg(args[1], XmNy, 10);
+X    XtSetArg(args[2], XmNeditable, True);
+X    XtSetArg(args[3], XmNrows, 1);
+X    XtSetArg(args[4], XmNcolumns, 60);
+X    archiefindtextW = XmCreateText(archiebbW, "findtext", args, 5);
+X    XtManageChild(archiefindtextW);
+X
+X    XtSetArg(args[0], XmNeditable, False);
+X    XtSetArg(args[1], XmNeditMode, XmMULTI_LINE_EDIT);
+X    XtSetArg(args[2], XmNrows, 20);
+X    XtSetArg(args[3], XmNcolumns, 80);
+X    archietextW = XmCreateScrolledText(archiebbW,"archietext", args, 4);
+X
+X    XtSetArg(args[0], XmNx, 10);
+X    XtSetArg(args[1], XmNy, 70);
+X    XtSetValues(XtParent(archietextW), args, 2);
+X    XtManageChild(archietextW);
+X
+X    XtSetArg(args[0], XmNx, 15);
+X    XtSetArg(args[1], XmNy, 380);
+X    xmstr[0] = XmStringCreateSimple("Done");
+X    XtSetArg(args[2], XmNlabelString, xmstr[0]);
+X    archiedoneW = XmCreatePushButtonGadget(archiebbW, "archiedone", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XtAddCallback(archiedoneW, XmNactivateCallback, (XtCallbackProc) 
+X	archiedoneCB, NULL);
+X    XtManageChild(archiedoneW);
+X}
+X
+X
+Xvoid ui_create_retrieve_dir_dialog(Widget parent, XtCallbackProc cbproc,
+X	char *retrieve_dir)
+X{
+X    Arg args[3];
+X    XmString xmstr[2];
+X
+X    xmstr[0] = XmStringCreateLtoR(retrieve_dir, XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNtextString, xmstr[0]);
+X    xmstr[1] = XmStringCreateSimple("Set Retrieve Directory");
+X    XtSetArg(args[1], XmNdialogTitle, xmstr[1]);
+X    XtSetArg(args[2], XmNwidth, 275);
+X    retrievedirdlgW = XmCreatePromptDialog(parent, "retrievedirdlg", args, 3);
+X    XmStringFree(xmstr[0]);
+X    XmStringFree(xmstr[1]);
+X    XtUnmanageChild(XmSelectionBoxGetChild(retrievedirdlgW,
+X	XmDIALOG_HELP_BUTTON));
+X    XtAddCallback(retrievedirdlgW, XmNokCallback, cbproc, (XtPointer) NULL);
+X}
+X
+X
+Xvoid ui_create_currdir_widget(Widget parent)
+X{
+X    Arg args[6];
+X    XmString xmstr[1];
+X
+X    XtSetArg(args[0], XmNleftOffset, 10);
+X    XtSetArg(args[1], XmNleftAttachment, XmATTACH_FORM);
+X    XtSetArg(args[2], XmNy, 10);
+X    xmstr[0] = XmStringCreateSimple("Current Dir:");
+X    XtSetArg(args[3], XmNlabelString, xmstr[0]);
+X    currdirlabelW = XmCreateLabelGadget(parent, "currdirlabel", args, 4);
+X    XmStringFree(xmstr[0]);
+X    XtManageChild(currdirlabelW);
+X
+X    XtSetArg(args[0], XmNleftOffset, 86);
+X    XtSetArg(args[1], XmNleftAttachment, XmATTACH_FORM);
+X    XtSetArg(args[2], XmNy, 5);
+X    XtSetArg(args[3], XmNeditable, False);
+X    XtSetArg(args[4], XmNrows, 1);
+X    XtSetArg(args[5], XmNcolumns, 67);
+X    currdirtextW  = XmCreateText(parent, "currdirtext", args, 6);
+X    XtManageChild(currdirtextW);
+X}
+X
+X
+X
+Xvoid ui_set_currdir(char *str)
+X{
+X    XmTextSetString(currdirtextW, str);
+X}
+X
+X
+X
+Xvoid ui_create_open_dialog(Widget parent, XtCallbackProc cbproc)
+X{
+X    Arg args[5];
+X    XmString xmstr[2];
+X
+X    XtSetArg(args[0], XmNwidth, 275);
+X    XtSetArg(args[1], XmNheight, 120);
+X    XtSetArg(args[2], XmNtextColumns, 1);
+X    xmstr[0] = XmStringCreateSimple("Please type in host name:");
+X    XtSetArg(args[3], XmNselectionLabelString, xmstr[0]);
+X    xmstr[1] = XmStringCreateSimple("cs.colorado.edu");
+X    XtSetArg(args[4], XmNtextString, xmstr[1]);
+X    opendlgW = XmCreatePromptDialog(parent, "hprompt", args, 5);
+X    XmStringFree(xmstr[0]);
+X    XmStringFree(xmstr[1]);
+X    XtUnmanageChild(XmSelectionBoxGetChild(opendlgW, XmDIALOG_HELP_BUTTON));
+X    XtAddCallback(opendlgW, XmNokCallback, cbproc, (XtPointer) NULL);
+X}
+X
+X
+X
+Xvoid ui_create_status_line(Widget parent)
+X{
+X    statuslineW = XmCreateLabelGadget(parent, "status", (ArgList)NULL, 0);
+X    XtManageChild(statuslineW);
+X}
+X
+X
+X
+Xvoid ui_set_status_line(char *str)
+X/*
+X * Set the status line to 'str'
+X */
+X{
+X    XmString labeltext;
+X    Arg args[1];
+X
+X    labeltext = XmStringCreateLtoR(str, XmSTRING_DEFAULT_CHARSET);
+X    XtSetArg(args[0], XmNlabelString, labeltext);
+X    XtSetValues(statuslineW, args, 1);
+X    XmStringFree(labeltext);
+X}
+X
+X
+X
+Xvoid ui_set_cursor_busy(Widget w)
+X/*
+X * Sets the cursor to be a "watch" symbol in the Widget w
+X */
+X{
+X    Cursor cursor;
+X
+X    cursor = XCreateFontCursor(XtDisplay(w), XC_watch);
+X    XDefineCursor(XtDisplay(w), XtWindow(w), cursor);
+X    XFlush(XtDisplay(w));
+X}
+X
+X
+X
+Xvoid ui_set_cursor_normal(Widget w)
+X/*
+X * Resets the cursor in Widget w
+X */
+X{
+X    XUndefineCursor(XtDisplay(w), XtWindow(w));
+X    XFlush(XtDisplay(w));
+X}
+X
+END_OF_FILE
+if test 22906 -ne `wc -c <'ui_funcs.c'`; then
+    echo shar: \"'ui_funcs.c'\" unpacked with wrong size!
+fi
+# end of 'ui_funcs.c'
+fi
+if test -f 'ui_funcs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ui_funcs.h'\"
+else
+echo shar: Extracting \"'ui_funcs.h'\" \(2813 characters\)
+sed "s/^X//" >'ui_funcs.h' <<'END_OF_FILE'
+X/*************************************************************************
+X *
+X * HEADER: 
+X *  ui_funcs
+X *
+X **************************************************************************/
+X
+X/*
+X * Menu ids
+X */
+X#define menuFILE_ABOUT		101
+X#define menuFILE_SET_PREFS	102
+X#define menuFILE_EXIT		103
+X
+X#define menuFTP_OPEN		201
+X#define menuFTP_CLOSE		202
+X#define menuFTP_SET_DIR		203
+X#define menuFTP_SHOW_WIN	204
+X
+X#define menuCACHE_PURGE_DIR	301
+X#define menuCACHE_PURGE_VIEW	302
+X#define menuCACHE_SAVE_DIR	303
+X
+X#define menuARCHIE_SEARCH	401
+X
+X
+X/*
+X * Command ids
+X */
+X#define cmdVIEW			1
+X#define cmdRETRIEVE		2
+X#define cmdCD_UP		3
+X#define cmdASCII		4
+X#define cmdIMAGE		5
+X
+X
+X/*
+X * Exported variables
+X */
+Xextern Display      *display;   /* The X display           	  */   
+Xextern XtAppContext app_context;/* The application context	  */
+X
+Xextern Widget toplevelW;        /* The top level Widget    	  */
+Xextern Widget mainwindowW;      /* The main window Widget  	  */
+Xextern Widget workframeW;       /* Frame of list, currdir	  */
+Xextern Widget prefdialogW;      /* User Preferences dialog	  */
+Xextern Widget aboutdialogW;     /* The "About..." Dialog  	  */
+Xextern Widget menubarW;         /* The menu bar           	  */
+Xextern Widget filelistW;        /* The scrolled list widget	  */
+Xextern Widget statuslineW;	/* The status line label	  */
+Xextern Widget cmdrowcolW;       /* The commands rowcolumn  	  */
+Xextern Widget opendlgW;         /* Open Connection dialog	  */
+Xextern Widget viewbbW;          /* Dialog for text viewer 	  */
+Xextern Widget viewtextW;        /* Text for file viewed   	  */
+Xextern Widget archiebbW;        /* Dialog for Archie query	  */
+Xextern Widget archietextW;      /* Result of Archie query 	  */
+Xextern Widget archiefindtextW;  /* String to look for     	  */
+Xextern Widget retrievedirdlgW;	/* Retrieve directory dialog	  */
+X
+X
+X
+X/*
+X * Public functions
+X */
+X#define ui_beep(x)		XBell(display, x)
+X
+Xvoid
+Xui_initialize(int *pargc, char **argv);
+X
+Xvoid
+Xui_create_pref_dialog(Widget parent, XtCallbackProc cbproc, Prefs *pprefs);
+X
+Xvoid
+Xui_create_about_dialog(Widget parent);
+X
+Xvoid
+Xui_create_view_dialog(Widget parent);
+X
+Xvoid
+Xui_create_archie_dialog(Widget parent, XtCallbackProc cbproc);
+X
+Xvoid
+Xui_create_menus(Widget parent, XtCallbackProc cbproc);
+X
+Xvoid
+Xui_create_work_window(Widget parent, XtCallbackProc cb1, XtCallbackProc cb2);
+X
+Xvoid
+Xui_create_commands(Widget parent, XtCallbackProc cmdcb, XtCallbackProc typecb);
+X
+Xvoid
+Xui_create_currdir_widget(Widget parent);
+X
+Xvoid
+Xui_create_open_dialog(Widget parent, XtCallbackProc cbproc);
+X
+Xvoid
+Xui_create_retrieve_dir_dialog(Widget parent, XtCallbackProc cbproc, char *dir);
+X
+Xvoid
+Xui_set_currdir(char *str);
+X
+Xvoid
+Xui_create_status_line(Widget parent);
+X
+Xvoid
+Xui_set_status_line(char *str);
+X
+Xvoid
+Xui_set_cursor_busy(Widget w);
+X
+Xvoid
+Xui_set_cursor_normal(Widget w);
+END_OF_FILE
+if test 2813 -ne `wc -c <'ui_funcs.h'`; then
+    echo shar: \"'ui_funcs.h'\" unpacked with wrong size!
+fi
+# end of 'ui_funcs.h'
+fi
+if test -f 'xgetftp.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xgetftp.doc'\"
+else
+echo shar: Extracting \"'xgetftp.doc'\" \(6834 characters\)
+sed "s/^X//" >'xgetftp.doc' <<'END_OF_FILE'
+XNAME
+Xxgetftp - an X-based tool for browsing anonymous ftp sites
+X
+X
+XSYNOPSIS
+Xxgetftp [-q] [hostname]
+X
+X
+XDESCRIPTION
+Xxgetftp is a sophisticated browsing and file retrieval tool for anonymous
+Xftp.  It has an X-window user-interface based on the Motif widget set.
+XAvailable features include caching of directories, simple
+Xfile/directory retrieval, remote file viewing, caching of viewed files,
+Xand re-use of previously cached files and directories, and also a
+Xsimple interface to Archie.
+X
+X
+XOPTIONS
+X  -q		This is the "quiet" flag, which will disable the
+X		printing of responses from the ftp server to standard
+X		output.
+X
+X  hostname	If a hostname is given at startup, the program will
+X		attempt to connect to that host.
+X
+X
+XUSER INTERFACE
+XThe user interface is organized as follows:
+X
+X  Main Window
+X   Pops up after program is started, and contains the entire user
+X   interface.
+X
+X  File List Window
+X   Holds a list of all items in a given directory on the remote
+X   host.  The user can manipulate the files and directories in this
+X   window by either single-clicking or double-clicking on a file or
+X   directory.  A double click on a directory will move the user 'into'
+X   that directory and the contents will be displayed in the File List
+X   Window.  A single-click selects the file or directory for further
+X   action (see below).  Multiple files and/or directories may be selected
+X   by dragging with the mouse.
+X
+X  Current Directory Name 
+X   Holds complete pathname of current remote directory.
+X
+X  Status Line
+X   Located at the very bottom of the main window, this tells the user
+X   what host is currently connected to, what file is being retrieved,
+X   and when the retrieval is complete.  Information about deletion and
+X   saving of caches is also given on the status line.
+X
+X  Command Buttons
+X   For performing actions on selected items (see below).
+X
+X  Mode Buttons
+X   For selecting Ascii/Binary mode.  Simply clicking on one of the
+X   buttons selects the appropriate mode.  The default mode is binary.
+X
+X  Menus
+X   For other interaction (see below).
+X
+X
+XCOMMANDS
+XThere are three command buttons, located below the menu:
+X
+X  "View"
+X    The user can view a selected remote file in a separate window.
+X    Viewed files may be cached, if caching is turned on (the default).
+X    Files will be cached in a directory called the "cache root" -- this
+X    is normally the directory $HOME/.xgetftpcachedir . However, the 
+X    user may specify an alternative directory using the environment
+X    variable $XGETFTPCACHEDIR.  Within the cache root directory, each
+X    host has its own directory, which has the same name as the complete
+X    host address -- this is known as the "host cache root".  All the cache
+X    information for a host will be stored it's cache root.
+X
+X    When the "view" command is given, a separate child window will pop
+X    up and the contents of the file will be displayed in it.  The user
+X    can navigate through the contents by using the scroll bar.  Pressing
+X    the "Done" button will close the view window.
+X
+X  "Retrieve"
+X    All the selected files and directories will be retrieved from the
+X    remote host and stored in the "Destination Directory".  The Destination
+X    Directory is the user's current working directory by default.
+X
+X  "Cd Up"
+X    This moves the user up the remote directory hierarchy. 
+X
+X
+XMENUS
+X  "File Menu"
+X   About xgetftp... 
+X     Gives some information about the program.
+X
+X   Set Preferences...
+X     Allows the user to set and save preferences.  Preferences may be
+X     saved, and are stored in the file $HOME/.xgetftp.
+X
+X     The user preferences are:
+X     Cache View   - Whether to cache remote files viewed
+X     Reuse View	  - Whether to reuse previously cached/viewed files
+X     Reuse Dir	  - Whether to reuse previously cached directory information
+X     Autosave Dir - Whether to save directory information upon disconnection
+X		    or exit
+X     Confirm	  - Confirm cache reuse  (NOT YET IMPLEMENTED)
+X
+X   Exit
+X     Exits the program.
+X
+X
+X  "Ftp Menu"
+X   Open Connection...
+X     Closes the current connection and prompts the user for a hostname.
+X     If the "autosave dir" preference is set, the directory cache for the
+X     host will be saved before the connection is closed.  A connection will
+X     be attempted to the new host, and upon success the root directory will
+X     be displayed in the File List Window.
+X
+X   Close Connection...
+X    Closes the connection to the current host. If the "autosave dir"
+X    preference is set, the directory cache for the host will be saved before
+X    the connection is closed.
+X
+X   Set Directory...
+X    Sets the destination directory for retrieved files.  The default is
+X    the user's current working directory.
+X
+X
+X  "Cache Menu"
+X   Purge Dir Cache
+X    Deletes the previously saved directory information (if any) about the
+X    host currently connected to.  After the info is deleted, the ftp server
+X    is queried for its root level directory listing and the user is moved
+X    to the root level.  
+X
+X    This function should be executed if the user believes the cache to
+X    be stale.  If xgetftp starts doing wierd things like showing blank
+X    lines in the directory listing or if double-clicking a directory
+X    doesn't work, then it is very likely that there have been major
+X    changes to the ftp server structure and the cache is out of date.
+X
+X   Purge View Cache
+X    Deletes the viewed file hierarchy for the host currently connected to.
+X
+X   Save Dir Cache
+X    Saves all known directory information about the host currently connected
+X    to.  The directory information is stored in the host's root cache
+X    directory in a file called "DIRCACHE".
+X
+X
+X  "Archie Menu"
+X   Search...
+X    Search for a file using Archie.  A new child window will pop up, which
+X    will have three main areas : the search string area, a "Find" action
+X    button, and a large text view area.  The user should select the 
+X    search string area, type in the string to be searched for, and then
+X    select the "Find" button.  After a brief delay (which will depend
+X    on the archie server), any information found will be displayed in
+X    the text view area.  The user may scroll through the text view area
+X    by using the scroll-bars.
+X
+X
+XFILES
+X $HOME/.xgetftprc
+X  This is the file that stores the user preferences.
+X
+X $XGETFTPCACHEDIR/*
+X  This directory (if specified) holds all the cache information. 
+X
+X $HOME/.xgetftpcachedir
+X  This is the default directory for the cache information.
+X
+X
+XSEE ALSO
+Xftp
+X
+X
+XDIAGNOSTICS 
+Xxgetftp will print messages to stderr if compiled with the DEBUG
+Xflag defined.
+X
+X
+XBUGS 
+XSymbolic links on the remote host will not be handled.  Trying to
+Xretrieve or traverse a symbolic link will result in a warning bell.
+X
+XHosts cannot be specified using an IP address, the actual hostname
+Xmust be used.
+X
+X
+XAUTHOR
+XSalim Alam
+XUniversity of Colorado, Boulder
+Xsalim@cs.colorado.edu
+X
+END_OF_FILE
+if test 6834 -ne `wc -c <'xgetftp.doc'`; then
+    echo shar: \"'xgetftp.doc'\" unpacked with wrong size!
+fi
+# end of 'xgetftp.doc'
+fi
+if test -f 'xgetftp.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xgetftp.man'\"
+else
+echo shar: Extracting \"'xgetftp.man'\" \(6782 characters\)
+sed "s/^X//" >'xgetftp.man' <<'END_OF_FILE'
+X.TH XGETFTP 1
+X.SH NAME
+Xxgetftp \- an X-based tool for browsing anonymous ftp sites
+X.SH SYNOPSIS
+X.B xgetftp
+X[ 
+X.B \-q
+X] 
+X[
+X.I hostname
+X]
+X.SH DESCRIPTION
+X.B xgetftp
+Xis a sophisticated browsing and file retrieval tool for anonymous
+Xftp.  It has an X-window user-interface based on the Motif widget set.
+XAvailable features include caching of directories, simple
+Xfile/directory retrieval, remote file viewing, caching of viewed files,
+Xand re-use of previously cached files and directories, and also a
+Xsimple interface to Archie.
+X.SH OPTIONS
+X.TP
+X.B \-q
+XThis is the "quiet" flag, which will disable the
+Xprinting of responses from the ftp server to standard
+Xoutput.
+X.TP
+X.B hostname
+XIf a hostname is given at startup, the program will
+Xattempt to connect to that host.
+X.SH USER INTERFACE
+XThe user interface is organized as follows:
+X.HP
+X.B Main Window
+X.br
+XPops up after program is started, and contains the entire user
+Xinterface.
+X.HP
+X.B File List Window
+X.br
+XHolds a list of all items in a given directory on the remote
+Xhost.  The user can manipulate the files and directories in this
+Xwindow by either single-clicking or double-clicking on a file or
+Xdirectory.  A double click on a directory will move the user 'into'
+Xthat directory and the contents will be displayed in the File List
+XWindow.  A single-click selects the file or directory for further
+Xaction (see below).  Multiple files and/or directories may be selected
+Xby dragging with the mouse.
+X.HP
+X.B Current Directory Name
+X.br
+XHolds complete pathname of current remote directory.
+X.HP
+X.B Status Line
+X.br
+XLocated at the very bottom of the main window, this tells the user
+Xwhat host is currently connected to, what file is being retrieved,
+Xand when the retrieval is complete.  Information about deletion and
+Xsaving of caches is also given on the status line.
+X.HP
+X.B Command Buttons
+X.br
+XFor performing actions on selected items (see below).
+X.HP
+X.B Mode Buttons
+X.br
+XFor selecting Ascii/Binary mode.  Simply clicking on one of the
+Xbuttons selects the appropriate mode.  The default mode is binary.
+X.HP
+X.B Menus
+X.br
+XFor other interaction (see below).
+X.SH COMMANDS
+XThere are three command buttons, located below the menu:
+X.HP
+X.B "View"
+X.br
+XThe user can view a selected remote file in a separate window.
+XViewed files may be cached, if caching is turned on (the default).
+XFiles will be cached in a directory called the "cache root" -- this
+Xis normally the directory $HOME/.xgetftpcachedir . However, the 
+Xuser may specify an alternative directory using the environment
+Xvariable $XGETFTPCACHEDIR.  Within the cache root directory, each
+Xhost has its own directory, which has the same name as the complete
+Xhost address -- this is known as the "host cache root".  All the cache
+Xinformation for a host will be stored it's cache root.
+X
+XWhen the "view" command is given, a separate child window will pop
+Xup and the contents of the file will be displayed in it.  The user
+Xcan navigate through the contents by using the scroll bar.  Pressing
+Xthe "Done" button will close the view window.
+X.HP
+X.B "Retrieve"
+X.br
+XAll the selected files and directories will be retrieved from the
+Xremote host and stored in the "Destination Directory".  The Destination
+XDirectory is the user's current working directory by default.
+X.HP
+X.B "Cd Up"
+X.br
+XThis moves the user up the remote directory hierarchy. 
+X.SH MENUS
+X.HP
+X.B "File Menu"
+X.br
+XAbout xgetftp...
+X.br
+XGives some information about the program.
+X
+XSet Preferences...
+X.br
+XAllows the user to set and save preferences.  Preferences may be
+Xsaved, and are stored in the file $HOME/.xgetftp.
+X
+XThe user preferences are:
+X.br
+XCache View - Whether to cache remote files viewed
+X.br
+XReuse View - Whether to reuse previously cached/viewed files
+X.br
+XReuse Dir - Whether to reuse previously cached directory information
+X.br
+XAutosave Dir - Whether to save directory information upon disconnection or exit
+X.br
+XConfirm - Confirm cache reuse  (NOT YET IMPLEMENTED)
+X
+XExit
+X.br
+XExits the program.
+X
+X.HP
+X.B "Ftp Menu"
+X.br
+XOpen Connection...
+X.br
+XCloses the current connection and prompts the user for a hostname.
+XIf the "autosave dir" preference is set, the directory cache for the
+Xhost will be saved before the connection is closed.  A connection will
+Xbe attempted to the new host, and upon success the root directory will
+Xbe displayed in the File List Window.
+X
+X.br
+XClose Connection...
+X.br
+XCloses the connection to the current host. If the "autosave dir"
+Xpreference is set, the directory cache for the host will be saved before
+Xthe connection is closed.
+X
+X.br
+XSet Directory...
+X.br
+XSets the destination directory for retrieved files.  The default is
+Xthe user's current working directory.
+X
+X.HP
+X.B "Cache Menu"
+X.br
+XPurge Dir Cache
+X.br
+XDeletes the previously saved directory information (if any) about the
+Xhost currently connected to.  After the info is deleted, the ftp server
+Xis queried for its root level directory listing and the user is moved
+Xto the root level.  
+X
+XThis function should be executed if the user believes the cache to
+Xbe stale.  If xgetftp starts doing wierd things like showing blank
+Xlines in the directory listing or if double-clicking a directory
+Xdoesn't work, then it is very likely that there have been major
+Xchanges to the ftp server structure and the cache is out of date.
+X
+X.br
+XPurge View Cache
+X.br
+XDeletes the viewed file hierarchy for the host currently connected to.
+X
+X.br
+XSave Dir Cache
+X.br
+XSaves all known directory information about the host currently connected
+Xto.  The directory information is stored in the host's root cache
+Xdirectory in a file called "DIRCACHE".
+X
+X.HP
+X.B "Archie Menu"
+X.br
+XSearch...
+X.br
+XSearch for a file using Archie.  A new child window will pop up, which
+Xwill have three main areas : the search string area, a "Find" action
+Xbutton, and a large text view area.  The user should select the 
+Xsearch string area, type in the string to be searched for, and then
+Xselect the "Find" button.  After a brief delay (which will depend
+Xon the archie server), any information found will be displayed in
+Xthe text view area.  The user may scroll through the text view area
+Xby using the scroll-bars.
+X
+X.SH FILES
+X.PD 0
+X.TP 20
+X.B $HOME/.xgetftprc
+XThis is the file that stores the user preferences.
+X.TP 20
+X.B $XGETFTPCACHEDIR/*
+XThis directory (if specified) holds all the cache information. 
+X.TP 20
+X.B $HOME/.xgetftpcachedir
+XThis is the default directory for the cache information.
+X
+X.SH "SEE ALSO"
+X.BR ftp (1)
+X
+X.SH DIAGNOSTICS
+Xxgetftp will print messages to stderr if compiled with the DEBUG
+Xflag defined.
+X
+X.SH BUGS
+XSymbolic links on the remote host will not be handled.  Trying to
+Xretrieve or traverse a symbolic link will result in a warning bell.
+X
+XHosts cannot be specified using an IP address, the actual hostname
+Xmust be used.
+X
+X.SH AUTHOR
+XSalim Alam
+X.br
+XUniversity of Colorado, Boulder
+X.br
+Xsalim@cs.colorado.edu
+X
+END_OF_FILE
+if test 6782 -ne `wc -c <'xgetftp.man'`; then
+    echo shar: \"'xgetftp.man'\" unpacked with wrong size!
+fi
+# end of 'xgetftp.man'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

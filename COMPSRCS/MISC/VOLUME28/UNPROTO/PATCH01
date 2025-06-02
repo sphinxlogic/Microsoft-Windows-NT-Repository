@@ -1,0 +1,910 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject:  v28i069:  unproto - ANSI C with traditional UNIX C compiler, Patch01
+Message-ID: <1992Feb24.034828.14131@sparky.imd.sterling.com>
+X-Md4-Signature: fe20b2b822b503a511192d1a2661cf82
+Date: Mon, 24 Feb 1992 03:48:28 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 28, Issue 69
+Archive-name: unproto/patch01
+Environment: UNIX, PCC
+Patch-To: unproto: Volume 27, Issue 85-86
+
+This is a patch to the unproto release that appeared a month ago in
+this news group (volume 27, issues 85 and 86). It fixes an omission
+that was found by Byron Rakitzis when he let the unprototyper loose 
+on his re-implementation of the plan 9 rc shell.
+
+Changes with respect to the previous release: declarations/definitions
+of functions returning pointer to function are now rewritten to old
+style; besides a sample stdarg.h, the package now also provides sample
+versions of the stddef.h and stdlib.h include files; more hints are
+given on how to integrate the unprototyper with the native C compiler;
+"asm" has been added to the list of reserved words.
+
+A fully patched version of the unproto source can be obtained from
+ftp.win.tue.nl, file /pub/unix/unproto4.shar.Z
+
+	Wietse Venema
+	wietse@wzv.win.tue.nl
+	Mathematics and Computing Science
+	Eindhoven University of Technology
+	The Netherlands
+
+Prereq: 1.3
+*** ./example.c.old	Wed Jan 15 21:53:27 1992
+--- ./example.c	Sat Feb 15 17:17:06 1992
+***************
+*** 1,5 ****
+   /*
+!   * @(#) example.c 1.3 92/01/15 21:53:26
+    * 
+    * Examples of things that can be done with the unproto package
+    */
+--- 1,5 ----
+   /*
+!   * @(#) example.c 1.4 92/02/15 17:17:05
+    * 
+    * Examples of things that can be done with the unproto package
+    */
+***************
+*** 187,189 ****
+--- 187,216 ----
+  
+  int (*(*test18[bar])(charstar))(charstar) = \
+  	(int (*(*[bar])(charstar))(charstar)) 0;
++ 
++ /* Function returning pointer to function */
++ 
++ int (*(*test19(long))(int))(double);
++ 
++ /* GCC accepts the following stuff, K&R C does not... */
++ 
++ void test20(int test21(double)) {}
++ 
++ void test22(struct { int foo; } test23(short)) {}
++ 
++ /* Do not blindly rewrite (*name(stuff))(otherstuff) */
++ 
++ void    test23()
++ {
++     int     (*test24(int)) (int),
++             y = (*test24(2)) (3),
++             z = ((*test24(2)) (3));
++ }
++ 
++ /* Function returning pointer to function */
++ 
++ int (*(*test25(long foo))(int bar))(double baz){ /* body */ }
++ 
++ int (*(*test26(foo))())()
++ long foo;
++ { /* body */ }
+Prereq: 1.4
+*** ./unproto.c.old	Wed Jan 15 21:52:59 1992
+--- ./unproto.c	Sat Feb 15 17:17:12 1992
+***************
+*** 7,12 ****
+--- 7,14 ----
+  /*	unproto
+  /* SYNOPSIS
+  /*	/somewhere/cpp ...
++ /*
++ /*	cc cflags -E file.c | unproto >file.i; cc cflags -c file.i
+  /* DESCRIPTION
+  /*	This document describes a filter that sits in between the UNIX
+  /*	C preprocessor and the next UNIX C compiler stage, on the fly rewriting
+***************
+*** 123,134 ****
+  /*	Department of Mathematics and Computer Science
+  /*	Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+  /* LAST MODIFICATION
+! /*	92/01/15 21:52:56
+  /* VERSION/RELEASE
+! /*	1.4
+  /*--*/
+  
+! static char unproto_sccsid[] = "@(#) unproto.c 1.4 92/01/15 21:52:56";
+  
+  /* C library */
+  
+--- 125,136 ----
+  /*	Department of Mathematics and Computer Science
+  /*	Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+  /* LAST MODIFICATION
+! /*	92/02/15 17:17:09
+  /* VERSION/RELEASE
+! /*	1.5
+  /*--*/
+  
+! static char unproto_sccsid[] = "@(#) unproto.c 1.5 92/02/15 17:17:09";
+  
+  /* C library */
+  
+***************
+*** 331,339 ****
+  
+  #endif
+  
+! /* header_flush - rewrite new-style function header to old style */
+  
+! static void header_flush(t)
+  register struct token *t;
+  {
+      register struct token *s;
+--- 333,341 ----
+  
+  #endif
+  
+! /* show_arg_names - display function argument names */
+  
+! static void show_arg_names(t)
+  register struct token *t;
+  {
+      register struct token *s;
+***************
+*** 355,362 ****
+  	    }
+  	}
+      }
+!     put_nl();					/* make output look nicer */
+  
+      /* Do argument types, but suppress void and trailing ... */
+  
+      if (!LAST_ARG_AND_EQUAL(t->head, VOID_ARG)) {
+--- 357,371 ----
+  	    }
+  	}
+      }
+! }
+  
++ /* show_arg_types - display function argument types */
++ 
++ static void show_arg_types(t)
++ register struct token *t;
++ {
++     register struct token *s;
++ 
+      /* Do argument types, but suppress void and trailing ... */
+  
+      if (!LAST_ARG_AND_EQUAL(t->head, VOID_ARG)) {
+***************
+*** 370,378 ****
+  	    }
+  	}
+      }
+-     tok_free(t);
+  }
+  
+  /* show_arg_name - extract argument name from argument type info */
+  
+  static void show_arg_name(s)
+--- 379,468 ----
+  	    }
+  	}
+      }
+  }
+  
++ /* header_flush - rewrite new-style function heading to old style */
++ 
++ static void header_flush(t)
++ register struct token *t;
++ {
++     show_arg_names(t);				/* show argument names */
++     put_nl();					/* make output look nicer */
++     show_arg_types(t);				/* show argument types */
++     tok_free(t);				/* discard token */
++ }
++ 
++ /* fpf_header_names - define func returning ptr to func, no argument types */
++ 
++ static void fpf_header_names(list)
++ struct token *list;
++ {
++     register struct token *s;
++     register struct token *p;
++ 
++     /*
++      * Recurse until we find the argument list. Account for the rare case
++      * that list is a comma-separated list (which should be a syntax error).
++      * Display old-style fuction argument names.
++      */
++ 
++     for (s = list->head; s; s = s->next) {
++ 	tok_show_ch(s);				/* '(' or ',' or ')' */
++ 	for (p = s->head; p; p = p->next) {
++ 	    if (p->tokno == TOK_LIST) {
++ 		if (IS_FUNC_PTR_TYPE(p)) {	/* recurse */
++ 		    fpf_header_names(p);
++ 		    show_empty_list(p = p->next);
++ 		} else {			/* display argument names */
++ 		    show_arg_names(p);
++ 		}
++ 	    } else {				/* pass through other stuff */
++ 		tok_show(p);
++ 	    }
++ 	}
++     }
++ }
++ 
++ /* fpf_header_types - define func returning ptr to func, argument types only */
++ 
++ static void fpf_header_types(list)
++ struct token *list;
++ {
++     register struct token *s;
++     register struct token *p;
++ 
++     /*
++      * Recurse until we find the argument list. Account for the rare case
++      * that list is a comma-separated list (which should be a syntax error).
++      * Display old-style function argument types.
++      */
++ 
++     for (s = list->head; s; s = s->next) {
++ 	for (p = s->head; p; p = p->next) {
++ 	    if (p->tokno == TOK_LIST) {
++ 		if (IS_FUNC_PTR_TYPE(p)) {	/* recurse */
++ 		    fpf_header_types(p);
++ 		    p = p->next;
++ 		} else {			/* display argument types */
++ 		    show_arg_types(p);
++ 		}
++ 	    }
++ 	}
++     }
++ }
++ 
++ /* fpf_header - define function returning pointer to function */
++ 
++ static void fpf_header(l1, l2)
++ struct token *l1;
++ struct token *l2;
++ {
++     fpf_header_names(l1);			/* strip argument types */
++     show_empty_list(l2);			/* strip prototype */
++     put_nl();					/* nicer output */
++     fpf_header_types(l1);			/* show argument types */
++ }
++ 
+  /* show_arg_name - extract argument name from argument type info */
+  
+  static void show_arg_name(s)
+***************
+*** 413,423 ****
+--- 503,528 ----
+  {
+      register struct token *p;
+  
++     /*
++      * Rewrite (*stuff)(args) to (*stuff)(). Rewrite word(args) to word(),
++      * but only if the word was preceded by a word, '*' or '}'. Leave
++      * anything else alone.
++      */
++ 
+      for (p = s->head; p; p = p->next) {
+  	if (IS_FUNC_PTR_TYPE(p)) {
+  	    p = show_func_ptr_type(p, p->next);	/* function pointer type */
+  	} else {
++ 	    register struct token *q;
++ 	    register struct token *r;
++ 
+  	    tok_show(p);			/* other */
++ 	    if ((p->tokno == TOK_WORD || p->tokno == '*' || p->tokno == '}')
++ 		&& (q = p->next) && q->tokno == TOK_WORD
++ 		&& (r = q->next) && r->tokno == TOK_LIST) {
++ 		tok_show(q);			/* show name */
++ 		show_empty_list(p = r);		/* strip args */
++ 	    }
+  	}
+      }
+  }
+***************
+*** 676,687 ****
+      }
+  }
+  
+! /* func_ptr_dcl_flush - rewrite function pointer declaration */
+  
+  static struct token *func_ptr_dcl_flush(list)
+  register struct token *list;
+  {
+      register struct token *t;
+  
+      /*
+       * Ignore blanks and newlines because we are too lazy to maintain more
+--- 781,793 ----
+      }
+  }
+  
+! /* func_ptr_dcl_flush - rewrite function pointer stuff */
+  
+  static struct token *func_ptr_dcl_flush(list)
+  register struct token *list;
+  {
+      register struct token *t;
++     register struct token *t2;
+  
+      /*
+       * Ignore blanks and newlines because we are too lazy to maintain more
+***************
+*** 696,705 ****
+  	    tok_free(t);
+  	    break;
+  	case TOK_LIST:
+! 	    /* Function pointer type: (list1) (list2) -> (list1) () */
+! 	    (void) show_func_ptr_type(list, t);	/* may be recursive */
+  	    tok_free(list);
+  	    tok_free(t);
+  	    return (0);
+  	default:				/* not a declaration */
+  	    tok_unget(t);
+--- 802,827 ----
+  	    tok_free(t);
+  	    break;
+  	case TOK_LIST:
+! 	    /* Function pointer or function returning pointer to function. */
+! 	    while ((t2 = tok_class())		/* skip blanks etc. */
+! 		   &&(t2->tokno == TOK_WSPACE || t2->tokno == '\n'))
+! 		tok_free(t2);
+! 	    switch (t2 ? t2->tokno : 0) {
+! 	    case '{':				/* function heading (new) */
+! 		fpf_header(list, t);
+! 		break;
+! 	    case TOK_WORD:			/* function heading (old) */
+! 		tok_show(list);
+! 		tok_show(t);
+! 		break;
+! 	    default:				/* func pointer type */
+! 		(void) show_func_ptr_type(list, t);
+! 		break;
+! 	    }
+  	    tok_free(list);
+  	    tok_free(t);
++ 	    if (t2)
++ 		tok_unget(t2);
+  	    return (0);
+  	default:				/* not a declaration */
+  	    tok_unget(t);
+Prereq: 1.4
+*** ./README.old	Wed Jan 15 21:52:56 1992
+--- ./README	Sat Feb 15 17:17:02 1992
+***************
+*** 1,4 ****
+! @(#) README 1.4 92/01/15 21:52:54
+  
+  unproto - Compile ANSI C with traditional UNIX C compiler
+  
+--- 1,4 ----
+! @(#) README 1.5 92/02/15 17:17:00
+  
+  unproto - Compile ANSI C with traditional UNIX C compiler
+  
+***************
+*** 7,14 ****
+  
+  This is a filter that sits in between the UNIX C preprocessor and the
+  next UNIX C compiler stage, on the fly transforming ANSI C syntax to
+! old C syntax.  It runs at roughly the same speed as /lib/cpp, so it 
+! has negligible impact on compilation time.
+  
+  Typically, the program is invoked by the native UNIX C compiler as an
+  alternate preprocessor. The unprototyper in turn invokes the native C
+--- 7,15 ----
+  
+  This is a filter that sits in between the UNIX C preprocessor and the
+  next UNIX C compiler stage, on the fly transforming ANSI C syntax to
+! old C syntax.  Line number information is preserved so that compiler
+! diagnostics still make sense.  It runs at roughly the same speed as
+! /lib/cpp, so it has negligible impact on compilation time.
+  
+  Typically, the program is invoked by the native UNIX C compiler as an
+  alternate preprocessor. The unprototyper in turn invokes the native C
+***************
+*** 20,30 ****
+  Unlike some other unprototypers, this one is fully recursive and does
+  not depend on source file layout (see the example.c file).
+  
+! New and improved functionality provided by the present version: string
+! concatenation, conversion of \a and \x escape sequences to their octal
+! equivalents, translation of __TIME__ and __DATE__, optional mapping of
+! `void *' to `char *', optional mapping of plain `void' to `int', faster
+! execution, and better conservation of program layout.
+  
+  The unprototyper provides hooks for compilers that require special
+  tricks for variadic functions (fortunately, many don't). <stdarg.h>
+--- 21,31 ----
+  Unlike some other unprototypers, this one is fully recursive and does
+  not depend on source file layout (see the example.c file).
+  
+! Besides the rewriting of argument lists, the program does the following
+! transformations:  string concatenation, conversion of \a and \x escape
+! sequences to their octal equivalents, translation of the __TIME__ and
+! __DATE__ macros, optional mapping of `void *' to `char *', and optional
+! mapping of plain `void' to `int'. 
+  
+  The unprototyper provides hooks for compilers that require special
+  tricks for variadic functions (fortunately, many don't). <stdarg.h>
+***************
+*** 43,67 ****
+  Problems fixed with this release:
+  ---------------------------------
+  
+! Some multi-line statements could end up on a single output line, so
+! that compiler diagnostics with respect to those statements could point
+! to the wrong source-file position (other compiler diagnostics would not
+! have this problem).  The token input/output routines were completely
+! rewritten to eliminate these inconsistencies.
+  
+- Backslashes within comments were not given special treatment.  Since
+- the C preprocessor by default removes all comments this would almost
+- never have caused a problem.
+- 
+- A backslash in front of any token except newline was not given special
+- treatment. I have never seen any C code where this would have caused a
+- problem.
+- 
+- The program now returns a non-zero status if it detected any problems.
+- 
+- A couple of simple heuristics have been added so that the program may
+- now even be useful for the conversion of unpreprocessed source.
+- 
+  Operation:
+  ----------
+  
+--- 44,52 ----
+  Problems fixed with this release:
+  ---------------------------------
+  
+! Prototypes and definitions of functions returning pointer to function
+! were not rewritten to old style.
+  
+  Operation:
+  ----------
+  
+***************
+*** 78,83 ****
+--- 63,78 ----
+  
+  Your C compiler manual page should provide the necessary information.
+  
++ A more portable, but less efficient, approach relies on the observation
++ that almost every UNIX C compiler supports the -E (write preprocessor
++ output to stdout) and -P options (preprocess file.c into file.i). Just
++ add the following lines to your Makefiles:
++ 
++     .c.o:
++ 	    $(CC) $(CFLAGS) -E $*.c | unproto >$*.i # simulate -P option
++ 	    $(CC) $(CFLAGS) -c $*.i
++ 	    rm -f $*.i
++ 
+  On some systems the lint(1) command is just a shell script, and writing
+  a version that uses the unprototyper should not be too hard. With SunOS
+  4.x, /usr/bin/lint is not a shell script, but it does accept the same
+***************
+*** 92,114 ****
+  
+  Check the contents of the `stdarg.h' file provided with this package.
+  This file serves a dual purpose: (1) on systems that do not provide a
+! stdarg.h file, it should be included by C source files that implement
+  ANSI-style variadic functions; (2) it is also used to configure the
+  unprototyper so that it emits the proper magic when it sees `...'.
+  
+  The `stdarg.h' file has support for sparc, mips, and for compilers that
+! pass arguments via the stack (old-style UNIX compilers for 80*86, mc68k
+! and vax). It gives general hints for other compilers.
+  
+  The `varargs.c' file provided with this package can be used to verify
+  that the `stdarg.h' file has been set up correctly.
+  
+! For maximal flexibility, the `cpp.sh' shell script can be used to set
+! up the pipe between the native C preprocessor and the unprototyper
+! command.  The script assumes that the unprototyper binary is called
+! `unproto'.  See the Makefile and the `cpp.sh' script for details and
+! for a description of possible problems with this approach.
+  
+  The overhead and problems of shell-script interpretation can be avoided
+  by letting the unprototyper itself pipe its standard input through the
+  C preprocessor.  For this mode of operation, the unprototyper binary
+--- 87,118 ----
+  
+  Check the contents of the `stdarg.h' file provided with this package.
+  This file serves a dual purpose: (1) on systems that do not provide a
+! stdarg.h file, it should be included by C source files that implements
+  ANSI-style variadic functions; (2) it is also used to configure the
+  unprototyper so that it emits the proper magic when it sees `...'.
+  
+  The `stdarg.h' file has support for sparc, mips, and for compilers that
+! pass arguments via the stack (typical for 80*86, mc68k and vax). It
+! gives general hints for other compilers.
+  
++ The other sample header files (stddef.h and stdlib.h) are not required
++ to build the unprototyper.
++ 
+  The `varargs.c' file provided with this package can be used to verify
+  that the `stdarg.h' file has been set up correctly.
+  
+! If your C compiler has no hooks for an alternate preprocessor (the
+! unprototyper will be used as: `cc cflags -E file.c | unproto >file.i'),
+! build the `unproto' executable without the `PIPE_THROUGH_CPP' feature.
+! Details are given in the Makefile.
+  
++ Otherwise, the `cpp.sh' shell script can be used to set up the pipe
++ between the native C preprocessor and the unprototyper command.  The
++ script assumes that the unprototyper binary is called `unproto', and
++ that it was compiled without the `PIPE_THROUGH_CPP' feature.  See the
++ Makefile and the `cpp.sh' script for details and for a description of
++ possible problems with this approach.
++ 
+  The overhead and problems of shell-script interpretation can be avoided
+  by letting the unprototyper itself pipe its standard input through the
+  C preprocessor.  For this mode of operation, the unprototyper binary
+***************
+*** 122,128 ****
+  
+  Install the `unproto.1' manual page in a suitable place. If your system
+  does not provide a `stdarg.h' file, find a suitable place for the one
+! provided with the unprototyper and install it there.
+  
+  If you use the `cpp' shell script to pipe the preprocessor output
+  through the unprototyper program, install the `unproto' binary in a
+--- 126,142 ----
+  
+  Install the `unproto.1' manual page in a suitable place. If your system
+  does not provide a `stdarg.h' file, find a suitable place for the one
+! provided with the unprototyper and install it there. The same goes for
+! the sample stddef.h and stdlib.h files; make sure that the definitions
+! in there apply to your environment. Most or all of the latter files are
+! already part of Ultrix 4.x and SunOS 4.1.1.
+! 
+! The ANSI float.h and limits.h files can be generated with the config
+! program by Steve Pemberton (comp.sources.misc volume 10, issue 62,
+! available from ftp.uu.net as comp.sources.misc/volume10/config42.Z).
+! 
+! If you run the unprototyper with "cc -E" just install the `unproto'
+! binary; the `cpp' shell script will not be needed.
+  
+  If you use the `cpp' shell script to pipe the preprocessor output
+  through the unprototyper program, install the `unproto' binary in a
+*** ./stdlib.h.old	Sat Feb 15 17:23:12 1992
+--- ./stdlib.h	Sat Feb 15 17:25:45 1992
+***************
+*** 0 ****
+--- 1,53 ----
++ /* @(#) stdlib.h 1.1 92/02/15 17:25:45 */
++ 
++ #ifndef _stdlib_h_
++ #define _stdlib_h_
++ 
++ /* NULL is also defined in <stdio.h> */
++ 
++ #ifndef NULL
++ #define NULL	0
++ #endif
++ 
++ /*
++  * Some functions in this file will be missing from the typical pre-ANSI
++  * UNIX library. Some pre-ANSI UNIX library functions have return types
++  * that differ from what ANSI requires.
++  */
++ 
++ extern double atof();
++ extern int atoi();
++ extern long atol();
++ extern double strtod();
++ extern long strtol();
++ extern unsigned long strtoul();
++ extern int rand();
++ extern void srand();
++ extern char *calloc();
++ extern char *malloc();
++ extern char *realloc();
++ extern void free();
++ extern void abort();
++ extern void exit();
++ extern int atextit();
++ extern int system();
++ extern char *getenv();
++ extern char *bsearch();
++ extern void qsort();
++ extern int abs();
++ extern long labs();
++ 
++ typedef struct {
++     int     quot;
++     int     rem;
++ } div_t;
++ 
++ typedef struct {
++     long    quot;
++     long    rem;
++ } ldiv_t;
++ 
++ extern div_t div();
++ extern ldiv_t ldiv();
++ 
++ #endif /* _stdlib_h_ */
+Prereq: 1.4
+*** ./Makefile.old	Wed Jan 15 21:53:22 1992
+--- ./Makefile	Sat Feb 15 17:17:04 1992
+***************
+*** 1,19 ****
+! # @(#) Makefile 1.4 92/01/15 21:53:20
+  
+  ## BEGIN CONFIGURATION STUFF
+  
+! # For maximal flexibility, the "/lib/cpp | unproto" pipeline can be
+! # packaged as an executable shell script (see the provided "cpp.sh" script)
+! # that should be installed as "/whatever/cpp". This script should then be
+! # specified to the C compiler as a non-default preprocessor.
+  #
+  # PROG	= unproto
+  # PIPE	=
+  
+! # For maximal performance, the overhead of shell script interpretation can
+! # be eliminated by having the unprototyper program itself open the pipe
+! # to the preprocessor.  In that case, define the PIPE_THROUGH_CPP macro
+! # as the path name of the default C preprocessor (usually "/lib/cpp"),
+  # install the unprototyper as "/whatever/cpp" and specify that to the C
+  # compiler as a non-default preprocessor.
+  #
+--- 1,24 ----
+! # @(#) Makefile 1.5 92/02/15 17:17:03
+  
+  ## BEGIN CONFIGURATION STUFF
+  
+! # In the unlikely case that your compiler has no hooks for alternate
+! # compiler passes, use a "cc cflags -E file.c | unproto >file.i"
+! # pipeline, then "cc cflags -c file.i" to compile the resulting
+! # intermediate file.
+! # 
+! # Otherwise, the "/lib/cpp | unproto" pipeline can be packaged as an
+! # executable shell script (see the provided "cpp.sh" script) that should
+! # be installed as "/whatever/cpp". This script should then be specified
+! # to the C compiler as a non-default preprocessor.
+  #
+  # PROG	= unproto
+  # PIPE	=
+  
+! # The overhead and problems of shell script interpretation can be
+! # eliminated by having the unprototyper program itself open the pipe to
+! # the preprocessor.  In that case, define the PIPE_THROUGH_CPP macro as
+! # the path name of the default C preprocessor (usually "/lib/cpp"),
+  # install the unprototyper as "/whatever/cpp" and specify that to the C
+  # compiler as a non-default preprocessor.
+  #
+***************
+*** 70,76 ****
+  	hash.c strsave.c
+  HFILES	= error.h token.h vstring.h symbol.h
+  SCRIPTS	= cpp.sh
+! SAMPLES	= stdarg.h varargs.c example.c example.out
+  SOURCES	= README $(CFILES) $(HFILES) Makefile $(SCRIPTS) $(SAMPLES)
+  FILES	= $(SOURCES) unproto.1
+  OBJECTS	= tok_io.o tok_class.o tok_pool.o unproto.o vstring.o symbol.o error.o \
+--- 75,81 ----
+  	hash.c strsave.c
+  HFILES	= error.h token.h vstring.h symbol.h
+  SCRIPTS	= cpp.sh
+! SAMPLES	= stdarg.h stddef.h stdlib.h varargs.c example.c example.out
+  SOURCES	= README $(CFILES) $(HFILES) Makefile $(SCRIPTS) $(SAMPLES)
+  FILES	= $(SOURCES) unproto.1
+  OBJECTS	= tok_io.o tok_class.o tok_pool.o unproto.o vstring.o symbol.o error.o \
+***************
+*** 81,87 ****
+  #CFLAGS	= -g $(PIPE) $(SKIP) $(BELL) $(MAP) $(ALIAS) -DDEBUG
+  
+  $(PROG): $(OBJECTS)
+! 	cc $(CFLAGS) -o $@ $(OBJECTS) $(MALLOC)
+  
+  # For linting, enable all bells and whistles.
+  
+--- 86,92 ----
+  #CFLAGS	= -g $(PIPE) $(SKIP) $(BELL) $(MAP) $(ALIAS) -DDEBUG
+  
+  $(PROG): $(OBJECTS)
+! 	$(CC) $(CFLAGS) -o $@ $(OBJECTS) $(MALLOC)
+  
+  # For linting, enable all bells and whistles.
+  
+*** ./example.out.old	Wed Jan 15 22:04:24 1992
+--- ./example.out	Sat Feb 15 17:17:09 1992
+***************
+*** 48,58 ****
+  # 38 "example.c"
+  int (*(*bar)())();
+  {/*1*/
+!     int     (*baz)() = (int (*)()) 0,
+  	    y = (y * (*baz)(y)),
+! 	    *(*z)() = (int *(*)()) 0;
+  
+!     struct {/*2*/ int (*foo)(); }/*2*/ *(*s)() = 
+  	(struct { int (*foo)(); } *(*)()) 0;
+  
+      /* end dcls */{/*2*/
+--- 48,58 ----
+  # 38 "example.c"
+  int (*(*bar)())();
+  {/*1*/
+!     int     (*baz)()= (int (*)()) 0,
+  	    y = (y * (*baz)(y)),
+! 	    *(*z)()= (int *(*)()) 0;
+  
+!     struct {/*2*/ int (*foo)(); }/*2*/ *(*s)()= 
+  	(struct { int (*foo)(); } *(*)()) 0;
+  
+      /* end dcls */{/*2*/
+***************
+*** 122,128 ****
+      struct {/*2*/
+  	int (*f)(), o;
+      }/*2*/ bar;
+! }/*1*/ (*baz2)() = (struct { struct { int (*f)(), o; } bar; } (*)()) 0;
+  
+  
+  
+--- 122,128 ----
+      struct {/*2*/
+  	int (*f)(), o;
+      }/*2*/ bar;
+! }/*1*/ (*baz2)()= (struct { struct { int (*f)(), o; } bar; } (*)()) 0;
+  
+  
+  
+***************
+*** 218,222 ****
+  # 186 "example.c"
+  {/*1*/}/*1*/
+  
+! int (*(*test18[bar])())() = 	(int (*(*[bar])())()) 0;
+  
+--- 218,261 ----
+  # 186 "example.c"
+  {/*1*/}/*1*/
+  
+! int (*(*test18[bar])())()= 	(int (*(*[bar])())()) 0;
+  
++ 
++ 
++ 
++ int (*(*test19())())();
++ 
++ 
++ 
++ void test20(test21)
++ # 197 "example.c"
++ int test21();
++ # 197 "example.c"
++ {/*1*/}/*1*/
++ 
++ void test22(test23)
++ # 199 "example.c"
++ struct { int foo; } test23();
++ # 199 "example.c"
++ {/*1*/}/*1*/
++ 
++ 
++ 
++ void    test23()
++ {/*1*/
++     int     (*test24())(),
++             y = (*test24(2)) (3),
++             z = ((*test24(2))(3));
++ }/*1*/
++ 
++ 
++ 
++ int (*(*test25(foo))())()
++ # 212 "example.c"
++ long foo;
++ # 212 "example.c"
++ {/*1*/  }/*1*/
++ 
++ int (*(*test26(foo))())()
++ long foo;
++ {/*1*/  }/*1*/
+Prereq: 1.4
+*** ./unproto.1.old	Wed Jan 15 21:53:22 1992
+--- ./unproto.1	Sat Feb 15 17:17:20 1992
+***************
+*** 13,18 ****
+--- 13,20 ----
+  .na
+  .nf
+  /somewhere/cpp ...
++ 
++ cc cflags -E file.c | unproto >file.i; cc cflags -c file.i
+  .SH DESCRIPTION
+  .ad
+  .fi
+***************
+*** 143,150 ****
+  .SH LAST MODIFICATION
+  .na
+  .nf
+! 92/01/15 21:52:56
+  .SH VERSION/RELEASE
+  .na
+  .nf
+! 1.4
+--- 145,152 ----
+  .SH LAST MODIFICATION
+  .na
+  .nf
+! 92/02/15 17:17:09
+  .SH VERSION/RELEASE
+  .na
+  .nf
+! 1.5
+*** ./stddef.h.old	Sat Feb 15 17:23:12 1992
+--- ./stddef.h	Sat Feb 15 17:25:47 1992
+***************
+*** 0 ****
+--- 1,23 ----
++ /* @(#) stddef.h 1.1 92/02/15 17:25:46 */
++ 
++ #ifndef _stddef_h_
++ #define _stddef_h_
++ 
++ /* NULL is also defined in <stdio.h> */
++ 
++ #ifndef NULL
++ #define NULL 0
++ #endif
++ 
++ /* Structure member offset - some compilers barf on this. */
++ 
++ #define offsetof(type, member) ((size_t) &((type *)0)->member)
++ 
++ /* Some of the following types may already be defined in <sys/types.h>. */
++ 
++ /* #include <sys/types.h> */
++ /* typedef long ptrdiff_t;		/* type of pointer difference */
++ /* typedef unsigned short wchar_t;	/* wide character type */
++ /* typedef unsigned size_t;		/* type of sizeof */
++ 
++ #endif /* _stddef_h_ */
+Prereq: 1.3
+*** symbol.c.old	Wed Jan 15 21:53:09 1992
+--- symbol.c	Sat Feb 15 18:59:58 1992
+***************
+*** 33,44 ****
+  /*	Department of Mathematics and Computer Science
+  /*	Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+  /* LAST MODIFICATION
+! /*	92/01/15 21:53:08
+  /* VERSION/RELEASE
+! /*	1.3
+  /*--*/
+  
+! static char symbol_sccsid[] = "@(#) symbol.c 1.3 92/01/15 21:53:08";
+  
+  /* C library */
+  
+--- 33,44 ----
+  /*	Department of Mathematics and Computer Science
+  /*	Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+  /* LAST MODIFICATION
+! /*	92/02/15 18:59:56
+  /* VERSION/RELEASE
+! /*	1.4
+  /*--*/
+  
+! static char symbol_sccsid[] = "@(#) symbol.c 1.4 92/02/15 18:59:56";
+  
+  /* C library */
+  
+***************
+*** 128,133 ****
+--- 128,134 ----
+  #if defined(MAP_VOID_STAR) || defined(MAP_VOID)
+      "void", TOK_VOID,
+  #endif
++     "asm", TOK_OTHER,
+      0,
+  };
+  
+
+exit 0 # Just in case...

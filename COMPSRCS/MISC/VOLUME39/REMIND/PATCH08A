@@ -1,0 +1,2029 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v39i079:  remind - A replacement for calendar, Patch08a/3
+Message-ID: <csm-v39i079=remind.072921@sparky.Sterling.COM>
+X-Md4-Signature: 39b3dfa88e695c2645e1fdd36dab6c85
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 8 Sep 1993 12:30:01 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 39, Issue 79
+Archive-name: remind/patch08a
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+This is patch 8 for version 3.0 of Remind.
+
+Remind is a sophisticated calendar/alarm program, which runs under
+MS-DOS, UNIX and OS/2.
+
+Most noticeable changes: Addition of French and Norwegian support,
+including complete support for French; reorganization of the code to
+more fully support foreign langueages; addition of the MSF keyword to
+automatically paragraph-fill reminders.
+
+AVAILABILITY: Remind is available via anonymous ftp at ftp.doe.carleton.ca
+(134.117.9.35) in the directory /pub/remind-3.0 - see the file README.1st
+in that directory for a list of files.
+
+>From the WHATSNEW file:
+
+CHANGES TO REMIND
+
+* Version 3.0 Patch 8
+
++ MAJOR ENHANCEMENTS
+
+- Changed the code to more fully support foreign languages - error
+  messages and usage instructions can now be changed.  All changes can
+  be localized in the appropriate language.h files.
+
+- Added support for the French language, courtesy of Laurent Duperval.
+  Note that the French support is more complete than for other languages -
+  French usage instructions and error messages are supported.
+
+- Added support for the Norwegian language, courtesy of Trygve Randen.
+
++ MINOR ENHANCEMENTS
+
+- Added code for the functions timelocal() and timegm(), courtesy of
+  Lucio de Re.  This is for those very few machines whose libraries
+  include neither those functions nor mktime().
+
+- Added the filedate() function.
+
+- Allowed the filename to be specified as "-" to cause Remind to take
+  its input from the standard input stream.
+
+- Added the "MSF" keyword to cause reminders to be formatted automatically.
+  This keyword paragraph-fills reminder text following user specifications.
+  Based on a suggestion by Ken McGlothlen.
+
+- Added the "-e" option to Rem2PS, allowing the PostScript calendar
+  to fill the entire page.  Thanks to Arthur G. Yaffe.
+
++ BUG FIXES
+
+- Corrected the Hebrew holidays Tzom Gedalia, Tzom Tevet, Ta'anit
+  Esther, Tzom Tamuz and Tisha B'Av so they won't occur on Saturday.
+  Corrections made following the algorithm in "Calendrical Calculations"
+  by Nachum Dershowitz and Edward M. Reingold.
+
+- Changed the dutch.h language file as suggested by Erik-Jan Vens.  Made
+  month and day names lower-case; corrected the spelling of oktober.
+
+- Changed HashVal in var.c to use unsigned arithmetic - it's conceivable
+  that a machine with signed chars could cause problems otherwise.
+
+- Changed the LONG_* macros in config.h to LON_* to avoid conflicts
+  with names defined by ANSI C.  Thanks to David W. Sanderson.
+
+- Allowed the built-in function char() to accept numbers in the
+  range [-128, 255] (but not 0) so that char(asc(s)) works even
+  on machines with signed char types.
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  norwgian.h patch.08.B
+# Wrapped by kent@sparky on Wed Sep  8 07:12:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'norwgian.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'norwgian.h'\"
+else
+  echo shar: Extracting \"'norwgian.h'\" \(3088 characters\)
+  sed "s/^X//" >'norwgian.h' <<'END_OF_FILE'
+X/***************************************************************/
+X/*                                                             */
+X/*  NORWGIAN.H                                                 */
+X/*                                                             */
+X/*  Support for the Norwegian language.                        */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  This file is Copyright (C) 1993 by Trygve Randen.          */
+X/*                                                             */
+X/***************************************************************/
+X
+X/* The very first define in a language support file must be L_LANGNAME: */
+X#define L_LANGNAME "Norwegian"
+X
+X/* Day names */
+X#ifdef ISOLATIN1
+X#  define L_SUNDAY "S\370ndag"
+X#else
+X#  define L_SUNDAY "Soendag"
+X#endif
+X#define L_MONDAY "Mandag"
+X#define L_TUESDAY "Tirsdag"
+X#define L_WEDNESDAY "Onsdag"
+X#define L_THURSDAY "Torsdag"
+X#define L_FRIDAY "Fredag"
+X#ifdef ISOLATIN1
+X#  define L_SATURDAY "L\370rdag"
+X#else
+X#  define L_SATURDAY "Loerdag"
+X#endif
+X
+X/* Day initials - first letter only */
+X#define L_DAYINIT "SMTOTFL"
+X
+X/* Month names */
+X#define L_JAN "Januar"
+X#define L_FEB "Februar"
+X#define L_MAR "Mars"
+X#define L_APR "April"
+X#define L_MAY "Mai"
+X#define L_JUN "Juni"
+X#define L_JUL "Juli"
+X#define L_AUG "August"
+X#define L_SEP "September"
+X#define L_OCT "Oktober"
+X#define L_NOV "November"
+X#define L_DEC "Desember"
+X
+X/* Today and tomorrow */
+X#define L_TODAY "i dag"
+X#define L_TOMORROW "i morgen"
+X
+X/* The default banner */
+X#ifdef ISOLATIN1
+X#  define L_BANNER "P\345minnelse for %w, %d. %m, %y%o:"
+X#else
+X#  define L_BANNER "Paaminnelse for %w, %d. %m, %y%o:"
+X#endif
+X
+X/* "am" and "pm" */
+X#define L_AM "am"
+X#define L_PM "pm"
+X
+X/*** The following are only used in dosubst.c ***/
+X#ifdef L_IN_DOSUBST
+X
+X/* Ago and from now */
+X#define L_AGO "siden"
+X#ifdef ISOLATIN1
+X#  define L_FROMNOW "fra n\345"
+X#else
+X#  define L_FROMNOW "fra naa"
+X#endif
+X
+X/* "in %d days' time" */
+X#define L_INXDAYS "om %d dager"
+X
+X/* "on" as in "on date..." */
+X#define L_ON "den"
+X
+X/* Pluralizing - this is a problem for many languages and may require
+X   a more drastic fix */
+X#define L_PLURAL "er"
+X
+X/* Minutes, hours, at, etc */
+X#ifdef ISOLATIN1
+X#  define L_NOW "n\345"
+X#else
+X#  define L_NOW "naa"
+X#endif
+X#define L_AT "kl."
+X#define L_MINUTE "minutt"
+X#define L_HOUR "time"
+X#define L_IS "er"
+X#define L_WAS "var"
+X#define L_AND "og"
+X/* What to add to make "hour" plural */
+X#define L_HPLU "r"  
+X/* What to add to make "minute" plural */
+X#define L_MPLU "er"
+X
+X/* Define any overrides here, such as L_ORDINAL_OVERRIDE, L_A_OVER, etc.
+X   See the file dosubst.c for more info. */
+X#define L_ORDINAL_OVERRIDE              plu = ".";
+X#define L_A_OVER                        sprintf(s, "%s %s, den %d. %s %d", L_ON, DayName[jul%7], d, MonthName[m], y);
+X#define L_G_OVER                        sprintf(s, "%s %s, den %d. %s", L_ON, DayName[jul%7], d, MonthName[m]);
+X#define L_U_OVER                        L_A_OVER
+X#define L_V_OVER                        L_G_OVER
+X
+X
+X#endif /* L_IN_DOSUBST */
+END_OF_FILE
+  if test 3088 -ne `wc -c <'norwgian.h'`; then
+    echo shar: \"'norwgian.h'\" unpacked with wrong size!
+  fi
+  # end of 'norwgian.h'
+fi
+if test -f 'patch.08.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.08.B'\"
+else
+  echo shar: Extracting \"'patch.08.B'\" \(52275 characters\)
+  sed "s/^X//" >'patch.08.B' <<'END_OF_FILE'
+X*** ../prev/README.DOS	Mon Jun 28 12:29:28 1993
+X--- ./README.DOS	Thu Aug 19 17:06:36 1993
+X***************
+X*** 20,33 ****
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has limited support for languages other than English.  See the file
+X! "lang.h" for details.  Only the substitution filter and names of days and
+X! months are affected - error and usage messages are still in English.
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X--- 20,39 ----
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has support for languages other than English.  See the file
+X! "lang.h" for details.  The language support may vary - you can change
+X! only the substitution filter, or you can translate all of the usage
+X! instructions and error messages as well.  See "french.h" for an
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X+ 
+X+ At a minimum, you should support month and day names in the foreign
+X+ language, and should modify the substitution filter appropriately.
+X+ If you are truly diligent, you can translate usage and error messages
+X+ too.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X*** ../prev/README.OS2	Mon Jun 28 12:30:19 1993
+X--- ./README.OS2	Thu Aug 19 17:06:14 1993
+X***************
+X*** 28,41 ****
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has limited support for languages other than English.  See the file
+X! "lang.h" for details.  Only the substitution filter and names of days and
+X! months are affected - error and usage messages are still in English.
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X--- 28,48 ----
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has support for languages other than English.  See the file
+X! "lang.h" for details.  The language support may vary - you can change
+X! only the substitution filter, or you can translate all of the usage
+X! instructions and error messages as well.  See "french.h" for an
+X! example of the latter.
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X+ 
+X+ At a minimum, you should support month and day names in the foreign
+X+ language, and should modify the substitution filter appropriately.
+X+ If you are truly diligent, you can translate usage and error messages
+X+ too.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X*** ../prev/README.UNIX	Mon Jun 28 12:29:27 1993
+X--- ./README.UNIX	Thu Aug 19 17:05:59 1993
+X***************
+X*** 58,71 ****
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has limited support for languages other than English.  See the file
+X! "lang.h" for details.  Only the substitution filter and names of days and
+X! months are affected - error and usage messages are still in English.
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X--- 58,78 ----
+X  
+X  OTHER LANGUAGE SUPPORT
+X  
+X! Remind has support for languages other than English.  See the file
+X! "lang.h" for details.  The language support may vary - you can change
+X! only the substitution filter, or you can translate all of the usage
+X! instructions and error messages as well.  See "french.h" for an
+X! example of the latter.
+X  
+X  If you add support for a non-English language, Remind will accept both the
+X  English and non-English names of months and weekdays in an input script.
+X  However, you should not rely on this feature if you want to write portable
+X  Remind scripts.
+X+ 
+X+ At a minimum, you should support month and day names in the foreign
+X+ language, and should modify the substitution filter appropriately.
+X+ If you are truly diligent, you can translate usage and error messages
+X+ too.
+X  
+X  Take a look at the files "english.h" and "german.h" if you want to add
+X  support for your favourite language.  If you do add another language
+X*** ../prev/WHATSNEW.30	Mon Jul 19 10:59:32 1993
+X--- ./WHATSNEW.30	Thu Aug 19 16:57:45 1993
+X***************
+X*** 1,5 ****
+X--- 1,57 ----
+X  CHANGES TO REMIND
+X  
+X+ * Version 3.0 Patch 8
+X+ 
+X+ + MAJOR ENHANCEMENTS
+X+ 
+X+ - Changed the code to more fully support foreign languages - error
+X+   messages and usage instructions can now be changed.  All changes can
+X+   be localized in the appropriate language.h files.
+X+ 
+X+ - Added support for the French language, courtesy of Laurent Duperval.
+X+   Note that the French support is more complete than for other languages -
+X+   French usage instructions and error messages are supported.
+X+ 
+X+ - Added support for the Norwegian language, courtesy of Trygve Randen.
+X+ 
+X+ + MINOR ENHANCEMENTS
+X+ 
+X+ - Added code for the functions timelocal() and timegm(), courtesy of
+X+   Lucio de Re.  This is for those very few machines whose libraries
+X+   include neither those functions nor mktime().
+X+ 
+X+ - Added the filedate() function.
+X+ 
+X+ - Allowed the filename to be specified as "-" to cause Remind to take
+X+   its input from the standard input stream.
+X+ 
+X+ - Added the "MSF" keyword to cause reminders to be formatted automatically.
+X+   This keyword paragraph-fills reminder text following user specifications.
+X+   Based on a suggestion by Ken McGlothlen.
+X+ 
+X+ - Added the "-e" option to Rem2PS, allowing the PostScript calendar
+X+   to fill the entire page.  Thanks to Arthur G. Yaffe.
+X+ 
+X+ + BUG FIXES
+X+ 
+X+ - Corrected the Hebrew holidays Tzom Gedalia, Tzom Tevet, Ta'anit
+X+   Esther, Tzom Tamuz and Tisha B'Av so they won't occur on Saturday.
+X+   Corrections made following the algorithm in "Calendrical Calculations"
+X+   by Nachum Dershowitz and Edward M. Reingold.
+X+ 
+X+ - Changed the dutch.h language file as suggested by Erik-Jan Vens.  Made
+X+   month and day names lower-case; corrected the spelling of oktober.
+X+ 
+X+ - Changed HashVal in var.c to use unsigned arithmetic - it's conceivable
+X+   that a machine with signed chars could cause problems otherwise.
+X+ 
+X+ - Changed the LONG_* macros in config.h to LON_* to avoid conflicts
+X+   with names defined by ANSI C.  Thanks to David W. Sanderson.
+X+ 
+X+ - Allowed the built-in function char() to accept numbers in the
+X+   range [-128, 255] (but not 0) so that char(asc(s)) works even
+X+   on machines with signed char types.
+X+ 
+X  * Version 3.0 Patch 7
+X  
+X  + MAJOR ENHANCEMENTS
+X*** ../prev/calendar.c	Mon Jun 28 13:08:26 1993
+X--- ./calendar.c	Thu Aug 19 16:55:52 1993
+X***************
+X*** 479,485 ****
+X  
+X     r=OpenFile(InitialFile);
+X     if (r) {
+X!       fprintf(ErrFp, "Can't read %s: %s\n", InitialFile, ErrMsg[r]);
+X        exit(1);
+X     }
+X  
+X--- 479,485 ----
+X  
+X     r=OpenFile(InitialFile);
+X     if (r) {
+X!       fprintf(ErrFp, "%s %s: %s\n", ErrMsg[E_ERR_READING], InitialFile, ErrMsg[r]);
+X        exit(1);
+X     }
+X  
+X***************
+X*** 487,493 ****
+X        r = ReadLine();
+X        if (r == E_EOF) return;
+X        if (r) {
+X! 	 Eprint("Error reading file: %s", ErrMsg[r]);
+X  	 exit(1);
+X        }
+X        s = FindInitialToken(&tok, CurLine);
+X--- 487,493 ----
+X        r = ReadLine();
+X        if (r == E_EOF) return;
+X        if (r) {
+X! 	 Eprint("%s: %s", ErrMsg[E_ERR_READING], ErrMsg[r]);
+X  	 exit(1);
+X        }
+X        s = FindInitialToken(&tok, CurLine);
+X*** ../prev/config.h	Mon Jun 28 12:29:29 1993
+X--- ./config.h	Wed Aug 18 12:56:55 1993
+X***************
+X*** 12,19 ****
+X  /***************************************************************/
+X  
+X  /*---------------------------------------------------------------------*/
+X! /* LAT_DEG, LAT_MIN and LAT_SEC:  Latitude of your location            */
+X! /* LONG_DEG, LONG_MIN and LONG_SEC: Longitude of your location         */
+X  /* For latitude, north is positive, south is negative.                 */
+X  /* For longitude, west is positive, east is negative.                  */
+X  /* NOTE:  For negative numbers, all three of DEG, MIN, SEC should be   */
+X--- 12,19 ----
+X  /***************************************************************/
+X  
+X  /*---------------------------------------------------------------------*/
+X! /* LAT_DEG, LAT_MIN and LAT_SEC: Latitude of your location             */
+X! /* LON_DEG, LON_MIN and LON_SEC: Longitude of your location            */
+X  /* For latitude, north is positive, south is negative.                 */
+X  /* For longitude, west is positive, east is negative.                  */
+X  /* NOTE:  For negative numbers, all three of DEG, MIN, SEC should be   */
+X***************
+X*** 21,32 ****
+X  /*        DEG=-20, MIN=-22 and SEC=-33.                                */
+X  /* The default values are initially set to Ottawa, Ontario, Canada.    */
+X  /*---------------------------------------------------------------------*/
+X! #define LAT_DEG  45
+X! #define LAT_MIN  24
+X! #define LAT_SEC  00
+X! #define LONG_DEG 75
+X! #define LONG_MIN 39
+X! #define LONG_SEC  0
+X  
+X  /*---------------------------------------------------------------------*/
+X  /* HAVE_MKTIME: Define this if your C library includes the mktime()    */
+X--- 21,32 ----
+X  /*        DEG=-20, MIN=-22 and SEC=-33.                                */
+X  /* The default values are initially set to Ottawa, Ontario, Canada.    */
+X  /*---------------------------------------------------------------------*/
+X! #define LAT_DEG 45
+X! #define LAT_MIN 24
+X! #define LAT_SEC  0
+X! #define LON_DEG 75
+X! #define LON_MIN 39
+X! #define LON_SEC  0
+X  
+X  /*---------------------------------------------------------------------*/
+X  /* HAVE_MKTIME: Define this if your C library includes the mktime()    */
+X***************
+X*** 34,39 ****
+X--- 34,47 ----
+X  /*              style time manipulations.                              */
+X  /*---------------------------------------------------------------------*/
+X  #define HAVE_MKTIME 1
+X+ 
+X+ /*---------------------------------------------------------------------*/
+X+ /* NEED_TIMEGM: If your C library does not have mktime() and it ALSO   */
+X+ /*              does not have timelocal() or timegm(), uncomment the   */
+X+ /*              next line.  If HAVE_MKTIME is defined, NEED_TIMEGM is  */
+X+ /*              ignored.  Very few systems should require NEED_TIMEGM. */
+X+ /*---------------------------------------------------------------------*/
+X+ /* #define NEED_TIMEGM 1 */
+X  
+X  /*---------------------------------------------------------------------*/
+X  /* DEFAULT_PAGE:  The default page size to use for Rem2PS.             */
+X*** ../prev/defs.rem	Fri Jul 16 15:28:09 1993
+X--- ./defs.rem	Mon Aug 23 11:54:35 1993
+X***************
+X*** 25,32 ****
+X  ################################################
+X  # Ensure required version of remind is used... #
+X  ################################################
+X! IF version() < "03.00.07"
+X!    ERRMSG This file requires at least version 03.00.07 of Remind.%
+X     ERRMSG This version is version [version()].
+X     EXIT
+X  ENDIF
+X--- 25,32 ----
+X  ################################################
+X  # Ensure required version of remind is used... #
+X  ################################################
+X! IF version() < "03.00.08"
+X!    ERRMSG This file requires at least version 03.00.08 of Remind.%
+X     ERRMSG This version is version [version()].
+X     EXIT
+X  ENDIF
+X***************
+X*** 111,117 ****
+X  # Change the timezone to your timezone - the default is   #
+X  # for EST which is 5 hours (300 minutes) behind UTC.      #
+X  # The code is correct for places in which Daylight Savings#
+X! # Time begins on the last Sunday in March and ends on the #
+X  # last Sunday in October.                                 #
+X  ###########################################################
+X  
+X--- 111,117 ----
+X  # Change the timezone to your timezone - the default is   #
+X  # for EST which is 5 hours (300 minutes) behind UTC.      #
+X  # The code is correct for places in which Daylight Savings#
+X! # Time begins on the last Sunday in April and ends on the #
+X  # last Sunday in October.                                 #
+X  ###########################################################
+X  
+X***************
+X*** 121,127 ****
+X  
+X      # Use --8 rather than --7 because we want the last day BEFORE
+X      # the time switch occurs.
+X!     REM Sun 1 Apr --8 SATISFY 1
+X      SET BegDst TRIGDATE()
+X  
+X      REM Sun 1 Nov --8 SATISFY 1
+X--- 121,127 ----
+X  
+X      # Use --8 rather than --7 because we want the last day BEFORE
+X      # the time switch occurs.
+X!     REM Sun 1 May --8 SATISFY 1
+X      SET BegDst TRIGDATE()
+X  
+X      REM Sun 1 Nov --8 SATISFY 1
+X***************
+X*** 276,281 ****
+X--- 276,299 ----
+X  REM 8 Jan 1993 *14 SATISFY [_IsMortDate(TRIGDATE())] \
+X  	CAL Mortgage payment
+X  
+X+ ##########################################################################
+X+ #								         #
+X+ # On our UNIX system, I run a program which queries the university       #
+X+ # library and creates a file called ".booksdue".  This file is           #
+X+ # a REMIND script to tell me when my library books are due.  Here's      #
+X+ # an example from my reminder file - it shows the use of filedate().     #
+X+ # When the .booksdue file is at least 7 days old, I create a new version #
+X+ # by querying the library computer.  Note the use of realtoday() rather  #
+X+ # than today.   						         #
+X+ #								         #
+X+ ##########################################################################
+X+ 
+X+ IF !$RunOff && !$CalMode && !$SimpleCal
+X+    IF REALTODAY()-FILEDATE("/home/dfs/.booksdue") >= 7
+X+       REM RUN /home/dfs/bilge/library/getbooks
+X+    ENDIF
+X+ ENDIF
+X+ 
+X  #PSSTUFF
+X  ##########################################################################
+X  #								         #
+X***************
+X*** 298,304 ****
+X  closepath 0.95 setgray fill 0.0 setgray"
+X  
+X  # The following reminder will shade the Saturday and Sunday calendar
+X! # entries. 
+X  REM Sat Sun PS [shade]
+X  
+X  # The following will fill in the Hebrew dates on the calendar.  For this
+X--- 316,322 ----
+X  closepath 0.95 setgray fill 0.0 setgray"
+X  
+X  # The following reminder will shade the Saturday and Sunday calendar
+X! # entries.
+X  REM Sat Sun PS [shade]
+X  
+X  # The following will fill in the Hebrew dates on the calendar.  For this
+X***************
+X*** 390,396 ****
+X  # dates were obtained from "The First Jewish Catalog" by Richard Siegel	 #
+X  # and Michael and Sharon Strassfeld, published by the Jewish Publication #
+X  # Society of America.  The Reform version of the calendar was guessed	 #
+X! # at by David Skoll based on experience.  I welcome corrections.         #
+X  #									 #
+X  ##########################################################################
+X  
+X--- 408,416 ----
+X  # dates were obtained from "The First Jewish Catalog" by Richard Siegel	 #
+X  # and Michael and Sharon Strassfeld, published by the Jewish Publication #
+X  # Society of America.  The Reform version of the calendar was guessed	 #
+X! # at by David Skoll based on experience.  Additional corrections were    #
+X! # made from the paper "Calendrical Calculations" by Nachum Dershowitz    #
+X! # and Edward M. Reingold.  Any further corrections are welcome.          #
+X  #									 #
+X  ##########################################################################
+X  
+X***************
+X*** 415,420 ****
+X--- 435,444 ----
+X  
+X  # Convenient function definition to save typing
+X  FSET _h(x, y) TRIGGER(HEBDATE(x,y))
+X+ FSET _h2(x, y) HEBDATE(x, y, TODAY()-7)
+X+ FSET _PastSat(x, y) IIF(WKDAYNUM(_h2(x,y))!=6, \
+X+ 			TRIGGER(_h2(x,y)), \
+X+ 			TRIGGER(_h2(x,y)+1))
+X  
+X  # Default values in case InIsrael and Reform are not set
+X  SET InIsrael VALUE("InIsrael", 0)
+X***************
+X*** 425,431 ****
+X  # No RH-2 or Tzom Gedalia in Reform
+X  IF !Reform
+X     [_h(2,  "Tishrey")] ++4 MSG %"Rosh Hashana 2%" is %b.
+X!    [_h(3,  "Tishrey")] ++4 MSG %"Tzom Gedalia%" is %b.
+X  ENDIF
+X  
+X  [_h(10, "Tishrey")] ++4 MSG %"Yom Kippur%" is %b.
+X--- 449,455 ----
+X  # No RH-2 or Tzom Gedalia in Reform
+X  IF !Reform
+X     [_h(2,  "Tishrey")] ++4 MSG %"Rosh Hashana 2%" is %b.
+X!    [_PastSat(3,  "Tishrey")] ++4 MSG %"Tzom Gedalia%" is %b.
+X  ENDIF
+X  
+X  [_h(10, "Tishrey")] ++4 MSG %"Yom Kippur%" is %b.
+X***************
+X*** 457,468 ****
+X  
+X  # Not sure about Reform's position on the next one.
+X  IF !Reform
+X!    [_h(10, "Tevet")] ++4 MSG %"Asara B'Tevet%" is %b.
+X  ENDIF
+X  
+X  [_h(15, "Shvat")] ++4 MSG %"Tu B'Shvat%" is %b.
+X  [_h(15, "Adar A")] ++4 MSG %"Purim Katan%" is %b.
+X! [_h(13, "Adar")] ++4 MSG %"Fast of Esther%" is %b.
+X  [_h(14, "Adar")] ++4 MSG %"Purim%" is %b.
+X  [_h(15, "Nisan")] ++4 MSG %"Pesach%" is %b.
+X  
+X--- 481,499 ----
+X  
+X  # Not sure about Reform's position on the next one.
+X  IF !Reform
+X! # The fast is moved to the 11th if the 10th is a Saturday
+X!    REM [_PastSat(10, "Tevet")] MSG %"Tzom Tevet%" is %b.
+X  ENDIF
+X  
+X  [_h(15, "Shvat")] ++4 MSG %"Tu B'Shvat%" is %b.
+X  [_h(15, "Adar A")] ++4 MSG %"Purim Katan%" is %b.
+X! 
+X! # If Purim is on Sunday, then Fast of Esther is 11 Adar.
+X! IF WKDAYNUM(_h2(13, "Adar")) != 6
+X!    REM [TRIGGER(_h2(13, "Adar"))] ++4 MSG %"Fast of Esther%" is %b.
+X! ELSE
+X!    REM [TRIGGER(_h2(11, "Adar"))] ++4 MSG %"Fast of Esther%" is %b.
+X! ENDIF
+X  [_h(14, "Adar")] ++4 MSG %"Purim%" is %b.
+X  [_h(15, "Nisan")] ++4 MSG %"Pesach%" is %b.
+X  
+X***************
+X*** 494,501 ****
+X  
+X  # Fairly sure Reform Jews don't observe the next two
+X  IF !Reform
+X!    [_h(17, "Tamuz")] ++4 MSG %"Fast of 17th of Tammuz%" is %b.
+X!    [_h(9,  "Av")] ++4 MSG %"Tish'a B'Av%" is %b.
+X  ENDIF
+X  
+X  # Counting the omer - do the whole spiel, i.e:
+X--- 525,534 ----
+X  
+X  # Fairly sure Reform Jews don't observe the next two
+X  IF !Reform
+X! # Tzom Tamuz and Tish'a B'Av are moved to Sunday if they normally
+X! # fall on a Saturday
+X!    [_PastSat(17, "Tamuz")] ++4 MSG %"Tzom Tammuz%" is %b.
+X!    [_PastSat(9,  "Av")] ++4 MSG %"Tish'a B'Av%" is %b.
+X  ENDIF
+X  
+X  # Counting the omer - do the whole spiel, i.e:
+X*** ../prev/dorem.c	Mon Jun 28 12:58:03 1993
+X--- ./dorem.c	Wed Aug 25 13:06:00 1993
+X***************
+X*** 137,162 ****
+X        FindToken(TokBuffer, &tok);
+X        switch(tok.type) {
+X  	 case T_WkDay:
+X! 	    if (trig->wd & (1 << tok.val)) {
+X! 	       Eprint("Weekday specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->wd |= (1 << tok.val);
+X  	    break;
+X  
+X  	 case T_Month:
+X! 	    if (trig->m != NO_MON) {
+X! 	       Eprint("Month specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->m = tok.val;
+X  	    break;
+X  
+X  	 case T_Skip:
+X! 	    if (trig->skip != NO_SKIP) {
+X! 	       Eprint("Only use one of BEFORE, AFTER or SKIP");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->skip = tok.val;
+X  	    break;
+X  
+X--- 137,153 ----
+X        FindToken(TokBuffer, &tok);
+X        switch(tok.type) {
+X  	 case T_WkDay:
+X! 	    if (trig->wd & (1 << tok.val)) return E_WD_TWICE;
+X  	    trig->wd |= (1 << tok.val);
+X  	    break;
+X  
+X  	 case T_Month:
+X! 	    if (trig->m != NO_MON) return E_MON_TWICE;
+X  	    trig->m = tok.val;
+X  	    break;
+X  
+X  	 case T_Skip:
+X! 	    if (trig->skip != NO_SKIP) return E_SKIP_ERR;
+X  	    trig->skip = tok.val;
+X  	    break;
+X  
+X***************
+X*** 172,181 ****
+X  
+X  	 case T_RemType:
+X  	    trig->typ = tok.val;
+X! 	    if (s->isnested) {
+X! 	       Eprint("Can't nest '%s' in expression", TokBuffer);
+X! 	       return E_PARSE_ERR;
+X!             }
+X  	    if (trig->scanfrom == NO_DATE) trig->scanfrom = JulianToday;
+X  	    return OK;
+X  
+X--- 163,169 ----
+X  
+X  	 case T_RemType:
+X  	    trig->typ = tok.val;
+X! 	    if (s->isnested) return E_CANT_NEST_RTYPE;
+X  	    if (trig->scanfrom == NO_DATE) trig->scanfrom = JulianToday;
+X  	    return OK;
+X  
+X***************
+X*** 185,234 ****
+X  	    break;
+X  
+X  	 case T_Year:
+X! 	    if (trig->y != NO_YR) {
+X! 	       Eprint("Year specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->y = tok.val;
+X  	    break;
+X  
+X  	 case T_Day:
+X! 	    if (trig->d != NO_DAY) {
+X! 	       Eprint("Day of month specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->d = tok.val;
+X  	    break;
+X  
+X  	 case T_Rep:
+X! 	    if (trig->rep != NO_REP) {
+X! 	       Eprint("Repeat value specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->rep = tok.val;
+X  	    break;
+X  
+X  	 case T_Delta:
+X! 	    if (trig->delta != NO_DELTA) {
+X! 	       Eprint("Delta value specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->delta = tok.val;
+X  	    break;
+X  
+X  	 case T_Back:
+X! 	    if (trig->back != NO_BACK) {
+X! 	       Eprint("Back value specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->back = tok.val;
+X  	    break;
+X  
+X  	 case T_Once:
+X! 	    if (trig->once != NO_ONCE) {
+X! 	       Eprint("ONCE specified twice.  (Hah.)");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    trig->once = ONCE_ONCE;
+X  	    break;
+X  
+X--- 173,204 ----
+X  	    break;
+X  
+X  	 case T_Year:
+X! 	    if (trig->y != NO_YR) return E_YR_TWICE;
+X  	    trig->y = tok.val;
+X  	    break;
+X  
+X  	 case T_Day:
+X! 	    if (trig->d != NO_DAY) return E_DAY_TWICE;
+X  	    trig->d = tok.val;
+X  	    break;
+X  
+X  	 case T_Rep:
+X! 	    if (trig->rep != NO_REP) return E_REP_TWICE;
+X  	    trig->rep = tok.val;
+X  	    break;
+X  
+X  	 case T_Delta:
+X! 	    if (trig->delta != NO_DELTA) return E_DELTA_TWICE;
+X  	    trig->delta = tok.val;
+X  	    break;
+X  
+X  	 case T_Back:
+X! 	    if (trig->back != NO_BACK) return E_BACK_TWICE;
+X  	    trig->back = tok.val;
+X  	    break;
+X  
+X  	 case T_Once:
+X! 	    if (trig->once != NO_ONCE) return E_ONCE_TWICE;
+X  	    trig->once = ONCE_ONCE;
+X  	    break;
+X  
+X***************
+X*** 242,249 ****
+X  	    return OK;
+X  
+X  	 default:
+X! 	    Eprint("Unknown token in trigger: %s", TokBuffer);
+X! 	    return E_PARSE_ERR;
+X        }
+X     }
+X  }
+X--- 212,219 ----
+X  	    return OK;
+X  
+X  	 default:
+X! 	    Eprint("%s: %s", ErrMsg[E_UNKNOWN_TOKEN], TokBuffer);
+X! 	    return E_UNKNOWN_TOKEN;
+X        }
+X     }
+X  }
+X***************
+X*** 282,291 ****
+X  	    break;
+X  
+X           default:
+X!             if (tim->ttime == NO_TIME) {
+X!                Eprint("Expecting time after AT.");
+X!                return E_PARSE_ERR;
+X! 	    }
+X  /* Save in global variable */
+X  	    LastTriggerTime = tim->ttime;
+X  	    PushToken(TokBuffer);
+X--- 252,258 ----
+X  	    break;
+X  
+X           default:
+X!             if (tim->ttime == NO_TIME) return E_EXPECT_TIME;
+X  /* Save in global variable */
+X  	    LastTriggerTime = tim->ttime;
+X  	    PushToken(TokBuffer);
+X***************
+X*** 347,356 ****
+X     Token tok;
+X     int r;
+X  
+X!    if (t->until != NO_UNTIL) {
+X!       Eprint("Cannot specify UNTIL twice");
+X!       return E_PARSE_ERR;
+X!    }
+X  
+X     while(1) {
+X        r = ParseToken(s, TokBuffer);
+X--- 314,320 ----
+X     Token tok;
+X     int r;
+X  
+X!    if (t->until != NO_UNTIL) return E_UNTIL_TWICE;
+X  
+X     while(1) {
+X        r = ParseToken(s, TokBuffer);
+X***************
+X*** 359,366 ****
+X        switch(tok.type) {
+X  	 case T_Year:
+X  	    if (y != NO_YR) {
+X! 	       Eprint("Year specified twice in UNTIL");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    y = tok.val;
+X  	    break;
+X--- 323,330 ----
+X        switch(tok.type) {
+X  	 case T_Year:
+X  	    if (y != NO_YR) {
+X! 	       Eprint("UNTIL: %s", ErrMsg[E_YR_TWICE]);
+X! 	       return E_YR_TWICE;
+X  	    }
+X  	    y = tok.val;
+X  	    break;
+X***************
+X*** 367,374 ****
+X  
+X  	 case T_Month:
+X  	    if (m != NO_MON) {
+X! 	       Eprint("Month specified twice in UNTIL");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    m = tok.val;
+X  	    break;
+X--- 331,338 ----
+X  
+X  	 case T_Month:
+X  	    if (m != NO_MON) {
+X! 	       Eprint("UNTIL: %s", ErrMsg[E_MON_TWICE]);
+X! 	       return E_MON_TWICE;
+X  	    }
+X  	    m = tok.val;
+X  	    break;
+X***************
+X*** 375,382 ****
+X  
+X  	 case T_Day:
+X  	    if (d != NO_DAY) {
+X! 	       Eprint("Day specified twice in UNTIL");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    d = tok.val;
+X  	    break;
+X--- 339,346 ----
+X  
+X  	 case T_Day:
+X  	    if (d != NO_DAY) {
+X! 	       Eprint("UNTIL: %s", ErrMsg[E_DAY_TWICE]);
+X! 	       return E_DAY_TWICE;
+X  	    }
+X  	    d = tok.val;
+X  	    break;
+X***************
+X*** 383,390 ****
+X  
+X  	 default:
+X  	    if (y == NO_YR || m == NO_MON || d == NO_DAY) {
+X! 	       Eprint("Incompletely specified UNTIL");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    if (!DateOK(y, m, d)) return E_BAD_DATE;
+X  	    t->until = Julian(y, m, d);
+X--- 347,354 ----
+X  
+X  	 default:
+X  	    if (y == NO_YR || m == NO_MON || d == NO_DAY) {
+X! 	       Eprint("UNTIL: %s", ErrMsg[E_INCOMPLETE]);
+X! 	       return E_INCOMPLETE;
+X  	    }
+X  	    if (!DateOK(y, m, d)) return E_BAD_DATE;
+X  	    t->until = Julian(y, m, d);
+X***************
+X*** 414,423 ****
+X     Token tok;
+X     int r;
+X  
+X!    if (t->scanfrom != NO_DATE) {
+X!       Eprint("Cannot specify SCANFROM twice");
+X!       return E_PARSE_ERR;
+X!    }
+X  
+X     while(1) {
+X        r = ParseToken(s, TokBuffer);
+X--- 378,384 ----
+X     Token tok;
+X     int r;
+X  
+X!    if (t->scanfrom != NO_DATE) return E_SCAN_TWICE;
+X  
+X     while(1) {
+X        r = ParseToken(s, TokBuffer);
+X***************
+X*** 426,433 ****
+X        switch(tok.type) {
+X  	 case T_Year:
+X  	    if (y != NO_YR) {
+X! 	       Eprint("Year specified twice in SCANFROM");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    y = tok.val;
+X  	    break;
+X--- 387,394 ----
+X        switch(tok.type) {
+X  	 case T_Year:
+X  	    if (y != NO_YR) {
+X! 	       Eprint("SCANFROM: %s", ErrMsg[E_YR_TWICE]);
+X! 	       return E_YR_TWICE;
+X  	    }
+X  	    y = tok.val;
+X  	    break;
+X***************
+X*** 434,441 ****
+X  
+X  	 case T_Month:
+X  	    if (m != NO_MON) {
+X! 	       Eprint("Month specified twice in SCANFROM");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    m = tok.val;
+X  	    break;
+X--- 395,402 ----
+X  
+X  	 case T_Month:
+X  	    if (m != NO_MON) {
+X! 	       Eprint("SCANFROM: %s", ErrMsg[E_MON_TWICE]);
+X! 	       return E_MON_TWICE;
+X  	    }
+X  	    m = tok.val;
+X  	    break;
+X***************
+X*** 442,449 ****
+X  
+X  	 case T_Day:
+X  	    if (d != NO_DAY) {
+X! 	       Eprint("Day specified twice in SCANFROM");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    d = tok.val;
+X  	    break;
+X--- 403,410 ----
+X  
+X  	 case T_Day:
+X  	    if (d != NO_DAY) {
+X! 	       Eprint("SCANFROM: %s", ErrMsg[E_DAY_TWICE]);
+X! 	       return E_DAY_TWICE;
+X  	    }
+X  	    d = tok.val;
+X  	    break;
+X***************
+X*** 450,457 ****
+X  
+X  	 default:
+X  	    if (y == NO_YR || m == NO_MON || d == NO_DAY) {
+X! 	       Eprint("Incompletely specified SCANFROM");
+X! 	       return E_PARSE_ERR;
+X  	    }
+X  	    if (!DateOK(y, m, d)) return E_BAD_DATE;
+X  	    t->scanfrom = Julian(y, m, d);
+X--- 411,418 ----
+X  
+X  	 default:
+X  	    if (y == NO_YR || m == NO_MON || d == NO_DAY) {
+X! 	       Eprint("SCANFROM: %s", ErrMsg[E_INCOMPLETE]);
+X! 	       return E_INCOMPLETE;
+X  	    }
+X  	    if (!DateOK(y, m, d)) return E_BAD_DATE;
+X  	    t->scanfrom = Julian(y, m, d);
+X***************
+X*** 484,490 ****
+X        return OK;
+X  
+X  /* If it's a MSG-type reminder, and no -k option was used, issue the banner. */
+X!    if (t->typ == MSG_TYPE && !NumTriggered && !NextMode && !MsgCommand) {
+X        if (!DoSubstFromString(Banner, SubstBuffer, JulianToday, NO_TIME))
+X           if (*SubstBuffer) printf("%s\n", SubstBuffer);
+X     }
+X--- 445,452 ----
+X        return OK;
+X  
+X  /* If it's a MSG-type reminder, and no -k option was used, issue the banner. */
+X!    if ((t->typ == MSG_TYPE || t->typ == MSF_TYPE) 
+X!        && !NumTriggered && !NextMode && !MsgCommand) {
+X        if (!DoSubstFromString(Banner, SubstBuffer, JulianToday, NO_TIME))
+X           if (*SubstBuffer) printf("%s\n", SubstBuffer);
+X     }
+X***************
+X*** 515,523 ****
+X     }
+X  
+X  /* Otherwise, issue the reminder now */
+X!    if (t->typ == MSG_TYPE) {
+X        if (!MsgCommand)
+X!          printf("%s\n", SubstBuffer);
+X        else {
+X           char buf[LINELEN+TOKSIZE];
+X           sprintf(buf, MsgCommand, SubstBuffer);
+X--- 477,488 ----
+X     }
+X  
+X  /* Otherwise, issue the reminder now */
+X!    if (t->typ == MSG_TYPE || t->typ == MSF_TYPE) {
+X        if (!MsgCommand)
+X!          if (t->typ == MSG_TYPE)
+X!             printf("%s\n", SubstBuffer);
+X! 	 else
+X! 	    FillParagraph(SubstBuffer);
+X        else {
+X           char buf[LINELEN+TOKSIZE];
+X           sprintf(buf, MsgCommand, SubstBuffer);
+X*** ../prev/dutch.h	Mon Jun 28 12:29:36 1993
+X--- ./dutch.h	Fri Jul 23 11:32:26 1993
+X***************
+X*** 8,13 ****
+X--- 8,15 ----
+X  /*                                                             */
+X  /*  Modified slightly by David Skoll                           */
+X  /*                                                             */
+X+ /*  Further corrections by Erik-Jan Vens                       */
+X+ /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X  /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X***************
+X*** 17,46 ****
+X  #define L_LANGNAME "Dutch"
+X  
+X  /* Day names */
+X! #define L_SUNDAY "Zondag"
+X! #define L_MONDAY "Maandag"
+X! #define L_TUESDAY "Dinsdag"
+X! #define L_WEDNESDAY "Woensdag"
+X! #define L_THURSDAY "Donderdag"
+X! #define L_FRIDAY "Vrijdag"
+X! #define L_SATURDAY "Zaterdag"
+X  
+X  /* Day initials - first letter only */
+X! #define L_DAYINIT "ZMDWDVZ"
+X  
+X  /* Month names */
+X! #define L_JAN "Januari"
+X! #define L_FEB "Februari"
+X! #define L_MAR "Maart"
+X! #define L_APR "April"
+X! #define L_MAY "Mei"
+X! #define L_JUN "Juni"
+X! #define L_JUL "Juli"
+X! #define L_AUG "Augustus"
+X! #define L_SEP "September"
+X! #define L_OCT "October"
+X! #define L_NOV "November"
+X! #define L_DEC "December"
+X  
+X  /* Today and tomorrow */
+X  #define L_TODAY "vandaag"
+X--- 19,48 ----
+X  #define L_LANGNAME "Dutch"
+X  
+X  /* Day names */
+X! #define L_SUNDAY "zondag"
+X! #define L_MONDAY "maandag"
+X! #define L_TUESDAY "dinsdag"
+X! #define L_WEDNESDAY "woensdag"
+X! #define L_THURSDAY "donderdag"
+X! #define L_FRIDAY "vrijdag"
+X! #define L_SATURDAY "zaterdag"
+X  
+X  /* Day initials - first letter only */
+X! #define L_DAYINIT "zmdwdvz"
+X  
+X  /* Month names */
+X! #define L_JAN "januari"
+X! #define L_FEB "februari"
+X! #define L_MAR "maart"
+X! #define L_APR "april"
+X! #define L_MAY "mei"
+X! #define L_JUN "juni"
+X! #define L_JUL "juli"
+X! #define L_AUG "augustus"
+X! #define L_SEP "september"
+X! #define L_OCT "oktober"
+X! #define L_NOV "november"
+X! #define L_DEC "december"
+X  
+X  /* Today and tomorrow */
+X  #define L_TODAY "vandaag"
+X*** ../prev/err.h	Mon Jun 28 12:29:30 1993
+X--- ./err.h	Fri Aug 20 11:43:18 1993
+X***************
+X*** 9,14 ****
+X--- 9,19 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X+ /* Note that not all of the "errors" are really errors - some are just
+X+    messages for information purposes.  Constants beginning with M_ should
+X+    never be returned as error indicators - they should only be used to
+X+    index the ErrMsg array. */
+X+ 
+X  #define OK                    0
+X  #define E_MISS_END            1
+X  #define E_MISS_QUOTE          2
+X***************
+X*** 58,63 ****
+X--- 63,119 ----
+X                                     as a REM statement, also. */
+X  #define E_CANT_MODIFY        45
+X  #define E_MKTIME_PROBLEM     46
+X+ #define E_REDEF_FUNC	     47
+X+ #define E_CANTNEST_FDEF      48
+X+ #define E_REP_FULSPEC        49
+X+ #define E_YR_TWICE	     50
+X+ #define E_MON_TWICE	     51
+X+ #define E_DAY_TWICE	     52
+X+ #define E_UNKNOWN_TOKEN	     53
+X+ #define E_SPEC_MON_DAY	     54
+X+ #define E_2MANY_PART	     55
+X+ #define E_2MANY_FULL	     56
+X+ #define E_PUSH_NOPOP	     57
+X+ #define E_ERR_READING	     58
+X+ #define E_EXPECTING_EOL	     59
+X+ #define E_BAD_HEBDATE	     60
+X+ #define E_IIF_ODD	     61
+X+ #define E_MISS_ENDIF	     62
+X+ #define E_EXPECT_COMMA	     63
+X+ #define E_WD_TWICE	     64
+X+ #define E_SKIP_ERR	     65
+X+ #define E_CANT_NEST_RTYPE    66
+X+ #define E_REP_TWICE	     67
+X+ #define E_DELTA_TWICE	     68
+X+ #define E_BACK_TWICE	     69
+X+ #define E_ONCE_TWICE	     70
+X+ #define E_EXPECT_TIME	     71
+X+ #define E_UNTIL_TWICE	     72
+X+ #define E_INCOMPLETE	     73
+X+ #define E_SCAN_TWICE	     74
+X+ #define E_VAR		     75
+X+ #define E_VAL		     76
+X+ #define E_UNDEF		     77
+X+ #define E_ENTER_FUN	     78
+X+ #define E_LEAVE_FUN	     79
+X+ #define E_EXPIRED	     80
+X+ #define E_CANTFORK	     81
+X+ #define E_CANTACCESS	     82
+X+ #define M_BAD_SYS_DATE	     83
+X+ #define M_BAD_DB_FLAG	     84
+X+ #define M_BAD_OPTION	     85
+X+ #define M_BAD_USER	     86
+X+ #define M_NO_CHG_GID	     87
+X+ #define M_NO_CHG_UID	     88
+X+ #define M_NOMEM_ENV	     89
+X+ #define E_MISS_EQ	     90
+X+ #define E_MISS_VAR	     91
+X+ #define E_MISS_EXPR	     92
+X+ #define M_CANTSET_ACCESS     93
+X+ #define M_I_OPTION	     94
+X+ #define E_NOREMINDERS	     95
+X+ #define M_QUEUED	     96
+X+ 
+X  #ifdef MK_GLOBALS
+X  #undef EXTERN
+X  #define EXTERN
+X***************
+X*** 66,71 ****
+X--- 122,128 ----
+X  #define EXTERN extern
+X  #endif
+X  
+X+ #ifndef L_ERR_OVERRIDE
+X  EXTERN char *ErrMsg[]
+X  
+X  #ifdef MK_GLOBALS
+X***************
+X*** 116,122 ****
+X     "Recursive function call detected",
+X     "",
+X     "Cannot modify system variable",
+X!    "C library function can't represent date/time"
+X  }
+X! #endif
+X  ;
+X--- 173,230 ----
+X     "Recursive function call detected",
+X     "",
+X     "Cannot modify system variable",
+X!    "C library function can't represent date/time",
+X!    "Attempt to redefine built-in function",
+X!    "Can't nest function definition in expression",
+X!    "Must fully specify date to use repeat factor",
+X!    "Year specified twice",
+X!    "Month specified twice",
+X!    "Day specified twice",
+X!    "Unknown token",
+X!    "Must specify month and day in OMIT command",
+X!    "Too many partial OMITs",
+X!    "Too many full OMITs",
+X!    "Warning: PUSH-OMIT-CONTEXT without matching POP-OMIT-CONTEXT",
+X!    "Error reading file",
+X!    "Expecting end-of-line",
+X!    "Invalid Hebrew date",
+X!    "IIF needs odd number of arguments",
+X!    "Warning: Missing ENDIF",
+X!    "Expecting comma",
+X!    "Weekday specified twice",
+X!    "Only use one of BEFORE, AFTER or SKIP",
+X!    "Can't nest MSG, MSF, RUN, etc. in expression",
+X!    "Repeat value specified twice",
+X!    "Delta value specified twice",
+X!    "Back value specified twice",
+X!    "ONCE keyword used twice. (Hah.)",
+X!    "Expecting time after AT",
+X!    "UNTIL keyword used twice",
+X!    "Incomplete date specification",
+X!    "SCANFROM keyword used twice",
+X!    "Variable",
+X!    "Value",
+X!    "*UNDEFINED*",
+X!    "Entering UserFN",
+X!    "Leaving UserFN",
+X!    "Expired",
+X!    "fork() failed - can't do queued reminders",
+X!    "Can't access file",
+X!    "Illegal system date: Year is less than %d\n",
+X!    "Unknown debug flag '%c'\n",
+X!    "Unknown option '%c'\n",
+X!    "Unknown user '%s'\n",
+X!    "Could not change gid to %d\n",
+X!    "Could not change uid to %d\n",
+X!    "Out of memory for environment\n",
+X!    "Missing '=' sign",
+X!    "Missing variable name",
+X!    "Missing expression",
+X!    "Can't reset access date of %s\n",
+X!    "Remind: '-i' option: %s\n",
+X!    "No reminders.",
+X!    "%d reminder(s) queued for later today.\n"
+X  }
+X! #endif /* MK_GLOBALS */
+X  ;
+X+ #endif /* L_ERR_OVERRIDE */
+X*** ../prev/expr.c	Mon Jun 28 12:29:43 1993
+X--- ./expr.c	Thu Aug 19 16:24:24 1993
+X***************
+X*** 349,356 ****
+X  	       if (*ExprBuf == ')') break;
+X  	       else if (*ExprBuf != ',') {
+X  	          if (!f) free(ufname);
+X!  		  Eprint("Expecting comma, found '%c'", *ExprBuf);
+X! 	          return E_ILLEGAL_CHAR;
+X                 }
+X              }
+X  	    if (f) r = CallFunc(f, args);
+X--- 349,356 ----
+X  	       if (*ExprBuf == ')') break;
+X  	       else if (*ExprBuf != ',') {
+X  	          if (!f) free(ufname);
+X!  		  Eprint("%s: '%c'", ErrMsg[E_EXPECT_COMMA], *ExprBuf);
+X! 	          return E_EXPECT_COMMA;
+X                 }
+X              }
+X  	    if (f) r = CallFunc(f, args);
+X***************
+X*** 392,398 ****
+X  	    else
+X  	       r=(op.func)();
+X    	    if (r) {
+X! 	       Eprint("Operator '%s' %s", op.name, ErrMsg[r]);
+X  	       return r;
+X              }
+X  	 }
+X--- 392,398 ----
+X  	    else
+X  	       r=(op.func)();
+X    	    if (r) {
+X! 	       Eprint("'%s': %s", op.name, ErrMsg[r]);
+X  	       return r;
+X              }
+X  	 }
+X***************
+X*** 412,418 ****
+X  	 else
+X  	    r=(op2.func)();
+X  	 if (r) {
+X! 	    Eprint("Operator '%s' %s", op2.name, ErrMsg[r]);
+X  	    return r;
+X           }
+X        }
+X--- 412,418 ----
+X  	 else
+X  	    r=(op2.func)();
+X  	 if (r) {
+X! 	    Eprint("'%s': %s", op2.name, ErrMsg[r]);
+X  	    return r;
+X           }
+X        }
+X*** ../prev/files.c	Mon Jun 28 12:29:44 1993
+X--- ./files.c	Thu Aug 26 10:47:48 1993
+X***************
+X*** 38,43 ****
+X--- 38,47 ----
+X  #include "globals.h"
+X  #include "err.h"
+X  
+X+ 
+X+ /* Convenient macro for closing files */
+X+ #define FCLOSE(fp) (((fp)&&((fp)!=stdin)) ? (fclose(fp),(fp)=NULL) : ((fp)=NULL))
+X+ 
+X  /* Define the structures needed by the file caching system */
+X  typedef struct cache {
+X     struct cache *next;
+X***************
+X*** 124,140 ****
+X  {
+X     int l;
+X     char *ptr;
+X  
+X     *LineBuffer = (char) 0;
+X     l = 0;
+X     ptr = LineBuffer;
+X     while(fp) {
+X!       (void) fgets(ptr, LINELEN-l, fp);
+X        LineNo++;
+X        if (ferror(fp)) return E_IO_ERR;
+X!       if (feof(fp)) {
+X!          fclose(fp);
+X! 	 fp = NULL;
+X        }
+X        l = strlen(LineBuffer);
+X        if (l && (LineBuffer[l-1] == '\n')) LineBuffer[--l] = '\0';
+X--- 128,144 ----
+X  {
+X     int l;
+X     char *ptr;
+X+    char *tmp;
+X  
+X     *LineBuffer = (char) 0;
+X     l = 0;
+X     ptr = LineBuffer;
+X     while(fp) {
+X!       tmp=fgets(ptr, LINELEN-l, fp);
+X        LineNo++;
+X        if (ferror(fp)) return E_IO_ERR;
+X!       if (feof(fp) || !tmp) {
+X!          FCLOSE(fp);
+X        }
+X        l = strlen(LineBuffer);
+X        if (l && (LineBuffer[l-1] == '\n')) LineBuffer[--l] = '\0';
+X***************
+X*** 181,187 ****
+X        }
+X        h = h->next;
+X     }
+X!    fp = fopen(fname, "r");
+X     if (!fp) return E_CANT_OPEN;
+X     CLine = NULL;
+X     if (ShouldCache) {
+X--- 185,197 ----
+X        }
+X        h = h->next;
+X     }
+X! 
+X! /* If it's a dash, then it's stdin */
+X!    if (!strcmp(fname, "-")) {
+X!       fp = stdin;
+X!    } else {
+X!       fp = fopen(fname, "r");
+X!    }
+X     if (!fp) return E_CANT_OPEN;
+X     CLine = NULL;
+X     if (ShouldCache) {
+X***************
+X*** 191,197 ****
+X           fp = NULL;
+X  	 CLine = CachedFiles->cache;
+X        } else {
+X!          fp = fopen(fname, "r");
+X  	 if (!fp) return E_CANT_OPEN;
+X        }
+X     }
+X--- 201,210 ----
+X           fp = NULL;
+X  	 CLine = CachedFiles->cache;
+X        } else {
+X!          if (strcmp(fname, "-"))
+X!             fp = fopen(fname, "r");
+X!          else
+X! 	    fp = stdin;
+X  	 if (!fp) return E_CANT_OPEN;
+X        }
+X     }
+X***************
+X*** 224,234 ****
+X  /* Create a file header */
+X     cf = NEW(CachedFile);
+X     cf->cache = NULL;
+X!    if (!cf) { ShouldCache = 0; fclose(fp); return E_NO_MEM; }
+X     cf->filename = StrDup(fname);
+X     if (!cf->filename) {
+X        ShouldCache = 0;
+X!       fclose(fp);
+X        free(cf);
+X        return E_NO_MEM;
+X     }
+X--- 237,247 ----
+X  /* Create a file header */
+X     cf = NEW(CachedFile);
+X     cf->cache = NULL;
+X!    if (!cf) { ShouldCache = 0; FCLOSE(fp); return E_NO_MEM; }
+X     cf->filename = StrDup(fname);
+X     if (!cf->filename) {
+X        ShouldCache = 0;
+X!       FCLOSE(fp);
+X        free(cf);
+X        return E_NO_MEM;
+X     }
+X***************
+X*** 239,245 ****
+X        if (r) {
+X           DestroyCache(cf);
+X  	 ShouldCache = 0;
+X! 	 if(fp) fclose(fp);
+X  	 return r;
+X        }
+X  /* Skip blank chars */
+X--- 252,258 ----
+X        if (r) {
+X           DestroyCache(cf);
+X  	 ShouldCache = 0;
+X! 	 FCLOSE(fp);
+X  	 return r;
+X        }
+X  /* Skip blank chars */
+X***************
+X*** 252,258 ****
+X  	    if (!cf->cache) {
+X  	       DestroyCache(cf);
+X  	       ShouldCache = 0;
+X! 	       if(fp) fclose(fp);
+X  	       return E_NO_MEM;
+X              }
+X  	    cl = cf->cache;
+X--- 265,271 ----
+X  	    if (!cf->cache) {
+X  	       DestroyCache(cf);
+X  	       ShouldCache = 0;
+X! 	       FCLOSE(fp);
+X  	       return E_NO_MEM;
+X              }
+X  	    cl = cf->cache;
+X***************
+X*** 261,267 ****
+X  	    if (!cl->next) {
+X  	       DestroyCache(cf);
+X  	       ShouldCache = 0;
+X! 	       if(fp) fclose(fp);
+X  	       return E_NO_MEM;
+X              }
+X  	    cl = cl->next;
+X--- 274,280 ----
+X  	    if (!cl->next) {
+X  	       DestroyCache(cf);
+X  	       ShouldCache = 0;
+X! 	       FCLOSE(fp);
+X  	       return E_NO_MEM;
+X              }
+X  	    cl = cl->next;
+X***************
+X*** 272,278 ****
+X  	 if (!cl->text) {
+X  	    DestroyCache(cf);
+X  	    ShouldCache = 0;
+X! 	    if(fp) fclose(fp);
+X  	    return E_NO_MEM;
+X           }
+X        }
+X--- 285,291 ----
+X  	 if (!cl->text) {
+X  	    DestroyCache(cf);
+X  	    ShouldCache = 0;
+X! 	    FCLOSE(fp);
+X  	    return E_NO_MEM;
+X           }
+X        }
+X***************
+X*** 299,305 ****
+X  {
+X     IncludeStruct *i;
+X  
+X!    if (!Hush && NumIfs) Eprint("Warning: Missing ENDIF");
+X     if (!IStackPtr) return E_EOF;
+X     IStackPtr--;
+X     i = &IStack[IStackPtr];
+X--- 312,318 ----
+X  {
+X     IncludeStruct *i;
+X  
+X!    if (!Hush && NumIfs) Eprint("%s", ErrMsg[E_MISS_ENDIF]);
+X     if (!IStackPtr) return E_EOF;
+X     IStackPtr--;
+X     i = &IStack[IStackPtr];
+X***************
+X*** 312,320 ****
+X     STRSET(FileName, i->filename);
+X     if (!CLine && (i->offset != -1L)) {
+X     /* We must open the file, then seek to specified position */
+X!       fp = fopen(i->filename, "r");
+X        if (!fp) return E_CANT_OPEN;
+X!       (void) fseek(fp, i->offset, 0);  /* Trust that it works... */
+X     }
+X     free(i->filename);
+X     return OK;
+X--- 325,337 ----
+X     STRSET(FileName, i->filename);
+X     if (!CLine && (i->offset != -1L)) {
+X     /* We must open the file, then seek to specified position */
+X!       if (strcmp(i->filename, "-"))
+X!          fp = fopen(i->filename, "r");
+X!       else
+X!          fp = stdin;
+X        if (!fp) return E_CANT_OPEN;
+X!       if (fp != stdin)
+X!          (void) fseek(fp, i->offset, 0);  /* Trust that it works... */
+X     }
+X     free(i->filename);
+X     return OK;
+X***************
+X*** 376,383 ****
+X     i->offset = -1L;
+X     if (fp) {
+X        i->offset = ftell(fp);
+X!       fclose(fp);
+X!       fp = (FILE *) NULL;
+X     }
+X  
+X     IStackPtr++;
+X--- 393,399 ----
+X     i->offset = -1L;
+X     if (fp) {
+X        i->offset = ftell(fp);
+X!       FCLOSE(fp);
+X     }
+X  
+X     IStackPtr++;
+X***************
+X*** 388,393 ****
+X--- 404,410 ----
+X     }
+X     /* Ugh!  We failed!  */
+X     if ( (r=PopFile()) ) return r;
+X+    Eprint("%s: %s", ErrMsg[E_CANT_OPEN], fname);
+X     return E_CANT_OPEN;
+X  }
+X  
+X***************
+X*** 468,483 ****
+X  #else /* Must be MSC */
+X     if (utime(fname, (struct utimbuf *) NULL)) {
+X  #endif   	
+X!       fprintf(ErrFp, "Can't reset access date of %s\n", fname);
+X  
+X  #ifdef __TURBOC__
+X!       if (f) fclose(f);
+X  #endif
+X        return -1;
+X     }
+X  
+X  #ifdef __TURBOC__
+X!    fclose(f);
+X  #endif
+X  
+X     return 0;
+X--- 485,500 ----
+X  #else /* Must be MSC */
+X     if (utime(fname, (struct utimbuf *) NULL)) {
+X  #endif   	
+X!       fprintf(ErrFp, ErrMsg[M_CANTSET_ACCESS], fname);
+X  
+X  #ifdef __TURBOC__
+X!       if (f) FCLOSE(f);
+X  #endif
+X        return -1;
+X     }
+X  
+X  #ifdef __TURBOC__
+X!    FCLOSE(f);
+X  #endif
+X  
+X     return 0;
+X*** ../prev/funcs.c	Fri Jul 16 15:23:44 1993
+X--- ./funcs.c	Thu Aug 19 16:58:12 1993
+X***************
+X*** 27,32 ****
+X--- 27,35 ----
+X  #include <sys/file.h>
+X  #endif
+X  #endif
+X+ #include <sys/types.h>
+X+ #include <sys/stat.h>
+X+ #include <time.h>
+X  #ifdef __MSDOS__
+X  #include <io.h>
+X  #define R_OK 4
+X***************
+X*** 60,65 ****
+X--- 63,69 ----
+X  PRIVATE	int	FDefined	ARGS ((void));
+X  PRIVATE	int	FDosubst	ARGS ((void));
+X  PRIVATE	int	FEasterdate	ARGS ((void));
+X+ PRIVATE int	FFiledate	ARGS ((void));
+X  PRIVATE	int	FFiledir	ARGS ((void));
+X  PRIVATE	int	FFilename	ARGS ((void));
+X  PRIVATE	int	FGetenv		ARGS ((void));
+X***************
+X*** 170,175 ****
+X--- 174,180 ----
+X      {   "defined",	1,	1,	FDefined },
+X      {   "dosubst",	1,	3,	FDosubst },
+X      {   "easterdate",	1,	1,	FEasterdate },
+X+     {	"filedate",	1,	1,	FFiledate },
+X      {	"filedir",	0,	0,	FFiledir },
+X      {   "filename",	0,	0,	FFilename },
+X      {   "getenv",	1,	1,	FGetenv },
+X***************
+X*** 532,538 ****
+X  /* Special case of one arg - if given ascii value 0, create empty string */
+X     if (Nargs == 1) {
+X        if (ARG(0).type != INT_TYPE) return E_BAD_TYPE;
+X!       if (ARG(0).v.val < 0) return E_2LOW;
+X        if (ARG(0).v.val > 255) return E_2HIGH;
+X        len = ARG(0).v.val ? 2 : 1;
+X        RetVal.v.str = (char *) malloc(len);
+X--- 537,543 ----
+X  /* Special case of one arg - if given ascii value 0, create empty string */
+X     if (Nargs == 1) {
+X        if (ARG(0).type != INT_TYPE) return E_BAD_TYPE;
+X!       if (ARG(0).v.val < -128) return E_2LOW;
+X        if (ARG(0).v.val > 255) return E_2HIGH;
+X        len = ARG(0).v.val ? 2 : 1;
+X        RetVal.v.str = (char *) malloc(len);
+X***************
+X*** 548,554 ****
+X     RetVal.type = STR_TYPE;
+X     for (i=0; i<Nargs; i++) {
+X       if (ARG(i).type != INT_TYPE) return E_BAD_TYPE;
+X!      if (ARG(i).v.val < 1) return E_2LOW;
+X       if (ARG(i).v.val > 255) return E_2HIGH;
+X       *(RetVal.v.str + i) = ARG(i).v.val;
+X     }
+X--- 553,559 ----
+X     RetVal.type = STR_TYPE;
+X     for (i=0; i<Nargs; i++) {
+X       if (ARG(i).type != INT_TYPE) return E_BAD_TYPE;
+X!      if (ARG(i).v.val < -128 || ARG(i).v.val == 0) return E_2LOW;
+X       if (ARG(i).v.val > 255) return E_2HIGH;
+X       *(RetVal.v.str + i) = ARG(i).v.val;
+X     }
+X***************
+X*** 1348,1357 ****
+X     int istrue;
+X     int arg;
+X  
+X!    if (!(Nargs % 2)) {
+X!       Eprint("IIF needs odd number of args");
+X!       return E_2FEW_ARGS;
+X!    }
+X  
+X     for (arg=0; arg<Nargs-1; arg += 2) {
+X        if (ARG(arg).type != STR_TYPE && ARG(arg).type != INT_TYPE)
+X--- 1353,1359 ----
+X     int istrue;
+X     int arg;
+X  
+X!    if (!(Nargs % 2)) return E_IIF_ODD;
+X  
+X     for (arg=0; arg<Nargs-1; arg += 2) {
+X        if (ARG(arg).type != STR_TYPE && ARG(arg).type != INT_TYPE)
+X***************
+X*** 1621,1630 ****
+X     if (ARG(0).type != INT_TYPE || ARG(1).type != STR_TYPE) return E_BAD_TYPE;
+X     day = ARG(0).v.val;
+X     mon = HebNameToNum(ARG(1).v.str);
+X!    if (mon < 0) {
+X!       Eprint("Invalid Hebrew month");
+X!       return E_BAD_DATE;
+X!    }
+X     if (Nargs == 2) {
+X        r = GetNextHebrewDate(JulianToday, mon, day, 0, 0, &ans);
+X        if (r) return r;
+X--- 1623,1629 ----
+X     if (ARG(0).type != INT_TYPE || ARG(1).type != STR_TYPE) return E_BAD_TYPE;
+X     day = ARG(0).v.val;
+X     mon = HebNameToNum(ARG(1).v.str);
+X!    if (mon < 0) return E_BAD_HEBDATE;
+X     if (Nargs == 2) {
+X        r = GetNextHebrewDate(JulianToday, mon, day, 0, 0, &ans);
+X        if (r) return r;
+X***************
+X*** 2005,2008 ****
+X--- 2004,2046 ----
+X  #endif
+X  {
+X     return FSun(0);
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FFiledate                                                  */
+X+ /*                                                             */
+X+ /*  Return modification date of a file                         */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FFiledate(void)
+X+ #else
+X+ static int FFiledate()
+X+ #endif
+X+ {
+X+    struct stat statbuf;
+X+    struct tm *t1;
+X+ 
+X+    RetVal.type = DATE_TYPE;
+X+ 
+X+    if (ARG(0).type != STR_TYPE) return E_BAD_TYPE;
+X+ 
+X+    if (stat(ARG(0).v.str, &statbuf)) {
+X+       RetVal.v.val = 0;
+X+       return OK;
+X+    }
+X+ 
+X+ #ifdef __TURBOC__
+X+    t1 = localtime( (time_t *) &(statbuf.st_mtime) );
+X+ #else
+X+    t1 = localtime(&(statbuf.st_mtime));
+X+ #endif
+X+ 
+X+    if (t1->tm_year + 1900 < BASE)
+X+       RetVal.v.val=0;
+X+    else
+X+       RetVal.v.val=Julian(t1->tm_year+1900, t1->tm_mon, t1->tm_mday);
+X+ 
+X+    return OK;
+X  }
+X*** ../prev/globals.h	Mon Jun 28 12:29:31 1993
+X--- ./globals.h	Thu Aug 19 15:46:05 1993
+X***************
+X*** 10,16 ****
+X  /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X- #include "lang.h"
+X  #ifdef MK_GLOBALS
+X  #undef EXTERN
+X  #define EXTERN
+X--- 10,15 ----
+X***************
+X*** 49,55 ****
+X  EXTERN  INIT(	int 	InfiniteDelta, 0);
+X  EXTERN  INIT(   int     RunDisabled, 0);
+X  EXTERN  INIT(   int     IgnoreOnce, 0);
+X- EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X  EXTERN  INIT(   int     SortByTime, 0);
+X  EXTERN  INIT(   int     SortByDate, 0);
+X  
+X--- 48,53 ----
+X***************
+X*** 66,71 ****
+X--- 64,70 ----
+X  EXTERN  INIT(   int     ScFormat, SC_AMPM);
+X  EXTERN  INIT(   int     MaxSatIter, 150);
+X  EXTERN  INIT(	char	*FileName, NULL);
+X+ EXTERN	INIT(	int	UseStdin, 0);
+X  EXTERN  FILE *ErrFp;
+X  EXTERN  INIT(   int     NumIfs,    0);
+X  EXTERN  INIT(   unsigned int IfFlags,   0);
+X***************
+X*** 84,97 ****
+X  EXTERN  INIT(	int	  LatDeg, LAT_DEG);
+X  EXTERN  INIT(	int	  LatMin, LAT_MIN);
+X  EXTERN  INIT(	int	  LatSec, LAT_SEC);
+X! EXTERN  INIT(	int	  LongDeg, LONG_DEG);
+X! EXTERN  INIT(	int	  LongMin, LONG_MIN);
+X! EXTERN  INIT(	int	  LongSec, LONG_SEC);
+X  
+X  /* UTC calculation stuff */
+X  EXTERN  INIT(	int	  MinsFromUTC, 0);
+X  EXTERN	INIT(	int	  CalculateUTC, 1);
+X  EXTERN  INIT(   int	  FoldYear, 0);
+X  /* List of months */
+X  EXTERN	char	*MonthName[]
+X  #ifdef MK_GLOBALS
+X--- 83,108 ----
+X  EXTERN  INIT(	int	  LatDeg, LAT_DEG);
+X  EXTERN  INIT(	int	  LatMin, LAT_MIN);
+X  EXTERN  INIT(	int	  LatSec, LAT_SEC);
+X! EXTERN  INIT(	int	  LongDeg, LON_DEG);
+X! EXTERN  INIT(	int	  LongMin, LON_MIN);
+X! EXTERN  INIT(	int	  LongSec, LON_SEC);
+X  
+X  /* UTC calculation stuff */
+X  EXTERN  INIT(	int	  MinsFromUTC, 0);
+X  EXTERN	INIT(	int	  CalculateUTC, 1);
+X  EXTERN  INIT(   int	  FoldYear, 0);
+X+ 
+X+ /* Parameters for formatting MSGF reminders */
+X+ EXTERN  INIT(   int	  FormWidth, 72);
+X+ EXTERN	INIT(	int	  FirstIndent, 0);
+X+ EXTERN	INIT(	int	  SubsIndent, 0);
+X+ 
+X+ /* We need the language stuff here... */
+X+ 
+X+ #include "lang.h"
+X+ 
+X+ EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X+ 
+X  /* List of months */
+X  EXTERN	char	*MonthName[]
+X  #ifdef MK_GLOBALS
+X*** ../prev/hbcal.c	Mon Jun 28 12:29:49 1993
+X--- ./hbcal.c	Thu Aug 19 16:21:14 1993
+X***************
+X*** 344,351 ****
+X     /* Do some error checking */
+X     if (din < 1 || din > MaxMonLen[min] || min < 0 || min > 13) {
+X        *dout = -1;
+X!       Eprint("Invalid Hebrew date");
+X!       return E_BAD_DATE;
+X     }
+X  
+X     ylen = DaysInHebYear(yin);
+X--- 344,350 ----
+X     /* Do some error checking */
+X     if (din < 1 || din > MaxMonLen[min] || min < 0 || min > 13) {
+X        *dout = -1;
+X!       return E_BAD_HEBDATE;
+X     }
+X  
+X     ylen = DaysInHebYear(yin);
+X***************
+X*** 512,529 ****
+X  /* Check for Adar A */
+X     if (m == ADARA && monlen[m] == 0) {
+X        Eprint("No Adar A in %d", y);
+X!       return E_BAD_DATE;
+X     }
+X  
+X  
+X     if (d < 1 || d > MaxMonLen[m] || m < 0 || m > 13) {
+X!       Eprint("Invalid Hebrew date");
+X!       return E_BAD_DATE;
+X     }
+X  
+X     if (d > monlen[m]) {
+X!       Eprint("No %d %s %d", d, HebMonthNames[m], y);
+X!       return E_BAD_DATE;
+X     }
+X  
+X  /* If the jahrzeit was in Adar A, we always use JAHR_BACKWARD */
+X--- 511,527 ----
+X  /* Check for Adar A */
+X     if (m == ADARA && monlen[m] == 0) {
+X        Eprint("No Adar A in %d", y);
+X!       return E_BAD_HEBDATE;
+X     }
+X  
+X  
+X     if (d < 1 || d > MaxMonLen[m] || m < 0 || m > 13) {
+X!       return E_BAD_HEBDATE;
+X     }
+X  
+X     if (d > monlen[m]) {
+X!       Eprint("%d %s %d: %s", d, HebMonthNames[m], y, ErrMsg[E_BAD_HEBDATE]);
+X!       return E_BAD_HEBDATE;
+X     }
+X  
+X  /* If the jahrzeit was in Adar A, we always use JAHR_BACKWARD */
+END_OF_FILE
+  if test 52275 -ne `wc -c <'patch.08.B'`; then
+    echo shar: \"'patch.08.B'\" unpacked with wrong size!
+  elif test -f 'patch.08.A' && test -f 'patch.08.C'; then
+    echo shar: Combining  \"'patch.08'\" \(120124 characters\)
+    cat 'patch.08.A' 'patch.08.B' 'patch.08.C' > 'patch.08'
+    if test 120124 -ne `wc -c <'patch.08'`; then
+      echo shar: \"'patch.08'\" combined with wrong size!
+    else
+      rm patch.08.A patch.08.B patch.08.C
+    fi
+  fi
+  # end of 'patch.08.B'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2211 @@
+From: wallace@math.berkeley.edu (Marc 'Merle' Wallace)
+Newsgroups: comp.sources.misc
+Subject: v37i129: syfre - Syfre 1.1: data encryption utility, Part01/01
+Date: 3 Jun 1993 10:47:40 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <1ukhbs$3g9@uk-usenet.UK.Sun.COM>
+X-Md4-Signature: 43b2ae810abf2965a4095890667b3cbd
+
+Submitted-by: wallace@math.berkeley.edu (Marc 'Merle' Wallace)
+Posting-number: Volume 37, Issue 129
+Archive-name: syfre/part01
+Environment: UNIX, C++
+
+Syfre is an encryption/decryption utility.  The user inputs two eight
+character passwords which are used to determine a sequence of 32 cyphers
+through which the data is passed.
+
+Encoding is the default action.  It can also be selected with the "-e"
+option.  Decoding requires the "-d" option.
+
+Input is read from stdin, or from a file specified by the "-i filename"
+option.  Output goes to stdout, or the file specified by "-o filename".
+When using the latter option, already existing files are never overwritten;
+use the "-O filename" option to force overwriting.
+
+Extra options:
+    baby:
+        Only 16 cyphers are used.  This makes the output smaller, but
+        less secure.  By default this option is off; the command line
+        option "-b" turns it on.
+    text:
+        Output is text, instead of binary (suitable for email or posting).
+        By default this option is off (since it makes for larger output
+        files); the command line option "-t" turns it on.
+
+-----------------------
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  syfre syfre/Makefile syfre/README syfre/config.h
+#   syfre/cypher.c syfre/cypher.h syfre/cyphers syfre/data.c
+#   syfre/data.h syfre/docs syfre/include.h syfre/random.c
+#   syfre/syfre.c syfre/syfre.man syfre/test.c syfre/text.c
+#   syfre/version.c syfre/cyphers/blockxor.c
+#   syfre/cyphers/blockxor.doc syfre/cyphers/cubicxor.c
+#   syfre/cyphers/cubicxor.doc syfre/cyphers/dualxor.c
+#   syfre/cyphers/dualxor.doc syfre/cyphers/quadadd.c
+#   syfre/cyphers/quadadd.doc syfre/cyphers/recurxor.c
+#   syfre/cyphers/recurxor.doc syfre/cyphers/rotate.c
+#   syfre/cyphers/rotate.doc syfre/cyphers/sixteen.c
+#   syfre/cyphers/sixteen.doc syfre/cyphers/square.c
+#   syfre/cyphers/square.doc
+# Wrapped by wallace@durban.berkeley.edu on Fri May 28 12:00:57 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'syfre' ; then
+    echo shar: Creating directory \"'syfre'\"
+    mkdir 'syfre'
+fi
+if test -f 'syfre/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/Makefile'\"
+else
+echo shar: Extracting \"'syfre/Makefile'\" \(2505 characters\)
+sed "s/^X//" >'syfre/Makefile' <<'END_OF_FILE'
+XBINDIR	= /usr/local/bin
+XMANDIR	= /usr/man
+XMANSECT	= l
+XVERSION	= 1.1
+X
+XCC	= g++
+XCFLAGS	= -O2
+XSHELL	= /bin/sh
+X
+XAR	= /usr/bin/ar
+XCHMOD	= /usr/bin/chmod
+XCP	= /usr/bin/cp
+XRANLIB	= /usr/bin/ranlib
+XRM	= /bin/rm
+XSTRIP	= /usr/bin/strip
+X
+X.SUFFIXES : .os
+X
+X
+X# SSRCS   : source code files for "syfre".
+X# TSRCS   : source code files for "test" (for debugging).
+X# LSRCS   : source code files for cypher library (class definitions).
+X# LCYPS   : source code files for cyphers.
+X
+XSSRCS	= syfre.c text.c version.c
+XTSRCS	= test.c version.c
+XLSRCS	= cypher.c data.c random.c
+XLCYPS	= cyphers/recurxor.c  cyphers/quadadd.c  cyphers/cubicxor.c \
+X	  cyphers/blockxor.c  cyphers/square.c   cyphers/sixteen.c  \
+X	  cyphers/rotate.c    cyphers/dualxor.c
+X
+X
+X# NOTE:     the following rules may not work with you version of make.
+X#           if not simply expand the rules out manually.  $(A:.b=.c)
+X#           means "take every entry in A, and replace '.b' suffixes
+X#           with '.c'".
+X#
+X# SOBJS   : object files for "syfre".
+X# TOBJS   : object files for "test" (for debugging).
+X# LOBJS   : object files for cypher library (class definitions).
+X# LCYPS_S : object files for cyphers (-DSECURE).
+X# LCYPS_D : object files for cyphers (with debug info).
+X
+XSOBJS	= $(SSRCS:.c=.o)
+XTOBJS	= $(TSRCS:.c=.o)
+XLOBJS	= $(LSRCS:.c=.o)
+XLCYPS_S	= $(LCYPS:.c=.os)
+XLCYPS_D	= $(LCYPS:.c=.o)
+X
+XSLIB	= libcypher.s.$(VERSION).a
+XDLIB	= libcypher.d.$(VERSION).a
+X
+X
+Xall: test syfre
+X
+Xfull: clean syfre syfretest
+X
+Xsyfre:  $(SLIB) $(SOBJS)
+X	$(CC) $(CFLAGS) -o syfre $(SOBJS) $(SLIB)
+X
+Xtest: $(DLIB) $(TOBJS)
+X	$(CC) $(CFLAGS) -o test $(TOBJS) $(DLIB)
+X
+Xclean:
+X	$(RM) -f core *.o $(SLIB) $(DLIB)
+X	$(RM) -f cyphers/*.o cyphers/*.os
+X
+Xinstall: syfre syfretest
+X	$(STRIP) syfre
+X	$(CP) syfre $(BINDIR)/syfre
+X	$(CHMOD) 555 $(BINDIR)/syfre
+X
+Xinstallman: syfre.man
+X	$(CP) syfre.man $(MANDIR)/man$(MANSECT)/syfre.$(MANSECT)
+X	$(CHMOD) 444 $(MANDIR)/man$(MANSECT)/syfre.$(MANSECT)
+X
+X
+X$(SLIB): $(LOBJS) $(LCYPS_S)
+X	$(AR) r $@ $?
+X	$(RANLIB) $@
+X
+X$(DLIB): $(LOBJS) $(LCYPS_D)
+X	$(AR) r $@ $?
+X	$(RANLIB) $@
+X
+X.c.o:
+X	$(CC) $(CFLAGS) -c $< -o $@
+X
+X.c.os:
+X	$(CC) $(CFLAGS) -DSECURE -c $< -o $@
+X
+X
+X# dependencies
+X#
+Xcypher.o:   cypher.c  cypher.h data.h
+Xdata.o:     data.c             data.h
+Xrandom.o:   random.c
+Xsyf.o:      syf.c     cypher.h data.h include.h config.h
+Xsyfre.o:    syfre.c   cypher.h data.h include.h config.h
+Xtest.o:     test.c    cypher.h data.h include.h config.h
+Xtext.o:     text.c             data.h include.h config.h
+Xversion.o:  version.c cypher.h data.h include.h config.h
+END_OF_FILE
+if test 2505 -ne `wc -c <'syfre/Makefile'`; then
+    echo shar: \"'syfre/Makefile'\" unpacked with wrong size!
+fi
+# end of 'syfre/Makefile'
+fi
+if test -f 'syfre/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/README'\"
+else
+echo shar: Extracting \"'syfre/README'\" \(2061 characters\)
+sed "s/^X//" >'syfre/README' <<'END_OF_FILE'
+XSyfre is an encryption/decryption utility.  The user inputs two eight
+Xcharacter passwords which are used to determine a sequence of 32 cyphers
+Xthrough which the data is passed.
+X
+XEncoding is the default action.  It can also be selected with the "-e"
+Xoption.  Decoding requires the "-d" option.
+X
+XInput is read from stdin, or from a file specified by the "-i filename"
+Xoption.  Output goes to stdout, or the file specified by "-o filename".
+XWhen using the latter option, already existing files are never overwritten;
+Xuse the "-O filename" option to force overwriting.
+X
+XExtra options:
+X    baby:
+X        Only 16 cyphers are used.  This makes the output smaller, but
+X        less secure.  By default this option is off; the command line
+X        option "-b" turns it on.
+X    text:
+X        Output is text, instead of binary (suitable for email or posting).
+X        By default this option is off (since it makes for larger output
+X        files); the command line option "-t" turns it on.
+X
+X-------------
+X
+XTo build syfre, just type "make".  If this fails, you might have to 
+Xchange the makefile.  Most entries which might need changing are near
+Xthe beginning of the makefile; be sure that AR, CP, etc, are all pointing
+Xto the correct locations.
+X
+X-------------
+X
+XDocumentation (found in the docs/ dubdirectory):
+X
+X    general:  general description of syfre.
+X
+X    howto:    contains a step-by-step description of how to add new cyphers.
+X
+X    readme:   this file.
+X
+X    specific: specific details about the workings of syfre.
+X
+X    System dependent Makefiles and changes are kept in the directory system.
+X
+X-------------
+X
+XIf you have a cypher which is relatively simple and fast and good, and
+Xyou want it included in later versions, email it to me.  Please include
+Xboth your .c file and a .doc file, roughly in the same format as the
+Xones provided (I may change this style if a better one springs up).
+XSay something like "new cypher" in the subject line.
+X
+XMail new cyphers to *one* of (in order of preference):
+X
+X       wallace@math.berkeley.edu
+X       merle@wucs1.wustl.edu     
+X
+END_OF_FILE
+if test 2061 -ne `wc -c <'syfre/README'`; then
+    echo shar: \"'syfre/README'\" unpacked with wrong size!
+fi
+# end of 'syfre/README'
+fi
+if test -f 'syfre/config.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/config.h'\"
+else
+echo shar: Extracting \"'syfre/config.h'\" \(290 characters\)
+sed "s/^X//" >'syfre/config.h' <<'END_OF_FILE'
+X// config.h -- user configuration.
+X//
+X// written by Marc Wallace, 01 May 93.
+X// last change: version 1.0 (14 May 93).
+X
+X
+X// current version number.
+X// unless you are creating your own cyphers, leave this be.
+X// if you change this, be sure to modify version.c accordingly.
+X
+X#define VERSION 1
+END_OF_FILE
+if test 290 -ne `wc -c <'syfre/config.h'`; then
+    echo shar: \"'syfre/config.h'\" unpacked with wrong size!
+fi
+# end of 'syfre/config.h'
+fi
+if test -f 'syfre/cypher.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cypher.c'\"
+else
+echo shar: Extracting \"'syfre/cypher.c'\" \(353 characters\)
+sed "s/^X//" >'syfre/cypher.c' <<'END_OF_FILE'
+X// cypher.c -- class functions for classes "cypher" and "metacypher".
+X//
+X// written by Marc Wallace, 26 Apr 93.
+X// last change: version 1.1 (14 May 93).
+X
+X
+X#include "data.h"
+X#include "cypher.h"
+X
+X
+Xvoid nuthin() {};
+X
+X
+XCypher::Cypher(char* n, Cyfunct e, Cyfunct d, void (*i)() = nuthin)
+X    {
+X    name = n;
+X    encode = e;
+X    decode = d;
+X    i();
+X    };
+X
+X
+END_OF_FILE
+if test 353 -ne `wc -c <'syfre/cypher.c'`; then
+    echo shar: \"'syfre/cypher.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cypher.c'
+fi
+if test -f 'syfre/cypher.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cypher.h'\"
+else
+echo shar: Extracting \"'syfre/cypher.h'\" \(681 characters\)
+sed "s/^X//" >'syfre/cypher.h' <<'END_OF_FILE'
+X// cypher.h -- class definition for class "cypher".
+X//
+X// written by Marc Wallace, 26 Apr 93.
+X// last change: version 1.1 (14 May 93).
+X
+X
+X// always include data.h before this file.
+X
+X
+Xtypedef Data& (*Cyfunct)(Data&, Data&);
+Xextern void nuthin();
+X
+X
+Xclass Cypher
+X    {
+X    public:
+X        Cyfunct encode;  //  Data& (*encode)(Data& in, Data& out);
+X        Cyfunct decode;  //  Data& (*decode)(Data& in, Data& out);
+X
+X        // Cypher class initializer.
+X        // Cypher("name", encode(), decode(), init())
+X        // init() is an (optional) function to be run for data initialization.
+X        Cypher(char* n, Cyfunct e, Cyfunct d, void (*i)() = nuthin);
+X        char  *name;
+X    };
+X
+X
+END_OF_FILE
+if test 681 -ne `wc -c <'syfre/cypher.h'`; then
+    echo shar: \"'syfre/cypher.h'\" unpacked with wrong size!
+fi
+# end of 'syfre/cypher.h'
+fi
+if test ! -d 'syfre/cyphers' ; then
+    echo shar: Creating directory \"'syfre/cyphers'\"
+    mkdir 'syfre/cyphers'
+fi
+if test -f 'syfre/data.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/data.c'\"
+else
+echo shar: Extracting \"'syfre/data.c'\" \(749 characters\)
+sed "s/^X//" >'syfre/data.c' <<'END_OF_FILE'
+X// data.c -- class functions for class "Data".
+X//
+X// written by Marc Wallace, 30 Apr 93.
+X// last change: version 1.0 (14 May 93).
+X
+X
+X#include "data.h"
+X
+X
+XData::Data(int m)
+X    {
+X    data = new unsigned char[m];
+X    size = 0;
+X    maxsize = m;
+X    };
+X
+X
+XData::Data(int m, int s, unsigned char* d)
+X    {
+X    data = new unsigned char[m];
+X    for (int r = 0; r < s; r++)
+X        data[r] = d[r];
+X    size = s;
+X    maxsize = m;
+X    };
+X
+X
+Xvoid
+XData::reinit(int m)
+X    {
+X    delete data;
+X    Data(m);
+X    };
+X
+X
+Xvoid
+XData::reinit(int m, int s, unsigned char* d)
+X    {
+X    if (m > maxsize)
+X        {
+X        delete data;
+X        data = new unsigned char[m];
+X        };
+X    for (int r = 0; r < s; r++)
+X        data[r] = d[r];
+X    size = s;
+X    maxsize = m;
+X    };
+X
+X
+END_OF_FILE
+if test 749 -ne `wc -c <'syfre/data.c'`; then
+    echo shar: \"'syfre/data.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/data.c'
+fi
+if test -f 'syfre/data.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/data.h'\"
+else
+echo shar: Extracting \"'syfre/data.h'\" \(397 characters\)
+sed "s/^X//" >'syfre/data.h' <<'END_OF_FILE'
+X// data.h -- class definitions for class "Data".
+X//
+X// written by Marc Wallace, 30 Apr 93.
+X// last change: version 1.0 (02 May 93).
+X
+X
+Xclass Data
+X    {
+X    public:
+X        unsigned char*  data;
+X        int    size;
+X        int    maxsize;
+X
+X        Data(int m);
+X        Data(int m, int s, unsigned char* d);
+X
+X        void reinit(int m);
+X        void reinit(int m, int s, unsigned char* d);
+X    };
+X
+X
+END_OF_FILE
+if test 397 -ne `wc -c <'syfre/data.h'`; then
+    echo shar: \"'syfre/data.h'\" unpacked with wrong size!
+fi
+# end of 'syfre/data.h'
+fi
+if test ! -d 'syfre/docs' ; then
+    echo shar: Creating directory \"'syfre/docs'\"
+    mkdir 'syfre/docs'
+fi
+if test -f 'syfre/include.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/include.h'\"
+else
+echo shar: Extracting \"'syfre/include.h'\" \(461 characters\)
+sed "s/^X//" >'syfre/include.h' <<'END_OF_FILE'
+X
+X//
+X// written by Marc Wallace, 30 Apr 93.
+X// last change: version 1.0.
+X
+X
+X#include "config.h"
+X#include "data.h"
+X#include "cypher.h"
+X
+X
+X// from random.c
+X//
+Xextern void randinit();
+Xextern char randc();
+Xextern char randc(char, char);
+X
+X// from syf.c
+X//
+Xextern Cypher** syf;
+Xextern int syfnum;
+X
+X// from text.c
+X//
+Xextern void bin2txt(Data&);
+Xextern void txt2bin(Data&);
+X
+X// from version.c
+X//
+Xextern char *version[];
+Xextern int verlimit[];
+Xextern Cypher* cypherlist[];
+END_OF_FILE
+if test 461 -ne `wc -c <'syfre/include.h'`; then
+    echo shar: \"'syfre/include.h'\" unpacked with wrong size!
+fi
+# end of 'syfre/include.h'
+fi
+if test -f 'syfre/random.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/random.c'\"
+else
+echo shar: Extracting \"'syfre/random.c'\" \(626 characters\)
+sed "s/^X//" >'syfre/random.c' <<'END_OF_FILE'
+X// random.c -- randomization routines.
+X//
+X// written by Marc Wallace, 30 Apr 93.
+X// last change: version 1.0 (02 May 93).
+X
+X
+X#include "include.h"
+X#include <stdlib.h>
+X#include <time.h>
+X
+X
+Xvoid
+Xrandinit()
+X    {
+X    long t;
+X    t = time(&t);
+X    srand(int(t % 65536));
+X    srand(rand());
+X    };
+X
+X
+Xchar
+Xrandc()
+X    {
+X    // return a random char value (0-255)
+X    if (rand() < 10)
+X        srand(rand());
+X    return char(rand() % 256);
+X    };
+X
+X
+Xchar
+Xrandc(char lo, char hi)
+X    {
+X    // return a random char value (between lo and hi)
+X    if (rand() < 10)
+X        srand(rand());
+X    return char(lo + rand() % (hi - lo + 1));
+X    };
+X
+X
+X
+END_OF_FILE
+if test 626 -ne `wc -c <'syfre/random.c'`; then
+    echo shar: \"'syfre/random.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/random.c'
+fi
+if test -f 'syfre/syfre.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/syfre.c'\"
+else
+echo shar: Extracting \"'syfre/syfre.c'\" \(5913 characters\)
+sed "s/^X//" >'syfre/syfre.c' <<'END_OF_FILE'
+X// syfre.c -- main() for syfre.
+X//
+X// written by Marc Wallace, 01 May 93.
+X// last change: version 1.0 (08 May 93).
+X
+X
+X#include "include.h"
+X#include <fcntl.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <unistd.h>
+X
+X
+Xstatic int input  = 0;   // input stream
+Xstatic int output = 1;   // output stream
+X
+Xstatic int order[32];    // which cyphers to apply when
+X
+Xstatic Data d1(1024);
+Xstatic Data d2(1024);
+X
+X
+Xvoid
+Xerror(char* s1, char* s2)
+X    {
+X    fprintf(stderr, "syfre: error: %s", s1);
+X    if (*s2)
+X        fprintf(stderr, " '%s'.\n", s2);
+X    else
+X        fprintf(stderr, ".\n");
+X    fflush(stderr);
+X    exit(1);
+X    }
+X
+X
+Xint
+Xencode(int baby, int text)
+X    {
+X    int last, size, numpass, want;
+X    int r, v;
+X    unsigned char data[4];
+X
+X    // how much data do we need to read for this block?
+X    // depends on number of passes (16 or 32) and
+X    // the text flag.
+X    numpass = baby ? 16 : 32;
+X    want = (text ? 748 : 1020) - 4 * numpass;
+X
+X    // we might be reading from stdin.
+X    // so read() might return, say, 8 bytes.  this ain't enough.
+X    // read in blocks of data 'til we have a large block or an EOF.
+X    // '(last < 1)' keeps track of EOF condition.
+X    if ((size = read(input, d1.data, want)) > 0)
+X        {
+X        last = 1;
+X        while ((last > 0) && (size < want))
+X            {
+X            last = read(input, d1.data + size, want - size);
+X            if (last > 0)
+X                size += last;   
+X            }
+X        if (last < 1)
+X            last = 0;
+X        }
+X    else
+X        last = 0;
+X
+X    if (size < 1)
+X        return 0;  // not much to do here
+X
+X    // pad out the input
+X    for (r = size; r < want; r++)
+X        d1.data[r] = randc();
+X    d1.size = want;
+X
+X    // rev up the cypher machine
+X    v = verlimit[VERSION];
+X    for (r = 0; r < numpass;)
+X        {
+X        (cypherlist[order[r++] % v]->encode)(d1, d2);
+X        (cypherlist[order[r++] % v]->encode)(d2, d1);
+X        }
+X
+X    // convert to text, if necessary
+X    if (text)
+X        {
+X        // need to pad from 748 to 750
+X        d1.data[d1.size++] = randc();
+X        d1.data[d1.size++] = randc();
+X        bin2txt(d1);
+X        }
+X
+X    // create the header for the size, version number, and text flag
+X    data[0] = (text ? 'T' : 'B') + (baby ? 32 : 0);
+X    data[1] = 'A' + (size % 32);
+X    data[2] = 'A' + (size / 32);
+X    data[3] = 'A' + VERSION;
+X
+X    if (write(output, data, 4) < 4)
+X        error("could not write output.", "");
+X    if (write(output, d1.data, d1.size) < d1.size)
+X        error("could not write output.", "");
+X
+X    return last;
+X    }
+X
+X
+Xint
+Xdecode()
+X    {
+X    int baby, text;
+X    int size, vers, numpass;
+X    int r, v;
+X    unsigned char data[4];
+X
+X    // read in the first four bytes
+X    if ((r = read(input, data, 4)) < 1)
+X        return 0;
+X
+X    // parse out the format, size, and version number
+X    baby = (data[0] > 'Z') ? 1 : 0;
+X    text = ((data[0] == 'T') || (data[0] == 't')) ? 1 : 0;
+X    size = data[1] - 'A' + 32 * (data[2] - 'A');
+X    vers = data[3] - 'A';
+X    numpass = (baby) ? 16 : 32;
+X
+X    // read in the data and convert if necessary
+X    if (read(input, d1.data, 1020) != 1020)
+X        error("input is not a syfre file.", "");
+X    d1.size = 1020;
+X    if (text)
+X        {
+X        txt2bin(d1);
+X        // cut off the padding bytes
+X        d1.size = 748;
+X        }
+X
+X    // start up ye old cypher machine
+X    v = verlimit[vers];
+X    for (r = numpass - 1; r > 0;)
+X        {
+X        (cypherlist[order[r--] % v]->decode)(d1, d2);
+X        (cypherlist[order[r--] % v]->decode)(d2, d1);
+X        }
+X
+X    // output it all
+X    write(output, d1.data, size);
+X
+X    return 1;
+X    }
+X
+X
+Xint
+Xmain(int argc, char** argv)
+X    {
+X    int  size;      // size of current data segment
+X    int  code = 0;  // encoding = 0, decoding = 1
+X    int  baby = 0;  // do less cyphering
+X    int  text = 0;  // output only text, not binary
+X
+X    char  passwd[17];
+X    int   r, s, t;
+X    char  **p;
+X
+X    *passwd = 0;
+X
+X
+X    // parse the argc/argv structure
+X    p = argv;
+X    while(*++p)
+X       {
+X       if (strcmp("-h", *p) == 0)
+X           {
+X           printf("%s [-edbt] [-i inputfile] [-oO outputfile]\n", *argv);
+X           exit(0);
+X           }
+X       else if (strcmp("-e", *p) == 0)
+X           code = 0;
+X       else if (strcmp("-d", *p) == 0)
+X           code = 1;
+X       else if (strcmp("-b", *p) == 0)
+X           baby = 1;
+X       else if (strcmp("-t", *p) == 0)
+X           text = 1;
+X       else if (strcmp("-i", *p) == 0)
+X           {
+X           if ((input = open(*++p, O_RDONLY, 0)) == -1)
+X               error("cannot open input file", *p);
+X           }
+X       else if (strcmp("-o", *p) == 0)
+X           {
+X           if ((output = open(*++p, O_WRONLY, 0)) != -1)
+X               error("will not clobber existing file", *p);
+X           if ((output = creat(*p, 0600)) == -1)
+X               error("cannot open output file", *p);
+X           }
+X       else if (strcmp("-O", *p) == 0)
+X           {
+X           if ((output = creat(*p, 0600)) == -1)
+X               error("cannot open output file", *p);
+X           }
+X       else
+X           error("bad argument:", *p);
+X       }
+X
+X    // read in the password (two iterations)
+X    if (!*passwd)
+X        {
+X        sprintf(passwd, "default password");
+X        sprintf(passwd,   "%-8.8s", getpass("Password: "));
+X        sprintf(passwd+8, "%-8.8s", getpass("Password: "));
+X        }
+X
+X    // fill the order[] array
+X    // these are just raw integers: to get the
+X    // actual cypher number to apply, take the
+X    // entry modulo (number of cyphers in this version)
+X    // (version number may change for decodes, eh?)
+X    for (r = 0; r < 16; r++)
+X        for (s = 0; s < 2; s++)
+X            {
+X            t = passwd[r] + r + 5 * s;
+X            t += passwd[(3 * s + 2 * r) % 16];
+X            t -= (s % 3) ? 17 : 0;
+X            order[(r << 1) + s] = t + 1024;
+X            }
+X
+X    // now repeatedly encode/decode block by block
+X    t = 1;
+X    while(t)
+X        t = (code) ? decode() : encode(baby, text);
+X    }
+X
+END_OF_FILE
+if test 5913 -ne `wc -c <'syfre/syfre.c'`; then
+    echo shar: \"'syfre/syfre.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/syfre.c'
+fi
+if test -f 'syfre/syfre.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/syfre.man'\"
+else
+echo shar: Extracting \"'syfre/syfre.man'\" \(3474 characters\)
+sed "s/^X//" >'syfre/syfre.man' <<'END_OF_FILE'
+X.\" @(#)syfre.man 1.1 93/05/15; Copyright (c) 1993 - Marc Douglass Wallace
+X.\"
+X.TH syfre l "15 May 1993" "1.1"
+X.SH NAME
+Xsyfre \- cypher encryption/decryption utility
+X.SH SYNOPSIS
+X.B syfre 
+X[ 
+X.B \-edbt
+X] [ 
+X.B -i
+Xinputfile
+X] [ 
+X.B -oO
+Xoutputfile
+X]
+X.SH DESCRIPTION
+X.I syfre
+Xis an encryption utility which uses simple cyphers to encrypt a stream
+X(usually stdin).  Two eight character passwords are entered by the user,
+Xwhich are used to choose which cyphers to apply.  Data is then read in
+Xand outputted in blocks of 1K each.
+X.PP
+XThe output will always be somewhat larger than the input, size variation
+Xdepending upon the options selected.
+XAssuming normal encryption,
+Xif the output is binary (default), then 956 byte blocks are read in
+Xand outputted as 1024 byte blocks (output is always in 1K blocks).
+XIf the output is text (
+X.B -t
+Xoption), 684 byte blocks are used for input.
+XIf the baby option (
+X.B -b
+X) is specified, less encryption is done (sixteen passes instead of thirty-two),
+Xbut larger input blocks can be read.  Binary output would read in 988 byte
+Xblocks, and text output would read in 716 byte blocks.
+X.PP
+XIt might seem that the text option would increase the size far beyond what
+Xwould normally be considered tolerable.  However, binary encrypted data
+Xwhich is then piped through
+X.IR uuencode (1)
+Xincreases in size by a factor of 4/3.  Indeed, the binary-to-text conversion
+Xmethod used internally is very similar to that used in uuencode.
+X.PP
+XAll versions of 
+X.B syfre
+Xare backwards-compatible; although later versions may have more cyphers
+Xto select from,
+X.B syfre
+Xwill be able to decrypt files encrypted by an older version.  No facility
+Xexists for encrypting data as if it were actually an older version of
+X.B syfre .
+X.SH OPTIONS
+X.TP 5
+X.BI -e
+XEncode data.  This is the default action.
+X.TP 5
+X.BI -d
+XDecode data.  
+X.B syfre
+Xautomatically determines text/binary format, whether the baby option was
+Xused, and what version of
+X.B syfre
+Xwas used to encode the data.
+X.TP 5
+X.BI -b
+XBaby option.  Only sixteen cypher passes are made, instead of thirty-two.
+XWhen encoding a large file this should decrease output size by three to
+Xfive percent.  Default is off (thirty-two passes).
+X.TP 5
+X.BI -t
+XText option.  Output will use only standard text characters ("A-Za-z0-9.,").
+XOutput will be much larger (thirty-three to fourty percent larger), but will
+Xbe in an easy format for email or usenet posting.  Default is binary.
+X.TP 5
+X.BI -i " filename
+XRead input from
+X.BI filename
+Xinstead of stdin.
+X.TP 5
+X.BI -o " filename
+XSend output to
+X.BI filename
+Xinstead of stdout.
+X.BI filename
+Xwill not be overwritten if it already exists.
+X.TP 5
+X.BI -O " filename
+XSend output to
+X.BI filename
+Xinstead of stdout.
+X.BI filename
+Xwill be overwritten if it already exists.
+X
+X.SH BUGS
+XNone known at this time.
+X.PP
+XDuring initial testing, it seemed that a file encoded with one password
+Xand decoded with a different password would cause a core dump.  Although
+Xthis could easily be written off as an "unintended feature", it seems to
+Xhave disappeared with the cleaning up of the binary-to-text conversion
+Xroutines.
+X.SH COPYRIGHT
+XCopyright (c) 1993 by Marc Douglass Wallace
+X.br
+X(wallace@math.berkeley.edu)
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation. 
+END_OF_FILE
+if test 3474 -ne `wc -c <'syfre/syfre.man'`; then
+    echo shar: \"'syfre/syfre.man'\" unpacked with wrong size!
+fi
+# end of 'syfre/syfre.man'
+fi
+if test -f 'syfre/test.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/test.c'\"
+else
+echo shar: Extracting \"'syfre/test.c'\" \(2735 characters\)
+sed "s/^X//" >'syfre/test.c' <<'END_OF_FILE'
+X// test.c -- testing functions for syfre (alternate main()).
+X//
+X// written by Marc Wallace, 02 May 93.
+X// last change: version 1.0 (02 May 93).
+X
+X
+X#include "include.h"
+X#include <stream.h>
+X#include <string.h>
+X#include <stdiostream.h>
+X#include <stdio.h>
+X
+X
+Xextern void syfdump();
+Xextern char undo(char);
+X
+X
+Xint main()
+X    {
+X    Data     d1(1024), d2(1024), d3(1024);
+X    int      r, s, t;
+X    Cypher*  curr;
+X
+X    randinit();
+X
+X    // list all available cyphers
+X    cout << "List of all cyphers compiled in version ";
+X    cout << version[VERSION] << ":\n";
+X    for (r = 0; (r < verlimit[VERSION]); r++)
+X        cout << "    " << (cypherlist[r])->name << "\n";
+X    cout << "\n";
+X
+X    for (r = 0; (r < verlimit[VERSION]); r++)
+X        {
+X        curr = cypherlist[r];
+X        cout << "Testing " << curr->name << ":\n    ";
+X
+X        // test each cypher for each possible size
+X        for (d1.size = 4; d1.size < 1024; d1.size += 4)
+X            {
+X            // fill d1 with random data
+X            for (t = 0; t < d1.size; t++)
+X                d1.data[t] = randc();
+X
+X            // encode and then decode (should reverse)
+X            (curr->encode)(d1, d2);
+X            (curr->decode)(d2, d3);
+X
+X            // if the sizes differ, it failed miserably
+X            if (d1.size != d3.size)
+X                {
+X                cout << "\n";
+X                cout << "    Sizes of X and d(e(X)) do not match.\n";
+X                cout << "    Sizes were " << d1.size << " and " << d3.size;
+X                cout << "\n\nTerminating cypher tests.\n";
+X                return 1;
+X                };
+X
+X            // if one of the bytes is different, it failed
+X            for (t = 0; t < d1.size; t++)
+X                if (d1.data[t] != d3.data[t])
+X                    {
+X                    cout << "\n";
+X                    cout << "    X and d(e(X)) differ at byte " << t << ".\n";
+X
+X                    cout << "    debug data:\n";
+X                    for (r = t - 4; (r < t + 16) && (r < d3.size); r++)
+X                        printf("          %-3d>>   %8x %8x %8x\n", r,
+X                        int(d1.data[r]), int(d2.data[r]), int(d3.data[r]));
+X                    if (r < t + 16)
+X                        for (; (r < t + 16) && (r < d2.size); r++)
+X                            printf("          %-3d>>            %8x\n",
+X                            r, int(d2.data[r]));
+X
+X                    cout << "\n\nTerminating cypher tests.\n";
+X                    return 2;
+X                    }
+X
+X            // echo something so we know we're working
+X            if (d1.size % 32 == 0)
+X                {
+X                cout << '.';
+X                cout.flush();
+X                };
+X            };
+X
+X        cout << " passed reversibility test.\n";
+X        };
+X    };
+END_OF_FILE
+if test 2735 -ne `wc -c <'syfre/test.c'`; then
+    echo shar: \"'syfre/test.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/test.c'
+fi
+if test -f 'syfre/text.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/text.c'\"
+else
+echo shar: Extracting \"'syfre/text.c'\" \(2440 characters\)
+sed "s/^X//" >'syfre/text.c' <<'END_OF_FILE'
+X// text.c -- binary data <--> text data conversion functions.
+X//
+X// written by Marc Wallace, 14 May 93.
+X// last change: version 1.1 (14 May 93).
+X
+X
+X#include "include.h"
+X
+X
+Xstatic unsigned char chars[65] =
+X    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,";
+X
+Xstatic unsigned char bbuf[1024];
+Xstatic unsigned char tbuf[1024];
+X
+X
+Xunsigned char
+Xundo(char c)
+X    {
+X    if (c >= 'A')
+X        return c - 'A' - ((c > 'Z') ? 6 : 0);
+X    else if (c == '.')
+X        return 62;
+X    else if (c == ',')
+X        return 63;
+X    else
+X        return c + 4;
+X    }
+X
+X
+Xvoid
+Xbin2txt(Data& d)
+X    {
+X    int size = d.size;
+X    int newsize = 0;
+X    int rt = 0, rb = 0;
+X
+X    // copy the data out
+X    memcpy(bbuf, d.data, size);
+X
+X    // find the values (0..63) for each output character
+X    while (rb < size)
+X        {
+X        tbuf[rt++]  = bbuf[rb]    & 0x3f;        // first  text byte
+X        tbuf[rt]    = bbuf[rb++] >> 6;
+X        tbuf[rt++] += (bbuf[rb]   & 0x0f) << 2;  // second text byte
+X        tbuf[rt]    = bbuf[rb++] >> 4;
+X        tbuf[rt++] += (bbuf[rb]   & 0x03) << 4;  // third  text byte
+X        tbuf[rt++]  = bbuf[rb++] >> 2;           // fourth text byte
+X        };
+X    size = (size << 2) / 3;
+X
+X    // apply the chars[] array and insert carriage returns
+X    for (rt = 0, newsize = 0; rt < size; rt++)
+X        {
+X        d.data[newsize++] = chars[tbuf[rt]];
+X        if ((rt % 50) == 49)
+X            d.data[newsize++] = '\n';
+X        };
+X    d.size = newsize;
+X    }
+X
+X
+Xvoid
+Xtxt2bin(Data& d)
+X    {
+X    int size = d.size;
+X    int newsize = 0;
+X    int rt, rb;
+X
+X    // copy the data out
+X    memcpy(tbuf, d.data, size);
+X
+X    // remove carriage returns
+X    for (newsize = rt = 0; rt < size; newsize++)
+X        {
+X        tbuf[newsize] = tbuf[rt++];
+X        if (tbuf[rt] == '\n')
+X            rt++;
+X        };
+X    size = newsize;
+X
+X    // undo the chars[] processing
+X    for (rt = 0; rt < size; rt++)
+X        tbuf[rt] = undo(tbuf[rt]);
+X
+X    // unprocess the data
+X    for (rb = rt = 0; rt < size;)
+X        {
+X        bbuf[rb]    = tbuf[rt++];
+X        bbuf[rb++] += (tbuf[rt]   & 0x03) << 6;  // first  binary byte
+X        bbuf[rb]    = tbuf[rt++] >> 2;
+X        bbuf[rb++] += (tbuf[rt]   & 0x0f) << 4;  // second binary byte
+X        bbuf[rb]    = tbuf[rt++] >> 4;
+X        bbuf[rb++] += (tbuf[rt++] & 0x3f) << 2;  // third  binary byte
+X        };
+X
+X    // unapply the chars[] array and fix the size
+X    memcpy(d.data, bbuf, rb);
+X    d.size = rb;
+X    }
+X
+END_OF_FILE
+if test 2440 -ne `wc -c <'syfre/text.c'`; then
+    echo shar: \"'syfre/text.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/text.c'
+fi
+if test -f 'syfre/version.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/version.c'\"
+else
+echo shar: Extracting \"'syfre/version.c'\" \(1108 characters\)
+sed "s/^X//" >'syfre/version.c' <<'END_OF_FILE'
+X// version.c -- list of version names and their cyphers.
+X//
+X// written by Marc Wallace, 02 May 93.
+X// last change: version 1.1 (26 May 93).
+X
+X
+X#include "include.h"
+X
+X
+Xextern Cypher  recurxor, cubicxor, blockxor, quadadd;
+Xextern Cypher  square,   sixteen,  rotate,   dualxor;
+X
+X
+Xchar *version[] = 
+X    {
+X    "1.0",     // first alpha version
+X    "1.1",     // first beta version
+X    0
+X    };
+X
+X
+Xint verlimit[] =
+X    {
+X    3,   // 1.0
+X    8,   // 1.1
+X    0
+X    };
+X
+X
+XCypher* cypherlist[] = 
+X    {
+X                 // Cypher Name              Ver   Author            
+X                 // -------------            ---   ------
+X    &recurxor,   // Recursive XOR            1.0   Merle
+X    &cubicxor,   // Cubic XOR                1.0   Merle
+X    &blockxor,   // Block XOR                1.0   Merle
+X    &quadadd,    // Quadratic Addition       1.1   Merle
+X    &square,     // Square Mod 251           1.1   Merle
+X    &sixteen,    // Sixteen Square Rotation  1.1   Merle
+X    &rotate,     // Byte Rotation            1.1   Merle
+X    &dualxor,    // Dual XOR                 1.1   Merle
+X
+X    0            // NULL
+X    };
+X
+END_OF_FILE
+if test 1108 -ne `wc -c <'syfre/version.c'`; then
+    echo shar: \"'syfre/version.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/version.c'
+fi
+if test -f 'syfre/cyphers/blockxor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/blockxor.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/blockxor.c'\" \(2482 characters\)
+sed "s/^X//" >'syfre/cyphers/blockxor.c' <<'END_OF_FILE'
+X// blockxor.c -- "Block XOR" (cypher).
+X//
+X// written by Marc Wallace (Merle), 07 May 93.
+X// first included in version 1.0.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int    s1, s2, s3;
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert four random characters at the beginning
+X    for (ro = 0; ro < 4; ro++)
+X        dto[ro] = randc();
+X
+X    // set up checkpoints at size/4's
+X    s1 = size >> 2;
+X    s2 = size >> 1;
+X    s3 = s1 + s2;
+X
+X    // for the first half, xor with the second half
+X    for (ri = 0; ri < s2; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dti[s2+ri];
+X
+X    // for the third fourth(!), xor with the last fourth
+X    for (; ri < s3; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dti[s1+ri];
+X
+X    // for the last fourth, xor with our four random bytes
+X    for (; ri < size; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dto[ro % 4];
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int    s1, s2, s3;
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // set up checkpoints at size/4's
+X    s1 = size >> 2;
+X    s2 = size >> 1;
+X    s3 = s1 + s2;
+X
+X    // for the last fourth, xor with our four random bytes
+X    for (ro = s3, ri = s3 + 4; ro < size; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dti[ri % 4];
+X
+X    // for the third fourth, xor with the last fourth
+X    for (ro = s2, ri = s2 + 4; ro < s3; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dto[s1+ro];
+X
+X    // for the first half, xor with the second half
+X    for (ro = 0, ri = 4; ro < s2; ri++, ro++)
+X        dto[ro] = dti[ri] ^ dto[s2+ro];
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher blockxor("Block XOR", encode, decode);
+X#else // SECURE
+XCypher blockxor("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2482 -ne `wc -c <'syfre/cyphers/blockxor.c'`; then
+    echo shar: \"'syfre/cyphers/blockxor.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/blockxor.c'
+fi
+if test -f 'syfre/cyphers/blockxor.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/blockxor.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/blockxor.doc'\" \(447 characters\)
+sed "s/^X//" >'syfre/cyphers/blockxor.doc' <<'END_OF_FILE'
+Xcypher: Block XOR
+Xauthor: Merle (Marc Wallace)
+Xdate:   07 May 93
+Xformal: Cypher blockxor("Block XOR", encode, decode);
+X
+X
+Xchoose four random bytes: a[0..3].  store these first.
+Xbreak the data into fourths (A[x], B[x], C[x], D[x])
+Xxor the first block with the third, second with the fourth.
+Xxor the third block with the fourth.
+Xthen xor each element D[x] with a[x mod 4].
+Xso: A=A+C, B=B+D, C=C+D, D=D+a.
+Xto undo, do exactly the same, in reverse.
+X
+X
+X
+END_OF_FILE
+if test 447 -ne `wc -c <'syfre/cyphers/blockxor.doc'`; then
+    echo shar: \"'syfre/cyphers/blockxor.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/blockxor.doc'
+fi
+if test -f 'syfre/cyphers/cubicxor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/cubicxor.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/cubicxor.c'\" \(2150 characters\)
+sed "s/^X//" >'syfre/cyphers/cubicxor.c' <<'END_OF_FILE'
+X// cubicxor.c -- "Cubic XOR" (cypher).
+X//
+X// written by Marc Wallace (Merle), 06 May 93.
+X// first included in version 1.0.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic char arr[256];
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X    int    d, x;
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert four random characters at the beginning
+X    for (ro = 0; ro < 4; ro++)
+X        dto[ro] = randc();
+X
+X    // set up the cubic array
+X    for (x = 0; x < 256; x++)
+X        arr[x] = (dto[0] * x*x*x + dto[1] * x*x + dto[2] * x + dto[3]) & 0xff;
+X
+X    // for each byte, xor it with the corresponding arr[x]
+X    for (ri = 0; ri < size; ri++, ro++)
+X        dto[ro] = dti[ri] ^ arr[ri % 256];
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X    int    d, x;
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // parse four random characters from the beginning
+X    // use them to set up the cubic array
+X    for (x = 0; x < 256; x++)
+X        arr[x] = (dti[0] * x*x*x + dti[1] * x*x + dti[2] * x + dti[3]) & 0xff;
+X    ri = 4;
+X
+X    // for each byte, xor it with the corresponding arr[x]
+X    for (ro = 0; ro < size; ri++, ro++)
+X        dto[ro] = dti[ri] ^ arr[ro % 256];
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher cubicxor("Cubic XOR", encode, decode);
+X#else // SECURE
+XCypher cubicxor("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2150 -ne `wc -c <'syfre/cyphers/cubicxor.c'`; then
+    echo shar: \"'syfre/cyphers/cubicxor.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/cubicxor.c'
+fi
+if test -f 'syfre/cyphers/cubicxor.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/cubicxor.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/cubicxor.doc'\" \(343 characters\)
+sed "s/^X//" >'syfre/cyphers/cubicxor.doc' <<'END_OF_FILE'
+Xcypher: Cubic XOR
+Xauthor: Merle (Marc Wallace)
+Xdate:   06 May 93
+Xformal: Cypher cubicxor("Cubic XOR", encode, decode);
+X
+X
+Xchoose four random bytes: a, b, c, and d.  store them first.
+Xconstruct a table arr[x] = (ax^3 + bx^2 + cx + d) mod 256 (char size).
+Xfor each input I[x] output (I[x] ^ arr[x mod d]).
+Xto recover data, do exactly the same.
+X
+X
+END_OF_FILE
+if test 343 -ne `wc -c <'syfre/cyphers/cubicxor.doc'`; then
+    echo shar: \"'syfre/cyphers/cubicxor.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/cubicxor.doc'
+fi
+if test -f 'syfre/cyphers/dualxor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/dualxor.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/dualxor.c'\" \(2253 characters\)
+sed "s/^X//" >'syfre/cyphers/dualxor.c' <<'END_OF_FILE'
+X// dualxor.c -- "Dual XOR" (cypher).
+X//
+X// written by Marc Wallace (Merle), 28 May 93.
+X// first included in version 1.1.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i, j, k;
+X    int a[4], b[4];
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert four random (masking) characters at the beginning
+X    for (ro = 0; ro < 4; ro++)
+X        {
+X        dto[ro] = a[ro] = randc();
+X        b[ro] = 0xff ^ a[ro];
+X        }
+X
+X    // for each 2-byte block, perform the weird swap
+X    i = ri = 0;
+X    while (ri < size)
+X        {
+X        j = dti[ri++];
+X        k = dti[ri++];
+X        dto[ro++] = (j & a[i]) + (k & b[i]);
+X        dto[ro++] = (k & a[i]) + (j & b[i]);
+X        i = (i + 1) % 4;
+X        }
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i, j, k;
+X    int a[4], b[4];
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // get the four masking characters from the beginning
+X    for (ri = 0; ri < 4; ri++)
+X        {
+X        a[ri] = dti[ri];
+X        b[ri] = 0xff ^ a[ri];
+X        }
+X
+X    // for each 2-byte block, perform the weird swap
+X    i = ro = 0;
+X    while (ro < size)
+X        {
+X        j = dti[ri++];
+X        k = dti[ri++];
+X        dto[ro++] = (j & a[i]) + (k & b[i]);
+X        dto[ro++] = (k & a[i]) + (j & b[i]);
+X        i = (i + 1) % 4;
+X        }
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher dualxor("Dual XOR", encode, decode);
+X#else // SECURE
+XCypher dualxor("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2253 -ne `wc -c <'syfre/cyphers/dualxor.c'`; then
+    echo shar: \"'syfre/cyphers/dualxor.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/dualxor.c'
+fi
+if test -f 'syfre/cyphers/dualxor.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/dualxor.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/dualxor.doc'\" \(423 characters\)
+sed "s/^X//" >'syfre/cyphers/dualxor.doc' <<'END_OF_FILE'
+Xcypher: Dual XOR
+Xauthor: Merle (Marc Wallace)
+Xdate:   28 May 93
+Xformal: Cypher dualxor("Dual XOR", encode, decode);
+X
+X
+Xstore four random numbers a[0..3].  let b[i] = (!a[i]) (bitwise negation).
+Xfor each pair of entries:
+X  let a and b be the current entries in the table (we loop thru these).
+X  read in x and y.  output ((x & a) + (y & b)) and ((y & a) + (x & b)).
+Xundoing it is exactly the same process, amazingly enough.
+X
+X
+END_OF_FILE
+if test 423 -ne `wc -c <'syfre/cyphers/dualxor.doc'`; then
+    echo shar: \"'syfre/cyphers/dualxor.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/dualxor.doc'
+fi
+if test -f 'syfre/cyphers/quadadd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/quadadd.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/quadadd.c'\" \(2340 characters\)
+sed "s/^X//" >'syfre/cyphers/quadadd.c' <<'END_OF_FILE'
+X// quadadd.c -- "Quadratic Addition" (cypher).
+X//
+X// written by Marc Wallace (Merle), 12 May 93.
+X// first included in version 1.1.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic char arr[256];
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X    int    d, x;
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert four random characters at the beginning
+X    for (ro = 0; ro < 3; ro++)
+X        dto[ro] = randc();
+X    // making sure the fourth one is not too small
+X    // and not too big (has to be positive > 2)
+X    d = (dto[3] = randc(2,127));
+X    ro++;
+X
+X    // set up the quadratic array
+X    for (x = 0; x < d; x++)
+X        arr[x] = (dto[0] * x * x + dto[1] * x + dto[2]) & 0xff;
+X
+X    // process and output the input, byte by byte
+X    for (ri = 0; ri < size; ri++, ro++)
+X        dto[ro] = (dti[ri] + arr[ri % d]) & 0xff;
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X    int    d, x;
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // parse four random characters from the beginning
+X    // set up the quadratic array backwards (negative)
+X    // by xor'ing it with 0xff ...
+X    d = dti[3];
+X    for (x = 0; x < d; x++)
+X        arr[x] = -((dti[0] * x * x + dti[1] * x + dti[2]) & 0xff);
+X    ri = 4;
+X
+X    // process and decode the input, byte by byte
+X    for (ro = 0; ro < size; ri++, ro++)
+X        dto[ro] = (dti[ri] + arr[ro % d]) & 0xff;
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher quadadd("Quadratic Addition", encode, decode);
+X#else // SECURE
+XCypher quadadd("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2340 -ne `wc -c <'syfre/cyphers/quadadd.c'`; then
+    echo shar: \"'syfre/cyphers/quadadd.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/quadadd.c'
+fi
+if test -f 'syfre/cyphers/quadadd.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/quadadd.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/quadadd.doc'\" \(377 characters\)
+sed "s/^X//" >'syfre/cyphers/quadadd.doc' <<'END_OF_FILE'
+Xcypher: Quadratic Addition
+Xauthor: Merle (Marc Wallace)
+Xdate:   12 May 93
+Xformal: Cypher quadadd("Quadratic Addition", encode, decode);
+X
+X
+Xchoose four random bytes: a, b, c, and d.  store these first.
+Xconstruct a table arr[x] = (ax^2 + bx + c) mod 256 (char size).
+Xfor each input I[x] output (I[x] + arr[x mod d]) mod 256.
+Xto recover data, use the negative of the polynomial.
+X
+X
+END_OF_FILE
+if test 377 -ne `wc -c <'syfre/cyphers/quadadd.doc'`; then
+    echo shar: \"'syfre/cyphers/quadadd.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/quadadd.doc'
+fi
+if test -f 'syfre/cyphers/recurxor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/recurxor.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/recurxor.c'\" \(2001 characters\)
+sed "s/^X//" >'syfre/cyphers/recurxor.c' <<'END_OF_FILE'
+X// recurxor.c -- "Recursive XOR" (cypher).
+X//
+X// written by Marc Wallace (Merle), 30 Apr 93.
+X// first included in version 1.0.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert two random characters at the beginning
+X    for (ro = 0; ro < 2; ro++)
+X        dto[ro] = randc();
+X
+X    // start up the xor machine
+X    for (ri = 0; ri < size; ri++, ro++)
+X        {
+X        mask ^= dti[ri];
+X        dto[ro] = mask;
+X        };
+X
+X    // insert two random characters at the end
+X    dto[ro++] = randc();
+X    dto[ro++] = randc();
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    char   mask = 0;
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // ignore two random characters at the beginning
+X    ri = 2;
+X
+X    // start up the xor machine
+X    for (ro = 0; ro < size; ri++, ro++)
+X        {
+X        dto[ro] = mask ^ dti[ri];
+X        mask = dti[ri];
+X        };
+X
+X    // ignore two random characters at the end
+X    // this part is pretty easy ... ;-)
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher recurxor("Recursive XOR", encode, decode);
+X#else // SECURE
+XCypher recurxor("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2001 -ne `wc -c <'syfre/cyphers/recurxor.c'`; then
+    echo shar: \"'syfre/cyphers/recurxor.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/recurxor.c'
+fi
+if test -f 'syfre/cyphers/recurxor.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/recurxor.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/recurxor.doc'\" \(325 characters\)
+sed "s/^X//" >'syfre/cyphers/recurxor.doc' <<'END_OF_FILE'
+Xcypher: Recursive XOR
+Xauthor: Merle (Marc Wallace)
+Xdate:   30 Apr 93
+Xformal: Cypher recurxor("Recursive XOR", encode, decode);
+X
+X
+Xstore two random bytes.
+Xset Mask = 0.
+Xfor each input I: output (I ^ Mask) (xor) and set Mask = (I ^ Mask).
+Xthen store two more random bytes at the end.
+Xto undo, you do basically the same thing.
+X
+X
+END_OF_FILE
+if test 325 -ne `wc -c <'syfre/cyphers/recurxor.doc'`; then
+    echo shar: \"'syfre/cyphers/recurxor.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/recurxor.doc'
+fi
+if test -f 'syfre/cyphers/rotate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/rotate.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/rotate.c'\" \(2790 characters\)
+sed "s/^X//" >'syfre/cyphers/rotate.c' <<'END_OF_FILE'
+X// rotate.c -- "Byte Rotation" (cypher).
+X//
+X// written by Marc Wallace (Merle), 28 May 93.
+X// first included in version 1.1.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i, curr, tmp;
+X    char a[8];
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert four random characters at the beginning
+X    // these represent a[0..7], four random numbers between 2 and 15
+X    for (i = 0; i < 8; i++)
+X        a[i] = randc(1, 15);
+X    for (ro = 0; ro < 4; ro++)
+X        dto[ro] = 16 * a[2 * ro] + a[2 * ro + 1];
+X
+X    // for each possible block of length a[curr], rotate it
+X    curr = 0;
+X    ri = 0;
+X    while (size - ri > a[curr])
+X        {
+X        // { a0 a1 a2 .. an } --> { a1 a2 .. an a0 }
+X        tmp = dti[ri++];
+X        for (i = 1; i < a[curr]; i++)
+X            dto[ro++] = dti[ri++];
+X        dto[ro++] = tmp;
+X        curr = (curr + 1) % 8;
+X        }
+X
+X    // for the rest, just output the bloody stuff
+X    while (ri < size)
+X        dto[ro++] = dti[ri++];
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i, curr, marker;
+X    int a[8];
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // get four random characters from the beginning
+X    // these represent a[0..7], four random numbers between 2 and 15
+X    for (ri = 0; ri < 4; ri++)
+X        {
+X        a[2 * ri]     = dti[ri] / 16;
+X        a[2 * ri + 1] = dti[ri] % 16;
+X        }
+X
+X    // for each possible block of length a[curr], unrotate it
+X    curr = 0;
+X    ro = 0;
+X    while (size - ro > a[curr])
+X        {
+X        // { a0 a1 a2 .. an } <-- { a1 a2 .. an a0 }
+X        marker = ro++;
+X        for (i = 1; i < a[curr]; i++)
+X            dto[ro++] = dti[ri++];
+X        dto[marker] = dti[ri++];
+X        curr = (curr + 1) % 8;
+X        }
+X
+X    // for the rest, just output the bloody stuff
+X    while (ro < size)
+X        dto[ro++] = dti[ri++];
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher rotate("Byte Rotation", encode, decode);
+X#else // SECURE
+XCypher rotate("(unknown)", encode, decode);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2790 -ne `wc -c <'syfre/cyphers/rotate.c'`; then
+    echo shar: \"'syfre/cyphers/rotate.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/rotate.c'
+fi
+if test -f 'syfre/cyphers/rotate.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/rotate.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/rotate.doc'\" \(502 characters\)
+sed "s/^X//" >'syfre/cyphers/rotate.doc' <<'END_OF_FILE'
+Xcypher: Byte Rotation
+Xauthor: Merle (Marc Wallace)
+Xdate:   28 May 93
+Xformal: Cypher rotate("Byte Rotation", encode, decode);
+X
+X
+Xconstruct eight random numbers a[0..7] between 2 and 15.
+Xstore them in four bytes.
+Xset curr = 0.
+Xwhile there's enough input left
+X  rotate the next block of a[curr] entries right one and output it.
+X  this sends [a0 a1 a2 .. an] --> [a1 a2 .. an a0].
+X  increment curr (mod 8) and recurse.
+Xif there's extra input left, just output it.
+Xto undo, you rotate to the left instead.
+X
+X
+END_OF_FILE
+if test 502 -ne `wc -c <'syfre/cyphers/rotate.doc'`; then
+    echo shar: \"'syfre/cyphers/rotate.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/rotate.doc'
+fi
+if test -f 'syfre/cyphers/sixteen.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/sixteen.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/sixteen.c'\" \(2583 characters\)
+sed "s/^X//" >'syfre/cyphers/sixteen.c' <<'END_OF_FILE'
+X// sixteen.c -- "Sixteen Square Rotation" (cypher).
+X//
+X// written by Marc Wallace (Merle), 26 May 93.
+X// first included in version 1.1.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic unsigned char s[256];
+X
+X
+Xstatic void
+Xinit()
+X    {
+X    int i;
+X
+X    // s[] is a rotation matrix, sending the byte [aaaabbbb]->[bbbbaaaa].
+X    // in other words:
+X    for (i = 0; i < 256; i++)
+X        s[i] = 16 * (i % 16) + (i / 16);
+X    // luckily, s[] is its own inverse.. ;-)
+X    }
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i;
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert three random characters at the beginning
+X    for (ro = 0; ro < 3; ro++)
+X        dto[ro] = randc();
+X
+X    // for each 256-byte block, perform the rotation on it
+X    ri = 0;
+X    while (size - ri > 255)
+X        {
+X        for (i = 0; i < 256; i++, ro++)
+X            dto[ro] = dti[ri + s[i]];
+X        ri += 256;
+X        }
+X
+X    // for the rest, just output the bloody stuff
+X    while (ri < size)
+X        dto[ro++] = dti[ri++];
+X
+X    // insert one random character at the end
+X    dto[ro++] = randc();
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    int i;
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // ignore three random characters at the beginning
+X    ri = 3;
+X
+X    // for each 256-byte block, perform the rotation on it
+X    ro = 0;
+X    while (size - ro > 255)
+X        {
+X        for (i = 0; i < 256; i++, ro++)
+X            dto[ro] = dti[ri + s[i]];
+X        ri += 256;
+X        }
+X
+X    // for the rest, just output the bloody stuff
+X    while (ro < size)
+X        dto[ro++] = dti[ri++];
+X
+X    // ignore one random character at the end
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher sixteen("Sixteen Square Rotation", encode, decode, init);
+X#else // SECURE
+XCypher sixteen("(unknown)", encode, decode, init);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2583 -ne `wc -c <'syfre/cyphers/sixteen.c'`; then
+    echo shar: \"'syfre/cyphers/sixteen.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/sixteen.c'
+fi
+if test -f 'syfre/cyphers/sixteen.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/sixteen.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/sixteen.doc'\" \(552 characters\)
+sed "s/^X//" >'syfre/cyphers/sixteen.doc' <<'END_OF_FILE'
+Xcypher: Sixteen Square Rotation
+Xauthor: Merle (Marc Wallace)
+Xdate:   26 May 93
+Xformal: Cypher sixteen("Sixteen Square Rotation", encode, decode, init);
+X
+X
+Xto initialize, construct a table s[].
+Xif [aaaabbbb] is the bit representation of a byte, s[aaaabbbb] = [bbbbaaaa].
+Xso s[] is its own inverse.
+X
+Xstore three random bytes.
+Xfor each block of 256 input bytes I[]: output O[i] = I[s[i]].
+Xfor any extra bytes, just output them.  (lame, I know...)
+Xthen store one more random byte at the end.
+Xto undo, you do basically the same thing, since s[s[i]] = i...
+X
+X
+END_OF_FILE
+if test 552 -ne `wc -c <'syfre/cyphers/sixteen.doc'`; then
+    echo shar: \"'syfre/cyphers/sixteen.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/sixteen.doc'
+fi
+if test -f 'syfre/cyphers/square.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/square.c'\"
+else
+echo shar: Extracting \"'syfre/cyphers/square.c'\" \(2510 characters\)
+sed "s/^X//" >'syfre/cyphers/square.c' <<'END_OF_FILE'
+X// square.c -- "Square Mod 251" (cypher).
+X//
+X// written by Marc Wallace (Merle), 26 May 93.
+X// first included in version 1.1.
+X
+X
+X#include "../include.h"
+X
+X
+Xstatic unsigned char s[256], r[256];
+X
+X
+Xstatic void
+Xinit()
+X    {
+X    int i;
+X
+X    // initialize s[i], the array of squares mod 251.
+X    // for half of the entries we need to multiply by 2 for uniqueness.
+X    for (i = 0; i < 251; i++)
+X        s[i] = (i * i) % 251;
+X    for (i = 126; i < 251; i++)
+X        s[i] = (2 * s[i]) % 251;
+X
+X    // initialize r[i], the array of square roots mod 251.
+X    // we'll need to adjust for the doubling done above.
+X    for (i = 0; i < 251; i++)
+X        r[s[i]] = i;  // tricky, eh?
+X
+X    // fill in s[i] and r[i] for i > 250 (special cases).
+X    for (i = 251; i < 256; i++)
+X        s[i] = r[i] = i;
+X    }
+X
+X
+Xstatic Data&
+Xencode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    if (size + 4 > out.maxsize)
+X        out.reinit(size + 4);
+X    out.size = size + 4;
+X
+X    // insert two random characters at the beginning
+X    for (ro = 0; ro < 2; ro++)
+X        dto[ro] = randc();
+X
+X    // take the square of everything (using s[])
+X    for (ri = 0; ri < size; ri++, ro++)
+X        dto[ro] = s[dti[ri]];
+X
+X    // insert two random characters at the end
+X    dto[ro++] = randc();
+X    dto[ro++] = randc();
+X
+X    return out;
+X    };
+X
+X
+Xstatic Data&
+Xdecode(Data& in, Data& out)
+X    {
+X    unsigned char*  dti = in.data;   // data pointer (input stream)
+X    unsigned char*  dto = out.data;  // data pointer (output stream)
+X    int             ri;              // temp variable (input stream)
+X    int             ro;              // temp variable (output stream)
+X    int             size = in.size;  // size (input stream)
+X
+X    size -= 4;
+X    if (size  > out.maxsize)
+X        out.reinit(size);
+X    out.size = size;
+X
+X    // ignore two random characters at the beginning
+X    ri = 2;
+X
+X    // take the square root of everything (using r[])
+X    for (ro = 0; ro < size; ri++, ro++)
+X        dto[ro] = r[dti[ri]];
+X
+X    // ignore two random characters at the end
+X
+X    return out;
+X    };
+X
+X
+X#ifndef SECURE
+XCypher square("Square Mod 251", encode, decode, init);
+X#else // SECURE
+XCypher square("(unknown)", encode, decode, init);
+X#endif // SECURE
+X
+END_OF_FILE
+if test 2510 -ne `wc -c <'syfre/cyphers/square.c'`; then
+    echo shar: \"'syfre/cyphers/square.c'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/square.c'
+fi
+if test -f 'syfre/cyphers/square.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'syfre/cyphers/square.doc'\"
+else
+echo shar: Extracting \"'syfre/cyphers/square.doc'\" \(531 characters\)
+sed "s/^X//" >'syfre/cyphers/square.doc' <<'END_OF_FILE'
+Xcypher: Square Mod 251
+Xauthor: Merle (Marc Wallace)
+Xdate:   26 May 93
+Xformal: Cypher square("Square Mod 251", encode, decode, init);
+X
+X
+Xto initialize, construct two tables s[] and r[].
+Xbasically, s[i] = i^2 mod 251.  but these entries aren't unique.
+Xso, for the last half (which repeat) we multiply by two, a non-square.
+Xr[] is just the inverse matrix for s[].
+X
+Xstore two random bytes.
+Xfor each input I: output s[I].
+Xthen store two more random bytes at the end.
+Xto undo, you do basically the same thing, using r[] instead of s[].
+X
+X
+END_OF_FILE
+if test 531 -ne `wc -c <'syfre/cyphers/square.doc'`; then
+    echo shar: \"'syfre/cyphers/square.doc'\" unpacked with wrong size!
+fi
+# end of 'syfre/cyphers/square.doc'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

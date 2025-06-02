@@ -1,0 +1,1659 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i113: xephem - astronomical ephemeris program., Part02/24
+Message-ID: <1992Mar6.135211.1933@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:52:11 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 113
+Archive-name: xephem/part02
+
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file cal_mjd.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping cal_mjd.c'
+else
+echo 'x - continuing file cal_mjd.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'cal_mjd.c' &&
+X	}
+X
+X	if (y < 0)
+X	    c = (long)((365.25*y) - 0.75) - 694025L;
+X	else
+X	    c = (long)(365.25*y) - 694025L;
+X
+X	d = 30.6001*(m+1);
+X
+X	*mjd = b + c + d + dy - 0.5;
+}
+X
+/* given the modified Julian date (number of days elapsed since 1900 jan 0.5,),
+X * mjd, return the calendar date in months, *mn, days, *dy, and years, *yr.
+X */
+mjd_cal (mjd, mn, dy, yr)
+double mjd;
+int *mn, *yr;
+double *dy;
+{
+X	double d, f;
+X	double i, a, b, ce, g;
+X
+X	d = mjd + 0.5;
+X	i = floor(d);
+X	f = d-i;
+X	if (f == 1) {
+X	    f = 0;
+X	    i += 1;
+X	}
+X
+X	if (i > -115860.0) {
+X	    a = floor((i/36524.25)+.9983573)+14;
+X	    i += 1 + a - floor(a/4.0);
+X	}
+X
+X	b = floor((i/365.25)+.802601);
+X	ce = i - floor((365.25*b)+.750001)+416;
+X	g = floor(ce/30.6001);
+X	*mn = g - 1;
+X	*dy = ce - floor(30.6001*g)+f;
+X	*yr = b + 1899;
+X
+X	if (g > 13.5)
+X	    *mn = g - 13;
+X	if (*mn < 2.5)
+X	    *yr = b + 1900;
+X	if (*yr < 1)
+X	    *yr -= 1;
+}
+X
+/* given an mjd, set *dow to 0..6 according to which dayof the week it falls
+X * on (0=sunday) or set it to -1 if can't figure it out.
+X */
+mjd_dow (mjd, dow)
+double mjd;
+int *dow;
+{
+X	/* cal_mjd() uses Gregorian dates on or after Oct 15, 1582.
+X	 * (Pope Gregory XIII dropped 10 days, Oct 5..14, and improved the leap-
+X	 * year algorithm). however, Great Britian and the colonies did not
+X	 * adopt it until Sept 14, 1752 (they dropped 11 days, Sept 3-13,
+X	 * due to additional accumulated error). leap years before 1752 thus
+X	 * can not easily be accounted for from the cal_mjd() number...
+X	 */
+X	if (mjd < -53798.5) {
+X	    /* pre sept 14, 1752 too hard to correct */
+X	    *dow = -1;
+X	    return;
+X	}
+X	*dow = ((long)floor(mjd-.5) + 1) % 7;/* 1/1/1900 (mjd 0.5) is a Monday*/
+X	if (*dow < 0)
+X	    *dow += 7;
+}
+X
+/* given a mjd, return the the number of days in the month.  */
+mjd_dpm (mjd, ndays)
+double mjd;
+int *ndays;
+{
+X	static short dpm[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+X	int m, y;
+X	double d;
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	*ndays = (m==2 && ((y%4==0 && y%100!=0)||y%400==0)) ? 29 : dpm[m-1];
+}
+X
+X
+/* given a mjd, return the year as a double. */
+mjd_year (mjd, yr)
+double mjd;
+double *yr;
+{
+X	int m, y;
+X	double d;
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	if (y == -1) y = -2;
+X	cal_mjd (1, 1.0, y, &e0);
+X	cal_mjd (1, 1.0, y+1, &e1);
+X	*yr = y + (mjd - e0)/(e1 - e0);
+}
+X
+/* given a decimal year, return mjd */
+year_mjd (y, mjd)
+double y;
+double *mjd;
+{
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X	int yf = floor (y);
+X	if (yf == -1) yf = -2;
+X
+X	cal_mjd (1, 1.0, yf, &e0);
+X	cal_mjd (1, 1.0, yf+1, &e1);
+X	*mjd = e0 + (y - yf)*(e1-e0);
+}
+SHAR_EOF
+echo 'File cal_mjd.c is complete' &&
+chmod 0644 cal_mjd.c ||
+echo 'restore of cal_mjd.c failed'
+Wc_c="`wc -c < 'cal_mjd.c'`"
+test 3113 -eq "$Wc_c" ||
+	echo 'cal_mjd.c: original size 3113, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= circum.c ==============
+if test -f 'circum.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping circum.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting circum.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'circum.c' &&
+/* fill in a Sky struct with all we know about each object.
+X *(the user defined objects are in obj.c)
+X */
+X
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+/* find body p's circumstances now.
+X * to save some time the caller may specify a desired accuracy, in arc seconds.
+X * if, based on its mean motion, it would not have moved this much since the
+X * last time we were called we only recompute altitude and azimuth and avoid
+X * recomputing the planet's heliocentric position. use 0.0 for best possible.
+X * we always recompute the user-defined objects' position regardless.
+X * return 0 if only alt/az changes, else 1 if all other stuff updated too.
+X * N.B: values are for opposition, ie, at fastest retrograde.
+X * 8/7/91: turn memory off via about_now. it just isn't reliable for example
+X *   during searching when fine time changes are being made.
+X */
+body_cir (p, as, np, sp)
+int p;
+double as;
+Now *np;
+Sky *sp;
+{
+X	typedef struct {
+X	    double l_dpas;	/* mean days per arc second */
+X	    Now l_now;		/* when l_sky was found */
+X	    double l_ra, l_dec;	/* the eod, ie, unprecessed, ra/dec values */
+X	    Sky l_sky;
+X	} Last;
+X	/* must be in same order as the astro.h object #define's */
+X	static Last last[8] = {
+X	    {.000068, {NOMJD}},	/* mercury */
+X	    {.00017, {NOMJD}},	/* venus */
+X	    {.00015, {NOMJD}},	/* mars */
+X	    {.0012, {NOMJD}},	/* jupiter */
+X	    {.0024, {NOMJD}},	/* saturn */
+X	    {.0051, {NOMJD}},	/* uranus */
+X	    {.0081, {NOMJD}},	/* neptune */
+X	    {.011, {NOMJD}}	/* pluto */
+X	};
+X	Last objxlast, objylast;
+X	double lst, alt, az;
+X	double ehp, ha, dec;	/* ehp: angular dia of earth from body */
+X	Last *lp;
+X	int new;
+X
+X	switch (p) {
+X	case SUN: return (sun_cir (as, np, sp));
+X	case MOON: return (moon_cir (as, np, sp));
+X	case OBJX: lp = &objxlast; break;
+X	case OBJY: lp = &objylast; break;
+X	default: lp = last + p; break;
+X	}
+X
+X	/* if less than l_every days from last time for this planet
+X	 * just redo alt/az.
+X	 * ALWAYS redo objects x and y.
+X	 */
+X	if (p != OBJX && p != OBJY && same_cir (np, &lp->l_now)
+X		      && about_now (np, &lp->l_now, as*lp->l_dpas)) {
+X	    *sp = lp->l_sky;
+X	    new = 0;
+X	} else {
+X	    double lpd0, psi0;	/* heliocentric ecliptic long and lat */
+X	    double rp0;		/* dist from sun */
+X	    double rho0;	/* dist from earth */
+X	    double lam, bet;	/* geocentric ecliptic long and lat */
+X	    double dia, mag;	/* angular diameter at 1 AU and magnitude */
+X	    double lsn, rsn;	/* true geoc lng of sun, dist from sn to earth*/
+X	    double el;	/* elongation */
+X	    double f;   /* phase from earth */
+X
+X	    lp->l_now = *np;
+X	    sunpos (mjd, &lsn, &rsn);
+X	    if (p == OBJX || p == OBJY)
+X		obj_cir(mjd, p, &lpd0, &psi0, &rp0, &rho0, &lam, &bet,
+X						&sp->s_size, &sp->s_mag);
+X	    else {
+X		double deps, dpsi;
+X		double a;
+X		plans(mjd, p, &lpd0, &psi0, &rp0, &rho0, &lam, &bet, &dia,&mag);
+X		nutation (mjd, &deps, &dpsi);	/* correct for nutation */
+X		lam += dpsi;
+X		a = lsn-lam;			/* and 20.4" aberation */
+X		lam -= degrad(20.4/3600)*cos(a)/cos(bet);
+X		bet -= degrad(20.4/3600)*sin(a)*sin(bet);
+X	    }
+X
+X	    ecl_eq (mjd, bet, lam, &lp->l_ra, &lp->l_dec);
+X
+X	    sp->s_ra = lp->l_ra;
+X	    sp->s_dec = lp->l_dec;
+X	    if (epoch != EOD)
+X		precess (mjd, epoch, &sp->s_ra, &sp->s_dec);
+X	    sp->s_edist = rho0;
+X	    sp->s_sdist = rp0;
+X	    elongation (lam, bet, lsn, &el);
+X	    el = raddeg(el);
+X	    sp->s_elong = el;
+X	    f = (rp0 > 0.0)
+X		? 0.25 * (((rp0+rho0)*(rp0+rho0) - rsn*rsn)/(rp0*rho0)) : 0.0;
+X	    sp->s_phase = f*100.0; /* percent */
+X	    if (p != OBJX && p != OBJY) {
+X		sp->s_size = dia/rho0;
+X		sp->s_mag = mag + 5.0*log(rp0*rho0/sqrt(f))/log(10.0);
+X	    }
+X	    sp->s_hlong = lpd0;
+X	    sp->s_hlat = psi0;
+X	    new = 1;
+X	}
+X
+X	/* alt, az; correct for parallax and refraction; use eod ra/dec */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - lp->l_ra;
+X	if (sp->s_edist > 0.0) {
+X	    ehp = (2.0*6378.0/146.0e6) / sp->s_edist;
+X	    ta_par (ha, lp->l_dec, lat, height, ehp, &ha, &dec);
+X	} else
+X	    dec = lp->l_dec;
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	sp->s_alt = alt;
+X	sp->s_az = az;
+X	lp->l_sky = *sp;
+X	return (new);
+}
+X
+/* find local times when sun is 18 degrees below horizon.
+X * return 0 if just returned same stuff as previous call, else 1 if new.
+X */
+twilight_cir (np, dawn, dusk, status)
+Now *np;
+double *dawn, *dusk;
+int *status;
+{
+X	static Now last_now = {NOMJD};
+X	static double last_dawn, last_dusk;
+X	static int last_status;
+X	int new;
+X
+X	if (same_cir (np, &last_now) && same_lday (np, &last_now)) {
+X	    *dawn = last_dawn;
+X	    *dusk = last_dusk;
+X	    *status = last_status;
+X	    new = 0;
+X	} else {
+X	    double x;
+X	    (void) riset_cir (SUN,np,0,TWILIGHT,dawn,dusk,&x,&x,&x,&x,status);
+X	    last_dawn = *dawn;
+X	    last_dusk = *dusk;
+X	    last_status = *status;
+X	    last_now = *np;
+X	    new = 1;
+X	}
+X	return (new);
+}
+X
+/* find sun's circumstances now.
+X * as is the desired accuracy, in arc seconds; use 0.0 for best possible.
+X * return 0 if only alt/az changes, else 1 if all other stuff updated too.
+X */
+sun_cir (as, np, sp)
+double as;
+Now *np;
+Sky *sp;
+{
+X	static Sky last_sky;
+X	static Now last_now = {NOMJD};
+X	static double last_ra, last_dec;	/* unprecessed ra/dec */
+X	double lst, alt, az;
+X	double ehp, ha, dec;	/* ehp: angular dia of earth from body */
+X	int new;
+X
+X	if (same_cir (np, &last_now) && about_now (np, &last_now, as*.00028)) {
+X	    *sp = last_sky;
+X	    new = 0;
+X	} else {
+X	    double lsn, rsn;
+X	    double deps, dpsi;
+X
+X	    last_now = *np;
+X	    sunpos (mjd, &lsn, &rsn);		/* sun's true ecliptic long
+X						 * and dist
+X						 */
+X	    nutation (mjd, &deps, &dpsi);	/* correct for nutation */
+X	    lsn += dpsi;
+X	    lsn -= degrad(20.4/3600);		/* and light travel time */
+X
+X	    sp->s_edist = rsn;
+X	    sp->s_sdist = 0.0;
+X	    sp->s_elong = 0.0;
+X	    sp->s_size = raddeg(4.65242e-3/rsn)*3600*2;
+X	    sp->s_mag = -26.8;
+X	    sp->s_hlong = lsn-PI;	/* geo- to helio- centric */
+X	    range (&sp->s_hlong, 2*PI);
+X	    sp->s_hlat = 0.0;
+X
+X	    ecl_eq (mjd, 0.0, lsn, &last_ra, &last_dec);
+X	    sp->s_ra = last_ra;
+X	    sp->s_dec = last_dec;
+X	    if (epoch != EOD)
+X		precess (mjd, epoch, &sp->s_ra, &sp->s_dec);
+X	    new = 1;
+X	}
+X
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - last_ra;
+X	ehp = (2.0 * 6378.0 / 146.0e6) / sp->s_edist;
+X	ta_par (ha, last_dec, lat, height, ehp, &ha, &dec);
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	sp->s_alt = alt;
+X	sp->s_az = az;
+X	last_sky = *sp;
+X	return (new);
+}
+X
+/* find moon's circumstances now.
+X * as is the desired accuracy, in arc seconds; use 0.0 for best possible.
+X * return 0 if only alt/az changes, else 1 if all other stuff updated too.
+X */
+moon_cir (as, np, sp)
+double as;
+Now *np;
+Sky *sp;
+{
+X	static Sky last_sky;
+X	static Now last_now = {NOMJD};
+X	static double ehp;
+X	static double last_ra, last_dec;	/* unprecessed */
+X	double lst, alt, az;
+X	double ha, dec;
+X	int new;
+X
+X	if (same_cir (np, &last_now) && about_now (np, &last_now, as*.000021)) {
+X	    *sp = last_sky;
+X	    new = 0;
+X	} else {
+X	    double lam, bet;
+X	    double deps, dpsi;
+X	    double lsn, rsn;	/* sun long in rads, earth-sun dist in au */
+X	    double edistau;	/* earth-moon dist, in au */
+X	    double el;		/* elongation, rads east */
+X
+X	    last_now = *np;
+X	    moon (mjd, &lam, &bet, &ehp);	/* moon's true ecliptic loc */
+X	    nutation (mjd, &deps, &dpsi);	/* correct for nutation */
+X	    lam += dpsi;
+X	    range (&lam, 2*PI);
+X
+X	    sp->s_edist = 6378.14/sin(ehp);	/* earth-moon dist, want km */
+X	    sp->s_size = 3600*31.22512*sin(ehp);/* moon angular dia, seconds */
+X	    sp->s_hlong = lam;			/* save geo in helio fields */
+X	    sp->s_hlat = bet;
+X
+X	    ecl_eq (mjd, bet, lam, &last_ra, &last_dec);
+X	    sp->s_ra = last_ra;
+X	    sp->s_dec = last_dec;
+X	    if (epoch != EOD)
+X		precess (mjd, epoch, &sp->s_ra, &sp->s_dec);
+X
+X	    sunpos (mjd, &lsn, &rsn);
+X	    range (&lsn, 2*PI);
+X	    elongation (lam, bet, lsn, &el);
+X
+X	    /* solve triangle of earth, sun, and elongation for moon-sun dist */
+X	    edistau = sp->s_edist/1.495979e8;	/* km -> au */
+X	    sp->s_sdist =
+X		sqrt (edistau*edistau + rsn*rsn - 2.0*edistau*rsn*cos(el));
+X
+X	    /* TODO: improve mag; this is based on a flat moon model. */
+X	    sp->s_mag = -12.7 + 2.5*(log10(PI) - log10(PI/2*(1+1.e-6-cos(el))));
+X
+X	    sp->s_elong = raddeg(el);		/* want degrees */
+X	    sp->s_phase = fabs(el)/PI*100.0;	/* want non-negative % */
+X	    new = 1;
+X	}
+X
+X	/* show topocentric alt/az by correcting ra/dec for parallax 
+X	 * as well as refraction.
+X	 */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - last_ra;
+X	ta_par (ha, last_dec, lat, height, ehp, &ha, &dec);
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	sp->s_alt = alt;
+X	sp->s_az = az;
+X	last_sky = *sp;
+X	return (new);
+}
+X
+/* given geocentric ecliptic longitude and latitude, lam and bet, of some object
+X * and the longitude of the sun, lsn, find the elongation, el. this is the
+X * actual angular separation of the object from the sun, not just the difference
+X * in the longitude. the sign, however, IS set simply as a test on longitude
+X * such that el will be >0 for an evening object <0 for a morning object.
+X * to understand the test for el sign, draw a graph with lam going from 0-2*PI
+X *   down the vertical axis, lsn going from 0-2*PI across the hor axis. then
+X *   define the diagonal regions bounded by the lines lam=lsn+PI, lam=lsn and
+X *   lam=lsn-PI. the "morning" regions are any values to the lower left of the
+X *   first line and bounded within the second pair of lines.
+X * all angles in radians.
+X */
+elongation (lam, bet, lsn, el)
+double lam, bet, lsn;
+double *el;
+{
+X	*el = acos(cos(bet)*cos(lam-lsn));
+X	if (lam>lsn+PI || lam>lsn-PI && lam<lsn) *el = - *el;
+}
+X
+/* return whether the two Nows are for the same observing circumstances. */
+same_cir (n1, n2)
+register Now *n1, *n2;
+{
+X	return (n1->n_lat == n2->n_lat
+X		&& n1->n_lng == n2->n_lng
+X		&& n1->n_temp == n2->n_temp
+X		&& n1->n_pressure == n2->n_pressure
+X		&& n1->n_height == n2->n_height
+X		&& n1->n_tz == n2->n_tz
+X		&& n1->n_epoch == n2->n_epoch);
+}
+X
+/* return whether the two Nows are for the same LOCAL day */
+same_lday (n1, n2)
+Now *n1, *n2;
+{
+X	return (mjd_day(n1->n_mjd - n1->n_tz/24.0) ==
+X		       mjd_day(n2->n_mjd - n2->n_tz/24.0)); 
+}
+X
+/* return whether the mjd of the two Nows are within dt */
+static
+about_now (n1, n2, dt)
+Now *n1, *n2;
+double dt;
+{
+X	/* always say it's out pf bounds for now unless it's exactly the same...
+X	return (fabs (n1->n_mjd - n2->n_mjd) <= dt/2.0);
+X	*/
+X	return (n1->n_mjd == n2->n_mjd);
+}
+X
+now_lst (np, lst)
+Now *np;
+double *lst;
+{
+X	utc_gst (mjd_day(mjd), mjd_hr(mjd), lst);
+X	*lst += radhr(lng);
+X	range (lst, 24.0);
+}
+X
+/* round a time in days, *t, to the nearest second, IN PLACE. */
+rnd_second (t)
+double *t;
+{
+X	*t = floor(*t*SPD+0.5)/SPD;
+}
+X	
+double
+mjd_day(jd)
+double jd;
+{
+X	return (floor(jd-0.5)+0.5);
+}
+X
+double
+mjd_hr(jd)
+double jd;
+{
+X	return ((jd-mjd_day(jd))*24.0);
+}
+SHAR_EOF
+chmod 0644 circum.c ||
+echo 'restore of circum.c failed'
+Wc_c="`wc -c < 'circum.c'`"
+test 10858 -eq "$Wc_c" ||
+	echo 'circum.c: original size 10858, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= comet.c ==============
+if test -f 'comet.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping comet.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting comet.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'comet.c' &&
+#include <math.h>
+#include "astro.h"
+X
+/* given a modified Julian date, mjd, and a set of heliocentric parabolic
+X * orbital elements referred to the epoch of date (mjd):
+X *   ep:   epoch of perihelion,
+X *   inc:  inclination,
+X *   ap:   argument of perihelion (equals the longitude of perihelion minus the
+X *	   longitude of ascending node)
+X *   qp:   perihelion distance,
+X *   om:   longitude of ascending node;
+X * find:
+X *   lpd:  heliocentric longitude, 
+X *   psi:  heliocentric latitude,
+X *   rp:   distance from the sun to the planet, 
+X *   rho:  distance from the Earth to the planet,
+X *   lam:  geocentric ecliptic longitude, 
+X *   bet:  geocentric ecliptic latitude,
+X *         none are corrected for light time, ie, they are the true values for
+X *	   the given instant.
+X *
+X * all angles are in radians, all distances in AU.
+X * mutual perturbation corrections with other solar system objects are not
+X * applied. corrections for nutation and abberation must be made by the caller.
+X * The RA and DEC calculated from the fully-corrected ecliptic coordinates are
+X * then the apparent geocentric coordinates. Further corrections can be made,
+X * if required, for atmospheric refraction and geocentric parallax.
+X */
+comet (mjd, ep, inc, ap, qp, om, lpd, psi, rp, rho, lam, bet)
+double mjd;
+double ep, inc, ap, qp, om;
+double *lpd, *psi, *rp, *rho, *lam, *bet;
+{
+X	double w, s, s2;
+X	double l, sl, cl, y;
+X	double spsi, cpsi;
+X	double rd, lsn, rsn;
+X	double lg, re, ll;
+X	double cll, sll;
+X	double nu;
+X
+#define	ERRLMT	0.0001
+X        w = ((mjd-ep)*3.649116e-02)/(qp*sqrt(qp));
+X        s = w/3;
+X	while (1) {
+X	    double d;
+X	    s2 = s*s;
+X	    d = (s2+3)*s-w;
+X	    if (fabs(d) <= ERRLMT)
+X		break;
+X	    s = ((2*s*s2)+w)/(3*(s2+1));
+X	}
+X
+X        nu = 2*atan(s);
+X	*rp = qp*(1+s2);
+X	l = nu+ap;
+X        sl = sin(l);
+X	cl = cos(l);
+X	spsi = sl*sin(inc);
+X        *psi = asin(spsi);
+X	y = sl*cos(inc);
+X        *lpd = atan(y/cl)+om;
+X	cpsi = cos(*psi);
+X        if (cl<0) *lpd += PI;
+X	range (lpd, 2*PI);
+X        rd = *rp * cpsi;
+X	sunpos (mjd, &lsn, &rsn);
+X	lg = lsn+PI;
+X        re = rsn;
+X	ll = *lpd - lg;
+X        cll = cos(ll);
+X	sll = sin(ll);
+X        *rho = sqrt((re * re)+(*rp * *rp)-(2*re*rd*cll));
+X        if (rd<re) 
+X            *lam = atan((-1*rd*sll)/(re-(rd*cll)))+lg+PI;
+X	else
+X	    *lam = atan((re*sll)/(rd-(re*cll)))+*lpd;
+X	range (lam, 2*PI);
+X        *bet = atan((rd*spsi*sin(*lam-*lpd))/(cpsi*re*sll));
+}
+SHAR_EOF
+chmod 0644 comet.c ||
+echo 'restore of comet.c failed'
+Wc_c="`wc -c < 'comet.c'`"
+test 2390 -eq "$Wc_c" ||
+	echo 'comet.c: original size 2390, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= compiler.c ==============
+if test -f 'compiler.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping compiler.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting compiler.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'compiler.c' &&
+/* module to compile and execute a c-style arithmetic expression.
+X * public entry points are compile_expr() and execute_expr().
+X *
+X * one reason this is so nice and tight is that all opcodes are the same size
+X * (an int) and the tokens the parser returns are directly usable as opcodes,
+X * for the most part. constants and variables are compiled as an opcode
+X * with an offset into the auxiliary opcode tape, opx.
+X */
+X
+#include <math.h>
+#include <ctype.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include "fieldmap.h"
+X
+/* parser tokens and opcodes, as necessary */
+#define	HALT	0	/* good value for HALT since program is inited to 0 */
+/* binary operators (precedences in table, below) */
+#define	ADD	1
+#define	SUB	2
+#define	MULT	3
+#define	DIV	4
+#define	AND	5
+#define	OR	6
+#define	GT	7
+#define	GE	8
+#define	EQ	9
+#define	NE	10
+#define	LT	11
+#define	LE	12
+/* unary op, precedence in NEG_PREC #define, below */
+#define	NEG	13
+/* symantically operands, ie, constants, variables and all functions */
+#define	CONST	14	
+#define	VAR	15
+#define	ABS	16	/* add functions if desired just like this is done */
+#define	SIN	17
+#define	COS	18
+#define	TAN	19
+#define	ASIN	20
+#define	ACOS	21
+#define	ATAN	22
+#define	PITOK	23	/* built-in constant, pi */
+#define	DEGRAD	24
+#define	RADDEG	25
+#define	LOG	26
+#define	LOG10	27
+#define	EXP	28
+#define	SQRT	29
+#define	POW	30
+#define	ATAN2	31
+/* purely tokens - never get compiled as such */
+#define	LPAREN	255
+#define	RPAREN	254
+#define	COMMA	253
+#define	ERR	(-1)
+X
+/* precedence of each of the binary operators.
+X * in case of a tie, compiler associates left-to-right.
+X * N.B. each entry's index must correspond to its #define!
+X */
+static int precedence[] = {0,5,5,6,6,2,1,4,4,3,3,4,4};
+#define	NEG_PREC	7	/* negation is highest */
+X
+/* execute-time operand stack */
+#define	MAX_STACK	16
+static double stack[MAX_STACK], *sp;
+X
+/* space for compiled opcodes - the "program".
+X * opcodes go in lower 8 bits.
+X * when an opcode has an operand (as CONST and VAR) it is really in opx[] and
+X *   the index is in the remaining upper bits.
+X */
+#define	MAX_PROG 32
+static int program[MAX_PROG], *pc;
+#define	OP_SHIFT	8
+#define	OP_MASK		0xff
+X
+/* auxiliary operand info.
+X * the operands (all but lower 8 bits) of CONST and VAR are really indeces
+X * into this array. thus, no point in making this any longer than you have
+X * bits more than 8 in your machine's int to index into it, ie, make
+X *    MAX_OPX <= 1 << ((sizeof(int)-1)*8)
+X * also, the fld's must refer to ones being flog'd, so not point in more
+X * of these then that might be used for plotting and srching combined.
+X */
+#define	MAX_OPX	16
+typedef union {
+X    double opu_f;		/* value when opcode is CONST */
+X    Widget opu_fld;		/* widget of field when opcode is VAR */
+} OpX;
+static OpX opx[MAX_OPX];
+static int opxidx;
+X
+/* these are global just for easy/rapid access */
+static int parens_nest;	/* to check that parens end up nested */
+static char *err_msg;	/* caller provides storage; we point at it with this */
+static char *cexpr, *lcexpr; /* pointers that move along caller's expression */
+static int good_prog;	/* != 0 when program appears to be good */
+X
+/* compile the given c-style expression.
+X * return 0 and set good_prog if ok,
+X * else return -1 and a reason message in errbuf.
+X */
+compile_expr (ex, errbuf)
+char *ex;
+char *errbuf;
+{
+X	int instr;
+X
+X	/* init the globals.
+X	 * also delete any flogs used in the previous program.
+X	 */
+X	cexpr = ex;
+X	err_msg = errbuf;
+X	pc = program;
+X	opxidx = 0;
+X	parens_nest = 0;
+X	do {
+X	    instr = *pc++;
+X	    if ((instr & OP_MASK) == VAR)
+X		flog_delete (opx[instr >> OP_SHIFT].opu_fld);
+X	} while (instr != HALT);
+X
+X	pc = program;
+X	if (compile(0) == ERR) {
+X	    (void) sprintf (err_msg + strlen(err_msg), " at \"%.10s\"", lcexpr);
+X	    good_prog = 0;
+X	    return (-1);
+X	}
+X	if (pc == program) {
+X	    (void) sprintf (err_msg, "null program");
+X	    good_prog = 0;
+X	    return (-1);
+X	}
+X	*pc++ = HALT;
+X	good_prog = 1;
+X	return (0);
+}
+X
+/* execute the expression previously compiled with compile_expr().
+X * return 0 with *vp set to the answer if ok, else return -1 with a reason
+X * why not message in errbuf.
+X */
+execute_expr (vp, errbuf)
+double *vp;
+char *errbuf;
+{
+X	int s;
+X
+X	err_msg = errbuf;
+X	sp = stack + MAX_STACK;	/* grows towards lower addresses */
+X	pc = program;
+X	s = execute(vp);
+X	if (s < 0)
+X	    good_prog = 0;
+X	return (s);
+}
+X
+/* this is a way for the outside world to ask whether there is currently a
+X * reasonable program compiled and able to execute.
+X */
+prog_isgood()
+{
+X	return (good_prog);
+}
+X
+/* get and return the opcode corresponding to the next token.
+X * leave with lcexpr pointing at the new token, cexpr just after it.
+X * also watch for mismatches parens and proper operator/operand alternation.
+X */
+static
+next_token ()
+{
+X	Widget parse_fieldname ();
+X	static char toomt[] = "More than %d terms";
+X	static char badop[] = "Illegal operator";
+X	int tok = ERR;	/* just something illegal */
+X	char c;
+X
+X	while ((c = *cexpr) == ' ')
+X	    cexpr++;
+X	lcexpr = cexpr++;
+X
+X	/* mainly check for a binary operator */
+X	switch (c) {
+X	case ',': tok = COMMA; break;
+X	case '\0': --cexpr; tok = HALT; break; /* keep returning HALT */
+X	case '+': tok = ADD; break; /* compiler knows when it's really unary */
+X	case '-': tok = SUB; break; /* compiler knows when it's really negate */
+X	case '*': tok = MULT; break;
+X	case '/': tok = DIV; break;
+X	case '(': parens_nest++; tok = LPAREN; break;
+X	case ')':
+X	    if (--parens_nest < 0) {
+X	        (void) sprintf (err_msg, "Too many right parens");
+X		return (ERR);
+X	    } else
+X		tok = RPAREN;
+X	    break;
+X	case '|':
+X	    if (*cexpr == '|') { cexpr++; tok = OR; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '&':
+X	    if (*cexpr == '&') { cexpr++; tok = AND; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '=':
+X	    if (*cexpr == '=') { cexpr++; tok = EQ; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '!':
+X	    if (*cexpr == '=') { cexpr++; tok = NE; }
+X	    else { (void) sprintf (err_msg, badop); return (ERR); }
+X	    break;
+X	case '<':
+X	    if (*cexpr == '=') { cexpr++; tok = LE; }
+X	    else tok = LT;
+X	    break;
+X	case '>':
+X	    if (*cexpr == '=') { cexpr++; tok = GE; }
+X	    else tok = GT;
+X	    break;
+X	}
+X
+X	if (tok != ERR)
+X	    return (tok);
+X
+X	/* not op so check for a constant, variable or function */
+X	if (isdigit(c) || c == '.') {
+X	    if (opxidx > MAX_OPX) {
+X		(void) sprintf (err_msg, toomt, MAX_OPX);
+X		return (ERR);
+X	    }
+X	    opx[opxidx].opu_f = atof (lcexpr);
+X	    tok = CONST | (opxidx++ << OP_SHIFT);
+X	    skip_double();
+X	} else if (isalpha(c)) {
+X	    /* check list of functions */
+X	    tok = chk_funcs();
+X	    if (tok == ERR) {
+X		/* not a function, so assume it's a variable */
+X		Widget fld;
+X		if (opxidx > MAX_OPX) {
+X		    (void) sprintf (err_msg, toomt, MAX_OPX);
+X		    return (ERR);
+X		}
+X		fld = parse_fieldname ();
+X		if (fld == 0) {
+X		    (void) sprintf (err_msg, "Unknown field");
+X		    return (ERR);
+X		 } else {
+X		    if (flog_add (fld) < 0) { /* register with field logger */
+X			(void) sprintf (err_msg, "Sorry; too many fields");
+X			return (ERR);
+X		    }
+X		    opx[opxidx].opu_fld = fld;
+X		    tok = VAR | (opxidx++ << OP_SHIFT);
+X		}
+X	    }
+X	}
+X
+X	if (tok != ERR)
+X	    return (tok);
+X
+X	/* what the heck is it? */
+X	sprintf (err_msg, "syntax error");
+X	return (ERR);
+}
+X
+/* return funtion token, else ERR.
+X * if find one, update cexpr too.
+X */
+static
+chk_funcs()
+{
+X	static struct {
+X	    char *st_name;
+X	    int st_tok;
+X	} symtab[] = {
+X	     /* be sure to put short names AFTER longer ones */
+X	     {"abs", ABS},	 {"acos", ACOS},   {"asin", ASIN},
+X	     {"atan2", ATAN2},	 {"atan", ATAN},   {"cos", COS},
+X	     {"degrad", DEGRAD}, {"exp", EXP},	   {"log10", LOG10},
+X	     {"log", LOG},	 {"pi", PITOK},	   {"pow", POW},
+X	     {"raddeg", RADDEG}, {"sin", SIN},	   {"sqrt", SQRT},
+X	     {"tan", TAN}
+X	};
+X	int i;
+X
+X	for (i = 0; i < sizeof(symtab)/sizeof(symtab[0]); i++) {
+X	    int l = strlen (symtab[i].st_name);
+X	    if (strncmp (lcexpr, symtab[i].st_name, l) == 0) {
+X		cexpr += l-1;
+X		return (symtab[i].st_tok);
+X	    }
+X	}
+X	return (ERR);
+}
+X
+/* move cexpr on past a double.
+X * allow sci notation.
+X * no need to worry about a leading '-' or '+' but allow them after an 'e'.
+X * TODO: this handles all the desired cases, but also admits a bit too much
+X *   such as things like 1eee2...3. geeze; to skip a double right you almost
+X *   have to go ahead and crack it!
+X */
+static
+skip_double()
+{
+X	int sawe = 0;	/* so we can allow '-' or '+' right after an 'e' */
+X
+X	while (1) {
+X	    char c = *cexpr;
+X	    if (isdigit(c) || c=='.' || (sawe && (c=='-' || c=='+'))) {
+X		sawe = 0;
+X		cexpr++;
+X	    } else if (c == 'e') {
+X		sawe = 1;
+X		cexpr++;
+X	    } else
+X		break;
+X	}
+}
+X
+/* call this whenever you want to dig out the next (sub)expression.
+X * keep compiling instructions as long as the operators are higher precedence
+X * than prec (or until see HALT, COMMA or RPAREN) then return that
+X * "look-ahead" token.
+X * if error, fill in a message in err_msg[] and return ERR.
+X */
+static
+compile (prec)
+int prec;
+{
+X	int expect_binop = 0;	/* set after we have seen any operand.
+X				 * used by SUB so it can tell if it really 
+X				 * should be taken to be a NEG instead.
+X				 */
+X	int tok = next_token ();
+X	int *oldpc;
+X
+X        while (1) {
+X	    int p;
+X	    if (tok == ERR)
+X		return (ERR);
+X	    if (pc - program >= MAX_PROG) {
+X		sprintf (err_msg, "program is too long");
+X		return (ERR);
+X	    }
+X
+X	    /* check for special things like functions, constants and parens */
+X            switch (tok & OP_MASK) {
+X	    case COMMA: return (tok);
+X            case HALT: return (tok);
+X	    case ADD:
+X		if (expect_binop)
+X		    break;	/* procede with binary addition */
+X		/* just skip a unary positive(?) */
+X		tok = next_token();
+X		if (tok == HALT) {
+X		    sprintf (err_msg, "term expected");
+X		    return (ERR);
+X		}
+X		continue;
+X	    case SUB:
+X		if (expect_binop)
+X		    break;	/* procede with binary subtract */
+X		oldpc = pc;
+X		tok = compile (NEG_PREC);
+X		if (oldpc == pc) {
+X		    sprintf (err_msg, "term expected");
+X		    return (ERR);
+X		}
+X		*pc++ = NEG;
+X		expect_binop = 1;
+X		continue;
+X	    /* one-arg functions */
+X            case ABS: case SIN: case COS: case TAN: case ASIN: case ACOS:
+X	    case ATAN: case DEGRAD: case RADDEG: case LOG: case LOG10:
+X	    case EXP: case SQRT:
+X		/* eat up the function's parenthesized argument */
+X		if (next_token() != LPAREN) {
+X		    sprintf (err_msg, "saw a built-in function: expecting (");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != RPAREN || oldpc == pc) {
+X		    sprintf (err_msg, "1-arg function arglist error");
+X		    return (ERR);
+X		}
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X	    /* two-arg functions */
+X	    case POW: case ATAN2:
+X		/* eat up the function's parenthesized arguments */
+X		if (next_token() != LPAREN) {
+X		    sprintf (err_msg, "saw a built-in function: expecting (");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != COMMA || oldpc == pc) {
+X		    sprintf (err_msg, "1st of 2-arg function arglist error");
+X		    return (ERR);
+X		}
+X		oldpc = pc;
+X		if (compile (0) != RPAREN || oldpc == pc) {
+X		    sprintf (err_msg, "2nd of 2-arg function arglist error");
+X		    return (ERR);
+X		}
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X	    /* constants and variables are just like 0-arg functions w/o ()'s */
+X            case CONST:
+X	    case PITOK:
+X	    case VAR:
+X		*pc++ = tok;
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X            case LPAREN:
+X		oldpc = pc;
+X		if (compile (0) != RPAREN) {
+X		    sprintf (err_msg, "unmatched left paren");
+X		    return (ERR);
+X		}
+X		if (oldpc == pc) {
+X		    sprintf (err_msg, "null expression");
+X		    return (ERR);
+X		}
+X		tok = next_token();
+X		expect_binop = 1;
+X		continue;
+X            case RPAREN:
+X		return (RPAREN);
+X            }
+X
+X	    /* everything else is a binary operator */
+X	    p = precedence[tok];
+X            if (p > prec) {
+X                int newtok;
+X		oldpc = pc;
+X                newtok = compile (p);
+X		if (newtok == ERR)
+X		    return (ERR);
+X		if (oldpc == pc) {
+X		    strcpy (err_msg, "term or factor expected");
+X		    return (ERR);
+X		}
+X                *pc++ = tok;
+X		expect_binop = 1;
+X                tok = newtok;
+X            } else
+X                return (tok);
+X        }
+}
+X
+/* "run" the program[] compiled with compile().
+X * if ok, return 0 and the final result,
+X * else return -1 with a reason why not message in err_msg.
+X */
+static
+execute(result)
+double *result;
+{
+X	int instr; 
+X
+X	do {
+X	    instr = *pc++;
+X	    switch (instr & OP_MASK) {
+X	    /* put these in numberic order so hopefully even the dumbest
+X	     * compiler will choose to use a jump table, not a cascade of ifs.
+X	     */
+X	    case HALT: break;	/* outer loop will stop us */
+X	    case ADD:  sp[1] = sp[1] +  sp[0]; sp++; break;
+X	    case SUB:  sp[1] = sp[1] -  sp[0]; sp++; break;
+X	    case MULT: sp[1] = sp[1] *  sp[0]; sp++; break;
+X	    case DIV:  sp[1] = sp[1] /  sp[0]; sp++; break;
+X	    case AND:  sp[1] = sp[1] && sp[0] ? 1 : 0; sp++; break;
+X	    case OR:   sp[1] = sp[1] || sp[0] ? 1 : 0; sp++; break;
+X	    case GT:   sp[1] = sp[1] >  sp[0] ? 1 : 0; sp++; break;
+X	    case GE:   sp[1] = sp[1] >= sp[0] ? 1 : 0; sp++; break;
+X	    case EQ:   sp[1] = sp[1] == sp[0] ? 1 : 0; sp++; break;
+X	    case NE:   sp[1] = sp[1] != sp[0] ? 1 : 0; sp++; break;
+X	    case LT:   sp[1] = sp[1] <  sp[0] ? 1 : 0; sp++; break;
+X	    case LE:   sp[1] = sp[1] <= sp[0] ? 1 : 0; sp++; break;
+X	    case NEG:  *sp = -*sp; break;
+X	    case CONST: *--sp = opx[instr >> OP_SHIFT].opu_f; break;
+X	    case VAR:
+X		if (flog_get(opx[instr>>OP_SHIFT].opu_fld, --sp, (char *)0)<0) {
+X		    (void) sprintf (err_msg, "Bug! VAR field not logged");
+X		    return (-1);
+X		}
+X		break;
+X	    case PITOK:  *--sp = 4.0*atan(1.0); break;
+X	    case ABS:  *sp = fabs (*sp); break;
+X	    case SIN:  *sp = sin (*sp); break;
+X	    case COS:  *sp = cos (*sp); break;
+X	    case TAN:  *sp = tan (*sp); break;
+X	    case ASIN:  *sp = asin (*sp); break;
+X	    case ACOS:  *sp = acos (*sp); break;
+X	    case ATAN:  *sp = atan (*sp); break;
+X	    case DEGRAD:  *sp *= atan(1.0)/45.0; break;
+X	    case RADDEG:  *sp *= 45.0/atan(1.0); break;
+X	    case LOG: *sp = log (*sp); break;
+X	    case LOG10: *sp = log10 (*sp); break;
+X	    case EXP: *sp = exp (*sp); break;
+X	    case SQRT: *sp = sqrt (*sp); break;
+X	    case POW: sp[1] = pow (sp[1], sp[0]); sp++; break;
+X	    case ATAN2: sp[1] = atan2 (sp[1], sp[0]); sp++; break;
+X	    default:
+X		(void) sprintf (err_msg, "Bug! bad opcode: 0x%x", instr);
+X		return (-1);
+X	    }
+X	    if (sp < stack) {
+X		(void) sprintf (err_msg, "Runtime stack overflow");
+X		return (-1);
+X	    } else if (sp - stack > MAX_STACK) {
+X		(void) sprintf (err_msg, "Bug! runtime stack underflow");
+X		return (-1);
+X	    }
+X	} while (instr != HALT);
+X
+X	/* result should now be on top of stack */
+X	if (sp != &stack[MAX_STACK - 1]) {
+X	    (void) sprintf (err_msg, "Bug! stack has %d items",
+X							MAX_STACK - (sp-stack));
+X	    return (-1);
+X	}
+X	*result = *sp;
+X	return (0);
+}
+X
+/* starting with lcexpr pointing at a string expected to be a field name,
+X * return the widget of the field, else 0 if bad.
+X * when return, leave lcexpr alone but move cexpr to just after the name.
+X */
+static Widget
+parse_fieldname ()
+{
+#define	NFM	5
+X	/* collection of all the FieldMaps from the other menus that contain
+X	 * fields that can be PLT'd (that is, searched). we look through
+X	 * their names to find the field called out in an expression.
+X	 * N.B. NFM must match the number of FieldMaps we gather, below.
+X	 */
+X	static struct {
+X	    FieldMap *fmp;
+X	    int nfm;
+X	} fms[NFM];
+X	FieldMap *fmp;
+X	char name[32];
+X	int fmn;
+X	char c;
+X	int len;
+X
+X	/* copy into name all up to first char not an alpha or '.'.
+X	 * set len to number thereof.
+X	 */
+X	for (len = 0;
+X		len < sizeof(name)-1 && ((c = lcexpr[len])=='.' || isalpha(c));
+X		len++)
+X	    name[len] = c;
+X	if (len == sizeof(name)-1)
+X	    return (0);
+X	name[len] = '\0';
+X	cexpr = &lcexpr[len];	/* as per functional description */
+X
+X	/* if first time here, go get all NFM FieldMaps */
+X	if (fms[0].fmp == 0) {
+X	    fms[0].nfm = dm_getfieldmap (&fms[0].fmp);
+X	    fms[1].nfm = sm_getfieldmap (&fms[1].fmp);
+X	    fms[2].nfm = jm_getfieldmap (&fms[2].fmp);
+X	    fms[3].nfm = mm_getfieldmap (&fms[3].fmp);
+X	    fms[4].nfm = rm_getfieldmap (&fms[4].fmp);
+X	}
+X
+X	/* search each set of fieldmaps for one with name */
+X	for (fmn = 0; fmn < NFM; fmn++)
+X	    for (fmp = fms[fmn].fmp; fmp < &(fms[fmn].fmp)[fms[fmn].nfm]; fmp++)
+X		if (fmp->name && strcmp (name, fmp->name) == 0)
+X		    return (fmp->w);
+X	return (0);
+}
+SHAR_EOF
+chmod 0644 compiler.c ||
+echo 'restore of compiler.c failed'
+Wc_c="`wc -c < 'compiler.c'`"
+test 16567 -eq "$Wc_c" ||
+	echo 'compiler.c: original size 16567, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= constel.c ==============
+if test -f 'constel.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping constel.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting constel.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'constel.c' &&
+#include <math.h>
+#include "astro.h"
+X
+/*
+X  METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+C version by Craig Counterman and Elwood Downey,
+adapted from fortran version:
+exerpt from accompanying doc file:
+X
+X        Recently, Mr. Barry N. Rappaport of New  Mexico State University
+X  transcribed  the constellation  boundaries as  fixed  by the IAU  into
+X  machine-readable form.  These have  been  transcribed  by Dr. Nancy G.
+X  Roman to make it possible  to determine by  computer the constellation
+X  in which a position is located.
+X
+NSSDC catalog description:
+X 6042   AN     Catalog of Constellation Boundary Data (Delporte, E. 1930, 
+X               Cambridge Univ. Press)
+X               Comment(s): includes constellation identification software 
+X               (ADC 1987; see Roman, N.G. 1987, Publ. Astron. Soc. Pacific 
+X               99, 695); 23 description, 118 software, 358 data records. 
+X               3 files: 23x80, 118x80, 358x29 
+X
+full documentation file:
+X
+X   METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+X     Recently, Mr. Barry N. Rappaport of New Mexico State University trans-
+cribed the constellation boundaries as fixed by the IAU into machine-readable
+form.  These have been transcribed by Dr. Nancy G. Roman to make it possible to
+determine by computer the constellation in which a position is located.
+X     Two files follow.  The first is a program, in FORTRAN77, for determining
+the constellation using the data in the succeeding file.  Comments describe
+the format in which the positions must be entered.  The main program is
+followed by a precession subroutine.
+X     The final file is a list of constellation boundaries in the form Lower
+Right Ascension (F8.4), Upper Right Ascension (F8.4), Lower Declination (F9.4),
+three letter abbreviation for the Constellation (1X,A3).  The file contains
+358, 29-byte records.
+X    The following is an example of the output of the program:
+X RA =  9.0000 DEC =  65.0000  IS IN CONSTELLATION UMa
+X RA = 23.5000 DEC = -20.0000  IS IN CONSTELLATION Aqr
+X RA =  5.1200 DEC =   9.1200  IS IN CONSTELLATION Ori
+X RA =  9.4555 DEC = -19.9000  IS IN CONSTELLATION Hya
+X RA = 12.8888 DEC =  22.0000  IS IN CONSTELLATION Com
+X RA = 15.6687 DEC = -12.1234  IS IN CONSTELLATION Lib
+X RA = 19.0000 DEC = -40.0000  IS IN CONSTELLATION CrA
+X RA =  6.2222 DEC = -81.1234  IS IN CONSTELLATION Men
+X END OF INPUT POSITIONS AFTER: RA =   6.2222   DEC = -81.1234
+X THE EQUINOX FOR THESE POSITIONS IS 1950.0
+*/
+X
+static char And[] = "And: Andromeda";
+static char Ant[] = "Ant: Antlia";
+static char Aps[] = "Aps: Apus";
+static char Aql[] = "Aql: Aquila";
+static char Aqr[] = "Aqr: Aquarius";
+static char Ara[] = "Ara: Ara";
+static char Ari[] = "Ari: Aries";
+static char Aur[] = "Aur: Auriga";
+static char Boo[] = "Boo: Bootes";
+static char CMa[] = "CMa: Canis Major";
+static char CMi[] = "CMi: Canis Minor";
+static char CVn[] = "CVn: Canes Venatici";
+static char Cae[] = "Cae: Caelum";
+static char Cam[] = "Cam: Camelopardalis";
+static char Cap[] = "Cap: Capricornus";
+static char Car[] = "Car: Carina";
+static char Cas[] = "Cas: Cassiopeia";
+static char Cen[] = "Cen: Centaurus";
+static char Cep[] = "Cep: Cepheus";
+static char Cet[] = "Cet: Cetus";
+static char Cha[] = "Cha: Chamaeleon";
+static char Cir[] = "Cir: Circinus";
+static char Cnc[] = "Cnc: Cancer";
+static char Col[] = "Col: Columba";
+static char Com[] = "Com: Coma Berenices";
+static char CrA[] = "CrA: Corona Australis";
+static char CrB[] = "CrB: Corona Borealis";
+static char Crt[] = "Crt: Crater";
+static char Cru[] = "Cru: Crux";
+static char Crv[] = "Crv: Corvus";
+static char Cyg[] = "Cyg: Cygnus";
+static char Del[] = "Del: Delphinus";
+static char Dor[] = "Dor: Dorado";
+static char Dra[] = "Dra: Draco";
+static char Equ[] = "Equ: Equuleus";
+static char Eri[] = "Eri: Eridanus";
+static char For[] = "For: Fornax";
+static char Gem[] = "Gem: Gemini";
+static char Gru[] = "Gru: Grus";
+static char Her[] = "Her: Hercules";
+static char Hor[] = "Hor: Horologium";
+static char Hya[] = "Hya: Hydra";
+static char Hyi[] = "Hyi: Hydrus";
+static char Ind[] = "Ind: Indus";
+static char LMi[] = "LMi: Leo Minor";
+static char Lac[] = "Lac: Lacerta";
+static char Leo[] = "Leo: Leo";
+static char Lep[] = "Lep: Lepus";
+static char Lib[] = "Lib: Libra";
+static char Lup[] = "Lup: Lupus";
+static char Lyn[] = "Lyn: Lynx";
+static char Lyr[] = "Lyr: Lyra";
+static char Men[] = "Men: Mensa";
+static char Mic[] = "Mic: Microscopium";
+static char Mon[] = "Mon: Monoceros";
+static char Mus[] = "Mus: Musca";
+static char Nor[] = "Nor: Norma";
+static char Oct[] = "Oct: Octans";
+static char Oph[] = "Oph: Ophiuchus";
+static char Ori[] = "Ori: Orion";
+static char Pav[] = "Pav: Pavo";
+static char Peg[] = "Peg: Pegasus";
+static char Per[] = "Per: Perseus";
+static char Phe[] = "Phe: Phoenix";
+static char Pic[] = "Pic: Pictor";
+static char PsA[] = "PsA: Piscis Austrinus";
+static char Psc[] = "Psc: Pisces";
+static char Pup[] = "Pup: Puppis";
+static char Pyx[] = "Pyx: Pyxis";
+static char Ret[] = "Ret: Reticulum";
+static char Scl[] = "Scl: Sculptor";
+static char Sco[] = "Sco: Scorpius";
+static char Sct[] = "Sct: Scutum";
+static char Ser[] = "Ser: Serpens";
+static char Sex[] = "Sex: Sextans";
+static char Sge[] = "Sge: Sagitta";
+static char Sgr[] = "Sgr: Sagittarius";
+static char Tau[] = "Tau: Taurus";
+static char Tel[] = "Tel: Telescopium";
+static char TrA[] = "TrA: Triangulum Australe";
+static char Tri[] = "Tri: Triangulum";
+static char Tuc[] = "Tuc: Tucana";
+static char UMa[] = "UMa: Ursa Major";
+static char UMi[] = "UMi: Ursa Minor";
+static char Vel[] = "Vel: Vela";
+static char Vir[] = "Vir: Virgo";
+static char Vol[] = "Vol: Volans";
+static char Vul[] = "Vul: Vulpecula";
+X
+struct cdata {
+X    double l_ra, u_ra, l_dec;
+X    char *cons;
+} con_data[] = {
+X    {0.0000, 24.0000, 88.0000, UMi},
+X    {8.0000, 14.5000, 86.5000, UMi},
+X    {21.0000, 23.0000, 86.1667, UMi},
+X    {18.0000, 21.0000, 86.0000, UMi},
+X    {0.0000, 8.0000, 85.0000, Cep},
+X    {9.1667, 10.6667, 82.0000, Cam},
+X    {0.0000, 5.0000, 80.0000, Cep},
+X    {10.6667, 14.5000, 80.0000, Cam},
+X    {17.5000, 18.0000, 80.0000, UMi},
+X    {20.1667, 21.0000, 80.0000, Dra},
+X    {0.0000, 3.5083, 77.0000, Cep},
+X    {11.5000, 13.5833, 77.0000, Cam},
+X    {16.5333, 17.5000, 75.0000, UMi},
+X    {20.1667, 20.6667, 75.0000, Cep},
+X    {7.9667, 9.1667, 73.5000, Cam},
+X    {9.1667, 11.3333, 73.5000, Dra},
+X    {13.0000, 16.5333, 70.0000, UMi},
+X    {3.1000, 3.4167, 68.0000, Cas},
+X    {20.4167, 20.6667, 67.0000, Dra},
+X    {11.3333, 12.0000, 66.5000, Dra},
+X    {0.0000, 0.3333, 66.0000, Cep},
+X    {14.0000, 15.6667, 66.0000, UMi},
+X    {23.5833, 24.0000, 66.0000, Cep},
+X    {12.0000, 13.5000, 64.0000, Dra},
+X    {13.5000, 14.4167, 63.0000, Dra},
+X    {23.1667, 23.5833, 63.0000, Cep},
+X    {6.1000, 7.0000, 62.0000, Cam},
+X    {20.0000, 20.4167, 61.5000, Dra},
+X    {20.5367, 20.6000, 60.9167, Cep},
+X    {7.0000, 7.9667, 60.0000, Cam},
+X    {7.9667, 8.4167, 60.0000, UMa},
+X    {19.7667, 20.0000, 59.5000, Dra},
+X    {20.0000, 20.5367, 59.5000, Cep},
+X    {22.8667, 23.1667, 59.0833, Cep},
+X    {0.0000, 2.4333, 58.5000, Cas},
+X    {19.4167, 19.7667, 58.0000, Dra},
+X    {1.7000, 1.9083, 57.5000, Cas},
+X    {2.4333, 3.1000, 57.0000, Cas},
+X    {3.1000, 3.1667, 57.0000, Cam},
+X    {22.3167, 22.8667, 56.2500, Cep},
+X    {5.0000, 6.1000, 56.0000, Cam},
+X    {14.0333, 14.4167, 55.5000, UMa},
+X    {14.4167, 19.4167, 55.5000, Dra},
+X    {3.1667, 3.3333, 55.0000, Cam},
+X    {22.1333, 22.3167, 55.0000, Cep},
+X    {20.6000, 21.9667, 54.8333, Cep},
+X    {0.0000, 1.7000, 54.0000, Cas},
+X    {6.1000, 6.5000, 54.0000, Lyn},
+X    {12.0833, 13.5000, 53.0000, UMa},
+X    {15.2500, 15.7500, 53.0000, Dra},
+X    {21.9667, 22.1333, 52.7500, Cep},
+X    {3.3333, 5.0000, 52.5000, Cam},
+X    {22.8667, 23.3333, 52.5000, Cas},
+X    {15.7500, 17.0000, 51.5000, Dra},
+X    {2.0417, 2.5167, 50.5000, Per},
+X    {17.0000, 18.2333, 50.5000, Dra},
+X    {0.0000, 1.3667, 50.0000, Cas},
+X    {1.3667, 1.6667, 50.0000, Per},
+X    {6.5000, 6.8000, 50.0000, Lyn},
+X    {23.3333, 24.0000, 50.0000, Cas},
+X    {13.5000, 14.0333, 48.5000, UMa},
+X    {0.0000, 1.1167, 48.0000, Cas},
+X    {23.5833, 24.0000, 48.0000, Cas},
+X    {18.1750, 18.2333, 47.5000, Her},
+X    {18.2333, 19.0833, 47.5000, Dra},
+X    {19.0833, 19.1667, 47.5000, Cyg},
+X    {1.6667, 2.0417, 47.0000, Per},
+X    {8.4167, 9.1667, 47.0000, UMa},
+X    {0.1667, 0.8667, 46.0000, Cas},
+X    {12.0000, 12.0833, 45.0000, UMa},
+X    {6.8000, 7.3667, 44.5000, Lyn},
+X    {21.9083, 21.9667, 44.0000, Cyg},
+X    {21.8750, 21.9083, 43.7500, Cyg},
+X    {19.1667, 19.4000, 43.5000, Cyg},
+X    {9.1667, 10.1667, 42.0000, UMa},
+X    {10.1667, 10.7833, 40.0000, UMa},
+X    {15.4333, 15.7500, 40.0000, Boo},
+X    {15.7500, 16.3333, 40.0000, Her},
+X    {9.2500, 9.5833, 39.7500, Lyn},
+X    {0.0000, 2.5167, 36.7500, And},
+X    {2.5167, 2.5667, 36.7500, Per},
+X    {19.3583, 19.4000, 36.5000, Lyr},
+X    {4.5000, 4.6917, 36.0000, Per},
+X    {21.7333, 21.8750, 36.0000, Cyg},
+X    {21.8750, 22.0000, 36.0000, Lac},
+X    {6.5333, 7.3667, 35.5000, Aur},
+X    {7.3667, 7.7500, 35.5000, Lyn},
+X    {0.0000, 2.0000, 35.0000, And},
+X    {22.0000, 22.8167, 35.0000, Lac},
+X    {22.8167, 22.8667, 34.5000, Lac},
+X    {22.8667, 23.5000, 34.5000, And},
+X    {2.5667, 2.7167, 34.0000, Per},
+X    {10.7833, 11.0000, 34.0000, UMa},
+X    {12.0000, 12.3333, 34.0000, CVn},
+X    {7.7500, 9.2500, 33.5000, Lyn},
+X    {9.2500, 9.8833, 33.5000, LMi},
+X    {0.7167, 1.4083, 33.0000, And},
+X    {15.1833, 15.4333, 33.0000, Boo},
+X    {23.5000, 23.7500, 32.0833, And},
+X    {12.3333, 13.2500, 32.0000, CVn},
+X    {23.7500, 24.0000, 31.3333, And},
+X    {13.9583, 14.0333, 30.7500, CVn},
+X    {2.4167, 2.7167, 30.6667, Tri},
+X    {2.7167, 4.5000, 30.6667, Per},
+X    {4.5000, 4.7500, 30.0000, Aur},
+X    {18.1750, 19.3583, 30.0000, Lyr},
+X    {11.0000, 12.0000, 29.0000, UMa},
+X    {19.6667, 20.9167, 29.0000, Cyg},
+X    {4.7500, 5.8833, 28.5000, Aur},
+X    {9.8833, 10.5000, 28.5000, LMi},
+X    {13.2500, 13.9583, 28.5000, CVn},
+X    {0.0000, 0.0667, 28.0000, And},
+X    {1.4083, 1.6667, 28.0000, Tri},
+X    {5.8833, 6.5333, 28.0000, Aur},
+X    {7.8833, 8.0000, 28.0000, Gem},
+X    {20.9167, 21.7333, 28.0000, Cyg},
+X    {19.2583, 19.6667, 27.5000, Cyg},
+X    {1.9167, 2.4167, 27.2500, Tri},
+X    {16.1667, 16.3333, 27.0000, CrB},
+X    {15.0833, 15.1833, 26.0000, Boo},
+X    {15.1833, 16.1667, 26.0000, CrB},
+X    {18.3667, 18.8667, 26.0000, Lyr},
+X    {10.7500, 11.0000, 25.5000, LMi},
+X    {18.8667, 19.2583, 25.5000, Lyr},
+X    {1.6667, 1.9167, 25.0000, Tri},
+X    {0.7167, 0.8500, 23.7500, Psc},
+X    {10.5000, 10.7500, 23.5000, LMi},
+X    {21.2500, 21.4167, 23.5000, Vul},
+X    {5.7000, 5.8833, 22.8333, Tau},
+X    {0.0667, 0.1417, 22.0000, And},
+X    {15.9167, 16.0333, 22.0000, Ser},
+X    {5.8833, 6.2167, 21.5000, Gem},
+X    {19.8333, 20.2500, 21.2500, Vul},
+X    {18.8667, 19.2500, 21.0833, Vul},
+X    {0.1417, 0.8500, 21.0000, And},
+X    {20.2500, 20.5667, 20.5000, Vul},
+X    {7.8083, 7.8833, 20.0000, Gem},
+X    {20.5667, 21.2500, 19.5000, Vul},
+X    {19.2500, 19.8333, 19.1667, Vul},
+X    {3.2833, 3.3667, 19.0000, Ari},
+X    {18.8667, 19.0000, 18.5000, Sge},
+X    {5.7000, 5.7667, 18.0000, Ori},
+X    {6.2167, 6.3083, 17.5000, Gem},
+X    {19.0000, 19.8333, 16.1667, Sge},
+X    {4.9667, 5.3333, 16.0000, Tau},
+X    {15.9167, 16.0833, 16.0000, Her},
+X    {19.8333, 20.2500, 15.7500, Sge},
+X    {4.6167, 4.9667, 15.5000, Tau},
+X    {5.3333, 5.6000, 15.5000, Tau},
+X    {12.8333, 13.5000, 15.0000, Com},
+X    {17.2500, 18.2500, 14.3333, Her},
+X    {11.8667, 12.8333, 14.0000, Com},
+X    {7.5000, 7.8083, 13.5000, Gem},
+X    {16.7500, 17.2500, 12.8333, Her},
+X    {0.0000, 0.1417, 12.5000, Peg},
+X    {5.6000, 5.7667, 12.5000, Tau},
+X    {7.0000, 7.5000, 12.5000, Gem},
+X    {21.1167, 21.3333, 12.5000, Peg},
+X    {6.3083, 6.9333, 12.0000, Gem},
+X    {18.2500, 18.8667, 12.0000, Her},
+X    {20.8750, 21.0500, 11.8333, Del},
+X    {21.0500, 21.1167, 11.8333, Peg},
+X    {11.5167, 11.8667, 11.0000, Leo},
+X    {6.2417, 6.3083, 10.0000, Ori},
+X    {6.9333, 7.0000, 10.0000, Gem},
+X    {7.8083, 7.9250, 10.0000, Cnc},
+X    {23.8333, 24.0000, 10.0000, Peg},
+X    {1.6667, 3.2833,  9.9167, Ari},
+X    {20.1417, 20.3000,  8.5000, Del},
+X    {13.5000, 15.0833,  8.0000, Boo},
+X    {22.7500, 23.8333,  7.5000, Peg},
+X    {7.9250, 9.2500,  7.0000, Cnc},
+X    {9.2500, 10.7500,  7.0000, Leo},
+X    {18.2500, 18.6622,  6.2500, Oph},
+X    {18.6622, 18.8667,  6.2500, Aql},
+X    {20.8333, 20.8750,  6.0000, Del},
+X    {7.0000, 7.0167,  5.5000, CMi},
+X    {18.2500, 18.4250,  4.5000, Ser},
+X    {16.0833, 16.7500,  4.0000, Her},
+X    {18.2500, 18.4250,  3.0000, Oph},
+X    {21.4667, 21.6667,  2.7500, Peg},
+X    {0.0000, 2.0000,  2.0000, Psc},
+X    {18.5833, 18.8667,  2.0000, Ser},
+X    {20.3000, 20.8333,  2.0000, Del},
+X    {20.8333, 21.3333,  2.0000, Equ},
+X    {21.3333, 21.4667,  2.0000, Peg},
+X    {22.0000, 22.7500,  2.0000, Peg},
+X    {21.6667, 22.0000,  1.7500, Peg},
+X    {7.0167, 7.2000,  1.5000, CMi},
+X    {3.5833, 4.6167,  0.0000, Tau},
+X    {4.6167, 4.6667,  0.0000, Ori},
+X    {7.2000, 8.0833,  0.0000, CMi},
+X    {14.6667, 15.0833,  0.0000, Vir},
+X    {17.8333, 18.2500,  0.0000, Oph},
+X    {2.6500, 3.2833, -1.7500, Cet},
+X    {3.2833, 3.5833, -1.7500, Tau},
+X    {15.0833, 16.2667, -3.2500, Ser},
+X    {4.6667, 5.0833, -4.0000, Ori},
+X    {5.8333, 6.2417, -4.0000, Ori},
+X    {17.8333, 17.9667, -4.0000, Ser},
+X    {18.2500, 18.5833, -4.0000, Ser},
+X    {18.5833, 18.8667, -4.0000, Aql},
+X    {22.7500, 23.8333, -4.0000, Psc},
+X    {10.7500, 11.5167, -6.0000, Leo},
+X    {11.5167, 11.8333, -6.0000, Vir},
+X    {0.0000, 0.3333, -7.0000, Psc},
+X    {23.8333, 24.0000, -7.0000, Psc},
+X    {14.2500, 14.6667, -8.0000, Vir},
+X    {15.9167, 16.2667, -8.0000, Oph},
+X    {20.0000, 20.5333, -9.0000, Aql},
+X    {21.3333, 21.8667, -9.0000, Aqr},
+X    {17.1667, 17.9667, -10.0000, Oph},
+X    {5.8333, 8.0833, -11.0000, Mon},
+X    {4.9167, 5.0833, -11.0000, Eri},
+X    {5.0833, 5.8333, -11.0000, Ori},
+X    {8.0833, 8.3667, -11.0000, Hya},
+X    {9.5833, 10.7500, -11.0000, Sex},
+X    {11.8333, 12.8333, -11.0000, Vir},
+X    {17.5833, 17.6667, -11.6667, Oph},
+X    {18.8667, 20.0000, -12.0333, Aql},
+X    {4.8333, 4.9167, -14.5000, Eri},
+X    {20.5333, 21.3333, -15.0000, Aqr},
+X    {17.1667, 18.2500, -16.0000, Ser},
+X    {18.2500, 18.8667, -16.0000, Sct},
+X    {8.3667, 8.5833, -17.0000, Hya},
+X    {16.2667, 16.3750, -18.2500, Oph},
+X    {8.5833, 9.0833, -19.0000, Hya},
+X    {10.7500, 10.8333, -19.0000, Crt},
+X    {16.2667, 16.3750, -19.2500, Oph},
+X    {15.6667, 15.9167, -20.0000, Lib},
+X    {12.5833, 12.8333, -22.0000, Crv},
+SHAR_EOF
+true || echo 'restore of constel.c failed'
+fi
+echo 'End of  part 2'
+echo 'File constel.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

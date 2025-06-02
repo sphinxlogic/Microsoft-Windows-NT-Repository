@@ -1,0 +1,1848 @@
+Newsgroups: comp.sources.x
+Path: uunet!uunet!elroy.jpl.nasa.gov!sdd.hp.com!mips!msi!dcmartin
+From: Nathan Sidwell <nathan@inmos.co.uk>
+Subject: v18i074: xmris version 2.00, Patch1, Part03/05
+Message-ID: <1992Jul29.181114.15648@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i072-xmris@uunet.UU.NET>
+Date: Wed, 29 Jul 1992 18:11:14 GMT
+Approved: dcmartin@msi.com
+Lines: 1835
+
+Submitted-by: Nathan Sidwell <nathan@inmos.co.uk>
+Posting-number: Volume 18, Issue 74
+Archive-name: xmris/patch1.03
+Patch-To: xmris: Volume XXX, Issue XXX
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file patch.v2.00 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping patch.v2.00'
+else
+echo 'x - continuing file patch.v2.00'
+sed 's/^X//' << 'SHAR_EOF' >> 'patch.v2.00' &&
+! 	spawn_monster(SPRITE_MRIS + i, 1, 1, CELLS_ACROSS / 2 - 2 + i,
+! 	    2, 0, -(CELL_HEIGHT + GAP_HEIGHT) * 3 - CELL_HEIGHT / 2 * i);
+X        }
+X    }
+X    /*}}}*/
+--- 528,544 ----
+X    /*{{{  add m r i s*/
+X    {
+X      unsigned  i;
++ 	
+X      for(i = 4; i--;)
+X        {
+X  	XCopyArea(display.display, sprites[SPRITE_MRIS + 4 + i].mask,
+X  	    display.back, GCN(GC_MASK), 0, 0, CELL_WIDTH, CELL_HEIGHT,
+! 	    PIXELX(CELLS_ACROSS / 2 - 2 + (int)i, 0), PIXELY(2, 0));
+X  	XCopyArea(display.display, sprites[SPRITE_MRIS + 4 + i].image,
+X  	    display.back, GCN(GC_OR), 0, 0, CELL_WIDTH, CELL_HEIGHT,
+! 	    PIXELX(CELLS_ACROSS / 2 - 2 + (int)i, 0), PIXELY(2, 0));
+! 	spawn_monster(SPRITE_MRIS + i, 1, 1, CELLS_ACROSS / 2 - 2 + (int)i, 2,
+! 	    0, -(CELL_HEIGHT + GAP_HEIGHT) * 3 - (int)CELL_HEIGHT / 2 * (int)i);
+X        }
+X    }
+X    /*}}}*/
+***************
+*** 318,328 ****
+X      BOARDCELL(CELLS_ACROSS - 1, DEN_Y)->depths[3] = 0;
+X    }
+X    /*}}}*/
+!   global.state = 5;
+X    thrown = 0;
+X    while(thrown != 3)
+X      {
+!       process_xevents(1);
+X        if(!monster.list[0].offset.x && !thrown)
+X  	{
+X  	  thrown = 1;
+--- 564,574 ----
+X      BOARDCELL(CELLS_ACROSS - 1, DEN_Y)->depths[3] = 0;
+X    }
+X    /*}}}*/
+!   global.state = MODE_GAME_DEMO;
+X    thrown = 0;
+X    while(thrown != 3)
+X      {
+!       process_xevents(0);
+X        if(!monster.list[0].offset.x && !thrown)
+X  	{
+X  	  thrown = 1;
+***************
+*** 339,363 ****
+X  	}
+X        else if(!player.ball.state && thrown == 1)
+X  	{
+! 	  spawn_monster(SPRITE_PLAYER + 6, 0, 1, player.lives - 1, CELLS_DOWN,
+! 	      0, -(CELL_HEIGHT + GAP_HEIGHT) * 3);
+X  	  thrown = 2;
+X  	}
+!       if(!move_demo() && thrown == 2)
+X  	thrown = 3;
+X        show_updates();
+X        timer_wait();
+X      }
+X    XCopyArea(display.display, display.copy, display.back, GCN(GC_COPY),
+!       PIXELX(player.lives - 1, 0), PIXELY(CELLS_DOWN, 0),
+X        CELL_WIDTH, CELL_HEIGHT,
+!       PIXELX(player.lives - 1, 0), PIXELY(CELLS_DOWN, 0));
+X    player.lives++;
+X    return;
+X  }
+X  /*}}}*/
+! /*{{{  int move_demo()*/
+! static int move_demo FUNCARGVOID
+X  /*
+X   * moves the monsters used in the demo screens
+X   * we take each monster with a non-zero offset, and move it
+--- 585,842 ----
+X  	}
+X        else if(!player.ball.state && thrown == 1)
+X  	{
+! 	  spawn_monster(SPRITE_PLAYER + 6, 0, 1, (int)player.lives - 1, 
+! 	      CELLS_DOWN, 0, -(CELL_HEIGHT + GAP_HEIGHT) * 3);
+X  	  thrown = 2;
+X  	}
+!       if(!move_demo(MONSTER_CYCLES) && thrown == 2)
+X  	thrown = 3;
+X        show_updates();
+X        timer_wait();
+X      }
+X    XCopyArea(display.display, display.copy, display.back, GCN(GC_COPY),
+!       PIXELX((int)player.lives - 1, 0), PIXELY(CELLS_DOWN, 0),
+X        CELL_WIDTH, CELL_HEIGHT,
+!       PIXELX((int)player.lives - 1, 0), PIXELY(CELLS_DOWN, 0));
+X    player.lives++;
+X    return;
+X  }
+X  /*}}}*/
+! /*{{{  void file_changed(stream)*/
+! #if HIGH_SCORE_FILE
+! static unsigned file_changed FUNCARGLIST((stream))
+! FILE    *stream FUNCARGTERM
+! {
+!   static  time_t last_time = 0;
+!   struct stat buffer;
+!   unsigned  changed;
+!   
+!   if(!fstat(fileno(stream), &buffer))
+!     {
+!       changed = buffer.st_mtime != last_time;
+!       last_time = buffer.st_mtime;
+!     }
+!   else
+!     changed = 0;
+!   return changed;
+! }
+! #endif /* HIGH_SCORE_FILE */
+! /*}}}*/
+! /*{{{  void get_lock(stream)*/
+! #if HIGH_SCORE_FILE
+! static void get_lock FUNCARGLIST((stream))
+! FILE    *stream FUNCARGTERM
+! {
+!   rewind(stream);
+!   fflush(stream);
+!   while(lock_file(stream))
+!     {
+!       if(errno == EINTR)
+! 	continue;
+!     }
+!   return;
+! }
+! #endif /* HIGH_SCORE_FILE */
+! /*}}}*/
+! /*{{{  void get_unlock(stream)*/
+! #if HIGH_SCORE_FILE
+! static void get_unlock FUNCARGLIST((stream))
+! FILE    *stream FUNCARGTERM
+! {
+!   rewind(stream);
+!   fflush(stream);
+!   unlock_file(stream);
+!   return;
+! }
+! #endif /* HIGH_SCORE_FILE */
+! /*}}}*/
+! /*{{{  void high_score(score, screen)*/
+! extern void high_score FUNCARGLIST((score, screen))
+! unsigned  score FUNCARGSEP
+! unsigned  screen FUNCARGTERM
+! {
+!   HIGH_SCORE     *sptr;
+!   unsigned  count;
+!   
+!   my_score.score = score;
+!   my_score.screen = screen;
+!   my_score.stamp = time(NULL);
+!   for(sptr = high_scores, count = HIGH_SCORES; count--; sptr++)
+!     if(sptr->score < score)
+!       {
+! 	HIGH_SCORE     *dptr;
+! 	
+! 	for(dptr = &high_scores[HIGH_SCORES - 1]; dptr != sptr; dptr--)
+! 	  memmove(dptr, dptr - 1, sizeof(HIGH_SCORE));
+! 	memmove(sptr, &my_score, sizeof(HIGH_SCORE));
+! #if HIGH_SCORE_FILE
+! 	if(score_file)
+! 	  {
+! 	    FILE    *stream;
+! 	    
+! 	    stream = fopen(score_file, "r+");
+! 	    if(stream)
+! 	      {
+! 		get_lock(stream);
+! 		merge_scores(stream);
+! 		write_scores(stream);
+! 		get_unlock(stream);
+! 		fclose(stream);
+! 	      }
+! 	  }
+! #endif
+! 	break;
+!       }
+!   return;
+! }
+! /*}}}*/
+! /*{{{  void init_scores()*/
+! extern void init_scores FUNCARGVOID
+! {
+!   HIGH_SCORE     *sptr;
+!   unsigned  count;
+!   
+!   my_score.score = 0;
+!   for(sptr = high_scores, count = HIGH_SCORES; count--; sptr++)
+!     {
+!       sptr->score = 0;
+!       sptr->screen = 0;
+!       sptr->name[0] = 0;
+!     }
+!   /*{{{  set the name*/
+!   {
+!     char const *user;
+! 	
+!     user = getenv("USER");
+!     if(!user)
+!       user = "Unknown";
+!     strncpy(my_score.name, user, NAME_LEN);
+!     my_score.name[NAME_LEN] = 0;
+!   }
+!   /*}}}*/
+! #if HIGH_SCORE_FILE
+!   if(score_file)
+!     {
+!       FILE    *stream;
+! 	  
+!       stream = fopen(score_file, "r+");
+!       if(stream)
+! 	{
+! 	  get_lock(stream);
+! 	  merge_scores(stream);
+! 	  get_unlock(stream);
+! 	  fclose(stream);
+! 	}
+!       else
+! 	score_file = NULL;
+!     }
+! #endif /* HIGH_SCORE_FILE */
+!   return;
+! }
+! /*}}}*/
+! /*{{{  unsigned merge_scores(stream)*/
+! #if HIGH_SCORE_FILE
+! static unsigned merge_scores FUNCARGLIST((stream))
+! FILE      *stream FUNCARGTERM
+! /* 
+!  * merges the high score file into the current high score
+!  * table. If the score file is corrupted, then we lose the
+!  * merged entries. The file must have been locked appropriately.
+!  * returns non-zero if the file is unreadable
+!  */
+! {
+!   char      line[NAME_LEN + 33];
+!   unsigned  checksum;
+!   unsigned  check;
+!   unsigned  merged;
+!   char      *ptr;
+!   unsigned  failed;
+!   
+!   clearerr(stream);
+!   rewind(stream);
+!   if(!fgets(line, sizeof(line), stream))
+!     return 1;
+!   checksum = strtol(line, &ptr, 10);
+!   if(*ptr != '\n')
+!     return 1;
+!   check = 0;
+!   merged = 0;
+!   while(fgets(line, sizeof(line), stream) && strcmp(line, "EOF\n"))
+!     {
+!       HIGH_SCORE  *sptr;
+!       unsigned  index;
+!       time_t    stamp;
+!       unsigned  score;
+!       unsigned  screen;
+!       unsigned  length;
+!       char      *name;
+!       
+!       stamp = strtol(line, &ptr, 10);
+!       ptr++;
+!       score = strtol(ptr, &ptr, 10);
+!       ptr++;
+!       screen = strtol(ptr, &ptr, 10);
+!       ptr++;
+!       name = ptr;
+!       length = strlen(ptr) - 1;
+!       if(!score || !screen || ptr[length] != '\n' || length > NAME_LEN)
+! 	break;
+!       name[length] = 0;
+!       check += score + screen;
+!       for(ptr = name; *ptr; ptr++)
+! 	check += *ptr;
+!       /*{{{  insert into table?*/
+!       for(sptr = high_scores, index = 0; index != HIGH_SCORES; index++, sptr++)
+! 	if(stamp == sptr->stamp && sptr->score == score)
+! 	  break;
+! 	else if(sptr->score < score)
+! 	  {
+! 	    HIGH_SCORE  *dptr;
+! 		  
+! 	    merged = (merged & ((1 << index) - 1)) | 
+! 		((merged & ~((1 << index) - 1)) << 1) | (1 << index);
+! 	    for(dptr = &high_scores[HIGH_SCORES - 1]; dptr != sptr; dptr--)
+! 	      memcpy(dptr, dptr - 1, sizeof(HIGH_SCORE));
+! 	    sptr->stamp = stamp;
+! 	    sptr->score = score;
+! 	    sptr->screen = screen;
+! 	    strcpy(sptr->name, name);
+! 	    break;
+! 	  }
+!       /*}}}*/
+!     }
+!   failed = ferror(stream) || check != checksum;
+!   /*{{{  failed?*/
+!   if(failed)
+!     {
+!       HIGH_SCORE  *ptr;
+!       HIGH_SCORE  *dest;
+!       unsigned  index;
+! 	
+!       for(ptr = high_scores, index = 0; index != HIGH_SCORES; index++, ptr++)
+! 	if(merged & (1 << index))
+! 	  ptr->score = 0;
+!       for(ptr = dest = high_scores, index = HIGH_SCORES; index--; ptr++)
+! 	if(!ptr->score)
+! 	  /*EMPTY*/;
+! 	else if(ptr == dest)
+! 	  dest++;
+! 	else
+! 	  {
+! 	    memcpy(dest, ptr, sizeof(HIGH_SCORE));
+! 	    dest++;
+! 	  }
+!       for(;dest != ptr; dest++)
+! 	dest->score = 0;
+!     }
+!   /*}}}*/
+!   return failed;
+! }
+! #endif /* HIGH_SCORE_FILE */
+! /*}}}*/
+! /*{{{  int move_demo(cycle)*/
+! static int move_demo FUNCARGLIST((cycle))
+! unsigned  cycle FUNCARGTERM
+X  /*
+X   * moves the monsters used in the demo screens
+X   * we take each monster with a non-zero offset, and move it
+***************
+*** 381,387 ****
+X  	    /*{{{  left or right*/
+X  	    {
+X  	      int       dir;
+! 				
+X  	      moved++;
+X  	      if(mptr->offset.x > 0)
+X  		{
+--- 860,866 ----
+X  	    /*{{{  left or right*/
+X  	    {
+X  	      int       dir;
+! 														
+X  	      moved++;
+X  	      if(mptr->offset.x > 0)
+X  		{
+***************
+*** 400,406 ****
+X  		  mptr->dir = dir;
+X  		  new_face(mptr);
+X  		}
+! 				  
+X  	    }
+X  	    /*}}}*/
+X  	  else if(mptr->offset.y)
+--- 879,885 ----
+X  		  mptr->dir = dir;
+X  		  new_face(mptr);
+X  		}
+! 														  
+X  	    }
+X  	    /*}}}*/
+X  	  else if(mptr->offset.y)
+***************
+*** 407,413 ****
+X  	    /*{{{  up or down*/
+X  	    {
+X  	      int       dir;
+! 				
+X  	      moved++;
+X  	      if(mptr->offset.y > 0)
+X  		{
+--- 886,892 ----
+X  	    /*{{{  up or down*/
+X  	    {
+X  	      int       dir;
+! 														
+X  	      moved++;
+X  	      if(mptr->offset.y > 0)
+X  		{
+***************
+*** 426,432 ****
+X  		  mptr->dir = dir;
+X  		  new_face(mptr);
+X  		}
+! 				  
+X  	    }
+X  	    /*}}}*/
+X  	  else
+--- 905,911 ----
+X  		  mptr->dir = dir;
+X  		  new_face(mptr);
+X  		}
+! 														  
+X  	    }
+X  	    /*}}}*/
+X  	  else
+***************
+*** 435,441 ****
+X  	    {
+X  	      if(!mptr->cycle)
+X  		{
+! 		  mptr->cycle = MONSTER_CYCLES;
+X  		  mptr->image++;
+X  		  if(mptr->image == MONSTER_IMAGES)
+X  		    mptr->image = 0;
+--- 914,920 ----
+X  	    {
+X  	      if(!mptr->cycle)
+X  		{
+! 		  mptr->cycle = cycle;
+X  		  mptr->image++;
+X  		  if(mptr->image == MONSTER_IMAGES)
+X  		    mptr->image = 0;
+***************
+*** 466,475 ****
+X        cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X        if(mptr->offset.x || mptr->offset.y)
+X  	move_movable(mptr, cptr);
+!       else if(!mptr->cell.y && mptr->cell.x == 4 + i)
+X  	{
+! 	  if(monster.den == i)
+! 	    monster.den = i + 1;
+X  	}
+X        else
+X  	{
+--- 945,963 ----
+X        cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X        if(mptr->offset.x || mptr->offset.y)
+X  	move_movable(mptr, cptr);
+!       else if(!mptr->cell.y && mptr->cell.x == monster.den + 4 && 
+! 	  monster.den == ((mptr->type - SPRITE_MRIS) & 3))
+X  	{
+! 	  SPRITE  *sptr;
+! 	  
+! 	  sptr = &sprites[mptr->type];
+! 	  mptr->type = 5;
+! 	  XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+! 	      0, 0, CELL_WIDTH, CELL_HEIGHT,
+! 	      mptr->old_pixel.x, mptr->old_pixel.y);
+! 	  XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+! 	      0, 0, CELL_WIDTH, CELL_HEIGHT,
+! 	      mptr->old_pixel.x, mptr->old_pixel.y);
+X  	}
+X        else
+X  	{
+***************
+*** 480,486 ****
+X  	  temp = valid & (0xF ^ (1 << (mptr->dir ^ 1)));
+X  	  if(temp)
+X  	    valid &= temp | 0xF0;
+! 	  if(monster.den == i && (temp = valid & (valid >> 4)))
+X  	    valid = temp;
+X  	  else
+X  	    valid &= 0xF;
+--- 968,975 ----
+X  	  temp = valid & (0xF ^ (1 << (mptr->dir ^ 1)));
+X  	  if(temp)
+X  	    valid &= temp | 0xF0;
+! 	  if(monster.den == ((mptr->type - SPRITE_MRIS) & 3) && 
+! 	      (temp = valid & (valid >> 4)))
+X  	    valid = temp;
+X  	  else
+X  	    valid &= 0xF;
+***************
+*** 511,555 ****
+X      unsigned  base;
+X      unsigned  screens;
+X      unsigned  index;
+-     TEXT      info;
+X      char      text[11];
+X      unsigned  length;
+!     static int sprites[3] = {SPRITE_CHERRY, SPRITE_NORMAL + 4, SPRITE_PLAYER + 4};
+!       
+X      screens = player.screen < CELLS_DOWN - 2 ? player.screen : CELLS_DOWN - 2;
+X      base = player.screen - screens;
+-     text_size("Screen 090", 10, &info);
+X      for(index = screens; index--;)
+X        {
+X  	sprintf(text, "Screen %d", base + index + 1);
+X  	length = strlen(text);
+X  	XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+! 	    PIXELX(CELLS_ACROSS / 2, -GAP_WIDTH) - info.width,
+! 	    PIXELY(screens - index, (CELL_HEIGHT + GAP_HEIGHT) / 2) +
+! 	    (info.ascent - info.descent) / 2,
+! 	    text, length);
+X  	if(history.prize & 1 << (screens - 1 - index))
+X  	  spawn_monster(SPRITE_PRIZE_BASE +
+X  	      (base + index) % SPRITE_PRIZES, 0, 0,
+! 	      CELLS_ACROSS / 2 + 2, screens - index,
+! 	      0, index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X  	      CELLS_DOWN * GAP_HEIGHT + CELL_HEIGHT / 2 + GAP_HEIGHT +
+! 	      (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - screens));
+X  	spawn_monster(sprites[(history.ending >>
+X  	    (screens - 1 - index) * 2) & 3],
+! 	    0, 0, CELLS_ACROSS / 2, screens - index,
+! 	    0, index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X  	    CELLS_DOWN * GAP_HEIGHT + 
+! 	    (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - screens));
+X        }
+X    }
+X    /*}}}*/
+!   global.state = 8;
+X    count = DISPLAY_HOLD;
+X    while(count)
+X      {
+!       process_xevents(1);
+!       if(!move_demo())
+X  	count--;
+X        show_updates();
+X        timer_wait();
+--- 1000,1041 ----
+X      unsigned  base;
+X      unsigned  screens;
+X      unsigned  index;
+X      char      text[11];
+X      unsigned  length;
+!     static unsigned sprites[3] = {SPRITE_CHERRY, SPRITE_NORMAL + 4, SPRITE_PLAYER + 4};
+! 	
+X      screens = player.screen < CELLS_DOWN - 2 ? player.screen : CELLS_DOWN - 2;
+X      base = player.screen - screens;
+X      for(index = screens; index--;)
+X        {
+X  	sprintf(text, "Screen %d", base + index + 1);
+X  	length = strlen(text);
+X  	XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+! 	    PIXELX(CELLS_ACROSS / 2, -GAP_WIDTH) - (int)(font.width * length),
+! 	    PIXELY((int)(screens - index), (CELL_HEIGHT + GAP_HEIGHT) / 2) +
+! 	    font.center, text, (int)length);
+X  	if(history.prize & 1 << (screens - 1 - index))
+X  	  spawn_monster(SPRITE_PRIZE_BASE +
+X  	      (base + index) % SPRITE_PRIZES, 0, 0,
+! 	      CELLS_ACROSS / 2 + 2, (int)(screens - index),
+! 	      0, (int)index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X  	      CELLS_DOWN * GAP_HEIGHT + CELL_HEIGHT / 2 + GAP_HEIGHT +
+! 	      (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - (int)screens));
+X  	spawn_monster(sprites[(history.ending >>
+X  	    (screens - 1 - index) * 2) & 3],
+! 	    0, 0, CELLS_ACROSS / 2, (int)(screens - index),
+! 	    0, (int)index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X  	    CELLS_DOWN * GAP_HEIGHT + 
+! 	    (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - (int)screens));
+X        }
+X    }
+X    /*}}}*/
+!   global.state = MODE_GAME_DEMO;
+X    count = DISPLAY_HOLD;
+X    while(count)
+X      {
+!       process_xevents(0);
+!       if(!move_demo(MONSTER_CYCLES))
+X  	count--;
+X        show_updates();
+X        timer_wait();
+***************
+*** 556,559 ****
+--- 1042,1085 ----
+X      }
+X    return;
+X  }
++ /*}}}*/
++ /*{{{  void write_scores(stream)*/
++ #if HIGH_SCORE_FILE
++ static void write_scores FUNCARGLIST((stream))
++ FILE    *stream FUNCARGTERM
++ /* 
++  * writes out the high score table to the file.
++  * the file must have been locked appropriately.
++  */
++ {
++   unsigned  check;
++   HIGH_SCORE  *sptr;
++   unsigned  index;
++ 
++   clearerr(stream);
++   rewind(stream);
++   check = 0;
++   for(sptr = high_scores, index = HIGH_SCORES; index-- && sptr->score; sptr++)
++     {
++       char const *ptr;
++       
++       check += sptr->score + sptr->screen;
++       for(ptr = sptr->name; *ptr; ptr++)
++ 	check += *ptr;
++     }
++   fprintf(stream, "%d\n", check);
++   for(sptr = high_scores, index = HIGH_SCORES; index-- && sptr->score; sptr++)
++     fprintf(stream, "%ld %d %d %s\n", (long)sptr->stamp, 
++ 	sptr->score, sptr->screen, sptr->name);
++   if(ferror(stream))
++     {
++       clearerr(stream);
++       rewind(stream);
++     }
++   fputs("EOF\n", stream);
++   fflush(stream);
++   file_changed(stream);
++   return;
++ }
++ #endif /* HIGH_SCORE_FILE */
+X  /*}}}*/
+diff -c -r exp.v1.01/draw.c exp.v2.00/draw.c
+*** exp.v1.01/draw.c	Fri Jul 24 09:56:07 1992
+--- exp.v2.00/draw.c	Fri Jul 24 13:43:13 1992
+***************
+*** 1,21 ****
+! /*{{{  (C) 1992 Nathan Sidwell*/
+! /*****************************************************************************
+! 			X M R I S V1.01
+! 			---------------
+! 		    (C) 1992 Nathan Sidwell
+! 
+! This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+! is in the public domain. Permission is granted to distribute and compile
+! verbatim copies of this software for non-commercial, non-profit use,
+! without fee. The software may be modified, provided that both the above copyright
+! notice and this permission notice appear.
+! 
+! No guarantee is given as to the robustness or suitability of this
+! software for your computer.
+! 
+! Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+! *****************************************************************************/
+! /*}}}*/
+X  #include "xmris.h"
+X  #include "time.h"
+X  /*{{{  prototypes*/
+--- 1,4 ----
+! /* (C) 1992 Nathan Sidwell */
+X  #include "xmris.h"
+X  #include "time.h"
+X  /*{{{  prototypes*/
+***************
+*** 25,32 ****
+X  extern void add_background FUNCARGLIST((x, y, width, height))
+X  int       x       FUNCARGSEP
+X  int       y       FUNCARGSEP
+! int       width   FUNCARGSEP
+! int       height  FUNCARGTERM
+X  /*
+X   * adds an area to the background update list
+X   */
+--- 8,15 ----
+X  extern void add_background FUNCARGLIST((x, y, width, height))
+X  int       x       FUNCARGSEP
+X  int       y       FUNCARGSEP
+! unsigned  width   FUNCARGSEP
+! unsigned  height  FUNCARGTERM
+X  /*
+X   * adds an area to the background update list
+X   */
+***************
+*** 76,82 ****
+X  /*}}}*/
+X  /*{{{  void draw_center(index)*/
+X  extern void draw_center FUNCARGLIST((index))
+! int   index FUNCARGTERM
+X  /*
+X   * sets the center sprite and draws it on the background
+X   */
+--- 59,65 ----
+X  /*}}}*/
+X  /*{{{  void draw_center(index)*/
+X  extern void draw_center FUNCARGLIST((index))
+! unsigned  index FUNCARGTERM
+X  /*
+X   * sets the center sprite and draws it on the background
+X   */
+***************
+*** 171,177 ****
+X    /*{{{  add the xtra*/
+X    {
+X      unsigned  i;
+!       
+X      extra.escape = 0;
+X      for(i = 5; i--;)
+X        draw_extra_letter(i);
+--- 154,160 ----
+X    /*{{{  add the xtra*/
+X    {
+X      unsigned  i;
+! 	
+X      extra.escape = 0;
+X      for(i = 5; i--;)
+X        draw_extra_letter(i);
+***************
+*** 182,199 ****
+X    {
+X      char      text[10];
+X      int       length;
+!     int       ascent, descent;
+!     int       direction;
+!     XCharStruct chars;
+!       
+X      strcpy(text, "Screen ");
+X      length = 7 + itoa(text + 7, player.screen, 0);
+-     XQueryTextExtents(display.display, font.font, text, length,
+- 	  &direction, &ascent, &descent, &chars);
+X      XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+! 	BORDER_LEFT + (CELL_WIDTH + GAP_WIDTH) * 8 +
+! 	CELL_WIDTH / 2 + GAP_WIDTH, (CELL_HEIGHT - ascent - descent) / 2 +
+! 	ascent + BORDER_TOP - CELL_HEIGHT, text, length);
+X    }
+X    /*}}}*/
+X    add_score(0, 0, 0);
+--- 165,176 ----
+X    {
+X      char      text[10];
+X      int       length;
+! 	
+X      strcpy(text, "Screen ");
+X      length = 7 + itoa(text + 7, player.screen, 0);
+X      XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+! 	PIXELX(8, 0) + (int)font.width * 2, 
+! 	PIXELY(-1, CELL_HEIGHT / 2) + font.center, text, length);
+X    }
+X    /*}}}*/
+X    add_score(0, 0, 0);
+***************
+*** 202,212 ****
+X      {
+X        unsigned  lives;
+X        SPRITE    *sptr;
+!       
+X        sptr = &sprites[SPRITE_PLAYER + 6];
+X        for(lives = player.lives - 1; lives--;)
+X  	{
+! 	  unsigned  x, y;
+X  	    
+X  	  x = PIXELX(lives, 0);
+X  	  y = PIXELY(CELLS_DOWN, 0);
+--- 179,189 ----
+X      {
+X        unsigned  lives;
+X        SPRITE    *sptr;
+! 	
+X        sptr = &sprites[SPRITE_PLAYER + 6];
+X        for(lives = player.lives - 1; lives--;)
+X  	{
+! 	  int       x, y;
+X  	    
+X  	  x = PIXELX(lives, 0);
+X  	  y = PIXELY(CELLS_DOWN, 0);
+***************
+*** 261,267 ****
+X      apple.apples = 0;
+X      for(i = INITIAL_APPLES; i--;)
+X        {
+! 	unsigned  y, x;
+X  	unsigned  j;
+X  	CELL      *cptr;
+X  	APPLE     *aptr;
+--- 238,244 ----
+X      apple.apples = 0;
+X      for(i = INITIAL_APPLES; i--;)
+X        {
+! 	int       y, x;
+X  	unsigned  j;
+X  	CELL      *cptr;
+X  	APPLE     *aptr;
+***************
+*** 304,310 ****
+X  	else if(cptr->sprite)
+X  	  {
+X  	    SPRITE    *sptr;
+!       
+X  	    sptr = &sprites[SPRITE_CHERRY];
+X  	    XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X  		0, 0, CELL_WIDTH, CELL_HEIGHT, cell.x, cell.y);
+--- 281,287 ----
+X  	else if(cptr->sprite)
+X  	  {
+X  	    SPRITE    *sptr;
+! 	
+X  	    sptr = &sprites[SPRITE_CHERRY];
+X  	    XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X  		0, 0, CELL_WIDTH, CELL_HEIGHT, cell.x, cell.y);
+***************
+*** 337,343 ****
+X        0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0);
+X    xor_ball();
+X    XDrawLine(display.display, display.window, GCN(GC_BALL),
+!       WINDOW_WIDTH - global.missed, WINDOW_HEIGHT - 1,
+X        WINDOW_WIDTH, WINDOW_HEIGHT - 1);
+X    return;
+X  }
+--- 314,320 ----
+X        0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0);
+X    xor_ball();
+X    XDrawLine(display.display, display.window, GCN(GC_BALL),
+!       WINDOW_WIDTH - (int)global.missed, WINDOW_HEIGHT - 1,
+X        WINDOW_WIDTH, WINDOW_HEIGHT - 1);
+X    return;
+X  }
+***************
+*** 364,374 ****
+X    {
+X      int       i;
+X      MONSTER   *mptr;
+!       
+X      for(mptr = monster.list, i = monster.monsters; i--; mptr++)
+X        {
+X  	int   new;
+!       
+X  	update.set = 0;
+X  	if(mptr->type == 5)
+X  	  new = 0;
+--- 341,351 ----
+X    {
+X      int       i;
+X      MONSTER   *mptr;
+! 	
+X      for(mptr = monster.list, i = monster.monsters; i--; mptr++)
+X        {
+X  	int   new;
+! 	
+X  	update.set = 0;
+X  	if(mptr->type == 5)
+X  	  new = 0;
+***************
+*** 411,417 ****
+X  	  }
+X  	if(update.set)
+X  	  add_background(update.tl.x, update.tl.y,
+! 	      update.br.x - update.tl.x, update.br.y - update.tl.y);
+X        }
+X    }
+X    /*}}}*/
+--- 388,395 ----
+X  	  }
+X  	if(update.set)
+X  	  add_background(update.tl.x, update.tl.y,
+! 	      (unsigned)(update.br.x - update.tl.x), 
+! 	      (unsigned)(update.br.y - update.tl.y));
+X        }
+X    }
+X    /*}}}*/
+***************
+*** 419,429 ****
+X    {
+X      int       i;
+X      APPLE     *aptr;
+!       
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	int   new;
+!       
+X  	update.set = 0;
+X  	new = aptr->state;
+X  	if(new != aptr->old_state || aptr->pixel.x != aptr->old_pixel.x ||
+--- 397,407 ----
+X    {
+X      int       i;
+X      APPLE     *aptr;
+! 	
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	int   new;
+! 	
+X  	update.set = 0;
+X  	new = aptr->state;
+X  	if(new != aptr->old_state || aptr->pixel.x != aptr->old_pixel.x ||
+***************
+*** 431,438 ****
+X  	  {
+X  	    APPLE_SIZE const *asp;
+X  	    int       x, y;
+! 	    int       width, height;
+!       
+X  	    asp = &apple_sizes[aptr->old_state];
+X  	    x = aptr->old_pixel.x + asp->offset.x;
+X  	    y = aptr->old_pixel.y + asp->offset.y;
+--- 409,416 ----
+X  	  {
+X  	    APPLE_SIZE const *asp;
+X  	    int       x, y;
+! 	    unsigned  width, height;
+! 	
+X  	    asp = &apple_sizes[aptr->old_state];
+X  	    x = aptr->old_pixel.x + asp->offset.x;
+X  	    y = aptr->old_pixel.y + asp->offset.y;
+***************
+*** 457,463 ****
+X  	  {
+X  	    unsigned  j;
+X  	    MONSTER   *mptr;
+!       
+X  	    for(mptr = monster.list, j =  monster.monsters; j--; mptr++)
+X  	      if(!mptr->apple)
+X  		/*EMPTY*/;
+--- 435,441 ----
+X  	  {
+X  	    unsigned  j;
+X  	    MONSTER   *mptr;
+! 	
+X  	    for(mptr = monster.list, j =  monster.monsters; j--; mptr++)
+X  	      if(!mptr->apple)
+X  		/*EMPTY*/;
+***************
+*** 471,477 ****
+X  	  }
+X  	if(update.set)
+X  	  add_background(update.tl.x, update.tl.y,
+! 	      update.br.x - update.tl.x, update.br.y - update.tl.y);
+X        }
+X    }
+X    /*}}}*/
+--- 449,456 ----
+X  	  }
+X  	if(update.set)
+X  	  add_background(update.tl.x, update.tl.y,
+! 	      (unsigned)(update.br.x - update.tl.x), 
+! 	      (unsigned)(update.br.y - update.tl.y));
+X        }
+X    }
+X    /*}}}*/
+***************
+*** 479,492 ****
+X    {
+X      int       i;
+X      APPLE     *aptr;
+!       
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	SPRITE    *sptr;
+X  	APPLE_SIZE const *asp;
+X  	int       x, y;
+! 	int       width, height;
+!       
+X  	asp = &apple_sizes[aptr->old_state];
+X  	sptr = &sprites[SPRITE_APPLE + aptr->old_state];
+X  	x = aptr->old_pixel.x + asp->offset.x;
+--- 458,471 ----
+X    {
+X      int       i;
+X      APPLE     *aptr;
+! 	
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	SPRITE    *sptr;
+X  	APPLE_SIZE const *asp;
+X  	int       x, y;
+! 	unsigned  width, height;
+! 	
+X  	asp = &apple_sizes[aptr->old_state];
+X  	sptr = &sprites[SPRITE_APPLE + aptr->old_state];
+X  	x = aptr->old_pixel.x + asp->offset.x;
+***************
+*** 504,514 ****
+X    {
+X      int       i;
+X      MONSTER   *mptr;
+!       
+X      for(mptr = &monster.list[monster.monsters - 1], i = monster.monsters; i--; mptr--)
+X        {
+X  	SPRITE    *sptr;
+!       
+X  	sptr = &sprites[mptr->old_sprite];
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X  	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+--- 483,493 ----
+X    {
+X      int       i;
+X      MONSTER   *mptr;
+! 	
+X      for(mptr = &monster.list[monster.monsters - 1], i = monster.monsters; i--; mptr--)
+X        {
+X  	SPRITE    *sptr;
+! 	
+X  	sptr = &sprites[mptr->old_sprite];
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X  	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+***************
+*** 523,529 ****
+X    if(!player.ball.state && player.ball.count < 8)
+X      {
+X        COORD const *hold;
+!       
+X        hold = &ball_hold[player.ball.count * MONSTER_IMAGES + player.ball.image];
+X        if(display.foreground == COLOUR_WEIRD)
+X  	XCopyArea(display.display, sprites[SPRITE_BALL].mask,
+--- 502,508 ----
+X    if(!player.ball.state && player.ball.count < 8)
+X      {
+X        COORD const *hold;
+! 	
+X        hold = &ball_hold[player.ball.count * MONSTER_IMAGES + player.ball.image];
+X        if(display.foreground == COLOUR_WEIRD)
+X  	XCopyArea(display.display, sprites[SPRITE_BALL].mask,
+***************
+*** 538,544 ****
+X    {
+X      unsigned  i;
+X      SCORE     *sptr;
+!       
+X      for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X        {
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+--- 517,523 ----
+X    {
+X      unsigned  i;
+X      SCORE     *sptr;
+! 	
+X      for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X        {
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+***************
+*** 565,571 ****
+X    {
+X      unsigned  i;
+X      SCORE     *sptr;
+!       
+X      for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+X  	  sptr->place.x, sptr->place.y, DIGIT_WIDTH * 4, DIGIT_HEIGHT,
+--- 544,550 ----
+X    {
+X      unsigned  i;
+X      SCORE     *sptr;
+! 	
+X      for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+X  	  sptr->place.x, sptr->place.y, DIGIT_WIDTH * 4, DIGIT_HEIGHT,
+***************
+*** 579,602 ****
+X    return;
+X  }
+X  /*}}}*/
+- /*{{{  void text_size(text, length, tptr)*/
+- extern void text_size FUNCARGLIST((text, length, tptr))
+- char const *text  FUNCARGSEP
+- unsigned  length  FUNCARGSEP
+- TEXT      *tptr   FUNCARGTERM
+- /*
+-  * wraps up the XQueryTextExtents for us
+-  */
+- {
+-   int       direction;
+-   XCharStruct chars;
+-   
+-   XQueryTextExtents(display.display, font.font, text, length,
+- 	  &direction, &tptr->ascent, &tptr->descent, &chars);
+-   tptr->width = chars.width;
+-   return;
+- }
+- /*}}}*/
+X  /*{{{  void xor_ball()*/
+X  static void xor_ball FUNCARGVOID
+X  /*
+--- 558,563 ----
+***************
+*** 766,776 ****
+X    {
+X      int       i;
+X      APPLE     *aptr;
+!       
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	SPRITE    *sptr;
+!       
+X  	sptr = &sprites[SPRITE_APPLE];
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X  	    0, 0, CELL_WIDTH, CELL_HEIGHT, aptr->pixel.x, aptr->pixel.y);
+--- 727,737 ----
+X    {
+X      int       i;
+X      APPLE     *aptr;
+! 	
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X        {
+X  	SPRITE    *sptr;
+! 	
+X  	sptr = &sprites[SPRITE_APPLE];
+X  	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X  	    0, 0, CELL_WIDTH, CELL_HEIGHT, aptr->pixel.x, aptr->pixel.y);
+***************
+*** 780,811 ****
+X    }
+X    /*}}}*/
+X    timer_start(ZOOM_RATE);
+!   for(count = 0; count < BOARD_HEIGHT / (2 * ZOOM_Y); count += 1)
+X      {
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - ZOOM_X - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y- count * ZOOM_Y,
+X  	  ZOOM_X, count * 2 * ZOOM_Y + 2 * ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - ZOOM_X - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - count * ZOOM_Y);
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 + count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - count * ZOOM_Y,
+X  	  ZOOM_X, count * 2 * ZOOM_Y + 2 * ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 + count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - count * ZOOM_Y);
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - count * ZOOM_Y,
+X  	  count * 2 * ZOOM_X, ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - count * ZOOM_Y);
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 + count * ZOOM_Y,
+X  	  count * 2 * ZOOM_X, ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - count * ZOOM_X,
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 + count * ZOOM_Y);
+X        XSync(display.display, False);
+X        timer_wait();
+X      }
+--- 741,772 ----
+X    }
+X    /*}}}*/
+X    timer_start(ZOOM_RATE);
+!   for(count = 0; count < BOARD_HEIGHT / (2 * ZOOM_Y); count++)
+X      {
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - ZOOM_X - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y- (int)(count * ZOOM_Y),
+X  	  ZOOM_X, count * 2 * ZOOM_Y + 2 * ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - ZOOM_X - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - (int)(count * ZOOM_Y));
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 + (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - (int)(count * ZOOM_Y),
+X  	  ZOOM_X, count * 2 * ZOOM_Y + 2 * ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 + (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - (int)(count * ZOOM_Y));
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - (int)(count * ZOOM_Y),
+X  	  count * 2 * ZOOM_X, ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 - ZOOM_Y - (int)(count * ZOOM_Y));
+X        XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 + (int)(count * ZOOM_Y),
+X  	  count * 2 * ZOOM_X, ZOOM_Y,
+! 	  BORDER_LEFT + BOARD_WIDTH / 2 - (int)(count * ZOOM_X),
+! 	  BORDER_TOP + BOARD_HEIGHT / 2 + (int)(count * ZOOM_Y));
+X        XSync(display.display, False);
+X        timer_wait();
+X      }
+diff -c -r exp.v1.01/monster.c exp.v2.00/monster.c
+*** exp.v1.01/monster.c	Fri Jul 24 09:56:08 1992
+--- exp.v2.00/monster.c	Fri Jul 24 13:43:15 1992
+***************
+*** 1,21 ****
+! /*{{{  (C) 1992 Nathan Sidwell*/
+! /*****************************************************************************
+! 			X M R I S V1.01
+! 			---------------
+! 		    (C) 1992 Nathan Sidwell
+! 
+! This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+! is in the public domain. Permission is granted to distribute and compile
+! verbatim copies of this software for non-commercial, non-profit use,
+! without fee. The software may be modified, provided that both the above copyright
+! notice and this permission notice appear.
+! 
+! No guarantee is given as to the robustness or suitability of this
+! software for your computer.
+! 
+! Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+! *****************************************************************************/
+! /*}}}*/
+X  #include "xmris.h"
+X  /*{{{  prototypes*/
+X  static void extra_dies PROTOARGLIST((void));
+--- 1,4 ----
+! /* (C) 1992 Nathan Sidwell */
+X  #include "xmris.h"
+X  /*{{{  prototypes*/
+X  static void extra_dies PROTOARGLIST((void));
+***************
+*** 138,144 ****
+X  	    {
+X  	      APPLE     *aptr;
+X  	      CELL      *cptr;
+! 			  
+X  	      if(mptr->type == 2)
+X  		extra_dies();
+X  	      else if(mptr->type == 3)
+--- 121,127 ----
+X  	    {
+X  	      APPLE     *aptr;
+X  	      CELL      *cptr;
+! 						  
+X  	      if(mptr->type == 2)
+X  		extra_dies();
+X  	      else if(mptr->type == 3)
+***************
+*** 156,165 ****
+X  	      cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X  	      aptr = spawn_apple(mptr->cell.x, mptr->cell.y,
+X  		  mptr->offset.x, mptr->offset.y);
+! 	      if(mptr->cell.y == CELLS_DOWN - 1)
+! 		aptr->state = 2;
+! 	      else if(mptr->offset.y < cptr->depths[1])
+! 		aptr->state = 2;
+X  	      else if(!mptr->offset.y && cptr[CELL_STRIDE].visit)
+X  		{
+X  		  aptr->state = 1;
+--- 139,150 ----
+X  	      cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X  	      aptr = spawn_apple(mptr->cell.x, mptr->cell.y,
+X  		  mptr->offset.x, mptr->offset.y);
+! 	      if(mptr->cell.y == CELLS_DOWN - 1 ||
+! 		  mptr->offset.y < cptr->depths[1])
+! 		{
+! 		  aptr->state = 2;
+! 		  panic_monsters(aptr->cell.x, aptr->cell.y, cptr);
+! 		}
+X  	      else if(!mptr->offset.y && cptr[CELL_STRIDE].visit)
+X  		{
+X  		  aptr->state = 1;
+***************
+*** 202,207 ****
+--- 187,193 ----
+X  
+X  	  cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X  	  assert((cptr->distance || global.broken) && cptr->visit);
++ 	  /*{{{  new image?*/
+X  	  if(!mptr->cycle)
+X  	    {
+X  	      mptr->cycle = MONSTER_CYCLES;
+***************
+*** 209,216 ****
+--- 195,204 ----
+X  	      if(mptr->image == MONSTER_IMAGES)
+X  		mptr->image = 0;
+X  	    }
++ 	  /*}}}*/
+X  	  if((!mptr->count || mptr->type & 2) && !mptr->pause)
+X  	    mptr->cycle--;
++ 	  /*{{{  set nearest and farthest*/
+X  	  if(mptr->type & 2 || global.state != 2)
+X  	    {
+X  	      if(nearest > cptr->distance)
+***************
+*** 218,230 ****
+X  	      if(farthest < cptr->distance)
+X  		farthest = cptr->distance;
+X  	    }
+X  	  switch(mptr->type)
+X  	  {
+X  	    /*{{{  case 0: case 1: (normal or muncher)*/
+X  	    case 0: case 1:
+X  	    {
+! 	      int     valid;
+! 			  
+X  	      valid = valid_directions(mptr, cptr);
+X  	      if(mptr->count)
+X  		mptr->count--;
+--- 206,219 ----
+X  	      if(farthest < cptr->distance)
+X  		farthest = cptr->distance;
+X  	    }
++ 	  /*}}}*/
+X  	  switch(mptr->type)
+X  	  {
+X  	    /*{{{  case 0: case 1: (normal or muncher)*/
+X  	    case 0: case 1:
+X  	    {
+! 	      unsigned  valid;
+! 						  
+X  	      valid = valid_directions(mptr, cptr);
+X  	      if(mptr->count)
+X  		mptr->count--;
+***************
+*** 251,256 ****
+--- 240,246 ----
+X  	      else if(mptr->count)
+X  		valid = 0;
+X  	      else if(mptr->pause)
++ 		/*{{{  test go munch or turn round*/
+X  		{
+X  		  if(!mptr->type)
+X  		    {
+***************
+*** 267,275 ****
+--- 257,267 ----
+X  		  mptr->stop = 0;
+X  		  mptr->pause = 0;
+X  		}
++ 		/*}}}*/
+X  	      else if(global.state == 2)
+X  		valid = 0;
+X  	      else if(!mptr->offset.x && !mptr->offset.y)
++ 		/*{{{  intersection stuff*/
+X  		{
+X  		  mptr->fast = 0;
+X  		  if(!mptr->type && global.state == 3)
+***************
+*** 276,289 ****
+X  		    mptr->fast = 1;
+X  		  if(mptr->gomunch)
+X  		    {
+X  		      mptr->gomunch = 0;
+X  		      mptr->type = 1;
+X  		      mptr->count = GO_MUNCH_DELAY;
+X  		    }
+X  		  else if(mptr->type)
+X  		    {
+X  		      int       temp;
+! 			
+X  		      temp = valid & 0xF;
+X  		      if((temp & -temp) != temp)
+X  			{
+--- 268,283 ----
+X  		    mptr->fast = 1;
+X  		  if(mptr->gomunch)
+X  		    {
++ 		      mptr->panic = 0;
+X  		      mptr->gomunch = 0;
+X  		      mptr->type = 1;
+X  		      mptr->count = GO_MUNCH_DELAY;
+X  		    }
+X  		  else if(mptr->type)
++ 		    /*{{{  stop munching?*/
+X  		    {
+X  		      int       temp;
+! 								
+X  		      temp = valid & 0xF;
+X  		      if((temp & -temp) != temp)
+X  			{
+***************
+*** 290,296 ****
+X  			  APPLE     *aptr;
+X  			  unsigned  i;
+X  			  int       x;
+! 				      
+X  			  mptr->type = 0;
+X  			  mptr->count = STOP_MUNCH_DELAY;
+X  			  valid = 0;
+--- 284,290 ----
+X  			  APPLE     *aptr;
+X  			  unsigned  i;
+X  			  int       x;
+! 									      
+X  			  mptr->type = 0;
+X  			  mptr->count = STOP_MUNCH_DELAY;
+X  			  valid = 0;
+***************
+*** 307,316 ****
+--- 301,312 ----
+X  			    }
+X  			}
+X  		    }
++ 		    /*}}}*/
+X  		  else if(!mptr->type && random() <
+X  		      GO_MUNCH_PROB * global.difficulty)
+X  		    mptr->gomunch = 1;
+X  		}
++ 		/*}}}*/
+X  	      if(!valid)
+X  		/*EMPTY*/;
+X  	      else if(mptr->type)
+***************
+*** 320,326 ****
+X  		    /*{{{  carry on*/
+X  		    {
+X  		      CELL      *nptr;
+! 					  
+X  		      nptr = move_muncher(mptr);
+X  		      if(nptr)
+X  			{
+--- 316,322 ----
+X  		    /*{{{  carry on*/
+X  		    {
+X  		      CELL      *nptr;
+! 											  
+X  		      nptr = move_muncher(mptr);
+X  		      if(nptr)
+X  			{
+***************
+*** 337,343 ****
+X  		    /*{{{  pick new direction*/
+X  		    {
+X  		      int     temp;
+! 					  
+X  		      temp = ~valid & 0xF;
+X  		      if(!mptr->cell.y)
+X  			temp &= 0xE;
+--- 333,339 ----
+X  		    /*{{{  pick new direction*/
+X  		    {
+X  		      int     temp;
+! 											  
+X  		      temp = ~valid & 0xF;
+X  		      if(!mptr->cell.y)
+X  			temp &= 0xE;
+***************
+*** 381,394 ****
+X  		/*{{{  pick a direction*/
+X  		{
+X  		  unsigned  temp;
+! 				  
+! 		  if(mptr->cont)
+X  		    {
+X  		      valid &= 0xF;
+X  		      temp = valid & ~(1 << (mptr->dir ^ 1));
+X  		      if(temp)
+X  			valid = temp;
+X  		    }
+X  		  else if(valid & 0xF0)
+X  		    valid = valid & valid >> 4;
+X  		  valid = choose_direction(valid);
+--- 377,434 ----
+X  		/*{{{  pick a direction*/
+X  		{
+X  		  unsigned  temp;
+! 		  
+! 		  if(mptr->panic)
+! 		    /*{{{  panic mode*/
+X  		    {
++ 		      temp = valid & ((1 << (mptr->dir ^ 1)) ^ 0xF);
++ 		      if(mptr->offset.x < GAP_WIDTH * 2 - CELL_WIDTH && 
++ 			  valid & 0x8)
++ 			valid = 0x8;
++ 		      else if(mptr->offset.x >= CELL_WIDTH - GAP_WIDTH * 2 &&
++ 			  valid & 0x4)
++ 			valid = 0x4;
++ 		      else if(temp & 0xC)
++ 			valid = temp & 0xC;
++ 		      else if(valid & 0xC)
++ 			valid &= 0xC;
++ 		      else if(valid & 0x2 && 
++ 			  (mptr->panic > PANIC_UP_COUNT || mptr->dir == 1))
++ 			{
++ 			  valid = 0x2;
++ 			  mptr->panic = 1;
++ 			}
++ 		      else if(valid & 1)
++ 			{
++ 			  valid = 0x1;
++ 			  mptr->panic++;
++ 			}
++ 		      else 
++ 			valid &= 0xF;
++ 		    }
++ 		    /*}}}*/
++ 		  else if(mptr->cont)
++ 		    /*{{{  continue mode*/
++ 		    {
+X  		      valid &= 0xF;
+X  		      temp = valid & ~(1 << (mptr->dir ^ 1));
+X  		      if(temp)
+X  			valid = temp;
+X  		    }
++ 		    /*}}}*/
++ 		  else if(player.ball.state == 1)
++ 		    /*{{{  run away*/
++ 		    {
++ 		      temp = (valid ^ (valid >> 4)) & 0xF;
++ 		      if(temp)
++ 			valid = temp;
++ 		      else
++ 			{
++ 			  valid &= 0xF;
++ 			  mptr->cont = 1;
++ 			}
++ 		    }
++ 		    /*}}}*/
+X  		  else if(valid & 0xF0)
+X  		    valid = valid & valid >> 4;
+X  		  valid = choose_direction(valid);
+***************
+*** 418,426 ****
+X  	    /*{{{  case 2: case 3: (xtra or drone)*/
+X  	    case 2: case 3:
+X  	    {
+! 	      int     valid;
+! 	      int     temp;
+! 			  
+X  	      /*{{{  giving birth?*/
+X  	      if(monster.delay && mptr->type == 2 && global.state == 2)
+X  		{
+--- 458,465 ----
+X  	    /*{{{  case 2: case 3: (xtra or drone)*/
+X  	    case 2: case 3:
+X  	    {
+! 	      unsigned  valid;
+! 						  
+X  	      /*{{{  giving birth?*/
+X  	      if(monster.delay && mptr->type == 2 && global.state == 2)
+X  		{
+***************
+*** 444,465 ****
+X  		mptr->fast = 1;
+X  	      /*{{{  pick a direction*/
+X  	      {
+! 		if(valid & 0xF0 &&
+! 		    (mptr->type != 2 || player.ball.state ||
+! 		    (global.state == 2 ? mptr->count == monster.farthest :
+! 		     mptr->count != monster.nearest)))
+X  		  {
+! 		    mptr->cont = 0;
+! 		    valid >>= 4;
+X  		  }
+X  		else
+X  		  {
+! 		    temp = valid & ((valid >> 4) ^ 0xF);
+! 		    if(temp)
+X  		      valid = temp;
+X  		    else
+X  		      valid &= 0xF;
+X  		  }
+X  		valid = choose_direction(valid);
+X  		if(valid != mptr->dir)
+X  		  {
+--- 483,534 ----
+X  		mptr->fast = 1;
+X  	      /*{{{  pick a direction*/
+X  	      {
+! 		unsigned  temp;
+! 			
+! 		temp = valid & (~(0x11 << (mptr->dir ^ 1)));
+! 		if(mptr->type == 2)
+! 		  /*{{{  xtra*/
+X  		  {
+! 		    if((player.ball.state != 0) != mptr->gomunch)
+! 		      temp = valid;
+! 		    if(player.ball.state ||
+! 			(global.state == 2 ? mptr->count == monster.farthest :
+! 			mptr->count != monster.nearest))
+! 		      {
+! 			if(temp & 0xF0)
+! 			  valid = temp >> 4;
+! 			else if(temp)
+! 			  valid = temp;
+! 			else
+! 			  valid &= 0xF;
+! 		      }
+! 		    else
+! 		      {
+! 			unsigned  suess;
+! 			
+! 			suess = (temp ^ (temp >> 4)) & 0xF;
+! 			if(suess)
+! 			  valid = suess;
+! 			else if(temp & 0xF)
+! 			  valid = temp & 0xF;
+! 			else
+! 			  valid &= 0xF;
+! 		      }
+X  		  }
++ 		  /*}}}*/
+X  		else
++ 		  /*{{{  drone*/
+X  		  {
+! 		    if(temp & 0xF0)
+! 		      valid = temp >> 4;
+! 		    else if(temp)
+X  		      valid = temp;
++ 		    else if(valid & 0xF0)
++ 		      valid >>= 4;
+X  		    else
+X  		      valid &= 0xF;
+X  		  }
++ 		  /*}}}*/
+X  		valid = choose_direction(valid);
+X  		if(valid != mptr->dir)
+X  		  {
+***************
+*** 474,480 ****
+X  		  APPLE     *aptr;
+X  		  int       x, y;
+X  		  int       width, height;
+! 				  
+X  		  x = mptr->pixel.x;
+X  		  y = mptr->pixel.y;
+X  		  /*{{{  set offset*/
+--- 543,549 ----
+X  		  APPLE     *aptr;
+X  		  int       x, y;
+X  		  int       width, height;
+! 										  
+X  		  x = mptr->pixel.x;
+X  		  y = mptr->pixel.y;
+X  		  /*{{{  set offset*/
+***************
+*** 508,513 ****
+--- 577,583 ----
+X  		    }
+X  		}
+X  		/*}}}*/
++ 		mptr->gomunch = player.ball.state != 0;
+X  	      }
+X  	      /*}}}*/
+X  	      break;
+***************
+*** 544,552 ****
+X  /*}}}*/
+X  /*{{{  MONSTER *spawn_monster(type, dir, face, cx, cy, ox, oy)*/
+X  extern MONSTER *spawn_monster FUNCARGLIST((type, dir, face, cx, cy, ox, oy))
+! int       type  FUNCARGSEP  /* type of monster 0-4 */
+! int       dir   FUNCARGSEP  /* direction 0-3 */
+! int       face  FUNCARGSEP  /* face 0-5 */
+X  int       cx    FUNCARGSEP  /* cell x */
+X  int       cy    FUNCARGSEP  /* cell y */
+X  int       ox    FUNCARGSEP  /* offset x */
+--- 614,622 ----
+X  /*}}}*/
+X  /*{{{  MONSTER *spawn_monster(type, dir, face, cx, cy, ox, oy)*/
+X  extern MONSTER *spawn_monster FUNCARGLIST((type, dir, face, cx, cy, ox, oy))
+! unsigned  type  FUNCARGSEP  /* type of monster 0-4 */
+! unsigned  dir   FUNCARGSEP  /* direction 0-3 */
+! unsigned  face  FUNCARGSEP  /* face 0-5 */
+X  int       cx    FUNCARGSEP  /* cell x */
+X  int       cy    FUNCARGSEP  /* cell y */
+X  int       ox    FUNCARGSEP  /* offset x */
+***************
+*** 567,572 ****
+--- 637,643 ----
+X    mptr->apple = NULL;
+X    mptr->push = 0;
+X    mptr->gomunch = mptr->cont = mptr->chew = mptr->pause = mptr->stop = 0;
++   mptr->panic= 0;
+X    mptr->fast = mptr->pushing = 0;
+X    mptr->count = 0;
+X    mptr->cell.x = cx;
+diff -c -r exp.v1.01/move.c exp.v2.00/move.c
+*** exp.v1.01/move.c	Fri Jul 24 09:56:11 1992
+--- exp.v2.00/move.c	Fri Jul 24 13:43:17 1992
+***************
+*** 1,24 ****
+! /*{{{  (C) 1992 Nathan Sidwell*/
+! /*****************************************************************************
+! 			X M R I S V1.01
+! 			---------------
+! 		    (C) 1992 Nathan Sidwell
+! 
+! This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+! is in the public domain. Permission is granted to distribute and compile
+! verbatim copies of this software for non-commercial, non-profit use,
+! without fee. The software may be modified, provided that both the above copyright
+! notice and this permission notice appear.
+! 
+! No guarantee is given as to the robustness or suitability of this
+! software for your computer.
+! 
+! Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+! *****************************************************************************/
+! /*}}}*/
+X  #include "xmris.h"
+X  /*{{{  prototypes*/
+! static void munch_back PROTOARGLIST((int, int, int, int, int, int, SPRITE *));
+X  /*}}}*/
+X  /*{{{  unsigned choose_direction(valid)*/
+X  extern unsigned choose_direction FUNCARGLIST((valid))
+--- 1,7 ----
+! /* (C) 1992 Nathan Sidwell */
+X  #include "xmris.h"
+X  /*{{{  prototypes*/
+! static void munch_back PROTOARGLIST((int, int, unsigned, unsigned, int, int, SPRITE *));
+X  /*}}}*/
+X  /*{{{  unsigned choose_direction(valid)*/
+X  extern unsigned choose_direction FUNCARGLIST((valid))
+***************
+*** 80,86 ****
+X  	/*{{{  munch the left half of the edge below*/
+X  	{
+X  	  unsigned  type;
+! 			
+X  	  type = 0;
+X  	  if(cptr[0].depths[2] < -VEL_X)
+X  	    type = GAP_HEIGHT;
+--- 63,69 ----
+X  	/*{{{  munch the left half of the edge below*/
+X  	{
+X  	  unsigned  type;
+! 						
+X  	  type = 0;
+X  	  if(cptr[0].depths[2] < -VEL_X)
+X  	    type = GAP_HEIGHT;
+***************
+*** 90,96 ****
+X  	      (cptr[-1].depths[1] > VEL_Y ||
+X  	      cptr[CELL_STRIDE-1].depths[0] < -VEL_Y))
+X  	    type = 4 * GAP_HEIGHT;
+! 	  munch_back(0, type,
+X  	      EDGE_WIDTH >> 1, GAP_HEIGHT,
+X  	      pixel.x + (CELL_WIDTH >> 1) - (EDGE_WIDTH >> 1),
+X  	      pixel.y + CELL_HEIGHT, sptr);
+--- 73,79 ----
+X  	      (cptr[-1].depths[1] > VEL_Y ||
+X  	      cptr[CELL_STRIDE-1].depths[0] < -VEL_Y))
+X  	    type = 4 * GAP_HEIGHT;
+! 	  munch_back(0, (int)type,
+X  	      EDGE_WIDTH >> 1, GAP_HEIGHT,
+X  	      pixel.x + (CELL_WIDTH >> 1) - (EDGE_WIDTH >> 1),
+X  	      pixel.y + CELL_HEIGHT, sptr);
+***************
+*** 107,113 ****
+X  	/*{{{  munch the right half of the edge below*/
+X  	{
+X  	  unsigned  type;
+! 			
+X  	  type = 0;
+X  	  if(cptr[0].depths[3] > VEL_X)
+X  	    type = GAP_HEIGHT;
+--- 90,96 ----
+X  	/*{{{  munch the right half of the edge below*/
+X  	{
+X  	  unsigned  type;
+! 						
+X  	  type = 0;
+X  	  if(cptr[0].depths[3] > VEL_X)
+X  	    type = GAP_HEIGHT;
+***************
+*** 117,123 ****
+X  	      (cptr[1].depths[1] > VEL_Y ||
+X  	      cptr[CELL_STRIDE+1].depths[0] < -VEL_Y))
+X  	    type = 4 * GAP_HEIGHT;
+! 	  munch_back(EDGE_WIDTH >> 1, type,
+X  	      EDGE_WIDTH >> 1, GAP_HEIGHT,
+X  	      pixel.x + (CELL_WIDTH >> 1),
+X  	      pixel.y + CELL_HEIGHT, sptr);
+--- 100,106 ----
+X  	      (cptr[1].depths[1] > VEL_Y ||
+X  	      cptr[CELL_STRIDE+1].depths[0] < -VEL_Y))
+X  	    type = 4 * GAP_HEIGHT;
+! 	  munch_back(EDGE_WIDTH >> 1, (int)type,
+X  	      EDGE_WIDTH >> 1, GAP_HEIGHT,
+X  	      pixel.x + (CELL_WIDTH >> 1),
+X  	      pixel.y + CELL_HEIGHT, sptr);
+***************
+*** 190,196 ****
+X    /*}}}*/
+X    if(update.set)
+X      add_background(update.tl.x, update.tl.y,
+! 	update.br.x - update.tl.x, update.br.y - update.tl.y);
+X    return new;
+X  }
+X  /*}}}*/
+--- 173,180 ----
+X    /*}}}*/
+X    if(update.set)
+X      add_background(update.tl.x, update.tl.y,
+! 	(unsigned)(update.br.x - update.tl.x), 
+! 	(unsigned)(update.br.y - update.tl.y));
+X    return new;
+X  }
+X  /*}}}*/
+***************
+*** 262,269 ****
+X  	  mptr->cell.y += 1;
+X  	  cptr += CELL_STRIDE;
+X  	}
+!       assert(cptr->visit && mptr->cell.y < CELLS_DOWN &&
+! 	  (!mptr->offset.x || (!mptr->cell.y && mptr->offset.y <= 0)));
+X        break;
+X      /*}}}*/
+X      /*{{{  case 2: (left)*/
+--- 246,253 ----
+X  	  mptr->cell.y += 1;
+X  	  cptr += CELL_STRIDE;
+X  	}
+!       assert(cptr->visit && mptr->cell.y < CELLS_DOWN);
+!       assert(!mptr->offset.x || (!mptr->cell.y && mptr->offset.y <= 0));
+X        break;
+X      /*}}}*/
+X      /*{{{  case 2: (left)*/
+***************
+*** 389,395 ****
+X  		  /*{{{  munch the left half of the edge above*/
+X  		  {
+X  		    unsigned  type;
+! 						    
+X  		    type = 0;
+X  		    if(cptr[0].depths[2] < -VEL_X)
+X  		      type = 2 * GAP_HEIGHT;
+--- 373,379 ----
+X  		  /*{{{  munch the left half of the edge above*/
+X  		  {
+X  		    unsigned  type;
+! 												    
+X  		    type = 0;
+X  		    if(cptr[0].depths[2] < -VEL_X)
+X  		      type = 2 * GAP_HEIGHT;
+***************
+*** 399,405 ****
+X  			(cptr[-1].depths[0] < -VEL_Y ||
+X  			cptr[-CELL_STRIDE-1].depths[1] > VEL_Y))
+X  		      type = 4 * GAP_HEIGHT;
+! 		    munch_back(0, type,
+X  			EDGE_WIDTH >> 1, GAP_HEIGHT,
+X  			pixel.x + (CELL_WIDTH >> 1) - (EDGE_WIDTH >> 1),
+X  			pixel.y - GAP_HEIGHT, sptr);
+--- 383,389 ----
+X  			(cptr[-1].depths[0] < -VEL_Y ||
+SHAR_EOF
+true || echo 'restore of patch.v2.00 failed'
+fi
+echo 'End of  part 3'
+echo 'File patch.v2.00 is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

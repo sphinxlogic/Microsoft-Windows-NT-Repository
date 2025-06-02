@@ -1,0 +1,1924 @@
+Newsgroups: comp.sources.misc
+From: tim@deakin.edu.au (Tim Cook)
+Subject: v35i013:  describe - File Descriptions, Part02/03
+Message-ID: <1993Feb2.061426.20441@sparky.imd.sterling.com>
+X-Md4-Signature: c2f6282134575033da9a9fb4b1b7dfed
+Date: Tue, 2 Feb 1993 06:14:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tim@deakin.edu.au (Tim Cook)
+Posting-number: Volume 35, Issue 13
+Archive-name: describe/part02
+Environment: UNIX, DBM
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  INSTALL Makefile describe.1 dl.1 enddesc.c getdesc.3
+#   getdesc.c other/CONTEMPTIBILITY other/dumpdesc.c other/lslR2dl.pl
+#   patches/BSD-mv.patch patches/CONTEMPTIBLE.patch
+#   patches/UUNET-ftpd.patch perror2.c setdesc.c
+# Wrapped by kent@sparky on Mon Feb  1 10:15:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(1679 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+XInstallation instructions for dls/describe.
+X
+X1.   Make sure you have DBM or NDBM-compatible library routines.  If
+X     you haven't, I recommend Ozan Yigit's SDBM, available at various
+X     Anonymous FTP sites, including rana.cc.deakin.oz.au.
+X
+X2.   Make sure you have directory reading routines (opendir(3),
+X     readdir(3), etc.).  If you haven't got any, try getting the
+X     non-commercial version by Doug Gwyn, also available at various
+X     Anonymous FTP sites.
+X
+X3.   Read config.h and modify if necessary.
+X
+X4.   Read Makefile and modify if necessary.
+X
+X5.   Make.
+X
+X6.   Install binaries and man pages where you want them (you should
+X     have modified Makefile appropriately).
+X
+X7.   For your anonymous ftp area, install a copy of dl in
+X     ~ftp/bin/ls.  If your system uses shared libraries (SunOS is one
+X     that does), you should install a statically linked version of dl.
+X     See the Makefile for details.
+X
+X     You should provide some information on dl in a prominent README
+X     file or at login time for anonymous FTP users.  You may also
+X     want/need to change the way dl responds to various options in
+X     order to get it to work better with your version of ftpd (check
+X     that the MGET command works, in particular).  Others have been
+X     known to do this, and I haven't come up with a definitive set of
+X     answers to this and other related problems yet. 
+X
+X8.   (Optional)  Investigate the patches in the "patches" directory.
+X     These are for modifying common (and commonly available in source
+X     form) file utiltities to make them aware of file descriptions.
+X     Instructions on how to use them are in each patch file.
+X
+X9.   Start describing files.
+END_OF_FILE
+  if test 1679 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3225 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile -	Makefile for dls
+X#
+X# $Id: Makefile,v 1.14 1993/01/29 05:05:42 tim Exp tim $
+X#
+X# Copyright (c) 1991,1992 Tim Cook.
+X# Non-profit distribution allowed.  See README for details.
+X
+X
+X# If your NDBM routines are in libndbm.a
+X#LIBS =		-lndbm
+X#
+X# If you are using DBM, or NDBM on SunOS or Ultrix, where the NDBM
+X# routines are in libdbm
+XLIBS =		-ldbm
+X#
+X# If you are on Solaris 2.0, the NDBM libraries are in libc
+X#LIBS =
+X#
+X# If you are on a version of DYNIX where the getopt routines are in
+X# libseq
+X#LIBS =		-ldbm -lseq
+X
+X# You will need to include strpbrk.o, unless you have it in a library.
+XEXTRAS =	perror2.o
+X#EXTRAS =	strpbrk.o perror2.o
+X
+X# If you don't like it, change it.
+XBINDIR =	/usr/local/bin
+X
+X# This is what _I_ do.  You will no doubt have to change these.  See
+X# the "install" target as well.
+XINSTALLBIN =	root install -c -s -o bin -g bin -m 751
+X#INSTALLBIN =	install -c -s -m 751
+X#
+X# This is a local shell script
+XINSTALLMAN =	instman
+X
+XSHAR =		shar -n $(PACKAGE_NAME) -a -s "Tim Cook <tim@deakin.edu.au>" \
+X		   -l50 -o shar
+X
+X# I have not used GCC to compile dl/describe, but it would need at
+X# least these two options.
+X#CC =		gcc -traditional -fpcc-struct-return
+XCOPT =		-O
+X#COPT =		-g
+XCFLAGS =	$(COPT) -I.
+XLDFLAGS =	$(COPT)
+X#
+X# If you have an OS with shared libraries, this will allow you to
+X# build a "static" executable of dl, which you will need for your
+X# Anonymous FTP setup.  The following is for SunOS.
+XSTATIC_LDFLAGS =	-Bstatic $(LD_FLAGS)
+X# And this is for GCC
+X#STATIC_LDFLAGS =	-static $(LD_FLAGS)
+X
+X#
+X# The Makefile should not need to be modified past this point
+X#############################################################
+X
+XDISTRIB =	README INSTALL
+X
+XSOURCE =	Makefile config.h list.h version.h dl.c describe.c list.c \
+X		allocate.c pathname.c getdesc.c setdesc.c enddesc.c \
+X		strpbrk.c perror2.c
+X
+XDOCUMENTATION =	dl.1 describe.1 getdesc.3
+X
+XOTHER =		other/CONTEMPTIBILITY other/descopt other/dumpdesc.c \
+X		other/lslR2dl.pl
+X
+XPATCHES =	patches/BSD-mv.patch patches/GNU-compress.patch \
+X		patches/GNU-mv.patch patches/UUNET-ftpd.patch \
+X		patches/CONTEMPTIBLE.patch
+X
+XPACKAGE =	$(DISTRIB) $(SOURCE) $(DOCUMENTATION) $(OTHER) \
+X		$(PATCHES)
+X
+XPACKAGE_NAME =	describe
+X
+XDL_REQ =	getdesc.o enddesc.o pathname.o list.o allocate.o
+X
+XDESCRIBE_REQ =	getdesc.o setdesc.o enddesc.o $(EXTRAS)
+X
+Xall : dl describe
+X
+Xinstall : all installbin installman
+X
+Xinstallbin :
+X	$(INSTALLBIN) dl $(BINDIR)
+X	$(INSTALLBIN) describe $(BINDIR)
+X
+Xinstallman :
+X	$(INSTALLMAN) dl.1
+X	$(INSTALLMAN) describe.1
+X	$(INSTALLMAN) getdesc.3
+X
+Xshar : $(PACKAGE)
+X	chmod 640 $(PACKAGE)
+X	$(SHAR) $(PACKAGE)
+X
+Xtar : $(PACKAGE)
+X	chmod 640 $(PACKAGE)
+X	tar cvf - $(PACKAGE) | compress > $(PACKAGE_NAME).tar.Z
+X
+Xdl : dl.o $(DL_REQ)
+X	$(CC) $(LDFLAGS) -o $@ dl.o $(DL_REQ) $(LIBS)
+X
+Xdl-static : dl.o $(DL_REQ)
+X	$(CC) $(STATIC_LDFLAGS) -o $@ dl.o $(DL_REQ) $(LIBS)
+X
+Xdescribe : describe.o $(DESCRIBE_REQ)
+X	$(CC) $(LDFLAGS) -o $@ describe.o $(DESCRIBE_REQ) $(LIBS)
+X
+Xdl.c :	config.h list.h
+X
+Xdescribe.c : config.h version.h
+X
+Xgetdesc.c : config.h
+X
+Xsetdesc.c : config.h
+X
+Xenddesc.c : config.h
+X
+Xlist.c : config.h list.h
+X
+Xallocate.c : config.h
+X
+Xpathname.c : config.h
+X
+Xstrpbrk.o : strpbrk.c
+X	$(CC) -c -O $*.c
+X
+Xclean :
+X	rm -f *.o core
+X
+Xclobber : clean
+X	rm -f dl describe
+END_OF_FILE
+  if test 3225 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'describe.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'describe.1'\"
+else
+  echo shar: Extracting \"'describe.1'\" \(2945 characters\)
+  sed "s/^X//" >'describe.1' <<'END_OF_FILE'
+X.\" describe.1 -	Man page for describe
+X.\"
+X.\" Copyright (c) 1991, 1992 Tim Cook.
+X.\" Non-profit distribution allowed.  See README for details.
+X.\"
+X.\" $Id: describe.1,v 1.5 1992/12/02 05:43:46 tim Exp $
+X.\"
+X.TH DESCRIBE 1 "2 Dec, 1992"
+X.UC 4
+X.\"
+X.SH NAME
+Xdescribe - Set or list a descriptive comment for a file
+X.SH SYNOPSIS
+X.B describe
+X.I file description
+X.br
+X.B describe -c
+X.I file other-file
+X.br
+X.B describe -f
+X.I description-file
+X.RI "[\|" directory "\|]"
+X.br
+X.B describe -d
+X.I file ...
+X.br
+X.B describe -l
+X.RI "[\|" directory "\|]"
+X.br
+X.B describe -v
+X.\"
+X.SH DESCRIPTION
+X.B Describe
+Xsets, deletes or lists file descriptions, as used by
+X.BR dl (1).
+XTo set the description on one file, use the first form shown above.
+XTo copy a description from one file to another, use the
+X.B -c
+Xoption, as shown above (note that null descriptions are copied).
+XTo set descriptions on a number of files, put the descriptions into a file,
+Xthen use the
+X.B -f
+Xoption as shown above
+X(leaving off
+X.I directory
+Ximplies the current directory).  If you use a hyphen (-) as the name of the
+Xdescriptions file,
+X.B describe
+Xwill read standard input for the list of descriptions.
+XTo delete the description for one or more files, use the
+X.B -d
+Xoption as shown above.
+XTo list all the descriptions set for files in a directory, use the
+X.B -l
+Xoption (again, leaving off
+X.I directory
+Xmeans the current directory).
+X.LP
+XA
+X.I description-file
+Xis a simple text file.
+XEach line should list the file name (quoted with double quotes if it
+Xcontains white-space), followed by white-space, followed by the
+Xdescription.
+XThe description itself may contain white-space, and is only terminated
+Xby an end-of-line.
+XComments may appear in a description file, as a line that starts with a
+Xhash (#) character.
+X.LP
+XIf you set a description to null,
+X.B describe
+Xwill attempt to delete any
+Xexisting description, which will achieve the same result.
+X.LP
+XThe current version of the
+X.B describe
+Xpackage can be displayed by using the
+X.B -v
+Xoption to
+X.BR describe .
+X.LP
+XDescriptions are stored in DBM files.
+XEach description is keyed by the file name, and the file name is also
+Xkeyed by the file's inode-number.
+XThis means that renaming or editing the file in the same directory will
+Xnot mean the loss of its description.
+XIf you wish to ``optimize'' the description database of a directory,
+Xyou can do so in the following manner:
+X.LP
+X.nf
+X	% describe -l > /tmp/descriptions
+X	% rm .desc.*
+X	% describe -f /tmp/descriptions
+X.fi
+X.LP
+XNOTE:  Old descriptions can be passed on to irrelevant files if you
+Xcreate a new file that uses the same inode that the originally
+Xdescribed file used.  This can be avoided by either deleting the
+Xdescription when the original file is deleted, or making sure you set
+Xa new description when you create new files, even if you set it to
+Xnull.
+X.\"
+X.SH FILES
+XFor each directory, a
+X.B .desc.pag
+Xand
+X.B .desc.dir
+X(DBM files) are used to store descriptions.
+X.\"
+X.SH SEE\ ALSO
+X.BR dl (1)
+END_OF_FILE
+  if test 2945 -ne `wc -c <'describe.1'`; then
+    echo shar: \"'describe.1'\" unpacked with wrong size!
+  fi
+  # end of 'describe.1'
+fi
+if test -f 'dl.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dl.1'\"
+else
+  echo shar: Extracting \"'dl.1'\" \(1932 characters\)
+  sed "s/^X//" >'dl.1' <<'END_OF_FILE'
+X.\" dl.1 -	Man page for descriptive ls
+X.\"
+X.\" Copyright (c) 1991, 1992 Tim Cook.
+X.\" Non-profit distribution allowed.  See README for details.
+X.\"
+X.\" $Id: dl.1,v 1.3 1992/12/02 05:12:20 tim Exp $
+X.\"
+X.TH DL 1 "2 Dec, 1992"
+X.UC 4
+X.SH NAME
+Xdl \- Descriptive ls
+X.SH SYNOPSIS
+X.B dl
+X.RI "[\|" options "\|]"
+X.RI "[\|" "file " .\|.\|.\|]
+X.\"
+X.SH DESCRIPTION
+X.B Dl
+Xlists files and directories in the manner of
+X.BR ls (1),
+Xbut includes a descriptive comment for each
+X.I file
+Xthat has a description set.
+XBy default,
+X.B dl
+Xlists the file name, size of the file in bytes and the description.
+XIf the file is a directory, a hyphen (-) is shown instead of the size,
+Xand if the file is a directory that contains other directories, an equals
+Xsign (=) is shown.
+X.LP
+XDescriptions are set by
+X.BR describe (1)
+Xand are stored in a hidden file in the same directory as the files for
+Xwhich descriptions are held.
+X.\" The descriptions are matched to files by name
+X.\" and inode-number, so renaming or editing the file in the same directory
+X.\" will not cause the loss of its description.
+X.LP
+XOptions:
+X.TP
+X.BI \-d
+XList the date and time of each file.  The last modification date and time
+Xare listed after the file size, in the same format used by
+X.BR ls (1).
+X.TP
+X.BI \-e
+XList everything, even inaccessible files.
+XBy default, files that cannot be read or executed are ignored.
+X.TP
+X.BI \-t
+XSort by last modification time.  Most recently modified files come first.
+X.TP
+X.BI \-f width
+XUse a maximum of
+X.I width
+Xcolumns to display the file name.
+XIf a file name is longer than
+X.I width,
+Xit may expand into the area used to show the size.
+XIf this overflows, the size and other information will be listed on a
+Xseparate line.
+X.TP
+X.BI \-R
+XRecursively list any subdirectories encountered, just like
+X.BR ls (1).
+X.\"
+X.SH FILES
+XFor each directory, a
+X.B .desc.pag
+Xand
+X.B .desc.dir
+X(DBM files) are used to store descriptions.
+X.\"
+X.SH SEE\ ALSO
+X.BR ls (1),
+X.BR describe (1)
+END_OF_FILE
+  if test 1932 -ne `wc -c <'dl.1'`; then
+    echo shar: \"'dl.1'\" unpacked with wrong size!
+  fi
+  # end of 'dl.1'
+fi
+if test -f 'enddesc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'enddesc.c'\"
+else
+  echo shar: Extracting \"'enddesc.c'\" \(5828 characters\)
+  sed "s/^X//" >'enddesc.c' <<'END_OF_FILE'
+X/* enddesc.c -	Initialise/deallocate description database
+X *
+X * Copyright (c) 1991, 1992 Tim Cook.
+X * Non-profit distribution allowed.  See README for details.
+X */
+X
+Xstatic char rcsid[] = "$Id: enddesc.c,v 1.4 1993/01/29 04:17:43 tim Exp tim $";
+X
+X#include <sys/param.h>
+X#include <sys/errno.h>
+X#include "config.h"
+X
+X#ifdef TEST
+X#include <stdio.h>
+X#endif
+X
+X#ifndef MAXPATHLEN
+X#define MAXPATHLEN	1024
+X#endif
+X
+Xextern int errno ;
+X#ifdef NDBM
+XDBM *_desc_database = (DBM *) NULL ;
+X#define DB_OPEN		(_desc_database != (DBM *) NULL)
+X#else
+Xstatic int _db_open = FALSE ;
+X#define DB_OPEN		_db_open
+X#endif
+X
+X
+XVOID enddesc ()
+X{
+X#ifdef NDBM
+X   if (_desc_database)
+X      dbm_close (_desc_database) ;
+X#else
+X   dbmclose () ;
+X#endif
+X   }
+X
+X
+X/*
+X * This is support routine for getdesc() and setdesc(), and should not
+X * normally be called by the programmer. 
+X */
+X
+Xint _initdesc (directory, open_flags)
+X   char *directory ;
+X   int open_flags ;
+X{
+X   static char desc_file[MAXPATHLEN+1] = "" ;
+X   static int db_flags ;
+X
+X   if (! directory || *directory == EOS)
+X      directory = "." ;
+X
+X   if (open_flags == db_flags && strcmp (directory, desc_file) == 0)
+X      return DB_OPEN ;		/* Tell 'em what we said before */
+X
+X   /* Otherwise, we need to try to open a database */
+X   {
+X      char *p ;
+X#ifndef NDBM
+X      char *q ;
+X#include <sys/stat.h>
+X      struct stat status ;
+X#endif
+X
+X      DBM_close (_desc_database) ;
+X
+X      strcpy (desc_file, directory) ;
+X      db_flags = open_flags ;
+X
+X      /* Find end of "desc_file" */
+X      for (p = desc_file ; *p != EOS ; p++) ;
+X
+X#ifdef NDBM
+X
+X      /* By crikey, it's easier this way! */
+X
+X      strcpy (p, "/.desc") ;
+X
+X#ifdef TEST
+X      printf ("Opening new database\n") ;
+X#endif
+X      if ((_desc_database = dbm_open (desc_file, db_flags, 0666))
+X               == (DBM *) NULL) {
+X	 return FALSE ; }
+X
+X#else	/* NDBM */
+X
+X      _db_open = FALSE ;	/* We just closed it above */
+X
+X      strcpy (p, "/.desc.pag") ;
+X      q = strrchr (p, '.') ;
+X
+X      if (stat (desc_file, &status) != -1) {
+X
+X	 /* Database exists */
+X
+X	 *q = EOS ;		/* Hide ".pag" */
+X	 if (dbminit (desc_file) < 0) {
+X	    return FALSE ; }
+X	 else
+X	    _db_open = TRUE ; }
+X      else {
+X
+X	 /* No database */
+X
+X#include <fcntl.h>
+X	 if (db_flags & O_RDWR) {
+X	    int fd ;
+X
+X	    /* Create .desc.(pag|dir) files */
+X	    if ((fd = open (desc_file, db_flags | O_EXCL, 0666))
+X		  < 0)
+X	       return FALSE ;
+X	    close (fd) ;
+X	    strcpy (q, ".dir") ;
+X	    if ((fd = open (desc_file, db_flags | O_EXCL, 0666))
+X		  < 0)
+X	       return FALSE ;
+X	    close (fd) ;
+X
+X	    /* Start up DBM */
+X	    *q = EOS ;		/* Hide ".dir" */
+X	    if (dbminit (desc_file) == 0)
+X	       _db_open = TRUE ; }
+X	 else {
+X	    errno = ENOENT ;
+X	    return FALSE ; } }
+X#endif	/* NDBM */
+X
+X      /* Return "desc_file" to just a directory name */
+X      *p = EOS ;
+X      }
+X   return TRUE ;
+X   }
+X
+X
+X/*
+X * Another support routine for getdesc() and setdesc().  This returns
+X * FALSE if unsuccessful.
+X */
+X
+Xchar *_desc_pathname ;
+Xchar *_desc_directory ;
+Xchar *_desc_name ;
+X
+X
+X_desc_parse_path (pathname, directory, name)
+X   char *pathname ;
+X   char *directory ;
+X   char *name ;
+X{
+X   static char misc_static[MAXPATHLEN] ;
+X   static char cwd[] = "." ;
+X
+X#ifdef TEST
+X   printf ("(_desc_parse_path called)\n") ;
+X#endif
+X
+X   if (pathname) {
+X      _desc_pathname = pathname ;
+X      if (name) {
+X	 if (directory && *directory)
+X	    _desc_directory = directory ;
+X	 else
+X	    _desc_directory = cwd ;
+X	 _desc_name = name ; }
+X      else {	/* Path only */
+X	 if (strlen (_desc_pathname) >
+X#ifdef __STDC__
+X	       (size_t)
+X#endif
+X	       MAXPATHLEN)
+X	    return FALSE ;
+X
+X	 /* Split path into directory and name */
+X
+X	 _desc_directory = strcpy (misc_static, pathname) ;
+X	 _desc_name = strrchr (_desc_directory, '/') ;
+X
+X	 /* Clean out any superfluous trailing slashes */
+X
+X	 while (_desc_name > _desc_directory && !_desc_name[1]) {
+X	    *_desc_name = '\0' ;
+X	    _desc_name = strrchr (_desc_directory, '/') ; }
+X
+X	 if (_desc_name) {
+X
+X	    /* We have a slash and something after it */
+X
+X	    if (_desc_name == _desc_directory) {
+X
+X	       /* The only slash is at start of string, ie, directory is "/" */
+X
+X	       _desc_name = pathname + 1 ;
+X	       _desc_directory[1] = '\0' ; }
+X
+X	    else {
+X
+X	       *_desc_name = '\0' ;		/* Kill slash */
+X	       _desc_name++ ; } }
+X
+X	 else {
+X
+X	    if (_desc_name) {
+X
+X	       /* We have something that ends in "/"; delete it and recurse */
+X
+X	       *_desc_name = '\0' ;
+X	       return _desc_parse_path (pathname) ; }
+X
+X	    else {
+X
+X	       /* No slash */
+X
+X	       strcpy (_desc_directory, cwd) ;
+X	       _desc_name = pathname ; } } } }
+X
+X   else {
+X
+X      /* No pathname, but should have directory and name */
+X
+X      if (! name) {
+X	 return FALSE ; }
+X
+X      _desc_directory = directory ;
+X      _desc_name = name ;
+X
+X      if (directory && *directory) {
+X
+X	 /* Construct path from directory and name */
+X
+X	 if ((strlen (directory) + strlen (name)) >=
+X#ifdef __STDC__
+X	       (size_t)
+X#endif
+X	       MAXPATHLEN)
+X	    return FALSE ;
+X	 _desc_pathname = strcpy (misc_static, directory) ;
+X	 strcat (_desc_pathname, "/") ;
+X	 strcat (_desc_pathname, name) ; }
+X
+X      else {
+X
+X	 /* Null directory; path == name */
+X
+X	 _desc_pathname = name ; } }
+X
+X   return TRUE ;
+X   }
+X
+X
+X#ifdef TEST
+X
+Xint main (argc, argv)
+X   int argc ;
+X   char **argv ;
+X{
+X   char pathname[MAXPATHLEN] ;
+X   char directory[MAXPATHLEN] ;
+X   char name[MAXPATHLEN] ;
+X
+X   while (! feof (stdin)) {
+X      printf (" test pathname: ") ;
+X      fgets (pathname, MAXPATHLEN, stdin) ;
+X      printf ("test directory: ") ;
+X      fgets (directory, MAXPATHLEN, stdin) ;
+X      printf ("     test name: ") ;
+X      fgets (name, MAXPATHLEN, stdin) ;
+X      if (_desc_parse_path (pathname, directory, name))
+X	 printf (
+X"---\n  _desc_pathname: %s\n _desc_directory: %s\n _desc_name: %s\n",
+X		 _desc_pathname, _desc_directory, _desc_name) ;
+X      else
+X	 perror (" error") ; }
+X   }
+X#endif
+END_OF_FILE
+  if test 5828 -ne `wc -c <'enddesc.c'`; then
+    echo shar: \"'enddesc.c'\" unpacked with wrong size!
+  fi
+  # end of 'enddesc.c'
+fi
+if test -f 'getdesc.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getdesc.3'\"
+else
+  echo shar: Extracting \"'getdesc.3'\" \(2569 characters\)
+  sed "s/^X//" >'getdesc.3' <<'END_OF_FILE'
+X.\" getdesc.3 -	Man page for getdesc(), setdesc() and enddesc()
+X.\"
+X.\" Copyright (c) 1991, 1992 Tim Cook.
+X.\" Non-profit distribution allowed.  See README for details.
+X.\"
+X.\" $Id: getdesc.3,v 1.3 1992/12/02 05:06:10 tim Exp $
+X.\"
+X.TH GETDESC 3 "2 Dec, 1992"
+X.\"
+X.SH NAME
+Xgetdesc, setdesc, enddesc \- File description routines
+X.\"
+X.SH SYNOPSIS
+X.LP
+X.B
+X#include <sys/types.h>
+X.LP
+X.BI "char *getdesc (char *" "pathname" ,
+X.BI "char *" "dir" ,
+X.BI "char *" "name" ,
+X.BI "ino_t " "inode" );
+X.LP
+X.BI "int setdesc (char *" "pathname" ,
+X.BI "char *" "dir" ,
+X.BI "char *" "name" ,
+X.BI "ino_t " "inode" ,
+X.BI "char *" "desc" );
+X.LP
+X.B  "void enddesc ();"
+X.\"
+X.SH DESCRIPTION
+X.B getdesc(\|)
+Xreturns a description for a file located in directory
+X.I dir
+Xwith either a basename of
+X.I name
+Xor an inode number of
+X.I inode.
+XIf
+X.I name
+Xand
+X.I pathname
+Xare null or
+X.I inode
+Xis zero, their values will not be used to locate the description.
+XIf
+X.I dir
+Xand
+X.I name
+Xare both null, the directory and basename are extracted from
+X.I pathname.
+XThe best plan is to supply as much information as you have to
+X.BR getdesc(\|) .
+X.LP
+XNote that the pointer returned by
+X.B getdesc(\|)
+Xpoints to storage allocated by the DBM routines linked with
+X.BR getdesc(\|) ,
+Xwhich means that the value in this storage may be overwritten by any
+Xcalls to DBM routines.
+XIn particular, calling
+X.B setdesc(\|)
+X(which uses DBM routines) and passing it a pointer returned by
+X.B getdesc(\|)
+Xis not recommended.
+X.LP
+X.B setdesc(\|)
+Xsets a description for a file, specified as specified to
+X.BR getdesc(\|) .
+XAt least one of the
+X.I name
+Xor
+X.I pathname
+Xparameter to 
+X.I setdesc
+Xmust be specified.
+XIf the
+X.I inode
+Xparameter is zero,
+X.I setdesc
+Xwill attempt to look up the file's inode number.
+XAny null-terminated string can be used as a description, although it is
+Xadvised that a file description be human-readable.
+XIf
+X.I desc
+Xis null,
+X.B setdesc(\|)
+Xwill attempt to delete any existing description for the file.
+XIf a description database does not exist, it will be created.
+X.LP
+X.B enddesc(\|)
+Xdeallocates any resources that may have been allocated by
+X.B getdesc(\|)
+Xor
+X.BR setdesc(\|) .
+X.\"
+X.SH RETURN VALUE
+X.B getdesc(\|)
+Xreturns null if no description was found, with
+X.B errno
+Xset as possible explanation.
+X.LP
+X.B setdesc(\|)
+Xreturns 0 (FALSE) if it was unable to set a description, with
+X.B errno
+Xset as possible explanation.  It returns non-zero (TRUE) if
+Xsuccessful.
+X.\"
+X.SH FILES
+XFor each directory, a
+X.B .desc.pag
+Xand
+X.B .desc.dir
+X(DBM files) are used to store descriptions.
+X.\"
+X.SH "SEE ALSO"
+X.BR dl (1),
+X.BR describe (1)
+END_OF_FILE
+  if test 2569 -ne `wc -c <'getdesc.3'`; then
+    echo shar: \"'getdesc.3'\" unpacked with wrong size!
+  fi
+  # end of 'getdesc.3'
+fi
+if test -f 'getdesc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getdesc.c'\"
+else
+  echo shar: Extracting \"'getdesc.c'\" \(2129 characters\)
+  sed "s/^X//" >'getdesc.c' <<'END_OF_FILE'
+X/* getdesc.c -	Get file description
+X *
+X * Copyright (c) 1991, 1992 Tim Cook.
+X * Non-profit distribution allowed.  See README for details.
+X */
+X
+Xstatic char rcsid[] = "$Id: getdesc.c,v 1.2 1992/12/02 03:45:17 tim Exp $";
+X
+X#include "config.h"
+X#include <fcntl.h>
+X#include <sys/errno.h>
+X
+Xextern int errno ;
+Xextern int _desc_parse_path () ;
+Xextern char *_desc_pathname ;
+Xextern char *_desc_directory ;
+Xextern char *_desc_name ;
+Xextern int _initdesc () ;
+X#ifdef NDBM
+Xextern DBM *_desc_database ;
+X#endif
+X
+X
+Xchar *getdesc (pathname, directory, name, inode)
+X   char *pathname ;
+X   char *directory ;
+X   char *name ;
+X   ino_t inode ;
+X{
+X   static datum key, value ;
+X
+X   if (! pathname && ! name) {
+X      if (! inode) {
+X	 errno = EINVAL ;
+X	 return NULL_CP ; }
+X      else {
+X	 _desc_name = name ;
+X	 _desc_pathname = pathname ;
+X	 if (directory && *directory)
+X	    _desc_directory = directory ;
+X	 else
+X	    _desc_directory = "." ; } }
+X   else if (! _desc_parse_path (pathname, directory, name)) {
+X      errno = EINVAL ;
+X      return NULL_CP ; }
+X
+X   if (_initdesc (_desc_directory, O_RDONLY)) {
+X
+X      /* We have a description database */
+X
+X      int found = FALSE ;
+X
+X      if (_desc_name) {
+X
+X	 /* Check for it by name */
+X
+X	 key.dptr = _desc_name ;
+X	 key.dsize = strlen (_desc_name) ;
+X	 if (key.dsize == sizeof (ino_t))
+X	    key.dsize++ ;
+X	 value = DBM_fetch (_desc_database, key) ;
+X	 found = value.dptr != NULL_CP ; }
+X
+X      if (! found && inode) {
+X
+X	 /* Check for it by inode */
+X
+X	 key.dptr = (char *) &inode ;
+X	 key.dsize = sizeof (ino_t) ;
+X	 value = DBM_fetch (_desc_database, key) ;
+X	 if (value.dptr != NULL_CP) {
+X	    char temp[sizeof (ino_t) + 1] ;
+X
+X	    /* Now use the name we got using the inode */
+X
+X	    if (value.dsize == sizeof (ino_t)) {
+X	       strncpy (temp, value.dptr, sizeof (ino_t)) ;
+X	       temp[sizeof (ino_t) + 1] = EOS ;
+X	       key.dptr = temp ;
+X	       key.dsize = sizeof (temp) ; }
+X	    else {
+X	       key.dptr = value.dptr ;
+X	       key.dsize = value.dsize ; }
+X	    value = DBM_fetch (_desc_database, key) ;
+X	    found = value.dptr != NULL_CP ; } }
+X
+X      if (found)
+X	 return value.dptr ;
+X      }
+X   return NULL_CP ;
+X   }
+END_OF_FILE
+  if test 2129 -ne `wc -c <'getdesc.c'`; then
+    echo shar: \"'getdesc.c'\" unpacked with wrong size!
+  fi
+  # end of 'getdesc.c'
+fi
+if test -f 'other/CONTEMPTIBILITY' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'other/CONTEMPTIBILITY'\"
+else
+  echo shar: Extracting \"'other/CONTEMPTIBILITY'\" \(5593 characters\)
+  sed "s/^X//" >'other/CONTEMPTIBILITY' <<'END_OF_FILE'
+XSubject: Why not make dl(1) compatible with ls(1)?
+X
+X
+XAuthor: Tim Cook <tim@deakin.edu.au>
+XDate: 5 Mar 1992
+X
+X
+X1. Introduction
+X
+X   Many people have suggested or asked for dl(1) to be made "compatible"
+X   with ls(1).  By this they mean they want either a flag for dl(1) that
+X   will make it revert to ls(1), or they want it to revert to ls(1) if
+X   it is given any flag not known to dl(1).
+X
+X   The desire for this is driven by the desire to cater for people who
+X   run programs that communicate with FTP daemons.  One such popular
+X   program is "ftpget", which automatically connects to an FTP daemon
+X   via the "anonymous" mechanism and fetches a whole directory tree.
+X
+X   These programs rely on the output from the FTP daemon being
+X   recognisable.  This usually means that they therefore rely on the
+X   output from a LIST command (more commonly known as the "dir" command
+X   at the client end) to be in some variant of "ls -l" format.
+X
+X
+X2. What to do?
+X
+X   As the author of dl(1), and the one who has taken responsiblity for
+X   how dl(1) functions, and how it is developed, I feel it necessary to
+X   respond to this suggested change.
+X
+X   I can either respond in agreement, implement the change, and
+X   (optionally) justify the change,  or I can dismiss the suggestion and
+X   (not really optionally) justify such a dismissal.
+X
+X   Or, I can try and do both.
+X
+X
+X3. Why I didn't want to make this change.
+X
+X   I did not want to add this "compatibility" feature to dl(1), because
+X   it is not what dl(1) is about.  Dl(1) is about being a utility that
+X   lists directory entries along with descriptive comments.
+X
+X   To make dl(1) revert back to ls(1) is to do something that was never
+X   intended, and would cloud dl(1)'s purpose.  How many Unix utilities
+X   do you know of that deliberately emulate other Unix utilities in
+X   certain circumstances.
+X
+X   To leave dl(1) as it is; as a self-contained, single-purpose utility,
+X   however, would be very much in line with the philosophy of Unix,
+X   which is to maintain functional integrity and modularity .  As
+X   experience has shown, it is always best to follow this philosophy
+X   in the Unix environment.
+X
+X   The other argument I considered in resisting this change, was that it
+X   was not dl(1) that needed to be changed.  Dl(1) was quite adequately
+X   providing information on files to users of Anonymous FTP.  The vast
+X   majority of Anonymous FTP users are humans.  Dl(1)'s foremost purpose
+X   is to serve human users, but there is no reason why a program could
+X   not read dl(1)'s output.  I have made a deliberate decision to keep
+X   dl(1)'s output determinable.  It is also possible to discern it from
+X   "ls -l" output without too much programmatical effort.  So, why not
+X   change these utilities that need the "ls -l" output?  Surely they are
+X   the place where the deficiency rests?
+X
+X   This argument was always held strong by me, especially because I work
+X   with VMS, and while there are plenty of VMS-based Anonymous FTP
+X   sites, I doubt there are any that produce "ls -l" compatible output.
+X   The big push towards a higher-level interface to the entire Internet
+X   FTP Archive (manifested mainly in Archie at present) remains very
+X   Unix-centric, and this needs to change.  The developers of Archie
+X   have acknowledged this fact, and are addressing it.
+X
+X   The last argument against changing dl(1) was sort-of a political one.
+X   If I attached a "safety blanket" to dl(1), it would undermine its
+X   acceptance among Anonymous FTP users.  Obviously I don't desire such
+X   a thing, because I want to see every Anonymous FTP site on the
+X   Internet using dl(1), because I honestly believe it is "the way to
+X   go".  The present "standard" of "ls -Alg" output is just not suited
+X   to the purpose.
+X
+X
+X4. But we all want to please most of the people, most of the time.
+X
+X   Recently I gave up a little ground on this issue, and decided I would
+X   provide an unofficial patch to dl(1) that would provide the desired
+X   "escape to ls(1)".  This patch can be found in the
+X   "CONTEMPTIBLE.patch" file in the "describe" distribution.
+X
+X   I did this just so that others who were unable to do it would not be
+X   left out in the cold, and so that those who feel they have to provide
+X   for users of programs that talk to FTP daemons would still be able to
+X   provide for users who can be helped by more useful output from LIST.
+X
+X
+X5. The future.
+X
+X   I can't say whether my unofficial patch will ever become official.  I
+X   doubt it will, but I also doubt I will remove it.
+X
+X   It is possible that in the future, FTP daemon software will be
+X   changed so that it has a "human interface" and a "machine interface".
+X   If this happens, my unofficial patch, and this debate, will become
+X   irrelevant.  Of course, it could be argued that there already is a
+X   remote file transfer machine interface, in the form of NFS.  Well, I
+X   was thinking of something that falls between NFS and FTP.  Perhaps a
+X   more popular, more portable Prospero.
+X
+X   I seriously hope that, in the near future, the use of Anonymous FTP
+X   by humans (and hence, the use of dl(1) in Anonymous FTP) is
+X   obsoleted by some such system.  God knows the Internet needs
+X   something better.
+X
+X
+XUPDATE, 5 May 1992:
+X
+X   There is now another approach.  The Anonymous FTP administrator can
+X   now install UUNET's FTP daemon (available in source form from
+X   ftp.uu.net), and subsequently patch it to use "plain ls" when a
+X   user starts an Anonymous FTP session with a password beginning with
+X   "-" (hyphen).  This patch is available with "describe" as the file
+X   "UUNET-ftpd.patch".
+END_OF_FILE
+  if test 5593 -ne `wc -c <'other/CONTEMPTIBILITY'`; then
+    echo shar: \"'other/CONTEMPTIBILITY'\" unpacked with wrong size!
+  fi
+  # end of 'other/CONTEMPTIBILITY'
+fi
+if test -f 'other/dumpdesc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'other/dumpdesc.c'\"
+else
+  echo shar: Extracting \"'other/dumpdesc.c'\" \(1524 characters\)
+  sed "s/^X//" >'other/dumpdesc.c' <<'END_OF_FILE'
+X/* dumpdesc.c -	Dump description database
+X *
+X * An unsupported utility to dump all entries in a ".desc" database.
+X */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include <sys/file.h>
+X
+X#ifndef MAXPATHLEN
+X#define MAXPATHLEN 	1024
+X#endif
+X
+Xextern int _initdesc () ;
+X
+X#ifdef NDBM
+Xextern DBM *_desc_database ;
+X#endif
+X
+X
+Xint main (argc, argv)
+X   int argc ;
+X   char **argv ;
+X{
+X   datum key, content ;
+X
+X   if (argc > 2) {
+X      fprintf (stderr, "usage: %s [dir]\n", argv[0]) ;
+X      exit (1) ; }
+X
+X   if (_initdesc ((argc < 2) ? "." : argv[1], O_RDONLY)) {
+X      char name[MAXPATHLEN] ;
+X      ino_t inode ;
+X      int entries = 0 ;
+X
+X      for (key = DBM_firstkey (_desc_database) ; key.dptr ; key =
+X	     DBM_nextkey (_desc_database, key)) {
+X         entries++ ;
+X	 content = DBM_fetch (_desc_database, key) ;
+X	 if (content.dptr) {
+X	    if (key.dsize == sizeof (ino_t)) {
+X	       /* I-node */
+X	       strncpy (name, content.dptr, content.dsize) ;
+X	       name[content.dsize] = '\0' ;
+X	       memcpy (&inode, key.dptr, sizeof (ino_t)) ;
+X	       /* This may not work if ino_t isn't "long unsigned" */
+X	       printf ("inode:  %10lu,       -  `%s'\n", inode,
+X		  name) ; }
+X	    else {
+X	       strncpy (name, key.dptr, key.dsize) ;
+X	       name[key.dsize] = '\0' ;
+X	       if (key.dsize > 16) {
+X		  printf ("name:   %-s\n                          -  `%s'\n",
+X		     name, content.dptr) ; }
+X	       else {
+X		  printf ("name:   %-16s  -  `%s'\n", name, content.dptr) ; }
+X	    } } }
+X
+X      printf ("\nTotal entries: %d\n", entries) ;
+X      }
+X   }
+END_OF_FILE
+  if test 1524 -ne `wc -c <'other/dumpdesc.c'`; then
+    echo shar: \"'other/dumpdesc.c'\" unpacked with wrong size!
+  fi
+  # end of 'other/dumpdesc.c'
+fi
+if test -f 'other/lslR2dl.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'other/lslR2dl.pl'\"
+else
+  echo shar: Extracting \"'other/lslR2dl.pl'\" \(5809 characters\)
+  sed "s/^X//" >'other/lslR2dl.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+X# This converts an "ls -lR" type listing to a "dl -d" listing.  Lines
+X# that are recognised as a file listing are re-formatted.  All others
+X# are just copied as-is.
+X#
+X# Tim Cook, 31 Jan 1992
+X
+X# Constants
+X
+X#
+X# We have a look at where the month appears on lines that list files,
+X# then use this to make a decision on what will be acceptable.
+X#
+X
+X# Number of lines to look at to decide where month is appearing
+X$lines_to_check = 50 ;
+X
+X# If the month appears before this on a line, we opt not to do anything
+X$minimum_month_offset = 28 ;
+X
+X# Later on, the month is allowed to appear this much before or after
+X# what we originally saw.
+X$month_drift = 3 ;
+X
+X# The number of columns to hold the filename and size output
+X# (equivalent to the value given to dl's "-f" option).
+X$filename_columns = 14 ;
+X
+X
+X#################
+X# START PROGRAM #
+X#################
+X
+X# Do we have a "-f" option?
+X
+Xif ($#ARGV >= 0 && substr ($ARGV[0], 0, 1) eq '-') {
+X   $_ = shift (@ARGV) ;
+X   if (@_ = /^-f([0-9][0-9]*)$/) {
+X      $filename_columns = shift (@_) ; }
+X   else {
+X      if ($#ARGV >= 0) {
+X         $_ = shift (@ARGV) ;
+X         if (@_ = /^([0-9][0-9]*)$/) {
+X            $filename_columns = shift (@_) ; }
+X	 else {
+X            $error = 1 ; } }
+X      else {
+X         $error = 1 ; } }
+X
+X   if ($error) {
+X      print (STDERR "usage: lslR2dl [-f filename_columns] [file ...]\n") ;
+X      exit (1) ; }
+X   }
+X
+X# (Something more useful)
+X$filename_size_width = $filename_columns + 9 ;
+X
+X#
+X# Locate where the month can be found.  Must match at least 7 out
+X# of 10 records that actually list a file
+X#
+X
+Xfor ($i = 0 ; $i < $lines_to_check ; $i++) {
+X   if ($_ = <>) {
+X#      print ("Input: $_") ;
+X      if (length ($_) > ($minimum_month_offset+10) && index ($_, ' ') != -1) {
+X         # Look for a month
+X         @matches =
+X      /([0-9] (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ 0-9][0-9])/ ;
+X         # Record where it was found
+X         if ($#matches == 1) {
+X            push (@locations, index ($_, $matches[0])) ; } }
+X      push (@input, $_) ; }
+X   else {
+X      $i = $lines_to_check ; } }
+X
+X# Find out how popular the most popular location was
+X
+X@locations = sort (@locations) ;
+Xpush (@locations, -1) ;		# This is a dummy value
+X$no_locations = $#locations ;
+X
+Xwhile ($location = shift (@locations)) {
+X   if ($location == $last_location) {
+X      # Same as last one
+X      $popularity++ ; }
+X   else {
+X      # New value
+X      if ($popularity > $best_popularity) {
+X         # Previous value's popularity is higher than the previous best
+X         $most_popular = $last_location ;
+X         $best_popularity = $popularity ; }
+X      $popularity = 1 ; }
+X  $last_location = $location ; }
+X
+X# Test popularity ratio
+X
+Xif (($best_popularity / $no_locations) < 0.7
+X      && $best_popularity > $minimum_month_offset) {
+X   print (STDERR
+X   "lslR2dl: Are you sure that this is ls -lR output?  I can't understand it.\n") ;
+X   exit (2) ; }
+X
+X#printf ("Number of files listed: $no_locations\n" .
+X#   "Most popular location of month: $most_popular\nPopularity: %1.4f\n",
+X#   $best_popularity / $no_locations) ;
+X
+X#
+X# Now we have a popular location at which to find the month (plus two
+X# leading characters).  We will allow positive and negative offsets
+X# from this point in order to match all future file listings.
+X# Anything that does not match is simply copied to output.
+X#
+X
+X# This is now based on what we found above
+X$minimum_month_offset = $most_popular + 2 - $month_drift ;
+X$maximum_month_offset = $most_popular + 2 + $month_drift ;
+X
+X$more = 1 ;
+X
+Xwhile ($more) {
+X
+X   # Get input
+X
+X   if ($#input < 0 && eof ()) {
+X      $more = 0 ; }
+X   else {
+X      if ($#input >= 0) {
+X         $_ = shift (@input) ; }
+X      else {
+X         $_ = <> ; }
+X
+X      # See if it is a file listing
+X
+X      if (length ($_) > ($minimum_month_offset+10) && index ($_, ' ') != -1) {
+X         # Look for a month
+X         @matches =
+X      /([0-9] (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ 0-9][0-9])/ ;
+X
+X         if ($#matches == 1) {
+X
+X            $month_offset = index ($_, $matches[0]) + 2 ;
+X            if ($month_offset >= $minimum_month_offset
+X                  && $month_offset <= $maximum_month_offset) {
+X
+X               # It is
+X
+X               # Extract data
+X
+X               chop ;
+X	       ($month, $day, $year_or_time, $filename) =
+X                  split (' ', substr ($_, $month_offset, 999)) ;
+X               $_ = substr ($_, 0, $month_offset) ;
+X               if (substr ($_, 0, 1) eq 'd') {
+X                  # We have a directory
+X                  $filename .= '/' ;
+X                  $links = substr ($_, 10, 4) ;
+X                  # Does it contain other directories?
+X                  if ($links > 2) {
+X                     $size = '=' ; }
+X                  else {
+X                     $size = '-' ; } }
+X               else {
+X                  # Normal file
+X                  split (' ') ; $size = pop (@_) ; }
+X
+X               # Format data
+X
+X               $filename_length = length ($filename) ;
+X               $size_length = length ($size) ;
+X               if (($filename_length + $size_length) >
+X	             $filename_size_width - 2) {
+X                  # We need to do a line break after the filename
+X                  $_ = $filename . "\n"
+X                     . ' ' x ($filename_size_width - length ($size))
+X                     . $size ; }
+X	       else {
+X                  $_ = $filename . ' ' x ($filename_size_width
+X	             - $filename_length - $size_length) . $size ; }
+X# Un-comment this and comment out the next two lines if you prefer the
+X# US date format
+X#               $_ .= ' ' . sprintf ("%s %2d %5s\n", $month, $day
+X#                  $year_or_time) ;
+X               $_ .= ' ' . sprintf ("%2d %s %5s\n", $day, $month,
+X                  $year_or_time) ;
+X               } } }
+X
+X      # Print
+X
+X      print ;
+X      }
+X   }
+END_OF_FILE
+  if test 5809 -ne `wc -c <'other/lslR2dl.pl'`; then
+    echo shar: \"'other/lslR2dl.pl'\" unpacked with wrong size!
+  fi
+  # end of 'other/lslR2dl.pl'
+fi
+if test -f 'patches/BSD-mv.patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patches/BSD-mv.patch'\"
+else
+  echo shar: Extracting \"'patches/BSD-mv.patch'\" \(3224 characters\)
+  sed "s/^X//" >'patches/BSD-mv.patch' <<'END_OF_FILE'
+XThe enclosed patch can be applied to BSD mv (which I got from UUNET's
+Xbsd-sources package, which can be found on ftp.uu.net in the directory
+Xpackages/bsd-sources/bin/mv) to give it a "-d" flag which will
+Xinstruct mv to move file descriptions with files (see the file
+X"GNU-mv.patch", also).
+X
+XThe patched mv.c must be compiled with the DESCRIPTIONS macro defined,
+Xand linked with setdesc.o, getdesc.o, enddesc.o and pathname.o from
+Xthe dl/describe package and the DBM library used with dl/describe.
+X
+XInstructions on the use of the bsd-sources package can be found in
+Xpackages/bsd-sources/README.Z.
+X
+XNote that I cannot guarantee that this will work, as I was unable to
+Xget it to link on my system.
+X
+XThe SCCS id contained in the BSD source of mv.c that I generated this
+Xpatch from was as follows:
+X
+X	mv.c	5.11 (Berkeley) 4/3/91
+X
+X
+X*** mv.c.dist	Thu Apr  2 17:25:04 1992
+X--- mv.c	Thu Apr  2 17:49:01 1992
+X***************
+X*** 58,61 ****
+X--- 58,64 ----
+X  
+X  int fflg, iflg;
+X+ #ifdef DESCRIPTIONS
+X+ int dflg;
+X+ #endif
+X  
+X  main(argc, argv)
+X***************
+X*** 71,75 ****
+X  	char path[MAXPATHLEN + 1];
+X  
+X! 	while (((ch = getopt(argc, argv, "-if")) != EOF))
+X  		switch((char)ch) {
+X  		case 'i':
+X--- 74,84 ----
+X  	char path[MAXPATHLEN + 1];
+X  
+X! 	while (((ch = getopt(argc, argv,
+X! #ifdef DESCRIPTIONS
+X! 			     "-idf"
+X! #else
+X! 			     "-if"
+X! #endif
+X! 			     )) != EOF))
+X  		switch((char)ch) {
+X  		case 'i':
+X***************
+X*** 76,79 ****
+X--- 85,93 ----
+X  			iflg = 1;
+X  			break;
+X+ #ifdef DESCRIPTIONS
+X+ 		case 'd':
+X+ 			dflg = 1;
+X+ 			break;
+X+ #endif
+X  		case 'f':
+X  			fflg = 1;
+X***************
+X*** 128,131 ****
+X--- 142,154 ----
+X  	struct stat sb;
+X  	int ask, ch;
+X+ #ifdef DESCRIPTIONS
+X+ 	int return_status;
+X+ 	char *from_description;
+X+ 	int from_ino;
+X+ 
+X+ 	if (dflg)
+X+ 		if (!stat(from, &sb))
+X+ 			from_ino = sb.st_ino;
+X+ #endif
+X  
+X  	/*
+X***************
+X*** 152,157 ****
+X  		}
+X  	}
+X! 	if (!rename(from, to))
+X  		return(0);
+X  
+X  	if (errno != EXDEV) {
+X--- 175,204 ----
+X  		}
+X  	}
+X! #ifdef DESCRIPTIONS
+X! 	if (dflg) {
+X! 		/* Get description of "from" */
+X! 		char *p = getdesc(from, NULL, NULL, from_ino);
+X! 		if (p) {
+X! 			if (from_description =
+X! 			    (char *) malloc(strlen(p) + 1)) {
+X! 				strcpy(from_description, p);
+X! 			} else
+X! 				error(NULL);
+X! 		}
+X! 	}
+X! #endif
+X! 	if (!rename(from, to)) {
+X! #ifdef DESCRIPTIONS
+X! 		if (dflg) {
+X! 			/* Set description on "to" */
+X! 			if (setdesc(to, NULL, NULL, 0, from_description))
+X! 				/* Delete description on "from" */
+X! 				setdesc(from, NULL, NULL, from_ino, NULL);
+X! 			if (from_description)
+X! 				free(from_description);
+X! 		}
+X! #endif
+X  		return(0);
+X+ 	}
+X  
+X  	if (errno != EXDEV) {
+X***************
+X*** 169,174 ****
+X--- 216,235 ----
+X  		return(1);
+X  	}
+X+ #ifdef DESCRIPTIONS
+X+ 	return_status = S_ISREG(sb.st_mode) ?
+X+ 	    fastcopy(from, to, &sb) : copy(from, to);
+X+         if (dflg && !return_status) {
+X+ 		/* Set description on "to" */
+X+ 		if (setdesc(to, NULL, NULL, 0, from_description))
+X+ 			/* Delete description on "from" */
+X+ 			setdesc(from, NULL, NULL, from_ino, NULL);
+X+ 		if (from_description)
+X+ 			free(from_description);
+X+ 	}
+X+ 	return(return_status);
+X+ #else
+X  	return(S_ISREG(sb.st_mode) ?
+X  	    fastcopy(from, to, &sb) : copy(from, to));
+X+ #endif
+X  }
+X  
+END_OF_FILE
+  if test 3224 -ne `wc -c <'patches/BSD-mv.patch'`; then
+    echo shar: \"'patches/BSD-mv.patch'\" unpacked with wrong size!
+  fi
+  # end of 'patches/BSD-mv.patch'
+fi
+if test -f 'patches/CONTEMPTIBLE.patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patches/CONTEMPTIBLE.patch'\"
+else
+  echo shar: Extracting \"'patches/CONTEMPTIBLE.patch'\" \(2301 characters\)
+  sed "s/^X//" >'patches/CONTEMPTIBLE.patch' <<'END_OF_FILE'
+XThere are some people who have expressed the opinion that dl(1) in the
+XAnonymous FTP realm needs one more thing -- backwards compatiblity
+Xwith the traditional "ls -l" output.  This is because there are
+Xvarious programs in existence that gather information via Anonymous
+XFTP connections, and they have been written to understand with the most
+Xcommon type of FTP directory listing only.
+X
+XThis is an _unofficial_ patch that I am providing for those who have
+Xsuch an opinion, which I do not share.  As it is, if you put a copy of
+X/bin/ls in ~ftp/bin/ls.orig and compile dl with -DCONTEMPTIBLE, all
+Xyou have to do is add "-C" to a "dir" (or whatever your FTP client
+Xuses) command and the standard "ls -l" output should appear.  If not,
+Xit is probably the fault of your ftpd(8).
+X
+XMake no mistake, this will NEVER be an official part of dl(1).  It is
+Xnot the purpose of an FTP server to be compatible with every TD&H's
+Xclever chunk of AI.  FTP server's were designed to provide human-
+Xreadable directory listings, and dl's sole aim in this area is to
+Xincrease that readability.
+X
+X
+X*** dl.c.dist	Thu Apr  2 18:08:58 1992
+X--- dl.c	Tue May  5 12:23:55 1992
+X***************
+X*** 38,41 ****
+X--- 38,45 ----
+X  extern char *pathname () ;
+X  
+X+ #ifdef CONTEMPTIBLE
+X+ #define	THE_REAL_LS	"/bin/ls.orig"	/* A copy of your real ls(1) */
+X+ #endif
+X+ 
+X  #define strgencpy(new, old) \
+X  	(new = strcpy ((char *) allocate (strlen (old) + 1), old))
+X***************
+X*** 93,96 ****
+X--- 97,104 ----
+X     extern int optind, opterr ;
+X  
+X+ #ifdef CONTEMPTIBLE
+X+    char **save_argv = argv ;
+X+ #endif
+X+ 
+X     int option ;
+X     struct list file_list, dir_list ;
+X***************
+X*** 100,104 ****
+X  
+X     opterr = 0 ;
+X!    while ((option = getopt (argc, argv, "deitf:R")) != EOF) {
+X        switch ((char) option) {
+X           case 'd' :
+X--- 108,118 ----
+X  
+X     opterr = 0 ;
+X!    while ((option = getopt (argc, argv, 
+X! #ifdef CONTEMPTIBLE
+X!          "deitf:CR"
+X! #else
+X! 	 "deitf:R"
+X! #endif
+X! 	 )) != EOF) {
+X        switch ((char) option) {
+X           case 'd' :
+X***************
+X*** 113,116 ****
+X--- 127,136 ----
+X  	 case 'R' :
+X  	    recursive = TRUE ; break ;
+X+ #ifdef CONTEMPTIBLE
+X+ 	 case 'C' :
+X+ 	    /* Exec the real ls(1) */
+X+ 	    execv (THE_REAL_LS, save_argv) ;
+X+ 	    break ;
+X+ #endif
+X  	 case '?' :
+X              break ; } }
+END_OF_FILE
+  if test 2301 -ne `wc -c <'patches/CONTEMPTIBLE.patch'`; then
+    echo shar: \"'patches/CONTEMPTIBLE.patch'\" unpacked with wrong size!
+  fi
+  # end of 'patches/CONTEMPTIBLE.patch'
+fi
+if test -f 'patches/UUNET-ftpd.patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patches/UUNET-ftpd.patch'\"
+else
+  echo shar: Extracting \"'patches/UUNET-ftpd.patch'\" \(3416 characters\)
+  sed "s/^X//" >'patches/UUNET-ftpd.patch' <<'END_OF_FILE'
+XThere is a popular freely-available FTPD that comes from UUNET.  This
+Xis a patch to that FTPD that enables "dl"-format listings when you log
+Xin as "anonymous" and specify a password without a leading hyphen (-).
+X
+XThis patch was prompted by David Datta, who posted this:
+X
+X> Message-ID: <1992Mar9.170131.16984@uwm.edu>
+X> Newsgroups: comp.archives.admin
+X> To: comp.archives.admin
+X> Subject: Re: Using descriptive listing programs instead of 'ls -l'
+X> From: datta@cs.uwp.edu (David Datta)
+X> Date: 9 Mar 92 17:01:31 GMT
+X> 
+X> 
+X> Since I posted the query, a suggestion to use the UUNET ftpd feature of
+X> using a '-' in the password to turn off the extended features and have
+X> it also turn off the extended ls program has been implimented. If
+X> anyone would like the DIFFs to the UUNET ftpd to allow for 'ls' and
+X> 'ls.old', please e-mail me.
+X> 
+X> The solution is now, if you log in with a '-' as the first character of
+X> your password, the extended listings are turned off.
+X> --
+X> -Dave datta@cs.uwp.edu.
+X> Visit the music FTP archives at cs.uwp.edu (131.210.1.4)
+X
+X
+XHe sent me the patch, and I added it, with a few modifications (most
+Xnotably, I disabled "dl" listings for non-anonymous users).
+X
+XThe following patch should be applied to the WUARCHIVE ftpd source
+X(available from ftp.uu.net in /networking/archival/ftp/ftpd.wuarchive.shar.Z),
+Xthen compiled with the DL_LIST macro defined.  Note that nothing needs
+Xto be linked with any describe object modules.
+X
+XTo use this feature, set up your Anonymous FTP directories as normal,
+Xbut add "dl" (using that name) to ~ftp/bin.  If you would normally
+Xlink "dl" with shared libraries (as found on SunOS and others), you
+Xwill need to use a staically linked "dl".  See the Makefile for
+Xdetails.
+X
+X
+X*** ftpcmd.y.orig	Fri Dec 27 17:45:12 1991
+X--- ftpcmd.y	Fri Sep 25 17:40:58 1992
+X***************
+X*** 48,52 ****
+X--- 48,55 ----
+X  #include <string.h>
+X  #include "support/ftw.h"
+X  
+X+ #ifdef DL_LIST
+X+ extern	int dolreplies;
+X+ #endif
+X  extern	struct sockaddr_in data_dest;
+X  extern	int logged_in;
+X***************
+X*** 271,275 ****
+X--- 274,283 ----
+X  			if (cmdlogging) syslog(LOG_INFO, "LIST");
+X  			if ($2)
+X+ #ifdef DL_LIST
+X+ 				retrieve((anonymous && dolreplies) ? "/bin/dl"
+X+ 					 : "/bin/ls -lga", "");
+X+ #else
+X  				retrieve("/bin/ls -lgA", "");
+X+ #endif
+X  		}
+X  	|	LIST check_login SP pathname CRLF
+X***************
+X*** 277,281 ****
+X--- 285,295 ----
+X  			if (cmdlogging) syslog(LOG_INFO, "LIST %s", $4);
+X  			if ($2 && $4 != NULL)
+X+ #ifdef DL_LIST
+X+ 				retrieve((anonymous && dolreplies)
+X+ 					 ? "/bin/dl %s" : "/bin/ls -lgA %s",
+X+ 					 $4);
+X+ #else
+X  				retrieve("/bin/ls -lgA %s", $4);
+X+ #endif
+X  			if ($4 != NULL)
+X  				free($4);
+X
+X
+X*** ftpd.c.orig	Thu Sep 24 16:17:49 1992
+X--- ftpd.c	Fri Sep 25 17:42:10 1992
+X***************
+X*** 1278,1282 ****
+X--- 1278,1287 ----
+X  	int c;
+X  
+X+ #ifdef DL_LIST
+X+ 	(void) sprintf(line, (anonymous && dolreplies) ? "/bin/dl %s"
+X+ 		       : "/bin/ls -lgA %s", filename);
+X+ #else
+X  	(void) sprintf(line, "/bin/ls -lgA %s", filename);
+X+ #endif
+X  	fin = ftpd_popen(line, "r");
+X  	lreply(211, "status of %s:", filename);
+X***************
+X*** 1742,1746 ****
+X--- 1747,1757 ----
+X  			 */
+X  			if (dirname[0] == '-' && *dirlist == NULL && transflag == 0) {
+X+ #ifdef DL_LIST
+X+ 				retrieve((anonymous && dolreplies)
+X+ 					 ? "/bin/dl %s" : "/bin/ls %s",
+X+ 					 dirname);
+X+ #else
+X  				retrieve("/bin/ls %s", dirname);
+X+ #endif
+X  				return;
+X  			}
+END_OF_FILE
+  if test 3416 -ne `wc -c <'patches/UUNET-ftpd.patch'`; then
+    echo shar: \"'patches/UUNET-ftpd.patch'\" unpacked with wrong size!
+  fi
+  # end of 'patches/UUNET-ftpd.patch'
+fi
+if test -f 'perror2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'perror2.c'\"
+else
+  echo shar: Extracting \"'perror2.c'\" \(1281 characters\)
+  sed "s/^X//" >'perror2.c' <<'END_OF_FILE'
+X/* perror2 -	Like perror(3), but with two string prefixes
+X *
+X * SYNOPSIS
+X *	void perror2 (const char *str1, const char *str2) ;
+X *
+X * DESCRIPTION
+X *	Prints str1, then a colon and a space, then str2, then a colon and
+X *	a space, then the error message corresponding to the contents of
+X *	errno, then a newline on stderr.
+X */
+X
+Xstatic char rcsid[] = "$Id: perror2.c,v 1.2 1992/12/02 03:49:59 tim Exp $";
+X
+Xextern int strlen () ;
+X
+X
+Xvoid perror2 (str1, str2)
+X   char *str1, *str2 ;
+X{
+X   extern int errno ;
+X   extern char *sys_errlist[] ;
+X   extern int sys_nerr ;
+X   register int save_errno = errno ;
+X   static char unknown_error[] = "Unknown error" ;
+X   static char colon_space[2] = {':', ' '} ;
+X   static char newline = '\n' ;
+X   char *p ;
+X
+X   if (save_errno < 0 || save_errno >= sys_nerr)
+X      p = unknown_error ;
+X   else
+X      p = sys_errlist[save_errno] ;
+X   write (2, str1, strlen (str1)) ;
+X   write (2, colon_space, sizeof (colon_space)) ;
+X   write (2, str2, strlen (str2)) ;
+X   write (2, colon_space, sizeof (colon_space)) ;
+X   write (2, p, strlen (p)) ;
+X   write (2, &newline, 1) ;
+X   }
+X
+X
+X#ifdef TEST
+X
+Xint main (argc, argv)
+X   int argc ;
+X   char **argv ;
+X{
+X   extern int errno ;
+X
+X   errno = atoi (argv[1]) ;
+X   perror2 (argv[2], argv[3]) ;
+X   exit (1) ;
+X   }
+X
+X#endif	/* TEST */
+END_OF_FILE
+  if test 1281 -ne `wc -c <'perror2.c'`; then
+    echo shar: \"'perror2.c'\" unpacked with wrong size!
+  fi
+  # end of 'perror2.c'
+fi
+if test -f 'setdesc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'setdesc.c'\"
+else
+  echo shar: Extracting \"'setdesc.c'\" \(2540 characters\)
+  sed "s/^X//" >'setdesc.c' <<'END_OF_FILE'
+X/* setdesc.c -	Set a file description
+X *
+X * Copyright (c) 1991, 1992 Tim Cook.
+X * Non-profit distribution allowed.  See README for details.
+X */
+X
+Xstatic char rcsid[] = "$Id: setdesc.c,v 1.3 1992/12/02 03:51:00 tim Exp $";
+X
+X#include "config.h"
+X#include <fcntl.h>
+X#include <sys/stat.h>
+X#include <sys/errno.h>
+X
+Xextern int errno ;
+Xextern int _desc_parse_path () ;
+Xextern char *_desc_pathname ;
+Xextern char *_desc_directory ;
+Xextern char *_desc_name ;
+Xextern int _initdesc () ;
+X#ifdef NDBM
+Xextern DBM *_desc_database ;
+X#endif
+X
+X
+Xint setdesc (pathname, directory, name, inode, description)
+X   char *pathname ;
+X   char *directory ;
+X   char *name ;
+X   ino_t inode ;
+X   char *description ;
+X{
+X   datum key, content ;
+X
+X   if (! _desc_parse_path (pathname, directory, name)) {
+X      errno = EINVAL ;
+X      return FALSE ; }
+X
+X   if (! inode) {
+X      struct stat file_status ;
+X
+X      if (stat (_desc_pathname, &file_status) == 0)
+X	 inode = file_status.st_ino ; }
+X
+X   if (description == NULL_CP || *description == EOS) {
+X      /* Set the description to null?  This means delete */
+X
+X      if (! _initdesc (_desc_directory, O_RDWR))
+X         /* If there is no database, that's OK */
+X         return (errno == ENOENT) ;
+X
+X      if (inode) {
+X	 key.dptr = (char *) &inode ;
+X	 key.dsize = sizeof (ino_t) ;
+X	 DBM_delete (_desc_database, key) ; }
+X      key.dptr = _desc_name ;
+X      key.dsize = strlen (_desc_name) ;
+X      if (key.dsize == sizeof (ino_t))
+X	 key.dsize++ ;
+X      DBM_delete (_desc_database, key) ;
+X      return TRUE ; }
+X
+X   if (! _initdesc (_desc_directory, O_RDWR | O_CREAT))
+X      return FALSE ;
+X
+X   /* Store the description, indexed by the file name */
+X
+X   key.dptr = _desc_name ;
+X   key.dsize = strlen (_desc_name) ;
+X
+X   /*
+X    * Name and inode keys are distinguished by the key length.  Inode
+X    * keys are all "sizeof (ino_t)" long, while all other keys are
+X    * name keys.
+X    */
+X
+X   if (key.dsize == sizeof (ino_t))
+X      /*
+X       * To distinguish this from an inode key, we'll store the
+X       * terminating null byte as well
+X       */
+X      key.dsize++ ;
+X
+X   content.dptr = description ;
+X   content.dsize = strlen (description) + 1 ;
+X   if (DBM_store (_desc_database, key, content) < 0)
+X      return FALSE ;
+X
+X   if (inode) {
+X
+X      /* Store the file name, indexed by the inode number */
+X
+X      key.dptr = (char *) &inode ;
+X      key.dsize = sizeof (ino_t) ;
+X      content.dptr = _desc_name ;
+X      content.dsize = strlen (_desc_name) ;
+X      if (DBM_store (_desc_database, key, content) < 0)
+X	 return FALSE ;
+X      }
+X   return TRUE ;
+X   }
+END_OF_FILE
+  if test 2540 -ne `wc -c <'setdesc.c'`; then
+    echo shar: \"'setdesc.c'\" unpacked with wrong size!
+  fi
+  # end of 'setdesc.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

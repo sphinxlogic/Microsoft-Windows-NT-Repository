@@ -1,0 +1,2175 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i113:  xfig - Draw amd manipulate objects in an X-Window, Part01/27
+Message-ID: <csx-v19i113=xfig.211127@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2ae0e7425092ca1745ec815ebd21a7d8
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:11:57 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 113
+Archive-name: xfig/part01
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+Xfig is a menu-driven tool that allows the user to draw and manipulate objects
+interactively in an X window.  The resulting pictures can be saved, printed
+on postscript printers or converted to a variety of other formats (e.g. to
+allow inclusion in LaTeX documents).
+
+This is version 2.1 (patchlevel 7) of xfig.  Since it has been several 
+versions since that last xfig actually made it to comp.sources.x it
+is posted here in its entirety.
+
+Brian V. Smith
+Lawrence Berkeley Laboratory
+bvsmith@lbl.gov
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 27)."
+# Contents:  Doc Doc/FORMAT1.3 Examples Examples/README
+#   Examples/balance.fig.uu Examples/bath.fig.uu
+#   Examples/bedroom1.fig.uu Examples/bedroom2.fig.uu
+#   Examples/cassette.fig.uu Examples/greek.fig.uu
+#   Examples/logo.fig.uu Examples/window1.fig.uu Fig.ad README
+#   e_break.c figx.h object.c paintop.h patchlevel.h resources.c
+#   u_bound.h u_create.h u_draw.h u_elastic.h u_fonts.h u_list.h
+#   u_pan.c u_search.h u_undo.h version.h w_canvas.h w_dir.h
+#   w_drawprim.h w_mousefun.h w_rottext.h w_setup.h w_util.h w_zoom.h
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:05:43 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'Doc' ; then
+    echo shar: Creating directory \"'Doc'\"
+    mkdir 'Doc'
+fi
+if test -f 'Doc/FORMAT1.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/FORMAT1.3'\"
+else
+echo shar: Extracting \"'Doc/FORMAT1.3'\" \(2274 characters\)
+sed "s/^X//" >'Doc/FORMAT1.3' <<'END_OF_FILE'
+XThe following is the format of fig output (fig 1.3).
+X
+XThe first line consists of four number:
+X	screen resolution (pixels/inch),
+X	screen origin (1 : upper rigth, 2 : upper left, 3 : lower left,
+X			4 : lower right),
+X	canvas width (pixels),
+X	canvas height (pixels)
+X
+XThe first integer of the rest of the lines represents the followings;
+X
+X	ELLIPSE		1
+X	POLYLINE	2
+X	SPLINE		3	(quadratic spline)
+X	TEXT		4
+X	ARC		5
+X	BEGIN_COMPOUND	6
+X	END_COMPOUND	-BEGIN_COMPOUND
+X
+XThe detail of each object is:
+X
+XARC
+X	type (3 : circle by radius, 4 : circle by diameter, 5 : circular arc),
+X	line_style,
+X	thickness (pixels),
+X	dash_length (pixels),
+X	direction (0 : clockwise, 1 : counterclokwise),
+X	forward_arrow (0: off, 1: on),
+X	backward_arrow (0: off, 1: on),
+X	arrow_ht (pixels), arrow_wid (pixels), 
+X	center.x, center.y,
+X	point[0].x, point[0].y, (the 1st point the user entered)
+X	point[1].x, point[1].y, (the 2nd point or the last for type 3 or 4)
+X	point[2].x, point[2].y  (the last point if type is 5)
+X
+XBEGIN_COMPOUND
+X	upperright_corner.x, upperright_corner.y,
+X	lowerleft_corner.x, lowerleft_corner.y
+X
+XELLIPSE
+X	type (1 : defined by radiuses, 2 : defined by diameters),
+X	line_style,
+X	thickness (pixels),
+X	dash_length (pixels),
+X	direction (is always 1),
+X	center.x, center.y,
+X	radius.x, radius.y,
+X	start.x, start.y, (the 1st point the user entered)
+X	end.x, end.y
+X
+XLINE
+X	type (6 : polyline, 7 : box, 8 : polygon),
+X	line_style,
+X	thickness (pixels),
+X	dash_length (pixels),
+X	forward_arrow (0: off, 1: on),
+X	backward_arrow (0: off, 1: on),
+X	arrow_ht (pixels), arrow_wid (pixels),
+X	x1, y1,
+X	x2, y2,
+X	  .
+X	  .
+X	xn, yn,	(this will be the same as the 1st point for type 7 or 8)
+X	9999, 9999
+X
+XSPLINE (quadratic spline)
+X	type (10: open spline, 11: closed spline),
+X	line_style,
+X	thickness (pixels),
+X	dash_length (pixels),
+X	forward_arrow (0: off, 1: on),
+X	backward_arrow (0: off, 1: on),
+X	arrow_ht (pixels), arrow_wid (pixels),
+X	x1, y1,
+X	x2, y2,
+X	  .
+X	  .
+X	xn, yn,	(this will be the same as the 1st point for type 11)
+X	9999, 9999
+X
+XTEXT
+X	font,  (not used)
+X	size,  (not used)
+X	style, (not used)
+X	height (pixels), length (pixels),
+X	lowerleft_corner.x (pixels), lowerleft_corner.y (pixels),
+X	string (end at newline, \n)
+X
+XThere are only three line styles defined
+X
+X	SOLID_LINE	0
+X	DASH_LINE	1
+X	DOTTED_LINE	2 (not implement)
+END_OF_FILE
+if test 2274 -ne `wc -c <'Doc/FORMAT1.3'`; then
+    echo shar: \"'Doc/FORMAT1.3'\" unpacked with wrong size!
+fi
+# end of 'Doc/FORMAT1.3'
+fi
+if test ! -d 'Examples' ; then
+    echo shar: Creating directory \"'Examples'\"
+    mkdir 'Examples'
+fi
+if test -f 'Examples/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/README'\"
+else
+echo shar: Extracting \"'Examples/README'\" \(301 characters\)
+sed "s/^X//" >'Examples/README' <<'END_OF_FILE'
+XThe figure files have been uuencoded so that they may be mailed
+Xto comp.sources.x without any problem with the ^A (control A)
+Xin the text objects.
+X
+XTo decode them, do the following (csh):
+X
+Xforeach file (*.uu)
+X   uudecode $file
+Xend
+X
+Xor the following (ksh):
+X
+Xfor file in *.uu
+Xdo
+X    uudecode $file
+Xdone
+END_OF_FILE
+if test 301 -ne `wc -c <'Examples/README'`; then
+    echo shar: \"'Examples/README'\" unpacked with wrong size!
+fi
+# end of 'Examples/README'
+fi
+if test -f 'Examples/balance.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/balance.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/balance.fig.uu'\" \(1128 characters\)
+sed "s/^X//" >'Examples/balance.fig.uu' <<'END_OF_FILE'
+Xbegin 444 balance.fig
+XM(T9)1R`R+C$*.#`@,@HR(#$@,"`T("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM,3,Y(#(S.2`V-S0@,3,T(#DY.3D@.3DY.0HR(#$@,"`R("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`P"@D@,34Y(#(S-"`Q-3D@,C8Y(#DY.3D@.3DY.0HR(#$@,"`R
+XM("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-C4Y(#$S.2`V-3D@,38Y(#DY.3D@
+XM.3DY.0HR(#,@,"`S("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,SDT(#$X.2`S
+XM,CD@,S`T(#0V.2`S,#0@,SDT(#$X.2`Y.3DY(#DY.3D*,R`Q(#`@,B`M,2`P
+XM(#`@,"`P+C`P,"`P(#`*"2`V-30@,C$T(#8T.2`Q.#D@-C8T(#$V.2`V-3D@
+XM,38T(#8T-"`Q-SD@-C0T(#(Q-"`V-#D@,C`Y(#8U-"`R,30@.3DY.2`Y.3DY
+XM"C,@,2`P(#(@+3$@,"`P(#`@,"XP,#`@,"`P"@D@-C8Y(#(P.2`V,3D@,C$T
+XM(#4Y.2`R,SD@-3DY(#(W-"`V,30@,S`Y(#4Y-"`S-30@-3<T(#,Y-"`U-SD@
+XM-#,Y(#8S.2`T-SD@-C@T(#0W.2`W,C0@-#8Y(#<U-"`T,3D@-S0T(#,V-"`W
+XM,#D@,S$Y(#8Y.2`R-S0@-CDY(#(S-"`V-CD@,C`Y(#DY.3D@.3DY.0HS(#$@
+XM,"`R("TQ(#`@,"`P(#`N,#`P(#`@,`H)(#$V-"`S,30@,38Y(#(X.2`Q-30@
+XM,C8Y(#$U.2`R-C0@,3<T(#(W.2`Q-S0@,S$T(#$V.2`S,#D@,38T(#,Q-"`Y
+XM.3DY(#DY.3D*,R`Q(#`@,B`M,2`P(#`@,"`P+C`P,"`P(#`*"2`Q,SD@,CDY
+XM(#$P-"`S,CD@.#0@,S@Y(#$P.2`T-#D@,3,Y(#0U-"`Q-30@-#,T(#$X-"`T
+XM,SD@,3DT(#0U-"`R,30@-#0Y(#(S-"`T,CD@,C4Y(#,V.2`R,S0@,S(T(#(P
+X@.2`R.3D@,3<T(#,Q-"`Q,SD@,CDY(#DY.3D@.3DY.0HV
+X`
+Xend
+END_OF_FILE
+if test 1128 -ne `wc -c <'Examples/balance.fig.uu'`; then
+    echo shar: \"'Examples/balance.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/balance.fig.uu'
+fi
+if test -f 'Examples/bath.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/bath.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/bath.fig.uu'\" \(1927 characters\)
+sed "s/^X//" >'Examples/bath.fig.uu' <<'END_OF_FILE'
+Xbegin 444 bath.fig
+XM(T9)1R`R+C$*.#`@,@HU(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P(#,Y
+XM,"XQ-C<@,C`U+C$V-R`S.30@,C`T(#,Y,R`R,#@@,S@Y(#(P.0HQ(#(@,"`Q
+XM("TQ(#`@,"`P(#`N,#`P(#$@,"XP,#`@-#(S(#,W."`S,"`R,B`T-3@@,S8P
+XM(#,Y,2`T,#(*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#0P-"`S
+XM.30@,S@U(#,Y-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P
+XM(#`@,`H)(#0P-2`S-C`@,S@U(#,V,"`Y.3DY(#DY.3D*,B`T(#`@,2`M,2`P
+XM(#`@,"`P+C`P,"`S(#`@,`H)(#,X-2`S-3$@,S8S(#,U,2`S-C,@-#`V(#,X
+XM-2`T,#8@,S@U(#,U,2`Y.3DY(#DY.3D*,B`S(#`@,2`M,2`P(#`@-2`P+C`P
+XM,"`P(#`@,`H)(#0P-"`Y.2`S,SD@.3D@,S,Y(#0S.2`S-SD@-#,Y(#,W.2`T
+XM,3D@,S4Y(#0Q.2`S-3D@,3$Y(#0P-"`Q,3D*"2`T,#0@.3D@.3DY.2`Y.3DY
+XM"C(@,R`P(#$@+3$@,"`P(#4@,"XP,#`@,"`P(#`*"2`T.30@,3$Y(#0Y-"`Y
+XM.2`U,CD@.3D@-3(Y(#$Y.2`V-#0@,3DY(#8T-"`T,SD@-#@Y(#0S.2`T.#D@
+XM-#$Y"@D@-C(T(#0Q.2`V,C0@,C$Y(#4P.2`R,3D@-3`Y(#$Q.2`T.30@,3$Y
+XM(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-3`Y
+XM(#(Q.2`U,#D@-#$Y(#DY.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P(#`N,#`P
+XM(#<@,"`P"@D@-3(T(#(S-"`U,C0@-#`T(#8P.2`T,#0@-C`Y(#(S-"`U,C0@
+XM,C,T(#DY.3D@.3DY.0HR(#(@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM,S<Y(#0Q.2`S-SD@-#,Y(#0X.2`T,SD@-#@Y(#0Q.2`S-SD@-#$Y(#DY.3D@
+XM.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,S<Y(#0R.2`T
+XM.#D@-#(Y(#DY.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P(#`N,#`P(#8@,"`P
+XM"@D@,S8T(#(T.2`S-C0@,S$Y(#0Q.2`S,3D@-#$Y(#(T.2`S-C0@,C0Y(#DY
+XM.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P(#`N,#`P(#@@,"`P"@D@,S<T(#(U
+XM.2`S-S0@,S`Y(#0P.2`S,#D@-#`Y(#(U.2`S-S0@,C4Y(#DY.3D@.3DY.0HR
+XM(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,SDT(#$Q.2`S.30@,C`T
+XM(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,S4Y
+XM(#(P.2`S.#D@,C`Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P
+XM(#`@,"`P"@D@-#$T(#$T.2`T.30@,3`Y(#DY.3D@.3DY.0HT(#`@,"`Q,B`P
+XM("TQ(#`@,"XP,#`@-"`Y(#,R(#$S,R`T-S0@3W5T;&5T`0HT(#$@,S0@,3@@
+XM,"`M,2`P(#`N,#`P(#0@,3,@,3,@,3$R(#0X,2!H`0HT(#$@,S0@,3@@,"`M
+XM,2`P(#`N,#`P(#0@,3,@,3,@,S8Y(#(T,2!H`0HT(#$@,"`Q-"`P("TQ(#`@
+X<,"XP,#`@-"`Q,"`R-R`T,S@@,C$T($)A=&@!"@HT
+X`
+Xend
+END_OF_FILE
+if test 1927 -ne `wc -c <'Examples/bath.fig.uu'`; then
+    echo shar: \"'Examples/bath.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/bath.fig.uu'
+fi
+if test -f 'Examples/bedroom1.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/bedroom1.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/bedroom1.fig.uu'\" \(2121 characters\)
+sed "s/^X//" >'Examples/bedroom1.fig.uu' <<'END_OF_FILE'
+Xbegin 444 bedroom1.fig
+XM(T9)1R`R+C$*.#`@,@HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM-C$T(#,T(#8Q-"`U-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P
+XM,"`P(#`@,`H)(#<Y(#,T(#<Y(#4T(#DY.3D@.3DY.0HR(#,@,"`Q("TQ(#`@
+XM,"`U(#`N,#`P(#`@,"`P"@D@-C$T(#$Y.2`V,30@,S<Y(#8S-"`S-SD@-C,T
+XM(#,R-"`W-CD@,S(T(#<V.2`R,#D@-S$T(#(P.2`W,30@,C(Y"@D@-S0Y(#(R
+XM.2`W-#D@,S`T(#8S-"`S,#0@-C,T(#(R.2`V-C0@,C(Y(#8V-"`R,#D@-C,T
+XM(#(P.2`V,S0@,3DY"@D@-C$T(#$Y.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P
+XM(#`@,"`P+C`P,"`P(#`@,`H)(#8R-"`T-SD@-3@Y(#,X.2`Y.3DY(#DY.3D*
+XM,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,0H),"`P(#$N,#`P(#0N,#`P
+XM(#@N,#`P"@D@-#0@-3(T(#0T(#,R-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P
+XM(#`@,"`P+C`P,"`P(#`@,0H),"`P(#$N,#`P(#0N,#`P(#@N,#`P"@D@-#0@
+XM.#0@-#0@,C@T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@
+XM,"`P"@D@-30@-3(Y(#,T(#4R.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@
+XM,"`P+C`P,"`P(#`@,`H)(#4T(#<Y(#,T(#<Y(#DY.3D@.3DY.0HR(#$@,"`Q
+XM("TQ(#`@,"`P(#`N,#`P(#`@,"`Q"@DP(#`@,2XP,#`@-"XP,#`@."XP,#`*
+XM"2`V,#D@-#0@,S<T(#0T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`Q"@DP(#`@,2XP,#`@-"XP,#`@."XP,#`*"2`X-"`T-"`S,3D@
+XM-#0@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`U
+XM.2`T,30@-SD@-#$T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P
+XM(#`@,"`P"@D@-CD@,S`T(#8Y(#4R-"`Y.3DY(#DY.3D*,B`R(#`@,2`M,2`P
+XM(#`@,"`P+C`P,"`P(#`@,`H)(#4Y(#,P-"`W.2`S,#0@-SD@-3(T(#4Y(#4R
+XM-"`U.2`S,#0@.3DY.2`Y.3DY"C(@,R`P(#$@+3$@,"`P(#4@,"XP,#`@,"`P
+XM(#`*"2`V,S0@-30Y(#<V.2`U-#D@-S8Y(#,R-"`W-#D@,S(T(#<T.2`U,CD@
+XM-C,T(#4R.2`V,S0@-#<Y(#8Q-"`T-SD*"2`V,30@-3(Y(#<Y(#4R.2`W.2`U
+XM,C0@-3D@-3(T(#4Y(#4T.2`V,S0@-30Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ
+XM(#`@,"`P(#`N,#`P(#`@,"`P"@D@-C(T(#$P.2`U.#0@,3@T(#DY.3D@.3DY
+XM.0HR(#,@,"`Q("TQ(#`@,"`U(#`N,#`P(#`@,"`P"@D@-SD@-SD@-SD@,S`T
+XM(#4Y(#,P-"`U.2`U.2`V-#0@-3D@-C0T(#<Y(#8S-"`W.2`V,S0@,3`Y"@D@
+XM-C$T(#$P.2`V,30@-SD@-SD@-SD@.3DY.2`Y.3DY"C0@,2`P(#$T(#`@,"`P
+XM(#`N,#`P(#0@,3`@,S$@,S0@,S`Y(#$Q)S,B`0HT(#$@,"`Q,B`P("TQ(#`@
+XM,"XP,#`@-"`Y(#,S(#8X-"`T,S0@0VQO<V5T`0HT(#$@,"`Q,B`P("TQ(#`@
+XM,"XP,#`@-"`Y(#(X(#8Y-"`R-S0@3&EN96X!"C0@,2`P(#$T(#`@+3$@,"`P
+XM+C`P,"`T(#$P(#8S(#,S-"`R-SD@0F5D<F]O;2`Q`0HT(#$@,"`Q-"`P("TQ
+X?(#`@,"XP,#`@-"`Q,"`S,2`S-#D@-#D@,3,G-"(!"@HT
+X`
+Xend
+END_OF_FILE
+if test 2121 -ne `wc -c <'Examples/bedroom1.fig.uu'`; then
+    echo shar: \"'Examples/bedroom1.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/bedroom1.fig.uu'
+fi
+if test -f 'Examples/bedroom2.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/bedroom2.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/bedroom2.fig.uu'\" \(1881 characters\)
+sed "s/^X//" >'Examples/bedroom2.fig.uu' <<'END_OF_FILE'
+Xbegin 444 bedroom2.fig
+XM(T9)1R`R+C$*.#`@,@HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM-C0T(#$T-"`V,#D@,C,T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`Q"@DP(#`@,2XP,#`@-"XP,#`@."XP,#`*"2`T-"`U,CD@-#0@
+XM,S(T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`Q"@DP
+XM(#`@,2XP,#`@-"XP,#`@."XP,#`*"2`T-"`X-"`T-"`R.#D@.3DY.2`Y.3DY
+XM"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#$*"3`@,"`Q+C`P,"`T+C`P
+XM,"`X+C`P,`H)(#8R.2`T-"`S-C0@-#0@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@
+XM,"`P(#`@,"XP,#`@,"`P(#$*"3`@,"`Q+C`P,"`T+C`P,"`X+C`P,`H)(#@T
+XM(#0T(#,Q-"`T-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P
+XM(#`@,`H)(#4T(#4S-"`S-"`U,S0@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P
+XM(#`@,"XP,#`@,"`P(#`*"2`U-"`W.2`S-"`W.2`Y.3DY(#DY.3D*,B`Q(#`@
+XM,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#8S-"`S-"`V,S0@-30@.3DY.2`Y
+XM.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`W.2`S-"`W.2`U
+XM-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#<S
+XM.2`U-#0@-C0T(#4Q-"`Y.3DY(#DY.3D*,B`S(#`@,2`M,2`P(#`@-2`P+C`P
+XM,"`P(#`@,`H)(#<V.2`U-30@-S8Y(#,Y.2`V-30@,SDY(#8U-"`R-#0@-C,T
+XM(#(T-"`V,S0@-#$Y(#<T.2`T,3D@-S0Y(#4S-`H)(#<S.2`U,S0@-S,Y(#4U
+XM-"`W-CD@-34T(#DY.3D@.3DY.0HR(#,@,"`Q("TQ(#`@,"`U(#`N,#`P(#`@
+XM,"`P"@D@-3D@-#$T(#4Y(#4U-"`V,SD@-34T(#8S.2`U,S0@-SD@-3,T(#<Y
+XM(#0Q-"`U.2`T,30@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@
+XM,"`P(#`*"2`V.2`Q.30@-CD@-#$T(#DY.3D@.3DY.0HR(#(@,"`Q("TQ(#`@
+XM,"`P(#`N,#`P(#`@,"`P"@D@-3D@,3DT(#<Y(#$Y-"`W.2`T,30@-3D@-#$T
+XM(#4Y(#$Y-"`Y.3DY(#DY.3D*,B`S(#`@,2`M,2`P(#`@-2`P+C`P,"`P(#`@
+XM,`H)(#<W-"`U.2`W-S0@,S$T(#8U-"`S,30@-C4T(#(Y-"`W-30@,CDT(#<U
+XM-"`W.2`V-30@-SD@-C4T(#$T-`H)(#8S-"`Q-#0@-C,T(#<Y(#<Y(#<Y(#<Y
+XM(#$Y-"`U.2`Q.30@-3D@-3D@-S<T(#4Y(#DY.3D@.3DY.0HT(#(@,"`Q,B`P
+XM("TQ(#`@,"XP,#`@-"`Y(#,S(#<P,B`Q.#D@0VQO<V5T`0HT(#$@,"`Q-"`P
+XM("TQ(#`@,"XP,#`@-"`Q,"`V,R`S-#0@,C<Y($)E9')O;VT@,@$*-"`R(#`@
+XM,30@,"`M,2`P(#`N,#`P(#0@,3`@,S$@-30@,S`Y(#$Q)S0B`0HT(#$@,"`Q
+XF-"`P("TQ(#`@,"XP,#`@-"`Q,"`S."`S,SD@-#D@,3,G,3`B`0HT
+X`
+Xend
+END_OF_FILE
+if test 1881 -ne `wc -c <'Examples/bedroom2.fig.uu'`; then
+    echo shar: \"'Examples/bedroom2.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/bedroom2.fig.uu'
+fi
+if test -f 'Examples/cassette.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/cassette.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/cassette.fig.uu'\" \(1753 characters\)
+sed "s/^X//" >'Examples/cassette.fig.uu' <<'END_OF_FILE'
+Xbegin 444 cassette.fig
+XM(T9)1R`R+C$*.#`@,@HU(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P(#(S
+XM.2XP,#`@,C(Q+C4P,"`R-3D@,3DY(#(V.2`R,3D@,C4Y(#(T-`HU(#$@,"`Q
+XM("TQ(#`@,"`P(#`N,#`P(#$@,"`P(#,Y,2XU,#`@,C(Q+C4P,"`S-3D@,3DT
+XM(#,T.2`R,3D@,S4Y(#(T.0HU(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#$@,"`P
+XM(#,W-BXU,#`@,C(Q+C4P,"`S,#0@,3DT(#(Y.2`R,3D@,S`T(#(T.0HU(#$@
+XM,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P(#(T-BXU,#`@,C(Q+C4P,"`R-C0@
+XM,3DT(#(W.2`R,3D@,C8T(#(T.0HQ(#0@,"`Q("TQ(#`@,"`P(#`N,#`P(#$@
+XM,"XP,#`@-#$Y(#(R-"`Q-2`Q-2`T,3D@,C`Y(#0Q.2`R,SD*,2`T(#`@,2`M
+XM,2`P(#`@,"`P+C`P,"`Q(#`N,#`P(#(P-"`R,C0@,34@,34@,C`T(#(P.2`R
+XM,#0@,C,Y"C$@-"`P(#(@+3$@,"`P(#`@,"XP,#`@,2`P+C`P,"`T,C$@,C(T
+XM(#(Q(#(Q(#0Q-"`R,#0@-#(Y(#(T-0HQ(#0@,"`R("TQ(#`@,"`P(#`N,#`P
+XM(#$@,"XP,#`@,C`T(#(R-"`R,2`R,2`Q.3D@,C`T(#(P.2`R-#0*,2`T(#`@
+XM,2`M,2`P(#`@,C$@,"XP,#`@,2`P+C`P,"`T,3D@,S@X(#@@."`T,34@,S@S
+XM(#0R-"`S.30*,2`T(#`@,2`M,2`P(#`@,C$@,"XP,#`@,2`P+C`P,"`Q.3D@
+XM,S@Y(#@@."`Q.30@,S@T(#(P-"`S.30*,B`S(#`@,2`M,2`R(#`@,R`P+C`P
+XM,"`P(#`@,`H)(#$S-"`S.3D@,38Q(#,S-"`T-3<@,S,T(#0X-"`S.3D@,3,T
+XM(#,Y.2`Y.3DY(#DY.3D*,B`S(#`@,2`M,2`Q(#`@,3`@,"XP,#`@,"`P(#`*
+XM"2`Q,SD@,SDY(#$V-"`S,SD@-#4T(#,S.2`T-SD@,SDY(#$S.2`S.3D@.3DY
+XM.2`Y.3DY"C(@,R`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`U,SD@,S`T
+XM(#4T-"`S,30@-30T(#,W.2`U,SD@,S@T(#4S.2`S,#0@.3DY.2`Y.3DY"C(@
+XM,R`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`W.2`S,#0@-S0@,S$T(#<T
+XM(#,W.2`W.2`S.#0@-SD@,S`T(#DY.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P
+XM(#`N,#`P(#@@,"`P"@D@.3D@,3,Y(#DY(#,Q.2`U,3D@,S$Y(#4Q.2`Q,SD@
+XM.3D@,3,Y(#DY.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P(#`N,#`P(#@@,"`P
+XM"@D@-SD@,3$Y(#<Y(#,Y.2`U,SD@,SDY(#4S.2`Q,3D@-SD@,3$Y(#DY.3D@
+XM.3DY.0HR(#(@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C4Y(#$Y-"`R
+XM-3D@,C0Y(#,U.2`R-#D@,S4Y(#$Y-"`R-3D@,3DT(#DY.3D@.3DY.0HT(#`@
+XC,"`Q,B`P("TQ(#`@,"XP,#`@-"`Y(#D@,3`Y(#$V-"!!`0H@
+X`
+Xend
+END_OF_FILE
+if test 1753 -ne `wc -c <'Examples/cassette.fig.uu'`; then
+    echo shar: \"'Examples/cassette.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/cassette.fig.uu'
+fi
+if test -f 'Examples/greek.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/greek.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/greek.fig.uu'\" \(2320 characters\)
+sed "s/^X//" >'Examples/greek.fig.uu' <<'END_OF_FILE'
+Xbegin 664 greek.fig
+XM(T9)1R R+C$*.# @,@HV(#0T(#,T.2 V,S0@-C$Y"C0@," S,B R-" P(# @
+XM," P+C P,# P(#0@,C,@-3@W(#0T(#0P-"#!(,(@PR#$(,4@QB#'(,@@R2#*
+XM(,L@S"#-(,X@SR#0(-$@TB#3(-0@(-4@UB @UR#8(-D@V@$*-" P(#,R(#(T
+XM(# @," P(# N,# P,# @-" R-" U,3$@-#0@-#<T(.$@XB#C(.0@Y2#F(.<@
+XMZ"#I(.H@ZR#L(.T@(.X@[R#P(/$@\B#S(/0@]2#V(/<@^"#Y(/H!"C0@," S
+XM,B R-" P(# @," P+C P,# P(#0@,C(@-#,T(#0T(#4T.2"A(*(@HR"D(*4@
+XMIB"G(*@@J2"J(*L@K""M(*X@KR"P(+$@LB"S(+0@M2"V(+<@N""Y 0HT(# @
+XM,S(@,C0@," P(# @,"XP,# P," T(#(Q(#$Q," T-" V,3D@.B [(#P@/2 ^
+XM(#\@0 $*-" P(#,R(#(T(# @," P(# N,# P,# @-" R." Q-SD@,C$Y(#8Q
+XM.2#;(-P@W2#>("#?(. @(/L@_"#](/X!"C0@," P(#(T(# @," P(# N,# P
+XM,# @-" R,B U.#<@-#0@,S<T($$@0B!#($0@12!&($<@2"!)("!*($L@3"!-
+XM($X@3R @4"!1(%(@4R!4(%4@5B!7(%@@62!: 0HT(# @," R-" P(# @," P
+XM+C P,# P(#0@,C(@-#DX(#0T(#0S.2!A(&(@8R!D(&4@(&8@9R!H("!I("!J
+XM(&L@(&P@(&T@;B!O(' @('$@<B!S("!T('4@('8@('<@>" @>2!Z 0HT(# @
+XM," R-" P(# @," P+C P,# P(#0@,C0@-#,S(#0T(#4Q-" A(" B(",@)" E
+XM("8@)R H("D@*B K("P@+2 N("\@," Q(#(@,R T(#4@-B W(#@@.0$*-" P
+XM(# @,C0@," P(# @,"XP,# P," T(#(Q(#$Q," T-" U.#0@.B [(#P@/2 ^
+XM(#\@0 $*-" P(# @,C0@," P(# @,"XP,# P," T(#(R(#$X,R R,3D@-3@T
+XM(%L@(%P@(%T@7B @(%\@(& @('L@?"!]('X!"BTV"C8@-#0@,SD@-C,T(#,P
+XM.0HT(# @,S(@,C0@," P(# @,"XP,# P," T(#(S(#4X-R T-" Y-"!!($(@
+XM0R!$($4@1B!'($@@22!*($L@3"!-($X@3R!0(%$@4B!3(%0@(%4@5B @5R!8
+XM(%D@6@$*-" P(# @,C0@," P(# @,"XP,# P," T(#(T(#0S,R T-" R,#0@
+XM(2 @(B C("0@)2 F("<@*" I("H@*R L("T@+B O(# @,2 R(#,@-" U(#8@
+XM-R X(#D!"C0@," S,B R-" P(# @," P+C P,# P(#0@,C(@-#,T(#0T(#(S
+XM.2 A("(@(R D("4@)B G("@@*2 J("L@+" M("X@+R P(#$@,B S(#0@-2 V
+XM(#<@." Y 0HT(# @," R-" P(# @," P+C P,# P(#0@,C(@-3@W(#0T(#8T
+XM($$@0B!#($0@12!&($<@2"!)("!*($L@3"!-($X@3R @4"!1(%(@4R!4(%4@
+XM5B!7(%@@62!: 0HT(# @,S(@,C0@," P(# @,"XP,# P," T(#(T(#4Q,2 T
+XM-" Q-C0@82!B(&,@9"!E(&8@9R!H(&D@:B!K(&P@;2 @;B!O(' @<2!R(',@
+XM="!U('8@=R!X('D@>@$*-" P(# @,C0@," P(# @,"XP,# P," T(#(R(#0Y
+XM." T-" Q,CD@82!B(&,@9"!E("!F(&<@:" @:2 @:B!K("!L("!M(&X@;R!P
+XM("!Q('(@<R @="!U("!V("!W('@@('D@>@$*-" P(# @,C0@," P(# @,"XP
+XM,# P," T(#(Q(#$Q," T-" R-S0@.B [(#P@/2 ^(#\@0 $*-" P(#,R(#(T
+XM(# @," P(# N,# P,# @-" R,2 Q,3 @-#0@,S Y(#H@.R \(#T@/B _($ !
+XM"C0@," P(#(T(# @," P(# N,# P,# @-" R,B Q.#,@,C$Y(#(W-"!;("!<
+XM("!=(%X@("!?("!@("![('P@?2!^ 0HT(# @,S(@,C0@," P(# @,"XP,# P
+XM," T(#(X(#$W.2 R,3D@,S Y(%L@7"!=(%X@(%\@8" @>R!\('T@?@$*+38*
+X 
+Xend
+END_OF_FILE
+if test 2320 -ne `wc -c <'Examples/greek.fig.uu'`; then
+    echo shar: \"'Examples/greek.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/greek.fig.uu'
+fi
+if test -f 'Examples/logo.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/logo.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/logo.fig.uu'\" \(1009 characters\)
+sed "s/^X//" >'Examples/logo.fig.uu' <<'END_OF_FILE'
+Xbegin 444 logo.fig
+XM(T9)1R`R+C$*.#`@,@HR(#4@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@DP
+XM(&QO9V\N97!S"@D@.#0@-C0@,C,Y(#8T(#(S.2`R,C0@.#0@,C(T(#@T(#8T
+XM(#DY.3D@.3DY.0HR(#0@,"`Q("TQ(#`@,"`P(#`N,#`P(#(X(#`@,`H)(#@Q
+XM.2`V,SD@.#$Y(#,Y(#4Y(#,Y(#4Y(#8S.2`X,3D@-C,Y(#DY.3D@.3DY.0HR
+XM(#$@,"`T("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C<Y(#$S.2`W-SD@,3,Y
+XM(#DY.3D@.3DY.0HT(#`@,S0@,C0@,"`M,2`P(#`N,#`P(#0@,C`@-3(R(#(U
+XM.2`U.30@04)#1$5&1TA)2DM,34Y/4%%24U155E=865H!"C0@,"`S,B`R-"`P
+XM("TQ(#`@,"XP,#`@-"`Q,"`Q-38@,C4T(#4Q.2!!0D-$149'2$E*2TQ-3D]0
+XM45)35%565UA96@$*-"`P(#,S(#(T(#`@+3$@,"`P+C`P,"`T(#(R(#(X-R`R
+XM-30@-#,Y($AA9"!T:&ES($)E96X@82!296%L(%9I97=G<F%P:`$*-"`P(#(V
+XM(#(T(#`@+3$@,"`P+C`P,"`T(#(S(#(Q,"`R-#D@,S<T($ET(&ES(&]N;'D@
+XM82!415-4`0HT(#`@,3@@,C0@,"`M,2`P(#`N,#`P(#0@,3D@,34S(#(T-"`R
+XM.3D@5&AI<R!I<R!A(%1E<W0!"C0@,"`R(#$T(#`@+3$@,"`P+C`P,"`T(#$P
+XM(#$T-"`R.30@,3(U($)%($%,3"!93U4@0T%.($)%`0HT(#`@,B`Q."`P("TQ
+XM(#`@,"XP,#`@-"`Q,R`Y,"`V-#D@,38P($=/($%235D!"C0@,"`R(#$X(#`@
+XG+3$@,"`P+C`P,"`T(#$S(#$P-R`V,S0@,3,P($)%050@3D%660$*
+X`
+Xend
+END_OF_FILE
+if test 1009 -ne `wc -c <'Examples/logo.fig.uu'`; then
+    echo shar: \"'Examples/logo.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/logo.fig.uu'
+fi
+if test -f 'Examples/window1.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/window1.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/window1.fig.uu'\" \(1782 characters\)
+sed "s/^X//" >'Examples/window1.fig.uu' <<'END_OF_FILE'
+Xbegin 444 window1.fig
+XM(T9)1R`R+C$*.#`@,@HU(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,2`P(#$P
+XM,BXW-3`@,C8Q+C4P,"`Q-S0@,C<Y(#$U-"`S,30@,3$T(#,S-`H),"`P(#$N
+XM,#`P(#0N,#`P(#@N,#`P"C4@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`Q(#`@
+XM.#@N.#@V(#$Y-2XQ,S8@.#D@,3,T(#$R.2`Q-#D@,30Y(#$X-`H),"`P(#$N
+XM,#`P(#0N,#`P(#@N,#`P"C(@,2`P(#(@+3$@,"`P(#`@,"XP,#`@,"`P(#`*
+XM"2`R,#D@,C<Y(#(T.2`R-SD@.3DY.2`Y.3DY"C(@,2`P(#(@+3$@,"`P(#`@
+XM,"XP,#`@,"`P(#`*"2`Q-S0@,C`Y(#$S-"`R,#D@.3DY.2`Y.3DY"C(@,R`P
+XM(#(@+3$@,"`P(#$Q(#`N,#`P(#`@,"`P"@D@,3,T(#<Y(#$S-"`Q,SD@,C4T
+XM(#$S.2`R-30@-C0@,C0U(#8S(#(S,R`V-B`R,C8@-C,@,C(Q(#4Y"@D@,C$U
+XM(#8Q(#(Q,"`V-"`R,#`@-CD@,3DQ(#8Y(#$X-B`V,R`Q-S$@-3D@,38R(#8P
+XM(#$U."`V-0H)(#$U,"`W,"`Q-#8@-C@@,3,Y(#<P(#$S-R`W-"`Q,S0@-SD@
+XM.3DY.2`Y.3DY"C(@,B`P(#(@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`Q.#0@
+XM,3,Y(#$X-"`Q-#0@,3DY(#$T-"`Q.3D@,3,Y(#$X-"`Q,SD@.3DY.2`Y.3DY
+XM"C(@,B`P(#(@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`Q.#0@,S,T(#$X-"`S
+XM,SD@,3DY(#,S.2`Q.3D@,S,T(#$X-"`S,S0@.3DY.2`Y.3DY"C(@,B`P(#$@
+XM+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`Q.#D@,S,T(#$X.2`Q-#0@,3DT(#$T
+XM-"`Q.30@,S,T(#$X.2`S,S0@.3DY.2`Y.3DY"C(@,R`P(#(@+3$@,"`P(#$Q
+XM(#`N,#`P(#`@,"`P"@D@,3,T(#,Y.2`Q,S0@,S,Y(#(U-"`S,SD@,C4T(#0Q
+XM-"`R-#4@-#$U(#(S-"`T,#0@,C(Y(#0P.2`R,C0@-#`T"@D@,C$T(#0P.2`R
+XM,#0@-#`T(#(P,"`T,#D@,3DQ(#0P.2`Q.#8@-#$U(#$W,2`T,3D@,38R(#0Q
+XM."`Q-3@@-#$S"@D@,34P(#0P."`Q-#8@-#$P(#$S.2`T,#@@,3,W(#0P-"`Q
+XM,S0@,SDY(#DY.3D@.3DY.0HS(#`@,"`R("TQ(#`@,"`P(#`N,#`P(#`@,`H)
+XM(#$W-"`R,#D@,3@T(#(P.2`Q.#D@,C(T(#$X.2`R-#,@,3DT(#(T-R`Q.3,@
+XM,C8U(#$Y.2`R-SD@,C`Y(#(W.2`Y.3DY(#DY.3D*-"`P(#`@,3`@,"`M,2`P
+XM(#`N,#`P(#0@-2`U(#(S,2`R-S8@;P$*-"`P(#`@,3(@,"`M,2`P(#`N,#`P
+XM(#0@.2`W(#(R-"`R-S0@5`$*-"`P(#`@,3`@,"`M,2`P(#`N,#`P(#0@-R`S
+XM(#$U,2`R,C@@:0$*-"`P(#`@,3(@,"`M,2`P(#`N,#`P(#0@.2`W(#$T-"`R
+XM,C0@5`$*-"`P(#`@,3(@,"`M,2`P(#`N,#`P(#0@,3(@-#<@,3<T(#0W.2!C
+X+<F%C:RYF:6<S`0H@
+X`
+Xend
+END_OF_FILE
+if test 1782 -ne `wc -c <'Examples/window1.fig.uu'`; then
+    echo shar: \"'Examples/window1.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/window1.fig.uu'
+fi
+if test -f 'Fig.ad' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Fig.ad'\"
+else
+echo shar: Extracting \"'Fig.ad'\" \(2392 characters\)
+sed "s/^X//" >'Fig.ad' <<'END_OF_FILE'
+X! some sample settings you may want to change
+X
+XFig.internalborderwidth:	2
+XFig.geometry:			+0+0
+XFig.iconX:			+0
+XFig.iconY:			-0
+X! the following should fix the problem that some have had with
+X! their window manager fighting with xfig over the geometry
+XFig*allowShellResize:		False
+X! pick a nice font for the popup edit window for text objects
+XFig*Text =*font:		-*-times-medium-r-normal--14-*
+X! filename mask for the file popup browser
+XFig*file_panel*mask*string:	*.fig
+X! filename mask for the export popup browser
+XFig*export_panel*mask*string:	*ps
+X! printer name
+X! If the following resource is NOT set, xfig will use the PRINTER 
+X! shell environment variable for the printer name
+X!Fig*printer*string:		ps
+X
+X! make the F20 key paste text in the canvas
+XFig*translations: #override \n\
+X			<Key>F20: PasteCanv()\n
+X
+X! Specify a private Compose key database file.  If this resource contains a "/"
+X! then the wired-in name of the xfig global directory won't be prefixed to it.
+X! An initial "~/" is replaced by the value of "$HOME/".
+X!
+X!Fig*ComposeKeyDB:	~/.xfig.Compose-key
+X
+X! let's make these buttons oval in the edit panel
+XFig.xfig_edit_panel*done.label:		Done
+XFig.xfig_edit_panel*done.ShapeStyle:	oval
+XFig.xfig_edit_panel*apply.label:	Apply
+XFig.xfig_edit_panel*apply.ShapeStyle:	oval
+XFig.xfig_edit_panel*cancel.label:	Cancel
+XFig.xfig_edit_panel*cancel.ShapeStyle:	oval
+X
+X! keyboard accelerators
+X
+XFig*accelerators: \
+X	Meta<Key>s: SaveFile()\n\
+X	Meta<Key>l: LoadFile()\n
+X
+XFig*quit*accelerators: \
+X	Meta<Key>q: quit()\n
+XFig*delete_all*accelerators: \
+X	Meta<Key>d: delete_all()\n
+XFig*undo*accelerators: \
+X	Meta<Key>u: undo()\n
+XFig*redraw*accelerators: \
+X	Meta<Key>r: redraw()\n
+XFig*paste*accelerators: \
+X	Meta<Key>t: paste()\n
+XFig*file*accelerators: \
+X	Meta<Key>f: file()\n
+X
+XFig*xfig_file_menu*accelerators: \
+X	Meta<Key>c: cancel()\n\
+X	Meta<Key>l: load()\n\
+X	Meta<Key>m: merge()\n\
+X	Meta<Key>r: rescan()\n\
+X	Meta<Key>s: save()\n
+XFig*export*accelerators: \
+X	Meta<Key>e: export()\n
+XFig*xfig_export_menu*accelerators: \
+X	Meta<Key>c: cancel()\n\
+X	Meta<Key>e: export()\n\
+X	Meta<Key>r: rescan()\n
+XFig*print*accelerators: \
+X	Meta<Key>p: print()\n
+XFig*xfig_print_menu*accelerators: \
+X	Meta<Key>d: dismiss()\n\
+X	Meta<Key>b: print_batch()\n\
+X	Meta<Key>x: clear_batch()\n\
+X	<Key>Return: print()\n\
+X	Meta<Key>p: print()\n
+XFig*xfig_set_unit_panel*accelerators: \
+X	Meta<Key>c: QuitUnits()\n\
+X	Meta<Key>s: SetUnits()\n
+END_OF_FILE
+if test 2392 -ne `wc -c <'Fig.ad'`; then
+    echo shar: \"'Fig.ad'\" unpacked with wrong size!
+fi
+# end of 'Fig.ad'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(7685 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X===============================================================
+XXFIG - Facility for Interactive Generation of figures under X11
+X===============================================================
+X
+X
+XXfig is a menu-driven tool that allows the user to draw and manipulate objects
+Xinteractively in an X window.  The resulting pictures can be saved, printed
+Xon postscript printers or converted to a variety of other formats (e.g. to
+Xallow inclusion in LaTeX documents).
+X
+XThis file contains some notes about installing xfig, the directory
+X'Examples' contains some example figures and the 'Doc' directory contains
+Xsome further documentation including the manual in troff -man format.
+X
+XPlease report any bugs, fixes, contributions, etc. to:
+X
+XBrian V. Smith (bvsmith@lbl.gov)
+X
+X
+X===================
+XINSTALLATION NOTES:
+X===================
+X
+X1. Edit the Imakefile if you need to customize it (see following notes)
+X2. Type "make Makefile" or "xmkmf" if you have xmkmf
+X3. Type "make install" (if you don't do this step, be sure to install resources)
+X4. Type "make install.man"
+X5. For X11R5 color implementations, specify "*customization: -color" in your 
+X	.Xdefaults or .Xresources file.
+X	NOTE: this only works under X11R5.
+X
+XIf your system doesn't have the signal SIGBUS, add the flag -DNO_SIBGUS in the
+X   Imakefile DEFINES line.
+XIf your system doesn't have strstr(), add the flag -DNOSTRSTR in the Imakefile
+X   in the DEFINES line.
+XIf your system doesn't have strtol(), add the flag -DNOSTRTOL in the Imakefile
+X   in the DEFINES line.
+XIf you are running on an IBM RS/6000 with AIX 3.2, add the flag -DDPS in the
+X   Imakefile and uncomment the line that says 
+X	LOCAL_LIBRARIES = -ldps XawClientLibs
+X   and you will see the full PostScript object when using EPS objects.
+X 
+XThe maximum width of the top ruler is set to 1020 pixels and the height of the
+Xside ruler to 860 pixels.  If your server can handle pixmaps larger than this
+Xand you need longer/taller rulers, you may set the maximum allowed in your
+XImakefile with -DMAX_TOPRULER_WD=1160 (or whatever value you wish) and 
+X-DMAX_SIDERULER_HT=1024 (or whatever value you wish).
+X
+XThe SMOOTHMOTION option toggles between two methods for tracking the
+Xcursor.  The first way (SMOOTHMOTION) just uses the (x,y) information given
+Xin the X pointer motion event.  If your display server doesn't implement
+Xmotion compression this is very slow for large movements of the mouse
+Xpointer because X sends back lots of small movement events, each of which
+Xcauses the rubberband box to be erased and redrawn.  The alternative
+Xway (not SMOOTHMOTION) queries the position of the X cursor whenever
+Xa motion event is received and if you make a large movement and then
+Xstop actually turns out to involve less work even though the XQueryPointer
+Xcall is quite slow.
+XThe SMOOTHMOTION method is also automatically used for OpenWindows (when the
+X-DOPENWIN flag is used in the Imakefile DEFINES line).
+X
+X----------------------
+XPrinting your figures:
+X----------------------
+X
+XThe program to translate your figure into one of many printer languages
+X(Postscript, LaTex, etc) is called fig2dev and is part of the TransFig
+Xpackage by Micah Beck.
+XIt is available from export.lcs.mit.edu in /contrib/transfig.tar.Z or
+Xftp.cs.cornell.edu in the directory /pub/fig.
+XSee the man pages for more information.
+X
+X-----------------
+XOpenWindows users
+X-----------------
+X
+XOpenwindows has scalable fonts so xfig must be compiled with the -DOPENWIN
+Xflag in order to handle this.  Also, there is a difference in the way the
+Xpointer position is queried for OpenWindows.  See the SMOOTHMOTION description.
+X
+XThere is also a bug in OpenWindows 2.0 which relates to pixmaps in widgets.
+XYou must compile xfig with the -DOPENWIN_BUG option in the Imakefile DEFINES
+Xline for this problem.
+X
+X----------------------------------------------
+XPossible problems encountered installing xfig:
+X----------------------------------------------
+X
+XPROBLEM:
+X	On a DEC Alpha the compiler may complain about something like: ".mask
+X	must have pcreg from .frame set if any bits are set in .mask or .fmask"
+X	in the file u_bound.c.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	Set the optimization level to -O1 at least for that file.
+X________________________________________________________________________________
+XPROBLEM:
+X	On Sun machines the linker may give erroneous error messages about 
+X	the following symbols being undefined:
+X
+X	ld: Undefined symbol
+X	   _get_applicationShellWidgetClass
+X	   _get_wmShellWidgetClass
+X
+X	This may be ignored as it is a problem with the Sun shared libraries
+X	and the way X11 builds the shared Xmu library.  It doesn't affect the
+X	operation of xfig.
+X________________________________________________________________________________
+XPROBLEM:
+X	The window oscillates and fights with the window manager when
+X	I click on a mode button or try to resize the xfig window.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X 	Perhaps the following resource has been set
+X 		*allowShellResize: true
+X	because another program requires it to be true.
+X	Change the resource to be specific to the programs which need it,
+X	or set the following resource:
+X 		Fig*allowShellResize: false
+X	Note: this is in the Fig.ad file that comes with xfig, which is 
+X	      installed when you do a "make install".
+X________________________________________________________________________________
+XPROBLEM:
+X	Openwindows sometimes loses track of xfig's icon.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	Cause unknown, here is a temporary kludge. Place the line:
+X		Fig*iconPixmap:               ..../your_lib_area/fig.icon.X
+X	in your .Xdefaults file and copy fig.icon.X into your lib area.
+X________________________________________________________________________________
+XPROBLEM:
+X	I can't seem to get a single xfig binary to work under both
+X	openwindows and standard X.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	You can compile xfig so that it knows about openwindows fonts
+X	but then it won't work under standard X.  If you want a single
+X	binary, compile with -DOPENWIN_BUG but not -DOPENWIN.  This
+X	will work on both systems but you won't be able to access the
+X	openwindows fonts.
+X________________________________________________________________________________
+XPROBLEM:
+X	When compiling on an HP 750 running HP-UX 8.05, the compiler dies with
+X	a bus error in the file u_undo.c.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	There is a bug in the HP compiler.  Workaround the problem by adding
+X	an extra statement between two statements in u_undo.c:
+X
+X	Original:
+X
+X	undo_glue()
+X	{
+X	    list_delete_compound(&objects.compounds, saved_objects.compounds);
+X	    tail(&objects, &object_tails);
+X
+X	New:
+X
+X	undo_glue()
+X	{
+X	    list_delete_compound(&objects.compounds, saved_objects.compounds);
+X>>>	    /* HP-UX 8.05 compiler bug fix -- don't ask */
+X>>>	    last_action = last_action;
+X	    tail(&objects, &object_tails);
+X________________________________________________________________________________
+XPROBLEMS:
+X	o Ellipses are rotated in the wrong direction when printing.
+X
+X	o When exporting a figure to Encapsulated Postscript, it always
+X	  comes out in Portrait mode even if you select Landscape.
+X
+X	o When batching together several figures and printing as one file, 
+X	  only the first one prints.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	Get the newest version of TransFig (version 2.1.5 or later).
+X________________________________________________________________________________
+XPROBLEMS:
+X	On HP machines, the capitalization of some letters in the text window 
+X	in the edit popup for text objects are wrong.
+X
+XPOSSIBLE CAUSE AND SOLUTION:
+X	Make sure that the CompKeyDB file has the lowercase letter definitions
+X	BEFORE the uppercase definitions.  This should be the case for the 
+X	CompKeyDB file shipped with xfig 2.1.5 and later.
+END_OF_FILE
+if test 7685 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'e_break.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_break.c'\"
+else
+echo shar: Extracting \"'e_break.c'\" \(2208 characters\)
+sed "s/^X//" >'e_break.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_search.h"
+X#include "u_list.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+Xstatic int	init_break(), init_break_only(), init_break_tag();
+X
+Xbreak_selected()
+X{
+X    set_mousefun("break compound", "break and tag", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_break_only);
+X    init_searchproc_middle(init_break_tag);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_middlebut_proc = object_search_middle;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick15_cursor);
+X}
+X
+Xstatic
+Xinit_break_only(p, type, x, y, px, py, loc_tag)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X    int 	    loc_tag;
+X{
+X    init_break(p, type, x, y, px, py, 0);
+X}
+X
+Xstatic
+Xinit_break_tag(p, type, x, y, px, py, loc_tag)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X    int 	    loc_tag;
+X{
+X    init_break(p, type, x, y, px, py, 1);
+X}
+X
+Xstatic
+Xinit_break(p, type, x, y, px, py, loc_tag)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X    int 	    loc_tag;
+X{
+X    if (type != O_COMPOUND)
+X	return;
+X
+X    cur_c = (F_compound *) p;
+X    mask_toggle_compoundmarker(cur_c);
+X    clean_up();
+X    list_delete_compound(&objects.compounds, cur_c);
+X    tail(&objects, &object_tails);
+X    append_objects(&objects, cur_c, &object_tails);
+X    toggle_markers_in_compound(cur_c);
+X    set_tags(cur_c, loc_tag);
+X    set_action(F_BREAK);
+X    set_latestcompound(cur_c);
+X    set_modifiedflag();
+X}
+END_OF_FILE
+if test 2208 -ne `wc -c <'e_break.c'`; then
+    echo shar: \"'e_break.c'\" unpacked with wrong size!
+fi
+# end of 'e_break.c'
+fi
+if test -f 'figx.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'figx.h'\"
+else
+echo shar: Extracting \"'figx.h'\" \(1130 characters\)
+sed "s/^X//" >'figx.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include <X11/cursorfont.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Shell.h>
+X#include <X11/Xatom.h>
+X
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/Dialog.h>
+X#include <X11/Xaw/Box.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Cardinals.h>
+X#include <X11/Xaw/Text.h>
+X#include <X11/Xaw/AsciiText.h>
+X#include <X11/Xaw/MenuButton.h>
+X#include <X11/Xaw/SimpleMenu.h>
+X#include <X11/Xaw/Sme.h>
+X#include <X11/Xaw/SmeBSB.h>
+X#include <X11/Xaw/Toggle.h>
+X#include <X11/Xaw/Paned.h>
+X#include <X11/Xaw/Viewport.h>
+X#include <X11/Xaw/List.h>
+END_OF_FILE
+if test 1130 -ne `wc -c <'figx.h'`; then
+    echo shar: \"'figx.h'\" unpacked with wrong size!
+fi
+# end of 'figx.h'
+fi
+if test -f 'object.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'object.c'\"
+else
+echo shar: Extracting \"'object.c'\" \(1847 characters\)
+sed "s/^X//" >'object.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "mode.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "paintop.h"
+X
+X/************************  Objects  **********************/
+X
+XF_compound	objects = {0, { 0, 0 }, { 0, 0 }, 
+X				NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+X
+X/************  global object pointers ************/
+X
+XF_line	       *cur_l, *new_l, *old_l;
+XF_arc	       *cur_a, *new_a, *old_a;
+XF_ellipse      *cur_e, *new_e, *old_e;
+XF_text	       *cur_t, *new_t, *old_t;
+XF_spline       *cur_s, *new_s, *old_s;
+XF_compound     *cur_c, *new_c, *old_c;
+XF_point	       *first_point, *cur_point;
+XF_linkinfo     *cur_links;
+X
+X/*************** object attribute settings ***********/
+X
+X/*  Lines  */
+Xint		cur_linewidth = 1;
+Xint		cur_linestyle = SOLID_LINE;
+Xfloat		cur_dashlength = DEF_DASHLENGTH;
+Xfloat		cur_dotgap = DEF_DOTGAP;
+Xfloat		cur_styleval = 0.0;
+Xint		pen_size = 0;
+Xint		pen_type = 0;
+XColor		cur_color = DEFAULT_COLOR;
+Xint		cur_boxradius = DEF_BOXRADIUS;
+Xint		cur_fillstyle = 0;
+Xint		cur_arrowmode = L_NOARROWS;
+Xchar		EMPTY_EPS[8] = "<empty>";
+X
+X/* Text */
+Xint		cur_fontsize;	/* font size */
+Xint		cur_latex_font = 0;
+Xint		cur_ps_font = 0;
+Xint		cur_textjust = T_LEFT_JUSTIFIED;
+Xint		cur_textflags = PSFONT_TEXT;
+X
+X/* Misc */
+Xfloat		cur_elltextangle = 0.0;	/* text/ellipse input angle */
+END_OF_FILE
+if test 1847 -ne `wc -c <'object.c'`; then
+    echo shar: \"'object.c'\" unpacked with wrong size!
+fi
+# end of 'object.c'
+fi
+if test -f 'paintop.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'paintop.h'\"
+else
+echo shar: Extracting \"'paintop.h'\" \(727 characters\)
+sed "s/^X//" >'paintop.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define INV_PAINT	0
+X#define MERGE		1
+X#define PAINT		2
+X#define ERASE		3
+X
+X#define NUMOPS		4
+X
+X#define DRAW		1
+X#define UNDRAW		0
+X
+X#define DEFAULT_COLOR	-1
+END_OF_FILE
+if test 727 -ne `wc -c <'paintop.h'`; then
+    echo shar: \"'paintop.h'\" unpacked with wrong size!
+fi
+# end of 'paintop.h'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(599 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define PATCHLEVEL "7"
+END_OF_FILE
+if test 599 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'resources.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'resources.c'\"
+else
+echo shar: Extracting \"'resources.c'\" \(2164 characters\)
+sed "s/^X//" >'resources.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X
+Xchar	       *colorNames[] = {"Default", "Black", "Blue", "Green", "Cyan",
+X				"Red", "Magenta", "Yellow", "White"};
+XBoolean		all_colors_available;
+X
+XappresStruct	appres;
+XWindow		canvas_win, msg_win, sideruler_win, topruler_win;
+X
+XCursor		cur_cursor;
+XCursor		arrow_cursor, bull_cursor, buster_cursor, crosshair_cursor,
+X		null_cursor, pencil_cursor, pick15_cursor, pick9_cursor,
+X		panel_cursor, l_arrow_cursor, lr_arrow_cursor, r_arrow_cursor,
+X		u_arrow_cursor, ud_arrow_cursor, d_arrow_cursor, wait_cursor;
+X
+XTOOL		tool;
+XXtAppContext	tool_app;
+X
+XTOOLSW		canvas_sw, ps_fontmenu, /* printer font menu tool */
+X		latex_fontmenu, /* printer font menu tool */
+X		msg_form, msg_panel, name_panel, cmd_panel, mode_panel, 
+X		d_label, e_label, mousefun,
+X		ind_viewp, ind_panel,	/* indicator panel */
+X		unitbox_sw, sideruler_sw, topruler_sw;
+X
+XDisplay	       *tool_d;
+XScreen	       *tool_s;
+Xint		tool_sn;
+X
+XGC		gc, bold_gc, button_gc, ind_button_gc, color_gc, mouse_button_gc,
+X		blank_gc, ind_blank_gc, mouse_blank_gc, gccache[NUMOPS],
+X		fillgc, fill_gc[NUMFILLPATS],	/* fill style gc's */
+X		black_fill_gc[NUMFILLPATS],
+X		un_fill_gc[NUMFILLPATS],	/* unfill gc's */
+X		black_un_fill_gc[NUMFILLPATS],
+X		tr_gc, tr_xor_gc, tr_erase_gc,	/* for the rulers */
+X		sr_gc, sr_xor_gc, sr_erase_gc;
+X
+XPixmap		fill_pm[NUMFILLPATS];
+XXColor		x_fg_color, x_bg_color;
+XBoolean		writing_bitmap;
+Xunsigned long	but_fg, but_bg;
+Xunsigned long	ind_but_fg, ind_but_bg;
+Xunsigned long	mouse_but_fg, mouse_but_bg;
+X
+X/* will be filled in with environment variable XFIGTMPDIR */
+Xchar	       *TMPDIR;
+END_OF_FILE
+if test 2164 -ne `wc -c <'resources.c'`; then
+    echo shar: \"'resources.c'\" unpacked with wrong size!
+fi
+# end of 'resources.c'
+fi
+if test -f 'u_bound.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_bound.h'\"
+else
+echo shar: Extracting \"'u_bound.h'\" \(602 characters\)
+sed "s/^X//" >'u_bound.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xextern int	overlapping();
+END_OF_FILE
+if test 602 -ne `wc -c <'u_bound.h'`; then
+    echo shar: \"'u_bound.h'\" unpacked with wrong size!
+fi
+# end of 'u_bound.h'
+fi
+if test -f 'u_create.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_create.h'\"
+else
+echo shar: Extracting \"'u_create.h'\" \(1251 characters\)
+sed "s/^X//" >'u_create.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xextern F_arc   *create_arc();
+Xextern F_ellipse *create_ellipse();
+Xextern F_line  *create_line();
+Xextern F_spline *create_spline();
+Xextern F_text  *create_text();
+Xextern F_compound *create_compound();
+Xextern F_eps   *create_eps();
+Xextern F_point *create_point();
+Xextern F_control *create_cpoint();
+X
+Xextern F_arc   *copy_arc();
+Xextern F_ellipse *copy_ellipse();
+Xextern F_line  *copy_line();
+Xextern F_spline *copy_spline();
+Xextern F_text  *copy_text();
+Xextern F_compound *copy_compound();
+X
+Xextern F_point *copy_points();
+Xextern F_arrow *forward_arrow();
+Xextern F_arrow *backward_arrow();
+Xextern F_arrow *new_arrow();
+Xextern char    *new_string();
+Xextern F_linkinfo *new_link();
+END_OF_FILE
+if test 1251 -ne `wc -c <'u_create.h'`; then
+    echo shar: \"'u_create.h'\" unpacked with wrong size!
+fi
+# end of 'u_create.h'
+fi
+if test -f 'u_draw.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_draw.h'\"
+else
+echo shar: Extracting \"'u_draw.h'\" \(733 characters\)
+sed "s/^X//" >'u_draw.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X/*
+X * declarations of routines for drawing objects
+X */
+X/*
+X * declarations of routines for drawing objects
+X */
+X/* compounds */
+Xvoid		draw_compoundelements();
+END_OF_FILE
+if test 733 -ne `wc -c <'u_draw.h'`; then
+    echo shar: \"'u_draw.h'\" unpacked with wrong size!
+fi
+# end of 'u_draw.h'
+fi
+if test -f 'u_elastic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_elastic.h'\"
+else
+echo shar: Extracting \"'u_elastic.h'\" \(2240 characters\)
+sed "s/^X//" >'u_elastic.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define		MOVE_ARB	0
+X#define		MOVE_HORIZ_VERT 1
+X#define		BOX_SCALE	2
+X#define		BOX_HSTRETCH	3
+X#define		BOX_VSTRETCH	4
+X
+X#define		MSG_RADIUS	0
+X#define		MSG_DIAM	1
+X#define		MSG_LENGTH	2
+X
+Xextern int	constrained;
+Xextern int	fix_x, fix_y, work_numsides;
+Xextern float	cur_angle;
+Xextern int	x1off, x2off, y1off, y2off;
+Xextern Cursor	cur_latexcursor;
+Xextern int	from_x, from_y;
+Xextern double	cosa, sina;
+Xextern int	movedpoint_num;
+Xextern int	latex_fix_x, latex_fix_y;
+Xextern F_point *left_point, *right_point;
+X
+Xextern		elastic_box();
+Xextern		elastic_movebox();
+Xextern		resizing_box();
+Xextern		elastic_box_constrained();
+Xextern		constrained_resizing_box();
+Xextern		moving_box();
+Xextern		elastic_poly();
+Xextern		resizing_poly();
+Xextern		scaling_compound();
+Xextern		elastic_scalecompound();
+X
+Xextern		resizing_ebr(), resizing_ebd();
+Xextern		constrained_resizing_ebr(), constrained_resizing_ebd();
+Xextern		constrained_resizing_cbd(), resizing_cbr(), resizing_cbd();
+Xextern		elastic_moveellipse();
+Xextern		moving_ellipse();
+Xextern		elastic_scaleellipse();
+Xextern		scaling_ellipse();
+X
+Xextern		freehand_line();
+Xextern		latex_line();
+Xextern		constrainedangle_line();
+Xextern		elastic_moveline();
+Xextern		elastic_line();
+Xextern		moving_line();
+Xextern		reshaping_line();
+Xextern		reshaping_latexline();
+Xextern		elastic_linelink();
+Xextern		elastic_scalepts();
+Xextern		scaling_line();
+X
+Xextern		moving_arc();
+Xextern		elastic_movearc();
+Xextern		reshaping_arc();
+Xextern		elastic_arclink();
+Xextern		scaling_arc();
+Xextern		elastic_scalearc();
+X
+Xextern		moving_text();
+Xextern		draw_movingtext();
+X
+Xextern		moving_spline();
+Xextern		scaling_spline();
+X
+Xextern		adjust_box_pos();
+Xextern		adjust_pos();
+END_OF_FILE
+if test 2240 -ne `wc -c <'u_elastic.h'`; then
+    echo shar: \"'u_elastic.h'\" unpacked with wrong size!
+fi
+# end of 'u_elastic.h'
+fi
+if test -f 'u_fonts.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_fonts.h'\"
+else
+echo shar: Extracting \"'u_fonts.h'\" \(1824 characters\)
+sed "s/^X//" >'u_fonts.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Brian V. Smith
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define MIN_P_SIZE 6
+X#define MAX_P_SIZE 30
+X
+X#define DEF_FONTSIZE 12		/* default font size in pts */
+X#define DEF_PS_FONT 0
+X#define DEF_LATEX_FONT 0
+X#define PS_FONTPANE_WD 290
+X#define LATEX_FONTPANE_WD 112
+X#define PS_FONTPANE_HT 20
+X#define LATEX_FONTPANE_HT 20
+X#define NUM_X_FONTS 27
+X#define NUM_PS_FONTS 35
+X#define NUM_LATEX_FONTS 6
+X
+X/* element of linked list for each font
+X   The head of list is for the different font NAMES,
+X   and the elements of this list are for each different
+X   point size of that font */
+X
+Xstruct xfont {
+X    int		    size;	/* size in points */
+X    Font	    fid;	/* X font id */
+X    char	   *fname;	/* actual name of X font found */
+X    struct flist   *list;	/* list of fonts by angle */
+X    struct xfont   *next;	/* next in the list */
+X};
+X
+Xstruct flist {
+X    int		    dir;	/* direction (0=0 degrees, 1=90, 2=180, 3=270) */
+X    XRotFontStruct *fstruct;	/* X font structure */
+X    struct flist   *next;
+X    };
+X
+Xstruct _fstruct {
+X    char	   *name;	/* Postscript font name */
+X    int		    xfontnum;	/* template for locating X fonts */
+X};
+X
+Xstruct _xfstruct {
+X    char	   *template;	/* template for locating X fonts */
+X    struct xfont   *xfontlist;	/* linked list of X fonts for different point
+X				 * sizes */
+X};
+X
+Xint		x_fontnum();
+END_OF_FILE
+if test 1824 -ne `wc -c <'u_fonts.h'`; then
+    echo shar: \"'u_fonts.h'\" unpacked with wrong size!
+fi
+# end of 'u_fonts.h'
+fi
+if test -f 'u_list.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_list.h'\"
+else
+echo shar: Extracting \"'u_list.h'\" \(1734 characters\)
+sed "s/^X//" >'u_list.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xvoid		list_delete_arc();
+Xvoid		list_delete_ellipse();
+Xvoid		list_delete_line();
+Xvoid		list_delete_spline();
+Xvoid		list_delete_text();
+Xvoid		list_delete_compound();
+X
+Xvoid		list_add_arc();
+Xvoid		list_add_ellipse();
+Xvoid		list_add_line();
+Xvoid		list_add_spline();
+Xvoid		list_add_text();
+Xvoid		list_add_compound();
+X
+XF_line	       *last_line();
+XF_arc	       *last_arc();
+XF_ellipse      *last_ellipse();
+XF_text	       *last_text();
+XF_spline       *last_spline();
+XF_compound     *last_compound();
+XF_point	       *last_point();
+X
+XF_line	       *prev_line();
+XF_arc	       *prev_arc();
+XF_ellipse      *prev_ellipse();
+XF_text	       *prev_text();
+XF_spline       *prev_spline();
+XF_compound     *prev_compound();
+XF_point	       *prev_point();
+X
+Xvoid		delete_line();
+Xvoid		delete_arc();
+Xvoid		delete_ellipse();
+Xvoid		delete_text();
+Xvoid		delete_spline();
+Xvoid		delete_compound();
+X
+Xvoid		add_line();
+Xvoid		add_arc();
+Xvoid		add_ellipse();
+Xvoid		add_text();
+Xvoid		add_spline();
+Xvoid		add_compound();
+X
+Xvoid		change_line();
+Xvoid		change_arc();
+Xvoid		change_ellipse();
+Xvoid		change_text();
+Xvoid		change_spline();
+Xvoid		change_compound();
+X
+Xvoid		get_links();
+Xvoid		adjust_links();
+END_OF_FILE
+if test 1734 -ne `wc -c <'u_list.h'`; then
+    echo shar: \"'u_list.h'\" unpacked with wrong size!
+fi
+# end of 'u_list.h'
+fi
+if test -f 'u_pan.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_pan.c'\"
+else
+echo shar: Extracting \"'u_pan.c'\" \(1581 characters\)
+sed "s/^X//" >'u_pan.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Henning Spruth
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "w_zoom.h"
+X
+Xpan_left()
+X{
+X    zoomxoff += posn_rnd[P_GRID2];
+X    reset_topruler();
+X    redisplay_topruler();
+X    setup_grid(cur_gridmode);
+X}
+X
+Xpan_right()
+X{
+X    if (zoomxoff == 0)
+X	return;
+X    zoomxoff -= posn_rnd[P_GRID2];
+X    if (zoomxoff < 0)
+X	zoomxoff = 0;
+X    reset_topruler();
+X    redisplay_topruler();
+X    setup_grid(cur_gridmode);
+X}
+X
+Xpan_up()
+X{
+X    zoomyoff += posn_rnd[P_GRID2];
+X    reset_sideruler();
+X    redisplay_sideruler();
+X    setup_grid(cur_gridmode);
+X}
+X
+Xpan_down()
+X{
+X    if (zoomyoff == 0)
+X	return;
+X    zoomyoff -= posn_rnd[P_GRID2];
+X    if (zoomyoff < 0)
+X	zoomyoff = 0;
+X    reset_sideruler();
+X    redisplay_sideruler();
+X    setup_grid(cur_gridmode);
+X}
+X
+Xpan_origin()
+X{
+X    if (zoomxoff == 0 && zoomyoff == 0)
+X	return;
+X    if (zoomyoff != 0) {
+X	zoomyoff = 0;
+X	setup_sideruler();
+X	redisplay_sideruler();
+X    }
+X    if (zoomxoff != 0) {
+X	zoomxoff = 0;
+X	reset_topruler();
+X	redisplay_topruler();
+X    }
+X    setup_grid(cur_gridmode);
+X}
+END_OF_FILE
+if test 1581 -ne `wc -c <'u_pan.c'`; then
+    echo shar: \"'u_pan.c'\" unpacked with wrong size!
+fi
+# end of 'u_pan.c'
+fi
+if test -f 'u_search.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_search.h'\"
+else
+echo shar: Extracting \"'u_search.h'\" \(943 characters\)
+sed "s/^X//" >'u_search.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xvoid		init_searchproc_left();
+Xvoid		init_searchproc_middle();
+Xvoid		init_searchproc_right();
+X
+Xint		point_search_left();
+Xint		point_search_middle();
+Xint		point_search_right();
+X
+Xint		object_search_left();
+Xint		object_search_middle();
+Xint		object_search_right();
+X
+XF_text	       *text_search();
+XF_compound     *compound_search();
+XF_compound     *compound_point_search();
+END_OF_FILE
+if test 943 -ne `wc -c <'u_search.h'`; then
+    echo shar: \"'u_search.h'\" unpacked with wrong size!
+fi
+# end of 'u_search.h'
+fi
+if test -f 'u_undo.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_undo.h'\"
+else
+echo shar: Extracting \"'u_undo.h'\" \(703 characters\)
+sed "s/^X//" >'u_undo.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X/*******************  DECLARE EXPORTS  ********************/
+X
+Xextern F_compound saved_objects;
+Xextern F_compound object_tails;
+END_OF_FILE
+if test 703 -ne `wc -c <'u_undo.h'`; then
+    echo shar: \"'u_undo.h'\" unpacked with wrong size!
+fi
+# end of 'u_undo.h'
+fi
+if test -f 'version.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.h'\"
+else
+echo shar: Extracting \"'version.h'\" \(656 characters\)
+sed "s/^X//" >'version.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define			FIG_VERSION		"2.1"
+X#define			PROTOCOL_VERSION	"2.1"	/* file format */
+END_OF_FILE
+if test 656 -ne `wc -c <'version.h'`; then
+    echo shar: \"'version.h'\" unpacked with wrong size!
+fi
+# end of 'version.h'
+fi
+if test -f 'w_canvas.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_canvas.h'\"
+else
+echo shar: Extracting \"'w_canvas.h'\" \(1513 characters\)
+sed "s/^X//" >'w_canvas.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X/************** DECLARE EXPORTS ***************/
+X
+Xextern int	(*canvas_kbd_proc) ();
+Xextern int	(*canvas_locmove_proc) ();
+Xextern int	(*canvas_leftbut_proc) ();
+Xextern int	(*canvas_middlebut_proc) ();
+Xextern int	(*canvas_middlebut_save) ();
+Xextern int	(*canvas_rightbut_proc) ();
+Xextern int	(*return_proc) ();
+Xextern int	null_proc();
+Xextern int	clip_xmin, clip_ymin, clip_xmax, clip_ymax;
+Xextern int	clip_width, clip_height;
+Xextern int	cur_x, cur_y;
+X
+Xextern String	local_translations;
+X
+X/* macro which rounds coordinates depending on point positioning mode */
+X#define		round_coords(x, y) \
+X    if (cur_pointposn != P_ANY) \
+X	if (!anypointposn) { \
+X	    int _txx; \
+X	    x = ((_txx = x%posn_rnd[cur_pointposn]) < posn_hlf[cur_pointposn]) \
+X		? x - _txx - 1 : x + posn_rnd[cur_pointposn] - _txx - 1; \
+X	    y = ((_txx = y%posn_rnd[cur_pointposn]) < posn_hlf[cur_pointposn]) \
+X		? y - _txx - 1 : y + posn_rnd[cur_pointposn] - _txx - 1; \
+X	}
+X
+END_OF_FILE
+if test 1513 -ne `wc -c <'w_canvas.h'`; then
+    echo shar: \"'w_canvas.h'\" unpacked with wrong size!
+fi
+# end of 'w_canvas.h'
+fi
+if test -f 'w_dir.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_dir.h'\"
+else
+echo shar: Extracting \"'w_dir.h'\" \(1800 characters\)
+sed "s/^X//" >'w_dir.h' <<'END_OF_FILE'
+X/* This file is part of xdir, an X-based directory browser.
+X *
+X *	Created: 13 Aug 88
+X *
+X *	Win Treese
+X *	Cambridge Research Lab
+X *	Digital Equipment Corporation
+X *	treese@crl.dec.com
+X *
+X *	    COPYRIGHT 1990
+X *	  DIGITAL EQUIPMENT CORPORATION
+X *	   MAYNARD, MASSACHUSETTS
+X *	  ALL RIGHTS RESERVED.
+X *
+X * THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+X * SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+X * DIGITAL MAKES NO REPRESENTATIONS ABOUT THE SUITABILITY OF THIS SOFTWARE
+X * FOR ANY PURPOSE.  IT IS SUPPLIED "AS IS" WITHOUT EXPRESS OR IMPLIED
+X * WARRANTY.
+X *
+X * IF THE SOFTWARE IS MODIFIED IN A MANNER CREATING DERIVATIVE COPYRIGHT
+X * RIGHTS, APPROPRIATE LEGENDS MAY BE PLACED ON THE DERIVATIVE WORK IN
+X * ADDITION TO THAT SET FORTH ABOVE.
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted, provided
+X * that the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of Digital Equipment Corporation not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X *	Modified: 4 Dec 91 - Paul King (king@cs.uq.oz.au)
+X */
+X
+X/* From the C library. */
+X
+Xchar	       *re_comp();
+X
+X/* Useful constants. */
+X
+X#define EOS	'\0'		/* End-of-string. */
+X
+X#define NENTRIES	100	/* chunk size for allocating filename space */
+X
+X/* Useful macros. */
+X
+X#define streq(a, b)	(! strcmp((a), (b)))
+X
+Xextern Widget	popup_dir_text;
+Xextern void	create_dirinfo();
+X
+X/* Xdir function declarations. */
+X
+XBoolean		MakeFileList();
+Xchar	       *SaveString();
+Xvoid		MakeFullPath();
+XBoolean		IsDirectory();
+END_OF_FILE
+if test 1800 -ne `wc -c <'w_dir.h'`; then
+    echo shar: \"'w_dir.h'\" unpacked with wrong size!
+fi
+# end of 'w_dir.h'
+fi
+if test -f 'w_drawprim.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_drawprim.h'\"
+else
+echo shar: Extracting \"'w_drawprim.h'\" \(1618 characters\)
+sed "s/^X//" >'w_drawprim.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xextern pr_size	pf_textwidth();
+Xextern PIX_FONT bold_font;
+Xextern PIX_FONT roman_font;
+Xextern PIX_FONT button_font;
+Xextern PIX_ROT_FONT canvas_font;
+X
+X/* Maximum number of points for polygons etc */
+X#define		MAXNUMPTS	10000
+X
+X#define		NORMAL_FONT	"fixed"
+X#define		BOLD_FONT	"8x13bold"
+X#define		BUTTON_FONT	"6x13"
+X
+X#define		char_height(font) \
+X		((font)->max_bounds.ascent + (font)->max_bounds.descent)
+X
+X#define		rot_char_width(rotfont)	((rotfont)->width)
+X#define		rot_char_height(rotfont) \
+X		((rotfont)->max_ascent + (rotfont)->max_descent)
+X
+X#define		rot_char_advance(font,char) \
+X		    (((font)->per_char)?\
+X		    ((font)->per_char[(char)-(font)->min_char].width):\
+X		    ((font)->width))
+X
+X#define set_x_color(gc,col) XSetForeground(tool_d,gc,\
+X	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X	(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col]))
+X
+X#define x_color(col)\
+X	(!all_colors_available? (col==WHITE?x_bg_color.pixel:x_fg_color.pixel): \
+X	(col<0||col>=NUMCOLORS)? x_fg_color.pixel:appres.color[col])
+END_OF_FILE
+if test 1618 -ne `wc -c <'w_drawprim.h'`; then
+    echo shar: \"'w_drawprim.h'\" unpacked with wrong size!
+fi
+# end of 'w_drawprim.h'
+fi
+if test -f 'w_mousefun.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_mousefun.h'\"
+else
+echo shar: Extracting \"'w_mousefun.h'\" \(953 characters\)
+sed "s/^X//" >'w_mousefun.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Paul King
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xvoid		init_mousefun();
+Xvoid		setup_mousefun();
+Xvoid		set_mousefun();
+Xvoid		draw_mousefun_mode();
+Xvoid		draw_mousefun_ind();
+Xvoid		draw_mousefun_unitbox();
+Xvoid		draw_mousefun_topruler();
+Xvoid		draw_mousefun_sideruler();
+Xvoid		draw_mousefun_canvas();
+Xvoid		draw_mousefun();
+Xvoid		clear_mousefun();
+Xvoid		notused_middle();
+Xvoid		clear_middle();
+Xvoid		notused_right();
+Xvoid		clear_right();
+END_OF_FILE
+if test 953 -ne `wc -c <'w_mousefun.h'`; then
+    echo shar: \"'w_mousefun.h'\" unpacked with wrong size!
+fi
+# end of 'w_mousefun.h'
+fi
+if test -f 'w_rottext.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_rottext.h'\"
+else
+echo shar: Extracting \"'w_rottext.h'\" \(1886 characters\)
+sed "s/^X//" >'w_rottext.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1992 by Alan Richardson
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define TLEFT	 1
+X#define TCENTRE	 2
+X#define TRIGHT	 3
+X#define MLEFT	 4
+X#define MCENTRE	 5
+X#define MRIGHT	 6
+X#define BLEFT	 7
+X#define BCENTRE	 8
+X#define BRIGHT	 9
+X
+X
+X/* ---------------------------------------------------------------------- */
+X
+X
+X/* *** The font structures *** */
+X
+Xtypedef struct
+X{ int		 bit_w;
+X  int		 bit_h;
+X
+X  Pixmap	 bm; 		} BitmapStruct;
+X
+Xtypedef struct
+X{ int		 ascent;
+X  int		 descent;
+X  int	 	 lbearing;
+X  int		 rbearing;
+X  int		 width;
+X
+X  BitmapStruct	 glyph;		} XRotCharStruct;
+X
+Xtypedef struct
+X{ int		 dir;
+X  int		 height;	/* max_ascent+max_descent */
+X  int		 width;		/* max_bounds.width from XFontStruct */
+X  int		 max_ascent;
+X  int		 max_descent;
+X  int		 max_char;
+X  int		 min_char;
+X  char		*name;
+X
+X  XFontStruct	*xfontstruct;
+X
+X  XRotCharStruct per_char[95];	} XRotFontStruct;
+X
+X
+X/* ---------------------------------------------------------------------- */
+X
+X
+Xextern XRotFontStruct		 *XRotLoadFont();
+Xextern void                       XRotUnloadFont();
+Xextern int                        XRotTextWidth();
+Xextern int                        XRotTextHeight();
+Xextern void                       XRotDrawString();
+Xextern void                       XRotDrawImageString();
+Xextern void                       XRotDrawAlignedString();
+Xextern void                       XRotDrawAlignedImageString();
+X
+X
+X
+X
+END_OF_FILE
+if test 1886 -ne `wc -c <'w_rottext.h'`; then
+    echo shar: \"'w_rottext.h'\" unpacked with wrong size!
+fi
+# end of 'w_rottext.h'
+fi
+if test -f 'w_setup.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_setup.h'\"
+else
+echo shar: Extracting \"'w_setup.h'\" \(1871 characters\)
+sed "s/^X//" >'w_setup.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#define		PIX_PER_INCH		80
+X#define		PIX_PER_CM		30	/* ((int)(PIX_PER_INCH / 2.54
+X						 * + (5.0/2))) */
+X
+X/* Portrait dimensions */
+X#define		DEF_CANVAS_HT_PORT	9*PIX_PER_INCH
+X#define		DEF_CANVAS_WD_PORT	8*PIX_PER_INCH
+X
+X/* Landscape dimensions */
+X#define		DEF_CANVAS_HT_LAND	8*PIX_PER_INCH
+X#define		DEF_CANVAS_WD_LAND	10*PIX_PER_INCH
+X
+X#define		RULER_WD		24
+X#ifndef MAX_TOPRULER_WD
+X#define		MAX_TOPRULER_WD		1020
+X#endif
+X#ifndef MAX_SIDERULER_HT
+X#define		MAX_SIDERULER_HT	860
+X#endif
+X#define		MIN_MOUSEFUN_WD		240
+X
+X#define		MAXDEPTH		999
+X
+X#define		SW_PER_ROW_PORT 2	/* switches/row in mode panel */
+X#define		SW_PER_ROW_LAND 2	/* same for landscape mode */
+X#define		SW_PER_COL_PORT 17
+X#define		SW_PER_COL_LAND 17
+X
+X#define		MODE_SW_HT	32	/* height of a mode switch icon */
+X#define		MODE_SW_WD	36	/* width of a mode switch icon */
+X
+X#define		DEF_INTERNAL_BW		1
+X#define		POPUP_BW		2
+X
+Xextern int	TOOL_WD, TOOL_HT;
+Xextern int	CMDPANEL_WD, CMDPANEL_HT;
+Xextern int	MODEPANEL_WD, MODEPANEL_HT;
+Xextern int	MODEPANEL_SPACE;
+Xextern int	MSGFORM_WD, MSGFORM_HT;
+Xextern int	MSGPANEL_WD;
+Xextern int	MOUSEFUN_WD, MOUSEFUN_HT;
+Xextern int	INDPANEL_WD;
+Xextern int	CANVAS_WD, CANVAS_HT;
+Xextern int	INTERNAL_BW;
+Xextern int	TOPRULER_WD, TOPRULER_HT;
+Xextern int	SIDERULER_WD, SIDERULER_HT;
+Xextern int	SW_PER_ROW, SW_PER_COL;
+END_OF_FILE
+if test 1871 -ne `wc -c <'w_setup.h'`; then
+    echo shar: \"'w_setup.h'\" unpacked with wrong size!
+fi
+# end of 'w_setup.h'
+fi
+if test -f 'w_util.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_util.h'\"
+else
+echo shar: Extracting \"'w_util.h'\" \(1748 characters\)
+sed "s/^X//" >'w_util.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X/* constant values used for popup_query */
+X
+X#define QUERY_YES	0
+X#define QUERY_YESNO	1
+X#define RESULT_NO	-1
+X#define RESULT_YES	1
+X#define RESULT_CANCEL	0
+X
+X/*
+X * Author:	Doyle C. Davidson
+X *		Intergraph Corporation
+X *		One Madison Industrial Park
+X *		Huntsville, Al.	 35894-0001
+X *
+X * Modification history:
+X *		11 May 91 - added SetValues and GetValues - Paul King
+X *
+X * My macros for using XtSetArg easily:
+X * Usage:
+X *
+X *	blah()
+X *	{
+X *	DeclareArgs(2);
+X *		...
+X *		FirstArg(XmNx, 100);
+X *		NextArg(XmNy, 80);
+X *		button = XmCreatePushButton(parent, name, Args, ArgCount);
+X *	}
+X */
+X
+X#include "assert.h"
+X
+X#define ArgCount	_fooArgCount
+X#define Args		_fooArgList
+X#define ArgCountMax	_fooArgCountMax
+X
+X#define DeclareArgs(n)	Arg Args[n]; int ArgCountMax = n; int ArgCount
+X
+X#define DeclareStaticArgs(n)  static Arg Args[n]; static int ArgCountMax = n; static int ArgCount
+X
+X#define FirstArg(name, val) \
+X	{ XtSetArg(Args[0], (name), (val)); ArgCount=1;}
+X#define NextArg(name, val) \
+X	{ assert(ArgCount < ArgCountMax); \
+X	  XtSetArg(Args[ArgCount], (name), (val)); ArgCount++;}
+X#define GetValues(n)	XtGetValues(n, Args, ArgCount)
+X#define SetValues(n)	XtSetValues(n, Args, ArgCount)
+END_OF_FILE
+if test 1748 -ne `wc -c <'w_util.h'`; then
+    echo shar: \"'w_util.h'\" unpacked with wrong size!
+fi
+# end of 'w_util.h'
+fi
+if test -f 'w_zoom.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_zoom.h'\"
+else
+echo shar: Extracting \"'w_zoom.h'\" \(2112 characters\)
+sed "s/^X//" >'w_zoom.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Henning Spruth
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+Xextern float	zoomscale;
+Xextern int	zoomxoff;
+Xextern int	zoomyoff;
+X
+X#define ZOOMX(x) round(zoomscale*((x)-zoomxoff))
+X#define ZOOMY(y) round(zoomscale*((y)-zoomyoff))
+X#define BACKX(x) round((x)/zoomscale+zoomxoff)
+X#define BACKY(y) round((y)/zoomscale+zoomyoff)
+X
+X#define zXDrawPoint(d,w,gc,x,y) XDrawPoint(d,w,gc,ZOOMX(x),ZOOMY(y))
+X#define zXDrawArc(d,w,gc,x,y,d1,d2,a1,a2)\
+X    XDrawArc(d,w,gc,ZOOMX(x),ZOOMY(y),round(zoomscale*(d1)),round(zoomscale*(d2)),\
+X	      a1,a2)
+X#define zXFillArc(d,w,gc,x,y,d1,d2,a1,a2)\
+X    XFillArc(d,w,gc,ZOOMX(x),ZOOMY(y),round(zoomscale*(d1)),round(zoomscale*(d2)),\
+X	      a1,a2)
+X#define zXDrawLine(d,w,gc,x1,y1,x2,y2)\
+X    XDrawLine(d,w,gc,ZOOMX(x1),ZOOMY(y1),ZOOMX(x2),ZOOMY(y2))
+X#define zXRotDrawString(d,w,font,gc,x,y,s,l)\
+X    XRotDrawString(d,w,font,gc,ZOOMX(x),ZOOMY(y),s,l)
+X#define zXFillRectangle(d,w,gc,x1,y1,x2,y2)\
+X    XFillRectangle(d,w,gc,ZOOMX(x1),ZOOMY(y1),\
+X		round(zoomscale*(x2)),round(zoomscale*(y2)))
+X#define zXDrawRectangle(d,w,gc,x1,y1,x2,y2)\
+X    XDrawRectangle(d,w,gc,ZOOMX(x1),ZOOMY(y1),\
+X		round(zoomscale*(x2)),round(zoomscale*(y2)))
+X#define zXDrawLines(d,w,gc,p,n,m)\
+X    {int i;\
+X     for(i=0;i<n;i++){p[i].x=ZOOMX(p[i].x);p[i].y=ZOOMY(p[i].y);}\
+X     XDrawLines(d,w,gc,p,n,m);\
+X     for(i=0;i<n;i++){p[i].x=BACKX(p[i].x);p[i].y=BACKY(p[i].y);}\
+X    }
+X#define zXFillPolygon(d,w,gc,p,n,m,o)\
+X    {int i;\
+X     for(i=0;i<n;i++){p[i].x=ZOOMX(p[i].x);p[i].y=ZOOMY(p[i].y);}\
+X     XFillPolygon(d,w,gc,p,n,m,o);\
+X     for(i=0;i<n;i++){p[i].x=BACKX(p[i].x);p[i].y=BACKY(p[i].y);}\
+X    }
+END_OF_FILE
+if test 2112 -ne `wc -c <'w_zoom.h'`; then
+    echo shar: \"'w_zoom.h'\" unpacked with wrong size!
+fi
+# end of 'w_zoom.h'
+fi
+echo shar: End of archive 1 \(of 27\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

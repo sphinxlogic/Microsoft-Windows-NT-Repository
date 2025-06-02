@@ -1,0 +1,2127 @@
+Newsgroups: comp.sources.misc
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Subject:  v28i090:  ephem - an interactive astronomical ephemeris, v4.28, Part07/09
+Message-ID: <1992Mar10.215921.16270@sparky.imd.sterling.com>
+X-Md4-Signature: 96e65b62725b81b7c3d9c10d7ddf4c4a
+Date: Tue, 10 Mar 1992 21:59:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Posting-number: Volume 28, Issue 90
+Archive-name: ephem/part07
+Environment: UNIX, VMS, DOS, MAC
+Supersedes: ephem-4.21: Volume 14, Issue 76-81
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  altmenus.c flog.c formats.c listing.c plot.c srch.c
+# Wrapped by kent@sparky on Tue Mar 10 14:34:08 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 9)."'
+if test -f 'altmenus.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'altmenus.c'\"
+else
+  echo shar: Extracting \"'altmenus.c'\" \(11329 characters\)
+  sed "s/^X//" >'altmenus.c' <<'END_OF_FILE'
+X/* routines for managing the alternative bottom half menus.
+X * planet-specific menus are in their own files.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "screen.h"
+X
+Xstatic int altmenu = F_MNU1;	/* which alternate menu is up; one of F_MNUi */
+Xstatic int alt2_stdhzn;	/* whether to use STDHZN (aot ADPHZN) horizon algthm  */
+Xstatic int alt3_geoc;	/* whether to use geocentric (aot topocentric) vantage*/
+X
+X/* table of screen rows given a body #define from astro/h or screen.h */
+Xstatic short bodyrow[NOBJ] = {
+X	R_MERCURY, R_VENUS, R_MARS, R_JUPITER, R_SATURN,
+X	R_URANUS, R_NEPTUNE, R_PLUTO, R_SUN, R_MOON, R_OBJX, R_OBJY
+X};
+X/* table of screen cols for third menu format, given body #define ... */
+Xstatic short bodycol[NOBJ] = {
+X	C_MERCURY, C_VENUS, C_MARS, C_JUPITER, C_SATURN,
+X	C_URANUS, C_NEPTUNE, C_PLUTO, C_SUN, C_MOON, C_OBJX, C_OBJY
+X};
+X
+X/* initialize altmenu; used by main from cracking the ephem startup file.
+X */
+Xaltmenu_init (n)
+Xint n;
+X{
+X	altmenu = n;
+X}
+X
+X/* let op decide which alternate menu should be up,
+X * including any menu-specific setup they might require.
+X * return 0 if things changed to require updating the alt menu; else -1.
+X */
+Xaltmenu_setup()
+X{
+X	static char *flds[5] = {
+X	    "Data", "(Rise/Set", "", "(Separations"
+X	};
+X	int newmenu = altmenu, newhzn = alt2_stdhzn, newgeoc = alt3_geoc;
+X	int new;
+X	int fn = altmenu == F_MNU3 ? 3 : altmenu == F_MNU2 ? 1 : 0;
+X
+X    ask:
+X	flds[2]= newhzn ? "Standard hzn)" : "Adaptive hzn)";
+X	flds[4]= newgeoc? "Geocentric)" : "Topocentric)";
+X
+X	switch (popup (flds, fn, 5)) {
+X	case 0: newmenu = F_MNU1; break;
+X	case 1: newmenu = F_MNU2; break;
+X	case 2: newhzn ^= 1; fn = 2; goto ask;
+X	case 3: newmenu = F_MNU3; break;
+X	case 4: newgeoc ^= 1; fn = 4; goto ask;
+X	default: return (-1);
+X	}
+X
+X	new = 0;
+X	if (newmenu != altmenu) {
+X	    altmenu = newmenu;
+X	    new++;
+X	}
+X	if (newhzn != alt2_stdhzn) {
+X	    alt2_stdhzn = newhzn;
+X	    if (newmenu == F_MNU2)
+X		new++;
+X	}
+X	if (newgeoc != alt3_geoc) {
+X	    alt3_geoc = newgeoc;
+X	    if (newmenu == F_MNU3)
+X		new++;
+X	}
+X	return (new ? 0 : -1);
+X}
+X
+X/* erase the info for the given planet */
+Xalt_nobody (p)
+Xint p;
+X{
+X	f_eol (bodyrow[p], C_RA);
+X}
+X
+Xalt_body (b, force, np)
+Xint b;		/* which body, ala astro.h and screen.h defines */
+Xint force;	/* if !0 then draw for sure, else just if changed since last */
+XNow *np;
+X{
+X	switch (altmenu) {
+X	case F_MNU1: alt1_body (b, force, np); break;
+X	case F_MNU2: alt2_body (b, force, np); break;
+X	case F_MNU3: alt3_body (b, force, np); break;
+X	}
+X}
+X
+X/* draw the labels for the current alternate menu format */
+Xalt_labels ()
+X{
+X	switch (altmenu) {
+X	case F_MNU1: alt1_labels (); break;
+X	case F_MNU2: alt2_labels (); break;
+X	case F_MNU3: alt3_labels (); break;
+X	case F_MNUJ: altj_labels (); break;
+X	}
+X}
+X
+Xalt_erase ()
+X{
+X	int i;
+X
+X	for (i = R_PLANTAB; i <= NR; i++)
+X	    f_eol (i, 1);
+X	f_string (R_ALTM, C_ALTMV, "             ");
+X}
+X
+Xalt_menumask()
+X{
+X	return (altmenu);
+X}
+X
+X/* handy function to return the next planet in the order in which they are
+X * displayed in the lower half of the screen.
+X * input is a given planet, return is the next planet.
+X * if input is not legal, then first planet is returned; when input is the
+X * last planet, then -1 is returned.
+X * typical usage is something like:
+X *   for (p = nxtbody(-1); p != -1; p = nxtbody(p))
+X */
+Xnxtbody(p)
+Xint p;
+X{
+X	static short nxtpl[NOBJ] = {
+X	    VENUS, MARS, JUPITER, SATURN, URANUS,
+X	    NEPTUNE, PLUTO, OBJX, MOON, MERCURY, OBJY, -1
+X	};
+X
+X	if (p < MERCURY || p >= NOBJ)
+X	    return (SUN);
+X	else
+X	    return (nxtpl[p]);
+X}
+X
+Xalt_plnames()
+X{
+X	f_string (R_PLANTAB,	C_OBJ,	"OCX");
+X	f_string (R_SUN,	C_OBJ,	"Su");
+X	f_string (R_MOON,	C_OBJ,	"Mo");
+X	f_string (R_MERCURY,	C_OBJ,	"Me");
+X	f_string (R_VENUS,	C_OBJ,	"Ve");
+X	f_string (R_MARS,	C_OBJ,	"Ma");
+X	f_string (R_JUPITER,	C_OBJ,	"Ju");
+X	f_string (R_SATURN,	C_OBJ,	"Sa");
+X	f_string (R_URANUS,	C_OBJ,	"Ur");
+X	f_string (R_NEPTUNE,	C_OBJ,	"Ne");
+X	f_string (R_PLUTO,	C_OBJ,	"Pl");
+X	f_string (R_OBJX,	C_OBJ,	"X");
+X	f_string (R_OBJY,	C_OBJ,	"Y");
+X}
+X
+Xstatic
+Xalt1_labels()
+X{
+X	f_string (R_ALTM, C_ALTMV, "  Planet Data");
+X
+X	alt_plnames();
+X	f_string (R_PLANTAB,	C_RA+2,	"R.A.");
+X	f_string (R_PLANTAB,	C_DEC+2,"Dec");
+X	f_string (R_PLANTAB,	C_AZ+2,	"Az");
+X	f_string (R_PLANTAB,	C_ALT+2,"Alt");
+X	f_string (R_PLANTAB,	C_HLONG,"H Long");
+X	f_string (R_PLANTAB,	C_HLAT,	"H Lat");
+X	f_string (R_PLANTAB,	C_EDIST,"Ea Dst");
+X	f_string (R_PLANTAB,	C_SDIST,"Sn Dst");
+X	f_string (R_PLANTAB,	C_ELONG,"Elong");
+X	f_string (R_PLANTAB,	C_SIZE,	"Size");
+X	f_string (R_PLANTAB,	C_MAG,	"VMag");
+X	f_string (R_PLANTAB,	C_PHASE,"Phs");
+X}
+X
+Xstatic
+Xalt2_labels()
+X{
+X	f_string (R_ALTM, C_ALTMV, "Rise/Set Info");
+X
+X	alt_plnames();
+X	f_string (R_PLANTAB,	C_RISETM-2,	"Rise Time");
+X	f_string (R_PLANTAB,	C_RISEAZ,	"Rise Az");
+X	f_string (R_PLANTAB,	C_TRANSTM-2,	"Trans Time");
+X	f_string (R_PLANTAB,	C_TRANSALT-1,	"Trans Alt");
+X	f_string (R_PLANTAB,	C_SETTM-1,	"Set Time");
+X	f_string (R_PLANTAB,	C_SETAZ,	"Set Az");
+X	f_string (R_PLANTAB,	C_TUP-1,	"Hours Up");
+X}
+X
+Xstatic
+Xalt3_labels()
+X{
+X	f_string (R_ALTM, C_ALTMV, "  Separations");
+X
+X	alt_plnames();
+X	f_string (R_PLANTAB,	C_SUN,		" Sun");
+X	f_string (R_PLANTAB,	C_MOON,		"Moon");
+X	f_string (R_PLANTAB,	C_MERCURY,	"Merc");
+X	f_string (R_PLANTAB,	C_VENUS,	"Venus");
+X	f_string (R_PLANTAB,	C_MARS,		"Mars");
+X	f_string (R_PLANTAB,	C_JUPITER,	" Jup");
+X	f_string (R_PLANTAB,	C_SATURN,	" Sat");
+X	f_string (R_PLANTAB,	C_URANUS,	"Uranus");
+X	f_string (R_PLANTAB,	C_NEPTUNE,	" Nep");
+X	f_string (R_PLANTAB,	C_PLUTO,	"Pluto");
+X	f_string (R_PLANTAB,	C_OBJX,		"  X");
+X	f_string (R_PLANTAB,	C_OBJY,		"  Y");
+X}
+X
+X/* print body info in first menu format */
+Xstatic
+Xalt1_body (p, force, np)
+Xint p;		/* which body, as in astro.h/screen.h defines */
+Xint force;	/* whether to print for sure or only if things have changed */
+XNow *np;
+X{
+X	Sky sky;
+X	double as = plot_ison() || srch_ison() ? 0.0 : 60.0;
+X	int row = bodyrow[p];
+X
+X	if (body_cir (p, as, np, &sky) || force) {
+X	    f_ra (row, C_RA, sky.s_ra);
+X	    f_angle (row, C_DEC, sky.s_dec);
+X	    if (sky.s_hlong != NOHELIO) {
+X		f_angle (row, C_HLONG, sky.s_hlong);
+X		if (p != SUN)
+X		    f_angle (row, C_HLAT, sky.s_hlat);
+X	    }
+X
+X	    if (p == MOON) {
+X		/* distance is on km, show in miles */
+X		f_double (R_MOON, C_EDIST, "%6.0f", sky.s_edist/1.609344);
+X	    } else if (sky.s_edist > 0.0) {
+X		/* show distance in au */
+X		f_double (row, C_EDIST,(sky.s_edist>=10.0)?"%6.3f":"%6.4f",
+X								sky.s_edist);
+X	    }
+X	    if (sky.s_sdist > 0.0)
+X		f_double (row, C_SDIST, (sky.s_sdist>=9.99995)?"%6.3f":"%6.4f",
+X								sky.s_sdist);
+X	    if (p != SUN)
+X		f_double (row, C_ELONG, "%6.1f", sky.s_elong);
+X	    f_double (row, C_SIZE, sky.s_size >= 99.95 ?"%4.0f":"%4.1f",
+X								sky.s_size);
+X	    f_double (row, C_MAG, sky.s_mag <= -9.95 ? "%4.0f" : "%4.1f",
+X								sky.s_mag);
+X	    if (sky.s_sdist > 0.0) {
+X		/* some terminals scroll when write a char in low-right corner.
+X		 * TODO: is there a nicer way to handle this maybe?
+X		 */
+X		int col = row == NR ? C_PHASE - 1 : C_PHASE;
+X		/* would just do this if Turbo-C 2.0 "%?.0f" worked:
+X		 * f_double (row, col, "%3.0f", sky.s_phase);
+X		 */
+X		f_int (row, col, "%3d", sky.s_phase);
+X	    }
+X	}
+X
+X	f_angle (row, C_AZ, sky.s_az);
+X	f_angle (row, C_ALT, sky.s_alt);
+X}
+X
+X/* print body info in the second menu format */
+Xstatic
+Xalt2_body (p, force, np)
+Xint p;		/* which body, as in astro.h/screen.h defines */
+Xint force;	/* whether to print for sure or only if things have changed */
+XNow *np;
+X{
+X	double ltr, lts, ltt, azr, azs, altt;
+X	int row = bodyrow[p];
+X	int status;
+X	double tmp;
+X	int today_tup = 0;
+X
+X	/* always recalc OBJX and Y since we don't know it's the same object */
+X	if (!riset_cir (p, np, p==OBJX || p==OBJY, alt2_stdhzn?STDHZN:ADPHZN,
+X		&ltr, &lts, &ltt, &azr, &azs, &altt, &status) && !force)
+X	    return;
+X
+X	alt_nobody (p);
+X
+X	if (status & RS_ERROR) {
+X	    /* can not find where body is! */
+X	    f_string (row, C_RISETM, "?Error?");
+X	    return;
+X	}
+X	if (status & RS_CIRCUMPOLAR) {
+X	    /* body is up all day */
+X	    f_string (row, C_RISETM, "Circumpolar");
+X	    if (status & RS_NOTRANS)
+X		f_string (row, C_TRANSTM, "No transit");
+X	    else {
+X		f_mtime (row, C_TRANSTM, ltt);
+X		if (status & RS_2TRANS)
+X		    f_char (row, C_TRANSTM+5, '+');
+X		f_angle (row, C_TRANSALT, altt);
+X	    }
+X	    f_string (row, C_TUP, "24:00"); /*f_mtime() changes to 0:00 */
+X	    return;
+X	}
+X	if (status & RS_NEVERUP) {
+X	    /* body never up at all today */
+X	    f_string (row, C_RISETM, "Never up");
+X	    f_mtime (row, C_TUP, 0.0);
+X	    return;
+X	}
+X
+X	if (status & RS_NORISE) {
+X	    /* object does not rise as such today */
+X	    f_string (row, C_RISETM, "Never rises");
+X	    ltr = 0.0; /* for TUP */
+X	    today_tup = 1;
+X	} else {
+X	    f_mtime (row, C_RISETM, ltr);
+X	    if (status & RS_2RISES) {
+X		/* object rises more than once today */
+X		f_char (row, C_RISETM+5, '+');
+X	    }
+X	    f_angle (row, C_RISEAZ, azr);
+X	}
+X
+X	if (status & RS_NOTRANS)
+X	    f_string (row, C_TRANSTM, "No transit");
+X	else {
+X	    f_mtime (row, C_TRANSTM, ltt);
+X	    if (status & RS_2TRANS)
+X		f_char (row, C_TRANSTM+5, '+');
+X	    f_angle (row, C_TRANSALT, altt);
+X	}
+X
+X	if (status & RS_NOSET) {
+X	    /* object does not set as such today */
+X	    f_string (row, C_SETTM, "Never sets");
+X	    lts = 24.0;	/* for TUP */
+X	    today_tup = 1;
+X	} else {
+X	    f_mtime (row, C_SETTM, lts);
+X	    if (status & RS_2SETS)
+X		f_char (row, C_SETTM+5, '+');
+X	    f_angle (row, C_SETAZ, azs);
+X	}
+X
+X	tmp = lts - ltr;
+X	if (tmp < 0)
+X	    tmp = 24.0 + tmp;
+X	f_mtime (row, C_TUP, tmp);
+X	if (today_tup)
+X	    f_char (row, C_TUP+5, '+');
+X}
+X
+X/* print body info in third menu format. this may be either the geocentric
+X *   or topocentric angular separation between object p and each of the others.
+X *   the latter, of course, includes effects of refraction and so can change
+X *   quite rapidly near the time of each planets rise or set.
+X * for now, we don't save old values so we always redo everything and ignore
+X *  the "force" argument. this isn't that bad since body_cir() has memory and
+X *   will avoid most computations as we hit them again in the lower triangle.
+X * we are limited to only 5 columns per object. to make it fit, we display
+X *   degrees:minutes if less than 100 degrees, otherwise just whole degrees.
+X */
+X/*ARGSUSED*/
+Xstatic
+Xalt3_body (p, force, np)
+Xint p;		/* which body, as in astro.h/screen.h defines */
+Xint force;	/* whether to print for sure or only if things have changed */
+XNow *np;
+X{
+X	int row = bodyrow[p];
+X	Sky skyp, skyq;
+X	double spy, cpy, px, *qx, *qy;
+X	int wantx = obj_ison(OBJX);
+X	int wanty = obj_ison(OBJY);
+X	double as = plot_ison() || srch_ison() ? 0.0 : 60.0;
+X	int q;
+X
+X	(void) body_cir (p, as, np, &skyp);
+X	if (alt3_geoc) {
+X	    /* use ra for "x", dec for "y". */
+X	    spy = sin (skyp.s_dec);
+X	    cpy = cos (skyp.s_dec);
+X	    px = skyp.s_ra;
+X	    qx = &skyq.s_ra;
+X	    qy = &skyq.s_dec;
+X	} else {
+X	    /* use azimuth for "x", altitude for "y". */
+X	    spy = sin (skyp.s_alt);
+X	    cpy = cos (skyp.s_alt);
+X	    px = skyp.s_az;
+X	    qx = &skyq.s_az;
+X	    qy = &skyq.s_alt;
+X	}
+X	for (q = nxtbody(-1); q != -1; q = nxtbody(q))
+X	    if (q != p && (q != OBJX || wantx) && (q != OBJY || wanty)) {
+X		double sep, dsep;
+X		(void) body_cir (q, as, np, &skyq);
+X		sep = acos(spy*sin(*qy) + cpy*cos(*qy)*cos(px-*qx));
+X		dsep = raddeg(sep);
+X		if (dsep >= (100.0 - 1.0/60.0/2.0))
+X		    f_int (row, bodycol[q], "%5d:", dsep);
+X		else
+X		    f_angle (row, bodycol[q], sep);
+X	    }
+X}
+END_OF_FILE
+  if test 11329 -ne `wc -c <'altmenus.c'`; then
+    echo shar: \"'altmenus.c'\" unpacked with wrong size!
+  fi
+  # end of 'altmenus.c'
+fi
+if test -f 'flog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flog.c'\"
+else
+  echo shar: Extracting \"'flog.c'\" \(3241 characters\)
+  sed "s/^X//" >'flog.c' <<'END_OF_FILE'
+X/* this is a simple little package to manage the saving and retrieving of
+X * field values, which we call field logging or "flogs". a flog consists of a
+X * field location, ala rcfpack(), its value as a double and its value as
+X * a string (ie, however it was printed). you can reset the list of flogs, add
+X * to and remove from the list of registered fields and log a field if it has
+X * been registered.
+X *
+X * this is used by the plotting and searching facilities of ephem to maintain
+X * the values of the fields that are being plotted or used in search
+X * expressions. it is used by the listing facility to generate listing files.
+X *
+X * a field can be in use for more than one
+X * thing at a time (eg, all the X plot values may the same time field, or
+X * searching and plotting might be on at one time using the same field) so
+X * we consider the field to be in use as long a usage count is > 0.
+X */
+X
+X#include "screen.h"
+X
+Xextern char *strcpy(), *strncpy();
+X
+X#define	NFLOGS	32		/* max number of distinct simultaneous logged
+X				 * fields
+X				 */
+X
+Xtypedef struct {
+X	int fl_usagecnt;	/* number of "users" logging to this field */
+X	int fl_fld;		/* an rcfpack(r,c,0) */
+X	double fl_val;		/* stored value as a double */
+X	char fl_str[16];	/* stored value as a formatted string.
+X				 * N.B.: never overwrite last char: keep as \0
+X				 */
+X} FLog;
+X
+Xstatic FLog flog[NFLOGS];
+X
+X/* add fld to the list. if already there, just increment usage count.
+X * return 0 if ok, else -1 if no more room.
+X */
+Xflog_add (fld)
+Xint fld;
+X{
+X	FLog *flp, *unusedflp = 0;
+X
+X	/* scan for fld already in list, or find an unused one along the way */
+X	for (flp = &flog[NFLOGS]; --flp >= flog; ) {
+X	    if (flp->fl_usagecnt > 0) {
+X		if (flp->fl_fld == fld) {
+X		    flp->fl_usagecnt++;
+X		    return (0);
+X		}
+X	    } else
+X		unusedflp = flp;
+X	}
+X	if (unusedflp) {
+X	    unusedflp->fl_fld = fld;
+X	    unusedflp->fl_usagecnt = 1;
+X	    return (0);
+X	}
+X	return (-1);
+X}
+X
+X/* decrement usage count for flog for fld. if goes to 0 take it out of list.
+X * ok if not in list i guess...
+X */
+Xflog_delete (fld)
+Xint fld;
+X{
+X	FLog *flp;
+X
+X	for (flp = &flog[NFLOGS]; --flp >= flog; )
+X	    if (flp->fl_fld == fld && flp->fl_usagecnt > 0) {
+X		if (--flp->fl_usagecnt <= 0) {
+X		    flp->fl_usagecnt = 0;
+X		}
+X		break;
+X	    }
+X}
+X
+X/* if plotting, listing or searching is active then
+X * if rcfpack(r,c,0) is in the fld list, set its value to val.
+X * return 0 if ok, else -1 if not in list.
+X */
+Xflog_log (r, c, val, str)
+Xint r, c;
+Xdouble val;
+Xchar *str;
+X{
+X	if (plot_ison() || listing_ison() || srch_ison()) {
+X	    FLog *flp;
+X	    int fld = rcfpack (r, c, 0);
+X	    for (flp = &flog[NFLOGS]; --flp >= flog; )
+X		if (flp->fl_fld == fld && flp->fl_usagecnt > 0) {
+X		    flp->fl_val = val;
+X		    (void) strncpy (flp->fl_str, str, sizeof(flp->fl_str)-1);
+X		    return(0);
+X		}
+X	    return (-1);
+X	} else
+X	    return (0);
+X}
+X
+X/* search for fld in list. if find it, return its value and str, if str.
+X * return 0 if found it, else -1 if not in list.
+X */
+Xflog_get (fld, vp, str)
+Xint fld;
+Xdouble *vp;
+Xchar *str;
+X{
+X	FLog *flp;
+X
+X	for (flp = &flog[NFLOGS]; --flp >= flog; )
+X	    if (flp->fl_fld == fld && flp->fl_usagecnt > 0) {
+X		*vp = flp->fl_val;
+X		if (str) 
+X		    (void) strcpy (str, flp->fl_str);
+X		return (0);
+X	    }
+X	return (-1);
+X}
+END_OF_FILE
+  if test 3241 -ne `wc -c <'flog.c'`; then
+    echo shar: \"'flog.c'\" unpacked with wrong size!
+  fi
+  # end of 'flog.c'
+fi
+if test -f 'formats.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'formats.c'\"
+else
+  echo shar: Extracting \"'formats.c'\" \(7430 characters\)
+  sed "s/^X//" >'formats.c' <<'END_OF_FILE'
+X/* basic formating routines.
+X * all the screen oriented printing should go through here.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <ctype.h>
+X#ifdef VMS
+X#include <stdlib.h>
+X#endif
+X#include "astro.h"
+X#include "screen.h"
+X
+Xextern char *strcpy();
+X
+X/* suppress screen io if this is true, but always flog stuff.
+X */
+Xstatic int f_scrnoff;
+Xf_on ()
+X{
+X	f_scrnoff = 0;
+X}
+Xf_off ()
+X{
+X	f_scrnoff = 1;
+X}
+X
+X/* draw n blanks at the given cursor position.  */
+Xf_blanks (r, c, n)
+Xint r, c, n;
+X{
+X	if (f_scrnoff)
+X	    return;
+X	c_pos (r, c);
+X	while (--n >= 0)
+X	    putchar (' ');
+X}
+X
+X/* print the given value, v, in "sexadecimal" format at [r,c]
+X * ie, in the form A:m.P, where A is a digits wide, P is p digits.
+X * if p == 0, then no decimal point either.
+X */
+Xf_sexad (r, c, a, p, mod, v)
+Xint r, c;
+Xint a, p;	/* left space, min precision */
+Xint mod;	/* don't let whole portion get this big */
+Xdouble v;
+X{
+X	char astr[32], str[32];
+X	long dec;
+X	double frac;
+X	int visneg;
+X	double vsav = v;
+X
+X	if (v >= 0.0)
+X	    visneg = 0;
+X	else {
+X	    if (v <= -0.5/60.0*pow(10.0,-1.0*p)) {
+X		v = -v;
+X		visneg = 1;
+X	    } else {
+X		/* don't show as negative if less than the precision showing */
+X		v = 0.0;
+X		visneg = 0;
+X	    }
+X	}
+X
+X	dec = v;
+X	frac = (v - dec)*60.0;
+X	(void) sprintf (str, "59.%.*s5", p, "999999999");
+X	if (frac >= atof (str)) {
+X	    dec += 1;
+X	    frac = 0.0;
+X	}
+X	dec %= mod;
+X	if (dec == 0 && visneg)
+X	    (void) strcpy (str, "-0");
+X	else
+X	    (void) sprintf (str, "%ld", visneg ? -dec : dec);
+X
+X	/* would just do this if Turbo-C 2.0 %?.0f" worked:
+X	 * sprintf (astr, "%*s:%0*.*f", a, str, p == 0 ? 2 : p+3, p, frac);
+X	 */
+X	if (p == 0)
+X	    (void) sprintf (astr, "%*s:%02d", a, str, (int)(frac+0.5));
+X	else
+X	    (void) sprintf (astr, "%*s:%0*.*f", a, str, p+3, p, frac);
+X
+X	(void) flog_log (r, c, vsav, astr);
+X
+X	f_string (r, c, astr);
+X}
+X
+X/* print the given value, t, in sexagesimal format at [r,c]
+X * ie, in the form T:mm:ss, where T is nd digits wide.
+X * N.B. we assume nd >= 2.
+X */
+Xf_sexag (r, c, nd, t)
+Xint r, c, nd;
+Xdouble t;
+X{
+X	char tstr[32];
+X	int h, m, s;
+X	int tisneg;
+X	
+X	dec_sex (t, &h, &m, &s, &tisneg);
+X	if (h == 0 && tisneg)
+X	    (void) sprintf (tstr, "%*s-0:%02d:%02d", nd-2, "", m, s);
+X	else
+X	    (void) sprintf (tstr, "%*d:%02d:%02d", nd, tisneg ? -h : h, m, s);
+X
+X	(void) flog_log (r, c, t, tstr);
+X	f_string (r, c, tstr);
+X}
+X
+X/* print angle ra, in radians, in ra hours as hh:mm.m at [r,c]
+X * N.B. we assume ra is >= 0.
+X */
+Xf_ra (r, c, ra)
+Xint r, c;
+Xdouble ra;
+X{
+X	f_sexad (r, c, 2, 1, 24, radhr(ra));
+X}
+X
+X/* print time, t, as hh:mm:ss */
+Xf_time (r, c, t)
+Xint r, c;
+Xdouble t;
+X{
+X	f_sexag (r, c, 2, t);
+X}
+X
+X/* print time, t, as +/-hh:mm:ss (don't show leading +) */
+Xf_signtime (r, c, t)
+Xint r, c;
+Xdouble t;
+X{
+X	f_sexag (r, c, 3, t);
+X}
+X
+X/* print time, t, as hh:mm */
+Xf_mtime (r, c, t)
+Xint r, c;
+Xdouble t;
+X{
+X	f_sexad (r, c, 2, 0, 24, t);
+X}
+X
+X/* print angle, a, in rads, as degress at [r,c] in form ddd:mm */
+Xf_angle(r, c, a)
+Xint r, c;
+Xdouble a;
+X{
+X	f_sexad (r, c, 3, 0, 360, raddeg(a));
+X}
+X
+X/* print angle, a, in rads, as degress at [r,c] in form dddd:mm:ss */
+Xf_gangle(r, c, a)
+Xint r, c;
+Xdouble a;
+X{
+X	f_sexag (r, c, 4, raddeg(a));
+X}
+X
+X/* print the given modified Julian date, jd, as the starting date at [r,c]
+X * in the form mm/dd/yyyy.
+X */
+Xf_date (r, c, jd)
+Xint r, c;
+Xdouble jd;
+X{
+X	char dstr[32];
+X	int m, y;
+X	double d, tmp;
+X
+X	mjd_cal (jd, &m, &d, &y);
+X	(void) sprintf (dstr, "%2d/%02d/%-4d", m, (int)(d), y);
+X
+X	/* shadow to the plot subsystem as years. */
+X	mjd_year (jd, &tmp);
+X	(void) flog_log (r, c, tmp, dstr);
+X	f_string (r, c, dstr);
+X}
+X
+X/* print the given double as a rounded int, with the given format.
+X * this is used to plot full precision, but display far less.
+X * N.B. caller beware that we really do expect fmt to refer to an int, not
+X *   a long for example. also beware of range that implies.
+X */
+Xf_int (row, col, fmt, f)
+Xint row, col;
+Xchar fmt[];
+Xdouble f;
+X{
+X	char str[80];
+X	int i;
+X
+X	i = (f < 0) ? (int)(f-0.5) : (int)(f+0.5);
+X	(void) sprintf (str, fmt, i);
+X
+X	(void) flog_log (row, col, f, str);
+X	f_string (row, col, str);
+X}
+X
+Xf_char (row, col, c)
+Xint row, col;
+Xchar c;
+X{
+X	if (f_scrnoff)
+X	    return;
+X	c_pos (row, col);
+X	putchar (c);
+X}
+X
+Xf_string (r, c, s)
+Xint r, c;
+Xchar *s;
+X{
+X	if (f_scrnoff)
+X	    return;
+X	c_pos (r, c);
+X	(void) fputs (s, stdout);
+X}
+X
+Xf_double (r, c, fmt, f)
+Xint r, c;
+Xchar *fmt;
+Xdouble f;
+X{
+X	char str[80];
+X	(void) sprintf (str, fmt, f);
+X	(void) flog_log (r, c, f, str);
+X	f_string (r, c, str);
+X}
+X
+X/* print prompt line */
+Xf_prompt (p)
+Xchar *p;
+X{
+X	c_pos (R_PROMPT, C_PROMPT);
+X	c_eol ();
+X	c_pos (R_PROMPT, C_PROMPT);
+X	(void) fputs (p, stdout);
+X}
+X
+X/* clear from [r,c] to end of line, if we are drawing now. */
+Xf_eol (r, c)
+Xint r, c;
+X{
+X	if (!f_scrnoff) {
+X	    c_pos (r, c);
+X	    c_eol();
+X	}
+X}
+X
+X/* print a message and wait for op to hit any key */
+Xf_msg (m)
+Xchar *m;
+X{
+X	f_prompt (m);
+X	(void) read_char();
+X}
+X
+X/* crack a line of the form X?X?X into its components,
+X *   where X is an integer and ? can be any character except '0-9' or '-',
+X *   such as ':' or '/'.
+X * only change those fields that are specified:
+X *   eg:  ::10	only changes *s
+X *        10    only changes *d
+X *        10:0  changes *d and *m
+X * if see '-' anywhere, first non-zero component will be made negative.
+X */
+Xf_sscansex (bp, d, m, s)
+Xchar *bp;
+Xint *d, *m, *s;
+X{
+X	char c;
+X	int *p = d;
+X	int *nonzp = 0;
+X	int sawneg = 0;
+X	int innum = 0;
+X
+X	while (c = *bp++)
+X	    if (isdigit(c)) {
+X		if (!innum) {
+X		    *p = 0;
+X		    innum = 1;
+X		}
+X		*p = *p*10 + (c - '0');
+X		if (*p && !nonzp)
+X		    nonzp = p;
+X	    } else if (c == '-') {
+X		sawneg = 1;
+X	    } else if (c != ' ') {
+X		/* advance to next component */
+X		p = (p == d) ? m : s;
+X		innum = 0;
+X	    }
+X
+X	if (sawneg && nonzp)
+X	    *nonzp = -*nonzp;
+X}
+X
+X/* crack a floating date string, bp, of the form m/d/y, where d may be a
+X *   floating point number, into its components.
+X * leave any component unspecified unchanged.
+X * actually, the slashes may be anything but digits or a decimal point.
+X * this is functionally the same as f_sscansex() exept we allow for
+X *   the day portion to be real, and we don't handle negative numbers.
+X *   maybe someday we could make a combined one and use it everywhere.
+X */
+Xf_sscandate (bp, m, d, y)
+Xchar *bp;
+Xint *m, *y;
+Xdouble *d;
+X{
+X	char *bp0, c;
+X
+X	bp0 = bp;
+X	while ((c = *bp++) && isdigit(c))
+X	    continue;
+X	if (bp > bp0+1)
+X	    *m = atoi (bp0);
+X	if (c == '\0')
+X	    return;
+X	bp0 = bp;
+X	while ((c = *bp++) && (isdigit(c) || c == '.'))
+X	    continue;
+X	if (bp > bp0+1)
+X	    *d = atof (bp0);
+X	if (c == '\0')
+X	    return;
+X	bp0 = bp;
+X	while (c = *bp++)
+X	    continue;
+X	if (bp > bp0+1)
+X	    *y = atoi (bp0);
+X}
+X
+X/* just like dec_sex() but makes the first non-zero element negative if
+X * x is negative (instead of returning a sign flag).
+X */
+Xf_dec_sexsign (x, h, m, s)
+Xdouble x;
+Xint *h, *m, *s;
+X{
+X	int n;
+X	dec_sex (x, h, m, s, &n);
+X	if (n) {
+X	    if (*h)
+X		*h = -*h;
+X	    else if (*m)
+X		*m = -*m;
+X	    else
+X		*s = -*s;
+X	}
+X}
+X
+X/* return 1 if bp looks like a decimal year; else 0.
+X * any number greater than 12 or less than 0 is assumed to be a year, or any
+X * string with exactly one decimal point, an optional minus sign, and nothing
+X * else but digits.
+X */
+Xdecimal_year (bp)
+Xchar *bp;
+X{
+X	char c;
+X	int ndig = 0, ndp = 0, nneg = 0, nchar = 0;
+X	double y = atof(bp);
+X
+X	while (c = *bp++) {
+X	    nchar++;
+X	    if (isdigit(c))
+X		ndig++;
+X	    else if (c == '.')
+X		ndp++;
+X	    else if (c == '-')
+X		nneg++;
+X	}
+X
+X	return (y > 12 || y < 0
+X		    || (ndp == 1 && nneg <= 1 && nchar == ndig+ndp+nneg));
+X}
+END_OF_FILE
+  if test 7430 -ne `wc -c <'formats.c'`; then
+    echo shar: \"'formats.c'\" unpacked with wrong size!
+  fi
+  # end of 'formats.c'
+fi
+if test -f 'listing.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'listing.c'\"
+else
+  echo shar: Extracting \"'listing.c'\" \(7576 characters\)
+  sed "s/^X//" >'listing.c' <<'END_OF_FILE'
+X/* code to support the listing capabilities.
+X * idea is to let the operator name a listing file and mark some fields for
+X * logging. then after each screen update, the logged fields are written to
+X * the listing file in the same manner as they appeared on the screen.
+X * 
+X * format of the listing file is one line per screen update.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "screen.h"
+X
+Xextern char *strcpy();
+X
+X#ifdef VMS
+X#include <perror.h>
+X#include <errno.h>
+X#else
+Xextern char *sys_errlist[];
+Xextern errno;
+X#endif
+X
+X#define	errsys	(sys_errlist[errno])
+X
+X
+X#define	TRACE(x)	{FILE *fp = fopen("trace","a"); fprintf x; fclose(fp);}
+X
+X#define	MAXLSTFLDS	10	/* max number of fields we can track.
+X				 * note we can't store more than NFLOGS fields
+X				 * anyway (see flog.c).
+X				 */
+X#define	FNLEN		(14+1)	/* longest filename; plus 1 for \0 */
+X
+Xstatic char lst_filename[FNLEN] = "ephem.lst";	/* default plot file name */
+Xstatic FILE *lst_fp;		/* the plot file; == 0 means don't plot */
+X
+X/* store rcfpack()s for each field to track, in l-to-r order */
+Xstatic int lstflds[MAXLSTFLDS];
+Xstatic int nlstflds;		/* number of lstflds[] in actual use */
+X
+Xstatic int lstsrchfld;		/* set when the Search field is to be listed */
+X
+X/* picked the Listing label:
+X * if on, just turn it off.
+X * if off, turn on, define fields or select name of file to list to and do it.
+X * TODO: more flexibility, more relevance.
+X */
+Xlisting_setup()
+X{
+X	if (lst_fp)
+X	    lst_turn_off();
+X	else {
+X	    static char *chcs[] = {
+X		"Select fields", "Display a listing file", "Begin listing"
+X	    };
+X	    static int fn;	/* start with 0, then remember for next time */
+X    ask:
+X	    switch (popup(chcs, fn, nlstflds > 0 ? 3 : 2)) {
+X	    case 0: fn = 0; lst_select_fields(); goto ask;
+X	    case 1: fn = 1; lst_file(); goto ask;
+X	    case 2: fn = 2; lst_turn_on(); break;
+X	    default: break;
+X	    }
+X	}
+X}
+X
+X/* write the active listing to the current listing file, if one is open. */
+Xlisting()
+X{
+X	if (lst_fp) {
+X	    int n;
+X	    double flx;
+X	    char flstr[32];
+X	    if (!srch_ison() && lstsrchfld) {
+X		/* if searching is not on but we are listing the search
+X		 * funtion we must evaluate and log it ourselves here and now.
+X		 * lst_turn_on() insured there is a good function to eval.
+X		 * N.B. if searching IS on, we rely on main() having called
+X		 * srch_eval() BEFORE plot() so it is already evaluated.
+X		 */
+X		double e;
+X		char errmsg[128];
+X		if (execute_expr (&e, errmsg) < 0) {
+X		    f_msg (errmsg);
+X		    lst_turn_off();
+X		    return;
+X		} else {
+X		    (void) sprintf (flstr, "%g", e);
+X		    (void) flog_log (R_SRCH, C_SRCH, e, flstr);
+X		}
+X	    }
+X
+X	    /* list in order of original selection */
+X	    for (n = 0; n < nlstflds; n++)
+X		if (flog_get (lstflds[n], &flx, flstr) == 0)
+X		    (void) fprintf (lst_fp, "%s  ", flstr);
+X	    (void) fprintf (lst_fp, "\n");
+X	}
+X}
+X
+Xlisting_prstate (force)
+Xint force;
+X{
+X	static last;
+X	int this = lst_fp != 0;
+X
+X	if (force || this != last) {
+X	    f_string (R_LISTING, C_LISTINGV, this ? " on" : "off");
+X	    last = this;
+X	}
+X}
+X
+Xlisting_ison()
+X{
+X	return (lst_fp != 0);
+X}
+X
+Xstatic
+Xlst_reset()
+X{
+X	int *lp;
+X
+X	for (lp = lstflds; lp < &lstflds[nlstflds]; lp++) {
+X	    (void) flog_delete (*lp);
+X	    *lp = 0;
+X	}
+X	nlstflds = 0;
+X	lstsrchfld = 0;
+X}
+X
+X/* let operator select the fields he wants to have in his listing.
+X * register them with flog and keep rcfpack() in lstflds[] array.
+X * as a special case, set lstsrchfld if Search field is selected.
+X */
+Xstatic
+Xlst_select_fields()
+X{
+X	static char hlp[] = "move and RETURN to select a field, or q to quit";
+X	static char sry[] = "Sorry; can not list any more fields.";
+X	int f = rcfpack(R_UT,C_UTV,0); /* TODO: start where main was? */
+X	int sf = rcfpack (R_SRCH,C_SRCH,0);
+X	char buf[64];
+X	int i;
+X
+X	lst_reset();
+X	for (i = 0; i < MAXLSTFLDS; i++) {
+X	    (void) sprintf(buf,"select field for column %d or q to quit", i+1);
+X	    f = sel_fld (f, alt_menumask()|F_PLT, buf, hlp);
+X	    if (!f)
+X		break;
+X	    if (flog_add (f) < 0) {
+X		f_msg (sry);
+X		break;
+X	    }
+X	    lstflds[i] = f;
+X	    if (f == sf)
+X		lstsrchfld = 1;
+X	}
+X	if (i == MAXLSTFLDS)
+X	    f_msg (sry);
+X	nlstflds = i;
+X}
+X
+Xstatic
+Xlst_turn_off ()
+X{
+X	(void) fclose (lst_fp);
+X	lst_fp = 0;
+X	listing_prstate(0);
+X}
+X
+X/* turn on listing facility.
+X * establish a file to use (and thereby set lst_fp, the "listing-is-on" flag).
+X * also check that there is a srch function if it is being used.
+X */
+Xstatic
+Xlst_turn_on ()
+X{
+X	int sf = rcfpack(R_SRCH, C_SRCH, 0);
+X	char fn[FNLEN], fnq[NC];
+X	char *optype;
+X	int n;
+X
+X	/* insure there is a valid srch function if we are to list it */
+X	for (n = 0; n < nlstflds; n++)
+X	    if (lstflds[n] == sf && !prog_isgood()) {
+X		f_msg ("Listing search function but it is not defined.");
+X		return;
+X	    }
+X
+X	/* prompt for file name, giving current as default */
+X	(void) sprintf (fnq, "file to write <%s>: ", lst_filename);
+X	f_prompt (fnq);
+X	n = read_line (fn, sizeof(fn)-1);
+X
+X	/* leave plotting off if type END.
+X	 * reuse same fn if just type \n
+X	 */
+X	if (n < 0)
+X	    return;
+X	if (n > 0)
+X	    (void) strcpy (lst_filename, fn);
+X
+X	/* give option to append if file already exists */
+X	optype = "w";
+X	if (access (lst_filename, 2) == 0) {
+X	    while (1) {
+X		f_prompt ("files exists; append or overwrite (a/o)?: ");
+X		n = read_char();
+X		if (n == 'a') {
+X		    optype = "a";
+X		    break;
+X		}
+X		if (n == 'o')
+X		    break;
+X	    }
+X	}
+X
+X	/* listing is on if file opens ok */
+X	lst_fp = fopen (lst_filename, optype);
+X	if (!lst_fp) {
+X	    (void) sprintf (fnq, "can not open %s: %s", lst_filename, errsys);
+X	    f_msg (fnq);
+X	} else {
+X	    /* add a title if desired */
+X	    static char tp[] = "Title (q to skip): ";
+X	    f_prompt (tp);
+X	    if (read_line (fnq, PW - sizeof(tp)) > 0)
+X		(void) fprintf (lst_fp, "%s\n", fnq);
+X	}
+X
+X	listing_prstate (0);
+X}
+X
+X/* ask operator for a listing file to show. if it's ok, do it.
+X */
+Xstatic
+Xlst_file ()
+X{
+X	char fn[FNLEN], fnq[64];
+X	FILE *lfp;
+X	int n;
+X
+X	/* prompt for file name, giving current as default */
+X	(void) sprintf (fnq, "file to read <%s>: ", lst_filename);
+X	f_prompt (fnq);
+X	n = read_line (fn, sizeof(fn)-1);
+X
+X	/* forget it if type END.
+X	 * reuse same fn if just type \n
+X	 */
+X	if (n < 0)
+X	    return;
+X	if (n > 0)
+X	    (void) strcpy (lst_filename, fn);
+X
+X	/* show it if file opens ok */
+X	lfp = fopen (lst_filename, "r");
+X	if (lfp) {
+X	    display_listing_file (lfp);
+X	    (void) fclose (lfp);
+X	} else {
+X	    char buf[NC];
+X	    (void) sprintf (buf, "can not open %s: %s", lst_filename, errsys);
+X	    f_prompt (buf);
+X	    (void)read_char();
+X	}
+X}
+X
+X/* display the given listing file on the screen.
+X * allow for files longer than the screen.
+X * N.B. do whatever you like but redraw the screen when done.
+X */
+Xstatic
+Xdisplay_listing_file (lfp)
+XFILE *lfp;
+X{
+X	static char eofp[] = "[End-of-file. Hit any key to resume...] ";
+X	static char p[] =    "[Hit any key to continue or q to quit...] ";
+X	char buf[NC+2];	/* screen width plus for '\n' and '\0' */
+X	int nc, nl;
+X
+X	c_erase();
+X	nl = 0;
+X	while (1) {
+X	    (void) fgets (buf, sizeof(buf), lfp);
+X	    if (feof(lfp)) {
+X		printf (eofp);
+X		(void) read_char();
+X		break;
+X	    }
+X	    /* make sure last char is \n, even if it's a long line */
+X	    nc = strlen (buf);
+X	    if (nc == NC+1) {
+X		(void) ungetc (buf[NC], lfp);
+X		buf[NC] = '\n';
+X	    }
+X	    printf ("%s\r", buf);
+X	    if (++nl == NR-1) {
+X		/* read-ahead one char to check for eof */
+X		int rach = getc (lfp);
+X		if (feof(lfp)) {
+X		    (void) printf (eofp);
+X		    (void) read_char();
+X		    break;
+X		} else
+X		    (void) ungetc (rach, lfp);
+X		(void) printf (p);
+X		if (read_char() == END)
+X		    break;
+X		c_erase();
+X		nl = 0;
+X	    }
+X	}
+X
+X	redraw_screen (2);	/* full redraw */
+X}
+END_OF_FILE
+  if test 7576 -ne `wc -c <'listing.c'`; then
+    echo shar: \"'listing.c'\" unpacked with wrong size!
+  fi
+  # end of 'listing.c'
+fi
+if test -f 'plot.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plot.c'\"
+else
+  echo shar: Extracting \"'plot.c'\" \(11208 characters\)
+  sed "s/^X//" >'plot.c' <<'END_OF_FILE'
+X/* code to support the plotting capabilities.
+X * idea is to let the operator name a plot file and mark some fields for
+X * logging. then after each screen update, the logged fields are written to
+X * the plot file. later, the file may be plotted (very simplistically by 
+X * ephem, for now anyway, or by some other program entirely.).
+X * 
+X * format of the plot file is one line per coordinate: label,x,y
+X * if z was specified, it is a fourth field.
+X * x,y,z are plotted using %g format.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "screen.h"
+X
+Xextern char *strcpy();
+X
+X#ifdef VMS
+X#include <perror.h>
+X#include <errno.h>
+X#else
+Xextern char *sys_errlist[];
+Xextern errno;
+X#endif
+X
+X#define	errsys	(sys_errlist[errno])
+X
+X
+X#define	TRACE(x)	{FILE *fp = fopen("trace","a"); fprintf x; fclose(fp);}
+X
+X#define	MAXPLTLINES	10	/* max number of labeled lines we can track.
+X				 * note we can't store more than NFLOGS fields
+X				 * anyway (see flog.c).
+X				 */
+X#define	FNLEN		(14+1)	/* longest filename; plus 1 for \0 */
+X
+Xstatic char plt_filename[FNLEN] = "ephem.plt";	/* default plot file name */
+Xstatic FILE *plt_fp;		/* the plot file; == 0 means don't plot */
+X
+X/* store the label and rcfpack()s for each line to track. */
+Xtypedef struct {
+X    char pl_label;
+X    int pl_rcpx, pl_rcpy, pl_rcpz;
+X} PltLine;
+Xstatic PltLine pltlines[MAXPLTLINES];
+Xstatic int npltlines;		/* number of pltlines[] in actual use */
+X
+Xstatic int plt_in_polar;	/*if true plot in polar coords, else cartesian*/
+Xstatic int pltsrchfld;		/* set when the Search field is to be plotted */
+X
+X/* picked the Plot label:
+X * if on, just turn it off.
+X * if off, turn on, define fields or select name of file to plot and do it.
+X * TODO: more flexibility, more relevance.
+X */
+Xplot_setup()
+X{
+X	if (plt_fp)
+X	    plt_turn_off();
+X	else {
+X	    static char *chcs[4] = {
+X		"Select fields", "Display a plot file", (char *)0,
+X		"Begin plotting"
+X	    };
+X	    static int fn;	/* start with 0, then remember for next time */
+X    ask:
+X	    chcs[2] = plt_in_polar ? "Polar coords" : "Cartesian coords";
+X	    switch (popup(chcs, fn, npltlines > 0 ? 4 : 3)) {
+X	    case 0: fn = 0; plt_select_fields(); goto ask;
+X	    case 1: fn = 1; plt_file(); goto ask;
+X	    case 2: fn = 2; plt_in_polar ^= 1; goto ask;
+X	    case 3: fn = 3; plt_turn_on(); break;
+X	    default: break;
+X	    }
+X	}
+X}
+X
+X/* write the active plotfields to the current plot file, if one is open. */
+Xplot()
+X{
+X	if (plt_fp) {
+X	    PltLine *plp;
+X	    double x, y, z;
+X	    if (!srch_ison() && pltsrchfld) {
+X		/* if searching is not on but we are plotting the search
+X		 * funtion we must evaluate and log it ourselves here and now.
+X		 * plt_turn_on() insured there is a good function to eval.
+X		 * N.B. if searching IS on, we rely on main() having called
+X		 * srch_eval() BEFORE plot() so it is already evaluated.
+X		 */
+X		double e;
+X		char errmsg[128];
+X		if (execute_expr (&e, errmsg) < 0) {
+X		    f_msg (errmsg);
+X		    plt_turn_off();
+X		    return;
+X		} else
+X		    (void) flog_log (R_SRCH, C_SRCH, e, "");
+X	    }
+X	    /* plot in order of original selection */
+X	    for (plp = pltlines; plp < &pltlines[npltlines]; plp++) {
+X		if (flog_get (plp->pl_rcpx, &x, (char *)0) == 0 
+X			&& flog_get (plp->pl_rcpy, &y, (char *)0) == 0) {
+X		    (void) fprintf (plt_fp, "%c,%.12g,%.12g", plp->pl_label,
+X									x, y);
+X		    if (flog_get (plp->pl_rcpz, &z, (char *)0) == 0)
+X			(void) fprintf (plt_fp, ",%.12g", z);
+X		    (void) fprintf (plt_fp, "\n");
+X		}
+X	    }
+X	}
+X}
+X
+Xplot_prstate (force)
+Xint force;
+X{
+X	static last;
+X	int this = plt_fp != 0;
+X
+X	if (force || this != last) {
+X	    f_string (R_PLOT, C_PLOTV, this ? " on" : "off");
+X	    last = this;
+X	}
+X}
+X
+Xplot_ison()
+X{
+X	return (plt_fp != 0);
+X}
+X
+Xstatic
+Xplt_reset()
+X{
+X	PltLine *plp;
+X
+X	for (plp = &pltlines[npltlines]; --plp >= pltlines; ) {
+X	    (void) flog_delete (plp->pl_rcpx);
+X	    (void) flog_delete (plp->pl_rcpy);
+X	    (void) flog_delete (plp->pl_rcpz);
+X	    plp->pl_rcpx = plp->pl_rcpy = plp->pl_rcpz = 0;
+X	}
+X	npltlines = 0;
+X	pltsrchfld = 0;
+X}
+X
+X/* let operator select the fields he wants to plot.
+X * register them with flog and keep rcfpack() in pltlines[] array.
+X * as a special case, set pltsrchfld if Search field is selected.
+X */
+Xstatic
+Xplt_select_fields()
+X{
+X	static char hlp[] = "move and RETURN to select a field, or q to quit";
+X	static char sry[] = "Sorry; can not log any more fields.";
+X	int f = rcfpack(R_UT,C_UTV,0); /* TODO: start where main was? */
+X	int sf = rcfpack (R_SRCH, C_SRCH, 0);
+X	char buf[64];
+X	int i;
+X	int tmpf;
+X
+X	plt_reset();
+X	for (i = 0; i < MAXPLTLINES; i++) {
+X	    (void) sprintf (buf, "select x field for line %d", i+1);
+X	    f = sel_fld (f, alt_menumask()|F_PLT, buf, hlp);
+X	    if (!f)
+X		break;
+X	    if (flog_add (f) < 0) {
+X		f_msg (sry);
+X		break;
+X	    }
+X	    pltlines[i].pl_rcpx = f;
+X	    if (f == sf)
+X		pltsrchfld = 1;
+X
+X	    (void) sprintf (buf, "select y field for line %d", i+1);
+X	    f = sel_fld (f, alt_menumask()|F_PLT, buf, hlp);
+X	    if (!f) {
+X		(void) flog_delete (pltlines[i].pl_rcpx);
+X		break;
+X	    }
+X	    if (flog_add (f) < 0) {
+X		(void) flog_delete (pltlines[i].pl_rcpx);
+X		f_msg (sry);
+X		break;
+X	    }
+X	    pltlines[i].pl_rcpy = f;
+X	    if (f == sf)
+X		pltsrchfld = 1;
+X
+X	    (void) sprintf (buf, "select z field for line %d (q for no z)",i+1);
+X	    tmpf = sel_fld (f, alt_menumask()|F_PLT, buf, hlp);
+X	    if (tmpf) {
+X		if (flog_add (tmpf) < 0) {
+X		    (void) flog_delete (pltlines[i].pl_rcpx);
+X		    (void) flog_delete (pltlines[i].pl_rcpy);
+X		    f_msg (sry);
+X		    break;
+X		}
+X		pltlines[i].pl_rcpz = tmpf;
+X		if (tmpf == sf)
+X		    pltsrchfld = 1;
+X		f = tmpf;
+X	    }
+X
+X	    do {
+X		(void) sprintf(buf,"enter a one-character label for line %d: ",
+X									i+1);
+X		f_prompt (buf);
+X	    } while (read_line (buf, 1) != 1);
+X	    pltlines[i].pl_label = *buf;
+X	}
+X	npltlines = i;
+X}
+X
+Xstatic
+Xplt_turn_off ()
+X{
+X	(void) fclose (plt_fp);
+X	plt_fp = 0;
+X	plot_prstate(0);
+X}
+X
+X/* turn on plotting.
+X * establish a file to use (and thereby set plt_fp, the plotting_is_on flag).
+X * also check that there is a srch function if it is being plotted.
+X */
+Xstatic
+Xplt_turn_on ()
+X{
+X	int sf = rcfpack(R_SRCH, C_SRCH, 0);
+X	char fn[FNLEN], fnq[NC];
+X	char *optype;
+X	int n;
+X	PltLine *plp;
+X
+X	/* insure there is a valid srch function if we are to plot it */
+X	for (plp = &pltlines[npltlines]; --plp >= pltlines; )
+X	    if ((plp->pl_rcpx == sf || plp->pl_rcpy == sf || plp->pl_rcpz == sf)
+X		    && !prog_isgood()) {
+X		f_msg ("Plotting search function but it is not defined.");
+X		return;
+X	    }
+X
+X	/* prompt for file name, giving current as default */
+X	(void) sprintf (fnq, "file to write <%s>: ", plt_filename);
+X	f_prompt (fnq);
+X	n = read_line (fn, sizeof(fn)-1);
+X
+X	/* leave plotting off if type END.
+X	 * reuse same fn if just type \n
+X	 */
+X	if (n < 0)
+X	    return;
+X	if (n > 0)
+X	    (void) strcpy (plt_filename, fn);
+X
+X	/* give option to append if file already exists */
+X	optype = "w";
+X	if (access (plt_filename, 2) == 0) {
+X	    while (1) {
+X		f_prompt ("files exists; append or overwrite (a/o)?: ");
+X		n = read_char();
+X		if (n == 'a') {
+X		    optype = "a";
+X		    break;
+X		}
+X		if (n == 'o')
+X		    break;
+X	    }
+X	}
+X
+X	/* plotting is on if file opens ok */
+X	plt_fp = fopen (plt_filename, optype);
+X	if (!plt_fp) {
+X	    char buf[NC];
+X	    (void) sprintf (buf, "can not open %s: %s", plt_filename, errsys);
+X	    f_prompt (buf);
+X	    (void)read_char();
+X	} else {
+X	    /* add a title if desired */
+X	    static char tp[] = "Title (q to skip): ";
+X	    f_prompt (tp);
+X	    if (read_line (fnq, PW - sizeof(tp)) > 0)
+X		(void) fprintf (plt_fp, "* %s\n", fnq);
+X	}
+X	plot_prstate (0);
+X}
+X
+X/* ask operator for a file to plot. if it's ok, do it.
+X */
+Xstatic
+Xplt_file ()
+X{
+X	char fn[FNLEN], fnq[64];
+X	FILE *pfp;
+X	int n;
+X
+X	/* prompt for file name, giving current as default */
+X	(void) sprintf (fnq, "file to read <%s>: ", plt_filename);
+X	f_prompt (fnq);
+X	n = read_line (fn, sizeof(fn)-1);
+X
+X	/* forget it if type END.
+X	 * reuse same fn if just type \n
+X	 */
+X	if (n < 0)
+X	    return;
+X	if (n > 0)
+X	    (void) strcpy (plt_filename, fn);
+X
+X	/* do the plot if file opens ok */
+X	pfp = fopen (plt_filename, "r");
+X	if (pfp) {
+X	    if (plt_in_polar)
+X		plot_polar (pfp);
+X	    else
+X		plot_cartesian (pfp);
+X	    (void) fclose (pfp);
+X	} else {
+X	    char buf[NC];
+X	    (void) sprintf (buf, "can not open %s: %s", plt_filename, errsys);
+X	    f_prompt (buf);
+X	    (void)read_char();
+X	}
+X}
+X
+X/* plot the given file on the screen in cartesian coords.
+X * TODO: add z tags somehow
+X * N.B. do whatever you like but redraw the screen when done.
+X */
+Xstatic
+Xplot_cartesian (pfp)
+XFILE *pfp;
+X{
+X	static char fmt[] = "%c,%lf,%lf";
+X	double x, y;	/* N.B. be sure these match what scanf's %lf wants*/
+X	double minx, maxx, miny, maxy;
+X	char buf[128];
+X	int npts = 0;
+X	char c;
+X
+X	/* find ranges and number of points */
+X	while (fgets (buf, sizeof(buf), pfp)) {
+X	    if (sscanf (buf, fmt, &c, &x, &y) != 3)
+X		continue;
+X	    if (npts++ == 0) {
+X		maxx = minx = x;
+X		maxy = miny = y;
+X	    } else {
+X		if (x > maxx) maxx = x;
+X		else if (x < minx) minx = x;
+X		if (y > maxy) maxy = y;
+X		else if (y < miny) miny = y;
+X	    }
+X	}
+X
+X#define	SMALL	(1e-10)
+X	if (npts < 2 || fabs(minx-maxx) < SMALL || fabs(miny-maxy) < SMALL)
+X	    f_prompt ("At least two different points required to plot.");
+X	else {
+X	    /* read file again, this time plotting */
+X	    rewind (pfp);
+X	    c_erase();
+X	    while (fgets (buf, sizeof(buf), pfp)) {
+X		int row, col;
+X		if (sscanf (buf, fmt, &c, &x, &y) != 3)
+X		    continue;
+X		row = NR-(int)((NR-1)*(y-miny)/(maxy-miny)+0.5);
+X		col =  1+(int)((NC-1)*(x-minx)/(maxx-minx)+0.5);
+X		if (row == NR && col == NC)
+X		    col--;	/* avoid lower right scrolling corner */
+X		f_char (row, col, c);
+X	    }
+X
+X	    /* label axes */
+X	    f_double (1, 1, "%g", maxy);
+X	    f_double (NR-1, 1, "%g", miny);
+X	    f_double (NR, 1, "%g", minx);
+X	    f_double (NR, NC-10, "%g", maxx);
+X	}
+X
+X	/* hit any key to resume... */
+X	(void) read_char();
+X	redraw_screen (2);	/* full redraw */
+X}
+X
+X/* plot the given file on the screen in polar coords.
+X * first numberic field in plot file is r, second is theta in degrees.
+X * TODO: add z tags somehow
+X * N.B. do whatever you like but redraw the screen when done.
+X */
+Xstatic
+Xplot_polar (pfp)
+XFILE *pfp;
+X{
+X	static char fmt[] = "%c,%lf,%lf";
+X	double r, th;	/* N.B. be sure these match what scanf's %lf wants*/
+X	double maxr;
+X	char buf[128];
+X	int npts = 0;
+X	char c;
+X
+X	/* find ranges and number of points */
+X	while (fgets (buf, sizeof(buf), pfp)) {
+X	    if (sscanf (buf, fmt, &c, &r, &th) != 3)
+X		continue;
+X	    if (npts++ == 0)
+X		maxr = r;
+X	    else
+X		if (r > maxr)
+X		    maxr = r;
+X	}
+X
+X	if (npts < 2)
+X	    f_prompt ("At least two points required to plot.");
+X	else {
+X	    /* read file again, this time plotting */
+X	    rewind (pfp);
+X	    c_erase();
+X	    while (fgets (buf, sizeof(buf), pfp)) {
+X		int row, col;
+X		double x, y;
+X		if (sscanf (buf, fmt, &c, &r, &th) != 3)
+X		    continue;
+X		x = r * cos(th/57.2958);	/* degs to rads */
+X		y = r * sin(th/57.2958);
+X		row = NR-(int)((NR-1)*(y+maxr)/(2.0*maxr)+0.5);
+X		col =  1+(int)((NC-1)*(x+maxr)/(2.0*maxr)/ASPECT+0.5);
+X		if (row == NR && col == NC)
+X		    col--;	/* avoid lower right scrolling corner */
+X		f_char (row, col, c);
+X	    }
+X
+X	    /* label radius */
+X	    f_double (NR/2, NC-10, "%g", maxr);
+X	}
+X
+X	/* hit any key to resume... */
+X	(void) read_char();
+X	redraw_screen (2);	/* full redraw */
+X}
+END_OF_FILE
+  if test 11208 -ne `wc -c <'plot.c'`; then
+    echo shar: \"'plot.c'\" unpacked with wrong size!
+  fi
+  # end of 'plot.c'
+fi
+if test -f 'srch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'srch.c'\"
+else
+  echo shar: Extracting \"'srch.c'\" \(8160 characters\)
+  sed "s/^X//" >'srch.c' <<'END_OF_FILE'
+X/* this file contains functions to support iterative ephem searches.
+X * we support several kinds of searching and solving algorithms.
+X * values used in the evaluations come from the field logging flog.c system.
+X * the expressions being evaluated are compiled and executed from compiler.c.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "screen.h"
+X
+Xextern char *strcpy();
+X
+Xstatic int (*srch_f)();
+Xstatic int srch_tmscalled;
+Xstatic char expbuf[NC];		/* [0] == '\0' when expression is invalid */
+Xstatic double tmlimit = 1./60.;	/* search accuracy, in hrs; def is one minute */
+X
+X
+Xsrch_setup()
+X{
+X	int srch_minmax(), srch_solve0(), srch_binary();
+X	static char *chcs[] = {
+X	    "Find extreme", "Find 0", "Binary", "New function", "Accuracy",
+X	    "Stop"
+X	};
+X	static int fn;	/* start with 0, then remember for next time */
+X
+X	/* let op select algorithm, edit, set accuracy
+X	 * or stop if currently searching
+X	 * algorithms require a function.
+X	 */
+X    ask:
+X	switch (popup(chcs, fn, srch_f ? 6 : 5)) {
+X	case 0: fn = 0;
+X		if (expbuf[0] == '\0')
+X		    set_function();
+X		srch_f = expbuf[0] ? srch_minmax : (int (*)())0;
+X		if (srch_f)
+X		    break;
+X		else
+X		    goto ask;
+X	case 1: fn = 1;
+X		if (expbuf[0] == '\0')
+X		    set_function();
+X		srch_f = expbuf[0] ? srch_solve0 : (int (*)())0;
+X		if (srch_f)
+X		    break;
+X		else
+X		    goto ask;
+X	case 2: fn = 2;
+X		if (expbuf[0] == '\0')
+X		    set_function();
+X		srch_f = expbuf[0] ? srch_binary : (int (*)())0;
+X		if (srch_f)
+X		    break;
+X		else
+X		    goto ask;
+X	case 3: fn = 3; srch_f = 0; set_function(); goto ask;
+X	case 4: fn = 4; srch_f = 0; set_accuracy(); goto ask;
+X	case 5: srch_f = 0; srch_prstate(0); return;
+X	default: return;
+X	}
+X
+X	/* new search */
+X	srch_tmscalled = 0;
+X	srch_prstate (0);
+X}
+X
+X/* if searching is in effect call the search type function.
+X * it might modify *tmincp according to where it next wants to eval.
+X * (remember tminc is in hours, not days).
+X * if searching ends for any reason it is also turned off.
+X * also, flog the new value.
+X * return 0 if caller can continue or -1 if it is time to stop.
+X */
+Xsrch_eval(mjd, tmincp)
+Xdouble mjd;
+Xdouble *tmincp;
+X{
+X	char errbuf[128];
+X	int s;
+X	double v;
+X
+X	if (!srch_f)
+X	    return (0);
+X
+X	if (execute_expr (&v, errbuf) < 0) {
+X	    srch_f = 0;
+X	    f_msg (errbuf);
+X	} else {
+X	    s = (*srch_f)(mjd, v, tmincp);
+X	    if (s < 0)
+X		srch_f = 0;
+X	    (void) flog_log (R_SRCH, C_SRCH, v, "");
+X	    srch_tmscalled++;
+X	}
+X
+X	srch_prstate (0);
+X	return (s);
+X}
+X
+X/* print state of searching. */
+Xsrch_prstate (force)
+Xint force;
+X{
+X	int srch_minmax(), srch_solve0(), srch_binary();
+X	static (*last)();
+X
+X	if (force || srch_f != last) {
+X	    f_string (R_SRCH, C_SRCHV,
+X		    srch_f == srch_minmax   ? "Extrema" :
+X		    srch_f == srch_solve0   ? " Find 0" :
+X		    srch_f == srch_binary ?   " Binary" :
+X					      "    off");
+X	    last = srch_f;
+X	}
+X}
+X
+Xsrch_ison()
+X{
+X	return (srch_f != 0);
+X}
+X
+X/* display current expression. then if type in at least one char make it the
+X * current expression IF it compiles ok.
+X * TODO: editing?
+X */
+Xstatic
+Xset_function()
+X{
+X	static char prompt[] = "Function: ";
+X	char newexp[NC];
+X	int s;
+X
+X	f_prompt (prompt);
+X	(void) fputs (expbuf, stdout);
+X	c_pos (R_PROMPT, sizeof(prompt));
+X
+X	s = read_line (newexp, PW-sizeof(prompt));
+X	if (s >= 0) {
+X	    char errbuf[NC];
+X	    if (s > 0 && compile_expr (newexp, errbuf) < 0)
+X		f_msg (errbuf);
+X	    else
+X		(void) strcpy (expbuf, newexp);
+X	}
+X}
+X
+Xstatic
+Xset_accuracy()
+X{
+X	static char p[] = "Desired accuracy (         hrs): ";
+X	int hrs, mins, secs;
+X	char buf[NC];
+X
+X	f_prompt (p);
+X	f_time (R_PROMPT, C_PROMPT+18, tmlimit); /* place in blank spot */
+X	c_pos (R_PROMPT, sizeof(p));
+X	if (read_line (buf, PW-sizeof(p)) > 0) {
+X	    f_dec_sexsign (tmlimit, &hrs, &mins, &secs);
+X	    f_sscansex (buf, &hrs, &mins, &secs);
+X	    sex_dec (hrs, mins, secs, &tmlimit);
+X	}
+X}
+X
+X/* use successive paraboloidal fits to find when expression is at a
+X * local minimum or maximum.
+X */
+Xstatic
+Xsrch_minmax(mjd, v, tmincp)
+Xdouble mjd;
+Xdouble v;
+Xdouble *tmincp;
+X{
+X	static double base;		/* for better stability */
+X	static double x_1, x_2, x_3;	/* keep in increasing order */
+X	static double y_1, y_2, y_3;
+X	double xm, a, b;
+X
+X	if (srch_tmscalled == 0) {
+X	    base = mjd;
+X	    x_1 = 0.0;
+X	    y_1 = v;
+X	    return (0);
+X	}
+X	mjd -= base;
+X	if (srch_tmscalled == 1) {
+X	    /* put in one of first two slots */
+X	    if (mjd < x_1) {
+X	        x_2 = x_1;  y_2 = y_1;
+X		x_1 = mjd; y_1 = v;
+X	    } else {
+X		x_2 = mjd; y_2 = v;
+X	    }
+X	    return (0);
+X	}
+X	if (srch_tmscalled == 2 || fabs(mjd - x_1) < fabs(mjd - x_3)) {
+X	    /* closer to x_1 so discard x_3.
+X	     * or if it's our third value we know to "discard" x_3.
+X	     */
+X	    if (mjd > x_2) {
+X		x_3 = mjd; y_3 = v;
+X	    } else {
+X		x_3 = x_2;  y_3 = y_2;
+X		if (mjd > x_1) {
+X		    x_2 = mjd; y_2 = v;
+X		} else {
+X		    x_2 = x_1;  y_2 = y_1;
+X		    x_1 = mjd; y_1 = v;
+X		}
+X	    }
+X	    if (srch_tmscalled == 2)
+X		return (0);
+X	} else {
+X	    /* closer to x_3 so discard x_1 */
+X	    if (mjd < x_2) {
+X		x_1 = mjd;  y_1 = v;
+X	    } else {
+X		x_1 =  x_2;  y_1 = y_2;
+X		if (mjd < x_3) {
+X		    x_2 = mjd; y_2 = v;
+X		} else {
+X		    x_2 =  x_3; y_2 = y_3;
+X		    x_3 = mjd; y_3 = v;
+X		}
+X	    }
+X	}
+X
+X#ifdef TRACEMM
+X	{ char buf[NC];
+X	  sprintf (buf, "x_1=%g y_1=%g x_2=%g y_2=%g x_3=%g y_3=%g",
+X						x_1, y_1, x_2, y_2, x_3, y_3);
+X	  f_msg (buf);
+X	}
+X#endif
+X	a = y_1*(x_2-x_3) - y_2*(x_1-x_3) + y_3*(x_1-x_2);
+X	if (fabs(a) < 1e-10) {
+X	    /* near-0 zero denominator, ie, curve is pretty flat here,
+X	     * so assume we are done enough.
+X	     * signal this by forcing a 0 tminc.
+X	     */
+X	    *tmincp = 0.0;
+X	    return (-1);
+X	}
+X	b = (x_1*x_1)*(y_2-y_3) - (x_2*x_2)*(y_1-y_3) + (x_3*x_3)*(y_1-y_2);
+X	xm = -b/(2.0*a);
+X	*tmincp = (xm - mjd)*24.0;
+X	return (fabs (*tmincp) < tmlimit ? -1 : 0);
+X}
+X
+X/* use secant method to solve for time when expression passes through 0.
+X */
+Xstatic
+Xsrch_solve0(mjd, v, tmincp)
+Xdouble mjd;
+Xdouble v;
+Xdouble *tmincp;
+X{
+X	static double x0, x_1;	/* x(n-1) and x(n) */
+X	static double y_0, y_1;	/* y(n-1) and y(n) */
+X	double x_2;		/* x(n+1) */
+X	double df;		/* y(n) - y(n-1) */
+X
+X	switch (srch_tmscalled) {
+X	case 0: x0 = mjd; y_0 = v; return(0);
+X	case 1: x_1 = mjd; y_1 = v; break;
+X	default: x0 = x_1; y_0 = y_1; x_1 = mjd; y_1 = v; break;
+X	}
+X
+X	df = y_1 - y_0;
+X	if (fabs(df) < 1e-10) {
+X	    /* near-0 zero denominator, ie, curve is pretty flat here,
+X	     * so assume we are done enough.
+X	     * signal this by forcing a 0 tminc.
+X	     */
+X	    *tmincp = 0.0;
+X	    return (-1);
+X	}
+X	x_2 = x_1 - y_1*(x_1-x0)/df;
+X	*tmincp = (x_2 - mjd)*24.0;
+X	return (fabs (*tmincp) < tmlimit ? -1 : 0);
+X}
+X
+X/* binary search for time when expression changes from its initial state.
+X * if the change is outside the initial tminc range, then keep searching in that
+X *    direction by tminc first before starting to divide down.
+X */
+Xstatic
+Xsrch_binary(mjd, v, tmincp)
+Xdouble mjd;
+Xdouble v;
+Xdouble *tmincp;
+X{
+X	static double lb, ub;		/* lower and upper bound */
+X	static int initial_state;
+X	int this_state = v >= 0.5;
+X
+X#define	FLUNDEF	-9e10
+X
+X	if (srch_tmscalled == 0) {
+X	    if (*tmincp >= 0.0) {
+X		/* going forwards in time so first mjd is lb and no ub yet */
+X		lb = mjd;
+X		ub = FLUNDEF;
+X	    } else {
+X		/* going backwards in time so first mjd is ub and no lb yet */
+X		ub = mjd;
+X		lb = FLUNDEF;
+X	    }
+X	    initial_state = this_state;
+X	    return (0);
+X	}
+X
+X	if (ub != FLUNDEF && lb != FLUNDEF) {
+X	    if (this_state == initial_state)
+X		lb = mjd;
+X	    else
+X		ub = mjd;
+X	    *tmincp = ((lb + ub)/2.0 - mjd)*24.0;
+X#ifdef TRACEBIN
+X	    { char buf[NC];
+X	      sprintf (buf, "lb=%g ub=%g tminc=%g mjd=%g is=%d ts=%d",
+X			    lb, ub, *tmincp, mjd, initial_state, this_state);
+X	      f_msg (buf);
+X	    }
+X#endif
+X	    /* signal to stop if asking for time change less than TMLIMIT */
+X	    return (fabs (*tmincp) < tmlimit ? -1 : 0);
+X	} else if (this_state != initial_state) {
+X	    /* gone past; turn around half way */
+X	    if (*tmincp >= 0.0)
+X		ub = mjd;
+X	    else
+X		lb = mjd;
+X	    *tmincp /= -2.0;
+X	    return (0);
+X	} else {
+X	    /* just keep going, looking for first state change but we keep
+X	     * learning the lower (or upper, if going backwards) bound.
+X	     */
+X	    if (*tmincp >= 0.0)
+X		lb = mjd;
+X	    else
+X		ub = mjd;
+X	    return (0);
+X	}
+X}
+END_OF_FILE
+  if test 8160 -ne `wc -c <'srch.c'`; then
+    echo shar: \"'srch.c'\" unpacked with wrong size!
+  fi
+  # end of 'srch.c'
+fi
+echo shar: End of archive 7 \(of 9\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

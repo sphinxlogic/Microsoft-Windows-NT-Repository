@@ -1,0 +1,1947 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i084:  tin - threaded full screen newsreader v1.1, Patch05e/7
+Message-ID: <1992Aug16.012712.12802@sparky.imd.sterling.com>
+X-Md4-Signature: 100f5de7ca7be805577ef6f8f5121163
+Date: Sun, 16 Aug 1992 01:27:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 84
+Archive-name: tin/patch05e
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Patch-To: tin: Volume 31, Issue 1-15
+
+#!/bin/sh
+# this is patch-1.15.shar.05 (part 5 of tin-1.15)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file tin-1.15.patch continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping tin-1.15.patch'
+else
+echo 'x - continuing file tin-1.15.patch'
+sed 's/^X//' << 'SHAR_EOF' >> 'tin-1.15.patch' &&
+***************
+*** 3,9 ****
+X   *  Module    : page.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : page.c
+X   *  Author    : I.Lea & R.Skrenta
+X   *  Created   : 01-04-91
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 36,41 ****
+--- 36,42 ----
+X  int note_page;					/* what page we're on */
+X  int rotate;						/* 0=normal, 13=rot13 decode */
+X  int this_resp;
++ int doing_pgdn;
+X  
+X  long note_mark[MAX_PAGES];		/* ftells on beginnings of pages */
+X  long note_size;					/* stat size in bytes of article */
+***************
+*** 53,59 ****
+X  	int i, n = 0;
+X  	int copy_text;
+X  	int kill_state = NO_KILLING;
+! 	int old_sort_art_type = sort_art_type;
+X  	int old_top;
+X  	int posted;
+X  	int ret_code;
+--- 54,60 ----
+X  	int i, n = 0;
+X  	int copy_text;
+X  	int kill_state = NO_KILLING;
+! 	int old_sort_art_type = default_sort_art_type;
+X  	int old_top;
+X  	int posted;
+X  	int ret_code;
+***************
+*** 74,81 ****
+X  
+X  	rotate = 0;			/* normal mode, not rot13 */
+X  	art = arts[respnum].artnum;
+- 	arts[respnum].unread = ART_READ;	/* mark article as read */
+X  
+X  	if ((note_page = art_open (art, group_path)) == ART_UNAVAILABLE) {
+X  		sprintf (msg, txt_art_unavailable, art);
+X  		error_message (msg, "");
+--- 75,88 ----
+X  
+X  	rotate = 0;			/* normal mode, not rot13 */
+X  	art = arts[respnum].artnum;
+X  
++ 	if (arts[respnum].unread != ART_READ) {
++ 		if (arts[respnum].hot && num_of_hot_arts) {
++ 			num_of_hot_arts--;
++ 		}
++ 	}
++ 	arts[respnum].unread = ART_READ;	/* mark article as read */
++ 	
+X  	if ((note_page = art_open (art, group_path)) == ART_UNAVAILABLE) {
+X  		sprintf (msg, txt_art_unavailable, art);
+X  		error_message (msg, "");
+***************
+*** 188,195 ****
+X  					}
+X  					respnum = n;
+X  					goto restart;
+! 				} else
+X  					show_note_page (respnum, group);
+X  				break;
+X  
+X  			case '\r':
+--- 195,204 ----
+X  					}
+X  					respnum = n;
+X  					goto restart;
+! 				} else {
+! 					doing_pgdn = TRUE;
+X  					show_note_page (respnum, group);
++ 				}
+X  				break;
+X  
+X  			case '\r':
+***************
+*** 252,260 ****
+X  			case ctrl('K'):		/* kill article */
+X  				if (kill_art_menu (group, respnum)) {
+X  					i = which_thread (respnum);
+! 					if (kill_any_articles (group)) {
+X  						make_threads (FALSE);
+! 						find_base (show_only_unread);
+X  						if (i >= top_base)
+X  							i = top_base - 1;
+X  						respnum = base[i];	
+--- 261,269 ----
+X  			case ctrl('K'):		/* kill article */
+X  				if (kill_art_menu (group, respnum)) {
+X  					i = which_thread (respnum);
+! 					if (kill_any_articles (my_group[cur_groupnum])) {
+X  						make_threads (FALSE);
+! 						find_base (my_group[cur_groupnum]);
+X  						if (i >= top_base)
+X  							i = top_base - 1;
+X  						respnum = base[i];	
+***************
+*** 296,302 ****
+X  			case 'a':	/* author search forward */
+X  			case 'A':	/* author search backward */
+X  				i = (ch == 'a');
+! 				n = search_author (show_only_unread, respnum, i);
+X  				if (n < 0)
+X  					break;
+X  				respnum = n;
+--- 305,311 ----
+X  			case 'a':	/* author search forward */
+X  			case 'A':	/* author search backward */
+X  				i = (ch == 'a');
+! 				n = search_author (my_group[cur_groupnum], respnum, i);
+X  				if (n < 0)
+X  					break;
+X  				respnum = n;
+***************
+*** 372,380 ****
+X  return_to_index:
+X  				art_close ();
+X  				if (kill_state == NO_KILLING &&
+! 					sort_art_type != old_sort_art_type) {
+X  					make_threads (TRUE);
+! 					find_base (show_only_unread);
+X  				}
+X  				i = which_thread (respnum);
+X  				*threadnum = which_response (respnum);
+--- 381,389 ----
+X  return_to_index:
+X  				art_close ();
+X  				if (kill_state == NO_KILLING &&
+! 					default_sort_art_type != old_sort_art_type) {
+X  					make_threads (TRUE);
+! 					find_base (my_group[cur_groupnum]);
+X  				}
+X  				i = which_thread (respnum);
+X  				*threadnum = which_response (respnum);
+***************
+*** 381,389 ****
+X  				if (kill_state == KILLING) {
+X  					old_top = top;
+X  					old_artnum = arts[respnum].artnum;
+! 					kill_any_articles (group);
+X  					make_threads (FALSE);
+! 					find_base (show_only_unread);
+X  					i = find_new_pos (old_top, old_artnum, i);
+X  				}
+X  				return (i);
+--- 390,398 ----
+X  				if (kill_state == KILLING) {
+X  					old_top = top;
+X  					old_artnum = arts[respnum].artnum;
+! 					kill_any_articles (my_group[cur_groupnum]);
+X  					make_threads (FALSE);
+! 					find_base (my_group[cur_groupnum]);
+X  					i = find_new_pos (old_top, old_artnum, i);
+X  				}
+X  				return (i);
+***************
+*** 409,416 ****
+X  				/* NOTREACHED */
+X  
+X  			case 'K':	/* mark rest of thread as read */
+! 				for (n = respnum; n >= 0; n = arts[n].thread)
+X  					arts[n].unread = ART_READ;
+X  				n = next_unread (next_response (respnum));
+X  				if (n == -1)
+X  					goto return_to_index;
+--- 418,431 ----
+X  				/* NOTREACHED */
+X  
+X  			case 'K':	/* mark rest of thread as read */
+! 				for (n = respnum; n >= 0; n = arts[n].thread) {
+! 					if (arts[n].unread != ART_READ) {
+! 						if (arts[n].hot && num_of_hot_arts) {
+! 							num_of_hot_arts--;
+! 						}
+! 					}
+X  					arts[n].unread = ART_READ;
++ 				}	
+X  				n = next_unread (next_response (respnum));
+X  				if (n == -1)
+X  					goto return_to_index;
+***************
+*** 426,432 ****
+X  			case 'M':	/* options menu */
+X  				if (change_rcfile (group, FALSE) == KILLING) {
+X  					kill_state = KILLING;
+! 				} 
+X  				redraw_page (respnum, group);
+X  			    break;
+X  
+--- 441,448 ----
+X  			case 'M':	/* options menu */
+X  				if (change_rcfile (group, FALSE) == KILLING) {
+X  					kill_state = KILLING;
+! 				}
+! 				set_subj_from_size (COLS); 
+X  				redraw_page (respnum, group);
+X  			    break;
+X  
+***************
+*** 475,481 ****
+X  
+X  			case 'Q':	/* quit */
+X  				return -2;
+- 				break;
+X  	
+X  			case 'r':	/* reply to author through mail */
+X  			case 'R':
+--- 491,496 ----
+***************
+*** 491,499 ****
+X  			case 't':	/* return to group selection page */
+X  				art_close ();
+X  				if (kill_state == KILLING) {
+! 					kill_any_articles (group);
+X  					make_threads (FALSE);
+! 					find_base (show_only_unread);
+X  				}
+X  				update_newsrc (group, my_group[cur_groupnum], FALSE);
+X  				fix_new_highest (cur_groupnum);
+--- 506,514 ----
+X  			case 't':	/* return to group selection page */
+X  				art_close ();
+X  				if (kill_state == KILLING) {
+! 					kill_any_articles (my_group[cur_groupnum]);
+X  					make_threads (FALSE);
+! 					find_base (my_group[cur_groupnum]);
+X  				}
+X  				update_newsrc (group, my_group[cur_groupnum], FALSE);
+X  				fix_new_highest (cur_groupnum);
+***************
+*** 534,539 ****
+--- 549,559 ----
+X  				break;
+X  
+X  			case 'z':	/* mark article as unread (to return) */
++ 				if (arts[n].unread != ART_UNREAD) {
++ 					if (arts[n].hot) {
++ 						num_of_hot_arts++;
++ 					}
++ 				}
+X  				arts[respnum].unread = ART_WILL_RETURN;
+X  				info_message (txt_art_marked_as_unread);
+X  				break;
+***************
+*** 569,579 ****
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	char buf[LEN];
+X  	char buf2[LEN+50];
+X  	char *p, *q;
+X  	int i, j;
+X  	int ctrl_L;		/* form feed character detected */
+X  	long tmp_pos;
+X  
+X  	ClearScreen ();
+--- 589,600 ----
+X  {
+X  #ifndef INDEX_DAEMON
+X  
+! 	static char buf[LEN];
+X  	char buf2[LEN+50];
+X  	char *p, *q;
+X  	int i, j;
+X  	int ctrl_L;		/* form feed character detected */
++ 	int first  = TRUE;
+X  	long tmp_pos;
+X  
+X  	ClearScreen ();
+***************
+*** 587,599 ****
+X  		fseek (note_fp, tmp_pos, 0);	/* goto old position */
+X  	}
+X  	
+! 	if (note_page == 0)
+X  		show_first_header (respnum, group);
+! 	else
+X  		show_cont_header (respnum);
+! 
+X  	ctrl_L = FALSE;
+X  	while (note_line < LINES) {
+X  		if (fgets (buf, sizeof (buf), note_fp) == NULL) {
+X  			note_end = TRUE;
+X  			break;
+--- 608,630 ----
+X  		fseek (note_fp, tmp_pos, 0);	/* goto old position */
+X  	}
+X  	
+! 	if (note_page == 0) {
+! 		buf2[0] = '\0';
+! 		doing_pgdn = FALSE;
+X  		show_first_header (respnum, group);
+! 	} else {
+X  		show_cont_header (respnum);
+! 	}
+! 	
+X  	ctrl_L = FALSE;
+X  	while (note_line < LINES) {
++ 		if (show_last_line_prev_page) {
++ 			note_mark[note_page+1] = ftell (note_fp);
++ 			if (doing_pgdn && first && buf2[0]) {
++ 				goto print_a_line;
++ 			}
++ 		}
++ 		first = FALSE;
+X  		if (fgets (buf, sizeof (buf), note_fp) == NULL) {
+X  			note_end = TRUE;
+X  			break;
+***************
+*** 647,654 ****
+X  
+X  		*q = '\0';
+X  
+X  		printf("%s\r\n", buf2);
+! 
+X  		note_line += ((int) strlen (buf2) / COLS) + 1;
+X  
+X  		if (ctrl_L) {
+--- 678,694 ----
+X  
+X  		*q = '\0';
+X  
++ print_a_line:
++ 		if (first) {
++ 			StartInverse ();
++ 		}	
+X  		printf("%s\r\n", buf2);
+! 		if (first) {
+! 			EndInverse ();
+! 		}	
+! 		first = FALSE;
+! 		doing_pgdn = FALSE;
+! 		
+X  		note_line += ((int) strlen (buf2) / COLS) + 1;
+X  
+X  		if (ctrl_L) {
+***************
+*** 656,666 ****
+X  		}
+X  	}
+X  
+! 	note_mark[++note_page] = ftell (note_fp);
+! 
+! 	if (note_mark[note_page] == note_size) {
+X  		note_end = TRUE;
+X  	}
+X  
+X  	if (note_end) {
+X  		MoveCursor (LINES, MORE_POS-(5+BLANK_PAGE_COLS));
+--- 696,711 ----
+X  		}
+X  	}
+X  
+! 	if (! show_last_line_prev_page) {
+! 		note_mark[++note_page] = ftell (note_fp);
+! 	} else {
+! 		note_page++;
+! 	}
+! 	
+! 	if (ftell (note_fp) == note_size) {
+X  		note_end = TRUE;
+X  	}
++ 
+X  
+X  	if (note_end) {
+X  		MoveCursor (LINES, MORE_POS-(5+BLANK_PAGE_COLS));
+diff -rcs ../1.14/patchlev.h ./patchlev.h
+*** ../1.14/patchlev.h	Tue Aug 11 21:23:30 1992
+--- ./patchlev.h	Mon Aug 10 12:10:07 1992
+***************
+*** 3,9 ****
+X   *  Module    : patchlev.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 22-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : patchlev.h
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 24-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 13,16 ****
+X   */
+X  
+X  #define VERSION		"1.1"		/* Beta versions are "1.n Beta" */
+! #define PATCHLEVEL	4
+--- 13,16 ----
+X   */
+X  
+X  #define VERSION		"1.1"		/* Beta versions are "1.n Beta" */
+! #define PATCHLEVEL	5
+diff -rcs ../1.14/post.c ./post.c
+*** ../1.14/post.c	Tue Aug 11 21:23:18 1992
+--- ./post.c	Tue Aug 11 21:17:20 1992
+***************
+*** 3,9 ****
+X   *  Module    : post.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 16-06-92
+X   *  Notes     : mail/post/replyto/followup/crosspost & cancel articles
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : post.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 31-07-92
+X   *  Notes     : mail/post/replyto/followup/crosspost & cancel articles
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 204,210 ****
+X  	char ch_default = 'p';
+X  	char subj[LEN];
+X  	char buf[LEN];
+! 	int redraw_screen = FALSE;
+X  
+X  	/*
+X  	 * Don't allow if not active news feed 
+--- 204,210 ----
+X  	char ch_default = 'p';
+X  	char subj[LEN];
+X  	char buf[LEN];
+! 	int i, redraw_screen = FALSE;
+X  
+X  	/*
+X  	 * Don't allow if not active news feed 
+***************
+*** 262,267 ****
+--- 262,272 ----
+X  		fprintf (fp, "Reply-To: %s\n", reply_to);
+X  		start_line_offset++;
+X  	}
++ 	i = find_group_index (group);
++ 	if (i >= 0 && active[i].attribute.followup_to != (char *) 0) {
++ 		fprintf (fp, "Followup-To: %s\n", active[i].attribute.followup_to);
++ 		start_line_offset++;
++ 	}
+X  	fprintf (fp, "Distribution: %s\n", my_distribution);
+X  	fprintf (fp, "Summary: \n");
+X  	fprintf (fp, "Keywords: \n\n\n");
+***************
+*** 281,287 ****
+X  					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X  					if ((ch = (char) ReadCh ()) == CR)
+X  						ch = 'e';
+! 				} while (ch != ESC && ch != 'q' && ch != 'e');
+X  				if (ch == 'e')
+X  					invoke_editor (article);
+X  				else
+--- 286,292 ----
+X  					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X  					if ((ch = (char) ReadCh ()) == CR)
+X  						ch = 'e';
+! 				} while (! strchr ("eipq\033", ch));
+X  				if (ch == 'e')
+X  					invoke_editor (article);
+X  				else
+***************
+*** 291,296 ****
+--- 296,304 ----
+X  			if (ch == 'e') {
+X  				break;
+X  			}
++ 		case 'i':
++ 			invoke_ispell (article);
++ 			break;
+X  		case 'q':
+X  		case ESC:
+X  			if (unlink_article)
+***************
+*** 319,325 ****
+X  			MoveCursor (LINES, (int) strlen (txt_quit_edit_post));
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X  	}
+X  
+X  post_base_done:
+--- 327,333 ----
+X  			MoveCursor (LINES, (int) strlen (txt_quit_edit_post));
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("eipq\033", ch));
+X  	}
+X  
+X  post_base_done:
+***************
+*** 345,352 ****
+X  	char ch, *ptr;
+X  	char ch_default = 'p';
+X  	char buf[LEN];
+X  	int ret_code = POSTED_NONE;
+- 	int followup_to_poster = FALSE;
+X  	
+X  	/*
+X  	 * Don't allow if not active news feed 
+--- 353,360 ----
+X  	char ch, *ptr;
+X  	char ch_default = 'p';
+X  	char buf[LEN];
++ 	int i;
+X  	int ret_code = POSTED_NONE;
+X  	
+X  	/*
+X  	 * Don't allow if not active news feed 
+***************
+*** 366,373 ****
+X  			return (ret_code);
+X  		}
+X  		*note_h_followup = '\0';
+- 		followup_to_poster = TRUE;
+- 
+X  		find_reply_to_addr (respnum, buf);
+X  		mail_to_someone (buf, TRUE, FALSE, &ret_code);
+X  		return (ret_code);
+--- 374,379 ----
+***************
+*** 408,413 ****
+--- 414,424 ----
+X  		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X  	}
+X  
++ 	i = find_group_index (group);
++ 	if (i >= 0 && active[i].attribute.followup_to != (char *) 0) {
++ 		fprintf (fp, "Followup-To: %s\n", active[i].attribute.followup_to);
++ 	}
++ 	
+X  	fprintf (fp, "References: %s\n", note_h_messageid);
+X  
+X  	if (*my_org) {
+***************
+*** 418,424 ****
+X  		fprintf (fp, "Reply-To: %s\n", reply_to);
+X  		start_line_offset++;
+X  	}
+! 	if (note_h_distrib != '\0') {
+X  		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X  		start_line_offset++;
+X  	}
+--- 429,435 ----
+X  		fprintf (fp, "Reply-To: %s\n", reply_to);
+X  		start_line_offset++;
+X  	}
+! 	if (*note_h_distrib) {
+X  		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X  		start_line_offset++;
+X  	}
+***************
+*** 429,439 ****
+X  			if (arts[respnum].name == arts[respnum].from) { 	
+X  				fprintf (fp, txt_writes, arts[respnum].from);
+X  			} else {
+! 				fprintf (fp, txt_writes_name, arts[respnum].from, arts[respnum].name);
+X  			}
+X  		}
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X  	}
+X  
+X  	add_signature (fp, FALSE);
+--- 440,450 ----
+X  			if (arts[respnum].name == arts[respnum].from) { 	
+X  				fprintf (fp, txt_writes, arts[respnum].from);
+X  			} else {
+! 				fprintf (fp, txt_writes_name, arts[respnum].name, arts[respnum].from);
+X  			}
+X  		}
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, quote_chars);
+X  	}
+X  
+X  	add_signature (fp, FALSE);
+***************
+*** 451,457 ****
+X  					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X  					if ((ch = (char) ReadCh ()) == CR)
+X  						ch = 'e';
+! 				} while (ch != ESC && ch != 'q' && ch != 'e');
+X  				if (ch == 'e')
+X  					invoke_editor (article);
+X  				else
+--- 462,468 ----
+X  					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X  					if ((ch = (char) ReadCh ()) == CR)
+X  						ch = 'e';
+! 				} while (! strchr ("eq\033", ch));
+X  				if (ch == 'e')
+X  					invoke_editor (article);
+X  				else
+***************
+*** 463,468 ****
+--- 474,484 ----
+X  			ret_code = POSTED_REDRAW;
+X  			break;
+X  
++ 		case 'i':
++ 			invoke_ispell (article);
++ 			ret_code = POSTED_REDRAW;
++ 			break;
++ 			
+X  		case 'q':
+X  		case ESC:
+X  			if (unlink_article)
+***************
+*** 491,497 ****
+X  			MoveCursor(LINES, (int) strlen (txt_quit_edit_post));
+X  			if ((ch = (char) ReadCh()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X  	}
+X  
+X  post_response_done:
+--- 507,513 ----
+X  			MoveCursor(LINES, (int) strlen (txt_quit_edit_post));
+X  			if ((ch = (char) ReadCh()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("eipq\033", ch));
+X  	}
+X  
+X  post_response_done:
+***************
+*** 568,574 ****
+X  		ch = 'e';
+X  		fprintf (fp, "In article %s you wrote:\n", note_h_messageid);
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X  	} else {
+X  		fseek (note_fp, 0L, 0);
+X  		copy_fp (note_fp, fp, "");
+--- 584,590 ----
+X  		ch = 'e';
+X  		fprintf (fp, "In article %s you wrote:\n", note_h_messageid);
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, quote_chars);
+X  	} else {
+X  		fseek (note_fp, 0L, 0);
+X  		copy_fp (note_fp, fp, "");
+***************
+*** 586,592 ****
+X  				MoveCursor (LINES, (int) (strlen (msg)-1));
+X  				if ((ch = (char) ReadCh ()) == CR)
+X  					ch = ch_default;
+! 			} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X  		}
+X  		switch (ch) {
+X  			case 'e':
+--- 602,608 ----
+X  				MoveCursor (LINES, (int) (strlen (msg)-1));
+X  				if ((ch = (char) ReadCh ()) == CR)
+X  					ch = ch_default;
+! 			} while (! strchr ("eqs\033", ch));
+X  		}
+X  		switch (ch) {
+X  			case 'e':
+***************
+*** 626,632 ****
+X  				MoveCursor (LINES, (int) (strlen (msg)-1));
+X  				if ((ch = (char) ReadCh ()) == CR)
+X  					ch = ch_default;
+! 			} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X  		}	
+X  	}
+X  
+--- 642,648 ----
+X  				MoveCursor (LINES, (int) (strlen (msg)-1));
+X  				if ((ch = (char) ReadCh ()) == CR)
+X  					ch = ch_default;
+! 			} while (! strchr ("eqs\033", ch));
+X  		}	
+X  	}
+X  
+***************
+*** 643,655 ****
+X  	char ch;
+X  	char ch_default = 's';
+X  	char buf[LEN];
+! 	char mail_to[LEN];
+X  	FILE *fp;
+X  	FILE *fp_uname;
+X  	int is_nntp = FALSE;
+X  	int is_nntp_only   = FALSE;
+X  	int is_longfiles   = FALSE;
+- 	int is_resync_active = 0;
+X  	int uname_ok = FALSE;
+X  
+X  	start_line_offset = 5;
+--- 659,670 ----
+X  	char ch;
+X  	char ch_default = 's';
+X  	char buf[LEN];
+! 	char mail_to[PATH_LEN];
+X  	FILE *fp;
+X  	FILE *fp_uname;
+X  	int is_nntp = FALSE;
+X  	int is_nntp_only   = FALSE;
+X  	int is_longfiles   = FALSE;
+X  	int uname_ok = FALSE;
+X  
+X  	start_line_offset = 5;
+***************
+*** 687,695 ****
+X  		fprintf (fp, "\nPlease enter the following information:\n");
+X  		fprintf (fp, "BOX1: Machine+OS:\n");
+X  	}
+- #ifndef NO_RESYNC_ACTIVE_FILE
+- 	is_resync_active = RESYNC_ACTIVE_SECS;
+- #endif
+X  #ifdef USE_LONG_FILENAMES
+X  	is_longfiles = TRUE;
+X  #endif
+--- 702,707 ----
+***************
+*** 699,707 ****
+X  #ifdef NNTP_ONLY
+X  	is_nntp_only = TRUE;
+X  #endif
+! 	fprintf (fp, "\nCFG1: active=%d  arts=%d  resync=%d  longfilenames=%d  setuid=%d\n\
+X  CFG2: nntp=%d  nntp_only=%d  nntp_xuser=%d  nntp_xindex=%d  nntp_xspooldir=%d\n",
+! 		DEFAULT_ACTIVE_NUM,DEFAULT_ARTICLE_NUM,is_resync_active,
+X  		is_longfiles, (tin_uid == real_uid ? 0 : 1), is_nntp, 
+X  		is_nntp_only,  xuser_supported, xindex_supported, 
+X  		xspooldir_supported);
+--- 711,719 ----
+X  #ifdef NNTP_ONLY
+X  	is_nntp_only = TRUE;
+X  #endif
+! 	fprintf (fp, "\nCFG1: active=%d  arts=%d  reread=%d  longfilenames=%d  setuid=%d\n\
+X  CFG2: nntp=%d  nntp_only=%d  nntp_xuser=%d  nntp_xindex=%d  nntp_xspooldir=%d\n",
+! 		DEFAULT_ACTIVE_NUM,DEFAULT_ARTICLE_NUM,reread_active_file_secs,
+X  		is_longfiles, (tin_uid == real_uid ? 0 : 1), is_nntp, 
+X  		is_nntp_only,  xuser_supported, xindex_supported, 
+X  		xspooldir_supported);
+***************
+*** 752,758 ****
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X  	}
+X  
+X  mail_bug_report_done:
+--- 764,770 ----
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("eqs\033", ch));
+X  	}
+X  
+X  mail_bug_report_done:
+***************
+*** 804,810 ****
+X  	if (copy_text) {		/* if "copy_text" */
+X  		fprintf (fp, txt_in_art_you_write, note_h_messageid);
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X  	}
+X  
+X  	add_signature (fp, TRUE);
+--- 816,822 ----
+X  	if (copy_text) {		/* if "copy_text" */
+X  		fprintf (fp, txt_in_art_you_write, note_h_messageid);
+X  		fseek (note_fp, note_mark[0], 0);
+! 		copy_fp (note_fp, fp, quote_chars);
+X  	}
+X  
+X  	add_signature (fp, TRUE);
+***************
+*** 846,852 ****
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X  	}
+X  
+X  mail_to_author_done:
+--- 858,864 ----
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("eqs\033", ch));
+X  	}
+X  
+X  mail_to_author_done:
+***************
+*** 991,997 ****
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'c');
+X  
+X  		switch (ch) {
+X  		case 'e':
+--- 1003,1009 ----
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("ceq\033", ch));
+X  
+X  		switch (ch) {
+X  		case 'e':
+***************
+*** 1058,1064 ****
+X  		fprintf (fp, "Reply-To: %s\n", reply_to);
+X  		start_line_offset++;
+X  	}
+! 	if (note_h_distrib != '\0') {
+X  		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X  		start_line_offset++;
+X  	}
+--- 1070,1076 ----
+X  		fprintf (fp, "Reply-To: %s\n", reply_to);
+X  		start_line_offset++;
+X  	}
+! 	if (*note_h_distrib) {
+X  		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X  		start_line_offset++;
+X  	}
+***************
+*** 1083,1089 ****
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X  		switch (ch) {
+X  		case 'e':
+X  			invoke_editor (article);
+--- 1095,1101 ----
+X  			MoveCursor (LINES, (int) strlen (msg)-1);
+X  			if ((ch = (char) ReadCh ()) == CR)
+X  				ch = ch_default;
+! 		} while (! strchr ("epq\033", ch));
+X  		switch (ch) {
+X  		case 'e':
+X  			invoke_editor (article);
+***************
+*** 1169,1179 ****
+X  {
+X  	FILE *sigfp;
+X  
+- 	if (read_news_via_nntp) {
+X  #ifdef NNTP_INEWS
+X  		flag = TRUE;
+- #endif
+X  	}
+X  
+X  	/*
+X  	 * Use ~/.signature or ~/.Sig or custom .Sig files
+--- 1181,1191 ----
+X  {
+X  	FILE *sigfp;
+X  
+X  #ifdef NNTP_INEWS
++ 	if (read_news_via_nntp) {
+X  		flag = TRUE;
+X  	}
++ #endif
+X  
+X  	/*
+X  	 * Use ~/.signature or ~/.Sig or custom .Sig files
+Files ../1.14/prompt.c and ./prompt.c are identical
+diff -rcs ../1.14/proto.h ./proto.h
+*** ../1.14/proto.h	Tue Aug 11 21:23:29 1992
+--- ./proto.h	Fri Aug  7 13:05:11 1992
+***************
+*** 2,14 ****
+X   
+X  /* active.c */
+X  extern void resync_active_file(void);
+! extern int read_active_file(void);
+! extern int backup_active(int create);
+! extern void notify_groups(void);
+! extern void mark_unthreaded_groups(void);
+X  extern void read_newsgroups_file(void);
+X  /* art.c */
+! extern void find_base(int only_unread);
+X  extern int num_of_arts(void);
+X  extern int valid_artnum(long art);
+X  extern int purge_needed(void);
+--- 2,20 ----
+X   
+X  /* active.c */
+X  extern void resync_active_file(void);
+! extern int find_group_index(char *group);
+! extern void read_active_file(void);
+! extern void backup_active(int create);
+! extern void check_for_any_new_groups(void);
+! extern int prompt_subscribe_group(char *group);
+! extern void set_default_attributes(void);
+! extern void read_attributes_file(void);
+! extern void write_attributes_file(void);
+X  extern void read_newsgroups_file(void);
++ extern void load_active_size_info(char *info);
++ extern int find_active_size_index(char *cur_active_server);
+X  /* art.c */
+! extern void find_base(int index);
+X  extern int num_of_arts(void);
+X  extern int valid_artnum(long art);
+X  extern int purge_needed(void);
+***************
+*** 49,54 ****
+--- 55,61 ----
+X  extern void debug_nntp_respcode(int respcode);
+X  extern void debug_print_arts(void);
+X  extern void debug_print_header(struct article_t *s);
++ extern void debug_save_comp(void);
+X  extern void debug_print_comment(char *comment);
+X  extern void debug_print_base(void);
+X  extern void debug_print_active(void);
+***************
+*** 61,67 ****
+X  extern void group_page(char *group);
+X  extern void fix_new_highest(int groupnum);
+X  extern void show_group_page(char *group);
+! extern void update_group_page(char *group);
+X  extern void draw_subject_arrow(void);
+X  extern void erase_subject_arrow(void);
+X  extern void prompt_subject_num(int ch, char *group);
+--- 68,74 ----
+X  extern void group_page(char *group);
+X  extern void fix_new_highest(int groupnum);
+X  extern void show_group_page(char *group);
+! extern void update_group_page(void);
+X  extern void draw_subject_arrow(void);
+X  extern void erase_subject_arrow(void);
+X  extern void prompt_subject_num(int ch, char *group);
+***************
+*** 70,75 ****
+--- 77,83 ----
+X  extern void mark_screen(int level, int screen_row, int screen_col, char *value);
+X  extern void set_subj_from_size(int num_cols);
+X  extern void toggle_subject_from(void);
++ extern void show_group_title(int clear_title);
+X  /* hashstr.c */
+X  extern char *hash_str(char *s);
+X  extern struct hashnode *add_string(char *s);
+***************
+*** 77,82 ****
+--- 85,91 ----
+X  extern void hash_reclaim(void);
+X  /* help.c */
+X  extern void show_info_page(int type, char *help[], char *title);
++ extern void display_info_page(void);
+X  /* inews.c */
+X  extern int submit_inews(char *name);
+X  extern void get_host_name(char *host_name);
+***************
+*** 90,97 ****
+X  extern void write_kill_file(void);
+X  extern int kill_art_menu(char *group_name, int index);
+X  extern int unkill_all_articles(void);
+! extern int kill_any_articles(char *group);
+! extern int auto_select_articles(char *group);
+X  /* lang.c */
+X  /* main.c */
+X  extern void main(int argc, char *argv[]);
+--- 99,106 ----
+X  extern void write_kill_file(void);
+X  extern int kill_art_menu(char *group_name, int index);
+X  extern int unkill_all_articles(void);
+! extern int kill_any_articles(int index);
+! extern int auto_select_articles(int index);
+X  /* lang.c */
+X  /* main.c */
+X  extern void main(int argc, char *argv[]);
+***************
+*** 107,118 ****
+--- 116,132 ----
+X  extern void expand_active(void);
+X  extern void expand_kill(void);
+X  extern void expand_save(void);
++ extern void expand_spooldirs(void);
++ extern void expand_active_size(void);
+X  extern void init_screen_array(int allocate);
+X  extern void free_all_arrays(void);
+X  extern void free_art_array(void);
++ extern void free_attributes_array(void);
+X  extern void free_active_arrays(void);
+X  extern void free_kill_array(void);
+X  extern void free_save_array(void);
++ extern void free_spooldirs_array(void);
++ extern void free_active_size_array(void);
+X  extern char *my_malloc(unsigned size);
+X  extern char *my_realloc(char *p, unsigned size);
+X  /* misc.c */
+***************
+*** 120,125 ****
+--- 134,140 ----
+X  extern void copy_fp(FILE *fp_ip, FILE *fp_op, char *prefix);
+X  extern char *get_val(char *env, char *def);
+X  extern int invoke_editor(char *nam);
++ extern int invoke_ispell(char *nam);
+X  extern void shell_escape(void);
+X  extern void tin_done(int ret);
+X  extern long hash_groupname(char *group);
+***************
+*** 143,148 ****
+--- 158,164 ----
+X  extern void get_author(int thread, int respnum, char *str);
+X  extern void toggle_inverse_video(void);
+X  extern int get_arrow_key(void);
++ extern void create_index_lock_file(char *lock_file);
+X  /* newsrc.c */
+X  extern int auto_subscribe_groups(void);
+X  extern void backup_newsrc(void);
+***************
+*** 174,179 ****
+--- 190,196 ----
+X  extern void nntp_open(void);
+X  extern void nntp_close(void);
+X  extern FILE *open_active_fp(void);
++ extern FILE *open_newgroups_fp(int index);
+X  extern FILE *open_subscription_fp(void);
+X  extern FILE *open_newsgroups_fp(void);
+X  extern FILE *open_index_fp(char *group_name);
+***************
+*** 231,236 ****
+--- 248,255 ----
+X  extern int match_boolean(char *line, char *pat, int *dst);
+X  extern int match_number(char *line, char *pat, int *dst);
+X  extern int match_string(char *line, char *pat, char *dst, int dstlen);
++ extern void quote_dash_to_space(char *s);
++ extern char *quote_space_to_dash(char *s);
+X  /* save.c */
+X  extern int check_start_save_any_news(int check_start_save);
+X  extern int save_art_to_file(int respnum, int index, int mailbox, char *filename);
+***************
+*** 262,268 ****
+X  extern void show_title(char *title);
+X  extern void ring_bell(void);
+X  /* search.c */
+! extern int search_author(int only_unread, int current_art, int forward);
+X  extern void search_group(int forward);
+X  extern void search_subject(int forward, char *group);
+X  extern int search_article(int forward);
+--- 281,287 ----
+X  extern void show_title(char *title);
+X  extern void ring_bell(void);
+X  /* search.c */
+! extern int search_author(int index, int current_art, int forward);
+X  extern void search_group(int forward);
+X  extern void search_subject(int forward, char *group);
+X  extern int search_article(int forward);
+***************
+*** 279,284 ****
+--- 298,304 ----
+X  extern void catchup_group(int goto_next_unread_group);
+X  extern void next_unread_group(int enter_group);
+X  extern void set_groupname_len(int all_groups);
++ extern void toggle_my_groups(int only_unread_groups);
+X  /* signal.c */
+X  extern sigtype_t (*sigdisp(int sig, sigtype_t (*func)()))();
+X  extern void set_signal_handlers(void);
+***************
+*** 289,294 ****
+--- 309,315 ----
+X  extern int set_win_size(int *num_lines, int *num_cols);
+X  extern void set_signals_art(void);
+X  extern void set_signals_group(void);
++ extern void set_signals_help(void);
+X  extern void set_signals_page(void);
+X  extern void set_signals_select(void);
+X  extern void set_signals_spooldir(void);
+***************
+*** 298,303 ****
+--- 319,325 ----
+X  extern void select_suspend(int sig);
+X  extern void spooldir_suspend(int sig);
+X  extern void group_suspend(int sig);
++ extern void help_suspend(int sig);
+X  extern void page_suspend(int sig);
+X  extern void thread_suspend(int sig);
+X  extern void rcfile_suspend(int sig);
+***************
+*** 306,311 ****
+--- 328,334 ----
+X  extern void select_resize(int sig);
+X  extern void spooldir_resize(int sig);
+X  extern void group_resize(int sig);
++ extern void help_resize(int sig);
+X  extern void page_resize(int sig);
+X  extern void thread_resize(int sig);
+X  /* spooldir.c */
+***************
+*** 342,354 ****
+X   
+X  /* active.c */
+X  extern void resync_active_file(/*void*/);
+! extern int read_active_file(/*void*/);
+! extern int backup_active(/*int create*/);
+! extern void notify_groups(/*void*/);
+! extern void mark_unthreaded_groups(/*void*/);
+X  extern void read_newsgroups_file(/*void*/);
+X  /* art.c */
+! extern void find_base(/*int only_unread*/);
+X  extern int num_of_arts(/*void*/);
+X  extern int valid_artnum(/*long art*/);
+X  extern int purge_needed(/*void*/);
+--- 365,383 ----
+X   
+X  /* active.c */
+X  extern void resync_active_file(/*void*/);
+! extern int find_group_index(/*char *group*/);
+! extern void read_active_file(/*void*/);
+! extern void backup_active(/*int create*/);
+! extern void check_for_any_new_groups(/*void*/);
+! extern int prompt_subscribe_group(/*char *group*/);
+! extern void set_default_attributes(/*void*/);
+! extern void read_attributes_file(/*void*/);
+! extern void write_attributes_file(/*void*/);
+X  extern void read_newsgroups_file(/*void*/);
++ extern void load_active_size_info(/*char *info*/);
++ extern int find_active_size_index(/*char *cur_active_server*/);
+X  /* art.c */
+! extern void find_base(/*int index*/);
+X  extern int num_of_arts(/*void*/);
+X  extern int valid_artnum(/*long art*/);
+X  extern int purge_needed(/*void*/);
+***************
+*** 389,394 ****
+--- 418,424 ----
+X  extern void debug_nntp_respcode(/*int respcode*/);
+X  extern void debug_print_arts(/*void*/);
+X  extern void debug_print_header(/*struct article_t *s*/);
++ extern void debug_save_comp(/*void*/);
+X  extern void debug_print_comment(/*char *comment*/);
+X  extern void debug_print_base(/*void*/);
+X  extern void debug_print_active(/*void*/);
+***************
+*** 401,407 ****
+X  extern void group_page(/*char *group*/);
+X  extern void fix_new_highest(/*int groupnum*/);
+X  extern void show_group_page(/*char *group*/);
+! extern void update_group_page(/*char *group*/);
+X  extern void draw_subject_arrow(/*void*/);
+X  extern void erase_subject_arrow(/*void*/);
+X  extern void prompt_subject_num(/*int ch, char *group*/);
+--- 431,437 ----
+X  extern void group_page(/*char *group*/);
+X  extern void fix_new_highest(/*int groupnum*/);
+X  extern void show_group_page(/*char *group*/);
+! extern void update_group_page(/*void*/);
+X  extern void draw_subject_arrow(/*void*/);
+X  extern void erase_subject_arrow(/*void*/);
+X  extern void prompt_subject_num(/*int ch, char *group*/);
+***************
+*** 410,415 ****
+--- 440,446 ----
+X  extern void mark_screen(/*int level, int screen_row, int screen_col, char *value*/);
+X  extern void set_subj_from_size(/*int num_cols*/);
+X  extern void toggle_subject_from(/*void*/);
++ extern void show_group_title(/*int clear_title*/);
+X  /* hashstr.c */
+X  extern char *hash_str(/*char *s*/);
+X  extern struct hashnode *add_string(/*char *s*/);
+***************
+*** 417,422 ****
+--- 448,454 ----
+X  extern void hash_reclaim(/*void*/);
+X  /* help.c */
+X  extern void show_info_page(/*int type, char *help[], char *title*/);
++ extern void display_info_page(/*void*/);
+X  /* inews.c */
+X  extern int submit_inews(/*char *name*/);
+X  extern void get_host_name(/*char *host_name*/);
+***************
+*** 430,437 ****
+X  extern void write_kill_file(/*void*/);
+X  extern int kill_art_menu(/*char *group_name, int index*/);
+X  extern int unkill_all_articles(/*void*/);
+! extern int kill_any_articles(/*char *group*/);
+! extern int auto_select_articles(/*char *group*/);
+X  /* lang.c */
+X  /* main.c */
+X  extern void main(/*int argc, char *argv[]*/);
+--- 462,469 ----
+X  extern void write_kill_file(/*void*/);
+X  extern int kill_art_menu(/*char *group_name, int index*/);
+X  extern int unkill_all_articles(/*void*/);
+! extern int kill_any_articles(/*int index*/);
+! extern int auto_select_articles(/*int index*/);
+X  /* lang.c */
+X  /* main.c */
+X  extern void main(/*int argc, char *argv[]*/);
+***************
+*** 447,458 ****
+--- 479,495 ----
+X  extern void expand_active(/*void*/);
+X  extern void expand_kill(/*void*/);
+X  extern void expand_save(/*void*/);
++ extern void expand_spooldirs(/*void*/);
++ extern void expand_active_size(/*void*/);
+X  extern void init_screen_array(/*int allocate*/);
+X  extern void free_all_arrays(/*void*/);
+X  extern void free_art_array(/*void*/);
++ extern void free_attributes_array(/*void*/);
+X  extern void free_active_arrays(/*void*/);
+X  extern void free_kill_array(/*void*/);
+X  extern void free_save_array(/*void*/);
++ extern void free_spooldirs_array(/*void*/);
++ extern void free_active_size_array(/*void*/);
+X  extern char *my_malloc(/*unsigned size*/);
+X  extern char *my_realloc(/*char *p, unsigned size*/);
+X  /* misc.c */
+***************
+*** 460,465 ****
+--- 497,503 ----
+X  extern void copy_fp(/*FILE *fp_ip, FILE *fp_op, char *prefix*/);
+X  extern char *get_val(/*char *env, char *def*/);
+X  extern int invoke_editor(/*char *nam*/);
++ extern int invoke_ispell(/*char *nam*/);
+X  extern void shell_escape(/*void*/);
+X  extern void tin_done(/*int ret*/);
+X  extern long hash_groupname(/*char *group*/);
+***************
+*** 483,488 ****
+--- 521,527 ----
+X  extern void get_author(/*int thread, int respnum, char *str*/);
+X  extern void toggle_inverse_video(/*void*/);
+X  extern int get_arrow_key(/*void*/);
++ extern void create_index_lock_file(/*char *lock_file*/);
+X  /* newsrc.c */
+X  extern int auto_subscribe_groups(/*void*/);
+X  extern void backup_newsrc(/*void*/);
+***************
+*** 514,519 ****
+--- 553,559 ----
+X  extern void nntp_open(/*void*/);
+X  extern void nntp_close(/*void*/);
+X  extern FILE *open_active_fp(/*void*/);
++ extern FILE *open_newgroups_fp(/*int index*/);
+X  extern FILE *open_subscription_fp(/*void*/);
+X  extern FILE *open_newsgroups_fp(/*void*/);
+X  extern FILE *open_index_fp(/*char *group_name*/);
+***************
+*** 571,576 ****
+--- 611,618 ----
+X  extern int match_boolean(/*char *line, char *pat, int *dst*/);
+X  extern int match_number(/*char *line, char *pat, int *dst*/);
+X  extern int match_string(/*char *line, char *pat, char *dst, int dstlen*/);
++ extern void quote_dash_to_space(/*char *s*/);
++ extern char *quote_space_to_dash(/*char *s*/);
+X  /* save.c */
+X  extern int check_start_save_any_news(/*int check_start_save*/);
+X  extern int save_art_to_file(/*int respnum, int index, int mailbox, char *filename*/);
+***************
+*** 602,608 ****
+X  extern void show_title(/*char *title*/);
+X  extern void ring_bell(/*void*/);
+X  /* search.c */
+! extern int search_author(/*int only_unread, int current_art, int forward*/);
+X  extern void search_group(/*int forward*/);
+X  extern void search_subject(/*int forward, char *group*/);
+X  extern int search_article(/*int forward*/);
+--- 644,650 ----
+X  extern void show_title(/*char *title*/);
+X  extern void ring_bell(/*void*/);
+X  /* search.c */
+! extern int search_author(/*int index, int current_art, int forward*/);
+X  extern void search_group(/*int forward*/);
+X  extern void search_subject(/*int forward, char *group*/);
+X  extern int search_article(/*int forward*/);
+***************
+*** 619,624 ****
+--- 661,667 ----
+X  extern void catchup_group(/*int goto_next_unread_group*/);
+X  extern void next_unread_group(/*int enter_group*/);
+X  extern void set_groupname_len(/*int all_groups*/);
++ extern void toggle_my_groups(/*int only_unread_groups*/);
+X  /* signal.c */
+X  extern sigtype_t (*sigdisp(/*int sig, sigtype_t (*func)()*/))();
+X  extern void set_signal_handlers(/*void*/);
+***************
+*** 629,634 ****
+--- 672,678 ----
+X  extern int set_win_size(/*int *num_lines, int *num_cols*/);
+X  extern void set_signals_art(/*void*/);
+X  extern void set_signals_group(/*void*/);
++ extern void set_signals_help(/*void*/);
+X  extern void set_signals_page(/*void*/);
+X  extern void set_signals_select(/*void*/);
+X  extern void set_signals_spooldir(/*void*/);
+***************
+*** 638,643 ****
+--- 682,688 ----
+X  extern void select_suspend(/*int sig*/);
+X  extern void spooldir_suspend(/*int sig*/);
+X  extern void group_suspend(/*int sig*/);
++ extern void help_suspend(/*int sig*/);
+X  extern void page_suspend(/*int sig*/);
+X  extern void thread_suspend(/*int sig*/);
+X  extern void rcfile_suspend(/*int sig*/);
+***************
+*** 646,651 ****
+--- 691,697 ----
+X  extern void select_resize(/*int sig*/);
+X  extern void spooldir_resize(/*int sig*/);
+X  extern void group_resize(/*int sig*/);
++ extern void help_resize(/*int sig*/);
+X  extern void page_resize(/*int sig*/);
+X  extern void thread_resize(/*int sig*/);
+X  /* spooldir.c */
+diff -rcs ../1.14/rcfile.c ./rcfile.c
+*** ../1.14/rcfile.c	Tue Aug 11 21:23:19 1992
+--- ./rcfile.c	Fri Aug  7 11:44:15 1992
+***************
+*** 3,9 ****
+X   *  Module    : rcfile.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 20-06-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+--- 3,9 ----
+X   *  Module    : rcfile.c
+X   *  Author    : I.Lea
+X   *  Created   : 01-04-91
+!  *  Updated   : 07-08-92
+X   *  Notes     :
+X   *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X   *              You may  freely  copy or  redistribute  this software,
+***************
+*** 26,31 ****
+--- 26,32 ----
+X  
+X  int read_rcfile ()
+X  {
++ 	char active_size_info[PATH_LEN];
+X  	char buf[LEN];
+X  	FILE *fp;
+X  
+***************
+*** 37,45 ****
+X  		if (buf[0] == '#' || buf[0] == '\n') { 
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "save_archive=", &save_archive_name)) {
+X  			continue;
+! 		}	
+X  		if (match_boolean (buf, "start_editor_offset=", &start_editor_offset)) {
+X  			continue;
+X  		}	
+--- 38,49 ----
+X  		if (buf[0] == '#' || buf[0] == '\n') { 
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "auto_save=", &default_auto_save)) {
+X  			continue;
+! 		}
+! 		if (match_boolean (buf, "batch_save=", &default_batch_save)) {
+! 			continue;
+! 		}
+X  		if (match_boolean (buf, "start_editor_offset=", &start_editor_offset)) {
+X  			continue;
+X  		}	
+***************
+*** 67,81 ****
+X  		if (match_boolean (buf, "catchup_read_groups=", &catchup_read_groups)) {
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "thread_articles=", &thread_arts)) {
+X  			continue;
+X  		}	
+X  		if (match_boolean (buf, "unlink_article=", &unlink_article)) {
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "show_only_unread=", &show_only_unread)) {
+X  			continue;
+! 		}	
+X  		if (match_boolean (buf, "confirm_action=", &confirm_action)) {
+X  			continue;
+X  		}
+--- 71,88 ----
+X  		if (match_boolean (buf, "catchup_read_groups=", &catchup_read_groups)) {
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "thread_articles=", &default_thread_arts)) {
+X  			continue;
+X  		}	
+X  		if (match_boolean (buf, "unlink_article=", &unlink_article)) {
+X  			continue;
+X  		}	
+! 		if (match_boolean (buf, "show_only_unread_groups=", &show_only_unread_groups)) {
+X  			continue;
+! 		}
+! 		if (match_boolean (buf, "show_only_unread=", &default_show_only_unread)) {
+! 			continue;
+! 		}
+X  		if (match_boolean (buf, "confirm_action=", &confirm_action)) {
+X  			continue;
+X  		}
+***************
+*** 85,92 ****
+X  		if (match_number (buf, "show_author=", &default_show_author)) {
+X  			continue;
+X  		}	
+! 		if (match_number (buf, "post_process_type=", &post_proc_type)) {
+! 			switch (post_proc_type) {
+X  				case POST_PROC_SHAR:
+X  					proc_ch_default = 's';
+X  					break;
+--- 92,99 ----
+X  		if (match_number (buf, "show_author=", &default_show_author)) {
+X  			continue;
+X  		}	
+! 		if (match_number (buf, "post_process_type=", &default_post_proc_type)) {
+! 			switch (default_post_proc_type) {
+X  				case POST_PROC_SHAR:
+X  					proc_ch_default = 's';
+X  					break;
+***************
+*** 106,112 ****
+X  			}
+X  			continue;
+X  		}	
+! 		if (match_number (buf, "sort_article_type=", &sort_art_type)) {
+X  			continue;
+X  		}	
+X  		if (match_string (buf, "savedir=", default_savedir, sizeof (default_savedir))) {
+--- 113,119 ----
+X  			}
+X  			continue;
+X  		}	
+! 		if (match_number (buf, "sort_article_type=", &default_sort_art_type)) {
+X  			continue;
+X  		}	
+X  		if (match_string (buf, "savedir=", default_savedir, sizeof (default_savedir))) {
+***************
+*** 126,131 ****
+--- 133,166 ----
+X  		if (match_string (buf, "printer=", printer, sizeof (printer))) {
+X  			continue;
+X  		}
++ 		if (match_string (buf, "quote_chars=", quote_chars, sizeof (quote_chars))) {
++ 			quote_dash_to_space (quote_chars);
++ 			continue;
++ 		}
++ 		if (match_string (buf, "unread_art_mark=", buf, sizeof (buf))) {
++ 			unread_art_mark = buf[0];
++ 			continue;
++ 		}
++ 		if (match_string (buf, "hot_art_mark=", buf, sizeof (buf))) {
++ 			hot_art_mark = buf[0];
++ 			continue;
++ 		}
++ 		if (match_string (buf, "return_art_mark=", buf, sizeof (buf))) {
++ 			return_art_mark = buf[0];
++ 			continue;
++ 		}
++ 		if (match_number (buf, "reread_active_file_secs=", &reread_active_file_secs)) {
++ 			continue;
++ 		}
++ 		if (match_boolean (buf, "show_last_line_prev_page=", &show_last_line_prev_page)) {
++ 			continue;
++ 		}
++ 		if (match_boolean (buf, "tab_after_X_selection=", &tab_after_X_selection)) {
++ 			continue;
++ 		}
++ 		if (match_boolean (buf, "force_screen_redraw=", &force_screen_redraw)) {
++ 			continue;
++ 		}
+X  		if (match_string (buf, "default_spooldir_alias=", spooldir_alias, sizeof (spooldir_alias))) {
+X  			continue;
+X  		}
+***************
+*** 171,176 ****
+--- 206,215 ----
+X  		if (match_string (buf, "default_shell_command=", default_shell_command, sizeof (default_shell_command))) {
+X  			continue;
+X  		}
++ 		if (match_string (buf, "active_file_info=", active_size_info, sizeof (active_size_info))) {
++ 			load_active_size_info (active_size_info);
++ 			continue;
++ 		}	
+X  	}
+X  	fclose (fp);
+X  	return TRUE;		
+***************
+*** 184,190 ****
+X  void write_rcfile ()
+X  {
+X  	FILE *fp;
+! 
+X  	if ((fp = fopen (rcfile, "w")) == NULL) {
+X  		return;
+X  	}	
+--- 223,230 ----
+X  void write_rcfile ()
+X  {
+X  	FILE *fp;
+! 	int i;
+! 	
+X  	if ((fp = fopen (rcfile, "w")) == NULL) {
+X  		return;
+X  	}	
+***************
+*** 194,200 ****
+X  	}
+X  	fprintf (fp, "# if ON articles/threads with Archive-name: in mail header will\n");
+X  	fprintf (fp, "# be automatically saved with the Archive-name & part/patch no.\n");
+! 	fprintf (fp, "save_archive=%s\n\n", (save_archive_name ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON editor will be started with cursor offset into the file\n");
+X  	fprintf (fp, "# otherwise the cursor will be positioned at the first line\n");
+X  	fprintf (fp, "start_editor_offset=%s\n\n", (start_editor_offset ? "ON" : "OFF"));
+--- 234,243 ----
+X  	}
+X  	fprintf (fp, "# if ON articles/threads with Archive-name: in mail header will\n");
+X  	fprintf (fp, "# be automatically saved with the Archive-name & part/patch no.\n");
+! 	fprintf (fp, "auto_save=%s\n\n", (default_auto_save ? "ON" : "OFF"));
+! 	fprintf (fp, "# if ON articles/threads will be saved in batch mode when save -S\n");
+! 	fprintf (fp, "# or mail -M is specified on the command line\n");
+! 	fprintf (fp, "batch_save=%s\n\n", (default_batch_save ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON editor will be started with cursor offset into the file\n");
+X  	fprintf (fp, "# otherwise the cursor will be positioned at the first line\n");
+X  	fprintf (fp, "start_editor_offset=%s\n\n", (start_editor_offset ? "ON" : "OFF"));
+***************
+*** 222,245 ****
+X  	fprintf (fp, "show_author=%d\n\n", default_show_author);
+X  	fprintf (fp, "# type of post processing to perform after saving articles.\n");
+X  	fprintf (fp, "# 0=(none) 1=(shar) 2=(uudecode) 3=(uud & list zoo) 4=(uud & extract zoo) 5=(patch).\n");
+! 	fprintf (fp, "post_process_type=%d\n\n", post_proc_type);
+X  	fprintf (fp, "# if ON and group not in ~/.tin/unthread articles will be threaded.\n");
+! 	fprintf (fp, "thread_articles=%s\n\n", (thread_arts ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON remove ~/.article after posting.\n");
+X  	fprintf (fp, "unlink_article=%s\n\n", (unlink_article ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON show only new/unread articles otherwise show all.\n");
+! 	fprintf (fp, "show_only_unread=%s\n\n", (show_only_unread ? "ON" : "OFF"));
+X  	fprintf (fp, "# sort articles by 0=(nothing) 1=(Subject descend) 2=(Subject ascend)\n");
+X  	fprintf (fp, "# 3=(From descend) 4=(From ascend) 5=(Date descend) 6=(Date ascend).\n");
+! 	fprintf (fp, "sort_article_type=%d\n\n", sort_art_type);
+! 	fprintf (fp, "# (-d) directory where articles/threads are saved\n");
+X  	fprintf (fp, "savedir=%s\n\n", default_savedir);
+! 	fprintf (fp, "# (-M) directory where articles/threads are saved in mailbox format\n");	
+X  	fprintf (fp, "maildir=%s\n\n", default_maildir);	
+! 	fprintf (fp, "# (-p) print program with parameters used to print articles/threads\n");
+X  	fprintf (fp, "printer=%s\n\n", printer);
+X  
+! 	fprintf (fp, "# default actions/prompt strings for questions\n");
+X  	fprintf (fp, "default_spooldir_alias=%s\n", spooldir_alias);
+X  	fprintf (fp, "default_author_search=%s\n", default_author_search);
+X  	fprintf (fp, "default_goto_group=%s\n", default_goto_group);
+--- 265,306 ----
+X  	fprintf (fp, "show_author=%d\n\n", default_show_author);
+X  	fprintf (fp, "# type of post processing to perform after saving articles.\n");
+X  	fprintf (fp, "# 0=(none) 1=(shar) 2=(uudecode) 3=(uud & list zoo) 4=(uud & extract zoo) 5=(patch).\n");
+! 	fprintf (fp, "post_process_type=%d\n\n", default_post_proc_type);
+X  	fprintf (fp, "# if ON and group not in ~/.tin/unthread articles will be threaded.\n");
+! 	fprintf (fp, "thread_articles=%s\n\n", (default_thread_arts ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON remove ~/.article after posting.\n");
+X  	fprintf (fp, "unlink_article=%s\n\n", (unlink_article ? "ON" : "OFF"));
++ 	fprintf (fp, "# if ON show only subscribed to groups that contain unread articles.\n");
++ 	fprintf (fp, "show_only_unread_groups=%s\n\n", (show_only_unread_groups ? "ON" : "OFF"));
+X  	fprintf (fp, "# if ON show only new/unread articles otherwise show all.\n");
+! 	fprintf (fp, "show_only_unread=%s\n\n", (default_show_only_unread ? "ON" : "OFF"));
+X  	fprintf (fp, "# sort articles by 0=(nothing) 1=(Subject descend) 2=(Subject ascend)\n");
+X  	fprintf (fp, "# 3=(From descend) 4=(From ascend) 5=(Date descend) 6=(Date ascend).\n");
+! 	fprintf (fp, "sort_article_type=%d\n\n", default_sort_art_type);
+! 	fprintf (fp, "# directory where articles/threads are saved\n");
+X  	fprintf (fp, "savedir=%s\n\n", default_savedir);
+! 	fprintf (fp, "# (-m) directory where articles/threads are saved in mailbox format\n");	
+X  	fprintf (fp, "maildir=%s\n\n", default_maildir);	
+! 	fprintf (fp, "# print program with parameters used to print articles/threads\n");
+X  	fprintf (fp, "printer=%s\n\n", printer);
++ 	fprintf (fp, "# time interval in seconds between rereading the active file\n");
++ 	fprintf (fp, "reread_active_file_secs=%d\n\n", reread_active_file_secs);
++ 	fprintf (fp, "# characters used in quoting to followups and replys. '_' replaced by ' '\n");
++ 	fprintf (fp, "quote_chars=%s\n\n", quote_space_to_dash (quote_chars));
++ 	fprintf (fp, "# character used to show that an art was unread (default '+')\n");
++ 	fprintf (fp, "unread_art_mark=%c\n\n", unread_art_mark);
++ 	fprintf (fp, "# character used to show that an art was auto-selected (default '*')\n");
++ 	fprintf (fp, "hot_art_mark=%c\n\n", hot_art_mark);
++ 	fprintf (fp, "# character used to show that an art will return (default '-')\n");
++ 	fprintf (fp, "return_art_mark=%c\n\n", return_art_mark);
++ 	fprintf (fp, "# if ON show the last line of the previous page as first line of next page\n");
++ 	fprintf (fp, "show_last_line_prev_page=%s\n\n", (show_last_line_prev_page ? "ON" : "OFF"));
++ 	fprintf (fp, "# if ON a TAB command will be automatically done after the X command\n");
++ 	fprintf (fp, "tab_after_X_selection=%s\n\n", (tab_after_X_selection ? "ON" : "OFF"));
++ 	fprintf (fp, "# if ON a screen redraw will always be done after certain external commands\n");
++ 	fprintf (fp, "force_screen_redraw=%s\n\n", (force_screen_redraw ? "ON" : "OFF"));
+X  
+! 	fprintf (fp, "# default action/prompt strings\n");
+X  	fprintf (fp, "default_spooldir_alias=%s\n", spooldir_alias);
+X  	fprintf (fp, "default_author_search=%s\n", default_author_search);
+X  	fprintf (fp, "default_goto_group=%s\n", default_goto_group);
+***************
+*** 254,260 ****
+X  	fprintf (fp, "default_regex_pattern=%s\n", default_regex_pattern);
+X  	fprintf (fp, "default_save_file=%s\n", default_save_file);
+X  	fprintf (fp, "default_select_pattern=%s\n", default_select_pattern);
+! 	fprintf (fp, "default_shell_command=%s\n", default_shell_command);
+X  
+X  	fclose (fp);
+X  	chmod (rcfile, 0600);
+--- 315,332 ----
+X  	fprintf (fp, "default_regex_pattern=%s\n", default_regex_pattern);
+X  	fprintf (fp, "default_save_file=%s\n", default_save_file);
+X  	fprintf (fp, "default_select_pattern=%s\n", default_select_pattern);
+! 	fprintf (fp, "default_shell_command=%s\n\n", default_shell_command);
+! 
+! 	fprintf (fp, "# active file sizes/dates from different servers used for detecting new groups\n");
+! 	if (! num_active_size) {
+! 		fprintf (fp, "active_file_info=%s[%s]\n", 
+! 			new_active_file_server, new_active_file_attribute);
+! 	} else {
+! 		for (i = 0 ; i < num_active_size ; i++) {
+! 			fprintf (fp, "active_file_info=%s[%s]\n", 
+! 				active_size[i].server, active_size[i].attribute);
+! 		}
+! 	}
+X  
+X  	fclose (fp);
+X  	chmod (rcfile, 0600);
+***************
+*** 268,278 ****
+--- 340,352 ----
+X  	char *group;
+X  	int kill_at_once;
+X  {
++ 	extern int cur_groupnum;
+X  	char *str = (char *) 0;
+X  	int ch, i;
+X  	int kill_changed = FALSE;
+X  	int orig_show_only_unread;
+X  	int orig_thread_arts;
++ 	int index;
+X  	int option;
+X  	int ret_code = NO_KILLING;
+X  	int var_orig;
+***************
+*** 280,286 ****
+X  #ifdef SIGTSTP
+X  	sigtype_t (*susp)();
+X  	
+! 	susp = (sigtype_t *) 0;
+X  
+X  	if (do_sigtstp) {
+X  		susp = sigdisp (SIGTSTP, SIG_DFL);
+--- 354,360 ----
+X  #ifdef SIGTSTP
+X  	sigtype_t (*susp)();
+X  	
+! 	susp = (sigtype_t (*)()) 0;
+X  
+X  	if (do_sigtstp) {
+X  		susp = sigdisp (SIGTSTP, SIG_DFL);
+***************
+*** 323,337 ****
+X  			case -1:
+X  				if (kill_changed) {
+X  					if (kill_at_once) {
+! 						if (killed_articles = read_kill_file ()) {
+! 							if (kill_any_articles (group)) {
+X  								make_threads (FALSE);
+! 								find_base (show_only_unread);
+X  							}
+X  						} else {
+! 							if (unkill_all_articles()) {
+X  								make_threads (FALSE);
+! 								find_base (show_only_unread);
+X  							}
+X  						}
+X  					}
+--- 397,413 ----
+X  			case -1:
+X  				if (kill_changed) {
+X  					if (kill_at_once) {
+! 						index = my_group[cur_groupnum];
+! 						killed_articles = read_kill_file ();
+! 						if (killed_articles) {
+! 							if (kill_any_articles (index)) {
+X  								make_threads (FALSE);
+! 								find_base (index);
+X  							}
+X  						} else {
+! 							if (unkill_all_articles ()) {
+X  								make_threads (FALSE);
+! 								find_base (index);
+X  							}
+X  						}
+X  					}
+***************
+*** 347,353 ****
+X  				return ret_code;
+X  			
+X  			case 1:		/* auto save */
+! 				prompt_on_off (INDEX_TOP, COL1, &save_archive_name, 
+X  					txt_help_autosave, txt_opt_autosave);
+X  				break;
+X  
+--- 423,429 ----
+X  				return ret_code;
+X  			
+X  			case 1:		/* auto save */
+! 				prompt_on_off (INDEX_TOP, COL1, &default_auto_save, 
+X  					txt_help_autosave, txt_opt_autosave);
+X  				break;
+X  
+***************
+*** 395,416 ****
+X  				break;
+X  
+X  			case 10:	/* thread/unthread all groups except those in ~/.tin/unthreaded */
+! 				orig_thread_arts = thread_arts;	
+! 				prompt_on_off (INDEX_TOP+6, COL1, &thread_arts, 
+X  					txt_help_thread_arts, txt_opt_thread_arts);
+! 				if (thread_arts != orig_thread_arts || group != (char *) 0) {
+X  					make_threads (TRUE);
+! 					find_base (show_only_unread);
+X  				}
+X  				break;
+X  
+X  			case 11:	/* show all arts or just new/unread arts */
+! 				orig_show_only_unread = show_only_unread;	
+! 				prompt_on_off (INDEX_TOP+6, COL2, &show_only_unread, 
+X  					txt_help_show_only_unread, txt_opt_show_only_unread);
+! 				if (show_only_unread != orig_show_only_unread || group != (char *) 0) {
+X  					make_threads (TRUE);
+! 					find_base (show_only_unread);
+X  					if (space_mode) {
+X  						for (i = 0; i < top_base; i++) {
+X  							if (new_responses (i)) {
+--- 471,493 ----
+X  				break;
+X  
+X  			case 10:	/* thread/unthread all groups except those in ~/.tin/unthreaded */
+! 				orig_thread_arts = default_thread_arts;	
+! 				prompt_on_off (INDEX_TOP+6, COL1, &default_thread_arts, 
+X  					txt_help_thread_arts, txt_opt_thread_arts);
+! 				if (default_thread_arts != orig_thread_arts || group != (char *) 0) {
+X  					make_threads (TRUE);
+! 					find_base (my_group[cur_groupnum]);
+X  				}
++ 				clear_message ();
+X  				break;
+X  
+X  			case 11:	/* show all arts or just new/unread arts */
+! 				orig_show_only_unread = default_show_only_unread;	
+! 				prompt_on_off (INDEX_TOP+6, COL2, &default_show_only_unread, 
+X  					txt_help_show_only_unread, txt_opt_show_only_unread);
+! 				if (default_show_only_unread != orig_show_only_unread || group != (char *) 0) {
+X  					make_threads (TRUE);
+! 					find_base (my_group[cur_groupnum]);
+X  					if (space_mode) {
+X  						for (i = 0; i < top_base; i++) {
+X  							if (new_responses (i)) {
+***************
+*** 437,453 ****
+X  				break;
+X  
+X  			case 13:		/* show subject & author / subject only */
+! 				var_orig = show_author;
+X  				show_menu_help (txt_help_show_author);
+X  				do {
+X  					MoveCursor (INDEX_TOP+8, COL1 + (int) strlen (txt_opt_show_author));
+X  					if ((ch	= ReadCh()) == ' ') {
+! 						if (show_author + 1 > SHOW_FROM_BOTH) {
+! 							show_author = SHOW_FROM_NONE;
+X  						} else {
+! 							show_author++;
+X  						}
+! 						switch (show_author) {
+X  							case SHOW_FROM_NONE:
+X  								str = txt_show_from_none;
+X  								break;
+--- 514,530 ----
+X  				break;
+X  
+X  			case 13:		/* show subject & author / subject only */
+! 				var_orig = default_show_author;
+X  				show_menu_help (txt_help_show_author);
+X  				do {
+X  					MoveCursor (INDEX_TOP+8, COL1 + (int) strlen (txt_opt_show_author));
+X  					if ((ch	= ReadCh()) == ' ') {
+! 						if (default_show_author + 1 > SHOW_FROM_BOTH) {
+! 							default_show_author = SHOW_FROM_NONE;
+X  						} else {
+! 							default_show_author++;
+X  						}
+! 						switch (default_show_author) {
+X  							case SHOW_FROM_NONE:
+X  								str = txt_show_from_none;
+X  								break;
+***************
+*** 467,474 ****
+X  				} while (ch != CR && ch != ESC);
+X  
+X  				if (ch == ESC) {	/* restore original value */
+! 					show_author = var_orig;
+! 					switch (show_author) {
+X  						case SHOW_FROM_NONE:
+X  							str = txt_show_from_none;
+X  							break;
+--- 544,551 ----
+X  				} while (ch != CR && ch != ESC);
+X  
+X  				if (ch == ESC) {	/* restore original value */
+! 					default_show_author = var_orig;
+! 					switch (default_show_author) {
+X  						case SHOW_FROM_NONE:
+X  							str = txt_show_from_none;
+X  							break;
+***************
+*** 484,507 ****
+X  					}
+X  					fputs (str, stdout);
+X  					fflush (stdout);
+! 				} else {
+! 					default_show_author = show_author;
+X  					set_subj_from_size (COLS);
+X  				}
+X  				break;
+X  
+X  			case 14:
+! 				var_orig = post_proc_type;
+X  				show_menu_help (txt_help_post_proc_type);
+X  				do {
+X  					MoveCursor (INDEX_TOP+8, COL2 + (int) strlen (txt_opt_process_type));
+X  					if ((ch	= ReadCh()) == ' ') {
+! 						if (post_proc_type + 1 > POST_PROC_UUD_EXT_ZOO) {
+! 							post_proc_type = POST_PROC_NONE;
+X  						} else {
+! 							post_proc_type++;
+X  						}
+! 						switch (post_proc_type) {
+X  							case POST_PROC_NONE:
+X  								str = txt_post_process_none;
+X  								proc_ch_default = 'n';
+--- 561,586 ----
+X  					}
+X  					fputs (str, stdout);
+X  					fflush (stdout);
+! 				}
+! #if 0
+! 				 else {
+X  					set_subj_from_size (COLS);
+X  				}
++ #endif				
+X  				break;
+X  
+X  			case 14:
+! 				var_orig = default_post_proc_type;
+X  				show_menu_help (txt_help_post_proc_type);
+X  				do {
+X  					MoveCursor (INDEX_TOP+8, COL2 + (int) strlen (txt_opt_process_type));
+X  					if ((ch	= ReadCh()) == ' ') {
+! 						if (default_post_proc_type + 1 > POST_PROC_UUD_EXT_ZOO) {
+! 							default_post_proc_type = POST_PROC_NONE;
+X  						} else {
+! 							default_post_proc_type++;
+X  						}
+! 						switch (default_post_proc_type) {
+X  							case POST_PROC_NONE:
+X  								str = txt_post_process_none;
+X  								proc_ch_default = 'n';
+***************
+*** 530,537 ****
+X  				} while (ch != CR && ch != ESC);
+X  
+X  				if (ch == ESC) {	/* restore original value */
+! 					post_proc_type = var_orig;
+! 					switch (post_proc_type) {
+X  						case POST_PROC_NONE:
+X  							str = txt_post_process_none;
+X  							proc_ch_default = 'n';
+--- 609,616 ----
+X  				} while (ch != CR && ch != ESC);
+X  
+X  				if (ch == ESC) {	/* restore original value */
+! 					default_post_proc_type = var_orig;
+! 					switch (default_post_proc_type) {
+X  						case POST_PROC_NONE:
+X  							str = txt_post_process_none;
+X  							proc_ch_default = 'n';
+***************
+SHAR_EOF
+true || echo 'restore of tin-1.15.patch failed'
+fi
+echo 'End of tin-1.15 part 5'
+echo 'File tin-1.15.patch is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea 
+EMAIL  iain%anl433.uucp@Germany.EU.net
+SNAIL  Siemens AG, ANL A433SZ, Gruendlacher Str. 248, 8510 Fuerth, Germany.
+PHONE  +49-911-3089-407 (work) +49-911-331963 (home) +49-911-3089-290 (FAX)  
+exit 0 # Just in case...

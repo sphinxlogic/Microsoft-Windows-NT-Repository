@@ -1,0 +1,1576 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i086:  imagemagic - X11 image processing and display, Part30/38
+Message-ID: <1993Jul14.232132.22976@sparky.sterling.com>
+X-Md4-Signature: c8bcc5fa29542ed3d7f9f36880d11216
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:21:32 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 86
+Archive-name: imagemagic/part30
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.30 (part 30 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/quantize.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 30; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/quantize.c'
+else
+echo 'x - continuing file ImageMagick/quantize.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/quantize.c' &&
+%  run-length encoded format.
+%
+%  With the permission of USC Information Sciences Institute, 4676 Admiralty
+%  Way, Marina del Rey, California  90292, this code was adapted from module
+%  ALCOLS written by Paul Raveling.
+%
+%  The names of ISI and USC are not used in advertising or publicity
+%  pertaining to distribution of the software without prior specific
+%  written permission from ISI.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+X
+/*
+X  Define declarations.
+*/
+#define color_number  number_colors
+#define MaxNodes  266817
+#define MaxShift  8
+#define MaxTreeDepth  8  /* Log2(MaxRGB) */
+#define NodesInAList  2048
+X
+/*
+X  Structures.
+*/
+typedef struct _Node
+{
+X  struct _Node
+X    *parent,
+X    *child[8];
+X
+X  unsigned char
+X    id,
+X    level,
+X    children,
+X    mid_red,
+X    mid_green,
+X    mid_blue;
+X
+X  unsigned long
+X    number_colors,
+X    number_unique,
+X    total_red,
+X    total_green,
+X    total_blue;
+} Node;
+X
+typedef struct _Nodes
+{
+X  Node
+X    nodes[NodesInAList];
+X
+X  struct _Nodes
+X    *next;
+} Nodes;
+X
+typedef struct _Cube
+{
+X  Node
+X    *root;
+X
+X  ColorPacket
+X    color,
+X    *colormap;
+X
+X  unsigned int
+X    depth;
+X
+X  unsigned long
+X    colors,
+X    pruning_threshold,
+X    next_pruning_threshold,
+X    distance,
+X    shift[MaxTreeDepth+1],
+X    squares[MaxRGB+MaxRGB+1];
+X
+X  unsigned int
+X    nodes,
+X    free_nodes,
+X    color_number;
+X
+X  Node
+X    *next_node;
+X
+X  Nodes
+X    *node_queue;
+} Cube;
+X
+/*
+X  Global variables.
+*/
+static Cube
+X  cube;
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *client_name;
+X
+/*
+X  Forward declarations.
+*/
+static Node
+X  *InitializeNode _Declare((unsigned int,unsigned int,Node *,unsigned int,
+X    unsigned int,unsigned int));
+X
+static unsigned int
+X  DitherImage _Declare((Image *));
+X
+static void
+X  ClosestColor _Declare((Node *)),
+X  Colormap _Declare((Node *)),
+X  PruneLevel _Declare((Node *));
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  A s s i g n m e n t                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Assignment generates the output image from the pruned tree.  The
+%  output image consists of two parts: (1)  A color map, which is an
+%  array of color descriptions (RGB triples) for each color present in
+%  the output image;  (2)  A pixel array, which represents each pixel as
+%  an index into the color map array.
+%
+%  First, the assignment phase makes one pass over the pruned color
+%  description tree to establish the image's color map.  For each node
+%  with n2  > 0, it divides Sr, Sg, and Sb by n2 .  This produces the
+%  mean color of all pixels that classify no lower than this node.  Each
+%  of these colors becomes an entry in the color map.
+%
+%  Finally,  the assignment phase reclassifies each pixel in the pruned
+%  tree to identify the deepest node containing the pixel's color.  The
+%  pixel's value in the pixel array becomes the index of this node's mean
+%  color in the color map.
+%
+%  The format of the Assignment routine is:
+%
+%      Assignment(image,dither,colorspace,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+static void Assignment(image,dither,colorspace,optimal)
+Image
+X  *image;
+X
+unsigned int
+X  dither,
+X  colorspace,
+X  optimal;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Allocate image colormap.
+X  */
+X  image->alpha=False;
+X  image->class=PseudoClass;
+X  if (image->colormap != (ColorPacket *) NULL)
+X    (void) free((char *) image->colormap);
+X  image->colormap=(ColorPacket *)
+X    malloc((unsigned int) cube.colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("unable to quantize image","memory allocation failed");
+X      exit(1);
+X    }
+X  if (image->signature != (char *) NULL)
+X    (void) free((char *) image->signature);
+X  image->signature=(char *) NULL;
+X  cube.colormap=image->colormap;
+X  cube.colors=0;
+X  Colormap(cube.root);
+X  image->colors=(unsigned int) cube.colors;
+X  if ((image->colors == 2)  && (colorspace == GRAYColorspace))
+X    {
+X      unsigned int
+X        polarity;
+X
+X      /*
+X        Monochrome image.
+X      */
+X      polarity=Intensity(image->colormap[0]) > Intensity(image->colormap[1]);
+X      image->colormap[polarity].red=0;
+X      image->colormap[polarity].green=0;
+X      image->colormap[polarity].blue=0;
+X      image->colormap[!polarity].red=MaxRGB;
+X      image->colormap[!polarity].green=MaxRGB;
+X      image->colormap[!polarity].blue=MaxRGB;
+X    }
+X  /*
+X    Create a reduced color image.  For the non-optimal case we trade
+X    accuracy for speed improvements.
+X  */
+X  if (dither)
+X    dither=!DitherImage(image);
+X  p=image->pixels;
+X  if (!dither)
+X    if (!optimal)
+X      for (i=0; i < image->packets; i++)
+X      {
+X        /*
+X          Identify the deepest node containing the pixel's color.
+X        */
+X        node=cube.root;
+X        for ( ; ; )
+X        {
+X          id=(p->red > node->mid_red ? 1 : 0) |
+X            (p->green > node->mid_green ? 1 : 0) << 1 |
+X            (p->blue > node->mid_blue ? 1 : 0) << 2;
+X          if ((node->children & (1 << id)) == 0)
+X            break;
+X          node=node->child[id];
+X        }
+X        p->index=(unsigned short) node->color_number;
+X        p++;
+X      }
+X    else
+X      for (i=0; i < image->packets; i++)
+X      {
+X        /*
+X          Identify the deepest node containing the pixel's color.
+X        */
+X        node=cube.root;
+X        for ( ; ; )
+X        {
+X          id=(p->red > node->mid_red ? 1 : 0) |
+X            (p->green > node->mid_green ? 1 : 0) << 1 |
+X            (p->blue > node->mid_blue ? 1 : 0) << 2;
+X          if ((node->children & (1 << id)) == 0)
+X            break;
+X          node=node->child[id];
+X        }
+X        /*
+X          Find closest color among siblings and their children.
+X        */
+X        cube.color.red=p->red;
+X        cube.color.green=p->green;
+X        cube.color.blue=p->blue;
+X        cube.distance=(unsigned long) (~0);
+X        ClosestColor(node->parent);
+X        p->index=cube.color_number;
+X        p++;
+X      }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C l a s s i f i c a t i o n                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Classification begins by initializing a color description tree
+%  of sufficient depth to represent each possible input color in a leaf.
+%  However, it is impractical to generate a fully-formed color
+%  description tree in the classification phase for realistic values of
+%  cmax.  If colors components in the input image are quantized to k-bit
+%  precision, so that cmax= 2k-1, the tree would need k levels below the
+%  root node to allow representing each possible input color in a leaf.
+%  This becomes prohibitive because the tree's total number of nodes is
+%  1 + sum(i=1,k,8k).
+%
+%  A complete tree would require 19,173,961 nodes for k = 8, cmax = 255.
+%  Therefore, to avoid building a fully populated tree, QUANTIZE: (1)
+%  Initializes data structures for nodes only as they are needed;  (2)
+%  Chooses a maximum depth for the tree as a function of the desired
+%  number of colors in the output image (currently log2(colormap size)).
+%
+%  For each pixel in the input image, classification scans downward from
+%  the root of the color description tree.  At each level of the tree it
+%  identifies the single node which represents a cube in RGB space
+%  containing It updates the following data for each such node:
+%
+%    n1 : Number of pixels whose color is contained in the RGB cube
+%    which this node represents;
+%
+%    n2 : Number of pixels whose color is not represented in a node at
+%    lower depth in the tree;  initially,  n2 = 0 for all nodes except
+%    leaves of the tree.
+%
+%    Sr, Sg, Sb : Sums of the red, green, and blue component values for
+%    all pixels not classified at a lower depth. The combination of
+%    these sums and n2  will ultimately characterize the mean color of a
+%    set of pixels represented by this node.
+%
+%  The format of the Classification routine is:
+%
+%      Classification(image)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+static void Classification(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    bisect,
+X    count,
+X    id,
+X    level;
+X
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    if (cube.nodes > MaxNodes)
+X      {
+X        /*
+X          Prune one level if the color tree is too large.
+X        */
+X        PruneLevel(cube.root);
+X        cube.depth--;
+X      }
+X    /*
+X      Start at the root and descend the color cube tree.
+X    */
+X    count=p->length+1;
+X    node=cube.root;
+X    for (level=1; level < cube.depth; level++)
+X    {
+X      id=(p->red > node->mid_red ? 1 : 0) |
+X        (p->green > node->mid_green ? 1 : 0) << 1 |
+X        (p->blue > node->mid_blue ? 1 : 0) << 2;
+X      if (node->child[id] == (Node *) NULL)
+X        {
+X          /*
+X            Set colors of new node to contain pixel.
+X          */
+X          node->children|=1 << id;
+X          bisect=(unsigned int) (1 << (MaxTreeDepth-level)) >> 1;
+X          node->child[id]=InitializeNode(id,level,node,
+X            node->mid_red+(id & 1 ? bisect : -bisect),
+X            node->mid_green+(id & 2 ? bisect : -bisect),
+X            node->mid_blue+(id & 4 ? bisect : -bisect));
+X          if (node->child[id] == (Node *) NULL)
+X            {
+X              Warning("unable to quantize image","memory allocation failed");
+X              exit(1);
+X            }
+X          if (level == (cube.depth-1))
+X            cube.colors++;
+X        }
+X      /*
+X        Record the number of colors represented by this node.  Shift by level
+X        in the color description tree.
+X      */
+X      node=node->child[id];
+X      node->number_colors+=count << cube.shift[level];
+X    }
+X    /*
+X      Increment unique color count and sum RGB values for this leaf for later
+X      derivation of the mean cube color.
+X    */
+X    node->number_unique+=count;
+X    node->total_red+=p->red*count;
+X    node->total_green+=p->green*count;
+X    node->total_blue+=p->blue*count;
+X    p++;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C l o s e s t C o l o r                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure ClosestColor traverses the color cube tree at a particular node
+%  and determines which colormap entry best represents the input color.
+%
+%  The format of the ClosestColor routine is:
+%
+%      ClosestColor(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: The address of a structure of type Node which points to a
+%      node in the color cube tree that is to be pruned.
+%
+%
+*/
+static void ClosestColor(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children != 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        ClosestColor(node->child[id]);
+X  if (node->number_unique != 0)
+X    {
+X      register ColorPacket
+X        *color;
+X
+X      register unsigned int
+X        blue_distance,
+X        green_distance,
+X        red_distance;
+X
+X      register unsigned long
+X        distance;
+X
+X      /*
+X        Determine if this color is "closest".
+X      */
+X      color=cube.colormap+node->color_number;
+X      red_distance=(int) color->red-(int) cube.color.red+MaxRGB;
+X      green_distance=(int) color->green-(int) cube.color.green+MaxRGB;
+X      blue_distance=(int) color->blue-(int) cube.color.blue+MaxRGB;
+X      distance=cube.squares[red_distance]+cube.squares[green_distance]+
+X        cube.squares[blue_distance];
+X      if (distance < cube.distance)
+X        {
+X          cube.distance=distance;
+X          cube.color_number=(unsigned short) node->color_number;
+X        }
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  C o l o r m a p                                                            %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Colormap traverses the color cube tree and notes each colormap
+%  entry.  A colormap entry is any node in the color cube tree where the
+%  number of unique colors is not zero.
+%
+%  The format of the Colormap routine is:
+%
+%      Colormap(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: The address of a structure of type Node which points to a
+%      node in the color cube tree that is to be pruned.
+%
+%
+*/
+static void Colormap(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children != 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        Colormap(node->child[id]);
+X  if (node->number_unique > 0)
+X    {
+X      /*
+X        Colormap entry is defined by the mean color in this cube.
+X      */
+X      cube.colormap[cube.colors].red=(unsigned char)
+X        ((node->total_red+(node->number_unique >> 1))/node->number_unique);
+X      cube.colormap[cube.colors].green=(unsigned char)
+X        ((node->total_green+(node->number_unique >> 1))/node->number_unique);
+X      cube.colormap[cube.colors].blue=(unsigned char)
+X        ((node->total_blue+(node->number_unique >> 1))/node->number_unique);
+X      node->color_number=cube.colors++;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  D i t h e r I m a g e                                                      %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure DitherImage uses the Floyd-Steinberg algorithm to dither the
+%  image.  Refer to "An Adaptive Algorithm for Spatial GreySscale", Robert W.
+%  Floyd and Louis Steinberg, Proceedings of the S.I.D., Volume 17(2), 1976.
+%
+%  First find the closest representation to the reference pixel color in the
+%  colormap, the node pixel is assigned this color.  Next, the colormap color
+%  is subtracted from the reference pixels color, this represents the
+%  quantization error.  Various amounts of this error are added to the pixels
+%  ahead and below the node pixel to correct for this error.  The error
+%  proportions are:
+%
+%            P     7/16
+%      3/16  5/16  1/16
+%
+%  The error is distributed left-to-right for even scanlines and right-to-left
+%  for odd scanlines.
+%
+%  The format of the DitherImage routine is:
+%
+%      DitherImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+static unsigned int DitherImage(image)
+Image
+X  *image;
+{
+X  typedef struct _ScaledColorPacket
+X  {
+X    int
+X      red,
+X      green,
+X      blue;
+X  } ScaledColorPacket;
+X
+X  int
+X    *cache,
+X    odd_scanline;
+X
+X  register int
+X    blue_error,
+X    green_error,
+X    red_error,
+X    step;
+X
+X  register Node
+X    *node;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register ScaledColorPacket
+X    *cs,
+X    *ns;
+X
+X  register unsigned char
+X    *range_limit;
+X
+X  register unsigned int
+X    id;
+X
+X  ScaledColorPacket
+X    *scanline;
+X
+X  unsigned char
+X    blue,
+X    green,
+X    *range_table,
+X    red;
+X
+X  unsigned int
+X    i,
+X    x,
+X    y;
+X
+X  unsigned short
+X    index;
+X
+X  /*
+X    Image must be uncompressed.
+X  */
+X  if (!UncompressImage(image))
+X    return(True);
+X  /*
+X    Allocate the cache & scanline buffers to keep track of quantization error.
+X  */
+X  cache=(int *) malloc((1 << 18)*sizeof(int));
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  scanline=(ScaledColorPacket *)
+X    malloc(2*(image->columns+2)*sizeof(ScaledColorPacket));
+X  if ((cache == (int *) NULL) || (range_table == (unsigned char *) NULL) ||
+X      (scanline == (ScaledColorPacket *) NULL))
+X    {
+X      Warning("unable to dither image","memory allocation failed");
+X      return(True);
+X    }
+X  /*
+X    Initialize tables.
+X  */
+X  for (i=0; i < (1 << 18); i++)
+X    cache[i]=(-1);
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  /*
+X    Preload first scanline.
+X  */
+X  p=image->pixels;
+X  cs=scanline+1;
+X  for (i=0; i < image->columns; i++)
+X  {
+X    cs->red=p->red;
+X    cs->green=p->green;
+X    cs->blue=p->blue;
+X    p++;
+X    cs++;
+X  }
+X  odd_scanline=False;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    if (y < (image->rows-1))
+X      {
+X        /*
+X          Read another scanline.
+X        */
+X        ns=scanline+1;
+X        if (!odd_scanline)
+X          ns+=(image->columns+2);
+X        for (i=0; i < image->columns; i++)
+X        {
+X          ns->red=p->red;
+X          ns->green=p->green;
+X          ns->blue=p->blue;
+X          p++;
+X          ns++;
+X        }
+X      }
+X    if (!odd_scanline)
+X      {
+X        /*
+X          Distribute error left-to-right for even scanlines.
+X        */
+X        q=image->pixels+image->columns*y;
+X        cs=scanline+1;
+X        ns=scanline+(image->columns+2)+1;
+X        step=1;
+X      }
+X    else
+X      {
+X        /*
+X          Distribute error right-to-left for odd scanlines.
+X        */
+X        q=image->pixels+image->columns*y+(image->columns-1);
+X        cs=scanline+(image->columns+2)+(image->columns-1)+1;
+X        ns=scanline+(image->columns-1)+1;
+X        step=(-1);
+X      }
+X    for (x=0; x < image->columns; x++)
+X    {
+X      red=range_limit[cs->red];
+X      green=range_limit[cs->green];
+X      blue=range_limit[cs->blue];
+X      i=(red >> 2) << 12 | (green >> 2) << 6 | blue >> 2;
+X      if (cache[i] < 0)
+X        {
+X          /*
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+X          for ( ; ; )
+X          {
+X            id=(red > node->mid_red ? 1 : 0) |
+X              (green > node->mid_green ? 1 : 0) << 1 |
+X              (blue > node->mid_blue ? 1 : 0) << 2;
+X            if ((node->children & (1 << id)) == 0)
+X              break;
+X            node=node->child[id];
+X          }
+X          /*
+X            Find closest color among siblings and their children.
+X          */
+X          cube.color.red=red;
+X          cube.color.green=green;
+X          cube.color.blue=blue;
+X          cube.distance=(unsigned long) (~0);
+X          ClosestColor(node->parent);
+X          cache[i]=cube.color_number;
+X        }
+X      index=(unsigned short) cache[i];
+X      red_error=(int) red-(int) cube.colormap[index].red;
+X      green_error=(int) green-(int) cube.colormap[index].green;
+X      blue_error=(int) blue-(int) cube.colormap[index].blue;
+X      q->index=index;
+X      q+=step;
+X      /*
+X        Propagate the error in these proportions:
+X                Q     7/16
+X          3/16  5/16  1/16
+X      */
+X      cs+=step;
+X      cs->red+=(red_error-((red_error*9+8)/16));
+X      cs->green+=(green_error-((green_error*9+8)/16));
+X      cs->blue+=(blue_error-((blue_error*9+8)/16));
+X      ns-=step;
+X      ns->red+=(red_error*3+8)/16;
+X      ns->green+=(green_error*3+8)/16;
+X      ns->blue+=(blue_error*3+8)/16;
+X      ns+=step;
+X      ns->red+=(red_error*5+8)/16;
+X      ns->green+=(green_error*5+8)/16;
+X      ns->blue+=(blue_error*5+8)/16;
+X      ns+=step;
+X      ns->red+=(red_error+8)/16;
+X      ns->green+=(green_error+8)/16;
+X      ns->blue+=(blue_error+8)/16;
+X    }
+X    odd_scanline=!odd_scanline;
+X  }
+X  /*
+X    Free up memory.
+X  */
+X  (void) free((char *) scanline);
+X  (void) free((char *) range_table);
+X  (void) free((char *) cache);
+X  return(False);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e C u b e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeCube initialize the Cube data structure.
+%
+%  The format of the InitializeCube routine is:
+%
+%      InitializeCube(number_colors,tree_depth,number_pixels,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  Here we use this value
+%      to determine the depth of the color description tree.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells Quantize to choose a optimal tree depth of Log4(number_colors).
+%      A tree of this depth generally allows the best representation of the
+%      reference image with the least amount of memory and the fastest
+%      computational speed.  In some cases, such as an image with low color
+%      dispersion (a few number of colors), a value other than
+%      Log4(number_colors) is required.  To expand the color tree completely,
+%      use a value of 8.
+%
+%    o number_pixels: Specifies the number of individual pixels in the image.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+*/
+static void InitializeCube(number_colors,tree_depth,number_pixels,optimal)
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  number_pixels,
+X  optimal;
+{
+X  register int
+X    i;
+X
+X  static int
+X    log4[6] = {4, 16, 64, 256, 1024, ~0};
+X
+X  unsigned int
+X    level;
+X
+X  unsigned long
+X    max_shift;
+X
+X  /*
+X    Initialize tree to describe color cube.  Depth is: Log4(colormap size)+2;
+X  */
+X  cube.node_queue=(Nodes *) NULL;
+X  cube.nodes=0;
+X  cube.free_nodes=0;
+X  if (tree_depth > 1)
+X    cube.depth=Min(tree_depth,8);
+X  else
+X    {
+X      for (i=0; i < 6; i++)
+X        if (number_colors <= log4[i])
+X          break;
+X      cube.depth=i+3;
+X      if (!optimal)
+X        cube.depth--;
+X    }
+X  /*
+X    Initialize the shift values.
+X  */
+X  for (max_shift=0; number_pixels != 0; max_shift++)
+X    number_pixels<<=1;
+X  for (level=0; level < cube.depth; level++)
+X  {
+X    cube.shift[level]=(cube.depth-level-1) << 1;
+X    if (cube.shift[level] > max_shift)
+X      cube.shift[level]=max_shift;
+X  }
+X  /*
+X    Initialize the square values.
+X  */
+X  for (i=(-MaxRGB); i <= MaxRGB; i++)
+X    cube.squares[i+MaxRGB]=i*i;
+X  /*
+X    Initialize root node.
+X  */
+X  cube.root=InitializeNode(0,0,(Node *) NULL,(MaxRGB+1) >> 1,(MaxRGB+1) >> 1,
+X    (MaxRGB+1) >> 1);
+X  if (cube.root == (Node *) NULL)
+X    {
+X      Warning("unable to quantize image","memory allocation failed");
+X      exit(1);
+X    }
+X  cube.root->parent=cube.root;
+X  cube.root->number_colors=(unsigned long) (~0);
+X  cube.colors=0;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e N o d e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeNode allocates memory for a new node in the color cube
+%  tree and presets all fields to zero.
+%
+%  The format of the InitializeNode routine is:
+%
+%      node=InitializeNode(node,id,level,mid_red,mid_green,mid_blue)
+%
+%  A description of each parameter follows.
+%
+%    o node: The InitializeNode routine returns this integer address.
+%
+%    o id: Specifies the child number of the node.
+%
+%    o level: Specifies the level in the classification the node resides.
+%
+%    o mid_red: Specifies the mid point of the red axis for this node.
+%
+%    o mid_green: Specifies the mid point of the green axis for this node.
+%
+%    o mid_blue: Specifies the mid point of the blue axis for this node.
+%
+%
+*/
+static Node *InitializeNode(id,level,parent,mid_red,mid_green,mid_blue)
+unsigned int
+X  id,
+X  level;
+X
+Node
+X  *parent;
+X
+unsigned int
+X  mid_red,
+X  mid_green,
+X  mid_blue;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  if (cube.free_nodes == 0)
+X    {
+X      register Nodes
+X        *nodes;
+X
+X      /*
+X        Allocate a new nodes of nodes.
+X      */
+X      nodes=(Nodes *) malloc(sizeof(Nodes));
+X      if (nodes == (Nodes *) NULL)
+X        return((Node *) NULL);
+X      nodes->next=cube.node_queue;
+X      cube.node_queue=nodes;
+X      cube.next_node=nodes->nodes;
+X      cube.free_nodes=NodesInAList;
+X    }
+X  cube.nodes++;
+X  cube.free_nodes--;
+X  node=cube.next_node++;
+X  node->parent=parent;
+X  for (i=0; i < 8; i++)
+X    node->child[i]=(Node *) NULL;
+X  node->id=id;
+X  node->level=level;
+X  node->children=0;
+X  node->mid_red=mid_red;
+X  node->mid_green=mid_green;
+X  node->mid_blue=mid_blue;
+X  node->number_colors=0;
+X  node->number_unique=0;
+X  node->total_red=0;
+X  node->total_green=0;
+X  node->total_blue=0;
+X  return(node);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  P r u n e C h i l d                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function PruneChild deletes the given node and merges its statistics into
+%  its parent.
+%
+%  The format of the PruneSubtree routine is:
+%
+%      PruneChild(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void PruneChild(node)
+register Node
+X  *node;
+{
+X  register Node
+X    *parent;
+X
+X  /*
+X    Merge color statistics into parent.
+X  */
+X  parent=node->parent;
+X  parent->children&=~(1 << node->id);
+X  parent->number_unique+=node->number_unique;
+X  parent->total_red+=node->total_red;
+X  parent->total_green+=node->total_green;
+X  parent->total_blue+=node->total_blue;
+X  cube.nodes--;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  P r u n e L e v e l                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure PruneLevel deletes all nodes at the bottom level of the color
+%  tree merging their color statistics into their parent node.
+%
+%  The format of the PruneLevel routine is:
+%
+%      PruneLevel(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void PruneLevel(node)
+register Node
+X  *node;
+{
+X  register int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children != 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        PruneLevel(node->child[id]);
+X  if (node->level == (cube.depth-1))
+X    PruneChild(node);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e d u c e                                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Reduce traverses the color cube tree and prunes any node whose
+%  number of colors fall below a particular threshold.
+%
+%  The format of the Reduce routine is:
+%
+%      Reduce(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void Reduce(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children != 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        Reduce(node->child[id]);
+X  if (node->number_colors <= cube.pruning_threshold)
+X    {
+X      /*
+X        Node has a sub-threshold color count so prune it.  Node is an colormap
+X        entry if parent does not have any unique colors.
+X      */
+X      if (node->parent->number_unique == 0)
+X        cube.colors++;
+X      PruneChild(node);
+X      if (node->parent->number_colors < cube.next_pruning_threshold)
+X        cube.next_pruning_threshold=node->parent->number_colors;
+X    }
+X  else
+X    {
+X      /*
+X        Find minimum pruning threshold.  Node is a colormap entry if it has
+X        unique colors.
+X      */
+X      if (node->number_unique > 0)
+X        cube.colors++;
+X      if (node->number_colors < cube.next_pruning_threshold)
+X        cube.next_pruning_threshold=node->number_colors;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e d u c t i o n                                                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Reduction repeatedly prunes the tree until the number of nodes
+%  with n2 > 0 is less than or equal to the maximum number of colors allowed
+%  in the output image.  On any given iteration over the tree, it selects
+%  those nodes whose n1  count is minimal for pruning and merges their
+%  color statistics upward. It uses a pruning threshold, ns, to govern
+%  node selection as follows:
+%
+%    ns = 0
+%    while number of nodes with (n2 > 0) > required maximum number of colors
+%      prune all nodes such that n1 <= ns
+%      Set ns to minimum n1 in remaining nodes
+%
+%  When a node to be pruned has offspring, the pruning procedure invokes
+%  itself recursively in order to prune the tree from the leaves upward.
+%  n2,  Sr, Sg,  and  Sb in a node being pruned are always added to the
+%  corresponding data in that node's parent.  This retains the pruned
+%  node's color characteristics for later averaging.
+%
+%  For each node, n2 pixels exist for which that node represents the
+%  smallest volume in RGB space containing those pixel's colors.  When n2
+%  > 0 the node will uniquely define a color in the output image. At the
+%  beginning of reduction,  n2 = 0  for all nodes except a the leaves of
+%  the tree which represent colors present in the input image.
+%
+%  The other pixel count, n1, indicates the total number of colors
+%  within the cubic volume which the node represents.  This includes n1 -
+%  n2  pixels whose colors should be defined by nodes at a lower level in
+%  the tree.
+%
+%  The format of the Reduction routine is:
+%
+%      Reduction(number_colors)
+%
+%  A description of each parameter follows.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of
+%      colors allocated to the colormap may be less than this value, but
+%      never more.  Note, the number of colors is restricted to a value
+%      less than or equal to 65536 if the continuous_tone parameter has a
+%      value of zero.
+%
+%
+*/
+static void Reduction(number_colors)
+unsigned int
+X  number_colors;
+{
+X  cube.next_pruning_threshold=1;
+X  while (cube.colors > number_colors)
+X  {
+X    cube.pruning_threshold=cube.next_pruning_threshold;
+X    cube.next_pruning_threshold=cube.root->number_colors-1;
+X    cube.colors=0;
+X    Reduce(cube.root);
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  Q u a n t i z a t i o n E r r o r                                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QuantizationError measures the difference between the original
+%  and quantized images.  This difference is the total quantization error.
+%  The error is computed by summing over all pixels in an image the distance
+%  squared in RGB space between each reference pixel value and its quantized
+%  value.
+%
+%  The format of the QuantizationError routine is:
+%
+%      QuantizationError(image,mean_error_per_pixel,
+%        normalized_mean_square_error,normalized_maximum_square_error)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a byte (8 bits) array of run-length
+%      encoded pixel data of your reference image.  The sum of the
+%      run-length counts in the reference image must be equal to or exceed
+%      the number of pixels.
+%
+%    o mean_error_per_pixel: The address of an integer value.  The value
+%      returned is the mean error for any single pixel in the image.
+%
+%    o normalized_mean_square_error: The address of a real value.  The value
+%      returned is the normalized mean quantization error for any single
+%      pixel in the image.  This distance measure is normalized to a
+%      range between 0 and 1.  It is independent of the range of red,
+%      green, and blue values in your image.
+%
+%    o normalized_maximum_square_error: The address of a real value.  The value
+%      returned is the normalized maximum quantization error for any
+%      single pixel in the image.  This distance measure is normalized to
+%      a range between 0 and 1.  It is independent of the range of red,
+%      green, and blue values in your image.
+%
+%
+*/
+void QuantizationError(image,mean_error_per_pixel,normalized_mean_square_error,
+X  normalized_maximum_square_error)
+Image
+X  *image;
+X
+unsigned int
+X  *mean_error_per_pixel;
+X
+double
+X  *normalized_mean_square_error,
+X  *normalized_maximum_square_error;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    blue_distance,
+X    green_distance,
+X    red_distance;
+X
+X  unsigned long
+X    distance,
+X    maximum_error_per_pixel,
+X    total_error;
+X
+X  /*
+X    For each pixel, collect error statistics.
+X  */
+X  for (i=(-MaxRGB); i <= MaxRGB; i++)
+X    cube.squares[i+MaxRGB]=i*i;
+X  maximum_error_per_pixel=0;
+X  total_error=0;
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    red_distance=(int) p->red-(int) image->colormap[p->index].red+MaxRGB;
+X    green_distance=(int) p->green-(int) image->colormap[p->index].green+MaxRGB;
+X    blue_distance=(int) p->blue-(int) image->colormap[p->index].blue+MaxRGB;
+X    distance=cube.squares[red_distance]+cube.squares[green_distance]+
+X      cube.squares[blue_distance];
+X    total_error+=(distance*(p->length+1));
+X    if (distance > maximum_error_per_pixel)
+X      maximum_error_per_pixel=distance;
+X    p++;
+X  }
+X  /*
+X    Compute final error statistics.
+X  */
+X  *mean_error_per_pixel=(unsigned int) total_error/(image->columns*image->rows);
+X  *normalized_mean_square_error=((double) *mean_error_per_pixel)/
+X    (3.0*(MaxRGB+1)*(MaxRGB+1));
+X  *normalized_maximum_square_error=((double) maximum_error_per_pixel)/
+X    (3.0*(MaxRGB+1)*(MaxRGB+1));
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  Q u a n t i z e I m a g e                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QuantizeImage analyzes the colors within a reference image and
+%  chooses a fixed number of colors to represent the image.  The goal of the
+%  algorithm is to minimize the difference between the input and output image
+%  while minimizing the processing time.
+%
+%  The format of the QuantizeImage routine is:
+%
+%      colors=QuantizeImage(image,number_colors,tree_depth,dither,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o colors: The QuantizeImage function returns this integer
+%      value.  It is the actual number of colors allocated in the
+%      colormap.  Note, the actual number of colors allocated may be less
+%      than the number of colors requested, but never more.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of
+%      colors allocated to the colormap may be less than this value, but
+%      never more.  Note, the number of colors is restricted to a value
+%      less than or equal to 65536 if the continuous_tone parameter has a
+%      value of zero.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells Quantize to choose a optimal tree depth of Log4(number_colors).
+%      A tree of this depth generally allows the best representation of the
+%      reference image with the least amount of memory and the fastest
+%      computational speed.  In some cases, such as an image with low color
+%      dispersion (a few number of colors), a value other than
+%      Log4(number_colors) is required.  To expand the color tree completely,
+%      use a value of 8.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%      Empirical evidence suggests that distances in YUV or YIQ correspond to
+%      perceptual color differences more closely than do distances in RGB
+%      space.  The image is then returned to RGB colorspace after color
+%      reduction.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+void QuantizeImage(image,number_colors,tree_depth,dither,colorspace,optimal)
+Image
+X  *image;
+X
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  dither,
+X  colorspace,
+X  optimal;
+{
+X  Nodes
+X    *nodes;
+X
+X  /*
+X    Reduce the number of colors in the continuous tone image.
+X  */
+X  if (number_colors > MaxColormapSize)
+X    number_colors=MaxColormapSize;
+X  InitializeCube(number_colors,tree_depth,image->columns*image->rows,optimal);
+X  dither|=!optimal;
+X  if (!dither)
+X    if (image->packets == (image->columns*image->rows))
+X      CompressImage(image);
+X  if (colorspace != RGBColorspace)
+X    RGBTransformImage(image,colorspace);
+X  Classification(image);
+X  Reduction(number_colors);
+X  Assignment(image,dither,colorspace,optimal);
+X  if (colorspace != RGBColorspace)
+X    TransformRGBImage(image,colorspace);
+X  /*
+X    Release color cube tree storage.
+X  */
+X  do
+X  {
+X    nodes=cube.node_queue->next;
+X    (void) free((char *) cube.node_queue);
+X    cube.node_queue=nodes;
+X  }
+X  while (cube.node_queue != (Nodes *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Q u a n t i z e I m a g e s                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  QuantizeImages analyzes the colors within a set of reference images and
+%  chooses a fixed number of colors to represent the set.  The goal of the
+%  algorithm is to minimize the difference between the input and output images
+%  while minimizing the processing time.
+%
+%  The format of the QuantizeImages routine is:
+%
+%      QuantizeImages(images,number_images,number_colors,tree_depth,dither,
+%        optimal)
+%
+%  A description of each parameter follows:
+%
+%    o images: Specifies a pointer to a set of Image structures.
+%
+%    o number_images:  Specifies an unsigned integer representing the number
+%      images in the image set.
+%
+%    o colormap_image: Specifies a pointer to a Image structure.  Reduce
+%      images to a set of colors represented by this image.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of colors
+%      allocated to the colormap may be less than this value, but never more.
+%      Note, the number of colors is restricted to a value less than or equal
+%      to 65536 if the quantized image is not DirectClass.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells QUANTIZE to choose a optimal tree depth.  An optimal depth
+%      generally allows the best representation of the reference image with the
+%      fastest computational speed and the least amount of memory.  However,
+%      the default depth is inappropriate for some images.  To assure the best
+%      representation, try values between 2 and 8 for this parameter.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%      Empirical evidence suggests that distances in YUV or YIQ correspond to
+%      perceptual color differences more closely than do distances in RGB
+%      space.  The image is then returned to RGB colorspace after color
+%      reduction.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+void QuantizeImages(images,number_images,colormap_image,number_colors,
+X  tree_depth,dither,colorspace,optimal)
+Image
+X  **images;
+X
+unsigned int
+X  number_images;
+X
+Image
+X  *colormap_image;
+X
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  dither,
+X  colorspace,
+X  optimal;
+{
+X  Nodes
+X    *nodes;
+X
+X  register unsigned int
+X    i;
+X
+X  /*
+X    Reduce the number of colors in the continuous tone image sequence.
+X  */
+X  InitializeCube(number_colors,tree_depth,~0,optimal);
+X  dither|=!optimal;
+X  if (colormap_image != (Image *) NULL)
+X    {
+X      /*
+X        Reduce images to a set of colors represented by the colormap image.
+X      */
+X      if (!dither)
+X        if (colormap_image->packets ==
+X             (colormap_image->columns*colormap_image->rows))
+X          CompressImage(colormap_image);
+X      if (colorspace != RGBColorspace)
+X        RGBTransformImage(colormap_image,colorspace);
+SHAR_EOF
+true || echo 'restore of ImageMagick/quantize.c failed'
+fi
+echo 'End of ImageMagick part 30'
+echo 'File ImageMagick/quantize.c is continued in part 31'
+echo 31 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

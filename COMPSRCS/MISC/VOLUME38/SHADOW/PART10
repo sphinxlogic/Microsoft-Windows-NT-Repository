@@ -1,0 +1,2544 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i129:  shadow - Shadow Password Suite, v3.3, Part10/14
+Message-ID: <1993Aug14.192559.9744@sparky.sterling.com>
+X-Md4-Signature: f201f27f5c4dce5f7fd774b32f676dae
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:25:59 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 129
+Archive-name: shadow/part10
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  chpasswd.c dpmain.c faillog.c failure.c groupdel.c
+#   login.defs logoutd.c pwauth.3 sulogin.c useradd.1
+# Wrapped by kent@sparky on Sat Aug 14 14:11:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 14)."'
+if test -f 'chpasswd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chpasswd.c'\"
+else
+  echo shar: Extracting \"'chpasswd.c'\" \(5164 characters\)
+  sed "s/^X//" >'chpasswd.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * chpasswd - update passwords in batch
+X *
+X *	chpasswd reads standard input for a list of colon separated
+X *	user names and new passwords.  the appropriate password
+X *	files are updated to reflect the changes.  because the
+X *	changes are made in a batch fashion, the user must run
+X *	the mkpasswd command after this command terminates since
+X *	no password updates occur until the very end.
+X */
+X
+X#include <stdio.h>
+X#include "pwd.h"
+X#include <fcntl.h>
+X#include <string.h>
+X#include "config.h"
+X#ifdef	SHADOWPWD
+X#include "shadow.h"
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)chpasswd.c	3.4	08:57:30	10 Jun 1991";
+X#endif
+X
+Xchar	*Prog;
+X
+Xextern	char	*pw_encrypt();
+Xextern	char	*l64a();
+X
+X/* 
+X * If it weren't for the different structures and differences in how
+X * certain fields were manipulated, I could just use macros to replace
+X * the function calls for the different file formats.  So I make the
+X * best of things and just use macros to replace a few of the calls.
+X */
+X
+X#ifdef	SHADOWPWD
+X#define	pw_lock		spw_lock
+X#define	pw_open		spw_open
+X#define	pw_close	spw_close
+X#define	pw_unlock	spw_unlock
+X#endif
+X
+X/*
+X * usage - display usage message and exit
+X */
+X
+Xusage ()
+X{
+X	fprintf (stderr, "usage: %s\n", Prog);
+X	exit (1);
+X}
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	char	buf[BUFSIZ];
+X	char	*name;
+X	char	*newpwd;
+X	char	*cp;
+X#ifdef	SHADOWPWD
+X	struct	spwd	*sp;
+X	struct	spwd	newsp;
+X	struct	spwd	*spw_locate();
+X#else
+X	struct	passwd	*pw;
+X	struct	passwd	newpw;
+X	struct	passwd	*pw_locate();
+X	char	newage[5];
+X#endif
+X	int	errors = 0;
+X	int	line = 0;
+X	long	now = time ((long *) 0) / (24L*3600L);
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X	if (argc != 1)
+X		usage ();
+X
+X	/*
+X	 * Lock the password file and open it for reading.  This will
+X	 * bring all of the entries into memory where they may be
+X	 * updated.
+X	 */
+X
+X	if (! pw_lock ()) {
+X		fprintf (stderr, "%s: can't lock password file\n", Prog);
+X		exit (1);
+X	}
+X	if (! pw_open (O_RDWR)) {
+X		fprintf (stderr, "%s: can't open password file\n", Prog);
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Read each line, separating the user name from the password.
+X	 * The password entry for each user will be looked up in the
+X	 * appropriate file (shadow or passwd) and the password changed.
+X	 * For shadow files the last change date is set directly, for
+X	 * passwd files the last change date is set in the age only if
+X	 * aging information is present.
+X	 */
+X
+X	while (fgets (buf, sizeof buf, stdin) != (char *) 0) {
+X		line++;
+X		if (cp = strrchr (buf, '\n')) {
+X			*cp = '\0';
+X		} else {
+X			fprintf (stderr, "%s: line %d: line too long\n",
+X				Prog, line);
+X			errors++;
+X			continue;
+X		}
+X
+X		/*
+X		 * The username is the first field.  It is separated
+X		 * from the password with a ":" character which is
+X		 * replaced with a NUL to give the new password.  The
+X		 * new password will then be encrypted in the normal
+X		 * fashion with a new salt generated.
+X		 */
+X
+X		name = buf;
+X		if (cp = strchr (name, ':')) {
+X			*cp++ = '\0';
+X		} else {
+X			fprintf (stderr, "%s: line %d: missing new password\n",
+X				Prog, line);
+X			errors++;
+X			continue;
+X		}
+X		newpwd = cp;
+X		cp = pw_encrypt (newpwd, (char *) 0);
+X
+X		/*
+X		 * Get the password file entry for this user.  The user
+X		 * must already exist.
+X		 */
+X
+X#ifdef	SHADOWPWD
+X		if (! (sp = spw_locate (name)))
+X#else
+X		if (! (pw = pw_locate (name)))
+X#endif
+X		{
+X			fprintf (stderr, "%s: line %d: unknown user %s\n",
+X				Prog, line, name);
+X			errors++;
+X			continue;
+X		}
+X
+X		/*
+X		 * The freshly encrypted new password is merged into
+X		 * the user's password file entry and the last password
+X		 * change date is set to the current date.
+X		 */
+X
+X#ifdef	SHADOWPWD
+X		newsp = *sp;
+X		newsp.sp_pwdp = cp;
+X		newsp.sp_lstchg = now;
+X#else
+X		newpw = *pw;
+X		newpw.pw_passwd = cp;
+X#ifdef	ATT_AGE
+X		if (newpw.pw_age[0]) {
+X			strcpy (newage, newpw.pw_age);
+X			strcpy (newage + 2, l64a (now / 7));
+X			newpw.pw_age = newage;
+X		}
+X#endif
+X#endif
+X
+X		/* 
+X		 * The updated password file entry is then put back
+X		 * and will be written to the password file later, after
+X		 * all the other entries have been updated as well.
+X		 */
+X
+X#ifdef	SHADOWPWD
+X		if (! spw_update (&newsp))
+X#else
+X		if (! pw_update (&newpw))
+X#endif
+X		{
+X			fprintf (stderr, "%s: line %d: cannot update password entry\n",
+X				Prog, line);
+X			errors++;
+X			continue;
+X		}
+X	}
+X
+X	/*
+X	 * Any detected errors will cause the entire set of changes
+X	 * to be aborted.  Unlocking the password file will cause
+X	 * all of the changes to be ignored.  Otherwise the file is
+X	 * closed, causing the changes to be written out all at
+X	 * once, and then unlocked afterwards.
+X	 */
+X
+X	if (errors) {
+X		fprintf (stderr, "%s: error detected, changes ignored\n", Prog);
+X		pw_unlock ();
+X		exit (1);
+X	}
+X	if (! pw_close ()) {
+X		fprintf (stderr, "%s: error updating password file\n", Prog);
+X		exit (1);
+X	}
+X	(void) pw_unlock ();
+X}
+END_OF_FILE
+  if test 5164 -ne `wc -c <'chpasswd.c'`; then
+    echo shar: \"'chpasswd.c'\" unpacked with wrong size!
+  fi
+  # end of 'chpasswd.c'
+fi
+if test -f 'dpmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dpmain.c'\"
+else
+  echo shar: Extracting \"'dpmain.c'\" \(5014 characters\)
+  sed "s/^X//" >'dpmain.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, 1993 John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <signal.h>
+X#include <fcntl.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#include "config.h"
+X#include "dialup.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN	LOG_WARNING
+X#endif
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)dpmain.c	3.9	08:07:07	19 Jul 1993";
+X#endif
+X
+X#ifdef	USG
+X#define	bzero(p,l)	memset(p, 0, l)
+X#endif
+X
+X#define	DTMP	"/etc/d_passwd.tmp"
+X
+X/*
+X * Prompts and messages go here.
+X */
+X
+Xchar	*PASS1 = "Shell password:";
+Xchar	*PASS2 = "re-enter Shell password:";
+Xchar	*NOMATCH = "%s: Passwords do not match, try again.\n";
+Xchar	*NOFOUND = "%s: Shell %s not found.\n";
+X
+X#define	DIALCHG	"changed password for %s\n"
+X#define	DIALADD "added password for %s\n"
+X#define	DIALREM "removed password for %s\n"
+X
+Xint	aflg;
+Xint	dflg;
+Xchar	*Prog;
+X
+Xextern	char	*pw_encrypt();
+Xextern	char	*getpass();
+X
+Xusage ()
+X{
+X	fprintf (stderr, "Usage: %s [ -(a|d) ] shell\n", Prog);
+X	exit (1);
+X}
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	struct	dialup	*dial;
+X	struct	dialup	dent;
+X	struct	stat	sb;
+X	FILE	*fp;
+X	char	*shell = 0;
+X	char	*cp;
+X	char	pass[BUFSIZ];
+X	int	fd;
+X	int	found = 0;
+X	int	opt;
+X	extern	int	optind;
+X	extern	char	*optarg;
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X
+X	while ((opt = getopt (argc, argv, "a:d:")) != EOF) {
+X		switch (opt) {
+X			case 'a':
+X				aflg++;
+X				shell = optarg;
+X				break;
+X			case 'd':
+X				dflg++;
+X				shell = optarg;
+X				break;
+X			default:
+X				usage ();
+X		}
+X	}
+X	if (! aflg && ! dflg)
+X		aflg++;
+X
+X	if (! shell) {
+X		if (optind >= argc)
+X			usage ();
+X		else
+X			shell = argv[optind];
+X	}
+X	if (aflg + dflg != 1)
+X		usage ();
+X
+X	/*
+X	 * Add a new shell to the password file, or update an existing
+X	 * entry.  Begin by getting an encrypted password for this
+X	 * shell.
+X	 */
+X
+X	if (aflg) {
+X		int	tries = 3;
+X
+X		dent.du_shell = shell;
+X		dent.du_passwd = "";
+X
+Xagain:
+X		if (! (cp = getpass (PASS1)))
+X			exit (1);
+X
+X		strcpy (pass, cp);
+X		bzero (cp, strlen (cp));
+X
+X		if (! (cp = getpass (PASS2)))
+X			exit (1);
+X
+X		if (strcmp (pass, cp)) {
+X			bzero (pass, strlen (pass));
+X			bzero (cp, strlen (cp));
+X			fprintf (stderr, NOMATCH, Prog);
+X
+X			if (--tries)
+X				goto again;
+X
+X			exit (1);
+X		}
+X		bzero (cp, strlen (cp));
+X		dent.du_passwd = pw_encrypt (pass, (char *) 0);
+X		bzero (pass, strlen (pass));
+X	}
+X
+X	/*
+X	 * Create the temporary file for the updated dialup password
+X	 * information to be placed into.  Turn it into a (FILE *)
+X	 * for use by putduent().
+X	 */
+X
+X	if ((fd = open (DTMP, O_CREAT|O_EXCL|O_RDWR, 0600)) < 0) {
+X		sprintf (pass, "%s: can't create %s", Prog, DTMP);
+X		perror (pass);
+X		exit (1);
+X	}
+X	if (! (fp = fdopen (fd, "r+"))) {
+X		sprintf (pass, "%s: can't open %s", Prog, DTMP);
+X		perror (pass);
+X		unlink (DTMP);
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Scan the dialup password file for the named entry,
+X	 * copying out other entries along the way.  Copying
+X	 * stops when a match is found or the file runs out.
+X	 */
+X
+X	while (dial = getduent ()) {
+X		if (strcmp (dial->du_shell, shell) == 0) {
+X			found = 1;
+X			break;
+X		}
+X		if (putduent (dial, fp))
+X			goto failure;
+X	}
+X
+X	/*
+X	 * To delete the entry, just don't copy it.  To update
+X	 * the entry, output the modified version - works with
+X	 * new entries as well.
+X	 */
+X
+X	if (dflg && ! found) {
+X		fprintf (stderr, NOFOUND, Prog, shell);
+X		goto failure;
+X	}
+X	if (aflg)
+X		if (putduent (&dent, fp))
+X			goto failure;
+X
+X	/*
+X	 * Now copy out the remaining entries.  Flush and close the
+X	 * new file before doing anything nasty to the existing
+X	 * file.
+X	 */
+X
+X
+X	while (dial = getduent ())
+X		if (putduent (dial, fp))
+X			goto failure;
+X
+X	if (fflush (fp))
+X		goto failure;
+X
+X	fclose (fp);
+X
+X	/*
+X	 * If the original file did not exist, we must create a new
+X	 * file with owner "root" and mode 400.  Otherwise we copy
+X	 * the modes from the existing file to the new file.
+X	 *
+X	 * After this is done the new file will replace the old file.
+X	 */
+X
+X	signal (SIGINT, SIG_IGN);
+X	signal (SIGQUIT, SIG_IGN);
+X#ifdef	SIGTSTP
+X	signal (SIGTSTP, SIG_IGN);
+X#endif
+X	if (! stat (DIALPWD, &sb)) {
+X		chown (DTMP, sb.st_uid, sb.st_gid);
+X		chmod (DTMP, sb.st_mode);
+X		unlink (DIALPWD);
+X	} else {
+X		chown (DTMP, 0, 0);
+X		chmod (DTMP, 0400);
+X	}
+X	if (! link (DTMP, DIALPWD))
+X		unlink (DTMP);
+X
+X#ifdef	USE_SYSLOG
+X	if (aflg && ! found)
+X		syslog (LOG_INFO, DIALADD, shell);
+X	else if (aflg && found)
+X		syslog (LOG_INFO, DIALCHG, shell);
+X	else if (dflg)
+X		syslog (LOG_INFO, DIALREM, shell);
+X
+X	closelog ();
+X#endif
+X	sync ();
+X	exit (0);
+X
+Xfailure:
+X	unlink (DTMP);
+X#ifdef	USE_SYSLOG
+X	closelog ();
+X#endif
+X	exit (1);
+X}
+END_OF_FILE
+  if test 5014 -ne `wc -c <'dpmain.c'`; then
+    echo shar: \"'dpmain.c'\" unpacked with wrong size!
+  fi
+  # end of 'dpmain.c'
+fi
+if test -f 'faillog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'faillog.c'\"
+else
+  echo shar: Extracting \"'faillog.c'\" \(5624 characters\)
+  sed "s/^X//" >'faillog.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include "pwd.h"
+X#include <time.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#ifdef	STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef	UNISTD_H
+X#include <unistd.h>
+X#endif
+X#include "config.h"
+X#include "faillog.h"
+X
+X#ifndef	lint
+Xstatic	char	_sccsid[] = "@(#)faillog.c	3.3	20:36:23	07 Mar 1992";
+X#endif
+X
+XFILE	*fail;		/* failure file stream */
+Xuid_t	user;		/* one single user, specified on command line */
+Xint	days;		/* number of days to consider for print command */
+Xtime_t	seconds;	/* that number of days in seconds */
+Xint	max;		/* maximum failure count for fail_max */
+X
+Xint	aflg;		/* set if all users are to be printed always */
+Xint	uflg;		/* set if user is a valid user id */
+Xint	tflg;		/* print is restricted to most recent days */
+Xstruct	stat	statbuf; /* fstat buffer for file size */
+X
+X#if !defined(UNISTD_H) && !defined(STDLIB_H)
+Xextern	int	optind;
+Xextern	char	*optarg;
+Xextern	char	*asctime ();
+Xextern	struct	passwd	*getpwuid ();
+Xextern	struct	passwd	*getpwnam ();
+Xextern	struct	passwd	*getpwent ();
+Xextern	struct	tm	*localtime ();
+X#endif
+X
+X#if	__STDC__
+Xvoid	print(void);
+Xvoid	print_one(struct faillog *faillog, uid_t uid);
+Xvoid	reset(void);
+Xint	reset_one(uid_t uid);
+Xvoid	setmax(void);
+Xvoid	setmax_one(uid_t uid);
+X#else
+Xvoid	print();
+Xvoid	print_one();
+Xvoid	reset();
+Xint	reset_one();
+Xvoid	setmax();
+Xvoid	setmax_one();
+X#endif /* __STDC__ */
+X
+X#define	DAY	(24L*3600L)
+X#define	NOW	(time ((time_t *) 0))
+X
+Xvoid
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	char	*mode;
+X	int	c;
+X	struct	passwd	*pwent;
+X
+X	if (getuid () == 0)	/* only root can update anything */
+X		mode = "r+";
+X	else			/* all others can only look */
+X		mode = "r";
+X
+X	if ((fail = fopen (FAILFILE, mode)) == (FILE *) 0) {
+X		perror (FAILFILE);
+X		exit (1);
+X	}
+X	while ((c = getopt (argc, argv, "am:pru:t:")) != EOF) {
+X		switch (c) {
+X			case 'a':
+X				aflg++;
+X				uflg = 0;
+X				break;
+X			case 'm':
+X				max = atoi (optarg);
+X				setmax ();
+X				break;
+X			case 'p':
+X				print ();
+X				break;
+X			case 'r':
+X				reset ();
+X				break;
+X			case 'u':
+X				pwent = getpwnam (optarg);
+X				if (! pwent) {
+X					fprintf (stderr, "Unknown User: %s\n", optarg);
+X					exit (1);
+X				}
+X				uflg++;
+X				aflg = 0;
+X				user = pwent->pw_uid;
+X				break;
+X			case 't':
+X				days = atoi (optarg);
+X				seconds = days * DAY;
+X				tflg++;
+X				break;
+X		}
+X	}
+X	fclose (fail);
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+X
+Xvoid
+Xprint ()
+X{
+X	uid_t	uid;
+X	off_t	offset;
+X	struct	faillog	faillog;
+X
+X	if (uflg) {
+X		offset = user * sizeof faillog;
+X		fstat (fileno (fail), &statbuf);
+X		if (offset >= statbuf.st_size)
+X			return;
+X
+X		fseek (fail, (off_t) user * sizeof faillog, 0);
+X		if (fread ((char *) &faillog, sizeof faillog, 1, fail) == 1)
+X			print_one (&faillog, user);
+X		else
+X			perror (FAILFILE);
+X	} else {
+X		for (uid = 0;
+X			fread ((char *) &faillog, sizeof faillog, 1, fail) == 1;
+X				uid++) {
+X
+X			if (aflg == 0 && faillog.fail_cnt == 0)
+X				continue;
+X
+X			if (aflg == 0 && tflg &&
+X					NOW - faillog.fail_time > seconds)
+X				continue;
+X
+X			if (aflg && faillog.fail_time == 0)
+X				continue;
+X
+X			print_one (&faillog, uid);
+X		}
+X	}
+X}
+X
+Xvoid
+Xprint_one (faillog, uid)
+Xstruct	faillog	*faillog;
+Xuid_t	uid;
+X{
+X	static	int	once;
+X	char	*cp;
+X	struct	tm	*tm;
+X	struct	passwd	*pwent;
+X
+X	if (! once) {
+X		printf ("Username        Failures    Maximum     Latest\n");
+X		once++;
+X	}
+X	pwent = getpwuid (uid);
+X	tm = localtime (&faillog->fail_time);
+X	cp = asctime (tm);
+X	cp[24] = '\0';
+X
+X	if (pwent) {
+X		printf ("%-16s    %4d       %4d",
+X			pwent->pw_name, faillog->fail_cnt, faillog->fail_max);
+X		if (faillog->fail_time)
+X			printf ("     %s on %s\n", cp, faillog->fail_line);
+X		else
+X			putchar ('\n');
+X	}
+X}
+X
+Xvoid
+Xreset ()
+X{
+X	int	uid = 0;
+X
+X	if (uflg)
+X		reset_one (user);
+X	else
+X		for (uid = 0;reset_one (uid);uid++)
+X			;
+X}
+X
+Xint
+Xreset_one (uid)
+Xuid_t	uid;
+X{
+X	off_t	offset;
+X	struct	faillog	faillog;
+X
+X	offset = uid * sizeof faillog;
+X	fstat (fileno (fail), &statbuf);
+X	if (offset >= statbuf.st_size)
+X		return (0);
+X
+X	if (fseek (fail, offset, 0) != 0) {
+X		perror (FAILFILE);
+X		return (0);
+X	}
+X	if (fread ((char *) &faillog, sizeof faillog, 1, fail) != 1) {
+X		if (! feof (fail))
+X			perror (FAILFILE);
+X
+X		return (0);
+X	}
+X	if (faillog.fail_cnt == 0)
+X		return (1);	/* don't fill in no holes ... */
+X
+X	faillog.fail_cnt = 0;
+X
+X	if (fseek (fail, offset, 0) == 0
+X		&& fwrite ((char *) &faillog, sizeof faillog, 1, fail) == 1) {
+X		fflush (fail);
+X		return (1);
+X	} else {
+X		perror (FAILFILE);
+X	}
+X	return (0);
+X}
+X
+Xvoid
+Xsetmax ()
+X{
+X	struct	passwd	*pwent;
+X
+X	if (uflg) {
+X		setmax_one (user);
+X	} else {
+X		setpwent ();
+X		while (pwent = getpwent ())
+X			setmax_one (pwent->pw_uid);
+X	}
+X}
+X
+Xvoid
+Xsetmax_one (uid)
+Xuid_t	uid;
+X{
+X	off_t	offset;
+X	struct	faillog	faillog;
+X
+X	offset = uid * sizeof faillog;
+X
+X	if (fseek (fail, offset, 0) != 0) {
+X		perror (FAILFILE);
+X		return;
+X	}
+X	if (fread ((char *) &faillog, sizeof faillog, 1, fail) != 1) {
+X		if (! feof (fail))
+X			perror (FAILFILE);
+X	} else {
+X#ifndef	BSD
+X		memset ((char *) &faillog, 0, sizeof faillog);
+X#else
+X		bzero ((char *) &faillog, sizeof faillog);
+X#endif
+X	}
+X	faillog.fail_max = max;
+X
+X	if (fseek (fail, offset, 0) == 0
+X		&& fwrite ((char *) &faillog, sizeof faillog, 1, fail) == 1)
+X		fflush (fail);
+X	else
+X		perror (FAILFILE);
+X}
+END_OF_FILE
+  if test 5624 -ne `wc -c <'faillog.c'`; then
+    echo shar: \"'faillog.c'\" unpacked with wrong size!
+  fi
+  # end of 'faillog.c'
+fi
+if test -f 'failure.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'failure.c'\"
+else
+  echo shar: Extracting \"'failure.c'\" \(6010 characters\)
+  sed "s/^X//" >'failure.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <fcntl.h>
+X#include <time.h>
+X#include <stdio.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#ifdef	UNISTD_H
+X#include <unistd.h>
+X#endif
+X#include "faillog.h"
+X#include "config.h"
+X
+X#include <utmp.h>
+X
+X#ifndef	lint
+Xstatic	char	_sccsid[] = "@(#)failure.c	3.3	08:01:05	22 Apr 1993";
+X#endif
+X
+X#define	DAY	(24L*3600L)
+X#define	YEAR	(365L*DAY)
+X#define	NOW	(time ((time_t *) 0))
+X
+Xextern	struct	tm	*localtime ();
+Xextern	char	*asctime ();
+Xextern	void	failprint ();
+Xextern	char	*getdef_str();
+X
+X/*
+X * failure - make failure entry
+X *
+X *	failure() creates a new (struct faillog) entry or updates an
+X *	existing one with the current failed login information.
+X */
+X
+Xvoid
+Xfailure (uid, tty, faillog)
+Xint	uid;
+Xchar	*tty;
+Xstruct	faillog	*faillog;
+X{
+X	int	fd;
+X
+X	/*
+X	 * Do do anything if failure logging isn't set up.
+X	 */
+X
+X	if ((fd = open (FAILFILE, O_RDWR)) < 0)
+X		return;
+X
+X	/*
+X	 * The file is indexed by uid value meaning that shared UID's
+X	 * share failure log records.  That's OK since they really
+X	 * share just about everything else ...
+X	 */
+X
+X	lseek (fd, (off_t) (sizeof *faillog) * uid, 0);
+X	if (read (fd, (char *) faillog, sizeof *faillog)
+X			!= sizeof *faillog)
+X#ifndef	BSD
+X		memset ((void *) faillog, 0, sizeof *faillog);
+X#else
+X		bzero ((char *) faillog, sizeof *faillog);
+X#endif
+X
+X	/*
+X	 * Update the record.  We increment the failure count to log the
+X	 * latest failure.  The only concern here is overflow, and we'll
+X	 * check for that.  The line name and time of day are both
+X	 * updated as well.
+X	 */
+X
+X	if (faillog->fail_cnt + 1 > 0)
+X		faillog->fail_cnt++;
+X
+X	strncpy (faillog->fail_line, tty, sizeof faillog->fail_line);
+X	faillog->fail_time = time ((time_t *) 0);
+X
+X	/*
+X	 * Seek back to the correct position in the file and write the
+X	 * record out.  Ideally we should lock the file in case the same
+X	 * account is being logged simultaneously.  But the risk doesn't
+X	 * seem that great.
+X	 */
+X
+X	lseek (fd, (off_t) (sizeof *faillog) * uid, 0);
+X	write (fd, (char *) faillog, sizeof *faillog);
+X	close (fd);
+X}
+X
+X/*
+X * failcheck - check for failures > allowable
+X *
+X *	failcheck() is called AFTER the password has been validated.  If the
+X *	account has been "attacked" with too many login failures, failcheck()
+X *	returns FALSE to indicate that the login should be denied even though
+X *	the password is valid.
+X */
+X
+Xint
+Xfailcheck (uid, faillog, failed)
+Xint	uid;
+Xstruct	faillog	*faillog;
+Xint	failed;
+X{
+X	int	fd;
+X	int	okay = 1;
+X	struct	faillog	fail;
+X
+X	/*
+X	 * Suppress the check if the log file isn't there.
+X	 */
+X
+X	if ((fd = open (FAILFILE, O_RDWR)) < 0)
+X		return (1);
+X
+X	/*
+X	 * Get the record from the file and determine if the user has
+X	 * exceeded the failure limit.  If "max" is zero, any number
+X	 * of failures are permitted.  Only when "max" is non-zero and
+X	 * "cnt" is greater than or equal to "max" is the account
+X	 * considered to be locked.
+X	 */
+X
+X	lseek (fd, (off_t) (sizeof *faillog) * uid, 0);
+X	if (read (fd, (char *) faillog, sizeof *faillog) == sizeof *faillog) {
+X		if (faillog->fail_max != 0
+X				&& faillog->fail_cnt >= faillog->fail_max)
+X			okay = 0;
+X	}
+X
+X	/*
+X	 * The record is updated if this is not a failure.  The count will
+X	 * be reset to zero, but the rest of the information will be left
+X	 * in the record in case someone wants to see where the failed
+X	 * login originated.
+X	 */
+X
+X	if (!failed && okay) {
+X		fail = *faillog;
+X		fail.fail_cnt = 0;
+X
+X		lseek (fd, (off_t) sizeof fail * uid, 0);
+X		write (fd, (char *) &fail, sizeof fail);
+X	}
+X	close (fd);
+X
+X	return (okay);
+X}
+X
+X/*
+X * failprint - print line of failure information
+X *
+X *	failprint takes a (struct faillog) entry and formats it into a
+X *	message which is displayed at login time.
+X */
+X
+Xvoid
+Xfailprint (fail)
+Xstruct	faillog	*fail;
+X{
+X	struct	tm	*tp;
+X#ifdef	SVR4
+X	char	lasttimeb[32];
+X	char	*lasttime = lasttimeb;
+X#else
+X	char	*lasttime;
+X#endif
+X
+X	if (fail->fail_cnt == 0)
+X		return;
+X
+X	tp = localtime (&(fail->fail_time));
+X
+X#if __STDC__
+X	/*
+X	 * Only print as much date and time info as it needed to
+X	 * know when the failure was.
+X	 */
+X
+X	if (NOW - fail->fail_time >= YEAR)
+X	    strftime(lasttime, sizeof lasttime, NULL, tp);
+X	else if (NOW - fail->fail_time >= DAY)
+X	    strftime(lasttime, sizeof lasttime, "%A %T", tp);
+X	else
+X	    strftime(lasttime, sizeof lasttime, "%T", tp);
+X#else
+X
+X	/*
+X	 * Do the same thing, but don't use strftime since it
+X	 * probably doesn't exist on this system
+X	 */
+X
+X	lasttime = asctime (tp);
+X	lasttime[24] = '\0';
+X
+X	if (NOW - fail->fail_time < YEAR)
+X		lasttime[19] = '\0';
+X	if (NOW - fail->fail_time < DAY)
+X		lasttime = lasttime + 11;
+X
+X	if (*lasttime == ' ')
+X		lasttime++;
+X#endif	/* __STDC__ */
+X	printf ("%d %s since last login.  Last was %s on %s.\n",
+X		fail->fail_cnt, fail->fail_cnt > 1 ? "failures":"failure",
+X		lasttime, fail->fail_line);
+X}
+X
+X/*
+X * failtmp - update the cummulative failure log
+X *
+X *	failtmp updates the (struct utmp) formatted failure log which
+X *	maintains a record of all login failures.
+X */
+X
+Xvoid
+Xfailtmp (failent)
+Xstruct	utmp	*failent;
+X{
+X	int	fd;
+X	char	*ftmp;
+X
+X	/*
+X	 * Get the name of the failure file.  If no file has been defined
+X	 * in login.defs, don't do this.
+X	 */
+X
+X	if ((ftmp = getdef_str ("FTMP_FILE")) == 0)
+X		return;
+X
+X	/*
+X	 * Open the file for append.  It must already exist for this
+X	 * feature to be used.
+X	 */
+X
+X	if ((fd = open (ftmp, O_WRONLY|O_APPEND)) == -1)
+X		return;
+X
+X	/*
+X	 * Output the new failure record and close the log file.
+X	 */
+X
+X	write (fd, (char *) failent, sizeof *failent);
+X	close (fd);
+X}
+END_OF_FILE
+  if test 6010 -ne `wc -c <'failure.c'`; then
+    echo shar: \"'failure.c'\" unpacked with wrong size!
+  fi
+  # end of 'failure.c'
+fi
+if test -f 'groupdel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'groupdel.c'\"
+else
+  echo shar: Extracting \"'groupdel.c'\" \(5440 characters\)
+  sed "s/^X//" >'groupdel.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)groupdel.c	3.7	08:11:42	23 Apr 1993";
+X#endif
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <grp.h>
+X#include <ctype.h>
+X#include <fcntl.h>
+X#include "pwd.h"
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#include "config.h"
+X#include "shadow.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X#endif
+X
+Xchar	group_name[BUFSIZ];
+Xchar	*Prog;
+Xint	errors;
+X
+X#ifdef	NDBM
+Xextern	int	gr_dbm_mode;
+Xextern	int	sg_dbm_mode;
+X#endif
+Xextern	char	*malloc();
+X
+Xextern	struct	group	*getgrnam();
+Xextern	int	gr_lock();
+Xextern	int	gr_unlock();
+Xextern	int	gr_open();
+X
+X#ifdef	SHADOWGRP
+Xextern	int	sgr_lock();
+Xextern	int	sgr_unlock();
+Xextern	int	sgr_open();
+X#endif
+X
+X/*
+X * usage - display usage message and exit
+X */
+X
+Xusage ()
+X{
+X	fprintf (stderr, "usage: groupdel group\n");
+X	exit (2);
+X}
+X
+X/*
+X * grp_update - update group file entries
+X *
+X *	grp_update() writes the new records to the group files.
+X */
+X
+Xvoid
+Xgrp_update ()
+X{
+X#ifdef	NDBM
+X	struct	group	*ogrp;
+X#endif
+X
+X	if (! gr_remove (group_name)) {
+X		fprintf (stderr, "%s: error removing group entry\n", Prog);
+X		errors++;
+X	}
+X#ifdef	NDBM
+X
+X	/*
+X	 * Update the DBM group file
+X	 */
+X
+X	if (access ("/etc/group.pag", 0) == 0) {
+X		if ((ogrp = getgrnam (group_name)) &&
+X				! gr_dbm_remove (ogrp)) {
+X			fprintf (stderr, "%s: error removing group dbm entry\n",
+X				Prog);
+X			errors++;
+X		}
+X	}
+X	endgrent ();
+X#endif	/* NDBM */
+X
+X#ifdef	SHADOWGRP
+X
+X	/*
+X	 * Delete the shadow group entries as well.
+X	 */
+X
+X	if (! sgr_remove (group_name)) {
+X		fprintf (stderr, "%s: error removing shadow group entry\n",
+X			Prog);
+X		errors++;
+X	}
+X#ifdef	NDBM
+X
+X	/*
+X	 * Update the DBM shadow group file
+X	 */
+X
+X	if (access ("/etc/gshadow.pag", 0) == 0) {
+X		if (! sg_dbm_remove (group_name)) {
+X			fprintf (stderr,
+X				"%s: error removing shadow group dbm entry\n",
+X				Prog);
+X			errors++;
+X		}
+X	}
+X	endsgent ();
+X#endif	/* NDBM */
+X#endif	/* SHADOWGRP */
+X#ifdef	USE_SYSLOG
+X	syslog (LOG_INFO, "remove group `%s'\n", group_name);
+X#endif	/* USE_SYSLOG */
+X}
+X
+X/*
+X * close_files - close all of the files that were opened
+X *
+X *	close_files() closes all of the files that were opened for this
+X *	new group.  This causes any modified entries to be written out.
+X */
+X
+Xclose_files ()
+X{
+X	if (! gr_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite group file\n", Prog);
+X		errors++;
+X	}
+X	(void) gr_unlock ();
+X#ifdef	SHADOWGRP
+X	if (! sgr_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+X			Prog);
+X		errors++;
+X	}
+X	(void) sgr_unlock ();
+X#endif	/* SHADOWGRP */
+X}
+X
+X/*
+X * open_files - lock and open the group files
+X *
+X *	open_files() opens the two group files.
+X */
+X
+Xopen_files ()
+X{
+X	if (! gr_lock ()) {
+X		fprintf (stderr, "%s: unable to lock group file\n", Prog);
+X		exit (1);
+X	}
+X	if (! gr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: unable to open group file\n", Prog);
+X		exit (1);
+X	}
+X#ifdef	SHADOWGRP
+X	if (! sgr_lock ()) {
+X		fprintf (stderr, "%s: unable to lock shadow group file\n",
+X			Prog);
+X		exit (1);
+X	}
+X	if (! sgr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: unable to open shadow group file\n",
+X			Prog);
+X		exit (1);
+X	}
+X#endif	/* SHADOWGRP */
+X}
+X
+X/*
+X * group_busy - check if this is any user's primary group
+X *
+X *	group_busy verifies that this group is not the primary group
+X *	for any user.  You must remove all users before you remove
+X *	the group.
+X */
+X
+Xvoid
+Xgroup_busy (gid)
+XGID_T	gid;
+X{
+X	struct	passwd	*pwd;
+X
+X	/*
+X	 * Nice slow linear search.
+X	 */
+X
+X	setpwent ();
+X
+X	while ((pwd = getpwent ()) && pwd->pw_gid != gid)
+X		;
+X
+X	endpwent ();
+X
+X	/*
+X	 * If pwd isn't NULL, it stopped becaues the gid's matched.
+X	 */
+X
+X	if (pwd == (struct passwd *) 0)
+X		return;
+X
+X	/*
+X	 * Can't remove the group.
+X	 */
+X
+X	fprintf (stderr, "%s: cannot remove user's primary group.\n", Prog);
+X	exit (1);
+X}
+X
+X/*
+X * main - groupdel command
+X *
+X *	The syntax of the groupdel command is
+X *	
+X *	groupdel group
+X *
+X *	The named group will be deleted.
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	struct	group	*grp;
+X
+X	/*
+X	 * Get my name so that I can use it to report errors.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X	if (argc != 2)
+X		usage ();
+X
+X	strncpy (group_name, argv[1], BUFSIZ);
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif	/* USE_SYSLOG */
+X
+X	/*
+X	 * The open routines for the DBM files don't use read-write
+X	 * as the mode, so we have to clue them in.
+X	 */
+X
+X#ifdef	NDBM
+X	gr_dbm_mode = O_RDWR;
+X#ifdef	SHADOWGRP
+X	sg_dbm_mode = O_RDWR;
+X#endif	/* SHADOWGRP */
+X#endif	/* NDBM */
+X
+X	/*
+X	 * Start with a quick check to see if the group exists.
+X	 */
+X
+X	if (! (grp = getgrnam (group_name))) {
+X		fprintf (stderr, "%s: group %s does not exist\n",
+X			Prog, group_name);
+X		exit (9);
+X	}
+X
+X	/*
+X	 * Now check to insure that this isn't the primary group of
+X	 * anyone.
+X	 */
+X
+X	group_busy (grp->gr_gid);
+X
+X	/*
+X	 * Do the hard stuff - open the files, delete the group entries,
+X	 * then close and update the files.
+X	 */
+X
+X	open_files ();
+X
+X	grp_update ();
+X
+X	close_files ();
+X	exit (errors == 0 ? 0:1);
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+  if test 5440 -ne `wc -c <'groupdel.c'`; then
+    echo shar: \"'groupdel.c'\" unpacked with wrong size!
+  fi
+  # end of 'groupdel.c'
+fi
+if test -f 'login.defs' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'login.defs'\"
+else
+  echo shar: Extracting \"'login.defs'\" \(5190 characters\)
+  sed "s/^X//" >'login.defs' <<'END_OF_FILE'
+X#
+X# /etc/login.defs - Configuration control definitions for the login package.
+X#
+X#	@(#)login.defs	3.7	09:32:02	30 Apr 1993
+X#
+X# Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+X# If unspecified, some arbitrary (and possibly incorrect) value will
+X# be assumed.  All other items are optional - if not specified then
+X# the described action or option will be inhibited.
+X#
+X# Comment lines (lines beginning with "#") and blank lines are ignored.
+X#
+X
+X#
+X# Delay in seconds before being allowed another attempt after a login failure
+X#
+XFAIL_DELAY		5
+X
+X#
+X# Enable additional passwords upon dialup lines specified in /etc/dialups.
+X#
+XDIALUPS_CHECK_ENAB	yes
+X
+X#
+X# Enable logging and display of /usr/adm/faillog login failure info.
+X#
+XFAILLOG_ENAB		yes
+X
+X#
+X# Enable display of unknown usernames when login failures are recorded.
+X#
+XLOG_UNKFAIL_ENAB	yes
+X
+X#
+X# Enable logging and display of /usr/adm/lastlog login time info.
+X#
+XLASTLOG_ENAB		yes
+X
+X#
+X# Enable checking and display of mailbox status upon login.
+X#
+XMAIL_CHECK_ENAB		yes
+X
+X#
+X# Enable additional checks upon password changes.
+X#
+XOBSCURE_CHECKS_ENAB	yes
+X
+X#
+X# Enable checking of time restrictions specified in /etc/porttime.
+X#
+XPORTTIME_CHECKS_ENAB	yes
+X
+X#
+X# Enable setting of ulimit, umask, and niceness from passwd gecos field.
+X#
+XQUOTAS_ENAB		yes
+X
+X#
+X# Enable "syslog" logging of su activity - in addition to sulog file logging.
+X# SYSLOG_SG_ENAB does the same for newgrp and sg.
+X#
+XSYSLOG_SU_ENAB		no
+XSYSLOG_SG_ENAB		no
+X
+X#
+X# If defined, either full pathname of a file containing device names or
+X# a ":" delimited list of device names.  Root logins will be allowed only
+X# upon these devices.
+X#
+XCONSOLE		/etc/consoles
+X#CONSOLE	console:tty01:tty02:tty03:tty04
+X
+X#
+X# If defined, all su activity is logged to this file.
+X#
+XSULOG_FILE	/usr/adm/sulog
+X
+X#
+X# If defined, ":" delimited list of "message of the day" files to
+X# be displayed upon login.
+X#
+XMOTD_FILE	/etc/motd
+X#MOTD_FILE	/etc/motd:/usr/lib/news/news-motd
+X
+X#
+X# If set to "yes" /etc/issue will be output before each login prompt
+XISSUE_FILE_ENAB	yes
+X
+X#
+X# If defined, file which maps tty line to TERM environment parameter.
+X# Each line of the file is in a format something like "vt100  tty01".
+X#
+XTTYTYPE_FILE	/etc/ttytype
+X
+X#
+X# If defined, login failures will be logged here in a utmp format.
+X#
+XFTMP_FILE	/etc/ftmp
+X
+X#
+X# If defined, name of file whose presence which will inhibit non-root
+X# logins.  The contents of this file should be a message indicating
+X# why logins are inhibited.
+X#
+XNOLOGINS_FILE	/etc/nologins
+X
+X#
+X# If defined, the command name to display when running "su -".  For
+X# example, if this is defined as "su" then a "ps" will display the
+X# command is "-su".  If not defined, then "ps" would display the
+X# name of the shell actually being run, e.g. something like "-sh".
+X#
+XSU_NAME		su
+X
+X#
+X# *REQUIRED*
+X#   Directory where mailboxes reside, _or_ name of file, relative to the
+X#   home directory.  If you _do_ define both, MAIL_DIR takes precedence.
+X#
+XMAIL_DIR	/usr/spool/mail
+X#MAIL_FILE	.mail
+X
+X#
+X# If defined, file which inhibits all the usual chatter during the login
+X# sequence.  If a full pathname, then hushed mode will be enabled if the
+X# user's name or shell are found in the file.  If not a full pathname, then
+X# hushed mode will be enabled if the file exists in the user's home directory.
+X#
+X#HUSHLOGIN_FILE	.hushlogin
+XHUSHLOGIN_FILE	/etc/hushlogins
+X
+X#
+X# If defined, the presence of this value in an /etc/passwd "shell" field will
+X# disable logins for that user, although "su" will still be allowed.
+X#
+XNOLOGIN_STR	NOLOGIN
+X
+X#
+X# If defined, either a TZ environment parameter spec or the
+X# fully-rooted pathname of a file containing such a spec.
+X#
+XENV_TZ		TZ=CST6CDT
+X#ENV_TZ		/etc/tzname
+X
+X#
+X# If defined, an HZ environment parameter spec.
+X#
+XENV_HZ		HZ=50
+X
+X#
+X# *REQUIRED*  The default PATH settings, for superuser and normal users.
+X#
+XENV_SUPATH	PATH=/etc/local:/etc:/local/bin:/usr/bin:/bin
+XENV_PATH	PATH=/local/bin:/usr/bin:/bin
+X
+X#
+X# Terminal permissions
+X#
+X#	TTYGROUP	Login tty will be assigned this group ownership.
+X#	TTYPERM		Login tty will be set to this permission.
+X#
+X# If you have a "write" program which is "setgid" to a special group
+X# which owns the terminals, define TTYGROUP to the group number and
+X# TTYPERM to 0620.  Otherwise leave TTYGROUP commented out and assign
+X# TTYPERM to either 622 or 600.
+X#
+X#TTYGROUP	7
+X#TTYPERM	0620
+XTTYPERM		0622
+X
+X#
+X# Login configuration initializations:
+X#
+X#	ERASECHAR	Terminal ERASE character ('\010' = backspace).
+X#	KILLCHAR	Terminal KILL character ('\025' = CTRL/U).
+X#	UMASK		Default "umask" value.
+X#	ULIMIT		Default "ulimit" value.
+X#
+X# The ERASECHAR and KILLCHAR are used only on System V machines.
+X# The ULIMIT is used only if the system supports it.
+X#
+X# Prefix these values with "0" to get octal, "0x" to get hexadecimal.
+X#
+XERASECHAR	010
+XKILLCHAR	025
+XUMASK		022
+XULIMIT		2097152
+X
+X#
+X# Password aging controls:
+X#
+X#	PASS_MAX_DAYS	Maximum number of days a password may be used.
+X#	PASS_MIN_DAYS	Minimum number of days allowed between password changes.
+X#	PASS_MIN_LEN	Minimum acceptable password length.
+X#	PASS_WARN_AGE	Number of days warning given before a password expires.
+X#
+XPASS_MAX_DAYS	99999
+XPASS_MIN_DAYS	0
+XPASS_MIN_LEN	5
+XPASS_WARN_AGE	7
+X
+END_OF_FILE
+  if test 5190 -ne `wc -c <'login.defs'`; then
+    echo shar: \"'login.defs'\" unpacked with wrong size!
+  fi
+  # end of 'login.defs'
+fi
+if test -f 'logoutd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'logoutd.c'\"
+else
+  echo shar: Extracting \"'logoutd.c'\" \(5399 characters\)
+  sed "s/^X//" >'logoutd.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)logoutd.c	3.5	07:23:57	08 Apr 1993";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <signal.h>
+X#include <utmp.h>
+X#include <fcntl.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#include "config.h"
+X
+X#define	HUP_MESG_FILE	"/etc/logoutd.mesg"
+X
+X#ifndef	UTMP_FILE
+X#define	UTMP_FILE	"/etc/utmp"
+X#endif
+X
+X#ifdef	SVR4
+X#include <libgen.h>
+X#include <unistd.h>
+X#else
+X#define	SEEK_SET	0
+X#endif
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN	LOG_WARNING
+X#endif
+X#endif
+X
+X#ifdef	SVR4
+X#define	signal	sigset
+X#endif
+X
+Xchar	*Prog;
+X
+Xchar	*mesg_buf = "login time exceeded\r\n";
+Xint	mesg_len = 21;
+X#ifdef	HUP_MESG_FILE
+Xint	mesg_size;
+X
+X/*
+X * reload_mesg - reload the message that is output when killing a process
+X */
+X
+Xvoid
+Xreload_mesg (sig)
+Xint	sig;
+X{
+X	int	fd;
+X	struct	stat	sb;
+X
+X	signal (sig, reload_mesg);
+X
+X	if (stat (HUP_MESG_FILE, &sb))
+X		return;
+X
+X	if ((sb.st_mode & S_IFMT) != S_IFREG)
+X		return;
+X
+X	if ((fd = open (HUP_MESG_FILE, O_RDONLY)) != -1) {
+X		if (sb.st_size + 1 > mesg_size) {
+X			if (mesg_buf && mesg_size)
+X				free (mesg_buf);
+X
+X			mesg_len = sb.st_size;
+X			mesg_size = mesg_len + 1;
+X			if (! (mesg_buf = (char *) malloc (mesg_len + 1)))
+X				goto end;
+X		} else
+X			mesg_len = sb.st_size;
+X
+X		if (read (fd, mesg_buf, mesg_len) != mesg_len) {
+X			mesg_len = 0;
+X			goto end;
+X		}
+X	} else
+X		return;
+X
+Xend:
+X	close (fd);
+X}
+X#endif
+X
+X/*
+X * logoutd - logout daemon to enforce /etc/porttime file policy
+X *
+X *	logoutd is started at system boot time and enforces the login
+X *	time and port restrictions specified in /etc/porttime.  The
+X *	utmp file is periodically scanned and offending users are logged
+X *	off from the system.
+X */
+X
+Xvoid
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	int	i;
+X	int	found;
+X	int	status;
+X	struct	utmp	utmp;
+X	int	fd;
+X#if defined(BSD) || defined(SUN) || defined(SUN4) || defined(HUP_MESG_FILE)
+X	char	tty_name[BUFSIZ];
+X	int	tty_fd;
+X#endif
+X
+X#ifdef	NDEBUG
+X	for (i = 0;close (i) == 0;i++)
+X		;
+X
+X#ifdef	USG
+X	setpgrp ();
+X#endif	/* USG */
+X#if defined(BSD) || defined(SUN) || defined(SUN4) || defined(SVR4)
+X	setpgid (getpid (), getpid ());
+X#endif /* BSD || SUN || SUN4 */
+X#ifdef	HUP_MESG_FILE
+X	reload_mesg (SIGHUP);
+X#else
+X	signal (SIGHUP, SIG_IGN);
+X#endif	/* HUP_MESG_FILE */
+X
+X	/*
+X	 * Put this process in the background.
+X	 */
+X
+X	if (i = fork ())
+X		exit (i < 0 ? 1:0);
+X#endif	/* NDEBUG */
+X
+X#ifdef	USE_SYSLOG
+X	/*
+X	 * Start syslogging everything
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X
+X	/*
+X	 * Scan the UTMP file once per minute looking for users that
+X	 * are not supposed to still be logged in.
+X	 */
+X
+X	while (1) {
+X#ifdef	NDEBUG
+X		sleep (60);
+X#endif
+X
+X		/* 
+X		 * Attempt to re-open the utmp file.  The file is only
+X		 * open while it is being used.
+X		 */
+X
+X		if ((fd = open (UTMP_FILE, 0)) == -1) {
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "cannot open %s - aborting\n",
+X				UTMP_FILE);
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X
+X		/*
+X		 * Read all of the entries in the utmp file.  The entries
+X		 * for login sessions will be checked to see if the user
+X		 * is permitted to be signed on at this time.
+X		 */
+X
+X		while (read (fd, &utmp, sizeof utmp) == sizeof utmp) {
+X#ifdef	USG_UTMP
+X			if (utmp.ut_type != USER_PROCESS)
+X				continue;
+X
+X			if (isttytime (utmp.ut_user, utmp.ut_line, time (0)))
+X				continue;
+X#endif
+X#ifdef BSD_UTMP
+X			if (utmp.ut_name[0] == '\0')
+X				continue;
+X
+X			if (isttytime (utmp.ut_name, utmp.ut_line, time (0)))
+X				continue;
+X#endif
+X			/*
+X			 * Put the rest of this in a child process.  This
+X			 * keeps the scan from waiting on other ports to die.
+X			 */
+X
+X			if (fork () != 0)
+X				continue;
+X
+X			if (strncmp (utmp.ut_line, "/dev/", 5) != 0)
+X				strcpy (tty_name, "/dev/");
+X			else
+X				tty_name[0] = '\0';
+X
+X			strcat (tty_name, utmp.ut_line);
+X
+X#ifdef	O_NOCTTY
+X			if ((tty_fd = open (tty_name,
+X					O_WRONLY|O_NDELAY|O_NOCTTY)) != -1)
+X#else
+X			if ((tty_fd = open (tty_name,
+X					O_WRONLY|O_NDELAY)) != -1)
+X#endif
+X			{
+X				write (tty_fd, mesg_buf, mesg_len);
+X				close (tty_fd);
+X				sleep (5);
+X			}
+X#ifdef	USG_UTMP
+X			kill (- utmp.ut_pid, SIGHUP);
+X			sleep (10);
+X			kill (- utmp.ut_pid, SIGKILL);
+X#endif	/* USG_UTMP */
+X#if defined(BSD) || defined(SUN) || defined(SUN4)
+X
+X			/*
+X			 * vhangup() the line to kill try and kill
+X			 * whatever is out there using it.
+X			 */
+X
+X			strcat (strcpy (tty_name, "/dev/"), utmp.ut_line);
+X			if ((tty_fd = open (tty_name, O_RDONLY|O_NDELAY)) == -1)
+X				continue;
+X
+X			vhangup (tty_fd);
+X			close (tty_fd);
+X#endif
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_NOTICE,
+X				"logged off user `%.*s' on `%.*s'\n",
+X				sizeof utmp.ut_name, utmp.ut_name,
+X				sizeof utmp.ut_line, utmp.ut_line);
+X#endif	/* USE_SYSLOG */
+X
+X			/*
+X			 * This child has done all it can, drop dead.
+X			 */
+X
+X			exit (0);
+X		}
+X
+X		/*
+X		 * Reap any dead babies ...
+X		 */
+X
+X		while (wait (&status) != -1)
+X			;
+X
+X		close (fd);
+X	}
+X}
+END_OF_FILE
+  if test 5399 -ne `wc -c <'logoutd.c'`; then
+    echo shar: \"'logoutd.c'\" unpacked with wrong size!
+  fi
+  # end of 'logoutd.c'
+fi
+if test -f 'pwauth.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwauth.3'\"
+else
+  echo shar: Extracting \"'pwauth.3'\" \(5150 characters\)
+  sed "s/^X//" >'pwauth.3' <<'END_OF_FILE'
+X.\" Copyright 1992, 1993, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\" This software is provided on an AS-IS basis and the author makes
+X.\" no warrantee of any kind.
+X.\"
+X.\"	@(#)pwauth.3	3.2	12:26:12	01 May 1993
+X.\"
+X.TH PWAUTH 3
+X.SH NAME
+Xpwauth \- administrator defined password authentication routines
+X.SH SYNTAX
+X.IP "" .5i
+X#include <pwauth.h>
+X.IP "" .5i
+Xint pw_auth (char *command, char *user, int reason, char *input);
+X.SH DESCRIPTION
+X.I pw_auth
+Xinvokes the administrator defined functions for a given user.
+X.PP
+X\fIcommand\fR is the name of the authentication program.
+XIt is retrieved from the user's password file information.
+XThe string contains one or more executable file names, delimited by
+Xsemi-colons.
+XEach program will be executed in the order given.
+XThe command line arguments are given for each of the reasons listed
+Xbelow.
+X.PP
+X\fIuser\fR is the name of the user to be authenticated, as given
+Xin the \fB/etc/passwd\fR file.
+XUser entries are indexed by username.
+XThis allows non-unique user IDs to be present and for each different
+Xusername associated with that user ID to have a different
+Xauthentication program and information.
+X.PP
+XEach of the permissible authentication reasons is handled in a
+Xpotentially differenent manner.
+XUnless otherwise mentioned, the standard file descriptors 0, 1, and
+X2 are available for communicating with the user.
+XThe real user ID may be used to determine the identity of the user
+Xmaking the authentication request.
+X\fIreason\fR is one of
+X.IP PW_SU 1i
+XPerform authentication for the current real user ID attempting to
+Xswitch real user ID to the named user.
+XThe authentication program will be invoked with a \fB-s\fR option, followed
+Xby the username.
+X.IP PW_LOGIN 1i
+XPerform authentication for the named user creating a new login session.
+XThe authentication program will be invoked with a \fB-l\fR option, followed
+Xby the username.
+X.IP PW_ADD 1i
+XCreate a new entry for the named user.
+XThis allows an authentication program to initialize storage for a new
+Xuser.
+XThe authentication program will be invoked with a \fB-a\fR option, followed
+Xby the username.
+X.IP PW_CHANGE 1i
+XAlter an existing entry for the named user.
+XThis allows an authentication program to alter the authentication
+Xinformation for an existing user.
+XThe authentication program will be invoked with a \fB-c\fR option, followed
+Xby the username.
+X.IP PW_DELETE 1i
+XDelete authentication information for the named user.
+XThis allows an authentication program to reclaim storage for a user which
+Xis no longer authenticated using the authentication program.
+XThe authentication program will be invoked with a \fB-d\fR option, followed
+Xby the username.
+X.IP PW_TELNET 1i
+XAuthenticate a user who is connecting to the system using the \fItelnet\fR
+Xcommand.
+XThe authentication program will be invoked with a \fB-t\fR option, followed
+Xby the username.
+X.IP PW_RLOGIN 1i
+XAuthenticate a user who is connecting to the system using the \fIrlogin\fR
+Xcommand.
+XThe authentication program will be invoked with a \fB-r\fR option, followed
+Xby the username.
+X.IP PW_FTP 1i
+XAuthenticate a user who is connecting to the system using the \fIftp\fR
+Xcommand.
+XThe authentication program will be invoked with a \fR-f\fR option, followed
+Xby the username.
+XThe standard file descriptors are not available for communicating with the
+Xuser.
+XThe standard input file descriptor will be connected to the parent process,
+Xwhile the other two output file descriptors will be connected to
+X\fB/dev/null\fR.
+XThe \fIpw_auth\fR function will pipe a single line of data to the
+Xauthentication program using file descriptor 0.
+X.IP PW_REXEC 1i
+XAuthenticate a user who is connecting to the system using the \fIrexec\fR
+Xcommand.
+XThe authentication program will be invoked with a \fB-x\fR option, followed
+Xby the username.
+XThe standard file descriptors are not available for communicating with the
+Xremote user.
+XThe standard input file descriptor will be connected to the parent process,
+Xwhile the other two output file descriptors will be connected to
+X\fB/dev/null\fR.
+XThe \fIpw_auth\fR function will pipe a single line of data to the
+Xauthentication program using file descriptor 0.
+X.PP
+XThe last argument is the authentication data which is used by the
+XPW_FTP and PW_REXEC reasons.
+XIt is treated as a single line of text which is piped to the authentication
+Xprogram.
+XWhen the reason is PW_CHANGE, the value of \fIinput\fR is the value of
+Xprevious user name if the user name is being changed.
+X.SH CAVEATS
+XThis function does not create the actual session.
+XIt only indicates if the user should be allowed to create the session.
+X.PP
+XThe network options are untested at this time.
+X.SH DIAGNOSTICS
+XThe \fIpw_auth\fR function returns 0 if the authentication program exited
+Xwith a 0 exit code, and a non-zero value otherwise.
+X.SH SEE ALSO
+Xlogin(1), passwd(1), su(1), useradd(1), userdel(1), usermod(1)
+END_OF_FILE
+  if test 5150 -ne `wc -c <'pwauth.3'`; then
+    echo shar: \"'pwauth.3'\" unpacked with wrong size!
+  fi
+  # end of 'pwauth.3'
+fi
+if test -f 'sulogin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sulogin.c'\"
+else
+  echo shar: Extracting \"'sulogin.c'\" \(6091 characters\)
+  sed "s/^X//" >'sulogin.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifdef SVR4
+X#include <utmpx.h>
+X#else
+X#include <sys/types.h>
+X#include <utmp.h>
+X#endif
+X#include <signal.h>
+X#include <stdio.h>
+X#include "pwd.h"
+X#include <fcntl.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#include <memory.h>
+X#endif
+X#include "config.h"
+X#include "pwauth.h"
+X
+X#if defined(BSD) || defined(SUN)
+X#include <sgtty.h>
+X#define	USE_SGTTY	1
+X#endif
+X#if defined(USG) || defined(SUN4)
+X#ifdef	_POSIX_SOURCE
+X#include <termios.h>
+X#define	USE_TERMIOS	1
+X#else
+X#include <termio.h>
+X#define	USE_TERMIO	1
+X#endif
+X#endif
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN	LOG_WARNING
+X#endif
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)sulogin.c	3.12	13:04:09	27 Jul 1992";
+X#endif
+X
+Xchar	name[BUFSIZ];
+Xchar	pass[BUFSIZ];
+Xchar	home[BUFSIZ];
+Xchar	prog[BUFSIZ];
+Xchar	mail[BUFSIZ];
+X
+Xstruct	passwd	pwent;
+X#ifdef SVR4
+Xstruct	utmpx	utent;
+X#else
+Xstruct	utmp	utent;
+X#endif
+X
+X#ifdef	USE_SGTTY
+Xstruct	sgttyb	termio;
+X#endif
+X#ifdef	USE_TERMIO
+Xstruct	termio	termio;
+X#endif
+X#ifdef	USE_TERMIOS
+Xstruct	termios	termio;
+X#endif
+X
+X#ifndef	MAXENV
+X#define	MAXENV	64
+X#endif
+X
+Xchar	*newenvp[MAXENV];
+Xint	newenvc = 0;
+Xint	maxenv = MAXENV;
+Xextern	char	**environ;
+Xextern	char	*getpass();
+X
+Xextern	char	*getdef_str();
+X
+X#ifndef	ALARM
+X#define	ALARM	60
+X#endif
+X
+X#ifndef	RETRIES
+X#define	RETRIES	3
+X#endif
+X
+Xcatch (sig)
+Xint	sig;
+X{
+X	exit (1);
+X}
+X
+X/*ARGSUSED*/
+Xint
+Xmain (argc, argv, envp)
+Xint	argc;
+Xchar	**argv;
+Xchar	**envp;
+X{
+X	char	*getenv ();
+X	char	*ttyname ();
+X	char	*getpass ();
+X	char	*tz ();
+X	char	*cp;
+X
+X#ifdef	USE_SGTTY
+X	ioctl (0, TIOCGETP, &termio);
+X	termio.sg_flags |= (ECHO|CRMOD);
+X	termio.sg_flags &= ~(RAW|CBREAK);
+X	ioctl (0, TIOCSETN, &termio);
+X#endif
+X#ifdef	USE_TERMIO
+X	ioctl (0, TCGETA, &termio);
+X	termio.c_iflag |= (ICRNL|IXON);
+X	termio.c_oflag |= (OPOST|ONLCR);
+X	termio.c_cflag |= (CREAD);
+X	termio.c_lflag |= (ISIG|ICANON|ECHO|ECHOE|ECHOK);
+X	ioctl (0, TCSETAF, &termio);
+X#endif
+X#ifdef	USE_TERMIOS
+X	tcgetattr (0, &termio);
+X	termio.c_iflag |= (ICRNL|IXON);
+X	termio.c_oflag |= (CREAD);
+X	termio.c_lflag |= (ECHO|ECHOE|ECHOK|ICANON|ISIG);
+X	tcsetattr (0, TCSANOW, &termio);
+X#endif
+X#ifdef	USE_SYSLOG
+X	openlog ("sulogin", LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X	if (argc > 1) {
+X		close (0);
+X		close (1);
+X		close (2);
+X
+X		if (open (argv[1], O_RDWR) >= 0) {
+X			dup (0);
+X			dup (0);
+X		} else {
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_WARN, "cannot open %s\n", argv[1]);
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X	}
+X	if (access (PWDFILE, 0) == -1) { /* must be a password file! */
+X		printf ("No password file\n");
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "No password file\n");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#ifndef	DEBUG
+X	if (getppid () != 1) {		/* parent must be INIT */
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "Pid == %d, not 1\n", getppid ());
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#endif
+X	if (! isatty (0) || ! isatty (1) || ! isatty (2)) {
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (1);		/* must be a terminal */
+X	}
+X	while (*envp)			/* add inherited environment, */
+X		addenv (*envp++);	/* some variables change later */
+X
+X	if (cp = getdef_str("ENV_TZ"))
+X		addenv (*cp == '/' ? tz(cp) : cp);
+X	if (cp = getdef_str("ENV_HZ"))
+X		addenv (cp);		/* set the default $HZ, if one */
+X	(void) strcpy (name, "root");	/* KLUDGE!!! */
+X
+X	signal (SIGALRM, catch);	/* exit if the timer expires */
+X	alarm (ALARM);			/* only wait so long ... */
+X
+X	while (1) {		/* repeatedly get login/password pairs */
+X		entry (name, &pwent);	/* get entry from password file */
+X		if (pwent.pw_name == (char *) 0) {
+X
+X			/*
+X			 * Fail secure
+X			 */
+X
+X			printf ("No password entry for 'root'\n");
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_WARN, "No password entry for 'root'\n");
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X
+X	/*
+X	 * Here we prompt for the root password, or if no password is
+X	 * given we just exit.
+X	 */
+X
+X					/* get a password for root */
+X		if (! (cp = getpass ("Type control-d for normal startup,\n\
+X(or give root password for system maintenance):"))) {
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO, "Normal startup\n");
+X			closelog ();
+X#endif
+X#ifdef	TELINIT
+X			execl ("/etc/telinit", "telinit", RUNLEVEL, (char *) 0);
+X#endif
+X			exit (0);
+X		} else
+X			strcpy (pass, cp);
+X
+X		if (pwent.pw_name && pwent.pw_passwd[0] == '@') {
+X			if (pw_auth (pwent.pw_passwd + 1, name, PW_LOGIN)) {
+X#ifdef	USE_SYSLOG
+X				syslog (LOG_WARN,
+X					"Incorrect root authentication");
+X#endif
+X				continue;
+X			}
+X			goto auth_done;
+X		}
+X		if (valid (pass, &pwent)) /* check encrypted passwords ... */
+X			break;		/* ... encrypted passwords matched */
+X
+X		puts ("Login incorrect");
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, "Incorrect root password\n");
+X#endif
+X	}
+Xauth_done:
+X	alarm (0);
+X	signal (SIGALRM, SIG_DFL);
+X	environ = newenvp;		/* make new environment active */
+X
+X	puts ("Entering System Maintenance Mode");
+X#ifdef	USE_SYSLOG
+X	syslog (LOG_INFO, "System Maintenance Mode\n");
+X#endif
+X
+X	/*
+X	 * Normally there would be a utmp entry for login to mung on
+X	 * to get the tty name, date, etc. from.  We don't need all that
+X	 * stuff because we won't update the utmp or wtmp files.  BUT!,
+X	 * we do need the tty name so we can set the permissions and
+X	 * ownership.
+X	 */
+X
+X	if (cp = ttyname (0)) {		/* found entry in /dev/ */
+X		if (strrchr (cp, '/') != (char *) 0)
+X			strcpy (utent.ut_line, strrchr (cp, '/') + 1);
+X		else
+X			strcpy (utent.ut_line, cp);
+X	}
+X	if (getenv ("IFS"))		/* don't export user IFS ... */
+X		addenv ("IFS= \t\n");	/* ... instead, set a safe IFS */
+X
+X	setup (&pwent);			/* set UID, GID, HOME, etc ... */
+X
+X#ifdef	USE_SYSLOG
+X	closelog ();
+X#endif
+X	shell (pwent.pw_shell, (char *) 0); /* exec the shell finally. */
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+  if test 6091 -ne `wc -c <'sulogin.c'`; then
+    echo shar: \"'sulogin.c'\" unpacked with wrong size!
+  fi
+  # end of 'sulogin.c'
+fi
+if test -f 'useradd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'useradd.1'\"
+else
+  echo shar: Extracting \"'useradd.1'\" \(5546 characters\)
+  sed "s/^X//" >'useradd.1' <<'END_OF_FILE'
+X.\" Copyright 1991, 1992, 1993, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\" This software is provided on an AS-IS basis and the author makes
+X.\" no warrantee of any kind.
+X.\"
+X.\"	@(#)useradd.1	3.4	07:58:25	06 May 1993
+X.\"
+X.TH USERADD 1M
+X.SH NAME
+Xuseradd \- Create a new user or update default new user information
+X.SH SYNOPSIS
+X.B useradd
+X[ \fB-A\fI {method|DEFAULT},... ]
+X[ \fB-c\fI comment\fR ]
+X[ \fB-d\fI home_dir\fR ]
+X[ \fB-e\fI expire_date\fR ]
+X[ \fB-f\fI inactive_time\fR ]
+X[ \fB-g\fI initial_group\fR ]
+X[ \fB-G\fI group[,...]\fR ]
+X[ \fB-m\fR [ \fB-k\fI skeleton_dir\fR ] ]
+X[ \fB-s\fI shell\fR ]
+X[ \fB-u\fI uid \fR[ \fB-o\fR ] ]
+X.I login
+X.sp 1
+X.B useradd
+X\fB-D\fR
+X[ \fB-g\fI default_group\fR ]
+X[ \fB-b\fI default_home\fR ]
+X[ \fB-f\fI default_inactive\fR ]
+X[ \fB-e\fI default_exiration\fR ]
+X.SH DESCRIPTION
+X.SS Creating New Users
+XWhen invoked without the \fB-D\fR option, the \fIuseradd\fR command
+Xcreates a new user account using the values specified on the
+Xcommand line and the default values from the system.
+XThe new user account will be entered into the system files as needed,
+Xthe home directory will be created, and initial files copied, depending
+Xon the command line options.
+XThe options which apply to the \fIuseradd\fR command are
+X.IP "\fB-A {\fImethod\fR|\fBDEFAULT\fR},..."
+XThe value of the user's authentication method.
+XThe authentication method is the name of a program which is responsible
+Xfor validating the user's identity.
+XThe string \fBDEFAULT\fR may be used to change the user's authentication
+Xmethod to the standard system password method.
+XThis is a comma-separated list of program names.
+XIt may include \fBDEFAULT\fR exactly once.
+X.IP "\fB-d \fIhome_dir\fR"
+XThe new user will be created using \fIhome_dir\fR as the value for
+Xthe user's login directory.
+XThe default is to append the \fIlogin\fR name to \fIdefault_home\fR
+Xand use that as the login directory name.
+X.IP "\fB-e \fIexpire_date\fR"
+XThe date on which the user account will be disabled.
+XThe date is specified in the format \fIMM/DD/YY\fR.
+X.IP "\fB-f \fIinactive_days\fR"
+XThe number of days after a password expires until the account
+Xis permanently disabled.
+XA value of 0 disables the account as soon as the password has
+Xexpired, and a value of -1 disables the feature.
+XThe default value is -1.
+X.IP "\fB-g \fIinitial_group\fR"
+XThe group name or number of the user's initial login group.
+XThe group name must exist.  A group number must refer to an
+Xalready existing group.
+XThe default group number is 1.
+X.IP "\fB-G \fIgroup,[...]\fR"
+XA list of supplementary groups which the user is also a member
+Xof.
+XEach group is separated from the next by a comma, with no
+Xintervening whitespace.
+XThe groups are subject to the same restrictions as the group
+Xgiven with the \fB-g\fR option.
+XThe default is for the user to belong only to the initial group.
+X.IP \fB-m\fR
+XThe user's home directory will be created if it does not exist.
+XThe files contained in \fIskeleton_dir\fR will be copied to the
+Xhome directory if the \fB-k\fR option is used, otherwise the
+Xfiles contained in \fB/etc/skel\fR will be used instead.
+XAny directories contained in \fIskeleton_dir\fR or \fB/etc/skel\fR
+Xwill be created in the user's home directory as well.
+XThe \fB-k\fR option is only valid in conjunction with the \fB-m\fR
+Xoption.
+XThe default is to not create the directory and to not copy any
+Xfiles.
+X.IP "\fB-s \fIshell\fR"
+XThe name of the user's login shell.
+XThe default is to leave this field blank, which causes the system
+Xto select the default login shell.
+X.IP "\fB-u \fIuid\fR"
+XThe numerical value of the user's ID.
+XThis value must be unique, unless the \fI-o\fR option is used.
+XThe value must be non-negative.
+XThe default is to use the smallest ID value greater than 99 and
+Xgreater than every other user.
+XValues between 0 and 99 are typically reserved for system accounts.
+X.SS Changing the default values
+XWhen invoked with the \fB-D\fR option, \fIuseradd\fR will either
+Xdisplay the current default values, or update the default values
+Xfrom the command line.
+XThe valid options are
+X.IP "\fB-b \fIdefault_home\fR"
+XThe initial path prefix for a new user's home directory.
+XThe user's name will be affixed to the end of \fIdefault_home\fR
+Xto create the new directory name if the \fB-d\fI option is not
+Xused when creating a new account.
+X.IP "\fB-e \fIdefault_expire\fR"
+XThe number of days after a password is changed before it must
+Xbe changed again.
+X.IP "\fB-f \fIdefault_inactive\fR"
+XThe number of days after a password has expired before the
+Xaccount will be disabled.
+X.IP "\fB-g \fIdefault_group\fR"
+XThe group name or ID for a new user's initial group.
+XThe named group must exist, and a numerical group ID must have
+Xan existing entry .
+X.PP
+XIf no options are specified, \fIuseradd\fR displays the current
+Xdefault values.
+X.SH Notes
+XThe system administrator is responsible for placing the default
+Xuser files in the \fB/etc/skel\fR directory.
+X.SH Files
+X/etc/passwd \- user account information
+X.br
+X/etc/shadow \- secure user account information
+X.br
+X/etc/group \- group information
+X.br
+X/etc/defaults/useradd \- default information
+X.br
+X/etc/skel \- directory containing default files
+X.SH SEE ALSO
+X\fBchfn(1), chsh(1), groupadd(1M), groupdel(1M), groupmod(1M),
+Xpasswd(1), userdel(1M), usermod(1M)
+END_OF_FILE
+  if test 5546 -ne `wc -c <'useradd.1'`; then
+    echo shar: \"'useradd.1'\" unpacked with wrong size!
+  fi
+  # end of 'useradd.1'
+fi
+echo shar: End of archive 10 \(of 14\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

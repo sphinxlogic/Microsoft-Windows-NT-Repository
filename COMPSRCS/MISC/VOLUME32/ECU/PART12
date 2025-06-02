@@ -1,0 +1,2143 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i047:  ecu - ECU Asynchronous Communications v3.20, Part12/40
+Message-ID: <1992Sep13.153429.5280@sparky.imd.sterling.com>
+X-Md4-Signature: ab5224863c023c1a44abb703a739096b
+Date: Sun, 13 Sep 1992 15:34:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 47
+Archive-name: ecu/part12
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.12 (part 12 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecusetup.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 12; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecusetup.c'
+else
+echo 'x - continuing file ecusetup.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecusetup.c' &&
+X
+X/*+-------------------------------------------------------------------------
+X	setup_display_tty()
+X     00000000
+X     01234567
+X/dev/........
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_display_tty()
+X{
+X	char s[TTY_LEN + 1];
+X
+X	strncpy(s,shm->Lline + 5,TTY_LEN);
+X	s[TTY_LEN] = 0;
+X	clear_area(setw,TTY_Y,TTY_X,TTY_LEN);
+X	waddstr(setw,s);
+X	wmove(setw,TTYOPN_LY,TTYOPN_LX);
+X	if(shm->Liofd >= 0)
+X		waddstr(setw,"(opened)");
+X	else
+X		waddstr(setw,"        ");
+X	wrefresh(setw);
+X
+X}	/* end of setup_display_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_display_single_char()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_display_single_char()
+X{
+X	wmove(setw,DPX_Y,DPX_X);
+X	waddch(setw,(shm->Lfull_duplex) ? 'F' : 'E');
+X	wmove(setw,PAR_Y,PAR_X);
+X	waddch(setw,(shm->Lparity) ? to_upper(shm->Lparity) : 'N');
+X	wmove(setw,DB_Y,DB_X);
+X	waddch(setw,(shm->Lparity) ? '7' : '8');
+X	wmove(setw,XADDNL_Y,XADDNL_X);
+X	waddch(setw,(shm->Ladd_nl_outgoing) ? 'Y' : 'N');
+X	wmove(setw,RADDNL_Y,RADDNL_X);
+X	waddch(setw,(shm->Ladd_nl_incoming) ? 'Y' : 'N');
+X
+X }	/* end of setup_display_single_char */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_display_baud()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_display_baud()
+X{
+X	char s8[8];
+X	clear_area(setw,BAUD_Y,BAUD_X,BAUD_LEN);
+X	sprintf(s8,"%u",shm->Lbaud);
+X	waddstr(setw,s8);
+X
+X}	/* end of setup_display_baud */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_display_screen(write_lits)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_display_screen(write_lits)
+Xint write_lits;
+X{
+X
+X	if(write_lits)
+X	{
+X		wmove(setw,NAME_Y,NAME_LX);
+X		waddstr(setw,"Destination");
+X		wmove(setw,TTY_Y,TTY_LX);
+X		waddstr(setw,"tty: /dev/");
+X		wmove(setw,DPX_Y,DPX_LX);
+X		waddstr(setw,"duplex:");
+X		wmove(setw,BAUD_Y,BAUD_LX);
+X		waddstr(setw,"baud:");
+X		wmove(setw,PAR_Y,PAR_LX);
+X		waddstr(setw,"parity:");
+X		wmove(setw,DB_Y,DB_LX);
+X		waddstr(setw,"(data bits");
+X		wmove(setw,DB_Y,DB_LX2);
+X		waddch(setw,')');
+X		wmove(setw,XADDNL_Y,XADDNL_LX);
+X		waddstr(setw,"add NL to transmitted CR:");
+X		wmove(setw,RADDNL_Y,RADDNL_LX);
+X		waddstr(setw,"add NL to received CR:");
+X		wmove(setw,SETW_LINES - 2,1);
+X		wstandout(setw);
+X		waddstr(setw,		/* kludge -- must change if setw width does */
+X			"   TAB:next ^B:prev END:proceed ^D:phone dir  ESC:quit ecu    ");
+X		wstandend(setw);
+X	}
+X	setup_display_name();
+X	setup_display_tty();
+X	setup_display_single_char();
+X	setup_display_baud();
+X	wrefresh(setw);
+X}	/* end of setup_display_screen */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_line_open()
+X--------------------------------------------------------------------------*/
+Xint
+Xsetup_line_open()
+X{
+X	register itmp;
+X	register retries = 8;
+X	char *linst_err_text();
+X	char *cptr;
+X	char msg[80];
+X	long wait_msec;
+X	int displayed_single_char_exit = 0;
+X
+X	while(itmp = lopen())
+X	{
+X		if(retries)
+X		{
+X			if(	(itmp != LINST_ENABLED_IN_USE) &&
+X				(itmp != LINST_DIALOUT_IN_USE) && (itmp < 0))
+X			{
+X				goto FAIL;
+X			}
+X			sprintf(msg,"%s - waiting %d sec",linst_err_text(itmp),retries);
+X			cptr = msg;
+X			if(!displayed_single_char_exit)
+X			{
+X				setw_bot_msg("Press any key to skip retries");
+X				displayed_single_char_exit = 1;
+X			}
+X		}
+X		else
+X		{
+XFAIL:
+X			retries = 0;
+X			cptr = linst_err_text(itmp);
+X			ring_bell();
+X		}
+X		setw_err_msg(cptr);
+X		if(!retries--)
+X			break;
+X		wait_msec = 1000L;
+X		while(wait_msec > 0)
+X		{
+X			if(ttyrdchk())
+X			{
+X				(void)ttygetc(1);
+X				goto FAIL;
+X			}
+X			wait_msec -= Nap(100L);
+X		}
+X		setw_err_msg("");
+X	}
+X	setup_display_tty();
+X	return(itmp);
+X
+X}	/* end of setup_line_open */
+X
+X/*+-------------------------------------------------------------------------
+X	setw_get_single(nondelim_list)
+Xassumes cursor is already positioned
+X--------------------------------------------------------------------------*/
+Xint
+Xsetw_get_single(nondelim_list)
+Xregister char *nondelim_list;
+X{
+X	register uint itmp;
+X	static uchar setw_nondelim_list[] =
+X	{
+X		CRET,NL,CTL_B,CTL_D,TAB,ESC,CTL_L,CTL_R,XFend,XFcurup,XFcurdn
+X	};
+X
+X	itmp = winget_single(setw,nondelim_list,setw_nondelim_list);
+X	if((itmp & 0xFF) == CRET)
+X		itmp = NL | 0x1000;
+X	return(itmp);
+X}	/* end of setw_get_single */
+X
+X/*+-------------------------------------------------------------------------
+X	setup_screen(argv_logical)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetup_screen(argv_logical)
+Xchar *argv_logical;
+X{
+X	register itmp;
+X	register input_state = 0;
+X	char s80[80];
+X	char *cptr;
+X	char logical[NAME_LEN + 1];
+X	int done = 0;
+X	uint baud;
+X	uchar delim;	/* important to be unsigned to avoid sign extension */
+X	PDE *tpde;
+X	WINDOW *window_create();
+X	static uchar use_input_delim[] =
+X		{TAB,NL,XFcurdn,XFcurup,XFend,CTL_D,(uchar)0};
+X
+X	windows_start();
+X	sprintf(s80,"ecu %s",revstr);
+X	setw = window_create(s80,-3,SETW_TLY,SETW_TLX,SETW_LINES,SETW_COLS);
+X	shm->Llogical[0] = 0;
+X	logical[0] = 0;
+X	setup_display_screen(1);
+X
+XREENTER_INPUT_LOOP:
+X	while(!done)
+X	{
+X		wrefresh(setw);
+X		switch(input_state)
+X		{
+X			case 0:
+X				if(argv_logical)
+X				{
+X					itmp = 0;	/* 'ecu -' means dont dial */
+X					if(strcmp(argv_logical,"-"))	/* if not "-" */
+X					{
+X						strncpy(s80,argv_logical,NAME_LEN + 1);
+X						s80[NAME_LEN + 1] = 0;
+X						itmp = strlen(s80);
+X					}
+X					argv_logical = (char *)0;
+X					delim = XFend;
+X				}
+X				else
+X				{
+X					if(logical[0])
+X						strcpy(s80,logical);
+X					setw_bot_msg(
+X						"logical phone directory entry, phone number or empty");
+X 					itmp = wingets(setw,NAME_Y,NAME_X,s80,NAME_LEN + 1,&delim,
+X						(logical[0] != 0),(int *)0);
+X					setw_err_msg("");
+X				}
+X				if(strchr((char *)use_input_delim,(char)delim))
+X				{
+X					strcpy(logical,s80);
+X					if((tpde = logical_telno_to_pde(logical)) &&
+X						!copy_pde_to_Lvariables(tpde,1))
+X					{
+X						strcpy(logical,tpde->logical);
+X						setup_display_screen(0);
+X						break;
+X					}
+X					else
+X					{
+X						setw_err_msg(errmsg);
+X						setup_display_screen(0);
+X						ring_bell();
+X						argv_logical = (char *)0;
+X						continue;
+X					}
+X				}
+X				setup_display_name();
+X				break;
+X
+X			case 1:
+X				cptr = strrchr(DEFAULT_TTY,'/'); /* there will be a /, right? */
+X				cptr++;
+X				sprintf(s80,"comm line: i.e., %s",cptr);
+X				setw_bot_msg(s80);
+X				setup_display_tty();
+X				strcpy(s80,"/dev/");
+X				strcpy(s80,&shm->Lline[5]);
+X 				itmp = wingets(setw,TTY_Y,TTY_X,s80,TTY_LEN + 1,&delim,
+X					1,(int *)0);
+X				setw_err_msg("");
+X				if(strchr((char *)use_input_delim,(char)delim))
+X				{
+X					strcpy(shm->Lline,"/dev/");
+X					strcpy(&shm->Lline[5],s80);
+X				}
+X				setup_display_tty();
+X				break;
+X
+X			case 2:
+X				setw_bot_msg("duplex F:full H:half");
+X				wmove(setw,DPX_Y,DPX_X);
+X				wrefresh(setw);
+X				delim = NL;
+X				switch(itmp = setw_get_single("fh"))
+X				{
+X					case 0:
+X					case 1:
+X						shm->Lfull_duplex = itmp;
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 3:		/* baud */
+X				setw_bot_msg(
+X				"rates: 110,300,600,1200,2400,4800,9600,19200,38400");
+XCASE_3:
+X				sprintf(s80,"%u",shm->Lbaud);
+X 				itmp = wingets(setw,BAUD_Y,BAUD_X,s80,BAUD_LEN + 1,&delim,
+X					1,(int *)0);
+X				if(strchr((char *)use_input_delim,(char)delim))
+X				{
+X					if(valid_baud_rate(baud = atoi(s80)) < 0)
+X					{
+X						setup_display_baud();
+X						ring_bell();
+X						goto CASE_3;
+X					}
+X					shm->Lbaud = baud;
+X				}
+X				setup_display_baud();
+X				break;
+X
+X			case 4:
+X				setw_bot_msg("parity: N:none E:even O:odd");
+X				wmove(setw,PAR_Y,PAR_X);
+X				wrefresh(setw);
+X				delim = NL;
+X				switch(itmp = setw_get_single("neo"))
+X				{
+X					case 0:	shm->Lparity = 0;   break;
+X					case 1: shm->Lparity = 'e'; break;
+X					case 2: shm->Lparity = 'o'; break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				wmove(setw,DB_Y,DB_X);
+X				waddch(setw,(shm->Lparity) ? '7' : '8');
+X				break;
+X
+X			case 5:
+X				setw_bot_msg("");
+X				wmove(setw,XADDNL_Y,XADDNL_X);
+X				wrefresh(setw);
+X				delim = NL;
+X				switch(itmp = setw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1: shm->Ladd_nl_outgoing = itmp; break;
+X					default: delim = itmp & 0xFF;
+X				}
+X				break;
+X
+X			case 6:
+X				setw_bot_msg("");
+X				wmove(setw,RADDNL_Y,RADDNL_X);
+X				wrefresh(setw);
+X				delim = NL;
+X				switch(itmp = setw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1: shm->Ladd_nl_incoming = itmp; break;
+X					default: delim = itmp & 0xFF; break;
+X				}
+X				break;
+X		}
+X
+X		if(argv_logical)
+X			break;
+X
+X		switch(delim)
+X		{
+X			case XFcurup:
+X			case CTL_B:
+X				if(input_state)
+X					input_state--;
+X				else
+X					input_state = 6;
+X				break;
+X
+X			case XFcurdn:
+X			case TAB:
+X			case NL:
+X				input_state++;
+X				input_state %= 7;
+X				break;
+X
+X			case ESC:
+X				if(shm->Liofd >= 0)
+X					lclose();
+X				setw_bot_msg("");
+X				setup_display_tty();
+X				termecu(0);
+X				break;
+X
+X			case CTL_L:
+X			case CTL_R:
+X				tcap_clear_screen();
+X				touchwin(stdscr);
+X				wrefresh(stdscr);
+X				setup_display_screen(1);
+X				touchwin(setw);
+X				wrefresh(setw);
+X				break;
+X
+X			case XFend:
+X			case CTL_D:
+X				done = 1;
+X				break;
+X		}
+X	}
+X
+X	if(shm->Liofd < 0)
+X	{
+X		wmove(setw,TTY_Y,TTY_X);
+X		wrefresh(setw);
+X		if(setup_line_open())
+X		{
+X			done = 0;
+X			input_state = 1;
+X			argv_logical = (char *)0;
+X			goto REENTER_INPUT_LOOP;
+X		}
+X	}
+X
+X	wmove(setw,SETW_LINES - 2,1);
+X	wstandout(setw);
+X	waddstr(setw,		/* kludge -- must change if setw width does */
+X		"------- Press HOME then 'help' for further assistance --------");
+X	wstandend(setw);
+X	setw_bot_msg("");
+X	wrefresh(setw);
+X	delwin(setw);
+X	windows_end(0);
+X	ttymode(1);
+X	tcap_cursor(SETW_TLY + SETW_LINES + 2,0);
+X	rcvr_pid = -2;
+X	if(delim == CTL_D)
+X		phdir_manager();
+X	else if(logical[0])
+X	{
+X		tpde = logical_telno_to_pde(logical); /* error return not likely now */
+X		pde_dial(tpde);
+X	}
+X	else 
+X		start_rcvr_process(1);
+X
+X}	/* end of setup_screen */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecusetup.c is complete' &&
+chmod 0644 ecusetup.c ||
+echo 'restore of ecusetup.c failed'
+Wc_c="`wc -c < 'ecusetup.c'`"
+test 16570 -eq "$Wc_c" ||
+	echo 'ecusetup.c: original size 16570, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecushm.c ==============
+if test -f 'ecushm.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecushm.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecushm.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecushm.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecushm.c - shared memory handler for ecu xmtr/rcvr comm
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Signal handler purists will surely get aneurisms from looking
+X  at what we do in here, but any OS that doesn't properly push
+X  a stack frame for a signal event just won't play here.  We even
+X  fork() in a signal handler.  That ought to make some of the
+X  brethren gag.
+X
+X  Defined functions:
+X	shm_done()
+X	shm_init()
+X	shmr_notify_xmtr_of_DCD_loss()
+X	shmr_notify_zmodem_frame()
+X	shmr_process_rcvr_SIGUSR2()
+X	shmx_connect()
+X	shmx_make_rcvr_sleep(seconds)
+X	shmx_process_xmtr_SIGUSR2()
+X	shmx_set_rcvr_log(logfilename,append_flag,raw_flag,flush_each)
+X	shmx_unpause_rcvr()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:09-10-1992-04:34-wht@n4hgf-add rcvrdisp semaphore */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:12-15-1991-14:22-wht@n4hgf-autorz initialized */
+X/*:12-13-1991-04:16-wht@n4hgf-move bell_notify_state to shm */
+X/*:11-12-1991-18:02-wht@n4hgf-remove obsolete shmx_rc_report */
+X/*:11-11-1991-14:59-wht@n4hgf-shmr_notify_xmtr_of_DCD_loss */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include <sys/ipc.h>
+X#include <sys/shm.h>
+X#include <sys/sem.h>
+X
+X/* xmtr to rcvr cmds */
+X#define SHMX_MAKE_RCVR_SLEEP	1	/* sleep xi1=#seconds */
+X#define SHMX_UNPAUSE			2	/* no-op to un-pause() rcvr */
+X#define SHMX_SET_RCVR_LOG		3	/* log file manipulations
+X									 * xi1=append,xi2=raw,xs1=name */
+X
+X/* rcvr to xmtr cmds */
+X#define SHMR_NOTIFY_DCD_LOSS	1	/* rcvr detected DCD loss */
+X#define SHMR_NOTIFY_ZMODEM		2	/* rcvr detected ZMODEM frame */
+X
+Xextern char rcvr_log_file[];	/* if rcvr_log!= 0,log filename */
+Xextern int rcvr_log;			/* rcvr log active if != 0 */
+Xextern FILE *rcvr_log_fp;		/* rcvr log file */
+Xextern int rcvr_log_raw;		/* if true, log all, else filter ctl chrs */
+Xextern int rcvr_log_flusheach;
+Xextern int rcvr_log_append;	/* if true, append, else scratch */
+Xextern int rcvr_log_gen_title;
+X
+XECU_SDS FAR *shm;				/* shared segment pointer */
+Xkey_t shm_key;
+Xint shm_shmid;
+X
+X/*+-------------------------------------------------------------------------
+X	shm_init()
+X  Called by parent process (xmtr) to initialize environment
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshm_init()
+X{
+X	uint save_LINESxCOLS;
+X	extern uint LINESxCOLS;
+X
+X	/*
+X	 * see the comments in ecu.h titled "Communication line variables"
+X	 * for an explanation of the following
+X	 */
+X	if(sizeof(shm->Ltiobuf) < sizeof(struct termio))
+X	{
+X		pprintf("ecushm.h LTIOBUF_SIZE needs to be increased to %d.\n",
+X		    sizeof(struct termio));
+X		pputs("Please change it, remake and notify wht@n4hgf.Mt-Park.GA.US.\n");
+X		termecu(TERMECU_CONFIG_ERROR);
+X	}
+X
+X	shm_key = 0xEC000000L | getpid();
+X
+X	if((shm_shmid = shmget(shm_key,sizeof(ECU_SDS),IPC_CREAT | 0600)) < 0)
+X	{
+X		perror("shmget");
+X		termecu(TERMECU_IPC_ERROR);
+X	}
+X
+X	if((shm = (ECU_SDS FAR *)shmat(shm_shmid,(char FAR *)0,0)) ==
+X	    (ECU_SDS FAR *)-1)
+X	{
+X		perror("shmat");
+X		termecu(TERMECU_IPC_ERROR);
+X	}
+X
+X#ifdef RCVRDISP_PV
+X	if((shm->rcvrdisp_semid = semget(shm_key,1,IPC_CREAT | 0600)) < 0)
+X	{
+X		perror("semget");
+X		termecu(TERMECU_IPC_ERROR);
+X	}
+X	rcvrdisp_v();	/* first unlock */
+X#endif /*  RCVRDISP_PV */
+X
+X	/*
+X	 * see the comments in ecu.h titled "Communication line variables"
+X	 * for an explanation of the following
+X	 */
+X	Ltermio = (struct termio *)shm->Ltiobuf;	/* cover termio buffer */
+X
+X	shm->xcmd = 0;	/* signal from xmtr to rcvr SIGUSR2 */
+X	shm->xi1 = 0;	/* parameters */
+X	shm->xi2 = 0;
+X	shm->xs1[0] = 0;
+X	shm->rcmd = 0;	/* signal from rcvr to xmtr SIGUSR2 */
+X	shm->ri1 = 0;	/* parameters */
+X	shm->ri2 = 0;
+X	shm->rs1[0] = 0;
+X	shm->rcvd_chars = 0L;
+X	shm->rcvd_chars_this_connect = 0L;
+X	shm->bell_notify_state = 1;	/* default to want bell notify */
+X	shm->Ldcdwatch = 0;			/* default DCD watcher to off */
+X	shm->autorz = 1;			/* default automatic rz to on */
+X	shm->cursor_y = 0;
+X	shm->cursor_x = 0;
+X	shm->friend_space[0] = 0;
+X	save_LINESxCOLS = LINESxCOLS;
+X	LINESxCOLS = sizeof(shm->screen);	/* avoid trap */
+X	spaces((char *)shm->screen,sizeof(shm->screen));
+X	LINESxCOLS = save_LINESxCOLS;
+X	shm->rcvrdisp_ptr = shm->rcvrdisp_buffer;
+X	shm->rcvrdisp_count = 0;
+X
+X}	/* end of shm_init */
+X
+X/*+-------------------------------------------------------------------------
+X	shm_done() -- finished with shm/sem -- clean up
+X
+XWe might make a trip thru here with the xmtr and rcvr, so
+Xignore EINVAL
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshm_done()
+X{
+X
+X#ifdef RCVRDISP_PV
+X	union semun {
+X		int val;
+X		struct semid_ds *buf;
+X		ushort array[10];
+X	} semctl_arg;
+X
+X	if(semctl(shm->rcvrdisp_semid,0,IPC_RMID,&semctl_arg) && (errno != EINVAL))
+X		pperror("semctl IPC_RMID");
+X#endif /*  RCVRDISP_PV */
+X
+X	if(shmctl(shm_shmid,IPC_RMID,(struct shmid_ds *)0 && (errno != EINVAL)))
+X		pperror("shmctl IPC_RMID");
+X
+X}	/* end of shm_done */
+X
+X/*+-------------------------------------------------------------------------
+X	shmx_connect() -- xmtr calls when modem connects
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmx_connect()
+X{
+X	shm->rcvd_chars_this_connect = 0L;
+X}	/* end of shmx_connect */
+X
+X/*+-------------------------------------------------------------------------
+X	shmx_make_rcvr_sleep(seconds)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmx_make_rcvr_sleep(seconds)
+Xint seconds;
+X{
+X	shm->xcmd = SHMX_MAKE_RCVR_SLEEP;
+X	shm->xi1 = seconds;
+X	kill_rcvr_process(SIGUSR2);
+X
+X}	/* end of shmx_make_rcvr_sleep */
+X
+X/*+-------------------------------------------------------------------------
+X	shmx_unpause_rcvr() - no-op SIGUSR2 to unpause receiver
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmx_unpause_rcvr()
+X{
+X	shm->xcmd = SHMX_UNPAUSE;
+X	kill_rcvr_process(SIGUSR2);
+X}	/* end of shmx_unpause_rcvr */
+X
+X/*+-------------------------------------------------------------------------
+X	shmx_set_rcvr_log(logfilename,append_flag,raw_flag,flush_each)
+X
+Xnull logfilename stops logging
+Xappend_flag says whether to open for write or append
+Xraw_flag says whether or not to filter non-printable chars or not
+X(NL not filtered)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmx_set_rcvr_log(logfilename,append_flag,raw_flag,flush_each)
+Xchar *logfilename;
+Xint append_flag;
+Xint raw_flag;
+Xint flush_each;
+X{
+X	shm->xcmd = SHMX_SET_RCVR_LOG;
+X	shm->xi1 = append_flag;
+X	shm->xi2 = raw_flag;
+X	shm->xi3 = flush_each;
+X	strcpy(shm->xs1,logfilename);
+X	kill_rcvr_process(SIGUSR2);
+X}	/* end of shmx_set_rcvr_log */
+X
+X/*+-------------------------------------------------------------------------
+X	shmr_notify_xmtr_of_DCD_loss()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmr_notify_xmtr_of_DCD_loss()
+X{
+X	shm->rcmd = SHMR_NOTIFY_DCD_LOSS;
+X	kill(xmtr_pid,SIGUSR2);
+X}	/* end of shmr_notify_xmtr_of_DCD_loss */
+X
+X/*+-------------------------------------------------------------------------
+X	shmr_notify_zmodem_frame()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmr_notify_zmodem_frame()
+X{
+X	shm->rcmd = SHMR_NOTIFY_ZMODEM;	/* rcvr detected ZMODEM frame */
+X	kill(xmtr_pid,SIGUSR2);
+X}	/* end of shmr_notify_zmodem_frame */
+X
+X/*+-------------------------------------------------------------------------
+X	shmx_process_xmtr_SIGUSR2()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmx_process_xmtr_SIGUSR2()
+X{
+X	register rcmd;
+X	register ri1,ri2;
+X	int argc;
+X	char *cptr;
+X	char **argv;
+X	ulong colors_save;
+X	int lchar;
+X	int success_flag;
+X
+X	rcmd = shm->rcmd;
+X	shm->rcmd = 0;
+X	ri1 = shm->ri1;
+X	ri2 = shm->ri2;
+X
+X	switch(rcmd)
+X	{
+X		case SHMR_NOTIFY_DCD_LOSS:
+X			lzero_length_read_detected();
+X			break;
+X
+X		case SHMR_NOTIFY_ZMODEM:
+X			kill_rcvr_process(SIGUSR1);
+X			success_flag = 0;
+X			while((lchar = lgetc_timeout(100L)) >= 0)
+X			{
+X				fputc(lchar,se);
+X				if(lchar == '\n')
+X				{
+X					success_flag = 1;
+X					break;
+X				}
+X			}
+X			if(!success_flag)
+X				fputs("\r\n",se);
+X			colors_save = colors_current;
+X			setcolor(colors_notify);
+X			fputs("[automatic rz]",se);
+X			setcolor(colors_save);
+X			fputs("\r\n",se);
+X			argc = 1;
+X			cptr = "rz";
+X			argv = &cptr;
+X			receive_files_from_remote(argc,argv);
+X			start_rcvr_process(1);
+X			break;
+X	}
+X
+X}	/* end of shmx_process_xmtr_SIGUSR2 */
+X
+X/*+-------------------------------------------------------------------------
+X	shmr_process_rcvr_SIGUSR2()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshmr_process_rcvr_SIGUSR2()
+X{
+X	register xcmd;
+X	register xi1,xi2,xi3;
+X	char xs1[SHM_STRLEN];
+X
+X	xcmd = shm->xcmd;
+X	shm->xcmd = 0;
+X	xi1 = shm->xi1;
+X	xi2 = shm->xi2;
+X	xi3 = shm->xi3;
+X	strcpy(xs1,shm->xs1);
+X
+X	switch(xcmd)
+X	{
+X		case SHMX_MAKE_RCVR_SLEEP:
+X			sleep(xi1);
+X			break;
+X
+X		case SHMX_SET_RCVR_LOG:
+X			if(rcvr_log) 		/* if already logging */
+X			{
+X				if(!rcvr_log_raw)
+X					LOGPUTC('\n',rcvr_log_fp);
+X				fclose(rcvr_log_fp);
+X				rcvr_log = 0;
+X			}
+X			if(strlen(xs1) == 0)	/* if all we wanted was to stop log ... */
+X				break;				/* ... then quit */
+X			rcvr_log_gen_title = 1;
+X			rcvr_log = 1;
+X			rcvr_log_append = xi1;
+X			rcvr_log_raw = xi2;
+X			rcvr_log_flusheach = xi3;
+X			strcpy(rcvr_log_file,xs1);
+X			rcvr_log_open();
+X			break;
+X
+X		case SHMX_UNPAUSE:
+X			break;
+X	}
+X
+X}	/* end of shmr_process_rcvr_SIGUSR2 */
+X
+X/* end of ecushm.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecushm.c ||
+echo 'restore of ecushm.c failed'
+Wc_c="`wc -c < 'ecushm.c'`"
+test 9584 -eq "$Wc_c" ||
+	echo 'ecushm.c: original size 9584, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecushm.h ==============
+if test -f 'ecushm.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecushm.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecushm.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecushm.h' &&
+X#define SHM_REV	0x0ECEC000DL	/* high 16-bits unique, low=revision */
+X/*+-------------------------------------------------------------------------
+X	ecushm.h -- ecu shared data segment
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-10-1992-04:34-wht@n4hgf-add rcvrdisp semaphore */
+X/*:09-06-1992-13:29-wht@n4hgf-add receiver process buffered screen write */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-17-1992-04:55-wht@n4hgf-keep rcvr pid in shm for friend code */
+X/*:07-19-1992-07:44-wht@n4hgf-85 lines too expensive to keep updated */
+X/*:07-19-1992-07:42-wht@n4hgf-ttyinit_param -> ttyuse */
+X/*:05-08-1992-03:36-wht@n4hgf-bumped rev: max screen geometry now 85x80 */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:12-15-1991-14:22-wht@n4hgf-autorz and zmodem_asterisk_count added */
+X/*:12-13-1991-04:16-wht@n4hgf-move bell_notify_state to shm */
+X/*:11-11-1991-22:25-wht@n4hgf-add Ldcdwatch and Ltiobuf */
+X/*:08-21-1991-01:34-wht@n4hgf-FAR depends only on M_I286 */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:12-19-1990-17:09-wht@n4hgf-make cursor variables unsigned */
+X/*:11-30-1990-19:01-wht@n4hgf-add ttyinit_param */
+X/*:11-28-1990-17:43-wht@n4hgf-move cursor_y, cursor_x to right after revision */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecushm_h
+X#define _ecushm_h
+X
+X#if defined(M_I286)
+X#define FAR far
+X#else
+X#define FAR
+X#endif
+X
+X#if !defined(ushort)
+X#define ushort unsigned short
+X#endif
+X#if !defined(uchar)
+X#define uchar unsigned char
+X#endif
+X#if !defined(uint)
+X#define uint unsigned int
+X#endif
+X#if !defined(ulong)
+X#define ulong unsigned long
+X#endif
+X
+X/* tty usage parameter (ttyuse) */
+X#define TTYUSE_NORMAL			0	/* must be zero */
+X#define TTYUSE_FORCE_SIMPLE		1
+X
+X/*
+X * max length of a logical name or  telephone number string
+X * this the actual number of characters: arrays are defined
+X * DESTREF_LEN + 1 in length to provide for null
+X *
+X * (in revisions prior to ALPHA-3.19.16, this was named TELNO_LEN)
+X */
+X#define DESTREF_LEN			40
+X
+X#define SCREEN_LINES_MAX	43
+X#define SCREEN_COLS_MAX		80
+X#define SHM_STRLEN			256
+X#define TO_SCREEN_BUFSZ		128
+X
+Xtypedef struct ecu_sds
+X{
+X	uchar screen[SCREEN_LINES_MAX][SCREEN_COLS_MAX];
+X	ulong shm_revision;
+X	uint cursor_y;			/* program-maintained receive cursor */
+X	uint cursor_x;			/* program-maintained receive cursor */
+X	ushort scr_lines;		/* lines in use */
+X	ushort scr_cols;		/* columns in use */
+X	ushort scr_size;		/* screen size (lines * cols) */
+X	ushort terminating;		/* made one when ECU terminating */
+X	/* xmtr to rcvr communication area */
+X	int xcmd;				/* signal from xmtr to rcvr SIGUSR2 */
+X	int xi1;
+X	int xi2;
+X	int xi3;
+X	char xs1[SHM_STRLEN];
+X	/* rcvr to xmtr communication area */
+X	int rcmd;				/* signal from rcvr to xmtr SIGUSR2 */
+X	int ri1;
+X	int ri2;
+X	char rs1[SHM_STRLEN];
+X	ulong rcvd_chars;		/* rcvr char count */
+X	ulong rcvd_chars_this_connect;	/* count since last connect */
+X	ulong xmit_chars;		/* xmit char count */
+X	ulong xmit_chars_this_connect;	/* count since last connect */
+X	int Ladd_nl_incoming;	/* when in ksr mode, add nl to cr on receive */
+X	int Ladd_nl_outgoing;	/* when in ksr mode, add nl to cr on xmit */
+X	int Lfull_duplex;		/* if non-zero, full duplex else half */
+X	int Liofd;				/* file descriptor for line */
+X	int Lmodem_already_init;/* true if modem already initialized */
+X	int Lconnected;	/* we try to keep accurate */
+X	int Lparity;			/* 0==NONE, 'e' == even, 'o' == odd */
+X	uint Lbaud;				/* baud rate */
+X	char Ldescr[64];		/* description of remote */
+X	char Lline[64];			/* /dev/ttyname for outgoing line */
+X	char Llogical[64];		/* logical name of remote (from dial dir) */
+X	char Lrname[64];		/* logical name of remote (settable) */
+X	long Loff_hook_time;	/* time() at connect */
+X	char Ltelno[DESTREF_LEN+1]; /* telephone number for remote or null */
+X	int Ldcdwatch;			/* state of line DCD watcher */
+X	ushort Lxonxoff;		/* status of line IXON and IXOFF */
+X	/*
+X	 * this is a projectile vomit hack, but you don't need termio.h
+X	 * to use ecushm.h this way
+X	 */
+X#define TIOBUF_SIZE		40	/* big enough for all systems I know about */
+X	long Ltiobuf[(TIOBUF_SIZE / sizeof(long)) + 1]; /* buffer for termio */
+X	PID_T xmtr_pid;			/* transmitter process pid */
+X	PID_T xmtr_ppid;		/* transmitter process' parent's pid */
+X	PID_T xmtr_pgrp;		/* transmitter process group */
+X	PID_T rcvr_pid;			/* receiver pid (or -1 if inactive) */
+X	char tty_name[64];		/* comm line name (not console) */
+X	uchar ttyuse;			/* see TTYUSE_... above and ecuxfer.c */
+X	int bell_notify_state;	/* bell/text-event to annunciator mapping state */
+X	int autorz;				/* if true, automatic rz on rcvd zmodem prefix */
+X	int autorz_pos;			/* position in autorz match sequence */
+X	ulong friend_space[128];/* space for friend programs */
+X	/*
+X	 * receiver process buffered screen write
+X	 */
+X	char rcvrdisp_buffer[TO_SCREEN_BUFSZ];
+X	char *rcvrdisp_ptr;
+X	int rcvrdisp_count;
+X	int rcvrdisp_semid;
+X} ECU_SDS;
+X
+Xextern ECU_SDS FAR *shm;		/* shared segment pointer */
+X
+X#endif /* _ecushm_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecushm.h */
+SHAR_EOF
+chmod 0644 ecushm.h ||
+echo 'restore of ecushm.h failed'
+Wc_c="`wc -c < 'ecushm.h'`"
+test 5188 -eq "$Wc_c" ||
+	echo 'ecushm.h: original size 5188, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecusighdl.c ==============
+if test -f 'ecusighdl.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecusighdl.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecusighdl.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecusighdl.c' &&
+X/* #define TRICKY_SEGV */
+X/* #ifdef DEBUG_SRP */
+X/*+-----------------------------------------------------------------------
+X	ecusighdl.c - xmtr/rcvr individual process signal handlers
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	_start_rcvr_process(notify_flag)
+X	_start_rcvr_process(notify_flag,fname,fline)
+X	child_signals()
+X	kill_rcvr_process(sig)
+X	rcvr_SIGHUP_handler()
+X	rcvr_SIGINT_handler()
+X	rcvr_SIGTERM_handler()
+X	rcvr_SIGUSR1_handler()
+X	rcvr_SIGUSR2_handler()
+X	rcvr_common_signal_handler()
+X	rcvr_death_handler(sig)
+X	rcvr_signals()
+X	termecu(code)
+X	termecu_code_text(code)
+X	xmtr_SIGCLD_handler()
+X	xmtr_SIGHUP_handler(sig)
+X	xmtr_SIGINT_handler()
+X	xmtr_SIGTERM_handler(sig)
+X	xmtr_SIGUSR2_handler()
+X	xmtr_death_handler(sig)
+X	xmtr_signals()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-17-1992-04:55-wht@n4hgf-keep rcvr pid in shm for friend code */
+X/*:08-16-1992-03:08-wht@n4hgf-head off another POSIX plot */
+X/*:08-16-1992-01:54-wht@n4hgf-job control signals get SIG_IGN */
+X/*:04-29-1992-19:04-wht@n4hgf-make a pass at handling job control signals */
+X/*:04-29-1992-13:46-wht@n4hgf-ignore SIGQUIT */
+X/*:04-23-1992-16:20-wht@n4hgf-disable mysterious rcvr SIGCLD events */
+X/*:02-16-1992-01:42-wht@n4hgf-turn off xterm_title + add _terminate.ep */
+X/*:08-25-1991-23:56-wht@n4hgf2-handle xmtr core dump gracefully */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:06-29-1991-15:42-wht@n4hgf-if WHT and xterm, play with title bar */
+X/*:01-29-1991-12:57-wht@n4hgf-on exit, restore setcolor colors if possible */
+X/*:12-18-1990-20:02-wht@n4hgf-add rcvr_death_handler */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecufork.h"
+X
+Xextern int windows_active;
+Xextern int current_ttymode;
+Xextern int ttymode_termecu_on_sigint;
+Xextern char lopen_err_str[];
+Xextern int rcvr_log;
+Xextern FILE *rcvr_log_fp;
+Xextern char rcvr_log_file[];	/* if rcvr_log!= 0,log filename */
+Xextern int rcvr_log_append;
+X
+Xint sigint = 0;			/* interrupt indicator */
+Xint proc_interrupt = 0;		/* procedure interrupt indicator */
+Xint last_child_wait_status = 0;
+Xint last_child_wait_pid = 0;
+Xint xmtr_killed_rcvr = 0;
+X
+Xchar *signal_name_text();
+X
+Xvoid termecu();
+Xvoid xmtr_signals();
+Xvoid rcvr_signals();
+Xvoid child_signals();
+X
+XSIGTYPE rcvr_SIGTERM_handler();
+XSIGTYPE rcvr_SIGINT_handler();
+XSIGTYPE rcvr_SIGUSR1_handler();
+XSIGTYPE rcvr_SIGUSR2_handler();
+XSIGTYPE rcvr_SIGHUP_handler();
+XSIGTYPE xmtr_SIGINT_handler();
+XSIGTYPE xmtr_SIGHUP_handler();
+XSIGTYPE xmtr_SIGTERM_handler();
+XSIGTYPE xmtr_SIGCLD_handler();
+XSIGTYPE xmtr_death_handler();
+XSIGTYPE rcvr_common_signal_handler();
+XSIGTYPE rcvr_death_handler();
+X
+X/*+-----------------------------------------------------------------------
+X	_start_rcvr_process(notify_flag) - start RCVR process if not extant
+X------------------------------------------------------------------------*/
+X#ifndef BUILDING_PROTOTYPES
+XSIGTYPE
+X#ifdef DEBUG_SRP
+X_start_rcvr_process(notify_flag,fname,fline)
+Xint notify_flag;
+Xchar *fname;
+Xint fline;
+X#else
+X_start_rcvr_process(notify_flag)
+Xint notify_flag;
+X#endif
+X{
+X	extern ulong colors_current;
+X	ulong colors_at_entry = colors_current;
+X#if defined(FORK_DEBUG)
+X	char s40[40];
+X#endif
+X#ifdef DEBUG_SRP
+X	char s80[80];
+X		sprintf(s80,"start_rcvr_process (%d) file: %s line=%d",
+X			rcvr_pid,fname,fline);
+X		ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	fflush(so);
+X	fflush(se);
+X
+X	if(rcvr_pid > 0)			/* if process already active,just ... */
+X		return;
+X
+X	if(rcvr_log && rcvr_log_file[0] && rcvr_log_fp)
+X	{
+X		fclose(rcvr_log_fp);
+X		rcvr_log_fp = (FILE *)0;
+X	}
+X
+X	xmtr_killed_rcvr = 0;
+X	shm->rcvr_pid = rcvr_pid = smart_fork();
+X	if(rcvr_pid == 0)		/* if we are the (spawned) rcvr process */
+X	{
+X		if(notify_flag)
+X		{
+X			setcolor(colors_notify);
+X			fputs("[interactive mode]",se);
+X			setcolor(colors_at_entry);
+X			fputs("\r\n",se);
+X		}
+X
+X		rcvr();	/* run until killed */
+X		/*NOTREACHED*/
+X	}
+X	else if(rcvr_pid > 0) 	/* we are the father (xmtr) process */
+X	{
+X#if defined(FORK_DEBUG)
+X		sprintf(s40,"DEBUG rcvr pid %d",rcvr_pid);
+X		ecu_log_event(getpid(),s40);		/* rcvr */
+X#endif
+X		if(rcvr_log)
+X			rcvr_log_append = 1;	/* until next %log -s */
+X		xmtr_signals();
+X		return;
+X	}
+X
+X	shm->rcvr_pid = rcvr_pid = -1;		/* no receiver active */
+X
+X	ff(se,"\r\n\ncould not fork for receive\r\n");
+X	termecu(TERMECU_NO_FORK_FOR_RCVR);
+X	/*NOTREACHED*/
+X
+X}	/* end of _start_rcvr_process */
+X#endif /* BUILDING_PROTOTYPES */
+X
+X/*+-----------------------------------------------------------------------
+X	kill_rcvr_process(sig) -- kill rcvr process with signal 'sig'
+X------------------------------------------------------------------------*/
+XSIGTYPE
+Xkill_rcvr_process(sig)
+Xint sig;
+X{
+X	int wait_count = 70;
+X
+X	if(rcvr_pid > 0)		/* if we have forked a rcvr process */
+X	{
+X		xmtr_killed_rcvr = 1;
+X		rcvr_log_fp = (FILE *)0;
+X		xmtr_signals();
+X		kill(rcvr_pid,sig);
+X		if(sig != SIGUSR2)	/* rcvr does not die on SIGUSR2 */
+X		{
+X			errno = 0;
+X			while(wait_count)
+X			{
+X				if(kill(rcvr_pid,0) && (errno == ESRCH))
+X					break;
+X				errno = 0;
+X				Nap(40L);
+X				wait_count--;
+X			}
+X			if(!wait_count)
+X			{
+X				while(!kill(rcvr_pid,SIGKILL))
+X				{
+X					wait((int *)0);
+X					Nap(40L);
+X				}
+X			}
+X			shm->rcvr_pid = rcvr_pid = -1;		/* no receiver active */
+X			if(rcvr_log && rcvr_log_file[0])
+X				rcvr_log_fp = fopen(rcvr_log_file,"a");
+X
+X			rcvrdisp_actual();	/* write any buffered screen data */
+X		}
+X	}
+X
+X}	/* end of kill_rcvr_process */
+X
+X/*+-------------------------------------------------------------------------
+X	termecu_code_text(code)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xtermecu_code_text(code)
+Xint code;
+X{
+X	static char errant[16];
+X	char *signal_name_text();
+X
+X	if((code >= TERMECU_SIG1) && (code <= TERMECU_SIGN))
+X		return(signal_name_text(code));
+X
+X	switch(code)
+X	{
+X		case TERMECU_BSD4_IOCTL: return("BSD4 ioctl error");
+X		case TERMECU_CONFIG_ERROR: return("configuration error");
+X		case TERMECU_CURSES_ERROR: return("error in curses use");
+X		case TERMECU_GEOMETRY: return("unsupported screen geometry");
+X		case TERMECU_INIT_PROC_ERROR: return("error during initial procedure");
+X		case TERMECU_IPC_ERROR: return("IPC (shm/sem) init failed");
+X		case TERMECU_LINE_OPEN_ERROR: return("line open error");
+X		case TERMECU_LINE_READ_ERROR: return("line read error");
+X		case TERMECU_LOGIC_ERROR: return("internal logic error");
+X		case TERMECU_MALLOC: return("critical memory allocation failure");
+X		case TERMECU_NO_FORK_FOR_RCVR: return("can't fork for RCVR");
+X		case TERMECU_PWENT_ERROR: return("password entry error");
+X		case TERMECU_RCVR_FATAL_ERROR: return("detected RCVR FATAL ERROR");
+X		case TERMECU_SHM_ABL: return("SHM ABL error");
+X		case TERMECU_SHM_RTL: return("SHM RTL error");
+X		case TERMECU_TTYIN_READ_ERROR: return("keyboard read error");
+X		case TERMECU_USAGE: return("usage");
+X		case TERMECU_XMTR_FATAL_ERROR: return("detected XMTR FATAL ERROR");
+X		case TERMECU_XMTR_WRITE_ERROR: return("line write error");
+X		default:
+X			sprintf(errant,"code %u?",code);
+X			return(errant);
+X	}
+X
+X}	/* end of termecu_code_text */
+X
+X/*+-----------------------------------------------------------------------
+X	termecu(code) -- terminate program (with cleanup)
+X
+X  see termecu.h for a list of codes
+X
+X  Separate processing for rcvr and xmtr processes;  rcvr entry
+X  is only upon some kind of serious error and it more less just dies,
+X  causing xmtr process to wake up with SIGCLD and come in here.
+X
+X  Upon entry by xmtr process:
+X    close comm line
+X    run any _terminate.ep procedure
+X    return any ungetty'd line
+X    return user's console to normal status
+X    remove shm segment
+X    terminate program
+X
+X------------------------------------------------------------------------*/
+XSIGTYPE
+Xtermecu(code)
+Xint code;
+X{
+X	int isig;
+X	int save_errno = errno;
+X	extern char initial_procedure[];
+X	shm->terminating = 1;			/* tell friends goodbye */
+X	if(xmtr_pid == getpid())		/* if we are xmtr */
+X	{
+X		for(isig = 1; isig < NSIG; isig++)
+X			signal(isig,SIG_IGN);
+X		kill_rcvr_process(SIGUSR1);
+X		if(windows_active)
+X			windows_end_signal();
+X		tcap_curbotleft();
+X		tcap_eeod();
+X		if(shm && shm->Lconnected)
+X			DCE_hangup();
+X#if defined(WHT2) || defined(XTERM_FRIEND)
+X		/*
+X		 * if xterm, remove ecu from the title bar
+X		 * but this really should be done in _terminate.ep
+X		 */
+X		xterm_title("xterm",0);
+X#endif
+X		if(find_procedure("_terminate"))
+X		{
+X		char code_str[16];
+X		char *_doproc_args[2];
+X			_doproc_args[0] = "_terminate";	/* _terminate.ep */
+X			sprintf(code_str,"%d",code);
+X			_doproc_args[1] = code_str;
+X			(void)do_proc(2,_doproc_args);
+X		}
+X		if(shm && (shm->Liofd != -1))
+X			lclose();
+X		/* make SURE we release any line(s) acquired from getty */
+X		ungetty_return_line((char *)0);	/* lclose() calls this via unlock_tty(),
+X										 * but ok to make sure
+X										 */
+X
+X		ttymode(0);			/* normal tty status */
+X		shm_done();
+X		if(code > NSIG)
+X		{
+X			char s64[64];
+X			setcolor(colors_error);
+X			if(code == TERMECU_INIT_PROC_ERROR)
+X				pprintf("initial procedure '%s' failed\n",initial_procedure);
+X			else if((code > TERMECU_INIT_PROC_ERROR) &&
+X					(code <= TERMECU_INIT_PROC_ERROR + 32))
+X			{
+X				pprintf("procedure command: exit %d\n",
+X					code - TERMECU_INIT_PROC_ERROR);
+X			}
+X			else
+X			{
+X				sprintf(s64,"## XMTR %s, errno = %d",termecu_code_text(code),
+X					save_errno);
+X				pputs(s64);
+X				pputs("\n");
+X				if(lopen_err_str[0])
+X				{
+X					pputs(lopen_err_str);
+X					pputs("\n");
+X				}
+X				ecu_log_event(getpid(),s64);
+X				errno = save_errno;
+X				if(errno)
+X					pperror("errno may not apply, but");
+X			}
+X		}
+X		restore_initial_colors();
+X	}
+X	else							/* we are rcvr */
+X	{
+X		if(code > NSIG)
+X		{
+X		char s64[64];
+X			sprintf(s64,"## RCVR %s, errno = %d",termecu_code_text(code),
+X				save_errno);
+X			setcolor(colors_error);
+X			pputs(s64);
+X			pputs("\n");
+X			ecu_log_event(getpid(),s64);
+X			errno = save_errno;
+X			if(errno)
+X				pperror("errno may not apply, but");
+X		}
+X		restore_initial_colors();
+X		kill(xmtr_pid,SIGHUP);
+X	}
+X	exit(code);
+X	/*NOTREACHED*/
+X
+X}	/* end of termecu */
+X
+XSIGTYPE
+Xrcvr_common_signal_handler()
+X{
+X	extern int rcvr_log;
+X	extern int rcvr_log_raw;
+X	extern FILE *rcvr_log_fp;
+X
+X	if(rcvr_log)
+X	{
+X		if(!rcvr_log_raw)
+X			fputs("\n",rcvr_log_fp);
+X		fclose(rcvr_log_fp);
+X	}
+X
+X	exit(0);
+X}
+XSIGTYPE
+Xrcvr_SIGTERM_handler()
+X{
+X	rcvr_common_signal_handler();
+X}
+XSIGTYPE
+Xrcvr_SIGINT_handler()
+X{
+X	signal(SIGINT,rcvr_SIGINT_handler);
+X}
+XSIGTYPE
+Xrcvr_SIGUSR1_handler()
+X{
+X	rcvr_common_signal_handler();
+X}
+XSIGTYPE
+Xrcvr_SIGUSR2_handler()
+X{
+X	signal(SIGUSR2,rcvr_SIGUSR2_handler);
+X	shmr_process_rcvr_SIGUSR2();
+X}
+XSIGTYPE
+Xrcvr_SIGHUP_handler()
+X{
+X	rcvr_common_signal_handler();
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	rcvr_death_handler(sig) - unexpected signal; try to dump core
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xrcvr_death_handler(sig)
+Xint sig;
+X{
+X	int itmp;
+X#ifdef TRICKY_SEGV
+X	int *open_elevator_shaft = (int *)(shm - 1);
+X#endif
+X
+X	ttymode(0);
+X	ff(se,"\nreceiver process caught signal %s\r\n",
+X	    signal_name_text(sig));
+X	ff(se,"screen cursor (y,x) = (%u,%u)\r\n",shm->cursor_y,shm->cursor_x);
+X	for(itmp = 1; itmp < NSIG; itmp++)
+X		signal(itmp,SIG_DFL);
+X#ifdef TRICKY_SEGV
+X	signal(SIGSEGV,SIG_DFL);
+X	printf("oes=%08lx\n",open_elevator_shaft);
+X	itmp = *open_elevator_shaft;
+X#else
+X	kill((PID_T)getpid(),SIGIOT);
+X#endif
+X	_exit(-1);
+X}	/* end of rcvr_death_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	xmtr_SIGINT_handler()
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xxmtr_SIGINT_handler()
+X{
+X	if(ttymode_termecu_on_sigint)
+X		termecu(SIGINT);
+X
+X	signal(SIGINT,xmtr_SIGINT_handler);
+X	sigint = 1;
+X	proc_interrupt = 1;
+X}	/* end of xmtr_SIGINT_handler */
+X
+XSIGTYPE
+Xxmtr_SIGHUP_handler(sig)
+Xint sig;
+X{
+X	termecu(sig);
+X}
+XSIGTYPE
+Xxmtr_SIGTERM_handler(sig)
+Xint sig;
+X{
+X	termecu(sig);
+X}
+X
+XSIGTYPE
+Xxmtr_SIGUSR2_handler()
+X{
+X	SIGTYPE xmtr_SIGUSR2_handler();
+X	signal(SIGUSR2,xmtr_SIGUSR2_handler);
+X	shmx_process_xmtr_SIGUSR2();
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	xmtr_death_handler(sig) - unexpected signal; try to dump core
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xxmtr_death_handler(sig)
+Xint sig;
+X{
+X	int itmp;
+X#ifdef TRICKY_SEGV
+X	int *open_elevator_shaft = (int *)(shm - 1);
+X#endif
+X
+X	ttymode(0);
+X	ff(se,"\ntransmitter process caught signal %s\n",
+X		signal_name_text(sig));
+X	kill_rcvr_process(SIGUSR1);
+X	for(itmp = 1; itmp < NSIG; itmp++)
+X		signal(itmp,SIG_DFL);
+X#ifdef TRICKY_SEGV
+X	signal(SIGSEGV,SIG_DFL);
+X	printf("oes=%08lx\n",open_elevator_shaft);
+X	fflush(stdout);
+X	itmp = *open_elevator_shaft;
+X#else
+X	kill((PID_T)getpid(),SIGIOT);
+X#endif
+X	termecu(sig);
+X}	/* end of xmtr_death_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	xmtr_SIGCLD_handler()
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xxmtr_SIGCLD_handler()
+X{
+X
+XWAIT:
+X	errno = 0;
+X	if((last_child_wait_pid = wait(&last_child_wait_status)) < 0)
+X	{
+X		if(errno == EINTR)
+X			goto WAIT;
+X	}
+X
+X#if defined(FORK_DEBUG)
+X	sprintf(s40,"DEBUG fork SIGCLD pid %d term %x",
+X		last_child_wait_pid,last_child_wait_status);
+X	ecu_log_event(getpid(),s40);		/* xmtr_SIGCLD_handler() */
+X#endif
+X
+X	if((last_child_wait_pid == rcvr_pid) && !xmtr_killed_rcvr)
+X	{
+X		ff(se,"\r\nECU receiver process died unexpectedly\r\n");
+X		termecu(TERMECU_RCVR_FATAL_ERROR);
+X	}
+X	signal(SIGCLD,xmtr_SIGCLD_handler);
+X
+X}	/* end of xmtr_SIGCLD_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	child_signals() - signal() calls for children processes
+X--------------------------------------------------------------------------*/
+Xvoid
+Xchild_signals()
+X{
+X	int isig;
+X
+X	for(isig = 0; isig < NSIG; isig++)
+X		signal(isig,SIG_DFL);
+X
+X}	/* end of child_signals */
+X
+X/*+-------------------------------------------------------------------------
+X	xmtr_signals()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxmtr_signals()
+X{
+X	int sig;
+X
+X	for(sig = 1; sig < NSIG; sig++)
+X	{
+X		switch(sig)
+X		{
+X
+X			case SIGHUP:
+X				signal(sig,xmtr_SIGHUP_handler);
+X				break;
+X#if	defined(SIGSTOP)
+X			/*
+X			 * call Roto-Rooter on POSIX plots
+X			 */
+X			case SIGSTOP:
+X			case SIGTSTP:
+X			case SIGCONT:
+X			case SIGTTIN:
+X			case SIGTTOU:
+X				signal(sig,SIG_IGN);
+X				break;
+X#endif
+X
+X#ifdef SIGWINCH
+X			case SIGWINCH:
+X				signal(sig,SIG_DFL);
+X				break;
+X#endif
+X			case SIGQUIT:
+X				signal(sig,SIG_IGN);
+X				break;
+X			case SIGINT:
+X				signal(sig,xmtr_SIGINT_handler);
+X				break;
+X			case SIGTERM:
+X				signal(sig,xmtr_SIGTERM_handler);
+X				break;
+X			case SIGCLD:
+X				signal(sig,xmtr_SIGCLD_handler);
+X				break;
+X			case SIGUSR2:
+X				signal(sig,xmtr_SIGUSR2_handler);
+X				break;
+X			default:
+X				signal(sig,xmtr_death_handler);
+X		}
+X	}
+X
+X}	/* end of xmtr_signals */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvr_signals()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrcvr_signals()
+X{
+X	int sig;
+X
+X	for(sig = 1; sig < NSIG; sig++)
+X	{
+X		switch(sig)
+X		{
+X
+X			case SIGHUP:
+X				signal(sig,rcvr_SIGHUP_handler);
+X				break;
+X
+X#if	defined(SIGSTOP)
+X			case SIGSTOP:
+X			case SIGTSTP:
+X			case SIGCONT:
+X			case SIGTTIN:
+X			case SIGTTOU:
+X				signal(sig,SIG_IGN);
+X				break;
+X#endif
+X
+X#ifdef SIGWINCH
+X			case SIGWINCH:
+X#endif
+X			case SIGCLD:
+X				signal(sig,SIG_DFL);
+X				break;
+X			case SIGQUIT:
+X				signal(sig,SIG_IGN);
+X				break;
+X			case SIGINT:
+X				signal(sig,rcvr_SIGINT_handler);
+X				break;
+X			case SIGTERM:
+X				signal(sig,rcvr_SIGTERM_handler);
+X				break;
+X			case SIGUSR1:
+X				signal(sig,rcvr_SIGUSR1_handler);
+X				break;
+X			case SIGUSR2:
+X				signal(sig,rcvr_SIGUSR2_handler);
+X				break;
+X			default:
+X				signal(sig,rcvr_death_handler);
+X		}
+X	}
+X}	/* end of rcvr_signals */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecusighdl.c ||
+echo 'restore of ecusighdl.c failed'
+Wc_c="`wc -c < 'ecusighdl.c'`"
+test 16058 -eq "$Wc_c" ||
+	echo 'ecusighdl.c: original size 16058, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecutcap.c ==============
+if test -f 'ecutcap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecutcap.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecutcap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecutcap.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecutcap.c -- termcap stuff
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	tcap_blink_off()
+X	tcap_blink_on()
+X	tcap_bold_off()
+X	tcap_bold_on()
+X	tcap_clear_area_char(count,clrch)
+X	tcap_clear_screen()
+X	tcap_curbotleft()
+X	tcap_curleft(count)
+X	tcap_curright(count)
+X	tcap_cursor(y,x)
+X	tcap_delete_chars(count)
+X	tcap_delete_lines(count)
+X	tcap_draw_box(y,x,height,width,title,title_x)
+X	tcap_draw_box_primitive(y,x,height,width)
+X	tcap_eeod()
+X	tcap_eeol()
+X	tcap_gets(buf,bufsize,delim,wait_for_key)
+X	tcap_horiz_rule(count)
+X	tcap_init()
+X	tcap_insert_chars(count)
+X	tcap_insert_lines(count)
+X	tcap_putc(character)
+X	tcap_stand_end()
+X	tcap_stand_out()
+X	tcap_underscore_off()
+X	tcap_underscore_on()
+X	tcap_vbell()
+X	tcap_vertical_rule(y,x,count)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-10-1992-13:25-wht@n4hgf2-quick sanity check on ttype features */
+X/*:02-24-1992-06:50-root@n4hgf-getenv COLUMNS not COLS */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:05-01-1991-04:05-wht@n4hgf-try to catch tbetz tc= infinite loop early */
+X/*:03-20-1991-16:25-root@n4hgf-environment LINES/COLS overrides termcap li/co */
+X/*:11-28-1990-14:52-wht@n4hgf-tcap support for non-ansi console */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "pc_scr.h"
+X
+Xuint tcap_LINES;
+Xuint tcap_COLS;
+X
+Xstatic char *tc_blink_on = "";
+Xstatic char *tc_blink_off = "";
+Xstatic char *tc_bold_on = "";
+Xstatic char *tc_bold_off = "";
+Xstatic char *tc_clear = "";
+Xstatic char *tc_curleft = "";
+Xstatic char *tc_curright = "";
+Xstatic char *tc_delchar = "";
+Xstatic char *tc_delline = "";
+Xstatic char *tc_eeod = "";
+Xstatic char *tc_eeol = "";
+Xstatic char *tc_inschar = "";
+Xstatic char *tc_insline = "";
+Xstatic char *tc_move = "";
+Xstatic char *tc_standout = "";
+Xstatic char *tc_standend = "";
+Xstatic char *tc_underscore_on = "";
+Xstatic char *tc_underscore_off = "";
+Xstatic char *tc_vbell = "";
+Xstatic char tc_strbuf[768];		/* absolutely blunderous overkill */
+Xstatic int tc_standout_width;
+X
+Xchar *tgetstr();
+Xchar *tgoto();
+Xchar *getenv();
+X
+Xvoid tcap_cursor();
+Xvoid tcap_stand_out();
+Xvoid tcap_stand_end();
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_init() - get termcap variables
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_init()
+X{
+X	char termbuf[1024];
+X	char *cptr;
+X
+X	if(!ttype || !*ttype)
+X	{
+X		fprintf(stderr,"invalid or missing TERM environment variable\r\n");
+X		termecu(TERMECU_CURSES_ERROR);
+X	}
+X
+X	if(tgetent(termbuf,ttype) > 0)
+X	{
+X		tcap_LINES = tgetnum("li");
+X		tcap_COLS = tgetnum("co");
+X		if(cptr = getenv("LINES"))			/* environment override ... */
+X			tcap_LINES = atoi(cptr);		/* ... for termcap systems */
+X		if(cptr = getenv("COLUMNS"))
+X			tcap_COLS = atoi(cptr);
+X		if((tc_standout_width = tgetnum("sg")) < 0)
+X			tc_standout_width = 0;
+X		cptr = tc_strbuf;
+X		tc_standout         = tgetstr("so",&cptr);
+X		tc_standend         = tgetstr("se",&cptr);
+X		tc_clear            = tgetstr("cl",&cptr);
+X		tc_curleft          = tgetstr("kl",&cptr);
+X		tc_curright         = tgetstr("kr",&cptr);
+X		tc_delchar 			= tgetstr("dc",&cptr);
+X		tc_delline          = tgetstr("dl",&cptr);
+X		tc_eeod             = tgetstr("cd",&cptr);
+X		tc_eeol             = tgetstr("ce",&cptr);
+X		tc_inschar 			= tgetstr("ic",&cptr);
+X		tc_insline          = tgetstr("al",&cptr);
+X		tc_move             = tgetstr("cm",&cptr);
+X		tc_vbell            = tgetstr("vb",&cptr);
+X		tc_underscore_on    = tgetstr("us",&cptr);
+X		tc_underscore_off   = tgetstr("ue",&cptr);
+X		if(!tc_underscore_on || !tc_underscore_off)
+X		{
+X			tc_underscore_on = tc_standout;
+X			tc_underscore_off = tc_standend;
+X		}
+X		tc_bold_on          = tc_standout;			/* for now */
+X		tc_bold_off         = tc_standend;			/* for now */
+X		if(!tc_bold_on || !tc_bold_off)
+X		{
+X			tc_bold_on = tc_standout;
+X			tc_bold_off = tc_standend;
+X		}
+X		tc_blink_on         = tgetstr("mb",&cptr);	/* "XENIX extension" */
+X		tc_blink_off        = tgetstr("me",&cptr);	/* "XENIX extension" */
+X		if(!*tc_clear || !*tc_move)
+X		{
+X			fprintf(stderr,"Terminal type '%s' does not have the beef.\r\n",
+X				ttype);
+X			fprintf(stderr,"Try again with a screen-oriented terminal.\n");
+X			termecu(TERMECU_CURSES_ERROR);
+X		}
+X		return;
+X	}
+X
+X
+X	fprintf(stderr,"Cannot find terminal type '%s' or entry in error\r\n",
+X		ttype);
+X	termecu(TERMECU_CURSES_ERROR);
+X
+X}	/* end of tcap_init */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_putc(character) - utility rotuine for tputs
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_putc(character)
+Xchar character;
+X{
+X	rcvrdisp(&character,1);
+X}	/* end of tcap_putc */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_horiz_rule(count) - horizontal rule starting at current position
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_horiz_rule(count)
+Xregister count;
+X{
+X	while(count--)
+X		tcap_putc(sHR);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_horiz_rule */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_vertical_rule(y,x,count) - vertical rule starting at y,x
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_vertical_rule(y,x,count)
+Xint y;
+Xregister x;
+Xregister count;
+X{
+X
+X	while(count--)
+X	{
+X		tcap_cursor(y++,x);
+X		tcap_putc(sVR);
+X	}
+X	rcvrdisp_actual2();
+X		
+X}	/* end of tcap_vertical_rule */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_draw_box_primitive(y,x,height,width) - ruled box
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_draw_box_primitive(y,x,height,width)
+Xregister y;
+Xint x;
+Xint height;
+Xint width;
+X{
+X	register i;
+X
+X	tcap_cursor(y,x);
+X	tcap_putc(sTL);
+X	if((i = width - 2) > 0)
+X		tcap_horiz_rule(i);
+X	tcap_putc(sTR);
+X	if((i = height - 2) > 0)
+X	{
+X		tcap_vertical_rule(y + 1,x + width - 1,i);
+X		tcap_vertical_rule(y + 1,x,i);
+X	}
+X	tcap_cursor(y + height - 1,x);
+X	tcap_putc(sBL);
+X	if((i = width - 2) > 0)
+X		tcap_horiz_rule(i);
+X	tcap_putc(sBR);
+X	rcvrdisp_actual2();
+X
+X}	/* end of tcap_draw_box_primitive */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_draw_box(y,x,height,width,title,title_x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_draw_box(y,x,height,width,title,title_x)
+Xint y;
+Xint x;
+Xint height;
+Xint width;
+Xchar *title;
+Xint title_x;
+X{
+X	register stand = (title_x < 0);
+X
+X	if(stand)
+X		title_x = -title_x;
+X
+X	tcap_draw_box_primitive(y,x,height,width);
+X	tcap_cursor(y,x + title_x);
+X	tcap_putc('[');
+X	if(stand)
+X		tcap_stand_out();
+X	ff(se," %s ",title);
+X	if(stand)
+X		tcap_stand_end();
+X	tcap_putc(']');
+X	rcvrdisp_actual2();
+X
+X}	/* end of tcap_draw_box */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_cursor(y,x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_cursor(y,x)
+Xuint y;
+Xuint x;
+X{
+X	if(y >= tcap_LINES)
+X		y = tcap_LINES - 1;
+X	if(x >= tcap_COLS)
+X		x = tcap_COLS - 1;
+X	tputs(tgoto(tc_move,x,y),1,tcap_putc);
+X	rcvrdisp_actual2();
+X
+X}	/* end of tcap_cursor */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_curleft(count) - move cursor left
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_curleft(count)
+Xregister count;
+X{
+X	while(count--)
+X		tputs(tc_curleft);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_curleft */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_curright(count) - move cursor right
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_curright(count)
+Xregister count;
+X{
+X	while(count--)
+X		tputs(tc_curright);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_curright */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_curbotleft()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_curbotleft()
+X{
+X	tcap_cursor(tcap_LINES - 1,0);
+X}	/* end of tcap_curbotleft */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_insert_lines(count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_insert_lines(count)
+Xregister count;
+X{
+X	if(count && *tc_insline)
+X	{
+X		while(count--)
+X			tputs(tc_insline,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_insert_lines */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_delete_lines(count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_delete_lines(count)
+Xregister count;
+X{
+X	if(count && *tc_delline)
+X	{
+X		while(count--)
+X			tputs(tc_delline,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_delete_lines */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_insert_chars(count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_insert_chars(count)
+Xregister count;
+X{
+X	if(count && *tc_inschar)
+X	{
+X		while(count--)
+X			tputs(tc_inschar,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_insert_chars */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_delete_chars(count)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_delete_chars(count)
+Xregister count;
+X{
+X	if(count && *tc_delchar)
+X	{
+X		while(count--)
+X			tputs(tc_delchar,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_delete_chars */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_vbell() - output visual bell
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_vbell()
+X{
+X	if(*tc_vbell)
+X	{
+X		tputs(tc_vbell,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_vbell */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_clear_screen()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_clear_screen()
+X{
+X	if(*tc_clear)
+X	{
+X		tputs(tc_clear,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_clear_screen */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_eeol() - erase to end of line
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_eeol()
+X{
+X	if(*tc_eeol)
+X	{
+X		tputs(tc_eeol,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_eeol */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_eeod() - erase to end of display
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_eeod()
+X{
+X	if(*tc_eeod)
+X	{
+X		tputs(tc_eeod,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_eeod */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_stand_out()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_stand_out()
+X{
+X	if(*tc_standout) /*  && (tc_standout_width == 0)) */
+X	{
+X		tputs(tc_standout,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_stand_out */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_stand_end()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_stand_end()
+X{
+X	if(*tc_standend) /* && (tc_standout_width == 0)) */
+X	{
+X		tputs(tc_standend,1,tcap_putc);
+X		rcvrdisp_actual2();
+X	}
+X}	/* end of tcap_stand_end */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_bold_on()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_bold_on()
+X{
+X	if(*tc_bold_on)
+X		tputs(tc_bold_on,1,tcap_putc);
+X	else if(*tc_standout) /*  && (tc_standout_width == 0)) */
+X		tputs(tc_standout,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_bold_on */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_bold_off()
+X--------------------------------------------------------------------------*/
+SHAR_EOF
+true || echo 'restore of ecutcap.c failed'
+fi
+echo 'End of ecu320 part 12'
+echo 'File ecutcap.c is continued in part 13'
+echo 13 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

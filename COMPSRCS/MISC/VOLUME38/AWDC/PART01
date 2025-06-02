@@ -1,0 +1,404 @@
+Newsgroups: comp.sources.misc
+From: aw1@stade.co.uk (Adrian Wontroba)
+Subject: v38i050:  awdc - sector level floppy disc copy, Part01/01
+Message-ID: <1993Jul13.044845.17522@sparky.sterling.com>
+X-Md4-Signature: e33e8e07cf63d4b60accedabf193168c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Stade Computers Limited, UK
+Date: Tue, 13 Jul 1993 04:48:45 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: aw1@stade.co.uk (Adrian Wontroba)
+Posting-number: Volume 38, Issue 50
+Archive-name: awdc/part01
+Environment: DOS
+
+awdc is a floppy disk copy problem with a difference - it copies at a
+sector level, ignoring such trivia as the number of sectors per track
+and number of tracks.  It stops when it reaches the end of either disc
+or encounters a transfer error.
+
+It was written to solve a specific problem - transcribing UNIX tar
+archive discs from one type of floppy disc to another, on a DOS machine.
+--------------------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  awdc.c readme
+# Wrapped by kent@sparky on Sun Jul 11 19:25:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'awdc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'awdc.c'\"
+else
+  echo shar: Extracting \"'awdc.c'\" \(7912 characters\)
+  sed "s/^X//" >'awdc.c' <<'END_OF_FILE'
+X/* awdc - sector level floppy copy
+X
+Xawdc is a floppy disk copy problem with a difference - it copies at a
+Xsector level, ignoring such trivia as the number of sectors per track
+Xand number of tracks.  It stops when it reaches the end of either disc
+Xor encounters a transfer error.
+X
+XIt was written to solve a specific problem - transcribing UNIX tar
+Xarchive discs from one type of floppy disc to another, on a DOS machine.
+XFor safety, the program will only copy sectors between removable media,
+Xso it should leave hard disks alone.  I am not particularly proud of it,
+Xbut it solved my problem and may help others, so I am placing it in the
+Xpublic domain.  Use it entirely at your own risk.
+X
+XAdrian Wontroba, Stade Computers Limited.       phone:  (+44) 21 373 9546
+Xuucp:   ...!uknet!stade!aw1             other: aw1%stade.co.uk@uknet.ac.uk
+Xsnail:  14 Fourlands Avenue, Sutton Coldfield, West Midlands, B72 1YY, UK
+X
+X*/
+X
+X#include <stdlib.h>
+X#include <stdio.h>
+X#include <dos.h>
+X#include <ctype.h>
+X#include <string.h>
+X#undef	NO_WRITE		/* if defined, no writes! */
+X#define	BUFFERSIZE	32768	/* size of disk io buffer, max 64k  */
+Xchar           *progname;	/* program name */
+X
+X/*
+X * setmessage - output warning about disk parameter blocks
+X *
+X */
+Xvoid
+Xsetmessage(void)
+X{
+X    fprintf(stderr,
+X	    "The action of this program is strongly influenced by\n"
+X	  "the content of the Disk Parameter Block for each drive.\n\n");
+X    fprintf(stderr,
+X	    "Before using it (especially with non DOS media), the DPBs\n"
+X	    "should be initialised by issuing 'DIR x:' commands on the\n"
+X	    "input and output drives with equivalent DOS media.\n\n");
+X    fprintf(stderr,
+X	    "The output disk must be pre-formatted.\n\n");
+X    fprintf(stderr,
+X	    "As a safety measure, the program will only copy between\n"
+X	    "removeable media.\n\n");
+X}				/* setmessage */
+X
+X/*
+X * usage - output usage message
+X * 
+X */
+Xvoid
+Xusage(void)
+X{
+X    fprintf(stderr, "usage: %s <input drive letter> "
+X	    "<output drive letter>\n"
+X	    "eg 'awdc a b' to copy from a to b\n\n",
+X	    progname);
+X    setmessage();
+X}				/* usage */
+X
+X/*
+X * myerror - print error message and errno and _doserrno to stderr
+X * 
+X */
+Xvoid
+Xmyerror(char *s)
+X{
+X    int             e = errno;
+X    int             d = _doserrno;
+X
+X    fprintf(stderr, "\n%s: %s: %s (%d/%x), _doserrno = %d\n",
+X	    progname, s,
+X	 ((e > 0) && (e <= sys_nerr)) ? sys_errlist[e] : "Unknown error",
+X	    e, e, d);
+X}				/* myerror */
+X
+X/*
+X * get_drive - turn drive letter into drive number for absread/abswrite
+X * 0=A, 1=B etc.
+X * 
+X * Note - most DOS functions use 0=default, 1=A. etc. Beware.
+X * 
+X * error message and exit(1) on error
+X * 
+X */
+Xint
+Xget_drive(char *s)
+X{
+X    int             c;
+X    int             d;
+X    union REGS      regs;
+X
+X    c = toupper(s[0]);
+X    if ((c < 'A') || (c > 'Z')) {
+X	fprintf(stderr, "Drive '%c' not supported\n", c);
+X	exit(1);
+X    } else {
+X	d = c - 'A';
+X	regs.h.ah = 0x44;	/* ioctl */
+X	regs.h.al = 0x8;	/* check if block device is removeable */
+X	regs.h.bl = d + 1;	/* drive code - 0 def, 1=A, etc */
+X	intdos(&regs, &regs);
+X	if (regs.x.cflag) {
+X	    fprintf(stderr, "Unable to determine "
+X		    "exchangeability of %c, "
+X		    "ioctl error %d\n",
+X		    c, regs.x.ax);
+X	    exit(1);
+X	}
+X	if (regs.x.ax) {
+X	    fprintf(stderr, "%c is not an exchangeable drive\n",
+X		    c);
+X	    exit(1);
+X	}
+X	/* phew, its exchangeable */
+X    }
+X    return d;
+X}				/* get_drive */
+X
+X/*
+X * copy - copy one logical drive to another, until failure
+X * 
+X */
+Xvoid
+Xcopy(int in, int out)
+X{
+X    union REGS      regs;
+X    int             in_sectors;	/* sectors on input drive */
+X    int             in_sector_size;	/* sector size */
+X    int             out_sectors;/* sectors on output drive */
+X    int             out_sector_size;	/* sector size */
+X    int             sectors;	/* sectors to copy */
+X    int             num;	/* max sectors per transfer */
+X    int             n;		/* current sectors per transfer */
+X    int             s_read;	/* sectors read */
+X    int             s_written;	/* sectors written */
+X    int             s;		/* current sector */
+X    char           *buff;	/* buffer */
+X
+X    /* device parameter block */
+X    struct DPB {
+X	unsigned char   special_functions;
+X	unsigned char   device_type;
+X	unsigned short int device_attributes;
+X	unsigned short int max_cylinders;
+X	unsigned char   media_type;
+X	unsigned short int bytes_per_sector;
+X	unsigned char   sectors_per_au;
+X	unsigned short int sectors_reserved;
+X	unsigned char   fats;
+X	unsigned short int maxroot;
+X	unsigned short int sectors;
+X	unsigned char   media;
+X	unsigned short int sectors_per_fat;
+X	unsigned short int sectors_per_track;
+X	unsigned short int heads;
+X	unsigned long int hidden_sectors;
+X	unsigned char   reserved[11];
+X    };
+X    struct DPB      dpb;
+X
+X    /* get number of sectors on input drive */
+X    memset(&dpb, 0, sizeof dpb);
+X    regs.h.ah = 0x44;		/* ioctl */
+X    regs.h.al = 0xd;		/* generic i/o control */
+X    regs.h.bl = in + 1;		/* drive number */
+X    regs.h.ch = 0x8;		/* disk drive */
+X    regs.h.cl = 0x60;		/* get drive parameters */
+X    regs.x.dx = (unsigned int) &dpb;	/* ugh! */
+X    dpb.special_functions = 128;/* return build device driver bpb */
+X    intdos(&regs, &regs);
+X    if (regs.x.cflag) {
+X	fprintf(stderr, "Unable to get drive parameters for %c"
+X		", ioctl error %d\n",
+X		in + 'A', regs.x.ax);
+X	exit(1);
+X    }
+X    in_sectors = dpb.sectors;
+X    in_sector_size = dpb.bytes_per_sector;
+X    printf("Input drive %c has %d sectors of %d bytes\n",
+X	   in + 'A', in_sectors, in_sector_size);
+X    /* get number of sectors on output drive */
+X    memset(&dpb, 0, sizeof dpb);
+X    regs.h.ah = 0x44;		/* ioctl */
+X    regs.h.al = 0xd;		/* generic i/o control */
+X    regs.h.bl = out + 1;	/* drive number */
+X    regs.h.ch = 0x8;		/* disk drive */
+X    regs.h.cl = 0x60;		/* get drive parameters */
+X    regs.x.dx = (unsigned int) &dpb;	/* ugh! */
+X    dpb.special_functions = 128;/* return build device driver bpb */
+X    intdos(&regs, &regs);
+X    if (regs.x.cflag) {
+X	fprintf(stderr, "Unable to get drive parameters for %c"
+X		", ioctl error %d\n",
+X		out + 'A', regs.x.ax);
+X	exit(1);
+X    }
+X    out_sectors = dpb.sectors;
+X    out_sector_size = dpb.bytes_per_sector;
+X    printf("Output drive %c has %d sectors of %d bytes\n",
+X	   out + 'A', out_sectors, out_sector_size);
+X    if (in_sector_size != out_sector_size) {
+X	fprintf(stderr, "Drives have different sector sizes\n");
+X	exit(1);
+X    }
+X    /* decide how many sectors to copy */
+X    if (in_sectors > out_sectors) {
+X	fprintf(stderr, "Input drive larger than output\n"
+X		"Data may be lost\n");
+X	sectors = out_sectors;
+X    } else {
+X	sectors = in_sectors;
+X    }
+X    printf("Copying %d sectors\n", sectors);
+X    /* get buffer */
+X    if ((buff = malloc(BUFFERSIZE)) == NULL) {
+X	fprintf(stderr, "malloc failed\n");
+X	exit(1);
+X    }
+X    /* decide how many sectors to handle at a time */
+X    num = BUFFERSIZE / in_sector_size;
+X    s_read = 0;
+X    s_written = 0;
+X    s = 0;
+X    while (sectors > 0) {
+X	n = min(sectors, num);
+X	printf("Sectors %5d to %5d\r", s, s + n - 1);
+X	if (absread(in, n, s, buff)) {
+X	    /* read error */
+X	    myerror("absread");
+X	    break;
+X	} else {
+X	    s_read += n;
+X#ifdef NO_WRITE
+X	    /* do nothing to output drive ! */
+X#else
+X	    if (abswrite(out, n, s, buff)) {
+X		/* write error */
+X		myerror("abswrite");
+X		break;
+X	    } else {
+X		s_written += num;
+X	    }
+X#endif				/* NO_WRITE */
+X	}
+X	sectors -= n;
+X	s += n;
+X    }
+X    printf("Sectors read from %c:  %5d\n"
+X	   "Sectors written to %c: %5d\n",
+X	   in + 'A', s_read, out + 'A', s_written);
+X}				/* copy */
+X
+X/*
+X * main
+X */
+Xint
+Xmain(int argc, char *argv[])
+X{
+X    int             in_drive;	/* input drive number */
+X    int             out_drive;	/* output drive number */
+X
+X    progname = argv[0];
+X    if (argc != 3) {
+X	usage();
+X	exit(1);
+X    }
+X    in_drive = get_drive(argv[1]);
+X    out_drive = get_drive(argv[2]);
+X    setmessage();
+X    copy(in_drive, out_drive);
+X    printf("OK\n");
+X    exit(0);
+X}				/* main */
+END_OF_FILE
+  if test 7912 -ne `wc -c <'awdc.c'`; then
+    echo shar: \"'awdc.c'\" unpacked with wrong size!
+  fi
+  # end of 'awdc.c'
+fi
+if test -f 'readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readme'\"
+else
+  echo shar: Extracting \"'readme'\" \(2333 characters\)
+  sed "s/^X//" >'readme' <<'END_OF_FILE'
+XNew upload - awdc.zip, 13603 bytes.
+X
+Xawdc is a floppy disk copy problem with a difference - it copies at a
+Xsector level, ignoring such trivia as the number of sectors per track
+Xand number of tracks.  It stops when it reaches the end of either disc
+Xor encounters a transfer error.
+X
+XIt was written to solve a specific problem - transcribing UNIX tar
+Xarchive discs from one type of floppy disc to another, on a DOS machine.
+XFor safety, the program will only copy sectors between removable media,
+Xso it should leave hard disks alone.  I am not particularly proud of it,
+Xbut it solved my problem and may help others, so I am placing it in the
+Xpublic domain.  Use it entirely at your own risk.
+Xm not particularly proud of it,
+Xbut it solved my problem and may help others, so I am placing it in the
+Xpublic domain.  Use it entirely at your own risk.
+X
+XIncluded with this document should be the source and executable code.
+XIt is very DOS specific and makes extensive use of intdos().  It was
+Xcompiled with Turbo C 2.0.
+X
+XI believed that there was a DOS port of the FSF GNU version of dd, but
+Xthis can only handle DOS files, not raw media.  If I'm wrong, please
+Xtell me!
+X
+XAdrian Wontroba, Stade Computers Limited.       phone:  (+44) 21 373 9546
+Xuucp:   ...!uknet!stade!aw1             other: aw1%stade.co.uk@uknet.ac.uk
+Xsnail:  14 Fourlands Avenue, Sutton Coldfield, West Midlands, B72 1YY, UK
+X
+XInstructions
+X------------
+X
+XThese assume that you are copying from A: to B:.  Change as appropriate.
+X
+XThe next two steps ensure that DOS has the correct idea of the
+Xcharacteristics of the discs which are going to be used.  This is
+Xachieved by making it read appropriate DOS media.  This is vital!
+X
+Xo       Take a DOS formatted floppy disc with the same characteristics
+X        as the disc you wish to copy from and insert it into the A:
+X        drive.  Display the directory.  (dir a:)
+X
+Xo       Take a DOS formatted floppy disc with the same characteristics
+X        as the disc you wish to copy to and insert it into the B: drive.
+X        Display the directory.  (dir b:)
+X
+XRepeat the following three steps for each of the copies.
+X
+Xo       Insert the source disk in the A: drive.
+X
+Xo       Write enable and insert the preformatted target disk in the B:
+X        drive.
+X
+Xo       Copy sectors from A: to B: with the supplied program.  (awdc a
+X        b).
+END_OF_FILE
+  if test 2333 -ne `wc -c <'readme'`; then
+    echo shar: \"'readme'\" unpacked with wrong size!
+  fi
+  # end of 'readme'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,635 @@
+Newsgroups: comp.sources.misc
+From: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Subject:  v29i060:  hp2pbm - HP PCL to Portable Bit Map converter, Patch03
+Message-ID: <1992Apr5.035505.1572@sparky.imd.sterling.com>
+X-Md4-Signature: f1285513ee2872030e69c36da4b62670
+Date: Sun, 5 Apr 1992 03:55:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Posting-number: Volume 29, Issue 60
+Archive-name: hp2pbm/patch03
+Environment: UNIX
+Patch-To: hp2pbm: Volume 26, Issue 102-104
+
+This is official patch 03 for Hp2pbm.  Please apply it by:
+
+	cd <hp2pbm source directory>
+	touch pbm2ps.c pbm2xd.c
+	patch -N -p < <this file>
+    
+    The initial release of hp2pbm was in volume 26 of
+    comp.sources.misc.  The "touch" is only necessary
+    for some versions of patch.
+
+Synopsis:
+    - made Makefile safer with paranoid root umasks.
+    - one-liner bug fix to HP emulation (X position
+      after raster graphics was wrong)
+    - New: PBM to PostScript filter.  Very stupid.
+      (hope you have >9600 baud)
+    - New: PBM to X windows dump filter.
+
+./Makefile		Made installs more paranoid.
+./hpfntwrite.c		Real bug
+./README		Fixed up psroff docs slightly.
+./hptopbm.h		Patch level & paper sizes
+./pbm2ps.c		pbm2PostScript filter
+./pbm2xd.c		pbm2X Windows dump filter (xwd/xwud)
+
+Patchwrapped: 920401024721
+
+Index: ./Makefile
+*** /tmp/PATCHold/./Makefile	Wed Apr  1 02:46:12 1992
+--- ./Makefile	Wed Apr  1 02:46:13 1992
+***************
+*** 1,4 ****
+! # Makefile for hptopbm standalone release 1.6 92/03/05
+  
+  #	Configuration:
+  
+--- 1,4 ----
+! # Makefile for hptopbm standalone release 1.7 92/04/01
+  
+  #	Configuration:
+  
+***************
+*** 38,44 ****
+  
+  .SUFFIXES:	.S~ .S
+  
+! all:	README hp2pbm pbm2e24 hp2pbm.m $(LIBFILES)
+  
+  # programs
+  hp2pbm:		$(HP2OBJ)
+--- 38,44 ----
+  
+  .SUFFIXES:	.S~ .S
+  
+! all:	README hp2pbm pbm2e24 pbm2ps pbm2xd hp2pbm.m $(LIBFILES)
+  
+  # programs
+  hp2pbm:		$(HP2OBJ)
+***************
+*** 100,107 ****
+  		test -d $(LIBDIR) || mkdir $(LIBDIR)
+  		test -d $(LIBDIR)/BITMAPS || mkdir $(LIBDIR)/BITMAPS
+  		cd $(BINDIR) ; rm -f hp2pbm $(ALTNAMES)
+! 		cp hp2pbm $(BINDIR)/hp2pbm
+! 		cp pbm2e24 $(BINDIR)/pbm2e24
+  		$(IGNORESH) cd $(BINDIR) ; \
+  		for i in $(ALTNAMES) ; \
+  		do \
+--- 100,111 ----
+  		test -d $(LIBDIR) || mkdir $(LIBDIR)
+  		test -d $(LIBDIR)/BITMAPS || mkdir $(LIBDIR)/BITMAPS
+  		cd $(BINDIR) ; rm -f hp2pbm $(ALTNAMES)
+! 		$(IGNORESH) for i in hp2pbm pbm2e24 pbm2ps pbm2xd ; \
+! 		do \
+! 		    rm -f $(BINDIR)/$$i ; \
+! 		    cp $$i $(BINDIR)/$$i ; \
+! 		    chmod 555 $(BINDIR)/$$i ; \
+! 		done
+  		$(IGNORESH) cd $(BINDIR) ; \
+  		for i in $(ALTNAMES) ; \
+  		do \
+***************
+*** 109,112 ****
+--- 113,117 ----
+  		done
+  		cd $(LIBDIR)/BITMAPS ; rm -f $(LIBFILES)
+  		cp $(LIBFILES) $(LIBDIR)/BITMAPS
++ 		cd $(LIBDIR)/BITMAPS ; chmod 444 $(LIBFILES)
+  		-cp hp2pbm.m $(MANDIR)/hp2pbm.$(MANEXT)
+Index: ./hpfntwrite.c
+*** /tmp/PATCHold/./hpfntwrite.c	Wed Apr  1 02:46:24 1992
+--- ./hpfntwrite.c	Wed Apr  1 02:46:28 1992
+***************
+*** 24,30 ****
+  #endif
+  
+  #ifndef	lint
+! char SCCSid[] = "@(#)hpfntwrite.c: 1.4 92/03/01 02:04:25";
+  #endif
+  
+  #ifdef	FAXPAK
+--- 24,30 ----
+  #endif
+  
+  #ifndef	lint
+! char SCCSid[] = "@(#)hpfntwrite.c: 1.5 92/04/01 01:40:15";
+  #endif
+  
+  #ifdef	FAXPAK
+***************
+*** 1234,1240 ****
+  			break;
+  	}
+  	BMY += inc;
+! 	BMX = (double)(graphx + inc);
+  	ymax_used = max(ymax_used,(localy-1)+inc);
+  	xmax_used = max(xmax_used,xscale[(graphx-1)+inc]);
+  	dotted = TRUE;
+--- 1234,1240 ----
+  			break;
+  	}
+  	BMY += inc;
+! 	BMX = /*(double)(graphx + inc);*/ GRAPHX;
+  	ymax_used = max(ymax_used,(localy-1)+inc);
+  	xmax_used = max(xmax_used,xscale[(graphx-1)+inc]);
+  	dotted = TRUE;
+Index: ./README
+*** /tmp/PATCHold/./README	Wed Apr  1 02:46:44 1992
+--- ./README	Wed Apr  1 02:46:45 1992
+***************
+*** 1,8 ****
+  			HP2PBM et. al.
+! 			Version 1.00
+  			Chris Lewis	<clewis@ferret.ocunix.on.ca>
+  			Klaus Schallhorn	<klaus@cnix.uucp>
+! 			[README V1.1]
+  
+  The first section of this README is a discussion of how you
+  integrate this package with faxpak, the second half is how
+--- 1,8 ----
+  			HP2PBM et. al.
+! 			Version 1.03
+  			Chris Lewis	<clewis@ferret.ocunix.on.ca>
+  			Klaus Schallhorn	<klaus@cnix.uucp>
+! 			[README V1.2]
+  
+  The first section of this README is a discussion of how you
+  integrate this package with faxpak, the second half is how
+***************
+*** 151,169 ****
+  
+  For epson printing, you will want to run:
+  
+! 	psroff -Tlj -t <whatever> | hp2e24 file
+  
+! Which will create a series of files called "file.0", "file.1" etc.
+! Caution: these files can get quite big.
+  
+- Then you run:
+- 
+- 	for i in file.?
+- 	do
+- 	    pbm2e24 $i | <your print spooler>
+- 	done
+- 
+  In order to run the other varians of hp2*, you'll have to obtain
+  other PBM drivers, such as those in faxpak, or in PBM+.
+  
+  Chris Lewis	<clewis@ferret.ocunix.on.ca>
+--- 151,166 ----
+  
+  For epson printing, you will want to run:
+  
+! 	psroff -Tlj -t <whatever> | hp2e24 '-r|pbm2e24'
+  
+! Which will produce Epson codes on standard output.
+  
+  In order to run the other varians of hp2*, you'll have to obtain
+  other PBM drivers, such as those in faxpak, or in PBM+.
++ 
++ Psroff 3.0, PL9 or later has examples on how to roll the above
++ pipeline into psroff's configuration, so just
++ 	psroff -Te24
++ will be sufficient.
+  
+  Chris Lewis	<clewis@ferret.ocunix.on.ca>
+Index: ./hptopbm.h
+*** /tmp/PATCHold/./hptopbm.h	Wed Apr  1 02:46:56 1992
+--- ./hptopbm.h	Wed Apr  1 02:46:57 1992
+***************
+*** 16,25 ****
+  	Canada K0A 1T0
+  	(613) 832-0541
+  
+! 	Function: Header file for hp2pbm.  1.4 92/03/01 02:05:16
+   */
+  
+! #define	VERSION	"hp2pbm V1.02"
+  
+  #include <stdio.h>
+  #include <ctype.h>
+--- 16,25 ----
+  	Canada K0A 1T0
+  	(613) 832-0541
+  
+! 	Function: Header file for hp2pbm.  1.5 92/04/01 02:44:38
+   */
+  
+! #define	VERSION	"hp2pbm V1.03"
+  
+  #include <stdio.h>
+  #include <ctype.h>
+***************
+*** 58,67 ****
+--- 58,76 ----
+  #define	A4	1
+  #endif
+  
++ #define	RES	300
++ 
++ /* The YLEN and XLEN need only be approximate.  They *must* be
++    >= actual dimensions.  If someone knows what the precise dimensions
++    of A4 and B5 are, please email me.
++  */
++ 
+  #if	LETTER
+  #define	PAGE_LEN	66
+  #define	RITE_MARGIN	80
+  #define RITE_LOGICAL	LEFT_LOGICAL+2400
++ #define	YLEN		((double) 11)
++ #define	XLEN		((double) 8.5)
+  #endif
+  
+  #if	A4
+***************
+*** 68,73 ****
+--- 77,84 ----
+  #define	PAGE_LEN	70
+  #define	RITE_MARGIN	77
+  #define RITE_LOGICAL	LEFT_LOGICAL+2338
++ #define	YLEN		((double) 12)
++ #define	XLEN		((double) 8.5)
+  #endif
+  
+  #if	LEGAL
+***************
+*** 74,79 ****
+--- 85,92 ----
+  #define	PAGE_LEN	84
+  #define	RITE_MARGIN	80
+  #define RITE_LOGICAL	LEFT_LOGICAL+2400
++ #define	YLEN		((double) 14)
++ #define	XLEN		((double) 8.5)
+  #endif
+  
+  #if	B5
+***************
+*** 80,87 ****
+--- 93,103 ----
+  #define	PAGE_LEN	60
+  #define	RITE_MARGIN	66
+  #define RITE_LOGICAL	LEFT_LOGICAL+2400	/* dont know about B5's */
++ #define	YLEN		((double) 10)
++ #define	XLEN		((double) 8)
+  #endif
+  
++ 
+  #define	PRIMARY		1
+  #define	SECONDARY	2
+  
+***************
+*** 147,149 ****
+--- 163,173 ----
+  #ifndef	TRUE
+  #define	TRUE	1
+  #endif
++ 
++ #define	RES	300
++ 
++ #ifdef	LETTER
++ #define	YLEN	((double) 11)
++ #define	XLEN	((double) 8.5)
++ #endif
++ 
+Index: ./pbm2ps.c
+*** /tmp/PATCHold/./pbm2ps.c	Wed Apr  1 02:47:05 1992
+--- ./pbm2ps.c	Wed Apr  1 02:47:07 1992
+***************
+*** 0 ****
+--- 1,143 ----
++ /*
++     Copyright 1989, 1990, 1991 Chris Lewis
++     All Rights Reserved
++ 
++     Permission to copy and further distribute is freely given provided
++     this copyright notice remains intact, that this software is not
++     sold for profit, that credit is given, and that sources will be made
++     available on request.
++ 
++     This software is a subset of Psroff 3.0.  See the LICENSE file
++     in Psroff 3.0 for more details, or contact:
++ 
++ 	Chris Lewis
++ 	Box 124
++ 	Dunrobin, Ontario
++ 	Canada K0A 1T0
++ 	(613) 832-0541
++ 
++     Function: Very stupid PBM to PS converter.
++ 	      I hope you have a parallel interface!
++  */
++ 
++ #ifndef	lint
++ static char SCCSID[] =
++     "@(#)pbm2ps.c 1.1 92/04/01 01:45:04";
++ #endif
++ #include "hptopbm.h"
++ 
++ #define	RES	300
++ 
++ #ifdef	LETTER
++ #define	YLEN	((double) 11)
++ #define	XLEN	((double) 8.5)
++ #endif
++ 
++ #define	YMAX	(YLEN * RES)
++ #define	XMAX	(XLEN * RES)
++ 
++ #define	FASTER
++ #ifdef FASTER
++ char hex[] = "0123456789abcdef";
++ #endif
++ 
++ emitps(numx, numy, image)
++ int numx;
++ int numy;
++ char *image; {
++     register long total, i;
++     int bperline;
++     int yoffset;
++     register char *p;
++     register int t;
++     int skiplines;
++ 
++     yoffset = YMAX - numy;	/* in pixels */
++ 
++     bperline = ((numx + 7) / 8);
++     total = bperline * numy;
++ 
++     /* strip excess baggage from front of raster */
++ 
++     for (p = image; p - image < total && !(*p); p++) ;
++     skiplines = (p - image) / bperline;
++ 
++     image = image + skiplines * bperline;
++     numy = numy - skiplines;
++     total = bperline * numy;
++ 
++     /*fprintf(stderr, "Stripped %d lines from front\n", skiplines);*/
++ 
++     /* strip excess baggage from end of raster */
++ 
++     for (p = &image[total]; p > image && !(*p); p--) ;
++     skiplines = numy - (p - image) / bperline - 1;
++     numy -= skiplines;
++     yoffset += skiplines;
++ 
++     /*fprintf(stderr, "Stripped %d lines from end\n", skiplines);*/
++ 
++     total = bperline * numy;
++ 
++     /* end strip */
++     printf("%%!PS-Adobe-2.0\n");
++     printf("%%%%EndComments\n");
++     printf("/DataString %d string def\n", bperline);
++     printf("%%%%EndProlog\n");
++     printf("%%Page: 1 1\n");
++     printf("0 %f translate\n", (double) yoffset / 300 * 72);
++     printf("%f %f scale\n", (numx / XMAX) * XLEN * 72,
++ 			    (numy / YMAX) * YLEN * 72);
++     printf("%d %d 1 [ %d 0 0 -%d 0 %d ]\n", numx, numy, numx, numy, numy);
++     printf("{\n");
++     printf("    currentfile DataString readhexstring pop\n");
++     printf("} bind image\n");
++     for (p = image, i = 0; i < total; p++, i++) {
++ #ifdef	FASTER
++ 	t = ((*p) & 0xff) ^ 0xff;
++ 	putchar(hex[(t >> 4)&0xf]);
++ 	putchar(hex[t&0xf]);
++ #else
++ 	printf("%02x", (*p) & 0xff);
++ #endif
++ 	if ((i % 40) == 39)
++ 	    putchar('\n');
++     }
++     printf("\n\nshowpage\n");
++     printf("%%%%Trailer\n");
++ }
++ 
++ char str[] =
++     {0xdd, 0xff, 0x00, 0xff, 0x54, 0x1f, 0x80, 0x03, 0xfb, 0xf9, 0x00, 0x1e };
++ main() {
++     long x, y;
++     long count;
++     register char *p;
++     register char *buffer;
++     char b[30];
++ 
++     gets(b);
++     if (strcmp(b, "P4")) {
++ 	fprintf(stderr, "Not a PBM\n");
++ 	exit(1);
++     }
++     gets (b);
++     if (2 != sscanf(b, "%ld %ld", &x, &y)) {
++ 	fprintf(stderr, "Not a PBM\n");
++ 	exit(1);
++     }
++     count = ((x + 7) / 8) * y;
++     buffer = malloc(count);
++     if (!buffer) {
++ 	fprintf(stderr, "Couldn't malloc raster buffer\n");
++ 	exit(1);
++     }
++ 
++     /*fprintf(stderr, "Trying to read %ld bytes\n", count);*/
++     if (fread(buffer, 1, count, stdin) != count) {
++ 	fprintf(stderr, "Couldn't read the bitmap properly\n");
++ 	exit(1);
++     }
++     emitps(x, y, buffer);
++     exit(0);
++ }
+Index: ./pbm2xd.c
+*** /tmp/PATCHold/./pbm2xd.c	Wed Apr  1 02:47:14 1992
+--- ./pbm2xd.c	Wed Apr  1 02:47:17 1992
+***************
+*** 0 ****
+--- 1,175 ----
++ /*
++     Copyright 1989, 1990, 1991 Chris Lewis
++     All Rights Reserved
++ 
++     Permission to copy and further distribute is freely given provided
++     this copyright notice remains intact, that this software is not
++     sold for profit, that credit is given, and that sources will be made
++     available on request.
++ 
++     This software is a subset of Psroff 3.0.  See the LICENSE file
++     in Psroff 3.0 for more details, or contact:
++ 
++ 	Chris Lewis
++ 	Box 124
++ 	Dunrobin, Ontario
++ 	Canada K0A 1T0
++ 	(613) 832-0541
++ 
++     Function: Creates xwd format files from PBM.  Permits
++ 	      X window display by xwud.
++  */
++ 
++ #ifndef	lint
++ static char SCCSID[] =
++     "@(#)pbm2Xd.c 1.2 92/04/01 02:44:44";
++ #endif
++ #include "hptopbm.h"
++ 
++ typedef long xwdval;
++ 
++ #define XWD_FILE_VERSION 7
++ 
++ typedef struct _xwd_file_header {
++ 	xwdval header_size;	  /* Size of the entire file header (bytes). */
++ 	xwdval file_version;	  /* XWD_FILE_VERSION */
++ 	xwdval pixmap_format;	  /* Pixmap format */
++ 	xwdval pixmap_depth;	  /* Pixmap depth */
++ 	xwdval pixmap_width;	  /* Pixmap width */
++ 	xwdval pixmap_height;	  /* Pixmap height */
++ 	xwdval xoffset;           /* Bitmap x offset */
++ 	xwdval byte_order;        /* MSBFirst, LSBFirst */
++ 	xwdval bitmap_unit;       /* Bitmap unit */
++ 	xwdval bitmap_bit_order;  /* MSBFirst, LSBFirst */
++ 	xwdval bitmap_pad;	  /* Bitmap scanline pad */
++ 	xwdval bits_per_pixel;	  /* Bits per pixel */
++ 	xwdval bytes_per_line;	  /* Bytes per scanline */
++ 	xwdval visual_class;	  /* Class of colormap */
++ 	xwdval red_mask;	  /* Z red mask */
++ 	xwdval green_mask;	  /* Z green mask */
++ 	xwdval blue_mask;	  /* Z blue mask */
++ 	xwdval bits_per_rgb;	  /* Log base 2 of distinct color values */
++ 	xwdval colormap_entries;  /* Number of entries in colormap */
++ 	xwdval ncolors;		  /* Number of Color structures */
++ 	xwdval window_width;	  /* Window width */
++ 	xwdval window_height;	  /* Window height */
++ 	long window_x;		  /* Window upper left X coordinate */
++ 	long window_y;		  /* Window upper left Y coordinate */
++ 	xwdval window_bdrwidth;	  /* Window border width */
++ } XWDFileHeader;
++ 
++ dump(argc, argv)
++ int argc;
++ char **argv; {
++     XWDFileHeader *d;
++     char *p;
++     xwdval v;
++     extern char *malloc();
++     int i;
++ 
++     fread(&v, sizeof(d->header_size), 1, stdin);
++     printf("Header size is %ld, struct is: %d\n", v, sizeof(*d));
++     d = (XWDFileHeader *) malloc(v);
++     d->header_size = v;
++     fread(&d->file_version, sizeof(*d) - sizeof(d->header_size), 1, stdin);
++     printf("Size of the entire file header (bytes).: %ld\n", d->header_size);
++     printf("XWD_FILE_VERSION: %ld\n", d->file_version);
++     printf("Pixmap format: %ld\n", d->pixmap_format);
++     printf("Pixmap depth: %ld\n", d->pixmap_depth);
++     printf("Pixmap width: %ld\n", d->pixmap_width);
++     printf("Pixmap height: %ld\n", d->pixmap_height);
++     printf("Bitmap x offset: %ld\n", d->xoffset);
++     printf("MSBFirst, LSBFirst: %ld\n", d->byte_order);
++     printf("Bitmap unit: %ld\n", d->bitmap_unit);
++     printf("MSBFirst, LSBFirst: %ld\n", d->bitmap_bit_order);
++     printf("Bitmap scanline pad: %ld\n", d->bitmap_pad);
++     printf("Bits per pixel: %ld\n", d->bits_per_pixel);
++     printf("Bytes per scanline: %ld\n", d->bytes_per_line);
++     printf("Class of colormap: %ld\n", d->visual_class);
++     printf("Z red mask: %ld\n", d->red_mask);
++     printf("Z green mask: %ld\n", d->green_mask);
++     printf("Z blue mask: %ld\n", d->blue_mask);
++     printf("Log base 2 of distinct color values: %ld\n", d->bits_per_rgb);
++     printf("Number of entries in colormap: %ld\n", d->colormap_entries);
++     printf("Number of Color structures: %ld\n", d->ncolors);
++     printf("Window width: %ld\n", d->window_width);
++     printf("Window height: %ld\n", d->window_height);
++     printf("Window upper left X coordinate: %ld\n", d->window_x);
++     printf("Window upper left Y coordinate: %ld\n", d->window_y);
++     printf("Window border width: %ld\n", d->window_bdrwidth);
++     p = (char*) d;
++     for (i = sizeof(*d); i < d->header_size; i++)
++ 	printf("%02x", p[i]);
++     putchar('\n');
++ }
++ 
++ emitX(x, y, buffer)
++ int x, y;
++ char *buffer; {
++     XWDFileHeader d;
++     d.header_size = 100;
++     d.file_version = 7;
++     d.pixmap_format = 2;
++     d.pixmap_depth = 1;
++     d.pixmap_width = x;
++     d.pixmap_height = y;
++     d.xoffset = 0;
++     d.byte_order = 1;
++     d.bitmap_unit = 32;
++     d.bitmap_bit_order = 1;
++     d.bits_per_pixel = 1;
++     d.bytes_per_line = (x + 7) / 8;
++     d.visual_class = 0;
++     d.red_mask = 0;
++     d.green_mask = 0;
++     d.blue_mask = 0;
++     d.bits_per_rgb = 0;
++     d.colormap_entries = 0;
++     d.ncolors = 0;
++     d.window_width = x;
++     d.window_height = y;
++     d.window_x = 50;
++     d.window_y = 50;
++     d.window_bdrwidth = 0;
++     fwrite(&d, 1, sizeof(d), stdout);
++     fwrite(buffer, d.bytes_per_line * y, 1, stdout);
++ }
++ 
++ main(argc, argv)
++ int argc; char **argv; {
++     long x, y;
++     long count;
++     register char *p;
++     register char *buffer;
++     char b[30];
++ 
++     if (argc != 1) {
++ 	dump(argc, argv);
++ 	exit(0);
++     }
++ 
++     gets(b);
++     if (strcmp(b, "P4")) {
++ 	fprintf(stderr, "Not a PBM\n");
++ 	exit(1);
++     }
++     gets (b);
++     if (2 != sscanf(b, "%ld %ld", &x, &y)) {
++ 	fprintf(stderr, "Not a PBM\n");
++ 	exit(1);
++     }
++     count = ((x + 7) / 8) * y;
++     buffer = malloc(count);
++     if (!buffer) {
++ 	fprintf(stderr, "Couldn't malloc raster buffer\n");
++ 	exit(1);
++     }
++ 
++     /*fprintf(stderr, "Trying to read %ld bytes\n", count);*/
++     if (fread(buffer, 1, count, stdin) != count) {
++ 	fprintf(stderr, "Couldn't read the bitmap properly\n");
++ 	exit(1);
++     }
++     emitX(x, y, buffer);
++     exit(0);
++ }
+
+-- 
+Chris Lewis; clewis@ferret.ocunix.on.ca; Phone: Canada 613 832-0541
+Psroff 3.0 info: psroff-request@ferret.ocunix.on.ca
+Ferret list: ferret-request@ferret.ocunix.on.ca
+
+exit 0 # Just in case...

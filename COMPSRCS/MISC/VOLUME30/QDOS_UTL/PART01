@@ -1,0 +1,441 @@
+Newsgroups: comp.sources.misc
+From: v882022@si.hhs.nl (Erik Slagter)
+Subject:  v30i100:  qdos_utils - Sinclair QL (QDOS) utility sources, Part01/01
+Message-ID: <1992Jul6.155616.6628@sparky.imd.sterling.com>
+X-Md4-Signature: 5d9407f75b32f4d7a9956c3c4029cbf0
+Date: Mon, 6 Jul 1992 15:56:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: v882022@si.hhs.nl (Erik Slagter)
+Posting-number: Volume 30, Issue 100
+Archive-name: qdos_utils/part01
+Environment: Sinclair QL or Atari w/QDOS
+
+I have written some programs for the Sinclair QL computer / Atari computer
+with Qdos that may be of interest to other QL users.
+
+This package consists of the following sources:
+
+du.c		a unix-like du for level II device drivers (e.g. harddisks)
+more.asm	a very simple "more" variant for Qdos. Very fast though!
+unquill.c	convert a quill document into human-readable text.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  du.c more.asm unquill.c
+# Wrapped by kent@sparky on Mon Jul  6 10:50:02 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'du.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'du.c'\"
+else
+  echo shar: Extracting \"'du.c'\" \(2883 characters\)
+  sed "s/^X//" >'du.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <errno.h>
+X#include <fido.h>
+X#include <qdos.h>
+X#include <ctype.h>
+X#include <time.h>
+X#include <dirent.h>
+X
+Xtypedef unsigned char       u_char;
+Xtypedef unsigned short  int u_short;
+Xtypedef unsigned long   int u_long;
+Xtypedef unsigned        int u_int;
+X
+X/*
+X    du.c 1.00 copyleft 1992 Erik Slagter (v882022@si.hhs.nl)
+X    This source may be distributed and modified freely if this message stays
+X    intact.
+X
+X    compile with c68k 2.00 or higher.
+X
+X    usage: ex du;"[-[sabkm]] {directory}"
+X
+X    flags:
+X
+X    -s short; do not output directory names
+X    -a all  ; output all file names and sizes
+X    -b bytes; output in bytes
+X    -k kbyte; output in kilobytes
+X    -m mega ; output in megabytes
+X
+X    multiple file and directory names and wildcards may be supplied
+X
+X    extremely useful in conjunction with harddisk or level II device driver.
+X
+X    Modification history of du
+X
+X    1.00: 920410:   First version
+X
+X*/
+X
+Xstatic  u_char  format          = 10;
+Xstatic  u_char  which           = 1;
+Xchar    _prog_name[]            = "du";
+Xlong    _mneed                  = 16384;
+Xstatic  u_char *_version        = "1.00";
+Xstatic  u_char *sccs            = "(#)du.c 1.01 920327 Qdos Minerva C68 2.00\n";
+X
+X#define oops(s) (perror(s), exit(ERR_BP))
+X
+Xu_int count(dir)
+Xu_char *dir;
+X{
+X    chanid_t    chanid;
+X    struct      qdirect qd;
+X    u_char      tmp[1024];
+X    u_char      file[1024];
+X    u_int       total = 0;
+X
+X    sprintf(tmp, "%s*", dir);
+X
+X    chanid = open_qdir(dir);
+X    while(read_qdir(chanid, tmp, file, &qd, 0))
+X        if(qd.d_type == QF_DIR_TYPE)
+X            total += count(file);
+X    io_close(chanid);
+X
+X    chanid = open_qdir(dir);
+X    while(read_qdir(chanid, tmp, file, &qd, 0))
+X        if(qd.d_type != QF_DIR_TYPE)
+X        {
+X            total += qd.d_length;
+X            if(which > 1)
+X                printf("%5d %s\n", qd.d_length >> format, file);
+X        }
+X    io_close(chanid);
+X
+X    if(which)
+X        printf("%5d %s\n", total >> format, *dir ? dir : ".");
+X
+X    return(total);
+X}
+X
+Xlong main(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X    u_int   total = 0;
+X    u_int   dirs  = 0;
+X
+X    while(*++argv)
+X        if(argv[0][0] == '-')
+X            switch(argv[0][1])
+X            {
+X                case('s'):
+X                    which   = 0;    break;
+X                case('a'):
+X                    which   = 2;    break;
+X                case('b'):
+X                    format  = 0;    break;
+X                case('k'):
+X                    format  = 10;   break;
+X                case('m'):
+X                    format  = 20;   break;
+X                default:
+X                    fprintf(stderr, "usage: %s [-[sabkm]] {directory}\n", _prog_name);
+X                    exit(ERR_BP);
+X            }
+X        else
+X            total += count(*argv), dirs++;
+X
+X    if(!dirs)
+X        total = count("");
+X
+X    if((dirs > 1) || !which)
+X        printf("Total %5d\n", total >> format);
+X}
+X
+END_OF_FILE
+  if test 2883 -ne `wc -c <'du.c'`; then
+    echo shar: \"'du.c'\" unpacked with wrong size!
+  fi
+  # end of 'du.c'
+fi
+if test -f 'more.asm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'more.asm'\"
+else
+  echo shar: Extracting \"'more.asm'\" \(4929 characters\)
+  sed "s/^X//" >'more.asm' <<'END_OF_FILE'
+X*! -errors ram1_more_list -nolink
+X*
+X*        Copyleft 1990-1992 Erik Slagter (v882022@si.hhs.nl) 
+X*        THis source may be distributed and modified freely if this message
+X*        stays intact.
+X*
+X*        more - version 2
+X*
+X*        assemble with GST macro assembler. Does not need to be linked.
+X*        Applies some macros that may not be in your library:
+X* 
+X*        - qdos
+X*        - call
+X*
+X*        These macros are very easy to implement though.
+X*
+X*        usage: ex more,inputfile[,outputdevice]
+X*	
+X*        include  win1_asm_include_macro_inc
+X*        include  win1_asm_include_equ_h
+X*
+X         offset   0
+X*
+Xbuffer   ds.w     1
+X         ds.b     8192
+Xfilelen  ds.l     1
+Xoffset   ds.l     1
+Xproffs   ds.l     1
+Xblock    ds.w     4
+Xstack    ds.b     256
+Xlen      ds.w     1
+X         data     len
+X*
+X         section  code
+X*
+X         bra.s    main
+X         dc.w     $4afb,$4afb,$4afb
+X         string$  {'More'}
+Xname     string$  {' More '}
+Xguard    string$  {'scr_498x224a6x30'}
+Xcon      string$  {'con_486x212a8x41'}
+Xbar      string$  {'scr_10x212a493x41'}
+X*
+Xmain     add.l    a4,a6
+X         moveq    #err.bp,d0
+X         cmp.w    #1,(a7)+
+X         bne      rjob
+X*
+X         move.l   (a7)+,a3          input channel
+X         tst.w    (a7)+
+X         bne      rjob
+X*
+X         move.w   #6,block+0(a6)
+X         clr.w    block+2(a6)
+X         clr.w    block+4(a6)
+X         clr.w    block+6(a6)
+X*
+X         clr.l    filelen(a6)
+X         clr.l    offset(a6)
+X         moveq    #endless,d3
+X         sub.w    #64,a7
+X         move.l   a3,a0
+X         move.l   a7,a1
+X         moveq    #64,d2
+X         qdos     fs.headr
+X         tst.l    d0
+X         bmi.s    nohead
+X         move.l   (a7),d1
+X         divu     #210,d1
+X         ext.l    d1
+X         move.l   d1,filelen(a6)
+Xnohead   add.w    #64,a7
+X*
+X         lea      guard,a0
+X         moveq    #myself,d1
+X         moveq    #new,d3
+X         qdos     io.open
+X         tst.l    d0
+X         bmi      rjob
+X         moveq    #endless,d3
+X         moveq    #7,d1
+X         moveq    #1,d2
+X         qdos     sd.bordr
+X         moveq    #7,d1
+X         qdos     sd.setpa
+X         qdos     sd.setst
+X         moveq    #0,d1
+X         qdos     sd.setin
+X         moveq    #86,d1
+X         qdos     sd.setpa
+X         qdos     sd.setst
+X         qdos     sd.clear
+X         moveq    #37,d1
+X         qdos     sd.tab
+X         moveq    #7,d1
+X         qdos     sd.setst
+X         lea      name,a1
+X         call     ut.mtext
+X*
+X         lea      con,a0
+X         moveq    #myself,d1
+X         moveq    #new,d3
+X         qdos     io.open           console
+X         tst.l    d0
+X         bmi      rjob
+X         move.l   a0,a4
+X         moveq    #4,d1
+X         moveq    #1,d2             border
+X         moveq    #endless,d3
+X         qdos     sd.bordr
+X         moveq    #7,d1
+X         qdos     sd.setin          ink
+X         moveq    #0,d1
+X         qdos     sd.setpa
+X         qdos     sd.setst
+X*
+X         lea      bar,a0
+X         moveq    #myself,d1
+X         moveq    #new,d3
+X         qdos     io.open           scroll bar
+X         tst.l    d0
+X         bmi      rjob
+X         move.l   a0,a5
+X         qdos     sd.clear
+X         moveq    #4,d1
+X         moveq    #1,d2             border
+X         moveq    #endless,d3
+X         qdos     sd.bordr
+X*
+Xnobar    bsr.s    read
+Xnwrite   bsr.s    write
+X         tst.b    d5
+X         bne.s    end_
+X         bsr.s    read
+X         bsr.s    more
+X         bra.s    nwrite
+Xend_     move.l   offset(a6),proffs(a6)
+X         bsr.s    more
+Xno       moveq    #0,d0
+Xrjob     moveq    #-1,d1
+X         qdos     mt.frjob
+X         bra      rjob
+X*
+Xread     move.l   a3,a0             input channel
+X         moveq    #0,d7             index
+X         moveq    #0,d6             line
+X         moveq    #80,d2
+Xrloop    lea      buffer(a6,d7.w),a1
+X         qdos     io.fline
+X         tst.w    d1
+X         seq      d5
+X         beq.s    rend
+X         add.w    d1,d7
+X         addq.w   #1,d6
+X         cmp.w    #21,d6
+X         bmi      rloop
+Xrend     ext.l    d7
+X         move.l   offset(a6),proffs(a6)
+X         add.l    d7,offset(a6)
+X         rts
+X*
+Xwrite    move.l   a4,a0             output channel
+X         qdos     sd.clear
+X         lea      buffer(a6),a1
+X         move.w   d7,d2
+X         qdos     io.sstrg
+X         tst.l    d0
+X         bmi      rjob
+X         rts
+X*
+Xmore     move.l   a5,a0             scrollbar
+X         move.l   filelen(a6),d0
+X         beq.s    noflen
+X         move.l   proffs(a6),d4
+X         beq.s    noflen
+X         divu     d0,d4
+X         beq.s    noflen
+X         lea      block(a6),a1
+X         move.w   d4,2(a1)
+X         moveq    #7,d1
+X         qdos     sd.fill
+X*
+Xnoflen   move.l   a4,a0
+X         moveq    #79,d1
+X         moveq    #20,d2
+X         qdos     sd.pos
+X         qdos     sd.cure
+X         qdos     io.fbyte
+X         move.b   d1,d4
+X         qdos     sd.curs
+X         cmp.b    #'n',d4
+X         beq      no
+X         cmp.b    #'q',d4
+X         beq      no
+X         rts
+X*
+X         end
+X
+END_OF_FILE
+  if test 4929 -ne `wc -c <'more.asm'`; then
+    echo shar: \"'more.asm'\" unpacked with wrong size!
+  fi
+  # end of 'more.asm'
+fi
+if test -f 'unquill.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unquill.c'\"
+else
+  echo shar: Extracting \"'unquill.c'\" \(1221 characters\)
+  sed "s/^X//" >'unquill.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+X/* usage: ex unquill,from,to */
+X
+Xchar _prog_name[] = "unquill";
+X
+Xlong main()
+X{
+X    register int    linelen, wordlen;
+X    register int    c;
+X    char     word[256];
+X    char     *wp;
+X
+X    wp      = word;
+X    linelen = wordlen = 0;
+X
+X    while((c = getchar()) != EOF)
+X    {
+X        switch(c)
+X        {
+X            case(0x9):
+X            case(' '):
+X                if((linelen += (wordlen + 1)) < 78)
+X                {
+X                    *wp     = 0;
+X                    printf("%s ", word);
+X                    wordlen = 0;
+X                    wp      = word;
+X                }
+X                else
+X                {
+X                    *wp = 0;
+X                    printf("\n%s ", word);
+X                    linelen = wordlen + 1;
+X                    wordlen = 0;
+X                    wp = word;
+X                }
+X                break;
+X
+X            case(0x0):
+X                *wp = 0,
+X                printf("%s\n", word);
+X                linelen = wordlen = 0;
+X                wp = word;
+X                break;
+X
+X            default:
+X            {
+X                if(c > ' ')
+X                    *wp++ = c, ++wordlen;
+X                break;
+X            }
+X        }
+X    }
+X    puts("");
+X    return(0);
+X}
+END_OF_FILE
+  if test 1221 -ne `wc -c <'unquill.c'`; then
+    echo shar: \"'unquill.c'\" unpacked with wrong size!
+  fi
+  # end of 'unquill.c'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

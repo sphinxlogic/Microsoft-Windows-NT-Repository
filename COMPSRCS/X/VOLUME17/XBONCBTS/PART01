@@ -1,0 +1,1414 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: jef@netcom.com (Jef Poskanzer)
+Subject: v17i018: xbouncebits - moving bouncing bitmaps, Part01/01
+Message-ID: <1992Mar18.142357.28558@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Date: Wed, 18 Mar 1992 14:23:57 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: jef@netcom.com (Jef Poskanzer)
+Posting-number: Volume 17, Issue 18
+Archive-name: xbouncebits/part01
+
+Here's a simple root-window bitmap animation hack.  I wouldn't be
+surprised if something like this already exists somewhere.
+---
+Jef
+
+           Jef Poskanzer  jef@netcom.com  jef@well.sf.ca.us
+                         execvp(*argv, argv);
+
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	README
+#	Imakefile
+#	xbouncebits.c
+#	xbouncebits.man
+#	Rects.h
+#	Rects.c
+# This archive created: Wed Mar 11 19:49:12 1992
+# By:	Jef Poskanzer
+export PATH; PATH=/bin:$PATH
+echo shar: extracting "'README'" '(660 characters)'
+if test -f 'README'
+then
+	echo shar: will not over-write existing file "'README'"
+else
+sed 's/^X//' << \SHAR_EOF > 'README'
+X                           xbouncebits
+X                     Distribution of 11mar92
+X                  Previous distribution -NONE-
+X
+XXbouncebits displays moving bouncing bitmaps in the X11 root window.
+X
+XFiles in this distribution:
+X
+X    README		this
+X    Imakefile		guess
+X    xbouncebits.c	source file
+X    xbouncebits.man	manual entry
+X    Rects.h		header file for rectangle routines
+X    Rects.c		source file for rectangle routines
+X
+XTo compile: do an xmkmf, make depend, make.
+X
+XFeedback is welcome - send bug reports, enhancements, checks, money orders,
+Xgold bullion, drugs, etc. to the addresses below.
+X
+X    Jef Poskanzer
+X    jef@netcom.com
+X    jef@well.sf.ca.us
+SHAR_EOF
+if test 660 -ne "`wc -c < 'README'`"
+then
+	echo shar: error transmitting "'README'" '(should have been 660 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'Imakefile'" '(651 characters)'
+if test -f 'Imakefile'
+then
+	echo shar: will not over-write existing file "'Imakefile'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Imakefile'
+X# @(#) $Header: Imakefile,v 1.1 92/03/11 19:40:30 jef Exp $
+X#
+X# Copyright (C) 1992 by Jef Poskanzer
+X#
+X# Permission to use, copy, modify, and distribute this software and its
+X# documentation for any purpose and without fee is hereby granted, provided
+X# that the above copyright notice appear in all copies and that both that
+X# copyright notice and this permission notice appear in supporting
+X# documentation.  This software is provided "as is" without express or
+X# implied warranty.
+X
+XLOCAL_LIBRARIES =	$(XMULIB) $(XLIB)
+XDEPLIBS =		$(DEPXMULIB) $(DEPXLIB)
+XSRCS =			xbouncebits.c Rects.c
+XOBJS =			xbouncebits.o Rects.o
+X
+XComplexProgramTarget(xbouncebits)
+SHAR_EOF
+if test 651 -ne "`wc -c < 'Imakefile'`"
+then
+	echo shar: error transmitting "'Imakefile'" '(should have been 651 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xbouncebits.c'" '(21350 characters)'
+if test -f 'xbouncebits.c'
+then
+	echo shar: will not over-write existing file "'xbouncebits.c'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xbouncebits.c'
+X/* xbouncebits - displays moving bouncing bitmaps in the X11 root window
+X**
+X** Copyright (C) 1992 by Jef Poskanzer
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose and without fee is hereby granted, provided
+X** that the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation.  This software is provided "as is" without express or
+X** implied warranty.
+X*/
+X
+X#ifndef lint
+Xstatic char rcsid[] =
+X    "@(#) $Header: xbouncebits.c,v 1.1 92/03/11 19:40:31 jef Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#if defined(SYSV) || defined(SVR4)
+X#include <string.h>
+X#include <sys/termio.h>
+X#else /*SYSV*/
+X#include <strings.h>
+X#endif /*SYSV*/
+X#include <signal.h>
+X#include <pwd.h>
+X#include <sys/types.h>
+X#include <sys/ioctl.h>
+X#include <sys/time.h>
+X#include <errno.h>
+Xextern char* sys_errlist[];	/* in case errno.h doesn't declare it */
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xresource.h>
+X#define XTSTRINGDEFINES
+X#include <X11/StringDefs.h>
+X#include "Rects.h"
+X
+X/* Add fd_set definitions, in case the system doesn't have them. */
+X#ifndef FD_SET
+X#define NFDBITS		32
+X#define FD_SETSIZE	32
+X#define FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+X
+X/* Definitions. */
+X
+X#define X_CLASS "Xbouncebits"
+X
+X#define CYCLES 10			/* default cycles per second */
+X#define GRAVCONST 25			/* cycles per gravity acceleration */
+X#define INITIAL_JUMPS 10		/* # of jumps to randomize position */
+X#define COLLISION_TRYS 50		/* try this many times, then give up */
+X
+X#define M_JUMP 1
+X#define M_GLIDE 2
+X#define M_GRAVITY 3
+X
+Xtypedef struct rect_struct {
+X    XRectangle bb;
+X    Pixmap pixmap;
+X    int mode;			/* M_JUMP, M_GLIDE, or M_GRAVITY */
+X    int clock;			/* for M_JUMP */
+X    int dx, dy;			/* for M_GLIDE and M_GRAVITY */
+X    } rect;
+X
+X#define abs(x) ( (x) >= 0 ? (x) : -(x) )
+X
+X
+X/* Externals. */
+X
+Xextern char* getenv();
+Xextern char* malloc();
+Xextern long random();
+Xextern char* realloc();
+Xextern long time();
+X
+X
+X/* Forward routines. */
+X
+Xstatic void add_rect();
+Xstatic void x_init();
+Xstatic Window VirtualRootWindowOfScreen();
+Xstatic void x_init_rdb();
+Xstatic char* x_get_resource();
+Xstatic int x_str_to_bool();
+Xstatic int x_get_color_resource();
+Xstatic void x_cleanup();
+Xstatic void stealth();
+Xstatic void rects_place();
+Xstatic void rect_bounce();
+Xstatic void rect_sleep();
+Xstatic void rect_glide();
+Xstatic void rect_jump();
+Xstatic void find_leaders();
+Xstatic void main_loop();
+Xstatic void sigcatch();
+Xstatic void expose();
+Xstatic void paint_rect();
+X
+Xstatic void move_rects();
+Xstatic int check_collisions();
+X
+X
+X/* Variables. */
+X
+Xstatic char* argv0;
+X
+Xstatic int nrects;
+Xstatic int maxrects;
+Xstatic rect* rects;
+Xstatic int cycles;
+Xstatic int goflag;
+Xstatic int gravclock;
+X
+Xstatic char* app_name;
+Xstatic Display* display;
+Xstatic Screen* screen;
+Xstatic Window root;
+Xstatic XRectangle rrect;
+Xstatic int root_d;
+Xstatic unsigned long foreground, background;
+Xstatic GC rectgc;
+X
+X
+X/* Routines. */
+X
+Xvoid
+Xmain( argc, argv )
+X    int argc;
+X    char* argv[];
+X    {
+X    char* rval;
+X    int printpid, mode, copies, i, j, width, height;
+X    char* usage = "usage: %s [-cycles n] [-id] [-jump|-glide|-gravity|-copies n] bitmap ...\n";
+X    FILE* in;
+X    char* data;
+X    Pixmap pixmap;
+X
+X    argv0 = argv[0];
+X    app_name = "xbouncebits";
+X    cycles = CYCLES;
+X    printpid = 0;
+X    mode = M_JUMP;
+X    copies = 1;
+X
+X    /* Parse args and initialize X stuff. */
+X    x_init( &argc, argv );
+X    RectsInit();
+X
+X    /* Extract and check non-X args. */
+X    rval = x_get_resource( "cycles", "Cycles" );
+X    if ( rval != (char*) 0 )
+X        {
+X        cycles = atoi( rval );
+X        if ( cycles < 0 )
+X	    {
+X	    (void) fprintf( stderr, usage, argv0 );
+X	    exit( 1 );
+X	    }
+X        }
+X    rval = x_get_resource( "id", "Id" );
+X    if ( rval != (char*) 0 )
+X	printpid = x_str_to_bool( rval );
+X
+X    /* Read in the bitmap flags and bitmaps. */
+X    nrects = 0;
+X    maxrects = 0;
+X    for ( i = 1; i < argc; ++i )
+X	{
+X	if ( strcmp( argv[i], "-jump" ) == 0 ||
+X	     strcmp( argv[i], "-jum" ) == 0 ||
+X	     strcmp( argv[i], "-ju" ) == 0 ||
+X	     strcmp( argv[i], "-j" ) == 0 )
+X	    mode = M_JUMP;
+X	else if ( strcmp( argv[i], "-glide" ) == 0 ||
+X	     strcmp( argv[i], "-glid" ) == 0 ||
+X	     strcmp( argv[i], "-gli" ) == 0 ||
+X	     strcmp( argv[i], "-gl" ) == 0 )
+X	    mode = M_GLIDE;
+X	else if ( strcmp( argv[i], "-gravity" ) == 0 ||
+X	     strcmp( argv[i], "-gravit" ) == 0 ||
+X	     strcmp( argv[i], "-gravi" ) == 0 ||
+X	     strcmp( argv[i], "-grav" ) == 0 ||
+X	     strcmp( argv[i], "-gra" ) == 0 ||
+X	     strcmp( argv[i], "-gr" ) == 0 )
+X	    mode = M_GRAVITY;
+X	else if ( strcmp( argv[i], "-copies" ) == 0 ||
+X	     strcmp( argv[i], "-copie" ) == 0 ||
+X	     strcmp( argv[i], "-copi" ) == 0 ||
+X	     strcmp( argv[i], "-cop" ) == 0 ||
+X	     strcmp( argv[i], "-co" ) == 0 ||
+X	     strcmp( argv[i], "-c" ) == 0 )
+X	    {
+X	    ++i;
+X	    copies = atoi( argv[i] );
+X	    if ( copies == 0 )
+X		{
+X		(void) fprintf( stderr, usage, argv0 );
+X		exit( 1 );
+X		}
+X	    }
+X	else if ( argv[i][0] == '-' && argv[i][1] != '\0' )
+X	    {
+X	    (void) fprintf( stderr, usage, argv0 );
+X	    exit( 1 );
+X	    }
+X	else
+X	    {
+X	    /* Read a bitmap. */
+X	    if ( strcmp( argv[i], "-" ) == 0 )
+X		in = stdin;
+X	    else
+X		{
+X		in = fopen( argv[i], "r" );
+X		if ( in == (FILE*) 0 )
+X		    {
+X		    (void) fprintf(
+X			stderr, "%s: %s - %s\n", argv0, argv[i],
+X			sys_errlist[errno] );
+X		    exit( 1 );
+X		    }
+X		}
+X	    j = XmuReadBitmapData(
+X		in, &width, &height, &data, (int*) 0, (int*) 0 );
+X	    if ( j != BitmapSuccess )
+X		{
+X		(void) fprintf(
+X		    stderr, "%s: error %d reading %s\n", argv0, j, argv[i] );
+X		exit( 1 );
+X		}
+X	    if ( in != stdin )
+X		fclose( in );
+X	    pixmap = XCreatePixmapFromBitmapData(
+X		display, root, data, width, height,
+X		foreground, background, root_d );
+X	    free( data );
+X	    for ( j = 0; j < copies; ++j )
+X		{
+X		add_rect();
+X		rects[nrects].bb.width = (unsigned short) width;
+X		rects[nrects].bb.height = (unsigned short) height;
+X		rects[nrects].pixmap = pixmap;
+X		rects[nrects].mode = mode;
+X		++nrects;
+X		}
+X	    }
+X	}
+X
+X    /* Initialize the random number generator. */
+X    srandom( (int) ( time( (long*) 0 ) ^ getpid() ) );
+X
+X    /* Position the rectangles. */
+X    rects_place();
+X
+X    /* Fork, if necessary. */
+X    if ( printpid )
+X	stealth();
+X
+X    /* Main loop. */
+X    main_loop();
+X
+X    /*NOTREACHED*/
+X    }
+X
+Xstatic void
+Xadd_rect()
+X    {
+X    if ( nrects < maxrects )
+X	return;
+X    if ( maxrects == 0 )
+X	{
+X	maxrects = 10;		/* non-critical parameter */
+X	rects = (rect*) malloc( (unsigned) ( maxrects * sizeof(rect) ) );
+X	}
+X    else
+X	{
+X	maxrects *= 2;
+X	rects = (rect*) realloc(
+X	    (char*) rects, (unsigned) ( maxrects * sizeof(rect) ) );
+X	}
+X    if ( rects == (rect*) 0 )
+X	{
+X	(void) fprintf( stderr, "%s: out of memory\n", argv0 );
+X	exit( 1 );
+X	}
+X    }
+X
+Xstatic void
+Xx_init( argcP, argv )
+X    int* argcP;
+X    char** argv;
+X    {
+X    char* display_name;
+X    char* rval;
+X    int i;
+X    int reverse_video;
+X
+X    /* Scan args looking for a -display. */
+X    display_name = (char*) 0;
+X    for ( i = 1; i + 1 < *argcP; ++i )
+X	{
+X	if ( strcmp( argv[i], "-display" ) == 0 ||
+X	     strcmp( argv[i], "-displa" ) == 0 ||
+X	     strcmp( argv[i], "-displ" ) == 0 ||
+X	     strcmp( argv[i], "-disp" ) == 0 ||
+X	     strcmp( argv[i], "-dis" ) == 0 ||
+X	     strcmp( argv[i], "-di" ) == 0 ||
+X	     strcmp( argv[i], "-d" ) == 0 )
+X	    {
+X	    display_name = argv[i + 1];
+X	    for ( i = i + 2; i <= *argcP; ++i )
+X		argv[i - 2] = argv[i];
+X	    *argcP -= 2;
+X	    break;
+X	    }
+X	}
+X
+X    display = XOpenDisplay( display_name );
+X    if ( display == (Display*) 0 )
+X	{
+X	(void) fprintf(
+X	    stderr, "%s: can't open display \"%s\"\n", argv0,
+X	    XDisplayName( display_name ) );
+X	exit( 1 );
+X	}
+X
+X    screen = DefaultScreenOfDisplay( display );
+X    root = VirtualRootWindowOfScreen( screen );
+X    rrect.x = rrect.y = 0;
+X    rrect.width = WidthOfScreen( screen );
+X    rrect.height = HeightOfScreen( screen );
+X    root_d = DefaultDepthOfScreen( screen );
+X
+X    x_init_rdb( argcP, argv );
+X
+X    rval = x_get_resource( XtNname, "Name" );
+X    if ( rval != (char*) 0 )
+X	app_name = rval;
+X
+X    rval = x_get_resource( "synchronous", "Synchronous" );
+X    if ( rval != (char*) 0 )
+X	if ( x_str_to_bool( rval ) )
+X	    XSynchronize( display, True );
+X
+X    reverse_video = 0;
+X    rval = x_get_resource( XtNreverseVideo, XtCReverseVideo );
+X    if ( rval != (char*) 0 )
+X	reverse_video = x_str_to_bool( rval );
+X
+X    if ( ! x_get_color_resource( XtNforeground, XtCForeground, &foreground ) )
+X	foreground = BlackPixelOfScreen( screen );
+X
+X    if ( ! x_get_color_resource( XtNbackground, XtCBackground, &background ) )
+X	background = WhitePixelOfScreen( screen );
+X
+X    if ( reverse_video )
+X	{
+X	unsigned long t;
+X
+X	t = foreground;
+X	foreground = background;
+X	background = t;
+X	}
+X
+X    rectgc = XCreateGC( display, root, 0, (XGCValues*) 0 );
+X    XSetForeground( display, rectgc, foreground );
+X    XSetBackground( display, rectgc, background );
+X    }
+X
+X/* From vroot.h by Andreas Stolcke. */
+Xstatic Window
+XVirtualRootWindowOfScreen( screen )
+X    Screen* screen;
+X    {
+X    static Screen* save_screen = (Screen*) 0;
+X    static Window root = (Window) 0;
+X
+X    if ( screen != save_screen )
+X	{
+X	Display* dpy = DisplayOfScreen( screen );
+X	Atom __SWM_VROOT = None;
+X	int i;
+X	Window rootReturn, parentReturn;
+X	Window* children;
+X	unsigned int numChildren;
+X
+X	root = RootWindowOfScreen( screen );
+X
+X	/* Go look for a virtual root. */
+X	__SWM_VROOT = XInternAtom( dpy, "__SWM_VROOT", False );
+X	if ( XQueryTree(
+X		 dpy, root, &rootReturn, &parentReturn, &children,
+X		 &numChildren ) )
+X	    {
+X	    for ( i = 0; i < numChildren; ++i)
+X		{
+X		Atom actual_type;
+X		int actual_format;
+X		unsigned long nitems, bytesafter;
+X		Window* newRoot = (Window*) 0;
+X
+X		if ( XGetWindowProperty(
+X			 dpy, children[i], __SWM_VROOT, 0, 1, False, XA_WINDOW,
+X			 &actual_type, &actual_format, &nitems, &bytesafter,
+X			 (unsigned char**) &newRoot ) == Success && newRoot )
+X		    {
+X		    root = *newRoot;
+X		    break;
+X		    }
+X		}
+X	    if ( children )
+X		XFree( (char*) children );
+X	    }
+X	save_screen = screen;
+X	}
+X
+X    return root;
+X    }
+X
+X/* Resources stuff, extracted from libwin. */
+X
+Xstatic XrmDatabase rdb;
+X
+Xstatic XrmOptionDescRec x_options[] = {
+X{"-background",        "*background",        XrmoptionSepArg, (caddr_t) 0},
+X{"-bg",                "*background",        XrmoptionSepArg, (caddr_t) 0},
+X{"-cycles",            "*cycles",            XrmoptionSepArg, (caddr_t) 0},
+X{"-fg",                "*foreground",        XrmoptionSepArg, (caddr_t) 0},
+X{"-foreground",        "*foreground",        XrmoptionSepArg, (caddr_t) 0},
+X{"-id",                "*id",                XrmoptionNoArg,  (caddr_t) "on"},
+X{"-name",              ".name",              XrmoptionSepArg, (caddr_t) 0},
+X{"-reverse",           "*reverseVideo",      XrmoptionNoArg,  (caddr_t) "on"},
+X{"-rv",                "*reverseVideo",      XrmoptionNoArg,  (caddr_t) "on"},
+X{"-synchronous",       "*synchronous",       XrmoptionNoArg,  (caddr_t) "on"},
+X{"-xrm",               (char*) 0,            XrmoptionResArg, (caddr_t) 0},
+X
+X};
+X
+Xstatic void
+Xx_init_rdb( argcP, argv )
+X    int* argcP;
+X    char** argv;
+X    {
+X    char* resource_string;
+X    char* xenv;
+X
+X    XrmInitialize();
+X
+X    /* Get resource database from server. */
+X    resource_string = XResourceManagerString( display );
+X    if ( resource_string != (char*) 0 )
+X	rdb = XrmGetStringDatabase( resource_string );
+X    else
+X	{
+X	/* No server database, try ~/.Xdefaults */
+X	char* cp;
+X	char buf[500];
+X
+X	cp = getenv( "HOME" );
+X	if ( cp != (char*) 0 )
+X	    (void) strcpy( buf, cp );
+X	else
+X	    {
+X	    struct passwd* pw;
+X
+X	    cp = getenv( "USER" );
+X	    if ( cp != (char*) 0 )
+X		pw = getpwnam( cp );
+X	    else
+X		pw = getpwuid( getuid() );
+X	    if ( pw != (struct passwd*) 0 )
+X		(void) strcpy( buf, pw->pw_dir );
+X	    else
+X		(void) strcpy( buf, "." );	/* best we can do */
+X	    }
+X	(void) strcat( buf, "/.Xdefaults" );
+X	rdb = XrmGetFileDatabase( buf );
+X	}
+X
+X    /* Merge in XENVIRONMENT, if any. */
+X    xenv = getenv( "XENVIRONMENT" );
+X    if ( xenv != (char*) 0 )
+X	{
+X	XrmDatabase tdb;
+X
+X	tdb = XrmGetFileDatabase( xenv );
+X	XrmMergeDatabases( tdb, &rdb );
+X	}
+X
+X    /* And add command line options. */
+X    XrmParseCommand(
+X	&rdb, x_options, sizeof(x_options) / sizeof(*x_options),
+X	app_name, argcP, argv );
+X    }
+X
+Xstatic char*
+Xx_get_resource( name, class )
+X    char* name;
+X    char* class;
+X    {
+X    char rname[500], rclass[500];
+X    char* type;
+X    XrmValue value;
+X
+X    (void) sprintf( rname, "%s.%s", app_name, name );
+X    (void) sprintf( rclass, "%s.%s", X_CLASS, class );
+X    if ( XrmGetResource( rdb, rname, rclass, &type, &value ) == True )
+X	if ( strcmp( type, XtRString ) == 0 )
+X	    return (char*) value.addr;
+X    return (char*) 0;
+X    }
+X
+Xstatic int
+Xx_str_to_bool( str )
+X    char* str;
+X    {
+X    if ( strcmp( str, "true" ) == 0 ||
+X         strcmp( str, "True" ) == 0 ||
+X         strcmp( str, "yes" ) == 0 ||
+X         strcmp( str, "Yes" ) == 0 ||
+X         strcmp( str, "on" ) == 0 ||
+X         strcmp( str, "On" ) == 0 ||
+X         strcmp( str, "1" ) == 0 )
+X	return 1;
+X    return 0;
+X    }
+X
+Xstatic int
+Xx_get_color_resource( name, class, cP )
+X    char* name;
+X    char* class;
+X    unsigned long* cP;
+X    {
+X    char* rval;
+X    XColor color;
+X
+X    rval = x_get_resource( name, class );
+X    if ( rval == (char*) 0 )
+X	return 0;
+X    if ( XParseColor( display, DefaultColormapOfScreen( screen ), rval,
+X		      &color ) != True )
+X	{
+X	(void) fprintf( stderr, "%s: can't parse color \"%s\"\n", argv0, rval );
+X	exit( 1 );
+X	}
+X    if ( XAllocColor( display, DefaultColormapOfScreen( screen ), &color ) !=
+X	 True )
+X	{
+X	(void) fprintf(
+X	    stderr, "%s: can't allocate color \"%s\"\n", argv0, rval );
+X	exit( 1 );
+X	}
+X    *cP = color.pixel;
+X    return 1;
+X    }
+X
+Xstatic void
+Xx_cleanup()
+X    {
+X    XFreeGC( display, rectgc );
+X    XCloseDisplay( display );
+X    }
+X
+Xstatic void
+Xstealth()
+X    {
+X    int pid, tty;
+X
+X    pid = fork();
+X    if ( pid < 0 )
+X	{
+X	perror( "fork" );
+X	exit( 1 );
+X	}
+X    else if ( pid > 0 )
+X	/* Parent just exits. */
+X	exit( 0 );
+X    (void) printf( "%d\n", getpid() );
+X    (void) fflush( stdout );
+X
+X    /* Go stealth (ditch our controlling tty). */
+X    tty = open( "/dev/tty", 0 );
+X    if ( tty < 0 )
+X	{
+X	/* ENXIO means that there is no controlling terminal, so we don't
+X	** have to detach anything.
+X	*/
+X        if ( errno != ENXIO )
+X	    {
+X	    (void) fprintf( stderr, "%s: ", argv0 );
+X	    perror( "/dev/tty open" );
+X	    exit( 1 );
+X	    }
+X	}
+X    else
+X	{
+X	if ( ioctl( tty, TIOCNOTTY, 0 ) < 0 )
+X	    {
+X	    (void) fprintf( stderr, "%s: ", argv0 );
+X	    perror( "TIOCNOTTY ioctl" );
+X	    exit( 1 );
+X	    }
+X	(void) close( tty );
+X	}
+X    }
+X
+Xstatic void
+Xrects_place()
+X    {
+X    int i, j, x0, y0, mh;
+X
+X    /* Place bitmaps deterministically. */
+X    x0 = y0 = mh = 0;
+X    for ( i = 0; i < nrects; ++i )
+X	{
+X	if ( x0 + rects[i].bb.width > rrect.width )
+X	    {
+X	    y0 += mh;
+X	    x0 = mh = 0;
+X	    if ( y0 + rects[i].bb.height > rrect.height )
+X		{
+X		(void) fprintf( stderr, "%s: can't place bitmaps\n", argv0 );
+X		exit( 1 );
+X		}
+X	    }
+X	rects[i].bb.x = x0;
+X	rects[i].bb.y = y0;
+X	x0 += rects[i].bb.width;
+X	if ( rects[i].bb.height > mh )
+X	    mh = rects[i].bb.height;
+X	}
+X    /* Randomize positions. */
+X    for ( i = 0; i < INITIAL_JUMPS; ++i )
+X	for ( j = 0; j < nrects; ++j )
+X	    rect_jump( j );
+X    /* And initialize dx/dy/clock. */
+X    for ( i = 0; i < nrects; ++i )
+X	if ( rects[i].mode == M_JUMP )
+X	    rect_sleep( i );
+X	else if ( rects[i].mode == M_GLIDE || rects[i].mode == M_GRAVITY )
+X	    rect_bounce( i );
+X    }
+X
+Xstatic void
+Xrect_bounce( i )
+X    int i;
+X    {
+X    do
+X	{
+X	rects[i].dx = random() % 9 - 4;
+X	rects[i].dy = random() % 9 - 4;
+X	}
+X    while ( ( rects[i].dx == 0 && rects[i].dy == 0 ) ||
+X	    abs( rects[i].dx ) > rects[i].bb.width ||
+X	    abs( rects[i].dy ) > rects[i].bb.height );
+X    }
+X
+Xstatic void
+Xrect_sleep( i )
+X    int i;
+X    {
+X    rects[i].clock = random() % ( 5 * CYCLES );
+X    }
+X
+Xstatic void
+Xrect_glide( i )
+X    int i;
+X    {
+X    int oldx, oldy, j;
+X
+X    oldx = rects[i].bb.x;
+X    oldy = rects[i].bb.y;
+X    for ( j = 0; j < COLLISION_TRYS; ++j )
+X	{
+X	rects[i].bb.x += rects[i].dx;
+X	rects[i].bb.y += rects[i].dy;
+X	if ( ! check_collisions( i ) )
+X	    return;
+X	rects[i].bb.x = oldx;
+X	rects[i].bb.y = oldy;
+X	rect_bounce( i );
+X	}
+X    }
+X
+Xstatic void
+Xrect_jump( i )
+X    int i;
+X    {
+X    int oldx, oldy, j;
+X
+X    oldx = rects[i].bb.x;
+X    oldy = rects[i].bb.y;
+X    for ( j = 0; j < COLLISION_TRYS; ++j )
+X	{
+X	rects[i].bb.x = random() % ( rrect.width - rects[i].bb.width + 1 );
+X	rects[i].bb.y = random() % ( rrect.height - rects[i].bb.height + 1);
+X	if ( ! check_collisions( i ) )
+X	    return;
+X	}
+X    rects[i].bb.x = oldx;
+X    rects[i].bb.y = oldy;
+X    }
+X
+Xstatic void
+Xmain_loop()
+X    {
+X    FILE* cfP;
+X    int fd, i;
+X    fd_set fds;
+X    struct timeval timeout;
+X    XEvent ev;
+X    XRectangle erect;
+X
+X    /* Set up for signal catching. */
+X    goflag = 1;
+X    (void) signal( SIGHUP, sigcatch );
+X    (void) signal( SIGINT, sigcatch );
+X    (void) signal( SIGTERM, sigcatch );
+X
+X    XSelectInput( display, root, ExposureMask );
+X    RectsInvalidate( &rrect, False );
+X    FD_ZERO( &fds );
+X    fd = ConnectionNumber( display );
+X
+X    gravclock = GRAVCONST;
+X
+X    while ( goflag )
+X	{
+X	if ( RectsNextInvalid( &erect ) )
+X	    {
+X	    expose( &erect, False );
+X	    continue;
+X	    }
+X	if ( cycles != 0 && XPending( display ) == 0 )
+X	    {
+X	    /* No X events to handle, so wait for a while. */
+X	    FD_SET( fd, &fds );
+X            timeout.tv_usec = 1000000L / cycles;
+X            timeout.tv_sec = timeout.tv_usec / 1000000L;
+X            timeout.tv_usec = timeout.tv_usec % 1000000L;
+X	    (void) select( fd + 1, &fds, (int*) 0, (int*) 0, &timeout );
+X	    }
+X	if ( XPending( display ) == 0 )
+X	    {
+X	    /* Still no X events, so let's move. */
+X	    move_rects();
+X	    continue;
+X	    }
+X	/* Now there are X events. */
+X	XNextEvent( display, &ev );
+X	switch ( ev.type )
+X	    {
+X	    case Expose:
+X	    erect.x = ev.xexpose.x;
+X	    erect.y = ev.xexpose.y;
+X	    erect.width = ev.xexpose.width;
+X	    erect.height = ev.xexpose.height;
+X	    expose( &erect, True );
+X	    break;
+X	    }
+X	}
+X    
+X    XClearArea( display, root, 0, 0, rrect.width, rrect.height, True );
+X    x_cleanup();
+X    exit( 0 );
+X    }
+X
+Xstatic void
+Xsigcatch()
+X    {
+X    goflag = 0;
+X    }
+X
+Xstatic void
+Xexpose( erectP, real )
+X    XRectangle* erectP;
+X    Bool real;
+X    {
+X    int i, j;
+X    XRectangle irect;
+X
+X    /* If the exposed area is totally in a rect, just paint it. */
+X    for ( i = 0; i < nrects; ++i )
+X	{
+X	if ( RectsInside( erectP, &rects[i].bb ) )
+X	    {
+X	    paint_rect( i, erectP );
+X	    return;
+X	    }
+X	}
+X
+X    /* Paint the background if needed, then the exposed parts of any rects. */
+X    if ( ! real )
+X	XClearArea(
+X	    display, root, erectP->x, erectP->y, erectP->width,
+X	    erectP->height, False );
+X    for ( i = 0; i < nrects; ++i )
+X	{
+X	irect = *erectP;
+X	RectsIntersect( &irect, &rects[i].bb );
+X	if ( irect.width > 0 && irect.height > 0 )
+X	    paint_rect( i, &irect );
+X	}
+X    }
+X
+Xstatic void
+Xpaint_rect( i, rectP )
+X    int i;
+X    XRectangle* rectP;
+X    {
+X    XCopyArea(
+X	display, rects[i].pixmap, root, rectgc,
+X	rectP->x - rects[i].bb.x, rectP->y - rects[i].bb.y,
+X	rectP->width, rectP->height, rectP->x, rectP->y );
+X    }
+X
+Xstatic void
+Xmove_rects()
+X    {
+X    int i, j, oldx, oldy;
+X    XRectangle erect;
+X
+X    --gravclock;
+X    for ( i = 0; i < nrects; ++i )
+X	if ( rects[i].mode == M_GLIDE || rects[i].mode == M_GRAVITY )
+X	    {
+X	    if ( rects[i].mode == M_GRAVITY && gravclock == 0 )
+X		++rects[i].dy;
+X	    oldx = rects[i].bb.x;
+X	    oldy = rects[i].bb.y;
+X	    rect_glide( i );
+X
+X	    /* Erase old trailing edges. */
+X	    if ( rects[i].dx > 0 )
+X		{
+X		erect.x = oldx;
+X		erect.y = oldy;
+X		erect.width = rects[i].dx;
+X		erect.height = rects[i].bb.height;
+X		RectsInvalidate( &erect, False );
+X		}
+X	    else if ( rects[i].dx < 0 )
+X		{
+X		erect.x = rects[i].bb.x + rects[i].bb.width;
+X		erect.y = oldy;
+X		erect.width = -rects[i].dx;
+X		erect.height = rects[i].bb.height;
+X		RectsInvalidate( &erect, False );
+X		}
+X	    if ( rects[i].dy > 0 )
+X		{
+X		erect.x = oldx;
+X		erect.y = oldy;
+X		erect.width = rects[i].bb.width;
+X		erect.height = rects[i].dy;
+X		RectsInvalidate( &erect, False );
+X		}
+X	    else if ( rects[i].dy < 0 )
+X		{
+X		erect.x = oldx;
+X		erect.y = rects[i].bb.y + rects[i].bb.height;
+X		erect.width = rects[i].bb.width;
+X		erect.height = -rects[i].dy;
+X		RectsInvalidate( &erect, False );
+X		}
+X
+X	    /* Paint whole bitmap in new position. */
+X	    RectsInvalidate( &rects[i].bb, False );
+X	    }
+X	else if ( rects[i].mode == M_JUMP )
+X	    {
+X	    --rects[i].clock;
+X	    if ( rects[i].clock <= 0 )
+X		{
+X		/* Erase whole bitmap in old position. */
+X		RectsInvalidate( &rects[i].bb, True );
+X		rect_jump( i );
+X		/* Paint whole bitmap in new position. */
+X		RectsInvalidate( &rects[i].bb, True );
+X		rect_sleep( i );
+X		}
+X	    }
+X    if ( gravclock <= 0 )
+X	gravclock = GRAVCONST;
+X    }
+X
+Xstatic int
+Xcheck_collisions( i )
+X    int i;
+X    {
+X    int j;
+X
+X    /* Check against screen edges. */
+X    if ( ! RectsInside( &rects[i].bb, &rrect ) )
+X	return 1;
+X
+X    /* Check intersection with other rects. */
+X    for ( j = 0; j < nrects; ++j )
+X	if ( i != j )
+X	    if ( RectsTouch( &rects[i].bb, &rects[j].bb ) )
+X		return 1;
+X
+X    return 0;
+X    }
+SHAR_EOF
+if test 21350 -ne "`wc -c < 'xbouncebits.c'`"
+then
+	echo shar: error transmitting "'xbouncebits.c'" '(should have been 21350 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xbouncebits.man'" '(2644 characters)'
+if test -f 'xbouncebits.man'
+then
+	echo shar: will not over-write existing file "'xbouncebits.man'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xbouncebits.man'
+X.TH xbouncebits 1 "11 March 1992"
+X.SH NAME
+Xxbouncebits - display moving bouncing bitmaps in the X11 root window
+X.SH SYNOPSIS
+X.B xbouncebits
+X.RB [ -cycles
+X.IR n ]
+X.RB [ -id ]
+X.RB [ -jump|-glide|-gravity|-copies
+X.IR n ]
+X.I bitmap ...
+X.SH DESCRIPTION
+X.PP
+X.I Xbouncebits
+Xdisplays moving bouncing bitmaps in the root window.
+X.SH OPTIONS
+X.TP
+X.B -cycles
+XSpecifies how often the simulation runs, in cycles per second.
+XIf you specify 0, it runs continuously (and you should probably
+Xnice the
+X.I xbouncebits
+Xprocess, or your interactive response will suffer).
+XDefault: 10.
+XX resource:
+X.BR cycles .
+X.TP
+X.B -id
+XForks a background process and prints the process-id to stdout.
+XUseful if you want to make a menu command to kill
+X.IR xbouncebits .
+XDefault: off.
+XX resource:
+X.BR id .
+X.PP
+X.I Xbouncebits
+Xalso accepts all the usual X flags and resources, such as
+X.BR -fg ,
+X.BR -bg ,
+X.BR -rv ,
+X.BR -sync ,
+Xand
+X.BR -xrm .
+X.PP
+XThe rest of the arguments are a list of bitmap files with interspersed
+Xmode flags.
+XThe mode flags apply to all bitmaps that follow them.
+X.TP
+X.B -jump
+XBitmaps jump around the screen every few seconds.
+XThis is the default mode.
+X.TP
+X.B -glide
+XBitmaps glide slowly around the screen and bounce off each other.
+X.TP
+X.B -gravity
+XLike
+X.BR -glide ,
+Xbut the bitmaps are slowly attracted to the bottom of the screen.
+X.TP
+X.B -copies
+XPuts up
+X.I n
+Xcopies of the subsequent bitmaps.
+X.PP
+XYou can mix modes freely; for example:
+X.nf
+X    xbouncebits cow.x cow.x cow.x cow.x cow.x -glide triangle.x
+X.fi
+Xputs up three cows in jump mode and a triangle in glide mode.
+XThe same setup using the
+X.B -copies
+Xflag:
+X.nf
+X    xbouncebits -copies 5 cow.x -copies 1 -glide triangle.x
+X.fi
+X.PP
+XNote that while jump mode uses very little CPU time, glide and
+Xgravity modes can use a substantial amount.
+X.SH DIAGNOSTICS
+X.TP
+X.B can't place bitmaps
+XThis means that there wasn't enough room on the screen to fit all
+Xthe bitmaps you specified.
+XTry fewer or smaller bitmaps.
+X.SH "BUGS / DEFICIENCIES"
+X.PP
+XDoesn't handle masked images.
+XNot too hard to add, just an argument parsing question.
+X.PP
+XDoesn't handle color images.
+XThis could be added trivially if there
+Xwas a standard X way (i.e. XPM) to read them in.
+X.SH "SEE ALSO"
+X.IR xsetroot (1)
+X.SH AUTHOR
+XCopyright (C) 1992 by Jef Poskanzer
+X.\" Permission to use, copy, modify, and distribute this software and its
+X.\" documentation for any purpose and without fee is hereby granted, provided
+X.\" that the above copyright notice appear in all copies and that both that
+X.\" copyright notice and this permission notice appear in supporting
+X.\" documentation.  This software is provided "as is" without express or
+X.\" implied warranty.
+SHAR_EOF
+if test 2644 -ne "`wc -c < 'xbouncebits.man'`"
+then
+	echo shar: error transmitting "'xbouncebits.man'" '(should have been 2644 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'Rects.h'" '(1749 characters)'
+if test -f 'Rects.h'
+then
+	echo shar: will not over-write existing file "'Rects.h'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Rects.h'
+X/* rects.h - some simple rectangle routines
+X**
+X** Copyright (C) 1992 by Jef Poskanzer
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose and without fee is hereby granted, provided
+X** that the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation.  This software is provided "as is" without express or
+X** implied warranty.
+X**
+X** @(#) $Header: Rects.h,v 1.1 92/03/11 19:40:31 jef Exp $"
+X*/
+X
+X#ifndef _RECTS_H_
+X#define _RECTS_H_
+X
+X/* Initialize the Rects package. */
+Xextern void RectsInit(
+X#if NeedFunctionPrototypes
+X    void
+X#endif
+X);
+X
+X/* Queue up a rectangle for repainting - better than sending an Expose event. */
+Xextern void RectsInvalidate(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rectP */,
+X    Bool		/* merge */
+X#endif
+X);
+X
+X/* Return a rectangle to be repainted, if there are any. */
+Xextern Bool RectsNextInvalid(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rectP */
+X#endif
+X);
+X
+X/* Make rect1 the union of rect1 and rect2. */
+Xextern void RectsUnion(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rect1P */,
+X    XRectangle*		/* rect2P */
+X#endif
+X);
+X
+X/* Make rect1 the intersection of rect1 and rect2. */
+Xextern void RectsIntersect(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rect1P */,
+X    XRectangle*		/* rect2P */
+X#endif
+X);
+X
+X/* Test whether rect1 and rect2 intersect. */
+Xextern Bool RectsTouch(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rect1P */,
+X    XRectangle*		/* rect2P */
+X#endif
+X);
+X
+X/* Test whether rect1 is inside rect2. */
+Xextern Bool RectsInside(
+X#if NeedFunctionPrototypes
+X    XRectangle*		/* rect1P */,
+X    XRectangle*		/* rect2P */
+X#endif
+X);
+X
+X#endif /*_RECTS_H_*/
+SHAR_EOF
+if test 1749 -ne "`wc -c < 'Rects.h'`"
+then
+	echo shar: error transmitting "'Rects.h'" '(should have been 1749 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'Rects.c'" '(4299 characters)'
+if test -f 'Rects.c'
+then
+	echo shar: will not over-write existing file "'Rects.c'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Rects.c'
+X/* rects - rectangle routines
+X**
+X** Copyright (C) 1992 by Jef Poskanzer
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose and without fee is hereby granted, provided
+X** that the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation.  This software is provided "as is" without express or
+X** implied warranty.
+X*/
+X
+X#ifndef lint
+Xstatic char rcsid[] =
+X    "@(#) $Header: Rects.c,v 1.1 92/03/11 19:40:31 jef Exp $";
+X#endif
+X
+X#include <X11/Xlib.h>
+X#include <stdio.h>
+X#include "Rects.h"
+X
+X
+X/* Definitions. */
+X
+Xstatic int num_exposerects, max_exposerects;
+Xstatic XRectangle* exposerects;
+X
+X
+X/* Routines. */
+X
+X/* Initialize the Rects package. */
+Xvoid
+XRectsInit()
+X    {
+X    num_exposerects = max_exposerects = 0;
+X    }
+X
+X/* Queue up a rectangle for repainting - better than sending an Expose event. */
+Xvoid
+XRectsInvalidate( rectP, merge )
+X    XRectangle* rectP;
+X    Bool merge;
+X    {
+X    int i;
+X
+X    if ( merge )
+X	{
+X	/* Check if this rectangle intersects an existing one. */
+X	for ( i = 0; i < num_exposerects; ++i )
+X	    {
+X	    if ( RectsTouch( &exposerects[i], rectP ) )
+X		{
+X		RectsUnion( &exposerects[i], rectP );
+X		return;
+X		}
+X	    }
+X	}
+X
+X    /* Nope, add a new XRectangle. */
+X    if ( num_exposerects == max_exposerects )
+X	{
+X	if ( max_exposerects == 0 )
+X	    {
+X	    max_exposerects = 32;	/* non-critical parameter */
+X	    exposerects = (XRectangle*) malloc(
+X		(unsigned) ( max_exposerects * sizeof(XRectangle) ) );
+X	    }
+X	else
+X	    {
+X	    max_exposerects *= 2;
+X	    exposerects = (XRectangle*) realloc(
+X		(char*) exposerects,
+X		(unsigned) ( max_exposerects * sizeof(XRectangle) ) );
+X	    }
+X	if ( exposerects == (XRectangle*) 0 )
+X	    {
+X	    (void) fprintf( stderr, "RectsInvalidate: out of memory\n" );
+X	    exit( 1 );
+X	    }
+X	}
+X    exposerects[num_exposerects] = *rectP;
+X    ++num_exposerects;
+X    }
+X
+X/* Return a rectangle to be repainted, if there are any. */
+XBool
+XRectsNextInvalid( rectP )
+X    XRectangle* rectP;
+X    {
+X    if ( num_exposerects == 0 )
+X	return False;
+X    --num_exposerects;
+X    *rectP = exposerects[num_exposerects];
+X    return True;
+X    }
+X
+X/* Make rect1 the union of rect1 and rect2. */
+Xvoid
+XRectsUnion( rect1P, rect2P )
+X    XRectangle* rect1P;
+X    XRectangle* rect2P;
+X    {
+X    if ( rect2P->x + rect2P->width > rect1P->x + rect1P->width )
+X	rect1P->width = rect2P->x + rect2P->width - rect1P->x;
+X    if ( rect2P->y + rect2P->height > rect1P->y + rect1P->height )
+X	rect1P->height = rect2P->y + rect2P->height - rect1P->y;
+X    if ( rect2P->x < rect1P->x )
+X	{
+X	rect1P->width = rect1P->x + rect1P->width - rect2P->x;
+X	rect1P->x = rect2P->x;
+X	}
+X    if ( rect2P->y < rect1P->y )
+X	{
+X	rect1P->height = rect1P->y + rect1P->height - rect2P->y;
+X	rect1P->y = rect2P->y;
+X	}
+X    }
+X
+X/* Make rect1 the intersection of rect1 and rect2. */
+Xvoid
+XRectsIntersect( rect1P, rect2P )
+X    XRectangle* rect1P;
+X    XRectangle* rect2P;
+X    {
+X    if ( ! RectsTouch( rect1P, rect2P ) )
+X	{
+X	rect1P->width = rect1P->height = 0;
+X	return;
+X	}
+X    if ( rect2P->x + rect2P->width < rect1P->x + rect1P->width )
+X	rect1P->width = rect2P->x + rect2P->width - rect1P->x;
+X    if ( rect2P->y + rect2P->height < rect1P->y + rect1P->height )
+X	rect1P->height = rect2P->y + rect2P->height - rect1P->y;
+X    if ( rect2P->x > rect1P->x )
+X	{
+X	rect1P->width = rect1P->x + rect1P->width - rect2P->x;
+X	rect1P->x = rect2P->x;
+X	}
+X    if ( rect2P->y > rect1P->y )
+X	{
+X	rect1P->height = rect1P->y + rect1P->height - rect2P->y;
+X	rect1P->y = rect2P->y;
+X	}
+X    }
+X
+X/* Test whether rect1 and rect2 intersect. */
+XBool
+XRectsTouch( rect1P, rect2P )
+X    XRectangle* rect1P;
+X    XRectangle* rect2P;
+X    {
+X    if ( rect1P->x + rect1P->width <= rect2P->x ||
+X         rect1P->y + rect1P->height <= rect2P->y ||
+X         rect2P->x + rect2P->width <= rect1P->x ||
+X         rect2P->y + rect2P->height <= rect1P->y )
+X	return False;
+X    return True;
+X    }
+X
+X/* Test whether rect1 is inside rect2. */
+XBool
+XRectsInside( rect1P, rect2P )
+X    XRectangle* rect1P;
+X    XRectangle* rect2P;
+X    {
+X    if ( rect1P->x >= rect2P->x &&
+X	 rect1P->x + rect1P->width <= rect2P->x + rect2P->width &&
+X         rect1P->y >= rect2P->y &&
+X	 rect1P->y + rect1P->height <= rect2P->y + rect2P->height )
+X	return True;
+X    return False;
+X    }
+SHAR_EOF
+if test 4299 -ne "`wc -c < 'Rects.c'`"
+then
+	echo shar: error transmitting "'Rects.c'" '(should have been 4299 characters)'
+fi
+fi # end of overwriting check
+#	End of shell archive
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

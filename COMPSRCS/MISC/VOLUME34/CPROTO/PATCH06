@@ -1,0 +1,183 @@
+Newsgroups: comp.sources.misc
+From: cthuang@zerosan.canrem.COM (Chin Huang)
+Subject:  v34i005:  cproto - generate C function prototypes v3, Patch06
+Message-ID: <1992Dec6.041734.25150@sparky.imd.sterling.com>
+X-Md4-Signature: 582498f3135010ce03099c4187dd8fd2
+Date: Sun, 6 Dec 1992 04:17:34 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cthuang@zerosan.canrem.COM (Chin Huang)
+Posting-number: Volume 34, Issue 5
+Archive-name: cproto/patch06
+Environment: UNIX, MS-DOS, getopt, lex, yacc
+Patch-To: cproto: Volume 29, Issue 61-62
+
+This patch brings cproto to version 3 patchlevel 6.  This patch fixes a
+portability problem that prevented it from being compiled with pre-ANSI
+C compilers.  Thanks to Pat Myrto <ole!rwing!pat@nwnexus.wa.com> for
+reporting this bug.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  patch6
+# Wrapped by cthuang@zerosan.UUCP on Tue Dec 01 21:08:19 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f patch6 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"patch6\"
+else
+echo shar: Extracting \"patch6\" \(4483 characters\)
+sed "s/^X//" >patch6 <<'END_OF_patch6'
+Xdiff  -c old/CHANGES new/CHANGES
+X*** old/CHANGES	Sat Nov 28 23:18:24 1992
+X--- new/CHANGES	Tue Dec 01 21:03:42 1992
+X***************
+X*** 1,16 ****
+X  Version 3
+X  
+X  Patchlevel 5
+X  
+X  - Fix: The -v option did not output declarations for function pointers.
+X  - Fix: String literals continued over more than one line messed up the
+X    line number count.
+X! - Fix: The program generated incorrect prototypes for functions that take
+X!   a variable argument list using <varargs.h>.
+X! - Fix: When converting functions from the standard input, cproto generated
+X!   no output if no functions needed to be converted.
+X  - Fix: Now does not output a warning if an untagged struct is found in a
+X    typedef declaration.
+X  - Added the -b option which rewrites function definition heads to
+X    include both old style and new style declarations separated by a
+X    conditional compilation directive.  For example, the program can
+X--- 1,27 ----
+X  Version 3
+X  
+X+ Patchlevel 6
+X+ 
+X+ - Fix: A function in lex.l exploited the ANSI C feature of concatenating
+X+   string literals.  This prevented the module from being compiled with
+X+   pre-ANSI C compilers.
+X+ 
+X  Patchlevel 5
+X  
+X  - Fix: The -v option did not output declarations for function pointers.
+X+ 
+X  - Fix: String literals continued over more than one line messed up the
+X    line number count.
+X! 
+X! - Fix: The program generated incorrect prototypes for functions that
+X!   take a variable argument list using <varargs.h>.
+X! 
+X! - Fix: When converting functions from the standard input, cproto
+X!   generated no output if no functions needed to be converted.
+X! 
+X  - Fix: Now does not output a warning if an untagged struct is found in a
+X    typedef declaration.
+X+ 
+X  - Added the -b option which rewrites function definition heads to
+X    include both old style and new style declarations separated by a
+X    conditional compilation directive.  For example, the program can
+X***************
+X*** 30,43 ****
+X  	{
+X  	}
+X  
+X!   Added the -B option to set the preprocessor directive that appears
+X!   at the beginning of such definitions.
+X! - Added the keyword "interrupt" to the set of type qualifiers when compiled
+X!   on a UNIX system.
+X  - The MS-DOS version now recognizes the type modifiers introduced by
+X    Microsoft C/C++ 7.00.
+X  - Now recognizes ANSI C trigraphs (yuck!).
+X  - Now use "#if __STDC__" instead of "#if defined(__STDC__)".
+X  - GNU bison orders the y.tab.c sections differently than yacc, which
+X    resulted in references to variables before they were declared.  The
+X    grammar specification was modified to also be compatible with bison.
+X--- 41,59 ----
+X  	{
+X  	}
+X  
+X!   Added the -B option to set the preprocessor directive that appears at
+X!   the beginning of such definitions.
+X! 
+X! - Added the keyword "interrupt" to the set of type qualifiers when
+X!   compiled on a UNIX system.
+X! 
+X  - The MS-DOS version now recognizes the type modifiers introduced by
+X    Microsoft C/C++ 7.00.
+X+ 
+X  - Now recognizes ANSI C trigraphs (yuck!).
+X+ 
+X  - Now use "#if __STDC__" instead of "#if defined(__STDC__)".
+X+ 
+X  - GNU bison orders the y.tab.c sections differently than yacc, which
+X    resulted in references to variables before they were declared.  The
+X    grammar specification was modified to also be compatible with bison.
+Xdiff  -c old/lex.l new/lex.l
+X*** old/lex.l	Sat Nov 28 23:54:16 1992
+X--- new/lex.l	Tue Dec 01 21:04:42 1992
+X***************
+X*** 1,5 ****
+X  %{
+X! /* $Id: lex.l 3.8 1992/11/29 04:54:14 cthuang Exp $
+X   *
+X   * Lexical analyzer for C function prototype generator
+X   */
+X--- 1,5 ----
+X  %{
+X! /* $Id: lex.l 3.9 1992/12/02 02:04:35 cthuang Exp $
+X   *
+X   * Lexical analyzer for C function prototype generator
+X   */
+X***************
+X*** 294,299 ****
+X--- 294,300 ----
+X  static void
+X  get_cpp_directive ()
+X  {
+X+     static char cont_trigraph[] = { '?', '?', '/', '\0' };
+X      char c, lastc[4];
+X      
+X      lastc[0] = lastc[1] = lastc[2] = lastc[3] = '\0';
+X***************
+X*** 304,310 ****
+X  	switch (c) {
+X  	case '\n':
+X  	    cur_file->line_num++;
+X! 	    if (lastc[2] != '\\' && strcmp(lastc, "??""/") != 0) {
+X  		BEGIN INITIAL;
+X  		return;
+X  	    }
+X--- 305,311 ----
+X  	switch (c) {
+X  	case '\n':
+X  	    cur_file->line_num++;
+X! 	    if (lastc[2] != '\\' && strcmp(lastc, cont_trigraph) != 0) {
+X  		BEGIN INITIAL;
+X  		return;
+X  	    }
+Xdiff  -c old/patchlev.h new/patchlev.h
+X*** old/patchlev.h	Fri Jun 26 08:27:12 1992
+X--- new/patchlev.h	Tue Dec 01 09:52:28 1992
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL 5
+X--- 1 ----
+X! #define PATCHLEVEL 6
+END_OF_patch6
+if test 4483 -ne `wc -c <patch6`; then
+    echo shar: \"patch6\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of shell archive.
+exit 0
+
+-- 
+Chin Huang  cthuang%zerosan@canrem.com  chin.huang@canrem.com
+
+exit 0 # Just in case...

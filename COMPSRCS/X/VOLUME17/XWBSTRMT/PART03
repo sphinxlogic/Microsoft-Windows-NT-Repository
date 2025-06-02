@@ -1,0 +1,576 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: cattelan@everest.ee.umn.edu (Russell Cattelan)
+Subject: v17i057: xwebster (MOTIF) (REPOST), Part03/03
+Message-ID: <1992Apr14.141632.7959@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i055-xwebster-motif@uunet.UU.NET>
+Date: Tue, 14 Apr 1992 14:16:32 GMT
+Approved: dcmartin@msi.com
+Lines: 562
+
+Submitted-by: cattelan@everest.ee.umn.edu (Russell Cattelan)
+Posting-number: Volume 17, Issue 57
+Archive-name: xwebster-motif/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xwebster.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xwebster.c'
+else
+echo 'x - continuing file xwebster.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xwebster.c' &&
+X      Controlpanel_Titlebar_Set_Label("Word not in dictionary. Do you mean:");
+X      Wordlist_Reset();
+X      webster_state = GET_WORDLIST; current_wordlist_is_xrefs = FALSE;
+X    }
+X    else if (strncmp(line, "WILD 0\n", 7) == 0) { /* returned by DEFINE */
+X      Controlpanel_Titlebar_Set_Label("No Match!");
+X      XBell(display, 100);
+X      Wordlist_Reset();
+X      Controlpanel_Reactivate();
+X      /* webster_state = WEBSTER_READY; */
+X    } 
+X    else if (strncmp(line, "WILD\n", 5) == 0) {	/* returned by DEFINE */
+X      Controlpanel_Titlebar_Set_Label("Choose a word:");
+X      Wordlist_Reset();
+X      webster_state = GET_WORDLIST; current_wordlist_is_xrefs = FALSE;
+X    }      
+X    else if (strncmp(line, "DEFINITION ", 11) == 0) { /* returned by DEFINE */
+X      sscanf(line, "DEFINITION %d\n", &num_xrefs);
+X      if (num_xrefs == 0) {
+X	/** don't clear the wordlist if last define req came from the wordlist **/
+X	if (Controlpanel_Cur_Word_Is_From_TextEdit()) {
+X	  Wordlist_Reset();
+X	  Controlpanel_Titlebar_Set_Label("\000");
+X	}
+X	webster_state = GET_DEFINITION;
+X      }
+X      else {
+X	/** don't clear old xrefs if new set of xrefs gend from a word in old xrefs **/
+X	if (Controlpanel_Cur_Word_Is_From_TextEdit() || !current_wordlist_is_xrefs)
+X	  Wordlist_Reset();
+X	Controlpanel_Titlebar_Set_Label("Cross References:");
+X	webster_state = GET_XREFS; current_wordlist_is_xrefs = TRUE;
+X      }
+X    }
+X    else if (strncmp(line, "ERROR RECOVERABLE", 17) == 0) {
+X      Controlpanel_Titlebar_Set_Label("Error:");
+X      Display_Def_Text_Reset();
+X      Display_Def_Text_Append(line);
+X      Display_Def_Refresh();
+X      XBell(display, 100); XBell(display, 100);
+X      Wordlist_Reset();
+X      Controlpanel_Reactivate();
+X      /* webster_state = WEBSTER_READY; */
+X    }
+X    else if (strncmp(line, "ERROR FATAL", 11) == 0) {
+X      XBell(display, 100); XBell(display, 100);
+X      XBell(display, 100); XBell(display, 100);
+X      Display_Def_Text_Reset();
+X      Display_Def_Text_Append(line);
+X      Display_Def_Refresh();
+X      Webster_Disconnect();
+X      Controlpanel_Reactivate();
+X    }
+X    else {
+X      sprintf(temptext, "unknown server message: %s", line);
+X      Controlpanel_Titlebar_Set_Label(temptext); 
+X      XBell(display, 100); XBell(display, 100);
+X      Wordlist_Reset();
+X      Controlpanel_Reactivate();
+X      /* webster_state = WEBSTER_READY; */
+X    }
+X    break;
+X  case GET_WORDLIST:		/* get words, one per line, till EOF reached */
+X    if (line == NULL) {		/* EOF reached */
+X      Wordlist_Show();
+X      Controlpanel_Reactivate(); /* ready for user input */
+X      webster_state = WEBSTER_READY;
+X    }
+X    else {
+X      sscanf(line, "%*d %[^\n]", temptext);
+X      Wordlist_Add(temptext);
+X      /* webster_state = GET_WORDLIST; */
+X    }
+X    break;
+X  case GET_XREFS:
+X    if (line == NULL) {
+X      Display_Def_Refresh();	/* show the definition */
+X      Controlpanel_Reactivate();
+X      webster_state = WEBSTER_READY;
+X      break;
+X    }
+X    sscanf(line, "%*d %[^\n]", temptext);
+X    Wordlist_Add(temptext);
+X    num_xrefs--;
+X    if (num_xrefs == 0) {
+X      Wordlist_Show();
+X      webster_state = GET_DEFINITION;
+X    }
+X    /* else
+X       webster_state = GET_XREFS; */
+X    break;
+X  case GET_DEFINITION:
+X    if (line == NULL) {		/* EOF reached */
+/*
+X * Hmm why is this here? Everytime word is selected from the buttons it sets 
+X * the input window word to ""  not friendly in my opinion RMC 
+X */
+/*      Controlpanel_Set_Input_Word("");  */
+X      Display_Def_Refresh();	/* show the definition */
+X      Controlpanel_Reactivate(); /* ready for user input */
+X      webster_state = WEBSTER_READY;
+X    }
+X    else {
+X      Display_Def_Text_Append(line);
+X      /* webster_state = GET_DEFINITION; */
+X    }
+X    break;
+X  default:
+X    XBell(display, 100);
+X    Controlpanel_Titlebar_Set_Label("error -- xwebster programmer goofed");
+X    Controlpanel_Reactivate();
+X    webster_state = WEBSTER_READY;
+X    break;
+X  }
+}
+X
+/******************************************************************************
+X * returns 0 if it couldn't send, else 1.
+X ******************************************************************************/
+int 
+X  Webster_Send(buf)
+char *buf;
+{
+X  extern int sys_nerr;
+X  extern char *sys_errlist[];
+X  extern int errno;
+X
+X  if (webster_Socket == NULL)
+X    Webster_Reconnect();
+X  if (webster_Socket == NULL)
+X    return(0);
+X  if (send(webster_Socket, buf, strlen(buf), 0) < 0) {
+X    Display_Def_Text_Reset();
+X    if (errno < sys_nerr)
+X      (void) sprintf(temptext, "Error sending to webster server: %s\n", sys_errlist[errno]);
+X    else
+X      (void) strcpy(temptext, "Error sending to webster server: unknown error\n");
+X    Display_Def_Text_Append(temptext);
+X    Display_Def_Refresh();
+X    return(0);
+X  }
+X  return(1);
+}
+X
+/******************************************************************************
+X * originally from webster.c, but by now, highly modified.
+X ******************************************************************************/
+static int 
+X  Webster_Connect_To_Server(host_addr, host_port, host_service_name)
+char* host_addr;
+int host_port;
+char* host_service_name;
+{
+X  struct sockaddr_in sin;
+X  register int s;
+X  register struct servent *sp;
+X
+X  /* Look up the host in the host file. */
+X  memset( (char*) &sin, '\000', sizeof(struct sockaddr_in));
+X  sin.sin_family = AF_INET;
+X  sin.sin_addr.s_addr = inet_addr(host_addr);
+X  if (sin.sin_addr.s_addr == -1) {
+X    fprintf(stderr, "xwebster: %s: unknown host.\n", host_addr);
+X    return(-1);
+X  }
+X
+X  if ((sp = getservbyname(host_service_name, "tcp")) == NULL)
+X    sin.sin_port = htons(host_port);
+X  else
+X    sin.sin_port = sp->s_port;
+X
+X  /* Get a TCP socket. */
+X  if ((s = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+X    return(-1);
+X  }
+X
+X  /* Try to connect. */
+X  if (connect(s, &sin, sizeof(struct sockaddr_in)) < 0) {
+X    return(-1);
+X  }
+X  return(s);
+}
+X
+/******************************************************************************
+X * Try to connect up to a webster server. Xwebster will try each host address
+X * in the Xdefault hostAddrList successively until it connects succesfully
+X * or until it runs out of hosts to try to connect.
+X ******************************************************************************/
+static void 
+X  Webster_Reconnect()
+{
+X  extern int   sys_nerr;
+X  extern char* sys_errlist[];
+X  extern int   errno;
+X  extern char* strtok();	/* if you don't have this, get the source from 
+X				   Henry Spencer's public domain strings package */
+X
+X  char* host_addr = strtok(user_prefs.host_addr_list, " \t");
+/* If more than one host compiled into the default list strtok core dumps */
+/* find out why */
+X  Display_Def_Text_Reset();
+X  do {
+X    sprintf(temptext, "Trying webster server at address %s ...\n", host_addr);
+X    Display_Def_Text_Append(temptext);
+X    Display_Def_Refresh();
+X    XSync(display, FALSE);
+X    while (XtPending()) {	/* since we can't get back to XtMainLoop yet-*/
+X      XEvent event;		/*-we process the events here... (yech) */
+X      XtNextEvent(&event);
+X      XtDispatchEvent(&event);
+X    }
+X    webster_Socket = Webster_Connect_To_Server(host_addr, user_prefs.host_port, 
+X					       user_prefs.host_service_name);
+X    if (webster_Socket < 0) {
+X      Display_Def_Text_Reset();
+X      (void) sprintf(temptext, "Problem with server host %s\n", host_addr);
+X      Display_Def_Text_Append(temptext);
+X      if (errno < sys_nerr)
+X	(void) sprintf(temptext, "webster server error: %s\n", sys_errlist[errno]);
+X      else
+X	(void) strcpy(temptext, "webster server error: unknown error\n");
+X      Display_Def_Text_Append(temptext);
+X    }
+X  } while ((webster_Socket < 0) && ((host_addr = strtok(NULL, " \t")) != NULL));
+X	
+X  if (webster_Socket < 0) {
+X    Controlpanel_Titlebar_Set_Label("Error:");
+X    Display_Def_Text_Reset();
+X    Display_Def_Text_Append("Couldn't access a webster host. Be sure that the following Xdefaults\n");
+X    Display_Def_Text_Append("have been set correctly for accessing your Webster server:\n");
+X    Display_Def_Text_Append("*hostAddrList *hostPort *hostServiceName\n");
+X    sprintf(temptext, "See %s/Xwebster for details.\n", APPDEFAULTSDIR);
+X    Display_Def_Text_Append(temptext);
+X    Display_Def_Refresh();
+X    webster_Socket = NULL;  /* indicates we still don't have server connection */
+X  } 
+X  else {
+X    Controlpanel_Titlebar_Set_Label(xwebster_version);
+X    Display_Def_Text_Reset();
+X    webster_xinput = XtAppAddInput(webster_app,
+X				   webster_Socket,
+X				   (XtPointer)XtInputReadMask,
+X				   (XtInputCallbackProc)Webster_Get_Server_Output,
+X				   NULL);
+X    webster_xexcept = XtAppAddInput(webster_app,
+X				    webster_Socket,
+X				    (XtPointer)XtInputExceptMask,
+X				    (XtInputCallbackProc)Webster_Handle_Server_Exception,
+X				    NULL);
+X  }
+}
+X
+/******************************************************************************
+X * This procedure is called indirectly, via XtAddInput() callback from 
+X * XtMainLoop() whenever an exception occurs on webster_Socket. This callback
+X * is setup in procedure Webster_Reconnect().
+X ******************************************************************************/
+static XtInputCallbackProc 
+X  Webster_Handle_Server_Exception(client_data, source_fildes, id)
+X     caddr_t   client_data;
+X     int       source_fildes;
+X     XtInputId id;
+{
+X  Webster_Disconnect();
+}
+X
+/******************************************************************************
+X *
+X ******************************************************************************/
+static void 
+X  Webster_Disconnect()
+{
+X  extern int   sys_nerr;
+X  extern char* sys_errlist[];
+X  extern int   errno;
+X
+X  Controlpanel_Titlebar_Set_Label("Webster Server Error:");
+X  Display_Def_Text_Reset();
+X  if (errno < sys_nerr)
+X    (void) sprintf(temptext, "Webster server error: %s\n", sys_errlist[errno]);
+X  else
+X    (void) strcpy(temptext, "Webster server error: unknown error\n");
+X  Display_Def_Text_Append(temptext);
+X  Display_Def_Text_Append("Webster server connection closed.\n");
+X  Display_Def_Refresh();
+X  XtRemoveInput(webster_xinput);
+X  XtRemoveInput(webster_xexcept);
+X  close(webster_Socket);
+X  webster_Socket = NULL;
+X  Controlpanel_Reactivate();
+X  /* No point reconnecting - we'll wait till we try to do something. */
+X    /* Well it seems that the next websterd will close if given a null word */
+X    /* while this does seem to be a problem with the websterd we do want to give */
+X    /* the user another chance to type a word soooo go aheand and reactivevate */
+X    /* the controlpanel  RMC*/
+}
+SHAR_EOF
+echo 'File xwebster.c is complete' &&
+chmod 0644 xwebster.c ||
+echo 'restore of xwebster.c failed'
+Wc_c="`wc -c < 'xwebster.c'`"
+test 22128 -eq "$Wc_c" ||
+	echo 'xwebster.c: original size 22128, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xwebster.h ==============
+if test -f 'xwebster.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xwebster.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xwebster.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xwebster.h' &&
+/* -*-C-*-
+********************************************************************************
+*
+* File:         xwebster.h
+* RCS:          $Header: /home/everest1/cattelan/work/xwebster.motif/RCS/xwebster.h,v 1.1 1992/03/21 22:39:43 cattelan Exp $
+* Description:  Miscellaneous macros
+* Author:       Niels Mayer, HPLabs
+* Created:      Wed Aug 31 14:09:08 1988
+* Modified:     Tue Sep 13 15:33:32 1988 (Niels Mayer) mayer@hplnpm
+* Language:     C
+* Package:      N/A
+* Status:       G-Job
+*
+* xwebster - dictionary browser
+*
+* Copyright 1988 Hewlett-Packard Company
+*
+* Permission to use, copy, modify, and distribute this software and its
+* documentation for any purpose and without fee is hereby granted, provided
+* that the above copyright notice appear in all copies and that both that
+* copyright notice and this permission notice appear in supporting
+* documentation, and that the name of HP not be used in advertising or
+* publicity pertaining to distribution of the software without specific,
+* written prior permission.  HP makes no representations about the
+* suitability of this software for any purpose.  It is provided "as is"
+* without express or implied warranty.
+*
+* Please send any improvements, bug fixes, useful modifications, and comments
+* to mayer@hplabs.hp.com.
+********************************************************************************
+*/
+static char rcs_identity_xwebster[] = "@(#)$Header: /home/everest1/cattelan/work/xwebster.motif/RCS/xwebster.h,v 1.1 1992/03/21 22:39:43 cattelan Exp $";
+X
+#include <X11/Xos.h>
+#include <X11/StringDefs.h>
+#include <X11/Intrinsic.h>
+#include <Xm/Xm.h>
+X
+X
+/*----------------------------------------------------------------------------
+X * Kludges to sweeten Xt's ugly argument processing for widget creation.
+X *---------------------------------------------------------------------------*/
+static Arg _args[100];
+static int _num_args;
+X
+#define ARGLIST_RESET() \
+X  _num_args = 0
+X
+#define ARGLIST_ADD(name, value) \
+X  XtSetArg(_args[_num_args], (name), (value)); _num_args++
+X
+#define ARGLIST_SET_LAST_ELT(name, value) \
+X  XtSetArg(_args[(_num_args - 1)], (name), (value))
+X
+#define ARGLIST() \
+X  _args, _num_args
+X
+static char temptext[1024]; /* local text storage, mostly used for sprintf */
+X
+#define FONTHEIGHT(f) ((f)->max_bounds.ascent + (f)->max_bounds.descent)
+#define FONTWIDTH(f)  (f)->max_bounds.width
+X
+#define COPY_STRING(str) \
+X  (char *) strcpy(XtMalloc((strlen(str)+1) * sizeof(char)), (str))
+SHAR_EOF
+chmod 0644 xwebster.h ||
+echo 'restore of xwebster.h failed'
+Wc_c="`wc -c < 'xwebster.h'`"
+test 2464 -eq "$Wc_c" ||
+	echo 'xwebster.h: original size 2464, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xwebster.man ==============
+if test -f 'xwebster.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xwebster.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xwebster.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xwebster.man' &&
+.TH XWEBSTER 1 "March 6, 1989" "X Version 11"
+.SH NAME
+xwebster \- X interface to look up words in the dictionary
+.SH SYNOPSIS
+.B xwebster
+[\fBX Toolkit option\fP]
+.SH DESCRIPTION
+.PP
+\fIXwebster\fP is used to look up words in the online copy of Webster's
+dictionary.  It puts up an application window that contains subwindows to
+interact with the user and display the results. The top half has a browser
+window in which alternative words will be shown, below that is a row of
+windows consisting of an interaction window where the user may enter words
+to be looked up, and buttons which the user may click on to select a
+program function. The lower window is used to display the definitions that
+are found.
+.PP
+Just type the word you want defined in the interaction window and hit
+Return to see the definition (or click on the \fB[Define]\fP button).  If
+the word is found, \fIxwebster\fP will then provide the complete dictionary
+entry for the word including definitions, pronunciation, and derivation.
+If the specified word was not found, \fIxwebster\fP will try to find close
+matches, as if you spelled the word wrong.  The possibilities are displayed
+in buttons.  To select one of them, you can just click on it.
+.PP
+Additionally, \fIxwebster\fP can match words using wildcards.
+The character
+`%' in a word means match exactly one character,
+so ``w%n'' matches
+``win'',
+``won'',
+``wan'',
+etc.
+The character `*' matches zero or more characters,
+so ``a*d''matches
+``ad'',
+``and'',
+``abound'',
+``absentminded'',
+and so on.
+Any number of wildcards can be used,
+and in any arrangement.
+.PP
+Typing \fB'?'\fP or mousing \fB[Endings]\fP following part of a word will
+cause \fIxwebster\fP to list all words beginning with the partial word in
+the word browser panel. The program will beep and give an error message if
+nothing matches.
+.PP
+Typing \fB<tab>\fP or mousing \fB[Complete]\fP causes the program to
+attempt to complete the word.  If the word can be completed, the new word
+is placed in the TextEdit widget; otherwise, the program beeps and displays
+a message indicating that the word is ambiguous.
+.PP
+\fB(NeXT Mode only):\fP 
+.LP
+Mousing \fB[Thesaurus]\fP sets the wester server to "thesaurus mode",
+before doing a lookup. Subsequent lookups via <Return> in the word
+input window will be from the thesaurus data base. Mousing
+\fB[Define]\fP will set it back to "dictionary mode".
+.SH CUSTOMIZING
+All the resources for \fIxwebster\fP are specified in the application
+default file Xwebster.ad, which MUST be installed in
+APPDEFAULTSDIR/Xwebster.  Fully qualified resource names are used in this
+app-defaults file so as to document the widget hierarchy in the
+application. Documentation on customizing \fIxwebster\fP also appears in
+this defaults file.  (APPDEFAULTSDIR is set in the imake defaults, it is
+usually /usr/lib/X11/app-defaults/)
+.PP
+Parameters for connecting to a webster server are contained in the
+resources \fB``hostAddrList''\fP, \fB``hostPort''\fP, and
+\fB``hostServiceName''\fP. See the aforementioned Xwebster.ad file for
+details and documentation.
+.SH HISTORY
+This program was inspired by the webster(1) tty-based client to a webster
+server written by Dave Curry <davy@riacs.edu>, although most of the code
+was written from scratch because I didn't find the webster(1) source code
+until after the application was prototyped. The original webster
+client/server was written in MIDAS and ran under Tops-20, it was probably
+done by someone at SRI-NIC.
+.PP
+\fIXwebster\fP was originally written and released by Niels Mayer
+<mayer@hplabs.hp.com> on the X11r3 contrib tape. Mark Moraes
+<moraes@csri.toronto.edu> took that version, updated it to work with the r3
+HP Xwidgets and r3 Toolkit Intrinsics, and fixed a bunch of stupid bugs
+that were making \fIxwebster\fP dump core an a SUN. Russell Cattelan
+<cattelan@everest.ee.umn.edu> updated it again to use the Motif Widget
+set, and the R5 Toolkit.
+.PP
+If you have contributions to make to \fIxwebster\fP, please send them to
+cattelan@everest.ee.umn.edu or mayer@hplabs.hp.com. 
+.SH SEE ALSO
+look(1), spell(1), webster(1), websterd(8)
+.SH FILES
+/usr/lib/X11/app-defaults/Xwebster
+$HOME/.Xdefaults
+.SH AUTHORS
+Niels Mayer (mayer@hplabs.hp.com or hplabs!mayer)
+.PP
+Mark Moraes (moraes@csri.toronto.edu)
+.PP
+Russell Cattelan (cattelan@everest.ee.umn.edu)
+.SH BUGS
+The first word takes a longer time to define, because there is a
+non-trivial setup time involved on initially starting the server.
+Likewise, if the server times out (you'll note error messages to this
+effect), the next word will take a longer time to define since
+\fIxwebster\fP must reconnect to a server. 
+.PP
+It is possible to grab one of the "handles" on paned window and eliminate
+from view any of the sections, most notably the middle input
+section. I have tried setting the min height but without much luck,
+I'm sure it is something simple I am overlooking.
+.PP
+The translation between all the neat special characters in the dictionary
+such as upside-down e's, cedillas, accent marks, etc. and a simple ASCII
+terminal is marginal at best.  Most of the characters are fairly well
+faked, but a few of them are impossible.  In particular, the schwa
+(upside-down e) is represented by an asterisk.
+.PP
+There are fixed internal limits on the number of words that can be
+displayed in the browser (16384), and the number of characters of text in
+the lower window (16384). The defaults should be adequate given the number
+of words and the description sizes of the standard webster dictionary
+database. If you end up trying to get the dictionary to return all the
+words available by abusing the wildcarding feature, then expect \fIxwebster\fP
+to crash.
+.PP
+SHAR_EOF
+chmod 0644 xwebster.man ||
+echo 'restore of xwebster.man failed'
+Wc_c="`wc -c < 'xwebster.man'`"
+test 5680 -eq "$Wc_c" ||
+	echo 'xwebster.man: original size 5680, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

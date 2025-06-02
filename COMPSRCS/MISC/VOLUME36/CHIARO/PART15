@@ -1,0 +1,1653 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i085:  chiaro - Image Utilities, Part15/18
+Message-ID: <1993Mar26.202929.15020@sparky.imd.sterling.com>
+X-Md4-Signature: 1e704be0f2e7ae5456cb98e8bcc042a0
+Date: Fri, 26 Mar 1993 20:29:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 85
+Archive-name: chiaro/part15
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/gif.c.A src/mf.c
+# Wrapped by kent@sparky on Thu Mar 25 11:20:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 18)."'
+if test -f 'src/gif.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gif.c.A'\"
+else
+  echo shar: Extracting \"'src/gif.c.A'\" \(28663 characters\)
+  sed "s/^X//" >'src/gif.c.A' <<'END_OF_FILE'
+X/***************************************************************************
+X*   GIF.C                                                                  *
+X*   MODULE:  GIF                                                           *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   The Graphics Interchange Format(c) is the Copyright property of        *
+X*   CompuServe Incorporated. GIF(sm) is a Service Mark property of         *
+X*   CompuServe Incorporated.                                               *
+X*                                                                          *
+X*   $Id: gif.c,v 1.7 1993/03/08 00:19:35 jwbirdsa Exp $
+X*                                                                          *
+X*   This module is for processing GIF format files. Functions are:         *
+X*                                                                          *
+X*      gif_verify                                                          *
+X*      gif_lsdget                                                          *
+X*      gif_searchlsd                                                       *
+X*      gif_gctget                                                          *
+X*      gif_findnext                                                        *
+X*      gif_imdget                                                          *
+X*      gif_lctget                                                          *
+X*      gif_skipsection                                                     *
+X*      gif_grafctrlext                                                     *
+X*      gif_commentext                                                      *
+X*      gif_plaintextext                                                    *
+X*      gif_applext                                                         *
+X*      gif_readblock                                                       *
+X*      gif_errstring                                                       *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STDLIB
+X#include <stdlib.h>
+X#endif
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "fb.h"
+X#include "formats.h"
+X#include "gif.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/* Define GIF_SIG_LEN_MAX as the longer of the two signature lengths. */
+X
+X#if GIF_SIGNATURE_LEN > SIG_VERS_SIG_LEN
+X#define GIF_SIG_LEN_MAX         GIF_SIGNATURE_LEN
+X#else
+X#define GIF_SIG_LEN_MAX         GIF_VERS_SIG_LEN
+X#endif
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+Xchar CONST sig[] = GIF_SIGNATURE;
+X
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: gif.c,v 1.7 1993/03/08 00:19:35 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef  __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic ULONG gif_vget P_((FILE *infile, ULONG *version));
+X
+X#ifndef NO_FB
+Xstatic ULONG gif_fgetvers P_((FB *infile, ULONG *version));
+X
+Xstatic ULONG gif_tblget P_((FB *infile, RGB_TRIPLET *colors, int size));
+Xstatic ULONG gif_gbytes P_((FB *infile, char **bytes, unsigned int *length));
+X#endif
+X
+X#undef P_
+X
+X#ifdef NO_STR_INC
+Xextern int strncmp();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X/***************************************************************************
+X*   FUNCTION: gif_verify                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function checks a file to determine if it is a GIF format      *
+X*      file or not.                                                        *
+X*                                                                          *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      filename - a pointer to a string which is the name of the file to   *
+X*                 be checked                                               *
+X*      version  - pointer to an unsigned long in which version information *
+X*                 is returned                                              *
+X*      exts     - optional list of file extensions                         *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_verify(char *filename, ULONG *version, char **exts)
+X#else
+Xgif_verify(filename, version, exts)
+Xchar *filename;
+XULONG *version;
+Xchar **exts;
+X#endif
+X{
+X    FILE *infile;                /* file handle */
+X    ULONG status;                /* status code storage */
+X
+X    /* If a list of extensions was supplied, check against it. */
+X
+X    if (((char **) NULL) != exts)
+X    {
+X        /* Search for '.' marking extension. */
+X
+X        int loop;
+X        char *extptr = (char *) strrchr(filename, '.');
+X
+X        if (NULL == extptr)
+X        {
+X            /* No extension, cannot classify. */
+X
+X            *version = GIF_NOT;
+X            return 0;
+X        }
+X        extptr++;
+X
+X        /* Now we have the extension, check against list. */
+X
+X        for (loop = 0; exts[loop] != NULL; loop++)
+X        {
+X            /* Case-sensitive string compare. */
+X
+X            if (strcmp(extptr, exts[loop]) == 0)
+X            {
+X                /* Match, so break out of loop. */
+X
+X                break;
+X            }
+X        }
+X
+X        /* Check exit from loop. */
+X
+X        if (NULL == exts[loop])
+X        {
+X            /* No match, return. */
+X
+X            *version = GIF_NOT;
+X            return 0;
+X        }
+X
+X        /* Extension is valid for type GIF, so process accordingly. */
+X    }
+X
+X    /* Open file. */
+X
+X    if ((infile = fopen(filename, FOPEN_READ_BINARY)) == (FILE *) NULL)
+X    {
+X        return GIF_NOFILE_E;
+X    }
+X
+X    /* Get version. */
+X
+X    status = gif_vget(infile, version);
+X
+X    if (fclose(infile))
+X    {
+X        return GIF_FILEERR_E;
+X    }
+X
+X    return status;
+X} /* end of gif_verify() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_lsdget                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function obtains and parses the GIF logical screen descriptor  *
+X*      (LSD), then returns the results.                                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - handle of file (must be open in BINARY mode)               *
+X*      lsd    - pointer to GIF_LSD structure in which results  returned.   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Leaves file pointer pointing to byte after logical screen           *
+X*      descriptor.                                                         *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_lsdget(FILE *infile, GIF_LSD *results)
+X#else
+Xgif_lsdget(infile, results)
+XFILE *infile;
+XGIF_LSD *results;
+X#endif
+X{
+X    ULONG status;                    /* status code storage */
+X    UCHAR lsd_buffer[GIF_LSD_LEN];   /* buffer for raw lsd */
+X
+X    /* First, check that it is a GIF file and get version. */
+X
+X    /* Seek to correct place in file. */
+X
+X    if (fseek(infile, 0L, SEEK_SET))
+X    {
+X        return GIF_FILEERR_E;
+X    }
+X    if ((status = gif_vget(infile, &(results->version))) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Check version. */
+X
+X    if (results->version == GIF_NOT)
+X    {
+X        return GIF_NOTGIF_E;
+X    }
+X
+X    /*
+X    ** Calling gif_vget() has forwarded us over signature, so next
+X    ** bytes should be the LSD.
+X    */
+X
+X    if (fread(lsd_buffer, 1, GIF_LSD_LEN, infile) != GIF_LSD_LEN)
+X    {
+X        return GIF_UNEOF_E;
+X    }
+X
+X    /* Got the lsd, so let's take it apart. */
+X
+X    results->scr_wid = CONSTRUCT_I_UINT(lsd_buffer + GIF_LSD_SCRWID_OFF);
+X    results->scr_hi = CONSTRUCT_I_UINT(lsd_buffer + GIF_LSD_SCRHI_OFF);
+X    results->background = (int) (*(lsd_buffer + GIF_LSD_BACKGROUND_OFF));
+X    results->aspect = (int) (*(lsd_buffer + GIF_LSD_ASPECT_OFF));
+X
+X    results->raw_packed = (*(lsd_buffer + GIF_LSD_PACKED_OFF));
+X    results->gct_flag = (results->raw_packed & GIF_LSD_GCTFLAG_MASK) ? 1 : 0;
+X    results->clr_res = (((unsigned int)(results->raw_packed &
+X                                        GIF_LSD_CLRRES_MASK)) >> 
+X                        GIF_LSD_CLRRES_SHIFT);
+X    results->clr_res++;
+X    results->sort_flag = (results->raw_packed & GIF_LSD_SORTFLAG_MASK) ? 1 : 0;
+X    results->gct_size = (((unsigned int)(results->raw_packed &
+X                                         GIF_LSD_GCTSIZE_MASK)) + 1);
+X
+X    /* All done. */
+X
+X    return 0;
+X} /* end of gif_lsdget() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_searchlsd                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function obtains and parses the GIF logical screen descriptor  *
+X*      (LSD), then returns the results. It scans forward over leading      *
+X*      junk, starting from the beginning of the file.                      *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile  - FB handle of file                                         *
+X*      lsd     - pointer to GIF_LSD structure in which results returned.   *
+X*      skipped - pointer to unsigned long in which count of junk           *
+X*                character skipped is returned.                            *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Leaves file pointer pointing to byte after logical screen           *
+X*      descriptor.                                                         *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_searchlsd(FB *infile, GIF_LSD *results, ULONG *skipped)
+X#else
+Xgif_searchlsd(infile, results, skipped)
+XFB *infile;
+XGIF_LSD *results;
+XULONG *skipped;
+X#endif
+X{
+X#ifndef NO_FB
+X    ULONG status;                    /* status code storage */
+X    UCHAR lsd_buffer[GIF_LSD_LEN];   /* buffer for raw lsd */
+X    int c;
+X    long place;
+X
+X    /* Seek to correct place in file. */
+X
+X    if (fb_seek(infile, 0L))
+X    {
+X        return fb_error;
+X    }
+X
+X    /* Search for GIF signature. */
+X
+X    *skipped = 0L;
+X    while ((c = fb_getc(infile)) != -1)
+X    {
+X        if (c == sig[0])
+X        {
+X            /* Found first char of signature. Seek back one and check. */
+X
+X            place = fb_tell(infile);
+X            if (fb_error != 0)
+X            {
+X                return fb_error;
+X            }
+X            if (fb_seek(infile, (place - 1)))
+X            {
+X                return fb_error;
+X            }
+X
+X            /* Check for signature. */
+X
+X            if ((status = gif_fgetvers(infile, &(results->version))) != 0)
+X            {
+X                if (status != GIF_NOTGIF_E)
+X                {
+X                    /* Real error. */
+X
+X                    return status;
+X                }
+X                /* If status was GIF_NOTGIF_E, keep looking. */
+X            }
+X            else
+X            {
+X                /*
+X                ** If got half a signature, gif_fgetvers() returns OK
+X                ** but with bad version number. Check for this.
+X                */
+X
+X                if (results->version != GIF_NOT)
+X                {
+X                    /* Really got a signature, exit while loop. */
+X
+X                    break;
+X                }
+X                /* Only got half a signature, so keep looking. */
+X            }
+X        }
+X        (*skipped)++;
+X    }
+X
+X    /* If c is EOF, file isn't a GIF; otherwise got signature OK. */
+X
+X    if (c == -1)
+X    {
+X        /* If FB says EOF, is OK; otherwise real error occurred. */
+X
+X        return ((FB_EOF_W == fb_error) ? GIF_NOTGIF_E : fb_error);
+X    }
+X
+X    /* Check version, just to be sure. */
+X
+X    if (results->version == GIF_NOT)
+X    {
+X        return GIF_NOTGIF_E;
+X    }
+X
+X    /*
+X    ** Calling gif_fgetvers() has forwarded us over signature, so next
+X    ** bytes should be the LSD.
+X    */
+X
+X    if (fb_read(infile, lsd_buffer, GIF_LSD_LEN) != GIF_LSD_LEN)
+X    {
+X        return GIF_UNEOF_E;
+X    }
+X
+X    /* Got the lsd, so let's take it apart. */
+X
+X    results->scr_wid = CONSTRUCT_I_UINT(lsd_buffer + GIF_LSD_SCRWID_OFF);
+X    results->scr_hi = CONSTRUCT_I_UINT(lsd_buffer + GIF_LSD_SCRHI_OFF);
+X    results->background = (int) (*(lsd_buffer + GIF_LSD_BACKGROUND_OFF));
+X    results->aspect = (int) (*(lsd_buffer + GIF_LSD_ASPECT_OFF));
+X
+X    results->raw_packed = (*(lsd_buffer + GIF_LSD_PACKED_OFF));
+X    results->gct_flag = (results->raw_packed & GIF_LSD_GCTFLAG_MASK) ? 1 : 0;
+X    results->clr_res = (((unsigned int)(results->raw_packed &
+X                                        GIF_LSD_CLRRES_MASK)) >> 
+X                        GIF_LSD_CLRRES_SHIFT);
+X    results->clr_res++;
+X    results->sort_flag = (results->raw_packed & GIF_LSD_SORTFLAG_MASK) ? 1 : 0;
+X    results->gct_size = (((unsigned int)(results->raw_packed &
+X                                         GIF_LSD_GCTSIZE_MASK)) + 1);
+X
+X    /* All done. */
+X
+X    return 0;
+X
+X#else
+X
+X   return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_searchlsd() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_gctget                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function reads and returns the GIF global color table.         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      gct    - pointer to pointer to array of RGB_TRIPLETs in which color *
+X*               table is returned. This array is malloc()ed and must be    *
+X*               free()ed when no longer needed.                            *
+X*      colors - number of entries in table                                 *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes file positioned correctly.                                  *
+X*                                                                          *
+X*      Leaves file pointer pointing to byte after end of global color      *
+X*      table.                                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_gctget(FB *infile, RGB_TRIPLET **gct, int colors)
+X#else
+Xgif_gctget(infile, gct, colors)
+XFB *infile;
+XRGB_TRIPLET **gct;
+Xint colors;
+X#endif
+X{
+X#ifndef NO_FB
+X
+X    ULONG status;                 /* status code storage */
+X
+X    /* Allocate memory. */
+X
+X    *gct = (RGB_TRIPLET *) malloc(colors * sizeof(RGB_TRIPLET));
+X    if (*gct == (RGB_TRIPLET *) NULL)
+X    {
+X        return GIF_NOMEM_E;
+X    }
+X
+X    /* Read table. */
+X
+X    if ((status = gif_tblget(infile, *gct, colors)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_gctget() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_findnext                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Searches forward through the GIF file for the next recognized       *
+X*      section of data.                                                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile   - FB handle of file                                        *
+X*      datatype - pointer to int in which type of section is returned      *
+X*      skip     - pointer to unsigned long in which number of bytes        *
+X*                 skipped before section intro was found is returned       *
+X*      extype   - pointer to int in which type of extension block is       *
+X*                 returned when an extension block is found. Also set      *
+X*                 when terminator found; 0 if no extra characters, 1 if    *
+X*                 extras.                                                  *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes file is positioned correctly. Leaves file pointer pointing  *
+X*      to first byte of image descriptor, first byte of extension block    *
+X*      data, or to EOF (roughly) for terminator.                           *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_findnext(FB *infile, int *datatype, ULONG *skip, int *extype)
+X#else
+Xgif_findnext(infile, datatype, skip, extype)
+XFB *infile;
+Xint *datatype;
+XULONG *skip;
+Xint *extype;
+X#endif
+X{
+X#ifndef NO_FB
+X    int c;
+X
+X    /* Preinit returns. */
+X
+X    *skip = MKLONG(0);
+X    *extype = 0;
+X
+X    /* Search forward. */
+X
+X    while ((c = fb_getc(infile)) != -1)
+X    {
+X        if ((c == GIF_EXTBLOCK) || (c == GIF_IMAGE) || (c == GIF_TERMINATOR))
+X        {
+X            /* If a known block is found, break out of loop. */
+X
+X            break;
+X        }
+X
+X        /* Otherwise increment count and keep going. */
+X
+X        (*skip)++;
+X    }
+X
+X    /* Check for error. */
+X
+X    if (c == -1)
+X    {
+X        /*
+X        ** If not end of file, just pass error code along; otherwise
+X        ** is an unexpected EOF.
+X        */
+X
+X        return ((fb_error != FB_EOF_W) ? fb_error : GIF_UNEOF_E);
+X    }
+X
+X    /* Set data type. */
+X
+X    *datatype = c;
+X
+X    /* Further processing. */
+X
+X    if (c == GIF_EXTBLOCK)
+X    {
+X        /* If extension block, get type. */
+X
+X        if ((*extype = fb_getc(infile)) == -1)
+X        {
+X            /*
+X            ** If not end of file, just pass error code along; otherwise
+X            ** is an unexpected EOF.
+X            */
+X
+X            return ((fb_error != FB_EOF_W) ? fb_error : GIF_UNEOF_E);
+X        }
+X    }
+X    else if (c == GIF_TERMINATOR)
+X    {
+X        /* Check for additional characters. */
+X
+X        if ((c = fb_getc(infile)) != -1)
+X        {
+X            *extype = 1;
+X        }
+X        else
+X        {
+X            /* If not end of file, just pass error code along. */
+X
+X            if (fb_error != FB_EOF_W)
+X            {
+X                return fb_error;
+X            }
+X
+X            /* Got the EOF we wanted. */
+X
+X            *extype = 0;
+X        }
+X    }
+X
+X    /* Return OK. */
+X
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_findnext() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_imdget                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Reads and parses the GIF image descriptor, and returns the results. *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      imd    - pointer to GIF_IMD structure in which to return results    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly. Leaves file pointer       *
+X*      pointing to first byte after image descriptor.                      *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_imdget(FB *infile, GIF_IMD *imd)
+X#else
+Xgif_imdget(infile, imd)
+XFB *infile;
+XGIF_IMD *imd;
+X#endif
+X{
+X#ifndef NO_FB
+X    UCHAR rawimd[GIF_IMD_LEN];
+X
+X    /* Read the raw image descriptor. */
+X
+X    if (fb_read(infile, rawimd, GIF_IMD_LEN) != GIF_IMD_LEN)
+X    {
+X        /*
+X        ** If not end of file, just pass error code along; otherwise
+X        ** is an unexpected EOF.
+X        */
+X
+X        return ((fb_error != FB_EOF_W) ? fb_error : GIF_UNEOF_E);
+X    }
+X
+X    /* Parse image descriptor. */
+X
+X    imd->im_left = CONSTRUCT_I_UINT(rawimd + GIF_IMD_IMLEFT_OFF);
+X    imd->im_top = CONSTRUCT_I_UINT(rawimd + GIF_IMD_IMTOP_OFF);
+X    imd->im_wid = CONSTRUCT_I_UINT(rawimd + GIF_IMD_IMWID_OFF);
+X    imd->im_hi = CONSTRUCT_I_UINT(rawimd + GIF_IMD_IMHI_OFF);
+X
+X    /* Unpack packed fields. */
+X
+X    imd->raw_packed = (*(rawimd + GIF_IMD_PACKED_OFF));
+X    imd->lct_flag = ((imd->raw_packed & GIF_IMD_LCTFLAG_MASK) ? 1 : 0);
+X    imd->interlace_flag = ((imd->raw_packed &
+X                            GIF_IMD_INTRLACEFLAG_MASK) ? 1 : 0);
+X    imd->sort_flag = ((imd->raw_packed & GIF_IMD_SORTFLAG_MASK) ? 1 : 0);
+X    imd->lct_size = ((int) (imd->raw_packed & GIF_IMD_LCTSIZE_MASK)) + 1;
+X
+X    /* Return OK. */
+X
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_imdget() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gif_lctget                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function reads and returns a GIF local color table.            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      infile - FB handle of file                                          *
+X*      lct    - pointer to pointer to array of RGB_TRIPLETs in which color *
+X*               table is returned. This array is malloc()ed and must be    *
+X*               free()ed when no longer needed.                            *
+X*      colors - number of entries in table                                 *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Assumes the file is positioned correctly.                           *
+X*      Leaves file pointer pointing to byte after end of local color       *
+X*      table.                                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgif_lctget(FB *infile, RGB_TRIPLET **lct, int colors)
+X#else
+Xgif_lctget(infile, lct, colors)
+XFB *infile;
+XRGB_TRIPLET **lct;
+Xint colors;
+X#endif
+X{
+X#ifndef NO_FB
+X
+X    ULONG status;                 /* status code storage */
+X
+X    /* Allocate memory. */
+X
+X    *lct = (RGB_TRIPLET *) malloc(colors * sizeof(RGB_TRIPLET));
+X    if (*lct == (RGB_TRIPLET *) NULL)
+X    {
+X        return GIF_NOMEM_E;
+X    }
+X
+X    /* Read table. */
+X
+X    if ((status = gif_tblget(infile, *lct, colors)) != 0)
+X    {
+X        return status;
+X    }
+X
+X    /* Return OK. */
+X    return 0;
+X
+X#else
+X
+X    return GIF_UNSUPRT_F;
+X
+X#endif /* NO_FB */
+X} /* end of gif_lctget() */
+X
+END_OF_FILE
+  if test 28663 -ne `wc -c <'src/gif.c.A'`; then
+    echo shar: \"'src/gif.c.A'\" unpacked with wrong size!
+  elif test -f 'src/gif.c.B'; then
+    echo shar: Combining  \"'src/gif.c'\" \(63060 characters\)
+    cat 'src/gif.c.A' 'src/gif.c.B' > 'src/gif.c'
+    if test 63060 -ne `wc -c <'src/gif.c'`; then
+      echo shar: \"'src/gif.c'\" combined with wrong size!
+    else 
+      rm src/gif.c.A src/gif.c.B 
+    fi 
+  fi 
+  # end of 'src/gif.c.A'
+fi
+if test -f 'src/mf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mf.c'\"
+else
+  echo shar: Extracting \"'src/mf.c'\" \(24264 characters\)
+  sed "s/^X//" >'src/mf.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   MF.C                                                                   *
+X*   MODULE:  MF                                                            *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: mf.c,v 1.8 1993/03/02 01:01:50 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains functions which can write to memory or disk.        *
+X*                                                                          *
+X*   This module assumes that the FB module has been initialized with       *
+X*   appropriate values before any MF functions are called.                 *
+X*                                                                          *
+X*   Functions in this file are:                                            *
+X*                                                                          *
+X*     mf_open  - open the "file", determine size, allocate memory & disk   *
+X*     mf_write - write to the "file"                                       *
+X*     mf_reset - prepare "file" for readback                               *
+X*     mf_read  - read from "file"                                          *
+X*     mf_close - close the "file", free memory and disk                    *
+X*                                                                          *
+X*     mf_errstring - convert an error/status code into a string            *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#ifndef NO_MALLOCHDR
+X#include <malloc.h>
+X#endif
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "mf.h"
+X#include "fb.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X#define STATE_CLOSED     0
+X#define STATE_WOPEN      1
+X#define STATE_ROPEN      2
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: mf.c,v 1.8 1993/03/02 01:01:50 jwbirdsa Exp $";
+X
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+Xint mf_locked = 0;
+X
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic int openflag = STATE_CLOSED;
+X
+Xstatic ULONG conmem;
+Xstatic UCHAR *conmemhandle;
+Xstatic ULONG dskmem;
+Xstatic FB *dskmemhandle;
+Xstatic char dskmemname[MAXPATH];
+X
+Xstatic ULONG conmemptr;
+Xstatic ULONG dskmemptr;
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef  __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic ULONG cleanup();
+X
+X#undef P_
+X
+X#ifdef NO_STR_INC
+Xextern char *strcpy();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X/***************************************************************************
+X*   FUNCTION:    mf_open                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function allocates memory and/or disk space and prepares the   *
+X*      module to accept data. It cannot be called when a "file" is already *
+X*      open.                                                               *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      flags   - memory/disk usage flags                                   *
+X*      maxsize - maximum size that will be required                        *
+X*      tpath   - path on which to put temporary file, if any               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xmf_open(unsigned int flags, ULONG maxsize, char *tpath)
+X#else
+Xmf_open(flags, maxsize, tpath)
+Xunsigned int flags;
+XULONG maxsize;
+Xchar *tpath;
+X#endif
+X{
+X    ULONG temp;
+X    char *tempn;
+X    char scratch[MAXPATH];
+X    char tempend, separator;
+X
+X    /* Check for already open. */
+X
+X    if (openflag != STATE_CLOSED)
+X    {
+X        return MF_REOPEN_E;
+X    }
+X
+X    /* Set up. */
+X
+X    conmem = 0;
+X    dskmem = 0;
+X    conmemptr = 0;
+X    dskmemptr = 0;
+X
+X    /* Use memory first. */
+X
+X    if (flags & USE_CONMEM)
+X    {
+X        /* Determine size of block to allocate. */
+X
+X        for (conmem = maxsize; (conmem > 1023) && (coreleft((long)conmem) == 0);
+X             conmem /= 2) ;
+X        if (conmem > 1023)
+X        {
+X            /* Allocate block. */
+X
+X            conmemhandle = (UCHAR *) malloc(conmem);
+X            if (((UCHAR *) NULL) == conmemhandle)
+X            {
+X                conmem = 0;
+X                cleanup();
+X                return MF_BUG_F;
+X            }
+X    
+X            /* Decrease maxsize. */
+X
+X            maxsize -= conmem;
+X        }
+X        else
+X        {
+X            conmem = 0;
+X            conmemhandle = (UCHAR *) NULL;
+X        }
+X    }
+X
+X    if (0 == maxsize)
+X    {
+X        /* All done, return OK. */
+X        openflag = STATE_WOPEN;
+X        return ST_SUCCESS;
+X    }
+X
+X    /* When out of memory, use disk. */
+X
+X    if (flags & USE_DISKMEM)
+X    {
+X        /* Get free space on disk. Is it enough? */
+X
+X        if ((dskmem = dfree(tpath)) == -1)
+X        {
+X            dskmem = 0;
+X            cleanup();
+X            return MF_DISKERROR_E;
+X        }
+X        if (maxsize > dskmem)
+X        {
+X            dskmem = 0;
+X            cleanup();
+X            return MF_NOSPACE_E;
+X        }
+X
+X        /* Create a temporary filename. */
+X
+X        tempn = tempname(tpath, NULL);
+X        if (NULL == tempn)
+X        {
+X            dskmem = 0;
+X            cleanup();
+X            return MF_DISKERROR_E;
+X        }
+X        strcpy(dskmemname, tempn);
+X        free(tempn);
+X 
+X        /* Open temporary file. */
+X
+X        if ((dskmemhandle = fb_open(dskmemname, 'w', (long *) &temp)) ==
+X            (FB *) NULL)
+X        {
+X            dskmem = 0;
+X            cleanup();
+X            return fb_error;
+X        }
+X
+X        /* All done, return OK. */
+X
+X        dskmem = maxsize;
+X        openflag = STATE_WOPEN;
+X
+X        return ST_SUCCESS;
+X    }
+X
+X    /* No space, so clean up and abort. */
+X
+X    cleanup();
+X
+X    return MF_NOSPACE_E;
+X} /* end of mf_open() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    mf_write                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function writes data from the buffer to the "file." Writes up  *
+X*      to 65535 bytes (max unsigned int on 16-bit machines) are allowed.   *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      buffer - pointer to data buffer                                     *
+X*      length - length of "write"                                          *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Must call mf_open() before calling this function.                   *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xmf_write(UCHAR *buffer, unsigned int length)
+X#else
+Xmf_write(buffer, length)
+XUCHAR *buffer;
+Xunsigned int length;
+X#endif
+X{
+X    ULONG copylen;
+X    UCHAR *source;
+X    UCHAR *dest;
+X#ifdef INT16
+X    ULONG tempoff;
+X    ULONG remlen;
+X#endif
+X
+X    /* Check that we're open. */
+X
+X    if (openflag != STATE_WOPEN)
+X    {
+X        return MF_NOTOPEN_E;
+X    }
+X
+X    /* First check memory. */
+X
+X    if (conmemptr != conmem)
+X    {
+X        /* 
+X        ** Some free space left in memory, so copy there. Determine amount
+X        ** to copy.
+X        */
+X
+X        copylen = conmem - conmemptr;
+X        copylen = ((copylen > length) ? length : copylen);
+X
+X        /* Do copy. */
+X
+X        dest = (conmemhandle + conmemptr);
+X        memcpy(dest, buffer, (unsigned int) copylen);
+X
+X        /* Decrease length, update buffer. */
+X
+X        length -= (unsigned int) copylen;
+X        buffer += copylen;
+X
+X        /* Update conmemptr. */
+X
+X        conmemptr += copylen;
+X    }
+X
+X    if (0 == length)
+X    {
+X        /* All done, return OK. */
+X
+X        return ST_SUCCESS;
+X    }
+X
+X    /* Write rest to disk. */
+X
+X    if (dskmemptr != dskmem)
+X    {
+X        /* 
+X        ** Some free space left on disk, so copy there. Determine amount
+X        ** to copy.
+X        */
+X
+X        copylen = dskmem - dskmemptr;
+X        copylen = ((copylen > length) ? length : copylen);
+X
+X#ifdef INT16
+X        /* 
+X        ** On a 16-bit machine, if copylen is more than 32767 (max positive 
+X        ** signed int), break up write into as many parts as necessary.
+X        */
+X
+X        for (tempoff = 0, remlen = copylen; remlen > 32767; 
+X             tempoff += 32767, remlen -= 32767)
+X        {
+X            if (fb_write(dskmemhandle, (buffer + tempoff), 32767) != 0)
+X            {
+X                return fb_error;
+X            }
+X        }
+X        if (remlen != 0)
+X        {
+X            if (fb_write(dskmemhandle, (buffer + tempoff), (int) remlen) !=
+X                ST_SUCCESS)
+X            {
+X                return fb_error;
+X            }
+X        }
+X#else
+X        /* On 32-bit machine, simply do copy. */
+X
+X        if (fb_write(dskmemhandle, buffer, (int) copylen) != ST_SUCCESS)
+X        {
+X            return fb_error;
+X        }
+X#endif
+X
+X        /* Decrease length, update buffer. */
+X
+X        length -= (unsigned int) copylen;
+X        buffer += copylen;
+X
+X        /* Update dskmemptr. */
+X
+X        dskmemptr += copylen;
+X    }
+X
+X    /* If length is 0, all done, return OK; otherwise overflow error */
+X
+X    return ((0 == length) ? ST_SUCCESS : MF_OVERFLOW_F);
+X} /* end of mf_write() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    mf_reset                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function resets all pointers and otherwise prepares "file"     *
+X*      for readback after writing.                                         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      None.                                                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+Xmf_reset()
+X{
+X    long junk;
+X
+X    /* Check for open. */
+X
+X    if (openflag != STATE_WOPEN)
+X    {
+X        return MF_NOTOPEN_E;
+X    }
+X
+X    conmemptr = 0;
+X    dskmemptr = 0;
+X
+X    if (dskmem != 0)
+X    {
+X        /* If using disk, close file and reopen for reading. */
+X
+X        if (fb_close(dskmemhandle) != ST_SUCCESS)
+X        {
+X            return fb_error;
+X        }
+X        if ((dskmemhandle = fb_open(dskmemname, 'r', &junk)) == (FB *) NULL)
+X        {
+X            return fb_error;
+X        }
+X    }
+X
+X    /* Reset open status. */
+X
+X    openflag = STATE_ROPEN;
+X
+X    /* Return OK. */
+X
+X    return ST_SUCCESS;
+X} /* end of mf_reset() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    mf_read                                                   *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function reads  data from the buffer to the "file." Reads up   *
+X*      to 65535 bytes (max unsigned int on a 16-bit machine) are allowed.  *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      buffer - pointer to data buffer                                     *
+X*      length - length of "read"                                           *
+X*      lread  - pointer to unsigned in which to return bytes actually read *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*      Must call mf_open() and mf_reset() before this function.            *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef ___STDC__
+Xmf_read(UCHAR *buffer, unsigned int length, unsigned int *lread)
+X#else
+Xmf_read(buffer, length, lread)
+XUCHAR *buffer;
+Xunsigned int length;
+Xunsigned int *lread;
+X#endif
+X{
+X    ULONG copylen;
+X    UCHAR *source;
+X    UCHAR *dest;
+X#ifdef INT16
+X    ULONG tempoff;
+X    ULONG remlen;
+X#endif
+X
+X    /* Check that we're open. */
+X
+X    if (openflag != STATE_ROPEN)
+X    {
+X        return MF_NOTOPEN_E;
+X    }
+X
+X    *lread = 0;
+X
+X    /* First check memory. */
+X
+X    if (conmemptr != conmem)
+X    {
+X        /* 
+X        ** Still down in memory, so copy out of there. Determine amount
+X        ** to copy.
+X        */
+X
+X        copylen = conmem - conmemptr;
+X        copylen = ((copylen > length) ? length : copylen);
+X
+X        /* Do copy. */
+X
+X        source = (conmemhandle + conmemptr);
+X        dest = buffer;
+X        memcpy(dest, source, (unsigned int) copylen);
+X
+X        /* Decrease length, update buffer. */
+X
+X        length -= (unsigned int) copylen;
+X        buffer += copylen;
+X        *lread += (unsigned int) copylen;
+X
+X        /* Update conmemptr. */
+X        conmemptr += copylen;
+X    }
+X
+X    if (0 == length)
+X    {
+X        /* All done, return OK. */
+X
+X        return ST_SUCCESS;
+X    }
+X
+X    /* Read rest from disk. */
+X
+X    if (dskmemptr != dskmem)
+X    {
+X        /* Determine amount to copy. */
+X
+X        copylen = dskmem - dskmemptr;
+X        copylen = ((copylen > length) ? length : copylen);
+X
+X#ifdef INT16
+X        /*
+X        ** On a 16-bit machine, if copylen is more than 32767 (max positive
+X        ** signed int), break up read into as many parts as necessary.
+X        */
+X
+X        for (tempoff = 0, remlen = copylen; remlen > 32767; 
+X             tempoff += 32767, remlen -= 32767)
+X        {
+X            if (fb_read(dskmemhandle, (buffer + tempoff), 32767) != 32767)
+X            {
+X                return fb_error;
+X            }
+X        }
+X        if (remlen != 0)
+X        {
+X            if (fb_read(dskmemhandle, (buffer + tempoff), (int) remlen) !=
+X                (int) remlen)
+X            {
+X                return fb_error;
+X            }
+X        }
+X#else
+X        /* On 32-bit machine, simply do copy. */
+X
+X        if (fb_read(dskmemhandle, buffer, (int) copylen) != (int) copylen)
+X        {
+X            return fb_error;
+X        }
+X#endif
+X
+X        /* Decrease length, update buffer. */
+X
+X        length -= (unsigned int) copylen;
+X        buffer += copylen;
+X        *lread += (unsigned int) copylen;
+X
+X        /* Update dskmemptr. */
+X
+X        dskmemptr += copylen;
+X    }
+X
+X    /* If length is 0, all done, return OK; otherwise hit EOF */
+X
+X    return ((0 == length) ? ST_SUCCESS : MF_EOF_W);
+X} /* end of mf_read() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    mf_close                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Closes a "file". Must be called before mf_open() is called again.   *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      None.                                                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG 
+Xmf_close()
+X{
+X    ULONG status;
+X
+X    /* Check for open. */
+X
+X    if (STATE_CLOSED == openflag)
+X    {
+X        return MF_NOTOPEN_E;
+X    }
+X
+X    /* Do cleanup. */
+X
+X    status = cleanup();
+X
+X    /* Reset status. */
+X
+X    openflag = STATE_CLOSED;
+X
+X    return status;
+X} /* end of mf_close() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: mf_errstring                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Returns a string corresponding to the given error.                 *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       errcode - error code to be translated                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns a pointer to the appropriate string, or NULL if there is   *
+X*       no appropriate string.                                             *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xmf_errstring(ULONG errcode)
+X#else
+Xmf_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X    static char msg[80];
+X
+X    /* If not an MF module error code, return NULL. */
+X
+X    if (MODULE(errcode) != MODULE(MF_MODULE))
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(MF_EOF_W):
+X            temp = "End of file.";
+X            break;
+X
+X        case ERRSEV(MF_REOPEN_E):
+X            temp = "Attempting to open memory file while already open.";
+X            break;
+X        case ERRSEV(MF_DISKERROR_E):
+X            temp = "Critical error in disk management routines.";
+X            break;
+X        case ERRSEV(MF_NOSPACE_E):
+X            temp = "Not enough space for temporary storage.";
+X            break;
+X        case ERRSEV(MF_NOTOPEN_E):
+X            temp = "Memory file has not been opened.";
+X            break;
+X        case ERRSEV(MF_MALLOC_E):
+X            temp = "Unable to allocate control structures.";
+X            break;
+X
+X        case ERRSEV(MF_BUG_F):
+X            temp = "This shouldn't happen.";
+X            break;
+X        case ERRSEV(MF_OVERFLOW_F):
+X            temp =
+X               "Attempt to access beyond end of allocated space.";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X    }
+X
+X    return temp;
+X} /* end of mf_errstring() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    cleanup  STATIC                                           *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      This function frees memory and deletes temporary files.             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      type - indicates whether to clean up disk or not                    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns an error/status code.                                       *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+Xcleanup()
+X{
+X    ULONG status = 0;
+X
+X    /* If any memory allocated, free it. */
+X
+X    if (conmem != 0)
+X    {
+X        free(conmemhandle);
+X    }
+X
+X    /*
+X    ** If a temporary file is in use, close it. Also delete it unless it 
+X    ** is locked.
+X    */
+X
+X    if (dskmem != 0)
+X    {
+X        status = fb_close(dskmemhandle);
+X        if (0 == mf_locked)
+X        {
+X            if (unlink(dskmemname) == -1)
+X            {
+X                status = MF_DISKERROR_E;
+X            }
+X        }
+X    }
+X
+X    return status;
+X} /* end of static cleanup() */
+X
+END_OF_FILE
+  if test 24264 -ne `wc -c <'src/mf.c'`; then
+    echo shar: \"'src/mf.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mf.c'
+fi
+echo shar: End of archive 15 \(of 18\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

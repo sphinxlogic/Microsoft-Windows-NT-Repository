@@ -1,0 +1,979 @@
+Newsgroups: comp.sources.misc
+From: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Subject:  v31i061:  bam - [OpenLook|Athena] menu system for [GNU|Epoch|Lucid] Emacs, Part05/07
+Message-ID: <1992Jul31.042552.23860@sparky.imd.sterling.com>
+X-Md4-Signature: b14a70b52ccbae5a813c14c75524ad86
+Date: Fri, 31 Jul 1992 04:25:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Posting-number: Volume 31, Issue 61
+Archive-name: bam/part05
+Environment: Lex, Yacc, SunOS 4.x with XView or BSD Unix with Athena Widget
+Supersedes: bam: Volume 27, Issue 68-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 7)."
+# Contents:  bam-2.0/GrabAndManage.c bam-2.0/Makefile.in
+#   bam-2.0/configure.sh
+# Wrapped by sbo@froh on Mon Jul 27 20:11:50 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'bam-2.0/GrabAndManage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/GrabAndManage.c'\"
+else
+echo shar: Extracting \"'bam-2.0/GrabAndManage.c'\" \(8195 characters\)
+sed "s/^X//" >'bam-2.0/GrabAndManage.c' <<'END_OF_FILE'
+X/*
+X  GrabAndManage - window manager widget
+X  Copyright(C) 1992 Anders Carlsson
+X
+X  This program is free software; you can redistribute it and/or modify
+X  it under the terms of the GNU General Public License as published by
+X  the Free Software Foundation; either version 1, or (at your option)
+X  any later version.
+X  
+X  This program is distributed in the hope that it will be useful,
+X  but WITHOUT ANY WARRANTY; without even the implied warranty of
+X  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X  GNU General Public License for more details.
+X  
+X  You should have received a copy of the GNU General Public License
+X  along with this program; if not, write to the Free Software
+X  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X  */
+X/* $ @(#) GrabAndManage.c, v 0.2 92-02-17 Anders Carlsson $ */
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/cursorfont.h>
+X#include <X11/IntrinsicP.h>
+X#include <X11/StringDefs.h>
+X#include "GrabAndManageP.h"
+X#include "FindWindow.h"
+X#include <stdio.h>
+X#include <varargs.h>
+X
+X/* winX,winY,winWidth,winHeight resources added by Hans Olsson */
+X
+Xstatic XtResource resources[] = {
+X#define offset(field) XtOffsetOf(GrabAndManageRec, grabAndManage.field)
+X    /* {name, class, type,
+X       size, offset,
+X       default_type, default_addr}, */
+X
+X    { XtNwindowName, XtCString, XtRString,
+X	sizeof(String), offset(window_name),
+X	XtRString, (XtPointer) NULL },
+X    { XtNwinSelectString, XtCWinSelectString, XtRString,
+X	sizeof(String), offset(select_string),
+X	XtRString, (XtPointer) "click on window to manage" },
+X    { XtNwinX,XtCPosition,XtRPosition,
+X	sizeof(Position),offset(winX),
+X	XtRPosition,(XtPointer) 0},
+X    { XtNwinY,XtCPosition,XtRPosition,
+X	sizeof(Position),offset(winY),
+X	XtRPosition,(XtPointer) 0},
+X    { XtNwinWidth,XtCWidth,XtRDimension,
+X	sizeof(Dimension),offset(winWidth),
+X	XtRDimension,(XtPointer) 0},
+X    { XtNwinHeight,XtCHeight,XtRDimension,
+X	sizeof(Dimension),offset(winHeight),
+X	XtRDimension,(XtPointer) 0},
+X
+X#undef offset
+X};
+X
+Xstatic void GAMRealize(
+X#if NeedFunctionPrototypes
+X	   Widget,
+X	   XtValueMask          *,
+X	   XSetWindowAttributes *
+X#endif
+X);
+X
+Xstatic void GAMDestroy(
+X#if NeedFunctionPrototypes
+X	   Widget
+X#endif
+X);
+XGrabAndManageClassRec grabAndManageClassRec = {
+X  { /* core fields */
+X    /* superclass		*/	(WidgetClass) &widgetClassRec,
+X    /* class_name		*/	"GrabAndManage",
+X    /* widget_size		*/	sizeof(GrabAndManageRec),
+X    /* class_initialize		*/	NULL,
+X    /* class_part_initialize	*/	NULL,
+X    /* class_inited		*/	FALSE,
+X    /* initialize		*/      NULL,
+X    /* initialize_hook		*/	NULL,
+X    /* realize			*/      (XtProc)GAMRealize,
+X    /* actions			*/	NULL,
+X    /* num_actions		*/	0,
+X    /* resources		*/	resources,
+X    /* num_resources		*/	XtNumber(resources),
+X    /* xrm_class		*/	NULLQUARK,
+X    /* compress_motion		*/	TRUE,
+X    /* compress_exposure	*/	TRUE,
+X    /* compress_enterleave	*/	TRUE,
+X    /* visible_interest		*/	FALSE,
+X    /* destroy			*/	(XtProc)GAMDestroy,
+X    /* resize			*/	NULL,
+X    /* expose			*/	NULL,
+X    /* set_values		*/	NULL,
+X    /* set_values_hook		*/	NULL,
+X    /* set_values_almost	*/	XtInheritSetValuesAlmost,
+X    /* get_values_hook		*/	NULL,
+X    /* accept_focus		*/	NULL,
+X    /* version			*/	XtVersion,
+X    /* callback_private		*/	NULL,
+X    /* tm_table			*/	NULL,
+X    /* query_geometry		*/	XtInheritQueryGeometry,
+X    /* display_accelerator	*/	XtInheritDisplayAccelerator,
+X    /* extension		*/	NULL
+X  },
+X  { /* template fields */
+X    /* empty			*/	0
+X  }
+X};
+X
+XWidgetClass grabAndManageWidgetClass = (WidgetClass)&grabAndManageClassRec;
+X
+X/*
+X * Standard fatal error routine - call like printf.
+X * Does not require dpy or screen defined.
+X * Replaced y SendErrorToEmacs in this app.
+X */
+X/* VARARGS1 */
+X#if 0
+Xvoid Fatal_Error(va_alist)
+Xva_dcl
+X{
+X        va_list args;
+X	char*fmt;
+X	
+X	va_start(args);
+X
+X	fflush(stdout);
+X	fflush(stderr);
+X	fprintf(stderr, "%s: error: ", "GrabAndManage");
+X	fmt=va_arg(args,char*);
+X	vfprintf(stderr, fmt,args);
+X	fprintf(stderr, "\n");
+X	va_end(args);
+X	exit(1);
+X}
+X#endif
+X/*
+X * Routine to let user select a window using the mouse
+X */
+X
+XWindow Select_Window(dpy, root)
+X     Display *dpy;
+X     Window root;
+X{
+X  int status;
+X  Cursor cursor;
+X  XEvent event;
+X  Window target_win = None;
+X  int buttons = 0;
+X
+X  /* Make the target cursor */
+X  cursor = XCreateFontCursor(dpy, XC_crosshair);
+X
+X  /* Grab the pointer using target cursor, letting it room all over */
+X  status = XGrabPointer(dpy, root, False,
+X			ButtonPressMask|ButtonReleaseMask, GrabModeSync,
+X			GrabModeAsync, root, cursor, CurrentTime);
+X  if (status != GrabSuccess) {
+X    sendErrorToEmacs("Can't grab the mouse.");
+X    exit(1);
+X  }
+X  /* Let the user select a window... */
+X  while ((target_win == None) || (buttons != 0)) {
+X    /* allow one more event */
+X    XAllowEvents(dpy, SyncPointer, CurrentTime);
+X    XWindowEvent(dpy, root, ButtonPressMask|ButtonReleaseMask, &event);
+X    switch (event.type) {
+X    case ButtonPress:
+X      if (target_win == None) {
+X	target_win = event.xbutton.subwindow; /* window selected */
+X	if (target_win == None) target_win = root;
+X      }
+X      buttons++;
+X      break;
+X    case ButtonRelease:
+X      if (buttons > 0) /* there may have been some down before we started */
+X	buttons--;
+X       break;
+X    }
+X  } 
+X
+X  XUngrabPointer(dpy, CurrentTime);      /* Done with pointer */
+X
+X  return(target_win);
+X}
+X
+X/* This function reparents the named application window and makes 
+X   it belong to the widget */
+Xstatic void GAMRealize(widget, value_mask, attributes)
+X     Widget               widget;
+X     XtValueMask          *value_mask;
+X     XSetWindowAttributes *attributes;
+X{
+X  GrabAndManageWidget gam = (GrabAndManageWidget) widget;
+X  GrabAndManagePart *gam_p = &gam->grabAndManage;
+X  Widget parent = gam->core.parent;
+X  Window parent_window = parent->core.window;
+X  XWindowAttributes app_win_attr;
+X  
+X/* Check if the named window exists. if it does get it's ID, if not
+X   or if window_name is a NULL string, make the user select one on 
+X   the screen */
+X
+X  if ((gam_p->window_name == (void*)NULL ) ||
+X      ((gam_p->app_window =
+X       Window_With_Name(XtDisplay(widget),
+X			DefaultRootWindow(XtDisplay(widget)),
+X			gam_p->window_name)) == 0)) {
+X    
+X    fprintf(stderr,"%s\n",gam_p->select_string);
+X    gam_p->app_window = Select_Window(XtDisplay(widget),
+X				     DefaultRootWindow(XtDisplay(widget)));
+X  }
+X  XGetWindowAttributes(XtDisplay(gam), gam_p->app_window, &app_win_attr);
+X  {
+X    int rx,ry,junkwin;
+X
+X    if ((app_win_attr.map_state == IsUnmapped)||
+X	(app_win_attr.override_redirect==True)) {
+X      sendErrorToEmacs
+X	("Window %s is unmapped.\nCan't grab it\n",gam_p->window_name?
+X		 gam_p->window_name:"Unnamed");
+X      exit(1);
+X    }
+X    XTranslateCoordinates(XtDisplay(gam),gam_p->app_window,app_win_attr.root,
+X                        -app_win_attr.border_width,
+X                        -app_win_attr.border_width,
+X                        &rx,&ry,&junkwin);
+X
+X    gam_p->winX=rx;
+X    gam_p->winY=ry;
+X    gam_p->app_border_width = app_win_attr.border_width;
+X    gam->core.width= gam_p->winWidth=app_win_attr.width;
+X    gam->core.height=gam_p->winHeight=app_win_attr.height;
+X
+X    gam->core.colormap = app_win_attr.colormap;
+X
+X    /* The following remembers the position of the window */
+X
+X    
+X    if (!(BadWindow==XReparentWindow(XtDisplay(gam),gam_p->app_window,
+X		    parent_window,gam->core.x,gam->core.y))) {
+X      gam->core.window=gam_p->app_window;
+X      XSetWindowBorderWidth(XtDisplay(gam),
+X			    gam->core.window,
+X			    gam->core.border_width);
+X      gam->core.widget_class->core_class.class_inited |= 0x20;
+X    }
+X  } 
+X}
+X  
+X
+Xstatic void GAMDestroy(widget)
+X     Widget widget;
+X{
+X  GrabAndManageWidget gam = (GrabAndManageWidget) widget;
+X  GrabAndManagePart *gam_p = &gam->grabAndManage;
+X  Window root_window = DefaultRootWindow(XtDisplay(widget));
+X
+X  /* Get rid of the stolen window */
+X  gam->core.window=None;
+X
+X  if (!(BadWindow==XReparentWindow(XtDisplay(gam),
+X				   gam_p->app_window,root_window,
+X				   gam_p->winX,
+X				   gam_p->winY))) {
+X    XSetWindowBorderWidth(XtDisplay(gam),
+X                          gam_p->app_window,
+X                          1);
+X    XMapWindow(XtDisplay(gam),gam_p->app_window);
+X  }
+X}
+END_OF_FILE
+if test 8195 -ne `wc -c <'bam-2.0/GrabAndManage.c'`; then
+    echo shar: \"'bam-2.0/GrabAndManage.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/GrabAndManage.c'
+fi
+if test -f 'bam-2.0/Makefile.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/Makefile.in'\"
+else
+echo shar: Extracting \"'bam-2.0/Makefile.in'\" \(8029 characters\)
+sed "s/^X//" >'bam-2.0/Makefile.in' <<'END_OF_FILE'
+X#   bam - the Born Again Menus for GNU Emacs.
+X#   Copyright (C) 1992 Stephane Boucher.
+X#
+X#    This program is free software; you can redistribute it and/or modify
+X#    it under the terms of the GNU General Public License as published by
+X#    the Free Software Foundation; either version 1, or (at your option)
+X#    any later version.
+X#
+X#    This program is distributed in the hope that it will be useful,
+X#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X#    GNU General Public License for more details.
+X#
+X#    You should have received a copy of the GNU General Public License
+X#    along with this program; if not, write to the Free Software
+X#    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X#
+X#  In other words, you are welcome to use, share and improve this program.
+X#  You are forbidden to forbid anyone else to use, share and improve
+X#  what you give them.   Help stamp out software-hoarding!
+X
+X# $Id: Makefile.in,v 1.18 1992/07/28 00:08:24 sbo Exp $
+X
+X#       Makefile for bam.
+X#
+X#       The following targets are available:
+X#
+X#       all:            compile all
+X#	doc:		Generate a dvi file of the printed document,
+X#		     	and bam-info, a info file for emacs.
+X#       install:        install bam
+X#       uninstall:      uninstall bam if you don't like it
+X#       clean:          removes object files.
+X#
+X#
+X#	You should first run configure with the command:
+X#		sh configure.sh
+X#	This will determine your directories XLIB, XINC and XBITMAPS.
+X#
+X#       You should also customize the following four definitions:
+X#       bindir, elispdir, bitmapdir as shown below.
+X#
+X#       Then do make all, make install, make clean,
+X#       (and hopefully not make uninstall :->)
+X#
+X#
+X###########################################################################
+X
+Xprefix=/usr/local
+X
+X# Directory where the bam menus' related files should be placed
+Xmenudir=$(prefix)/lib/bam
+X
+X# Directory where the elisp files should be placed
+Xelispdir=$(prefix)/elisp
+X
+X# Directory where the executable should be placed
+Xbindir=$(prefix)/bin
+X
+X############  You SHOULD not have to customize below this line ###############
+X##############################################################################
+X
+X# CUSTOMIZE the following to where you put your OpenWindows libraries
+X# or Xview libraries for those without OpenWindows.
+XXLIB=<<XLIB>>
+X
+X# CUSTOMIZE the following to where you put your Openwindows include files
+X# or Xview include files for those without OpenWindows.
+XXINC =<<XINC>>
+X
+X# Directory where the system's X bitmaps are located
+X# in cases where multiple bitmaps directory exist, the paths
+X# should be seperated by ':' with no spaces.
+X# for example:  /usr/lib/X11/bitmaps:/usr/local/lib/X11/bitmaps
+Xbitmapdir=<<XBITMAPS>>
+X
+X# Files from the sub-directory utils, to compensate for the lack
+X# of some functions on some systems
+XUTILS=<<UTILS>>
+X
+X# widget specific files
+XXVIEW_WIDGET_MODULES=frame \
+X		     icon \
+X		     menusxv \
+X		     panelmenu \
+X		     parfxv
+X
+XATHENA_WIDGET_MODULES=athena \
+X                      FindWindow \
+X 		      GrabAndManage \
+X		      parfaw
+X
+XWIDGET_MODULES=$(<<WIDGET_KIT>>_WIDGET_MODULES)
+X
+X# Widget specific libraries
+XXVIEW_LIB=-lxview -lolgx -lX11
+XATHENA_LIB=-lXaw -lXt -lXmu -lX11 -lXext -lXt -lm
+XWIDGET_LIB=$(<<WIDGET_KIT>>_LIB)
+X
+X#Widget specific defines
+XXVIEW_DEFS=-DXVIEW=1
+XATHENA_DEFS=-DATHENA=1
+XWIDGET_DEFS=$(<<WIDGET_KIT>>_DEFS)
+X
+XINCFLAGS=-I$(XINC)
+XLIBFLAGS=-L$(XLIB)
+X
+XO=o
+XEXE=
+X.SUFFIXES: .y .l .$O
+X
+XVERSION=2.0
+X
+X# Lex flags
+XLFLAGS=
+XLEXLIB=-ll
+X# Compiler flags
+XCFLAGS=-g $(WIDGET_DEFS)
+X
+X# Linker flags
+X# dynamic link with sun's cc   : -Bdynamic
+X#                   gcc on sun : don't know how
+X#LDFLAGS=-Bdynamic	# Sun's K&R cc
+XLDFLAGS=		# Gcc (at least for Sun ...)
+XLIB=$(WIDGET_LIB)
+X
+X# List of elisp files
+XELISPFILES=command-process.el bam-defaults.el-dist \
+X	   bam.el trial.el emacs_init-dist
+X
+X# List of include files
+XINCLUDEFILES=config.h paths.h-dist strstore.h bam.h
+X
+X# List of commands
+X#CC=cc 			# Sun's K&R cc
+XCC=gcc -traditional	# Gcc
+XLEX=lex
+X# You can't use cc,lex and athena widgets on sun3's
+X# You have to change at least one of them, but flex doesn't define yylineno
+X# so you have only the choice between cc => gcc and athena => xview
+X# (or you can use cc if you:
+X# 1: make scanner.c
+X# 2: replace input() with something else e.g. gurka(), except when
+X#    part of yyinput(). (the call to input() in yyinput should of course
+X#    be changed).
+X# 3: continue to make bam.
+X#YACC=bison -y -l
+XYACC=yacc -l
+XPERL=perl
+XRM=rm
+XSED=sed
+XCP=cp
+XMV=mv
+XMKDIR=mkdir
+XSCCS-GET=sccs get
+XSUN_MAKE_CLEAN=$(RM) -f .make.state
+X
+X.c.$O:
+X	$(CC) $(CFLAGS) $(INCFLAGS) -c $*.c
+X
+X# I want to keep parser.c and parser.h so I have to provide
+X# .y.$O and .y.c so that my rules apply wether parser.c exist
+X# or not
+X.y.$O:
+X	$(YACC) -d -v $*.y
+X	@$(MV) -f y.tab.c $*.c
+X	@$(MV) -f y.tab.h $*.h
+X	$(CC) $(CFLAGS) $(INCFLAGS) -c $*.c
+X.y.c:
+X	$(YACC) -d -v $*.y
+X	@$(MV) -f y.tab.c $*.c
+X	@$(MV) -f y.tab.h $*.h
+X
+X# Lex files are treated in the same way as yacc files,
+X# that is I provide .l.$O and .l.c implicit rules
+X.l.$O:
+X	$(LEX) $(LFLAGS) -t $*.l > $*.c
+X	$(CC) $(CFLAGS) $(INCFLAGS) -c $*.c
+X.l.c:
+X	$(LEX) $(LFLAGS) -t $*.l > $*.c
+X
+XTARGET=bam
+XBEMACS=bemacs
+X
+XTARGET_MOD=     args \
+X		$(TARGET) \
+X		send \
+X		menus \
+X		parser \
+X		scanner \
+X		strstore \
+X		filenames \
+X		$(WIDGET_MODULES) \
+X		$(UTILS)
+X
+XOBJ_MOD=$(TARGET_MOD:%=%.$O)
+XDISTDIR=$(TARGET)-$(VERSION)
+XEXAMPLESDIR=menus
+X
+X$(TARGET)$(EXE): trial-stamp-check emacs_init bam-defaults.el paths.h $(OBJ_MOD)
+X	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBFLAGS) -o $@ $(OBJ_MOD) $(LEXLIB) $(LIB)
+X
+Xpaths.h: paths.h-dist
+X	$(SED) "s;/usr/lib/X11/bitmaps;${bitmapdir};g" $@-dist >$@
+X
+Xbam-defaults.el: bam-defaults.el-dist
+X	$(SED) -e "s;/usr/local/bin;${bindir};g" \
+X	       -e "s;/usr/lib/X11/bitmaps;${bitmapdir};g" \
+X	       -e "s;/usr/local/lib/bam;${menudir};g" \
+X	       -e "s;%%VERSION%%;${VERSION};g" \
+X               -e "s;%%WIDGET_KIT%%;<<WIDGET_KIT>>;g" \
+X	       $@-dist >$@
+X
+Xemacs_init: emacs_init-dist
+X	$(SED) "s;/usr/local/elisp;${elispdir};g" $@-dist >$@
+X
+Xall:
+X	@$(MAKE) clean
+X	@$(MAKE) $(TARGET)$(EXE)
+X	@$(MAKE) $(BEMACS)
+X
+Xdoc:	bamdoc.dvi bam-info
+X
+Xbamdoc.dvi: bamdoc.texinfo
+X	tex bamdoc.texinfo
+X	texindex bamdoc.??
+X	tex bamdoc.texinfo
+X
+Xbam-info: bamdoc.texinfo
+X	emacs -batch -q bamdoc.texinfo -f texinfo-format-buffer -f save-buffer
+X
+Xclean:
+X	-$(RM) -f $(TARGET)$(EXE) *.$O scanner.c parser.c parser.h core \
+X	          trial-stamp bemacs
+X	-$(SUN_MAKE_CLEAN)
+X	-$(RM) -f *.aux *.cp  *.cps *.dvi *.ky  *.kys *.log *.pg \
+X	      *.pgs *.toc *.tp  *.tps *.vr  *.fn  *.fns *.vrs \
+X	      bam-info
+X
+Xfull-clean:
+X	@make clean
+X	-$(RM) -f paths.h bam-defaults.el Makefile ${UTILS:%=%.c}
+X
+Xtrial-stamp-check:
+X	@sh -c 'if [ -f trial-stamp ]; then \
+X		make full-clean; \
+X		echo "-- Now run configure with sh ./configure.sh"; \
+X		echo "-- You can ignore the following error."; \
+X		exit 1; \
+X	fi'
+X
+Xtrial:
+X	sed "s;/usr/lib/X11/bitmaps;${bitmapdir};g" paths.h-dist >paths.h
+X	sh -c '${MAKE} bindir=`pwd` menudir=`pwd`/menus bam-defaults.el'
+X	@$(MAKE) $(TARGET)$(EXE)
+X	touch trial-stamp
+X
+Xtry-trial:
+X	sh -c '\
+X	if [ ${DISPLAY}x = x ]; then \
+X	echo Check your DISPLAY environment variable; \
+X	else \
+X	emacs -q -l ./command-process.el -l ./bam-defaults.el -l ./bam.el -l ./trial.el -wn Bam-trial; \
+X	fi'
+X
+X$(BEMACS): $(BEMACS)-dist
+X	$(SED) -e "s;/usr/local/elisp;${elispdir};g" \
+X	       $(BEMACS)-dist >$(BEMACS)
+X	chmod a+xr $(BEMACS)
+X
+Xinstall:
+X	-$(MKDIR) $(bindir)
+X	$(CP) ./$(BEMACS) ./$(TARGET)$(EXE) $(bindir)
+X	-$(MKDIR) $(elispdir)
+X	$(CP) $(ELISPFILES:%-dist=%) $(elispdir)
+X	-$(MKDIR) $(menudir)
+X	$(CP) $(EXAMPLESDIR)/* $(menudir)
+X
+Xuninstall:
+X	$(RM) -f $(BINDIR)/$(TARGET)$(EXE)
+X	cd $(elispdir); $(RM) -f $(ELISPFILES:%-dist=%)
+X	cd $(menudir); $(RM) -f *
+X
+Xdist:
+X	$(MAKE) cleandist
+X	$(MKDIR) $(DISTDIR)
+X	$(PERL) mkdist.pl -s `pwd` -t `pwd`/$(DISTDIR) -h `pwd`/HEADER
+X	cd $(DISTDIR); chmod u+w *; chmod u-w *-dist *.in 
+X	cd $(DISTDIR)/$(EXAMPLESDIR); chmod u+w *
+X	cd $(DISTDIR)/utils; chmod u+w *
+X
+Xcleandist:
+X	$(RM) -rf $(DISTDIR)
+X
+END_OF_FILE
+if test 8029 -ne `wc -c <'bam-2.0/Makefile.in'`; then
+    echo shar: \"'bam-2.0/Makefile.in'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/Makefile.in'
+fi
+if test -f 'bam-2.0/configure.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/configure.sh'\"
+else
+echo shar: Extracting \"'bam-2.0/configure.sh'\" \(7589 characters\)
+sed "s/^X//" >'bam-2.0/configure.sh' <<'END_OF_FILE'
+X#   bam - the Born Again Menus for GNU Emacs.
+X#   Copyright (C) 1992 Stephane Boucher.
+X#
+X#    This program is free software; you can redistribute it and/or modify
+X#    it under the terms of the GNU General Public License as published by
+X#    the Free Software Foundation; either version 1, or (at your option)
+X#    any later version.
+X#
+X#    This program is distributed in the hope that it will be useful,
+X#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X#    GNU General Public License for more details.
+X#
+X#    You should have received a copy of the GNU General Public License
+X#    along with this program; if not, write to the Free Software
+X#    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X#
+X#  In other words, you are welcome to use, share and improve this program.
+X#  You are forbidden to forbid anyone else to use, share and improve
+X#  what you give them.   Help stamp out software-hoarding!
+X
+X# $Id: configure.sh,v 1.4 1992/07/02 00:57:44 sbo Exp $
+X
+X
+X#################################################
+X# $1 = path
+Xchk_xathena_lib() {
+Xif [ -d $1 ]; then
+X	if [ `ls ${1}/libXaw* 2> /dev/null | grep Xaw | wc -l` != 0 ]; then
+X		if [ `ls ${1}/libXt* 2> /dev/null | grep Xt | wc -l` != 0 ]; then
+X			echo found
+X		else 
+X			echo not_found
+X		fi;
+X	else
+X		echo not_found
+X	fi;
+Xelse
+X	echo not_found
+Xfi
+X}
+X
+X##################################################
+X# $1 = path
+Xchk_xview_lib () {
+Xif [ -d $1 ]; then
+X	if [ `ls ${1}/libxview* 2> /dev/null | grep xview | wc -l` != 0 ]; then 
+X		if [ `ls ${1}/libolgx* 2> /dev/null | grep olgx | wc -l` != 0 ]; then 
+X			echo found
+X		else
+X			echo not_found
+X		fi;
+X	else
+X		echo not_found
+X	fi;
+Xelse
+X	echo not_found
+Xfi
+X}
+X
+X##################################################
+X# $1 = path
+Xchk_xathena_inc() {
+X	if [ `ls $1/X11/Xaw/SmeBSB.h 2>/dev/null | wc -l` =  1 ]; then
+X		echo found
+X	else
+X		echo not_found
+X	fi
+X}
+X
+X##################################################
+X# $1 = path
+Xchk_xview_inc() {
+X	if [ `ls $1/xview/xview.h 2>/dev/null | wc -l` =  1 ]; then
+X		echo found
+X	else
+X		echo not_found
+X	fi
+X}
+X
+X
+X##################################################
+Xecho "Choosing Widget Toolkit..."
+X
+XHAVE_XVIEW=0
+XHAVE_ATHENA=0
+Xfor lib in ${OPEWINHOME}/lib /usr/openwin/lib /usr/lib/X11 /usr/local/lib/X11; do
+X	if [ `chk_xview_lib $lib` = found ]; then
+X		HAVE_XVIEW=1
+X	fi
+Xdone
+X
+Xfor lib in /usr/lib /usr/local/lib /usr/local/lib/X11 /usr/lib/X11; do
+X	if [ `chk_xathena_lib $lib` = found ]; then
+X		HAVE_ATHENA=1
+X	fi
+Xdone
+X
+Xif [ ${HAVE_ATHENA} =  ${HAVE_XVIEW} ]; then
+X	echo "Do you want XView or normal toolkit(Athena widgets)?"
+X	echo -n "Enter 1 for athena and 2 for xview:"
+X	read CHOICE
+X	if [ $CHOICE = 1 ]; then
+X		WIDGET_KIT='ATHENA';
+X	else
+X		WIDGET_KIT='XVIEW';
+X	fi
+Xelse
+X	if [ $HAVE_XVIEW = 1 ]; then
+X		WIDGET_KIT='XVIEW';
+X	else
+X		WIDGET_KIT='ATHENA';
+X	fi
+Xfi
+X
+Xif [ ${WIDGET_KIT}x = XVIEWx ]; then
+X
+Xecho "Trying to find your xview and olgx librairies..."
+X
+XXLIB=''
+Xfor lib in ${OPEWNINHOME}/lib /usr/openwin/lib /usr/lib/X11 /usr/local/lib/X11; do
+X	if [ `chk_xview_lib $lib` = found ]; then 
+X		XLIB=$lib
+X		echo $lib  seems good!
+X		break; 
+X	fi
+Xdone
+Xif [ ${XLIB}x = x ]; then
+X	XLIB=no_directory_so_far
+X	while true; do
+X	if [ $XLIB != no_directory_so_far ]; then
+X	if [ -d $XLIB ]; then
+X		if [ `chk_xview_lib $XLIB` = found ]; then
+X			echo This seems good!
+X			break;
+X		else
+X			echo $XLIB is not good. Try again...
+X		fi;
+X	else
+X		echo $XLIB is not good. Try again...
+X	fi
+X	fi
+X	echo
+X	echo "Can't find your xview and olgx librairies."
+X	echo -n "Where are your xview and olgx librairies?: "
+X	read XLIB
+X	done
+Xfi
+X
+Xecho
+Xecho
+X
+X##################################################
+Xecho "Trying to find your xview include directory..."
+X
+XXINC=''
+Xfor inc in ${OPENWINHOME}/include /usr/openwin/include /usr/include/X11 /usr/local/include/X11; do
+X	if [ `chk_xview_inc $inc` = found ]; then 
+X		XINC=$inc
+X		echo $inc  seems good!
+X		break; 
+X	fi
+Xdone
+Xif [ ${XINC}x = x ]; then
+X	XINC=no_directory_so_far
+X	while true; do
+X	if [ $XINC != no_directory_so_far ]; then
+X	if [ -d $XINC ]; then
+X		if [ `chk_xview_inc $XINC` = found ]; then
+X			echo $XINC seems good!
+X			break;
+X		else
+X			echo $XINC is not good. Try again...
+X		fi;
+X	else
+X		echo $XINC is not good. Try again...
+X	fi
+X	fi
+X	echo
+X	echo "Can't find your xview include directory."
+X	echo -n "Where is your xview include directory?: "
+X	read XINC
+X	done
+Xfi
+X
+Xelse
+X# Athena Widgets
+X
+Xecho "Trying to find your Xt and Athena librairies..."
+X
+XXLIB=''
+Xfor lib in /usr/lib /usr/local/lib /usr/local/lib/X11 /usr/lib/X11; do
+X	if [ `chk_xathena_lib $lib` = found ]; then 
+X		XLIB=$lib
+X		echo $lib  seems good, thank you!
+X	fi
+Xdone
+Xif [ ${XLIB}x = x ]; then
+X	XLIB=no_directory_so_far
+X	while true; do
+X	if [ $XLIB != no_directory_so_far ]; then
+X	if [ -d $XLIB ]; then
+X		if [ `chk_xathena_lib $XLIB` = found ]; then
+X			echo This seems good, thank you!
+X			break;
+X		else
+X			echo $XLIB is not good. Try again...
+X		fi;
+X	else
+X		echo $XLIB is not good. Try again...
+X	fi
+X	fi
+X	echo
+X	echo "Can't find your toolkit and athena librairies."
+X	echo -n "Where are your toolkit and athena librairies?: "
+X	read XLIB
+X	done
+Xfi
+X
+Xecho
+Xecho
+X
+X##################################################
+Xecho "Trying to find your athena include directory..."
+X
+XXINC=''
+Xfor inc in /usr/include /usr/local/include; do
+X	if [ `chk_xathena_inc $inc` = found ]; then 
+X		XINC=$inc
+X		echo $inc  seems good, thank you!
+X	fi
+Xdone
+Xif [ ${XINC}x = x ]; then
+X	XINC=no_directory_so_far
+X	while true; do
+X	if [ $XINC != no_directory_so_far ]; then
+X	if [ -d $XINC ]; then
+X		if [ `chk_xathena_inc $XINC` = found ]; then
+X			echo $XINC seems good, thank you!
+X			break;
+X		else
+X			echo $XINC is not good. Try again...
+X		fi;
+X	else
+X		echo $XINC is not good. Try again...
+X	fi
+X	fi
+X	echo
+X	echo "Can't find your athena include directory."
+X	echo -n "Where is your athena include directory?(except the /X11 part: "
+X	read XINC
+X	done
+Xfi
+X
+Xfi	
+Xecho
+Xecho
+X
+X##################################################
+X
+XXBITMAPS=
+X
+Xfor dir in ${OPENWINHOME}/lib/bitmaps \
+X	   ${OPENWINHOME}/include/Xol \
+X	   ${OPENWINHOME}/include/X11/bitmaps \
+X	   /usr/openwin/lib/bitmaps \
+X	   /usr/openwin/include/Xol/bitmaps \
+X	   /usr/openwin/include/X11/bitmaps \
+X	   /usr/lib/X11/bitmaps \
+X	   /usr/local/lib/X11/bitmaps; do
+X	if [ -d $dir ]; then
+X		if [ ${XBITMAPS}x = x ]; then
+X			XBITMAPS=$dir
+X		else	
+X			XBITMAPS=${XBITMAPS}:$dir
+X		fi
+X	fi
+Xdone
+X
+Xif [ ${XBITMAPS}x = x ]; then
+X	echo "Oups! I did not find any bitmaps directory."
+X	XBITMAPS=no_directory_so_far
+X	while true; do
+X	if [ $XBITMAPS != no_directory_so_far ]; then
+X	if [ -d $XBITMAPS ]; then
+X		echo $XBITMAPS seems good!
+X		break
+X	elif [ -d ${XBITMAPS}/bitmaps ]; then
+X		echo $XBITMAPS seems good!
+X		break
+X	else
+X		echo $XBITMAPS is not good. Try again...
+X	fi
+X	fi
+X	echo
+X	echo -n "Where are your bitmaps (type skip if you don't have any)?: "
+X	read XBITMAPS
+X
+X	if [ ${XBITMAPS}x = skipx ]; then XBITMAPS=""; break; fi
+X
+X	done
+Xelse
+X	echo $XBITMAPS seems good!
+Xfi
+X
+X##################################################
+XUTILS=
+Xfor file in  utils/*.c; 
+Xdo
+X	echo 'main(){' >tcfg.c; 
+X	basename_noext=`echo $file | sed 's|.*/\(.*\)[.]c|\1|g'`;
+X	echo $basename_noext >>tcfg.c;
+X	echo '();}' >>tcfg.c;
+X	if cc tcfg.c >/dev/null 2>&1; then . ; 
+X	else UTILS="$UTILS $basename_noext"; cp $file .; fi;
+X	rm -f tcfg.c a.out;
+Xdone
+X        
+Xecho
+Xecho
+X
+X##################################################
+Xecho Generating the new Makefile...
+Xsed -e "s|<<XLIB>>|$XLIB|g" \
+X    -e "s|<<XINC>>|$XINC|g" \
+X    -e "s|<<XBITMAPS>>|$XBITMAPS|g" \
+X    -e "s|<<WIDGET_KIT>>|$WIDGET_KIT|g" \
+X    -e "s|<<UTILS>>|$UTILS|g" Makefile.in >Makefile
+Xecho done.
+Xexit 0
+END_OF_FILE
+if test 7589 -ne `wc -c <'bam-2.0/configure.sh'`; then
+    echo shar: \"'bam-2.0/configure.sh'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/configure.sh'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

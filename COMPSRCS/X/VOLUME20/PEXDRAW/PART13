@@ -1,0 +1,2298 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i023:  pexdraw - A PEX drawing program, Part13/14
+Message-ID: <1993Jun8.150259.19474@sparky.imd.sterling.com>
+X-Md4-Signature: 931f5d9c1b785c3fdce94db924b7d7d3
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:02:59 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 23
+Archive-name: pexdraw/part13
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  init.c pexdraw.h pexdrawc.3 ui_x.c util/pexutcmaphp.c
+# Wrapped by chris@sparky on Tue Jun  8 09:46:36 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 14)."'
+if test -f 'init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'init.c'\"
+else
+  echo shar: Extracting \"'init.c'\" \(13341 characters\)
+  sed "s/^X//" >'init.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)init.c	1.1 Oki Electric Industry Co., Ltd. 93/05/11";
+X#endif
+X/*
+X *			Copyright (c) 1992 by
+X *			Oki Electric Industry Co., Ltd.
+X *			All Rights Reserved
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X *
+X *************************************************************************
+X *
+X * init.c containes the initialization routines for pexdraw.
+X *
+X *************************************************************************/
+X
+X#include <stdio.h>
+X
+X#include <math.h>
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X
+X#include <X11/PEX5/PEXlib.h>
+X
+X#include "pexdraw.h"
+X
+X/* for PEXUtFindVisual */
+X#include "util/pexutcmap.h"
+X
+Xextern renderProcs wksProcs, rdrProcs;
+X
+Xextern PEXLookupTable theLightLUT;
+X
+Xextern int theDBFlag;
+Xextern int theHPFlag;
+X
+X/*************************************************************************
+X * M A I N
+X */
+Xmain(argc,argv)
+Xint	argc;
+Xchar	*argv[];
+X{   
+X    InitUserInterface(argc, argv);
+X
+X    InitPEX();
+X
+X    MainLoop();
+X}
+X/*************************************************************************
+X * InitPEX
+X *
+X * Open PEX using popen_xphigs
+X */
+Xvoid
+XInitPEX()
+X{
+X  PEXExtensionInfo *info;
+X  PEXStructure struxid;
+X  PEXCoord p[6], *pp;
+X  PEXLookupTable		depthCueLUT, colorLUT, 
+X				colorApproxLUT;
+X  XWindowAttributes winAttrs;
+X  XVisualInfo betterVisualInfo, *visInfo;
+X  int i, j, count;
+X
+X  int error;
+X  char charString[81];
+X
+X  unsigned long setWinMask;
+X  XSetWindowAttributes setWinAttrs;
+X
+X  if (error = PEXInitialize(theDisplay, &info, 80, charString)) {
+X    charString[80] = (char)0;
+X    (void) fprintf(stderr,"%s\n", charString);
+X    (void) fprintf(stderr,"PEX not initialized error = %d\n", error);
+X    exit(-1);
+X  }
+X
+X  /*
+X   * O.K. We would like to used mixed mode if possible 
+X   *					(cause it will always work in 6.0)
+X   * but we have some constraints:
+X   *  - if we are 5.0 only, we need to use the workstation to get picking done.
+X   *  - if we are workstation subset
+X   * Otherwise, we can use the 5.1 Renderer picking, etc.  
+X   */
+X  if (info->major_version != 5) {printf("5.X NOT!!\n"); exit(-5);}
+X  if (info->minor_version == 0) {
+X    theRenderProcs = wksProcs;
+X    the51Flag = 0;
+X  } else {
+X    the51Flag = 1;
+X    if (info->subset_info == PEXWorkstationOnly ) {
+X      theRenderProcs = wksProcs;
+X    } else if (info->subset_info == PEXImmediateMode ) {
+X      printf("OT!!\n"); exit(-5);
+X    }	
+X    theRenderProcs = rdrProcs;
+X
+X    /* for testing */
+X    if (theForceWKSFlag) theRenderProcs = wksProcs;
+X  }
+X  /* need this for fetches */
+X  theFF = PEXGetProtocolFloatFormat(theDisplay);
+X
+X/*
+X * Determine which visual to use
+X *
+X * did user specify a visual?
+X *
+X * First, check to see if the window we have is satisfactory.
+X *  - might check to see if it is PEX worthy & DB worthy.
+X *    if so, get std colormap.
+X *
+X * If not, if max Cmaps == 1, then use default
+X *    Get STD_CMAP_ grab visual.
+X *
+X * else find best.
+X *
+X *
+X */
+X  XGetWindowAttributes(theDisplay,theWindow,&winAttrs);
+X  theScreen = XScreenNumberOfScreen(winAttrs.screen);
+X
+X  if ((winAttrs.depth < 24) &&
+X      (MaxCmapsOfScreen(winAttrs.screen) > 1) &&  /* prevent flashing */
+X      (FindBetterPEXVisual( theDisplay, theWindow, PEXWindowDrawable,
+X				    winAttrs.visual, &betterVisualInfo ))) {
+X    /* found one */
+X    theWimpyWindow = theWindow;
+X    theWindow = MakeBetterPEXWindow( theDisplay, theWindow,
+X				    &winAttrs, &betterVisualInfo );
+X    visInfo = &betterVisualInfo;
+X  } else { 
+X    /* not worth looking for anything better, or there is nothing. get
+X     * what we need to make do with what we have.
+X     */
+X    theWimpyWindow = 0;
+X
+X    betterVisualInfo.visualid = XVisualIDFromVisual(winAttrs.visual);
+X    visInfo = XGetVisualInfo(theDisplay, VisualIDMask, &betterVisualInfo, &i);
+X  }
+X/*
+X * O.K. We are all set, set up color approximation, hide this it is ugly
+X */
+X  colorApproxLUT = MakeColorApprox( theDisplay, theWindow, visInfo );
+X
+X  theWinHeight =  winAttrs.height;
+X
+X/*
+X *  Init Render Object
+X *
+X * Set up all of the LUTs we want (colorApprox, color, light & depthCue )
+X * Then call the Render Proc to init ( see above )
+X */
+X  colorLUT =    InitColorLUT( theDisplay,theWindow);
+X  theLightLUT = PEXCreateLookupTable( theDisplay,theWindow, PEXLUTLight);
+X  depthCueLUT = PEXCreateLookupTable( theDisplay,theWindow, PEXLUTDepthCue);
+X  theFontLUT = PEXCreateLookupTable( theDisplay, theWindow, PEXLUTTextFont);
+X
+X  theRenderObj = theRenderProcs.Init( theDisplay, theWindow,
+X				     colorLUT, theLightLUT, theFontLUT,
+X				     depthCueLUT, 
+X				     colorApproxLUT);
+X
+X/*
+X * Just turn some lights on for the heck of it.
+X */
+X  InitLights();
+X
+X  struxid = PEXCreateStructure(theDisplay);
+X
+X  PEXSetEditingMode(theDisplay, struxid, PEXStructureInsert);
+X
+X  PEXSetViewIndex(theDisplay, struxid, PEXOCStore, 1);
+X
+X  pp = (PEXCoord *)p;
+X  pp->x = 0.5; pp->y = 0.0; pp->z = 0.0; pp++;
+X  pp->x = 1.0; pp->y = 1.0; pp->z = 0.0; pp++;
+X  pp->x = 0.5; pp->y = 0.0; pp->z = 1.0; pp++;
+X  pp->x = 0.5; pp->y = 0.0; pp->z = -1.0; pp++;
+X  pp->x = 0.5; pp->y = 1.0; pp->z = -1.0; pp++;
+X  pp->x = 1.0; pp->y = 0.0; pp->z = 0.0;
+X  PEXPolyline(theDisplay, struxid, PEXOCStore, 6, p);
+X
+X  theRenderProcs.Post( struxid );
+X
+X  applyViewSet(1);
+X
+X  theRenderProcs.ReDraw();
+X
+X  theSpinList.count = 0;
+X  PEXRotate(PEXXAxis, 0.0, theMCMatrix.matrix ); /* init MC matrix */
+X
+X  theDynGC = CreateDynGC(); /* for dynamics using X */
+X}
+X
+X/*************************************************************************
+X * FindBestPEXVisual - just do it.
+X *
+X * type is for MatchRenderingTargets 
+X */
+Xint 
+XFindBetterPEXVisual(dpy, w, type, visIn, visBest )
+X     Display *dpy;
+X     Window w;
+X     int type;
+X     Visual *visIn;
+X     XVisualInfo *visBest;
+X{
+X  int i;
+X  PEXRenderingTarget *targets;
+X  unsigned long lcount;
+X  XVisualInfo visTemplate;  
+X  XVisualInfo visMatch;
+X  XVisualInfo *visInfo;
+X  XWindowAttributes winAttrs;
+X  int            screen;
+X  Window         winWin;
+X  int   notDone = 1, triedTrue = 0, triedDirect = 0;
+X        PEXUtVisualCriteria             criteria;
+X              XStandardColormap         cmap_info_return;
+X             PEXColorApproxEntry    capx_info_return;
+X      unsigned int                  unmet;
+X    Atom                            std_prop_atom_return;
+X                          int found;                                                   
+X
+X  if (w) {
+X    screen = theScreen;
+X    winWin = w;
+X  } else {
+X    screen = DefaultScreen(dpy);
+X    winWin = RootWindow(dpy, screen);
+X  }
+X  
+X  criteria.visual_class = TrueColor;
+X  criteria.depth = 24;
+X  criteria.sharable_colormap = 1;
+X  criteria.double_buffering_capability = 1;
+X  
+X  criteria.hard_criteria_mask = PEXUtVisualClass;
+X  criteria.soft_criteria_mask = PEXUtDepth |  PEXUtSharableColormap;
+X  
+X  if (theDBFlag) {
+X    criteria.soft_criteria_mask |= PEXUtDoubleBufferingCapability;
+X    }
+X
+X  found = PEXUtFindVisual( dpy, screen, &criteria, visBest,  &cmap_info_return, 
+X             &capx_info_return, &unmet, &std_prop_atom_return);
+X
+X  if ((found == PEXUtQualifiedSuccess) || (found == PEXUtSuccess))
+X    return (1); 
+X  else {
+X
+X    criteria.hard_criteria_mask = 0;
+X    
+X    found = PEXUtFindVisual( dpy, screen, &criteria, visBest,  &cmap_info_return, 
+X             &capx_info_return, &unmet, &std_prop_atom_return);
+X
+X    if ((found == PEXUtQualifiedSuccess)||(found == PEXUtSuccess)) return (1); 
+X            
+X  }
+X  return (0);
+X}
+X
+X/*************************************************************************
+X *  GetStandardColormap - 
+Xint GetStandardColormap(Display *dpy, XVisualInfo *visInfo, 
+X			XStandardColormap *cmap )
+X *
+X */
+Xint GetStandardColormap( dpy, visInfo, cmap )
+X     Display *dpy;
+X     XVisualInfo *visInfo;
+X     XStandardColormap *cmap;
+X{
+X  XStandardColormap  *scm, *s;
+X  Atom property;
+X  int i, count;
+X
+X  switch (visInfo->class) {
+X  case TrueColor:
+X  case StaticColor:
+X    property = XA_RGB_BEST_MAP;
+X    break;
+X
+X  default:
+X    property = XA_RGB_DEFAULT_MAP;
+X    break;
+X  }
+X
+X  if ( XmuLookupStandardColormap( dpy, visInfo->screen, visInfo->visualid,
+X				 visInfo->depth, property, False, True )) {
+X
+X    if (XGetRGBColormaps(theDisplay, RootWindow(theDisplay, visInfo->screen),
+X		       &scm, &count, property )) {
+X      for (i = 0, s = scm; i < count; i++, scm++ ) {
+X	if ( scm->visualid == visInfo->visualid ) {
+X	  *cmap = *scm;
+X	  XFree((char *)s);
+X	  return (1);
+X	}
+X      }
+X    }
+X  }
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * InitColorLUT(dpy, win)
+X */
+XPEXLookupTable
+XInitColorLUT(dpy, win)
+X     Display *dpy;
+X     Window win;
+X{
+X  PEXLookupTable clt;
+X  PEXColorEntry  entries[8];
+X
+X  clt = PEXCreateLookupTable( dpy, win, PEXLUTColor);
+X
+X  entries[0].type = PEXColorTypeRGB;
+X  entries[0].value.rgb.red   =  0.0;
+X  entries[0].value.rgb.green =  0.0;
+X  entries[0].value.rgb.blue  =  0.0;
+X
+X  entries[1].type = PEXColorTypeRGB;
+X  entries[1].value.rgb.red   =  1.0;
+X  entries[1].value.rgb.green =  1.0;
+X  entries[1].value.rgb.blue  =  1.0;
+X
+X  entries[2].type = PEXColorTypeRGB;
+X  entries[2].value.rgb.red   =  1.0;
+X  entries[2].value.rgb.green =  0.0;
+X  entries[2].value.rgb.blue  =  0.0;
+X
+X  entries[3].type = PEXColorTypeRGB;
+X  entries[3].value.rgb.red   =  0.0;
+X  entries[3].value.rgb.green =  1.0;
+X  entries[3].value.rgb.blue  =  0.0;
+X
+X  entries[4].type = PEXColorTypeRGB;
+X  entries[4].value.rgb.red   =  0.0;
+X  entries[4].value.rgb.green =  0.0;
+X  entries[4].value.rgb.blue  =  1.0;
+X
+X  entries[5].type = PEXColorTypeRGB;
+X  entries[5].value.rgb.red   =  0.0;
+X  entries[5].value.rgb.green =  1.0;
+X  entries[5].value.rgb.blue  =  1.0;
+X
+X  entries[6].type = PEXColorTypeRGB;
+X  entries[6].value.rgb.red   =  1.0;
+X  entries[6].value.rgb.green =  0.0;
+X  entries[6].value.rgb.blue  =  1.0;
+X
+X  entries[7].type = PEXColorTypeRGB;
+X  entries[7].value.rgb.red   =  1.0;
+X  entries[7].value.rgb.green =  1.0;
+X  entries[7].value.rgb.blue  =  0.0;
+X
+X  PEXSetTableEntries(theDisplay,clt,0,8,PEXLUTColor,(char *)&entries);
+X
+X  return (clt);
+X}
+X/*************************************************************************
+X * MakeBetterPEXWindow(dpy, w, winAttrs, visBest )
+X */
+XWindow
+XMakeBetterPEXWindow(dpy, w, winAttrs, visBest )
+X     Display *dpy;
+X     Window w;
+X     XWindowAttributes *winAttrs;
+X     XVisualInfo *visBest;
+X{
+X  XStandardColormap  cmap;
+X
+X  int i, j, count;
+X
+X  int error;
+X  char charString[81];
+X
+X  unsigned long setWinMask;
+X  XSetWindowAttributes setWinAttrs;
+X  Window newWin;
+X
+X
+X
+X    setWinMask = CWBorderPixel|CWBackPixel;
+X    setWinAttrs.border_pixmap = None;
+X    setWinAttrs.background_pixmap = None;
+X    setWinAttrs.border_pixel = -1;
+X    setWinAttrs.background_pixel = 0;
+X    if (GetStandardColormap(theDisplay, visBest, &cmap )) {
+X
+X      if (cmap.colormap == 0) {
+X
+X        theHPFlag = 1;
+X           	cmap.colormap = XCreateColormap(theDisplay, w,
+X      				      visBest->visual, AllocNone );
+X	printf("special  HP colormap id = %x visid %x\n", cmap.colormap,
+X  		visBest->visual );
+X      }	
+X      setWinAttrs.border_pixel = 0;
+X      setWinAttrs.background_pixel = 0;
+X      setWinMask |= CWColormap;
+X      setWinAttrs.colormap = cmap.colormap;
+X    } else {
+X    	printf("could not get standard colormap\n");
+X    }
+X    newWin = XCreateWindow(theDisplay, w, 
+X			      0,0, winAttrs->width, winAttrs->height, 0,
+X			      visBest->depth, InputOutput,
+X			      visBest->visual,
+X			      setWinMask, &setWinAttrs);
+X    /*
+X     * do this so Window Manager knows to install this colormap, too.
+X     */			      
+X    if (winAttrs->colormap != cmap.colormap)
+X      XSetWMColormapWindows( theDisplay, theTopWindow, &newWin, 1);
+X			      
+X    XMapWindow(theDisplay,newWin);
+X    XGetWindowAttributes(theDisplay,newWin,winAttrs);
+X    
+X   return (newWin);
+X}
+X
+X/*************************************************************************
+X * MakeColorApprox( dpy, w, visInfo )
+X */
+XPEXLookupTable
+XMakeColorApprox( dpy, w, visInfo )
+X     Display *dpy;
+X     Window w;
+X     XVisualInfo *visInfo;
+X{
+X  PEXLookupTable capx;
+X  PEXColorApproxEntry colorApprox;
+X  XStandardColormap  cmap;
+X      
+X  capx = PEXCreateLookupTable( dpy, w, PEXLUTColorApprox );
+X  if (theHPFlag == 0) {					
+X
+X   if (GetStandardColormap(theDisplay, visInfo, &cmap )) {
+X
+X    colorApprox.type = PEXColorSpace;
+X    colorApprox.model = PEXColorApproxRGB;
+X    colorApprox.max1 = cmap.red_max;
+X    colorApprox.max2 = cmap.green_max;
+X    colorApprox.max3 = cmap.blue_max;
+X    colorApprox.mult1 = cmap.red_mult;
+X    colorApprox.mult2 = cmap.green_mult;
+X    colorApprox.mult3 = cmap.blue_mult;
+X    colorApprox.base_pixel = cmap.base_pixel;
+X
+X    if ((CheckImpDepInteger(PEXIDDitheringSupported)) && !(theNoDitherFlag))
+X      colorApprox.dither = 1;
+X    else colorApprox.dither = 0;
+X
+X    PEXSetTableEntries(theDisplay,capx,0,1,PEXLUTColorApprox,
+X		       (char *)&colorApprox);
+X   } else {
+X    printf("no color approx???\n");
+X   }
+X  }
+X  return (capx);
+X}
+X
+END_OF_FILE
+  if test 13341 -ne `wc -c <'init.c'`; then
+    echo shar: \"'init.c'\" unpacked with wrong size!
+  fi
+  # end of 'init.c'
+fi
+if test -f 'pexdraw.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pexdraw.h'\"
+else
+  echo shar: Extracting \"'pexdraw.h'\" \(12694 characters\)
+  sed "s/^X//" >'pexdraw.h' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)pexdraw.h	1.18 Oki Electric Industry Co., Ltd. 93/05/24";
+X#endif
+X/*
+X	This file is under sccs control at Stardent in:
+X	/nfs/sole/root/sccs1.p/X11R5/mit/demos/pexdraw/s.pexdraw.h
+X*/
+X/*
+X *			Copyright (c) 1992 by
+X *			Oki Electric Industry Co., Ltd.
+X *			All Rights Reserved
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X *
+X * This supercedes the Stardent copyright granting the same rights that
+X * appeared in the pdraw predecessor to pexdraw.
+X *
+X *************************************************************************
+X *
+X *                         P E X D R A W
+X *
+X *  A PEX drawing program based on PDRAW,
+X *
+X *   This is the header file.
+X *
+X *************************************************************************/
+X
+X/*************************************************************************
+X * typedefs.
+X */
+Xtypedef struct _si {
+X  PEXCoord point;
+X  PEXVector  offset;
+X  PEXVector  scale;
+X  float  x_ang;
+X  float  y_ang;
+X  float  z_ang;
+X  float  delta_x;
+X  float  delta_y;
+X  float  delta_z;
+X  int    strux;
+X  int    wk_id;
+X  Display *dpy;
+X  int     stop;
+X  struct _si *next;
+X} SpinInfo;
+X
+Xtypedef struct {
+X  int count;
+X  SpinInfo *listHead;
+X} SpinList;
+X/*
+X * other business
+X */
+X#if defined(SVR4_0) || defined(SVR4) || defined(hpux)
+X#include <string.h>
+X#define bcopy(b1,b2,len) memmove(b2, b1, len)
+X#define bzero(b,len) memset(b, 0, len)
+X#define bcmp(b1,b2,len) memcmp(b1, b2, len)
+X#endif
+X
+X#ifndef MAXFLOAT
+X#define MAXFLOAT 10000000.0
+X#endif
+X
+X#ifndef M_PI
+X#define M_PI            3.14159265358979323846
+X#endif
+X
+X/*************************************************************************
+X *
+X *    F U N C T I O N    P R O T O T Y P E S
+X *
+X * I know that this is a pain for some people with lesser compilers, but 
+X * these save time and energy.
+X *
+X */
+Xint applyViewSet(
+X#if NeedFunctionPrototypes
+X		 int  /* viewNumber */
+X#endif
+X);
+X
+Xint getNumberWidgetValue(
+X#if NeedFunctionPrototypes
+X			 int  /* id */,
+X			 float * /* value */
+X#endif
+X);
+X
+Xint setNumberWidgetValue(
+X#if NeedFunctionPrototypes
+X			 int  /* id */,
+X			 double  /* value */
+X#endif
+X);
+X
+Xvoid InsertLineCmd(
+X#if NeedFunctionPrototypes
+X		   int  /* nCoords */,
+X		   PEXCoord * /* points */,
+X		   int  /* select */ 
+X#endif
+X);
+X
+Xvoid InsertMClipCmd(
+X#if NeedFunctionPrototypes
+X		   PEXCoord * /* points */,
+X		   int  /* select */ 
+X#endif
+X);
+X
+Xvoid ResizeWindow(
+X#if NeedFunctionPrototypes
+X		  Window  /* w */,
+X		  int  /* width */,
+X		  int  /* height */
+X#endif
+X);
+X
+Xvoid SelectSomething(
+X#if NeedFunctionPrototypes
+X		     long  /* strux */,
+X		     long  /* element */ 
+X#endif
+X);
+X
+Xvoid ClearSelection();
+X
+Xvoid DumpStrux(
+X#if NeedFunctionPrototypes
+X	       long  /* strux */,
+X	       long  /* element */, 
+X	       int  /* pretty */ 
+X#endif
+X);
+X
+Xvoid PrintElement(
+X#if NeedFunctionPrototypes
+X		  long  /* struxID */,
+X		  long  /* element */, 
+X		  long  /* ocType */,
+X		  long  /* eSize */,
+X		  char * /* elem_data */ 
+X#endif
+X);
+X
+XPEXStructure InitStrux();
+X
+XPEXLookupTable InitColorLUT(
+X#if NeedFunctionPrototypes
+X     Display * /* dpy */,
+X     Window    /* win */
+X#endif
+X);
+X
+Xvoid TranslateSelected(
+X#if NeedFunctionPrototypes
+X		       PEXCoord * /* points */ 
+X#endif
+X);
+X
+Xvoid DeleteSelected();
+X
+Xint DeleteStrux(
+X#if NeedFunctionPrototypes
+X		PEXStructure /* strux */
+X#endif
+X);
+X
+Xint ExecStrux(
+X#if NeedFunctionPrototypes
+X		PEXStructure /* strux */
+X#endif
+X);
+X
+Xvoid InsertTriStripCmd(
+X#if NeedFunctionPrototypes
+X		       int  /* nCoords */,
+X		       PEXCoord * /* points */, 
+X		       int  /* select */
+X#endif
+X);
+X
+Xint StartSpinning(
+X#if NeedFunctionPrototypes
+X		PEXStructure /* sidToStart */
+X#endif
+X);
+X
+X
+Xint ApplySpin(
+X#if NeedFunctionPrototypes
+X		SpinInfo */* si */
+X#endif
+X);
+X
+Xint LoadSpinWidget(
+X#if NeedFunctionPrototypes
+X		SpinInfo */* si */
+X#endif
+X);
+X
+XSpinInfo *GetSpinInfo(
+X#if NeedFunctionPrototypes
+X		PEXStructure /* sidToStart */
+X#endif
+X);
+X
+Xint manageSpin(
+X#if NeedFunctionPrototypes
+X	    char * /* client_data */
+X#endif
+X);
+X
+Xint oneSpin(
+X#if NeedFunctionPrototypes
+X	    char * /* client_data */
+X#endif
+X);
+X
+Xint StopSpinning(
+X#if NeedFunctionPrototypes
+X		PEXStructure /* sidToStop */
+X#endif
+X);
+X
+Xint LoadColorWidget(
+X#if NeedFunctionPrototypes
+X		    PEXStructure /* sidToStart */,
+X		    long  /* element */,
+X		    PEXColorRGB * /* rgb */
+X#endif
+X);
+X
+X
+Xint ApplyColor(
+X#if NeedFunctionPrototypes
+X		    PEXStructure /* sidToStart */,
+X		    long  /* element */
+X#endif
+X);
+X
+Xint GetColorAttribute(
+X#if NeedFunctionPrototypes
+X		    PEXStructure /* sidToStart */,
+X		    long  /* element */,
+X		    PEXColorRGB * /* rgb */
+X#endif
+X);
+X
+Xint SetColorAttribute(
+X#if NeedFunctionPrototypes
+X		    PEXStructure /* sidToStart */,
+X		    long  /* element */,
+X		    PEXColorRGB * /* rgb */
+X#endif
+X);
+X
+XGC CreateDynGC();
+X
+Xint GetXPointsFromSelected(
+X#if NeedFunctionPrototypes
+X			   int * /* count */,
+X			   XPoint ** /* points */
+X#endif
+X);
+X
+Xvoid DumpStruxCmd(
+X#if NeedFunctionPrototypes
+X		  int  /* pretty */
+X#endif
+X);
+X
+Xint InteriorStyleCmd(
+X#if NeedFunctionPrototypes
+X		     int  /* style */
+X#endif
+X);
+X
+Xint SurfaceInterpCmd(
+X#if NeedFunctionPrototypes
+X		     int  /* method */
+X#endif
+X);
+X
+Xint FacetCullingCmd(
+X#if NeedFunctionPrototypes
+X		    int  /* mode */
+X#endif
+X);
+X
+Xint ReflectionAttributesCmd(
+X#if NeedFunctionPrototypes
+X			    PEXReflectionAttributes * /* reflAttrs */
+X#endif
+X);
+X
+Xvoid AddWorkProc(
+X#if NeedFunctionPrototypes
+X		 int (*)()/* worker */,
+X		 char * /* info */
+X#endif
+X);
+X
+Xvoid InitUserInterface(
+X#if NeedFunctionPrototypes
+X		       int  /* argc */,
+X		       char ** /* argv */
+X#endif
+X);
+X
+Xvoid InitPEX();
+Xvoid MainLoop();
+Xvoid ApplySurfaceAttrs();
+X
+Xlong Cubeoctahedron(
+X#if NeedFunctionPrototypes
+X		    PEXCoord * /* offset */,
+X		    double  /* radius */
+X#endif
+X);
+X
+Xint FindBetterPEXVisual(
+X#if NeedFunctionPrototypes
+X			Display * /* dpy */, 
+X			Window  /* w */, 
+X			int  /* type */, 
+X			Visual * /* visIn */,
+X			XVisualInfo * /* visBest */ 
+X#endif
+X);
+X
+XWindow
+XMakeBetterPEXWindow(
+X#if NeedFunctionPrototypes
+X			Display * /* dpy */, 
+X			Window  /* w */, 
+X		        XWindowAttributes * /* winAttrs */,
+X			XVisualInfo * /* visBest */ 
+X#endif
+X);
+X
+XPEXLookupTable
+XMakeColorApprox(
+X#if NeedFunctionPrototypes
+X			Display * /* dpy */, 
+X			Window  /* w */, 
+X			XVisualInfo * /* visBest */ 
+X#endif
+X);
+X
+Xint GetStandardColormap(
+X#if NeedFunctionPrototypes
+X			Display * /* dpy */,
+X			XVisualInfo * /* visInfo */, 
+X			XStandardColormap * /* cmap */ 
+X#endif
+X);
+X
+Xint GetTextRect(
+X#if NeedFunctionPrototypes
+X		PEXOCData * /* OCData */,
+X		XID  /* strux */, 
+X		int  /* offset */, 
+X		PEXCoord ** /* rect */ 
+X#endif
+X);
+X
+Xint CheckImpDepInteger(
+X#if NeedFunctionPrototypes
+X     int /* impDepConst; */
+X#endif
+X);
+X
+Xint CheckEnumType(
+X#if NeedFunctionPrototypes
+X     int	 /* eType; */,
+X     int         /* eValue; */
+X#endif
+X);
+X
+X/* static void MyPHIGSErrorHandler( Pint errnum, Pint funcnum, char *fname); */
+X
+Xvoid set_tool_pointer();
+Xvoid set_tool_line();
+Xvoid set_tool_view();
+Xvoid set_tool_tristrip();
+Xvoid set_tool_zoom();
+Xvoid set_tool_mclip();
+X
+X#define RADIAN(x) ((x)*(3.1415927 / 180.0))
+X
+Xtypedef struct {
+X  long strux;
+X  long seqNo;
+X  PEXMatrix matrix;
+X} MCMatrix;
+X
+X/*************************************************************************
+X *
+X *    G L O B A L    V A R I A B L E S
+X *
+X */
+X
+X#ifdef DECL_GLOBALS
+X#define GLOBAL 
+X#define INIT(_a) =_a
+X#else
+X#define GLOBAL extern
+X#define INIT(_a)
+X#endif
+X
+X/*************************************************************************
+X * theRenderProcs -
+X *
+X * This global allows the pexdraw application to talk to either a Renderer
+X * Resource or a PHIGS Workstation object.
+X *
+X * The procedures defined are:
+X *  Init
+X *  ReDraw
+X *  MapXToMC
+X *  MapMCToX
+X *  SetView
+X *  SetNPCToDC
+X *  Post
+X *  DeleteAll
+X *  PickOne
+X *  PickAll
+X *  MapXToNPC
+X *  ReconfigureWindow
+X *  GetColorFromIndex
+X *
+X * The two sets of procedures are defines in wks.c & rdr.c
+X */
+Xtypedef struct {
+X XID (*Init)(
+X#if NeedNestedPrototypes
+X	     Display * /* dpy */, 
+X	     Window  /* w */,
+X	     PEXLookupTable  /* colorLUT */,
+X	     PEXLookupTable  /* lightLUT */,
+X	     PEXLookupTable  /* textLUT */,
+X	     PEXLookupTable  /* depthCueLUT */,
+X	     PEXLookupTable  /* colorApproxLUT */ 
+X#endif
+X);
+X
+X void (*ReDraw)();
+X
+X int  (*MapXToMC)(
+X#if NeedNestedPrototypes
+X		  MCMatrix * /* mc */,
+X		  int  /* inCount */,
+X		  XPoint * /* xPoints */,
+X		  PEXCoord ** /* mcPoints */ 
+X#endif
+X);
+X
+X int  (*MapMCToX)(
+X#if NeedNestedPrototypes
+X		  MCMatrix * /* mc */,
+X		  int  /* inCount */,
+X		  PEXCoord * /* mcPoints */,
+X		  XPoint ** /* xPoints */ 
+X#endif
+X);
+X
+X void (*SetView)(
+X#if NeedNestedPrototypes
+X		  int  /*  viewNumber */,
+X                  PEXViewEntry * /* view; */
+X#endif
+X );
+X
+X void (*SetNPCToDC)(
+X#if NeedNestedPrototypes
+X		    PEXNPCSubVolume * /* volume */,
+X		    PEXViewport * /* viewport */ 
+X#endif
+X);
+X
+X void (*Post)(
+X#if NeedNestedPrototypes
+X	      long  /* struxid */
+X#endif
+X);
+X
+X void (*DeleteAll)();
+X
+X void (*PickOne)(
+X#if NeedNestedPrototypes
+X		 short  /* x */,
+X		 short  /* y */,
+X		 long * /* strux */,
+X		 int * /* element */ 
+X#endif
+X);
+X
+X void (*PickAll)(
+X#if NeedNestedPrototypes
+X		 short  /* x */,
+X		 short  /* y */,
+X		 short  /* x2 */,
+X		 short  /* y2 */, 
+X		 int * /* nFound */,
+X		 long ** /* struxArray */,
+X		 int ** /* elemArray */ 
+X#endif
+X);
+X
+X int  (*MapXToNPC)(
+X#if NeedNestedPrototypes
+X		   int  /* inCount */,
+X		   PEXCoord * /* points */ 
+X#endif
+X);
+X
+X int  (*ReconfigureWindow)(
+X#if NeedNestedPrototypes
+X			   long  /* w */,
+X			   int  /* width */,
+X			   int  /* height */
+X#endif
+X);
+X
+X int  (*GetColorFromIndex)(
+X#if NeedFunctionPrototypes
+X     int           /* cIndex; */,
+X     PEXColorRGB * /* rgb */
+X#endif
+X);
+X
+X void (*Unpost)(
+X#if NeedNestedPrototypes
+X	      long  /* struxid */
+X#endif
+X);
+X
+X } renderProcs;
+X
+XGLOBAL renderProcs theRenderProcs;
+XGLOBAL int the51Flag;
+X
+XGLOBAL XID theRenderObj INIT( 1);
+XGLOBAL MCMatrix theMCMatrix;
+X
+XGLOBAL float theDepth INIT( 0.5);
+XGLOBAL PEXMatrix theMatOri, theMatMap;
+X
+XGLOBAL SpinList theSpinList;
+XGLOBAL Display *theDisplay;
+XGLOBAL Window   theWindow;
+XGLOBAL int theWinHeight;
+X
+XGLOBAL GC theDynGC INIT( NULL);
+XGLOBAL XID theFontLUT;
+XGLOBAL int theFontInitFlag INIT(0);
+X/*
+X * if theSelectedElement == -1 then nothing is slected. These are
+X * needed in fb.c
+X *
+X * index is only used for stretch, so far.
+X */
+XGLOBAL long theSelectedStrux INIT(0);
+XGLOBAL long theSelectedElement INIT( -1);
+XGLOBAL long theSelectedIndex; /* which point in list */
+XGLOBAL long theNewStrux INIT(0);
+X
+XGLOBAL int thedebug;
+XGLOBAL Window theWimpyWindow;
+X
+X#define TOOL_POINTER 1
+X#define TOOL_LINE 2
+X#define TOOL_VIEW 3
+X#define TOOL_TRISTRIP 4
+X#define TOOL_ZOOM 5
+X#define TOOL_NURBC 6
+X#define TOOL_TEXT 7
+X#define TOOL_PGON 8
+X#define TOOL_CIRCLE 9
+X#define TOOL_MCLIP 9
+X
+XGLOBAL int theCurrentTool;
+X
+XGLOBAL int thePMDBFlag INIT(0);
+XGLOBAL int theForceWKSFlag INIT(0);
+X
+XGLOBAL int theNoDitherFlag INIT(0);
+XGLOBAL int theSetEchoColorFlag INIT(0);
+XGLOBAL int theFF;
+X
+X/* these are in NPC space to allow zooming */
+XGLOBAL float theWindowCenterX INIT(0.5);
+XGLOBAL float theWindowCenterY INIT(0.5);
+XGLOBAL float theWindowSize INIT(0.5);
+X
+XGLOBAL int theScreen;
+X
+Xtypedef int (*pexFileCmd)();
+Xint ReadArchiveFile(
+X#if NeedFunctionPrototypes
+X	char * /*filename */
+X#endif
+X	);
+X
+Xint WriteArchiveFile(
+X#if NeedFunctionPrototypes
+X	char * /*filename */
+X#endif
+X	);
+X
+XGLOBAL pexFileCmd theFileCmd INIT(ReadArchiveFile);
+X
+X/*************************************************************************
+X * input dispatch tables
+X */
+Xtypedef void (*pexdrawHandler)();
+XpexdrawHandler thePressHandlerTable[3];
+XpexdrawHandler theMotionHandlerTable[3];
+XpexdrawHandler theReleaseHandlerTable[3];
+X
+X/*************************************************************************
+X * markers start at 70
+X * 0 if marker
+X * 1
+X */
+X#define OCPRIMTAB_BASE 79
+X#define OCPRIMTAB_MAX  98
+X
+X#define OCPRIM_MARKER 1
+X#define OCPRIM_LINE   2
+X#define OCPRIM_PGON   3
+X#define OCPRIM_TEXT   5
+X
+X
+X#ifdef DECL_GLOBALS
+Xint myOCPrimType[] = {1,1,3,3,3,3,2,2,2,2,/* 89 */3,3,3,3,3,3,3,3,3,3};
+X#else
+Xextern int myOCPrimType[];
+X#endif
+X
+Xtypedef struct {
+X  unsigned int index;
+X  int path;
+X  double expansion;
+X  double spacing;
+X  double height;
+X  int halign;
+X  int valign;
+X} TextAttributes;
+X
+XGLOBAL TextAttributes scratchTextAttrs;
+XGLOBAL PEXCoord textRect[4];
+X
+XGLOBAL Window theTopWindow;
+END_OF_FILE
+  if test 12694 -ne `wc -c <'pexdraw.h'`; then
+    echo shar: \"'pexdraw.h'\" unpacked with wrong size!
+  fi
+  # end of 'pexdraw.h'
+fi
+if test -f 'pexdrawc.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pexdrawc.3'\"
+else
+  echo shar: Extracting \"'pexdrawc.3'\" \(6070 characters\)
+  sed "s/^X//" >'pexdrawc.3' <<'END_OF_FILE'
+X	pp4->z = pp3->z * w;
+X	pp4->w = w;
+X      }
+X    p4[11].w = 0.1;
+X    parr.point_4d = p4;
+X  } else {
+X    parr.point = p3;
+X  }
+X
+X  PEXSetSurfaceApprox(theDisplay, struxid, PEXOCStore, 
+X		      PEXApproxConstantBetweenKnots, 2.0, 2.0 );
+X  PEXSetSurfaceColorIndex( theDisplay, struxid, PEXOCStore, 5 );
+X  PEXNURBSurface(dpy,struxid,PEXOCStore, rational, 3, 4,
+X		 uKnots, vKnots, 
+X		 3, 4, parr, 0, 0 );
+X}
+X/*************************************************************************
+X *
+X */
+X
+Xint CheckImpDepInteger(impDepConst)
+X  int impDepConst;
+X{
+X  PEXImpDepConstant *impDeps;
+X  unsigned short id[1];         /* it get's promoted if a paramter, sigh */
+X  int value;
+X/*
+X */
+X  id[0] = (unsigned short)impDepConst;
+X
+X  if(PEXGetImpDepConstants( theDisplay, theWindow,
+X			   1, id, &impDeps )) {
+X    value = impDeps[0].integer;
+X    XFree((char *)impDeps);
+X  } else { printf("CheckImpDep failed on %d\n",impDepConst); value = 0; }
+X  return (value);
+X}	
+X
+X/*************************************************************************
+X *
+X */
+X
+Xint CheckEnumType( eType, eValue )
+X     int eType;
+X     int eValue;
+X{
+X  PEXEnumTypeDesc *enums;
+X  unsigned long *enumCounts;
+X  int found = 0;
+X  int j;
+X
+X  if (PEXGetEnumTypeInfo( theDisplay, theWindow, 1, &eType,
+X				    PEXETIndex, &enumCounts, &enums )) {
+X    for (j = 0; j < enumCounts[0]; j++ ) {
+X      /* we have a list of the supported enums for the type eType */
+X      /* See if the one we wnat is in here */
+X      if (enums[j].index == (PEXEnumTypeIndex)eValue) found = 1;
+X      }
+X    PEXFreeEnumInfo(1, enumCounts, enums );
+X  }
+X  return (found);
+X}
+X
+X/*************************************************************************
+X *  GetColorAttribute get the color of the given element.
+X *
+X *  Function return 1 if O.K.
+X *
+X *  Get the element 2 before it, if color, assume it is right type go to FC
+X *   if not color, fetch element, decide type, increment elem[hmmm...]
+X *     [hmm... violation of global selected vs. what we got, but it's exception
+X *   Insert Noop to be color.
+X *  FC - Fetch Color
+X *   if indexed, get color table from renderer, get color from color table
+X *  fill in
+X */
+Xint GetColorAttribute(strux, elem, rgb)
+X     PEXStructure strux;
+X     long  elem;
+X     PEXColorRGB *rgb;
+X{
+X  int i;
+X  int error;
+X  char *eData;
+X  unsigned long count, length;
+X  PEXOCData *OCData;
+X  long  e;
+X
+X  if (elem == -1) {
+X    rgb->red = 1.0;
+X    rgb->green = 1.0;
+X    rgb->blue = 1.0;
+X    return (0);
+X  }
+X
+X  e = elem-1; /* get to the color element */
+X
+X  if (!(PEXFetchElements( theDisplay, strux,
+X			   PEXBeginning, e, PEXBeginning, e, theFF,
+X			   &count, &length, &eData ))) { return; }
+X
+X  OCData = PEXDecodeOCs( theFF, count, length, eData );
+X  XFree((char *)eData);
+X
+X  /* no edge or backface color test */
+X  if ((OCData->oc_type  == PEXOCLineColor) ||
+X      (OCData->oc_type  == PEXOCTextColor) ||
+X      (OCData->oc_type  == PEXOCMarkerColor) ||
+X      (OCData->oc_type  == PEXOCSurfaceColor)) { 
+X    if (OCData->data.SetLineColor.color_type != PEXColorTypeRGB)printf("RGB\n");
+X    *rgb = OCData->data.SetLineColor.color.rgb;
+X  } else if ((OCData->oc_type  == PEXOCLineColorIndex) ||
+X      (OCData->oc_type  == PEXOCTextColorIndex) ||
+X      (OCData->oc_type  == PEXOCMarkerColorIndex) ||
+X      (OCData->oc_type  == PEXOCSurfaceColorIndex)) { 
+X    theRenderProcs.GetColorFromIndex(OCData->data.SetLineColorIndex.index, rgb);
+X  } else {
+X    /*
+X     * not a color element, insert a Noop after elem and call color group
+X     */
+X    long struxArray[1];
+X    int elemArray[1];
+X
+X    PEXSetElementPtr( theDisplay, strux, PEXBeginning, e );
+X    PEXNoop(theDisplay,strux,PEXOCStore); /* ColorGroup will replace */
+X    
+X    struxArray[0] = strux;
+X    if ((strux == theSelectedStrux) && (elem >= theSelectedElement)) {
+X      theSelectedElement++;
+X      elemArray[0] = elem+1;
+X    } else {
+X      elemArray[0] = elem;
+X    }
+X    ColorGroup(1,struxArray,elemArray);
+X     
+X    theRenderProcs.GetColorFromIndex(theRandomColorIndex, rgb);
+X  }
+X  return (1);
+X}
+X
+Xint SetColorAttribute(strux, elem, rgb)
+X     PEXStructure strux;
+X     long  elem;
+X     PEXColorRGB *rgb;
+X{
+X  unsigned long length;
+X  PEXElementInfo *eInfo;
+X  unsigned long eCount;
+X  long pe, del;
+X
+X  if ((strux == theSelectedStrux) && (elem == theSelectedElement)) {
+X    pe = elem+1;  /* primitive is behind select color strux */
+X    del = elem;   /* neuter the select color */
+X  } else {
+X    pe = elem;
+X    del = elem-1;
+X  }
+X  
+X
+X  if(PEXGetElementInfo(theDisplay, strux, 
+X			    PEXBeginning, pe,
+X			    PEXBeginning, pe,
+X			    theFF, &eCount, &eInfo )){
+X    if ((eCount == 1) &&
+X	((eInfo->type >= OCPRIMTAB_BASE) && (eInfo->type <= OCPRIMTAB_MAX))) {
+X
+X      PEXDeleteElements( theDisplay, strux,
+X			PEXBeginning, elem-1,
+X			PEXBeginning, del );
+X
+X      switch (myOCPrimType[eInfo->type-OCPRIMTAB_BASE]) {
+X      case OCPRIM_MARKER:
+X	PEXSetMarkerColor( theDisplay, strux, PEXOCStore,
+X			  PEXColorTypeRGB, (PEXColor *)rgb);
+X	break;
+X      case OCPRIM_LINE:
+X	PEXSetLineColor( theDisplay, strux, PEXOCStore,
+X			PEXColorTypeRGB, (PEXColor *)rgb);
+X	break;
+X      case OCPRIM_PGON:
+X	PEXSetSurfaceColor( theDisplay, strux, PEXOCStore, 
+X			   PEXColorTypeRGB, (PEXColor *)rgb);
+X	break;
+X      case OCPRIM_TEXT:
+X	PEXSetTextColor( theDisplay, strux, PEXOCStore,
+X			PEXColorTypeRGB, (PEXColor *)rgb);
+X	break;
+X      default:
+X	break;
+X      }
+X      if ((strux == theSelectedStrux) && (elem == theSelectedElement)) {
+X	PEXNoop(theDisplay, strux, PEXOCStore);
+X      }
+X    } else { printf("SetColorAttribute, %d not prim\n",eInfo->type);}
+X  } else { printf("PEXGetStructureInfo failed\n");}
+X}
+X
+XDeleteStrux(strux)
+X     PEXStructure strux;
+X{
+X  PEXDestroyStructures(theDisplay, 1, (PEXStructure *)&strux);
+X  if ((strux == theSelectedStrux) && (theSelectedElement != -1)) {
+X    theSelectedElement = -1;
+X  }
+X}
+X
+XExecStrux(strux)
+X     PEXStructure strux;
+X{
+X  if ((strux == theSelectedStrux) && (theSelectedElement != -1)) {
+X    printf("a structure cannot execute itself\n");
+X    return;
+X  }
+X
+X  PEXSetElementPtr( theDisplay, theSelectedStrux, PEXEnd,  0 );
+X  PEXExecuteStructure(theDisplay, theSelectedStrux, PEXOCStore, strux );
+X}
+X
+END_OF_FILE
+  if test 6070 -ne `wc -c <'pexdrawc.3'`; then
+    echo shar: \"'pexdrawc.3'\" unpacked with wrong size!
+  fi
+  # end of 'pexdrawc.3'
+fi
+if test -f 'ui_x.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ui_x.c'\"
+else
+  echo shar: Extracting \"'ui_x.c'\" \(11454 characters\)
+  sed "s/^X//" >'ui_x.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)ui_x.c	1.10 Oki Electric Industry Co., Ltd. 93/05/24";
+X#endif
+X/*
+X	This file is under sccs control at Stardent in:
+X	/nfs/sole/root/sccs1.p/X11R5/mit/demos/pexdraw/s.ui_x.c
+X*/
+X/*
+X *			Copyright (c) 1992 by
+X *			Oki Electric Industry Co., Ltd.
+X *			All Rights Reserved
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X *
+X * This supercedes the Stardent copyright granting the same rights that
+X * appeared in the pdraw predecessor to pexdraw.
+X *
+X *************************************************************************
+X *
+X *                         P E X D R A W
+X *
+X *  A PEX drawing program based on PDRAW,
+X *
+X *   This is the NO_MOTIF version of the "user interface".
+X *
+X *  This implements the following routines: InitUserInterface(),
+X *    MainLoop() and AddWorkProc();
+X *
+X *************************************************************************/
+X
+X#include <stdio.h>
+X
+X#include <math.h>
+X
+X#include <X11/Xlib.h>
+X#include <X11/keysym.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X
+X#include <X11/PEX5/PEXlib.h>
+X#include "pexdraw.h"
+X
+X
+Xstatic int (*theWorker)();
+Xstatic char *theInfo;
+X
+XPEXVector  theVPN = { 0.0, 0.0, 1.0 };
+XPEXVector  theVUP = { 0.0, 1.0, 1.0 };
+Xint theDBFlag = 1;
+X
+Xint activate(
+X#if NeedFunctionPrototypes
+X	     KeySym  /* k */
+X#endif
+X);
+X
+X/*************************************************************************
+X *
+X */
+Xvoid
+XInitUserInterface( argc, argv )
+X     int argc;
+X     char *argv[];
+X{
+X    XVisualInfo 	template;
+X    XVisualInfo 	*visinfo;
+X    Visual   		*visual; 
+X    int			nitems;
+X    XSizeHints		sizehints;
+X    int	i;
+X
+X    char *displayString = (char *)0;
+X    int direct = 0;
+X    char *winstr;
+X    int vis = -1;
+X    int wind_x, wind_y, wind_w = 500, wind_h = 500;
+X
+X    for ( i = 1; i<argc; i++ ) {
+X      if ((strncmp(argv[i],"-geometry",strlen(argv[i]))) == 0) {
+X	printf("found -geom\n");
+X      } else if ((strncmp(argv[i],"-display",strlen(argv[i]))) == 0) {
+X	if (++i > argc) { printf("not enough args"); exit(1); }
+X	displayString = argv[i];
+X      } else if ((strncmp(argv[i],"-pmdb",strlen(argv[i]))) == 0) {
+X	thePMDBFlag = 1; 
+X      } else if ((strncmp(argv[i],"-wks",strlen(argv[i]))) == 0) {
+X	theForceWKSFlag = 1; 
+X      } else if ((strncmp(argv[i],"-direct",strlen(argv[i]))) == 0) {
+X	vis = 1;
+X	direct = 1;
+X      } else if ((strncmp(argv[i],"-true",strlen(argv[i]))) == 0) {
+X	vis = 1;
+X	direct = 0;
+X      }
+X    }
+X
+X  theDisplay = XOpenDisplay(displayString);
+X  if (!theDisplay) { printf(" cannot open display %s\n",displayString); exit(1);}
+X
+X    wind_x = (1280-wind_w)/2;
+X    wind_y = (1024-wind_h)/2;
+X
+X  if ( vis = -1 ) {
+X    theWindow = XCreateSimpleWindow( theDisplay, DefaultRootWindow(theDisplay), 
+X				 wind_x,wind_y,
+X				 wind_w,wind_h,
+X				 2,
+X				 BlackPixel(theDisplay,DefaultScreen(theDisplay)),
+X				 WhitePixel(theDisplay,DefaultScreen(theDisplay)));
+X/*    thePixelDepth = DefaultDepth(theDisplay, DefaultScreen(theDisplay)); */
+X  } else {
+X
+X    /* Get the visual info for a visual of the type we want */
+X    if (direct) {
+X      template.class = DirectColor;
+X      winstr = "DirectColor";
+X    } else {
+X      template.class = TrueColor;
+X      winstr = "TrueColor";
+X    }
+X    visinfo = XGetVisualInfo(theDisplay, VisualClassMask, &template, &nitems);
+X    if (visinfo == NULL) 
+X    {   fprintf(stderr,"Can't create %s window",winstr);
+X	exit(-1);
+X    }
+X    /* This is the visual that we will use */
+X    visual = visinfo->visual;
+X    theWindow = XCreateWindow(theDisplay,
+X			   DefaultRootWindow(theDisplay),
+X			   wind_x,wind_y,
+X			   wind_w,wind_h,
+X			   2,
+X			   visinfo->depth,
+X			   InputOutput,	
+X			   visual,
+X			   0,0);
+X/*    thePixelDepth = visinfo->depth; */
+X  }
+X    sizehints.x = wind_x;
+X    sizehints.y = wind_y;
+X    sizehints.width = sizehints.max_width = wind_w;
+X    sizehints.height = sizehints.max_height = wind_h;
+X    sizehints.flags = USSize | USPosition;
+X    XSetNormalHints(theDisplay,theWindow,&sizehints);
+X
+X    XMapWindow(theDisplay,theWindow);
+X
+X    XSelectInput(theDisplay,theWindow,
+X		 ButtonMotionMask|ButtonPressMask|ButtonReleaseMask|
+X		 KeyPressMask|
+X		 ExposureMask|StructureNotifyMask);
+X    XFlush(theDisplay);
+X
+X  /* iquire what the default too is and ... */
+X  set_tool_line();
+X
+X  theDynGC = CreateDynGC();
+X
+X  theWorker = 0;
+X}
+X
+Xvoid
+XMainLoop()
+X{
+X  XEvent event;
+X  int done = 0;
+X  int button, length;
+X  KeySym keysym;
+X  char buf[42]; /* why ask why? */
+X  XComposeStatus cs;
+X  XWindowAttributes winAttrs;
+X
+X  while (!done) {
+X    if (!XPending(theDisplay)) {
+X      if (theWorker) if (theWorker(theInfo)) theWorker = 0;
+X    } else {
+X      XNextEvent(theDisplay,&event);
+X      switch (event.type) {
+X	
+X      case Expose:
+X	theRenderProcs.ReDraw();
+X	break;
+X	
+X      case ConfigureNotify:
+X	theWinHeight = event.xconfigure.height;
+X	ResizeWindow( theWindow, event.xconfigure.width, event.xconfigure.height );
+X	theRenderProcs.ReDraw();
+X	break;
+X	
+X      case ButtonPress:
+X	if (event.xbutton.button < 1 || event.xbutton.button > 3) break;
+X	thePressHandlerTable[event.xbutton.button-1](&event);
+X	break;
+X	
+X      case  ButtonRelease:
+X	if (event.xbutton.button < 1 || event.xbutton.button > 3) break;
+X	theReleaseHandlerTable[event.xbutton.button-1](&event);
+X	break;
+X	
+X      case MotionNotify:
+X	if ( event.xmotion.state == Button1MotionMask ) {
+X	  button = 0;
+X	} else if ( event.xmotion.state == Button2MotionMask ) {
+X	  button = 1;
+X	} else if ( event.xmotion.state == Button3MotionMask ) {
+X	  button = 2;
+X	} else {
+X	  return;
+X	}
+X	
+X	theMotionHandlerTable[button](&event);
+X	break;
+X	
+X      case KeyPress:
+X	length = XLookupString(&event.xkey, buf, 42, &keysym, &cs );
+X	done = activate(keysym);
+X	break;
+X	
+X      default:
+X	printf("got weird event!!! type = %x\n", event.type);
+X      }
+X    }
+X  }
+X
+X}
+X
+Xint activate(k)
+X     KeySym k;
+X{
+X  switch (k) {
+X
+X  case XK_question:
+X  case XK_h:
+X  case XK_H: /*  k_tool_pointer */
+X    printf("You are in NO_MOTIF mode!, h & ? get this message\n");
+X    printf(" tool selection l - line, p - pointer, t - triangle, v -view\n");
+X    printf(" d - dump strux, k - kill element, a - delete all \n");
+X    printf(" s - spin, i - interior style solid, r - refresh\n");
+X    break;
+X
+X  case XK_p:
+X  case XK_P: /*  k_tool_pointer */
+X    set_tool_pointer();
+X    break;
+X
+X  case XK_l:
+X  case XK_L: /*  k_tool_line */
+X    set_tool_line();
+X    break;
+X
+X  case XK_v:
+X  case XK_V: /*  k_tool_view */
+X    set_tool_view();
+X    break;
+X
+X  case XK_t:
+X  case XK_T: /*  k_tool_tristrip */
+X    set_tool_tristrip();
+X    break;
+X
+X  case XK_d:
+X  case XK_D: /*  k_dump_strux */
+X    DumpStruxCmd(1);
+X    break;
+X
+X  case XK_r:
+X  case XK_R: /*  k_refresh */
+X    theRenderProcs.ReDraw();
+X    break;
+X
+X  case XK_k:
+X  case XK_K: /*  k_delete */
+X    DeleteSelected();
+X    break;
+X
+X  case XK_i:
+X  case XK_I: /*  k_make_solid */
+X    InteriorStyleCmd(PEXInteriorStyleSolid);
+X    break;
+X
+X  case XK_s:
+X  case XK_S: /*  k_spin_slowly */ {
+X    PEXStructure sid;
+X    
+X    if ( theSelectedElement != -1 ) {
+X      sid = theSelectedStrux;
+X    } else if (theNewStrux != 0) {
+X      sid = theNewStrux;
+X    } else break;
+X
+X    if (!StartSpinning(sid)) { /* could not start, must be spinning */
+X      StopSpinning(sid);
+X    }}
+X
+X  case XK_a:
+X  case XK_A: /*  k_delete_all */
+X    StopSpinning((PEXStructure)-1);
+X    PEXRotate(PEXXAxis, 0.0, theMCMatrix.matrix );
+X    theMCMatrix.seqNo = 0;
+X    theRenderProcs.DeleteAll();
+X    break;
+X
+X  case XK_q:
+X  case XK_Q: /*  k_delete_all */
+X    return (1);
+X    break;
+X
+X  default:
+X    break;
+X  }
+X  return (0);
+X}
+X
+Xvoid
+XAddWorkProc(worker,info)
+X     int (*worker)();
+X     char *info;
+X{
+X  theWorker = worker;
+X  theInfo = info;
+X}
+X
+Xint
+XapplyViewSet( viewNumber)
+X     int viewNumber;
+X{
+X  PEXCoord  vrp;  /* view reference point */
+X  PEXVector  vpn;  /* view plane normal    */
+X  PEXVector  vup;  /* view up vector       */
+X  
+X  PEXViewRep vrep;                           /*  view structure */
+X
+X  PEXCoord2D          frame[2];
+X  PEXNPCSubVolume     viewport;
+X  int                 perspective;
+X  PEXCoord            prp;
+X  float               view_plane, back_plane, front_plane;
+X 
+X  int err;
+X
+X  int persp;
+X
+X
+X  persp = 0;
+X
+X  vrp.x = 0;
+X  vrp.y = 0;
+X  vrp.z = 0;
+X  
+X  err = PEXViewOrientationMatrix( &vrp, &theVPN, &theVUP,
+X				 vrep.view.orientation);
+X  if (err != 0) {
+X    printf( "view orientation error %d\n",err); return (1);
+X  }
+X
+X
+Xframe[0].x = -3;
+Xframe[1].x = 3;
+Xframe[0].y = -3;
+Xframe[1].y = 3;
+Xviewport.min.x = 0;
+Xviewport.max.x = 1;
+Xviewport.min.y = 0;
+Xviewport.max.y = 1;
+Xviewport.min.z = 0;
+Xviewport.max.z = 1;
+Xprp.x = 0;
+Xprp.y = 0;
+Xprp.z = 10;
+Xview_plane = 0;
+Xback_plane = -5;
+Xfront_plane = 5;
+X
+X  err = PEXViewMappingMatrix( frame, &viewport, persp, &prp,
+X		       view_plane, back_plane, front_plane,
+X		       vrep.view.mapping);
+X  
+X  if (err != 0) { printf( "view mapping error %d\n",err); return (1); }
+X  
+X  vrep.view.clip_limits.min.x = viewport.min.x;
+X  vrep.view.clip_limits.min.y = viewport.min.y;
+X  vrep.view.clip_limits.min.z = viewport.min.z;
+X  vrep.view.clip_limits.max.x = viewport.max.x;
+X  vrep.view.clip_limits.max.y = viewport.max.y;
+X  vrep.view.clip_limits.max.z = viewport.max.z;
+X  vrep.view.clip_flags = PEXClipXY | PEXClipBack | PEXClipFront;
+X  vrep.index = viewNumber;
+X
+X  theRenderProcs.SetView( 1, &vrep.view );
+X
+X  bcopy((char *)&vrep.view.orientation, (char *)&theMatOri,sizeof(PEXMatrix));
+X  bcopy((char *)&vrep.view.mapping, (char *)&theMatMap, sizeof(PEXMatrix));
+X
+X  theRenderProcs.ReDraw();
+X
+X  return (0);
+X}
+X
+X/*************************************************************************
+X * CreateDynGC - create an X GC Resource for Dynamics.
+X *
+X * Got the rubberbanding methodology from contrib/clients/xfig/w_drawPrim.c
+X * But just the idea, no code was copied, hence no copyright.
+X *
+X * The idea is to xor ( exclusive or ) the foreground and the background
+X * together. When it is xor'd with the background it produces the foreground.
+X */
+XGC CreateDynGC()
+X{
+X  XGCValues values;
+X  unsigned long fg, bg;
+X  GC tGC;
+X
+X  if (theWimpyWindow) {
+X    values.foreground = -1;
+X    values.background = 0;
+X  } else {
+X  bg = BlackPixel(theDisplay,DefaultScreen(theDisplay));
+X  fg = WhitePixel(theDisplay,DefaultScreen(theDisplay));
+X
+X  values.foreground = fg ^ bg;
+X  values.background = bg;
+X  }
+X  values.function = GXxor;
+X  tGC = XCreateGC(theDisplay, theWindow,
+X		  GCFunction | GCForeground | GCBackground, &values );
+X  return (tGC);
+X}
+X
+Xvoid GetVPN( viewNumber, vpn )
+X     int viewNumber;
+X     PEXVector  *vpn;
+X{
+X  *vpn = theVPN;
+X}
+X
+Xvoid SetVPN( viewNumber, vpn )
+X     int viewNumber;
+X     PEXVector  *vpn;
+X{
+X  theVPN = *vpn;
+X}
+X
+X
+Xvoid GetVUP( viewNumber, vup )
+X     int viewNumber;
+X     PEXVector  *vup;
+X{
+X  *vup = theVUP;
+X}
+X
+Xvoid SetVUP( viewNumber, vup )
+X     int viewNumber;
+X     PEXVector  *vup;
+X{
+X  theVUP = *vup;
+X}
+X
+XGetSomeTextFromUI( x, y, length, charStr, flags )
+X     int x;
+X     int y;
+X     int *length;
+X     char **charStr;
+X     int *flags;
+X{
+X  *length = strlen("hello world");
+X  *charStr = malloc(*length+1);
+X  strcpy(*charStr, "hello world");
+X  *flags = 0;
+X}
+X
+END_OF_FILE
+  if test 11454 -ne `wc -c <'ui_x.c'`; then
+    echo shar: \"'ui_x.c'\" unpacked with wrong size!
+  fi
+  # end of 'ui_x.c'
+fi
+if test -f 'util/pexutcmaphp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutcmaphp.c'\"
+else
+  echo shar: Extracting \"'util/pexutcmaphp.c'\" \(11684 characters\)
+  sed "s/^X//" >'util/pexutcmaphp.c' <<'END_OF_FILE'
+X/******************************************************************************/
+X/*                                                                            */
+X/*  (c) Copyright Hewlett-Packard Company, 1992, Fort Collins, Colorado       */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted,          */
+X/*  provided that the above copyright notices appear in all copies and that   */
+X/*  both the copyright notices and this permission notice appear in           */
+X/*  supporting documentation, and that the name of Hewlett-Packard not be     */
+X/*  used in advertising or publicity pertaining to distribution of the        */
+X/*  software without specific, written prior permission.                      */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* $Source: /BE700/9.0/gtd/R903/wbuild/PEX5/src/test/RCS/pexutcmaphp.c,v $                          */
+X/* $Date: 93/03/17 13:50:37 $                                                 */
+X/* $Revision: 500.1.200.1 $                                                   */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   Implementation file of Hewlett-Packard-specific routines                 */
+X/*   for PEXUt colormap/visual utilities.                                     */
+X/*                                                                            */
+X/* Notes:                                                                     */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X#include <math.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/PEX5/PEXlib.h>
+X
+X#include "pexutcmap.h"
+X#include "pexutcmapint.h"
+X#include "pexutcmaphp.h"
+X
+X
+Xstatic short hp_crx_666_dithertable[256] = {
+X/*   0: */   0,   1,   2,   3,   4,   5,   6,   7,
+X/*   8: */   8,   9,  10,  11,  12,  13,  14,  15,
+X/*  16: */  16,  17,  18,  19,  20,  21,  22,  23,
+X/*  24: */  24,  25,  26,  27,  28,  29,  30,  31,
+X/*  32: */  32,  33,  34,  35,  36,  37,  38,  39,
+X/*  40: */ 255, 251, 191, 187, 127, 123, 253, 249,
+X/*  48: */ 189, 185, 125, 121, 239, 235, 175, 171,
+X/*  56: */ 111, 107, 237, 233, 173, 169, 109, 105,
+X/*  64: */ 223, 219, 159, 155,  95,  91, 221, 217,
+X/*  72: */ 157, 153,  93,  89, 254, 250, 190, 186,
+X/*  80: */ 126, 122, 252, 248, 188, 184, 124, 120,
+X/*  88: */ 238, 234, 174, 170, 110, 106, 236, 232,
+X/*  96: */ 172, 168, 108, 104, 222, 218, 158, 154,
+X/* 104: */  94,  90, 220, 216, 156, 152,  92,  88,
+X/* 112: */ 247, 243, 183, 179, 119, 115, 245, 241,
+X/* 120: */ 181, 177, 117, 113, 231, 227, 167, 163,
+X/* 128: */ 103,  99, 229, 225, 165, 161, 101,  97,
+X/* 136: */ 215, 211, 151, 147,  87,  83, 213, 209,
+X/* 144: */ 149, 145,  85,  81, 246, 242, 182, 178,
+X/* 152: */ 118, 114, 244, 240, 180, 176, 116, 112,
+X/* 160: */ 230, 226, 166, 162, 102,  98, 228, 224,
+X/* 168: */ 164, 160, 100,  96, 214, 210, 150, 146,
+X/* 176: */  86,  82, 212, 208, 148, 144,  84,  80,
+X/* 184: */ 207, 203, 143, 139,  79,  75, 205, 201,
+X/* 192: */ 141, 137,  77,  73, 199, 195, 135, 131,
+X/* 200: */  71,  67, 197, 193, 133, 129,  69,  65,
+X/* 208: */  63,  59,  55,  51,  47,  43,  61,  57,
+X/* 216: */  53,  49,  45,  41, 206, 202, 142, 138,
+X/* 224: */  78,  74, 204, 200, 140, 136,  76,  72,
+X/* 232: */ 198, 194, 134, 130,  70,  66, 196, 192,
+X/* 240: */ 132, 128,  68,  64,  62,  58,  54,  50,
+X/* 248: */  46,  42,  60,  56,  52,  48,  44,  40,
+X};
+X
+Xstatic short hp_crx_884_dithertable[256] = {
+X/*   0: */ 255, 251, 223, 219, 253, 249, 221, 217,
+X/*   8: */ 239, 235, 207, 203, 237, 233, 205, 201,
+X/*  16: */ 127, 123,  95,  91, 125, 121,  93,  89,
+X/*  24: */ 111, 107,  79,  75, 109, 105,  77,  73,
+X/*  32: */ 254, 250, 222, 218, 252, 248, 220, 216,
+X/*  40: */ 238, 234, 206, 202, 236, 232, 204, 200,
+X/*  48: */ 126, 122,  94,  90, 124, 120,  92,  88,
+X/*  56: */ 110, 106,  78,  74, 108, 104,  76,  72,
+X/*  64: */ 247, 243, 215, 211, 245, 241, 213, 209,
+X/*  72: */ 231, 227, 199, 195, 229, 225, 197, 193,
+X/*  80: */ 119, 115,  87,  83, 117, 113,  85,  81,
+X/*  88: */ 103,  99,  71,  67, 101,  97,  69,  65,
+X/*  96: */ 246, 242, 214, 210, 244, 240, 212, 208,
+X/* 104: */ 230, 226, 198, 194, 228, 224, 196, 192,
+X/* 112: */ 118, 114,  86,  82, 116, 112,  84,  80,
+X/* 120: */ 102,  98,  70,  66, 100,  96,  68,  64,
+X/* 128: */ 191, 187, 159, 155, 189, 185, 157, 153,
+X/* 136: */ 175, 171, 143, 139, 173, 169, 141, 137,
+X/* 144: */  63,  59,  31,  27,  61,  57,  29,  25,
+X/* 152: */  47,  43,  15,  11,  45,  41,  13,   9,
+X/* 160: */ 190, 186, 158, 154, 188, 184, 156, 152,
+X/* 168: */ 174, 170, 142, 138, 172, 168, 140, 136,
+X/* 176: */  62,  58,  30,  26,  60,  56,  28,  24,
+X/* 184: */  46,  42,  14,  10,  44,  40,  12,   8,
+X/* 192: */ 183, 179, 151, 147, 181, 177, 149, 145,
+X/* 200: */ 167, 163, 135, 131, 165, 161, 133, 129,
+X/* 208: */  55,  51,  23,  19,  53,  49,  21,  17,
+X/* 216: */  39,  35,   7,   3,  37,  33,   5,   1,
+X/* 224: */ 182, 178, 150, 146, 180, 176, 148, 144,
+X/* 232: */ 166, 162, 134, 130, 164, 160, 132, 128,
+X/* 240: */  54,  50,  22,  18,  52,  48,  20,  16,
+X/* 248: */  38,  34,   6,   2,  36,  32,   4,   0,
+X};
+X
+X
+X/* 
+X    This is the value type for the _HP_RGB_SHADING_MAP property.
+X    There may be one entry per Visual.
+X*/
+X
+Xtypedef struct {
+X	VisualID	visualid;
+X	int		interpolation_ramp;
+X} hp_rgb_shading_map_type;
+X
+X/*
+X    Interesting values for the interpolation_ramp field.
+X*/
+X
+X#define HPPEX_INTERP_RAMP_884_CRX     0x011 
+X#define HPPEX_INTERP_RAMP_666_CRX     0x012
+X
+X
+Xint pexut_modify_colormap_for_HP_dependencies (
+X		display,
+X		colormap_id,
+X		vis_info,
+X		capx_info
+X		)
+X
+X		Display				*display;
+X		Colormap			colormap_id;
+X		XVisualInfo			*vis_info;
+X		PEXColorApproxEntry		*capx_info;
+X{
+X	int				num_colors;
+X	unsigned long			pixel_value;
+X	XColor				*new_colors, *source_colors, *p_color;
+X	short				*translation_table;
+X	int				base_pixel;
+X
+X	int				ramp_index;
+X	hp_rgb_shading_map_type		*shading_map_data;
+X	int				shading_map_count;
+X	int				i;
+X
+X	Atom				property_atom;
+X	Atom	    			actual_type;
+X	int				actual_format;
+X	unsigned long   		item_count;
+X	unsigned long   		item_count_return, bytes_unread;
+X	int				result;
+X
+X
+X	/*
+X	    If using X protocol, the remote server's rendering behavior
+X	    does not affect the local rendering, so ignore the property.
+X	    Otherwise, try to fetch it.
+X	*/
+X
+X	if (!strcmp("X",getenv("HPPEX_CLIENT_PROTOCOL")))
+X	    return PEXUtUnmodifiedResource;
+X
+X
+X	/*
+X	    Currently nothing to do on any HP platform for PEXColorRange.
+X	*/
+X	
+X	if (capx_info->type != PEXColorSpace)
+X	    return PEXUtUnmodifiedResource;
+X
+X
+X	/*
+X	    Determine if the _HP_RGB_SHADING_MAP property is defined on
+X	    the server, and if so get its value.
+X	*/
+X
+X	ramp_index = 0;
+X
+X
+X	/*
+X	    Get the atom from the X server.  If it doesn't exist,
+X	    neither does the property.  In this case, succeed silently.
+X	*/
+X
+X	property_atom = XInternAtom(display, "_HP_RGB_SHADING_MAP", True);
+X	if (property_atom == None) {
+X	    return PEXUtUnmodifiedResource;
+X	}
+X
+X
+X	/* 
+X	    Property atom exists - fetch the property.
+X	*/
+X
+X	bytes_unread = 0;
+X	item_count = sizeof(hp_rgb_shading_map_type)/4;
+X	do {
+X	    item_count += (bytes_unread+3)/4;
+X	    result = XGetWindowProperty (display, 
+X				    RootWindow(display, vis_info->screen),
+X				    property_atom,
+X				    0, item_count, False, 
+X				    property_atom,
+X				    &actual_type, &actual_format, 
+X				    &item_count_return, &bytes_unread,
+X				    (unsigned char **) &shading_map_data);
+X
+X	} while ((result == Success) && (bytes_unread > 0));
+X
+X	if (result != Success)
+X	    return PEXUtUnmodifiedResource;
+X
+X	/*
+X	    Search for an entry for the specified visual in the returned data.
+X	*/
+X
+X	ramp_index = 0;
+X	shading_map_count = item_count_return/(sizeof(hp_rgb_shading_map_type)/4);
+X	for (i=0; i<shading_map_count; i++) {
+X
+X	    if (vis_info->visualid == shading_map_data[i].visualid) {
+X
+X		ramp_index = shading_map_data[i].interpolation_ramp;
+X		break;
+X	    }
+X	}
+X
+X	if (item_count_return > 0)
+X	    XFree (shading_map_data);
+X	if (ramp_index == 0) 
+X	    return PEXUtUnmodifiedResource;
+X
+X
+X	/*
+X	    See if this is one of the interesting values for 
+X	    the interpolation ramp, if not interesting quit now.
+X	*/
+X
+X	if ((ramp_index == HPPEX_INTERP_RAMP_884_CRX) &&
+X	    (capx_info->max1 == 7) && (capx_info->mult1 == 32) &&
+X	    (capx_info->max2 == 7) && (capx_info->mult2 == 4) &&
+X	    (capx_info->max3 == 3) && (capx_info->mult3 == 1) &&
+X	    (capx_info->base_pixel == 0))
+X	{
+X
+X	    translation_table = hp_crx_884_dithertable;
+X	    base_pixel = 0;
+X	    num_colors = 256;
+X	}
+X	else if ((ramp_index == HPPEX_INTERP_RAMP_666_CRX) && 
+X	    (capx_info->max1 == 5) && (capx_info->mult1 == 36) &&
+X	    (capx_info->max2 == 5) && (capx_info->mult2 == 6) &&
+X	    (capx_info->max3 == 5) && (capx_info->mult3 == 1) &&
+X	    (capx_info->base_pixel == 40))
+X	{
+X	    translation_table = hp_crx_666_dithertable;
+X	    base_pixel = 40;
+X	    num_colors = 216;
+X	}
+X	else
+X	    return PEXUtUnmodifiedResource;
+X
+X
+X	/*
+X	    Allocate storage and fetch the current colormap contents.
+X	*/
+X
+X	if ((source_colors = (XColor *) 
+X			malloc (num_colors * sizeof(XColor))) == NULL) {
+X
+X	    return PEXUtAllocFailure;
+X	}
+X
+X	for (pixel_value = base_pixel, p_color = source_colors; 
+X	    pixel_value < base_pixel + num_colors; 
+X	    pixel_value++, p_color++) {
+X
+X	    p_color->pixel = pixel_value;
+X	}
+X	XQueryColors (display, colormap_id, source_colors, num_colors);
+X
+X
+X	/*
+X	    Allocate storage for a new set of colors for the ramp.
+X	*/
+X
+X	if ((new_colors = (XColor *) 
+X			malloc (num_colors * sizeof(XColor))) == NULL) {
+X
+X	    free (source_colors);
+X	    return PEXUtAllocFailure;
+X	}
+X
+X	
+X	/*
+X	    Copy colors from the original ramp, but in the shuffled order.
+X	*/
+X
+X	p_color = new_colors;
+X	for (pixel_value = base_pixel; 
+X	    pixel_value < base_pixel + num_colors; 
+X	    pixel_value++) {
+X
+X	    p_color->flags = DoRed | DoGreen | DoBlue;
+X	    p_color->pixel = translation_table[pixel_value];
+X	    p_color->red = source_colors[pixel_value - base_pixel].red;
+X	    p_color->green = source_colors[pixel_value - base_pixel].green;
+X	    p_color->blue = source_colors[pixel_value - base_pixel].blue;
+X	    p_color++;
+X	}
+X
+X
+X	/*
+X	    Load the color map.
+X	*/
+X
+X	XStoreColors (display, colormap_id, new_colors, num_colors);
+X
+X
+X	/*
+X	    Free the temporary storage.
+X	*/
+X
+X	free (new_colors);
+X	free (source_colors);
+X
+X	return PEXUtModifiedResource;
+X
+X} /* pexut_modify_colormap_for_HP_dependencies */
+END_OF_FILE
+  if test 11684 -ne `wc -c <'util/pexutcmaphp.c'`; then
+    echo shar: \"'util/pexutcmaphp.c'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutcmaphp.c'
+fi
+echo shar: End of archive 13 \(of 14\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

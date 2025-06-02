@@ -1,0 +1,709 @@
+Newsgroups: comp.sources.misc
+From: perry@truk.aap.com (Perry R. Ross)
+Subject: v41i046:  ldb - Play backgammon by e-mail, v1.3, Patch02
+Message-ID: <1993Dec19.212253.1320@sparky.sterling.com>
+X-Md4-Signature: efeaa7b57f7571fb4a7c626ca7d58ff4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 21:22:53 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: perry@truk.aap.com (Perry R. Ross)
+Posting-number: Volume 41, Issue 46
+Archive-name: ldb/patch02
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Patch-To: ldb: Volume 36, Issue 98-109
+
+		Long Distance Backgammon
+
+	This is a program that lets two people easily play backgammon
+by e-mail.  It currently runs only on character-oriented terminals
+(or emulators thereof) under the curses package.  It runs on most
+flavors of UNIX, as well as VMS version 5.0 and above.
+
+	This is patch 2 to version 1.3 of ldb.  The Crawford rule has
+been (re) fixed, hopefully for the last time.  You will now get
+a warning if you play a Crawford rule game with a version of
+ldb before this one.  Other bugs have been fixed, most reported
+by Peter Nickless.  Thanks for all suggestions/bug reports
+received, and apologies to those that couldn't be fixed yet.
+See the comments at the top of main.c for a complete list of bugs
+fixed by this patch, and TODO for a list of bugs/enhancements
+yet to fix.
+
+	If you don't know how to apply this patch, and just want
+to get the most current ldb, feel free to e-mail me and I'll
+send it to you.
+
+Perry R. Ross -- perry@aap.com
+
+
+*** 131src/README	Fri Dec 10 16:29:53 1993
+--- README	Fri Dec 10 16:45:19 1993
+***************
+*** 13,19 ****
+  
+  	Suggestions and problems are cheerfully accepted, all the more
+  so when accompanied by appropriate patches, in any format the patch
+! program understands (e.g. context diff).  E-mail to ross@emf780.den.mmc.com.
+  
+  	This file is for version 1.3 of ldb.  For those upgrading from
+  1.0 who are wondering what happened to 1.1, it was only released on
+--- 13,19 ----
+  
+  	Suggestions and problems are cheerfully accepted, all the more
+  so when accompanied by appropriate patches, in any format the patch
+! program understands (e.g. context diff).  E-mail to perry@aap.com.
+  
+  	This file is for version 1.3 of ldb.  For those upgrading from
+  1.0 who are wondering what happened to 1.1, it was only released on
+*** 131src/TODO	Fri Dec 10 16:35:26 1993
+--- TODO	Wed Dec 15 11:18:34 1993
+***************
+*** 1,5 ****
+--- 1,13 ----
+  flist_unix does not work on SCO UNIX.
+  
++ From Peter Nickless (nickless@ccs.carleton.ca)
++ Reported a bug in scoring when a double is declined.  Symptoms
++ are: neutral cube, double is declined, then game value is doubled
++ and cube is moved to player's board.  Could not reproduce this bug.
++ Anyone experiencing it should send me: .ldbdata, .oldldbdata, .ldbpeople,
++ and if possible the few most recent moves from your and your opponents'
++ mailbox.
++ 
+  From Dick King (king@ukulele.reasoning.com):
+  1. Proposition support.  Need more info.
+  2. Dice server to support secure games.  For games that need
+***************
+*** 9,20 ****
+  Each time you request a roll from the server, you send your opponent's
+  last roll for verification.
+  
+- Patch to FeFinishSession for Linux: add nl() after refresh().
+- Maybe add nocbreak() and echo() too just to be safe?
+- Found by Stephan G. Dasia (stephand@solist.htsa.aha.nl)
+- 
+- Include earle's modified makefile, etc.
+- 
+  way of showing all opponent pieces that you could hit.
+  way of showing all points you could make.
+  
+--- 17,22 ----
+***************
+*** 59,65 ****
+  
+  Socket transport.
+  
+! Motif front-end.  Open Look?  Xlib?
+  
+  VMS command line interface.  Maybe, separate out all host-specific
+  stuff into a separate file, & only compile in the one you need.
+--- 61,69 ----
+  
+  Socket transport.
+  
+! Motif front-end.  Xlib?  Athena?  Mac?
+! 
+! Make 16-bit clean & port to pc.
+  
+  VMS command line interface.  Maybe, separate out all host-specific
+  stuff into a separate file, & only compile in the one you need.
+*** 131src/fe_curses.c	Fri Dec 10 16:30:14 1993
+--- fe_curses.c	Mon Dec 13 09:29:27 1993
+***************
+*** 105,110 ****
+--- 105,113 ----
+  if (FeIsActive) {
+  	clear();
+  	refresh();
++ 	nl();
++ 	nocbreak();
++ 	echo();
+  	endwin();
+  	FeIsActive = 0;
+  	Current_Game = NULL;
+***************
+*** 303,309 ****
+  FeStatusLine(tmp);
+  FeMessage(g->dispmsg);		/* put message (if any) on message line */
+  if (g->dispmsg != NULL) {	/* if there was a message, it has been */
+! 	free(g->dispmsg);	/* displayed, so it can thrown away */
+  	g->dispmsg = NULL;
+  	}
+  refresh();
+--- 306,312 ----
+  FeStatusLine(tmp);
+  FeMessage(g->dispmsg);		/* put message (if any) on message line */
+  if (g->dispmsg != NULL) {	/* if there was a message, it has been */
+! 	free(g->dispmsg);	/* displayed, so it can be thrown away */
+  	g->dispmsg = NULL;
+  	}
+  refresh();
+*** 131src/game.c	Fri Dec 10 16:30:05 1993
+--- game.c	Thu Dec  9 09:34:14 1993
+***************
+*** 526,535 ****
+  struct game *g;
+  int rsflag;				/* 1 = restart game if necessary */
+  {
+  
+  if (g->ppl->fence < g->starttime)   /* if newer than fence */
+  	g->ppl->fence = g->starttime;	/* move up fence */
+! if (rsflag && (g->flags & F_PERM) && (g->mcurrent[WHO_OPP] >= g->mtotal) ) {
+  	message("Restarted game with %s (%s).\n",g->opname,g->opaddr);
+  	notify = NULL;
+  	startgame(g->opaddr,g->mydir,g->mycolor,g->opcolor,
+--- 526,537 ----
+  struct game *g;
+  int rsflag;				/* 1 = restart game if necessary */
+  {
++ int match_over =
++ 	(g->mcurrent[WHO_ME] >= g->mtotal)||(g->mcurrent[WHO_OPP] >= g->mtotal);
+  
+  if (g->ppl->fence < g->starttime)   /* if newer than fence */
+  	g->ppl->fence = g->starttime;	/* move up fence */
+! if (rsflag && (g->flags & F_PERM) && match_over) {
+  	message("Restarted game with %s (%s).\n",g->opname,g->opaddr);
+  	notify = NULL;
+  	startgame(g->opaddr,g->mydir,g->mycolor,g->opcolor,
+***************
+*** 536,541 ****
+  	   g->flags & (F_JACOBY|F_CRAWFORD|F_PERM|F_EUROPE|F_INVERT),
+  	   g->mtotal,0);
+  	}
+! if ( (g->notify != NULL) && (g->mcurrent[WHO_OPP] >= g->mtotal) )
+  	sendpkt(g,NOTIFY);
+  }
+--- 538,543 ----
+  	   g->flags & (F_JACOBY|F_CRAWFORD|F_PERM|F_EUROPE|F_INVERT),
+  	   g->mtotal,0);
+  	}
+! if ( (g->notify != NULL) && match_over )
+  	sendpkt(g,NOTIFY);
+  }
+*** 131src/ldb.h	Fri Dec 10 16:35:26 1993
+--- ldb.h	Mon Dec 13 09:13:09 1993
+***************
+*** 171,177 ****
+  #define F_CRDONE	1024	/* The crawford rule game has been played */
+  
+  		/* field types for reading name/value files */
+! #define FT_CHAR		1	/* store a single char (may not be signed!) */
+  #define FT_INT		2	/* store a single integer */
+  #define FT_STRING	3	/* store a char * (use save()) */
+  #define FT_MOVE		4	/* a struct mv */
+--- 171,177 ----
+  #define F_CRDONE	1024	/* The crawford rule game has been played */
+  
+  		/* field types for reading name/value files */
+! #define FT_CHAR		1	/* store a char (must be in [0..127] for portability)*/
+  #define FT_INT		2	/* store a single integer */
+  #define FT_STRING	3	/* store a char * (use save()) */
+  #define FT_MOVE		4	/* a struct mv */
+*** 131src/lock.c	Fri Dec 10 16:29:56 1993
+--- lock.c	Thu Dec  9 12:21:43 1993
+***************
+*** 27,34 ****
+   *
+   * This uses the O_EXCL flag to open, which as far as I know is
+   * supported on all UNIX flavors.  If it isn't on yours:
+!  *	a. Please mail me at ross@emf780.den.mmc.com and tell me
+!  *	   what your system is.
+   *	b. try replacing open(fn,O_...,0644) with creat(fn,0444).
+   *----------------------------------------------------------------------
+   */
+--- 27,34 ----
+   *
+   * This uses the O_EXCL flag to open, which as far as I know is
+   * supported on all UNIX flavors.  If it isn't on yours:
+!  *	a. Please mail me at the address in patchlevel.h for AUTHOR_EMAIL
+!  *	   and tell me what your system is.
+   *	b. try replacing open(fn,O_...,0644) with creat(fn,0444).
+   *----------------------------------------------------------------------
+   */
+*** 131src/main.c	Fri Dec 10 16:35:27 1993
+--- main.c	Wed Dec 15 11:04:15 1993
+***************
+*** 76,83 ****
+   *			only count as 1 when neither player doubled during
+   *			the game.
+   *	-crawford	Enables the crawford rule for any games subsequently
+!  *			started.  This rule prevents doubling when either
+!  *			player is within 1 point of winning the match.
+   *	-european	Enables european scoring for any subsequently
+   *			created games.  This rule makes backgammons count
+   *			as double games, rather than triple.
+--- 76,84 ----
+   *			only count as 1 when neither player doubled during
+   *			the game.
+   *	-crawford	Enables the crawford rule for any games subsequently
+!  *			started.  This rule prevents doubling for one game
+!  *			when either player is within 1 point of winning
+!  *			the match.
+   *	-european	Enables european scoring for any subsequently
+   *			created games.  This rule makes backgammons count
+   *			as double games, rather than triple.
+***************
+*** 397,402 ****
+--- 398,418 ----
+   * 3.	The Makefile was changed to do a full recompile if ldb.h is changed.
+   *	This was done by adding a homebrew "make depend", which should be run
+   *	before each release is packed so the users don't have to.
++  *** Version 01   Rev 3   Patch 2
++  * 1.	A bug was fixed where conceded permanent games that finish a match
++  *	are not restarted or notified.
++  * 2.	A bug was fixed that would cause there to be two crawford games
++  *	instead of just one.  The warning mentioned above in version 1.3.0
++  *	item 1 has been updated to warn for any pre-1.3.2 version.
++  *	Sorry 'bout that.
++  * 3.	Attempting to double after rolling now prints a more
++  *	understandable message.
++  * 4.	Autoroll now works during the crawford game also.
++  * 5.	Concede will refuse to work if there are used rolls.  This prevents
++  *	a disagreement on how to score the concede.
++  * 6.	Autodoubles are disabled during the Crawford Rule game.
++  * 7.	FeFinishSession does nl(), nocbreak(), and echo() before calling
++  *	endwin().  This works around a Linux bug.  Found by Stephan G. Dasia.
+   *============================================================================
+   */
+  
+*** 131src/misc.c	Fri Dec 10 16:30:07 1993
+--- misc.c	Thu Dec  9 09:33:33 1993
+***************
+*** 605,620 ****
+   * F_CRGAME is set if this is the crawford rule game for the match.
+   * F_CRDONE is set after the crawford rule game has been played.
+   *
+!  * F_CRGAME is set if:
+!  *	F_CRAWFORD is set	AND
+!  *	F_CRDONE is not set	AND
+!  *	a player is within one point of winning the match.
+!  * otherwise F_CRGAME is cleared.
+!  *
+!  * F_CRDONE is set if:
+!  *	F_CRAWFORD is set	AND
+!  *	F_CRGAME was set (before the above)
+!  * otherwise F_CRDONE is not changed.
+   *----------------------------------------------------------------------
+   */
+  
+--- 605,612 ----
+   * F_CRGAME is set if this is the crawford rule game for the match.
+   * F_CRDONE is set after the crawford rule game has been played.
+   *
+!  * crawford_check should be called every time a match game is started,
+!  * except for the first game of the match.
+   *----------------------------------------------------------------------
+   */
+  
+***************
+*** 621,635 ****
+  crawford_check(g)
+  struct game *g;
+  {
+- int old_crgame;
+  
+! old_crgame = g->flags & F_CRGAME;		/* save F_CRGAME */
+! if ( ((g->flags & (F_CRAWFORD|F_CRDONE)) == F_CRAWFORD) &&
+!      ( (g->mcurrent[WHO_ME] == g->mtotal-1) ||
+!        (g->mcurrent[WHO_OPP] == g->mtotal-1) ) )
+! 	g->flags |= F_CRGAME;		/* this is the crawford rule game */
+! else
+! 	g->flags &= ~F_CRGAME;		/* not the crawford game, clear flag */
+! if ( (g->flags & F_CRAWFORD) && old_crgame)
+! 	g->flags |= F_CRDONE;		/* crawford rule game is over */
+  }
+--- 613,637 ----
+  crawford_check(g)
+  struct game *g;
+  {
+  
+! 	/* if the crawford rule is not in effect, or if the crawford	*/
+! 	/* game has already been played, clear F_CRGAME and return.	*/
+! 
+! if ( ((g->flags & F_CRAWFORD) == 0) || (g->flags & F_CRDONE) ) {
+! 	g->flags &= ~F_CRGAME;		/* this is not crawford game */
+! 	return;
+! 	}
+! 
+! 	/* we just finished the crawford game, set CRDONE and return.	*/
+! 
+! if (g->flags & F_CRGAME) {
+! 	g->flags = (g->flags & ~F_CRGAME) | F_CRDONE;
+! 	return;
+! 	}
+! 
+! 	/* if either player is within one point of match total, then	*/
+! 	/* this is the crawford game.  Set CRGAME and return.		*/
+! 
+! if ((g->mcurrent[WHO_ME]==g->mtotal-1)||(g->mcurrent[WHO_OPP]==g->mtotal-1))
+! 	g->flags |= F_CRGAME;
+  }
+*** 131src/patchlevel.h	Fri Dec 10 16:35:28 1993
+--- patchlevel.h	Thu Dec  9 09:35:57 1993
+***************
+*** 36,40 ****
+  
+  #define VERSION		1
+  #define REVISION	3		/* no more than 9 */
+! #define PATCHLEVEL	1		/* no more than 9 */
+  #define AUTHOR_EMAIL	"perry@aap.com"
+--- 36,40 ----
+  
+  #define VERSION		1
+  #define REVISION	3		/* no more than 9 */
+! #define PATCHLEVEL	2		/* no more than 9 */
+  #define AUTHOR_EMAIL	"perry@aap.com"
+*** 131src/process.c	Fri Dec 10 16:30:06 1993
+--- process.c	Thu Dec  9 13:31:42 1993
+***************
+*** 47,65 ****
+  FeDrawGame(g);			/* draw the game */
+  switch (g->state) {
+  case ST_MYTURN:			/* my turn, I haven't rolled yet */
+! 	if ( ((g->flags & F_IDOUBLED) == 0) || (*rc.autoroll == 'n') ) {
+  		i = myturn(g);	/* I didn't double last */
+  		break;
+  		}
+! 	rolldice(g);		/* if I doubled last, go ahead and roll */
+! 	g->state = ST_MYMOVE;	/* skip this state completely */
+! 	if (*rc.chkpt == 'y') {	/* checkpoint games */
+! 		writegames(rc.gfile,rc.gbackup,rc.pfile);
+! 		rc.gbackup = NULL;	/* only backup old file once */
+! 		}
+! 	for (i = 0; i < 4; i++)		/* draw my new roll */
+! 		FeDrawMove(g,WHO_ME,i);
+! 	/**** fall through ****/
+  case ST_MYMOVE:			/* my turn, I have rolled */
+  	i = mymove(g);		/* user has rolled, must move */
+  	break;
+--- 47,68 ----
+  FeDrawGame(g);			/* draw the game */
+  switch (g->state) {
+  case ST_MYTURN:			/* my turn, I haven't rolled yet */
+! 	if ( (*rc.autoroll == 'y') && (g->flags & (F_IDOUBLED|F_CRGAME)) ) {
+! 		g->curbd = BD_CUR;
+! 		rolldice(g);	/* if crawford game or I doubled last, roll */
+! 		g->state = ST_MYMOVE;	/* skip this state completely */
+! 		if (*rc.chkpt == 'y') {	/* checkpoint games */
+! 			writegames(rc.gfile,rc.gbackup,rc.pfile);
+! 			rc.gbackup = NULL;	/* only backup old file once */
+! 			}
+! 		for (i = 0; i < 4; i++)		/* draw my new roll */
+! 			FeDrawMove(g,WHO_ME,i);
+! 		}
+! 	else {
+  		i = myturn(g);	/* I didn't double last */
+  		break;
+  		}
+! 	/*** fall through ***/
+  case ST_MYMOVE:			/* my turn, I have rolled */
+  	i = mymove(g);		/* user has rolled, must move */
+  	break;
+***************
+*** 122,128 ****
+  			break;
+  			}
+  		if (FeGetComment(g) < 0) {	/* get message */
+! 			FeMessage("Double aborted.");
+  			break;		/* changed his mind */
+  			}
+  		g->state = ST_OPACCEPT;	/* we are waiting for accept/decline */
+--- 125,131 ----
+  			break;
+  			}
+  		if (FeGetComment(g) < 0) {	/* get message */
+! 			FeMessage("Double cancelled.");
+  			break;		/* changed his mind */
+  			}
+  		g->state = ST_OPACCEPT;	/* we are waiting for accept/decline */
+***************
+*** 129,137 ****
+  		sendpkt(g,OFRDBL);	/* send the double packet */
+  		return(0);		/* this game is done for now */
+  	case 'C':			/* I'm wimping out */
+! 		if ( (check_concede(g) == 0) || (FeGetComment(g) < 0) ) {
+! 			FeMessage("Concede aborted.");
+  			break;
+  			}
+  		ilose(g,T_ICONCEDE,0);	/* this game is over */
+  		sendpkt(g,CONCEDE);	/* send the packet */
+--- 132,142 ----
+  		sendpkt(g,OFRDBL);	/* send the double packet */
+  		return(0);		/* this game is done for now */
+  	case 'C':			/* I'm wimping out */
+! 		if (check_concede(g) == 0)
+  			break;
++ 		if (FeGetComment(g) < 0) {
++ 			FeMessage("Concede cancelled.");
++ 			break;
+  			}
+  		ilose(g,T_ICONCEDE,0);	/* this game is over */
+  		sendpkt(g,CONCEDE);	/* send the packet */
+***************
+*** 156,161 ****
+--- 161,168 ----
+   * It also allows the user to cycle through the three board displays,
+   * to concede, and to go to the next game.
+   * Since the user has already rolled, doubling is not allowed here.
++  *
++  * Concede is disabled unless all rolls are unused.
+   *----------------------------------------------------------------------
+   */
+  
+***************
+*** 167,173 ****
+  static char used[] = "That move is already used -- use Reset to start over";
+  struct mv tmp;
+  static char *m[] = {"Reset","Send","Board","Next Game","Concede",
+! 			"Point","Off","Quit",NULL};
+  char pm = '\0';
+  int lastpt = 99;		/* point last move started from */
+  int lastd = 99;			/* point last move ended at */
+--- 174,180 ----
+  static char used[] = "That move is already used -- use Reset to start over";
+  struct mv tmp;
+  static char *m[] = {"Reset","Send","Board","Next Game","Concede",
+! 			"Point","Off","Double","Quit",NULL};
+  char pm = '\0';
+  int lastpt = 99;		/* point last move started from */
+  int lastd = 99;			/* point last move ended at */
+***************
+*** 182,188 ****
+  		if (checkused(g))	/* didn't use all our moves */
+  			break;
+  		if (FeGetComment(g) < 0) {	/* get our comment */
+! 			FeMessage("Send aborted.");
+  			break;
+  			}
+  		if (g->board[OFFPT(g->mydir)].qty == 15)	/* I win */
+--- 189,195 ----
+  		if (checkused(g))	/* didn't use all our moves */
+  			break;
+  		if (FeGetComment(g) < 0) {	/* get our comment */
+! 			FeMessage("Send cancelled.");
+  			break;
+  			}
+  		if (g->board[OFFPT(g->mydir)].qty == 15)	/* I win */
+***************
+*** 208,216 ****
+  			g->curbd = BD_BEFOP;	/* wrap around */
+  		return(1);		/* redraw & call us again */
+  	case 'C':			/* I'm wimping out */
+! 		if ( (check_concede(g) == 0) || (FeGetComment(g) < 0) ) {
+! 			FeMessage("Concede aborted.");
+  			break;
+  			}
+  		ilose(g,T_ICONCEDE,0);
+  		sendpkt(g,CONCEDE);	/* send the packet */
+--- 215,225 ----
+  			g->curbd = BD_BEFOP;	/* wrap around */
+  		return(1);		/* redraw & call us again */
+  	case 'C':			/* I'm wimping out */
+! 		if (check_concede(g) == 0)
+  			break;
++ 		if (FeGetComment(g) < 0) {
++ 			FeMessage("Concede cancelled.");
++ 			break;
+  			}
+  		ilose(g,T_ICONCEDE,0);
+  		sendpkt(g,CONCEDE);	/* send the packet */
+***************
+*** 405,410 ****
+--- 414,422 ----
+  		FeDrawMove(g,WHO_ME,i);
+  		FeCheckContact(g);
+  		break;
++ 	case 'D':			/* can't double now */
++ 		FeMessage("You can't double after rolling.");
++ 		break;
+  	default:
+  		FeMessage("Invalid command.");
+  		break;
+***************
+*** 440,446 ****
+  	switch (c) {
+  	case 'A':				/* I accepted */
+  		if (FeGetComment(g) < 0) {		/* get message */
+! 			FeMessage("Accept aborted.");
+  			break;
+  			}
+  		g->gameval *= 2;		/* the game value is doubled */
+--- 452,458 ----
+  	switch (c) {
+  	case 'A':				/* I accepted */
+  		if (FeGetComment(g) < 0) {		/* get message */
+! 			FeMessage("Accept cancelled.");
+  			break;
+  			}
+  		g->gameval *= 2;		/* the game value is doubled */
+***************
+*** 449,455 ****
+  		return(0);			/* done w/ this game for now */
+  	case 'D':				/* I declined */
+  		if (FeGetComment(g) < 0) {		/* get message */
+! 			FeMessage("Decline aborted.");
+  			break;
+  			}
+  		ilose(g,T_IDECLINE,0);
+--- 461,467 ----
+  		return(0);			/* done w/ this game for now */
+  	case 'D':				/* I declined */
+  		if (FeGetComment(g) < 0) {		/* get message */
+! 			FeMessage("Decline cancelled.");
+  			break;
+  			}
+  		ilose(g,T_IDECLINE,0);
+***************
+*** 567,572 ****
+--- 579,590 ----
+  int gv, bg;
+  char *msg;
+  
++ for (gv = 0; gv < 4; gv++)
++ 	if ( (g->mvs[gv].roll > 0) && (g->mvs[gv].pt >= 0) ) {
++ 		FeMessage(
++ 		"You can't concede with used rolls -- use Reset first.");
++ 		return(0);
++ 		}
+  g->term = T_ICONCEDE;
+  bg = gvalue(g,&gv);
+  switch (bg) {
+***************
+*** 580,584 ****
+  	msg = "Are you sure? [yn]";
+  	break;
+  	}
+! return(FeYesNo(msg));
+  }
+--- 598,604 ----
+  	msg = "Are you sure? [yn]";
+  	break;
+  	}
+! if ( (gv = FeYesNo(msg)) == 0)
+! 	FeMessage("Concede cancelled.");
+! return(gv);
+  }
+*** 131src/rcvop.c	Fri Dec 10 16:35:28 1993
+--- rcvop.c	Thu Dec  9 14:34:40 1993
+***************
+*** 98,105 ****
+  g->curbd = boardnums[*rc.initboard - 'a'];	/* display initial board */
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if (g->adcnt < g->admax)	/* do an autodouble */
+! 		g->gameval = 1 << ++(g->adcnt);
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+--- 98,105 ----
+  g->curbd = boardnums[*rc.initboard - 'a'];	/* display initial board */
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if ( (g->adcnt < g->admax) && ( (g->flags & F_CRGAME) == 0) )
+! 		g->gameval = 1 << ++(g->adcnt);		/* do an autodouble */
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+***************
+*** 187,194 ****
+  clearmvs(g->opmvs);
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if (g->adcnt < g->admax)	/* do an autodouble */
+! 		g->gameval = 1 << ++(g->adcnt);
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+--- 187,194 ----
+  clearmvs(g->opmvs);
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if ( (g->adcnt < g->admax) && ( (g->flags & F_CRGAME) == 0) )
+! 		g->gameval = 1 << ++(g->adcnt);		/* do an autodouble */
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+***************
+*** 254,261 ****
+  crawford_check(g);			/* is this the Crawford rule game? */
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if (g->adcnt < g->admax)	/* do an autodouble */
+! 		g->gameval = 1 << ++(g->adcnt);
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+--- 254,261 ----
+  crawford_check(g);			/* is this the Crawford rule game? */
+  mydie = Rolldie();
+  if (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+! 	if ( (g->adcnt < g->admax) && ( (g->flags & F_CRGAME) == 0) )
+! 		g->gameval = 1 << ++(g->adcnt);		/* do an autodouble */
+  	sendpkt(g,TIE);
+  	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+  	return;			/* opponent will send RESTART */
+*** 131src/readmail.c	Fri Dec 10 16:35:28 1993
+--- readmail.c	Thu Dec  9 12:29:04 1993
+***************
+*** 193,200 ****
+   *	permanent games		1.1
+   * If the incoming packet indicates a feature is not supported by the
+   * remote ldb, it is disabled and the game continues as if it had
+!  * never been set.  The Crawford rule contained a bug in pre-1.3 games,
+!  * so 1.3 will print a warning if an older version tries to start
+   * a game with the crawford rule enabled.
+   *
+   * Getpkt handles RESEND packets itself, performing a resend and
+--- 193,200 ----
+   *	permanent games		1.1
+   * If the incoming packet indicates a feature is not supported by the
+   * remote ldb, it is disabled and the game continues as if it had
+!  * never been set.  The Crawford rule contained a bug in pre-1.3.2 games,
+!  * so 1.3.2 will print a warning if an older version tries to start
+   * a game with the crawford rule enabled.
+   *
+   * Getpkt handles RESEND packets itself, performing a resend and
+***************
+*** 344,352 ****
+  		message(
+  "This game will continue as if those features had not been used.\n");
+  		}
+! 	if ( (P.version < 130) && (P.gameptr->flags & F_CRAWFORD) )
+  		message(
+! "Warning: opponent using pre-1.3 ldb -- using Crawford rule not recommended!\n"
+  		);
+  	return(1);			/* return success */
+  	}
+--- 344,352 ----
+  		message(
+  "This game will continue as if those features had not been used.\n");
+  		}
+! 	if ( (P.version < 132) && (P.gameptr->flags & F_CRAWFORD) )
+  		message(
+! "Warning: opponent using pre-1.3.2 ldb -- Crawford rule is not recommended!\n"
+  		);
+  	return(1);			/* return success */
+  	}
+*** 131src/save.c	Fri Dec 10 16:35:29 1993
+--- save.c	Thu Dec  9 12:18:41 1993
+***************
+*** 71,77 ****
+  	s = ".ldbrc";			/* use default file name */
+  #endif
+  if ( (fp = fopen(s,"r")) == NULL) {
+! 	printf("'%s' does not exist.  Do you want to create it?",s);
+  	if ( (fgets(buf,sizeof(buf),stdin) == NULL)
+  	     || ( (*buf != 'y') && (*buf != 'Y') ) )
+  		fatal("ldb aborted.");
+--- 71,77 ----
+  	s = ".ldbrc";			/* use default file name */
+  #endif
+  if ( (fp = fopen(s,"r")) == NULL) {
+! 	printf("'%s' does not exist.  Do you want to create it? ",s);
+  	if ( (fgets(buf,sizeof(buf),stdin) == NULL)
+  	     || ( (*buf != 'y') && (*buf != 'Y') ) )
+  		fatal("ldb aborted.");
+
+exit 0 # Just in case...

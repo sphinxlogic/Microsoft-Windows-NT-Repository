@@ -1,0 +1,2858 @@
+Newsgroups: comp.sources.x
+From: ti@bazooka.amb.org (Ti Kan)
+Subject: v21i072:  xmcd - X11/Motif CD audio player, Part10/13
+Message-ID: <1993Dec19.194033.24775@sparky.sterling.com>
+X-Md4-Signature: 74c99b43ce5c4844febdca1174579a00
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 19:40:33 GMT
+Approved: chris@sterling.com
+
+Submitted-by: ti@bazooka.amb.org (Ti Kan)
+Posting-number: Volume 21, Issue 72
+Archive-name: xmcd/part10
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 13)."
+# Contents:  lib_svr4.c lib_tosh.c main.c util.c bitmaps bitmaps/ab.xbm
+#   bitmaps/btnlbl.xbm bitmaps/dbprog.xbm bitmaps/eject.xbm
+#   bitmaps/ff.xbm bitmaps/help.xbm bitmaps/keypad.xbm
+#   bitmaps/lock.xbm bitmaps/logo.xbm bitmaps/nextidx.xbm
+#   bitmaps/nexttrk.xbm bitmaps/playpaus.xbm bitmaps/poweroff.xbm
+#   bitmaps/previdx.xbm bitmaps/prevtrk.xbm bitmaps/repeat.xbm
+#   bitmaps/rew.xbm bitmaps/sample.xbm bitmaps/shuffle.xbm
+#   bitmaps/stop.xbm bitmaps/time.xbm bitmaps/xmcd.xbm
+# Wrapped by ti@bazooka on Mon Nov  8 10:35:22 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'lib_svr4.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_svr4.c'\"
+else
+echo shar: Extracting \"'lib_svr4.c'\" \(13997 characters\)
+sed "s/^X//" >'lib_svr4.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_svr4_c_ident_ = "@(#)lib_svr4.c	1.61 93/11/05";
+X#endif
+X
+X#ifndef OSI_VERS
+X#define OSI_VERS	"1.0"		/* Version */
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#if defined(SVR4) && !defined(sun) && !defined(SIMULATED_CDROM)
+X
+X
+Xextern AppData		app_data;
+Xextern bool_t		notrom_error;
+X
+X#ifndef LINT
+Xbool_t			lib_svr4 = TRUE;
+X#endif
+X
+XSTATIC int		fd = -1;	/* Passthrough device file desc */
+X
+X
+X#ifdef i386
+X/*
+X *   Intel x86 UNIX SVR4 support
+X *   Portable Device Interface/SCSI Device Interface
+X *
+X *   This software fragment contains code that interfaces xmcd to
+X *   the UNIX System V Release 4 operating system for the Intel
+X *   x86 hardware platforms from UNIX System Laboratories.
+X *   The name "USL", "UNIX" and "Intel" are used here for
+X *   identification purposes.  This software and its author are
+X *   not affiliated with USL or Intel.
+X */
+X
+X
+XSTATIC char		ptpath[FILE_PATH_SZ] = { '\0' };
+X					/* Passthrough device path */
+XSTATIC req_sense_data_t	sense_data;	/* Request sense data buffer */
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	struct sb	sb;
+X	struct scb	*scbp;
+X	union scsi_cdb	cdb;
+X	
+X	if (fd < 0 || notrom_error)
+X		return(FALSE);
+X
+X	memset(&sense_data, (byte_t) 0, sizeof(sense_data));
+X	memset(&sb, (byte_t) 0, sizeof(sb));
+X	memset(&cdb, (byte_t) 0, sizeof(cdb));
+X
+X	sb.sb_type = ISCB_TYPE;
+X	scbp = &sb.SCB;
+X
+X	/* set up SCSI CDB */
+X	switch (opcode & 0xf0) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		cdb.scl.sl_op = opcode;
+X		cdb.scl.sl_res1 = param;
+X		cdb.scl.sl_lun = 0;
+X		CDB12_BLK(&cdb.scl, bswap32(addr));
+X		CDB12_LEN(&cdb.scl, bswap32(length));
+X		CDB12_RSV(&cdb.scl, rsvd);
+X		CDB12_CTL(&cdb.scl, control);
+X
+X		scbp->sc_cmdpt = (caddr_t) SCL_AD(&cdb);
+X		scbp->sc_cmdsz = SCL_SZ;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		cdb.scm.sm_op = opcode;
+X		cdb.scm.sm_res1 = param;
+X		cdb.scm.sm_lun = 0;
+X		CDB10_BLK(&cdb.scm, bswap32(addr));
+X		CDB10_LEN(&cdb.scm, bswap16((word16_t) length));
+X		CDB10_RSV(&cdb.scm, rsvd);
+X		CDB10_CTL(&cdb.scm, control);
+X
+X		scbp->sc_cmdpt = (caddr_t) SCM_AD(&cdb);
+X		scbp->sc_cmdsz = SCM_SZ;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		cdb.scs.ss_op = opcode;
+X		cdb.scs.ss_addr1 = param;
+X		cdb.scs.ss_lun = 0;
+X		CDB6_BLK(&cdb.scs, bswap16((word16_t) addr));
+X		CDB6_LEN(&cdb.scs, (byte_t) length);
+X		CDB6_CTL(&cdb.scs, control);
+X
+X		scbp->sc_cmdpt = (caddr_t) SCS_AD(&cdb);
+X		scbp->sc_cmdsz = SCS_SZ;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		return(FALSE);
+X	}
+X
+X#ifdef DEBUG
+X	{
+X		byte_t	*p = (byte_t *) scbp->sc_cmdpt;
+X		int	i;
+X
+X		fprintf(stderr, "\nSCSI CDB bytes:");
+X		for (i = 0; i < scbp->sc_cmdsz; i++, p++)
+X			fprintf(stderr, " %02x", i, *p);
+X		fprintf(stderr, "\n");
+X	}
+X#endif
+X
+X	/* set up scsicmd */
+X	scbp->sc_datapt = (caddr_t) buf;
+X	scbp->sc_datasz = size;
+X	scbp->sc_mode = (rw == READ_OP) ? SCB_READ : SCB_WRITE;
+X
+X	/* Send the command down via the "pass-through" interface */
+X	if (ioctl(fd, SDI_SEND, &sb) < 0) {
+X		perror("SDI_SEND ioctl failed");
+X		return(FALSE);
+X	}
+X
+X	if (scbp->sc_comp_code != SDI_ASW) {
+X		if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, "%s: %s %s:\n%s=0x%x %s=0x%x %s=0x%x",
+X				PROGNAME,
+X				"SCSI command fault on",
+X				app_data.device,
+X				"Opcode",
+X				opcode,
+X				"Completion_code",
+X				scbp->sc_comp_code,
+X				"Target_status",
+X				scbp->sc_status);
+X		}
+X
+X		/* Send Request Sense command */
+X		cdb.scs.ss_op = OP_S_RSENSE;
+X		cdb.scs.ss_addr1 = 0;
+X		cdb.scs.ss_lun = 0;
+X		CDB6_BLK(&cdb.scs, 0);
+X		CDB6_LEN(&cdb.scs, SZ_RSENSE);
+X		CDB6_CTL(&cdb.scs, 0);
+X		scbp->sc_datapt = (caddr_t) AD_RSENSE(&sense_data);
+X		scbp->sc_datasz = SZ_RSENSE;
+X		scbp->sc_mode = SCB_READ;
+X		scbp->sc_cmdpt = (caddr_t) SCS_AD(&cdb);
+X		scbp->sc_cmdsz = SCS_SZ;
+X
+X		if (ioctl(fd, SDI_SEND, &sb) < 0 || sense_data.valid == 0) {
+X			if (opcode != OP_S_TEST && app_data.scsierr_msg)
+X				fprintf(stderr, "\n");
+X#ifdef DEBUG
+X			perror("SDI_SEND ioctl (Request Sense) failed");
+X#endif
+X		}
+X		else if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, " Key=0x%x Code=0x%x Qual=0x%x\n",
+X				sense_data.key,
+X				sense_data.code,
+X				sense_data.qual);
+X		}
+X
+X		return(FALSE);
+X	}
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	int		devfd;
+X	dev_t		ptdev;
+X	struct stat	stbuf;
+X	char		errstr[STR_BUF_SZ];
+X
+X	/* Check for validity of device node */
+X	if (stat(path, &stbuf) < 0) {
+X		sprintf(errstr, app_data.str_staterr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X	if ((stbuf.st_mode & S_IFMT) != S_IFCHR) {
+X		sprintf(errstr, app_data.str_noderr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X
+X	/* Check for another copy of xmcd running on the same
+X	 * CD-ROM device.
+X	 */
+X	if (!cd_devlock(path))
+X		return(FALSE);
+X
+X	/* Open CD-ROM device */
+X	if ((devfd = open(path, O_RDONLY)) < 0)
+X		return(FALSE);
+X
+X	/* Get passthrough interface device number */
+X	if (ioctl(devfd, B_GETDEV, &ptdev) < 0) {
+X		close(devfd);
+X		return(FALSE);
+X	}
+X
+X	close(devfd);
+X
+X	/* Make passthrough interface device node */
+X	sprintf(ptpath, "/tmp/.cdpt.%x", ptdev);
+X
+X	if (mknod(ptpath, S_IFCHR | 0700, ptdev) < 0) {
+X		if (errno == EEXIST) {
+X			unlink(ptpath);
+X
+X			if (mknod(ptpath, S_IFCHR | 0700, ptdev) < 0)
+X				return(FALSE);
+X		}
+X		else
+X			return(FALSE);
+X	}
+X
+X	/* Open passthrough device node */
+X	if ((fd = open(ptpath, O_RDONLY)) < 0)
+X		return(FALSE);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	if (fd >= 0) {
+X		close(fd);
+X		fd = -1;
+X	}
+X
+X	if (ptpath[0] != '\0')
+X		unlink(ptpath);
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (for UNIX SVR4-PDI/x86)\n",
+X		OSI_VERS);
+X	return(vers);
+X}
+X
+X#endif	/* i386 */
+X
+X#ifdef MOTOROLA
+X/*
+X *   Motorola 88k UNIX SVR4 support
+X *   Contributing author: Mark Scott
+X *   E-mail: mscott@urbana.mcd.mot.com
+X *
+X *   Note: Audio CDs sometimes produce "Blank check" warnings on the console, 
+X *         just ignore these.
+X *
+X *   This software fragment contains code that interfaces xmcd to
+X *   the System V Release 4 operating system from Motorola.
+X *   The name "Motorola" is used here for identification purposes.
+X */
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	char			scsistat = '\0',
+X				*tmpbuf;
+X	int			cdb_l = 0,
+X				i;
+X	long			residual = 0L;
+X	unsigned long		errinfo  = 0L,
+X				ccode = 0L;
+X	struct scsi_pass	spass,
+X				*sp = &spass;
+X	struct ext_sense	sense,
+X				*esp = &sense;
+X
+X	if (fd < 0 || notrom_error)
+X		return(FALSE);
+X
+X	/* Zero out the struct */
+X	memset((void *) sp, (byte_t) 0, sizeof(struct scsi_pass));
+X	memset((void *) esp, (byte_t) 0, sizeof(struct ext_sense));
+X
+X	/* Setup passthru structure */
+X	sp->resid = &residual;
+X	sp->sense_data = esp;
+X	sp->status = &scsistat;
+X	sp->error_info = &errinfo;
+X	sp->ctlr_code = &ccode;
+X	sp->xfer_len = (unsigned long) size;
+X
+X	/* Align on a page boundary */
+X	tmpbuf = NULL;
+X	if (sp->xfer_len > 0) {
+X		tmpbuf = (char *) MEM_ALLOC(2 * NBPP);
+X		sp->data = tmpbuf;
+X		sp->data += NBPP - ((unsigned int) sp->data & (NBPP - 1));
+X	}
+X	else
+X		sp->data = tmpbuf;
+X
+X
+X	if (rw == WRITE_OP && sp->xfer_len > 0)	/* Write operation */
+X		memcpy(sp->data, buf, sp->xfer_len);
+X
+X	/* Set up SCSI CDB */
+X	switch (opcode & SPT_CDB_LEN) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		cdb_l = 0xc0;
+X		sp->cdb[0] = opcode;
+X		sp->cdb[1] = param;
+X		sp->cdb[2] = (addr >> 24) & 0xff;
+X		sp->cdb[3] = (addr >> 16) & 0xff;
+X		sp->cdb[4] = (addr >> 8) & 0xff;
+X		sp->cdb[5] = (addr & 0xff);
+X		sp->cdb[6] = (length >> 24) & 0xff;
+X		sp->cdb[7] = (length >> 16) & 0xff;
+X		sp->cdb[8] = (length >> 8) & 0xff;
+X		sp->cdb[9] = length & 0xff;
+X		sp->cdb[10] = rsvd;
+X		sp->cdb[11] = control;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		cdb_l = 0xa0;
+X		sp->cdb[0] = opcode;
+X		sp->cdb[1] = param;
+X		sp->cdb[2] = (addr >> 24) & 0xff;
+X		sp->cdb[3] = (addr >> 16) & 0xff;
+X		sp->cdb[4] = (addr >> 8) & 0xff;
+X		sp->cdb[5] = addr & 0xff;
+X		sp->cdb[6] = rsvd;
+X		sp->cdb[7] = (length >> 8) & 0xff;
+X		sp->cdb[8] = length & 0xff;
+X		sp->cdb[9] = control;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		cdb_l = 0x60;
+X		sp->cdb[0] = opcode;
+X		sp->cdb[1] = param;
+X		sp->cdb[2] = (addr >> 8) & 0xff;
+X		sp->cdb[3] = addr & 0xff;
+X		sp->cdb[4] = length & 0xff;
+X		sp->cdb[5] = control;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		if (tmpbuf != NULL)
+X			MEM_FREE(tmpbuf);
+X
+X		return(FALSE);
+X	}
+X
+X
+X	/* Check CDB length & flags */
+X
+X	if (!SPT_CHK_CDB_LEN(cdb_l))
+X		fprintf(stderr, "%d: invalid CDB length\n", cdb_l);
+X
+X	sp->flags = cdb_l | SPT_ERROR_QUIET;
+X	if (rw == READ_OP)
+X		sp->flags |= SPT_READ;
+X
+X	if (SPT_CHK_FLAGS(cdb_l))
+X		fprintf(stderr, "0x%2x: bad CDB flags\n", sp->flags);
+X
+X
+X	/* Send the command down via the "pass-through" interface */
+X	if (ioctl(fd, DKPASSTHRU, sp) < 0) {
+X		if (opcode != OP_S_TEST)
+X			perror("DKPASSTHRU ioctl failed");
+X
+X		if (tmpbuf != NULL)
+X			MEM_FREE(tmpbuf);
+X
+X		return(FALSE);
+X	}
+X
+X	if (*sp->error_info != SPTERR_NONE) {
+X		if (*sp->error_info != SPTERR_SCSI &&
+X		    *sp->status != 2 &&
+X		    opcode != OP_S_TEST) {
+X			/* Request Sense is done automatically by the driver */
+X
+X			fprintf(stderr, "%s %s\n",
+X				"xmcd SCSI command fault on",
+X				app_data.device);
+X
+X			fprintf(stderr,
+X				"00-01-02-03-04-05-06-07-08-09-10-11\n");
+X			for (i = 0; i < 12; i++)
+X				fprintf(stderr,"%02x ", sp->cdb[i]);
+X
+X			fprintf(stderr,
+X				"\nxfer_len=%d errinfo=%d ctlr_code=%d ",
+X				sp->xfer_len,
+X				*sp->error_info,
+X				*sp->ctlr_code);
+X			fprintf(stderr, "status=%d resid=%d\n",
+X				*sp->status,
+X				*sp->resid);
+X		}
+X		if (tmpbuf != NULL)
+X			MEM_FREE(tmpbuf);
+X
+X		return(FALSE);
+X	}
+X
+X	/* pass the data back to caller */
+X	if (sp->xfer_len > 0 && rw == READ_OP)	/* read operation */
+X		memcpy(buf, sp->data, sp->xfer_len);
+X
+X	if (tmpbuf != NULL)
+X		MEM_FREE(tmpbuf);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	struct stat	stbuf;
+X	char		errstr[STR_BUF_SZ];
+X
+X	/* Check for validity of device node */
+X	if (stat(path, &stbuf) < 0) {
+X		sprintf(errstr, app_data.str_staterr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X	if ((stbuf.st_mode & S_IFMT) != S_IFCHR) {
+X		sprintf(errstr, app_data.str_noderr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X
+X	/* Check for another copy of xmcd running on the same CD-ROM device */
+X	if (!cd_devlock(path))
+X		return(FALSE);
+X
+X	/* Open CD-ROM device */
+X	if ((fd = open(path, O_RDONLY | O_NDELAY | O_EXCL)) < 0)
+X		return(FALSE);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	if (fd >= 0) {
+X		close(fd);
+X		fd = -1;
+X	}
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (for UNIX SVR4-m88k)\n",
+X		OSI_VERS);
+X	return(vers);
+X}
+X
+X#endif	/* MOTOROLA */
+X
+X#else	/* !SVR4 || sun || SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t			lib_svr4 = FALSE;
+X#endif
+X
+X#endif	/* SVR4 sun SIMULATED_CDROM */
+X
+END_OF_FILE
+if test 13997 -ne `wc -c <'lib_svr4.c'`; then
+    echo shar: \"'lib_svr4.c'\" unpacked with wrong size!
+fi
+# end of 'lib_svr4.c'
+fi
+if test -f 'lib_tosh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_tosh.c'\"
+else
+echo shar: Extracting \"'lib_tosh.c'\" \(9549 characters\)
+sed "s/^X//" >'lib_tosh.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   The name "Toshiba" is a trademark of Toshiba Corporation, and is
+X *   used here for identification purposes.  This software and its
+X *   author are not affiliated in any way with Toshiba.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_tosh_c_ident_ = "@(#)lib_tosh.c	1.34 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#ifdef TOSHIBA
+X
+X
+X#ifndef LINT
+Xbool_t		lib_tosh = TRUE;
+X#endif
+X
+XSTATIC bool_t	tosh_audio_muted = FALSE;	/* Is audio muted? */
+X
+X
+X/*
+X * tosh_playaudio
+X *	Play audio function: send vendor-unique play audio command
+X *	to the drive.
+X *
+X * Args:
+X *	addr_fmt - Flags indicating which address formats are passed in
+X *	If ADDR_BLK, then:
+X *	    start_addr - The logical block starting address
+X *	    end_addr - The logical block ending address
+X *	If ADD_MSF, then:
+X *	    start_msf - Pointer to the starting MSF address structure
+X *	    end_msf - Pointer to the ending MSF address structure
+X *	If ADDR_TRKIDX, then:
+X *	    trk - The starting track number
+X *	    idx - The starting index number
+X *	If ADDR_OPTEND, then the ending address, if specified, can be
+X *	ignored if possible.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xtosh_playaudio(
+X	byte_t		addr_fmt,
+X	word32_t	start_addr,
+X	word32_t	end_addr,
+X	msf_t		*start_msf,
+X	msf_t		*end_msf,
+X	byte_t		trk,
+X	byte_t		idx
+X)
+X{
+X	bool_t		ret = FALSE;
+X	word32_t	addr = 0;
+X	taudio_arg_t	*p;
+X
+X	p = (taudio_arg_t *) &addr;
+X
+X	if (!ret && addr_fmt & ADDR_MSF) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VT_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x1, 0x1 << 6, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			if (!pthru_send(OP_VT_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x0, 0x1 << 6, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location, muting, and start play */
+X			p->addr_min = (byte_t) ltobcd(end_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(end_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(end_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VT_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				(byte_t) (tosh_audio_muted ? 0x0 : 0x3),
+X				0x1 << 6, READ_OP
+X			);
+X		}
+X	}
+X
+X	if (!ret && addr_fmt & ADDR_BLK) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_logical = start_addr;
+X
+X			ret = pthru_send(
+X				OP_VT_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x1, 0x0, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_logical = start_addr;
+X
+X			if (!pthru_send(OP_VT_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x0, 0x0, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location, muting, and start play */
+X			p->addr_logical = end_addr;
+X
+X			ret = pthru_send(
+X				OP_VT_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				(byte_t) (tosh_audio_muted ? 0x0 : 0x3),
+X				0x0, READ_OP
+X			);
+X		}
+X	}
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * tosh_pause_resume
+X *	Pause/resume function: send vendor-unique commands to implement
+X *	the pause and resume capability.
+X *
+X * Args:
+X *	resume - TRUE: resume, FALSE: pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xtosh_pause_resume(bool_t resume)
+X{
+X	if (resume) {
+X		return(
+X			pthru_send(
+X				OP_VT_AUDPLAY, 0, NULL, 0, 0, 0,
+X				(byte_t) (tosh_audio_muted ? 0x0 : 0x3),
+X				0x3 << 6, READ_OP
+X			)
+X		);
+X	}
+X	else {
+X		return(
+X			pthru_send(
+X				OP_VT_STILL, 0, NULL, 0, 0, 0,
+X				0, 0, READ_OP
+X			)
+X		);
+X	}
+X}
+X
+X
+X/*
+X * tosh_get_playstatus
+X *	Send vendor-unique command to obtain current audio playback
+X *	status.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	audio_status - Address where a current status code (SCSI-2
+X *		       style) is to be returned.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xtosh_get_playstatus(curstat_t *s, byte_t *audio_status)
+X{
+X	int		i,
+X			trkno,
+X			idxno;
+X	byte_t		buf[sizeof(tsubq_data_t)];
+X	tsubq_data_t	*d;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	if (!pthru_send(OP_VT_RDSUBQ, 0, buf, SZ_VT_RDSUBQ, 0, 0,
+X		       SZ_VT_RDSUBQ, 0, READ_OP))
+X		return(FALSE);
+X
+X	d = (tsubq_data_t *)(void *) buf;
+X
+X	trkno = bcdtol((word32_t) d->trkno);
+X	if (s->cur_trk != trkno) {
+X		s->cur_trk = trkno;
+X		dpy_track(s);
+X	}
+X
+X	idxno = bcdtol((word32_t) d->idxno);
+X	if (s->cur_idx != idxno) {
+X		s->cur_idx = idxno;
+X		s->sav_iaddr = s->cur_tot_addr;
+X		dpy_index(s);
+X	}
+X
+X	if ((i = curtrk_pos(s)) >= 0)
+X		s->trkinfo[i].type = (d->trktype == 0) ? TYP_AUDIO : TYP_DATA;
+X
+X	s->cur_tot_min = (byte_t) bcdtol(d->abs_min);
+X	s->cur_tot_sec = (byte_t) bcdtol(d->abs_sec);
+X	s->cur_tot_frame = (byte_t) bcdtol(d->abs_frame);
+X	s->cur_trk_min = (byte_t) bcdtol(d->rel_min);
+X	s->cur_trk_sec = (byte_t) bcdtol(d->rel_sec);
+X	s->cur_trk_frame = (byte_t) bcdtol(d->rel_frame);
+X	msftoblk(
+X		s->cur_tot_min, s->cur_tot_sec, s->cur_tot_frame,
+X		&s->cur_tot_addr, MSF_OFFSET(s)
+X	);
+X	msftoblk(
+X		s->cur_trk_min, s->cur_trk_sec, s->cur_trk_frame,
+X		&s->cur_trk_addr, 0
+X	);
+X
+X	/* Translate Toshiba audio status to SCSI-2 audio status */
+X	switch (d->audio_status) {
+X	case TAUD_PLAYING:
+X		*audio_status = AUDIO_PLAYING;
+X		break;
+X
+X	case TAUD_SRCH_PAUSED:
+X	case TAUD_PAUSED:
+X		*audio_status = AUDIO_PAUSED;
+X		break;
+X
+X	case TAUD_OTHER:
+X		*audio_status = AUDIO_COMPLETED;
+X		break;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * tosh_get_toc
+X *	Send vendor-unique command to obtain the disc table-of-contents
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure, which contains the TOC
+X *	    table to be updated.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xtosh_get_toc(curstat_t *s)
+X{
+X	int		i,
+X			j;
+X	byte_t		buf[SZ_VT_RDINFO];
+X	tinfo_00_t	*t0;
+X	tinfo_01_t	*t1;
+X	tinfo_02_t	*t2;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Find number of tracks */
+X	if (!pthru_send(OP_VT_RDINFO, 0, buf, SZ_VT_RDINFO,
+X			0, 0, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	t0 = (tinfo_00_t *) buf;
+X	s->first_trk = (byte_t) bcdtol(t0->first_trk);
+X	s->last_trk = (byte_t) bcdtol(t0->last_trk);
+X
+X	/* Get the starting position of each track */
+X	for (i = 0, j = (int) s->first_trk; j <= (int) s->last_trk; i++, j++) {
+X		memset(buf, (byte_t) 0, sizeof(buf));
+X
+X		if (!pthru_send(OP_VT_RDINFO, ltobcd(j) << 24,
+X				buf, SZ_VT_RDINFO, 0, 0, 2,
+X				0, READ_OP))
+X			return(FALSE);
+X
+X		t2 = (tinfo_02_t *) buf;
+X
+X		s->trkinfo[i].trkno = j;
+X		s->trkinfo[i].min = (byte_t) bcdtol(t2->min);
+X		s->trkinfo[i].sec = (byte_t) bcdtol(t2->sec);
+X		s->trkinfo[i].frame = (byte_t) bcdtol(t2->frame);
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&s->trkinfo[i].addr,
+X			MSF_OFFSET(s)
+X		);
+X	}
+X	s->tot_trks = (byte_t) i;
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Get the lead out track position */
+X	if (!pthru_send(OP_VT_RDINFO, 0,
+X			buf, SZ_VT_RDINFO, 0, 0, 1,
+X			0, READ_OP))
+X		return(FALSE);
+X
+X	t1 = (tinfo_01_t *) buf;
+X
+X	s->trkinfo[i].trkno = LEAD_OUT_TRACK;
+X	s->tot_min = s->trkinfo[i].min = (byte_t) bcdtol(t1->min);
+X	s->tot_sec = s->trkinfo[i].sec = (byte_t) bcdtol(t1->sec);
+X	s->tot_frame = s->trkinfo[i].frame = (byte_t) bcdtol(t1->frame);
+X	msftoblk(
+X		s->trkinfo[i].min,
+X		s->trkinfo[i].sec,
+X		s->trkinfo[i].frame,
+X		&s->trkinfo[i].addr,
+X		MSF_OFFSET(s)
+X	);
+X	s->tot_addr = s->trkinfo[i].addr;
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * tosh_mute
+X *	Send vendor-unique command to mute/unmute the audio
+X *
+X * Args:
+X *	mute - TRUE: mute audio, FALSE: unmute audio
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xtosh_mute(bool_t mute)
+X{
+X	curstat_t	*s = curstat_addr();
+X
+X	if (tosh_audio_muted != mute) {
+X		switch (s->mode) {
+X		case M_NODISC:
+X		case M_STOP:
+X		case M_PAUSE:
+X			break;
+X
+X		default:
+X			if (!pthru_send(OP_VT_AUDPLAY, 0, NULL, 0, 0, 0,
+X					(byte_t) (mute ? 0x0 : 0x3),
+X					0x3 << 6, READ_OP))
+X				return(FALSE);
+X			break;
+X		}
+X
+X		tosh_audio_muted = mute;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * tosh_eject
+X *	Send vendor-unique command to eject the caddy
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xtosh_eject(void)
+X{
+X	return(pthru_send(OP_VT_EJECT, 0, NULL, 0, 0, 0, 1, 0, READ_OP));
+X}
+X
+X
+X/*
+X * tosh_init
+X *	Initialize the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xtosh_init(void)
+X{
+X	/* Do nothing */
+X}
+X
+X
+X/*
+X * tosh_halt
+X *	Shut down the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xtosh_halt(void)
+X{
+X	/* Do nothing */
+X}
+X
+X#else	/* !TOSHIBA */
+X
+X#ifndef LINT
+Xbool_t		lib_tosh = FALSE;
+X#endif
+X
+X#endif	/* TOSHIBA */
+X
+END_OF_FILE
+if test 9549 -ne `wc -c <'lib_tosh.c'`; then
+    echo shar: \"'lib_tosh.c'\" unpacked with wrong size!
+fi
+# end of 'lib_tosh.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(2954 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_main_c_ident_ = "@(#)main.c	1.30 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "resource.h"
+X#include "util.h"
+X#include "widget.h"
+X#include "cdfunc.h"
+X#include "cdlib.h"
+X
+X
+X/* Global data */
+Xchar			*progname;	/* The path name we are invoked with */
+Xbool_t			exit_flag;	/* Flag indicating end of application */
+XAppData			app_data;	/* Options data */
+Xwidgets_t		widgets;	/* Holder of all widgets */
+Xpixmaps_t		pixmaps;	/* Holder of all pixmaps */
+X
+X/* Data global to this module only */
+XSTATIC curstat_t	status;		/* Current CD player status */
+X
+X
+X/*
+X * main
+X *	The main function
+X */
+Xvoid
+Xmain(int argc, char **argv)
+X{
+X	XtAppContext	app;
+X	XEvent		ev;
+X
+X	/* Initialize variables */
+X	progname = argv[0];
+X	exit_flag = FALSE;
+X
+X	/* Handle some signals */
+X	signal(SIGINT, onsig);
+X	signal(SIGHUP, onsig);
+X	signal(SIGTERM, onsig);
+X
+X	/* Initialize X toolkit */
+X	widgets.toplevel = XtVaAppInitialize(
+X		&app,
+X		"XMcd",
+X		options, XtNumber(options),
+X		&argc, argv,
+X		fallbacks,
+X		XmNmappedWhenManaged, False,
+X		NULL
+X	);
+X
+X	/* Get application options */
+X	XtVaGetApplicationResources(
+X		widgets.toplevel,
+X		(XtPointer) &app_data,
+X		resources,
+X		XtNumber(resources),
+X		NULL
+X	);
+X		
+X	/* Check command line for unknown arguments */
+X	if (argc > 1) {
+X		usage(argc, argv);
+X		exit(1);
+X	}
+X
+X	/* Create all widgets */
+X	create_widgets(&widgets);
+X
+X	/* Configure resources before realizing widgets */
+X	pre_realize_config(&widgets);
+X
+X	/* Display widgets */
+X	XtRealizeWidget(widgets.toplevel);
+X
+X	/* Configure resources after realizing widgets */
+X	post_realize_config(&widgets, &pixmaps);
+X
+X	/* Register callback routines */
+X	register_callbacks(&widgets, &status);
+X
+X	/* Initialize and start various subsystems */
+X	cd_init(&status);
+X	cd_start(&status);
+X
+X	/* Make the main window visible */
+X	XtMapWidget(widgets.toplevel);
+X
+X	/* Event processing loop */
+X	while (!exit_flag) {
+X		XtAppNextEvent(app, &ev);
+X		XtDispatchEvent(&ev);
+X	}
+X
+X	exit(0);
+X}
+X
+X
+X/*
+X * curstat_addr
+X *	Return the address of the curstat_t structure.
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xcurstat_t *
+Xcurstat_addr(void)
+X{
+X	return(&status);
+X}
+END_OF_FILE
+if test 2954 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+# end of 'main.c'
+fi
+if test -f 'util.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util.c'\"
+else
+echo shar: Extracting \"'util.c'\" \(8022 characters\)
+sed "s/^X//" >'util.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_util_c_ident_ = "@(#)util.c	1.38 93/09/28";
+X#endif
+X
+X#include "xmcd.h"
+X#include "util.h"
+X
+Xextern char		*progname;
+Xextern AppData		app_data;
+X
+X
+X/*
+X * usage
+X *	Display command line usage syntax
+X *
+X * Args:
+X *	argc, argv
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xusage(int argc, char **argv)
+X{
+X	int	i;
+X
+X	fprintf(stderr, "%s\n", app_data.str_badopts);
+X	for (i = 1; i < argc; i++)
+X		fprintf(stderr, "%s ", argv[i]);
+X
+X	fprintf(stderr,
+X		"\n\n%s %s %s %s\n",
+X		app_data.str_usage,
+X		progname,
+X		"[-dev path1]",
+X		"[-dbdir path2]");
+X
+X	fprintf(stderr,
+X		"\nwhere,\n%s\n%s\n",
+X		"\tpath1\tCD-ROM device file path",
+X		"\tpath2\tCD database directory path");
+X 
+X 	fprintf(stderr,
+X		"\nStandard Xt Intrinsics and Motif options are supported.\n");
+X}
+X
+X
+X/*
+X * ltobcd
+X *	32-bit integer to BCD conversion routine
+X *
+X * Args:
+X *	n - 32-bit integer
+X *
+X * Return:
+X *	BCD representation of n
+X */
+Xsword32_t
+Xltobcd(sword32_t n)
+X{
+X	return((n % 10) | ((n / 10) << 4));
+X}
+X
+X
+X/*
+X * bcdtol
+X *	BCD to 32-bit integer conversion routine
+X *
+X * Args:
+X *	n - BCD value
+X *
+X * Return:
+X *	integer representation of n
+X */
+Xsword32_t
+Xbcdtol(sword32_t n)
+X{
+X	return((n & 0x0f) + ((n >> 4) * 10));
+X}
+X
+X
+X/*
+X * stob
+X *	String to boolean conversion routine
+X *
+X * Args:
+X *	s - text string "True", "true", "False" or "false"
+X *
+X * Return:
+X *	Boolean value representing the string
+X */
+Xbool_t
+Xstob(char *s)
+X{
+X	if (strcmp(s, "True") == 0 || strcmp(s, "true") == 0 ||
+X	    strcmp(s, "TRUE") == 0)
+X		return(TRUE);
+X
+X	return(FALSE);
+X}
+X
+X
+X/*
+X * basename
+X *	Return the basename of a file path
+X *
+X * Args:
+X *	path - The file path string
+X *
+X * Return:
+X *	The basename string
+X */
+Xchar *
+Xbasename(char *path)
+X{
+X	char	*p;
+X
+X	if ((p = strrchr(path, '/')) == NULL)
+X		return(path);
+X	
+X	return(p + 1);
+X}
+X
+X
+X/*
+X * dirname
+X *	Return the dirname of a file path
+X *
+X * Args:
+X *	path - The file path string
+X *
+X * Return:
+X *	The dirname string
+X */
+Xchar *
+Xdirname(char *path)
+X{
+X	char		*p;
+X	static char	buf[FILE_PATH_SZ];
+X
+X	if ((int) strlen(path) >= FILE_PATH_SZ)
+X		/* Error: path name too long */
+X		return(NULL);
+X
+X	strcpy(buf, path);
+X
+X	if ((p = strrchr(buf, '/')) == NULL)
+X		return(buf);
+X	
+X	*p = '\0';
+X	return(buf);
+X}
+X
+X
+X/*
+X * homedir
+X *	Return the home directory path of a user given the uid
+X *
+X * Args:
+X *	uid - The uid of the user
+X *
+X * Return:
+X *	The home directory path name string
+X */
+Xchar *
+Xhomedir(uid_t uid)
+X{
+X	struct passwd	*pw;
+X	char		*cp;
+X
+X	/* Get home directory from the password file if possible */
+X	if ((pw = getpwuid(uid)) != NULL)
+X		return(pw->pw_dir);
+X
+X	/* Try the HOME environment variable */
+X	if ((cp = getenv("HOME")) != NULL)
+X		return(cp);
+X
+X	/* If we still can't get the home directory, just set it to the
+X	 * current directory (shrug).
+X	 */
+X	return(".");
+X}
+X
+X
+X/*
+X * isqrt
+X *	Fast integer-based square root routine
+X *
+X * Args:
+X *	n - The integer value whose square-root is to be taken
+X *
+X * Return:
+X *	Resultant square-root integer value
+X */
+Xint
+Xisqrt(int n)
+X{
+X	int	a, b, c, as, bs;
+X
+X	a = 1;
+X	b = 1;
+X	while (a <= n) {
+X		a = a << 2;
+X		b = b << 1;
+X	}
+X	as = 0;
+X	bs = 0;
+X	while (b > 1 && n > 0) {
+X		a = a >> 2;
+X		b = b >> 1;
+X		c = n - (as | a);
+X		if (c >= 0) {
+X			n = c;
+X			as |= (a << 1);
+X			bs |= b;
+X		}
+X		as >>= 1;
+X	}
+X
+X	return(bs);
+X}
+X
+X
+X/*
+X * blktomsf
+X *	CD logical block to MSF conversion routine
+X *
+X * Args:
+X *	blk - The logical block address
+X *	ret_min - Minute (return)
+X *	ret_sec - Second (return)
+X *	ret_frame - Frame (return)
+X *	offset - Additional logical block address offset
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xblktomsf(word32_t blk, byte_t *ret_min, byte_t *ret_sec, byte_t *ret_frame,
+X	 word32_t offset)
+X{
+X	*ret_min = (blk + offset) / FRAME_PER_SEC / 60;
+X	*ret_sec = ((blk + offset) / FRAME_PER_SEC) % 60;
+X	*ret_frame = (blk + offset) % FRAME_PER_SEC;
+X}
+X
+X
+X/*
+X * msftoblk
+X *	CD MSF to logical block conversion routine
+X *
+X * Args:
+X *	min - Minute
+X *	sec - Second
+X *	frame - Frame
+X *	ret_blk - The logical block address (return)
+X *	offset - Additional logical block address offset
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xmsftoblk(byte_t min, byte_t sec, byte_t frame, word32_t *ret_blk,
+X	 word32_t offset)
+X{
+X	*ret_blk = FRAME_PER_SEC * (min * 60 + sec) + frame - offset;
+X}
+X
+X
+X/*
+X * bswap16
+X *	16-bit little-endian to big-endian byte-swap routine.
+X *	On a big-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword16_t
+Xbswap16(word16_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	word16_t	ret;
+X
+X	ret  = (x & 0x00ff) << 8;
+X	ret |= (word16_t) (x & 0xff00) >> 8;
+X	return(ret);
+X#else
+X	return(x);
+X#endif
+X}
+X
+X
+X/*
+X * bswap24
+X *	24-bit little-endian to big-endian byte-swap routine.
+X *	On a big-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword32_t
+Xbswap24(word32_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	word32_t	ret;
+X
+X	ret  = (x & 0x0000ff) << 16;
+X	ret |= (x & 0x00ff00);
+X	ret |= (x & 0xff0000) >> 16;
+X	return(ret);
+X#else
+X	return(x);
+X#endif
+X}
+X
+X
+X/*
+X * bswap32
+X *	32-bit little-endian to big-endian byte-swap routine.
+X *	On a big-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword32_t
+Xbswap32(word32_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	word32_t	ret;
+X
+X	ret  = (x & 0x000000ff) << 24;
+X	ret |= (x & 0x0000ff00) << 8;
+X	ret |= (x & 0x00ff0000) >> 8;
+X	ret |= (x & 0xff000000) >> 24;
+X	return(ret);
+X#else
+X	return(x);
+X#endif
+X}
+X
+X
+X/*
+X * lswap16
+X *	16-bit big-endian to little-endian byte-swap routine.
+X *	On a little-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword16_t
+Xlswap16(word16_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	return(x);
+X#else
+X	word16_t	ret;
+X
+X	ret  = (x & 0x00ff) << 8;
+X	ret |= (word16_t) (x & 0xff00) >> 8;
+X	return(ret);
+X#endif
+X}
+X
+X
+X/*
+X * lswap24
+X *	24-bit big-endian to little-endian byte-swap routine.
+X *	On a little-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword32_t
+Xlswap24(word32_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	return(x);
+X#else
+X	word32_t	ret;
+X
+X	ret  = (x & 0x0000ff) << 16;
+X	ret |= (x & 0x00ff00);
+X	ret |= (x & 0xff0000) >> 16;
+X	return(ret);
+X#endif
+X}
+X
+X
+X/*
+X * lswap32
+X *	32-bit big-endian to little-endian byte-swap routine.
+X *	On a little-endian system architecture this routines has no effect.
+X *
+X * Args:
+X *	x - The data to be swapped
+X *
+X * Return:
+X *	The swapped data.
+X */
+Xword32_t
+Xlswap32(word32_t x)
+X{
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X	return(x);
+X#else
+X	word32_t	ret;
+X
+X	ret  = (x & 0x000000ff) << 24;
+X	ret |= (x & 0x0000ff00) << 8;
+X	ret |= (x & 0x00ff0000) >> 8;
+X	ret |= (x & 0xff000000) >> 24;
+X	return(ret);
+X#endif
+X}
+X
+X
+X/* Debugging routines */
+X
+X#ifdef DEBUG
+X
+XFILE *
+Xdbfile_open(char *path)
+X{
+X	return(fopen(path, "w"));
+X}
+X
+Xint
+Xdbfile_close(FILE *fp)
+X{
+X	return(fclose(fp));
+X}
+X
+Xvoid
+Xdbfile_dump(FILE *fp, char *title, byte_t data[], int len)
+X{
+X	int	i;
+X
+X	if (fp == NULL)
+X		return;
+X
+X	fprintf(fp, "\n%s", title);
+X
+X	for (i = 0; i < len; i++) {
+X		if (i % 16 == 0)
+X			fprintf(fp, "\n%03u:\t", i);
+X
+X		fprintf(fp, "%02x  ", data[i]);
+X	}
+X	fprintf(fp, "\n");
+X}
+X
+X#endif	/* DEBUG */
+X
+END_OF_FILE
+if test 8022 -ne `wc -c <'util.c'`; then
+    echo shar: \"'util.c'\" unpacked with wrong size!
+fi
+# end of 'util.c'
+fi
+if test ! -d 'bitmaps' ; then
+    echo shar: Creating directory \"'bitmaps'\"
+    mkdir 'bitmaps'
+fi
+if test -f 'bitmaps/ab.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/ab.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/ab.xbm'\" \(1186 characters\)
+sed "s/^X//" >'bitmaps/ab.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_ab_xbm_ident_ = "@(#)ab.xbm	1.8 93/09/28";
+X#endif
+X
+X#define ab_width 16
+X#define ab_height 16
+Xstatic unsigned char ab_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+X   0x03, 0xc6, 0xf3, 0xcf, 0xf3, 0xcf, 0x03, 0xc6, 0x00, 0x02, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1186 -ne `wc -c <'bitmaps/ab.xbm'`; then
+    echo shar: \"'bitmaps/ab.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/ab.xbm'
+fi
+if test -f 'bitmaps/btnlbl.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/btnlbl.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/btnlbl.xbm'\" \(1206 characters\)
+sed "s/^X//" >'bitmaps/btnlbl.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_btnlbl_xbm_ident_ = "@(#)btnlbl.xbm	1.6 93/09/28";
+X#endif
+X
+X#define btnlbl_width 16
+X#define btnlbl_height 16
+Xstatic unsigned char btnlbl_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x1f, 0x04, 0x20, 0x84, 0x21,
+X   0x44, 0x22, 0x44, 0x22, 0xc4, 0x23, 0x44, 0x22, 0x44, 0x22, 0x04, 0x20,
+X   0xf8, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1206 -ne `wc -c <'bitmaps/btnlbl.xbm'`; then
+    echo shar: \"'bitmaps/btnlbl.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/btnlbl.xbm'
+fi
+if test -f 'bitmaps/dbprog.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/dbprog.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/dbprog.xbm'\" \(1806 characters\)
+sed "s/^X//" >'bitmaps/dbprog.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_dbprog_xbm_ident_ = "@(#)dbprog.xbm	1.6 93/09/28";
+X#endif
+X
+X#define dbprog_width 32
+X#define dbprog_height 32
+Xstatic unsigned char dbprog_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0xff, 0xff, 0x03,
+X   0x40, 0x00, 0x00, 0x02, 0x40, 0xff, 0xff, 0x02, 0x40, 0x01, 0x80, 0x02,
+X   0x40, 0xc1, 0x83, 0x02, 0x40, 0x41, 0x82, 0x02, 0x40, 0xc1, 0x83, 0x02,
+X   0x40, 0x01, 0x80, 0x02, 0x40, 0x01, 0x80, 0x02, 0x40, 0x21, 0x84, 0x02,
+X   0x40, 0xe1, 0x87, 0x02, 0x40, 0x01, 0x80, 0x02, 0x40, 0x01, 0x80, 0x02,
+X   0x40, 0xff, 0xff, 0x02, 0x40, 0x01, 0x80, 0x02, 0x40, 0xc1, 0x83, 0x02,
+X   0x40, 0x41, 0x82, 0x02, 0x40, 0xc1, 0x83, 0x02, 0x40, 0x01, 0x80, 0x02,
+X   0x40, 0x01, 0x80, 0x02, 0x40, 0x21, 0x84, 0x02, 0x40, 0xe1, 0x87, 0x02,
+X   0x40, 0x01, 0x80, 0x02, 0x40, 0x01, 0x80, 0x02, 0x40, 0xff, 0xff, 0x02,
+X   0x40, 0x00, 0x00, 0x02, 0x40, 0x00, 0x00, 0x02, 0xc0, 0xff, 0xff, 0x03,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1806 -ne `wc -c <'bitmaps/dbprog.xbm'`; then
+    echo shar: \"'bitmaps/dbprog.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/dbprog.xbm'
+fi
+if test -f 'bitmaps/eject.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/eject.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/eject.xbm'\" \(1201 characters\)
+sed "s/^X//" >'bitmaps/eject.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_eject_xbm_ident_ = "@(#)eject.xbm	1.6 93/09/28";
+X#endif
+X
+X#define eject_width 16
+X#define eject_height 16
+Xstatic unsigned char eject_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x01, 0xc0, 0x03, 0xe0, 0x07,
+X   0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0x00, 0x00, 0x00, 0x00, 0xfc, 0x3f,
+X   0xfc, 0x3f, 0xfc, 0x3f, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1201 -ne `wc -c <'bitmaps/eject.xbm'`; then
+    echo shar: \"'bitmaps/eject.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/eject.xbm'
+fi
+if test -f 'bitmaps/ff.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/ff.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/ff.xbm'\" \(1186 characters\)
+sed "s/^X//" >'bitmaps/ff.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_ff_xbm_ident_ = "@(#)ff.xbm	1.6 93/09/28";
+X#endif
+X
+X#define ff_width 16
+X#define ff_height 16
+Xstatic unsigned char ff_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x02, 0x18, 0x06, 0x38, 0x0e,
+X   0x78, 0x1e, 0xf8, 0x3e, 0xf8, 0x3e, 0x78, 0x1e, 0x38, 0x0e, 0x18, 0x06,
+X   0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1186 -ne `wc -c <'bitmaps/ff.xbm'`; then
+    echo shar: \"'bitmaps/ff.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/ff.xbm'
+fi
+if test -f 'bitmaps/help.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/help.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/help.xbm'\" \(1196 characters\)
+sed "s/^X//" >'bitmaps/help.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_help_xbm_ident_ = "@(#)help.xbm	1.3 93/09/28";
+X#endif
+X
+X#define help_width 16
+X#define help_height 16
+Xstatic unsigned char help_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0xe0, 0x01, 0x30, 0x03, 0x18, 0x06, 0x18, 0x06,
+X   0x00, 0x06, 0x00, 0x03, 0xc0, 0x01, 0xc0, 0x00, 0xc0, 0x00, 0x00, 0x00,
+X   0xc0, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1196 -ne `wc -c <'bitmaps/help.xbm'`; then
+    echo shar: \"'bitmaps/help.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/help.xbm'
+fi
+if test -f 'bitmaps/keypad.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/keypad.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/keypad.xbm'\" \(1206 characters\)
+sed "s/^X//" >'bitmaps/keypad.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_keypad_xbm_ident_ = "@(#)keypad.xbm	1.6 93/09/28";
+X#endif
+X
+X#define keypad_width 16
+X#define keypad_height 16
+Xstatic unsigned char keypad_bits[] = {
+X   0x00, 0x00, 0xf8, 0x1f, 0x48, 0x12, 0x48, 0x12, 0xf8, 0x1f, 0x48, 0x12,
+X   0x48, 0x12, 0xf8, 0x1f, 0x48, 0x12, 0x48, 0x12, 0xf8, 0x1f, 0x48, 0x10,
+X   0x48, 0x10, 0xf8, 0x1f, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1206 -ne `wc -c <'bitmaps/keypad.xbm'`; then
+    echo shar: \"'bitmaps/keypad.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/keypad.xbm'
+fi
+if test -f 'bitmaps/lock.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/lock.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/lock.xbm'\" \(1196 characters\)
+sed "s/^X//" >'bitmaps/lock.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lock_xbm_ident_ = "@(#)lock.xbm	1.7 93/09/28";
+X#endif
+X
+X#define lock_width 16
+X#define lock_height 16
+Xstatic unsigned char lock_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x03, 0x20, 0x04, 0x20, 0x04,
+X   0x20, 0x04, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1196 -ne `wc -c <'bitmaps/lock.xbm'`; then
+    echo shar: \"'bitmaps/lock.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/lock.xbm'
+fi
+if test -f 'bitmaps/logo.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/logo.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/logo.xbm'\" \(2795 characters\)
+sed "s/^X//" >'bitmaps/logo.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_logo_xbm_ident_ = "@(#)logo.xbm	1.6 93/09/28";
+X#endif
+X
+X#define logo_width 48
+X#define logo_height 48
+Xstatic unsigned char logo_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x63, 0xa2, 0x23, 0xe6, 0x00, 0x9f, 0x94, 0xb6, 0x54, 0x49,
+X   0x00, 0x91, 0x90, 0xaa, 0x54, 0x41, 0x00, 0x91, 0x94, 0xaa, 0x73, 0x49,
+X   0x00, 0x11, 0x63, 0xa2, 0x50, 0x46, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
+X   0xfc, 0x91, 0x0f, 0xff, 0xc3, 0x3f, 0x02, 0x90, 0x88, 0x00, 0x22, 0x40,
+X   0x01, 0x90, 0x48, 0x00, 0x12, 0x80, 0xe1, 0x90, 0x48, 0x00, 0x12, 0x86,
+X   0x11, 0x91, 0x48, 0xfc, 0x13, 0x89, 0x11, 0x91, 0x48, 0x02, 0x10, 0x89,
+X   0x11, 0x91, 0x48, 0xfc, 0x10, 0x89, 0x11, 0x91, 0x48, 0x00, 0x11, 0xf9,
+X   0x11, 0x91, 0x48, 0x00, 0x12, 0x01, 0x11, 0x91, 0x88, 0x00, 0x12, 0xf9,
+X   0x11, 0x91, 0x08, 0x3f, 0x12, 0x89, 0x11, 0x91, 0x08, 0x40, 0x12, 0x89,
+X   0x11, 0x91, 0xc8, 0x3f, 0x12, 0x89, 0xe1, 0x90, 0x48, 0x00, 0x12, 0x86,
+X   0x01, 0x90, 0x48, 0x00, 0x12, 0x80, 0x02, 0x90, 0x48, 0x00, 0x21, 0x40,
+X   0xfc, 0x9f, 0xcf, 0xff, 0xc0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x27, 0xd7, 0x49, 0x20, 0xe9, 0x64, 0xa9, 0x90, 0x54, 0x50, 0x29, 0x95,
+X   0xa9, 0x96, 0x54, 0x50, 0x29, 0x95, 0xa9, 0x94, 0x5c, 0x70, 0x29, 0x95,
+X   0x27, 0x97, 0xd4, 0x51, 0xe6, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 2795 -ne `wc -c <'bitmaps/logo.xbm'`; then
+    echo shar: \"'bitmaps/logo.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/logo.xbm'
+fi
+if test -f 'bitmaps/nextidx.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/nextidx.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/nextidx.xbm'\" \(1211 characters\)
+sed "s/^X//" >'bitmaps/nextidx.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_nextidx_xbm_ident_ = "@(#)nextidx.xbm	1.8 93/09/28";
+X#endif
+X
+X#define nextidx_width 16
+X#define nextidx_height 16
+Xstatic unsigned char nextidx_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x18, 0x18, 0x18, 0x38, 0x00,
+X   0x78, 0x00, 0xf8, 0x18, 0xf8, 0x18, 0x78, 0x18, 0x38, 0x18, 0x18, 0x18,
+X   0x08, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1211 -ne `wc -c <'bitmaps/nextidx.xbm'`; then
+    echo shar: \"'bitmaps/nextidx.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/nextidx.xbm'
+fi
+if test -f 'bitmaps/nexttrk.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/nexttrk.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/nexttrk.xbm'\" \(1211 characters\)
+sed "s/^X//" >'bitmaps/nexttrk.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_nexttrk_xbm_ident_ = "@(#)nexttrk.xbm	1.7 93/09/28";
+X#endif
+X
+X#define nexttrk_width 16
+X#define nexttrk_height 16
+Xstatic unsigned char nexttrk_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x60, 0x86, 0x61, 0x8e, 0x63,
+X   0x9e, 0x67, 0xbe, 0x6f, 0xbe, 0x6f, 0x9e, 0x67, 0x8e, 0x63, 0x86, 0x61,
+X   0x82, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1211 -ne `wc -c <'bitmaps/nexttrk.xbm'`; then
+    echo shar: \"'bitmaps/nexttrk.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/nexttrk.xbm'
+fi
+if test -f 'bitmaps/playpaus.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/playpaus.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/playpaus.xbm'\" \(1420 characters\)
+sed "s/^X//" >'bitmaps/playpaus.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_playpaus_xbm_ident_ = "@(#)playpaus.xbm	1.6 93/09/28";
+X#endif
+X
+X#define playpause_width 32
+X#define playpause_height 16
+Xstatic unsigned char playpause_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x06, 0x00, 0xc0, 0x71, 0x1e, 0x00, 0xc0, 0x71, 0x7e, 0x00, 0xc0, 0x71,
+X   0xfe, 0x01, 0xc0, 0x71, 0xfe, 0x07, 0xc0, 0x71, 0xfe, 0x07, 0xc0, 0x71,
+X   0xfe, 0x01, 0xc0, 0x71, 0x7e, 0x00, 0xc0, 0x71, 0x1e, 0x00, 0xc0, 0x71,
+X   0x06, 0x00, 0xc0, 0x71, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1420 -ne `wc -c <'bitmaps/playpaus.xbm'`; then
+    echo shar: \"'bitmaps/playpaus.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/playpaus.xbm'
+fi
+if test -f 'bitmaps/poweroff.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/poweroff.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/poweroff.xbm'\" \(1216 characters\)
+sed "s/^X//" >'bitmaps/poweroff.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_poweroff_xbm_ident_ = "@(#)poweroff.xbm	1.7 93/09/28";
+X#endif
+X
+X#define poweroff_width 16
+X#define poweroff_height 16
+Xstatic unsigned char poweroff_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0xfe, 0x18, 0xfe, 0x10, 0xfe, 0x10, 0xfe, 0x10,
+X   0xfe, 0x10, 0x82, 0x00, 0x82, 0x38, 0x82, 0x44, 0x82, 0x44, 0x82, 0x44,
+X   0xfe, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1216 -ne `wc -c <'bitmaps/poweroff.xbm'`; then
+    echo shar: \"'bitmaps/poweroff.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/poweroff.xbm'
+fi
+if test -f 'bitmaps/previdx.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/previdx.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/previdx.xbm'\" \(1211 characters\)
+sed "s/^X//" >'bitmaps/previdx.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_previdx_xbm_ident_ = "@(#)previdx.xbm	1.8 93/09/28";
+X#endif
+X
+X#define previdx_width 16
+X#define previdx_height 16
+Xstatic unsigned char previdx_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x10, 0x18, 0x18, 0x00, 0x1c,
+X   0x00, 0x1e, 0x18, 0x1f, 0x18, 0x1f, 0x18, 0x1e, 0x18, 0x1c, 0x18, 0x18,
+X   0x18, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1211 -ne `wc -c <'bitmaps/previdx.xbm'`; then
+    echo shar: \"'bitmaps/previdx.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/previdx.xbm'
+fi
+if test -f 'bitmaps/prevtrk.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/prevtrk.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/prevtrk.xbm'\" \(1211 characters\)
+sed "s/^X//" >'bitmaps/prevtrk.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_prevtrk_xbm_ident_ = "@(#)prevtrk.xbm	1.7 93/09/28";
+X#endif
+X
+X#define prevtrk_width 16
+X#define prevtrk_height 16
+Xstatic unsigned char prevtrk_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x41, 0x86, 0x61, 0xc6, 0x71,
+X   0xe6, 0x79, 0xf6, 0x7d, 0xf6, 0x7d, 0xe6, 0x79, 0xc6, 0x71, 0x86, 0x61,
+X   0x06, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1211 -ne `wc -c <'bitmaps/prevtrk.xbm'`; then
+    echo shar: \"'bitmaps/prevtrk.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/prevtrk.xbm'
+fi
+if test -f 'bitmaps/repeat.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/repeat.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/repeat.xbm'\" \(1206 characters\)
+sed "s/^X//" >'bitmaps/repeat.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_repeat_xbm_ident_ = "@(#)repeat.xbm	1.7 93/09/28";
+X#endif
+X
+X#define repeat_width 16
+X#define repeat_height 16
+Xstatic unsigned char repeat_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xf8, 0x13,
+X   0x0c, 0x31, 0x04, 0x20, 0x04, 0x20, 0x8c, 0x30, 0xc8, 0x1f, 0x80, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1206 -ne `wc -c <'bitmaps/repeat.xbm'`; then
+    echo shar: \"'bitmaps/repeat.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/repeat.xbm'
+fi
+if test -f 'bitmaps/rew.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/rew.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/rew.xbm'\" \(1191 characters\)
+sed "s/^X//" >'bitmaps/rew.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_rew_xbm_ident_ = "@(#)rew.xbm	1.6 93/09/28";
+X#endif
+X
+X#define rew_width 16
+X#define rew_height 16
+Xstatic unsigned char rew_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x10, 0x60, 0x18, 0x70, 0x1c,
+X   0x78, 0x1e, 0x7c, 0x1f, 0x7c, 0x1f, 0x78, 0x1e, 0x70, 0x1c, 0x60, 0x18,
+X   0x40, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1191 -ne `wc -c <'bitmaps/rew.xbm'`; then
+    echo shar: \"'bitmaps/rew.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/rew.xbm'
+fi
+if test -f 'bitmaps/sample.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/sample.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/sample.xbm'\" \(1206 characters\)
+sed "s/^X//" >'bitmaps/sample.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_sample_xbm_ident_ = "@(#)sample.xbm	1.7 93/09/28";
+X#endif
+X
+X#define sample_width 16
+X#define sample_height 16
+Xstatic unsigned char sample_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06,
+X   0x26, 0x26, 0x6e, 0x6e, 0x6e, 0x6e, 0x26, 0x26, 0x06, 0x06, 0x06, 0x06,
+X   0x06, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1206 -ne `wc -c <'bitmaps/sample.xbm'`; then
+    echo shar: \"'bitmaps/sample.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/sample.xbm'
+fi
+if test -f 'bitmaps/shuffle.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/shuffle.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/shuffle.xbm'\" \(1211 characters\)
+sed "s/^X//" >'bitmaps/shuffle.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_shuffle_xbm_ident_ = "@(#)shuffle.xbm	1.9 93/09/28";
+X#endif
+X
+X#define shuffle_width 16
+X#define shuffle_height 16
+Xstatic unsigned char shuffle_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78, 0x00, 0xcc, 0x00,
+X   0x84, 0x0c, 0xc0, 0x3c, 0x60, 0x3c, 0x30, 0x0c, 0x00, 0x00, 0x30, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1211 -ne `wc -c <'bitmaps/shuffle.xbm'`; then
+    echo shar: \"'bitmaps/shuffle.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/shuffle.xbm'
+fi
+if test -f 'bitmaps/stop.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/stop.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/stop.xbm'\" \(1196 characters\)
+sed "s/^X//" >'bitmaps/stop.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_stop_xbm_ident_ = "@(#)stop.xbm	1.6 93/09/28";
+X#endif
+X
+X#define stop_width 16
+X#define stop_height 16
+Xstatic unsigned char stop_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x0f, 0xf0, 0x0f,
+X   0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1196 -ne `wc -c <'bitmaps/stop.xbm'`; then
+    echo shar: \"'bitmaps/stop.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/stop.xbm'
+fi
+if test -f 'bitmaps/time.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/time.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/time.xbm'\" \(1196 characters\)
+sed "s/^X//" >'bitmaps/time.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_time_xbm_ident_ = "@(#)time.xbm	1.6 93/09/28";
+X#endif
+X
+X#define time_width 16
+X#define time_height 16
+Xstatic unsigned char time_bits[] = {
+X   0x00, 0x00, 0xe0, 0x03, 0xf8, 0x0f, 0x1c, 0x1c, 0x8c, 0x18, 0x86, 0x30,
+X   0x86, 0x30, 0xf6, 0x30, 0x06, 0x30, 0x06, 0x30, 0x0c, 0x18, 0x1c, 0x1c,
+X   0xf8, 0x0f, 0xe0, 0x03, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 1196 -ne `wc -c <'bitmaps/time.xbm'`; then
+    echo shar: \"'bitmaps/time.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/time.xbm'
+fi
+if test -f 'bitmaps/xmcd.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/xmcd.xbm'\"
+else
+echo shar: Extracting \"'bitmaps/xmcd.xbm'\" \(2246 characters\)
+sed "s/^X//" >'bitmaps/xmcd.xbm' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_xmcd_xbm_ident_ = "@(#)xmcd.xbm	1.6 93/09/28";
+X#endif
+X
+X#define xmcd_width 40
+X#define xmcd_height 40
+Xstatic unsigned char xmcd_bits[] = {
+X   0x00, 0x00, 0xff, 0x01, 0x00, 0x00, 0xe0, 0x00, 0x0e, 0x00, 0x00, 0x18,
+X   0xff, 0x31, 0x00, 0x00, 0xe6, 0xff, 0xcf, 0x00, 0x00, 0xd9, 0xff, 0x3f,
+X   0x01, 0x80, 0xf4, 0xff, 0x7f, 0x02, 0x40, 0xea, 0xfd, 0xff, 0x04, 0x20,
+X   0x20, 0xf5, 0xff, 0x09, 0x10, 0xc8, 0xfb, 0xff, 0x13, 0x50, 0x54, 0xff,
+X   0xff, 0x17, 0x88, 0xc0, 0xf7, 0xff, 0x2b, 0x48, 0x02, 0xed, 0xff, 0x2f,
+X   0x54, 0x80, 0xfc, 0xff, 0x57, 0x04, 0x00, 0xfe, 0xff, 0x5f, 0x34, 0x00,
+X   0x83, 0xbf, 0x5d, 0x5a, 0x01, 0x00, 0x7e, 0xb7, 0x5a, 0x04, 0x38, 0x76,
+X   0xbf, 0xba, 0x51, 0x7c, 0xfc, 0xba, 0xda, 0x04, 0xfe, 0x94, 0xbd, 0xba,
+X   0x49, 0xfe, 0x84, 0xb7, 0x3a, 0x2d, 0xfe, 0xcc, 0xb8, 0xda, 0x76, 0x7c,
+X   0x40, 0xbc, 0x7a, 0xfd, 0x38, 0x22, 0xb1, 0x7a, 0xfd, 0x00, 0x40, 0xb1,
+X   0xf4, 0xff, 0x83, 0x00, 0x5c, 0xf4, 0xff, 0xff, 0x01, 0x58, 0xf4, 0xff,
+X   0x7f, 0x03, 0x50, 0xe8, 0xff, 0xeb, 0x04, 0x28, 0xe8, 0xff, 0xdf, 0x00,
+X   0x28, 0xd0, 0xff, 0xb7, 0x0a, 0x14, 0x90, 0xff, 0x7f, 0x49, 0x12, 0x20,
+X   0xff, 0x4f, 0x07, 0x09, 0x40, 0xfe, 0x37, 0x6d, 0x04, 0x80, 0xfc, 0xf7,
+X   0x58, 0x02, 0x00, 0xf9, 0xaf, 0x37, 0x01, 0x00, 0xe6, 0xff, 0xcf, 0x00,
+X   0x00, 0x18, 0xff, 0x31, 0x00, 0x00, 0xe0, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X   0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+END_OF_FILE
+if test 2246 -ne `wc -c <'bitmaps/xmcd.xbm'`; then
+    echo shar: \"'bitmaps/xmcd.xbm'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/xmcd.xbm'
+fi
+echo shar: End of archive 10 \(of 13\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 13 archives.
+    echo "Now read the README and INSTALL files for further instructions."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+    ///  Ti Kan                vorsprung durch technik
+   ///   AMB Research Laboratories, Sunnyvale, CA. USA
+  ///    ti@amb.org
+ //////  ...!{decwrl,synopsys,tandem,tsoft,ultra}!sgiblab!bazooka!ti
+///      ...!uunet!bazooka!ti
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

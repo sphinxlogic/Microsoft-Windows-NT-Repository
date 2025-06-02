@@ -1,0 +1,1060 @@
+Newsgroups: comp.sources.misc
+From: graeme@labtam.labtam.oz.au (Graeme Gill)
+Subject: v35i116:  pnmnlfilt - A nonlinear area filter for the pbm package, Part01/01
+Message-ID: <1993Mar4.190827.6812@sparky.imd.sterling.com>
+X-Md4-Signature: 7241a5f87217d6750c6d5ba0e9d5420b
+Date: Thu, 4 Mar 1993 19:08:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: graeme@labtam.labtam.oz.au (Graeme Gill)
+Posting-number: Volume 35, Issue 116
+Archive-name: pnmnlfilt/part01
+Environment: PBM
+
+WHAT IS pnmnlfilt ?
+
+    It is another utility for the pbm library.
+
+    pnmnlfilt - non-linear filters: smooth, alpha trim mean, optimal
+    estimation smoothing, edge enhancement.
+
+    This is something of a swiss army knife filter. It has 3 distinct
+    operating modes.
+
+    The optimal estimation filter and the edge enhancement filter in
+    particular are good for turning quantized (ie. 8 bit color) images
+    back into 24 bit color images suitable for jpeg encoding.
+    It can do this with less blurring that ordinary smoothing
+    filters.  The filter may also be useful for smoothing out noise
+    artifacts of distributed ray tracing images. The various modes
+    of filtering work well in combination (eg. edge enhancement
+    after optimal estimation filtering etc.).
+
+
+INSTALLATION:
+
+    Unpack the files.
+
+    You will need to have already installed and compiled the pbm package.
+    pnmnlfilt.c and pnmnlfilt.1 should be copied to the pnm directory.
+
+    The Makefile (or Imakefile if you are using them) file in pnm should be
+    modified to add "pnmnlfilt" to the "MATHBINARIES" = define.
+    Add "pnmnlfilt.1" to the "MANUALS1 =" define.
+
+    Re-make the pnm tools in the usual way. The manual entry gives
+    details of the options and suggested usage of pnmnlfilt.
+
+	Graeme W. Gill
+        graeme@labtam.oz.au
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  pnmnlfilt.1 pnmnlfilt.c
+# Wrapped by kent@sparky on Thu Mar  4 13:05:22 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'pnmnlfilt.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pnmnlfilt.1'\"
+else
+  echo shar: Extracting \"'pnmnlfilt.1'\" \(5647 characters\)
+  sed "s/^X//" >'pnmnlfilt.1' <<'END_OF_FILE'
+X.TH pnmnlfilt 1 "5 February 1993"
+X.IX pnmnlfilt
+X.SH NAME
+Xpnmnlfilt - non-linear filters: smooth, alpha trim mean, optimal
+Xestimation smoothing, edge enhancement.
+X.SH SYNOPSIS
+X.B pnmnlfilt
+X.RI alpha
+X.RI radius
+X.RI [ pnmfile ]
+X.SH DESCRIPTION
+X.IX smoothing
+X.IX dithering
+X.IX alpha trim
+X.IX mean filter
+X.IX median filter
+X.IX optimal estimation
+XThis is something of a swiss army knife filter. It has 3 distinct operating
+Xmodes. In all of the modes each pixel in the image is examined and processed
+Xaccording to it and its surrounding pixels values. Rather than using the
+X9 pixels in a 3x3 block, 7 hexagonal area samples are taken, the size of
+Xthe hexagons being controlled by the radius parameter. A radius value of
+X0.3333 means that the 7 hexagons exactly fit into the center pixel (ie.
+Xthere will be no filtering effect). A radius value of 1.0 means that
+Xthe 7 hexagons exactly fit a 3x3 pixel array.
+X.SH Alpha trimmed mean filter.	(0.0 <= alpha <= 0.5)
+X.PP
+XThe value of the center pixel will be
+Xreplaced by the mean of the 7 hexagon values, but the 7 values are
+Xsorted by size and the top and bottom alpha portion of the 7 are
+Xexcluded from the mean.  This implies that an alpha value of 0.0 gives
+Xthe same sort of output as a normal convolution (ie. averaging or
+Xsmoothing filter), where radius will determine the "strength" of the
+Xfilter. A good value to start from for subtle filtering is alpha = 0.0, radius = 0.55
+XFor a more blatant effect, try alpha 0.0 and radius 1.0
+X.PP
+XAn alpha value of 0.5 will cause the median value of the
+X7 hexagons to be used to replace the center pixel value. This sort
+Xof filter is good for eliminating "pop" or single pixel noise from
+Xan image without spreading the noise out or smudging features on
+Xthe image. Judicious use of the radius parameter will fine tune the
+Xfiltering. Intermediate values of alpha give effects somewhere
+Xbetween smoothing and "pop" noise reduction. For subtle filtering
+Xtry starting with values of alpha = 0.4, radius = 0.6  For a more blatant
+Xeffect try alpha = 0.5, radius = 1.0
+X.SH Optimal estimation smoothing. (1.0 <= alpha <= 2.0)
+X.PP
+XThis type of filter applies a smoothing filter adaptively over the image.
+XFor each pixel the variance of the surrounding hexagon values is calculated,
+Xand the amount of smoothing is made inversely proportional to it. The idea
+Xis that if the variance is small then it is due to noise in the image, while
+Xif the variance is large, it is because of "wanted" image features. As usual
+Xthe radius parameter controls the effective radius, but it probably advisable to
+Xleave the radius between 0.8 and 1.0 for the variance calculation to be meaningful.
+XThe alpha parameter sets the noise threshold, over which less smoothing will be done.
+XThis means that small values of alpha will give the most subtle filtering effect,
+Xwhile large values will tend to smooth all parts of the image. You could start
+Xwith values like alpha = 1.2, radius = 1.0 and try increasing or decreasing the
+Xalpha parameter to get the desired effect. This type of filter is best for
+Xfiltering out dithering noise in both bitmap and color images.
+X.SH Edge enhancement. (-0.1 >= alpha >= -0.9)
+X.PP
+XThis is the opposite type of filter to the smoothing filter. It enhances
+Xedges. The alpha parameter controls the amount of edge enhancement, from
+Xsubtle (-0.1) to blatant (-0.9). The radius parameter controls the effective
+Xradius as usual, but useful values are between 0.5 and 0.9. Try starting
+Xwith values of alpha = 0.3, radius = 0.8
+X.SH Combination use.
+X.PP
+XThe various modes of 
+X.B pnmnlfilt
+Xcan be used one after the other to get the desired result. For instance to
+Xturn a monochrome dithered image into a grayscale image you could try
+Xone or two passes of the smoothing filter, followed by a pass of the optimal estimation
+Xfilter, then some subtle edge enhancement. Note that using edge enhancement is
+Xonly likely to be useful after one of the non-linear filters (alpha trimmed mean
+Xor optimal estimation filter), as edge enhancement is the direct opposite of
+Xsmoothing.
+X.PP
+XFor reducing color quantization noise in images (ie. turning .gif files back into
+X24 bit files) you could try a pass of the optimal estimation filter
+X(alpha 1.2, radius 1.0), a pass of the median filter (alpha 0.5, radius 0.55),
+Xand possibly a pass of the edge enhancement filter.
+XSeveral passes of the optimal estimation filter with declining alpha
+Xvalues are more effective than a single pass with a large alpha value.
+XAs usual, there is a tradeoff between filtering effectiveness and loosing
+Xdetail. Experimentation is encouraged.
+X.SH References:
+X.PP
+XThe alpha-trimmed mean filter is 
+Xbased on the description in IEEE CG&A May 1990 
+XPage 23 by Mark E. Lee and Richard A. Redner,
+Xand has been enhanced to allow continuous alpha adjustment.
+X.PP
+XThe optimal estimation filter is taken from an article "Converting Dithered
+XImages Back to Gray Scale" by Allen Stenger, Dr Dobb's Journal, November
+X1992, and this article references "Digital Image Enhancement and Noise Filtering by
+XUse of Local Statistics", Jong-Sen Lee, IEEE Transactions on Pattern Analysis and
+XMachine Intelligence, March 1980.
+X.PP
+XThe edge enhancement details are from pgmenhance(1),
+Xwhich is taken from Philip R. Thompson's "xim"
+Xprogram, which in turn took it from section 6 of "Digital Halftones by
+XDot Diffusion", D. E. Knuth, ACM Transaction on Graphics Vol. 6, No. 4,
+XOctober 1987, which in turn got it from two 1976 papers by J. F. Jarvis
+Xet. al.
+X.SH "SEE ALSO"
+Xpgmenhance(1), pnmconvol(1), pnm(5)
+X.SH BUGS
+XIntegers and tables may overflow if PPM_MAXMAXVAL is greater than 255.
+X.SH AUTHOR
+XGraeme W. Gill    graeme@labtam.oz.au
+END_OF_FILE
+  if test 5647 -ne `wc -c <'pnmnlfilt.1'`; then
+    echo shar: \"'pnmnlfilt.1'\" unpacked with wrong size!
+  fi
+  # end of 'pnmnlfilt.1'
+fi
+if test -f 'pnmnlfilt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pnmnlfilt.c'\"
+else
+  echo shar: Extracting \"'pnmnlfilt.c'\" \(25912 characters\)
+  sed "s/^X//" >'pnmnlfilt.c' <<'END_OF_FILE'
+X/* pnmnlfilt.c - 4 in 1 (2 non-linear) filter
+X**             - smooth an anyimage
+X**             - do alpha trimmed mean filtering on an anyimage
+X**             - do optimal estimation smoothing on an anyimage
+X**             - do edge enhancement on an anyimage
+X**
+X** Version 1.0
+X**
+X** The implementation of an alpha-trimmed mean filter
+X** is based on the description in IEEE CG&A May 1990 
+X** Page 23 by Mark E. Lee and Richard A. Redner. 
+X**
+X** The paper recommends using a hexagon sampling region around each 
+X** pixel being processed, allowing an effective sub pixel radius to be 
+X** specified. The hexagon values are sythesised by area sampling the 
+X** rectangular pixels with a hexagon grid. The seven hexagon values 
+X** obtained from the 3x3 pixel grid are used to compute the alpha 
+X** trimmed mean. Note that an alpha value of 0.0 gives a conventional 
+X** mean filter (where the radius controls the contribution of 
+X** surrounding pixels), while a value of 0.5 gives a median filter. 
+X** Although there are only seven values to trim from before finding 
+X** the mean, the algorithm has been extended from that described in 
+X** CG&A by using interpolation, to allow a continuous selection of 
+X** alpha value between and including 0.0 to 0.5  The useful values 
+X** for radius are between 0.3333333 (where the filter will have no 
+X** effect because only one pixel is sampled), to 1.0, where all 
+X** pixels in the 3x3 grid are sampled. 
+X**
+X** The optimal estimation filter is taken from an article "Converting Dithered
+X** Images Back to Gray Scale" by Allen Stenger, Dr Dobb's Journal, November
+X** 1992, and this article references "Digital Image Enhancement andNoise Filtering by
+X** Use of Local Statistics", Jong-Sen Lee, IEEE Transactions on Pattern Analysis and
+X** Machine Intelligence, March 1980.
+X**
+X** Also borrow the  technique used in pgmenhance(1) to allow edge
+X** enhancement if the alpha value is negative.
+X**
+X** Author:
+X**         Graeme W. Gill, 30th Jan 1993 
+X**         graeme@labtam.oz.au
+X*/
+X
+X#include "pnm.h"
+X#include <math.h>
+Xdouble hex_area();
+Xint atfilt_setup();
+Xint atfilt0(),atfilt1(),atfilt2(),atfilt3(),atfilt4(),atfilt5();
+Xint (*atfuncs[6])() = {atfilt0,atfilt1,atfilt2,atfilt3,atfilt4,atfilt5};
+X
+Xxelval omaxval;	/* global so that pixel processing code can get at it quickly */
+Xint noisevariance;	/* global so that pixel processing code can get at it quickly */
+X
+Xvoid
+Xmain( argc, argv )
+Xint argc;
+Xchar* argv[];
+X	{
+X	double radius=0.0,alpha= -1.0;
+X	FILE* ifp;
+X	int rows, cols, format, oformat, row, col;
+X	xelval maxval;
+X	int (*atfunc)();
+X	char* usage = "alpha radius pnmfile\n\
+X 0.0 <= alpha <= 0.5 for alpha trimmed mean -or- \n\
+X 1.0 <= alpha <= 2.0 for optimal estimation -or- \n\
+X -0.1 >= alpha >= -0.9 for edge enhancement\n\
+X 0.3333 <= radius <= 1.0 specify effective radius\n";
+X
+X	pnm_init( &argc, argv );
+X
+X	if ( argc < 3 || argc > 4 )
+X		pm_usage( usage );
+X
+X	if ( sscanf( argv[1], "%lf", &alpha ) != 1 )
+X		pm_usage( usage );
+X	if ( sscanf( argv[2], "%lf", &radius ) != 1 )
+X		pm_usage( usage );
+X
+X	if ((alpha > -0.1 && alpha < 0.0) || (alpha > 0.5 && alpha < 1.0))
+X		pm_error( "Alpha must be in range 0.0 <= alpha <= 0.5 for alpha trimmed mean" );
+X	if (alpha > 2.0)
+X		pm_error( "Alpha must be in range 1.0 <= alpha <= 2.0 for optimal estimation" );
+X	if (alpha < -0.9 || (alpha > -0.1 && alpha < 0.0))
+X		pm_error( "Alpha must be in range -0.9 <= alpha <= -0.1 for edge enhancement" );
+X	if (radius < 0.333 || radius > 1.0)
+X		pm_error( "Radius must be in range 0.333333333 <= radius <= 1.0" );
+X
+X	if ( argc == 4 )
+X		ifp = pm_openr( argv[3] );
+X	else
+X		ifp = stdin;
+X
+X	pnm_readpnminit( ifp, &cols, &rows, &maxval, &format );
+X
+X	oformat = PNM_FORMAT_TYPE(format);
+X	omaxval = PPM_MAXMAXVAL;	/* force output to max precision */
+X
+X	atfunc = atfuncs[atfilt_setup(alpha,radius,(double)omaxval/(double)maxval)];
+X
+X	if ( oformat < PGM_TYPE )
+X		{
+X		if (PGM_MAXMAXVAL > PPM_MAXMAXVAL)
+X			pm_error( "Can't handle pgm input file as maxval is too big" );
+X		oformat = RPGM_FORMAT;
+X		pm_message( "promoting file to PGM" );
+X		}
+X	pnm_writepnminit( stdout, cols, rows, omaxval, oformat, 0 );
+X
+X	if ( PNM_FORMAT_TYPE(oformat) == PPM_TYPE )
+X		{
+X		xel *irows[3];
+X		xel *irow0, *irow1, *irow2, *orow;
+X		int pr[9],pg[9],pb[9];		/* 3x3 neighbor pixel values */
+X		int r,g,b;
+X
+X		irows[0] = pnm_allocrow( cols );
+X		irows[1] = pnm_allocrow( cols );
+X		irows[2] = pnm_allocrow( cols );
+X		irow0 = irows[0];
+X		irow1 = irows[1];
+X		irow2 = irows[2];
+X		orow = pnm_allocrow( cols );
+X
+X		for ( row = 0; row < rows; row++ )
+X			{
+X			int po,no;		/* offsets for left and right colums in 3x3 */
+X			register xel *ip0, *ip1, *ip2, *op;
+X
+X			if (row == 0)
+X				{
+X				irow0 = irow1;
+X				pnm_readpnmrow( ifp, irow1, cols, maxval, format );
+X				}
+X			if (row == (rows-1))
+X				irow2 = irow1;
+X			else
+X				pnm_readpnmrow( ifp, irow2, cols, maxval, format );
+X
+X			for (col = cols-1,po= col>0?1:0,no=0,ip0=irow0,ip1=irow1,ip2=irow2,op=orow;
+X			     col >= 0;
+X			     col--,ip0++,ip1++,ip2++,op++, no |= 1,po = col!= 0 ? po : 0)
+X				{
+X				/* grab 3x3 pixel values */
+X				pr[0] = PPM_GETR( *ip1 );
+X				pg[0] = PPM_GETG( *ip1 );
+X				pb[0] = PPM_GETB( *ip1 );
+X				pr[1] = PPM_GETR( *(ip1-no) );
+X				pg[1] = PPM_GETG( *(ip1-no) );
+X				pb[1] = PPM_GETB( *(ip1-no) );
+X				pr[5] = PPM_GETR( *(ip1+po) );
+X				pg[5] = PPM_GETG( *(ip1+po) );
+X				pb[5] = PPM_GETB( *(ip1+po) );
+X				pr[3] = PPM_GETR( *(ip2) );
+X				pg[3] = PPM_GETG( *(ip2) );
+X				pb[3] = PPM_GETB( *(ip2) );
+X				pr[2] = PPM_GETR( *(ip2-no) );
+X				pg[2] = PPM_GETG( *(ip2-no) );
+X				pb[2] = PPM_GETB( *(ip2-no) );
+X				pr[4] = PPM_GETR( *(ip2+po) );
+X				pg[4] = PPM_GETG( *(ip2+po) );
+X				pb[4] = PPM_GETB( *(ip2+po) );
+X				pr[6] = PPM_GETR( *(ip0+po) );
+X				pg[6] = PPM_GETG( *(ip0+po) );
+X				pb[6] = PPM_GETB( *(ip0+po) );
+X				pr[8] = PPM_GETR( *(ip0-no) );
+X				pg[8] = PPM_GETG( *(ip0-no) );
+X				pb[8] = PPM_GETB( *(ip0-no) );
+X				pr[7] = PPM_GETR( *(ip0) );
+X				pg[7] = PPM_GETG( *(ip0) );
+X				pb[7] = PPM_GETB( *(ip0) );
+X				r = (*atfunc)(pr);
+X				g = (*atfunc)(pg);
+X				b = (*atfunc)(pb);
+X				PPM_ASSIGN( *op, r, g, b );
+X				}
+X			pnm_writepnmrow( stdout, orow, cols, omaxval, oformat, 0 );
+X			if (irow1 == irows[2])
+X				{
+X				irow1 = irows[0];
+X				irow2 = irows[1];
+X				irow0 = irows[2];
+X				}
+X			else if (irow1 == irows[1])
+X				{
+X				irow2 = irows[0];
+X				irow0 = irows[1];
+X				irow1 = irows[2];
+X				}
+X			else	/* must be at irows[0] */
+X				{
+X				irow0 = irows[0];
+X				irow1 = irows[1];
+X				irow2 = irows[2];
+X				}
+X			}
+X		}
+X	else	/* Else must be PGM */
+X		{
+X		xel *irows[3];
+X		xel *irow0, *irow1, *irow2, *orow;
+X		int p[9];		/* 3x3 neighbor pixel values */
+X		int pv;
+X		int promote;
+X
+X		irows[0] = pnm_allocrow( cols );
+X		irows[1] = pnm_allocrow( cols );
+X		irows[2] = pnm_allocrow( cols );
+X		irow0 = irows[0];
+X		irow1 = irows[1];
+X		irow2 = irows[2];
+X		orow = pnm_allocrow( cols );
+X		/* we scale maxval to omaxval */
+X		promote = ( PNM_FORMAT_TYPE(format) != PNM_FORMAT_TYPE(oformat) );
+X
+X		for ( row = 0; row < rows; row++ )
+X			{
+X			int po,no;		/* offsets for left and right colums in 3x3 */
+X			register xel *ip0, *ip1, *ip2, *op;
+X
+X			if (row == 0)
+X				{
+X				irow0 = irow1;
+X				pnm_readpnmrow( ifp, irow1, cols, maxval, format );
+X				if ( promote )
+X					pnm_promoteformatrow( irow1, cols, maxval, format, maxval, oformat );
+X				}
+X			if (row == (rows-1))
+X				irow2 = irow1;
+X			else
+X				{
+X				pnm_readpnmrow( ifp, irow2, cols, maxval, format );
+X				if ( promote )
+X					pnm_promoteformatrow( irow2, cols, maxval, format, maxval, oformat );
+X				}
+X
+X			for (col = cols-1,po= col>0?1:0,no=0,ip0=irow0,ip1=irow1,ip2=irow2,op=orow;
+X			     col >= 0;
+X			     col--,ip0++,ip1++,ip2++,op++, no |= 1,po = col!= 0 ? po : 0)
+X				{
+X				/* grab 3x3 pixel values */
+X				p[0] = PNM_GET1( *ip1 );
+X				p[1] = PNM_GET1( *(ip1-no) );
+X				p[5] = PNM_GET1( *(ip1+po) );
+X				p[3] = PNM_GET1( *(ip2) );
+X				p[2] = PNM_GET1( *(ip2-no) );
+X				p[4] = PNM_GET1( *(ip2+po) );
+X				p[6] = PNM_GET1( *(ip0+po) );
+X				p[8] = PNM_GET1( *(ip0-no) );
+X				p[7] = PNM_GET1( *(ip0) );
+X				pv = (*atfunc)(p);
+X				PNM_ASSIGN1( *op, pv );
+X				}
+X			pnm_writepnmrow( stdout, orow, cols, omaxval, oformat, 0 );
+X			if (irow1 == irows[2])
+X				{
+X				irow1 = irows[0];
+X				irow2 = irows[1];
+X				irow0 = irows[2];
+X				}
+X			else if (irow1 == irows[1])
+X				{
+X				irow2 = irows[0];
+X				irow0 = irows[1];
+X				irow1 = irows[2];
+X				}
+X			else	/* must be at irows[0] */
+X				{
+X				irow0 = irows[0];
+X				irow1 = irows[1];
+X				irow2 = irows[2];
+X				}
+X			}
+X		}
+X	pm_close( ifp );
+X
+X	exit( 0 );
+X	}
+X
+X#define MXIVAL PPM_MAXMAXVAL	/* maximum input value */
+X#define NOIVAL (MXIVAL + 1)		/* number of possible input values */
+X
+X#define SCALEB 8				/* scale bits */
+X#define SCALE (1 << SCALEB)	/* scale factor */
+X#define MXSVAL (MXIVAL * SCALE)	/* maximum scaled values */
+X
+X#define CSCALEB 2				/* coarse scale bits */
+X#define CSCALE (1 << CSCALEB)	/* coarse scale factor */
+X#define MXCSVAL (MXIVAL * CSCALE)	/* maximum coarse scaled values */
+X#define NOCSVAL (MXCSVAL + 1)	/* number of coarse scaled values */
+X#define SCTOCSC(x) ((x) >> (SCALEB - CSCALEB))	/* convert from scaled to coarse scaled */
+X#define CSCTOSC(x) ((x) << (SCALEB - CSCALEB))	/* convert from course scaled to scaled */
+X
+X#ifndef MAXINT
+X# define MAXINT	0x7fffffff	/* assume this is a 32 bit machine */
+X#endif
+X
+X/* round and scale floating point to scaled integer */
+X#define ROUND(x) ((int)(((x) * (double)SCALE) + 0.5))
+X/* round and un-scale scaled integer value */
+X#define RUNSCALE(x) (((x) + (1 << (SCALEB-1))) >> SCALEB)	/* rounded un-scale */
+X#define UNSCALE(x) ((x) >> SCALEB)
+X
+X
+X/* We restrict radius to the values: 0.333333 <= radius <= 1.0 */
+X/* so that no fewer and no more than a 3x3 grid of pixels around */
+X/* the pixel in question needs to be read. Given this, we only */
+X/* need 3 or 4 weightings per hexagon, as follows: */
+X/*                  _ _                         */
+X/* Virtical hex:   |_|_|  1 2                   */
+X/*                 |X|_|  0 3                   */
+X/*                                       _      */
+X/*              _                      _|_|   1 */
+X/* Middle hex: |_| 1  Horizontal hex: |X|_| 0 2 */
+X/*             |X| 0                    |_|   3 */
+X/*             |_| 2                            */
+X
+X/* all filters */
+Xint V0[NOIVAL],V1[NOIVAL],V2[NOIVAL],V3[NOIVAL];	/* vertical hex */
+Xint M0[NOIVAL],M1[NOIVAL],M2[NOIVAL];	        /* middle hex */
+Xint H0[NOIVAL],H1[NOIVAL],H2[NOIVAL],H3[NOIVAL];	/* horizontal hex */
+X
+X/* alpha trimmed and edge enhancement only */
+Xint ALFRAC[NOIVAL * 8];			/* fractional alpha divider table */
+X
+X/* optimal estimation only */
+Xint AVEDIV[7 * NOCSVAL];		/* divide by 7 to give average value */
+Xint SQUARE[2 * NOCSVAL];		/* scaled square lookup table */
+X
+X/* Table initialisation function - return alpha range */
+Xint 
+Xatfilt_setup(alpha,radius,maxscale)
+Xdouble alpha,radius,maxscale;	/* alpha, radius and amount to scale input pixel values */
+X	{
+X	/* other function variables */
+X	int alpharange;			/* alpha range value 0 - 3 */
+X	double meanscale;		/* scale for finding mean */
+X	double mmeanscale;		/* scale for finding mean - midle hex */
+X	double alphafraction;	/* fraction of next largest/smallest to subtract from sum */
+X
+X	/* do setup */
+X
+X	if (alpha >= 0.0 && alpha < 1.0)	/* alpha trimmed mean */
+X		{
+X		double noinmean;
+X		/* number of elements (out of a possible 7) used in the mean */
+X		noinmean = ((0.5 - alpha) * 12.0) + 1.0;
+X		mmeanscale = meanscale = maxscale/noinmean;
+X		if (alpha == 0.0)	             /* mean filter */
+X			{
+X			alpharange = 0;
+X			alphafraction = 0.0;		/* not used */
+X			}
+X		else if (alpha < (1.0/6.0)) 	/* mean of 5 to 7 middle values */
+X			{
+X			alpharange = 1;
+X			alphafraction = (7.0 - noinmean)/2.0;
+X			}
+X		else if (alpha < (1.0/3.0))     /* mean of 3 to 5 middle values */
+X			{
+X			alpharange = 2;
+X			alphafraction = (5.0 - noinmean)/2.0;
+X			}
+X		else                            /* mean of 1 to 3 middle values */
+X			{							/* alpha == 0.5 == median filter */
+X			alpharange = 3;
+X			alphafraction = (3.0 - noinmean)/2.0;
+X			}
+X		}
+X	else if (alpha > 0.5)	/* optimal estimation - alpha controls noise variance threshold. */
+X		{
+X		int i;
+X		double noinmean = 7.0;
+X		alpharange = 5;			/* edge enhancement function */
+X		alpha -= 1.0;			/* normalise it to 0.0 -> 1.0 */
+X		mmeanscale = meanscale = maxscale;	/* compute scaled hex values */
+X		alphafraction = 1.0/noinmean;	/* Set up 1:1 division lookup - not used */
+X		noisevariance = alpha * (double)omaxval;
+X		noisevariance = noisevariance * noisevariance / 8.0;	/* estimate of noise variance */
+X		/* set yp optimal estimation specific stuff */
+X		for (i=0; i < (7 * NOCSVAL); i++)	/* divide scaled value by 7 lookup */
+X			{
+X			AVEDIV[i] = CSCTOSC(i)/7;	/* scaled divide by 7 */
+X			}
+X		for (i=0; i < (2 * NOCSVAL); i++)  /* compute square and rescale by (val >> (2 * SCALEB + 2)) table */
+X			{
+X			int val;
+X			val = CSCTOSC(i - NOCSVAL); /* NOCSVAL offset to cope with -ve input values */
+X			SQUARE[i] = (val * val) >> (2 * SCALEB + 2);
+X			}
+X		}
+X	else	/* edge enhancement function */
+X		{
+X		alpharange = 4;			/* edge enhancement function */
+X		alpha = -alpha;			/* turn it the right way up */
+X		meanscale = maxscale * (-alpha/((1.0 - alpha) * 7.0)); /* mean of 7 and scaled by -alpha/(1-alpha) */
+X		mmeanscale = maxscale * (1.0/(1.0 - alpha) + meanscale);	/* middle pixel has 1/(1-alpha) as well */
+X		alphafraction = 0.0;	/* not used */
+X		}
+X	
+X		/* Setup pixel weighting tables - note we pre-compute mean division here too. */
+X		{
+X		int i;
+X		double hexhoff,hexvoff;
+X		double tabscale,mtabscale;
+X		double v0,v1,v2,v3,m0,m1,m2,me0,me1,me2,h0,h1,h2,h3;
+X
+X		hexhoff = radius/2;                 /* horizontal offset of virtical hex centers */
+X		hexvoff = 3.0 * radius/sqrt(12.0);	/* virtical offset of virtical hex centers */
+X		/* scale tables to normalise by hexagon area, and number of hexes used in mean */
+X		tabscale = meanscale / (radius * hexvoff);
+X		mtabscale = mmeanscale / (radius * hexvoff);
+X		v0 = hex_area(0.0,0.0,hexhoff,hexvoff,radius) * tabscale;
+X		v1 = hex_area(0.0,1.0,hexhoff,hexvoff,radius) * tabscale;
+X		v2 = hex_area(1.0,1.0,hexhoff,hexvoff,radius) * tabscale;
+X		v3 = hex_area(1.0,0.0,hexhoff,hexvoff,radius) * tabscale;
+X		m0 = hex_area(0.0,0.0,0.0,0.0,radius) * mtabscale;
+X		m1 = hex_area(0.0,1.0,0.0,0.0,radius) * mtabscale;
+X		m2 = hex_area(0.0,-1.0,0.0,0.0,radius) * mtabscale;
+X		h0 = hex_area(0.0,0.0,radius,0.0,radius) * tabscale;
+X		h1 = hex_area(1.0,1.0,radius,0.0,radius) * tabscale;
+X		h2 = hex_area(1.0,0.0,radius,0.0,radius) * tabscale;
+X		h3 = hex_area(1.0,-1.0,radius,0.0,radius) * tabscale;
+X
+X		for (i=0; i <= MXIVAL; i++)
+X			{
+X			double fi;
+X			fi = (double)i;
+X			V0[i] = ROUND(fi * v0);
+X			V1[i] = ROUND(fi * v1);
+X			V2[i] = ROUND(fi * v2);
+X			V3[i] = ROUND(fi * v3);
+X			M0[i] = ROUND(fi * m0);
+X			M1[i] = ROUND(fi * m1);
+X			M2[i] = ROUND(fi * m2);
+X			H0[i] = ROUND(fi * h0);
+X			H1[i] = ROUND(fi * h1);
+X			H2[i] = ROUND(fi * h2);
+X			H3[i] = ROUND(fi * h3);
+X			}
+X		/* set up alpha fraction lookup table used on big/small */
+X		for (i=0; i < (NOIVAL * 8); i++)
+X			{
+X			ALFRAC[i] = ROUND((double)i * alphafraction);
+X			}
+X		}
+X	return alpharange;
+X	}
+X	
+X
+X/* Core pixel processing function - hand it 3x3 pixels and return result. */
+X/* Mean filter */
+Xint
+Xatfilt0(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int retv;
+X	/* map to scaled hexagon values */
+X	retv = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	retv += H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	retv += V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	retv += V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	retv += H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	retv += V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	retv += V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	return UNSCALE(retv);
+X	}
+X
+X/* Mean of 5 - 7 middle values */
+Xint
+Xatfilt1(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int h0,h1,h2,h3,h4,h5,h6;	/* hexagon values    2 3   */
+X	                            /*                  1 0 4  */
+X	                            /*                   6 5   */
+X	int big,small;
+X	/* map to scaled hexagon values */
+X	h0 = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	h1 = H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	h2 = V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	h3 = V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	h4 = H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	h5 = V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	h6 = V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	/* sum values and also discover the largest and smallest */
+X	big = small = h0;
+X#define CHECK(xx) \
+X	h0 += xx; \
+X	if (xx > big) \
+X		big = xx; \
+X	else if (xx < small) \
+X		small = xx;
+X	CHECK(h1)
+X	CHECK(h2)
+X	CHECK(h3)
+X	CHECK(h4)
+X	CHECK(h5)
+X	CHECK(h6)
+X#undef CHECK
+X	/* Compute mean of middle 5-7 values */
+X	return UNSCALE(h0 -ALFRAC[(big + small)>>SCALEB]);
+X	}
+X
+X/* Mean of 3 - 5 middle values */
+Xint
+Xatfilt2(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int h0,h1,h2,h3,h4,h5,h6;	/* hexagon values    2 3   */
+X	                            /*                  1 0 4  */
+X	                            /*                   6 5   */
+X	int big0,big1,small0,small1;
+X	/* map to scaled hexagon values */
+X	h0 = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	h1 = H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	h2 = V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	h3 = V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	h4 = H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	h5 = V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	h6 = V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	/* sum values and also discover the 2 largest and 2 smallest */
+X	big0 = small0 = h0;
+X	small1 = MAXINT;
+X	big1 = 0;
+X#define CHECK(xx) \
+X	h0 += xx; \
+X	if (xx > big1) \
+X		{ \
+X		if (xx > big0) \
+X			{ \
+X			big1 = big0; \
+X			big0 = xx; \
+X			} \
+X		else \
+X			big1 = xx; \
+X		} \
+X	if (xx < small1) \
+X		{ \
+X		if (xx < small0) \
+X			{ \
+X			small1 = small0; \
+X			small0 = xx; \
+X			} \
+X		else \
+X			small1 = xx; \
+X		}
+X	CHECK(h1)
+X	CHECK(h2)
+X	CHECK(h3)
+X	CHECK(h4)
+X	CHECK(h5)
+X	CHECK(h6)
+X#undef CHECK
+X	/* Compute mean of middle 3-5 values */
+X	return UNSCALE(h0 -big0 -small0 -ALFRAC[(big1 + small1)>>SCALEB]);
+X	}
+X
+X/* Mean of 1 - 3 middle values. If only 1 value, then this is a median filter. */
+Xint
+Xatfilt3(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int h0,h1,h2,h3,h4,h5,h6;	/* hexagon values    2 3   */
+X	                            /*                  1 0 4  */
+X	                            /*                   6 5   */
+X	int big0,big1,big2,small0,small1,small2;
+X	/* map to scaled hexagon values */
+X	h0 = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	h1 = H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	h2 = V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	h3 = V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	h4 = H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	h5 = V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	h6 = V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	/* sum values and also discover the 3 largest and 3 smallest */
+X	big0 = small0 = h0;
+X	small1 = small2 = MAXINT;
+X	big1 = big2 = 0;
+X#define CHECK(xx) \
+X	h0 += xx; \
+X	if (xx > big2) \
+X		{ \
+X		if (xx > big1) \
+X			{ \
+X			if (xx > big0) \
+X				{ \
+X				big2 = big1; \
+X				big1 = big0; \
+X				big0 = xx; \
+X				} \
+X			else \
+X				{ \
+X				big2 = big1; \
+X				big1 = xx; \
+X				} \
+X			} \
+X		else \
+X			big2 = xx; \
+X		} \
+X	if (xx < small2) \
+X		{ \
+X		if (xx < small1) \
+X			{ \
+X			if (xx < small0) \
+X				{ \
+X				small2 = small1; \
+X				small1 = small0; \
+X				small0 = xx; \
+X				} \
+X			else \
+X				{ \
+X				small2 = small1; \
+X				small1 = xx; \
+X				} \
+X			} \
+X		else \
+X			small2 = xx; \
+X		}
+X	CHECK(h1)
+X	CHECK(h2)
+X	CHECK(h3)
+X	CHECK(h4)
+X	CHECK(h5)
+X	CHECK(h6)
+X#undef CHECK
+X	/* Compute mean of middle 1-3 values */
+X	return  UNSCALE(h0 -big0 -big1 -small0 -small1 -ALFRAC[(big2 + small2)>>SCALEB]);
+X	}
+X
+X/* Edge enhancement */
+X/* notice we use the global omaxval */
+Xint
+Xatfilt4(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int hav;
+X	/* map to scaled hexagon values and compute enhance value */
+X	hav = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	hav += H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	hav += V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	hav += V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	hav += H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	hav += V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	hav += V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	if (hav < 0)
+X		hav = 0;
+X	hav = UNSCALE(hav);
+X	if (hav > omaxval)
+X		hav = omaxval;
+X	return hav;
+X	}
+X
+X/* Optimal estimation - do smoothing in inverse proportion */
+X/* to the local variance. */
+X/* notice we use the globals noisevariance and omaxval*/
+Xint
+Xatfilt5(p)
+Xint *p;		/* 9 pixel values from 3x3 neighbors */
+X	{
+X	int mean,variance,temp;
+X	int h0,h1,h2,h3,h4,h5,h6;	/* hexagon values    2 3   */
+X	                            /*                  1 0 4  */
+X	                            /*                   6 5   */
+X	/* map to scaled hexagon values */
+X	h0 = M0[p[0]] + M1[p[3]] + M2[p[7]];
+X	h1 = H0[p[0]] + H1[p[2]] + H2[p[1]] + H3[p[8]];
+X	h2 = V0[p[0]] + V1[p[3]] + V2[p[2]] + V3[p[1]];
+X	h3 = V0[p[0]] + V1[p[3]] + V2[p[4]] + V3[p[5]];
+X	h4 = H0[p[0]] + H1[p[4]] + H2[p[5]] + H3[p[6]];
+X	h5 = V0[p[0]] + V1[p[7]] + V2[p[6]] + V3[p[5]];
+X	h6 = V0[p[0]] + V1[p[7]] + V2[p[8]] + V3[p[1]];
+X	mean = h0 + h1 + h2 + h3 + h4 + h5 + h6;
+X	mean = AVEDIV[SCTOCSC(mean)];	/* compute scaled mean by dividing by 7 */
+X	temp = (h1 - mean); variance = SQUARE[NOCSVAL + SCTOCSC(temp)];	 /* compute scaled variance */
+X	temp = (h2 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)]; /* and rescale to keep */
+X	temp = (h3 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)]; /* within 32 bit limits */
+X	temp = (h4 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)];
+X	temp = (h5 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)];
+X	temp = (h6 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)];
+X	temp = (h0 - mean); variance += SQUARE[NOCSVAL + SCTOCSC(temp)];	/* (temp = h0 - mean) */
+X	if (variance != 0)	/* avoid possible divide by 0 */
+X		temp = mean + (variance * temp) / (variance + noisevariance);	/* optimal estimate */
+X	else temp = h0;
+X	if (temp < 0)
+X		temp = 0;
+X	temp = RUNSCALE(temp);
+X	if (temp > omaxval)
+X		temp = omaxval;
+X	return temp;
+X	}
+X
+X/* ************************************************** */
+X/* Hexagon intersecting square area functions */
+X/* Compute the area of the intersection of a triangle */
+X/* and a rectangle */
+X
+Xdouble triang_area();
+Xdouble rectang_area();
+X
+X/* Triangle orientation is per geometric axes (not graphical axies) */
+X
+X#define NW 0	/* North west triangle /| */
+X#define NE 1	/* North east triangle |\ */
+X#define SW 2	/* South west triangle \| */
+X#define SE 3	/* South east triangle |/ */
+X#define STH 2
+X#define EST 1
+X
+X#define SWAPI(a,b) (t = a, a = -b, b = -t)
+X
+X/* compute the area of overlap of a hexagon diameter d, */
+X/* centered at hx,hy, with a unit square of center sx,sy. */
+Xdouble
+Xhex_area(sx,sy,hx,hy,d)
+Xdouble sx,sy;	/* square center */
+Xdouble hx,hy,d;	/* hexagon center and diameter */
+X	{
+X	double hx0,hx1,hx2,hy0,hy1,hy2,hy3;
+X	double sx0,sx1,sy0,sy1;
+X
+X	/* compute square co-ordinates */
+X	sx0 = sx - 0.5;
+X	sy0 = sy - 0.5;
+X	sx1 = sx + 0.5;
+X	sy1 = sy + 0.5;
+X	/* compute hexagon co-ordinates */
+X	hx0 = hx - d/2.0;
+X	hx1 = hx;
+X	hx2 = hx + d/2.0;
+X	hy0 = hy - 0.5773502692 * d; 	/* d / sqrt(3) */
+X	hy1 = hy - 0.2886751346 * d; 	/* d / sqrt(12) */
+X	hy2 = hy + 0.2886751346 * d; 	/* d / sqrt(12) */
+X	hy3 = hy + 0.5773502692 * d; 	/* d / sqrt(3) */
+X
+X	return 
+X		triang_area(sx0,sy0,sx1,sy1,hx0,hy2,hx1,hy3,NW) + 
+X		triang_area(sx0,sy0,sx1,sy1,hx1,hy2,hx2,hy3,NE) + 
+X		rectang_area(sx0,sy0,sx1,sy1,hx0,hy1,hx2,hy2) + 
+X		triang_area(sx0,sy0,sx1,sy1,hx0,hy0,hx1,hy1,SW) + 
+X		triang_area(sx0,sy0,sx1,sy1,hx1,hy0,hx2,hy1,SE);
+X	}
+X
+Xdouble
+Xtriang_area(rx0,ry0,rx1,ry1,tx0,ty0,tx1,ty1,tt)
+Xdouble rx0,ry0,rx1,ry1;		/* rectangle boundaries */
+Xdouble tx0,ty0,tx1,ty1;		/* triangle boundaries */
+Xint tt;						/* triangle type */
+X	{
+X	double a,b,c,d;
+X	double lx0,ly0,lx1,ly1;
+X	/* Convert everything to a NW triangle */
+X	if (tt & STH)
+X		{
+X		double t;
+X        SWAPI(ry0,ry1);
+X        SWAPI(ty0,ty1);
+X		}
+X	if (tt & EST)
+X		{
+X		double t;
+X        SWAPI(rx0,rx1);
+X        SWAPI(tx0,tx1);
+X		}
+X	/* Compute overlapping box */
+X	if (tx0 > rx0)
+X		rx0 = tx0;
+X	if (ty0 > ry0)
+X		ry0 = ty0;
+X	if (tx1 < rx1)
+X		rx1 = tx1;
+X	if (ty1 < ry1)
+X		ry1 = ty1;
+X	if (rx1 <= rx0 || ry1 <= ry0)
+X		return 0.0;
+X	/* Need to compute diagonal line intersection with the box */
+X	/* First compute co-efficients to formulas x = a + by and y = c + dx */
+X	b = (tx1 - tx0)/(ty1 - ty0);
+X	a = tx0 - b * ty0;
+X	d = (ty1 - ty0)/(tx1 - tx0);
+X	c = ty0 - d * tx0;
+X
+X	/* compute top or right intersection */
+X	tt = 0;
+X	ly1 = ry1; 
+X	lx1 = a + b * ly1;
+X	if (lx1 <= rx0)
+X		return (rx1 - rx0) * (ry1 - ry0);
+X	else if (lx1 > rx1)	/* could be right hand side */
+X		{
+X		lx1 = rx1;
+X		ly1 = c + d * lx1;
+X		if (ly1 <= ry0)
+X			return (rx1 - rx0) * (ry1 - ry0);
+X		tt = 1;	/* right hand side intersection */
+X		}
+X	/* compute left or bottom intersection */
+X	lx0 = rx0;
+X	ly0 = c + d * lx0;
+X	if (ly0 >= ry1)
+X		return (rx1 - rx0) * (ry1 - ry0);
+X	else if (ly0 < ry0)	/* could be right hand side */
+X		{
+X		ly0 = ry0; 
+X		lx0 = a + b * ly0;
+X		if (lx0 >= rx1)
+X			return (rx1 - rx0) * (ry1 - ry0);
+X		tt |= 2;	/* bottom intersection */
+X		}
+X	
+X	if (tt == 0)	/* top and left intersection */
+X		{	/* rectangle minus triangle */
+X		return ((rx1 - rx0) * (ry1 - ry0))
+X		     - (0.5 * (lx1 - rx0) * (ry1 - ly0));
+X		}
+X	else if (tt == 1)	/* right and left intersection */
+X		{
+X		return ((rx1 - rx0) * (ly0 - ry0))
+X		     + (0.5 * (rx1 - rx0) * (ly1 - ly0));
+X		}
+X	else if (tt == 2)	/* top and bottom intersection */
+X		{
+X		return ((rx1 - lx1) * (ry1 - ry0))
+X		     + (0.5 * (lx1 - lx0) * (ry1 - ry0));
+X		}
+X	else /* tt == 3 */	/* right and bottom intersection */
+X		{	/* triangle */
+X		return (0.5 * (rx1 - lx0) * (ly1 - ry0));
+X		}
+X	}
+X
+X/* Compute rectangle area */
+Xdouble
+Xrectang_area(rx0,ry0,rx1,ry1,tx0,ty0,tx1,ty1)
+Xdouble rx0,ry0,rx1,ry1;		/* rectangle boundaries */
+Xdouble tx0,ty0,tx1,ty1;		/* rectangle boundaries */
+X	{
+X	/* Compute overlapping box */
+X	if (tx0 > rx0)
+X		rx0 = tx0;
+X	if (ty0 > ry0)
+X		ry0 = ty0;
+X	if (tx1 < rx1)
+X		rx1 = tx1;
+X	if (ty1 < ry1)
+X		ry1 = ty1;
+X	if (rx1 <= rx0 || ry1 <= ry0)
+X		return 0.0;
+X	return (rx1 - rx0) * (ry1 - ry0);
+X	}
+X
+END_OF_FILE
+  if test 25912 -ne `wc -c <'pnmnlfilt.c'`; then
+    echo shar: \"'pnmnlfilt.c'\" unpacked with wrong size!
+  fi
+  # end of 'pnmnlfilt.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

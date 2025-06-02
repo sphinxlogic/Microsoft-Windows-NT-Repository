@@ -1,0 +1,2349 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i125:  parseargs - functions to parse command line arguments, Part10/10
+Message-ID: <1992May17.182605.29159@sparky.imd.sterling.com>
+X-Md4-Signature: 272832c69aca602f712cda1743a7b642
+Date: Sun, 17 May 1992 18:26:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 125
+Archive-name: parseargs/part10
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 10)."
+# Contents:  parseargs.c
+# Wrapped by brad@hcx1 on Thu May  7 12:12:30 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'parseargs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parseargs.c'\"
+else
+echo shar: Extracting \"'parseargs.c'\" \(75730 characters\)
+sed "s/^X//" >'parseargs.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: parseargs.c - command line interface to parseargs()
+X**
+X**    This file implements the command-line interface to the parseargs
+X**    library. Under Unix, the user may use parseargs(1) (this program)
+X**    to parse command-line arguments for shell scripts.  At the present,
+X**    time, VMS/DCL is not yet supported (nor are MS-DOS Batch-files).
+X**
+X** ^DESCRIPTION:
+X**    Given a command name, a vector of string-valued arguments such as that
+X**    passed to a shell script, and a specification string describing the
+X**    possible arguments, parseargs matches actual arguments to possible
+X**    arguments, converts values to the desired type, and diagnoses problems
+X**    such as missing arguments, extra arguments, and argument values that
+X**    are syntactically incorrect.  Other behavior such as prompting the
+X**    user for missing arguments and ignoring bad command-line syntax may be
+X**    specified on the command-line through the use of various options, or
+X**    through the use of the "PARSECNTL" environment variable.
+X**
+X**    Given the command name and the argument specification string,
+X**       parseargs -U
+X**    prints a reasonably friendly version of the usage of the calling program
+X**    on standard diagnostic output. The "verbosity" of the usage message may
+X**    be controlled through the use of the "USAGECNTL" environment variable.
+X**
+X**    Given the command name and the argument specification string,
+X**       parseargs -M
+X**    prints a template of the command-syntax on standard output that is
+X**    suitable for input to nroff or troff using the -man macro package.
+X**
+X**    Given no other arguments,
+X**       parseargs -#
+X**    prints on standard output, the current version and patchlevel of the
+X**    running version of parseargs.
+X**
+X** ^SEE_ALSO:
+X**    argtype(3), parseargs(1), parseargs(3), parsecntl(3),
+X**    parseargs.pl, parseargs.awk
+X**    test.sh, test.csh, test.ksh, test.rc, test.awk, test.pl
+X**
+X** ^BUGS:
+X**    It does not make sense to use any arguments of type argTBool since
+X**    parseargs currently has no way of knowing what the initial value of
+X**    the variable is. For this reason, argTBool is not recognized as a
+X**    valid argument type (even though it is used by parseargs(3)). By the
+X**    same token, since the user cannot create their own arguments types on
+X**    the fly from a shell-script, ARGNOVAL is not recognized as a valid
+X**    argument flag.
+X**
+X**    Commas will not be interpreted properly if any field in the argument
+X**    specification string contains double quotes that are nested inside of
+X**    double quotes, or single quotes that are nested inside of single quotes.
+X**
+X**    Inside the argument specification string, any repeated string of
+X**    commas that does not appear inside of double or single quotes will
+X**    be treated as a single comma.
+X**
+X**    Text descriptions for argument entries are automatically formatted in
+X**    usage messages. Any attempt by the user to include tabs and/or newlines
+X**    in the description will cause it to be formatted improperly.
+X**
+X**    Parseargs cannot properly preserve any newlines in shell variables if
+X**    the eval command is used to read its output (this is a shortcoming of
+X**    the eval command, not of parseargs). If the user is concerned about
+X**    this particular case, then the user should redirect the output from
+X**    parseargs to a temporary file and use the source command in csh or the
+X**    dot command (`.') in sh and ksh, to interpret the results; otherwise,
+X**    newlines will be translated into spaces, or characters following a
+X**    newline may be lost, in any variables that are set by parseargs.
+X**
+X** ^HISTORY:
+X**    07/18/90 	Brad Appleton 	<brad@ssd.csd.harris.com> 	Created
+X**
+X**    02/--/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - Added awk, perl, and rc to the list of shells to generate output for
+X**    - added calls to vecFree in cleanup()
+X**
+X**    03/31/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - fixed bug in cleanup for SunOS (added free_vectors())
+X**    - fixed printing of single quotes for perl scripts
+X**    - added -C option for case-insensitivity
+X**    - added hidden -# option to print current version and patchlevel
+X**
+X**    27/08/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Use ProgNameLen when accessing ProgName
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X#include "patchlevel.h"
+X
+X#define PARSEARGS_PRIVATE   /* include private definitions */
+X#include "parseargs.h"
+X
+X
+X/*************************************************************************
+X** ^SECTION: RETURN-CODES
+X**
+X** Parseargs may return any of the following status-codes:
+X*/
+X#define  e_SYSTEM   -1
+X/*    -- A system error occurred
+X*/
+X#define  e_SUCCESS   0
+X/*    -- No errors, success!!
+X*/
+X#define  e_USAGE     1
+X/*    -- No errors were encountered. A usage-message, or manual-page-template
+X**       was explicitly requested (and printed) by the user.
+X*/
+X#define  e_SYNTAX    2
+X/*    -- A syntax error was encountered on the command-line. The error may
+X**       be in the argument(s) intended for parseargs(1) or in the argument(s)
+X**       for the invoking shell-script.
+X*/
+X#define  e_NOENV     3
+X/*    -- The user specified that the argument description was to be found in
+X**       an environment variable, however the environment variable in question
+X**       is unset or empty.
+X*/
+X#define  e_ARGD      4
+X/*    -- An error was encountered in the string that describes the arguments
+X**       for the given command.
+X*/
+X/**^^**********************************************************************/
+X
+X   /* default shell variable values for a boolean argument */
+Xstatic CONST char  Default_StrTrue[]  = "TRUE";
+Xstatic CONST char  Default_StrFalse[] = "";
+X
+X      /* define character sets */
+Xstatic CONST char  WhiteSpace[] = " \t\n\v\r\f\"'";
+Xstatic CONST char  ArgTableDelims[] = ",";
+Xstatic CONST char  ArgFlagsDelims[] = "|+ \t\n\v\r\f";
+X
+X   /* macros to improve readability of string tests */
+X#define strEQ(s1,s2)     !strcmp(s1, s2)
+X#define strnEQ(s1,s2,n)  !strncmp(s1, s2, n)
+X
+X#define  BUFFER_SIZE  1024       /* start off with 1k buffer & resize it */
+X#define  ESCAPED_COMMA  '\001'   /* character to replace commas with */
+X
+X      /* determine the beginning and end of a struct */
+X#define  c_BEGIN_STRUCT  '{'
+X#define  c_END_STRUCT    '}'
+X
+X      /* determine beginning-of-arg-table string */
+X#define  s_START_ARGS    "STARTOFARGS"
+X#define  isSTART_ARGS(s)  strnEQ(s, s_START_ARGS, 5)
+X
+X      /* determine end-of-arg-table string */
+X#define  s_END_ARGS    "ENDOFARGS"
+X#define  isEND_ARGS(s)  strnEQ(s, s_END_ARGS, 3)
+X
+X      /* define #of entries per arg-descriptor */
+X#define  NFIELDS  5
+X
+X
+X/**************************************************************************
+X** ^SECTION: SHELLS
+X**    After the command line has been parsed, parseargs will print on
+X**    standard output, a script to set the shell variables which correspond
+X**    to arguments that were present on the command-line.  This script may
+X**    be evaluated by redirecting it to a file and then executing the file,
+X**    or by directly evaluating the output from parseargs (under most UNIX
+X**    shells, this could be done using eval).  If any arguments on the
+X**    command line contained any special characters that needed to be
+X**    escaped from the shell, these characters will remain intact (not be
+X**    evaluated by the shell) in the corresponding shell variable.
+X**
+X**    The -s shell option may be used to tell parseargs which shell syntax
+X**    to use. At present, parseargs only recognizes the following shells as
+X**    valid command-interpreters:
+X**
+X**         sh
+X**         bash
+X**         ksh
+X**         csh
+X**         tcsh
+X**         itcsh
+X**         ash
+X**         zsh
+X**         rc
+X**         awk
+X**         perl
+X**         tcl
+X**
+X**    Awk output is slightly different from that of the other shells in that
+X**    the actual variable settings are not printed but each line of an
+X**    associative array is printed (the first field is the array index, the
+X**    second is the value for that index).  If no shell is specified, then
+X**    the Bourne shell ("sh") will be assumed.
+X**
+X**    If the user wishes to use a value other than "TRUE" for a boolean
+X**    flag that is true, this may be done using the -T string option.  The
+X**    same may also be done for a boolean flag that is false using the -F
+X**    string option.
+X**
+X**    Parseargs will only set the values of variables that correspond to
+X**    arguments that were given on the command line. If a particular
+X**    argument was not supplied on the command line, then no assignment is
+X**    made for the corresponding shell variable and it will have the same
+X**    value that it had before parseargs was invoked. The only exception to
+X**    this is that if the -u option is specified, then the positional
+X**    parameters are unset before any shell variable assignments (which may
+X**    reset the positional parameters) are made.
+X***^^*********************************************************************/
+X
+X   /* type used to index into the shell-info array */
+Xtypedef unsigned  shellidx_t;
+X
+X   /* possible shell names and corresponding types */
+Xtypedef enum {
+X   SH,    /* ash and sh are equivalent for our purposes */
+X   BASH,
+X   CSH,   /* tcsh & itcsh are equivalent to csh for our purposes */
+X   KSH,
+X   RC,
+X   ZSH,
+X   CLAM,  /* not yet supported */
+X   AWK,
+X   PERL,
+X   TCL
+X} shell_t;
+X
+X   /* structure for shell-specific info */
+Xtypedef struct {
+X   shell_t  type;    /* type of shell */
+X   char  *name;      /* name of the shell */
+X
+X   char  *unset;     /* syntax used to unset positional parameters */
+X
+X   char  *sclset;    /* syntax used to set scalars (%s is the scalar name) */
+X   char  *sclpfx;    /* prefix used for scalars */
+X   char  *sclsfx;    /* suffix used for scalars */
+X
+X   char  *aryset;    /* syntax used to set arrays (%s is the array name) */
+X   char  *arypfx;    /* prefix used for arrays */
+X   char  *arysep;    /* separator used for arrays */
+X   char  *arysfx;    /* suffix used for arrays */
+X
+X   char  **escapes;  /* an array of strings (the last of which must be NULL).
+X                     ** For each string - the first character is the character
+X                     ** to escape and the remainder of the string is the
+X                     ** escape sequence to use for that character.
+X                     */
+X} shell_info;
+X
+X
+X   /* Here are the escape-arrays for the various shells
+X   */
+Xstatic char * sh_escapes[] = {
+X   "\b\\\b", "\r\\\r", "\v\\\v", "\f\\\f", "\\\\\\", "''\\''",
+X   CHARNULL
+X};
+X
+Xstatic char * csh_escapes[] = {
+X   "\b\\\b", "\r\\\r", "\v\\\v", "\f\\\f", "\n\\\n", "\\\\\\", "''\\''", "!\\!",
+X   CHARNULL
+X};
+X
+Xstatic char * zsh_escapes[] = {
+X   "\b\\\b", "\r\\\r", "\v\\\v", "\f\\\f", "\\\\\\", "''\\''", "!\\!",
+X   CHARNULL
+X};
+X
+Xstatic char * rc_escapes[] = {
+X   "\b\\\b", "\r\\\r", "\v\\\v", "\f\\\f", "\\\\\\", "'''", CHARNULL
+X};
+X
+Xstatic char * perl_escapes[] = {
+X   "\b\\b", "\r\\r", "\v\\v", "\t\\t", "\n\\n", "\f\\f", "\\\\\\", "'\\'",
+X   CHARNULL
+X};
+X
+Xstatic char * tcl_escapes[] = {
+X   "\b\\b", "\r\\r", "\v\\v", "\t\\t", "\n\\n", "\f\\f", "\\\\\\", "\"\\\"",
+X   "{\\{", "}\\}", "[\\[", "]\\]", "$\\$", 
+X   CHARNULL
+X};
+X
+Xstatic char * awk_escapes[] = { "'''", CHARNULL };
+X
+X
+X   /* array of shell info records for supported shells */
+Xstatic CONST shell_info  Shell[] = {
+X   {
+X         /* Bourne Shell */
+X      SH,  "sh",
+X
+X         /* "shift $#" unsets the positional parameters */
+X      "shift $#;\n",
+X
+X         /* "name='value'" assigns "value" to the variable "name" */
+X      "%s=",  "'",  "';\n",
+X
+X         /* "ary='elt1 elt2 ...'" assigns an array named "ary" */
+X      "%s=",  "'",  "%s",  "';\n",
+X
+X      sh_escapes
+X   },
+X   {
+X         /* Bourne-Again shell -- we treat it the same as the Bourne shell.
+X         ** (this should change when BASH supports arrays)
+X         */
+X      BASH,  "bash",
+X      "shift $#;\n",  
+X      "%s=",  "'",  "';\n",
+X      "%s=",  "'",  "%s",  "';\n",
+X      sh_escapes
+X   },
+X   {
+X         /* Korn Shell */
+X      KSH,  "ksh",
+X
+X         /* "set -- ;" unsets the positional parameters */
+X      "set --;\n",  
+X
+X         /* "name='value'" assigns "value" to the variable "name" */
+X      "%s=",  "'",  "';\n",
+X
+X         /* "set [-+]A ary 'elt1' 'elt2' ..." assigns an array named "ary" */
+X      "set %cA %s ",  "'",  "'%s'",  "';\n",
+X
+X      sh_escapes
+X   },
+X   {
+X         /* C-Shell */
+X      CSH,  "csh",
+X
+X         /* "set argv=()" unsets the positional parameters */
+X      "set argv=();\n",  
+X
+X         /* "set name='value'" assigns "value" to the variable "name" */
+X      "set %s=",  "'",  "';\n",
+X
+X         /* "set ary=( 'elt1' 'elt2' ... )" assigns an array named "ary" */
+X      "set %s=",  "( '",  "'%s'",  "' );\n",
+X
+X      csh_escapes
+X   },
+X   {
+X         /* Z-Shell -- this is a lot like the C-Shell except we dont need
+X         ** the 'set' keyword when assigning variables and arrays
+X         */
+X      ZSH,  "zsh",
+X
+X         /* "argv=()" unsets the positional parameters */
+X      "argv=();\n",  
+X
+X         /* "name='value'" assigns "value" to the variable "name" */
+X      "%s=",  "'",  "';\n",
+X
+X         /* "ary=( 'elt1' 'elt2' ... )" assigns an array named "ary" */
+X      "%s=",  "( '",  "'%s'",  "' );\n",
+X
+X      zsh_escapes
+X   },
+X   {
+X         /* rc -- the Plan 9 shell designed by Tom Duff */
+X      RC,  "rc",
+X
+X         /* "*=()" unsets the positional parameters */
+X      "*=();\n",  
+X
+X         /* "name='value'" assigns "value" to the variable "name" */
+X      "%s=",  "'",  "';\n",
+X
+X         /* "ary=( 'elt1' 'elt2' ... )" assigns an array named "ary" */
+X      "%s=",  "( '",  "'%s'",  "' );\n",
+X
+X      rc_escapes
+X   },
+X   {
+X         /* perl - Larry Wall's Practical Extraction and Report Language */
+X      PERL,  "perl",
+X
+X         /* "@ARGV = ()" unsets the positional parameters */
+X      "@ARGV = ();\n",  
+X
+X         /* "$name = 'value' ;" assigns "value" to the variable "name" */
+X      "$%s = ",  "'",  "';\n",
+X
+X         /* "@ary = ( 'elt1', 'elt2', ... );" assigns an array named "ary" */
+X      "@%s = ",  "( '",  "', '",  "' );\n",
+X
+X      perl_escapes
+X   },
+X   {
+X         /* TCL - Tool Command Language */
+X      TCL,  "tcl",
+X
+X         /* "set argv  {}" unsets the positional parameters */
+X      "set argv {} ;\n",  
+X
+X         /* "set $name {value} ;" assigns "value" to the variable "name" */
+X      "set %s ",  "\"",  "\" ;\n",
+X
+X         /* "set ary { {elt1} {elt2} ... };" assigns an array named "ary" */
+X      "set %s ",  "[ list \"",  "\" \"",  "\" ] ;\n",
+X
+X      tcl_escapes
+X   },
+X   {
+X         /* awk -- Aho, Weinberger, & Kernighan's pattern-action language
+X         **
+X         ** we treat awk differently then the other shells. This is because
+X         ** we cant use actual awk syntax (since awk doesnt have the equivalent
+X         ** of an 'eval' command). Instead, we write out an input stream for
+X         ** consisting or variable assignments. Records are multi-line, and
+X         ** separated by a blank line. Fields are separated by a newline. 
+X         ** The first field is the name of the variable and the remaining
+X         ** fields (if more than one remains we have an array) of the values
+X         ** associated with the variable.
+X         */
+X      AWK,  "awk",
+X      "ARGV\n\n",  
+X      "%s\n",  "",  "\n\n",
+X      "%s\n",  "",  "%s",  "\n\n",
+X      awk_escapes
+X   }
+X};
+X
+Xstatic size_t NumShells = ( sizeof(Shell) / sizeof(shell_info) );
+X
+X
+X/*************************************************************************/
+X
+X   /* define all current arg-vector types */
+Xtypedef ARGVEC_T(char *)  strvec_t;
+Xtypedef ARGVEC_T(char)    charvec_t;
+Xtypedef ARGVEC_T(int)     intvec_t;
+Xtypedef ARGVEC_T(short)   shortvec_t;
+Xtypedef ARGVEC_T(long)    longvec_t;
+Xtypedef ARGVEC_T(float)   floatvec_t;
+Xtypedef ARGVEC_T(double)  doublevec_t;
+Xtypedef ARGVEC_T(VOID)    genericvec_t;  /* generic vector */
+X
+X      /* union to hold all possibles values of an argument */
+Xtypedef union {
+X   BOOL    Bool_val;
+X   short   Short_val;
+X   int     Int_val;
+X   long    Long_val;
+X   float   Float_val;
+X   double  Double_val;
+X   char    Char_val;
+X   char   *Str_val;
+X   strvec_t      Str_vec;
+X   charvec_t     Char_vec;
+X   intvec_t      Int_vec;
+X   shortvec_t    Short_vec;
+X   longvec_t     Long_vec;
+X   floatvec_t    Float_vec;
+X   doublevec_t   Double_vec;
+X   genericvec_t  Vector;
+X} storage_t;
+X
+X   /* structure to hold a command-line argument name, value, and fmt-string */
+Xtypedef struct {
+X   CONST char *name;   /* name of shell variable to use */
+X   storage_t   value;  /* storage for value of argument */
+X} cmdarg_t;
+X#define CMDARGNULL (cmdarg_t *)NULL
+X
+XEXTERN  int   eprintf   ARGS((const char *, ...));
+XEXTERN  VOID  syserr    ARGS((const char *, ...));
+XEXTERN  VOID  usrerr    ARGS((const char *, ...));
+XEXTERN  char *getenv    ARGS((const char *));
+XEXTERN  VOID  manpage   ARGS((const ARGDESC *));
+XEXTERN  VOID  perror    ARGS((const char *));
+X
+X/*************************************************************************/
+X
+X/*
+X** argVers() -- This is the function used to print the version of parseargs
+X**              on standard output and then exit (regardless of where its
+X**              corresponding '-#' appears on the command line and regardless
+X**              of what may have preceded it).
+X*/
+X/*ARGSUSED*/
+X#ifdef __ANSI_C__
+X   static BOOL argVers( register ARGDESC *ad,  register char *vp,  BOOL copyf )
+X#else
+X   static BOOL argVers( ad, vp, copyf )
+X   register ARGDESC *ad;
+X   register char *vp;
+X   BOOL copyf;
+X#endif
+X{
+X  printf( "%s\n", _Ident );
+X  exit( e_USAGE );
+X}
+X
+X   /*
+X   ** variables that are set via command-line arguments
+X   */
+Xstatic  char   *Cmd_Name;  /* name of this program */
+X
+Xstatic  ARGDESC   *UsrArgd = ARGDESCNULL;       /* users arg-table */
+Xstatic  cmdarg_t  *UsrVals = CMDARGNULL;        /* variable names & values */
+Xstatic  int        UsrArgc = 0;                 /* # of arg-table entries */
+Xstatic  shellidx_t  UsrSh;                      /* shell indicator */
+Xstatic  BOOL       UseStdin = TRUE;             /* read argd from stdin */
+X
+Xstatic  char   *ShellName  = CHARNULL;  /* name of user's shell */
+Xstatic  char   *UsrName    = CHARNULL;  /* name of users program */
+Xstatic  char   *FieldSep   = " ";       /* field-separators for arrays */
+Xstatic  strvec_t UsrArgv   = ARGVEC_EMPTY(char *);   /* users args */
+Xstatic  char   *ArgdString = CHARNULL;  /* argd string (with WhiteSpace) */
+Xstatic  char   *ArgdEnv    = CHARNULL;  /* environment variable for argd */
+Xstatic  char   *ArgdFname  = CHARNULL;  /* argd input file */
+Xstatic  BOOL    Unset      = FALSE;     /* ?unset positional parms? */
+Xstatic  char   *StrTrue    = CHARNULL;  /* string for TRUE values */
+Xstatic  char   *StrFalse   = CHARNULL;  /* string for FALSE values */
+Xstatic  char    OptsOnly   = FALSE;     /* parse options only? */
+Xstatic  char    KwdsOnly   = FALSE;     /* parse keywords only? */
+Xstatic  BOOL    ModArr     = FALSE;     /* modify array behavior */
+Xstatic  BOOL    PrUsage    = FALSE;     /* ?just print usage? */
+Xstatic  BOOL    PrManual   = FALSE;     /* ?just print manual page(s)? */
+Xstatic  BOOL    Prompt     = FALSE;     /* ?prompt for missing args? */
+Xstatic  BOOL    Ignore     = FALSE;     /* ?ignore bad syntax and continue? */
+Xstatic  BOOL    AnyCase    = FALSE;     /* ?case-insensitivity? */
+Xstatic  BOOL    Flags1st   = FALSE;     /* ?non-positionals first? */
+X
+X/*************************************************************************/
+X   /* now we are ready to define the command-line */
+Xstatic
+XCMD_OBJECT
+X   Args
+X
+XCMD_NAME
+X   "parseargs  --  parse command-line arguments in shell scripts"
+X
+XCMD_DESCRIPTION
+X   "Given a description of the command-line and the command-line arguments, \
+Xparseargs will parse all command-line arguments, convert them to their \
+Xdesired type, and print on standard output, a script of all the resulting \
+Xshell assignment statements."
+X
+XCMD_ARGUMENTS
+X   '#', ARGNOVAL,  argVers,  __ NULL,
+X   "VERsion : just print program version, dont parse command-line",
+X
+X   'U', ARGOPT,  argBool,  __ &PrUsage,
+X   "usage : just print program usage, dont parse command-line",
+X
+X   'M', ARGOPT,  argBool,  __ &PrManual,
+X   "man1 : just print man1 template, dont parse command-line",
+X
+X   'T', ARGOPT,  argStr,  __ &StrTrue,
+X   "TRUEstr : string to use for TRUE Booleans   (default=\"TRUE\")",
+X
+X   'F', ARGOPT,  argStr,  __ &StrFalse,
+X   "FALSEstr : string to use for FALSE Booleans  (default=\"\")",
+X
+X   'C', ARGOPT,  argBool,  __ &AnyCase,
+X   "caseignore : parse options using case-insensitivity",
+X
+X   'A', ARGOPT,  argBool,  __ &ModArr,
+X   "array : modify the behavior of arrays",
+X
+X   'S', ARGOPT,  argStr,  __ &FieldSep,
+X   "SEParator : field-separator-string used to delimit array elements \
+X(default=\" \")",
+X
+X   'a', ARGOPT,  argStr,  __ &ArgdString,
+X   "ARGSpec : argument specification string",
+X
+X   'e', ARGOPT,  argStr,  __ &ArgdEnv,
+X   "ENVarname : environment variable containing arg-spec",
+X
+X   'f', ARGOPT,  argStr,  __ &ArgdFname,
+X   "FILEname : read the arg-spec from <filename> (default=stdin)",
+X
+X   'l', ARGOPT,  argBool,  __ &KwdsOnly,
+X   "Long-OPTionS : long-options only - do not parse options",
+X
+X   'o', ARGOPT,  argBool,  __ &OptsOnly,
+X   "OPTionS : options only - do not parse long-options",
+X
+X   's', ARGOPT,  argStr,  __ &ShellName,
+X   "SHell : use <shell> command syntax        (default=\"sh\")",
+X
+X   'u', ARGOPT,  argBool,  __ &Unset,
+X   "unset : unset positional parameters before parsing",
+X
+X   'p', ARGOPT,  argBool,  __ &Prompt,
+X   "prompt : prompt the user for missing required arguments",
+X
+X   'i', ARGOPT,  argBool,  __ &Ignore,
+X   "ignore : ignore bad command-line syntax and continue processing \
+X(instead of aborting)",
+X
+X   '1', ARGOPT,  argBool,  __ &Flags1st,
+X   "1st : force non-positional arguments to precede all positional arguments",
+X
+X   '-', ARGOPT,  argDummy, __ NULL,
+X   "+ : end of options - all remaining arguments are interpreted as \
+Xpositional parameters (even if one begins with '-' or '+')",
+X
+X   ' ', ARGREQ,  argStr, __ &UsrName,
+X   "name : name of calling program",
+X
+X   ' ', ARGOPT|ARGVEC,  argStr,  __ &UsrArgv,
+X   "arguments : arguments to calling program",
+X
+X   END_ARGUMENTS
+X
+XCMD_END
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: free_vectors - deallocate all vectors in an ARGDESC
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static  VOID free_vectors( argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC argd[];
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Free_vectors will deallocate the storage used for each arg-vector
+X**    referenced by argd.
+X**
+X** ^REQUIREMENTS:
+X**    None.
+X**
+X** ^SIDE-EFFECTS:
+X**    Storage associated with all dynamically allocated arg-vectors
+X**    is released and set to NULL.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void free_vectors( ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *ad;
+X   register storage_t val;
+X
+X   if ( !argd  ||  !CMD_isINIT(argd) )  return;
+X
+X   for ( ad = ARG_FIRST(argd) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X      if ( ! BTEST(arg_flags(ad), ARGVEC) )  continue;
+X
+X      val = *((storage_t *) arg_valp(ad));
+X
+X      if      ( arg_type(ad) == argStr )     vecFree( val.Str_vec, char * );
+X      else if ( arg_type(ad) == argChar )    vecFree( val.Char_vec, char );
+X      else if ( arg_type(ad) == argInt )     vecFree( val.Int_vec, int );
+X      else if ( arg_type(ad) == argShort )   vecFree( val.Short_vec, short );
+X      else if ( arg_type(ad) == argLong )    vecFree( val.Long_vec, long );
+X      else if ( arg_type(ad) == argFloat )   vecFree( val.Float_vec, float );
+X      else if ( arg_type(ad) == argDouble )  vecFree( val.Double_vec, double );
+X   }
+X
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: cleanup - deallocate all global storage
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static  VOID cleanup()
+X#endif  /* !__ANSI_C__ */
+X/*
+X** ^PARAMETERS:
+X**    None.
+X**
+X** ^DESCRIPTION:
+X**    Cleanup is used to deallocate any global storage. It is called
+X**    before exiting.
+X**
+X** ^REQUIREMENTS:
+X**    None.
+X**
+X** ^SIDE-EFFECTS:
+X**    Storage associated with all dynamically allocated global-variables
+X**    is released and set to NULL.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void cleanup( void )
+X#endif
+X{
+X   /* free up tables */
+X   vecFree( UsrArgv, char * );
+X   if ( UsrArgd ) {
+X      free_vectors( UsrArgd );
+X      free( UsrArgd );
+X      UsrArgd = ARGDESCNULL;
+X   }
+X   if ( UsrVals ) {
+X      free( UsrVals );
+X      UsrVals = CMDARGNULL;
+X   }
+X   if ( ArgdFname   &&   !ArgdEnv ) {
+X      free( ArgdString );
+X      ArgdString = CHARNULL;
+X   }
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: ckalloc - allocate space, check for success
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static ARBPTR ckalloc( size )
+X/*
+X** ^PARAMETERS:
+X*/
+X   size_t  size;
+X/*    -- the number of bytes to allocate
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Ckalloc will use malloc to attempt to fill the given request 
+X**    for memory. If The request cannot be met than a message is
+X**    printed and execution is terminated.
+X**
+X** ^REQUIREMENTS:
+X**    size should be > 0
+X**
+X** ^SIDE-EFFECTS:
+X**    Memory is allocated that should later be deallocated using free().
+X**
+X** ^RETURN-VALUE:
+X**    The address of the allocated region.
+X**
+X** ^ALGORITHM:
+X**    - Allocate space, check for success
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static ARBPTR ckalloc( size_t size )
+X#endif
+X{
+X   ARBPTR  ptr;
+X
+X   ptr = (ARBPTR)malloc( size );
+X   if ( !ptr ) {
+X      eprintf( "%s: Fatal Error: out of memory!!", Cmd_Name );
+X      cleanup();
+X      if ( errno )  perror( Cmd_Name );
+X      exit( e_SYSTEM );
+X   }
+X
+X   return  ptr;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: ckrealloc - reallocate space, check for success
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static ARBPTR ckrealloc( ptr, size )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARBPTR  ptr;
+X/*    -- address of the region to be expanded/shrunk
+X*/
+X   size_t  size;
+X/*    -- the number of bytes to allocate
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Ckrealloc will use realloc to attempt to fill the given request 
+X**    for memory. If The request cannot be met than a message is
+X**    printed and execution is terminated.
+X**
+X** ^REQUIREMENTS:
+X**    size should be > 0
+X**
+X** ^SIDE-EFFECTS:
+X**    Memory is allocated that should later be deallocated using free().
+X**
+X** ^RETURN-VALUE:
+X**    The address of the (re)allocated region (which may have been moved).
+X**
+X** ^ALGORITHM:
+X**    - Reallocate space, check for success
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static ARBPTR ckrealloc( ARBPTR ptr, size_t size )
+X#endif
+X{
+X   ptr = realloc( ptr, (unsigned int)size );
+X   if ( !ptr ) {
+X      eprintf( "%s: Fatal Error: out of memory!!", Cmd_Name );
+X      cleanup();
+X      if ( errno )  perror( Cmd_Name );
+X      exit( e_SYSTEM );
+X   }
+X
+X   return  ptr;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: escape_char - (re)map a character
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID escape_char( str, ch, esc )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to be translated
+X*/
+X   int ch;
+X/*    --  the character to be replaced/translated
+X*/
+X   int esc;
+X/*    -- the replacement character to use
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Escape_char will escape all occurences of a character by replacing
+X**    it with <esc> if the character appears in double or single quotes.
+X**
+X** ^REQUIREMENTS:
+X**    Both <ch> and <esc> should be non-zero.
+X**    <str> should be non-null and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    Each occurrence in <str> of <ch> within single or double quotes is
+X**    replaced with <esc>.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void escape_char( char *str, int ch, int esc )
+X#endif
+X{
+X   int   squoted = 0, dquoted = 0;
+X
+X   for ( ; *str ; str++ ) {
+X      if ( *str == '\''  &&  !dquoted )
+X         squoted = ~squoted;
+X      else if ( *str == '"'  &&  !squoted )
+X         dquoted = ~dquoted;
+X      else if ( (squoted || dquoted)  &&  *str == ch )
+X         *str = esc;
+X   }
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: restore_char - restore any chars escaped by escape_char()
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID restore_char( str, ch, esc )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to be translated
+X*/
+X   int ch;
+X/*    --  the character to be restored
+X*/
+X   int esc;
+X/*    -- the replacement character to use to escape the above character.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Restore_char will attempt to undo the results of a previous call
+X**    to escape_char by replacing each occurence of <esc> in <str> with <ch>.
+X**
+X** ^REQUIREMENTS:
+X**    <str> should be the victim of a previous escape_char(str, ch, esc) call.
+X**    Furthermore, <esc> should be a character that occurs only as a result
+X**    of this call (it should be VERY uncommon).
+X**
+X**    It should be noted that escape_char() only replaces characters in quotes
+X**    whereas this routine replaces all occurrences.
+X**
+X** ^SIDE-EFFECTS:
+X**    Each occurrence of <esc> in <str> is replaced with <ch>.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void restore_char( char *str, int ch, int esc )
+X#endif
+X{
+X   for ( ; *str ; str++ )
+X      if ( *str == esc )   *str = ch;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_arg_type - return function corresponding to given string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static argTypePtr_t  get_arg_type( type_str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *type_str;
+X/*    -- string corresponding to the name of an existing argXxxx type function.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_arg_type will attempt to match <type_name> against the name of all
+X**    known argXxxx argumnent translation routines and routine the address of
+X**    the corresponding function. If no match is found, then an error message
+X**    is printed and execution is terminated.
+X**
+X** ^REQUIREMENTS:
+X**    type_str should be non-NULL and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    Address of the corresponding function
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static  argTypePtr_t  get_arg_type( const char *type_str )
+X#endif
+X{
+X   register  CONST char *str = type_str;
+X
+X   /* translate all listXxx into argXxx */
+X   if ( strnEQ( str, "list", 4 ) )
+X      str += 4;
+X
+X   if ( strnEQ( str, "arg", 3 ) )
+X      str += 3;
+X
+X   if      ( strEQ( str, "Usage" ) )
+X      return   argUsage;
+X   else if ( strEQ( str, "Dummy" ) )
+X      return   argDummy;
+X   else if ( strEQ( str, "Bool" ) )
+X      return   argBool;
+X   else if ( strEQ( str, "SBool" ) )
+X      return   argSBool;
+X   else if ( strEQ( str, "UBool" ) )
+X      return   argUBool;
+X   else if ( strEQ( str, "Int" ) )
+X      return   argInt;
+X   else if ( strEQ( str, "Short" ) )
+X      return   argShort;
+X   else if ( strEQ( str, "Long" ) )
+X      return   argLong;
+X   else if ( strEQ( str, "Float" ) )
+X      return   argFloat;
+X   else if ( strEQ( str, "Double" ) )
+X      return   argDouble;
+X   else if ( strEQ( str, "Char" ) )
+X      return   argChar;
+X   else if ( strEQ( str, "Str" ) )
+X      return   argStr;
+X   else {
+X      eprintf( "%s: Fatal Error: invalid argument type '%s'\n",
+X               Cmd_Name, type_str );
+X      cleanup();
+X      exit( e_ARGD );
+X   }
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_arg_flag - return BITMASK corresponding to string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static argMask_t get_arg_flag( flag_str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char flag_str[];
+X/*    -- name of an ARGXXXXX argument-flag
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_arg_flag will attempt to match the given string against the name of
+X**    all valid argument-flags and return its associated bitmask.  If no match
+X**    is found, then an error message is printed and execution is terminated.
+X**
+X** ^REQUIREMENTS:
+X**    flag_str should be non-NULL and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The bitmask corresponding to named ARGXXXX flag.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static argMask_t get_arg_flag( const char flag_str[] )
+X#endif
+X{
+X   if ( strnEQ( flag_str, "ARG", 3 ) )   {
+X      if      ( strEQ( flag_str+3, "OPT" ) )     return   ARGOPT;
+X      else if ( strEQ( flag_str+3, "REQ" ) )     return   ARGREQ;
+X      else if ( strEQ( flag_str+3, "POS" ) )     return   ARGPOS;
+X      else if ( strEQ( flag_str+3, "VALREQ" ) )  return   ARGVALREQ;
+X      else if ( strEQ( flag_str+3, "VALOPT" ) )  return   ARGVALOPT;
+X      else if ( strEQ( flag_str+3, "HIDDEN" ) )  return   ARGHIDDEN;
+X      else if ( strEQ( flag_str+3, "LIST" ) )    return   ARGVEC;
+X      else if ( strEQ( flag_str+3, "VEC" ) )     return   ARGVEC;
+X      else {
+X         eprintf( "%s: Fatal Error: invalid argument flag '%s'\n",
+X                  Cmd_Name, flag_str );
+X         cleanup();
+X         exit( e_ARGD );
+X      }
+X   }
+X   else {
+X      eprintf( "%s: Fatal Error: invalid argument flag '%s'\n",
+X               Cmd_Name, flag_str );
+X      cleanup();
+X      exit( e_ARGD );
+X   }
+X}
+X
+X/***************************************************************************
+X** ^FUNCTION: get_argtable_string - read in the argument-table
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static char *get_argtable_string()
+X#endif
+X/*
+X** ^PARAMETERS:
+X**    None.
+X**
+X** ^DESCRIPTION:
+X**    Get_argtable_string will read (from standard input if UseStdin is set)
+X**    the entire argument descriptor table into a string and return its address.
+X**
+X**    Execution is terminated if there is an error reading STDIN or if the
+X**    string is too big to fit into memory.
+X**
+X** ^REQUIREMENTS:
+X**    Standard input should be open for reading and be non-interactive.
+X**
+X** ^SIDE-EFFECTS:
+X**    Memory is allocated that should later be deallocated using free.
+X**
+X** ^RETURN-VALUE:
+X**    NULL if STDIN is connected to a terminal (after all,
+X**    this program is for Non-interactive input)
+X**
+X** ^ALGORITHM:
+X**    - start off with a 1k buffer
+X**    - open the file (if necessary)
+X**    - while (not eof)
+X**      - read 1k bytes (or whatever is left).
+X**      - increase the buffer size by 1k bytes.
+X**      end-while
+X**    - shrink the buffer down to the number of bytes used.
+X**    - close the file (if we had to open it).
+X**    - return the buffer address
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static char *get_argtable_string( void )
+X#endif
+X{
+X   int  isatty  ARGS((int));
+X#if (!defined(__ANSI_C__)  &&  !defined(vms))
+X   int  fread();
+X#endif
+X   FILE *fp;
+X   char *buf;
+X   register size_t  nchars = 0;   /* # bytes read */
+X   register size_t  bufsiz = 0;   /* actual buffer-size needed */
+X
+X   /* open file if necessary */
+X   if ( UseStdin )  {
+X      if ( isatty(STDIN) ) {
+X            /* we wont read the arg-table from a terminal */
+X         eprintf( "\
+X%s: Fatal Error:\n\
+X\tcannot read arg-descriptor table from stdin\n\
+X\tif stdin is connected to a terminal!\n",
+X                  Cmd_Name );
+X         cleanup();
+X         exit( e_ARGD );
+X      }
+X      errno = 0;   /* reset errno if isatty() was not a terminal */
+X      fp = stdin;
+X   }
+X   else {
+X      if ( (fp = fopen( ArgdFname, "r")) == FILENULL )   {
+X         eprintf( "%s: Fatal error: Unable to open %s for reading\n",
+X                  Cmd_Name, ArgdFname );
+X         cleanup();
+X         if ( errno )  perror( Cmd_Name );
+X         exit( e_SYSTEM );
+X      }
+X   }
+X
+X      /* get initial block for buffer */
+X   buf = (char *)ckalloc( BUFFER_SIZE * sizeof(char) );
+X
+X   /*
+X   ** Loop reading characters into buffer and resizing as needed
+X   */
+X   do {
+X         /* read fildes into the buffer */
+X      nchars = (size_t) fread( &(buf[bufsiz]), sizeof(char), BUFFER_SIZE, fp );
+X      if ( ferror(fp) )   {
+X         eprintf( "\
+X%s: Fatal Error:\n\
+X\tBad return from fread() while reading argument descriptor table\n",
+X                  Cmd_Name );
+X         free(buf);
+X         cleanup();
+X         if ( errno )  perror( "" );
+X         exit( e_SYSTEM );
+X      }
+X      errno = 0;  /* errno is undefined after a succesful fread() */
+X      bufsiz += nchars;
+X
+X         /* see if we need to grow the buffer */
+X      if ( nchars == BUFFER_SIZE )
+X         buf = (char *)ckrealloc( buf, (bufsiz + BUFFER_SIZE) * sizeof(char) );
+X   } while ( nchars == BUFFER_SIZE );
+X
+X      /* shrink the buffer down to the exact size used */
+X   buf = (char *)ckrealloc( buf, (bufsiz + 1) * sizeof(char) );
+X
+X      /* close file if necessary */
+X   if ( !UseStdin )  (VOID) fclose( fp );
+X
+X   return   buf;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_shell_index - return shell corresponding to given string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static shell_t get_shell_index( sh_str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *sh_str;
+X/*    -- string corresponding tp the basename of a shell/command-interpreter
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_shell_index will return the shell-type for the named shell. If
+X**    No corresponding shell is known, then an error message is printed
+X**    and execution is terminated.
+X**
+X** ^REQUIREMENTS:
+X**    sh_str should be non-NULL and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The corresponding shell-type.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static shellidx_t get_shell_index ( const char *sh_str )
+X#endif
+X{
+X   int  i;
+X   register CONST char *sh = sh_str;
+X
+X      /* special case to recognize ash, tcsh & itcsh */
+X   if ( strEQ( sh, "ash" ) )   ++sh;
+X   else if ( strEQ( sh, "tcsh" ) )   ++sh;
+X   else if ( strEQ( sh, "itcsh" ) )  sh += 2;
+X
+X   for ( i = 0 ; i < NumShells ; i++ ) {
+X      if ( strEQ( sh, Shell[i].name ) )   return  (shellidx_t) i;
+X   }
+X
+X   usrerr( "Unknown shell \"%s\"", sh_str );
+X   eprintf( "\tKnown shells are listed below:\n" );
+X   for ( i = 0 ; i < NumShells ; i++ ) {
+X      if ( strEQ( "csh", Shell[i].name ) ) {
+X         eprintf( "\t\tcsh/tcsh/itcsh\n" );
+X      }
+X      else {
+X         eprintf( "\t\t%s\n", Shell[i].name );
+X      }
+X   }
+X
+X   cleanup();
+X   exit( e_SYNTAX );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: build_tables - build the Argument and Value tables
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static int build_tables( argd_str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char argd_str[];
+X/*    -- the comma-separated table of argument descriptions
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Build_tables will read the contents of the argument-descriptor-table
+X**    string and build the corresponding Argument and Value tables to be
+X**    used by parseargs(3).
+X**
+X** ^REQUIREMENTS:
+X**    argd_str should be non-NULL and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    The global variables UsrVals and UsrArgd are allocated and initialized
+X**
+X** ^RETURN-VALUE:
+X**    The number of argument entries interpreted from the given string.
+X**
+X** ^ALGORITHM:
+X**    - split argd_str into a vector of tokens
+X**    - make sure the first and last tokens are syntactically correct
+X**    - make sure that the number of tokens is a multiple of 5 (the number
+X**      of fields in an argument descriptor)
+X**    - num-args = num-tokens / 5
+X**    - allocate space for UsrVals and UsrArgd
+X**    - i = 0
+X**    - for every 5 tokens
+X**      - UsrArgd[i].ad_name = token#1
+X**      - UsrArgd[i].ad_flags = 0
+X**      - split token#2 into a subvector of '|' separated fields
+X**      - for each '|' separated token
+X**        - UsrArgd[i].ad_flags |= bitmask( subfield )
+X**        end-for
+X**      - UsrArgd[i].ad_type = argtype( token#3 )
+X**      - UsrVals[i].name = token#4
+X**      - UsrArgd[i].ad_valp = &(UsrVals[i].value)
+X**      - UsrArgd[i].ad_prompt = token#5
+X**      - increment i by one
+X**    end-for
+X**    - Initialize first and last entries in UsrArgd
+X**    - return  num-args
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static int build_tables( char argd_str[] )
+X#endif
+X{
+X   char **token_vec, **flags_vec, *type_name;
+X   int   i = 0, j = 0, idx, token_num = 0, flags_num = 0;
+X   int   argc = 0, ad_idx;
+X   BOOL  start_string_used = FALSE, is_braces = FALSE;
+X
+X      /* what about NULL or empty-string */
+X   if ( !argd_str  ||  !*argd_str )  return  0;
+X
+X      /* escape all commas inside of single or double quotes */
+X   escape_char( argd_str, ',', ESCAPED_COMMA );
+X
+X      /* parse Argument Table String */
+X   token_num = strsplit( &token_vec, argd_str, ArgTableDelims );
+X   if ( token_num )  (VOID) strtrim( token_vec[ token_num - 1 ], WhiteSpace );
+X
+X      /* see if we need to build the tables at all */
+X   if ( token_num == 0 || isEND_ARGS(*token_vec) ) {
+X      free( token_vec );
+X      return   0;    /* nothing to parse */
+X   }
+X
+X      /* make sure table is properly terminated */
+X   if ( !isEND_ARGS( token_vec[ --token_num ] ) )  {
+X      restore_char( token_vec[ token_num ], ',', ESCAPED_COMMA );
+X      eprintf( "\
+X%s: Fatal Error:\n\
+X\tArgument descriptor table is not terminated with the string:\n\
+X\t\t\"%s\"\n\
+X\tLast entry in table is: \"%s\"\n",
+X               Cmd_Name, s_END_ARGS, token_vec[ token_num ] );
+X      free( token_vec );
+X      cleanup();
+X      exit( e_ARGD );
+X   }
+X
+X      /* check for optional start-string */
+X   (VOID) strtrim( *token_vec, WhiteSpace );
+X   if ( isSTART_ARGS(*token_vec) ) {
+X      start_string_used = TRUE;
+X      --token_num;
+X      ++token_vec;
+X   }
+X
+X      /* make sure table has proper number of arguments */
+X   if ( (token_num % NFIELDS) != 0 ) {
+X      eprintf( "\
+X%s: Fatal Error:\n\
+X\tArgument descriptor table has an invalid number of arguments\n\
+X\tThe number of comma-separated arguments MUST be a multiple of %d\n\
+X\t(not including terminating \"%s\")\n",
+X               Cmd_Name, NFIELDS, s_END_ARGS );
+X      free( (start_string_used) ? (token_vec - 1) : token_vec );
+X      cleanup();
+X      exit( e_ARGD );
+X   }
+X
+X      /* determine number of arg-descriptors and allocate arg-tables */
+X   argc = token_num / NFIELDS;
+X   UsrArgd = (ARGDESC *) ckalloc( (argc + 2) * sizeof(ARGDESC) );
+X   UsrVals = (cmdarg_t *) ckalloc( argc * sizeof(cmdarg_t) );
+X
+X      /* start filling in the tables */
+X   i = 0;
+X   while ( i < token_num )  {
+X      restore_char( token_vec[i], ',', ESCAPED_COMMA );
+X      (VOID) strtrim( token_vec[i], WhiteSpace );
+X      idx = (i / NFIELDS); /* save index into UsrVals table */
+X      ad_idx = (idx + 1);   /* save index into UsrArgd table */
+X      is_braces = FALSE;
+X
+X         /* remove first curly-brace if its present (this has the drawback
+X         ** of disallowing a left curly-brace from being an option character).
+X         */
+X      if ( token_vec[i][0] == c_BEGIN_STRUCT ) {
+X         token_vec[i][0] = ' ';
+X         (VOID) strltrim( token_vec[i], WhiteSpace );
+X         is_braces = TRUE;
+X      }
+X
+X         /* get argument name */
+X      UsrArgd[ ad_idx ].ad_name = *(token_vec[i++]);
+X      if ( !UsrArgd[ ad_idx ].ad_name )  UsrArgd[ ad_idx ].ad_name = ' ';
+X
+X         /*
+X         ** get argument flags, flags may be ORed together so I
+X         ** need to parse the flags for each individual flag used
+X         */
+X      UsrArgd[ ad_idx ].ad_flags = (argMask_t) 0;   /* initialize */
+X      flags_num = strsplit( &flags_vec, token_vec[i++] , ArgFlagsDelims );
+X      for ( j = 0 ; j < flags_num ; j++ ) {
+X            (VOID) strtrim( flags_vec[j], WhiteSpace );
+X            UsrArgd[ ad_idx ].ad_flags |= get_arg_flag( flags_vec[j] );
+X      }
+X      free( flags_vec );
+X
+X         /* get argument type and name for Value table */
+X      type_name = strtrim( token_vec[i++], WhiteSpace );
+X      restore_char( token_vec[i], ',', ESCAPED_COMMA );
+X      UsrVals[ idx ].name = strtrim( token_vec[i++], WhiteSpace );
+X
+X         /* remove any leading "__" from the name */
+X      if ( strnEQ("__", UsrVals[ idx ].name, 2) ) {
+X         (VOID) strltrim( (char *)UsrVals[idx].name, "_ \t\n\r\v\f" );
+X      }
+X
+X         /* remove any leading '&', '$', and '@' from the name */
+X      if ( strchr("&$@", UsrVals[ idx ].name[0]) ) {
+X         (VOID) strltrim( (char *)UsrVals[idx].name, "&$@ \t\n\r\v\f" );
+X      }
+X
+X         /* get type and value pointer for Arg table */
+X      UsrArgd[ ad_idx ].ad_type = get_arg_type( type_name );
+X      UsrArgd[ ad_idx ].ad_valp = __ &(UsrVals[ idx ].value);
+X
+X         /* if we have a vector we need to initialize it */
+X      if ( ARG_isVEC((UsrArgd + ad_idx)) )  {
+X         UsrVals[ idx ].value.Vector.count = 0;
+X         UsrVals[ idx ].value.Vector.array = (VOID *)NULL;
+X      }
+X
+X         /* get argument prompt/description */
+X      restore_char( token_vec[i], ',', ESCAPED_COMMA );
+X      UsrArgd[ ad_idx ].ad_prompt = strtrim( token_vec[i++], WhiteSpace );
+X
+X         /* if in curly-braces, remove the trailing brace */
+X      if ( is_braces ) {
+X        int  last = strlen( UsrArgd[ad_idx].ad_prompt ) - 1;
+X        if ( UsrArgd[ ad_idx ].ad_prompt[ last ] == c_END_STRUCT ) {
+X           *((char *)(UsrArgd[ ad_idx ].ad_prompt) + last) = '\0';
+X           (VOID) strrtrim( (char *)UsrArgd[ad_idx].ad_prompt, WhiteSpace );
+X        }
+X      }/*end-if*/
+X   }/*while*/
+X
+X      /* free up token tables (just the arrays, not the actual elements) */
+X   free( flags_vec );
+X   free( (start_string_used) ? (token_vec - 1) : token_vec );
+X
+X      /* set up first & last argument entries */
+X   (UsrArgd -> ad_name)    =   UsrArgd[ argc+1 ].ad_name    = '\0';
+X   (UsrArgd -> ad_flags)   =   UsrArgd[ argc+1 ].ad_flags   = (argMask_t) 0;
+X   (UsrArgd -> ad_type)    =   UsrArgd[ argc+1 ].ad_type    = argNULL;
+X   (UsrArgd -> ad_valp)    =   UsrArgd[ argc+1 ].ad_valp    = ARBNULL;
+X   UsrArgd[ argc+1 ].ad_prompt = CHARNULL;
+X
+X      /* try to get a command-description */
+X   cmd_description(UsrArgd) = getenv( "DESCRIPTION" );
+X   if ( !cmd_description(UsrArgd) ) {
+X      cmd_description(UsrArgd) = getenv( "CMD_DESCRIPTION" );
+X   }
+X
+X   return  argc;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: put_char_arg - print a character
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static put_char_arg( fp, ch )
+X/*
+X** ^PARAMETERS:
+X*/
+X   FILE *fp;
+X/*    -- the output stream to write to.
+X*/
+X   int ch;
+X/*    -- the character to print
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Put_char_arg will write the given character on the specified output
+X**    stream. If the character is metacharacter for the current shell, then
+X**    it is "escaped" according to the given shell syntax.
+X**
+X** ^REQUIREMENTS:
+X**    <fp> should be non-NULL and open for writing.
+X**    <ch> should be a printable character.
+X**
+X** ^SIDE-EFFECTS:
+X**    output is written to <fp>.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    print a character argument on standard output
+X**    and make sure we preserve the evaluation of
+X**    any special characters such as: double-quotes,
+X**    back-quotes, back-slash, dollar-signs, etc ....
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void put_char_arg( FILE *fp, int ch )
+X#endif
+X{
+X   char **escapes = Shell[ UsrSh ].escapes;
+X   BOOL  found = FALSE;
+X   for ( ; (escapes && *escapes) ; escapes++ ) {
+X      char * esc = *escapes;
+X      if ( *esc == ch )  {
+X         fputs( esc + 1, fp );
+X         found = TRUE;
+X      }
+X   }
+X   if ( ! found )  fputc( ch, fp );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: put_str_arg - same as put_char_arg but for a string!
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID put_str_arg( fp, str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   FILE *fp;
+X/*    -- the output stream to write to
+X*/
+X   char str[];
+X/*    -- the string to print
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Put_str_arg will print the given string to the given output stream
+X**    and will escape any shell meta-characters for the current shell.
+X**
+X** ^REQUIREMENTS:
+X**    <fp> should be non-NULL and open for writing.
+X**    <str> should be non-NULL and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    Output is written to <fp>
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - foreach character in str
+X**     - put_char_arg(fp, character)
+X**    end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void put_str_arg( FILE *fp, const char str[] )
+X#endif
+X{
+X   if ( !str )   return;
+X
+X   for ( ; *str ; str++ )
+X      put_char_arg( fp, *str );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: put_arg - convert & print the given value into the given buffer
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID put_arg( fp, ad, val, idx )
+X/*
+X** ^PARAMETERS:
+X*/
+X   FILE *fp;
+X/*    -- the output stream to write to
+X*/
+X   ARGDESC *ad;
+X/*    -- the argument-descriptor of the argument to print.
+X*/
+X   cmdarg_t *val;
+X/*    -- the value of the argument to print
+X*/
+X   short idx;
+X/*    -- the index in the argument-vector of the item to be printed
+X**       (only used when ad corresponds to an ARGVEC argument).
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Put_arg will print the given variable/array setting on the given
+X**    output stream using the syntax of the user-sepcified shell.
+X**
+X** ^REQUIREMENTS:
+X**    <val> should be the value corresponing to the argument-descriptor <ad>
+X**
+X** ^SIDE-EFFECTS:
+X**    Output is written to <fp>.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - if we have a vector, make sure we were given a valid index.
+X**    - if we have a vector, then value=val.vec[idx],
+X**      else value = val.value
+X**    - print the beginning of the variable setting
+X**    - case (argument-type) of
+X**        INTEGRAL-TYPE: print the integer value
+X**        DECIMAL-TYPE: print the floating point value
+X**        CHARACTER: print the character value and escape it if necessary
+X**        STRING: print the string value and escape it if necessary
+X**        BOOLEAN: print the string StrTrue if value is TRUE
+X**                 print the string StrFalse if value is FALSE
+X**    - print the end of the variable setting
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void put_arg(
+X      FILE *fp, const ARGDESC *ad, const cmdarg_t *val, short idx
+X   )
+X#endif
+X{
+X   if ( ARG_isVEC(ad) ) {
+X      if ( idx < 0  ||  idx >= val->value.Vector.count ) {
+X         return;   /* bad index given */
+X      }
+X
+X      if ( arg_type(ad) == argStr ) {
+X         put_str_arg( fp, val->value.Str_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argChar ) {
+X         put_char_arg( fp, val->value.Char_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argDouble ) {
+X         fprintf( fp, "%lf", val->value.Double_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argFloat ) {
+X         fprintf( fp, "%f", val->value.Float_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argLong ) {
+X         fprintf( fp, "%ld", val->value.Long_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argInt ) {
+X         fprintf( fp, "%d", val->value.Int_vec.array[idx] );
+X      }
+X      else if ( arg_type(ad) == argShort ) {
+X         fprintf( fp, "%ld", val->value.Short_vec.array[idx] );
+X      }
+X
+X      /* Boolean vectors are not supported */
+X   }/*if vector*/
+X   else {
+X      if ( arg_type(ad) == argStr ) {
+X         put_str_arg( fp, val->value.Str_val );
+X      }
+X      else if ( arg_type(ad) == argChar ) {
+X         put_char_arg( fp, val->value.Char_val );
+X      }
+X      else if ( arg_type(ad) == argDouble ) {
+X         fprintf( fp, "%lf", val->value.Double_val );
+X      }
+X      else if ( arg_type(ad) == argFloat ) {
+X         fprintf( fp, "%f", val->value.Float_val );
+X      }
+X      else if ( arg_type(ad) == argLong ) {
+X         fprintf( fp, "%ld", val->value.Long_val );
+X      }
+X      else if ( arg_type(ad) == argInt ) {
+X         fprintf( fp, "%d", val->value.Int_val );
+X      }
+X      else if ( arg_type(ad) == argShort ) {
+X         fprintf( fp, "%ld", val->value.Short_val );
+X      }
+X      else if ( ARG_isBOOLEAN(ad) ) {
+X         fprintf( fp, "%s", (val->value.Bool_val) ? StrTrue : StrFalse );
+X      }
+X   }/*else !vector*/
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: print_argvector - print shell variable settings for an ARGVEC
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID print_argvector( ad, val )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *ad;
+X/*    -- the argument-descriptor of the vector to print
+X*/
+X   cmdarg_t *val;
+X/*    -- the value of the vector to print
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Parseargs treats ARGLIST arguments in a special way. The method used
+X**    for setting up an argument list depends largely upon the syntax of
+X**    shell that was specified on the command line via the -s option
+X**    (although ARGLIST arguments are treated exactly the same as ARGVEC
+X**    arguments).  With the exception perl which always uses a comma to
+X**    separate array elements, all shells will use the string specified
+X**    with the -S option as the field separator between elements of an
+X**    array (the default field separator is a space character).
+X**
+X** ^Resetting_the_Positional_Parameters_to_an_Argument_List:
+X**    For the Bourne, Bourne-Again, and Korn shells, if the variable name
+X**    corresponding to the ARGLIST argument is "--", then the positional
+X**    parameters of the calling program will be re-assigned to the contents
+X**    of the argument list ($1 will be the first item, $2 the second item,
+X**    and so on). In this particular case, the calling program may wish to
+X**    use the -u option to reset the positional parameters to NULL before
+X**    making any shell-variable assignments (this way, the positional
+X**    parameters will be unset if the associated list of command line
+X**    arguments is not encountered).
+X**
+X**    Similarly for the C & Z shells (zsh, csh, tcsh, itcsh), if the
+X**    variable name corresponding to the ARGLIST argument is "argv", then
+X**    the positional parameters of the calling program will be re-assigned
+X**    to the contents of the argument list.
+X**
+X**    For the Plan 9 shell (rc), if the variable name corresponding to the
+X**    ARGLIST argument is "*", then the positional parameters of then calling
+X**    program will be re-assigned to the contents of the argument list.
+X**
+X**    For awk and perl, if the variable name corresponding to the ARGLIST
+X**    argument is "ARGV", then the positional parameters of the calling
+X**    program will be re-assigned to the contents of the argument list.
+X**
+X** ^Bourne_Shell_Argument_Lists:
+X**    For the Bourne shell, if the associated variable name is NOT "--"
+X**    and the -A option was NOT specified, then that variable is treated as
+X**    a regular shell variable and is assigned using the following syntax:
+X**
+X**         name='arg1 arg2  ...'
+X**
+X**    After invoking parseargs, if you wish to go through all the words in
+X**    the variable name and one of the words in name contains an IFS
+X**    character (such as a space or a tab), then that particular word will
+X**    be treated by the Bourne shell as two distinct words.
+X**    Also for the Bourne shell, If the associated variable name is NOT
+X**    "--" and the -A option WAS specified, then that variable is treated
+X**    as the root name of an array that is set using the following syntax:
+X**
+X**         name1='arg1'
+X**         name2='arg2'
+X**             ...
+X**
+X**    and the variable "name_count" will be set to contain the number of
+X**    items in the array.  The user may then step through all the items in
+X**    the array using the following syntax:
+X**
+X**         i=1
+X**         while [ $i -le $name_count ] ; do
+X**           eval echo "item #$i is: " \$name$i
+X**           i=`expr $i + 1`
+X**         done
+X**
+X** ^Korn_Shell_Argument_Lists:
+X**    For the Korn shell, if the associated variable name is NOT "--",
+X**    then that variable is treated as an array and is assigned using the -A
+X**    option of the set command. The first item will be in ${name[0]}, the
+X**    second item will be in ${name[1]}, etc ..., and all items may be given
+X**    by ${name[*]} or ${name[@]}.  If the associated variable name is NOT
+X**    "--" and the -A option WAS specified, then that variable is assigned
+X**    using the +A option of the set command (which preserves any array
+X**    elements that were not overwritten by the set command).
+X**    It should be noted that there is a bug in versions of the Korn shell
+X**    earlier than 11/16/88a, in which the following:
+X**
+X**         set  -A  name  'arg1'  'arg2'  ...
+X**
+X**    causes the positional parameters to be overwritten as an unintentional
+X**    side-effect. If your version of the Korn shell is earlier than this
+X**    and you wish to keep the contents of your positional parameters after
+X**    invoking parseargs than you must save them yourself before you call
+X**    parseargs. This may be accomplished by the following:
+X**
+X**         set  -A  save_parms  "$@"
+X**
+X** ^C_Shell_Argument_Lists:
+X**    For the C shells (csh, tcsh, itcsh), ARGLIST variables are treated as
+X**    word-lists and are assigned using the following syntax:
+X**
+X**         set  name = ( 'arg1'  'arg2'  ... )
+X**
+X**    The first item will be in $name[1], the second item will be in
+X**    $name[2], etc ..., and all items may be given by $name.  Notice that
+X**    Korn shell arrays start at index zero whereas C shell word-lists start
+X**    at index one.
+X**
+X** ^Bourne-Again_Shell_Argument_Lists:
+X**    At present, the Free Software Foundation's Bourne-Again shell is
+X**    treated exactly the same as the Bourne Shell. This will change when
+X**    bash supports arrays.
+X**
+X** ^Plan_9_Shell_Argument_Lists:
+X**    For the Plan 9 shell, if the associated variable name is not "*"
+X**    then it is considered to be a word-list and set using the following
+X**    syntax:
+X**
+X**         name=( 'arg1'  'arg2'  ... )
+X**
+X** ^Z_Shell_Argument_Lists:
+X**    For the Z shell, ARGLIST variables are treated as word-lists and are
+X**    assigned using the following syntax:
+X**
+X**         name = ( 'arg1'  'arg2'  ... )
+X**
+X**    The first item will be in $name[1], the second item will be in
+X**    $name[2], etc ..., and all items may be given by $name.  Notice that
+X**    Korn shell arrays start at index zero whereas Z and C shell word-lists
+X**    start at index one.
+X**
+X** ^Awk_Argument_Lists:
+X**    For awk, if the -A option is not given, then the output for the
+X**    variable-list will be a line with the variable name, followed by a
+X**    line with each of the values (each value will be separated with the
+X**    field separator specified using the -S option - which defaults to a
+X**    space).
+X**
+X**         name
+X**         arg1  arg2  ...
+X**
+X**    If the -A option is given, then the associated variable is considered
+X**    the root name of an array. The ouput for the array will consist of two
+X**    lines for each item in the list (as in the following example):
+X**
+X**         name1
+X**         arg1
+X**
+X**         name2
+X**         arg2
+X**
+X**    and the variable "name_count" will have an output line showing the
+X**    number of items in the array.
+X**
+X** ^Perl_Argument_Lists:
+X**    For perl, each argument list is considered an array and is set using
+X**    the following syntax:
+X**
+X**         @name=( 'arg1' , 'arg2' ,  ... );
+X**
+X** ^A_Final_Note_on_Argument_Lists:
+X**    The word-lists used by the C and Z shells, the arrays used by the Korn
+X**    shell, the Plan 9 shell, awk, perl, and the positional parameters used
+X**    by all shells (if overwritten by parseargs) will preserve any IFS
+X**    characters in their contents.  That is to say that if an item in one
+X**    of the aforementioned multi-word lists contains any IFS characters, it
+X**    will not be split up into multiple items but will remain a single item
+X**    which contains IFS characters.
+X**
+X** ^REQUIREMENTS:
+X**    <val> should correspond to the vlue of the argument indicated by <ad>
+X**
+X** ^SIDE-EFFECTS:
+X**    prints the array assignment statement on standard output
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - print the beginning of the array assigment statement
+X**    - print each item in the array (escaping characters where needed)
+X**    - print the end of the array assignment statement
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void print_argvector( const ARGDESC *ad, const cmdarg_t *val )
+X#endif
+X{
+X   register  shell_t  cli = Shell[ UsrSh ].type;
+X   BOOL   set_printed = FALSE;
+X   int    i;
+X   char   *varname;
+X
+X      /* need to check for '--' for sh, ksh, and bash */
+X   if ( strEQ("--", val->name) && (cli == SH || cli == BASH || cli == KSH) ) {
+X      printf( "set -- " );
+X      set_printed = TRUE;
+X   }
+X      /* if faking arrays for sh, bash, or awk -- do it now! */
+X   else if ( ModArr  &&  (cli == SH || cli == BASH || cli == AWK) ) {
+X      i = strlen( val->name );
+X      varname = (char *)ckalloc( (i + 4) * sizeof(char) );
+X      for ( i = 0 ; i < val->value.Vector.count ; i++ ) {
+X         sprintf( varname, "%s%d", val->name, i+1 );
+X         printf( Shell[ UsrSh ].sclset, varname );
+X         printf( Shell[ UsrSh ].sclpfx );
+X         put_arg( stdout, ad, val, i );
+X         printf( "%s", Shell[ UsrSh ].sclsfx );
+X      }
+X      sprintf( varname, "%s_count", val->name );
+X      printf( Shell[ UsrSh ].sclset, varname );
+X      printf( Shell[ UsrSh ].sclpfx );
+X      printf( "%d", val->value.Vector.count );
+X      printf( "%s", Shell[ UsrSh ].sclsfx );
+X      return;
+X   }
+X
+X      /* print the array already */
+X   if ( !set_printed )  {
+X      if ( cli == KSH ) {
+X         printf( Shell[ UsrSh ].aryset, ((ModArr) ? '+' : '-'), val->name );
+X      }
+X      else {
+X         printf( Shell[ UsrSh ].aryset, val->name );
+X      }
+X   }
+X   printf( Shell[ UsrSh ].arypfx );
+X   for ( i = 0 ; i < val->value.Vector.count ; i++ ) {
+X      put_arg( stdout, ad, val, i );
+X      if ( (i + 1)  !=  val->value.Vector.count ) {
+X         printf( Shell[ UsrSh ].arysep, FieldSep );
+X      }
+X   }
+X   printf( Shell[ UsrSh ].arysfx );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: print_args - print the shell variable settings for the usr args
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID print_args( vals, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   cmdarg_t *vals;
+X/*    -- the table of argument values.
+X*/
+X   ARGDESC *argd;
+X/*    -- the table of argument-descriptors.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Print_args prints the actual shell variable assignment statement(s) for
+X**    each argument found on the command line. If a command-line argument was
+X**    specified withch may take an optional value, then regargdless of whether
+X**    or not the optional value was supplied, the variable <name>_flag is set 
+X**    to the value indicated by StrTrue.
+X**
+X** ^REQUIREMENTS:
+X**    The argument values have already been set due to the fact that parseargs
+X**    should already have been invoked to parse the command-line
+X**
+X** ^SIDE-EFFECTS:
+X**    Variable assignment statements are printed on standard output.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - for each argument in the argument table
+X**      - if this argument was supplied on the command-line
+X**        - if the argument takes an optional value
+X**            then set argname_flag = TRUE
+X**        - if the argument is a vector
+X**          - call print_argvector to print the vector elements
+X**        - else
+X**          - print the beginning of the variable assignment statement for 
+X**            the shell indicated by UsrSh
+X**          - print the argument value using put_arg
+X**          - print the end of the variable assignment statement for the shell
+X**            indicated by UsrSh
+X**        end-if vector
+X**      end-if supplied
+X**    end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void print_args( const cmdarg_t *vals, const ARGDESC *argd )
+X#endif
+X{
+X   register CONST  ARGDESC *ad;
+X   register  int i;
+X   argName_t  buf;
+X
+X      /* print values for all options given */
+X   for ( ad = ARG_FIRST(argd), i = 0 ; !ARG_isEND(ad) ; ARG_ADVANCE(ad), i++ ) {
+X      if ( ARG_isGIVEN(ad) ) {
+X         /******************************************************************
+X         ** ^SECTION: ARGVALOPT
+X         **    Options that may take an optional argument need special
+X         **    consideration.  The shell programmer needs to know whether
+X         **    or not the option was given, and (if given) if it was
+X         **    accompanied by an argument. In order to accommodate this
+X         **    need, parseargs will set an additional shell variable for
+X         **    each argument that is given the ARGVALOPT flag if it is
+X         **    supplied on the command line regardless of whether or not
+X         **    it was accompanied by its optional argument.  If the user
+X         **    has defined an option which may optionally take an argument 
+X         **    and the option appears on the command line with or without
+X         **    its associated argument, then the shell variable <name>_flag
+X         **    will be assigned the value "TRUE" (or the value supplied with
+X         **    the -T option to parseargs) where <name> is the name of the
+X         **    shell variable associated with the option in the argument
+X         **    description string.
+X         ***^^*************************************************************/
+X         if ( ARG_isVALOPTIONAL(ad) ) {
+X            sprintf(buf, "%s_flag", vals[i].name);
+X            printf( Shell[ UsrSh ].sclset, buf);
+X            printf( Shell[ UsrSh ].sclpfx );
+X            printf( "%s%s", StrTrue, Shell[ UsrSh ].sclsfx );
+X
+X            if ( !ARG_isVALGIVEN(ad) )  continue;
+X         }/*if OPTARG*/
+X
+X            /* vectors are special */
+X         if ( ARG_isVEC(ad) ) {
+X            print_argvector( ad, (vals + i) );
+X            continue;
+X         }
+X
+X            /* print shell-specific variable prefix and name */
+X         printf( Shell[ UsrSh ].sclset, vals[i].name );
+X         printf( Shell[ UsrSh ].sclpfx );
+X
+X            /* print shell-variable value */
+X         put_arg( stdout, ad, (vals + i), 0 );
+X
+X            /* print the shell-specific suffix */
+X         printf( "%s", Shell[ UsrSh ].sclsfx );
+X      }/*if ARGGIVEN*/
+X   }/* end-for */
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: unset_positional_parameters - unset shell parameters
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static void unset_positional_parameters()
+X#endif
+X/*
+X** ^PARAMETERS:
+X**    None.
+X**
+X** ^DESCRIPTION:
+X**    Unset_positional_parameters will print (on standard output) the
+X**    shell commands to unset the positional parameters of the invoking
+X**    shell_script.
+X**
+X** ^REQUIREMENTS:
+X**    The currenty shell-type has already been determined.
+X**
+X** ^SIDE-EFFECTS:
+X**    Prints on stdout.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - Use the syntax of the current shell to unset the positional parameters
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static void unset_positional_parameters( void )
+X#endif
+X{
+X   printf( Shell[ UsrSh ].unset );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: ck_cmd_errs - check for command syntax errors
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static int ck_cmd_errs()
+X#endif
+X/*
+X** ^PARAMETERS:
+X**    None.
+X**
+X** ^DESCRIPTION:
+X**    Ck_cmd_errs will check for the improper specification of arguments
+X**    from the command-line.
+X**
+X** ^REQUIREMENTS:
+X**    The command-line should already have been parsed by parseargs(3)
+X**
+X** ^SIDE-EFFECTS:
+X**    - Exits the program if an error is encountered.
+X**    - Assigns any needed defaults for StrTrue and StrFalse.
+X**    - Gets the argd-string from an environment variable if needed
+X**      (or sets UseStdin if it is to be read from standard input)
+X**    - Determines the shell specified by the user (default=Bourne)
+X**
+X** ^RETURN-VALUE:
+X**    e_SUCCESS if everything checks out all right
+X**    Exits with one of the following exit-codes upon failure:
+X**
+X**      e_SYNTAX : command-line sytntax error
+X**
+X**      e_NOENV : AN environment variable was "purported" to contain the
+X**                description string that describes all the arguments but
+X**                upon examination, the variable was unset or empty.
+X**
+X** ^ALGORITHM:
+X**    - make sure only one of '-a', '-e', and '-f' was given
+X**    - turn OFF UseStdin if any of the above were given
+X**    - make sure only one of '-l' and '-o' was given
+X**    - if '-e' was specified, read the environment-variable and
+X**      make sure it is non-NULL and non-empty
+X**    - assign default values for StrTrue and StrFalse if they were not
+X**      supplied on the command-line
+X**    - determine the type of the user's shell
+X**    - return
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static int ck_cmd_errs( void )
+X#endif
+X{
+X      /* make sure certain arg-combos were NOT used */
+X   if ( (ArgdString && (ArgdFname || ArgdEnv)) || (ArgdFname && ArgdEnv) )  {
+X      eprintf( "%s: only one of `-a', `-e', or `-f' may be given.\n\n",
+X               Cmd_Name );
+X      usage( Args );
+X      exit( e_SYNTAX );
+X   }
+X
+X      /* make sure at least ONE of KeyWords and Options are enabled */
+X   if ( OptsOnly  &&  KwdsOnly ) {
+X      eprintf( "%s: only one of `-o' or `l' may be given.\n\n",
+X               Cmd_Name );
+X      exit( e_SYNTAX );
+X   }
+X
+X      /* turn OFF UseStdin if `-a', `-e', or `-f' was given */
+X   if (ArgdString || ArgdEnv || ArgdFname)
+X      UseStdin = FALSE;
+X
+X      /* get the argd-string from an environment variable if so specified */
+X   if ( ArgdEnv ) {
+X      ArgdString = getenv( ArgdEnv );
+X      if ( !ArgdString   ||   !*ArgdString ) {
+X         eprintf( "%s: variable \"%s\" is NULL or does not exist\n",
+X                  Cmd_Name, ArgdEnv);
+X         exit( e_NOENV );
+X      }
+X   }
+X
+X      /* set up default boolean value strings if needed */
+X   if ( !StrTrue ) {
+X      StrTrue  = (char *)Default_StrTrue;
+X   }
+X   if ( !StrFalse ) {
+X      StrFalse = (char *)Default_StrFalse;
+X   }
+X
+X      /* see if we need to "default" the shell name */
+X   if ( !PrUsage   &&   !PrManual ) {
+X      if ( !ShellName ) {
+X         UsrSh = get_shell_index( "sh" );  /* default to Bourne Shell */
+X      }
+X      else {
+X         UsrSh = get_shell_index( basename( ShellName ) );
+X      }
+X   }
+X
+X      /* everything is a-ok */
+X   return   e_SUCCESS;
+X} /* ck_cmd_errs */
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: main
+X**
+X** ^SYNOPSIS:
+X**    main( argc, argv )
+X**
+X** ^PARAMETERS:
+X**    int argc;
+X**    -- the number of arguments on the command-line
+X**
+X**    char *argv[];
+X**    -- the NULL terminated vector of arguments from the command-line
+X**       (the first of which is the name of the paraseargs(1) command).
+X**
+X** ^DESCRIPTION:
+X**    This is the main program for parseargs(1). It parses the user's command-
+X**    line and outputs the approriate variable assignment statements (or prints
+X**    a usage message or manual template).
+X**
+X** ^REQUIREMENTS:
+X**    All the static local variables that are used to define the argument
+X**    table and the values it points to (for parseargs(1) not for the user's
+X**    command) should be properly initialized).
+X**
+X** ^SIDE-EFFECTS:
+X**    Shell variable assignment statements, A usage message, or a manual
+X**    page template is printed on standard output. Any diagnostic messages
+X**    are printed on standard error.
+X**
+X** ^RETURN-VALUE:
+X**    Execution is terminated and the corresponding exit-code is returned
+X**    to the calling progarm (see the RETURN-CODES section).
+X**
+X** ^ALGORITHM:
+X**    - save the name of this program
+X**    - parse the command-line
+X**    - read the argument descriptor string into memory (if needed)
+X**    - build the argument and value tables
+X**    - set ProgName to the name of the user's program
+X**    - if need to print usage, then do so and exit with status e_USAGE
+X**    - if need to print manual template, then do so, exit-status=e_USAGE
+X**    - modify parsing-behavior as specified on the command-line
+X**    - parse the user's command-line arguments
+X**    - unset the positional parameters if required
+X**    - print thye resulting shell variable assignments
+X**    - deallocate any remaining storage
+X**    - exit, status=e_SUCCESS
+X***^^**********************************************************************/
+XMAIN( argc, argv )
+X{
+X   int  rc;
+X   argMask_t   flags = pa_ARGV0;
+X
+X   Cmd_Name = *argv = basename( *argv );
+X
+X      /* parse command-line */
+X   parseargs( argv, Args );
+X
+X      /* see if there is any reason to exit now */
+X   (VOID) ck_cmd_errs();
+X
+X      /* set desired option-syntax */
+X   if ( KwdsOnly )   BSET(flags, pa_KWDSONLY);
+X   if ( OptsOnly )   BSET(flags, pa_OPTSONLY);
+X
+X      /* if needed - allocate and read in the argument descriptor string */
+X   if ( !ArgdString ) {
+X      ArgdString = get_argtable_string();
+X      if ( ArgdString ) {
+X         strrtrim( ArgdString, WhiteSpace );
+X         if ( !*ArgdString )   ArgdString = CHARNULL;
+X      }
+X   }
+X
+X      /* fill in the argument tables from the environment variable */
+X   if ( ArgdString )   UsrArgc = build_tables( ArgdString );
+X
+X      /* if no arguments or options taken, use NULL */
+X   if ( !UsrArgc )   UsrArgd = ARGDESCNULL;
+X
+X   ProgName = UsrName;      /* set up program name */
+X   ProgNameLen = strlen(ProgName);
+X
+X   if ( PrUsage ) {   /* just print usage and exit */
+X      usage( UsrArgd );
+X   }
+X   else if ( PrManual ) { /* print man pages and exit */
+X      manpage( UsrArgd );
+X      exit( e_USAGE );
+X   }
+X   else {   /* parse callers command-line & print variable settings */
+X      if ( Prompt )    BSET(flags, pa_PROMPT);
+X      if ( Ignore )    BSET(flags, pa_IGNORE);
+X      if ( AnyCase )   BSET(flags, pa_ANYCASE);
+X      if ( Flags1st )  BSET(flags, pa_FLAGS1ST);
+X      if ( flags )  (VOID) parsecntl( UsrArgd, pc_PARSEFLAGS, pc_WRITE, flags );
+X
+X#if ( 0 == 1 )
+X      /* for TCL only -- send stderr to stdout */
+X      if ( UsrSh == TCL ) {
+X         close( fileno(stderr) );
+X         dup( fileno(stdout) );
+X      }
+X#endif
+X
+X      if ( (rc = parseargs( UsrArgv.array, UsrArgd )) != 0 ) {
+X         if ( rc > 0 ) {
+X            rc = e_SYNTAX;
+X         }
+X         else {  /* (rc < 0) means a system error */
+X            cleanup();
+X            if ( errno )  perror( UsrName );
+X            exit( e_SYSTEM );
+X         }
+X      }/*if*/
+X
+X      if ( Unset )  unset_positional_parameters();
+X
+X      print_args( UsrVals, UsrArgd );
+X   }
+X
+X   cleanup();
+X   exit( rc );
+X} /* main */
+END_OF_FILE
+if test 75730 -ne `wc -c <'parseargs.c'`; then
+    echo shar: \"'parseargs.c'\" unpacked with wrong size!
+fi
+# end of 'parseargs.c'
+fi
+echo shar: End of archive 10 \(of 10\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

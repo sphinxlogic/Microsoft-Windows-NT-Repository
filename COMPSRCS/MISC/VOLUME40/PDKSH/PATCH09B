@@ -1,0 +1,1855 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject: v40i007:  pdksh -  Public Domain Korn Shell, v4, Patch09b/2
+Message-ID: <1993Oct11.034548.23439@sparky.sterling.com>
+X-Md4-Signature: bf18c9bcaaf4e2e8d7018e8a0bdb8d51
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 11 Oct 1993 03:45:48 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 40, Issue 7
+Archive-name: pdksh/patch09b
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+This is patch09 to pd-ksh version 4.  It is in two parts, so
+be sure to apply both before attempting to re-build.
+
+start of patch 29-Sep-1993b
+(suggested archive name: pch29Sep93b.Z)
+It should be applied by changing directory to the root
+of the source tree and using the command:
+	patch -p0 < patch09a
+	patch -p0 < patch09b
+
+The following is a complete list of patches to date.
+
+# PD ksh Version 4
+Prereq: 09-Nov-91
+Prereq: 10-Nov-91
+Prereq: 25-Nov-91
+Prereq: 25-Apr-92
+Prereq: 26-Apr-92
+Prereq: 27-Apr-92
+Prereq: 12-May-92
+Prereq: 02-Aug-92
+Prereq: 12-Aug-92
+Prereq: 05-Dec-92
+Prereq: 29-Sep-1993
+*** PATCHDATES.old	Wed Sep 29 08:42:18 1993
+--- PATCHDATES	Wed Sep 29 08:59:56 1993
+***************
+*** 10,12 ****
+--- 10,13 ----
+  12-Aug-92
+  05-Dec-92
+  29-Sep-1993
++ 29-Sep-1993b
+*** sh/proto.h.old	Sat Dec  5 23:42:03 1992
+--- sh/proto.h	Thu May  6 07:16:44 1993
+***************
+*** 1,7 ****
+  /*
+   * prototypes for PD-KSH
+   * originally generated using "cproto.c 3.5 92/04/11 19:28:01 cthuang "
+!  * $Id: proto.h,v 1.2 1992/08/10 12:03:05 sjg Exp $
+   */
+  #ifndef ARGS
+  #if defined(__STDC__) || defined(__cplusplus)
+--- 1,7 ----
+  /*
+   * prototypes for PD-KSH
+   * originally generated using "cproto.c 3.5 92/04/11 19:28:01 cthuang "
+!  * $Id: proto.h,v 1.3 93/05/05 21:16:58 sjg Exp $
+   */
+  #ifndef ARGS
+  #if defined(__STDC__) || defined(__cplusplus)
+*** sh/sh.h.old	Thu Aug 13 00:15:34 1992
+--- sh/sh.h	Thu May  6 07:16:46 1993
+***************
+*** 2,8 ****
+   * Public Domain Bourne/Korn shell
+   */
+  
+! /* $Id: sh.h,v 1.5 1992/08/12 14:15:48 sjg Exp $ */
+  
+  #include "config.h"
+  
+--- 2,8 ----
+   * Public Domain Bourne/Korn shell
+   */
+  
+! /* $Id: sh.h,v 1.6 93/05/05 21:17:00 sjg Exp $ */
+  
+  #include "config.h"
+  
+*** sh/sigact.h.old	Mon Aug  3 22:51:06 1992
+--- sh/sigact.h	Thu May  6 07:16:50 1993
+***************
+*** 2,62 ****
+   *      sigact.h - sigaction et al
+   *
+   * SYNOPSIS:
+!  *      #include <signal.h>
+!  *      #ifndef  SA_NOCLDSTOP
+!  *      # include "sigact.h"
+!  *      #endif
+   *
+   * DESCRIPTION:
+!  *      This header is the interface to a fake sigaction(2) implementation.  
+!  *      Do NOT include this header unless your system does not 
+!  *      have a real sigaction(2) implementation.
+   */
+  /*
+!  * $Log: sigact.h,v $
+!  * Revision 1.2  1992/04/24  15:04:11  sjg
+!  * now compiles with cc
+!  *
+!  * Revision 1.1  1992/04/24  12:01:38  sjg
+!  * Initial revision
+!  *
+   */
+- 
+  #ifndef _SIGACT_H
+  #define _SIGACT_H
+  
+! #ifndef ARGS
+! # if defined(__STDC__)
+! #   define ARGS(p) p
+! # else
+! #   define ARGS(p) ()
+! # endif
+  #endif
+! #ifndef __STDC__
+! # define volatile			/* can change without warning */
+  # define const				/* read only */
+  #endif
+  
+  #ifndef SIGKILL
+  # include <signal.h>
+  #endif
+  #ifndef SA_NOCLDSTOP
+  /* sa_flags */
+! #define	SA_NOCLDSTOP	0x0001		/* don't send SIGCHLD on child stop */
+! #define SA_RESTART	0x0002		/* re-start I/O */
+  
+  /* sigprocmask flags */
+! #define	SIG_BLOCK	0x0001
+! #define	SIG_UNBLOCK	0x0002
+! #define	SIG_SETMASK	0x0004
+  
+! #ifndef __sys_stdtypes_h
+! typedef int sigset_t;
+  #endif
+! 
+  struct sigaction
+  {
+!   void		(*sa_handler)();
+    sigset_t	sa_mask;
+    int		sa_flags;
+  };
+--- 2,90 ----
+   *      sigact.h - sigaction et al
+   *
+   * SYNOPSIS:
+!  *      #include "sigact.h"
+   *
+   * DESCRIPTION:
+!  *      This header is the interface to a fake sigaction(2) 
+!  *      implementation. It provides a POSIX compliant interface 
+!  *      to whatever signal handling mechanisms are available.
+!  *      It also provides a Signal() function that is implemented 
+!  *      in terms of sigaction().
+!  *      If not using signal(2) as part of the underlying 
+!  *      implementation (USE_SIGNAL or USE_SIGMASK), and 
+!  *      NO_SIGNAL is not defined, it also provides a signal() 
+!  *      function that calls Signal(). 
+!  *      
+!  * SEE ALSO:
+!  *      sigact.c
+   */
+  /*
+!  * RCSid:
+!  *      $Id: sigact.h,v 1.5 93/05/05 21:17:04 sjg Exp $
+   */
+  #ifndef _SIGACT_H
+  #define _SIGACT_H
+  
+! /*
+!  * most modern systems use void for signal handlers but
+!  * not all.
+!  */
+! #ifndef SIG_HDLR
+! # define SIG_HDLR void
+  #endif
+! 
+! #undef ARGS
+! #if defined(__STDC__) || defined(__cplusplus)
+! # define ARGS(p) p
+! #else
+! # define ARGS(p) ()
+! # define volatile			/* don't optimize please */
+  # define const				/* read only */
+  #endif
+  
++ SIG_HDLR (*Signal	ARGS((int sig, SIG_HDLR (*disp)(int)))) ARGS((int)); 
++ 
++ /*
++  * if you want to install this header as signal.h,
++  * modify this to pick up the original signal.h
++  */
+  #ifndef SIGKILL
+  # include <signal.h>
+  #endif
++   
++ #ifndef SIG_ERR
++ # define SIG_ERR  (SIG_HDLR (*)())-1
++ #endif
++ #ifndef BADSIG
++ # define BADSIG  SIG_ERR
++ #endif
++     
+  #ifndef SA_NOCLDSTOP
++ /* we assume we need the fake sigaction */
+  /* sa_flags */
+! #define	SA_NOCLDSTOP	1		/* don't send SIGCHLD on child stop */
+! #define SA_RESTART	2		/* re-start I/O */
+  
+  /* sigprocmask flags */
+! #define	SIG_BLOCK	1
+! #define	SIG_UNBLOCK	2
+! #define	SIG_SETMASK	4
+  
+! /*
+!  * this is a bit untidy
+!  */
+! #if !defined(__sys_stdtypes_h)
+! typedef unsigned int sigset_t;
+  #endif
+!   
+! /*
+!  * POSIX sa_handler should return void, but since we are
+!  * implementing in terms of something else, it may
+!  * be appropriate to use the normal SIG_HDLR return type
+!  */
+  struct sigaction
+  {
+!   SIG_HDLR	(*sa_handler)();
+    sigset_t	sa_mask;
+    int		sa_flags;
+  };
+***************
+*** 69,79 ****
+  int	sigfillset	ARGS(( sigset_t *mask ));
+  int	sigismember	ARGS(( sigset_t *mask, int sig ));
+  int	sigpending	ARGS(( sigset_t *set ));
+! int	sigprocmask	ARGS(( int how, sigset_t *set, sigset_t *oldset ));
+  int	sigsuspend	ARGS(( sigset_t *mask ));
+! 
+  #ifndef sigmask
+! #define sigmask(m)	(1<<((m)-1))	/* convert SIGnum to mask */
+  #endif
+  #if !defined(NSIG) && defined(_NSIG)
+  # define NSIG _NSIG
+--- 97,107 ----
+  int	sigfillset	ARGS(( sigset_t *mask ));
+  int	sigismember	ARGS(( sigset_t *mask, int sig ));
+  int	sigpending	ARGS(( sigset_t *set ));
+! int	sigprocmask	ARGS(( int how, sigset_t *set, sigset_t *oset ));
+  int	sigsuspend	ARGS(( sigset_t *mask ));
+! 	
+  #ifndef sigmask
+! # define sigmask(s)	(1<<((s)-1))	/* convert SIGnum to mask */
+  #endif
+  #if !defined(NSIG) && defined(_NSIG)
+  # define NSIG _NSIG
+***************
+*** 80,88 ****
+  #endif
+  #endif /* ! SA_NOCLDSTOP */
+  #endif /* _SIGACT_H */
+- /*
+-  * Local Variables:
+-  * version-control:t
+-  * comment-column:40
+-  * End:
+-  */
+--- 108,110 ----
+*** sh/sigact.c.old	Sun May  3 18:28:56 1992
+--- sh/sigact.c	Sun May  9 01:59:52 1993
+***************
+*** 2,11 ****
+   *      sigact.c - fake sigaction(2)
+   *
+   * SYNOPSIS:
+!  *      #include <signal.h>
+!  *      #ifndef  SA_NOCLDSTOP
+!  *      # include "sigact.h"
+!  *      #endif
+   * 
+   *      int sigaction(int sig, struct sigaction *act, 
+   *                      struct sigaction *oact);
+--- 2,8 ----
+   *      sigact.c - fake sigaction(2)
+   *
+   * SYNOPSIS:
+!  *      #include "sigact.h"
+   * 
+   *      int sigaction(int sig, struct sigaction *act, 
+   *                      struct sigaction *oact);
+***************
+*** 15,52 ****
+   *      int sigfillset(sigset_t *mask);
+   *      int sigismember(sigset_t *mask, int sig);
+   *      int sigpending(sigset_t *set);
+!  *      int sigprocmask(int how, sigset_t *set, sigset_t *oldset);
+   *      int sigsuspend(sigset_t *mask);
+   *
+   * DESCRIPTION:
+   *      This is a fake sigaction implementation.  It uses 
+!  *      sigset(2) if available, otherwise it just uses 
+!  *      signal(2).  If it thinks sigaction(2) really exists it 
+!  *      compiles to almost nothing.
+!  *      
+!  *      The need for all this is the problems caused by mixing 
+!  *      signal handling routines in the one process.  This 
+!  *      module allows for a consistent POSIX compliant interface 
+!  *      to whatever is available.
+!  *
+   * RETURN VALUE:
+   *      0==success, -1==failure
+   *
+-  * FILES:
+-  *      None.
+-  *
+-  * SEE ALSO:
+-  *      
+-  *
+   * BUGS:
+   *      Since we fake most of this, don't expect fancy usage to 
+   *      work.
+!  *      
+!  * COPYRIGHT:
+   *      @(#)Copyright (c) 1992 Simon J. Gerraty
+   *
+   *      This is free software.  It comes with NO WARRANTY.
+!  *      Permission to use, modify and distribute this source code 
+   *      is granted subject to the following conditions.
+   *      1/ that that the above copyright notice and this notice 
+   *      are preserved in all copies and that due credit be given 
+--- 12,113 ----
+   *      int sigfillset(sigset_t *mask);
+   *      int sigismember(sigset_t *mask, int sig);
+   *      int sigpending(sigset_t *set);
+!  *      int sigprocmask(int how, sigset_t *set, sigset_t *oset);
+   *      int sigsuspend(sigset_t *mask);
++  *      
++  *      SIG_HDLR (*Signal(int sig, SIG_HDLR (*disp)(int)))(int);
+   *
+   * DESCRIPTION:
+   *      This is a fake sigaction implementation.  It uses 
+!  *      sigsetmask(2) et al or sigset(2) and friends if 
+!  *      available, otherwise it just uses signal(2).  If it 
+!  *      thinks sigaction(2) really exists it compiles to "almost" 
+!  *      nothing. 
+!  *      
+!  *      In any case it provides a Signal() function that is 
+!  *      implemented in terms of sigaction().
+!  *      If not using signal(2) as part of the underlying 
+!  *      implementation (USE_SIGNAL or USE_SIGMASK), and 
+!  *      NO_SIGNAL is not defined, it also provides a signal() 
+!  *      function that calls Signal(). 
+!  *
+!  *      The need for all this mucking about is the problems 
+!  *      caused by mixing various signal handling mechanisms in 
+!  *      the one process.  This module allows for a consistent 
+!  *      POSIX compliant interface to whatever is actually 
+!  *      available. 
+!  *      
+!  *      sigaction() allows the caller to examine and/or set the 
+!  *      action to be associated with a given signal. "act" and 
+!  *      "oact" are pointers to 'sigaction structs':
+!  *.nf
+!  * 
+!  *      struct sigaction 
+!  *      {
+!  *             SIG_HDLR  (*sa_handler)();
+!  *             sigset_t  sa_mask;
+!  *             int       sa_flags;
+!  *      };
+!  *.fi
+!  * 
+!  *      SIG_HDLR is normally 'void' in the POSIX implementation 
+!  *      and for most current systems.  On some older UNIX 
+!  *      systems, signal handlers do not return 'void', so  
+!  *      this implementation keeps 'sa_handler' inline with the 
+!  *      hosts normal signal handling conventions.
+!  *      'sa_mask' controls which signals will be blocked while 
+!  *      the selected signal handler is active.  It is not used 
+!  *      in this implementation.
+!  *      'sa_flags' controls various semantics such as whether 
+!  *      system calls should be automagically restarted 
+!  *      (SA_RESTART) etc.  It is not used in this 
+!  *      implementation. 
+!  *      Either "act" or "oact" may be NULL in which case the 
+!  *      appropriate operation is skipped.
+!  *      
+!  *      sigaddset() adds "sig" to the sigset_t pointed to by "mask".
+!  *      
+!  *      sigdelset() removes "sig" from the sigset_t pointed to 
+!  *      by "mask". 
+!  *      
+!  *      sigemptyset() makes the sigset_t pointed to by "mask" empty.
+!  *      
+!  *      sigfillset() makes the sigset_t pointed to by "mask" 
+!  *      full ie. match all signals.
+!  *      
+!  *      sigismember() returns true if "sig" is found in "*mask".
+!  *      
+!  *      sigpending() is supposed to return "set" loaded with the 
+!  *      set of signals that are blocked and pending for the 
+!  *      calling process.  It does nothing in this impementation.
+!  *      
+!  *      sigprocmask() is used to examine and/or change the 
+!  *      signal mask for the calling process.  Either "set" or 
+!  *      "oset" may be NULL in which case the appropriate 
+!  *      operation is skipped.  "how" may be one of SIG_BLOCK, 
+!  *      SIG_UNBLOCK or SIG_SETMASK.  If this package is built 
+!  *      with USE_SIGNAL, then this routine achieves nothing.
+!  *      
+!  *      sigsuspend() sets the signal mask to "*mask" and waits 
+!  *      for a signal to be delivered after which the previous 
+!  *      mask is restored.
+!  *      
+!  *      
+   * RETURN VALUE:
+   *      0==success, -1==failure
+   *
+   * BUGS:
+   *      Since we fake most of this, don't expect fancy usage to 
+   *      work.
+!  *
+!  * AUTHOR:
+!  *      Simon J. Gerraty <sjg@zen.void.oz.au>
+!  */     
+! /* COPYRIGHT:
+   *      @(#)Copyright (c) 1992 Simon J. Gerraty
+   *
+   *      This is free software.  It comes with NO WARRANTY.
+!  *      Permission to use, modify and distribute this source code
+   *      is granted subject to the following conditions.
+   *      1/ that that the above copyright notice and this notice 
+   *      are preserved in all copies and that due credit be given 
+***************
+*** 60,93 ****
+   *
+   */
+  #ifndef lint
+! static char  *RCSid = "$Id: sigact.c,v 1.5 1992/05/03 08:29:10 sjg Exp $";
+  #endif
+- /*
+-  * $Log: sigact.c,v $
+-  * Revision 1.5  1992/05/03  08:29:10  sjg
+-  * Update for Patch05
+-  *
+-  * Revision 1.4  1992/04/29  06:29:13  sjg
+-  * avoid use of #pragma
+-  *
+-  * Revision 1.3  1992/04/26  11:24:43  sjg
+-  * USE_SIGSET corrected in sigsuspend().
+-  *
+-  * Revision 1.2  1992/04/24  15:04:11  sjg
+-  * now compiles with cc
+-  *
+-  * Revision 1.1  1992/04/24  12:03:58  sjg
+-  * Initial revision
+-  *
+-  */
+  
+  #include <signal.h>
+  
+  /*
+   * some systems have a faulty sigaction() implementation!
+   * Allow us to bypass it.
+   */
+! #if !defined(SA_NOCLDSTOP) || defined(USE_SIGNAL) || defined(USE_SIGSET) || defined(USE_SIGMASK)
+  
+  /*
+   * if we haven't been told,
+--- 121,147 ----
+   *
+   */
+  #ifndef lint
+! static char  *RCSid = "$Id: sigact.c,v 1.10 93/05/08 16:00:06 sjg Exp $";
+  #endif
+  
+  #include <signal.h>
+  
++ #ifndef __P
++ # if defined(__STDC__) || defined(__cplusplus)
++ #   define	__P(p)	p
++ # else
++ #   define	__P(p)	p
++ # endif
++ #endif
++ 
++ 
+  /*
+   * some systems have a faulty sigaction() implementation!
+   * Allow us to bypass it.
++  * Or they may have installed sigact.h as signal.h which is why 
++  * we have SA_NOCLDSTOP defined.
+   */
+! #if !defined(SA_NOCLDSTOP) || defined(_SIGACT_H) || defined(USE_SIGNAL) || defined(USE_SIGSET) || defined(USE_SIGMASK)
+  
+  /*
+   * if we haven't been told,
+***************
+*** 113,126 ****
+  
+  #include "sigact.h"
+  
+! 
+  
+  int
+  sigaction(sig, act, oact)
+    int sig;
+    struct sigaction *act, *oact;
+  {
+!   void (*oldh)();
+  
+    if (act)
+    {
+--- 167,184 ----
+  
+  #include "sigact.h"
+  
+! /*
+!  * in case signal() has been mapped to our Signal().
+!  */
+! #undef signal
+  
++  
+  int
+  sigaction(sig, act, oact)
+    int sig;
+    struct sigaction *act, *oact;
+  {
+!   SIG_HDLR (*oldh)();
+  
+    if (act)
+    {
+***************
+*** 139,145 ****
+  #else
+        oldh = signal(sig, SIG_IGN);
+  #endif
+!       if (oldh != SIG_IGN)
+        {
+  #ifdef USE_SIGSET
+  	(void) sigset(sig, oldh);
+--- 197,203 ----
+  #else
+        oldh = signal(sig, SIG_IGN);
+  #endif
+!       if (oldh != SIG_IGN && oldh !=  SIG_ERR)
+        {
+  #ifdef USE_SIGSET
+  	(void) sigset(sig, oldh);
+***************
+*** 156,161 ****
+--- 214,220 ----
+    return 0;				/* hey we're faking it */
+  }
+  
++ 
+  int
+  sigaddset(mask, sig)
+    sigset_t *mask;
+***************
+*** 207,234 ****
+  sigpending(set)
+    sigset_t *set;
+  {
+!   return 0;
+  }
+  
+  
+  int
+! sigprocmask(how, set, oldset)
+    int how;
+!   sigset_t *set, *oldset;
+  {
+  #ifdef USE_SIGSET
+    register int i;
+  #endif
+!   sigset_t sm;
+  
+  #ifdef USE_SIGMASK
+!   sm = sigblock(0);
+  #else
+!   sm = 0;
+  #endif
+    
+!   if (oldset)
+!     *oldset = sm;	/* dangerous ? */
+    if (set)
+    {
+      switch (how)
+--- 266,303 ----
+  sigpending(set)
+    sigset_t *set;
+  {
+!   return 0;				/* faking it! */
+  }
+  
+  
+  int
+! sigprocmask(how, set, oset)
+    int how;
+!   sigset_t *set, *oset;
+  {
+  #ifdef USE_SIGSET
+    register int i;
+  #endif
+!   static sigset_t sm;
+!   static int once = 0;
+  
++   if (!once)
++   {
++     /*
++      * initally we clear sm,
++      * there after, it represents the last
++      * thing we did.
++      */
++     once++;
+  #ifdef USE_SIGMASK
+!     sm = sigblock(0);
+  #else
+!     sm = 0;
+  #endif
++   }
+    
+!   if (oset)
+!     *oset = sm;
+    if (set)
+    {
+      switch (how)
+***************
+*** 271,295 ****
+  sigsuspend(mask)
+    sigset_t *mask;
+  {
+! #ifdef USE_SIGSET
+!   int sig = SIGCHLD;			/* our default */
+!   
+    /*
+!    * add as many tests as you think sensible, but
+!    * SIGALRM, and SIGCHLD are probably the most
+!    * common.
+     */
+!   if (*mask & sigmask(SIGALRM))
+!     sig = SIGALRM;
+!   else
+!     if (*mask & sigmask(SIGPIPE))
+!       sig = SIGPIPE;
+!   sigpause(sig);
+! #else
+! # ifdef USE_SIGMASK
+!   sigpause(mask);
+! # else
+!   pause();
+  # endif
+  #endif
+    return 0;
+--- 340,379 ----
+  sigsuspend(mask)
+    sigset_t *mask;
+  {
+! #ifdef USE_SIGMASK
+!   sigpause(mask);
+! #else
+!   register int i;
+! 
+! # ifdef USE_SIGSET
+! 
+!   for (i = 1; i < NSIG; i++)
+!   {
+!     if (*mask & sigmask(i))
+!     {
+!       /* not the same sigpause() as above! */
+!       sigpause(i);			
+!       break;
+!     }
+!   }
+! # else /* signal(2) only */
+!   SIG_HDLR (*oldh)();
+! 
+    /*
+!    * make sure that signals in mask will not
+!    * be ignored.
+     */
+!   for (i = 1; i < NSIG; i++)
+!   {
+!     if (*mask & sigmask(i))
+!     {
+!       if ((oldh = signal(i, SIG_DFL)) !=  SIG_ERR &&
+! 	  oldh != SIG_IGN &&
+! 	  oldh != SIG_DFL)
+! 	(void) signal(i, oldh);		/* restore handler */
+!     }
+!   }
+!   pause();				/* wait for a signal */
+  # endif
+  #endif
+    return 0;
+***************
+*** 297,302 ****
+--- 381,423 ----
+  
+  #endif /* ! SA_NOCLDSTOP */
+  
++ #if !defined(SIG_HDLR)
++ # define SIG_HDLR void
++ #endif
++ #if !defined(SIG_ERR)
++ # define SIG_ERR	(SIG_HDLR (*)())-1
++ #endif
++ 
++ /*
++  * an implementation of signal() using sigaction().
++  */
++ 
++ SIG_HDLR (*Signal(sig, handler)) __P((int))
++   int sig;
++   SIG_HDLR (*handler) __P((int));
++ {
++   struct sigaction act, oact;
++ 
++   act.sa_handler = handler;
++   sigemptyset(&act.sa_mask);
++   act.sa_flags = 0;
++   if (sigaction(sig, &act, &oact) < 0)
++     return (SIG_ERR);
++   return (oact.sa_handler);
++ }
++ 
++ #if !defined(USE_SIGNAL) && !defined(USE_SIGMASK) && !defined(NO_SIGNAL)
++ /*
++  * ensure we avoid signal mayhem
++  */
++ 
++ SIG_HDLR (*signal(sig, handler)) __P((int))
++   int sig;
++   SIG_HDLR (*handler) __P((int));
++ {
++   return (Signal(sig, handler));
++ }
++ #endif
+  
+  /* This lot (for GNU-Emacs) goes at the end of the file. */
+  /* 
+*** sh/syn.c.old	Mon Aug 10 22:02:56 1992
+--- sh/syn.c	Thu May  6 07:16:52 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: syn.c,v 1.3 1992/08/10 12:03:10 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: syn.c,v 1.4 93/05/05 21:17:06 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/table.c.old	Sat Apr 25 18:33:14 1992
+--- sh/table.c	Thu May  6 07:16:54 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char *RCSid = "$Id: table.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  /*
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: table.c,v 1.3 93/05/05 21:17:08 sjg Exp $";
+  #endif
+  
+  /*
+*** sh/table.h.old	Thu Aug 13 00:15:36 1992
+--- sh/table.h	Thu May  6 07:16:56 1993
+***************
+*** 1,4 ****
+! /* $Id: table.h,v 1.4 1992/08/12 14:15:50 sjg Exp $ */
+  
+  /*
+   * generic hashed associative table for commands and variables.
+--- 1,4 ----
+! /* $Id: table.h,v 1.5 93/05/05 21:17:10 sjg Exp $ */
+  
+  /*
+   * generic hashed associative table for commands and variables.
+*** sh/trap.c.old	Mon Aug 10 22:03:01 1992
+--- sh/trap.c	Thu May  6 07:16:58 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 1.3 1992/08/10 12:03:15 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 1.4 93/05/05 21:17:12 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/tree.c.old	Sat Apr 25 18:33:14 1992
+--- sh/tree.c	Thu May  6 07:17:00 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: tree.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: tree.c,v 1.3 93/05/05 21:17:14 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/tree.h.old	Mon Aug 10 22:03:04 1992
+--- sh/tree.h	Thu May  6 07:17:02 1993
+***************
+*** 2,8 ****
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 1.3 1992/08/10 12:03:18 sjg Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+--- 2,8 ----
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 1.4 93/05/05 21:17:16 sjg Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+*** sh/tty.h.old	Mon Aug 10 22:03:09 1992
+--- sh/tty.h	Sun May  9 01:59:54 1993
+***************
+*** 6,37 ****
+  	last edit:	30-Jul-1987	D A Gwyn
+  */
+  
+- #if _BSD_SYSV			/* BRL UNIX System V emulation */
+- #include <termio.h>	/* includes <sys/_ioctl.h> */
+- #ifndef NTTYDISC
+- #define	TIOCGETD	_IOR( 't', 0, int )
+- #define	TIOCSETD	_IOW( 't', 1, int )
+- #define	NTTYDISC	2
+- #endif
+- #ifndef TIOCSTI
+- #define	TIOCSTI		_IOW( 't', 114, char )
+- #endif
+- #ifndef TIOCSPGRP
+- #define	TIOCSPGRP	_IOW( 't', 118, int )
+- #endif
+- #else	/* !_BSD_SYSV */
+- #if _BSD
+- #ifdef _MINIX
+- #include <sgtty.h>
+- #define TIOCSETN	TIOCSETP
+- #else
+- #include <sys/ioctl.h>
+- #endif
+- #else
+  #ifdef	_POSIX_TERM
+! #include <termios.h>
+  #else
+! #include <termio.h>
+! #endif
+! #endif
+! #endif	/* _BSD_SYSV */
+--- 6,37 ----
+  	last edit:	30-Jul-1987	D A Gwyn
+  */
+  
+  #ifdef	_POSIX_TERM
+! # include <termios.h>
+  #else
+! # if _BSD_SYSV			/* BRL UNIX System V emulation */
+! #   include <termio.h>	/* includes <sys/_ioctl.h> */
+! #   ifndef NTTYDISC
+! #     define	TIOCGETD	_IOR( 't', 0, int )
+! #     define	TIOCSETD	_IOW( 't', 1, int )
+! #     define	NTTYDISC	2
+! #   endif
+! #   ifndef TIOCSTI
+! #     define	TIOCSTI		_IOW( 't', 114, char )
+! #   endif
+! #   ifndef TIOCSPGRP
+! #     define	TIOCSPGRP	_IOW( 't', 118, int )
+! #   endif
+! # else	/* !_BSD_SYSV */
+! #   if _BSD
+! #     ifdef _MINIX
+! #       include <sgtty.h>
+! #       define TIOCSETN	TIOCSETP
+! #     else
+! #       include <sys/ioctl.h>
+! #     endif
+! #   else
+! #     include <termio.h>
+! #   endif
+! # endif	/* _BSD_SYSV */
+! #endif /* _POSIX_TERM */
+*** sh/do_ulimit.c.old	Mon Aug 10 22:02:09 1992
+--- sh/do_ulimit.c	Thu May  6 07:16:07 1993
+***************
+*** 13,19 ****
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: do_ulimit.c,v 1.3 1992/08/10 12:02:23 sjg Exp $";
+  #endif
+  
+  #ifdef _BSDI
+--- 13,19 ----
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: do_ulimit.c,v 1.4 93/05/05 21:16:21 sjg Exp $";
+  #endif
+  
+  #ifdef _BSDI
+*** sh/var.c.old	Mon Aug 10 22:03:11 1992
+--- sh/var.c	Thu May  6 07:17:03 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 1.3 1992/08/10 12:03:25 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 1.4 93/05/05 21:17:17 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/version.c.old	Sun Dec  6 00:15:41 1992
+--- sh/version.c	Thu May  6 07:17:05 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.7 1992/12/05 13:15:55 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.8 93/05/05 21:17:19 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/vi.c.old	Mon Aug 10 22:03:17 1992
+--- sh/vi.c	Tue Jun  1 22:10:57 1993
+***************
+*** 9,15 ****
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 1.3 1992/08/10 12:03:31 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 9,15 ----
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 1.4 93/05/05 21:17:22 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** std/Makefile.old	Sat Apr 25 18:18:12 1992
+--- std/Makefile	Thu May  6 07:17:21 1993
+***************
+*** 1,7 ****
+  #
+  # Makefile for the compatibility libraries
+  #
+! # $Id: Makefile,v 1.2 1992/04/25 08:18:26 sjg Exp $
+  #
+  
+  SHELL = /bin/sh
+--- 1,7 ----
+  #
+  # Makefile for the compatibility libraries
+  #
+! # $Id: Makefile,v 1.3 93/05/05 21:17:35 sjg Exp $
+  #
+  
+  SHELL = /bin/sh
+*** std/posix/Makefile.old	Sat Apr 25 18:22:00 1992
+--- std/posix/Makefile	Thu May  6 07:17:24 1993
+***************
+*** 1,5 ****
+  # POSIX P1003.1 compatability
+! # $Id: Makefile,v 1.2 1992/04/25 08:22:14 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+--- 1,5 ----
+  # POSIX P1003.1 compatability
+! # $Id: Makefile,v 1.3 93/05/05 21:17:38 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+*** std/posix/dirent.C.old	Sat Apr 25 18:22:00 1992
+--- std/posix/dirent.C	Thu May  6 07:17:26 1993
+***************
+*** 3,9 ****
+   * completly untested. not designed to be efficient.
+   * missing telldir and seekdir.
+   */
+! /* $Id: dirent.C,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <sys/types.h>
+  #include <dirent.h>
+--- 3,9 ----
+   * completly untested. not designed to be efficient.
+   * missing telldir and seekdir.
+   */
+! /* $Id: dirent.C,v 1.3 93/05/05 21:17:40 sjg Exp $ */
+  
+  #include <sys/types.h>
+  #include <dirent.h>
+*** std/posix/dirent.H.old	Sat Apr 25 18:22:00 1992
+--- std/posix/dirent.H	Thu May  6 07:17:28 1993
+***************
+*** 6,12 ****
+  
+  	prerequisite:	<sys/types.h>
+  */
+! /* $Id: dirent.H,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #define	MAXNAMLEN	16		/* maximum filename length */
+  
+--- 6,12 ----
+  
+  	prerequisite:	<sys/types.h>
+  */
+! /* $Id: dirent.H,v 1.3 93/05/05 21:17:42 sjg Exp $ */
+  
+  #define	MAXNAMLEN	16		/* maximum filename length */
+  
+*** std/posix/dup2.c.old	Sat Apr 25 18:22:00 1992
+--- std/posix/dup2.c	Thu May  6 07:17:29 1993
+***************
+*** 1,7 ****
+  /*
+   * Cheap imitation of BSD dup2()
+   */
+! /* $Id: dup2.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <fcntl.h>
+  
+--- 1,7 ----
+  /*
+   * Cheap imitation of BSD dup2()
+   */
+! /* $Id: dup2.c,v 1.3 93/05/05 21:17:43 sjg Exp $ */
+  
+  #include <fcntl.h>
+  
+*** std/posix/fcntl.c.old	Sat Apr 25 18:22:00 1992
+--- std/posix/fcntl.c	Thu May  6 07:17:31 1993
+***************
+*** 1,5 ****
+  /* fcntl emulation */
+! /* $Id: fcntl.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <errno.h>
+  #include <sys/types.h>
+--- 1,5 ----
+  /* fcntl emulation */
+! /* $Id: fcntl.c,v 1.3 93/05/05 21:17:45 sjg Exp $ */
+  
+  #include <errno.h>
+  #include <sys/types.h>
+*** std/posix/fcntl.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/fcntl.h	Thu May  6 07:17:33 1993
+***************
+*** 1,7 ****
+  /* P1003.1 fcntl/open definitions */
+  /* Based on a version by Terrence W. Holm */
+  /*  for fcntl(2)  */
+! /* $Id: fcntl.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #define	F_DUPFD		0
+  #define	F_GETFD		1
+--- 1,7 ----
+  /* P1003.1 fcntl/open definitions */
+  /* Based on a version by Terrence W. Holm */
+  /*  for fcntl(2)  */
+! /* $Id: fcntl.h,v 1.3 93/05/05 21:17:47 sjg Exp $ */
+  
+  #define	F_DUPFD		0
+  #define	F_GETFD		1
+*** std/posix/io.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/io.h	Thu May  6 07:17:34 1993
+***************
+*** 1,5 ****
+  /* POSIX IO functions */
+! /* $Id: io.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  /*
+   * the incomplete type "struct stat"
+--- 1,5 ----
+  /* POSIX IO functions */
+! /* $Id: io.h,v 1.3 93/05/05 21:17:48 sjg Exp $ */
+  
+  /*
+   * the incomplete type "struct stat"
+*** std/posix/time.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/time.h	Thu May  6 07:17:36 1993
+***************
+*** 2,8 ****
+   * Replacement for BSD <sys/time.h>
+   * because Ultrix screws it up.
+   */
+! /* $Id: time.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  struct timeval {
+  	long tv_sec;		/* time_t */
+--- 2,8 ----
+   * Replacement for BSD <sys/time.h>
+   * because Ultrix screws it up.
+   */
+! /* $Id: time.h,v 1.3 93/05/05 21:17:50 sjg Exp $ */
+  
+  struct timeval {
+  	long tv_sec;		/* time_t */
+*** std/posix/times.c.old	Sat Apr 25 18:22:00 1992
+--- std/posix/times.c	Thu May  6 07:17:38 1993
+***************
+*** 1,5 ****
+  /* P1003.1 times emulation */
+! /* $Id: times.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <sys/times.h>
+  
+--- 1,5 ----
+  /* P1003.1 times emulation */
+! /* $Id: times.c,v 1.3 93/05/05 21:17:52 sjg Exp $ */
+  
+  #include <sys/times.h>
+  
+*** std/posix/times.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/times.h	Thu May  6 07:17:39 1993
+***************
+*** 1,7 ****
+  /*
+   * sys/times.h: POSIX times()
+   */
+! /* $Id: times.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #if ! _TIMES_H
+  #define	_TIMES_H 1
+--- 1,7 ----
+  /*
+   * sys/times.h: POSIX times()
+   */
+! /* $Id: times.h,v 1.3 93/05/05 21:17:53 sjg Exp $ */
+  
+  #if ! _TIMES_H
+  #define	_TIMES_H 1
+*** std/posix/unistd.c.old	Sat Apr 25 18:22:00 1992
+--- std/posix/unistd.c	Thu May  6 07:17:41 1993
+***************
+*** 1,7 ****
+  /* misc. POSIX emulation */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: unistd.c,v 1.2 1992/04/25 08:22:14 sjg Exp $";
+  #endif
+  
+  #include <string.h>
+--- 1,7 ----
+  /* misc. POSIX emulation */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: unistd.c,v 1.3 93/05/05 21:17:55 sjg Exp $";
+  #endif
+  
+  #include <string.h>
+*** std/posix/unistd.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/unistd.h	Thu May  6 07:17:44 1993
+***************
+*** 1,6 ****
+  /* unistd.h: misc. P1003.1 definitions */
+  /* Based on a version by Terrence W. Holm */
+! /* $Id: unistd.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #if ! _UNISTD_H
+  #define	_UNISTD_H 1
+--- 1,6 ----
+  /* unistd.h: misc. P1003.1 definitions */
+  /* Based on a version by Terrence W. Holm */
+! /* $Id: unistd.h,v 1.3 93/05/05 21:17:58 sjg Exp $ */
+  
+  #if ! _UNISTD_H
+  #define	_UNISTD_H 1
+*** std/posix/wait.h.old	Sat Apr 25 18:22:00 1992
+--- std/posix/wait.h	Thu May  6 07:17:46 1993
+***************
+*** 1,7 ****
+  /*
+   * POSIX <sys/wait.h>
+   */
+! /* $Id: wait.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  #if __STDC__
+  #define	ARGS(args)	args
+  #else
+--- 1,7 ----
+  /*
+   * POSIX <sys/wait.h>
+   */
+! /* $Id: wait.h,v 1.3 93/05/05 21:18:00 sjg Exp $ */
+  #if __STDC__
+  #define	ARGS(args)	args
+  #else
+*** std/stdc/Makefile.old	Sun May  3 18:29:54 1992
+--- std/stdc/Makefile	Thu May  6 07:17:52 1993
+***************
+*** 1,5 ****
+  # Standard C (ANSI) compatabilaty
+! # $Id: Makefile,v 1.3 1992/05/03 08:30:08 sjg Exp $
+  
+  # edit this makefile such that only the functions that
+  # your systems doesn't have are provided.
+--- 1,5 ----
+  # Standard C (ANSI) compatabilaty
+! # $Id: Makefile,v 1.4 93/05/05 21:18:06 sjg Exp $
+  
+  # edit this makefile such that only the functions that
+  # your systems doesn't have are provided.
+*** std/stdc/fprintf.c.old	Tue May 12 19:30:44 1992
+--- std/stdc/fprintf.c	Thu May  6 07:17:53 1993
+***************
+*** 2,8 ****
+   * printf and fprintf
+   */
+  
+! /* $Id: fprintf.c,v 1.3 1992/05/12 09:30:58 sjg Exp $ */
+  
+  #ifdef __STDC__
+  #include <stdarg.h>
+--- 2,8 ----
+   * printf and fprintf
+   */
+  
+! /* $Id: fprintf.c,v 1.4 93/05/05 21:18:07 sjg Exp $ */
+  
+  #ifdef __STDC__
+  #include <stdarg.h>
+*** std/stdc/memchr.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/memchr.c	Thu May  6 07:17:55 1993
+***************
+*** 1,4 ****
+! /* $Id: memchr.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <string.h>
+  
+--- 1,4 ----
+! /* $Id: memchr.c,v 1.3 93/05/05 21:18:09 sjg Exp $ */
+  
+  #include <string.h>
+  
+*** std/stdc/memcmp.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/memcmp.c	Thu May  6 07:17:57 1993
+***************
+*** 1,4 ****
+! /* $Id: memcmp.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <string.h>
+  
+--- 1,4 ----
+! /* $Id: memcmp.c,v 1.3 93/05/05 21:18:11 sjg Exp $ */
+  
+  #include <string.h>
+  
+*** std/stdc/memcpy.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/memcpy.c	Thu May  6 07:17:59 1993
+***************
+*** 1,4 ****
+! /* $Id: memcpy.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <string.h>
+  
+--- 1,4 ----
+! /* $Id: memcpy.c,v 1.3 93/05/05 21:18:13 sjg Exp $ */
+  
+  #include <string.h>
+  
+*** std/stdc/memmove.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/memmove.c	Thu May  6 07:18:00 1993
+***************
+*** 1,4 ****
+! /* $Id: memmove.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include "stdh.h"
+  
+--- 1,4 ----
+! /* $Id: memmove.c,v 1.3 93/05/05 21:18:14 sjg Exp $ */
+  
+  #include "stdh.h"
+  
+*** std/stdc/memset.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/memset.c	Thu May  6 07:18:02 1993
+***************
+*** 1,4 ****
+! /* $Id: memset.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <string.h>
+  
+--- 1,4 ----
+! /* $Id: memset.c,v 1.3 93/05/05 21:18:16 sjg Exp $ */
+  
+  #include <string.h>
+  
+*** std/stdc/setvbuf.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/setvbuf.c	Thu May  6 07:18:04 1993
+***************
+*** 6,12 ****
+   * in the shell is to avoid 4/8K buffers on BSD like systems.
+   */
+  
+! /* $Id: setvbuf.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <stdlib.h>
+  #include <stdio.h>
+--- 6,12 ----
+   * in the shell is to avoid 4/8K buffers on BSD like systems.
+   */
+  
+! /* $Id: setvbuf.c,v 1.3 93/05/05 21:18:18 sjg Exp $ */
+  
+  #include <stdlib.h>
+  #include <stdio.h>
+*** std/stdc/sprintf.c.old	Tue May 12 19:30:47 1992
+--- std/stdc/sprintf.c	Thu May  6 07:18:06 1993
+***************
+*** 2,8 ****
+   * sprintf and vsprintf
+   */
+  
+! /* $Id: sprintf.c,v 1.3 1992/05/12 09:31:01 sjg Exp $ */
+  
+  #ifdef __STDC__
+  #include <stdarg.h>
+--- 2,8 ----
+   * sprintf and vsprintf
+   */
+  
+! /* $Id: sprintf.c,v 1.4 93/05/05 21:18:20 sjg Exp $ */
+  
+  #ifdef __STDC__
+  #include <stdarg.h>
+*** std/stdc/stdarg.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/stdarg.h	Thu May  6 07:18:07 1993
+***************
+*** 1,4 ****
+! /* $Id: stdarg.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  /* DON'T USE THIS IF YOUR COMPILER HAS ITS OWN!!! */
+  
+  #ifndef _STDARG_H
+--- 1,4 ----
+! /* $Id: stdarg.h,v 1.3 93/05/05 21:18:21 sjg Exp $ */
+  /* DON'T USE THIS IF YOUR COMPILER HAS ITS OWN!!! */
+  
+  #ifndef _STDARG_H
+*** std/stdc/stddef.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/stddef.h	Thu May  6 07:18:09 1993
+***************
+*** 1,6 ****
+  /* ANSI common definitions */
+  
+! /* $Id: stddef.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #ifndef NULL
+  #if __STDC__
+--- 1,6 ----
+  /* ANSI common definitions */
+  
+! /* $Id: stddef.h,v 1.3 93/05/05 21:18:23 sjg Exp $ */
+  
+  #ifndef NULL
+  #if __STDC__
+*** std/stdc/stdio.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/stdio.c	Thu May  6 07:18:11 1993
+***************
+*** 2,8 ****
+   * Emulation of misc. ANSI C stdio functions
+   */
+  
+! /* $Id: stdio.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <stdio.h>
+  
+--- 2,8 ----
+   * Emulation of misc. ANSI C stdio functions
+   */
+  
+! /* $Id: stdio.c,v 1.3 93/05/05 21:18:25 sjg Exp $ */
+  
+  #include <stdio.h>
+  
+*** std/stdc/stdio.h_std.old	Sat May  2 23:29:04 1992
+--- std/stdc/stdio.h_std	Thu May  6 07:18:14 1993
+***************
+*** 5,11 ****
+   * todo: needs L_* constants.
+   */
+  
+! /* $Id: stdio.h_std,v 1.1 1992/05/02 13:29:18 sjg Exp $ */
+  
+  #if ! _STDIO_H
+  #define	_STDIO_H 1
+--- 5,11 ----
+   * todo: needs L_* constants.
+   */
+  
+! /* $Id: stdio.h_std,v 1.2 93/05/05 21:18:28 sjg Exp $ */
+  
+  #if ! _STDIO_H
+  #define	_STDIO_H 1
+*** std/stdc/stdlib.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/stdlib.h	Thu May  6 07:18:15 1993
+***************
+*** 1,6 ****
+  /* ANSI utility functions */
+  
+! /* $Id: stdlib.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #if ! _STDLIB_H
+  #define	_STDLIB_H 1
+--- 1,6 ----
+  /* ANSI utility functions */
+  
+! /* $Id: stdlib.h,v 1.3 93/05/05 21:18:29 sjg Exp $ */
+  
+  #if ! _STDLIB_H
+  #define	_STDLIB_H 1
+*** std/stdc/strcat.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strcat.c	Thu May  6 07:18:17 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strcat.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strcat - append string src to dst
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strcat.c,v 1.3 93/05/05 21:18:31 sjg Exp $ */
+  
+  /*
+   * strcat - append string src to dst
+*** std/stdc/strchr.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strchr.c	Thu May  6 07:18:19 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strchr.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strchr - find first occurrence of a character in a string
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strchr.c,v 1.3 93/05/05 21:18:33 sjg Exp $ */
+  
+  /*
+   * strchr - find first occurrence of a character in a string
+*** std/stdc/strcmp.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strcmp.c	Thu May  6 07:18:21 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strcmp.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /* Modified by Eric Gisin */
+  
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strcmp.c,v 1.3 93/05/05 21:18:35 sjg Exp $ */
+  
+  /* Modified by Eric Gisin */
+  
+*** std/stdc/strcpy.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strcpy.c	Thu May  6 07:18:22 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strcpy.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strcpy - copy string src to dst
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strcpy.c,v 1.3 93/05/05 21:18:36 sjg Exp $ */
+  
+  /*
+   * strcpy - copy string src to dst
+*** std/stdc/strcspn.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strcspn.c	Thu May  6 07:18:24 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strcspn.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strcspn - find length of initial segment of s consisting entirely
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strcspn.c,v 1.3 93/05/05 21:18:38 sjg Exp $ */
+  
+  /*
+   * strcspn - find length of initial segment of s consisting entirely
+*** std/stdc/strerror.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strerror.c	Thu May  6 07:18:26 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strerror.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strerror - map error number to descriptive string
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strerror.c,v 1.3 93/05/05 21:18:40 sjg Exp $ */
+  
+  /*
+   * strerror - map error number to descriptive string
+*** std/stdc/string.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/string.h	Thu May  6 07:18:28 1993
+***************
+*** 1,5 ****
+  /* ANSI string handling (missing wide char stuff) */
+! /* $Id: string.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #if ! _STRING_H
+  #define _STRING_H 1
+--- 1,5 ----
+  /* ANSI string handling (missing wide char stuff) */
+! /* $Id: string.h,v 1.3 93/05/05 21:18:42 sjg Exp $ */
+  
+  #if ! _STRING_H
+  #define _STRING_H 1
+*** std/stdc/strlen.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strlen.c	Thu May  6 07:18:29 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strlen.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strlen - length of string (not including NUL)
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strlen.c,v 1.3 93/05/05 21:18:43 sjg Exp $ */
+  
+  /*
+   * strlen - length of string (not including NUL)
+*** std/stdc/strncat.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strncat.c	Thu May  6 07:18:31 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strncat.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strncat - append at most n characters of string src to dst
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strncat.c,v 1.3 93/05/05 21:18:45 sjg Exp $ */
+  
+  /*
+   * strncat - append at most n characters of string src to dst
+*** std/stdc/strncmp.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strncmp.c	Thu May  6 07:18:33 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strncmp.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strncmp - compare at most n characters of string s1 to s2
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strncmp.c,v 1.3 93/05/05 21:18:47 sjg Exp $ */
+  
+  /*
+   * strncmp - compare at most n characters of string s1 to s2
+*** std/stdc/strncpy.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strncpy.c	Thu May  6 07:18:35 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strncpy.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strncpy - copy at most n characters of string src to dst
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strncpy.c,v 1.3 93/05/05 21:18:49 sjg Exp $ */
+  
+  /*
+   * strncpy - copy at most n characters of string src to dst
+*** std/stdc/strpbrk.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strpbrk.c	Thu May  6 07:18:36 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strpbrk.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strpbrk - find first occurrence of any char from breakat in s
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strpbrk.c,v 1.3 93/05/05 21:18:50 sjg Exp $ */
+  
+  /*
+   * strpbrk - find first occurrence of any char from breakat in s
+*** std/stdc/strrchr.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strrchr.c	Thu May  6 07:18:38 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strrchr.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strrchr - find last occurrence of a character in a string
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strrchr.c,v 1.3 93/05/05 21:18:52 sjg Exp $ */
+  
+  /*
+   * strrchr - find last occurrence of a character in a string
+*** std/stdc/strspn.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strspn.c	Thu May  6 07:18:40 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strspn.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * strspn - find length of initial segment of s consisting entirely
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strspn.c,v 1.3 93/05/05 21:18:54 sjg Exp $ */
+  
+  /*
+   * strspn - find length of initial segment of s consisting entirely
+*** std/stdc/strstr.c.old	Sat Apr 25 10:58:36 1992
+--- std/stdc/strstr.c	Thu May  6 07:18:42 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char *RCSid = "$Id: strstr.c,v 1.2 1992/04/25 00:58:50 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: strstr.c,v 1.3 93/05/05 21:18:56 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** std/stdc/strtok.c.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/strtok.c	Thu May  6 07:18:44 1993
+***************
+*** 1,5 ****
+  #include <string.h>
+! /* $Id: strtok.c,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  /*
+   * Get next token from string s (NULL on 2nd, 3rd, etc. calls),
+--- 1,5 ----
+  #include <string.h>
+! /* $Id: strtok.c,v 1.3 93/05/05 21:18:58 sjg Exp $ */
+  
+  /*
+   * Get next token from string s (NULL on 2nd, 3rd, etc. calls),
+*** std/stdc/time.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/time.h	Thu May  6 07:18:46 1993
+***************
+*** 1,5 ****
+  /* time, time/date conversion */
+! /* $Id: time.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #if ! _TIME_H
+  #define	_TIME_H 1
+--- 1,5 ----
+  /* time, time/date conversion */
+! /* $Id: time.h,v 1.3 93/05/05 21:19:00 sjg Exp $ */
+  
+  #if ! _TIME_H
+  #define	_TIME_H 1
+*** std/stdc/types.h.old	Sat Apr 25 18:19:12 1992
+--- std/stdc/types.h	Thu May  6 07:18:47 1993
+***************
+*** 1,5 ****
+  /* work around multiple typedefs in stddef.h and sys/types.h */
+! /* $Id: types.h,v 1.2 1992/04/25 08:19:26 sjg Exp $ */
+  
+  #include <stddef.h>		/* defines size_t and ptrdiff_t */
+  #include <time.h>		/* defines time_t and clock_t */
+--- 1,5 ----
+  /* work around multiple typedefs in stddef.h and sys/types.h */
+! /* $Id: types.h,v 1.3 93/05/05 21:19:01 sjg Exp $ */
+  
+  #include <stddef.h>		/* defines size_t and ptrdiff_t */
+  #include <time.h>		/* defines time_t and clock_t */
+*** std/stdc/vprintf.c.old	Tue May 12 19:30:49 1992
+--- std/stdc/vprintf.c	Thu May  6 07:18:49 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char *RCSid = "$Id: vprintf.c,v 1.3 1992/05/12 09:31:03 sjg Exp $";
+  #endif
+  #ifdef __STDC__
+  #include <stdarg.h>
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: vprintf.c,v 1.4 93/05/05 21:19:03 sjg Exp $";
+  #endif
+  #ifdef __STDC__
+  #include <stdarg.h>
+*** sh/version.c.old	Wed Sep 29 13:20:16 1993
+--- sh/version.c	Wed Sep 29 23:17:37 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.8 93/05/05 21:17:19 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.9 93/09/29 13:17:51 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 12,17 ****
+  #include "patchlevel.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.8 92/12/05";
+  
+  
+--- 12,17 ----
+  #include "patchlevel.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.9 93/09/29";
+
+
+*** sh/edit.c.old	Thu Sep 30 00:15:35 1993
+--- sh/edit.c		Thu Sep 30 10:14:51 1993
+***************
+*** 7,13 ****
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.8 93/06/01 23:40:30 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.9 93/09/30 00:15:05 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 424,433 ****
+  
+    while (*cp)
+    {
+!     if ( *cp++ != '!' )
+        count++;
+!     else
+!       if ( *cp == '!' )
+        {
+  	cp++;
+  	count++;
+--- 424,437 ----
+  
+    while (*cp)
+    {
+!     if (*cp == '\n') 
+!     {
+!       count = 0;
+!       *cp++;
+!     }
+!     else if ( *cp++ != '!' )
+        count++;
+!     else if ( *cp == '!' )
+      {
+        cp++;
+        count++;
+***************
+*** 438,446 ****
+  
+  	do
+  	{
+! 	  count ++;
+! 	}
+! 	while( ( i /= 10 ) > 0 );
+        }
+    }
+    return count;
+--- 442,449 ----
+  
+        do
+        {
+! 	count++;
+!       } while( ( i /= 10 ) > 0 );
+      }
+    }
+    return count;
+
+exit 0 # Just in case...

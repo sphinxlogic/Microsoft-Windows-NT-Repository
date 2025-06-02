@@ -1,0 +1,1969 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Subject:  v29i027:  tin - threaded full screen newsreader v1.1P1, Part09/12
+Message-ID: <1992Mar27.033839.3550@sparky.imd.sterling.com>
+X-Md4-Signature: 791eb2775cad270dee932193a6b1bd43
+Date: Fri, 27 Mar 1992 03:38:39 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Posting-number: Volume 29, Issue 27
+Archive-name: tin/part09
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 28, Issue 45-55
+
+#!/bin/sh
+# this is tin.shar.09 (part 9 of tin1.1)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file prompt.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping prompt.c'
+else
+echo 'x - continuing file prompt.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'prompt.c' &&
+X		alarm (time_remaining);
+X		return FALSE;
+X	}
+X	strcpy (var, p);
+X
+X	alarm (time_remaining);
+X	
+X	return TRUE;
+}
+X
+X
+int prompt_yn (line, prompt, default_ch)
+X	int line;
+X	char *prompt;
+X	char default_ch;
+{
+X	char ch;
+X	int time_remaining;
+X	
+X	time_remaining = alarm (0);
+X
+X	MoveCursor (line, 0);
+X	CleartoEOLN ();
+X	printf ("%s%c", prompt, default_ch);
+X	fflush (stdout);
+X	MoveCursor (line, (int) strlen (prompt));
+X
+X	if ((ch = (char) ReadCh()) == CR) {
+X		ch = default_ch;
+X	}	
+X
+X	if (line == LINES) {
+X		clear_message();
+X	} else {
+X		MoveCursor (line, (int) strlen (prompt));
+X		if (ch == ESC) {
+X			printf ("%c", default_ch);
+X		} else {
+X			printf ("%c", ch);
+X		}
+X		fflush (stdout);
+X	}
+X
+X	alarm (time_remaining);
+X
+X	return (ch == 'y' ? TRUE : FALSE);
+}
+X
+X
+void prompt_on_off (row, col, var, help_text, prompt_text)
+X	int row;
+X	int col;
+X	int *var;
+X	char *help_text;
+X	char *prompt_text;
+{
+X	int ch, var_orig;
+X	int time_remaining;
+X	
+X	time_remaining = alarm (0);
+X
+X	var_orig = *var;
+X
+X	show_menu_help (help_text);
+X	do {
+X		MoveCursor (row, col + (int) strlen (prompt_text));
+X		if ((ch = (char) ReadCh ()) == ' ') {
+X			*var = !*var;
+X			printf ("%s", (*var ? "ON " : "OFF"));
+X			fflush (stdout);
+X		}
+X	} while (ch != CR && ch != ESC);
+X
+X	if (ch == ESC) {
+X		*var = var_orig;
+X		printf ("%s", (*var ? "ON " : "OFF"));
+X		fflush (stdout);
+X	}
+X
+X	alarm (time_remaining);
+}
+X
+X
+void continue_prompt ()
+{
+X	char ch;
+X	int time_remaining;
+X	
+X	time_remaining = alarm (0);
+X	
+X	info_message (txt_hit_any_key);
+X	ch = (char) ReadCh ();
+X
+X	alarm (time_remaining);
+}
+X
+X
+SHAR_EOF
+echo 'File prompt.c is complete' &&
+chmod 0600 prompt.c ||
+echo 'restore of prompt.c failed'
+Wc_c="`wc -c < 'prompt.c'`"
+test 3318 -eq "$Wc_c" ||
+	echo 'prompt.c: original size 3318, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= rcfile.c ==============
+if test -f 'rcfile.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping rcfile.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting rcfile.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'rcfile.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : rcfile.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 13-03-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+extern char index_file[LEN];
+extern int index_point;
+X
+static int COL1;
+static int COL2;
+static int COL3;
+X
+/*
+X *  read_rcfile - read defaults from ~/.tin/tinrc
+X */
+X
+int read_rcfile ()
+{
+X	char buf[LEN];
+X	FILE *fp;
+X
+X	if ((fp = fopen (rcfile, "r")) != NULL) {
+X		while (fgets (buf, sizeof buf, fp) != NULL) {
+X			if (buf[0] != '#') { 
+X				if (strncmp (buf, "save_archive=", 13) == 0) {
+X					save_archive_name = (strncmp (&buf[13], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "save_separate=", 14) == 0) {
+X					save_separate = (strncmp (&buf[14], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "mark_saved_read=", 16) == 0) {
+X					mark_saved_read = (strncmp (&buf[16], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "kill_articles=", 14) == 0) {
+X					kill_articles = (strncmp (&buf[14], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "draw_arrow=", 11) == 0) {
+X					draw_arrow_mark = (strncmp (&buf[11], "ON", 2) == 0 ? TRUE : FALSE);
+X					if (draw_arrow_mark == FALSE && inverse_okay == FALSE) {
+X						inverse_okay = TRUE;
+X					}
+X				} else if (strncmp (buf, "print_header=", 13) == 0) {
+X					print_header = (strncmp (&buf[13], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "pos_first_unread=", 17) == 0) {
+X					pos_first_unread = (strncmp (&buf[17], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "full_page_scroll=", 17) == 0) {
+X					full_page_scroll = (strncmp (&buf[17], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "catchup_read_groups=", 20) == 0) {
+X					catchup_read_groups = (strncmp (&buf[20], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "thread_articles=", 16) == 0) {
+X					thread_arts = (strncmp (&buf[16], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "unlink_article=", 15) == 0) {
+X					unlink_article = (strncmp (&buf[15], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "show_only_unread=", 17) == 0) {
+X					show_only_unread = (strncmp (&buf[17], "ON", 2) == 0 ? TRUE : FALSE);
+X				} else if (strncmp (buf, "show_author=", 12) == 0) {
+X					default_show_author = atoi (&buf[12]);
+X				} else if (strncmp (buf, "post_process_type=", 18) == 0) {
+X					post_proc_type = atoi (&buf[18]);
+X					switch (post_proc_type) {
+X						case POST_PROC_NONE:
+X							proc_ch_default = 'n';
+X							break;
+X						case POST_PROC_SHAR:
+X							proc_ch_default = 's';
+X							break;
+X						case POST_PROC_UUDECODE:
+X							proc_ch_default = 'u';
+X							break;
+X						case POST_PROC_UUD_LST_ZOO:
+X							proc_ch_default = 'U';
+X							break;
+X						case POST_PROC_UUD_EXT_ZOO:
+X							proc_ch_default = 'U';
+X							break;
+X					}
+X				} else if (strncmp (buf, "sort_article_type=", 18) == 0) {
+X					sort_art_type = atoi (&buf[18]);
+X				} else if (strncmp (buf, "savedir=", 8) == 0) {
+X					strncpy (savedir, &buf[8], LEN);
+X					savedir[strlen (savedir) - 1] = '\0';
+X					if (savedir[0] == '.' && strlen (savedir) == 1) {
+#if defined(BSD) && ! defined(sinix)
+X						getwd (buf);	
+#else
+X						getcwd (buf, LEN);
+#endif
+X						my_strncpy (savedir, buf, LEN);
+X					}
+X				} else if (strncmp (buf, "maildir=", 8) == 0) {
+X					strncpy (maildir, &buf[8], LEN);
+X					maildir[strlen (maildir) - 1] = '\0';
+X				} else if (strncmp (buf, "printer=", 8) == 0) {
+X					strncpy (printer, &buf[8], LEN);
+X					printer[strlen (printer) - 1] = '\0';
+X				} else if (strncmp (buf, "spooldir=", 9) == 0) {
+X					strncpy (spooldir, &buf[9], LEN);
+X					spooldir[strlen (spooldir) - 1] = '\0';
+X				} else if (strncmp (buf, "signature=", 10) == 0) {
+X					strncpy (signature, &buf[10], LEN);
+X					signature[strlen (signature) - 1] = '\0';
+X				} else if (strncmp (buf, "sig=", 4) == 0) {
+X					strncpy (sig, &buf[4], LEN);
+X					sig[strlen (sig) - 1] = '\0';
+X				}
+X			}
+X		}
+X		fclose (fp);
+X		return TRUE;		
+X	}
+X	return FALSE;		
+}
+X
+/*
+X *  write_rcfile - write defaults to ~/.tin/tinrc
+X */
+X
+void write_rcfile ()
+{
+X	FILE *fp;
+X
+X	set_real_uid_gid ();
+X	
+X	if ((fp = fopen (rcfile, "w")) != NULL) {
+X		if (! cmd_line) {
+X			wait_message (txt_saving);
+X		}
+X		fprintf (fp, "# if ON articles/threads with Archive-name: in mail header will\n");
+X		fprintf (fp, "# be automatically saved with the Archive-name & part/patch no.\n");
+X		fprintf (fp, "save_archive=%s\n\n", (save_archive_name ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON articles of a threads will be saved to separate files\n");
+X		fprintf (fp, "# otherwise the whole thread will be saved to one file\n");
+X		fprintf (fp, "save_separate=%s\n\n", (save_separate ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON mark articles that are saved as read\n");
+X		fprintf (fp, "mark_saved_read=%s\n\n", (mark_saved_read ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON use -> otherwise highlighted bar for selection\n");
+X		fprintf (fp, "draw_arrow=%s\n\n", (draw_arrow_mark ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON kill articles that match kill file\n");
+X		fprintf (fp, "kill_articles=%s\n\n", (kill_articles ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON print all of mail header otherwise Subject: & From: lines\n");
+X		fprintf (fp, "print_header=%s\n\n", (print_header ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON put cursor at first unread art in group otherwise last art\n");
+X		fprintf (fp, "pos_first_unread=%s\n\n", (pos_first_unread ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON scroll full page of groups/articles otherwise half a page\n");
+X		fprintf (fp, "full_page_scroll=%s\n\n", (full_page_scroll ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON ask user if read groups should all be marked read\n");
+X		fprintf (fp, "catchup_read_groups=%s\n\n", (catchup_read_groups ? "ON" : "OFF"));
+X		fprintf (fp, "# part of from field to display 0) none 1) address 2) full name 3) both\n");
+X		fprintf (fp, "show_author=%d\n\n", default_show_author);
+X		fprintf (fp, "# type of post processing to perform after saving articles.\n");
+X		fprintf (fp, "# 0) none 1) shar 2) uudecode 3) uud & list zoo 4) uud & extract zoo 5) patch.\n");
+X		fprintf (fp, "post_process_type=%d\n\n", post_proc_type);
+X		fprintf (fp, "# if ON and group not in ~/.tin/unthread articles will be threaded.\n");
+X		fprintf (fp, "thread_articles=%s\n\n", (thread_arts ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON remove ~/.article after posting.\n");
+X		fprintf (fp, "unlink_article=%s\n\n", (unlink_article ? "ON" : "OFF"));
+X		fprintf (fp, "# if ON show only new/unread articles otherwise show all.\n");
+X		fprintf (fp, "show_only_unread=%s\n\n", (show_only_unread ? "ON" : "OFF"));
+X		fprintf (fp, "# sort articles by 0) nothing 1) Subject (descending) 2) Subject (ascending)\n");
+X		fprintf (fp, "# 3) From (descend) 4) From (ascend) 5) Date (descend) 6) Date (ascend)\n");
+X		fprintf (fp, "sort_article_type=%d\n\n", sort_art_type);
+X		fprintf (fp, "# (-d) directory where articles/threads are saved\n");
+X		fprintf (fp, "savedir=%s\n\n", savedir);
+X		fprintf (fp, "# (-M) directory where articles/threads are saved in mailbox format\n");	
+X		fprintf (fp, "maildir=%s\n\n", maildir);	
+X		fprintf (fp, "# (-p) print program with parameters used to print articles/threads\n");
+X		fprintf (fp, "printer=%s\n\n", printer);
+X		fprintf (fp, "# (-s) directory where news is spooled\n");
+X		fprintf (fp, "spooldir=%s\n\n", spooldir);
+X
+X		fprintf (fp, "# .signature file used for replies, followups\n");
+X		fprintf (fp, "signature=%s\n\n", signature);
+X		fprintf (fp, "# .Sig file used for postings\n");
+X		fprintf (fp, "sig=%s\n\n", sig);
+X
+X		fclose (fp);
+X		chmod (rcfile, 0600);
+X	}
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  options menu so that the user can dynamically change parameters
+X */
+X 
+int change_rcfile (group, kill_at_once)
+X	char *group;
+X	int kill_at_once;
+{
+X	char *str;
+X	int ch, i;
+X	int kill_changed = FALSE;
+X	int orig_kill_state;
+X	int orig_show_only_unread;
+X	int orig_thread_arts;
+X	int option;
+X	int ret_code = NO_KILLING;
+X	int var_orig;
+X	
+#ifdef SIGTSTP
+X	SIGTYPE (*susp)();
+X
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&rcfile_act.sa_mask);
+X		rcfile_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		rcfile_act.sa_handler = SIG_DFL;
+X		sigaction (SIGTSTP, &rcfile_act, &old_act);
+#else
+X		susp = signal (SIGTSTP, SIG_DFL);
+#endif
+X	}
+#endif
+X
+X	COL1 = 0;
+X	COL2 = ((COLS / 3) * 1) + 1;
+X	COL3 = ((COLS / 3) * 2) + 2;
+X
+X	show_rcfile_menu ();
+X
+X	while (1) {
+X
+#ifdef SIGTSTP
+X		if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X			sigemptyset (&rcfile_act.sa_mask);
+X			rcfile_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X			rcfile_act.sa_handler = rcfile_suspend;
+X			sigaction (SIGTSTP, &rcfile_act, 0L);
+#else
+X			signal (SIGTSTP, rcfile_suspend);
+#endif
+X		}
+#endif
+X		MoveCursor (LINES, 0);
+X		ch = ReadCh ();
+X		if (ch >= '1' && ch <= '9') {
+X			option = prompt_num (ch, "Enter option number> ");
+X		} else {
+X			if (ch == 'q' || ch == ESC) {
+X				option = -1;
+X			} else {
+X				option = 0;
+X			}
+X		}
+#ifdef SIGTSTP
+X		if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X			sigemptyset (&rcfile_act.sa_mask);
+X			rcfile_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X			rcfile_act.sa_handler = SIG_IGN;
+X			sigaction (SIGTSTP, &rcfile_act, 0L);
+#else
+X			signal (SIGTSTP, SIG_IGN);
+#endif
+X		}
+#endif
+X		switch (option) {
+X			case -1:
+X				clear_note_area ();
+X				return ret_code;
+X				/*NOTREACHED*/				
+X			case 0:
+X				write_rcfile ();
+X				if (kill_changed) {
+X					if (kill_at_once) {
+X						if (kill_articles) {
+X							read_kill_file ();
+X							if (kill_any_articles (group)) {
+X								reload_index_file (group, TRUE);	/* kill arts */
+X							}
+X						} else {
+X							reload_index_file (group, FALSE);	/* add killed arts */
+X						}
+X					}
+X					ret_code = KILLING;
+X				}
+X				clear_note_area ();
+#ifdef SIGTSTP
+X				if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X					sigemptyset (&rcfile_act.sa_mask);
+X					rcfile_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X					rcfile_act.sa_handler = SIG_IGN;
+X					sigaction (SIGTSTP, &old_act, 0L);
+#else
+X					signal (SIGTSTP, susp);
+#endif
+X				}
+#endif
+X				return ret_code;
+X			
+X			case 1:		/* auto save */
+X				prompt_on_off (INDEX_TOP, COL1, &save_archive_name, 
+X					txt_help_autosave, txt_opt_autosave);
+X				break;
+X
+X			case 2:		/* save sperate */
+X				prompt_on_off (INDEX_TOP, COL2, &save_separate, 
+X					txt_help_save_separate, txt_opt_save_separate);
+X				break;
+X			
+X			case 3:		/* mark saved articles read */
+X				prompt_on_off (INDEX_TOP, COL3, &mark_saved_read, 
+X					txt_help_mark_saved_read, txt_opt_mark_saved_read);
+X				break;
+X
+X			case 4:		/* kill articles */
+X				orig_kill_state = kill_articles;
+X				show_menu_help (txt_help_kill_articles);
+X				do {
+X					MoveCursor (INDEX_TOP+2, COL1 + (int) strlen (txt_opt_kill_articles));
+X					if ((ch = ReadCh()) == ' ') {
+X						kill_articles = !kill_articles;
+X						kill_changed = (kill_articles != orig_kill_state ? TRUE : FALSE);
+X						printf ("%s", (kill_articles ? "ON " : "OFF"));
+X						fflush (stdout);
+X					}
+X				} while (ch != CR && ch != ESC);
+X				break;
+X
+X			case 5:		/* draw -> / highlighted bar */
+X				prompt_on_off (INDEX_TOP+2, COL2, &draw_arrow_mark, 
+X					txt_help_draw_arrow, txt_opt_draw_arrow);
+X				if (draw_arrow_mark == FALSE && inverse_okay == FALSE) {
+X					inverse_okay = TRUE;
+X				}
+X				break;
+X
+X			case 6:		/* print header */
+X				prompt_on_off (INDEX_TOP+2, COL3, &print_header, 
+X					txt_help_print_header, txt_opt_print_header);
+X				break;
+X			
+X			case 7:		/* position cursor at first / last unread art */
+X				prompt_on_off (INDEX_TOP+4, COL1, &pos_first_unread, 
+X					txt_help_pos_first_unread, txt_opt_pos_first_unread);
+X				break;
+X
+X			case 8:		/* scroll half/full page of groups/articles */
+X				prompt_on_off (INDEX_TOP+4, COL2, &full_page_scroll, 
+X					txt_help_page_scroll, txt_opt_page_scroll);
+X				break;
+X
+X			case 9:		/* catchup read groups when quitting */
+X				prompt_on_off (INDEX_TOP+4, COL3, &catchup_read_groups, 
+X					txt_help_catchup_groups, txt_opt_catchup_groups);
+X				break;
+X
+X			case 10:	/* thread/unthread all groups except those in ~/.tin/unthreaded */
+X				orig_thread_arts = thread_arts;	
+X				prompt_on_off (INDEX_TOP+6, COL1, &thread_arts, 
+X					txt_help_thread_arts, txt_opt_thread_arts);
+X				if (thread_arts != orig_thread_arts || group != (char *) 0) {
+X					make_threads (TRUE);
+X					find_base (show_only_unread);
+X				}
+X				break;
+X
+X			case 11:	/* show all arts or just new/unread arts */
+X				orig_show_only_unread = show_only_unread;	
+X				prompt_on_off (INDEX_TOP+6, COL2, &show_only_unread, 
+X					txt_help_show_only_unread, txt_opt_show_only_unread);
+X				if (show_only_unread != orig_show_only_unread || group != (char *) 0) {
+X					make_threads (TRUE);
+X					find_base (show_only_unread);
+X					if (space_mode) {
+X						for (i = 0; i < top_base; i++) {
+X							if (new_responses (i)) {
+X								break;
+X							}
+X						}
+X						if (i < top_base) {
+X							index_point = i;
+X						} else {
+X							index_point = top_base - 1;
+X						}
+X					} else {
+X						index_point = top_base - 1;
+X					}
+X				}
+X				break;
+X
+X			case 13:		/* show subject & author / subject only */
+X				var_orig = show_author;
+X				show_menu_help (txt_help_show_author);
+X				do {
+X					MoveCursor (INDEX_TOP+8, COL1 + (int) strlen (txt_opt_show_author));
+X					if ((ch	= ReadCh()) == ' ') {
+X						if (show_author + 1 > SHOW_FROM_BOTH) {
+X							show_author = SHOW_FROM_NONE;
+X						} else {
+X							show_author++;
+X						}
+X						switch (show_author) {
+X							case SHOW_FROM_NONE:
+X								str = txt_show_from_none;
+X								break;
+X							case SHOW_FROM_ADDR:
+X								str = txt_show_from_addr;
+X								break;
+X							case SHOW_FROM_NAME:
+X								str = txt_show_from_name;
+X								break;
+X							case SHOW_FROM_BOTH:
+X								str = txt_show_from_both;
+X								break;
+X						}
+X						printf ("%s", str);
+X						fflush (stdout);
+X					}
+X				} while (ch != CR && ch != ESC);
+X
+X				if (ch == ESC) {	/* restore original value */
+X					show_author = var_orig;
+X					switch (show_author) {
+X						case SHOW_FROM_NONE:
+X							str = txt_show_from_none;
+X							break;
+X						case SHOW_FROM_ADDR:
+X							str = txt_show_from_addr;
+X							break;
+X						case SHOW_FROM_NAME:
+X							str = txt_show_from_name;
+X							break;
+X						case SHOW_FROM_BOTH:
+X							str = txt_show_from_both;
+X							break;
+X					}
+X					printf ("%s", str);
+X					fflush (stdout);
+X				} else {
+X					default_show_author = show_author;	
+X					if (show_author == SHOW_FROM_BOTH) {
+X						max_subj = (COLS / 2) - 2;
+X					} else {
+X						max_subj = (COLS / 2) + 5;
+X					}
+X					max_from = (COLS - max_subj) - 17;
+X				}
+X				break;
+X
+X			case 14:
+X				var_orig = post_proc_type;
+X				show_menu_help (txt_help_post_proc_type);
+X				do {
+X					MoveCursor (INDEX_TOP+8, COL2 + (int) strlen (txt_opt_process_type));
+X					if ((ch	= ReadCh()) == ' ') {
+X						if (post_proc_type + 1 > POST_PROC_UUD_EXT_ZOO) {
+X							post_proc_type = POST_PROC_NONE;
+X						} else {
+X							post_proc_type++;
+X						}
+X						switch (post_proc_type) {
+X							case POST_PROC_NONE:
+X								str = txt_post_process_none;
+X								proc_ch_default = 'n';
+X								break;
+X							case POST_PROC_SHAR:
+X								str = txt_post_process_sh;
+X								proc_ch_default = 's';
+X								break;
+X							case POST_PROC_UUDECODE:
+X								str = txt_post_process_uudecode;
+X								proc_ch_default = 'u';
+X								break;
+X							case POST_PROC_UUD_LST_ZOO:
+X								str = txt_post_process_uud_lst_zoo;
+X								proc_ch_default = 'U';
+X								break;
+X							case POST_PROC_UUD_EXT_ZOO:
+X								str = txt_post_process_uud_ext_zoo;
+X								proc_ch_default = 'U';
+X								break;
+X						}
+X						CleartoEOLN (); 
+X						printf ("%s", str);
+X						fflush (stdout);
+X					}
+X				} while (ch != CR && ch != ESC);
+X
+X				if (ch == ESC) {	/* restore original value */
+X					post_proc_type = var_orig;
+X					switch (post_proc_type) {
+X						case POST_PROC_NONE:
+X							str = txt_post_process_none;
+X							proc_ch_default = 'n';
+X							break;
+X						case POST_PROC_SHAR:
+X							str = txt_post_process_sh;
+X							proc_ch_default = 's';
+X							break;
+X						case POST_PROC_UUDECODE:
+X							str = txt_post_process_uudecode;
+X							proc_ch_default = 'u';
+X							break;
+X						case POST_PROC_UUD_LST_ZOO:
+X							str = txt_post_process_uud_lst_zoo;
+X							proc_ch_default = 'U';
+X							break;
+X						case POST_PROC_UUD_EXT_ZOO:
+X							str = txt_post_process_uud_ext_zoo;
+X							proc_ch_default = 'U';
+X							break;
+X					}
+X					CleartoEOLN (); 
+X					printf ("%s", str);
+X					fflush (stdout);
+X				}
+X				break;
+X
+X			case 15:
+X				var_orig = sort_art_type;
+X				show_menu_help (txt_help_sort_type);
+X				do {
+X					MoveCursor (INDEX_TOP+10, COL1 + (int) strlen (txt_opt_sort_type));
+X					if ((ch	= ReadCh()) == ' ') {
+X						if (sort_art_type + 1 > SORT_BY_DATE_ASCEND) {
+X							sort_art_type = SORT_BY_NOTHING;
+X						} else {
+X							sort_art_type++;
+X						}
+X						switch (sort_art_type) {
+X							case SORT_BY_NOTHING:
+X								str = txt_sort_by_nothing;
+X								break;
+X							case SORT_BY_SUBJ_DESCEND:
+X								str = txt_sort_by_subj_descend;
+X								break;
+X							case SORT_BY_SUBJ_ASCEND:
+X								str = txt_sort_by_subj_ascend;
+X								break;
+X							case SORT_BY_FROM_DESCEND:
+X								str = txt_sort_by_from_descend;
+X								break;
+X							case SORT_BY_FROM_ASCEND:
+X								str = txt_sort_by_from_ascend;
+X								break;
+X							case SORT_BY_DATE_DESCEND:
+X								str = txt_sort_by_date_descend;
+X								break;
+X							case SORT_BY_DATE_ASCEND:
+X								str = txt_sort_by_date_ascend;
+X								break;
+X						}
+X						CleartoEOLN (); 
+X						printf ("%s", str);
+X						fflush (stdout);
+X					}
+X				} while (ch != CR && ch != ESC);
+X
+X				if (ch == ESC) {	/* restore original value */
+X					sort_art_type = var_orig;
+X					switch (sort_art_type) {
+X						case SORT_BY_NOTHING:
+X							str = txt_sort_by_nothing;
+X							break;
+X						case SORT_BY_SUBJ_DESCEND:
+X							str = txt_sort_by_subj_descend;
+X							break;
+X						case SORT_BY_SUBJ_ASCEND:
+X							str = txt_sort_by_subj_ascend;
+X							break;
+X						case SORT_BY_FROM_DESCEND:
+X							str = txt_sort_by_from_descend;
+X							break;
+X						case SORT_BY_FROM_ASCEND:
+X							str = txt_sort_by_from_ascend;
+X							break;
+X						case SORT_BY_DATE_DESCEND:
+X							str = txt_sort_by_date_descend;
+X							break;
+X						case SORT_BY_DATE_ASCEND:
+X							str = txt_sort_by_date_ascend;
+X							break;
+X					}
+X					CleartoEOLN (); 
+X					printf ("%s", str);
+X					fflush (stdout);
+X				}
+X				break;
+X
+X			case 16:
+X				show_menu_help (txt_help_savedir);
+X				prompt_menu_string (INDEX_TOP+12, COL1 + (int) strlen (txt_opt_savedir), savedir);
+X				expand_rel_abs_pathname (INDEX_TOP+12, COL1 + (int) strlen (txt_opt_savedir), savedir);
+X				break;
+X
+X			case 17:
+X				show_menu_help (txt_help_maildir);
+X				prompt_menu_string (INDEX_TOP+14, COL1 + (int) strlen (txt_opt_maildir), maildir);
+X				expand_rel_abs_pathname (INDEX_TOP+14, COL1 + (int) strlen (txt_opt_maildir), maildir);
+X				break;
+X
+X			case 18:
+X				show_menu_help (txt_help_printer);
+X				prompt_menu_string (INDEX_TOP+16, COL1 + (int) strlen (txt_opt_printer), printer);
+X				expand_rel_abs_pathname (INDEX_TOP+16, COL1 + (int) strlen (txt_opt_printer), printer);
+X				break;
+X		}
+X		show_menu_help (txt_select_rcfile_option);
+X	}
+}
+X
+X
+void show_rcfile_menu ()
+{
+X	char *str;
+X
+X	ClearScreen ();
+X
+X	center_line (0, TRUE, txt_options_menu);
+X	
+X	MoveCursor (INDEX_TOP, 0);
+X	printf ("%s%s\r\n\r\n", txt_opt_autosave, (save_archive_name ? "ON " : "OFF"));
+X	printf ("%s%s\r\n\r\n", txt_opt_kill_articles, (kill_articles ? "ON " : "OFF"));
+X	printf ("%s%s\r\n\r\n", txt_opt_pos_first_unread, (pos_first_unread ? "ON " : "OFF"));
+X	printf ("%s%s", txt_opt_thread_arts, (thread_arts ? "ON " : "OFF"));
+X
+X	MoveCursor(INDEX_TOP, COL2);
+X	printf ("%s%s", txt_opt_save_separate, (save_separate ? "ON " : "OFF"));
+X	MoveCursor(INDEX_TOP+2, COL2);
+X	printf ("%s%s", txt_opt_draw_arrow, (draw_arrow_mark ? "ON " : "OFF"));
+X	MoveCursor(INDEX_TOP+4, COL2);
+X	printf ("%s%s", txt_opt_page_scroll, (full_page_scroll ? "ON " : "OFF"));
+X	MoveCursor(INDEX_TOP+6, COL2);
+X	printf ("%s%s", txt_opt_show_only_unread, (show_only_unread ? "ON " : "OFF"));
+X
+X	MoveCursor(INDEX_TOP, COL3);
+X	printf ("%s%s", txt_opt_mark_saved_read, (mark_saved_read ? "ON " : "OFF"));
+X	MoveCursor(INDEX_TOP+2, COL3);
+X	printf ("%s%s", txt_opt_print_header, (print_header ? "ON " : "OFF"));
+X	MoveCursor(INDEX_TOP+4, COL3);
+X	printf ("%s%s", txt_opt_catchup_groups, (catchup_read_groups ? "ON " : "OFF"));
+X
+X	MoveCursor(INDEX_TOP+8, COL1);
+X	switch (show_author) {
+X		case SHOW_FROM_NONE:
+X			str = txt_show_from_none;
+X			break;
+X		case SHOW_FROM_ADDR:
+X			str = txt_show_from_addr;
+X			break;
+X		case SHOW_FROM_NAME:
+X			str = txt_show_from_name;
+X			break;
+X		case SHOW_FROM_BOTH:
+X			str = txt_show_from_both;
+X			break;
+X		}
+X	printf ("%s%s", txt_opt_show_author, str);
+X	MoveCursor(INDEX_TOP+8, COL2);
+X	switch (post_proc_type) {
+X		case POST_PROC_NONE:
+X			str = txt_post_process_none;
+X			break;
+X		case POST_PROC_SHAR:
+X			str = txt_post_process_sh;
+X			break;
+X		case POST_PROC_UUDECODE:
+X			str = txt_post_process_uudecode;
+X			break;
+X		case POST_PROC_UUD_LST_ZOO:
+X			str = txt_post_process_uud_lst_zoo;
+X			break;
+X		case POST_PROC_UUD_EXT_ZOO:
+X			str = txt_post_process_uud_ext_zoo;
+X			break;
+X	}
+X	printf ("%s%s\r\n\r\n", txt_opt_process_type, str);
+X	
+X	MoveCursor(INDEX_TOP+10, COL1);
+X	switch (sort_art_type) {
+X		case SORT_BY_NOTHING:
+X			str = txt_sort_by_nothing;
+X			break;
+X		case SORT_BY_SUBJ_DESCEND:
+X			str = txt_sort_by_subj_descend;
+X			break;
+X		case SORT_BY_SUBJ_ASCEND:
+X			str = txt_sort_by_subj_ascend;
+X			break;
+X		case SORT_BY_FROM_DESCEND:
+X			str = txt_sort_by_from_descend;
+X			break;
+X		case SORT_BY_FROM_ASCEND:
+X			str = txt_sort_by_from_ascend;
+X			break;
+X		case SORT_BY_DATE_DESCEND:
+X			str = txt_sort_by_date_descend;
+X			break;
+X		case SORT_BY_DATE_ASCEND:
+X			str = txt_sort_by_date_ascend;
+X			break;
+X	}
+X	printf ("%s%s\r\n\r\n", txt_opt_sort_type, str);
+X
+X	printf ("%s%s\r\n\r\n", txt_opt_savedir, savedir);
+X	printf ("%s%s\r\n\r\n", txt_opt_maildir, maildir);
+X	printf ("%s%s\r\n\r\n", txt_opt_printer, printer);
+X	fflush(stdout);
+X
+X	show_menu_help (txt_select_rcfile_option);
+X	MoveCursor (LINES, 0);
+}
+X
+/*
+X *  expand ~/News to /usr/username/News and print to screen
+X */
+X 
+void expand_rel_abs_pathname (line, col, str)
+X	int line;
+X	int col;
+X	char *str;
+{
+X	char buf[LEN];
+X	
+X	if (str[0] == '~') {
+X		if (strlen (str) == 1) {
+X			strcpy (str, homedir);
+X		} else {
+X			sprintf (buf, "%s%s", homedir, str+1);
+X			strcpy (str, buf);
+X		}
+X	}
+X	MoveCursor (line, col);
+X	CleartoEOLN ();
+X	puts (str);
+X	fflush (stdout);
+}
+X
+/*
+X *  show_menu_help
+X */
+X 
+void show_menu_help (help_message)
+X	char *help_message;
+{
+X	 MoveCursor (LINES-2, 0);
+X	 CleartoEOLN ();
+X	 center_line (LINES-2, FALSE, help_message);
+}
+SHAR_EOF
+chmod 0600 rcfile.c ||
+echo 'restore of rcfile.c failed'
+Wc_c="`wc -c < 'rcfile.c'`"
+test 22745 -eq "$Wc_c" ||
+	echo 'rcfile.c: original size 22745, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= save.c ==============
+if test -f 'save.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping save.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting save.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'save.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : save.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 22-03-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+#define	INITIAL		1
+#define MIDDLE		2
+#define OFF			3
+#define END			4
+X
+int create_subdir = TRUE;
+X
+struct save_t *save;
+int save_num=0;
+int max_save;
+X
+/*
+X * types of archive programs
+X * 0=archiver, 1=extension, 2=extract option, 3=list option
+X */
+X 
+struct archiver_t { 
+X	char *name;
+X	char *ext;
+X	char *extract;
+X	char *list;
+};
+X
+struct archiver_t archiver[] = {
+X	{ "",			"",			"",			"" },
+X	{ "",			"",			"",			"" },
+X	{ "",			"",			"",			"" },
+X	{ "zoo",		"zoo",		"-extract",	"-list" },
+X	{ (char *) 0,	(char *) 0,	(char *) 0,	(char *) 0 }
+};
+X
+extern char *glob_group;
+extern char note_h_path[LEN];	/* Path:	*/
+extern char note_h_date[LEN];	/* Date:	*/
+extern FILE	*note_fp;			/* the body of the current article */
+extern int index_point;
+extern int note_end;
+extern int note_page;
+extern long note_mark[MAX_PAGES];
+X
+X
+/*
+X *  Check for articles and say how many new/unread in each group.
+X *  or
+X *  Start if new/unread articles and return first group with new/unread.
+X *  or
+X *  Save any new articles to savedir and mark arts read and mail user
+X *  and inform how many arts in which groups were saved.
+X *  or
+X *  Mail any new articles to specified user and mark arts read and mail
+X *  user and inform how many arts in which groups were mailed.
+X */
+X
+int check_start_save_any_news (check_start_save)
+X	int check_start_save;
+{
+#ifndef INDEX_DAEMON
+X
+X	char buf[LEN], logfile[LEN], *p;
+X	char group_path[LEN];
+X	char savefile[LEN];
+X	extern FILE *note_fp;
+X	FILE *fp, *fp_log;
+X	int i, j, print_group;
+X	int check_arts = 0;
+X	int	log_opened = TRUE;
+X	int print_first = TRUE;
+X	int saved_arts = 0;
+X	int saved_groups = 0;
+X	int unread_news = FALSE;	
+X	long epoch;
+X
+X	switch (check_start_save) {
+X		case CHECK_ANY_NEWS:
+X			if (verbose) {
+X				wait_message (txt_checking_for_news);
+X			}
+X			break;
+X		case START_ANY_NEWS:
+X			wait_message (txt_checking_for_news);
+X			break;
+X		case MAIL_ANY_NEWS:
+X		case SAVE_ANY_NEWS:
+X			sprintf (logfile, "%s/log", rcdir);
+X			if ((fp_log = fopen (logfile, "w")) == NULL) {
+X				error_message (txt_cannot_open, logfile);
+X				fp_log = stdout;
+X				verbose = FALSE;
+X				log_opened = FALSE;
+X			}
+X			time (&epoch);
+X			fprintf (fp_log, "To: %s\n", userid);
+X			fprintf (fp_log, "Subject: NEWS LOG %s\n", ctime (&epoch));
+X			break;
+X	}
+X	
+X	for (i = 0; i < group_top; i++) {
+X		strcpy (group_path, active[my_group[i]].name);
+X		for (p = group_path; *p; p++) {
+X			if (*p == '.') {
+X				*p = '/';
+X			}
+X		}
+X		
+X		index_group (active[my_group[i]].name, group_path);
+X		read_newsrc_line (active[my_group[i]].name);
+X		print_group = TRUE;
+X		check_arts = 0;
+X
+X		for (j = 0; j < top; j++) {
+X			if (arts[j].unread == ART_UNREAD)  {
+X				switch (check_start_save) {
+X					case CHECK_ANY_NEWS:
+X						if (print_first && verbose) {
+X							putchar ('\n');
+X							print_first = FALSE;
+X						}
+X						check_arts++;
+X						break;
+X					case START_ANY_NEWS:
+X						return i;	/* return first group with unread news */ 
+X						/* NOTREACHED */
+X					case MAIL_ANY_NEWS:
+X					case SAVE_ANY_NEWS:
+X						if (print_group) {	
+X							sprintf (buf, "Saved %s...\n", active[my_group[i]].name);
+X							fprintf (fp_log, "%s", buf);
+X							if (verbose) {
+X								wait_message (buf);
+X							}
+X							print_group = FALSE;
+X							saved_groups++;
+X							if (check_start_save == SAVE_ANY_NEWS) {
+X								sprintf (buf, "%s/dummy", group_path);
+X								create_path (buf);
+X							}
+X						}
+X						sprintf (buf, "[%5ld]  %s\n", arts[j].artnum, arts[j].subject);
+X						fprintf (fp_log, "%s", buf);
+X						if (verbose) {
+X							wait_message (buf);
+X						}
+X						saved_arts++;
+X
+X						if (check_start_save == MAIL_ANY_NEWS) {
+X							sprintf (savefile, "/tmp/tin.%d", process_id);
+X						} else {
+X							sprintf (savefile, "%s/%s/%ld", savedir,
+X									 group_path, arts[j].artnum);
+X						}
+X
+X						if ((fp = fopen (savefile, "w")) == NULL) {
+X							fprintf (fp_log, txt_cannot_open, savefile);
+X							if (verbose) {
+X								error_message (txt_cannot_open, savefile);
+X							}
+X							continue;
+X						}
+X				
+X						if (check_start_save == MAIL_ANY_NEWS) {
+X							fprintf (fp, "To: %s\n", mail_news_user);
+X						}
+X
+X						note_page = art_open (arts[j].artnum, group_path);	
+X						fseek (note_fp, 0L, 0);
+X						copy_fp (note_fp, fp, (char *) 0);
+X						art_close ();
+X						fclose (fp);
+X
+X						if (check_start_save == MAIL_ANY_NEWS) {
+X							sprintf (buf, "%s \"%s\" < %s", mailer,
+X									mail_news_user, savefile);
+X							if (! invoke_cmd (buf)) {
+X								error_message (txt_command_failed_s, buf);
+X							}
+X							unlink (savefile);
+X						}
+X						if (catchup) {
+X							arts[j].unread = ART_READ;
+X						}
+X						break;
+X				}
+X			}
+X		}
+X		
+X		if (check_start_save == MAIL_ANY_NEWS ||
+X			check_start_save == SAVE_ANY_NEWS) {
+X			if (catchup) {
+X				update_newsrc (active[my_group[i]].name, my_group[i], FALSE);
+X			}
+X		} else {
+X			if (check_arts) {
+X				if (verbose) {
+X					sprintf (buf, "%4d unread articles in %s\n",
+X						check_arts, active[my_group[i]].name);
+X					wait_message (buf); 	
+X				}
+X				unread_news = TRUE;	
+X			}
+X		}
+X	}
+X	switch (check_start_save) {
+X		case CHECK_ANY_NEWS:
+X			if (unread_news) {
+X				return 2;
+X			} else {
+X				if (verbose) {
+X					wait_message (txt_there_is_no_news);
+X				}
+X				return 0;
+X			}
+X			/* NOTREACHED */ 
+X		case START_ANY_NEWS:
+X			wait_message (txt_there_is_no_news);
+X			return -1;
+X			/* NOTREACHED */ 
+X		case MAIL_ANY_NEWS:
+X		case SAVE_ANY_NEWS:
+X			sprintf (buf, "\n%s %d article(s) from %d group(s)\n", 
+X				(check_start_save == MAIL_ANY_NEWS ? "Mailed" : "Saved"),
+X				saved_arts, saved_groups);
+X			fprintf (fp_log, "%s", buf);
+X			if (verbose) {
+X				wait_message (buf);
+X			}
+X			if (log_opened) {
+X				fclose (fp_log);
+X				if (verbose) {
+X					sprintf (buf, "Mailing log to %s\n",
+X						(check_start_save == MAIL_ANY_NEWS ? mail_news_user : userid));
+X					wait_message (buf);
+X				}
+X				sprintf (buf, "%s \"%s\" < %s", mailer,
+X					(check_start_save == MAIL_ANY_NEWS ? mail_news_user : userid),
+X					logfile);
+X				if (! invoke_cmd (buf)) {
+X					error_message (txt_command_failed_s, buf);
+X				}
+X			}
+X			break;
+X	}
+X
+#endif /* INDEX_DAEMON */
+X
+X	return 0;
+}
+X
+X
+int save_art_to_file (respnum, index, mailbox, filename)
+X	int respnum;
+X	int index;
+X	int mailbox;
+X	char *filename;
+{
+#ifndef INDEX_DAEMON
+X
+X	char file[LEN];
+X	char save_art_info[LEN];
+X	FILE *fp;
+X	int is_mailbox = FALSE;
+X	int i = 0, ret_code = FALSE;
+X	long epoch;
+X	
+X	if (filename) {
+X		my_strncpy (file, filename, LEN);
+X		is_mailbox = mailbox;
+X		i = index;
+X	} else if (save_archive_name && arts[respnum].archive) {
+X			my_strncpy (file, arts[respnum].archive, LEN);
+X	}
+X
+X	if (! append_to_existing_file (i)) {
+X		save[i].saved = FALSE;
+X		info_message (txt_art_not_saved);
+X		sleep (1);
+X		return (ret_code);
+X	}
+X
+X	set_real_uid_gid ();
+X
+X	if ((fp = fopen (save_filename (i), "a+")) == NULL) {
+X		save[i].saved = FALSE;
+X		info_message (txt_art_not_saved);
+X		set_tin_uid_gid ();
+X		return (ret_code);
+X	}
+X
+X 	time (&epoch);
+X 	fprintf (fp, "From %s %s", note_h_path, ctime (&epoch));
+X
+X	if (fseek (note_fp, 0L, 0) == -1) {
+X		error_message ("fseek() error on [%s]", arts[respnum].subject);
+X	}
+X	copy_fp (note_fp, fp, (char *) 0);
+X	fputs ("\n", fp);
+X	fclose (fp);
+X	fseek (note_fp, note_mark[note_page], 0);
+X
+X	save[i].saved = TRUE;
+X
+X	set_tin_uid_gid ();
+X
+X	if (filename == (char *) 0) {
+X		if (is_mailbox) {
+X			sprintf (save_art_info, txt_saved_to_mailbox, get_first_savefile ());
+X		} else {
+X			sprintf (save_art_info, txt_art_saved_to, get_first_savefile ());
+X		}
+X		info_message(save_art_info);
+X	}
+X
+#endif /* INDEX_DAEMON */
+X
+X	return TRUE;
+}
+X
+X
+int save_thread_to_file (is_mailbox, group_path)
+X	int is_mailbox;
+X	char *group_path;
+{
+#ifndef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	char save_thread_info[LEN];
+X	char *first_savefile;
+X	int count = 0;
+X	int i, ret_code = FALSE;
+X	long epoch;
+X
+X	set_real_uid_gid ();
+X
+X	for (i=0 ; i < save_num ; i++) {
+X		sprintf (msg, "%s%d", txt_saving, ++count);
+X		wait_message (msg);
+X
+X		if (is_mailbox) {
+X			buf[0] = 0;
+X		}else {
+X			sprintf (buf, "%s.%02d", save[i].file, i+1);
+X		}
+X
+X		note_page = art_open (arts[save[i].index].artnum, group_path);
+X		ret_code = save_art_to_file (save[i].index, i, is_mailbox, buf);
+X		art_close ();			
+X	}
+X	set_tin_uid_gid ();
+X	
+X	first_savefile = get_first_savefile ();
+X
+X	if (first_savefile == (char *) 0) {
+X		info_message (txt_thread_not_saved);
+X	} else {
+X		if (is_mailbox) {
+X			sprintf (save_thread_info, txt_saved_to_mailbox, first_savefile);
+X		} else {
+X			if (save_num == 1) {
+X				sprintf (save_thread_info, txt_art_saved_to, first_savefile);
+X			} else {
+X				if (save_separate) {
+X					sprintf (save_thread_info, txt_thread_saved_to_many,
+X						first_savefile, get_last_savefile ());
+X				} else {
+X					sprintf (save_thread_info, txt_thread_saved_to,
+X						first_savefile);
+X				}
+X			}
+X			if (first_savefile != (char *) 0) {
+X				free (first_savefile);
+X				first_savefile = (char *) 0;
+X			}
+X		}
+X		info_message (save_thread_info);
+X	}
+X
+#endif /* INDEX_DAEMON */
+X
+X	return TRUE;
+}
+X
+X
+int save_regex_arts (is_mailbox, group_path)
+X	int is_mailbox;
+X	char *group_path;
+{
+#ifndef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	int i, ret_code; 	
+X	
+X	for (i=0 ; i < save_num ; i++) {
+X		sprintf(msg, "%s%d", txt_saving, i+1);
+X		wait_message (msg);
+X
+X		if (is_mailbox) {
+X			buf[0] = 0;
+X		}else {
+X			sprintf (buf, "%s.%02d", save[i].file, i+1);
+X		}
+X
+X		note_page = art_open (arts[save[i].index].artnum, group_path);
+X		ret_code = save_art_to_file (save[i].index, i, is_mailbox, buf);
+X		art_close ();			
+X	}
+X
+X	if (! save_num) {	
+X		info_message (txt_no_match);
+X	} else {
+X		if (is_mailbox) {
+X			sprintf (buf, txt_saved_to_mailbox, get_first_savefile ());
+X		} else {
+X			sprintf (buf,txt_saved_pattern_to,
+X				get_first_savefile (), get_last_savefile ());
+X		}
+X		info_message (buf);
+X	}
+X
+X	return (ret_code);
+X
+#else
+X
+X	return (FALSE);
+X	
+#endif /* INDEX_DAEMON */
+}
+X
+X
+int append_to_existing_file (i)
+X	int i;
+{
+#ifndef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	char *file;
+X	struct stat st;
+X
+X	if (! save[i].is_mailbox && save_separate) {
+X		file = save_filename (i);
+X		if (stat(file, &st) != -1) {	
+X			sprintf (buf, txt_append_to_file, file); 
+X			if (! prompt_yn (LINES, buf, 'n')) {
+X				if (file != (char *) 0) {
+X					free (file);
+X					file = (char *) 0;
+X				}
+X				return FALSE;
+X			}
+X		}
+X		if (file != (char *) 0) {
+X			free (file);
+X			file = (char *) 0;
+X		}
+X	}
+X
+#endif /* INDEX_DAEMON */
+X	
+X	return TRUE;
+}
+X
+X
+int create_path (path)
+X	char *path;
+{
+#ifdef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	char group[LEN];
+X	char *env;
+X	int i, j, len;
+X	struct stat st;
+X	
+X	/*
+X	 * save in mailbox format to ~/Mail/<group.name>
+X	 */
+X	if (path[0] == '=') {
+X		return TRUE;
+X	}
+X
+X	/*
+X	 * if ~/file expand (ie. /usr/homedir/file)
+X	 */
+X	switch (path[0]) {
+X		case '~':
+X			my_strncpy (buf, path+1, LEN);
+X			sprintf (path, "%s%s", homedir, buf);
+X			break;
+X		case '+':
+X			my_strncpy (buf, path+1, LEN);
+#ifdef USE_LONG_FILENAMES 
+X			strcpy (group, glob_group);
+#else
+X			my_strncpy (group, glob_group, 14);
+#endif
+X			/*
+X			 *  convert 1st letter to uppercase
+X			 */
+X			if (group[0] >= 'a' && group[0] <= 'z') {
+X				group[0] = group[0] - 32;
+X			}
+X			sprintf (path, "%s/%s/%s", savedir, group, buf);
+X			break;
+X		case '$':
+X			for (i = 0 ; isalnum (path[i+1]) ; i++) {
+X				buf[i] = path[i+1];
+X			}
+X			buf[i] = '\0';
+X			if (buf[0] == '\0' || (env = (char *) getenv (buf)) == NULL ||
+X				(len = strlen (env)) == 0) {
+X			}
+X			sprintf (buf, "%s%s%s", env, (path[i+1] != '/' &&
+X					env[len-1] != '/') ? "/" : "", &path[i+1]);
+X			strcpy (path, buf);
+X			break;
+X		case '/':
+X			break;
+X		case '.':
+X			error_message ("Cannot create %s", buf);
+X			return FALSE;
+X			/* NOTREACHED */
+X		default:
+X			sprintf (buf, "%s/%s", savedir, path);
+X			my_strncpy (path, buf, LEN);
+X			break;
+X	}
+X
+X	/*
+X	 *  create any directories, otherwise check
+X	 *  errno and give appropiate error message
+X	 */
+X	len = (int) strlen (path);
+X	
+X	for (i=0, j=0 ; i < len ; i++, j++) {
+X		buf[j] = path[i];
+X		if (i+1 < len && path[i+1] == '/') {
+X			buf[j+1] = '\0';
+X			if (stat (buf, &st) == -1) {
+X				if (mkdir (buf, 0755) == -1) {
+X					error_message ("Cannot create %s", buf);
+X					return FALSE;
+X				}
+X			}
+X		}
+X	}
+X
+#endif /* INDEX_DAEMON */
+X	
+X	return FALSE;
+}
+X
+X
+int create_sub_dir (i)
+X	int i;
+{
+#ifndef INDEX_DAEMON
+X
+X	char dir[LEN];
+X	struct stat st;
+X
+X	if (! save[i].is_mailbox && save[i].archive) {
+X		sprintf (dir, "%s/%s", save[i].dir, save[i].archive);
+X		if (stat (dir, &st) == -1) {
+X			mkdir (dir, 0755);
+X			return TRUE;
+X		}
+X		if ((st.st_mode & S_IFMT) == S_IFDIR) {
+X			return TRUE;
+X		} else {
+X			return FALSE;
+X		}
+X	}
+X
+#endif /* INDEX_DAEMON */
+X	
+X	return FALSE;
+}
+X
+/*
+X *  add files to be saved to save array
+X */
+X
+void add_to_save_list (index, article, is_mailbox, path)
+X	int index;
+X	struct article_t *article;
+X	int is_mailbox;
+X	char *path;
+{
+#ifndef INDEX_DAEMON
+X
+X	char dir[LEN];
+X	char file[LEN];
+X	int i;
+X	
+X	dir[0] = '\0';
+X	file[0] = '\0';
+X
+X	if (save_num == max_save-1) {
+X		expand_save ();
+X	}
+X
+X	save[save_num].index   = index;
+X	save[save_num].saved   = FALSE;
+X	save[save_num].is_mailbox = is_mailbox;
+X	save[save_num].dir     = (char *) 0;
+X	save[save_num].file    = (char *) 0;
+X	save[save_num].archive = (char *) 0;
+X	save[save_num].part    = (char *) 0;
+X	save[save_num].patch   = (char *) 0;
+X
+X	save[save_num].subject = str_dup (article->subject);
+X	if (article->archive) {
+X		save[save_num].archive = str_dup (article->archive);
+X	}
+X	if (article->part) {
+X		save[save_num].part = str_dup (article->part);
+X	}
+X	if (article->patch) {
+X		save[save_num].patch = str_dup (article->patch);
+X	}
+X
+X	if (is_mailbox) {
+X		if ((int) strlen (path) > 1) {
+X			if (path[0] == '=') {
+X				strcpy (file, path+1);
+X			} else {
+X				strcpy (file, path);
+X			}
+X		} else {
+X			strcpy (file, glob_group);
+X		}
+X		save[save_num].dir = str_dup (maildir);
+X		save[save_num].file = str_dup (file);
+X	} else {
+X		if (path[0]) {
+X			for (i=strlen (path) ; i ; i--) {
+X				if (path[i] == '/') {
+X					strncpy (dir, path, i);
+X					dir[i] = '\0';
+X					strcpy (file, path+i+1);
+X					break;
+X				}
+X			}
+X		}
+X		
+X		if (dir[0]) {
+X			save[save_num].dir = str_dup (dir);
+X		} else {
+X			save[save_num].dir = str_dup (savedir);
+X		}
+X
+X		if (file[0]) {
+X			save[save_num].file = str_dup (file);
+X		} else {
+X			if (path[0]) {
+X				save[save_num].file = str_dup (path);
+X			} else {
+X				save[save_num].file = str_dup (save[save_num].archive);
+X			}
+X		}
+X	}
+X	save_num++;
+X
+#endif /* INDEX_DAEMON */
+}
+X
+/*
+X *  print save array of files to be saved
+X */
+X
+void sort_save_list ()
+{
+X	qsort ((char *) save, save_num, sizeof (struct save_t), save_comp);
+}
+X
+/*
+X *  string comparison routine for the qsort()
+X *  ie. qsort(array, 5, 32, save_comp);
+X */
+X
+int save_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+{
+X	struct save_t *s1 = (struct save_t *)p1;
+X	struct save_t *s2 = (struct save_t *)p2;
+X
+X	/* s1->subject less than s2->subject */
+X	if (strcmp (s1->subject, s2->subject) < 0) {
+X		return -1;
+X	}
+X	/* s1->subject greater than s2->subject */
+X	if (strcmp (s1->subject, s2->subject) > 0) {
+X		return 1;
+X	}
+X	return 0;
+}
+X
+X
+char *save_filename (i)
+X	int i;
+{
+X	char *filename;
+X
+X	filename = (char *) my_malloc (LEN);
+X
+X	if (save[i].is_mailbox) {
+X		sprintf (filename, "%s/%s", save[i].dir, save[i].file);
+X		return (filename);
+X	}
+X	
+X	if (! save_separate || ! save_archive_name || (! save[i].part && ! save[i].patch)) {
+X		if (! save_separate || save_num == 1) {
+X			sprintf (filename, "%s/%s", save[i].dir, save[i].file);
+X		} else {
+X			sprintf (filename, "%s/%s.%02d", save[i].dir, save[i].file, i+1);
+X		}
+X	} else {
+X		if (save[i].part) {
+X			if (create_sub_dir (i)) {
+X				sprintf (filename, "%s/%s/%s.%s%s", save[i].dir, save[i].archive, save[i].archive, LONG_PATH_PART, save[i].part);
+X			} else {
+X				sprintf (filename, "%s/%s.%s%s", save[i].dir, save[i].archive, LONG_PATH_PART, save[i].part);
+X			}
+X		} else {
+X			if (save[i].patch) {
+X				if (create_sub_dir (i)) {
+X					sprintf (filename, "%s/%s/%s.%s%s", save[i].dir, save[i].archive, save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X				} else {
+X					sprintf (filename, "%s/%s.%s%s", save[i].dir, save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X				}
+X			} else {
+X	 	 		sprintf (filename, "%s/%s", save[i].dir, save[i].file);
+X			}
+X		}
+X	}
+X
+X	return (filename);
+}
+X
+X
+char *get_first_savefile ()
+{
+X	char *file;
+X	int i;
+X
+X	for (i=0 ; i < save_num ; i++) {
+X		if (save[i].saved) {
+X			file = (char *) my_malloc (LEN);
+X			if (save[i].is_mailbox) {
+X				sprintf (file, "%s/%s", save[i].dir, save[i].file);
+X				return (file);
+X			} else {
+X				if (save[i].archive && save_archive_name) {
+X					if (save[i].part) {
+X						if (create_subdir) {
+X							sprintf (file, "%s/%s.%s%s", save[i].archive, save[i].archive, LONG_PATH_PART, save[i].part);
+X						} else {
+X							sprintf (file, "%s.%s%s", save[i].archive, LONG_PATH_PART, save[i].part);
+X						}
+X					} else {
+X						if (create_subdir) {
+X							sprintf (file, "%s/%s.%s%s", save[i].archive, save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X						} else {
+X							sprintf (file, "%s.%s%s", save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X						}
+X					}
+X				} else {
+X					if (! save_separate || save_num == 1) {
+X						sprintf (file, "%s", save[i].file);
+X					} else {
+X						sprintf (file, "%s.%02d", save[i].file, i+1);
+X					}
+X				}
+X				return (file);
+X			}
+X		}
+X	}
+X	return ((char *) 0);
+}
+X
+X
+char *get_last_savefile ()
+{
+X	char *file;
+X	int i;
+X	
+X	for (i=save_num-1 ; i >= 0 ; i--) {
+X		if (save[i].saved) {
+X			file = (char *) my_malloc (LEN);
+X			if (save[i].is_mailbox) {
+X				sprintf (file, "%s/%s", save[i].dir, save[i].file);
+X				return (file);
+X			} else {
+X				if (save[i].archive && save_archive_name) {
+X					if (save[i].part) {
+X						if (create_subdir) {
+X							sprintf (file, "%s/%s.%s%s", save[i].archive, save[i].archive, LONG_PATH_PART, save[i].part);
+X						} else {
+X							sprintf (file, "%s.%s%s", save[i].archive, LONG_PATH_PART, save[i].part);
+X						}
+X					} else {
+X						if (create_subdir) {
+X							sprintf (file, "%s/%s.%s%s", save[i].archive, save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X						} else {
+X							sprintf (file, "%s.%s%s", save[i].archive, LONG_PATH_PATCH, save[i].patch);
+X						}
+X					}
+X				} else {
+X					if (! save_separate || save_num == 1) {
+X						sprintf (file, "%s", save[i].file);
+X					} else {
+X						sprintf (file, "%s.%02d", save[i].file, i+1);
+X					}
+X				}
+X				return (file);
+X			}
+X		}
+X	}
+X	return ((char *) 0);
+}
+X
+X
+int post_process_files (proc_type_ch)
+X	char proc_type_ch;
+{
+X	if (save_num) {
+X		wait_message (txt_post_processing);
+X
+X		set_real_uid_gid();
+X
+X		switch (proc_type_ch) {
+X			case 's':
+X				post_process_sh ();
+X				break;
+X				
+X			case 'u':
+X				post_process_uud (POST_PROC_UUDECODE);
+X				break;
+X
+X			case 'U':
+X				if (post_proc_type == POST_PROC_UUD_EXT_ZOO) {
+X					post_process_uud (POST_PROC_UUD_EXT_ZOO);
+X				} else {
+X					post_process_uud (POST_PROC_UUD_LST_ZOO);
+X				}
+X				break;
+X		}
+X
+X		info_message (txt_post_processing_finished);
+X		sleep (1);
+X		return TRUE;
+X	}
+X	return FALSE;
+}
+X
+X
+void post_process_uud (pp)
+X	int pp;
+{
+#ifndef INDEX_DAEMON
+X
+X	char s[LEN], t[LEN], u[LEN];
+X	char buf[LEN], *file;
+X	char file_out[LEN];
+X	char file_out_dir[LEN];
+X	FILE *fp_in, *fp_out;
+X	int i, state = INITIAL;
+X	int file_size = 0;
+X	struct stat st;
+X	
+X	t[0] = '\0';
+X	u[0] = '\0';
+X
+X	my_strncpy (file_out_dir, save_filename (0), LEN);
+X	for (i=strlen(file_out_dir) ; i > 0 ; i--) {
+X		if (file_out_dir[i] == '/') {
+X			file_out_dir[i] = '\0';
+X			break;
+X		}
+X	}
+X
+X	sprintf (file_out, "%s/tin.%05d", file_out_dir, process_id);
+X	
+X	if ((fp_out = fopen (file_out, "a+")) == NULL) {
+X		error_message (txt_cannot_open, file_out);
+X	}
+X
+X
+X	for (i=0 ; i < save_num ; i++) {
+X		my_strncpy (buf, save_filename (i), LEN);
+X
+X		if ((fp_in = fopen (buf, "r")) != NULL) {
+X			if (fgets (s, sizeof s, fp_in) == NULL) {
+X				fclose (fp_in);
+X				continue;
+X			}
+X			while (state != END) { 
+X				switch (state) {
+X					case INITIAL:
+X						if (! strncmp ("begin", s, 5)) {
+X							state = MIDDLE;
+X							fprintf (fp_out, "%s", s);
+X						}
+X						break;
+X
+X					case MIDDLE:
+X						if (s[0] == 'M') {
+X							fprintf (fp_out, "%s", s);
+X						} else if (strncmp("end", s, 3)) {
+X							state = OFF;
+X						} else { /* end */
+X							state = END;
+X							if (u[0] != 'M') {
+X								fprintf (fp_out, "%s", u);
+X							}
+X							if (t[0] != 'M') {
+X							    fprintf (fp_out, "%s", t);
+X							}
+X							fprintf (fp_out, "%s\n", s);
+X						}
+X						break;
+X
+X					case OFF:
+X						if ((s[0] == 'M') && (t[0] == 'M') && (u[0] == 'M')) {
+X							fprintf (fp_out, "%s", u);
+X							fprintf (fp_out, "%s", t);
+X							fprintf (fp_out, "%s", s);
+X							state = MIDDLE;
+X						} else if (! strncmp ("end", s, 3)) {
+X							state = END;
+X							if (u[0] != 'M') {
+X							    fprintf (fp_out, "%s", u);
+X							}
+X							if (t[0] != 'M') {
+X							    fprintf (fp_out, "%s", t);
+X							}
+X							fprintf (fp_out, "%s\n", s);
+X						}
+X						break;
+X
+X					case END:
+X						break;
+X
+X					default:
+X						fprintf (stderr, "\r\nerror: ASSERT - default state\n");
+X						fclose (fp_in);
+X						fclose (fp_out);
+X						unlink (file_out);
+X						return;
+X				}
+X				strcpy (u,t);
+X				strcpy (t,s);
+X				/*
+X				 *  read next line & if error goto next file in save array
+X				 */
+X				if (fgets (s, sizeof s, fp_in) == NULL) {
+X					break;
+X				}
+X			}
+X			fclose (fp_in);
+X		}
+X	}
+X	fclose (fp_out);
+X
+X	/*
+X	 *  uudecode file
+X	 */
+X	wait_message (txt_uudecoding);
+X	
+X	sprintf (buf, "cd %s; uudecode %s", file_out_dir, file_out); 
+X	if (invoke_cmd (buf)) {
+X		set_real_uid_gid ();
+X		/*
+X		 *  sum file
+X		 */
+X		if ((file = get_archive_file (file_out_dir, "*")) != NULL) { 
+X			sprintf (buf, "%s %s", DEFAULT_SUM, file); 
+X			printf ("\r\n\r\nChecksum of %s...\r\n\r\n", file); 
+X			fflush (stdout);
+X			if ((fp_in = popen (buf, "r")) == NULL) {
+X				printf ("Cannot execute %s\r\n", buf); 
+X				fflush (stdout);
+X			} else {
+X				if (stat (file, &st) != -1) {
+X					file_size = (int) st.st_size;
+X				}
+X				if (fgets (buf, sizeof buf, fp_in) != NULL) {
+X					buf[strlen (buf)-1] = '\0';
+X				}
+X				fclose (fp_in);
+X				printf ("%s  %8d bytes\r\n", buf, file_size); 
+X				fflush (stdout);
+X			}
+X			if (file != (char *) 0) {
+X				free (file);
+X				file = (char *) 0;
+X			}
+X		}
+X	}
+X
+X	set_real_uid_gid ();
+X
+X	if (pp > POST_PROC_UUDECODE) {
+X		sprintf (buf, "*.%s", archiver[pp].ext); 
+X		if ((file = get_archive_file (file_out_dir, buf)) != NULL) {
+X			if (pp == POST_PROC_UUD_EXT_ZOO) {
+X				sprintf (buf, "cd %s; %s %s %s", file_out_dir,
+X					archiver[pp].name, archiver[pp].extract, file);
+X				printf ("\r\n\r\nListing %s archive...\r\n", file); 
+X			} else {
+X				sprintf (buf, "cd %s; %s %s %s", file_out_dir,
+X					archiver[pp].name, archiver[pp].list, file);
+X				printf ("\r\n\r\nExtracting %s archive...\r\n", file);
+X			}
+X			fflush (stdout);
+X			if (file != (char *) 0) {
+X				free (file);
+X				file = (char *) 0;
+X			}
+X			if (! invoke_cmd (buf)) {
+SHAR_EOF
+true || echo 'restore of save.c failed'
+fi
+echo 'End of tin1.1 part 9'
+echo 'File save.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea 
+EMAIL  iain%anl433.uucp@germany.eu.net
+SNAIL  Siemens AG, ANL A433SZ, Gruendlacher Str. 248, 8510 Fuerth, Germany.
+PHONE  +49-911-3089-407 (work) +49-911-331963 (home) +49-911-3089-290 (FAX)  
+-- 
+ Dr. med. dipl.-math Dieter Becker           Tel.: (0 / +49) 6841 - 16 3046
+ Medizinische Universitaets- und Poliklinik  Fax.: (0 / +49) 6841 - 16 3369
+ Innere Medizin III                         
+ D - 6650 Homburg / Saar                     Email: becker@med-in.uni-sb.de
+exit 0 # Just in case...

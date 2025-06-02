@@ -1,0 +1,1696 @@
+Newsgroups: comp.sources.misc
+From: Angus Duggan <ajcd@dcs.ed.ac.uk>
+Subject: v35i011:  psutils - Postscript document manipulation tools, v1.7, Part04/04
+Message-ID: <1993Feb2.051908.19185@sparky.imd.sterling.com>
+Date: Tue, 2 Feb 1993 05:19:08 GMT
+Approved: kent@sparky.imd.sterling.com
+X-Md4-Signature: 7eda73d1b71d8fd8ecaf90f9134be803
+
+Submitted-by: Angus Duggan <ajcd@dcs.ed.ac.uk>
+Posting-number: Volume 35, Issue 11
+Archive-name: psutils/part04
+Environment: UNIX
+Supersedes: psutils: Volume 22, Issue 87-88
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  LICENSE Manifest epsffit.c fixfmps fixmacps fixpsditps
+#   fixpspps fixwfwps getafm patchlevel.h psbook.1 psbook.c psnup.1
+#   psselect.1 psselect.c pstops.c psutil.h
+# Wrapped by kent@sparky on Mon Feb  1 23:31:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 4)."'
+if test -f 'LICENSE' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'LICENSE'\"
+else
+  echo shar: Extracting \"'LICENSE'\" \(1668 characters\)
+  sed "s/^X//" >'LICENSE' <<'END_OF_FILE'
+X
+X                        PS Utilities Package
+X
+XThe constituent files of this package listed below are copyright (C) 1991,1992
+XAngus J. C. Duggan.
+X
+XMakefile        README          buffer.c        epsffit.c       fixfmps
+Xfixmacps        fixpspps        getafm          magic.c         psbook.1
+Xpsbook.c        psnup           psnup.1         psselect.1      psselect.c
+Xpstops.1        pstops.c        psutil.c        psutil.h        showchar
+X
+XThey may be copied and used for any purpose (including distribution as part of
+Xa for-profit product), provided:
+X
+X1) The original attribution of the programs is clearly displayed in the product
+X   and/or documentation, even if the programs are modified and/or renamed as
+X   part of the product.
+X
+X2) The original source code of the programs is provided free of charge (except
+X   for reasonable distribution costs). For a definition of reasonable
+X   distribution costs, see the Gnu General Public License or Larry Wall's
+X   Artistic License (provided with the Perl 4 kit). The GPL and Artistic
+X   License in NO WAY affect this license; they are merely used as examples of
+X   the spirit in which it is intended.
+X
+X3) These programs are provided "as-is". No warranty or guarantee of their
+X   fitness for any particular task is provided. Use of these programs is
+X   completely at your own risk.
+X
+XBasically, I don't mind how you use the programs so long as you acknowledge
+Xthe author, and give people the originals if they want them.
+X
+XThe included files appledict.ps, md68.0.ps and md71.0.ps are (to the best of my
+Xknowledge) copyright Apple Computer, Inc.
+X
+X                                                                AJCD 25/3/92
+END_OF_FILE
+  if test 1668 -ne `wc -c <'LICENSE'`; then
+    echo shar: \"'LICENSE'\" unpacked with wrong size!
+  fi
+  # end of 'LICENSE'
+fi
+if test -f 'Manifest' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Manifest'\"
+else
+  echo shar: Extracting \"'Manifest'\" \(249 characters\)
+  sed "s/^X//" >'Manifest' <<'END_OF_FILE'
+XLICENSE
+XMakefile
+XManifest
+XREADME
+Xpatchlevel.h
+Xappledict.ps
+Xepsffit.c
+Xfixfmps
+Xfixmacps
+Xfixpsditps
+Xfixpspps
+Xfixwfwps
+Xfixwpps
+Xgetafm
+Xmd68.0.ps
+Xmd71.0.ps
+Xpsbook.1
+Xpsbook.c
+Xpsnup
+Xpsnup.1
+Xpsselect.1
+Xpsselect.c
+Xpstops.1
+Xpstops.c
+Xpsutil.c
+Xpsutil.h
+Xshowchar
+END_OF_FILE
+  if test 249 -ne `wc -c <'Manifest'`; then
+    echo shar: \"'Manifest'\" unpacked with wrong size!
+  fi
+  # end of 'Manifest'
+fi
+if test -f 'epsffit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'epsffit.c'\"
+else
+  echo shar: Extracting \"'epsffit.c'\" \(3793 characters\)
+  sed "s/^X//" >'epsffit.c' <<'END_OF_FILE'
+X/* epsffit.c
+X * AJCD 6 Dec 90
+X * fit epsf file into constrained size
+X * Usage:
+X *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury
+X *               -c centres the image in the bounding box given
+X *               -r rotates the image by 90 degrees anti-clockwise
+X *               -a alters the aspect ratio to fit the bounding box
+X *               -s adds a showpage at the end of the image
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "patchlevel.h"
+X
+X#define min(x,y) ((x) > (y) ? (y) : (x))
+X#define max(x,y) ((x) > (y) ? (x) : (y))
+X
+Xstatic char *prog;
+X
+Xusage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury\n", prog);
+X   exit(1);
+X}
+X
+Xmain(argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X   int fit[4], i;
+X   int bbfound = 0;              /* %%BoundingBox: found */
+X   int urx, ury, llx, lly;
+X   int furx, fury, fllx, flly, fwidth, fheight;
+X   int showpage = 0, centre = 0, rotate = 0, aspect = 0;
+X   char buf[BUFSIZ];
+X
+X   prog = *argv++; argc--;
+X
+X   while (argc > 0 && argv[0][0] == '-') {
+X      switch (argv[0][1]) {
+X      case 'c': centre = 1; break;
+X      case 's': showpage = 1; break;
+X      case 'r': rotate = 1; break;
+X      case 'a': aspect = 1; break;
+X      case 'v':
+X      default:  usage();
+X      }
+X      argc--;
+X      argv++;
+X   }
+X
+X   if (argc != 4) usage();
+X   fllx = atoi(argv[0]);
+X   flly = atoi(argv[1]);
+X   furx = atoi(argv[2]);
+X   fury = atoi(argv[3]);
+X   if (rotate) {
+X      fwidth = fury - flly;
+X      fheight = furx - fllx;
+X   } else {
+X      fwidth = furx - fllx;
+X      fheight = fury - flly;
+X   }
+X
+X   while (fgets(buf, BUFSIZ, stdin)) {
+X      if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+X	 /* still in comment section */
+X	 if (!strncmp(buf, "%%BoundingBox:", 14)) {
+X	    if (sscanf(buf, "%%%%BoundingBox:%d %d %d %d\n",
+X		       &llx, &lly, &urx, &ury) == 4)
+X	       bbfound = 1;
+X	 } else if (!strncmp(buf, "%%EndComments", 13)) {
+X	    strcpy(buf, "\n"); /* don't repeat %%EndComments */
+X	    break;
+X	 } else fputs(buf,stdout);
+X      } else break;
+X   }
+X   if (bbfound) { /* put BB, followed by scale&translate */
+X      double width = urx-llx, height = ury-lly;
+X      double xscale = fwidth/width, yscale = fheight/height;
+X      double xoffset = fllx, yoffset = flly;
+X      if (!aspect) {       /* preserve aspect ratio ? */
+X	 xscale = yscale = min(xscale,yscale);
+X      }
+X      width *= xscale;     /* actual width and height after scaling */
+X      height *= yscale;
+X      if (centre) {
+X	 if (rotate) {
+X	    xoffset += (fheight - height)/2;
+X	    yoffset += (fwidth - width)/2;
+X	 } else {
+X	    xoffset += (fwidth - width)/2;
+X	    yoffset += (fheight - height)/2;
+X	 }
+X      }
+X      printf("%%%%BoundingBox: %d %d %d %d\n", (int)xoffset, (int)yoffset,
+X	     (int)(xoffset+(rotate ? height : width)),
+X	     (int)(yoffset+(rotate ? width : height)));
+X      if (rotate) {  /* compensate for original image shift */
+X	 xoffset += height + lly * yscale;  /* displacement for rotation */
+X	 yoffset -= llx * xscale;
+X      } else {
+X	 xoffset -= llx * xscale;
+X	 yoffset -= lly * yscale;
+X      }
+X      puts("%%EndComments");
+X      if (showpage)
+X	 puts("save /showpage{}def /copypage{}def /erasepage{}def");
+X      else
+X	 puts("%%BeginProcSet: epsffit 1 0");
+X      puts("gsave");
+X      printf("%.3lf %.3lf translate\n", xoffset, yoffset);
+X      if (rotate)
+X	 puts("90 rotate");
+X      printf("%.3lf %.3lf scale\n", xscale, yscale);
+X      if (!showpage)
+X	 puts("%%EndProcSet");
+X   }
+X   do {
+X      fputs(buf,stdout);
+X   } while (fgets(buf, BUFSIZ, stdin));
+X   if (bbfound) {
+X      puts("grestore");
+X      if (showpage)
+X	 puts("restore showpage"); /* just in case */
+X   } else {
+X      fprintf(stderr, "%s: no %%%%BoundingBox:\n", prog);
+X      exit(1);
+X   }
+X   exit(0);
+X}
+END_OF_FILE
+  if test 3793 -ne `wc -c <'epsffit.c'`; then
+    echo shar: \"'epsffit.c'\" unpacked with wrong size!
+  fi
+  # end of 'epsffit.c'
+fi
+if test -f 'fixfmps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fixfmps'\"
+else
+  echo shar: Extracting \"'fixfmps'\" \(362 characters\)
+  sed "s/^X//" >'fixfmps' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# fixfmps: get conforming PostScript out of FrameMaker file
+X# move all FMDEFINEFONTs to start of pages
+X
+X%fonts=();
+X
+Xwhile (<>) {
+X   if (/^([0-9]+) [0-9]+ .* FMDEFINEFONT$/) {
+X      $fonts{$1} = $_;
+X   } elsif (/^[0-9]+ [0-9]+ [0-9]+ FMBEGINPAGE$/) {
+X      print STDOUT $_, join('',values(%fonts));
+X   } else {
+X      print STDOUT $_;
+X   }
+X}
+END_OF_FILE
+  if test 362 -ne `wc -c <'fixfmps'`; then
+    echo shar: \"'fixfmps'\" unpacked with wrong size!
+  fi
+  chmod +x 'fixfmps'
+  # end of 'fixfmps'
+fi
+if test -f 'fixmacps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fixmacps'\"
+else
+  echo shar: Extracting \"'fixmacps'\" \(1329 characters\)
+  sed "s/^X//" >'fixmacps' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# fixmacps: swap to sanitised appledict
+X
+X$line = 0;			# keep line count
+X$dir = "/usr/local/share/tex/dvips";
+X$prefix = "md";
+X$default = "appledict.ps";
+X
+Xwhile ($_ = shift(@ARGV)) {
+X   if (/^-d(ir)?$/)   { $dir = shift(@ARGV); }
+X   if (/^-n(ame)?$/)   { $prefix = shift(@ARGV); }
+X   else {
+X      unshift(@ARGV, $_);
+X      last;
+X   }
+X}
+X
+Xwhile (<>) {
+X   if (/^%!/) {
+X      if (! $line) {
+X	 print;
+X      }
+X   } elsif (/^%%BeginProcSet: "\(AppleDict md\)" ([0-9]+) ([0-9]+)$/) {
+X      local($mdv, $mdr) = ($1, $2);
+X      if (open(SANE, "<$dir/$prefix$mdv.$mdr.ps") ||
+X	  open(SANE, "<$dir/$default")) {
+X	 $sane = <SANE>;
+X	 local($snv, $snr) =
+X	    $sane =~ /^%%BeginProcSet: "\(AppleDict md\)" ([0-9]+) ([0-9]+)$/;
+X	 if ($mdv == $snv && $mdr == $snr) {
+X	    $ignore = 1;
+X	 } else {
+X	    print STDERR "Unrecognised AppleDict version $mdv $mdr\n";
+X	    print "%!\n" if !$line;
+X	    print;
+X	 }
+X      } else {
+X	 print STDERR "Can't find sanitised AppleDict\n";
+X	 print "%!\n" if !$line;
+X	 print;
+X      }
+X   } elsif (/^%%EndProcSet/) {
+X      if ($ignore) {
+X	 $ignore = 0;
+X	 print "%!\n" if !$line;
+X	 print $sane;
+X	 while(<SANE>) {
+X	    print;
+X	 }
+X	 close(SANE);
+X      } else {
+X	 print "%!\n" if !$line;
+X	 print;
+X      }
+X   } else {
+X      if (! $ignore) {
+X	 print "%!\n" if !$line;
+X	 print;
+X      }
+X   }
+X   $line++;
+X}
+END_OF_FILE
+  if test 1329 -ne `wc -c <'fixmacps'`; then
+    echo shar: \"'fixmacps'\" unpacked with wrong size!
+  fi
+  chmod +x 'fixmacps'
+  # end of 'fixmacps'
+fi
+if test -f 'fixpsditps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fixpsditps'\"
+else
+  echo shar: Extracting \"'fixpsditps'\" \(349 characters\)
+  sed "s/^X//" >'fixpsditps' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# fixpsditps: fix psdit output for use in psutils
+X
+Xwhile (<>) {
+X   if (/^\/p{pop showpage pagesave restore \/pagesave save def}def$/) {
+X      print STDOUT "/p{pop showpage pagesave restore}def\n";
+X   } elsif (/^%%Page:/) {
+X      print STDOUT $_;
+X      print STDOUT "xi\n";
+X   } elsif (! /^xi$/) {
+X      print STDOUT $_;
+X   }
+X}
+END_OF_FILE
+  if test 349 -ne `wc -c <'fixpsditps'`; then
+    echo shar: \"'fixpsditps'\" unpacked with wrong size!
+  fi
+  chmod +x 'fixpsditps'
+  # end of 'fixpsditps'
+fi
+if test -f 'fixpspps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fixpspps'\"
+else
+  echo shar: Extracting \"'fixpspps'\" \(1165 characters\)
+  sed "s/^X//" >'fixpspps' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# mangle PostScript produced by PSPrint to make it almost conforming
+X
+X$header = 1; $ignore = 0;
+X$verbose = 0;
+X@body = ();
+X%fonts = (); $font = "";
+X$inchar = 0; @char = ();
+X
+Xwhile (<>) {
+X   if (/^@end$/) {
+X      $ignore = 1;
+X   } elsif (/^[0-9]+ @bop0$/) {
+X      $ignore = 0;
+X      $header = 1;
+X   } elsif ($header) {
+X      if (/^\/([a-z.0-9]+) @newfont$/) {
+X	 if (! defined($fonts{$1})) {
+X	    $fonts{$1} = 1;
+X	    print;
+X	 } elsif ($verbose) {
+X	    print STDERR "$font already defined\n";
+X	 }
+X      } elsif (/^([a-z.0-9]+) sf$/) {
+X	 $font = $1;
+X	 print;
+X      } elsif (/^\[</) {
+X	 $inchar = 1;
+X	 push (@char, $_);
+X      } elsif ($inchar) {
+X	 push (@char, $_);
+X	 if (/.*\] ([0-9]+) dc$/) {
+X	    if (! defined($fonts{$font,$1})) {
+X	       $fonts{$font,$1} = 1;
+X	       print (@char);
+X	    } elsif ($verbose) {
+X	       print STDERR "$font character $1 already defined\n";
+X	    }
+X	    $inchar = 0;
+X	    @char = ();
+X	 }
+X      } elsif (/^([0-9]+) @bop1$/) {
+X	 $header = 0;
+X	 push (@body, "%%Page: ? $1\n");
+X	 push (@body, $_);
+X      } else {
+X	 print;
+X      }
+X   } elsif (! $ignore) {
+X      push (@body, $_);
+X   }
+X}
+Xprint (@body);
+Xprint ("@end\n");
+END_OF_FILE
+  if test 1165 -ne `wc -c <'fixpspps'`; then
+    echo shar: \"'fixpspps'\" unpacked with wrong size!
+  fi
+  chmod +x 'fixpspps'
+  # end of 'fixpspps'
+fi
+if test -f 'fixwfwps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fixwfwps'\"
+else
+  echo shar: Extracting \"'fixwfwps'\" \(261 characters\)
+  sed "s/^X//" >'fixwfwps' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# fixwfwps: fix Word for windows PostScript for printing.
+X
+Xwhile (<>) {
+X   tr/\000-\011\013-\037//d;
+X   if (/^(%!PS-Adobe-[0-9]*\.[0-9]*) EPSF-/) {
+X      print STDOUT "$1\n";
+X   } elsif (! /^%%BoundingBox/) {
+X      print STDOUT $_;
+X   }
+X}
+END_OF_FILE
+  if test 261 -ne `wc -c <'fixwfwps'`; then
+    echo shar: \"'fixwfwps'\" unpacked with wrong size!
+  fi
+  chmod +x 'fixwfwps'
+  # end of 'fixwfwps'
+fi
+if test -f 'getafm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getafm'\"
+else
+  echo shar: Extracting \"'getafm'\" \(4706 characters\)
+  sed "s/^X//" >'getafm' <<'END_OF_FILE'
+X#!/bin/sh
+X# getafm: get afm file from printer
+X#         Note that the AFM file returned will not have any kerning
+X#         information, but it is useful if you can't get the file anywhere else
+X# usage:
+X#       getafm Font-Name | lpr -Pprinter
+X
+Xif [ $# != 1 ]; then
+X        echo "Usage: `basename $0` Font-Name" >&2
+X        exit 1
+Xfi
+X
+Xcat <<EOF
+X%!
+X% Get character metrics and bounding box for $1
+X/ns 30 string def
+X/fname /$1 def
+X/fn fname findfont 1000 scalefont def
+X/en fn /Encoding get def
+Xfn setfont
+X
+X/sp { ( )print } def
+X/nl { (\n)print } def
+X/pn { ns cvs print } def
+X
+X/printbb { % llx lly urx ury => -
+X   4 -1 roll round cvi pn sp
+X   3 -1 roll round cvi pn sp
+X   exch round cvi pn sp
+X   round cvi pn
+X} def
+X
+X(StartFontMetrics 2.0\n)print
+X(Comment Created by `basename $0` 1.00 (c) AJCD `date`\n)print
+Xfn /FontName known {
+X   (FontName )print fn /FontName get pn nl
+X} {
+X   (FontName $1\n) print
+X} ifelse
+Xen StandardEncoding eq {
+X   (EncodingScheme AdobeStandardEncoding\n)print
+X} {
+X   en ISOLatin1Encoding eq {
+X      (EncodingScheme ISOLatin1Encoding\n)print
+X   } if
+X} ifelse
+Xfn /FontInfo known {
+X   fn /FontInfo get
+X   dup /FamilyName known {
+X      (FamilyName )print dup /FamilyName get print nl
+X   } if
+X   dup /FullName known {
+X      (FullName )print dup /FullName get print nl
+X   } if
+X   dup /Notice known {
+X      (Notice )print dup /Notice get print nl
+X   } if
+X   dup /Weight known {
+X      (Weight )print dup /Weight get print nl
+X   } if
+X   dup /Version known {
+X      (Version )print dup /Version get print nl
+X   } if
+X   dup /ItalicAngle known {
+X      (ItalicAngle )print dup /ItalicAngle get pn nl
+X   } if
+X   dup /isFixedPitch known {
+X      (IsFixedPitch )print dup /isFixedPitch get {(true)}{(false)}ifelse print
+X       nl
+X   } {
+X      (IsFixedPitch false\n)print
+X   } ifelse
+X   dup /UnderlinePosition known {
+X      (UnderlinePosition )print dup /UnderlinePosition get pn nl
+X   } if
+X   dup /UnderlineThickness known {
+X      (UnderlineThickness )print dup /UnderlineThickness get pn nl
+X   } if
+X   pop
+X} if
+X(FontBBox )print fn /FontBBox get aload pop printbb nl
+X
+X%CapHeight 662
+X%XHeight 448
+X%Descender -217
+X%Ascender 682
+X%(PaintType: )print fn /PaintType get pn (\n) print flush
+X
+X(StartCharMetrics )print
+Xfn /CharStrings get length 1 sub pn nl
+X
+X% check encoded chars
+X0 1 255 {
+X   dup en exch get 
+X   dup /.notdef ne { % C 77 ; WX 889 ; N M ; B 19 0 871 662 ;
+X      (C ) print                                % character number
+X      exch dup pn exch
+X      ( ; WX ) print                            % character width
+X      fn /Metrics known {
+X         dup fn /Metrics get exch get 
+X         dup type /arraytype eq {
+X            dup length 2 eq
+X            {1 get} {2 get} ifelse
+X         } if
+X      } {
+X         ( ) dup 0 4 index put stringwidth pop round cvi
+X      } ifelse
+X      pn
+X      ( ; N ) print                             % character name
+X      pn
+X      newpath 0 0 moveto
+X      ( ; B ) print                             % BoundingBox
+X      ( ) dup 0 4 -1 roll put
+X      true charpath flattenpath pathbbox printbb
+X      ( ;\n) print                              % finished!
+X   } {pop pop} ifelse
+X} for
+X
+X% get unencoded characters into MyEncoding array (problem if >256 unencoded)
+X/MyEncoding 256 array def
+X/Reverse 256 dict def
+XReverse begin
+X   en { % reverse encoding dictionary
+X      true def
+X   } forall
+Xend
+X
+X0 % start at beginning of MyEncoding
+Xfn /CharStrings get {
+X   pop % discard encrypted string
+X   dup Reverse exch known not % test if key is in normal encoding
+X   {
+X     MyEncoding 2 index 3 -1 roll put 1 add
+X   } {pop} ifelse
+X} forall
+X1 255 { % fill out with notdefs
+X   MyEncoding exch /.notdef put
+X} for
+X
+Xfn dup length dict begin
+X  {1 index /FID ne {def} {pop pop} ifelse} forall
+X  /Encoding MyEncoding def
+X  currentdict
+Xend /newfont exch definefont
+Xdup /fn exch def setfont
+X/en MyEncoding def
+X
+X% check encoded chars
+X0 1 255 {
+X   dup en exch get
+X   dup /.notdef ne { % C -1 ; WX 889 ; N M ; B 19 0 871 662 ;
+X      (C -1) print                                % character number
+X      ( ; WX ) print                            % character width
+X      fn /Metrics known {
+X         dup fn /Metrics get exch get 
+X         dup type /arraytype eq {
+X            dup length 2 eq
+X            {1 get} {2 get} ifelse
+X         } if
+X      } {
+X         ( ) dup 0 4 index put stringwidth pop round cvi
+X      } ifelse
+X      pn
+X      ( ; N ) print                             % character name
+X      pn
+X      newpath 0 0 moveto
+X      ( ; B ) print                             % BoundingBox
+X      ( ) dup 0 4 -1 roll put
+X      true charpath flattenpath pathbbox printbb
+X      ( ;\n) print                              % finished!
+X   } {pop pop exit} ifelse
+X} for
+X(EndCharMetrics\n)print
+Xflush
+XEOF
+END_OF_FILE
+  if test 4706 -ne `wc -c <'getafm'`; then
+    echo shar: \"'getafm'\" unpacked with wrong size!
+  fi
+  chmod +x 'getafm'
+  # end of 'getafm'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(39 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define RELEASE 1
+X#define PATCHLEVEL 7
+END_OF_FILE
+  if test 39 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'psbook.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psbook.1'\"
+else
+  echo shar: Extracting \"'psbook.1'\" \(1066 characters\)
+  sed "s/^X//" >'psbook.1' <<'END_OF_FILE'
+X.TH PSBOOK 1
+X.SH NAME
+Xpsbook \- rearrange pages in PostScript file into signatures
+X.SH SYNOPSIS
+X.B psbook
+X[
+X.B \-q
+X] [
+X.B \-s\fIsignature\fR
+X] [
+X.I infile
+X[
+X.I outfile
+X] ]
+X.SH DESCRIPTION
+X.I Psbook
+Xrearranges pages from a PostScript document into ``signatures'' for
+Xprinting books or booklets, creating a new PostScript file. The
+Xinput PostScript file should follow the Adobe Document Structuring
+XConventions.
+X.PP
+XThe
+X.I \-s
+Xoption selects the size of signature which will be used. The signature size is
+Xthe number of sides which will be folded and bound together; the number given
+Xshould be a multiple of four. The default is to use one signature for the
+Xwhole file. Extra blank sides will be added if the file does not contain a
+Xmultiple of four pages.
+X.PP
+XPsbook normally prints the page numbers of the pages rearranged; the
+X.I \-q
+Xoption suppresses this.
+X.SH AUTHOR
+XAngus Duggan
+X.SH "SEE ALSO"
+Xpsselect(1), pstops(1)
+X.SH TRADEMARKS
+X.B PostScript
+Xis a trademark of Adobe Systems Incorporated.
+X.SH BUGS
+X.I Psbook
+Xcannot cope with documents longer than 5000 pages.
+END_OF_FILE
+  if test 1066 -ne `wc -c <'psbook.1'`; then
+    echo shar: \"'psbook.1'\" unpacked with wrong size!
+  fi
+  # end of 'psbook.1'
+fi
+if test -f 'psbook.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psbook.c'\"
+else
+  echo shar: Extracting \"'psbook.c'\" \(2106 characters\)
+  sed "s/^X//" >'psbook.c' <<'END_OF_FILE'
+X/* psbook.c
+X * AJCD 27/1/91
+X * rearrange pages in conforming PS file for printing in signatures
+X *
+X * Usage:
+X *       psbook [-q] [-s<signature>] [infile [outfile]]
+X */
+X
+X#include "psutil.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-q] [-s<signature>] [infile [outfile]]\n",
+X	   prog);
+X   fprintf(stderr, "       <signature> must be positive and divisible by 4\n");
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   int signature = 0;
+X   int currentpg, maxpage;
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 's':
+X	    signature = atoi(*argv+2);
+X	    if (signature < 1 || signature % 4) usage();
+X	    break;
+X	 case 'q':
+X	    verbose = 0;
+X	    break;
+X	 case 'v':
+X	 default:
+X	    usage();
+X	 }
+X      } else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   scanpages();
+X
+X   maxpage = pages+(4-pages%4)%4;
+X
+X   if (!signature)
+X      signature = maxpage;
+X
+X   /* rearrange pages */
+X   writeheader(maxpage);
+X   writeprolog();
+X   for (currentpg = 0; currentpg < maxpage; currentpg++) {
+X      int actualpg = currentpg - currentpg%signature;
+X      switch(currentpg%4) {
+X      case 0:
+X      case 3:
+X	 actualpg += signature-1-(currentpg%signature)/2;
+X	 break;
+X      case 1:
+X      case 2:
+X	 actualpg += (currentpg%signature)/2;
+X	 break;
+X      }
+X      if (actualpg < pages)
+X	 writepage(actualpg);
+X      else
+X	 writeemptypage();
+X   }
+X   writetrailer();
+X
+X   exit(0);
+X}
+END_OF_FILE
+  if test 2106 -ne `wc -c <'psbook.c'`; then
+    echo shar: \"'psbook.c'\" unpacked with wrong size!
+  fi
+  # end of 'psbook.c'
+fi
+if test -f 'psnup.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psnup.1'\"
+else
+  echo shar: Extracting \"'psnup.1'\" \(2283 characters\)
+  sed "s/^X//" >'psnup.1' <<'END_OF_FILE'
+X.TH PSNUP 1
+X.SH NAME
+Xpsnup \- uses pstops to merge multiple pages per sheet
+X.SH SYNOPSIS
+X.B psnup
+X[
+X.B \-q
+X]
+X[
+X.B \-w\fIwidth\fR
+X]
+X[
+X.B \-h\fIheight\fR
+X]
+X[
+X.B \-p\fIpaper\fR
+X]
+X.B \-l
+X]
+X[
+X.B \-2 | \-4 | \-8 | \-h
+X]
+X[
+X.I infile
+X] ]
+X.SH DESCRIPTION
+X.I Psnup
+Xis a script making the use of 
+X.I pstops 
+Xeasier.
+XIt sets up standard width and height parameters and 
+X.I Pstops
+Xrearranges pages from a PostScript document, creating a new PostScript file.
+XThe input PostScript file should follow the Adobe Document Structuring
+XConventions.
+X.I Pstops
+Xcan be used to perform a large number of arbitrary re-arrangements of
+XDocuments, including arranging for printing 2-up, 4-up, booklets, reversing,
+Xselecting front or back sides of documents, scaling, etc.
+X.PP
+XThe
+X.I \-w
+Xoption gives the width, the default is (21cm),
+X.I \-h
+Xoption gives the height, the default is (29.7cm), 
+Xand are normally specified in
+X.B "cm"
+Xor
+X.B "in"
+Xto convert 
+XPostScript's points (1/72 of an inch)
+Xto centimeters or inches.
+XThe 
+X.I \-p
+Xoption can be used as an alternative, to set the paper size to
+X.B a3, a4, a5, letter
+Xor
+X.B legal.
+X.PP
+XThe
+X.I \-b
+Xoption prevents any
+X.B bind
+Xoperators in the PostScript prolog from binding. This may be needed in cases
+Xwhere complex multi-page re-arrangements are being done.
+X.PP
+XPstops normally prints the page numbers of the pages re-arranged; the
+X.I \-q
+Xoption suppresses this.
+X.SH EXAMPLES
+XThe potential use of this utility is varied but one particular 
+Xuse is in conjunction with 
+X.I psbook(1).
+XFor example, using psroff to create a PostScript document and lpr as 
+Xthe 
+X.SM UNIX 
+Xprint spooler a typical command line might look like this: 
+X.sp
+Xpsroff -ms \fIfile\fP | psbook | psnup -2 | lpr
+X.sp
+XWhere file is a 4 page document this command will result in a 
+Xtwo page document printing two pages of \fIfile\fP per page and
+Xrearranges the page order to match the input pages 4 and 1 
+Xon the first output page and
+Xpages 2 then 3 of the input document 
+Xon the second output page.
+X.SH AUTHOR
+XAngus Duggan
+X.br
+XBrian Colfer, University of California, San Francisco
+X.br
+Xbrianc@labmed.ucsf.edu
+X.SH "SEE ALSO"
+Xpsbook(1), pstops(1), psroff(1)
+X.SH TRADEMARKS
+X.B PostScript
+Xis a trademark of Adobe Systems Incorporated.
+X.SH BUGS
+X.I Pstops
+Xcannot cope with documents longer than 5000 pages.
+END_OF_FILE
+  if test 2283 -ne `wc -c <'psnup.1'`; then
+    echo shar: \"'psnup.1'\" unpacked with wrong size!
+  fi
+  # end of 'psnup.1'
+fi
+if test -f 'psselect.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psselect.1'\"
+else
+  echo shar: Extracting \"'psselect.1'\" \(1776 characters\)
+  sed "s/^X//" >'psselect.1' <<'END_OF_FILE'
+X.TH PSSELECT 1
+X.SH NAME
+Xpsselect \- select pages from a PostScript file
+X.SH SYNOPSIS
+X.B psselect
+X[
+X.B \-q
+X] [
+X.B \-e
+X] [
+X.B \-o
+X] [
+X.B \-r
+X] [
+X.B \-p\fIpages\fR
+X] [
+X.I pages
+X] [
+X.I infile
+X[
+X.I outfile
+X] ]
+X.SH DESCRIPTION
+X.I Psselect
+Xselects pages from a PostScript document, creating a new PostScript file. The
+Xinput PostScript file should follow the Adobe Document Structuring
+XConventions.
+X.PP
+XThe 
+X.I \-e
+Xoption selects all of the even pages; it may be used in conjunction with the
+Xother page selection options to select the even pages from a range of pages.
+X.PP
+XThe 
+X.I \-o
+Xoption selects all of the odd pages; it may be used in conjunction with the
+Xother page selection options.
+X.PP
+XThe 
+X.I \-p\fIpages\fR
+Xoption specifies the pages which are to be selected.
+X.I Pages
+Xis a comma separated list of page ranges, each of which may be a page number,
+Xor a page range of the form \fIfirst\fR-\fIlast\fR. If \fIfirst\fR is omitted,
+Xthe
+Xfirst page is assumed, and if \fIlast\fR is omitted, the last page is assumed.
+X.PP
+XThe 
+X.I \-r
+Xoption causes
+X.I psselect
+Xto output the selected pages in reverse order.
+X.PP
+XPsselect normally prints the page numbers of the pages rearranged; the
+X.I \-q
+Xoption suppresses this.
+X.PP
+XIf any of the
+X.I \-r, \-e,
+Xor
+X.I \-o
+Xoptions are specified, the page range must be given with the
+X.I \-p
+Xoption. This is for backwards compatibility with previous versions.
+X
+X.SH NOTES
+XThe page number given to
+X.I psselect
+Xis the number of the page counting from the start of the file, starting at
+Xone. The actual page number in the document may be different.
+X.SH AUTHOR
+XAngus Duggan
+X.SH "SEE ALSO"
+Xpsbook(1), pstops(1)
+X.SH TRADEMARKS
+X.B PostScript
+Xis a trademark of Adobe Systems Incorporated.
+X.SH BUGS
+X.I Psselect
+Xcannot cope with documents longer than 5000 pages.
+END_OF_FILE
+  if test 1776 -ne `wc -c <'psselect.1'`; then
+    echo shar: \"'psselect.1'\" unpacked with wrong size!
+  fi
+  # end of 'psselect.1'
+fi
+if test -f 'psselect.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psselect.c'\"
+else
+  echo shar: Extracting \"'psselect.c'\" \(4681 characters\)
+  sed "s/^X//" >'psselect.c' <<'END_OF_FILE'
+X/* psselect.c
+X * AJCD 27/1/91
+X * rearrange pages in conforming PS file for printing in signatures
+X *
+X * Usage:
+X *       psselect [-q] [-e] [-o] [-r] [-p<pages>] [infile [outfile]]
+X */
+X
+X#include "psutil.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr,
+X	   "Usage: %s [-q] [-e] [-o] [-r] [-p<pages>] [infile [outfile]]\n",
+X	   prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xstruct pgrange {
+X   int first, last;
+X   struct pgrange *next;
+X};
+X
+Xtypedef struct pgrange range;
+X
+Xrange * makerange(beg, end, next)
+X     int beg, end;
+X     range *next;
+X{
+X   range *new;
+X   if ((new = (range *)malloc(sizeof(range))) == NULL) {
+X      fprintf(stderr, "%s: out of memory\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   new->first = beg;
+X   new->last = end;
+X   new->next = next;
+X   return (new);
+X}
+X
+X
+Xrange * addrange(str, rp)
+X     char *str;
+X     range *rp;
+X{
+X   int first=0;
+X   if (isdigit(*str)) {
+X      first = atoi(str);
+X      while (isdigit(*str)) str++;
+X   }
+X   switch (*str) {
+X   case '\0':
+X      if (first)
+X	 return (makerange(first, first, rp));
+X      break;
+X   case ',':
+X      if (first)
+X	 return (addrange(str+1, makerange(first, first, rp)));
+X      break;
+X   case '-':
+X   case ':':
+X      str++;
+X      if (isdigit(*str)) {
+X	 int last = atoi(str);
+X	 while (isdigit(*str)) str++;
+X	 if (!first)
+X	    first = 1;
+X	 if (last >= first) 
+X	    switch (*str) {
+X	    case '\0':
+X	       return (makerange(first, last, rp));
+X	    case ',':
+X	       return (addrange(str+1, makerange(first, last, rp)));
+X	    }
+X      } else if (*str == '\0')
+X	 return (makerange(first, MAXPAGES, rp));
+X   }
+X   fprintf(stderr, "%s: invalid page range\n", prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   int currentpg, maxpage = 0;
+X   int even = 0, odd = 0, reverse = 0;
+X   int pass, all;
+X   range *pagerange = NULL;
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 'e':
+X	    even = 1;
+X	    break;
+X	 case 'o':
+X	    odd = 1;
+X	    break;
+X	 case 'r':
+X	    reverse = 1;
+X	    break;
+X	 case 'p':
+X	    pagerange = addrange(*argv+2, pagerange);
+X	    break;
+X	 case 'q':
+X	    verbose = 0;
+X	    break;
+X	 case 'v':
+X	 default:
+X	    usage();
+X	 }
+X      } else if (pagerange == NULL && !reverse && !even && !odd) {
+X	 pagerange = addrange(*argv, NULL);
+X      } else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   scanpages();
+X
+X   /* reverse page list if not reversing pages (list constructed bottom up) */
+X   if (!reverse) {
+X      range *revlist = NULL;
+X      range *next = NULL;
+X      while (pagerange) {
+X	 next = pagerange->next;
+X	 pagerange->next = revlist;
+X	 revlist = pagerange;
+X	 pagerange = next;
+X      }
+X      pagerange = revlist;
+X   }
+X
+X   /* select all pages or all in range if odd or even not set */
+X   all = !(odd || even);
+X
+X   /* count pages on first pass, select pages on second pass */
+X   for (pass = 0; pass < 2; pass++) {
+X      if (pass) {                           /* write header on second pass */
+X	 writeheader(maxpage);
+X	 writeprolog();
+X      }
+X      if (pagerange) {
+X	 range *r;
+X	 for (r = pagerange; r; r = r->next) {
+X	    if (reverse) {
+X	       for (currentpg = r->last; currentpg >= r->first; currentpg--) {
+X		  if ((currentpg&1) ? (odd || all) : (even || all)) {
+X		     if (pass)
+X			writepage(currentpg-1);
+X		     else
+X			maxpage++;
+X		  }
+X	       }
+X	    } else {
+X	       for (currentpg = r->first; currentpg <= r->last; currentpg++) {
+X		  if ((currentpg&1) ? (odd || all) : (even || all)) {
+X		     if (pass)
+X			writepage(currentpg-1);
+X		     else
+X			maxpage++;
+X		  }
+X	       }
+X	    }
+X	 }
+X      } else if (reverse) {
+X	 for (currentpg = pages; currentpg > 0; currentpg--)
+X	    if ((currentpg&1) ? (odd || all) : (even || all)) {
+X	       if (pass)
+X		  writepage(currentpg-1);
+X	       else
+X		  maxpage++;
+X	    }
+X      } else {
+X	 for (currentpg = 1; currentpg <= pages; currentpg++)
+X	    if ((currentpg&1) ? (odd || all) : (even || all)) {
+X	       if (pass)
+X		  writepage(currentpg-1);
+X	       else
+X		  maxpage++;
+X	    }
+X      }
+X   }
+X   writetrailer();
+X
+X   exit(0);
+X}
+END_OF_FILE
+  if test 4681 -ne `wc -c <'psselect.c'`; then
+    echo shar: \"'psselect.c'\" unpacked with wrong size!
+  fi
+  # end of 'psselect.c'
+fi
+if test -f 'pstops.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pstops.c'\"
+else
+  echo shar: Extracting \"'pstops.c'\" \(9511 characters\)
+  sed "s/^X//" >'pstops.c' <<'END_OF_FILE'
+X/* pstops.c
+X * AJCD 27/1/91
+X * rearrange pages in conforming PS file for printing in signatures
+X *
+X * Usage:
+X *       pstops [-q] [-b] [-w<dim>] [-h<dim>] <pagespecs> [infile [outfile]]
+X */
+X
+X#include "psutil.h"
+X#include "patchlevel.h"
+X
+Xvoid usage()
+X{
+X   fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X   fprintf(stderr, "Usage: %s [-q] [-b] [-w<dim>] [-h<dim] <pagespecs> [infile [outfile]]\n",
+X	   prog);
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xvoid specusage()
+X{
+X   fprintf(stderr, "%s: page specification error:\n", prog);
+X   fprintf(stderr, "  <pagespecs> = [modulo:]<spec>\n");
+X   fprintf(stderr, "  <spec>      = [-]pageno[@scale][L|R|U][(xoff,yoff)][,spec|+spec]\n");
+X   fprintf(stderr, "                modulo>=1, 0<=pageno<modulo\n");
+X   fflush(stderr);
+X   exit(1);
+X}
+X
+Xstatic int modulo = 1;
+Xstatic int pagesperspec = 1;
+Xstatic double width = -1.0;
+Xstatic double height = -1.0;
+X
+X/* pagespec flags */
+X#define ADD_NEXT (0x01)
+X#define ROTATE   (0x02)
+X#define SCALE    (0x04)
+X#define OFFSET   (0x08)
+X#define GSAVE    (ROTATE|SCALE|OFFSET)
+X
+Xstruct pagespec {
+X   int reversed, pageno, flags, rotate;
+X   double xoff, yoff, scale;
+X   struct pagespec *next;
+X};
+X
+Xstruct pagespec *newspec()
+X{
+X   struct pagespec *temp = (struct pagespec *)malloc(sizeof(struct pagespec));
+X   temp->reversed = temp->pageno = temp->flags = temp->rotate = 0;
+X   temp->scale = 1.0;
+X   temp->xoff = temp->yoff = 0.0;
+X   temp->next = NULL;
+X   return (temp);
+X}
+X
+Xint parseint(sp)
+X     char **sp;
+X{
+X   char *s;
+X   int n = 0;
+X
+X   for (s = *sp; isdigit(*s); s++)
+X      n = n*10 + (*s-'0');
+X   if (*sp == s) specusage();
+X   *sp = s;
+X   return (n);
+X}
+X
+Xdouble parsedouble(sp)
+X     char **sp;
+X{
+X   int n = 0, neg = 1;
+X   char *s = *sp;
+X   int d = 0, frac = 1;
+X
+X   if (*s == '-') {
+X      neg = -1;
+X      *sp = ++s;
+X   }
+X   for (;isdigit(*s); s++)
+X      n = n*10 + (*s-'0');
+X   if (*s == '.') {
+X      *sp = ++s;
+X      for (; isdigit(*s); s++) {
+X	 d = d*10 + (*s-'0');
+X	 frac *= 10;
+X      }
+X   }
+X   if (*sp == s) specusage();
+X   *sp = s;
+X   return (neg*((double)n+(double)d/frac));
+X}
+X
+Xdouble parsedimen(sp)
+X     char **sp;
+X{
+X   double num = parsedouble(sp);
+X   char *s = *sp;
+X
+X   if (strncmp(s, "pt", 2) == 0) {
+X      s += 2;
+X   } else if (strncmp(s, "in", 2) == 0) {
+X      num *= 72.0;
+X      s += 2;
+X   } else if (strncmp(s, "cm", 2) == 0) {
+X      num *= 28.346456692913385211;
+X      s += 2;
+X   } else if (*s == 'w') {
+X      if (width < 0.0) {
+X	 fprintf(stderr, "%s: width not initialised\n", prog);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X      num *= width;
+X      s++;
+X   } else if (*s == 'h') {
+X      if (height < 0.0) {
+X	 fprintf(stderr, "%s: height not initialised\n", prog);
+X	 fflush(stderr);
+X	 exit(1);
+X      }
+X      num *= height;
+X      s++;
+X   }
+X   *sp = s;
+X   return (num);
+X}
+X
+Xstruct pagespec *parsespecs(str)
+X     char *str;
+X{
+X   char *t;
+X   struct pagespec *head, *tail;
+X   int other = 0;
+X   int num = -1;
+X
+X   head = tail = newspec();
+X   while (*str) {
+X      if (isdigit(*str)) {
+X	 num = parseint(&str);
+X      } else {
+X	 switch (*str++) {
+X	 case ':':
+X	    if (other || head != tail || num < 1) specusage();
+X	    modulo = num;
+X	    num = -1;
+X	    break;
+X	 case '-':
+X	    tail->reversed = !tail->reversed;
+X	    break;
+X	 case '@':
+X	    if (num < 0) specusage();
+X	    tail->scale *= parsedouble(&str);
+X	    tail->flags |= SCALE;
+X	    break;
+X	 case 'l': case 'L':
+X	    tail->rotate += 90;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case 'r': case 'R':
+X	    tail->rotate -= 90;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case 'u': case 'U':
+X	    tail->rotate += 180;
+X	    tail->flags |= ROTATE;
+X	    break;
+X	 case '(':
+X	    tail->xoff += parsedimen(&str);
+X	    if (*str++ != ',') specusage();
+X	    tail->yoff += parsedimen(&str);
+X	    if (*str++ != ')') specusage();
+X	    tail->flags |= OFFSET;
+X	    break;
+X	 case '+':
+X	    tail->flags |= ADD_NEXT;
+X	 case ',':
+X	    if (num < 0 || num >= modulo) specusage();
+X	    if ((tail->flags & ADD_NEXT) == 0)
+X	       pagesperspec++;
+X	    tail->pageno = num;
+X	    tail->next = newspec();
+X	    tail = tail->next;
+X	    num = -1;
+X	    break;
+X	 default:
+X	    specusage();
+X	 }
+X	 other = 1;
+X      }
+X   }
+X   if (num >= modulo)
+X      specusage();
+X   else if (num >= 0)
+X      tail->pageno = num;
+X   return (head);
+X}
+X
+Xdouble singledimen(str)
+X     char *str;
+X{
+X   double num = parsedimen(&str);
+X   if (*str) usage();
+X   return (num);
+X}
+X
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X   int thispg, maxpage;
+X   int pageindex = 0;
+X   struct pagespec *specs = NULL;
+X   int nobinding = 0;
+X
+X   infile = stdin;
+X   outfile = stdout;
+X   verbose = 1;
+X   for (prog = *argv++; --argc; argv++) {
+X      if (argv[0][0] == '-') {
+X	 switch (argv[0][1]) {
+X	 case 'q':
+X	    verbose = 0;
+X	    break;
+X	 case 'b':
+X	    nobinding = 1;
+X	    break;
+X	 case 'w':
+X	    width = singledimen(*argv+2);
+X	    break;
+X	 case 'h':
+X	    height = singledimen(*argv+2);
+X	    break;
+X	 case 'v':
+X	    usage();
+X	 default:
+X	    if (specs == NULL)
+X	       specs = parsespecs(*argv);
+X	    else
+X	       usage();
+X	 }
+X      } else if (specs == NULL)
+X	 specs = parsespecs(*argv);
+X      else if (infile == stdin) {
+X	 if ((infile = fopen(*argv, "r")) == NULL) {
+X	    fprintf(stderr, "%s: can't open input file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else if (outfile == stdout) {
+X	 if ((outfile = fopen(*argv, "w")) == NULL) {
+X	    fprintf(stderr, "%s: can't open output file %s\n", prog, *argv);
+X	    fflush(stderr);
+X	    exit(1);
+X	 }
+X      } else usage();
+X   }
+X   if (specs == NULL)
+X      usage();
+X   if ((infile=seekable(infile))==NULL) {
+X      fprintf(stderr, "%s: can't seek input\n", prog);
+X      fflush(stderr);
+X      exit(1);
+X   }
+X   scanpages();
+X
+X   maxpage = ((pages+modulo-1)/modulo)*modulo;
+X
+X   /* rearrange pages: doesn't cope properly with:
+X    * initmatrix, initgraphics, defaultmatrix, grestoreall, initclip */
+X   writeheader((maxpage/modulo)*pagesperspec);
+X   writestring("%%BeginProcSet: pstops 1 0\n");
+X   writestring("[/showpage/erasepage/copypage]{dup where{pop dup load\n");
+X   writestring(" type/operatortype eq{1 array cvx dup 0 3 index cvx put\n");
+X   writestring(" bind def}{pop}ifelse}{pop}ifelse}forall\n");
+X   writestring("[/letter/legal/executivepage/a4/a4small/b5/com10envelope\n");
+X   writestring(" /monarchenvelope/c5envelope/dlenvelope/lettersmall/note\n");
+X   writestring(" /folio/quarto/a5]{dup where{dup wcheck{exch{}put}\n");
+X   writestring(" {pop{}def}ifelse}{pop}ifelse}forall\n");
+X   writestring("/lcvx{dup load dup type dup/operatortype eq{pop exch pop}\n");
+X   writestring(" {/arraytype eq{dup xcheck{exch pop aload pop}\n");
+X   writestring(" {pop cvx}ifelse}{pop cvx}ifelse}ifelse}bind def\n");
+X   writestring("/pstopsmatrix matrix currentmatrix def\n");
+X   writestring("/defaultmatrix{pstopsmatrix exch copy}bind def\n");
+X   writestring("/initmatrix{matrix defaultmatrix setmatrix}bind def\n");
+X   writestring("/pathtoproc{[{currentpoint}stopped{$error/newerror false\n");
+X   writestring(" put{newpath}}{/newpath cvx 3 1 roll/moveto cvx 4 array\n");
+X   writestring(" astore cvx}ifelse]{[/newpath cvx{/moveto cvx}{/lineto cvx}\n");
+X   writestring(" {/curveto cvx}{/closepath cvx}pathforall]cvx exch pop}\n");
+X   writestring(" stopped{$error/errorname get/invalidaccess eq{cleartomark\n");
+X   writestring(" $error/newerror false put cvx exec}{stop}ifelse}if}def\n");
+X   if (width > 0.0 && height > 0.0) {
+X      char buffer[BUFSIZ];
+X      writestring("/initclip[/pathtoproc lcvx/matrix lcvx/currentmatrix lcvx");
+X      writestring("/initmatrix lcvx/initclip lcvx /newpath lcvx\n");
+X      writestring(" 0 0 /moveto lcvx\n");
+X      sprintf(buffer,
+X	      " %lf 0/rlineto lcvx 0 %lf/rlineto lcvx -%lf 0/rlineto lcvx\n",
+X	      width, height, width);
+X      writestring(buffer);
+X      writestring(" /clip lcvx /newpath lcvx /setmatrix lcvx /exec lcvx]\n");
+X      writestring(" cvx def\n");
+X   }
+X   writestring("/initgraphics{initmatrix newpath initclip 1 setlinewidth\n");
+X   writestring(" 0 setlinecap 0 setlinejoin []0 setdash 0 setgray\n");
+X   writestring(" 10 setmiterlimit}bind def\n");
+X   if (nobinding) /* desperation measures */
+X      writestring("/bind{}def\n");
+X   writestring("%%EndProcSet\n");
+X   writeprolog();
+X   for (thispg = 0; thispg < maxpage; thispg += modulo) {
+X      int add_last = 0;
+X      struct pagespec *ps;
+X      for (ps = specs; ps != NULL; ps = ps->next) {
+X	 int actualpg;
+X	 int add_next = ((ps->flags & ADD_NEXT) != 0);
+X	 if (ps->reversed)
+X	    actualpg = maxpage-thispg-modulo+ps->pageno;
+X	 else
+X	    actualpg = thispg+ps->pageno;
+X	 if (actualpg < pages)
+X	    seekpage(actualpg);
+X	 if (!add_last) {
+X	    writepageheader("pstops", ++pageindex);
+X	 }
+X	 writestring("/pstopssaved save def\n");
+X	 if (ps->flags & GSAVE) {
+X	    char buffer[BUFSIZ];
+X	    if (ps->flags & OFFSET) {
+X	       sprintf(buffer, "%lf %lf translate\n", ps->xoff, ps->yoff);
+X	       writestring(buffer);
+X	    }
+X	    if (ps->flags & ROTATE) {
+X	       sprintf(buffer, "%d rotate\n", ps->rotate);
+X	       writestring(buffer);
+X	    }
+X	    if (ps->flags & SCALE) {
+X	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+X	       writestring(buffer);
+X	    }
+X	    writestring("/pstopsmatrix matrix currentmatrix def\n");
+X	 }
+X	 if (width > 0.0 && height > 0.0) {
+X	    writestring("initclip\n");
+X	 }
+X	 if (add_next) {
+X	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+X	 }
+X	 if (actualpg < pages)
+X	    writepagebody();
+X	 else
+X	    writestring("showpage\n");
+X	 writestring("pstopssaved restore\n");
+X	 add_last = add_next;
+X      }
+X   }
+X   writetrailer();
+X
+X   exit(0);
+X}
+END_OF_FILE
+  if test 9511 -ne `wc -c <'pstops.c'`; then
+    echo shar: \"'pstops.c'\" unpacked with wrong size!
+  fi
+  # end of 'pstops.c'
+fi
+if test -f 'psutil.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psutil.h'\"
+else
+  echo shar: Extracting \"'psutil.h'\" \(682 characters\)
+  sed "s/^X//" >'psutil.h' <<'END_OF_FILE'
+X/* psutil.h
+X * AJCD 29/1/91
+X * utilities for PS programs
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifndef LOCAL
+X#define LOCAL extern
+X#endif
+X
+X#define TMPDIR "/tmp"
+X#define MAXPAGES 5000 /* max pages in document */
+X
+XLOCAL char *prog;
+XLOCAL long pageptr[MAXPAGES];
+XLOCAL int pages;
+XLOCAL int verbose;
+XLOCAL FILE *infile;
+XLOCAL FILE *outfile;
+X
+XLOCAL FILE *seekable();
+XLOCAL int fcopy();
+XLOCAL writepage();
+XLOCAL seekpage();
+XLOCAL writepageheader();
+XLOCAL writepagebody();
+XLOCAL writeheader();
+XLOCAL writeprolog();
+XLOCAL writetrailer();
+XLOCAL writeemptypage();
+XLOCAL scanpages();
+XLOCAL writestring();
+XLOCAL message();
+X
+Xextern long lseek();
+Xextern long ftell();
+Xextern char *getenv();
+END_OF_FILE
+  if test 682 -ne `wc -c <'psutil.h'`; then
+    echo shar: \"'psutil.h'\" unpacked with wrong size!
+  fi
+  # end of 'psutil.h'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

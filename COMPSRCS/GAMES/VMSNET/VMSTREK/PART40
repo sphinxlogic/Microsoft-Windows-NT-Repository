@@ -1,0 +1,493 @@
+Path: uunet!cs.utexas.edu!usc!sol.ctr.columbia.edu!destroyer!cs.ubc.ca!bcsystems!spruce.pfc.forestry.ca!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+Newsgroups: vmsnet.sources.games
+Subject: Vmsnetrek 40/47
+Message-ID: <1992Nov20.205011.1@acad2.alaska.edu>
+From: asdmf@acad2.alaska.edu
+Date: Sat, 21 Nov 1992 00:50:11 GMT
+Sender: news@raven.alaska.edu (USENET News System)
+Organization: University of Alaska
+Nntp-Posting-Host: acad2.alaska.edu
+Lines: 481
+Xref: uunet vmsnet.sources.games:540
+
+-+-+-+-+-+-+-+-+ START OF PART 40 -+-+-+-+-+-+-+-+
+X    /* if switching comm mode, decrement timeout counter */
+X    if (commSwitchTimeout > 0) `123
+X/*`009printf("commSwitchTimeout = %d\n", commSwitchTimeout);*/
+X`009if (!(--commSwitchTimeout)) `123
+X`009    /*
+X`009     * timed out; could be initial request to non-UDP server (which
+X`009     * won't be answered), or the verify packet got lost en route
+X`009     * to the server.  Could also be a request for TCP which timed
+X`009     * out (weird), in which case we just reset anyway.
+X`009     */
+X`009    commModeReq = commMode = COMM_TCP;
+X`009    commStatus = STAT_CONNECTED;
+X`009    if (udpSock >= 0)
+X`009`009closeUdpConn();
+X`009    if (udpWin) `123
+X`009`009udprefresh(UDP_CURRENT);
+X`009`009udprefresh(UDP_STATUS);
+X`009    `125
+X`009    warning("Timed out waiting for UDP response from server");
+X`009    UDPDIAG(("Timed out waiting for UDP response from server\n"));
+X`009`125
+X    `125
+X
+X    /* if we're in a UDP "force" mode, check to see if we need to do somethi
+Vng*/
+X    if (commMode == COMM_UDP && udpClientSend > 1)
+X`009checkForce();
+X
+X         `032
+X    return (retval != 0);`009`009/* convert to 1/0 */
+X`125
+X
+X/* this used to be part of the routine above */
+Xchar buf`091BUFSIZ*2`093;
+XdoRead(asock)
+Xint asock;
+X`123
+X    struct timeval timeout;
+X    fd_set readfds;
+X    char *bufptr;
+X    int size;
+X    int count;
+X    int temp;
+X
+X    timeout.tv_sec=0;
+X    timeout.tv_usec=0;
+X
+X`009count=recv(asock,buf,2*BUFSIZ,0);
+X`009if (count<=0) `123
+X/*`009    printf("asock=%d, sock=%d, udpSock=%d, errno=%d\n",
+X`009`009asock, sock, udpSock, errno);*/
+X`009    if (asock == udpSock) `123
+X`009`009if (errno == ECONNREFUSED) `123
+X`009`009    struct sockaddr_in addr;
+X
+X`009`009    UDPDIAG(("Hiccup(%d)!  Reconnecting\n", errno));
+X`009`009    addr.sin_addr.s_addr = serveraddr;
+X`009`009    addr.sin_port = htons(udpServerPort);
+X`009`009    addr.sin_family = AF_INET;
+X`009`009    if (connect(udpSock, &addr, sizeof(addr)) < 0) `123
+X`009`009`009perror("connect");
+X`009`009`009UDPDIAG(("Unable to reconnect\n"));
+X`009`009`009/* and fall through to disconnect */
+X`009`009    `125 else `123
+X`009`009`009UDPDIAG(("Reconnect successful\n"));
+X`009`009`009return (0);
+X`009`009    `125
+X`009`009`125
+X
+X`009`009UDPDIAG(("*** UDP disconnected (res=%d, err=%d)\n",
+X`009`009`009count, errno));
+X`009`009warning("UDP link severed");
+X`009`009printUdpInfo();
+X`009`009closeUdpConn();
+X`009`009commMode = commModeReq = COMM_TCP;
+X`009`009commStatus = STAT_CONNECTED;
+X`009`009if (udpWin) `123
+X`009`009    udprefresh(UDP_STATUS);
+X`009`009    udprefresh(UDP_CURRENT);
+X`009`009`125
+X`009`009return (0);
+X`009    `125
+X`009    printf("1) Got read() of %d (err=%d). Server dead\n", count, errno);
+X`009    serverDead=1;
+X`009    return(0);
+X`009`125
+X
+X`009bufptr=buf;
+X`009while (bufptr < buf+count) `123
+X`009    if (*bufptr < 1 `124`124 *bufptr > NUM_PACKETS `124`124 handlers`091
+V*bufptr`093.size == 0) `123
+X`009`009printf("Unknown packet type: %d, aborting...\n", *bufptr);
+X`009`009return(0);
+X`009    `125
+X`009    size=handlers`091*bufptr`093.size;
+X`009    while (size>count+(buf-bufptr)) `123
+X`009`009/* We wait for up to ten seconds for rest of packet.
+X`009`009 * If we don't get it, we assume the server died.`032
+X`009`009 */
+X`009`009timeout.tv_sec=20;
+X`009`009timeout.tv_usec=0;
+X`009`009FD_ZERO(&readfds);
+X`009`009FD_SET(asock, &readfds);
+X`009`009/*readfds=1<<asock;*/
+X`009`009if (select(32,&readfds,0,0,&timeout) == 0) `123
+X`009`009    printf("Packet fragment.  Server must be dead\n");
+X`009`009    serverDead=1;
+X`009`009    return(0);
+X`009`009`125
+X`009`009temp=recv(asock,buf+count,size-(count+(buf-bufptr)),0);
+X`009`009count+=temp;
+X`009`009if (temp<=0) `123
+X`009`009    printf("2) Got read() of %d.  Server is dead\n", temp);
+X`009`009    serverDead=1;
+X`009`009    return(0);
+X`009`009`125
+X`009    `125
+X`009    if (handlers`091*bufptr`093.handler != NULL) `123
+X`009`009if (asock != udpSock `124`124
+X`009`009    (!drop_flag `124`124 *bufptr == SP_SEQUENCE `124`124 *bufptr ==
+V SP_SC_SEQUENCE))
+X`009`009    (*(handlers`091*bufptr`093.handler))(bufptr);
+X`009`009else
+X`009`009    UDPDIAG(("Ignored type %d\n", *bufptr));
+X`009    `125 else `123
+X`009`009printf("Handler for packet %d not installed...\n", *bufptr);
+X`009    `125
+X`009    bufptr+=size;
+X`009    if (bufptr>buf+BUFSIZ) `123
+X`009`009bcopy(buf+BUFSIZ, buf, BUFSIZ);
+X`009`009if (count==BUFSIZ*2) `123
+X`009`009    FD_ZERO(&readfds);
+X`009`009    FD_SET(asock, &readfds);
+X`009`009    /*readfds = 1<<asock;*/
+X`009`009    if (select(32,&readfds,0,0,&timeout) != 0) `123
+X`009`009`009temp=recv(asock,buf+BUFSIZ,BUFSIZ,0);
+X`009`009`009count=BUFSIZ+temp;
+X`009`009`009if (temp<=0) `123
+X`009`009`009    printf("3) Got read() of %d.  Server is dead\n", temp);
+X`009`009`009    serverDead=1;
+X`009`009`009    return(0);
+X`009`009`009`125
+X`009`009    `125 else `123
+X`009`009`009count=BUFSIZ;
+X`009`009    `125
+X`009`009`125 else `123
+X`009`009    count-=BUFSIZ;
+X`009`009`125
+X`009`009bufptr-=BUFSIZ;
+X`009    `125
+X`009`125
+X`009return(1);
+X`125
+X
+XhandleTorp(packet)
+Xstruct torp_spacket *packet;
+X`123
+X    struct torp *thetorp;
+X
+X    thetorp= &torps`091ntohs(packet->tnum)`093;
+X    thetorp->t_x=ntohl(packet->x);
+X    thetorp->t_y=ntohl(packet->y);
+X    thetorp->t_dir=packet->dir;
+X`125
+X
+XhandleTorpInfo(packet)
+Xstruct torp_info_spacket *packet;
+X`123
+X    struct torp *thetorp;
+X
+X    thetorp= &torps`091ntohs(packet->tnum)`093;
+X    if (packet->status == TEXPLODE && thetorp->t_status == TFREE) `123
+X`009/* FAT: redundant explosion; don't update p_ntorp */
+X`009/*printf("texplode ignored\n");*/
+X`009return;
+X    `125
+X    if (thetorp->t_status==TFREE && packet->status) `123
+X`009players`091thetorp->t_owner`093.p_ntorp++;
+X    `125
+X    if (thetorp->t_status && packet->status==TFREE) `123
+X`009players`091thetorp->t_owner`093.p_ntorp--;
+X    `125
+X    thetorp->t_war=packet->war;
+X    if (packet->status != thetorp->t_status) `123
+X`009/* FAT: prevent explosion reset */
+X`009thetorp->t_status=packet->status;
+X`009if (thetorp->t_status == TEXPLODE) `123
+X`009    thetorp->t_fuse=NUMDETFRAMES;
+X`009`125
+X    `125
+X`125
+X
+XhandleStatus(packet)
+Xstruct status_spacket *packet;
+X`123
+X    status->tourn=packet->tourn;
+X    status->armsbomb=ntohl(packet->armsbomb);
+X    status->planets=ntohl(packet->planets);
+X    status->kills=ntohl(packet->kills);
+X    status->losses=ntohl(packet->losses);
+X    status->time=ntohl(packet->time);
+X    status->timeprod=ntohl(packet->timeprod);
+X`125
+X
+XhandleSelf(packet)
+Xstruct you_spacket *packet;
+X`123
+X    me= &players`091packet->pnum`093;
+X    myship = &(me->p_ship);
+X    mystats= &(me->p_stats);
+X    me->p_hostile = packet->hostile;
+X    me->p_swar = packet->swar;
+X    me->p_armies = packet->armies;
+X    me->p_flags = ntohl(packet->flags);
+X    me->p_damage = ntohl(packet->damage);
+X    me->p_shield = ntohl(packet->shield);
+X    me->p_fuel = ntohl(packet->fuel);
+X    me->p_etemp = ntohs(packet->etemp);
+X    me->p_wtemp = ntohs(packet->wtemp);
+X    me->p_whydead = ntohs(packet->whydead);
+X    me->p_whodead = ntohs(packet->whodead);
+X#ifdef INCLUDE_VISTRACT
+X    if (packet->tractor & 0x40)
+X`009me->p_tractor = (short) packet->tractor & (`1260x40); /* ATM - visible t
+Vractors */
+X    else
+X#endif
+X`009me->p_tractor = -1;
+X`125
+X
+X
+XhandlePlayer(packet)
+Xstruct player_spacket *packet;
+X`123
+X    register struct player *pl;
+X
+X    pl= &players`091packet->pnum`093;
+X    pl->p_dir=packet->dir;
+X    pl->p_speed=packet->speed;
+X    pl->p_x=ntohl(packet->x);
+X    pl->p_y=ntohl(packet->y);
+X    redrawPlayer`091packet->pnum`093=1;
+X`125
+X
+XhandleWarning(packet)
+Xstruct warning_spacket *packet;
+X`123
+X    warning(packet->mesg);
+X`125
+X
+XsendShortPacket(type, state)
+Xchar type, state;
+X`123
+X    struct speed_cpacket speedReq;
+X
+X    speedReq.type=type;
+X    speedReq.speed=state;
+X    sendServerPacket(&speedReq);
+X
+X    /* if we're sending in UDP mode, be prepared to force it */
+X    if (commMode == COMM_UDP && udpClientSend >= 2) `123
+X`009switch (type) `123
+X`009case CP_SPEED:`009fSpeed`009= state `124 0x100; break;
+X`009case CP_DIRECTION:`009fDirection = state `124 0x100; break;
+X`009case CP_SHIELD:`009fShield`009= state `124 0xa00; break;
+X`009case CP_ORBIT:`009fOrbit`009= state `124 0xa00; break;
+X`009case CP_REPAIR:`009fRepair`009= state `124 0xa00; break;
+X`009case CP_CLOAK:`009fCloak`009= state `124 0xa00; break;
+X`009case CP_BOMB:`009fBomb`009= state `124 0xa00; break;
+X`009case CP_DOCKPERM:`009fDockperm = state `124 0xa00; break;
+X`009case CP_PLAYLOCK:`009fPlayLock = state `124 0xa00; break;
+X`009case CP_PLANLOCK:`009fPlanLock = state `124 0xa00; break;
+X`009case CP_BEAM:
+X`009    if (state == 1) fBeamup = 1 `124 0x500;
+X`009    else          fBeamdown = 2 `124 0x500;
+X`009    break;
+X`009`125
+X
+X`009/* force weapons too? */
+X`009if (udpClientSend >= 3) `123
+X`009    switch (type) `123
+X`009    case CP_PHASER: fPhaser`009= state `124 0x100; break;
+X`009    case CP_PLASMA: fPlasma`009= state `124 0x100; break;
+X`009    `125
+X`009`125
+X    `125
+X`125
+X
+XsendServerPacket(packet)
+X/* Pick a random type for the packet */
+Xstruct player_spacket *packet;
+X`123
+X    int size;
+X`009
+X    if (serverDead) return;
+X    if (packet->type<1 `124`124 packet->type>NUM_SIZES `124`124 sizes`091pac
+Vket->type`093==0) `123
+X`009printf("Attempt to send strange packet %d!\n", packet->type);
+X        return;
+X    `125
+X    size=sizes`091packet->type`093;
+X    if (commMode == COMM_UDP) `123
+X`009/* for now, just sent everything via TCP */
+X    `125
+X    if (commMode == COMM_TCP `124`124 !udpClientSend) `123
+X`009/* special case for verify packet */
+X`009if (packet->type == CP_UDP_REQ) `123
+X`009    if (((struct udp_req_cpacket *) packet)->request == COMM_VERIFY)
+X`009`009goto send_udp;
+X`009`125
+X
+X`009/*
+X`009 * business as usual
+X`009 * (or player has turned off UDP transmission)
+X`009 */
+X`009if (gwrite(sock, packet, size) != size) `123
+X`009    printf("gwrite failed.  Server must be dead\n");
+X`009    serverDead=1;
+X`009`125
+X
+X    `125 else `123
+X`009/*
+X`009 * UDP stuff
+X`009 */
+X`009switch (packet->type) `123
+X`009case CP_SPEED:
+X`009case CP_DIRECTION:
+X`009case CP_PHASER:
+X`009case CP_PLASMA:
+X`009case CP_TORP:
+X`009case CP_QUIT:
+X`009case CP_PRACTR:
+X`009case CP_SHIELD:
+X`009case CP_REPAIR:
+X`009case CP_ORBIT:
+X`009case CP_PLANLOCK:
+X`009case CP_PLAYLOCK:
+X`009case CP_BOMB:
+X`009case CP_BEAM:
+X`009case CP_CLOAK:
+X`009case CP_DET_TORPS:
+X`009case CP_DET_MYTORP:
+X`009case CP_REFIT:
+X`009case CP_TRACTOR:
+X`009case CP_REPRESS:
+X`009case CP_COUP:
+X`009case CP_DOCKPERM:
+X`009case CP_SCAN:
+X`009    /* non-critical or semi-critical stuff, use UDP */
+Xsend_udp:
+X`009    V_UDPDIAG(("Sent %d on UDP port\n", packet->type));
+X`009    if (gwrite(udpSock, packet, size) != size) `123
+X`009`009UDPDIAG(("gwrite on UDP failed.  Closing UDP connection\n"));
+X`009`009warning("UDP link severed");
+X`009`009/*serverDead=1;*/
+X`009`009commModeReq = commMode = COMM_TCP;
+X`009`009commStatus = STAT_CONNECTED;
+X`009`009commSwitchTimeout = 0;
+X`009`009if (udpWin) `123
+X`009`009    udprefresh(UDP_STATUS);
+X`009`009    udprefresh(UDP_CURRENT);
+X`009`009`125
+X`009`009if (udpSock >= 0)
+X`009`009    closeUdpConn();
+X`009    `125
+X`009    break;
+X
+X`009default:
+X`009    /* critical stuff, use TCP */
+X`009    if (gwrite(sock, packet, size) != size) `123
+X`009`009printf("gwrite failed.  Server must be dead\n");
+X`009`009serverDead=1;
+X`009    `125
+X`009`125
+X    `125
+X`125
+X
+XhandlePlanet(packet)
+Xstruct planet_spacket *packet;
+X`123
+X    struct planet *plan;
+X    int redraw = 0;`009/* FAT: prevent excessive redraws */
+X
+X    plan= &planets`091packet->pnum`093;
+X    if (plan->pl_owner != packet->owner) redraw++;
+X    plan->pl_owner=packet->owner;
+X    if (plan->pl_info != packet->info) redraw++;
+X    plan->pl_info=packet->info;
+X    /* Redraw the planet because it was updated by server */
+X    if (plan->pl_flags != ntohs(packet->flags)) redraw++;
+X    plan->pl_flags=(int) ntohs(packet->flags);
+X    if (plan->pl_armies != ntohl(packet->armies)) redraw++;
+X    plan->pl_armies=ntohl(packet->armies);
+X    if (plan->pl_info==0) `123
+X`009plan->pl_owner=NOBODY;
+X    `125
+X    if (redraw) plan->pl_flags `124= PLREDRAW;
+X`125
+X
+XhandlePhaser(packet)
+Xstruct phaser_spacket *packet;
+X`123
+X    struct phaser *phas;
+X
+X    phas= &phasers`091packet->pnum`093;
+X    phas->ph_status=packet->status;
+X    phas->ph_dir=packet->dir;
+X    phas->ph_x=ntohl(packet->x);
+X    phas->ph_y=ntohl(packet->y);
+X    phas->ph_target=ntohl(packet->target);
+X`125
+X
+XhandleMessage(packet)
+Xstruct mesg_spacket *packet;
+X`123
+X    if (packet->m_from >= MAXPLAYER) packet->m_from=255;
+X    dmessage(packet->mesg, packet->m_flags, packet->m_from, packet->m_recpt)
+V;
+X`125
+X
+XhandleQueue(packet)
+Xstruct queue_spacket *packet;
+X`123
+X    queuePos = ntohs(packet->pos);
+X`125
+X
+XsendTeamReq(team,ship)
+Xint team, ship;
+X`123
+X    struct outfit_cpacket outfitReq;
+X
+X    outfitReq.type=CP_OUTFIT;
+X    outfitReq.team=team;
+X    outfitReq.ship=ship;
+X    sendServerPacket(&outfitReq);
+X`125
+X
+XhandlePickok(packet)
+Xstruct pickok_spacket *packet;
+X`123
+X    pickOk=packet->state;
+X`125
+X
+XsendLoginReq(name,pass,login,query)
+Xchar *name, *pass;
+Xchar *login;
+Xchar query;
+X`123
+X    struct login_cpacket packet;
+X
+X    strcpy(packet.name, name);
+X    strcpy(packet.password, pass);
+X    if (strlen(login)>15) login`09115`093=0;
+X    strcpy(packet.login, login);
+X    packet.type=CP_LOGIN;
+X    packet.query=query;
+X    sendServerPacket(&packet);
+X`125
+X
+XhandleLogin(packet)
+Xstruct login_spacket *packet;
+X`123
+X    loginAccept=packet->accept;
+X    if (packet->accept) `123
+X`009bcopy(packet->keymap, mystats->st_keymap, 96);
+X`009mystats->st_flags = ntohl(packet->flags);
+X`009showShields = (me->p_stats.st_flags / ST_SHOWSHIELDS) & 1;
+X`009mapmode = (me->p_stats.st_flags / ST_MAPMODE) & 1;
+X`009namemode = (me->p_stats.st_flags / ST_NAMEMODE) & 1;
+X`009keeppeace = (me->p_stats.st_flags / ST_KEEPPEACE) & 1;
+X`009showlocal = (me->p_stats.st_flags / ST_SHOWLOCAL) & 3;
+X`009showgalactic = (me->p_stats.st_flags / ST_SHOWGLOBAL) & 3;
+X    `125
+X`125
+X
+XsendTractorReq(state, pnum)
+Xchar state;
+Xchar pnum;
+X`123
++-+-+-+-+-+-+-+-  END  OF PART 40 +-+-+-+-+-+-+-+-

@@ -1,0 +1,653 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!stanford.edu!agate!usenet.ins.cwru.edu!magnus.acs.ohio-state.edu!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 24/47
+Message-ID: <1992Nov13.140149.1@acad2.alaska.edu>
+Lines: 641
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Fri, 13 Nov 1992 18:01:49 GMT
+Xref: uunet vmsnet.sources.games:510
+
+-+-+-+-+-+-+-+-+ START OF PART 24 -+-+-+-+-+-+-+-+
+X`009    break;
+X`009case 'U': /* U = Rank list */
+X`009    if (W_IsMapped(rankw)) `123
+X`009`009W_UnmapWindow(rankw);
+X`009    `125 else `123
+X`009`009W_MapWindow(rankw);
+X`009    `125
+X`009    break;
+X`009case 'S': /* S = toggle stat mode */
+X`009   if (W_IsMapped(statwin)) `123
+X`009`009W_UnmapWindow(statwin);
+X`009   `125 else `123
+X`009`009W_MapWindow(statwin);
+X`009   `125
+X`009   break;
+X`009case 'M': /* M = Toggle Map mode */
+X`009    mapmode = !mapmode;
+X`009    if (optionWin)
+X`009`009optionredrawoption(&mapmode);
+X`009    break;
+X`009case 'N': /* N = Toggle Name mode */
+X`009    namemode = !namemode;
+X`009    if (optionWin)
+X`009`009optionredrawoption(&namemode);
+X`009    break;
+X`009case 'i': /* i = get information */
+X`009case 'I': /* I = get extended information */
+X`009    if (!infomapped)
+X`009`009inform(data->Window, data->x, data->y, key);
+X`009    else
+X`009`009destroyInfo();
+X`009    break;
+X`009case 'h': /* h = Map help window */
+X`009    if (W_IsMapped(helpWin)) `123
+X`009`009W_UnmapWindow(helpWin);
+X`009    `125 else `123
+X`009`009W_MapWindow(helpWin);
+X`009    `125
+X`009    if (optionWin)
+X`009`009optionredrawtarget(helpWin);
+X`009    break;
+X`009case 'w': /* w = map war stuff */
+X`009    if (W_IsMapped(war))
+X`009`009W_UnmapWindow(war);
+X`009    else
+X`009`009warwindow();
+X`009    break;
+X`009case '+': /* UDP: pop up UDP control window */
+X`009    if (udpWin!=NULL && W_IsMapped(udpWin))
+X`009`009udpdone();
+X`009    else `123
+X`009`009char buf`09180`093;
+X`009`009udpwindow();
+X`009`009sprintf(buf, "UDP client version %.1f",
+X`009`009`009(float) UDPVERSION / 10.0);
+X`009`009warning(buf);
+X`009    `125
+X`009    break;
+X`009case '=': /* UDP: request for full update */
+X`009    sendUdpReq(COMM_UPDATE);
+X`009    break;
+X`009default:
+X`009    W_Beep();
+X`009    break;
+X    `125
+X`125
+X
+Xbuttonaction(data)
+XW_Event *data;
+X`123
+X    unsigned char course;
+X    struct obtype *gettarget();
+X
+X    if (data->Window!=w && data->Window!=mapw) return;
+X    if (data->key==W_RBUTTON) `123
+X`009course = getcourse(data->Window, data->x, data->y);
+X`009set_course(course);
+X    `125
+X    else if (data->key==W_LBUTTON) `123
+X`009course = getcourse(data->Window, data->x, data->y);
+X`009sendTorpReq(course);
+X    `125
+X    else if (data->key=W_MBUTTON) `123
+X`009course = getcourse(data->Window, data->x, data->y);
+X`009sendPhaserReq(course);
+X    `125
+X`125
+X
+Xgetcourse(ww, x, y)
+XW_Window ww;
+Xint x, y;
+X`123
+X    if (ww == mapw) `123
+X`009int`009me_x, me_y;
+X
+X`009me_x = me->p_x * WINSIDE / GWIDTH;
+X`009me_y = me->p_y * WINSIDE / GWIDTH;
+X`009return((unsigned char) (atan2((double) (x - me_x),
+X`009    (double) (me_y - y)) / 3.14159 * 128.));
+X    `125
+X    else
+X`009return((unsigned char) (atan2((double) (x - WINSIDE/2),
+X`009    (double) (WINSIDE/2 - y))
+X`009`009/ 3.14159 * 128.));
+X`125
+X
+$ CALL UNPACK INPUT.C;1 191896905
+$ create/nolog 'f'
+X/*
+X * interface.c
+X *
+X * This file will include all the interfaces between the input routines
+X *  and the daemon.  They should be useful for writing robots and the
+X *  like`032
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <signal.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X#include "packets.h"
+X
+Xset_speed(speed)
+Xint speed;
+X`123
+X    sendSpeedReq(speed);
+X`125
+X
+Xset_course(dir)
+Xunsigned char dir;
+X`123
+X    sendDirReq(dir);
+X`125
+X
+Xshield_up()
+X`123
+X    if (!(me->p_flags & PFSHIELD)) `123
+X`009sendShieldReq(1);
+X    `125
+X`125
+X
+Xshield_down()
+X`123
+X    if (me->p_flags & PFSHIELD) `123
+X`009sendShieldReq(0);
+X    `125
+X`125
+X
+Xshield_tog()
+X`123
+X    if (me->p_flags & PFSHIELD) `123
+X`009sendShieldReq(0);
+X    `125 else `123
+X`009sendShieldReq(1);
+X    `125
+X`125
+X
+Xbomb_planet()
+X`123
+X    if (!(me->p_flags & PFBOMB)) `123
+X`009sendBombReq(1);
+X    `125
+X`125
+X
+Xbeam_up()
+X`123
+X    if (!(me->p_flags & PFBEAMUP)) `123
+X`009sendBeamReq(1);`009/* 1 means up... */
+X    `125
+X`125
+X
+Xbeam_down()
+X`123
+X    if (!(me->p_flags & PFBEAMDOWN)) `123
+X`009sendBeamReq(2);`009/* 2 means down... */
+X    `125
+X`125
+X
+Xrepair()
+X`123
+X    if (!(me->p_flags & PFREPAIR)) `123
+X`009sendRepairReq(1);
+X    `125
+X`125
+X
+Xrepair_off()
+X`123
+X    if (me->p_flags & PFREPAIR) `123
+X`009sendRepairReq(0);
+X    `125
+X`125
+X
+Xrepeat_message()
+X`123
+X    if (++lastm == MAXMESSAGE) ;
+X`009lastm = 0;
+X`125
+X
+Xcloak()
+X`123
+X    if (me->p_flags & PFCLOAK) `123
+X`009sendCloakReq(0);
+X    `125 else `123
+X`009sendCloakReq(1);
+X    `125
+X`125
+X
+Xcloak_on()
+X`123
+X    if (!(me->p_flags & PFCLOAK)) `123
+X`009sendCloakReq(1);
+X    `125
+X`125
+X
+Xcloak_off()
+X`123
+X    if (me->p_flags & PFCLOAK) `123
+X`009sendCloakReq(0);
+X    `125
+X`125
+$ CALL UNPACK INTERFACE.C;1 273810177
+$ create/nolog 'f'
+X
+X$ ! COMPILE.COM compiles netrek
+X$ ! cc := cc /optimize -- uncomment when compiling the thing for real use;
+X$ !                       otherwise, leave commented out so compiles don't
+X$ !                       take forever
+X$`032
+X$ write sys$output "starting compile..."
+X$ set verify
+X$
+X$ ! link .obj files to netrek.exe
+X$ cc colors.c
+X$ cc coup.c
+X$ cc data.c
+X$ cc death.c
+X$ cc defaults.c
+X$ cc detonate.c
+X$ cc dmessage.c
+X$ cc enter.c
+X$ cc findslot.c
+X$ cc getname.c
+X$ cc getship.c
+X$ cc inform.c
+X$ cc input.c
+X$ cc interface.c
+X$ cc main.c
+X$ cc newwin.c
+X$ cc option.c
+X$ cc orbit.c
+X$ cc planetlist.c
+X$ cc planets.c
+X$ cc playerlist.c
+X$ cc ranklist.c
+X$ cc redraw.c
+X$ cc reserved.c
+X$ cc scan.c
+X$ cc sintab.c
+X$ cc smessage.c
+X$ cc socket.c
+X$ cc stats.c
+X$ cc udpopt.c
+X$ cc util.c
+X$ cc vmsutils.c
+X$ cc war.c
+X$ cc warning.c
+X$ cc x11window.c
+X
+X$
+X$ link /executable=vmsnetrek.exe COLORS, COUP, DATA, DEATH, DEFAULTS, DETONA
+VTE, -
+X`009DMESSAGE, ENTER, FINDSLOT, GETNAME, GETSHIP, INFORM, INPUT, -
+X`009INTERFACE, MAIN, NEWWIN, OPTION, ORBIT, PLANETLIST, PLANETS, -
+X`009PLAYERLIST, RANKLIST, REDRAW, RESERVED, SINTAB, SMESSAGE, SOCKET, -
+X`009STATS, UTIL, WAR, WARNING, X11WINDOW, udpopt, vmsutils, scan, -
+X`009sys$input:/opt
+Xsys$share:decw$xlibshr/share
+Xsys$share:decw$dwtlibshr/share
+Xsys$library:vaxcrtl_for_nas.olb/lib
+Xtwg$tcp:`091netdist.lib`093twglib.olb/lib
+X$
+X$ set noverify
+X$ ! set display /create /node='p1 /screen=0 /trans=tcpip
+X$
+X$ write sys$output "compile done (wish I had an alpha)"
+$ CALL UNPACK LINK.COM;1 137395066
+$ create/nolog 'f'
+X/*
+X * main.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <types.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#ifndef VMS
+X#include <pwd.h>
+X#endif
+X#ifdef hpux
+X#include <time.h>
+X#else hpux
+X#include <time.h>
+X#endif hpux
+X#ifndef hpux
+X#ifndef VMS
+X#include <wait.h>
+X#endif VMS
+X#endif hpux
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X#include "packets.h"
+X
+X#ifdef VMS
+X#include "vmsutils.h"
+X#endif
+X
+Xjmp_buf env;
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X`123
+X    int intrupt();
+X    int team, s_type;
+X    int pno;
+X    char *host = NULL;
+X    int usage = 0;
+X    int err = 0;
+X    char *name, *ptr, *cp, *rindex();
+X    char buf`09180`093;
+X    struct passwd *pwent, *getpwuid();
+X    int reaper();
+X    int passive=0;
+X    char *defaultsFile=NULL;
+X
+X    name = *argv++;
+X    argc--;
+X    if ((ptr = rindex(name, '/')) != NULL)
+X`009name = ptr + 1;
+X    while (*argv) `123
+X`009if (**argv == '-')
+X`009    ++*argv;
+X`009else
+X`009    break;
+X
+X`009argc--;
+X`009ptr = *argv++;
+X`009while (*ptr) `123
+X`009    switch (*ptr) `123
+X`009    case 'u': usage++; break;
+X`009    case 's':`032
+X`009`009if (*argv) `123
+X`009`009    xtrekPort=atoi(*argv);`032
+X`009`009    passive=1;`032
+X`009`009    argv++;`032
+X`009`009    argc--;`032
+X`009`009`125
+X`009`009break;
+X`009    case 'p':
+X`009`009if (*argv) `123
+X`009`009    xtrekPort=atoi(*argv);
+X`009`009    argv++;
+X`009`009    argc--;
+X`009`009`125`032
+X`009`009break;
+X`009    case 'd':
+X`009`009host = *argv;
+X`009`009argc--;
+X`009`009argv++;
+X`009`009break;
+X`009    case 'h':
+X`009`009serverName = *argv;
+X`009`009argc--;
+X`009`009argv++;
+X`009`009break;
+X`009    case 'r':
+X`009`009defaultsFile = *argv;
+X`009`009argv++;
+X`009`009argc--;
+X`009`009break;
+X`009    default:`032
+X`009`009fprintf(stderr, "%s: unknown option '%c'\n", name, *ptr);
+X`009`009err++;
+X`009`009break;
+X`009    `125
+X`009    ptr++;
+X`009`125
+X    `125
+X    initDefaults(defaultsFile);
+X    if (usage `124`124 err) `123
+X`009printUsage(name);
+X`009exit(err);
+X    `125
+X
+X    /* compatability */
+X    if (argc > 0)
+X`009host = argv`0910`093;
+X    srandom(getpid() * time((long *) 0));
+X    /* this creates the necessary x windows for the game */
+X
+X
+X#ifdef VMS /* vms already has a newwin so I appended a f*/
+X    newwinf(host, name);
+X#else
+X    newwin(host, name);
+X#endif
+X    /* open memory...? */
+X    openmem();
+X
+X    if (!passive) `123
+X        callServer(xtrekPort, serverName);
+X       `032
+X    `125 else `123
+X`009connectToServer(xtrekPort);
+X    `125
+X
+X    findslot();
+X
+X   `032
+X    lastm = mctl->mc_current;
+Xprintf("mapall1\n");
+X
+X    mapAll();
+Xprintf("mapall2\n");
+X    signal(SIGINT, SIG_IGN);
+X#ifndef VMS
+X    /* this doesn't belong in the code either -- I'll take it out for VMS at
+V least */
+X    (void) signal(SIGCHLD, reaper);
+X#endif
+X
+X    /* Get login name */
+X    if ((pwent = getpwuid(getuid())) != NULL)`032
+X`009(void) strncpy(login, pwent->pw_name, sizeof(login));
+X    else
+X`009(void) strncpy(login, "Bozo", sizeof(login));
+X    login`091sizeof(login) - 1`093 = '\0';
+X
+X    if ((cp = getdefault("name")) != 0)
+X`009(void) strncpy(pseudo, cp, sizeof(pseudo));
+X    else
+X`009(void) strncpy(pseudo, login, sizeof(pseudo));
+X    pseudo`091sizeof(pseudo) - 1`093 = '\0';
+X
+X#ifdef VMS /* added f for function to avoid name collision */
+X    getnamef(pseudo);
+X#else
+X    getname(pseudo);
+X#endif
+X    loggedIn=1;
+X
+X    showShields = booleanDefault("showshields", showShields);
+X    showStats = booleanDefault("showstats", showStats);
+X    keeppeace = booleanDefault("keeppeace", keeppeace);
+X    reportKills = booleanDefault("reportkills", reportKills);
+X    initkeymap();
+X    sendOptionsPacket();
+X
+X    /* Set p_hostile to hostile, so if keeppeace is on, the guy starts off
+X       hating everyone (like a good fighter should) */
+X    me->p_hostile = (FED`124ROM`124KLI`124ORI);
+X
+X    sprintf(buf,
+X      "Maximum:      %2d  %3d %3d               %3d   %6d   %3d   %3d",
+X      0, 0, 0, 0, 0, 0, 0);
+X    W_WriteText(tstatw,50,27,textColor,buf,strlen(buf),W_RegularFont);
+X    me->p_planets=0;
+X    me->p_genoplanets=0;
+X    me->p_armsbomb=0;
+X    me->p_genoarmsbomb=0;
+X    /* Set up a reasonable default */
+X    me->p_whydead=KQUIT;
+X    me->p_team=ALLTEAM;
+X    s_type = CRUISER;
+X    setjmp(env);`009`009/* Reentry point of game */
+X    /* give the player the motd and find out which team he wants */
+X    entrywindow(&team, &s_type);
+X    if (team == -1) `123
+X`009W_DestroyWindow(w);
+X`009sendByeReq();
+X`009sleep(1);
+X`009printf("OK, bye!\n");
+X`009exit(0);
+X    `125
+X    getship(myship, s_type);
+X    redrawall = 1;
+X    enter();
+X    calibrate_stats();
+X    W_ClearWindow(w);
+X    /*
+X    for (i = 0; i < NSIG; i++) `123
+X`009signal(i, SIG_IGN);
+X    `125
+X    */
+X
+X    me->p_status = PALIVE;`009`009`009/* Put player in game */
+X    me->p_ghostbuster = 0;
+X
+X    if (showStats)`009`009`009/* Default showstats are on. */
+X`009W_MapWindow(statwin);
+X
+X    /* Get input until the player quits or dies */
+X    input();
+X`125
+X
+XprintUsage(prog)
+X`009char`009*prog;
+X`123
+X`009printf("Usage: %s `091-r defaultfile`093 `091-s socketnum`093 `091-h hos
+Vtname`093 `091-d display-name`093\n    `091-p connect socketnum`093\n",prog)
+V;
+X`125
+X
+X#ifndef VMS /* not needed in VMS */
+Xreaper()
+X`123
+X#ifdef hpux
+X    wait((int *) 0);
+X#else hpux
+X    while (wait3((union wait *) 0, WNOHANG, NULL) > 0)
+X`009;
+X#endif hpux
+X`125
+X#endif
+$ CALL UNPACK MAIN.C;1 1041697094
+$ create/nolog 'f'
+X#
+X#
+X#
+X
+X#DESTDIR = /usr/games
+X#XTREKDIR = /usr/games/lib/xtrekII
+X#XTREKOWNER = netrek
+XDESTDIR = /usr/local/games/
+XLIBDIR = /usr/local/games/lib/netrek/
+XXTREKOWNER = fadden
+X
+XOPTIONS = -DGATEWAY
+X
+XR_OBJS = colors.o \
+X`009    coup.o \
+X`009    data.o \
+X`009    death.o \
+X`009    detonate.o \
+X`009    defaults.o \
+X`009    dmessage.o \
+X`009    enter.o \
+X`009    findslot.o \
+X`009    getname.o \
+X`009    getship.o \
+X`009    inform.o \
+X`009    interface.o \
+X`009    newwin.o \
+X`009    orbit.o \
+X`009    option.o \
+X`009    planetlist.o \
+X`009    planets.o \
+X`009    playerlist.o \
+X`009    ranklist.o \
+X`009    reserved.o \
+X`009    sintab.o \
+X`009    smessage.o \
+X`009    socket.o \
+X`009    stats.o \
+X`009    util.o \
+X`009    war.o \
+X`009    warning.o \
+X`009    scan.o \
+X`009    udpopt.o`032
+X
+XR_FILES = colors.c \
+X`009    coup.c \
+X`009    data.c \
+X`009    death.c \
+X`009    detonate.c \
+X`009    defaults.c \
+X`009    dmessage.c \
+X`009    enter.c \
+X`009    findslot.c \
+X`009    getname.c \
+X`009    getship.c \
+X`009    inform.c \
+X`009    input.c \
+X`009    interface.c \
+X`009    newwin.c \
+X`009    orbit.c \
+X`009    option.c \
+X`009    planetlist.c \
+X`009    planets.c \
+X`009    playerlist.c \
+X`009    ranklist.c \
+X`009    redraw.c \
+X`009    reserved.c \
+X`009    sintab.c \
+X`009    smessage.c \
+X`009    socket.c \
+X`009    stats.c \
+X`009    util.c \
+X`009    war.c \
+X`009    warning.c \
+X`009    scan.c \
+X`009    udpopt.c`032
+X
+XINCLUDES = struct.h \
+X`009    packets.h \
+X`009    defs.h \
+X`009    copyright.h \
+X`009    bitmaps.h \
+X`009    bitmaps.Iggy.h \
+X`009    data.h \
+X`009    oldbitmaps.h
+X
+XINPUT = input.o redraw.o
+XMAINOBJ = main.o
+XMAINSRC = main.c
+XX10LIB = -lX
+XX10OBJS = x10window.o
+XX11LIB = -lX11
+XX11OBJS = x11window.o
+XGLLIB = -lgl_s
+XGLOBJS = glwindow.o
+X
+X#LIBS = -lm`032
+XLIBS = -lm -lsocket -lbsd
+X
+XCFLAGS = -O -s $(OPTIONS)
+X#CFLAGS = -g
+X
+Xuts:`009x11netrek
+X
+Xx10netrek: $(R_OBJS) $(MAINOBJ) $(INPUT) $(X10OBJS)
++-+-+-+-+-+-+-+-  END  OF PART 24 +-+-+-+-+-+-+-+-

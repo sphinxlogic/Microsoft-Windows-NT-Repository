@@ -1,0 +1,570 @@
+Newsgroups: comp.sources.misc
+From: leo@ipmce.su (Leonid A. Broukhis)
+Subject: v35i079:  freeze - Freeze/melt compression program, v2.5, Part03/03
+Message-ID: <1993Feb22.035731.14973@sparky.imd.sterling.com>
+X-Md4-Signature: fc02ccd5b0839f7e4f267703968f5747
+Date: Mon, 22 Feb 1993 03:57:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 35, Issue 79
+Archive-name: freeze/part03
+Environment: ISC, Xenix, SunOS, MS-DOS
+Supersedes: freeze: Volume 25, Issue 12-13
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bitio.c bitio.h config.h.in config.msc debug.c default.c
+#   patchlev.h showhuf.c
+# Wrapped by kent@sparky on Sat Feb 20 22:49:57 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 3)."'
+if test -f 'bitio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitio.c'\"
+else
+  echo shar: Extracting \"'bitio.c'\" \(165 characters\)
+  sed "s/^X//" >'bitio.c' <<'END_OF_FILE'
+Xunsigned bitbuf = 0;    /* use native word size, it's faster */
+Xint     bitlen = 0, overrun = 0;
+Xlong    bytes_out;      /* counter of bytes processed by PutBits */
+END_OF_FILE
+  if test 165 -ne `wc -c <'bitio.c'`; then
+    echo shar: \"'bitio.c'\" unpacked with wrong size!
+  fi
+  # end of 'bitio.c'
+fi
+if test -f 'bitio.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitio.h'\"
+else
+  echo shar: Extracting \"'bitio.h'\" \(2223 characters\)
+  sed "s/^X//" >'bitio.h' <<'END_OF_FILE'
+X/* Some definitions for faster bit-level I/O */
+X/* Assumptions: local variables "loclen" and "locbuf" are defined
+X * via "DefBits";
+X * AvailBits() is called before all bit input operations, the
+X * maximum allowed argument for AvailBits() is bits(bitbuf) -7;
+X * FlushBits() is called often enough while bit output operations;
+X * KeepBits() is called as opposite to DefBits.
+X */
+X
+Xextern unsigned bitbuf; /* Bit I/O buffers */
+Xextern int  bitlen;     /* Number of bits actually in `bitbuf' */
+Xextern int  overrun;    /* at least as many bytes were read as EOF */
+Xextern long bytes_out;  /* we use it, we declare it */
+X
+X#define bits(x) ((int)sizeof(x)*8)
+X#define BYSH  (bits(bitbuf)-8)
+X#define BISH  (bits(bitbuf)-1)
+X
+X#define InitIO()        { overrun = bitlen = 0; bitbuf = 0; }
+X
+X#define DefBits         register unsigned locbuf = bitbuf;\
+Xregister int loclen = bitlen
+X
+X#define FillBits()   if (loclen <= bits(bitbuf) - 8) {\
+X	do {\
+X		locbuf |= (unsigned)(getchar() & 0xFF) << (BYSH - loclen);\
+X		loclen += 8;\
+X	} while (loclen <= bits(bitbuf) - 8);\
+Xif (feof(stdin)) overrun++;\
+X}
+X
+X#define FlushBits() if (loclen >= 8) do {\
+X	putchar ((int)(locbuf >> BYSH));\
+X	bytes_out++;\
+X	locbuf <<= 8;\
+X	loclen -= 8;\
+X} while (loclen >= 8)
+X
+X/* FlushTail works with global variables !! */
+X#define FlushTail() if (bitlen) {\
+X	putchar((int)(bitbuf >> BYSH));\
+X	bytes_out++;\
+X}
+X
+X#define KeepBits()      bitbuf = locbuf, bitlen = loclen
+X
+X/* GetX() macros may be used only in "var op= GetX();" statements !! */
+X
+X#define GetBit()  /* var op= */locbuf >> BISH, locbuf <<= 1, loclen--
+X
+X#define GetByte() /* var op= */locbuf >> BYSH, locbuf <<= 8, loclen -= 8
+X
+X/* NB! `n' is used more than once here! */
+X#define GetNBits(n) /* var op= */ locbuf >> (bits(bitbuf) - (n)),\
+X	locbuf <<= (n), loclen -= (n)
+X
+X/* Puts n MSBs of var to the stream, assume other bits == 0 */
+X#define PutNBits(var, n) locbuf |= (unsigned)(var) >> loclen, loclen += (n)
+X
+X/* Puts n LSBs of var to the stream, assume other bits == 0 */
+X#define PutNLowBits(var, n) locbuf |= (unsigned)(var) << (bits(bitbuf) -\
+X(n) - loclen), loclen += (n)
+X
+X/* Puts LSB (!) of var to the stream, isn't used now */
+X#define PutBit(var) locbuf |= (unsigned)((var) & 1) << (BISH - loclen), loclen++
+END_OF_FILE
+  if test 2223 -ne `wc -c <'bitio.h'`; then
+    echo shar: \"'bitio.h'\" unpacked with wrong size!
+  fi
+  # end of 'bitio.h'
+fi
+if test -f 'config.h.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.h.in'\"
+else
+  echo shar: Extracting \"'config.h.in'\" \(2615 characters\)
+  sed "s/^X//" >'config.h.in' <<'END_OF_FILE'
+X/* This is a configuration file prototype, copy it to config.h and      */
+X/* "#define" appropriate macros if you have problems with "configure".  */
+X
+X/* define as "int" or "void"; default (undefined) means "void"          */
+X#undef RETSIGTYPE
+X
+X/* define if your computer/system allows unaligned word access          */
+X#undef ALLOW_MISALIGN
+X
+X/* define if sizeof(int) == 2                                           */
+X#undef INT_16_BITS
+X
+X/* define if sizeof(unsigned short) > 2                                 */
+X#undef BIGSHORTS
+X
+X/* define if your computer cannot handle data items of more than 64K    */
+X#undef SEGMENTED
+X
+X/* define if filenames can be of more than 14 chars                     */
+X#undef HAVE_LONG_FILE_NAMES
+X
+X/* define no more than one, according to your standard #include's       */
+X/* if you have <dirent.h>                                               */
+X#undef DIRENT
+X/* if you have <sys/ndir.h>                                             */
+X#undef SYSNDIR
+X/* if you have <sys/dir.h>                                              */
+X#undef SYSDIR
+X
+X/* define if you have <sys/stdtypes.h>                                  */
+X#undef HAVE_SYS_STDTYPES_H
+X
+X/* define if you have "rindex" and "setlinebuf" correspondingly         */
+X#undef HAVE_RINDEX
+X#undef HAVE_SETLINEBUF
+X
+X/* define no more than one, according to your standard #include's       */
+X/* if you have <utime.h>                                                */
+X#undef UTIME
+X/* if you have <sys/utime.h>                                            */
+X#undef SYSUTIME
+X/* if you have "struct timeval" in <sys/time.h>                         */
+X#undef SYSTIME
+X
+X/* define if you want to have freeze compatible with vers. 1.0          */
+X#undef COMPAT
+X
+X/* define if your system has multibyte NEWLINE (as in MS-DOS) and       */
+X/* you want to do text conversion by default                            */
+X#undef TEXT_DEFAULT
+X
+X/* define if you want to build freeze in small model  (64K data)        */
+X/* (segmented architectures only)                                       */
+X#undef TINY
+X
+X/* define if you want to decrease the amount of memory but without      */
+X/* 64K restriction (no sense for 16-bit machines)                       */
+X#undef SMALL
+X
+X/* define to increase the compression speed by about 10% at the cost    */
+X/* of some tenths of % compression rate                                 */
+X#undef FASTHASH
+X
+X/* default Huffman values, define if you don't like the default        */
+X/* 0,0,1,2,6,19,34,0. These below are reasonably good also.            */
+X/* #define HUFVALUES 0,1,1,1,4,10,27,18                                */
+END_OF_FILE
+  if test 2615 -ne `wc -c <'config.h.in'`; then
+    echo shar: \"'config.h.in'\" unpacked with wrong size!
+  fi
+  # end of 'config.h.in'
+fi
+if test -f 'config.msc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.msc'\"
+else
+  echo shar: Extracting \"'config.msc'\" \(2552 characters\)
+  sed "s/^X//" >'config.msc' <<'END_OF_FILE'
+X/* This is a configuration file prototype, copy it to config.h and      */
+X/* "#define" appropriate macros if you have problems with "configure".  */
+X
+X/* define as "int" or "void" */
+X#define RETSIGTYPE void
+X
+X/* define if your computer/system allows unaligned word access          */
+X#define ALLOW_MISALIGN
+X
+X/* define if sizeof(int) == 2                                           */
+X#define INT_16_BITS
+X
+X/* define if your computer cannot handle data items of more than 64K    */
+X#define SEGMENTED
+X
+X/* define if filenames can be of more than 14 chars                     */
+X#undef HAVE_LONG_FILE_NAMES
+X
+X/* define no more than one of, according to your standard #include's    */
+X/* if you have <dirent.h>                                               */
+X#undef DIRENT
+X/* if you have <sys/ndir.h>                                             */
+X#undef SYSNDIR
+X/* if you have <sys/dir.h>                                              */
+X#undef SYSDIR
+X
+X/* define if you have <sys/stdtypes.h>                                  */
+X#undef HAVE_SYS_STDTYPES_H
+X
+X/* define if you have "rindex" and "setlinebuf" correspondingly         */
+X#undef HAVE_RINDEX
+X#undef HAVE_SETLINEBUF
+X
+X/* define no more than one of, according to your standard #include's    */
+X/* if you have <utime.h>                                                */
+X#define UTIME
+X/* if you have <sys/utime.h>                                            */
+X#undef SYSUTIME
+X/* if you have "struct timeval" in <sys/time.h>                         */
+X#undef SYSTIME
+X
+X/* define if you want to have freeze compatible with vers. 1.0          */
+X#undef COMPAT
+X
+X/* define if your system has multibyte NEWLINE (as in MS-DOS) and       */
+X/* you want to do text conversion by default                            */
+X#undef TEXT_DEFAULT
+X
+X/* define if you want to build freeze in small model  (64K data)        */
+X/* (segmented architectures only)                                       */
+X#undef TINY
+X
+X/* define if you want to decrease the amount of memory but without      */
+X/* 64K restriction (no sense for 16-bit machines)                       */
+X#undef SMALL
+X
+X/* define to increase the compression speed by about 10% at the cost    */
+X/* of some tenths of % compression rate                                 */
+X#undef FASTHASH
+X
+X/* default Huffman values, define if you don't like the default        */
+X/* 0,0,1,2,6,19,34,0. These below are reasonably good also.            */
+X/* #define HUFVALUES 0,1,1,1,4,10,27,18                                */
+END_OF_FILE
+  if test 2552 -ne `wc -c <'config.msc'`; then
+    echo shar: \"'config.msc'\" unpacked with wrong size!
+  fi
+  # end of 'config.msc'
+fi
+if test -f 'debug.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'debug.c'\"
+else
+  echo shar: Extracting \"'debug.c'\" \(1551 characters\)
+  sed "s/^X//" >'debug.c' <<'END_OF_FILE'
+X#if defined(DEBUG)
+X#include "freeze.h"
+X#include "huf.h"
+X#include "bitio.h"
+X
+X		  /*---------------------------*/
+X		  /*      DEBUG      MODULE    */
+X		  /*---------------------------*/
+Xvoid
+Xprintcodes(mode)
+X{
+X    /*
+X     * Just print out codes from input file.  For debugging.
+X     */
+X    register short k, c, col = 0;
+X
+X#ifdef COMPAT
+X	if (!mode) {
+X		StartHuff(N_CHAR1);
+X		init(Table1);
+X	} else
+X#endif
+X	{
+X		if (read_header() == EOF) {
+X			fprintf(stderr, "Bad header\n");
+X			return;
+X		}
+X		StartHuff(N_CHAR2);
+X		init(Table2);
+X	}
+X
+X	InitIO();
+X
+X    for (;;) {
+X
+X	    if((c = DecodeChar()) == ENDOF)
+X		    break;
+X	    if (c < 256) {
+X		fprintf(stderr, "%5d%c", c,
+X			(col+=8) >= 74 ? (col = 0, '\n') : '\t' );
+X	    } else {
+X		c = c - 256 + THRESHOLD;
+X
+X		k = DecodePosition();
+X
+X		fprintf(stderr, "%2d-%d%c", c, k,
+X			(col+=8) >= 74 ? (col = 0, '\n') : '\t' );
+X	    }
+X    }
+X    putc( '\n', stderr );
+X    exit( 0 );
+X}
+X
+X/* for pretty char printing */
+X
+Xchar *
+Xpr_char(c)
+X	register uc_t c;
+X{
+X	static char buf[5];
+X	register i = 4;
+X	buf[4] = '\0';
+X	if ( (isascii((int)c) && isprint((int)c) && c != '\\') || c == ' ' ) {
+X	    buf[--i] = c;
+X	} else {
+X	    switch( c ) {
+X	    case '\n': buf[--i] = 'n'; break;
+X	    case '\t': buf[--i] = 't'; break;
+X	    case '\b': buf[--i] = 'b'; break;
+X	    case '\f': buf[--i] = 'f'; break;
+X	    case '\r': buf[--i] = 'r'; break;
+X	    case '\\': buf[--i] = '\\'; break;
+X	    default:
+X		buf[--i] = '0' + c % 8;
+X		buf[--i] = '0' + (c / 8) % 8;
+X		buf[--i] = '0' + c / 64;
+X		break;
+X	    }
+X	    buf[--i] = '\\';
+X	}
+X	return &buf[i];
+X}
+X#endif
+END_OF_FILE
+  if test 1551 -ne `wc -c <'debug.c'`; then
+    echo shar: \"'debug.c'\" unpacked with wrong size!
+  fi
+  # end of 'debug.c'
+fi
+if test -f 'default.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'default.c'\"
+else
+  echo shar: Extracting \"'default.c'\" \(1274 characters\)
+  sed "s/^X//" >'default.c' <<'END_OF_FILE'
+X#include "freeze.h"
+X#include <errno.h>
+X
+X		/*-------------------------------*/
+X		/*     DEFAULTS FILE HANDLING    */
+X		/*-------------------------------*/
+X
+X#define OK      0
+X#define FAIL    NULL
+X#define NOFILE  ((FILE *) 0)
+X#define MAXLINE 128
+X
+Xchar            *strchr();
+Xstatic FILE     *defd = NOFILE;  /* defaults file stream */
+X
+Xint     defopen(fname)          /* open | reopen | close defaults file */
+X	char    *fname;
+X{
+X	register FILE   *fd;
+X
+X	if (!fname) {
+X		if (defd)
+X			(void) fclose(defd);
+X		defd = NOFILE;
+X		return OK;
+X	}
+X
+X	if (!(fd = fopen(fname, "r")))
+X		return errno;                   /* problems opening file */
+X
+X	defd = fd;
+X	return OK;
+X}
+X
+Xstatic char     defline[MAXLINE + 1];
+X
+Xchar    *defread(pattern)
+X	register char   *pattern;
+X{
+X	register        sz_patt;
+X	register char   *cp;
+X
+X	if (!defd)
+X		return FAIL;            /* defaults file not opened */
+X
+X	rewind(defd);
+X	sz_patt = strlen(pattern);
+X
+X	while (fgets(defline, MAXLINE, defd)) {
+X		if (!(cp = strchr(defline, '\n')))
+X			return FAIL;     /* line too long  */
+X		if (cp - defline < sz_patt)
+X			continue;       /* line too short */
+X		*cp = '\0';
+X		if (!strncmp(pattern, defline, sz_patt))
+X			return defline + sz_patt;       /* match found */
+X	}
+X
+X	return FAIL;                    /* no matching lines */
+X}
+END_OF_FILE
+  if test 1274 -ne `wc -c <'default.c'`; then
+    echo shar: \"'default.c'\" unpacked with wrong size!
+  fi
+  # end of 'default.c'
+fi
+if test -f 'patchlev.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlev.h'\"
+else
+  echo shar: Extracting \"'patchlev.h'\" \(48 characters\)
+  sed "s/^X//" >'patchlev.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 0
+X#define PATCHDATE "2/7/93"
+END_OF_FILE
+  if test 48 -ne `wc -c <'patchlev.h'`; then
+    echo shar: \"'patchlev.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlev.h'
+fi
+if test -f 'showhuf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'showhuf.c'\"
+else
+  echo shar: Extracting \"'showhuf.c'\" \(1964 characters\)
+  sed "s/^X//" >'showhuf.c' <<'END_OF_FILE'
+X#include "freeze.h"
+X#include "huf.h"
+X
+Xuc_t Table2[9];
+X
+X/* prints out Huffman information from a frozen file, just for fun
+X * and testing purposes.
+X */
+X
+Xint main(argc, argv)
+Xint argc; char ** argv;
+X{
+X	if (argc != 2) {
+X		fprintf(stderr, "Usage: showhuf frozen_file\n");
+X		return 1;
+X	}
+X
+X	if (freopen(argv[1], "r", stdin) == NULL) {
+X		fprintf(stderr, "showhuf: can't open file %s", argv[1]);
+X		perror(" ");
+X		return 1;
+X	}
+X	if (getchar() != MAGIC1)
+X		goto reject;
+X
+X	switch (getchar()) {
+X	case MAGIC2_1:
+X		printf("%s: no Huffman table (old-style)\n", argv[1]);
+X		return 0;
+X
+X	case MAGIC2_2:
+X		break;
+X
+X	default: reject:
+X		printf("%s is not in frozen format\n", argv[1]);
+X		return 0;
+X	}
+X
+X	/* Now the real work begins... */
+X
+X	printf("%s: ", argv[1]);
+X
+X	if (read_header() == EOF)
+X		return 1;
+X
+X	printf("%d,%d,%d,%d,%d,%d,%d,%d\n",
+X		Table2[1], Table2[2], Table2[3], Table2[4],
+X		Table2[5], Table2[6], Table2[7], Table2[8]);
+X
+X	/* ... and ends */
+X
+X	return 0;
+X}
+X
+X/* Reconstructs `Table' from the header of the frozen file and checks
+X	its correctness. Returns 0 if OK, EOF otherwise.
+X*/
+X
+Xint read_header() {
+X	short i, j;
+X	i = getchar() & 0xFF;
+X	i |= (getchar() & 0xFF) << 8;
+X	Table2[1] = i & 1; i >>= 1;
+X	Table2[2] = i & 3; i >>= 2;
+X	Table2[3] = i & 7; i >>= 3;
+X	Table2[4] = i & 0xF; i >>= 4;
+X	Table2[5] = i & 0x1F; i >>= 5;
+X
+X	if (i & 1 || (i = getchar()) & 0xC0) {
+X		fprintf(stderr, "Unknown header format.\n");
+X		return EOF;
+X	}
+X
+X	Table2[6] = i & 0x3F;
+X
+X	i = Table2[1] + Table2[2] + Table2[3] + Table2[4] +
+X	Table2[5] + Table2[6];
+X
+X	i = 62 - i;     /* free variable length codes for 7 & 8 bits */
+X
+X	j = 128 * Table2[1] + 64 * Table2[2] + 32 * Table2[3] +
+X	16 * Table2[4] + 8 * Table2[5] + 4 * Table2[6];
+X
+X	j = 256 - j;    /* free byte images for these codes */
+X
+X/*      Equation:
+X	    Table[7] + Table[8] = i
+X	2 * Table[7] + Table[8] = j
+X*/
+X	j -= i;
+X	if (j < 0 || i < j) {
+X		printf("Warning - bad Huffman table");
+X		return 0;
+X	}
+X	Table2[7] = j;
+X	Table2[8] = i - j;
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 1964 -ne `wc -c <'showhuf.c'`; then
+    echo shar: \"'showhuf.c'\" unpacked with wrong size!
+  fi
+  # end of 'showhuf.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

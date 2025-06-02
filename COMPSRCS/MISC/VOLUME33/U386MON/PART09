@@ -1,0 +1,2121 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i118:  u386mon - SVR3 performance/status monitor v2.60, Part09/09
+Message-ID: <1992Nov22.020357.24553@sparky.imd.sterling.com>
+X-Md4-Signature: 3b97d1e1707ed07b4ff7f7eaccf95a82
+Date: Sun, 22 Nov 1992 02:03:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 118
+Archive-name: u386mon/part09
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 09 of u386mon.2.60
+# ============= siotools/uusnap.c ==============
+if test ! -d 'siotools'; then
+    echo 'x - creating directory siotools'
+    mkdir 'siotools'
+fi
+if test -f 'siotools/uusnap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/uusnap.c (File already exists)'
+else
+echo 'x - extracting siotools/uusnap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/uusnap.c' &&
+X/* CHK=0x2504 */
+Xchar *revision = "2.01";
+X/*+-------------------------------------------------------------------------
+X	uusnap.c - display UUCP communications status for HDB systems
+X    ...gatech!kd4nc!n4hgf!wht
+X
+X  Many ideas in this program came from uustatus.c by Ed Carp
+X
+X  Defined functions:
+X	basename(fullname)
+X	bye(sig)
+X	datetime5(secs)
+X	detail()
+X	disp_cmd_legend(text)
+X	display_status(sysnum,system_name,y,status_info)
+X	display_tod()
+X	display_tty(sionum,tty)
+X	get_status_info(system_name,buf,bufsize)
+X	lockpid_to_tty(lockpid)
+X	main(argc,argv)
+X	my_resetty()
+X	my_savetty()
+X	spooldirname(fname)
+X	statdirname(fname)
+X	strcmpi(s1,s2)
+X	to_lower(ch)
+X	to_upper(ch)
+X
+XUnder XENIX, termio.h is included twice (once by curses.h/tcap.h and
+Xagain by sys/tty.h.  You need to bracket the termio.h under XENIX with
+X  #if !defined(TERMIO_HACK) || (defined(TERMIO_HACK) && !defined(IOCTYPE))
+X  ...
+X  #endif
+X
+XSample output:
+X
+Xuusnap 1.70 (UNIX V.3.2/i386) n4hgf                          19:28:26
+X
+X # SYSTEM    CALLS OUTQ INPQ LAST  NEXT  PID   STATUS
+X-- ------    ----- ---- ---- ----- ----- ----- ------------------------
+X 1 kd4nc        2    3       15:22 15:22       successful
+X 2 n4vu                      19:07 19:07       successful
+X 3 tridom                 1  19:17 19:17       TALKING (tty2e)
+X 4 ki4xo                     01/25 01/25       successful
+X
+X
+X Thanks to mpxenix!news (Randy Bush) for tireless help with a curses
+X bug hopefully now retired, even if it crockish.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-25-1992-02:38-root@n4hgf-integrate with u386mon's nlsym */
+X/*:06-22-1992-13:28-wht@n4hgf-revisit for 3.2v4 */
+X/*:02-23-1990-17:10-wht-more keyboard problems with UNIX: try typeahead(-1) */
+X/*:02-18-1990-03:29-wht-bug in curses tty mode handling - force a fix */
+X/*:02-07-1990-16:34-wht-use crmode and nocrmode rather than raw and noraw */
+X/*:01-27-1990-19:11-wht-show input and output queues + cosmetics */
+X/*:12-28-1989-13:35-wht-change rev - B600 added to wintty */
+X/*:12-26-1989-14:53-wht-datetime5 month off by 1 */
+X/*:12-07-1989-03:10-wht-make changes per email suggestions */
+X/*:12-04-1989-16:45-wht-add detail in full */
+X/*:12-01-1989-16:53-wht-XENIX 286 work: no beep()! */
+X/*:11-30-1989-17:48-wht-complete rewrite to add detail status */
+X
+X#ifndef SYSV
+X#define SYSV
+X#endif
+X
+X#include <curses.h>
+X#include <ctype.h>
+X#include <memory.h>
+X#include <signal.h>
+X#include <time.h>
+X#include <sys/types.h>
+X#include <dirent.h>
+X#include <sys/stat.h>
+X#include <sys/tty.h>
+X#include <sys/utsname.h>
+X#if defined(M_SYSV)
+X#include <sys/select.h>
+X#else
+X#include <sys/time.h>
+X#endif
+X
+X#include "wintty.h"
+X#define DEFINE_TTYNM
+X#include "kmemsio.h"
+X#include "utoa.h"
+X
+X#define FIRSTSYS_Y	4
+X#define NAME_X		4
+X#define CALLS_X		14
+X#define OUTQ_X		19
+X#define INPQ_X		24
+X#define DTAQ_X		29
+X#define LAST_X		34
+X#define NEXT_X		40
+X#define PID_X		46
+X#define STATUS_X	52
+X
+X/* display_tty x offsets */
+X#define TX 0
+X#define RX 5
+X#define CX 10
+X#define OX 15
+X#define SX 22
+X#define FX 29
+X
+Xextern char _sobuf[];
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+XDIR *stat_dp;
+XDIR *work_dp;
+XDIR *uspool_dp;
+X
+Xlong secs_now;
+Xint systems;
+Xint no_tod = 0;
+Xchar sysnames[64 * 32];	/* sorta hack, but ka-plenty name space */
+Xchar locked_tty[16];
+Xchar bell = 7;
+X
+Xchar *STATUSDIR = "/usr/spool/uucp/.Status";
+Xchar *LOCKDIR = "/usr/spool/uucp/LCK..";
+Xchar *WORKDIR = "/usr/spool/uucp/";
+Xchar *SPOOLDIR = "/usr/spool/uucp";
+X
+X#define MAX_SYSTEMS (LINES - FIRSTSYS_Y - 4)
+X#define WAITSECS_ACTIVE 1 /* sleep secs between samples when talking */
+X#define WAITSECS_IDLE   7 /* sleep secs between samples when not talking */
+X
+X#define SS_OK                    0 	/* successful */
+X#define SS_NO_DEVICE             1 	/* no device */
+X#define SS_TIME_WRONG            2 	/* wrong time to call */
+X#define SS_TALKING               3 	/* TALKING */
+X#define SS_CONVERSATION          4 	/* conversation failed */
+X#define SS_SEQBAD                5 	/* bad sequence check */
+X#define SS_LOGIN_FAILED          6 	/* login failed */
+X#define SS_DIAL_FAILED           7 	/* dial failed */
+X#define SS_BAD_LOG_MCH           8 	/* bad login/machine */
+X#define SS_LOCKED_DEVICE         9 	/* DEVICE LOCKED */
+X#define SS_ASSERT_ERROR          10	/* assert error */
+X#define SS_BADSYSTEM             11	/* system not in Systems */
+X#define SS_CANT_ACCESS_DEVICE    12	/* can't access device */
+X#define SS_DEVICE_FAILED         13	/* device failed */
+X#define SS_WRONG_MCH             14	/* wrong machine name */
+X#define SS_CALLBACK              15	/* callback required */
+X#define SS_RLOCKED               16	/* remote has lock for me */
+X#define SS_RUNKNOWN              17	/* remote does not know me */
+X#define SS_RLOGIN                18	/* remote reject after login */
+X#define SS_UNKNOWN_RESPONSE      19	/* remote reject, unknown msg */
+X#define SS_STARTUP               20	/* startup failed */
+X#define SS_CHAT_FAILED           21	/* caller script failed */
+X#if defined(M_SYSV)
+X#define SS_CALL_IN_PROGRESS	     22	/* CALL IN PROGRESS */
+X#define SS_CALL_FAILED           23	/* call failed (busy?) */
+X#else
+X#define SS_CALL_IN_PROGRESS	     22	/* CALL IN PROGRESS */
+X#endif
+X
+Xstruct utsname me;
+Xint uucico_active;
+X
+Xchar *errortext[] = {
+X	/*       00000000001111111111222222 */
+X	/*       01234567890123456789012346 */
+X	/* 0 */ "successful",
+X	/* 1 */ "no device",
+X	/* 2 */ "wrong time to call",
+X	/* 3 */ "TALKING",
+X	/* 4 */ "conversation failed",
+X	/* 5 */ "bad sequence check",
+X	/* 6 */ "login failed",
+X	/* 7 */ "dial failed",
+X	/* 8 */ "bad login/machine",
+X	/* 9 */ "DEVICE LOCKED",
+X	/* 10*/ "assert error",
+X	/* 11*/ "system not in Systems",
+X	/* 12*/ "can't access device",
+X	/* 13*/ "device failed",
+X	/* 14*/ "wrong machine name",
+X	/* 15*/ "callback required",
+X	/* 16*/ "remote has lock for me",
+X	/* 17*/ "remote does not know me",
+X	/* 18*/ "remote reject after login",
+X	/* 19*/ "remote reject, unknown msg",
+X	/* 20*/ "startup failed",
+X	/* 21*/ "caller script failed",
+X#if defined(SYSV)
+X	/* 22*/ "CALL IN PROGRESS",
+X	/* 23*/ "call failed (busy?)",
+X#else
+X	/* 22*/ "CALL IN PROGRESS",
+X#endif
+X};
+X
+X#if defined(SYSV)
+X#define SS_MSG_MAX 23
+X#else
+X#define SS_MSG_MAX 22
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	workaround curses tty handling difficulties among different revs
+X--------------------------------------------------------------------------*/
+Xstruct termio my_termio_crock;
+Xvoid my_savetty()	/* used in lieu of savetty() */
+X{
+X	ioctl(0,TCGETA,&my_termio_crock);
+X}
+Xvoid my_resetty()	/* used in lieu of resetty() and endwin() */
+X{
+X	ioctl(0,TCSETA,&my_termio_crock);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	datetime5(secs) - return 5 char date or time string
+X
+Xneeds global 'secs_now' to reflect current time in "seconds since epoch"
+X(done by display_tod()); returns 5 character 'mm/dd' if time now is more
+Xthan 12 hours before now or 12 hours from now
+X--------------------------------------------------------------------------*/
+Xchar *
+Xdatetime5(secs)
+Xlong secs;
+X{
+X	register long delta = secs_now - secs;
+X	struct tm *lt = localtime(&secs);
+X	static char dt5[8];
+X
+X	if(delta < 0)
+X		delta = -delta;
+X
+X	if(delta > (12L * 3600))
+X	{
+X		utoda_lz(dt5,2,lt->tm_mon + 1);
+X		dt5[2] = '/';
+X		utoda_lz(dt5 + 3,2,lt->tm_mday);
+X	}
+X	else
+X	{
+X		utoda_lz(dt5,2,lt->tm_hour);
+X		dt5[2] = ':';
+X		utoda_lz(dt5 + 3,2,lt->tm_min);
+X	}
+X
+X	return(dt5);
+X
+X}	/* end of datetime5 */
+X
+X/*+-------------------------------------------------------------------------
+X	basename(fullname) - strip directory name from filename
+X
+Xreturns address of static string
+X--------------------------------------------------------------------------*/
+Xchar *
+Xbasename(fullname)
+Xchar *fullname;
+X{
+X	register char *start;
+X	static char outstr[256];
+X	char *strrchr();
+X
+X	start = strrchr(fullname,'/'); /* find last slash */
+X	if(!start)
+X		return(fullname);
+X	start++;
+X	strcpy(outstr,start);
+X	return(outstr);
+X}	/* end of basename */
+X
+X/*+-------------------------------------------------------------------------
+X	statdirname(fname) - return base name prepended with status dir
+X
+Xreturns address of static string
+X--------------------------------------------------------------------------*/
+Xchar *
+Xstatdirname(fname)
+Xchar *fname;
+X{
+X	static char fullname[128];
+X	static int fullname_cat_point = 0;
+X
+X	if(!fullname_cat_point)
+X	{
+X		strcpy(fullname,STATUSDIR);
+X		strcat(fullname,"/");
+X		fullname_cat_point = strlen(fullname);
+X	}
+X
+X	strcpy(fullname + fullname_cat_point,fname);
+X	return(fullname);
+X
+X}	/* end of statdirname */
+X
+X/*+-------------------------------------------------------------------------
+X	spooldirname(fname) - return base name prepended with spool dir
+X
+Xreturns address of static string
+X--------------------------------------------------------------------------*/
+Xchar *
+Xspooldirname(fname)
+Xchar *fname;
+X{
+X	static char fullname[128];
+X	static int fullname_cat_point = 0;
+X
+X	if(!fullname_cat_point)
+X	{
+X		strcpy(fullname,SPOOLDIR);
+X		strcat(fullname,"/");
+X		fullname_cat_point = strlen(fullname);
+X	}
+X
+X	strcpy(fullname + fullname_cat_point,fname);
+X	return(fullname);
+X
+X}	/* end of statdirname */
+X
+X/*+-------------------------------------------------------------------------
+X	display_tod()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_tod()
+X{
+X	register struct tm *lt;		/* local time */
+X	struct tm *localtime();
+X	char buf[10];
+X
+X	(void)time(&secs_now);
+X
+X	if(no_tod)
+X		return;
+X
+X	lt = localtime(&secs_now);
+X	utoda_lz(buf,2,lt->tm_hour);
+X	buf[2] = ':';
+X	utoda_lz(buf + 3,2,lt->tm_min);
+X	buf[5] = ':';
+X	utoda_lz(buf + 6,2,lt->tm_sec);
+X	move(0,COLS - 18);
+X	addstr(buf);
+X
+X}	/* end of display_tod */
+X
+X/*+-------------------------------------------------------------------------
+X	bye(sig) - exit cleanly
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbye(sig)
+Xint sig;
+X{
+X	if(stdscr)
+X	{
+X		standend();
+X		move(LINES - 1,0);
+X		clrtobot();
+X		refresh();
+X		echo();
+X		nocrmode();
+X		move(LINES - 1,0);
+X		refresh();
+X		my_resetty();
+X	}
+X	exit(0);
+X}	/* end of bye */
+X
+X/*+-------------------------------------------------------------------------
+X	lockpid_to_tty(lockpid) - given pid, find first ttyname it has locked
+X--------------------------------------------------------------------------*/
+Xchar *
+Xlockpid_to_tty(lockpid)
+Xint lockpid;
+X{
+X	struct dirent *dp;
+X	FILE *fp;
+X	int testpid;
+X	static char rtnname[32];
+X
+X	seekdir(uspool_dp,0);
+X	while(dp = readdir(uspool_dp))
+X	{
+X		if(strncmp(dp->d_name,"LCK..tty",8))
+X			continue;
+X		if(fp = fopen(spooldirname(dp->d_name),"r"))
+X		{
+X			fscanf(fp,"%d",&testpid);
+X			fclose(fp);
+X			if(testpid == lockpid)
+X			{
+X				strcpy(rtnname,dp->d_name + 5);
+X				return(rtnname);
+X			}
+X		}
+X	}
+X	return((char *)0);
+X
+X}	/* end of lockpid_to_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_cmd_legend(text)
+X--------------------------------------------------------------------------*/
+Xdisp_cmd_legend(text)
+Xchar *text;
+X{
+X	move(LINES - 2,0);
+X	clrtoeol();
+X
+X	if(!text)
+X	{
+X		addstr("Commands: ");
+X		standout();
+X		addstr("ESC");
+X		standend();
+X		addstr("/");
+X		standout();
+X		addstr("q");
+X		standend();
+X		addstr(" quit   ");
+X		standout();
+X		addstr("d");
+X		standend();
+X		addstr(" detail    ");
+X		standout();
+X		addstr("SPACE");
+X		standend();
+X		addstr(" immediate update");
+X	}
+X	else
+X		addstr(text);
+X
+X}	/* end of disp_cmd_legend */
+X
+X/*+-------------------------------------------------------------------------
+X	get_status_info(system_name,buf,bufsize)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_status_info(system_name,buf,bufsize)
+Xchar *system_name;
+Xchar *buf;
+Xint bufsize;
+X{
+X	FILE *fp;
+X
+X	if(!(fp = fopen(statdirname(system_name),"r")))
+X		return(-1);
+X	buf[0] = 0;
+X	fgets(buf,bufsize,fp);
+X	fclose(fp);
+X	if(!buf[0])
+X		return(-1);
+X	buf[strlen(buf) - 1] = 0;
+X	return(0);
+X
+X}	/* end of get_status_info */
+X
+X/*+-------------------------------------------------------------------------
+X	display_status(sysnum,system_name,y,status_info)
+X
+Xcalled with status_info either .Status/<system_name> line or null
+Xif a tty is locked on the line, global locked_tty has "ttyxx"
+Xreturns -1 if status_info null and can't get it, else 0
+X--------------------------------------------------------------------------*/
+Xdisplay_status(sysnum,system_name,y,status_info)
+Xint sysnum;
+Xchar *system_name;
+Xint y;
+Xchar *status_info;
+X{
+X	int itmp;
+X	int retry_count;
+X	int status;
+X	int input_queue_count;
+X	int output_queue_count;
+X	int data_queue_count;
+X	char *stattxt;
+X	int locking_pid;
+X	char *ttyname;
+X	char lock_name[64];
+X	char s32[32];
+X	char work_dir[64];
+X	char linebuf[512];
+X	long secs_last_try;
+X	long secs_next_try;
+X	struct dirent *dp;
+X	FILE *fp;
+X
+X	if(!status_info)
+X	{
+X		status_info = linebuf;
+X		if(get_status_info(system_name,status_info,sizeof(linebuf)))
+X			return(-1);
+X	}
+X
+X	sscanf(status_info,"%d %d %ld %ld",
+X	    &status,&retry_count,&secs_last_try,&secs_next_try);
+X	secs_next_try += secs_last_try;	/* files has secs til next retry */
+X
+X	strcpy(work_dir,WORKDIR);
+X	strcat(work_dir,system_name);
+X
+X	input_queue_count = 0;
+X	output_queue_count = 0;
+X	data_queue_count = 0;
+X
+X	if(work_dp = opendir(work_dir))
+X	{
+X		/* count the work files */
+X		while(dp = readdir(work_dp))
+X		{
+X			if(!strncmp(dp->d_name,"X.",2) && (input_queue_count <= 99))
+X				input_queue_count++;
+X			if(!strncmp(dp->d_name,"C.",2) && (output_queue_count <= 99))
+X				output_queue_count++;
+X			if(!strncmp(dp->d_name,"D.",2) && (data_queue_count <= 99))
+X				data_queue_count++;
+X			if((input_queue_count > 99) && (output_queue_count > 99))
+X				break;
+X		}
+X		closedir(work_dp);
+X	}
+X
+X	/* "kludges for screwy status stuff with HDB" thanks to Ed Carp */
+X	strcpy(lock_name,LOCKDIR);
+X	strcat(lock_name,system_name);
+X	if(!access(lock_name,0) && (status != SS_TALKING))
+X		status = SS_CALL_IN_PROGRESS;
+X#if 0/* not so sure about this one any more */
+X	if(status == SS_BADSYSTEM)
+X		status = SS_DEVICE_FAILED;
+X#endif
+X
+X	move(y,0);
+X	clrtoeol();
+X	utoda(s32,2,sysnum);
+X	addstr(s32);
+X	addch(' ');
+X
+X	strcpy(s32,system_name);
+X	if(strlen(s32) > 10)
+X		s32[10] = 0;
+X	addstr(s32);
+X
+X	move(y,CALLS_X);
+X	if(retry_count)
+X	{
+X		if(retry_count > 999)
+X			retry_count = 999;
+X		utoda(s32,3,retry_count);
+X		addstr(s32);
+X	}
+X	else
+X		addstr("   ");
+X
+X	move(y,INPQ_X);
+X	if(input_queue_count)
+X	{
+X		if(input_queue_count > 99)
+X			addstr(">99");
+X		else
+X		{
+X			utoda(s32,3,input_queue_count);
+X			addstr(s32);
+X		}
+X	}
+X	else
+X		addstr("   ");
+X
+X	move(y,OUTQ_X);
+X	if(output_queue_count)
+X	{
+X		if(output_queue_count > 99)
+X			addstr(">99");
+X		else
+X		{
+X			utoda(s32,3,output_queue_count);
+X			addstr(s32);
+X		}
+X	}
+X	else
+X		addstr("   ");
+X
+X	move(y,DTAQ_X);
+X	if(data_queue_count)
+X	{
+X		if(data_queue_count > 99)
+X			addstr(">99");
+X		else
+X		{
+X			utoda(s32,3,data_queue_count);
+X			addstr(s32);
+X		}
+X	}
+X	else
+X		addstr("   ");
+X
+X	move(y,LAST_X);
+X	addstr(datetime5(secs_last_try));
+X
+X	move(y,NEXT_X);
+X	addstr(datetime5(secs_next_try));
+X
+X	locking_pid = 0;
+X	memset(locked_tty,0,sizeof(locked_tty));
+X	move(y,PID_X);
+X	addstr("     ");
+X	ttyname = (char *)0;
+X	if( (status == SS_TALKING) ||
+X		(status == SS_LOCKED_DEVICE ) ||
+X		(status == SS_CALL_IN_PROGRESS))
+X	{
+X		uucico_active = 1;
+X		if(fp = fopen(lock_name,"r"))
+X		{
+X			fscanf(fp,"%d",&locking_pid);
+X			fclose(fp);
+X		}
+X		if(locking_pid)
+X		{
+X			strcpy(locked_tty,ttyname = lockpid_to_tty(locking_pid));
+X			move(y,PID_X);
+X			utoda(s32,5,locking_pid);
+X			addstr(s32);
+X		}
+X		standout();
+X	}
+X
+X	move(y,STATUS_X);
+X	if(status > SS_MSG_MAX)
+X	{
+X		stattxt = s32;
+X		strcpy(stattxt,"status ");
+X		utoda_lz(stattxt + 7,3,status);
+X	}
+X	else
+X		stattxt = errortext[status];
+X	addstr(stattxt);
+X	if(ttyname)
+X	{
+X		addstr(" (");
+X		addstr(ttyname);
+X		addch(')');
+X	}
+X	standend();
+X	itmp = 27 - strlen(stattxt);
+X	while(itmp--)
+X		addch(' ');
+X	return(0);
+X}	/* end of display_status */
+X
+X/*+-------------------------------------------------------------------------
+X	display_tty(sionum,tty)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_tty(sionum,tty)
+Xint sionum;
+Xregister struct tty *tty;
+X{
+X	register int x;
+X	register int y;
+X	register unsigned itmp;
+X	char s8[8];
+X
+X	clrtoeol();
+X	getyx(stdscr,y,x);
+X	move(y,TX + x);
+X	addstr(ttynm[sionum]);
+X	if((itmp = (unsigned)tty->t_rawq.c_cc) > 999)
+X		itmp = 999;
+X	utoda(s8,3,itmp);
+X	move(y,RX + x);
+X	if(itmp > 10)
+X		standout();
+X	addstr(s8);
+X	if(itmp > 10)
+X		standend();
+X
+X	if((itmp = (unsigned)tty->t_canq.c_cc) > 999)
+X		itmp = 999;
+X	utoda(s8,3,itmp);
+X	move(y,CX + x);
+X	addstr(s8);
+X
+X	if((itmp = (unsigned)tty->t_outq.c_cc + tty->t_tbuf.c_count) > 99999)
+X		itmp = 99999;
+X	utoda(s8,5,itmp);
+X	move(y,OX + x);
+X	addstr(s8);
+X
+X	move(y,SX + x);
+X	addstr(B_to_baud_rate(tty->t_cflag & CBAUD));
+X
+X	strcpy(s8,"     ");
+X	if(tty->t_state & WOPEN)
+X		s8[0] = 'W';
+X	else if(tty->t_state & ISOPEN)
+X		s8[0] = 'O';
+X	if(tty->t_state & CARR_ON)
+X		s8[1] = 'C';
+X	if(tty->t_state & BUSY)
+X		s8[2] = 'B';
+X	if(tty->t_state & TTSTOP)
+X		s8[3] = 'S';
+X	if(tty->t_state & TIMEOUT)
+X		s8[3] = 'D';
+X	move(y,FX + x);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_iflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_oflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_cflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_lflag);
+X	addstr(s8);
+X
+X	utoda(s8,6,tty->t_pgrp);
+X	addstr(s8);
+X
+X}	/* end of display_tty */
+X
+X#ifdef SIO_IS_FAS
+X#define  STRCMP strcmp
+X#else
+X#define  STRCMP strcmpi
+X/*+-------------------------------------------------------------------------
+X    to_upper() / to_lower()
+X
+XOne would think that these were relatively standard types of
+Xthing, but System V specifies toupper() to convert to upper case
+Xif not already and BSD says to adjust without testing, so, two
+Xstupid little routines here.  ASCII only -- no EBCDIC gradoo here please.
+X--------------------------------------------------------------------------*/
+Xchar to_upper(ch)
+Xregister char ch;
+X{ return( ((ch >= 'a') && (ch <= 'z')) ? ch - 0x20 : ch);
+X}   /* end of to_upper() */
+X
+Xchar to_lower(ch)
+Xregister char ch;
+X{ return( ((ch >= 'A') && (ch <= 'Z')) ? ch + 0x20 : ch);
+X}   /* end of to_lower() */
+X
+X/*+-------------------------------------------------------------------------
+X	strcmpi(s1,s2) - case-insensitive strcmp
+X
+XThis version of strcmp() is case-insensitive and works like a sane one
+Xshould, per strcmp(3), not per  the K&R1 example or POSIX/ANSI.
+X
+XIn here rather than ecuutil.c since other executables besides ecu
+Xuses this module and strcmpi needed there too 
+X--------------------------------------------------------------------------*/
+Xint
+Xstrcmpi(s1,s2)
+Xregister char *s1;
+Xregister char *s2;
+X{
+X
+X    while(*s1)
+X	{
+X        if(to_upper(*s1++) != to_upper(*s2++))
+X		{
+X			s1--;
+X			s2--;
+X            break;
+X		}
+X	}
+X	return(to_upper(*s1) - to_upper(*s2));
+X
+X}	/* end of strcmpi */
+X#endif /* SIO_IS_FAS */
+X
+X/*+-------------------------------------------------------------------------
+X	detail()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetail()
+X{
+X	int y,x;
+X	int sysdetail = 0;
+X	int ttnum;
+X	int have_tty = 0;
+X	char *sysname;
+X	char *cptr;
+X	char **cpptr;
+X	char delim;
+X	char s8[8];
+X
+X	static char *header  =
+X	"tty  raw  can   out   speed  state iflag  oflag  cflag  lflag  pgrp";
+X	static char *hyphens =
+X	"---  ---  ---  -----  -----  ----- ------ ------ ------ ------ -----";
+X	static char *press_any_key =
+X	"press any key to return to main display  ";
+X	static char *state1 =
+X	"State: W waiting for open to complete  O open  C carrier on";
+X	static char *state2 =
+X	"       S stopped by XOFF  D delay timeout in progress  B transmitter busy";
+X	static kmem_initialized = 0;
+X
+X	disp_cmd_legend("display detail on system # (ESC to cancel): ");
+X	getyx(stdscr,y,x);
+X	if(wingets(stdscr,y,x,s8,3,&delim,0,(int *)0)< 0)
+X		goto SKIP_OUT;
+X	sysdetail = atoi(s8);
+X	sysdetail--;
+X	if(!x || ((unsigned)sysdetail > (unsigned)systems))
+X	{
+X		write(2,&bell,1);
+XSKIP_OUT:
+X		disp_cmd_legend((char *)0);
+X		refresh();
+X		return;
+X	}
+X
+X	if(!kmem_initialized)
+X	{
+X		standout();
+X		disp_cmd_legend(" Reading kernel symbol table ");
+X		standend();
+X		refresh();
+X		if(cptr = kmem_init_tty())
+X		{
+X			move(3,0);
+X			clrtoeol();
+X			standout();
+X			disp_cmd_legend(cptr);
+X			standend();
+X			bye(255);
+X		}
+X		kmem_initialized = 1;
+X	}
+X
+X	sysname = sysnames + (sysdetail << 4);
+X	y = FIRSTSYS_Y;
+X	move(y,0);
+X	clrtobot();
+X	disp_cmd_legend(press_any_key);
+X
+X	while(1)
+X	{
+X		display_tod();	/* display time and get 'secs_now' */
+X		if(display_status(sysdetail + 1,sysname,FIRSTSYS_Y,(char *)0))
+X		{
+X			move(y,0);
+X			standout();
+X			printw("cannot get status for %s",sysname);
+X			standend();
+X			clrtobot();
+X			disp_cmd_legend(press_any_key);
+X			goto DETAIL_SLEEP;
+X		}
+X
+X							/* 00000 */
+X							/* 01234 */
+X							/* ttyxx */
+X		move(y+5,0);
+X
+X		if(locked_tty[0])
+X		{
+X			for(ttnum = 0,cpptr = ttynm; ttnum < SIO_NTTY; ttnum++,cpptr++)
+X			{
+X				if(!STRCMP(*cpptr,locked_tty + 3))
+X					break;
+X			}
+X			if(ttnum == SIO_NTTY)
+X				goto NO_TTY;
+X		
+X			if(cptr = kmem_read_tty(ttnum,1))
+X			{
+X#ifdef SIO_IS_FAS
+XBAD_NEWS:
+X#endif
+X				standout();
+X				addstr(cptr);
+X				addstr(": ");
+X				addstr(locked_tty);
+X				standend();
+X				refresh();
+X				getch();
+X				goto DETAIL_EXIT;
+X			}
+X#ifdef SIO_IS_FAS
+X			if(!(sio[0].t_state & (WOPEN | ISOPEN)))
+X			{
+X				char other_tty[64];
+X				strcpy(other_tty,locked_tty);
+X				cptr = other_tty + strlen(other_tty) - 1;
+X				if(isupper(*cptr))
+X					*cptr = tolower(*cptr);
+X				else if(islower(*cptr))
+X					*cptr = toupper(*cptr);
+X				else
+X					goto NO_TTY;
+X				for(ttnum = 0,cpptr = ttynm; ttnum < SIO_NTTY; ttnum++,cpptr++)
+X				{
+X					if(!strcmp(*cpptr,other_tty + 3))
+X						break;
+X				}
+X				if(ttnum == SIO_NTTY)
+X					goto NO_TTY;
+X			
+X				if(cptr = kmem_read_tty(ttnum,1))
+X					goto BAD_NEWS;
+X			}
+X#endif /* SIO_IS_FAS */
+X			if(!have_tty)
+X			{
+X				move(y+3,0);
+X				addstr(header);
+X				move(y+4,0);
+X				addstr(hyphens);
+X				move(y+7,0);
+X				addstr(state1);
+X				move(y+8,0);
+X				addstr(state2);
+X			}
+X			have_tty = 1;
+X			move(y+5,0);
+X			display_tty(ttnum,&sio[0]);
+X			wintty_template(stdscr,y+10,0,1);
+X			wintty(stdscr,y+10,0,&sio[0]);
+X			move(y+10,0);
+X		}
+X		else
+X		{
+XNO_TTY:
+X			move(y+3,0);
+X			clrtobot();
+X			move(y+5,0);
+X			printw(" no tty or non-async connection");
+X			disp_cmd_legend(press_any_key);
+X			have_tty = 0;
+X			wintty_template(stdscr,y+10,0,0);
+X			move(LINES - 1,0);
+X		}
+X
+XDETAIL_SLEEP:
+X		refresh();
+X		if(rdchk(0))
+X		{
+X			getch();
+X			break;
+X		}
+X		nap((have_tty) ? 20L : 500L);
+X	}
+X
+XDETAIL_EXIT:
+X	move(y = FIRSTSYS_Y,0);
+X	clrtobot();
+X	disp_cmd_legend((char *)0);
+X	refresh();
+X
+X}	/* end of detail */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int display_delta_y;
+X	char s32[32];
+X	char linebuf[512];
+X	char *sysname = "";
+X	char *dirname = "";
+X	char cmd;
+X	FILE *fp;
+X	struct dirent *dp;
+X	int initializing = 1;
+X#if defined(HAVE_SELECT)
+X	struct timeval timeout;
+X	int fdmask;
+X#else
+X	long timeout;
+X#endif
+X
+X	if((argc > 1) && !strcmp(argv[1],"-n"))
+X		no_tod = 1;
+X
+X	setbuf(stdout,_sobuf);
+X
+X	my_savetty();
+X	if(!initscr())
+X	{
+X		fprintf(stderr,"curses init failed... check terminal type\n");
+X		exit(0);
+X	}
+X#if defined(M_TERMINFO)
+X	typeahead(-1);
+X#endif
+X	noecho();
+X	crmode();
+X
+X	signal(SIGTERM,bye);
+X	signal(SIGINT,bye);
+X	signal(SIGHUP,bye);
+X
+X	uname(&me);
+X	disp_cmd_legend((char *)0);
+X
+X	move(0,0);
+X	standout();
+X	printw(" uusnap %s (%s V.%s/%s)",
+X	    revision,
+X#if defined(M_UNIX)
+X	    "UNIX",
+X#else
+X	    "XENIX",
+X#endif
+X	    me.release,me.machine);
+X	if(fp = fopen("/etc/systemid","r"))
+X	{
+X		s32[0] = 0;
+X		fgets(s32,sizeof(s32),fp);
+X		if(s32[0])
+X		{
+X			s32[strlen(s32) - 1] = 0;
+X			printw(" %s ",s32);
+X		}
+X		fclose(fp);
+X	}
+X	standend();
+X
+X
+X	move(2,0);
+X	addstr(
+X" # SYSTEM    CALLS OUTQ INPQ DATA LAST  NEXT  PID   STATUS");
+X	move(3,0);
+X	addstr(
+X"-- ------    ----- ---- ---- ---- ----- ----- ----- ------------------------");
+X	move(4,0);
+X	standout();
+X	addstr(" initializing ");
+X	standend();
+X	refresh();
+X
+X	dirname = SPOOLDIR;
+X	if(!(uspool_dp = opendir(dirname)))
+X		goto BOO_HISS;
+X
+X	dirname = statdirname(".");
+X	if(!(stat_dp = opendir(dirname)))
+X	{
+XBOO_HISS:
+X		move(6,0);
+X		printw("%s: %s",dirname,sys_errlist[errno]);
+X		move(7,0);
+X		addstr("I don't think HoneyDanBer UUCP is installed.");
+X		bye(255);
+X	}
+X
+X	while(1)
+X	{
+X		uucico_active = 0;		/* assume no uucico_active connections */
+X		display_tod();	/* display time and get 'secs_now' */
+X
+X		seekdir(stat_dp,0);
+X		display_delta_y = systems = 0;
+X		move(FIRSTSYS_Y,0);
+X		while(dp = readdir(stat_dp))
+X		{
+X			if(display_delta_y > MAX_SYSTEMS)
+X				break;
+X			if(*dp->d_name == '.')
+X				continue;
+X			if(get_status_info(dp->d_name,linebuf,sizeof(linebuf)))
+X				continue;
+X
+X			sysname = sysnames + (systems++ << 4);
+X			strcpy(sysname,dp->d_name);
+X
+X			if(initializing)
+X			{
+X				move(4,0);
+X				addstr("              ");
+X				initializing = 0;
+X			}
+X			display_status(systems,sysname,display_delta_y + FIRSTSYS_Y,
+X				linebuf);
+X			display_delta_y++;
+X		}
+X		while(display_delta_y < MAX_SYSTEMS)
+X		{
+X			move(display_delta_y++ + FIRSTSYS_Y,0);
+X			clrtoeol();
+X		}
+X
+X		if(initializing)
+X		{
+X			move(3,0);
+X			addstr("              ");
+X			initializing = 0;
+X		}
+X		move(LINES - 1,0);
+X		refresh();
+X
+X#if defined(HAVE_SELECT)
+X		timeout.tv_sec = (uucico_active) ? WAITSECS_ACTIVE : WAITSECS_IDLE;
+X		timeout.tv_usec = 0;
+X		fdmask = 1 << 0;
+X		select(32,&fdmask,(int *)0,(int *)0,&timeout);
+X#else
+X		timeout = ((uucico_active) ? WAITSECS_ACTIVE : WAITSECS_IDLE) * 1000L;
+X		while(timeout > 0)
+X		{
+X			timeout -= nap(200L);
+X			if(rdchk(0))
+X				break;
+X		}
+X#endif
+X
+X		if(rdchk(0))
+X		{
+X			read(0,&cmd,1);
+X			cmd &= 0x7f;
+X			switch(cmd &= 0x7f)
+X			{
+X				case 'q':
+X				case 0x1B:
+X					bye(0);
+X				case 'd':
+X					detail();
+X					break;
+X				case ' ':
+X					break;
+X				default:
+X					write(2,&bell,1);
+X					break;
+X			}
+X		}
+X	}
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of uusnap.c */
+SHAR_EOF
+chmod 0644 siotools/uusnap.c ||
+echo 'restore of siotools/uusnap.c failed'
+Wc_c="`wc -c < 'siotools/uusnap.c'`"
+test 25697 -eq "$Wc_c" ||
+	echo 'siotools/uusnap.c: original size 25697, current size' "$Wc_c"
+fi
+# ============= siotools/wingets.c ==============
+if test -f 'siotools/wingets.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/wingets.c (File already exists)'
+else
+echo 'x - extracting siotools/wingets.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/wingets.c' &&
+X/* CHK=0xF82A */
+X/*+-------------------------------------------------------------------------
+X	wingets.c - curses get string
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	clear_area_char(win,y,x,len,fillchar)
+X	wingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-22-1992-16:00-wht@n4hgf-creation */
+X#ifndef SYSV
+X#define SYSV
+X#endif
+X
+X#include <curses.h>
+X#include <string.h>
+X#include <memory.h>
+X
+X#define mem_cpy memcpy	/* if ever executed, needs to avoid overlap */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area_char(win,y,x,len,fillchar)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xclear_area_char(win,y,x,len,fillchar)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint len;
+Xchar fillchar;
+X{
+X	wmove(win,y,x);
+X	while(len-- > 0)
+X		waddch(win,fillchar & 0xFF);
+X	wmove(win,y,x);
+X
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	wingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+X
+XThis procedure reads a string from win and returns the number
+Xof characters read.
+X
+XIf edit is non-zero and pwgpos is not null, the inital string
+Xposition is set by dereferencing the pointer.
+X
+XThe terminating delim is returned in 'delim'.
+X
+XIf pwgpos is not null, the ending string position is returned in
+Xthe integer pointed to.
+X
+X-1 is returned if an ESCape is typed by the keyboard user,
+Xotherwise the count of characters in the string.
+X
+XThe entire line must be contained on one line (no line wrap supported).
+X--------------------------------------------------------------------------*/
+Xint
+Xwingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+XWINDOW *win;
+Xint y;
+Xregister x;
+Xregister char *buf;
+Xint bufsize;	/* includes room for null..field is 1 less */
+Xchar *delim;
+Xint edit;
+Xint *pwgpos;
+X{
+X	register count = 0;
+X	register pos = 0;
+X	int insert_mode = 0;
+X	int rtn_val = 0;
+X	char bell = 7;
+X
+X	bufsize--;
+X	clear_area_char(win,y,x,bufsize,'_');
+X	if(edit)
+X	{
+X		waddstr(win,buf);
+X		count = pos = strlen(buf);
+X		if(pwgpos)
+X		{
+X			pos = *pwgpos;
+X			if((pos < 0) || (pos > count))
+X				pos = count;
+X		}
+X	}
+X	else
+X		*buf = 0;
+X	wmove(win,y,x + pos);
+X
+X	while(1)
+X	{
+X		wrefresh(win);
+X		read(0,delim,1);
+X		*delim &= 0x7F;
+X		if((*delim < 0x20) || (*delim >= 0x7F))
+X		{
+X			switch(*delim)
+X			{
+X				case 0x0D:
+X					*delim = 0x0A;;
+X				case 0x0A:
+X					wrefresh(win);
+X					rtn_val = count;
+X					goto RETURN;
+X
+X				case 0x08:
+X					if(count)
+X					{
+X						if(count == pos)
+X						{
+X							*(buf + --count) = 0;
+X							wmove(win,y,x + count);
+X							waddch(win,'_');
+X							wmove(win,y,x + count);
+X							pos--;
+X						}
+X						else
+X						{
+X							if(!pos)
+X								continue;
+X							mem_cpy(buf + pos - 1,buf + pos,count - pos);
+X							*(buf + --count) = 0;
+X							wmove(win,y,x + --pos);
+X							waddstr(win,buf + pos);
+X							waddch(win,'_');
+X							wmove(win,y,x + pos);
+X						}
+X					}
+X					continue;
+X
+X				case 0x1B:
+X					rtn_val = -1;
+X					goto RETURN;
+X
+X				case 'U' & 0x1F:
+X					clear_area_char(win,y,x,bufsize,'_');
+X					count = 0;
+X					pos = 0;
+X					*buf = 0;
+X					continue;
+X
+X				default:
+X					write(2,&bell,1);
+X					continue;
+X
+X			}	/* end of switch(*delim) */
+X			/*NOTREACHED*/
+X		}		/* end of if read delimiter */
+X
+X		if(count == bufsize)
+X		{
+X			write(2,&bell,1);
+X			continue;
+X		}
+X
+X		if(insert_mode && (pos != count))
+X		{
+X			waddch(win,*delim);
+X			waddstr(win,buf + pos);
+X			mem_cpy(buf + pos + 1,buf + pos,count - pos);
+X			*(buf + pos++) = *delim;
+X			*(buf + ++count) = 0;
+X			wmove(win,y,x + pos);
+X		}
+X		else
+X		{
+X			waddch(win,*delim);
+X			*(buf + pos) = *delim;
+X			if(pos == count)
+X				*(buf + ++count) = 0;
+X			pos++;
+X		}
+X	}	/* end of while can get character */
+X
+XRETURN:
+X	if(pwgpos)
+X		*pwgpos = pos;
+X	return(rtn_val);
+X
+X}	/* end of wingets */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of wingets.c */
+SHAR_EOF
+chmod 0644 siotools/wingets.c ||
+echo 'restore of siotools/wingets.c failed'
+Wc_c="`wc -c < 'siotools/wingets.c'`"
+test 3933 -eq "$Wc_c" ||
+	echo 'siotools/wingets.c: original size 3933, current size' "$Wc_c"
+fi
+# ============= siotools/wintio.c ==============
+if test -f 'siotools/wintio.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/wintio.c (File already exists)'
+else
+echo 'x - extracting siotools/wintio.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/wintio.c' &&
+X/* CHK=0xC37E */
+X/*+-------------------------------------------------------------------------
+X	wintio.c - struct ermio curses display
+X	...!gatech!emory!tridom!wht
+X
+X000000000011111111112222222222333333333344444444445555555555666666666677777
+X012345678901234567890123456789012345678901234567890123456789012345678901234
+Xiflag: IGNBRK  BRKINT  IGNPAR  PARMRK  INPCK  ISTRIP INLCR  IGNCR   ICRNL
+X       IUCLC   IXON    IXOFF   IXANY
+Xoflag: OPOST   OLCUC   ONLCR   OCRNL   ONOCR  ONLRET OFDEL
+Xcflag: 09600-8-N-1     CREAD   HUPCL   CLOCAL RTSFLO CTSFLO 
+Xlflag: ISIG    ICANON  XCASE   ECHO    ECHOE  ECHOK  ECHONL NOFLSH  XCLUDE
+X       INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH 
+Xcc:     03   1c   08    15    01        00       00   00   
+X
+X  Defined functions:
+X	B_to_baud_rate(code)
+X	cflag_to_baud_d_p_s(cflag)
+X	wintio(win,tly,tlx,tio)
+X	wintio_template(win,tly,tlx)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:12-28-1989-13:35-wht-B600 added */
+X/*:12-21-1989-15:18-wht-display CTSFLOW and RTSFLOW if defined */
+X/*:12-04-1989-13:43-wht-creation */
+X
+X#ifndef SYSV
+X#define SYSV
+X#endif
+X
+X#include <curses.h>
+X#if !defined(CLOCAL)
+X#include <termio.h>
+X#endif
+X#include "wintio.h"
+X
+Xtypedef struct slabel
+X{
+X	int y,x;
+X	char *label;
+X} SLABEL;
+X
+XSLABEL tio_slabels[] =
+X{
+X    {  0,  0, "iflag:" },
+X    {  2,  0, "oflag:" },
+X    {  3,  0, "cflag:" },
+X    {  4,  0, "lflag:" },
+X    {  5,  7, "INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH" },
+X    {  6,  0, "cc:" },
+X    {  -1,-1, (char *)0}
+X};
+X
+Xtypedef struct tfield
+X{
+X	int y,x;
+X	char *label;
+X	int flag_num;
+X	int mask;
+X} TFIELD;
+X
+X#define IFLAG 1
+X#define OFLAG 2
+X#define LFLAG 3
+X#define CFLAG 4
+X
+XTFIELD tio_tfields[] =
+X{
+X    {  0,  7, "IGNBRK", IFLAG, IGNBRK },
+X    {  0, 15, "BRKINT", IFLAG, BRKINT },
+X    {  0, 23, "IGNPAR", IFLAG, IGNPAR },
+X    {  0, 31, "PARMRK", IFLAG, PARMRK },
+X    {  0, 39, "INPCK",  IFLAG, INPCK },
+X    {  0, 46, "ISTRIP", IFLAG, ISTRIP },
+X    {  0, 53, "INLCR",  IFLAG, INLCR },
+X    {  0, 60, "IGNCR",  IFLAG, IGNCR },
+X    {  0, 68, "ICRNL",  IFLAG, ICRNL },
+X    {  1,  7, "IUCLC",  IFLAG, IUCLC },
+X    {  1, 15, "IXON",   IFLAG, IXON },
+X    {  1, 23, "IXOFF",  IFLAG, IXOFF },
+X    {  1, 31, "IXANY",  IFLAG, IXANY },
+X    {  2,  7, "OPOST",  OFLAG, OPOST },
+X    {  2, 15, "OLCUC",  OFLAG, OLCUC },
+X    {  2, 23, "ONLCR",  OFLAG, ONLCR },
+X    {  2, 31, "OCRNL",  OFLAG, OCRNL },
+X    {  2, 39, "ONOCR",  OFLAG, ONOCR },
+X    {  2, 46, "ONLRET", OFLAG, ONLRET },
+X    {  2, 53, "OFDEL",  OFLAG, OFDEL },
+X    {  3, 23, "CREAD",  CFLAG, CREAD },
+X    {  3, 31, "HUPCL",  CFLAG, HUPCL },
+X    {  3, 39, "CLOCAL", CFLAG, CLOCAL },
+X#ifdef RTSFLOW
+X    {  3, 46, "RTSFLO", CFLAG, RTSFLOW },
+X#endif
+X#ifdef CTSFLOW
+X    {  3, 53, "CTSFLO", CFLAG, CTSFLOW },
+X#endif
+X    {  4,  7, "ISIG",   LFLAG, ISIG },
+X    {  4, 15, "ICANON", LFLAG, ICANON },
+X    {  4, 23, "XCASE",  LFLAG, XCASE },
+X    {  4, 31, "ECHO",   LFLAG, ECHO },
+X    {  4, 39, "ECHOE",  LFLAG, ECHOE },
+X    {  4, 46, "ECHOK",  LFLAG, ECHOK },
+X    {  4, 53, "ECHONL", LFLAG, ECHONL },
+X    {  4, 60, "NOFLSH", LFLAG, NOFLSH },
+X    {  4, 68, "XCLUDE", LFLAG, XCLUDE },
+X    { -1, -1, (char *)0,    -1,    -1 }
+X};
+X
+Xtypedef struct fcursor
+X{
+X	int y,x;
+X} FCURSOR;
+X
+XFCURSOR tio_fcursors[] =
+X{
+X#define Fc_intr       0
+X	{  6,  8 },
+X#define Fcc_quit      1
+X	{  6, 13 },
+X#define Fcc_erase     2
+X	{  6, 18 },
+X#define Fcc_kill      3
+X	{  6, 24 },
+X#define Fcc_eof       4
+X	{  6, 30 },
+X#define Fcc_eol       5
+X	{  6, 40 },
+X#define Fcc_eol2      6
+X	{  6, 49 },
+X#define Fcc_swtch     7
+X	{  6, 54 },
+X#define Fbaud_b_p_s   8
+X	{  3,  7 }
+X};
+X
+Xtypedef struct b_to_br
+X{
+X	char *baud_rate;
+X	int B_code;
+X} B_TO_BR;
+X
+XB_TO_BR speeds[] = 	/* ordered to put less common rates later in table */
+X{					/* and the vagaries of baud rates above 9600 "handled" */
+X	" 2400",	B2400,
+X	" 1200",	B1200,
+X	" 9600",	B9600,
+X#if defined(B19200)
+X	"19200",	B19200,
+X#endif
+X#if defined(B38400)
+X	"38400",	B38400,
+X#endif
+X	" 4800",	B4800,
+X	"  300",	B300,
+X	"  110",	B110,
+X	"  600",	B600,
+X	"   75",	B75,
+X	"   50",	B50,
+X	"  HUP",	B0,
+X	" EXTA",	EXTA,
+X	" EXTB",	EXTB,
+X
+X	(char *)0,0
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	B_to_baud_rate(code) - convert CBAUD B_ code to baud rate string
+X--------------------------------------------------------------------------*/
+Xchar *
+XB_to_baud_rate(code)
+X{
+Xregister int n;
+X
+X	for(n=0; speeds[n].baud_rate; n++)
+X		if(speeds[n].B_code == code)
+X			return(speeds[n].baud_rate);
+X	return("-----");
+X}	/* end of B_to_baud_rate */
+X
+X/*+-------------------------------------------------------------------------
+X	cflag_to_baud_d_p_s(cflag)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xcflag_to_baud_d_p_s(cflag)
+Xint cflag;
+X{
+Xregister char * cptr;
+Xstatic char rtnstr[16];
+X
+X	strcpy(rtnstr,B_to_baud_rate(cflag & CBAUD));
+X	cptr = rtnstr + strlen(rtnstr);
+X	*cptr++ = '-';
+X	switch(cflag & CSIZE)
+X	{
+X		case CS5: *cptr++ = '5'; break;
+X		case CS6: *cptr++ = '6'; break;
+X		case CS7: *cptr++ = '7'; break;
+X		case CS8: *cptr++ = '8'; break;
+X	}
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & PARENB) ? ((cflag & PARODD) ? 'O' : 'E') : 'N';
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & CSTOPB) ? '2' : '1';
+X	*cptr = 0;
+X	return(rtnstr);
+X
+X}	/* end of cflag_to_baud_d_p_s */
+X
+X/*+-----------------------------------------------------------------------
+X	wintio(win,tly,tlx,tio)
+X------------------------------------------------------------------------*/
+Xvoid
+Xwintio(win,tly,tlx,tio)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+Xstruct termio *tio;
+X{
+Xregister flag;
+Xregister i_cc;
+Xregister char *cptr;
+XTFIELD *tptr = tio_tfields;
+XFCURSOR *fptr = tio_fcursors;
+X
+X	while(tptr->y >= 0)
+X	{
+X		switch(tptr->flag_num)
+X		{
+X			case IFLAG: flag = tio->c_iflag; break;
+X			case OFLAG: flag = tio->c_oflag; break;
+X			case LFLAG: flag = tio->c_lflag; break;
+X			case CFLAG: flag = tio->c_cflag; break;
+X		}
+X		flag &= tptr->mask;
+X		wmove(win,tptr->y + tly,tptr->x + tlx);
+X		if(flag)
+X			wstandout(win);
+X		waddstr(win,tptr->label);
+X		if(flag)
+X			wstandend(win);
+X		tptr++;
+X	}
+X	for(i_cc = 0; i_cc < NCC; i_cc++)
+X	{
+X		wmove(win,fptr->y + tly,fptr->x + tlx);
+X		wprintw(win,"%02x",tio->c_cc[i_cc]);
+X		fptr++;
+X	}
+X
+X	fptr = &tio_fcursors[Fbaud_b_p_s];
+X	wmove(win,fptr->y + tly,fptr->x + tlx);
+X	waddstr(win,"           ");
+X	wmove(win,fptr->y + tly,fptr->x + tlx);
+X	waddstr(win,cflag_to_baud_d_p_s(tioi->c_cflag));
+X
+X}	/* end of wintio */
+X
+X/*+-------------------------------------------------------------------------
+X	wintio_template(win,tly,tlx)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwintio_template(win,tly,tlx)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+X{
+Xregister y;
+XSLABEL *sptr = tio_slabels;
+X
+X	for(y = 0; y < 7; y++)
+X	{
+X		wmove(win,tly + y,0);
+X		wclrtoeol(win);
+X	}
+X	while(sptr->y >= 0)
+X	{
+X		wmove(win,sptr->y + tly,sptr->x + tlx);
+X		waddstr(win,sptr->label);
+X		sptr++;
+X	}
+X
+X}	/* end of wintio_template */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of wintio.c */
+SHAR_EOF
+chmod 0644 siotools/wintio.c ||
+echo 'restore of siotools/wintio.c failed'
+Wc_c="`wc -c < 'siotools/wintio.c'`"
+test 6995 -eq "$Wc_c" ||
+	echo 'siotools/wintio.c: original size 6995, current size' "$Wc_c"
+fi
+# ============= siotools/wintio.h ==============
+if test -f 'siotools/wintio.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/wintio.h (File already exists)'
+else
+echo 'x - extracting siotools/wintio.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/wintio.h' &&
+X/* CHK=0x3BC6 */
+X/*+-----------------------------------------------------------------------
+X	wintio.h
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:12-04-1989-16:51-afterlint-creation */
+X
+X#ifndef _wintio_h
+X#define _wintio_h
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* wintio.c */
+Xchar *B_to_baud_rate(int );
+Xchar *cflag_to_baud_d_p_s(int );
+Xvoid wintio(struct _win_st *,int ,int ,struct termio *);
+Xvoid wintio_template(struct _win_st *,int ,int );
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+X/* wintio.c */
+Xchar *B_to_baud_rate();
+Xchar *cflag_to_baud_d_p_s();
+Xvoid wintio();
+Xvoid wintio_template();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X#endif /* _wintio_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of wintio.h */
+SHAR_EOF
+chmod 0644 siotools/wintio.h ||
+echo 'restore of siotools/wintio.h failed'
+Wc_c="`wc -c < 'siotools/wintio.h'`"
+test 871 -eq "$Wc_c" ||
+	echo 'siotools/wintio.h: original size 871, current size' "$Wc_c"
+fi
+# ============= siotools/wintty.c ==============
+if test -f 'siotools/wintty.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/wintty.c (File already exists)'
+else
+echo 'x - extracting siotools/wintty.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/wintty.c' &&
+X/* CHK=0xCAD9 */
+X/*+-------------------------------------------------------------------------
+X	wintty.c - kernel struct tty curses display
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X000000000011111111112222222222333333333344444444445555555555666666666677777
+X012345678901234567890123456789012345678901234567890123456789012345678901234
+Xiflag: IGNBRK  BRKINT  IGNPAR  PARMRK  INPCK  ISTRIP INLCR  IGNCR   ICRNL
+X       IUCLC   IXON    IXOFF   IXANY
+Xoflag: OPOST   OLCUC   ONLCR   OCRNL   ONOCR  ONLRET OFDEL
+Xcflag: 09600-8-N-1     CREAD   HUPCL   CLOCAL
+Xlflag: ISIG    ICANON  XCASE   ECHO    ECHOE  ECHOK  ECHONL NOFLSH  XCLUDE
+X       INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH 
+Xcc:     03   1c   08    15    01        00       00   00   
+X
+X  Defined functions:
+X	B_to_baud_rate(code)
+X	cflag_to_baud_d_p_s(cflag)
+X	wintty(win,tly,tlx,tty)
+X	wintty_template(win,tly,tlx,show_flag)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:01-29-1990-02:45-wht-add t_state display */
+X/*:12-28-1989-13:35-wht-B600 added */
+X/*:12-21-1989-15:18-wht-display CTSFLOW and RTSFLOW if defined */
+X/*:12-04-1989-15:40-wht-creation */
+X
+X#ifndef SYSV
+X#define SYSV
+X#endif
+X
+X#include <curses.h>
+X#ifndef TCSETA	/* 3.2v4 curses.h does not include termio.h */
+X#undef NL1		/* in case sgtty.h was included */
+X#undef CR1
+X#undef CR2
+X#undef CR3
+X#undef TAB1
+X#undef BS1
+X#undef FF1
+X#undef B50
+X#undef B75
+X#undef B110
+X#undef B134
+X#undef B150
+X#undef B200
+X#undef B300
+X#undef B600
+X#undef B1200
+X#undef B1800
+X#undef B2400
+X#undef B4800
+X#undef B9600
+X#undef EXTA
+X#undef EXTB
+X#undef HUPCL
+X#undef ECHO
+X#undef TIOCHPCL
+X#undef TIOCEXCL
+X#undef TIOCNXCL
+X#include <termio.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/tty.h>
+X#include "wintty.h"
+X
+Xtypedef struct slabel {
+X	int y,x;
+X	char *label;
+X} SLABEL;
+X
+XSLABEL tty_slabels[] = {
+X    {  0,  0, "iflag:" },
+X    {  2,  0, "oflag:" },
+X    {  3,  0, "cflag:" },
+X    {  4,  0, "lflag:" },
+X    {  5,  7, "INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH" },
+X    {  6,  0, "cc:" },
+X    {  7,  0, "state:" },
+X    {  -1,-1, (char *)0}
+X};
+X
+Xtypedef struct tfield {
+X	int y,x;
+X	char *label;
+X	int flag_num;
+X	int mask;
+X} TFIELD;
+X
+X#define IFLAG 1
+X#define OFLAG 2
+X#define LFLAG 3
+X#define CFLAG 4
+X#define STATE 5
+X
+XTFIELD tty_tfields[] = {
+X    {  0,  7, "IGNBRK", IFLAG, IGNBRK },
+X    {  0, 15, "BRKINT", IFLAG, BRKINT },
+X    {  0, 23, "IGNPAR", IFLAG, IGNPAR },
+X    {  0, 31, "PARMRK", IFLAG, PARMRK },
+X    {  0, 39, "INPCK",  IFLAG, INPCK },
+X    {  0, 46, "ISTRIP", IFLAG, ISTRIP },
+X    {  0, 53, "INLCR",  IFLAG, INLCR },
+X    {  0, 60, "IGNCR",  IFLAG, IGNCR },
+X    {  0, 68, "ICRNL",  IFLAG, ICRNL },
+X    {  1,  7, "IUCLC",  IFLAG, IUCLC },
+X    {  1, 15, "IXON",   IFLAG, IXON },
+X    {  1, 23, "IXOFF",  IFLAG, IXOFF },
+X    {  1, 31, "IXANY",  IFLAG, IXANY },
+X    {  2,  7, "OPOST",  OFLAG, OPOST },
+X    {  2, 15, "OLCUC",  OFLAG, OLCUC },
+X    {  2, 23, "ONLCR",  OFLAG, ONLCR },
+X    {  2, 31, "OCRNL",  OFLAG, OCRNL },
+X    {  2, 39, "ONOCR",  OFLAG, ONOCR },
+X    {  2, 46, "ONLRET", OFLAG, ONLRET },
+X    {  2, 53, "OFDEL",  OFLAG, OFDEL },
+X    {  3, 23, "CREAD",  CFLAG, CREAD },
+X    {  3, 31, "HUPCL",  CFLAG, HUPCL },
+X    {  3, 39, "CLOCAL", CFLAG, CLOCAL },
+X#ifdef RTSFLOW
+X    {  3, 46, "RTSFLO", CFLAG, RTSFLOW },
+X#endif
+X#ifdef CTSFLOW
+X    {  3, 53, "CTSFLO", CFLAG, CTSFLOW },
+X#endif
+X    {  4,  7, "ISIG",   LFLAG, ISIG },
+X    {  4, 15, "ICANON", LFLAG, ICANON },
+X    {  4, 23, "XCASE",  LFLAG, XCASE },
+X    {  4, 31, "ECHO",   LFLAG, ECHO },
+X    {  4, 39, "ECHOE",  LFLAG, ECHOE },
+X    {  4, 46, "ECHOK",  LFLAG, ECHOK },
+X    {  4, 53, "ECHONL", LFLAG, ECHONL },
+X    {  4, 60, "NOFLSH", LFLAG, NOFLSH },
+X    {  4, 68, "XCLUDE", LFLAG, XCLUDE },
+X	{  7,  7, "TO",     STATE, TIMEOUT },
+X	{  7, 10, "WO",     STATE, WOPEN },
+X	{  7, 13, "O",      STATE, ISOPEN },
+X	{  7, 15, "TB",     STATE, TBLOCK },
+X	{  7, 18, "CD",     STATE, CARR_ON },
+X	{  7, 21, "BY",     STATE, BUSY },
+X	{  7, 24, "OSLP",   STATE, OASLP },
+X	{  7, 29, "ISLP",   STATE, IASLP },
+X	{  7, 34, "STOP",   STATE, TTSTOP },
+X	{  7, 39, "EXT",    STATE, EXTPROC },
+X	{  7, 43, "TACT",   STATE, TACT },
+X	{  7, 48, "ESC",    STATE, CLESC },
+X	{  7, 52, "RTO",    STATE, RTO },
+X	{  7, 56, "IOW",    STATE, TTIOW },
+X	{  7, 60, "XON",    STATE, TTXON },
+X	{  7, 64, "XOFF",   STATE, TTXOFF },
+X    {  -1,-1, (char *)0,    -1,    -1 }
+X};
+X
+Xtypedef struct fcursor {
+X	int y,x;
+X} FCURSOR;
+X
+XFCURSOR tty_fcursors[] = {
+X#define Fc_intr       0
+X	{  6,  8 },
+X#define Fcc_quit      1
+X	{  6, 13 },
+X#define Fcc_erase     2
+X	{  6, 18 },
+X#define Fcc_kill      3
+X	{  6, 24 },
+X#define Fcc_eof       4
+X	{  6, 30 },
+X#define Fcc_eol       5
+X	{  6, 40 },
+X#define Fcc_eol2      6
+X	{  6, 49 },
+X#define Fcc_swtch     7
+X	{  6, 54 },
+X#define Fbaud_b_p_s   8
+X	{  3,  7 }
+X};
+X
+Xtypedef struct b_to_br {
+X	char *baud_rate;
+X	int B_code;
+X} B_TO_BR;
+X
+XB_TO_BR speeds[] = {	/* ordered to put less common rates later in table */
+X						/* the vagaries of baud rates above 9600 "handled" */
+X	" 2400",	B2400,
+X	" 1200",	B1200,
+X	" 9600",	B9600,
+X#if defined(B19200)
+X	"19200",	B19200,
+X#endif
+X#if defined(B38400)
+X	"38400",	B38400,
+X#endif
+X	" 4800",	B4800,
+X	"  300",	B300,
+X	"  110",	B110,
+X	"  600",	B600,
+X	"   75",	B75,
+X	"   50",	B50,
+X	"  HUP",	B0,
+X	" EXTA",	EXTA,
+X	" EXTB",	EXTB,
+X
+X	(char *)0,0
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	B_to_baud_rate(code) - convert CBAUD B_ code to baud rate string
+X--------------------------------------------------------------------------*/
+Xchar *
+XB_to_baud_rate(code)
+Xint code;
+X{
+X	register int n;
+X
+X	for(n=0; speeds[n].baud_rate; n++)
+X		if(speeds[n].B_code == code)
+X			return(speeds[n].baud_rate);
+X	return("-----");
+X}	/* end of B_to_baud_rate */
+X
+X/*+-------------------------------------------------------------------------
+X	cflag_to_baud_d_p_s(cflag)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xcflag_to_baud_d_p_s(cflag)
+Xint cflag;
+X{
+X	register char *cptr;
+X	static char rtnstr[16];
+X
+X	strcpy(rtnstr,B_to_baud_rate(cflag & CBAUD));
+X	cptr = rtnstr + strlen(rtnstr);
+X	*cptr++ = '-';
+X	switch(cflag & CSIZE)
+X	{
+X		case CS5: *cptr++ = '5'; break;
+X		case CS6: *cptr++ = '6'; break;
+X		case CS7: *cptr++ = '7'; break;
+X		case CS8: *cptr++ = '8'; break;
+X	}
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & PARENB) ? ((cflag & PARODD) ? 'O' : 'E') : 'N';
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & CSTOPB) ? '2' : '1';
+X	*cptr = 0;
+X	return(rtnstr);
+X
+X}	/* end of cflag_to_baud_d_p_s */
+X
+X/*+-----------------------------------------------------------------------
+X	wintty(win,tly,tlx,tty)
+X------------------------------------------------------------------------*/
+Xvoid
+Xwintty(win,tly,tlx,tty)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+Xstruct tty *tty;
+X{
+X	register flag = 0;
+X	register i_cc;
+X	TFIELD *tptr = tty_tfields;
+X	FCURSOR *fptr = tty_fcursors;
+X
+X	while(tptr->y >= 0)
+X	{
+X		switch(tptr->flag_num)
+X		{
+X			case IFLAG: flag = tty->t_iflag; break;
+X			case OFLAG: flag = tty->t_oflag; break;
+X			case LFLAG: flag = tty->t_lflag; break;
+X			case CFLAG: flag = tty->t_cflag; break;
+X			case STATE: flag = tty->t_state; break;
+X		}
+X		flag &= tptr->mask;
+X		wmove(win,tptr->y + tly,tptr->x + tlx);
+X		if(flag)
+X			wstandout(win);
+X		waddstr(win,tptr->label);
+X		if(flag)
+X			wstandend(win);
+X		tptr++;
+X	}
+X	for(i_cc = 0; i_cc < NCC; i_cc++)
+X	{
+X		wmove(win,fptr->y + tly,fptr->x + tlx);
+X		wprintw(win,"%02x",tty->t_cc[i_cc]);
+X		fptr++;
+X	}
+X
+X	fptr = &tty_fcursors[Fbaud_b_p_s];
+X	wmove(win,fptr->y + tly,fptr->x + tlx);
+X	waddstr(win,"           ");
+X	wmove(win,fptr->y + tly,fptr->x + tlx);
+X	waddstr(win,cflag_to_baud_d_p_s(tty->t_cflag));
+X
+X}	/* end of wintty */
+X
+X/*+-------------------------------------------------------------------------
+X	wintty_template(win,tly,tlx,show_flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwintty_template(win,tly,tlx,show_flag)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+Xint show_flag;
+X{
+X	register y;
+X	SLABEL *sptr = tty_slabels;
+X
+X	for(y = 0; y < 7; y++)
+X	{
+X		wmove(win,tly + y,0);
+X		wclrtoeol(win);
+X	}
+X	if(show_flag)
+X	{
+X		while(sptr->y >= 0)
+X		{
+X			wmove(win,sptr->y + tly,sptr->x + tlx);
+X			waddstr(win,sptr->label);
+X			sptr++;
+X		}
+X	}
+X
+X}	/* end of wintty_template */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of wintty.c */
+SHAR_EOF
+chmod 0644 siotools/wintty.c ||
+echo 'restore of siotools/wintty.c failed'
+Wc_c="`wc -c < 'siotools/wintty.c'`"
+test 8232 -eq "$Wc_c" ||
+	echo 'siotools/wintty.c: original size 8232, current size' "$Wc_c"
+fi
+# ============= siotools/wintty.h ==============
+if test -f 'siotools/wintty.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/wintty.h (File already exists)'
+else
+echo 'x - extracting siotools/wintty.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/wintty.h' &&
+X/* CHK=0x57DF */
+X/*+-----------------------------------------------------------------------
+X	wintty.h
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:12-04-1989-16:50-afterlint-creation */
+X
+X#ifndef _wintty_h
+X#define _wintty_h
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* wintty.c */
+Xchar *B_to_baud_rate(int );
+Xchar *cflag_to_baud_d_p_s(int );
+Xvoid wintty(struct _win_st *,int ,int ,struct tty *);
+Xvoid wintty_template(struct _win_st *,int ,int ,int );
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+X/* wintty.c */
+Xchar *B_to_baud_rate();
+Xchar *cflag_to_baud_d_p_s();
+Xvoid wintty();
+Xvoid wintty_template();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X#endif /* _wintty_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of wintty.h */
+SHAR_EOF
+chmod 0644 siotools/wintty.h ||
+echo 'restore of siotools/wintty.h failed'
+Wc_c="`wc -c < 'siotools/wintty.h'`"
+test 873 -eq "$Wc_c" ||
+	echo 'siotools/wintty.h: original size 873, current size' "$Wc_c"
+fi
+exit 0
+
+exit 0 # Just in case...

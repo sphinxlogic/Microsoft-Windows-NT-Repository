@@ -1,0 +1,1467 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i037:  unzip - Info-ZIP's portable UnZip v4.2, Part07/12
+Message-ID: <1992Apr3.063246.28969@sparky.imd.sterling.com>
+X-Md4-Signature: 297f2c9b5887a4a4b6a0f335e9e97781
+Date: Fri, 3 Apr 1992 06:32:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 37
+Archive-name: unzip/part07
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile OS2/unzip.bad ZipRules misc.c
+# Wrapped by kent@sparky on Mon Mar 30 01:45:54 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 12)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(21837 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# ===========================================================================
+X# Makefile for UnZip, ZipInfo & Ship:  Unix, OS/2 and MS-DOS (MSC NMAKE only)
+X# Version:  no decrypt + (conditionally) inflate
+X# ===========================================================================
+X#
+X#
+X# INSTRUCTIONS (such as they are):
+X#
+X# "make vax"	-- makes UnZip on a VAX 11-780 BSD 4.3 in current directory
+X#		   (or a SysV VAX, or an 8600 running Ultrix, or...)
+X# "make"	-- uses environment variable SYSTEM to set the type
+X#		   system to compile for.  This doesn't work for some
+X#		   particularly brain-damaged versions of make (VAX BSD,
+X#		   Gould, and SCO Unix are in this group).  If SYSTEM not
+X#		   set, gives instructions on what to try instead.
+X# "make list"	-- lists all supported systems (targets), including ship
+X#		   and zipinfo targets
+X# "make wombat" -- Chokes and dies if you haven't added the specifics
+X#		   for your Wombat 68000 (or whatever) to the systems list.
+X#
+X# CFLAGS are flags for the C compiler.  LDFLAGS are flags for the loader.
+X# LDFLAGS2 are more flags for the loader, if they need to be at the end of
+X# the line instead of at the beginning.
+X#
+X# My host (a VAX 11-780 running BSD 4.3) is hereafter referred to as "my host."
+X#
+X# My host's /usr/include/sys/param.h defines BSD for me.  You may have to add
+X# "-DBSD" to the list of CFLAGS for your system.
+X#
+X# Some versions of make do not define the macro "$(MAKE)" (my host did not).
+X# The makefile should now handle such systems correctly, more or less; the
+X# possible exception to this is if you've used a make command-line option
+X# (for example, the one which displays the commands which WOULD be executed,
+X# but doesn't actually execute them).  It probably needs some more tinkering.
+X# If things still don't work, use "make" instead of "$(MAKE)" in your system's
+X# makerule.  Or try adding the following line to your .login file:
+X#   setenv MAKE "make"
+X# (It didn't help on my host.)
+X#
+X# memcpy and memset are provided for those systems that don't have them;
+X# they're found in misc.c and will be used if -DZMEM is included in the list
+X# of CFLAGS.  These days ALMOST all systems have them (they're mandated by
+X# ANSI), but older systems might be lacking.  And at least ONE machine's
+X# version results in some serious performance degradation...
+X#
+X# SCO Unix 3.2.0:  Don't use -Ox with cc (derived from Microsoft 5.1); there
+X# is a bug in the loop optimization which causes bad CRC's.  [Onno van der
+X# Linden]
+X#
+X# Be sure to test your nice new UnZip; successful compilation does not always
+X# imply a working program.
+X
+X
+X#####################
+X# MACRO DEFINITIONS #
+X#####################
+X
+X# Defaults most systems use (use LOCAL_UNZIP in environment to add flags).
+X# To add inflation:  uncomment INFL_OBJ below or add it to your environment
+X# as appropriate, and add -DINFLATE to CFLAGS or to LOCAL_UNZIP.  (This
+X# won't work if you don't have inflate.c, so don't be a goober...)
+X
+XCC = cc
+XCFLAGS = -O -DUNIX $(CR) $(LOCAL_UNZIP)
+XZC = -DZMEM
+XLD = cc
+XLDFLAGS = -o unzip
+XLDFLAGS2 = -s
+XZL = -o zipinfo
+XZL2 = -s
+XMV = mv
+XEXE =
+XO = .o
+X#INFL_OBJ = inflate.o  -or-  inflate.obj  (pick one)
+XOBJS = unzip$O extract$O file_io$O $(INFL_OBJ)\
+X   mapname$O match$O misc$O unimplod$O unreduce$O unshrink$O
+XOS2_OBJS = unzip.obj dosname.obj extract.obj file_io.obj $(INFL_OBJ)\
+X   mapname.obj match.obj misc.obj unimplod.obj unreduce.obj unshrink.obj
+XZI_OBJS = zipinfo$O misc_$O match$O
+X
+XSHELL = /bin/sh
+X
+X# list of supported systems in this version
+XSYSTEMS1 = 386i 3Bx 7300 amdahl apollo aviion bsd bull coherent convex
+XSYSTEMS2 = cray cray_cc cyber_sgi dec dnix encore eta gcc_os2 generic
+XSYSTEMS3 = generic2 gould hk68 hp icc_os2 minix mips msc_dos msc_os2 next
+XSYSTEMS4 = p_iris pyramid rs6000 rtaix sco sco_dos sco_x286 sequent sgi
+XSYSTEMS5 = stellar sun sysv tahoe ultrix vax wombat
+X
+XSYS_UTIL1 = ship ship_dos ship_gcc ship_icc ship_os2 ship_sysv zi_dos
+XSYS_UTIL2 = zi_gcc zi_icc zi_os2 zipinfo 
+X
+X####################
+X# DEFAULT HANDLING #
+X####################
+X
+X# The below will try to use your shell variable "SYSTEM" as the type system
+X# to use (e.g., if you type "make" with no parameters at the command line).
+X# The test for $(MAKE) is necessary for VAX BSD make (and Gould, apparently),
+X# as is the "goober" (else stupid makes see an "else ;" statement, which they
+X# don't like).  "goober" must then be made into a valid target for machines
+X# which DO define MAKE properly (and have SYSTEM set).  Quel kluge, non?
+X# And to top it all off, it appears that the VAX, at least, can't pick SYSTEM
+X# out of the environment either (which, I suppose, should not be surprising).
+X# [Btw, if the empty "goober" target causes someone else's make to barf, just
+X# add an "@echo > /dev/null" command (or whatever).  Works OK on the Amdahl
+X# and Crays, though.]
+X
+Xdefault:
+X	@if test -z "$(MAKE)"; then\
+X		if test -z "$(SYSTEM)";\
+X		then make ERROR;\
+X		else make $(SYSTEM) MAKE="make";\
+X		fi;\
+X	else\
+X		if test -z "$(SYSTEM)";\
+X		then $(MAKE) ERROR;\
+X		else $(MAKE) $(SYSTEM) goober;\
+X		fi;\
+X	fi
+X
+Xgoober:
+X
+XERROR:
+X	@echo
+X	@echo\
+X "  If you're not sure about the characteristics of your system, try typing"
+X	@echo\
+X '  "make generic".  If the compiler barfs and says something unpleasant about'
+X	@echo\
+X '  "timezone redefined," try typing "make clean" followed by "make generic2".'
+X	@echo\
+X '  One of these actions should produce a working copy of unzip on most Unix'
+X	@echo\
+X '  systems.  If you know a bit more about the machine on which you work, you'
+X	@echo\
+X '  might try "make list" for a list of the specific systems supported herein.'
+X	@echo\
+X '  And as a last resort, feel free to read the numerous comments within the'
+X	@echo\
+X '  Makefile itself.  Have an excruciatingly pleasant day.'
+X	@echo
+X
+Xlist:
+X	@echo
+X	@echo\
+X 'Type "make <system>", where <system> is one of the following:'
+X	@echo
+X	@echo  "	$(SYSTEMS1)"
+X	@echo  "	$(SYSTEMS2)"
+X	@echo  "	$(SYSTEMS3)"
+X	@echo  "	$(SYSTEMS4)"
+X	@echo  "	$(SYSTEMS5)"
+X	@echo
+X	@echo\
+X 'Otherwise set the shell variable SYSTEM to one of these and just type "make".'
+X	@echo\
+X 'Targets for related utilities (ZipInfo and Ship) include:'
+X	@echo
+X	@echo  "	$(SYS_UTIL1)"
+X	@echo  "	$(SYS_UTIL2)"
+X	@echo
+X	@echo\
+X 'For further (very useful) information, please read the comments in Makefile.'
+X	@echo
+X
+X
+X###############################################
+X# BASIC COMPILE INSTRUCTIONS AND DEPENDENCIES #
+X###############################################
+X
+X.c$O :
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xunzip$(EXE):	$(OBJS)
+X	$(LD) $(LDFLAGS) $(OBJS) $(LDFLAGS2)
+X
+Xcrypt$O:        crypt.c unzip.h zip.h	# may or may not be in distribution
+Xdosname.obj:    dosname.c		# for OS/2 only
+Xextract$O:      extract.c unzip.h
+Xfile_io$O:      file_io.c unzip.h
+Xinflate$O:      inflate.c unzip.h	# may or may not be in distribution
+Xmapname$O:      mapname.c unzip.h
+Xmatch$O:        match.c unzip.h
+Xmisc$O:         misc.c unzip.h
+Xunimplod$O:     unimplod.c unzip.h
+Xunreduce$O:     unreduce.c unzip.h
+Xunshrink$O:     unshrink.c unzip.h
+Xunzip$O:        unzip.c unzip.h
+X
+Xclean:
+X	rm -f $(OBJS) unzip$(EXE)
+X
+X
+X################################
+X# INDIVIDUAL MACHINE MAKERULES #
+X################################
+X
+X# these are the makerules for various systems
+X# TABS ARE REQUIRED FOR MANY VERSIONS OF "MAKE"!
+X
+X
+X# ---------------------------------------------------------------------------
+X#   Generic targets (can't assume make utility groks "$(MAKE)")
+X# ---------------------------------------------------------------------------
+X
+Xgeneric:	unzip	# first try if unknown
+X
+Xgeneric2:		# second try if unknown:  hope make is called "make"...
+X	make unzip CFLAGS="$(CFLAGS) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   "Normal" group (both big- and little-endian, structure-padding or not):
+X# ---------------------------------------------------------------------------
+X
+X386i:		unzip	# sun386i, SunOS 4.0.2 ["sun:" works, too, but bigger]
+X3Bx:		unzip	# AT&T 3B2/1000-80; should work on any WE32XXX machine
+X7300:		unzip	# AT&T 7300 (M68000/SysV)
+Xapollo:		unzip	# Apollo Domain/OS machines
+Xaviion:         unzip	# Data General AViiONs, DG/UX 4.3x
+Xbull:		unzip	# Bull DPX/2, BOS 2.00.45 (doesn't require -Xk switch)
+Xcoherent:	unzip	# Coherent 3.10, Mark Williams C
+Xcray_cc:	unzip	# Cray-2 and Y-MP, using default (possibly old) compiler
+Xdec:		unzip	# DEC 5820 (MIPS RISC), test version of Ultrix v4.0
+Xdnix:		unzip	# 680X0, DIAB dnix 5.2/5.3 (a Swedish System V clone)
+Xencore:		unzip	# Multimax
+Xeta:		unzip	# ETA-10P*, hybrid SysV with BSD 4.3 enhancements
+Xgould:		unzip	# Gould PN9000 running UTX/32 2.1Bu01
+Xhp:		unzip	# HP 9000 series (68020), 4.3BSD or HP-UX A.B3.10 Ver D
+Xhp_ux:		unzip	# (to match zip's makefile entry)
+Xmips:		unzip	# MIPS M120-5(?), SysV R3 [error in sys/param.h file?]
+Xrs6000:		unzip	# IBM RS/6000 under AIX 3
+Xrtaix:		unzip	# IBM RT 6150 under AIX 2.2.1
+Xsco:		unzip	# Xenix/386 (tested on 2.3.1); SCO Unix 3.2.0.
+Xstellar:	unzip	# gs-2000
+Xsun:		unzip	# Sun 4/110, SunOS 4.0.3c; Sun 3 (68020), SunOS 4.0.3
+Xtahoe:		unzip	# tahoe (CCI Power6/32), 4.3BSD
+Xultrix:		unzip	# VAXen, DEC 58x0 (MIPS guts), DECstation 2100; v4.x
+Xvax:		unzip	# general-purpose VAX target (not counting VMS)
+X
+X# ---------------------------------------------------------------------------
+X#   BSD group (for timezone structs [struct timeb]):
+X# ---------------------------------------------------------------------------
+X
+Xbsd:		_bsd	# generic BSD (BSD 4.2, Ultrix handled in unzip.h)
+X
+X_bsd:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   SysV group (for extern long timezone and ioctl.h instead of sgtty.h):
+X# ---------------------------------------------------------------------------
+X
+Xsysv:		_sysv	# generic SysV
+Xamdahl:		_sysv	# Amdahl (IBM) mainframe, UTS (SysV) 1.2.4 and 2.0.1
+Xsgi:		_sysv	# Silicon Graphics Iris 4D, Irix SysV rel. 3.3.2
+X
+X_sysv:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DTERMIO"
+X
+X# ---------------------------------------------------------------------------
+X#   "Unique" group (require non-standard options):
+X# ---------------------------------------------------------------------------
+X
+X# Enclosed you'll find a context diff for the unzip41 makefile
+X# which enhances compilation on a convex.  The previous version
+X# probably worked great a couple of years ago, and would still do
+X# so if one compiles in our "backward compatible" pcc mode.   The
+X# following allows it to work better in a modern convexian environment
+X# (define __STDC__ manually because default compilation mode has
+X# extensions and thus doesn't do so).  [5 Mar 1992:  -D__STDC__ removed
+X# for now because of problems with stat.h]
+X#
+X#	$(MAKE) unzip CFLAGS="$(CFLAGS) -D__STDC__ -DCONVEX -ext" ...
+Xconvex:			# previous version was tested on C200/C400
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DCONVEX -ext"\
+X	 LDFLAGS="$(LDFLAGS) -ext"
+X
+X# Cray-2 and Y-MP, running Unicos 5.1 or 6.0 (SysV + BSD enhancements)
+X# and Standard (ANSI) C compiler 1.5, 2.0 or 3.0.
+Xcray:
+X	$(MAKE) unzip CC="scc" LD="scc"
+X
+X# The unzip41 build on a Cyber 910/SGI running Irix v3.3.3 was successful
+X# with the following change to Makefile:
+Xcyber_sgi:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -I/usr/include/bsd"\
+X	 LDFLAGS="-lbsd $(LDFLAGS)"
+X
+X# OS/2 2.0 (32-bit) with GNU C compiler (emx)
+Xgcc_os2:
+X	$(MAKE) unzip.exe CC=gcc LD=gcc EXE=.exe\
+X	 OBJS="$(OBJS) dosname.o"\
+X	 CFLAGS="-O -DOS2 -DEMX32 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-s" LDFLAGS2="-los2 -o unzip.exe"
+X
+X# Heurikon HK68 (68010), UniPlus+ System V 5.0, Green Hills C-68000
+Xhk68:
+X	$(MAKE) unzip CC="gcc" LD="gcc" LDFLAGS="-n $(LDFLAGS)" \
+X	CFLAGS="-ga -X138 -DUNIX $(CR) $(LOCAL_UNZIP) -Dlocaltime=localti -Dtimezone=timezon"
+X
+X# OS/2 2.0 (32-bit) with IBM C Set/2 compiler
+X#
+Xfile_io2.obj:		# compile this one module without optimization
+X	$(CC) -c $(CFLAGS) -O- -Fofile_io2.obj file_io.c
+X
+Xicc_os2:
+X	$(MAKE) -nologo unzip.exe CC=icc LD=icc EXE=.exe O=.obj\
+X	 OBJS="$(OS2_OBJS:file_io.obj=file_io2.obj)"\
+X	 CFLAGS="-Q -Sm -O -Gs -DOS2 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-Q" LDFLAGS2="unzip.def -Fe unzip.exe"
+X
+X# Minix 1.5 PC for the 386 with gcc or bcc
+Xminix:
+X	$(MAKE) unzip CC=gcc CFLAGS="$(CFLAGS) -DMINIX"
+X
+X# PCs (IBM-type), running MS-DOS, Microsoft C 6.00 and NMAKE.  Can't use the
+X# SYSTEM environment variable; that requires processing the "default:" target,
+X# which expands to some 200+ characters--well over DOS's 128-character limit.
+X# "nmake msc_dos" works fine, aside from an annoying message, "temporary file
+X# e:\ln023193 has been created."  I have no idea how to suppress this, but it
+X# appears to be benign (comes from the link phase; the file is always deleted).
+X# The environment variable LOCAL_UNZIP should be set to something appropriate
+X# if your library uses other than the default floating-point routines; for 
+X# example, SET LOCAL_UNZIP=-FPi87.  This target assumes the small-model library
+X# and an 80286 or better.  At present, everything should still fit within the
+X# 128-character command-line limit (barely); if not, remove the -nologo.  [GRR]
+X#
+Xmsc_dos:
+X	$(MAKE) unzip.exe\
+X	 CFLAGS="-Ox $(CR) $(LOCAL_UNZIP) -nologo -G2" CC=cl\
+X	 LD=link EXE=.exe O=.obj LDFLAGS="/noi /nol" LDFLAGS2=",unzip;"
+X
+X# The stack size for OS/2 must be increased to 0x1000, i.e. 
+X# "-F 1000" has to be added to LDFLAGS for msc_os2. Otherwise
+X# stack overflow occurs, which are only detected if compiled
+X# with debugging option, i.e. not with -Gs!! Otherwise something
+X# minor important seems to be overwritten :-)  [K. U. Rommel]
+X#
+X# Extra stack causes errors in GRR version ("/st:0x1000"); no problems
+X# encountered so far without.  EXEHDR /VERBOSE reports 0a00 bytes of
+X# extra stack already, so maybe the two versions are different... [GRR]
+X#
+X# $(LOCAL_UNZIP):  math libraries and/or any other personal or debugging
+X#                  definitions:  e.g., SET LOCAL_UNZIP=-FPi87 -DDEBUG_STRUC
+X# $(NOD):  intended to be used as   SET NOD=-link /nod:slibcep   to allow the
+X#          use of default library names (slibce.lib) instead of protected-mode
+X#          names (slibcep.lib), but it fails:  MSC adds its own /nod qualifier,
+X#          and there seems to be no way to override this.  Typical...
+X#
+X#msc_os2:		# old Newtware version (may not work)
+X#	$(MAKE) -nologo unzip.exe CC=cl LD=link EXE=.exe O=.obj\
+X#	  OBJS="$(OBJS) dosname.obj"\
+X#	  CFLAGS="-nologo -Ox -G2s -DOS2 $(CR) $(LOCAL_UNZIP) -Lp"\
+X#	  LDFLAGS="/noi /nol" LDFLAGS2=",unzip,,,unzip.def"
+X#	bind -nologo unzip.exe -n DOSSETPATHINFO
+Xmsc_os2:		# Kai Uwe Rommel version
+X	$(MAKE) -nologo unzip.exe CC=cl LD=cl EXE=.exe O=.obj\
+X	 OBJS="$(OS2_OBJS)"\
+X	 CFLAGS="-nologo -Ox -G2s -DOS2 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-nologo $(LOCAL_UNZIP) -Lp -F 1000"\
+X	 LDFLAGS2="unzip.def -o unzip.exe $(NOD)"
+X	bind -nologo unzip.exe -n DOSSETPATHINFO
+X
+X# NeXT 2.x: make the executable smaller.
+Xnext:			# 68030 BSD 4.3+Mach
+X	$(MAKE) unzip LDFLAGS2="-object -s"
+X
+X# I successfully compiled and tested the unzip program (v30) for the
+X# Silicon Graphics environment (Personal Iris 4D20/G with IRIX v3.2.2)
+Xp_iris:			# Silicon Graphics Personal Iris 4D20
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -I/usr/include/bsd -DBSD"\
+X	 LDFLAGS="-lbsd $(LDFLAGS)"
+X
+X# I have finished porting unzip 3.0 to the Pyramid 90X under OSX4.1.
+X# The biggest problem was the default structure alignment yielding two
+X# extra bytes.  The compiler has the -q option to pack structures, and
+X# this was all that was needed.  To avoid needing ZMEMS we could compile in
+X# the att universe, but it runs slower!
+X#
+Xpyramid:	# Pyramid 90X, probably all, under >= OSx4.1, BSD universe
+X	make unzip CFLAGS="$(CFLAGS) -q -DBSD -DZMEM"
+X
+X# SCO cross compile from unix to DOS. Tested with Xenix/386 and
+X# OpenDeskTop. Should work with xenix/286 as well. (davidsen)
+X# Note that you *must* remove the unix objects and executable
+X# before doing this!
+X#
+Xsco_dos:
+X	$(MAKE) unzip CFLAGS="-O $(CR) $(LOCAL_UNZIP) -dos -M0" LDFLAGS="-dos"\
+X	 LDFLAGS2="-o unzip.exe"
+X
+X# SCO Xenix/286 2.2.1
+Xsco_x286:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -Ml2" LDFLAGS="$(LDFLAGS) -Ml2"
+X
+X# Sequent Symmetry is a 386 but needs -DZMEM
+X# This should also work on Balance but I can't test it just yet.
+Xsequent:	# Sequent w/Dynix
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DBSD -DZMEM"
+X
+X# I didn't do this.  I swear.  No, really.
+Xwombat:		# Wombat 68000 (or whatever)
+X	@echo
+X	@echo  '	Ha ha!  Just kidding.'
+X	@echo
+X
+X
+X##################
+X# SHIP MAKERULES #
+X##################
+X
+X# Ship section:  ship comes with the Zip distribution and is more properly
+X# supported there.  But the following targets should at least get you started
+X# if for some reason you're only interested in UnZip.  The comments near the
+X# top of ship.c explain how to use it, and a little further poking around
+X# should clear up any problems related to things which should be defined but
+X# aren't, or which shouldn't be defined but are.  As with ZipInfo below, we
+X# assume *some* competence...
+X
+X_ship:	ship.c $(DEF)
+X	$(CC) $(CFLAGS) ship.c $(DEF) $(LDFLAGS2)
+X
+Xship:			# most BSD-type systems, by default
+X	$(MAKE) _ship LDFLAGS2="-s -o ship"
+X
+Xship_sysv:		# not tested; DIRENT used only to determine mailer
+X	$(MAKE) _ship CFLAGS="$(CFLAGS) -DDIRENT" LDFLAGS2="-s -o ship"
+X
+Xship_dos:		# not tested
+X	$(MAKE) -nologo _ship CC=cl EXE=.exe\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -F 2000"\
+X	 LDFLAGS2="-o ship.exe"
+X
+Xship_os2:		# MSC 6.0, 16-bit OS/2
+X	$(MAKE) -nologo _ship CC=cl EXE=.exe DEF=ship.def\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2 -Lp -F 2000"\
+X	 LDFLAGS2="-o ship.exe"
+X	bind -nologo ship.exe
+X
+Xship_icc:		# IBM C Set/2, 32-bit OS/2
+X	$(MAKE) -nologo _ship CC=icc EXE=.exe DEF=ship.def\
+X	 CFLAGS="-Q -Sm -O $(LOCAL_UNZIP) -Gs -DOS2"\
+X	 LDFLAGS2="-Fe ship.exe"
+X
+Xship_gcc:		# GNU gcc / emx, 32-bit OS/2
+X	$(MAKE) _ship CC=gcc LD=gcc EXE=.exe\
+X	 CFLAGS="-O -DOS2" LDFLAGS2="-s -o ship.exe"
+X
+X
+X#####################
+X# ZIPINFO MAKERULES #
+X#####################
+X
+X# Zipinfo section:  it is assumed here that anyone competent enough to
+X# wonder about the internal guts of a zipfile is probably also competent
+X# enough to compile the program without a lot of hand-holding.  If not...
+X# oh well. :-)
+X
+Xzipinfo$O:	zipinfo.c unzip.h
+X	$(CC) -c $(CFLAGS) $(ZC) zipinfo.c
+X
+Xmisc_$O:	misc.c unzip.h
+X	$(MV) misc.c misc_.c
+X	$(CC) -c $(CFLAGS) $(ZC) -DZIPINFO misc_.c
+X	$(MV) misc_.c misc.c
+X
+Xzipinfo$(EXE):	$(ZI_OBJS)
+X	$(LD) $(ZL) $(ZI_OBJS) $(ZL2)
+X
+Xzi_dos:
+X	$(MAKE) zipinfo.exe CFLAGS="-Ox -nologo $(LOCAL_UNZIP) -G2" CC=cl\
+X	 LD=link EXE=.exe O=.obj ZL="/noi /nol" ZL2=",zipinfo;" ZC="" MV="ren"
+X
+X#zi_os2: 		# GRR (Newtware) version (do not delete!)
+X#	$(MAKE) -nologo zipinfo.exe CC=cl LD=link EXE=.exe O=.obj\
+X#	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2 -Lp" ZC="" MV="ren"\
+X#	 ZL="/nol /noi" ZL2=",zipinfo,,,zipinfo.def"
+X#	bind -nologo zipinfo.exe
+Xzi_os2: 		# Kai Uwe Rommel version (do not delete!)
+X	$(MAKE) -nologo zipinfo.exe CC=cl LD=cl EXE=.exe O=.obj\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2" ZC="" MV="ren"\
+X	 ZL="-nologo $(LOCAL_UNZIP) -Lp -Fb" ZL2="zipinfo.def -o zipinfo.exe"
+X
+Xzi_icc:			# IBM C Set/2, 32-bit OS/2
+X	$(MAKE) -nologo zipinfo.exe CC=icc LD=icc EXE=.exe O=.obj\
+X	 CFLAGS="-Q -Sm -O -Gs -DOS2" ZC="" MV="ren"\
+X	 ZL="-Q" ZL2="zipinfo.def -Fe zipinfo.exe"
+X
+Xzi_gcc:			# GNU gcc / emx, 32-bit OS/2
+X	$(MAKE) zipinfo.exe CC=gcc LD=gcc EXE=.exe\
+X	 CFLAGS="-O -DOS2 -DEMX32" ZC="" MV="ren"\
+X	 ZL="-s" ZL2="-o zipinfo.exe"
+X
+X
+X################
+X# ATTRIBUTIONS #
+X################
+X
+X# Thanks to the following people for their help in testing and/or porting
+X# to various machines (and thanks to the many others who aren't listed
+X# here but should be):
+X#
+X#  (original Unix port:  Carl Mascott <cmascott@world.std.com>)
+X#  386i:	Richard Stephen <stephen@corp.telecom.co.nz>
+X#  3Bx:		Bob Kemp <hrrca!bobc@cbnewse.att.com>
+X#  7300:	Richard H. Gumpertz <rhg@cpsolv.CPS.COM>
+X#		Greg Roelofs <roelofs@amelia.nas.nasa.gov>
+X#  amdahl:	Kim DeVaughn <ked01@juts.ccc.amdahl.com>, Greg Roelofs
+X#  apollo:	Tim Geibelhaus
+X#  aviion:	Bruce Kahn <bkahn@archive.webo.dg.com>
+X#  bull:	Matt D'Errico <doc@magna.com>
+X#  coherent:	David Fenyes <dfenyes@thesis1.med.uth.tmc.edu>
+X#  convex:	Randy Wright <rwright@convex.com>
+X#  cray:	Greg Roelofs, Paul Borman <prb@cray.com>
+X#  cyber_sgi:	Clint Pulley <u001@cs910.cciw.ca>
+X#  dec:		"Moby" Dick O'Connor <djo7613@u.washington.edu>
+X#  dnix:	Bo Kullmar <bk@kullmar.se>
+X#  eta:		Greg Flint <afc@klaatu.cc.purdue.edu>
+X#  gould:	Onno van der Linden <linden@fwi.uva.nl>
+X#  hk68:	John Limpert <gronk!johnl@uunet.UU.NET>
+X#  hp:		Randy McCaskile <rmccask@seas.gwu.edu> (HP-UX)
+X#		Gershon Elber <gershon@cs.utah.edu> (HP BSD 4.3)
+X#  icc_os2:	Kai Uwe Rommel <rommel@informatik.tu-muenchen.de>
+X#  minix:	Kai Uwe Rommel (Minix 1.5)
+X#  mips:	Peter Jones <jones@mips1.uqam.ca>
+X#  msc_dos:	Greg Roelofs
+X#  msc_os2:	Wim Bonner <wbonner@yoda.eecs.wsu.edu>
+X#		Kai Uwe Rommel, Greg Roelofs
+X#  next:	Mark Adler <madler@piglet.caltech.edu>
+X#  p_iris:	Valter V. Cavecchia <root@itnsg1.cineca.it>
+X#  pyramid:	James Dugal <jpd@usl.edu>
+X#  rs6000:	Filip Gieszczykiewicz <fmg@smi.med.pitt.edu>
+X#  rtaix:	Erik-Jan Vens
+X#  sco:		Onno van der Linden (SCO Unix 3.2.0)
+X#   		Bill Davidsen <davidsen@crdos1.crd.ge.com> (Xenix/386)
+X#  sco_dos:	Bill Davidsen
+X#  sco_x286:	Ricky Mobley <ddi1!lrark!rick@uunet.UU.NET>
+X#  sequent:	Phil Howard <phil@ux1.cso.uiuc.edu>
+X#  sgi:		Greg Roelofs (Iris 4D/380?)
+X#  sun:		Onno van der Linden (Sun 4), Greg Roelofs (Sun 3, 4)
+X#  tahoe:	Mark Edwards <mce%sdcc10@ucsd.edu>
+X#  ultrix:	Greg Flint (VAX)
+X#		Michael Graff <explorer@iastate.edu> (DECstation 2100?)
+X#		Greg Roelofs (DEC 5810)
+X#		Alex A Sergejew <aas@brain.wph.uq.oz.au>
+X#  vax:		Forrest Gehrke <feg@dodger.att.com> (SysV)
+X#		David Kirschbaum <kirsch@usasoc.soc.mil> (BSD 4.3)
+X#		Jim Steiner <steiner@pica.army.mil> (8600+Ultrix)
+X#  wombat:	Joe Isuzu <joe@trustme.isuzu.com>
+X#  zi_dos:	Greg Roelofs
+X#  zi_icc:	Kai Uwe Rommel
+X#  zi_os2:	Greg Roelofs, Kai Uwe Rommel
+X#  zipinfo:	Greg Roelofs
+END_OF_FILE
+  if test 21837 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'OS2/unzip.bad' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OS2/unzip.bad'\"
+else
+  echo shar: Extracting \"'OS2/unzip.bad'\" \(15 characters\)
+  sed "s/^X//" >'OS2/unzip.bad' <<'END_OF_FILE'
+XDOSSETPATHINFO
+END_OF_FILE
+  if test 15 -ne `wc -c <'OS2/unzip.bad'`; then
+    echo shar: \"'OS2/unzip.bad'\" unpacked with wrong size!
+  fi
+  # end of 'OS2/unzip.bad'
+fi
+if test -f 'ZipRules' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ZipRules'\"
+else
+  echo shar: Extracting \"'ZipRules'\" \(5218 characters\)
+  sed "s/^X//" >'ZipRules' <<'END_OF_FILE'
+XSubject: Info-ZIP Rules (No Feelthy ...)
+X
+XIn discussions with Mark Adler (and others), I realized we in the Info-ZIP
+Xcommunity have been evolving a set of rules that maybe oughtta be
+Xdocumented, archived, and available to potential contributors.
+X
+XThe following appear to meet our requirements.  Please observe these
+Xrules when submitting source, context diff, or other files to Info-ZIP.
+X
+X
+X1 - "NO FEELTHY TABS"
+X
+X    Many editors and EMail systems either have no capability to use and/or
+Xdisplay the Ascii 9 TAB character correctly, or there are variable tab
+Xcolumns, or other horrors.  (My MaxEMail offline email editor for one.)
+X
+X    Bottom line:  use spaces, not tabs.
+X
+X    Related utility programs:  Unix and MS-DOS :  expand, unexpand.
+XMS-DOS: Buerg's TABS; Toad Hall's TOADSOFT.  And some editors have the
+Xconversion built-in.
+X
+X    Exceptions:  The Unix Makefile.  Some makes seem to require "real"
+Xtabs.  If they need it there, fine.  So don't fiddle the Makefile.
+X
+X
+X2 - "NO FEELTHY CRS"
+X
+X    All source, documentation and other text files shall have Unix style
+Xline endings (LF, Ctrl-J), NOT the MS-DOS CR/LF or Mac CR line endings.
+X
+X    Reason:  "Real programmers" in any environment can convert back and
+Xforth between Unix and DOS/Mac style.  MS-DOS Turbo C can use Unix or
+XMS-DOS line endings (donno about Mac Turbo C).  Buerg's LIST file display
+Xutility for MS-DOS can use Unix or MS-DOS line endings.  Unix utilities
+Xlike diff and patch die a horrible death (or produce horrible output) if
+Xtarget files have CRs.
+X
+X    Related utilities:  flip for Unix and MS-DOS.
+X
+X    Exceptions:  The zip archive README and zip.doc files, which Mark
+XAdler wants to leave in MSDOS for "unsophisticated" (read brain-dead) DOS
+Xusers.  Also the batch files to compile under MS-DOS (where it requires
+Xthe CRs.)
+X
+X
+X3 - "NO FEELTHY HEX"
+X
+X    We'll use uuencode/uudecode compatible converters to move binary files
+Xthrough our 7-bit EMail systems (xxencode on special request).  Uuencoded
+Xfiles, if larger than +/- 32Kb, will be broken into smaller (< 32Kb)
+Xfiles (via David M. Read's UUXFER utility).
+X
+X    Reason:  to prevent sounds of gagging mailers from resounding
+Xthroughout the land.  To be standard with the Uunet side of the world.
+XTo be relatively efficient in the binary->Ascii conversion.  (Yeah, yeah,
+XI know, there's better conversions out there.  But not as widely known.)
+X
+X    Related utilities:  uuencode, uudecode, uuxfer20, quux, others.
+XJust make sure they don't leave imbedded or trailing spaces.  (E.g., they
+Xshould use the "`" character in place of Ascii 32.)  Else mailers are
+Xprone to truncate or whatever.  Message me if you need one.
+X
+X
+X4 - "NO FEELTHY TARS"
+X
+X    unzip will be available in .tar.Z (16-bit compressed tar), .arc (as
+Xavailable on Unix, SIMTEL20, PKPAK, etc., *NOT* the latest proprietary
+XSEA version), or .zip format.  (If requesting we EMail you source,
+Xspecify desired format.)  zip source will only be distributed in .zip
+Xarchives.
+X
+X    Reason:  For unzip development or use, anyone should have one of the
+Xspecified dearchivers.  For zip development or use, you shouldn't be
+Xmessing with zip unless you can already unzip.  (This protects the
+Xinnocent.)
+X
+X    Related utilities:  Unix:  arc, tar, compress, zip, unzip.  MS-DOS:
+XPKUNPAK, PKUNZIP, PAK, TAR, COMPRESS, and others.
+X
+X    Exceptions:  EMail me directly for any special circumstances or
+Xrequirements (zoo, BinHex, 12-bit compress, etc.)
+X
+X
+X5 - "NO FEELTHY FANCY_NAMES"
+X
+X    Assume the worst:  that someone on a brain-damaged DOS system has to
+Xwork with everything your magic fingers produced.  Keep the file names
+Xunimaginative and within MS-DOS limits (e.g., ordinary A..Z, 1..9, "-$_!"
+Xtype characters, in the "filename.typ" 8-dot-3 format).  MacUsers, giggle
+Xall you want, but no spaces.
+X
+X    Reason:  Compatibility with different file systems.  MS-DOS is the
+Xmost limited.
+X
+X
+X6 - "NO FEELTHY GRAPHICS"
+X
+X    Do all your editing in a plain-text ASCII editor.  No WordPerfect,
+XWord, WordStar document mode, or other word processor files, thenkyew.
+XNo desktop publishing.  No TIFFs, no GIFs, no imbedded pictures or dancing
+Xladies (too bad, Cave Newt).
+X
+X    Reason:  Compatibility with different consoles.  My old XT clone is
+Xthe most limited!
+X
+X    Related utilities:  vi, ed, EDLIN, Turbo C editor, UED, EASYEDIT, cat
+Xor "COPY CON UNZIP.C"; various word processor -> text conversion utilities.
+X
+X
+X7 - "NO FEELTHY DASHES"
+X
+X    Don't have repeated dashes (starting at the left margin) in any
+Xsource code or patches you try to EMail to me or Info-ZIP.  Instead, be
+Xsure to always prefix them with a space, asterisk, comment, whatever, like
+Xthis:
+X#---------------   or
+X/*--------------   or even
+X ---------------   (just indented)
+X
+X    Reason:  Most "undigestify" utilities (that break down newsletters
+Xinto their separate messages) use that "--------" (starting at the left
+Xmargin) as the symbol that it's hit the end of a message.  I'd rather not
+Xhave your C source file broken up into a dozen separate untitled messages
+Xin my mail system, thank you.  I'll be going through the unzip source Any
+XDay Now and changing anything like that by indenting, prefixing, whatever.
+X
+X
+X*-------------------*
+X
+XDavid Kirschbaum
+XInfo-ZIP Coordinator
+END_OF_FILE
+  if test 5218 -ne `wc -c <'ZipRules'`; then
+    echo shar: \"'ZipRules'\" unpacked with wrong size!
+  fi
+  # end of 'ZipRules'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(23910 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  misc.c
+X
+X  This file contains a number of useful but not particularly closely related
+X  functions; their main claim to fame is that they don't change much, so this
+X  file should rarely need to be recompiled.  The CRC-32 stuff is from crc32.c;
+X  do_string() is from nunzip.c; makeword() and makelong() are from unzip.c;
+X  memset() and memcpy() are from zmemset.c and zmemcpy.c, respectively; and
+X  dos_to_unix_time() is from set_file_time_and_close() in file_io.c.  ebcdic[],
+X  check_for_newer(), dateformat(), and return_VMS() are new.  Things lumped
+X  together here to cut down on the size of unzip.c and the number of associ-
+X  ated files floating around.
+X
+X  ---------------------------------------------------------------------------
+X
+X  Copyrights:  see accompanying file "COPYING" in UnZip source distribution.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X
+X#ifndef ZIPINFO   /* no need to calculate CRCs */
+X
+X/**************************/
+X/*  Function UpdateCRC()  */
+X/**************************/
+X
+X /*--------------------------------------------------------------------
+X
+X   First, the polynomial itself and its table of feedback terms.  The
+X   polynomial is
+X   X^32+X^26+X^23+X^22+X^16+X^12+X^11+X^10+X^8+X^7+X^5+X^4+X^2+X^1+X^0
+X
+X   Note that we take it "backwards" and put the highest-order term in
+X   the lowest-order bit.  The X^32 term is "implied"; the LSB is the
+X   X^31 term, etc.  The X^0 term (usually shown as "+1") results in
+X   the MSB being 1.
+X
+X   Note that the usual hardware shift register implementation, which
+X   is what we're using (we're merely optimizing it by doing eight-bit
+X   chunks at a time) shifts bits into the lowest-order term.  In our
+X   implementation, that means shifting towards the right.  Why do we
+X   do it this way?  Because the calculated CRC must be transmitted in
+X   order from highest-order term to lowest-order term.  UARTs transmit
+X   characters in order from LSB to MSB.  By storing the CRC this way,
+X   we hand it to the UART in the order low-byte to high-byte; the UART
+X   sends each low-bit to hight-bit; and the result is transmission bit
+X   by bit from highest- to lowest-order term without requiring any bit
+X   shuffling on our part.  Reception works similarly.
+X
+X   The feedback terms table consists of 256, 32-bit entries.  Notes:
+X
+X       The table can be generated at runtime if desired; code to do so
+X       is shown later.  It might not be obvious, but the feedback
+X       terms simply represent the results of eight shift/xor opera-
+X       tions for all combinations of data and CRC register values.
+X
+X       The values must be right-shifted by eight bits by the "updcrc"
+X       logic; the shift must be unsigned (bring in zeroes).  On some
+X       hardware you could probably optimize the shift in assembler by
+X       using byte-swap instructions.
+X       polynomial $edb88320
+X
+X   --------------------------------------------------------------------*/
+X
+XULONG crc_32_tab[] =
+X{
+X    0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L,
+X    0x706af48fL, 0xe963a535L, 0x9e6495a3L, 0x0edb8832L, 0x79dcb8a4L,
+X    0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L,
+X    0x90bf1d91L, 0x1db71064L, 0x6ab020f2L, 0xf3b97148L, 0x84be41deL,
+X    0x1adad47dL, 0x6ddde4ebL, 0xf4d4b551L, 0x83d385c7L, 0x136c9856L,
+X    0x646ba8c0L, 0xfd62f97aL, 0x8a65c9ecL, 0x14015c4fL, 0x63066cd9L,
+X    0xfa0f3d63L, 0x8d080df5L, 0x3b6e20c8L, 0x4c69105eL, 0xd56041e4L,
+X    0xa2677172L, 0x3c03e4d1L, 0x4b04d447L, 0xd20d85fdL, 0xa50ab56bL,
+X    0x35b5a8faL, 0x42b2986cL, 0xdbbbc9d6L, 0xacbcf940L, 0x32d86ce3L,
+X    0x45df5c75L, 0xdcd60dcfL, 0xabd13d59L, 0x26d930acL, 0x51de003aL,
+X    0xc8d75180L, 0xbfd06116L, 0x21b4f4b5L, 0x56b3c423L, 0xcfba9599L,
+X    0xb8bda50fL, 0x2802b89eL, 0x5f058808L, 0xc60cd9b2L, 0xb10be924L,
+X    0x2f6f7c87L, 0x58684c11L, 0xc1611dabL, 0xb6662d3dL, 0x76dc4190L,
+X    0x01db7106L, 0x98d220bcL, 0xefd5102aL, 0x71b18589L, 0x06b6b51fL,
+X    0x9fbfe4a5L, 0xe8b8d433L, 0x7807c9a2L, 0x0f00f934L, 0x9609a88eL,
+X    0xe10e9818L, 0x7f6a0dbbL, 0x086d3d2dL, 0x91646c97L, 0xe6635c01L,
+X    0x6b6b51f4L, 0x1c6c6162L, 0x856530d8L, 0xf262004eL, 0x6c0695edL,
+X    0x1b01a57bL, 0x8208f4c1L, 0xf50fc457L, 0x65b0d9c6L, 0x12b7e950L,
+X    0x8bbeb8eaL, 0xfcb9887cL, 0x62dd1ddfL, 0x15da2d49L, 0x8cd37cf3L,
+X    0xfbd44c65L, 0x4db26158L, 0x3ab551ceL, 0xa3bc0074L, 0xd4bb30e2L,
+X    0x4adfa541L, 0x3dd895d7L, 0xa4d1c46dL, 0xd3d6f4fbL, 0x4369e96aL,
+X    0x346ed9fcL, 0xad678846L, 0xda60b8d0L, 0x44042d73L, 0x33031de5L,
+X    0xaa0a4c5fL, 0xdd0d7cc9L, 0x5005713cL, 0x270241aaL, 0xbe0b1010L,
+X    0xc90c2086L, 0x5768b525L, 0x206f85b3L, 0xb966d409L, 0xce61e49fL,
+X    0x5edef90eL, 0x29d9c998L, 0xb0d09822L, 0xc7d7a8b4L, 0x59b33d17L,
+X    0x2eb40d81L, 0xb7bd5c3bL, 0xc0ba6cadL, 0xedb88320L, 0x9abfb3b6L,
+X    0x03b6e20cL, 0x74b1d29aL, 0xead54739L, 0x9dd277afL, 0x04db2615L,
+X    0x73dc1683L, 0xe3630b12L, 0x94643b84L, 0x0d6d6a3eL, 0x7a6a5aa8L,
+X    0xe40ecf0bL, 0x9309ff9dL, 0x0a00ae27L, 0x7d079eb1L, 0xf00f9344L,
+X    0x8708a3d2L, 0x1e01f268L, 0x6906c2feL, 0xf762575dL, 0x806567cbL,
+X    0x196c3671L, 0x6e6b06e7L, 0xfed41b76L, 0x89d32be0L, 0x10da7a5aL,
+X    0x67dd4accL, 0xf9b9df6fL, 0x8ebeeff9L, 0x17b7be43L, 0x60b08ed5L,
+X    0xd6d6a3e8L, 0xa1d1937eL, 0x38d8c2c4L, 0x4fdff252L, 0xd1bb67f1L,
+X    0xa6bc5767L, 0x3fb506ddL, 0x48b2364bL, 0xd80d2bdaL, 0xaf0a1b4cL,
+X    0x36034af6L, 0x41047a60L, 0xdf60efc3L, 0xa867df55L, 0x316e8eefL,
+X    0x4669be79L, 0xcb61b38cL, 0xbc66831aL, 0x256fd2a0L, 0x5268e236L,
+X    0xcc0c7795L, 0xbb0b4703L, 0x220216b9L, 0x5505262fL, 0xc5ba3bbeL,
+X    0xb2bd0b28L, 0x2bb45a92L, 0x5cb36a04L, 0xc2d7ffa7L, 0xb5d0cf31L,
+X    0x2cd99e8bL, 0x5bdeae1dL, 0x9b64c2b0L, 0xec63f226L, 0x756aa39cL,
+X    0x026d930aL, 0x9c0906a9L, 0xeb0e363fL, 0x72076785L, 0x05005713L,
+X    0x95bf4a82L, 0xe2b87a14L, 0x7bb12baeL, 0x0cb61b38L, 0x92d28e9bL,
+X    0xe5d5be0dL, 0x7cdcefb7L, 0x0bdbdf21L, 0x86d3d2d4L, 0xf1d4e242L,
+X    0x68ddb3f8L, 0x1fda836eL, 0x81be16cdL, 0xf6b9265bL, 0x6fb077e1L,
+X    0x18b74777L, 0x88085ae6L, 0xff0f6a70L, 0x66063bcaL, 0x11010b5cL,
+X    0x8f659effL, 0xf862ae69L, 0x616bffd3L, 0x166ccf45L, 0xa00ae278L,
+X    0xd70dd2eeL, 0x4e048354L, 0x3903b3c2L, 0xa7672661L, 0xd06016f7L,
+X    0x4969474dL, 0x3e6e77dbL, 0xaed16a4aL, 0xd9d65adcL, 0x40df0b66L,
+X    0x37d83bf0L, 0xa9bcae53L, 0xdebb9ec5L, 0x47b2cf7fL, 0x30b5ffe9L,
+X    0xbdbdf21cL, 0xcabac28aL, 0x53b39330L, 0x24b4a3a6L, 0xbad03605L,
+X    0xcdd70693L, 0x54de5729L, 0x23d967bfL, 0xb3667a2eL, 0xc4614ab8L,
+X    0x5d681b02L, 0x2a6f2b94L, 0xb40bbe37L, 0xc30c8ea1L, 0x5a05df1bL,
+X    0x2d02ef8dL
+X};
+X
+X
+Xvoid UpdateCRC(s, len)
+Xregister byte *s;
+Xregister int len;
+X /* update running CRC calculation with contents of a buffer */
+X{
+X    register ULONG crcval = crc32val;
+X
+X
+X    while (len--)
+X        crcval = crc_32_tab[((byte) crcval ^ (*s++)) & 0xff] ^ (crcval >> 8);
+X    crc32val = crcval;
+X}
+X
+X#endif /* !ZIPINFO */
+X
+X
+X
+X
+X
+X/**************************/
+X/*  Function do_string()  */
+X/**************************/
+X
+Xint do_string(len, option)      /* return PK-type error code */
+Xunsigned int len;               /* without prototype, UWORD converted to this */
+Xint option;
+X{
+X    int block_length, error = 0;
+X    UWORD comment_bytes_left, extra_len;
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    This function processes arbitrary-length (well, usually) strings.  Three
+X    options are allowed:  SKIP, wherein the string is skipped pretty logical,
+X    eh?); DISPLAY, wherein the string is printed to standard output after un-
+X    dergoing any necessary or unnecessary character conversions; and FILENAME,
+X    wherein the string is put into the filename[] array after undergoing ap-
+X    propriate conversions (including case-conversion, if that is indicated:
+X    see the global variable pInfo->lcflag).  The latter option should be OK,
+X    since filename is now dimensioned at 1025, but we check anyway.
+X
+X    The string, by the way, is assumed to start at the current file-pointer
+X    position; its length is given by len.  So start off by checking length
+X    of string:  if zero, we're already set.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (!len)
+X        return (0);             /* 0:  no error */
+X
+X    switch (option) {
+X
+X    /*
+X     * First case:  print string on standard output.  First set loop vari-
+X     * ables, then loop through the comment in chunks of OUTBUFSIZ bytes,
+X     * converting formats and printing as we go.  The second half of the
+X     * loop conditional was added because the file might be truncated, in
+X     * which case comment_bytes_left will remain at some non-zero value for
+X     * all time.  outbuf is used as a scratch buffer because it is avail-
+X     * able (we should be either before or in between any file processing).
+X     * [The typecast in front of the min() macro was added because of the
+X     * new promotion rules under ANSI C; readbuf() wants an int, but min()
+X     * returns a signed long, if I understand things correctly.  The proto-
+X     * type should handle it, but just in case...]
+X     */
+X
+X    case DISPLAY:
+X        comment_bytes_left = len;
+X        block_length = OUTBUFSIZ;    /* for the while statement, first time */
+X        while (comment_bytes_left > 0 && block_length > 0) {
+X            if ((block_length = readbuf((char *) outbuf,
+X                         (int) min(OUTBUFSIZ, comment_bytes_left))) <= 0)
+X                return (51);    /* 51:  unexpected EOF */
+X            comment_bytes_left -= block_length;
+X            NUKE_CRs(outbuf, block_length);     /* (modifies block_length) */
+X
+X            /*  this is why we allocated an extra byte for outbuf: */
+X            outbuf[block_length] = '\0';        /* terminate w/zero:  ASCIIZ */
+X
+X            A_TO_N(outbuf);     /* translate string to native */
+X
+X            printf("%s", outbuf);
+X        }
+X        printf("\n", outbuf);   /* assume no newline at end */
+X        break;
+X
+X    /*
+X     * Second case:  read string into filename[] array.  The filename should
+X     * never ever be longer than FILNAMSIZ-1 (1024), but for now we'll check,
+X     * just to be sure.
+X     */
+X
+X    case FILENAME:
+X        extra_len = 0;
+X        if (len >= FILNAMSIZ) {
+X            fprintf(stderr, "warning:  filename too long--truncating.\n");
+X            error = 1;          /* 1:  warning error */
+X            extra_len = len - FILNAMSIZ + 1;
+X            len = FILNAMSIZ - 1;
+X        }
+X        if (readbuf(filename, len) <= 0)
+X            return (51);        /* 51:  unexpected EOF */
+X        filename[len] = '\0';   /* terminate w/zero:  ASCIIZ */
+X
+X        A_TO_N(filename);       /* translate string to native */
+X
+X#ifndef ZIPINFO
+X        if (pInfo->lcflag)
+X            TOLOWER(filename, filename);  /* replace with lowercase filename */
+X#endif
+X
+X        if (!extra_len)         /* we're done here */
+X            break;
+X
+X        /*
+X         * We truncated the filename, so print what's left and then fall
+X         * through to the SKIP routine.
+X         */
+X        fprintf(stderr, "[ %s ]\n", filename);
+X        len = extra_len;
+X        /*  FALL THROUGH...  */
+X
+X    /*
+X     * Third case:  skip string, adjusting readbuf's internal variables
+X     * as necessary (and possibly skipping to and reading a new block of
+X     * data).
+X     */
+X
+X    case SKIP:
+X        LSEEK(cur_zipfile_bufstart + (inptr-inbuf) + len)
+X        break;
+X
+X    /*
+X     * Fourth case:  assume we're at the start of an "extra field"; malloc
+X     * storage for it and read data into the allocated space.
+X     */
+X
+X    case EXTRA_FIELD:
+X        if (extra_field != NULL)
+X            free(extra_field);
+X        if ((extra_field = (byte *)malloc(len)) == NULL) {
+X            fprintf(stderr,
+X              "warning:  extra field too long (%d).  Ignoring...\n", len);
+X            LSEEK(cur_zipfile_bufstart + (inptr-inbuf) + len)
+X        } else
+X            if (readbuf((char *)extra_field, len) <= 0)
+X                return 51;      /* 51:  unexpected EOF */
+X        break;
+X
+X    }                           /* end switch (option) */
+X    return error;
+X
+X}                               /* end function do_string() */
+X
+X
+X
+X
+X
+X#ifndef ZIPINFO
+X#ifndef VMS
+X
+X/*********************************/
+X/*  Function dos_to_unix_time()  */
+X/*********************************/
+X
+Xtime_t dos_to_unix_time(ddate, dtime)
+Xunsigned ddate, dtime;
+X{
+X    static short yday[]={0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+X    int yr, mo, dy, hh, mm, ss, leap;
+X    long m_time, days=0;
+X#if !defined(MACOS) && !defined(MSC)
+X#if defined(BSD) || defined(MTS)
+X    static struct timeb tbp;
+X#else /* !(BSD || MTS) */
+X    extern long timezone;    /* declared in <time.h> for MSC (& Borland?) */
+X#endif /* ?(BSD || MTS) */
+X#endif /* !MACOS && !MSC (may need to change to DOS_OS2) */
+X
+X#   define YRBASE  1970
+X
+X    /* dissect date */
+X    yr = ((ddate >> 9) & 0x7f) + (1980 - YRBASE);
+X    mo = ((ddate >> 5) & 0x0f) - 1;
+X    dy = (ddate & 0x1f) - 1;
+X
+X    /* dissect time */
+X    hh = (dtime >> 11) & 0x1f;
+X    mm = (dtime >> 5) & 0x3f;
+X    ss = (dtime & 0x1f) * 2;
+X
+X    /* leap = # of leap years from BASE up to but not including current year */
+X    leap = ((yr + YRBASE - 1) / 4);   /* leap year base factor */
+X
+X    /* How many days from BASE to this year? (& add expired days this year) */
+X    days = (yr * 365) + (leap - 492) + yday[mo];
+X
+X    /* if year is a leap year and month is after February, add another day */
+X    if ((mo > 1) && ((yr+YRBASE)%4 == 0) && ((yr+YRBASE) != 2100))
+X        ++days;                 /* OK through 2199 */
+X
+X    /* convert date & time to seconds relative to 00:00:00, 01/01/YRBASE */
+X    m_time = ((long)(days + dy) * 86400) + ((long) hh * 3600) + (mm * 60) + ss;
+X      /* - 1;   MS-DOS times always rounded up to nearest even second */
+X
+X#if !defined(MACOS) && !defined(EMX32)
+X#if defined(BSD) || defined(MTS)
+X    ftime(&tbp);
+X    m_time += tbp.timezone * 60L;
+X#else /* !(BSD || MTS) */
+X    tzset();                    /* set `timezone' */
+X    m_time += timezone;         /* account for timezone differences */
+X#endif /* ?(BSD || MTS) */
+X#endif /* !MACOS && !EMX32 */
+X
+X    if (localtime((time_t *)&m_time)->tm_isdst)
+X        m_time -= 60L * 60L;    /* adjust for daylight savings time */
+X
+X    return m_time;
+X
+X} /* end function dos_to_unix_time() */
+X
+X#endif /* !VMS */
+X
+X
+X
+X
+X
+X/********************************/
+X/*  Function check_for_newer()  */  /* could make this into a macro for Unix */
+X/********************************/
+X
+Xint check_for_newer(filename)   /* return 1 if existing file newer or equal; */
+Xchar *filename;                 /*  0 if older; -1 if doesn't exist yet */
+X{
+X#ifdef VMS
+X    int dy, mo, yr, hh, mm, ss, dy2, mo2, yr2, hh2, mm2, ss2;
+X    float sec;
+X    char mon[4];
+X    static char actimbuf[24], modtimbuf[24];
+X    static char *month[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+X                            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+X    struct VMStimbuf {
+X        char *actime;           /* VMS revision date, ASCII format */
+X        char *modtime;          /* VMS creation date, ASCII format */
+X    } ascii_times={actimbuf,modtimbuf};
+X
+X
+X    if (stat(filename, &statbuf))
+X        return -1;
+X
+X    if (VMSmunch(filename, GET_TIMES, &ascii_times) != RMS$_NMF)
+X        return 0;   /* exists but can't get the time:  assume older */
+X
+X    sscanf(modtimbuf, "%2d-%3s-%04d %02d:%02d:%05f", &dy, mon,
+X      &yr, &hh, &mm, &sec);
+X
+X    yr2 = ((lrec.last_mod_file_date >> 9) & 0x7f) + 1980;
+X    if (yr > yr2)
+X        return 1;
+X    else if (yr < yr2)
+X        return 0;
+X
+X    for (mo = 0;  mo < 11;  ++mo)
+X        if (!strcmp(mon, month[mo]))
+X            break;
+X    mo2 = ((lrec.last_mod_file_date >> 5) & 0x0f) - 1;
+X    if (mo > mo2)
+X        return 1;
+X    else if (mo < mo2)
+X        return 0;
+X
+X    dy2 = (lrec.last_mod_file_date & 0x1f);
+X    if (dy > dy2)
+X        return 1;
+X    else if (dy < dy2)
+X        return 0;
+X
+X    hh2 = (lrec.last_mod_file_time >> 11) & 0x1f;
+X    if (hh > hh2)
+X        return 1;
+X    else if (hh < hh2)
+X        return 0;
+X
+X    mm2 = (lrec.last_mod_file_time >> 5) & 0x3f;
+X    if (mm > mm2)
+X        return 1;
+X    else if (mm < mm2)
+X        return 0;
+X
+X    /* round to nearest 2 secs--may become 60, but doesn't matter for compare */
+X    ss = (int)(sec + 1.) & -2;
+X    ss2 = (lrec.last_mod_file_time & 0x1f) * 2;
+X    if (ss >= ss2)
+X        return 1;
+X
+X    return 0;
+X
+X#else /* !VMS */        /* round up filetime to nearest 2 secs --v  */
+X    return stat(filename, &statbuf)?  -1 :
+X      ( ((statbuf.st_mtime & 1)? statbuf.st_mtime+1 : statbuf.st_mtime) >=
+X      dos_to_unix_time(lrec.last_mod_file_date, lrec.last_mod_file_time) );
+X#endif /* ?VMS */
+X
+X} /* end function check_for_newer() */
+X
+X
+X
+X
+X
+X/***************************/
+X/*  Function dateformat()  */
+X/***************************/
+X
+Xint dateformat()
+X{
+X
+X/*-----------------------------------------------------------------------------
+X  For those operating systems which support it, this function returns a value
+X  which tells how national convention says that numeric dates are displayed.
+X
+X  Return values are DF_YMD, DF_DMY and DF_MDY.  The meanings should be fairly
+X  obvious.
+X -----------------------------------------------------------------------------*/
+X
+X#ifdef OS2
+X    COUNTRYINFO    ctryi;
+X    COUNTRYCODE    ctryc;
+X#ifdef __32BIT__
+X    ULONG          cbCountryInfo;
+X#else
+X    USHORT         cbCountryInfo;
+X#endif
+X
+X
+X    ctryc.country = ctryc.codepage = 0;
+X    if (DosGetCtryInfo(sizeof ctryi, &ctryc, &ctryi, &cbCountryInfo) != NO_ERROR)
+X        return DF_MDY;
+X    else
+X        switch (ctryi.fsDateFmt) {
+X            case 0 /* DATEFMT_MM_DD_YY */ :
+X                return DF_MDY;
+X            case 1 /* DATEFMT_DD_MM_YY */ :
+X                return DF_DMY;
+X            case 2 /* DATEFMT_YY_MM_DD */ :
+X                return DF_YMD;
+X        }
+X#else /* !OS2 */
+X#ifdef MSDOS
+X    unsigned short int CountryInfo[18];
+X    union REGS regs;
+X    struct SREGS sregs;
+X
+X
+X    regs.x.ax = 0x3800;
+X    regs.x.dx = FP_OFF(CountryInfo);
+X    sregs.ds  = FP_SEG(CountryInfo);
+X    int86x(0x21, &regs, &regs, &sregs);
+X    switch(CountryInfo[0]) {
+X        case 0:
+X            return DF_MDY;
+X        case 1:
+X            return DF_DMY;
+X        case 2:
+X            return DF_YMD;
+X    }
+X#endif /* !MSDOS */
+X#endif /* ?OS2 */
+X
+X    return DF_MDY;   /* default for Unix, VMS, etc. */
+X}                               /* end function dateformat() */
+X
+X#endif /* !ZIPINFO */
+X
+X
+X
+X
+X
+X#ifdef EBCDIC
+X
+X/*
+X * This is the MTS ASCII->EBCDIC translation table. It provides a 1-1
+X * translation from ISO 8859/1 8-bit ASCII to IBM Code Page 37 EBCDIC.
+X */
+X
+Xunsigned char ebcdic[] =
+X{
+X    0x00, 0x01, 0x02, 0x03, 0x37, 0x2d, 0x2e, 0x2f, 0x16, 0x05, 0x25, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+X    0x10, 0x11, 0x12, 0x13, 0x3c, 0x3d, 0x32, 0x26, 0x18, 0x19, 0x3f, 0x27, 0x1c, 0x1d, 0x1e, 0x1f,
+X    0x40, 0x5a, 0x7f, 0x7b, 0x5b, 0x6c, 0x50, 0x7d, 0x4d, 0x5d, 0x5c, 0x4e, 0x6b, 0x60, 0x4b, 0x61,
+X    0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0x7a, 0x5e, 0x4c, 0x7e, 0x6e, 0x6f,
+X    0x7c, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
+X    0xd7, 0xd8, 0xd9, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xba, 0xe0, 0xbb, 0xb0, 0x6d,
+X    0x79, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96,
+X    0x97, 0x98, 0x99, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xc0, 0x4f, 0xd0, 0xa1, 0x07,
+X    0x20, 0x21, 0x22, 0x23, 0x24, 0x15, 0x06, 0x17, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x09, 0x0a, 0x1b,
+X    0x30, 0x31, 0x1a, 0x33, 0x34, 0x35, 0x36, 0x08, 0x38, 0x39, 0x3a, 0x3b, 0x04, 0x14, 0x3e, 0xff,
+X    0x41, 0xaa, 0x4a, 0xb1, 0x9f, 0xb2, 0x6a, 0xb5, 0xbd, 0xb4, 0x9a, 0x8a, 0x5f, 0xca, 0xaf, 0xbc,
+X    0x90, 0x8f, 0xea, 0xfa, 0xbe, 0xa0, 0xb6, 0xb3, 0x9d, 0xda, 0x9b, 0x8b, 0xb7, 0xb8, 0xb9, 0xab,
+X    0x64, 0x65, 0x62, 0x66, 0x63, 0x67, 0x9e, 0x68, 0x74, 0x71, 0x72, 0x73, 0x78, 0x75, 0x76, 0x77,
+X    0xac, 0x69, 0xed, 0xee, 0xeb, 0xef, 0xec, 0xbf, 0x80, 0xfd, 0xfe, 0xfb, 0xfc, 0xad, 0xae, 0x59,
+X    0x44, 0x45, 0x42, 0x46, 0x43, 0x47, 0x9c, 0x48, 0x54, 0x51, 0x52, 0x53, 0x58, 0x55, 0x56, 0x57,
+X    0x8c, 0x49, 0xcd, 0xce, 0xcb, 0xcf, 0xcc, 0xe1, 0x70, 0xdd, 0xde, 0xdb, 0xdc, 0x8d, 0x8e, 0xdf
+X};
+X
+X#endif                          /* EBCDIC */
+X
+X
+X
+X
+X
+X/*************************/
+X/*  Function makeword()  */
+X/*************************/
+X
+XUWORD makeword(b)
+Xbyte *b;
+X /*
+X  * Convert Intel style 'short' integer to non-Intel non-16-bit
+X  * host format.  This routine also takes care of byte-ordering.
+X  */
+X{
+X/*
+X    return  ( ((UWORD)(b[1]) << 8)  |  (UWORD)(b[0]) );
+X */
+X    return ((b[1] << 8) | b[0]);
+X}
+X
+X
+X
+X
+X
+X/*************************/
+X/*  Function makelong()  */
+X/*************************/
+X
+XULONG makelong(sig)
+Xbyte *sig;
+X /*
+X  * Convert intel style 'long' variable to non-Intel non-16-bit
+X  * host format.  This routine also takes care of byte-ordering.
+X  */
+X{
+X    return (((ULONG) sig[3]) << 24)
+X        + (((ULONG) sig[2]) << 16)
+X        + (((ULONG) sig[1]) << 8)
+X        + ((ULONG) sig[0]);
+X}
+X
+X
+X
+X
+X
+X#ifdef VMS
+X
+X/***************************/
+X/*  Function return_VMS()  */
+X/***************************/
+X
+Xvoid return_VMS(zip_error)
+Xint zip_error;
+X{
+X#ifdef RETURN_CODES
+X/*---------------------------------------------------------------------------
+X    Do our own, explicit processing of error codes and print message, since
+X    VMS misinterprets return codes as rather obnoxious system errors ("access
+X    violation," for example).
+X  ---------------------------------------------------------------------------*/
+X
+X    switch (zip_error) {
+X
+X    case 0:
+X        break;                  /* life is fine... */
+X    case 1:
+X        fprintf(stderr, "\n[return-code 1:  warning error \
+X(e.g., failed CRC or unknown compression method)]\n");
+X        break;
+X    case 2:
+X    case 3:
+X        fprintf(stderr, "\n[return-code %d:  error in zipfile \
+X(e.g., can't find local file header sig)]\n",
+X                zip_error);
+X        break;
+X    case 4:
+X    case 5:
+X    case 6:
+X    case 7:
+X    case 8:
+X        fprintf(stderr, "\n[return-code %d:  insufficient memory]\n",
+X                zip_error);
+X        break;
+X    case 9:
+X        fprintf(stderr, "\n[return-code 9:  zipfile not found]\n");
+X        break;
+X    case 10:                    /* this is the one that gives "access violation," I think */
+X        fprintf(stderr, "\n[return-code 10:  bad or illegal parameters \
+Xspecified on command line]\n");
+X        break;
+X    case 11:                    /* I'm not sure this one is implemented, but maybe soon? */
+X        fprintf(stderr, "\n[return-code 11:  no files found to \
+Xextract/view/etc.]\n");
+X        break;
+X    case 50:
+X        fprintf(stderr, "\n[return-code 50:  disk full \
+X(or otherwise unable to open output file)]\n");
+X        break;
+X    case 51:
+X        fprintf(stderr, "\n[return-code 51:  unexpected EOF in zipfile \
+X(i.e., truncated)]\n");
+X        break;
+X    default:
+X        fprintf(stderr, "\n[return-code %d:  unknown return-code \
+X(who put this one in?  Wasn't me...)]\n",
+X                zip_error);
+X        break;
+X    }
+X#endif                          /* RETURN_CODES */
+X
+X    exit(0);                    /* everything okey-dokey as far as VMS concerned */
+X}
+X
+X#endif                          /* VMS */
+X
+X
+X
+X
+X
+X#ifdef ZMEM                     /* memset, memcpy for systems without them */
+X
+X/***********************/
+X/*  Function memset()  */
+X/***********************/
+X
+Xchar *memset(buf, init, len)
+Xregister char *buf, init;       /* buffer loc and initializer */
+Xregister unsigned int len;      /* length of the buffer */
+X{
+X    char *start;
+X
+X    start = buf;
+X    while (len--)
+X        *(buf++) = init;
+X    return (start);
+X}
+X
+X
+X
+X
+X
+X/***********************/
+X/*  Function memcpy()  */
+X/***********************/
+X
+Xchar *memcpy(dst, src, len)
+Xregister char *dst, *src;
+Xregister unsigned int len;
+X{
+X    char *start;
+X
+X    start = dst;
+X    while (len-- > 0)
+X        *dst++ = *src++;
+X    return (start);
+X}
+X
+X#endif                          /* ZMEM */
+END_OF_FILE
+  if test 23910 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+echo shar: End of archive 7 \(of 12\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+
+exit 0 # Just in case...

@@ -1,0 +1,489 @@
+Newsgroups: comp.sources.misc
+From: etxerus@james.ericsson.se (Hans Beckerus LG/THB)
+Subject:  v28i117:  ssh-1.3 - Split & Strip appended shell archives, Part01/01
+Message-ID: <1992Mar22.025951.4437@sparky.imd.sterling.com>
+X-Md4-Signature: ada86a6b743d5d10725e58083725f5b8
+Date: Sun, 22 Mar 1992 02:59:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: etxerus@james.ericsson.se (Hans Beckerus LG/THB)
+Posting-number: Volume 28, Issue 117
+Archive-name: ssh-1.3/part01
+Environment: UNIX
+Supersedes: ssh-1.2: Volume 28, Issue 98
+
+SSH version 1.30 
+
+This version of ssh is based on the comments I received
+from all of you out there in the world since the first
+release. 
+
+There is no new functions implemented but the sourcecode
+is updated and improved for better performance. Also the
+makefile has been changed since the problems with the 
+'strcasecmp' function did not only affect System V sites.
+
+I hope this version will work better then the last but as
+you all probably know there is a lot of sites out there
+so I cannot promise anything!
+
+As for now this is the final version and faults reported
+after this release will of course be answered but I am not
+intending to post any new versions.
+
+Cheers!
+
+ /HaB
+--------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README Makefile ssh.c strcasecmp.c
+# Wrapped by etxerus@james16 on Thu Mar 19 16:28:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(975 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+XSSH version 1.30 
+X
+XThis version of ssh is based on the comments I received
+Xfrom all of you out there in the world since the first
+Xrelease. 
+X
+XThere is no new functions implemented but the sourcecode
+Xis updated and improved for better performance. Also the
+Xmakefile has been changed since the problems with the 
+X'strcasecmp' function did not only affect System V sites.
+X
+XI hope this version will work better then the last but as
+Xyou all probably know there is a lot of sites out there
+Xso I cannot promise anything!
+X
+XAs for now this is the final version and faults reported
+Xafter this release will of course be answered but I am not
+Xintending to post any new versions on the uunet.
+X
+X
+XCheers!
+X
+X________________________________________________________________________________
+XHans Beckerus                  Phone  : +46 8 719 59 60     
+XEricsson Telecom AB            Memo   : ETX.ETXERUS
+XAXE System Design              E-mail : etxerus@james.ericsson.se
+X126 25 Stockholm
+XSWEDEN
+END_OF_FILE
+if test 975 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(803 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for ssh 1.30
+X#
+X
+X# Destination directory for binary
+XBINDIR= /usr/local/bin
+X
+XCC= cc
+XFLAGS= -O
+XPROG= ssh
+X
+X# For sites which do not have the function 'strcasecmp'.
+X#SOURCES= ssh.c strcasecmp.c
+X#OBJ= ssh.o strcasecmp.o
+X
+X# For sites that have the function 'strcasecmp'.
+XSOURCES= ssh.c
+XOBJS= ssh.o
+X
+X# Do not change the SHELL definition except if
+X# (by some reason) 'sh' is located somewhere
+X# else then in /bin.
+XDSHELL= -DSHELL=\"/bin/sh\"
+X
+X# SUN/SPARC:
+X# This should work for all SUN:s.
+XTARGET= -DSUN
+X 
+X# SYSV:
+X# This should work for all SysV sites.
+X#TARGET= -DSYSV
+X
+XSCCSID= -DSCCSID
+XDEFINES= $(TARGET) $(SCCSID) $(DSHELL)
+XCFLAGS= $(FLAGS) $(DEFINES)
+X
+X$(PROG): $(OBJS)
+X	$(CC) $(CFLAGS) -o $(PROG) $(OBJS)
+X
+Xclean:
+X	rm -f core $(PROG) $(OBJS)
+X
+Xinstall: $(PROG)
+X	strip $(PROG)
+X	mv $(PROG) $(BINDIR)
+END_OF_FILE
+if test 803 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'ssh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ssh.c'\"
+else
+echo shar: Extracting \"'ssh.c'\" \(6442 characters\)
+sed "s/^X//" >'ssh.c' <<'END_OF_FILE'
+X/* @(#)ssh.c 1.30 (HaB) 92/03/17
+X *
+X * NAME:
+X *    ssh
+X *
+X * SYNTAX:
+X *    ssh [-h]
+X *        [-x] < shar_archive
+X *        [-v] 
+X *
+X * OPTIONS:
+X *    -h    Display usage information.
+X *
+X *    -x    Extract files in archive instead
+X *          of splitting it into parts. 
+X *
+X *    -v    Display version information. 
+X *
+X *    Without any options ssh splits archives
+X *    into extractable 'PartXX' files.
+X *
+X * DESCRIPTION:
+X *    Splits, strips and extracts appended shell
+X *    archives and stores the result in 'PartXX'
+X *    files (not when extracting). 
+X *
+X * NOTES:
+X *    The program should work on all archives created
+X *    using 'shar' (or equals) provided that they have
+X *    not been changed since they were first generated.  
+X *
+X * BUGS:
+X *    I have noticed that when the archives contains
+X *    archives themselves (happens sometimes) it does 
+X *    not always work properly.
+X *
+X * DATE:
+X *    1992-03-17
+X *
+X * AUTHOR:
+X *    Hans C. Beckerus         
+X *    etxerus@james.ericsson.se
+X *
+X *    Thanks to Pat Myrto, rwing!pat@relay.EU.net, for
+X *    solving the problems with System V compatibility.
+X *    
+X * DISCLAIMER:
+X *    This program is free to distribute to anyone as 
+X *    long as the code is not changed in anyway without
+X *    me knowing about it.  
+X *
+X *                                            /HaB :-)
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <malloc.h>
+X
+X#define SEARCH  0
+X#define START   1
+X#define INSIDE  2
+X#define MSTEP   80     /* Allocation steps */
+X
+X#ifndef SHELL
+X#define SHELL  "/bin/sh"     /* Just in case... */
+X#endif
+X
+X#ifdef SYSV     /* HPUX/SYSV */
+X#include <sys/types.h>     /* Non-ansi/PONIX sites needs this for size_t */
+X#define nl_fprintf  fprintf     /* Provided for XPG2 compatibility */
+X#define nl_sprintf  sprintf
+X#define nl_strcmp   strcmp
+Xsize_t msize;
+X#endif
+X
+X#ifdef SUN     /* SunOS/Berkeley */
+Xunsigned int msize;
+X#endif
+X
+X#ifdef SCCSID
+Xchar sccsid[] = "@(#)ssh.c    1.30 (HaB) 92/03/17";
+X#endif
+X
+Xenum boolean {     /* Boolean constants */
+X    FALSE,
+X    TRUE
+X};
+X
+Xchar *pattern[] = {                 /* Add more patterns here if needed.   */ 
+X    "# this is a shell archive",
+X    "# this is part", 
+X    "#!/bin/sh",
+X    "# !/bin/sh",
+X    "#! /bin/sh",
+X    ""     /* This is a flag and must not be removed */
+X};
+X
+X/* usage:
+X * 
+X * Display usage information and exit with status rc.
+X *
+X */
+X
+Xvoid usage (rc) 
+X
+Xint rc;     /* Return code */
+X
+X{
+X    puts ("\nUsage: ssh [-h]");
+X    puts ("           [-x] < shar_archive");
+X    puts ("           [-v]\n");
+X    puts ("Options:");
+X    puts ("  -h       - This help text.");
+X    puts ("  -x       - Extract files in archive instead");
+X    puts ("             of splitting it into parts.");
+X    puts ("  -v       - Display version information.\n");
+X    puts ("  Without any options ssh splits archives");
+X    puts ("  into extractable 'PartXX' files.\n");
+X    exit (rc);
+X}
+X
+Xvoid main (argn, argv)
+X
+Xint   argn;
+Xchar *argv[];
+X
+X{
+X    FILE     *fr = stdin;          /* Input filepointer  */
+X    FILE     *fw;                  /* Output filepointer */
+X    FILE     *pipe;                /* Stream pipe        */
+X    int       state = SEARCH;      /* The current state  */
+X    int       fc = 0;              /* File part counter  */
+X    int       extract = FALSE;     /* Extract/write flag */
+X    char     *s;                   /* Read line          */
+X    char      fout[7];             /* Output filenames   */
+X    register  j = 0;               /* Counter            */
+X    register  c;                   /* Read character     */
+X
+X    /* Check the arguments if any */
+X    while (--argn) {
+X        argv++;
+X        if (!(strcmp (*argv, "-h"))) {     /* Help screen */
+X            if (!(argn-1))     /* Single option */
+X                usage (0);
+X        }
+X        else if (!(strcmp (*argv, "-x"))) {     /* Extract files */ 
+X            if (!(argn-1)) {     /* Single option */
+X                extract = TRUE;
+X                continue;
+X            }
+X        }
+X        else if (!(strcmp (*argv, "-v"))) {
+X            if (!(argn-1)) {     /* Single option */
+X                puts ("ssh v1.30  (bugs to etxerus@james.ericsson.se)");
+X                exit (0);
+X            }
+X        }
+X        usage (1);
+X    }  
+X
+X    msize = MSTEP;
+X    s = malloc (msize);     /* Allocate buffer */
+X
+X    while ((c = getc (fr)) != EOF) {
+X	if (c != '\n') {     /* Check for EOL */
+X	    s[j++] = c;
+X            if (j == msize) {
+X                msize += MSTEP;
+X                if ((s = realloc (s, msize)) == NULL) {
+X                    fprintf (stderr, "ssh: Allocation error, cannot continue.\n");
+X                    exit (1);
+X                }
+X            }
+X        }
+X	else {
+X	    s[j] = '\0';     /* One line has been read */
+X	    switch (state) {
+X		case SEARCH:
+X                    for (j = 0; pattern[j][0] != NULL; j++) {
+X                        if (!(strncasecmp (s, pattern[j], strlen (pattern[j])))) {
+X                            state = START;
+X                            break;    
+X                        }
+X                    }
+X                    if (state != START)
+X                        break;
+X
+X		case START:     /* Start writing or extracting */
+X                    if (!extract) {
+X		        sprintf (fout, "Part%.2d", ++fc);
+X		        fw = fopen (fout, "w");
+X                        fprintf (fw, "%s\n", s);
+X                    }
+X                    else {
+X                        if ((pipe = popen (SHELL, "w")) == NULL) {
+X                            fprintf (stderr, "ssh: Cannot create process.\n");
+X                            exit (1);
+X                        }
+X                        fprintf (pipe, "%s\n", s);
+X                    }
+X                    state = INSIDE;
+X		    break;
+X
+X                case INSIDE:
+X		    if (!(strcmp (s, "exit 0"))) {     /* Look for end */
+X                        if (!extract) {
+X                            fprintf (fw, "%s\n", s);
+X                            fclose (fw);
+X                        }
+X                        else {
+X                            fprintf (pipe, "%s\n", s);
+X                            pclose (pipe);
+X                        }
+X                        state = SEARCH;
+X                    }
+X                    else {
+X                        if (extract)
+X                            fprintf (pipe, "%s\n", s);
+X                        else
+X			    fprintf (fw, "%s\n", s);
+X                    }
+X		    break;
+X            }
+X            j = 0;    /* Reset counter */
+X        }
+X    }
+X}
+END_OF_FILE
+if test 6442 -ne `wc -c <'ssh.c'`; then
+    echo shar: \"'ssh.c'\" unpacked with wrong size!
+fi
+# end of 'ssh.c'
+fi
+if test -f 'strcasecmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strcasecmp.c'\"
+else
+echo shar: Extracting \"'strcasecmp.c'\" \(3807 characters\)
+sed "s/^X//" >'strcasecmp.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifdef	SCCSID
+X#define	LIBC_SCCS
+X#endif
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)strcasecmp.c	5.6 (Berkeley) 6/27/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <sys/types.h>
+X
+X/*
+X * This array is designed for mapping upper and lower case letter
+X * together for a case independent comparison.  The mappings are
+X * based upon ascii character sequences.
+X */
+Xstatic u_char charmap[] = {
+X	'\000', '\001', '\002', '\003', '\004', '\005', '\006', '\007',
+X	'\010', '\011', '\012', '\013', '\014', '\015', '\016', '\017',
+X	'\020', '\021', '\022', '\023', '\024', '\025', '\026', '\027',
+X	'\030', '\031', '\032', '\033', '\034', '\035', '\036', '\037',
+X	'\040', '\041', '\042', '\043', '\044', '\045', '\046', '\047',
+X	'\050', '\051', '\052', '\053', '\054', '\055', '\056', '\057',
+X	'\060', '\061', '\062', '\063', '\064', '\065', '\066', '\067',
+X	'\070', '\071', '\072', '\073', '\074', '\075', '\076', '\077',
+X	'\100', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\133', '\134', '\135', '\136', '\137',
+X	'\140', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+X	'\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+X	'\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+X	'\170', '\171', '\172', '\173', '\174', '\175', '\176', '\177',
+X	'\200', '\201', '\202', '\203', '\204', '\205', '\206', '\207',
+X	'\210', '\211', '\212', '\213', '\214', '\215', '\216', '\217',
+X	'\220', '\221', '\222', '\223', '\224', '\225', '\226', '\227',
+X	'\230', '\231', '\232', '\233', '\234', '\235', '\236', '\237',
+X	'\240', '\241', '\242', '\243', '\244', '\245', '\246', '\247',
+X	'\250', '\251', '\252', '\253', '\254', '\255', '\256', '\257',
+X	'\260', '\261', '\262', '\263', '\264', '\265', '\266', '\267',
+X	'\270', '\271', '\272', '\273', '\274', '\275', '\276', '\277',
+X	'\300', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\333', '\334', '\335', '\336', '\337',
+X	'\340', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+X	'\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+X	'\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+X	'\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
+X};
+X
+Xstrcasecmp(s1, s2)
+X	char *s1, *s2;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(cm[*us1] - cm[*--us2]);
+X}
+X
+Xstrncasecmp(s1, s2, n)
+X	char *s1, *s2;
+X	register int n;
+X{
+X	register u_char	*cm = charmap,
+X			*us1 = (u_char *)s1,
+X			*us2 = (u_char *)s2;
+X
+X	while (--n >= 0 && cm[*us1] == cm[*us2++])
+X		if (*us1++ == '\0')
+X			return(0);
+X	return(n < 0 ? 0 : cm[*us1] - cm[*--us2]);
+X}
+END_OF_FILE
+if test 3807 -ne `wc -c <'strcasecmp.c'`; then
+    echo shar: \"'strcasecmp.c'\" unpacked with wrong size!
+fi
+# end of 'strcasecmp.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

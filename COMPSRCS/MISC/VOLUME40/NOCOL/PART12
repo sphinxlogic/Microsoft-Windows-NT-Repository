@@ -1,0 +1,2270 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i142:  nocol - Network Monitoring System, Part12/26
+Message-ID: <1993Nov23.212524.21488@sparky.sterling.com>
+X-Md4-Signature: fdf3877a9d2f7c45110a4051ffbf6725
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 21:25:24 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 142
+Archive-name: nocol/part12
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/include/snmp_api.h
+#   nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip
+#   nocol-3.0/src/support/multiping/multiping.c
+# Wrapped by kent@sparky on Tue Nov  9 22:22:18 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/include/snmp_api.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/snmp_api.h'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/snmp_api.h'\" \(8565 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/snmp_api.h' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * snmp_api.h - API for access to snmp.
+X */
+X
+X
+Xtypedef struct sockaddr_in  ipaddr;
+X
+Xstruct snmp_session {
+X    u_char  *community;	/* community for outgoing requests. */
+X    int	    community_len;  /* Length of community name. */
+X    int	    retries;	/* Number of retries before timeout. */
+X    long    timeout;    /* Number of uS until first timeout, then exponential backoff */
+X    char    *peername;	/* Domain name or dotted IP address of default peer */
+X    u_short remote_port;/* UDP port number of peer. */
+X    u_short local_port; /* My UDP port number, 0 for default, picked randomly */
+X    /* Authentication function or NULL if null authentication is used */
+X    u_char    *(*authenticator)();
+X    int	    (*callback)();  /* Function to interpret incoming data */
+X    /* Pointer to data that the callback function may consider important */
+X    void    *callback_magic;
+X};
+X
+X/*
+X * Set fields in session and pdu to the following to get a default or unconfigured value.
+X */
+X#define SNMP_DEFAULT_COMMUNITY_LEN  0	/* to get a default community name */
+X#define SNMP_DEFAULT_RETRIES	    -1
+X#define SNMP_DEFAULT_TIMEOUT	    -1
+X#define SNMP_DEFAULT_REMPORT	    0
+X#define SNMP_DEFAULT_REQID	    0
+X#define SNMP_DEFAULT_ERRSTAT	    -1
+X#define SNMP_DEFAULT_ERRINDEX	    -1
+X#define SNMP_DEFAULT_ADDRESS	    0
+X#define SNMP_DEFAULT_PEERNAME	    NULL
+X#define SNMP_DEFAULT_ENTERPRISE_LENGTH	0
+X#define SNMP_DEFAULT_TIME	    0
+X
+Xextern int snmp_errno;
+X/* Error return values */
+X#define SNMPERR_GENERR		-1
+X#define SNMPERR_BAD_LOCPORT	-2  /* local port was already in use */
+X#define SNMPERR_BAD_ADDRESS	-3
+X#define SNMPERR_BAD_SESSION	-4
+X#define SNMPERR_TOO_LONG	-5
+X
+X
+Xstruct snmp_pdu {
+X    ipaddr  address;	/* Address of peer */
+X
+X    int	    command;	/* Type of this PDU */
+X
+X    u_long  reqid;	/* Request id */
+X    u_long  errstat;	/* Error status */
+X    u_long  errindex;	/* Error index */
+X
+X    /* Trap information */
+X    oid	    *enterprise;/* System OID */
+X    int	    enterprise_length;
+X    ipaddr  agent_addr;	/* address of object generating trap */
+X    int	    trap_type;	/* trap type */
+X    int	    specific_type;  /* specific type */
+X    u_long  time;	/* Uptime */
+X
+X    struct variable_list *variables;
+X};
+X
+X
+Xstruct variable_list {
+X    struct variable_list *next_variable;    /* NULL for last variable */
+X    oid	    *name;  /* Object identifier of variable */
+X    int	    name_length;    /* number of subid's in name */
+X    u_char  type;   /* ASN type of variable */
+X    union { /* value of variable */
+X	long	*integer;
+X	u_char	*string;
+X	oid	*objid;
+X    } val;
+X    int	    val_len;
+X};
+X
+X/*
+X * struct snmp_session *snmp_open(session)
+X *	struct snmp_session *session;
+X * 
+X * Sets up the session with the snmp_session information provided
+X * by the user.  Then opens and binds the necessary UDP port.
+X * A handle to the created session is returned (this is different than
+X * the pointer passed to snmp_open()).  On any error, NULL is returned
+X * and snmp_errno is set to the appropriate error code.
+X */
+Xstruct snmp_session *snmp_open();
+X
+X/*
+X * int snmp_close(session)
+X *     struct snmp_session *session;
+X * 
+X * Close the input session.  Frees all data allocated for the session,
+X * dequeues any pending requests, and closes any sockets allocated for
+X * the session.  Returns 0 on error, 1 otherwise.
+X */
+Xint snmp_close();
+X
+X
+X/*
+X * int snmp_send(session, pdu)
+X *     struct snmp_session *session;
+X *     struct snmp_pdu	*pdu;
+X * 
+X * Sends the input pdu on the session after calling snmp_build to create
+X * a serialized packet.  If necessary, set some of the pdu data from the
+X * session defaults.  Add a request corresponding to this pdu to the list
+X * of outstanding requests on this session, then send the pdu.
+X * Returns the request id of the generated packet if applicable, otherwise 1.
+X * On any error, 0 is returned.
+X * The pdu is freed by snmp_send() unless a failure occured.
+X */
+Xint snmp_send();
+X
+X
+X/*
+X * void snmp_read(fdset)
+X *     fd_set  *fdset;
+X * 
+X * Checks to see if any of the fd's set in the fdset belong to
+X * snmp.  Each socket with it's fd set has a packet read from it
+X * and snmp_parse is called on the packet received.  The resulting pdu
+X * is passed to the callback routine for that session.  If the callback
+X * routine returns successfully, the pdu and it's request are deleted.
+X */
+Xvoid snmp_read();
+X
+X
+X/*
+X * void
+X * snmp_free_pdu(pdu)
+X *     struct snmp_pdu *pdu;
+X * 
+X * Frees the pdu and any malloc'd data associated with it.
+X */
+Xvoid snmp_free_pdu();
+X
+X/*
+X * int snmp_select_info(numfds, fdset, timeout, block)
+X * int *numfds;
+X * fd_set   *fdset;
+X * struct timeval *timeout;
+X * int *block;
+X *
+X * Returns info about what snmp requires from a select statement.
+X * numfds is the number of fds in the list that are significant.
+X * All file descriptors opened for SNMP are OR'd into the fdset.
+X * If activity occurs on any of these file descriptors, snmp_read
+X * should be called with that file descriptor set.
+X *
+X * The timeout is the latest time that SNMP can wait for a timeout.  The
+X * select should be done with the minimum time between timeout and any other
+X * timeouts necessary.  This should be checked upon each invocation of select.
+X * If a timeout is received, snmp_timeout should be called to check if the
+X * timeout was for SNMP.  (snmp_timeout is idempotent)
+X *
+X * Block is 1 if the select is requested to block indefinitely, rather than time out.
+X * If block is input as 1, the timeout value will be treated as undefined, but it must
+X * be available for setting in snmp_select_info.  On return, if block is true, the value
+X * of timeout will be undefined.
+X *
+X * snmp_select_info returns the number of open sockets.  (i.e. The number of sessions open)
+X */
+Xint snmp_select_info();
+X
+X/*
+X * void snmp_timeout();
+X * 
+X * snmp_timeout should be called whenever the timeout from snmp_select_info expires,
+X * but it is idempotent, so snmp_timeout can be polled (probably a cpu expensive
+X * proposition).  snmp_timeout checks to see if any of the sessions have an
+X * outstanding request that has timed out.  If it finds one (or more), and that
+X * pdu has more retries available, a new packet is formed from the pdu and is
+X * resent.  If there are no more retries available, the callback for the session
+X * is used to alert the user of the timeout.
+X */
+Xvoid snmp_timeout();
+X
+X
+X/*
+X * This routine must be supplied by the application:
+X *
+X * u_char *authenticator(pdu, length, community, community_len)
+X * u_char *pdu;		The rest of the PDU to be authenticated
+X * int *length;		The length of the PDU (updated by the authenticator)
+X * u_char *community;	The community name to authenticate under.
+X * int	community_len	The length of the community name.
+X *
+X * Returns the authenticated pdu, or NULL if authentication failed.
+X * If null authentication is used, the authenticator in snmp_session can be
+X * set to NULL(0).
+X */
+X
+X/*
+X * This routine must be supplied by the application:
+X *
+X * int callback(operation, session, reqid, pdu, magic)
+X * int operation;
+X * struct snmp_session *session;    The session authenticated under.
+X * int reqid;			    The request id of this pdu (0 for TRAP)
+X * struct snmp_pdu *pdu;	    The pdu information.
+X * void *magic			    A link to the data for this routine.
+X *
+X * Returns 1 if request was successful, 0 if it should be kept pending.
+X * Any data in the pdu must be copied because it will be freed elsewhere.
+X * Operations are defined below:
+X */
+X#define RECEIVED_MESSAGE   1
+X#define TIMED_OUT	   2
+X
+X
+Xextern int snmp_dump_packet;
+END_OF_FILE
+  if test 8565 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/snmp_api.h'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/snmp_api.h'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/snmp_api.h'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip'\" \(33903 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip' <<'END_OF_FILE'
+X/*
+X * snmp_vars.c - return a pointer to the named variable.
+X *
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#ifdef KINETICS
+X#include "gw.h"
+X#include "fp4/pbuf.h"
+X#include "fp4/cmdmacro.h"
+X#include "ab.h"
+X#include "glob.h"
+X#endif
+X
+X#if (defined(unix) && !defined(KINETICS))
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#endif
+X
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "mib.h"
+X#include "inet.h"
+X#include "snmp_vars.h"
+X/*
+X *	Each variable name is placed in the variable table, without the terminating
+X * substring that determines the instance of the variable.  When a string is found that
+X * is lexicographicly preceded by the input string, the function for that entry is
+X * called to find the method of access of the instance of the named variable.  If
+X * that variable is not found, NULL is returned, and the search through the table
+X * continues (it should stop at the next entry).  If it is found, the function returns
+X * a character pointer and a length or a function pointer.  The former is the address
+X * of the operand, the latter is an access routine for the variable.
+X *
+X * u_char *
+X * findVar(name, length, exact, var_len, access_method)
+X * oid	    *name;	    IN/OUT - input name requested, output name found
+X * int	    length;	    IN/OUT - number of sub-ids in the in and out oid's
+X * int	    exact;	    IN - TRUE if an exact match was requested.
+X * int	    len;	    OUT - length of variable or 0 if function returned.
+X * int	    access_method; OUT - 1 if function, 0 if char pointer.
+X *
+X * accessVar(rw, var, varLen)
+X * int	    rw;	    IN - request to READ or WRITE the variable
+X * u_char   *var;   IN/OUT - input or output buffer space
+X * int	    *varLen;IN/OUT - input and output buffer len
+X */
+X
+Xstruct variable {
+X    oid		    name[16];	    /* object identifier of variable */
+X    u_char	    namelen;	    /* length of above */
+X    char	    type;	    /* type of variable, INTEGER or (octet) STRING */
+X    u_char	    magic;	    /* passed to function as a hint */
+X    u_short	    acl;	    /* access control list for variable */
+X    u_char	    *(*findVar)();  /* function that finds variable */
+X};
+X
+Xchar		version_descr[30] = "Kinetics FastPath4";
+Xoid		version_id[] = {1, 3, 6, 1, 4, 1, 3, 1, 1};
+Xint		version_id_len = sizeof(version_id);
+Xu_long		uptime;
+Xlong		cfg_nnets = MAX_INTERFACES;
+Xlong		long_return;
+Xu_char		return_buf[64];
+X
+X
+Xstruct mib_ifEntry  mib_ifEntry_proto[MAX_INTERFACES] = {
+X    {1, "Kinetics KFPS2 Ethernet", MIB_IFTYPE_ETHERNETCSMACD, 
+X    	1500, 10000000L, "", 
+X	6, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+X    {2, "Kinetics KFPS2 Appletalk", MIB_IFTYPE_OTHER,
+X    	1500, 230000L, "", 
+X	3, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+X};
+Xstruct mib_ifEntry mib_ifEntry[MAX_INTERFACES];
+X
+Xstruct mib_ip mib_ip_proto = {
+X    1, IPFRAGTTL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+X};
+Xstruct mib_ip mib_ip;
+X
+X#define ROUTE_DEFAULT	0
+X#define ROUTE_LOCAL	1
+Xstruct mib_ipRouteEntry mib_ipRouteEntry_proto[2] = {
+X    {0, 1, 1, -1, -1, -1, 0, MIB_IPROUTETYPE_REMOTE, MIB_IPROUTEPROTO_LOCAL, 0},    /* default route */
+X    {0, 1, 0, -1, -1, -1, 0, MIB_IPROUTETYPE_DIRECT, MIB_IPROUTEPROTO_LOCAL, 0}	    /* local route */
+X};
+Xstruct mib_ipRouteEntry mib_ipRouteEntry[2];
+X
+Xstruct mib_udp mib_udp_proto = {
+X    0, 0, 0, 0
+X};
+Xstruct mib_udp mib_udp;
+X
+Xlong	mib_icmpInMsgs;
+Xlong	mib_icmpOutMsgs;
+Xlong	mib_icmpInErrors;	/* not checked in KIP */
+Xlong	mib_icmpOutErrors;	/* not checked in KIP */
+Xlong	mib_icmpInCount[ICMP_MAXTYPE + 1];
+Xlong	mib_icmpOutCount[ICMP_MAXTYPE + 1];
+X
+X
+Xinit_snmp(){
+X    bcopy((char *)mib_ifEntry_proto, (char *)mib_ifEntry, sizeof(mib_ifEntry));
+X    bcopy((char *)&mib_ip_proto, (char *)&mib_ip, sizeof(mib_ip));
+X    bcopy((char *)mib_ipRouteEntry_proto, (char *)mib_ipRouteEntry, sizeof(mib_ipRouteEntry));
+X    bcopy((char *)&mib_udp_proto, (char *)&mib_udp, sizeof(mib_udp));
+X}
+X
+X/*
+X * These are byte offsets into their structures.
+X * This really should be computed by the compiler, but the
+X * compiler I'm using doesn't want to do this.
+X */
+X#define VERSION_DESCR	0
+X#define VERSION_ID	32
+X#define CFG_NNETS	48
+X#define UPTIME		52
+X
+X#define IFINDEX		0
+X#define IFDESCR		4
+X#define IFTYPE		36
+X#define IFMTU		40
+X#define IFSPEED		44
+X#define IFPHYSADDRESS	48
+X#define IFADMINSTATUS	60
+X#define IFOPERSTATUS	64
+X#define IFLASTCHANGE	68
+X#define IFINOCTETS	72
+X#define IFINUCASTPKTS	76
+X#define	IFINNUCASTPKTS	80
+X#define	IFINDISCARDS	84
+X#define	IFINERRORS	88
+X#define	IFINUNKNOWNPROTOS   92
+X#define	IFOUTOCTETS	96
+X#define	IFOUTUCASTPKTS	100
+X#define	IFOUTNUCASTPKTS	104
+X#define	IFOUTDISCARDS	108
+X#define	IFOUTERRORS	112
+X#define	IFOUTQLEN	116
+X
+X#define ATIFINDEX	0
+X#define ATPHYSADDRESS	4
+X#define ATNETADDRESS	16
+X
+X#define IPFORWARDING	0
+X#define IPDEFAULTTTL	4
+X#define IPINRECEIVES	8
+X#define IPINHDRERRORS	12
+X#define IPINADDRERRORS	16
+X#define IPFORWDATAGRAMS	20
+X#define IPINUNKNOWNPROTOS   24
+X#define IPINDISCARDS	28
+X#define IPINDELIVERS	32
+X#define IPOUTREQUESTS	36
+X#define IPOUTDISCARDS	40
+X#define IPOUTNOROUTES	44
+X#define IPREASMTIMEOUT	48
+X#define IPREASMREQDS	52
+X#define IPREASMOKS	56
+X#define IPREASMFAILS	60
+X#define IPFRAGOKS	64
+X#define IPFRAGFAILS	68
+X#define IPFRAGCREATES	72
+X
+X#define IPADADDR	0
+X#define IPADIFINDEX	4
+X#define IPADNETMASK	8
+X#define IPADBCASTADDR	12
+X
+X#define IPROUTEDEST	0
+X#define IPROUTEIFINDEX	4
+X#define IPROUTEMETRIC1	8
+X#define IPROUTEMETRIC2	12
+X#define IPROUTEMETRIC3	16
+X#define IPROUTEMETRIC4	20
+X#define IPROUTENEXTHOP	24
+X#define IPROUTETYPE	28
+X#define IPROUTEPROTO	32
+X#define IPROUTEAGE	36
+X
+X#define	ICMPINMSGS	    0
+X#define	ICMPINERRORS	    4
+X#define	ICMPINDESTUNREACHS  8
+X#define	ICMPINTIMEEXCDS	    12
+X#define	ICMPINPARMPROBS	    16
+X#define	ICMPINSRCQUENCHS    20
+X#define	ICMPINREDIRECTS	    24
+X#define	ICMPINECHOS	    28
+X#define	ICMPINECHOREPS	    32
+X#define	ICMPINTIMESTAMPS    36
+X#define	ICMPINTIMESTAMPREPS 40
+X#define	ICMPINADDRMASKS	    44
+X#define	ICMPINADDRMASKREPS  48
+X#define	ICMPOUTMSGS	    52
+X#define	ICMPOUTERRORS	    56
+X#define	ICMPOUTDESTUNREACHS 60
+X#define	ICMPOUTTIMEEXCDS    64
+X#define	ICMPOUTPARMPROBS    68
+X#define	ICMPOUTSRCQUENCHS   72
+X#define	ICMPOUTREDIRECTS    76
+X#define	ICMPOUTECHOS	    80
+X#define	ICMPOUTECHOREPS	    84
+X#define	ICMPOUTTIMESTAMPS   88
+X#define	ICMPOUTTIMESTAMPREPS	92
+X#define	ICMPOUTADDRMASKS    96
+X#define	ICMPOUTADDRMASKREPS 100
+X
+X#define UDPINDATAGRAMS	    0
+X#define UDPNOPORTS	    4
+X#define	UDPINERRORS	    8
+X#define UDPOUTDATAGRAMS	    12
+X
+Xstruct variable	    variables[] = {
+X    /* these must be lexicographly ordered by the name field */
+X    {{MIB, 1, 1, 0},		9, STRING,  VERSION_DESCR, RONLY, var_system },
+X    {{MIB, 1, 2, 0},		9, OBJID,   VERSION_ID, RONLY, var_system },
+X    {{MIB, 1, 3, 0},		9, TIMETICKS, UPTIME, RONLY, var_system },
+X    {{MIB, 2, 1, 0},		9, INTEGER, CFG_NNETS, RONLY, var_system },
+X    {{MIB, 2, 2, 1, 1, 0xFF},  11, INTEGER, IFINDEX, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 2, 0xFF},  11, STRING,  IFDESCR, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 3, 0xFF},  11, INTEGER, IFTYPE, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 4, 0xFF},  11, INTEGER, IFMTU, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 5, 0xFF},  11, GAUGE,   IFSPEED, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 6, 0xFF},  11, STRING,  IFPHYSADDRESS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 7, 0xFF},  11, INTEGER, IFADMINSTATUS, RWRITE, var_ifEntry },
+X    {{MIB, 2, 2, 1, 8, 0xFF},  11, INTEGER, IFOPERSTATUS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 9, 0xFF},  11, TIMETICKS, IFLASTCHANGE, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 10, 0xFF}, 11, COUNTER, IFINOCTETS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 11, 0xFF}, 11, COUNTER, IFINUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 12, 0xFF}, 11, COUNTER, IFINNUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 13, 0xFF}, 11, COUNTER, IFINDISCARDS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 14, 0xFF}, 11, COUNTER, IFINERRORS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 15, 0xFF}, 11, COUNTER, IFINUNKNOWNPROTOS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 16, 0xFF}, 11, COUNTER, IFOUTOCTETS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 17, 0xFF}, 11, COUNTER, IFOUTUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 18, 0xFF}, 11, COUNTER, IFOUTNUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 19, 0xFF}, 11, COUNTER, IFOUTDISCARDS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 20, 0xFF}, 11, COUNTER, IFOUTERRORS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 21, 0xFF}, 11, GAUGE,   IFOUTQLEN, RONLY, var_ifEntry },
+X    {{MIB, 3, 1, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, INTEGER,    ATIFINDEX, RWRITE, var_atEntry }, 
+X    {{MIB, 3, 1, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, STRING,	    ATPHYSADDRESS, RWRITE, var_atEntry }, 
+X    {{MIB, 3, 1, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, IPADDRESS,  ATNETADDRESS, RWRITE, var_atEntry },
+X    {{MIB, 4, 1, 0},	    9, INTEGER, IPFORWARDING, RONLY, var_ip },
+X    {{MIB, 4, 2, 0},	    9, INTEGER, IPDEFAULTTTL, RWRITE, var_ip },
+X    {{MIB, 4, 3, 0},	    9, COUNTER, IPINRECEIVES, RONLY, var_ip },
+X    {{MIB, 4, 4, 0},	    9, COUNTER, IPINHDRERRORS, RONLY, var_ip },
+X    {{MIB, 4, 5, 0},	    9, COUNTER, IPINADDRERRORS, RONLY, var_ip },
+X    {{MIB, 4, 6, 0},	    9, COUNTER, IPFORWDATAGRAMS, RONLY, var_ip },
+X    {{MIB, 4, 7, 0},	    9, COUNTER, IPINUNKNOWNPROTOS, RONLY, var_ip },
+X    {{MIB, 4, 8, 0},	    9, COUNTER, IPINDISCARDS, RONLY, var_ip },
+X    {{MIB, 4, 9, 0},	    9, COUNTER, IPINDELIVERS, RONLY, var_ip },
+X    {{MIB, 4, 10, 0},	    9, COUNTER, IPOUTREQUESTS, RONLY, var_ip },
+X    {{MIB, 4, 11, 0},	    9, COUNTER, IPOUTDISCARDS, RONLY, var_ip },
+X    {{MIB, 4, 12, 0},	    9, COUNTER, IPOUTNOROUTES, RONLY, var_ip },
+X    {{MIB, 4, 13, 0},	    9, INTEGER, IPREASMTIMEOUT, RONLY, var_ip },
+X    {{MIB, 4, 14, 0},	    9, COUNTER, IPREASMREQDS, RONLY, var_ip },
+X    {{MIB, 4, 15, 0},	    9, COUNTER, IPREASMOKS, RONLY, var_ip },
+X    {{MIB, 4, 16, 0},	    9, COUNTER, IPREASMFAILS, RONLY, var_ip },
+X    {{MIB, 4, 17, 0},	    9, COUNTER, IPFRAGOKS, RONLY, var_ip },
+X    {{MIB, 4, 18, 0},	    9, COUNTER, IPFRAGFAILS, RONLY, var_ip },
+X    {{MIB, 4, 19, 0},	    9, COUNTER, IPFRAGCREATES, RONLY, var_ip },
+X    {{MIB, 4, 20, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPADADDR, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPADIFINDEX, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPADNETMASK, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 4, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPADBCASTADDR, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 21, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPROUTEDEST, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEIFINDEX, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC1, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 4, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC2, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 5, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC3, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 6, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC4, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 7, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPROUTENEXTHOP, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 8, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTETYPE, RWRITE, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 9, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEPROTO, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 10, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEAGE, RWRITE, var_ipRouteEntry },
+X    {{MIB, 5, 1, 0},	    9, COUNTER, ICMPINMSGS, RONLY, var_icmp },
+X    {{MIB, 5, 2, 0},	    9, COUNTER, ICMPINERRORS, RONLY, var_icmp },
+X    {{MIB, 5, 3, 0},	    9, COUNTER, ICMPINDESTUNREACHS, RONLY, var_icmp },
+X    {{MIB, 5, 4, 0},	    9, COUNTER, ICMPINTIMEEXCDS, RONLY, var_icmp },
+X    {{MIB, 5, 5, 0},	    9, COUNTER, ICMPINPARMPROBS, RONLY, var_icmp },
+X    {{MIB, 5, 6, 0},	    9, COUNTER, ICMPINSRCQUENCHS, RONLY, var_icmp },
+X    {{MIB, 5, 7, 0},	    9, COUNTER, ICMPINREDIRECTS, RONLY, var_icmp },
+X    {{MIB, 5, 8, 0},	    9, COUNTER, ICMPINECHOS, RONLY, var_icmp },
+X    {{MIB, 5, 9, 0},	    9, COUNTER, ICMPINECHOREPS, RONLY, var_icmp },
+X    {{MIB, 5, 10, 0},	    9, COUNTER, ICMPINTIMESTAMPS, RONLY, var_icmp },
+X    {{MIB, 5, 11, 0},	    9, COUNTER, ICMPINTIMESTAMPREPS, RONLY, var_icmp },
+X    {{MIB, 5, 12, 0},	    9, COUNTER, ICMPINADDRMASKS, RONLY, var_icmp },
+X    {{MIB, 5, 13, 0},	    9, COUNTER, ICMPINADDRMASKREPS, RONLY, var_icmp },
+X    {{MIB, 5, 14, 0},	    9, COUNTER, ICMPOUTMSGS, RONLY, var_icmp },
+X    {{MIB, 5, 15, 0},	    9, COUNTER, ICMPOUTERRORS, RONLY, var_icmp },
+X    {{MIB, 5, 16, 0},	    9, COUNTER, ICMPOUTDESTUNREACHS, RONLY, var_icmp },
+X    {{MIB, 5, 17, 0},	    9, COUNTER, ICMPOUTTIMEEXCDS, RONLY, var_icmp },
+X    {{MIB, 5, 18, 0},	    9, COUNTER, ICMPOUTPARMPROBS, RONLY, var_icmp },
+X    {{MIB, 5, 19, 0},	    9, COUNTER, ICMPOUTSRCQUENCHS, RONLY, var_icmp },
+X    {{MIB, 5, 20, 0},	    9, COUNTER, ICMPOUTREDIRECTS, RONLY, var_icmp },
+X    {{MIB, 5, 21, 0},	    9, COUNTER, ICMPOUTECHOS, RONLY, var_icmp },
+X    {{MIB, 5, 22, 0},	    9, COUNTER, ICMPOUTECHOREPS, RONLY, var_icmp },
+X    {{MIB, 5, 23, 0},	    9, COUNTER, ICMPOUTTIMESTAMPS, RONLY, var_icmp },
+X    {{MIB, 5, 24, 0},	    9, COUNTER, ICMPOUTTIMESTAMPREPS, RONLY, var_icmp },
+X    {{MIB, 5, 25, 0},	    9, COUNTER, ICMPOUTADDRMASKS, RONLY, var_icmp },
+X    {{MIB, 5, 26, 0},	    9, COUNTER, ICMPOUTADDRMASKREPS, RONLY, var_icmp },
+X    {{MIB, 7, 1, 0},	    9, COUNTER, UDPINDATAGRAMS, RONLY, var_udp }, 
+X    {{MIB, 7, 2, 0},	    9, COUNTER, UDPNOPORTS, RONLY, var_udp },
+X    {{MIB, 7, 3, 0},	    9, COUNTER, UDPINERRORS, RONLY, var_udp }, 
+X    {{MIB, 7, 4, 0},	    9, COUNTER, UDPOUTDATAGRAMS, RONLY, var_udp }
+X};
+X
+X
+X
+X
+X/*
+X * getStatPtr - return a pointer to the named variable, as well as it's
+X * type, length, and access control list.
+X *
+X * If an exact match for the variable name exists, it is returned.  If not,
+X * and exact is false, the next variable lexicographically after the
+X * requested one is returned.
+X *
+X * If no appropriate variable can be found, NULL is returned.
+X */
+Xu_char  *
+XgetStatPtr(name, namelen, type, len, acl, exact, access_method)
+X    oid		*name;	    /* IN - name of var, OUT - name matched */
+X    int		*namelen;   /* IN -number of sub-ids in name, OUT - subid-is in matched name */
+X    u_char	*type;	    /* OUT - type of matched variable */
+X    int		*len;	    /* OUT - length of matched variable */
+X    u_short	*acl;	    /* OUT - access control list */
+X    int		exact;	    /* IN - TRUE if exact match wanted */
+X    int		*access_method; /* OUT - 1 if function, 0 if char * */
+X{
+X
+X    register struct variable	*vp;
+X
+X    register int	x;
+X    register u_char	*access;
+X    int			result;
+X
+X    for(x = 0, vp = variables; x < sizeof(variables)/sizeof(struct variable); vp++, x++){
+X	/*
+X	 * compare should be expanded inline.
+X	 */
+X	result = compare(name, *namelen, vp->name, (int)vp->namelen);
+X	if ((result < 0) || (exact && (result == 0))){
+X	    access = (*(vp->findVar))(vp, name, namelen, exact, len, access_method);
+X	    if (access != NULL)
+X		break;
+X	}
+X    }
+X    if (x == sizeof(variables)/sizeof(struct variable))
+X	return NULL;
+X
+X    /* vp now points to the approprate struct */
+X    *type = vp->type;
+X    *acl = vp->acl;
+X    return access;
+X}
+X
+X
+X
+Xint
+Xcompare(name1, len1, name2, len2)
+X    register oid	    *name1, *name2;
+X    register int	    len1, len2;
+X{
+X    register int    len;
+X
+X    /* len = minimum of len1 and len2 */
+X    if (len1 < len2)
+X	len = len1;
+X    else
+X	len = len2;
+X    /* find first non-matching byte */
+X    while(len-- > 0){
+X	if (*name1 < *name2)
+X	    return -1;
+X	if (*name2++ < *name1++)
+X	    return 1;
+X    }
+X    /* bytes match up to length of shorter string */
+X    if (len1 < len2)
+X	return -1;  /* name1 shorter, so it is "less" */
+X    if (len2 < len1)
+X	return 1;
+X    return 0;	/* both strings are equal */
+X}
+X
+X
+Xu_char *
+Xvar_system(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			*access_method;	/* OUT - 1 if function, 0 if char pointer. */
+X{
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);	/* default length */
+X    switch (vp->magic){
+X	case VERSION_DESCR:
+X	    *var_len = strlen(version_descr);
+X	    return (u_char *)version_descr;
+X	case VERSION_ID:
+X	    *var_len = sizeof(version_id);
+X	    return (u_char *)version_id;
+X	case CFG_NNETS:
+X	    return (u_char *)&cfg_nnets;
+X	case UPTIME:
+X	    return (u_char *)&uptime;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X
+Xu_char *
+Xvar_ifEntry(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			*access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    oid			newname[MAX_NAME_LEN];
+X    register int	interface;
+X    register struct mib_ifEntry	*ifp;
+X    extern struct conf	conf;
+X    int			result;
+X
+X    bcopy((char *)vp->name, (char *)newname, (int)vp->namelen * sizeof(oid));
+X    /* find "next" interface */
+X    for(interface = 1; interface <= MAX_INTERFACES; interface++){
+X	newname[10] = (oid)interface;
+X	result = compare(name, *length, newname, (int)vp->namelen);
+X	if ((exact && (result == 0)) || (!exact && (result < 0)))
+X	    break;
+X    }
+X    if (interface > MAX_INTERFACES)
+X	return NULL;
+X    interface--; /* translate into internal index of interfaces */
+X    bcopy((char *)newname, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);
+X
+X    ifp = &mib_ifEntry[interface];
+X    switch (vp->magic){
+X        case IFDESCR:
+X	    *var_len = strlen(ifp->ifDescr);
+X	    return (u_char *)ifp->ifDescr;
+X	case IFPHYSADDRESS:
+X	    *var_len = ifp->PhysAddrLen;
+X	    if (interface == 0)
+X	    	return (u_char *)ifie.if_haddr;
+X	    else {
+X		/*
+X		 * As far as IP is concerned, the "physical" address includes the Appletalk
+X		 * network address as well as node number.
+X		 */
+X		return_buf[0] = ((u_char *)&conf.atneta)[0];
+X		return_buf[1] = ((u_char *)&conf.atneta)[1];
+X		return_buf[2] = ifab.if_dnode;
+X	    	return (u_char *)return_buf;
+X	    }
+X	case IFOUTQLEN:
+X#ifdef notdef
+X	    if (interface == 0)
+X		long_return = sendq->pq_len;
+X	    else
+X		long_return = 0;	/* There is no appletalk transmit queue */
+X#else
+X	    long_return = 0;
+X#endif
+X	    return (u_char *)&long_return;
+X	default:
+X	    return (u_char *)(((char *)ifp) + vp->magic);
+X    }
+X}
+X
+X/* 
+X * from arp.c:
+X * There is no arp.h, so this must be recreated here.
+X */
+X#define	ARPHLNMAX	6	/* largest arp_hln value needed */
+X#define	ARPPLN		4	/* length of protocol address (IP) */
+Xstruct	arptab {
+X	iaddr_t at_iaddr;		/* internet address */
+X	u_char	at_haddr[ARPHLNMAX];	/* hardware address */
+X	u_char	at_timer;		/* minutes since last reference */
+X	u_char	at_flags;		/* flags */
+X	struct	pbuf *at_hold;		/* last packet until resolved/timeout */
+X};
+X/* at_flags field values */
+X#define	ATF_INUSE	1		/* entry in use */
+X#define ATF_COM		2		/* completed entry (haddr valid) */
+X
+X#define	ARPTAB_BSIZ	5		/* bucket size */
+X#define	ARPTAB_NB	11		/* number of buckets */
+X#define	ARPTAB_SIZE	(ARPTAB_BSIZ * ARPTAB_NB)
+X
+X
+Xu_char *
+Xvar_atEntry(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;	/* IN - pointer to variable entry that points here */
+X    register oid	    *name;	/* IN/OUT - input name requested, output name found */
+X    register int	    *length;	/* IN/OUT - length of input and output oid's */
+X    int			    exact;	/* IN - TRUE if an exact match was requested. */
+X    int			    *var_len;	/* OUT - length of variable or 0 if function returned. */
+X    int			    *access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    /*
+X     * object identifier is of form:
+X     * 1.3.6.1.2.1.3.1.1.1.interface.1.A.B.C.D,  where A.B.C.D is IP address.
+X     * Interface is at offset 10,
+X     * IPADDR starts at offset 12.
+X     */
+X    oid			    lowest[16];
+X    oid			    current[16];
+X    register struct arptab  *arp;
+X    struct arptab	    *lowarp = 0;
+X    extern struct arptab    arptab[];
+X    register struct ipdad   *ipdp;
+X    struct ipdad	    *lowipdp = 0;
+X    extern struct ipdad	    ipdad[];
+X    long		    ipaddr;
+X    int			    addrlen;
+X    extern struct conf	    conf;
+X    register u_char	    *cp;
+X    register oid	    *op;
+X    register int	    count;
+X
+X    /* fill in object part of name for current (less sizeof instance part) */
+X    bcopy((char *)vp->name, (char *)current, (int)(vp->namelen - 6) * sizeof(oid));
+X    for(arp = arptab; arp < arptab + ARPTAB_SIZE; arp++){
+X	if (!(arp->at_flags & ATF_COM))	/* if this entry isn't valid */
+X	    continue;
+X	/* create new object id */
+X	current[10] = 1;	/* ifIndex == 1 (ethernet) */
+X	current[11] = 1;
+X	cp = (u_char *)&(arp->at_iaddr);
+X	op = current + 12;
+X	for(count = 4; count > 0; count--)
+X	    *op++ = *cp++;
+X	if (exact){
+X	    if (compare(current, 16, name, *length) == 0){
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		lowarp = arp;
+X		break;	/* no need to search further */
+X	    }
+X	} else {
+X	    if ((compare(current, 16, name, *length) > 0) && (!lowarp || (compare(current, 16, lowest, 16) < 0))){
+X		/*
+X		 * if new one is greater than input and closer to input than
+X		 * previous lowest, save this one as the "next" one.
+X		 */
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		lowarp = arp;
+X	    }
+X	}
+X    }
+X    ipaddr = conf.ipaddr + conf.ipstatic + 1;
+X    for(ipdp = ipdad; ipdp < ipdad + NIPDAD; ipdp++, ipaddr++){
+X	if (ipdp->timer == 0)	/* if this entry is unused, continue */
+X	    continue;
+X	/* create new object id */
+X	current[10] = 2;	/* ifIndex == 2 (appletalk) */
+X	current[11] = 1;
+X	cp = (u_char *)&ipaddr;
+X	op = current + 12;
+X	for(count = 4; count > 0; count--)
+X	    *op++ = *cp++;
+X	if (exact){
+X	    if (compare(current, 16, name, *length) == 0){
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		lowipdp = ipdp;
+X		lowarp = 0;
+X		break;	/* no need to search further */
+X	    }
+X	} else {
+X	    if ((compare(current, 16, name, *length) > 0) && ((!lowarp && !lowipdp) || (compare(current, 16, lowest, 16) < 0))){
+X		/*
+X		 * if new one is greater than input and closer to input than
+X		 * previous lowest, save this one as the "next" one.
+X		 */
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		lowipdp = ipdp;
+X		/* ipdad entry is lower, so invalidate arp entry */
+X		lowarp = 0;
+X	    }
+X	}
+X    }
+X    if (lowarp != 0){	/* arp entry was lowest */
+X	addrlen = 6;
+X	bcopy((char *)lowarp->at_haddr, (char *)return_buf, 6);
+X    } else if (lowipdp != 0) {
+X	addrlen = 3;
+X	/*
+X	 * As far as IP is concerned, the "physical" address includes the Appletalk
+X	 * network address as well as node number.
+X	 */
+X	return_buf[0] = ((u_char *)&lowipdp->net)[0];
+X	return_buf[1] = ((u_char *)&lowipdp->net)[1];
+X	return_buf[2] = lowipdp->node;
+X    } else
+X	return NULL;	/* no match */
+X    bcopy((char *)lowest, (char *)name, 16 * sizeof(oid));
+X    *length = 16;
+X    *access_method = 0;
+X    switch(vp->magic){
+X	case ATIFINDEX:
+X	    *var_len = sizeof long_return;
+X	    long_return = lowest[10];
+X	    return (u_char *)&long_return;
+X	case ATPHYSADDRESS:
+X	    *var_len = addrlen;
+X	    return (u_char *)return_buf;
+X	case ATNETADDRESS:
+X	    *var_len = sizeof long_return;
+X	    cp = (u_char *)&long_return;
+X	    op = lowest + 12;
+X	    for(count = 4; count > 0; count--)
+X		*cp++ = *op++;
+X	    return (u_char *)&long_return;
+X	default:
+X	    ERROR("");
+X   }
+X   return NULL;
+X}
+X
+Xu_char *
+Xvar_ip(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    oid	    *name;	    /* IN/OUT - input name requested, output name found */
+X    int	    *length;	    /* IN/OUT - length of input and output oid's */
+X    int	    exact;	    /* IN - TRUE if an exact match was requested. */
+X    int	    *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int	    *access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);
+X    return ((u_char *)&mib_ip) + vp->magic;
+X}
+X
+Xu_char *
+Xvar_ipRouteEntry(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid    	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output strings */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			*access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    oid			    newname[MAX_NAME_LEN];
+X    register int	    entry;
+X    register struct mib_ipRouteEntry	*routep;
+X    int			    result;
+X    register int	    count;
+X    register u_char	    *cp;
+X    register oid	    *op;
+X    extern struct conf	    conf;
+X
+X    /* set up a routing table to search. All other values are set at startup. */
+X    routep = mib_ipRouteEntry;
+X    routep[ROUTE_DEFAULT].ipRouteDest = 0;
+X    routep[ROUTE_DEFAULT].ipRouteNextHop = conf.iproutedef;
+X    routep[ROUTE_LOCAL].ipRouteDest = ipnetpart(conf.ipaddr);
+X    routep[ROUTE_LOCAL].ipRouteNextHop = conf.ipaddr;
+X
+X    bcopy((char *)vp->name, (char *)newname, (int)vp->namelen * sizeof(oid));
+X    /* find "next" route */
+X    for(entry = 0; entry < ROUTE_ENTRIES; entry++){
+X	cp = (u_char *)&routep->ipRouteDest;
+X	op = newname + 10;
+X	for(count = 4; count > 0; count--)
+X	    *op++ = *cp++;
+X	result = compare(name, *length, newname, (int)vp->namelen);
+X	if ((exact && (result == 0)) || (!exact && (result < 0)))
+X	    break;
+X	routep++;
+X    }
+X    if (entry >= ROUTE_ENTRIES)
+X	return NULL;
+X    bcopy((char *)newname, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);
+X
+X    routep = &mib_ipRouteEntry[entry];
+X    switch (vp->magic){
+X	case IPROUTENEXTHOP:
+X	    if (entry == ROUTE_DEFAULT)
+X		return (u_char *)&conf.iproutedef;
+X	    else
+X		return (u_char *)&conf.ipaddr;
+X	default:
+X	    return (u_char *)(((u_char *)routep) + vp->magic);
+X    }
+X}
+X
+Xu_char *
+Xvar_ipAddrEntry(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			*access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    oid		    newname[14];
+X    int		    result;
+X    extern struct conf	conf;
+X    register int    count;
+X    register u_char *cp;
+X    register oid    *op;
+X
+X    bcopy((char *)vp->name, (char *)newname, (int)vp->namelen * sizeof(oid));
+X    /* now find "next" ipaddr */
+X    /*
+X     * foreach ipaddress entry, cobble up newname with its IP address,
+X     * by copying the ipaddress into the 10 - 13't subid's
+X     * then compare with name.  If greater than name and less than lowest,
+X     * save as new lowest.
+X     * Having said all that, I'm now going to cheat because I only have one
+X     * IP address (on both interfaces).
+X     */
+X    cp = (u_char *)&conf.ipaddr;
+X    op = newname + 10;
+X    for(count = sizeof(conf.ipaddr); count > 0; count--)
+X	*op++ = *cp++;
+X    result = compare(name, *length, newname, (int)vp->namelen);
+X    if ((exact && (result != 0)) || (!exact && (result >= 0)))
+X	return NULL;	/* no match */
+X    bcopy((char *)newname, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);
+X
+X    switch (vp->magic){
+X    	case IPADADDR:
+X	    return (u_char *)&conf.ipaddr;
+X        case IPADIFINDEX:
+X	    /*
+X	     * Always return ethernet interface. SNMP
+X	     * has no access method to access instances
+X	     * on different interfaces with same IP address.
+X	     */
+X	    long_return = 1;
+X	    return (u_char *)&long_return;
+X	case IPADNETMASK:
+X	    long_return = (IN_CLASSA(conf.ipaddr) ? IN_CLASSA_NET :
+X			(IN_CLASSB(conf.ipaddr) ? IN_CLASSB_NET : IN_CLASSC_NET));
+X	    return (u_char *)&long_return;
+X	case IPADBCASTADDR:
+X	    long_return = conf.ipbroad & 1;
+X	    return (u_char *)&long_return;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X
+Xu_char *
+Xvar_icmp(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    oid	    *name;	    /* IN/OUT - input name requested, output name found */
+X    int	    *length;	    /* IN/OUT - length of input and output oid's */
+X    int	    exact;	    /* IN - TRUE if an exact match was requested. */
+X    int	    *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int	    *access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long); /* all following variables are sizeof long */
+X    switch (vp->magic){
+X	case ICMPINMSGS:
+X	    return (u_char *)&mib_icmpInMsgs;
+X	case ICMPINERRORS:
+X	    return (u_char *)&mib_icmpInErrors;
+X	case ICMPINDESTUNREACHS:
+X	    return (u_char *)&mib_icmpInCount[3];
+X	case ICMPINTIMEEXCDS:
+X	    return (u_char *)&mib_icmpInCount[11];
+X	case ICMPINPARMPROBS:
+X	    return (u_char *)&mib_icmpInCount[12];
+X	case ICMPINSRCQUENCHS:
+X	    return (u_char *)&mib_icmpInCount[4];
+X	case ICMPINREDIRECTS:
+X	    return (u_char *)&mib_icmpInCount[5];
+X	case ICMPINECHOS:
+X	    return (u_char *)&mib_icmpInCount[8];
+X	case ICMPINECHOREPS:
+X	    return (u_char *)&mib_icmpInCount[0];
+X	case ICMPINTIMESTAMPS:
+X	    return (u_char *)&mib_icmpInCount[13];
+X	case ICMPINTIMESTAMPREPS:
+X	    return (u_char *)&mib_icmpInCount[14];
+X	case ICMPINADDRMASKS:
+X	    return (u_char *)&mib_icmpInCount[17];
+X	case ICMPINADDRMASKREPS:
+X	    return (u_char *)&mib_icmpInCount[18];
+X	case ICMPOUTMSGS:
+X	    return (u_char *)&mib_icmpOutMsgs;
+X	case ICMPOUTERRORS:
+X	    return (u_char *)&mib_icmpOutErrors;
+X	case ICMPOUTDESTUNREACHS:
+X	    return (u_char *)&mib_icmpOutCount[3];
+X	case ICMPOUTTIMEEXCDS:
+X	    return (u_char *)&mib_icmpOutCount[11];
+X	case ICMPOUTPARMPROBS:
+X	    return (u_char *)&mib_icmpOutCount[12];
+X	case ICMPOUTSRCQUENCHS:
+X	    return (u_char *)&mib_icmpOutCount[4];
+X	case ICMPOUTREDIRECTS:
+X	    return (u_char *)&mib_icmpOutCount[5];
+X	case ICMPOUTECHOS:
+X	    return (u_char *)&mib_icmpOutCount[8];
+X	case ICMPOUTECHOREPS:
+X	    return (u_char *)&mib_icmpOutCount[0];
+X	case ICMPOUTTIMESTAMPS:
+X	    return (u_char *)&mib_icmpOutCount[13];
+X	case ICMPOUTTIMESTAMPREPS:
+X	    return (u_char *)&mib_icmpOutCount[14];
+X	case ICMPOUTADDRMASKS:
+X	    return (u_char *)&mib_icmpOutCount[17];
+X	case ICMPOUTADDRMASKREPS:
+X	    return (u_char *)&mib_icmpOutCount[18];
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X
+Xu_char *
+Xvar_udp(vp, name, length, exact, var_len, access_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    oid	    *name;	    /* IN/OUT - input name requested, output name found */
+X    int	    *length;	    /* IN/OUT - length of input and output oid's */
+X    int	    exact;	    /* IN - TRUE if an exact match was requested. */
+X    int	    *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int	    *access_method; /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *access_method = 0;
+X    *var_len = sizeof(long);
+X    return ((u_char *)&mib_udp) + vp->magic;
+X}
+END_OF_FILE
+  if test 33903 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/snmp_vars.c.kip'
+fi
+if test -f 'nocol-3.0/src/support/multiping/multiping.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/support/multiping/multiping.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/support/multiping/multiping.c'\" \(29414 characters\)
+  sed "s/^X//" >'nocol-3.0/src/support/multiping/multiping.c' <<'END_OF_FILE'
+X#ifndef lint
+Xchar            copyright[] =
+X"@(#) Copyright (c) 1989 The Regents of the University of California.\n\
+X All rights reserved.\n";
+X#endif				/* not lint */
+X
+X#ifndef lint
+Xstatic char     sccsid[] = "@(#)ping.c	5.9 (Berkeley) 5/12/91";
+X#endif				/* not lint */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Header: /home/aggarwal/lsrc/nocol/src/support/multiping/RCS/multiping.c,v 1.5 1993/10/31 05:25:12 aggarwal Exp $" ;
+X#endif
+X
+X/*
+X * (Multi) P I N G . C
+X * 
+X * Using the InterNet Control Message Protocol (ICMP) "ECHO" facility, measure
+X * round-trip-delays and packet loss across network paths.
+X * 
+X * Author -
+X *      Mike Muuss
+X *      U. S. Army Ballistic Research Laboratory
+X *      December, 1983
+X * Modified at Uc Berkeley
+X * Record Route and verbose headers - Phil Dykstra, BRL, March 1988.
+X * ttl, duplicate detection - Cliff Frost, UCB, April 1989
+X * Pad pattern - Cliff Frost (from Tom Ferrin, UCSF), April 1989
+X * Wait for dribbles, option decoding, pkt compare - vjs@sgi.com, May 1989
+X * Ping multiple sites simultaneously - Spencer Sun, Princeton/JvNC, June 1992
+X * 
+X * Status - Public Domain.  Distribution Unlimited. Bugs - More statistics
+X * could always be gathered. This program has to run SUID to ROOT to access
+X * the ICMP socket.
+X *
+X * $Log: multiping.c,v $
+X * Revision 1.5  1993/10/31  05:25:12  aggarwal
+X * Had an extra '*' in sendto (for 'to'). Reported by Rick Beebe @Yale
+X *
+X * Revision 1.4  1993/10/31  05:23:05  conklin
+X * Added loop/delay to prevent the return packets from overflowing the
+X * kernel.
+X *
+X * Revision 1.3  1992/06/10  15:04:00  spencer
+X * Realized that since recvfrom() tells where the packet came from, I don't
+X * need to use the upper four bits to keep track of it (as long as the
+X * same IP# doesn't show up more than once on the command line).  So I
+X * stopped using the upper four bits as a tag, freeing up the full 16 bits
+X * for the sequence number.  Made a separate usage() function and an
+X * output_new_style() function for clarity.
+X *
+X * Revision 1.2  1992/06/10  14:58:39  spencer
+X * First completed version of multiping.  Uses upper four bits of the ICMP
+X * sequence number field in the ICMP header to keep track of which remote
+X * site the echo is going to or coming from.
+X *
+X * This version was reconstructed backwards, after-the-fact, so it probably
+X * has some bugs and quirks in it.  Things to check are the bit manipulation
+X * for the sequence ID numbers, and whether or not prefinish() screws things
+X * up.  The only other changes to be made are to make a separate usage()
+X * function and a output_new_style() function for clarity.
+X *
+X * Revision 1.1  1992/06/10  14:57:07  spencer
+X * Initial revision
+X *
+X */
+X#include <stdio.h>
+X#include <netdb.h>
+X#include <unistd.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#include <string.h>
+X#include <values.h>
+X
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/file.h>
+X#include <sys/time.h>
+X#include <sys/signal.h>
+X
+X#include <netinet/in_systm.h>
+X#include <netinet/in.h>
+X#include <netinet/ip.h>
+X#include <netinet/ip_icmp.h>
+X#include <netinet/ip_var.h>
+X
+X#include "multiping.h"		/* all sorts of nasty #defines */
+X#define GLOBALS
+X#include "vars.h"
+X#undef GLOBALS
+X
+Xint options;			/* F_* options */
+Xint             max_dup_chk = MAX_DUP_CHK;
+Xint             s;		/* socket file descriptor */
+Xu_char          outpack[MAXPACKET];
+Xchar            BSPACE = '\b';	/* characters written for flood */
+Xchar            DOT = '.';
+Xunsigned short  ident;		/* process id to identify our packets */
+X
+X/* counters */
+Xlong            npackets;	/* max packets to transmit */
+Xlong            ntransmitted;	/* number xmitted */
+Xlong            nreceived;      /* number received */
+Xint             interval = 1;	/* interval between packets */
+X
+X/* timing */
+Xint             timing;		/* flag to do timing */
+Xlong            tmin = MAXLONG;	/* minimum round trip time */
+Xlong            tmax;		/* maximum round trip time */
+Xu_long          tsum;		/* sum of all times, for doing average */
+X
+Xchar 		*prognm ;
+Xchar		*pr_addr();
+Xvoid            catcher(), prefinish(), finish();
+X
+Xmain(argc, argv)
+X  int             argc;
+X  char          **argv;
+X{
+X  extern int      errno, optind;
+X  extern char    *optarg;
+X  struct timeval  timeout;
+X  struct hostent *hp;
+X  struct sockaddr_in *to;
+X  struct protoent *proto;
+X  register int    i;
+X  int             ch, fdmask, hold, packlen, preload;
+X  u_char         *datap, *packet;
+X  char           *target, hnamebuf[MAXHOSTNAMELEN], *malloc();
+X#ifdef IP_OPTIONS
+X  char            rspace[3 + 4 * NROUTES + 1];	/* record route space */
+X#endif
+X
+X  prognm = argv[0] ;
+X  startup();
+X  preload = 0;
+X  datap = &outpack[8 + sizeof(struct timeval)];
+X  while ((ch = getopt(argc, argv, "tRc:dfh:i:l:np:qrs:v")) != EOF) {
+X    switch (ch) {
+X      case 't':
+X        options |= F_TABULAR_OUTPUT;
+X        break;
+X      case 'c':
+X        npackets = atoi(optarg);
+X        if (npackets <= 0) {
+X	  fprintf(stderr, "%s: bad number of packets to transmit.\n", prognm);
+X	  exit(1);
+X        }
+X        break;
+X      case 'd':
+X        options |= F_SO_DEBUG;
+X        break;
+X      case 'f':
+X        if (getuid()) {  /* only root can use flood option */
+X	  fprintf(stderr, "%s: flood: Permission denied.\n", prognm); 
+X	  exit(1);
+X        }
+X        options |= F_FLOOD;
+X        setbuf(stdout, (char *) NULL);
+X        break;
+X      case 'i':			/* wait between sending packets */
+X        interval = atoi(optarg);
+X        if (interval <= 0) {
+X	  fprintf(stderr, "%s: bad timing interval.\n", prognm);
+X	  exit(1);
+X        }
+X        options |= F_INTERVAL;
+X        break;
+X      case 'l':
+X        preload = atoi(optarg);
+X        if (preload < 0) {
+X	  fprintf(stderr, "%s: bad preload value.\n", prognm);
+X	  exit(1);
+X        }
+X        break;
+X      case 'n':                 /* for pr_addr() */
+X        options |= F_NUMERIC;
+X        break;
+X      case 'p':			/* fill buffer with user pattern */
+X        options |= F_PINGFILLED;
+X        fill((char *) datap, optarg);
+X        break;
+X      case 'q':
+X        options |= F_QUIET;
+X        break;
+X      case 'R':                 /* record route */
+X        options |= F_RROUTE;
+X        break;
+X      case 'r':
+X        options |= F_SO_DONTROUTE;
+X        break;
+X      case 's':			/* size of packet to send */
+X        datalen = atoi(optarg);
+X        if (datalen > MAXPACKET) {
+X	  fprintf(stderr, "%s: packet size too large.\n", prognm);
+X	  exit(1);
+X        }
+X        if (datalen <= 0) {
+X	  fprintf(stderr, "%s: illegal packet size.\n", prognm);
+X	  exit(1);
+X        }
+X        break;
+X      case 'v':
+X        options |= F_VERBOSE;
+X        break;
+X      default:
+X        usage();
+X    }
+X  }
+X  argc -= optind;
+X  argv += optind;
+X
+X  if (argc < 1)
+X    usage();
+X  while (argc--)
+X    setup_sockaddr(*argv++);
+X
+X  if (options & F_FLOOD && options & F_INTERVAL) {
+X    fprintf(stderr, "%s: -f and -i are incompatible options.\n", prognm);
+X    exit(1);
+X  }
+X  if (datalen >= sizeof(struct timeval))	/* can we time transfer */
+X    timing = 1;
+X  packlen = datalen + MAXIPLEN + MAXICMPLEN;
+X  if (!(packet = (u_char *) malloc((u_int) packlen))) {
+X    fprintf(stderr, "%s: out of memory.\n", prognm);
+X    exit(1);
+X  }
+X  if (!(options & F_PINGFILLED))
+X    for (i = 8; i < datalen; ++i)
+X      *datap++ = i;
+X
+X  ident = (unsigned short)(getpid() & 0xFFFF);
+X
+X  if (!(proto = getprotobyname("icmp"))) {
+X    fprintf(stderr, "%s: unknown protocol icmp.\n", prognm);
+X    exit(1);
+X  }
+X  if ((s = socket(AF_INET, SOCK_RAW, proto->p_proto)) < 0) {
+X    perror("ping: socket");
+X    exit(1);
+X  }
+X  hold = 1;
+X  if (options & F_SO_DEBUG)
+X    setsockopt(s, SOL_SOCKET, SO_DEBUG, (char *) &hold, sizeof(hold));
+X  if (options & F_SO_DONTROUTE)
+X    setsockopt(s, SOL_SOCKET, SO_DONTROUTE, (char *) &hold, sizeof(hold));
+X
+X  /* record route option */
+X  if (options & F_RROUTE) {
+X#ifdef IP_OPTIONS
+X    rspace[IPOPT_OPTVAL] = IPOPT_RR;
+X    rspace[IPOPT_OLEN] = sizeof(rspace) - 1;
+X    rspace[IPOPT_OFFSET] = IPOPT_MINOFF;
+X    if (setsockopt(s, IPPROTO_IP, IP_OPTIONS, rspace, sizeof(rspace)) < 0) {
+X      perror("ping: record route");
+X      exit(1);
+X    }
+X#else
+X    fprintf(stderr,
+X      "%s: record route not available in this implementation.\n", prognm);
+X    exit(1);
+X#endif				/* IP_OPTIONS */
+X  }
+X  /*
+X   * When pinging the broadcast address, you can get a lot of answers. Doing
+X   * something so evil is useful if you are trying to stress the ethernet, or
+X   * just want to fill the arp cache to get some stuff for /etc/ethers.
+X   */
+X  hold = 48 * 1024;
+X  setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char *) &hold, sizeof(hold));
+X
+X  signal(SIGINT, prefinish);
+X  signal(SIGALRM, catcher);
+X
+X  while (preload--)		/* fire off them quickies */
+X    pinger();
+X
+X  if ((options & F_FLOOD) == 0)
+X    catcher();			/* start things going */
+X
+X  for (;;) {
+X    struct sockaddr_in from;
+X    register int    cc;
+X    int             fromlen;
+X
+X    /*
+X     * If not flooding, we only send another packet after receiving
+X     * the previous one, or after 'interval' seconds expire (see -i
+X     * option).  If flooding, we send anyway (and read response only
+X     * if select() says something is waiting)
+X     */
+X    if (options & F_FLOOD) {
+X      pinger();
+X      timeout.tv_sec = 0;
+X      timeout.tv_usec = 10000;
+X      fdmask = 1 << s;
+X      if (select(s + 1, (fd_set *) & fdmask, (fd_set *) NULL, (fd_set *) NULL,
+X            &timeout) < 1)
+X	continue;
+X    }
+X    fromlen = sizeof(from);
+X    if ((cc = recvfrom(s, (char *) packet, packlen, 0,
+X                (struct sockaddr *) &from, &fromlen)) < 0) {
+X      if (errno == EINTR)
+X	continue;
+X      perror("ping: recvfrom");
+X      continue;
+X    }
+X    pr_pack((char *) packet, cc, &from);
+X    if (npackets && (nreceived >= npackets)) break;
+X  }
+X  finish();
+X  /* NOT REACHED */
+X}
+X
+X/*
+X * catcher -- This routine causes another PING to be transmitted, and then
+X * schedules another SIGALRM for 1 second from now.
+X * 
+X * bug -- Our sense of time will slowly skew (i.e., packets will not be
+X * launched exactly at 1-second intervals).  This does not affect the
+X * quality of the delay and loss statistics.
+X */
+Xvoid
+Xcatcher()
+X{
+X  int             waittime;
+X  int             i;
+X
+X  pinger();
+X  signal(SIGALRM, catcher);
+X  nreceived = 0;
+X  for (i = 0; i < numsites; i++)
+X    if (dest[i]->nreceived > nreceived)
+X      nreceived = dest[i]->nreceived;
+X
+X  if (!npackets || ntransmitted < npackets)
+X    alarm((u_int) interval);
+X  else {
+X    if (nreceived) {
+X      waittime = 2 * tmax / 1000;
+X      if (!waittime) {
+X	waittime = 1;
+X	}
+X    } else
+X      waittime = MAXWAIT + 1; 
+X    signal(SIGALRM, finish);
+X    alarm((u_int) waittime);
+X  }
+X}
+X
+X/*
+X * real_pinger -- was 'pinger' in the original but pinger() is now a front
+X * end to this one.
+X * 
+X * Compose and transmit an ICMP ECHO REQUEST packet.  The IP packet will be
+X * added on by the kernel.  The ID field is our UNIX process ID, and the
+X * sequence number is an ascending integer.  The first 8 bytes of the data
+X * portion are used to hold a UNIX "timeval" struct in VAX byte-order, to
+X * compute the round-trip time.
+X */
+Xreal_pinger(which)
+X  int             which;       /* index into dest[] array, tells which */
+X                               /* site is being pinged */
+X{
+X  register struct icmp *icp;
+X  register int    cc;
+X  int             i;
+X  struct sockaddr_in *to;
+X
+X  /* fill in the icmp headr */
+X  icp = (struct icmp *) outpack;
+X  icp->icmp_type = ICMP_ECHO;                   /* this is an echo request */
+X  icp->icmp_code = 0; 
+X  icp->icmp_cksum = 0;
+X  icp->icmp_seq = dest[which]->ntransmitted++;  /* sequence # */
+X  icp->icmp_id = ident;		                /* ID # == our pid */
+X
+X  CLR(which, icp->icmp_seq % max_dup_chk);
+X
+X  /* record time at which we sent the packet out */
+X  if (timing)
+X    gettimeofday((struct timeval *) & outpack[8], (struct timezone *) NULL);
+X
+X  cc = datalen + 8;		/* skips ICMP portion */
+X
+X  /* compute ICMP checksum here */
+X  icp->icmp_cksum = in_cksum((u_short *) icp, cc);
+X
+X  to = &dest[which]->sockad;
+X  i = sendto(s, (char *) outpack, cc, 0, (struct sockaddr *)to,
+X             sizeof(struct sockaddr));
+X
+X  if (i < 0 || i != cc) {
+X    if (i < 0)
+X      perror("ping: sendto");
+X    printf("%s: wrote %d chars to %s, ret=%d\n", prognm, cc,
+X           inet_ntoa(to->sin_addr.s_addr), i);
+X  }
+X  if (!(options & F_QUIET) && options & F_FLOOD)
+X    write(STDOUT_FILENO, &DOT, 1);
+X}
+X
+X/*
+X * pinger -- front end to real_pinger() so that all sites get pinged with
+X * each invocation of pinger().
+X * Need to add a small delay to prevent the kernel overflow from packets.
+X * Can't use sleep() since that might trigger the wrong ALARM signal
+X * handler.
+X */
+X
+Xpinger()
+X{
+X  int             i;
+X  register int loop;
+X
+X  for (i = 0; i < numsites; i++) {
+X    real_pinger(i);
+X    for (loop = 0; loop < 200000; loop++)	/* delay loop */
+X	; /* */
+X    }
+X	
+X  ++ntransmitted;
+X}
+X
+X/*
+X * pr_pack -- Print out the packet, if it came from us.  This logic is
+X * necessary because ALL readers of the ICMP socket get a copy of ALL ICMP
+X * packets which arrive ('tis only fair).  This permits multiple copies of
+X * this program to be run without having intermingled output (or
+X * statistics!).
+X */
+Xpr_pack(buf, cc, from)
+X  char           *buf;
+X  int             cc;
+X  struct sockaddr_in *from;
+X{
+X  register struct icmp *icp;
+X  register u_long l;
+X  register int    i, j;
+X  register u_char *cp, *dp;
+X  static int      old_rrlen;
+X  static char     old_rr[MAX_IPOPTLEN];
+X  struct ip      *ip;
+X  struct timeval  tv, *tp;
+X  long            triptime;
+X  int             hlen, dupflag;
+X
+X  /* record time when we received the echo reply */
+X  gettimeofday(&tv, (struct timezone *) NULL);
+X
+X  /* Check the IP header */
+X  ip = (struct ip *) buf;
+X  hlen = ip->ip_hl << 2;
+X  if (cc < hlen + ICMP_MINLEN) {
+X    if (options & F_VERBOSE)
+X      fprintf(stderr, "%s: packet too short (%d bytes) from %s\n", prognm, cc,
+X	inet_ntoa(*(struct in_addr *) & from->sin_addr.s_addr));
+X    return;
+X  }
+X  /* Now the ICMP part */
+X  cc -= hlen;
+X  icp = (struct icmp *) (buf + hlen);
+X  if (icp->icmp_type == ICMP_ECHOREPLY) {
+X    int             wherefrom;
+X    destrec        *dst;
+X
+X    /* first see if this reply is addressed to our process */
+X    if (icp->icmp_id != ident)
+X      return;			/* 'Twas not our ECHO */
+X
+X    /* if so, figure out which site it is in the dest[] array */
+X    for (wherefrom = 0; wherefrom < numsites; wherefrom++)
+X      if (!memcmp((char *) & (dest[wherefrom]->sockad), from,
+X                  sizeof(struct sockaddr_in)))
+X        break;
+X    if (wherefrom >= numsites) {
+X      fprintf(stderr,
+X	      "%s: received ICMP_ECHOREPLY from someone we didn't send to!?\n",
+X	      prognm);
+X      return;
+X    }
+X    dst = dest[wherefrom];
+X    icp->icmp_seq;
+X    ++dst->nreceived;
+X
+X    /* figure out round trip time, check min/max */
+X    if (timing) {
+X#ifndef icmp_data
+X      tp = (struct timeval *) & icp->icmp_ip;
+X#else
+X      tp = (struct timeval *) icp->icmp_data;
+X#endif
+X      tvsub(&tv, tp);
+X      triptime = tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+X      dst->tsum += triptime;
+X      if (triptime < dst->tmin)
+X	dst->tmin = triptime;
+X      if (triptime > dst->tmax)
+X	dst->tmax = triptime;
+X      if (triptime > tmax)
+X        tmax = triptime;
+X    }
+X
+X    /* check for duplicate echoes */
+X    if (TST(wherefrom, icp->icmp_seq % max_dup_chk)) {
+X      ++dst->nrepeats;
+X      --dst->nreceived;
+X      dupflag = 1;
+X    } else {
+X      SET(wherefrom, icp->icmp_seq % max_dup_chk);
+X      dupflag = 0;
+X    }
+X
+X    if (options & F_QUIET)
+X      return;
+X
+X    if (options & F_FLOOD)
+X      write(STDOUT_FILENO, &BSPACE, 1);
+X    else {
+X      printf("%d bytes from %s: icmp_seq=%u", cc,
+X        inet_ntoa(*(struct in_addr *) &from->sin_addr.s_addr),
+X        icp->icmp_seq);
+X      printf(" ttl=%d", ip->ip_ttl);
+X      if (timing)
+X	printf(" time=%ld ms", triptime);
+X      if (dupflag)
+X	printf(" (DUP!)");
+X      /* check the data */
+X      cp = (u_char *) & icp->icmp_data[8];
+X      dp = &outpack[8 + sizeof(struct timeval)];
+X      for (i = 8; i < datalen; ++i, ++cp, ++dp) {
+X	if (*cp != *dp) {
+X	  printf("\nwrong data byte #%d should be 0x%x but was 0x%x",
+X	    i, *dp, *cp);
+X	  cp = (u_char *) & icp->icmp_data[0];
+X	  for (i = 8; i < datalen; ++i, ++cp) {
+X	    if ((i % 32) == 8)
+X	      printf("\n\t");
+X	    printf("%x ", *cp);
+X	  }
+X	  break;
+X	}
+X      }
+X    }
+X  } else {
+X    /* We've got something other than an ECHOREPLY */
+X    if (!(options & F_VERBOSE))
+X      return;
+X    printf("%d bytes from %s: ", cc, pr_addr(from->sin_addr.s_addr));
+X    pr_icmph(icp);
+X  }
+X
+X  /* Display any IP options */
+X  cp = (u_char *) buf + sizeof(struct ip);
+X
+X  for (; hlen > (int) sizeof(struct ip); --hlen, ++cp)
+X    switch (*cp) {
+X    case IPOPT_EOL:
+X      hlen = 0;
+X      break;
+X    case IPOPT_LSRR:
+X      printf("\nLSRR: ");
+X      hlen -= 2;
+X      j = *++cp;
+X      ++cp;
+X      if (j > IPOPT_MINOFF)
+X	for (;;) {
+X	  l = *++cp;
+X	  l = (l << 8) + *++cp;
+X	  l = (l << 8) + *++cp;
+X	  l = (l << 8) + *++cp;
+X	  if (l == 0)
+X	    printf("\t0.0.0.0");
+X	  else
+X	    printf("\t%s", pr_addr(ntohl(l)));
+X	  hlen -= 4;
+X	  j -= 4;
+X	  if (j <= IPOPT_MINOFF)
+X	    break;
+X	  putchar('\n');
+X	}
+X      break;
+X    case IPOPT_RR:
+X      j = *++cp;		/* get length */
+X      i = *++cp;		/* and pointer */
+X      hlen -= 2;
+X      if (i > j)
+X	i = j;
+X      i -= IPOPT_MINOFF;
+X      if (i <= 0)
+X	continue;
+X      if (i == old_rrlen
+X	  && cp == (u_char *) buf + sizeof(struct ip) + 2
+X	  && !bcmp((char *) cp, old_rr, i)
+X	  && !(options & F_FLOOD)) {
+X	printf("\t(same route)");
+X	i = ((i + 3) / 4) * 4;
+X	hlen -= i;
+X	cp += i;
+X	break;
+X      }
+X      old_rrlen = i;
+X      bcopy((char *) cp, old_rr, i);
+X      printf("\nRR: ");
+X      for (;;) {
+X	l = *++cp;
+X	l = (l << 8) + *++cp;
+X	l = (l << 8) + *++cp;
+X	l = (l << 8) + *++cp;
+X	if (l == 0)
+X	  printf("\t0.0.0.0");
+X	else
+X	  printf("\t%s", pr_addr(ntohl(l)));
+X	hlen -= 4;
+X	i -= 4;
+X	if (i <= 0)
+X	  break;
+X	putchar('\n');
+X      }
+X      break;
+X    case IPOPT_NOP:
+X      printf("\nNOP");
+X      break;
+X    default:
+X      printf("\nunknown option %x", *cp);
+X      break;
+X    }
+X  if (!(options & F_FLOOD)) {
+X    putchar('\n');
+X    fflush(stdout);
+X  }
+X}
+X
+X/*
+X * in_cksum -- Checksum routine for Internet Protocol family headers (C
+X * Version)
+X */
+Xin_cksum(addr, len)
+X  u_short        *addr;
+X  int             len;
+X{
+X  register int    nleft = len;
+X  register u_short *w = addr;
+X  register int    sum = 0;
+X  u_short         answer = 0;
+X
+X  /*
+X   * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+X   * sequential 16 bit words to it, and at the end, fold back all the carry
+X   * bits from the top 16 bits into the lower 16 bits.
+X   */
+X  while (nleft > 1) {
+X    sum += *w++;
+X    nleft -= 2;
+X  }
+X
+X  /* mop up an odd byte, if necessary */
+X  if (nleft == 1) {
+X    *(u_char *) (&answer) = *(u_char *) w;
+X    sum += answer;
+X  }
+X  /* add back carry outs from top 16 bits to low 16 bits */
+X  sum = (sum >> 16) + (sum & 0xffff);	/* add hi 16 to low 16 */
+X  sum += (sum >> 16);		/* add carry */
+X  answer = ~sum;		/* truncate to 16 bits */
+X  return (answer);
+X}
+X
+X/*
+X * tvsub -- Subtract 2 timeval structs:  out = out - in.  Out is assumed to
+X * be >= in.
+X */
+Xtvsub(out, in)
+X  register struct timeval *out, *in;
+X{
+X  if ((out->tv_usec -= in->tv_usec) < 0) {
+X    --out->tv_sec;
+X    out->tv_usec += 1000000;
+X  }
+X  out->tv_sec -= in->tv_sec;
+X}
+X
+X/*
+X * In case anyone's using a program that depends on the output being
+X * in the non-tabular format
+X */
+Xvoid
+Xoutput_old_style()
+X{
+X  int             i;
+X  destrec        *dp;
+X
+X  for (i = 0; i < numsites; i++) {
+X    dp = dest[i];
+X    printf("--- %s ping statistics ---\n", pr_addr(dp->sockad.sin_addr.s_addr));
+X    printf("%ld packets transmitted, ", dp->ntransmitted);
+X    printf("%ld packets received, ", dp->nreceived);
+X    if (dp->nrepeats)
+X      printf("+%ld duplicates, ", dp->nrepeats);
+X    if (dp->ntransmitted)
+X      if (dp->nreceived > dp->ntransmitted)
+X	printf("-- somebody's printing up packets!");
+X      else
+X	printf("%d%% packet loss",
+X		      (int) (((dp->ntransmitted - dp->nreceived) * 100) /
+X			     dp->ntransmitted));
+X    putchar('\n');
+X    if (dp->nreceived && timing)
+X      printf("round-trip min/avg/max = %ld/%lu/%ld ms\n",
+X		    dp->tmin, dp->tsum / (dp->nreceived + dp->nrepeats),
+X		    dp->tmax);
+X  }
+X}
+X
+Xvoid
+Xoutput_new_style()
+X{
+X  int             i;
+X  destrec        *dp;
+X  long            sent, rcvd, rpts, tmin, tsum, tmax;
+X
+X  printf("-=-=- PING statistics -=-=-\n");
+X  printf("                                      Number of Packets");
+X  if (timing)
+X    printf("         Round Trip Time\n");
+X  printf("Remote Site                     Sent    Rcvd    Rptd   Lost ");
+X  if (timing)
+X    printf("    Min   Avg   Max");
+X  printf("\n-----------------------------  ------  ------  ------  ----");
+X  if (timing)
+X    printf("    ----  ----  ----");
+X  sent = rcvd = rpts = tmax = tsum = 0;
+X  tmin = MAXLONG;
+X  for (i = 0; i < numsites; i++) {
+X    dp = dest[i];
+X    printf("\n%-29.29s  %6ld  %6ld  %6ld%c %3ld%%",
+X      pr_addr(dp->sockad.sin_addr.s_addr),
+X      dp->ntransmitted, dp->nreceived, dp->nrepeats,
+X      (dp->nreceived > dp->ntransmitted) ? '!' : ' ',
+X      (int) (((dp->ntransmitted - dp->nreceived) * 100) / dp->ntransmitted));
+X    sent += dp->ntransmitted;
+X    rcvd += dp->nreceived;
+X    rpts += dp->nrepeats;
+X    if (timing)
+X      if (dp->nreceived) {
+X        printf("    %4ld  %4ld  %4ld", dp->tmin,
+X          dp->tsum / dp->nreceived, dp->tmax);
+X        if (dp->tmin < tmin)
+X          tmin = dp->tmin;
+X        if (dp->tmax > tmax)
+X          tmax = dp->tmax;
+X        tsum += dp->tsum;
+X      } else        
+X        printf("       0     0     0");
+X  }
+X  printf("\n-----------------------------  ------  ------  ------  ----");
+X  if (timing)
+X    printf("    ----  ----  ----");
+X  if (numsites > 1) {
+X    printf("\nTOTALS                         %6ld  %6ld  %6ld  %3ld%%",
+X      sent, rcvd, rpts, (int) (((sent - rcvd) * 100) / sent));
+X    if (timing)
+X      printf("    %4ld  %4ld  %4ld", tmin, tsum / rcvd, tmax);
+X  }
+X  putchar('\n');
+X  exit(0);
+X}
+X
+X/*
+X * prefinish -- On first SIGINT, allow any outstanding packets to dribble in
+X */
+Xvoid
+Xprefinish()
+X{
+X  if (nreceived >= ntransmitted   /* quit now if caught up */
+X      || nreceived == 0)          /* or if remote is dead */
+X    finish();
+X  signal(SIGINT, finish);         /* do this only the 1st time */
+X  npackets = ntransmitted+1;      /* let the normal limit work */
+X}
+X
+X/*
+X * finish -- Print out statistics, and give up.
+X */
+Xvoid
+Xfinish()
+X{
+X  signal(SIGINT, SIG_IGN);
+X  putchar('\n');
+X  if (!(options & F_TABULAR_OUTPUT))
+X    output_old_style();
+X  else
+X    output_new_style();
+X  exit(0);
+X}
+X
+X#ifdef notdef
+Xstatic char    *ttab[] = {
+X  "Echo Reply",			/* ip + seq + udata */
+X  "Dest Unreachable",		/* net, host, proto, port, frag, sr + IP */
+X  "Source Quench",		/* IP */
+X  "Redirect",			/* redirect type, gateway, + IP  */
+X  "Echo",
+X  "Time Exceeded",		/* transit, frag reassem + IP */
+X  "Parameter Problem",		/* pointer + IP */
+X  "Timestamp",			/* id + seq + three timestamps */
+X  "Timestamp Reply",		/* " */
+X  "Info Request",		/* id + sq */
+X  "Info Reply"			/* " */
+X};
+X#endif
+X
+X/*
+X * pr_icmph -- Print a descriptive string about an ICMP header.
+X */
+Xpr_icmph(icp)
+X  struct icmp    *icp;
+X{
+X  switch (icp->icmp_type) {
+X  case ICMP_ECHOREPLY:
+X    printf("Echo Reply\n");
+X    /* XXX ID + Seq + Data */
+X    break;
+X  case ICMP_UNREACH:
+X    switch (icp->icmp_code) {
+X    case ICMP_UNREACH_NET:
+X      printf("Destination Net Unreachable\n");
+X      break;
+X    case ICMP_UNREACH_HOST:
+X      printf("Destination Host Unreachable\n");
+X      break;
+X    case ICMP_UNREACH_PROTOCOL:
+X      printf("Destination Protocol Unreachable\n");
+X      break;
+X    case ICMP_UNREACH_PORT:
+X      printf("Destination Port Unreachable\n");
+X      break;
+X    case ICMP_UNREACH_NEEDFRAG:
+X      printf("frag needed and DF set\n");
+X      break;
+X    case ICMP_UNREACH_SRCFAIL:
+X      printf("Source Route Failed\n");
+X      break;
+X    default:
+X      printf("Dest Unreachable, Bad Code: %d\n",
+X		    icp->icmp_code);
+X      break;
+X    }
+X    /* Print returned IP header information */
+X#ifndef icmp_data
+X    pr_retip(&icp->icmp_ip);
+X#else
+X    pr_retip((struct ip *) icp->icmp_data);
+X#endif
+X    break;
+X  case ICMP_SOURCEQUENCH:
+X    printf("Source Quench\n");
+X#ifndef icmp_data
+X    pr_retip(&icp->icmp_ip);
+X#else
+X    pr_retip((struct ip *) icp->icmp_data);
+X#endif
+X    break;
+X  case ICMP_REDIRECT:
+X    switch (icp->icmp_code) {
+X    case ICMP_REDIRECT_NET:
+X      printf("Redirect Network");
+X      break;
+X    case ICMP_REDIRECT_HOST:
+X      printf("Redirect Host");
+X      break;
+X    case ICMP_REDIRECT_TOSNET:
+X      printf("Redirect Type of Service and Network");
+X      break;
+X    case ICMP_REDIRECT_TOSHOST:
+X      printf("Redirect Type of Service and Host");
+X      break;
+X    default:
+X      printf("Redirect, Bad Code: %d", icp->icmp_code);
+X      break;
+X    }
+X    printf("(New addr: 0x%08lx)\n", icp->icmp_gwaddr.s_addr);
+X#ifndef icmp_data
+X    pr_retip(&icp->icmp_ip);
+X#else
+X    pr_retip((struct ip *) icp->icmp_data);
+X#endif
+X    break;
+X  case ICMP_ECHO:
+X    printf("Echo Request\n");
+X    /* XXX ID + Seq + Data */
+X    break;
+X  case ICMP_TIMXCEED:
+X    switch (icp->icmp_code) {
+X    case ICMP_TIMXCEED_INTRANS:
+X      printf("Time to live exceeded\n");
+X      break;
+X    case ICMP_TIMXCEED_REASS:
+X      printf("Frag reassembly time exceeded\n");
+X      break;
+X    default:
+X      printf("Time exceeded, Bad Code: %d\n",
+X		    icp->icmp_code);
+X      break;
+X    }
+X#ifndef icmp_data
+X    pr_retip(&icp->icmp_ip);
+X#else
+X    pr_retip((struct ip *) icp->icmp_data);
+X#endif
+X    break;
+X  case ICMP_PARAMPROB:
+X    printf("Parameter problem: pointer = 0x%02x\n",
+X		  icp->icmp_hun.ih_pptr);
+X#ifndef icmp_data
+X    pr_retip(&icp->icmp_ip);
+X#else
+X    pr_retip((struct ip *) icp->icmp_data);
+X#endif
+X    break;
+X  case ICMP_TSTAMP:
+X    printf("Timestamp\n");
+X    /* XXX ID + Seq + 3 timestamps */
+X    break;
+X  case ICMP_TSTAMPREPLY:
+X    printf("Timestamp Reply\n");
+X    /* XXX ID + Seq + 3 timestamps */
+X    break;
+X  case ICMP_IREQ:
+X    printf("Information Request\n");
+X    /* XXX ID + Seq */
+X    break;
+X  case ICMP_IREQREPLY:
+X    printf("Information Reply\n");
+X    /* XXX ID + Seq */
+X    break;
+X#ifdef ICMP_MASKREQ
+X  case ICMP_MASKREQ:
+X    printf("Address Mask Request\n");
+X    break;
+X#endif
+X#ifdef ICMP_MASKREPLY
+X  case ICMP_MASKREPLY:
+X    printf("Address Mask Reply\n");
+X    break;
+X#endif
+X  default:
+X    printf("Bad ICMP type: %d\n", icp->icmp_type);
+X  }
+X}
+X
+X/*
+X * pr_iph -- Print an IP header with options.
+X */
+Xpr_iph(ip)
+X  struct ip      *ip;
+X{
+X  int             hlen;
+X  u_char         *cp;
+X
+X  hlen = ip->ip_hl << 2;
+X  cp = (u_char *) ip + 20;	/* point to options */
+X
+X  printf("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src      Dst Data\n");
+X  printf(" %1x  %1x  %02x %04x %04x",
+X		ip->ip_v, ip->ip_hl, ip->ip_tos, ip->ip_len, ip->ip_id);
+X  printf("   %1x %04x", ((ip->ip_off) & 0xe000) >> 13,
+X		(ip->ip_off) & 0x1fff);
+X  printf("  %02x  %02x %04x", ip->ip_ttl, ip->ip_p, ip->ip_sum);
+X  printf(" %s ", inet_ntoa(*(struct in_addr *) & ip->ip_src.s_addr));
+X  printf(" %s ", inet_ntoa(*(struct in_addr *) & ip->ip_dst.s_addr));
+X  /* dump and option bytes */
+X  while (hlen-- > 20) {
+X    printf("%02x", *cp++);
+X  }
+X  putchar('\n');
+X}
+X
+X/*
+X * pr_addr -- Return an ascii host address as a dotted quad and optionally
+X * with a hostname.
+X */
+Xchar           *
+Xpr_addr(l)
+X  u_long          l;
+X{
+X  struct hostent *hp;
+X  static char     buf[80];
+X
+X  if ((options & F_NUMERIC) ||
+X      !(hp = gethostbyaddr((char *) &l, 4, AF_INET)))
+X    sprintf(buf, "%s", inet_ntoa(*(struct in_addr *) & l));
+X  else
+X    sprintf(buf, "%s (%s)", hp->h_name,
+X		   inet_ntoa(*(struct in_addr *) & l));
+X  return (buf);
+X}
+X
+X/*
+X * pr_retip -- Dump some info on a returned (via ICMP) IP packet.
+X */
+Xpr_retip(ip)
+X  struct ip      *ip;
+X{
+X  int             hlen;
+X  u_char         *cp;
+X
+X  pr_iph(ip);
+X  hlen = ip->ip_hl << 2;
+X  cp = (u_char *) ip + hlen;
+X
+X  if (ip->ip_p == 6)
+X    printf("TCP: from port %u, to port %u (decimal)\n",
+X		  (*cp * 256 + *(cp + 1)), (*(cp + 2) * 256 + *(cp + 3)));
+X  else if (ip->ip_p == 17)
+X    printf("UDP: from port %u, to port %u (decimal)\n",
+X		  (*cp * 256 + *(cp + 1)), (*(cp + 2) * 256 + *(cp + 3)));
+X}
+X
+Xfill(bp, patp)
+X  char           *bp, *patp;
+X{
+X  register int    ii, jj, kk;
+X  int             pat[16];
+X  char           *cp;
+X
+X  for (cp = patp; *cp; cp++)
+X    if (!isxdigit(*cp)) {
+X      fprintf(stderr,
+X		     "%s: patterns must be specified as hex digits.\n",prognm);
+X      exit(1);
+X    }
+X  ii = sscanf(patp,
+X	      "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+X	      &pat[0], &pat[1], &pat[2], &pat[3], &pat[4], &pat[5], &pat[6],
+X	      &pat[7], &pat[8], &pat[9], &pat[10], &pat[11], &pat[12],
+X	      &pat[13], &pat[14], &pat[15]);
+X
+X  if (ii > 0)
+X    for (kk = 0; kk <= MAXPACKET - (8 + ii); kk += ii)
+X      for (jj = 0; jj < ii; ++jj)
+X	bp[jj + kk] = pat[jj];
+X  if (!(options & F_QUIET)) {
+X    printf("PATTERN: 0x");
+X    for (jj = 0; jj < ii; ++jj)
+X      printf("%02x", bp[jj] & 0xFF);
+X    printf("\n");
+X  }
+X}
+X
+Xusage()
+X{
+X  fprintf(stderr, "usage: %s [-Rdfnqrtv] [-c count] [-i wait] [-l preload]\n",
+X	  prognm);
+X  fprintf(stderr, "            [-p pattern] [-s packetsize] host\n\n");
+X  fprintf(stderr, "       Options:\n");
+X  fprintf(stderr, "       R: ICMP record route\n");
+X  fprintf(stderr, "       d: set SO_DEBUG socket option\n");
+X  fprintf(stderr, "       f: 'flood' mode\n");
+X  fprintf(stderr, "       n: force addresses to be displayed in numeric format\n");
+X  fprintf(stderr, "       r: set SO_DONTROUTE socket option\n");
+X  fprintf(stderr, "       t: show results in tabular form\n");
+X  fprintf(stderr, "       v: verbose mode for ICMP stuff\n");
+X  exit(1);
+X}
+END_OF_FILE
+  if test 29414 -ne `wc -c <'nocol-3.0/src/support/multiping/multiping.c'`; then
+    echo shar: \"'nocol-3.0/src/support/multiping/multiping.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/support/multiping/multiping.c'
+fi
+echo shar: End of archive 12 \(of 26\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

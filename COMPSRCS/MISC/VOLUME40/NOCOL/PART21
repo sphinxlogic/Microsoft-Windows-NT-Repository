@@ -1,0 +1,2604 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i151:  nocol - Network Monitoring System, Part21/26
+Message-ID: <1993Nov24.163804.1812@sparky.sterling.com>
+X-Md4-Signature: 8f2dd9dd5f4c5908d8a81f0f4a052f37
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 24 Nov 1993 16:38:04 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 151
+Archive-name: nocol/part21
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c
+#   nocol-3.0/src/cmu-snmp/apps/snmptrap.c
+#   nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu
+#   nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c
+#   nocol-3.0/src/cmu-snmp/man/snmpnetstat.1
+#   nocol-3.0/src/cmu-snmp/man/snmpwalk.1 nocol-3.0/src/doc/nocol.1
+#   nocol-3.0/src/lib/eventlog.c nocol-3.0/src/netmon/event_dpy.c
+#   nocol-3.0/src/netmon/utils.c nocol-3.0/src/perlnocol/bpmon
+# Wrapped by kent@sparky on Tue Nov  9 22:22:25 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 21 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c'\" \(6346 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * Copyright (c) 1983,1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that this notice is preserved and that due credit is given
+X * to the University of California at Berkeley. The name of the University
+X * may not be used to endorse or promote products derived from this
+X * software without specific prior written permission. This software
+X * is provided ``as is'' without express or implied warranty.
+X */
+X
+X#ifndef lint
+Xchar copyright[] =
+X"@(#) Copyright (c) 1983 Regents of the University of California.\n\
+X All rights reserved.\n";
+X#endif not lint
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X
+X#include <ctype.h>
+X#include <errno.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <netinet/in.h>
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_api.h"
+X
+X/* internet protocols */
+Xextern	int protopr();
+Xextern	int tcp_stats(), udp_stats(), ip_stats(), icmp_stats();
+X
+X#define NULLPROTOX	((struct protox *) 0)
+Xstruct protox {
+X	u_char	pr_wanted;		/* 1 if wanted, 0 otherwise */
+X	int	(*pr_cblocks)();	/* control blocks printing routine */
+X	int	(*pr_stats)();		/* statistics printing routine */
+X	char	*pr_name;		/* well-known name */
+X} protox[] = {
+X	{ 1,	protopr,    tcp_stats,	"tcp" },
+X	{ 1,	0,	    udp_stats,	"udp" },
+X	{ 1,	0,	    ip_stats,	"ip" },
+X	{ 1,	0,	    icmp_stats,	"icmp" },
+X	{ 0,	0,	    0,		0 }
+X};
+X
+Xint	aflag;
+Xint	iflag;
+Xint	nflag;
+Xint	pflag;
+Xint	rflag;
+Xint	sflag;
+Xint	interval;
+Xchar	*interface;
+Xchar	usage[] = "host community [ -ainrs ] [-p proto] [-I interface] [ interval ]";
+X
+Xint debug = 0;
+X
+X
+Xextern	char *malloc();
+X
+Xstruct snmp_session *Session;
+Xint snmp_dump_packet = 0;
+Xint print_errors = 0;
+X
+Xmain(argc, argv)
+X	int argc;
+X	char *argv[];
+X{
+X	char *cp, *name;
+X	char *host;
+X	register struct protoent *p;
+X	register struct protox *tp;	/* for printing cblocks & stats */
+X	struct protox *name2protox();	/* for -p */
+X	char *community;
+X	struct snmp_session session;
+X	
+X	name = argv[0];
+X	argc--, argv++;
+X	if (argc--)
+X	    host = *argv++;
+X	if (argc--)
+X	    community = *argv++;
+X	else
+X	    goto use;
+X  	while (argc > 0 && **argv == '-') {
+X		for (cp = &argv[0][1]; *cp; cp++)
+X		switch(*cp) {
+X
+X		case 'a':
+X			aflag++;
+X			break;
+X
+X		case 'i':
+X			iflag++;
+X			break;
+X
+X		case 'n':
+X			nflag++;
+X			break;
+X
+X		case 'r':
+X			rflag++;
+X			break;
+X
+X		case 's':
+X			sflag++;
+X			break;
+X
+X		case 'p':
+X			argv++;
+X			argc--;
+X			if (argc == 0)
+X				goto use;
+X			if ((tp = name2protox(*argv)) == NULLPROTOX) {
+X				fprintf(stderr, "%s: unknown or uninstrumented protocol\n",
+X					*argv);
+X				exit(10);
+X			}
+X			pflag++;
+X			break;
+X
+X		case 'I':
+X			iflag++;
+X			if (*(interface = cp + 1) == 0) {
+X				if ((interface = argv[1]) == 0)
+X					break;
+X				argv++;
+X				argc--;
+X			}
+X			for (cp = interface; *cp; cp++)
+X				;
+X			cp--;
+X			break;
+X
+X		default:
+Xuse:
+X			printf("usage: %s %s\n", name, usage);
+X			exit(1);
+X		}
+X		argv++, argc--;
+X	}
+X	if (argc > 0 && isdigit(argv[0][0])) {
+X		interval = atoi(argv[0]);
+X		if (interval <= 0)
+X			goto use;
+X		argv++, argc--;
+X		iflag++;
+X	}
+X
+X	bzero((char *)&session, sizeof(struct snmp_session));
+X	session.peername = host;
+X	session.community = (u_char *)community;
+X	session.community_len = strlen((char *)community);
+X	session.retries = SNMP_DEFAULT_RETRIES;
+X	session.timeout = SNMP_DEFAULT_TIMEOUT;
+X	session.authenticator = NULL;
+X	snmp_synch_setup(&session);
+X	Session = snmp_open(&session);
+X	if (Session == NULL){
+X	    printf("Couldn't open snmp\n");
+X	    exit(-1);
+X	}
+X	if (pflag) {
+X		if (tp->pr_stats)
+X			(*tp->pr_stats)();
+X		else
+X			printf("%s: no stats routine\n", tp->pr_name);
+X		exit(0);
+X	}
+X	/*
+X	 * Keep file descriptors open to avoid overhead
+X	 * of open/close on each call to get* routines.
+X	 */
+X	sethostent(1);
+X	setnetent(1);
+X	if (iflag) {
+X		intpr(interval);
+X		exit(0);
+X	}
+X	if (rflag) {
+X		if (sflag)
+X			rt_stats();
+X		else
+X			routepr();
+X		exit(0);
+X	}
+X
+X	setprotoent(1);
+X	setservent(1);
+X	while (p = getprotoent()) {
+X
+X		for (tp = protox; tp->pr_name; tp++)
+X			if (strcmp(tp->pr_name, p->p_name) == 0)
+X				break;
+X		if (tp->pr_name == 0 || tp->pr_wanted == 0)
+X			continue;
+X		if (sflag) {
+X			if (tp->pr_stats)
+X				(*tp->pr_stats)();
+X		} else
+X			if (tp->pr_cblocks)
+X				(*tp->pr_cblocks)();
+X	}
+X	endprotoent();
+X	exit(0);
+X}
+X
+Xchar *
+Xplural(n)
+X	int n;
+X{
+X
+X	return (n != 1 ? "s" : "");
+X}
+X
+X/*
+X * Find the protox for the given "well-known" name.
+X */
+Xstruct protox *
+Xknownname(name)
+X	char *name;
+X{
+X	struct protox *tp;
+X	
+X	for (tp = protox; tp->pr_name; tp++)
+X		if (strcmp(tp->pr_name, name) == 0)
+X			return(tp);
+X	return(NULLPROTOX);
+X}
+X
+X/*
+X * Find the protox corresponding to name.
+X */
+Xstruct protox *
+Xname2protox(name)
+X	char *name;
+X{
+X	struct protox *tp;
+X	char **alias;			/* alias from p->aliases */
+X	struct protoent *p;
+X	
+X	/*
+X	 * Try to find the name in the list of "well-known" names. If that
+X	 * fails, check if name is an alias for an Internet protocol.
+X	 */
+X	if (tp = knownname(name))
+X		return(tp);
+X		
+X	setprotoent(1);			/* make protocol lookup cheaper */
+X	while (p = getprotoent()) {
+X		/* assert: name not same as p->name */
+X		for (alias = p->p_aliases; *alias; alias++)
+X			if (strcmp(name, *alias) == 0) {
+X				endprotoent();
+X				return(knownname(p->p_name));
+X			}
+X	}
+X	endprotoent();
+X	return(NULLPROTOX);
+X}
+END_OF_FILE
+  if test 6346 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/main.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmptrap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmptrap.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmptrap.c'\" \(6715 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmptrap.c' <<'END_OF_FILE'
+X/*
+X * snmptrap.c - send snmp traps to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <net/if.h>
+X#include <sys/ioctl.h>
+X#include <sys/file.h>
+X#include <nlist.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+X
+X#define NUM_NETWORKS	16   /* max number of interfaces to check */
+X
+Xoid objid_enterprise[] = {1, 3, 6, 1, 4, 1, 3, 1, 1};
+Xoid objid_sysdescr[] = {1, 3, 6, 1, 2, 1, 1, 1, 0};
+X
+Xstruct nlist nl[] = {
+X    { "_boottime" },
+X    { "" }
+X};
+X
+X
+Xint snmp_input(){
+X}
+X
+X#ifndef IFF_LOOPBACK
+X#define IFF_LOOPBACK 0
+X#endif
+X#define LOOPBACK    0x7f000001
+Xu_long
+Xget_myaddr(){
+X    int sd;
+X    struct ifconf ifc;
+X    struct ifreq conf[NUM_NETWORKS], *ifrp, ifreq;
+X    struct sockaddr_in *in_addr;
+X    int count;
+X    int interfaces;		/* number of interfaces returned by ioctl */
+X
+X    if ((sd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+X	return 0;
+X    ifc.ifc_len = sizeof(conf);
+X    ifc.ifc_buf = (caddr_t)conf;
+X    if (ioctl(sd, SIOCGIFCONF, (char *)&ifc) < 0){
+X	close(sd);
+X	return 0;
+X    }
+X    ifrp = ifc.ifc_req;
+X    interfaces = ifc.ifc_len / sizeof(struct ifreq);
+X    for(count = 0; count < interfaces; count++, ifrp++){
+X	ifreq = *ifrp;
+X	if (ioctl(sd, SIOCGIFFLAGS, (char *)&ifreq) < 0)
+X	    continue;
+X	in_addr = (struct sockaddr_in *)&ifrp->ifr_addr;
+X	if ((ifreq.ifr_flags & IFF_UP)
+X	    && (ifreq.ifr_flags & IFF_RUNNING)
+X	    && !(ifreq.ifr_flags & IFF_LOOPBACK)
+X	    && in_addr->sin_addr.s_addr != LOOPBACK){
+X		close(sd);
+X		return in_addr->sin_addr.s_addr;
+X	    }
+X    }
+X    close(sd);
+X    return 0;
+X}
+X
+X/*
+X * Returns uptime in centiseconds(!).
+X */
+Xlong uptime(){
+X    struct timeval boottime, now, diff;
+X    int kmem;
+X
+X    if ((kmem = open("/dev/kmem", 0)) < 0)
+X	return 0;
+X    nlist("/vmunix", nl);
+X    if (nl[0].n_type == 0){
+X	close(kmem);
+X	return 0;
+X    }
+X    
+X    lseek(kmem, (long)nl[0].n_value, L_SET);
+X    read(kmem, &boottime, sizeof(boottime));
+X    close(kmem);
+X
+X    gettimeofday(&now, 0);
+X    now.tv_sec--;
+X    now.tv_usec += 1000000L;
+X    diff.tv_sec = now.tv_sec - boottime.tv_sec;
+X    diff.tv_usec = now.tv_usec - boottime.tv_usec;
+X    if (diff.tv_usec > 1000000L){
+X	diff.tv_usec -= 1000000L;
+X	diff.tv_sec++;
+X    }
+X    return ((diff.tv_sec * 100) + (diff.tv_usec / 10000));
+X}
+X
+Xu_long parse_address(address)
+X    char *address;
+X{
+X    u_long addr;
+X    struct sockaddr_in saddr;
+X    struct hostent *hp;
+X
+X    if ((addr = inet_addr(address)) != -1)
+X	return addr;
+X    hp = gethostbyname(address);
+X    if (hp == NULL){
+X	fprintf(stderr, "unknown host: %s\n", address);
+X	return 0;
+X    } else {
+X	bcopy((char *)hp->h_addr, (char *)&saddr.sin_addr, hp->h_length);
+X	return saddr.sin_addr.s_addr;
+X    }
+X
+X}
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu;
+X    struct variable_list *vars;
+X    int	arg;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    char *trap = NULL, *specific = NULL, *description = NULL, *agent = NULL;
+X
+X
+X    /*
+X     * usage: snmptrap gateway-name community-name trap-type specific-type device-description [ -a agent-addr ]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'a':
+X		    agent = argv[++arg];
+X		    break;
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else if (trap == NULL){
+X	    trap = argv[arg];
+X	} else if (specific == NULL){
+X	    specific = argv[arg];
+X	} else {
+X	    description = argv[arg];
+X	}
+X    }
+X
+X    if (!(gateway && community && trap && specific && description)){
+X	printf("usage: snmptrap host community trap-type specific-type device-description [ -a agent-addr ]\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    session.community_len = strlen((char *)community);
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = snmp_input;
+X    session.callback_magic = NULL;
+X    session.remote_port = SNMP_TRAP_PORT;
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    pdu = snmp_pdu_create(TRP_REQ_MSG);
+X    pdu->enterprise = (oid *)malloc(sizeof(objid_enterprise));
+X    bcopy((char *)objid_enterprise, (char *)pdu->enterprise, sizeof(objid_enterprise));
+X    pdu->enterprise_length = sizeof(objid_enterprise) / sizeof(oid);
+X    if (agent != NULL)
+X	pdu->agent_addr.sin_addr.s_addr = parse_address(agent);
+X    else
+X	pdu->agent_addr.sin_addr.s_addr = get_myaddr();
+X    pdu->trap_type = atoi(trap);
+X    pdu->specific_type = atoi(specific);
+X    pdu->time = uptime();
+X
+X    pdu->variables = vars = (struct variable_list *)malloc(sizeof(struct variable_list));
+X    vars->next_variable = NULL;
+X    vars->name = (oid *)malloc(sizeof(objid_sysdescr));
+X    bcopy((char *)objid_sysdescr, (char *)vars->name, sizeof(objid_sysdescr));
+X    vars->name_length = sizeof(objid_sysdescr) / sizeof(oid);
+X    vars->type = ASN_OCTET_STR;
+X    vars->val.string = (u_char *)malloc(strlen(description) + 1);
+X    strcpy((char *)vars->val.string, description);
+X    vars->val_len = strlen(description);
+X
+X    if (snmp_send(ss, pdu)== 0){
+X	printf("error\n");
+X    }
+X    snmp_close(ss);
+X}
+X
+END_OF_FILE
+  if test 6715 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmptrap.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmptrap.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmptrap.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu'\" \(5919 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu' <<'END_OF_FILE'
+X/*
+X * snmptrapd.c - receive and log snmp traps
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X#include <syslog.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+X#ifndef BSD4_3
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+Xint Print = 0;
+X
+Xchar *
+Xtrap_description(trap)
+X    int trap;
+X{
+X    switch(trap){
+X	case SNMP_TRAP_COLDSTART:
+X	    return "Cold Start";
+X	case SNMP_TRAP_WARMSTART:
+X	    return "Warm Start";
+X	case SNMP_TRAP_LINKDOWN:
+X	    return "Link Down";
+X	case SNMP_TRAP_LINKUP:
+X	    return "Link Up";
+X	case SNMP_TRAP_AUTHFAIL:
+X	    return "Authentication Failure";
+X	case SNMP_TRAP_EGPNEIGHBORLOSS:
+X	    return "EGP Neighbor Loss";
+X	case SNMP_TRAP_ENTERPRISESPECIFIC:
+X	    return "Enterprise Specific";
+X	default:
+X	    return "Unknown Type";
+X    }
+X}
+X
+Xchar *
+Xuptime_string(timeticks, buf)
+X    register u_long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0){
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    } else if (days == 1) {
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    } else {
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X    }
+X    return buf;
+X}
+X
+Xint snmp_input(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    struct variable_list *vars;
+X    char buf[64];
+X
+X    if (op == RECEIVED_MESSAGE && pdu->command == TRP_REQ_MSG){
+X	if (Print){
+X	    printf("%s: %s Trap (%d) Uptime: %s\n", inet_ntoa(pdu->agent_addr.sin_addr),
+X		trap_description(pdu->trap_type), pdu->specific_type, uptime_string(pdu->time, buf));
+X	    for(vars = pdu->variables; vars; vars = vars->next_variable)
+X		print_variable(vars->name, vars->name_length, vars);
+X	} else {
+X	    syslog(LOG_WARNING, "%s: %s Trap (%d) Uptime: %s\n", inet_ntoa(pdu->agent_addr.sin_addr),
+X		trap_description(pdu->trap_type), pdu->specific_type, uptime_string(pdu->time, buf));
+X	}
+X    } else if (op == TIMED_OUT){
+X	printf("Timeout: This shouldn't happen!\n");
+X    }
+X}
+X
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    int	arg;
+X    int count, numfds, block;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X
+X
+X    init_syslog();
+X    init_mib();
+X    /*
+X     * usage: snmptrapd [-p]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		case 'p':
+X		    Print++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    printf("Usage: snmptrapd [-p ]\n");
+X		    break;
+X	    }
+X	    continue;
+X	}
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = NULL;
+X    session.community = NULL;
+X    session.community_len = 0;
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = snmp_input;
+X    session.callback_magic = NULL;
+X    session.local_port = SNMP_TRAP_PORT;
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    while(1){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X		snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X		return -1;
+X	    default:
+X		printf("select returned %d\n", count);
+X		return -1;
+X	}
+X    }
+X}
+X
+Xinit_syslog(){
+X/*
+X * These definitions handle 4.2 systems without additional syslog facilities.
+X */
+X#ifndef LOG_CONS
+X#define LOG_CONS	0	/* Don't bother if not defined... */
+X#endif
+X#ifndef LOG_LOCAL0
+X#define LOG_LOCAL0	0
+X#endif
+X    /*
+X     * All messages will be logged to the local0 facility and will be sent to
+X     * the console if syslog doesn't work.
+X     */
+X    openlog("snmptrapd", LOG_CONS, LOG_LOCAL0);
+X    syslog(LOG_INFO, "Starting snmptrapd");
+X}
+END_OF_FILE
+  if test 5919 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c.cmu'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c'\" \(6401 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c' <<'END_OF_FILE'
+X/*
+X * snmpwalk.c - send snmp GETNEXT requests to a network entity, walking a subtree.
+X * This uses the asynchronous interface directly.
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/param.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+X#ifndef BSD4_3
+X#define BSD4_2
+X#endif
+X
+X#ifndef BSD4_3
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+Xoid objid_mib[] = {1, 3, 6, 1, 2, 1};
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+Xstruct state {
+X    oid	name[MAX_NAME_LEN];
+X    int name_length;
+X    oid root[MAX_NAME_LEN];
+X    int	rootlen;
+X    int running;
+X    int waiting;
+X} state_info;
+X
+Xsnmp_input(op,  session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    struct variable_list *vars;
+X    struct state *state = (struct state *)magic;
+X    int count;
+X
+X    state->waiting = 0;
+X    state->running = 0;
+X    if (op == RECEIVED_MESSAGE && pdu->command == GET_RSP_MSG){
+X	if (pdu->errstat == SNMP_ERR_NOERROR){
+X	    for(vars = pdu->variables; vars; vars = vars->next_variable){
+X		if (vars->name_length < state->rootlen || bcmp(state->root, vars->name, state->rootlen * sizeof(oid)))
+X		    continue;	/* not part of this subtree */
+X		print_variable(vars->name, vars->name_length, vars);
+X		bcopy((char *)vars->name, (char *)state->name, vars->name_length * sizeof(oid));
+X		state->name_length = vars->name_length;
+X		state->running = 1; /* restart so we can get next variable */
+X	    }
+X	} else {
+X	    if (pdu->errstat == SNMP_ERR_NOSUCHNAME){
+X		printf("End of MIB.\n");
+X	    } else {
+X		printf("Error in packet.\nReason: %s\n", snmp_errstring(pdu->errstat));
+X		if (pdu->errstat == SNMP_ERR_NOSUCHNAME){
+X		    printf("The request for this object identifier failed: ");
+X		    for(count = 1, vars = pdu->variables; vars && count != pdu->errindex;
+X			vars = vars->next_variable, count++)
+X			    ;
+X		    if (vars)
+X			print_objid(vars->name, vars->name_length);
+X		    printf("\n");
+X		}
+X	    }
+X	}
+X    } else if (op == TIMED_OUT){
+X	/* We don't restart on timeout so main will exit */
+X	printf("Timed Out\n");
+X    }
+X    return 1;
+X}
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session	session, *ss;
+X    struct snmp_pdu *pdu;
+X    int	arg;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    int	count, numfds, gotroot = 0, block;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X    struct state *state = &state_info;
+X
+X    init_mib();
+X    /*
+X     * usage: snmpwalk gateway-name community-name [object-id]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else {
+X	    state->rootlen = MAX_NAME_LEN;
+X	    if (read_objid(argv[arg], state->root, &state->rootlen)){
+X		gotroot = 1;
+X	    } else {
+X		printf("Invalid object identifier: %s\n", argv[arg]);
+X	    }
+X	}
+X    }
+X
+X    if (gotroot == 0){
+X	bcopy((char *)objid_mib, (char *)state->root, sizeof(objid_mib));
+X	state->rootlen = sizeof(objid_mib) / sizeof(oid);
+X	gotroot = 1;
+X    }
+X
+X    if (!(gateway && community && gotroot == 1)){
+X	printf("usage: snmpwalk gateway-name community-name object-identifier\n");
+X	exit(1);
+X    }
+X
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    session.community_len = strlen((char *)community);
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = snmp_input;
+X    session.callback_magic = (void *)state;
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    state->running = 1;
+X    state->waiting = 0;
+X    bcopy((char *)state->root, (char *)state->name, state->rootlen * sizeof(oid));
+X    state->name_length = state->rootlen;
+X
+X    while(state->running){
+X	if (!state->waiting){
+X	    pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X
+X	    snmp_add_null_var(pdu, state->name, state->name_length);
+X
+X	    if (snmp_send(ss, pdu) == 0){
+X		snmp_free_pdu(pdu);
+X		state->running = 0;
+X	    }
+X	}
+X	state->waiting = 1;	
+X
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X		snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X	    default:
+X		printf("select returned %d\n", count);
+X	}
+X    }
+X}
+X
+END_OF_FILE
+  if test 6401 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmpwalk_asy.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1'\" \(6613 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1' <<'END_OF_FILE'
+X.\* /***********************************************************
+X.\" 	Copyright 1989 by Carnegie Mellon University
+X.\" 
+X.\"                       All Rights Reserved
+X.\" 
+X.\" Permission to use, copy, modify, and distribute this software and its 
+X.\" documentation for any purpose and without fee is hereby granted, 
+X.\" provided that the above copyright notice appear in all copies and that
+X.\" both that copyright notice and this permission notice appear in 
+X.\" supporting documentation, and that the name of CMU not be
+X.\" used in advertising or publicity pertaining to distribution of the
+X.\" software without specific, written prior permission.  
+X.\" 
+X.\" CMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+X.\" ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+X.\" CMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+X.\" ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+X.\" WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+X.\" ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+X.\" SOFTWARE.
+X.\" ******************************************************************/
+X.\" Copyright (c) 1983 The Regents of the University of California.
+X.\" All rights reserved.
+X.\"
+X.\" Redistribution and use in source and binary forms are permitted
+X.\" provided that the above copyright notice and this paragraph are
+X.\" duplicated in all such forms and that any documentation,
+X.\" advertising materials, and other materials related to such
+X.\" distribution and use acknowledge that the software was developed
+X.\" by the University of California, Berkeley.  The name of the
+X.\" University may not be used to endorse or promote products derived
+X.\" from this software without specific prior written permission.
+X.\" THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X.\" IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X.\" WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X.\"
+X.\"	@(#)netstat.1	6.8 (Berkeley) 9/20/88
+X.\"
+X.TH SNMPNETSTAT 1 "September 17, 1989"
+X.UC 5
+X.SH NAME
+Xsnmpnetstat \- show network status using SNMP
+X.SH SYNOPSIS
+X.B snmpnetstat
+X.I host community
+X[ 
+X.B \-an
+X]
+X.br
+X.B snmpnetstat
+X.I host community
+X[ 
+X.B \-inrs
+X]
+X.br
+X.B snmpnetstat
+X.I host community
+X[ 
+X.B \-n
+X] [
+X.B \-I
+X.I interface
+X]
+X.I interval
+X.br
+X.B snmpnetstat
+X.I host community
+X[ 
+X.B \-p
+X.I protocol
+X]
+X.SH DESCRIPTION
+XThe
+X.I snmpnetstat 
+Xcommand symbolically displays the values of various network-related
+Xinformation retrieved from a remote system using the SNMP protocol.
+XThere are a number of output formats,
+Xdepending on the options for the information presented.
+XThe first form of the command displays a list of active sockets.
+XThe second form presents the values of other network-related
+Xinformation according to the option selected.
+XUsing the third form, with an 
+X.I interval
+Xspecified,
+X.I snmpnetstat
+Xwill continuously display the information regarding packet
+Xtraffic on the configured network interfaces.
+XThe fourth form displays statistics about the named protocol.
+X.PP
+XThe
+X.I host
+Xspecification may be either a host name or an internet address
+Xspecified in "dot notation"
+X.PP
+XThe
+X.I community
+Xspecifies the community name for the transaction with the remote system.
+X.PP
+XThe options have the following meaning:
+X.TP
+X.B \-a
+XWith the default display,
+Xshow the state of all sockets; normally sockets used by
+Xserver processes are not shown.
+X.TP
+X.B \-i
+XShow the state of all of the interfaces.
+X.TP
+X.BI \-I " interface"
+XShow information only about this interface;
+Xused with an
+X.I interval
+Xas described below.
+X.TP
+X.B \-n
+XShow network addresses as numbers (normally 
+X.I snmpnetstat
+Xinterprets addresses and attempts to display them
+Xsymbolically).
+XThis option may be used with any of the display formats.
+X.TP
+X.BI \-p " protocol"
+XShow statistics about 
+X.IR protocol ,
+Xwhich is either a well-known name for a protocol or an alias for it.  Some
+Xprotocol names and aliases are listed in the file 
+X.IR /etc/protocols .
+XA null response typically means that there are no interesting numbers to 
+Xreport.
+XThe program will complain if
+X.I protocol
+Xis unknown or if there is no statistics routine for it.
+X.TP
+X.B \-s
+XShow per-protocol statistics.
+X.TP
+X.B \-r
+XShow the routing tables.
+XWhen
+X.B \-s
+Xis also present, show routing statistics instead.
+X.PP
+XThe default display, for active sockets, shows the local
+Xand remote addresses, protocol,
+Xand the internal state of the protocol.
+XAddress formats are of the form ``host.port'' or ``network.port''
+Xif a socket's address specifies a network but no specific host address.
+XWhen known the host and network addresses are displayed symbolically
+Xaccording to the data bases
+X.I /etc/hosts
+Xand
+X.IR /etc/networks ,
+Xrespectively.  If a symbolic name for an address is unknown, or if
+Xthe 
+X.B \-n
+Xoption is specified, the address is printed numerically, according
+Xto the address family.
+XFor more information regarding 
+Xthe Internet ``dot format,''
+Xrefer to 
+X.IR inet (3N).
+XUnspecified,
+Xor ``wildcard'', addresses and ports appear as ``*''.  
+X.PP
+XThe interface display provides a table of cumulative
+Xstatistics regarding packets transferred, errors, and collisions.
+XThe network addresses of the interface
+Xand the maximum transmission unit (``mtu'') are also displayed.
+X.PP
+XThe routing table display indicates the available routes and
+Xtheir status.  Each route consists of a destination host or network
+Xand a gateway to use in forwarding packets.  The flags field shows
+Xthe state of the route (``U'' if ``up''), whether the route
+Xis to a gateway (``G''), whether the route was created dynamically
+Xby a redirect (``D''), and whether the route has been modified
+Xby a redirect (``M'').  Direct routes are created for each
+Xinterface attached to the local host;
+Xthe gateway field for such entries shows the address of the outgoing interface.
+XThe interface entry indicates the network
+Xinterface utilized for the route.
+X.PP
+XWhen 
+X.I snmpnetstat
+Xis invoked with an
+X.I interval
+Xargument, it displays a running count of statistics related to
+Xnetwork interfaces.  This display consists of a
+Xcolumn for the primary interface
+Xand a column summarizing
+Xinformation for all interfaces.
+XThe primary interface may be replaced with another interface with the
+X.I \-I
+Xoption.
+XThe first line of each screen of information contains a summary since the
+Xsystem was last rebooted.  Subsequent lines of output show values
+Xaccumulated over the preceding interval.
+X.SH SEE ALSO
+Xiostat(1),
+Xvmstat(1),
+Xhosts(5),
+Xnetworks(5),
+Xprotocols(5),
+Xservices(5),
+XRFC1067
+X.SH BUGS
+XThe notion of errors is ill-defined.
+END_OF_FILE
+  if test 6613 -ne `wc -c <'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/man/snmpnetstat.1'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/man/snmpwalk.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/man/snmpwalk.1'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/man/snmpwalk.1'\" \(3034 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/man/snmpwalk.1' <<'END_OF_FILE'
+X.\* /***********************************************************
+X.\" 	Copyright 1988, 1989 by Carnegie Mellon University
+X.\" 
+X.\"                       All Rights Reserved
+X.\" 
+X.\" Permission to use, copy, modify, and distribute this software and its 
+X.\" documentation for any purpose and without fee is hereby granted, 
+X.\" provided that the above copyright notice appear in all copies and that
+X.\" both that copyright notice and this permission notice appear in 
+X.\" supporting documentation, and that the name of CMU not be
+X.\" used in advertising or publicity pertaining to distribution of the
+X.\" software without specific, written prior permission.  
+X.\" 
+X.\" CMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+X.\" ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+X.\" CMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+X.\" ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+X.\" WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+X.\" ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+X.\" SOFTWARE.
+X.\" ******************************************************************/
+X.TH SNMPWALK 1 "17 September 1989"
+X.UC 4
+X.SH NAME
+Xsnmpwalk - communicates with a network entity using SNMP GET Next Requests.
+X.SH SYNOPSIS
+Xsnmpwalk host community [variable-name]
+X.SH DESCRIPTION
+XSnmpwalk is an SNMP application that uses GET NEXT Requests to query for a tree
+Xof information about a network entity.
+X.PP
+XThe
+X.I host
+Xspecification may be either a host name or an internet address
+Xspecified in "dot notation"
+X.PP
+XThe
+X.I community
+Xspecifies the community name for the transaction with the remote system.
+X.PP
+XA variable may also be given on the
+Xcommand line.  This variable specifies which portion of the object identifier
+Xspace will be searched using GET NEXT Requests.  All variables in the subtree
+Xbelow the given variable are queried and their values presented to the user.
+XEach variable name is given in the format specified in
+X.IR variables (5).
+X.PP
+XIf the "variable-name" argument is not present, snmpwalk will search the whole Internet MIB.
+X.PP
+XFor example
+X.PP
+X.I snmpwalk netdev-kbox.cc.cmu.edu public system
+X.PP
+Xwill retrieve the variables sysDescr.0 and sysObjectID.0 and sysUpTime.0:
+X.PP
+X.I Name: system.sysDescr.0
+X.br
+X.I OCTET STRING- (ascii):	Kinetics FastPath2
+X.PP
+X.I Name: system.sysObjectID.0
+X.br
+X.I OBJECT IDENTIFIER:  .iso.org.dod.internet.private.enterprises.CMU.sysID.CMU-KIP
+X.PP
+X.I Name: system.sysUpTime.0
+X.br
+X.I Timeticks: (2291082) 6:21:50
+X.PP
+XIf the network entity has an error processing the request packet, an error
+Xpacket will be returned and a message will be shown, helping to pinpoint why
+Xthe request was malformed.
+X.PP
+XIf the tree search causes attempts to search beyond the end of the MIB, a message
+Xwill be displayed:
+X.PP
+X.I End of MIB.
+X.PP
+XAdding a "-d" to the argument list will cause the application to dump input and output packets.
+X.PP
+X.SH "SEE ALSO"
+Xvariables(5), RFC 1065, RFC 1066, RFC 1067
+END_OF_FILE
+  if test 3034 -ne `wc -c <'nocol-3.0/src/cmu-snmp/man/snmpwalk.1'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/man/snmpwalk.1'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/man/snmpwalk.1'
+fi
+if test -f 'nocol-3.0/src/doc/nocol.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/doc/nocol.1'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/doc/nocol.1'\" \(6241 characters\)
+  sed "s/^X//" >'nocol-3.0/src/doc/nocol.1' <<'END_OF_FILE'
+X.\" $Header: /home/aggarwal/lsrc/nocol/src/doc/RCS/nocol.1,v 1.7 1993/10/28 16:38:03 aggarwal Exp $
+X.\"
+X.TH NOCOL 1 "October 1, 1993"
+X.SH NAME
+Xnocol \- NOCOL (
+X.I Network Operation Center On-Line
+X) display agent for the monitoring package. This program displays
+Xevents being monitored by the various monitors.
+X.SH USAGE
+X.B nocol
+X[
+X.B \-e
+X] [
+X.B \-d
+X] [
+X.B \-l 
+X.I level
+X] [
+X.I data-directory
+X]
+X.SH OPTIONS
+X.TP
+X.B \-e
+XFor \fIextended\fR (132 column) display mode (resize your terminal to 132
+Xcolumn mode)
+X.TP
+X.B \-d
+XFor \fIdebug\fR mode - various debug messages are displayed in the message
+Xwindow to help debug the program.
+X.TP
+X.B \-l
+XThe display \fIlevel\fR which varies from:
+X.DS
+X.br
+X	1	Critical events only
+X.br
+X	2	Errors and critical events
+X.br
+X	3	Warning, errors and critical events
+X.br
+X	4	Informational, warning, errors and critical events
+X.DE
+X.TP
+X.I <data directory>
+Xwhich is an alternate data directory name where NOCOL format data files are
+Xlocated. If no directory name is specified, then the program parses all files
+Xin a predefined
+X.I data
+Xdirectory.
+X.SH DESCRIPTION
+X.LP
+X.B nocol
+Xis the display agent for viewing the event data collected by various
+Xmonitoring programs in the NOCOL format. It uses the 
+X.I curses
+Xscreen management system and thus supports a wide variety of terminal types.
+X
+XAll events in NOCOL are classified as
+X.I CRITICAL, ERROR, WARNING
+Xand
+X.I INFO.
+XDepending on the user selectable display 
+X.IR level ,
+Xall events more severe than the selected level are displayed.
+XHence if the selected display level is '3 (=WARNING)',
+Xthen all CRITICAL, ERROR and WARNING events are displayed on the terminal.
+X
+XThe screen automatically scrolls if there are more than a screenful of events
+Xto be displayed. If a new site goes CRITICAL, the terminal starts beeping (if
+Xthe terminal type supports it) and the site shows up in reverse video.
+X
+XA portion of the screen is used for displaying text messages (the 
+X.I MESSAGES
+Xwindow). All files in a specific 
+X.I MSGS
+Xdirectory are displayed line by line sequentially. This can give information
+Xabout scheduled downtimes,  past logs, debug messages, etc.
+X
+XAdditional capabilities include freezing the screen so that the next
+Xscreenful is displayed only when the user enters a key on the terminal,
+Xfiltering out the sites to be displayed by putting a filter which tests
+Xagainst the lines to be displayed, resizing window size, etc.
+X
+X.SH DISPLAY FIELDS
+XThe various fields that are displayed in \fBnocol\fR are:
+X.IP Site name
+Xwhich is the name of the system that is being monitored.
+X.IP Address
+XThis is the network address (IP, OSI NSAP) or any other resource
+Xfor the entity being monitored.
+X.IP Date/Time
+Xthe time stamp for the event. Note that some (most) monitors set this to the
+Xtime when the site was \fIinitially\fR detected in the current state 
+X.RI ( e.g.
+Xwhen a site was first detected unreachable via
+X.IR ping ).
+X.IP Sender
+Xis the name of the monitoring program
+X.RI ( "pingmon, nsmon, tsmon, tpmon"
+X) that recorded this event.
+X.IP Variable
+Xis the name of the variable that is being monitored. Further information
+Xregarding the type of variable and its properties can be found in the
+Xdescriptions of the respective 
+X.IR Sender .
+XTypical names are
+X.I reachability, thruput, named-status.
+X.IP Value
+XIt is a long integer indicating the value of the variable being monitored.
+X.IP Threshold
+XThe threshold value due to which the event is in the present status.
+X.IP Units
+Xit is the units for the value being displayed.
+X.IP Flags
+XThis is an integer used internally by the various agents. Each bit signifies
+Xone of the following flags for that particular site:
+X.in +.5i
+X.DS
+X0x01	Site UP
+X.br
+X0x02	Site DOWN
+X.br
+X0x04	Status UNKNOWN
+X.br
+X0x08	Site in TEST mode
+X.DE
+X.in -.5i
+X.IP Condition
+Xis the last known condition of the variable and is listed as one of
+X.I critical, error, warning 
+Xor
+X.I informational.
+X
+X.SH RUN TIME OPTIONS
+X.LP
+X.I nocol
+Xallows certain options to be entered at the prompt while running the
+Xprogram. A carriage return is not necessary after entering an option,
+Xand the keystrokes are not echoed. Thus, to change the display level,
+Xthe user simply presses a 
+X.I 'l'
+Xon the keyboard followed by a number representing the display level.
+X
+XThe following options can be entered at the prompt while running 
+X.BR nocol \-
+X.TP
+X.B h
+Xfor help
+X.TP
+X.B b
+Xto turn the bell off once a critical event is acknowledged.
+X.TP
+X.B c
+XCondense the number of lines in the 
+X.I event
+Xwindow, and correspondingly increase the size of the 
+X.I messages
+Xwindow.
+X.TP
+X.B d
+Xfor toggling debug mode. Debug messages are displayed in the MESSAGES
+Xsub-window of the nocol display.
+X.TP
+X.B e
+Xfor toggling between extended (132 column) and short (80 column) display modes.
+X.TP
+X.B f
+XFor toggling \fIfreezing\fR the screen. Once this option is set, the screen
+Xwill not scroll until the user enters a key on the keyboard.
+X.TP
+X.B l
+X.I <level>
+Xfor selecting a display level. Here the 
+X.I level
+Xis any number between 1 and 4 (where 
+X.RI 1= "Critical, "
+X.RI 2= "Error, "
+X.RI 3= "Warning, "
+X.RI 4= "Info "
+X). Alternatively, the characters
+X.I C, E, W, I
+Xcan also be used.
+X.TP
+X.B r
+Xto redraw/refresh a messed up screen.
+X.TP
+X.B "s /"
+Xto put a search filter on the lines being displayed. Only lines that match
+Xthe filter specified will be displayed. The filter can have multiple words
+Xseparated by
+X.B '|'
+Xor
+X.B '&'
+Xfor matching either or all of the words. The current mode (extended or not)
+Xis taken into consideration when matching the pattern.
+X.br
+XThus, a filter such as:
+X.in +.5i
+X.DS
+XAWORD | BWORD | CWORD & DWORD | EWORD
+X.DE
+X.in -.5i
+Xwill search for lines that have \fIeither\fR
+X.RS
+X.IP -
+XAWORD or
+X.IP -
+XBWORD or
+X.IP -
+XCWORD and DWORD (both)
+X.IP -
+XEWORD
+X.RE
+X.IP
+Xin the display lines.
+X.TP
+X.B x
+XTo \fIexpand\fR the number of lines in the \fIevent\fR window.
+X.TP
+X.B q
+Xto quit from the program.
+X.\" --------------------------------------------
+X.SH ACCESS
+X.LP
+XThe JvNCnet version of this program can be seen by logging onto
+X.B nocol.jvnc.net
+Xas user
+X.B nocol.
+X.\" --------------------------------------------
+X.SH AUTHOR
+XVikas Aggarwal, vikas@jvnc.net.
+X.SH SEE ALSO
+Xnocol(1) nocol-prog(3) perlnocol(3)
+Xeventselect(8) genmon(8) noclogd(8) nocol-overview(8)
+Xnocol-utility(8) nsmon(8) pingmon(8) portmon(8) 
+Xtpmon(8) trapmon(8)
+X
+END_OF_FILE
+  if test 6241 -ne `wc -c <'nocol-3.0/src/doc/nocol.1'`; then
+    echo shar: \"'nocol-3.0/src/doc/nocol.1'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/doc/nocol.1'
+fi
+if test -f 'nocol-3.0/src/lib/eventlog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/lib/eventlog.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/lib/eventlog.c'\" \(6139 characters\)
+  sed "s/^X//" >'nocol-3.0/src/lib/eventlog.c' <<'END_OF_FILE'
+X/* $Header: /home/aggarwal/lsrc/nocol/src/lib/RCS/eventlog.c,v 3.4 1993/11/03 20:51:03 aggarwal Exp $ */
+X
+X/*
+X * DESCRIPTION
+X *	A small library of functions for use in connecting to the
+X *	NOCOL event logging daemon  (noclogd).
+X *
+X * Caveats:
+X *
+X *	The server host is hardcoded  (NLOG_HOST)
+X */
+X
+X/*
+X * AUTHOR
+X *	David Wagner, wagner@jvnc.net
+X *
+X *	Modified by:  vikas@jvnc.net
+X */
+X
+X/*+
+X * $Log: eventlog.c,v $
+X * Revision 3.4  1993/11/03  20:51:03  aggarwal
+X * Added ifdef for h_addr (defined in netdb.h) in case its defined.
+X *
+X * Revision 3.3  1993/11/02  21:20:15  aggarwal
+X * Did not need the htons in front of the sp->s_port on line 134
+X *
+X * Revision 3.2  1993/10/30  03:23:17  aggarwal
+X * Fixed the ntohs and htons mixup
+X *
+X * Revision 3.1  1993/10/11  20:49:19  aggarwal
+X * Fixed bug in converting gethostname() output to inaddr.
+X * Also reduced the delaycount to 50 instead of 100 and sleep(1).
+X *
+X * Revision 3.0  1993/09/21  20:20:08  aggarwal
+X * Deleted the Unix socket feature entirely. Tested, and seems ready
+X * to go.
+X *
+X * Revision 2.0  1993/09/18  21:52:18  aggarwal
+X * This version 2.0 tries to use stream Unix sockets and dgram inet
+X * sockets. This is not workable, see comments in noclogd.c for more
+X * details.
+X *
+X * This file is checked in just to record the way something like this
+X * 'could' be done.
+X *
+X * Revision 1.4  1993/09/14  21:45:59  aggarwal
+X * Put detailed fail message between ifdef DEBUG since we normally
+X * don't want to see this message.
+X *
+X * Revision 1.3  1993/09/14  15:34:45  aggarwal
+X * Does a sizeof(v) instead of sizeof(EVENT)
+X *
+X * Revision 1.2  1993/09/14  12:59:36  aggarwal
+X * Cleaned up and made more robust.
+X *
+X * Revision 1.1  1993/09/13  13:31:22  aggarwal
+X * Initial revision
+X *
+X */
+X
+X#ifndef lint
+X static char rcsid[] = "$Id: eventlog.c,v 3.4 1993/11/03 20:51:03 aggarwal Exp $" ;
+X#endif
+X
+X#include "noclogd.h"
+X#include <sys/time.h>
+X
+X/*
+X * The logfile descriptor:   -2 if it hasn't been opened at all, and
+X * 	-1 if openeventlog()  failed.
+X */
+Xstatic int logfd= -2;		/* global in this module */
+Xstatic int delaycount;		/* to prevent overrunning the dgram server */
+Xstatic time_t	closetime;
+X
+X/*
+X * Opens a socket to the nocol logging daemon.
+X * Returns 0 on success, or prints an error message to stderr
+X * and returns -1 on failure. ON failure, it MUST change logfd
+X * to a value of -1.
+X */
+Xint openeventlog()
+X{
+X    struct sockaddr_in	sin;
+X    struct servent	*sp;
+X    char *s ;
+X
+X    /* Silently fail if there's already a connection open */
+X    if (logfd >= 0)
+X      return(-1);
+X
+X    /*
+X     * Try to open a connection to the log address over the network.
+X     */
+X
+X    logfd = socket(AF_INET, SOCK_DGRAM, 0);
+X    if (logfd < 0) {
+X	perror("openeventlog: AF_INET socket() failed");
+X	logfd = -1 ;
+X	return(-1);
+X    }
+X    
+X    /* Got a socket, now assign family, server_addr, dest port */
+X    bzero(&sin, sizeof(sin));
+X
+X    sin.sin_family = AF_INET;
+X    s = NLOG_HOST ;
+X    if (isdigit(*s))		/* given an address, not a name */
+X      sin.sin_addr.s_addr = inet_addr(s);
+X    else
+X    {
+X	struct hostent  *hp ;	/* gethostbyname returns in_addr structures */
+X	if ((hp = gethostbyname(NLOG_HOST)) == NULL)
+X	{
+X	    perror("openeventlog");
+X	    fprintf(stderr, "gethostbyname() failed for %s\n", NLOG_HOST);
+X	    logfd = -1 ;
+X	    return(-1);
+X	}
+X#ifdef h_addr		/* in netdb.h */
+X	bcopy((char *)hp->h_addr, (char *)&sin.sin_addr,hp->h_length);
+X#else
+X	bcopy((char *)hp->h_addr_list[0], (char *)&sin.sin_addr,hp->h_length);
+X#endif
+X    }
+X
+X
+X#ifdef DEBUG
+X    fprintf(stderr, "openeventlog: logging to %s\n", inet_ntoa(sin.sin_addr)) ;
+X#endif
+X
+X    if (sin.sin_addr.s_addr == -1)	/* error */
+X    {
+X	perror("openeventlog: inet_addr() failed");
+X	logfd = -1 ;
+X	return(-1);
+X    }	
+X
+X    /* Figure out what port number to use */
+X    if ((sp = getservbyname(NLOG_SERVICE, "udp")) == NULL)
+X      sin.sin_port = htons(NLOG_PORT);
+X    else
+X      sin.sin_port = sp->s_port;
+X    
+X    if (connect(logfd, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+X        perror("client: AF_INET connect() failed");
+X	logfd = -1;
+X	return(-1);
+X    }
+X
+X#ifdef DEBUG
+X    fprintf(stderr, "openeventlog: opened INET socket %d\n", logfd);
+X#endif
+X    
+X    return(0);
+X}
+X
+X/*
+X * Writes an EVENT structure to the nocol logging daemon.
+X * The connection must have been already created with openeventlog().
+X * If logfd = -2, then assumes that the user erred and never called
+X * openeventlog(), so it does it for him.
+X * Returns 0 on success, or prints an error message to stderr
+X * and returns -1  on failure.
+X *
+X * NOTE: since the socket is of the connectionless type, logfd might actually
+X *	be okay, but the logging daemon might not be up. There is no
+X *	way to tell since a connection is not established with the logging
+X *	daemon.
+X */
+X#define RETRY_REOPEN	1*60	/* seconds before trying to reopen logfd */
+X
+Xint eventlog(v)
+X     EVENT *v;
+X{
+X    int bytesleft, retval;
+X
+X    if (logfd == -2)	/* Never been tried, try to open if RETRY_REOPEN */
+X    {
+X	time_t curtime = time((time_t *) NULL);
+X
+X	if ((curtime - closetime) > RETRY_REOPEN)
+X	  openeventlog();
+X    }
+X
+X    if (logfd < 0)    	/* Silently fail if no connection could be opened */
+X      return(-1);
+X    
+X    for (bytesleft=sizeof(*v); bytesleft > 0; bytesleft-=retval)
+X      if ((retval=write(logfd, (char *)v, bytesleft)) < 0)
+X      {
+X#ifdef DEBUG
+X	  perror("eventlog: write() failed");
+X#endif /* DEBUG */
+X	  closeeventlog();	/* no point keeping it open */
+X	  return(-1);
+X      }
+X
+X    if ((++delaycount % 50) == 0)	/* small delay after X loggings */
+X    {
+X      delaycount = 0 ;
+X      sleep(1);
+X    }
+X
+X    return(0);
+X}
+X
+X/*
+X * Closes the current connection to the nocol logging daemon.
+X */
+Xint closeeventlog()
+X{
+X    /* Silently fail if no connection has been opened yet */
+X    if (logfd < 0)
+X      return(-1);
+X    
+X    if (close(logfd) < 0) {
+X	perror("closeeventlog: close() failed");
+X	return(-1);
+X    }
+X
+X    /*
+X     * Reset things cleanly so we can call openeventlog() later if we want.
+X     * Store the time that we closed the file desc so that we don't try
+X     * and reopen too many times in 'openeventlog'
+X     */
+X    closetime = time((time_t *) NULL);
+X
+X    logfd = -2;
+X    return(0);
+X}
+END_OF_FILE
+  if test 6139 -ne `wc -c <'nocol-3.0/src/lib/eventlog.c'`; then
+    echo shar: \"'nocol-3.0/src/lib/eventlog.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/lib/eventlog.c'
+fi
+if test -f 'nocol-3.0/src/netmon/event_dpy.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/netmon/event_dpy.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/netmon/event_dpy.c'\" \(6423 characters\)
+  sed "s/^X//" >'nocol-3.0/src/netmon/event_dpy.c' <<'END_OF_FILE'
+X/*+ 
+X** $Header: /home/aggarwal/lsrc/nocol/src/netmon/RCS/event_dpy.c,v 1.12 1993/10/30 03:51:04 aggarwal Exp $
+X**/
+X
+X/* Copyright 1993 JvNCnet, Global Enterprise Services */
+X
+X/*+ 
+X** Displays the network events in the event window. Calls upon the
+X** function fill_window() to display *all* files in the datadir.
+X**/
+X
+X/*
+X *
+X *	$Log: event_dpy.c,v $
+X * Revision 1.12  1993/10/30  03:51:04  aggarwal
+X * Changed filter() to nocolfilter() to avoid name conflicts.
+X *
+X * Revision 1.11  1993/10/02  05:29:46  aggarwal
+X * Now puts out the string specified in the header file for consistency.
+X *
+X * Revision 1.10  1992/06/18  21:03:22  aggarwal
+X * Cleaned up for releasing.
+X *
+X * Revision 1.9  1992/05/14  11:02:45  aggarwal
+X * Changed display of address from 'inet_ntoa' to 'char' after change
+X * of the event structure in nocol.h
+X *
+X * Revision 1.4  90/05/13  16:13:47  aggarwal
+X * Added option in display_one_evnt() so that nothing is
+X * displayed (event ignored) if the read struct event
+X * is all zero. This is done to avoid the occurrence
+X * of displaying zeroes if the datafile is open by netmon and is
+X * overwritten by a smaller datafile.
+X * 
+X * Revision 1.1  90/03/09  13:05:33  aggarwal
+X * Initial revision
+X * 
+X */
+X
+X#include	"netmon.h"
+X
+Xstatic int warnbeep ;				/* Set to beep once	*/
+Xstatic int startcycle ;				/* if reopening datadir	*/
+X
+Xevent_dpy ()
+X{
+X    extern int page;				/* In netmon.h 		*/
+X    extern struct allwins aw ;			/* In netmon.h		*/
+X    extern char *datadir ;			/* in netmon.h		*/
+X    static DIR *datadirp ;		     	/* Ptr to data dir	*/
+X    static int datafd ;				/* Open file desc	*/
+X    int display_one_event() ;
+X
+X    if (datadirp == NULL)			/* Not opened yet	*/
+X    {
+X	page = 1;				/* reset the value	*/
+X	startcycle = 0;
+X	if ((datadirp = opendir(datadir)) == NULL)	/* Cannot open	*/
+X	{
+X	    wprintw (aw.wmsg, 
+X		     "\nevent_dpy (opendir) %s", sys_errlist[errno]) ;
+X	    wclrtoeol(aw.wmsg) ;
+X	    return(1) ;				/* minor error	*/
+X	}
+X    }
+X
+X    if (fill_window(aw.wevent, datadirp, datadir, &datafd, display_one_event))
+X    {
+X	closedir(datadirp);			/* All files displayed	*/
+X	datadirp = NULL ;			/* reset to reopen dir	*/
+X	datafd = 0 ;
+X	if (warnbeep)
+X	{
+X	    Beep() ;				/* Beep once at end	*/
+X	    warnbeep = 0 ;			/* reset the value	*/
+X	}
+X
+X    }
+X    return(0);
+X
+X}						/* end:  event_dpy	*/
+X
+X/*+ 		display_one_event
+X** FUNCTION:
+X** 	This function displays one line / event on the window passed
+X** to it. This funtion is repeatedly called *BY* the fill_window()
+X** function until the window is filled.
+X**
+X** Ignores and prints nothing if the read event struct is zero.
+X** This was done to prevent the program from displaying zeroes if 
+X** the current data file is over-written with new data while the 
+X** file pointer is left after the end of the end of the file - the
+X** program started displaying zeroes if this is not done.
+X**
+X** It first prints out the data as desired using EFMT & SFMT. The
+X** last field (status) is printed out depending on the value of the
+X** event.severity & event.nocop
+X**
+X** Can customize the status part to print whatever you want, but rather
+X** not mess with the EFMT and SFMT parts.
+X** Presently indicates a TEST site by adding "test" in the status.
+X** If IGNORE flag is set, then does not display event at all.
+X**
+X** If the 'startcycle' value is zero, that implies that the data directory
+X** has been reopened (a new cycle). Keep track of the previous critical
+X** sites and the new critical sites. IF the number of critical sites
+X** increases, then force the bell on.
+X**
+X** RETURN VALUES:
+X** 	0   if reached end of present file
+X** 	1   if not at end of data file.
+X**/
+X
+Xdisplay_one_event(fd, wevent)
+X     int fd ;					/* opened file descr	*/
+X     WINDOW *wevent;				/* Output window	*/
+X{
+X    extern int page ;
+X    EVENT v;					/* from nocol.h		*/
+X    static int prevcritical, curcritical ;	/* Number of critical	*/
+X
+X    if (startcycle == 0)			/* new cycle		*/
+X    {
+X	startcycle = 1 ;
+X	prevcritical = curcritical ;		/* save previous value	*/
+X	curcritical = 0 ;
+X    }
+X
+X
+X    if (read (fd, (char *)&v, sizeof(v)) != sizeof(v))
+X      return (0) ;				/* end of file ? */
+X    else
+X    {
+X	static EVENT null_event ;		/* All fields are null	*/
+X
+X	if (bcmp(&v, &null_event, sizeof(v)) != 0)	/* not null 'v'	*/
+X	  if ((int)v.severity <= level && !(v.nocop & n_NODISPLAY))
+X	    if (nocolfilter(&v))
+X	    {					/* if to be displayed	*/
+X		if (options & emode)		     	/* long mode	*/
+X		  wprintw ( wevent, EFMT, EFIELDS );
+X		else					/* Short mode	*/
+X		  wprintw (wevent, SFMT, SFIELDS  );
+X		
+X		switch (v.severity)
+X		{
+X		 case E_CRITICAL:
+X		    if (!(options & quiet))
+X		      warnbeep = 1 ;		/* Beep once in window	*/
+X		    ++curcritical ;		/* Increase number	*/
+X		    if (curcritical > prevcritical)
+X		      options = options & (~quiet);	/* Force bell on */
+X		    
+X		    wstandout (wevent);
+X		    if (v.nocop & n_TEST)
+X		      wprintw (wevent, "%-8.8s", "Test-Cri");
+X		    else
+X		      wprintw (wevent, "%-8.8s", severity_txt[v.severity]);
+X		    wstandend (wevent);
+X		    break;
+X		 case E_ERROR:
+X		    /* Displaying the bold strings is a real pain */
+X/*		    wprintw (wevent, "%s", bolds);	/* bold string */
+X		    if (v.nocop & n_TEST)
+X		      wprintw (wevent, "%-8.8s", "Test-Err");
+X		    else
+X		      wprintw (wevent, "%-8.8s", severity_txt[v.severity]);
+X		    if (bolde)
+X		      tputs(bolde, 1, outchar) ;
+X/*		    wprintw (wevent, "%s", bolde);	/* turn off bolding */
+X		    break;
+X		 case E_WARNING:
+X		    if (v.nocop & n_TEST)
+X		      wprintw (wevent, "%-8.8s", "Test-War");
+X		    else
+X		      wprintw (wevent, "%-8.8s", severity_txt[v.severity]);
+X		    break;
+X		 case E_INFO:
+X		    wprintw (wevent, "%-8.8s", severity_txt[v.severity]);
+X		    break;
+X		    
+X		}				/* end of:   switch	*/
+X
+X		/*
+X		 * This test is necessary since the bold strings were
+X		 * causing curses to think that the line had wrapped, and
+X		 * the '\n' would insert a blank line. This way, if the
+X		 * line wrapped, then the (internal) location of the cursor
+X		 * will be low (less than 10 or so).
+X		 */
+X/*		if (wevent->_curx > 10)		/* else wrapped line */
+X		  wprintw(wevent, "\n") ;	/* insert a newline	*/
+X	      
+X	    }					/* end: if(severity..)	*/
+X	return(1) ;
+X    }						/* end:  if read()	*/
+X
+X}		/* end:  event_dpy	*/
+X
+X
+X/*+ 
+X ** FUNCTION:
+X ** 	To 'beep' on the terminal.
+X **/
+X
+XBeep()
+X{
+X    tputs( bellstr, /* 1 for no lines affected */ 1, 
+X	  /* routine to print char, cannot be a macro */ outchar) ;
+X}
+END_OF_FILE
+  if test 6423 -ne `wc -c <'nocol-3.0/src/netmon/event_dpy.c'`; then
+    echo shar: \"'nocol-3.0/src/netmon/event_dpy.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/netmon/event_dpy.c'
+fi
+if test -f 'nocol-3.0/src/netmon/utils.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/netmon/utils.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/netmon/utils.c'\" \(6742 characters\)
+  sed "s/^X//" >'nocol-3.0/src/netmon/utils.c' <<'END_OF_FILE'
+X/*
+X * $Header: /home/aggarwal/lsrc/nocol/src/netmon/RCS/utils.c,v 1.4 1993/10/30 03:55:13 aggarwal Exp $
+X */
+X
+X/* Copyright 1993 JvNCnet, Global Enterprise Services */
+X
+X/*+
+X ** Utility functions:
+X **
+X **      get_reply: prompt and get user's response.
+X **	 setuserenviron: get terminal type and extract bold strings
+X **	 outchar:	function to print out char (uses macro putc)
+X **
+X **/
+X
+X#ifndef lint
+X static char rcsid[] = "$RCSfile: utils.c,v $ $Revision: 1.4 $ $Date: 1993/10/30 03:55:13 $" ;
+X#endif
+X
+X#include  "netmon.h"
+X
+X/*+ 		get_reply
+X** FUNCTION:
+X** 	This function prompts a user and gets a response from him. The
+X** 'prompt' & 'default' are supplied to the function - it returns a
+X** pointer to a static character string which is the 'reply'.
+X**/
+X
+X#ifndef C_ANY
+X*
+X * Define types of user responses for get_reply()
+X */
+X#define C_ANY		0x0	/* Any character (printable or non-) */
+X#define C_ALPHA		0x1	/* A-z */
+X#define C_DIGIT		0x2	/* 0-9 */
+X#define C_SPACE		0x4	/* SPACE, TAB */
+X#define C_PUNCT		0x8	/* All punctuation characters */
+X
+X#endif	/* C_ANY */
+X
+Xchar *get_reply (prompt, deflt, response_type)
+X     char *prompt;
+X     char *deflt ;
+X     int  response_type ;		/* types defined above */
+X{
+X    static char reply[MAXLINE];
+X    char *r ;				/* temp pointer */
+X    int nodefault = 0, invalid = 0;
+X
+X    reply[sizeof(reply) - 1] = '\0' ;		/* terminate with a NULL */
+X
+X    if (deflt == NULL || *deflt == NULL)
+X      nodefault = 1 ;				/* No default value	*/
+X
+X    printf("%s ", prompt);
+X    if (nodefault)
+X      printf(": ");
+X    else
+X      printf("[%s]: ", deflt) ;
+X    if (strlen(prompt) > 70)				/* long string	*/
+X      putchar('\n');
+X
+X again:
+X    r = (char *)reply ;
+X    gets(reply) ;
+X    if ( *reply == NULL )
+X    {
+X	if ( nodefault )
+X	{
+X	    printf("Invalid NULL response!! Enter again: ");
+X	    goto again;
+X	}
+X	else	/* default has been supplied */
+X	{
+X	    strncpy(reply, deflt, sizeof(reply) - 1) ;
+X	    return (reply) ;
+X	}
+X    }
+X    
+X    /*
+X     * Now check the user's response against the desired response_type
+X     */
+X
+X    if (response_type == C_ANY)
+X      return (reply);
+X
+X    invalid = 0;
+X    while (!invalid && *r)
+X    {
+X	register int ch_type = classify (*r++) ;
+X
+X	if ( (response_type & ch_type) == 0)
+X	{
+X	    fprintf (stderr, "Invalid reply. ");
+X	    if ( isprint(*(--r)) )
+X		fprintf(stderr, "(character '%c' illegal)\n", *r);
+X	    fprintf(stderr, " Enter again: ");
+X	    invalid = 1 ;
+X	    break ;
+X	}
+X    }	/* end while */
+X
+X    if (invalid)
+X      goto again;
+X    else
+X      return (reply);
+X
+X}	/* end get_reply	*/
+X
+X/*
+X * Return class of character 'c' - one of C_ALPHA, C_DIGIT, ... Used
+X * by get_reply()
+X */
+Xclassify (c)
+X  int c ;
+X{
+X
+X    if (isalpha(c))
+X      return (C_ALPHA) ;
+X
+X    else if (isdigit(c))
+X      return (C_DIGIT) ;
+X
+X    else if (isspace(c))
+X      return (C_SPACE) ;
+X
+X    else if (ispunct(c))
+X      return (C_PUNCT);
+X
+X    else
+X      return (C_ANY);
+X
+X}	/* end classify */
+X      
+X/*  */
+X/*+		setuserenviron 
+X** FUNCTION
+X**
+X**	This function attempts to set the environment variables
+X** relevant to the program (like TERM). It modifies the structure
+X** 'environ' which is a pointer to the strings containing the
+X** variables. If an essential environment variable is not set, then
+X** it sets the variable by prompting or by a default value.
+X**
+X** 'putenv' requires that the storage for the variable be static.
+X**
+X** Lastly gets the value of the termcap variable to enable 'bold'
+X** on the terminals. 'md' = bold, 'mh' = half-intensity, 'me' = end all
+X**
+X**/
+X
+Xsetuserenviron ()
+X{
+X    char termtype[MAXLINE], bp[1024] ;	     	/* needed by tgetent	*/
+X    char *get_reply() ;
+X    static char newvar[MAXLINE];		/* has to be static	*/
+X    
+X    bzero(termtype, sizeof (termtype)) ;
+X    strcpy (termtype, (char *)getenv("TERM"));	/* retrieve TERM type	*/
+X    
+X    if (check_terminal(termtype) == -1)       	/* Extract terminal type */
+X      return(-1) ;
+X    
+X    sprintf (newvar, "TERM=%s\0",(char *)termtype);
+X    if (putenv(newvar) != 0)			/* add the new string  */
+X      return (-1) ;
+X    
+X    /*
+X     * Extract the bold string from the '/etc/termcap' ("md")
+X     */
+X    if ( tgetent(bp, termtype) != 1 )		/* some error   */
+X    {
+X	bolds[0] = '\0' ; bolde[0] = '\0' ;	/* Null strings	*/
+X	clscr[0] = '\0' ; bellstr[0] = '\0' ;
+X    }
+X    else					/* bp has valid data	*/
+X    {
+X	char *s = (char *)bolds  ;
+X	tgetstr("md", &s) ;			/* extract bold string	*/
+X	s = (char *)bolde ;
+X	tgetstr("me", &s) ;			/* end all attr string	*/
+X	s = (char *)clscr ;
+X	tgetstr("cl", &s);
+X	s = (char *)bellstr ;
+X	if (tgetstr("bl", &s) == NULL)
+X	  strcpy(bellstr, "\007") ;
+X    }
+X    
+X}	/* end setuserenviron	*/
+X
+X
+X/*+ 		check_terminal
+X** FUNCTION:
+X** 	Check the supplied terminal string against the arrays
+X** 'good_term' and 'bad_terminals'. Sets the value of the terminal type.
+X** Return 1 if ok, -1 if error.
+X**/
+Xcheck_terminal(ptermtype)
+X     char *ptermtype ;
+X{
+X    register char **p ;
+X    char bp[1024];		/* to extract 'tgetent' entry  */
+X    int tries = 2 , badterm = 1 ;
+X
+X    /* Always prompt  so user can see the terminal type */
+X    strcpy(ptermtype, get_reply("Terminal type", ptermtype,
+X				C_ALPHA|C_DIGIT|C_PUNCT));
+X    for ( p = good_terminals ; **p != NULL ; ++p )
+X      if (strcmp (*p, ptermtype) == 0)
+X	return(1) ;
+X
+X    while (tries--)
+X    {				
+X	fprintf (stderr, "Searching for terminal type '%s'...", ptermtype);
+X
+X	if ( tgetent(bp, ptermtype)  == 1 )
+X	{
+X	    badterm = 0 ;			/* Okay terminal type */
+X	    fprintf(stderr, "\n") ;
+X	    /*
+X	     * Now check against unacceptable terminals
+X	     */
+X	    for ( p = bad_terminals ; **p != NULL ; ++p )
+X	      if (strcmp (*p, ptermtype) == 0)
+X	      {
+X		  badterm = 1 ;
+X		  break ;
+X	      }
+X	}
+X	else				/* Couldn't get term entry */
+X	{
+X	    badterm = 1 ;
+X	    fprintf(stderr, "not found\n") ;
+X	}
+X
+X	if (!badterm)
+X	  return (1) ;
+X
+X	if (tries)
+X	  strncpy(ptermtype, get_reply("Terminal type", "vt100",
+X				      C_ALPHA|C_DIGIT|C_PUNCT), MAXLINE -1);
+X	else
+X	  break ;
+X
+X    }		/* end while() */
+X
+X    strcpy(ptermtype, "dumb") ;		/* set terminal type to dumb	*/
+X    fprintf(stderr, "Setting terminal type to '%s'\n", ptermtype) ;
+X    sleep (2) ;
+X    if ( tgetent(bp, ptermtype) <= 0 )		/* can't even find dumb */
+X    {
+X	fprintf(stderr, "(%s) ERROR: tgetent cannot find entry for '%s'\n",
+X		prognm, ptermtype);
+X	return (-1) ;				/* error */
+X    }
+X    else
+X      return(1);
+X}
+X     
+X/*+ 
+X** FUNCTION:
+X** 	Just wakeup from the ALARM signal. Do nothing.
+X**/
+Xvoid wakeup()
+X{
+X    signal(SIGALRM, SIG_DFL);		/* restore default action */
+X    if (options & debug)
+X      fprintf(stderr, "(debug) wakeup: reset SIGALRM to SIG_DFL") ;
+X}
+X
+X
+X/*+ 
+X ** FUNCTION:
+X ** 	Prints out character to the terminal. Used by tputs, and hence
+X ** cannot be a macro
+X **/
+Xoutchar(c)
+X     char c ;
+X{
+X    putc (c, stdout) ;
+X}
+X
+END_OF_FILE
+  if test 6742 -ne `wc -c <'nocol-3.0/src/netmon/utils.c'`; then
+    echo shar: \"'nocol-3.0/src/netmon/utils.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/netmon/utils.c'
+fi
+if test -f 'nocol-3.0/src/perlnocol/bpmon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/perlnocol/bpmon'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/perlnocol/bpmon'\" \(6484 characters\)
+  sed "s/^X//" >'nocol-3.0/src/perlnocol/bpmon' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+X# $Header: /home/aggarwal/lsrc/nocol/src/perlnocol/RCS/bpmon,v 1.3 1993/11/01 23:44:40 aggarwal Exp $
+X#
+X# 	bpmon - perl bootp service monitor
+X#
+X# Date: September 21, 1993
+X# Programmer: John Wobus, jmwobus@mailbox.syr.edu
+X#  Modifications:  vikas@jvnc.net
+X#
+X#    (c) Syracuse University Computing & Network Services 1993
+X#
+X# No warranty is expressed or implied.  Permission to copy and use is
+X# extended to all.  Permission to redistribute is granted under the
+X# following conditions: it is not sold for profit; this copyright
+X# notice remains intact; the same permissions extend to the recipient;
+X# and if any changes are made, a notice is added so stating.
+X#
+X# Command Format:
+X#
+X#  bpmon
+X#
+X#    Automatically kills old process and forks a new one, reading
+X#    the configuration file in the process.
+X#
+X# What it does:
+X#
+X#    This program is used to monitor a bootp daemon. It uses the
+X#    'bootpquery' program to send out a bootp query to the server, 
+X#    and reports whether it received an answer (in NOCOL format).
+X#     Example report of problem:
+X#
+X#    Site      Address      Time   +-Variable-+ +-Value-+  Condition
+X#   butler  144.1.8.2       13:38  bootp status        1    Critical
+X#
+X#    This reports that a bootp server called "butler" with IP number
+X#    144.1.8.2 went down at 13:38.
+X#
+X##### Output of 'bootpquery'
+X#	sentinel.syr.edu# bootpquery -h
+X#	Usage: bootpquery haddr [htype] [-i ipaddr] [-s server]
+X#                        [-b bootfile] [-v vendor]
+X#	sentinel.syr.edu# bootpquery 0800200846b7 -s 128.230.12.5 
+X#	Received BOOTREPLY from lurch.cns.syr.EDU (128.230.12.5)
+X#
+X#	Hardware Address:       08:00:20:08:46:b7
+X#	Hardware Type:          ethernet
+X#	IP Address:             128.230.4.7
+X#	Boot file:              /tftpboot/mx1500.sys
+X#
+X#	RFC 1048 Vendor Information:
+X#  	   Time Offset:          18000 seconds
+X#  	   Subnet Mask:          255.255.255.0
+X#  	   Gateway:              128.230.4.1
+X#  	   Domain Name Servers:  128.230.1.49, 128.230.12.5
+X#  	   Log Server            128.230.12.5
+X#  	   LPR Server:           128.230.12.5
+X#	sentinel.syr.edu#
+X######
+X# Files used:
+X#
+X#   bootpquery			a Unix command that queries a bootp
+X#				server. Probably can be replaced with
+X#                               'bootptest' with some tweaking.
+X#   nocol/data/bpmon-output     path to which to write nocol events.
+X#   bpmon-confg                 configuration file.
+X#   bpmon.pid                   file holding bpmon's current process id.
+X#
+X# Nocol event elements used:
+X#   sender                     "bpmon"
+X#   mon, day, hour, min        time at which entity went up or down
+X#   severity                   up: 4; down: 3,2,1; test & down: 2;
+X#   nocop                      up, down, unknown
+X#   site
+X#    name                      the server name
+X#    addr                      the server's IP number
+X#   var                       
+X#    name                      "bootp status"
+X#    value                     1=up, 0=down
+X#    threshold                 always 2
+X#    units                     always "entry"
+X#
+X# To install this:
+X#   (1) Choose where to put this file and the above 4 files and
+X#       assign the perl variables below appropriately.
+X#   (2) Create your bpmon-confg file in its chosen place.
+X#   (3) Install bootpquery in your chosen location.
+X#   (4) Put this file in its chosen place.
+X#   (5) Add appropriate code to rc.local to start this monitor.
+X#
+X# Configuration file format:
+X#    #<text>                                   Comment line.
+X#    haddr=<enet addr>                         Ethernet address of host
+X#                                               that is running bpmon.
+X#    broadcast                                 Check queries that are
+X#                                               broadcast.
+X#    <name> <ip number>                        Name and number of bootp
+X#                                               server.
+X#
+X# Sample configuration file:
+X#    # bpmon configuration
+X#    haddr=080020011234
+X#    butler 144.1.8.2
+X#
+X## 
+X##
+X#
+X#
+X############################
+X## Variables customization #  overrides values in the nocollib.pl library
+X############################
+X$rprog="./bootpquery";		# Path for bootpquery program
+X$rpasswd="";			# if NULL, uses the default in rcisco
+X$rcommand="show apple route";
+X$varname="Bootp_Server";
+X$varunits="Status";
+X$sleepint=60*5;       		# Seconds to sleep between tries.
+X############################
+X$debug = 0;			# set to 1 for debugging output
+X$libdebug = 0;			# set to 1 for nocollib.pl debugging
+X
+Xrequire  "nocollib.pl" ;
+X
+X-x $rprog || die("Could not find executable $rprog, exiting");
+X
+X@me=split(/\//,$0); $me=pop(@me);
+X#$piddir=join("/",@me); if ($piddir eq "") {$piddir=$etcdir;}
+X$piddir=$etcdir;
+X$cfile="$etcdir/$me-confg";
+X$datafile="$datadir/$me-output";
+X
+X$sender= $me ;				# filled in the EVENT sender
+X$maxseverity = $E_ERROR ;		# max severity of events
+X
+X##
+X# Read the config file. Use '\t' as a separator
+Xsub readconf {
+X    open(CONFIG,"<$cfile")||die("Couldn't find $cfile, exiting");
+X    while(<CONFIG>) {
+X	chop;
+X	if(/^\s*#/) {next;}	# skip comments
+X	if(/^\s*$/) {next;}   # skip blank lines
+X
+X	if (/^\s*haddr=(\S+)(\s.*)?$/) {$haddr=$1;}
+X	elsif (/^\s*broadcast(\s.*)?$/) {push(@items,"255.255.255.255\tbroadcast");}
+X	elsif (/^\s*(\S+)\s+(\S+)(\s.*)?$/) {push(@items,"$2\t$1");}
+X    }
+X    close(CONFIG);
+X    
+X    if(0>$#items){die("Nothing to monitor in $cfile, exiting")};
+X}
+X
+X## This sends a bootpquery to the server. Note handling of broadcast query.
+X#  Returns 0 if server works, 1 if it doesn't. 
+Xsub dotest {
+X    local($server)=@_;
+X    local($command,$works);
+X
+X    if ($server eq "255.255.255.255") {$command = "$rprog $haddr";}
+X    else {$command="$rprog $haddr -s $server"; }
+X    $works=0;
+X    foreach(`$command 2>/dev/null`) {
+X	if(/Received\s+BOOTREPLY/){$works=1;}
+X    }
+X    return($works);
+X}
+X
+X
+X###
+X### Main program:
+X###
+X
+X#Fork and get rid of old process.
+Xif($p=fork){print "$p\n";exit;}
+X&standalone($me,$piddir);
+X
+X&readconf;
+X
+X# $item is an index into the arrays
+Xforeach $item (@items) {
+X    local($number,$name)=split(/\t/,$item);
+X    &init_event("$name", "$number", $item);
+X}
+X
+Xwhile (1) {
+X    foreach $item (@items)
+X    {
+X	local ($status) = &dotest($siteaddr{$item}) ;
+X	
+X	&update_event($item, $status, $status, $maxseverity);
+X    }
+X    
+X    ## Note: we want to write the file quickly.
+X    open(OEVENTS,">$datafile");
+X    foreach $item (@items)  { &writeevent($item) } ;
+X    close(OEVENTS);
+X    sleep($sleepint);
+X    
+X} # end while(forever)
+X
+END_OF_FILE
+  if test 6484 -ne `wc -c <'nocol-3.0/src/perlnocol/bpmon'`; then
+    echo shar: \"'nocol-3.0/src/perlnocol/bpmon'\" unpacked with wrong size!
+  fi
+  chmod +x 'nocol-3.0/src/perlnocol/bpmon'
+  # end of 'nocol-3.0/src/perlnocol/bpmon'
+fi
+echo shar: End of archive 21 \(of 26\).
+cp /dev/null ark21isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

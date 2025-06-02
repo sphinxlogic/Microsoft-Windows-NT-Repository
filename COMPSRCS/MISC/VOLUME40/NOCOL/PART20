@@ -1,0 +1,2355 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i150:  nocol - Network Monitoring System, Part20/26
+Message-ID: <1993Nov24.163701.1676@sparky.sterling.com>
+X-Md4-Signature: 15b38fa5e8e1032de1aac7c256bd0884
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 24 Nov 1993 16:37:01 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 150
+Archive-name: nocol/part20
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/Makefile nocol-3.0/src/doc/nocol-prog.3
+#   nocol-3.0/src/include/netmon.h
+#   nocol-3.0/src/netmon/build_display.c nocol-3.0/src/netmon/netmon.c
+#   nocol-3.0/src/perlnocol/snmp-modemmon
+#   nocol-3.0/src/pingmon/poll_sites.c
+#   nocol-3.0/src/support/mping/spqr.doc nocol-3.0/src/tpmon/tpmon.c
+#   nocol-3.0/src/trapmon/Makefile
+# Wrapped by kent@sparky on Tue Nov  9 22:22:24 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 20 (of 26)."'
+if test -f 'nocol-3.0/src/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/Makefile'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/Makefile'\" \(7633 characters\)
+  sed "s/^X//" >'nocol-3.0/src/Makefile' <<'END_OF_FILE'
+X# $Header: /home/aggarwal/lsrc/nocol/src/RCS/Makefile,v 1.7 1993/10/30 03:07:14 aggarwal Exp $
+X#
+X# Makefile for 'nocol'. This file simply calls on other Makefiles in
+X# the subdirectories to do all the work. All the definitions are used
+X# by the other Makefiles which then do all the compile time definitions.
+X#
+X# Check: SRCDIR, TOP, PING, NLOG_HOST, SYSLIBS, NEEDOBJS
+X#
+X# To 'make' for only one program, use 
+X#	make "SRCS=trapmon" [install|clean]
+X#
+X
+X##
+X# CHECK THE VALUE OF IPPING and OSIPING below.
+X
+X##
+X# Set TOP here to a directory where everything will be installed (etc, data)
+X# 'nocol' does a chroot to this directory when it runs.
+XTOP  =		/nocol
+X
+X##
+X# Set SRCDIR to the toplevel location of the NOCOL sources (this directory ?)
+XSRCDIR=		$(TOP)/src
+X
+X##
+X# Set MANDIR for the manpages and MANEXT for the man pages extension
+XMANDIR = $(TOP)/man
+XMANEXT = n
+X
+X##
+X# Library calls not a part of your system. Define NEEDOBJS here.
+X# These will be compiled into 'lib/libnocol'
+X#   putenv.o		for putenv() library call - on NeXT
+X#   random.o		if you don't have random()  - on Solaris, HP
+X#   bstring.o		for bcmp() bzero()  bcopy() - on Solaris, HP
+X#   ftime.o		for ftime() - on Solaris, HP
+X#   
+XNEEDOBJS =	# putenv.o random.o
+X
+X##
+X# If you also want to make the OSI version of 'pingmon', then set MAKEOSI
+X# to 'YES', else set to NO
+XMAKEOSI = "NO"
+X
+X##
+X# Hostname of the machine that will be running the noclogd logging
+X# daemon (can give IP address instead).
+X#
+XNLOG_HOST =	nocol.jvnc.net
+X
+X##
+X# The special system definitions. Define:
+X#  -DMULTIPING		If setting IPPING to use 'multiping'. Check IPPING also
+X#
+XSYSDEFS =	-DMULTIPING
+X
+X##
+X# Special libraries that might be needed to link on your system.
+X#  -lresolv		On SunOS
+X#  -lsocket		On Solaris
+X#  -lnsl		On Solaris
+X#
+XSYSLIBS =	-lresolv # -lsocket -lnsl
+X
+X##
+X# special defines for  pingmon. Can have an IP ping and/or OSI ping.
+X#	Set IPPING to /etc/ping or $(BINDIR)/ping or $(BINDIR)/multiping
+X#	Make sure that the output of the ping command is something like:
+X#		% ping -s nisc.jvnc.net 100 5
+X#	See INSTALL or pingmon/poll_sites.c for more details.
+X#
+X#	If using 'multiping', also set SYSDEFS value.
+X#
+XIPPING =        $(BINDIR)/multiping
+XOSIPING =       /usr/sunlink/osi/etc/osi_ping
+X
+X## Location of useful utility programs
+X#   CO		location of the 'RCS' check-out program (unless in path)
+X#   RANLIB	if you don't have it, set to 'touch' or 'ls'. Solaris/HP
+X#		systems dont have it.
+X#   INSTALL	for old versions use 'install'. For new OS's use 
+X#		$(SRCDIR)/utility/myinstall (HP/Solaris systems)
+X#   
+XCO =		co
+XRANLIB =	ranlib
+XINSTALL =	install
+X
+X
+X# Which programs are to be compiled and installed.
+X#	eventselect	print out events that match certain criterion
+X#	genmon		Generic monitoring interface (ascii to nocol struct)
+X#	netmon		the nocol display (installed as nocol)
+X#	noclog		the noclogd logging daemon
+X#	nsmon		Nameserver monitor
+X#	pingmon		Reachability monitor via 'ping'
+X#	portmon		Check TCP ports on various machines.
+X#	tpmon		Data thruput monitor
+X#	trapmon		SNMP trap monitor
+X#	utility		Small utility programs
+X#	doc		Documentation and manual pages
+X#
+XSRCS =   	lib eventselect genmon netmon noclog nsmon perlnocol \
+X		pingmon portmon tpmon trapmon \
+X		utility doc
+X
+X####
+X####	Can leave the rest alone
+X####
+X
+X# These are defined here so that install can create these directories
+X# if they do not exist.
+X#	BINDIR		where the programs are installed
+X#	ETCDIR		location of configuration files
+X#	DATADIR		where datafiles for monitoring programs are created
+X#	MSGSDIR		for message files that the nocol display shows in
+X#			in the 'messages' sub-window
+XBINDIR= 	$(TOP)/bin
+XETCDIR=		$(TOP)/etc
+XDATADIR=	$(TOP)/data
+XMSGSDIR=	$(TOP)/msgs
+X
+X# This is needed for building and linking common routines.
+XLIBDIR=		$(SRCDIR)/lib
+X
+X# Directory/file definitions that override the ones in the other 'Makefile's
+XDIRDEFS=	TOP="$(TOP)" \
+X		SRCDIR="$(SRCDIR)" \
+X		LIBDIR="$(LIBDIR)" \
+X		BINDIR="$(BINDIR)" \
+X		ETCDIR="$(ETCDIR)" \
+X		DATADIR="$(DATADIR)" \
+X		MSGSDIR="$(MSGSDIR)" \
+X		MANDIR="$(MANDIR)" \
+X		IPPING="$(IPPING)" \
+X		OSIPING="$(OSIPING)"
+X
+X# General definitions that override the ones in the other 'Makefile's
+XMAKEDEFS=	NLOG_HOST="$(NLOG_HOST)" \
+X		MANEXT="$(MANEXT)" NEEDOBJS="$(NEEDOBJS)" \
+X		SYSDEFS="$(SYSDEFS)" SYSLIBS="$(SYSLIBS)" \
+X		CO="$(CO)" RANLIB="$(RANLIB)" INSTALL="$(INSTALL)"
+X
+X##
+X# Compile defs
+X#	CC	which C compiler. 'GCC' earlier than 2.x might fail on Sparc
+X#	CFLAGS	-I<location of includes> -DDEBUG
+XCC =		cc
+XCFLAGS=		-g  -I$(SRCDIR)/include -L$(LIBDIR)
+X
+X##
+X# This is the list of files that need to be 'tar-red'. Using the FF option
+X# in the tar command and also excluding the RCS directories further down.
+XDIST =	COPYRIGHT HISTORY INSTALL PORTING README Makefile version.h \
+X	contrib cmu-snmp doc include lib perlnocol support utility \
+X	eventselect genmon netmon noclog nsmon pingmon portmon tpmon trapmon
+X
+X
+Xall:	libnocol.a
+X	@-for i in $(SRCS); do \
+X	  ( echo "" ; echo "MAKING IN $$i" ; echo "----------" ; cd $$i ; \
+X	    make $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" $(MAKEDEFS) $(DIRDEFS) ; \
+X	    if [ $$i = "pingmon" ]; then\
+X		  if [ "$(MAKEOSI)" = "YES" ]; then \
+X			make $(MFLAGS) osipingmon PROTOCOL=OSI CC="$(CC)" \
+X			  CFLAGS="$(CFLAGS)" $(MAKEDEFS) $(DIRDEFS) ;\
+X		  else \
+X			: ;\
+X		  fi ;\
+X		else \
+X		  : ;\
+X		fi ;\
+X		 ) \
+X	 done
+X
+Xlib:	libnocol.a
+Xlibnocol.a:
+X	  @echo "" ; echo "MAKING IN lib" ; echo "----------"
+X	  @( cd lib ; \
+X	    make $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" $(MAKEDEFS) $(DIRDEFS) ;) 
+X
+X
+X## Ultrix make balked at the tests for directories, hence the second test
+Xinstall:	lib
+X	-[ -d $(TOP) ] || mkdir  $(TOP)
+X	-[ -d $(DATADIR) ] || mkdir $(DATADIR)
+X	-[ -d $(ETCDIR) ] || mkdir $(ETCDIR)
+X	-[ -d $(ETCDIR)/samples ] || mkdir $(ETCDIR)/samples
+X	-[ -d $(BINDIR) ] || mkdir $(BINDIR)
+X	[ -d $(TOP) ] && [ -d $(DATADIR) ] && [ -d $(ETCDIR) ] \
+X		&& [ -d $(BINDIR) ]
+X	@-(touch NoColL ; $(INSTALL) -c -m 750 NoColL /tmp/;) >/dev/null 2>&1 ;
+X	@(if [ -f /tmp/NoColL ]; then rm -f NoColL /tmp/NoColL; else \
+X	  echo "YOU HAVE AN INCOMPATIBLE install, use 'myinstall' instead" ;\
+X	  rm -f NoColL /tmp/NoColL ; exit 1 ; fi)
+X
+X	@echo make $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
+X		$(MAKEDEFS) $(DIRDEFS) install ;
+X	@-for i in $(SRCS); do \
+X	  ( echo "" ; echo "MAKING IN $$i" ; echo "----------" ; cd $$i ; \
+X		make $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" \
+X			$(MAKEDEFS) $(DIRDEFS) install ; ) ;\
+X	done
+X	@-cp pingmon/ipnodes */*-confg $(ETCDIR)/samples/
+X
+Xtar:	nocol.tar
+X
+Xnocol.tar:
+X	@( if [ ! -d /var/tmp/t ]; then mkdir /var/tmp/t ;fi ;\
+X	   if [ ! -d /var/tmp/t/nocol ]; then mkdir /var/tmp/t/nocol ; fi ;\
+X	   if [ ! -d /var/tmp/t/nocol ]; then \
+X		echo "Fatal error: cannot create directory  /var/tmp/t/nocol";\
+X		exit 1 ; fi ;\
+X	   (cd /var/tmp/t/nocol/ ; rm -rf XCLUDEFILES src ; mkdir src) ;\
+X	   for i in $(DIST) ; do \
+X		find $$i \( -name RCS -o -name '*~' \) -print  >> /var/tmp/t/nocol/XCLUDEFILES ;\
+X	   done ;\
+X	   echo "Copying src files to tmp location" ;\
+X	   tar cfX - /var/tmp/t/nocol/XCLUDEFILES $(DIST) |\
+X			 ( cd /var/tmp/t/nocol/src ; tar xf -) ;\
+X	   rm -f /var/tmp/t/nocol/XCLUDEFILES ;\
+X	   cd /var/tmp/t/ ;\
+X	   echo "*** Present working directory is `pwd` ***" ;\
+X	   if [ ! `pwd` = '/var/tmp/t' ]; then \
+X		echo "FATAL ERROR, couldn't cd to tmp dir" ;\
+X		exit 1 ;\
+X	   fi ;\
+X	   tar cf nocol.tar nocol )
+X	@( mv /var/tmp/t/nocol.tar nocol.tar ;\
+X	    /bin/rm -rf /var/tmp/t ;\
+X	    tar tf nocol.tar )
+X	@echo "CREATED nocol.tar"
+X	    
+X
+Xclean:
+X	@for i in $(SRCS); do \
+X		( cd $$i ; make $(MFLAGS) $(DIRDEFS) $(MAKEDEFS) clean ; ) ;\
+X	done
+X
+Xrcs:
+X	@-for i in $(SRCS); do \
+X		( cd $$i ; make $(MFLAGS) $(MAKEDEFS) rcs ; ) ;\
+X	done 
+X###
+END_OF_FILE
+  if test 7633 -ne `wc -c <'nocol-3.0/src/Makefile'`; then
+    echo shar: \"'nocol-3.0/src/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/Makefile'
+fi
+if test -f 'nocol-3.0/src/doc/nocol-prog.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/doc/nocol-prog.3'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/doc/nocol-prog.3'\" \(7994 characters\)
+  sed "s/^X//" >'nocol-3.0/src/doc/nocol-prog.3' <<'END_OF_FILE'
+X.\" $Header: /home/aggarwal/lsrc/nocol/src/doc/RCS/nocol-prog.3,v 1.4 1993/10/28 16:38:03 aggarwal Exp $
+X.\"
+X.TH NOCOL-PROG 3 "October 1, 1993"
+X.SH NAME
+Xnocol \- NOCOL design and data structures
+X.SH SYNOPSIS
+XThis section describes the design and data structures in NOCOL. This section
+Xis intended  to be a programmers aid to understanding the overall design of
+XNOCOL.
+X.SH DESCRIPTION
+X.LP
+XThe original initiative for developing NOCOL was:
+X.in +.25i
+X.IP 1.
+XWhile monitoring a system, the severity of various events is pre-determined
+Xand the user can select the severity level at which he/she should be 
+Xnotified.
+X.IP 2.
+XDisplay events only at the desired level of severity and nothing else.
+X.IP 3. 
+XHave only \fIone\fR set of monitoring agents but multiple display
+Xagents all processing the same data.
+X.IP 4.
+XThe display module can also be run on a simple TTY interface so that the
+Xsystem can be monitored using a simple VT type terminal.
+X.IP 5.
+XTo have the ability to add on monitoring agents as and when necessary with
+Xminimum changes to existing monitors.
+X.IP 6.
+XTo be able to add on additional (possibly intelligent) post-processors for the
+Xdata.
+X.IP 7.
+XTo have the capability to monitor \fIany\fR entity (network routers, system
+Xload, modem line usage, system processes, etc.) in any protocol (IP, OSI,
+XDECnet) desired.
+X
+X.SH EVENT STRUCTURE
+X.LP
+XThe \fIEVENT\fR data structure is defined in \fInocol.h\fR. All nocol data
+Xmust be a sequence of this structure. Other than that, the various modules
+Xcan be as independent as possible.
+X
+XThe various fields in the structure are:
+X.RS
+X.ta \w'#define'u +\w'fsid_t\0\0'u +\w'f_spare[7]\0\0'u
+X.sp .5
+X.nf
+X.ft B
+Xtypedef struct
+X{
+X    char             sender;        /* sender/program name */
+X    SITE             site;          /* site name, address */
+X    VAR              var;           /* variable name, value, threshold, units */
+X    unsigned char    mon;           /* 1 to 12 for month */
+X    unsigned char    day;           /* 1 to 31 for day */
+X    unsigned char    hour;          /* 0 to 23 for hour */
+X    unsigned char    min;           /* 0 to 59 for minute */
+X    unsigned char    severity;      /* event severity 1->4 */
+X    unsigned char    logseverity;   /* severity at which event is logged */
+X    unsigned char    nocop;         /* ops flag indicating STATE */
+X} EVENT;
+X.ft R
+X.fi
+X.RE
+X.LP
+XThe \fIsender\fR  field is typically used to identify the monitoring program.
+XThe site \fIname\fR is generally a hostname or a shorter identifiable
+Xname of the entitity being monitored. The site \fIaddress\fR 
+Xfield is large and the intent is that it can accommodate IP, OSI or any other
+Xaddress/identification needed by the monitoring programs so that once they
+Xstart up, they can work directly from the output data files by using the
+XEVENT structure and not having to parse configuration files, etc. every time.
+XIn some monitors, it can also be the filename, or route being monitored.
+X
+XThe \fIvariable\fR  name field is self-explanatory\- it can be 
+Xreachability, trap-type, thruput, bgp-route, load, diskio, etc.
+XThe value, threshold and units are further used to give more information
+Xabout the variable.
+X
+XThe date and time fields record the time that the site was
+X.I first
+Xdetected in the current state.
+X
+XThe \fIseverity\fR of the event varies from 1 (=CRITICAL) to 4 (=INFO). 
+XThe monitors generally escalate the severity in each pass, so that
+Xthere is a gradual and repeated test before an event is marked as
+XCRITICAL, etc. Furthermore, each monitor has its own MAX_SEVERITY
+X.RI ( e.g.
+Xfor the reachability monitor
+X.IR pingmon ,
+Xthe maximum possible severity level is CRITICAL while for the
+X.I tpmon
+Xthruput monitor, the maximum possible severity level is WARNING).
+XA nocol library call
+X.I update_event
+Xhas been provided to escalate/reset the severity and to log the
+Xevent if there is a change in the severity level.
+X
+XThe \fIloglevel\fR field is used to indicate the severity level at
+Xwhich the event should be logged. This field is used by the logging
+Xdaemon in determining how/where to log the event.
+X
+XThe \fInocop\fR is for setting various boolean options associated with each
+Xevent (like status UP, DOWN, UNKNOWN, TEST, NODISPLAY)- note that UP, DOWN,
+XUNKNOWN are all mutually exclusive, the \fISETF_UPDOUN\fR macro accomplishes
+Xthe mutual exclusion.
+XThe TEST flag is useful for the post-processors which perform an operation on
+Xa site reaching a certain level of severity, and the NODISPLAY option is
+Xuseful if a particular site is not to be displayed in the 
+X.BR nocol (1)
+Xdisplay but other post-processors need to process the data.
+XMost of the monitors parse the config file and create an output data file
+Xwith the static structure values in it and the \fInocop\fR UNKNOWN flag set.
+XThey then read a single event from the datafile and poll the site. New values
+Xare inserted and the structure written back to disk.
+X
+X.SH LIBNOCOL.A
+X.LP
+XA collection of useful routines have been merged into a NOCOL library\-
+X.I libnocol.a
+Xwith which all the various monitors are linked during compile time.
+XFunctions to create a new 'pid' file and log the PID and hostname, 
+Xto update an event's  values based on the new status, etc. are available.
+XOf these, 
+X.I update_event
+Xis important\-  this function takes a pointer to an event, status
+X(UP or DOWN) and maximumseverity. It then updates the event's severity,
+Xloglevel and also logs the event to 
+X.I noclogd
+Xif appropriate.
+X
+X.SH LOGGING
+XThe various NOCOL monitors log events to a daemon-
+X.B noclogd
+X.I (8)
+Xat port NLOG_PORT (see the
+X.I noclogd.h
+Xinclude file for the port number). The function
+X.I eventlog()
+Xis available in the 
+X.I libnocol.a 
+Xlibrary and can be called with the
+Xevent structure as a parameter. The monitor is responsible for filling
+Xin the
+X.I loglevel
+Xfield in the EVENT structure, and the function
+X.I eventlog()
+Xwill log the event to the noclogd daemon.
+XAs a design note, keep in mind that it is worthwhile logging ONLY when the
+Xseverity
+X.B changes
+Xinstead of logging every pass made.
+XAlso, if a site is in CRITICAL
+Xlevel (as an example), then it is typically logged at loglevel=CRITICAL
+Xwhen the site first goes into CRITICAL state. Importantly, when the site
+Xgoes 
+X.I back
+Xto INFO level, the monitor should log this event at the earlier CRITICAL 
+Xstatus so that the person/programs
+Xparsing the CRITICAL logs can see when the site came out of critical status.
+XThe
+X.I update_event()
+Xlibrary call in NOCOL does this bit of 'complicated' manipulation of the
+Xloglevel (sets loglevel to the old severity if the status changes to UP).
+X
+X.SH GENMON
+XThe
+X.I genmon
+Xprogram provides a generic monitoring interface for writing new monitors.
+XIt converts text lines in the logfile format into nocol EVENT structures
+Xand writes them out. Thus, a simple shell script that monitors anything
+Xcan call
+X.I genmon
+Xwith a text line and the program will convert the line into a NOCOL
+Xevent strutcure. See the 
+X.IR genmon (8)
+Xmanual page for more information on this program.
+X
+X.SH DEVELOPING NEW MONITORS
+XTo do additional development on a monitor, the 
+X.I pingmon, nsmon, tpmon
+Xare very similar and based on the same logic so they should provide good
+Xexamples of how to do things.
+XTypical procedure flow is:
+X.RS
+X.sp .5
+X.nf
+X  Read configuration file
+X  Init nocol EVENT data structures
+X  Do test
+X  Update EVENT data structure
+X  Write out to datafile (as a group or individually)
+X  Sleep before next round of tests
+X.fi
+X.RE
+X
+XThe
+X.BR genmon (8)
+Xprogram provides a simple and easy interface to developing new monitors
+Xfor monitoring practically
+X.IR anything .
+XA collection of useful PERL routines and library is also provided.
+X
+X.\" --------------------------------------------
+X.SH AUTHOR
+X.nf
+XVikas Aggarwal, vikas@jvnc.net
+X.fi
+XAdditions by a lot of other folks... the PERL routines were provided by
+XJohn M. Wobus (jmwobus@mailbox.syr.edu).
+X.SH SEE ALSO
+Xnocol(1) nocol-prog(3) perlnocol(3)
+Xeventselect(8) genmon(8) noclogd(8) nocol-overview(8)
+Xnocol-utility(8) nsmon(8) pingmon(8) portmon(8) 
+Xtpmon(8) trapmon(8)
+X
+END_OF_FILE
+  if test 7994 -ne `wc -c <'nocol-3.0/src/doc/nocol-prog.3'`; then
+    echo shar: \"'nocol-3.0/src/doc/nocol-prog.3'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/doc/nocol-prog.3'
+fi
+if test -f 'nocol-3.0/src/include/netmon.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/include/netmon.h'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/include/netmon.h'\" \(7298 characters\)
+  sed "s/^X//" >'nocol-3.0/src/include/netmon.h' <<'END_OF_FILE'
+X/*
+X** $Header: /home/aggarwal/lsrc/nocol/src/include/RCS/netmon.h,v 1.15 1993/10/30 02:35:56 aggarwal Exp $
+X*/
+X
+X/*
+X**		INCLUDE FILES
+X*/
+X#include "nocol.h"
+X#include <ctype.h>
+X#include <signal.h>
+X
+X#include <curses.h>		/* since WINDOW definitions are here	*/
+X
+X/* #include <sys/dir.h>		/* Older systems, used 'direct' not 'dirent' */
+X#include <dirent.h>
+X
+X/*
+X * For 4.2 curses.
+X */
+X#if defined(VMS) || defined(__convex__) || defined(sequent)
+X# ifndef cbreak
+X#  define cbreak crmode
+X# endif
+X# ifndef nocbreak
+X#  define nocbreak nocrmode
+X# endif
+X#endif
+X
+X/*
+X * Usually defined in ttychars.h.
+X */
+X#ifndef ESC             /* ESCAPE character */
+X#define ESC 033
+X#endif
+X
+X#ifndef RUBOUT
+X#define RUBOUT        	'\177'
+X#endif
+X
+X#ifndef erasechar()
+X#define erasechar()	RUBOUT
+X#endif
+X
+X#ifdef CTRL             /* Some implementations do a: c & 037 (assume int) */
+X#undef CTRL             /* and some do 'c' & 037, so use our version... */
+X#endif  /* CTRL */
+X#define CTRL(c)         (c & 037)	/* treat as an integer */
+X
+X#ifndef beep				/* crude way of doing it.. */
+X#define beep() (fprintf (stderr, "%c", 007))
+X#endif    /* beep */
+X
+X#ifndef max
+X#define max(a, b)	((a) > (b) ? (a) : (b))
+X#endif	/* endif max */
+X
+X/*
+X *		FILE DEFINITIONS
+X *
+X * All files in the DATADIR are opened and processed and their output is
+X * displayed. The files have records in the format described in 'nocol.h'
+X *
+X * The 'msgsdir' is used for the message display. Any file in this directory
+X * will be treated as a ascii text file and its contents will be displayed in
+X * the 'Message' sub-window.
+X */
+X#ifndef DATADIR					/* for default location	*/
+X#define DATADIR	 "../../data"			/* dont miss quotes	*/
+X#endif
+X#ifndef MSGSDIR					/* for default location	*/
+X#define MSGSDIR	 "../../msgs"			/* dont miss quotes	*/
+X#endif
+X#ifndef HELPFILE
+X#define HELPFILE 	"./netmon-help"
+X#endif
+X
+X/*
+X * Define NETLOG if you want to invoke 'netlog' from netmon when the user
+X * hits the 'n' option. This is invoking another program so be careful in who
+X * is allowed access to this program.
+X */
+X/* #define NETLOG	/* */
+X
+X/*
+X * 'netmon' extracts the terminal capabilities from /etc/termcap. Some
+X * terminals are very common and are present in every 'termcap', so you
+X * can list those terminals here to prevent doing a lookup using 'tgetent'.
+X *
+X * On the other hand, there are some terminals in /etc/termcap that are
+X * set by standard programs by default (like 'network' or 'ethernet', in
+X * which case you might want to query the user for the terminal type
+X * instead of accepting them as 'dumb' right away. List those terminals
+X * here too.
+X *
+X */
+X
+X#define GOODTERMINALS	"vt100", "vt200", "xterm", "sun"
+X#define BADTERMINALS	"ethernet", "network", "dialup"
+X
+X
+X/*******************  Rest is fairly standard ****************************/
+X
+X/*
+X**		CONSTANTS
+X*/
+X#define MAXLINE 	127		       	/* LINE lengths		*/
+X#define MAXWORD		15
+X#define PAUSE		15			/* wait secs for poll()	*/
+X
+X/*+ 
+X** The various display flags
+X**/
+X
+X#define emode 0x1		/* expanded display (132 cols) */
+X#define debug 0x2		/* netmon debug mode */
+X#define quiet 0x4		/* toggle bell off or on */
+X
+X/*
+X**	Global definitions
+X*/
+X
+Xchar *prognm;					/* program name		*/
+Xchar *datadir ;					/* Dir of data files	*/
+Xchar *msgsdir ;					/* Dir with text msg files */
+Xchar *helpfile ;				/* help file 		*/
+Xchar bolds[MAXWORD];				/* Bold sequence	*/
+Xchar bolde[MAXWORD];				/* Bold end sequence	*/
+Xchar clscr[MAXWORD];			    	/* Clear screen sequence */
+Xchar bellstr[MAXWORD];				/* Bell sequence */
+Xint  level,					/* display level	*/
+X  options,					/* user options		*/
+X  page,						/* Page number		*/
+X  msg_on ;					/* toggle for msg_dpy()	*/
+Xint  entered_curses ;				/* so done can call endwin */
+Xint titlesz, hdrsz, promptsz, 			/* various window sizes	*/
+X  msgtitlesz, msgsz, eventsz ;
+Xbool  frozen ;					/* indefinite poll wait	*/
+X
+Xextern char *good_terminals[],
+X  *bad_terminals[] ;				/* defined in main()	*/
+Xextern char *tgetstr() ;			/* 'termcap' routine	*/
+Xint outchar() ;					/* func for tgetstr() */
+X
+X/*
+X * The netmon screen is made up of several subwindows. This struct is
+X * essentially a list of all the windows on the main netmon screen.
+X */
+Xstruct allwins
+X{
+X    WINDOW    	*wmain;
+X    WINDOW     	*wtitle;			/* the title window	*/
+X    WINDOW	*whdr;				/* the column headers	*/
+X    WINDOW	*wevent;			/* the event window	*/
+X    WINDOW	*wmsgtitle;			/* message window title	*/
+X    WINDOW	*wmsg;				/* the small msg win	*/
+X    WINDOW	*wprompt;			/* the prompt window	*/
+X} aw;				/* aw allocates storage for the struct	*/
+X
+X/*  Window sizes:
+X** Initially 'wevent' size is computed as the remaining lines after all 
+X** else. After that it can be changed by the user.
+X*/
+X
+X#define TITLESZ		2			/* one blank line	*/
+X#define HDRSZ		2			/* one blank line	*/
+X#define MSGTITLESZ	2			/* one blank line	*/
+X#define MSGSZ		3			/* Messages window	*/
+X#define PROMPTSZ	2			/* one blank line above	*/
+X#define EVENTSZ		LINES - (TITLESZ+HDRSZ+MSGTITLESZ+MSGSZ+PROMPTSZ)
+X
+X#define MNCOLS		80		/* depends on extended display	*/
+X
+X/*+ 
+X** Display strings and formats
+X*/
+X
+X#define PROMPTA "Enter option, 'q' to quit, 'h' for help: "
+X#define PROMPTB "Enter option, or any other key for next screen: "
+X
+X/*
+X * The header names and the formats are coded here. They depend on the 'event'
+X * structure and should be modified with care. Make sure that you match the
+X * sizes with the size of the various fields in 'nocol.h'. Leave space for
+X * the 'condition' string added at the end.
+X */
+X/*                        1         2         3         4         5         6         7         8         9         0         1         2 */
+X/*               123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789. */
+X#define EHDR	"         Site      Address      Date  Time   +- Sender -+  +-- Variable --+ +- Value-+  + Thres -+    Units  Flags  Condition "
+X/*               +++++++++|++++  +++++++++|+++++ ++/++ ++:++  +++++++++|++  +++++++++|++++++ +++++++++|  +++++++++|  ++++++++  +++   END */
+X#define EFMT 	"%14.14s  %-15.15s %02d/%02d %02d:%02d  %-12.12s  %16.16s %10lu  %10lu  %8.8s  %03o   "	/* Condition added at end */
+X#define EFIELDS v.site.name, v.site.addr, v.mon,v.day,v.hour,v.min, v.sender, v.var.name, v.var.value, v.var.threshold, v.var.units, v.nocop
+X
+X/*               123456789.123456789.123456789.123456789.123456789.123456789.123456789.123456789. */
+X#define SHDR	"         Site      Address      Time   +-Variable-+ +-Value-+  Condition  "
+X/*               +++++++++|++++  +++++++++|+++++ ++/++  +++++++++|++ ++++++++    END */
+X#define SFMT	"%14.14s  %-15.15s %02d:%02d  %12.12s %8lu    "  /* 62 chars */
+X#define SFIELDS	v.site.name, v.site.addr, v.hour, v.min, v.var.name, v.var.value
+X
+X
+X/*
+X * Define types of user responses for get_reply()
+X */
+X#define C_ANY		0x0	/* Any character (printable or non-) */
+X#define C_ALPHA		0x1	/* A-z */
+X#define C_DIGIT		0x2	/* 0-9 */
+X#define C_SPACE		0x4	/* SPACE, TAB */
+X#define C_PUNCT		0x8	/* All punctuation characters */
+X
+X/*
+X * These are usually defined in sys/file.h.  Needed for flock
+X */
+X#ifndef LOCK_SH
+X# define   LOCK_SH   1    /* shared lock */
+X# define   LOCK_EX   2    /* exclusive lock */
+X# define   LOCK_NB   4    /* don't block when locking */
+X# define   LOCK_UN   8    /* unlock */
+X#endif	/* LOCK_SH */
+X
+END_OF_FILE
+  if test 7298 -ne `wc -c <'nocol-3.0/src/include/netmon.h'`; then
+    echo shar: \"'nocol-3.0/src/include/netmon.h'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/include/netmon.h'
+fi
+if test -f 'nocol-3.0/src/netmon/build_display.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/netmon/build_display.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/netmon/build_display.c'\" \(7182 characters\)
+  sed "s/^X//" >'nocol-3.0/src/netmon/build_display.c' <<'END_OF_FILE'
+X/*
+X * $Header: /home/aggarwal/lsrc/nocol/src/netmon/RCS/build_display.c,v 1.8 1993/10/30 03:52:08 aggarwal Exp $
+X */
+X
+X/* Copyright 1992 JvNCnet, Princeton */
+X
+X/*+ 
+X** It builds the 'display' screen by calling routines which write to the
+X** various windows (wmsg, whdr, wtitle, wprompt).
+X**
+X**	1) smile
+X**	2) display static data
+X**	3) event display
+X**	4) msgs display
+X**	4) refresh
+X**	5) poll and parse user input
+X**	6) never return
+X**
+X** displaying the messages needs a small trick - in the debug mode,
+X** the new mesage would overwrite the previous message because the
+X** debug message was writing independent of a file.
+X** Thus I used 'msg_on' which is a small toggle. The variable is
+X** turned off in 'msg_dpy()' at the end of all the files. The function
+X** is then not called by build_display() right away, but it is called
+X** after one skip. Seems to be a bit muddly, but pretty effective.
+X**
+X** RETURN VALUES
+X**
+X**	-1 on severe error.
+X**
+X**/
+X
+X/*+ 
+X *
+X *	$Log: build_display.c,v $
+X * Revision 1.8  1993/10/30  03:52:08  aggarwal
+X * Now uses dirent(). Deleted include dir.h
+X *
+X * Revision 1.7  1992/06/18  21:02:56  aggarwal
+X * Cleaned up for releasing.
+X *
+X *
+X * Revision 1.3  1990/05/23  17:19:44  aggarwal
+X * Added msg_on so that the function 'msg_dpy()' is skipped once
+X * after displaying all the files.
+X *
+X * Revision 1.1  90/03/09  13:04:36  aggarwal
+X * Initial revision
+X * 
+X */
+X
+X#include 	"netmon.h"
+X
+X
+X#define WFULL(w)  	(w->_cury == (w->_maxy - 1)) ? 1:0
+X
+Xbuild_display ()
+X{
+X    extern struct allwins aw;			/* defined in netmon.h	*/
+X    extern int level, options, page;		/* defined in netmon.h	*/
+X    extern int msg_on ;				/* defined in netmon.h	*/
+X
+X    for (; ;)
+X    {
+X	hdr_dpy(aw.whdr);			/* display header	*/
+X	msgtitle_dpy(aw.wmsgtitle);		/* display msg title	*/
+X	if (event_dpy() == -1)			/* resets page number	*/
+X	  return(-1);
+X	title_dpy (aw.wtitle, page);		/* variable page number	*/
+X	++page ;		  		/* increase after displaying */
+X	if (msg_on)				/* reset in msg_dpy()	*/
+X	{
+X	    if (msg_dpy() == -1)
+X	      return(-1);
+X	}
+X	else
+X	  msg_on = 1 ;				/* Turn it on		*/
+X
+X	if (display_screenful() == -1) 		     /* display */
+X	  return (-1);
+X
+X	parse_input(poll_input()); 		/* process user input 	*/
+X    }						/* end:  endless for	*/
+X}					       	/* end: build_display	*/
+X
+X
+X/***********************  FUNCTIONS  ***********************************/
+X
+X/*+ 
+X** The following functions write static information to the various 
+X** windows.
+X**/
+X
+Xtitle_dpy(wtitle,screen)			/* Main title		*/
+X     WINDOW *wtitle;
+X     int screen;				/* to show screen num	*/
+X{
+X    char	ptime[27];			/* present time		*/
+X    time_t	stamp ;				/* time stamp		*/
+X
+X    stamp = time ((time_t *)0) ;
+X    strncpy (ptime, ctime ((long *)&stamp), 26);
+X
+X    mvwprintw (wtitle, 0, 0, "%-3.2d", screen);
+X    mvwprintw (wtitle, 0, (int)(COLS/2 - 8), "%s", "JvNCnet NOCOL");
+X    mvwprintw (wtitle, 0, (int)(COLS - 30), "%26s", ptime);
+X    return(0);
+X}						/* end:  title_dpy	*/
+X
+X
+Xhdr_dpy(whdr)					/* field headers	*/
+X     WINDOW *whdr ;
+X{
+X    extern int	options ;
+X
+X    if (options & emode)			/* extended mode	*/
+X      mvwprintw (whdr, 0, 0, EHDR);
+X    else
+X      mvwprintw (whdr, 0, 0, SHDR);		/* short header		*/
+X    return(0) ;
+X}						/* end:  hdr_dpy	*/
+X
+Xmsgtitle_dpy(wmsgtitle)				/* Messages title	*/
+X     WINDOW *wmsgtitle ;
+X{
+X    extern bool frozen ;			/* in netmon.h		*/
+X    extern int  isdefined_pattern;		/* in read_filter.c */
+X    extern char pattern[] ;			/* in read_filter.c */
+X
+X    wmove(wmsgtitle, 0, 0) ;
+X    if (frozen)				       	/* on first line of win	*/
+X    {					    	/* in reverse video	*/
+X	wstandout (wmsgtitle);
+X	wprintw (wmsgtitle, "SCREEN FROZEN") ;
+X	wstandend (wmsgtitle);
+X    }
+X    else
+X      wclrtoeol (wmsgtitle) ;			/* erase line		*/
+X
+X    /*
+X     * display the pattern after the 'screen locked' message (about 20 chars
+X     * long). The show_display_level should overwrite in case this gets too
+X     * long to display.
+X     */
+X    if (isdefined_pattern)
+X    {
+X	mvwprintw(wmsgtitle, 0, (int)max(COLS/4,  20), "FILTER ON: ") ;
+X	wprintw (wmsgtitle, "%.*s..", COLS/2, pattern);
+X    }
+X
+X    wclrtoeol (wmsgtitle) ;			/* erase rest of line	*/
+X
+X    show_display_level(wmsgtitle, level);	/* on first line of win	*/
+X    mvwprintw (wmsgtitle, 1, (int)(COLS/2 - 4), "MESSAGES");
+X    return(0) ;
+X}						/* end:  msgtitle_dpy	*/
+X
+X/*+ 		show_display_level
+X** FUNCTION:
+X** 	Write out the display level in the first line in the message
+X** title window for information.
+X**/
+X
+Xshow_display_level(wmsgtitle,level)		/* on first line of win	*/
+X     WINDOW *wmsgtitle;
+X     int level;
+X{
+X    mvwprintw (wmsgtitle, 0, COLS - 25, "  Display Level: ");
+X    if (level == E_CRITICAL)
+X      wprintw (wmsgtitle, "%-8.8s", "CRITICAL");
+X    else if (level == E_ERROR)
+X      wprintw (wmsgtitle,  "%-8.8s", "ERROR");
+X    else if (level == E_WARNING)
+X      wprintw (wmsgtitle,  "%-8.8s", "WARNING");
+X    else if (level == E_INFO)
+X      wprintw (wmsgtitle,  "%-8.8s", "INFO");
+X    else
+X      wprintw (wmsgtitle,  "%-8.8s", "UNKNOWN");
+X    wclrtoeol (wmsgtitle) ;
+X    return(0); 
+X}						/* end:  show_dpy_level	*/
+X
+X/*
+X * Display the prompts
+X */
+Xaprompt_dpy (wprompt)		/* Prompt at end of a full screen	*/
+X     WINDOW *wprompt;
+X{
+X    mvwprintw (wprompt, 1, 0, PROMPTA);		/* blank line above	*/
+X    wclrtoeol (wprompt);
+X    return(0);
+X}						/* end: aprompt_dpy	*/
+X
+Xbprompt_dpy (wprompt)	   /* Prompt after displaying all files		*/
+X     WINDOW *wprompt ;
+X{
+X    mvwprintw (wprompt, 1, 0, PROMPTB);		/* blank line above	*/
+X    wclrtoeol (wprompt);
+X    return(0) ;
+X}						/* end: bpromt_dpy	*/
+X
+X/*+ 		display_screenful
+X**
+X** FUNCTION
+X**
+X**	Display screen of 'wmain' on the terminal. Forces cursor
+X** location by setting wmain's current location to that of the
+X** prompt windows current location.
+X**
+X** I tried a lot of variations (all logical according to me) on the
+X** screen update part - like get rid of touchwin() and call
+X** refresh(promptw) at the end and enable leaveok() etc. Tried it
+X** between BSD + Ultrix + Sun, and the 'subtle' differances forced me
+X** to add touchwin()  and  force the cursor location be turning
+X** leaveok off + moving the current wmain location to the actual
+X** wprompt location.
+X**
+X**/
+X
+Xdisplay_screenful ()
+X{
+X    extern struct allwins aw;		/* defined in netmon.h		*/
+X    extern int options ;
+X
+X    int x, y ;					/* To move the cursor	*/
+X    if (WFULL(aw.wevent))
+X      aprompt_dpy(aw.wprompt);			/* display full  prompt	*/
+X    else
+X      bprompt_dpy(aw.wprompt);			/* display help prompt	*/
+X
+X    if (options & debug)
+X    {
+X	wprintw(aw.wmsg,
+X		"\n(DEBUG): frozen = %s, options = 0x%x\n", 
+X		frozen ? "YES" : "NO", options);
+X	wprintw(aw.wmsg,		
+X		"(DEBUG): Term= %s, LINES= %d, COLS= %d, Datadir= %s", ttytype,
+X		LINES, COLS, datadir) ;	 	/* ttytype in curses.h */
+X	wclrtoeol(aw.wmsg);
+X    }
+X    
+X    /*
+X     * Am calling touchwin() since its foolproof (see discussion above)
+X     */
+X    touchwin (aw.wmain);
+X    y = aw.wprompt->_cury + aw.wprompt->_begy ;	/* force cursor loc..	*/
+X    x = aw.wprompt->_curx + aw.wprompt->_begx ;	/* ..to prompt window */
+X    wmove(aw.wmain, y, x);
+X    wrefresh (aw.wmain);			/* Onto screen */
+X    return (0) ;
+X}			/*** end:    display_screenful  ***/
+END_OF_FILE
+  if test 7182 -ne `wc -c <'nocol-3.0/src/netmon/build_display.c'`; then
+    echo shar: \"'nocol-3.0/src/netmon/build_display.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/netmon/build_display.c'
+fi
+if test -f 'nocol-3.0/src/netmon/netmon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/netmon/netmon.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/netmon/netmon.c'\" \(7531 characters\)
+  sed "s/^X//" >'nocol-3.0/src/netmon/netmon.c' <<'END_OF_FILE'
+X/*+
+X**	$Header: /home/aggarwal/lsrc/nocol/src/netmon/RCS/netmon.c,v 2.1 1993/10/30 03:53:11 aggarwal Exp $
+X*/
+X
+X/* Copyright 1993 JvNCnet, Global Enterprise Services */
+X
+X/*
+X**
+X** To DISPLAY the output from various NOCOL monitoring programs.
+X** Uses curses for screen management and display.
+X**
+X** The design of the program is such that it displays ALL the files in
+X** the DATA directory one after another in a cycle. As an option , the
+X** data directory can be displayed on the command line.
+X**
+X** A separate window for the events and another for the messages are
+X** created. The message window can scroll and is for sending debug or
+X** any other messages that might be needed in the future. A separate
+X** routine 'msg_dpy' is called for the message 's display.
+X**
+X** AUTHOR:
+X**
+X**	Vikas Aggarwal			vikas@nisc.jvnc.net
+X**
+X*/
+X
+X/*  Copyright 1992 JvNCnet
+X
+X Permission to use, copy, modify and distribute this software and its
+X documentation for any purpose is hereby granted without fee, provided that
+X the above copyright notice appear in all copies and that both that copyright
+X notice and this permission notice appear in supporting documentation, and
+X that the name of JvNCnet not be used in advertising or publicity pertaining
+X to distribution of the software without specific, written prior permission.
+X JvNCnet makes no representations about the suitability of this software for
+X any purpose.  It is provided "as is" without express or implied warranty.
+X
+X JvNCnet DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL JvNCnet
+X BE LIABLE FOR ANY DAMAGES WHATSOEVER, INCLUDING DAMAGES RESULTING FROM LOSS
+X OF USE, DATA OR PROFITS, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+X OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X*/
+X
+X/*
+X * $Log: netmon.c,v $
+X * Revision 2.1  1993/10/30  03:53:11  aggarwal
+X * Fixed the definitions of the signal handlers
+X *
+X * Revision 2.0  1992/06/18  21:05:21  aggarwal
+X * Additional features for releasing:
+X * 	o window resizing
+X * 	o terminal setup
+X *
+X * Revision 1.8  1992/05/14  12:34:41  aggarwal
+X * Number of major fixes:
+X * 	- moved get_reply() to above main so types were defined
+X * 	  before being called in 'main()'
+X * 	- setuserenviron() sprintf was missing terminal '\0'
+X * 	- set_terminal() extensively modified.
+X *
+X * Revision 1.4  1990/04/05  17:47:02  aggarwal
+X * Was doing a 'endwin()' in Error even though initscr() had not been
+X * called. Got rid of that. Extended the help a bit.
+X *
+X * Revision 1.1  90/03/09  13:06:18  aggarwal
+X * Initial revision
+X * 
+X */
+X#ifndef lint
+X static char rcsid[] = "$RCSfile: netmon.c,v $ $Revision: 2.1 $ $Date: 1993/10/30 03:53:11 $" ;
+X#endif
+X
+X/*+ 
+X ** INCLUDES
+X */
+X
+X#include	"netmon.h"			/* application specific	*/
+X
+X/*
+X * global variables
+X */
+Xchar *good_terminals[] = { GOODTERMINALS, "" } ;
+Xchar *bad_terminals[] =  { BADTERMINALS,  "" } ;
+X
+Xmain (ac, av)
+X     int	ac;
+X     char	**av;
+X{
+X    extern 	char *prognm;			/* defined in netmon.h	*/
+X    extern 	int level, options;		/* defined in netmon.h	*/
+X    extern	 char *optarg;
+X    extern 	int optind;
+X    register 	int i ;				/* temporary counter	*/
+X    void	done(), wsizechange();		/* for signals		*/
+X
+X
+X    /*
+X     * Set the initial values of variables
+X     */
+X    prognm = av[0] ;				/* program name		*/
+X    datadir = DATADIR ;
+X    msgsdir = MSGSDIR ;
+X    helpfile = HELPFILE ;
+X    eventsz = 0;				/* Init value important	*/
+X    page = 1;					/* init value */
+X    level = E_CRITICAL;				/* default severity	*/
+X
+X    while ((i = getopt(ac, av, "dewl:q")) != EOF)
+X      switch (i)
+X      {
+X       case 'd':
+X	  options = options | debug ;			/* debug option */
+X	  break ;
+X       case 'w':
+X       case 'e':			       /* expanded/wide  display */
+X	  options = options | emode;
+X	  break;
+X       case 'l':					/* level	*/
+X	  sscanf(optarg, "%d", &level) ;
+X	  break;
+X       case 'q':
+X	  options = options | quiet ;
+X	  break ;
+X       case '?':
+X       default:
+X	  fprintf(stderr, "%s: unknown flag: %c\n", prognm, i);
+X	  goto Error ;
+X      }			/* end   switch		*/
+X
+X    switch ( ac - optind )
+X    {
+X     case 0:					/* default data dir */
+X	break ;
+X     case 1:
+X	datadir = av[optind] ;			/* alternate data dir */
+X	break ;
+X     default:
+X	goto Error;				/* more than one data dir */
+X    }
+X
+X    /*
+X     * Setup to catch ALL signals except SIGUSR1/SIGUSR2 for security
+X     * purposes.
+X     */
+X    for (i = 0 ; i < SIGUSR1 ; ++i )
+X      signal (i, done);
+X
+X    if (setuserenviron () == -1)	/* check the user environment	*/
+X    {					/* .. specifically for TERM	*/
+X	perror ("setuserenv");
+X	exit (1);
+X    }
+X
+X    all_doer();				/* the main do'er	*/
+X
+X    if (entered_curses)
+X      endwin ();			/* This point never reached */
+X    perror (prognm);
+X    exit (1);			
+X
+X  Error:
+X    usage ();					/* No 'endwin' here */
+X    exit (1);
+X}						/* end    'main'	*/
+X
+X
+X/*+ 		usage
+X** FUNCTION
+X**	Display short message on usage of the program
+X**/
+X
+X#ifndef Fprintf
+X#define Fprintf(s)	fprintf(stderr, (s) )
+X#endif
+X
+Xusage()
+X{
+X    static char 
+X      usage[]="[-d (debug)] [-q (quiet)] [-l level] [-w (wide)] [data dir]";
+X    fprintf (stderr, "\nUSAGE: %s  %s\n\n", prognm, usage);
+X    fprintf(stderr, "Data directory is: %s\n", datadir);
+X    Fprintf("To verify terminal type, turn debug mode on and\n");
+X    Fprintf("then toggle between wide display mode (using w)\n\n");
+X    return (0);
+X}		/* end usage()	*/
+X
+X/*+ 		wsizechange
+X ** FUNCTION:
+X ** 	Function to catch window size change signals (in xterm, etc.)
+X ** After getting the signal, the system blocks all further occurences of
+X ** the signal until the function returns. However, if calling all_doer,
+X ** this function never really returns, but calls all_doer() directly.
+X ** So remember to unblock the SIGWINCH in case calling all_doer directly.
+X **/
+Xvoid  wsizechange()
+X{
+X#ifdef TIOCGWINSZ
+X    static struct winsize win ;         	/* 4.3 BSD window sizing */
+X#endif
+X
+X#ifdef TIOCGWINSZ
+X    if (ioctl(1, TIOCGWINSZ, (char *) &win) == 0 )
+X    {
+X        if (win.ws_row > 0)
+X	  LINES = win.ws_row ;
+X        if (win.ws_col > 0)
+X	  COLS = win.ws_col ;
+X    }
+X#endif
+X
+X    if (entered_curses)
+X    {
+X	endwin() ;			/* get out of curses and start over */
+X	tputs(clscr, 1, outchar);	/* clear the screen */
+X	fflush(stdout);
+X    }
+X
+X    /*
+X     *  Now reset any special variables for setup_display() and return.
+X     *  If calling 'all_doer' (doesn't return), remember to reset signal
+X     */
+X    eventsz = 0 ;			/* so that new size is reset */
+X    setup_display() ;
+X    display_screenful() ;		/* put stuff back on screen */
+X
+X}		/* end wsizechange */
+X
+X
+X/*+ 		all_doer
+X** FUNCTION:
+X** 	This is the main doer. It creates all the necessary windows
+X** and then repeatedly calls the 'build_display()' routine to display
+X** all the data. This is made as a separate routine from main so that
+X** options can be changed and this function can be called directly
+X** without going thru main() again.
+X**/
+X
+Xall_doer()
+X{
+X    entered_curses = 1 ;		/* so done can call endwin() */
+X
+X#ifdef SIGWINCH                     /* catch window size change signals */
+X    if (signal(SIGWINCH, wsizechange) == (void *)-1)
+X      perror("couldn't set signal for SIGWINCH- ");
+X#endif
+X
+X    setup_display();			/* Just creates all the windows	*/
+X    return (build_display());		/* Display all files forever	*/
+X
+X}	/* end:  all_doer()  */
+X
+X
+X/*+ 		done
+X** FUNCTION
+X**	Close up and die.
+X**/
+X
+Xvoid done()
+X{
+X    echo();
+X    if (entered_curses)			/* else kills the login window */
+X      endwin();
+X    printf ("\n\n");
+X    exit(0);
+X}
+X
+END_OF_FILE
+  if test 7531 -ne `wc -c <'nocol-3.0/src/netmon/netmon.c'`; then
+    echo shar: \"'nocol-3.0/src/netmon/netmon.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/netmon/netmon.c'
+fi
+if test -f 'nocol-3.0/src/perlnocol/snmp-modemmon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/perlnocol/snmp-modemmon'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/perlnocol/snmp-modemmon'\" \(7440 characters\)
+  sed "s/^X//" >'nocol-3.0/src/perlnocol/snmp-modemmon' <<'END_OF_FILE'
+X#!/usr/local/bin/perl 
+X# $Header: /home/aggarwal/lsrc/nocol/src/perlnocol/RCS/snmp-modemmon,v 1.1 1993/10/30 04:07:19 aggarwal Exp $
+X#
+X#        SNMPmodemmon - perl monitor for modem line's usage on Terminal Servers
+X#
+X#  -Vikas Aggarwal, vikas@jvnc.net, from code written by John Wobus, 
+X#	jmwobus@mailbox.syr.edu
+X#
+X#  THIS IS AN SNMP VERSION OF THE modemmon  PROGRAM. IT USES the
+X#  CMU-SNMP 'snmpwalk' program.
+X#
+X#####################
+X# To Install:
+X#
+X#	Compile the CMU-SNMP programs and install snmpwalk and the
+X#	mib.txt file in desired locations. Then set the variables
+X#	as described in the 'Customize' section.
+X#
+X# Modemmon  reads a list of cisco terminal servers to monitor (from
+X# a config file) and thresholds. It then logs into the cisco's and
+X# counts the number of lines in use. When the used lines exceeds the
+X# thresholds, the lines are displayed in NOCOL data format.
+X#
+X# Files used:
+X#   snmpwalk -		From CMU-SNMP distribution
+X#   mib.txt  -		MIB file in ASN syntax with merged Cisco MIB.
+X#
+X# Nocol event elements used:
+X#   sender                     "modemmon"
+X#   severity                   as read from the config file
+X#   site
+X#    name                      the cisco name
+X#    addr                      cisco IP address
+X#   var                       
+X#    name                      "ModemLines"
+X#    value                     1 means at Info level
+X#    threshold                 as read from the config file
+X#    units                     always "Usage"
+X#
+X## 
+X##
+X#
+X############################
+X## Variables customization #  overrides values in the nocollib.pl library
+X############################
+X$SNMP = "../cmu-snmp" ;			# To find binary and MIBFILW
+X$prog =  "$SNMP/bin/snmpwalk" ;		# location of 'snmpwalk'
+X$mibfile = "$SNMP/mib.txt" ;	# Location of MIB file
+X
+X# Cisco MIB ASN
+X# cisco.local...tsLineActive = 9.2.9.2.1.1
+X$mibcisco  = ".iso.org.dod.internet.private.enterprises.cisco.local" ;
+X$miblineactive = $mibcisco.".lts.ltsLineTable.ltsLineEntry.tsLineActive" ;
+X$miblinetype = $mibcisco.".lts.ltsLineTable.ltsLineEntry.tsLineType" ;
+X
+X$community=  "public";
+X
+X$varname="ModemLines";
+X$varunits="Usage" ;			# the var.units field in EVENT struct
+X$sleepint=60*5;       			# Seconds to sleep between tries.
+X############################
+X$debug = 0;				# set to 1 for debugging output
+X$libdebug = 0;				# set to 1 for debugging output
+X
+Xrequire  "nocollib.pl" ;
+X
+X-x $prog || die("Could not find executable $prog, exiting");
+X-f $mibfile || die("Could not find MIB file $rprog, exiting");
+X$ENV{"MIBFILE"}= $mibfile ;
+X
+X@me=split(/\//,$0); $me=pop(@me);
+X#$piddir=join("/",@me); if ($piddir eq "") {$piddir=$etcdir;}
+X$piddir=$etcdir;
+X$cfile="$etcdir/$me-confg";
+X$datafile="$datadir/$me-output";
+X
+X$sender= $me ;				# filled in the EVENT sender
+X
+X
+X##
+X# Read the config file. Use '\t' as a separator for 'item'
+Xsub readconf {
+X    local ($nets, $interface, $zone) ;
+X
+X    open(CONFIG,"<$cfile")||die("Couldn't find $cfile, exiting");
+X    while(<CONFIG>)
+X    {
+X	chop;
+X	if(/^\s*#/) {next;}   # skip comments
+X	if(/^\s*$/) {next;}   # skip blank lines
+X	if (/\s*(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/)
+X	{
+X	    $item="$1\t$2" ;	 # the name and address
+X	    $wlevel{$item} = $3; # Warning level
+X	    $elevel{$item} = $4; # Error level
+X	    $clevel{$item} = $5; # Critical level
+X	    push(@items,$item);
+X	}
+X	else {print "Ignoring illegal line: $_\n";}
+X
+X    }	# end while(CONFIG)
+X
+X    close(CONFIG);
+X    if(0>$#items){die("Nothing to monitor in $cfile, exiting")};
+X    if ($debug) {
+X	print "Items are:\n"; foreach (@items) { print "\t$_\n" } ;
+X    }
+X}				# end: readconf
+X
+X
+X# 
+X## Check state of each router
+X##
+X#
+X# Walks the TServer ltsLineActive/ltsLineType  mib trees (cisco specific) 
+X# and collects TERMINAL type lines that are ACTIVE.
+X# Prints number of active lines and total number of TTY lines.
+X# Prints '-1' on error.
+X#
+X# CAVEATS:
+X#   - Walking entire mib tree over UDP can be iffy. This is tested by seeing
+X#     if any responses are missing in the TYPE list and the ACTIVE list.
+X#
+X###	
+X#
+Xsub dotest {
+X    local ($router) = @_ ;
+X    local ($acount, $tcount) = (0, 0) ;
+X    local ($walkactive, $walktype, @active, @type) ;
+X
+X    if ($debug) { print "Checking $router\n"; }
+X
+X    -x $prog || die("Could not find executable $prog, exiting");
+X
+X    $walkactive = "$prog $router $community $miblineactive";
+X    $walktype =   "$prog $router $community $miblinetype";
+X    if ($debug) { 
+X#	print "Active cmd= $walkactive\nType cmd= $walktype\n\n" ;
+X    }
+X#
+X# Output of Check-active SNMP command is:
+X#    Name: .iso.org.dod........lts.ltsLineTable.lts.LineEntry.tsLineActive.0
+X#    INTEGER: 1
+X
+X    open (ACTIVE, "$walkactive |") || die "Can't check active lines.";
+X    while(<ACTIVE>){
+X	chop;
+X	if (/^\s*INTEGER:\s*(\d+)\s*$/)
+X	{
+X	    push(@active,$1);
+X#	    if ($debug) { print "$1, "; }
+X	}
+X    }
+X    close(ACTIVE);
+X#    if ($debug) { print "\n"; }
+X
+X## Output of Check-Type SNMP command is:
+X#    Name: .iso.org.dod........lts.ltsLineTable.lts.LineEntry.tsLineType.0
+X#    INTEGER: console(2) OR terminal(3) OR virtual-terminal(5)
+X
+X    open (TYPE, "$walktype |") || die "Can't check line types.";
+X    while(<TYPE>){
+X	chop;
+X	if (/^\s*INTEGER:\s*(\S(.*\S)?)\s*$/)
+X	{
+X	    push(@type,$1);
+X#	    if ($debug == 2) { print "$1, "; }
+X	}
+X    }
+X    close(TYPE);
+X#    if ($debug) { print "\n"; }
+X
+X    if ($debug) { 
+X	print "(debug): active list= $#active, type list= $#type\n" ;
+X    }
+X
+X    if ($#active != $#type) 
+X    { 
+X	print "WARNING: active list len= $#active != type list len= $#type\n" ;
+X	return (-1);
+X    }
+X
+X    foreach $i (0..$#active)
+X    {
+X	$isterm = ($type[$i] =~ /terminal\(3\)/); # Search for TTY terminals
+X	if($isterm) {
+X	    $tcount++;
+X	    $acount+=$active[$i]; # Since '$active' is either 0 or 1 anyway
+X	    if ($debug) { 
+X		print "(debug): Index=$i Type=$type[$i] Active=$active[$i]\n";
+X	    }
+X	}
+X    }
+X
+X    if ($debug) {print "(debug)Active/Total terminals: $acount/$tcount\n"; }
+X
+X    return ($acount) ;
+X
+X}	# end &dotest()
+X
+X
+X###
+X### main
+X###
+X
+X# Fork and get rid of old process.
+Xif($p=fork){print "$p\n";exit;}
+X&standalone($me,$piddir);
+X
+X&readconf ;
+X
+Xforeach $item (@items) {
+X    local ($host, $addr) = split( /\t/, $item );
+X    &init_event ($host, $addr, $item);
+X}
+X
+Xwhile (1)
+X{
+X    foreach $item (@items) {
+X	local ($host, $addr) = split( /\t/, $item );
+X	local ($linesused) =  &dotest ($addr);
+X
+X	if ($linesused < 0)
+X	{
+X	    print "$me: dotest failed for $host ($addr) , skipping\n";
+X	    next ;
+X	}
+X	if ($linesused >= $clevel{$item} ) # critical level
+X	{
+X	    if ($debug) {print "(debug): Maxlevel is Critical\n";}
+X	    $varthres{$item} = $clevel{$item} ; # threshold
+X	    &update_event($item, 0, $linesused, $E_CRITICAL);
+X	}
+X	elsif ($linesused >= $elevel{$item} )
+X	{
+X	    if ($debug) {print "(debug): Maxlevel is Error\n";}
+X	    $varthres{$item} = $elevel{$item} ; # threshold
+X	    &update_event($item, 0, $linesused, $E_ERROR);
+X	}
+X	elsif ($linesused >= $wlevel{$item} )
+X	{
+X	    if ($debug) {print "(debug): Maxlevel is Warning\n";}
+X	    $varthres{$item} = $wlevel{$item} ; # threshold
+X	    &update_event($item, 0, $linesused, $E_WARNING);
+X	}
+X	else
+X	{
+X	    if ($debug) {print "(debug): Level is INFO\n";}
+X	    $varthres{$item} = $wlevel{$item} ; # threshold is warning level
+X	    &update_event($item, 1, $linesused, $E_WARNING); # status UP
+X	}	
+X    }
+X
+X    ; ## Note: we want to write the file quickly.
+X
+X    open(OEVENTS,">$datafile");
+X    foreach $item (@items) {
+X	&writeevent($item);
+X    }
+X    close(OEVENTS);
+X    sleep($sleepint);
+X}
+X
+END_OF_FILE
+  if test 7440 -ne `wc -c <'nocol-3.0/src/perlnocol/snmp-modemmon'`; then
+    echo shar: \"'nocol-3.0/src/perlnocol/snmp-modemmon'\" unpacked with wrong size!
+  fi
+  chmod +x 'nocol-3.0/src/perlnocol/snmp-modemmon'
+  # end of 'nocol-3.0/src/perlnocol/snmp-modemmon'
+fi
+if test -f 'nocol-3.0/src/pingmon/poll_sites.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/pingmon/poll_sites.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/pingmon/poll_sites.c'\" \(7434 characters\)
+  sed "s/^X//" >'nocol-3.0/src/pingmon/poll_sites.c' <<'END_OF_FILE'
+X/*+	$Header: /home/aggarwal/lsrc/nocol/src/pingmon/RCS/poll_sites.c,v 1.18 1993/10/30 03:16:11 aggarwal Exp $
+X *
+X */
+X
+X/* Copyright 1992 JvNCnet, Princeton */
+X
+X/*+
+X**
+X** FUNCTION
+X**
+X**	This function pings all the sites and determines their status.
+X**
+X**	It reads the site info from the output file and after pinging it,
+X**	writes the new status back in the file. It uses raw i/o.
+X**
+X**	If the status remains DOWN during the next test of the
+X**	site, it raises the severity (it polls 7 sites a minute)
+X**
+X**	Also, if previous status is same as present, it does not
+X**	change the time of test (thus the time is the time that the 
+X**	site has been at the current status - useful for any other
+X**	program that needs to know status of the sites down).
+X**
+X**      Does one pass over the entire file, returns -1 if error.
+X**
+X**/
+X
+X/*
+X *	$Log: poll_sites.c,v $
+X * Revision 1.18  1993/10/30  03:16:11  aggarwal
+X * Now uses the update_event() library call.
+X *
+X * Revision 1.17  1993/09/18  22:32:29  aggarwal
+X * Added logging facilities.
+X *
+X * Revision 1.16  1992/06/18  21:14:17  aggarwal
+X * Added code for 'multiping'. Also added macros for increasing
+X * severity.
+X *
+X * Revision 1.15  1992/05/13  16:09:15  aggarwal
+X * Changed the nocol.h struct so that addr is now a char[] instead of
+X * inet_addr. Altered this file to match change.
+X *
+X * Revision 1.7  89/12/19  10:43:54  network
+X * The location of 'ping' should be explicitly defined or else
+X * the path should include '/etc' before calling the program
+X * else the shell does not find 'ping' and all the sites show
+X * down.
+X * 
+X * Revision 1.6  89/11/27  17:08:10  aggarwal
+X * Added macro 'ESC_SEVERITY' to escalate the severity.
+X * Shifted around the 'case DOWN' statements a bit since the
+X * state was being changed before the 'if' test making it
+X * kinda redundant.
+X * 
+X * Revision 1.1  89/11/08  12:09:55  aggarwal
+X * Initial revision
+X * 
+X */
+X
+X/*+ 
+X** INCLUDE FILES
+X**/
+X
+X#include "pingmon.h"			/* program specific defines	*/
+X
+X#include <signal.h>
+X#include <sys/file.h>
+X
+Xstatic char pingcmd[BUFSIZ];			/* the ping command used */
+Xstatic int  maxseverity = E_CRITICAL ;	/* Max severity of pingmon events */
+X
+X/* #defines for finish_status */
+X#define REACHED_EOF 1
+X#define READ_ERROR  2
+X
+Xpoll_sites(fdout)
+X     int fdout;				/* Descriptors to open files	*/
+X{
+X    extern int debug;			/* Enable debug (in pingmon.h)	*/
+X    static FILE *p_cmd;			/* for creating the ping cmd	*/
+X    static int batchsize = BATCHSIZE ;	/* num of sites to ping at a time */
+X    EVENT v[BATCHSIZE];			/* described in nocol.h		*/
+X    char line[BUFSIZ];		 	/* to create the ping command	*/
+X    struct tm *ltime ;    
+X    time_t locclock ;			/* careful: don't use 'long'	*/
+X    long status;		       	/* site status			*/
+X    int sent, recv, bufsize;		/* recieved response		*/
+X    int i, numsites ;			/* actual number of sites read in */
+X    int finish_status = 0;		/* why we stopped */
+X
+X    if ( lseek(fdout, (off_t)0, SEEK_SET) == -1)	/* rewind the file	*/
+X    {
+X	perror (prognm);
+X	return (-1);
+X    }
+X
+X    while (!finish_status)		/* until end of all sites... */
+X    {
+X	char sites[BUFSIZ] ;		/* for list of sites to ping */
+X	*sites = '\0' ;
+X
+X	/* try to read in as many sites as we can, up to batchsize */
+X	for (numsites = 0; numsites < batchsize; numsites++)
+X	{
+X	    bufsize = read(fdout, &v[numsites], sizeof(EVENT));
+X	    if (bufsize != sizeof(EVENT))
+X	    {
+X		finish_status = bufsize ? READ_ERROR : REACHED_EOF;
+X		break;
+X	    } 
+X	    else
+X	      strcat(strcat(sites, " "), v[numsites].site.addr);
+X	}	/* end for */
+X
+X	if (!numsites) 		/* means something bad happened, or EOF */
+X	  continue;		/* ...next while statement, finish_stat set */
+X
+X	/*
+X	 * The ping command for 'multiping' is different from the standard.
+X	 * Hence the 'ifdef'. It allows for the -t and -q options.
+X	 */
+X
+X#ifdef MULTIPING
+X	/*
+X	 * multiping -q (quiet) -c <pkt count> -s <pkt size> -t (tabular) sites
+X	 *
+X	 * For tabular output, data is separated by a line, so use the
+X	 * sed command to chop off top portion.
+X	 */
+X	/*
+X	 * the output from ping looks something like this:
+X	 *
+X	 *   PING 128.121.50.145 (128.121.50.145): 56 data bytes
+X	 *   PING 128.121.50.147 (128.121.50.147): 56 data bytes
+X	 *   PING 128.121.50.140 (128.121.50.140): 56 data bytes
+X	 *   
+X	 *   -=-=- PING statistics -=-=-
+X	 *                                         Number of Packets
+X	 *   Remote Site                     Sent    Rcvd    Rptd   Lost
+X	 *   -----------------------------  ------  ------  ------  ----
+X	 *   128.121.50.145                     10      10       0    0%
+X	 *   128.121.50.147                     10      10       0    0%
+X	 *   128.121.50.140                     10      10       0    0%
+X	 *   -----------------------------  ------  ------  ------  ----
+X	 *   TOTALS                             30      30       0    0%
+X	 *
+X	 * (I've cut off the right part of the screen to make it fit)
+X	 * the sed command below kills everything up to and including the
+X	 * first row of dashes ----
+X	 *
+X	 * The site name is printed as %30.30 (30 spaces)
+X	 */
+X
+X	sprintf(pingcmd, "%s -qtc %d -s %d %s | %s\0",
+X		ping, NPACKETS, DATALEN, sites, "sed '1,/^-----/d'") ;
+X
+X#else /* if not MULTIPING */
+X
+X	/*
+X	 * A typical (standard) 'ping | tail -2' output looks like this:
+X	 *
+X	 * If you have a different style ping command format and output, then
+X	 * alter here.
+X	 *
+X	 *	 r2d2-vikas> /usr/etc/ping -s nisc.jvnc.net 1000  5 | tail -2
+X	 *	 5 packets transmitted, 5 packets received, 0% packet loss
+X	 *	 round-trip (ms)  min/avg/max = 4/4/5
+X	 */
+X	sprintf(pingcmd,"%s -s %s %d %d | %s\0",
+X		ping, sites, DATALEN, NPACKETS, "tail -2" );
+X
+X#endif	/* ifdef MULTIPING */
+X
+X	if (debug)
+X	  fprintf(stderr, "(debug) %s: PINGCMD is\t%s\n", prognm, pingcmd) ;
+X
+X	if ((p_cmd = popen(pingcmd, "r")) == NULL)	/* open up the pipe */
+X	{
+X	    perror("poll_sites (popen)");
+X	    return(-1);
+X	}
+X
+X	/*
+X	 * 'multiping' produces output lines in the order in which they
+X	 * appeared in the command line, so we can just step thru the v[]
+X	 * array.
+X	 * After reading each line, update the corresponding event struct
+X	 */
+X
+X      for (i = 0; i < numsites; i++)
+X      {
+X	  int n ;
+X	  n = fgetline(p_cmd, line, sizeof (line));
+X#ifdef MULTIPING
+X	  /*
+X	   * The output after 30 characters has pkts sent and recieved
+X	   * Can't use '%*s' to skip over the sitename since sometimes
+X	   * the sitename gets truncated and we end up with two words.
+X	   * The '30' size is defined in the multiping program (yeah, so
+X	   * its a hack.)
+X	   */
+X	  sscanf(&line[30], "%*d %d", &recv);
+X	  status = (NPACKETS - recv) > PING_THRES ? 0 : 1 ;
+X#else
+X	  /*
+X	   * Trying to scan line of the form:
+X	   *	10 packets transmitted, 1 packets received, 90% packet loss
+X	   *	round-trip (ms)  min/avg/max = 2/2/3
+X	   */
+X
+X	  sscanf (line, "%d %*s %*s %d", &sent, &recv);
+X	  if (sent != NPACKETS)		/* Error of some sort */
+X	  {
+X	      recv = 0 ;
+X	      status = 0 ;
+X	  }
+X	  else
+X	    status = ((NPACKETS - recv) > PING_THRES) ? 0 : 1 ;
+X#endif	/* MULTIPING */
+X
+X	  update_event(&(v[i]), status, recv, maxseverity);
+X
+X      }	    	/* end for */
+X
+X	if (pclose(p_cmd) < 0)		      /* close the pipe */
+X	  perror("poll_sites (pclose)");
+X
+X      /* rewind the file and write out the whole array */
+X      lseek(fdout, -(off_t)(sizeof(EVENT) * numsites), SEEK_CUR);
+X      write(fdout, (char *)v, sizeof(EVENT) * numsites);
+X
+X    }	/* end while (until end of all sites) */
+X
+X    return (finish_status != REACHED_EOF) ? -1 : 1;
+X
+X}	/* end poll_sites */
+X
+END_OF_FILE
+  if test 7434 -ne `wc -c <'nocol-3.0/src/pingmon/poll_sites.c'`; then
+    echo shar: \"'nocol-3.0/src/pingmon/poll_sites.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/pingmon/poll_sites.c'
+fi
+if test -f 'nocol-3.0/src/support/mping/spqr.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/support/mping/spqr.doc'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/support/mping/spqr.doc'\" \(7029 characters\)
+  sed "s/^X//" >'nocol-3.0/src/support/mping/spqr.doc' <<'END_OF_FILE'
+XSPQR
+X
+XSuccessive Ping Quality Regression	 (Okay, you think of a better name)
+X
+X
+Xspqr is a tool which can spot "low intensity" problems in LAN or WAN
+Xfunctioning.  Based on the venerable "ping" (ICMP_ECHO) facility, it
+Xcontinuously monitors stations based on a configuration file and keeps
+Xa cumulative problem metric averaged over 5, 15, and 60 minute intervals.
+X
+Xspqr consists of three parts: a driver/reporting program which initiaties
+Xa poll every minute and averages the results, a parallel pinger program
+X(which can send ICMP_ECHO packets to an arbitrarily large number of targets
+Xin parallel), and a simple display program which continuously prints the
+Xcurrent status to the screen.  The display program is suitable to run
+Xas a restricted shell.
+X
+Xmping -- the parallel pinger program
+X------------------------------------
+XMping is driven from a configuration file (or standard input) which
+Xlists the addresses to ping, and optionally:
+X
+X	packet length	(default 56 bytes of ICMP data)
+X	packet data	(default all zeros)
+X	# packets	(default 1)
+X	# retries	(default 5)
+X	retry interval	(default 1 second)
+X
+XThe format of the file is simple, consisting of two or three fields
+Xfor each entry.  The fields are:
+X
+X	name	address	[options]
+X
+XIf given, <options> is one or more comma-separated fields in the order:
+X
+X	size,pattern,numToGet,retry,timeout
+X
+XThis parses option fields left to right, as indicated by commas.  Missing
+Xor empty fields use the default value (see below).  For example, the
+Xoption string to specify just the size (128) and pattern (0x15) would be
+X"128,0x15": the remaining fields would default.  To specify a size (128)
+Xand a retry count (2), the option field would be "128,,,2".  To specify
+Xjust a timeout of 2 seconds, the option string would be ",,,,2000".
+X
+X
+X size [default: 56]:		Decimal number giving the size of the ICMP
+X				data portion of the packet.  The actual IP
+X				packet will be at least 8 octets larger.
+X
+Xpattern [default: 0x0]:	A hex number specifying a byte value to
+X				initialize the ICMP data portion of the
+X				packet.
+X
+XnumToGet [default: 1]:	Number of return packets to require.
+X
+Xretry [default: 5]:		Number of retries to make before declaring
+X				a packet lost.  Note that if <numToGet> is
+X				greater than 1, the retry limit applies to
+X				each attempt.  That is if the first attempt
+X				requires 4 tries before a successful return,
+X				then next attempt will still make up to 5
+X				tries.
+X
+Xtimeout [default: 1000]	Number of milliseconds to wait before
+X				assuming packet lost and retrying.  The
+X				default timeout is fine within an all
+X				ethernet environment, but you need a longer
+X				one for WAN links.
+X
+XThe <name> field is not used for anything except producing the report.
+X
+XThe <address> field can be either an IP address in any of the notations
+Xacceptable to the inet_addr() function, or it can be a domain name.
+XIf a domain name is used, and the gethostbyname() function returns
+Xmore than one address, it is treated like multiple configuration lines,
+Xone for each address.  For example the configuration line:
+X
+X	NS-NIC	ns.nic.ddn.mil	56,0,2
+X
+Xis treated as if read:
+X
+X	NS-NIC	192.112.36.4	56,0,2
+X	NS-NIC	192.67.67.53	56,0,2
+X
+X
+Xbased on the configuration, the parallel pinger sends packets to every
+Xtarget on the list, retrying as necessary until all targets have either
+X(a) returned the required number of packets or (b) failed to return a
+Xpacket in the specified number of timeouts.
+X
+XIt then reports for each target: how many packets sent, how many returned,
+Xand the total packet round trip time (in microseconds) for all returned
+Xpackets.
+X
+Xmsummary -- the driver program
+X------------------------------
+XThe driver program invokes mping once each cycle (default 60 seconds)
+Xand reads its output to produce a summary of all targets showing less
+Xthan perfect connectivity.   There are four columns of bad/RTT pairs,
+Xand a single RPT column.  The bad/RTT pairs show the percentage of
+Xdropped packets and the average round trip time for: (1) the most
+Xrecent poll, (2) the most recent 5 polls, (3) the most recent 15 polls,
+Xand (4) the most recent 60 polls.  Thus temporary problems eventually
+Xget averaged out and dropped from the report, but persistent low-level
+Xproblems remain prominent.
+X
+XThe "RPT" column shows what percentage of the time this system has been
+Xreported.  A target is dropped from the report when all averages become
+X0.  Thus a target with.
+X
+XHere is a sample report:
+X
+X------------------------------------------------------------------------------
+X16:19:27    Iter: 16288 Cycle:  14   current    avg. 5   avg. 15   avg. 60
+XSystem Name        IP Address      bad   RTT bad   RTT bad   RTT bad   RTT RPT
+X------------------ --------------- --- ----- --- ----- --- ----- --- ----- ---
+Xcupid              130.132.21.192    0   1.6   2   1.8  13   1.8  18   1.8  99
+Xcalvin             130.132.21.195   33   1.2  27   1.4  23   1.4  18   1.4  98
+Xdual               130.132.21.211    0   1.8  14   1.8  16   1.9  12   1.7  47
+Xyaleads            130.132.21.130    0   3.9   0   4.2   0   4.6   1   5.2   8
+Xcondor             130.132.21.141  100   0.0 100   0.0 100   0.0 100   0.0 100
+Xvenus              130.132.1.5       0   5.4   0   5.5   2   5.6   7   5.8  94
+Xbiomed.med         130.132.19.48     0   5.0   0   5.2   0   5.3   4   5.5  30
+Xgucci.stat         130.132.16.16     0   3.7   0   4.0   1   4.0   6   4.0 100
+Xhermes.stat        130.132.16.19   100   3.9 100   3.9 100   3.9  95   3.8 100
+Xsysc.eng           130.132.20.240    0   4.2   0   4.2   0   4.3   1   4.3  19
+Xcld3.eng           130.132.20.251    0   4.0   0   4.0   1   4.1   2   4.1   4
+X74 entries skipped for all-0 error averages
+X
+X------------------------------------------------------------------------------
+X
+XThis report shows systems "condor" is dropping all packets, and has
+Xbeen for the last 60 cycles.  "hermes.stat" has been dropping all
+Xpackets for at least the last 15 cycles, but sometime in the last 60
+Xcycles some packets got through.  (Both situations are consistent with
+Xthe target machine being down).
+X
+XThe more interesting reports are for machines like venus, calvin, gucci.stat,
+Xand cupid.  They all show persistent long-term drop rates, evidenced by the
+Xhigh value in the "RPT" column.  In a LAN environment, nodes should show
+Xa 0% packet drop rate virtually all the time.  An occasional dropped packet
+Xis generally not anything to worry about.  Persistent non-zero drop rates
+Xto certain nodes indicates an error condition either at the end nodes or
+Xon a network segment somewhere between the station running SPQR and the
+Xend nodes.  Running SPQR on several nodes on different segments is a good
+Xway to "triangulate" in on a problem bridge or router.  Its first use
+X(actually, reason for development) was to establish that a specific
+Xethernet interface on a cisco router had a 1% packet drop rate that didn't
+Xshow up in the SNMP data.
+X
+XThe "Iter" value in the heading is the number of iterations this driver
+Xprogram has made; the "Cycle" value is how many seconds it takes to run
+Xeach cycle.
+END_OF_FILE
+  if test 7029 -ne `wc -c <'nocol-3.0/src/support/mping/spqr.doc'`; then
+    echo shar: \"'nocol-3.0/src/support/mping/spqr.doc'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/support/mping/spqr.doc'
+fi
+if test -f 'nocol-3.0/src/tpmon/tpmon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/tpmon/tpmon.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/tpmon/tpmon.c'\" \(6824 characters\)
+  sed "s/^X//" >'nocol-3.0/src/tpmon/tpmon.c' <<'END_OF_FILE'
+X/*
+X * $Header: /home/aggarwal/lsrc/nocol/src/tpmon/RCS/tpmon.c,v 1.5 1993/11/03 20:51:03 aggarwal Exp $
+X *
+X * tpmon.c -- contains the throughput() function.  See tpmon.h
+X * for calling parameters.
+X *
+X * $Log: tpmon.c,v $
+X * Revision 1.5  1993/11/03  20:51:03  aggarwal
+X * Added ifdef for h_addr (defined in netdb.h) in case its defined.
+X *
+X * Revision 1.4  1993/10/30  03:29:29  aggarwal
+X * Added code to auto detect if given an IP address instead of an
+X * IP name.
+X *
+X * Revision 1.3  1992/06/18  21:21:44  spencer
+X * Had forgotten to close the socket.
+X *
+X * Revision 1.2  1992/06/15  19:31:05  aggarwal
+X * Made the include file stuff more portable.
+X *
+X * Revision 1.1  1992/06/12  21:02:49  aggarwal
+X * Initial revision
+X *
+X */
+X
+X/*  Copyright 1992 JvNCnet */
+X
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/errno.h>
+X#include <time.h>
+X#include <sys/time.h>
+X
+X#include <netinet/in.h>
+X
+X#include <stdio.h>
+X#include <netdb.h>
+X#ifndef NeXT
+X#  include <unistd.h>
+X#endif	/* NeXT */
+X#include <signal.h>
+X#include <fcntl.h>
+X#include <setjmp.h>
+X
+Xextern char *prognm;
+Xextern int errno;
+X
+X/*
+X * setup_sockaddr -- given address (e.g. phoenix.princeton.edu) or an
+X *	IP # (e.g. 128.112.120.1), fills in the struct sockaddr_in
+X *	passed to it, with the port number requested
+X *
+X * returns 0 on success, -1 on error
+X */
+Xint
+Xsetup_sockaddr(addr, to, port)
+X  char *addr;
+X  struct sockaddr_in *to;
+X  short int port;
+X{
+X  struct hostent *hp;
+X  int rtn = 0;
+X
+X  bzero((char *)to, sizeof(struct sockaddr_in));
+X  to->sin_family = AF_INET;
+X  to->sin_port = htons(port);
+X  if (isdigit (*addr))
+X  {
+X      to->sin_addr.s_addr = inet_addr(addr);
+X      if (to->sin_addr.s_addr == -1)
+X	rtn = -1 ;
+X  }
+X  else
+X  {
+X      struct hostent *hp ;
+X      if ((hp = gethostbyname(addr)) == NULL)
+X      {
+X	  fprintf(stderr, "%s: unknown host: %s\n", prognm, addr);
+X	  rtn = -1;
+X      }
+X      else
+X#ifdef h_addr	/* in netdb.h */
+X	bcopy((char *)hp->h_addr, (char *)&to->sin_addr, hp->h_length);
+X#else
+X	bcopy((char *)hp->h_addr_list[0], (char *)&to->sin_addr, hp->h_length);
+X#endif
+X  }
+X  return rtn;
+X}
+X
+X/*
+X * make_buffer -- creates a buffer of size nbytes and fills it with
+X * 	the pattern passed to it, or random chars if pattern is NULL
+X */
+Xchar *
+Xmake_buffer(nbytes, pattern)
+X  int nbytes;
+X  char *pattern;
+X{
+X  char *buf;
+X  int plen;
+X  int i;
+X
+X  if ((buf = (char *)malloc(nbytes+1)) != NULL) {
+X    if (pattern == NULL) {
+X      plen = 0;
+X      srand(getpid() ^ time((time_t *)0));
+X    } else
+X      plen = strlen(pattern);
+X    for (i = 0; i < nbytes; i++) {
+X      if (pattern == NULL)
+X        buf[i] = rand() % 256;
+X      else
+X        buf[i] = pattern[i % plen];
+X    }
+X  }
+X  return buf;
+X}
+X
+Xjmp_buf env;	/* for SIGALRM handling */
+X
+X
+X/*
+X * throughput -- parameters and usage are described in tp.h and tpmon.h
+X */
+Xdouble
+Xthroughput(addr, port, numbytes, blocksize, pattern, time, verbose)
+X  char *addr, *pattern;
+X  long numbytes;
+X  int blocksize, time, verbose;
+X  short int port;
+X{
+X  int i, s; 			/* socket fd */
+X  struct sockaddr_in sockad;	/* our destination */
+X  struct hostent *hp;
+X  char *buf,			/* data buffer */
+X    error[81];			/* 81 sounded like a nice round number */
+X  int written,			/* actual # bytes written by write() */
+X    bytessent,	 		/* bytes sent successfully */
+X    badwrites;			/* write() returned something != blocksize */
+X  struct timeval tbeg, tend;    /* for timing purposes */
+X  double bits, secs, tp;	/* for calculating times */
+X  void stoptesting();
+X
+X
+X  if (verbose) {
+X    if (time) 
+X      printf("%s: (throughput) sending for %d seconds\n", prognm, time);
+X    else
+X      printf("%s: (throughput) sending %.1fk bytes\n", prognm,
+X        (float)numbytes/1024.0);
+X  }
+X  /* this lets us put the program name in perror() messages */
+X  sprintf(error, "%s: ", prognm);
+X
+X  /* first fill up the buffer... */
+X  if ((buf = make_buffer(blocksize, pattern)) == NULL) {
+X    fprintf(stderr, "%s: out of memory in make_buffer\n", prognm);
+X    return (double)-1.0;
+X  }
+X
+X  /* now set things up for the writing */
+X  bytessent = badwrites = 0;
+X  if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+X    strcat(error, "socket");
+X    perror(error);
+X    return (double)-1.0;
+X  }
+X  if (setup_sockaddr(addr, &sockad, port) < 0)
+X  {
+X    close(s);
+X    return (double)-1.0;
+X  }
+X  if (verbose) {
+X    /* find out remote site's full name for printing out later */
+X    hp = gethostbyaddr((char *)&sockad.sin_addr, sizeof(sockad.sin_addr),
+X      AF_INET);
+X    if (hp == NULL) {
+X      strcat(error, "gethostbyaddr");
+X      perror(error);
+X      close (s);
+X      return (double)-1.0;
+X    }
+X    addr = hp->h_name;
+X    printf("Connecting to %s [%s], port %d...\n", inet_ntoa(&sockad.sin_addr),
+X      addr, ntohs(sockad.sin_port));
+X  }    
+X  if (connect(s, (struct sockaddr *)&sockad, sizeof(sockad)) < 0) {
+X    strcat(error, "connect to ");
+X    strcat(error, inet_ntoa(&sockad.sin_addr));
+X    perror(error);
+X    close(s);
+X    return (double)-1.0;
+X  }
+X#ifdef BSD
+X  if (fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | FNDELAY) < 0) {
+X#else	/* SYS5 systems */
+X  if (fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NDELAY) < 0) {
+X#endif
+X      strcat(error, "fcntl");
+X      perror(error);
+X      close(s);
+X      return (double)-1.0;
+X  }
+X
+X  /* if timing, set up the SIGALRM and set keepgoing to 1 for the loop */
+X  signal(SIGINT, stoptesting);
+X  if (time) {
+X      signal(SIGALRM, stoptesting);
+X      alarm(time);
+X  }
+X    
+X  /* on your marks... get set... */
+X  if (!setjmp(env)) {
+X    gettimeofday(&tbeg, (struct timezone *)NULL);
+X    do {
+X      if ((written = write(s, buf, blocksize)) < 0) {
+X        if ((errno == EWOULDBLOCK) || (errno == EINTR))
+X          continue;
+X        else
+X          ++badwrites;
+X      } else
+X        bytessent += written;
+X    } while (time || (bytessent < numbytes));
+X  }
+X
+X  /*
+X   * now ignore SIGALRM, just in case both time and numblocks were
+X   * nonzero and we wrote out 'numbytes' bytes before 'time' seconds
+X   * expired.  Also alarm(0) to cancel any pending alarms.
+X   */
+X  alarm(0);
+X  signal(SIGALRM, SIG_IGN);
+X  signal(SIGINT, SIG_DFL);
+X
+X  /* ok, we're done, how long did it really take? */
+X  gettimeofday(&tend, (struct timezone *)NULL);
+X  bits = (double)bytessent * (double)8.0;
+X  secs = (double)(tend.tv_sec - tbeg.tv_sec) +
+X         (double)(tend.tv_usec - tbeg.tv_usec) / (double)1000000.0;
+X  tp = bits / secs;
+X
+X  if (verbose) 
+X    printf("Successfully sent %.1fk in %4.3g seconds (%d bad writes)\n",
+X      (float)(bytessent) / 1024.0, secs, badwrites);
+X  if ((close(s) < 0) && verbose) {
+X    strcat(error, "couldn't close socket [");
+X    strcat(error, inet_ntoa(&sockad.sin_addr));
+X    strcat(error, "] (non-fatal)");
+X    perror(error);
+X  }
+X  return tp;
+X}
+X
+X/*
+X * stoptesting -- hack to break out of while loop in throughput()
+X * 	activated by SIGALRM
+X */
+Xvoid stoptesting()
+X{
+X  signal(SIGALRM, SIG_IGN);
+X  signal(SIGINT, SIG_DFL);
+X  longjmp(env, 1);
+X}
+END_OF_FILE
+  if test 6824 -ne `wc -c <'nocol-3.0/src/tpmon/tpmon.c'`; then
+    echo shar: \"'nocol-3.0/src/tpmon/tpmon.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/tpmon/tpmon.c'
+fi
+if test -f 'nocol-3.0/src/trapmon/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/trapmon/Makefile'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/trapmon/Makefile'\" \(1883 characters\)
+  sed "s/^X//" >'nocol-3.0/src/trapmon/Makefile' <<'END_OF_FILE'
+X# $Id: Makefile,v 1.6 1993/10/30 03:30:28 aggarwal Exp $
+X#
+X# Makefile for 'trapmon'
+X#
+X
+X## SET THIS
+X# Directories needed by the Makefile. See description in ../Makefile
+X#
+XTOP = 		/usr/nocol
+XSRCDIR =	$(TOP)/src
+XBINDIR = 	$(TOP)/bin
+X
+X# directory for CMU snmp sources
+XCMUSNMP =	$(SRCDIR)/cmu-snmp
+XINCLUDEDIR = 	$(SRCDIR)/include
+XLIBDIR =	$(SRCDIR)/lib
+X
+X## SET THIS
+X# Directories needed by the program.
+X#	DATADIR			for creating the NSMON-OUTPUT
+XDATADIR = 	$(TOP)/data
+X
+X## SET THIS
+X# Set the various defines for compile time defines:
+X#
+X#
+XSYSDEFS =
+XINSTALL =	install
+X
+X####
+X#### Can leave the rest alone #######
+X####
+X
+X##
+X# The various directories that are needed in the program. Should NOT
+X# have trailing '/'.
+XDIRDEFS =	-DDATADIR=\"$(DATADIR)\"
+X
+X## Compilation definitions
+X#  The CDEF specs are specific to this sub-module. The CFLAGS can be
+X#  over-ridden by the top level makefile.
+XCC =		cc
+XCDEFS =		$(DIRDEFS) $(SYSDEFS) -DHAVE_FD_MACROS  \
+X		-I$(CMUSNMP)/include
+XLIBS =		-L$(CMUSNMP)/lib -lsnmp -lnocol $(SYSLIBS)
+XCFLAGS = 	-g -I$(INCLUDEDIR) -L$(LIBDIR)
+X
+XTARG  =		trapmon
+XOBJECTS = 	trapmon.o
+X
+X
+X$(TARG): CMU $(OBJECTS) Makefile
+X	$(CC) $(CFLAGS) $(OBJECTS) $(LIBS) -o $@
+X
+XCMU:
+X	@echo 'Making the CMU SNMP library under $(CMUSNMP)'
+X	cd $(CMUSNMP)/snmplib ; make RANLIB="$(RANLIB)" all install
+X
+X.c.o:
+X	$(CC) -c $(CFLAGS) $(CDEFS) $<
+X
+X## The dependencies in case 'mkdep' not used
+X#
+X$(OBJECTS): $(INCLUDEDIR)/nocol.h  $(INCLUDEDIR)/trapmon.h
+X
+Xinstall: $(TARG)
+X	$(INSTALL) -c -m 4750 $(TARG) $(BINDIR)/
+X	@if [ `whoami` = "root" ]; then \
+X		chown root $(BINDIR)/$(TARG) ;\
+X		ls -lg $(BINDIR)/$(TARG) ;\
+X	 else \
+X		echo "___Installed $(TARG) needs to be root suid___" ;\
+X		echo "Do as root manually" ;\
+X	 fi
+X
+Xclean:
+X	/bin/rm -f $(TARG) $(OBJECTS) core a.out
+X	@-cd $(CMUSNMP) ; make clean
+X
+Xrcs:
+X	@echo "Doing 'rcs' in 'nsmon'
+X	@-for i in $(OBJS); do \
+X		$(CO) -q `basename $$i .o`.c ;\
+X	  done
+END_OF_FILE
+  if test 1883 -ne `wc -c <'nocol-3.0/src/trapmon/Makefile'`; then
+    echo shar: \"'nocol-3.0/src/trapmon/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/trapmon/Makefile'
+fi
+echo shar: End of archive 20 \(of 26\).
+cp /dev/null ark20isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

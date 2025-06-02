@@ -1,0 +1,1460 @@
+Newsgroups: comp.sources.misc
+From: hyc@hanauma.jpl.nasa.gov (Howard Chu)
+Subject:  v31i079:  gothic - Print gothic text v1.6, Part01/01
+Message-ID: <1992Aug14.200818.4920@sparky.imd.sterling.com>
+X-Md4-Signature: 2e882a4b3425ea249613053a6ee312cc
+Date: Fri, 14 Aug 1992 20:08:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: hyc@hanauma.jpl.nasa.gov (Howard Chu)
+Posting-number: Volume 31, Issue 79
+Archive-name: gothic/part01
+Environment: UNIX
+
+This is gothic version 1.6.  Better yet...
+    __ ,
+  ,-| ~           ,  ,,               /|       ,/
+ ('||/__,        ||  ||     '        /||      //
+(( |||  |  /'\\ =||= ||/\\ \\  _-_    ||     ((_-
+(( |||==| || ||  ||  || || || ||      ||     || ))
+ ( / |  , || ||  ||  || || || ||      ||     (( ||
+  -____/  \\,/   \\, \\ |/ \\ \\,/   ,/-' <>  \//
+                       _/
+
+This is an updated version of the program I posted last December. At that 
+time I had only created descriptions of the alpha characters, plus one or 
+two punctuation characters. This version has a full 96 characters defined, 
+and also does automatic word-wrap for printing out longer messages.  
+
+The output width defaults to 79, and can be changed by the first argument 
+of the program. E.g.,
+	gothic -132
+will run with the width set to 132 characters. (For real perversity, try
+an Xterm with the tiny font selected. Set your window to about 480 columns 
+by 400 rows, and feed some C source code in...)
+
+If you have the xstr program you may want to use it to process this
+file before compiling, that should save around 2K. Of course, the entire
+program is smaller than 8K already, so it's probably no big deal.
+
+Compile and run. With no arguments (or just a width argument) the program
+reads text from stdin, otherwise it processes its arguments.
+
+  -- Howard Chu @ Jet Propulsion Laboratory, Pasadena, CA
+#--------------------------------CUT HERE-------------------------------------
+#! /bin/sh
+#
+# This is a shell archive.  Save this into a file, edit it
+# and delete all lines above this comment.  Then give this
+# file to sh by executing the command "sh file".  The files
+# will be extracted into the current directory owned by
+# you with default permissions.
+#
+# The files contained herein are:
+#
+# -rw-r--r--  1 hyc         15980 Aug 14 00:11 gothic.c
+#
+echo 'x - gothic.c'
+if test -f gothic.c; then echo 'shar: not overwriting gothic.c'; else
+sed 's/^X//' << '________This_Is_The_END________' > gothic.c
+X/*
+X * Print a line of text in Gothic (Black) Script. Very simple routine,
+X * just a lot of data to worry about...
+X * 
+X * Remember to escape all backslashes when editing characters...
+X *  -- hyc, 12-29-91
+X *
+X * $Log: gothic.c,v $
+X * Revision 1.6  1992/08/14  07:11:20  hyc
+X * Fix typos in back-slash and right bracket.
+X *
+X * Revision 1.5  1992/08/14  05:06:45  hyc
+X * Streamlined MTS support.
+X *
+X * Revision 1.4  1992/08/14  04:26:49  hyc
+X * Implement word-wrap in addition to previous character/line wrap.
+X * Full 96 character printable ASCII set implemented.
+X *
+X */
+X
+X#ifdef _MTS
+X#define _ADD 1
+X#include <stdlib.h>
+X#include <ctype.h>
+X#else
+X#include <stdio.h>
+X#include <ctype.h>
+X#undef toascii
+X#define toascii(x) x
+X#endif
+X
+X#ifndef __STDC__
+X#define	const
+X#endif
+X
+X#ifndef DEFWIDTH
+X#define DEFWIDTH 79
+X#endif
+X
+Xconst struct letter {
+X    const char     *lines[9];
+X}               glyphs[96] = {
+X    {
+X	"  ",			/* space */
+X	"  ",
+X	"  ",
+X	"  ",
+X	"  ",
+X	"  ",
+X	"  ",
+X	"  ",
+X	"  "
+X    },
+X
+X    {
+X	"   ",			/* ! bang */
+X	"/\\ ",
+X	"\\/ ",
+X	"}{ ",
+X	"\\/ ",
+X	"   ",
+X	"<> ",
+X	"   ",
+X	"   "
+X    },
+X
+X    {
+X	"      ",		/* " double-quote */
+X	"<> <> ",
+X	" )  ) ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"          ",		/* # sharp */
+X	"  <> <>   ",
+X	"  }{ }{   ",
+X	"<>++=++<> ",
+X	"  }{ }{   ",
+X	"<>++=++<> ",
+X	"  }{ }{   ",
+X	"  <> <>   ",
+X	"          "
+X    },
+X
+X    {
+X	"       ",		/* $ dollar */
+X	" _++_, ",
+X	"||||   ",
+X	"||--.  ",
+X	" ~|||| ",
+X	"  |||| ",
+X	",-__-  ",
+X	"  ||   ",
+X	"       "
+X    },
+X
+X    {
+X	"      ",		/* % per-cent */
+X	"    , ",
+X	"<>  / ",
+X	"   /  ",
+X	"  /   ",
+X	" /    ",
+X	"/  <> ",
+X	"`     ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* & ampersand */
+X	" /\\   ",
+X	" \\/   ",
+X	" /\\ , ",
+X	"/'\\\\, ",
+X	"|  \\\\ ",
+X	"\\\\-/\\ ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"   ",			/* ' single quote */
+X	"<> ",
+X	" ) ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   "
+X    },
+X
+X    {
+X	"   ",			/* ( left paren */
+X	" / ",
+X	"// ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"\\\\ ",
+X	" \\ ",
+X	"   "
+X    },
+X
+X    {
+X	"   ",			/* ) right paren */
+X	"\\  ",
+X	"\\\\ ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"// ",
+X	"/  ",
+X	"   "
+X    },
+X
+X    {
+X	"        ",		/* * asterisk */
+X	"        ",
+X	" <> <>  ",
+X	"  \\ /   ",
+X	"<>-*-<> ",
+X	"  / \\   ",
+X	" <> <>  ",
+X	"        ",
+X	"        "
+X    },
+X
+X    {
+X	"       ",		/* + plus */
+X	"       ",
+X	"  <>   ",
+X	"  }{   ",
+X	"<>--<> ",
+X	"  }{   ",
+X	"  <>   ",
+X	"       ",
+X	"       "
+X    },
+X
+X    {
+X	"   ",			/* , comma */
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"<> ",
+X	" ) ",
+X	"   "
+X    },
+X
+X    {
+X	"      ",		/* - hyphen */
+X	"      ",
+X	"      ",
+X	"      ",
+X	"<>-<> ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"   ",			/* . period */
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"<> ",
+X	"   ",
+X	"   "
+X    },
+X
+X    {
+X	"      ",		/* / slash */
+X	"    / ",
+X	"   /  ",
+X	"  //  ",
+X	"  /   ",
+X	" //   ",
+X	" /    ",
+X	"/     ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* 0 */
+X	" /\\\\  ",
+X	"|| || ",
+X	"|| || ",
+X	"|| || ",
+X	"|| || ",
+X	" \\\\/  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"     ",		/* 1 */
+X	" /|  ",
+X	"/||  ",
+X	" ||  ",
+X	" ||  ",
+X	" ||  ",
+X	",/-' ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"     ",		/* 2 */
+X	" /\\  ",
+X	"(  ) ",
+X	"  // ",
+X	" //  ",
+X	"/(   ",
+X	"{___ ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"____ ",		/* 3 */
+X	"` // ",
+X	" //  ",
+X	" \\\\  ",
+X	"  )) ",
+X	" //  ",
+X	"/'   ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"  ,  ",		/* 4 */
+X	" /|  ",
+X	"/ |  ",
+X	"__|_ ",
+X	"---- ",
+X	"  |  ",
+X	" ,_, ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"____  ",		/* 5 */
+X	"||  ` ",
+X	"||_   ",
+X	"|/ \\  ",
+X	"   )) ",
+X	"  //  ",
+X	" /'   ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* 6 */
+X	"  ,/  ",
+X	" //   ",
+X	"((_-  ",
+X	"|| )) ",
+X	"(( || ",
+X	" \\//  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"____  ",		/* 7 */
+X	"`  || ",
+X	"   /, ",
+X	"  //  ",
+X	" ((   ",
+X	" ||   ",
+X	" |'   ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* 8 */
+X	" /\\\\  ",
+X	"|| || ",
+X	" \\ /  ",
+X	" /\\\\  ",
+X	"// \\\\ ",
+X	"|| || ",
+X	" \\\\/  ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* 9 */
+X	" /\\\\  ",
+X	"|| || ",
+X	"|| || ",
+X	" \\/|| ",
+X	"   || ",
+X	" \\_/  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"   ",			/* : */
+X	"   ",
+X	"   ",
+X	"<> ",
+X	"   ",
+X	"   ",
+X	"<> ",
+X	"   ",
+X	"   "
+X    },
+X
+X    {
+X	"   ",			/* ; */
+X	"   ",
+X	"   ",
+X	"<> ",
+X	"   ",
+X	"   ",
+X	"<> ",
+X	" ) ",
+X	"   "
+X    },
+X
+X    {
+X	"      ",		/* < */
+X	"    / ",
+X	"   /  ",
+X	" //   ",
+X	"<<    ",
+X	" \\\\   ",
+X	"   \\  ",
+X	"    \\ ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* = */
+X	"      ",
+X	"      ",
+X	"<>-<> ",
+X	"      ",
+X	"<>-<> ",
+X	"      ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* > */
+X	"\\     ",
+X	" \\    ",
+X	"  \\\\  ",
+X	"   >> ",
+X	"  //  ",
+X	" /    ",
+X	"/     ",
+X	"      "
+X    },
+X
+X    {
+X	" -_  ",		/* ? */
+X	"/ \\\\ ",
+X	"` || ",
+X	"  |, ",
+X	" ((  ",
+X	"     ",
+X	" <>  ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"      ",		/* @ */
+X	" /\\\\  ",
+X	"|| || ",
+X	"||/|| ",
+X	"||\\|  ",
+X	"||    ",
+X	" \\\\_, ",
+X	"      ",
+X	"      "
+X    },
+X
+X
+X#ifdef ITALIC
+X    {
+X	"           ",
+X	" _--_,     ",
+X	"   ,\\\\     ",
+X	"  ~' \\\\    ",
+X	"   |==\\\\   ",
+X	"   |   \\\\. ",
+X	" _---_  \\/ ",
+X	"(          ",
+X	"           "
+X    },
+X#else
+X    {
+X	"  ___    ",
+X	" -   -_, ",
+X	"(  ~/||  ",
+X	"(  / ||  ",
+X	" \\/==||  ",
+X	" /_ _||  ",
+X	"(  - \\\\, ",
+X	"         ",
+X	"         "
+X    },
+X#endif
+X
+X    {
+X	"          ",
+X	"_-_ _,,   ",
+X	"   -/  )  ",
+X	"  ~||_<   ",
+X	"   || \\\\  ",
+X	"   ,/--|| ",
+X	"  _--_-'  ",
+X	" (        ",
+X	"          "
+X    },
+X
+X    {
+X	"         ",
+X	"  ,- _~. ",
+X	" (' /|   ",
+X	"((  ||   ",
+X	"((  ||   ",
+X	" ( / |   ",
+X	"  -____- ",
+X	"         ",
+X	"         "
+X    },
+X
+X    {
+X	"          ",
+X	"-_____    ",
+X	"  ' | -,  ",
+X	" /| |  |` ",
+X	" || |==|| ",
+X	"~|| |  |, ",
+X	" ~-____,  ",
+X	"(         ",
+X	"          "
+X    },
+X
+X    {
+X	"         ",
+X	"  ,- _~, ",
+X	" (' /| / ",
+X	"((  ||/= ",
+X	"((  ||   ",
+X	" ( / |   ",
+X	"  -____- ",
+X	"         ",
+X	"         "
+X    },
+X
+X#ifdef ITALIC
+X    {
+X	"  __    ",
+X	"_// --_/",
+X	"  ||    ",
+X	" ~+|-/  ",
+X	"  ||    ",
+X	"  ||    ",
+X	" ,/     ",
+X	"        ",
+X	"        "
+X    },
+X#else
+X    {
+X	"    _ ,",
+X	"  ,- - ",
+X	" _||_  ",
+X	"' ||   ",
+X	"  ||   ",
+X	"  |,   ",
+X	"_-/    ",
+X	"       ",
+X	"       "
+X    },
+X#endif
+X
+X    {
+X	"    __ ,  ",
+X	"  ,-| ~   ",
+X	" ('||/__, ",
+X	"(( |||  | ",
+X	"(( |||==| ",
+X	" ( / |  , ",
+X	"  -____/  ",
+X	"          ",
+X	"          "
+X    },
+X
+X    {
+X	"          ",
+X	"_-_-      ",
+X	"  /,      ",
+X	"  || __   ",
+X	" ~||-  -  ",
+X	"  ||===|| ",
+X	" ( \\_, |  ",
+X	"       `  ",
+X	"          "
+X    },
+X
+X    {
+X	"     ",
+X	"_-_, ",
+X	"  // ",
+X	"  || ",
+X	" ~|| ",
+X	"  || ",
+X	"_-_, ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"      ",
+X	" _-_,,",
+X	"(  // ",
+X	"  _|| ",
+X	"  _|| ",
+X	"   || ",
+X	"-__-, ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"         ",
+X	"_-_-,    ",
+X	"  // ,   ",
+X	"  ||/\\\\  ",
+X	" ~|| <   ",
+X	"  ||/\\\\  ",
+X	" _-__,\\\\,",
+X	"         ",
+X	"         "
+X    },
+X
+X    {
+X	"        ",
+X	"_-_-    ",
+X	" /,     ",
+X	" ||     ",
+X	"~||     ",
+X	" ||     ",
+X	"(  -__, ",
+X	"        ",
+X	"        "
+X    },
+X
+X    {
+X	"          ",
+X	"  /\\\\,/\\\\,",
+X	" /| || || ",
+X	" || || || ",
+X	" ||=|= || ",
+X	"~|| || || ",
+X	" |, \\\\,\\\\,",
+X	"_-        ",
+X	"          "
+X    },
+X
+X    {
+X	"    __   ",
+X	"   /  -, ",
+X	"  ||   ) ",
+X	" ~||---) ",
+X	" ~||---, ",
+X	" ~||  /  ",
+X	"  |, /   ",
+X	"-_-  --~ ",
+X	"         "
+X    },
+X
+X    {
+X	"    __     ",
+X	"  ,-||-,   ",
+X	" ('|||  )  ",
+X	"(( |||--)) ",
+X	"(( |||--)) ",
+X	" ( / |  )  ",
+X	"  -____-   ",
+X	"           ",
+X	"           "
+X    },
+X
+X    {
+X	"         ",
+X	"-__ /\\\\  ",
+X	"  ||  \\\\ ",
+X	" /||__|| ",
+X	" \\||__|| ",
+X	"  ||  |, ",
+X	"_-||-_/  ",
+X	"  ||     ",
+X	"         "
+X    },
+X
+X    {
+X	"    __     ",
+X	"  ,-||-,   ",
+X	" ('|||  )  ",
+X	"(( |||--)) ",
+X	"(( |||--)) ",
+X	" ( / |  )  ",
+X	"  -____-\\\\ ",
+X	"           ",
+X	"           "
+X    },
+X
+X    {
+X	"        ",
+X	"-__ /\\  ",
+X	"  || \\, ",
+X	" /|| /  ",
+X	" \\||/-  ",
+X	"  ||  \\ ",
+X	"_---_-|,",
+X	"        ",
+X	"        "
+X    },
+X
+X    {
+X	"        ",
+X	"  -_-/  ",
+X	" (_ /   ",
+X	"(_ --_  ",
+X	"  --_ ) ",
+X	" _/  )) ",
+X	"(_-_-   ",
+X	"        ",
+X	"        "
+X    },
+X
+X    {
+X	" ___        ",
+X	"-   ---___- ",
+X	"   (' ||    ",
+X	"  ((  ||    ",
+X	" ((   ||    ",
+X	"  (( //     ",
+X	"    -____-  ",
+X	"            ",
+X	"            "
+X    },
+X
+X    {
+X	" _ _    _ ,",
+X	"- - /  - - ",
+X	"  ('||  || ",
+X	" (( ||--|| ",
+X	" (( ||--|| ",
+X	" (( /   || ",
+X	"   -___-\\\\,",
+X	"           ",
+X	"           "
+X    },
+X
+X    {
+X	" _      ",
+X	"- - _-  ",
+X	"  )-  ) ",
+X	"  )___) ",
+X	" ~)___) ",
+X	"  )  )  ",
+X	" /-_/   ",
+X	"        ",
+X	"        "
+X    },
+X
+X    {
+X	" _        ",
+X	"- - /, /, ",
+X	"  )/ )/ ) ",
+X	"  )__)__) ",
+X	" ~)__)__) ",
+X	"  )  )  ) ",
+X	" /-_/-_/  ",
+X	"          ",
+X	"          "
+X    },
+X
+X    {
+X	" _       ",
+X	"- -    /`",
+X	"  \\\\  /  ",
+X	"   \\\\/   ",
+X	"  ==/\\== ",
+X	"   / \\\\  ",
+X	"\\\\/   \\\\,",
+X	"         ",
+X	"         "
+X    },
+X
+X    {
+X	"         ",
+X	"-_   _   ",
+X	"  |,- `  ",
+X	" ~||__)) ",
+X	" ~||__)) ",
+X	"  |_ _,  ",
+X	" -' -    ",
+X	"( _-_    ",
+X	" -   '   "
+X    },
+X
+X    {
+X	"      ",
+X	"_-___ ",
+X	"    / ",
+X	"   /  ",
+X	" =/=  ",
+X	" /    ",
+X	"/-__- ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"  __ ",		/* [ left bracket */
+X	"||   ",
+X	"||   ",
+X	"||   ",
+X	"||   ",
+X	"||   ",
+X	"||   ",
+X	"||__ ",
+X	"     "
+X    },
+X
+X    {
+X	"      ",		/* \ back-slash */
+X	"\\     ",
+X	" \\    ",
+X	" \\\\   ",
+X	"  \\   ",
+X	"  \\\\  ",
+X	"   \\  ",
+X	"    \\ ",
+X	"      "
+X    },
+X
+X    {
+X	"__   ",		/* ] right bracket */
+X	"  || ",
+X	"  || ",
+X	"  || ",
+X	"  || ",
+X	"  || ",
+X	"  || ",
+X	"__|| ",
+X	"     "
+X    },
+X
+X    {
+X	"  x   ",		/* ^ caret */
+X	" / \\  ",
+X	"/   \\ ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",		/* _ underscore */
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"_____ ",
+X	"      "
+X    },
+X
+X    {
+X	"   ",			/* ` back-quote */
+X	"<> ",
+X	"(  ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   ",
+X	"   "
+X    },
+X#ifdef ITALIC
+X    {
+X	"       ",
+X	"       ",
+X	"       ",
+X	" _-_   ",
+X	"|| \\\\, ",
+X	"|| ||  ",
+X	"\\\\/\\\\, ",
+X	"       ",
+X	"       "
+X    },
+X#else
+X    {
+X	"      ",
+X	"      ",
+X	"  _   ",
+X	" < \\, ",
+X	" /-|| ",
+X	"(( || ",
+X	" \\/\\\\ ",
+X	"      ",
+X	"      "
+X    },
+X#endif
+X
+X    {
+X	"      ",
+X	",,    ",
+X	"||    ",
+X	"||/|, ",
+X	"|| || ",
+X	"|| |' ",
+X	"\\\\/   ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"     ",
+X	"     ",
+X	"     ",
+X	" _-_ ",
+X	"||   ",
+X	"||   ",
+X	"\\\\,/ ",
+X	"     ",
+X	"     "
+X    },
+X#ifdef ITALIC
+X    {
+X	"        ",
+X	"     ,  ",
+X	"    ||  ",
+X	" _-_||  ",
+X	"|| \\\\|  ",
+X	"||  ||  ",
+X	" \\\\/\\\\, ",
+X	"        ",
+X	"        "
+X    },
+X#else
+X    {
+X	"      ",
+X	" |\\   ",
+X	"  \\\\  ",
+X	" / \\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	" \\\\/  ",
+X	"      ",
+X	"      "
+X    },
+X#endif
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	" _-_  ",
+X	"|| \\\\ ",
+X	"||/   ",
+X	"\\\\,/  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"     ",
+X	"  /\\ ",
+X	" ||  ",
+X	"=||= ",
+X	" ||  ",
+X	" ||  ",
+X	" \\\\, ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"  _   ",
+X	" / \\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\_-| ",
+X	" /  \\ ",
+X	"'----`"
+X    },
+X#ifdef ITALIC
+X    {
+X	"      ",
+X	" ,    ",
+X	"||    ",
+X	"||,<> ",
+X	"|| || ",
+X	"|| || ",
+X	"<>,|| ",
+X	"   |/ ",
+X	"  ./  "
+X    },
+X
+X    {
+X	"   ",
+X	"   ",
+X	"<> ",
+X	"-_ ",
+X	"|| ",
+X	"|| ",
+X	"\\\\,",
+X	"   ",
+X	"   "
+X    },
+X#else
+X    {
+X	"      ",
+X	",,    ",
+X	"||    ",
+X	"||/\\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\ |/ ",
+X	"  _/  ",
+X	"      "
+X    },
+X
+X    {
+X	"   ",
+X	"   ",
+X	" ' ",
+X	"\\\\ ",
+X	"|| ",
+X	"|| ",
+X	"\\\\ ",
+X	"   ",
+X	"   "
+X    },
+X#endif
+X    {
+X	"   ",
+X	"   ",
+X	" ' ",
+X	"\\\\ ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|; ",
+X	"/  "
+X    },
+X
+X    {
+X	"     ",
+X	",,   ",
+X	"||   ",
+X	"||/\\ ",
+X	"||_< ",
+X	"|| | ",
+X	"\\\\,\\ ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"   ",
+X	",, ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"\\\\ ",
+X	"   ",
+X	"   "
+X    },
+X
+X    {
+X	"         ",
+X	"         ",
+X	"         ",
+X	"\\\\/\\\\/\\\\ ",
+X	"|| || || ",
+X	"|| || || ",
+X	"\\\\ \\\\ \\\\ ",
+X	"         ",
+X	"         "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	"\\\\/\\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\ \\\\ ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	" /'\\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\,/  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	"-_-_  ",
+X	"|| \\\\ ",
+X	"|| || ",
+X	"||-'  ",
+X	"|/    ",
+X	"'     "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	" /'\\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\,|| ",
+X	"   || ",
+X	"   '` "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	",._-_ ",
+X	" ||   ",
+X	" ||   ",
+X	" \\\\,  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	" _-_, ",
+X	"||_.  ",
+X	" ~ || ",
+X	",-_-  ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"     ",
+X	"  ,  ",
+X	" ||  ",
+X	"=||= ",
+X	" ||  ",
+X	" ||  ",
+X	" \\\\, ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	"\\\\ \\\\ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\/\\\\ ",
+X	"      ",
+X	"      "
+X    },
+X
+X    {
+X	"     ",
+X	"     ",
+X	";    ",
+X	"\\\\/\\ ",
+X	"|| | ",
+X	"|| | ",
+X	"\\\\/  ",
+X	"     ",
+X	"     "
+X    },
+X
+X    {
+X	"       ",
+X	"       ",
+X	";      ",
+X	"\\\\/\\/\\ ",
+X	"|| | | ",
+X	"|| | | ",
+X	"\\\\/\\\\/ ",
+X	"       ",
+X	"       "
+X    },
+X
+X    {
+X	"      ",
+X	"      ",
+X	",     ",
+X	"\\\\ /` ",
+X	" \\\\   ",
+X	" /\\\\  ",
+X	"/  \\; ",
+X	"      ",
+X	"      "
+X    },
+X#ifdef ITALIC
+X    {
+X	"      ",
+X	"      ",
+X	"      ",
+X	"-_ -_ ",
+X	"|| || ",
+X	"|| || ",
+X	"\\\\,|| ",
+X	"   |/ ",
+X	"  ./  "
+X    },
+X#else
+X    {
+X	"       ",
+X	"       ",
+X	"       ",
+X	"'\\\\/\\\\ ",
+X	" || ;' ",
+X	" ||/   ",
+X	" |/    ",
+X	"(      ",
+X	" -_-   "
+X    },
+X
+X#endif
+X    {
+X	"    ",
+X	"    ",
+X	"    ",
+X	"/\\\\ ",
+X	" /  ",
+X	"/\\\\ ",
+X	" || ",
+X	" /  ",
+X	"(,  "
+X    },
+X
+X    {
+X	"   _ ",		/* { left curly bracket */
+X	"  (  ",
+X	"  )  ",
+X	"  )  ",
+X	"-{   ",
+X	"  )  ",
+X	"  )  ",
+X	"  (_ ",
+X	"     "
+X    },
+X
+X    {
+X	"   ",			/* | vertical bar */
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"|| ",
+X	"   "
+X    },
+X
+X    {
+X	"_    ",		/* } right curly bracket */
+X	" )   ",
+X	" (   ",
+X	" (   ",
+X	"  }- ",
+X	" (   ",
+X	" (   ",
+X	"_)   ",
+X	"     "
+X    },
+X
+X    {
+X	" _    ",		/* ~ tilde */
+X	"/ \\_/ ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      ",
+X	"      "
+X    }
+X};
+X
+Xchar           *outbuf;
+Xvoid            print();
+Xint             width = DEFWIDTH;
+X#ifdef _MTS
+X__fortran void  scards(), sprint();
+Xshort           len;
+Xint             lnum, mods = 0, _noopen, rc;
+X#define gets(buffer) \
+X	scards(buffer,&len,&mods,&lnum, __retcode rc), \
+X	buffer[len]='\0', \
+X	rc == 0 ? 1 : 0
+X#define puts(outbuf)	\
+X	len = outptr - outbuf;	\
+X	sprint(outbuf,&len,&mods,&lnum)
+X#define NewLine \
+X	len=1;	\
+X	sprint(outbuf,&len,&mods,&lnum)
+X#define BufAdj	1
+X#define GE	>
+X#else
+X#define NewLine	putchar('\n')
+X#define BufAdj	0
+X#define GE	>=
+X#endif
+X
+X
+Xmain(argc, argv)
+X    int             argc;
+X    char          **argv;
+X{
+X    char            buffer[256], *malloc();
+X
+X    if (argc > 1) {
+X	if (argv[1][0] == '-') {
+X	    width = atoi(&argv[1][1]);
+X	    argc--;
+X	    argv++;
+X	}
+X    }
+X    outbuf = malloc(width + 20);
+X#ifdef _MTS
+X    *outbuf = ' ';
+X#endif
+X
+X    if (argc < 2) {		/* read message from stdin */
+X	while (gets(buffer) != NULL)
+X	    print(buffer);
+X    } else {
+X	for (--argc; argc != 1; argc--) {
+X	    argv[argc]--;
+X	    *argv[argc] = ' ';
+X	}
+X	print(argv[1]);
+X    }
+X}
+X
+Xvoid
+Xprint(buf)
+X    char           *buf;
+X{
+X    register int    i;
+X    register char  *inptr, *outptr, *prevptr, *spinptr, *spptr;
+X    register char const *dataptr;
+X    int             wrapped;
+X    char	    oldc;
+X
+X    do {
+X	wrapped = 0;
+X	spinptr = buf;
+X	for (i = 0; i < 9; i++) {
+X	    outptr = outbuf + BufAdj;
+X	    *outptr = '\0';
+X	    for (inptr = buf; *inptr; inptr++) {
+X		prevptr = outptr;
+X		if (isprint(*inptr))
+X		    dataptr = glyphs[toascii(*inptr) - toascii(' ')].lines[i];
+X		else
+X		    dataptr = glyphs[0].lines[i];
+X		if (dataptr == glyphs[0].lines[i]) {
+X		    spinptr = inptr+1;
+X		    spptr = outptr;
+X		}
+X		for (; *dataptr;)
+X		    *outptr++ = *dataptr++;
+X		if (outptr - outbuf > width) {
+X		    wrapped = 1;
+X		    if (spinptr == buf) {
+X		    	outptr = prevptr;
+X		    } else {
+X			outptr = spptr;
+X			inptr = spinptr;
+X			if (spptr == prevptr)
+X			    inptr--;
+X		    }
+X		    oldc = *inptr;
+X		    *inptr = '\0';
+X		    break;
+X		}
+X	    }
+X	    for (outptr--; outptr GE outbuf; outptr--)
+X		if (*outptr != ' ')
+X		    break;
+X	    *++outptr = '\0';
+X	    puts(outbuf);
+X	}
+X	NewLine;
+X	if (wrapped) {
+X	    buf = inptr;
+X	    *inptr = oldc;
+X	    if (oldc == ' ')
+X		buf++;
+X	}
+X    } while (wrapped);
+X}
+________This_Is_The_END________
+if test `wc -c < gothic.c` -ne    15980; then
+	echo 'shar: gothic.c was damaged during transit (should have been    15980 bytes)'
+fi
+fi		; : end of overwriting check
+exit 0
+-- 
+  -- Howard Chu @ Jet Propulsion Laboratory, Pasadena, CA
+ ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+ ::To the owner of the blue Mazda, license 742-XLT, your headlights are on...::
+ ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+exit 0 # Just in case...

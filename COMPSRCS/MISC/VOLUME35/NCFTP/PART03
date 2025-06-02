@@ -1,0 +1,2347 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Michael Gleason)
+Subject: v35i006:  ncftp - Alternative User Interface for FTP, Part03/04
+Message-ID: <1993Jan25.155507.13724@sparky.imd.sterling.com>
+X-Md4-Signature: abca36d7e8bbb60d29a5cdbb887c100c
+Date: Mon, 25 Jan 1993 15:55:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Michael Gleason)
+Posting-number: Volume 35, Issue 6
+Archive-name: ncftp/part03
+Environment: UNIX, ANSI-C, getopt
+Supersedes: ncftp: Volume 34, Issue 14-16
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile cmds.h cmdtab.c ftprc.c glob.c ncftp.1 sys.h
+# Wrapped by kent@sparky on Mon Jan 25 09:48:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 4)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3684 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X###
+X###  Makefile for ncftp
+X###
+X
+XSRCS=cmds.c main.c cmdtab.c ftp.c glob.c ftprc.c getpass.c
+XOBJS=cmds.o main.o cmdtab.o ftp.o glob.o ftprc.o getpass.o
+XHEADERS=cmds.h copyright.h defaults.h ftp.h ftpdefs.h ftprc.h \
+Xglob.h main.h patchlevel.h sys.h getpass.h
+XNAME=ncftp
+XMAN=ncftp.1
+XALL=$(SRCS) $(HEADERS) Blurb Install Makefile $(MAN)
+X
+X# Don't worry about this:
+XSGI_CFLAGS=-prototypes -xansi -fullwarn -woff 211,269,270,303,309
+X
+X# Program definitions.
+X# At the moment these can be:
+X#    -DCURSES:  Uses curses library to display boldface, underline, etc.
+X#       By default ncftp uses hard-coded ANSI escapes (^[[1m etc.) to
+X#		save the 100k or so the curses library adds.
+X#    -DSYSLOG:  Define this to have ncftp log connections and transfers
+X#       to the syslog.
+XPDEFS= # -DCURSES -DSYSLOG
+X
+X# System dependent definitions.  See sys.h.
+XSDEFS= 
+X
+X# Choose your compiler and flags below.  Make sure you use an ANSI compiler
+X# that handles new style function declarations and prototypes (gcc should).
+X
+XCC=cc
+XCFLAGS=-O
+XLFLAGS=-s
+X#CFLAGS=-g
+X#LFLAGS=-g
+X#CFLAGS=$(SGI_CFLAGS) -g
+X
+X# Additional libraries.
+X# Some may need any of -lsocket, -lnet, -linet, -lintl, or -lnsl. 
+X# You'll need -lcurses or -ltermcap if CURSES is defined.
+X#
+XMORELIBS= # -lcurses
+X
+X
+XDEFS=$(PDEFS) $(SDEFS)
+X
+Xall: $(NAME) done
+X
+X$(NAME): $(OBJS)
+X	$(CC) $(LFLAGS) $(OBJS) -o $(NAME) $(MORELIBS)
+X
+Xmain.o: main.c sys.h defaults.h ftpdefs.h cmds.h main.h ftp.h ftprc.h
+X	$(CC) $(CFLAGS) $(DEFS) main.c -c
+X
+Xcmds.o: cmds.c sys.h defaults.h ftpdefs.h cmds.h main.h ftp.h ftprc.h \
+X	glob.h getpass.h
+X	$(CC) $(CFLAGS) $(DEFS) cmds.c -c
+X
+Xcmdtab.o: cmdtab.c sys.h ftpdefs.h cmds.h main.h ftp.h ftprc.h glob.h
+X	$(CC) $(CFLAGS) $(DEFS) cmdtab.c -c
+X
+Xftp.o: ftp.c sys.h defaults.h ftpdefs.h cmds.h main.h ftp.h getpass.h
+X	$(CC) $(CFLAGS) $(DEFS) ftp.c -c
+X
+Xftprc.o: ftprc.c sys.h defaults.h ftpdefs.h cmds.h main.h ftprc.h
+X	$(CC) $(CFLAGS) $(DEFS) ftprc.c -c
+X
+Xgetpass.o: getpass.c sys.h getpass.h ftpdefs.h cmds.h main.h ftprc.h
+X	$(CC) $(CFLAGS) $(DEFS) getpass.c -c
+X
+Xglob.o: glob.c sys.h ftpdefs.h cmds.h glob.h
+X	$(CC) $(CFLAGS) $(DEFS) glob.c -c
+X
+Xclean:
+X	rm -f $(OBJS) core $(NAME)
+X
+X# -------------------------------------------------------------------------
+X
+Xshared: $(OBJS)
+X	 $(CC) $(OBJS) -o $(NAME) -lc_s $(MORELIBS) -s
+X	 -@ls -l $(NAME)
+X
+Xlint: $(SRCS)
+X	lint $(SRCS) $(CFLAGS) $(DEFS) > Lint
+X
+Xtags:
+X	ctags -x $(SRCS) $(HEADERS) | sort -f > tags
+X	
+Xtar:
+X	tar cvf - $(ALL) | compress > $(NAME).tar.Z
+X
+Xshar2:
+X	shar $(ALL) > $(NAME).shar
+X
+Xshar:
+X	shar $(ALL) | cat Blurb - > $(NAME).shar
+X
+Xdone: $(NAME)
+X	-@ls -l $(NAME)
+X	-@echo 'Done.'
+X
+X# Shouldn't need to fool with anything below this point.
+X# This is my development stuff.
+X
+Xpixie: $(NAME) $(NAME).Counts $(NAME).Addrs
+X	prof -pixie $(NAME) $(NAME).Addrs $(NAME).Counts -feedback Feedback
+X
+X$(NAME).Addrs: $(NAME)
+X	pixie -o $(NAME).pixie $(NAME)
+X
+X$(NAME).Counts: ftp $(NAME).Addrs
+X	$(NAME).pixie
+X
+Xprofile:
+X	rm -f *.[ou]
+X	cc $(SGI_CFLAGS) $(SRCS) $(DEFS) -g -p -o ncftp.prof
+X	ncftp.prof
+X	prof ncftp.prof mon.out
+X
+Xshmips:
+X	cc -O3 $(SGI_CFLAGS) $(SRCS) $(DEFS) -o ncftp -lc_s -s
+X	rm *.[ou]
+X	chmod 775 ncftp
+X	
+Xmipsopt:
+X	cc -O3 $(SGI_CFLAGS) $(SRCS) $(DEFS) -o ncftp -s
+X	rm *.[ou]
+X	chmod 775 ncftp
+X
+Xgccopt:
+X	gcc -O2 $(SRCS) $(DEFS) -o ncftp -s
+X	chmod 775 ncftp
+X
+Xopt: mipsopt
+X	-@ls -l $(NAME)
+X
+Xgopt: gccopt
+X	-@ls -l $(NAME)
+X
+Xmantst:
+X	nroff -man ncftp.1 > ncftp.man
+X	less ncftp.man
+X
+Xpatch:
+X	-rm -rf /tmp/old /tmp/new
+X	-mkdir /tmp/old /tmp/new
+X	cp ~/ncftp.shar /tmp/old/oldncftp.shar
+X	(cd /tmp/old ; unshar -n oldncftp.shar )
+X	make shar
+X	cp ncftp.shar /tmp/new
+X	(cd /tmp/new; unshar -n ncftp.shar )
+X	rm /tmp/new/ncftp.shar /tmp/old/oldncftp.shar
+X	(cd /tmp/old ; diff -c . ../new > ../pch)
+X
+X# eof
+END_OF_FILE
+  if test 3684 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'cmds.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmds.h'\"
+else
+  echo shar: Extracting \"'cmds.h'\" \(3813 characters\)
+  sed "s/^X//" >'cmds.h' <<'END_OF_FILE'
+X/* cmd.h */
+X
+X#ifndef _cmd_h_
+X#define _cmd_h_
+X
+X/* Verbosity levels. */
+X#define V_QUIET		-1
+X#define V_ERRS		0
+X#define V_TERSE		1
+X#define V_VERBOSE	2
+X#define V_IMPLICITCD 4
+X#define IS_VQUIET	(verbose <= V_QUIET)
+X#define IS_VERRS	(verbose == V_ERRS)
+X#define IS_VTERSE	(verbose == V_TERSE)
+X#define IS_VVERBOSE	(verbose == V_VERBOSE)
+X#define NOT_VQUIET	(verbose > V_QUIET)
+X
+X/* Open modes. */
+X#define OPEN_A 1
+X#define OPEN_U 0
+X
+X/* For 'Getopt.' */
+X#define BADCH   (int)'?'
+X#define EMSG    ""
+X
+X/* For 'set.' */
+X#define INT 1
+X#define LONG 2
+X#define STR 3
+Xtypedef void (*setvarproc)(char *, int);
+Xstruct var {
+X	char			*name;
+X	short			type;
+X	short			conn_required;
+X	void			*var;
+X	setvarproc		proc;
+X};
+X
+X#define LS_FLAGS_AND_FILE '\1'
+X
+X/*
+X * Format of command table.
+X */
+Xstruct cmd {
+X	char	*c_name;	/* name of command */
+X	char	*c_help;	/* help string */
+X	char	c_bell;		/* give bell when command completes */
+X	char	c_conn;		/* must be connected to use command */
+X	char	c_proxy;	/* proxy server may execute */
+X	char	c_hidden;	/* a hidden command or alias (won't show up in help) */
+X	int		(*c_handler)(int, char **);	/* function to call */
+X};
+X
+Xstruct macel {
+X	char mac_name[9];	/* macro name */
+X	char *mac_start;	/* start of macro in macbuf */
+X	char *mac_end;		/* end of macro in macbuf */
+X};
+X
+Xstruct types {
+X	char	*t_name;
+X	char	*t_mode;
+X	int		t_type;
+X	char	*t_arg;
+X};
+X
+X#ifdef REDIR
+Xstruct lslist {
+X	char			*string;
+X	struct lslist	*next;
+X};
+X#endif
+X
+X/* cmds.c */
+Xchar **re_makeargv(char *promptstr, int *argc);
+Xint setpeer(int argc, char **argv);
+Xint settype(int argc, char **argv);
+Xvoid _settype(char *typename);
+Xint setbinary(int argc, char **argv);
+Xint setascii(int argc, char **argv);
+Xvoid set_prompt(char *new, int unset);
+Xvoid set_log(char *fname, int unset);
+Xvoid set_ldir(char *ldir, int unset);
+Xvoid set_pager(char *new, int unset);
+Xvoid set_verbose(char *new, int unset);
+Xvoid set_type(char *newtype, int unset);
+Xint set(int argc, char **argv);
+Xint put(int argc, char **argv);
+Xint mput(int argc, char **argv);
+Xint rem_glob_one(char *pattern);
+Xint get(int argc, char **argv);
+Xvoid mabort(int unused);
+Xint mget(int argc, char **argv);
+Xchar *remglob(char *argv[]);
+Xchar *onoff(int);
+Xint StrToBool(char *s);
+Xint setverbose(int argc, char **argv);
+Xint setprompt(int argc, char **argv);
+Xint setdebug(int argc, char **argv);
+Xvoid fix_options(void);
+Xint cd(int argc, char **argv);
+Xint implicit_cd(char *dir);
+Xint _cd(char *dir);
+Xint lcd(int argc, char **argv);
+Xint do_delete(int argc, char **argv);
+Xint mdelete(int argc, char **argv);
+Xint renamefile(int argc, char **argv);
+Xint ls(int argc, char **argv);
+Xint mls(int argc, char **argv);
+Xint shell(int argc, char **argv);
+Xint do_user(int argc, char **argv);
+Xint pwd(int argc, char **argv);
+Xint makedir(int argc, char **argv);
+Xint removedir(int argc, char **argv);
+Xint quote(int argc, char **argv);
+Xint rmthelp(int argc, char **argv);
+Xint quit(int argc, char **argv);
+Xvoid close_streams(int wantShutDown);
+Xint disconnect(int argc, char **argv);
+Xint confirm(char *cmd, char *file);
+Xvoid fatal(char *msg);
+Xvoid close_up_shop(void);
+Xint globulize(char **cpp);
+Xint cdup(int argc, char **argv);
+Xint syst(int argc, char **argv);
+Xint make_macro(char *name, FILE *fp);
+Xint macdef(int argc, char **argv);
+Xint domacro(int argc, char **argv);
+Xint sizecmd(int argc, char **argv);
+Xint modtime(int argc, char **argv);
+Xint lookup(int argc, char **argv);
+Xint rmtstatus(int argc, char **argv);
+Xint create(int argc, char **argv);
+Xchar *get_cwd(char *buf, int size);
+Xint tmp_name(char *str);
+Xint getlocalhostname(char *host, size_t size);
+Xint show_version(int argc, char **argv);
+Xvoid Perror(char *s);
+X#ifdef REDIR
+Xint showlsbuffer(int argc, char **argv);
+X#endif
+Xint Getopt(int argc, char **argv, char *opstring);
+Xvoid Getopt_Reset(void);
+Xchar *Gets(char *line, size_t size);
+X
+X#endif	/* _cmd_h_ */
+END_OF_FILE
+  if test 3813 -ne `wc -c <'cmds.h'`; then
+    echo shar: \"'cmds.h'\" unpacked with wrong size!
+  fi
+  # end of 'cmds.h'
+fi
+if test -f 'cmdtab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmdtab.c'\"
+else
+  echo shar: Extracting \"'cmdtab.c'\" \(5777 characters\)
+  sed "s/^X//" >'cmdtab.c' <<'END_OF_FILE'
+X/* cmdtab.c */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "ftpdefs.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "glob.h"
+X#include "copyright.h"
+X
+Xchar	asciihelp[] = 	"transfer as text files";
+Xchar	binaryhelp[] =	"transfer as binary files";
+Xchar	cdhelp[] =		"change remote working directory";
+Xchar	cduphelp[] = 	"change remote working directory to parent directory";
+Xchar	createhelp[] =	"create an empty file on the remote host";
+Xchar	deletehelp[] =	"delete remote file";
+Xchar	debughelp[] =	"toggle/set debugging mode";
+Xchar	dirhelp[] =		"list contents of remote directory";
+Xchar	disconhelp[] =	"terminate ftp session";
+Xchar	domachelp[] = 	"execute macro";
+Xchar	helphelp[] =	"print local help information";
+Xchar	lcdhelp[] =		"change local working directory";
+Xchar	lshelp[] =		"list contents of remote directory";
+Xchar	lookuphelp[] =	"print IP addr given name, or name given IP";
+Xchar	macdefhelp[] =  "define a macro";
+Xchar	mdeletehelp[] =	"delete multiple files";
+Xchar	mdirhelp[] =	"list contents of multiple remote directories";
+Xchar	mgethelp[] =	"get multiple files";
+Xchar	mkdirhelp[] =	"make directory on the remote machine";
+Xchar	mlshelp[] =		"nlist contents of multiple remote directories";
+Xchar	modtimehelp[] = "show last modification time of remote file";
+Xchar	mputhelp[] =	"send multiple files";
+Xchar	openhelp[] =	"connect to remote ftp server (type 'open' for usage)";
+Xchar	pagehelp[] =	"display a remote file on your terminal";
+Xchar	plshelp[] =     "view contents of remote directory using your PAGER";
+Xchar	prompthelp[] =	"force interactive prompting on multiple commands";
+Xchar	pwdhelp[] =		"print working directory on remote machine";
+Xchar	quithelp[] =	"terminate ftp session and exit";
+Xchar	quotehelp[] =	"send arbitrary ftp command";
+Xchar	receivehelp[] =	"receive file";
+X#ifdef REDIR
+Xchar	predirhelp[] =	"view last ls, dir, list, or nlist with your PAGER";
+Xchar 	redirhelp[] = 	"re-show last ls, dir, list, or nlist.";
+X#endif
+Xchar	remotehelp[] =	"get help from remote server";
+Xchar	renamehelp[] =	"rename file";
+Xchar	rmdirhelp[] =	"remove directory on the remote machine";
+Xchar	rmtstatushelp[]="show status of remote machine";
+Xchar	sendhelp[] =	"send one file";
+Xchar	sethelp[] =		"set a variable's value; set alone shows all variables";
+Xchar	shellhelp[] =	"escape to the shell";
+Xchar	sizecmdhelp[] = "show size of remote file";
+Xchar	systemhelp[] =  "show remote system type";
+Xchar	typehelp[] =	"specify how to transfer files (ascii/binary)";
+Xchar	unsethelp[] =	"undefine a variable's value";
+Xchar	userhelp[] =	"send new user information";
+Xchar	verbosehelp[] =	"toggle verbose mode";
+Xchar	versionhelp[] =	"shows version information";
+X
+Xstruct cmd cmdtab[] = {
+X	/* name ; help ; bell-when-done ; must-be-connected ; proxy can ; hidden */
+X	{ "!",			shellhelp,			0,	0,	0,	0,	shell },
+X	{ "$",			domachelp,			1,	0,	0,	0,	domacro },
+X	{ "ascii",		asciihelp,			0,	1,	0,	1,	setascii },
+X	{ "binary",		binaryhelp,			0,	1,	0,	1,	setbinary },
+X	{ "bye",		quithelp,			0,	0,	0,	1,	quit },
+X	{ "cd",			cdhelp,				0,	1,	1,	0,	cd },
+X	{ "cdup",		cduphelp,			0,	1,	1,	0,	cdup },
+X	{ "chdir",		cdhelp,				0,	1,	1,	1,	cd },
+X	{ "close",		disconhelp,			0,	1,	1,	1,	disconnect },
+X	{ "connect",	openhelp,			0,	0,	1,	1,	setpeer },
+X	{ "create",		createhelp,			0,	1,	0,	0,	create },
+X	{ "delete",		deletehelp,			0,	1,	1,	0,	do_delete },
+X	{ "debug",		debughelp,			0,	0,	0,	1,	setdebug },
+X	{ "erase",		deletehelp,			0,	1,	1,	1,	do_delete },
+X	{ "exit",		quithelp,			0,	0,	0,	1,	quit },
+X	{ "dir",		dirhelp,			1,	1,	1,	0,	ls },
+X	{ "get",		receivehelp,		1,	1,	1,	0,	get },
+X	{ "help",		helphelp,			0,	0,	1,	0,	help },
+X	{ "image",		binaryhelp,			0,	1,	0,	1,	setbinary },
+X	{ "lcd",		lcdhelp,			0,	0,	0,	0,	lcd },
+X	{ "lookup", 	lookuphelp, 		0,	0,	0,	0,  lookup },
+X	{ "ls",			lshelp,				1,	1,	1,	0,	ls },
+X	{ "macdef",		macdefhelp,			0,	0,	0,	0,	macdef },
+X	{ "mdelete",	mdeletehelp,		1,	1,	1,	0,	mdelete },
+X	{ "mdir",		mdirhelp,			1,	1,	1,	0,	mls },
+X	{ "mget",		mgethelp,			1,	1,	1,	0,	mget },
+X	{ "mkdir",		mkdirhelp,			0,	1,	1,	0,	makedir },
+X	{ "mls",		mlshelp,			1,	1,	1,	0,	mls },
+X	{ "modtime",	modtimehelp,		0,	1,	1,	0,	modtime },
+X	{ "more",       pagehelp,           1,  1,  1,  1,  get },
+X	{ "mput",		mputhelp,			1,	1,	1,	0,	mput },
+X	{ "nlist",		lshelp,				1,	1,	1,	1,	ls },
+X	{ "open",		openhelp,			0,	0,	1,	0,	setpeer },
+X	{ "page",		pagehelp,			1,	1,	1,	0,	get },
+X	{ "pdir",		plshelp,			1,	1,	1,	0,	ls },
+X	{ "pls",		plshelp,			1,	1,	1,	0,	ls },
+X#ifdef REDIR
+X	{ "predir",  	predirhelp,  		0, 	1, 	0,	0,	showlsbuffer },
+X#endif
+X	{ "prompt",		prompthelp,			0,	0,	0,	1,	setprompt },
+X	{ "put",		sendhelp,			1,	1,	1,	0,	put },
+X	{ "pwd",		pwdhelp,			0,	1,	1,	0,	pwd },
+X	{ "quit",		quithelp,			0,	0,	0,	0,	quit },
+X	{ "quote",		quotehelp,			1,	1,	1,	0,	quote },
+X#ifdef REDIR
+X	{ "redir",  	redirhelp,  		0, 	1, 	0,	0,	showlsbuffer },
+X#endif
+X	{ "remotehelp",	remotehelp,			0,	1,	1,	0,	rmthelp },
+X	{ "rm",			deletehelp,			0,	1,	1,	1,	do_delete },
+X	{ "rstatus",	rmtstatushelp,		0,	1,	1,	0,	rmtstatus },
+X	{ "rhelp",		remotehelp,			0,	1,	1,	0,	rmthelp },
+X	{ "rename",		renamehelp,			0,	1,	1,	0,	renamefile },
+X	{ "rmdir",		rmdirhelp,			0,	1,	1,	0,	removedir },
+X	{ "send",		sendhelp,			1,	1,	1,	1,	put },
+X	{ "set",		sethelp,			0,	0,	0,	0,	set },
+X	{ "size",		sizecmdhelp,		1,	1,	1,	0,	sizecmd },
+X	{ "system",		systemhelp,			0,	1,	1,	0,	syst },
+X	{ "unset",		unsethelp,			0,	0,	0,	0,	set },
+X	{ "user",		userhelp,			0,	1,	1,	0,	do_user },
+X	{ "type",		typehelp,			0,	1,	0,	0,	settype },
+X	{ "verbose",	verbosehelp,		0,	0,	0,	0,	setverbose },
+X	{ "version",	versionhelp,		0,	0,	0,	0,	show_version },
+X	{ "?",			helphelp,			0,	0,	1,	0,	help },
+X	{ NULL,			NULL,				0,	0,	0,	0,	NULL }
+X};
+X
+Xint	NCMDS = (sizeof (cmdtab) / sizeof (cmdtab[0])) - 1;
+X
+X/* eof cmdtab.c */
+END_OF_FILE
+  if test 5777 -ne `wc -c <'cmdtab.c'`; then
+    echo shar: \"'cmdtab.c'\" unpacked with wrong size!
+  fi
+  # end of 'cmdtab.c'
+fi
+if test -f 'ftprc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftprc.c'\"
+else
+  echo shar: Extracting \"'ftprc.c'\" \(5381 characters\)
+  sed "s/^X//" >'ftprc.c' <<'END_OF_FILE'
+X/* ftprc.c */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X
+X#ifdef SCO324
+X#	include <sys/arpa.h>
+X#endif
+X
+X#include <string.h>
+X#include <ctype.h>
+X#include "ftpdefs.h"
+X#include "defaults.h"
+X#include "ftprc.h"
+X#include "main.h"
+X#include "cmds.h"
+X#include "copyright.h"
+X
+X/* ftprc.c global variables */
+Xsiteptr					firstsite = NULL, lastsite = NULL;
+Xchar					rcname[MAXPATHLEN];
+Xint						parsing_rc = 0;
+X
+Xextern char				*line, *margv[];
+Xextern int				margc;
+Xextern string			anon_password;		/* most likely your email address */
+Xextern struct userinfo	uinfo;
+X
+Xint thrash_rc(void)
+X{
+X	struct stat			st;
+X	string				word, str;
+X	char				cwd[MAXPATHLEN];
+X	char				*cp, *dp, *rc;
+X	FILE				*fp;
+X	int					i;
+X
+X	(void) get_cwd(cwd, sizeof(cwd));
+X	if (cwd[strlen(cwd) - 1] != '/')
+X		(void) Strncat(cwd, "/");
+X
+X	/* Because some versions of regular ftp complain about ncftp's
+X	 * #set commands, FTPRC takes precedence over NETRC.
+X	 */
+X	for (i=0; i<2; i++) {
+X		rc = (i == 0) ? FTPRC : NETRC;
+X
+X		sprintf(rcname, "%s%s", cwd, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X		
+X		sprintf(rcname, "%s.%s", cwd, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X
+X		(void) sprintf(rcname, "%s/.%s", uinfo.homedir, rc);
+X		if (stat(rcname, &st) == 0)
+X			goto foundrc;
+X	}
+X
+X	return (0);	/* it's OK not to have an rc. */
+X	
+Xfoundrc:	
+X	if ((st.st_mode & 077) != 0)				/* rc must be unreadable by others. */
+X		(void) chmod(rcname, 0600);
+X
+X	if ((fp = fopen(rcname, "r")) == NULL) {
+X		Perror(rcname);
+X		return -1;
+X	}
+X	
+X	parsing_rc = 1;
+X	while (cp = FGets(str, fp)) {
+X		while (isspace(*cp)) ++cp;		/* skip leading space. */
+X		if (*cp == '#') {
+X			if ((strncmp("set", ++cp, (size_t)3) == 0) || (strncmp("unset", cp, (size_t)5) == 0)) {
+X				(void) strcpy(line, cp);
+X				makeargv();
+X				set(margc, margv);			
+X				/* setting or unsetting a variable. */
+X			} /* else a comment. */
+X		} else {
+X			if (strncmp(cp, "machine", (size_t) 7) == 0) {
+X				/* We have a new machine record. */
+X				cp += 7;
+X				while (isspace(*cp)) ++cp;	/* skip delimiting space. */
+X				dp = word;
+X				while (*cp && !isspace(*cp)) *dp++ = *cp++;	/* copy the name. */
+X				*dp = 0;
+X				AddNewSitePtr(word);
+X			}
+X		}
+X	}
+X	(void) fclose(fp);
+X	parsing_rc = 0;
+X	return 1;
+X}	/* thrash_rc */
+X
+X
+X
+Xvoid AddNewSitePtr(char *word)
+X{
+X	siteptr			s;
+X
+X	if (s = (siteptr) malloc(sizeof(site))) {
+X		s->next = NULL;
+X		if (s->name = malloc(strlen(word) + 1)) {
+X			(void) strcpy(s->name, word);
+X			if (firstsite == NULL)
+X				firstsite = lastsite = s;
+X			else {
+X				lastsite->next = s;
+X				lastsite = s;
+X			}
+X		} else {
+X			free(s);
+X		}
+X	}
+X}	/* AddNewSitePtr */
+X
+X
+X
+X
+Xvoid GetFullSiteName(char *host)
+X{
+X	register siteptr s, s2;
+X
+X	/* see if 'host' is in our list of favorite sites. */
+X	for (s = firstsite; s != NULL; s2=s->next, s=s2)
+X		if (strstr(s->name, host) != NULL) {
+X			(void) strcpy(host, s->name);
+X			break;
+X		}
+X}	/* GetFullSiteName */
+X
+X
+X
+X
+Xint ruserpass2(char *host, char **username, char **pass, char **acct)
+X{
+X	FILE			*fp;
+X	char			*cp, *dp, *dst, *ep;
+X	str32			macname;
+X	char			*varname;
+X	int				site_found;
+X	string			str;
+X	static string	auser;
+X	static str32	apass, aacct;
+X
+X	site_found = 0;
+X
+X	if ((fp = fopen(rcname, "r")) != NULL) {
+X		parsing_rc = 1;
+X		while (FGets(str, fp)) {
+X			if (cp = strstr(str, "machine")) {
+X				/* Look for the machine token. */
+X				cp += 7;
+X				while (isspace(*cp))
+X					cp++;
+X			} else
+X				continue;
+X			if (strncmp(cp, host, strlen(host)) == 0) {
+X				site_found = 1;
+X				while (!isspace(*cp))
+X					++cp;		/* skip the site name. */
+X				do {
+X					/* Skip any comments ahead of time. */
+X					for (dp=cp; *dp; dp++) {
+X						if (*dp == '#') {
+X							*dp = 0;
+X							break;
+X						}
+X					}
+X
+X					ep = cp;
+X					while (1) {
+X						varname = strtok(ep, RC_DELIM);
+X						if (!varname) break;
+X						dst = ep = NULL;
+X						switch (*varname) {
+X							case 'u':	/* user */
+X								*username = dst = auser;
+X								break;
+X							case 'l':	/* login */
+X								*username = dst = auser;
+X								break;
+X							case 'p':	/* password */
+X								*pass = dst = apass;
+X								break;
+X							case 'a':	/* account */
+X								*acct = dst = aacct;
+X								break;
+X						/*	case 'd':  /o default */
+X						/* unused -- use 'set anon_password.' */
+X							case 'm':	/* macdef or machine */
+X								if (strcmp(varname, "macdef"))
+X									goto done;	/* new machine record... */
+X								dst = macname;
+X								break;
+X							default:
+X								(void) fprintf(stderr, "Unknown .netrc keyword \"%s\"\n",
+X									varname
+X								);
+X						}
+X						if (dst) {
+X							dp = strtok(ep, RC_DELIM);
+X							if (dp)
+X								(void) strcpy(dst, dp);
+X							if (dst == macname) {
+X								/*
+X								 *	Read in the lines of the macro.
+X								 *	The macro's end is denoted by
+X								 *	a blank line.
+X								 */
+X								(void) make_macro(macname, fp);
+X								goto nextline;
+X							}
+X						}
+X					}
+Xnextline: ;
+X				} while (cp = FGets(str, fp));
+X				break;
+X			}		/* end if we found the machine record. */
+X		}
+Xdone:
+X		parsing_rc = 0;
+X		(void) fclose(fp);
+X	}
+X
+X	if (!site_found) {
+X		/* didn't find it in the rc. */
+X		return (0);
+X	}
+X
+X	if (*username == NULL) {
+X		*username = "anonymous";
+X		*pass = anon_password;
+X	}
+X
+X	/* Make sure the password looks like an address. */
+X	if (strcmp(*username, "anonymous") == 0) {
+X		if (*pass == NULL || index(*pass, '@') == NULL)
+X			*pass = anon_password;
+X	}
+X	return (1);	/* found */
+X}	/* ruserpass2 */
+X
+X/* eof ftprc.c */
+END_OF_FILE
+  if test 5381 -ne `wc -c <'ftprc.c'`; then
+    echo shar: \"'ftprc.c'\" unpacked with wrong size!
+  fi
+  # end of 'ftprc.c'
+fi
+if test -f 'glob.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'glob.c'\"
+else
+  echo shar: Extracting \"'glob.c'\" \(9908 characters\)
+  sed "s/^X//" >'glob.c' <<'END_OF_FILE'
+X/* glob.c */
+X
+X#include "sys.h"
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X
+X/* Dir.h.  Try <sys/dir.h> (add -DSYSDIRH) if <dirent.h> doesn't exist. */
+X
+X#ifndef SYSDIRH
+X#   include <dirent.h>
+X#else
+X#   include <sys/dir.h>
+X#endif
+X
+X#ifdef SCO324
+X#   define direct dirent
+X#endif
+X
+X#include <string.h>
+X#include <errno.h>
+X#include <pwd.h>
+X#include "ftpdefs.h"
+X#include "glob.h"
+X#include "cmds.h"
+X#include "copyright.h"
+X
+X#ifndef NCARGS
+X#	define NCARGS  4096 /* # characters in exec arglist */
+X#endif
+X
+X#define	QUOTE 0200
+X#define	TRIM 0177
+X#define	eq(a,b)		(strcmp(a, b)==0)
+X#define	GAVSIZ		(NCARGS/6)
+X#define	isdir(d)	((d.st_mode & S_IFMT) == S_IFDIR)
+X
+Xstatic ginit(char **agargv);
+Xstatic collect(char *as);
+Xstatic acollect(char *as);
+Xstatic sort(void);
+Xstatic expand(char *as);
+Xstatic matchdir(char *pattern);
+Xstatic execbrc(char *p, char *s);
+Xstatic match(char *s, char *p);
+Xstatic amatch(char *s, char *p);
+Xstatic Gmatch(char *s, char *p);
+Xstatic Gcat(char *s1, char *s2);
+Xstatic addpath(char c);
+Xstatic rscan(char **t, int (*f )(char));
+Xstatic tglob(char c);
+Xstatic char *strspl(char *cp, char *dp);
+Xstatic char *strend(char *cp);
+X
+Xstatic	char **gargv;	/* Pointer to the (stack) arglist */
+Xstatic	int gargc;		/* Number args in gargv */
+Xstatic	int gnleft;
+Xstatic	short gflag;
+Xchar	*globerr;
+Xchar	*home;			/* you must initialize this elsewhere! */
+Xextern	int errno;
+X
+Xstatic	int globcnt;
+X
+Xchar	*globchars = "`{[*?";
+X
+Xstatic	char *gpath, *gpathp, *lastgpathp;
+Xstatic	int globbed;
+Xstatic	char *entp;
+Xstatic	char **sortbas;
+X
+Xchar **
+Xglob(char *v)
+X{
+X	char agpath[BUFSIZ];
+X	char *agargv[GAVSIZ];
+X	char *vv[2];
+X	vv[0] = v;
+X	vv[1] = 0;
+X	gflag = (short) 0;
+X	rscan(vv, tglob);
+X	if (gflag == (short) 0)
+X		return (copyblk(vv));
+X
+X	globerr = 0;
+X	gpath = agpath; gpathp = gpath; *gpathp = 0;
+X	lastgpathp = &gpath[sizeof agpath - 2];
+X	ginit(agargv); globcnt = 0;
+X	collect(v);
+X	if (globcnt == 0 && (gflag & (short)1)) {
+X		blkfree(gargv), gargv = 0;
+X		return (0);
+X	} else
+X		return (gargv = copyblk(gargv));
+X}
+X
+Xstatic
+Xginit(char **agargv)
+X{
+X	agargv[0] = 0; gargv = agargv; sortbas = agargv; gargc = 0;
+X	gnleft = NCARGS - 4;
+X}
+X
+Xstatic
+Xcollect(char *as)
+X{
+X	if (eq(as, "{") || eq(as, "{}")) {
+X		Gcat(as, "");
+X		sort();
+X	} else
+X		acollect(as);
+X}
+X
+Xstatic
+Xacollect(char *as)
+X{
+X	register int ogargc = gargc;
+X
+X	gpathp = gpath; *gpathp = 0; globbed = 0;
+X	expand(as);
+X	if (gargc != ogargc)
+X		sort();
+X}
+X
+Xstatic
+Xsort(void)
+X{
+X	register char **p1, **p2, *c;
+X	char **Gvp = &gargv[gargc];
+X
+X	p1 = sortbas;
+X	while (p1 < Gvp-1) {
+X		p2 = p1;
+X		while (++p2 < Gvp)
+X			if (strcmp(*p1, *p2) > 0)
+X				c = *p1, *p1 = *p2, *p2 = c;
+X		p1++;
+X	}
+X	sortbas = Gvp;
+X}
+X
+Xstatic
+Xexpand(char *as)
+X{
+X	register char *cs;
+X	register char *sgpathp, *oldcs;
+X	struct stat stb;
+X
+X	sgpathp = gpathp;
+X	cs = as;
+X	if (*cs == '~' && gpathp == gpath) {
+X		addpath('~');
+X		for (cs++; letter(*cs) || digit(*cs) || *cs == '-';)
+X			addpath(*cs++);
+X		if (!*cs || *cs == '/') {
+X			if (gpathp != gpath + 1) {
+X				*gpathp = 0;
+X				if (gethdir(gpath + 1))
+X					globerr = "Unknown user name after ~";
+X				(void) strcpy(gpath, gpath + 1);
+X			} else
+X				(void) strcpy(gpath, home);
+X			gpathp = strend(gpath);
+X		}
+X	}
+X	while (!any(*cs, globchars)) {
+X		if (*cs == 0) {
+X			if (!globbed)
+X				Gcat(gpath, "");
+X			else if (stat(gpath, &stb) >= 0) {
+X				Gcat(gpath, "");
+X				globcnt++;
+X			}
+X			goto endit;
+X		}
+X		addpath(*cs++);
+X	}
+X	oldcs = cs;
+X	while (cs > as && *cs != '/')
+X		cs--, gpathp--;
+X	if (*cs == '/')
+X		cs++, gpathp++;
+X	*gpathp = 0;
+X	if (*oldcs == '{') {
+X		(void) execbrc(cs, ((char *)0));
+X		return;
+X	}
+X	matchdir(cs);
+Xendit:
+X	gpathp = sgpathp;
+X	*gpathp = 0;
+X}
+X
+Xstatic
+Xmatchdir(char *pattern)
+X{
+X	struct stat stb;
+X#ifdef SYSDIRH
+X	register struct direct *dp;
+X#else
+X	register struct dirent *dp;
+X#endif
+X	DIR *dirp;
+X
+X	dirp = opendir((*gpath ? gpath : "."));
+X	if (dirp == NULL) {
+X		if (globbed)
+X			return;
+X		goto patherr2;
+X	}
+X	if (fstat(dirp->dd_fd, &stb) < 0)
+X		goto patherr1;
+X	if (!isdir(stb)) {
+X		errno = ENOTDIR;
+X		goto patherr1;
+X	}
+X	while ((dp = readdir(dirp)) != NULL) {
+X		if (dp->d_ino == 0)
+X			continue;
+X		if (match(dp->d_name, pattern)) {
+X			Gcat(gpath, dp->d_name);
+X			globcnt++;
+X		}
+X	}
+X	(void) closedir(dirp);
+X	return;
+X
+Xpatherr1:
+X	(void) closedir(dirp);
+Xpatherr2:
+X	globerr = "Bad directory components";
+X}
+X
+Xstatic
+Xexecbrc(char *p, char *s)
+X{
+X	char restbuf[BUFSIZ + 2];
+X	register char *pe, *pm, *pl;
+X	int brclev = 0;
+X	char *lm, savec, *sgpathp;
+X
+X	for (lm = restbuf; *p != '{'; *lm++ = *p++)
+X		continue;
+X	for (pe = ++p; *pe; pe++)
+X	switch (*pe) {
+X
+X	case '{':
+X		brclev++;
+X		continue;
+X
+X	case '}':
+X		if (brclev == 0)
+X			goto pend;
+X		brclev--;
+X		continue;
+X
+X	case '[':
+X		for (pe++; *pe && *pe != ']'; pe++)
+X			continue;
+X		continue;
+X	}
+Xpend:
+X	brclev = 0;
+X	for (pl = pm = p; pm <= pe; pm++)
+X	switch (*pm & (QUOTE|TRIM)) {
+X
+X	case '{':
+X		brclev++;
+X		continue;
+X
+X	case '}':
+X		if (brclev) {
+X			brclev--;
+X			continue;
+X		}
+X		goto doit;
+X
+X	case ','|QUOTE:
+X	case ',':
+X		if (brclev)
+X			continue;
+Xdoit:
+X		savec = *pm;
+X		*pm = 0;
+X		(void) strcpy(lm, pl);
+X		(void) strcat(restbuf, pe + 1);
+X		*pm = savec;
+X		if (s == 0) {
+X			sgpathp = gpathp;
+X			expand(restbuf);
+X			gpathp = sgpathp;
+X			*gpathp = 0;
+X		} else if (amatch(s, restbuf))
+X			return (1);
+X		sort();
+X		pl = pm + 1;
+X		if (brclev)
+X			return (0);
+X		continue;
+X
+X	case '[':
+X		for (pm++; *pm && *pm != ']'; pm++)
+X			continue;
+X		if (!*pm)
+X			pm--;
+X		continue;
+X	}
+X	if (brclev)
+X		goto doit;
+X	return (0);
+X}
+X
+Xstatic
+Xmatch(char *s, char *p)
+X{
+X	register int c;
+X	register char *sentp;
+X	char sglobbed = globbed;
+X
+X	if (*s == '.' && *p != '.')
+X		return (0);
+X	sentp = entp;
+X	entp = s;
+X	c = amatch(s, p);
+X	entp = sentp;
+X	globbed = sglobbed;
+X	return (c);
+X}
+X
+Xstatic
+Xamatch(char *s, char *p)
+X{
+X	register int scc;
+X	int ok, lc;
+X	char *sgpathp;
+X	struct stat stb;
+X	int c, cc;
+X
+X	globbed = 1;
+X	for (;;) {
+X		scc = *s++ & TRIM;
+X		switch (c = *p++) {
+X
+X		case '{':
+X			return (execbrc(p - 1, s - 1));
+X
+X		case '[':
+X			ok = 0;
+X			lc = 077777;
+X			while (cc = *p++) {
+X				if (cc == ']') {
+X					if (ok)
+X						break;
+X					return (0);
+X				}
+X				if (cc == '-') {
+X					if (lc <= scc && scc <= *p++)
+X						ok++;
+X				} else
+X					if (scc == (lc = cc))
+X						ok++;
+X			}
+X			if (cc == 0)
+X				if (ok)
+X					p--;
+X				else
+X					return 0;
+X			continue;
+X
+X		case '*':
+X			if (!*p)
+X				return (1);
+X			if (*p == '/') {
+X				p++;
+X				goto slash;
+X			}
+X			s--;
+X			do {
+X				if (amatch(s, p))
+X					return (1);
+X			} while (*s++);
+X			return (0);
+X
+X		case 0:
+X			return (scc == 0);
+X
+X		default:
+X			if (c != scc)
+X				return (0);
+X			continue;
+X
+X		case '?':
+X			if (scc == 0)
+X				return (0);
+X			continue;
+X
+X		case '/':
+X			if (scc)
+X				return (0);
+Xslash:
+X			s = entp;
+X			sgpathp = gpathp;
+X			while (*s)
+X				addpath(*s++);
+X			addpath('/');
+X			if (stat(gpath, &stb) == 0 && isdir(stb))
+X				if (*p == 0) {
+X					Gcat(gpath, "");
+X					globcnt++;
+X				} else
+X					expand(p);
+X			gpathp = sgpathp;
+X			*gpathp = 0;
+X			return (0);
+X		}
+X	}
+X}
+X
+Xstatic
+XGmatch(char *s, char *p)
+X{
+X	register int scc;
+X	int ok, lc;
+X	int c, cc;
+X
+X	for (;;) {
+X		scc = *s++ & TRIM;
+X		switch (c = *p++) {
+X
+X		case '[':
+X			ok = 0;
+X			lc = 077777;
+X			while (cc = *p++) {
+X				if (cc == ']') {
+X					if (ok)
+X						break;
+X					return (0);
+X				}
+X				if (cc == '-') {
+X					if (lc <= scc && scc <= *p++)
+X						ok++;
+X				} else
+X					if (scc == (lc = cc))
+X						ok++;
+X			}
+X			if (cc == 0)
+X				if (ok)
+X					p--;
+X				else
+X					return 0;
+X			continue;
+X
+X		case '*':
+X			if (!*p)
+X				return (1);
+X			for (s--; *s; s++)
+X				if (Gmatch(s, p))
+X					return (1);
+X			return (0);
+X
+X		case 0:
+X			return (scc == 0);
+X
+X		default:
+X			if ((c & TRIM) != scc)
+X				return (0);
+X			continue;
+X
+X		case '?':
+X			if (scc == 0)
+X				return (0);
+X			continue;
+X
+X		}
+X	}
+X}
+X
+Xstatic
+XGcat(char *s1, char *s2)
+X{
+X	register int len = strlen(s1) + strlen(s2) + 1;
+X
+X	if (len >= gnleft || gargc >= GAVSIZ - 1)
+X		globerr = "Arguments too long";
+X	else {
+X		gargc++;
+X		gnleft -= len;
+X		gargv[gargc] = 0;
+X		gargv[gargc - 1] = strspl(s1, s2);
+X	}
+X}
+X
+Xstatic
+Xaddpath(char c)
+X{
+X
+X	if (gpathp >= lastgpathp)
+X		globerr = "Pathname too long";
+X	else {
+X		*gpathp++ = c;
+X		*gpathp = 0;
+X	}
+X}
+X
+Xstatic
+Xrscan(char **t, int (*f )(char))
+X{
+X	register char *p, c;
+X
+X	while (p = *t++) {
+X		if (f == tglob)
+X			if (*p == '~')
+X				gflag |= (short) 2;
+X			else if (eq(p, "{") || eq(p, "{}"))
+X				continue;
+X		while (c = *p++)
+X			(*f)(c);
+X	}
+X}
+X/*
+Xstatic
+Xscan(t, f)
+X	register char **t;
+X	int (*f)(char);
+X{
+X	register char *p, c;
+X
+X	while (p = *t++)
+X		while (c = *p)
+X			*p++ = (*f)(c);
+X} */
+X
+Xstatic
+Xtglob(char c)
+X{
+X
+X	if (any(c, globchars))
+X		gflag |= (c == '{' ? (short)2 : (short)1);
+X	return (c);
+X}
+X/*
+Xstatic
+Xtrim(c)
+X	char c;
+X{
+X
+X	return (c & TRIM);
+X} */
+X
+X
+Xletter(char c)
+X{
+X	return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_');
+X}
+X
+Xdigit(char c)
+X{
+X	return (c >= '0' && c <= '9');
+X}
+X
+Xany(int c, char *s)
+X{
+X	while (*s)
+X		if (*s++ == c)
+X			return(1);
+X	return(0);
+X}
+X
+Xblklen(char **av)
+X{
+X	register int i = 0;
+X
+X	while (*av++)
+X		i++;
+X	return (i);
+X}
+X
+Xchar **
+Xblkcpy(char **oav, char **bv)
+X{
+X	register char **av = oav;
+X
+X	while (*av++ = *bv++)
+X		continue;
+X	return (oav);
+X}
+X
+Xblkfree(char **av0)
+X{
+X	register char **av = av0;
+X
+X	while (*av)
+X		free(*av++);
+X}
+X
+Xstatic
+Xchar *
+Xstrspl(char *cp, char *dp)
+X{
+X	register char *ep = (char *) malloc((size_t)(strlen(cp) + strlen(dp) + 1L));
+X
+X	if (ep == (char *)0)
+X		fatal("Out of memory");
+X	(void) strcpy(ep, cp);
+X	(void) strcat(ep, dp);
+X	return (ep);
+X}
+X
+Xchar **
+Xcopyblk(char **v)
+X{
+X	register char **nv = (char **)malloc((size_t)((blklen(v) + 1) *
+X						sizeof(char **)));
+X	if (nv == (char **)0)
+X		fatal("Out of memory");
+X
+X	return (blkcpy(nv, v));
+X}
+X
+Xstatic
+Xchar *
+Xstrend(char *cp)
+X{
+X	while (*cp)
+X		cp++;
+X	return (cp);
+X}
+X
+X/*
+X * Extract a home directory from the password file
+X * The argument points to a buffer where the name of the
+X * user whose home directory is sought is currently.
+X * We write the home directory of the user back there.
+X */
+Xint gethdir(char *home_dir)
+X{
+X	register struct passwd *pp = getpwnam(home_dir);
+X
+X	if (pp == 0)
+X		return (1);
+X	(void) strcpy(home_dir, pp->pw_dir);
+X	return (0);
+X}	/* gethdir */
+X
+X/* eof glob.c */
+END_OF_FILE
+  if test 9908 -ne `wc -c <'glob.c'`; then
+    echo shar: \"'glob.c'\" unpacked with wrong size!
+  fi
+  # end of 'glob.c'
+fi
+if test -f 'ncftp.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ncftp.1'\"
+else
+  echo shar: Extracting \"'ncftp.1'\" \(13911 characters\)
+  sed "s/^X//" >'ncftp.1' <<'END_OF_FILE'
+X.TH NcFTP 1
+X.SH NAME
+XNcFTP \(em Internet file transfer program
+X.SH SYNOPSIS
+X.B ncftp
+X.RB [ program\ options ]\ [[ open\ options ]
+X.I hostname\c
+X.RI [: pathname ]]
+X.SH DESCRIPTION
+X.I NcFTP
+Xis an alternative user interface to the Internet standard File Transfer
+XProtocol.
+XThe program allows a user to transfer files to and from a
+Xremote network site.
+XThis program offers additional features that
+Xare not found in the standard interface,
+X.IR ftp .
+X.SH FEATURES
+X.TP
+X\(bu
+XBy default, an anonymous login is attempted when you open a site.
+XNo need to enter ``anonymous'' and your email address
+Xevery time you open a site.
+X.TP
+X\(bu
+XYou can save some keystrokes by putting commonly used sites in the
+X.I .netrc
+Xfile, and then just type abbreviations when you open them on the
+Xcommand line.
+XFor example, if you had wuarchive.wustl.edu in your
+X.I .netrc
+Xyou would only need to type ``o wuar'' or ``o wustl''
+X(or any abbreviation that will
+Xseparate it from the rest of the sites in your
+X.IR .netrc ).
+X.TP
+X\(bu
+X.I ncftp
+Xcan keep a log of sites opened and files transferred
+Xfor later reference.
+X.TP
+X\(bu
+X.I ncftp
+Xhas ``implicit\ cd'' where you can just type the name of a directory
+X(when connected) instead of typing ``cd\ <directory>''.
+X.TP
+X\(bu
+XFile transfers use a progress indicator, showing what percentage of
+Xthe file has been transferred.
+X.TP
+X\(bu
+X.I ncftp
+Xhas a built in mini-nslookup facility, for finding IP numbers or site
+Xnames.
+X.TP
+X\(bu
+XThe
+X.I ls
+Xcommand works like ``ls\ \-CF''.
+XSome versions of
+X.I ftp
+Ximplemented
+X.I ls
+Xexactly like
+X.I dir
+X(ls\ \-l).
+X.TP
+X\(bu
+XA
+X.I page
+Xcommand lets you use your pager to read remote files.
+XThere are also the commands
+X.I pls
+Xand
+X.I pdir
+Xwhich let you read directory listings with your pager.
+X.TP
+X\(bu
+XYou don't need to close sites;
+X.I ncftp
+Xcloses an open site when you try to open a different one.
+X.TP
+X\(bu
+XYou can save some typing by using a wildcard to specify one file.
+XFor example, you can type ``get R*'' to fetch a file called README.
+X.TP
+X\(bu
+XYou can invoke
+X.I ncftp
+Xwith ``colon mode'' where you can type ``ncftp\ cse.unl.edu:/pub/foo''
+Xand it will fetch ``foo'' for you then exit.
+X.TP
+X\(bu
+XThere is a
+X.I create
+Xcommand which is useful for creating
+Xmessages on a remote site.
+X.TP
+X\(bu
+X.I ncftp
+Xtells you when new mail has arrived.
+X.TP
+X\(bu
+XFile transfers use a larger buffer, so transfers may be faster.
+X.TP
+X\(bu
+XThe prompt can be customized to include things like the date, time,
+Xcurrent remote working directory, boldface, etc.
+X.TP
+X\(bu
+X.I ncftp
+Xcan be compiled to log information to the system log.
+X.TP
+X\(bu
+XThe behavior of
+X.I ncftp
+Xcan be customized with
+X.I set
+Xand
+X.I unset
+Xand the
+X.I .netrc
+Xcan contain commands to set these variables each time you start up.
+X.SH OPTIONS
+X.PP
+XCommand line options:
+XProgram options follow.
+XOpen options are identical to the options given to
+Xthe
+X.I open
+Xcommand, described later.
+X.TP
+X.B \-V
+Xforces
+X.I ncftp
+Xto show all responses from the remote server, as well
+Xas report on data transfer statistics.
+X.TP
+X.B \-N
+Xrestrains
+X.I ncftp
+Xfrom reading the
+X.I .netrc
+X(see below) file in the user's home directory.
+X.TP
+X.B \-D
+Xenables debugging.
+X.TP
+X.B \-H
+Xprints version and compile-time options.
+X.PP
+XThe client host with which
+X.I ncftp
+Xis to communicate may be specified on the command line.
+XIf this is done,
+X.I ncftp
+Xwill immediately attempt to establish a connection to an FTP
+Xserver on that host; otherwise,
+X.I ncftp
+Xwill enter its command interpreter and await instructions
+Xfrom the user.
+X.I ncftp
+Xuses many of the commands provided by
+X.I ftp
+Xbut some old commands will not appear under the main help screen
+Xalthough they are still supported.
+XThis was done to avoid overwhelming the user
+Xwith many commands that do the same thing.
+XExamples of commands that
+Xstill run but don't show up in the help screen are
+X.BR send ,
+X.BR close ,
+X.BR bye ,
+Xand
+X.BR ascii .
+X.SH COMMANDS
+XExplanations of commands specific to
+X.I ncftp
+Xfollow.
+XPlease refer to the manual page for
+X.I ftp
+Xfor descriptions of the standard commands.
+X.TP
+X.I create
+XUse this to create an empty file on the remote site.
+XSometimes it is necessary to leave a note
+Xif you can't get in touch with the remote site's administrator.
+XFor example if a file is corrupted, you could
+Xtype ``create\ Foo.tar_is_corrupt'' so the uploader will replace it.
+X.TP
+X.I lookup
+XUse this if you know a site's IP number but want its name,
+Xor if you know its name but want its IP number.
+XFor example ``lookup cse.unl.edu''
+Xwill spit out ``129.93.1.12'' and vice versa.
+X.TP
+X.I open
+XThis command has been extended to accept flags to specify its behavior.
+XBy default, ``open\ sitename'' tries to login to a site with ``anonymous''
+Xand your email address as the password.
+XIf you would like to specify
+Xa login/password combination (like
+X.I ftp
+Xdoes by default), use the ``\-u'' flag, like ``open\ \-u\ cse.unl.edu.''
+XYou can also specify the ``\-i'' flag if you want to ignore the machine
+Xrecord in your
+X.IR .netrc .
+XOccasionally this is necessary when you have a login/password in the
+X.I .netrc
+Xbut you want to use a different login/password combo.
+X
+X.I ncftp
+Xalso has a ``redial'' feature, the ``\-r'' flag, so if a site is refusing
+Xconnections you can have the program keep trying until you are connected.
+XYou can further customize the redial feature with the ``\-d\ N'' and ``\-g\ N''
+Xflags, which stand for sleep delay and maximum retries respectively.
+XThe default sleep delay is 60 seconds.
+XIf you omit the ``\-g\ N,'' the program
+Xkeeps trying no matter how long it takes (or until you hit the interrupt
+Xkey).
+XThis example shows how to poll ftp.unl.edu every ten minutes
+Xor until 20 retries is reached:  ``open\ \-r\ \-d\ 600\ \-g\ 20\ ftp.unl.edu.''
+XPlease be considerate when you use redialing, so you won't tax the network.
+X
+X.I Open
+Xalso operates in colon mode, where you can specify a file or directory with
+Xthe site name.
+XFor example ``open\ cse.unl.edu:/pub/foo'' can be typed
+Xand if ``foo'' is a file,
+X.I ncftp
+Xwill fetch it and write it in the the current local directory.
+XIf ``foo'' is a directory the current directory is set to ``foo.''
+XNote that if you invoke colon mode from the command line,
+X.I ncftp
+Xexits after it fetches a file (but remains running if the pathname was
+Xa directory).
+XThis is nice if you are reading news and a poster gives
+Xa pathname in the message (often in colon mode format).
+X.TP
+X.I page
+XYou can read a remote file with your pager.
+XIn previous versions of
+X.I ftp
+Xyou could ``get\ myfile.txt\ |more'', but this wasn't widely known.
+XThis command also lets you view compressed
+Xfiles (ending in .Z), by piping the remote file through
+X.I zcat
+Xfirst.
+X.TP
+X.I pls
+XThis lets you view a
+X.I ls
+Xcommand with your pager.
+X.TP
+X.I pdir
+XThis command lets you view a
+X.I dir
+Xcommand with your pager.
+X.TP
+X.I predir
+XThis lets you view the contents of the last
+X.I ls
+Xor
+X.I dir
+Xcommand with your pager.
+X.I ncftp
+Xstores the output of the previous command in memory, so you can
+Xquickly relist the last command without going over the network.
+XThis is handy for slow connections.
+X.TP
+X.I redir
+XThis dumps the contents of the last
+X.I ls
+Xor
+X.I dir
+Xcommand to standard-out.
+X.TP
+X.I version
+XThis prints the version, and compile-time options used.
+X
+X.SH VARIABLES
+X.TP
+X.I set
+X.br
+X.I ncftp
+Xhas some variables that can be set at run time in the
+X.I .netrc
+Xor interactively in the shell.
+XYou can also use the command
+X.I unset
+Xto undefine a variable.
+XIn
+X.IR csh ,
+Xyou type ``set\ var=value'' or ``unset\ var''.
+XIf a variable's value has whitespace in it,
+Xuse double quotes, as in ``set\ var="the\ value"''.
+XYou can also type ``set'' by itself to show the values of all variables.
+XIn the
+X.I .netrc
+Xyou must use ``#set\ var=value'' and ``#unset\ var''.
+XHopefully if you need to use
+X.I ftp
+Xit will think those commands are comments and ignore them.
+X.RS
+X.TP
+X.IR anon-password " (string)"
+Xis set to your email address,
+Xand used as the password when you login anonymously.
+X.TP
+X.IR ansi-escapes " (integer)"
+Xuses ANSI escape sequences for boldface, underline,
+Xand inverse text.
+XSo far this only affects the prompt.
+XThe default is 1 if your
+X.B TERM
+Xis a vt100.
+X.TP
+X.IR auto-binary " (integer)"
+Xwill set binary transfer mode each time you connect
+Xto a remote host.
+X.TP
+X.IR debug " (integer)"
+Xis used to print diagnostic information.
+X.TP
+X.IR local-dir " (string)"
+Xis set to the local current directory.
+XThis is mostly useful to set in the
+X.IR .netrc ,
+Xwhere you may want to always download into a certain directory.
+X.TP
+X.IR logfile " (string)"
+Xis the log file that saves which sites you've opened
+Xand what files you've transferred.
+XIt should be set in the
+X.IR .netrc .
+X.TP
+X.IR logsize " (integer)"
+Xis the maximum size of the log before
+X.I ncftp
+Xdeletes old entries to keep the log around
+X.IR logsize.
+X.TP
+X.IR mprompt " (1 or 0)"
+Xspecifies whether you want the
+X.IR mget ,
+X.IR mput ,
+Xetc., commands ask what to do with each file.
+X.TP
+X.IR pager " (string)"
+Xis the program used to page remote files.
+XIf you don't set it,
+Xit defaults to the value of the
+X.B PAGER
+Xenvironment variable.
+X.TP
+X.IR prompt " (string)"
+Xis the command line prompt,
+Xwhich may use several @ and % flags (see below).
+X.TP
+X.IR progress-reports " (integer)"
+Xis the style of progress indicator to use.
+XA value of
+X0 uses no indicator at all; a value of 1 shows the
+Xpercentage of the the file being transferred; a value of 2
+Xuses a nice bar graph progress indicator (this requires that
+Xthe variable
+X.I ansi\-escapes
+Xalso be set).
+XBoth styles 1 and 2 of progress indicators require that the
+Xremote server support the SIZE command.
+XA value of 3 shows progress by printing the number of kilobytes
+Xtransferred.
+XThis style is also used for remote servers who do not
+Xsupport the SIZE command.
+X.TP
+X.IR remote-is-unix " (1 or 0)"
+Xis true when the remote site seems to be a UNIX
+Xmachine.
+XThe only reason one would want to unset
+Xthis variable is when the program thinks a remote
+Xhost is UNIX when it actually isn't.
+X.TP
+X.IR type " (string)"
+Xis the current file transfer type, like ``image''.
+X.TP
+X.IR verbose " (integer)"
+Xcontrols the level of output produced by the program.
+X\-1 is quiet mode,
+Xwhere it won't print anything, 0 is normal mode, where only errors are
+Xdisplayed, 1 is terse mode, where errors and messages from fancy ftp
+Xservers like wuarchive.wustl.edu are printed, and 2 is verbose mode, where plenty of output (mostly junk)
+Xis produced.
+X.RE
+X.SH PROMPTS
+X.PP
+XThe following flags insert special values into the prompt:
+X.TP
+X.B @B
+XTurns on boldface mode.
+X.TP
+X.B @D
+XInserts the current remote directory.
+X.TP
+X.BR @E " or " @!
+XInserts the event number (how many commands you've typed).
+X.TP
+X.B @H
+XInserts the name of the remote host.
+X.TP
+X.BR @I " or " @R
+XTurns on inverse (reverse) video mode.
+X.TP
+X.B @M
+XInserts ``(Mail)\0'' if you have mail.
+X.TP
+X.B @N
+XInserts a newline character.
+X.TP
+X.B @P
+XTurns off any video modes you might have set with
+X.BR @B ,
+X.BR @I ,
+X.BR @R ,
+Xor
+X.B @U
+X(if you have a vt100-ish terminal).
+X.TP
+X.B @U
+XTurns on underline mode (if you have a vt100-ish terminal).
+X.PP
+XThe prompt may also contain % flags used by
+X.IR strftime (3)
+Xso you can insert the time or date to your liking.
+XFor example,
+Xput ``#set\ prompt="@!\ %I:%M\ %p\ @D \->"'' in your
+X.I .netrc
+Xto show the event, the time of day, AM or PM, and the current
+Xremote directory in your prompt.
+X.SH NETRC
+XMany users of
+X.I ftp
+Xleave the power of the
+X.I .netrc
+Xuntapped.
+XWith
+X.IR ncftp ,
+Xthe file should begin with
+X.I #set
+Xand
+X.I #unset
+Xcommands which
+X.I ncftp
+Xruns at startup, followed by machine entries.
+XWhen
+X.I ncftp
+Xruns, looks for a file named
+X.I .ncftprc
+Xor
+X.I .netrc.
+XActually, the program tries
+X.IR ./ncftprc ,
+X.IR ./.ncftprc ,
+X.IR $HOME/.ncftprc ,
+X.IR ./netrc ,
+X.IR ./.netrc ,
+Xand
+X.I $HOME/.netrc
+Xin that order.
+XIf
+X.I ftp
+Xcomplains about the #set and #unset commands (which should have been treated
+Xas comments), you should use a
+X.I ncftprc
+Xif you plan on running both programs.
+XHere is a sample
+X.I .netrc
+Xfile that shows what you can do with it:
+X
+X.nf
+X#set logfile /user/students/ugrad/mgleason/.ftplog
+X#set prompt="@B@E @UNcFTP@P @B@M@D@P ->"
+X
+Xmachine sumex-aim.stanford.edu
+X	macdef init
+X		cd /info-mac
+X		get ./help/recent-files.txt "|grep -v '.abs' > sumex
+X		!less sumex
+X		pwd
+X
+X# This site is in here just so I can use ``apple''
+X# as an abbreviation.
+Xmachine ftp.apple.com
+X
+X# ncftp will only ask for your password:
+Xmachine cse.unl.edu login mgleason
+X
+X# You can supply a login and a password:
+Xmachine fake.machine.unl.edu
+X	login mgleason
+X	password mypass
+X	macdef init
+X	cd ./foo/bar
+X
+X# If an antiquated non-UNIX machine doesn't use
+X# the "SYST" command, you may need to unset
+X# remote-is-unix, if the remote host complains
+X# about ``ls -CF.''
+Xmachine some.vms.unl.edu
+X	macdef init
+X	unset remote-is-unix
+X.fi
+X
+X.SH ENVIRONMENT
+X.I ncftp
+Xuses the following environment variables:
+X.nr n \w'TERMCAP\0\0\0'+1n-1/1n
+X.TP \nn
+X.B HOME
+Xfor default location of a
+X.I .netrc
+Xfile, if
+X.I ./netrc
+Xand
+X.I ./.netrc
+Xdo not exist;
+X.TP
+X.B PAGER
+Xfor the default filter used by the
+X.I page
+Xcommand;
+X.TP
+X.B SHELL
+Xfor shell escapes;
+X.TP
+X.B MAIL
+Xfor detecting new mail;
+X.TP
+X.BR TERM " and"
+X.PD 0
+X.TP
+X.B TERMCAP
+Xfor retrieving ansi-escapes.
+X.PD
+X.SH AUTHORS
+X.I ncftp
+Xwas written by Mike Gleason,
+X.I NCEMRSoft
+X(mgleason@cse.unl.edu), and based on code by the authors of the
+X.I ftp
+Xfrom the BSD 4.3 distribution.
+X.I ncftp
+Xis copyrighted 1992, 1993 by NCEMRSoft
+Xand 1985, 1989 by the Regents of California.
+X.PP
+XSome code and much debugging done by Phil Dietz,
+X.I NCEMRSoft
+X(pdietz@cse.unl.edu).
+X.PP
+XExtensive man page formatting work
+Xby DaviD W. Sanderson (dws@ssec.wisc.edu).
+X.PP
+XJan-Piet Mens (jpm@Logix.DE) added termcap support and did the SCO port.
+X.SH BUGS
+XCorrect execution of many commands depends upon proper behavior
+Xby the remote server.
+X
+XThe remote server may drop the connection if you take a long time when you
+Xpage remote files.
+X
+XTermcap padding is not correctly displayed.
+X.SH "SEE ALSO"
+X.IR strftime (3),
+X.IR ftpd (8),
+X.IR ftp (1),
+X.IR nslookup (1),
+X.IR compress (1),
+X.IR zcat (1),
+X.IR tftp (1).
+END_OF_FILE
+  if test 13911 -ne `wc -c <'ncftp.1'`; then
+    echo shar: \"'ncftp.1'\" unpacked with wrong size!
+  fi
+  # end of 'ncftp.1'
+fi
+if test -f 'sys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sys.h'\"
+else
+  echo shar: Extracting \"'sys.h'\" \(7327 characters\)
+  sed "s/^X//" >'sys.h' <<'END_OF_FILE'
+X/* sys.h */
+X
+X/*
+X * ncftp may need work arounds for some things due to the differences
+X * in implementations of unix.  The following systems are taken care
+X * of automatically:
+X *
+X *    SunOS/Solaris (but use gcc)
+X *    Silicon Graphics IRIX
+X *    AIX
+X *    SINIX
+X *    Ultrix
+X *    NeXT
+X *
+X * For those systems, you should be able to 'make' ncftp without any
+X * problems.  Otherwise you will have to configure ncftp manually.
+X * You will need to add these things to the SDEFS line in the Makefile
+X * as applicable.
+X *
+X * For these systems, some things are taken care of automatically, but
+X * you still need to add something to CFLAGS or SDEFS:
+X *
+X *     Hewlett-Packard HP-UX:  If you have 7.0, you'll need to find
+X *       a copy of <ftp.h> from somewhere (8.0 has it though). Then
+X *       set CFLAGS= -Aa.  You may also need to use gcc if your
+X *       compiler is non-ANSI.
+X *
+X *     SCO Unix:  Add -DSCO324 to SDEFS, and -lsocket to MORELIBS.
+X *
+X *     Bull DPX/2: Add -DBULL to SDEFS, add -linet to MORELIBS, and
+X *       use gcc.
+X *
+X *     Sequent's DYNIX: Use gcc and add -DDYNIX (if necessary) to SDEFS.
+X *       You may also be short several string functions which you will
+X *       have to get elsewhere.
+X *
+X * Is your system closer to System V or BSD?  Your SDEFS line should have
+X * either -DBSD or -DSYSV.  If you don't know, try leaving it blank first;
+X * some compilers automatically define it for you.  So far, defining
+X * SYSV just defines a couple of macros for similar functions in BSD.
+X *
+X * You may need to add -DRINDEX if your system uses strrchr instead.
+X * If SYSV is defined, RINDEX is defined automatically because System V
+X * uses strrchr.
+X *
+X * Add -DCONST if your compiler chokes on the const directive.
+X *
+X * Add -DSYSSELECTH if you need <sys/select.h> included for definitions
+X * of fd_set, etc.
+X *
+X * Add -DNO_UNISTDH if you don't have <unistd.h>.
+X *
+X * Add -DNO_STDLIBH if you don't have <stdlib.h>.
+X *
+X * Add -DGETPASS if you would rather use the standard getpass() system
+X * call, instead of our version, getpass2(), which takes more than 8
+X * characters.  You may want to define this if you are having problems
+X * with compile errors in cmds.c where getpass2() is located.
+X *
+X * If you haven't given up on our getpass2(), you can try adding -DSGTTYB
+X * if you want to use a struct sgttyb instead of a struct termio.  By default,
+X * BSD systems define SGTTYB automatically.  You can also try adding -DTERMIOS
+X * to use a POSIX compliant struct termios instead.  Don't pull your hair out
+X * trying to get the getpass2 code to compile;  if it gives you problems just
+X * define -DGETPASS and hope your system's getpass can handle passwords
+X * longer than 8 characters.
+X *
+X * Add -DBAD_INETADDR if your inet_addr() function returns a struct in_addr
+X * instead of a u_long, as it should (in DG/UX 5.4.1).
+X *
+X * (Optional) Add -DGETCWDSIZET if your system's getcwd() takes a size_t
+X * as the second parameter instead of an int.
+X *
+X * (Optional) Add -DHERROR if you know you have the herror() system
+X * call.
+X *
+X * (Optional) Add -DU_WAIT if you know your wait system call takes
+X * a pointer to a 'union wait.'  Defined automatically if you define
+X * BSD.
+X *
+X * (Optional) Add -DHOSTNAME=\"machine.domain.nam\" if your system
+X * doesn't generate it's own hostname.  To check this, compile ncftp
+X * then run it and type 'set.'  Look at the variable anon-password.
+X * If the hostname is wrong, recompile it with HOSTNAME set to your
+X * machine's address.
+X */
+X
+X#ifdef __sun
+X#	ifndef sun
+X#		define sun 1
+X#	endif
+X#endif
+X
+X#ifdef sun
+X#	ifndef __GNUC__
+X#		error "You will need to use gcc since Sun's cc isn't ANSI.  Set CC=gcc in the Makefile." 
+X#	endif
+X#	define System "SunOS"
+X#	ifndef RINDEX
+X#		define RINDEX 1
+X#	endif
+X#endif /* sun */
+X
+X#ifdef __sgi
+X#	ifndef sgi
+X#		define sgi 1
+X#	endif
+X#endif
+X
+X#ifdef sgi
+X#	define System "IRIX"
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X#	ifndef HERROR
+X#		define HERROR 1
+X#	endif
+X#	ifndef U_WAIT
+X#		define U_WAIT 1
+X#	endif
+X#endif /* sgi */
+X
+X#ifdef _AIX
+X#	define System "AIX"
+X#	define SYSSELECTH 1
+X#endif	/* _AIX */
+X
+X#ifdef SCO324
+X#	define System "SCO Unix"
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X#endif	/* SCO */
+X
+X#ifdef NeXT
+X#	ifndef RINDEX
+X#		define RINDEX 1
+X#	endif
+X#	ifndef BSD
+X#		define BSD 1
+X#	endif
+X#	ifndef NO_UNISTDH
+X#		define NO_UNISTDH 1
+X#	endif
+X#endif
+X
+X#ifdef DYNIX
+X#	define System "Dynix"
+X#	ifndef BSD
+X#		define BSD 1
+X#	endif
+X#	ifndef SGTTYB
+X#		define SGTTYB 1
+X#	endif
+X#	ifndef NO_STDLIBH
+X#		define NO_STDLIBH 1
+X#	endif
+X#endif	/* DYNIX */
+X
+X#ifdef ultrix
+X#	define System "Ultrix"
+X#	ifndef BSD
+X#		define BSD 1
+X#	endif
+X#	ifndef CONST
+X#		define CONST
+X#	endif
+X#endif	/* ultrix */
+X
+X#ifdef __hpux
+X#	ifndef HPUX
+X#		define HPUX 1
+X#	endif
+X#endif
+X
+X#ifdef HPUX 
+X#	define System "HP-UX"
+X#	ifndef _HPUX_SOURCE
+X#		define _HPUX_SOURCE 1
+X#	endif
+X#	ifndef GETCWDSIZET
+X#		define GETCWDSIZET 1
+X#	endif
+X#	define SYSV 1
+X#endif	/* HPUX */
+X
+X#ifdef SINIX
+X#	define System "SINIX"
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X/* You may need to add -lresolv, -lport, -lcurses to MORELIBS in Makefile. */
+X#endif
+X
+X#ifdef BULL          /* added 23nov92 for Bull DPX/2 */
+X#	define _POSIX_SOURCE
+X#	define _XOPEN_SOURCE
+X#	define _BULL_SOURCE
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X#	define bull
+X#	define System "Bull DPX/2 BOS"
+X#	include <sys/types.h>
+X#	define SYSSELECTH
+X#endif  /* BULL */   /* added 23nov92 for Bull DPX/2 */
+X
+X#ifdef __dgux
+X#     ifndef DGUX
+X#             define DGUX 1
+X#     endif
+X#endif
+X
+X#ifdef DGUX
+X#     ifndef _DGUX_SOURCE
+X#             define _DGUX_SOURCE
+X#     endif
+X#     define GETCWDSIZET 1
+X#     define BAD_INETADDR 1
+X#     define SYSV 1
+X#     define System "DG/UX"
+X#endif  /* DGUX */
+X
+X#ifdef apollo
+X#	define TERMIOS
+X#	ifndef BSD
+X#		define BSD 1
+X#	endif
+X#endif
+X
+X/* -------------------------------------------------------------------- */
+X
+X#ifdef _SYSV
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X#endif
+X
+X#ifdef USG
+X#	ifndef SYSV
+X#		define SYSV 1
+X#	endif
+X#endif
+X
+X#ifdef _BSD
+X#	ifndef BSD
+X#		define BSD 1
+X#	endif
+X#endif
+X
+X#ifdef SYSV
+X#	ifndef RINDEX
+X#		define RINDEX 1
+X#	endif
+X#	define bcopy(s,d,l) memcpy((d),(s),(l))
+X#	define bzero(cp,l) memset((cp),0,(l))
+X#endif
+X
+X#ifdef BSD
+X#	ifndef SYSDIRH
+X#		define SYSDIRH 1
+X#	endif
+X#	ifndef U_WAIT
+X#		define U_WAIT 1 /* Use a 'union wait' parameter with wait(). */
+X#	endif
+X#	ifndef SGTTYB
+X#		define SGTTYB
+X#	endif
+X#endif
+X
+X/*
+X * Some systems besides System V don't use rindex/index (like SunOS).
+X * Add -DRINDEX to your SDEFS line if you need to.
+X */
+X#ifdef RINDEX
+X	/* or #include <strings.h> if you have it. */
+X#	define rindex strrchr
+X#	define index strchr
+X#endif /* RINDEX */
+X
+X/* Turn on the redir command. */
+X#ifndef REDIR
+X#	define REDIR 1
+X#endif
+X
+X#ifdef GETPASS
+X#	define getpass2 getpass
+X#endif
+X
+X#ifdef _POSIX_SOURCE
+X#	define TERMIOS
+X#endif
+X
+X#include <stdio.h>
+X#ifndef NO_STDLIBH
+X#	include <stdlib.h>
+X#else
+Xextern void *malloc(size_t);
+Xextern void *calloc(size_t, size_t);
+Xextern void *malloc(size_t);
+Xextern void	free(void *);
+Xextern void *realloc(void *, size_t);
+Xextern void	exit(int);
+X
+X#ifdef CONST
+Xextern char *getenv(char *);
+Xextern int atoi(char *);
+X#else
+Xextern char *getenv(const char *);
+Xextern int atoi(const char *);
+X#endif
+X
+X#endif	/* NO_STDLIBH */
+X
+X#ifdef NO_UNISTDH
+Xchar *getlogin (void);
+X#ifdef CONST
+Xextern char *getenv(char *);
+X#else
+Xextern char *getenv(const char *);
+X#endif
+X#endif	/* NO_UNISTDH */
+X
+X/* eof sys.h */
+END_OF_FILE
+  if test 7327 -ne `wc -c <'sys.h'`; then
+    echo shar: \"'sys.h'\" unpacked with wrong size!
+  fi
+  # end of 'sys.h'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

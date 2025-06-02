@@ -1,0 +1,2218 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Subject:  v32i040:  ecu - ECU Asynchronous Communications v3.20, Part05/40
+Message-ID: <1992Sep11.192340.6499@sparky.imd.sterling.com>
+X-Md4-Signature: 8b2eef7d3735c51f6e44bcafdf491d0d
+Date: Fri, 11 Sep 1992 19:23:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Posting-number: Volume 32, Issue 40
+Archive-name: ecu/part05
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.05 (part 5 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file config.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping config.c'
+else
+echo 'x - continuing file config.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'config.c' &&
+X		compiler = C_CC;
+X	}
+X	else
+X	{
+X		if(compiler < 0)
+X		{
+X			switch(tgetopt("Do you wish to use cc or gcc","cg",'c'))
+X			{
+X				case 'c':
+X					compiler = C_CC;
+X					if(sco_type == X_32v4)
+X					{
+X						if(have_lng353)
+X							tputstrs(strs_lng353);
+X						else
+X							tputstrs(strs_nolng353);
+X					}
+X					break;
+X
+X				case 'g':
+X					compiler = C_GCC;
+X#ifdef PEDANTIC
+X					printf("I see we are being brave, er pedantic.\n");
+X#endif
+X					switch(tgetopt("Answer no if you are not sure.\n\
+XWARNING: The default answer for this question is now YES\n\
+XDo you have gcc 1.40 or later","yn",'y'))
+X					{
+X						case 'y': have_gcc_140 = 1; break;
+X					}
+X					switch(sys)
+X					{
+X						case S_SUN:
+X						case S_ISCSVR4:
+X						case S_ESIXSVR4:
+X							can_pipe = 1; /* native as reads from stdin ok */
+X							break;
+X						default:
+X							switch(tgetopt("Answer no if you are not sure.\n\
+XCan I use -pipe (do you have gas?)","yn",'n'))
+X							{
+X								case 'y': can_pipe = 1; break;
+X							}
+X							break;
+X					}
+X					break;
+X			}
+X		}
+X	}
+X
+X	if(!debug)
+X	{
+X		if(!getopt_tty)
+X		{
+X			printf("\nWhat do you want for a default tty? [%s]\n:",tty);
+X			tgets(s128);
+X			if(s128[0])
+X				tty = strdup(s128);
+X		}
+X
+X		if(!getopt_baud)
+X		{
+X			printf("\nWhat do you want for a default baud rate? [%s]\n:",baud);
+X			tgets(s128);
+X			if(s128[0])
+X				baud = strdup(s128);
+X		}
+X
+X		if(!getopt_parity)
+X		{
+X			parity = tgetopt( "What do you want for default parity","neo",'n');
+X		}
+X
+X		if(!getopt_bindir)
+X		{
+X			printf(
+X			"\nWhere do you want the public executables placed? [%s]\n: ",
+X				bindir);
+X			tgets(s128);
+X			if(s128[0])
+X				bindir = strdup(s128);
+X		}
+X
+X		if(!getopt_libdir)
+X		{
+X			printf(
+X			"\nWhere do you want the ECU library placed? [%s]\n: ",libdir);
+X			tgets(s128);
+X			if(s128[0])
+X				libdir = strdup(s128);
+X		}
+X	}
+X
+X	printf("\nThank you.\n\n");
+X
+X	makedir = makedirs;
+X	while(*makedir)
+X	{
+X		if(!strcmp(*makedir,"./ecuungetty") && (*use_ecuungetty == 'n'))
+X		{
+X			makedir++;
+X			continue;
+X		}
+X		generate_config(*makedir++);
+X	}
+X
+X	if(!debug)
+X		tputstrs(strs_mkdep);
+X
+X#ifdef WHT
+X	printf("\7Doing it anyway for WHT\n");
+X	sleep(2);
+X	system("make depend");
+X#endif
+X
+X	goodbye(0);
+X}
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of config.c */
+SHAR_EOF
+echo 'File config.c is complete' &&
+chmod 0644 config.c ||
+echo 'restore of config.c failed'
+Wc_c="`wc -c < 'config.c'`"
+test 25615 -eq "$Wc_c" ||
+	echo 'config.c: original size 25615, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= dialprog.h ==============
+if test -f 'dialprog.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping dialprog.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting dialprog.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'dialprog.h' &&
+X/*+-------------------------------------------------------------------------
+X	dialprog.h - HDB UUCP dialer program return code error codes
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _dialprog_h
+X#define _dialprog_h
+X
+X/*  Return code masks:
+X *            0x80    bit = 1 if connection failed
+X *            0x10    bit = 1 if line is also used for dialin #ifndef HDUU
+X *            0x0f    if msb=1: error code
+X *                    if msb=0: connected baud rate (0=same as dialed baud)
+X */
+X/* return codes: these are set up so that an abort signal at any time can */
+X/* set the fail bit and return to the caller with the correct status */
+X#define       RC_BAUD         0x0f    /* CBAUD connected at (0=same as dialed speed)*/
+X#define       RC_ENABLED      0x10    /* enabled flag: 1 = ungetty -r required to */
+X			      /* restore the line */
+X#define	RC_FAIL		0x80	/* 1 = failed to connect */
+X#define	RCE_NULL	0		/* general purpose or unknown error code */
+X#define	RCE_INUSE	1		/* line in use */
+X#define	RCE_SIG		2		/* signal aborted dialer */
+X#define	RCE_ARGS	3		/* invalid arguments */
+X#define	RCE_PHNO	4		/* invalid phone number */
+X#define	RCE_SPEED	5		/* invalid baud rate -or- bad connect baud */
+X#define	RCE_OPEN	6		/* can't open line */
+X#define	RCE_IOCTL	7		/* ioctl error */
+X#define	RCE_TIMOUT	8		/* timeout */
+X#define	RCE_NOTONE	9		/* no dial tone */
+X#define	RCE_BUSY	13		/* phone is busy */
+X#define	RCE_NOCARR	14		/* no carrier */
+X#define	RCE_ANSWER	15		/* no answer */
+X
+X/* code writing aid */
+X#ifdef NEVER
+X		case RCE_NULL:		/* general purpose or unknown error code */
+X		case RCE_INUSE:		/* line in use */
+X		case RCE_SIG:		/* signal aborted dialer */
+X		case RCE_ARGS:		/* invalid arguments */
+X		case RCE_PHNO:		/* invalid phone number */
+X		case RCE_SPEED:		/* invalid baud rate -or- bad connect baud */
+X		case RCE_OPEN:		/* can't open line */
+X		case RCE_IOCTL:		/* ioctl error */
+X		case RCE_TIMOUT:	/* timeout */
+X		case RCE_NOTONE:	/* no dial tone */
+X		case RCE_BUSY:		/* phone is busy */
+X		case RCE_NOCARR:	/* no carrier */
+X		case RCE_ANSWER:	/* no answer */
+X#endif
+X
+X#endif /* _dialprog_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of dialprog.h */
+SHAR_EOF
+chmod 0644 dialprog.h ||
+echo 'restore of dialprog.h failed'
+Wc_c="`wc -c < 'dialprog.h'`"
+test 2535 -eq "$Wc_c" ||
+	echo 'dialprog.h: original size 2535, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= dlent.h ==============
+if test -f 'dlent.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping dlent.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting dlent.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'dlent.h' &&
+X/*+-------------------------------------------------------------------------
+X	dlent.h - HDB UUCP Dialers file entry (a la pwent.h)
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-19-1992-08:41-wht@n4hgf-add typedef DLE */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _dlent_h
+X#define _dlent_h
+X
+Xtypedef struct dlent
+X{
+X	char *name;		/* Dialer name */
+X	char *tlate;	/* translate string */
+X	char *script;	/* expect-respond script */
+X} DLE;
+X
+XDLE *getdlent();
+Xvoid enddlent();
+X
+X#endif /* _dlent_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of dlent.h */
+SHAR_EOF
+chmod 0644 dlent.h ||
+echo 'restore of dlent.h failed'
+Wc_c="`wc -c < 'dlent.h'`"
+test 882 -eq "$Wc_c" ||
+	echo 'dlent.h: original size 882, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= dutmp.c ==============
+if test -f 'dutmp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping dutmp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting dutmp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'dutmp.c' &&
+X/* CHK=0xD757 */
+Xchar *revision = "1.2";
+X/*+-----------------------------------------------------------------------
+X	dutmp.c -- dump /etc/utmp
+X	wht@n4hgf.Mt-Park.GA.US
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-28-1992-13:05-wht@n4hgf-clean up for inclusion in ecu */
+X/*:11-19-1989-16:34-wht-creation */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <utmp.h>
+X
+Xchar *utmp_file = "/etc/utmp";
+X
+Xextern char	*ctime();
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	struct utmp ut;
+X	register int ufd;
+X
+X	printf("dutmp %s\n",revision);
+X
+X	if((ufd = open(utmp_file,O_RDONLY,755)) < 0)
+X	{
+X		perror(utmp_file);
+X		exit(1);
+X	}
+X
+X	while(read(ufd,&ut,sizeof(ut)) > 0)
+X	{
+X#if defined(sun)
+X		if(!*ut.ut_name || (ut.ut_time < 0))
+X			continue;
+X		printf("%-10.10s %-14.14s %-15.15s %s",
+X		    ut.ut_name,
+X		    ut.ut_line,
+X		    ut.ut_host,
+X		    ctime(&ut.ut_time));
+X#else
+X		printf("%-10.10s %-7.7s %-14.14s %6u %s",
+X		    ut.ut_user,
+X		    ut.ut_id,
+X		    ut.ut_line,
+X		    ut.ut_pid,
+X		    ctime(&ut.ut_time));
+X#endif
+X	}
+X	close(ufd);
+X	exit(0);
+X}	/* end of main */
+X
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of dutmp.c */
+SHAR_EOF
+chmod 0644 dutmp.c ||
+echo 'restore of dutmp.c failed'
+Wc_c="`wc -c < 'dutmp.c'`"
+test 1474 -eq "$Wc_c" ||
+	echo 'dutmp.c: original size 1474, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= dvent.h ==============
+if test -f 'dvent.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping dvent.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting dvent.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'dvent.h' &&
+X/*+-------------------------------------------------------------------------
+X	dvent.h - HDB UUCP Devices file entry (a la pwent.h)
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:12-01-1991-12:38-wht@n4hgf-new typedef for striuct dvent */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _dvent_h
+X#define _dvent_h
+X
+Xtypedef struct dvent
+X{
+X	char *type;		/* ACU or Direct */
+X	char *line;		/* tty  name "ttyxx"-style */
+X	char *dialer;	/* "801" dialer line */
+X	uint low_baud;	/* lowest baud rate */
+X	uint high_baud;	/* highest baud rate */
+X	char *dialprog;	/* dialer program */
+X    char *token;    /* token to be passed to the dialer */
+X} DVE;
+X
+XDVE *getdvent();
+XDVE *getdvbaud();
+XDVE *getdvline();
+Xvoid enddvent();
+X
+X#endif /* _dvent_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of dvent.h */
+SHAR_EOF
+chmod 0644 dvent.h ||
+echo 'restore of dvent.h failed'
+Wc_c="`wc -c < 'dvent.h'`"
+test 1114 -eq "$Wc_c" ||
+	echo 'dvent.h: original size 1114, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecu.c ==============
+if test -f 'ecu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecu.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecu.c - Extended Calling Unit/Call Utility/Call UNIX/whatever
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	main(argc,argv,envp)
+X	xmtr()
+X
+X   "Now tell me, old man, what's your name?"
+X   "Holloway, sir. Charles William Holloway."
+X   "Oh yes, the town's librarian."
+X   "I have the honor, sir, and have had for many years."
+X   "I believe all that time spent living through other men's lives,
+Xother men's dreams, what a waste."
+X   "Sometimes, a man can learn more from other men's dreams than he
+Xcan from his own.  Come visit me sir, if you wish to improve your
+Xeducation and I may improve yours."  -- Something Wicked This Way Comes
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-03:43-wht@n4hgf-add -F funckeytype */
+X/*:08-16-1992-03:08-wht@n4hgf-head off another POSIX plot */
+X/*:04-30-1992-00:49-wht@n4hgf-remove obsolete -c */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:04-17-1992-18:19-wht@n4hgf-"default" keyset read if present */
+X/*:02-16-1992-02:39-wht@n4hgf-add -P phonedir switch for rll@sco */
+X/*:02-16-1992-01:41-wht@n4hgf-turn off xterm_title */
+X/*:08-11-1991-19:56-wht@n4hgf-soup up -l for ISC vs. SCO */
+X/*:08-06-1991-13:02-wht@n4hgf-jpm@logixwi fix: HZ getenv test wrong sense */
+X/*:07-29-1991-17:57-wht@n4hgf-add memstat */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:04-27-1991-01:52-wht@n4hgf-overhaul revision numbers */
+X/*:03-17-1991-13:44-wht@n4hgf-nice and uid revision */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:11-30-1990-19:04-wht@n4hgf-new ttyinit parameter - see TTYINIT_... */
+X/*:11-28-1990-15:58-wht@n4hgf-add non-ansi terminal support */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#if !defined(XECU)
+X#include "ecu.h"
+X#include "dvent.h"
+X#include "esd.h"
+X#include "proc.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "termecu.h"
+X
+Xchar *getenv();
+Xvoid xmtr_SIGINT_handler();
+XDVE *hdb_choose_Any();
+X
+Xextern char *makedate;			/* temporary make date */
+Xextern char *revstr;	/* ecunumrev.c */
+Xextern char *revision_modifier; /* ecunumrev.c */
+Xextern ESD *icmd_prompt;
+Xextern char kbdeof;			/* current input EOF */
+Xextern char kbdeol2;		/* current secondary input EOL */
+Xextern char kbdeol;			/* current input EOL */
+Xextern char kbderase;		/* current input ERASE */
+Xextern char kbdintr;		/* current input INTR */
+Xextern char kbdkill;		/* current input KILL */
+Xextern char kbdquit;		/* current input QUIT */
+Xextern char kbd_is_7bit;	/* keyboard has parity */
+Xextern uint tcap_LINES;
+Xextern uint tcap_COLS;
+Xextern ulong colors_current;
+Xextern int there_is_hdb_on_this_machine;
+Xextern char lopen_err_str[];
+Xextern char phonedir_name[PHONEDIR_NAME_SIZE];
+X
+Xchar *eculibdir = ECULIBDIR;
+Xchar *dash_f_funckeytype;
+Xchar curr_dir[CURR_DIRSIZ];		/* current working directory of process */
+Xchar hello_str[128];		/* msg printed upon BOJ */
+Xchar errmsg[128];
+Xchar initial_procedure[128] = "";
+Xchar *default_tty = DEFAULT_TTY;	/* configurable default tty name */
+Xint init_proc_argc = 0;
+Xchar *init_proc_argv[MAX_PARGV];
+XPID_T rcvr_pid = -1;		/* pid for rcvr process (-1 == no proc active) */
+X	/* ... -2 == special flag for modem control/timed-read procedures */
+XPID_T xmtr_pid = 0;
+Xint quit_on_init_proc_fail = 0;
+Xint quit_on_init_proc_done = 0;
+Xint rc_ep_has_run = 0;
+Xstruct timeb starting_timeb;
+X
+Xint hz;					/* HZ from environ or sys/param.h */
+Xulong hzmsec;			/* clock period in msec rounded up */
+X
+X
+X#ifdef MALLOC_3X
+Xchar *sbrk();
+Xchar *startbrk;
+Xchar *startsp;
+X#endif
+X
+Xchar *_rc = "_rc";	/* _rc.ep */
+X
+Xushort geteuid();
+Xushort getuid();
+Xushort euid;
+Xushort uid;
+X
+X/*+-----------------------------------------------------------------------
+X	xmtr() --  copy stdin to comm line
+X
+X  THE INITIAL PROCESS EXECUTES THIS PROCESS UNTIL PROGRAM TERMINATION
+X
+X  TTY input lines beginning with % have special significance
+X  (see ecuicmd.c)
+X------------------------------------------------------------------------*/
+Xvoid
+Xxmtr()
+X{
+Xuchar xmtr_char;
+Xuchar nlchar = NL;
+X
+X	ttymode(1);
+X	xmtr_signals();
+X	while(1)
+X	{
+X
+X#if 0
+X/* bug somewhere ... may be SIGINT too rapidly causing SIG_IGN ????? */
+X		signal(SIGINT,xmtr_SIGINT_handler);	/* so make sure */
+X#endif
+X
+X		xmtr_char = ttygetc(1);
+X
+X		if(xmtr_char & 0x80)
+X		{
+X			kbd_escape(xmtr_char);
+X			continue;
+X		}
+X
+X		lputc(xmtr_char);
+X		if(shm->Lfull_duplex == 0)		/* echo character if asked */
+X			write(TTYERR,(char *)&xmtr_char,1);
+X
+X		if(xmtr_char == CRET)
+X		{
+X			if(shm->Ladd_nl_outgoing)
+X				lputc('\n');
+X			if(shm->Lfull_duplex == 0)
+X				write(TTYERR,(char *)&nlchar,1);
+X		}
+X	}
+X	/*NOTREACHED*/
+X
+X}	/* end of xmtr */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X
+X  main() program forks to create rcvr process; then main()
+X  becomes the xmtr process
+X------------------------------------------------------------------------*/
+Xint
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+Xint swchar;
+Xint itmp;
+Xulong colors_save;
+Xchar *get_ttyname();
+Xextern char *optarg;
+Xextern int optind;
+X
+X#ifdef MALLOC_3X
+X	startbrk = sbrk(0);			/* initial break */
+X	startsp = (char *)&swchar;	/* initial sp */
+X	(void)mallopt(M_MXFAST,256+4);
+X	(void)mallopt(M_NLBLKS,64);
+X	(void)mallopt(M_GRAIN,sizeof(ESD) + 8);
+X#endif
+X
+X	setbuf(stderr,NULL);
+X	xmtr_signals();			/* catch xmtr signals */
+X
+X	ftime(&starting_timeb);	/* get startup time */
+X	xmtr_pid = (PID_T)getpid();
+X
+X	/*
+X	 * get this off quick, cause we'll be busy for a little while on 286
+X	 */
+X	build_revision_string();
+X	sprintf(hello_str,"ecu %s",revstr);
+X	ff(se,"%s\n",hello_str);
+X
+X	/*
+X	 * initialize 'hz'/'hzmsec' and  Nap() implimentation
+X	 */
+X	init_Nap();
+X
+X	/*
+X	 * if we are root (or setuid to root as we should be on 286 versions),
+X	 * nice to very bad
+X	 */
+X	uid = getuid();
+X	euid = geteuid();
+X	if((euid == 0) || (uid == 0))	/* if root running or prog text ... */
+X	{								/* ... sets to root, then grab gusto */
+X	int nice_value = 3;				/* go for hi priority */
+X	int old_nice = nice(0) + 20;
+X		nice(-old_nice + nice_value);
+X	}
+X
+X	/*
+X	 * set uid to real uid
+X	 */
+X	if(uid != euid)				/* if user not really who he say he is ... */
+X	{
+X		if(setuid(uid))			/* ... make him so */
+X		{
+X			ff(se,"\r\n");
+X			perror("setuid failed");
+X			ff(se,"\r\n");
+X			exit(-1);
+X		}
+X	}
+X
+X	/*
+X	 * Initialize shared memory segment.
+X	 * This must be done before any uses are made of the Lermio variable
+X	 * see ecushm.c and ecu.h.
+X	 */
+X	shm_init();				/* open shared segment */
+X
+X	keyset_init();			/* intialize keyset */
+X	keyset_read("default");
+X
+X	make_ecu_subdir();		/* needs to be very early before lots of init */
+X
+X	get_curr_dir(curr_dir,sizeof(curr_dir));
+X	cd_array_init();		/* read %cd directory list */
+X
+X	hdb_init();
+X
+X	var_init();				/* initialize procedure variables */
+X	poutput_init();			/* initialize procedure output */
+X
+X	icmd_prompt = esdalloc(64);
+X	set_default_escape_prompt();
+X
+X	/*
+X	 * init line variables
+X	 */
+X	memset(shm->Lline,0,sizeof(shm->Lline));
+X	shm->Liofd = -1;				/* no line open now */
+X	shm->Lbaud = DEFAULT_BAUD_RATE;	/* from config.c run */
+X	shm->Lparity = DEFAULT_PARITY;	/* from config.c run */
+X	if(shm->Lparity == 'n')
+X		shm->Lparity = 0;
+X	shm->Ltelno[0] = 0;				/* no telephone number for remote yet */
+X	shm->Llogical[0] = 0;			/* no logical name for remote yet */
+X	shm->Lrname[0] = 0;				/* no logical name for remote yet */
+X	shm->Ldescr[0] = 0;				/* no description for remote yet */
+X	shm->Lconnected = 0;			/* not connected */
+X	shm->Ladd_nl_incoming = 0;		/* dont add nl to incoming cr */
+X	shm->Ladd_nl_outgoing = 0;		/* dont add nl to outgoing cr */
+X	shm->Lfull_duplex = 1;			/* assume full duplex */
+X	shm->Lmodem_already_init = 0;	/* modem has not been initialized */
+X	shm->Lxonxoff = IXON | IXOFF;	/* default to xon/xoff protocol */
+X	shm->xmtr_pid = (PID_T)getpid();
+X	shm->xmtr_ppid = (PID_T)getppid();
+X	shm->xmtr_pgrp = (PID_T)getpgrp(0);
+X	strcpy(shm->tty_name,get_ttyname());
+X	shm->shm_revision = SHM_REV;
+X	shm->ttyuse = TTYUSE_NORMAL;
+X	shm->terminating = 0;
+X
+X	while((swchar = getopt(argc,argv,"DF:HNP:T:b:defhl:o:p:t")) != -1)
+X	{
+X		switch(swchar)
+X		{
+X			case 'b':
+X				if(valid_baud_rate(shm->Lbaud = atoi(optarg)) < 0)
+X				{
+X					ff(se,"invalid baud rate %u\n",shm->Lbaud);
+X					usage();
+X				}
+X				break;
+X			case 'l':
+X				strcpy(shm->Lline,"/dev/");
+X#if defined(M_SYSV)
+X				if(strncmp(optarg,"tty",4))
+X					strcat(shm->Lline,"tty");
+X				strcat(shm->Lline,optarg);
+X#else
+X				strncat(shm->Lline,optarg,sizeof(shm->Lline) - 5);
+X				shm->Lline[sizeof(shm->Lline) - 1] = 0;
+X#endif /* M_SYSV */
+X				break;
+X			case 'p':
+X				strcpy(initial_procedure,optarg);
+X				break;
+X			case 'h': shm->Lfull_duplex = 0; break;
+X			case 'f': shm->Lfull_duplex = 1; break;
+X			case 'd': quit_on_init_proc_fail = 1; break;
+X			case 'D': quit_on_init_proc_done = 1; break;
+X			case 't': shm->Ladd_nl_incoming = 1;
+X					  shm->Ladd_nl_outgoing = 1; break;
+X			case 'e': shm->Lparity = 'e'; break;
+X			case 'o': shm->Lparity = 'o'; break;
+X			case 'N': shm->ttyuse = TTYUSE_FORCE_SIMPLE; break;
+X			case 'T': proctrace = atoi(optarg); break;
+X			case 'P':
+X				strncpy(phonedir_name,optarg,PHONEDIR_NAME_SIZE);
+X				phonedir_name[PHONEDIR_NAME_SIZE - 1] = 0;
+X				break;
+X			case 'F':
+X				dash_f_funckeytype = optarg;
+X				break;
+X			case '?': usage();
+X		}
+X	}
+X
+X	/*
+X	 * check a few options for validity
+X	 */
+X	if(!initial_procedure[0] &&
+X		(quit_on_init_proc_done || quit_on_init_proc_fail))
+X	{
+X		ff(se,"no -D/-d without -p\n");
+X		usage();
+X	}
+X
+X	ttyinit(shm->ttyuse);	/* init console tty mode handler */
+X	ttymode(3);		/* put user console in `raw' mode but SIGINT terms prog */
+X	tcap_clear_screen();
+X#if defined(WHT2) || defined(XTERM_FRIEND)
+X	/*
+X	 * if xterm, put notice in title bar
+X	 * but this really should be done in _rc.ep
+X	 */
+X	xterm_title("ECU",0);
+X#endif
+X	ff(se,"%s\r\n",hello_str);
+X
+X	/*
+X	 * do the _rc.ep execution
+X	 */
+X	if(find_procedure(_rc))
+X	{
+X		if(do_proc(1,&_rc))
+X		{
+X			if(quit_on_init_proc_fail || quit_on_init_proc_done)
+X				termecu(TERMECU_INIT_PROC_ERROR);
+X		}
+X	}
+X	rc_ep_has_run = 1;
+X
+X	/*
+X	 * check out line
+X	 */
+X	if(!shm->Lline[0])
+X	{
+X		if(!there_is_hdb_on_this_machine)
+X			strcpy(shm->Lline,default_tty);
+X		else
+X		{
+X			DVE *tdve;
+X			if(tdve = hdb_choose_Any(shm->Lbaud))
+X				sprintf(shm->Lline,"/dev/%s",tdve->line);
+X			else
+X			{
+X#if 0
+X				ff(se,"\r\n\n");
+X				tcap_stand_out();
+X				ff(se,"[no available Devices line at %u baud]",shm->Lbaud);
+X				tcap_stand_end();
+X				ff(se,"\r\n");
+X				Nap(1000L);
+X#endif
+X				strcpy(shm->Lline,default_tty);
+X			}
+X		}
+X	}
+X
+X	/*
+X	 * either present startup screen or run initial procedure or both
+X	 */
+X	if(initial_procedure[0])
+X	{
+X		init_proc_argv[0] = initial_procedure;
+X		init_proc_argc = 1;
+X		for(itmp = optind; itmp < argc; itmp++)
+X		{
+X			if(*argv[itmp] != '-')
+X			{
+X				if(init_proc_argc == MAX_PARGV)
+X				{
+X					ff(se,"too many arguments to initial procedure\r\n");
+X					termecu(TERMECU_USAGE);
+X				}
+X				init_proc_argv[init_proc_argc++] = argv[itmp];
+X			}
+X		}
+X
+X		if(tty_not_char_special)
+X			quit_on_init_proc_done = 1;
+X		else	/* rattle curses once - fixes quirk/bug I can't find */
+X		{
+X			windows_start();
+X			windows_end(0);
+X			fflush(so);
+X		}
+X
+X		if(do_proc(init_proc_argc,init_proc_argv))
+X		{
+X			if(quit_on_init_proc_fail || quit_on_init_proc_done)
+X				termecu(TERMECU_INIT_PROC_ERROR);
+X		}
+X		proc_file_reset();
+X		colors_save = colors_current;
+X		setcolor(colors_notify);
+X		fputs("[procedure finished]",se);
+X		setcolor(colors_save);
+X		ff(se,"\r\n");
+X		if(quit_on_init_proc_done)
+X			termecu(0);
+X		if(shm->Liofd < 0)
+X		{
+X			ff(se,"\r\n\n");
+X			tcap_stand_out();
+X			ff(se,"[no line attached by initial procedure]");
+X			tcap_stand_end();
+X			ff(se,"\r\n");
+X			if(quit_on_init_proc_fail)
+X				termecu(TERMECU_INIT_PROC_ERROR);
+X			tcap_stand_out();
+X			ff(se,"[press ESC to exit or SPACE for setup menu]");
+X			tcap_stand_end();
+X			itmp = ttygetc(0);
+X			ff(se,"\r\n");
+X			if(itmp == ESC)
+X				termecu(1);
+X			shm->Llogical[0] = 0;
+X			shm->Ltelno[0] = 0;
+X			shm->Ldescr[0] = 0;
+X			setup_screen((char *)0);
+X		}
+X		else
+X			start_rcvr_process(0);
+X	}
+X	else		/* no initial procedure */
+X		setup_screen((optind < argc) ? argv[optind] : (char *)0);
+X
+X	/* enter xmtr operation */
+X	xmtr();
+X	termecu(0);
+X	return(0); /* never get here, but keep gcc optim from complaining */
+X	/*NOTREACHED*/
+X}	/* end of main */
+X
+X#endif /* XECU */
+X/* end of ecu.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecu.c ||
+echo 'restore of ecu.c failed'
+Wc_c="`wc -c < 'ecu.c'`"
+test 12474 -eq "$Wc_c" ||
+	echo 'ecu.c: original size 12474, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecu.h ==============
+if test -f 'ecu.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecu.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecu.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecu.h' &&
+X/*+-----------------------------------------------------------------------
+X	ecu.h -- TuckerWare Extended Calling Unit
+X	wht@n4hgf.Mt-Park.GA.US
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X/*:07-21-1992-12:09-wht@n4hgf-3.2v4 only has sys/time.h if TCPRT installed */
+X/*:04-17-1992-20:10-wht@gyro-default tty, baud and parity moved to config.c */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:02-13-1992-06:35-wht@n4hgf-when port to many time() can be int/long/time_t */
+X/*:11-30-1991-13:46-wht@n4hgf-smap conditional compilation reorg */
+X/*:11-26-1991-20:17-wht@n4hgf-add shm->Ldcdwatch values */
+X/*:11-26-1991-19:37-wht@n4hgf-add STR_CLASSIFY */
+X/*:11-13-1991-16:29-wht@n4hgf-use if __STDC__ instead of defined(__STDC__) */
+X/*:11-11-1991-22:45-wht@n4hgf-redefinition of Ltermio's place in life */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-13-1991-13:53-wht@n4hgf-UNIX and ISC nap() broken; XENIX still wins */
+X/*:08-09-1991-11:07-wht@n4hgf-configurable lock directory */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:01-25-1991-06:08-wht@n4hgf-mulltiple #define of ECULIBDIR */
+X/*:01-22-1991-14:33-wht@n4hgf-XENIX calloc/memmove fix */
+X/*:01-01-1991-21:36-wht@n4hgf-add GCC implies STDC */
+X/*:08-14-1990-20:39-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecu_h
+X#define _ecu_h
+X
+X/*
+X * damn ANSI dweebs
+X */
+X#if defined(__sun__) && !defined(sun)
+X#define sun 1
+X#endif
+X#if defined(__i386__) && !defined(i386)
+X#define i386 1
+X#endif
+X#if defined(__SVR4__) && !defined(SVR4)
+X#define SVR4 1
+X#endif
+X
+X/*
+X * some gcc's don't know about i386
+X */
+X#if (defined(M_I386) || defined(ISC) /* || defined(MYSYS) */)  && !defined(i386)
+X#define i386 /* needed by setjmp.h on 386 unix r3 */
+X#endif
+X
+X#if !defined(STDIO_H_INCLUDED)
+X#include <stdio.h>
+X#endif
+X
+X#include <signal.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#include <string.h>
+X#include <memory.h>
+X#include <fcntl.h>
+X#include "ecu_types.h"
+X#include "ecu_stat.h"
+X#include <sys/timeb.h>
+X
+X#if defined(WORKING_SELECT)
+X/* SCO pre 3.2v4 */
+X#if defined(M_XENIX) || defined(M_UNIX)
+X# include <sys/select.h>
+X#else
+X# include <sys/time.h>
+X#endif
+X#endif
+X
+X/*
+X * if building prototypes with SCO cc sometimes buggy -Zg * or using lint
+X */
+X#if defined(BUILDING_PROTOTYPES) || defined(lint)
+X#define ECULIBDIR "dummy"
+X#define HDBLIBDIR "dummy"
+X#define LOCK_DIR_NAME "dummy"
+X#define DEFAULT_TTY "/dev/tty1"
+X#define DEFAULT_BAUD_RATE 2400
+X#define DEFAULT_PARITY 'n'
+X#endif
+X
+X/*
+X * streams tty stuff is so similar to traditional that
+X * this hack worked for porting to the sun and left the tty code
+X * clean .... this hack will most certainly break down one day
+X */
+X#if !defined(OMIT_TERMIO_REFERENCES)
+X#if defined(sun) || defined(USE_TERMIOS)
+X#include <termio.h>		/* may need to be termios.h on other than sun */
+X#define termio termios
+X#undef TCGETA
+X#undef TCSETA
+X#undef TCSETAW
+X#define TCGETA	TCGETS
+X#define TCSETA	TCSETS
+X#define TCSETAW	TCSETSW
+X#else
+X#include <termio.h>
+X#endif /* sun */
+X#endif /* OMIT_TERMIO_REFERENCES */
+X
+X/*
+X * The various flavors of hardware flow control, most of them 
+X * flakey or incomplete
+X */
+X#if defined(RTSFLOW) && !defined(HW_FLOW_CONTROL)
+X#define HW_FLOW_CONTROL
+X#endif
+X#if defined(CRTSFL) && !defined(HW_FLOW_CONTROL)  /* 3.2v4 */
+X#define HW_FLOW_CONTROL
+X#endif
+X#if defined(RTSXOFF) && !defined(HW_FLOW_CONTROL) /* SVR4 */
+X#define HW_FLOW_CONTROL
+X#endif
+X#if defined(CRTSCTS) && !defined(HW_FLOW_CONTROL) /* sun */
+X#define HW_FLOW_CONTROL
+X#endif
+X
+X#if defined(M_UNIX) && !defined(GNUC) && !defined(__GNUC__)
+X/* some MSC intrinsics produce bad inline code with certain usages */
+X#pragma intrinsic(memcpy)	/* trust these intrinsics ... */
+X#pragma intrinsic(memset)	/* ... because we know how we use them */
+X#endif
+X
+X/*
+X * Some ANSI pacifiers typedef time_t to int, some to long.
+X * int is 'wrong', but on a 32-bit machine who cares?  On the 286
+X * it matters.  The following compromise should allow time() to work
+X * everywhere since only 286 we support is SCO XENIX/286.  Folks
+X * on 386 with small model with 16-bit ints (like Coherent) will
+X * get caught here, but I believe there will be larger snags as well.
+X */
+X#ifdef M_I286
+Xlong time();
+X#endif
+X
+Xlong Nap();
+X
+Xtypedef int  (*PFV)();	/* pointer to function returning void */
+Xtypedef char (*PFC)();	/* pointer to function returning char */
+Xtypedef int  (*PFI)();	/* pointer to function returning integer */
+Xtypedef long (*PFL)();	/* pointer to function returning long */
+X
+X
+X/* already in ecushm.h */
+X/* #if !defined(ushort) */
+X/* #define ushort unsigned short */
+X/* #endif */
+X/* #if !defined(uchar) */
+X/* #define uchar unsigned char */
+X/* #endif */
+X/* #if !defined(uint) */
+X/* #define uint unsigned int */
+X/* #endif */
+X/* #if !defined(ulong) */
+X/* #define ulong unsigned long */
+X/* #endif */
+X
+X#if __STDC__	/* sigh ... malloc and such types; SIGTYPE just a guess*/
+X#define VTYPE void
+X#define VOLATILE volatile
+X#ifndef SIGTYPE
+X#define SIGTYPE void
+X#endif
+X#else
+X#define VTYPE char
+X#define VOLATILE
+X#ifndef SIGTYPE
+X#define SIGTYPE int
+X#endif
+X#endif
+X
+X#include "smap.h"
+X#if defined(MALLOC_3X)
+X#include <malloc.h>
+X#else
+XVTYPE *malloc();
+XVTYPE *calloc();
+XVTYPE *realloc();
+X#endif
+X
+X/*
+X * this must come after any system header inclusion
+X */
+X#if defined(M_UNIX)
+X#undef M_XENIX		/* now can truly distinquish between SCO XENIX and UNIX */
+X#endif /* M_UNIX */
+X
+X#include "ecushm.h"
+X#include "termecu.h"
+X#include "ttynaming.h"
+X
+X/*
+X * for better source line utilization, frequent use of
+X * fprintf and stderr warrants the following
+X */
+X#define pf	printf
+X#define ff	fprintf
+X#define se	stderr
+X#define so	stdout
+X
+X/*
+X * console tty information
+X */
+Xextern int tty_is_multiscreen;		/* SCO multiscreen */
+Xextern int tty_is_pty;				/* bursty network connection? */
+Xextern int tty_not_char_special;	/* /dev/null not considered char special */
+X
+X/*
+X * useful macros
+X */
+X#define max(a,b) ((a > b) ? a : b)
+X#define min(a,b) ((a < b) ? a : b)
+X
+X/*
+X * decide how to write to logfile
+X */
+X#define LOGPUTC fputc	/* fputc() or putc() */
+X
+X#define TTYIN	0
+X#define TTYOUT  1				/* ditto tty output */
+X#define TTYERR  2				/* ditty tty output error channel */
+X
+X/*
+X * xbell codes (see ecuxenix.c)
+X */
+Xenum xbell
+X{
+X	XBELL_DONE = 1,		/* octaves or morse 'd' */
+X	XBELL_ATTENTION,	/* morse .-.-.- ATTENTION */
+X	XBELL_C,			/* morse -.-. C */
+X	XBELL_3T				/* 3 Ts --- really 'o' */
+X};
+X
+X/*
+X * lopen() and related routines error codes
+X */
+Xenum linst
+X{
+X	LINST_INVALID = -50,	/* for invalid tty name */
+X	LINST_UNKPID,			/* unknown pid using line */
+X	LINST_LCKERR,			/* lock file open error */
+X	LINST_NODEV,			/* device does not exist */
+X	LINST_OPNFAIL,			/* could not access line */
+X	LINST_ALREADY,			/* line already open */
+X	LINST_ENABLED,			/* line enabled for login */
+X	LINST_ENABLED_IN_USE,	/* line in use by incoming login */
+X	LINST_DIALOUT_IN_USE,	/* line in use by another dial out */
+X	LINST_NOPTY,			/* pty not supported */
+X	LINST_WEGOTIT,			/* not really an error: we already
+X							 * own the line (used by check_utmp())
+X							 */
+X	LINST_ECUUNGETTY,		/* ecuungetty unexpected response */
+X	LINST_ECUUNGETTY2,		/* ecuungetty execution error */
+X	LINST_NOTCHR			/* not a character special */
+X};
+X
+X/*
+X * filename sizes
+X */
+X#define CURR_DIRSIZ 256			/* current directory array size */
+X#define PHONEDIR_NAME_SIZE 256	/* phone directory */
+X
+X/*
+X * in case errno.h doesn't pick this up
+X */
+Xextern int errno;
+Xextern char *sys_errlist[];
+Xextern int sys_nerr;
+Xchar *errno_text();		/* see ecuutil.c */
+X
+Xchar *getenv();
+X
+X/*
+X * process IDs
+X */
+Xextern PID_T rcvr_pid;
+Xextern PID_T xmtr_pid;
+X
+X/*
+X * both of the following are set by xmtr_SIGINT_handler()
+X * 'sigint' reset by 1st detector/processor
+X * 'proc_interrupt' reset/handled by procedure monitor
+X *                  (execute_esd and execute_proc)
+X */
+Xextern int sigint;
+X/* extern int proc_interrupt; <------ force using modules to declare it */
+X
+X/*
+X * procedure nesting level
+X * non-zero if procedure executing (see proc.c)
+X */
+Xextern int proc_level;
+Xextern int proctrace;
+X
+X/*
+X * need_rcvr_restart() - check rcvr status
+X *
+X * If rcvr_pid == -2, queued restart has been requested by some function
+X * but we don't want to do it if a procedure is executing
+X */
+X#define need_rcvr_restart() \
+X	((rcvr_pid > 0) || ((rcvr_pid == -2) && !proc_level))
+X
+X/*
+X * 'hz' is getenv("HZ"); that not found, the value from sys/param.h
+X * 'hzmsec' is ceiling(clock period) in milliseconds
+X */
+Xextern int hz;				/* HZ from environ or sys/param.h */
+Xextern ulong hzmsec;		/* clock period in msec rounded up */
+X
+X/*
+X * Communication line variables that are not in shared memory
+X *
+X * One special note: Ltermio points to a buffer in shared memory
+X * used to hold the line's current termio structure.  The shared
+X * memory buffer is defined as a simple array of longs so that
+X * friend code need not include termio.h if it does not need it.
+X * What's more, due to sgtty-based curses code, XENIX versions
+X * cannot include termio.h in some modules.  ecushm.c has runtime
+X * code to initialize Ltermio to point to shm->Ltiobuf and to
+X * make sure shm->Ltiobuf is long enough. This is a hack of
+X */
+X#if defined(DECLARE_LINEVARS_PUBLIC)
+X#if !defined(OMIT_TERMIO_REFERENCES)
+Xstruct termio *Ltermio;		/* attributes for the line to remote */
+X#endif
+Xuchar Ldial_debug_level;
+X#else
+X#if !defined(OMIT_TERMIO_REFERENCES)
+Xextern struct termio *Ltermio;
+X#endif
+Xextern uchar Ldial_debug_level;
+X#endif
+X
+Xextern int zero_length_read_detected;	/* see lgetc_xmtr in eculine.c */
+X
+X/*
+X * lock file directory
+X */
+Xextern char *lock_dir_name;	/* defined in ecuLCK.c */
+X
+X/*
+X * setcolor variables - see setcolor()
+X */
+Xextern ulong colors_current;
+Xextern ulong colors_normal;
+Xextern ulong colors_success;
+Xextern ulong colors_alert;
+Xextern ulong colors_error;
+Xextern ulong colors_notify;
+X
+X/*
+X * miscellaneuous
+X */
+Xextern char *eculibdir;		/* lib dir, i.e., "/usr/local/lib/ecu" */
+Xextern char *ttype;			/* getenv("TERM") */
+X
+X/*
+X * param to lgets_timeout in eculine.c
+X */
+Xtypedef struct lrwt
+X{
+X	ulong to1;		/* timeout for 1st character (granularity 20) */
+X	ulong to2;		/* timeout for each next char (granularity 20) */
+X	int raw_flag;	/* !=0, rtn full buffer, ==0, rtn filtered hayes result */
+X	char *buffer;	/* buffer to fill */
+X	int bufsize;	/* size of buffer */
+X	int count;		/* from proc, count rcvd */
+X	char *delim;	/* ending string for lgets_timeout_or_delim */
+X	int echo_flag;	/* echo incoming chars to screen */
+X}	LRWT;
+X
+X/*
+X * parameter structure for str_classify()
+X */
+Xtypedef struct str_classify
+X{
+X	char *str;		/* string to match */
+X	int min_ch;		/* minimum characters required */
+X	int token;		/* token for match */
+X} STR_CLASSIFY;
+X
+X/*
+X * shm->Ldcdwatch values
+X */
+X#define DCDW_OFF		0
+X#define DCDW_ON			1
+X#define DCDW_TERMINATE	2
+X
+X#ifdef DEBUG_SRP
+X#define start_rcvr_process(flag) _start_rcvr_process(flag,__FILE__,__LINE__)
+X#else
+X#define start_rcvr_process(flag) _start_rcvr_process(flag)
+X#endif
+X
+X/*
+X * prototyes or external declarations
+X *
+X * "I took a silver needle [ANSI] and I put it into my arm.
+X * It did some good. It did some harm.  But the nights were
+X * cold and lonely and it almost kept me warm."
+X * -- Leonard Cohen, _Songs from a Room_
+X *
+X */
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+X#ifdef XECU
+X# include "xecu.h"
+X#endif
+X
+X#endif /* _ecu_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecu.h */
+SHAR_EOF
+chmod 0644 ecu.h ||
+echo 'restore of ecu.h failed'
+Wc_c="`wc -c < 'ecu.h'`"
+test 11447 -eq "$Wc_c" ||
+	echo 'ecu.h: original size 11447, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuDCE.c ==============
+if test -f 'ecuDCE.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuDCE.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuDCE.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuDCE.c' &&
+X/* #define USE_S7 */
+X/*+-------------------------------------------------------------------------
+X	ecuDCE.c - ECU DCE dialing and management
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	DCE_autoanswer()
+X	DCE_dial()
+X	DCE_get_result(msec_to_wait)
+X	DCE_get_sreg_value(regnum)
+X	DCE_hangup()
+X	DCE_modem_init()
+X	DCE_now_on_hook()
+X	DCE_read_modem_init()
+X	DCE_redial(arg,argc)
+X	DCE_report_iv_set(varnum)
+X	DCE_send_cmd(cmd)
+X	DCE_set_sreg(regnum,value)
+X	check_queued_sigint()
+X	process_modem_init(str)
+X	show_modem_init_error(erc,iesd)
+X
+XLothar Hirschbiegel <emory!tmcsys.uucp!lothar> added the ability to
+Xspecify a modem acknowledgement string other than "OK".
+XExample use:
+X#+-----------------------------------------------------------------
+X#  tty1a.mi - Microcom QX/V.32c
+X#------------------------------------------------------------------
+Xinit_default:sceon
+Xdial_default:dp
+Xok_string:!
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-14:17-wht@n4hgf-was starting rcvr process too early on connect */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-19-1992-03:21-jhpb@sarto.budd-lake.nj.us-3.18.37 has ESIX SVR4 */
+X/*:02-16-1992-01:41-wht@n4hgf-turn off xterm_title */
+X/*:02-04-1992-04:49-wht@n4hgf-fix bug in kill_rcvr_process logic */
+X/*:01-17-1992-15:32-wht@n4hgf-.credit open to public */
+X/*:11-07-1991-16:54-tmcsys!lothar-alternate OK string for built-in dialer */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:55-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:06-29-1991-15:42-wht@n4hgf-if WHT and xterm, play with title bar */
+X/*:06-16-1991-23:24-wht@n4hgf-ensure hangup since proc could fail connected */
+X/*:06-07-1991-04:09-wht@n4hgf-remove unnecessary naps after kill_rcvr_process */
+X/*:05-20-1991-00:56-wht@n4hgf-fix/upgrade auto fkey load */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:01-09-1991-21:23-wht@n4hgf-fix statement not reached */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "ecupde.h"
+X#include "ecuerror.h"
+X#include "relop.h"
+X
+X
+Xchar *get_elapsed_time();
+Xchar *make_char_graphic();
+Xvoid DCE_hangup();
+X
+Xextern int proctrace;
+Xextern ulong colors_current;
+Xextern char kbdintr;
+X
+Xint mi_line;
+Xchar mi_name[64];
+Xchar last_dial_result[64];
+X
+X#define MI_MAX_LEN 65
+Xchar Lmodem_init[MI_MAX_LEN] = "";		/* modem init string w/o trailing CR */
+Xchar Lmodem_dial[MI_MAX_LEN] = "";		/* modem dialing prefix */
+Xchar Lmodem_autoans[MI_MAX_LEN] = "";	/* modem autoanswer */
+Xchar Lmodem_okstring[MI_MAX_LEN] = "";	/* modem ok_answer */
+X
+Xchar *interrupted_string = "!Interrupted";
+X
+X/*+-------------------------------------------------------------------------
+X	check_queued_sigint()
+X--------------------------------------------------------------------------*/
+Xint
+Xcheck_queued_sigint()
+X{
+X	while(ttyrdchk())
+X	{
+X		if((uchar)ttygetc(1) == (uchar)kbdintr)
+X		{
+X			sigint = 1;
+X			return(1);
+X		}
+X	}
+X	return(0);
+X}	/* end of check_queued_sigint */
+X
+X/*+-------------------------------------------------------------------------
+X	show_modem_init_error(erc,iesd)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xshow_modem_init_error(erc,iesd)
+Xint erc;
+XESD *iesd;
+X{
+X	register itmp;
+X
+X	pputs(mi_name);
+X	pprintf(" line %d: ",mi_line);
+X	proc_error(erc);
+X	pputs(iesd->pb);
+X	pputc(NL);
+X	itmp = iesd->old_index;
+X	while(itmp--)
+X		pputc(' ');
+X	pputs("^\n\n");
+X
+X}	/* end of show_modem_init_error */
+X
+X/*+-----------------------------------------------------------------------
+X	process_modem_init(str)
+X
+Xsample /usr/lib/ecu/tty??.mi lines:
+Xinit_9600:ATS11=47X4S0=0S7=30\Q0\X0\N0
+Xinit_>2400:ATS11=47X4S0=0S7=30\Q0\X0\N0
+Xinit_<=2400:ATS11=47X4S0=0S7=30\Q1\X1\N3
+XATDT
+X
+Xreturn 0 if entire list read, else 1 if error (error msg in errmsg)
+X------------------------------------------------------------------------*/
+Xvoid
+Xprocess_modem_init(str)
+Xchar *str;
+X{
+X#define MI_INIT		1
+X#define MI_DIAL		2
+X#define MI_AUTOANS	3
+X#define MI_OKSTRING	4
+X	int erc;
+X	ESD sesd;
+X	char typestr[32];
+X	int relop;
+X	int truth = 0;
+X	int type;
+X	long test_baud;
+X
+X	sesd.pb = str;
+X	sesd.cb = strlen(str);
+X	sesd.maxcb = strlen(str);
+X	sesd.index = 0;
+X	sesd.old_index = 0;
+X
+X	if(get_alpha_zstr(&sesd,typestr,sizeof(typestr)))
+X	{
+X		erc = eSyntaxError;
+X		goto SHOW_ERROR;
+X	}
+X	if(ulindex(typestr,"init_") == 0)
+X		type = MI_INIT;
+X	else if(ulindex(typestr,"dial_") == 0)
+X		type = MI_DIAL;
+X	else if(!strcmpi(typestr,"autoanswer"))
+X		type = MI_AUTOANS;
+X	else if(!strcmpi(typestr,"ok_string"))
+X		type = MI_OKSTRING;
+X	else
+X	{
+X		erc = eSyntaxError;
+X		goto SHOW_ERROR;
+X	}
+X
+X/* test for default ... if none, check baud rate */
+X	if((type == MI_AUTOANS) || (type == MI_OKSTRING)) 
+X		truth = 1;
+X	else if(ulindex(typestr,"_default") > 0)
+X	{
+X		truth = !( ((type == MI_INIT) && Lmodem_init[0]) ||
+X			((type == MI_DIAL) && Lmodem_dial[0]));
+X	}
+X	else
+X	{
+X		/* get optional operator */
+X		if(get_relop(&sesd,&relop))
+X			relop = OP_EQ;
+X		if(erc = gint_constant(&sesd,&test_baud))
+X			goto SHOW_ERROR;
+X		truth = test_truth_int((long)shm->Lbaud,relop,test_baud);
+X	}
+X
+X/* if no match, skip this one */
+X	if(!truth)
+X		return;
+X
+X/* skip over colon */
+X	if(erc = skip_colon(&sesd))
+X		goto SHOW_ERROR;
+X
+X/* make sure init or dial string not empty or too long */
+X	if((erc = skip_cmd_break(&sesd)) && (type != MI_AUTOANS))
+X		goto SHOW_ERROR;
+X
+X	if((sesd.cb - sesd.index) > (MI_MAX_LEN - 1))
+X	{
+X		erc = eBufferTooSmall;
+X		goto SHOW_ERROR;
+X	}
+X
+X	erc = eDuplicateMatch;		/* in case of show error in switch */
+X	switch(type)
+X	{
+X		case MI_INIT:
+X			if(Lmodem_init[0])
+X				goto SHOW_ERROR;
+X			strcpy(Lmodem_init,sesd.pb + sesd.index);
+X			break;
+X
+X		case MI_DIAL:
+X			if(Lmodem_dial[0])
+X				goto SHOW_ERROR;
+X			strcpy(Lmodem_dial,sesd.pb + sesd.index);
+X			break;
+X
+X		case MI_AUTOANS:
+X			if(Lmodem_autoans[0])
+X				goto SHOW_ERROR;
+X			if(!sesd.cb)
+X				strcpy(Lmodem_autoans,"!null!");
+X			else
+X				strcpy(Lmodem_autoans,sesd.pb + sesd.index);
+X			break;
+X
+X		case MI_OKSTRING:
+X			if(Lmodem_okstring[0])
+X				goto SHOW_ERROR;
+X			strcpy(Lmodem_okstring,sesd.pb + sesd.index);
+X			break;
+X			
+X	}
+X	return;		/* <<<<====== done */
+X
+XSHOW_ERROR:
+X	show_modem_init_error(erc,&sesd);
+X
+X}	/* end of process_modem_init */
+X
+X/*+-----------------------------------------------------------------------
+X	DCE_read_modem_init()
+X0123456789
+X/dev/ttyxx
+X------------------------------------------------------------------------*/
+Xvoid
+XDCE_read_modem_init()
+X{
+X	char *cptr;
+X	register FILE *fp_modem;
+X	char *skip_ld_break();
+X	char buffer[128];
+X
+X/* zap init information */
+X	Lmodem_init[0] = 0;
+X	Lmodem_dial[0] = 0;
+X
+X/* build filename */
+X	sprintf(mi_name,"%s/%s.mi",ECULIBDIR,shm->Lline + 5);
+X
+X/* read modem initialization */
+X	if(!(fp_modem = fopen(mi_name,"r")))
+X		pperror(mi_name);
+X	else
+X	{
+X		mi_line = 0;
+X		while((!Lmodem_init[0] || !Lmodem_dial[0] || !Lmodem_okstring[0]) &&
+X			fgets(buffer,sizeof(buffer),fp_modem))
+X		{
+X			mi_line++;
+X			buffer[strlen(buffer) - 1] = 0;
+X			cptr = skip_ld_break(buffer);
+X			/* skip comments and null lines */
+X			if(!strlen(cptr) || (*cptr == '#'))
+X				continue;
+X			process_modem_init(cptr);
+X		}
+X		fclose(fp_modem);
+X	}
+X
+X/* default */
+X	if(!Lmodem_init[0])
+X	{
+X		strcpy(Lmodem_init,"ATE1Q0V1");
+X		pputs("modem init string not found (using default '");
+X		pputs(Lmodem_init);
+X		pputs("')\n");
+X	}
+X	if(!Lmodem_dial[0])
+X	{
+X		strcpy(Lmodem_dial,"ATDT");
+X		pputs("modem dial string not found (using default '");
+X		pputs(Lmodem_dial);
+X		pputs("')\n");
+X	}
+X
+X	if(!Lmodem_autoans[0])
+X	{
+X		strcpy(Lmodem_autoans,"ATQ1S0=1");
+X#ifdef INUSE
+X		pputs("modem autoanswer string not found (using default '");
+X		pputs(Lmodem_autoans);
+X		pputs("')\n");
+X#endif
+X	}
+X	if(!Lmodem_okstring[0])
+X	{
+X		strcpy(Lmodem_okstring,"OK");
+X#ifdef notdef
+X		pputs("modem ok_string not found (using default '");
+X		pputs(Lmodem_okstring);
+X		pputs("')\n");
+X#endif
+X	}
+X	else if(!strcmp(Lmodem_autoans,"!null!"))
+X		Lmodem_autoans[0] = 0;
+X
+X 	if(proctrace > 1)  
+X	{
+X		pprintf("init:       '%s'\n",Lmodem_init);
+X		pprintf("dial:       '%s'\n",Lmodem_dial);
+X		pprintf("autoanswer: '%s'\n",Lmodem_autoans);
+X		pprintf("okstring:   '%s'\n",Lmodem_okstring);
+X	}
+X}	/* end of DCE_read_modem_init */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_get_result(msec_to_wait)
+Xreturn pointer to static buf containing result code
+X--------------------------------------------------------------------------*/
+Xchar *
+XDCE_get_result(msec_to_wait)
+Xlong msec_to_wait;
+X{
+X	static char s32[32];
+X	LRWT lr;
+X
+X	if(sigint)
+X		return("!Interrupted");
+X	s32[0] = 0;
+X	lr.to1 = msec_to_wait;
+X	lr.to2 = 200L;
+X	lr.raw_flag = 0x80; /* allow interrupts */
+X	lr.buffer = s32;
+X	lr.bufsize = sizeof(s32);
+X	lr.delim = (char *)0;
+X	lr.echo_flag = 0;
+X	lgets_timeout(&lr);
+X
+X	if(sigint)
+X		return("!Interrupted");
+X
+X	return(lr.buffer);
+X}	/* end of DCE_get_result */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_modem_init()
+X--------------------------------------------------------------------------*/
+XDCE_modem_init()
+X{
+X	register itmp;
+X	int retries = 0;
+X	char *cmd;
+X	char *cptr;
+X	int old_ttymode = get_ttymode();
+X
+X	if(shm->Lmodem_already_init)
+X		return(0);
+X
+X	DCE_read_modem_init();
+X
+X	ttymode(2);
+X	lputs_paced(0,"\b\b\b\b\b\b\b\b\b");
+X	(void)Nap(200L);
+X	lflush(0);
+X
+X	while(!shm->Lmodem_already_init)
+X	{
+XINIT_LOOP:
+X		if(retries > 3)
+X			goto ERROR_RETURN;
+X
+X		if(sigint)
+X			goto ERROR_RETURN;
+X
+X		if(retries)
+X		{
+X			lflash_dtr();
+X			lputs_paced(0,"AT\r");
+X			(void)Nap(400L);
+X			lputs_paced(0,"ATQ0V1E1\r");
+X			(void)Nap(400L);
+X		}
+X
+X		lflush(0);
+X		cmd = Lmodem_init;
+X		itmp = 0;
+X#ifdef NEUROTIC
+X		while(*cmd)
+X		{
+X			lputc_paced(0,*cmd++);
+X			if(++itmp < 2)
+X				(void)Nap(40L);
+X			if((itmp = lgetc_timeout(500L)) < 0)
+X			{
+X				if(sigint)
+X					goto ERROR_RETURN;
+X				retries++;
+X				goto INIT_LOOP;
+X			}
+X			pputc(itmp);
+X		}
+X#else
+X		lputs(cmd);
+X		pputs(cmd);
+X#endif
+X
+X		pputc(NL);
+X		lputc_paced(0,CRET);
+X
+X		itmp = 0;
+X		while(itmp != CRET)
+X		{
+X			if((itmp = lgetc_timeout(500L)) < 0)
+X			{
+X				if(sigint)
+X					goto ERROR_RETURN;
+X				pputs("missed expected carriage return\n");
+X				pprintf("got: %x\n",itmp);
+X				retries++;
+X				goto INIT_LOOP;
+X			}
+X		}
+X
+X		if(strcmp(cptr = DCE_get_result(1200L),Lmodem_okstring))
+X		{
+X			if(!strcmp(cptr,interrupted_string))
+X			{
+X				sigint = 1;
+X				goto ERROR_RETURN;
+X			}
+X			pprintf("unexpected result: '%s'\n",cptr);
+X			retries++;
+X			continue;
+X		}
+X		shm->Lmodem_already_init = 1;
+X	}
+X
+X	ttymode(old_ttymode);
+X	return(0);
+X
+XERROR_RETURN:
+X	ttymode(old_ttymode);
+X	return(-1);
+X
+X}	/* end of DCE_modem_init */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_send_cmd(cmd)
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_send_cmd(cmd)
+Xregister char *cmd;
+X{
+X	register itmp;
+X
+X	DCE_modem_init();
+X	(void)Nap(600L);
+X
+X	lflush(0);
+X#ifdef NEUROTIC
+X	while(*cmd)
+X	{
+X		lputc_paced(20,*cmd++);
+X		if(++char_count < 2)
+X			(void)Nap(40L);
+X		if((itmp = lgetc_timeout(500L)) < 0)
+X			return(-1);
+X		pputc(itmp);
+X	}
+X#else
+X	lputs(cmd);
+X	pputs(cmd);
+X#endif
+X	pputc(NL);
+X	lputc_paced(20,CRET);
+X	itmp = 0;
+X	if(sigint || check_queued_sigint())
+X		return(-1);
+X	while(itmp != CRET)
+X	{
+X		if((itmp = lgetc_timeout(1000L)) < 0)
+X		{
+X			pputs("missed expected carriage return\n");
+X			return(-1);
+X		}
+X		if(sigint || check_queued_sigint())
+X			return(-1);
+X	}
+X	return(0);
+X
+X}	/* end of DCE_send_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_report_iv_set(varnum)
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_report_iv_set(varnum)
+Xint varnum;
+X{
+X	if(proctrace)
+X		pprintf("modem handler set $i%02d = %ld\n",varnum,iv[varnum]);
+X}	/* end of DCE_report_iv_set */
+X
+X/*+-----------------------------------------------------------------------
+X	DCE_dial() - dial a remote or connect
+X
+X  All shm->L... variables have been set up and are used to
+X  drive the dialing sequence
+X
+X  returns 0 on success (CONNECT),
+X          eConnectFailed if failure
+X          eCONINT on interrupt
+X
+X  sets #I0 to 0==connect,
+X              1==failed to connect,
+X              2==interrupted
+X              3==modem error
+X  sets #S0 to modem result code or uucp status code string
+X
+X  This function has gotten quite NASTY and needs rewriting!
+X------------------------------------------------------------------------*/
+Xint
+XDCE_dial()
+X{
+X	char s128[128];
+X	int itmp;
+X	int erc = -1;		/* assume error unless chg'd */
+X	int s7;
+X	char *result = "";
+X	int restart_rcvr = need_rcvr_restart();
+X	ulong colors_at_entry = colors_current;
+X	char s64[64];
+X	char *_doproc_args[3];
+X	FILE *fp;
+X	char *cptr;
+X	char credit_file[128];
+X	extern char kbdintr;		/* current input INTR */
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	lclear_xmtr_xoff();
+X	if(shm->Ldescr[0])
+X	{
+X		setcolor(colors_success);
+X		get_tod(1,s64);
+X		pprintf("%s %s\n",
+X			(shm->Ltelno[0]) ? "Dialing" : "Connecting to",shm->Ldescr);
+X		pprintf("on %s at %u baud (%s)\n",shm->Lline,shm->Lbaud,s64);
+X	}
+X
+X	DCE_hangup();
+X	last_dial_result[0] = 0;
+X	setcolor(colors_alert);
+X	if(!shm->Ltelno[0])	/* if no phone number, direct connect */
+X	{
+X		sprintf(s64,"CONNECT %u",shm->Lbaud);
+X		result = s64;
+X		iv[0] = 0;
+X		erc = 0;
+X		shm->Lconnected = 1;
+X		Ldial_debug_level = 0;
+X		goto CONNECTED;
+X	}
+X 	else
+X	{
+X		itmp = hdb_dial(&result);
+X		lreset_ksr();	/* dialer may have changed termio */
+X		switch(itmp)
+X		{
+X			case 0:		/* success */
+X				goto CONNECTED;
+X			case 1:		/* failure -- iv[0] set by hdb_dial */
+X				DCE_report_iv_set(0);
+X				erc = eConnectFailed;
+X				goto START_RCVR_PROCESS;
+X			case 2:		/* interrupted -- iv[0] set by hdb_dial */
+X				DCE_report_iv_set(0);
+X				erc = eCONINT;
+X				goto START_RCVR_PROCESS;
+X			case 3:		/* modem error */
+X				setcolor(colors_error);
+X				pprintf("%s\n",result);
+X				goto CANNOT_TALK_TO_MODEM;
+X			case 4:		/* try local */
+X				pputs("\ntrying ecu dialer\n");
+X				break;
+X		}
+X
+X		/*
+X		 * brain-damaged "built-in dialer"
+X		 */
+X
+X		DCE_modem_init();
+X
+X#if defined(USE_S7)
+X		if((s7 = DCE_get_sreg_value(7)) < 0)
+X			s7 = 30;
+X#else
+X		s7 = 30;
+X#endif
+X
+X		/*
+X		 * build dial command
+X		 */
+X		strcpy(s128,Lmodem_dial);
+X		strcat(s128,shm->Ltelno);
+X
+X		/*
+X		 * if trailing '$', read and append ~/.ecu/.credit
+X		 */
+X		if(*(cptr = s128 + strlen(s128) - 1) == '$')
+X		{
+X			*cptr = 0;
+X			get_home_dir(credit_file);
+X			strcat(credit_file,"/.ecu/.credit");
+X			if(fp = fopen(credit_file,"r"))
+X			{
+X				fgets(cptr,30,fp);
+X				fclose(fp);
+X			}
+X			if(!fp || !(*cptr))
+X			{
+X				result = "!CREDIT CARD ERROR";
+X				goto CONNECT_FAILED;
+X			}
+X			if(*(cptr + strlen(cptr) - 1) == 0x0A)
+X				*(cptr + strlen(cptr) - 1) = 0; /* kill NL */
+X		}
+X
+X		if(sigint || check_queued_sigint())
+X			goto SEND_CMD_ERROR;
+X
+X		if(DCE_send_cmd(s128))
+X			goto SEND_CMD_ERROR;
+X
+X		/* some modems (ahem, the Hayes 2400) do not accurately honor S7
+X		so our timer is twice sreg 7 */
+X 		pprintf("Type %s to abort ... ",make_char_graphic(kbdintr,1));
+X		setcolor(colors_normal);
+X		lflush(0);
+X		strcpy(s64,DCE_get_result(s7 * 2 * 1000L));
+X		result = s64;
+X
+X		if(sigint || !strcmp(result,interrupted_string))
+X		{
+X			setcolor(colors_error);
+X			pprintf("%s\n",result);
+X			sigint = 0;
+X			lputc(0);			/* send char in case DTR ignored */
+X			lflash_dtr();					/* force on hook */
+X			(void)DCE_get_result(2000L);	/* wait for any result code */
+X			erc = eCONINT;
+X			iv[0] = 2;
+X			DCE_report_iv_set(0);
+X			goto START_RCVR_PROCESS;
+X		}
+X		if(!strncmp(result,"CONNECT",7))
+X		{
+X			if(strlen(result) > (unsigned)7)
+X			{
+X				if(shm->Lbaud != (unsigned)atoi(result + 7))
+X				{
+X					setcolor(colors_error);
+X					pprintf("%s (incorrect rate)\n",result);
+X					iv[0] = 2;
+X					DCE_report_iv_set(0);
+X					goto START_RCVR_PROCESS;
+X				}
+X			}
+XCONNECTED:
+X#if defined(WHT2) && defined(XTERM_FRIEND)
+X			/*
+X			 * if xterm, put connection in title bar
+X			 * but this really should be done in _connect.ep
+X			 */
+X			sprintf(s128,"connected to %s",shm->Llogical);
+X			xterm_title(s128,1);
+X#endif
+X			setcolor(colors_success);
+X			pprintf("%s\n",result);
+X			sprintf(s128,"CONNECT %s (%s) %u baud",
+X				shm->Llogical,shm->Ltelno,shm->Lbaud);
+X			strcpy(shm->Lrname,shm->Llogical);
+X			ecu_log_event(getpid(),s128);
+X			if(isalpha(shm->Llogical[0]))
+X			{
+X				if(!keyset_read(shm->Llogical))
+X					pprintf("[autoloaded fkeys for %s]\n",shm->Llogical);
+X			}
+X			shmx_connect();
+X			shm->xmit_chars_this_connect = 0L;
+X			shm->Loff_hook_time = time((long *)0);
+X			iv[0] = 0;
+X			DCE_report_iv_set(0);
+X			erc = 0;
+X			shm->Lconnected = 1;
+X			lCLOCAL(!shm->Ldcdwatch); /* set CLOCAL per DCD watcher */
+X			goto START_RCVR_PROCESS;
+X		}
+X
+XCONNECT_FAILED: ;
+X		setcolor(colors_error);
+X		pprintf("%s\n",result);
+X		iv[0] = 1;
+X		DCE_report_iv_set(0);
+X		erc = eConnectFailed;
+X		goto START_RCVR_PROCESS;
+X	}
+X
+XSEND_CMD_ERROR: ;
+X	if(sigint)
+X	{
+X		sigint = 0;
+X		result = interrupted_string;
+X		iv[0] = 2;
+X		DCE_report_iv_set(0);
+X		erc = eCONINT;
+X	}
+X	else
+X	{
+XCANNOT_TALK_TO_MODEM: ;
+X		setcolor(colors_error);
+X		pprintf("Cannot talk to modem\n");
+X		result = "!Modem Error";
+X		iv[0] = 3;
+X		DCE_report_iv_set(0);
+X		erc = eConnectFailed;
+X	}
+X
+XSTART_RCVR_PROCESS:	;
+X	setcolor(colors_at_entry);
+X	strcpy(sv[0]->pb,result);
+X	sv[0]->cb = strlen(result);
+X	strcpy(last_dial_result,result);
+X	/*
+X	 * do the _connect.ep or _connfail.ep execution
+X	 */
+X	if(!iv[0])
+X	{
+X		if(find_procedure("_connect"))
+X		{
+X		int erc2;
+X			_doproc_args[0] = "_connect";	/* _connect.ep */
+X			_doproc_args[1] = result;		/* "CONNECT XXXX" */
+X			if(erc2 = do_proc(2,_doproc_args))
+X			{
+X				DCE_hangup();
+X				if(erc2 < 256)
+X				{
+X					sprintf(s64,"!CONNECT PROCEDURE RETURNED %d",erc2);
+X					result = s64;
+X				}
+X				else
+X					result = "!CONNECT PROCEDURE ABNORMAL TERMINATION";
+X				strcpy(sv[0]->pb,result);
+X				sv[0]->cb = strlen(result);
+X				setcolor(colors_error);
+X				pprintf("%s\n",result);
+X				iv[0] = 1;
+X				DCE_report_iv_set(0);
+X				erc = eConnectFailed;
+X			}
+X		}
+X	}
+X	else if(find_procedure("_connfail"))
+X	{
+X		_doproc_args[0] = "_connfail";	/* _connfail.ep */
+X		_doproc_args[1] = shm->Llogical;
+X		_doproc_args[2] = result;
+X		(void)do_proc(3,_doproc_args);
+X	}
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X	return(erc);
+X}	/* end of DCE_dial */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_redial(arg,argc)
+X--------------------------------------------------------------------------*/
+XDCE_redial(arg,argc)
+Xchar **arg;
+Xint argc;
+X{
+X	int erc = 0;
+X	int delay = 60;
+X	int retries = 10;
+X	long nap_msec;
+X	int ans;
+X
+X	if(shm->Ltelno[0] == 0)
+X	{
+X		pprintf("   no previous number\n");
+X		return(-1);
+X	}
+X
+X	if((argc > 1) && ((retries = atoi(arg[1])) == 0))
+X	{
+X		pprintf("  invalid retry count\n");
+X		return(-1);
+X	}
+X
+X	if((argc > 2) && ((delay = atoi(arg[2])) == 0))
+X	{
+X		pprintf("  invalid delay\n");
+X		return(-1);
+X	}
+X
+X	if(delay < 0)		/* try to be nice to telcos */
+X		delay = 0;		/* (they are our friends :-) */
+X
+X	pprintf("  for %d retries, pause between: %d secs\n",
+X				retries,delay);
+X
+X	kill_rcvr_process(SIGUSR1);		/* kill rcvr process */
+X
+X	DCE_hangup();
+X	while(retries--)
+X	{
+X		if(!isdigit(shm->Llogical[0]) && find_procedure(shm->Llogical))
+X		{
+X		char *pargv[2];
+X		ulong colors_at_entry = colors_current;
+X			pargv[0] = shm->Llogical;
+X			pargv[1] = "!REDIAL;";
+X			sigint = 0;
+X			ttymode(2);
+X			erc = do_proc(2,pargv);
+X			proc_file_reset();
+X			ttymode(1);
+X			setcolor(colors_notify);
+X			ff(se,"[procedure finished]");
+X			setcolor(colors_at_entry);
+X			ff(se,"\r\n");
+X			if(!erc)
+X			{
+X				start_rcvr_process(0);
+X				return(0);
+X			}
+X			lflash_dtr();
+X			sigint = 0;
+X		}
+X		else if(!(erc = DCE_dial()))
+X		{
+X			start_rcvr_process(1);
+X			return(0);
+SHAR_EOF
+true || echo 'restore of ecuDCE.c failed'
+fi
+echo 'End of ecu320 part 5'
+echo 'File ecuDCE.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

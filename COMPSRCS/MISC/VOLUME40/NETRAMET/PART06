@@ -1,0 +1,1849 @@
+Newsgroups: comp.sources.misc
+From: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Subject: v40i094:  netramet - Network Traffic Accounting Meter, Part06/25
+Message-ID: <1993Nov7.220714.11323@sparky.sterling.com>
+X-Md4-Signature: a94c8c297d3064ee8ef48548fce08b4f
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 7 Nov 1993 22:07:14 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Posting-number: Volume 40, Issue 94
+Archive-name: netramet/part06
+Environment: INET, UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netramet/src/apps/snmptrap.c netramet/src/meter/met_vars.c
+#   netramet/src/snmplib/include/ausnmp.h
+# Wrapped by kent@sparky on Tue Nov  2 18:17:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 25)."'
+if test -f 'netramet/src/apps/snmptrap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/apps/snmptrap.c'\"
+else
+  echo shar: Extracting \"'netramet/src/apps/snmptrap.c'\" \(6730 characters\)
+  sed "s/^X//" >'netramet/src/apps/snmptrap.c' <<'END_OF_FILE'
+X/*
+X * snmptrap.c - send snmp traps to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <net/if.h>
+X#include <sys/ioctl.h>
+X#include <sys/file.h>
+X#include <nlist.h>
+X
+X#include "ausnmp.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X#include "snmpapi.h"
+X#include "snmpclnt.h"
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+X
+X#define NUM_NETWORKS	16   /* max number of interfaces to check */
+X
+Xoid objid_enterprise[] = {1, 3, 6, 1, 4, 1, 3, 1, 1};
+Xoid objid_sysdescr[] = {1, 3, 6, 1, 2, 1, 1, 1, 0};
+X
+Xstruct nlist nl[] = {
+X    { "_boottime" },
+X    { "" }
+X};
+X
+X
+Xint snmp_input(){
+X}
+X
+X#ifndef IFF_LOOPBACK
+X#define IFF_LOOPBACK 0
+X#endif
+X#define LOOPBACK    0x7f000001
+Xu_long
+Xget_myaddr(){
+X    int sd;
+X    struct ifconf ifc;
+X    struct ifreq conf[NUM_NETWORKS], *ifrp, ifreq;
+X    struct sockaddr_in *in_addr;
+X    int count;
+X    int interfaces;		/* number of interfaces returned by ioctl */
+X
+X    if ((sd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+X	return 0;
+X    ifc.ifc_len = sizeof(conf);
+X    ifc.ifc_buf = (caddr_t)conf;
+X    if (ioctl(sd, SIOCGIFCONF, (char *)&ifc) < 0){
+X	close(sd);
+X	return 0;
+X    }
+X    ifrp = ifc.ifc_req;
+X    interfaces = ifc.ifc_len / sizeof(struct ifreq);
+X    for(count = 0; count < interfaces; count++, ifrp++){
+X	ifreq = *ifrp;
+X	if (ioctl(sd, SIOCGIFFLAGS, (char *)&ifreq) < 0)
+X	    continue;
+X	in_addr = (struct sockaddr_in *)&ifrp->ifr_addr;
+X	if ((ifreq.ifr_flags & IFF_UP)
+X	    && (ifreq.ifr_flags & IFF_RUNNING)
+X	    && !(ifreq.ifr_flags & IFF_LOOPBACK)
+X	    && in_addr->sin_addr.s_addr != LOOPBACK){
+X		close(sd);
+X		return in_addr->sin_addr.s_addr;
+X	    }
+X    }
+X    close(sd);
+X    return 0;
+X}
+X
+X/*
+X * Returns uptime in centiseconds(!).
+X */
+Xlong uptime(){
+X    struct timeval boottime, now, diff;
+X    int kmem;
+X
+X    if ((kmem = open("/dev/kmem", 0)) < 0)
+X	return 0;
+X    nlist("/vmunix", nl);
+X    if (nl[0].n_type == 0){
+X	close(kmem);
+X	return 0;
+X    }
+X    
+X    lseek(kmem, (long)nl[0].n_value, L_SET);
+X    read(kmem, &boottime, sizeof(boottime));
+X    close(kmem);
+X
+X    gettimeofday(&now, 0);
+X    now.tv_sec--;
+X    now.tv_usec += 1000000L;
+X    diff.tv_sec = now.tv_sec - boottime.tv_sec;
+X    diff.tv_usec = now.tv_usec - boottime.tv_usec;
+X    if (diff.tv_usec > 1000000L){
+X	diff.tv_usec -= 1000000L;
+X	diff.tv_sec++;
+X    }
+X    return ((diff.tv_sec * 100) + (diff.tv_usec / 10000));
+X}
+X
+Xu_long parse_address(address)
+X    char *address;
+X{
+X    u_long addr;
+X    struct sockaddr_in saddr;
+X    struct hostent *hp;
+X
+X    if ((addr = inet_addr(address)) != -1)
+X	return addr;
+X    hp = gethostbyname(address);
+X    if (hp == NULL){
+X	fprintf(stderr, "unknown host: %s\n", address);
+X	return 0;
+X    } else {
+X	bcopy((char *)hp->h_addr, (char *)&saddr.sin_addr, hp->h_length);
+X	return saddr.sin_addr.s_addr;
+X    }
+X
+X}
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu;
+X    struct variable_list *vars;
+X    int	arg;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    char *trap = NULL, *specific = NULL, *description = NULL, *agent = NULL;
+X
+X
+X    /*
+X     * usage: snmptrap gateway-name community-name trap-type specific-type device-description [ -a agent-addr ]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'a':
+X		    agent = argv[++arg];
+X		    break;
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else if (trap == NULL){
+X	    trap = argv[arg];
+X	} else if (specific == NULL){
+X	    specific = argv[arg];
+X	} else {
+X	    description = argv[arg];
+X	}
+X    }
+X
+X    if (!(gateway && community && trap && specific && description)){
+X	printf("usage: snmptrap host community trap-type specific-type device-description [ -a agent-addr ]\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    session.community_len = strlen((char *)community);
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = snmp_input;
+X    session.callback_magic = NULL;
+X    session.remote_port = SNMP_TRAP_PORT;
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    pdu = snmp_pdu_create(TRP_REQ_MSG);
+X    pdu->enterprise = (oid *)malloc(sizeof(objid_enterprise));
+X    bcopy((char *)objid_enterprise, (char *)pdu->enterprise, sizeof(objid_enterprise));
+X    pdu->enterprise_length = sizeof(objid_enterprise) / sizeof(oid);
+X    if (agent != NULL)
+X	pdu->agent_addr.sin_addr.s_addr = parse_address(agent);
+X    else
+X	pdu->agent_addr.sin_addr.s_addr = get_myaddr();
+X    pdu->trap_type = atoi(trap);
+X    pdu->specific_type = atoi(specific);
+X    pdu->time = uptime();
+X
+X    pdu->variables = vars = (struct variable_list *)malloc(sizeof(struct variable_list));
+X    vars->next_variable = NULL;
+X    vars->name = (oid *)malloc(sizeof(objid_sysdescr));
+X    bcopy((char *)objid_sysdescr, (char *)vars->name, sizeof(objid_sysdescr));
+X    vars->name_length = sizeof(objid_sysdescr) / sizeof(oid);
+X    vars->type = ASN_OCTET_STR;
+X    vars->val.string = (u_char *)malloc(strlen(description) + 1);
+X    strcpy((char *)vars->val.string, description);
+X    vars->val_len = strlen(description);
+X
+X    if (snmp_send(ss, pdu)== 0){
+X	printf("error\n");
+X    }
+X    snmp_close(ss);
+X}
+X
+END_OF_FILE
+  if test 6730 -ne `wc -c <'netramet/src/apps/snmptrap.c'`; then
+    echo shar: \"'netramet/src/apps/snmptrap.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/apps/snmptrap.c'
+fi
+if test -f 'netramet/src/meter/met_vars.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/meter/met_vars.c'\"
+else
+  echo shar: Extracting \"'netramet/src/meter/met_vars.c'\" \(53127 characters\)
+  sed "s/^X//" >'netramet/src/meter/met_vars.c' <<'END_OF_FILE'
+X/* 1125, Tue 5 Oct 93
+X
+X   MET_VARS.C:  AU Internet Accounting Meter snmp agent
+X		Based on the CMU snmpd version, snmpd.c
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X#define noTESTING
+X#define noGC_TEST
+X
+X#include "ausnmp.h"
+X
+X#include <ctype.h>
+X#include <sys/types.h>
+X
+X#ifdef AU_MSDOS
+X#include <alloc.h>
+X#endif
+X
+X#ifdef SUNOS
+X#include <malloc.h>
+X#ifdef TESTING
+X#include "stdio.h"
+X#endif
+X#endif
+X
+X#include "pktsnap.h"
+X#include "flowhash.h"
+X
+X#ifdef AU_MSDOS
+X#include "tcp.h"
+X
+X#else
+X
+X#include <nlist.h>  /* BSD include files, used in CMU snmpvars.c */
+X#include <syslog.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <sys/param.h>
+X#include <sys/dir.h>
+X#include <net/if.h>
+X#include <net/route.h>
+X#include <netinet/in_pcb.h>
+X#include <netinet/if_ether.h>
+X#include <netinet/in_systm.h>
+X#include <netinet/in_var.h>
+X#include <netinet/ip.h>
+X#include <netinet/ip_var.h>
+X#include <netinet/tcp.h>
+X#include <netinet/tcp_timer.h>
+X#include <netinet/tcp_var.h>
+X#include <netinet/tcp_fsm.h>
+X#include <netinet/udp.h>
+X#include <netinet/udp_var.h>
+X#include <netinet/ip_icmp.h>
+X#include <netinet/icmp_var.h>
+X
+X#ifdef BSD_UNIX  /* Not provided by SG Irix or giving errors with SunOS  */
+X#include <machine/pte.h>
+X#include <sys/ioctl.h>
+X#include <sys/proc.h>
+X#include <sys/protosw.h>
+X#include <sys/user.h>
+X#include <sys/vm.h>
+X#endif
+X
+X#endif  /* End !AU_MSDOS */
+X
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X
+X#include "asn1.h"  /* CMU snmp include files */
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "mib.h"
+X
+X#include "met_vars.h"  /* Constants for snmp oids */
+X
+Xlong long_return;
+X
+Xvoid init_snmp()
+X{  }
+X
+X#define INT_ACCT    1, 3, 6, 1, 3, 99
+X#define U_AUCKLAND  1, 3, 6, 1, 4, 1, 411
+X
+Xchar version_descr[] = "NeTraMet: Network Traffic Meter V2.0";
+Xoid version_id[] = {
+X     1,  3,  6,       1,      4,          1,   411,     1, 2,2};
+X/* iso.org.dod.internet.private.enterprises.U_Auckland.monitor.2.2 */
+X
+Xstruct variable     variables[] = {
+X    /* these must be lexicographly ordered by the name field */
+X    {{MIB, 1, 1, 0},		9, STRING,  VERSION_DESCR, RONLY, var_system},
+X    {{MIB, 1, 2, 0},		9, OBJID,   VERSION_ID, RONLY, var_system},
+X    {{MIB, 1, 3, 0},		9, TIMETICKS, UPTIME, RONLY, var_system},
+X    {{MIB, 2, 1, 0},		9, INTEGER, IFNUMBER, RONLY, var_system},
+X
+X   {{INT_ACCT, 1, 1, 0},       9, INTEGER, HIGHWATERMARK, RWRITE, var_system},
+X   {{INT_ACCT, 1, 2, 0},       9, INTEGER, FLOODMARK, RWRITE, var_system},
+X   {{INT_ACCT, 1, 3, 0},       9, INTEGER, INACT_TIMEOUT, RWRITE, var_system},
+X   {{INT_ACCT, 1, 5, 1, 1, MAX_SUBID}, 11, INTEGER, CIINDEX, RONLY, var_rinfo},
+X   {{INT_ACCT, 1, 5, 1, 2, MAX_SUBID}, 11, STRING, CIPEERADDR, RONLY, var_rinfo},
+X   {{INT_ACCT, 1, 5, 1, 3, MAX_SUBID}, 11, TIMETICKS, CILASTTIME, RONLY, var_rinfo},
+X   {{INT_ACCT, 1, 5, 1, 4, MAX_SUBID}, 11, TIMETICKS, CIPREVTIME, RONLY, var_rinfo},
+X   {{INT_ACCT, 1, 6, 0},       9, TIMETICKS, LAST_COLLECT_TIME, RWRITE, var_system},
+X   {{INT_ACCT, 1, 7, 1, 1, MAX_SUBID}, 11, INTEGER, RIINDEX, RONLY, var_rinfo},
+X   {{INT_ACCT, 1, 7, 1, 2, MAX_SUBID}, 11, INTEGER, RIRULESIZE, RWRITE, var_rinfo},
+X   {{INT_ACCT, 1, 7, 1, 3, MAX_SUBID}, 11, INTEGER, RIACTIONSIZE, RWRITE, var_rinfo},
+X   {{INT_ACCT, 1, 8, 0},       9, INTEGER, CURRENT_RULE_SET, RWRITE, var_system},
+X   {{INT_ACCT, 1, 9, 0},       9, INTEGER, EMERGENCY_RULE_SET, RWRITE, var_system},
+X
+X   {{INT_ACCT, 2, 1, 1,  1, MAX_SUBID}, 11, INTEGER, FTFLOWINDEX, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  2, MAX_SUBID}, 11, INTEGER, FTFLOWSTATUS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  3, MAX_SUBID}, 11, INTEGER, FTLOWINTERFACE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  4, MAX_SUBID}, 11, INTEGER, FTLOWADJACENTTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  5, MAX_SUBID}, 11, STRING,  FTLOWADJACENTADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  6, MAX_SUBID}, 11, STRING,  FTLOWADJACENTMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  7, MAX_SUBID}, 11, INTEGER, FTLOWPEERTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  8, MAX_SUBID}, 11, INTEGER, FTLOWPEERTYPEMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1,  9, MAX_SUBID}, 11, STRING,  FTLOWPEERADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 10, MAX_SUBID}, 11, STRING,  FTLOWPEERMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 11, MAX_SUBID}, 11, INTEGER, FTLOWDETAILTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 12, MAX_SUBID}, 11, INTEGER, FTLOWDETAILTYPEMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 13, MAX_SUBID}, 11, STRING,  FTLOWDETAILADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 14, MAX_SUBID}, 11, STRING,  FTLOWDETAILMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 17, MAX_SUBID}, 11, INTEGER, FTHIINTERFACE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 18, MAX_SUBID}, 11, INTEGER, FTHIADJACENTTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 19, MAX_SUBID}, 11, STRING,  FTHIADJACENTADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 20, MAX_SUBID}, 11, STRING,  FTHIADJACENTMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 21, MAX_SUBID}, 11, INTEGER, FTHIPEERTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 22, MAX_SUBID}, 11, INTEGER, FTHIPEERTYPEMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 23, MAX_SUBID}, 11, STRING,  FTHIPEERADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 24, MAX_SUBID}, 11, STRING,  FTHIPEERMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 25, MAX_SUBID}, 11, INTEGER, FTHIDETAILTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 26, MAX_SUBID}, 11, INTEGER, FTHIDETAILTYPEMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 27, MAX_SUBID}, 11, STRING,  FTHIDETAILADDRESS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 28, MAX_SUBID}, 11, STRING,  FTHIDETAILMASK, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 33, MAX_SUBID}, 11, INTEGER, FTPDUSCALE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 34, MAX_SUBID}, 11, INTEGER, FTOCTETSCALE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 35, MAX_SUBID}, 11, INTEGER, FTRULESET, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 36, MAX_SUBID}, 11, INTEGER, FTFLOWTYPE, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 37, MAX_SUBID}, 11, COUNTER, FTUPOCTETS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 38, MAX_SUBID}, 11, COUNTER, FTUPPDUS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 39, MAX_SUBID}, 11, COUNTER, FTDOWNOCTETS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 40, MAX_SUBID}, 11, COUNTER, FTDOWNPDUS, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 41, MAX_SUBID}, 11, TIMETICKS, FTFIRSTTIME, RONLY, var_ft},
+X   {{INT_ACCT, 2, 1, 1, 42, MAX_SUBID}, 11, TIMETICKS, FTLASTTIME, RONLY, var_ft},
+X
+X   {{INT_ACCT, 2, 2, 1, 1, MAX_SUBID, MAX_SUBID}, 12, TIMETICKS, FTCRFIRSTTIME, RONLY, var_flow_index},
+X   {{INT_ACCT, 2, 2, 1, 2, MAX_SUBID, MAX_SUBID}, 12, INTEGER, FTCRFLOWINDEX, RONLY, var_flow_index},
+X
+X   {{INT_ACCT, 2, 3, 1, 1, MAX_SUBID, MAX_SUBID}, 12, TIMETICKS, FTACFIRSTTIME, RONLY, var_flow_index},
+X   {{INT_ACCT, 2, 3, 1, 2, MAX_SUBID, MAX_SUBID}, 12, INTEGER, FTACFLOWINDEX, RONLY, var_flow_index},
+X
+X   {{INT_ACCT, 2, 4, 1, 1, MAX_SUBID, MAX_SUBID, MAX_SUBID}, 13, INTEGER, FTCOLATTRIB, RONLY, var_col_tbl},
+X   {{INT_ACCT, 2, 4, 1, 2, MAX_SUBID, MAX_SUBID, MAX_SUBID}, 13, TIMETICKS, FTCOLTIME, RONLY, var_col_tbl},
+X   {{INT_ACCT, 2, 4, 1, 3, MAX_SUBID, MAX_SUBID, MAX_SUBID}, 13, INTEGER, FTCOLINDEX, RONLY, var_col_tbl},
+X   {{INT_ACCT, 2, 4, 1, 4, MAX_SUBID, MAX_SUBID, MAX_SUBID}, 13, OPAQUE, FTCOLBLOB, RONLY, var_col_tbl},
+X
+X   {{INT_ACCT, 3, 1, 1, 1, MAX_SUBID, MAX_SUBID}, 12, INTEGER, RTRULESET, RONLY, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 2, MAX_SUBID, MAX_SUBID}, 12, INTEGER, RTRULEINDEX, RONLY, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 3, MAX_SUBID, MAX_SUBID}, 12, INTEGER, RTSELECTOR, RWRITE, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 4, MAX_SUBID, MAX_SUBID}, 12, STRING, RTRULEMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 5, MAX_SUBID, MAX_SUBID}, 12, STRING, RTMATCHVALUE, RWRITE, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 6, MAX_SUBID, MAX_SUBID}, 12, INTEGER, RTRULEACTION, RWRITE, var_rt},
+X   {{INT_ACCT, 3, 1, 1, 7, MAX_SUBID, MAX_SUBID}, 12, INTEGER, RTJUMPINDEX, RWRITE, var_rt},
+X
+X   {{INT_ACCT, 4, 1, 1,  1, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATACTIONINDEX, RONLY, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  3, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWINTERFACE, RONLY, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  4, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWADJACENTTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  5, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWADJACENTADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  6, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWADJACENTMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  7, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWPEERTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  8, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWPEERTYPEMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1,  9, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWPEERADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 10, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWPEERMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 11, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWDETAILTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 12, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATLOWDETAILTYPEMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 13, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWDETAILADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 14, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATLOWDETAILMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 17, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIINTERFACE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 18, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIADJACENTTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 19, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIADJACENTADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 20, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIADJACENTMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 21, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIPEERTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 22, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIPEERTYPEMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 23, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIPEERADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 24, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIPEERMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 25, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIDETAILTYPE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 26, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATHIDETAILTYPEMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 27, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIDETAILADDRESS, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 28, MAX_SUBID, MAX_SUBID}, 12, STRING,  ATHIDETAILMASK, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 33, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATPDUSCALE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 34, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATOCTETSCALE, RWRITE, var_rt},
+X   {{INT_ACCT, 4, 1, 1, 35, MAX_SUBID, MAX_SUBID}, 12, INTEGER, ATACTIONSET, RWRITE, var_rt},
+X
+X   {{U_AUCKLAND, 1,  1, 0},  10, INTEGER, MSSTATSRESET, RWRITE, var_system},
+X   {{U_AUCKLAND, 1,  2, 0},  10, INTEGER, MSSTATSTIME, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  3, 0},  10, INTEGER, MSNPACKETS, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  4, 0},  10, INTEGER, MSTBACKLOG, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  5, 0},  10, INTEGER, MSMXPKTRATE, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  6, 0},  10, INTEGER, MSMXBACKLOG, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  7, 0},  10, INTEGER, MSNFLOWS, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  8, 0},  10, INTEGER, MSFLOWSRCV, RONLY, var_system},
+X   {{U_AUCKLAND, 1,  9, 0},  10, INTEGER, MSNMATCHES, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 10, 0},  10, INTEGER, MSHASHSRCHS, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 11, 0},  10, INTEGER, MSHASHCMPS, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 12, 0},  10, INTEGER, MSTHASHSZ, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 13, 0},  10, INTEGER, MSNHASHENTS, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 14, 0},  10, INTEGER, MSGCINTERVAL, RWRITE, var_system},
+X   {{U_AUCKLAND, 1, 15, 0},  10, INTEGER, MSMXFLOWS, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 16, 0},  10, INTEGER, MSAVIDLEPER1000, RONLY, var_system},
+X   {{U_AUCKLAND, 1, 17, 0},  10, INTEGER, MSMINIDLEPER1000, RONLY, var_system},
+X
+X   {{U_AUCKLAND, 2, 1, 0},   10, INTEGER, PCNEARMEM, RONLY, var_system},
+X   {{U_AUCKLAND, 2, 2, 0},   10, INTEGER, PCFARMEM, RONLY, var_system},
+X   {{U_AUCKLAND, 2, 3, 0},   10, INTEGER, PCBADPKTS, RONLY, var_system},
+X   {{U_AUCKLAND, 2, 4, 0},   10, INTEGER, PCNOBUFPKTS, RONLY, var_system},
+X   {{U_AUCKLAND, 2, 5, 0},   10, INTEGER, PCLOSTPKTS, RONLY, var_system},
+X   };
+X
+Xint
+Xcompare(name1, len1, name2, len2)
+X    register oid	    *name1, *name2;
+X    register int	    len1, len2;
+X{
+X    register int    len;
+X    /* len = minimum of len1 and len2 */
+X    if (len1 < len2)
+X	len = len1;
+X    else
+X	len = len2;
+X    /* find first non-matching byte */
+X    while(len-- > 0){
+X	if (*name1 < *name2)
+X	    return -1;
+X	if (*name2++ < *name1++)
+X	    return 1;
+X    }
+X    /* bytes match up to length of shorter string */
+X    if (len1 < len2)
+X	return -1;  /* name1 shorter, so it is "less" */
+X    if (len2 < len1)
+X	return 1;
+X    return 0;	/* both strings are equal */
+X}
+X
+X/*
+X * getStatPtr - return a pointer to the named variable, as well as it's
+X * type, length, and access control list.
+X *
+X * If an exact match for the variable name exists, it is returned.  If not,
+X * and exact is false, the next variable lexicographically after the
+X * requested one is returned.
+X *
+X * If no appropriate variable can be found, NULL is returned.
+X */
+Xu_char far *
+XgetStatPtr(name, namelen, type, len, acl, exact, access_method)
+X    oid		*name;	    /* IN - name of var, OUT - name matched */
+X    int		*namelen;   /* IN -number of sub-ids in name, OUT - subid-is in matched name */
+X    u_char	*type;	    /* OUT - type of matched variable */
+X    int		*len;	    /* OUT - length of matched variable */
+X    u_short	*acl;	    /* OUT - access control list */
+X    int		exact;	    /* IN - TRUE if exact match wanted */
+X    int		*access_method; /* OUT - 1 if function, 0 if char * */
+X{
+X    register struct variable	*vp;
+X    register int	x;
+X    u_char far		*access;
+X    int			result;
+X    register int	minlen;
+X    register oid	*name1, *name2;
+X   int b,t;
+X
+X   b = 0;  t = sizeof(variables)/sizeof(struct variable) - 1;
+X   do {  /* Binary search averages about 6 compares instead of 22 */
+X      x = (b + t)/2;
+X      vp = &variables[x];
+X      result = compare(name, *namelen, vp->name, (int)vp->namelen);
+X      if (result < 0) t = x-1;  /* Move top down */
+X      else b = x+1; /* Move bottom up */
+X      } while (b <= t);
+X
+X   for (x = t, vp = &variables[x];
+X	 x < sizeof(variables)/sizeof(struct variable);  ++vp, ++x) {
+X   /* Find first vp entry >= requested one */
+X      result = compare(name, *namelen, vp->name, (int)vp->namelen);
+X      if ((result < 0) || (exact && (result == 0))) {
+X	 access = (*(vp->findVar))(vp, name, namelen, exact, len, access_method);
+X	 if (access != NULL) {
+X	    *type = vp->type;
+X	    *acl = vp->acl;
+X	    return access;
+X	    }
+X	 }
+X      }
+X
+X   return NULL;
+X   }
+X
+Xextern unsigned long snmp_peer_addr;  /* Declared in meter_pc.c */
+X
+Xvoid display_msg(unsigned char timestamp, char *msg)
+X{
+X#ifdef AU_MSDOS
+X   if (display_enabled) {
+X      scpos(0,24);
+X      if (timestamp) printf("%02d%02d:%02d  ", tod_h,tod_m,tod_s);
+X      else printf("   ");
+X      printf(msg);
+X      w_roll(0,7, 40,24, 1);
+X      }
+X#else
+X   time_t t; char *ts;
+X   if (display_enabled) {
+X      if (timestamp) {
+X         time(&t);  ts = ctime(&t);
+X         printf("%c%c%c%c:%c%c  ", 
+X            ts[11],ts[12],ts[14],ts[15], ts[17],ts[18]);
+X         }
+X      else printf("   ");
+X      printf("%s\n",msg);
+X      }
+X#endif
+X   }
+X
+Xint writechar(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeint(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writelong(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeAddress(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+X
+Xint writeRuleSet(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeRuleSize(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeActionSize(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeLastCollectTime(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+Xint writeStatsReset(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP);
+X
+Xu_char far *
+Xvar_system(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X#ifndef AU_MSDOS
+X    struct timeval now, boottime;
+X#endif
+X   unsigned long dummy;
+X
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char far *)vp->name, (char far *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long);	/* default length */
+X   switch (vp->magic){
+X   case VERSION_DESCR:
+X      *var_len = strlen(version_descr);
+X      return (u_char far *)version_descr;
+X   case VERSION_ID:
+X      *var_len = sizeof(version_id);
+X      return (u_char far *)version_id;
+X   case UPTIME:
+X      long_return = uptime();
+X      return (u_char far *)&long_return;
+X   case IFNUMBER:
+X      long_return = 1;  /* 1 ethernet card to start with */
+X      return (u_char far *)&long_return;
+X
+X   case HIGHWATERMARK:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&HighWaterMark;
+X   case FLOODMARK:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&FloodMark;
+X   case INACT_TIMEOUT:
+X      *write_method = (int (*)())writelong;
+X      return (u_char far *)&InactivityTimeout;
+X   case LAST_COLLECT_TIME:
+X      *write_method = (int (*)())writeLastCollectTime;
+X      return (u_char far *)&LastCollectTime;
+X   case CURRENT_RULE_SET:
+X      *write_method = (int (*)())writeRuleSet;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&CurrentRuleSet;
+X   case EMERGENCY_RULE_SET:
+X      *write_method = (int (*)())writeRuleSet;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&EmergencyRuleSet;
+X
+X   case MSSTATSRESET:
+X      *write_method = (int (*)())writeStatsReset;
+X      long_return = 0;
+X      return (u_char far *)&long_return;
+X   case MSSTATSTIME:
+X      return (u_char far *)&stats_time;
+X   case MSNPACKETS:
+X      return (u_char far *)&npackets;
+X   case MSTBACKLOG:
+X      return (u_char far *)&t_backlog;
+X   case MSMXPKTRATE:
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&max_pkt_rate;
+X   case MSMXBACKLOG:
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&max_pkt_backlog;
+X   case MSNFLOWS:
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&nflows;
+X   case MSFLOWSRCV:
+X      return (u_char far *)&FlowsRecovered;
+X   case MSNMATCHES:
+X      return (u_char far *)&n_matches;
+X   case MSHASHSRCHS:
+X      return (u_char far *)&n_hash_searches;
+X   case MSHASHCMPS:
+X      return (u_char far *)&n_hash_compares;
+X   case MSTHASHSZ:
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&t_hash_size;
+X   case MSNHASHENTS:
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&n_hash_ents;
+X   case MSGCINTERVAL:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&gc_interval;
+X   case MSMXFLOWS:
+X      long_return = mxflowsp1-1;  /* Set at meter startup */
+X      return (u_char far *)&long_return;
+X   case MSAVIDLEPER1000:
+X#ifdef AU_MSDOS
+X      long_return = kilodummypackets;
+X      if (dummypackets >= 500) ++long_return;
+X      long_return = long_return*1000L/(long_return+npackets/1000L);
+X#else
+X      long_return = 0;
+X#endif
+X      return (u_char far *)&long_return;
+X   case MSMINIDLEPER1000:
+X#ifdef AU_MSDOS
+X      long_return = (mindummyrate*10000L+5L)/((mindummyrate+mdpacketrate)*10L);
+X#else
+X      long_return = 0;
+X#endif
+X      return (u_char far *)&long_return;
+X
+X#ifdef AU_MSDOS
+X   case PCNEARMEM:
+X      long_return = (long)coreleft();
+X      return (u_char far *)&long_return;
+X   case PCFARMEM:
+X      long_return = (long)farcoreleft();
+X      return (u_char far *)&long_return;
+X   case PCBADPKTS:
+X      return (u_char far *)&badpackets;
+X   case PCNOBUFPKTS:
+X      return (u_char far *)&nobufpackets;
+X   case PCLOSTPKTS:
+X      return (u_char far *)&lostpackets;
+X#else
+X   case PCLOSTPKTS:
+X      long_return = 0;
+X      return (u_char far *)&long_return;
+X#endif
+X
+X   default:
+X      ERROR("");
+X      }
+X   return NULL;
+X   }
+X
+Xint string_OK(t)
+Xint t;
+X{
+X   if (t != STRING) {
+X      display_msg(1,"Not string");  return FALSE;
+X      }
+X   return TRUE;
+X   }
+X
+Xint int_OK(t)
+Xint t;
+X{
+X   if (t != INTEGER){
+X      display_msg(1,"Not integer");  return FALSE;
+X      }
+X   return TRUE;
+X   }
+X
+Xint writelong(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   long intval = 0;
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (intval < 0) {
+X      display_msg(1,"Bad long");  return FALSE;
+X      }
+X   if (doSet) *((long far *)statP) = intval;
+X   return TRUE;
+X  }
+X
+Xint writeint(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   long intval = 0;
+X   unsigned int i;
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (intval < 0 || intval > 0xFFFF) {
+X      display_msg(1,"Bad int");  return FALSE;
+X      }
+X   if (doSet) {
+X      i = (int)intval;
+X      *((int far *)statP) = i;
+X      }
+X   return TRUE;
+X  }
+X
+Xint writechar(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   long intval = 0;
+X   unsigned char c;
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (intval < 0 || intval > 0xFF) {
+X      display_msg(1,"Bad char");  return FALSE;
+X      }
+X   if (doSet) {
+X      c = (char)intval;
+X      *((char far *)statP) = c;
+X      }
+X   return TRUE;
+X  }
+X
+Xint writeAddress(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int size, bigsize = 1000;
+X   u_char buf[RULE_ADDR_LEN], *cp;
+X
+X   if (!string_OK(var_val_type)) return FALSE;
+X   if (var_val_len < 1 || var_val_len > RULE_ADDR_LEN) {
+X      display_msg(1,"Bad Address");  return FALSE;
+X      }
+X   size = sizeof(buf);
+X   asn_parse_string(var_val, &bigsize, &var_val_type, buf, &size);
+X   if (doSet) {
+X      addrcpy(statP, buf, var_val_len);
+X      }
+X   return TRUE;
+X   }
+X
+Xint writeRuleSet(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   long intval = 0;
+X   char msg[30];
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (intval < 1 || intval > MXNRTBLS) {
+X      display_msg(1,"Bad RuleSet");  return FALSE;
+X      }
+X   if (intval == CurrentRuleSet) return TRUE;  /* No change needed */
+X   if (doSet) {
+X      if (statP == (unsigned char far *)&CurrentRuleSet) {
+X	 if (!open_rule_set(0, intval)) {
+X	    display_msg(1,"Incomplete RuleSet");  return FALSE;
+X	    }
+X	 else {
+X	    close_rule_set();
+X	    open_rule_set(1,intval);
+X	    sprintf(msg,"Rule set %d opened", intval);
+X	    display_msg(1,msg);
+X	    }
+X	 }
+X      else {
+X	 sprintf(msg,"Emergency rule set %d", EmergencyRuleSet = intval);
+X	 display_msg(1,msg);
+X	 }
+X      }
+X   return TRUE;
+X   }
+X
+Xunsigned char info_table_index;  /* Set by var_rinfo() */
+X
+Xint writeRuleSize(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   long intval = 0;
+X   char msg[30];
+X   struct rule far *rt;
+X
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (info_table_index == CurrentRuleSet) {
+X      display_msg(1,"Can't modify current rules");  return FALSE;
+X      }
+X   if (info_table_index < 2) {
+X      display_msg(1,"Can't modify default rules");  return FALSE;
+X      }
+X   if (doSet) {
+X      if (intval > rt_size[info_table_index-1]) {  /* Needs to be bigger */
+X	 if (rt_size[info_table_index-1] != 0)
+X	    farfree(rule_table[info_table_index-1]);
+X	 rt = (struct rule far *)farmalloc(sizeof(struct rule)*intval);
+X	 if (rt == NULL) {
+X	    display_msg(1,"No mem for rule table");  return FALSE;
+X	    }
+X	 rule_table[info_table_index-1] = rt;
+X	 rt_size[info_table_index-1] = intval;
+X	 }
+X      sprintf(msg,"rt[%d]: %d rules", info_table_index,intval);
+X      display_msg(1,msg);
+X      }
+X   return TRUE;
+X   }
+X
+Xint writeActionSize(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000, j;
+X   long intval = 0;
+X   char msg[30];
+X   struct flow far *at;
+X
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (info_table_index == CurrentRuleSet) {
+X      display_msg(1,"Can't modify current actions");  return FALSE;
+X      }
+X   if (info_table_index < 2) {
+X      display_msg(1,"Can't modify default actions");  return FALSE;
+X      }
+X   if (doSet) {
+X      if (intval > at_size[info_table_index-1]) {  /* Needs to be bigger */
+X	 if (at_size[info_table_index-1] != 0)
+X	    farfree(action_table[info_table_index-1]);
+X	 at = (struct flow far *)farmalloc(sizeof(struct flow)*intval);
+X	 if (at == NULL) {
+X	    display_msg(1,"No mem for action table");  return FALSE;
+X	    }
+X	 action_table[info_table_index-1] = at;
+X	 at_size[info_table_index-1] = intval;
+X	 }
+X      else at = action_table[info_table_index-1];
+X      for (j = 0; j != intval; ++j, ++at) {
+X	 bcopy((unsigned char far *)Key(null_flow),
+X	    (unsigned char far *)Key(at), sizeof(struct flow_key));
+X	 }
+X      sprintf(msg,"at[%d]: %d actions", info_table_index,intval);
+X      display_msg(1,msg);
+X      }
+X   return TRUE;
+X   }
+X
+Xint writeLastCollectTime(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   unsigned char j;
+X   long intval = 0;
+X   char msg[30];
+X   unsigned char CollectPeer[4];
+X   struct CTinfo *ctip;
+X
+X   if (var_val_type != TIMETICKS) {
+X      display_msg(1,"Not timeticks");  return FALSE;
+X      }
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (doSet) {
+X      CollectPeer[0] = snmp_peer_addr >> 24;
+X      CollectPeer[1] = (snmp_peer_addr >> 16) & 0xFF;
+X      CollectPeer[2] = (snmp_peer_addr >>  8) & 0xFF;
+X      CollectPeer[3] = snmp_peer_addr & 0xFF;
+X      for (j = 0; j != n_collectors; ++j) {
+X	 ctip = &CTi[j];
+X	 if (qcmp((unsigned char far *)ctip->LastCollectPeer,
+X	    (unsigned char far *)CollectPeer, PEER_ADDR_LEN) == 0);
+X	       break;
+X	 }
+X      if (j == n_collectors) {  /* New collector */
+X	 ctip = &CTi[n_collectors++];
+X	 bcopy((unsigned char far *)CollectPeer,
+X	    (unsigned char far *)ctip->LastCollectPeer, PEER_ADDR_LEN);
+X	 }
+X      ctip->PrevCollectTime = ctip->LastCollectTime;
+X      ctip->LastCollectTime = LastCollectTime = s_uptime;
+X
+X      GarbageCollectTime = LastCollectTime < InactivityTimeout ? 0
+X	 : LastCollectTime-InactivityTimeout;  /* Must be >= 0 */
+X      for (j = 0; j != n_collectors; ++j) {
+X	 ctip = &CTi[j];
+X	 if (ctip->PrevCollectTime < GarbageCollectTime)
+X	    GarbageCollectTime = ctip->PrevCollectTime;
+X	 }
+X
+X      sprintf(msg,"Collection by %d.%d.%d.%d",
+X	 CollectPeer[0],CollectPeer[1],CollectPeer[2],CollectPeer[3]);
+X      display_msg(1,msg);
+X#ifdef GC_TEST
+X      printf("uptime=%lu, GCtime=%lu\n",
+X	 LastCollectTime,GarbageCollectTime);
+X#endif
+X      }
+X   return TRUE;
+X   }
+X
+Xint writeStatsReset(int doSet, u_char *var_val,
+X   u_char var_val_type, int var_val_len, u_char far *statP)
+X{
+X   int bigsize = 1000;
+X   unsigned char j;
+X   long intval = 0;
+X   if (!int_OK(var_val_type)) return FALSE;
+X   asn_parse_int(var_val, &bigsize, &var_val_type, &intval, sizeof(intval));
+X   if (doSet) zero_stats();
+X   return TRUE;
+X   }
+X
+Xu_char far *	/* Rule+Action Info table */
+Xvar_rinfo(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X   unsigned char collect_rq, collect_ix, tblsz;
+X   oid newname[MAX_NAME_LEN];
+X   unsigned int x;
+X   struct flow far *t;
+X#ifdef TESTING
+X   unsigned char j;
+X   int cmp;
+X#endif
+X
+X   collect_rq =(unsigned int)name[7] == 5;  /* 5 = collector, 7 = rule set */
+X   x = (unsigned int)name[10];
+X   tblsz = collect_rq ? n_collectors : MXNRTBLS;
+X#ifdef TESTING
+X   scpos(0,24);
+X   printf("\nvar_rinfo(): exact=%d, collect=%d, x=%d, tblsz=%d, magic=%d\n   name=",
+X      collect_rq,exact,x,tblsz,vp->magic);
+X   for (j = 0; j != *length; ++j) printf(".%d",name[j]);
+X   printf("\n");
+X#endif
+X   bcopy((char far *)vp->name, (char far *)newname, 10*sizeof(oid));
+X
+X   if (exact) {
+X      if (x > tblsz) return NULL;
+X      newname[10] = (oid)x;
+X      if (compare(name,*length, newname,(int)vp->namelen) != 0) return NULL;
+X      }
+X   else {
+X      if (compare(name,10, newname,10) != 0) x = 0;
+X      for (++x;  x <= tblsz;  ++x) {
+X	 newname[10] = (oid)x;
+X#ifdef TESTING
+X	 cmp = compare(name, *length, newname, (int)vp->namelen);
+X	 printf("x=%d, cmp=%d ", x,cmp);
+X	 for (j = 0; j != (int)vp->namelen; ++j) printf(".%d",newname[j]);
+X	 printf("\n");
+X	 if (cmp < 0) break;
+X#else
+X	 if (compare(name, *length, newname, (int)vp->namelen) < 0) break;
+X#endif
+X	 }
+X      if (x > tblsz) return NULL;
+X      }
+X
+X   bcopy((char far *)newname, (char far *)name, (int)vp->namelen * sizeof(oid));
+X   *length = (int)vp->namelen;
+X
+X   if (!collect_rq) info_table_index = x;
+X   *var_len = sizeof(long);
+X   *write_method = 0;
+X   switch (vp->magic) {
+X   case RIINDEX:
+X   case CIINDEX:
+X      long_return = (long)x;
+X      return (u_char *)&long_return;
+X   case RIRULESIZE:
+X      *write_method = (int (*)())writeRuleSize;
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&rt_size[x-1];
+X   case RIACTIONSIZE:
+X      *write_method = (int (*)())writeActionSize;
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&at_size[x-1];
+X
+X   case CIPEERADDR:
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)CTi[x-1].LastCollectPeer;
+X   case CILASTTIME:
+X      return (u_char far *)&CTi[x-1].LastCollectTime;
+X   case CIPREVTIME:
+X      return (u_char far *)&CTi[x-1].PrevCollectTime;
+X
+X   default:
+X      ERROR("");
+X      }
+X   return NULL;
+X   }
+X
+Xunsigned char *putshort(unsigned char *d, unsigned int n)
+X{
+X   *d++ = (n >> 8) & 0xFF;
+X   *d++ = n & 0xFF;
+X   return d;
+X   }
+X
+Xunsigned char *putlong(unsigned char *d, unsigned long n)
+X{
+X   *d++ = (n >> 24) & 0xFF;
+X   *d++ = (n >> 16) & 0xFF;
+X   *d++ = (n >> 8) & 0xFF;
+X   *d++ = n & 0xFF;
+X   return d;
+X   }
+X
+Xu_char far *	/* Flow table */
+Xvar_ft(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X   oid newname[MAX_NAME_LEN];
+X   unsigned int x;
+X   struct flow far *t;
+X
+X   bcopy((char far *)vp->name, (char far *)newname, (int)vp->namelen * sizeof(oid));
+X
+X   if (exact) {
+X      newname[10] = name[10];
+X      x = (unsigned int)newname[10];
+X      if (compare(name,*length, newname,(int)vp->namelen) != 0  /* No match */
+X	 || (t = find_flow(x)) == NULL)  /* Doesn't exist */
+X	 return NULL;
+X      }
+X   else {
+X      x = compare(name,10, newname,10) != 0  /* Not in this ptTable column */
+X	 ? 0  /* Have to search whole table */
+X	 : (unsigned int)name[10];  /* Only search from specified row */
+X      for (++x;  x <= mxflowsp1;  ++x) {
+X	 if ((t = find_flow(x)) == NULL)  /* Ignore deallocated flows */
+X	    continue;
+X	 newname[10] = (oid)x;
+X	 if (compare(name, *length, newname, (int)vp->namelen) < 0) break;
+X	 }
+X      if (x > mxflowsp1) return NULL;
+X      }
+X
+X   bcopy((char far *)newname, (char far *)name, (int)vp->namelen * sizeof(oid));
+X   *length = (int)vp->namelen;
+X
+X   *write_method = 0;
+X   *var_len = sizeof(long);
+X   switch (vp->magic) {
+X   case FTFLOWINDEX:
+X      long_return = (long)x;
+X      return (u_char *)&long_return;
+X   case FTFLOWSTATUS:
+X      long_return = find_flow(x) != NULL;
+X      return (u_char far *)&long_return;
+X   case FTLOWINTERFACE:
+X   case FTHIINTERFACE:
+X   case FTLOWADJACENTTYPE:
+X   case FTHIADJACENTTYPE:
+X      long_return = 1;
+X      return (u_char far *)&long_return;
+X   case FTLOWADJACENTADDRESS:
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&t->Low.AdjAddress;
+X   case FTLOWADJACENTMASK:
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&t->Low.AdjMask;
+X   case FTLOWPEERTYPE:
+X   case FTHIPEERTYPE:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->PeerAddrType;
+X   case FTLOWPEERTYPEMASK:
+X   case FTHIPEERTYPEMASK:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->PeerTypeMask;
+X   case FTLOWPEERADDRESS:
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&t->Low.PeerAddress;
+X   case FTLOWPEERMASK:
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&t->Low.PeerMask;
+X   case FTLOWDETAILTYPE:
+X   case FTHIDETAILTYPE:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->DetailAddrType;
+X   case FTLOWDETAILTYPEMASK:
+X   case FTHIDETAILTYPEMASK:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->DetailTypeMask;
+X   case FTLOWDETAILADDRESS:
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&t->Low.DetailAddress;
+X   case FTLOWDETAILMASK:
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&t->Low.DetailMask;
+X   case FTHIADJACENTADDRESS:
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&t->High.AdjAddress;
+X   case FTHIADJACENTMASK:
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&t->High.AdjMask;
+X   case FTHIPEERADDRESS:
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&t->High.PeerAddress;
+X   case FTHIPEERMASK:
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&t->High.PeerMask;
+X   case FTHIDETAILADDRESS:
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&t->High.DetailAddress;
+X   case FTHIDETAILMASK:
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&t->High.DetailMask;
+X   case FTRULESET:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->FlowRuleSet;
+X   case FTFLOWTYPE:
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&t->FlowType;
+X   case FTUPOCTETS:
+X      return (u_char far *)&t->UpOctets;
+X   case FTUPPDUS:
+X      return (u_char far *)&t->UpPDUs;
+X   case FTDOWNOCTETS:
+X      return (u_char far *)&t->DownOctets;
+X   case FTDOWNPDUS:
+X      return (u_char far *)&t->DownPDUs;
+X   case FTFIRSTTIME:
+X      return (u_char far *)&t->FirstTime;
+X   case FTLASTTIME:
+X      return (u_char far *)&t->LastTime;
+X
+X   default:
+X      ERROR("");
+X      }
+X   return NULL;
+X   }
+X
+Xu_char far *	/* Creation and activity tables */
+Xvar_flow_index(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X   unsigned char create;
+X   unsigned long t_time;  /* 'Target' time */
+X   unsigned int x;
+X   oid newname[MAX_NAME_LEN];
+X   struct flow far *t;
+X#ifdef TESTING
+X   unsigned char j;
+X#endif
+X
+X   create = name[7] == 2;  /* acct.2.2.1 = CreateTime */
+X   t_time = (unsigned long)name[10];
+X   x = (unsigned int)name[11];
+X   bcopy((char far *)vp->name, (char far *)newname, (int)vp->namelen * sizeof(oid));
+X#ifdef TESTING
+X   scpos(0,24);
+X   printf("flow_index(): exact=%d, create=%d, t=%lu, x=%d\n      name=",
+X      exact,create,t_time,x);
+X   for (j = 0; j != *length; ++j) printf(".%d",name[j]);
+X   printf("\n");
+X#endif
+X
+X   if (exact) {
+X      if (compare(name, *length-2, newname, (int)vp->namelen-2) != 0)
+X	 return NULL;
+X      for ( ;  x <= mxflowsp1;  ++x) {
+X	 if ((t = find_flow(x)) == NULL)  /* Ignore deallocated flows */
+X	    continue;
+X	 if (create) {
+X	    if (t->FirstTime > t_time)  /* Created after target time */
+X	       break;
+X	    }
+X	 else if (t->LastTime > t_time)  /* Active after target time */
+X	    break;
+X	 }
+X      newname[10] = t_time;  newname[11] = (oid)x;
+X      }
+X   else {  /* Does oid match up to indexes? */
+X      if (compare(name,10, newname,10) != 0) {    /* No - find first entry */
+X	 t_time = 1L;  /* Have to search whole flow table */
+X	 x = 1;  /* Flow 1 is a dummy - never used by meter */
+X	 }
+X      for (++x;  x <= mxflowsp1;  ++x) {
+X	 if ((t = find_flow(x)) == NULL)  /* Ignore deallocated flows */
+X	    continue;
+X	 if (create) {
+X	    if (t->FirstTime <= t_time)  /* Created up to target time */
+X	       continue;
+X	    }
+X	 else if (t->LastTime <= t_time)  /* Active up to target time */
+X	    continue;
+X	 newname[10] = t_time;  newname[11] = (oid)x;
+X	 if (compare(name, *length, newname, (int)vp->namelen) < 0) break;
+X	 }
+X      }
+X   if (x > mxflowsp1) return NULL;  /* No more flows to search */
+X      /* Only allow getnext to go through flow table once! */
+X
+X   bcopy((char far *)newname, (char far *)name, (int)vp->namelen * sizeof(oid));
+X   *length = (int)vp->namelen;
+X
+X   *write_method = 0;
+X   *var_len = sizeof(long);
+X   switch (vp->magic) {
+X   case FTCRFIRSTTIME:
+X      return (u_char far *)&t->FirstTime;
+X   case FTCRFLOWINDEX:
+X      long_return = (long)x;
+X      return (u_char far *)&long_return;
+X   case FTACFIRSTTIME:
+X      return (u_char far *)&t->LastTime;
+X   case FTACFLOWINDEX:
+X      long_return = (long)x;
+X      return (u_char far *)&long_return;
+X      }
+X   return NULL;
+X   }
+X
+Xu_char far *	/* Activity Column Table */
+Xvar_col_tbl(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X   unsigned long t_time;  /* 'Target' time */
+X   unsigned int x,n;
+X   unsigned char a;
+X   oid newname[MAX_NAME_LEN];
+X   unsigned char *ucp;
+X   struct flow far *t;
+X#ifdef TESTING
+X   unsigned char j;
+X#endif
+X
+X   a = (unsigned char)name[10];
+X   t_time = (unsigned long)name[11];
+X   x = (unsigned int)name[12];
+X#ifdef TESTING
+X   scpos(0,24);
+X   printf("col_tbl(): exct=%d, a=%d, t=%lu, x=%d\n      name=",
+X      exact,a,t_time,x);
+X   for (j = 0; j != *length; ++j) printf(".%d",name[j]);
+X   printf("\n");
+X#endif
+X   bcopy((char far *)vp->name, (char far *)newname, 10*sizeof(oid));
+X   if (exact) {
+X      if (compare(name, 10, newname, 10) != 0) return NULL;
+X      if (a < FTFLOWINDEX || a > FTLASTTIME) return NULL;
+X      newname[10] = (oid)a;
+X      for ( ;  x <= mxflowsp1;  ++x) {
+X	 if ((t = find_flow(x)) == NULL)  /* Ignore deallocated flows */
+X	    continue;
+X	 if (t->LastTime > t_time)  /* Active after target time */
+X	    break;
+X	 }
+X      newname[11] = (oid)t_time;  newname[12] = (oid)x;
+X      }
+X   else {  /* Does oid match up to indexes? */
+X      if (compare(name,10, newname,10) != 0) {    /* No - find first entry */
+X	 a = FTLOWPEERTYPE;
+X	 t_time = 1L;  /* Have to search whole flow table */
+X	 x = 1;  /* Flow 1 is a dummy - never used by meter */
+X	 }
+X      else if (a > FTLASTTIME) return NULL;
+X      newname[10] = (oid)a;
+X      for (++x;  x <= mxflowsp1;  ++x) {
+X	 if ((t = find_flow(x)) == NULL)  /* Ignore deallocated flows */
+X	    continue;
+X	 if (t->LastTime <= t_time)  /* Active up to target time */
+X	    continue;
+X	 newname[11] = (oid)t_time;  newname[12] = (oid)x;
+X	 if (compare(name, *length, newname, (int)vp->namelen) < 0) break;
+X	 }
+X      }
+X   if (x > mxflowsp1) return NULL;  /* No more flows to search */
+X      /* Only allow getnext to go through flow table once! */
+X
+X   bcopy((char far *)newname, (char far *)name, (int)vp->namelen * sizeof(oid));
+X   *length = (int)vp->namelen;
+X
+X   *write_method = 0;
+X   *var_len = sizeof(long);
+X   switch (vp->magic) {
+X   case FTCOLATTRIB:
+X      long_return = (long)a;
+X      return (u_char far *)&long_return;
+X   case FTCOLTIME:
+X      return (u_char far *)&t->LastTime;
+X   case FTCOLINDEX:
+X      long_return = (long)x;
+X      return (u_char far *)&long_return;
+X   case FTCOLBLOB:
+X      for (n = 0, ucp = column_blob;  /* Build the flow blob */
+X	    n <= FLOWBLOBSZ*(2+RULE_ADDR_LEN);  ++x) {
+X	 for ( ; x <= mxflowsp1;  ++x) {  /* Find next active flow */
+X	    if ((t = find_flow(x)) != NULL && t->LastTime > t_time) {
+X	       ucp = putshort(ucp,netshort(x));
+X	       switch (a) {  /* Build the flow blob */
+X	       case FTFLOWINDEX:
+X		  ucp = putshort(ucp,netshort(x));
+X		  break;
+X	       case FTFLOWSTATUS:
+X	       case FTLOWINTERFACE:
+X	       case FTHIINTERFACE:
+X	       case FTLOWADJACENTTYPE:
+X	       case FTHIADJACENTTYPE:
+X		  *ucp++ = 1;
+X		  break;
+X	       case FTLOWADJACENTADDRESS:
+X		  bcopy(t->Low.AdjAddress,
+X		     (unsigned char far *)ucp, MAC_ADDR_LEN);
+X		  ucp += MAC_ADDR_LEN;
+X		  break;
+X	       case FTLOWADJACENTMASK:
+X		  bcopy(t->Low.AdjMask,
+X		     (unsigned char far *)ucp, MAC_ADDR_LEN);
+X		  ucp += MAC_ADDR_LEN;
+X		  break;
+X	       case FTLOWPEERTYPE:
+X	       case FTHIPEERTYPE:
+X		  *ucp++ = t->PeerAddrType;
+X		  break;
+X	       case FTLOWPEERTYPEMASK:
+X	       case FTHIPEERTYPEMASK:
+X		  *ucp++ = t->PeerTypeMask;
+X		  break;
+X	       case FTLOWPEERADDRESS:
+X		  bcopy(t->Low.PeerAddress,
+X		     (unsigned char far *)ucp, PEER_ADDR_LEN);
+X		  ucp += PEER_ADDR_LEN;
+X		  break;
+X	       case FTLOWPEERMASK:
+X		  bcopy(t->Low.PeerMask,
+X		     (unsigned char far *)ucp, PEER_ADDR_LEN);
+X		  ucp += PEER_ADDR_LEN;
+X		  break;
+X	       case FTLOWDETAILTYPE:
+X	       case FTHIDETAILTYPE:
+X		  *ucp++ = t->DetailAddrType;
+X		  break;
+X	       case FTLOWDETAILTYPEMASK:
+X	       case FTHIDETAILTYPEMASK:
+X		  *ucp++ = t->DetailTypeMask;
+X		  break;
+X	       case FTLOWDETAILADDRESS:
+X		  bcopy(t->Low.DetailAddress,
+X		     (unsigned char far *)ucp, DETAIL_ADDR_LEN);
+X		  ucp += DETAIL_ADDR_LEN;
+X		  break;
+X	       case FTLOWDETAILMASK:
+X		  bcopy(t->Low.DetailMask,
+X		     (unsigned char far *)ucp, DETAIL_ADDR_LEN);
+X		  ucp += DETAIL_ADDR_LEN;
+X		  break;
+X	       case FTHIADJACENTADDRESS:
+X		  bcopy(t->High.AdjAddress,
+X		     (unsigned char far *)ucp, MAC_ADDR_LEN);
+X		  ucp += MAC_ADDR_LEN;
+X		  break;
+X	       case FTHIADJACENTMASK:
+X		  bcopy(t->High.AdjMask,
+X		     (unsigned char far *)ucp, MAC_ADDR_LEN);
+X		  ucp += MAC_ADDR_LEN;
+X		  break;
+X	       case FTHIPEERADDRESS:
+X		  bcopy(t->High.PeerAddress,
+X		     (unsigned char far *)ucp, PEER_ADDR_LEN);
+X		  ucp += PEER_ADDR_LEN;
+X		  break;
+X	       case FTHIPEERMASK:
+X		  bcopy(t->High.PeerMask,
+X		     (unsigned char far *)ucp, PEER_ADDR_LEN);
+X		  ucp += PEER_ADDR_LEN;
+X		  break;
+X	       case FTHIDETAILADDRESS:
+X		  bcopy(t->High.DetailAddress,
+X		     (unsigned char far *)ucp, DETAIL_ADDR_LEN);
+X		  ucp += DETAIL_ADDR_LEN;
+X		  break;
+X	       case FTHIDETAILMASK:
+X		  bcopy(t->High.DetailMask,
+X		     (unsigned char far *)ucp, DETAIL_ADDR_LEN);
+X		  ucp += DETAIL_ADDR_LEN;
+X		  break;
+X	       case FTRULESET:
+X		  *ucp++ = t->FlowRuleSet;
+X		  break;
+X	       case FTFLOWTYPE:
+X		  *ucp++ = t->FlowType;
+X		  break;
+X	       case FTUPOCTETS:
+X		  ucp = putlong(ucp,netlong(t->UpOctets));
+X		  break;
+X	       case FTUPPDUS:
+X		  ucp = putlong(ucp,netlong(t->UpPDUs));
+X		  break;
+X	       case FTDOWNOCTETS:
+X		  ucp = putlong(ucp,netlong(t->DownOctets));
+X		  break;
+X	       case FTDOWNPDUS:
+X		  ucp = putlong(ucp,netlong(t->DownPDUs));
+X		  break;
+X	       case FTFIRSTTIME:
+X		  ucp = putlong(ucp,netlong(t->FirstTime));
+X		  break;
+X	       case FTLASTTIME:
+X		  ucp = putlong(ucp,netlong(t->LastTime));
+X		  break;
+X		  }
+X	       n += 2+attribs[a].len;
+X	       break;
+X	       }
+X	    }
+X	 if (x > mxflowsp1) {
+X	    if (!exact) name[12] = mxflowsp1;
+X	       /* Return index of last possible flow */
+X	    putshort(ucp,0);  /* Mark end of column */
+X	    *var_len = n+2;
+X	    return (u_char far *)&column_blob;
+X	    }
+X	 }
+X      if (!exact) name[12] = (oid)x;
+X	 /* Return index of last flow in blob */
+X      putshort(ucp,1);  /* Mark end of this blob (more to come) */
+X      *var_len = n+2;
+X      return (u_char far *)&column_blob;
+X      }
+X   return NULL;
+X   }
+X
+Xu_char far *	/* Rule + action tables */
+Xvar_rt(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X   unsigned char rule_rq, rule_set;
+X   unsigned int x, sz;
+X   oid newname[MAX_NAME_LEN];
+X   struct rule far *r, far *rt;
+X   struct flow far *a, far *at;
+X#ifdef TESTING
+X   unsigned char j;
+X   int cmp;
+X#endif
+X
+X   rule_rq =  /* acct.3 = rule table, acct.4 = action table */
+X      (unsigned int)name[6] == 3;
+X#ifdef TESTING
+X   rule_set = name[10];
+X   x = (unsigned int)name[11];
+X   scpos(0,24);
+X   printf("var_rt(): exact=%d, rule=%d, set=%d, x=%d\n   name=",
+X      exact,rule_rq,rule_set,x);
+X   for (j = 0; j != *length; ++j) printf(".%d",name[j]);
+X   printf("\n");
+X#endif
+X   bcopy((char far *)vp->name, (char far *)newname, 10*sizeof(oid));
+X   if (exact) {
+X      if ((rule_set = name[10]) > MXNRTBLS) return NULL;
+X      x = (unsigned int)name[11];
+X      if (rule_rq) {
+X	 if ((rt = rule_table[rule_set-1]) == NULL) return NULL;
+X	 if (x > (sz = rt_size[rule_set-1])) return NULL;
+X	 }
+X     else {
+X	 if ((at = action_table[rule_set-1]) == NULL) return NULL;
+X	 if (x > (sz = at_size[rule_set-1])) return NULL;
+X	 }
+X      newname[10] = (oid)rule_set;  newname[11] = (oid)x;
+X      if (compare(name,*length, newname,(int)vp->namelen) != 0) return NULL;
+X      if (rule_rq) {
+X	 if ((r = &rt[x-1]) == NULL) return NULL;
+X	 }
+X      else {
+X	 if ((a = &at[x-1]) == NULL) return NULL;
+X	 }
+X      }
+X   else {
+X      if (compare(name,10, newname,10) != 0) {  /* Not in this table column */
+X	 rule_set = 1;  x = 0;  /* Have to search whole 2-D table */
+X	 }
+X      else {
+X	 rule_set = name[10];  x = (unsigned int)name[11];
+X	 }
+X      for ( ; ; ++rule_set, x = 0) {
+X	 if (rule_set > MXNRTBLS) return NULL;
+X	 if (rule_rq) {
+X	    if ((rt = rule_table[rule_set-1]) == NULL) continue;
+X	    if (x >= (sz = rt_size[rule_set-1])) continue;
+X	    }
+X	 else {
+X	    if ((at = action_table[rule_set-1]) == NULL) continue;
+X	    if (x >= (sz = at_size[rule_set-1])) continue;
+X	    }
+X	 newname[10] = (oid)rule_set;
+X	 for (++x; x <= sz; ++x) {
+X	    if (rule_rq) {
+X	       if ((r = &rt[x-1]) == NULL) continue;
+X	       }
+X	    else {
+X	       if ((a = &at[x-1]) == NULL) continue;
+X	       }
+X	    newname[11] = (oid)x;
+X#ifdef TESTING
+X	    cmp = compare(name, *length, newname, (int)vp->namelen);
+X	    printf("x=%d, cmp=%d ", x,cmp);
+X	    for (j = 0; j != (int)vp->namelen; ++j) printf(".%d",newname[j]);
+X	    printf("\n");
+X	    if (cmp < 0) break;
+X#else
+X	    if (compare(name, *length, newname, (int)vp->namelen) < 0) break;
+X#endif
+X	    }
+X	 if (x <= sz) break;  /* Found the next one! */
+X	 }
+X      }
+X
+X   bcopy((char far *)newname, (char far *)name, (int)vp->namelen * sizeof(oid));
+X   *length = (int)vp->namelen;
+X
+X#ifdef TESTING
+X#ifdef AU_MSDOS
+Xif (rule_rq) printf("   rt[%d], address=%Fp, x=%d\n", rule_set, r, x);
+Xelse printf("   at[%d], address=%Fp, x=%d\n", rule_set, a, x);
+X#else
+Xif (rule_rq) printf("   rt[%d], address=%lu, x=%d\n", rule_set, r, x);
+Xelse printf("   at[%d], address=%lu, x=%d\n", rule_set, a, x);
+Xfflush(stdout);
+X#endif
+X#endif
+X   *write_method = 0;
+X   *var_len = sizeof(long);
+X   switch (vp->magic) {
+X   case RTRULESET:
+X   case ATACTIONSET:
+X      long_return = (long)rule_set;
+X      return (u_char far *)&long_return;
+X   case RTRULEINDEX:
+X   case ATACTIONINDEX:
+X      long_return = (long)x;
+X      return (u_char far *)&long_return;
+X
+X   case RTSELECTOR:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&r->RuleSelector;
+X   case RTRULEMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = RULE_ADDR_LEN;
+X      return (u_char far *)&r->RuleMask;
+X   case RTMATCHVALUE:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = RULE_ADDR_LEN;
+X      return (u_char far *)&r->RuleMatchedValue;
+X   case RTRULEACTION:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&r->RuleAction;
+X   case RTJUMPINDEX:
+X      *write_method = (int (*)())writeint;
+X      *var_len = sizeof(unsigned int);
+X      return (u_char far *)&r->RuleJumpIndex;
+X
+X   case ATLOWINTERFACE:
+X   case ATHIINTERFACE:
+X      break;  /* Interface 1 is the only one! */
+X
+X   case ATLOWADJACENTTYPE:
+X   case ATHIADJACENTTYPE:
+X      break;  /* Ethernet is the only adjacent type! */
+X   case ATLOWADJACENTADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&a->Low.AdjAddress;
+X   case ATLOWADJACENTMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&a->Low.AdjMask;
+X
+X   case ATLOWPEERTYPE:
+X   case ATHIPEERTYPE:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&a->PeerAddrType;
+X   case ATLOWPEERTYPEMASK:
+X   case ATHIPEERTYPEMASK:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&a->PeerTypeMask;
+X   case ATLOWPEERADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&a->Low.PeerAddress;
+X   case ATLOWPEERMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&a->Low.PeerMask;
+X
+X   case ATLOWDETAILTYPE:
+X   case ATHIDETAILTYPE:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&a->DetailAddrType;
+X   case ATLOWDETAILTYPEMASK:
+X   case ATHIDETAILTYPEMASK:
+X      *write_method = (int (*)())writechar;
+X      *var_len = sizeof(unsigned char);
+X      return (u_char far *)&a->DetailTypeMask;
+X   case ATLOWDETAILADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&a->Low.DetailAddress;
+X   case ATLOWDETAILMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&a->Low.DetailMask;
+X
+X   case ATHIADJACENTADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&a->High.AdjAddress;
+X   case ATHIADJACENTMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = MAC_ADDR_LEN;
+X      return (u_char far *)&a->High.AdjMask;
+X
+X   case ATHIPEERADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&a->High.PeerAddress;
+X   case ATHIPEERMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = PEER_ADDR_LEN;
+X      return (u_char far *)&a->High.PeerMask;
+X
+X   case ATHIDETAILADDRESS:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&a->High.DetailAddress;
+X   case ATHIDETAILMASK:
+X      *write_method = (int (*)())writeAddress;
+X      *var_len = DETAIL_ADDR_LEN;
+X      return (u_char far *)&a->High.DetailMask;
+X
+X   case ATPDUSCALE:
+X   case ATOCTETSCALE:
+X      break;  /* Not yet implemented */
+X
+X   default:
+X      ERROR("");
+X      }
+X   return NULL;
+X   }
+END_OF_FILE
+  if test 53127 -ne `wc -c <'netramet/src/meter/met_vars.c'`; then
+    echo shar: \"'netramet/src/meter/met_vars.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/meter/met_vars.c'
+fi
+if test -f 'netramet/src/snmplib/include/ausnmp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/snmplib/include/ausnmp.h'\"
+else
+  echo shar: Extracting \"'netramet/src/snmplib/include/ausnmp.h'\" \(531 characters\)
+  sed "s/^X//" >'netramet/src/snmplib/include/ausnmp.h' <<'END_OF_FILE'
+X/* 1000, Fri 4 Jun 93
+X
+X   Header file for AU_MSDOS implementation of CMU SNMP
+X
+X   Nevil Brownlee,  Computer Centre, University of Auckland */
+X
+X
+X#ifdef AU_MSDOS
+Xtypedef unsigned char u_char;
+Xtypedef unsigned long u_long;
+Xtypedef unsigned int u_short;
+X
+X#include <mem.h>
+Xvoid qmove(unsigned char far *s, unsigned char far *d, unsigned int n);
+X#define bcopy(s,d,n) qmove(s,d,n)
+X
+X#else  /* Not AU_MSDOS */
+X
+X#define far
+X#define farfree free
+X#define farmalloc malloc
+X#include <sys/types.h>
+X#include <malloc.h>
+X#include <memory.h>
+X
+X#endif
+END_OF_FILE
+  if test 531 -ne `wc -c <'netramet/src/snmplib/include/ausnmp.h'`; then
+    echo shar: \"'netramet/src/snmplib/include/ausnmp.h'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/snmplib/include/ausnmp.h'
+fi
+echo shar: End of archive 6 \(of 25\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

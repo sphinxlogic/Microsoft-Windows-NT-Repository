@@ -1,0 +1,597 @@
+From clewis@mnetor.UUCP (Chris Lewis) Thu Jun 19 16:37:07 1986
+Path: seismo!harvard!think!nike!ucbcad!ucbvax!hplabs!motsj1!mnetor!clewis
+From: clewis@mnetor.UUCP (Chris Lewis)
+Newsgroups: net.sources
+Subject: News Admins: Never blow a spool area again!
+Message-ID: <3551@mnetor.UUCP>
+Date: 19 Jun 86 20:37:07 GMT
+Organization: Computer X (CANADA) Ltd., Toronto, Ontario, Canada
+Lines: 590
+Keywords: news batch spool uucp feed
+
+#!/bin/sh
+echo 'Start of pack.out, part 01 of 01:'
+echo 'x - README'
+sed 's/^X//' > README << '/'
+XNews Admins!
+X
+XSick of having millions of cron entries, differing [cs7]sendbatch scripts,
+Xand blown out spool areas with your downstream feeds?  Well, have I got
+Xsomething for you!
+X
+XThe following program (batcher) solves all of these problems (if your're
+Xlucky!).  You install it in your /usr/lib/news along with a batch 
+Xcontrol file ("batch.ctrl").  batch.ctrl contains a line per down-stream 
+Xsite which contains descriptions on how to send news to that site.
+X
+XSetup:
+X	- modify your "sys" file so that each system you want to control
+X	  this way has batching turned on.  Eg:
+X		mnetor:....:F:/usr/spool/batch/mnetor
+X	- add a line for the site into batch.ctrl.  batch.ctrl contains
+X	  descriptions of each field.
+X	- via cron, run batcher setuid news with either:
+X		- the name of the system
+X		- a "class" (which'll run all systems with that class)
+X
+XAdvantages:
+X	1) Batching instructions for all downstream sites is contained
+X	   in one file, instead of having to make customized *sendbatches
+X	   (eg: differing bits in compress, different grades, different
+X	   batch sizes)
+X	2) You can control the size of a batch - tuning for various
+X	   link qualities
+X	3) If you have 4.3 BSD UUCP - you can completely eliminate
+X	   the possibility of blowing out your spool area.  batch.ctrl
+X	   allows you to specify the maximum length the UUCP queue can be
+X	   for each system.  Batcher will not invoke the real batching 
+X	   software unless and until the UUCP queue size for that site 
+X	   is below this limit.  If the queue for a specific system
+X	   grows above this length, the batch file will be left untouched
+X	   and will only be processed when the downstream manages to
+X	   bring the queue size back down below the limit.
+X
+X	   This is done by "popen("uuq -l -s<sitename>", "r")" to
+X	   find out the size of the queue for the site.  Non 4.3 UUCP
+X	   can probably write their own function to scan the 
+X	   /usr/spool/uucp's "C." files to figger out how big the queue
+X	   is for a specific system.
+X
+X	   If you don't have a way to determine queue size, undef "UUQ"
+X	   in batcher.c.  (4) below will alleviate the lack of this
+X	   function, but you may have a network clog if one of your
+X	   downstreams dies and uses up the rest of the spool area.
+X
+X	4) If you are running on a 4.x BSD system, batcher will also
+X	   not invoke the real batching software if the amount of
+X	   space in the UUCP spool area is below 5 Mb.  This is done
+X	   by doing a "df /usr/spool/uucp", which I believe only
+X	   works on 4.2 or 4.3 BSD.  Kludging this for systems
+X	   where "df <file>" doesn't work shouldn't be too hard.
+X	   If you can't do this, undef "DFABLE"
+X
+X    Note: the checks for (3) and (4) are done after each batch is
+X    created.  Using uuq and df is kinda slow, but it is swamped
+X    by the execution of the batching itself.
+X
+X    I'd recommend looking at the first bit of batcher.c before running
+X    the makefile (SV make only, you may have to fudge a bit for BSD).
+X
+XThis software has made an incredible difference on this site.
+XWe give full feeds to 7 sites, plus smaller ones to about another
+X10.  Until this was installed, we had to disable batching to
+Xone site or another every second day.  And we blew spool areas on 
+Xweekends.  We haven't had to touch *anything* since this was installed.  
+XEven when sites have been unreachable for weeks on end.
+X
+XI'm sorry I haven't been able to write a better set of documentation,
+Xor send it off to mod.sources, but tomorrow is my last day here, and
+XI may not be able to get back on the net for a while.
+X
+XWorks with 2.10.2 and 2.10.3 news.
+/
+echo 'x - batch.ctrl'
+sed 's/^X//' > batch.ctrl << '/'
+X#	Example batch.ctrl file.
+X#	Description:
+X#	1st field is name.
+X#	2nd field is "class"; "batcher -c<C>" will do all those
+X#	    systems with class <C>.  Default is "z".
+X#	3rd field is "compress line".
+X#		Default is no compress
+X#		placeing something here uses this as an intermediate
+X#		pipe.  If you use compress, with no uux field, the
+X#		default is uux .... !cunbatch
+X#		You can throw in other compress arguments here.
+X#	4th field is uux flags.  default is: -r -z -gd
+X#		(do not start uucico, only remote acknowledge of failures,
+X#		grade D)
+X#	5th field is size of batches.  Default 100K.
+X#	6th field is max queue size.  Default 500K
+X#	7th field: complete uux line replacement.
+X#	default: "uux - <uuxflags> nodename!<unbatch|cunbatch>"
+X#
+X#	If a name does not exist, batcher won't send a batch.
+X#
+X#	Normal news feeds:
+Xgenat::compress -C::::
+Xutcs::compress -C::::
+Xradha::compress::::
+Xtoram::compress:-n -r -gd:::
+Xyetti:z:compress -C::::
+Xlsuc::compress -C -b 13::::
+Xmicomvax::::::
+X#	new news feed coming up
+Xsyntron::compress -C::::
+X#	Mot news feeds:
+Xmotsj1:A::-n -r %gd222Pegt2A22%f %r %gd222P#cP fews feeds2P#cped2A22%f %gB222Pcp`q2A22%f %gB222Pcpsea2A22%f %gB222Pcpm{o:I:komxzm{s -C:-n -gB:::
+Xcxsch:A:::20000::mail cxsch!ewa
+Xcxtex:A:::20000::mail cxtex!cxmail
+Xcxphx:A:::20000::mail cxphx!nms
+Xcxmd:A:::20000::mail cxmd!joe
+Xtest:A:::::mail clewis
+/
+echo 'x - batcher.c'
+sed 's/^X//' > batcher.c << '/'
+X/*	Chris Lewis, June 1986	*/
+X#include <stdio.h>
+X#if	defined(BSD4_2) || defined(BSD4_1C)
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+Xextern char *malloc();
+Xextern void free();
+X
+X#define	NUMFLDS	7
+X#define	NAME	0
+X#define	CLASS	1
+X#define	COMPRESS 2
+X#define	UUXFLAGS 3
+X#define	SIZE	4
+X#define	QSIZE	5
+X#define	UUX	6
+X
+X
+X#define	UUQ	/* define this if you have BSD 4.3 uuq utility */
+X#define	DFABLE	/* define this if "df /usr/spool/uucp" works on your system */
+X
+Xint	fldlen[NUMFLDS] = {10, 2, 20, 10, 7, 10, 30};
+X
+Xstruct desc {
+X	char 		*flds[NUMFLDS];
+X	struct desc	*next;
+X} *head = (struct desc *) NULL, 
+X  *dptr = (struct desc *) NULL;
+X
+X#if	defined(BSD4_2) || defined(BSD4_1C)
+X#define	strchr	index
+X#endif
+X
+X#ifdef	DEBUG
+X#define	BATCHCTRL	"batch.ctrl"
+X#else
+X#define	BATCHCTRL	"/usr/lib/news/batch.ctrl"
+X#endif
+X
+X#define	BATCH	"/usr/spool/batch"
+X#define	SBATCH	"/usr/lib/news/batch"
+X
+Xstruct desc *getflds();
+X
+Xint	verbose = 0;
+Xint	class;
+Xint	spoolok = 1;
+X
+Xlong	spoollim = 5000000;
+X
+X/*
+X *	main:
+X *		- process arguments
+X *		- read control file
+X *		- for each system selected, see if there is any work,
+X *		    if so, go try to do it.
+X */
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv; {
+X	register char *p;
+X	register struct desc *curptr;
+X	argc--; argv++;
+X	for (;argc > 0 && **argv == '-'; argv++) {
+X		for (p = (*argv)+1; *p; p++)
+X			switch(*p) {
+X				case 'v':
+X					verbose = 1;
+X					break;
+X				case 'c':
+X					class = *(p+1);
+X					if (class == 0)
+X						class = 'z';
+X					else
+X						p++;
+X					break;
+X				default:
+X					fprintf(stderr, "batcher: Bad arg %s\n", *argv);
+X					exit(1);
+X			}
+X	}
+X	readctrl();
+X	if (!checkspool()) {
+X		exit(0);
+X	}
+X	if (verbose)
+X		dumpctrl();
+X	if (class) {
+X		for (curptr = head; curptr && spoolok; curptr = curptr->next) {
+X			if (*(curptr->flds[CLASS]) == class &&
+X				(chkbatch(curptr->flds[NAME], "") || 
+X				chkbatch(curptr->flds[NAME], ".work")) &&
+X				(spoolok = checkspool()))
+X				doit(curptr->flds[NAME]);
+X		}
+X	}
+X	while(*argv && spoolok) {
+X		if (chkbatch(*argv, "") || chkbatch(*argv, ".work")) {
+X			doit(*argv);
+X		}
+X		argv++;
+X	}
+X	exit(0);
+X
+X}
+X
+X/*
+X *	readctrl:
+X *
+X *	Each line in the batch.ctrl file contains NUMFLDS colon-separated
+X *	parameters.  This function reads each line, and calls getflds
+X *	to separate out the parameters.  If getflds returns a system descriptor
+X *	it is linked into the list of system descriptors.
+X */
+X
+Xreadctrl() {
+X	char	buf[BUFSIZ];
+X	register char	*p;
+X	register struct desc *ptr;
+X	struct desc *getflds();
+X	register FILE	*ctrl = fopen(BATCHCTRL, "r");
+X	if (!ctrl) {
+X		fprintf(stderr, "batcher: could not open %s file\n",
+X		    BATCHCTRL);
+X		exit(1);
+X	}
+X	while (fgets(buf, sizeof(buf), ctrl)) {
+X		if (buf[0] == '#')
+X			continue;
+X		p = buf + strlen(buf) - 1;
+X		if (*p == '\n')
+X			*p = '\0';
+X		if ((ptr = getflds(buf)) && processctrl(ptr)) {
+X			if (!head)
+X				head = dptr = ptr;
+X			else {
+X				dptr->next = ptr;
+X				dptr = ptr;
+X			}
+X			ptr->next = (struct desc *) NULL;
+X		}
+X	}
+X	fclose(ctrl);
+X}
+X
+X/*
+X *	dumpctrl:
+X *
+X *	If verbose is on, dump the tables
+X */
+X
+Xdumpctrl() {
+X	register struct desc *p;
+X	register int i;
+X	for (p = head; p; p = p->next) {
+X		for (i = 0; i < NUMFLDS; i++)
+X			printf("%-*s", fldlen[i], p->flds[i]);
+X		printf("\n");
+X	}
+X}
+X
+Xchar *strsave();
+X
+X/*
+X *	getflds:
+X *
+X *	This routine parses a single line from the batch.ctrl file,
+X *	and if successfully parsed and checked out, returns a system
+X *	descriptor pointer
+X */
+X
+Xstruct desc *
+Xgetflds(buf)
+Xchar	*buf; {
+X	register int cnt;
+X	char b2[100];
+X	char *curp, *p;
+X	int	len;
+X	struct desc *dptr;
+X	dptr = (struct desc *) malloc(sizeof (struct desc));
+X	if (!dptr) {
+X		fprintf(stderr, "batcher: Cannot malloc\n");
+X		exit(1);
+X	}
+X	curp = buf;
+X	for (cnt = 0; cnt < NUMFLDS; cnt++) {
+X		if (cnt == (NUMFLDS - 1)) {
+X			if (strchr(curp, ':')) {
+X				fprintf(stderr, "batcher: too many colons: %s\n",
+X					buf);
+X				free(dptr);
+X				return(NULL);
+X			}
+X			p = curp + strlen(curp);
+X		} else
+X			p = strchr(curp, ':');
+X		if (p == NULL) {
+X			fprintf(stderr, "batcher: invalid format (%d): %s\n", 
+X				cnt, buf);
+X			free(dptr);
+X			return(NULL);
+X		}
+X		len = p - curp;
+X		if (len >= fldlen[cnt]) {
+X			fprintf(stderr, "batcher: field %d too long: %s\n",
+X				cnt+1, buf);
+X			free(dptr);
+X			return(NULL);
+X		}
+X		if (!(dptr->flds[cnt] = malloc(len + 1))) {
+X			fprintf(stderr, "batcher: cannot malloc\n");
+X			exit(1);
+X		}
+X		strncpy(dptr->flds[cnt], curp, len);
+X		dptr->flds[cnt][len] = '\0';
+X		curp = p + 1;
+X	}
+X	return(dptr);
+X}
+X
+X/*
+X *	strsave:
+X *	returns pointer to malloc'd copy of argument
+X */
+Xchar *
+Xstrsave(s)
+Xchar	*s; {
+X	register char *p = malloc(strlen(s) + 1);
+X	if (!p) {
+X		fprintf(stderr, "batcher: cannot malloc\n");
+X		exit(1);
+X	}
+X	strcpy(p, s);
+X	return(p);
+X}
+X
+X/*
+X *	chkbatch:
+X *
+X *	return 1 if a batcher work file <batchdir>/<name><type> exists.
+X */
+X
+Xchkbatch(name, type)
+Xchar	*name;
+Xchar	*type; {
+X	char batch[BUFSIZ];
+X	sprintf(batch, "%s/%s%s", BATCH, name, type);
+X	if (access(batch, 04) == 0)
+X		return(1);
+X	else
+X		return(0);
+X}
+X
+X/*
+X *	doit:
+X *
+X *	This routine is called with the name of the system that has
+X *	been determined to have work for it.  The system is searched
+X *	for in the system descriptors.  If found, a "system" line
+X *	is contructed from the tables, and executed if system has not
+X *	exceeded it's UUCP queue limit.
+X */
+X
+Xdoit(name)
+Xchar	*name; {
+X	char	cmdbuf[BUFSIZ];
+X	int	rc;
+X	long	queuesize;
+X	long	checkqueue(), checkspool();
+X	long	queuemax;
+X	register struct desc *ptr;
+X	if (verbose)
+X		printf("batcher: doing %s\n", name);
+X	for (ptr = head; ptr; ptr = ptr->next)
+X		if (!strcmp(ptr->flds[NAME], name)) {
+X			/*	form the command line for batching	*/
+X			sprintf(cmdbuf, "%s %s/%s %s",
+X				SBATCH, BATCH, name, ptr->flds[SIZE]);
+X			if (*(ptr->flds[COMPRESS]))
+X				sprintf(cmdbuf + strlen(cmdbuf), "|%s",
+X					ptr->flds[COMPRESS]);
+X			/*	Find the queue limit	*/
+X			sprintf(cmdbuf + strlen(cmdbuf), "|%s", ptr->flds[UUX]);
+X			if (1 != sscanf(ptr->flds[QSIZE], "%ld", &queuemax)) {
+X				fprintf(stderr, "batcher: bad qmax field: %s\n",
+X					ptr->flds[QSIZE]);
+X				return;
+X			}
+X			queuesize = checkqueue(ptr->flds[NAME]);
+X			rc = 0;
+X			/*	While we haven't exceeded the queue limit &
+X				there's work to do, issue the command */
+X			while (queuesize < queuemax && !rc && 
+X				(chkbatch(ptr->flds[NAME], "") || 
+X				   chkbatch(ptr->flds[NAME], ".work")) &&
+X				   (spoolok = checkspool())) {
+X#ifdef	DEBUG
+X				printf("batcher: cmd: %s\n", cmdbuf);
+X				rc = 1;
+X#else
+X				rc = system(cmdbuf);
+X				queuesize = checkqueue(ptr->flds[NAME]);
+X#endif
+X			}
+X			return;
+X		}
+X	fprintf(stderr, "batcher: no control line for %s\n", name);
+X}
+X
+X/*
+X *	processctrl:
+X *
+X *	Check validity of batch.ctrl entries and supply defaults.
+X */
+Xprocessctrl(ptr)
+Xstruct	desc *ptr; {
+X	char	buf[100];
+X	register char	*p, *uuxflags;
+X	if (!ptr) return;
+X	if (strlen(ptr->flds[NAME]) == 0) {
+X		fprintf(stderr, "batcher: null system name\n");
+X		free(ptr);
+X		return(0);
+X	}
+X
+X	if (strlen(ptr->flds[QSIZE]) == 0) {
+X		free(ptr->flds[QSIZE]);
+X		ptr->flds[QSIZE] = strsave("500000");
+X	}
+X
+X	if (strlen(ptr->flds[CLASS]) == 0) {
+X		free(ptr->flds[CLASS]);
+X		ptr->flds[CLASS] = strsave("z");
+X	}
+X
+X	if (strlen(ptr->flds[SIZE]) == 0) {
+X		free(ptr->flds[SIZE]);
+X		ptr->flds[SIZE] = strsave("100000");
+X	}
+X
+X	if (strlen(ptr->flds[UUXFLAGS]) == 0) {
+X		free(ptr->flds[UUXFLAGS]);
+X		ptr->flds[UUXFLAGS] = strsave("-r -z -gd");
+X	}
+X
+X	if (strlen(ptr->flds[UUX]) == 0) {
+X		sprintf(buf, "uux - %s %s!%s", ptr->flds[UUXFLAGS],
+X			ptr->flds[NAME], 
+X			*ptr->flds[COMPRESS] ? "cunbatch" : "rnews");
+X		ptr->flds[UUX] = strsave(buf);
+X	}
+X	return(1);
+X}
+X
+X/*
+X *	checkqueue:
+X *
+X *	Logically, all this code does is return the size of the UUCP queue
+X *	for system "name".
+X *	I've taken the easy way out and popen'd "uuq" (4.3 BSD UUCP utility)
+X *	to parse the first line, which looks something like this:
+X *
+X *	<systemname>: <n> jobs, <nnnn> bytes, ....
+X *
+X *	I merely look for the first comma, and sscanf the number following.
+X *	A proper solution would be to dive in and parse the UUCP queues
+X *	themselves, but: it's moderately difficult, and it changes from 
+X *	system to system.
+X */
+X
+Xlong
+Xcheckqueue(name)
+Xchar	*name; {
+X#ifdef	UUQ
+X	char buf[BUFSIZ];
+X	long retval;
+X	register char *p2;
+X	FILE *p, *popen();
+X	/* Gross, but the easiest way */
+X	sprintf(buf, "uuq -l -s%s", name);
+X	p = popen(buf, "r");
+X	if (!fgets(buf, sizeof(buf), p)) {
+X		return(0);
+X	}
+X	pclose(p);
+X	p2 = strchr(buf, ',');
+X	if (p2 && 1 == sscanf(p2+1, "%ld", &retval)) {
+X		return(retval);
+X	}
+X	fprintf(stderr, "batcher: could not interpret %s\n", buf);
+X	return(10000000);
+X#else
+X	return(10000000);
+X#endif
+X}
+X
+X/*	This function returns the amount of free space on the spool
+X	device, this may not work on your system - it reads the
+X	second line from a "df /usr/spool/uucp" */
+X#define	SPOOL "/usr/spool/uucp"
+X
+Xcheckspool() {
+X#ifdef	DFABLE
+X	char buf[100];
+X	FILE *p, *popen();
+X	long val;
+X	sprintf(buf, "df %s", SPOOL);
+X	if (!(p = popen(buf, "r"))) {
+X		fprintf(stderr, "batcher: couldn't popen %s\n", buf);
+X		return(0);
+X	}
+X	if (!fgets(buf, sizeof(buf), p)) {
+X		fprintf(stderr, "batcher: no first line in df\n");
+X		return(0);
+X	}
+X	if (!fgets(buf, sizeof(buf), p)) {
+X		fprintf(stderr, "batcher: no second line in df\n");
+X		return(0);
+X	}
+X	if (1 != sscanf(buf, "%*s %*ld %*ld %ld", &val)) {
+X		fprintf(stderr, "batcher: couldn't get size from %s\n", buf);
+X		return(0);
+X	}
+X	if (pclose(p)) {
+X		fprintf(stderr, "batcher: DF failed\n");
+X		return(0);
+X	}
+X	val *= 1024;
+X	if (val < spoollim) {
+X		printf("batcher: spool limit exceeded, %ld bytes left\n", val);
+X		return(0);
+X	} else
+X		return(1);
+X#else
+X	return(1);
+X#endif
+X}
+/
+echo 'x - makefile'
+sed 's/^X//' > makefile << '/'
+XCFLAGS	= -g -DBSD4_2
+Xall:	batcher
+/
+echo 'Part 01 of pack.out complete.'
+exit
+-- 
+Chris Lewis,
+
+Until tomorrow:
+{pyramid|watmath|utcsri|decvax|allegra|linus|ihnp4}!utzoo!
+{utcsri|cbosgd}!utcs!
+{yetti|lsuc|genat|mot|oakhill}!
+... mnetor!clewis
+
+Monday: utzoo!spectrix!clewis  (I hope)
+
+BELL: (416)-475-8980 ext. 321
+
+

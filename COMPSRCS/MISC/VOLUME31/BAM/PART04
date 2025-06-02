@@ -1,0 +1,1073 @@
+Newsgroups: comp.sources.misc
+From: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Subject:  v31i060:  bam - [OpenLook|Athena] menu system for [GNU|Epoch|Lucid] Emacs, Part04/07
+Message-ID: <1992Jul31.042532.23787@sparky.imd.sterling.com>
+X-Md4-Signature: 3790d96ad8205adbf64165f25058384f
+Date: Fri, 31 Jul 1992 04:25:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Posting-number: Volume 31, Issue 60
+Archive-name: bam/part04
+Environment: Lex, Yacc, SunOS 4.x with XView or BSD Unix with Athena Widget
+Supersedes: bam: Volume 27, Issue 68-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 7)."
+# Contents:  bam-2.0/panelmenu.c bam-2.0/parfaw.c bam-2.0/parfxv.c
+#   bam-2.0/parser.y
+# Wrapped by sbo@froh on Mon Jul 27 20:11:49 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'bam-2.0/panelmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/panelmenu.c'\"
+else
+echo shar: Extracting \"'bam-2.0/panelmenu.c'\" \(6333 characters\)
+sed "s/^X//" >'bam-2.0/panelmenu.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: panelmenu.c,v 1.3 1992/03/30 20:50:24 sbo Exp $ */
+X
+X#include "bam.h"
+X
+X#define ABOUT_THE_AUTHOR "About the Author"
+X#define BUG_REPORTS "Bug Reports"
+X#define RELOAD_MENU_STR "Reload Menu"
+X#define TOGGLE_RESIZE_CORNER_STR "Toggle Resize Corners"
+X
+XFrame authorFrame;
+XFrame bugReportsFrame;
+X
+Xstatic short authorPictureBits[] = {
+X  0x3E00, 0x7F00, 0xFF80, 0xFF80, 0xFF80, 0xFF80, 0xFF80, 0x7F00,
+X  0x3E00, 0x0800, 0x0800, 0x0800, 0x0800, 0x0800, 0x7F00, 0x0000
+X  };
+X
+Xvoid panelMenuEventProc();
+XpanelMenuNotifyProc();
+X
+XmakePanelMenu(frame, panel)
+X     Frame frame;
+X     Panel panel;
+X{
+X  Menu panelMenu;
+X  Panel frameCmdPanel;
+X  Server_image authorPicture;
+X  Xv_screen screen;
+X  int screenNo;
+X  Display *dpy;
+X  int screenWidth, screenHeight;
+X  int frameWidth, frameHeight;
+X
+X  panelMenu=(Menu)
+X    xv_create(NULL, MENU,
+X	      MENU_NOTIFY_PROC, panelMenuNotifyProc,
+X	      MENU_STRINGS, ABOUT_THE_AUTHOR, BUG_REPORTS, RELOAD_MENU_STR, NULL,
+X	      NULL);
+X  xv_set(panel, WIN_CLIENT_DATA, panelMenu,
+X	 PANEL_BACKGROUND_PROC, panelMenuEventProc, NULL);
+X
+X
+X  dpy=(Display *)xv_get(frame, XV_DISPLAY);
+X  screen=(Xv_screen)xv_get(frame, XV_SCREEN);
+X  screenNo=(int)xv_get(screen, SCREEN_NUMBER);
+X  screenWidth=DisplayWidth(dpy, screenNo);
+X  screenHeight=DisplayHeight(dpy, screenNo);
+X
+X  /* Create the 'About the Author Frame' */
+X  authorFrame=(Frame)
+X    xv_create(frame, FRAME_CMD, FRAME_LABEL, ABOUT_THE_AUTHOR, NULL);
+X  frameCmdPanel=(Panel)xv_get(authorFrame, FRAME_CMD_PANEL, NULL);
+X  authorPicture=(Server_image)
+X    xv_create(NULL, SERVER_IMAGE,
+X	      XV_WIDTH, 16, 
+X	      XV_HEIGHT, 16, 
+X	      SERVER_IMAGE_DEPTH, 1,
+X	      SERVER_IMAGE_BITS, authorPictureBits,
+X	      NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE,
+X		  PANEL_LABEL_IMAGE, authorPicture,
+X		  NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "Hi! I'm the author of this software.", NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "sbo@vlsi.polymtl.ca", NULL);
+X
+X  window_fit(frameCmdPanel);
+X  window_fit(authorFrame);
+X
+X  frameWidth=(int)xv_get(authorFrame, XV_WIDTH, NULL);
+X  frameHeight=(int)xv_get(authorFrame, XV_HEIGHT, NULL);
+X
+X  xv_set(authorFrame, 
+X	 XV_X, (screenWidth-frameWidth)/2,
+X	 XV_Y, (screenHeight-frameHeight)/2,
+X	 NULL);
+X
+X  if (noAuthorFrame) {
+X    /* Do not display the author frame when starting Bam */
+X  }
+X  else {
+X    /* Start the author frame */
+X    xv_set(authorFrame, FRAME_CMD_PUSHPIN_IN, TRUE, NULL);
+X    xv_set(authorFrame, XV_SHOW, TRUE, NULL);
+X
+X    /* Disable the display, so that the frame will not
+X       be shown when reloading a menu */
+X    noAuthorFrame=TRUE;
+X  }
+X
+X  /* Create the 'Bug Reports' */
+X  bugReportsFrame=(Frame)
+X    xv_create(frame, FRAME_CMD, FRAME_LABEL, BUG_REPORTS, NULL);
+X  frameCmdPanel=(Panel)xv_get(bugReportsFrame, FRAME_CMD_PANEL, NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "You think you found a bug :-( ?", NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "Check first with your local administrator,", NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "and if he can't help you send me a description at:", NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "sbo@vlsi.polymtl.ca", NULL);
+X  (void)
+X    xv_create(frameCmdPanel, PANEL_MESSAGE, PANEL_NEXT_ROW, -1,
+X	      PANEL_LABEL_STRING, "I'll try to correct the problem.", NULL);
+X
+X  window_fit(frameCmdPanel);
+X  window_fit(bugReportsFrame);
+X
+X  frameWidth=(int)xv_get(bugReportsFrame, XV_WIDTH, NULL);
+X  frameHeight=(int)xv_get(bugReportsFrame, XV_HEIGHT, NULL);
+X
+X  xv_set(bugReportsFrame, 
+X	 XV_X, (screenWidth-frameWidth)/2,
+X	 XV_Y, (screenHeight-frameHeight)/2,
+X	 NULL);
+X}
+X
+X
+XpanelMenuNotifyProc(menu, menuItem)
+X     Menu menu;
+X     Menu_item menuItem;
+X{
+X  char *menuString;
+X  int resizeCorners;
+X  Panel panel;
+X  Frame frame;
+X  
+X  menuString=(char *)xv_get(menuItem, MENU_STRING, NULL);
+X  if (strcmp(menuString, RELOAD_MENU_STR)==0) {
+X    xv_destroy_safe(baseFrame);
+X    
+X    /* The exit will not be the final one... */
+X    finalExit=0;
+X  }
+X/*  else if (strcmp(menuString, TOGGLE_RESIZE_CORNER_STR)==0) {
+X    panel=(Panel)xv_get(menu, XV_OWNER, NULL);
+X    printf("1\n");
+X    frame=(Frame)xv_get(panel, XV_OWNER, NULL);
+X    printf("2\n");
+X    resizeCorners=xv_get(baseFrame, FRAME_SHOW_RESIZE_CORNER, NULL);
+Xprintf("resC %d\n", resizeCorners);
+X    if (resizeCorners) 
+X      xv_set(baseFrame, FRAME_SHOW_RESIZE_CORNER, (int)0, NULL);
+X    else
+X      xv_set(baseFrame, FRAME_SHOW_RESIZE_CORNER, (int)1, NULL);
+X  }*/
+X  else if (strcmp(menuString, ABOUT_THE_AUTHOR)==0) {
+X    xv_set(authorFrame, FRAME_CMD_PUSHPIN_IN, TRUE, NULL);
+X    xv_set(authorFrame, XV_SHOW, TRUE, NULL);
+X  }
+X  else if (strcmp(menuString, BUG_REPORTS)==0) {
+X    xv_set(bugReportsFrame, FRAME_CMD_PUSHPIN_IN, TRUE, NULL);
+X    xv_set(bugReportsFrame, XV_SHOW, TRUE, NULL);
+X  }
+X  else {
+X    /* Error */
+X  }
+X}
+X
+X
+Xvoid  
+X  panelMenuEventProc(panel, event)
+XPanel panel;
+XEvent *event;
+X{
+X  if (event_action(event)==ACTION_MENU && event_is_down(event)) {
+X    Menu menu=(Menu)xv_get(panel, WIN_CLIENT_DATA);
+X    menu_show(menu, panel, event, NULL);
+X  }
+X}
+END_OF_FILE
+if test 6333 -ne `wc -c <'bam-2.0/panelmenu.c'`; then
+    echo shar: \"'bam-2.0/panelmenu.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/panelmenu.c'
+fi
+if test -f 'bam-2.0/parfaw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/parfaw.c'\"
+else
+echo shar: Extracting \"'bam-2.0/parfaw.c'\" \(5756 characters\)
+sed "s/^X//" >'bam-2.0/parfaw.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Hans Olsson.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: parfaw.c,v 1.2 1992/07/27 23:04:16 sbo Exp $ */
+X
+X#include "bam.h"
+X#include "strstore.h"
+X
+X#include "menu.icon"
+Xstatic int menubitmap = 0;
+X/* boolean grab  must come from another file */
+X
+XPixmap loadBitmap(name, w, h)
+X     char *name;
+X     Widget w;
+X     unsigned int *h; 
+X{
+X  int width,hot_x,hot_y;
+X  Pixmap bitmap;
+X  Drawable d;
+X  Display *dpy=XtDisplay(w);
+X  d=DefaultRootWindow(dpy);
+X
+X  if (!(BitmapSuccess
+X        ==XReadBitmapFile(dpy,d,
+X                          name,&width,h,&bitmap,&hot_x,&hot_y))) {
+X    return (Pixmap)NULL;
+X  } else return bitmap;
+X}
+X
+XWidget CreateBSB(name, action, parent, dobit, proc)
+X     char *name;
+X     int action;
+X     Widget parent;
+X     int dobit;
+X     void (*proc)();
+X{
+X  Widget m=XtCreateManagedWidget(dobit?"":name,
+X                                 smeBSBObjectClass,parent,NULL,ZERO);
+X#ifdef DEBUG
+X  printf("Create\n");
+X#endif
+X  if (proc) 
+X    XtAddCallback(m,XtNcallback,proc,(XtPointer)action);
+X  else {
+X    Arg args[1];
+X    XtSetArg(args[0],XtNrightBitmap,menubitmap);
+X    XtSetValues(m,args,1);
+X  }
+X  if (dobit) {
+X    Pixmap bitmap;
+X    unsigned int h;
+X    if (NULL==(bitmap=loadBitmap(name,parent,&h))) {
+X      sendErrorToEmacs("Can't find bitmap:%s\n",name);
+X    } else {
+X      Arg args[2];
+X      XtSetArg(args[0],XtNleftBitmap,bitmap);
+X      XtSetArg(args[1],XtNheight,(Dimension)h);
+X      XtSetValues(m,args,2);
+X    }
+X  }
+X  return m;
+X}
+X
+Xint createBaseFrame(frame, frameData)
+X     Frame *frame;
+X     FrameData *frameData;
+X{
+X  *frame = 
+X    XtCreateManagedWidget("paned",panedWidgetClass,mainFrame,
+X			  NULL,0);
+X  /* Use frameData->Title ?? */
+X
+X  if (menubitmap==0) {
+X    menubitmap=XCreateBitmapFromData(XtDisplay(mainFrame),
+X                                   DefaultRootWindow(XtDisplay(mainFrame)),
+X                                   menu_bits,menu_width,menu_height);
+X  }
+X 
+X  return (*frame==NULL); 
+X  /* should make an icon from frameData->attr.iconFileName
+X     and frameData->attr.iconLabel */
+X}
+X
+Xvoid frameAdjust(frame, frameData)
+X     Frame frame;
+X     FrameData *frameData;
+X{
+X  if (grab&&windowName) {
+X    Arg args[1];
+X    XtSetArg(args[0],XtNwindowName,windowName);
+X    gam=
+X      XtCreateManagedWidget("gam",grabAndManageWidgetClass,frame,args,ONE);
+X  } 
+X  return;
+X}
+X
+Xvoid panelCreateInitialise(frame, panel)
+X     Frame *frame;
+X     Panel *panel;
+X{
+X  *panel=XtCreateManagedWidget("box",boxWidgetClass,*frame,NULL,ZERO);
+X}
+X
+Xvoid panelAdjust(panel)
+X     Panel panel;
+X{
+X  return;
+X}
+X
+Xvoid panelButtonInitialize(frame, panel, buttonNameIndex, 
+X			   buttonActionIndex,button)
+X     Frame frame;
+X     Panel panel;
+X     int buttonNameIndex; 
+X     int buttonActionIndex;
+X     ButtonData *button;
+X{
+X  (*button).button=XtCreateManagedWidget(strStoreGet(buttonNameIndex),
+X					 menuButtonWidgetClass,
+X					 panel,NULL,ZERO);
+X  XtOverrideTranslations((*button).button,button_xt);
+X}
+X
+Xvoid panelButtonCreateAndAdjust(button,menuData) 
+X     ButtonData *button;
+X     MenuData *menuData;
+X{
+X  return ;
+X}
+X
+X
+Xvoid createMenuInit(button,menuData)
+X     ButtonData *button;
+X     MenuData *menuData;
+X{
+X  initMenuData((MenuData *)menuData); 
+X  (*menuData).prevCur=(*menuData).id;
+X  (*menuData).id=NULL;
+X  (*menuData).button=(*button).button; /* initMenuData shoulld do this ? */
+X}
+X
+Xvoid createMenu(menuData,subMenu)
+X     MenuData *menuData;
+X     int subMenu;
+X{
+X   Widget out;
+X   Arg args[1];
+X   XtTranslations xt;
+X
+X   XtSetArg(args[0],XtNlabel,(*menuData).attr.title);
+X  /* Create a new menu and make it the current menu */
+X  out=XtCreatePopupShell("menu",simpleMenuWidgetClass,
+X			 (*menuData).button,args,1);
+X  if (subMenu) {
+X    xt=XtParseTranslationTable("<LeaveWindow>:popdownSubmenus()\n");
+X    XtOverrideTranslations(out,xt);
+X  }
+X  (*menuData).id = out;
+X
+X}
+X
+Xvoid createMenuFinalise(menuData)
+X     MenuData *menuData;
+X{
+X  return ;
+X}
+X
+Xvoid createTextMenuItem(frame, curMenu, menuItemName, 
+X			menuItemActionIndex, subMenu)
+X     Frame frame;
+X     MenuData *curMenu;
+X     char *menuItemName;
+X     int menuItemActionIndex;
+X     MenuData *subMenu;
+X{
+X  Menu menuItem;
+X
+X  menuItem=CreateBSB(menuItemName,
+X		     menuItemActionIndex, (*curMenu).id, 0,
+X		     (void (*)()) (subMenu? NULL:menuProc));
+X  if (subMenu!=NULL) {
+X    pops[pops_nr++]=(*subMenu).id;
+X    XtAddCallback(menuItem,XtNcallback,menuUp,(XtPointer)(*subMenu).id);
+X  }
+X}
+X
+Xvoid createBitmapMenuItem(frame, curMenu, bitmapFileName,
+X			  menuItemActionIndex, subMenu)
+X     Frame frame; 
+X     MenuData *curMenu;
+X     char *bitmapFileName;
+X     int menuItemActionIndex;
+X     MenuData *subMenu;
+X{
+X  Menu menuItem;
+X  
+X  menuItem=CreateBSB(bitmapFileName,menuItemActionIndex,
+X		     (*curMenu).id, 1,
+X		     (void (*)()) (subMenu?NULL:menuProc));
+X  if (subMenu!=NULL) {
+X    pops[pops_nr++]=(*subMenu).id;
+X    XtAddCallback(menuItem,XtNcallback,menuUp,(XtPointer)(*subMenu).id);
+X  }
+X}
+X
+END_OF_FILE
+if test 5756 -ne `wc -c <'bam-2.0/parfaw.c'`; then
+    echo shar: \"'bam-2.0/parfaw.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/parfaw.c'
+fi
+if test -f 'bam-2.0/parfxv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/parfxv.c'\"
+else
+echo shar: Extracting \"'bam-2.0/parfxv.c'\" \(6381 characters\)
+sed "s/^X//" >'bam-2.0/parfxv.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: parfxv.c,v 1.2 1992/07/02 00:57:44 sbo Exp $ */
+X
+X#include "bam.h"
+X
+Xint createBaseFrame(frame, frameData)
+X     Frame *frame;
+X     FrameData *frameData;
+X{
+X  Icon icon;
+X  int retval=0;
+X  
+X  if ((*frameData).attr.showResizeCorner) {
+X    *frame = (Frame)
+X      xv_create(NULL, FRAME, FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		FRAME_LABEL, (*frameData).attr.title, 
+X		NULL);
+X  } 
+X  else {
+X    *frame = (Frame)
+X      xv_create(NULL, FRAME, FRAME_SHOW_RESIZE_CORNER, FALSE,
+X		FRAME_LABEL, (*frameData).attr.title,
+X		NULL);
+X  }
+X
+X  if ((icon=makeIcon((*frameData).attr.iconFileName, 
+X		     (*frameData).attr.iconLabel))==NULL) {
+X    /* An error as occured */
+X    return(2);
+X  }
+X  else {
+X    /*    Rect rect;
+X	  
+X	  rect.r_width=(int)xv_get(icon, XV_WIDTH);
+X	  rect.r_height=(int)xv_get(icon, XV_HEIGHT);
+X	  if (rect.r_width<64) rect.r_width=64;
+X	  if (rect.r_height<64) rect.r_height=64;*/
+X    xv_set(*frame, 
+X	   FRAME_ICON, icon, 
+X	   /*	   FRAME_CLOSED_RECT, &rect,*/
+X	   NULL);
+X  }
+X  return(0);
+X}
+X
+Xvoid frameAdjust(frame, frameData)
+X     Frame frame;
+X     FrameData *frameData;
+X{
+X  frame_fit_all(frame);
+X
+X  if ((*frameData).attr.showResizeCorner) {
+X    xv_set(frame, FRAME, FRAME_SHOW_RESIZE_CORNER, TRUE,
+X	   NULL);
+X  }
+X}
+X
+Xvoid panelCreateInitialise(frame, panel)
+X     Frame *frame;
+X     Panel *panel;
+X{
+X  *panel = (Panel) xv_create(*frame, PANEL, NULL);
+X  makePanelMenu(*frame, *panel);
+X}
+X
+Xvoid panelAdjust(panel)
+X     Panel panel;
+X{
+X  window_fit(panel);
+X}
+X
+Xvoid panelButtonInitialize(frame, panel, buttonNameIndex, 
+X			   buttonActionIndex,button)
+X     Frame frame;
+X     Panel panel;
+X     int buttonNameIndex;
+X     int buttonActionIndex;
+X     ButtonData *button;
+X{
+X  (*button).frame=frame;
+X  (*button).panel=panel;
+X  (*button).buttonNameIndex=buttonNameIndex;
+X  (*button).buttonActionIndex=buttonActionIndex;
+X  (*button).button=NULL;
+X}
+X
+Xvoid panelButtonCreateAndAdjust(button,menuData) 
+X     ButtonData *button;
+X     MenuData *menuData;
+X{
+X  (*button).button=(Panel_item)
+X    xv_create((*button).panel,PANEL_BUTTON,
+X	      PANEL_LABEL_STRING, strStoreGet((*button).buttonNameIndex),
+X	      PANEL_NOTIFY_PROC,selected,
+X	      PANEL_ITEM_MENU, (*menuData).id,
+X	      XV_KEY_DATA, M_COMMAND_STRING, (*button).buttonActionIndex,
+X	      NULL);
+X  setMenu((*button).frame,menuData,strStoreGet((*button).buttonNameIndex));
+X}
+X  
+X
+Xvoid createMenuInit(button,menuData)
+X     ButtonData *button;
+X     MenuData *menuData;
+X{
+X  initMenuData((MenuData *)menuData);
+X  (*menuData).prevCur=(*menuData).id;
+X  (*menuData).id=NULL;
+X}
+X
+Xvoid createMenu(menuData,subMenu)
+X     MenuData *menuData;
+X     int subMenu;
+X{
+X  /* Create a new menu and make it the current menu */
+X  (*menuData).id = (Menu) xv_create(NULL, MENU, NULL);
+X}
+X
+Xvoid createMenuFinalise(menuData)
+X     MenuData *menuData;
+X{
+X  /* Set the default of the current menu that has just been built
+X     before the previous menu is restored.
+X     NOTE: THE TITLE COUNT AS THE ITEM #1. THEREFORE ONE HAS
+X     TO BE ADDED TO cur.menu.defaultChoice */
+X  xv_set((*menuData).id, MENU_DEFAULT, (*menuData).defaultChoice+1, NULL);
+X}
+X
+Xvoid createTextMenuItem(frame, curMenu, menuItemName, 
+X			menuItemActionIndex, subMenu)
+X     Frame frame;
+X     MenuData *curMenu;
+X     char *menuItemName;
+X     int menuItemActionIndex;
+X     MenuData *subMenu;
+X{
+X  Menu menuItem;
+X
+X  /* Menu Item with no sub menu attached */
+X  if (subMenu==NULL) {
+X    menuItem=(Menu_item)
+X      xv_create(NULL, MENUITEM, MENU_RELEASE,
+X		MENU_STRING, menuItemName,
+X		MENU_NOTIFY_PROC, menuProc,
+X		XV_KEY_DATA, M_COMMAND_STRING, menuItemActionIndex,
+X		NULL);
+X
+X    xv_set((*curMenu).id, MENU_APPEND_ITEM, menuItem, NULL);
+X  }
+X
+X  /* Menu Item with a sub menu attached */
+X  else {
+X    menuItem=(Menu_item)
+X      xv_create(NULL, MENUITEM, MENU_RELEASE,
+X		MENU_PULLRIGHT_ITEM, menuItemName, (*subMenu).id,
+X		MENU_NOTIFY_PROC, menuProc,
+X		XV_KEY_DATA, M_COMMAND_STRING, menuItemActionIndex,
+X		NULL);
+X    xv_set((*subMenu).prevCur, MENU_APPEND_ITEM, menuItem, NULL);
+X
+X    /* manque le test d'erreur du code de retour de setMenu */
+X    setMenu(frame, subMenu, menuItemName);
+X  }
+X}
+X
+Xvoid createBitmapMenuItem(frame, curMenu, bitmapFileName,
+X			  menuItemActionIndex, subMenu)
+X     Frame frame; 
+X     MenuData *curMenu;
+X     char *bitmapFileName;
+X     int menuItemActionIndex;
+X     MenuData *subMenu;
+X{
+X  Server_image serverImage;
+X  Menu_item menuItem;
+X  int index;
+X
+X  /* Bitmap menu item with no sub menu */
+X  if (subMenu==NULL) {
+X    serverImage=(Server_image)
+X      xv_create(NULL, SERVER_IMAGE, 
+X		SERVER_IMAGE_BITMAP_FILE, bitmapFileName,
+X		NULL);
+X
+X    menuItem=(Menu_item)
+X      xv_create(NULL, MENUITEM, MENU_RELEASE,
+X		MENU_IMAGE, serverImage,
+X		MENU_RELEASE_IMAGE,
+X		MENU_NOTIFY_PROC, menuProc,
+X		XV_KEY_DATA, M_COMMAND_STRING, menuItemActionIndex,
+X		NULL);
+X
+X    xv_set((*curMenu).id, MENU_APPEND_ITEM, menuItem, NULL);
+X  }		
+X
+X  /* Bitmap Menu item with a sub menu */
+X  else {
+X    serverImage=(Server_image)
+X      xv_create(NULL, SERVER_IMAGE,
+X		SERVER_IMAGE_BITMAP_FILE, bitmapFileName,
+X		NULL);
+X    
+X    menuItem=(Menu_item)
+X      xv_create(NULL, MENUITEM,
+X		MENU_RELEASE,
+X		MENU_PULLRIGHT_IMAGE, serverImage, (*subMenu).id,
+X		MENU_RELEASE_IMAGE,
+X		MENU_NOTIFY_PROC, menuProc,
+X		XV_KEY_DATA, M_COMMAND_STRING, menuItemActionIndex,
+X		NULL);
+X    xv_set((*subMenu).prevCur, MENU_APPEND_ITEM, menuItem, NULL);
+X    
+X    /* manque le test d'erreur du code de retour de setMenu */
+X    setMenu(frame, subMenu, "");
+X  }
+X}
+END_OF_FILE
+if test 6381 -ne `wc -c <'bam-2.0/parfxv.c'`; then
+    echo shar: \"'bam-2.0/parfxv.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/parfxv.c'
+fi
+if test -f 'bam-2.0/parser.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/parser.y'\"
+else
+echo shar: Extracting \"'bam-2.0/parser.y'\" \(7558 characters\)
+sed "s/^X//" >'bam-2.0/parser.y' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X%{
+X
+X/* @(#)parser.y	1.12 92/03/31 */
+X
+X#include <unistd.h>
+X
+X#include "bam.h"
+X
+Xstruct {
+X  Frame frame;
+X  FrameData frameData;
+X  MenuData menu;
+X  Menu_item menuItem;
+X  Panel panel;
+X  ButtonData button; /* Athena only */
+X  int menuLevel;     /* Athena only */
+X} cur;
+X
+X/*search menu, vertical buttons, TITLE a l'Interieur de BEGIN
+X  traiter les exit en erreurs voir buttons.el*/
+X
+X%}	
+X%union {
+X  MenuData menu;
+X  char *str;
+X  int boolean;
+X}
+X
+X%token TITLE_TOK BUTTON_TOK
+X%token END_TOK
+X%token FRAME_TOK LABEL_TOK PANEL_TOK MENU_TOK
+X%token PUSHPIN_TOK
+X%token RESIZE_CORNER_TOK
+X%token ICON_FILE_NAME
+X%token ICON_LABEL_TOK
+X%token TRUE_TOK FALSE_TOK
+X%token TEXT_TOK BITMAP_TOK
+X%token DEFAULT_TOK
+X
+X%token ERROR_TOK
+X
+X%token <str> STRING
+X%type <menu> menu
+X%type <boolean> boolean
+X%%
+X
+Xfile: 	  /* empty */
+X{
+X  cur.frame=NULL;
+X  cur.frameData=defaultFrameDataValue;
+X  cur.menu=defaultMenuDataValue;
+X  cur.menuItem=NULL;
+X  cur.panel=NULL;
+X  cur.menuLevel=0;
+X}
+X  | FRAME_TOK
+X{
+X   /* Init frameData */
+X   cur.frameData=defaultFrameDataValue;
+X}
+X   lst_frame_attributes_or_empty 
+X{ 
+X  int retval;
+X  retval=createBaseFrame(&(cur.frame), &(cur.frameData)); 
+X  if (retval!=0)
+X    return(retval);
+X}
+X   lst_panels END_TOK
+X{
+X  frameAdjust(cur.frame, &(cur.frameData));
+X  baseFrame=cur.frame;
+X}
+X;
+X
+Xlst_frame_attributes_or_empty: /* empty */
+X  | lst_frame_attributes
+X;
+X
+Xlst_frame_attributes: frame_attributes
+X  | lst_frame_attributes frame_attributes
+X;
+X
+Xframe_attributes: TITLE_TOK STRING{strStorePut($2);
+X				   cur.frameData.attr.title=$2;}
+X  | RESIZE_CORNER_TOK boolean     {cur.frameData.attr.showResizeCorner=$2;}
+X  | ICON_FILE_NAME STRING         {strStorePut($2);
+X				   cur.frameData.attr.iconFileName=$2;}
+X  | ICON_LABEL_TOK STRING	{strStorePut($2);
+X				 cur.frameData.attr.iconLabel=$2;}
+X;  
+X
+Xlst_panels:    panel
+X	| lst_panels panel
+X;
+X
+Xpanel: PANEL_TOK { panelCreateInitialise( &(cur.frame), &(cur.panel)); }
+X  lst_panel_items END_TOK { panelAdjust(cur.panel); }
+X;
+X
+Xlst_panel_items: panel_item
+X	| lst_panel_items panel_item
+X;
+X
+Xpanel_item:  panel_button
+X;
+X
+Xpanel_button: BUTTON_TOK STRING STRING
+X{
+X  int buttonActionIndex;
+X  int buttonNameIndex;
+X
+X  buttonNameIndex=strStorePut($2); /* buttonName */
+X  buttonActionIndex=strStorePut($3); /* buttonAction */
+X
+X
+X  panelButtonInitialize(cur.frame, cur.panel, 
+X		    buttonNameIndex, 
+X		    buttonActionIndex,
+X		    &(cur.button));
+X} menu {
+X  panelButtonCreateAndAdjust(&(cur.button),&($5));
+X}
+X;
+X
+Xmenu: MENU_TOK 
+X{
+X  /* Save the cur.menu */
+X  $<menu>$=cur.menu;
+X
+X  if (menuDebug) 
+X    printMenuDataStruct("Pushed Menu\n---------", &(cur.menu), "");
+X
+X  cur.menuLevel++;
+X  createMenuInit(&(cur.button),&(cur.menu));
+X}
+X  lst_menu_attributes_or_empty 
+X{ 
+X  createMenu(&(cur.menu),cur.menuLevel>1);  /* SubMenu if Level>1 */
+X}
+X  lst_menu_items END_TOK       
+X{
+X  if (menuDebug) printMenuDataStruct("New Menu\n--------", &(cur.menu), "");
+X
+X  createMenuFinalise(&(cur.menu)); 
+X
+X  /* Returned value for the resulting token (menu) */
+X  $$=cur.menu;
+X
+X  /* Restore (pop) the data for the previous menu */
+X  cur.menu=$<menu>2;
+X  cur.menuLevel--;
+X
+X  if (menuDebug) printMenuDataStruct("Poped Menu\n--------", &(cur.menu), "");
+X}
+X;
+X
+Xlst_menu_attributes_or_empty: /* empty */
+X  | lst_menu_attributes
+X;
+X
+Xlst_menu_attributes: menu_attributes
+X  | lst_menu_attributes menu_attributes
+X;
+X
+Xmenu_attributes: 
+X    TITLE_TOK STRING    {strStorePut($2); cur.menu.attr.title=$2;}
+X  | PUSHPIN_TOK boolean {cur.menu.attr.pushpin=$2;}
+X;  
+X
+Xlst_menu_items: menu_item		
+X        | lst_menu_items menu_item
+X;
+X
+Xmenu_item: TEXT_TOK lst_text_attributes_or_empty STRING STRING
+X{
+X  int menuItemActionIndex;
+X
+X  strStorePut($3); /* menuItemName */
+X  menuItemActionIndex=strStorePut($4); /* menuItemAction */
+X
+X  createTextMenuItem(cur.frame, &(cur.menu),
+X		     $3,
+X		     menuItemActionIndex, 
+X		     NULL);
+X		     
+X  if (menuDebug>=2) fprintf(debugFp, "TEXT \"%s\" \"%s\"\n", $3, $4);
+X
+X  cur.menu.curItem++;
+X}
+X         | TEXT_TOK lst_text_attributes_or_empty STRING STRING menu
+X{
+X  int menuItemActionIndex;
+X
+X  strStorePut($3); /* menuItemName */
+X  menuItemActionIndex=strStorePut($4); /* menuItemAction */
+X
+X  createTextMenuItem(cur.frame, &(cur.menu),
+X		     $3, 
+X		     menuItemActionIndex, 
+X		     &($5));
+X
+X  if (menuDebug>=2) {
+X    fprintf(debugFp, "TEXT \"%s\" \"%s\"\n", $3, $4);
+X    printMenuDataStruct("MENU", &($5), "");
+X  }
+X
+X  cur.menu.curItem++;
+X}
+X	| BITMAP_TOK lst_bitmap_attributes_or_empty STRING STRING
+X{
+X  int menuItemActionIndex;
+X  char *bitmapFileName;
+X  
+X  strStorePut($3);
+X  strStorePut(bitmapFileName=getFileName($3, R_OK, 
+X					 bitmapsPath, 
+X					 DEFAULT_BITMAPS_PATH));
+X  menuItemActionIndex=strStorePut($4);
+X
+X  if (bitmapFileName==NULL) {
+X    /* Internal error */
+X    sendErrorToEmacs("Internal Error While Trying to Find the Bitmap File: %s", $3);
+X    return(2);
+X  }
+X  else if (strcmp(bitmapFileName, "")==0) {
+X    /* No file was found */
+X    sendErrorToEmacs("Unable to Find the Bitmap File: %s", $3);
+X    return(2);
+X  }
+X  else {
+X    createBitmapMenuItem(cur.frame, &(cur.menu),
+X			 bitmapFileName,
+X			 menuItemActionIndex,
+X			 NULL);
+X
+X    if (menuDebug>=2) fprintf(debugFp, "BITMAP \"%s\" \"%s\"\n", $3, $4);
+X
+X    cur.menu.curItem++;
+X  }
+X}		
+X	| BITMAP_TOK lst_bitmap_attributes_or_empty STRING STRING menu
+X{
+X  int menuItemActionIndex;
+X  char *bitmapFileName;
+X  
+X  strStorePut($3);
+X  strStorePut(bitmapFileName=getFileName($3, R_OK, 
+X					 bitmapsPath, 
+X					 DEFAULT_BITMAPS_PATH));
+X  menuItemActionIndex=strStorePut($4);
+X
+X  if (bitmapFileName==NULL) {
+X    /* Internal error */
+X    sendErrorToEmacs("Internal Error While Trying to Find the File: %s", $3);
+X    return(2);
+X  }
+X  else if (strcmp(bitmapFileName, "")==0) {
+X    /* No file was found */
+X    sendErrorToEmacs("Unable to Find the Bitmap File: %s", $3);
+X    return(2);
+X  }
+X  else {
+X    createBitmapMenuItem(cur.frame, &(cur.menu),
+X			 bitmapFileName,
+X			 menuItemActionIndex,
+X			 &($5));
+X
+X    if (menuDebug>=2) {
+X      fprintf(debugFp, "BITMAP \"%s\" \"%s\"\n", $3, $4);
+X      printMenuDataStruct("MENU\n", &($5), "");
+X    }
+X
+X    cur.menu.curItem++;
+X  }
+X}		
+X;
+X
+Xlst_text_attributes_or_empty: /* empty */
+X  | lst_text_attributes
+X;
+X
+Xlst_text_attributes: text_attributes
+X  | lst_text_attributes text_attributes
+X;
+X
+Xtext_attributes: DEFAULT_TOK  {cur.menu.defaultChoice=cur.menu.curItem;}
+X;  
+X
+Xlst_bitmap_attributes_or_empty: /* empty */
+X  | lst_bitmap_attributes
+X;
+X
+Xlst_bitmap_attributes: bitmap_attributes
+X  | lst_bitmap_attributes bitmap_attributes
+X;
+X
+Xbitmap_attributes: DEFAULT_TOK   {cur.menu.defaultChoice=cur.menu.curItem;}
+X;  
+X
+Xboolean: TRUE_TOK       {$$=TRUE;} 
+X       | FALSE_TOK      {$$=FALSE;}
+X;
+X
+X%%
+END_OF_FILE
+if test 7558 -ne `wc -c <'bam-2.0/parser.y'`; then
+    echo shar: \"'bam-2.0/parser.y'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/parser.y'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1665 @@
+Newsgroups: comp.sources.misc
+From: amc@wuecl.wustl.edu (Adam Costello)
+Subject: v39i085:  par131 - paragraph reformatter, v1.31, Part03/03
+Message-ID: <1993Sep11.143738.9328@sparky.sterling.com>
+X-Md4-Signature: 056689b60fbfd3f67e689811f8ce248a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 11 Sep 1993 14:37:38 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: amc@wuecl.wustl.edu (Adam Costello)
+Posting-number: Volume 39, Issue 85
+Archive-name: par131/part03
+Environment: ANSI-C
+Supersedes: par: Volume 39, Issue 40-42
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Par131 Par131/par.c Par131/reformat.h Par131/reformat.c
+#   Par131/buffer.h Par131/buffer.c Par131/errmsg.h Par131/errmsg.c
+# Wrapped by amc@wuecl on Fri Sep 10 18:43:54 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'Par131' ; then
+    echo shar: Creating directory \"'Par131'\"
+    mkdir 'Par131'
+fi
+if test -f 'Par131/par.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/par.c'\"
+else
+echo shar: Extracting \"'Par131/par.c'\" \(18832 characters\)
+sed "s/^X//" >'Par131/par.c' <<'END_OF_FILE'
+X/*********************/
+X/* par.c             */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#include "charset.h"   /* Also includes "errmsg.h". */
+X#include "buffer.h"    /* Also includes <stddef.h>. */
+X#include "reformat.h"
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X
+X#undef NULL
+X#define NULL ((void *) 0)
+X
+X#ifdef DONTFREE
+X#define free(ptr)
+X#endif
+X
+X
+Xconst char * const usagemsg =
+X"\n"
+X"Usage:\n"
+X"\n"
+X"par [help] [version] [B<op><set>] [P<op><set>] [Q<op><set>] [h[<hang>]]\n"
+X"    [p<prefix>] [s<suffix>] [w<width>] [c[<cap>]] [d[<div>]] [f[<fit>]]\n"
+X"    [g[<guess>]] [j[<just>]] [l[<last>]] [q[<quote>]] [R[<Report>]]\n"
+X"    [t[<touch>]]\n"
+X"\n"
+X"help       usage message             |"
+X                                  "Boolean parameters:\n"
+X"version    version number            |"
+X                                  "Option:   If 1:\n"
+X"B<op><set> as <op> is =/+/-,         |"
+X                                  "c<cap>    all words count as capitalized\n"
+X"           replace/augment/diminish  |"
+X                                  "d<div>    indentation delimits paragraphs\n"
+X"           body chars by <set>       |"
+X                                  "f<fit>    paragraphs are narrowed to\n"
+X"P<op><set> ditto for protective chars|"
+X                                  "          smoothen the right edge\n"
+X"Q<op><set> ditto for quote chars     |"
+X                                  "g<guess>  wide sentence breaks preserved\n"
+X"h<hang>    first <hang> lines of each|"
+X                                  "j<just>   paragraphs are justified\n"
+X"           paragraph not searched for|"
+X                                  "l<last>   last lines treated like others\n"
+X"           common prefixes & suffixes|"
+X                                  "q<quote>  vacant lines inserted between\n"
+X"p<prefix>  prefix length             |"
+X                                  "          different quote nesting levels\n"
+X"s<suffix>  suffix length             |"
+X                                  "R<Report> too-long words cause errors\n"
+X"w<width>   max output line length    |"
+X                                  "t<touch>  suffixes are moved left\n"
+X"\n"
+X"See par.doc or par.1 (the man page) for more information.\n"
+X;
+X
+X
+Xstatic int digtoint(char c)
+X
+X/* Returns the value represented by the digit c, or -1 if c is not a digit. */
+X{
+X  const char *p, * const digits = "0123456789";
+X
+X  if (!c) return -1;
+X  p = strchr(digits,c);
+X  return  p  ?  p - digits  :  -1;
+X
+X  /* We can't simply return c - '0' because this is ANSI C code,  */
+X  /* so it has to work for any character set, not just ones which */
+X  /* put the digits together in order.  Also, an array that could */
+X  /* be referenced as digtoint[c] might be bad because there's no */
+X  /* upper limit on CHAR_MAX.                                     */
+X}
+X
+X
+Xstatic int strtoudec(const char *s, int *pn)
+X
+X/* Converts the longest prefix of string s consisting of decimal   */
+X/* digits to an integer, which is stored in *pn.  Normally returns */
+X/* 1.  If *s is not a digit, then *pn is not changed, but 1 is     */
+X/* still returned.  If the integer represented is greater than     */
+X/* 9999, then *pn is not changed and 0 is returned.                */
+X{
+X  int n = 0, d;
+X
+X  d = digtoint(*s);
+X  if (d < 0) return 1;
+X
+X  do {
+X    if (n >= 1000) return 0;
+X    n = 10 * n + d;
+X    d = digtoint(*++s);
+X  } while (d >= 0);
+X
+X  *pn = n;
+X
+X  return 1;
+X}
+X
+X
+Xstatic void parsearg(
+X  const char *arg, int *phelp, int *pversion, charset *bodychars,
+X  charset *protectchars, charset *quotechars, int *phang, int *pprefix,
+X  int *psuffix, int *pwidth, int *pcap, int *pdiv, int *pfit, int *pguess,
+X  int *pjust, int *plast, int *pquote, int *pReport, int *ptouch,
+X  errmsg_t errmsg
+X)
+X/* Parses the command line argument in *arg, setting the objects pointed to */
+X/* by the other pointers as appropriate. *phelp and *pversion are boolean   */
+X/* flags indicating whether the help and version options were supplied.     */
+X{
+X  const char *savearg = arg;
+X  charset *chars, *change;
+X  char oc;
+X  int n;
+X
+X  *errmsg = '\0';
+X
+X  if (*arg == '-') ++arg;
+X
+X  if (!strcmp(arg, "help")) {
+X    *phelp = 1;
+X    return;
+X  }
+X
+X  if (!strcmp(arg, "version")) {
+X    *pversion = 1;
+X    return;
+X  }
+X
+X  if (*arg == 'B' || *arg == 'P' || *arg == 'Q' ) {
+X    chars =  *arg == 'B'  ?  bodychars    :
+X             *arg == 'P'  ?  protectchars :
+X          /* *arg == 'Q' */  quotechars   ;
+X    ++arg;
+X    if (*arg != '='  &&  *arg != '+'  &&  *arg != '-') goto badarg;
+X    change = parsecharset(arg + 1, errmsg);
+X    if (change) {
+X      if      (*arg == '=')   csswap(chars,change);
+X      else if (*arg == '+')   csadd(chars,change,errmsg);
+X      else  /* *arg == '-' */ csremove(chars,change,errmsg);
+X      freecharset(change);
+X    }
+X    return;
+X  }
+X
+X  if (isdigit(*arg)) {
+X    if (!strtoudec(arg, &n)) goto badarg;
+X    if (n <= 8) *pprefix = n;
+X    else *pwidth = n;
+X  }
+X
+X  for (;;) {
+X    while (isdigit(*arg)) ++arg;
+X    oc = *arg;
+X    if (!oc) break;
+X    n = 1;
+X    if (!strtoudec(++arg, &n)) goto badarg;
+X    if (oc == 'h' || oc == 'p' || oc == 's' || oc == 'w') {
+X      if (oc == 'h') *phang = n;
+X      else {
+X        if (!isdigit(*arg)) goto badarg;
+X        if      (oc == 'w')   *pwidth  = n;
+X        else if (oc == 'p')   *pprefix = n;
+X        else  /* oc == 's' */ *psuffix = n;
+X      }
+X    }
+X    else {
+X      if (n > 1) goto badarg;
+X      if      (oc == 'c') *pcap    = n;
+X      else if (oc == 'd') *pdiv    = n;
+X      else if (oc == 'f') *pfit    = n;
+X      else if (oc == 'g') *pguess  = n;
+X      else if (oc == 'j') *pjust   = n;
+X      else if (oc == 'l') *plast   = n;
+X      else if (oc == 'q') *pquote  = n;
+X      else if (oc == 'R') *pReport = n;
+X      else if (oc == 't') *ptouch  = n;
+X      else goto badarg;
+X    }
+X  }
+X
+X  return;
+X
+Xbadarg:
+X
+X  sprintf(errmsg, "Bad argument: %.*s\n", errmsg_size - 16, savearg);
+X  *phelp = 1;
+X}
+X
+X
+Xstatic char **readlines(const charset *protectchars,
+X                        const charset *quotechars, int quote, errmsg_t errmsg)
+X
+X/* Reads lines from stdin until EOF, or until a line beginning with a */
+X/* protective character is encountered (in which case the protective  */
+X/* character is pushed back onto the input stream), or until a blank  */
+X/* line is encountered (in which case the newline is pushed back onto */
+X/* the input stream).  Returns a NULL-terminated array of pointers to */
+X/* individual lines, stripped of their newline characters.  Every NUL */
+X/* character is stripped, and every white character is changed to a   */
+X/* space unless it is a newline.  If quote is 1, vacant lines will be */
+X/* inserted as described for the q option in par.doc.  Returns NULL   */
+X/* on failure.                                                        */
+X{
+X  buffer *cbuf = NULL, *lbuf = NULL;
+X  int c, empty, blank, nonquote, oldnonquote = 0, qplen;
+X  char ch, *ln = NULL, nullchar = '\0', *nullline = NULL, *qpstart, *qpend,
+X       *oldqpstart = &nullchar, *oldqpend = &nullchar, *p, *op, *vln = NULL,
+X       **lines = NULL;
+X
+X  *errmsg = '\0';
+X
+X  cbuf = newbuffer(sizeof (char), errmsg);
+X  if (*errmsg) goto rlcleanup;
+X  lbuf = newbuffer(sizeof (char *), errmsg);
+X  if (*errmsg) goto rlcleanup;
+X
+X  for (empty = blank = 1;  ; ) {
+X    c = getchar();
+X    if (c == EOF) break;
+X    if (c == '\n') {
+X      if (blank) {
+X        ungetc(c,stdin);
+X        break;
+X      }
+X      additem(cbuf, &nullchar, errmsg);
+X      if (*errmsg) goto rlcleanup;
+X      ln = copyitems(cbuf,errmsg);
+X      if (*errmsg) goto rlcleanup;
+X      if (quote) {
+X        qpstart = ln;
+X        for (qpend = qpstart;
+X             *qpend && csmember(*qpend, quotechars);
+X             ++qpend);
+X        nonquote = *qpend != '\0';
+X        while (qpend > qpstart && qpend[-1] == ' ') --qpend;
+X        for (p = qpstart, op = oldqpstart;
+X             p < qpend && op < oldqpend && *p == *op;
+X             ++p, ++op);
+X        if (   (p < qpend && op == oldqpend  ||  p == qpend && op < oldqpend)
+X            && nonquote && oldnonquote) {
+X          qplen = p - qpstart;
+X          vln = malloc((qplen + 1) * sizeof (char));
+X          if (!vln) {
+X            strcpy(errmsg,outofmem);
+X            goto rlcleanup;
+X          }
+X          strncpy(vln,qpstart,qplen);
+X          vln[qplen] = '\0';
+X          additem(lbuf, &vln, errmsg);
+X          if (*errmsg) goto rlcleanup;
+X          vln = NULL;
+X        }
+X        oldqpstart = qpstart;
+X        oldqpend = qpend;
+X        oldnonquote = nonquote;
+X      }
+X      additem(lbuf, &ln, errmsg);
+X      if (*errmsg) goto rlcleanup;
+X      ln = NULL;
+X      clearbuffer(cbuf);
+X      empty = blank = 1;
+X    }
+X    else {
+X      if (empty) {
+X        if (csmember((char) c, protectchars)) {
+X          ungetc(c,stdin);
+X          break;
+X        }
+X        empty = 0;
+X      }
+X      if (!c) continue;
+X      if (isspace(c)) c = ' ';
+X      else blank = 0;
+X      ch = c;
+X      additem(cbuf, &ch, errmsg);
+X      if (*errmsg) goto rlcleanup;
+X    }
+X  }
+X
+X  if (!blank) {
+X    additem(cbuf, &nullchar, errmsg);
+X    if (*errmsg) goto rlcleanup;
+X    ln = copyitems(cbuf,errmsg);
+X    if (*errmsg) goto rlcleanup;
+X    additem(lbuf, &ln, errmsg);
+X    if (*errmsg) goto rlcleanup;
+X    ln = NULL;
+X  }
+X
+X  additem(lbuf, &nullline, errmsg);
+X  if (*errmsg) goto rlcleanup;
+X  lines = copyitems(lbuf,errmsg);
+X
+Xrlcleanup:
+X
+X  if (cbuf) freebuffer(cbuf);
+X  if (lbuf) {
+X    if (!lines)
+X      for (;;) {
+X        lines = nextitem(lbuf);
+X        if (!lines) break;
+X        free(*lines);
+X      }
+X    freebuffer(lbuf);
+X  }
+X  if (ln) free(ln);
+X  if (vln) free(vln);
+X
+X  return lines;
+X}
+X
+X
+Xstatic void compresuflen(
+X  const char * const *lines, const char * const *endline,
+X  const charset *bodychars, int pre, int suf, int *ppre, int *psuf
+X)
+X/* lines is an array of strings, up to but not including endline.  */
+X/* Writes into *ppre and *psuf the comprelen and comsuflen of the  */
+X/* lines in lines.  Assumes that they have already been determined */
+X/* to be at least pre and suf. endline must not equal lines.       */
+X{
+X  const char *start, *end, * const *line, *p1, *p2, *start2;
+X
+X  start = *lines;
+X  for (end = start + pre;  *end && !csmember(*end, bodychars);  ++end);
+X  for (line = lines + 1;  line < endline;  ++line) {
+X    for (p1 = start + pre, p2 = *line + pre;
+X         p1 < end && *p1 == *p2;
+X         ++p1, ++p2);
+X    end = p1;
+X  }
+X  *ppre = end - start;
+X
+X  start2 = *lines + *ppre;
+X  for (end = start2;  *end;  ++end);
+X  for (start = end - suf;
+X       start > start2 && !csmember(start[-1], bodychars);
+X       --start);
+X  for (line = lines + 1;  line < endline;  ++line) {
+X    start2 = *line + *ppre;
+X    for (p2 = start2;  *p2;  ++p2);
+X    for (p1 = end - suf, p2 -= suf;
+X         p1 > start && p2 > start2 && p1[-1] == p2[-1];
+X         --p1, --p2);
+X    start = p1;
+X  }
+X  while (end - start >= 2 && *start == ' ' && start[1] == ' ') ++start;
+X  *psuf = end - start;
+X}
+X
+X
+Xstatic void delimit(
+X  const char * const *lines, const char * const *endline,
+X  const charset *bodychars, int div, int pre, int suf, char *tags
+X)
+X/* lines is an array of strings, up to but not including endline.     */
+X/* Sets each character in the parallel array tags to 'f', 'p', or     */
+X/* 'v' according to whether the corresponding line in lines is the    */
+X/* first line of a paragraph, some other line in a paragraph, or a    */
+X/* vacant line, respectively, depending on the values of bodychars    */
+X/* and div, according to "par.doc".  It is assumed that the comprelen */
+X/* and comsuflen of the lines in lines have already been determined   */
+X/* to be at least pre and suf, respectively.                          */
+X{
+X  const char * const *line, *end, *p, * const *nextline;
+X  char *tag, *nexttag;
+X  int anyvacant = 0, status;
+X
+X  if (endline == lines) return;
+X
+X  if (endline == lines + 1) {
+X    *tags = 'f';
+X    return;
+X  }
+X
+X  compresuflen(lines, endline, bodychars, pre, suf, &pre, &suf);
+X
+X  line = lines;
+X  tag = tags;
+X  do {
+X    *tag = 'v';
+X    for (end = *line;  *end;  ++end);
+X    end -= suf;
+X    for (p = *line + pre;  p < end;  ++p)
+X      if (*p != ' ') {
+X        *tag = 'p';
+X        break;
+X      }
+X    if (*tag == 'v') anyvacant = 1;
+X    ++line;
+X    ++tag;
+X  } while (line < endline);
+X
+X  if (anyvacant) {
+X    line = lines;
+X    tag = tags;
+X    do {
+X      if (*tag == 'v') {
+X        ++line;
+X        ++tag;
+X        continue;
+X      }
+X
+X      for (nextline = line + 1, nexttag = tag + 1;
+X           nextline < endline && *nexttag == 'p';
+X           ++nextline, ++nexttag);
+X
+X      delimit(line,nextline,bodychars,div,pre,suf,tag);
+X
+X      line = nextline;
+X      tag = nexttag;
+X    } while (line < endline);
+X
+X    return;
+X  }
+X
+X  if (!div) {
+X    *tags = 'f';
+X    return;
+X  }
+X
+X  line = lines;
+X  tag = tags;
+X  status = ((*lines)[pre] == ' ');
+X  do {
+X    if (((*line)[pre] == ' ') == status)
+X      *tag = 'f';
+X    ++line;
+X    ++tag;
+X  } while (line < endline);
+X}
+X
+X
+Xstatic void setaffixes(
+X  const char * const *inlines, const char * const *endline,
+X  const charset *bodychars, const charset *quotechars,
+X  int hang, int quote, int *pprefix, int *psuffix
+X)
+X/* inlines is an array of strings, up to but not including   */
+X/* endline.  If either of *pprefix, *psuffix is less than 0, */
+X/* sets it to a default value based on inlines, bodychars,   */
+X/* quotechars, hang, and quote, according to "par.doc".      */
+X{
+X  int numin, pre, suf;
+X  const char *start, *p;
+X
+X  numin = endline - inlines;
+X
+X  if ((*pprefix < 0 || *psuffix < 0) && numin > hang + 1)
+X    compresuflen(inlines + hang, endline, bodychars, 0, 0, &pre, &suf);
+X
+X  if (*pprefix < 0)
+X    if (quote && numin == hang + 1) {
+X      start = inlines[hang];
+X      for (p = start;  *p && csmember(*p, quotechars);  ++p);
+X      *pprefix = p - start;
+X    }
+X    else *pprefix = numin > hang + 1  ?  pre  :  0;
+X
+X  if (*psuffix < 0)
+X    *psuffix = numin > hang + 1  ?  suf  :  0;
+X}
+X
+X
+Xstatic void freelines(char **lines)
+X/* Frees the elements of lines, and lines itself. */
+X/* lines is a NULL-terminated array of strings.   */
+X{
+X  char **line;
+X
+X  for (line = lines;  *line;  ++line)
+X    free(*line);
+X
+X  free(lines);
+X}
+X
+X
+Xmain(int argc, const char * const *argv)
+X{
+X  int help = 0, version = 0, hang = 0, prefix = -1, suffix = -1, width = 72,
+X      cap = 0, div = 0, fit = 0, guess = 0, just = 0, last = 0, quote = 0,
+X      Report = 0, touch = -1, prefixbak, suffixbak, c;
+X  charset *bodychars = NULL, *protectchars = NULL, *quotechars = NULL;
+X  char *parinit = NULL, *arg, **inlines = NULL, **endline,
+X       *tags = NULL, **firstline, *firsttag, *end, **nextline, *nexttag,
+X       **outlines = NULL, **line;
+X  const char *env, * const whitechars = " \f\n\r\t\v";
+X  errmsg_t errmsg = { '\0' };
+X
+X/* Process environment variables: */
+X
+X  env = getenv("PARBODY");
+X  if (!env) env = "";
+X  bodychars = parsecharset(env,errmsg);
+X  if (*errmsg) {
+X    help = 1;
+X    goto parcleanup;
+X  }
+X
+X  env = getenv("PARPROTECT");
+X  if (!env) env = "";
+X  protectchars = parsecharset(env,errmsg);
+X  if (*errmsg) {
+X    help = 1;
+X    goto parcleanup;
+X  }
+X
+X  env = getenv("PARQUOTE");
+X  if (!env) env = "> ";
+X  quotechars = parsecharset(env,errmsg);
+X  if (*errmsg) {
+X    help = 1;
+X    goto parcleanup;
+X  }
+X
+X  env = getenv("PARINIT");
+X  if (env) {
+X    parinit = malloc((strlen(env) + 1) * sizeof (char));
+X    if (!parinit) {
+X      strcpy(errmsg,outofmem);
+X      goto parcleanup;
+X    }
+X    strcpy(parinit,env);
+X    arg = strtok(parinit,whitechars);
+X    while (arg) {
+X      parsearg(arg, &help, &version, bodychars, protectchars,
+X               quotechars, &hang, &prefix, &suffix, &width, &cap, &div,
+X               &fit, &guess, &just, &last, &quote, &Report, &touch, errmsg);
+X      if (*errmsg || help || version) goto parcleanup;
+X      arg = strtok(NULL,whitechars);
+X    }
+X    free(parinit);
+X    parinit = NULL;
+X  }
+X
+X/* Process command line arguments: */
+X
+X  while (*++argv) {
+X    parsearg(*argv, &help, &version, bodychars, protectchars,
+X             quotechars, &hang, &prefix, &suffix, &width, &cap, &div,
+X             &fit, &guess, &just, &last, &quote, &Report, &touch, errmsg);
+X    if (*errmsg || help || version) goto parcleanup;
+X  }
+X
+X  if (touch < 0) touch = fit || last;
+X  prefixbak = prefix;
+X  suffixbak = suffix;
+X
+X/* Main loop: */
+X
+X  for (;;) {
+X    for (;;) {
+X      c = getchar();
+X      if (csmember((char) c, protectchars))
+X        while (c != '\n' && c != EOF) {
+X          putchar(c);
+X          c = getchar();
+X        }
+X      if (c != '\n') break;
+X      putchar(c);
+X    }
+X    if (c == EOF) break;
+X    ungetc(c,stdin);
+X
+X    inlines = readlines(protectchars,quotechars,quote,errmsg);
+X    if (*errmsg) goto parcleanup;
+X
+X    for (endline = inlines;  *endline;  ++endline);
+X    if (endline == inlines) {
+X      free(inlines);
+X      inlines = NULL;
+X      continue;
+X    }
+X
+X    tags = malloc((endline - inlines) * sizeof(char));
+X    if (!tags) {
+X      strcpy(errmsg,outofmem);
+X      goto parcleanup;
+X    }
+X
+X    delimit((const char * const *) inlines,
+X            (const char * const *) endline, bodychars, div, 0, 0, tags);
+X
+X    firstline = inlines;
+X    firsttag = tags;
+X    do {
+X      if (*firsttag == 'v') {
+X        for (end = *firstline;  *end;  ++end);
+X        while (end > *firstline && end[-1] == ' ') --end;
+X        *end = '\0';
+X        puts(*firstline);
+X        ++firsttag;
+X        ++firstline;
+X        continue;
+X      }
+X
+X      for (nexttag = firsttag + 1, nextline = firstline + 1;
+X           nextline < endline && *nexttag == 'p';
+X           ++nexttag, ++nextline);
+X
+X      prefix = prefixbak;
+X      suffix = suffixbak;
+X      setaffixes((const char * const *) firstline,
+X                 (const char * const *) nextline,
+X                 bodychars, quotechars, hang, quote, &prefix, &suffix);
+X      if (width <= prefix + suffix) {
+X        sprintf(errmsg,
+X                "<width> (%d) <= <prefix> (%d) + <suffix> (%d)\n",
+X                width, prefix, suffix);
+X        goto parcleanup;
+X      }
+X
+X      outlines =
+X        reformat((const char * const *) firstline,
+X                 (const char * const *) nextline, hang, prefix, suffix,
+X                  width, cap, fit, guess, just, last, Report, touch, errmsg);
+X      if (*errmsg) goto parcleanup;
+X
+X      for (line = outlines;  *line;  ++line)
+X        puts(*line);
+X
+X      freelines(outlines);
+X      outlines = NULL;
+X
+X      firsttag = nexttag;
+X      firstline = nextline;
+X    } while (firstline < endline);
+X
+X    free(tags);
+X    tags = NULL;
+X
+X    freelines(inlines);
+X    inlines = NULL;
+X  }
+X
+Xparcleanup:
+X
+X  if (bodychars) freecharset(bodychars);
+X  if (protectchars) freecharset(protectchars);
+X  if (quotechars) freecharset(quotechars);
+X  if (parinit) free(parinit);
+X  if (inlines) freelines(inlines);
+X  if (tags) free(tags);
+X  if (outlines) freelines(outlines);
+X
+X  if (*errmsg) printf("par error:\n%.*s", errmsg_size, errmsg);
+X  if (version) puts("par 1.31");
+X  if (help)    fputs(usagemsg,stdout);
+X
+X  exit(*errmsg ? EXIT_FAILURE : EXIT_SUCCESS);
+X}
+END_OF_FILE
+if test 18832 -ne `wc -c <'Par131/par.c'`; then
+    echo shar: \"'Par131/par.c'\" unpacked with wrong size!
+fi
+# end of 'Par131/par.c'
+fi
+if test -f 'Par131/reformat.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/reformat.h'\"
+else
+echo shar: Extracting \"'Par131/reformat.h'\" \(1005 characters\)
+sed "s/^X//" >'Par131/reformat.h' <<'END_OF_FILE'
+X/*********************/
+X/* reformat.h        */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#include "errmsg.h"
+X
+X
+Xchar **reformat(
+X  const char * const *inlines, const char * const *endline,
+X  int hang, int prefix, int suffix, int width, int cap, int fit,
+X  int guess, int just, int last, int Report, int touch, errmsg_t errmsg
+X);
+X  /* inlines is an array of pointers to input lines, up to but not     */
+X  /* including endline.  The other parameters are the variables of the */
+X  /* same name as described in "par.doc". reformat(inlines, endline,   */
+X  /* hang, prefix, suffix, width, cap, fit, guess, just, last, Report, */
+X  /* touch, errmsg) returns a NULL-terminated array of pointers to     */
+X  /* output lines containing the reformatted paragraph, according to   */
+X  /* the specification in "par.doc".  None of the integer parameters   */
+X  /* may be negative. Returns NULL on failure.                         */
+END_OF_FILE
+if test 1005 -ne `wc -c <'Par131/reformat.h'`; then
+    echo shar: \"'Par131/reformat.h'\" unpacked with wrong size!
+fi
+# end of 'Par131/reformat.h'
+fi
+if test -f 'Par131/reformat.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/reformat.c'\"
+else
+echo shar: Extracting \"'Par131/reformat.c'\" \(14546 characters\)
+sed "s/^X//" >'Par131/reformat.c' <<'END_OF_FILE'
+X/*********************/
+X/* reformat.c        */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#include "reformat.h"  /* Makes sure we're consistent with the */
+X                       /* prototype. Also includes "errmsg.h". */
+X#include "buffer.h"    /* Also includes <stddef.h>.            */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+X#undef NULL
+X#define NULL ((void *) 0)
+X
+X#ifdef DONTFREE
+X#define free(ptr)
+X#endif
+X
+X
+Xtypedef struct word {
+X  const char *chrs;       /* Pointer to the characters in the word */
+X                          /* (NOT terminated by '\0').             */
+X  struct word *prev,      /* Pointer to previous word.             */
+X              *next,      /* Pointer to next word.                 */
+X                          /* Supposing this word were the first... */
+X              *nextline;  /*   Pointer to first word in next line. */
+X  int score,              /*   Value of the objective function.    */
+X      length;             /* Length of this word.                  */
+X  short flags;            /* Notable properties of this word.      */
+X} word;
+X
+X/* The following may be bitwise-OR'd together */
+X/* to set the flags field of a word:          */
+X
+Xconst short W_SHIFTED = 1,  /* This word should have an extra space before */
+X                            /* it unless it's the first word in the line.  */
+X            W_CURIOUS = 2,  /* This is a curious word (see par.doc).       */
+X            W_CAPITAL = 4;  /* This is a capitalized word (see par.doc).   */
+X
+X#define isshifted(w) ((w)->flags & 1)
+X#define iscurious(w) (((w)->flags & 2) >> 1)
+X#define iscapital(w) (((w)->flags & 4) >> 2)
+X
+Xconst char * const impossibility =
+X  "Impossibility #%d has occurred. Please report it.\n";
+X
+X
+Xstatic int checkcapital(word *w)
+X/* Returns 1 if *w is capitalized according to the definition */
+X/* in par.doc (assuming <cap> is 0), or 0 if not.             */
+X{
+X  const char *p, *end;
+X
+X  for (p = w->chrs, end = p + w->length;  p < end && !isalnum(*p);  ++p);
+X  return p < end && !islower(*p);
+X}
+X
+X
+Xstatic int checkcurious(word *w)
+X/* Returns 1 if *w is curious according to */
+X/* the definition in par.doc, or 0 if not. */
+X{
+X  const char *start, *p;
+X  char ch;
+X
+X  for (start = w->chrs, p = start + w->length;  p > start;  --p) {
+X    ch = p[-1];
+X    if (isalnum(ch)) return 0;
+X    if (ch == '.' || ch == '?' || ch == '!' || ch == ':') break;
+X  }
+X
+X  if (p <= start + 1) return 0;
+X
+X  --p;
+X  do if (isalnum(*--p)) return 1;
+X  while (p > start);
+X
+X  return 0;
+X}
+X
+X
+Xstatic int simplebreaks(word *head, word *tail, int L, int last)
+X
+X/* Chooses line breaks in a list of words which maximize the length of the   */
+X/* shortest line.  L is the maximum line length.  The last line counts as a  */
+X/* line only if last is non-zero. _head must point to a dummy word, and tail */
+X/* must point to the last word, whose next field must be NULL.  Returns the  */
+X/* length of the shortest line on success, -1 if there is a word of length   */
+X/* greater than L, or L if there are no lines.                               */
+X{
+X  word *w1, *w2;
+X  int linelen, score;
+X
+X  if (!head->next) return L;
+X
+X  for (w1 = tail, linelen = w1->length;
+X       w1 != head && linelen <= L;
+X       linelen += isshifted(w1), w1 = w1->prev, linelen += 1 + w1->length) {
+X    w1->score = last ? linelen : L;
+X    w1->nextline = NULL;
+X  }
+X
+X  for ( ;  w1 != head;  w1 = w1->prev) {
+X    w1->score = -1;
+X    for (linelen = w1->length,  w2 = w1->next;
+X         linelen <= L;
+X         linelen += 1 + isshifted(w2) + w2->length,  w2 = w2->next) {
+X      score = w2->score;
+X      if (linelen < score) score = linelen;
+X      if (score >= w1->score) {
+X        w1->nextline = w2;
+X        w1->score = score;
+X      }
+X    }
+X  }
+X
+X  return head->next->score;
+X}
+X
+X
+Xstatic void normalbreaks(word *head, word *tail, int L,
+X                         int fit, int last, errmsg_t errmsg)
+X
+X/* Chooses line breaks in a list of words according to the policy   */
+X/* in "par.doc" for <just> = 0 (L is <L>, fit is <fit>, and last is */
+X/* <last>).  head must point to a dummy word, and tail must point   */
+X/* to the last word, whose next field must be NULL.                 */
+X{
+X  word *w1, *w2;
+X  int tryL, shortest, score, target, linelen, extra, minlen;
+X
+X  *errmsg = '\0';
+X  if (!head->next) return;
+X
+X  target = L;
+X
+X/* Determine minimum possible difference between  */
+X/* the lengths of the shortest and longest lines: */
+X
+X  if (fit) {
+X    score = L + 1;
+X    for (tryL = L;  ;  --tryL) {
+X      shortest = simplebreaks(head,tail,tryL,last);
+X      if (shortest < 0) break;
+X      if (tryL - shortest < score) {
+X        target = tryL;
+X        score = target - shortest;
+X      }
+X    }
+X  }
+X
+X/* Determine maximum possible length of the shortest line: */
+X
+X  shortest = simplebreaks(head,tail,target,last);
+X  if (shortest < 0) {
+X    sprintf(errmsg,impossibility,1);
+X    return;
+X  }
+X
+X/* Minimize the sum of the squares of the differences */
+X/* between target and the lengths of the lines:       */
+X
+X  w1 = tail;
+X  do {
+X    w1->score = -1;
+X    for (linelen = w1->length,  w2 = w1->next;
+X         linelen <= target;
+X         linelen += 1 + isshifted(w2) + w2->length,  w2 = w2->next) {
+X      extra = target - linelen;
+X      minlen = shortest;
+X      if (w2)
+X        score = w2->score;
+X      else {
+X        score = 0;
+X        if (!last) extra = minlen = 0;
+X      }
+X      if (linelen >= minlen  &&  score >= 0) {
+X        score += extra * extra;
+X        if (w1->score < 0  ||  score <= w1->score) {
+X          w1->nextline = w2;
+X          w1->score = score;
+X        }
+X      }
+X      if (!w2) break;
+X    }
+X    w1 = w1->prev;
+X  } while (w1 != head);
+X
+X  if (head->next->score < 0)
+X    sprintf(errmsg,impossibility,2);
+X}
+X
+X
+Xstatic void justbreaks(word *head, word *tail,
+X                       int L, int last, errmsg_t errmsg)
+X
+X/* Chooses line breaks in a list of words according to the  */
+X/* policy in "par.doc" for <just> = 1 (L is <L> and last is */
+X/* <last>).  head must point to a dummy word, and tail must */
+X/* point to the last word, whose next field must be NULL.   */
+X{
+X  word *w1, *w2;
+X  int numgaps, extra, score, gap, maxgap, numbiggaps;
+X
+X  *errmsg = '\0';
+X  if (!head->next) return;
+X
+X/* Determine the minimum possible largest inter-word gap: */
+X
+X  w1 = tail;
+X  do {
+X    w1->score = L;
+X    for (numgaps = 0, extra = L - w1->length, w2 = w1->next;
+X         extra >= 0;
+X         ++numgaps, extra -= 1 + isshifted(w2) + w2->length, w2 = w2->next) {
+X      gap = numgaps ? (extra + numgaps - 1) / numgaps : L;
+X      if (w2)
+X        score = w2->score;
+X      else {
+X        score = 0;
+X        if (!last) gap = 0;
+X      }
+X      if (gap > score) score = gap;
+X      if (score < w1->score) {
+X        w1->nextline = w2;
+X        w1->score = score;
+X      }
+X      if (!w2) break;
+X    }
+X    w1 = w1->prev;
+X  } while (w1 != head);
+X
+X  maxgap = head->next->score;
+X  if (maxgap >= L) {
+X    strcpy(errmsg, "Cannot justify.\n");
+X    return;
+X  }
+X
+X/* Minimize the sum of the squares of the numbers   */
+X/* of extra spaces required in each inter-word gap: */
+X
+X  w1 = tail;
+X  do {
+X    w1->score = -1;
+X    for (numgaps = 0, extra = L - w1->length, w2 = w1->next;
+X         extra >= 0;
+X         ++numgaps, extra -= 1 + isshifted(w2) + w2->length, w2 = w2->next) {
+X      gap = numgaps ? (extra + numgaps - 1) / numgaps : L;
+X      if (w2)
+X        score = w2->score;
+X      else {
+X        if (!last) {
+X          w1->nextline = NULL;
+X          w1->score = 0;
+X          break;
+X        }
+X        score = 0;
+X      }
+X      if (gap <= maxgap && score >= 0) {
+X        numbiggaps = extra % numgaps;
+X        score += (extra / numgaps) * (extra + numbiggaps) + numbiggaps;
+X        /* The above may not look like the sum of the squares of the numbers */
+X        /* of extra spaces required in each inter-word gap, but trust me, it */
+X        /* is.  It's easier to prove graphically than algebraicly.           */
+X        if (w1->score < 0  ||  score <= w1->score) {
+X          w1->nextline = w2;
+X          w1->score = score;
+X        }
+X      }
+X      if (!w2) break;
+X    }
+X    w1 = w1->prev;
+X  } while (w1 != head);
+X
+X  if (head->next->score < 0)
+X    sprintf(errmsg,impossibility,3);
+X}
+X
+X
+Xchar **reformat(
+X  const char * const *inlines, const char * const *endline,
+X  int hang, int prefix, int suffix, int width, int cap, int fit,
+X  int guess, int just, int last, int Report, int touch, errmsg_t errmsg
+X)
+X{
+X  int numin, affix, L, onfirstword = 1, linelen, numout, numgaps, extra, phase;
+X  const char * const *line, **suffixes = NULL, **suf, *end, *p1, *p2;
+X  char *q1, *q2, **outlines = NULL;
+X  word dummy, *head, *tail, *w1, *w2;
+X  buffer *pbuf = NULL;
+X
+X/* Initialization: */
+X
+X  *errmsg = '\0';
+X  dummy.next = dummy.prev = NULL;
+X  dummy.flags = 0;
+X  head = tail = &dummy;
+X  numin = endline - inlines;
+X
+X/* Allocate space for pointers to the suffixes: */
+X
+X  if (numin) {
+X    suffixes = malloc(numin * sizeof (const char *));
+X    if (!suffixes) {
+X      strcpy(errmsg,outofmem);
+X      goto rfcleanup;
+X    }
+X  }
+X
+X/* Set the pointers to the suffixes, and create the words: */
+X
+X  affix = prefix + suffix;
+X  L = width - prefix - suffix;
+X
+X  for (line = inlines, suf = suffixes;  line < endline;  ++line, ++suf) {
+X    for (end = *line;  *end;  ++end);
+X    if (end - *line < affix) {
+X      sprintf(errmsg,
+X              "Line %d shorter than <prefix> + <suffix> = %d + %d = %d\n",
+X              line - inlines + 1, prefix, suffix, affix);
+X      goto rfcleanup;
+X    }
+X    end -= suffix;
+X    *suf = end;
+X    p1 = *line + prefix;
+X    for (;;) {
+X      while (p1 < end && *p1 == ' ') ++p1;
+X      if (p1 == end) break;
+X      p2 = p1;
+X      if (onfirstword) {
+X        p1 = *line + prefix;
+X        onfirstword = 0;
+X      }
+X      while (p2 < end && *p2 != ' ') ++p2;
+X      w1 = malloc(sizeof (word));
+X      if (!w1) {
+X        strcpy(errmsg,outofmem);
+X        goto rfcleanup;
+X      }
+X      w1->next = NULL;
+X      w1->prev = tail;
+X      tail = tail->next = w1;
+X      w1->chrs = p1;
+X      w1->length = p2 - p1;
+X      w1->flags = 0;
+X      p1 = p2;
+X    }
+X  }
+X
+X/* If guess is 1, set flag values and merge words: */
+X
+X  if (guess) {
+X    for (w1 = head, w2 = head->next;  w2;  w1 = w2, w2 = w2->next) {
+X      if (checkcurious(w2)) w2->flags |= W_CURIOUS;
+X      if (cap || checkcapital(w2)) {
+X        w2->flags |= W_CAPITAL;
+X        if (iscurious(w1))
+X          if (w1->chrs[w1->length] && w1->chrs + w1->length + 1 == w2->chrs) {
+X            w2->length += w1->length + 1;
+X            w2->chrs = w1->chrs;
+X            w2->prev = w1->prev;
+X            w2->prev->next = w2;
+X            if (iscapital(w1)) w2->flags |= W_CAPITAL;
+X            else w2->flags &= ~W_CAPITAL;
+X            if (isshifted(w1)) w2->flags |= W_SHIFTED;
+X            else w2->flags &= ~W_SHIFTED;
+X            free(w1);
+X          }
+X          else
+X            w2->flags |= W_SHIFTED;
+X      }
+X    }
+X    tail = w1;
+X  }
+X
+X/* Check for too-long words: */
+X
+X  if (Report)
+X    for (w2 = head->next;  w2;  w2 = w2->next) {
+X      if (w2->length > L) {
+X        linelen = w2->length;
+X        if (linelen > errmsg_size - 17)
+X          linelen = errmsg_size - 17;
+X        sprintf(errmsg, "Word too long: %.*s\n", linelen, w2->chrs);
+X        goto rfcleanup;
+X      }
+X    }
+X  else
+X    for (w2 = head->next;  w2;  w2 = w2->next)
+X      while (w2->length > L) {
+X        w1 = malloc(sizeof (word));
+X        if (!w1) {
+X          strcpy(errmsg,outofmem);
+X          goto rfcleanup;
+X        }
+X        w1->next = w2;
+X        w1->prev = w2->prev;
+X        w1->prev->next = w1;
+X        w2->prev = w1;
+X        w1->chrs = w2->chrs;
+X        w2->chrs += L;
+X        w1->length = L;
+X        w2->length -= L;
+X        w1->flags = 0;
+X        if (iscapital(w2)) {
+X          w1->flags |= W_CAPITAL;
+X          w2->flags &= ~W_CAPITAL;
+X        }
+X        if (isshifted(w2)) {
+X          w1->flags |= W_SHIFTED;
+X          w2->flags &= ~W_SHIFTED;
+X        }
+X      }
+X
+X/* Choose line breaks according to policy in "par.doc": */
+X
+X  if (just) justbreaks(head,tail,L,last,errmsg);
+X  else normalbreaks(head,tail,L,fit,last,errmsg);
+X  if (*errmsg) goto rfcleanup;
+X
+X/* Change L to the length of the longest line if required: */
+X
+X  if (!just && touch) {
+X    L = 0;
+X    w1 = head->next;
+X    while (w1) {
+X      for (linelen = w1->length, w2 = w1->next;
+X           w2 != w1->nextline;
+X           linelen += 1 + isshifted(w2) + w2->length, w2 = w2->next);
+X      if (linelen > L) L = linelen;
+X      w1 = w2;
+X    }
+X  }
+X
+X/* Construct the lines: */
+X
+X  pbuf = newbuffer(sizeof (char *), errmsg);
+X  if (*errmsg) goto rfcleanup;
+X
+X  numout = 0;
+X  w1 = head->next;
+X  while (numout < hang || w1) {
+X    if (w1)
+X      for (w2 = w1->next, numgaps = 0, extra = L - w1->length;
+X           w2 != w1->nextline;
+X           ++numgaps, extra -= 1 + isshifted(w2) + w2->length, w2 = w2->next);
+X    linelen = suffix  ||  just && (w2 || last) ?
+X                L + affix :
+X                w1 ? prefix + L - extra : prefix;
+X    q1 = malloc((linelen + 1) * sizeof (char));
+X    if (!q1) {
+X      strcpy(errmsg,outofmem);
+X      goto rfcleanup;
+X    }
+X    additem(pbuf, &q1, errmsg);
+X    if (*errmsg) goto rfcleanup;
+X    ++numout;
+X    q2 = q1 + prefix;
+X    if      (numout <= numin) memcpy(q1, inlines[numout - 1], prefix);
+X    else if (numin > hang)    memcpy(q1, inlines[numin - 1], prefix);
+X    else                      while (q1 < q2) *q1++ = ' ';
+X    q1 = q2;
+X    if (w1) {
+X      phase = numgaps / 2;
+X      for (w2 = w1;  ;  ) {
+X        memcpy(q1, w2->chrs, w2->length);
+X        q1 += w2->length;
+X        w2 = w2->next;
+X        if (w2 == w1->nextline) break;
+X        *q1++ = ' ';
+X        if (just && (w1->nextline || last)) {
+X          phase += extra;
+X          while (phase >= numgaps) {
+X            *q1++ = ' ';
+X            phase -= numgaps;
+X          }
+X        }
+X        if (isshifted(w2)) *q1++ = ' ';
+X      }
+X    }
+X    q2 += linelen - affix;
+X    while (q1 < q2) *q1++ = ' ';
+X    q2 = q1 + suffix;
+X    if      (numout <= numin) memcpy(q1, suffixes[numout - 1], suffix);
+X    else if (numin)           memcpy(q1, suffixes[numin - 1], suffix);
+X    else                      while(q1 < q2) *q1++ = ' ';
+X    *q2 = '\0';
+X    if (w1) w1 = w1->nextline;
+X  }
+X
+X  q1 = NULL;
+X  additem(pbuf, &q1, errmsg);
+X  if (*errmsg) goto rfcleanup;
+X
+X  outlines = copyitems(pbuf,errmsg);
+X
+Xrfcleanup:
+X
+X  if (suffixes) free(suffixes);
+X
+X  while (tail != head) {
+X    tail = tail->prev;
+X    free(tail->next);
+X  }
+X
+X  if (pbuf) {
+X    if (!outlines)
+X      for (;;) {
+X        outlines = nextitem(pbuf);
+X        if (!outlines) break;
+X        free(*outlines);
+X      }
+X    freebuffer(pbuf);
+X  }
+X
+X  return outlines;
+X}
+END_OF_FILE
+if test 14546 -ne `wc -c <'Par131/reformat.c'`; then
+    echo shar: \"'Par131/reformat.c'\" unpacked with wrong size!
+fi
+# end of 'Par131/reformat.c'
+fi
+if test -f 'Par131/buffer.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/buffer.h'\"
+else
+echo shar: Extracting \"'Par131/buffer.h'\" \(2311 characters\)
+sed "s/^X//" >'Par131/buffer.h' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.h          */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* Note: Those functions declared here which do not use errmsg    */
+X/* always succeed, provided that they are passed valid arguments. */
+X
+X
+X#include "errmsg.h"
+X
+X#include <stddef.h>
+X
+X
+Xtypedef struct buffer buffer;
+X
+X
+Xbuffer *newbuffer(size_t itemsize, errmsg_t errmsg);
+X
+X  /* newbuffer(itemsize,errmsg) returns a pointer to a    */
+X  /* new empty buffer which holds items of size itemsize. */
+X  /* itemsize must not be 0.  Returns NULL on failure.    */
+X
+X
+Xvoid freebuffer(buffer *buf);
+X
+X  /* freebuffer(buf) frees the memory associated with */
+X  /* *buf.  buf may not be used after this call.      */
+X
+X
+Xvoid clearbuffer(buffer *buf);
+X
+X  /* clearbuffer(buf) removes  */
+X  /* all items from *buf, but  */
+X  /* does not free any memory. */
+X
+X
+Xvoid additem(buffer *buf, const void *item, errmsg_t errmsg);
+X
+X  /* additem(buf,item,errmsg) copies *item to the end of     */
+X  /* *buf.  item must point to an object of the proper size  */
+X  /* for *buf.  If additem() fails, *buf will be unaffected. */
+X
+X
+Xint numitems(buffer *buf);
+X
+X  /* numitems(buf) returns the number of items in *buf. */
+X
+X
+Xvoid *copyitems(buffer *buf, errmsg_t errmsg);
+X
+X  /* copyitems(buf,errmsg) returns an array of objects of the proper size */
+X  /* for *buf, one for each item in *buf, or (void *) 0 if there are no   */
+X  /* items in buf.  The elements of the array are copied from the items   */
+X  /* in *buf, in order.  The array is allocated with malloc(), so it may  */
+X  /* be freed with free().  Returns NULL on failure.                      */
+X
+X
+Xvoid *nextitem(buffer *buf);
+X
+X  /* When buf was created by newbuffer, a pointer associated with buf  */
+X  /* was initialized to point at the first slot in *buf.  If there is  */
+X  /* an item in the slot currently pointed at, nextitem(buf) advances  */
+X  /* the pointer to the next slot and returns the old value.  If there */
+X  /* is no item in the slot, nextitem(buf) leaves the pointer where it */
+X  /* is and returns NULL.                                              */
+X
+X
+Xvoid rewindbuffer(buffer *buf);
+X
+X  /* rewindbuffer(buf) resets the pointer used by   */
+X  /* nextitem() to point at the first slot in *buf. */
+END_OF_FILE
+if test 2311 -ne `wc -c <'Par131/buffer.h'`; then
+    echo shar: \"'Par131/buffer.h'\" unpacked with wrong size!
+fi
+# end of 'Par131/buffer.h'
+fi
+if test -f 'Par131/buffer.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/buffer.c'\"
+else
+echo shar: Extracting \"'Par131/buffer.c'\" \(4554 characters\)
+sed "s/^X//" >'Par131/buffer.c' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.c          */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* additem(), copyitems(), and nextitem() rely on the fact that */
+X/* sizeof (char) is 1.  See section A7.4.8 of The C Programming */
+X/* Language, Second Edition, by Kerninghan and Ritchie.         */
+X
+X
+X#include "buffer.h"  /* Makes sure we're consistent with the prototypes. */
+X                     /* Also includes <stddef.h> and "errmsg.h".         */
+X
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#undef NULL
+X#define NULL ((void *) 0)
+X
+X#ifdef DONTFREE
+X#define free(ptr)
+X#endif
+X
+X
+Xstruct buffer {
+X  struct block *firstblk, /* The first block.                    */
+X               *current,  /* The last non-empty block, or        */
+X                          /* firstblk if all are empty.          */
+X               *nextblk;  /* The block containing the item to be */
+X                          /* returned by nextitem(), or NULL.    */
+X  int nextindex;          /* Index of item in nextblock->items.  */
+X  size_t itemsize;        /* The size of an item.                */
+X};
+X
+Xtypedef struct block {
+X  struct block *next;  /* The next block, or NULL if none.              */
+X  void *items;         /* Storage for the items in this block.          */
+X  int maxhere,         /* Number of items that fit in *items.           */
+X      numprevious,     /* Total of numhere for all previous blocks.     */
+X      numhere;         /* The first numhere slots in *items are filled. */
+X} block;
+X
+X
+Xbuffer *newbuffer(size_t itemsize, errmsg_t errmsg)
+X{
+X  buffer *buf;
+X  block *blk;
+X  void *items;
+X  int maxhere;
+X
+X  maxhere = 124 / itemsize;
+X  if (maxhere < 4) maxhere = 4;
+X
+X  buf = (buffer *) malloc(sizeof (buffer));
+X  blk = (block *) malloc(sizeof (block));
+X  items = malloc(maxhere * itemsize);
+X  if (!buf || !blk || !items) {
+X    strcpy(errmsg,outofmem);
+X    goto nberror;
+X  }
+X
+X  buf->itemsize = itemsize;
+X  buf->firstblk = buf->current = buf->nextblk = blk;
+X  buf->nextindex = 0;
+X  blk->next = NULL;
+X  blk->numprevious = blk->numhere = 0;
+X  blk->maxhere = maxhere;
+X  blk->items = items;
+X
+X  *errmsg = '\0';
+X  return buf;
+X
+Xnberror:
+X
+X  if (buf) free(buf);
+X  if (blk) free(blk);
+X  if (items) free(items);
+X  return NULL;
+X}
+X
+X
+Xvoid freebuffer(buffer *buf)
+X{
+X  block *blk, *tmp;
+X
+X  blk = buf->firstblk;
+X  while (blk) {
+X    tmp = blk;
+X    blk = blk->next;
+X    if (tmp->items) free(tmp->items);
+X    free(tmp);
+X  }
+X
+X  free(buf);
+X}
+X
+X
+Xvoid clearbuffer(buffer *buf)
+X{
+X  block *blk;
+X
+X  for (blk = buf->firstblk;  blk;  blk = blk->next)
+X    blk->numhere = 0;
+X
+X  buf->current = buf->firstblk;
+X}
+X
+X
+Xvoid additem(buffer *buf, const void *item, errmsg_t errmsg)
+X{
+X  block *blk, *new;
+X  void *items;
+X  int maxhere;
+X  size_t itemsize = buf->itemsize;
+X
+X  blk = buf->current;
+X
+X  if (blk->numhere == blk->maxhere) {
+X    new = blk->next;
+X    if (!new) {
+X      maxhere = 2 * blk->maxhere;
+X      new = (block * ) malloc(sizeof (block));
+X      items = malloc(maxhere * itemsize);
+X      if (!new || !items) {
+X        strcpy(errmsg,outofmem);
+X        goto aierror;
+X      }
+X      blk->next = new;
+X      new->next = NULL;
+X      new->maxhere = maxhere;
+X      new->numprevious = blk->numprevious + blk->numhere;
+X      new->numhere = 0;
+X      new->items = items;
+X    }
+X    blk = buf->current = new;
+X  }
+X
+X  memcpy( ((char *) blk->items) + (blk->numhere * itemsize), item, itemsize );
+X
+X  ++blk->numhere;
+X
+X  *errmsg = '\0';
+X  return;
+X
+Xaierror:
+X
+X  if (new) free(new);
+X  if (items) free(items);
+X}
+X
+X
+Xint numitems(buffer *buf)
+X{
+X  block *blk = buf->current;
+X  return blk->numprevious + blk->numhere;
+X}
+X
+X
+Xvoid *copyitems(buffer *buf, errmsg_t errmsg)
+X{
+X  int n;
+X  void *r;
+X  block *blk, *b;
+X  size_t itemsize = buf->itemsize;
+X
+X  b = buf->current;
+X  n = b->numprevious + b->numhere;
+X  if (!n) return NULL;
+X
+X  r = malloc(n * itemsize);
+X  if (!r) {
+X    strcpy(errmsg,outofmem);
+X    return NULL;
+X  }
+X
+X  b = b->next;
+X
+X  for (blk = buf->firstblk;  blk != b;  blk = blk->next)
+X    memcpy( ((char *) r) + (blk->numprevious * itemsize),
+X            blk->items, blk->numhere * itemsize);
+X
+X  *errmsg = '\0';
+X  return r;
+X}
+X
+X
+Xvoid rewindbuffer(buffer *buf)
+X{
+X  buf->nextblk = buf->firstblk;
+X  buf->nextindex = 0;
+X}
+X
+X
+Xvoid *nextitem(buffer *buf)
+X{
+X  void *r;
+X
+X  if (!buf->nextblk || buf->nextindex >= buf->nextblk->numhere)
+X    return NULL;
+X
+X  r = ((char *) buf->nextblk->items) + (buf->nextindex * buf->itemsize);
+X
+X  if (++buf->nextindex >= buf->nextblk->maxhere) {
+X    buf->nextblk = buf->nextblk->next;
+X    buf->nextindex = 0;
+X  }
+X
+X  return r;
+X}
+END_OF_FILE
+if test 4554 -ne `wc -c <'Par131/buffer.c'`; then
+    echo shar: \"'Par131/buffer.c'\" unpacked with wrong size!
+fi
+# end of 'Par131/buffer.c'
+fi
+if test -f 'Par131/errmsg.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/errmsg.h'\"
+else
+echo shar: Extracting \"'Par131/errmsg.h'\" \(887 characters\)
+sed "s/^X//" >'Par131/errmsg.h' <<'END_OF_FILE'
+X/*********************/
+X/* errmsg.h          */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#ifndef ERRMSG_H
+X#define ERRMSG_H
+X
+X
+X#define errmsg_size 163
+X
+X/* This is the maximum number of characters that will fit  */
+X/* in an errmsg_t, including the terminating '\0'. It will */
+X/* never decrease, but may increase in future versions of  */
+X/* this header file.                                       */
+X
+X
+Xtypedef char errmsg_t[errmsg_size];
+X
+X/* Any function which takes the argument errmsg_t errmsg must, before */
+X/* returning, either set errmsg[0] to '\0' (indicating success), or   */
+X/* write an error message string into errmsg, (indicating failure),   */
+X/* being careful not to overrun the space.                            */
+X
+X
+Xextern const char * const outofmem;  /* "Out of memory.\n" */
+X
+X
+X#endif
+END_OF_FILE
+if test 887 -ne `wc -c <'Par131/errmsg.h'`; then
+    echo shar: \"'Par131/errmsg.h'\" unpacked with wrong size!
+fi
+# end of 'Par131/errmsg.h'
+fi
+if test -f 'Par131/errmsg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par131/errmsg.c'\"
+else
+echo shar: Extracting \"'Par131/errmsg.c'\" \(303 characters\)
+sed "s/^X//" >'Par131/errmsg.c' <<'END_OF_FILE'
+X/*********************/
+X/* errmsg.c          */
+X/* for Par 1.31      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#include "errmsg.h"  /* Makes sure we're consistent with the declaration. */
+X
+X
+Xconst char * const outofmem = "Out of memory.\n";
+END_OF_FILE
+if test 303 -ne `wc -c <'Par131/errmsg.c'`; then
+    echo shar: \"'Par131/errmsg.c'\" unpacked with wrong size!
+fi
+# end of 'Par131/errmsg.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

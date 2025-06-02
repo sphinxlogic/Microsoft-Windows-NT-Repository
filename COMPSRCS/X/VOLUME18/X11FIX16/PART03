@@ -1,0 +1,389 @@
+Newsgroups: comp.sources.x
+Path: uunet!haven.umd.edu!darwin.sura.net!mips!msi!dcmartin
+From: Bob Scheifler <rws@expo.lcs.mit.edu>
+Subject: v18i080: X11R5 public fix #16, Part03/03
+Message-ID: <1992Aug3.143909.29963@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i078-X11-fix16@uunet.UU.NET>
+Date: Mon, 3 Aug 1992 14:39:09 GMT
+Approved: dcmartin@msi.com
+Lines: 376
+
+Submitted-by: Bob Scheifler <rws@expo.lcs.mit.edu>
+Posting-number: Volume 18, Issue 80
+Archive-name: X11-fix16/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fix-16 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fix-16'
+else
+echo 'x - continuing file fix-16'
+sed 's/^X//' << 'SHAR_EOF' >> 'fix-16' &&
+! 	    XSelectInput( ic->core.im->core.display, ic->core.client_window,
+! 			  war.your_event_mask );
+X  	}
++ 	return(ret);
++ }
+X  
+X  char *
+X  _Ximp_SetICValueData(ic, values, mode, change_mask)
+***************
+*** 144,158 ****
+X  		else if(strcmp(p->name, XNClientWindow)==0) {
+X  			if(!(ic->ximp_icpart->value_mask & XIMP_CLIENT_WIN)) {
+X  				if(mode == XIMP_SET_IC && (ic->ximp_icpart->icid)) {
+! 					_Ximp_IM_SendMessage(ic, XIMP_DESTROY, NULL, NULL, NULL);
+! 					XDestroyWindow(ic->core.im->core.display,
+! 						       ic->core.client_window);
+! 					ic->core.client_window = (Window)p->value;
+X  					ic->ximp_icpart->value_mask |= XIMP_CLIENT_WIN;
+X  					if(_Ximp_SetOpenXIMP(ic, mode) == False) {
+X  						return_name = p->name;
+X  						break;
+X  						}
+X  					*change_mask = NULL;
+X  					}
+X  				else { /* XIMP_CREATE_IC | (XIMP_SET_IC && XIMP_START_IC) */
+--- 240,264 ----
+X  		else if(strcmp(p->name, XNClientWindow)==0) {
+X  			if(!(ic->ximp_icpart->value_mask & XIMP_CLIENT_WIN)) {
+X  				if(mode == XIMP_SET_IC && (ic->ximp_icpart->icid)) {
+! 					long	icid_old, icid_new;
+! 					Window	client_window;
+! 
+! 					icid_old = ic->ximp_icpart->icid;
+! 					client_window = ic->core.client_window;
+X  					ic->ximp_icpart->value_mask |= XIMP_CLIENT_WIN;
++ 					ic->core.client_window = (Window)p->value;
+X  					if(_Ximp_SetOpenXIMP(ic, mode) == False) {
+X  						return_name = p->name;
++ 						ic->ximp_icpart->value_mask &= ~XIMP_CLIENT_WIN;
++ 						ic->core.client_window = client_window;
+X  						break;
+X  						}
++ 					icid_new = ic->ximp_icpart->icid;
++ 					ic->ximp_icpart->icid = icid_old;
++ 					_Ximp_IM_SendMessage(ic, XIMP_DESTROY, NULL, NULL, NULL);
++ 					ic->ximp_icpart->icid = icid_new;
++ 					XDestroyWindow(ic->core.im->core.display,
++ 						       client_window);
+X  					*change_mask = NULL;
+X  					}
+X  				else { /* XIMP_CREATE_IC | (XIMP_SET_IC && XIMP_START_IC) */
+***************
+*** 333,339 ****
+X  				for(i = 0, len = 0; i < list_ret; i++) {
+X  					len += strlen(name_list[i]);
+X  					}
+! 				tmp = Xmalloc(len + i + 1);
+X  				tmp[0] = NULL;
+X  				for(i = 0; i < list_ret; i++) {
+X  					strcat(tmp, name_list[i]);
+--- 439,448 ----
+X  				for(i = 0, len = 0; i < list_ret; i++) {
+X  					len += strlen(name_list[i]);
+X  					}
+! 				if( (tmp = Xmalloc(len + i + 1)) == NULL ) {
+! 				    return_name = p->name;
+! 				    return( False );
+! 				}
+X  				tmp[0] = NULL;
+X  				for(i = 0; i < list_ret; i++) {
+X  					strcat(tmp, name_list[i]);
+***************
+*** 480,486 ****
+X  				for(i = 0, len = 0; i < list_ret; i++) {
+X  					len += strlen(name_list[i]);
+X  					}
+! 				tmp = Xmalloc(len + i + 1);
+X  				tmp[0] = NULL;
+X  				for(i = 0; i < list_ret; i++) {
+X  					strcat(tmp, name_list[i]);
+--- 589,598 ----
+X  				for(i = 0, len = 0; i < list_ret; i++) {
+X  					len += strlen(name_list[i]);
+X  					}
+! 				if( (tmp = Xmalloc(len + i + 1)) == NULL ) {
+! 				    return_name = p->name;
+! 				    return( False );
+! 				}
+X  				tmp[0] = NULL;
+X  				for(i = 0; i < list_ret; i++) {
+X  					strcat(tmp, name_list[i]);
+*** /tmp/d14669	Sat Aug  1 11:17:05 1992
+--- mit/lib/X/Ximp/XimpRm.c	Sat Aug  1 11:16:54 1992
+***************
+*** 1,8 ****
+! /* $XConsortium: XimpRm.c,v 1.4 92/04/14 13:29:56 rws Exp $ */
+X  /******************************************************************
+X  
+X                Copyright 1991, 1992 by FUJITSU LIMITED
+!               Copyright 1991, 1992 by Sony Corporaion
+X  
+X  Permission to use, copy, modify, distribute, and sell this software
+X  and its documentation for any purpose is hereby granted without fee,
+--- 1,8 ----
+! /* $XConsortium: XimpRm.c,v 1.5 92/07/29 10:16:22 rws Exp $ */
+X  /******************************************************************
+X  
+X                Copyright 1991, 1992 by FUJITSU LIMITED
+!               Copyright 1991, 1992 by Sony Corporation
+X  
+X  Permission to use, copy, modify, distribute, and sell this software
+X  and its documentation for any purpose is hereby granted without fee,
+***************
+*** 26,32 ****
+X  OR PERFORMANCE OF THIS SOFTWARE.
+X  
+X    Author: Takashi Fujiwara     FUJITSU LIMITED 
+!           Makoto Wakamatsu     Sony Corporaion
+X  
+X  ******************************************************************/
+X  
+--- 26,32 ----
+X  OR PERFORMANCE OF THIS SOFTWARE.
+X  
+X    Author: Takashi Fujiwara     FUJITSU LIMITED 
+!           Makoto Wakamatsu     Sony Corporation
+X  
+X  ******************************************************************/
+X  
+***************
+*** 175,181 ****
+X  	{
+X  	char		 res_name[256];
+X  	char		 res_class[256];
+! 	char		*str_type[50];
+X  	XrmValue	 value;
+X  	Bool		 ret = False;
+X  	KeySym		 keysym = NoSymbol;
+--- 175,181 ----
+X  	{
+X  	char		 res_name[256];
+X  	char		 res_class[256];
+! 	char		*str_type;
+X  	XrmValue	 value;
+X  	Bool		 ret = False;
+X  	KeySym		 keysym = NoSymbol;
+***************
+*** 189,195 ****
+X  	strcat(res_name, "inputserver");
+X  	strcat(res_class, "Inputserver");
+X  	if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				str_type, &value) == True) { 
+X  		if(strcmp(value.addr, "off") == 0) {
+X  			/* Keysym */
+X  			_Ximp_Get_resource_name(im, res_name, res_class);
+--- 189,195 ----
+X  	strcat(res_name, "inputserver");
+X  	strcat(res_class, "Inputserver");
+X  	if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				&str_type, &value) == True) { 
+X  		if(strcmp(value.addr, "off") == 0) {
+X  			/* Keysym */
+X  			_Ximp_Get_resource_name(im, res_name, res_class);
+***************
+*** 196,202 ****
+X  			strcat(res_name, "startkeysym");
+X  			strcat(res_class, "Startkeysym");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				str_type, &value) == True) { 
+X  				keysym = XStringToKeysym(value.addr);
+X  				}
+X  			ret = False;
+--- 196,202 ----
+X  			strcat(res_name, "startkeysym");
+X  			strcat(res_class, "Startkeysym");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				&str_type, &value) == True) { 
+X  				keysym = XStringToKeysym(value.addr);
+X  				}
+X  			ret = False;
+***************
+*** 220,226 ****
+X  			strcat(res_name, "processStartKeys");
+X  			strcat(res_class, "ProcessStartKeys");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 						str_type, &value)  == True) {
+X  				char	*string, *ss, c;
+X  				char	*line;
+X  
+--- 220,226 ----
+X  			strcat(res_name, "processStartKeys");
+X  			strcat(res_class, "ProcessStartKeys");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 						&str_type, &value)  == True) {
+X  				char	*string, *ss, c;
+X  				char	*line;
+X  
+***************
+*** 249,255 ****
+X  	strcat(res_name, "callbackEncoding");
+X  	strcat(res_class, "CallbackEncoding");
+X  	if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				str_type, &value) == True) { 
+X  		if(strcmp(value.addr, "wchar") == 0) {
+X  			im->ximp_impart->use_wchar = True;
+X  			}
+--- 249,255 ----
+X  	strcat(res_name, "callbackEncoding");
+X  	strcat(res_class, "CallbackEncoding");
+X  	if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 				&str_type, &value) == True) { 
+X  		if(strcmp(value.addr, "wchar") == 0) {
+X  			im->ximp_impart->use_wchar = True;
+X  			}
+***************
+*** 267,273 ****
+X  	Ximp_XIM	 im;
+X  	char		 res_name[256];
+X  	char		 res_class[256];
+! 	char		*str_type[50];
+X  	XrmValue	 value;
+X  	Colormap	 default_colormap;
+X  	XColor		 screen_def, exact_def;
+--- 267,273 ----
+X  	Ximp_XIM	 im;
+X  	char		 res_name[256];
+X  	char		 res_class[256];
+! 	char		*str_type;
+X  	XrmValue	 value;
+X  	Colormap	 default_colormap;
+X  	XColor		 screen_def, exact_def;
+***************
+*** 284,290 ****
+X  			strcat(res_name, "preedit.background");
+X  			strcat(res_class, "Preedit.Background");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+--- 284,290 ----
+X  			strcat(res_name, "preedit.background");
+X  			strcat(res_class, "Preedit.Background");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+***************
+*** 304,310 ****
+X  			strcat(res_name, "preedit.foreground");
+X  			strcat(res_class, "Preedit.Foreground");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+--- 304,310 ----
+X  			strcat(res_name, "preedit.foreground");
+X  			strcat(res_class, "Preedit.Foreground");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+***************
+*** 324,330 ****
+X  			strcat(res_name, "preedit.linespacing");
+X  			strcat(res_class, "Preedit.Linespacing");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				num = atoi(value.addr);
+X  				ic->core.preedit_attr.line_space = num;
+X  				ic->ximp_icpart->preedit_attr.LineSpacing = 
+--- 324,330 ----
+X  			strcat(res_name, "preedit.linespacing");
+X  			strcat(res_class, "Preedit.Linespacing");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				num = atoi(value.addr);
+X  				ic->core.preedit_attr.line_space = num;
+X  				ic->ximp_icpart->preedit_attr.LineSpacing = 
+***************
+*** 341,347 ****
+X  			strcat(res_name, "status.background");
+X  			strcat(res_class, "Status.Background");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+--- 341,347 ----
+X  			strcat(res_name, "status.background");
+X  			strcat(res_class, "Status.Background");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+***************
+*** 362,368 ****
+X  			strcat(res_name, "status.foreground");
+X  			strcat(res_class, "Status.Foreground");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+--- 362,368 ----
+X  			strcat(res_name, "status.foreground");
+X  			strcat(res_class, "Status.Foreground");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				default_colormap = DefaultColormap(
+X  						im->core.display,
+X  						DefaultScreen(im->core.display) );
+***************
+*** 382,388 ****
+X  			strcat(res_name, "status.linespacing");
+X  			strcat(res_class, "Status.Linespacing");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					str_type, &value) == True) { 
+X  				num = atoi(value.addr);
+X  				ic->core.status_attr.line_space = num;
+X  				ic->ximp_icpart->status_attr.LineSpacing = 
+--- 382,388 ----
+X  			strcat(res_name, "status.linespacing");
+X  			strcat(res_class, "Status.Linespacing");
+X  			if(XrmGetResource(im->core.rdb, res_name, res_class,
+! 					&str_type, &value) == True) { 
+X  				num = atoi(value.addr);
+X  				ic->core.status_attr.line_space = num;
+X  				ic->ximp_icpart->status_attr.LineSpacing = 
+SHAR_EOF
+echo 'File fix-16 is complete' &&
+chmod 0644 fix-16 ||
+echo 'restore of fix-16 failed'
+Wc_c="`wc -c < 'fix-16'`"
+test 109408 -eq "$Wc_c" ||
+	echo 'fix-16: original size 109408, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

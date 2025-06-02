@@ -1,0 +1,542 @@
+Path: comp-sources-3b1
+From: dburr@sbphy.physics.ucsb.edu (Donald Burr)
+Subject:  v02i003:  Load average routines and uptime command, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.newport.ri.us
+X-Checksum-Snefru: b7c4edd4 5ddf7da8 e861cb07 009426e0
+
+Submitted-by: dburr@sbphy.physics.ucsb.edu (Donald Burr)
+Posting-number: Volume 2, Issue 3
+Archive-name: lavg_tools/part01
+
+Greetings, humanoids.
+
+Just got Lenny Tropiano's sysinfo package from osu-cis, and for the fun of
+it, decided to write a few things to utilize the load average daemon
+(/etc/loadavgd) that comes with sysinfo.  To that end, I've come up with
+getloadavg(3), which includes a man page, and uptime(1), which doesn't yet
+include a man (I'm working on it...)
+
+I'm also working on a port of BSD w(1), but am running into some trouble.
+Any help you out there on the Net can render (which of course includes
+source code ;-) ) would be greatly appreciated.
+
+I can be reached at dburr@sbphy.physics.ucsb.edu.  Attempting a reply via
+UUCP is still pretty hairy at this point.
+
+Share And Enjoy!
+
+---cut here---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 1)."
+# Contents:  MANIFEST Makefile README getloadavg.3 getloadavg.c
+#   uptime.c
+# Wrapped by dburr@sbanet on Tue May 26 13:51:19 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(434 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	This shipping list
+X Makefile                   1	File for make(1) to build this.
+X README                     1	Read this first!!
+X getloadavg.3               1	Man page for getloadavg() call
+X getloadavg.c               1	Source for getloadavg() call
+X uptime.c                   1	Source for uptime(1) program
+END_OF_FILE
+if test 434 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(1053 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# $Id: Makefile,v 1.1 1992/05/26 20:49:22 dburr Exp $
+X#
+X# $Log: Makefile,v $
+X# Revision 1.1  1992/05/26  20:49:22  dburr
+X# Initial revision
+X#
+X#
+X# makefile for loadavg package
+X# By Donald Burr <dburr@sbphy.physics.ucsb.edu>
+X# Copyright (c) 1992
+X
+XSHELL		= /bin/sh
+X
+XCC		= cc
+XCFLAGS		= -g
+XLDFLAGS		=
+XLIBS		=
+X
+XINSTDIR		= /usr/local/bin
+XLIBDIR		= /usr/lib
+XMANDIR		= /usr/local/man/man3
+XMANEXT		= 3
+X
+XRANLIB		= echo
+X
+Xall:		uptime libloadavg.a
+X
+Xuptime:		uptime.o
+X		$(CC) $(CFLAGS) $(LDFLAGS) -o uptime uptime.o $(LIBS)
+X
+Xlibloadavg.a:	getloadavg.o
+X		ar cr libloadavg.a getloadavg.o
+X		$(RANLIB) libloadavg.a
+X
+Xuptime.o:	uptime.c
+X		$(CC) $(CFLAGS) -c uptime.c
+X
+Xgetloadavg.o:	getloadavg.c
+X		$(CC) $(CFLAGS) -c getloadavg.c
+X
+Xinstall:	uptime libloadavg.a
+X		cp ./uptime $(INSTDIR)/uptime
+X		cp ./libloadavg.a $(LIBDIR)
+X		$(RANLIB) $(LIBDIR)/libloadavg.a
+X		cp ./getloadavg.3 $(MANDIR)/getloadavg.$(MANEXT)
+X
+Xclean:
+X		rm -f *.o libloadavg.a uptime
+X
+Xdist:		
+X		-/bin/rm -f MANIFEST* Part*
+X		makekit -s20k -i FILES -o MANIFEST \
+X			-t"Before you do anything, read the README."
+END_OF_FILE
+if test 1053 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(1676 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X$Id: README,v 1.1 1992/05/26 20:49:22 dburr Exp $
+X
+XLoad Average Utility Package 1.0 for AT&T UNIX-PC
+XBy Donald Burr <dburr@sbphy.physics.ucsb.edu>
+XCopyright (c) 1992.
+X
+X
+XWHAT IS IT?
+X     If you installed Lenny Tropiano's sysinfo package, you know that the
+XAT&T UNIX-PC can provide system load average information to your programs
+X(i.e. sysinfo itself).  The sysinfo package includes a load average daemon
+X(/etc/loadavgd) that computes the system load average every 15 seconds (I
+Xthink) and updates a shared memory segment.
+X
+X     Unfortunately, reading this shared memory segment is a little tricky.
+XYou have to insert a copy of the memory read code into every program that
+Xwants to read the system load average.  Either that, or put it into a
+Xshared library or something.
+X
+X     To this end, I have created this package.  It contains a version of the
+XSunOS (BSD in general?) getloadavg(3) function, that uses the shared memory
+Xsegment of loadavgd.  It also includes a man page.  As a bonus, I have
+Xincluded a version of the BSD uptime(1) command, that prints the load
+Xaverage.
+X
+X     I am currently working on an implementation of the BSD w(1) command.
+XThis will probably be bundled in with this package.
+X
+X     To compile, simply type "make".  You may want to edit the Makefile,
+Xto make sure the binaries, man pages, etc. are being installed in the right
+Xplace.
+X
+X     Comments, criticism, questions, etc. are welcome.  Send them to me at
+Xdburr@sbphy.physics.ucsb.edu.
+X
+X     Last, but not least, this code is in the public domain.  Feel free to
+Xdo whatever you want with it, but if you modify it, please leave my name,
+Xcopyright, RCS messages, etc. intact.
+X
+X     Share and Enjoy!
+END_OF_FILE
+if test 1676 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'getloadavg.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getloadavg.3'\"
+else
+echo shar: Extracting \"'getloadavg.3'\" \(981 characters\)
+sed "s/^X//" >'getloadavg.3' <<'END_OF_FILE'
+X'''
+X''' $Id: getloadavg.3,v 1.1 1992/05/26 20:49:22 dburr Exp $
+X'''
+X''' $Log: getloadavg.3,v $
+X''' Revision 1.1  1992/05/26  20:49:22  dburr
+X''' Initial revision
+X'''
+X.TH GETLOADAVG 3  "March 14, 1989"
+X.UC 4
+X.SH NAME
+Xgetloadavg \- get system load averages
+X.SH SYNOPSIS
+X.nf
+X.B getloadavg(loadavg, nelem)
+X.B double loadavg[nelem];
+X.B int nelem;
+X.fi
+X.SH DESCRIPTION
+X.I Getloadavg
+Xreturns the number of processes in the system run queue
+Xaveraged over various periods of time.  Up to
+X.I nelem
+Xsamples are retrieved and assigned to successive elements of
+X.I loadavg[].
+XThe system imposes a maximum of 3 samples, representing averages
+Xover the last 1, 5, and 15 minutes, respectively.
+X.SH "SEE ALSO"
+Xuptime(1), nlist(3), kmem(4)
+X.SH DIAGNOSTICS
+XIf the load average was unobtainable, \-1 is returned; otherwise,
+Xthe number of samples actually retrieved is returned.
+X.SH BUGS
+XPrograms using this utility must have read permission on
+X.I /dev/kmem.
+XThis restriction will eventually be lifted.
+END_OF_FILE
+if test 981 -ne `wc -c <'getloadavg.3'`; then
+    echo shar: \"'getloadavg.3'\" unpacked with wrong size!
+fi
+# end of 'getloadavg.3'
+fi
+if test -f 'getloadavg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getloadavg.c'\"
+else
+echo shar: Extracting \"'getloadavg.c'\" \(1170 characters\)
+sed "s/^X//" >'getloadavg.c' <<'END_OF_FILE'
+X/*
+X * $Id: getloadavg.c,v 1.1 1992/05/26 20:49:22 dburr Exp $
+X *
+X * $Log: getloadavg.c,v $
+X * Revision 1.1  1992/05/26  20:49:22  dburr
+X * Initial revision
+X *
+X *
+X * getloadavg() -- get average number of processes in system run queue
+X *                 over various periods of time
+X *
+X * Donald Burr, 1992
+X *
+X * This simulates the BSD getloadavg() call, using the SysV loadavgd package.
+X *
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/param.h>
+X#include <sys/ipc.h>
+X#include <sys/shm.h>
+X#include <utmp.h>
+X#include <setjmp.h>
+X#include <time.h>
+X
+X#ifndef ctob			/* For System V */
+X#include <sys/sysmacros.h>
+X#endif
+X
+Xint	shm;
+X
+Xint	getloadavg(loadavg, nelem)
+Xdouble	loadavg[];
+Xint	nelem;
+X{
+X	int		i;
+X	double	       *shmseg;
+X
+X	if (nelem > 3)
+X		return(-1);
+X
+X	/* grab hold of our shm segment */
+X	shm = shmget(ftok("/unix",'a'),12,0);
+X
+X	/* did we err? */
+X	if (shm==-1)  {
+X		for(i=0;i<3;i++)
+X			loadavg[i] = 0;
+X		return(-1);
+X	}
+X
+X	/* then let's do it */
+X	shmseg = (double *)shmat(shm, (char *)0, SHM_RDONLY);
+X
+X	for (i=0; i<nelem;i++)
+X		loadavg[i] = (double) shmseg[i];
+X
+X	return(nelem);
+X}
+END_OF_FILE
+if test 1170 -ne `wc -c <'getloadavg.c'`; then
+    echo shar: \"'getloadavg.c'\" unpacked with wrong size!
+fi
+# end of 'getloadavg.c'
+fi
+if test -f 'uptime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uptime.c'\"
+else
+echo shar: Extracting \"'uptime.c'\" \(5270 characters\)
+sed "s/^X//" >'uptime.c' <<'END_OF_FILE'
+X/*
+X * $Id: uptime.c,v 1.5 1992/05/06 18:51:50 dburr Exp $
+X *
+X * $Log: uptime.c,v $
+X * Revision 1.5  1992/05/06  18:51:50  dburr
+X * uptime was printing out "x days, 0 mins" if system has been up
+X * exactly X days.
+X *
+X * Revision 1.4  1992/04/20  00:31:29  dburr
+X * *** empty log message ***
+X *
+X * Revision 1.3  1992/04/19  19:48:12  dburr
+X * Added error checking during shared memory open.
+X * Added compiled-in RCS version strings.
+X *
+X * Revision 1.2  1992/04/19  08:47:08  dburr
+X * Added load average support.
+X * Fixed up some time printing problems.
+X *
+X * Revision 1.1  1992/04/19  07:33:16  dburr
+X * Initial revision
+X *
+X *
+X * uptime.c -- display system uptime
+X *
+X * By Donald Burr
+X * UUCP: uunet!nixhub!dburr
+X * INTERNET: dburr@sbphy.physics.ucsb.edu
+X *           dburr@gnu.ai.mit.edu (Back up)
+X *           dburr%nixhub.UUCP@uunet.uu.net
+X *           dburr@nixhub.UUCP
+X *
+X * Based on a program written by:
+X * John Levine <johnl@iecc.cambridge.ma.us>
+X */
+X
+X/*
+X *	Report system uptime
+X */
+X
+X/*
+X * Not-so-subtly modified by Donald Burr (nixhub!root):
+X *    - Made to look more like BSD uptime (xx:xx, up xx days, xx:xx)
+X *    - My system has a battery backed clock, so when it boots up, it
+X *      writes the *real* clock's time as the boot time.  This gets
+X *      pretty wild, with uptime's of several days to several years!
+X *      (Or even negative.)  So, instead of looking for BOOT_TIME,
+X *      I look for the first DEAD_PROCESS record, which is 'bcheckrc',
+X *      and has the correct time on it.  (It is a few seconds after the
+X *      real boot time, but that's close enough.)
+X *    - uses load average provided by /etc/ldavgd (puts it in shared
+X *      memory)
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/param.h>
+X#include <sys/ipc.h>
+X#include <sys/shm.h>
+X#include <utmp.h>
+X#include <setjmp.h>
+X#include <time.h>
+X
+X#ifndef ctob			/* For System V */
+X#include <sys/sysmacros.h>
+X#endif
+X
+Xint	shm;
+X
+X#define HOUR	(60)
+X#define	DAY	(HOUR*24)
+X
+Xstruct utmp ut;
+X
+Xstruct lablk {
+X	double	l1, l2, l3;
+X};
+X
+X/* what version are we? */
+Xstatic char version[] = "@(#) $Id: uptime.c,v 1.5 1992/05/06 18:51:50 dburr Exp $";
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	argv[];
+X{
+X	FILE *f = fopen(UTMP_FILE, "r"), *f2;
+X	time_t now = time(), btime, uptime;
+X	int num_users = 0, who=0, time_hour;
+X	struct tm *time_struct;
+X	char tbuf[50];
+X	struct utmp *ut2;
+X	struct lablk labuf;
+X
+X	/* argument parsing */
+X	if (argc <= 2)
+X	{
+X		if (!strncmp(argv[1], "-w", 2))  {
+X			who=1; }
+X	} else {
+X		fprintf(stderr, "usage: uptime [-w]\n");
+X		exit(1);
+X	}
+X
+X	if(who)
+X		fprintf(stderr, "warning: -w not supported\n");
+X
+X	/* grab hold of our shm segment */
+X	shm = shmget(ftok("/unix",'a'),12,0);
+X
+X	/* did we err? */
+X	if (shm==-1)  {
+X		fprintf(stderr, "warning: unable to get proper uptime info\n");
+X		labuf.l1 = 0; labuf.l2 = 0; labuf.l3 = 0;
+X	}
+X
+X	/* now get our load average */
+X	get_loadav(&labuf);
+X
+X	for(;;) {
+X		if(fread(&ut, sizeof(ut), 1, f) < 1) {
+X			printf("No boot time\n");
+X			return 1;
+X		}
+X		if(ut.ut_type == BOOT_TIME  /* was DEAD_PROCESS */ )
+X			break;
+X	}
+X
+X	setutent();
+X	while((ut2 = getutent()) != (struct utmp *) NULL) {
+X		if (ut2->ut_type == USER_PROCESS)
+X		{
+X			num_users++;
+X		}
+X	}
+X	endutent();
+X
+X/* Ok, here comes the tricky part.  Here are my interpretations of the rules
+X   uptime uses to determine what format to print in. (at least on BSD4.3 up-
+X   time, on a DECstation 5000 running Ultrix 4.2...
+X
+X   1.  If system has been up less than 1 hour, print "x  mins" or "1 min"
+X   2.  If system has been up exactly X hours, print "x  hrs" or "1 hr"
+X   3.  If system has been up more than 1 hour, 1 minute, just print
+X       "x:xx"
+X   4.  If system has been up exactly X day(s), print "x  days" or "1 day"
+X   5.  If system has been up exactly X day(s), Y min(s), print
+X       "x  days,  y  mins"                                               */
+X
+X	btime = ut.ut_time;
+X	uptime = (now - btime)/60;		/* in seconds */
+X	time_struct = localtime(&now);	/* btime for boot time */
+X
+X	time_hour = time_struct->tm_hour;
+X
+X	if(time_struct->tm_hour > 12)
+X		time_hour = time_struct->tm_hour - 12;
+X
+X	time_hour = (time_hour == 0 ? 12 : time_hour);
+X
+X	printf("  %s%d:%02d%s  up ",
+X		(((time_hour > 9) && (time_struct->tm_hour != 0)) ? "" : " "),
+X		time_hour,
+X		time_struct->tm_min,
+X		(time_struct->tm_hour >= 12 ?
+X			"pm" : "am"));
+X	if(uptime >= DAY) {
+X		printf("%d day%s, ", uptime/DAY, (uptime>(2*DAY))?"s":"");
+X		uptime = uptime%DAY;
+X	}
+X
+X	if ((uptime/HOUR == 0) && (uptime%HOUR != 0))
+X		printf("%d min%s,  ", uptime%HOUR,
+X			(uptime%HOUR > 1 ?
+X				"s" : ""));		/* Rule #1 */
+X	else if (uptime%HOUR == 0)
+X		printf("%d hr%s,  ", uptime/HOUR,
+X			(uptime/HOUR > 1 ?
+X				"s" : ""));		/* Rule #2 */
+X	else
+X	printf("%d:%02d,  ", uptime/HOUR, uptime%HOUR);	/* Rule #3 */
+X/*	printf("%d hour%s, %d min%s,  ", uptime/HOUR,
+X		(uptime/HOUR > 1 ? "s" : ""),
+X		uptime%HOUR,
+X		(uptime%HOUR > 1 ? "s" : "")); */
+X
+X	printf("%d user%s,  load average:  %4.2f, %4.2f, %4.2f\n",
+X		num_users, (num_users > 1 ? "s" : ""), labuf.l1,
+X		labuf.l2, labuf.l3);
+X}
+X
+Xget_loadav(lbuf)
+Xstruct lablk *lbuf;
+X{
+X	double	*shmseg;
+X
+X	shmseg = (double *)shmat(shm, (char *) 0, SHM_RDONLY);
+X	lbuf->l1 = shmseg[0];
+X	lbuf->l2 = shmseg[1];
+X	lbuf->l3 = shmseg[2];
+X	shmdt(shmseg);
+X}
+END_OF_FILE
+if test 5270 -ne `wc -c <'uptime.c'`; then
+    echo shar: \"'uptime.c'\" unpacked with wrong size!
+fi
+# end of 'uptime.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    echo "Before you do anything, read the README."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+---cut here---
+ 
++-----------------------------------+-----------------------------------------+
+: Donald Burr, Coordinator          : dburr@sbphy.physics.ucsb.edu   INTERNET :
+: Santa Barbara Area Network(SBANET): dburr@gnu.ai.mit.edu (Backup)  ======== :
+: Santa Barbara, CA  USA            : dburr%sbanet.UUCP@uunet.uu.net (NOT YET):
+: uunet!dsc.com!dschub!sbanet!dburr : America OnLine: DonaldBurr              :
++-----------------------------------+-----------------------------------------+
+-- 
+David H. Brierley
+Home: dave@galaxia.newport.ri.us; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.newport.ri.us
+%% Can I be excused, my brain is full. **

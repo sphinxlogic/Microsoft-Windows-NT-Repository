@@ -1,0 +1,830 @@
+Newsgroups: comp.sources.misc
+From: Eric_Wallengren@univel.com (Eric Wallengren)
+Subject: v38i014:  cdplay - Simple Audio cd-player for Toshiba CD-ROMS for UnixWare, Part01/01
+Message-ID: <1993Jun20.231004.11773@sparky.imd.sterling.com>
+X-Md4-Signature: 1688c2df2e130ff9b35ca870e1788136
+Keywords: UnixWare, wksh, Univel
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Univel
+Date: Sun, 20 Jun 1993 23:10:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Eric_Wallengren@univel.com (Eric Wallengren)
+Posting-number: Volume 38, Issue 14
+Archive-name: cdplay/part01
+Environment: UnixWare, wksh, Univel
+
+This application utilizes the Windowing Korn Shell for a front end 
+and simple "c" source for the back end.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile cdfront cdplay.c
+# Wrapped by kent@sparky on Sun Jun 20 18:03:27 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1541 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+XAudio cdplayer for Toshiba cd-roms running under UnixWare.
+XRequires headphones or speakers to be plugged into your 
+Xcd-rom player.
+X
+XIt's quick, simple and very dirty, but it works. 
+X
+XTo configure, edit cdplay.c, search for:
+X
+X#define CD_ROM 
+X
+Xand substitute my cd-device for your cd-device
+X
+XTo compile type "make"
+X
+XTo install type "make install" (You must be root).
+X
+XThis consists of 2 parts. The first is called "cdplay" and will
+Xprint all options with the help of a "-?" flag. The second is a
+XWindowing Korn Shell script which acts as a front end to cdplay.
+X
+XOnce installed, type "cdfront" and press return. A display will 
+Xappear with Numbers representing track numbers, and pixmaps
+Xrepresenting functions, which are L to R:
+X
+XBack  Play  Skip
+XPause Power Eject
+X
+XSelecting a number will play from that track on (Remember, it's 
+Xquick, simple and very dirty). Selecting Back will play the track
+Xprevious to the one initially selected, Skip will play the track
+Xafter the initially selected track, Play will play from the initially
+Xselected track or from the first track when started, pause once will
+Xpause, pause re-selected will start play again, Eject will eject the 
+Xdisk and Power will exit the program. 
+X
+XThe screen will not re-map when putting in a new cd, you must exit
+Xthe application and re-start it to map a new cd.
+X
+XDo what I did, make a symbolic link from /usr/X/bin/cdfront to the
+X"Applications" folder in your home directoy, and launch the app 
+Xby double-clicking on the icon with your mouse.
+X
+X
+XEric Wallengren
+Xeric@univel.COM
+END_OF_FILE
+  if test 1541 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(118 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+Xcdplay: cdplay.o
+X	cc cdplay.o -o cdplay
+X
+Xclean:
+X	rm *.o cdplay
+X
+Xinstall:
+X	cp cdplay /usr/X/bin
+X	cp cdfront /usr/X/bin
+END_OF_FILE
+  if test 118 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'cdfront' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cdfront'\"
+else
+  echo shar: Extracting \"'cdfront'\" \(9654 characters\)
+  sed "s/^X//" >'cdfront' <<'END_OF_FILE'
+X#! /usr/X/bin/wksh -openlook -iconic iconPixmap:/tmp/logo
+X
+XPAUSEFILE=/tmp/`basename $0.$$`
+XFUNCLIST="prev play next pause quit eject"
+Xif [[ "$XGUI" = "OPEN_LOOK" ]]
+Xthen
+X	Button=oblongButton
+Xelse
+X	Button=rectButton
+Xfi
+X
+Xquit()
+X{
+X	cdplay -s  2>/dev/null
+X
+X	for i in $FUNCLIST
+X	do
+X		rm /tmp/$i
+X	done
+X
+X	if [ -s $PAUSEFILE ]
+X	then
+X		rm $PAUSEFILE
+X	fi
+X	exit 0
+X}
+X
+Xcdlogo()
+X{
+X
+Xcat <<-EOF >/tmp/logo
+X#define disc_format 1
+X#define disc_width 56
+X#define disc_height 38
+X#define disc_ncolors 2
+X#define disc_chars_per_pixel 1
+Xstatic char * disc_colors[] = {
+X" " , "#000000000000",
+X"." , "#FFFFFFFFFFFF"
+X} ;
+Xstatic char * disc_pixels[] = {
+X"                                                        ",
+X"                                                        ",
+X"                     ..   ..  .   . ...   ..   ..  ...  ",
+X"            ......  .  . .  . .. .. .  . .  . .  .  .   ",
+X"            .    .  .    .  . . . . .... .... .     .   ",
+X"            .    .  .  . .  . .   . .    .  . .  .  .   ",
+X"            .    .   ..   ..  .   . .    .  .  ..   .   ",
+X"            .    .                                      ",
+X"            .    .                                      ",
+X"            .    .                                      ",
+X"      .......    .  ......    ..........    ........    ",
+X"     .           .  .    .   .         .   .        .   ",
+X"    .            .  .    .  .          .  .          .  ",
+X"    .     ..     .  .    .  .          .  .    ..    .  ",
+X"    .    .  .    .  .    .  .   ........  .   .  .   .  ",
+X"    .    .  .    .  .    .  .  .          .   .  .   .  ",
+X"    .    .  .    .  .    .  .   ......    .   .  .....  ",
+X"    .    .  .    .  .    .  .         .   .   .         ",
+X"    .    .  .    .  .    .  .          .  .   .         ",
+X"    .    .  .    .  .    .   .         .  .   .  .....  ",
+X"    .    .  .    .  .    .    ......   .  .   .  .   .  ",
+X"    .    .  .    .  .    .          .  .  .   .  .   .  ",
+X"    .    .  .    .  .    .  ........   .  .   .  .   .  ",
+X"    .     ..     .  .    .  .          .  .    ..    .  ",
+X"    .            .  .    .  .          .  .          .  ",
+X"     .           .  .    .  .         .    .        .   ",
+X"      ............  ......  ..........      ........    ",
+X"                                                        ",
+X"                                                        ",
+X"                                                        ",
+X"    ...  .  ... . ...  ..  .      ..  .  . ...  .  ..   ",
+X"    .  . . .    .  .  .  . .     .  . .  . .  . . .  .  ",
+X"    .  . . . .. .  .  .... .     .... .  . .  . . .  .  ",
+X"    .  . . .  . .  .  .  . .     .  . .  . .  . . .  .  ",
+X"    ...  .  ... .  .  .  . ....  .  .  ..  ...  .  ..   ",
+X"                                                        ",
+X"                                                        ",
+X"                                                        "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/eject
+X#define eject_format 1
+X#define eject_width 16
+X#define eject_height 16
+X#define eject_ncolors 2
+X#define eject_chars_per_pixel 1
+Xstatic char * eject_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * eject_pixels[] = {
+X"                ",
+X"                ",
+X"        .       ",
+X"       ...      ",
+X"      .. ..     ",
+X"     ..   ..    ",
+X"    ..     ..   ",
+X"   ..       ..  ",
+X"   ...........  ",
+X"   ...........  ",
+X"                ",
+X"                ",
+X"   ...........  ",
+X"   ...........  ",
+X"                ",
+X"                "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/next
+X#define next_format 1
+X#define next_width 16
+X#define next_height 16
+X#define next_ncolors 2
+X#define next_chars_per_pixel 1
+Xstatic char * next_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * next_pixels[] = {
+X"             .. ",
+X" ..   ..     .. ",
+X"  ..   ..    .. ",
+X"   ..   ..   .. ",
+X"    ..   ..  .. ",
+X"     ..   .. .. ",
+X"      ..   .... ",
+X"       ..   ... ",
+X"      ..   .... ",
+X"     ..   .. .. ",
+X"    ..   ..  .. ",
+X"   ..   ..   .. ",
+X"  ..   ..    .. ",
+X" ..   ..     .. ",
+X"             .. ",
+X"                "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/pause
+X#define pause_format 1
+X#define pause_width 16
+X#define pause_height 16
+X#define pause_ncolors 2
+X#define pause_chars_per_pixel 1
+Xstatic char * pause_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * pause_pixels[] = {
+X"                ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"    ..   ..     ",
+X"                ",
+X"                "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/play
+X#define play_format 1
+X#define play_width 16
+X#define play_height 16
+X#define play_ncolors 2
+X#define play_chars_per_pixel 1
+Xstatic char * play_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * play_pixels[] = {
+X"                ",
+X"     ...        ",
+X"     ....       ",
+X"     .....      ",
+X"     .. ...     ",
+X"     ..  ...    ",
+X"     ..   ...   ",
+X"     ..    ...  ",
+X"     ..   ...   ",
+X"     ..  ...    ",
+X"     .. ...     ",
+X"     .....      ",
+X"     ....       ",
+X"     ...        ",
+X"                ",
+X"                "
+X} ;
+X
+Xcat <<-EOF >/tmp/prev
+X#define prev_format 1
+X#define prev_width 16
+X#define prev_height 16
+X#define prev_ncolors 2
+X#define prev_chars_per_pixel 1
+Xstatic char * prev_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * prev_pixels[] = {
+X" ..             ",
+X" ..     ..   .. ",
+X" ..    ..   ..  ",
+X" ..   ..   ..   ",
+X" ..  ..   ..    ",
+X" .. ..   ..     ",
+X" ....   ..      ",
+X" ...   ..       ",
+X" ....   ..      ",
+X" .. ..   ..     ",
+X" ..  ..   ..    ",
+X" ..   ..   ..   ",
+X" ..    ..   ..  ",
+X" ..     ..   .. ",
+X" ..             ",
+X"                "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/prev
+X#define prev_format 1
+X#define prev_width 16
+X#define prev_height 16
+X#define prev_ncolors 2
+X#define prev_chars_per_pixel 1
+Xstatic char * prev_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * prev_pixels[] = {
+X" ..             ",
+X" ..     ..   .. ",
+X" ..    ..   ..  ",
+X" ..   ..   ..   ",
+X" ..  ..   ..    ",
+X" .. ..   ..     ",
+X" ....   ..      ",
+X" ...   ..       ",
+X" ....   ..      ",
+X" .. ..   ..     ",
+X" ..  ..   ..    ",
+X" ..   ..   ..   ",
+X" ..    ..   ..  ",
+X" ..     ..   .. ",
+X" ..             ",
+X"                "
+X} ;
+XEOF
+X
+Xcat <<-EOF >/tmp/quit
+X#define quit_format 1
+X#define quit_width 16
+X#define quit_height 16
+X#define quit_ncolors 2
+X#define quit_chars_per_pixel 1
+Xstatic char * quit_colors[] = {
+X" " , "#AAAAAAAAAAAA",
+X"." , "#000000000000"
+X} ;
+Xstatic char * quit_pixels[] = {
+X"       ......   ",
+X"       ......   ",
+X"      ......    ",
+X"      .....     ",
+X"     .....      ",
+X"     ....       ",
+X"    ........    ",
+X"    .......     ",
+X"      ....      ",
+X"     ....       ",
+X"    ....        ",
+X"    ...         ",
+X"   ...          ",
+X"   ..           ",
+X"  ..            ",
+X"  .             "
+X} ;
+XEOF
+X
+X}
+X
+XplayTrack()
+X{
+X	((THISTRACK=$CB_INDEX+1))
+X	cdplay -t $THISTRACK 2>/dev/null
+X}
+X
+Xeject()
+X{
+X	cdplay -e 2>/dev/null
+X	if [ "$XGUI" = "MOTIF" ]
+X	then
+X		sv W13 set:false
+X	fi
+X}
+X
+Xplay()
+X{
+X	cdplay -t $THISTRACK 2>/dev/null
+X	if [ "$XGUI" = "MOTIF" ]
+X	then
+X		sv W9 set:false
+X	fi
+X}
+X
+Xnext()
+X{
+X	
+X	if [ $THISTRACK -ne MAXTRACKS ]
+X	then
+X		((NEXTTRACK=$THISTRACK+1))
+X		THISTRACK=$NEXTTRACK
+X		cdplay -t $NEXTTRACK 2>/dev/null
+X	else
+X		errormsg "No more tracks on disc"
+X		cdplay -t $THISTRACK 2>/dev/null
+X	fi
+X	if [ "$XGUI" = "MOTIF" ]
+X	then
+X		sv W10 set:false
+X	fi
+X}
+X
+Xprev()
+X{
+X	
+X	if [ $THISTRACK -ne 1 ]
+X	then
+X		((PREVTRACK=$THISTRACK-1))
+X		THISTRACK=$PREVTRACK
+X		cdplay -t $PREVTRACK 2>/dev/null
+X	else
+X		errormsg "At the beginning of the disc"
+X		cdplay -t $THISTRACK 2>/dev/null
+X	fi
+X	if [ "$XGUI" = "MOTIF" ]
+X	then
+X		sv W8 set:false
+X	fi
+X}
+X
+Xpause()
+X{
+X	if [ -s $PAUSEFILE ]
+X	then
+X		rm $PAUSEFILE
+X		cdplay -r 2>/dev/null
+X	else
+X		echo paused >$PAUSEFILE
+X		cdplay -p 2>/dev/null
+X	fi
+X	if [ "$XGUI" = "MOTIF" ]
+X	then
+X		sv W11 set:false
+X	fi
+X}
+X		
+XmakeTrackList()
+X{
+X	tracks=`cdplay -c |awk '{FS=":"} {print $2}'`
+X	THISTRACK=1
+X	MAXTRACKS=${tracks#" "}
+X	((tracks=${tracks#" "}+1))
+X
+X	COUNTER=1
+X	while [ $COUNTER -lt $MAXTRACKS ]
+X	do
+X		TRACK="$TRACK {$COUNTER, $COUNTER},"
+X		((COUNTER=$COUNTER+1))
+X	done
+X	TRACK="$TRACK {$MAXTRACKS, $COUNTER}"
+X}
+X
+XmakeFuncList()
+X{
+X	COUNTER=0
+X	for i in $FUNCLIST
+X	do
+X		Function[COUNTER]=$i
+X		Funcname[COUNTER]=`typeset -u $i`
+X		((COUNTER=$COUNTER+1))
+X	done
+X}
+X
+Xerrormsg()
+X{
+X	cps NOTICE notice noticeShell $FORM \
+X		title:"ERROR" \
+X		noticeType:warning \
+X		emanateWidget:$FORM
+X
+X	acb $NOTICE popdownCallback "dw $NOTICE"
+X
+X	sv $NOTICE_TA string:"${1}"
+X
+X	cmw OK Ok flatButtons $NOTICE_CA \
+X		numItems:1 \
+X		numItemFields:1 \
+X		itemFields:'{label}' \
+X		items:'{Ok}'
+X
+X	pu $NOTICE GrabExclusive
+X}
+X
+Xcdlogo
+XmakeTrackList
+XmakeFuncList
+X
+Xoi TOP top "CD Juke-Box" "@" 
+X
+Xcmw FORM form form $TOP 
+X
+Xcmw CDMAIN cdmain controlArea $FORM layoutType:fixedcols measure:1 
+X
+Xcmw DISC disc staticText $CDMAIN width:32 height:36 recomputeSize:false \
+X	string:"" backgroundPixmap:/tmp/logo
+X
+Xcmw CAP caption caption $CDMAIN label:"Tracks: "
+X
+Xcmw BUTTONS buttons flatButtons $CAP \
+X	layoutType:fixedcols \
+X	measure:5 \
+X	numItemFields:2 \
+X	numItems:$MAXTRACKS \
+X	itemFields:'{label,userData}' \
+X	items:"$TRACK"
+X	
+Xsv $BUTTONS selectProc:"playTrack"
+X
+Xcmw FUNCTION function caption $CDMAIN label:"Functions:"
+Xcmw FUNCCONTROL control controlArea $FUNCTION \
+X	layoutType:fixedcols \
+X	measure:3
+X
+Xfor i in $FUNCLIST
+Xdo
+X	typeset -u Function=$i
+X	cmw $Function $i $Button $FUNCCONTROL \
+X		labelJustify:center \
+X		labelType:image \
+X		labelImage:/tmp/$i \
+X		select:$i 
+Xdone
+X
+Xrw $TOP
+Xml
+END_OF_FILE
+  if test 9654 -ne `wc -c <'cdfront'`; then
+    echo shar: \"'cdfront'\" unpacked with wrong size!
+  fi
+  chmod +x 'cdfront'
+  # end of 'cdfront'
+fi
+if test -f 'cdplay.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cdplay.c'\"
+else
+  echo shar: Extracting \"'cdplay.c'\" \(3908 characters\)
+  sed "s/^X//" >'cdplay.c' <<'END_OF_FILE'
+X/* 
+X   Basic cd-rom player for UnixWare
+X
+X	Eric Wallengren, Univel 1993
+X
+X	Can be redistribiuted as long as Univel/UnixWare 
+X	and my name are left intact. 
+X
+X   This allows a Toshiba CD-ROM to play audio cds. It requires 
+X   headphones or speakers to be pluggged into the front of the
+X   cd-rom drive.
+X*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <sys/cdrom.h>
+X#include <sys/cd_ioctl.h>
+X
+X/* Define the starting track and the device used for accessing the cdrom */
+X#define MIN_TRACK 1
+X
+X/* Change device to suit your needs */
+X#define CD_ROM "/dev/rcdrom/c0t2l0\0" 
+X
+X/* Gotta have structures */
+Xstruct cdrom_inq Inquiry;
+Xstruct cdrom_capacity Capacity;
+Xstruct cdrom_audio Audio;
+X
+X/* Ugly kludge which everyone needs, one per program */
+Xextern int Trackloop[99]={1,2,3,4,5,6,7,8,9, \
+X 			  16,17,18,19,20,21,22,23,24,25, \
+X			  32,33,34,35,36,37,38,39,40,41, \
+X			  48,49,50,51,52,53,54,55,56,57, \
+X			  64,65,66,67,68,69,70,71,72,73, \
+X			  80,81,82,83,84,85,86,87,88,89, \
+X			  96,97,98,99,100,101,102,103,104,105, \
+X			  112,113,114,115,116,117,118,119,120,121, \
+X			  128,129,130,131,132,133,134,135,136,137, \
+X			  144,145,146,147,148,149,150,151,152,153};
+X/* File for open */
+Xint CdRom;
+X
+Xextern char ValidArgs[6]={'c', 'e', 'p', 'r', 's', 't'};
+X
+Xmain(argc, argv)
+Xint   argc;
+Xchar *argv[];
+X{
+X
+X	int a, tracks;
+X	int b=0;
+X
+X	for(a=1; a<argc; a++)
+X	{
+X		if(argv[a][0] != '-')
+X		{
+X			printf("Invalid switch\n");
+X			exit(1);
+X		}
+X		for(b=0; b<6; b++)
+X		{
+X
+X			if(argv[a][1] == ValidArgs[b])
+X			{
+X				switch(ValidArgs[b]) {
+X					case 'c' :
+X						tracks=Count_Tracks();
+X						printf("Tracks: %d\n", tracks);
+X					break;
+X					case 'e' :
+X						Eject_Disk();
+X					break;
+X					case 'r' :
+X						Resume_Play();
+X					break;
+X					case 't' :
+X						a++;
+X						Select_Track(atoi(argv[a]));
+X					break;
+X					case 'p' :
+X						Stop_Play();
+X					break;
+X					case 's' :
+X						Quit_Play();
+X					break;
+X					default:
+X						Help_Message();
+X					break;	
+X				}
+X				exit(0);
+X			}
+X		}
+X		
+X	}
+X	Help_Message();
+X}
+X
+X/* Open the device */
+XOpen_Device()
+X{
+X	if((CdRom=open(CD_ROM, O_RDONLY)) < 0)
+X		perror("Opening Device"), exit(1);
+X}
+X
+X/* Quit playing the CD */
+XQuit_Play()
+X{
+X
+X	int Return;
+X
+X	Open_Device();
+X
+X	if((Return=ioctl(CdRom, C_STOPUNIT, NULL)) < 0)
+X		perror("Stopping Play"), exit(1);
+X
+X}
+X
+X/* How many tracks are there */
+XCount_Tracks()
+X{
+X
+X	int Return;
+X	int tracks=0;
+X
+X	Open_Device();
+X
+X	if((Return=ioctl(CdRom, C_STARTUNIT, NULL)) < 0)
+X		perror("Starting CD-ROM");
+X
+X	if((Return=ioctl(CdRom, C_REZERO, NULL)) < 0)
+X		perror("Seeking track 0");
+X
+X	Audio.addr_track=Trackloop[tracks];
+X
+X	Audio.play=0;
+X	Audio.type=2;
+X
+X	while(Return > -1)
+X	{
+X		if((Return=ioctl(CdRom, C_AUDIOSEARCH, &Audio)) < 0)
+X			return tracks;
+X		++tracks;
+X		Audio.addr_track=Trackloop[tracks];
+X	}
+X}
+X
+X/* Kick the disk out */
+XEject_Disk()
+X{
+X
+X	int Return;
+X
+X	Open_Device();
+X
+X	if((Return=ioctl(CdRom, C_TRAYOPEN, NULL)) < 0)
+X		perror("Opening Tray");
+X
+X}
+X
+X/* Select the track to play */
+XSelect_Track(TrackNum)
+Xint TrackNum;
+X{
+X
+X	int Return;
+X
+X	Open_Device();
+X
+X	Audio.play=0;
+X	Audio.type=2;
+X
+X	Audio.addr_track=Trackloop[TrackNum-1];
+X
+X	if((Return=ioctl(CdRom, C_AUDIOSEARCH, &Audio)) < 0)
+X		printf("Track %d does not exist\n", TrackNum ), exit(1);
+X	
+X	Audio.play=3;
+X	Audio.type=3;
+X
+X	if((Return=ioctl(CdRom, C_PLAYAUDIO, &Audio)) < 0)
+X		perror("Playing CD");
+X	
+X}
+X
+X/* Pause the cd-rom */
+XStop_Play()
+X{
+X
+X	int Return;
+X
+X	Open_Device();
+X
+X	if((Return=ioctl(CdRom, C_STILL, NULL)) < 0)
+X		perror("Stopping Player");
+X
+X}
+X
+X/* Resume playing the cd-rom */
+XResume_Play()
+X{
+X
+X	int Return;
+X
+X	Open_Device();
+X
+X	Audio.play=3;
+X	Audio.type=2;
+X
+X	if((Return=ioctl(CdRom, C_PLAYAUDIO, &Audio)) < 0)
+X		perror("Resuming Play");
+X
+X}
+X
+X/* How do ya use this thing anyway? */
+XHelp_Message()
+X{
+X
+X	printf("Usage:  -c Count tracks\n \
+X	-e Eject Disk\n\t-p Pause Play\n \
+X	-r Restart from current position\n \
+X	-s Stop Play\n \
+X	-t <int> Select track to start play from\n");
+X
+X}
+END_OF_FILE
+  if test 3908 -ne `wc -c <'cdplay.c'`; then
+    echo shar: \"'cdplay.c'\" unpacked with wrong size!
+  fi
+  # end of 'cdplay.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

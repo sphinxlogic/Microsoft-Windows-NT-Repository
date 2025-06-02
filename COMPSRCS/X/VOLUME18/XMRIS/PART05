@@ -1,0 +1,1892 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: nathan@inmos.co.uk (Nathan Sidwell)
+Newsgroups: comp.sources.x
+Subject: v18i026: Xmris - an X video game, Part05/09
+Message-ID: <1992Jul16.171755.1827@msi.com>
+Date: 16 Jul 92 17:17:55 GMT
+References: <csx-18i022-xmris@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1879
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Nathan Sidwell <nathan@inmos.co.uk>
+Posting-number: Volume 18, Issue 26
+Archive-name: xmris/part05
+
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file move.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping move.c'
+else
+echo 'x - continuing file move.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'move.c' &&
+X	    cptr[-CELL_STRIDE].depths[1] = CELL_HEIGHT + GAP_HEIGHT;
+X	  }
+X	if(cptr[CELL_STRIDE].depths[0])
+X	  {
+X	    cptr[0].depths[1] = CELL_HEIGHT + GAP_HEIGHT;
+X	    cptr[CELL_STRIDE].depths[0] = -(CELL_HEIGHT + GAP_HEIGHT);
+X	  }
+X	if(cptr[-1].depths[3])
+X	  {
+X	    cptr[0].depths[2] = -(CELL_WIDTH + GAP_WIDTH);
+X	    cptr[-1].depths[3] = CELL_WIDTH + GAP_WIDTH;
+X	  }
+X	if(cptr[1].depths[2])
+X	  {
+X	    cptr[0].depths[3] = CELL_WIDTH + GAP_WIDTH;
+X	    cptr[1].depths[2] = -(CELL_WIDTH + GAP_WIDTH);
+X	  }
+X      }
+X      /*}}}*/
+X      munch_hole(cptr, pixel.x, pixel.y);
+X      /*{{{  now see if we launch any apples*/
+X      for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X	{
+X	  if(aptr->state > 1 || pixel.x - aptr->pixel.x > CELL_WIDTH / 2 ||
+X	      pixel.x - aptr->pixel.x < -CELL_WIDTH / 2)
+X	    /*EMPTY*/;
+X	  else if(pixel.y - aptr->pixel.y > CELL_HEIGHT ||
+X	      pixel.y - aptr->pixel.y < 0)
+X	    /*EMPTY*/;
+X	  else
+X	    {
+X	      /*{{{  move apple cell.x?*/
+X	      if(aptr->cell.x < cell.x)
+X		{
+X		  aptr->cell.x += 1;
+X		  aptr->offset.x -= CELL_WIDTH + GAP_WIDTH;
+X		}
+X	      else if(aptr->cell.x > cell.x)
+X		{
+X		  aptr->cell.x -= 1;
+X		  aptr->offset.x += CELL_WIDTH + GAP_WIDTH;
+X		}
+X	      /*}}}*/
+X	      if(pixel.y - aptr->pixel.y == CELL_HEIGHT && !cptr[0].depths[1])
+X		{
+X		  if(!aptr->state)
+X		    {
+X		      aptr->state = 1;
+X		      aptr->count = APPLE_ROCK_DELAY;
+X		    }
+X		}
+X	      else
+X		{
+X		  aptr->state = 1;
+X		  aptr->count = 1;
+X		}
+X	    }
+X	}
+X      /*}}}*/
+X    }
+X  /*}}}*/
+X  /*{{{  redraw or blank prize?*/
+X  if(cherry && cherry->sprite)
+X    {
+X      SPRITE    *sptr;
+X      
+X      if(!nptr || cherry->sprite == SPRITE_DEN ||
+X	  cherry->sprite == SPRITE_NORMAL + 2 ||
+X	  (cherry->sprite != SPRITE_CHERRY && mptr->type != 4))
+X	{
+X	  sptr = &sprites[cherry->sprite];
+X	  if(display.background != COLOUR_ZERO)
+X	    XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X		0, 0, CELL_WIDTH, CELL_HEIGHT, pixel.x, pixel.y);
+X	  XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X	      0, 0, CELL_WIDTH, CELL_HEIGHT, pixel.x, pixel.y);
+X	}
+X      else if(!knocked || cherry->sprite != SPRITE_CHERRY)
+X	{
+X	  sptr = &sprites[SPRITE_CENTER_BASE +
+X	      (cherry->sprite != SPRITE_CHERRY)];
+X	  munch_back(0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    pixel.x, pixel.y, sptr);
+X	}
+X    }
+X  /*}}}*/
+X  if(update.set)
+X    add_background(update.tl.x, update.tl.y,
+X	update.br.x - update.tl.x, update.br.y - update.tl.y);
+X  if(broke || nptr)
+X    global.broken = 1;
+X  assert(!nptr || nptr->visit);
+X  assert(mptr->cell.y >= 0 && mptr->cell.y < CELLS_DOWN &&
+X      mptr->cell.x >= 0 && mptr->cell.x < CELLS_ACROSS &&
+X      (mptr->cell.x || mptr->offset.x >= 0) &&
+X      (mptr->cell.y || mptr->offset.y >= 0) &&
+X      (mptr->cell.x < CELLS_ACROSS - 1 || mptr->offset.x <= 0) &&
+X      (mptr->cell.y < CELLS_DOWN - 1 || mptr->offset.y <= 0) &&
+X      (!mptr->offset.x || !mptr->offset.y));
+X  return nptr;
+}
+/*}}}*/
+/*{{{  void munch_back(sx, sy, width, height, dx, dy, sprite)*/
+static void munch_back FUNCARGLIST((sx, sy, width, height, dx, dy, sprite))
+int     sx      FUNCARGSEP
+int     sy      FUNCARGSEP
+int     width   FUNCARGSEP
+int     height  FUNCARGSEP
+int     dx      FUNCARGSEP
+int     dy      FUNCARGSEP
+SPRITE  *sprite FUNCARGTERM
+/*
+X * munches the background image with the specified sprite
+X */
+{
+X  if(display.background != COLOUR_ONE)
+X    XCopyArea(display.display, sprite->mask, display.back, GCN(GC_MASK),
+X	sx, sy, width, height, dx, dy);
+X  if(display.background != COLOUR_ZERO)
+X    XCopyArea(display.display, sprite->image, display.back, GCN(GC_BACK),
+X	sx, sy, width, height, dx, dy);
+X  bounding_box(dx, dy, width, height);
+X  return;
+}
+/*}}}*/
+/*{{{  void munch_hole(cptr, x, y)*/
+extern void munch_hole FUNCARGLIST((cptr, x, y))
+CELL      *cptr FUNCARGSEP
+int       x     FUNCARGSEP
+int       y     FUNCARGTERM
+/*
+X * cut out the background for a whole cell, and
+X * deal with connections to the adjoining cells
+X */
+{
+X  SPRITE    *sptr;
+X
+X
+X  /*{{{  cut out the center*/
+X  {
+X    sptr = &sprites[SPRITE_CENTER_BASE];
+X    munch_back(0, 0,
+X	CELL_WIDTH >> 1, CELL_HEIGHT >> 1,
+X	x, y,
+X	&sptr[!!(cptr[0].depths[0] || cptr[0].depths[2])]);
+X    munch_back(CELL_WIDTH >> 1, 0,
+X	CELL_WIDTH >> 1, CELL_HEIGHT >> 1,
+X	x + (CELL_WIDTH >> 1), y,
+X	&sptr[!!(cptr[0].depths[0] || cptr[0].depths[3])]);
+X    munch_back(CELL_WIDTH >> 1, CELL_HEIGHT >> 1,
+X	CELL_WIDTH >> 1, CELL_HEIGHT >> 1,
+X	x + (CELL_WIDTH >> 1), y + (CELL_HEIGHT >> 1),
+X	&sptr[!!(cptr[0].depths[1] || cptr[0].depths[3])]);
+X    munch_back(0, CELL_HEIGHT >> 1,
+X	CELL_WIDTH >> 1, CELL_HEIGHT >> 1,
+X	x, y + (CELL_HEIGHT >> 1),
+X	&sptr[!!(cptr[0].depths[1] || cptr[0].depths[2])]);
+X  }
+X  /*}}}*/
+X  sptr = &sprites[SPRITE_EDGE_BASE + 1];
+X  /*{{{  munch above?*/
+X  if(cptr[0].depths[0])
+X    {
+X      /*{{{  munch the left half of the edge above*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[2])
+X	  type = 2 * GAP_HEIGHT;
+X	if(cptr[-CELL_STRIDE].depths[2] < -VEL_X)
+X	  type += GAP_HEIGHT;
+X	if(type == 3 * GAP_HEIGHT && (cptr[-1].depths[0] < -VEL_Y ||
+X	    cptr[-CELL_STRIDE-1].depths[1] > VEL_Y))
+X	  type = 4 * GAP_HEIGHT;
+X	munch_back(0, type, EDGE_WIDTH >> 1, GAP_HEIGHT,
+X	    x + (CELL_WIDTH >> 1) - (EDGE_WIDTH >> 1), y - GAP_HEIGHT, sptr);
+X      }
+X      /*}}}*/
+X      /*{{{  munch the right half of the edge above*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[3])
+X	  type = 2 * GAP_HEIGHT;
+X	if(cptr[-CELL_STRIDE].depths[3] > VEL_X)
+X	  type += GAP_HEIGHT;
+X	if(type == 3 * GAP_HEIGHT && (cptr[1].depths[0] < -VEL_Y ||
+X	    cptr[-CELL_STRIDE+1].depths[1] > VEL_Y))
+X	  type = 4 * GAP_HEIGHT;
+X	munch_back(EDGE_WIDTH >> 1, type, EDGE_WIDTH >> 1, GAP_HEIGHT,
+X	    x + (CELL_WIDTH >> 1), y - GAP_HEIGHT, sptr);
+X      }
+X      /*}}}*/
+X    }
+X  /*}}}*/
+X  /*{{{  munch below?*/
+X  if(cptr[0].depths[1])
+X    {
+X      /*{{{  munch the left half of the edge below*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[2])
+X	  type = GAP_HEIGHT;
+X	if(cptr[CELL_STRIDE].depths[2] < -VEL_X)
+X	  type += 2 * GAP_HEIGHT;
+X	if(type == 3 * GAP_HEIGHT && (cptr[-1].depths[1] > VEL_Y ||
+X	    cptr[CELL_STRIDE-1].depths[0] < -VEL_Y))
+X	  type = 4 * GAP_HEIGHT;
+X	munch_back(0, type, EDGE_WIDTH >> 1, GAP_HEIGHT,
+X	    x + (CELL_WIDTH >> 1) - (EDGE_WIDTH >> 1),
+X	    y + CELL_HEIGHT, sptr);
+X      }
+X      /*}}}*/
+X      /*{{{  munch the right half of the edge below*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[3])
+X	  type = GAP_HEIGHT;
+X	if(cptr[CELL_STRIDE].depths[3] > VEL_X)
+X	  type += 2 * GAP_HEIGHT;
+X	if(type == 3 * GAP_HEIGHT &&
+X	    (cptr[1].depths[1] > VEL_Y ||
+X	    cptr[CELL_STRIDE+1].depths[0] < -VEL_Y))
+X	  type = 4 * GAP_HEIGHT;
+X	munch_back(EDGE_WIDTH >> 1, type, EDGE_WIDTH >> 1, GAP_HEIGHT,
+X	    x + (CELL_WIDTH >> 1), y + CELL_HEIGHT, sptr);
+X      }
+X      /*}}}*/
+X    }
+X  /*}}}*/
+X  sptr = &sprites[SPRITE_EDGE_BASE + 0];
+X  /*{{{  munch left?*/
+X  if(cptr[0].depths[2])
+X    {
+X      /*{{{  munch the top half of the edge left*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[0])
+X	  type = 2 * GAP_WIDTH;
+X	if(cptr[-1].depths[0] < -VEL_Y)
+X	  type += GAP_WIDTH;
+X	if(type == 3 * GAP_WIDTH &&
+X	    (cptr[-CELL_STRIDE].depths[2] < -VEL_X ||
+X	    cptr[-CELL_STRIDE-1].depths[3] > VEL_X))
+X	  type = 4 * GAP_WIDTH;
+X	munch_back(type, 0, GAP_HEIGHT, EDGE_HEIGHT >> 1,
+X	    x - GAP_WIDTH, y + (CELL_HEIGHT >> 1) - (EDGE_HEIGHT >> 1),
+X	    sptr);
+X      }
+X      /*}}}*/
+X      /*{{{  munch the bottom half of the edge left*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[1])
+X	  type = 2 * GAP_WIDTH;
+X	if(cptr[-1].depths[1] > VEL_Y)
+X	  type += GAP_WIDTH;
+X	if(type == 3 * GAP_WIDTH &&
+X	    (cptr[CELL_STRIDE].depths[2] < -VEL_X ||
+X	    cptr[CELL_STRIDE-1].depths[3] > VEL_X))
+X	  type = 4 * GAP_WIDTH;
+X	munch_back(type, EDGE_HEIGHT >> 1, GAP_WIDTH, EDGE_HEIGHT >> 1,
+X	    x - GAP_WIDTH, y + (CELL_HEIGHT >> 1), sptr);
+X      }
+X      /*}}}*/
+X    }
+X  /*}}}*/
+X  /*{{{  munch right?*/
+X  if(cptr[0].depths[3])
+X    {
+X      /*{{{  munch the top half of the edge right*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[0])
+X	  type = GAP_WIDTH;
+X	if(cptr[1].depths[0] < -VEL_Y)
+X	  type += 2 * GAP_WIDTH;
+X	if(type == 3 * GAP_WIDTH &&
+X	    (cptr[-CELL_STRIDE].depths[3] > VEL_X ||
+X	    cptr[-CELL_STRIDE+1].depths[2] < -VEL_X))
+X	  type = 4 * GAP_WIDTH;
+X	munch_back(type, 0, GAP_WIDTH, EDGE_HEIGHT >> 1,
+X	    x + CELL_WIDTH, y + (CELL_HEIGHT >> 1) - (EDGE_HEIGHT >> 1),
+X	    sptr);
+X      }
+X      /*}}}*/
+X      /*{{{  munch the bottom half of the edge right*/
+X      {
+X	unsigned  type;
+X	    
+X	type = 0;
+X	if(cptr[0].depths[1])
+X	  type = GAP_WIDTH;
+X	if(cptr[1].depths[1] > VEL_Y)
+X	  type += 2 * GAP_WIDTH;
+X	if(type == 3 * GAP_WIDTH &&
+X	    (cptr[CELL_STRIDE].depths[3] > VEL_X ||
+X	    cptr[CELL_STRIDE+1].depths[2] < -VEL_X))
+X	  type = 4 * GAP_WIDTH;
+X	munch_back(type, EDGE_HEIGHT >> 1, GAP_WIDTH, EDGE_HEIGHT >> 1,
+X	    x + CELL_WIDTH, y + (CELL_HEIGHT >> 1), sptr);
+X      }
+X      /*}}}*/
+X    }
+X  /*}}}*/
+X  return;
+}
+/*}}}*/
+/*{{{  void new_face(mptr)*/
+extern void new_face FUNCARGLIST((mptr))
+MONSTER *mptr FUNCARGTERM
+/*
+X * calculates the required face for the direction,
+X * given the old face
+X */
+{
+X  int       dir;
+X  int       face;
+X
+X  if(mptr->push)
+X    dir = mptr->dir ^ 1;
+X  else
+X    dir = mptr->dir;
+X  face = mptr->face < 6 ? mptr->face : 2 + (mptr->face & 1);
+X  if(mptr->apple)
+X    mptr->face = 8 + (face > 2);
+X  else if(dir & 2)
+X    mptr->face = dir;
+X  else if(face == 2)
+X    mptr->face = dir;
+X  else if(face == 3)
+X    mptr->face = dir + 4;
+X  else if((dir ^ face) & 1)
+X    mptr->face ^= 5;
+X  if(mptr->face & 2 && mptr->pushing)
+X    mptr->face += 4;
+X  return;
+}
+/*}}}*/
+/*{{{  int valid_directions(mptr, cptr)*/
+extern int valid_directions FUNCARGLIST((mptr, cptr))
+MONSTER   *mptr FUNCARGSEP
+CELL      *cptr FUNCARGTERM
+/*
+X * sets the valid and nearer direction bits
+X * these are nr, nl, nd, nu, r, l, d, u
+X */
+{
+X  int       answer;
+X  int       offset;
+X
+X  answer = 0;
+X  if(offset = mptr->offset.y)
+X    /*{{{  up down only*/
+X    {
+X      if(offset > cptr->depths[0])
+X	answer |= 0x1;
+X      if(offset < cptr->depths[1])
+X	answer |= 0x2;
+X      if(offset < 0 ? cptr[0].distance < cptr[-CELL_STRIDE].distance :
+X	  cptr[0].distance >= cptr[CELL_STRIDE].distance)
+X	answer |= 0x20;
+X      else
+X	answer |= 0x10;
+X    }
+X    /*}}}*/
+X  else if(offset = mptr->offset.x)
+X    /*{{{  left right only*/
+X    {
+X      if(offset > cptr->depths[2])
+X	answer |= 0x4;
+X      if(offset < cptr->depths[3])
+X	answer |= 0x8;
+X      if(offset < 0 ? cptr[0].distance < cptr[-1].distance :
+X	  cptr[0].distance >= cptr[1].distance)
+X	answer |= 0x80;
+X      else
+X	answer |= 0x40;
+X    }
+X    /*}}}*/
+X  else
+X    /*{{{  at intersection*/
+X    {
+X      int       distance;
+X	  
+X      if(cptr->depths[0])
+X	answer |= 0x1;
+X      if(cptr->depths[1])
+X	answer |= 0x2;
+X      if(cptr->depths[2])
+X	answer |= 0x4;
+X      if(cptr->depths[3])
+X	answer |= 0x8;
+X      distance = cptr->distance;
+X      if(distance > cptr[-CELL_STRIDE].distance)
+X	answer |= 0x10;
+X      if(distance > cptr[CELL_STRIDE].distance)
+X	answer |= 0x20;
+X      if(distance > cptr[-1].distance)
+X	answer |= 0x40;
+X      if(distance > cptr[1].distance)
+X	answer |= 0x80;
+X    }
+X    /*}}}*/
+X  answer &= answer << 4 | 0xF;
+X  return answer;
+}
+/*}}}*/
+SHAR_EOF
+echo 'File move.c is complete' &&
+chmod 0644 move.c ||
+echo 'restore of move.c failed'
+Wc_c="`wc -c < 'move.c'`"
+test 38428 -eq "$Wc_c" ||
+	echo 'move.c: original size 38428, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= player.c ==============
+if test -f 'player.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping player.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting player.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'player.c' &&
+/*{{{  (C) 1992 Nathan Sidwell*/
+/*****************************************************************************
+X			X M R I S V1.01
+X			---------------
+X		    (C) 1992 Nathan Sidwell
+X
+This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+is in the public domain. Permission is granted to distribute and compile
+verbatim copies of this software for non-commercial, non-profit use,
+without fee. The software may be modified, provided that both the above copyright
+notice and this permission notice appear.
+X
+No guarantee is given as to the robustness or suitability of this
+software for your computer.
+X
+Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+*****************************************************************************/
+/*}}}*/
+#include "xmris.h"
+/*{{{  void bounce_ball()*/
+extern void bounce_ball FUNCARGVOID
+/*
+X * throws, bounces, explodes & implodes the ball
+X * note that show_updates, does the ball ploting
+X */
+{
+X  switch(player.ball.state)
+X  {
+X    /*{{{  case 0: (held)*/
+X    case 0:
+X      if(player.throw == 1)
+X	{
+X	  CELL      *cptr;
+X	  unsigned  face;
+X	
+X	  player.throw = 2;
+X	  player.ball.state = 1;
+X	  face = monster.list[0].face;
+X	  player.ball.cell.x = monster.list[0].cell.x;
+X	  player.ball.cell.y = monster.list[0].cell.y;
+X	  player.ball.offset.x = monster.list[0].offset.x + ball_throw[face].x;
+X	  player.ball.offset.y = monster.list[0].offset.y + ball_throw[face].y;
+X	  player.ball.count = ball_dir[face];
+X	  cptr = BOARDCELL(player.ball.cell.x, player.ball.cell.y);
+X	  switch(monster.list[0].dir)
+X	  {
+X	    /*{{{  case 0: (up)*/
+X	    case 0:
+X	      if(player.ball.offset.y > -(CELL_HEIGHT / 2))
+X		/*EMPTY*/;
+X	      else if(cptr[-CELL_STRIDE].visit)
+X		{
+X		  player.ball.offset.y += CELL_HEIGHT + GAP_HEIGHT;
+X		  player.ball.cell.y--;
+X		}
+X	      else if(cptr[-CELL_STRIDE * 2].depths[1] - player.ball.offset.y >
+X		  CELL_HEIGHT / 2 + CELL_HEIGHT + GAP_HEIGHT)
+X		{
+X		  player.ball.offset.y += (CELL_HEIGHT + GAP_HEIGHT) * 2;
+X		  player.ball.cell.y -= 2;
+X		}
+X	      else if(player.ball.offset.y + CELL_HEIGHT / 2 <
+X		  cptr[0].depths[0])
+X		player.ball.state = 0;
+X	      break;
+X	    /*}}}*/
+X	    /*{{{  case 1: (down)*/
+X	    case 1:
+X	      if(player.ball.offset.y < (CELL_HEIGHT / 2))
+X		/*EMPTY*/;
+X	      else if(cptr[CELL_STRIDE].visit)
+X		{
+X		  player.ball.offset.y -= CELL_HEIGHT + GAP_HEIGHT;
+X		  player.ball.cell.y++;
+X		}
+X	      else if(player.ball.offset.y - cptr[CELL_STRIDE * 2].depths[0] >
+X		  CELL_HEIGHT / 2 + CELL_HEIGHT + GAP_HEIGHT)
+X		{
+X		  player.ball.offset.y -= (CELL_HEIGHT + GAP_HEIGHT) * 2;
+X		  player.ball.cell.y += 2;
+X		}
+X	      else if(player.ball.offset.y - CELL_HEIGHT / 2 >
+X		  cptr[0].depths[1])
+X		player.ball.state = 0;
+X	      break;
+X	    /*}}}*/
+X	    /*{{{  case 2: (left)*/
+X	    case 2:
+X	      if(player.ball.offset.x > -(CELL_WIDTH / 2))
+X		/*EMPTY*/;
+X	      else if(cptr[-1].visit)
+X		{
+X		  player.ball.offset.x += CELL_WIDTH + GAP_WIDTH;
+X		  player.ball.cell.x--;
+X		}
+X	      else if(cptr[-2].depths[3] - player.ball.offset.x >
+X		  CELL_WIDTH / 2 + CELL_WIDTH + GAP_WIDTH)
+X		{
+X		  player.ball.offset.x += (CELL_WIDTH + GAP_WIDTH) * 2;
+X		  player.ball.cell.x -= 2;
+X		}
+X	      else if(player.ball.offset.x + CELL_WIDTH / 2 <
+X		  cptr[0].depths[2])
+X		player.ball.state = 0;
+X	      break;
+X	    /*}}}*/
+X	    /*{{{  case 3: (right)*/
+X	    case 3:
+X	      if(player.ball.offset.x < (CELL_HEIGHT / 2))
+X		/*EMPTY*/;
+X	      else if(cptr[1].visit)
+X		{
+X		  player.ball.offset.x -= CELL_WIDTH + GAP_WIDTH;
+X		  player.ball.cell.x++;
+X		}
+X	      else if(player.ball.offset.x - cptr[2].depths[2] >
+X		  CELL_WIDTH / 2 + CELL_WIDTH + GAP_WIDTH)
+X		{
+X		  player.ball.offset.x -= (CELL_WIDTH + GAP_WIDTH) * 2;
+X		  player.ball.cell.x += 2;
+X		}
+X	      else if(player.ball.offset.x - CELL_HEIGHT / 2 >
+X		  cptr[0].depths[3])
+X		player.ball.state = 0;
+X	      break;
+X	    /*}}}*/
+X	  }
+X	  player.ball.pixel.x =
+X	      PIXELX(player.ball.cell.x, player.ball.offset.x) + CELL_WIDTH / 2;
+X	  player.ball.pixel.y =
+X	      PIXELY(player.ball.cell.y, player.ball.offset.y) + CELL_HEIGHT / 2;
+X	}
+X      break;
+X    /*}}}*/
+X    /*{{{  case 1: (bounce)*/
+X    case 1:
+X    {
+X      int       i;
+X      CELL      *cptr;
+X	
+X      cptr = BOARDCELL(player.ball.cell.x, player.ball.cell.y);
+X      for(i = BALL_STEPS; i--;)
+X	{
+X	  int       walls;
+X	  /* bit vector tl, br, bl, tr, t, b, l, r */
+X	
+X	  /*{{{  moved to above or below cell?*/
+X	  if(player.ball.offset.y > CELL_HEIGHT / 2 &&
+X	      cptr[CELL_STRIDE].depths[0])
+X	    {
+X	      player.ball.offset.y -= CELL_HEIGHT + GAP_HEIGHT;
+X	      player.ball.cell.y++;
+X	      cptr += CELL_STRIDE;
+X	    }
+X	  else if(player.ball.offset.y < -CELL_HEIGHT / 2 &&
+X	      cptr[-CELL_STRIDE].depths[1])
+X	    {
+X	      player.ball.offset.y += CELL_HEIGHT + GAP_HEIGHT;
+X	      player.ball.cell.y--;
+X	      cptr -= CELL_STRIDE;
+X	    }
+X	  /*}}}*/
+X	  /*{{{  moved to left or right cell?*/
+X	  if(player.ball.offset.x > CELL_WIDTH / 2 && cptr[1].depths[2])
+X	    {
+X	      player.ball.offset.x -= CELL_WIDTH + GAP_WIDTH;
+X	      player.ball.cell.x++;
+X	      cptr++;
+X	    }
+X	  else if(player.ball.offset.x < -CELL_WIDTH / 2 && cptr[-1].depths[3])
+X	    {
+X	      player.ball.offset.x += CELL_WIDTH + GAP_WIDTH;
+X	      player.ball.cell.x--;
+X	      cptr--;
+X	    }
+X	  /*}}}*/
+X	  walls = 0x00;
+X	  /*{{{  set the maze walls*/
+X	  {
+X	    unsigned  quadrant;
+X	    /* quadrants to, bo, lo, ro, ti, bi, li, ri, t, b, l, r */
+X		    
+X	    /* work out where we are in the cell */
+X	    quadrant = 0x000;
+X	    /*{{{  y place*/
+X	    if(player.ball.offset.y < -CELL_HEIGHT / 2 - VEL_Y)
+X	      quadrant |= 0x008;
+X	    else if(player.ball.offset.y < -CELL_HEIGHT / 2)
+X	      quadrant |= 0x800;
+X	    else if(player.ball.offset.y < -CELL_HEIGHT / 2 + VEL_Y)
+X	      quadrant |= 0x080;
+X	    else if(player.ball.offset.y >= CELL_HEIGHT / 2 + VEL_Y)
+X	      quadrant |= 0x004;
+X	    else if(player.ball.offset.y >= CELL_HEIGHT / 2)
+X	      quadrant |= 0x400;
+X	    else if(player.ball.offset.y >= CELL_HEIGHT / 2 - VEL_Y)
+X	      quadrant |= 0x040;
+X	    /*}}}*/
+X	    /*{{{  x place*/
+X	    if(player.ball.offset.x < -CELL_WIDTH / 2 - VEL_X)
+X	      quadrant |= 0x002;
+X	    else if(player.ball.offset.x < -CELL_WIDTH / 2)
+X	      quadrant |= 0x200;
+X	    else if(player.ball.offset.x < -CELL_WIDTH / 2 + VEL_X)
+X	      quadrant |= 0x020;
+X	    else if(player.ball.offset.x >= CELL_WIDTH / 2 + VEL_X)
+X	      quadrant |= 0x001;
+X	    else if(player.ball.offset.x >= CELL_WIDTH / 2)
+X	      quadrant |= 0x100;
+X	    else if(player.ball.offset.x >= CELL_WIDTH / 2 - VEL_X)
+X	      quadrant |= 0x010;
+X	    /*}}}*/
+X	    if(quadrant & 0x888)
+X	      /*{{{  above cell*/
+X	      {
+X		if(player.ball.offset.y <=
+X		    cptr[0].depths[0] - CELL_HEIGHT / 2 + VEL_Y)
+X		  walls |= 0x98;
+X		if(quadrant & 0x808)
+X		  {
+X		    unsigned  mask;
+X				  
+X		    if(quadrant & 0x800)
+X		      mask = 0x93;
+X		    else
+X		      mask = 0xF3;
+X		    if(quadrant & 0x020)
+X		      walls |= mask & 0xA2;
+X		    if(quadrant & 0x010)
+X		      walls |= mask & 0x51;
+X		  }
+X		else
+X		  {
+X		    if(quadrant & 0x020)
+X		      {
+X			if(cptr[0].depths[0] >= -VEL_Y ||
+X			    cptr[0].depths[2] >= -VEL_X ||
+X			    cptr[-1].depths[0] >= -VEL_Y ||
+X			    cptr[-CELL_STRIDE].depths[2] >= -VEL_X)
+X			  walls |= 0x80;
+X		      }
+X		    else if(quadrant & 0x010)
+X		      {
+X			if(cptr[0].depths[0] >= -VEL_Y ||
+X			    cptr[0].depths[3] <= VEL_X ||
+X			    cptr[1].depths[0] >= -VEL_Y ||
+X			    cptr[-CELL_STRIDE].depths[3] <= VEL_X)
+X			  walls |= 0x10;
+X		      }
+X		  }
+X	      }
+X	      /*}}}*/
+X	    else if(quadrant & 0x444)
+X	      /*{{{  below cell*/
+X	      {
+X		if(player.ball.offset.y >=
+X		    cptr[0].depths[1] + CELL_HEIGHT / 2 - VEL_Y)
+X		  walls |= 0x64;
+X		if(quadrant & 0x404)
+X		  {
+X		    unsigned  mask;
+X				  
+X		    if(quadrant & 0x400)
+X		      mask = 0x63;
+X		    else
+X		      mask = 0xF3;
+X		    if(quadrant & 0x020)
+X		      walls |= mask & 0xA2;
+X		    if(quadrant & 0x010)
+X		      walls |= mask & 0x51;
+X		  }
+X		else
+X		  {
+X		    if(quadrant & 0x020)
+X		      {
+X			if(cptr[0].depths[1] <= VEL_Y ||
+X			    cptr[0].depths[2] >= -VEL_X ||
+X			    cptr[-1].depths[1] <= VEL_Y ||
+X			    cptr[CELL_STRIDE].depths[2] >= -VEL_X)
+X			  walls |= 0x20;
+X		      }
+X		    else if(quadrant & 0x010)
+X		      {
+X			if(cptr[0].depths[1] <= VEL_Y ||
+X			    cptr[0].depths[3] <= VEL_X ||
+X			    cptr[1].depths[1] <= VEL_Y ||
+X			    cptr[CELL_STRIDE].depths[3] <= VEL_X)
+X			  walls |= 0x40;
+X		      }
+X		  }
+X	      }
+X	      /*}}}*/
+X	    if(quadrant & 0x222)
+X	      /*{{{  left cell*/
+X	      {
+X		if(player.ball.offset.x <=
+X		    cptr[0].depths[2] - CELL_WIDTH / 2 + VEL_X)
+X		  walls |= 0xA2;
+X		if(quadrant & 0x202)
+X		  {
+X		    unsigned  mask;
+X				  
+X		    if(quadrant & 0x200)
+X		      mask = 0xAC;
+X		    else
+X		      mask = 0xFC;
+X		    if(quadrant & 0x080)
+X		      walls |= mask & 0x98;
+X		    if(quadrant & 0x040)
+X		      walls |= mask & 0x64;
+X		  }
+X	      }
+X	      /*}}}*/
+X	    else if(quadrant & 0x111)
+X	      /*{{{  right cell*/
+X	      {
+X		if(player.ball.offset.x >=
+X		    cptr[0].depths[3] + CELL_WIDTH / 2 - VEL_X)
+X		  walls |= 0x51;
+X		if(quadrant & 0x101)
+X		  {
+X		    unsigned  mask;
+X				  
+X		    if(quadrant & 0x100)
+X		      mask = 0x5C;
+X		    else
+X		      mask = 0xFC;
+X		    if(quadrant & 0x080)
+X		      walls |= mask & 0x98;
+X		    if(quadrant & 0x040)
+X		      walls |= mask & 0x64;
+X		  }
+X	      }
+X	      /*}}}*/
+X	  }
+X	  /*}}}*/
+X	  /*{{{  set apple walls*/
+X	  {
+X	    unsigned  i;
+X	    APPLE     *aptr;
+X		    
+X	    for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X	      {
+X		int     x, y;
+X		int     edge;
+X		/* edge ot, ob, ol, or, t, b, l, r */
+X			  
+X		if(aptr->state < 4)
+X		  {
+X		    x = aptr->pixel.x;
+X		    y = aptr->pixel.y;
+X		    edge = 0;
+X		    /*{{{  Y edge*/
+X		    if(player.ball.pixel.y - y < -VEL_Y ||
+X			player.ball.pixel.y - y >= CELL_HEIGHT + VEL_Y)
+X		      /*EMPTY*/;
+X		    else if(player.ball.pixel.y - y < 0)
+X		      edge |= 0X80;
+X		    else if(player.ball.pixel.y - y < CELL_HEIGHT / 2)
+X		      edge |= 0X08;
+X		    else if(player.ball.pixel.y - y < CELL_HEIGHT)
+X		      edge |= 0x04;
+X		    else
+X		      edge |= 0x40;
+X		    /*}}}*/
+X		    /*{{{  X edge*/
+X		    if(player.ball.pixel.x - x < -VEL_X ||
+X			player.ball.pixel.x - x >= CELL_WIDTH + VEL_X)
+X		      /*EMPTY*/;
+X		    else if(player.ball.pixel.x - x < 0)
+X		      edge |= 0X20;
+X		    else if(player.ball.pixel.x - x < CELL_WIDTH / 2)
+X		      edge |= 0X02;
+X		    else if(player.ball.pixel.x - x < CELL_WIDTH)
+X		      edge |= 0x01;
+X		    else
+X		      edge |= 0x10;
+X		    /*}}}*/
+X		    if(edge)
+X		      {
+X			/*{{{  top*/
+X			if(edge & 0X88 && edge & 0X33)
+X			  {
+X			    if(edge & 0X03)
+X			      walls |= 0X04;
+X			    if(edge & 0X23)
+X			      walls |= 0X40;
+X			    if(walls & 0X13)
+X			      walls |= 0X20;
+X			  }
+X			/*}}}*/
+X			/*{{{  bottom*/
+X			if(edge & 0X44 && edge & 0X33)
+X			  {
+X			    if(edge & 0X03)
+X			      walls |= 0X08;
+X			    if(edge & 0X23)
+X			      walls |= 0X10;
+X			    if(walls & 0X13)
+X			      walls |= 0X80;
+X			  }
+X			/*}}}*/
+X			/*{{{  left*/
+X			if(edge & 0X22 && edge & 0X0C)
+X			  {
+X			    walls |= 0X01;
+X			    if(edge & 0X8C)
+X			      walls |= 0X40;
+X			    if(walls & 0X4C)
+X			      walls |= 0X10;
+X			  }
+X			/*}}}*/
+X			/*{{{  right*/
+X			if(edge & 0X11 && edge & 0X0C)
+X			  {
+X			    walls |= 0X02;
+X			    if(edge & 0X8C)
+X			      walls |= 0X20;
+X			    if(walls & 0X4C)
+X			      walls |= 0X80;
+X			  }
+X			/*}}}*/
+X		      }
+X		  }
+X	      }
+X	  }
+X	  /*}}}*/
+X	  if((walls & 0xC) == 0xC || (walls & 0x03) == 0x03)
+X	    {
+X	      player.ball.state = 2;
+X	      player.ball.count = 0;
+X	      break;
+X	    }
+X	  else
+X	    {
+X	      /*{{{  bounce?*/
+X	      switch(player.ball.count)
+X	      {
+X		/*{{{  case 0: (up left)*/
+X		case 0:
+X		  if(!(walls & 0X80))
+X		    /*EMPTY*/;
+X		  else if((walls & 0X0A) == 0X08)
+X		    player.ball.count = 2;
+X		  else if((walls & 0X0A) == 0X02)
+X		    player.ball.count = 3;
+X		  else
+X		    player.ball.count = 1;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 1: (down right)*/
+X		case 1:
+X		  if(!(walls & 0X40))
+X		    /*EMPTY*/;
+X		  else if((walls & 0X05) == 0X04)
+X		    player.ball.count = 3;
+X		  else if((walls & 0X05) == 0X01)
+X		    player.ball.count = 2;
+X		  else
+X		    player.ball.count = 0;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 2: (down left)*/
+X		case 2:
+X		  if(!(walls & 0X20))
+X		    /*EMPTY*/;
+X		  else if((walls & 0X06) == 0X04)
+X		    player.ball.count = 0;
+X		  else if((walls & 0X06) == 0X02)
+X		    player.ball.count = 1;
+X		  else
+X		    player.ball.count = 3;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 3: (up right)*/
+X		case 3:
+X		  if(!(walls & 0X10))
+X		    /*EMPTY*/;
+X		  else if((walls & 0X09) == 0X08)
+X		    player.ball.count = 1;
+X		  else if((walls & 0X09) == 0X01)
+X		    player.ball.count = 0;
+X		  else
+X		    player.ball.count = 2;
+X		  break;
+X		/*}}}*/
+X	      }
+X	      /*}}}*/
+X	      /*{{{  move ball*/
+X	      switch(player.ball.count)
+X	      {
+X		/*{{{  case 0: (up left)*/
+X		case 0:
+X		  player.ball.offset.x -= VEL_X;
+X		  player.ball.offset.y -= VEL_Y;
+X		  player.ball.pixel.x -= VEL_X;
+X		  player.ball.pixel.y -= VEL_Y;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 1: (down right)*/
+X		case 1:
+X		  player.ball.offset.x += VEL_X;
+X		  player.ball.offset.y += VEL_Y;
+X		  player.ball.pixel.x += VEL_X;
+X		  player.ball.pixel.y += VEL_Y;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 2: (down left)*/
+X		case 2:
+X		  player.ball.offset.x -= VEL_X;
+X		  player.ball.offset.y += VEL_Y;
+X		  player.ball.pixel.x -= VEL_X;
+X		  player.ball.pixel.y += VEL_Y;
+X		  break;
+X		/*}}}*/
+X		/*{{{  case 3: (up right)*/
+X		case 3:
+X		  player.ball.offset.x += VEL_X;
+X		  player.ball.offset.y -= VEL_Y;
+X		  player.ball.pixel.x += VEL_X;
+X		  player.ball.pixel.y -= VEL_Y;
+X		  break;
+X		/*}}}*/
+X	      }
+X	      /*}}}*/
+X	    }
+X	}
+X      if(player.ball.state == 1)
+X	/*{{{  hit a monster?*/
+X	{
+X	  unsigned  i;
+X	  MONSTER   *mptr;
+X		
+X	  for(mptr = monster.list, i = monster.monsters; i--; mptr++)
+X	    if(!mptr->shot && !mptr->apple &&
+X		player.ball.pixel.x - mptr->pixel.x >= 0 &&
+X		player.ball.pixel.x - mptr->pixel.x < CELL_WIDTH &&
+X		player.ball.pixel.y - mptr->pixel.y >= 0 &&
+X		player.ball.pixel.y - mptr->pixel.y < CELL_HEIGHT)
+X	      {
+X		if(mptr == monster.list)
+X		  {
+X		    player.ball.state = 0;
+X		    player.ball.count = monster.list[0].face;
+X		    player.ball.pixel.x = monster.list[0].pixel.x +
+X			CELL_WIDTH / 2;
+X		    player.ball.pixel.y = monster.list[0].pixel.y +
+X			CELL_HEIGHT / 2;
+X		  }
+X		else
+X		  {
+X		    mptr->shot = 1;
+X		    player.ball.state = 2;
+X		    player.ball.count = 0;
+X		  }
+X		break;
+X	      }
+X	}
+X	/*}}}*/
+X      break;
+X    }
+X    /*}}}*/
+X    /*{{{  case 2: (explode)*/
+X    case 2:
+X      player.ball.count++;
+X      if(player.ball.count == BALL_EXPLODE)
+X	player.ball.state = 3;
+X      break;
+X    /*}}}*/
+X    /*{{{  case 3: (exploded)*/
+X    case 3:
+X      if(random() < 4)
+X	{
+X	  player.ball.state = 4;
+X	  player.ball.count--;
+X	}
+X      break;
+X    /*}}}*/
+X    /*{{{  case 4: (implode)*/
+X    case 4:
+X    {
+X      int       face;
+X	  
+X      player.ball.count--;
+X      face = monster.list[0].face;
+X      player.ball.pixel.x = monster.list[0].pixel.x + CELL_WIDTH / 2;
+X      player.ball.pixel.y = monster.list[0].pixel.y + CELL_HEIGHT / 2;
+X      if(!player.ball.count)
+X	player.ball.state = 0;
+X      break;
+X    }
+X    /*}}}*/
+X  }
+X  if(!player.ball.state)
+X    {
+X      player.ball.count = monster.list[0].face;
+X      player.ball.image = monster.list[0].image;
+X      player.ball.pixel.x = monster.list[0].pixel.x + CELL_WIDTH / 2;
+X      player.ball.pixel.y = monster.list[0].pixel.y + CELL_HEIGHT / 2;
+X    }
+X  return;
+}
+/*}}}*/
+/*{{{  void move_player()*/
+extern void move_player FUNCARGVOID
+/*
+X * moves the player
+X * and deals with eating cherries etc
+X */
+{
+X  CELL      *cptr;
+X  unsigned  dir;
+X
+X  dir = monster.list[0].dir;
+X  /*{{{  motionevent?*/
+X  if(player.motionevent && !player.keyboard &&
+X      (!monster.list[0].stop ||
+X       player.raw_mouse.x - player.mouse.x * (CELL_WIDTH + GAP_WIDTH) >
+X	  BORDER_LEFT + GAP_WIDTH / 2 + (CELL_WIDTH + GAP_WIDTH) / 4 +
+X	  CELL_WIDTH + GAP_WIDTH ||
+X       player.raw_mouse.y - (int)player.mouse.y * (CELL_HEIGHT + GAP_HEIGHT) >
+X	  BORDER_TOP + GAP_HEIGHT / 2 + (CELL_HEIGHT + GAP_HEIGHT) / 4 +
+X	  CELL_HEIGHT + GAP_HEIGHT ||
+X       player.raw_mouse.x - (int)player.mouse.x * (CELL_WIDTH + GAP_WIDTH) <
+X	  BORDER_LEFT + GAP_WIDTH / 2 - (GAP_WIDTH + CELL_WIDTH) / 4||
+X       player.raw_mouse.y - (int)player.mouse.y * (CELL_HEIGHT + GAP_HEIGHT) <
+X	  BORDER_TOP + GAP_HEIGHT / 2 - (GAP_HEIGHT + CELL_HEIGHT) / 4))
+X    /*
+X     * for mouse motion, we get the cell number for the mouse, and
+X     * set dir & mouse dir to point towards it
+X     */
+X    {
+X      int       x, y;
+X	
+X      x = (player.raw_mouse.x - BORDER_LEFT - GAP_WIDTH / 2) /
+X	  (GAP_WIDTH + CELL_WIDTH);
+X      y = (player.raw_mouse.y - BORDER_TOP - GAP_HEIGHT / 2) /
+X	  (GAP_HEIGHT + CELL_HEIGHT);
+X      /*{{{  clip x*/
+X      if(x < 0)
+X	x = 0;
+X      else if(x > CELLS_ACROSS - 1)
+X	x = CELLS_ACROSS - 1;
+X      /*}}}*/
+X      /*{{{  clip y*/
+X      if(y < 0)
+X	y = 0;
+X      else if(y > CELLS_DOWN - 1)
+X	y = CELLS_DOWN - 1;
+X      /*}}}*/
+X      if(y != player.mouse.y || x != player.mouse.x)
+X	{
+X	  unsigned  dir;
+X	  unsigned  second;
+X	
+X	  player.mouse.x = x;
+X	  player.mouse.y = y;
+X	  /*{{{  calc x direction*/
+X	  if(x == monster.list[0].cell.x && !monster.list[0].offset.x)
+X	    x = 0;
+X	  else if(x < monster.list[0].cell.x ||
+X	      (x == monster.list[0].cell.x && monster.list[0].offset.x > 0))
+X	    x = 6;
+X	  else
+X	    x = 7;
+X	  /*}}}*/
+X	  /*{{{  calc y direction*/
+X	  if(y == monster.list[0].cell.y && !monster.list[0].offset.y)
+X	    y = 0;
+X	  else if(y < monster.list[0].cell.y ||
+X	      (y == monster.list[0].cell.y && monster.list[0].offset.y > 0))
+X	    y = 4;
+X	  else
+X	    y = 5;
+X	  /*}}}*/
+X	  /*{{{  select which way round to do them*/
+X	  if(monster.list[0].dir & 2)
+X	    {
+X	      if(monster.list[0].dir != x)
+X		{
+X		  dir = y;
+X		  second = x;
+X		}
+X	      else
+X		{
+X		  dir = x;
+X		  second = y;
+X		}
+X	    }
+X	  else
+X	    {
+X	      if(monster.list[0].dir != y)
+X		{
+X		  dir = x;
+X		  second = y;
+X		}
+X	      else
+X		{
+X		  dir = y;
+X		  second = x;
+X		}
+X	    }
+X	  /*}}}*/
+X	  player.next_dir = 0;
+X	  /*{{{  do u turn fiddling*/
+X	  if(!dir)
+X	    dir = second;
+X	  else if(!second)
+X	    second = dir;
+X	  else if(monster.list[0].offset.x && !(dir & 2))
+X	    {
+X	      player.next_dir = dir;
+X	      if(monster.list[0].offset.x < -(CELL_WIDTH + GAP_WIDTH) * 3 / 4)
+X		dir = 6;
+X	      else if(monster.list[0].offset.x > (CELL_WIDTH + GAP_WIDTH) * 3 / 4)
+X		dir = 7;
+X	      else if(monster.list[0].offset.x > 0 &&
+X		  monster.list[0].offset.x <= (CELL_WIDTH + GAP_WIDTH) / 4)
+X		dir = 6;
+X	      else if(monster.list[0].offset.x < 0 &&
+X		  monster.list[0].offset.x >= -(CELL_WIDTH + GAP_WIDTH) / 4)
+X		dir = 7;
+X	      else
+X		dir = monster.list[0].dir | 4;
+X	    }
+X	  else if(monster.list[0].offset.y && (dir & 2))
+X	    {
+X	      player.next_dir = dir;
+X	      if(monster.list[0].offset.y < -(CELL_HEIGHT + GAP_HEIGHT) * 3 / 4)
+X		dir = 4;
+X	      else if(monster.list[0].offset.y > (CELL_HEIGHT + GAP_HEIGHT) * 3 / 4)
+X		dir = 5;
+X	      else if(monster.list[0].offset.y > 0 &&
+X		  monster.list[0].offset.y <= (CELL_HEIGHT + GAP_HEIGHT) / 4)
+X		dir = 4;
+X	      else if(monster.list[0].offset.y < 0 &&
+X		  monster.list[0].offset.y >= -(CELL_HEIGHT + GAP_HEIGHT) / 4)
+X		dir = 5;
+X	      else
+X		dir = monster.list[0].dir | 4;
+X	    }
+X	  /*}}}*/
+X	  monster.list[0].dir = dir & 3;
+X	  monster.list[0].stop = !(dir & 4);
+X	  player.mouse_dir = second;
+X	}
+X    }
+X  /*}}}*/
+X  /*{{{  key change?*/
+X  if(player.bashed || (player.old_pressed ^ player.pressed) & 0xF)
+X  /*
+X   * The keys have changed, so we need to select a new direction
+X   * if we're not an interchange to change dir, we keep going
+X   * in the current direction, if that is non-zero,
+X   * else we go to the nearest interchange
+X   */
+X  {
+X    unsigned  valid;
+X    unsigned  pressed;
+X    
+X    player.mouse_dir = 0;
+X    pressed = player.pressed & ~player.bashed;
+X    if(!pressed)
+X      pressed = player.pressed;
+X    valid = 0xF;
+X    /*{{{  work out valid direction and the edges*/
+X    if(monster.list[0].offset.x)
+X      {
+X	valid &= 0xC;
+X	if(!monster.list[0].cell.y)
+X	  pressed &= 0xE;
+X	else if(monster.list[0].cell.y == CELLS_DOWN - 1)
+X	  pressed &= 0xD;
+X      }
+X    else if(monster.list[0].offset.y)
+X      {
+X	valid &= 0x3;
+X	if(!monster.list[0].cell.x)
+X	  pressed &= 0xB;
+X	else if(monster.list[0].cell.x == CELLS_ACROSS - 1)
+X	  pressed &= 0x7;
+X      }
+X    else
+X      {
+X	if(!monster.list[0].cell.x)
+X	  valid &= 0xB;
+X	else if(monster.list[0].cell.x == CELLS_ACROSS - 1)
+X	  valid &= 0x7;
+X	if(!monster.list[0].cell.y)
+X	  valid &= 0xE;
+X	else if(monster.list[0].cell.y == CELLS_DOWN - 1)
+X	  valid &= 0xD;
+X	pressed &= valid;
+X      }
+X    /*}}}*/
+X    if((pressed & 0x3) == 0x3)
+X      pressed &= 0xC;
+X    if((pressed & 0xC) == 0xC)
+X      pressed &= 0x3;
+X    if(!pressed)
+X      {
+X	monster.list[0].stop = 1;
+X	player.next_dir = 0;
+X      }
+X    else if((valid & pressed) == pressed)
+X      {
+X	unsigned  dir;
+X    
+X	if((pressed & 0x3) && (pressed & 0xC))
+X	  pressed &= monster.list[0].dir & 2 ? 0x3 : 0xC;
+X	for(dir = 0; !(pressed & 1); dir++, pressed >>= 1)
+X	  /*EMPTY*/;
+X	player.next_dir = 0;
+X	monster.list[0].dir = dir;
+X	monster.list[0].stop = 0;
+X      }
+X    else
+X      {
+X	unsigned  dir;
+X    
+X	pressed &= ~valid;
+X	for(dir = 0; !(pressed & 1); pressed >>= 1)
+X	  dir++;
+X	player.next_dir = dir | 4;
+X	if(monster.list[0].stop)
+X	  {
+X	    /*{{{  select nearest cell*/
+X	    if(dir & 2)
+X	      {
+X		if(monster.list[0].offset.y <
+X		    -(CELL_HEIGHT + GAP_HEIGHT) * 3 / 4)
+X		  dir = 0;
+X		else if(monster.list[0].offset.y >
+X		    (CELL_HEIGHT + GAP_HEIGHT) * 3 / 4)
+X		  dir = 1;
+X		else if(monster.list[0].offset.y > 0 &&
+X		    monster.list[0].offset.y <=
+X		    (CELL_HEIGHT + GAP_HEIGHT) / 4)
+X		  dir = 0;
+X		else if(monster.list[0].offset.y < 0 &&
+X		    monster.list[0].offset.y >=
+X		    -(CELL_HEIGHT + GAP_HEIGHT) / 4)
+X		  dir = 1;
+X		else
+X		  dir = monster.list[0].dir;
+X	      }
+X	    else
+X	      {
+X		if(monster.list[0].offset.x <
+X		    -(CELL_WIDTH + GAP_WIDTH) * 3 / 4)
+X		  dir = 2;
+X		else if(monster.list[0].offset.x >
+X		    (CELL_WIDTH + GAP_WIDTH) * 3 / 4)
+X		  dir = 3;
+X		else if(monster.list[0].offset.x > 0 &&
+X		    monster.list[0].offset.x <=
+X		    (CELL_WIDTH + GAP_WIDTH) / 4)
+X		  dir = 2;
+X		else if(monster.list[0].offset.x < 0 &&
+X		    monster.list[0].offset.x >=
+X		    -(CELL_WIDTH + GAP_WIDTH) / 4)
+X		  dir = 3;
+X		else
+X		  dir = monster.list[0].dir;
+X	      }
+X	    /*}}}*/
+X	    monster.list[0].dir = dir;
+X	    monster.list[0].stop = 0;
+X	  }
+X      }
+X    if(monster.list[0].stop)
+X      player.bashed = 0;
+X    else if(player.bashed == 0x10)
+X      player.bashed = 0;
+X    else if(player.bashed & (1 << monster.list[0].dir))
+X      player.bashed = 0;
+X    else if(!(player.bashed & (3 << (monster.list[0].dir & 2))))
+X      player.bashed = 0x10;
+X  }
+X  /*}}}*/
+X  player.old_pressed = player.pressed;
+X  if(player.throw == 2)
+X    {
+X      if(!player.button)
+X	player.throw = 0;
+X    }
+X  else if(player.throw == 0)
+X    player.throw = player.button;
+X  if(dir != monster.list[0].dir)
+X    new_face(&monster.list[0]);
+X  if(monster.list[0].pause)
+X    {
+X      player.cherry = player.distance = 0;
+X      monster.list[0].pause = 0;
+X    }
+X  else if(!monster.list[0].stop)
+X    {
+X      if(!monster.list[0].cycle)
+X	{
+X	  monster.list[0].cycle = MONSTER_CYCLES;
+X	  monster.list[0].image++;
+X	  if(monster.list[0].image == MONSTER_IMAGES)
+X	    monster.list[0].image = 0;
+X	  
+X	}
+X      monster.list[0].cycle--;
+X      cptr = move_muncher(&monster.list[0]);
+X      /*{{{  pushing?*/
+X      {
+X	unsigned  push;
+X	    
+X	push = monster.list[0].pause && (monster.list[0].dir & 2);
+X	if(push != monster.list[0].pushing)
+X	  {
+X	    monster.list[0].pushing = push;
+X	    new_face(&monster.list[0]);
+X	  }
+X      }
+X      /*}}}*/
+X      if(monster.list[0].stop)
+X	{
+X	  monster.list[0].pause = 0;
+X	  player.bashed = 1 << monster.list[0].dir;
+X	}
+X      if(cptr)
+X	{
+X	  if(cptr->sprite == SPRITE_CHERRY)
+X	    /*{{{  eat cherry*/
+X	    {
+X	      cptr->sprite = 0;
+X	      global.cherries--;
+X	      add_score(50, 0, 0);
+X	      player.cherry++;
+X	      if(player.cherry == 8)
+X		{
+X		  add_score(500,
+X		      monster.list[0].pixel.x + CELL_WIDTH / 2,
+X		      monster.list[0].pixel.y + CELL_HEIGHT / 2);
+X		  player.cherry = 0;
+X		}
+X	      else
+X		player.distance =
+X		    (CELL_WIDTH + GAP_WIDTH) / VEL_X;
+X	    }
+X	    /*}}}*/
+X	  else if(cptr->sprite >= SPRITE_PRIZE_BASE &&
+X	      cptr->sprite < SPRITE_PRIZE_BASE + SPRITE_PRIZES)
+X	    /*{{{  eat prize*/
+X	    {
+X	      int     score;
+X			
+X	      history.prize |= 1;
+X	      cptr->sprite = 0;
+X	      score = player.screen * 500 + 500;
+X	      add_score(score > 9500 ? 9500 : score,
+X		  monster.list[0].pixel.x + CELL_WIDTH / 2,
+X		  monster.list[0].pixel.y + CELL_HEIGHT / 2);
+X	      global.state = 2;
+X	      if(!extra.escape)
+X		extra_escape();
+X	      monster.den = 3;
+X	      monster.delay = 1;
+X	    }
+X	    /*}}}*/
+X	}
+X    }
+X  if(player.distance)
+X    player.distance--;
+X  else
+X    player.cherry = 0;
+X  /*{{{  player looping*/
+X  if(monster.list[0].stop ||
+X      monster.list[0].offset.x || monster.list[0].offset.y)
+X    /*EMPTY*/;
+X  else if(player.mouse_dir &&
+X      monster.list[0].cell.x == player.mouse.x &&
+X      monster.list[0].cell.y == player.mouse.y)
+X    {
+X      player.next_dir = player.mouse_dir = 0;
+X      monster.list[0].stop = 1;
+X    }
+X  else if(player.mouse_dir &&
+X      monster.list[0].dir != (player.mouse_dir & 3) &&
+X      (monster.list[0].cell.x == player.mouse.x ||
+X       monster.list[0].cell.y == player.mouse.y))
+X    {
+X      monster.list[0].dir = player.mouse_dir & 3;
+X      player.next_dir = 0;
+X      new_face(&monster.list[0]);
+X    }
+X  else if((!monster.list[0].cell.x && monster.list[0].dir == 2) ||
+X      (!monster.list[0].cell.y && monster.list[0].dir == 0) ||
+X      (monster.list[0].cell.x == CELLS_ACROSS - 1 &&
+X	  monster.list[0].dir == 3) ||
+X      (monster.list[0].cell.y == CELLS_DOWN - 1 &&
+X	  monster.list[0].dir == 1))
+X    {
+X      player.next_dir = 0;
+X      monster.list[0].stop = 1;
+X      player.bashed = 1 << monster.list[0].dir;
+X    }
+X  else if(player.next_dir)
+X    {
+X      monster.list[0].dir = player.next_dir & 3;
+X      player.next_dir = 0;
+X      new_face(&monster.list[0]);
+X    }
+X  /*}}}*/
+X  if(!monster.list[0].shot)
+X    /*{{{  hit monster?*/
+X    {
+X      unsigned  i;
+X      MONSTER   *mptr;
+X      int       x, y;
+X	
+X      x = monster.list[0].pixel.x - CELL_WIDTH + GAP_WIDTH;
+X      y = monster.list[0].pixel.y - CELL_HEIGHT + GAP_HEIGHT;
+X      for(mptr = &monster.list[1], i = monster.monsters - 1; i--; mptr++)
+X	if(!mptr->chew && !mptr->shot && !mptr->apple &&
+X	    mptr->pixel.x - x > 0 &&
+X	    mptr->pixel.x - x < 2 * (CELL_WIDTH - GAP_WIDTH) &&
+X	    mptr->pixel.y - y > 0 &&
+X	    mptr->pixel.y - y < 2 * (CELL_HEIGHT - GAP_HEIGHT))
+X	  {
+X	    monster.list[0].shot = 1;
+X	    break;
+X	  }
+X    }
+X    /*}}}*/
+X  return;
+}
+/*}}}*/
+SHAR_EOF
+chmod 0644 player.c ||
+echo 'restore of player.c failed'
+Wc_c="`wc -c < 'player.c'`"
+test 26545 -eq "$Wc_c" ||
+	echo 'player.c: original size 26545, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= timer.c ==============
+if test -f 'timer.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping timer.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting timer.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'timer.c' &&
+/*{{{  (C) 1992 Nathan Sidwell*/
+/*****************************************************************************
+X			X M R I S V1.01
+X			---------------
+X		    (C) 1992 Nathan Sidwell
+X
+This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+is in the public domain. Permission is granted to distribute and compile
+verbatim copies of this software for non-commercial, non-profit use,
+without fee. The software may be modified, provided that both the above copyright
+notice and this permission notice appear.
+X
+No guarantee is given as to the robustness or suitability of this
+software for your computer.
+X
+Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+*****************************************************************************/
+/*}}}*/
+#include "xmris.h"
+#include <time.h>
+#include <sys/time.h>
+#include <signal.h>
+/*{{{  timer*/
+static struct
+{
+X  void      (*handler)();   /* original handler */
+X  unsigned  mask;           /* previous signal mask */
+X  unsigned  volatile counter;        /* timer counter */
+X  struct itimerval interval; /* interval time */
+} timer;
+/*}}}*/
+/*{{{  prototypes*/
+static void timer_alarm PROTOARGLIST((int));
+/*}}}*/
+/*{{{  void timer_alarm(sig)*/
+static void timer_alarm FUNCARGLIST((sig))
+int       sig FUNCARGTERM
+{
+X  timer.counter = 1;
+X  signal(SIGALRM, timer_alarm);
+X  return;
+}
+/*}}}*/
+/*{{{  void timer_close()*/
+extern void timer_close FUNCARGVOID
+/*
+X * closes the timer stuff
+X */
+{
+X  signal(SIGALRM, timer.handler);
+X  return;
+}
+/*}}}*/
+/*{{{  void timer_open()*/
+extern void timer_open FUNCARGVOID
+/*
+X * initialize the timer stuff
+X * this means installing the alarm signam handler
+X */
+{
+X  timer.interval.it_interval.tv_sec = 0;
+X  timer.interval.it_interval.tv_usec = 0;
+X  timer.interval.it_value.tv_sec = 0;
+X  timer.interval.it_value.tv_usec = 0;
+X  timer.handler = signal(SIGALRM, timer_alarm);
+X  return;
+}
+/*}}}*/
+/*{{{  void timer_start(tick)*/
+extern void timer_start FUNCARGLIST((tick))
+unsigned  long tick FUNCARGTERM
+/*
+X * starts an interval timer
+X * which ticks every n microseconds
+X */
+{
+X  timer.interval.it_value.tv_usec = tick;
+X  timer.counter = 1;
+X  timer_wait();
+X  return;
+}
+/*}}}*/
+/*{{{  void timer_stop()*/
+extern void timer_stop FUNCARGVOID
+/*
+X * stops the interval timer
+X */
+{
+X  timer.interval.it_value.tv_usec = 0;
+X  timer_wait();
+X  XDrawLine(display.display, display.window, GCN(GC_BALL),
+X      WINDOW_WIDTH - global.missed, WINDOW_HEIGHT - 1,
+X      WINDOW_WIDTH, WINDOW_HEIGHT - 1);
+X  global.missed = 0;
+X  return;
+}
+/*}}}*/
+/*{{{  void timer_wait()*/
+extern void timer_wait FUNCARGVOID
+/*
+X * waits for the next timer interrupt
+X * if this has already gone by, then we immediatley return
+X */
+{
+X  if(!timer.counter)
+X    {
+X      int     mask;
+X      
+X      mask = sigblock(sigmask(SIGALRM));
+X      if(!timer.counter)
+X	{
+X	  if(global.missed)
+X	    {
+X	      XDrawPoint(display.display, display.window, GCN(GC_BALL),
+X		  WINDOW_WIDTH - global.missed, WINDOW_HEIGHT - 1);
+X	      global.missed--;
+X	    }
+X	  sigpause(0);
+X	}
+X      sigsetmask(mask);
+X    }
+X  else if(global.missed < WINDOW_WIDTH)
+X    {
+X      global.missed++;
+X      XDrawPoint(display.display, display.window, GCN(GC_BALL),
+X	  WINDOW_WIDTH - global.missed, WINDOW_HEIGHT - 1);
+X    }
+X  timer.counter = 0;
+X  setitimer(ITIMER_REAL, &timer.interval, (struct itimerval *)NULL);
+X  return;
+}
+/*}}}*/
+SHAR_EOF
+chmod 0644 timer.c ||
+echo 'restore of timer.c failed'
+Wc_c="`wc -c < 'timer.c'`"
+test 3360 -eq "$Wc_c" ||
+	echo 'timer.c: original size 3360, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xmris.c ==============
+if test -f 'xmris.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xmris.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xmris.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xmris.c' &&
+/*{{{  (C) 1992 Nathan Sidwell*/
+/*****************************************************************************
+X			X M R I S V1.01
+X			---------------
+X		    (C) 1992 Nathan Sidwell
+X
+This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+is in the public domain. Permission is granted to distribute and compile
+verbatim copies of this software for non-commercial, non-profit use,
+without fee. The software may be modified, provided that both the above copyright
+notice and this permission notice appear.
+X
+No guarantee is given as to the robustness or suitability of this
+software for your computer.
+X
+Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+*****************************************************************************/
+/*}}}*/
+#include "xmris.h"
+#include <time.h>
+/*{{{  prototypes*/
+static void age_scores PROTOARGLIST((void));
+static void parse_args PROTOARGLIST((int, char **));
+/*}}}*/
+/*{{{  void add_score(increment, x, y)*/
+extern void add_score FUNCARGLIST((points, x, y))
+int       points  FUNCARGSEP
+int       x       FUNCARGSEP
+int       y       FUNCARGTERM
+/*
+X * adds the given score (which may be zero)
+X * and displays it at the top of the screen
+X * if the coordinate > 0 then add the score into the onboard list
+X */
+{
+X  player.score += points;
+X  /*{{{  text score*/
+X  {
+X    unsigned  length;
+X    char      text[10];
+X    int       ascent, descent;
+X    int       direction;
+X    XCharStruct chars;
+X    int       x, y;
+X	
+X    length = itoa(text, player.score, 0);
+X    XQueryTextExtents(display.display, font.font, text, length,
+X	&direction, &ascent, &descent, &chars);
+X    x = BORDER_LEFT + (CELL_WIDTH + GAP_WIDTH) * 4 -
+X	CELL_WIDTH / 2 - chars.width;
+X    y = (CELL_HEIGHT - ascent - descent) / 2 + ascent +
+X	BORDER_TOP - CELL_HEIGHT;
+X    XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+X	x, y, text, length);
+X    add_background(x, y - ascent, chars.width, ascent + descent);
+X  }
+X  /*}}}*/
+X  /*{{{  board score?*/
+X  if(y)
+X    {
+X      unsigned  length;
+X      char      text[10];
+X      int       i;
+X      SCORE     *sptr;
+X      SPRITE    *dptr;
+X	
+X      dptr = &sprites[SPRITE_DIGITS];
+X      length = itoa(text, points, 0);
+X      /*{{{  remove oldest score?*/
+X      if(update.score.scores == BOARD_SCORES)
+X	{
+X	  add_background(update.score.list[0].place.x,
+X	      update.score.list[0].place.y,
+X	      DIGIT_WIDTH * 4, DIGIT_HEIGHT);
+X	  update.score.scores--;
+X	  memmove(&update.score.list[0], &update.score.list[1],
+X	      sizeof(SCORE) * update.score.scores);
+X	}
+X      /*}}}*/
+X      sptr = &update.score.list[update.score.scores++];
+X      sptr->count = SCORE_SHOW;
+X      sptr->place.x = x - DIGIT_WIDTH * 2;
+X      sptr->place.y = y - DIGIT_HEIGHT / 2;
+X      /*{{{  centering*/
+X      if(length != 4)
+X	{
+X	  x = (4 - length) * (DIGIT_WIDTH / 2);
+X	  XCopyArea(display.display, dptr->image, sptr->image, GCN(GC_COPY),
+X	      10 * DIGIT_WIDTH, 0, x, DIGIT_HEIGHT, 0, 0);
+X	  XCopyArea(display.display, dptr->image, sptr->image, GCN(GC_COPY),
+X	      10 * DIGIT_WIDTH, 0, x, DIGIT_HEIGHT, 4 * DIGIT_WIDTH - x, 0);
+X	  XCopyArea(display.display, dptr->mask, sptr->mask, GCN(GC_COPY),
+X	      10 * DIGIT_WIDTH, 0, x, DIGIT_HEIGHT, 0, 0);
+X	  XCopyArea(display.display, dptr->mask, sptr->mask, GCN(GC_COPY),
+X	      10 * DIGIT_WIDTH, 0, x, DIGIT_HEIGHT, 4 * DIGIT_WIDTH - x, 0);
+X	}
+X      else
+X	x = 0;
+X      /*}}}*/
+X      for(i = 0; i < length; i++, x += DIGIT_WIDTH)
+X	{
+X	  XCopyArea(display.display, dptr->image, sptr->image, GCN(GC_COPY),
+X	      (text[i] - '0') * DIGIT_WIDTH, 0, DIGIT_WIDTH, DIGIT_HEIGHT,
+X	      x, 0);
+X	  XCopyArea(display.display, dptr->mask, sptr->mask, GCN(GC_COPY),
+X	      (text[i] - '0') * DIGIT_WIDTH, 0, DIGIT_WIDTH, DIGIT_HEIGHT,
+X	      x, 0);
+X	}
+X    }
+X  /*}}}*/
+X  return;
+}
+/*}}}*/
+/*{{{  void age_scores()*/
+static void age_scores FUNCARGVOID
+/*
+X * ages the onboard scores, and removes the old ones
+X */
+{
+X  SCORE     *sptr;
+X  int       i;
+X
+X  for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X    if(!sptr->count--)
+X      {
+X	Pixmap    image, mask;
+X	
+X	add_background(sptr->place.x, sptr->place.y,
+X	    DIGIT_WIDTH * 4, DIGIT_HEIGHT);
+X	mask = sptr->mask;
+X	image = sptr->image;
+X	memmove(sptr, sptr + 1, i * sizeof(SCORE));
+X	sptr[i].mask = mask;
+X	sptr[i].image = image;
+X	update.score.scores--;
+X	sptr--;
+X     }
+X  return;
+}
+/*}}}*/
+/*{{{  void calc_distances()*/
+extern void calc_distances FUNCARGVOID
+/*
+X * sets the distances from each cell to the player
+X * this is so the monsters have non-local knowlegde
+X * increment the non-zero cells
+X * this proceeds as a sort of flood fill operation, starting
+X * from the player's cell and moving outwards
+X */
+{
+X  CELL    **aptr, **sptr;
+X  CELL    *list[2][FLOOD_FILL];
+X  CELL    *cptr;
+X  int     toggle;
+X  int     x, y;
+X  int     count;
+X
+X  global.broken = 0;
+X  for(y = CELLS_DOWN; y--;)
+X    {
+X      cptr = BOARDCELL(0, y);
+X      for(x = CELLS_ACROSS; x--; cptr++)
+X	cptr->distance = cptr->visit ? 0 : 255;
+X    }
+X  toggle = 0;
+X  cptr = BOARDCELL(monster.list[0].cell.x, monster.list[0].cell.y);
+X  cptr->distance = count = 1;
+X  list[0][0] = cptr;
+X  list[0][1] = NULL;
+X  while(list[toggle][0])
+X  {
+X    sptr = list[toggle];
+X    toggle = !toggle;
+X    aptr = list[toggle];
+X    count++;
+X    while(cptr = *sptr++)
+X      {
+X	CELL      *tptr;
+X	
+X	/*{{{  go up?*/
+X	if(cptr->depths[0])
+X	  {
+X	    tptr = cptr - CELL_STRIDE;
+X	    if(tptr->visit && !tptr->distance)
+X	      {
+X		tptr->distance = count;
+X		*aptr++ = tptr;
+X	      }
+X	  }
+X	/*}}}*/
+X	/*{{{  go down?*/
+X	if(cptr->depths[1])
+X	  {
+X	    tptr = cptr + CELL_STRIDE;
+X	    if(tptr->visit && !tptr->distance)
+X	      {
+X		tptr->distance = count;
+X		*aptr++ = tptr;
+X	      }
+X	  }
+X	/*}}}*/
+X	/*{{{  go left?*/
+X	if(cptr->depths[2])
+X	  {
+X	    tptr = cptr - 1;
+X	    if(tptr->visit && !tptr->distance)
+X	      {
+X		tptr->distance = count;
+X		*aptr++ = tptr;
+SHAR_EOF
+true || echo 'restore of xmris.c failed'
+fi
+echo 'End of  part 5'
+echo 'File xmris.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

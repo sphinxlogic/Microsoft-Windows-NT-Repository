@@ -1,0 +1,2133 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i026:  xvi - portable multi-window vi-like editor, Part17/18
+Message-ID: <1992Oct24.172547.2525@sparky.imd.sterling.com>
+X-Md4-Signature: 2fcd7cecc4b956aac7f682a7154eec74
+Date: Sat, 24 Oct 1992 17:25:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 26
+Archive-name: xvi/part17
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/doc/COPYING xvi/src/ascii.c xvi/src/ascii.h
+#   xvi/src/buffers.c xvi/src/makefile.msc xvi/src/makefile.pos
+#   xvi/src/makefile.qc xvi/src/makefile.zc2 xvi/src/makefile.zc3
+#   xvi/src/mark.c xvi/src/msdos.h xvi/src/ptrfunc.c xvi/src/signal.c
+#   xvi/src/status.c xvi/src/sunview.h xvi/src/tos.h xvi/src/virtscr.h
+# Wrapped by kent@sparky on Thu Oct 22 09:03:44 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 18)."'
+if test -f 'xvi/doc/COPYING' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/doc/COPYING'\"
+else
+  echo shar: Extracting \"'xvi/doc/COPYING'\" \(2279 characters\)
+  sed "s/^X//" >'xvi/doc/COPYING' <<'END_OF_FILE'
+XXvi copying permission notice Copyright (C) 1991,1992 Chris and John Downey.
+X
+XXvi is distributed in the hope that it will be useful, but because the
+Xauthors do not receive any payment for it, it is provided without any
+Xwarranty. No author or distributor accepts responsibility to anyone for
+Xthe consequences of using it or for whether it serves any particular
+Xpurpose or works at all, unless he/she says so in writing.
+X
+XEveryone is granted permission to copy, modify and redistribute Xvi
+Xunder the following conditions:
+X
+X	Permission is granted to anyone to make or distribute verbatim copies
+X	of Xvi source code as received, in any medium, provided that all
+X	copyright notices and permission and nonwarranty notices are preserved,
+X	and that the distributor grants the recipient permission for further
+X	redistribution as permitted by this document, and gives him/her and
+X	points out to him/her an exact copy of this document to inform him/her
+X	of his/her rights.
+X
+X	Permission is granted to distribute modified versions of Xvi source
+X	code, or of portions of it, under the above conditions, provided also
+X	that all changed files carry prominent notices stating who last changed
+X	them and that all the Xvi-derived material, including everything
+X	packaged together with it and not independently usable, is distributed
+X	under the conditions stated in this document.
+X
+X	Permission is granted to distribute Xvi in compiled or executable form
+X	under the same conditions applying for source code, provided that either
+X
+X	A	it is accompanied by the corresponding machine-readable source
+X		code, or
+X	B	it is accompanied by a written offer, with no time limit, to
+X		give anyone a machine-readable copy of the corresponding source
+X		code in return for reimbursement of the cost of distribution.
+X		This written offer must permit verbatim duplication by anyone.
+X	C	it is distributed by someone who received only the executable
+X		form, and is accompanied by a copy of the written offer of
+X		source code which he/she received along with it.
+X
+XIn other words, you are welcome to use, share and improve Xvi.
+XYou are forbidden to forbid anyone else to use, share and improve
+Xwhat you give them. Help stamp out software-hoarding!
+X
+XThis copyright notice was adapted from the one supplied with GNU Emacs.
+END_OF_FILE
+  if test 2279 -ne `wc -c <'xvi/doc/COPYING'`; then
+    echo shar: \"'xvi/doc/COPYING'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/doc/COPYING'
+fi
+if test -f 'xvi/src/ascii.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/ascii.c'\"
+else
+  echo shar: Extracting \"'xvi/src/ascii.c'\" \(2812 characters\)
+  sed "s/^X//" >'xvi/src/ascii.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)ascii.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ascii.c
+X* module function:
+X    Visual representations of control & other characters.
+X
+X    This file is specific to the ASCII character set;
+X    versions for other character sets could be implemented if
+X    required.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Output visual representation for a character. Return value is the
+X * width, in display columns, of the representation; the actual string
+X * is returned in *pp unless pp is NULL.
+X *
+X * If tabcol is -1, a tab is represented as "^I"; otherwise, it gives
+X * the current physical column, & is used to determine the number of
+X * spaces in the string returned as *pp.
+X *
+X * Looks at the parameters tabs, list, cchars and mchars.
+X * This may sound costly, but in fact it's a single memory
+X * access for each parameter.
+X */
+Xunsigned
+Xvischar(c, pp, tabcol)
+X    register int	c;
+X    register char	**pp;
+X    register int	tabcol;
+X{
+X    static char		crep[5];
+X
+X    if (c == '\t' && tabcol >= 0 && Pb(P_tabs) && !Pb(P_list)) {
+X	/*
+X	 * Tab which we have to display as a string of
+X	 * spaces (rather than "^I" or directly).
+X	 */
+X	register unsigned	nspaces;
+X
+X	while (tabcol >= Pn(P_tabstop))
+X	    tabcol -= Pn(P_tabstop);
+X	nspaces = Pn(P_tabstop) - tabcol;
+X	if (pp != NULL) {
+X	    static char	spstr[MAX_TABSTOP + 1];
+X	    static unsigned	lastnum;
+X
+X	    /*
+X	     * Paranoia (maybe).
+X	     */
+X	    if (nspaces > MAX_TABSTOP)
+X		nspaces = MAX_TABSTOP;
+X	    if (nspaces > lastnum)
+X		(void) memset(&spstr[lastnum], ' ',
+X		       (int) (nspaces - lastnum));
+X	    spstr[lastnum = nspaces] = '\0';
+X	    *pp = spstr;
+X	}
+X	return nspaces;
+X    } else if (((unsigned char) c < ' ' || c == DEL) && !Pb(P_cchars)) {
+X	/*
+X	 * ASCII Control characters.
+X	 */
+X	if (pp != NULL) {
+X	    *pp = crep;
+X	    crep[0] = '^';
+X	    crep[1] = (c == DEL ? '?' : c + ('A' - 1));
+X	    crep[2] = '\0';
+X	}
+X	return 2;
+X    } else if ((c & ~0177) && !Pb(P_mchars)) {
+X	/*
+X	 * If Pb(P_mchars) is unset, we display non-ASCII characters
+X	 * (i.e. top-bit-set characters) as octal escape sequences.
+X	 */
+X	if (pp != NULL) {
+X	    *pp = crep;
+X	    crep[0] = '\\';
+X	    crep[1] = ((c >> 6) & 7) + '0';
+X	    crep[2] = ((c >> 3) & 7) + '0';
+X	    crep[3] = (c	    & 7) + '0';
+X	    crep[4] = '\0';
+X	}
+X	return 4;
+X    } else {
+X	/*
+X	 * Printable character.
+X	 */
+X	if (pp != NULL) {
+X	    *pp = crep;
+X	    crep[0] = c;
+X	    crep[1] = '\0';
+X	}
+X	return 1;
+X    }
+X}
+END_OF_FILE
+  if test 2812 -ne `wc -c <'xvi/src/ascii.c'`; then
+    echo shar: \"'xvi/src/ascii.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/ascii.c'
+fi
+if test -f 'xvi/src/ascii.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/ascii.h'\"
+else
+  echo shar: Extracting \"'xvi/src/ascii.h'\" \(2985 characters\)
+  sed "s/^X//" >'xvi/src/ascii.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)ascii.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ascii.h
+X* module function:
+X    Keycode definitions for special keys - e.g. help, cursor arrow
+X    keys, page up, page down etc., & test & conversion macros for
+X    single characters.
+X
+X    On systems that have any special keys, the routine 'inchar' in
+X    the terminal interface code should return one of the codes
+X    here.
+X
+X    This file is specific to the ASCII character set; versions for
+X    other character sets could be implemented if required.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include <ctype.h>
+X
+X/*
+X * Tests on single characters.
+X */
+X#define is_alpha(c)	(isascii(c) && isalpha(c))
+X#define is_upper(c)	(isascii(c) && isupper(c))
+X#define is_lower(c)	(isascii(c) && islower(c))
+X#define is_digit(c)	(isascii(c) && isdigit(c))
+X#define is_xdigit(c)	(isascii(c) && isxdigit(c))
+X#define is_octdigit(c)	((c) >= '0' && (c) <= '7')
+X#define is_space(c)	(isascii(c) && isspace(c))
+X#define is_punct(c)	(isascii(c) && ispunct(c))
+X#define is_alnum(c)	(isascii(c) && isalnum(c))
+X#define is_print(c)	(isascii(c) && isprint(c))
+X#define is_graph(c)	(isascii(c) && isgraph(c))
+X#define is_cntrl(c)	(isascii(c) && iscntrl(c))
+X
+X/*
+X * Conversions.
+X *
+X * Note that no argument validity checking is performed.
+X */
+X/*
+X * Upper case to lower case.
+X */
+X#define to_lower(c)	((c) | 040)
+X/*
+X * Lower case to upper case.
+X */
+X#define to_upper(c)	((c) & 0137)
+X/*
+X * Hexadecimal digit to binary integer.
+X */
+X#define hex_to_bin(h)	(is_digit(h) ? (h) & 017 : ((h) & 7) + 9)
+X
+X/*
+X * Key codes.
+X */
+X#define K_HELP		0x80
+X#define K_UNDO		0x81
+X#define K_INSERT	0x82
+X#define K_HOME		0x83
+X#define K_UARROW	0x84
+X#define K_DARROW	0x85
+X#define K_LARROW	0x86
+X#define K_RARROW	0x87
+X#define K_CGRAVE	0x88	/* control grave accent */
+X#define K_PGDOWN	0x89
+X#define K_PGUP		0x8a
+X#define K_END		0x8b
+X
+X/*
+X * Function keys.
+X */
+X#define K_FUNC(n)	(0xa0 + (n))
+X
+X/*
+X * Some common control characters.
+X */
+X#define ESC		'\033'
+X#define DEL		'\177'
+X
+X#undef	CTRL
+X#define CTRL(x) 	((x) & 0x1f)
+X
+X/*
+X * Convert a command character to an ASCII character.
+X *
+X * This is needed for normal(), which uses the mapped value as an
+X * index into a table.
+X *
+X * QNX is the only ASCII-based system which gives us a minor problem
+X * here because its newline character is the same as control-^; so we
+X * convert this value to an ASCII linefeed.
+X */
+X#ifdef QNX
+X#   define ascii_map(n)	((n) == '\n' ? 012 : (n))
+X#else
+X#   define ascii_map(n)	(n)
+X#endif
+X
+X/*
+X * The top bit for extended character sets.
+X * Note that this is NOT related to the size of a char in bits,
+X * but to the ASCII character set - i.e. it is always 128.
+X */
+X#define	TOP_BIT		128
+END_OF_FILE
+  if test 2985 -ne `wc -c <'xvi/src/ascii.h'`; then
+    echo shar: \"'xvi/src/ascii.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/ascii.h'
+fi
+if test -f 'xvi/src/buffers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/buffers.c'\"
+else
+  echo shar: Extracting \"'xvi/src/buffers.c'\" \(2955 characters\)
+  sed "s/^X//" >'xvi/src/buffers.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)buffers.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    buffers.c
+X* module function:
+X    Handle buffer allocation, deallocation, etc.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	bool_t	setup_buffer P((Buffer *));
+X
+X/*
+X * Create a new buffer.
+X */
+XBuffer *
+Xnew_buffer()
+X{
+X    Buffer	*new;
+X
+X    new = (Buffer *) alloc(sizeof(Buffer));
+X    if (new == NULL) {
+X	return(NULL);
+X    }
+X
+X    /*
+X     * Allocate memory for lines etc.
+X     */
+X    if (setup_buffer(new) == FALSE) {
+X	free((char *) new);
+X	return(NULL);
+X    }
+X
+X    /*
+X     * Since setup_buffer() does not set up
+X     * the filenames, we must do it ourselves.
+X     */
+X    new->b_filename = NULL;
+X    new->b_tempfname = NULL;
+X
+X    new->b_nwindows = 0;
+X
+X    return(new);
+X}
+X
+X/*
+X * Delete the given buffer.
+X */
+Xvoid
+Xfree_buffer(buffer)
+XBuffer	*buffer;
+X{
+X    if (buffer == NULL)
+X	return;
+X
+X    /*
+X     * Free all the lines in the buffer.
+X     */
+X    throw(buffer->b_line0);
+X
+X    free((char *) buffer);
+X}
+X
+X/*
+X * Free up all the memory used indirectly by the buffer,
+X * and then get some new stuff. This only has an effect
+X * on the allocated fields within the buffer, i.e. it
+X * does not change any variables such as filenames.
+X *
+X * Returns TRUE for success, FALSE for failure to get memory.
+X */
+Xbool_t
+Xclear_buffer(buffer)
+XBuffer	*buffer;
+X{
+X    /*
+X     * Free all the lines in the buffer.
+X     */
+X    throw(buffer->b_line0);
+X    return(setup_buffer(buffer));
+X}
+X
+X/*
+X * Allocate and initialise a buffer structure.
+X *
+X * Don't touch filenames.
+X *
+X * Returns TRUE for success, FALSE if we couldn't get memory.
+X */
+Xstatic bool_t
+Xsetup_buffer(b)
+XBuffer	*b;
+X{
+X    /*
+X     * Allocate the single "dummy" line, and the two
+X     * out-of-bounds lines for lines 0 and (n+1).
+X     * This is a little strange ...
+X     */
+X    b->b_line0 = newline(0);
+X    b->b_file = newline(1);
+X    b->b_lastline = newline(0);
+X    if (b->b_line0 == NULL || b->b_file == NULL || b->b_lastline == NULL) {
+X	return(FALSE);
+X    }
+X
+X    /*
+X     * Connect everything togther to form a minimal list.
+X     */
+X    b->b_line0->l_next = b->b_file;
+X    b->b_file->l_prev = b->b_line0;
+X    b->b_file->l_next = b->b_lastline;
+X    b->b_lastline->l_prev = b->b_file;
+X
+X    /*
+X     * Clear all marks.
+X     */
+X    init_marks(b);
+X
+X    /*
+X     * Clear the undo status of the buffer.
+X     */
+X    init_undo(b);
+X
+X    /*
+X     * Clear all flags, and then pay special attention to the
+X     * "noedit" flag which must be set if the parameter is FALSE.
+X     */
+X    b->b_flags = 0;
+X    if (!Pb(P_edit)) {
+X	b->b_flags |= FL_NOEDIT;
+X    }
+X
+X    return(TRUE);
+X}
+END_OF_FILE
+  if test 2955 -ne `wc -c <'xvi/src/buffers.c'`; then
+    echo shar: \"'xvi/src/buffers.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/buffers.c'
+fi
+if test -f 'xvi/src/makefile.msc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.msc'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.msc'\" \(2648 characters\)
+  sed "s/^X//" >'xvi/src/makefile.msc' <<'END_OF_FILE'
+X# Copyright (c) 1990,1991,1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.msc	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.msc
+X# module function:
+X#	Makefile for Microsoft C for MS-DOS
+X#
+X#	(but it won't work with Microsoft's Make, which is brain-dead.
+X#	There are several good public domain make utilities available
+X#	for MS-DOS).
+X#
+X#	Microsoft Macro Assembler (or a compatible assembler) is also
+X#	required.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+X#
+X# Name of this file.
+X#
+XTHISFILE=	makefile.msc
+X
+XMEMMODEL=	L
+XCC=		cl
+XCFLAGS=		-A$(MEMMODEL)
+XAS=		masm
+XASFLAGS=	-Mx -DMEMMODEL=$(MEMMODEL) # -Zi
+XLD=		link
+XLDFLAGS=	/NOI /NOE /STACK:20480
+X
+XINC=		ascii.h param.h ptrfunc.h regexp.h regmagic.h xvi.h \
+X		virtscr.h msdos.h ibmpc.h 8086mm.inc
+X
+XSRC=		defscr.c \
+X		alloc.c ascii.c buffers.c cmdline.c cursor.c \
+X		edit.c ex_cmds1.c ex_cmds2.c events.c fileio.c find.c \
+X		flexbuf.c map.c mark.c misccmds.c mouse.c movement.c \
+X		normal.c param.c pipe.c preserve.c ptrfunc.c \
+X		regexp.c screen.c search.c startup.c status.c \
+X		tags.c undo.c version.c windows.c \
+X		yankput.c \
+X		msdos_c.c msdos_a.asm ibmpc_a.asm ibmpc_c.c
+X
+XOBJ=		defscr.obj \
+X		alloc.obj ascii.obj buffers.obj cmdline.obj cursor.obj \
+X		edit.obj ex_cmds1.obj ex_cmds2.obj events.obj fileio.obj \
+X		find.obj flexbuf.obj map.obj mark.obj misccmds.obj \
+X		mouse.obj movement.obj \
+X		normal.obj param.obj pipe.obj preserve.obj ptrfunc.obj \
+X		regexp.obj screen.obj search.obj startup.obj status.obj \
+X		tags.obj undo.obj version.obj windows.obj \
+X		yankput.obj \
+X		msdos_c.obj msdos_a.obj ibmpc_a.obj ibmpc_c.obj
+X
+XLINKFILE=	xvi.lnk
+X
+Xall:		xvi.exe
+X
+Xxvi.exe:	$(OBJ) $(LINKFILE) version.c
+X		$(CC) $(CFLAGS) -c version.c
+X		$(LD) @$(LINKFILE)
+X
+X$(LINKFILE):	$(THISFILE)
+X		+echo defscr + >> $@
+X		+echo alloc + ascii + buffers + cmdline + cursor + >> $@
+X		+echo edit + ex_cmds1 + ex_cmds2 + events + fileio + >> $@
+X		+echo find + flexbuf + map + mark + misccmds + mouse + >> $@
+X		+echo movement + normal + param + pipe + preserve + >> $@
+X		+echo ptrfunc + regexp + screen + search + startup + >> $@
+X		+echo status + tags + undo + version + windows + >> $@
+X		+echo yankput + >> $@
+X		+echo msdos_c + msdos_a + ibmpc_a + ibmpc_c + >> $@
+X		+echo $(LIB)\setargv >> $@
+X		+echo xvi.exe $(LDFLAGS) ; >> $@
+X
+X.c.obj:
+X		$(CC) $(CFLAGS) -Fo$@ -c $<
+X
+X.asm.obj:
+X		$(AS) $(ASFLAGS) $* ;
+X
+Xclean:
+X		del *.obj
+X		del $(LINKFILE)
+X		del *.map
+END_OF_FILE
+  if test 2648 -ne `wc -c <'xvi/src/makefile.msc'`; then
+    echo shar: \"'xvi/src/makefile.msc'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.msc'
+fi
+if test -f 'xvi/src/makefile.pos' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.pos'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.pos'\" \(2085 characters\)
+  sed "s/^X//" >'xvi/src/makefile.pos' <<'END_OF_FILE'
+X# Copyright (c) 1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.pos	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.pos
+X# module function:
+X#	Makefile for POSIX.
+X#	This is tested on BSDI, which paradoxically does not want
+X#	BSD to be defined - but we define TERMIOS and POSIX to get
+X#	nice POSIX-style terminal I/O.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+XSYSDEFS=	-DUNIX -DTERMIOS -DPOSIX
+XINCDIRS=
+X
+XLIBS=		-ltermcap
+XLDFLAGS=	-ansi
+X
+XDEBUGFLAG=	-g
+XOPTFLAG=	-O
+XCFLAGS= 	$(SYSDEFS) $(INCDIRS) $(OPTFLAG) -ansi
+X
+XLINTFLAGS=	$(SYSDEFS) $(INCDIRS) -ah
+X
+XMACHSRC=	unix.c termcap.c defscr.c
+XMACHOBJ=	unix.o termcap.o defscr.o
+XMACHINC=	unix.h termcap.h
+X
+XGENINC=		ascii.h param.h ptrfunc.h regexp.h regmagic.h xvi.h virtscr.h
+X
+XGENSRC=		alloc.c ascii.c buffers.c cmdline.c cursor.c \
+X		edit.c ex_cmds1.c ex_cmds2.c events.c fileio.c \
+X		find.c flexbuf.c map.c mark.c misccmds.c movement.c \
+X		normal.c param.c pipe.c preserve.c ptrfunc.c \
+X		regexp.c screen.c search.c signal.c startup.c status.c \
+X		tags.c undo.c version.c windows.c yankput.c
+X
+XGENOBJ=		alloc.o ascii.o buffers.o cmdline.o cursor.o \
+X		edit.o ex_cmds1.o ex_cmds2.o events.o fileio.o \
+X		find.o flexbuf.o map.o mark.o misccmds.o movement.o \
+X		normal.o param.o pipe.o preserve.o ptrfunc.o \
+X		regexp.o screen.o search.o signal.o startup.o status.o \
+X		tags.o undo.o version.o windows.o yankput.o
+X
+Xall:		xvi
+X
+Xxvi:		$(GENOBJ) $(MACHOBJ)
+X		$(CC) $(CFLAGS) -o xvi $(GENOBJ) $(MACHOBJ) $(LIBS)
+X
+X.c.o:		$< $(GENINC) $(MACHINC) param.c
+X		$(CC) $(CFLAGS) -c -o $@ $<
+X
+Xsources:
+X		sccs check || sccs delget `sccs tell`
+X
+Xlint:
+X		lint $(LINTFLAGS) $(GENSRC) $(MACHSRC)
+X
+Xtags:		$(GENSRC) $(MACHSRC)
+X		ctags -t $(GENSRC) $(MACHSRC) $(GENINC) $(MACHINC)
+X
+Xclean:
+X		csh -c 'rm -f *.{o,obj} xvi'
+X
+Xinstall:
+X		mv xvi $(HOME)/bin/`arch`/xvi
+X
+X$(GENOBJ): 	$(GENINC) $(MACHINC)
+END_OF_FILE
+  if test 2085 -ne `wc -c <'xvi/src/makefile.pos'`; then
+    echo shar: \"'xvi/src/makefile.pos'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.pos'
+fi
+if test -f 'xvi/src/makefile.qc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.qc'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.qc'\" \(2901 characters\)
+  sed "s/^X//" >'xvi/src/makefile.qc' <<'END_OF_FILE'
+X# Copyright (c) 1990,1991,1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.qc	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.qc
+X# module function:
+X#	Makefile for MS-DOS, using Microsoft Quick C (standalone
+X#	version) & Microsoft's make utility.
+X#
+X#	Microsoft Macro Assembler (or a compatible assembler) is also
+X#	required.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+X#
+X# Name of this file.
+X#
+XTHISFILE=	makefile.qc
+XMEMMODEL=	L
+XCFLAGS=		-A$(MEMMODEL) -D__STDC__=1 -Ol
+XLDFLAGS=	/NOI /NOE /STACK:20480
+XLINKFILE=	xvi.lnk
+X
+X.c.obj:
+X		qcl -c $(CFLAGS) $*.c
+X
+X.asm.obj:
+X		masm -Mx -DMEMMODEL=$(MEMMODEL) $* ;
+X
+Xalloc.obj:	alloc.c
+X
+Xascii.obj:	ascii.c
+X
+Xbuffers.obj:	buffers.c
+X
+Xcmdline.obj:	cmdline.c
+X
+Xcursor.obj:	cursor.c
+X
+Xdefscr.obj:	defscr.c
+X
+Xedit.obj:	edit.c
+X
+Xex_cmds1.obj:	ex_cmds1.c
+X
+Xex_cmds2.obj:	ex_cmds2.c
+X
+Xevents.obj:	events.c
+X
+Xfileio.obj:	fileio.c
+X
+Xfind.obj:	find.c
+X
+Xflexbuf.obj:	flexbuf.c
+X
+Xibmpc_c.obj:	ibmpc_c.c
+X
+Xmap.obj:	map.c
+X
+Xmark.obj:	mark.c
+X
+Xmisccmds.obj:	misccmds.c
+X
+Xmouse.obj:	mouse.c
+X
+Xmovement.obj:	movement.c
+X
+Xmsdos_c.obj:	msdos_c.c
+X
+Xnormal.obj:	normal.c
+X
+Xparam.obj:	param.c
+X
+Xpipe.obj:	pipe.c
+X
+Xpreserve.obj:	preserve.c
+X
+Xptrfunc.obj:	ptrfunc.c
+X
+Xregexp.obj:	regexp.c
+X
+Xscreen.obj:	screen.c
+X
+Xsearch.obj:	search.c
+X
+Xstartup.obj:	startup.c
+X
+Xstatus.obj:	status.c
+X
+Xtags.obj:	tags.c
+X
+Xundo.obj:	undo.c
+X
+Xwindows.obj:	windows.c
+X
+Xyankput.obj:	yankput.c
+X
+Xibmpc_a.obj:	ibmpc_a.asm
+X
+Xmsdos_a.obj:	msdos_a.asm
+X
+X$(LINKFILE):	$(THISFILE)
+X		+echo alloc + ascii + buffers + > $(LINKFILE)
+X		+echo cmdline + cursor + >> $(LINKFILE)
+X		+echo edit + ex_cmds1 + ex_cmds2 + events + >> $(LINKFILE)
+X		+echo fileio + find + flexbuf + map + mark + >> $(LINKFILE)
+X		+echo misccmds + mouse + movement + normal + >> $(LINKFILE)
+X		+echo param + pipe + >> $(LINKFILE)
+X		+echo preserve + ptrfunc + regexp + screen + >> $(LINKFILE)
+X		+echo search + startup + status + tags + >> $(LINKFILE)
+X		+echo undo + version + windows + >> $(LINKFILE)
+X		+echo yankput + >> $(LINKFILE)
+X		+echo defscr + >> $(LINKFILE)
+X		+echo msdos_c + msdos_a + ibmpc_a + ibmpc_c + >> $(LINKFILE)
+X		+echo $(LIB)\setargv >> $(LINKFILE)
+X		+echo xvi.exe $(LDFLAGS) ; >> $(LINKFILE)
+X
+Xxvi.exe:	alloc.obj ascii.obj buffers.obj cmdline.obj cursor.obj \
+X		edit.obj ex_cmds1.obj ex_cmds2.obj events.obj fileio.obj \
+X		find.obj flexbuf.obj map.obj mark.obj misccmds.obj \
+X		mouse.obj movement.obj \
+X		normal.obj param.obj pipe.obj preserve.obj ptrfunc.obj \
+X		regexp.obj screen.obj search.obj startup.obj status.obj \
+X		tags.obj undo.obj windows.obj \
+X		yankput.obj \
+X		defscr.obj \
+X		ibmpc_c.obj msdos_c.obj ibmpc_a.obj msdos_a.obj \
+X		$(LINKFILE)
+X		qcl -c $(CFLAGS) version.c
+X		link @$(LINKFILE)
+END_OF_FILE
+  if test 2901 -ne `wc -c <'xvi/src/makefile.qc'`; then
+    echo shar: \"'xvi/src/makefile.qc'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.qc'
+fi
+if test -f 'xvi/src/makefile.zc2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.zc2'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.zc2'\" \(2745 characters\)
+  sed "s/^X//" >'xvi/src/makefile.zc2' <<'END_OF_FILE'
+X# Copyright (c) 1990,1991,1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.zc2	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.zc2
+X# module function:
+X#	Makefile for Zortech C 2.18 for MS-DOS
+X#
+X#	Microsoft Macro Assembler (or a compatible assembler) is also
+X#	required.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+X#
+X# Name of this file.
+X#
+XTHISFILE=	makefile.zc2
+X
+XMEMMODEL=	l
+XREGEXPDIR=	.
+XCC=		ztc
+XOPTFLAGS=	-o+reg -o+loop
+XDEBUGFLAGS=	-g
+XCDEFS=		-DMSDOS -D__STDC__=1
+XCFLAGS=		-m$(MEMMODEL) -b -I$(REGEXPDIR) $(CDEFS) $(OPTFLAGS)
+XAS=		masm
+XASFLAGS=	-Ml -DMEMMODEL=$(MEMMODEL)
+XLD=		blink
+XLDFLAGS=	/DO /NOI
+XTARGET=		xvi
+X
+XINC=		ascii.h param.h ptrfunc.h xvi.h virtscr.h msdos.h ibmpc.h \
+X		8086mm.inc
+X
+XSRC=		defscr.c startup.c \
+X		alloc.c buffers.c edit.c cmdline.c cursor.c \
+X		ex_cmds1.c ex_cmds2.c events.c flexbuf.c \
+X		fileio.c find.c ascii.c map.c mark.c misccmds.c \
+X		mouse.c movement.c normal.c param.c preserve.c ptrfunc.c \
+X		pipe.c \
+X		screen.c $(REGEXPDIR)\regexp.c \
+X		search.c status.c \
+X		tags.c undo.c windows.c yankput.c msdos_c.c msdos_a.asm \
+X		ibmpc_a.asm ibmpc_c.c version.c
+X
+XOBJ=		defscr.obj startup.obj \
+X		alloc.obj buffers.obj edit.obj cmdline.obj cursor.obj \
+X		ex_cmds1.obj ex_cmds2.obj events.obj flexbuf.obj \
+X		fileio.obj find.obj ascii.obj map.obj mark.obj \
+X		misccmds.obj mouse.obj movement.obj normal.obj param.obj \
+X		pipe.obj \
+X		preserve.obj ptrfunc.obj screen.obj search.obj status.obj \
+X		tags.obj undo.obj windows.obj yankput.obj \
+X		$(REGEXPDIR)\regexp.obj \
+X		msdos_c.obj msdos_a.obj ibmpc_a.obj ibmpc_c.obj
+X
+XLINKFILE=	$(TARGET).lnk
+X
+Xall:		$(TARGET).exe
+X
+X$(TARGET).exe:	$(OBJ) $(LINKFILE) version.c
+X		$(CC) $(CFLAGS) -c version.c
+X		$(LD) @$(LINKFILE)
+X
+X$(LINKFILE):	$(THISFILE)
+X		+echo defscr + startup + > $@
+X		+echo alloc + buffers + edit + cmdline + cursor + >> $@
+X		+echo ex_cmds1 + ex_cmds2 + events + >> $@
+X		+echo flexbuf + fileio + find + ascii + >> $@
+X		+echo map + mark + misccmds + mouse + movement + >> $@
+X		+echo normal + param + preserve + pipe + >> $@
+X		+echo ptrfunc + screen + search + status + tags + >> $@
+X		+echo undo + windows + yankput + >> $@
+X		+echo $(REGEXPDIR)\regexp + >> $@
+X		+echo msdos_c + msdos_a + ibmpc_a + ibmpc_c + >> $@
+X		+echo version + >> $@
+X		+echo $(LIB)\_main$(MEMMODEL) + >> $@
+X		+echo $(LIB)\int >> $@
+X		+echo $(TARGET).exe $(LDFLAGS) ;  >> $@
+X
+X.c.obj:
+X		# $(CC) $(CFLAGS) -o$@ -c $<
+X		$(CC) $(CFLAGS) -c $<
+X
+X.asm.obj:
+X		$(AS) $(ASFLAGS) $* ;
+X
+Xclean:
+X		del *.obj
+X		del $(LINKFILE)
+X		del *.map
+END_OF_FILE
+  if test 2745 -ne `wc -c <'xvi/src/makefile.zc2'`; then
+    echo shar: \"'xvi/src/makefile.zc2'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.zc2'
+fi
+if test -f 'xvi/src/makefile.zc3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/makefile.zc3'\"
+else
+  echo shar: Extracting \"'xvi/src/makefile.zc3'\" \(2977 characters\)
+  sed "s/^X//" >'xvi/src/makefile.zc3' <<'END_OF_FILE'
+X# Copyright (c) 1990,1991,1992 Chris and John Downey
+X#***
+X#
+X# @(#)makefile.zc3	2.2 (Chris & John Downey) 7/31/92
+X#
+X# program name:
+X#	xvi
+X# function:
+X#	PD version of UNIX "vi" editor, with extensions.
+X# module name:
+X#	makefile.zc3
+X# module function:
+X#	Makefile for Zortech C 3.00 for MS-DOS
+X#
+X#	Microsoft Macro Assembler (or a compatible assembler) is also
+X#	required.
+X# history:
+X#	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X#	Originally by Tim Thompson (twitch!tjt)
+X#	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X#	Heavily modified by Chris & John Downey
+X#***
+X
+X#
+X# Name of this file.
+X#
+XTHISFILE=	makefile.zc3
+X
+X#
+X# Set this to x to run the 386 extended version of the compiler
+X# itself. On an 8088, 8086, virtual 8086 or 80286 development system,
+X# set it to nothing.
+X#
+XCC_EXE_TYPE=	x
+X
+XMEMMODEL=	l
+XREGEXPDIR=	.
+XCC=		ztc
+XOPTFLAGS=	-o+reg -o+loop
+XDEBUGFLAGS=	-g
+XCDEFS=		-DMSDOS -D__STDC__=1
+XCFLAGS=		-m$(MEMMODEL) -b$(CC_EXE_TYPE) -I$(REGEXPDIR) $(CDEFS) $(OPTFLAGS)
+XAS=		masm
+XASFLAGS=	-Ml -DMEMMODEL=$(MEMMODEL)
+XLD=		blink$(CC_EXE_TYPE)
+X# LD=		c:\bin\rmode\link
+XLDFLAGS=	# /CO /MAP
+XTARGET=		xvi
+X
+XINC=		ascii.h param.h ptrfunc.h xvi.h virtscr.h msdos.h ibmpc.h \
+X		8086mm.inc
+X
+XSRC=		defscr.c startup.c \
+X		alloc.c buffers.c edit.c cmdline.c cursor.c \
+X		ex_cmds1.c ex_cmds2.c events.c flexbuf.c \
+X		fileio.c find.c ascii.c map.c mark.c misccmds.c \
+X		mouse.c movement.c normal.c param.c preserve.c ptrfunc.c \
+X		pipe.c \
+X		screen.c $(REGEXPDIR)\regexp.c \
+X		search.c status.c \
+X		tags.c undo.c windows.c yankput.c msdos_c.c msdos_a.asm \
+X		ibmpc_a.asm ibmpc_c.c version.c
+X
+XOBJ=		defscr.obj startup.obj \
+X		alloc.obj buffers.obj edit.obj cmdline.obj cursor.obj \
+X		ex_cmds1.obj ex_cmds2.obj events.obj flexbuf.obj \
+X		fileio.obj find.obj ascii.obj map.obj mark.obj \
+X		misccmds.obj mouse.obj movement.obj normal.obj param.obj \
+X		pipe.obj \
+X		preserve.obj ptrfunc.obj screen.obj search.obj status.obj \
+X		tags.obj undo.obj windows.obj yankput.obj \
+X		$(REGEXPDIR)\regexp.obj \
+X		msdos_c.obj msdos_a.obj ibmpc_a.obj ibmpc_c.obj
+X
+XLINKFILE=	$(TARGET).lnk
+X
+Xall:		$(TARGET).exe
+X
+X$(TARGET).exe:	$(OBJ) $(LINKFILE) version.c
+X		$(CC) $(CFLAGS) -c version.c
+X		$(LD) @$(LINKFILE)
+X
+X$(LINKFILE):	$(THISFILE)
+X		+echo defscr + startup + > $@
+X		+echo alloc + buffers + edit + cmdline + cursor + >> $@
+X		+echo ex_cmds1 + ex_cmds2 + events + >> $@
+X		+echo flexbuf + fileio + find + ascii + >> $@
+X		+echo map + mark + misccmds + mouse + movement + >> $@
+X		+echo normal + param + preserve + pipe + >> $@
+X		+echo ptrfunc + screen + search + status + tags + >> $@
+X		+echo undo + windows + yankput + >> $@
+X		+echo $(REGEXPDIR)\regexp + >> $@
+X		+echo msdos_c + msdos_a + ibmpc_a + ibmpc_c + >> $@
+X		+echo version + >> $@
+X		# +echo $(LIB)\_main$(MEMMODEL) + >> $@
+X		+echo $(LIB)\int >> $@
+X		+echo $(TARGET).exe $(LDFLAGS) ;  >> $@
+X
+X.c.obj:
+X		# $(CC) $(CFLAGS) -o$@ -c $<
+X		$(CC) $(CFLAGS) -c $<
+X
+X.asm.obj:
+X		$(AS) $(ASFLAGS) $* ;
+X
+Xclean:
+X		del *.obj
+X		del $(LINKFILE)
+X		del *.map
+END_OF_FILE
+  if test 2977 -ne `wc -c <'xvi/src/makefile.zc3'`; then
+    echo shar: \"'xvi/src/makefile.zc3'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/makefile.zc3'
+fi
+if test -f 'xvi/src/mark.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/mark.c'\"
+else
+  echo shar: Extracting \"'xvi/src/mark.c'\" \(2886 characters\)
+  sed "s/^X//" >'xvi/src/mark.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)mark.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    mark.c
+X* module function:
+X    Routines to maintain and manipulate marks.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#ifdef	MEGAMAX
+Xoverlay "mark"
+X#endif
+X
+X/*
+X * A new buffer - initialise it so there are no marks.
+X */
+Xvoid
+Xinit_marks(buffer)
+XBuffer	*buffer;
+X{
+X    Mark	*mlist = buffer->b_mlist;
+X    int	i;
+X
+X    for (i = 0; i < NMARKS; i++)
+X	mlist[i].m_name = '\0';
+X
+X    buffer->b_pcvalid = FALSE;
+X}
+X
+X/*
+X * setmark(c) - set mark 'c' at current cursor position in given buffer.
+X *
+X * Returns TRUE on success, FALSE if no room for mark or bad name given.
+X */
+Xbool_t
+Xsetmark(c, buffer, pos)
+Xint	c;
+XBuffer	*buffer;
+XPosn	*pos;
+X{
+X    Mark	*mlist = buffer->b_mlist;
+X    int	i;
+X
+X    if (!is_alpha((unsigned char) c))
+X	return(FALSE);
+X
+X    /*
+X     * If there is already a mark of this name, then just use the
+X     * existing mark entry.
+X     */
+X    for (i = 0; i < NMARKS; i++) {
+X	if (mlist[i].m_name == (unsigned char) c) {
+X	    mlist[i].m_pos = *pos;
+X	    return(TRUE);
+X	}
+X    }
+X
+X    /*
+X     * There wasn't a mark of the given name, so find a free slot
+X     */
+X    for (i = 0; i < NMARKS; i++) {
+X	if (mlist[i].m_name == '\0') {	/* got a free one */
+X	    mlist[i].m_name = c;
+X	    mlist[i].m_pos = *pos;
+X	    return(TRUE);
+X	}
+X    }
+X    return(FALSE);
+X}
+X
+X/*
+X * setpcmark() - set the previous context mark to the current position
+X */
+Xvoid
+Xsetpcmark(window)
+XXviwin	*window;
+X{
+X    window->w_buffer->b_pcmark.m_pos = *(window->w_cursor);
+X    window->w_buffer->b_pcvalid = TRUE;
+X}
+X
+X/*
+X * getmark(c) - find mark for char 'c' in given buffer
+X *
+X * Return pointer to Position or NULL if no such mark.
+X */
+XPosn *
+Xgetmark(c, buffer)
+Xint	c;
+XBuffer	*buffer;
+X{
+X    Mark	*mlist = buffer->b_mlist;
+X    int	i;
+X
+X    if (c == '\'' || c == '`') {	/* previous context mark */
+X	return(buffer->b_pcvalid ? &(buffer->b_pcmark.m_pos) : NULL);
+X    }
+X
+X    for (i = 0; i < NMARKS; i++) {
+X	if (mlist[i].m_name == (unsigned char) c)
+X	    return(&(mlist[i].m_pos));
+X    }
+X    return(NULL);
+X}
+X
+X/*
+X * clrmark(line) - clear any marks for 'line'
+X *
+X * Used any time a line is deleted so we don't have marks pointing to
+X * non-existent lines.
+X */
+Xvoid
+Xclrmark(line, buffer)
+XLine	*line;
+XBuffer	*buffer;
+X{
+X    Mark	*mlist = buffer->b_mlist;
+X    int	i;
+X
+X    for (i = 0; i < NMARKS; i++) {
+X	if (mlist[i].m_pos.p_line == line) {
+X	    mlist[i].m_name = '\0';
+X	}
+X    }
+X    if (buffer->b_pcvalid && (buffer->b_pcmark.m_pos.p_line == line)) {
+X	buffer->b_pcvalid = FALSE;
+X    }
+X}
+END_OF_FILE
+  if test 2886 -ne `wc -c <'xvi/src/mark.c'`; then
+    echo shar: \"'xvi/src/mark.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/mark.c'
+fi
+if test -f 'xvi/src/msdos.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/msdos.h'\"
+else
+  echo shar: Extracting \"'xvi/src/msdos.h'\" \(3255 characters\)
+  sed "s/^X//" >'xvi/src/msdos.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X* @(#)msdos.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    msdos.h
+X* module function:
+X    Definitions for MS-DOS system interface.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include <dos.h>
+X#include <fcntl.h>
+X#include <io.h>
+X#include <process.h>
+X#include <stdlib.h>
+X#include <time.h>
+X
+X/*
+X * This is a workaround for a particularly nasty bug which appeared
+X * in one compiler recently.
+X */
+X#ifdef NULL
+X#   undef NULL
+X#endif
+X#define NULL	((void *) 0)
+X
+X/*
+X * Get definitions for terminal interface.
+X */
+X#ifdef DOS386
+X#   include "pc386.h"
+X#else
+X#   include "ibmpc.h"
+X#endif
+X
+X#ifndef HELPFILE
+X#   define HELPFILE	"c:\\xvi\\help"
+X#endif
+X
+X/*
+X * System-dependent constants.
+X */
+X#define	MAXPATHLEN	143	/* maximum length of full path name */
+X#define	MAXNAMLEN	12	/* maximum length of file name */
+X#define	DIRSEPS		"\\/"	/*
+X				 * directory separators within
+X				 * pathnames
+X				 */
+X/*
+X * Under MS-DOS, characters with the top bit set are perfectly valid
+X * (although not necessarily always what you want to see).
+X */
+X#define DEF_CCHARS	TRUE
+X#define DEF_MCHARS	TRUE
+X
+X#define DEF_TFF		fmt_MSDOS
+X
+X/*
+X * Macros to open files in binary mode,
+X * and to expand filenames.
+X */
+X#define fopenrb(f)	fopen((f),"rb")
+X#define fopenwb(f)	fopen((f),"wb")
+X#define fexpand(f)	(f)
+X
+X/*
+X * Execute a command in a subshell.
+X */
+X#define call_system(s)	system(s)
+X
+X/*
+X * Execute a shell.
+X */
+X#define call_shell(s)	spawnlp(0, (s), (s), (char *) NULL)
+X
+X/*
+X * Size of buffer for file i/o routines.
+X * The SETVBUF_AVAIL forces the file i/o routines to
+X * use a large buffer for reading and writing, and
+X * this results in a large performance improvement.
+X */
+X#define SETVBUF_AVAIL
+X#define WRTBUFSIZ	0x7000
+X#define READBUFSIZ	0x1000
+X
+X#ifdef	__ZTC__
+X#   define exists(f)	(findfirst((f),FA_HIDDEN|FA_SYSTEM|FA_DIREC)\
+X								!= NULL)
+X#else /* not Zortech */
+X#   include <malloc.h>
+X#   define  exists(f)	(access(f, 0) == 0)
+X#endif /* not Zortech */
+X
+X/*
+X * Definitions needed for dstat() system call.
+X */
+Xstruct dstat
+X{
+X    char		d_bytealigned[43];
+X};
+X
+X#define	dst_mode	d_bytealigned[21]
+X#define dst_BASENAME(i)	(&(i).d_bytealigned[30])
+X			/* file's basename */
+X#define dst_LAST(i)	(&(i).d_bytealigned[42])
+X			/* pointer to terminating '\0' of basename */
+X
+X/*
+X * Mode bits.
+X */
+X#define	dst_READONLY	1
+X#define	dst_HIDDEN	2
+X#define	dst_SYSTEM	4
+X#define	dst_VLABEL	010
+X#define	dst_DIR		020
+X#define	dst_ARCHIVE	040
+X
+X/*
+X * Declarations for system interface routines in msdos_c.c &
+X * msdos_a.asm (or pc386.c):
+X */
+Xextern	bool_t		can_write P((char *));
+Xextern	void		catchints P((void));
+Xextern	void		delay P((void));
+Xextern	int		statfirst P((char *, struct dstat *, int));
+Xextern	int		statnext P((struct dstat *));
+Xextern	void		sys_init P((void));
+Xextern	void		sys_startv P((void));
+Xextern	void		sys_endv P((void));
+Xextern	void		sys_exit P((int));
+Xextern	bool_t		sys_pipe P((char *, int (*)(FILE *), long (*)(FILE *)));
+Xextern	char		*tempfname P((char *));
+END_OF_FILE
+  if test 3255 -ne `wc -c <'xvi/src/msdos.h'`; then
+    echo shar: \"'xvi/src/msdos.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/msdos.h'
+fi
+if test -f 'xvi/src/ptrfunc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/ptrfunc.c'\"
+else
+  echo shar: Extracting \"'xvi/src/ptrfunc.c'\" \(2501 characters\)
+  sed "s/^X//" >'xvi/src/ptrfunc.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)ptrfunc.c	2.2 (Chris & John Downey) 8/28/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ptrfunc.c
+X* module function:
+X    Primitive functions on "Posn"s.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * The routines in this file attempt to imitate many of the operations
+X * that used to be performed on simple character pointers and are now
+X * performed on Posn's. This makes it easier to modify other sections
+X * of the code. Think of a Posn as representing a position in the file.
+X * Posns can be incremented, decremented, compared, etc. through the
+X * functions implemented here.
+X *
+X * Note that some functions are now implemented as macros, in ptrfunc.h.
+X */
+X
+X/*
+X * inc(p)
+X *
+X * Increment the line pointer 'p' crossing line boundaries as
+X * necessary. Return mv_CHLINE when crossing a line, mv_NOMOVE when at
+X * end of file, mv_SAMELINE otherwise.
+X */
+Xenum mvtype
+Xinc(lp)
+Xregister Posn	*lp;
+X{
+X    register char *p;
+X
+X    p = &(lp->p_line->l_text[lp->p_index]);
+X
+X    if (*p != '\0') {			/* still within line */
+X	lp->p_index++;
+X	return((p[1] != '\0') ? mv_SAMELINE : mv_EOL);
+X    }
+X
+X    if (!is_lastline(lp->p_line->l_next)) {
+X	lp->p_index = 0;
+X	lp->p_line = lp->p_line->l_next;
+X	return(mv_CHLINE);
+X    }
+X
+X    return(mv_NOMOVE);
+X}
+X
+X/*
+X * dec(p)
+X *
+X * Decrement the line pointer 'p' crossing line boundaries as
+X * necessary. Return mv_CHLINE when crossing a line, mv_NOMOVE when at
+X * start of file, mv_SAMELINE otherwise.
+X */
+Xenum mvtype
+Xdec(lp)
+Xregister Posn	*lp;
+X{
+X    if (lp->p_index > 0) {			/* still within line */
+X	lp->p_index--;
+X	return(mv_SAMELINE);
+X    }
+X
+X    if (!is_line0(lp->p_line->l_prev)) {
+X	lp->p_line = lp->p_line->l_prev;
+X	lp->p_index = strlen(lp->p_line->l_text);
+X	return(mv_CHLINE);
+X    }
+X
+X    return(mv_NOMOVE);				/* at start of file */
+X}
+X
+X/*
+X * pswap(a, b) - swap two position pointers.
+X */
+Xvoid
+Xpswap(a, b)
+Xregister Posn	*a, *b;
+X{
+X    register Posn	tmp;
+X
+X    tmp = *a;
+X    *a  = *b;
+X    *b  = tmp;
+X}
+X
+X/*
+X * Posn comparisons.
+X */
+Xbool_t
+Xlt(a, b)
+Xregister Posn	*a, *b;
+X{
+X    if (a->p_line != b->p_line) {
+X	return(earlier(a->p_line, b->p_line));
+X    } else {
+X	return(a->p_index < b->p_index);
+X    }
+X}
+END_OF_FILE
+  if test 2501 -ne `wc -c <'xvi/src/ptrfunc.c'`; then
+    echo shar: \"'xvi/src/ptrfunc.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/ptrfunc.c'
+fi
+if test -f 'xvi/src/signal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/signal.c'\"
+else
+  echo shar: Extracting \"'xvi/src/signal.c'\" \(3071 characters\)
+  sed "s/^X//" >'xvi/src/signal.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)signal.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    signal.c
+X* module function:
+X    Signal handling routines.
+X
+X    This is all fairly system-dependent, & may be replaced by more
+X    system-specific routines if required. On MS-DOS, for instance,
+X    this module isn't used at all: ignore_signals() &
+X    catch_signals() are defined in msdos_c.c & msdos_a.asm instead.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Signal handlers.
+X */
+X#ifdef	SIGINT
+X    static	void	int_handler P((int));
+X#endif
+X#ifdef	SIGTSTP
+X    static	void	tstp_handler P((int));
+X#endif
+X#ifdef	SIGHUP
+X    static	void	hup_handler P((int));
+X#endif
+X#ifdef SIGTERM
+X    static	void	term_handler P((int));
+X#endif
+X
+Xvoid
+Xignore_signals()
+X{
+X#ifdef	SIGINT
+X    (void) signal(SIGINT, SIG_IGN);
+X#endif
+X#ifdef SIGBREAK
+X    /*
+X     * On OS/2, this is generated by pressing control-break.
+X     */
+X    (void) signal(SIGBREAK, SIG_IGN);
+X#endif
+X#ifdef	SIGQUIT
+X    (void) signal(SIGQUIT, SIG_IGN);
+X#endif
+X#ifdef	SIGTSTP
+X    (void) signal(SIGTSTP, SIG_IGN);
+X#endif
+X    /*
+X     * There isn't much point in catching or ignoring SIGHUP
+X     * signals until we have some modified buffers to preserve.
+X     */
+X#ifdef SIGTERM
+X    (void) signal(SIGTERM, SIG_IGN);
+X#endif
+X}
+X
+Xvoid
+Xcatch_signals()
+X{
+X#ifdef	SIGINT
+X    (void) signal(SIGINT, int_handler);
+X#endif
+X#ifdef SIGBREAK
+X    /*
+X     * On OS/2, this is generated by pressing control-break.
+X     */
+X    (void) signal(SIGBREAK, int_handler);
+X#endif
+X#ifdef	SIGTSTP
+X    (void) signal(SIGTSTP, tstp_handler);
+X#endif
+X#ifdef SIGHUP
+X    (void) signal(SIGHUP, hup_handler);
+X#endif
+X#ifdef SIGTERM
+X    (void) signal(SIGTERM, term_handler);
+X#endif
+X}
+X
+X/*
+X * Handler for SIGINT (keyboard interrupt).
+X */
+X#ifdef	SIGINT
+Xstatic void
+Xint_handler(sig)
+Xint	sig;
+X{
+X    signal(SIGINT, int_handler);
+X    kbdintr = 1;
+X}
+X#endif
+X
+X/*
+X * This function is used on UNIX as the signal handler
+X * for the keyboard-generated TSTP signal.
+X */
+X#ifdef	SIGTSTP
+Xstatic void
+Xtstp_handler(sig)
+Xint	sig;
+X{
+X    do_suspend(curwin);
+X}
+X#endif
+X
+X/*
+X * This one is used for the hangup signal, which generally means that
+X * the terminal line has gone dead. This means sys_exit() doesn't make
+X * much sense, so we call exit() instead.
+X */
+X#ifdef	SIGHUP
+Xstatic void
+Xhup_handler(sig)
+Xint	sig;
+X{
+X    signal(SIGHUP, SIG_IGN);
+X    /*
+X     * Make backup copies of all modified buffers.
+X     */
+X    (void) do_preserve();
+X    exit(0);
+X}
+X#endif
+X
+X/*
+X * This one is used for the software-generated terminate signal.
+X */
+X#ifdef SIGTERM
+Xstatic void
+Xterm_handler(sig)
+Xint	sig;
+X{
+X    signal(SIGTERM, SIG_IGN);
+X    /*
+X     * Make backup copies of all modified buffers.
+X     */
+X    (void) do_preserve();
+X    sys_exit(0);
+X}
+X#endif
+END_OF_FILE
+  if test 3071 -ne `wc -c <'xvi/src/signal.c'`; then
+    echo shar: \"'xvi/src/signal.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/signal.c'
+fi
+if test -f 'xvi/src/status.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/status.c'\"
+else
+  echo shar: Extracting \"'xvi/src/status.c'\" \(2442 characters\)
+  sed "s/^X//" >'xvi/src/status.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)status.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    status.c
+X* module function:
+X    Routines to print status line messages.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Set up the "slinetype" field in the given buffer structure,
+X * according to the number of columns available.
+X */
+Xvoid
+Xinit_sline(win)
+XXviwin	*win;
+X{
+X    flexclear(&win->w_statusline);
+X}
+X
+X/*VARARGS2*/
+X/*PRINTFLIKE*/
+Xvoid
+Xshow_message
+X#ifdef	__STDC__
+X    (Xviwin *window, char *format, ...)
+X#else /* not __STDC__ */
+X    (window, format, va_alist)
+X    Xviwin	*window;
+X    char	*format;
+X    va_dcl
+X#endif	/* __STDC__ */
+X{
+X    va_list	argp;
+X
+X    VA_START(argp, format);
+X    (void) flexclear(&window->w_statusline);
+X    (void) vformat(&window->w_statusline, format, argp);
+X    va_end(argp);
+X
+X    update_sline(window);
+X}
+X
+X/*VARARGS2*/
+X/*PRINTFLIKE*/
+Xvoid
+Xshow_error
+X#ifdef	__STDC__
+X    (Xviwin *window, char *format, ...)
+X#else /* not __STDC__ */
+X    (window, format, va_alist)
+X    Xviwin	*window;
+X    char	*format;
+X    va_dcl
+X#endif	/* __STDC__ */
+X{
+X    va_list	argp;
+X
+X    beep(window);
+X    VA_START(argp, format);
+X    (void) flexclear(&window->w_statusline);
+X    (void) vformat(&window->w_statusline, format, argp);
+X    va_end(argp);
+X
+X    update_sline(window);
+X}
+X
+Xvoid
+Xshow_file_info(window)
+XXviwin	*window;
+X{
+X    if (echo & e_SHOWINFO) {
+X	Buffer	*buffer;
+X	Flexbuf	*slp;
+X	long	position, total;
+X	long	percentage;
+X
+X	buffer = window->w_buffer;
+X
+X	position = lineno(buffer, window->w_cursor->p_line);
+X	total = lineno(buffer, buffer->b_lastline->l_prev);
+X	percentage = (total > 0) ? (position * 100) / total : 0;
+X
+X	slp = &window->w_statusline;
+X	flexclear(slp);
+X	if (buffer->b_filename == NULL) {
+X	    (void) lformat(slp, "No File ");
+X	} else {
+X	    (void) lformat(slp, "\"%s\" ", buffer->b_filename);
+X	}
+X	(void) lformat(slp, "%s%s%sline %ld of %ld (%ld%%)",
+X		is_readonly(buffer) ? "[Read only] " : "",
+X		not_editable(buffer) ? "[Not editable] " : "",
+X		is_modified(buffer) ? "[Modified] " : "",
+X		position,
+X		total,
+X		percentage);
+X    }
+X    update_sline(window);
+X}
+END_OF_FILE
+  if test 2442 -ne `wc -c <'xvi/src/status.c'`; then
+    echo shar: \"'xvi/src/status.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/status.c'
+fi
+if test -f 'xvi/src/sunview.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/sunview.h'\"
+else
+  echo shar: Extracting \"'xvi/src/sunview.h'\" \(2341 characters\)
+  sed "s/^X//" >'xvi/src/sunview.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)sunview.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    sunview.h
+X* module function:
+X    Definitions for terminal interface module for SunView.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * Definitions for communications link between front end & back end
+X * processes.
+X */
+X#define XYDIGITS	3	/*
+X				 * Number of hex. digits encoding row
+X				 * or column position of mouse in
+X				 * window.
+X				 */
+X
+X#define PREFIXCHAR	'\022'	/* control-R */
+X
+X/*
+X * Size of screen.
+X */
+Xextern	unsigned int	Rows;
+Xextern	unsigned int	Columns;
+X
+X/*
+X * We can't do these:
+X */
+X#define invis_cursor()		/* invisible cursor (very optional) */
+X#define vis_cursor()		/* visible cursor (very optional) */
+X
+X#define can_scroll_area FALSE	/* true if we can set scroll region */
+X#define scroll_up(s,e,n)
+X#define scroll_down(s,e,n)
+X#define can_del_line	TRUE	/* true if we can delete screen lines */
+X/*
+X * tty_linefeed() isn't needed if can_del_line is TRUE.
+X */
+X#define tty_linefeed()
+X#define can_ins_line	TRUE	/* true if we can insert screen lines */
+X#define can_inschar	TRUE	/* true if we can insert characters */
+X#define cost_goto	1	/*
+X				 * Cost of doing a goto.
+X				 *
+X				 * This is a guess, but it's probably
+X				 * reasonable.
+X				 */
+X/*
+X * Colour handling (only in monochrome at the moment).
+X */
+X#define DEF_COLOUR	1	/* maps to normal text colours */
+X#define DEF_STCOLOUR	2	/* maps to reverse video */
+X#define DEF_SYSCOLOUR	0	/* maps to normal text colours */
+X
+Xextern	void		outchar P((int c));
+Xextern	void		outstr P((char *s));
+Xextern	void		alert P((void));
+Xextern	void		flush_output P((void));
+Xextern	void		set_colour P((int c));
+Xextern	void		tty_goto P((int row, int col));
+Xextern	void		insert_line P((void));
+Xextern	void		delete_line P((void));
+Xextern	void		inschar P((int));
+Xextern	void		erase_line P((void));
+Xextern	void		erase_display P((void));
+Xextern	void		tty_open P((unsigned int *, unsigned int *));
+Xextern	void		tty_startv P((void));
+Xextern	void		tty_endv P((void));
+Xextern	void		tty_close P((void));
+END_OF_FILE
+  if test 2341 -ne `wc -c <'xvi/src/sunview.h'`; then
+    echo shar: \"'xvi/src/sunview.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/sunview.h'
+fi
+if test -f 'xvi/src/tos.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/tos.h'\"
+else
+  echo shar: Extracting \"'xvi/src/tos.h'\" \(2771 characters\)
+  sed "s/^X//" >'xvi/src/tos.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)tos.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    Portable version of UNIX "vi" editor, with extensions.
+X* module name:
+X    tos.h
+X* module function:
+X    Definitions for TOS system interface module.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#ifndef	HELPFILE
+X#   define  HELPFILE	"c:\\bin\\help.xvi"
+X#endif
+X
+X/*
+X * System-dependent constants
+X */
+X
+X/*
+X * These numbers may not be right for TOS; who knows?
+X */
+X#define	MAXPATHLEN	79	/* maximum length of full path name */
+X#define	MAXNAMLEN	12	/* maximum length of file name */
+X#define	DIRSEPS		"\\"
+X
+Xextern	int		Rows;			/* size of screen */
+Xextern	int		Columns;
+X
+X/*
+X * Default file format.
+X */
+X#define DEF_TFF		fmt_TOS
+X
+X/*
+X * No need to flush output - it has already happened.
+X */
+X#define	flush_output()
+X
+X/*
+X * Terminal driving functions.
+X */
+X#define	erase_line()	outstr("\033K")	/* erase to end of line */
+X#define	insert_line()	outstr("\033L")	/* insert one line */
+X#define	delete_line()	outstr("\033M")	/* delete one line */
+X#define	erase_display()	outstr("\033E")	/* erase display */
+X#define	invis_cursor()	outstr("\033f")	/* invisible cursor */
+X#define	vis_cursor()	outstr("\033e")	/* visible cursor */
+X#define	scroll_up(x, y, z)	st_scroll((x),(y),(z))	/* scroll up area */
+X#define	scroll_down(x, y, z)	st_scroll((x),(y),-(z))	/* scroll down area */
+X
+X#define	cost_goto	8			/* cost of using tty_goto() */
+X#define	can_ins_line	TRUE
+X#define	can_del_line	TRUE
+X/*
+X * tty_linefeed() isn't needed if can_del_line is TRUE.
+X */
+X#define tty_linefeed()
+X
+X#define	can_scroll_area	TRUE
+X
+X#define	can_inschar	FALSE
+X#define	inschar(c)
+X
+X/*
+X * Colour handling: just b/w on Ataris at the moment.
+X */
+X#define	DEF_COLOUR	0
+X#define	DEF_STCOLOUR	1
+X#define	DEF_SYSCOLOUR	0
+X
+X/*
+X * Macros to open files in binary mode,
+X * and to expand filenames.
+X */
+X#define fopenrb(f)	fopen((f), "rb")
+X#define fopenwb(f)	fopen((f), "wb")
+X#define	fexpand(f)	(f)
+X
+X#define call_system(s)	system(s)
+X#define call_shell(s)	forkl((s), (char *) NULL)
+X
+X/*
+X * Declarations for system interface routines in tos.c.
+X */
+Xextern	int		inchar(long);
+Xextern	void		outchar(char);
+Xextern	void		outstr(char *);
+Xextern	void		alert(void);
+X#ifndef LATTICE
+X    extern  bool_t	remove(char *);
+X#endif
+Xextern	bool_t		can_write(char *);
+Xextern	void		sys_init(void);
+Xextern	void		sys_startv(void);
+Xextern	void		sys_endv(void);
+Xextern	void		sys_exit(int);
+Xextern	void		tty_goto(int, int);
+Xextern	void		delay(void);
+Xextern  void		sleep(unsigned);
+Xextern  void		set_colour(int);
+Xextern  char		*tempfname(char *);
+END_OF_FILE
+  if test 2771 -ne `wc -c <'xvi/src/tos.h'`; then
+    echo shar: \"'xvi/src/tos.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/tos.h'
+fi
+if test -f 'xvi/src/virtscr.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/virtscr.h'\"
+else
+  echo shar: Extracting \"'xvi/src/virtscr.h'\" \(2655 characters\)
+  sed "s/^X//" >'xvi/src/virtscr.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)virtscr.h	2.3 (Chris & John Downey) 9/4/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    virtscr.h
+X* module function:
+X    Definition of the VirtScr class.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * Type of an object whose pointers can be freely cast.
+X */
+X#ifdef	__STDC__
+X#   define  genptr	void
+X#else
+X#   define  genptr	char
+X#endif
+X
+Xtypedef struct virtscr {
+X    genptr	*pv_window;
+X    int		pv_rows;
+X    int		pv_cols;
+X/* public: */
+X    struct virtscr
+X		*(*v_new) P((struct virtscr *));
+X    void	(*v_close) P((struct virtscr *));
+X
+X    int		(*v_rows) P((struct virtscr *));
+X    int		(*v_cols) P((struct virtscr *));
+X
+X    void	(*v_clear_all) P((struct virtscr *));
+X    void	(*v_clear_line) P((struct virtscr *, int, int));
+X
+X    void	(*v_goto) P((struct virtscr *, int, int));
+X    void	(*v_advise) P((struct virtscr *, int, int, int, char *));
+X
+X    void	(*v_write) P((struct virtscr *, int, int, char *));
+X    void	(*v_putc) P((struct virtscr *, int, int, int));
+X
+X    void	(*v_set_colour) P((struct virtscr *, int));
+X    int		(*v_colour_cost) P((struct virtscr *));
+X
+X    void	(*v_flush) P((struct virtscr *));
+X
+X    void	(*v_beep) P((struct virtscr *));
+X
+X/* optional: do not use if NULL */
+X    void	(*v_insert) P((struct virtscr *, int, int, char *));
+X
+X    int		(*v_scroll) P((struct virtscr *, int, int, int));
+X
+X    void	(*v_flash) P((struct virtscr *));
+X
+X    void	(*v_status) P((struct virtscr *, char *, char *, long, long));
+X
+X    void	(*v_activate) P((struct virtscr *));
+X} VirtScr;
+X
+X#define	VSrows(vs)			((*(vs->v_rows))(vs))
+X#define	VScols(vs)			((*(vs->v_cols))(vs))
+X#define	VSclear_all(vs)			((*(vs->v_clear_all))(vs))
+X#define	VSclear_line(vs, row, col)	((*(vs->v_clear_line))(vs, row, col))
+X#define	VSgoto(vs, row, col)		((*(vs->v_goto))(vs, row, col))
+X#define	VSadvise(vs, r, c, i, str)	((*(vs->v_advise))(vs, r, c, i, str))
+X#define	VSwrite(vs, row, col, str)	((*(vs->v_write))(vs, row, col, str))
+X#define	VSputc(vs, row, col, c)		((*(vs->v_putc))(vs, row, col, c))
+X#define	VSset_colour(vs, colour)	((*(vs->v_set_colour))(vs, colour))
+X#define	VScolour_cost(vs)		((*(vs->v_colour_cost))(vs))
+X#define	VSflush(vs)			((*(vs->v_flush))(vs))
+X#define	VSbeep(vs)			((*(vs->v_beep))(vs))
+X#define	VSinsert(vs, row, col, str)	((*(vs->v_insert))(vs, row, col, str))
+X#define	VSscroll(vs, start, end, n)	((*(vs->v_scroll))(vs, start, end, n))
+END_OF_FILE
+  if test 2655 -ne `wc -c <'xvi/src/virtscr.h'`; then
+    echo shar: \"'xvi/src/virtscr.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/virtscr.h'
+fi
+echo shar: End of archive 17 \(of 18\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

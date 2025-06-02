@@ -1,0 +1,1244 @@
+Newsgroups: comp.sources.misc
+From: michaelr@spider.co.uk ("Michael S. A. Robb")
+Subject: v38i017:  tessel - Polygon shading and rendering using triangular tesselation., Part01/02
+Message-ID: <csm-v38i017=tessel.184654@sparky.IMD.Sterling.COM>
+X-Md4-Signature: a125d5fff831b3074e1444105730413d
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 20 Jun 1993 23:48:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: michaelr@spider.co.uk ("Michael S. A. Robb")
+Posting-number: Volume 38, Issue 17
+Archive-name: tessel/part01
+Environment: IBM PC with Hercules Graphics Station Card, Borland C
+
+This is version 1.4 of TESSEL. with is source code to demonstrate polygon
+tesselation and smooth shading in 24-bit colour for the Hercules Graphics
+Station Card.
+
+ About the software
+ ------------------
+
+This software has been designed to be compiled using Borland C 6.0 in the
+"Medium" model. In its current form, it will only execute properly with a
+Hercules Graphics Station Card. Porting it to use other 24-bit graphics
+cards should not be difficult (then again I have not programmed any other 
+24-bit graphics cards). No TIGA command driver or on-board RAM is required.
+
+ Distribution policy
+ -------------------
+
+This is public domain software. You may use it, modify it or distribute it in
+any way you like. No liability is accepted. See warning above.
+
+Michael S. A. Robb (michaelr@spider.co.uk)
+--------------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  build.bat colours.h hardware.h tessel.c tmsmodes.h
+#   triangle.c
+# Wrapped by kent@sparky on Sun Jun 20 18:34:47 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'build.bat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'build.bat'\"
+else
+  echo shar: Extracting \"'build.bat'\" \(44 characters\)
+  sed "s/^X//" >'build.bat' <<'END_OF_FILE'
+Xbcc tessel.c tmsmodes.c triangle.c main.c 
+X
+END_OF_FILE
+  if test 44 -ne `wc -c <'build.bat'`; then
+    echo shar: \"'build.bat'\" unpacked with wrong size!
+  fi
+  # end of 'build.bat'
+fi
+if test -f 'colours.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'colours.h'\"
+else
+  echo shar: Extracting \"'colours.h'\" \(4210 characters\)
+  sed "s/^X//" >'colours.h' <<'END_OF_FILE'
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This header file contains definitions for 32-bit colour pixels and    |
+X *| Z-buffer.                                                             |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.2        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xtypedef unsigned long ADDRESS; /* 32-bit memory address.   */
+Xtypedef unsigned int  WORD;    /* 16-bit data.             */
+Xtypedef unsigned char BYTE;    /*  8-bit data.             */
+Xtypedef unsigned long LONG;    /* 32-bit unsigned integer. */
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| The following data structure is used to represent a 32-bit Z-buffer   |
+X *| value.                                                                |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xtypedef struct zbufferhl_st
+X  {
+X  WORD zbuf_lo;
+X  WORD zbuf_hi;
+X  } ZBUFFER_HL;
+X
+Xtypedef union zbuffer_st
+X  {
+X  long       zbuf_value;       /* Used for calculations.             */
+X  ZBUFFER_HL zbuf_hilo;        /* Used for read/writing TIGA memory. */
+X  } ZBUFFER;
+X
+X#define ZBUFFER_MAX 0x7FFFFFFFL
+X
+X#define MAX_BLEND   255        /* Maximum blend value         */
+X#define PIXEL_SIZE   32        /* 1 pixel = 32 bits           */
+X#define ZBUFFER_SIZE 32        /* 1 Z-buffer entry = 32 bits. */
+X
+X/*+-----------------------------------------------------------------------+
+X *| Hercules Video RAM is located at location 0x00000000 and is 1 Mbyte   |
+X *| in size. However, the TMS34010 addresses memory using bit addresses.  |
+X *| So in fact, the end of video RAM is at location 0x800000.             |
+X *|                                                                       |
+X *| Since each pixel is 32-bits in length, this makes it possible for the |
+X *| graphics board to have two 512x256x32 bit screens. Alternatively, the |
+X *| second screen can be used as a 32-bit Z-buffer. If the optional 2     |
+X *| Mbytes of DRAM is present, this allows the use of two screens with    |
+X *| 512x256x32 resolution, both of which have Z-buffers.                  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define OFFSET_VRAM             0x0L           /* Start of VRAM       */
+X#define OFFSET_ZBUFFER          0x400000L      /* Second half of VRAM */
+X
+X/*+-----------------------------------------------------------------------+
+X *| Useful macros for converting XY addresses to linear offsets.          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define ADDRESS_PIXEL(X,Y)\
+X  (( (ADDRESS)(X)+(ADDRESS)(Y)*screen_width)*PIXEL_SIZE+OFFSET_VRAM)
+X
+X#define ADDRESS_ZBUFFER(X,Y)\
+X  (( (ADDRESS)(X)+(ADDRESS)(Y+256)*screen_width)*PIXEL_SIZE+OFFSET_ZBUFFER)
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data structure is used to represent a 32-bit colour     |
+X *| pixel plus an 8-bit overlay.                                          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xtypedef struct rgb32_st
+X  {
+X  BYTE  col_blue;              /* Amount of BLUE.    */
+X  BYTE  col_overlay;           /* Amount of OVERLAY. */
+X  BYTE  col_green;             /* Amount of GREEN.   */
+X  BYTE  col_red;               /* Amount of RED.     */
+X  } RGB32;
+X
+Xtypedef struct rgb32hl_st
+X  {
+X  WORD  col_lo;                /* Low 16 bits  */
+X  WORD  col_hi;                /* High 16 bits */
+X  } RGB32_HL;
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data structure is used to represent a 32-bit colour     |
+X *| pixel as well as permitting Boolean operations such as AND, OR & NOT. |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xtypedef union colour32
+X  {
+X  RGB32    col_rgb;            /* Structured representation. */
+X  RGB32_HL col_hilo;           /* Integer    representation. */
+X  ADDRESS  col_value;          /* Integer    representation. */
+X  } COLOUR32;
+X
+X
+END_OF_FILE
+  if test 4210 -ne `wc -c <'colours.h'`; then
+    echo shar: \"'colours.h'\" unpacked with wrong size!
+  fi
+  # end of 'colours.h'
+fi
+if test -f 'hardware.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hardware.h'\"
+else
+  echo shar: Extracting \"'hardware.h'\" \(13583 characters\)
+  sed "s/^X//" >'hardware.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| The following table defines the internal I/O registers contained      |
+X *| within the TMS34010 microprocessor.                                   |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 16/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define IO_HESYNC      0xC0000000L     /* Horizontal End     Sync  */
+X#define IO_HEBLNK      0xC0000010L     /* Horizontal End     Blank */
+X#define IO_HSBLNK      0xC0000020L     /* Horizontal Start   Blank */
+X#define IO_HTOTAL      0xC0000030L     /* Horizontal Total         */
+X#define IO_VESYNC      0xC0000040L     /* Vertical   End     Sync  */
+X#define IO_VEBLNK      0xC0000050L     /* Vertical   End     Blank */
+X#define IO_VSBLNK      0xC0000060L     /* Vertical   Start   Blank */
+X#define IO_VTOTAL      0xC0000070L     /* Video      Total         */
+X#define IO_DPYCTL      0xC0000080L     /* Display    Control       */
+X#define IO_DPYSTRT     0xC0000090L     /* Display    Start         */
+X#define IO_DPYINT      0xC00000A0L     /* Display    Interrupt     */
+X#define IO_CONTROL     0xC00000B0L     /* Control                  */
+X#define IO_HSTDATA     0xC00000C0L     /* Host       Data          */
+X#define IO_HSTADRL     0xC00000D0L     /* Host       Address Low   */
+X#define IO_HSTADRH     0xC00000E0L     /* Host       Address High  */
+X#define IO_HSTCTLL     0xC00000F0L     /* Host       Control Low   */
+X#define IO_HSTCTLH     0xC0000100L     /* Host       Control High  */
+X#define IO_INTENB      0xC0000110L     /* Interrupt  Enable        */
+X#define IO_INTPEND     0xC0000120L     /* Interrupt  Pending       */
+X#define IO_CONVSP      0xC0000130L     /* Conversion (Src. Pitch)  */
+X#define IO_CONVDP      0xC0000140L     /* Conversion (Dst. Pitch)  */
+X#define IO_PSIZE       0xC0000150L     /* Pixel      Size          */
+X#define IO_PMASK       0xC0000160L     /* Plane      Mask          */
+X#define IO_RESERVED1   0xC0000170L     /* Reserved                 */
+X#define IO_RESERVED2   0xC0000180L     /* Reserved                 */
+X#define IO_RESERVED3   0xC0000190L     /* Reserved                 */
+X#define IO_RESERVED4   0xC00001A0L     /* Reserved                 */
+X#define IO_DPYTAP      0xC00001B0L     /* Display    Tap Point     */
+X#define IO_HCOUNT      0xC00001C0L     /* Horizontal Count         */
+X#define IO_VCOUNT      0xC00001D0L     /* Vertical   Count         */
+X#define IO_DPYADR      0xC00001E0L     /* Display    Address       */
+X#define IO_REFCNT      0xC00001F0L     /* DRAM       Refresh Count */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following table defines other external I/O registers accessible   |
+X *| via the TMS34010 microprocessor bus.                                  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define RAMDAC_WRITE   0x06000000L     /* Write address for data.  */
+X#define RAMDAC_DATA    0x06000010L     /* Data address.            */
+X#define RAMDAC_COMMAND 0x06000020L     /* Command address.         */
+X#define RAMDAC_READ    0x06000030L     /* Read address for data.   */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants define the read and write addresses for the   |
+X *| CONFIGURATION 1 REGISTER.                                             |
+X *|                                                                       |
+X *|  15 14 13 12 11 10  9  8  7  6  5  4   3  2  1  0                     |
+X *| +-----------------------------------+---+--------+                    |
+X *| |  RESERVED                         |RS2|  VCLK  |                    |
+X *| +-----------------------------------+---+--------+                    |
+X *|                                                                       |
+X *| Bits 0-2  - Selects the clock frequency for the screen refresh.       |
+X *|             See CLOCK_ENUM.                                           |
+X *|                                                                       |
+X *| Bit    3  - Controls access to overlay and command access.            |
+X *|             See ACCESS_ENUM.                                          |
+X *|                                                                       |
+X *| Bits 4-15 - Not Used.                                                 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CONFIG1_WRITE  0x060000C0L     /* External timing write.   */
+X#define CONFIG1_READ   0x060001C0L     /* Default configuration.   */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants define the read and write addresses for the   |
+X *| CONFIGURATION 2 REGISTER.                                             |
+X *|                                                                       |
+X *|  15 14 13 12 11 10  9  8  7  6  5    4     3    2  1  0               |
+X *| +--------------------------------+----+-----+-----+----+              |
+X *| |  RESERVED                      |HINT|VSYNC|HSYNC|PSEL|              |
+X *| +--------------------------------+----+-----+-----+----+              |
+X *|                                                                       |
+X *| Bits 0-1  - 00 = VGA Control Video RAM                                |
+X *|             01 = 32 bits per pixel                                    |
+X *|             10 = 16 bits per pixel                                    |
+X *|             11 =  8 bits per pixel                                    |
+X *|                                                                       |
+X *| Bit    2  - Horizontal sync: 0 = Positive, 1 = Negative.              |
+X *|                                                                       |
+X *| Bit    3  - Vertical   sync: 0 = Positive, 1 = Negative.              |
+X *|                                                                       |
+X *| Bit    4  - Host interrupts: 0 = Disabled, 1 = Enabled.               |
+X *|                                                                       |
+X *| Bits 5-15 - Not used.                                                 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CONFIG2_WRITE  0x060000E0L     /* Display Pitch.           */
+X#define CONFIG2_READ   0x060001E0L
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following table defines the TMS34010 registers which may be       |
+X *| accessed via the main CPU's data bus ie. the 80x86.                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CPU_ADDRLO     0xC0007E00L     /* Host Address Low  Word   */
+X#define CPU_ADDRHI     0xC0007F00L     /* Host Address High Word   */
+X#define CPU_CONTROL    0xC0007D00L     /* Host Control             */
+X#define CPU_SLOWDATA   0xC0007000L     /* Host Data Registers      */
+X#define CPU_FASTDATA   0xA0000000L     /* Host Data Registers      */
+X
+X#define HOST_AUTOINCR       0xD800     /* Automatic increments.    */
+X#define HOST_NOINCR         0xC000     /* No increments.           */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants define the various clock speeds that may be   |
+X *| used to drive the video monitor.                                      |
+X *|                                                                       |
+X *| Stored in the 'tms_clockbase' field of the TMS34010_MODE structure.   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CLOCK_14280MHZ      0x00       /* 14.280MHz ???  pixels ?? */
+X#define CLOCK_20000MHZ      0x01       /* 20.000MHz 512  pixels 24 */
+X#define CLOCK_VGA           0x02       /* Current VGA Clock        */
+X#define CLOCK_36000MHZ      0x03       /* 36.000MHz 800  pixels  8 */
+X#define CLOCK_44900MHZ      0x04       /* 44.900MHz 1024 pixels I8 */
+X#define CLOCK_64000MHZ      0x05       /* 64.000MHz 1024 pixels U8 */
+X#define CLOCK_25175MHZ      0x06       /* 25.175MHz 640  pixels 16 */
+X#define CLOCK_50350MHZ      0x07       /* 50.350MHz 640  pixels  8 */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants define the format of the current video mode.  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define VSCAN_INTERLACED    0x00       /* Interlaced scan.         */
+X#define VSCAN_UNINTERLACED  0x0C       /* Uninterlaced scan.       */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants are used to select the size of pixels in the  |
+X *| current video mode.                                                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define PIXEL_SIZE8         0x03       /* Pixel depth -  8 bits.   */
+X#define PIXEL_SIZE16        0x02       /* Pixel depth - 16 bits.   */
+X#define PIXEL_SIZE32        0x01       /* Pixel depth - 32 bits.   */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants are used to select the format of the overlay  |
+X *| option.                                                               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define OVERLAY_4BITS       0x00       /* 4-bit overlay.           */
+X#define OVERLAY_1BIT        0x02       /* 1-bit overlay.           */
+X#define OVERLAY_NONE        0x03       /* No    overlay.           */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following bit-masks are used with the Display Control register    |
+X *| DPYCTL.                                                               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define HC_ENV              0x8000     /* Enable video.               */
+X#define HC_NIL              0x4000     /* Noninterlaced video enable. */
+X#define HC_DXV              0x2000     /* Disable external video.     */
+X#define HC_SRE              0x1000     /* Screen refresh enable.      */
+X#define HC_SRT              0x0800     /* Shift register enable.      */
+X#define HC_ORG              0x0400     /* Screen origin select.       */
+X#define HC_HSD              0x0001     /* Horizontal sync direction.  */
+X
+X/*+-----------------------------------------------------------------------+
+X *| These values are used to select the display pitch for the VRAM shift  |
+X *| registers.                                                            |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define HC_DUDATE0          0x0000     /* Number of bytes per line.   */
+X#define HC_DUDATE1          0x0004
+X#define HC_DUDATE2          0x0008
+X#define HC_DUDATE4          0x0010     /*  512 bytes per line.        */
+X#define HC_DUDATE8          0x0020     /* 1024 bytes per line.        */
+X#define HC_DUDATE16         0x0040     /* 2048 bytes per line.        */
+X#define HC_DUDATE32         0x0080
+X#define HC_DUDATE64         0x0100
+X#define HC_DUDATE128        0x0200
+X
+X/*+-----------------------------------------------------------------------+
+X *| These values are specific to the Hercules Graphics Station Card.      |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define MODE_UNINTERLACED    (HC_ENV|HC_DXV|HC_SRE|HC_NIL)
+X#define MODE_INTERLACED      (HC_ENV|HC_DXV|HC_SRE)
+X#define MODE_4KBYTE           HC_DUDATE32
+X#define MODE_2KBYTE           HC_DUDATE16
+X#define MODE_1KBYTE           HC_DUDATE8
+X#define MODE_512BYTES         HC_DUDATE4
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following table shows the organisation of the CLUT control bits.  |
+X *|                                                                       |
+X *|                 Bits 3-2                                              |
+X *|                                                                       |
+X *|                        00            01          10         11        |
+X *|                  00    24/LU         24/NLU      NA         NA        |
+X *|  Bits 7-6        01    24/LU         24/NLU      8G/LU      8G/NLU    |
+X *|                  10    24/LU         24/NLU      NA         NA        |
+X *|                  11    NA            NA          NA         16/NLU    |
+X *|                                                                       |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following constants are for use with the BrookTree 473 palette    |
+X *| chip.                                                                 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define MODE_24BIT_NOCLUT       0x34        /* 00xx01xx */
+X#define MODE_24BIT_CLUT         0x10        /* 00xx00xx */
+X#define MODE_16BIT              0xDC        /* 11xx11xx */
+X#define MODE_8BIT_NOCLUT        0x5C        /* 01xx11xx */
+X#define MODE_8BIT_CLUT          0x58        /* 01xx10xx */
+X
+X#define DEFAULT_8BIT            (MODE_8BIT_CLUT    | OVERLAY_NONE)
+X#define DEFAULT_16BIT           (MODE_16BIT        | OVERLAY_NONE)
+X#define DEFAULT_24BIT           (MODE_24BIT_NOCLUT | OVERLAY_NONE)
+X
+END_OF_FILE
+  if test 13583 -ne `wc -c <'hardware.h'`; then
+    echo shar: \"'hardware.h'\" unpacked with wrong size!
+  fi
+  # end of 'hardware.h'
+fi
+if test -f 'tessel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tessel.c'\"
+else
+  echo shar: Extracting \"'tessel.c'\" \(12347 characters\)
+  sed "s/^X//" >'tessel.c' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| This file contains subroutines used to tesselate convex and concave   |
+X *| N-point polygons into triangles. At present, it does not handle       |
+X *| complex polygons.                                                     |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 29/05/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+X#include "triangle.h"
+X#include "tessel.h"
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| These global variables are used to reference the polygon vertex list. |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid (*polygon_proc)( COORD *triangle );    /* User defined function.    */
+X
+X/*																									
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to set the user-defined procedure called to   |
+X *| render a triangle.                                                    |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_setproc( proc )
+X  void (*proc)();
+X  {
+X  polygon_proc = proc;                    /* Set the polygon procedure.  */
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to reverse the coordinates in the polygon     |
+X *| vertex list. Used to handle anti-clockwise ordering of vertices.      |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_reverse( nverts, vlist )
+X  int nverts;
+X  COORD *vlist;
+X  {
+X  COORD temp;                             /* Used for copying.           */
+X  int   from = 0, to = nverts;            /* Start and finish of list.   */
+X
+X  while ( ++from < --to )                 /* Swap until both ends meet.  */
+X    {
+X    temp        = vlist[from];
+X    vlist[from] = vlist[to];
+X    vlist[to]   = temp;
+X    }
+X  }
+X
+X/*
+X *+------------------------------------------------------------------------+
+X *| This suboutine is used to determine the intersection between the line  |
+X *| vectors from P1 to P2 and P3 to P4. A result of TRUE is returned if    |
+X *| the two vectors intersect within the end-points, and <point> is filled |
+X *| with the point of intersection. Otherwise, a result of FALSE occurs.   |
+X *+------------------------------------------------------------------------+
+X */
+X
+Xint coord_intersection( point, p1, p2, p3, p4 )
+X  COORD *point,
+X        *p1, *p2,
+X        *p3, *p4;
+X  {
+X  MATDATA val_det, val_t, val_s;           /* Determinants of matrices.  */
+X
+X  val_det = MATRIX_DET_2X2( *p1, *p2, *p3, *p4 );
+X
+X  if ( val_det != 0 )                      /* Intersection point exists? */
+X    {
+X    val_t = MATRIX_DET_2X2( *p1, *p3, *p3, *p4 )
+X          * CONSTANT_ONE / val_det;
+X
+X    val_s = MATRIX_DET_2X2( *p1, *p2, *p3, *p1 )
+X          * CONSTANT_ONE / val_det;
+X
+X    if ( val_t <= 0L && val_s >= CONSTANT_ONE || /* Within range of edge */
+X         val_s <= 0L && val_t >= CONSTANT_ONE )  /* segments?            */
+X      /* Do nothing */
+X      {}
+X    else
+X    if ( val_t >= 0 && val_t <= CONSTANT_ONE && /* Are results within    */
+X         val_s >= 0 && val_s <= CONSTANT_ONE )  /* bounds of the two     */
+X      {                                         /* edges?                */
+X
+X      point -> c_xpos                           /* Calculate X coordinate. */
+X          = p1 -> c_xpos
+X          + (int)( val_t * ( p2 -> c_xpos - p1 -> c_xpos ) / CONSTANT_ONE );
+X
+X      point -> c_ypos                           /* Calculate Y coordinate. */
+X          = p1 -> c_ypos
+X          + (int)( val_t * ( p2 -> c_ypos - p1 -> c_ypos ) / CONSTANT_ONE );
+X
+X      return( 1 );
+X      }
+X    }
+X
+X  return( 0 );
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to determine whether the given polygon is     |
+X *| bow-tied or not (has edges which cross over ie. bow-tie). A result of |
+X *| TRUE is returned if the polygon is bow-tied. Otherwise, a result of   |
+X *| FALSE is returned.                                                    |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xint polygon_complex( nverts, vertlist )
+X  int    nverts;
+X  COORD *vertlist;
+X  {
+X  int          m, n, i, j;                  /* Loop counters             */
+X  static COORD point;                       /* Point of intersection.    */
+X
+X  if ( nverts <= 3 )                        /* Triangles can never be    */
+X    return( 0 );                            /* bow-tied.                 */
+X
+X  for ( m = 0, n = 1; n < nverts; m++, n++) /* First edge segment.       */
+X    for ( i = n; i < nverts; i++ )          /* Second edge segment.      */
+X      {
+X      j = ( i+1 == nverts ? 0 : i+1 );
+X
+X      if ( coord_intersection( &point,      /* Check for intersection of */
+X             vertlist+m, vertlist+n,        /* edges.                    */
+X             vertlist+i, vertlist+j ) )
+X        return( 1 );                        /* Intersection exists, so   */
+X      }                                     /* the polygon is bow-tied.  */
+X
+X  return( 0 );                              /* Polygon is not bow-tied.  */
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to determine whether the vertices of the      |
+X *| polygon are ordered clockwise or anticlockwise. A result of TRUE is   |
+X *| returned for clockwise polygons. A result of FALSE is returned for    |
+X *| anticlockwise polygons.                                               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xint polygon_clockwise( nverts, vlist )
+X  int    nverts;
+X  COORD *vlist;
+X  {
+X  int  n, p, q = 0, r;                      /* Vertex indices/counters.  */
+X  MATDATA lowx_val = vlist[0].c_xpos;       /* Used for X coord. checks. */
+X  MATDATA lowy_val = vlist[0].c_ypos;       /* Used for Y coord. checks. */
+X
+X  for ( n = 1; n < nverts; n++ )            /* For each vertex.          */
+X    if ( vlist[n].c_xpos < lowx_val )       /* Vertex has lower X coord? */
+X      {
+X      q        = n;                         /* Yes, so set index and     */
+X      lowx_val = vlist[n].c_xpos;           /* the best X coordinate.    */
+X      lowy_val = vlist[n].c_ypos;
+X      }
+X    else
+X      if (vlist[n].c_xpos == lowx_val &&    /* No, but is X coord. equal */
+X          vlist[n].c_ypos  < lowy_val )     /* and Y coordinate lower?   */
+X        {
+X        q        = n;                       /* Yes, so set index and the */
+X        lowy_val = vlist[n].c_ypos;         /* best Y coordinate.        */
+X        }
+X
+X  p = ( q > 0        ? q-1 : nverts-1 );    /* Find index values of the  */
+X  r = ( q < nverts-1 ? q+1 : 0        );    /* adjacent vertices.        */
+X
+X  return( ANGLE_CONVEX( vlist, p, q, r ) ); /* Then return the result of */
+X  }                                         /* the convex angle test.    */
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to determine whether the polygon is convex or |
+X *| not. It returns a Boolean value of TRUE for convex polygons. FALSE is |
+X *| returned for concave polygons.                                        |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xint polygon_convex( nverts, vlist )
+X  int    nverts;
+X  COORD *vlist;
+X  {
+X  int p = 0, q = 1, r = 2;                  /* Vertex indices/counters.  */
+X
+X  if ( nverts == 3 )                        /* Triangle is always convex */
+X    return( 1 );                            /* So return immediately.    */
+X
+X  for ( p = 0; p < nverts; p++ )            /* For each vertex.          */
+X    {
+X    if ( ANGLE_NONCONVEX( vlist, p, q, r) ) /* Is angle <= 90 degrees?   */
+X      return( 0 );                          /* Yes, polygon is concave.  */
+X
+X    q = ( ++q == nverts ? 0 : q );          /* Update second vertex.     */
+X    r = ( ++r == nverts ? 0 : r );          /* Update third vertex.      */
+X    }
+X																								
+X  return( 1 );                              /* Polygon is convex.        */
+X  }
+X
+X/* 
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to render the polygon in the display buffer.  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid store_triangle( vlist, p, q, r )
+X  COORD *vlist;
+X  int p, q, r;
+X  {
+X  static COORD triangle_table[3];           /* Used to render triangle.  */
+X
+X  triangle_table[0] = vlist[p];             /* Copy the three vertices.  */
+X  triangle_table[1] = vlist[q];
+X  triangle_table[2] = vlist[r];
+X
+X  (*polygon_proc)( triangle_table );        /* Call the user process.    */
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to process simple (convex) polygons.          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_tesselate_convex( nverts, vlist )
+X  int    nverts;
+X  COORD *vlist;
+X  {
+X  int n, p = 0, q = 1, r = 2;               /* Vertex indices/counters.  */
+X
+X  for ( n = 0; n < nverts - 2; n++ )        /* For each vertex.          */
+X    {
+X    store_triangle( vlist, p, q, r );       /* Render triangle PQR.      */
+X
+X    q = ( q+1 == nverts ? 0 : q+1 );        /* P remains the same, but Q */
+X    r = ( r+1 == nverts ? 0 : r+1 );        /* and R are incremented.    */
+X    }
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to process complex (concave) polygons.        |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define REMOVE_VERTEX( CL, I, N )\
+X  { int v; for ( v = (I); v < (N); v++ ) CL[v] = CL[v+1]; }
+X
+Xvoid polygon_tesselate_concave( n, cl )
+X  int    n;
+X  COORD *cl;
+X  {
+X  int h, i, j, k, m;
+X
+X  i = n-1;
+X
+X  while (n > 3 )
+X    {
+X    h = i;
+X    i = (i == n-1 ? 0 : i+1);
+X    j = (i == n-1 ? 0 : i+1);
+X
+X    if ( ANGLE_NONCONVEX( cl, h, i, j ) )
+X      continue;
+X
+X    k = (j == n-1 ? 0 : j+1);               /* k is vertex after j  */
+X    m = n-3;
+X
+X    while (m--)
+X      if ( COORD_OUTSIDE_TRIANGLE( cl, h, i, j, k ) )
+X        k = (k == n-1 ? 0 : k+1);
+X      else
+X        break;
+X
+X      if (k != h)	                        /* Vertex k not outside */
+X        continue;	                        /*   triangle PhPiPj    */
+X
+X    store_triangle( cl, h, i, j );
+X
+X    REMOVE_VERTEX( cl, i, n );
+X    n--;
+X    i = (i == 0 ? n-1 : i-1);
+X    }
+X
+X  store_triangle( cl, 0, 1, 2 );            /* Final triangle.      */
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to render non-complex polygons.               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_tesselate_noncomplex( num, vl )
+X  int    num;
+X  COORD *vl;
+X  {
+X  if ( !polygon_clockwise( num, vl ) )      
+X    polygon_reverse( num, vl );             
+X
+X  if ( polygon_convex( num, vl ) )          
+X    polygon_tesselate_convex( num, vl );    
+X  else                                      
+X    polygon_tesselate_concave( num, vl );   
+X  }                                         
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to render complex polygons.                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_tesselate_complex( num, vl )
+X  int    num;
+X  COORD *vl;
+X  {
+X  /* ... to be implemented in the near future ... */
+X  }
+X
+X/*
+X *+-----------------------------------------------------------------------+
+X *| This subroutine is used to render all types of polygon.               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid polygon_tesselate( num, vl )
+X  int    num;                               
+X  COORD *vl;                                
+X  {
+X  if ( polygon_complex( num, vl ) )         
+X    polygon_tesselate_complex( num, vl );   
+X  else
+X    polygon_tesselate_noncomplex( num, vl );
+X  }                                         
+END_OF_FILE
+  if test 12347 -ne `wc -c <'tessel.c'`; then
+    echo shar: \"'tessel.c'\" unpacked with wrong size!
+  fi
+  # end of 'tessel.c'
+fi
+if test -f 'tmsmodes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tmsmodes.h'\"
+else
+  echo shar: Extracting \"'tmsmodes.h'\" \(2737 characters\)
+  sed "s/^X//" >'tmsmodes.h' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| This header file defines the data structure used to represent a       |
+X *| TMS34010 graphics mode.                                               |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.1        Date: 29/05/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data structure is used to store the register settings   |
+X *| which define the state of a TMS34010 graphics mode.                   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xtypedef struct tms34010_mode_st
+X  {
+X  char  tms_name[32];    /* Generic name for the video mode.         */
+X
+X  WORD  tms_hesync;      /* Left-hand  edge of left border.          */
+X  WORD  tms_heblnk;      /* Left-hand  edge of active display.       */
+X  WORD  tms_hsblnk;      /* Right-hand edge of active display.       */
+X  WORD  tms_htotal;      /* Right-hand edge of right border.         */
+X
+X  WORD  tms_vesync;      /* Top        edge of top border.           */
+X  WORD  tms_veblnk;      /* Top        edge of active display.       */
+X  WORD  tms_vsblnk;      /* Bottom     edge of active display.       */
+X  WORD  tms_vtotal;      /* Bottom     edge of bottom border.        */
+X
+X  WORD  tms_dpyctl;      /* Used to control video timing.            */
+X  WORD  tms_dpystrt;     /* Address of the first pixel displayed.    */
+X  WORD  tms_dpytap;      /* Horizontal panning offset.               */
+X
+X  WORD  tms_clockbase;   /* Clock frequency for horizontal timing.   */
+X  WORD  tms_pixelsize;   /* Size of pixels.                          */
+X  WORD  tms_videotiming; /* Interlaced mode / sync signals.          */
+X  WORD  tms_ramdac;      /* Used to select pixel size/overlay mode.  */
+X
+X  WORD  tms_xmax;        /* No. of pixels in horizontal axis.        */
+X  WORD  tms_ymax;        /* No. of pixels in vertical   axis.        */
+X  WORD  tms_psize;       /* No. of bits per pixel.                   */
+X  WORD  tms_dpitch;      /* Display pitch of each scan line in bits. */
+X  } TMS34010_MODE;
+X
+X/*+-----------------------------------------------------------------------+
+X *| The following data structures define the various screen modes.        |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xextern WORD   colourxmax;
+Xextern WORD   colourymax;
+X
+Xextern WORD   screen_width;
+Xextern WORD   screen_height;
+X
+Xextern TMS34010_MODE mode512x512x32bit;
+Xextern TMS34010_MODE mode512x256x32bit;
+Xextern TMS34010_MODE mode512x480x32bit;
+X
+X
+END_OF_FILE
+  if test 2737 -ne `wc -c <'tmsmodes.h'`; then
+    echo shar: \"'tmsmodes.h'\" unpacked with wrong size!
+  fi
+  # end of 'tmsmodes.h'
+fi
+if test -f 'triangle.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'triangle.c'\"
+else
+  echo shar: Extracting \"'triangle.c'\" \(15235 characters\)
+  sed "s/^X//" >'triangle.c' <<'END_OF_FILE'
+X/*+-----------------------------------------------------------------------+
+X *| This file contains subroutines used to smooth shade a triangle.       |
+X *|                                                                       |
+X *| Author: Michael S. A. Robb         Version: 1.5        Date: 15/06/93 |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#include <mem.h>
+X
+X#include "24bit.h"
+X
+X/*+-----------------------------------------------------------------------+
+X *| These variables are used for smooth shading.                          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xlong hdred, hdgreen, hdblue, hdblend, hdzpos; /* Horizontal increments.  */
+Xlong red,   green,   blue,   blend,   zpos;   /* Current colour values.  */
+X
+Xint  xstart, xend, ypos;                      /* Current scan line.      */
+X
+X/*+-----------------------------------------------------------------------+
+X *| These variables are used to sub-divide the triangle.                  |
+X *+-----------------------------------------------------------------------+
+X */
+X
+XCOORD triangle[3]; /* Triangle vertices. */
+XEDGE  edge[3];     /* Triangle edges.    */
+X
+X/*+-----------------------------------------------------------------------+
+X *| This macro is used to implement blending between fixed point values.  |
+X *| All values are expected to be in fixed point format. The colours are  |
+X *| blended according to the formula:                                     |
+X *|                                                                       |
+X *| C = BLEND * ( OC - NC ) + NC                                          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define BLEND_FUNC( FC, OC, NC, COL, BLEND )\
+X  FC.col_rgb.COL = (((BLEND*(OC.col_rgb.COL-NC.col_rgb.COL))>>FIXED_POINT )\
+X                 + NC.col_rgb.COL)
+X
+X#define BLEND_PIXEL( F, O, N, B )\
+X  { BLEND_FUNC( F, O, N, col_red,   B );\
+X    BLEND_FUNC( F, O, N, col_green, B );\
+X    BLEND_FUNC( F, O, N, col_blue,  B );\
+X    F.col_rgb.col_overlay = O.col_rgb.col_overlay; }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This macro is used to convert a set of Red/Green/Blue/Overlay         |
+X *| components into a single 32-bit integer.                              |
+X *|                                                                       |
+X *| Note that this this macro is hardware specific to the graphics        |
+X *| board.                                                                |
+X *|                                                                       |
+X *| Each pixel is represented by the following format:                    |
+X *|                                                                       |
+X *| 31 MSB  24 23    16 15      8  7    LSB 0                             |
+X *| +---------+---------+-------------------+                             |
+X *| |   Red   |  Green  | Overlay |   Blue  |                             |
+X *| +---------+---------+---------+---------+                             |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define CONVERT_RGB( R, G, B )\
+X ( ( ( (R)&0x00FF0000L ) <<8  )+\
+X   ( ( (G)&0x00FF0000L )      )+\
+X   ( ( (B)&0x00FF0000L ) >>16 ) )
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to render a horizontal line using Gouraud     |
+X *| shading.                                                              |
+X *|                                                                       |
+X *| Uses the following variables:                                         |
+X *|                                                                       |
+X *| xstart  = X pixel start coordinate                                    |
+X *| xend    = X pixel end coordinate                                      |
+X *| ypos    = Y pixel coordinate                                          |
+X *| red     = Current value of red component                              |
+X *| green   = Current value of green component                            |
+X *| blue    = Current value of blue component                             |
+X *| blend   = Current value of blending component                         |
+X *| hdred   = Incremental for red component                               |
+X *| hdgreen = Incremental for green component.                            |
+X *| hdblue  = Incremental for blue component.                             |
+X *| blend   = Incremental for blending component.                         |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid render_horizontal_line()
+X  {
+X  COLOUR32 nc; /* New colour */
+X  COLOUR32 oc; /* Old colour */
+X  COLOUR32 fc; /* Final colour */
+X
+X  ADDRESS  addr    = ADDRESS_PIXEL(   xstart, ypos );
+X  ADDRESS  zbuffer = ADDRESS_ZBUFFER( xstart, ypos );
+X
+X  ZBUFFER  zval;
+X
+X  while ( xstart++ < xend )                   /* For each pixel in row     */
+X    {
+X    nc.col_value = CONVERT_RGB( red, green, blue ); /* Convert to pixel.   */
+X
+X    READ_PIXEL(   addr,    oc   );            /* Read old pixel.           */
+X    READ_ZBUFFER( zbuffer, zval );            /* Read old Z-buffer value.  */
+X
+X    if ( zpos<=zval.zbuf_value && zpos >= 0 ) /* Test Z-buffer.            */
+X      {
+X      zval.zbuf_value = zpos;
+X
+X      BLEND_PIXEL( fc, oc, nc, blend );       /* Blend colours.            */
+X      WRITE_PIXEL( addr, fc );                /* Write new pixel.          */
+X      WRITE_ZBUFFER( zbuffer, zval );         /* Write new Z-buffer value. */
+X      }
+X
+X    red   += hdred;                           /* Add incrementals.         */
+X    green += hdgreen;
+X    blue  += hdblue;
+X    blend += hdblend;
+X    zpos  += hdzpos;
+X
+X    addr    += PIXEL_SIZE;                    /* Update Addresses.         */
+X    zbuffer += ZBUFFER_SIZE;
+X    }
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This macro is used to calculate the size of the increments used when  |
+X *| moving vertically down an edge vector.                                |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define EDGE_DIFF( F, D )\
+X  ( ( ( fin->F - strt->F ) << FIXED_POINT ) / (D) )
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to initialise a vector given the start and    |
+X *| finishing coordinates.                                                |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid edge_init( vec, strt, fin )
+X  EDGE *vec;
+X  COORD *strt;
+X  COORD *fin;
+X  {
+X  long delta_y    =  fin  -> c_ypos - strt -> c_ypos;
+X
+X  vec -> e_deltay =  delta_y;
+X  vec -> e_xpos   =  strt -> c_xpos  << FIXED_POINT;
+X  vec -> e_ypos   =  strt -> c_ypos;
+X  vec -> e_zpos   =  strt -> c_zpos  << FIXED_POINT;
+X
+X  vec -> e_red    =  strt -> c_red   << FIXED_POINT;
+X  vec -> e_green  =  strt -> c_green << FIXED_POINT;
+X  vec -> e_blue   =  strt -> c_blue  << FIXED_POINT;
+X  vec -> e_blend  = (strt -> c_blend << FIXED_POINT) / MAX_BLEND;
+X
+X  if ( delta_y != 0 )
+X    {
+X    vec -> e_dxpos  = EDGE_DIFF( c_xpos,  delta_y );
+X    vec -> e_dzpos  = EDGE_DIFF( c_zpos,  delta_y );
+X    vec -> e_dred   = EDGE_DIFF( c_red,   delta_y );
+X    vec -> e_dgreen = EDGE_DIFF( c_green, delta_y );
+X    vec -> e_dblue  = EDGE_DIFF( c_blue,  delta_y );
+X    vec -> e_dblend = EDGE_DIFF( c_blend, (MAX_BLEND * delta_y) );
+X    }
+X  else
+X    {
+X    vec -> e_dxpos  =
+X    vec -> e_dzpos  =
+X    vec -> e_dred   =
+X    vec -> e_dgreen =
+X    vec -> e_dblue  =
+X    vec -> e_dblend = 0;
+X    }
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to update the vector after every scan-line.   |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid edge_update( vec )
+X  EDGE *vec;
+X  {
+X  vec -> e_xpos  += vec -> e_dxpos;
+X  vec -> e_zpos  += vec -> e_dzpos;
+X  vec -> e_red   += vec -> e_dred;
+X  vec -> e_green += vec -> e_dgreen;
+X  vec -> e_blue  += vec -> e_dblue;
+X  vec -> e_blend += vec -> e_dblend;
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This macro is used to calculate the size of the increments used when  |
+X *| moving horizontally across a scan-line.                               |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define HORIZ_INCREMENT( F )\
+X  ((eright -> F - eleft -> F ) / delta_x )
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to render a sub-triangle given the vertex     |
+X *| coordinate and the two other left and right hand vertices.            |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid render_half( eleft, eright, delta_y, ystart )
+X  EDGE *eleft, *eright;
+X  long    delta_y, ystart;
+X  {
+X  long delta_x;
+X
+X  ypos = ystart;                            /* Initial Y coordinate.       */
+X
+X  while ( delta_y-- >= 0 )                  /* For every scan line.        */
+X    {
+X    xstart  = eleft ->e_xpos>>FIXED_POINT;  /* Starting X coordinate.      */
+X    xend    = eright->e_xpos>>FIXED_POINT;  /* Finishing X coordinate.     */
+X
+X    delta_x = xend - xstart;                /* Width of scan-line.         */
+X
+X    zpos    = eleft -> e_zpos;
+X    red     = eleft -> e_red;               /* Iniitial colour values.     */
+X    green   = eleft -> e_green;
+X    blue    = eleft -> e_blue;
+X    blend   = eleft -> e_blend;
+X
+X    if ( delta_x != 0 )                     /* Any change in X coordinate? */
+X      {
+X      hdzpos  = HORIZ_INCREMENT( e_zpos  ); /* Yes, so get incrementals.  */
+X      hdred   = HORIZ_INCREMENT( e_red   );
+X      hdgreen = HORIZ_INCREMENT( e_green );
+X      hdblue  = HORIZ_INCREMENT( e_blue  );
+X      hdblend = HORIZ_INCREMENT( e_blend );
+X      }
+X
+X    render_horizontal_line();               /* Then render the line.       */
+X
+X    edge_update( eleft  );                  /* Update left edge vector.    */
+X    edge_update( eright );                  /* Update right edge vector.   */
+X
+X    ypos++;                                 /* Update Y coordinate.        */
+X    }
+X  }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This macro is used to perform a comparison and swap (if required) on  |
+X *| the two pairs of coordinates.                                         |
+X *+-----------------------------------------------------------------------+
+X */
+X
+X#define COMPARE_VERTICES( X, A, B, F, T )\
+X  if ((X)[(A)].F > (X)[(B)].F )\
+X    {\
+X    (T)      = (X)[(A)];\
+X    (X)[(A)] = (X)[(B)];\
+X    (X)[(B)] = (T);\
+X    }
+X
+X/*+-----------------------------------------------------------------------+
+X *| This subroutine is used to smooth shade a triangle. It takes an       |
+X *| array of coordinates/colours as a parameter.                          |
+X *+-----------------------------------------------------------------------+
+X */
+X
+Xvoid render_triangle( coord )
+X  COORD *coord;
+X  {
+X  COORD swapbuf; /* Used for swapping */
+X
+X  HARDWARE_PREPARE();
+X
+X  memcpy( triangle, coord, 3*sizeof(COORD) );   /* Make copy of coords. */
+X
+X  /*+-------------------------------------------------------------+
+X   *| [1] Sort by Y coordinate so that vertices with the smallest |
+X   *|     Y coordinate are at the top of the vertex list.         |
+X   *+-------------------------------------------------------------+
+X   */
+X
+X  COMPARE_VERTICES( triangle, 0, 1, c_ypos, swapbuf );
+X  COMPARE_VERTICES( triangle, 1, 2, c_ypos, swapbuf );
+X  COMPARE_VERTICES( triangle, 0, 1, c_ypos, swapbuf );
+X
+X  /*+----------------------------------------------------------------+
+X   *| [2] Sort by X coordinate so that vertices which have identical |
+X   *|     Y coordinates but smaller X coordinates are at the top of  |
+X   *|     the vertex list.                                           |
+X   *+----------------------------------------------------------------+
+X   */
+X
+X  if ( triangle[0].c_ypos == triangle[1].c_ypos )
+X    COMPARE_VERTICES( triangle, 0, 1, c_xpos, swapbuf );
+X
+X  if ( triangle[1].c_ypos == triangle[2].c_ypos )
+X    {
+X    COMPARE_VERTICES( triangle, 1, 2, c_xpos, swapbuf );
+X
+X    if ( triangle[0].c_ypos == triangle[1].c_ypos )
+X      COMPARE_VERTICES( triangle, 0, 1, c_xpos, swapbuf );
+X    }
+X
+X  /*+-----------------------------------------------------------------+
+X   *| [3] Initialise three edge vectors by calculating incrementals.  |
+X   *+-----------------------------------------------------------------+
+X   */
+X
+X  edge_init( edge+0, &triangle[0], &triangle[1] ); /* Top edge.     */
+X  edge_init( edge+1, &triangle[0], &triangle[2] ); /* Longest edge. */
+X  edge_init( edge+2, &triangle[1], &triangle[2] ); /* Bottom edge.  */
+X
+X  /*+-----------------------------------------------------------------+
+X   *| [4.1] The bottom two Y coordinates are identical, so only the   |
+X   *|       top half of the triangle has to be rendered.              |
+X   *+-----------------------------------------------------------------+
+X   */
+X
+X  if ( triangle[1].c_ypos == triangle[2].c_ypos )
+X      render_half( edge+0, edge+1, edge[0].e_deltay, edge[0].e_ypos );
+X  else
+X
+X  /*+-----------------------------------------------------------------+
+X   *| [4.2] The top two Y coordinates are identical, so only the      |
+X   *|       bottom half of the triangle has to be rendered.           |
+X   *+-----------------------------------------------------------------+
+X   */
+X
+X  if ( triangle[0].c_ypos == triangle[1].c_ypos )
+X      render_half( edge+1, edge+2, edge[2].e_deltay, edge[2].e_ypos );
+X  else
+X
+X  /*+-----------------------------------------------------------------+
+X   *| [4.3] Both top and bottom half-triangles must be rendered.      |
+X   *|       However, a check must be performed to determine whether   |
+X   *|       the longest edge is on the left or right hand side.       |
+X   *+-----------------------------------------------------------------+
+X   */
+X
+X    {
+X    long mult, div, delta;
+X    int  new_xpos;
+X
+X    mult     = (long) triangle[1].c_ypos - (long) triangle[0].c_ypos;
+X    div      = (long) triangle[2].c_ypos - (long) triangle[0].c_ypos;
+X
+X    delta    = (long) triangle[2].c_xpos - (long) triangle[0].c_xpos;
+X    new_xpos = (long) triangle[0].c_xpos + (long) (delta * mult) / div;
+X
+X    if ( new_xpos < triangle[1].c_xpos )
+X      {
+X      /*+-------------------------------------------------------------+
+X       *| Render triangle with longest edge on the left hand side.    |
+X       *+-------------------------------------------------------------+
+X       */
+X
+X      render_half( edge+1, edge+0, edge[0].e_deltay-1, edge[0].e_ypos );
+X      render_half( edge+1, edge+2, edge[2].e_deltay,   edge[2].e_ypos );
+X      }
+X    else
+X      {
+X      /*+-------------------------------------------------------------+
+X       *| Render triangle with longest edge on the right hand side.   |
+X       *+-------------------------------------------------------------+
+X       */
+X
+X      render_half( edge+0, edge+1, edge[0].e_deltay-1, edge[0].e_ypos );
+X      render_half( edge+2, edge+1, edge[2].e_deltay,   edge[2].e_ypos );
+X      }
+X    }
+X
+X  HARDWARE_RESTORE();
+X  }
+X
+X
+END_OF_FILE
+  if test 15235 -ne `wc -c <'triangle.c'`; then
+    echo shar: \"'triangle.c'\" unpacked with wrong size!
+  fi
+  # end of 'triangle.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

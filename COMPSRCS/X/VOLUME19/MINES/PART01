@@ -1,0 +1,803 @@
+Newsgroups: comp.sources.x
+From: thompson@mv.us.adobe.com (Ross Thompson)
+Subject: v19i036:  mines - Yet another mines game, Part01/01
+Message-ID: <1993Mar10.224112.5143@sparky.imd.sterling.com>
+X-Md4-Signature: ad9d810fec82496d8c617bc8a53b7a3f
+Date: Wed, 10 Mar 1993 22:41:12 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: thompson@mv.us.adobe.com (Ross Thompson)
+Posting-number: Volume 19, Issue 36
+Archive-name: mines/part01
+Environment: X11
+
+Here is a little game that I coded up, based on a Mac game that I
+enjoyed.  Although the game is a derivative work, based on someone
+else's idea, the sources are original, and may be freely used in any
+way.  (I think I'm safe stealing this guy's game idea, since he offers
+to give away his sources for the Mac version for free.)
+
+Have fun.
+
+- Ross
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 09/01/1992 17:47 UTC by thompson@rhythmic
+# Source directory /usr/export/home/renault/thompson/src/xapps/mines
+#
+# existing files will NOT be overwritten unless -c is specified
+# This format requires very little intelligence at unshar time.
+# "if test", "echo", "true", and "sed" may be needed.
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#    144 -rw-rw---- Imakefile
+#    130 -rw-rw---- Makefile.std
+#   1658 -rw-rw---- README
+#  16877 -rw-rw---- mines.c
+#   1760 -rw-r----- mines.man
+#     41 -rw-rw---- patchlevel.h
+#
+# ============= Imakefile ==============
+if test -f 'Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Imakefile (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'Imakefile' &&
+XSTD_INCLUDES = 
+XCC = gcc
+X
+XDEFINES =
+XSRCS = mines.c
+XOBJS = mines.o
+XLOCAL_LIBRARIES = $(XLIB)
+XDEPLIBS =
+XComplexProgramTarget(mines)
+X
+Xall :: mines
+SHAR_EOF
+true || echo 'restore of Imakefile failed'
+fi
+# ============= Makefile.std ==============
+if test -f 'Makefile.std' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile.std (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile.std' &&
+XCOPTS =  -o $@ -I/usr/local/X11R4/include -O
+XXLIB = /usr/local/X11R4/lib/libX11.a
+X
+Xmines: mines.c
+X	$(CC) $(COPTS) mines.c $(XLIB)
+SHAR_EOF
+true || echo 'restore of Makefile.std failed'
+fi
+# ============= README ==============
+if test -f 'README' -a X"$1" != X"-c"; then
+	echo 'x - skipping README (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'README' &&
+XThe mines game is played on a grid.  Every cell of the grid either has
+Xa bomb on it, or it doesn't.  If you move onto a cell that has a bomb
+Xon it, you lose your leg.  If you move onto a cell that doesn't have a
+Xbomb on it, a integer between 0 and eight will be displayed, letting
+Xyou know how many bombs are in cells adjecent to the one you just
+Xmoved to.  (Adjecent, in this game, means one cell away in any
+Xdirection: up, down, left, right, or diagonal.)  Zeros are displayed
+Xas blanks, to avoid cluttering the display.  Additionally, since you
+Xcan obviously move in any direction from a zero, you automatically
+Xclaim the territory adjacent to cells which are blank.  You are only
+Xallowed to move to cells adjacent to ones you already own.  Cells you
+Xown are indicated by being printed in black; ones you don't own are in
+Xwhite.  The object of the game is to (eventually) claim the lower
+Xright hand corner of the grid.
+X
+XThe left button is for claiming new territory.  The right button
+Xstarts a new game.  The middle button displays a bomb.  This is a note
+Xto yourself about where you think a bomb is; there is no feedback as
+Xto whether you have guessed right or not.
+X
+XKeyboard entries:
+X'n' gives you a new game.
+X'q' quits the program.
+X's' cheats.  plays the game with the same information you have
+X	and some very simple rules.  Doesn't win every winable
+X	game, but it does save stupid mistakes.
+X
+XThe slider at the bottom of the window is for adjusting how many mines
+Xyou have in the grid.  You can also resize the window if you want to
+Xplay on a grid of a different size.  The maximum number of bombs you
+Xcan have is half the number of cells in the grid.
+SHAR_EOF
+true || echo 'restore of README failed'
+fi
+# ============= mines.c ==============
+if test -f 'mines.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mines.c (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'mines.c' &&
+X/* mines.c: play in a mine field.
+X   Source based on a Mac game by Danial Griscom of the Computer
+X   Museum, Boston Mass, which was in turn based on a SunTools
+X   version by Tom Anderson.
+X   Bomb Icon ray traced by Steven Hawley.
+X*/
+X
+X#include "X11/Xlib.h"
+X#include "X11/Xatom.h"
+X#include "X11/Xutil.h"
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <malloc.h>
+X
+X#define max(a, b) ((a) > (b) ? (a) : (b))
+X#define min(a, b) ((a) < (b) ? (a) : (b))
+X
+X#define cell_width 17
+X#define cell_height 17
+Xstatic char bomb_bits[] = {
+X   0x00, 0x14, 0x00, 0x00, 0x00, 0x04, 0x00, 0x12, 0x00, 0x01, 0x00, 0x01,
+X   0xc0, 0x07, 0xe0, 0x0f, 0xf0, 0x19, 0xf0, 0x1b, 0xf0, 0x1f, 0xf0, 0x1f,
+X   0xf0, 0x1f, 0xe0, 0x0f, 0xc0, 0x07, 0x00, 0x00};
+X
+Xstatic char ok_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x42, 0x24, 0x22,
+X   0x42, 0x12, 0x42, 0x0a, 0x42, 0x06, 0x42, 0x0a, 0x42, 0x12, 0x24, 0x22,
+X   0x18, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+X#define slider_width 10
+X#define slider_height 25
+Xstatic char slider_bits[] = {
+X   0xff, 0x03, 0x03, 0x03, 0x85, 0x02, 0x79, 0x02, 0x59, 0x02, 0x49, 0x02,
+X   0x69, 0x02, 0x49, 0x02, 0x59, 0x02, 0x49, 0x02, 0x69, 0x02, 0x49, 0x02,
+X   0x79, 0x02, 0x49, 0x02, 0x69, 0x02, 0x49, 0x02, 0x59, 0x02, 0x49, 0x02,
+X   0x69, 0x02, 0x49, 0x02, 0x59, 0x02, 0x79, 0x02, 0x85, 0x02, 0x03, 0x03,
+X   0xff, 0x03};
+X
+X#define icon_width 40
+X#define icon_height 40
+Xstatic char icon_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0xb8, 0x00, 0x00,
+X   0x00, 0x00, 0x7c, 0x00, 0x00, 0x00, 0x80, 0xad, 0x00, 0x00, 0x7d, 0x61,
+X   0x5f, 0x00, 0xc0, 0xaf, 0xc7, 0x07, 0x00, 0x70, 0x7d, 0x7d, 0x0f, 0x00,
+X   0xb8, 0xab, 0xdf, 0x15, 0x00, 0xf6, 0x6e, 0x7a, 0x1f, 0x00, 0x5d, 0xb7,
+X   0xba, 0x0b, 0x00, 0xfb, 0x4a, 0xda, 0x06, 0x80, 0xae, 0x37, 0xf4, 0x03,
+X   0x40, 0x7b, 0x95, 0xe8, 0x05, 0x80, 0xdf, 0x16, 0x50, 0x03, 0xc0, 0x7a,
+X   0x2b, 0xd2, 0x05, 0xc0, 0xd7, 0x96, 0x50, 0x0f, 0xa0, 0xfe, 0x55, 0xaa,
+X   0x05, 0xe0, 0xab, 0xae, 0x64, 0x0f, 0x40, 0xff, 0x55, 0xb5, 0x0d, 0xe0,
+X   0x55, 0x7f, 0x6d, 0x0f, 0xa0, 0xff, 0xaa, 0xf5, 0x05, 0xe0, 0x55, 0xef,
+X   0xbe, 0x0e, 0x40, 0xff, 0x5d, 0xeb, 0x0b, 0xc0, 0x56, 0xf7, 0xbd, 0x06,
+X   0xe0, 0xfb, 0xae, 0xf7, 0x0b, 0x80, 0xbe, 0xfb, 0x5a, 0x05, 0x80, 0xeb,
+X   0x6e, 0xef, 0x03, 0x80, 0xbd, 0xdb, 0xfb, 0x02, 0x00, 0x77, 0x6f, 0xaf,
+X   0x01, 0x00, 0xdc, 0xfb, 0xf5, 0x00, 0x00, 0x76, 0xad, 0x5f, 0x00, 0x00,
+X   0xb8, 0xff, 0x35, 0x00, 0x00, 0xe0, 0xaa, 0x2e, 0x00, 0x00, 0x54, 0xff,
+X   0x57, 0x01, 0xa0, 0xaa, 0xaa, 0xaa, 0x0a, 0x00, 0x55, 0x55, 0x55, 0x00,
+X   0x00, 0xa0, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+X
+X#define Border 4
+X#define SliderHeight slider_height
+X#define SliderWidth 128
+X#define ControlHeight (SliderHeight + Border)
+X#define ControlWidth (SliderWidth + 50)
+X
+X#define WindowWidth(x) max(((x) * cell_width + (Border << 1)), ControlWidth)
+X#define WindowHeight(x) ((x) * cell_height + (Border << 1) + ControlHeight)
+X#define MinRows 6
+X#define MinCols 6
+X
+X#define MINHEIGHT WindowHeight(MinRows)
+X#define MINWIDTH WindowWidth(MinCols)
+X
+X#define ds() DefaultScreen(display)
+X#define rw() RootWindow(display, ds())
+X#define black() BlackPixel(display, ds())
+X#define white() WhitePixel(display, ds())
+X
+X/* special values for a square. */
+X#define Bomb -1
+X#define Ok -2 /* never used for "actual" */
+X#define Void -3  /* never used for "actual" */
+X
+Xtypedef struct {
+X    int row, col; /* address of this cell */
+X    int disp, actual; /* contents of this cell */
+X    int mark; /* used for determining a legitimate game. */
+X} Cell;
+X
+Xtypedef struct {
+X    int numrows, numcols;
+X    Cell *cells;
+X} Board;
+X
+XBoard board;
+Xunsigned int depth;
+XPixmap BombIcon, OkIcon, SliderIcon, IconIcon;
+Xenum {initializing, playing, won, lost} game_state;
+X
+X/* returns the cell (x, y) of a board. */
+X#define Square(board, x, y) ((board).cells[(x) * (board).numcols + (y)])
+X
+XDisplay *display;
+XWindow win;
+XGC gc;
+Xint width, height; /* window dimensions */
+X
+Xstruct {
+X    int xcells, ycells;
+X    int maxbombs;
+X    int bombcount;
+X} configuration;
+X
+XNewConfig(r, c)
+X{
+X    configuration.xcells = c;
+X    configuration.ycells = r;
+X    configuration.maxbombs = (c * r) / 2;
+X    if (configuration.bombcount > configuration.maxbombs)
+X	configuration.bombcount = configuration.maxbombs;
+X}
+X
+Xint rest(usec) unsigned long usec;
+X{
+X    struct timeval timeout;
+X
+X    if (!usec) return 0;
+X    timeout.tv_usec = usec % (unsigned long) 1000000;
+X    timeout.tv_sec = usec / (unsigned long) 1000000;
+X    select(0, (void *) 0, (void *) 0, (void *) 0, &timeout);
+X    return 0;
+X}
+X
+XNewBoard()
+X{
+X    int i, j, nr, nc;
+X    Cell *c;
+X
+X    nr = configuration.ycells;
+X    nc = configuration.xcells;
+X    if (board.cells && board.numrows * board.numcols != nr * nc) {
+X	free(board.cells);
+X	board.cells = 0; }
+X    board.numrows = nr, board.numcols = nc;
+X    if (!board.cells)
+X	board.cells =
+X	    (Cell *) malloc(sizeof(Cell) * nr * nc);
+X    for (c = board.cells, i = 0; i < nr; i++)
+X	for (j = 0; j < nc; j++, c++) {
+X	    c->row = i;
+X	    c->col = j;
+X	    c->disp = Void;
+X	    c->actual = 0;
+X	    c->mark = 0; }
+X}
+X
+X#define ForEachNeighbor(cell) \
+X    int i, j, minr, maxr, minc, maxc; Cell *c2; \
+X    minr = max(0, (cell)->row - 1); \
+X    maxr = min(board.numrows - 1, (cell)->row + 1); \
+X    minc = max(0, (cell)->col - 1); \
+X    maxc = min(board.numcols - 1, (cell)->col + 1); \
+X    for ( i = minr; i <= maxr; i++) \
+X	for (j = minc, c2 = &Square(board, i, j); \
+X	     j <= maxc; j++, c2 = &Square(board, i, j))
+X
+XSearch(r, c)
+X{
+X    Cell *cell;
+X
+X    if (r == board.numrows - 1 && c == board.numcols - 1)
+X	return 1;
+X    cell = &Square(board, r, c);
+X    cell->mark = 1;
+X    {ForEachNeighbor(cell)
+X	 if (!c2->mark && c2->actual >= 0 && Search(i, j))
+X	     return 1; }
+X    return 0;
+X}
+X
+XPlaceBombs()
+X{
+X    int i;
+X    int r, c, nr, nc;
+X    Cell *cell;
+X
+X    nr = board.numrows;
+X    nc = board.numcols;
+X    while (1) {
+X	for (i = configuration.bombcount; i--; ) {
+X	    do {r = random() % nr;
+X		c = random() % nc;
+X		cell = &Square(board, r, c); }
+X	    while ((r < 2 && c < 2) || (nr - r < 3 && nc - c < 3) ||
+X		   cell->actual == Bomb);
+X	    cell->actual = Bomb;
+X	    {ForEachNeighbor(cell) {
+X		if (c2->actual != Bomb)
+X		    c2->actual++; }}}
+X	/* we built a board.  Search for a solution. */
+X	for (i = nr * nc, cell = board.cells; i--; cell++)
+X	    cell->mark = 0;
+X	if (Search(0, 0)) break; /* if solution found, return to caller. */
+X	for (i = nr * nc, cell = board.cells; i--; cell++)
+X	    cell->actual = 0; }
+X}
+X
+X/* 0 means normal move.  1 means guess a bomb.  2 means print "ok" */
+XShowCell(r, c, flag) int r, c; int flag;
+X{
+X    Cell *cell;
+X    char s[3];
+X
+X    cell = &Square(board, r, c);
+X    switch (flag) {
+X      case 0: cell->disp = cell->actual; break;
+X      case 1: cell->disp = cell->disp == Bomb ? Void : Bomb; break;
+X      case 2: cell->disp = Ok; }
+X
+X    if (cell->disp == Void) {
+X	XSetForeground(display, gc, white());
+X	XFillRectangle(display, win, gc,
+X		       Border + c * cell_width + 1,
+X		       Border + r * cell_height + 1,
+X		       cell_width - 1, cell_height - 1);
+X	XSetForeground(display, gc, black()); }
+X    else if (cell->disp == Bomb) {
+X	XSetFunction(display, gc, GXcopy);
+X	XCopyArea(display, BombIcon, win, gc, 0, 0,
+X		  cell_width - 1, cell_height - 1,
+X		  Border + c * cell_width + 1, Border + r * cell_height + 1); }
+X    else if (cell->disp == Ok) {
+X	XSetFunction(display, gc, GXcopy);
+X	XCopyArea(display, OkIcon, win, gc, 0, 0,
+X		  cell_width - 1, cell_height - 1,
+X		  Border + c * cell_width + 1, Border + r * cell_height + 1); }
+X    else {
+X	if (cell->disp > 0) {
+X	    s[0] = '0' + cell->disp;
+X	    s[1] = 0;
+X	    XDrawString(display, win, gc,
+X			c * cell_width + Border + (cell_width >> 1) - 4,
+X			(r + 1) * cell_height + Border - 4, s, 1); }
+X	XSetFunction(display, gc, GXinvert);
+X	XFillRectangle(display, win, gc,
+X		       Border + c * cell_width + 1,
+X		       Border + r * cell_height + 1,
+X		       cell_width, cell_height);
+X	XSetFunction(display, gc, GXcopy); }
+X}
+X
+XShowBombs()
+X{
+X    int i, j;
+X    Cell *c;
+X
+X    for (i = 0, c = board.cells; i < board.numrows; i++)
+X	for (j = 0; j < board.numcols; j++, c++) {
+X	    if (c->actual == Bomb) ShowCell(i, j, 0);
+X	    else if (c->disp == Bomb) ShowCell(i, j, 2); }
+X}
+X
+XWin()
+X{
+X    game_state = won;
+X    ShowBombs();
+X}
+X
+XLose()
+X{
+X    int i;
+X
+X    game_state = lost;
+X
+X    ShowBombs();
+X    XSetFunction(display, gc, GXinvert);
+X    for (i = 6; i--; ) {
+X	XFillRectangle(display, win, gc, 0, 0, width, height);
+X	rest(250); }
+X    XSetFunction(display, gc, GXcopy);
+X}
+X
+XClaimSquare(r, c)
+X{
+X    Cell *cell;
+X
+X    cell = &Square(board, r, c);
+X    if (cell->actual != Bomb && cell->disp == Bomb) {
+X	/* player guessed wrong.  Erase the bomb first. */
+X	ShowCell(r, c, 1); }
+X    ShowCell(r, c, 0);
+X    if (r == board.numrows - 1 && c == board.numcols - 1) Win();
+X    else if (cell->actual == Bomb) Lose();
+X    if (cell->disp == 0) {
+X	ForEachNeighbor(cell)
+X	    if (c2->disp == Void || c2->disp == Bomb)
+X		ClaimSquare(i, j); }
+X}
+X
+XDrawGrid()
+X{
+X    int i;
+X
+X    /* ResizeWindow(); */
+X
+X    XSetForeground(display, gc, white());
+X    XFillRectangle(display, win, gc, 0, 0, width, height);
+X    XSetForeground(display, gc, black());
+X    for (i = Border + (board.numrows * cell_width); i > 0 ; i -= cell_width) {
+X	XDrawLine(display, win, gc, Border, i, width - Border, i); }
+X    for (i = Border + (board.numcols * cell_height); i > 0; i -= cell_height) {
+X	XDrawLine(display, win, gc,
+X		  i, Border, i, height - Border - ControlHeight); }
+X}
+X
+Xint slider_position;
+XDrawSlider(val) int val;
+X{
+X    int sp;
+X    char buf[10];
+X
+X    if (val < 0) val = configuration.bombcount;
+X    sp = ((SliderWidth - slider_width) * val) / configuration.maxbombs;
+X    XDrawRectangle(display, win, gc, Border,
+X		   height - ControlHeight + (slider_height >> 1) - 2,
+X		   SliderWidth, 4);
+X    XCopyArea(display, SliderIcon, win, gc, 0, 0,
+X	      slider_width, slider_height,
+X	      Border + sp, height - ControlHeight);
+X    sprintf(buf, "%d", val);
+X    XDrawString(display, win, gc, SliderWidth + (Border << 1),
+X		height - Border, buf, strlen(buf));
+X    slider_position = sp;
+X}
+X
+XUpdateSlider(val) int val;
+X{
+X    XSetForeground(display, gc, white());
+X    XFillRectangle(display, win, gc,
+X		   Border + slider_position, height - ControlHeight,
+X		   slider_width, slider_height);
+X    XFillRectangle(display, win, gc,
+X		   (Border << 1) + SliderWidth, height - ControlHeight,
+X		   50, ControlHeight);
+X    XSetForeground(display, gc, black());
+X    DrawSlider(val);
+X}
+X
+XShowBoard()
+X{
+X    int i, j;
+X    Cell *c;
+X
+X    DrawGrid();
+X    for (i = 0, c = board.cells; i < board.numrows; i++)
+X	for (j = 0; j < board.numcols; j++, c++)
+X	    if (c->disp != Void) ShowCell(i, j, 0);
+X    DrawSlider(-1);
+X}    
+X
+XNewGame()
+X{
+X    game_state = playing;
+X    NewBoard();
+X    DrawGrid();
+X    PlaceBombs();
+X    ClaimSquare(0, 0);
+X    DrawSlider(-1);
+X}
+X
+XRule1()
+X{
+X    int b, v, n, pctr;
+X    Cell *c;
+X
+X    for (c = board.cells, pctr = board.numrows * board.numcols;
+X	 pctr--; c++) {
+X	if (c->disp == Void) continue;
+X	b = v = n = 0;
+X	{ForEachNeighbor(c) {
+X	    if (c2 == c) continue;
+X	    n++;
+X	    if (c2->disp == Bomb) b++;
+X	    if (c2->disp == Void) v++; }}
+X	if (v == 0) continue;
+X	if (c->actual == b) {
+X	    ForEachNeighbor(c)
+X		if (c2->disp == Void)
+X		    ClaimSquare(i, j);
+X	    return 1; }
+X	else if (c->actual == v + b) {
+X	    ForEachNeighbor(c)
+X		if (c2->disp == Void)
+X		    ShowCell(i, j, 1); /* it's a bomb */
+X	    return 1; }}
+X    return 0;
+X}
+X
+XSolve()
+X{
+X    if (game_state != playing) {
+X	NewGame();
+X	XFlush(display);
+X	rest(5000); }
+X
+X    /* apply rule 1 when possible.  If rule 1 cannot make progress,
+X       apply rule 2.  If this fails, return. */
+X    while (game_state == playing && (Rule1() /* || Rule2() */)) {
+X	XFlush(display);
+X	rest(5000); }
+X}
+X
+X/* flag is false for move, true for bomb guess */
+XMouseSquare(pe, flag) XEvent *pe; int flag;
+X{
+X    int r, c;
+X    Cell *cell;
+X
+X    r = ((pe->xbutton.y - Border + cell_height) / cell_height) - 1;
+X    c = ((pe->xbutton.x - Border + cell_width) / cell_width) - 1;
+X    if (r < 0 || r >= board.numrows ||
+X	c < 0 || c >= board.numcols) {
+X	return 0; }
+X
+X    if (game_state != playing) return 1;
+X
+X    cell = &Square(board, r, c);
+X    if (cell->disp != Void && (cell->disp != Bomb || !flag)) return 1; 
+X
+X    if (flag) ShowCell(r, c, 1);
+X    else {
+X	ForEachNeighbor(cell)
+X	    if (c2->disp >= 0) {
+X		ClaimSquare(r, c);
+X		return 1; }
+X	/* beep(); */ }
+X    return 1;
+X}
+X
+XMouseControl(evt) XEvent *evt;
+X{
+X    Window rt, kid;
+X    int rx, ry, x, y, nb, ov;
+X    unsigned int msk;
+X
+X    if (evt->xbutton.y > height - ControlHeight &&
+X	evt->xbutton.x < ControlWidth + Border) {
+X	ov = -1;
+X	nb = configuration.bombcount;
+X	while (!XCheckTypedEvent(display, ButtonRelease, evt)) {
+X	    XQueryPointer(display, win, &rt, &kid, &rx, &ry, &x, &y, &msk);
+X	    nb = ((x - Border) * configuration.maxbombs) /
+X		(SliderWidth- slider_width); 
+X	    if (nb > configuration.maxbombs) nb = configuration.maxbombs;
+X	    else if (nb < 0) nb = 0;
+X	    if (ov == nb) continue;
+X	    ov = nb;
+X	    UpdateSlider(nb); }
+X	if (nb != configuration.bombcount) {
+X	    configuration.bombcount = nb;
+X	    NewGame(); }}
+X}
+X
+X#define BUFSIZE 4
+X
+XProcessEvents()
+X{
+X    XEvent pe;
+X    char buf[BUFSIZE];
+X
+X    while(1) {
+X	XNextEvent(display, &pe);
+X	switch(pe.type) {
+X	  case Expose:
+X	    XSetForeground(display, gc, black());
+X	    if (game_state == initializing) NewGame();
+X	    else ShowBoard();
+X	    break;
+X	  case ConfigureNotify: {
+X	      int nr, nc;
+X	      width = pe.xconfigure.width;
+X	      height = pe.xconfigure.height;
+X	      nr = (height - ControlHeight - (Border << 1)) / cell_height;
+X	      nc = (width - (Border << 1)) / cell_width;
+X	      if (configuration.xcells != nc || configuration.ycells != nr) {
+X		  NewConfig(nr, nc);
+X		  NewGame(); }}
+X	    break;
+X	  case KeyPress:		
+X	    XLookupString((XKeyEvent *) &pe, buf, BUFSIZE, NULL, NULL);
+X	    switch(tolower(buf[0])) {
+X	      case 's':
+X		Solve();
+X		break;
+X	      case 'q':
+X		XDestroyWindow(display, win);
+X		XFreeGC(display, gc);
+X		XCloseDisplay(display);
+X		exit(0);
+X	      case 'n':
+X		NewGame();
+X		break; }
+X	    break;
+X	  case ButtonPress:
+X	    switch(pe.xbutton.button) {
+X	      case Button1:
+X	      case Button2:
+X		if (!MouseSquare(&pe, pe.xbutton.button == Button2))
+X		    MouseControl(&pe);
+X		break;
+X	      case Button3:
+X		NewGame();
+X		break; }
+X	    break;
+X	  case ButtonRelease:
+X	  case GraphicsExpose:
+X	  case NoExpose:
+X	  case ReparentNotify:
+X	  case MapNotify:
+X	  case UnmapNotify:
+X	    break;
+X	  default:
+X	    printf("event %d.\n", pe.type); }
+X	XFlush(display); }
+X}
+X
+XBuildWindow(argc, argv) int argc; char *argv[];
+X{
+X    Pixmap pm;
+X    GC gc2;
+X    XColor color;
+X    XSizeHints hints;
+X
+X    IconIcon = XCreatePixmapFromBitmapData(display, rw(), icon_bits,
+X					   icon_width, icon_height, 1, 0, 1);
+X    BombIcon = XCreatePixmapFromBitmapData(display, rw(), bomb_bits,
+X					   cell_width - 1, cell_height - 1,
+X					   black(), white(), depth);
+X    OkIcon = XCreatePixmapFromBitmapData(display, rw(), ok_bits,
+X					   cell_width - 1, cell_height - 1,
+X					   black(), white(), depth);
+X    SliderIcon = XCreatePixmapFromBitmapData(display, rw(), slider_bits,
+X					     slider_width, slider_height,
+X					     black(), white(), depth);
+X
+X    width = WindowWidth(configuration.xcells);
+X    height = WindowHeight(configuration.ycells);
+X    win = XCreateSimpleWindow(display, rw(), 0, 0, width, height,
+X			      2, black(), white());
+X    hints.min_width = MINWIDTH;
+X    hints.min_height = MINHEIGHT;
+X    hints.width_inc = cell_width;
+X    hints.height_inc = cell_height;
+X    hints.flags = PMinSize | PResizeInc;
+X    XSetStandardProperties(display, win, "boom", "mines", IconIcon,
+X			   argv, argc, &hints);
+X    XSelectInput(display, win,
+X		 ExposureMask | ButtonPressMask | ButtonReleaseMask |
+X		 KeyPressMask | StructureNotifyMask);
+X    gc = XCreateGC(display, win, 0, 0);
+X    XSetPlaneMask(display, gc, black());
+X    XMapWindow(display, win);
+X
+X}
+X
+XInstallDefaults()
+X{
+X    configuration.bombcount = 30;
+X    NewConfig(16, 16);
+X}
+X
+Xchar *ProgramName;
+X
+Xusage()
+X{
+X    fprintf(stderr, "\nusage: %s\n", ProgramName);
+X    exit(-1);
+X}
+X
+XParseOptions(argc, argv) int argc; char *argv[];
+X{
+X#if 0
+X    for (argc--, argv++; argc--; argv++) {
+X	if (**argv != '-') usage();
+X 	else switch(*(*argv + 1)) {
+X	  /* default: ignore */  }}
+X#endif
+X}
+X
+Xmain(argc, argv) int argc; char *argv[];
+X{
+X    int x, y;
+X    unsigned int width, height, bwidth;
+X    Window root;
+X
+X    ProgramName = *argv;
+X    board.cells = 0;
+X    game_state = initializing;
+X
+X    if (!(display = XOpenDisplay(NULL))) {
+X	perror("Cannot open display\n");
+X	exit(-1); }
+X
+X    if (!(XGetGeometry(display, rw(),
+X                       &root, &x, &y, &width, &height, &bwidth, &depth))) {
+X        fprintf(stderr, "Cannot get root window geometry\n");
+X        exit (-1); }
+X
+X    InstallDefaults();
+X    ParseOptions(argc, argv);
+X    BuildWindow(argc, argv);
+X
+X    srandom(time(0));
+X
+X    ProcessEvents();
+X}
+SHAR_EOF
+true || echo 'restore of mines.c failed'
+fi
+# ============= mines.man ==============
+if test -f 'mines.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping mines.man (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'mines.man' &&
+X.TH MINES 1L "1 Sep 1992"
+X.SH NAME
+Xmines \- play in a mine field
+X.SH SYNTAX
+X.B glcheck
+X.SH DESCRIPTION
+X
+XThe mines game is played on a grid.  Every cell of the grid either has
+Xa bomb on it, or it doesn't.  If you move onto a cell that has a bomb
+Xon it, you lose your leg.  If you move onto a cell that doesn't have a
+Xbomb on it, a integer between 0 and eight will be displayed, letting
+Xyou know how many bombs are in cells adjecent to the one you just
+Xmoved to.  (Adjecent, in this game, means one cell away in any
+Xdirection: up, down, left, right, or diagonal.)  Zeros are displayed
+Xas blanks, to avoid cluttering the display.  Additionally, since you
+Xcan obviously move in any direction from a zero, you automatically
+Xclaim the territory adjacent to cells which are blank.  You are only
+Xallowed to move to cells adjacent to ones you already own.  Cells you
+Xown are indicated by being printed in black; ones you don't own are in
+Xwhite.  The object of the game is to (eventually) claim the lower
+Xright hand corner of the grid.
+X
+XThe left button is for claiming new territory.  The right button
+Xstarts a new game.  The middle button displays a bomb.  This is a note
+Xto yourself about where you think a bomb is; there is no feedback as
+Xto whether you have guessed right or not.
+X
+XKeyboard entries: 'n' gives you a new game. 'q' quits the program.
+X's' cheats.  plays the game with the same information you have and
+Xsome very simple rules.  Doesn't win every winable game, but it does
+Xsave stupid mistakes.
+X
+XThe slider at the bottom of the window is for adjusting how many mines
+Xyou have in the grid.  You can also resize the window if you want to
+Xplay on a grid of a different size.  The maximum number of bombs you
+Xcan have is half the number of cells in the grid.
+SHAR_EOF
+true || echo 'restore of mines.man failed'
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+else
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+X/* patchlevel.h */
+X
+X#define PATCHLEVEL 0
+SHAR_EOF
+true || echo 'restore of patchlevel.h failed'
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

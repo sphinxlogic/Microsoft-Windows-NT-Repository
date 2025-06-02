@@ -1,0 +1,1581 @@
+Path: uunet!paladin.american.edu!gatech!swrinde!mips!msi!dcmartin
+From: liebla@informatik.tu-muenchen.de (Armin Liebl)
+Newsgroups: comp.sources.x
+Subject: v18i110: bibview - BibTeX GUI, Part12/20
+Message-ID: <1992Aug27.161631.25781@msi.com>
+Date: 27 Aug 92 16:16:31 GMT
+References: <csx-18i099-bibview@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1568
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 110
+Archive-name: bibview/part12
+
+#!/bin/sh
+# this is part.12 (part 12 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file db_tree.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 12; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping db_tree.c'
+else
+echo 'x - continuing file db_tree.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'db_tree.c' &&
+X               if (StringPeteIsEmpty(c->publisher)) return DBT_EPUBLISHER;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case incollection:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->booktitle)) return DBT_EBOOKTITLE;
+X               if (StringPeteIsEmpty(c->publisher)) return DBT_EPUBLISHER;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case inproceedings:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->booktitle)) return DBT_EBOOKTITLE;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case manual:
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               break;
+X         case mastersthesis:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->school)) return DBT_ESCHOOL;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case misc:
+X               break;
+X         case phdthesis:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->school)) return DBT_ESCHOOL;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case proceedings:
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case techreport:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->institution)) return DBT_EINSTITUTION;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case unpublished:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->note)) return DBT_ENOTE;
+X               break;
+X    }
+X    return DBT_OK;
+}
+X
+X
+/*********************************************************************/
+/* checkCards:                                                       */
+/*    Descends tree and appends illegal cards to list                */
+/*********************************************************************/
+static Errcode
+checkCards (AvlNode *tree, CardListNode **list)
+{
+Errcode status;
+X
+X   if ((tree !=NULL) && (tree != (AvlNode *)1)) {                 
+X      if (tree->left) {
+X         if ((status = checkCards(tree->left, list)) != DBT_OK)
+X	    return(status);
+X      }
+X
+X      if (dbtTestCard(tree->data) != DBT_OK) { 
+X         if ((status = CardListAppend(list, tree->data)) != DBT_OK)
+X	    return(status);
+X      }
+X
+X      if (tree->right) { 
+X         if ((status = checkCards(tree->right, list)) != DBT_OK)
+X	    return(status);
+X      }
+X   }
+X   return(DBT_OK);
+}
+X
+X
+/*********************************************************************/
+/* dbtCheckAllCards:                                                 */
+/*    Checks tree and returns list of illegal cards                  */
+/*********************************************************************/
+Errcode 
+dbtCheckAllCards (int treeIdx, CardListNode **list)
+{
+X   return(checkCards(TreeRoots[treeIdx], list));
+}
+X
+X
+X
+/*********************************************************************/
+/* AVL - TREE FUNCTIONS                                              */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* Errcode CopyCard(CardData **c, CardData *c2):                        */
+/* Inhalt von c2 nach c kopieren                                     */
+/*********************************************************************/
+Errcode CopyCard(CardData **c, CardData *c2)
+{
+X  CardData *c1;
+X
+X  if (*c == NULL) dbtMakeCard(c);
+X  else {                  /* NEU: 16.02.92 */
+X    dbtDeleteCard(c); 
+X    dbtMakeCard(c);
+X  }
+X  c1 = *c;
+X  c1->cardtype = c2->cardtype;
+X  Scalloc(&c1->cardtypestr, c2->cardtypestr); 
+X  Scalloc(&c1->category, c2->category);
+X  Scalloc(&c1->key, c2->key);
+X  Scalloc(&c1->mainkey, c2->mainkey);  /* NEU */
+X  Scalloc(&c1->crossref, c2->crossref);  /* NEU */
+X  Scalloc(&c1->month, c2->month);
+X  Scalloc(&c1->note, c2->note);
+X  Scalloc(&c1->annote, c2->annote);
+X  Scalloc(&c1->title, c2->title);
+X  Scalloc(&c1->year, c2->year);
+X  dbtMakeAndCopyUserFld(&c1->ufield, c2->ufield);
+X  switch (c2->cardtype) {
+X        case article:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->journal, c2->journal);
+X               Scalloc(&c1->volume, c2->volume);
+X               Scalloc(&c1->number, c2->number);
+X               Scalloc(&c1->pages, c2->pages);
+X               break;
+X         case book:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->volume, c2->volume);
+X               Scalloc(&c1->series, c2->series);
+X               Scalloc(&c1->address, c2->address);
+X               Scalloc(&c1->edition, c2->edition);
+X               break;
+X          case booklet:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->howpublished, c2->howpublished);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case conference:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->booktitle, c2->booktitle);
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->pages, c2->pages);
+X               Scalloc(&c1->organization, c2->organization);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case inbook:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->chapter, c2->chapter);
+X               Scalloc(&c1->pages, c2->pages);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->volume, c2->volume);
+X               Scalloc(&c1->series, c2->series);
+X               Scalloc(&c1->address, c2->address);
+X               Scalloc(&c1->edition, c2->edition);
+X               break;
+X          case incollection:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->booktitle, c2->booktitle);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->chapter, c2->chapter);
+X               Scalloc(&c1->pages, c2->pages);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case inproceedings:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->booktitle, c2->booktitle);
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->pages, c2->pages);
+X               Scalloc(&c1->organization, c2->organization);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case manual:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->organization, c2->organization);
+X               Scalloc(&c1->address, c2->address);
+X               Scalloc(&c1->edition, c2->edition);
+X               break;
+X          case mastersthesis:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->school, c2->school);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case misc:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->howpublished, c2->howpublished);
+X               break;
+X          case phdthesis:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->school, c2->school);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case proceedings:
+X               Scalloc(&c1->editor, c2->editor);
+X               Scalloc(&c1->publisher, c2->publisher);
+X               Scalloc(&c1->organization, c2->organization);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case techreport:
+X               Scalloc(&c1->author, c2->author);
+X               Scalloc(&c1->institution, c2->institution);
+X               Scalloc(&c1->type, c2->type);
+X               Scalloc(&c1->number, c2->number);
+X               Scalloc(&c1->address, c2->address);
+X               break;
+X          case unpublished:
+X               Scalloc(&c1->author, c2->author);
+X               break;
+X  };
+X  return DBT_OK;
+}
+X            
+X
+/*********************************************************************/
+/* int KeyCompare(char *s1, char *s2):                               */
+/* Die Strings s1 und s2 werden verglichen                           */
+/*********************************************************************/
+X
+int KeyCompare(char *s1, char *s2)
+{
+X int erg;
+X
+X erg = strcmp(s1, s2);
+X if (erg > 0) return KEY_GREATER;
+X if (erg < 0) return KEY_LESS;
+X return KEY_EQUAL;
+}
+X
+X
+X
+/*********************************************************************/
+/*Errcode Insert(int treeIdx, AvlNode **tree, CardData *card, int *h)*/
+/* card wird in tree eingefuegt                                      */
+/*********************************************************************/
+Errcode Insert(int treeIdx, AvlNode **tree, CardData *card, int *h)
+{
+X  CardData *helpcard;
+X  AvlNode *hnode1, *hnode2, *htree;
+X
+X  htree = *tree;
+X  if ( htree == NULL || htree == (AvlNode *)1) {
+X    htree = (AvlNode *)calloc(1,sizeof(AvlNode));
+X    if (htree == NULL) return DBT_ECALLOC; 
+X    *h = TREE_BIGGER;
+X    htree->balance = TREES_EQUAL;
+X    htree->left = NULL;
+X    htree->right = NULL;
+X    htree->data = NULL;
+X    /* KEY generieren */
+X    if (StringPeteIsEmpty(card->mainkey) == 1) {
+X      if (card->mainkey != NULL) free(card->mainkey);
+X      if (StringPeteIsEmpty(card->key) == 0) {
+X        Scalloc(&card->mainkey, card->key);  
+X      }
+X      else {
+X        card->mainkey = (String)calloc(1,25);
+X        if (StringPeteIsEmpty(card->title) == 1) {
+X          if (StringPeteIsEmpty(card->author) == 0) {
+X            strncpy(card->key, card->author, 20);
+X          }
+X          strcpy(card->mainkey, "UNKNOWN");
+X        }
+X        else {
+X              strncpy(card->mainkey, card->title, 20);
+X        }
+X        strcat(card->mainkey, ":");
+X        if (StringPeteIsEmpty(card->year) == 0) strcat(card->mainkey, card->year);
+X        StrToLower(card->mainkey);
+X      }
+X    }
+X
+X
+X    CopyCard(&htree->data, card); 
+X    if(TreeRoots[treeIdx] == NULL || TreeRoots[treeIdx] == (AvlNode *)1) {
+X        TreeRoots[treeIdx] = htree;
+X    }
+X    *tree = htree;
+X  }
+X  else {
+X    helpcard = htree->data; 
+X    switch (KeyCompare(card->mainkey, helpcard->mainkey)) {
+X      case KEY_LESS:
+X          Insert(treeIdx, &htree->left, card, h);
+X          if (*h == TREE_BIGGER) {
+X            switch(htree->balance) {
+X               case RIGHT_TREE_GREATER:
+X                  htree->balance = TREES_EQUAL;
+X                  *h = TREE_LIKE_BEFORE;
+X                  break;
+X               case TREES_EQUAL:
+X                  htree->balance = LEFT_TREE_GREATER;
+X                  break;
+X               case LEFT_TREE_GREATER:
+X                  hnode1 = htree->left;
+X                  if (hnode1->balance == LEFT_TREE_GREATER) {
+X                    htree->left = hnode1->right;
+X                    hnode1->right = htree;
+X                    htree->balance = TREES_EQUAL;
+X                    *tree = htree = hnode1;
+X                  }
+X                  else {
+X                    hnode2 = hnode1->right;
+X                    hnode1->right = hnode2->left;
+X                    hnode2->left = hnode1;
+X                    htree->left = hnode2->right;
+X                    hnode2->right = htree;
+X                    if (hnode2->balance == LEFT_TREE_GREATER)
+X                      htree->balance = RIGHT_TREE_GREATER;
+X                    else
+X                      htree->balance = TREES_EQUAL;
+X                    if (hnode2->balance == RIGHT_TREE_GREATER)
+X                      hnode1->balance = LEFT_TREE_GREATER;
+X                    else
+X                      hnode1->balance = TREES_EQUAL;
+X                    *tree = htree = hnode2;
+X                  }
+X                  htree->balance = TREES_EQUAL;
+X                  *h = TREE_LIKE_BEFORE;
+X                  break;
+X           }
+X        }
+X        break;
+X        case KEY_GREATER:
+X          Insert(treeIdx, &htree->right, card, h);
+X          if (*h == TREE_BIGGER) {
+X            switch(htree->balance) {
+X               case LEFT_TREE_GREATER:
+X                  htree->balance = TREES_EQUAL;
+X                  *h = TREE_LIKE_BEFORE;
+X                  break;
+X               case TREES_EQUAL:
+X                  htree->balance = RIGHT_TREE_GREATER;
+X                  break;
+X               case RIGHT_TREE_GREATER:
+X                  hnode1 = htree->right;
+X                  if (hnode1->balance == RIGHT_TREE_GREATER) {
+X                    htree->right = hnode1->left;
+X                    hnode1->left = htree;
+X                    htree->balance = TREES_EQUAL;
+X                    *tree = htree = hnode1;
+X                  }
+X                  else {
+X                    hnode2 = hnode1->left;
+X                    hnode1->left = hnode2->right;
+X                    hnode2->right = hnode1;
+X                    htree->right = hnode2->left;
+X                    hnode2->left = htree;
+X                    if (hnode2->balance == RIGHT_TREE_GREATER)
+X                      htree->balance = LEFT_TREE_GREATER;
+X                    else
+X                      htree->balance = TREES_EQUAL;
+X                    if (hnode2->balance == LEFT_TREE_GREATER)
+X                      hnode1->balance = RIGHT_TREE_GREATER;
+X                    else
+X                      hnode1->balance = TREES_EQUAL;
+X                    *tree = htree = hnode2;
+X                  }
+X                  htree->balance = TREES_EQUAL;
+X                  *h = TREE_LIKE_BEFORE;
+X            }
+X          }
+X          break;
+X          case KEY_EQUAL:
+X              *h = TREE_LIKE_BEFORE;
+X	      return DBT_EDUPKEY;
+X              break;
+X
+X    }
+X
+X  }
+X  return DBT_OK;
+}
+X
+X
+X
+/*********************************************************************/
+/* Errcode dbtInsert(int treeIdx, CardData *card):                   */
+/* card wird in den AVL-Baum mit dem Index treeIdx eingefuegt        */
+/*********************************************************************/
+X
+Errcode dbtInsert(int treeIdx, CardData *card)
+{
+X  int h;
+X  Errcode erg;
+X
+X  erg = Insert(treeIdx, &TreeRoots[treeIdx], card, &h);
+X  return erg;
+X  
+}
+X
+X
+/*********************************************************************/
+/* Errcode BalanceLeft(int treeIdx, AvlNode **tree, int *h):         */
+/* Falls der linke Teilbaum seine Hoehe veraendert hat, wird er neu  */
+/* balanciert                                                        */
+/*********************************************************************/
+X
+Errcode BalanceLeft(int treeIdx, AvlNode **tree, int *h)
+{
+X   AvlNode *hnode1, *hnode2, *htree;
+X   int b1, b2;
+X
+X   htree = *tree;
+X   switch (htree->balance) {
+X      case  LEFT_TREE_GREATER:
+X         htree->balance = TREES_EQUAL;
+X         break;
+X      case TREES_EQUAL:
+X         htree->balance = RIGHT_TREE_GREATER;
+X         *h = TREE_LIKE_BEFORE;
+X         break;
+X      case RIGHT_TREE_GREATER:
+X         hnode1 = htree->right;
+X         b1 = hnode1->balance;
+X         if (b1 != LEFT_TREE_GREATER) {
+X           htree->right = hnode1->left;
+X           hnode1->left = htree;
+X           if (b1 == TREES_EQUAL) {
+X             htree->balance = RIGHT_TREE_GREATER;
+X             hnode1->balance = LEFT_TREE_GREATER;
+X             *h = TREE_LIKE_BEFORE;
+X           }
+X           else {
+X             htree->balance = TREES_EQUAL;
+X             hnode1->balance = TREES_EQUAL;
+X           }
+X           htree = hnode1;   /* NEU: 16.02.92 */
+X         }
+X         else {
+X           hnode2 = hnode1->left;
+X           b2 = hnode2->balance;
+X           hnode1->left = hnode2->right;
+X           hnode2->left = htree;
+X           if (b2 == RIGHT_TREE_GREATER) htree->balance = LEFT_TREE_GREATER;
+X           else htree->balance = TREES_EQUAL;
+X           if (b2 == LEFT_TREE_GREATER) hnode1->balance = RIGHT_TREE_GREATER;
+X           else hnode1->balance = TREES_EQUAL;
+X           htree = hnode2;
+X           hnode2->balance = TREES_EQUAL;
+X        }
+X      }
+X      if (*tree == TreeRoots[treeIdx])
+X	 TreeRoots[treeIdx] = htree; 
+X      *tree = htree;   /* NEU: 16.02.92 */
+X      return DBT_OK;
+}
+X
+X
+X
+X
+/*********************************************************************/
+/* Errcode BalanceRight(int treeIdx, AvlNode **tree, int *h):        */
+/* Falls der rechte Teilbaum seine Hoehe veraendert hat, wird er neu */
+/* balanciert                                                        */
+/*********************************************************************/
+X
+Errcode BalanceRight(int treeIdx, AvlNode **tree, int *h)
+{
+X   AvlNode *hnode1, *hnode2, *htree;
+X   int b1, b2;
+X
+X   htree = *tree;
+X   switch (htree->balance) {
+X      case RIGHT_TREE_GREATER:
+X            htree->balance = TREES_EQUAL;
+X            break;
+X      case TREES_EQUAL:
+X            htree->balance = LEFT_TREE_GREATER;
+X            *h = TREE_LIKE_BEFORE;
+X            break;
+X      case LEFT_TREE_GREATER:
+X            hnode1 = htree->left;
+X            b1 = hnode1->balance;
+X            if (b1 != RIGHT_TREE_GREATER) { 
+X              htree->left = hnode1->right;
+X              hnode1->right = htree;
+X              if (b1 == TREES_EQUAL) {
+X                htree->balance = LEFT_TREE_GREATER;
+X                hnode1->balance = RIGHT_TREE_GREATER;
+X                *h = TREE_LIKE_BEFORE;
+X              }
+X              else {
+X                htree->balance = TREES_EQUAL;
+X                hnode1->balance = TREES_EQUAL;
+X              }
+X              htree = hnode1;   /* NEU: 16.02.92 */
+X            }
+X            else {
+X              hnode2 = hnode1->right;
+X              b2 = hnode2->balance;
+X              hnode1->right = hnode2->left;
+X              hnode2->left = hnode1;
+X              htree->left = hnode2->right;
+X              hnode2->right = htree;
+X              if (b2 == LEFT_TREE_GREATER) htree->balance = RIGHT_TREE_GREATER;
+X              else htree->balance = TREES_EQUAL;
+X              if (b2 == RIGHT_TREE_GREATER) hnode1->balance = LEFT_TREE_GREATER;
+X              else hnode1->balance = TREES_EQUAL;
+X              htree = hnode2;
+X              hnode2->balance = TREES_EQUAL;
+X            }
+X       }
+X      if (*tree == TreeRoots[treeIdx])
+X	 TreeRoots[treeIdx] = htree; 
+X       *tree = htree;   /* NEU: 16.02.92 */
+X       return DBT_OK;
+}
+X
+X    
+X
+/*********************************************************************/
+/* Errcode Del(AvlNode **tree, AvlNode **delnode, int *h):           */
+/* Hilfsfunktion fuer Delete                                         */
+/*********************************************************************/
+X
+Errcode Del(AvlNode **tree, AvlNode **delnode, int *h)
+{
+X  CardData *hc1, *hc2;
+X  AvlNode *hnode1, *hnode2;
+X  Errcode erg;
+X
+X  hnode1 = *tree;
+X  hnode2 = *delnode;
+X   hc1 = hnode1->data;
+/*  hc2 = hnode2->data; */
+X  if (hnode1->right != NULL) {
+X    erg = Del(&hnode1->right, delnode, h);
+X    if (erg!=DBT_OK)
+X       return(erg);
+/*    if (*h == TREE_SMALLER) BalanceRight(tree, h); */
+X  }
+X  else {
+X
+X    erg = CopyCard(&hnode2->data, hc1);
+X
+X    if (erg!=DBT_OK)
+X       return(erg);
+/*
+X    *delnode = *tree;       NEU:16.02.92 
+*/
+X    dbtDeleteCard(&hc1);
+X    *tree = hnode1->left;
+X    free(hnode1);
+X    *h = TREE_SMALLER;
+X  }
+X  return DBT_OK;
+}
+X
+X
+/*********************************************************************/
+/*Errcode Delete(int treeIdx, AvlNode **tree, CardData *card, int *h)*/
+/* card wird, falls vorhanden aus tree geloescht                     */
+/*********************************************************************/
+Errcode Delete(int treeIdx, AvlNode **tree, CardData *card, int *h)
+{
+X  CardData *helpcard;
+X  AvlNode  *htree;
+X
+X  if ( *tree == NULL) {
+X    *h = TREE_LIKE_BEFORE;
+X  }
+X  else {
+X    htree = *tree;
+X    helpcard = htree->data;
+X    
+X    switch (KeyCompare(card->mainkey, helpcard->mainkey)) {
+X      case KEY_LESS:
+X            Delete(treeIdx, &htree->left, card, h);
+X            if (*h == TREE_SMALLER) BalanceLeft(treeIdx, tree, h);
+X            break;
+X      case KEY_GREATER:
+X            Delete(treeIdx, &htree->right, card, h);
+X            if (*h == TREE_SMALLER) BalanceRight(treeIdx, tree, h);
+X            break;
+X      case KEY_EQUAL:
+X            if (htree->right == NULL) {
+X              if (htree == TreeRoots[treeIdx])
+X		 TreeRoots[treeIdx] = htree->left; 
+X              *tree = htree->left;
+X              dbtDeleteCard(&helpcard);
+X	      free(htree);
+X              *h = TREE_SMALLER;
+X            } 
+X            else if (htree->left == NULL) {
+X              if (htree == TreeRoots[treeIdx])
+X		 TreeRoots[treeIdx] = htree->right; 
+X              *tree = htree->right;
+X              dbtDeleteCard(&helpcard);
+X	      free(htree);
+X              *h = TREE_SMALLER;
+X            }
+X            else {
+X              Del(&htree->left, &htree, h);
+X              if (*h == TREE_SMALLER) BalanceLeft(treeIdx, tree, h);
+X            }
+/*
+X            dbtDeleteCard(&helpcard);
+X             htree = *tree;
+X             helpcard = htree->data;
+X            free(htree);  
+*/ 
+X            break;
+X     }
+X  }
+X  return DBT_OK;
+}
+X
+X
+/*********************************************************************/
+/* Errcode dbtDelete(int treeIdx, CardData *card):                   */
+/* card wird aus dem AVL-Baum mit dem Index treeIdx geloescht        */
+/*********************************************************************/
+X
+Errcode dbtDelete(int treeIdx, CardData *card)
+{
+X  int h;
+X  Errcode err;
+X
+X  h = TREE_LIKE_BEFORE;  /* NEU: 15.02.92 */
+X  err = Delete(treeIdx, &TreeRoots[treeIdx], card, &h);
+X  return DBT_OK;   /* nur vorerst */
+}
+X
+X
+X
+/*********************************************************************/
+/* Errcode MakeRegCard(CardData *card, CardData *reg):               */
+/* Die einzelnen reg. Ausdruecke in card werden compiliert und in    */
+/* reg gespeichert                                                   */
+/*********************************************************************/
+X
+Errcode MakeRegCard(CardData *card, CardData *reg)
+{
+X int length;
+X char *endbuf, *erg;
+X
+if (card->address != NULL) {
+X  reg->address = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->address + MAXREGSIZE + 1;
+X  erg = compile(card->address, reg->address, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->address + 1; 
+X  erg = (char *)realloc(reg->address, length); 
+X  reg->address = erg;
+}
+X
+if (card->annote != NULL) {
+X  reg->annote = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->annote + MAXREGSIZE + 1;
+X  erg = compile(card->annote, reg->annote, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->annote + 1; 
+X  erg = (char *)realloc(reg->annote, length); 
+X  reg->annote = erg;
+}
+X
+if (card->author != NULL) {
+X  reg->author = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->author + MAXREGSIZE + 1;
+X  erg = compile(card->author, reg->author, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->author + 1; 
+X  erg = (char *)realloc(reg->author, length); 
+X  reg->author = erg;
+}
+X
+if (card->booktitle != NULL) {
+X  reg->booktitle = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->booktitle + MAXREGSIZE + 1;
+X  erg = compile(card->booktitle, reg->booktitle, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->booktitle + 1; 
+X  erg = (char *)realloc(reg->booktitle, length); 
+X  reg->booktitle = erg;
+}
+X
+if (card->category != NULL) {
+X  reg->category = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->category + MAXREGSIZE + 1;
+X  erg = compile(card->category, reg->category, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->category + 1; 
+X  erg = (char *)realloc(reg->category, length); 
+X  reg->category = erg;
+}
+X
+if (card->chapter != NULL) {
+X  reg->chapter = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->chapter + MAXREGSIZE + 1;
+X  erg = compile(card->chapter, reg->chapter, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->chapter + 1; 
+X  erg = (char *)realloc(reg->chapter, length); 
+X  reg->chapter = erg;
+}
+X
+if (card->edition != NULL) {
+X  reg->edition = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->edition + MAXREGSIZE + 1;
+X  erg = compile(card->edition, reg->edition, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->edition + 1; 
+X  erg = (char *)realloc(reg->edition, length); 
+X  reg->edition = erg;
+}
+X
+if (card->editor != NULL) {
+X  reg->editor = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->editor + MAXREGSIZE + 1;
+X  erg = compile(card->editor, reg->editor, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->editor + 1; 
+X  erg = (char *)realloc(reg->editor, length); 
+X  reg->editor = erg;
+}
+X
+if (card->howpublished != NULL) {
+X  reg->howpublished = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->howpublished + MAXREGSIZE + 1;
+X  erg = compile(card->howpublished, reg->howpublished, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->howpublished + 1; 
+X  erg = (char *)realloc(reg->howpublished, length); 
+X  reg->howpublished = erg;
+}
+X
+if (card->institution != NULL) {
+X  reg->institution = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->institution + MAXREGSIZE + 1;
+X  erg = compile(card->institution, reg->institution, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->institution + 1; 
+X  erg = (char *)realloc(reg->institution, length); 
+X  reg->institution = erg;
+}
+X
+if (card->journal != NULL) {
+X  reg->journal = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->journal + MAXREGSIZE + 1;
+X  erg = compile(card->journal, reg->journal, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->journal + 1; 
+X  erg = (char *)realloc(reg->journal, length); 
+X  reg->journal = erg;
+}
+X
+if (card->key != NULL) {
+X  reg->key = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->key + MAXREGSIZE + 1;
+X  erg = compile(card->key, reg->key, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->key + 1; 
+X  erg = (char *)realloc(reg->key, length); 
+X  reg->key = erg;
+}
+X
+if (card->month != NULL) {
+X  reg->month = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->month + MAXREGSIZE + 1;
+X  erg = compile(card->month, reg->month, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->month + 1; 
+X  erg = (char *)realloc(reg->month, length); 
+X  reg->month = erg;
+}
+X
+if (card->note != NULL) {
+X  reg->note = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->note + MAXREGSIZE + 1;
+X  erg = compile(card->note, reg->note, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->note + 1; 
+X  erg = (char *)realloc(reg->note, length); 
+X  reg->note = erg;
+}
+X
+if (card->number != NULL) {
+X  reg->number = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->number + MAXREGSIZE + 1;
+X  erg = compile(card->number, reg->number, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->number + 1; 
+X  erg = (char *)realloc(reg->number, length); 
+X  reg->number = erg;
+}
+X
+if (card->organization != NULL) {
+X  reg->organization = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->organization + MAXREGSIZE + 1;
+X  erg = compile(card->organization, reg->organization, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->organization + 1; 
+X  erg = (char *)realloc(reg->organization, length); 
+X  reg->organization = erg;
+}
+X
+if (card->pages != NULL) {
+X  reg->pages = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->pages + MAXREGSIZE + 1;
+X  erg = compile(card->pages, reg->pages, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->pages + 1; 
+X  erg = (char *)realloc(reg->pages, length); 
+X  reg->pages = erg;
+}
+X
+if (card->publisher != NULL) {
+X  reg->publisher = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->publisher + MAXREGSIZE + 1;
+X  erg = compile(card->publisher, reg->publisher, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->publisher + 1; 
+X  erg = (char *)realloc(reg->publisher, length); 
+X  reg->publisher = erg;
+}
+X
+if (card->school != NULL) {
+X  reg->school = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->school + MAXREGSIZE + 1;
+X  erg = compile(card->school, reg->school, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->school + 1; 
+X  erg = (char *)realloc(reg->school, length); 
+X  reg->school = erg;
+}
+X
+if (card->series != NULL) {
+X  reg->series = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->series + MAXREGSIZE + 1;
+X  erg = compile(card->series, reg->series, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->series + 1; 
+X  erg = (char *)realloc(reg->series, length); 
+X  reg->series = erg;
+}
+X
+if (card->title != NULL) {
+X  reg->title = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->title + MAXREGSIZE + 1;
+X  erg = compile(card->title, reg->title, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->title + 1; 
+X  erg = (char *)realloc(reg->title, length); 
+X  reg->title = erg;
+}
+X
+if (card->type != NULL) {
+X  reg->type = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->type + MAXREGSIZE + 1;
+X  erg = compile(card->type, reg->type, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->type + 1; 
+X  erg = (char *)realloc(reg->type, length); 
+X  reg->type = erg;
+}
+X
+if (card->volume != NULL) {
+X  reg->volume = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->volume + MAXREGSIZE + 1;
+X  erg = compile(card->volume, reg->volume, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->volume + 1; 
+X  erg = (char *)realloc(reg->volume, length); 
+X  reg->volume = erg;
+}
+X
+if (card->year != NULL) {
+X  reg->year = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->year + MAXREGSIZE + 1;
+X  erg = compile(card->year, reg->year, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->year + 1; 
+X  erg = (char *)realloc(reg->year, length); 
+X  reg->year = erg;
+}
+X
+if (card->mainkey != NULL) {
+X  reg->mainkey = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->mainkey + MAXREGSIZE + 1;
+X  erg = compile(card->mainkey, reg->mainkey, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->mainkey + 1; 
+X  erg = (char *)realloc(reg->mainkey, length); 
+X  reg->mainkey = erg;
+}
+X
+if (card->crossref != NULL) {
+X  reg->crossref = (String)calloc(1,MAXREGSIZE);
+X  endbuf = reg->crossref + MAXREGSIZE + 1;
+X  erg = compile(card->crossref, reg->crossref, endbuf, '\0');
+X  if (erg == NULL) return DBT_ECOMP;
+X  length = erg - reg->crossref + 1; 
+X  erg = (char *)realloc(reg->crossref, length); 
+X  reg->crossref = erg;
+}
+X
+X return DBT_OK;
+}
+X
+X
+X
+X
+X
+/*********************************************************************/
+/* Errcode RegCompCard(CardData *card, CardData *reg):               */
+/* Die einzelnen Strings aus card werden mit den jeweiligen          */
+/* compilierten reg. Ausdruecken aus reg verglichen                  */
+/*********************************************************************/
+Errcode RegCompCard(CardData *card, CardData *reg)
+{
+X int flag, nbOfComp;
+X
+X flag = 1;
+X nbOfComp = 0;
+X if (flag  && reg->address) { 
+X   if (!card->address) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->address, reg->address)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->annote) {
+X   if (!card->annote) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->annote, reg->annote)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->author) {
+X   if (!card->author) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->author, reg->author)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->booktitle) {
+X   if (!card->booktitle) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->booktitle, reg->booktitle)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->category) {
+X   if (!card->category) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->category, reg->category)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->chapter) {
+X   if (!card->chapter) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->chapter, reg->chapter)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->edition) {
+X   if (!card->edition) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->edition, reg->edition)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->editor) {
+X   if (!card->editor) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->editor, reg->editor)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && card->howpublished && reg->howpublished) {
+X   if (!card->howpublished) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->howpublished, reg->howpublished)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->institution) {
+X   if (!card->institution) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->institution, reg->institution)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->journal) {
+X   if (!card->journal) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->journal, reg->journal)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->key) {
+X   if (!card->key) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->key, reg->key)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->month) {
+X   if (!card->month) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->month, reg->month)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->note) { 
+X   if (!card->note) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->note, reg->note)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->number) {
+X   if (!card->number) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->number, reg->number)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->organization) {
+X   if (!card->organization) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->organization, reg->organization)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->pages) { 
+X   if (!card->pages) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->pages, reg->pages)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->publisher) {
+X   if (!card->publisher) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->publisher, reg->publisher)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->school) {
+X   if (!card->school) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->school, reg->school)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->series) {
+X   if (!card->series) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->series, reg->series)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->title) { 
+X   if (!card->title) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->title, reg->title)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->type) {
+X   if (!card->type) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->type, reg->type)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag &&reg->volume) {
+X   if (!card->volume) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->volume, reg->volume)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->year) { 
+X   if (!card->year) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->year, reg->year)) {
+X       flag = 1; 
+X     }
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->mainkey) {
+X   if (!card->mainkey) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->mainkey, reg->mainkey)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag && reg->crossref) { 
+X   if (!card->crossref) return DBT_ENOMATCH;
+X   else {
+X     if (step(card->crossref, reg->crossref)) flag = 1; 
+X     else flag = 0;
+X     nbOfComp++;
+X   }
+X }
+X if (flag == 1 && nbOfComp > 0) return DBT_OK;
+X return DBT_ENOMATCH;
+}
+X
+X
+X
+/*********************************************************************/
+/* Errcode Search(AvlNode *tree, CardData **card, int *calls):       */
+/* eine Karte mit bestimmten Schluessel suchen                       */
+/*********************************************************************/
+Errcode Search(AvlNode *tree, CardData **card, int *calls)
+{
+X  CardData *helpcard, *hcard;
+X
+X  helpcard = tree->data;
+X  hcard = *card;
+X  (*calls)++;
+X  if(tree) {
+X    switch(KeyCompare(hcard->mainkey,helpcard->mainkey)) {
+X      case KEY_LESS:
+X             Search(tree->left, card, calls);
+X             break;
+X      case KEY_GREATER:
+X             Search(tree->right, card, calls);
+X             break;
+X      case KEY_EQUAL:
+X             CopyCard(card, helpcard);
+X             return DBT_OK;
+X    }
+X  }
+X  else return 0;
+}
+X
+X
+X
+/*********************************************************************/
+/* Errcode dbtSearch(int treeIdx, CardData **card)                   */
+/* eine Karte mit bestimmten Schluessel suchen                       */
+/*********************************************************************/
+Errcode dbtSearch(int treeIdx, CardData **card)
+{
+X  int calls;
+X  Errcode erg;
+X
+X  calls = 0;
+X  erg = Search(TreeRoots[treeIdx], card, &calls);
+X  return erg;
+} 
+X
+X
+X
+/**************************************************************************/
+/* Errcode dbtSearchList(int treeIdx, CardData *card, CardListNode **list)*/
+/* die reg. Ausd. in card werden compiliert; jede Karte im Baum wird mit  */
+/* dieser Karte verglichen und ggf. an list angefuegt.                    */ 
+/**************************************************************************/
+Errcode dbtSearchList(int treeIdx, CardData *card, CardListNode **list)
+{
+X  CardData *reg;
+X  Errcode erg;
+X
+X  if (TreeRoots[treeIdx] == (AvlNode *)1) {
+X    TreeRoots[treeIdx] = 0;
+X    return DBT_OK;
+X  }
+X  if ((erg = dbtMakeCard(&reg)) != DBT_OK) return erg;  
+X  if ((erg = MakeRegCard(card, reg)) != DBT_OK) return erg; 
+X  erg = SearchList(TreeRoots[treeIdx], reg, list);
+X  dbtDeleteCard(&reg);
+X  return erg;
+}
+X
+X
+X
+X
+/**************************************************************************/
+/* Errcode SearchList(AvlNode *baum, CardData *reg, CardListNode **list)  */
+/* jede Karte im Baum wird mit reg verglichen und ggf. an list angefuegt. */
+/**************************************************************************/
+Errcode SearchList(AvlNode *baum, CardData *reg, CardListNode **list)
+{
+X  CardData *tree;
+X
+X  if (baum) {                 
+X    tree = baum->data;
+X    if (baum->left) {
+X       SearchList(baum->left, reg, list); 
+X    }
+X    if (RegCompCard(tree, reg) == DBT_OK) { 
+X      CardListAppend(list, tree); 
+X    }
+X    if (baum->right) {
+X       SearchList(baum->right, reg, list);
+X    }
+X  }
+X  return DBT_OK;
+}
+X
+X
+X
+/**************************************************************************/
+/* Errcode MakeCardListNode(CardListNode **list):                         */
+/* neue Wurzel fuer Karten-Liste erstellen.                               */
+/**************************************************************************/
+X
+Errcode MakeCardListNode(CardListNode **list)
+{
+X  CardListNode *hlist;
+X
+X  hlist = *list;
+X  if ( hlist == NULL) {
+X    hlist = (CardListNode *)calloc(1,sizeof(CardListNode));
+X    if (hlist == NULL) return DBT_ECALLOC; 
+X    hlist->next = NULL;
+X    *list = hlist;
+X    return DBT_OK; 
+X  }
+X  return DBT_OK; 
+}
+X
+X
+/**************************************************************************/
+/* Errcode CardListAppend(CardListNode **list, CardData *card):           */
+/* card an list anhaengen.                                                */
+/**************************************************************************/
+X
+Errcode CardListAppend(CardListNode **list, CardData *card)
+{
+X  CardListNode *hlist, *anker;
+X  Errcode erg;
+X
+X  hlist = *list;
+X  anker = hlist;
+X  if (hlist == NULL) {
+X    erg = MakeCardListNode(&hlist);
+X    CopyCard(&hlist->data, card);
+X    *list = hlist; 
+X    return erg;
+X  }
+X  else CardListAppend(&hlist->next, card);
+X  return DBT_OK;
+}
+X
+X
+/**************************************************************************/
+/* Errcode dbtCardListDelete(CardListNode **list):                        */
+/* list wird geloescht.                                                   */
+/**************************************************************************/
+X
+Errcode dbtCardListDelete(CardListNode **list) 
+{
+X Errcode erg;
+X CardListNode *delList;
+X
+X delList = *list;
+X if (delList != NULL) {
+X   if ((erg = dbtCardListDelete(&delList->next)) != DBT_OK) return erg;
+X }
+X erg = dbtDeleteCard(&delList->data);
+X free(delList);
+X delList = NULL;
+X *list = delList;
+X return erg;
+}                       
+X
+X
+/*********************************************************************/
+/* LINKED LIST FUNCTIONS                                             */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* Errcode MakeListNode(ListNode **list):                            */
+/* neue Wurzel fuer String-Liste erstellen.                          */
+/*********************************************************************/
+Errcode 
+dbtMakeListNode (ListNode **list)
+{
+X  ListNode *hlist;
+X
+X  hlist = *list;
+X  if ( hlist == NULL) {
+X    hlist = (ListNode *)calloc(1,sizeof(ListNode));
+X    if (hlist == NULL) return DBT_ECALLOC; 
+X    hlist->next = NULL;
+X    *list = hlist;
+X    return DBT_OK; 
+X  }
+X  return DBT_OK; 
+}
+X
+X
+/*********************************************************************/
+/* Errcode ListAppend(ListNode **list, String word):                 */
+/* word an list anhaengen.                                           */
+/*********************************************************************/
+Errcode 
+dbtListAppend (ListNode **list, String word)
+{
+X  ListNode *hlist;
+X  Errcode erg;
+X
+X  hlist = *list;
+X  if (hlist == NULL) {
+X    erg = dbtMakeListNode(&hlist);
+X    hlist->data = (String)calloc(1,strlen(word)+1);
+X    strcpy(hlist->data, word);
+X    *list = hlist; 
+X    return erg;
+X  }
+X  else return(dbtListAppend(&hlist->next, word));
+}
+X
+X
+X
+void AvlGoDown(AvlNode *baum, ListNode **list)
+{
+X  CardData *tree;
+X
+X  if (baum != NULL) {                 
+X    tree = baum->data;
+X    if (baum->left) {
+X       AvlGoDown(baum->left, list); 
+X    }
+X    dbtListAppend(list, tree->mainkey); 
+X    if (baum->right) {
+X       AvlGoDown(baum->right, list);
+X    }
+X  }
+}
+X
+SHAR_EOF
+echo 'File db_tree.c is complete' &&
+chmod 0644 db_tree.c ||
+echo 'restore of db_tree.c failed'
+Wc_c="`wc -c < 'db_tree.c'`"
+test 57866 -eq "$Wc_c" ||
+	echo 'db_tree.c: original size 57866, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= db_tree.h ==============
+if test -f 'db_tree.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping db_tree.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting db_tree.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'db_tree.h' &&
+X
+/****************************************************************
+X *   db_tree.h                                                  *
+X ****************************************************************/
+X
+#define KEY_EQUAL    0
+#define KEY_GREATER  1
+#define KEY_LESS    -1
+X
+#define LEFT_TREE_GREATER  -1
+#define RIGHT_TREE_GREATER  1
+#define TREES_EQUAL         0
+X
+#define TREE_BIGGER  1
+#define TREE_SMALLER -1
+#define TREE_LIKE_BEFORE 0
+X
+/*
+X #define MAXTREEROOTS   256
+*/
+#define MAXREGSIZE    5000
+X
+#define DBT_OK 1
+#define DBT_ECALLOC      -1600
+#define DBT_ECOMP        -1601
+#define DBT_ENOMATCH     -1602
+#define DBT_ENOCARD      -1603
+#define DBT_EAUTHOR      -1604
+#define DBT_ETITLE       -1605
+#define DBT_EJOURNAL     -1606
+#define DBT_EYEAR        -1607
+#define DBT_EPUBLISHER   -1608
+#define DBT_EBOOKTITLE   -1609 
+#define DBT_ECHAPTER     -1610
+#define DBT_ESCHOOL      -1611
+#define DBT_EINSTITUTION -1612
+#define DBT_ENOTE        -1613
+#define DBT_ROOTSFULL    -1620
+#define DBT_ENONODE      -1621
+X
+X
+/*****************************************
+X * Array mit Pointern auf versch. Baeume *
+X *****************************************/
+/*
+X  AvlNode *TreeRoots[MAXTREEROOTS];     
+*/
+X
+/*********************
+X * Lokale Funktionen *
+X *********************/
+Errcode Scalloc(String *s1, String s2);
+void    CopyCard(CardData **c, CardData *c2);
+int     KeyCompare(char *s1, char *s2);
+Errcode Insert(int treeIdx, AvlNode **tree, CardData *card, int *h);
+Errcode Search(AvlNode *tree, CardData **card, int *calls);
+Errcode BalanceLeft(AvlNode **tree, int *h);
+Errcode BalanceRight(AvlNode **tree, int *h);
+Errcode Del(AvlNode **tree, AvlNode **delnode, int *h);
+void    AvlGoDown(AvlNode *baum, ListNode **list);
+Errcode MakeListNode(ListNode **list);
+Errcode ListAppend(ListNode **list, String word);
+Errcode MakeCardListNode(CardListNode **list);
+Errcode CardListAppend(CardListNode **list, CardData *card);
+Errcode SearchList(AvlNode *baum, CardData *reg, CardListNode **list);
+Errcode RegCompCard(CardData *card, CardData *reg);
+Errcode MakeRegCard(CardData *card, CardData *reg);
+Errcode TestTree(AvlNode *baum, String *cardkey);
+Errcode DeleteTree(AvlNode *baum);
+static void StrToLower(char *text);
+static int StringIsEmpty(char *text);
+static int StringPeteIsEmpty(char *text);
+SHAR_EOF
+chmod 0644 db_tree.h ||
+echo 'restore of db_tree.h failed'
+Wc_c="`wc -c < 'db_tree.h'`"
+test 2289 -eq "$Wc_c" ||
+	echo 'db_tree.h: original size 2289, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= fb_res.h ==============
+if test -f 'fb_res.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping fb_res.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fb_res.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fb_res.h' &&
+"BibView.title:		bibView",
+"BibView.iconName:		bibView",
+"BibView*font: *helvetica-bold-r-*-120-*",
+"BibView*foreground:			Steelblue",
+"BibView*commandBox*foreground:		SteelBlue",
+"BibView*commandBox*borderColor:		Black",
+"BibView*commandBox*menuLabel.foreground:	SlateBlue",
+"BibView*SimpleMenu*foreground:		SteelBlue",
+"BibView*SimpleMenu*line.foreground:	SlateGrey",
+"BibView*mainwin.orientation:		vertical",
+"BibView*mainwin.height:			175",
+"BibView*mainwin.width:			500",
+"BibView*mainwin*showGrip:		false",
+"BibView*mainwin.commandBox.width: 	500",
+"BibView*mainwin.commandBox.vSpace: 	0",
+"BibView*mainwin.commandBox.hSpace: 	0",
+"BibView*mainwin.commandBox.min: 	21",
+"BibView*mainwin.desktop.label:",
+"BibView*mainwin.desktop.width:   	500",
+"BibView*mainwin.desktop.height:    	150",
+"BibView*mainwin.desktop.min:    	150",
+"BibView*mainwin.desktop.fromVert:  	commandBox",
+"BibView*mainwin*file.label:		File",
+"BibView*mainwin*file.menuName:		fileMenu",
+"BibView*fileMenu.label:			File Menu",
+"BibView*fileMenu*item1*label:		New",
+"BibView*fileMenu*item2*label:		Open",
+"BibView*fileMenu*item3*label:		Close",
+"BibView*fileMenu*item4*label:		Save",
+"BibView*fileMenu*item5*label:		Save as",
+"BibView*fileMenu*quit*label:		Quit",
+"BibView*mainwin*services.label:      	Services",
+"BibView*mainwin*services.menuName:	servicesMenu",
+"BibView*servicesMenu.label:		Services Menu",
+"BibView*servicesMenu*item1*label:	Consistency Check	",
+"BibView*servicesMenu*item2*label:	Unify",
+"BibView*servicesMenu*item3*label:	Print",
+"BibView*servicesMenu*item4*label:	Edit Macros",
+"BibView*servicesMenu*item5*label:	Load Configuration",
+"BibView*mainwin*options.label:       	Options	",
+"BibView*mainwin*options.menuName:	optionsMenu",
+"BibView*mainwin*options*leftMargin: 	20",
+"BibView*optionsMenu.label:		Options Menu",
+"BibView*optionsMenu*item1*label:	Beep on Errors",
+"BibView*optionsMenu*item2*label:	Backups  ",
+"BibView*optionsMenu*item3*label:	Icons on Desktop  ",
+"BibView*optionsMenu*item4*label:	Autom. Check",
+"BibView*optionsMenu*item5*label:	Required Fields",
+"BibView*mainwin*window.label:      	Window",
+"BibView*mainwin*window.menuName:	windowMenu",
+"BibView*mainwin*window*leftMargin: 	20",
+"BibView*windowMenu.label:		Window Menu",
+"BibView*windowMenu*item1*label:		Cascade",
+"BibView*mainwin*help.label:      	Help",
+"BibView*mainwin*help.menuName:		helpMenu",
+"BibView*helpMenu.label:			Help Menu",
+"BibView*helpMenu*item1*label:		Survey",
+"BibView*helpMenu*item2*label:		Main Window",
+"BibView*helpMenu*item3*label:		Bibliography Window",
+SHAR_EOF
+true || echo 'restore of fb_res.h failed'
+fi
+echo 'End of  part 12'
+echo 'File fb_res.h is continued in part 13'
+echo 13 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

@@ -1,0 +1,1099 @@
+Path: uunet!caen!kuhub.cc.ukans.edu!nrlvx1.nrl.navy.mil!koffley
+Newsgroups: vmsnet.sources.games
+Subject: TETRIS_VMS.04_OF_05
+Message-ID: <1992Jul2.124010.745@nrlvx1.nrl.navy.mil>
+From: koffley@nrlvx1.nrl.navy.mil
+Date: 2 Jul 92 12:40:10 -0400
+Organization: NRL SPACE SYSTEMS DIVISION
+Lines: 1090
+
+-+-+-+-+-+-+-+-+ START OF PART 4 -+-+-+-+-+-+-+-+
+X  if shapenum < 14 then shape:=4
+X  else
+X  if shapenum < 17 then shape:=5
+X  else
+X  if shapenum < 20 then shape:=6
+X  else`20
+X  if shapenum < 23 then shape:=7
+X  else
+X  shape:=8;
+X  position:=1;
+X  y:=2;
+X  x:=5;
+Xend;
+X`7B*************************************************************************
+V*`7D
+X
+X
+X`7B***********************************************`7D
+Xprocedure PrintLines(screen:screenarray; b:integer);
+X
+Xvar
+X  a,
+X  c:integer;
+X  noline:boolean;
+X
+Xbegin
+X  a:=b;
+X  repeat
+X    noline:=true;
+X    for c:=1 to 10 do
+X    begin
+X      if screen`5Ba,c`5D = 1 then noline:=false;
+X      intochar(xchrhigh,xchrlow,ychrhigh,ychrlow,c+30,a);
+X      if screen`5Ba,c`5D = 1 then
+X        writeln(chr(27),'`5B',ychrhigh,ychrlow,';',xchrhigh,xchrlow,'H#');
+X      if screen`5Ba,c`5D = 0 then
+X        writeln(chr(27),'`5B',ychrhigh,ychrlow,';',xchrhigh,xchrlow,'H ');
+X    end;
+X    a:=a-1;
+X  until (noline) or (a = 1);
+Xend;
+X`7B************************************************`7D
+X`7B******************************************************`7D
+Xprocedure LineDelete(var screen:screenarray; b:integer; var score:integer;
+X                         level:integer; var lines:integer);
+X
+Xvar
+X  a,
+X  c:integer;
+X
+Xbegin
+X  for a:= b downto 2 do
+X    for c:=1 to 10 do
+X      screen`5Ba,c`5D:=screen`5Ba-1,c`5D;
+X  printlines(screen,b);
+X  if not(flag) then
+X    score:=score+(150*level)
+X  else
+X    score:=score+(100*level);
+X  lines:=lines+1;
+X  writeln(chr(27),'`5B14;7H',((5*level)-lines):2);
+X  writeln(chr(27),'`5B10;7H',score:1);
+Xend;
+X`7B***************************************************`7D
+X`7B*************************************************************************
+V***`7D
+Xprocedure LineStuff(var screen:screenarray; var lines:integer;
+X                    level:integer; var score:integer);
+X
+Xvar
+X  A,
+X  B:integer;
+X  line,
+X  nothing:boolean;
+X  linenum:integer;
+X  bounty:integer;
+X
+Xbegin
+X  linenum:=lines;
+X  b:=22;
+X  bounty:=0;
+X  repeat
+X    line:=true;
+X    for a:=1 to 10 do
+X      if screen`5Bb,a`5D=0 then line:=false;
+X    nothing:=true;
+X    for a:=1 to 10 do
+X      if screen`5Bb,a`5D=1 then nothing:=false;
+X    if line then
+X    begin
+X      LineDelete(screen,b,score,level,lines);
+X      b:=b+1;
+X    end;
+X    b:=b-1;
+X  until (nothing = true) or (b = 0);
+X  linenum:=lines-linenum;
+X  if linenum > 1 then  bounty:=((linenum-1) * 200 * level);
+X  score:=score+bounty;
+X  writeln(chr(27),'`5B10;7H',score:1);
+Xend;
+X`7B**********************************************************************`7D
+X
+X
+X`7B**********************************************************************`7D
+Xprocedure bonus(var score:integer; screen:screenarray; level:integer);
+X
+Xvar
+X  a,
+X  b:integer;
+X  noline:boolean;
+X
+X
+Xbegin
+X  a:=22;
+X  b:=1;
+X  repeat
+X    noline:=true;
+X    for b:=1 to 10 do
+X      if screen`5Ba,b`5D = 1 then noline:=false;
+X    a:=a-1;
+X  until (a = 0) or (noline = true);
+X
+X  if noline then
+X    score:=score+(100*a*level);
+Xend;
+X`7B******************************************************************`7D
+X
+X`7B*************************************`7D
+Xprocedure Printshape(screen:screenarray; y,x:integer);
+X
+Xvar
+X  a,
+X  b,
+X  i,
+X  j:integer;
+X  stuff:packed array`5B1..10`5D of char;
+X
+Xbegin
+X  if flag2 = TRUE then
+X  begin
+X    waitx(factor);
+X  end;
+X  for a:= y-2 to y+3 do
+X    begin
+X      if (a < 23) and (a > 1) then
+X      begin
+X        intochar(xchrhigh,xchrlow,ychrhigh,ychrlow,31,a);    `20
+X        for b:=1 to 10 do
+X        begin
+X          if screen`5Ba,b`5D = 1 then stuff`5Bb`5D:='#'
+X          else
+X          if screen`5Ba,b`5D = 2 then stuff`5Bb`5D:='@'
+X          else
+X            stuff`5Bb`5D:=' ';`20
+X        end;
+X        writeln(chr(27),'`5B',ychrhigh,ychrlow,';31H',stuff)
+X       end;
+X    end;
+Xend;
+X`7B*************************************`7D
+X
+X`7B**********************************************************************`7D
+Xprocedure printnext(shape:integer);
+X
+Xbegin
+X  writeln(chr(27),'`5B07;50H  ');
+X  writeln(chr(27),'`5B08;50H  ');
+X  if shape = 1 then
+X  begin
+X    writeln(chr(27),'`5B05;50H@@');
+X    writeln(chr(27),'`5B06;50H@@');
+X  end
+X  else
+X  if shape = 2 then
+X  begin
+X    writeln(chr(27),'`5B05;50H@ ');
+X    writeln(chr(27),'`5B06;50H@ ');
+X    writeln(chr(27),'`5B07;50H@@');
+X  end
+X  else
+X  if shape = 3 then
+X  begin
+X    writeln(chr(27),'`5B05;50H @');
+X    writeln(chr(27),'`5B06;50H @');
+X    writeln(chr(27),'`5B07;50H@@');
+X  end
+X  else
+X  if shape = 4 then
+X  begin
+X    writeln(chr(27),'`5B05;50H@ ');
+X    writeln(chr(27),'`5B06;50H@@');
+X    writeln(chr(27),'`5B07;50H@ ');
+X  end
+X  else
+X  if shape = 5 then
+X  begin
+X    writeln(chr(27),'`5B05;50H @');
+X    writeln(chr(27),'`5B06;50H@@');
+X    writeln(chr(27),'`5B07;50H@ ');
+X  end
+X  else
+X  if shape = 6 then
+X  begin
+X    writeln(chr(27),'`5B05;50H@ ');
+X    writeln(chr(27),'`5B06;50H@@');
+X    writeln(chr(27),'`5B07;50H @');
+X  end
+X  else
+X  if shape = 7 then
+X  begin
+X    writeln(chr(27),'`5B05;50H@ ');
+X    writeln(chr(27),'`5B06;50H@ ');
+X    writeln(chr(27),'`5B07;50H@ ');
+X    writeln(chr(27),'`5B08;50H@ ');
+X  end;
+Xend;
+X`7B**********************************************************************`7D
+X
+X
+X`7B**********************************************************************`7D
+Xprocedure Rotation(var screen:screenarray; shape:integer; var position:integ
+Ver;
+X                       rotint:integer;  var y,x:integer);
+X
+Xvar
+X  newposition:integer;
+X  ax:integer;
+X  change:boolean;
+X
+Xbegin
+X  if shape = 7 then
+X  begin
+X    ax:=x;
+X    if x = 10 then ax:=9;
+X    if x = 1 then ax:=3;
+X    if x = 2 then ax:=3;
+X  end
+X  else
+X    if x =1 then ax:=2
+X  else
+X    if x =10 then ax:=9
+X  else
+X    ax:=x;
+X
+X
+X  if rotint = -1 then
+X  begin
+X    if position = 1 then newposition:=4
+X    else
+X      newposition:=position -1;
+X  end
+X  else
+X  if rotint = 1 then
+X  begin
+X    if position = 4 then newposition:=1
+X    else
+X      newposition:=position +1;
+X  end;
+X
+X
+X  check(shape,newposition,y,ax,change);
+X  if change = true then
+X  begin
+X    shapestuff(shape,position,y,x,screen,0);
+X    position:=newposition;
+X    x:=ax;
+X    shapestuff(shape,position,y,x,screen,2);
+X    printshape(screen,y,x);
+X  end;
+Xend;
+X`7B*************************************************************************
+V****`7D
+X
+X
+X`7B*************************************************************************
+V****`7D
+Xprocedure Movement(var screen:screenarray; shape,position:integer;
+X                   var y,x:integer; d:integer);
+X
+X
+Xvar
+X  move:boolean;
+X  a,
+X  b:integer;
+Xbegin
+X  move:=true;
+X  if d = 1 then
+X  begin
+X    for a:= x+2 downto x-2 do
+X      for b:=y+2 downto y-1 do
+X        if (a >1) and (a<11) and (b > 1) and (b < 23) then
+X        begin
+X          if (a = 10) and (screen`5Bb,a`5D = 2) then move:=false;
+X          if (screen`5Bb,a`5D = 1) and (screen`5Bb,a-1`5D = 2) then move:=fa
+Vlse;
+X        end;`20
+X  end
+X  else
+X  if d = -1 then
+X  begin
+X    for a:=x-3 to x+1 do
+X      for b:=y-1 to y+2 do
+X        if (a >0) and (a<9) and (b>1) and (b<23) then
+X        begin
+X          if (a = 1) and (screen`5Bb,a`5D = 2) then move:=false;
+X          if (screen`5Bb,a`5D = 1) and (screen`5Bb,a+1`5D = 2) then move:=fa
+Vlse;
+X        end;
+X  end;`20
+X  if move = true then
+X  begin
+X    shapestuff(shape,position,y,x,screen,0);
+X    x:=x+d;
+X    shapestuff(shape,position,y,x,screen,2);
+X    printshape(screen,y,x);
+X  end;
+Xend;
+X`7B************************************************************************`
+V7D
+X`7B*************************************************************************
+V****`7D
+Xprocedure Down(var screen:screenarray; shape,position:integer; var y,x:integ
+Ver;
+X               var fast:boolean);
+X
+X
+Xvar
+X  move:boolean;
+X  a,
+X  b:integer;
+X
+Xbegin
+X  move:=true;
+X  for b:=y+3 downto y-1 do
+X    for a:= x+2 downto x-2 do
+X      if (a >0) and (a<11) and (b > 1) and (b < 23) then
+X      begin
+X        if (b = 22) and (screen`5Bb,a`5D = 2) then move:=false;
+X        if (screen`5Bb,a`5D = 1) and (screen`5Bb-1,a`5D = 2) then move:=fals
+Ve;
+X      end;`20
+X  if move = true then
+X  begin
+X    if fast = true then
+X    begin
+X      y:=y+1;
+X      shapestuff(shape,position,y-1,x,screen,0);
+X      printshape(screen,y,x);
+X      shapestuff(shape,position,y,x,screen,2);
+X      repeat
+X        move:=true;
+X        for b:=y+3 downto y-1 do
+X          for a:= x+2 downto x-2 do
+X            if (a >0) and (a<11) and (b > 1) and (b < 23) then
+X            begin
+X              if (b = 22) and (screen`5Bb,a`5D = 2) then move:=false;
+X              if (screen`5Bb,a`5D = 1) and (screen`5Bb-1,a`5D = 2 ) then mov
+Ve:=false;
+X            end;
+X         if move = true then
+X         begin
+X           y:=y+1;
+X           shapestuff(shape,position,y-1,x,screen,0);
+X           shapestuff(shape,position,y,x,screen,2);
+X         end;
+X       until move=false;
+X       printshape(screen,y,x);
+X    end
+X    else
+X    begin
+X      y:=y+1;
+X      screen`5By-1,x`5D:=0;
+X      screen`5By,x`5D:=2;
+X      shapestuff(shape,position,y-1,x,screen,0);
+X      shapestuff(shape,position,y,x,screen,2);
+X      printshape(screen,y,x);
+X    end;
+X  end;
+X  fast:=false;
+Xend;
+X`7B************************************************************************`
+V7D
+X
+Xprocedure printall(screen:screenarray; score,lines,level:integer);
+X
+X
+Xvar
+X  a,
+X  b:integer;
+X  g,
+X  h,
+X  xchrhigh,
+X  xchrlow,
+X  ychrhigh,
+X  ychrlow:char;
+X  stuff:packed array`5B1..10`5D of char;
+X
+Xbegin
+X `20
+X  cls;
+X  for I:=1 to 22 do
+X  begin
+X    intochar(g,h,ychrhigh,ychrlow,1,I);
+X    writeln(chr(27),'`5B',ychrhigh,ychrlow,';30H`7C          `7C');
+X  end;
+X  writeln(chr(27),'`5B23;30H------------');
+X  if flag then writeln(chr(27),'`5B03;49HNEXT');
+X  writeln(chr(27),'`5B10;1HSCORE:',score:1);
+X  writeln(chr(27),'`5B12;1HLEVEL:',level:1);
+X  writeln(chr(27),'`5B14;1HLINES:',((5*level)-lines):2);
+X  for a:=1 to 22 do
+X  begin
+X    intochar(xchrhigh,xchrlow,ychrhigh,ychrlow,31,a);
+X    for b:=1 to 10 do
+X    begin
+X      if screen`5Ba,b`5D = 1 then stuff`5Bb`5D:='#'
+X      else
+X        stuff`5Bb`5D:=' ';
+X    end;
+X    writeln(chr(27),'`5B',ychrhigh,ychrlow,';31H',stuff);
+X  end;
+Xend;
+X`7B*************************************************************************
+V*****`7D
+X
+X`7B*************************************************************************
+V*****`7D
+Xprocedure editshape(key:integer; var nshape:integer);
+X
+X
+Xbegin
+X  nshape:=key-48;
+X  printnext(nshape);
+Xend;
+X`7B*************************************************************************
+V*****`7D
+X`7B***********************************************`7D
+Xprocedure getyearday(inp:datestr; var year,day:integer);
+X
+Xvar
+X  digit1,
+X  digit2,
+X  digit3,
+X  digit4:integer;
+X  offset:integer;
+X
+Xbegin
+X  offset:= ord('1') + 1;
+X  digit1:= ord(inp`5B8`5D) - offset;
+X  digit2:= ord(inp`5B9`5D) - offset;
+X  digit3:= ord(inp`5B10`5D) - offset;
+X  digit4:= ord(inp`5B11`5D) - offset;
+X  year:= digit4 + (10*digit3) + (100*digit2) + (1000*digit1);
+X  digit1:= ord(inp`5B1`5D) - offset;
+X  digit2:= ord(inp`5B2`5D) - offset;
+X  day:= digit2 + (10*digit1);
+Xend;
+X`7B************************************************`7D
+X
+X`7B**********************************************`7D
+Xprocedure getmonth(inp:datestr; var month:integer);
+X
+Xbegin
+X `20
+X  if (inp`5B4`5D = 'J') and (inp`5B5`5D = 'A') then month:=1
+X  else
+X  if (inp`5B4`5D = 'F') then month:=2
+X  else
+X  if (inp`5B4`5D = 'M') and (inp`5B6`5D = 'R') then month:=3
+X  else
+X  if (inp`5B4`5D = 'A') and (inp`5B5`5D = 'P') then month:=4
+X  else
+X  if (inp`5B4`5D = 'M') and (inp`5B6`5D = 'Y') then month:=5
+X  else
+X  if (inp`5B4`5D = 'J') and (inp`5B6`5D = 'N') then month:=7
+X  else
+X  if (inp`5B4`5D = 'J') then month:=6
+X  else
+X  if (inp`5B4`5D = 'A') and (inp`5B5`5D = 'U') then month:=8
+X  else
+X  if (inp`5B4`5D = 'S') then month:=9
+X  else
+X  if (inp`5B4`5D = 'O') then month:=10
+X  else
+X  if (inp`5B4`5D = 'N') then month:=11
+X  else
+X  if (inp`5B4`5D = 'D') then month:=12;
+Xend;
+X
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+Xfunction older(one,two:datestr):boolean;
+X
+X
+Xvar
+X  oneyear,
+X  twoyear,
+X  onemonth,
+X  twomonth,
+X  oneday,
+X  twoday:integer;
+X
+Xbegin
+X  getyearday(one,oneyear,oneday);
+X  getyearday(two,twoyear,twoday);
+X  getmonth(one,onemonth);
+X  getmonth(two,twomonth);
+X  if oneyear < twoyear then older:=true
+X  else
+X    if onemonth < twomonth then older:=true
+X    else
+X      if oneday < twoday then older:=true
+X      else
+X        older:=false;
+Xend;
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+X
+X
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+XProcedure MainGame(left,right,rotleft,rotright,speed,quitkey,redraw:char;
+X                   level:integer; cheat:boolean);
+X
+Xvar
+X  oldest:integer;
+X  saved,
+X  saving:saverec;
+X  count:integer;
+X  quit:boolean;
+X  a,b:integer;
+X  height:integer;
+X  choice:char;
+X  nx,
+X  ny,
+X  nshape,
+X  nposition:integer;
+X  fast:boolean;
+X  gotin:boolean;
+X
+Xbegin
+X
+Xrandomise;
+Xif restored = false then
+Xbegin
+X  for a:=1 to 22 do
+X    for b:=1 to 10 do
+X      screen`5Ba,b`5D:=0;
+X  score:=0;
+X  position:=1;
+X  create(shape,position,y,x);
+X  lines:=0;
+X  shapestuff(shape,position,y,x,screen,2);
+Xend;
+Xcreate(nshape,nposition,ny,nx);
+Xcount:=0;
+Xfast:=false;
+Xquit:=false;
+Xott:=false;
+Xcls;
+X
+Xprintshape(screen,y,x);
+Xprintall(screen,score,lines,level);
+Xif restored then`20
+X  writeln(chr(27),'`5B10;49HPress any key to continue game')
+Xelse
+X  writeln(chr(27),'`5B10;49HPress any key to play game');
+Xwaitkey(key,chan);
+Xwriteln(chr(27),'`5B10;49H                                ');
+Xrestored:=false;
+Xif flag then printnext(nshape);
+Xrepeat
+X  readkey(key,chan);
+X  choice:=chr(key);
+X  if choice = left then Movement(screen,shape,position,y,x,-1)
+X  else
+X  if choice = right then movement(screen,shape,position,y,x,1)
+X  else
+X  if choice = rotleft then Rotation(screen,shape,position,-1,y,x)
+X  else
+X  if choice = rotright then Rotation(screen,shape,position,1,y,x)
+X  else
+X  if choice = speed then fast:=true
+X  else
+X  if  (choice in `5B'1'..'7'`5D) and (cheat = true) then editshape(key,nshap
+Ve)
+X  else
+X  if choice = redraw then
+X  begin
+X    printall(screen,score,lines,level);
+X    if flag then printnext(nshape);
+X  end
+X  else
+X    if choice = quitkey then ott:=true
+X  else
+X    if choice = '!' then`20
+X    begin
+X      cls;
+X      writeln('%DCL-I-SPAWN, Type eoj to return to Shapes');
+X      spawn;
+X      printall(screen,score,lines,level);
+X      if flag then printnext(nshape);
+X      writeln(chr(27),'`5B10;49HPress any key to continue Shapes');
+X      waitkey(key,chan);
+X      writeln(chr(27),'`5B10;49H                                ');
+X    end
+X  else
+X    if choice = '@' then
+X    begin
+X      cls;
+X      Writeln(                      'Save game option');
+X      usernum(userid);
+X      if (userid = 'CADP02  ') or
+X         (userid = 'CADP03  ') then`20
+X      begin`20
+X        write('Enter username, MAX 8 letters, RETURN for default: ');
+X        userid:='        ';
+X        readln(userid);
+X        if userid`5B1`5D = ' ' then usernum(userid);
+X      end;
+X      saving.num:=score;
+X      saving.level:=level;
+X      saving.outp:=screen;
+X      saving.lines:=lines;
+X      saving.x:=x;
+X      saving.y:=y;
+X      saving.shape:=shape;
+X      saving.position:=position;
+X      saving.user:=userid;
+X      DATE(saving.current);
+X      open(Save,Savefile,history:=readonly);
+X      reset(save);
+X      del:=false;
+X      for I:=1 to 100 do
+X      begin
+X        read(save,peeps`5BI`5D);
+X        if (del = true) and (peeps`5BI`5D.user = saving.user) then
+X          peeps`5BI`5D.user:='UNUSED  ';
+X        if (del = false) and (peeps`5BI`5D.user = 'UNUSED  ') then
+X        begin
+X          peeps`5BI`5D:=saving;
+X          del:=true;
+X        end;
+X        if (del = false) and (peeps`5BI`5D.user = saving.user) then
+X        begin
+X          del:=true;
+X          peeps`5BI`5D:=saving;
+X        end;
+X      end;
+X      if del = false then
+X      begin
+X        reset(save);
+X        read(save,peeps`5B1`5D);
+X        oldest:=1;
+X        for I:=2 to 100 do
+X        begin
+X          read(save,peeps`5BI`5D);
+X          if older(peeps`5BI-1`5D.current,peeps`5BI`5D.current) = false then
+V`20
+X            oldest:=I;
+X        end;
+X        peeps`5Boldest`5D:=saving;
+X      end;
+X      close(save);
+X      open(Save,Savefile,history:=old);
+X      rewrite(save);
+X      for I:=1 to 100 do
+X        write(save,peeps`5BI`5D);
+X      close(save);
+X      ott:=true;
+X      del:=false;
+X      writeln('Game saved.');
+X      writeln('Press any key for main menu.');
+X      waitkey(key,chan);
+X    end;
+X  if count = 3 then
+X  begin
+X    height:=y;
+X    Down(screen,shape,position,y,x,fast);
+X    if height = y then
+X    begin
+X      for a:=1 to 10 do
+X        if screen`5B1,a`5D=2 then ott:=true;
+X      shapestuff(shape,position,y,x,screen,1);
+X      printshape(screen,y,x);
+X      linestuff(screen,lines,level,score);
+X      shape:=Nshape;
+X      position:=Nposition;
+X      y:=Ny;
+X      x:=Nx;
+X      create(nshape,nposition,ny,nx);
+X      if flag then printnext(nshape);
+X      shapestuff(shape,position,y,x,screen,2);
+X      if lines >= 5*level then
+X      begin
+X        level:=level+1;
+X        bonus(score,screen,level);
+X        lines:=0;
+X        printall(screen,score,lines,level);
+X        if flag then printnext(nshape);
+X      end;
+X    end;
+X    count:=0;
+X  end;
+X  count:=count+1;
+Xuntil OTT = true;
+X
+Xif choice <> '@' then
+Xbegin
+X  highscores(score,level,Htable,scores,gotin);
+X  if gotin then viewscores(Htable,scores,key,chan)
+Xend
+Xend;
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+X
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+XProcedure RESTORE;
+X
+Xvar
+X  I:integer;
+X
+Xbegin
+X  cls;
+X  writeln('                    Restore saved game option');
+X  usernum(userid);
+X  if (userid = 'CADP02  ') or
+X     (userid = 'CADP03  ') then`20
+X  begin
+X    write('Enter username, MAX 8 letters, RETURN for default: ');
+X    userid:='        ';
+X    readln(userid);
+X    if userid`5B1`5D = ' ' then usernum(userid);
+X  end;
+X  restored:=false;
+X  open(Save,Savefile,history:=readonly);
+X  reset(save);
+X  for I:=1 to 100 do
+X  begin
+X    read(save,peeps`5BI`5D);
+X    if peeps`5BI`5D.user = userid then
+X    begin
+X      cls;
+X      writeln('Restoring...');
+X      lines:=peeps`5BI`5D.lines;
+X      position:=peeps`5BI`5D.position;
+X      x:=peeps`5BI`5D.x;
+X      y:=peeps`5BI`5D.y;
+X      shape:=peeps`5BI`5D.shape;
+X      screen:=peeps`5BI`5D.outp;
+X      score:=peeps`5BI`5D.num;
+X      level:=peeps`5BI`5D.level;
+X      peeps`5BI`5D.user:='UNUSED  ';
+X      restored:=true;
+X    end;
+X  end;
+X  close(save);
+X  open(save,savefile,history:=old);
+X  rewrite(save);
+X  for I:=1 to 100 do
+X    write(save,peeps`5BI`5D);
+X  close(save);
+X  if restored = true then
+X  begin
+X    writeln('Restored.');
+X    writeln('Press any key for main screen');
+X    waitkey(key,chan);
+X    MAINGAME(left,right,rotleft,rotright,speed,quitkey,redraw,level,cheat);
+X  end
+X  else
+X  begin
+X    writeln('Data file not found.');
+X    writeln('Press any key to return to main menu.');
+X    waitkey(key,chan);
+X  end;
+Xend;
+X
+X`7B*************************************************************************
+V*****`7D
+X`7B*************************************************************************
+V*****`7D
+X
+X`7B*******************************************************************`7D
+Xbegin `7BSHAPES`7D
+X  cls;
+X  MAKECHAN(chan);
+X  HP := FALSE;
+X  flag:=true;
+X  flag2:=false;
+X  cheat:=false;
+X  left:='z';right:='x';rotleft:='o';rotright:='p';speed:='`5B';quitkey:='q';
+X  factor:=0.15;
+X  redraw:='r';
+X  levelmin:=1;
+X  for I:=1 to 22 do
+X    begin `7Bfor`7D
+X    for J:=1 to 10 do
+X      screen`5BI,J`5D:=0;
+X    end; `7Bfor`7D
+X  repeat
+X    MENUPRINT;
+X    repeat
+X      if chr(key) = 'c' then flagA:=true;
+X      if chr(key) = 'a' then
+X      begin
+X        if flagA = true then flagB:=true
+X        else flagB:=false;
+X      end;
+X      if chr(key) = 'd' then
+X      begin
+X        if flagB = true then flagC:=true
+X        else flagC:=false;
+X      end;
+X      if chr(key) = 'p' then
+X      begin
+X        if flagC = true then flagD:=true
+X        else flagD:=false;
+X      end;
+X      if (chr(key) <> 'c') and (chr(key) <> 'a') and
+X         (chr(key) <> 'd') and (chr(key) <> 'p') then
+X      begin
+X        flagA:=false;
+X        flagB:=false;
+X        flagC:=false;
+X        flagD:=false;
+X      end;
+X      waitkey(key,chan);
+X    until chr(key) in `5B'0'..'8'`5D;`20
+X    level:=levelmin;
+X    if chr(key) <> '8' then flagD:=false;
+X    if chr(key)='1' then
+X      MAINGAME(left,right,rotleft,rotright,speed,quitkey,redraw,level,cheat)
+V;
+X    if chr(key)='2' then KEYDEFINE(left,right,rotleft,rotright,speed,quitkey
+V,redraw);
+X    if chr(key)='3' then VIEWSCORES(Htable,scores,key,chan);
+X    if chr(key)='4' then INSTRUCTIONS;
+X    if chr(key)='5' then flag:=not(flag);
+X    if chr(key)='6' then flag2:=not(flag2);
+X    if chr(key)='7' then RESTORE;
+X    if flagD then
+X    begin
+X      cheat:=true;
+X      write('level??: ');
+X      readln(levelmin);
+X      write('reset savefile??: ');
+X      readln(answer);
+X      if (answer = 'y') or (answer = 'Y') then
+X      begin
+X        blank.user:='UNUSED  ';
+X        open(Save,Savefile,history:=unknown);
+X        rewrite(save);
+X        for I:=1 to 100 do
+X          write(save,blank);
+X        close(save);
+X      end;
+X      write('reset scoreboard??: ');
+X      readln(answer);
+X      if (answer='y') or (answer ='Y') then
+X      begin
+X        open (Htable , Htablefile ,
+X`09  history := unknown);
+X        rewrite(Htable);
+X        for A:= 1 to 10 do
+X        begin
+X          scores`5BA`5D.num:=0;
+X          scores`5BA`5D.name:='                                        ';
+X          scores`5BA`5D.level:=1;
+X          scores`5BA`5D.id:='        ';
+X        end;
+X        for A:=1 to 10 do
+X          write(Htable,scores`5BA`5D);
+X        close(Htable);
+X      end;
+X    end;
+X  until (chr(key)='0');
+X  cls;
+X    writeln('There now, that didn''t hurt much did it??');
+X    writeln('Byeeeeeeeeee........');
+Xend. `7BSHAPES`7D
+X`7B*******************************************************************`7D
+X
+$ CALL UNPACK SHAPES.PAS;2 493778005
+$ create 'f'
+X/***************************************************************************
+V****
+XCopyright 1989,1990 by Colin Cowie, Glasgow, Scotland.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its`20
+Xdocumentation for any purpose and without fee is hereby granted,`20
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation.
+X****************************************************************************
+V***/
+X
+X#include <string.h>
+X#include <jpidef.h>
+X#include <iodef.h>             `20
+X#include <descrip.h>
+X
+Xtypedef struct
+X`7B
+X`09unsigned short`09length ;
+X`09char`09`09dtype ;
+X`09char`09`09class ;
+X`09char`09`09*pntr ;
+X`7DDESCR ;
+X
+X#define stdescr(name,string) name.length = strlen(string);\
+X name.dtype = DSC$K_DTYPE_T; name.class = DSC$K_CLASS_S;\
+X name.pntr = string ;
+X
+X
+Xvoid makechan(chan)
+Xint *chan;
+X`7B
+X  DESCR term;
+X  int status;
+X  stdescr(term,"TT");
+X  status = sys$assign (&term,chan,0,0);
+X  if (status != 1) lib$STOP(status);
+X`7D
+X
+Xvoid readkey(key,chan)
+Xint *chan;
+Xint *key;
+X
+X`7B
+X  char inkey;                              `20
+X  int status;                   `20
+X  int func;
+X  inkey = (char) 0;
+X  func = IO$_READVBLK `7C IO$M_NOECHO `7C IO$M_TIMED;
+X  status = sys$qiow(0,*chan,func,0,0,0,&inkey,1,0,0,0,0);
+X  if (status != 1) lib$STOP(status);
+X  *key = (int) inkey;
+X`7D
+X
+Xvoid waitkey(key,chan)
+Xint *chan;
+Xint *key;
+X
+X`7B
+X  char inkey;                              `20
+X  int status;                   `20
+X  int func;
+X  inkey = (char) 0;
+X  func = IO$_READVBLK `7C IO$M_NOECHO `7C IO$M_PURGE;
+X  status=sys$qiow(0,*chan,func,0,0,0,&inkey,1,0,0,0,0);
+X  if (status != 1) lib$STOP(status);
+X  *key = (int) inkey;
+X`7D
+X
+Xvoid spawn()
+X`7B
+X  DESCR userid;
+X  stdescr(userid,"Shapes_Refugee");
+X  LIB$SPAWN(0,0,0,0,&userid,0,0,0,0,0,0,0);
+X`7D
+X
+Xparam(word)
+Xchar word`5B5`5D;
+X`7B
+X  DESCR inp;
+X  int length;
+X  stdescr(inp,"    ");
+X  LIB$GET_FOREIGN(&inp,0,&length,0); `20
+X  strcpy(word,inp.pntr);
+X`7D
+X
+Xvoid usernum(userid)
+Xchar userid`5B8`5D;
+X`7B
+X  DESCR u_name;
+X  int status;
+X  stdescr(u_name,"        ");
+X  lib$getjpi(&(JPI$_USERNAME),0,0,0,&u_name,0);
+X  strcpy(userid,u_name.pntr);
+X`7D
+X
+Xvoid waitx(tim)
+Xfloat *tim;
+X`7B
+X  lib$wait(tim);
+X`7D
+$ CALL UNPACK INCLUDES.C;1 1613696431
+$ create 'f'
+XC---------------------------------------------------------------------
+XC RND Function - Designed, Written and Programmed by Stephen Macdonald
+XC Code is copyright 1988 Stephen Macdonald CHBS08 Software Consultants
+XC---------------------------------------------------------------------
+X`09SUBROUTINE Randomise
+X`09INTEGER seed
+X`09COMMON /seed/seed
+X`09CHARACTER date*30
+X`09CALL LIB$DATE_TIME(%DESCR(date))
+X`09seed=(10000*(ICHAR(date(16:16))-ICHAR('0'))
+X     +        +1000*(ICHAR(date(17:17))-ICHAR('0'))
+X     +        + 100*(ICHAR(date(19:19))-ICHAR('0'))
+X     +        +  10*(ICHAR(date(20:20))-ICHAR('0'))
+X     +        +     (ICHAR(date(22:22))-ICHAR('0')))
+X`09END
+X
+X
+X`09INTEGER FUNCTION Random(min,max)
+X`09INTEGER min,max,seed
+X`09REAL rnd,realseed
+X`09COMMON /seed/seed
+X`09seed=(((seed+1)*75)-1).AND.65535
+X`09realseed=seed
+X`09rnd=(realseed/65536)*(max-min)+min
+X`09random=rnd
+X`09END         `20
+XC---------------------------------------------------------------------
+XC RND Function - Designed, Written and Programmed by Stephen Macdonald
+XC Code is copyright 1988 Stephen Macdonald CHBS08 Software Consultants
+XC---------------------------------------------------------------------
+$ CALL UNPACK RAND.FOR;1 325473741
+$ create 'f'
+XThe game Shapes is based on the arcade game tetris, and follows roughly the
+V same
+Xrules, Full instructions are given in the game itself.
+X
+XThe game requires a VT100 compatible terminal, and a VAX running VMS version
+V 4`20
+Xor later (at any rate, 4 was the earliest version it was compiled under).
+X
+XThe source code consists of:-
+X
+X  Shapes.pas     -    The main source code for the game
+X
+X  Includes.c     -    Certain system calls, which were easier to write in 'C
+V'
+X
+X  Rand.for       -    Random number generator, written by a friend, Stephen
+X                      Macdonald, and borrowed by me, cos I couldnt be bother
+Ved
+X
+X
+XSetting up the game:-
+X
+XThe game shapes uses 2 data files, one for the high score table, and one for
+Xany saved games which might exist. The destinations of these files should be
+Xchanged in the source code "Shapes.pas" to point to wherever you want the
+Xfiles.
+X
+XThe actual lines to change are:
+X
+X  Htablefile='disk18:`5Bcadp02.pascal.shapes`5DHtable.dat';
+X  Savefile='disk18:`5Bcadp02.pascal.shapes`5Dsave.dat';
+X
+X
+XTo compile this code, execute the command procedure "compile.com" which is
+Xsupplied with this archive (e.g @compile )
+X
+XAfter compiling the code you need to create 2 empty data files, one for
+Xthe saved games, and one for the high score table.
+X
+XThis is done from within the game itself, by entering the "Cheat" mode.
+XTo do this, run the game, and when the menu comes up, type in the string
+X"cadp8". This activates the cheat mode.
+X
+XYou are then asked for a level number. This would be what level you would
+Xlike to start at, if you were going to play the game. At the moment we
+Xare not interested in that, so type 1 and press return.
+X
+XYou are now prompted if you would like to reset the saved games file.
++-+-+-+-+-+-+-+-  END  OF PART 4 +-+-+-+-+-+-+-+-
+-- 
+\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/
+< Joe Koffley                        KOFFLEY@NRLVAX.NRL.NAVY.MIL             >
+< Naval Research Laboratory          KOFFLEY@SMOVAX.NRL.NAVY.MIL             >
+< Space Systems Division             AT&T  :  202-767-0894                   >
+\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/
+

@@ -1,0 +1,1557 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject: v40i168:  remind - A replacement for calendar, Patch11b/5
+Message-ID: <1993Nov26.165729.5496@sparky.sterling.com>
+X-Md4-Signature: bc35e20e208f7dcf2c8d53d438006b26
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: dfs@doe.carleton.ca (David F. Skoll)
+Organization: Carleton University
+Date: Fri, 26 Nov 1993 16:57:29 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 40, Issue 168
+Archive-name: remind/patch11b
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+#!/bin/sh
+# this is Shar.02 (part 2 of Remind-3.0/Patch-11/part)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file patch.11 continued
+#
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+if test ! -r shar3_seq_.tmp; then
+	echo "Please unpack part 1 first!"
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo "Please unpack part $Scheck next!"
+	exit 1
+ else
+	exit 0
+ fi
+) < shar3_seq_.tmp || exit 1
+echo "x - Continuing file patch.11"
+sed 's/^X//' << 'SHAR_EOF' >> patch.11 &&
+X+ Value *val;
+X+ #endif
+X+ {
+X+    if (ValStackPtr <= 0)
+X+       return E_VA_STK_UNDER;
+X+    else {
+X+       *val = ValStack[--ValStackPtr];
+X+       return OK;
+X+    }
+X+ }
+X+ 
+X*** ../prev/expr.h	Tue Oct 12 16:22:39 1993
+X--- ./expr.h	Tue Nov 16 16:12:44 1993
+X***************
+X*** 24,26 ****
+X--- 24,53 ----
+X  #define UN_OP 0  /* Unary operator */
+X  #define BIN_OP 1 /* Binary Operator */
+X  #define FUNC 2   /* Function */
+X+ 
+X+ /* Make the pushing and popping of values and operators in-line code
+X+    for speed.  BEWARE:  These macros invoke return if an error happens ! */
+X+ 
+X+ #define PushOpStack(op) \
+X+    if (OpStackPtr >= OP_STACK_SIZE) \
+X+       return E_OP_STK_OVER; \
+X+    else \
+X+       OpStack[OpStackPtr++] = (op)
+X+ 
+X+ #define PopOpStack(op) \
+X+    if (OpStackPtr <= 0) \
+X+       return E_OP_STK_UNDER; \
+X+    else \
+X+       (op) = OpStack[--OpStackPtr]
+X+ 
+X+ #define PushValStack(val) \
+X+    if (ValStackPtr >= VAL_STACK_SIZE) \
+X+       return E_VA_STK_OVER; \
+X+    else \
+X+       ValStack[ValStackPtr++] = (val)
+X+ 
+X+ #define PopValStack(val) \
+X+    if (ValStackPtr <= 0) \
+X+       return E_VA_STK_UNDER; \
+X+    else \
+X+       (val) = ValStack[--ValStackPtr]
+X*** ../prev/files.c	Wed Oct 13 10:38:25 1993
+X--- ./files.c	Mon Nov 15 14:25:27 1993
+X***************
+X*** 25,31 ****
+X  #include <sys/stat.h>
+X  #include <time.h>
+X  
+X! #if defined(__MSDOS__) || defined(OS2)
+X  #include <io.h>
+X  #endif
+X  
+X--- 25,31 ----
+X  #include <sys/stat.h>
+X  #include <time.h>
+X  
+X! #if defined(__MSDOS__)
+X  #include <io.h>
+X  #endif
+X  
+X***************
+X*** 444,450 ****
+X  /*  file.  Not needed for UNIX.                                */
+X  /*                                                             */
+X  /***************************************************************/
+X! #if defined(__MSDOS__) || defined(OS2)
+X  /*
+X   * WARNING WARNING WARNING WARNING
+X   * In the version of Turbo C which I have, there is a bug in the
+X--- 444,450 ----
+X  /*  file.  Not needed for UNIX.                                */
+X  /*                                                             */
+X  /***************************************************************/
+X! #if defined(__MSDOS__)
+X  /*
+X   * WARNING WARNING WARNING WARNING
+X   * In the version of Turbo C which I have, there is a bug in the
+X*** ../prev/french.h	Wed Oct 13 11:05:29 1993
+X--- ./french.h	Tue Nov  2 14:55:03 1993
+X***************
+X*** 388,395 ****
+X     fprintf(ErrFp, " -x[n]  Limite d'it\351rations pour la clause SATISFY (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Ex\351cuter 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[ddd] Trier les rappels par date, heure et priorit\351 avant d'\351mettre\n");
+X!    fprintf(ErrFp, " -ivar=val Initialiser var \340 val et conserver var\n\n");
+X!    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plutot que dimanche");
+X  #else /* ISOLATIN1 */
+X     fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date] [*repetition]\n");
+X     fprintf(ErrFp, "Options:\n");
+X--- 388,395 ----
+X     fprintf(ErrFp, " -x[n]  Limite d'it\351rations pour la clause SATISFY (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Ex\351cuter 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[ddd] Trier les rappels par date, heure et priorit\351 avant d'\351mettre\n");
+X!    fprintf(ErrFp, " -ivar=val Initialiser var \340 val et conserver var\n");
+X!    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plut\364t que dimanche\n");
+X  #else /* ISOLATIN1 */
+X     fprintf(ErrFp, "\nUtilisation: remind [options] fichier [date] [*repetition]\n");
+X     fprintf(ErrFp, "Options:\n");
+X***************
+X*** 416,423 ****
+X     fprintf(ErrFp, " -x[n]  Limite d'iterations pour la clause SATISFY (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Executer 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[ddd] Trier les rappels par date, heure et priorite avant d'emettre\n");
+X!    fprintf(ErrFp, " -ivar=val Initialiser var a val et conserver var\n\n");
+X!    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plutot que dimanche");
+X  #endif /* ISOLATIN1 */
+X     exit(1);
+X  }
+X--- 416,423 ----
+X     fprintf(ErrFp, " -x[n]  Limite d'iterations pour la clause SATISFY (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Executer 'cmd' pour les rappels de type MSG\n");
+X     fprintf(ErrFp, " -g[ddd] Trier les rappels par date, heure et priorite avant d'emettre\n");
+X!    fprintf(ErrFp, " -ivar=val Initialiser var a val et conserver var\n");
+X!    fprintf(ErrFp, " -m     Commencer le calendrier avec lundi plutot que dimanche\n");
+X  #endif /* ISOLATIN1 */
+X     exit(1);
+X  }
+X*** ../prev/funcs.c	Fri Oct 15 12:34:35 1993
+X--- ./funcs.c	Tue Nov 16 17:40:44 1993
+X***************
+X*** 30,36 ****
+X  #include <sys/types.h>
+X  #include <sys/stat.h>
+X  #include <time.h>
+X! #if defined(__MSDOS__) || defined(OS2)
+X  #include <io.h>
+X  #define R_OK 4
+X  #define W_OK 2
+X--- 30,36 ----
+X  #include <sys/types.h>
+X  #include <sys/stat.h>
+X  #include <time.h>
+X! #if defined(__MSDOS__) || defined(__OS2__)
+X  #include <io.h>
+X  #define R_OK 4
+X  #define W_OK 2
+X***************
+X*** 118,128 ****
+X  PRIVATE int	CleanUpAfterFunc ARGS ((void));
+X  PRIVATE int	SunStuff	ARGS ((int rise, double cosz, int jul));
+X  
+X! #if defined(__MSDOS__) || defined(OS2)
+X! PRIVATE FILE *popen  ARGS((char *cmd, char *mode));
+X! PRIVATE int   pclose ARGS((FILE *fp));
+X  #endif
+X  
+X  /* "Overload" the struct Operator definition */
+X  #define NO_MAX 127
+X  #define MINARGS prec
+X--- 118,143 ----
+X  PRIVATE int	CleanUpAfterFunc ARGS ((void));
+X  PRIVATE int	SunStuff	ARGS ((int rise, double cosz, int jul));
+X  
+X! #if defined(__MSDOS__) || defined(__BORLANDC__)
+X! PRIVATE FILE *os_popen  ARGS((char *cmd, char *mode));
+X! PRIVATE int   os_pclose ARGS((FILE *fp));
+X! #define POPEN os_popen
+X! #define PCLOSE os_pclose
+X! 
+X! #if defined(_MSC_VER)
+X! #define popen _popen
+X! #define pclose _pclose
+X  #endif
+X  
+X+ #elif defined(_MSC_VER)
+X+ #define POPEN _popen
+X+ #define PCLOSE _pclose
+X+ 
+X+ #else
+X+ #define POPEN popen
+X+ #define PCLOSE pclose
+X+ #endif
+X+ 
+X  /* "Overload" the struct Operator definition */
+X  #define NO_MAX 127
+X  #define MINARGS prec
+X***************
+X*** 276,282 ****
+X  
+X     r = (*(f->func))();
+X     if (r) {
+X!       DestroyValue(&RetVal);
+X        if (DebugFlag & DB_PRTEXPR)
+X  	 fprintf(ErrFp, "%s\n", ErrMsg[r]);
+X        else
+X--- 291,297 ----
+X  
+X     r = (*(f->func))();
+X     if (r) {
+X!       DestroyValue(RetVal);
+X        if (DebugFlag & DB_PRTEXPR)
+X  	 fprintf(ErrFp, "%s\n", ErrMsg[r]);
+X        else
+X***************
+X*** 326,339 ****
+X  #endif
+X  {
+X     Value v;
+X!    int i, r;
+X  
+X     for (i=0; i<Nargs; i++) {
+X!       r = PopValStack(&v);
+X!       if (r) return r;
+X!       DestroyValue(&v);
+X     }
+X!    PushValStack(&RetVal);
+X     return OK;
+X  }
+X  
+X--- 341,353 ----
+X  #endif
+X  {
+X     Value v;
+X!    int i;
+X  
+X     for (i=0; i<Nargs; i++) {
+X!       PopValStack(v);
+X!       DestroyValue(v);
+X     }
+X!    PushValStack(RetVal);
+X     return OK;
+X  }
+X  
+X***************
+X*** 562,570 ****
+X     if (!RetVal.v.str) return E_NO_MEM;
+X     RetVal.type = STR_TYPE;
+X     for (i=0; i<Nargs; i++) {
+X!      if (ARG(i).type != INT_TYPE) return E_BAD_TYPE;
+X!      if (ARG(i).v.val < -128 || ARG(i).v.val == 0) return E_2LOW;
+X!      if (ARG(i).v.val > 255) return E_2HIGH;
+X       *(RetVal.v.str + i) = ARG(i).v.val;
+X     }
+X     *(RetVal.v.str + Nargs) = 0;
+X--- 576,596 ----
+X     if (!RetVal.v.str) return E_NO_MEM;
+X     RetVal.type = STR_TYPE;
+X     for (i=0; i<Nargs; i++) {
+X!      if (ARG(i).type != INT_TYPE) {
+X!         free(RetVal.v.str);
+X! 	RetVal.type = ERR_TYPE;
+X!         return E_BAD_TYPE;
+X!      }
+X!      if (ARG(i).v.val < -128 || ARG(i).v.val == 0) {
+X!         free(RetVal.v.str);
+X! 	RetVal.type = ERR_TYPE;
+X!         return E_2LOW;
+X!      }
+X!      if (ARG(i).v.val > 255) {
+X!         free(RetVal.v.str);
+X! 	RetVal.type = ERR_TYPE;
+X!         return E_2HIGH;
+X!      }
+X       *(RetVal.v.str + i) = ARG(i).v.val;
+X     }
+X     *(RetVal.v.str + Nargs) = 0;
+X***************
+X*** 930,941 ****
+X  #ifdef UNIX
+X     return RetStrVal("UNIX");
+X  #else
+X- #ifdef __MSC__
+X- 	if (_osmode == OS2_MODE)
+X- 		return RetStrVal("OS/2");
+X- #endif
+X  #ifdef __OS2__
+X!    return RetStrVal("OS/2");
+X  #else
+X     return RetStrVal("MSDOS");
+X  #endif
+X--- 956,963 ----
+X  #ifdef UNIX
+X     return RetStrVal("UNIX");
+X  #else
+X  #ifdef __OS2__
+X!    return RetStrVal(OS2MODE ? "OS/2" : "MSDOS");
+X  #else
+X     return RetStrVal("MSDOS");
+X  #endif
+X***************
+X*** 1216,1225 ****
+X     if (Nargs > 1) {
+X        if (ARG(1).type != TIM_TYPE) return E_BAD_TYPE;
+X        if (Nargs == 2) time = ARG(1).v.val;
+X!       sprintf(buf, "%d %s %d AT %02d:%02d", d, MonthName[m], y,
+X                time/60, time%60);
+X     } else {
+X!       sprintf(buf, "%d %s %d", d, MonthName[m], y);
+X     }
+X     return RetStrVal(buf);
+X  }
+X--- 1238,1247 ----
+X     if (Nargs > 1) {
+X        if (ARG(1).type != TIM_TYPE) return E_BAD_TYPE;
+X        if (Nargs == 2) time = ARG(1).v.val;
+X!       sprintf(buf, "%d %s %d AT %02d:%02d", d, EnglishMonthName[m], y,
+X                time/60, time%60);
+X     } else {
+X!       sprintf(buf, "%d %s %d", d, EnglishMonthName[m], y);
+X     }
+X     return RetStrVal(buf);
+X  }
+X***************
+X*** 1248,1254 ****
+X     if (ARG(0).type != STR_TYPE) return E_BAD_TYPE;
+X     s = buf;
+X     len = 0;
+X!    fp = popen(ARG(0).v.str, "r");
+X     if (!fp) return E_IO_ERR;
+X     while (len < SHELLSIZE) {
+X        ch = getc(fp);
+X--- 1270,1276 ----
+X     if (ARG(0).type != STR_TYPE) return E_BAD_TYPE;
+X     s = buf;
+X     len = 0;
+X!    fp = POPEN(ARG(0).v.str, "r");
+X     if (!fp) return E_IO_ERR;
+X     while (len < SHELLSIZE) {
+X        ch = getc(fp);
+X***************
+X*** 1263,1272 ****
+X  
+X     /* Delete trailing newline (converted to space) */
+X     if (s > buf && *(s-1) == ' ') *(s-1) = 0;
+X! #if defined(__MSDOS__) || defined(OS2)
+X     if (s-1 > buf && *(s-2) == ' ') *(s-2) = 0;
+X  #endif
+X!    pclose(fp);
+X     return RetStrVal(buf);
+X  }
+X  
+X--- 1285,1294 ----
+X  
+X     /* Delete trailing newline (converted to space) */
+X     if (s > buf && *(s-1) == ' ') *(s-1) = 0;
+X! #if defined(__MSDOS__) || defined(__OS2__)
+X     if (s-1 > buf && *(s-2) == ' ') *(s-2) = 0;
+X  #endif
+X!    PCLOSE(fp);
+X     return RetStrVal(buf);
+X  }
+X  
+X***************
+X*** 1438,1454 ****
+X     char TmpBuf[LINELEN];  /* Should be _POSIX_PATH_MAX ? */
+X     char *s;
+X  
+X- #if defined(__MSDOS__) || defined(OS2)
+X- #define PATHSEP '\\'
+X- #else
+X- #define PATHSEP '/'
+X- #endif
+X- 
+X     strcpy(TmpBuf, FileName);
+X     s = TmpBuf + strlen(TmpBuf) - 1;
+X     if (s < TmpBuf) return RetStrVal(".");
+X!    while (s > TmpBuf && *s != PATHSEP) s--;
+X!    if (*s == PATHSEP) {
+X           *s = 0;
+X  	 return RetStrVal(TmpBuf);
+X     } else return RetStrVal(".");
+X--- 1460,1477 ----
+X     char TmpBuf[LINELEN];  /* Should be _POSIX_PATH_MAX ? */
+X     char *s;
+X  
+X     strcpy(TmpBuf, FileName);
+X     s = TmpBuf + strlen(TmpBuf) - 1;
+X     if (s < TmpBuf) return RetStrVal(".");
+X! #if defined(__OS2__) || defined(__MSDOS__)
+X!    /* Both '\\' and '/' can be part of path; handle drive letters. */
+X!    while (s > TmpBuf && !strchr("\\/:", *s)) s--;
+X!    if (*s == ':') { s[1] = '.'; s += 2; }
+X!    if (s > TmpBuf) *s = '/';
+X! #else
+X!    while (s > TmpBuf && *s != '/') s--;
+X! #endif
+X!    if (*s == '/') {
+X           *s = 0;
+X  	 return RetStrVal(TmpBuf);
+X     } else return RetStrVal(".");
+X***************
+X*** 1492,1498 ****
+X     return OK;
+X  }
+X  
+X! #if defined(__MSDOS__) || defined(OS2)
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  popen and pclose                                           */
+X--- 1515,1521 ----
+X     return OK;
+X  }
+X  
+X! #if defined(__MSDOS__) || defined(__BORLANDC__)
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  popen and pclose                                           */
+X***************
+X*** 1509,1522 ****
+X  
+X  static char *TmpFile;
+X  #ifdef HAVE_PROTOS
+X! PRIVATE FILE *popen(char *cmd, char *mode)
+X  #else
+X! static FILE *popen(cmd, mode)
+X  char *cmd, *mode;
+X  #endif
+X  {
+X     char *s;
+X  
+X     TmpFile = tmpnam(NULL);
+X     if (!TmpFile) return NULL;
+X     s = (char *) malloc(strlen(cmd) + 3 + strlen(TmpFile) + 1);
+X--- 1532,1550 ----
+X  
+X  static char *TmpFile;
+X  #ifdef HAVE_PROTOS
+X! PRIVATE FILE *os_popen(char *cmd, char *mode)
+X  #else
+X! static FILE *os_popen(cmd, mode)
+X  char *cmd, *mode;
+X  #endif
+X  {
+X     char *s;
+X  
+X+ #if defined(__OS2__) && !defined(__BORLANDC__)
+X+    if (OS2MODE)
+X+      return(popen(cmd, mode));
+X+ #endif
+X+ 
+X     TmpFile = tmpnam(NULL);
+X     if (!TmpFile) return NULL;
+X     s = (char *) malloc(strlen(cmd) + 3 + strlen(TmpFile) + 1);
+X***************
+X*** 1530,1541 ****
+X  }
+X  
+X  #ifdef HAVE_PROTOS
+X! PRIVATE int pclose(FILE *fp)
+X  #else
+X! static int pclose(fp)
+X  FILE *fp;
+X  #endif
+X  {
+X     unlink(TmpFile);
+X     return fclose(fp);
+X  }
+X--- 1558,1574 ----
+X  }
+X  
+X  #ifdef HAVE_PROTOS
+X! PRIVATE int os_pclose(FILE *fp)
+X  #else
+X! static int os_pclose(fp)
+X  FILE *fp;
+X  #endif
+X  {
+X+ #if defined(__OS2__) && !defined(__BORLANDC__)
+X+   if (OS2MODE)
+X+     return(pclose(fp));
+X+ #endif
+X+ 
+X     unlink(TmpFile);
+X     return fclose(fp);
+X  }
+X*** ../prev/globals.h	Tue Oct 12 16:22:43 1993
+X--- ./globals.h	Tue Nov 16 17:45:06 1993
+X***************
+X*** 24,29 ****
+X--- 24,31 ----
+X  #define IsLeapYear(y) (((y) % 4) ? 0 : ((!((y) % 100) && ((y) % 400)) ? 0 : 1 ))
+X  #define DaysInMonth(m, y) ((m) != 1 ? MonthDays[m] : 28 + IsLeapYear(y))
+X  
+X+ #define DestroyValue(x) (void) (((x).type == STR_TYPE && (x).v.str) ? (free((x).v.str),(x).type = ERR_TYPE) : 0)
+X+ 
+X  EXTERN	int	JulianToday;
+X  EXTERN	int	RealToday;
+X  EXTERN	int	CurDay;
+X***************
+X*** 53,58 ****
+X--- 55,61 ----
+X  EXTERN  INIT(   int     SortByTime, 0);
+X  EXTERN  INIT(   int     SortByDate, 0);
+X  EXTERN	INIT(	int	SortByPrio, 0);
+X+ EXTERN	INIT(	int	DefaultPrio, NO_PRIORITY);
+X  
+X  EXTERN	char	*InitialFile;
+X  EXTERN	int	FileAccessDate;
+X***************
+X*** 110,115 ****
+X--- 113,128 ----
+X  EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X  
+X  /* List of months */
+X+ EXTERN  char    *EnglishMonthName[]
+X+ #ifdef MK_GLOBALS
+X+ = {"January", "February", "March", "April", "May", "June",
+X+    "July", "August", "September", "October", "November", "December"}
+X+ #endif
+X+ ;
+X+ 
+X+ #if LANG == ENGLISH
+X+ #define MonthName EnglishMonthName
+X+ #else
+X  EXTERN	char	*MonthName[]
+X  #ifdef MK_GLOBALS
+X  = {L_JAN, L_FEB, L_MAR, L_APR, L_MAY, L_JUN,
+X***************
+X*** 116,122 ****
+X--- 129,146 ----
+X     L_JUL, L_AUG, L_SEP, L_OCT, L_NOV, L_DEC}
+X  #endif
+X  ;
+X+ #endif
+X  
+X+ EXTERN  char	*EnglishDayName[]
+X+ #ifdef MK_GLOBALS
+X+ = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+X+    "Saturday", "Sunday"}
+X+ #endif
+X+ ;
+X+ 
+X+ #if LANG == ENGLISH
+X+ #define DayName EnglishDayName
+X+ #else
+X  EXTERN	char	*DayName[]
+X  #ifdef MK_GLOBALS
+X  = {L_MONDAY, L_TUESDAY, L_WEDNESDAY, L_THURSDAY, L_FRIDAY,
+X***************
+X*** 123,128 ****
+X--- 147,153 ----
+X     L_SATURDAY, L_SUNDAY}
+X  #endif
+X  ;
+X+ #endif
+X  
+X  EXTERN	int	MonthDays[]
+X  #ifdef MK_GLOBALS
+X***************
+X*** 141,143 ****
+X--- 166,178 ----
+X    }
+X  #endif
+X  ;
+X+ 
+X+ #if defined(__OS2__)
+X+ #if defined(_MSC_VER) || defined(__EMX__)
+X+ #define OS2MODE (_osmode == OS2_MODE)
+X+ #define DOSMODE (_osmode == DOS_MODE)
+X+ #else
+X+ #define OS2MODE 1
+X+ #define DOSMODE 0
+X+ #endif
+X+ #endif
+X*** ../prev/init.c	Tue Oct 12 16:22:44 1993
+X--- ./init.c	Mon Nov 15 14:25:30 1993
+X***************
+X*** 128,133 ****
+X--- 128,138 ----
+X     NumQueued = 0;
+X     DontIssueAts = 0;
+X     Daemon = 0;
+X+ #elif defined(_MSC_VER) || defined(__BORLANDC__)
+X+    DontFork = 1;
+X+ #elif defined(__OS2__) && defined (__MSDOS__)
+X+    if (DOSMODE)
+X+      DontFork = 1;
+X  #endif
+X  
+X     /* Parse the command-line options */
+X*** ../prev/main.c	Thu Oct 14 11:27:43 1993
+X--- ./main.c	Wed Nov 17 12:38:09 1993
+X***************
+X*** 20,25 ****
+X--- 20,26 ----
+X  #include <unistd.h>
+X  #endif
+X  #include <stdio.h>
+X+ #include <signal.h>
+X  #include <string.h>
+X  #ifdef HAVE_STDARG
+X  #include <stdarg.h>
+X***************
+X*** 55,66 ****
+X  static char TPushBuffer[TOKSIZE+1]; /* Buffer for pushing back a token. */
+X  static char *TokenPushed = NULL;
+X  
+X! #ifdef __OS2__
+X! #ifdef putchar
+X! #undef putchar
+X  #endif
+X- #define putchar(c) PutcPopUp(c)
+X- #endif
+X  
+X  /***************************************************************/
+X  /***************************************************************/
+X--- 56,66 ----
+X  static char TPushBuffer[TOKSIZE+1]; /* Buffer for pushing back a token. */
+X  static char *TokenPushed = NULL;
+X  
+X! #ifdef OS2_POPUP
+X! #define Putchar(c) {if (AsPopUp) PutcPopUp(c); else putchar(c);}
+X! #else
+X! #define Putchar(c) putchar(c)
+X  #endif
+X  
+X  /***************************************************************/
+X  /***************************************************************/
+X***************
+X*** 118,125 ****
+X  #endif
+X        }
+X  
+X!    /* If it's MS-DOS or OS2, reset the file access date */
+X! #if defined(__MSDOS__) || defined(OS2)
+X        if (!UseStdin && (RealToday == JulianToday))
+X           SetAccessDate(InitialFile, RealToday);
+X  #endif
+X--- 118,127 ----
+X  #endif
+X        }
+X  
+X!    /* If it's MS-DOS, reset the file access date.           */
+X!    /* Note that OS/2 and DOS bound programs have __MSDOS__  */
+X!    /* defined, so this test should probably be modified.    */
+X! #if defined(__MSDOS__)
+X        if (!UseStdin && (RealToday == JulianToday))
+X           SetAccessDate(InitialFile, RealToday);
+X  #endif
+X***************
+X*** 390,396 ****
+X        if (*p->pos != END_OF_EXPR) {
+X  	 *err = E_MISS_END;
+X  	 DestroyParser(p);
+X! 	 DestroyValue(&val);
+X  	 return 0;
+X        }
+X        p->pos++;
+X--- 392,398 ----
+X        if (*p->pos != END_OF_EXPR) {
+X  	 *err = E_MISS_END;
+X  	 DestroyParser(p);
+X! 	 DestroyValue(val);
+X  	 return 0;
+X        }
+X        p->pos++;
+X***************
+X*** 1246,1256 ****
+X--- 1248,1268 ----
+X  #define ISBLANK(c) (isspace(c) && (c) != '\n')
+X  
+X  #ifdef HAVE_PROTOS
+X+ #ifdef OS2_POPUP
+X+ PUBLIC void FillParagraph(char *s, int AsPopUp)
+X+ #else
+X  PUBLIC void FillParagraph(char *s)
+X+ #endif
+X  #else
+X+ #ifdef OS2_POPUP
+X+ void FillParagraph(s, AsPopUp)
+X+ char *s;
+X+ int AsPopUp;
+X+ #else
+X  void FillParagraph(s)
+X  char *s;
+X  #endif
+X+ #endif
+X  {
+X  
+X     int line = 0;
+X***************
+X*** 1272,1278 ****
+X  
+X        /* If it's a carriage return, output it and start new paragraph */
+X        if (*s == '\n') {
+X!          putchar('\n');
+X  	 s++;
+X  	 line = 0;
+X  	 while(ISBLANK(*s)) s++;
+X--- 1284,1290 ----
+X  
+X        /* If it's a carriage return, output it and start new paragraph */
+X        if (*s == '\n') {
+X! 	 Putchar('\n');
+X  	 s++;
+X  	 line = 0;
+X  	 while(ISBLANK(*s)) s++;
+X***************
+X*** 1284,1290 ****
+X        /* Over here, we're at the beginning of a line.  Emit the correct
+X           number of spaces */
+X        j = line ? SubsIndent : FirstIndent;
+X!       for (i=0; i<j; i++) putchar(' ');
+X  
+X        /* Calculate the amount of room left on this line */
+X        roomleft = FormWidth - j;
+X--- 1296,1304 ----
+X        /* Over here, we're at the beginning of a line.  Emit the correct
+X           number of spaces */
+X        j = line ? SubsIndent : FirstIndent;
+X!       for (i=0; i<j; i++) {
+X! 	  Putchar(' ');
+X!       }
+X  
+X        /* Calculate the amount of room left on this line */
+X        roomleft = FormWidth - j;
+X***************
+X*** 1301,1309 ****
+X  	    return;
+X           }
+X  	 if (!pendspace || len+pendspace <= roomleft) {
+X!             for (i=0; i<pendspace; i++) putchar(' ');
+X     	    while(t < s) {
+X! 	       putchar(*t);
+X  	       if (strchr(EndSent, *t)) doublespace = 2;
+X  	       else if (!strchr(EndSentIg, *t)) doublespace = 1;
+X  	       t++;
+X--- 1315,1325 ----
+X  	    return;
+X           }
+X  	 if (!pendspace || len+pendspace <= roomleft) {
+X! 	    for (i=0; i<pendspace; i++) {
+X! 	       Putchar(' ');
+X! 	    }
+X     	    while(t < s) {
+X! 	       Putchar(*t);
+X  	       if (strchr(EndSent, *t)) doublespace = 2;
+X  	       else if (!strchr(EndSentIg, *t)) doublespace = 1;
+X  	       t++;
+X***************
+X*** 1310,1316 ****
+X              }
+X           } else {
+X  	    s = t;
+X! 	    putchar('\n');
+X  	    line++;
+X  	    break;
+X           }
+X--- 1326,1332 ----
+X              }
+X           } else {
+X  	    s = t;
+X! 	    Putchar('\n');
+X  	    line++;
+X  	    break;
+X           }
+X***************
+X*** 1459,1461 ****
+X--- 1475,1520 ----
+X     *locdate = utcdate;
+X     *loctime = utctime;
+X  }
+X+ 
+X+ /***************************************************************/
+X+ /*							       */
+X+ /* SigIntHandler					       */
+X+ /*							       */
+X+ /* For debugging purposes, when sent a SIGINT, we print the    */
+X+ /* contents of the queue.  This does NOT work when the -f      */
+X+ /* command-line flag is supplied.			       */
+X+ /*							       */
+X+ /* For OS/2, this has to be in the main thread. 	       */
+X+ /*							       */
+X+ /***************************************************************/
+X+ #ifdef HAVE_QUEUED
+X+ 
+X+ #ifdef __BORLANDC__
+X+ void __cdecl SigIntHandler(int d)
+X+ #else
+X+ #ifdef HAVE_PROTOS
+X+ void SigIntHandler(void)
+X+ #else
+X+ void SigIntHandler()
+X+ #endif
+X+ #endif
+X+ {
+X+ #ifdef SYSV
+X+    signal(SIGINT, SigIntHandler);
+X+ #else
+X+ #ifdef __BORLANDC__
+X+    signal(SIGINT, SIG_DFL);
+X+ #else
+X+ #ifdef __OS2__
+X+    signal(SIGINT, SIG_ACK);
+X+ #endif
+X+ #endif
+X+ #endif
+X+    GotSigInt();
+X+ 
+X+ #ifndef UNIX
+X+    exit(0);
+X+ #endif
+X+ }
+X+ 
+X+ #endif /* HAVE_QUEUED */
+X*** ../prev/makefile.bcc	Wed Oct 13 11:21:03 1993
+X--- ./makefile.bcc	Mon Nov 15 14:25:32 1993
+X***************
+X*** 1,11 ****
+X  # Makefile for REMIND for Borland C++
+X  
+X! VERSION= 03.00.10
+X  
+X  MODEL=l
+X  
+X  !if $d(__OS2__)
+X! CFLAGS= -DOS2 -w-pia -O2
+X  BINDIR= ..\OS2-EX
+X  DELFLAG= /f
+X  !else
+X--- 1,11 ----
+X  # Makefile for REMIND for Borland C++
+X  
+X! VERSION= 03.00.11
+X  
+X  MODEL=l
+X  
+X  !if $d(__OS2__)
+X! CFLAGS= -DOS2_POPUP -w-pia -O2
+X  BINDIR= ..\OS2-EX
+X  DELFLAG= /f
+X  !else
+X*** ../prev/makefile.os2	Tue Oct 12 16:28:52 1993
+X--- ./makefile.os2	Tue Nov 16 12:13:24 1993
+X***************
+X*** 1,41 ****
+X! # Makefile for REMIND for Microsoft C 6.00A for OS/2 and MSDOS
+X! # This copy was modified from the original to permit creation of 
+X! #   remind.exe   OS/2 1.x--2.0 executable
+X! #   remindb.exe  OS/2 and MSDOS bound executable
+X  #
+X! # Darrel Hankerson hank@ducvax.auburn.edu
+X! # 11 November 1992
+X  
+X! O = .obj
+X  
+X! CC= cl
+X  
+X- # Put any additional flags for the C compiler here
+X- MODEL = S
+X- DEFINES= -D__MSDOS__ -D__MSC__ -D__STDC__ -DOS2
+X- CFLAGS= -A$(MODEL) $(DEFINES)
+X  
+X! LINK = cl
+X! LFLAGS = -A$(MODEL) -Lp
+X! BIND = bind
+X  
+X! all: remind.exe remindb.exe rem2ps.exe
+X  
+X! #-----------------------------------------------------------------------------
+X! # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X! # in config.h; then, you should be able to type 'make'.
+X! #-----------------------------------------------------------------------------
+X! VERSION= 03.00.10
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finish.h french.h norwgian.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X! SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c moon.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X--- 1,57 ----
+X! # Makefile for REMIND
+X  #
+X! # - for GNU gcc (emx 0.8g kit) [executables for OS/2 2.x or DOS (32-bit)]
+X! # - for Microsoft C 6.00A      [executables for OS/2 or MSDOS (16-bit)]
+X  
+X! # To use, enter "make -f Makefile.os2" (this makefile depends on its
+X! # name being "Makefile.os2").
+X! #
+X! # Tested with dmake 3.8 and GNU make 3.68 under OS/2
+X  
+X! default:
+X! 	@echo "Enter $(MAKE) -f Makefile.os2 target                     "
+X! 	@echo " where 'target' is chosen from                          " 
+X! 	@echo "   msc      OS/2 exe [Microsoft C 6.00a]                "
+X! 	@echo "   mscbnd   OS/2 and DOS exe [Microsoft C 6.00a]        "
+X! 	@echo "   emx      OS/2 and DOS 32-bit exe [EMX/gcc]           "
+X  
+X  
+X! msc: 
+X! 	$(MAKE) -f Makefile.os2 all \
+X! 	CC="cl -nologo -AM" O=".obj" \
+X! 	CFLAGS="-D__STDC__ -D__OS2__" \
+X! 	LFLAGS="-Lp" \
+X! 	LFLAGS2="setargv.obj remind.def -link /NOE"
+X  
+X! mscbnd: 
+X! 	$(MAKE) -f Makefile.os2 all \
+X! 	CC="cl -nologo -AM" O=".obj" \
+X! 	CFLAGS="-D__STDC__ -D__OS2__ -D__MSDOS__" \
+X! 	LFLAGS="-Lp" LBIND="-Fb" \
+X! 	LFLAGS2="setargv.obj remind.def -link /NOE" \
+X! 	BIND="bind remind /n DOSMAKEPIPE DOSCWAIT VIOENDPOPUP VIOPOPUP"
+X  
+X! emx:  
+X! 	$(MAKE) -f Makefile.os2 all \
+X! 	CC="gcc -O -s" O=".o" \
+X! 	CFLAGS="-D__OS2__ -D__MSDOS__" \
+X! 	LFLAGS=""
+X  
+X+ 
+X+ # OS2_POPUP enables Russ Herman's popup reminders
+X+ #OS2_POPUP =
+X+ OS2_POPUP = -DOS2_POPUP
+X+ 
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X! SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c hbcal.c \
+X! init.c main.c moon.c omit.c sort.c queue.c token.c trigger.c userfns.c \
+X! utils.c var.c os2func.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X***************
+X*** 47,75 ****
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X! rem2ps.exe: rem2ps.obj remind.def
+X! 	copy remind.def rem2ps.def
+X! 	$(LINK) -o $@ $(LFLAGS) $<
+X  
+X! rem2ps.obj: rem2ps.c rem2ps.h lang.h config.h
+X! 	$(CC) -c $(CFLAGS) rem2ps.c
+X  
+X! remind.exe: $(OBJS) remind.def
+X! 	$(LINK) -o $@ $(LFLAGS) $< 
+X  
+X! remindb.exe: remind.exe
+X! 	$(BIND) -o $@ $<
+X  
+X! rem2psb.exe: rem2ps.exe
+X! 	$(BIND) -o $@ $<
+X  
+X! .c.$O:
+X! 	$(CC) -c $(CFLAGS) $<
+X  
+X! clean:
+X! 	rm -f *$O
+X  
+X! rem2ps$O: rem2ps.c rem2ps.h config.h
+X  calendar$O: calendar.c $(STDHDRS) expr.h
+X  dorem$O: dorem.c $(STDHDRS) expr.h
+X  dosubst$O: dosubst.c $(STDHDRS) $(LANGHDRS)
+X--- 63,90 ----
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X! all: remind.exe rem2ps.exe
+X  
+X! .c$O:
+X! 	$(CC) -c $(CFLAGS) $(OS2_POPUP) $*.c
+X  
+X! rem2ps.exe: rem2ps$O
+X! 	$(CC) $(LFLAGS) $(LBIND) -o $@ rem2ps$O $(LFLAGS2)
+X  
+X! remind.exe: $(OBJS)
+X! 	$(CC) $(LFLAGS) -o $@ $(OBJS) $(LFLAGS2)
+X! 	$(BIND)
+X  
+X! clean:
+X! 	rm -f *.o *.obj *~ core *.bak
+X  
+X! clobber:
+X! 	rm -f *.o *.obj *~ remind.exe rem2ps.exe test.out core *.bak
+X  
+X! test:
+X! 	test-rem.cmd
+X  
+X! rem2ps$O: rem2ps.c rem2ps.h lang.h config.h
+X  calendar$O: calendar.c $(STDHDRS) expr.h
+X  dorem$O: dorem.c $(STDHDRS) expr.h
+X  dosubst$O: dosubst.c $(STDHDRS) $(LANGHDRS)
+X***************
+X*** 76,87 ****
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X! globals$O: globals.c config.h types.h globals.h err.h lang.h
+X! init$O: init.c $(STDHDRS) expr.h version.h
+X  main$O: main.c $(STDHDRS) expr.h
+X  moon$O: moon.c $(STDHDRS)
+X  omit$O: omit.c $(STDHDRS)
+X  sort$O: sort.c $(STDHDRS)
+X  token$O: token.c $(STDHDRS)
+X  trigger$O: trigger.c $(STDHDRS) expr.h
+X  userfns$O: userfns.c $(STDHDRS) expr.h
+X--- 91,104 ----
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X! globals$O: globals.c config.h types.h globals.h err.h lang.h $(LANGHDRS)
+X! hbcal$O: hbcal.c $(STDHDRS)
+X! init$O: init.c $(STDHDRS) expr.h version.h $(LANGHDRS)
+X  main$O: main.c $(STDHDRS) expr.h
+X  moon$O: moon.c $(STDHDRS)
+X  omit$O: omit.c $(STDHDRS)
+X  sort$O: sort.c $(STDHDRS)
+X+ queue$O: queue.c $(STDHDRS)
+X  token$O: token.c $(STDHDRS)
+X  trigger$O: trigger.c $(STDHDRS) expr.h
+X  userfns$O: userfns.c $(STDHDRS) expr.h
+X*** ../prev/makefile.tc	Tue Oct 12 16:28:35 1993
+X--- ./makefile.tc	Thu Oct 21 12:39:34 1993
+X***************
+X*** 1,7 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X  CC= tcc
+X! VERSION= 03.00.10
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X--- 1,7 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X  CC= tcc
+X! VERSION= 03.00.11
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X*** ../prev/os2func.c	Tue Oct 12 16:44:56 1993
+X--- ./os2func.c	Wed Nov 17 10:12:21 1993
+X***************
+X*** 10,21 ****
+X  /*  REMIND is Copyright (C) 1993 by David F. Skoll.            */
+X  /*                                                             */
+X  /***************************************************************/
+X! #ifdef __OS2__
+X  #define INCL_VIO
+X  #define INCL_KBD
+X  #include <os2.h>
+X  
+X  #include <stdio.h>
+X  #include <string.h>
+X  #ifdef OS2DBG
+X  #include <dos.h>
+X--- 10,31 ----
+X  /*  REMIND is Copyright (C) 1993 by David F. Skoll.            */
+X  /*                                                             */
+X  /***************************************************************/
+X! #ifdef OS2_POPUP
+X  #define INCL_VIO
+X  #define INCL_KBD
+X+ #endif
+X+ 
+X+ #ifdef _MSC_VER
+X+ #define INCL_DOSPROCESS
+X+ #endif
+X+ 
+X+ #if defined(OS2_POPUP) || defined(_MSC_VER)
+X  #include <os2.h>
+X+ #endif
+X  
+X+ #ifdef OS2_POPUP
+X  #include <stdio.h>
+X+ #include <stdlib.h>
+X  #include <string.h>
+X  #ifdef OS2DBG
+X  #include <dos.h>
+X***************
+X*** 23,40 ****
+X  #endif
+X  #include "config.h"
+X  #include "globals.h"
+X  #include "types.h"
+X  #include "protos.h"
+X  
+X  static APIRET apiret = 0;
+X  static KBDKEYINFO kbci;
+X  static char *pszPressAny = "\r\nPress any key to continue";
+X! static USHORT pflags = VP_WAIT;
+X  static HKBD hkbd = 0;
+X! static char VioSubstBuffer[2*LINELEN];
+X  
+X  void StartPopUp()
+X  {
+X      if (!(DebugFlag & DB_ECHO_LINE))
+X         VioPopUp(&pflags, 0);
+X  }
+X--- 33,62 ----
+X  #endif
+X  #include "config.h"
+X  #include "globals.h"
+X+ 
+X+ /* EMX defines PS_TYPE, so we undefine it here to avoid
+X+    a redefinition warning when we include "types.h" */
+X+ #ifdef PS_TYPE
+X+ #undef PS_TYPE
+X+ #endif
+X+ 
+X  #include "types.h"
+X  #include "protos.h"
+X  
+X+ #ifdef _MSC_VER
+X+ typedef USHORT APIRET;
+X+ #endif
+X+ 
+X  static APIRET apiret = 0;
+X  static KBDKEYINFO kbci;
+X  static char *pszPressAny = "\r\nPress any key to continue";
+X! static USHORT pflags = VP_WAIT;  /* | VP_TRANSPARENT; */
+X  static HKBD hkbd = 0;
+X! static char VioSubstBuffer[SHELLSIZE + 1];
+X  
+X  void StartPopUp()
+X  {
+X+   if (OS2MODE)
+X      if (!(DebugFlag & DB_ECHO_LINE))
+X         VioPopUp(&pflags, 0);
+X  }
+X***************
+X*** 43,51 ****
+X  {
+X      if (DebugFlag & DB_ECHO_LINE)
+X  	return;
+X!     VioWrtTTY(pszPressAny, strlen(pszPressAny), 0);
+X!     KbdCharIn(&kbci, IO_WAIT, hkbd);
+X!     VioEndPopUp(0);
+X  }
+X  
+X  int PutsPopUp(char *s)
+X--- 65,75 ----
+X  {
+X      if (DebugFlag & DB_ECHO_LINE)
+X  	return;
+X!     if (OS2MODE) {
+X!       VioWrtTTY(pszPressAny, strlen(pszPressAny), 0);
+X!       KbdCharIn(&kbci, IO_WAIT, hkbd);
+X!       VioEndPopUp(0);
+X!     }
+X  }
+X  
+X  int PutsPopUp(char *s)
+X***************
+X*** 115,121 ****
+X--- 139,155 ----
+X  #endif
+X  #endif
+X  
+X+ #ifdef _MSC_VER
+X+ unsigned sleep(unsigned sec)
+X+ {
+X+   return DosSleep(sec * 1000L);
+X+ }
+X+ #endif
+X+ 
+X+ #ifndef __EMX__ 
+X  int fork()
+X  {
+X      return(-1);
+X  }
+X+ #endif
+X+ 
+X*** ../prev/protos.h	Wed Oct 20 11:54:30 1993
+X--- ./protos.h	Tue Nov 16 15:58:54 1993
+X***************
+X*** 32,44 ****
+X  int DoFlush ARGS ((ParsePtr p));
+X  void DoExit ARGS ((ParsePtr p));
+X  int ParseRem ARGS ((ParsePtr s, Trigger *trig, TimeTrig *tim));
+X  int TriggerReminder ARGS ((ParsePtr p, Trigger *t, TimeTrig *tim, int jul));
+X  int ShouldTriggerReminder ARGS ((Trigger *t, TimeTrig *tim, int jul));
+X  int DoSubst ARGS ((ParsePtr p, char *out, Trigger *t, TimeTrig *tt, int jul, int mode));
+X  int DoSubstFromString ARGS ((char *source, char *dest, int jul, int tim));
+X  int EvalExpr ARGS ((char **e, Value *v));
+X- int PushValStack ARGS ((Value *val));
+X- int PopValStack ARGS ((Value *val));
+X  int DoCoerce ARGS ((char type, Value *v));
+X  void DestroyValue ARGS ((Value *v));
+X  void PrintValue  ARGS ((Value *v, FILE *fp));
+X--- 32,47 ----
+X  int DoFlush ARGS ((ParsePtr p));
+X  void DoExit ARGS ((ParsePtr p));
+X  int ParseRem ARGS ((ParsePtr s, Trigger *trig, TimeTrig *tim));
+X+ #ifdef OS2_POPUP
+X+ int TriggerReminder ARGS ((ParsePtr p, Trigger *t, TimeTrig *tim, int jul,
+X+ 			   int AsPopUp));
+X+ #else
+X  int TriggerReminder ARGS ((ParsePtr p, Trigger *t, TimeTrig *tim, int jul));
+X+ #endif
+X  int ShouldTriggerReminder ARGS ((Trigger *t, TimeTrig *tim, int jul));
+X  int DoSubst ARGS ((ParsePtr p, char *out, Trigger *t, TimeTrig *tt, int jul, int mode));
+X  int DoSubstFromString ARGS ((char *source, char *dest, int jul, int tim));
+X  int EvalExpr ARGS ((char **e, Value *v));
+X  int DoCoerce ARGS ((char type, Value *v));
+X  void DestroyValue ARGS ((Value *v));
+X  void PrintValue  ARGS ((Value *v, FILE *fp));
+X***************
+X*** 62,67 ****
+X--- 65,71 ----
+X  int ParseIdentifier ARGS ((ParsePtr p, char *out));
+X  int EvaluateExpr ARGS ((ParsePtr p, Value *v));
+X  int Evaluate ARGS ((char **s, Var *locals));
+X+ int FnPopValStack ARGS ((Value *val));
+X  void Eprint ARGS ((const char *fmt, ...));
+X  void OutputLine ARGS ((FILE *fp));
+X  void CreateParser ARGS ((char *s, ParsePtr p));
+X***************
+X*** 131,148 ****
+X--- 135,164 ----
+X  int SetSysVar ARGS ((const char *name, Value *val));
+X  void DumpSysVarByName ARGS ((const char *name));
+X  int CalcMinsFromUTC ARGS ((int jul, int tim, int *mins, int *isdst));
+X+ #ifdef OS2_POPUP
+X+ void FillParagraph ARGS ((char *s, int AsPopUp));
+X+ #else
+X  void FillParagraph ARGS ((char *s));
+X+ #endif
+X  void LocalToUTC ARGS ((int locdate, int loctime, int *utcdate, int *utctime));
+X  void UTCToLocal ARGS ((int utcdate, int utctime, int *locdate, int *loctime));
+X  int MoonPhase ARGS ((int date, int time));
+X  void HuntPhase ARGS ((int startdate, int starttim, int phas, int *date, int *time));
+X  int CompareRems ARGS ((int dat1, int tim1, int prio1, int dat2, int tim2, int prio2, int bydate, int bytime, int byprio));
+X+ #ifdef __BORLANDC__
+X+ void __cdecl SigIntHandler ARGS ((int d));
+X+ #else
+X+ void SigIntHandler ARGS ((void));
+X+ #endif
+X+ void GotSigInt ARGS ((void));
+X  
+X  #if defined(__OS2__)
+X  int fork ARGS ((void));
+X+ #if defined(OS2_POPUP)
+X  void StartPopUp ARGS ((void));
+X  void EndPopUp ARGS ((void));
+X  int PutcPopUp ARGS ((int c));
+X  int PutlPopUp ARGS ((char *s));
+X  int PutsPopUp ARGS ((char *s));
+X+ #endif
+X  #endif
+X*** ../prev/queue.c	Wed Oct 20 13:16:43 1993
+X--- ./queue.c	Wed Nov 17 12:56:07 1993
+X***************
+X*** 9,15 ****
+X--- 9,19 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X+ 
+X+ /* We only want object code generated if we have queued reminders */
+X+ #ifdef HAVE_QUEUED
+X  #include <stdio.h>
+X+ #include <string.h>
+X  #include <signal.h>
+X  #include <sys/types.h>
+X  #include <sys/stat.h>
+X***************
+X*** 23,31 ****
+X  #include <unistd.h>
+X  #endif
+X  
+X! #ifdef __BORLANDC__
+X  #include <io.h>
+X  #include <dos.h>
+X  #include <process.h>
+X  #endif
+X  
+X--- 27,37 ----
+X  #include <unistd.h>
+X  #endif
+X  
+X! #if defined(__OS2__) || defined(__MSDOS__)
+X  #include <io.h>
+X+ #if defined(__BORLANDC__)
+X  #include <dos.h>
+X+ #endif
+X  #include <process.h>
+X  #endif
+X  
+X***************
+X*** 57,68 ****
+X  PRIVATE QueuedRem *FindNextReminder ARGS ((void));
+X  PRIVATE int CalculateNextTimeUsingSched ARGS ((QueuedRem *q));
+X  
+X- #ifdef __OS2__
+X- void (__cdecl SigIntHandler(int));
+X- #else
+X- PRIVATE void SigIntHandler ARGS ((void));
+X- #endif
+X- 
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  QueueReminder                                              */
+X--- 63,68 ----
+X***************
+X*** 162,175 ****
+X        q = q->next;
+X     }
+X  
+X     if (!DontFork || Daemon) signal(SIGINT, SigIntHandler);
+X  
+X     /* Sit in a loop, issuing reminders when necessary */
+X     while(1) {
+X        q = FindNextReminder();
+X  
+X!       /* If no more reminders to issue, we're unless we're a daemon. */
+X!       if (!q && !Daemon) exit(0);
+X  
+X        if (Daemon && !q)
+X           TimeToSleep = (long) 60*Daemon;
+X--- 162,179 ----
+X        q = q->next;
+X     }
+X  
+X+ #ifdef __BORLANDC__
+X+    signal(SIGINT, SigIntHandler);
+X+ #else
+X     if (!DontFork || Daemon) signal(SIGINT, SigIntHandler);
+X+ #endif
+X  
+X     /* Sit in a loop, issuing reminders when necessary */
+X     while(1) {
+X        q = FindNextReminder();
+X  
+X!       /* If no more reminders to issue, we're done unless we're a daemon. */
+X!       if (!q && !Daemon) break;
+X  
+X        if (Daemon && !q)
+X           TimeToSleep = (long) 60*Daemon;
+X***************
+X*** 195,206 ****
+X--- 199,218 ----
+X        CreateParser(q->text, &p);
+X        trig.typ = q->typ;
+X        RunDisabled = q->RunDisabled;
+X+ #ifdef OS2_POPUP
+X+       (void) TriggerReminder(&p, &trig, &q->tt, JulianToday, 1);
+X+ #else
+X        (void) TriggerReminder(&p, &trig, &q->tt, JulianToday);
+X+ #endif
+X        fflush(stdout);
+X        
+X        /* Calculate the next trigger time */
+X        q->tt.nexttime = CalculateNextTime(q);
+X     }
+X+ #ifdef __BORLANDC__
+X+    signal(SIGINT, SIG_DFL);
+X+ #endif
+X+    exit(0);
+X  }
+X     
+X  
+X***************
+X*** 275,313 ****
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X! /* SigIntHandler                                               */
+X  /*                                                             */
+X! /* For debugging purposes, when sent a SIGINT, we print the    */
+X! /* contents of the queue.  This does NOT work when the -f      */
+X! /* command-line flag is supplied.                              */
+X  /*                                                             */
+X  /***************************************************************/
+X- #ifdef __OS2__
+X- void __cdecl SigIntHandler(int d)
+X- #else
+X  #ifdef HAVE_PROTOS
+X! PRIVATE void SigIntHandler(void)
+X  #else
+X! static void SigIntHandler()
+X  #endif
+X- #endif
+X  {
+X     QueuedRem *q = QueueHead;
+X  
+X- #ifdef SYSV
+X-    signal(SIGINT, SigIntHandler);
+X- #endif
+X- 
+X     printf("Contents of AT queue:%s", NL);
+X  
+X     while (q) {
+X        if (q->tt.nexttime != NO_TIME) {
+X!          printf("Trigger: %02d%c%02d  Activate: %02d%c%02d  Rep: %d  Delta: %d  Sched: %s%s",
+X                   q->tt.ttime / 60, TIMESEP, q->tt.ttime % 60,
+X                   q->tt.nexttime / 60, TIMESEP, q->tt.nexttime % 60,
+X!                  q->tt.rep, q->tt.delta, q->sched, NL);
+X!                  printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" :
+X! 		                           ((q->typ == MSF_TYPE) ? "MSF" :"RUN")),
+X                   q->text,
+X                   NL, NL);
+X        }
+X--- 287,318 ----
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X! /* GotSigInt						       */
+X  /*                                                             */
+X! /* Split out what's done on a SIGINT from the SIGINT Handler.  */
+X! /* This will be necessary for OS/2 multithreaded.	       */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! void GotSigInt(void)
+X  #else
+X! void GotSigInt()
+X  #endif
+X  {
+X     QueuedRem *q = QueueHead;
+X  
+X     printf("Contents of AT queue:%s", NL);
+X  
+X     while (q) {
+X        if (q->tt.nexttime != NO_TIME) {
+X!          printf("Trigger: %02d%c%02d  Activate: %02d%c%02d  Rep: %d  Delta: %d  Sched: %s",
+X                   q->tt.ttime / 60, TIMESEP, q->tt.ttime % 60,
+X                   q->tt.nexttime / 60, TIMESEP, q->tt.nexttime % 60,
+X!                  q->tt.rep, q->tt.delta, q->sched);
+X!          if (*q->sched) printf("(%d)", q->ntrig+1);
+X! 	 printf("%s", NL);
+X!          printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" :
+X! 		                    ((q->typ == MSF_TYPE) ? "MSF" :"RUN")),
+X                   q->text,
+X                   NL, NL);
+X        }
+X***************
+X*** 315,320 ****
+X--- 320,326 ----
+X     }
+X     printf(NL);
+X  }
+X+ 
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  CheckInitialFile                                           */
+X***************
+X*** 384,390 ****
+X  	    ThisTime = q->tt.ttime + v.v.val;
+X  
+X        } else {
+X!          DestroyValue(&v);
+X  	 q->sched[0] = 0;
+X  	 return NO_TIME;
+X        }
+X--- 390,396 ----
+X  	    ThisTime = q->tt.ttime + v.v.val;
+X  
+X        } else {
+X!          DestroyValue(v);
+X  	 q->sched[0] = 0;
+X  	 return NO_TIME;
+X        }
+X***************
+X*** 399,401 ****
+X--- 405,409 ----
+X        q->ntrig++;
+X     }
+X  }
+X+ 
+X+ #endif /* HAVE_QUEUED from way at the top */
+X*** ../prev/remind.1	Wed Oct 20 13:27:12 1993
+X--- ./remind.1	Mon Nov 15 15:19:08 1993
+X***************
+X*** 610,616 ****
+X  It is used in calendar mode and when sorting reminders.  If two reminders
+X  have the same trigger date and time, then they are sorted by priority.
+X  If the \fBPRIORITY\fR keyword is not supplied, a default priority of 5000
+X! is used.
+X  .PP
+X  .B EXPIRY DATES
+X  .PP
+X--- 610,618 ----
+X  It is used in calendar mode and when sorting reminders.  If two reminders
+X  have the same trigger date and time, then they are sorted by priority.
+X  If the \fBPRIORITY\fR keyword is not supplied, a default priority of 5000
+X! is used.  (This default can be changed by adjusting the system variable
+X! \fB$DefaultPrio\fR.  See the section "System Variables" for more
+X! information.)
+X  .PP
+X  .B EXPIRY DATES
+X  .PP
+X***************
+X*** 1534,1539 ****
+X--- 1536,1548 ----
+X  minutes between wakeups.  If not running in daemon mode, contains
+X  0.  For the MS-DOS version, always contains 0.
+X  .TP
+X+ .B $DefaultPrio
+X+ The default priority assigned to reminders without a \fBPRIORITY\fR
+X+ clause.  You can set this as required to adjust the priorities of
+X+ blocks of reminders without having to type priorities for individual
+X+ reminders.  At startup, \fB$DefaultPrio\fR is set to 5000; it can range
+X+ from 0 to 9999.
+X+ .TP
+X  .B $DontFork (read-only)
+X  If non-zero, then the \fB\-c\fR option was supplied on the command line.
+X  For the MS-DOS version, always contains 1.
+X***************
+X*** 2155,2166 ****
+SHAR_EOF
+echo "End of Remind-3.0/Patch-11/part part 2"
+echo "File patch.11 is continued in part 3"
+echo "3" > shar3_seq_.tmp
+exit 0
+
+
+
+exit 0 # Just in case...

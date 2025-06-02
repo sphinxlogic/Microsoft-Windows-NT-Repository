@@ -1,0 +1,2191 @@
+Newsgroups: comp.sources.misc
+From: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Subject:  v34i001:  unpackmaps - A secure comp.mail.maps unpacker, Part01/02
+Message-ID: <csm-v34i001=unpackmaps.142040@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 420621ca02d2f9c1c4906e02c8ed6801
+Date: Sun, 29 Nov 1992 20:21:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: clewis@ferret.ocunix.on.ca (Chris Lewis)
+Posting-number: Volume 34, Issue 1
+Archive-name: unpackmaps/part01
+Environment: Pathalias, Cnews, UNIX
+Supersedes: unpackmaps: Volume 22, Issue 69
+
+			UNPACKMAPS V4.1 
+			     92/11/28
+			  Chris Lewis
+		    clewis@ferret.ocunix.on.ca
+
+Unpackmaps: a simple, fast and secure UUCP map (as in comp.mail.maps)
+unpacker written in C.  It can also be used to unpack Brian Reid's
+PostScript network maps.  A flexible map query program is also included.
+This is intended to be a complete uuhosts replacement, but runs much
+faster and more reliably.
+
+See the README for more information.
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README MANIFEST config.proto runpath.c sortwdb.c uncomp.c
+#   unpack.c unpacker.c unpackmaps.M uuwhere.c
+# Wrapped by clewis@ecicrl on Sat Nov 28 02:12:32 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1935 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X			UNPACKMAPS V4.1 (comp.sources.misc release)
+X			     92/11/28
+X			  Chris Lewis
+X		    clewis@ferret.ocunix.on.ca
+X
+XUnpackmaps: a simple, fast and secure UUCP map (as in comp.mail.maps)
+Xunpacker written in C.  It can also be used to unpack Brian Reid's
+XPostScript network maps.  A flexible map query program is also included.
+XThis is intended to be a complete uuhosts replacement, but runs much
+Xfaster and more reliably.
+X
+X    This software is Copyright 1992 Chris Lewis, All Rights Reserved.
+X    Except as otherwise noted in individual source files, the following
+X    applies:
+X
+X    You can do anything you want with it, provided that this copyright
+X    notice remains intact, you don't claim you wrote it yourself, and you 
+X    don't make money selling it directly.  You may redistribute this as
+X    you wish.  But I reserve the right to make derivitive works.  In
+X    other words, you may not distribute modified versions of this software
+X    without my permission.  This is mostly to help protect against
+X    maliciously modified copies being distributed, and is more a
+X    protection for you than me.
+X
+X    Though I have taken pains to ensure that this program is reasonably 
+X    reliable and secure, I cannot make any warrantee as to the reliability 
+X    or security of this software when used on any computer.  It is up to
+X    the user of this software to determine its suitability for their
+X    purposes and take responsibility for its operation.
+X
+X    If you have to make any changes to files other than the Makefile
+X    and config.h to make this program work on your machine, please
+X    contact me and tell me where I goofed.
+X    
+XWith that bilge out of the way...
+X
+XInstructions on how to use:
+X	1) copy config.proto to config.h, and edit as appropriate.
+X	2) copy Make.proto to Makefile, and edit as appropriate.
+X	3) type "make".
+X	4) su root and type "make install"
+X	5) read the unpackmaps manual page on how to use this software.
+END_OF_FILE
+  if test 1935 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(1290 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X----------------------------------------------------------
+X README                     1	
+X MANIFEST                   1	This shipping list
+X Make.proto                 2	prototype Makefile
+X config.proto               1	prototype config.h
+X deletelist                 2	sample delete list
+X display.c                  2	displays map entries/files
+X docomp.c                   2	file compression
+X dointer.c                  2	domain optimizer
+X dopath                     2	sample unpackmaps script
+X fatal.c                    2	error handler
+X fileinit.c                 2	file name initializer
+X getmaps.c                  2	spool directory scan
+X getpath.c                  2	binary path file search
+X lock.c                     2	lock file handler
+X runpath.c                  1	check for and run pathalias/uuwhere.db
+X savestr.c                  2	string save
+X sortwdb.c                  1	sort the where database
+X uncomp.c                   1	inline file uncompression
+X unpack.c                   1	map unpacking code
+X unpack.h                   2	main header
+X unpacker.c                 1	mainline
+X unpackmaps.M               1	manual page for unpackmaps
+X uuwhere.M                  2	manual page for uuwhere
+X uuwhere.c                  1	mainline for uuwhere
+END_OF_FILE
+  if test 1290 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'config.proto' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.proto'\"
+else
+  echo shar: Extracting \"'config.proto'\" \(3963 characters\)
+  sed "s/^X//" >'config.proto' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.5 92/08/14
+X */
+X
+X#undef BSD		/* define if you're a BSD or V7 system */
+X#define USG		/* define if you're a System V or Xenix system */
+X#define NEEDTYPES_H	/* define if your sys/stat.h needs types.h,
+X			   but doesn't already include it. */
+X
+X#define MAPDIR		"/usr/spool/maps"
+X
+X/*	Default pathalias invocation line.
+X	Should have -i to lower case everything.
+X	If you're running smail 2.5, which likes to see the cost
+X	of the first hop, supply a -f option.
+X */
+X#define PATHALIAS	"/usr/bin/pathalias -i -f"
+X
+X#define SPOOLDIR	"/usr/spool/news"
+X#define PATHFILE	"/usr/lib/uucp/paths"
+X
+X/*	undef COMPFLAG if you want COMPRESS's default compress ratio.
+X	-b16 uses up about 450K.
+X	-b12 uses up about 60K. */
+X
+X#define COMPFLAG	"-b12"
+X#define COMPRESS	"/usr/bin/compress"
+X
+X#define NEWSID		"news"	/* *must* be same as news system owner. */
+X
+X#define MALLRET		char *	/* what malloc() and realloc() return
+X				   sometimes "void *" */
+X
+X
+X/*	Where you're likely to have the most space.  If you have several
+X	smallish partitions, it would make sense to have these different.
+X	Eg: /tmp and /usr/tmp.  unpackmaps attempts to balance between
+X	the two.  In fact, if these are on different spindles, this
+X	may improve performance somewhat as well.
+X */
+X#define TMPDIR		"/tmp"
+X#define TMPDIR2		"/tmp"
+X
+X/*	Bnews doesn't need to lock batch files.  Cnews *does*.
+X	If you're not running Cnews, undefine LOCKBATCH.
+X	If you are running Cnews, make sure that LOCKBATCH
+X	is set to the lock file name.  Usually /usr/lib/news/LOCK.
+X */
+X#define	LOCKBATCH	"/usr/lib/news/LOCK"
+X
+X/*	If you have SVR[34] or Posix-compliant directory routines,
+X	define "USGDIR". If you have Berkeley directory routines
+X	(usually older systems) define BERKDIR. If you have
+X	neither, or are unsure, leave both undefined, and my
+X	ugly and slow "ls" kludge will work.
+X */
+X#define USGDIR
+X#undef BERKDIR
+X
+X/*	Turn this off if you're running smail 3, or smail 2.5 with the
+X	"dotteddomain" bug fixed
+X */
+X
+X#define	NODOTDOMAIN
+X
+X/*	Unpackmaps will insert "file" directives into the beginning of
+X	each map when stuffing it into pathalias so any error messages
+X	will have the right file name and line number.  If OLDPATHALIAS
+X	is defined, unpackmaps will not do this.  Older versions of
+X	pathalias (9 and previous) don't grok the "file {name}" directive.
+X	Rutgers has just recently started sending maps with the file 
+X	directive in them - so, theoretically, as long as you have the
+X	new pathalias, you could define this to disable this feature.
+X	But, it doesn't hurt, and makes sure that the file directive is
+X	inserted even on local maps where you may have forgotten to insert
+X	the file directive.
+X
+X	Defining this doesn't cause unpackmaps to strip already-existing
+X	"file" directives from the maps - so you can't use this to
+X	adapt the new maps to old pathalias.  It's far more important
+X	to upgrade to the new pathalias (10 or better).  Older pathalias
+X	tends to go into infinite loops in some obscure situations.
+X */
+X
+X#undef	OLDPATHALIAS
+X
+X/*	Some systems have a maximum file length of 14.  Ie: System V
+X	on the System-V file system type (as opposed to the Berkeley
+X	Fast File System for instance.)  Occasionally, Rutgers will
+X	goof and send out maps with file names longer than 12 (which
+X	will cause a problem on System V systems when you try to
+X	compress - compress adds 2 characters for the .Z).  Rutgers
+X	then usually resends the map with a new length of 12.
+X
+X	If FILELENGTH is set to:
+X
+X	    0		unpackmaps will refuse to unpack anything longer
+X			than 12.
+X	    1		unpackmaps will unpack files with length of 13 or 14,
+X			but not compress them.
+X	    nn		unpackmaps will unpack as long as the file name
+X			length is <= nn, and compress if <= nn-2.
+X
+X	I strongly recommend a setting of 0, and whenever unpackmaps tells
+X	you that a map is longer than 12, send a complaint off to
+X	uucpmap@rutgers.
+X */
+X
+X#define FILELENGTH	0
+END_OF_FILE
+  if test 3963 -ne `wc -c <'config.proto'`; then
+    echo shar: \"'config.proto'\" unpacked with wrong size!
+  fi
+  # end of 'config.proto'
+fi
+if test -f 'runpath.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'runpath.c'\"
+else
+  echo shar: Extracting \"'runpath.c'\" \(8059 characters\)
+  sed "s/^X//" >'runpath.c' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.4 92/07/12
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)runpath.c 1.4 92/07/12 16:43:27";
+X#endif
+X#define	UNPACKMAPS
+X#include "unpack.h"
+X
+Xint stunlinked = 0;
+Xint stprocessed = 0;
+X
+Xdorunpath() {
+X    extern char *zfgets();
+X    extern FILE *zfopen();
+X    struct stat stb;
+X    register char *p;
+X    register int recno;
+X    FILE *list, *mapf, *path, *whfp;
+X    char buf[BUFSIZ];
+X    long pathtime = 0;
+X    char **mapptr, **locptr;
+X
+X    fatal(chdir(unpackdir), "Can't change to unpacking directory");
+X
+X    (void) umask(022);
+X
+X    (void) unlink(pathtmp);
+X    (void) unlink(pathtmp2);
+X    (void) unlink(wheretmp);
+X
+X    /* awwww, do we really have to run it?
+X       these tests are to confirm that we have to run pathalias
+X       (if forcepath = 0)
+X     */
+X
+X    if (!forcepath) {
+X	if (stat(wheredb, &stb))
+X	    forcepath = 1;		/* no where file, run it. */
+X	else
+X	    pathtime = stb.st_mtime;
+X	if (!whereonly) {
+X	    if (stat(pathfile, &stb))
+X		forcepath = 1;		/* no path file, run it. */
+X	    else /* minimum time is trigger */
+X		pathtime = stb.st_mtime < pathtime ? stb.st_mtime: pathtime;
+X	}
+X    }
+X
+X    if (debug)
+X	(void) fprintf(stderr, "in dorunpath: pathtime: %ld, force: %d\n",
+X	    pathtime, forcepath);
+X
+X    getmaps(&mapfiles, 1);
+X    for (mapptr = mapfiles.list; mapptr && *mapptr; mapptr++)
+X	if (stat(*mapptr, &stb))
+X	    (void) fprintf(stderr, "Can't stat %s\n", *mapptr);
+X	else {
+X	    if (pathtime < stb.st_mtime)	/* map file newer, run it */
+X		forcepath = 1;
+X	    if (debug)
+X		(void) fprintf(stderr, "check %s, t: %ld, force: %d\n", buf,
+X		    stb.st_mtime, forcepath);
+X	}
+X
+X    /* then, collect the map file mentioned in the command line */
+X    recno = mapfiles.curptr - mapfiles.list;
+X
+X    for (mapptr = localmaps.list; mapptr && *mapptr; mapptr++)
+X	if (stat(*mapptr, &stb))
+X	    (void) fprintf(stderr, "Can't stat %s\n", *mapptr);
+X	else {
+X	    if (pathtime < stb.st_mtime)	/* local map newer, run it */
+X		forcepath = 1;
+X	    savestr(&mapfiles, *mapptr);
+X	}
+X
+X    /* pointers >= locptr are command line maps */
+X    locptr = mapfiles.list + recno;
+X
+X    if (debug) {
+X	(void) fprintf(stderr, "finish: forcepath: %d\n", forcepath);
+X	for (mapptr = mapfiles.list; mapptr && *mapptr; mapptr++)
+X	    (void) fprintf(stderr, "map %s%s\n", *mapptr,
+X		mapptr >= locptr? "*": "");
+X    }
+X
+X
+X    if (!forcepath)
+X	return;
+X
+X    /* only doing it one step at a time.  If we make the popen
+X       multistage (sed reorder + sort), then we lose the ability
+X       to replace the sed with something faster, *and* the ability
+X       to check for errors in each step.
+X
+X       This should really be forked, with output to pathalias
+X       on one side, and input from pathalias and output to
+X       sort on the other.  Then we don't have to have *two*
+X       path temporaries.  Next time...
+X     */
+X
+X    if (whereonly)
+X	path = (FILE *) NULL;
+X    else {
+X	(void) sprintf(tempbuf, "%s > %s", pathalias, pathtmp);
+X	fatal(!(path = popen(tempbuf, "w")), "Can't popen pathalias");
+X	(void) fprintf(stderr, "Starting pathalias\n");
+X    }
+X
+X    fatal(!(whfp = fopen(wheretmp, "w")), "Can't open where.tmp");
+X
+X    /* Here we GOOOOOOOO!!!! */
+X
+X    (void) fflush(stderr);
+X
+X    for (mapptr = mapfiles.list; mapptr && *mapptr; mapptr++) {
+X	int writing = 1;	/* set to false if not pumping to pathalias */
+X	int skipmap;
+X	char *((*rdfcn)());
+X	int compressed = 0;
+X
+X	(void) strcpy(tempbuf, *mapptr);
+X
+X	p = *mapptr + strlen(*mapptr) - 2;
+X
+X	if (*p == '.' && *(p+1) == 'Z') {
+X	    compressed = 1;
+X	    tempbuf[p - *mapptr] = '\0';
+X	}
+X
+X	skipmap = (mapptr < locptr) && search(lmapfiles.list, tempbuf);
+X	if (!path || skipmap)
+X	    writing = 0;
+X	
+X	if (unlinkskip && skipmap && **mapptr == 'u') {
+X	    if (verbose)
+X		(void) fprintf(stderr, "Unlinking %s\n", tempbuf);
+X	    stunlinked++;
+X	    (void) unlink(*mapptr);
+X	    continue;
+X	}
+X
+X	if (debug)
+X	    (void) fprintf(stderr, "opening %s, .Z=: %d, writing: %d, skip: %d\n", *mapptr,
+X		compressed, writing, skipmap);
+X
+X	if (compressed) {
+X	    fatal(!(mapf = zfopen(*mapptr, "r")), "Can't zfopen map file");
+X	    rdfcn = zfgets;
+X	} else {
+X	    fatal(!(mapf = fopen(*mapptr, "r")), "Can't fopen map file");
+X	    rdfcn = fgets;
+X	}
+X	stprocessed++;
+X
+X#ifndef	OLDPATHALIAS
+X	if (writing && path)
+X	    (void) fprintf(path, "file {%s}\n", *mapptr);
+X#endif
+X	recno = 0;
+X
+X	while(rdfcn(buf, sizeof(buf), mapf)) {
+X	    recno++;
+X
+X	    /* optimization: delete comments from pathalias input. */
+X	    if (buf[0] == '#') {
+X		if (writing)
+X		    (void) putc('\n', path);
+X
+X		/* If a #N[ame] record, save information */
+X		if (buf[1] == 'N') {
+X
+X		    /* #N[ame][ \t]+site[, ]+site[, ]+,site */
+X		    for (p = buf + 2; *p && !isspace(*p); p++)
+X			continue;
+X		    while(*p && isspace(*p)) p++;
+X		    while(*p && *p != '\n') {
+X
+X			while(*p && *p != ',' && !isspace(*p)) {
+X			    (void) putc(*p, whfp);
+X			    p++;	/* ya never know */
+X			}
+X
+X			(void) fprintf(whfp, "\t%s\t%d\n", tempbuf, recno);
+X
+X			while(*p && (*p == ',' || isspace(*p)))
+X			    p++;
+X		    }
+X		}
+X	    } else {
+X		p = strchr(buf, '#');
+X		if (p) {
+X		    for (p--; p >= buf && (*p == ' ' || *p == '\t'); p--)
+X			continue;
+X		    if (p < buf) {
+X			*++p = ' ';	/* wierd but true - pathalias */
+X			*++p = '#';	/* needs it sometimes */
+X		    }
+X		    *++p = '\n';
+X		    *++p = '\0';
+X		}
+X		if (writing)
+X		    (void) fputs(buf, path);
+X	    }
+X	}
+X
+X	if (compressed)
+X	    (void) zfclose(mapf);
+X	else
+X	    (void) fclose(mapf);
+X	if (skipmap && unlinkskip && **mapptr == 'u') {
+X	    (void) fprintf(stderr, "Unlinking %s\n", *mapptr);
+X	    (void) unlink(*mapptr);
+X	}
+X#ifndef	OLDPATHALIAS
+X	if (writing && path)
+X	    (void) fprintf(path, "private {}\n");
+X#endif
+X    }
+X
+X    if (stunlinked)
+X	(void) fprintf(stderr, "%d map files discarded by discard list\n",
+X	    stunlinked);
+X    (void) fprintf(stderr, "%d map files processed\n", stprocessed);
+X
+X    (void) zfiofree();
+X
+X    (void) fclose(whfp);
+X
+X    (void) fflush(stderr);
+X    if (path && pclose(path)) {
+X	(void) unlink(pathtmp);
+X	fatal(1, "pathalias failed");
+X    }
+X
+X    if (!whereonly)
+X	(void) fprintf(stderr, "Pathalias completed: okay\n");
+X
+X    sortwdb();
+X
+X    (void) fprintf(stderr, "%s completed: okay\n", wheredb);
+X    if (whereonly)
+X	return;
+X
+X    (void) fprintf(stderr, "Sorting pathalias output\n");
+X    fatal(!(whfp = fopen(pathtmp, "r")), "reopen path temp");
+X    (void) sprintf(tempbuf, "sort -u > %s", pathtmp2);
+X
+X    fatal(!(path = popen(tempbuf, "w")), "popen sort");
+X    (void) unlink(pathtmp);		/* we don't have to do cleanup later */
+X
+X    /* swap fields around */
+X    while(fgets(buf, sizeof(buf), whfp)) {
+X	char *site, *route, *t;
+X
+X	site = strchr(buf, '\t');
+X	*site++ = '\0';
+X	if (route = strchr(site, '\t'))
+X		*route++ = '\0';
+X	else
+X		{
+X			route = site;
+X			site = buf;
+X		}
+X	t = strchr(route, '\n');
+X	*t = '\0';
+X
+X#ifdef	NODOTDOMAIN
+X	if (*site == '.')
+X	    continue;
+X#endif
+X
+X	/* lcasep's job */
+X	for (t = site; *t; t++)
+X	    if (isupper(*t))
+X		*t = tolower(*t);
+X
+X	if (internet)
+X	    dointernet(site, &route);
+X
+X	(void) fputs(site, path);
+X	(void) putc('\t', path);
+X	(void) fputs(route, path);
+X	if (site != buf)
+X	{
+X		(void) putc('\t', path);
+X		(void) fputs(buf, path);
+X	}
+X	(void) putc('\n', path);
+X    }
+X
+X    (void) fclose(whfp);
+X    (void) unlink(pathtmp);
+X    if (pclose(path)) {
+X	(void) unlink(pathtmp2);
+X	fatal(1, "sort failed");
+X    }
+X    (void) fprintf(stderr, "Sorting pathalias output completed: okay\n");
+X
+X    fatal(!(whfp = fopen(pathtmp2, "r")), "Open of pathtmp2 for copy failed");
+X    fatal(!(path = fopen(pathfile, "w")), "Open of path output file failed");
+X    while((recno = fread(tempbuf, sizeof(char), BUFSIZ, whfp)) > 0)
+X	fatal(recno != fwrite(tempbuf, sizeof(char), recno, path),
+X	    "write failed");
+X    (void) fclose(whfp);
+X    (void) fclose(path);
+X    (void) fprintf(stderr, "Creation of %s completed: okay\n", pathfile);
+X
+X}
+X
+Xsearch(list, item)
+Xregister char **list, *item; {
+X    if (debug)
+X	(void) fprintf(stderr, "find %s\n", item);
+X    if (!list)
+X	return(0);
+X    while(*list)
+X	if (strcmp(*list++, item) == 0)
+X	    return(1);
+X    return(0);
+X}
+END_OF_FILE
+  if test 8059 -ne `wc -c <'runpath.c'`; then
+    echo shar: \"'runpath.c'\" unpacked with wrong size!
+  fi
+  # end of 'runpath.c'
+fi
+if test -f 'sortwdb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sortwdb.c'\"
+else
+  echo shar: Extracting \"'sortwdb.c'\" \(1630 characters\)
+  sed "s/^X//" >'sortwdb.c' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.1 92/06/10
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)sortwdb.c 1.1 92/06/10 01:16:23";
+X#endif
+X#define	UNPACKMAPS
+X#include "unpack.h"
+Xsortwdb() {
+X    char buf[BUFSIZ];
+X    char lastsite[BUFSIZ], lastfile[BUFSIZ], lastrecord[BUFSIZ];
+X    register char *site, *file, *record, *t;
+X    FILE *in, *out;
+X
+X    (void) sprintf(tempbuf, "sort -u %s", wheretmp);
+X    fatal(!(in = popen(tempbuf, "r")), "Can't popen sort of wheretmp");
+X    (void) unlink(wheredb);
+X    if (debug)
+X	(void) fprintf(stderr, "wheredb: %s\n", wheredb);
+X    fatal(!(out = fopen(wheredb, "w")), "Can't open where.db");
+X
+X    lastsite[0] = lastfile[0] = lastrecord[0] = '\0';
+X
+X    while(fgets(buf, sizeof(buf), in)) {
+X	site = buf;
+X	file = strchr(site, '\t');
+X	*file++ = '\0';
+X	record = strchr(file, '\t');
+X	*record++ = '\0';
+X	t = strchr(record, '\n');
+X	*t = '\0';
+X
+X	if (strcmp(site, lastsite)) {
+X	    if (lastsite[0])
+X		(void) putc('\n', out);
+X	    (void) fprintf(out, "%s\t%s,%s", site, file, record);
+X	    (void) strcpy(lastsite, site);
+X	    (void) strcpy(lastfile, file);
+X	    (void) strcpy(lastrecord, record);
+X	} else if (strcmp(file, lastfile)) {
+X	    (void) fprintf(out, ":%s,%s", file, record);
+X	    (void) strcpy(lastfile, file);
+X	    (void) strcpy(lastrecord, record);
+X	} else if (strcmp(record, lastrecord)) {
+X	    (void) fprintf(out, ",%s", record);
+X	    (void) strcpy(lastrecord, record);
+X	}
+X
+X    }
+X    (void) putc('\n', out);
+X
+X    (void) fclose(out);
+X    fatal(pclose(in), "Popen'd where.db sort failed");
+X    (void) unlink(wheretmp);
+X}
+END_OF_FILE
+  if test 1630 -ne `wc -c <'sortwdb.c'`; then
+    echo shar: \"'sortwdb.c'\" unpacked with wrong size!
+  fi
+  # end of 'sortwdb.c'
+fi
+if test -f 'uncomp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uncomp.c'\"
+else
+  echo shar: Extracting \"'uncomp.c'\" \(3519 characters\)
+  sed "s/^X//" >'uncomp.c' <<'END_OF_FILE'
+X/*	Derived from "unshark", by James A. Woods.  Permission
+X	pending.
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)uncomp.c 1.1 92/06/10 01:16:25";
+X#endif
+X
+X#include "unpack.h"
+X
+Xstatic long	M, N, c, f, m, o, r, s, w;
+Xstatic long	O, S, e, i, k, n, q;
+Xstatic long	*t;
+Xstatic char	*D, *h;
+Xstatic FILE	*infile;
+Xstatic int	savestate;
+X
+Xlong
+Xarsize(bits)
+Xint bits; {
+X    switch(bits) {
+X	case 16: return(69001L);
+X	case 15: return(35053L);
+X	case 14: return(18013L);
+X	case 13: return(9001L);
+X	default: return(5003L);
+X    }
+X}
+X
+Xzfiofree() {
+X    if (t)
+X	free((char*) t);
+X    if (D)
+X	free(D);
+X    if (h)
+X	free(h);
+X    D = h = (char *) NULL;
+X    t = (long *) NULL;
+X}
+X
+Xcheckarray(bits)
+Xint bits; {
+X    static int curbits = 0;
+X    long asize;
+X
+X    if (debug)
+X	(void) fprintf(stderr, "Need %d bits\n", bits);
+X
+X    if (bits <= curbits)
+X	return(0);
+X
+X    asize = arsize(bits);
+X
+X    zfiofree();
+X    
+X    if (!(t = (long *) malloc(asize * sizeof(long))) ||
+X	!(D = (char *) malloc(asize * sizeof(char))) ||
+X	!(h = (char *) malloc(asize * sizeof(char)))) {
+X
+X	zfiofree();
+X
+X	curbits = 0;
+X	return(1);
+X    }
+X    curbits = bits;
+X    return(0);
+X}
+X
+X
+Xlong
+Xg()
+X{
+X	char	*p;
+X
+X	/* Was "m < f & n < k" Should it be && ?*/
+X	if ((m < f) & (n < k) && (m = (1l << ++n) - 1) || O >= S) {
+X		O = 0;
+X		S = fread(D, 1, n, infile) * 8;
+X		if (S < 8)
+X			return(-1);
+X		S -= n - 1;
+X	}
+X	p = D + O / 8;
+X	q = O & 7;
+X	O += n;
+X	return (1 << 8 - q) - 1 & *p >> q | m & ((15 < n + q) * p[2] * 256 | p[1] & 255) << 8 - q;
+X}
+X
+Xstatic char *p, *bp;
+X
+X#define	zputc(c,s) *bp++ = c; if (*(bp-1) == '\n') {*state = s; *bp = '\0'; return(0);}
+X
+Xint
+Xzgetc(file)
+XFILE *file; {
+X    int ch = getc(file);
+X    return(ch);
+X}
+X
+Xa(state)
+Xint *state; {
+X	switch(*state) {
+X	    case 0:
+X		break;
+X	    case 1:
+X		goto state1;
+X	    case 2:
+X		goto state2;
+X	    case 3:
+X		goto state3;
+X	}
+X
+X	if (0x1f != zgetc(infile))
+X	    return(1);
+X	if (0x9d != zgetc(infile))
+X	    return(1);
+X	k = zgetc(infile);
+X	e = k >> 7 & 1;
+X	k &= 31;
+X	if (checkarray(k)) {
+X	    (void) fprintf(stderr,
+X		"%s: Cannot allocate enough memory for %d bit decompression\n",
+X		progname, k);
+X	    return(1);
+X	}
+X
+X	p = D + 256;
+X	M = N = c = m = r = s = 0;
+X	O = S = q = 0;
+X
+X	if (k > 16)
+X		return 1;
+X	w = 256;
+X	while (w--) 
+X		t[w] = 0, h[w] = w;
+X	n = 8;
+X	f = 256 + e;
+X	i = o = (w = g());
+X	if (o < 0)
+X		return 1;
+X	zputc(i, 1);
+X    state1:
+X	while ((w = g()) + 1) {
+X		;
+X		if ((w == 256) & e) {
+X			w = 256;
+X			while (w--) 
+X				t[w] = 0;
+X			m = n = 8;
+X			f = 256;
+X			if ((w = g()) < 0)
+X				return 0;
+X		}
+X		c = w;
+X		if (w >= f)
+X			*p++ = i, w = o;
+X		while (w >= 256)
+X			*p++ = h[w], w = t[w];
+X		zputc(i = h[w], 2);
+X    state2:
+X		while (p > D + 256) {
+X			zputc(*--p, 3);
+X    state3:             ;
+X		}
+X		if ((w = f) < 1l << k)
+X			t[w] = o, h[f++] = i;
+X		o = c;
+X	}
+X	return 0;
+X}
+X
+Xstatic char *savename;
+X
+XFILE
+X*zfopen(file, mode)
+Xchar *file, *mode; {
+X    savestate = 0;
+X    savename = file;
+X    return(fopen(file, mode));
+X}
+X
+X/* Must follow fgets calling sequence. */
+X/* ARGSUSED */
+Xchar *
+Xzfgets(buf, len, file)
+Xchar *buf; int len; FILE *file; {
+X    bp = buf;
+X    infile = file;
+X    if (a(&savestate)) {
+X	(void) fprintf(stderr, "%s: Error uncompressing %s\n", progname, savename);
+X	return((char *) NULL);
+X    }
+X    if (bp == buf)
+X	return((char *) NULL);
+X    else
+X	return(buf);
+X}
+X
+Xzfclose(file)
+XFILE *file; {
+X    return(fclose(file));
+X}
+X
+X#ifdef	NEVER
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv; {
+X    char buf[512];
+X    FILE *f = zfopen("shark.dist.Z", "r");
+X    while(zfgets(buf, sizeof(buf), f)) {
+X	(void) fputs(buf, stdout);
+X    }
+X    (void) zfclose(f);
+X}
+X#endif
+END_OF_FILE
+  if test 3519 -ne `wc -c <'uncomp.c'`; then
+    echo shar: \"'uncomp.c'\" unpacked with wrong size!
+  fi
+  # end of 'uncomp.c'
+fi
+if test -f 'unpack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unpack.c'\"
+else
+  echo shar: Extracting \"'unpack.c'\" \(7122 characters\)
+  sed "s/^X//" >'unpack.c' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.3 92/08/14
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)unpack.c 1.3 92/08/14 20:48:41";
+X#endif
+X#define	UNPACKMAPS
+X#include "unpack.h"
+X
+X/*
+X	This code depends on the following map article format:
+X		<don't cares>
+X		cat << 'something' > filename
+X		    map body
+X		    something
+X		    <don't cares>
+X
+X		"something" doesn't have to be enclosed in quotes in the
+X		cat line.
+X */
+X
+Xint stunpacked = 0;
+Xint stdiscarded = 0;
+X
+Xunpack() {
+X    FILE *work, *artfp, *outfp;
+X    char article[BUFSIZ],
+X	 buf[BUFSIZ],
+X	 outfile[BUFSIZ],
+X	 endmarker[BUFSIZ];
+X    int discarding, collecting, foundone, endmlen;
+X    register char *f, *t;
+X
+X    (void) umask(022);
+X
+X    (void) unlink(tempfile);
+X
+X    fatal(chdir(unpackdir), "Can't change to unpacking directory");
+X    fatal(access(".", W_OK|R_OK),
+X	 "Incorrect permissions on unpacking directory");
+X
+X    if (initialize) {
+X	(void) sprintf(tempbuf, "find %s/comp/mail/maps -type f -print >> togo",
+X	    spooldir);
+X	fatal(system(tempbuf), "Find in spooldir/comp/mail/maps failed");
+X    }
+X
+X    while(access(togofile, R_OK) == 0 ||
+X	  access(workfile, R_OK) == 0) {
+X
+X	if (access(workfile, F_OK) != 0) {
+X	    setbatch(1);
+X	    fatal(link(togofile, workfile), "link from togo to work");
+X	    fatal(unlink(togofile), "unlink of togo");
+X	    setbatch(0);
+X	}
+X
+X	fatal(!(work = fopen(workfile, "r")), "open of work file");
+X
+X	while(fgets(buf, sizeof(buf), work)) {
+X
+X	    for (f = buf, t = article; *f && !isspace(*f); )
+X		*t++ = *f++;
+X	    *t = '\0';
+X
+X	    if (access(article, R_OK) != 0) {
+X		(void) sprintf(buf, "%s/%s", spooldir, article);
+X		if (access(buf, R_OK) != 0) {
+X		    (void) fprintf(stderr, "%s apparently superseded or expired\n",
+X			article);
+X		    continue;
+X		}
+X		(void) strcpy(article, buf);
+X	    }
+X
+X	    if (debug)
+X		(void) fprintf(stderr, "AE: %s\n", article);
+X
+X	    if (!(artfp = fopen(article, "r"))) {
+X		(void) fprintf(stderr, "cannot open %s\n", article);
+X		continue;
+X	    }
+X
+X	    collecting = foundone = 0;
+X
+X
+X	    while(fgets(buf, sizeof(buf), artfp)) {
+X
+X		if (!collecting && strncmp("cat ", buf, 4) == 0) {
+X		    struct stat stb;
+X
+X		    if (!catheader(buf, endmarker, outfile, article))
+X			break;
+X
+X		    endmlen = strlen(endmarker);
+X
+X
+X		    discarding = unlinkskip && search(lmapfiles.list, outfile);
+X
+X		    if (discarding)
+X			unlink(outfile);
+X
+X		    if (!(outfp = fopen(tempfile, "w"))) {
+X			(void) fprintf(stderr, "Couldn't open %s file - skipping\n",
+X			    tempfile);
+X			break;
+X		    } else if (verbose)
+X			(void) fprintf(stderr, "%s %s from %s\n",
+X			    discarding ? "Discarding": "Extracting",
+X			    outfile, article);
+X
+X		    foundone = collecting = 1;
+X		    continue;
+X		}
+X
+X		if (!collecting)
+X		    continue;
+X
+X		if (strncmp(buf, endmarker, endmlen) == 0 &&
+X		    buf[endmlen] == '\n') {
+X
+X		    collecting = 0;
+X		    (void) fclose(outfp);
+X
+X		    (void) unlink(outfile);
+X
+X		    if (!discarding)
+X			fatal(link(tempfile, outfile), "link temp to output file");
+X
+X		    if (discarding)
+X			stdiscarded++;
+X		    else
+X			stunpacked++;
+X
+X		    fatal(unlink(tempfile), "unlink temp file");
+X
+X		    chmod(outfile, 0644);
+X
+X		    if (!discarding)
+X			docompress(outfile);
+X
+X		    continue;
+X		}
+X
+X		(void) fputs(buf, outfp);
+X
+X	    }
+X
+X	    fclose(artfp);
+X
+X	    if (collecting) {
+X		(void) fprintf(stderr, "Non-terminated map in %s\n", article);
+X		(void) fclose(outfp);
+X		(void) unlink(tempfile);
+X		continue;
+X	    }
+X
+X	    if (!foundone) {
+X		(void) fprintf(stderr, "%s does not contain a properly formed map\n",
+X		    article);
+X		continue;
+X	    } else
+X		anyunpacked = 1;
+X
+X	    if (unlinkflag)
+X		(void) unlink(article);
+X	}
+X 
+X	(void) fclose(work);
+X	(void) unlink(workfile);
+X    }
+X
+X    if (stdiscarded)
+X	(void) fprintf(stderr, "%d maps discarded\n", stdiscarded);
+X    if (stunpacked)
+X	(void) fprintf(stderr, "%d maps unpacked\n", stunpacked);
+X
+X    if (debug)
+X	(void) fprintf(stderr, "End of %s file\n", workfile);
+X    docompress((char *) NULL);
+X}
+X
+X/*
+X	Parse the "cat << 'something' > filename" line.
+X
+X	Strip off any quotes, and check the filename for security
+X	breaches.
+X
+X	Since we know that buf is limited to 512 bytes, we
+X	don't have to check endmarker and outfile overflow.
+X */
+X
+Xcatheader(buf, endmarker, outfile, article)
+Xchar *buf, *endmarker, *outfile, *article; {
+X    register char *p = buf+4, *p2;
+X    register int i;
+X
+X    p2 = strchr(buf, '\n');	/* chop(inbuf) ;-) */
+X    if (p2)
+X	*p2 = '\0';
+X
+X    while(*p && *p == ' ') p++;	/* skip whitespace after cat */
+X
+X    if (!*p || *p != '<') {
+X	(void) fprintf(stderr, "%s: malformed cat line: %s\n", article, buf);
+X	return(0);
+X    }
+X
+X    while(*p && *p != ' ') p++;		/* skip to begin of white space */
+X    while(*p && *p == ' ') p++;		/* skip to begin of end marker */
+X
+X    for (p2 = endmarker; *p && *p != ' '; )	/* copy over endmarker */
+X	*p2++ = *p++;
+X
+X    *p2 = '\0';
+X    if (endmarker[0] == '\'') {
+X	*(p2-1) = '\0';
+X	/* should work ;-) */
+X	(void) strcpy(endmarker, &endmarker[1]);
+X    }
+X
+X    while(*p && *p == ' ') p++;
+X    if (!*p || *p != '>') {
+X	(void) fprintf(stderr, "%s: malformed cat line: %s\n", article, buf);
+X	return(0);
+X    }
+X    while(*p && *p != ' ') p++;		/* skip over > */
+X    while(*p && *p == ' ') p++;		/* skip over whitespace */
+X
+X    if (!*p) {
+X	(void) fprintf(stderr, "%s: malformed cat line: %s\n", article, buf);
+X	return(0);
+X    }
+X
+X    for (p2 = outfile; *p && *p != ' '; )
+X	*p2++ = *p++;
+X    *p2 = '\0';
+X
+X    if (strlen(outfile) < 1) {
+X	(void) fprintf(stderr, "%s: missing filename: %s\n",
+X	    article, buf);
+X	return(0);
+X    }
+X
+X#if	(FILELENGTH == 0)
+X# define MAXUNPLEN 12
+X#else
+X# if	(FILELENGTH == 1)
+X#  define MAXUNPLEN 14
+X# else
+X#  define MAXUNPLEN (FILELENGTH - 2)
+X# endif
+X#endif
+X	
+X    if (strlen(outfile) > MAXUNPLEN) {
+X	(void) fprintf(stderr, "%s: output filename too long (> %d): %s\n",
+X	    article, MAXUNPLEN, outfile);
+X	return(0);
+X    }
+X
+X    /* security checks */
+X    for (p = outfile; *p; p++)
+X	if (isalpha(*p) ||
+X	    isdigit(*p) ||
+X	    *p == '.')
+X
+X	    continue;
+X	else {
+X	    (void) fprintf(stderr, 
+X		"%s: Security violation attempt: bad character[s]: %s\n%s%s\n",
+X		article, outfile, "  in cat line: ", buf);
+X	    return(0);
+X	}
+X
+X    if (*outfile == '.' ||
+X	strncmp(outfile, "togo", 4) == 0 ||
+X	strncmp(outfile, "path.", 5) == 0 ||
+X	strcmp(outfile, "where.db") == 0 ||
+X	strcmp(outfile, "_temp_") == 0) {
+X
+X	(void) fprintf(stderr,
+X	    "%s: Security violation attempt: attempts to write on %s\n%s%s\n",
+X	    article, outfile, "  in cat line: ", buf);
+X	return(0);
+X    }
+X    return(1);
+X}
+X
+X#ifdef	TESTCAT
+Xdoone(buf)
+Xchar *buf; {
+X    char endmarker[512];
+X    char outfile[512];
+X
+X    if (catheader(buf, endmarker, outfile, "/////123"))
+X	printf("Good: %s -> endmarker: %s, outfile: %s\n",
+X	    buf, endmarker, outfile);
+X    else
+X	printf("bad: %s\n", buf);
+X}
+X
+Xmain() {
+X    doone("cat << foo > blat\n");
+X    doone("cat << foo > 'blat'\n");
+X    doone("cat << foo > \n");
+X    doone("cat \n");
+X    doone("cat << 'foo' > foo\n");
+X    doone("cat << 'foo' > .foo\n");
+X    doone("cat << 'foo' > README\n");
+X    doone("cat << 'foo' > u.can.on.1\n");
+X    doone("cat << 'foo' > u.can.on.1frammisframmis\n");
+X}
+X#endif
+END_OF_FILE
+  if test 7122 -ne `wc -c <'unpack.c'`; then
+    echo shar: \"'unpack.c'\" unpacked with wrong size!
+  fi
+  # end of 'unpack.c'
+fi
+if test -f 'unpacker.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unpacker.c'\"
+else
+  echo shar: Extracting \"'unpacker.c'\" \(5196 characters\)
+  sed "s/^X//" >'unpacker.c' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.3 92/07/12
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)unpacker.c 1.3 92/07/12 16:33:55";
+X#endif
+X#define	UNPACKMAPS
+X#define	INIT(x)	= x
+X#include "unpack.h"
+X
+X#include <signal.h>
+X
+Xquit() {
+X    fatal(1, "Interrupted");
+X}
+X
+Xchar *
+Xcheckabs(value)
+Xchar *value; {
+X    static char pwd[512];
+X    static char buf[512];
+X    if (*value != '/') {
+X	if (!*pwd) {
+X	    FILE *p;
+X	    char *bp;
+X	    p = popen("pwd", "r");
+X	    if (!p) {
+X		fprintf(stderr, "%s: can't popen pwd!\n", progname);
+X		exit(1);
+X	    }
+X	    fgets(pwd, sizeof(pwd), p);
+X	    pclose(p);
+X	    bp = strchr(pwd, '\n');
+X	    if (bp)
+X		*bp = '\0';
+X	}
+X	strcpy(buf, pwd);
+X	strcat(buf, "/");
+X	strcat(buf, value);
+X	return(buf);
+X    } else
+X	return(value);
+X}
+X
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv; {
+X    extern int optind;
+X    extern char *optarg;
+X    int c;
+X
+X    progname = strrchr(argv[0], '/');
+X    if (progname)
+X	progname++;
+X    else
+X	progname = argv[0];
+X    
+X    
+X    while((c = getopt(argc, argv, "vM:tn:VI:cf:s:d:uXpPm:iwWl:U")) != EOF)
+X	switch(c) {
+X	    case 'V':
+X		(void) printf("%s\n", VERSION);
+X		exit(0);
+X	    case 'v':
+X		verbose = 1;
+X		break;
+X	    case 't':
+X		dontunpack = 1;
+X		break;
+X	    case 'I':
+X		internet = optarg;
+X		break;
+X	    case 'l':
+X		(void) strcpy(tempbuf, optarg);
+X		break;
+X	    case 'U':
+X		unlinkskip = 1;
+X		break;
+X	    case 'W':
+X		forcepath = 1;
+X		/*fallthru*/
+X	    case 'w':
+X		whereonly = runpath = 1;
+X		break;
+X	    case 'c':
+X		compflag = 1;
+X		break;
+X	    case 'i':
+X		initialize = 1;
+X		break;
+X	    case 'f':
+X		savestr(&localmaps, checkabs(optarg));
+X		break;
+X	    case 'X':
+X		debug = 1;
+X		break;
+X	    case 's':
+X		(void) strcpy(spooldir, checkabs(optarg));
+X		break;
+X	    case 'd':
+X		(void) strcpy(unpackdir, checkabs(optarg));
+X		break;
+X	    case 'P':
+X		forcepath = runpath = 1;
+X		break;
+X	    case 'M':
+X		pathalias = optarg;
+X		runpath = 1;
+X		break;
+X	    case 'm':
+X		(void) strcpy(pathfile, checkabs(optarg));
+X	    case 'p':
+X		runpath = 1;
+X		break;
+X	    case 'u':
+X		unlinkflag = 1;
+X		break;
+X	    case 'n':
+X		notify = optarg;
+X		break;
+X	    case '?':
+X		usage = 1;
+X		break;
+X	}
+X
+X    if (usage) {
+X	static char *puse[] = {
+X	    "usage: unpacker <options>",
+X	    "  options: -f <local map files>",
+X	    "           -i   (initialize from comp.mail.maps group)",
+X	    "           -X   (debug)",
+X	    "           -c   (compress maps)",
+X	    "           -s <spooldir>",
+X	    "           -d <map/unpackdir>",
+X	    "           -m <output map> (implies -p)",
+X	    "           -M <pathalias pipeline) (implies -p)",
+X	    "           -p   (run pathalias if paths out of date)",
+X	    "           -P   (run pathalias unconditionally)",
+X	    "           -u   (unlink maps after processing)",
+X	    "           -V   (print unpackmaps version)",
+X	    "           -v   (verbose diagnostics)",
+X	    "           -w   (do where file only if out of date)",
+X	    "           -W   (do where file unconditionally)",
+X	    "           -U   (unlink maps mentioned in ignorefile)",
+X	    "           -l <ignorefile>",
+X	    "           -n <mail command to send output>",
+X	    "           -t   (don't unpack - ignore newsgroup)",
+X	    NULL
+X	};
+X	register char **p;
+X
+X	for (p = puse; *p; p++)
+X	    (void) fprintf(stderr, "%s\n", *p);
+X
+X	exit(1);
+X    }
+X
+X    if (!dontunpack)
+X	(void) checkids();
+X
+X    if (SIG_DFL == signal(SIGINT, SIG_IGN))
+X	signal(SIGINT, quit);
+X    (void) signal(SIGTERM, quit);
+X
+X    togofile = makepath(unpackdir, "togo");
+X    workfile = makepath(unpackdir, "togo.work");
+X    wheredb = makepath(unpackdir, "where.db");
+X
+X
+X    /* gets linked, so must be in unpackdir */
+X    tempfile = makepath(unpackdir, "_temp_");
+X
+X    if (notify) {
+X
+X	/* Normally these should be created ala mktemp, but we have
+X	   to make sure that we clobber on subsequent runs.
+X	   Otherwise, there goes your disk if something *really*
+X	   wierd goes wrong and they don't get deleted for some reason. */
+X
+X	wheretmp = makepath(TMPDIR2, "UNPAwhere");
+X	pathtmp = makepath(TMPDIR, "UNPApathtmp1");
+X	pathtmp2 = makepath(TMPDIR2, "UNPApathtmp2");
+X    } else {
+X	wheretmp = makepath(TMPDIR2, ".where");
+X	pathtmp = makepath(TMPDIR, ".pathtmp1");
+X	pathtmp2 = makepath(TMPDIR2, ".pathtmp2");
+X    }
+X
+X    unlink(tempfile);
+X    unlink(wheretmp);
+X    unlink(pathtmp);
+X    unlink(pathtmp2);
+X
+X    if (tempbuf[0])
+X	(void) keeplist(tempbuf);
+X
+X    if (notify)
+X	(void) startlog();
+X	
+X    if (!dontunpack)
+X	(void) unpack();
+X
+X    if (runpath)
+X	(void) dorunpath();
+X
+X    myexit(0);
+X    /* NOTREACHED */
+X}
+X
+Xkeeplist(file)
+Xchar *file; {
+X    FILE *f;
+X    register char *p;
+X    fatal(!(f = fopen(file, "r")), "Can't open keeplist");
+X
+X    while(fgets(tempbuf, sizeof(tempbuf), f)) {
+X
+X	p = strchr(tempbuf, '\n');
+X
+X	if (p)
+X	    *p = '\0';
+X
+X	p = strrchr(tempbuf, '.');
+X	if (p && 0 == strcmp(p, ".Z"))
+X	    *p = '\0';
+X
+X	if (tempbuf[0])
+X	    savestr(&lmapfiles, tempbuf);
+X    }
+X    (void) fclose(f);
+X}
+X
+X#include <pwd.h>
+Xcheckids() {
+X    struct passwd *p;
+X    extern struct passwd *getpwnam();
+X
+X    fatal(!(p = getpwnam(NEWSID)), "Can't getpwnam(NEWSID)");
+X    if (geteuid() == 0)
+X	(void) setuid(p->pw_uid);
+X    fatal(p->pw_uid != geteuid() || p->pw_uid != getuid(),
+X	"Must be run as NEWSID");
+X}
+END_OF_FILE
+  if test 5196 -ne `wc -c <'unpacker.c'`; then
+    echo shar: \"'unpacker.c'\" unpacked with wrong size!
+  fi
+  # end of 'unpacker.c'
+fi
+if test -f 'unpackmaps.M' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unpackmaps.M'\"
+else
+  echo shar: Extracting \"'unpackmaps.M'\" \(14161 characters\)
+  sed "s/^X//" >'unpackmaps.M' <<'END_OF_FILE'
+X.\"Copyright 1992 by Chris Lewis 1.5 92/11/28
+X.TH UNPACKMAPS 1 "Chris Lewis"
+Xunpackmaps \- USENET UUCP map unpacker
+X.SH SYNOPSIS
+X.B unpackmaps
+X.BI [ options ]
+X.SH DESCRIPTION
+X.B Unpackmaps
+Xis a specially optimized hack program for retrieving and
+Xsafely unpacking the UUCP maps produced by the UUCP Mapping Project.
+XIt can be instructed to run pathalias to generate the UUCP routing
+Xtable that various other mailers need (ie: smail 2.5, IDA Sendmail).
+XIt will also create a special database that
+X.BR uuwhere (1)
+Xuses to display the map entries for individual sites.
+X.P
+X.B Unpackmaps
+Xcan also be used to unpack other USENET postings, such as Brian
+XReid's maps of USENET sites (news.lists.ps-maps), provided that the
+Xshar format used conforms to the UUCP Map postings.
+X.P
+XOne of the difficulties inherent in most posted map unpackers is
+Xthat they use a ``real'' unshar to unpack map articles.
+XSince a ``real'' unshar is just invoking the shell on a portion
+Xof an article, this can easily be seen to be an
+X.BR "extreme security hole" .
+XWhich bears repeating, using an insecure (usually home grown) unpacker
+Xis just asking for your machine to be
+X.BR destroyed .
+X.P
+XThe ``SECURITY ISSUES'' section of this manual page analyses
+Xsome of the potential vulnerabilities, and discusses how
+X.B unpackmaps
+Xdeals with them.
+X.P
+XThe term ``hack'' was used in the first paragraph.
+X.B Unpackmaps
+Xis not a ``tool'' in the UNIX sense.
+XThe reason for this is simple: the maps are huge, and some machines
+Xare quite small.
+X.B Unpackmaps
+Xis designed to use as little time, memory and disk space as possible.
+XIn fact,
+X.B Unpackmaps
+Xwill allow you to compress the maps and run pathalias even on 16 bit machines,
+Xprovided that you instruct it to use a sufficiently small subset of the maps
+Xthat
+X.B pathalias
+Xdoesn't run out of memory.
+X.P
+XThe highest load that 
+X.B unpackmaps
+Ximposes is during the map decompression
+Xand pathalias phase.
+X.B Unpackmaps
+Xcontains its own decompression function that dynamically sizes itself
+Xto the requirements of the compressed files.
+XIf the maps are compressed with 16 bit compression (a build option),
+X.B unpackmaps
+Xwill grow to around 500K.
+XProcessing the complete UUCP maps currently (March 1992) causes
+X.B pathalias
+Xto grow to about 2Mb.
+X.B Unpackmaps
+Xwill not page or swap provided that you have enough memory to fit it
+Xand
+X.BR pathalias .
+XIt is suggested that you consider reducing the compression factor in
+Xconfig.h to prevent things from swapping to disk.
+X.SH "BASIC FUNCTIONALITY"
+X.B Unpackmaps
+Xdoes all of its work in a directory set aside for the purpose.
+XIt should be created and it's ownership should be set to the
+Xuserid that owns your news system.
+XThis is the ``map directory''.
+XThere should be a different map directory for each different
+Xtype of article you wish to unpack.
+XThe sys file for your news system is instructed to write
+Xthe file names of each incoming article in the desired
+Xgroups into a
+X.I togo
+Xfile in the appropriate directory.
+X.P
+X.B Unpackmaps
+Xis run from a cron job, as ``news'', and will read through
+Xthe 
+X.I togo
+Xfile and unpack the map articles into the directory.
+X.P
+XIf instructed,
+X.B unpackmaps
+Xwill invoke pathalias on the maps and generate a paths
+Xdatabase and
+X.B uuwhere
+Xdatabase.
+XThis can be either unconditional, or based on whether any
+Xarticles were unpacked.
+X.P
+XOptionally, the unpacked articles can be compressed,
+Xand the original articles removed from the spool area
+Xas they are being extracted.
+X.SH OPTIONS
+X.P
+XUnpacking options:
+X.TP .5i
+X.B \-V
+XPrint unpackmaps version.
+X.TP .5i
+X.B \-v
+XPrint file names of maps and map names as they're unpacked, discarded
+Xor unlinked.
+X.TP .5i
+X.B \-t
+XSkip unpacking step.
+XAlso prevents unpackmaps from insisting on running as the NEWSID.
+XWhich permits invocation as an arbitrary user, but care needs to be
+Xtaken that you specify map files in places that are writable by
+Xyou.
+X.TP .5i
+X.BI \-n notify
+XSpecifies a mail pipeline to do notification of completion.
+XIf not specified, all output is on stderr.
+X.TP .5i
+X.BI \-d directory
+XDirectory to do the unpacking in.
+XDefault:
+X.IR /usr/spool/maps .
+X.TP .5i
+X.B \-u
+XDelete the articles from the news system after they're unpacked.
+XDo not do this unless you don't pass these articles on to your neighbors,
+Xie: you are a leaf site.
+X.TP .5i
+X.B \-c
+XCompress the files after they're created.
+X.B Compress
+Xis invoked with groups of 10 files apiece.
+X.TP .5i
+X.B \-i
+XInitialize - this is a short cut for starting up
+X.B unpackmaps
+Xwhen you have an empty map directory, and a news spool directory
+Xfull of articles.
+XIt merely creates a
+X.I togo
+Xfile from the contents of
+X.BI <spooldir> /comp/mail/maps.
+XThis can easily be done via a manual
+X.in +.5i
+X.nf
+X.sp
+Xls <full path to a directory>/* >> <mapdir>/togo
+X.sp
+X.fi
+X.in -.5i
+X.TP .5i
+X.BI \-s directory
+XSet the news spool directory.
+XDefault:
+X.IR /usr/spool/news .
+XThis is required for proper unpacking if your system does not use
+X.I /usr/spool/news
+Xfor the news spool directory, or your news system doesn't write
+Xfull paths into the togo files (ie: new versions of C news).
+X.P
+XPathalias invocation options:
+X.TP .5i
+X.B \-P
+XRun pathalias.
+X.TP .5i
+X.B \-p
+XRun pathalias if any of the maps are newer than the last UUCP map created.
+X.TP .5i
+X.BI \-M pipeline
+XAlternate pathalias pipeline.
+XImplies \-p.
+XThis should really be placed in a shell script.
+XStandard input is the maps themselves (comments are stripped out
+Xat this point), and standard output is the
+Xpathalias file.
+XFor example, something like this could be used:
+X.P
+X.in +.5i
+X.nf
+X/usr/local/bin/pathalias -fi | sed -e 's/foo!bang/bang!foo/'
+X.fi
+X.in -.5i
+X.P
+XDefault specified in compile.
+XWith the -f option, pathalias will be emitting the paths in this form:
+X.P
+X.nf
+Xcost   site   route
+X.fi
+X.P
+X.TP .5i
+X.BI \-m file
+XSpecifies where the resultant UUCP map should be written.
+XImplies
+X.BR \-p .
+XDefault:
+X.I /usr/lib/uucp/paths
+X(Smail 2.5 default)
+X.TP .5i
+X.BI \-f file
+XAppend
+X.I file
+Xonto the list of map directory files to be processed through pathalias.
+XThis is how you specify local map files.
+XThis option can be used more than once.
+XThe file names should be full paths, unless you keep the file in the
+Xmap directory.
+XIn which case, they should all be named ``path.<something>'' (see
+X``SECURITY ISSUES'' section).
+X.TP .5i
+X.B \-W
+XJust create the
+X.B uuwhere
+Xdatabase
+X.RI ( where.db ),
+Xand don't run
+X.BR pathalias .
+X.TP .5i
+X.BI \-w
+XSame as \-W, except don't create the where database unless any
+Xof the maps are newer than when it was last created.
+X.TP .5i
+X.B \-U
+XUnlink any ``u.''-prefixed map file mentioned in the
+X.BR ignorefile .
+X.TP .5i
+X.BI \-l file
+XSpecify the
+X.BR ignorefile .
+XA file listing, one per line, the map files that should not be
+Xpiped into
+X.BR pathalias .
+XIf
+X.B \-l
+Xis used without
+X.BR \-U ,
+X.B unpackmaps
+Xwill not pass the files mentioned in the ignorefile through to
+X.BR pathalias ,
+Xhowever, all files will be cross-referenced in the
+X.B uuwhere
+Xdatabase.
+XThis is convenient for keeping a database of all sites in the map, but
+Xonly constructing a
+X.B paths
+Xfile for a subset of the net.
+X(See the OPERATIONS section for an example).
+X.IP "" .5i
+XIf \-U is also specified, any file listed in the
+X.B ignorefile
+Xwill be deleted (only if it has a ``u.'' prefix), and not cross-referenced in the
+X.B where
+Xdatabase.
+X.TP .5i
+X.BI \-I route
+XIf you have a nearby friendly
+Xsite with good routing software, you can specify a route here.
+XThis will replace any path entries for sites with domain names with
+Xa route to that site followed by the domain site.
+XFor example,
+X.BI \-I foo!uunet.ca
+Xwill cause
+X.B unpackmaps
+Xto replace all routes to domain-named sites with
+X.IR "foo!uunet.ca!<domain-named site>!<user>" .
+XThis is only done if the
+X.BR pathalias -created
+Xrouting has two more hops than the specified
+X.IR route .
+XFurther,
+Xall ``.domain'' routes
+Xthat are longer than the \fIroute\fP
+Xwill be shortened to 
+X.IR "route!<domain>!<user>" .
+XAnd finally, if there are domainized sites in a route, the path
+Xto the last domainized site will be replaced with
+X.IR route .
+XIe: ``a!b!c!d.edu!e.edu!d'' will be transformed to
+X.IR route "!e.edu!d".
+X.IP "" .5i
+XThis should be done with extreme care, with the permission of all of the
+Xsites involved in the specified
+X.IR route .
+XFurther, the designated forwarder site \fBMUST\fP support full domain
+Xaddressing - hopefully it is running full DNS/BIND on the Internet.
+XHowever, properly managed pathalias sites (such as ones running
+X.B unpackmaps
+X;-) should be capable of being your internet forwarder.
+XThis is primarily intended for situations where you're directly connected
+Xto a commercial Internet service, such as
+X.BR uunet .
+XThis is roughly analogous to
+X.B pathalias
+X.I smart-host
+Xin that domain-named sites are automatically sent to a specific Internet
+Xsite, instead of all mail to sites not listed in the maps.
+XNote, however, that you don't need to make your internet route be
+Xthe same as your smart-host.
+X.SH "SETUP AND OPERATION"
+X.P
+XFirst of all, you should create a directory for each set of articles
+Xyou wish to unpack.
+XWe'll assume the use of /usr/spool/maps for UUCP maps.
+XThis directory should be owned by the same userid that runs news.
+XWe'll assume ``news''.
+X.P
+XYou will usually need to create the file that
+X.B unpackmaps
+Xwill write the UUCP paths file into, and change its
+Xownership to news.
+XIe:
+X.P
+X.in +.5i
+X.nf
+Xsu root
+Xtouch /usr/lib/uucp/paths
+Xchown news /usr/lib/uucp/paths
+Xchmod 644 /usr/lib/uucp/paths
+X.fi
+X.in -.5i
+X.P
+XThen you should insert the following into your news
+X.I sys
+Xfile:
+X.P
+XFor Cnews:
+X.P
+Xmaps:comp.mail.maps/all:f:/usr/spool/maps/togo
+X.P
+XFor Bnews:
+X.P
+Xmaps:world,comp.mail.maps:F:/usr/spool/maps/togo
+X.P
+XThen, you install a cron entry to invoke unpackmaps.
+XIt should be invoked by the userid that owns news.
+XIf you have the 
+X.IR /usr/lib/crontab -style
+Xcron you will want to insert this into
+X.IR /usr/lib/crontab :
+X.in +.5i
+X.nf
+X.sp
+Xm h * * * su news -c "<unpackmaps invocation>"
+X.sp
+X.fi
+X.in -.5i
+XWhere
+X.B m
+Xand
+X.B h
+Xare the minute and hour you want the program to run.
+X.P
+XIf you have a
+X.BR crontab -style
+Xversion of cron, you would enter the same thing into the
+Xnews cron entry, but the "su news -c" and double quotes aren't
+Xnecessary.
+X.P
+XThe best approach is to have the crontab entry invoke a shell
+Xscript that has the
+X.B unpackmaps
+Xinvocation line.
+X.P
+XThe "unpackmaps invocation" would normally be something like this
+X.in +.5i
+X.nf
+X.sp
+X<path to unpackmaps>/unpackmaps -cpn'mail news'
+X.sp
+X.fi
+X.in -.5i
+X.P
+XWhich simply means compress any incoming maps and run
+X.BR pathalias .
+XThe
+X.B uuwhere
+Xdatabase will be created as well.
+XThe results of the run will be mailed to the news userid.
+X.P
+XIt's usually common for a system administrator to
+Xhave a local copy of his site map entry and/or a
+Xmap entry that is used to customize/"fix" routing
+Xelsewhere.
+XSupply these as \-f options to
+X.BR unpackmaps .
+XI use
+X.B path.local
+Xto keep the most up-to-date copy of my map entry,
+Xand
+X.B path.hacks
+Xto keep local customizations (eg: ``dead'' links etc.)
+X.P
+XSystems that are really short of space may want to run
+X.B unpackmaps
+Xmore often.
+XOne suggested approach would be to run the first
+X.B unpackmaps
+Xentry several times a day,
+Xand the second one once per day:
+X.sp
+X.nf
+Xunpackmaps -cuUwl keepfile -n '/bin/mail somebody'
+Xunpackmaps -cuUpl keepfile -n '/bin/mail somebody'
+X.fi
+X.P
+XIf you wish to unpack Brian Reid's network maps, try the following
+Xapproach:
+X.P
+XFirst, create /usr/spool/ps-maps, owner news.
+X.P
+XModify the sys file thusly:
+X.P
+XFor Cnews:
+X.P
+Xps-maps:news.lists.ps-maps/all:f:/usr/spool/ps-maps/togo
+X.P
+XFor Bnews:
+X.P
+Xps-maps:world,news.lists.ps-maps:F:/usr/spool/ps-maps/togo
+X.P
+XThen run the following as news from your cron:
+X.P
+Xunpackmaps -cud /usr/spool/ps-maps
+X.SH "SECURITY ISSUES"
+X.P
+XIt is trivially easy to forge a posting in the map newsgroups.
+XMany map unpackers more-or-less ram the article straight through
+Xthe shell expecting it to be a well-behaved shar file.
+XOn the other hand, the forger could include a ``rm -fr /''
+Xor something even more damaging in the article instead.
+X.P
+X.B Uuhosts
+Xtakes the approach of isolating the unpacking area
+Xunder a ``chroot(2)''.
+XThis is a little awkward, because you have to duplicate
+Xmany things into the chroot'd area, and you have to run the
+Xunpacker as root.
+X.P
+X.B Unpackmaps
+Xtakes an entirely different approach.
+XThe UUCP mapping project (and Brian Reid's ps-maps) uses a
+Xvery simple format for encapsulating maps:
+X.P
+X.nf
+X<stuff>
+Xcat << endtoken > file
+X<body of map>
+Xendtoken
+X.fi
+X.P
+X.B Unpackmaps
+Xscans the file looking for the ``cat'' lines and parses it
+Xin C, coming up with the file name and endtoken.
+XThus, it is impossible for a forger to do anything other than
+Xcreate a file.
+X.P
+X.B Unpackmaps
+Xthen checks the specified filename for oddities:
+Xa prefix of "../" would specify writing a file outside of the
+Xmap directory.
+XOther possibilities are shell metacharacters (which might cause
+Xthe unpacker to foul up), or insertion of shell scripts to snare
+Xthe unwary system administrator with ``.'' first in their PATH.
+X.P
+X.B Unpackmaps
+Xscans the file name and will reject a file with:
+Xa leading ``.'', or that contains any character that is not
+Xalphabetic (lower and upper case), a digit (0..9) or a period.
+XIt also rejects names that are longer than 14 characters.
+X.P
+XSince
+X.B unpackmaps
+Xalso puts other files into the map directory, it also checks
+Xfor and rejects attempts to write to ``togo*'', ``where.db''
+Xor ``path.*'' (the latter for SA's to install their
+Xown map entries via \-f).
+X.P
+XAnd finally, all files are created mode 644, so they can't
+Xbe executed by accident.
+X.P
+X.B Uuhosts
+Xspends a fair amount of time verifying article headers.
+XGiven the ease of forgery, this seems rather pointless.
+XThis checking also makes it difficult to make any changes
+Xto the map headers - such as cross-posting to other groups.
+X.SH FILES
+X.br
+X.if t .ta 2.5i
+X.if n .ta 3.5i
+X/usr/spool/maps	Default map directory
+X"/where.db	Where database
+X"/maps	Where the unpacked maps are kept
+X/usr/lib/uucp/paths	Default paths file
+X.SH AUTHOR
+X.B Unpackmaps
+Xwas written by Chris Lewis.
+XThe built-in decompress routine was written by James A. Wood
+Xand appeared in the 1990 (?) Obfuscated C Contest.
+X(Though was somewhat de-obfuscated and modified for use in
+X.BR unpackmaps )
+END_OF_FILE
+  if test 14161 -ne `wc -c <'unpackmaps.M'`; then
+    echo shar: \"'unpackmaps.M'\" unpacked with wrong size!
+  fi
+  # end of 'unpackmaps.M'
+fi
+if test -f 'uuwhere.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uuwhere.c'\"
+else
+  echo shar: Extracting \"'uuwhere.c'\" \(3512 characters\)
+  sed "s/^X//" >'uuwhere.c' <<'END_OF_FILE'
+X/* Copyright 1992, Chris Lewis.  All Rights Reserved
+X   Please see the README for the terms of the copyright.
+X   1.2 92/08/14
+X */
+X
+X#ifndef lint
+Xstatic char SCCSid[] = "@(#)uuwhere.c 1.2 92/08/14 20:48:55";
+X#endif
+X#define	INIT(x)	= x
+X#include "unpack.h"
+X
+Xint verbose;
+Xint lflag;
+Xint emitmap;
+X
+Xint rc = 0;
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv; {
+X    int cost;
+X    register int i;
+X    char buf[BUFSIZ];
+X    char smarthost[BUFSIZ];
+X    int smarthosted;
+X    int c;
+X    char *region = NULL;
+X    register char **p, *rp;
+X    extern char *optarg, *gpathdata;
+X    extern int optind;
+X    extern long pathlength;
+X
+X    progname = argv[0];
+X
+X    while((c = getopt(argc, argv, "Xd:m:evr:l")) != EOF)
+X	switch(c) {
+X	    case 'd':
+X		(void) strcpy(unpackdir, optarg);
+X		break;
+X	    case 'm':
+X		(void) strcpy(pathfile, optarg);
+X		break;
+X	    case 'v':
+X		verbose = 1;
+X		break;
+X	    case 'e':
+X		emitmap = 1;
+X		break;
+X	    case 'l':
+X		lflag = 1;
+X		break;
+X	    case 'r':
+X		region = optarg;
+X		break;
+X	    case 'X':
+X		debug = 1;
+X		break;
+X	    case '?':
+X		usage = 1;
+X		break;
+X	}
+X
+X    if (usage) {
+X	static char *uuse[] = {
+X	    "usage: uuwhere <options>",
+X	    "  options: -d mapdir      map directory",
+X	    "           -m pathfile    pathalias map file",
+X	    "           -e             display map entry)",
+X	    "           -v             display interesting path information",
+X	    "           -l             display map file names",
+X	    "           -r region      display map (region) file",
+X	    NULL
+X	};
+X
+X	for (p = uuse; *p; p++)
+X	    (void) fprintf(stderr, "%s\n", *p);
+X
+X	exit(1);
+X    }
+X
+X
+X    if (chdir(unpackdir)) {
+X	(void) fprintf(stderr, "%s: Can't change to %s\n", progname, unpackdir);
+X	exit(1);
+X    }
+X
+X    wheredb = makepath(unpackdir, "where.db");
+X    if (debug)
+X	(void) fprintf(stderr, "wheredb: %s\n", wheredb);
+X
+X    if (lflag)
+X	exit(dolist());
+X
+X    if (region) {
+X	int list[2];
+X	list[0] = 1;
+X	list[1] = 0;
+X	exit(dumpfile(region, list, 0));
+X    }
+X
+X    gpathdata = pathfile;
+X    pathlength = 0;
+X
+X    if (getpath("smart-host", smarthost, &cost))
+X	smarthost[0] = '\0';
+X    
+X    for (i = optind; i < argc; i++) {
+X	buf[0] = 0;
+X	smarthosted = 0;
+X	if (emitmap)
+X	    pathlength = 0;
+X	if (getpath(argv[i], buf, &cost)) {
+X	    if (smarthost[0]) {
+X		(void) sprintf(buf, smarthost, argv[i]);
+X		smarthosted = 1;
+X		rc |= 2;
+X	    } else {
+X		buf[0] = '\0';
+X		rc |= 4;
+X	    }
+X	} else {
+X	    rp = strrchr(buf, '!');
+X	    if (rp)
+X		*rp = '\0';
+X	    else
+X		(void) strcpy(buf, argv[i]);
+X	}
+X
+X	if (verbose) {
+X	    (void) printf("route %s: %s!<user>", argv[i], buf[0]? buf: "<noroute>");
+X	    if (smarthosted)
+X		(void) printf(" (smarthosted)");
+X	    (void) putchar('\n');
+X	} else
+X	    if (buf[0])
+X		(void) printf("%s\n", buf);
+X	if (emitmap)
+X	    (void) dumpmap(argv[i]);
+X    }
+X    exit(rc);
+X    /* NOTREACHED */
+X}
+X
+Xstruct stringlist sl;
+Xdolist() {
+X    register char *p, *q;
+X    char **mapptr;
+X    struct stat stb;
+X    extern char *ctime();
+X
+X    getmaps(&sl, 0);
+X    for (mapptr = sl.list; *mapptr; mapptr++)
+X	if (verbose) {
+X	    if (stat(*mapptr, &stb))
+X		(void) fprintf(stderr, "%s: can't stat %s\n", progname, *mapptr);
+X	    else {
+X		p = ctime(&stb.st_mtime);
+X		q = strchr(p, '\n');
+X		if (q)
+X		    *q = '\0';
+X		(void) printf("%-14s %6ld %s\n", *mapptr, stb.st_size, p);
+X	    }
+X	} else {
+X	    q = strrchr(*mapptr, '.');
+X	    if (q && strcmp(q, ".Z") == 0)
+X		*q = '\0';
+X	    (void) printf("%s\n", *mapptr);
+X	}
+X    return(0);
+X}
+X
+Xfatal(e, str)
+Xint e;
+Xchar *str; {
+X    if (e) {
+X	(void) fprintf(stderr, "%s: %s\n", progname, str);
+X	exit(e);
+X    }
+X}
+END_OF_FILE
+  if test 3512 -ne `wc -c <'uuwhere.c'`; then
+    echo shar: \"'uuwhere.c'\" unpacked with wrong size!
+  fi
+  # end of 'uuwhere.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+-- 
+Chris Lewis; clewis@ferret.ocunix.on.ca; Phone: Canada 613 832-0541
+Psroff 3.0 info: psroff-request@ferret.ocunix.on.ca
+Ferret list: ferret-request@ferret.ocunix.on.ca
+
+exit 0 # Just in case...

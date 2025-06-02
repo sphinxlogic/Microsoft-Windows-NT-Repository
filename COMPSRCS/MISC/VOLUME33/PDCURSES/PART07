@@ -1,0 +1,1840 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i087:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part07/11
+Message-ID: <1992Nov19.040506.7756@sparky.imd.sterling.com>
+X-Md4-Signature: 414132a88fc497d53df201ce761daa9a
+Date: Thu, 19 Nov 1992 04:05:06 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 87
+Archive-name: pdcurses/part07
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  portable/endwin.c portable/mvscanw.c portable/printw.c
+#   portable/resetty.c portable/scanw.c portable/standend.c
+#   portable/standout.c portable/typeahea.c portable/wattroff.c
+#   portable/wattron.c portable/wattrset.c portable/wdelch.c
+#   portable/wprintw.c portable/wscanw.c portable/wstanden.c
+#   portable/wstandou.c private/_backchr.c private/_cattr.c
+#   private/_sanity.c private/_scb.c tools/buildlrf.c
+# Wrapped by kent@sparky on Wed Nov 18 21:44:08 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 11)."'
+if test -f 'portable/endwin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/endwin.c'\"
+else
+  echo shar: Extracting \"'portable/endwin.c'\" \(2189 characters\)
+  sed "s/^X//" >'portable/endwin.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	endwin
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_endwin = "$Header: c:/curses/portable/RCS/endwin.c%v 2.0 1992/11/15 03:28:46 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  endwin()	- restore initial terminal environment
+X
+X  X/Open Description:
+X 	A program should always call endwin() before exiting or
+X 	escaping from curses mode temporarily.  This routine will
+X 	restore tty modes, move the cursor to the lower left corner
+X 	of the screen and reset the terminal into the proper non-visual
+X 	mode.  To resume curses after a temporary escape, refresh() or
+X 	doupdate() should be called.
+X
+X  PDCurses Description:
+X 	At this time, endwin() must be followed by a call to initscr()
+X 	for temporary escapes.
+X
+X 	In addition, endwin() will resize the screen, if necessary.
+X
+X  X/Open Return Value:
+X 	The endwin() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int endwin( void );
+X 	X/Open Dec '88	int endwin( void );
+X 	BSD Curses	
+X 	SYS V Curses	
+X
+X**man-end**********************************************************************/
+X
+Xint	endwin(void)
+X{
+X	PDC_scr_close();
+X/*	resetty();*/
+X	if (_cursvar.orig_font != _cursvar.font)  /* screen has not been resized */
+X		{
+X		PDC_set_font(_cursvar.orig_font);
+X		resize(PDC_get_rows());
+X		}
+X
+X	_cursvar.visible_cursor = FALSE;	/* Force the visible cursor */
+X	_cursvar.cursor = _cursvar.orig_cursor;
+X	curson();
+X#if 0
+X	_cursvar.blank = ' ';		 /* Reset blank char to a space */
+X	wmove(stdscr, 0, 0);		 /* Ensure full window clear	*/
+X	wclrtobot(stdscr);
+X	wrefresh(stdscr);
+X#endif
+X
+X	delwin(stdscr);
+X	delwin(curscr);
+X	delwin(tmpwin);
+X	stdscr = (WINDOW *)NULL;
+X	curscr = (WINDOW *)NULL;
+X	tmpwin = (WINDOW *)NULL;
+X	_cursvar.alive = FALSE;
+X
+X	/*
+X	 * Position cursor so that the screen will not scroll until they hit
+X	 * a carriage return.
+X	 */
+X	PDC_gotoxy(PDC_get_rows() - 2, 0);
+X#ifdef	FLEXOS
+X	_flexos_8bitmode();
+X#endif
+X/*	PDC_fix_cursor(_cursvar.orig_emulation);*/
+X	if (_cursvar.orig_font != _cursvar.font)  /* screen has not been resized */
+X		reset_shell_mode();
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2189 -ne `wc -c <'portable/endwin.c'`; then
+    echo shar: \"'portable/endwin.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/endwin.c'
+fi
+if test -f 'portable/mvscanw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/mvscanw.c'\"
+else
+  echo shar: Extracting \"'portable/mvscanw.c'\" \(2287 characters\)
+  sed "s/^X//" >'portable/mvscanw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	mvscanw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_mvscanw = "$Header: c:/curses/portable/RCS/mvscanw.c%v 2.0 1992/11/15 03:29:01 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  mvscanw()	- read formatted from window
+X
+X  X/Open Description:
+X 	These routines correspond to scanf.  The function scanw reads
+X 	input from the default window.  The function wscanw reads
+X 	input from the specified window.  The function mvscanw moves
+X 	the cursor to the specified position and then reads input from
+X 	the default window.  The function mvwscanw moves the cursor to
+X 	the specified position and then reads input from the specified
+X 	window.
+X
+X 	For all the functions, the routine wgetstr is called to get a
+X 	string from the window, and the resulting line is used as
+X 	input for the scan.  All character interpretation is carried
+X 	out according to the scanf function rules.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	Upon successful completion, the scanw, mvscanw, mvwscanw and
+X 	wscanw functions return the number of items successfully
+X 	matched.  On end-of-file, they return EOF.  Otherwise they
+X 	return ERR.
+X
+X  PDCurses Errors:
+X 	No errors.
+X
+X  Portability:
+X 	PDCurses	int mvscanw( int y, int x, char *fmt, ...);
+X 	X/Open Dec '88	int mvscanw( int y, int x, char *fmt, ...);
+X 	BSD Curses	int mvscanw( int y, int x, char *fmt, ...);
+X 	SYS V Curses	int mvscanw( int y, int x, char *fmt, ...);
+X
+X**man-end**********************************************************************/
+X
+Xint	mvscanw(int y, int x, char *fmt, ... )
+X{
+X	va_list args;
+X	int	retval = ERR;
+X
+X#if	!defined (HC)
+X	if (stdscr == (WINDOW *)NULL)
+X		return( retval );
+X
+X	if (wmove(stdscr, y, x) == ERR)
+X		return( retval );
+X
+X	wrefresh(stdscr);			/* set cursor position */
+X
+X	/*
+X	 * get string
+X	 */
+X	c_printscanbuf[0] = '\0';  /* reset to empty string */
+X	if (wgetstr(stdscr, c_printscanbuf) == ERR)
+X		return( retval );
+X	va_start(args, fmt);
+X#ifdef NO_VSSCANF
+X	retval = PDC_vsscanf(c_printscanbuf, fmt, args);
+X#else
+X	retval = vsscanf(c_printscanbuf, fmt, args);
+X#endif
+X	va_end(args);
+X#endif
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2287 -ne `wc -c <'portable/mvscanw.c'`; then
+    echo shar: \"'portable/mvscanw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/mvscanw.c'
+fi
+if test -f 'portable/printw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/printw.c'\"
+else
+  echo shar: Extracting \"'portable/printw.c'\" \(2217 characters\)
+  sed "s/^X//" >'portable/printw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	printw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_printw = "$Header: c:/curses/portable/RCS/printw.c%v 2.0 1992/11/15 03:29:33 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  printw()	- formatted write to a window
+X
+X  X/Open Description:
+X 	The printw routine adds a string to the default window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by addstr.
+X
+X 	The routine wprintw adds a string to the specified window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by waddstr.
+X
+X 	The routine mvprintw adds a string to the default window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by addstr.
+X
+X 	The routine mvwprintw adds a string to the specified window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by waddstr.
+X
+X 	All these routines are analogous to printf.  It is advisable
+X 	to use the field width options of printf to avoid leaving
+X 	unwanted characters on the screen from earlier calls.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	The printw() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int printw( char *fmt, ... );
+X 	X/Open Dec '88	int printw( char *fmt, ... );
+X 	BSD Curses	int printw( char *fmt, ... );
+X 	SYS V Curses	int printw( char *fmt, ... );
+X
+X**man-end**********************************************************************/
+X
+Xint	printw(char *fmt,...)
+X{
+X	int	retval = ERR;
+X	va_list args;
+X
+X	if (stdscr == (WINDOW *)NULL)
+X		return (retval);
+X
+X	va_start(args, fmt);
+X	vsprintf(c_printscanbuf, fmt, args);
+X	va_end(args);
+X	if (waddstr(stdscr, c_printscanbuf) == ERR)
+X		return (retval);
+X	retval = (strlen(c_printscanbuf));
+X	return (retval);
+X}
+END_OF_FILE
+  if test 2217 -ne `wc -c <'portable/printw.c'`; then
+    echo shar: \"'portable/printw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/printw.c'
+fi
+if test -f 'portable/resetty.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/resetty.c'\"
+else
+  echo shar: Extracting \"'portable/resetty.c'\" \(2058 characters\)
+  sed "s/^X//" >'portable/resetty.c' <<'END_OF_FILE'
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	resetty
+X
+X#ifndef NDEBUG
+Xchar *rcsid_resetty = "$Header: c:/curses/portable/RCS/resetty.c%v 2.0 1992/11/15 03:29:10 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  resetty()	- save/restore terminal modes
+X
+X  X/Open Description:
+X 	These routines save and restore the state of the terminal modes.
+X 	The savetty() function saves the current state in a buffer and
+X 	resetty() restores the state to what it was at the last call to
+X 	savetty().
+X
+X  PDCurses Description:
+X 	FYI: It is very unclear whether this is a duplication of the
+X 	reset_prog_mode() and reset_shell_mode() functions or whether
+X 	this is a backing store type of operation.  At this time, they
+X 	are implemented similar to the reset_*_mode() routines.
+X
+X  X/Open Return Value:
+X 	The resetty() function returns OK upon success otherwise ERR is
+X 	returned.
+X
+X  Portability:
+X 	PDCurses	int resetty( void );
+X 	X/Open Dec '88	int resetty( void );
+X 	SysV Curses	int resetty( void );
+X 	BSD Curses	int resetty( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	resetty(void)
+X{
+X	if	(c_save_tty.been_set == TRUE)
+X	{
+X#if 	defined(DOS) || defined(OS2)
+X#  if	SMALL || MEDIUM
+X	movedata( FP_SEG(&c_save_tty.saved), FP_OFF(&c_save_tty.saved),
+X		  FP_SEG(&_cursvar), FP_OFF(&_cursvar),
+X		  sizeof(SCREEN) );
+X#  else
+X		memcpy(&_cursvar, &c_save_tty.saved, sizeof(SCREEN));
+X#  endif
+X#endif
+X
+X		mvcur(0, 0, c_save_tty.saved.cursrow, c_save_tty.saved.curscol);
+X		if (PDC_get_ctrl_break() != c_save_tty.saved.orgcbr)
+X			PDC_set_ctrl_break(c_save_tty.saved.orgcbr);
+X		if (c_save_tty.saved.raw_out)
+X			raw();
+X		if (c_save_tty.saved.visible_cursor)
+X			curson();
+X		_cursvar.font = PDC_get_font();
+X		PDC_set_font(c_save_tty.saved.font);
+X		if (!PDC_scrn_modes_equal (PDC_get_scrn_mode(), c_save_tty.saved.scrnmode))
+X			PDC_set_scrn_mode(c_save_tty.saved.scrnmode);
+X
+X		PDC_set_rows(c_save_tty.saved.lines);
+X	}
+X	return( c_save_tty.been_set ? OK : ERR );
+X}
+END_OF_FILE
+  if test 2058 -ne `wc -c <'portable/resetty.c'`; then
+    echo shar: \"'portable/resetty.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/resetty.c'
+fi
+if test -f 'portable/scanw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/scanw.c'\"
+else
+  echo shar: Extracting \"'portable/scanw.c'\" \(2142 characters\)
+  sed "s/^X//" >'portable/scanw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	scanw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_scanw = "$Header: c:/curses/portable/RCS/scanw.c%v 2.0 1992/11/15 03:29:02 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  scanw()	- read formatted from window
+X
+X  X/Open Description:
+X 	These routines correspond to scanf.  The function scanw reads
+X 	input from the default window.  The function wscanw reads
+X 	input from the specified window.  The function mvscanw moves
+X 	the cursor to the specified position and then reads input from
+X 	the default window.  The function mvwscanw moves the cursor to
+X 	the specified position and then reads input from the specified
+X 	window.
+X
+X 	For all the functions, the routine wgetstr is called to get a
+X 	string from the window, and the resulting line is used as
+X 	input for the scan.  All character interpretation is carried
+X 	out according to the scanf function rules.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	Upon successful completion, the scanw, mvscanw, mvwscanw and
+X 	wscanw functions return the number of items successfully
+X 	matched.  On end-of-file, they return EOF.  Otherwise they
+X 	return ERR.
+X
+X  PDCurses Errors:
+X 	No errors.
+X
+X  Portability:
+X 	PDCurses	int scanw( char *fmt, ...);
+X 	X/Open Dec '88	int scanw( char *fmt, ...);
+X 	BSD Curses	int scanw( char *fmt, ...);
+X 	SYS V Curses	int scanw( char *fmt, ...);
+X
+X**man-end**********************************************************************/
+X
+Xint	scanw(char *fmt, ...)
+X{
+X	va_list args;
+X	int	retval = ERR;
+X
+X#if	!defined (HC)
+X	if (stdscr == (WINDOW *)NULL)
+X		return( retval );
+X
+X	wrefresh(stdscr);	/* set cursor position */
+X
+X	/*
+X	 * get string
+X	 */
+X	c_printscanbuf[0] = '\0';  /* reset to empty string */
+X	if (wgetstr(stdscr, c_printscanbuf) == ERR)
+X		return( retval );
+X	va_start(args, fmt);
+X#ifdef NO_VSSCANF
+X	retval = PDC_vsscanf(c_printscanbuf, fmt, args);
+X#else
+X	retval = vsscanf(c_printscanbuf, fmt, args);
+X#endif
+X	va_end(args);
+X#endif
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2142 -ne `wc -c <'portable/scanw.c'`; then
+    echo shar: \"'portable/scanw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/scanw.c'
+fi
+if test -f 'portable/standend.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/standend.c'\"
+else
+  echo shar: Extracting \"'portable/standend.c'\" \(2091 characters\)
+  sed "s/^X//" >'portable/standend.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	standend
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_standend = "$Header: c:/curses/portable/RCS/standend.c%v 2.0 1992/11/15 03:29:16 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  standend()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int standend( void );
+X 	X/Open Dec '88	int standend( void );
+X 	BSD Curses	int standend( void );
+X 	SYS V Curses	int standend( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	standend(void)
+X{
+X	return( wattrset( stdscr, A_NORMAL ) );
+X}
+END_OF_FILE
+  if test 2091 -ne `wc -c <'portable/standend.c'`; then
+    echo shar: \"'portable/standend.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/standend.c'
+fi
+if test -f 'portable/standout.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/standout.c'\"
+else
+  echo shar: Extracting \"'portable/standout.c'\" \(2093 characters\)
+  sed "s/^X//" >'portable/standout.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	standout
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_standout = "$Header: c:/curses/portable/RCS/standout.c%v 2.0 1992/11/15 03:29:16 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  standout()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int standout( void );
+X 	X/Open Dec '88	int standout( void );
+X 	BSD Curses	int standout( void );
+X 	SYS V Curses	int standout( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	standout(void)
+X{
+X	return( wattrset( stdscr, A_STANDOUT ) );
+X}
+END_OF_FILE
+  if test 2093 -ne `wc -c <'portable/standout.c'`; then
+    echo shar: \"'portable/standout.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/standout.c'
+fi
+if test -f 'portable/typeahea.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/typeahea.c'\"
+else
+  echo shar: Extracting \"'portable/typeahea.c'\" \(2127 characters\)
+  sed "s/^X//" >'portable/typeahea.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	typeahead
+X
+X#ifndef NDEBUG
+Xchar *rcsid_typeahea = "$Header: c:/curses/portable/RCS/typeahea.c%v 2.0 1992/11/15 03:29:19 MH Rel $";
+X#endif
+X
+Xextern	short	c_pindex;		/* putter index			*/
+Xextern	short	c_gindex;		/* getter index			*/
+Xextern	short	c_ungind;		/* wungetch() push index	*/
+Xextern	chtype	c_ungch[NUNGETCH];	/* array of ungotten chars	*/
+Xextern	WINDOW*	_getch_win_;
+X
+X/*man-start*********************************************************************
+X
+X  typeahead()	- check for type-ahead
+X
+X  X/Open Description:
+X 	The curses package does the "line-breakout optimisation" by
+X 	looking for type-ahead periodically while updating the screen.
+X 	If input is found, the current update will be postponed until
+X 	refresh() or doupdate() are called again.  This allows faster
+X 	response to commands typed in advance.  Normally, the input FILE
+X 	pointer passed to newterm(), or stdin in the case when initscr()
+X 	was called, will be used to do this type-ahead checking.  The
+X 	typeahead() routine specified that the file descriptor fd is to
+X 	be used to check for type-ahead instead.  If fd is -1, then no
+X 	type-ahead checking will be done.
+X
+X  PDCurses Description:
+X 	Some early versions of the library (1.5beta) may have had an
+X 	improper interface declaration.  e.g. bool typeahead( void );
+X 	rather than the X/Open specified bool typeahead( FILE* fd );.
+X
+X 	FYI:  Under PDCurses, the passed file handle fd is ignored.
+X
+X  X/Open Return Value:
+X 	The typeahead() routine returns TRUE if keyboard input is pending
+X 	otherwise FALSE is returned.
+X
+X  Portability:
+X 	PDCurses	bool typeahead( FILE* fd );
+X 	SysV Curses	
+X 	BSD Curses	
+X 	X/Open Dec '88	bool typeahead( FILE* fd );
+X
+X**man-end**********************************************************************/
+X
+Xbool	typeahead( FILE* fd )
+X{
+X#ifdef	TC
+X#  pragma argsused
+X#endif
+X	if (c_ungind)
+X		return (TRUE);			/* ungotten char */
+X	if (c_pindex > c_gindex)
+X		return (TRUE);			/* buffered char */
+X	if (_cursvar.raw_inp)
+X		return((bool)PDC_check_bios_key());/* raw mode test */
+X
+X	return((bool)PDC_check_bios_key());	/* normal mode test */
+X}
+END_OF_FILE
+  if test 2127 -ne `wc -c <'portable/typeahea.c'`; then
+    echo shar: \"'portable/typeahea.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/typeahea.c'
+fi
+if test -f 'portable/wattroff.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wattroff.c'\"
+else
+  echo shar: Extracting \"'portable/wattroff.c'\" \(2243 characters\)
+  sed "s/^X//" >'portable/wattroff.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wattroff
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wattroff = "$Header: c:/curses/portable/RCS/wattroff.c%v 2.0 1992/11/15 03:29:21 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wattroff()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wattroff( WINDOW* win, int attrs );
+X 	X/Open Dec '88	int wattroff( WINDOW* win, int attrs );
+X 	BSD Curses	int wattroff( WINDOW* win, int attrs );
+X 	SYS V Curses	int wattroff( WINDOW* win, int attrs );
+X
+X**man-end**********************************************************************/
+X
+Xint	wattroff(WINDOW *win, int attrs)
+X{
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	win->_attrs &= (~attrs & A_ATTRIBUTES);
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2243 -ne `wc -c <'portable/wattroff.c'`; then
+    echo shar: \"'portable/wattroff.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wattroff.c'
+fi
+if test -f 'portable/wattron.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wattron.c'\"
+else
+  echo shar: Extracting \"'portable/wattron.c'\" \(2232 characters\)
+  sed "s/^X//" >'portable/wattron.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wattron
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wattron = "$Header: c:/curses/portable/RCS/wattron.c%v 2.0 1992/11/15 03:29:22 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wattron()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wattron( WINDOW* win, int attrs );
+X 	X/Open Dec '88	int wattron( WINDOW* win, int attrs );
+X 	BSD Curses	int wattron( WINDOW* win, int attrs );
+X 	SYS V Curses	int wattron( WINDOW* win, int attrs );
+X
+X**man-end**********************************************************************/
+X
+Xint	wattron(WINDOW *win, int attrs)
+X{
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X	win->_attrs |= (attrs & A_ATTRIBUTES);
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2232 -ne `wc -c <'portable/wattron.c'`; then
+    echo shar: \"'portable/wattron.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wattron.c'
+fi
+if test -f 'portable/wattrset.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wattrset.c'\"
+else
+  echo shar: Extracting \"'portable/wattrset.c'\" \(2238 characters\)
+  sed "s/^X//" >'portable/wattrset.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wattrset
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wattrset = "$Header: c:/curses/portable/RCS/wattrset.c%v 2.0 1992/11/15 03:29:23 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wattrset()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wattrset( WINDOW* win, int attrs );
+X 	X/Open Dec '88	int wattrset( WINDOW* win, int attrs );
+X 	BSD Curses	int wattrset( WINDOW* win, int attrs );
+X 	SYS V Curses	int wattrset( WINDOW* win, int attrs );
+X
+X**man-end**********************************************************************/
+X
+Xint	wattrset(WINDOW *win, int attrs)
+X{
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X	win->_attrs = attrs & A_ATTRIBUTES;
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2238 -ne `wc -c <'portable/wattrset.c'`; then
+    echo shar: \"'portable/wattrset.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wattrset.c'
+fi
+if test -f 'portable/wdelch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wdelch.c'\"
+else
+  echo shar: Extracting \"'portable/wdelch.c'\" \(2110 characters\)
+  sed "s/^X//" >'portable/wdelch.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wdelch
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wdelch = "$Header: c:/curses/portable/RCS/wdelch.c%v 2.0 1992/11/15 03:29:23 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wdelch()	- remove character from window
+X
+X  X/Open Description:
+X 	The character under the cursor in the window is deleted.  All
+X 	characters to the right on the same line are moved to the left
+X 	one position and the last character on the line is filled with
+X 	a blank.  The cursor position does not change (after moving to
+X 	y, x if coordinates are specified).
+X
+X 	NOTE: delch(), mvdelch(), and mvwdelch() are macros.
+X
+X  PDCurses Description:
+X 	Nothing additional.
+X
+X  X/Open Return Value:
+X 	The wdelch() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int wdelch( WINDOW* win );
+X 	X/Open Dec '88	int wdelch( WINDOW* win );
+X 	BSD Curses	int wdelch( WINDOW* win );
+X 	SYS V Curses	int wdelch( WINDOW* win );
+X
+X**man-end**********************************************************************/
+X
+Xint	wdelch(WINDOW *win)
+X{
+X	int		y;
+X	int		x;
+X	int		maxx;
+X	chtype*		temp1;
+Xregister chtype*	dstp;
+Xregister chtype*	srcp;
+X
+X	if (win == (WINDOW *)NULL)
+X		return (ERR);
+X
+X	y	= win->_cury;
+X	x	= win->_curx;
+X	maxx	= win->_maxx - 1;
+X	temp1	= &win->_y[y][x];
+X
+X#if 	defined(DOS) || defined(OS2)
+X#  if	SMALL || MEDIUM
+X/*	srcp = temp1 + sizeof(chtype); */
+X	srcp = temp1 + 1;
+X	dstp = temp1;
+X	movedata(FP_SEG(srcp), FP_OFF(srcp),
+X		 FP_SEG(dstp), FP_OFF(dstp),
+X		 (maxx - x) * sizeof(chtype));
+X#  else
+X	/* Changed from memcpy to memmove. Should work with
+X	 * TC and MSC.
+X	 *	-- MH	920605
+X	 */
+X/*	memmove( temp1, temp1 + sizeof(chtype), (maxx - x) * sizeof(chtype) );*/
+X	memmove( temp1, temp1 + 1, (maxx - x) * sizeof(chtype) );
+X#  endif
+X#endif
+X
+X	win->_y[y][maxx] = win->_blank | win->_attrs;
+X	win->_lastch[y] = maxx;
+X
+X	if ((win->_firstch[y] == _NO_CHANGE) ||
+X	    (win->_firstch[y] > x))
+X	{
+X		win->_firstch[y] = x;
+X	}
+X	return (OK);
+X}
+END_OF_FILE
+  if test 2110 -ne `wc -c <'portable/wdelch.c'`; then
+    echo shar: \"'portable/wdelch.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wdelch.c'
+fi
+if test -f 'portable/wprintw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wprintw.c'\"
+else
+  echo shar: Extracting \"'portable/wprintw.c'\" \(2286 characters\)
+  sed "s/^X//" >'portable/wprintw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wprintw
+X
+X#ifndef NDEBUG
+Xchar *rcsid_wprintw = "$Header: c:/curses/portable/RCS/wprintw.c%v 2.0 1992/11/15 03:29:33 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wprintw()	- formatted write to a window
+X
+X  X/Open Description:
+X 	The printw routine adds a string to the default window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by addstr.
+X
+X 	The routine wprintw adds a string to the specified window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by waddstr.
+X
+X 	The routine mvprintw adds a string to the default window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by addstr.
+X
+X 	The routine mvwprintw adds a string to the specified window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by waddstr.
+X
+X 	All these routines are analogous to printf.  It is advisable
+X 	to use the field width options of printf to avoid leaving
+X 	unwanted characters on the screen from earlier calls.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	The printw() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int wprintw( WINDOW* win, char *fmt, ... );
+X 	X/Open Dec '88	int wprintw( WINDOW* win, char *fmt, ... );
+X 	BSD Curses	int wprintw( WINDOW* win, char *fmt, ... );
+X 	SYS V Curses	int wprintw( WINDOW* win, char *fmt, ... );
+X
+X**man-end**********************************************************************/
+X
+Xint	wprintw(WINDOW * win, char *fmt,...)
+X{
+X	int	retval = ERR;
+X	va_list args;
+X
+X	if (win == (WINDOW *)NULL)
+X		return (retval);
+X
+X	va_start(args, fmt);
+X	vsprintf(c_printscanbuf, fmt, args);
+X	va_end(args);
+X	if (waddstr(win, c_printscanbuf) == ERR)
+X		return (retval);
+X	retval = (strlen(c_printscanbuf));
+X	return (retval);
+X}
+END_OF_FILE
+  if test 2286 -ne `wc -c <'portable/wprintw.c'`; then
+    echo shar: \"'portable/wprintw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wprintw.c'
+fi
+if test -f 'portable/wscanw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wscanw.c'\"
+else
+  echo shar: Extracting \"'portable/wscanw.c'\" \(2192 characters\)
+  sed "s/^X//" >'portable/wscanw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wscanw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wscanw = "$Header: c:/curses/portable/RCS/wscanw.c%v 2.0 1992/11/15 03:29:09 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wscanw()	- read formatted from window
+X
+X  X/Open Description:
+X 	These routines correspond to scanf.  The function scanw reads
+X 	input from the default window.  The function wscanw reads
+X 	input from the specified window.  The function mvscanw moves
+X 	the cursor to the specified position and then reads input from
+X 	the default window.  The function mvwscanw moves the cursor to
+X 	the specified position and then reads input from the specified
+X 	window.
+X
+X 	For all the functions, the routine wgetstr is called to get a
+X 	string from the window, and the resulting line is used as
+X 	input for the scan.  All character interpretation is carried
+X 	out according to the scanf function rules.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	Upon successful completion, the scanw, mvscanw, mvwscanw and
+X 	wscanw functions return the number of items successfully
+X 	matched.  On end-of-file, they return EOF.  Otherwise they
+X 	return ERR.
+X
+X  PDCurses Errors:
+X 	No errors.
+X
+X  Portability:
+X 	PDCurses	int wscanw( WINDOW*, char *fmt, ...);
+X 	X/Open Dec '88	int wscanw( WINDOW*, char *fmt, ...);
+X 	BSD Curses	int wscanw( WINDOW*, char *fmt, ...);
+X 	SYS V Curses	int wscanw( WINDOW*, char *fmt, ...);
+X
+X**man-end**********************************************************************/
+X
+Xint	wscanw(WINDOW * win, char *fmt, ...)
+X{
+X	va_list args;
+X	int	retval = ERR;
+X
+X#if	!defined (HC)
+X	if (win == (WINDOW *)NULL)
+X		return (retval);
+X
+X	wrefresh(win);		/* set cursor position */
+X
+X	/*
+X	 * get string
+X	 */
+X	c_printscanbuf[0] = '\0';  /* reset to empty string */
+X	if (wgetstr(win, c_printscanbuf) == ERR)
+X		return( retval );
+X	va_start(args, fmt);
+X#ifdef NO_VSSCANF
+X	retval = PDC_vsscanf(c_printscanbuf, fmt, args);
+X#else
+X	retval = vsscanf(c_printscanbuf, fmt, args);
+X#endif
+X	va_end(args);
+X#endif
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2192 -ne `wc -c <'portable/wscanw.c'`; then
+    echo shar: \"'portable/wscanw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wscanw.c'
+fi
+if test -f 'portable/wstanden.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wstanden.c'\"
+else
+  echo shar: Extracting \"'portable/wstanden.c'\" \(2132 characters\)
+  sed "s/^X//" >'portable/wstanden.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wstandend
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wstanden = "$Header: c:/curses/portable/RCS/wstanden.c%v 2.0 1992/11/15 03:29:30 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wstandend()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wstandend( WINDOW* win );
+X 	X/Open Dec '88	int wstandend( WINDOW* win );
+X 	BSD Curses	int wstandend( WINDOW* win );
+X 	SYS V Curses	int wstandend( WINDOW* win );
+X
+X**man-end**********************************************************************/
+X
+Xint	wstandend( WINDOW *win )
+X{
+X	return( wattrset( win, A_NORMAL ) );
+X}
+END_OF_FILE
+  if test 2132 -ne `wc -c <'portable/wstanden.c'`; then
+    echo shar: \"'portable/wstanden.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wstanden.c'
+fi
+if test -f 'portable/wstandou.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wstandou.c'\"
+else
+  echo shar: Extracting \"'portable/wstandou.c'\" \(2134 characters\)
+  sed "s/^X//" >'portable/wstandou.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wstandout
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wstandou = "$Header: c:/curses/portable/RCS/wstandou.c%v 2.0 1992/11/15 03:29:30 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wstandout()	- attribute manipulation
+X
+X  X/Open Description:
+X 	These functions manipulate the current attributes of the named
+X 	window.  These attributes can be any combination of A_STANDOUT,
+X 	A_REVERSE, A_BOLD, A_DIM, A_BLINK, A_UNDERLINE.
+X
+X 	These constants are defined in <curses.h> and can be combined
+X 	with the bitwise-OR operator (|).
+X
+X 	The current attributes of a window are applied to all characters
+X 	that are written into the window with waddch().  Attributes are
+X 	a property of the character, and move with the character
+X 	through any scrolling and insert/delete line/character operations.
+X 	To the extent possible on the particular terminal, they will be
+X 	displayed as the graphic rendition of characters put on the
+X 	screen.
+X
+X 	The attrset() function sets the current attributes of the given
+X 	window to attrs.  The attroff() function turns off the named
+X 	attributes without turning on or off any other attributes.  The
+X 	attron() function turs on the named attriutes without affecting
+X 	any others.  The standout function is the same as
+X 	attron( A_STANDOUT ).  The standend() function is the same as
+X 	attrset( 0 ); that is it turns off all attributes.
+X
+X 	NOTE:  attroff(), attron() and attrset() are macros.
+X
+X  PDCurses Description:
+X 	System V compatible color support is included.
+X 	See <curses.h> for further details.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wstandout( WINDOW* win );
+X 	X/Open Dec '88	int wstandout( WINDOW* win );
+X 	BSD Curses	int wstandout( WINDOW* win );
+X 	SYS V Curses	int wstandout( WINDOW* win );
+X
+X**man-end**********************************************************************/
+X
+Xint	wstandout( WINDOW *win )
+X{
+X	return( wattrset( win, A_STANDOUT ) );
+X}
+END_OF_FILE
+  if test 2134 -ne `wc -c <'portable/wstandou.c'`; then
+    echo shar: \"'portable/wstandou.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wstandou.c'
+fi
+if test -f 'private/_backchr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_backchr.c'\"
+else
+  echo shar: Extracting \"'private/_backchr.c'\" \(2083 characters\)
+  sed "s/^X//" >'private/_backchr.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef NDEBUG
+Xchar *rcsid__backchr = "$Header: c:/curses/private/RCS/_backchr.c%v 2.0 1992/11/15 03:24:15 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_backchar()	- Visually erase character in window
+X
+X  PDCurses Description:
+X 	This is a private PDCurses function
+X
+X 	This routine will visually erase a character.  It is called by
+X 	the PDCurses character I/O routines.
+X
+X  PDCurses Return Value:
+X 	This routine will return OK upon success and otherwise ERR will be
+X 	returned.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a NULL WINDOW pointer.
+X
+X  Portability:
+X 	PDCurses	int	PDC_backchar( WINDOW* w, char* ch, int* len );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_backchar(WINDOW *w, char *ch, int *len)
+X{
+X	int	nbs = 0;
+X	int	x = w->_curx;
+X	int	ts = w->_tabsize;
+X	chtype*	s = &w->_y[w->_cury][x - 1];
+X	char*	p = c_strbeg;
+X	bool	save_raw_out = _cursvar.raw_out;
+X
+X
+X	if (w == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	(*len)--;		/* Now we are zero relative */
+X	(*len)--;		/* Now we are looking at the previous
+X				 * character */
+X	nbs++;
+X	/*
+X	 * Determine number of characters to erase...
+X	 */
+X	if ((ch[*len] < ' ') || (*s == 0x7f))	/* ctrl-char has size 2	 */
+X	{
+X		nbs++;
+X		(*len)--;
+X	}
+X
+X	if (ch[*len] == '\t')	/* tabs are very special */
+X	{
+X		for (; p < ch; p++)
+X		{
+X			if (*p == '\t')
+X				x = ((x / ts) + 1) * ts;
+X			else
+X			{
+X				if ((*p < ' ') || (*p == 0x7f))
+X					x += 2;
+X				else
+X					x++;
+X			}
+X			if (x >= w->_maxx)	/* go to next line? */
+X				x = 0;
+X		}
+X		if (!(w->_curx))
+X			nbs = w->_maxx - x;
+X		else
+X			nbs = w->_curx - x;
+X	}
+X	/*
+X	 * Erase the characters and update...
+X	 */
+X	_cursvar.raw_out = FALSE;  /* ensure backspace handled in xlat mode */
+X	while (nbs--)
+X	{
+X		if (w->_curx > 0)
+X		{
+X			waddstr(w, "\b \b");
+X		}
+X		else
+X		if (w->_cury)
+X		{
+X			mvwaddch(w, w->_cury - 1, w->_maxx - 1, ' ');
+X			wmove(w, w->_cury - 1, w->_maxx - 1);
+X		}
+X	}
+X	ch[*len] = '\0';
+X	_cursvar.raw_out = save_raw_out;
+X	wrefresh(w);
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2083 -ne `wc -c <'private/_backchr.c'`; then
+    echo shar: \"'private/_backchr.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_backchr.c'
+fi
+if test -f 'private/_cattr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_cattr.c'\"
+else
+  echo shar: Extracting \"'private/_cattr.c'\" \(2249 characters\)
+  sed "s/^X//" >'private/_cattr.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef NDEBUG
+Xchar *rcsid__cattr = "$Header: c:/curses/private/RCS/_cattr.c%v 2.0 1992/11/15 03:24:41 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_chg_attr_pair()	- Writes character and attribute to physical screen
+X
+X  PDCurses Description:
+X 	This is a private PDCurses function.
+X
+X 	Writes a single character 'chr' with attribute 'attr' to the
+X 	current cursor location.
+X
+X 	NOTE:	Though passed as 16 bit quantities, only the lower 8 bits
+X 		will be used to create a character/attribute pair.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function under DOS.
+X
+X 	An ERR may be returned under FLEXOS if s_copy() fails.  See the
+X 	Flexos Programmer's Reference Manual for details on the error.
+X
+X  Portability:
+X 	PDCurses	int PDC_chg_attr_pair( chtype chr, chtype attr );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_chg_attr_pair(chtype chr, chtype attr)
+X{
+X	extern unsigned	char atrtab[MAX_ATRTAB];
+X	chtype	phys_attr=chtype_attr(attr);
+X
+X#ifdef	FLEXOS
+X	UBYTE	c = (UBYTE) chr;
+X	UBYTE	a = (UBYTE) phys_attr;
+X
+X	drect.r_row = PDC_get_cur_row();
+X	drect.r_col = PDC_get_cur_col();
+X	drect.r_nrow = 1;
+X	drect.r_ncol = 1;
+X
+X	sframe.fr_pl[0] = (UBYTE *) & c;
+X	sframe.fr_pl[1] = (UBYTE *) & a;
+X	sframe.fr_pl[2] = (UBYTE *) " ";
+X	sframe.fr_nrow = 1;
+X	sframe.fr_ncol = 1;
+X	sframe.fr_use = 0x00;
+X
+X	srect.r_col = 0;
+X	srect.r_row = 0;
+X	srect.r_nrow = 1;
+X	srect.r_ncol = 1;
+X
+X	retcode = s_copy(0x03, 0x01L, 0L, (far unsigned short *) &drect, (far unsigned short *) &sframe, (far unsigned short *) &srect);
+X	return( (retcode < 0L) ? ERR : OK );
+X#endif
+X#ifdef	DOS
+X	regs.h.ah = 0x09;
+X	regs.h.al = chr & A_CHARTEXT;
+X	regs.h.bh = _cursvar.video_page;
+X	regs.h.bl = (phys_attr & A_ATTRIBUTES) >> 8;
+X	regs.x.cx = 0x01;
+X	int86(0x10, &regs, &regs);
+X	return( OK );
+X#endif
+X#ifdef	OS2
+X	USHORT curCol, curRow, cell;
+X	
+X	/* find the current cursor position */
+X	VioGetCurPos((PUSHORT) &curRow, (PUSHORT) &curCol, 0);
+X	cell = (chr & A_CHARTEXT) | (phys_attr & A_ATTRIBUTES);
+X	VioWrtNCell((PBYTE)&cell,1,curRow,curCol,0);
+X	return( OK );
+X#endif
+X}
+END_OF_FILE
+  if test 2249 -ne `wc -c <'private/_cattr.c'`; then
+    echo shar: \"'private/_cattr.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_cattr.c'
+fi
+if test -f 'private/_sanity.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_sanity.c'\"
+else
+  echo shar: Extracting \"'private/_sanity.c'\" \(2107 characters\)
+  sed "s/^X//" >'private/_sanity.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__sanity = "$Header: c:/curses/private/RCS/_sanity.c%v 2.0 1992/11/15 03:24:32 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_sanity_check() - A video adapter identification sanity check
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	This routine will force sane values for various control flags.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_sanity_check( int adapter );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_sanity_check(int adapter)
+X{
+X	int	fontsize = PDC_get_font();
+X	int	rows	 = PDC_get_rows();
+X
+X	switch (adapter)
+X	{
+X	case _EGACOLOR:
+X	case _EGAMONO:
+X		switch (rows)
+X		{
+X		case 25:	break;
+X		case 43:	break;
+X		default:
+X			_cursvar.bogus_adapter = TRUE;
+X			break;
+X		}
+X
+X		switch (fontsize)
+X		{
+X		case _FONT8:	break;
+X		case _FONT14:	break;
+X		default:
+X			_cursvar.bogus_adapter = TRUE;
+X			break;
+X		}
+X		break;
+X
+X	case _VGACOLOR:
+X	case _VGAMONO:
+X
+X/*                                                                  */
+X/* lets be reasonably flexible with VGAs - they could be Super VGAs */
+X/* capable of displaying any number of lines. MH 10-Jun-92          */
+X/* This also applies to font size.            MH 16-Jun-92          */
+X/*
+X		switch (rows)
+X		{
+X		case 25:	break;
+X		case 43:	break;
+X		case 50:	break;
+X		default:
+X			_cursvar.bogus_adapter = TRUE;
+X			break;
+X		}
+X
+X		switch (fontsize)
+X		{
+X		case _FONT8:	break;
+X		case _FONT14:	break;
+X		case _FONT16:	break;
+X		default:
+X			_cursvar.bogus_adapter = TRUE;
+X			break;
+X		}
+X*/
+X		break;
+X
+X	case _CGA:
+X	case _MDA:
+X	case _MCGACOLOR:
+X	case _MCGAMONO:
+X		switch (rows)
+X		{
+X		case 25:	break;
+X		default:
+X			_cursvar.bogus_adapter = TRUE;
+X			break;
+X		}
+X		break;
+X
+X	default:
+X		_cursvar.bogus_adapter = TRUE;
+X		break;
+X	}
+X	if (_cursvar.bogus_adapter)
+X	{
+X		_cursvar.sizeable	= FALSE;
+X		_cursvar.direct_video	= FALSE;
+X	}
+X	return (adapter);
+X}
+END_OF_FILE
+  if test 2107 -ne `wc -c <'private/_sanity.c'`; then
+    echo shar: \"'private/_sanity.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_sanity.c'
+fi
+if test -f 'private/_scb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_scb.c'\"
+else
+  echo shar: Extracting \"'private/_scb.c'\" \(2142 characters\)
+  sed "s/^X//" >'private/_scb.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#define NEEDS_OS2       1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__scb = "$Header: c:/curses/private/RCS/_scb.c%v 2.0 1992/11/15 03:24:16 MH Rel $";
+X#endif
+X
+X#ifdef OS2
+X#  if defined (CURSES__32BIT__) || defined (CSET2)
+X#     include <signal.h>
+X#  else
+X#     define INCL_DOSSIGNALS
+X#     define INCL_NOCOMMON
+X#     include <bsedos.h>
+X#  endif
+X#endif
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_set_ctrl_break()	- Enables/Disables the host OS BREAK key check.
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Enables/Disables the host OS BREAK key check. This function toggles
+X 	the BREAK setting. If it was on, it turns itoff; if it was aff it turns
+X 	it on.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_set_ctrl_break( bool setting );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_set_ctrl_break(bool setting)
+X{
+X#ifdef	FLEXOS
+X	retcode = s_get(T_VIRCON, 0L, (char *) &vir, (long) sizeof(vir));
+X	if (retcode < 0L)
+X		return( ERR );
+X
+X	vir.vc_kbmode = ((vir.vc_kbmode & ~0x01) & (setting) ? 0x01 : 0x00);
+X
+X	retcode = s_set(T_VIRCON, 0L, (char *) &vir, (long) sizeof(vir));
+X	return( (retcode < 0L) ? ERR : OK );
+X#endif
+X#ifdef	DOS
+X	regs.h.ah = 0x33;
+X	regs.h.al = 0x00;
+X	regs.h.dl = (unsigned char) (setting ? 1 : 0);
+X	int86(0x21, &regs, &regs);
+X	return( OK );
+X#endif
+X#ifdef	OS2
+X#  if defined (CURSES__32BIT__) || defined (CSET2)
+X	if (setting) {
+X		signal (SIGINT, SIG_DFL);
+X		signal (SIGBREAK, SIG_DFL);
+X	} else {
+X		signal (SIGINT, SIG_IGN);
+X		signal (SIGBREAK, SIG_IGN);
+X        }
+X	return( OK );
+X#  else
+X	PFNSIGHANDLER oldHandler;
+X	USHORT oldAction, Action;
+X
+X	/* turn off control C checking */
+X	if (setting)
+X		Action = SIGA_KILL;
+X	else
+X		Action = SIGA_IGNORE;
+X	DosSetSigHandler((PFNSIGHANDLER) NULL, &oldHandler, &oldAction,
+X		Action, SIG_CTRLBREAK);
+X	DosSetSigHandler((PFNSIGHANDLER) NULL, &oldHandler, &oldAction,
+X		Action, SIG_CTRLC);
+X	return( OK );
+X#  endif	
+X#endif
+X}
+END_OF_FILE
+  if test 2142 -ne `wc -c <'private/_scb.c'`; then
+    echo shar: \"'private/_scb.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_scb.c'
+fi
+if test -f 'tools/buildlrf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tools/buildlrf.c'\"
+else
+  echo shar: Extracting \"'tools/buildlrf.c'\" \(353 characters\)
+  sed "s/^X//" >'tools/buildlrf.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+Xint main(int argc,char *argv[])
+X{
+X FILE *fp;
+X
+X if (argc < 3)
+X   {
+X    fprintf(stderr,"Invalid number of parameters\n");
+X    return(1);
+X   }
+X if ((fp = fopen(argv[2],"a")) == NULL)
+X   {
+X    fprintf(stderr,"Error opening %s\n",argv[2]);
+X    return(1);
+X   }
+X fprintf(fp,"%s &\n",argv[1]);
+X fclose(fp);
+X return(0);
+X}
+END_OF_FILE
+  if test 353 -ne `wc -c <'tools/buildlrf.c'`; then
+    echo shar: \"'tools/buildlrf.c'\" unpacked with wrong size!
+  fi
+  # end of 'tools/buildlrf.c'
+fi
+echo shar: End of archive 7 \(of 11\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

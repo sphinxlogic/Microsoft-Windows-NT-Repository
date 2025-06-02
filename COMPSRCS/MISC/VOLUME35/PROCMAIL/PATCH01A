@@ -1,0 +1,1555 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v35i124:  procmail - mail processing package v2.80, Patch01a/2
+Message-ID: <csm-v35i124=procmail.151552@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 74ded8f872cde38393552f57ac4c3d51
+Date: Thu, 4 Mar 1993 21:19:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 35, Issue 124
+Archive-name: procmail/patch01a
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Patch-To: procmail: Volume 35, Issue 21-32
+
+This is the first of a two part patch.  Please apply these patches separately.
+To apply this patch file:
+
+	cd procmail280; patch -s -p1 <this_file
+
+  -------------------
+Changes since v2.80:
+
+1993/02/19: v2.81
+	    Fixed a major inconvenience when generating the Makefiles in
+	       initmake
+	    Loosened the formats accepted for (un)subscription requests (some
+	       got rejected, but were valid)
+	    Redirected archive requests away from the regular list address
+	    Sharpened the FROM_MAIL_DAEMON detection
+	    Flist, idhash and multigram now use the correct name on error
+	       reports
+	    Sped up multigram on duplicate names (also eliminates duplicates
+	       in the best-matches list)
+	    The locking tests in the autoconf scripts seemed to hang on
+	       certain machines, I think I fixed that now
+	    Procmail now uses saved-gids if available (allows for system-
+	       mailbox locking from within an rcfile on systems that did not
+	       have world-writeable /usr/mail directories)
+	    Procmail ignores locallockfiles if the file that has to be locked
+	       turns out to be /dev/null
+	    Added a paragraph to the mailinglist/Manual (explaining multigram
+	       and threshold values)
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+--------------------------
+diff -c procmail/patchlevel.h:1.30 procmail/patchlevel.h:1.34
+*** procmail/patchlevel.h:1.30	Fri Feb 19 16:21:55 1993
+--- procmail/patchlevel.h	Fri Feb 19 16:21:55 1993
+***************
+*** 1,5 ****
+  #define VERSION "\
+! procmail v2.80 1993/02/04 written and created by Stephen R. van den Berg\n\
+  \t\t\t\tberg@pool.informatik.rwth-aachen.de\n\
+  \t\t\t\tberg@physik.tu-muenchen.de\n\
+  \n\
+--- 1,5 ----
+  #define VERSION "\
+! procmail v2.81 1993/02/19 written and created by Stephen R. van den Berg\n\
+  \t\t\t\tberg@pool.informatik.rwth-aachen.de\n\
+  \t\t\t\tberg@physik.tu-muenchen.de\n\
+  \n\
+diff -c procmail/FEATURES:1.4 procmail/FEATURES:1.6
+*** procmail/FEATURES:1.4	Fri Feb 19 16:21:43 1993
+--- procmail/FEATURES	Fri Feb 19 16:21:43 1993
+***************
+*** 28,38 ****
+  	+ Variable assignment and substitution is an extremely complete subset
+  	  of the standard /bin/sh syntax
+  	+ Provides a mail log file, which logs all mail arrival, shows
+! 	  in summary whence it came from, what it was about, where it went
+! 	  (what folder) and how long (in bytes) it was
+  	+ Uses this log file to display a wide range of diagnostic and error
+  	  messages (if something went wrong)
+! 	+ Does not impose *any* limits on line lenghts, mail length (as long
+  	  as memory permits), or the use of any character (any 8-bit character,
+  	  including '\0' is allowed) in the mail
+  	+ It has man pages (boy, does *it* have man pages)
+--- 28,38 ----
+  	+ Variable assignment and substitution is an extremely complete subset
+  	  of the standard /bin/sh syntax
+  	+ Provides a mail log file, which logs all mail arrival, shows
+! 	  in summary whence it came, what it was about, where it went (what
+! 	  folder) and how long (in bytes) it was
+  	+ Uses this log file to display a wide range of diagnostic and error
+  	  messages (if something went wrong)
+! 	+ Does not impose *any* limits on line lengths, mail length (as long
+  	  as memory permits), or the use of any character (any 8-bit character,
+  	  including '\0' is allowed) in the mail
+  	+ It has man pages (boy, does *it* have man pages)
+diff -c procmail/HISTORY:1.18 procmail/HISTORY:1.22
+*** procmail/HISTORY:1.18	Fri Feb 19 16:21:46 1993
+--- procmail/HISTORY	Fri Feb 19 16:21:46 1993
+***************
+*** 21,28 ****
+  	    Implemented a custom regular expression library (fully egrep
+  	       compatible), should eliminate the annoyances with incompatible
+  	       egreps
+! 	    Accomplished the doubtful milestone of having a source file
+! 	       (regexp.c) which provokes a compiler error on an old compiler
+  	       (if using the optimiser)
+  	    Ignoring leading spaces on condition lines now (means that
+  	       everything can be indented in the rcfile)
+--- 21,28 ----
+  	    Implemented a custom regular expression library (fully egrep
+  	       compatible), should eliminate the annoyances with incompatible
+  	       egreps
+! 	    Reached the doubtful milestone of having a source file (regexp.c)
+! 	       which provokes a compiler error on an old compiler
+  	       (if using the optimiser)
+  	    Ignoring leading spaces on condition lines now (means that
+  	       everything can be indented in the rcfile)
+***************
+*** 44,51 ****
+  	       this includes specific intstructions for smail 2.x
+  	    Made special entries in config.h for semi-permanent environment-
+  	       variable overrides
+- 	    Made formail more intelligent, it can now parse full-fledged
+- 	       RFC822 addresses (quoting et al)
+  	    A complete rewrite of formail, the code got bigger, the runtime
+  	       requirement got bigger, it got slower, but, it's more structured
+  	       (so much for structured programming :-)
+--- 44,49 ----
+***************
+*** 179,181 ****
+--- 177,201 ----
+  		 locking support
+  	       - also, network support for comsat tries to build up a compile
+  		 time cache for trivial get*byname() calls
++ 	       - reached the doubtful milestone of consistently crashing the
++ 		 kernel on a Convex by running the locktst program
++ 1993/02/19: v2.81
++ 	    Fixed a major inconvenience when generating the Makefiles in
++ 	       initmake
++ 	    Loosened the formats accepted for (un)subscription requests (some
++ 	       got rejected, but were valid)
++ 	    Redirected archive requests away from the regular list address
++ 	    Sharpened the FROM_MAIL_DAEMON detection
++ 	    Flist, idhash and multigram now use the correct name on error
++ 	       reports
++ 	    Sped up multigram on duplicate names (also eliminates duplicates
++ 	       in the best-matches list)
++ 	    The locking tests in the autoconf scripts seemed to hang on
++ 	       certain machines, I think I fixed that now
++ 	    Procmail now uses saved-gids if available (allows for system-
++ 	       mailbox locking from within an rcfile on systems that did not
++ 	       have world-writeable /usr/mail directories)
++ 	    Procmail ignores locallockfiles if the file that has to be locked
++ 	       turns out to be /dev/null
++ 	    Added a paragraph to the mailinglist/Manual (explaining multigram
++ 	       and threshold values)
+diff -c procmail/Makefile:1.17 procmail/Makefile:1.19
+*** procmail/Makefile:1.17	Fri Feb 19 16:21:47 1993
+--- procmail/Makefile	Fri Feb 19 16:21:47 1993
+***************
+*** 1,9 ****
+! #$Id: Makefile,v 1.17 1993/01/28 14:21:47 berg Exp $
+  
+  # change BASENAME to your home directory if need be
+  BASENAME = /usr/local
+  
+  # You can predefine ARCHITECTURE to a bin directory suffix
+  #ARCHITECTURE=.sun4
+  
+  BINDIR	  = $(BASENAME)/bin$(ARCHITECTURE)
+--- 1,10 ----
+! #$Id: Makefile,v 1.19 1993/02/11 12:21:22 berg Exp $
+  
+  # change BASENAME to your home directory if need be
+  BASENAME = /usr/local
+  
+  # You can predefine ARCHITECTURE to a bin directory suffix
++ ARCHITECTURE=
+  #ARCHITECTURE=.sun4
+  
+  BINDIR	  = $(BASENAME)/bin$(ARCHITECTURE)
+***************
+*** 87,91 ****
+  makefiles makefile Makefiles Makefile: init
+  
+  bins mans install.bin install.man install recommend suid clean realclean \
+! deinstall autoconf.h $(BINSS) multigram: init
+  	$(HIDEMAKE) make $@
+--- 88,92 ----
+  makefiles makefile Makefiles Makefile: init
+  
+  bins mans install.bin install.man install recommend suid clean realclean \
+! veryclean clobber deinstall autoconf.h $(BINSS) multigram: init
+  	$(HIDEMAKE) make $@
+diff -c procmail/Makefile.1:1.9 procmail/Makefile.1:1.14
+*** procmail/Makefile.1:1.9	Fri Feb 19 16:21:48 1993
+--- procmail/Makefile.1	Fri Feb 19 16:21:49 1993
+***************
+*** 1,4 ****
+! #$Id: Makefile.1,v 1.9 1993/01/26 14:49:37 berg Exp $
+  
+  HIDEMAKE=$(MAKE)
+  
+--- 1,4 ----
+! #$Id: Makefile.1,v 1.14 1993/02/18 17:19:31 berg Exp $
+  
+  HIDEMAKE=$(MAKE)
+  
+***************
+*** 31,36 ****
+--- 31,37 ----
+  
+  config.check: config.h
+  	@echo Housekeeping file >$@
++ 	@-mkdir new 2>$(DEVNULL); exit 0
+  	@-if $(FGREP) -n -e '`' config.h $(DEVNULL) | $(FGREP) -v EOFName ; \
+  	 then \
+  	 echo;echo '	^^^^^^^^^^^^^^^^^^^^ WARNING ^^^^^^^^^^^^^^^^^^^^^';\
+***************
+*** 73,79 ****
+  $(BINS): bins
+  
+  install.man: $(MANS)
+- 	@echo Housekeeping file >install.man
+  	@-mkdir $(MANDIR) 2>$(DEVNULL); exit 0
+  	@-mkdir $(MAN1DIR) 2>$(DEVNULL); exit 0
+  	@-mkdir $(MAN5DIR) 2>$(DEVNULL); exit 0
+--- 74,79 ----
+***************
+*** 82,93 ****
+  	  do $(INSTALL) new/$$a.1 $(MAN1DIR)/$$a.$(MAN1SUFFIX); done
+  	@for a in $(MANS5S); \
+  	  do $(INSTALL) new/$$a.5 $(MAN5DIR)/$$a.$(MAN5SUFFIX); done
+  
+  install.bin: $(BINS)
+  	@-mkdir $(BINDIR) 2>$(DEVNULL); exit 0
+  	@chmod 0755 $(BINS)
+- 	@echo Housekeeping file >install.bin
+  	$(INSTALL) $(BINS) $(BINDIR)
+  
+  install: install.man install.bin
+  	@echo
+--- 82,94 ----
+  	  do $(INSTALL) new/$$a.1 $(MAN1DIR)/$$a.$(MAN1SUFFIX); done
+  	@for a in $(MANS5S); \
+  	  do $(INSTALL) new/$$a.5 $(MAN5DIR)/$$a.$(MAN5SUFFIX); done
++ 	@echo Housekeeping file >install.man
+  
+  install.bin: $(BINS)
+  	@-mkdir $(BINDIR) 2>$(DEVNULL); exit 0
+  	@chmod 0755 $(BINS)
+  	$(INSTALL) $(BINS) $(BINDIR)
++ 	@echo Housekeeping file >install.bin
+  
+  install: install.man install.bin
+  	@echo
+***************
+*** 96,104 ****
+  	@cd $(MAN5DIR); echo Installed in $(MAN5DIR); ls -l $(MANS5)
+  	@$(MAKE) recommend
+  
+- new:
+- 	@-mkdir $@ 2>$(DEVNULL); exit 0
+- 
+  deinstall:
+  	@echo ----------------------------- Deinstalling the procmail package.
+  	@$(RM) install.man install.bin
+--- 97,102 ----
+***************
+*** 108,125 ****
+  	@-cd $(MAN5DIR); $(RM) $(MANS5); ls -l $(MANS5); exit 0
+  	@echo ----------------------------- Ready.
+  
+! clean: new
+  	-for a in $(SUBDIRS); do cd $$a; $(MAKE) $@; cd ..; done; exit 0
+  	$(RM) $(MANS) $(BINS) libcheck install.man install.bin suid.sh \
+! 	 _Makefile core
+  
+  realclean: clean _init
+- 	-rmdir new; exit 0
+  	$(RM) config.check
+  	-for a in $(SUBDIRS); do $(MV) $$a/Makefile.init $$a/Makefile; done; \
+  	 exit 0
+  
+! veryclean: realclean
+  
+  _init:
+  	sed -e '/^# Makefile.1 - mark/,$$ d' <Makefile >_Makefile
+--- 106,123 ----
+  	@-cd $(MAN5DIR); $(RM) $(MANS5); ls -l $(MANS5); exit 0
+  	@echo ----------------------------- Ready.
+  
+! clean: config.check
+  	-for a in $(SUBDIRS); do cd $$a; $(MAKE) $@; cd ..; done; exit 0
+  	$(RM) $(MANS) $(BINS) libcheck install.man install.bin suid.sh \
+! 	 _Makefile core autoconf.h.tmp
+  
+  realclean: clean _init
+  	$(RM) config.check
++ 	-rmdir new; exit 0
+  	-for a in $(SUBDIRS); do $(MV) $$a/Makefile.init $$a/Makefile; done; \
+  	 exit 0
+  
+! veryclean clobber: realclean
+  
+  _init:
+  	sed -e '/^# Makefile.1 - mark/,$$ d' <Makefile >_Makefile
+diff -c procmail/config.h:1.17 procmail/config.h:1.19
+*** procmail/config.h:1.17	Fri Feb 19 16:21:51 1993
+--- procmail/config.h	Fri Feb 19 16:21:52 1993
+***************
+*** 1,4 ****
+! /*$Id: config.h,v 1.17 1993/02/02 15:26:42 berg Exp $*/
+  
+  /*#define sMAILBOX_SEPARATOR	"\1\1\1\1\n"	/* sTART- and eNDing separ.  */
+  /*#define eMAILBOX_SEPARATOR	"\1\1\1\1\n"	/* uncomment (one or both)
+--- 1,4 ----
+! /*$Id: config.h,v 1.19 1993/02/11 12:07:58 berg Exp $*/
+  
+  /*#define sMAILBOX_SEPARATOR	"\1\1\1\1\n"	/* sTART- and eNDing separ.  */
+  /*#define eMAILBOX_SEPARATOR	"\1\1\1\1\n"	/* uncomment (one or both)
+***************
+*** 101,109 ****
+   "^((Resent-)?(To|Cc|Bcc)|(X-Envelope|Apparently)-To):(.*[^a-zA-Z])?"
+  #define FROMDkey	"^FROM_DAEMON"
+  #define FROMDsubstitute "^(Precedence:.*(junk|bulk|list)|\
+! (((Resent-)?(From|Sender)|X-Envelope-From):|From )(.*[^.a-z])?(\
+  Post(ma(st(er)?|n)|office)|Mailer|daemon|mmdf|root|uucp|LISTSERV|owner|\
+! request|bounce|serv(ices?|er))([^.a-z]|$))" /* matches most kinds of daemons */
+  #define DEFshellmetas	"&|<>~;?*[]"		    /* never put '$' in here */
+  #define DEFmaildir	"$HOME"
+  #define DEFdefault	"$ORGMAIL"
+--- 101,109 ----
+   "^((Resent-)?(To|Cc|Bcc)|(X-Envelope|Apparently)-To):(.*[^a-zA-Z])?"
+  #define FROMDkey	"^FROM_DAEMON"
+  #define FROMDsubstitute "^(Precedence:.*(junk|bulk|list)|\
+! (((Resent-)?(From|Sender)|X-Envelope-From):|From )(.*[^.@a-z0-9])?(\
+  Post(ma(st(er)?|n)|office)|Mailer|daemon|mmdf|root|uucp|LISTSERV|owner|\
+! request|bounce|serv(ices?|er))([^.a-z0-9]|$))"	     /* matches most daemons */
+  #define DEFshellmetas	"&|<>~;?*[]"		    /* never put '$' in here */
+  #define DEFmaildir	"$HOME"
+  #define DEFdefault	"$ORGMAIL"
+diff -c procmail/initmake:1.21 procmail/initmake:1.24
+*** procmail/initmake:1.21	Fri Feb 19 16:21:53 1993
+--- procmail/initmake	Fri Feb 19 16:21:53 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  :
+! #$Id: initmake,v 1.21 1993/02/02 16:54:03 berg Exp $
+  
+  PATH=.:$PATH
+  BSHELL=$1
+--- 1,6 ----
+  #! /bin/sh
+  :
+! #$Id: initmake,v 1.24 1993/02/11 12:08:01 berg Exp $
+  
+  PATH=.:$PATH
+  BSHELL=$1
+***************
+*** 80,85 ****
+--- 80,86 ----
+  echo "$cc seems to work fine, using that as the C-compiler"
+  
+  cat >_autotst.c <<HERE
++ #include <stdio.h>
+  #include <sys/stat.h>
+  main()
+  { struct stat buf;return!&buf;
+***************
+*** 220,226 ****
+  for a in $BINSS
+  do
+    echo							>>src/_Makefile
+!   echo "../new/$a: $a ../new"				>>src/_Makefile
+    echo "	@\$(RM) \$@"				>>src/_Makefile
+    echo "	\$(LN) $a \$@"				>>src/_Makefile
+  done
+--- 221,227 ----
+  for a in $BINSS
+  do
+    echo							>>src/_Makefile
+!   echo "../new/$a: $a ../config.check"			>>src/_Makefile
+    echo "	@\$(RM) \$@"				>>src/_Makefile
+    echo "	\$(LN) $a \$@"				>>src/_Makefile
+  done
+***************
+*** 228,234 ****
+  for a in $MANSS
+  do
+    echo							>>man/_Makefile
+!   echo "../new/$a: $a ../new"				>>man/_Makefile
+    echo "	@\$(RM) \$@"				>>man/_Makefile
+    echo "	\$(LN) $a \$@"				>>man/_Makefile
+  done
+--- 229,235 ----
+  for a in $MANSS
+  do
+    echo							>>man/_Makefile
+!   echo "../new/$a: $a ../config.check"			>>man/_Makefile
+    echo "	@\$(RM) \$@"				>>man/_Makefile
+    echo "	\$(LN) $a \$@"				>>man/_Makefile
+  done
+***************
+*** 238,244 ****
+    echo							>>man/_Makefile
+    echo "$a.1: $a.man man.sed mansed"			>>man/_Makefile
+    echo \
+!    "	\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+     >>man/_Makefile
+  done
+  
+--- 239,245 ----
+    echo							>>man/_Makefile
+    echo "$a.1: $a.man man.sed mansed"			>>man/_Makefile
+    echo \
+!    "	@\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+     >>man/_Makefile
+  done
+  
+***************
+*** 247,253 ****
+    echo							>>man/_Makefile
+    echo "$a.5: $a.man man.sed mansed"			>>man/_Makefile
+    echo \
+!    "	\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+     >>man/_Makefile
+  done
+  
+--- 248,254 ----
+    echo							>>man/_Makefile
+    echo "$a.5: $a.man man.sed mansed"			>>man/_Makefile
+    echo \
+!    "	@\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+     >>man/_Makefile
+  done
+  
+***************
+*** 256,260 ****
+--- 257,262 ----
+  
+  for a in $SUBDIRS
+  do
++   echo "#" >>$a/_Makefile
+    $MV $a/_Makefile $a/Makefile
+  done
+diff -c procmail/examples/advanced:1.8 procmail/examples/advanced:1.9
+*** procmail/examples/advanced:1.8	Fri Feb 19 16:22:00 1993
+--- procmail/examples/advanced	Fri Feb 19 16:22:00 1993
+***************
+*** 23,33 ****
+  I have the following suggestion to use as a .forward file (examples are for
+  sparc and sun3 architectures):
+  
+! "|IFS=' ';if /usr/bin/sparc;then exec /home/berg/bin.sun4/procmail;else exec /home/berg/bin.sun3/procmail;fi #YOUR_LOGIN_NAME"
+  
+  or alternatively:
+  
+! "|IFS=' ';exec /home/berg/bin.`/usr/bin/arch`/procmail #YOUR_LOGIN_NAME"
+  
+  Please note, in the .forward file there can NOT be any newlines between
+  the doublequotes, i.e. the former example *has* to be typed in as one long
+--- 23,33 ----
+  I have the following suggestion to use as a .forward file (examples are for
+  sparc and sun3 architectures):
+  
+! |"IFS=' ';if /usr/bin/sparc;then exec /home/berg/bin.sun4/procmail;else exec /home/berg/bin.sun3/procmail;fi #YOUR_LOGIN_NAME"
+  
+  or alternatively:
+  
+! |"IFS=' ';exec /home/berg/bin.`/usr/bin/arch`/procmail #YOUR_LOGIN_NAME"
+  
+  Please note, in the .forward file there can NOT be any newlines between
+  the doublequotes, i.e. the former example *has* to be typed in as one long
+***************
+*** 39,45 ****
+  .forward file:
+  
+  YOUR_LOGIN_NAME@your.favourite.machine
+! "|IFS=' ';if test .`/bin/uname -n` = .your.favourite.machine; then /exec /home/berg/bin/procmail; else exit 0; fi #YOUR_LOGIN_NAME"
+  
+  The leading dots are important.	 Check what `/bin/uname -n` returns on
+  your.favourite.machine, and substitute that for your.favourite.machine in the
+--- 39,45 ----
+  .forward file:
+  
+  YOUR_LOGIN_NAME@your.favourite.machine
+! |"IFS=' ';if test .`/bin/uname -n` = .your.favourite.machine; then /exec /home/berg/bin/procmail; else exit 0; fi #YOUR_LOGIN_NAME"
+  
+  The leading dots are important.	 Check what `/bin/uname -n` returns on
+  your.favourite.machine, and substitute that for your.favourite.machine in the
+diff -c procmail/examples/forward:1.1.1.1 procmail/examples/forward:1.2
+*** procmail/examples/forward:1.1.1.1	Fri Feb 19 16:22:02 1993
+--- procmail/examples/forward	Fri Feb 19 16:22:02 1993
+***************
+*** 1 ****
+! "|IFS=' ';exec /usr/local/bin/procmail #YOUR_LOGIN_NAME"
+--- 1 ----
+! |"IFS=' ';exec /usr/local/bin/procmail #YOUR_LOGIN_NAME"
+diff -c procmail/mailinglist/FEATURES:1.4 procmail/mailinglist/FEATURES:1.5
+*** procmail/mailinglist/FEATURES:1.4	Fri Feb 19 16:22:05 1993
+--- procmail/mailinglist/FEATURES	Fri Feb 19 16:22:05 1993
+***************
+*** 4,10 ****
+  	+ Convenient and simple removal of existing mailinglists
+  	+ Fully automated subscription/unsubscription/help-request processing
+  	  (no operator intervention needed)
+! 	+ Enough intelligence to overcome the stupidity of some subscribers
+  	  (will direct subscribe and unsubscribe requests away from the
+  	  regular list and automatically onto the -request address)
+  	+ No hardwired format for (un)subscribe requests (i.e. new subscribers
+--- 4,10 ----
+  	+ Convenient and simple removal of existing mailinglists
+  	+ Fully automated subscription/unsubscription/help-request processing
+  	  (no operator intervention needed)
+! 	+ Enough intelligence to overcome the ignorance of some subscribers
+  	  (will direct subscribe and unsubscribe requests away from the
+  	  regular list and automatically onto the -request address)
+  	+ No hardwired format for (un)subscribe requests (i.e. new subscribers
+diff -c procmail/mailinglist/Manual:1.4 procmail/mailinglist/Manual:1.5
+*** procmail/mailinglist/Manual:1.4	Fri Feb 19 16:22:06 1993
+--- procmail/mailinglist/Manual	Fri Feb 19 16:22:06 1993
+***************
+*** 1,4 ****
+! $Id: Manual,v 1.4 1993/01/29 13:32:44 berg Exp $
+  
+  		Written by Stephen R. van den Berg.
+  					berg@pool.informatik.rwth-aachen.de
+--- 1,4 ----
+! $Id: Manual,v 1.5 1993/02/18 16:31:08 berg Exp $
+  
+  		Written by Stephen R. van den Berg.
+  					berg@pool.informatik.rwth-aachen.de
+***************
+*** 10,15 ****
+--- 10,16 ----
+  		3. Customisation
+  		4. The archive server
+  		5. The format of the dist file
++ 		6. Multigram and the thresholds in rc.init/rc.custom
+  
+  
+  1. Creating and removing mailinglists
+***************
+*** 216,218 ****
+--- 217,269 ----
+  Not allowed by multigram (although sendmail doesn't mind):
+  	(some comment) joe@some.where
+  	some comment <joe@some.where>
++ 
++ 
++ 6. Multigram and the thresholds in rc.init/rc.custom
++    -------------------------------------------------
++ 
++ The rc.init and rc.custom scripts define some threshold values:
++ 
++ 	match_threshold, off_threshold, reject_threshold, submit_threshold.
++ 
++ These values are fed to multigram as a cut-off value with which to decide
++ if a certain mail address is on a list.
++ The higher the threshold, the better the match must be.	 The thresholds
++ have a scale from -16383 to 32767.  This means that, for instance a threshold
++ of 30730 can be used to find only mailaddresses that are almost verbatim
++ on the list.  A value of 24476 on the other hand allows for some error
++ (like mailaddresses munged by gateways etc.) in finding matches to the
++ list.
++ 
++ The values 30730 and 24476 are somewhat arbitrary values which seem
++ to work well for the particular problems at hand.
++ 
++ To get a feeling for the values computed by multigram you can do
++ the following test:
++ 
++ 	Create a file with the same format as the distfile, fill it with
++ 	any number of addresses you like (e.g. you could take an existing
++ 	distfile).
++ 	Now make a copy of this `distfile' and alter some of the addresses
++ 	a bit (like omit one character, or add some gateway information,
++ 	switch two words, change it into an uucp address, etc.).
++ 	Next you should call up multigram with the following command line:
++ 
++ 		multigram -l-16000 -b300 pseudo_distfile <altered_distfile
++ 
++ 	Multigram will display up the 300 best matches it found after
++ 	crossreferencing altered_distfile and pseudo_distfile.
++ 	The output produced by multigram can be disected as follows:
++ 
++ 		lineno. name1 goodness name2
++ 
++ 	Lineno. and name1 refer to the line number in pseudo_distfile which
++ 	contains the mailaddress name1.	 Goodness is the metric that
++ 	corresponds to the aforementioned threshold values, and name2 is
++ 	the matching mailaddress from altered_distfile (which is usually
++ 	the incoming mail).
++ 
++ 	Once you get the hang of it you can play around a bit with the
++ 	entries in altered_distfile by mutilating them more and more in
++ 	order to see what multigram makes of it (try inserting some non-
++ 	existing addresses as well).
+diff -c procmail/mailinglist/install.sh:1.10 procmail/mailinglist/install.sh:1.12
+*** procmail/mailinglist/install.sh:1.10	Fri Feb 19 16:22:07 1993
+--- procmail/mailinglist/install.sh	Fri Feb 19 16:22:08 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: install.sh,v 1.10 1993/01/28 14:21:59 berg Exp $
+  
+  test $# != 1 && echo "Usage: install.sh target-directory" && exit 1
+  
+--- 1,6 ----
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: install.sh,v 1.12 1993/02/11 13:48:36 berg Exp $
+  
+  test $# != 1 && echo "Usage: install.sh target-directory" && exit 1
+  
+***************
+*** 39,47 ****
+--- 39,55 ----
+    fi
+  done
+  
++ cd ../src
++ test -f multigram || make multigram
++ cp multigram "$target/.bin"
++ cd ../mailinglist
++ 
+  cp Manual "$target/.etc"
+  mv -f "$target/.bin/procmail" "$target/.bin/.procmail" 2>/dev/null
+  chmod 0755 $target/.bin/*
++ ln -f "$target/.bin/multigram" "$target/.bin/idhash" 2>/dev/null
++ ln -f "$target/.bin/multigram" "$target/.bin/flist" 2>/dev/null
++ chmod 04755 "$target/.bin/flist"
+  mv -f "$target/.bin/.procmail" "$target/.bin/procmail" 2>/dev/null
+  
+  for a in $DIRS
+***************
+*** 48,63 ****
+  do
+    ls -ld "$target/.$a" $target/.$a/*
+  done
+- 
+- cd ../src
+- test -f multigram || make multigram
+- cp multigram "$target/.bin"
+- cd ../mailinglist
+- 
+- ln -f "$target/.bin/multigram" "$target/.bin/idhash" 2>/dev/null
+- ln -f "$target/.bin/multigram" "$target/.bin/flist" 2>/dev/null
+- chmod 04755 "$target/.bin/flist"
+- ls -l "$target/.bin/multigram" "$target/.bin/idhash" "$target/.bin/flist"
+  
+  echo Creating link from .etc/rc.main to .procmailrc
+  rm -f "$target/.procmailrc"
+--- 56,61 ----
+diff -c procmail/mailinglist/bin/arch_retrieve:1.6 procmail/mailinglist/bin/arch_retrieve:1.9
+*** procmail/mailinglist/bin/arch_retrieve:1.6	Fri Feb 19 16:22:10 1993
+--- procmail/mailinglist/bin/arch_retrieve	Fri Feb 19 16:22:11 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: arch_retrieve,v 1.6 1993/02/02 15:26:48 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+--- 1,6 ----
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: arch_retrieve,v 1.9 1993/02/11 14:00:08 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+***************
+*** 20,25 ****
+--- 20,34 ----
+  from=`$echo "arch_retrieve:" \`$cat $tmpfrom\` requested`
+  $cat /dev/null >$tmpfrom
+  
++ case "$X_ENVELOPE_TO" in
++   *$list-request*) wrongaddress="" ;;
++   *) wrongaddress="
++ WARNING:
++ 	Please try to use '$listreq'
++ 	the next time when issuing archive server requests.
++ " ;;
++ esac
++ 
+  $formail -k -xSubject: |
+   $sed -e '/^--/,$ d' -e 's/^[	 ]*archive[	 ]//' \
+    -e 's/[	 ]archive\/*/ /g' |
+***************
+*** 40,45 ****
+--- 49,56 ----
+  		   ( $formail -rt -I"Subject: archive retrieval: $1" \
+  		      -i"From: $listreq" -A"X-Loop: $listaddr" \
+  		      -I"Precedence: bulk" <$tmprequest
++ 		     $test ! -z "$wrongaddress" && $echo "$wrongaddress" &&
++ 		      wrongaddress=""
+  		     if $test -f "./$1"
+  		     then
+  			$echo "File: $1"
+***************
+*** 64,69 ****
+--- 75,82 ----
+  		   ( $formail -rt -I"Subject: archive retrieval: ls $1" \
+  		      -i"From: $listreq" -A"X-Loop: $listaddr" \
+  		      -I"Precedence: bulk" <$tmprequest
++ 		     $test ! -z "$wrongaddress" && $echo "$wrongaddress" &&
++ 		      wrongaddress=""
+  		     if $test -r "./$1"
+  		     then
+  			$echo "ls -l $1"
+***************
+*** 85,90 ****
+--- 98,104 ----
+         ( $formail -rt -I"Subject: archive retrieval: ls $1" \
+  	  -i"From: $listreq" -A"X-Loop: $listaddr" -I"Precedence: bulk" \
+  	  <$tmprequest
++ 	 $test ! -z "$wrongaddress" && $echo "$wrongaddress" && wrongaddress=""
+  	 $echo "This archive server knows the following commands:"
+  	 $echo ""
+  	 $echo "get filename ..."
+diff -c procmail/mailinglist/bin/createlist:1.12 procmail/mailinglist/bin/createlist:1.13
+*** procmail/mailinglist/bin/createlist:1.12	Fri Feb 19 16:22:12 1993
+--- procmail/mailinglist/bin/createlist	Fri Feb 19 16:22:12 1993
+***************
+*** 5,11 ****
+  #									#
+  #	Created by S.R. van den Berg, The Netherlands			#
+  #########################################################################
+! #$Id: createlist,v 1.12 1993/01/28 15:18:25 berg Exp $
+  
+  defaults=.etc
+  
+--- 5,11 ----
+  #									#
+  #	Created by S.R. van den Berg, The Netherlands			#
+  #########################################################################
+! #$Id: createlist,v 1.13 1993/02/19 15:04:25 berg Exp $
+  
+  defaults=.etc
+  
+***************
+*** 152,158 ****
+  
+  echo "Now make the following entries in your /usr/lib/aliases file:" 1>&2
+  echo \#########################################################################
+! echo "$list: \"|IFS=' ';exec $flist $list\""
+! echo "$list-request: \"|IFS=' ';exec $flist $list-request\""
+  echo "$list-dist: :include:$listdir/$list/dist"
+  echo \#########################################################################
+--- 152,158 ----
+  
+  echo "Now make the following entries in your /usr/lib/aliases file:" 1>&2
+  echo \#########################################################################
+! echo "$list: |\"IFS=' ';exec $flist $list\""
+! echo "$list-request: |\"IFS=' ';exec $flist $list-request\""
+  echo "$list-dist: :include:$listdir/$list/dist"
+  echo \#########################################################################
+diff -c procmail/mailinglist/bin/subscribe:1.7 procmail/mailinglist/bin/subscribe:1.10
+*** procmail/mailinglist/bin/subscribe:1.7	Fri Feb 19 16:22:13 1993
+--- procmail/mailinglist/bin/subscribe	Fri Feb 19 16:22:13 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: subscribe,v 1.7 1993/02/02 16:54:12 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+--- 1,6 ----
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: subscribe,v 1.10 1993/02/11 14:00:14 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+***************
+*** 17,22 ****
+--- 17,31 ----
+  tmpfrom=tmp.from
+  subscribetxt=subscribe.txt
+  
++ case "$X_ENVELOPE_TO" in
++   *$list-request*) wrongaddress="" ;;
++   *) wrongaddress="
++ WARNING:
++ 	Please try to use '$listreq'
++ 	the next time when issuing (un)subscribe requests.
++ " ;;
++ esac
++ 
+  subscraddr=""
+  
+  address=`$formail -k -xSubject: |
+***************
+*** 58,63 ****
+--- 67,74 ----
+  
+  $formail -i"From: $listreq" -rtA"X-Loop: $listaddr" -I"Precedence: bulk" \
+   <$tmprequest
++ 
++ $test ! -z "$wrongaddress" && $echo "$wrongaddress" && wrongaddress=""
+  
+  $echo "You have added to the subscriber list of:"
+  $echo
+diff -c procmail/mailinglist/bin/unsubscribe:1.6 procmail/mailinglist/bin/unsubscribe:1.9
+*** procmail/mailinglist/bin/unsubscribe:1.6	Fri Feb 19 16:22:14 1993
+--- procmail/mailinglist/bin/unsubscribe	Fri Feb 19 16:22:15 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: unsubscribe,v 1.6 1993/02/02 15:26:54 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+--- 1,6 ----
+  #! /bin/sh
+  : &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+! #$Id: unsubscribe,v 1.9 1993/02/11 14:00:17 berg Exp $
+  
+  test=test		# /bin/test
+  echo=echo		# /bin/echo
+***************
+*** 16,23 ****
+--- 16,34 ----
+  tmpfrom=tmp.from
+  dist=dist
+  
++ case "$X_ENVELOPE_TO" in
++   *$list-request*) wrongaddress="" ;;
++   *) wrongaddress="
++ WARNING:
++ 	Please try to use '$listreq'
++ 	the next time when issuing (un)subscribe requests.
++ " ;;
++ esac
++ 
+  $formail -i"From: $listreq" -rtA"X-Loop: $listaddr" -I"Precedence: junk" \
+   <$tmprequest
++ 
++ $test ! -z "$wrongaddress" && $echo "$wrongaddress" && wrongaddress=""
+  
+  fromaddr="`$cat $tmpfrom`"
+  
+diff -c procmail/mailinglist/etc/rc.custom:1.5 procmail/mailinglist/etc/rc.custom:1.6
+*** procmail/mailinglist/etc/rc.custom:1.5	Fri Feb 19 16:22:18 1993
+--- procmail/mailinglist/etc/rc.custom	Fri Feb 19 16:22:18 1993
+***************
+*** 15,22 ****
+  #maxhist	=	8		# bounce history limit
+  #minbounce	=	3		# no. of bounces before removal
+  #cutoff_bounce	=	256		# lines to keep in bounce processing
+! #match_threshold=	28672		# for close matches to the list
+! #off_threshold	=	20480		# for loosely finding your name
+  
+  #reject_threshold=	$match_threshold # to determine if you may subscribe
+  #submit_threshold=	$match_threshold # to determine if you may submit
+--- 15,22 ----
+  #maxhist	=	8		# bounce history limit
+  #minbounce	=	3		# no. of bounces before removal
+  #cutoff_bounce	=	256		# lines to keep in bounce processing
+! #match_threshold=	30730		# for close matches to the list
+! #off_threshold	=	24476		# for loosely finding your name
+  
+  #reject_threshold=	$match_threshold # to determine if you may subscribe
+  #submit_threshold=	$match_threshold # to determine if you may submit
+diff -c procmail/mailinglist/etc/rc.init:1.6 procmail/mailinglist/etc/rc.init:1.7
+*** procmail/mailinglist/etc/rc.init:1.6	Fri Feb 19 16:22:20 1993
+--- procmail/mailinglist/etc/rc.init	Fri Feb 19 16:22:20 1993
+***************
+*** 30,36 ****
+  # rc.request	rcfile used when processing requests
+  # rc.custom	rcfile that contains all the customisations per list
+  
+! #$Id: rc.init,v 1.6 1993/01/27 20:33:00 berg Exp $
+  
+  PATH=.:../.bin:/bin:/usr/bin:/usr/local/bin	# setup a decent path
+  SHELL=/bin/sh				# to prevent surprises
+--- 30,36 ----
+  # rc.request	rcfile used when processing requests
+  # rc.custom	rcfile that contains all the customisations per list
+  
+! #$Id: rc.init,v 1.7 1993/02/10 17:07:39 berg Exp $
+  
+  PATH=.:../.bin:/bin:/usr/bin:/usr/local/bin	# setup a decent path
+  SHELL=/bin/sh				# to prevent surprises
+***************
+*** 72,80 ****
+  
+  FROM_MAILER_DAEMON='^(Precedence:.*junk|'\
+  '(((Resent-)?(From|Sender)|X-Envelope-From):|From )'\
+! '(.*[^.a-z])?('\
+  'Post(ma(st(er)?|n)|office)|Mailer|daemon|mmdf|root|uucp|serv(ices?|er)'\
+! ')([^.a-z]|$))'
+  
+  RC_INIT					# clear this one from the environment
+  					# so that we include this file only
+--- 72,80 ----
+  
+  FROM_MAILER_DAEMON='^(Precedence:.*junk|'\
+  '(((Resent-)?(From|Sender)|X-Envelope-From):|From )'\
+! '(.*[^.@a-z0-9])?('\
+  'Post(ma(st(er)?|n)|office)|Mailer|daemon|mmdf|root|uucp|serv(ices?|er)'\
+! ')([^.a-z0-9]|$))'
+  
+  RC_INIT					# clear this one from the environment
+  					# so that we include this file only
+diff -c procmail/mailinglist/etc/rc.request:1.7 procmail/mailinglist/etc/rc.request:1.8
+*** procmail/mailinglist/etc/rc.request:1.7	Fri Feb 19 16:22:21 1993
+--- procmail/mailinglist/etc/rc.request	Fri Feb 19 16:22:22 1993
+***************
+*** 6,12 ****
+  # shortly before writing out the new version of this file (remove the lockfile
+  # afterwards of course)
+  
+! #$Id: rc.request,v 1.7 1993/02/02 15:26:57 berg Exp $
+  
+  INCLUDERC=$RC_INIT
+  INCLUDERC=$RC_CUSTOM
+--- 6,12 ----
+  # shortly before writing out the new version of this file (remove the lockfile
+  # afterwards of course)
+  
+! #$Id: rc.request,v 1.8 1993/02/10 17:07:41 berg Exp $
+  
+  INCLUDERC=$RC_INIT
+  INCLUDERC=$RC_CUSTOM
+***************
+*** 52,58 ****
+  #
+  
+  	:1BHA:dist.lock
+! 	^((Subject:)?[	 ]*(remove|unsub)|(.*[^a-z])?(unsubscri.*|\
+  			       (remove .* from|take .* off) .* list)([^a-z]|$))
+  	| unsubscribe | $SENDMAIL $sendmailOPT `cat tmp.from`
+  
+--- 52,58 ----
+  #
+  
+  	:1BHA:dist.lock
+! 	^((Subject:)?[a-z,.	 ]*(remove|unsub)|(.*[^a-z])?(unsubscri.*|\
+  			       (remove .* from|take .* off) .* list)([^a-z]|$))
+  	| unsubscribe | $SENDMAIL $sendmailOPT `cat tmp.from`
+  
+***************
+*** 63,69 ****
+  #
+  
+  	:3BHA:dist.lock
+! 	^((Subject:)?[	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+  				      (add .* to|put .* on) .* list)([^a-z]|$))
+  	!?multigram -b1 -l$reject_threshold reject
+  	!?multigram -b1 -l$reject_threshold dist
+--- 63,69 ----
+  #
+  
+  	:3BHA:dist.lock
+! 	^((Subject:)?[a-z,.	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+  				      (add .* to|put .* on) .* list)([^a-z]|$))
+  	!?multigram -b1 -l$reject_threshold reject
+  	!?multigram -b1 -l$reject_threshold dist
+***************
+*** 134,140 ****
+  	   -A "X-Diagnostic: `multigram -b1 -l$reject_threshold reject`"
+  
+  	:2A BH wfh
+! 	^((Subject:)?[	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+  				      (add .* to|put .* on) .* list)([^a-z]|$))
+  	?multigram -b1 -l$reject_threshold dist
+  	| formail -A "X-Diagnostic: Already on the subscriber list" \
+--- 134,140 ----
+  	   -A "X-Diagnostic: `multigram -b1 -l$reject_threshold reject`"
+  
+  	:2A BH wfh
+! 	^((Subject:)?[a-z,.	 ]*(add|sub.*[@!])|(.*[^a-z])?(subscri.*|\
+  				      (add .* to|put .* on) .* list)([^a-z]|$))
+  	?multigram -b1 -l$reject_threshold dist
+  	| formail -A "X-Diagnostic: Already on the subscriber list" \
+diff -c procmail/mailinglist/etc/rc.submit:1.10 procmail/mailinglist/etc/rc.submit:1.11
+*** procmail/mailinglist/etc/rc.submit:1.10	Fri Feb 19 16:22:23 1993
+--- procmail/mailinglist/etc/rc.submit	Fri Feb 19 16:22:23 1993
+***************
+*** 6,12 ****
+  # shortly before writing out the new version of this file (remove the lockfile
+  # afterwards of course)
+  
+! #$Id: rc.submit,v 1.10 1993/02/02 15:26:59 berg Exp $
+  
+  INCLUDERC=$RC_INIT
+  INCLUDERC=$RC_CUSTOM
+--- 6,12 ----
+  # shortly before writing out the new version of this file (remove the lockfile
+  # afterwards of course)
+  
+! #$Id: rc.submit,v 1.11 1993/02/11 12:08:21 berg Exp $
+  
+  INCLUDERC=$RC_INIT
+  INCLUDERC=$RC_CUSTOM
+***************
+*** 13,19 ****
+  
+  #
+  # The following recipe makes sure that:
+! #	The mail was not sent to the request address.
+  #	It does not look like an administrative request.
+  #	It wasn't sent by this list itself.
+  #	It wasn't sent by a daemon (misdirected bounce message perhaps).
+--- 13,19 ----
+  
+  #
+  # The following recipe makes sure that:
+! #	The mail has a sane size (i.e. it is not inordinately big)
+  #	It does not look like an administrative request.
+  #	It wasn't sent by this list itself.
+  #	It wasn't sent by a daemon (misdirected bounce message perhaps).
+***************
+*** 21,32 ****
+  # doing so, also check if this subscriber wants to receive copies.
+  #
+  
+! :6Wh
+  	< $size_limit
+  	$!^$X_COMMAND:
+! 	!^TO.*-request
+! 	!^Subject:( *(help|info) *$|.*( \
+!     (add .* to|remove .* from|take .* off|put .* on) .* list|subscri(be|ption))
+  	$!^X-Loop: $listaddr
+  	$!$FROM_MAILER_DAEMON
+  METOO=	| formail -X"From " -xFrom: -xReply-To: -xSender: -xResent-From: \
+--- 21,33 ----
+  # doing so, also check if this subscriber wants to receive copies.
+  #
+  
+! :5Wh
+  	< $size_limit
+  	$!^$X_COMMAND:
+! 	!^Subject:([	 ]*(archive([	 ]+((send|get)(me)?|gimme|retrieve|\
+! 	 mail|ls|dir(ectory)?|list|show|help|info)([	 ]|$)|[		]*$)|\
+! 	 (help|info)[	 ]*$)|[^:]*( (add .* to|remove .* from|take .* off|\
+! 	 put .* on) .* list|subscri(be|ption))
+  	$!^X-Loop: $listaddr
+  	$!$FROM_MAILER_DAEMON
+  METOO=	| formail -X"From " -xFrom: -xReply-To: -xSender: -xResent-From: \
+diff -c procmail/man/Makefile.0:1.3 procmail/man/Makefile.0:1.4
+*** procmail/man/Makefile.0:1.3	Fri Feb 19 16:22:26 1993
+--- procmail/man/Makefile.0	Fri Feb 19 16:22:26 1993
+***************
+*** 1,5 ****
+  
+! #$Id: Makefile.0,v 1.3 1992/11/11 13:58:11 berg Exp $
+  
+  all: $(MANSS)
+  
+--- 1,5 ----
+  
+! #$Id: Makefile.0,v 1.4 1993/02/10 19:17:47 berg Exp $
+  
+  all: $(MANSS)
+  
+***************
+*** 6,18 ****
+  make:
+  	@$(SHELL) -c "exit 0"
+  
+! ../new:
+! 	@-mkdir $@ 2>$(DEVNULL); exit 0
+  
+  man.sed: man_sed
+  
+  man_sed:
+! 	cd ../src; $(MAKE) ../man/man.sed
+  
+  clean:
+  	$(RM) $(MANSS) man.sed _Makefile core
+--- 6,18 ----
+  make:
+  	@$(SHELL) -c "exit 0"
+  
+! ../config.check:
+! 	@cd ..; $(MAKE) config.check
+  
+  man.sed: man_sed
+  
+  man_sed:
+! 	@cd ../src; $(MAKE) ../man/man.sed
+  
+  clean:
+  	$(RM) $(MANSS) man.sed _Makefile core
+diff -c procmail/man/procmailrc.man:1.14 procmail/man/procmailrc.man:1.15
+*** procmail/man/procmailrc.man:1.14	Fri Feb 19 16:22:27 1993
+--- procmail/man/procmailrc.man	Fri Feb 19 16:22:28 1993
+***************
+*** 1,4 ****
+! .Id $Id: procmailrc.man,v 1.14 1993/01/13 15:20:37 berg Exp $
+  .TH PROCMAILRC 5 \*(Dt BuGless
+  .na
+  .SH NAME
+--- 1,4 ----
+! .Id $Id: procmailrc.man,v 1.15 1993/02/10 17:07:45 berg Exp $
+  .TH PROCMAILRC 5 \*(Dt BuGless
+  .na
+  .SH NAME
+***************
+*** 507,514 ****
+  .PP
+  When assigning boolean values to variables like VERBOSE, DELIVERED or COMSAT,
+  procmail accepts as true every string starting with: a non-zero value, `on',
+! `y' or `t'.  False is every string starting with: a zero value, `off', `n' or
+! `f'.
+  .PP
+  If the action line of a recipe specifies a program, a sole backslash-newline
+  pair in it on an otherwise empty line will be converted into a newline.
+--- 507,514 ----
+  .PP
+  When assigning boolean values to variables like VERBOSE, DELIVERED or COMSAT,
+  procmail accepts as true every string starting with: a non-zero value, `on',
+! `y', `t' or `e'.  False is every string starting with: a zero value, `off',
+! `n', `f' or 'd'.
+  .PP
+  If the action line of a recipe specifies a program, a sole backslash-newline
+  pair in it on an otherwise empty line will be converted into a newline.
+diff -c procmail/src/Makefile.0:1.8 procmail/src/Makefile.0:1.11
+*** procmail/src/Makefile.0:1.8	Fri Feb 19 16:22:32 1993
+--- procmail/src/Makefile.0	Fri Feb 19 16:22:32 1993
+***************
+*** 1,5 ****
+  
+! #$Id: Makefile.0,v 1.8 1992/11/12 11:38:12 berg Exp $
+  
+  PM_OBJ=cstdio.$(O) common.$(O) exopen.$(O) goodies.$(O) locking.$(O) \
+   mailfold.$(O) misc.$(O) pipes.$(O) regexp.$(O) robust.$(O) sublib.$(O)
+--- 1,5 ----
+  
+! #$Id: Makefile.0,v 1.11 1993/02/11 13:10:43 berg Exp $
+  
+  PM_OBJ=cstdio.$(O) common.$(O) exopen.$(O) goodies.$(O) locking.$(O) \
+   mailfold.$(O) misc.$(O) pipes.$(O) regexp.$(O) robust.$(O) sublib.$(O)
+***************
+*** 22,34 ****
+  
+  mailstat: ../examples/mailstat
+  	cp ../examples/$@ .
+! 	chmod 0755 $@
+  
+  multigram: multigram.$(O) sublib.$(O) ecommon.$(O)
+  	$(CC) $(CFLAGS) $@.$(O) sublib.$(O) ecommon.$(O) -o $@ $(LDFLAGS)
+  
+! ../new:
+! 	@-mkdir $@ 2>$(DEVNULL); exit 0
+  
+  _autotst: _autotst.$(O)
+  	$(CC) $(CFLAGS) $@.$(O) -o $@ $(LDFLAGS)
+--- 22,34 ----
+  
+  mailstat: ../examples/mailstat
+  	cp ../examples/$@ .
+! 	@chmod 0755 $@
+  
+  multigram: multigram.$(O) sublib.$(O) ecommon.$(O)
+  	$(CC) $(CFLAGS) $@.$(O) sublib.$(O) ecommon.$(O) -o $@ $(LDFLAGS)
+  
+! ../config.check:
+! 	@cd ..; $(MAKE) config.check
+  
+  _autotst: _autotst.$(O)
+  	$(CC) $(CFLAGS) $@.$(O) -o $@ $(LDFLAGS)
+***************
+*** 109,117 ****
+  
+  ../man/man.sed: manconf.c ../autoconf.h ../config.h includes.h procmail.h
+  ../man/man.sed: ../patchlevel.h
+! 	$(CC) $(CFLAGS) -o _autotst manconf.c $(LDFLAGS)
+! 	./_autotst >$@
+! 	$(RM) _autotst
+  
+  clean:
+  	$(RM) procmail.$(O) $(PM_OBJ) lockfile.$(O) $(LF_OBJ) formail.$O \
+--- 109,117 ----
+  
+  ../man/man.sed: manconf.c ../autoconf.h ../config.h includes.h procmail.h
+  ../man/man.sed: ../patchlevel.h
+! 	@$(CC) $(CFLAGS) -o _autotst manconf.c $(LDFLAGS)
+! 	@./_autotst >$@
+! 	@$(RM) _autotst
+  
+  clean:
+  	$(RM) procmail.$(O) $(PM_OBJ) lockfile.$(O) $(LF_OBJ) formail.$O \
+diff -c procmail/src/autoconf:1.32 procmail/src/autoconf:1.35
+*** procmail/src/autoconf:1.32	Fri Feb 19 16:22:34 1993
+--- procmail/src/autoconf	Fri Feb 19 16:22:34 1993
+***************
+*** 1,6 ****
+  #! /bin/sh
+  :
+! #$Id: autoconf,v 1.32 1993/02/04 12:44:45 berg Exp $
+  
+  # All possible entries in autoconf.h:
+  
+--- 1,6 ----
+  #! /bin/sh
+  :
+! #$Id: autoconf,v 1.35 1993/02/10 19:21:41 berg Exp $
+  
+  # All possible entries in autoconf.h:
+  
+***************
+*** 81,91 ****
+   echo "Don't start this script directly, use \`make ../autoconf.h'" && exit 1
+  
+  export SHELL PATH
+  if test -f $ACONF
+  then
+!  trap "exit 1" 1 2 3 15
+  else
+!  trap "$RM $ACONF; exit 1" 1 2 3 15
+  fi
+  
+  if test ! -z "$LD_LIBRARY_PATH"
+--- 81,96 ----
+   echo "Don't start this script directly, use \`make ../autoconf.h'" && exit 1
+  
+  export SHELL PATH
++ 
++ tailpid=""
++ 
+  if test -f $ACONF
+  then
+!   trap "cp $ACONF $ACONF.tmp;
+!    test ! -z "$tailpid" && kill $tailpid; exit 1" 1 2 3 15
+  else
+!   trap "$RM $ACONF.tmp;mv $ACONF $ACONF.tmp;
+!    test ! -z "$tailpid" && kill $tailpid; exit 1" 1 2 3 15
+  fi
+  
+  if test ! -z "$LD_LIBRARY_PATH"
+***************
+*** 275,284 ****
+  #define MSK_lockf	0x02	       /* change locking.c as well, fdlock() */
+  #define MSK_flock	0x01
+  
+! int dolock,child[NR_of_forks],timeout;
+  
+  void stimeout()
+! { timeout=1;killchildren();
+  }
+  
+  static unsigned long seed;
+--- 280,289 ----
+  #define MSK_lockf	0x02	       /* change locking.c as well, fdlock() */
+  #define MSK_flock	0x01
+  
+! int dolock,child[NR_of_forks],timeout,fdcollect;
+  
+  void stimeout()
+! { timeout=1;killchildren();close(fdcollect);
+  }
+  
+  static unsigned long seed;
+***************
+*** 334,340 ****
+  	int j,countlocks=MIN_locks;	       /* give all children a chance */
+  	for(j=NR_of_lockfiles;lckdfil[--j]=0,j;);
+  	close(pip[1]);timeout=0;sleep(1);kill(getppid(),SIGKILL);
+! 	signal(SIGALRM,(void(*)())stimeout);
+  	dtimet=(((unsigned)time((char*)0)-otimet)*GROW)+TIME_OUT_SEC;
+  	do
+  	 { unlink("_locktst.alive");alarm(dtimet+2);		 /* watchdog */
+--- 339,345 ----
+  	int j,countlocks=MIN_locks;	       /* give all children a chance */
+  	for(j=NR_of_lockfiles;lckdfil[--j]=0,j;);
+  	close(pip[1]);timeout=0;sleep(1);kill(getppid(),SIGKILL);
+! 	fdcollect=pip[0];signal(SIGALRM,(void(*)())stimeout);
+  	dtimet=(((unsigned)time((char*)0)-otimet)*GROW)+TIME_OUT_SEC;
+  	do
+  	 { unlink("_locktst.alive");alarm(dtimet+2);		 /* watchdog */
+***************
+*** 342,351 ****
+  	    otimet*GROW:otimet+(dtimet-otimet)*DECAY+1;	   /* load dependent */
+  	   otimet=time((char*)0);
+  	 }
+! 	while(1==read(pip[0],&curflag,1)&&
+  	 (j=lckdfil[i=(curflag&MASK_fileno)>>1],!timeout)&&
+  	 ((j^(lckdfil[i]=curflag))==1||!(j&1)&&curflag&1)&&--countlocks);
+! 	alarm(0);killchildren();close(pip[0]);
+  #ifdef FAIR_LOCK_CHECK
+  	j=NR_of_lockfiles;
+  	do
+--- 347,356 ----
+  	    otimet*GROW:otimet+(dtimet-otimet)*DECAY+1;	   /* load dependent */
+  	   otimet=time((char*)0);
+  	 }
+! 	while(1==read(fdcollect,&curflag,1)&&
+  	 (j=lckdfil[i=(curflag&MASK_fileno)>>1],!timeout)&&
+  	 ((j^(lckdfil[i]=curflag))==1||!(j&1)&&curflag&1)&&--countlocks);
+! 	alarm(0);killchildren();close(fdcollect);
+  #ifdef FAIR_LOCK_CHECK
+  	j=NR_of_lockfiles;
+  	do
+***************
+*** 834,841 ****
+   grep 'Mlocal.*procmail' >$DEVNULL ||
+   echo '#define CF_no_procmail_yet' >>$ACONF
+  
+- tailpid=""
+- 
+  while $FGREP -e "Kernel-locking tests completed." _locktst.rrr >$DEVNULL; \
+   test 0 != $?
+  do
+--- 839,844 ----
+***************
+*** 856,861 ****
+--- 859,865 ----
+  done
+  exec 9>&2 2>$DEVNULL
+  test ! -z "$tailpid" && kill $tailpid && echo && echo
++ tailpid=""
+  exec 2>&9 9>&-
+  echo "Collecting results from kernel-locking tests"
+  sed -e '/^Kernel-locking tests completed./,$ d' <_locktst.rrr >>$ACONF
+diff -c procmail/src/header.h:1.12 procmail/src/header.h:1.13
+*** procmail/src/header.h:1.12	Fri Feb 19 16:22:35 1993
+--- procmail/src/header.h	Fri Feb 19 16:22:35 1993
+***************
+*** 9,15 ****
+   *	it in the next release.						*
+   *									*
+   ************************************************************************/
+! /*$Id: header.h,v 1.12 1993/01/26 14:49:52 berg Exp $*/
+  
+  static const char
+   returnpath[]=		"Return-Path:",				  /* RFC 822 */
+--- 9,15 ----
+   *	it in the next release.						*
+   *									*
+   ************************************************************************/
+! /*$Id: header.h,v 1.13 1993/02/10 17:07:54 berg Exp $*/
+  
+  static const char
+   returnpath[]=		"Return-Path:",				  /* RFC 822 */
+***************
+*** 61,67 ****
+   distribution[]=	"Distribution:",
+   xref[]=		"Xref:",
+   originator[]=		"Originator:",
+!  nntppostinghost[]=	"Nntp-Posting-Host:",
+   title[]=		"Title:",	      /* antiquated USENET extension */
+   aRticleid[]=		"Article-I.D.:",			/* ditto ... */
+   posted[]=		"Posted:",
+--- 61,67 ----
+   distribution[]=	"Distribution:",
+   xref[]=		"Xref:",
+   originator[]=		"Originator:",
+!  nntppostinghost[]=	"NNTP-Posting-Host:",
+   title[]=		"Title:",	      /* antiquated USENET extension */
+   aRticleid[]=		"Article-I.D.:",			/* ditto ... */
+   posted[]=		"Posted:",
+diff -c procmail/src/locking.c:1.11 procmail/src/locking.c:1.13
+*** procmail/src/locking.c:1.11	Fri Feb 19 16:22:36 1993
+--- procmail/src/locking.c	Fri Feb 19 16:22:37 1993
+***************
+*** 6,12 ****
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: locking.c,v 1.11 1993/01/28 14:22:12 berg Exp $";
+  #endif
+  #include "procmail.h"
+  #include "robust.h"
+--- 6,12 ----
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: locking.c,v 1.13 1993/02/11 12:08:34 berg Exp $";
+  #endif
+  #include "procmail.h"
+  #include "robust.h"
+***************
+*** 16,22 ****
+  #include "locking.h"
+  
+  void lockit(name,lockp)char*name;char**const lockp;
+! { int i,permanent=nfsTRY,triedforce=0;struct stat stbuf;time_t t;
+    if(*lockp)
+     { if(!strcmp(name,*lockp))	/* compare the previous lockfile to this one */
+  	return;			 /* they're equal, save yourself some effort */
+--- 16,22 ----
+  #include "locking.h"
+  
+  void lockit(name,lockp)char*name;char**const lockp;
+! { int permanent=nfsTRY,triedforce=0;struct stat stbuf;time_t t;
+    if(*lockp)
+     { if(!strcmp(name,*lockp))	/* compare the previous lockfile to this one */
+  	return;			 /* they're equal, save yourself some effort */
+***************
+*** 25,33 ****
+    if(!*name)
+       return;
+    name=tstrdup(name); /* allocate now, so we won't hang on memory *and* lock */
+    for(lcking|=lck_LOCKFILE;;)
+!    { yell("Locking",name);		/* in order to cater for clock skew: */
+!      if(!xcreat(name,LOCKperm,&t,(int*)0))     /* get time t from filesystem */
+        { *lockp=name;break;			   /* lock acquired, hurray! */
+        }
+       switch(errno)
+--- 25,35 ----
+    if(!*name)
+       return;
+    name=tstrdup(name); /* allocate now, so we won't hang on memory *and* lock */
++   if(!strcmp(name,defdeflock))	       /* is it the system mailbox lockfile? */
++      setgid(sgid);		       /* try and get some extra permissions */
+    for(lcking|=lck_LOCKFILE;;)
+!    { yell("Locking",name);	    /* in order to cater for clock skew: get */
+!      if(!xcreat(name,LOCKperm,&t,(int*)0))     /* time t from the filesystem */
+        { *lockp=name;break;			   /* lock acquired, hurray! */
+        }
+       switch(errno)
+***************
+*** 54,63 ****
+--- 56,67 ----
+  	   goto faillock;
+  #ifdef ENAMETOOLONG
+  	case ENAMETOOLONG:     /* maybe filename too long, shorten and retry */
++ 	 { int i;
+  	   if(0<(i=strlen(name)-1)&&!strchr(dirsep,name[i-1]))
+  	    { nlog("Truncating");logqnl(name);elog(" and retrying lock\n");
+  	      name[i]='\0';permanent=nfsTRY;goto ce;
+  	    }
++ 	 }
+  #endif
+  	default:
+  faillock:  nlog("Lock failure on");logqnl(name);goto term;
+***************
+*** 72,77 ****
+--- 76,83 ----
+  term: { free(name);break;		     /* drop the preallocated buffer */
+        }
+     }
++   if(rc!=rc_INIT)				     /* we opened any rcfile */
++      setgid(gid);		      /* we put back our regular permissions */
+    lcking&=~lck_LOCKFILE;
+    if(nextexit)
+     { elog(whilstwfor);elog("lockfile");logqnl(name);terminate();
+***************
+*** 91,98 ****
+--- 97,108 ----
+  { lcking|=lck_LOCKFILE;
+    if(*lockp)
+     { yell("Unlocking",*lockp);
++      if(!strcmp(*lockp,defdeflock))    /* is it the system mailbox lockfile? */
++ 	setgid(sgid);		       /* try and get some extra permissions */
+       if(unlink(*lockp))
+  	nlog("Couldn't unlock"),logqnl(*lockp);
++      if(rc!=rc_INIT)				     /* we opened any rcfile */
++ 	setgid(gid);		      /* we put back our regular permissions */
+       if(!nextexit)			   /* if not inside a signal handler */
+  	free(*lockp);
+       *lockp=0;
+diff -c procmail/src/manconf.c:1.14 procmail/src/manconf.c:1.18
+*** procmail/src/manconf.c:1.14	Fri Feb 19 16:22:38 1993
+--- procmail/src/manconf.c	Fri Feb 19 16:22:38 1993
+***************
+*** 1,6 ****
+  /* A sed script generator (for transmogrifying the man pages automagically) */
+  
+! /*$Id: manconf.c,v 1.14 1993/01/28 15:18:33 berg Exp $*/
+  
+  #include "../patchlevel.h"
+  #include "procmail.h"
+--- 1,6 ----
+  /* A sed script generator (for transmogrifying the man pages automagically) */
+  
+! /*$Id: manconf.c,v 1.18 1993/02/19 15:04:30 berg Exp $*/
+  
+  #include "../patchlevel.h"
+  #include "procmail.h"
+***************
+*** 96,108 ****
+  administrator), you have to make sure it is invoked when your mail arrives.");
+  #else
+    ps("CF_procmail","Instead of using the system provided invocation of \
+! procmail when mail arrives, you can control the invokation of procmail \
+  yourself.");
+  #endif
+  #ifndef MAILBOX_SEPARATOR
+    ps("DOT_FORWARD",".forward");
+    ps("FW_content",
+!    "\"|IFS=' ';exec /usr/local/bin/procmail #YOUR_LOGIN_NAME\"");
+  #else
+    ps("DOT_FORWARD",".maildelivery");
+    ps("FW_content",
+--- 96,108 ----
+  administrator), you have to make sure it is invoked when your mail arrives.");
+  #else
+    ps("CF_procmail","Instead of using the system provided invocation of \
+! procmail when mail arrives, you can control the invocation of procmail \
+  yourself.");
+  #endif
+  #ifndef MAILBOX_SEPARATOR
+    ps("DOT_FORWARD",".forward");
+    ps("FW_content",
+!    "|\"IFS=' ';exec /usr/local/bin/procmail #YOUR_LOGIN_NAME\"");
+  #else
+    ps("DOT_FORWARD",".maildelivery");
+    ps("FW_content",
+diff -c procmail/src/misc.c:1.18 procmail/src/misc.c:1.19
+*** procmail/src/misc.c:1.18	Fri Feb 19 16:22:39 1993
+--- procmail/src/misc.c	Fri Feb 19 16:22:40 1993
+***************
+*** 6,12 ****
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: misc.c,v 1.18 1993/02/02 15:27:13 berg Exp $";
+  #endif
+  #include "procmail.h"
+  #include "sublib.h"
+--- 6,12 ----
+   ************************************************************************/
+  #ifdef RCS
+  static /*const*/char rcsid[]=
+!  "$Id: misc.c,v 1.19 1993/02/10 17:08:03 berg Exp $";
+  #endif
+  #include "procmail.h"
+  #include "sublib.h"
+***************
+*** 356,365 ****
+        }
+       t=i;
+       if(!strnIcmp(p,"on",(size_t)2)||!strnIcmp(p,"y",(size_t)1)||
+!       !strnIcmp(p,"t",(size_t)1))
+  	t=1;
+       else if(!strnIcmp(p,"off",(size_t)3)||!strnIcmp(p,"n",(size_t)1)||
+!       !strnIcmp(p,"f",(size_t)1))
+  	t=0;
+     }
+    return t;
+--- 356,365 ----
+        }
+       t=i;
+       if(!strnIcmp(p,"on",(size_t)2)||!strnIcmp(p,"y",(size_t)1)||
+!       !strnIcmp(p,"t",(size_t)1)||!strnIcmp(p,"e",(size_t)1))
+  	t=1;
+       else if(!strnIcmp(p,"off",(size_t)3)||!strnIcmp(p,"n",(size_t)1)||
+!       !strnIcmp(p,"f",(size_t)1)||!strnIcmp(p,"d",(size_t)1))
+  	t=0;
+     }
+    return t;
+-------------------
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+I've never been superstitious!  Knock on wood.
+
+exit 0 # Just in case...

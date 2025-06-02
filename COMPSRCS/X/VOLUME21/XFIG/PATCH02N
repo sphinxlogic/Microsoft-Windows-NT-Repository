@@ -1,0 +1,1061 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb12.lbl.gov (Brian V. Smith)
+Subject: v21i034:  xfig - Draw amd manipulate objects in an X-Window, Patch02n/16
+Message-ID: <1993Oct21.185948.7547@sparky.sterling.com>
+X-Md4-Signature: 9c0a5c8f67a1751b8960edc633ef2321
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 18:59:48 GMT
+Approved: chris@sterling.com
+
+Submitted-by: envbvs@epb12.lbl.gov (Brian V. Smith)
+Posting-number: Volume 21, Issue 34
+Archive-name: xfig/patch02n
+Environment: patch, X11, xfig
+Patch-To: xfig: Volume 19, Issue 113-139
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xfig.09
+# Wrapped by chris@sparky on Thu Oct 21 13:40:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 16)."'
+if test -f 'xfig.09' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xfig.09'\"
+else
+  echo shar: Extracting \"'xfig.09'\" \(28482 characters\)
+  sed "s/^X//" >'xfig.09' <<'END_OF_FILE'
+X+ 
+X  /********************* EXPORTS *******************/
+X  
+X  int		put_msg();
+X***************
+X*** 73,88 ****
+X  
+X  setup_msg()
+X  {
+X!     Dimension ht;
+X  
+X!     /* set the height of the message panel to the height of the file name panel */
+X      XtUnmanageChild(msg_panel);
+X!     FirstArg(XtNheight, &ht);
+X      GetValues(name_panel);
+X!     FirstArg(XtNheight, ht);
+X      SetValues(msg_panel);
+X      /* set the MSGFORM_HT variable so the mouse panel can be resized to fit */
+X!     MSGFORM_HT = ht;
+X      XtManageChild(msg_panel);
+X      if (msg_win == 0)
+X  	msg_win = XtWindow(msg_panel);
+X--- 77,97 ----
+X  
+X  setup_msg()
+X  {
+X!     Dimension htm,htf;
+X  
+X!     /* set the height of the message panel and filename panel to the 
+X!        greater of the two heights */
+X      XtUnmanageChild(msg_panel);
+X!     FirstArg(XtNheight, &htm);
+X      GetValues(name_panel);
+X!     FirstArg(XtNheight, &htf);
+X!     GetValues(msg_panel);
+X!     htf = max2(htf,htm);
+X!     FirstArg(XtNheight, htf);
+X      SetValues(msg_panel);
+X+     SetValues(name_panel);
+X      /* set the MSGFORM_HT variable so the mouse panel can be resized to fit */
+X!     MSGFORM_HT = htf;
+X      XtManageChild(msg_panel);
+X      if (msg_win == 0)
+X  	msg_win = XtWindow(msg_panel);
+X***************
+X*** 95,100 ****
+X--- 104,110 ----
+X   * space, by getting the width of the command panel and subtract the new 
+X   * width of the name_panel to get the new width of the message panel
+X   */
+X+ 
+X  update_cur_filename(newname)
+X  	char	*newname;
+X  {
+X***************
+X*** 112,120 ****
+X--- 122,135 ----
+X  	FirstArg(XtNwidth, &namwid);
+X  	GetValues(name_panel);
+X  	MSGPANEL_WD = MSGFORM_WD-namwid;
+X+ 	if (MSGPANEL_WD <= 0)
+X+ 		MSGPANEL_WD = 100;
+X  	/* resize the message panel to fit with the new width of the name panel */
+X  	FirstArg(XtNwidth, MSGPANEL_WD);
+X  	SetValues(msg_panel);
+X+ 	/* keep the height the same */
+X+ 	FirstArg(XtNheight, MSGFORM_HT);
+X+ 	SetValues(name_panel);
+X  	XtManageChild(msg_panel);
+X  	XtManageChild(name_panel);
+X  
+X***************
+X*** 122,127 ****
+X--- 137,144 ----
+X  	FirstArg(XtNwidth, MSGFORM_WD);
+X  	SetValues(msg_form);
+X  	XtManageChild(msg_form);
+X+ 	/* put the filename being edited in the icon */
+X+ 	XSetIconName(tool_d, XtWindow(tool), basename(cur_filename));
+X  }
+X  
+X  /* VARARGS1 */
+Xdiff -rc xfig.2.1.7a/w_print.c xfig.2.1.8/w_print.c
+X*** xfig.2.1.7a/w_print.c	Tue Mar 23 10:21:42 1993
+X--- xfig.2.1.8/w_print.c	Tue Aug 31 14:20:47 1993
+X***************
+X*** 96,103 ****
+X  	   var and put it into the widget */
+X  	if (emptyname(printer_val)) {
+X  		printer_val=getenv("PRINTER");
+X! 		FirstArg(XtNstring, printer_val);
+X! 		SetValues(printer_text);
+X  	}
+X  	FirstArg(XtNstring, &param_val);
+X  	GetValues(param_text);
+X--- 96,107 ----
+X  	   var and put it into the widget */
+X  	if (emptyname(printer_val)) {
+X  		printer_val=getenv("PRINTER");
+X! 		if (printer_val == NULL) {
+X! 			printer_val = "";
+X! 		} else {
+X! 			FirstArg(XtNstring, printer_val);
+X! 			SetValues(printer_text);
+X! 		}
+X  	}
+X  	FirstArg(XtNstring, &param_val);
+X  	GetValues(param_text);
+X***************
+X*** 122,128 ****
+X      char	   *pr_params;
+X  {
+X      if (emptyname(printer)) {	/* send to default printer */
+X! #if defined(SYSV) || defined(SVR4)
+X  	sprintf(cmd, "lp %s -oPS %s", 
+X  		pr_params,
+X  		shell_protect_string(file));
+X--- 126,132 ----
+X      char	   *pr_params;
+X  {
+X      if (emptyname(printer)) {	/* send to default printer */
+X! #if (defined(SYSV) || defined(SVR4)) && !defined(BSDLPR)
+X  	sprintf(cmd, "lp %s -oPS %s", 
+X  		pr_params,
+X  		shell_protect_string(file));
+X***************
+X*** 135,141 ****
+X  	put_msg("Printing figure on default printer in %s mode ...     ",
+X  		print_landscape ? "LANDSCAPE" : "PORTRAIT");
+X      } else {
+X! #if defined(SYSV) || defined(SVR4)
+X  	sprintf(cmd, "lp %s, -d%s -oPS %s",
+X  		pr_params,
+X  		printer, 
+X--- 139,145 ----
+X  	put_msg("Printing figure on default printer in %s mode ...     ",
+X  		print_landscape ? "LANDSCAPE" : "PORTRAIT");
+X      } else {
+X! #if (defined(SYSV) || defined(SVR4)) && !defined(BSDLPR)
+X  	sprintf(cmd, "lp %s, -d%s -oPS %s",
+X  		pr_params,
+X  		printer, 
+X***************
+X*** 160,166 ****
+X  do_print_batch(w)
+X      Widget	    w;
+X  {
+X- 	DeclareArgs(1);
+X  	float	    mag;
+X  	FILE	   *infp,*outfp;
+X  	char	    tmp_exp_file[32];
+X--- 164,169 ----
+X***************
+X*** 215,222 ****
+X  do_clear_batch(w)
+X      Widget	    w;
+X  {
+X- 	DeclareArgs(1);
+X-   
+X  	unlink(batch_file);
+X  	batch_exists = False;
+X  	num_batch_figures = 0;
+X--- 218,223 ----
+X***************
+X*** 228,234 ****
+X  
+X  update_batch_count()
+X  {
+X! 	String	    num[4];
+X  	DeclareArgs(1);
+X  
+X  	sprintf(num,"%3d",num_batch_figures);
+X--- 229,235 ----
+X  
+X  update_batch_count()
+X  {
+X! 	char	    num[4];
+X  	DeclareArgs(1);
+X  
+X  	sprintf(num,"%3d",num_batch_figures);
+X***************
+X*** 272,280 ****
+X  popup_print_panel(w)
+X      Widget	    w;
+X  {
+X-     Widget	    image;
+X-     Pixmap	    p;
+X-     DeclareArgs(10);
+X      extern	    Atom wm_delete_window;
+X  
+X      set_temp_cursor(wait_cursor);
+X--- 273,278 ----
+X***************
+X*** 294,299 ****
+X--- 292,298 ----
+X  	Widget	    image;
+X  	Pixmap	    p;
+X  	DeclareArgs(10);
+X+ 	unsigned long fg, bg;
+X  
+X  	print_w = w;
+X  	XtTranslateCoords(w, (Position) 0, (Position) 0, &xposn, &yposn);
+X***************
+X*** 311,323 ****
+X  	print_panel = XtCreateManagedWidget("print_panel", formWidgetClass,
+X  					    print_popup, NULL, ZERO);
+X  
+X- 	p = XCreateBitmapFromData(tool_d, XtWindow(canvas_sw),
+X- 		      (char *) printer_ic.data, printer_ic.width, printer_ic.height);
+X- 
+X  	FirstArg(XtNlabel, "   ");
+X  	NextArg(XtNwidth, printer_ic.width);
+X  	NextArg(XtNheight, printer_ic.height);
+X- 	NextArg(XtNbitmap, p);
+X  	NextArg(XtNborderWidth, 0);
+X  	NextArg(XtNinternalWidth, 0);
+X  	NextArg(XtNinternalHeight, 0);
+X--- 310,318 ----
+X***************
+X*** 325,330 ****
+X--- 320,333 ----
+X  	NextArg(XtNresizable, False);
+X  	image = XtCreateManagedWidget("printer_image", labelWidgetClass,
+X  				      print_panel, Args, ArgCount);
+X+ 	FirstArg(XtNforeground, &fg);
+X+ 	NextArg(XtNbackground, &bg);
+X+ 	GetValues(image);
+X+ 	p = XCreatePixmapFromBitmapData(tool_d, XtWindow(canvas_sw),
+X+ 		      (char *) printer_ic.data, printer_ic.width, printer_ic.height,
+X+ 		      fg, bg, DefaultDepthOfScreen(tool_s));
+X+ 	FirstArg(XtNbitmap, p);
+X+ 	SetValues(image);
+X  
+X  	FirstArg(XtNlabel, "  Magnification%:");
+X  	NextArg(XtNfromVert, image);
+Xdiff -rc xfig.2.1.7a/w_rottext.c xfig.2.1.8/w_rottext.c
+X*** xfig.2.1.7a/w_rottext.c	Wed Feb 10 10:25:21 1993
+X--- xfig.2.1.8/w_rottext.c	Mon Sep 13 14:25:40 1993
+X***************
+X*** 1,56 ****
+X! /*
+X!  * FIG : Facility for Interactive Generation of figures
+X!  * Copyright (c) 1992 by Alan Richardson
+X   *
+X!  * "Permission to use, copy, modify, distribute, and sell this software and its
+X!  * documentation for any purpose is hereby granted without fee, provided that
+X!  * the above copyright notice appear in all copies and that both the copyright
+X!  * notice and this permission notice appear in supporting documentation. 
+X!  * No representations are made about the suitability of this software for 
+X!  * any purpose.  It is provided "as is" without express or implied warranty."
+X   */
+X  
+X  #include "fig.h"
+X  #include "w_rottext.h"
+X  
+X  /* ---------------------------------------------------------------------- */
+X  
+X- #define XROTMAX(a, b) ((a)>(b)?(a):(b))
+X  
+X  /* ---------------------------------------------------------------------- */
+X  
+X- char			*my_strdup();
+X- char			*my_strtok();
+X- XRotFontStruct 		*XRotLoadFont();
+X- void		 	 XRotUnloadFont();
+X- int 		 	 XRotTextWidth();
+X- int 		 	 XRotTextHeight();
+X- void			 XRotDrawString();
+X- void 		 	 XRotDrawImageString();
+X- void                     XRotPaintString();
+X- void 		 	 XRotDrawAlignedString();
+X- void                     XRotDrawAlignedImageString();
+X- void                     XRotPaintAlignedString();
+X  
+X  /* ---------------------------------------------------------------------- */
+X-   
+X- /* *** Routine to mimic `strdup()' (some machines don't have it) *** */
+X  
+X- char *my_strdup(str)
+X-  char *str;
+X- {
+X-  char *s;
+X  
+X!  if(str==NULL) return (char *)NULL;
+X  
+X!  s=(char *)malloc((unsigned)(strlen(str)+1));
+X!  if(!s)
+X!   { fprintf(stderr, "Error: my_strdup(): Couldn't do malloc\n");
+X!     exit(1); }
+X  
+X!  strcpy(s, str);
+X  
+X!  return s;
+X  }
+X  
+X  
+X--- 1,162 ----
+X! /* ********************************************************************** */
+X! 
+X! /* xvertext 5.0, Copyright (c) 1993 Alan Richardson (mppa3@uk.ac.sussex.syma)
+X   *
+X!  * Permission to use, copy, modify, and distribute this software and its
+X!  * documentation for any purpose and without fee is hereby granted, provided
+X!  * that the above copyright notice appear in all copies and that both the
+X!  * copyright notice and this permission notice appear in supporting
+X!  * documentation.  All work developed as a consequence of the use of
+X!  * this program should duly acknowledge such use. No representations are
+X!  * made about the suitability of this software for any purpose.  It is
+X!  * provided "as is" without express or implied warranty.
+X   */
+X  
+X+ /* ********************************************************************** */
+X+ 
+X+ 
+X+ /* BETTER: xvertext now does rotation at any angle!!
+X+  *
+X+  * BEWARE: function arguments have CHANGED since version 2.0!!
+X+  */
+X+ 
+X+ /* ********************************************************************** */
+X+ 
+X+ 
+X  #include "fig.h"
+X+ #include "resources.h"
+X+ #include <X11/Xatom.h>
+X  #include "w_rottext.h"
+X  
+X+ 
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X+ /* Make sure cache size is set */
+X+ 
+X+ #ifndef CACHE_SIZE_LIMIT
+X+ #define CACHE_SIZE_LIMIT 0
+X+ #endif /*CACHE_SIZE_LIMIT */
+X+     
+X+ /* Cache by FID if can't find name because OpenWindows screws up */
+X+ 
+X+ #define CACHE_FID
+X+ 
+X+ /* Make sure a cache method is specified */
+X+ 
+X+ #ifndef CACHE_XIMAGES
+X+ #ifndef CACHE_BITMAPS
+X+ #define CACHE_BITMAPS
+X+ #endif /*CACHE_BITMAPS*/
+X+ #endif /*CACHE_XIMAGES*/
+X+ 
+X+ 
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X+ /* Debugging macros */
+X+ 
+X+ #define DEBUG_PRINT1(a) if (appres.DEBUG) printf (a)
+X+ #define DEBUG_PRINT2(a, b) if (appres.DEBUG) printf (a, b)
+X+ #define DEBUG_PRINT3(a, b, c) if (appres.DEBUG) printf (a, b, c)
+X+ #define DEBUG_PRINT4(a, b, c, d) if (appres.DEBUG) printf (a, b, c, d)
+X+ #define DEBUG_PRINT5(a, b, c, d, e) if (appres.DEBUG) printf (a, b, c, d, e)
+X+ 
+X+ 
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* A structure holding everything needed for a rotated string */
+X  
+X! typedef struct rotated_text_item_template {
+X!     Pixmap bitmap;
+X!     XImage *ximage;
+X!     
+X!     char *text;
+X!     char *font_name;
+X!     Font fid;
+X!     float angle;
+X!     int align;
+X!     float magnify;
+X!     
+X!     int cols_in;
+X!     int rows_in;
+X!     int cols_out;
+X!     int rows_out;
+X!     
+X!     int nl;
+X!     int max_width;
+X!     float *corners_x;
+X!     float *corners_y;
+X!     
+X!     long int size;
+X!     int cached;
+X  
+X!     struct rotated_text_item_template *next;
+X! } RotatedTextItem;
+X  
+X! RotatedTextItem *first_text_item=NULL;
+X! 
+X! 
+X! /* ---------------------------------------------------------------------- */
+X! 
+X! 
+X! /* A structure holding current magnification and bounding box padding */
+X! 
+X! static struct style_template {
+X!     float magnify;
+X!     int bbx_pad;
+X! } style={
+X!     1.,
+X!     0
+X!     };
+X! 
+X! 
+X! /* ---------------------------------------------------------------------- */
+X! 
+X! 
+X! static char            *my_strdup();
+X! static char            *my_strtok();
+X! 
+X! float                   XRotVersion();
+X! void                    XRotSetMagnification();
+X! void                    XRotSetBoundingBoxPad();
+X! int                     XRotDrawString();
+X! int                     XRotDrawImageString();
+X! int                     XRotDrawAlignedString();
+X! int                     XRotDrawAlignedImageString();
+X! XPoint                 *XRotTextExtents();
+X! 
+X! static XImage          *MakeXImage();
+X! static int              XRotPaintAlignedString();
+X! static int              XRotDrawHorizontalString();
+X! static RotatedTextItem *XRotRetrieveFromCache();
+X! static RotatedTextItem *XRotCreateTextItem();
+X! static void             XRotAddToLinkedList();
+X! static void             XRotFreeTextItem();
+X! static XImage          *XRotMagnifyImage();
+X! 
+X! 
+X! /* ---------------------------------------------------------------------- */
+X! 
+X! 
+X! /**************************************************************************/
+X! /* Routine to mimic `strdup()' (some machines don't have it)              */
+X! /**************************************************************************/
+X! 
+X! static char *my_strdup(str)
+X!     char *str;
+X! {
+X!     char *s;
+X!     
+X!     if(str==NULL)
+X! 	return NULL;
+X!     
+X!     s=(char *)malloc((unsigned)(strlen(str)+1));
+X!     if(s!=NULL) 
+X! 	strcpy(s, str);
+X!     
+X!     return s;
+X  }
+X  
+X  
+X***************
+X*** 57,331 ****
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* *** Routine to replace `strtok' : this one returns a zero
+X!        length string if it encounters two consecutive delimiters *** */
+X  
+X! char *my_strtok(str1, str2)
+X!  char *str1, *str2;
+X  {
+X!  char *ret;
+X!  int i, j, stop;
+X!  static int start, len;
+X!  static char *stext;
+X  
+X-  if(str2==NULL)
+X-   { fprintf(stderr, "Error: my_strtok(): null delimiter string\n");
+X-     exit(1);
+X-   }
+X  
+X!  /* initialise if str1 not NULL ... */
+X!  if(str1!=NULL)
+X!   { start=0;
+X!     stext=str1;
+X!     len=strlen(str1);
+X!   }
+X  
+X-  /* run out of tokens ? ... */
+X-  if(start>=len) return (char *)NULL;
+X  
+X!  /* loop through characters ... */
+X!  for(i=start; i<len; i++)
+X!  {
+X!   /* loop through delimiters ... */
+X!   stop=0;
+X!   for(j=0; j<strlen(str2); j++) if(stext[i]==str2[j]) stop=1;
+X  
+X!   if(stop) break;
+X!  }
+X  
+X-  stext[i]='\0';
+X  
+X!  ret=stext+start;
+X  
+X-  start=i+1;
+X  
+X!  return ret;
+X  }
+X  
+X  
+X  /* ---------------------------------------------------------------------- */
+X-   
+X  
+X! /* *** Load the rotated version of a given font *** */
+X!  
+X! XRotFontStruct *XRotLoadFont(dpy, fontname, angle)
+X!  Display *dpy;
+X!  char *fontname;
+X!  float angle;
+X  {
+X!  char		 val;
+X!  XImage		*I1, *I2;
+X!  Pixmap		 canvas;
+X!  Window		 root;
+X!  int		 screen;
+X!  GC		 font_gc;
+X!  char		 text[3];
+X!  XFontStruct	*fontstruct;
+X!  XRotFontStruct	*rotfont;
+X!  int		 ichar, i, j, index, boxlen, dir;
+X!  int		 vert_w, vert_h, vert_len, bit_w, bit_h, bit_len;
+X!  int		 min_char, max_char;
+X!  unsigned char	*vertdata, *bitdata;
+X!  int		 ascent, descent, lbearing, rbearing;
+X!  int		 on=1, off=0;
+X  
+X-  dir=(int)(angle/90.0+0.01);
+X-  if (dir > 3)
+X- 	dir -= 4;
+X  
+X!  /* useful macros ... */
+X!  screen=DefaultScreen(dpy);
+X!  root=DefaultRootWindow(dpy);
+X  
+X-  /* load the font ... */
+X-  fontstruct=XLoadQueryFont(dpy, fontname);
+X-  if(!fontstruct) { 
+X- 	fprintf(stderr,
+X-             "Error: XRotLoadFont(): XServer couldn't load the font `%s'\n",
+X-             fontname);
+X-     exit(1); 
+X-  }
+X-  
+X-  /* boxlen is the square size that would enclose the largest character */
+X-  boxlen = max2(fontstruct->max_bounds.rbearing - fontstruct->max_bounds.lbearing, 
+X- 	      fontstruct->max_bounds.ascent + fontstruct->max_bounds.descent);
+X-  boxlen *= 2;
+X  
+X!  /* create the depth 1 canvas bitmap ... */
+X!  canvas=XCreatePixmap(dpy, root, boxlen, boxlen, 1);
+X!  
+X!  /* create a GC ... */
+X!  font_gc=XCreateGC(dpy, canvas, NULL, 0);
+X!  XSetBackground(dpy, font_gc, off);
+X  
+X!  XSetFont(dpy, font_gc, fontstruct->fid);
+X  
+X-  /* allocate space for rotated font ... */
+X-  rotfont=(XRotFontStruct *)malloc((unsigned)sizeof(XRotFontStruct));
+X-  if(!rotfont) { 
+X-     fprintf(stderr,"Error: XRotLoadFont(): Couldn't do malloc\n");
+X-     exit(1); 
+X-  }
+X-    
+X-  /* determine which characters are defined in font ... */
+X-  min_char=fontstruct->min_char_or_byte2; 
+X-  max_char=fontstruct->max_char_or_byte2;
+X-  
+X-  /* we only want printing characters ... */
+X-  if(min_char<32)  min_char=32;
+X-  if(max_char>126) max_char=126;
+X-      
+X-  /* some overall font data ... */
+X-  rotfont->name=my_strdup(fontname);
+X-  rotfont->dir=dir;
+X-  rotfont->min_char=min_char;
+X-  rotfont->max_char=max_char;
+X-  rotfont->max_ascent=fontstruct->max_bounds.ascent;
+X-  rotfont->max_descent=fontstruct->max_bounds.descent;   
+X-  rotfont->height=rotfont->max_ascent+rotfont->max_descent;
+X-  rotfont->width=fontstruct->max_bounds.width;
+X  
+X!  /* remember xfontstruct for `normal' text ... */
+X!  if(dir==0) 
+X! 	rotfont->xfontstruct=fontstruct;
+X  
+X-  /* loop through each character ... */
+X-  for(ichar=min_char; ichar<=max_char; ichar++) {
+X  
+X!      index=ichar-fontstruct->min_char_or_byte2;
+X!      /* per char dimensions ... */
+X!      ascent=  rotfont->per_char[ichar-32].ascent=
+X!                       fontstruct->per_char[index].ascent;
+X!      descent= rotfont->per_char[ichar-32].descent=
+X!                       fontstruct->per_char[index].descent;
+X!      lbearing=rotfont->per_char[ichar-32].lbearing=
+X!                       fontstruct->per_char[index].lbearing;
+X!      rbearing=rotfont->per_char[ichar-32].rbearing=
+X!                       fontstruct->per_char[index].rbearing;
+X!               rotfont->per_char[ichar-32].width=
+X!                       fontstruct->per_char[index].width;
+X  
+X!      /* no need for the following with normal text */
+X!      if (dir == 0)
+X! 	continue;
+X  
+X-      /* some space chars have zero body, but a bitmap can't have ... */
+X-      if(!ascent && !descent)   
+X-             ascent=  rotfont->per_char[ichar-32].ascent=  1;
+X-      if(!lbearing && !rbearing) 
+X-             rbearing=rotfont->per_char[ichar-32].rbearing=1;
+X  
+X!      /* glyph width and height when vertical ... */
+X!      vert_w=rbearing-lbearing;
+X!      vert_h=ascent+descent;
+X  
+X-      /* width in bytes ... */
+X-      vert_len=(vert_w-1)/8+1;   
+X-  
+X-      XSetForeground(dpy, font_gc, off);
+X-      XFillRectangle(dpy, canvas, font_gc, 0, 0, boxlen, boxlen);
+X  
+X!      /* draw the character centre top right on canvas ... */
+X!      sprintf(text, "%c", ichar);
+X!      XSetForeground(dpy, font_gc, on);
+X!      XDrawImageString(dpy, canvas, font_gc, boxlen/2-lbearing,
+X!                       boxlen/2-descent, text, 1);
+X  
+X!      /* reserve memory for first XImage ... */
+X!      vertdata=(unsigned char *) malloc((unsigned)(vert_len*vert_h));
+X!      if(!vertdata) { 
+X! 	fprintf(stderr,"Error: XRotLoadFont(): Couldn't do malloc\n");
+X!         exit(1); 
+X!       }
+X!   
+X!      /* create the XImage ... */
+X!      I1=XCreateImage(dpy, DefaultVisual(dpy, screen), 1, XYBitmap,
+X!                      0, (char *) vertdata, vert_w, vert_h, 8, 0);
+X  
+X-      if(!I1) { 
+X- 	fprintf(stderr,"Error: XRotLoadFont(): Couldn't create XImage\n");
+X-         exit(1); 
+X-      }
+X-   
+X-      I1->byte_order=I1->bitmap_bit_order=MSBFirst;
+X  
+X!      /* extract character from canvas ... */
+X!      XGetSubImage(dpy, canvas, boxlen/2, boxlen/2-vert_h,
+X!                   vert_w, vert_h, 1, XYPixmap, I1, 0, 0);
+X!      I1->format=XYBitmap; 
+X!  
+X!      /* width, height of rotated character ... */
+X!      if(dir==2) { 
+X! 	bit_w=vert_w; bit_h=vert_h; 
+X!      } else { 
+X! 	bit_w=vert_h; bit_h=vert_w; 
+X!      }
+X  
+X-      /* width in bytes ... */
+X-      bit_len=(bit_w-1)/8+1;
+X-    
+X-      rotfont->per_char[ichar-32].glyph.bit_w=bit_w;
+X-      rotfont->per_char[ichar-32].glyph.bit_h=bit_h;
+X  
+X!      /* reserve memory for the rotated image ... */
+X!      bitdata=(unsigned char *)calloc((unsigned)(bit_h*bit_len), 1);
+X!      if(!bitdata) { 
+X! 	fprintf(stderr,"Error: XRotLoadFont(): Couldn't do calloc\n");
+X!         exit(1); 
+X!      }
+X  
+X!      /* create the image ... */
+X!      I2=XCreateImage(dpy, DefaultVisual(dpy, screen), 1, XYBitmap, 0,
+X!                      (char *) bitdata, bit_w, bit_h, 8, 0); 
+X!  
+X!      if(!I2) { 
+X! 	fprintf(stderr,"Error: XRotLoadFont(): Couldn't create XImage\n");
+X!         exit(1);
+X!      }
+X  
+X-      I2->byte_order=I2->bitmap_bit_order=MSBFirst;
+X  
+X!      /* map vertical data to rotated character ... */
+X!      for(j=0; j<bit_h; j++) {
+X!       for(i=0; i<bit_w; i++) {
+X!        /* map bits ... */
+X!        if(dir==1)
+X!          val=vertdata[i*vert_len + (vert_w-j-1)/8] & (128>>((vert_w-j-1)%8));
+X!    
+X!        else if(dir==2)
+X!          val=vertdata[(vert_h-j-1)*vert_len + (vert_w-i-1)/8] &
+X!                                                        (128>>((vert_w-i-1)%8));
+X!        else 
+X!          val=vertdata[(vert_h-i-1)*vert_len + j/8] & (128>>(j%8));
+X!         
+X!        if(val) bitdata[j*bit_len + i/8] = 
+X!                    bitdata[j*bit_len + i/8]|(128>>(i%8));
+X!       }
+X!      }
+X!    
+X!      /* create this character's bitmap ... */
+X!      rotfont->per_char[ichar-32].glyph.bm=
+X!        XCreatePixmap(dpy, root, bit_w, bit_h, 1);
+X!      
+X!      /* put the image into the bitmap ... */
+X!      XPutImage(dpy, rotfont->per_char[ichar-32].glyph.bm, 
+X!                font_gc, I2, 0, 0, 0, 0, bit_w, bit_h);
+X!   
+X!      /* free the image and data ... */
+X!      XDestroyImage(I1);
+X!      XDestroyImage(I2);
+X!      free((char *)bitdata);
+X!      free((char *)vertdata);
+X!  }
+X  
+X-  if (dir != 0)
+X-     XFreeFont(dpy, fontstruct);
+X  
+X!  /* free pixmap and GC ... */
+X!  XFreePixmap(dpy, canvas);
+X!  XFreeGC(dpy, font_gc);
+X  
+X!  return rotfont;
+X  }
+X  
+X  
+X--- 163,382 ----
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /* Routine to replace `strtok' : this one returns a zero length string if */
+X! /* it encounters two consecutive delimiters                               */
+X! /**************************************************************************/
+X  
+X! static char *my_strtok(str1, str2)
+X!     char *str1, *str2;
+X  {
+X!     char *ret;
+X!     int i, j, stop;
+X!     static int start, len;
+X!     static char *stext;
+X!     
+X!     if(str2==NULL)
+X! 	return NULL;
+X!     
+X!     /* initialise if str1 not NULL */
+X!     if(str1!=NULL) {
+X! 	start=0;
+X! 	stext=str1;
+X! 	len=strlen(str1);
+X!     }
+X!     
+X!     /* run out of tokens ? */
+X!     if(start>=len)
+X! 	return NULL;
+X!     
+X!     /* loop through characters */
+X!     for(i=start; i<len; i++) {
+X! 	/* loop through delimiters */
+X! 	stop=0;
+X! 	for(j=0; j<strlen(str2); j++)
+X! 	    if(stext[i]==str2[j])
+X! 		stop=1;
+X! 	
+X! 	if(stop)
+X! 	    break;
+X!     }
+X!     
+X!     stext[i]='\0';
+X!     
+X!     ret=stext+start;
+X!     
+X!     start=i+1;
+X!     
+X!     return ret;
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /* Return version/copyright information                                   */
+X! /**************************************************************************/
+X  
+X! float XRotVersion(str, n)
+X!     char *str;
+X!     int n;
+X! {
+X!     if(str!=NULL)
+X! 	strncpy(str, XV_COPYRIGHT, n);
+X!     return XV_VERSION;
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /* Set the font magnification factor for all subsequent operations        */
+X! /**************************************************************************/
+X! 
+X! void XRotSetMagnification(m)
+X!     float m;
+X! {
+X!     if(m>0.)
+X! 	style.magnify=m;
+X  }
+X  
+X  
+X  /* ---------------------------------------------------------------------- */
+X  
+X! 
+X! /**************************************************************************/
+X! /* Set the padding used when calculating bounding boxes                   */
+X! /**************************************************************************/
+X! 
+X! void XRotSetBoundingBoxPad(p)
+X!     int p;
+X  {
+X!     if(p>=0)
+X! 	style.bbx_pad=p;
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  Create an XImage structure and allocate memory for it                 */
+X! /**************************************************************************/
+X  
+X! static XImage *MakeXImage(dpy, w, h)
+X!     Display *dpy;
+X!     int w, h;
+X! {
+X!     XImage *I;
+X!     char *data;
+X!     
+X!     /* reserve memory for image */
+X!     data=(char *)calloc((unsigned)(((w-1)/8+1)*h), 1);
+X!     if(data==NULL)
+X! 	return NULL;
+X!     
+X!     /* create the XImage */
+X!     I=XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)), 1, XYBitmap,
+X!                    0, data, w, h, 8, 0);
+X!     if(I==NULL)
+X! 	return NULL;
+X!     
+X!     I->byte_order=I->bitmap_bit_order=MSBFirst;
+X!     return I;
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  A front end to XRotPaintAlignedString:                                */
+X! /*      -no alignment, no background                                      */
+X! /**************************************************************************/
+X  
+X! int XRotDrawString(dpy, font, angle, drawable, gc, x, y, str)
+X!     Display *dpy;
+X!     XFontStruct *font;
+X!     float angle;
+X!     Drawable drawable;
+X!     GC gc;
+X!     int x, y;
+X!     char *str;
+X! {
+X!     return (XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+X! 				   x, y, str, NONE, 0));
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  A front end to XRotPaintAlignedString:                                */
+X! /*      -no alignment, paints background                                  */
+X! /**************************************************************************/
+X  
+X! int XRotDrawImageString(dpy, font, angle, drawable, gc, x, y, str)
+X!     Display *dpy;
+X!     XFontStruct *font;
+X!     float angle;
+X!     Drawable drawable;
+X!     GC gc;
+X!     int x, y;
+X!     char *str;
+X! {
+X!     return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+X! 				  x, y, str, NONE, 1));
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  A front end to XRotPaintAlignedString:                                */
+X! /*      -does alignment, no background                                    */
+X! /**************************************************************************/
+X  
+X! int XRotDrawAlignedString(dpy, font, angle, drawable, gc, x, y, text, align)
+X!     Display *dpy;
+X!     XFontStruct *font;
+X!     float angle;
+X!     Drawable drawable;
+X!     GC gc;
+X!     int x, y;
+X!     char *text;
+X!     int align;
+X! {
+X!     return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+X! 				  x, y, text, align, 0));
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  A front end to XRotPaintAlignedString:                                */
+X! /*      -does alignment, paints background                                */
+X! /**************************************************************************/
+X  
+X! int XRotDrawAlignedImageString(dpy, font, angle, drawable, gc, x, y, text,
+X! 			       align)
+X!     Display *dpy;
+X!     XFontStruct *font;
+X!     float angle;
+X!     Drawable drawable;
+X!     GC gc;
+X!     int x, y;
+X!     char *text;
+X!     int align;
+X! {
+X!     return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+X! 				  x, y, text, align, 1));
+X  }
+X  
+X  
+X***************
+X*** 332,608 ****
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* *** Free the resources associated with a rotated font *** */
+X  
+X! void XRotUnloadFont(dpy, rotfont)
+X!  Display *dpy;
+X!  XRotFontStruct *rotfont;
+X  {
+X!  int ichar;
+X  
+X!  if(rotfont->dir==0) XFreeFont(dpy, rotfont->xfontstruct);
+X  
+X!  else
+X!   /* loop through each character, freeing its pixmap ... */
+X!   for(ichar=rotfont->min_char-32; ichar<=rotfont->max_char-32; ichar++)
+X!     XFreePixmap(dpy, rotfont->per_char[ichar].glyph.bm);
+X  
+X!  /* rotfont should never be referenced again ... */
+X!  free((char *)rotfont);
+X  }
+X  
+X  
+X  /* ---------------------------------------------------------------------- */
+X-    
+X  
+X- /* *** Return the width of a string *** */
+X  
+X! int XRotTextWidth(rotfont, str, len)
+X!  XRotFontStruct *rotfont;
+X!  char *str;
+X!  int len;
+X  {
+X!  int i, width=0, ichar;
+X  
+X!  if(str==NULL) 
+X  	return 0;
+X  
+X!  if(rotfont->dir==0)
+X!     width=XTextWidth(rotfont->xfontstruct, str, len);
+X  
+END_OF_FILE
+  if test 28482 -ne `wc -c <'xfig.09'`; then
+    echo shar: \"'xfig.09'\" unpacked with wrong size!
+  fi
+  # end of 'xfig.09'
+fi
+echo shar: End of archive 14 \(of 16\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 16 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Creating merged patch file xfig.p2
+    cat xfig.[01][0-9] > xfig.p2
+    rm -f xfig.[01][0-9]
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

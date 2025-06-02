@@ -1,0 +1,1557 @@
+Path: uunet!haven.umd.edu!darwin.sura.net!gatech!nntp.msstate.edu!emory!dragon.com!cts
+From: cts@dragon.com
+Newsgroups: vmsnet.sources.games
+Subject: Dungeon Part 27/30
+Message-ID: <1992Feb24.013853.820@dragon.com>
+Date: 24 Feb 92 06:38:52 GMT
+Organization: Computer Projects Unlimited
+Lines: 1548
+
+-+-+-+-+-+-+-+-+ START OF PART 27 -+-+-+-+-+-+-+-+
+XC                                               !NO DEFAULT.
+X      DFORCE=0
+XC                                               !NO FORCED DEFAULT.
+X      QPREP=and(OFLAG,OPREP)
+X100   J=J+2
+XC                                               !FIND START OF SYNTAX.
+X      IF((VVOC(J).LE.0).OR.(VVOC(J).GE.R50MIN)) GO TO 100
+X      LIMIT=J+VVOC(J)+1
+XC                                               !COMPUTE LIMIT.
+X      J=J+1
+XC                                               !ADVANCE TO NEXT.
+XC
+X200   CALL UNPACK(J,NEWJ)
+XC                                               !UNPACK SYNTAX.
+X      IF(DFLAG) PRINT 60,O1,P1,DOBJ,DFL1,DFL2
+X60    FORMAT(' SYNMCH INPUTS TO SYNEQL- ',5I7)
+X      SPREP=and(DOBJ,VPMASK)
+X      IF(.NOT.SYNEQL(P1,O1,DOBJ,DFL1,DFL2)) GO TO 1000
+X      IF(DFLAG) PRINT 60,O2,P2,IOBJ,IFL1,IFL2
+X      SPREP=and(IOBJ,VPMASK)
+X      IF(SYNEQL(P2,O2,IOBJ,IFL1,IFL2)) GO TO 6000
+XC
+XC SYNTAX MATCH FAILS, TRY NEXT ONE.
+XC
+X      IF(O2) 3000,500,3000
+XC                                               !IF O2=0, SET DFLT.
+X1000  IF(O1) 3000,500,3000
+XC                                               !IF O1=0, SET DFLT.
+X500   IF((QPREP.EQ.0).OR.(QPREP.EQ.SPREP)) DFORCE=J
+XC                                               !IF PREP MCH.
+X      IF((and(VFLAG,SDRIV)).NE.0) DRIVE=J
+X3000  J=NEWJ
+X      IF(J.LT.LIMIT) GO TO 200
+X`0C
+XC                                               !MORE TO DO?
+XC SYNMCH, PAGE 2
+XC
+XC MATCH HAS FAILED.  IF DEFAULT SYNTAX EXISTS, TRY TO SNARF
+XC ORPHANS OR GWIMS, OR MAKE NEW ORPHANS.
+XC
+X      IF(DFLAG) PRINT 20,DRIVE,DFORCE
+X20    FORMAT(' SYNMCH, DRIVE=',2I6)
+X      IF(DRIVE.EQ.0) DRIVE=DFORCE
+XC                                               !NO DRIVER? USE FORCE.
+X      IF(DRIVE.EQ.0) GO TO 10000
+XC                                               !ANY DRIVER?
+X      CALL UNPACK(DRIVE,DFORCE)
+XC                                               !UNPACK DFLT SYNTAX.
+XC
+XC TRY TO FILL DIRECT OBJECT SLOT IF THAT WAS THE PROBLEM.
+XC
+X      IF((and(VFLAG,SDIR).EQ.0).OR.(O1.NE.0)) GO TO 4000
+XC
+XC FIRST TRY TO SNARF ORPHAN OBJECT.
+XC
+X      O1=and(OFLAG,OSLOT)
+X      IF(O1.EQ.0) GO TO 3500
+XC                                               !ANY ORPHAN?
+X      IF(SYNEQL(P1,O1,DOBJ,DFL1,DFL2)) GO TO 4000
+XC
+XC ORPHAN FAILS, TRY GWIM.
+XC
+X3500  O1=GWIM(DOBJ,DFW1,DFW2)
+XC                                               !GET GWIM.
+X      IF(DFLAG) PRINT 30,O1
+X30    FORMAT(' SYNMCH- DO GWIM= ',I6)
+X      IF(O1.GT.0) GO TO 4000
+XC                                               !TEST RESULT.
+X      CALL ORPHAN(-1,ACT,0,and(DOBJ,VPMASK),0)
+X      CALL RSPEAK(623)
+X      RETURN
+XC
+XC TRY TO FILL INDIRECT OBJECT SLOT IF THAT WAS THE PROBLEM.
+XC
+X4000  IF((and(VFLAG,SIND).EQ.0).OR.(O2.NE.0)) GO TO 6000
+X      O2=GWIM(IOBJ,IFW1,IFW2)
+XC                                               !GWIM.
+X      IF(DFLAG) PRINT 40,O2
+X40    FORMAT(' SYNMCH- IO GWIM= ',I6)
+X      IF(O2.GT.0) GO TO 6000
+X      IF(O1.EQ.0) O1=and(OFLAG,OSLOT)
+X      CALL ORPHAN(-1,ACT,O1,and(DOBJ,VPMASK),0)
+X      CALL RSPEAK(624)
+X      RETURN
+XC
+XC TOTAL CHOMP
+XC
+X10000 CALL RSPEAK(601)
+XC                                               !CANT DO ANYTHING.
+X      RETURN
+X`0C
+XC SYNMCH, PAGE 3
+XC
+XC NOW TRY TO TAKE INDIVIDUAL OBJECTS AND
+XC IN GENERAL CLEAN UP THE PARSE VECTOR.
+XC
+X6000  IF(and(VFLAG,SFLIP).EQ.0) GO TO 5000
+X      J=O1
+XC                                               !YES.
+X      O1=O2
+X      O2=J
+XC
+X5000  PRSA=and(VFLAG,SVMASK)
+X      PRSO=O1
+XC                                               !GET DIR OBJ.
+X      PRSI=O2
+XC                                               !GET IND OBJ.
+X      IF(.NOT.TAKEIT(PRSO,DOBJ)) RETURN
+XC                                               !TRY TAKE.
+X      IF(.NOT.TAKEIT(PRSI,IOBJ)) RETURN
+XC                                               !TRY TAKE.
+X      SYNMCH=.TRUE.
+X      IF(DFLAG) PRINT 50,SYNMCH,PRSA,PRSO,PRSI,ACT,O1,O2
+X50    FORMAT(' SYNMCH- RESULTS ',L1,6I7)
+X      RETURN
+XC
+X      END
+X`0C
+XC UNPACK-       UNPACK SYNTAX SPECIFICATION, ADV POINTER
+XC
+XC DECLARATIONS
+XC
+X      SUBROUTINE UNPACK(OLDJ,J)
+X      IMPLICIT INTEGER(A-Z)
+X
+X      INCLUDE 'VOCAB.LIB'
+X      INCLUDE 'PARSER.LIB'
+XC
+X      DO 10 I=1,11
+XC                                               !CLEAR SYNTAX.
+X        SYN(I)=0
+X10    CONTINUE
+XC
+X      VFLAG=VVOC(OLDJ)
+X      J=OLDJ+1
+X      IF(and(VFLAG,SDIR).EQ.0) RETURN
+X      DFL1=-1
+XC                                               !ASSUME STD.
+X      DFL2=-1
+X      IF(and(VFLAG,SSTD).EQ.0) GO TO 100
+X      DFW1=-1
+XC                                               !YES.
+X      DFW2=-1
+X      DOBJ=VABIT+VRBIT+VFBIT
+X      GO TO 200
+XC
+X100   DOBJ=VVOC(J)
+XC                                               !NOT STD.
+X      DFW1=VVOC(J+1)
+X      DFW2=VVOC(J+2)
+X      J=J+3
+X      IF(and(DOBJ,VEBIT).EQ.0) GO TO 200
+X      DFL1=DFW1
+XC                                               !YES.
+X      DFL2=DFW2
+XC
+X200   IF(and(VFLAG,SIND).EQ.0) RETURN
+X      IFL1=-1
+XC                                               !ASSUME STD.
+X      IFL2=-1
+X      IOBJ=VVOC(J)
+X      IFW1=VVOC(J+1)
+X      IFW2=VVOC(J+2)
+X      J=J+3
+X      IF(and(IOBJ,VEBIT).EQ.0) RETURN
+X      IFL1=IFW1
+XC                                               !YES.
+X      IFL2=IFW2
+X      RETURN
+XC
+X      END
+X`0C
+XC SYNEQL-       TEST FOR SYNTAX EQUALITY
+XC
+XC DECLARATIONS
+XC
+X      LOGICAL FUNCTION SYNEQL(PREP,OBJ,SPREP,SFL1,SFL2)
+X      IMPLICIT INTEGER(A-Z)
+X
+X      INCLUDE 'OBJECTS.LIB'
+X      INCLUDE 'PARSER.LIB'
+XC
+X      IF(OBJ.EQ.0) GO TO 100
+XC                                               !ANY OBJECT?
+X      SYNEQL=(PREP.EQ.and(SPREP,VPMASK)).AND.
+X     &         (or(and(SFL1,OFLAG1(OBJ)),
+X     &          and(SFL2,OFLAG2(OBJ))).NE.0)
+X      RETURN
+XC
+X100   SYNEQL=(PREP.EQ.0).AND.(SFL1.EQ.0).AND.(SFL2.EQ.0)
+X      RETURN
+XC
+X      END
+XC TAKEIT-       PARSER BASED TAKE OF OBJECT
+XC
+XC DECLARATIONS
+XC
+X      LOGICAL FUNCTION TAKEIT(OBJ,SFLAG)
+X      IMPLICIT INTEGER(A-Z)
+X      INCLUDE 'PARSER.LIB'
+X      COMMON /STAR/ MBASE,STRBIT
+X      INCLUDE 'GAMESTATE.LIB'
+X      INCLUDE 'STATE.LIB'
+X      INCLUDE 'OBJECTS.LIB'
+X      INCLUDE 'OFLAGS.LIB'
+X      INCLUDE 'ADVERS.LIB'
+X`0C
+XC TAKEIT, PAGE 2
+XC
+X      TAKEIT=.FALSE.
+XC                                               !ASSUME LOSES.
+X      IF((OBJ.EQ.0).OR.(OBJ.GT.STRBIT)) GO TO 4000
+XC                                               !NULL/STARS WIN.
+X      ODO2=ODESC2(OBJ)
+XC                                               !GET DESC.
+X      X=OCAN(OBJ)
+XC                                               !GET CONTAINER.
+X      IF((X.EQ.0).OR.(and(SFLAG,VFBIT).EQ.0)) GO TO 500
+X      IF(and(OFLAG2(X),OPENBT).NE.0) GO TO 500
+X      CALL RSPSUB(566,ODO2)
+XC                                               !CANT REACH.
+X      RETURN
+XC
+X500   IF(and(SFLAG,VRBIT).EQ.0) GO TO 1000
+X      IF(and(SFLAG,VTBIT).EQ.0) GO TO 2000
+XC
+XC SHOULD BE IN ROOM (VRBIT NE 0) AND CAN BE TAKEN (VTBIT NE 0)
+XC
+X      IF(SCHLST(0,0,HERE,0,0,OBJ).LE.0) GO TO 4000
+XC                                               !IF NOT, OK.
+XC
+XC ITS IN THE ROOM AND CAN BE TAKEN.
+XC
+X      IF((and(OFLAG1(OBJ),TAKEBT).NE.0).AND.
+X     &   (and(OFLAG2(OBJ),TRYBT).EQ.0)) GO TO 3000
+XC
+XC NOT TAKEABLE.  IF WE CARE, FAIL.
+XC
+X      IF(and(SFLAG,VCBIT).EQ.0) GO TO 4000
+X      CALL RSPSUB(445,ODO2)
+X      RETURN
+XC
+XC 1000--        IT SHOULD NOT BE IN THE ROOM.
+XC 2000--        IT CANT BE TAKEN.
+XC
+X2000  IF(and(SFLAG,VCBIT).EQ.0) GO TO 4000
+X1000  IF(SCHLST(0,0,HERE,0,0,OBJ).LE.0) GO TO 4000
+X      CALL RSPSUB(665,ODO2)
+X      RETURN
+X`0C
+XC TAKEIT, PAGE 3
+XC
+XC OBJECT IS IN THE ROOM, CAN BE TAKEN BY THE PARSER,
+XC AND IS TAKEABLE IN GENERAL.  IT IS NOT A STAR.
+XC TAKING IT SHOULD NOT HAVE SIDE AFFECTS.
+XC IF IT IS INSIDE SOMETHING, THE CONTAINER IS OPEN.
+XC THE FOLLOWING CODE IS LIFTED FROM SUBROUTINE TAKE.
+XC
+X3000  IF(OBJ.NE.AVEHIC(WINNER)) GO TO 3500
+XC                                               !TAKE VEHICLE?
+X      CALL RSPEAK(672)
+X      RETURN
+XC
+X3500  IF(((X.NE.0).AND.(OADV(X).EQ.WINNER)).OR.
+X     &   ((WEIGHT(0,OBJ,WINNER)+OSIZE(OBJ)).LE.MXLOAD))
+X     &  GO TO 3700
+X      CALL RSPEAK(558)
+XC                                               !TOO BIG.
+X      RETURN
+XC
+X3700  CALL NEWSTA(OBJ,559,0,0,WINNER)
+XC                                               !DO TAKE.
+X      OFLAG2(OBJ)=or(OFLAG2(OBJ),TCHBT)
+X      CALL SCRUPD(OFVAL(OBJ))
+X      OFVAL(OBJ)=0
+XC
+X4000  TAKEIT=.TRUE.
+XC                                               !SUCCESS.
+X      RETURN
+XC
+X      END
+X`0C
+XC
+XC GWIM- GET WHAT I MEAN IN AMBIGOUS SITUATIONS
+XC
+XC DECLARATIONS
+XC
+X      INTEGER FUNCTION GWIM(SFLAG,SFW1,SFW2)
+X      IMPLICIT INTEGER(A-Z)
+X      LOGICAL TAKEIT,NOCARE
+X
+X      INCLUDE 'PARSER.LIB'
+X      COMMON /STAR/ MBASE,STRBIT
+X      INCLUDE 'GAMESTATE.LIB'
+X      INCLUDE 'OBJECTS.LIB'
+X      INCLUDE 'OFLAGS.LIB'
+X      INCLUDE 'ADVERS.LIB'
+X`0C
+XC GWIM, PAGE 2
+XC
+X      GWIM=-1
+XC                                               !ASSUME LOSE.
+X      AV=AVEHIC(WINNER)
+X      NOBJ=0
+X      NOCARE=and(SFLAG,VCBIT).EQ.0
+XC
+XC FIRST SEARCH ADVENTURER
+XC
+X      IF(and(SFLAG,VABIT).NE.0)
+X     &  NOBJ=FWIM(SFW1,SFW2,0,0,WINNER,NOCARE)
+X      IF(and(SFLAG,VRBIT).NE.0) GO TO 100
+X50    GWIM=NOBJ
+X      RETURN
+XC
+XC ALSO SEARCH ROOM
+XC
+X100   ROBJ=FWIM(SFW1,SFW2,HERE,0,0,NOCARE)
+X      IF(ROBJ) 500,50,200
+XC                                               !TEST RESULT.
+XC
+XC ROBJ > 0
+XC
+X200    IF((AV.EQ.0).OR.(ROBJ.EQ.AV).OR.
+X     &    (and(OFLAG2(ROBJ),FINDBT).NE.0)) GO TO 300
+X      IF(OCAN(ROBJ).NE.AV) GO TO 50
+XC                                               !UNREACHABLE? TRY NOBJ
+X300   IF(NOBJ.NE.0) RETURN
+XC                                               !IF AMBIGUOUS, RETURN.
+X      IF(.NOT.TAKEIT(ROBJ,SFLAG)) RETURN
+XC                                               !IF UNTAKEABLE, RETURN
+X      GWIM=ROBJ
+X500   RETURN
+XC
+X      END
+$ CALL UNPACK [.SRC]NP3.FOR;1 2069732429
+$ create 'f'
+XC RAPPL2- SPECIAL PURPOSE ROOM ROUTINES, PART 2
+XC
+XC COPYRIGHT 1980, INFOCOM COMPUTERS AND COMMUNICATIONS, CAMBRIDGE MA. 02142
+XC ALL RIGHTS RESERVED, COMMERCIAL USAGE STRICTLY PROHIBITED
+XC WRITTEN BY R. M. SUPNIK
+XC
+XC DECLARATIONS
+XC
+X      LOGICAL FUNCTION RAPPL2(RI)
+X      IMPLICIT INTEGER (A-Z)
+X      LOGICAL QOPEN,QHERE
+X
+X      INCLUDE 'PARSER.LIB'
+X      INCLUDE 'GAMESTATE.LIB'
+X      INCLUDE 'STATE.LIB'
+X      INCLUDE 'IO.LIB'
+X      INCLUDE 'ROOMS.LIB'
+X      INCLUDE 'RFLAG.LIB'
+X      INCLUDE 'RINDEX.LIB'
+X      INCLUDE 'OBJECTS.LIB'
+X      INCLUDE 'OFLAGS.LIB'
+X      INCLUDE 'OINDEX.LIB'
+X      INCLUDE 'XSRCH.LIB'
+X      INCLUDE 'CLOCK.LIB'
+X      INCLUDE 'ADVERS.LIB'
+X      INCLUDE 'VERBS.LIB'
+X      INCLUDE 'FLAGS.LIB'
+XC
+XC FUNCTIONS AND DATA
+XC
+X      QOPEN(R)=and(OFLAG2(R),OPENBT).NE.0
+X      DATA NEWRMS/38/
+X`0C
+XC RAPPL2, PAGE 2
+XC
+X      RAPPL2=.TRUE.
+X      GO TO (38000,39000,40000,41000,42000,43000,44000,
+X     &       45000,46000,47000,48000,49000,50000,
+X     &       51000,52000,53000,54000,55000,56000,
+X     &       57000,58000,59000,60000),
+X     &  (RI-NEWRMS+1)
+X      CALL BUG(70,RI)
+X      RETURN
+XC
+XC R38-- MIRROR D ROOM
+XC
+X38000 IF(PRSA.EQ.LOOKW) CALL LOOKTO(FDOOR,MRG,0,682,681)
+X      RETURN
+XC
+XC R39-- MIRROR G ROOM
+XC
+X39000 IF(PRSA.EQ.WALKIW) CALL JIGSUP(685)
+X      RETURN
+XC
+XC R40-- MIRROR C ROOM
+XC
+X40000 IF(PRSA.EQ.LOOKW) CALL LOOKTO(MRG,MRB,683,0,681)
+X      RETURN
+XC
+XC R41-- MIRROR B ROOM
+XC
+X41000 IF(PRSA.EQ.LOOKW) CALL LOOKTO(MRC,MRA,0,0,681)
+X      RETURN
+XC
+XC R42-- MIRROR A ROOM
+XC
+X42000 IF(PRSA.EQ.LOOKW) CALL LOOKTO(MRB,0,0,684,681)
+X      RETURN
+X`0C
+XC RAPPL2, PAGE 3
+XC
+XC R43-- MIRROR C EAST/WEST
+XC
+X43000 IF(PRSA.EQ.LOOKW) CALL EWTELL(HERE,683)
+X      RETURN
+XC
+XC R44-- MIRROR B EAST/WEST
+XC
+X44000 IF(PRSA.EQ.LOOKW) CALL EWTELL(HERE,686)
+X      RETURN
+XC
+XC R45-- MIRROR A EAST/WEST
+XC
+X45000 IF(PRSA.EQ.LOOKW) CALL EWTELL(HERE,687)
+X      RETURN
+XC
+XC R46-- INSIDE MIRROR
+XC
+X46000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      CALL RSPEAK(688)
+XC                                               !DESCRIBE
+XC
+XC NOW DESCRIBE POLE STATE.
+XC
+XC CASES 1,2--   MDIR=270 & MLOC=MRB, POLE IS UP OR IN HOLE
+XC CASES 3,4--   MDIR=0 V MDIR=180, POLE IS UP OR IN CHANNEL
+XC CASE 5--      POLE IS UP
+XC
+X      I=689
+XC                                               !ASSUME CASE 5.
+X      IF((MDIR.EQ.270).AND.(MLOC.EQ.MRB))
+X     &  I=690+MIN0(POLEUF,1)
+X      IF(MOD(MDIR,180).EQ.0)
+X     &  I=692+MIN0(POLEUF,1)
+X      CALL RSPEAK(I)
+XC                                               !DESCRIBE POLE.
+X      CALL RSPSUB(694,695+(MDIR/45))
+XC                                               !DESCRIBE ARROW.
+X      RETURN
+X`0C
+XC RAPPL2, PAGE 4
+XC
+XC R47-- MIRROR EYE ROOM
+XC
+X47000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=704
+XC                                               !ASSUME BEAM STOP.
+X      DO 47100 J=1,OLNT
+X        IF(QHERE(J,HERE).AND.(J.NE.RBEAM)) GO TO 47200
+X47100 CONTINUE
+X      I=703
+X47200 CALL RSPSUB(I,ODESC2(J))
+XC                                               !DESCRIBE BEAM.
+X      CALL LOOKTO(MRA,0,0,0,0)
+XC                                               !LOOK NORTH.
+X      RETURN
+XC
+XC R48-- INSIDE CRYPT
+XC
+X48000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=46
+XC                                               !CRYPT IS OPEN/CLOSED.
+X      IF(QOPEN(TOMB)) I=12
+X      CALL RSPSUB(705,I)
+X      RETURN
+XC
+XC R49-- SOUTH CORRIDOR
+XC
+X49000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      CALL RSPEAK(706)
+XC                                               !DESCRIBE.
+X      I=46
+XC                                               !ODOOR IS OPEN/CLOSED.
+X      IF(QOPEN(ODOOR)) I=12
+X      IF(LCELL.EQ.4) CALL RSPSUB(707,I)
+XC                                               !DESCRIBE ODOOR IF THERE.
+X      RETURN
+XC
+XC R50-- BEHIND DOOR
+XC
+X50000 IF(PRSA.NE.WALKIW) GO TO 50100
+XC                                               !WALK IN?
+X      CFLAG(CEVFOL)=.TRUE.
+XC                                               !MASTER FOLLOWS.
+X      CTICK(CEVFOL)=-1
+X      RETURN
+XC
+X50100 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=46
+XC                                               !QDOOR IS OPEN/CLOSED.
+X      IF(QOPEN(QDOOR)) I=12
+X      CALL RSPSUB(708,I)
+X      RETURN
+X`0C
+XC RAPPL2, PAGE 5
+XC
+XC R51-- FRONT DOOR
+XC
+X51000 IF(PRSA.EQ.WALKIW) CTICK(CEVFOL)=0
+XC                                               !IF EXITS, KILL FOLLOW.
+X      IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      CALL LOOKTO(0,MRD,709,0,0)
+XC                                               !DESCRIBE SOUTH.
+X      I=46
+XC                                               !PANEL IS OPEN/CLOSED.
+X      IF(INQSTF) I=12
+XC                                               !OPEN IF INQ STARTED.
+X      J=46
+XC                                               !QDOOR IS OPEN/CLOSED.
+X      IF(QOPEN(QDOOR)) J=12
+X      CALL RSPSB2(710,I,J)
+X      RETURN
+XC
+XC R52-- NORTH CORRIDOR
+XC
+X52000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=46
+X      IF(QOPEN(CDOOR)) I=12
+XC                                               !CDOOR IS OPEN/CLOSED.
+X      CALL RSPSUB(711,I)
+X      RETURN
+XC
+XC R53-- PARAPET
+XC
+X53000 IF(PRSA.EQ.LOOKW) CALL RSPSUB(712,712+PNUMB)
+X      RETURN
+XC
+XC R54-- CELL
+XC
+X54000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=721
+XC                                               !CDOOR IS OPEN/CLOSED.
+X      IF(QOPEN(CDOOR)) I=722
+X      CALL RSPEAK(I)
+X      I=46
+XC                                               !ODOOR IS OPEN/CLOSED.
+X      IF(QOPEN(ODOOR)) I=12
+X      IF(LCELL.EQ.4) CALL RSPSUB(723,I)
+XC                                               !DESCRIBE.
+X      RETURN
+XC
+XC R55-- PRISON CELL
+XC
+X55000 IF(PRSA.EQ.LOOKW) CALL RSPEAK(724)
+XC                                               !LOOK?
+X      RETURN
+XC
+XC R56-- NIRVANA CELL
+XC
+X56000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=46
+XC                                               !ODOOR IS OPEN/CLOSED.
+X      IF(QOPEN(ODOOR)) I=12
+X      CALL RSPSUB(725,I)
+X      RETURN
+X`0C
+XC RAPPL2, PAGE 6
+XC
+XC R57-- NIRVANA AND END OF GAME
+XC
+X57000 IF(PRSA.NE.WALKIW) RETURN
+XC                                               !WALKIN?
+X      CALL RSPEAK(726)
+X      CALL SCORE(.FALSE.)
+XC moved to exit routine CLOSE(DBCH)
+X      CALL EXIT
+XC
+XC R58-- TOMB ROOM
+XC
+X58000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=46
+XC                                               !TOMB IS OPEN/CLOSED.
+X      IF(QOPEN(TOMB)) I=12
+X      CALL RSPSUB(792,I)
+X      RETURN
+XC
+XC R59-- PUZZLE SIDE ROOM
+XC
+X59000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      I=861
+XC                                               !ASSUME DOOR CLOSED.
+X      IF(CPOUTF) I=862
+XC                                               !OPEN?
+X      CALL RSPEAK(I)
+XC                                               !DESCRIBE.
+X      RETURN
+XC
+XC R60-- PUZZLE ROOM
+XC
+X60000 IF(PRSA.NE.LOOKW) RETURN
+XC                                               !LOOK?
+X      IF(CPUSHF) GO TO 60100
+XC                                               !STARTED PUZZLE?
+X      CALL RSPEAK(868)
+XC                                               !NO, DESCRIBE.
+X      IF(and(OFLAG2(WARNI),TCHBT).NE.0) CALL RSPEAK(869)
+X      RETURN
+XC
+X60100 CALL CPINFO(880,CPHERE)
+XC                                               !DESCRIBE ROOM.
+X      RETURN
+XC
+X      END
+XC LOOKTO--      DESCRIBE VIEW IN MIRROR HALLWAY
+XC
+XC DECLARATIONS
+XC
+X      SUBROUTINE LOOKTO(NRM,SRM,NT,ST,HT)
+X      IMPLICIT INTEGER(A-Z)
+X
+X      INCLUDE 'GAMESTATE.LIB'
+X      INCLUDE 'FLAGS.LIB'
+X`0C
+XC LOOKTO, PAGE 2
+XC
+X      CALL RSPEAK(HT)
+XC                                               !DESCRIBE HALL.
+X      CALL RSPEAK(NT)
+XC                                               !DESCRIBE NORTH VIEW.
+X      CALL RSPEAK(ST)
+XC                                               !DESCRIBE SOUTH VIEW.
+X      DIR=0
+XC                                               !ASSUME NO DIRECTION.
+X      IF(IABS(MLOC-HERE).NE.1) GO TO 200
+XC                                               !MIRROR TO N OR S?
+X      IF(MLOC.EQ.NRM) DIR=695
+X      IF(MLOC.EQ.SRM) DIR=699
+XC                                               !DIR=N/S.
+X      IF(MOD(MDIR,180).NE.0) GO TO 100
+XC                                               !MIRROR N-S?
+X      CALL RSPSUB(847,DIR)
+XC                                               !YES, HE SEES PANEL
+X      CALL RSPSB2(848,DIR,DIR)
+XC                                               !AND NARROW ROOMS.
+X      GO TO 200
+XC
+X100   M1=MRHERE(HERE)
+XC                                               !WHICH MIRROR?
+X      MRBF=0
+XC                                               !ASSUME INTACT.
+X      IF(((M1.EQ.1).AND..NOT.MR1F).OR.
+X     &   ((M1.EQ.2).AND..NOT.MR2F)) MRBF=1
+X      CALL RSPSUB(849+MRBF,DIR)
+XC                                               !DESCRIBE.
+X      IF((M1.EQ.1).AND.MROPNF) CALL RSPEAK(823+MRBF)
+X      IF(MRBF.NE.0) CALL RSPEAK(851)
+XC
+X200   I=0
+XC                                               !ASSUME NO MORE TO DO.
+X      IF((NT.EQ.0).AND.((DIR.EQ.0).OR.(DIR.EQ.699))) I=852
+X      IF((ST.EQ.0).AND.((DIR.EQ.0).OR.(DIR.EQ.695))) I=853
+X      IF((NT+ST+DIR).EQ.0) I=854
+X      IF(HT.NE.0) CALL RSPEAK(I)
+XC                                               !DESCRIBE HALLS.
+X      RETURN
+XC
+X      END
+X`0C
+XC EWTELL--      DESCRIBE E/W NARROW ROOMS
+XC
+XC DECLARATIONS
+XC
+X      SUBROUTINE EWTELL(RM,ST)
+X      IMPLICIT INTEGER(A-Z)
+X      LOGICAL M1
+XC
+XC ROOMS
+X
+X      INCLUDE 'RINDEX.LIB'
+X      INCLUDE 'FLAGS.LIB'
+X`0C
+XC EWTELL, PAGE 2
+XC
+XC NOTE THAT WE ARE EAST OR WEST OF MIRROR, AND
+XC MIRROR MUST BE N-S.
+XC
+X      M1=(MDIR+(MOD(RM-MRAE,2)*180)).EQ.180
+X      I=819+MOD(RM-MRAE,2)
+XC                                               !GET BASIC E/W STRING.
+X      IF((M1.AND..NOT.MR1F).OR.(.NOT.M1.AND..NOT.MR2F))
+X     &  I=I+2
+X      CALL RSPEAK(I)
+X      IF(M1.AND.MROPNF) CALL RSPEAK(823+((I-819)/2))
+X      CALL RSPEAK(825)
+X      CALL RSPEAK(ST)
+X      RETURN
+XC
+X      END
+$ CALL UNPACK [.SRC]NROOMS.FOR;1 1985880065
+$ create 'f'
+XC OAPPLI- OBJECT SPECIAL ACTION ROUTINES
+XC
+XC COPYRIGHT 1980, INFOCOM COMPUTERS AND COMMUNICATIONS, CAMBRIDGE MA. 02142
+XC ALL RIGHTS RESERVED, COMMERCIAL USAGE STRICTLY PROHIBITED
+XC WRITTEN BY R. M. SUPNIK
+XC
+XC DECLARATIONS
+XC
+X      LOGICAL FUNCTION OAPPLI(RI,ARG)
+X      IMPLICIT INTEGER (A-Z)
+X      LOGICAL SOBJS,NOBJS
+X      LOGICAL QOPEN,QON,LIT
+X      LOGICAL MOVETO,RMDESC,CLOCKD
+X      LOGICAL THIEFP,CYCLOP,TROLLP,BALLOP,LIGHTP
+X      LOGICAL QEMPTY,QHERE,F,OPNCLS
+X
+X      INCLUDE 'PARSER.LIB'
+X      INCLUDE 'GAMESTATE.LIB'
+X      INCLUDE 'STATE.LIB'
+XC
+X      COMMON /BATS/ BATDRP(9)
+XC
+XC PUZZLE ROOM
+XC
+X      COMMON /PUZZLE/ CPDR(16),CPWL(8),CPVEC(64)
+X
+X      INCLUDE 'ROOMS.LIB'
+X      INCLUDE 'RFLAG.LIB'
+X      INCLUDE 'RINDEX.LIB'
+X      INCLUDE 'OBJECTS.LIB'
+X      INCLUDE 'OFLAGS.LIB'
+X      INCLUDE 'OINDEX.LIB'
+X      INCLUDE 'CLOCK.LIB'
+X
+X      INCLUDE 'ADVERS.LIB'
+X      INCLUDE 'VERBS.LIB'
+X      INCLUDE 'FLAGS.LIB'
+XC
+XC FUNCTIONS AND DATA
+XC
+X      QOPEN(R)=and(OFLAG2(R),OPENBT).NE.0
+X      QON(R)=and(OFLAG1(R),ONBT).NE.0
+X      DATA MXSMP/99/
+X`0C
+XC OAPPLI, PAGE 2
+XC
+X      IF(RI.EQ.0) GO TO 10
+XC                                               !ZERO IS FALSE APP.
+X      IF(RI.LE.MXSMP) GO TO 100
+XC                                               !SIMPLE OBJECT?
+X      IF(PRSO.GT.220) GO TO 5
+X      IF(PRSO.NE.0) ODO2=ODESC2(PRSO)
+X5     IF(PRSI.NE.0) ODI2=ODESC2(PRSI)
+X      AV=AVEHIC(WINNER)
+X      FLOBTS=FLAMBT+LITEBT+ONBT
+X      OAPPLI=.TRUE.
+XC
+X      GO TO (2000,5000,10000,11000,12000,15000,18000,
+X     &   19000,20000,22000,25000,26000,32000,35000,39000,40000,
+X     &   45000,47000,48000,49000,50000,51000,52000,54000,55000,
+X     &   56000,57000,58000,59000,60000,61000,62000),
+X     &  (RI-MXSMP)
+X      CALL BUG(6,RI)
+XC
+XC RETURN HERE TO DECLARE FALSE RESULT
+XC
+X10    OAPPLI=.FALSE.
+X      RETURN
+XC
+XC SIMPLE OBJECTS, PROCESSED EXTERNALLY.
+XC
+X100   IF(RI.LT.32) OAPPLI=SOBJS(RI,ARG)
+X      IF(RI.GE.32) OAPPLI=NOBJS(RI,ARG)
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 3
+XC
+XC O100--        MACHINE FUNCTION
+XC
+X2000  IF(HERE.NE.MMACH) GO TO 10
+XC                                               !NOT HERE? F
+X      OAPPLI=OPNCLS(MACHI,123,124)
+XC                                               !HANDLE OPN/CLS.
+X      RETURN
+XC
+XC O101--        WATER FUNCTION
+XC
+X5000  IF(PRSA.NE.FILLW) GO TO 5050
+XC                                               !FILL X WITH Y IS
+X      PRSA=PUTW
+XC                                               !MADE INTO
+X      I=PRSI
+X      PRSI=PRSO
+X      PRSO=I
+XC                                               !PUT Y IN X.
+X      I=ODI2
+X      ODI2=ODO2
+X      ODO2=I
+X5050  IF((PRSO.EQ.WATER).OR.(PRSO.EQ.GWATE)) GO TO 5100
+X      CALL RSPEAK(561)
+XC                                               !WATER IS IND OBJ,
+X      RETURN
+XC                                               !PUNT.
+XC
+X5100  IF(PRSA.NE.TAKEW) GO TO 5400
+XC                                               !TAKE WATER?
+X      IF((OADV(BOTTL).EQ.WINNER).AND.(OCAN(PRSO).NE.BOTTL))
+X     &  GO TO 5500
+X      IF(OCAN(PRSO).EQ.0) GO TO 5200
+XC                                               !INSIDE ANYTHING?
+X      IF(QOPEN(OCAN(PRSO))) GO TO 5200
+XC                                               !YES, OPEN?
+X      CALL RSPEAK(525,ODESC2(OCAN(PRSO)))
+XC                                               !INSIDE, CLOSED, PUNT.
+X      RETURN
+XC
+X5200  CALL RSPEAK(615)
+XC                                               !NOT INSIDE OR OPEN,
+X      RETURN
+XC                                               !SLIPS THRU FINGERS.
+XC
+X5400  IF(PRSA.NE.PUTW) GO TO 5700
+XC                                               !PUT WATER IN X?
+X      IF((AV.NE.0).AND.(PRSI.EQ.AV)) GO TO 5800
+XC                                               !IN VEH?
+X      IF(PRSI.EQ.BOTTL) GO TO 5500
+XC                                               !IN BOTTLE?
+X      CALL RSPSUB(297,ODI2)
+XC                                               !WONT GO ELSEWHERE.
+X      CALL NEWSTA(PRSO,0,0,0,0)
+XC                                               !VANISH WATER.
+X      RETURN
+XC
+X5500  IF(QOPEN(BOTTL)) GO TO 5550
+XC                                               !BOTTLE OPEN?
+X      CALL RSPEAK(612)
+XC                                               !NO, LOSE.
+X      RETURN
+XC
+X5550  IF(QEMPTY(BOTTL)) GO TO 5600
+XC                                               !OPEN, EMPTY?
+X      CALL RSPEAK(613)
+XC                                               !NO, ALREADY FULL.
+X      RETURN
+XC
+X5600  CALL NEWSTA(WATER,614,0,BOTTL,0)
+XC                                               !TAKE WATER TO BOTTLE.
+X      RETURN
+XC
+X5700  IF((PRSA.NE.DROPW).AND.(PRSA.NE.POURW).AND.
+X     &   (PRSA.NE.GIVEW)) GO TO 5900
+X      IF(AV.NE.0) GO TO 5800
+XC                                               !INTO VEHICLE?
+X      CALL NEWSTA(PRSO,133,0,0,0)
+XC                                               !NO, VANISHES.
+X      RETURN
+XC
+X5800  CALL NEWSTA(WATER,0,0,AV,0)
+XC                                               !WATER INTO VEHICLE.
+X      CALL RSPSUB(296,ODESC2(AV))
+XC                                               !DESCRIBE.
+X      RETURN
+XC
+X5900  IF(PRSA.NE.THROWW) GO TO 10
+XC                                               !LAST CHANCE, THROW?
+X      CALL NEWSTA(PRSO,132,0,0,0)
+XC                                               !VANISHES.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 4
+XC
+XC O102--        LEAF PILE
+XC
+X10000 IF(PRSA.NE.BURNW) GO TO 10500
+XC                                               !BURN?
+X      IF(OROOM(PRSO).EQ.0) GO TO 10100
+XC                                               !WAS HE CARRYING?
+X      CALL NEWSTA(PRSO,158,0,0,0)
+XC                                               !NO, BURN IT.
+X      RETURN
+XC
+X10100 CALL NEWSTA(PRSO,0,HERE,0,0)
+XC                                               !DROP LEAVES.
+X      CALL JIGSUP(159)
+XC                                               !BURN HIM.
+X      RETURN
+XC
+X10500 IF(PRSA.NE.MOVEW) GO TO 10600
+XC                                               !MOVE?
+X      CALL RSPEAK(2)
+XC                                               !DONE.
+X      RETURN
+XC
+X10600 IF((PRSA.NE.LOOKUW).OR.(RVCLR.NE.0)) GO TO 10
+X      CALL RSPEAK(344)
+XC                                               !LOOK UNDER?
+X      RETURN
+XC
+XC O103--        TROLL, DONE EXTERNALLY.
+XC
+X11000 OAPPLI=TROLLP(ARG)
+XC                                               !TROLL PROCESSOR.
+X      RETURN
+XC
+XC O104--        RUSTY KNIFE.
+XC
+X12000 IF(PRSA.NE.TAKEW) GO TO 12100
+XC                                               !TAKE?
+X      IF(OADV(SWORD).EQ.WINNER) CALL RSPEAK(160)
+XC                                               !PULSE SWORD.
+X      GO TO 10
+XC
+X12100 IF((((PRSA.NE.ATTACW).AND.(PRSA.NE.KILLW)).OR.
+X     &     (PRSI.NE.RKNIF)).AND.
+X     &    (((PRSA.NE.SWINGW).AND.(PRSA.NE.THROWW)).OR.
+X     &     (PRSO.NE.RKNIF))) GO TO 10
+X      CALL NEWSTA(RKNIF,0,0,0,0)
+XC                                               !KILL KNIFE.
+X      CALL JIGSUP(161)
+XC                                               !KILL HIM.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 5
+XC
+XC O105--        GLACIER
+XC
+X15000 IF(PRSA.NE.THROWW) GO TO 15500
+XC                                               !THROW?
+X      IF(PRSO.NE.TORCH) GO TO 15400
+XC                                               !TORCH?
+X      CALL NEWSTA(ICE,169,0,0,0)
+XC                                               !MELT ICE.
+X      ODESC1(TORCH)=174
+XC                                               !MUNG TORCH.
+X      ODESC2(TORCH)=173
+X      OFLAG1(TORCH)=and(OFLAG1(TORCH), not(FLOBTS))
+X      CALL NEWSTA(TORCH,0,STREA,0,0)
+XC                                               !MOVE TORCH.
+X      GLACRF=.TRUE.
+XC                                               !GLACIER GONE.
+X      IF(.NOT.LIT(HERE)) CALL RSPEAK(170)
+XC                                               !IN DARK?
+X      RETURN
+XC
+X15400 CALL RSPEAK(171)
+XC                                               !JOKE IF NOT TORCH.
+X      RETURN
+XC
+X15500 IF((PRSA.NE.MELTW).OR.(PRSO.NE.ICE)) GO TO 10
+X      IF(and(OFLAG1(PRSI),FLOBTS).EQ.FLOBTS) GO TO 15600
+X      CALL RSPSUB(298,ODI2)
+XC                                               !CANT MELT WITH THAT.
+X      RETURN
+XC
+X15600 GLACMF=.TRUE.
+XC                                               !PARTIAL MELT.
+X      IF(PRSI.NE.TORCH) GO TO 15700
+XC                                               !MELT WITH TORCH?
+X      ODESC1(TORCH)=174
+XC                                               !MUNG TORCH.
+X      ODESC2(TORCH)=173
+X      OFLAG1(TORCH)=and(OFLAG1(TORCH), not(FLOBTS))
+X15700 CALL JIGSUP(172)
+XC                                               !DROWN.
+X      RETURN
+XC
+XC O106--        BLACK BOOK
+XC
+X18000 IF(PRSA.NE.OPENW) GO TO 18100
+XC                                               !OPEN?
+X      CALL RSPEAK(180)
+XC                                               !JOKE.
+X      RETURN
+XC
+X18100 IF(PRSA.NE.CLOSEW) GO TO 18200
+XC                                               !CLOSE?
+X      CALL RSPEAK(181)
+X      RETURN
+XC
+X18200 IF(PRSA.NE.BURNW) GO TO 10
+XC                                               !BURN?
+X      CALL NEWSTA(PRSO,0,0,0,0)
+XC                                               !FATAL JOKE.
+X      CALL JIGSUP(182)
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 6
+XC
+XC O107--        CANDLES, PROCESSED EXTERNALLY
+XC
+X19000 OAPPLI=LIGHTP(CANDL)
+X      RETURN
+XC
+XC O108--        MATCHES, PROCESSED EXTERNALLY
+XC
+X20000 OAPPLI=LIGHTP(MATCH)
+X      RETURN
+XC
+XC O109--        CYCLOPS, PROCESSED EXTERNALLY.
+XC
+X22000 OAPPLI=CYCLOP(ARG)
+XC                                               !CYCLOPS
+X      RETURN
+XC
+XC O110--        THIEF, PROCESSED EXTERNALLY
+XC
+X25000 OAPPLI=THIEFP(ARG)
+X      RETURN
+XC
+XC O111--        WINDOW
+XC
+X26000 OAPPLI=OPNCLS(WINDO,208,209)
+XC                                               !OPEN/CLS WINDOW.
+X      RETURN
+XC
+XC O112--        PILE OF BODIES
+XC
+X32000 IF(PRSA.NE.TAKEW) GO TO 32500
+XC                                               !TAKE?
+X      CALL RSPEAK(228)
+XC                                               !CANT.
+X      RETURN
+XC
+X32500 IF((PRSA.NE.BURNW).AND.(PRSA.NE.MUNGW)) GO TO 10
+X      IF(ONPOLF) RETURN
+XC                                               !BURN OR MUNG?
+X      ONPOLF=.TRUE.
+XC                                               !SET HEAD ON POLE.
+X      CALL NEWSTA(HPOLE,0,LLD2,0,0)
+X      CALL JIGSUP(229)
+XC                                               !BEHEADED.
+X      RETURN
+XC
+XC O113--        VAMPIRE BAT
+XC
+X35000 CALL RSPEAK(50)
+XC                                               !TIME TO FLY, JACK.
+X      F=MOVETO(BATDRP(RND(9)+1),WINNER)
+XC                                               !SELECT RANDOM DEST.
+X      F=RMDESC(0)
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 7
+XC
+XC O114--        STICK
+XC
+X39000 IF(PRSA.NE.WAVEW) GO TO 10
+XC                                               !WAVE?
+X      IF(HERE.EQ.MRAIN) GO TO 39500
+XC                                               !ON RAINBOW?
+X      IF((HERE.EQ.POG).OR.(HERE.EQ.FALLS)) GO TO 39200
+X      CALL RSPEAK(244)
+XC                                               !NOTHING HAPPENS.
+X      RETURN
+XC
+X39200 OFLAG1(POT)=or(OFLAG1(POT),VISIBT)
+X      RAINBF=.NOT. RAINBF
+XC                                               !COMPLEMENT RAINBOW.
+X      I=245
+XC                                               !ASSUME OFF.
+X      IF(RAINBF) I=246
+XC                                               !IF ON, SOLID.
+X      CALL RSPEAK(I)
+XC                                               !DESCRIBE.
+X      RETURN
+XC
+X39500 RAINBF=.FALSE.
+XC                                               !ON RAINBOW,
+X      CALL JIGSUP(247)
+XC                                               !TAKE A FALL.
+X      RETURN
+XC
+XC O115--        BALLOON, HANDLED EXTERNALLY
+XC
+X40000 OAPPLI=BALLOP(ARG)
+X      RETURN
+XC
+XC O116--        HEADS
+XC
+X45000 IF(PRSA.NE.HELLOW) GO TO 45100
+XC                                               !HELLO HEADS?
+X      CALL RSPEAK(633)
+XC                                               !TRULY BIZARRE.
+X      RETURN
+XC
+X45100 IF(PRSA.EQ.READW) GO TO 10
+XC                                               !READ IS OK.
+X      CALL NEWSTA(LCASE,260,LROOM,0,0)
+XC                                               !MAKE LARGE CASE.
+X      I=ROBADV(WINNER,0,LCASE,0)+ROBRM(HERE,100,0,LCASE,0)
+X      CALL JIGSUP(261)
+XC                                               !KILL HIM.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 8
+XC
+XC O117--        SPHERE
+XC
+X47000 IF(CAGESF.OR.(PRSA.NE.TAKEW)) GO TO 10
+XC                                               !TAKE?
+X      IF(WINNER.NE.PLAYER) GO TO 47500
+XC                                               !ROBOT TAKE?
+X      CALL RSPEAK(263)
+XC                                               !NO, DROP CAGE.
+X      IF(OROOM(ROBOT).NE.HERE) GO TO 47200
+XC                                               !ROBOT HERE?
+X      F=MOVETO(CAGED,WINNER)
+XC                                               !YES, MOVE INTO CAGE.
+X      CALL NEWSTA(ROBOT,0,CAGED,0,0)
+XC                                               !MOVE ROBOT.
+X      AROOM(AROBOT)=CAGED
+X      OFLAG1(ROBOT)=or(OFLAG1(ROBOT),NDSCBT)
+X      CTICK(CEVSPH)=10
+XC                                               !GET OUT IN 10 OR ELSE.
+X      RETURN
+XC
+X47200 CALL NEWSTA(SPHER,0,0,0,0)
+XC                                               !YOURE DEAD.
+X      RFLAG(CAGER)=or(RFLAG(CAGER),RMUNG)
+X      RRAND(CAGER)=147
+X      CALL JIGSUP(148)
+XC                                               !MUNG PLAYER.
+X      RETURN
+XC
+X47500 CALL NEWSTA(SPHER,0,0,0,0)
+XC                                               !ROBOT TRIED,
+X      CALL NEWSTA(ROBOT,264,0,0,0)
+XC                                               !KILL HIM.
+X      CALL NEWSTA(CAGE,0,HERE,0,0)
+XC                                               !INSERT MANGLED CAGE.
+X      RETURN
+XC
+XC O118--        GEOMETRICAL BUTTONS
+XC
+X48000 IF(PRSA.NE.PUSHW) GO TO 10
+XC                                               !PUSH?
+X      I=PRSO-SQBUT+1
+XC                                               !GET BUTTON INDEX.
+X      IF((I.LE.0).OR.(I.GE.4)) GO TO 10
+XC                                               !A BUTTON?
+X      IF(WINNER.NE.PLAYER) GO TO (48100,48200,48300),I
+X      CALL JIGSUP(265)
+XC                                               !YOU PUSHED, YOU DIE.
+X      RETURN
+XC
+X48100 I=267
+X      IF(CAROZF) I=266
+XC                                               !SPEED UP?
+X      CAROZF=.TRUE.
+X      CALL RSPEAK(I)
+X      RETURN
+XC
+X48200 I=266
+XC                                               !ASSUME NO CHANGE.
+X      IF(CAROZF) I=268
+X      CAROZF=.FALSE.
+X      CALL RSPEAK(I)
+X      RETURN
+XC
+X48300 CAROFF=.NOT.CAROFF
+XC                                               !FLIP CAROUSEL.
+X      IF(.NOT.QHERE(IRBOX,CAROU)) RETURN
+XC                                               !IRON BOX IN CAROUSEL?
+X      CALL RSPEAK(269)
+XC                                               !YES, THUMP.
+X      OFLAG1(IRBOX)=xor(OFLAG1(IRBOX),VISIBT)
+X      IF(CAROFF) RFLAG(CAROU)=and(RFLAG(CAROU), not(RSEEN))
+X      RETURN
+XC
+XC O119--        FLASK FUNCTION
+XC
+X49000 IF(PRSA.EQ.OPENW) GO TO 49100
+XC                                               !OPEN?
+X      IF((PRSA.NE.MUNGW).AND.(PRSA.NE.THROWW)) GO TO 10
+X      CALL NEWSTA(FLASK,270,0,0,0)
+XC                                               !KILL FLASK.
+X49100 RFLAG(HERE)=or(RFLAG(HERE),RMUNG)
+X      RRAND(HERE)=271
+X      CALL JIGSUP(272)
+XC                                               !POISONED.
+X      RETURN
+XC
+XC O120--        BUCKET FUNCTION
+XC
+X50000 IF(ARG.NE.2) GO TO 10
+XC                                               !READOUT?
+X      IF((OCAN(WATER).NE.BUCKE).OR.BUCKTF) GO TO 50500
+X      BUCKTF=.TRUE.
+XC                                               !BUCKET AT TOP.
+X      CTICK(CEVBUC)=100
+XC                                               !START COUNTDOWN.
+X      CALL NEWSTA(BUCKE,290,TWELL,0,0)
+XC                                               !REPOSITION BUCKET.
+X      GO TO 50900
+XC                                               !FINISH UP.
+XC
+X50500 IF((OCAN(WATER).EQ.BUCKE).OR..NOT.BUCKTF) GO TO 10
+X      BUCKTF=.FALSE.
+X      CALL NEWSTA(BUCKE,291,BWELL,0,0)
+XC                                               !BUCKET AT BOTTOM.
+X50900 IF(AV.NE.BUCKE) RETURN
+XC                                               !IN BUCKET?
+X      F=MOVETO(OROOM(BUCKE),WINNER)
+XC                                               !MOVE ADVENTURER.
+X      F=RMDESC(0)
+XC                                               !DESCRIBE ROOM.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 9
+XC
+XC O121--        EATME CAKE
+XC
+X51000 IF((PRSA.NE.EATW).OR.(PRSO.NE.ECAKE).OR.
+X     &   (HERE.NE.ALICE)) GO TO 10
+X      CALL NEWSTA(ECAKE,273,0,0,0)
+XC                                               !VANISH CAKE.
+X      OFLAG1(ROBOT)=and(OFLAG1(ROBOT), not(VISIBT))
+X      OAPPLI=MOVETO(ALISM,WINNER)
+XC                                               !MOVE TO ALICE SMALL.
+X      IZ=64
+X      IR=ALISM
+X      IO=ALICE
+X      GO TO 52405
+XC
+XC O122--        ICINGS
+XC
+X52000 IF(PRSA.NE.READW) GO TO 52200
+XC                                               !READ?
+X      I=274
+XC                                               !CANT READ.
+X      IF(PRSI.NE.0) I=275
+XC                                               !THROUGH SOMETHING?
+X      IF(PRSI.EQ.BOTTL) I=276
+XC                                               !THROUGH BOTTLE?
+X      IF(PRSI.EQ.FLASK) I=277+(PRSO-ORICE)
+XC                                               !THROUGH FLASK?
+X      CALL RSPEAK(I)
+XC                                               !READ FLASK.
+X      RETURN
+XC
+X52200 IF((PRSA.NE.THROWW).OR.(PRSO.NE.RDICE).OR.(PRSI.NE.POOL))
+X     &  GO TO 52300
+X      CALL NEWSTA(POOL,280,0,0,0)
+XC                                               !VANISH POOL.
+X      OFLAG1(SAFFR)=or(OFLAG1(SAFFR),VISIBT)
+X      RETURN
+XC
+X52300 IF((HERE.NE.ALICE).AND.(HERE.NE.ALISM).AND.(HERE.NE.ALITR))
+X     &  GO TO 10
+X      IF(((PRSA.NE.EATW).AND.(PRSA.NE.THROWW)).OR.
+X     &   (PRSO.NE.ORICE)) GO TO 52400
+X      CALL NEWSTA(ORICE,0,0,0,0)
+XC                                               !VANISH ORANGE ICE.
+X      RFLAG(HERE)=or(RFLAG(HERE),RMUNG)
+X      RRAND(HERE)=281
+X      CALL JIGSUP(282)
+XC                                               !VANISH ADVENTURER.
+X      RETURN
+XC
+X52400 IF((PRSA.NE.EATW).OR.(PRSO.NE.BLICE))
+X     &  GO TO 10
+X      CALL NEWSTA(BLICE,283,0,0,0)
+XC                                               !VANISH BLUE ICE.
+X      IF(HERE.NE.ALISM) GO TO 52500
+XC                                               !IN REDUCED ROOM?
+X      OFLAG1(ROBOT)=or(OFLAG1(ROBOT),VISIBT)
+X      IO=HERE
+X      OAPPLI=MOVETO(ALICE,WINNER)
+X      IZ=1/64
+X      IR=ALICE
+XC
+XC  Do a size change, common loop used also by code at 51000
+XC
+X52405 DO 52450 I=1,OLNT
+XC                                               !ENLARGE WORLD.
+X        IF((OROOM(I).NE.IO).OR.(OSIZE(I).EQ.10000))
+X     &          GO TO 52450
+X        OROOM(I)=IR
+X        OSIZE(I)=OSIZE(I)*IZ
+X52450 CONTINUE
+X      RETURN
+XC
+X52500 CALL JIGSUP(284)
+XC                                               !ENLARGED IN WRONG ROOM.
+X      RETURN
+XC
+XC O123--        BRICK
+XC
+X54000 IF(PRSA.NE.BURNW) GO TO 10
+XC                                               !BURN?
+X      CALL JIGSUP(150)
+XC                                               !BOOM
+XC                                               !
+X      RETURN
+XC
+XC O124--        MYSELF
+XC
+X55000 IF(PRSA.NE.GIVEW) GO TO 55100
+XC                                               !GIVE?
+X      CALL NEWSTA(PRSO,2,0,0,PLAYER)
+XC                                               !DONE.
+X      RETURN
+XC
+X55100 IF(PRSA.NE.TAKEW) GO TO 55200
+XC                                               !TAKE?
+X      CALL RSPEAK(286)
+XC                                               !JOKE.
+X      RETURN
+XC
+X55200 IF((PRSA.NE.KILLW).AND.(PRSA.NE.MUNGW)) GO TO 10
+X      CALL JIGSUP(287)
+XC                                               !KILL, NO JOKE.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 10
+XC
+XC O125--        PANELS INSIDE MIRROR
+XC
+X56000 IF(PRSA.NE.PUSHW) GO TO 10
+XC                                               !PUSH?
+X      IF(POLEUF.NE.0) GO TO 56100
+XC                                               !SHORT POLE UP?
+X      I=731
+XC                                               !NO, WONT BUDGE.
+X      IF(MOD(MDIR,180).EQ.0) I=732
+XC                                               !DIFF MSG IF N-S.
+X      CALL RSPEAK(I)
+XC                                               !TELL WONT MOVE.
+X      RETURN
+XC
+X56100 IF(MLOC.NE.MRG) GO TO 56200
+XC                                               !IN GDN ROOM?
+X      CALL RSPEAK(733)
+XC                                               !YOU LOSE.
+X      CALL JIGSUP(685)
+X      RETURN
+XC
+X56200 I=831
+XC                                               !ROTATE L OR R.
+X      IF((PRSO.EQ.RDWAL).OR.(PRSO.EQ.YLWAL)) I=830
+X      CALL RSPEAK(I)
+XC                                               !TELL DIRECTION.
+X      MDIR=MOD(MDIR+45+(270*(I-830)),360)
+XC                                               !CALCULATE NEW DIR.
+X      CALL RSPSUB(734,695+(MDIR/45))
+XC                                               !TELL NEW DIR.
+X      IF(WDOPNF) CALL RSPEAK(730)
+XC                                               !IF PANEL OPEN, CLOSE.
+X      WDOPNF=.FALSE.
+X      RETURN
+XC                                               !DONE.
+XC
+XC O126--        ENDS INSIDE MIRROR
+XC
+X57000 IF(PRSA.NE.PUSHW) GO TO 10
+XC                                               !PUSH?
+X      IF(MOD(MDIR,180).EQ.0) GO TO 57100
+XC                                               !MIRROR N-S?
+X      CALL RSPEAK(735)
+XC                                               !NO, WONT BUDGE.
+X      RETURN
+XC
+X57100 IF(PRSO.NE.PINDR) GO TO 57300
+XC                                               !PUSH PINE WALL?
+X      IF(((MLOC.EQ.MRC).AND.(MDIR.EQ.180)).OR.
+X     &   ((MLOC.EQ.MRD).AND.(MDIR.EQ.0)).OR.
+X     &   (MLOC.EQ.MRG)) GO TO 57200
+X      CALL RSPEAK(736)
+XC                                               !NO, OPENS.
+X      WDOPNF=.TRUE.
+XC                                               !INDICATE OPEN.
+X      CFLAG(CEVPIN)=.TRUE.
+XC                                               !TIME OPENING.
+X      CTICK(CEVPIN)=5
+X      RETURN
+XC
+X57200 CALL RSPEAK(737)
+XC                                               !GDN SEES YOU, DIE.
+X      CALL JIGSUP(685)
+X      RETURN
+XC
+X57300 NLOC=MLOC-1
+XC                                               !NEW LOC IF SOUTH.
+X      IF(MDIR.EQ.0) NLOC=MLOC+1
+XC                                               !NEW LOC IF NORTH.
+X      IF((NLOC.GE.MRA).AND.(NLOC.LE.MRD)) GO TO 57400
+X      CALL RSPEAK(738)
+XC                                               !HAVE REACHED END.
+X      RETURN
+XC
+X57400 I=699
+XC                                               !ASSUME SOUTH.
+X      IF(MDIR.EQ.0) I=695
+XC                                               !NORTH.
+X      J=739
+XC                                               !ASSUME SMOOTH.
+X      IF(POLEUF.NE.0) J=740
+XC                                               !POLE UP, WOBBLES.
+X      CALL RSPSUB(J,I)
+XC                                               !DESCRIBE.
+X      MLOC=NLOC
+X      IF(MLOC.NE.MRG) RETURN
+XC                                               !NOW IN GDN ROOM?
+XC
+X      IF(POLEUF.NE.0) GO TO 57500
+XC                                               !POLE UP, GDN SEES.
+X      IF(MROPNF.OR.WDOPNF) GO TO 57600
+XC                                               !DOOR OPEN, GDN SEES.
+X      IF(MR1F.AND.MR2F) RETURN
+XC                                               !MIRRORS INTACT, OK.
+X      CALL RSPEAK(742)
+XC                                               !MIRRORS BROKEN, DIE.
+X      CALL JIGSUP(743)
+X      RETURN
+XC
+X57500 CALL RSPEAK(741)
+XC                                               !POLE UP, DIE.
+X      CALL JIGSUP(743)
+X      RETURN
+XC
+X57600 CALL RSPEAK(744)
+XC                                               !DOOR OPEN, DIE.
+X      CALL JIGSUP(743)
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 11
+XC
+XC O127--        GLOBAL GUARDIANS
+XC
+X58000 IF((PRSA.NE.ATTACW).AND.(PRSA.NE.KILLW).AND.
+X     &   (PRSA.NE.MUNGW)) GO TO 58100
+X      CALL JIGSUP(745)
+XC                                               !LOSE.
+X      RETURN
+XC
+X58100 IF(PRSA.NE.HELLOW) GO TO 10
+XC                                               !HELLO?
+X      CALL RSPEAK(746)
+XC                                               !NO REPLY.
+X      RETURN
+XC
+XC O128--        GLOBAL MASTER
+XC
+X59000 IF((PRSA.NE.ATTACW).AND.(PRSA.NE.KILLW).AND.
+X     &   (PRSA.NE.MUNGW)) GO TO 59100
+X      CALL JIGSUP(747)
+XC                                               !BAD IDEA.
+X      RETURN
+XC
+X59100 IF(PRSA.NE.TAKEW) GO TO 10
+XC                                               !TAKE?
+X      CALL RSPEAK(748)
+XC                                               !JOKE.
+X      RETURN
+XC
+XC O129--        NUMERAL FIVE (FOR JOKE)
+XC
+X60000 IF(PRSA.NE.TAKEW) GO TO 10
+XC                                               !TAKE FIVE?
+X      CALL RSPEAK(419)
+XC                                               !TIME PASSES.
+X      DO 60100 I=1,3
+XC                                               !WAIT A WHILE.
+X        IF(CLOCKD(X)) RETURN
+X60100 CONTINUE
+X      RETURN
+XC
+XC O130--        CRYPT FUNCTION
+XC
+X61000 IF(.NOT.ENDGMF) GO TO 45000
+XC                                               !IF NOT EG, DIE.
+X      IF(PRSA.NE.OPENW) GO TO 61100
+XC                                               !OPEN?
+X      I=793
+X      IF(QOPEN(TOMB)) I=794
+X      CALL RSPEAK(I)
+X      OFLAG2(TOMB)=or(OFLAG2(TOMB),OPENBT)
+X      RETURN
+XC
+X61100 IF(PRSA.NE.CLOSEW) GO TO 45000
+XC                                               !CLOSE?
+X      I=795
+X      IF(QOPEN(TOMB)) I=796
+X      CALL RSPEAK(I)
+X      OFLAG2(TOMB)=and(OFLAG2(TOMB),not(OPENBT))
+X      IF(HERE.EQ.CRYPT) CTICK(CEVSTE)=3
+XC                                               !IF IN CRYPT, START EG.
+X      RETURN
+X`0C
+XC OAPPLI, PAGE 12
+XC
+XC O131--        GLOBAL LADDER
+XC
+X62000 IF((CPVEC(CPHERE+1).EQ.-2).OR.(CPVEC(CPHERE-1).EQ.-3))
+X     &  GO TO 62100
+X      CALL RSPEAK(865)
+XC                                               !NO, LOSE.
+X      RETURN
+XC
+X62100 IF((PRSA.EQ.CLMBW).OR.(PRSA.EQ.CLMBUW)) GO TO 62200
+X      CALL RSPEAK(866)
+XC                                               !CLIMB IT?
+X      RETURN
+XC
+X62200 IF((CPHERE.EQ.10).AND.(CPVEC(CPHERE+1).EQ.-2))
+X     &          GO TO 62300
+X      CALL RSPEAK(867)
+XC                                               !NO, HIT YOUR HEAD.
+X      RETURN
+XC
+X62300 F=MOVETO(CPANT,WINNER)
+XC                                               !TO ANTEROOM.
+X      F=RMDESC(3)
+XC                                               !DESCRIBE.
+X      RETURN
+XC
+X      END
+$ CALL UNPACK [.SRC]OBJCTS.FOR;1 909843159
+$ create 'f'
+XC
+XC OBJECTS
+XC
+X      COMMON /OBJCTS/ OLNT,ODESC1(220),ODESC2(220),ODESCO(220),
+X     &`09`09OACTIO(220),OFLAG1(220),OFLAG2(220),OFVAL(220),
+X     &`09`09OTVAL(220),OSIZE(220),OCAPAC(220),OROOM(220),
+X     &`09`09OADV(220),OCAN(220),OREAD(220)
+X      INTEGER EQO(220,14)
+X      EQUIVALENCE (ODESC1, EQO)
+XC
+X      COMMON /OROOM2/ R2LNT,OROOM2(20),RROOM2(20)
+$ CALL UNPACK [.SRC]OBJECTS.LIB;1 1829184893
+$ create 'f'
+XC
+X      COMMON /OFLAGS/ VISIBT,READBT,TAKEBT,DOORBT,TRANBT,FOODBT,
+X     &`09`09NDSCBT,DRNKBT,CONTBT,LITEBT,VICTBT,BURNBT,FLAMBT,
+X     &`09`09TOOLBT,TURNBT,ONBT
+X      COMMON /OFLAGS/ FINDBT,SLEPBT,SCRDBT,TIEBT,CLMBBT,ACTRBT,
+X     &`09`09WEAPBT,FITEBT,VILLBT,STAGBT,TRYBT,NOCHBT,OPENBT,
+X     &`09`09TCHBT,VEHBT,SCHBT
+$ GOTO PART28

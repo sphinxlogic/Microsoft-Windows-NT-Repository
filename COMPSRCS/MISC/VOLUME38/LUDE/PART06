@@ -1,0 +1,1961 @@
+Newsgroups: comp.sources.misc
+From: laplante@crim.ca (Pierre Laplante)
+Subject: v38i038:  lude - A Distributed Software Library, Part06/12
+Message-ID: <1993Jul11.224630.16571@sparky.imd.sterling.com>
+X-Md4-Signature: 9f25b74068e1cbf37d8de3db1f96e76a
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 11 Jul 1993 22:46:30 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: laplante@crim.ca (Pierre Laplante)
+Posting-number: Volume 38, Issue 38
+Archive-name: lude/part06
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc
+#   lude-1.1/src/orig/info/Makefile lude-1.1/src/orig/src/ludeindexinc
+#   lude-1.1/src/orig/src/ludemisc
+# Wrapped by kent@sparky on Sun Jul 11 15:49:14 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 12)."'
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc'\" \(26934 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc' <<'END_OF_FILE'
+X# ludemisc - Project lude.
+X# Copyright (C) 1991,1992  Pierre Laplante
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION.= '$Id: ludemisc,v 1.4 1993/03/17 19:44:14 sbo Exp $' ."\n";
+X
+X#-----------------------------------------------------------------------
+X# Various useful global definitions
+X
+Xif (!defined($DEFAULTDEBUGLEVEL)) { $DEFAULTDEBUGLEVEL=9; }
+Xif (!defined($TRUE))              { $TRUE=1; }
+Xif (!defined($FALSE))             { $FALSE=0; }
+Xif (!defined($ERROR))             { $ERROR=STDERR; }
+Xif (!defined($OUT))               { $OUT=STDOUT; }
+X
+Xif (!defined($LUDE_FILE))         { die "\$LUDE_FILE should be defined, stopped at"; }
+Xif (!defined($LUDE_STAMP))        { $LUDE_STAMP="$LUDE_FILE"; }
+X
+X#-----------------------------------------------------------------------
+X# Description : Search for a software according to the search keys
+X#               given as parameters. Only  the softwares that are
+X#               ready (file LUDE under install/mod/class) are
+X#               considered, unless 't' command is given. In that
+X#               case, only the existence of /usr/local/soft/soft/install/mod/class
+X#               rather than /usr/local/soft/soft/install/mod/class/LUDE
+X#               to verify the match.
+X#
+X# Parameters  : $cmd - String indicating the command/location where
+X#                      to look for a copy of the software.
+X#                      'l' means local (in /usr/local)
+X#                      's' means on the servers (in /usr/local/server)
+X#                      't' Don't check for the lude stamp. By default
+X#                          the stamp must be there.
+X#                      'a' Means return all the possible matches.
+X#                          The commands/locations can be combined.
+X#                          The default is to return only the first match.
+X#               $server - specify a server to search. If specified
+X#                         only that server is searched. the other commands
+X#                         to specify servers location are therefore ignored.
+X#               $soft - name of the software that is to be searched.
+X#               $mod - specify a modification to look for.
+X#                      If not specified, all the mods are
+X#                      searched.
+X#               @classes - list of classes, in order of preference,
+X#                          used to find a match. At least one is required.
+X#
+X# Returns     : a list of the form:
+X#               (join($;, $server, $soft, $mod, $class), 
+X#                join($;, $server2, $soft2, $mod2, $class2)) 
+X#               An empty list indicate that the software 
+X#               was not found.
+X#               an undef value indicate that an error occured.
+X#               $server has a special value. if set to '/'
+X#               it means that the server is local 
+X#               (i.e. directory /usr/local).
+X#
+Xsub FindSoftware {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)<5){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($cmd, $server, $soft, $mod, @classes)=@_;
+X    local(@lstcmds)=();
+X    local(@lstservers)=();	# List of all servers that will be searched
+X    local(@lstsofts)=();	# List of all softwares that will be looked
+X    local(@lstmods)=();		# List of all the modification that will 
+X                                # be looked
+X    local(@lstclasses)=();	# List of all the classes that will be looked
+X    local($stamp)=$LUDE_STAMP;
+X    local($keepallmatches)=$FALSE; # The default is to keep only the first
+X				   # soft/mod/class combination that matches
+X				   # The command 'a' turns this value to 
+X                                   # $TRUE so that all the matching 
+X                                   # combination will be kept.
+X    local(@matches)=();		# List of all the matches found.
+X
+X    # Check to see if a server was specified
+X    if ($server eq '/') {	# Local server
+X	push(@lstservers, "$SOFT_DIR");
+X    }
+X    elsif ($server ne '') {	# remote server
+X	push(@lstservers, "$SERVER_DIR/$server");
+X    }
+X    else {
+X	# no server specified
+X    }
+X
+X    # Examine the commands and build the lstservers
+X    @lstcmds=split(//, $cmd);
+X    for $c (@lstcmds) {
+X	if ($c eq 'l') {	# Local server
+X	    if ($server eq '') { # (only if no server is specified)
+X		# use unshift so that the soft in $SOFT_DIR has precedence
+X		unshift(@lstservers, "$SOFT_DIR");
+X	    }
+X	}
+X	elsif ($c eq 's') {	# Remote server
+X	    if ($server eq '') { # (only If no server is specified)
+X		local(*dir, @lstdir);
+X
+X		# Read the directory containing the available remote
+X		# servers.
+X		opendir(dir, "$SERVER_DIR");
+X		@lstdir=grep(!/^\.{1,2}$/, readdir(dir));
+X		closedir(dir);
+X
+X		#For all servers found prepend $SERVER_DIR so that we
+X		# have /usr/local/server/something instead of
+X		# something. ($SERVER_DIR being equal to 
+X		# /usr/local/server by default)
+X		for (@lstdir) { s|(.*)|$SERVER_DIR/$1|; }
+X
+X		# Add the servers found to the existing list
+X		# use push so that the soft in $SOFT_DIR has precedence
+X		push(@lstservers, @lstdir);
+X	    }
+X	}
+X	elsif ($c eq 't') {
+X	    # By setting stamp to '', the stamp (or file that
+X	    # indicate that a software is publicly available)
+X	    # is not required. i.e. only the path leading
+X	    # to the place where the file resides when any 
+X	    # is required.
+X	    # for exemple: if 
+X	    # /usr/local/emacs-18.58/install/poly/sun4.1_sparc
+X	    # exists, than the software is taken as existing.
+X	    # Otherwise, with 't' not specified, the file
+X	    # /usr/local/emacs-18.58/install/poly/sun4.1_sparc/$LUDE_STAMP
+X	    # must exist to have a match. ($LUDE_STAMP contains
+X	    # the name of the file that identifies the availability
+X	    # of a software).
+X	    $stamp='';
+X	}
+X	elsif ($c eq 'a') {
+X	    # Keep searching to find all softwares available.
+X	    # The default is to stop searching as soon as a
+X	    # software is found.
+X	    $keepallmatches=$TRUE;
+X	}
+X	else {
+X	    # The command found is not one that is defined.
+X	    &Error($ERR_INTERNAL, "Incorrect parameter to function");
+X	}
+X    }
+X
+X    # look at each servers
+X    for $path (@lstservers) {
+X	# Set the software list to examine
+X	if ($soft ne '') {
+X	    # if a software was specified in parameters, then
+X	    # only that software will be examined.
+X	    @lstsofts=($soft);
+X	}
+X	else {
+X	    # No software was specified. Therefore examine all the
+X	    # available softwares on the current server.
+X	    local(*dir);
+X	    opendir(dir, "$path");
+X	    @lstsofts=grep(!/^\.{1,2}$/, readdir(dir));
+X	    closedir(dir);
+X	}
+X
+X	# Examine the specified software for the current server.
+X	for $s (@lstsofts) {
+X	    if (-r "$path/$s/install") {
+X		# if a modification was specified in parameters, then
+X		# only that modification will be examined.
+X		if ($mod ne '') {
+X		    # Use the specified modification
+X		    @lstmods=($mod);
+X		}
+X		else {
+X		    # No modification was specified. Therefore
+X		    # examine all the available softwares on the
+X		    # current server.
+X		    local(*dir);
+X		    opendir(dir, "$path/$s/install");
+X		    @lstmods=grep(!/^\.{1,2}$/, readdir(dir));
+X		    closedir(dir);
+X		}
+X
+X		# Examine the modifications for the current 
+X		# server/software.
+X		for $m (@lstmods) {
+X		    if (@classes == 1 && $classes[$[] eq '') {
+X			# Use all the available classes, if only
+X			# one class is given and that class is eq
+X			# to the special value ''.
+X			local(*dir);
+X			opendir(dir, "$path/$s/install/$m");
+X			@lstclasses=grep(!/^\.{1,2}$/, readdir(dir));
+X			closedir(dir);
+X		    }
+X		    else {
+X			# if any classes were specified in parameters,
+X			# then only those classes will be examined.
+X			@lstclasses=@classes;
+X		    }
+X
+X		    # Examine the classes for the curent server/soft/mod
+X		    for $c (@lstclasses) {
+X			if (-e "$path/$s/install/$m/$c/$stamp") {
+X			    # The file $stamp exist, therefore the
+X			    # combination server/soft/mod/class is 
+X			    # declared available and added to the
+X			    # list of matches. (Note that if the
+X			    # command 't' was given in parameters
+X			    # $stamp is eq to '', and the test of
+X			    # existence is made only on the directory
+X			    # leading to the place where $LUDE_STAMP
+X			    # resides when existing.
+X			    if ($path =~ m|^($SERVER_DIR)/(.+)$|) {
+X				# The path matches the form
+X				# /usr/local/server/some_server.
+X				# extract the part some_server and
+X				# use this with $s (soft), $m (modification)
+X				# $c (class) to form a new entry in the
+X				# list of matches.
+X				push(@matches, join($;, $2, $s, $m, $c));
+X				if (! $keepallmatches) {
+X				    # Return the first found match
+X				    return @matches;
+X				}
+X			    }
+X			    else {
+X				# The server is local, so use the special
+X				# value '/' as the server.
+X				push(@matches, join($;, '/', $s, $m, $c));
+X				if (! $keepallmatches) {
+X				    # Return the first found match
+X				    return @matches;
+X				}
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X	    else {
+X		# The software is not on this server
+X	    }
+X	}
+X    }
+X
+X    return @matches;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Run a command, and then return so that the execution 
+X#               can continue.
+X#               The global variable $Show is used to determine whether
+X#               to execute the command, or simply display the command
+X#               that is to be run.
+X#
+X# Parameters  : $cmd - Command to run
+X#
+X# Returns     : The returned value from the executed command
+X#               or 0 if $Show is set
+X#               In this case, 0 indicate success because
+X#               returned value correspond to the exit status
+X#               of the command, 0 being the standard exit value
+X#               to indicate success.
+X#
+Xsub RunCmd {
+X    local($cmd)=join(' ', @_);
+X    local($retval)=0;		# success by default
+X    
+X    if (&VerboseRetShow($WARN_CMD, $cmd)) {
+X	# Show is on, so do nothing
+X    }
+X    else {
+X	$retval=system($cmd) / 256;
+X    }
+X    return $retval;
+X}
+X 
+X#-----------------------------------------------------------------------
+X# Description : Validate the value specified for the given switch.
+X#               The value is returned in *value.
+X#
+X# Parameters  : $switch - Name of the switch
+X#               *value  - adress of the variable where the 
+X#                         validated value is placed
+X#               $type   - regexp used to check against the actual
+X#                         value. If the regexp matches the value,
+X#                         then that value is returned as valid.
+X#
+X# Returns     : nothing if no error
+X#               never returns if error
+X#
+Xsub Arg {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)!=3) {
+X	&Error($ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($switch, *value, $type)=@_;
+X    
+X    if (scalar(@ARGV)>0 && $ARGV[0] =~ m/^$type$/) {
+X	# The value is consitent with the type it must have
+X	$value=$ARGV[0];
+X	shift(@ARGV);
+X    }
+X    else {
+X	# The value is inconsistent with the type it must have
+X	&Usage($ERR_ARG, $switch, $type);  
+X    }			
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Test to see if the system has the required
+X#               functionnality.
+X#               Test for the availability of the command
+X#               that will be needed during the execution
+X#               of the lude scripts.
+X#
+X# Parameters  : none
+X#
+X# Returns     : 1 if everything is fine.
+X#               0 if something wrong was found.
+X#
+Xsub VerifySystem {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)!=0) {
+X	&Error($ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($retval)=1;		# Success by default
+X
+X    # Check if the command tar is available
+X    if (! &Exist((split(/\s+/, "$PROG_TAR", 2))[0])) {
+X	&NFError($ERR_CMD, "$PROG_TAR");
+X	$retval=0;
+X    }
+X    # Check if the command cmp is available
+X    if (! &Exist((split(/\s+/, "$PROG_CMP", 2))[0])) {
+X	&NFError($ERR_CMD, "$PROG_CMP");
+X	$retval=0;
+X    }
+X    # Check if the command $MAKEWHATIS is available
+X    if (! &Exist((split(/\s+/, "$PROG_MAKEWHATIS", 2))[0])) {
+X	&NFError($ERR_CMD, $PROG_MAKEWHATIS);
+X	$retval=0;
+X    }
+X    # Check if the command class is available
+X    if (! &Exist('class')) {
+X	&NFError($ERR_CMD, 'class');
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Search the values associated to the server/soft/mod
+X#               triplet. The values are located in either
+X#               .../install/$IAFA_FILE or .../install/$mod/$LUDE_FILE.
+X#               Files are searched in the given order.
+X#
+X# Parameters  : $server   - Server to look for
+X#               $soft     - Software to look for
+X#               $dataFile - File to search (relative to ....soft/install)
+X#               @kws      - List of keywords to search
+X#
+X# Returns     : an assoc. array of the form $aa{"$keyword"}=$value
+X#               If 2 or more occurence of the same keyword, the last
+X#               value is kept.
+X#               If nothing is found, an empty array is returned.
+X#               if an error occured, undef is returned.
+X#
+Xsub GetKeyWord {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)<4) { &Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__)); }
+X    local($server, $soft, $dataFile, @kws)=@_; 
+X    local(%kwval)=();		# By default nothing was found
+X    local($file, *fptr);
+X    local($kword, $value);
+X
+X    # Determine the location of the file
+X    if ($server ne '/') {
+X	# On a remote server
+X	$file="$SERVER_DIR/$server/$soft/install/$dataFile";
+X    }
+X    else {
+X	# Local server
+X	$file="$SOFT_DIR/$soft/install/$dataFile";
+X    }
+X
+X    # Test for the accessibility of the software's log file
+X    stat($file);
+X    if (-e _ && -f _ && -r _) {
+X	if (! open(fptr, $file)) {
+X	    # Cannot open the log file
+X	    &NFError($ERR_FILE, $file);
+X	}
+X	else {
+X	    # Undef the temporary variable that holds the text
+X	    # for the current keyword. This means that nothing
+X	    # is being accumulated for a keyword.
+X	    undef $value;
+X	    
+X	    # Scan the log file
+X	    while (<fptr>) {
+X		if (! defined($value) || /^[\-a-z]+:/i) {
+X		    # No keyword is currently being processed
+X		    # or the current line has the structure
+X		    # of a line with a keyword. (e.g. 
+X		    # ^keyword: text....)
+X
+X		    # Check the line against all desired keywords
+X		    for $k (@kws) {
+X			if (/^$Logkw{$k}:(.*)$/i) {
+X			    # The current line matches the keyword $k.
+X			    if (defined($value)) {
+X				# A $value was already being accumulated
+X				# for a previously found keyword, so store
+X				# the $value for the previous keyword.
+X				$kwval{"$kword"}=$value;
+X			    }
+X			    # Set the new current keyword
+X			    $kword=$k;
+X			    # Accumulate the first part of the value
+X			    # That was found following the keyword.
+X			    $value="$1\n";
+X			}
+X		    }
+X		}
+X		else {
+X		    # The line is an ordinary line that was preceded
+X		    # by, maybe some ordinary line, and a line containing
+X		    # a keyword.
+X		    # Concatenate the current line to the accumulated
+X		    # value of the current keyword.
+X		    $value .= $_;
+X		}
+X	    }
+X
+X	    # The entire file was scanned
+X
+X	    if (defined($value)) {
+X		# $value contains a value, and file file is
+X		# all scanned. So store the final value for the current
+X		# keyword.
+X		$kwval{"$kword"}=$value;
+X	    }
+X	    # Close the log file
+X	    close(fptr);
+X	}
+X    }
+X    return %kwval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Scan the env. variable PATH to find the given command.
+X#
+X# Parameters  : $cmd - Command to be located.
+X#
+X# Returns     : 1 if command is found
+X#               0 if the command is not found
+X#
+Xsub Exist {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($cmd)=@_;
+X    local(@dir);
+X    local($found)=0;		# Nothing found by default
+X
+X    if ($cmd =~ m|/|) {	
+X	# The command has a path component 
+X	# (e.g. bin/ls ./cat /usr/bin/ls etc)
+X	# so we don't check against PATH
+X	if (-x $cmd) {
+X	    $found=1;
+X	}
+X    }
+X    else {
+X	@dir=split(/:/, $ENV{'PATH'});
+X	for $d (@dir) { $found=1 if (-x "$d/$cmd"); }
+X    }
+X    return $found;
+X}				
+X
+X#-----------------------------------------------------------------------
+X# Description : Output debug tracing information.
+X#
+X# Parameters  : $level - Specify the level of the message.
+X#                        If the level is supperior to the level that
+X#                        is run, then the message is displayed.
+X#               @rest  - List of arguments compatible with printf
+X#                        that represent the debug message.
+X#
+X# Returns     : nothing
+X#
+Xsub Debug {
+X    local($level,@rest)=@_;
+X    if ($Debuglevel > $level) {
+X	print "DEBUG ";
+X	printf (@rest);
+X    }
+X}			       
+X
+X#-----------------------------------------------------------------------
+X# Description : Non Fatal Error. Display the message given and return.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : nothing, but unlike Error it returns!
+X#
+Xsub NFError {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code,@rest)=@_;
+X
+X    print $ERROR "$Progname: ";
+X    printf $ERROR ($MSGS[$code], @rest);
+X    print $ERROR "\n";
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Fatal Error. Display the message given and abort 
+X#               execution.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns  : Never returns.
+X#
+Xsub Error {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code)=@_;
+X    &NFError(@_);
+X    exit($code);
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Warning. Display the message given and return.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns  : nothing, but unlike Error and like NFError it returns!
+X#
+Xsub Warning {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code,@rest)=@_;
+X    printf $OUT ($MSGS[$code], @rest);
+X    print $OUT "\n";
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Display a message if the global variable $Verbose
+X#               $FALSE, otherwise, do nothing.
+X#
+X# Parameters  : $code - Code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : The value of $Show
+X#
+Xsub VerboseRetShow {
+X    &Verbose(@_);
+X    return $Show;
+X}
+Xsub Verbose {
+X    if (@_ != 0) {
+X	local($code,@rest)=@_;
+X	if ($Verbose != $FALSE) {
+X	    printf $OUT ($MSGS[$code], @rest);
+X	    print $OUT "\n";
+X	}
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Extract the directory component of the file name.
+X#               Return that component.
+X#
+X# Parameters  : $name - Full path
+X#
+X# Returns     : Returns the extracted component.
+X#
+Xsub DirName {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($name)=@_;
+X    substr($name, 0, rindex($name, "/"));
+X}				
+X
+X#-----------------------------------------------------------------------
+X# Description : Extract the last component of the file name.
+X#               Return that component.
+X#
+X# Parameters  : $name - Full path. 
+X#
+X# Returns     : Returns the extracted component.
+X#
+Xsub BaseName {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($name)=@_;
+X    substr($name,rindex($name, "/") + 1);
+X}				
+X	
+X#-----------------------------------------------------------------------
+X# Description : Display the usage of the script
+X#
+X# Parameters  : $code - Error code that caused usage to be called.
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : Never returns.
+X#
+Xsub Usage {			
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code, @rest)=@_;
+X    
+X    printf $ERROR ($MSGS[$code],@rest) if ($code != $OK);
+X    print $ERROR "\n$MSGS[$USAGE]\n";	 
+X    exit $code if ($code);
+X}
+X
+Xsub Help {
+X    print $ERROR "$MSGS[$USAGE]\n\n";
+X    exit 0;
+X}
+X
+X#-----------------------------------------------------------------------
+X#	date(FORMAT): Return date in format yy/mm/dd
+X#
+Xsub Date {
+X    local($FMT_YYMMDD)=0;
+X    local($FMT_YYMMDDHHMMSS)=1;
+X    local($fmt)=@_;
+X    local($sec,$min,$hour,$mday,$mon,$year,@rest)=localtime(time);
+X
+X    $mon++;
+X    if ($fmt==$FMT_YYMMDD) {
+X	sprintf("%2.2d/%2.2d/%2.2d", $year,$mon,$mday);
+X    } 
+X    elsif ($fmt==$FMT_YYMMDDHHMMSS) {
+X	sprintf("%2.2d/%2.2d/%2.2d %2.2d:%2.2d:%2.2d", $year, $mon, 
+X		$mday, $hour, $min, $sec);
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Append information about a command, to the history
+X#                file of a software.
+X# 
+X# Parameters  : 
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub HistAppend {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=5){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($cmd, $ser, $soft, $mod, $cla)=@_;
+X    local(*histFp, $pathToHistFile);
+X    local($retval)=1;		# Success bu default
+X
+X    $pathToHistFile=
+X      ($ser eq '/') ? "$SOFT_DIR/$soft" : "$SERVER_DIR/$ser/$soft"; 
+X
+X    stat($pathToHistFile);
+X    if (-d _ && -w _) {
+X	local($hostname);
+X	local($domainname);
+X	local($date);
+X	$hostname= `$PROG_HOSTNAME`; chop $hostname;
+X	if ($? != 0) {
+X	    $retval=0;
+X	    &NFError($ERR_HIST);
+X	}
+X	else {
+X	    $domainname= `$PROG_DOMAINNAME`; chop $domainname;
+X	    if ($? != 0) {
+X		$retval=0;
+X		&NFError($ERR_HIST);
+X	    }
+X	    else {
+X	      $date= &Date(1);
+X	      if ($? != 0) {
+X		    $retval=0;
+X		    &NFError($ERR_HIST);
+X		}
+X		else {
+X		    local($loginName)=getlogin();
+X		    local($userName)=(getpwnam($loginName))[6+$[];
+X		    open(histFp, ">>$pathToHistFile/history");
+X		    printf histFp "$cmd: $pathToHistFile $mod $cla:\\\n" .
+X		                  "\t$date:\\\n" .
+X		                  "\t$hostname.$domainname: " .
+X				  "$userName <$loginName@$domainname>\n";
+X		    close(histFp);
+X		}
+X	    }
+X	}
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Copy a given source file to a given destination file
+X#
+X# Parameters  : $srcFile - Source file (i.e. file to be copied)
+X#               $dstFile - destination file (i.e. file where to copy)
+X#               $opt - option is optionnal!
+X#                      if eq to 'a' the file is instead appended
+X#                      the default is to overwrite.
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub CopyFile {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=2 && scalar(@_)!=3){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($srcFile, $dstFile, $opt)=@_;
+X    local($retval)=1;		# Success by default.
+X    local($copyMode)='>';	# overwrite copy by default 
+X    local(*fpin, *fpout, $data);
+X
+X    if (scalar(@_) == 3) {
+X	if ($opt eq 'a') {
+X	    # Copy mode is append
+X	    $copyMode='>>';
+X	}
+X	else {
+X	    # Unknown option
+X	    $retval=0;
+X	}
+X    }
+X
+X    if ($retval) {		# If still no error
+X	if (!open(fpin, $srcFile)) {
+X	    # Open failed
+X	    &NFError($ERR_OPEN, $srcFile);
+X	    $retval=0;
+X	}
+X	elsif (!open(fpout, "$copyMode$dstFile")) {
+X	    # Open failed
+X	    close(fpin);
+X	    &NFError($ERR_OPEN, "$copyMode$dstFile");
+X	    $retval=0;
+X	}
+X	else {
+X	    local($bytesRead);
+X	    # Perform the copy
+X	    do {
+X		$bytesRead=sysread(fpin, $data, 2048);
+X		if (!defined($bytesRead)) {
+X		    # Error while reading
+X		    $retval=0;
+X		    last;
+X		}
+X		if (syswrite(fpout, $data, $bytesRead) != $bytesRead) {
+X		    # Error while writing
+X		    $retval=0;
+X		    last;
+X		}
+X	    } while ($bytesRead);
+X	    close(fpin);
+X	    close(fpout);
+X	}
+X    }
+X
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Display the software that was found, only the first time
+X#               this function is invoqued. Any other call will be silent.
+X#
+X# Parameters  : $softdir - Directory where the software is located
+X#               $soft    - Software found
+X#               $mod     - Modification of the soft found
+X#               $cla     - Class of the software found
+X#
+X# Returns     : nothing
+X#
+X#This variable is set when ludemisc is required so that it
+X# is ready when the function is called.
+X$DispSoftFoundOnce'done=$FALSE;
+Xsub DispSoftFoundOnce {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($softdir, $soft, $mod, $cla)=@_;
+X    if ($DispSoftFoundOnce'done==$FALSE) {
+X        print $OUT "-- $softdir -- $soft -- mod: $mod -- cla: $cla --\n";
+X       $DispSoftFoundOnce'done=$TRUE;
+X    }
+X}
+X
+X
+X1;
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 26934 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludemisc'
+fi
+if test -f 'lude-1.1/src/orig/info/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/info/Makefile'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/info/Makefile'\" \(1699 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/info/Makefile' <<'END_OF_FILE'
+X# Generated automatically from Makefile.in by configure.
+X# Makefile for the lude project.
+X
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X# $Id: Makefile.in,v 1.5 1993/03/18 15:37:28 sbo Exp $
+X
+X# Root of the path where the directories bin, include, lib, etc.
+X# can be found.
+X# The standard way to install it is:
+X# $prefix=/usr/local/soft/lude-version/run/mod/class
+X# The class part should preferably the same as first_class
+Xprefix=/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc
+X
+X# Directory where the emacs' info files should be placed.
+Xinfodir=$(prefix)/info
+X
+XLANG_INFO=fra eng
+X
+XVERSION=1.1
+X
+XMAKE=make
+XCHMOD=chmod
+XEMACS=emacs
+XSH=sh
+XMKDIR=mkdir
+XCP=cp
+X
+X# Install the emacs' info file
+Xinstall:
+X	@$(SH) -c 'if test ! -d $(infodir); then $(MKDIR) $(infodir); fi;'
+X	@$(SH) -c 'for l in $(LANG_INFO); do \
+X 	  $(EMACS) -batch lude_$${l}.texi -f texinfo-format-buffer -f save-buffer; \
+X	  $(CP) lude_$${l}.info $(infodir); \
+X	done;'
+X
+Xclean:
+X	$(RM) lude_???.info *~ #*#
+X
+Xfull-clean: clean
+X	$(RM) Makefile
+END_OF_FILE
+  if test 1699 -ne `wc -c <'lude-1.1/src/orig/info/Makefile'`; then
+    echo shar: \"'lude-1.1/src/orig/info/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/src/orig/info/Makefile'
+fi
+if test -f 'lude-1.1/src/orig/src/ludeindexinc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/src/ludeindexinc'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/src/ludeindexinc'\" \(5469 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/src/ludeindexinc' <<'END_OF_FILE'
+X# ludeinc - Project lude.
+X# Copyright (C) 1993 Michel Dagenais
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X#-----------------------------------------------------------------------
+X#
+X# Description: Initialise some variables.
+X#              parse and validate the command line arguments.
+X#
+X# Parameters : none
+X#
+X# return     : the number of commands still to be done
+X#              or -1 if an error occured
+X#
+Xsub Initialisation {
+X    local($cmdsToDo)=0;		# Nothing left to do
+X    local($displayVersion)=$FALSE;
+X    local($displayFullVersion)=$FALSE;
+X
+X    
+X    local($debug_arg)       =&BldRegexpMinRqr("debug", 1);
+X    local($full_version_arg)=&BldRegexpMinRqr("full-version", 2);
+X    local($help_arg)        =&BldRegexpMinRqr("help", 2);
+X    local($language_arg)    ='language';
+X    local($show_arg)        =&BldRegexpMinRqr("show", 2);
+X    local($verbose_arg)     =&BldRegexpMinRqr("verbose", 4);
+X    local($version_arg)     =&BldRegexpMinRqr("version", 4);
+X    local($path_catman_arg) =&BldRegexpMinRqr("pathcatman", 5);
+X    local($path_waisman_arg)=&BldRegexpMinRqr("pathwaisman", 5);
+X    local($path_info_arg)   =&BldRegexpMinRqr("pathinfo", 5);
+X    local($path_soft_arg)   =&BldRegexpMinRqr("pathsoft", 5);
+X    local($host_www_arg)    =&BldRegexpMinRqr("hostwww", 5);
+X    local($host_wais_arg)   =&BldRegexpMinRqr("hostwais", 5);
+X    local($port_www_arg)    =&BldRegexpMinRqr("portwww", 5);
+X    local($port_wais_arg)   =&BldRegexpMinRqr("portwais", 5);
+X    local($catman_arg)      =&BldRegexpMinRqr("catman", 3);
+X    local($waisman_arg)     =&BldRegexpMinRqr("waisman", 5);
+X    local($info_arg)        =&BldRegexpMinRqr("info", 3);
+X    local($wwwsoft_arg)     =&BldRegexpMinRqr("wwwsoft", 4);
+X    local($waissoft_arg)    =&BldRegexpMinRqr("waissoft", 5);
+X    local($remotelink_arg)  =&BldRegexpMinRqr("remotelink", 5);
+X    local($no_www_ext_arg)  =&BldRegexpMinRqr("nowwwext", 5);
+X    local($all_arg)         =&BldRegexpMinRqr("all", 1);
+X
+X    while ($_=$ARGV[0],/^-/) {
+X
+X	last if (/^--$/);
+X
+X	shift(@ARGV);
+X
+X	if    (/^-$debug_arg$/o)     { &Arg($_, *Debugvalue, '[0-9]+'); }
+X	elsif (/^-$full_version_arg$/o) { $displayFullVersion=$TRUE; }
+X	elsif (/^-($help_arg)|([?])$/o) { $Help=$TRUE; }
+X	elsif (/^-$language_arg$/o)  { shift @ARGV; } # Just ignore it
+X	elsif (/^-$show_arg$/o)      { $Show=$Verbose=$TRUE; } # Show implies Verbose
+X	elsif (/^-$verbose_arg$/o)   { $Verbose=$TRUE; }
+X	elsif (/^-$version_arg$/o)   { $displayVersion=$TRUE; }
+X        elsif (/^-$path_catman_arg$/o) {
+X            &Arg($_, *PathCatMan, '[^\s]+');
+X        }
+X        elsif (/^-$path_waisman_arg$/o) {
+X            &Arg($_, *PathWAISMan, '[^\s]+');
+X        }
+X        elsif (/^-$path_info_arg$/o) {
+X            &Arg($_, *PathInfo, '[^\s]+');
+X        }
+X        elsif (/^-$path_soft_arg$/o) {
+X            &Arg($_, *PathSoft, '[^\s]+');
+X        }
+X	elsif (/^-$host_www_arg$/o)  {
+X	    &Arg($_, *HostWWW, '[^\s]+'); 
+X	}
+X	elsif (/^-$host_wais_arg$/o)  {
+X	    &Arg($_, *HostWAIS, '[^\s]+'); 
+X	}
+X	elsif (/^-$port_www_arg$/o)  {
+X	    &Arg($_, *PortWWW, '[0-9]+'); 
+X	}
+X	elsif (/^-$port_wais_arg$/o)  {
+X	    &Arg($_, *PortWAIS, '[0-9]+'); 
+X	}
+X        elsif (/^-$catman_arg$/o)   { $CatMan=$TRUE; }
+X        elsif (/^-$waisman_arg$/o)  { $WAISMan=$TRUE; }
+X        elsif (/^-$info_arg$/o)     { $Info=$TRUE; }
+X        elsif (/^-$wwwsoft_arg$/o)  { $WWWSoft=$TRUE; }
+X        elsif (/^-$waissoft_arg$/o) { $WAISSoft=$WWWSoft=$TRUE; }
+X        elsif (/^-$remotelink_arg$/o) { $RemoteLink=$TRUE; }
+X        elsif (/^-$no_www_ext_arg$/o) { $NoWWWExt=$TRUE; }
+X        elsif (/^-$all_arg$/o)  { 
+X            $CatMan=$WAISMan=$Info=$WWWSoft=$WAISSoft=$TRUE;
+X        }
+X
+X	else {
+X            print "$PGM: $TEXT[$BAD_ARGUMENT] $_\n";
+X            print "\n$TEXT[$USAGE_HELP]\n";
+X            exit(1);
+X	}
+X    }
+X
+X    # Display the version immediately if requested
+X    if ($displayVersion) {
+X	print $VERSION ."\n";
+X    }
+X    # Display the full version (i.e. RCS revs) immediately if requested
+X    if ($displayFullVersion) {
+X	print $FULL_VERSION ."\n";
+X    }
+X
+X    #
+X    # Validation of the arguments
+X    #
+X    # Extra and invalid argument 
+X    if ( $ARGV[0] ne "" ) { 
+X        print "$PGM: $TEXT[$BAD_ARGUMENT] $ARGV[0]\n";
+X        print "\n$TEXT[$USAGE_HELP]\n";
+X        exit(1);
+X    }
+X
+X}	
+X
+Xsub Help {
+X    print "$TEXT[$USAGE_HELP]\n\n";
+X    exit 0;
+X}
+X
+Xsub BaseName {
+X    local($name)=@_;
+X    substr($name,rindex($name, "/") + 1);
+X}                               
+X
+X
+Xsub Arg {
+X
+X    local($switch, *value, $type)=@_;
+X    
+X    if (scalar(@ARGV)>0 && $ARGV[0] =~ m/^$type$/) {
+X	# The value is consitent with the type it must have
+X	$value=$ARGV[0];
+X	shift(@ARGV);
+X    }
+X    else {
+X	# The value is inconsistent with the type it must have
+X        print "$PGM: $TEXT[$BAD_TYPE] $switch\n";
+X        exit(1);
+X    }			
+X}
+X        
+X1;
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 5469 -ne `wc -c <'lude-1.1/src/orig/src/ludeindexinc'`; then
+    echo shar: \"'lude-1.1/src/orig/src/ludeindexinc'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/src/orig/src/ludeindexinc'
+fi
+if test -f 'lude-1.1/src/orig/src/ludemisc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/src/ludemisc'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/src/ludemisc'\" \(26934 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/src/ludemisc' <<'END_OF_FILE'
+X# ludemisc - Project lude.
+X# Copyright (C) 1991,1992  Pierre Laplante
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION.= '$Id: ludemisc,v 1.4 1993/03/17 19:44:14 sbo Exp $' ."\n";
+X
+X#-----------------------------------------------------------------------
+X# Various useful global definitions
+X
+Xif (!defined($DEFAULTDEBUGLEVEL)) { $DEFAULTDEBUGLEVEL=9; }
+Xif (!defined($TRUE))              { $TRUE=1; }
+Xif (!defined($FALSE))             { $FALSE=0; }
+Xif (!defined($ERROR))             { $ERROR=STDERR; }
+Xif (!defined($OUT))               { $OUT=STDOUT; }
+X
+Xif (!defined($LUDE_FILE))         { die "\$LUDE_FILE should be defined, stopped at"; }
+Xif (!defined($LUDE_STAMP))        { $LUDE_STAMP="$LUDE_FILE"; }
+X
+X#-----------------------------------------------------------------------
+X# Description : Search for a software according to the search keys
+X#               given as parameters. Only  the softwares that are
+X#               ready (file LUDE under install/mod/class) are
+X#               considered, unless 't' command is given. In that
+X#               case, only the existence of /usr/local/soft/soft/install/mod/class
+X#               rather than /usr/local/soft/soft/install/mod/class/LUDE
+X#               to verify the match.
+X#
+X# Parameters  : $cmd - String indicating the command/location where
+X#                      to look for a copy of the software.
+X#                      'l' means local (in /usr/local)
+X#                      's' means on the servers (in /usr/local/server)
+X#                      't' Don't check for the lude stamp. By default
+X#                          the stamp must be there.
+X#                      'a' Means return all the possible matches.
+X#                          The commands/locations can be combined.
+X#                          The default is to return only the first match.
+X#               $server - specify a server to search. If specified
+X#                         only that server is searched. the other commands
+X#                         to specify servers location are therefore ignored.
+X#               $soft - name of the software that is to be searched.
+X#               $mod - specify a modification to look for.
+X#                      If not specified, all the mods are
+X#                      searched.
+X#               @classes - list of classes, in order of preference,
+X#                          used to find a match. At least one is required.
+X#
+X# Returns     : a list of the form:
+X#               (join($;, $server, $soft, $mod, $class), 
+X#                join($;, $server2, $soft2, $mod2, $class2)) 
+X#               An empty list indicate that the software 
+X#               was not found.
+X#               an undef value indicate that an error occured.
+X#               $server has a special value. if set to '/'
+X#               it means that the server is local 
+X#               (i.e. directory /usr/local).
+X#
+Xsub FindSoftware {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)<5){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($cmd, $server, $soft, $mod, @classes)=@_;
+X    local(@lstcmds)=();
+X    local(@lstservers)=();	# List of all servers that will be searched
+X    local(@lstsofts)=();	# List of all softwares that will be looked
+X    local(@lstmods)=();		# List of all the modification that will 
+X                                # be looked
+X    local(@lstclasses)=();	# List of all the classes that will be looked
+X    local($stamp)=$LUDE_STAMP;
+X    local($keepallmatches)=$FALSE; # The default is to keep only the first
+X				   # soft/mod/class combination that matches
+X				   # The command 'a' turns this value to 
+X                                   # $TRUE so that all the matching 
+X                                   # combination will be kept.
+X    local(@matches)=();		# List of all the matches found.
+X
+X    # Check to see if a server was specified
+X    if ($server eq '/') {	# Local server
+X	push(@lstservers, "$SOFT_DIR");
+X    }
+X    elsif ($server ne '') {	# remote server
+X	push(@lstservers, "$SERVER_DIR/$server");
+X    }
+X    else {
+X	# no server specified
+X    }
+X
+X    # Examine the commands and build the lstservers
+X    @lstcmds=split(//, $cmd);
+X    for $c (@lstcmds) {
+X	if ($c eq 'l') {	# Local server
+X	    if ($server eq '') { # (only if no server is specified)
+X		# use unshift so that the soft in $SOFT_DIR has precedence
+X		unshift(@lstservers, "$SOFT_DIR");
+X	    }
+X	}
+X	elsif ($c eq 's') {	# Remote server
+X	    if ($server eq '') { # (only If no server is specified)
+X		local(*dir, @lstdir);
+X
+X		# Read the directory containing the available remote
+X		# servers.
+X		opendir(dir, "$SERVER_DIR");
+X		@lstdir=grep(!/^\.{1,2}$/, readdir(dir));
+X		closedir(dir);
+X
+X		#For all servers found prepend $SERVER_DIR so that we
+X		# have /usr/local/server/something instead of
+X		# something. ($SERVER_DIR being equal to 
+X		# /usr/local/server by default)
+X		for (@lstdir) { s|(.*)|$SERVER_DIR/$1|; }
+X
+X		# Add the servers found to the existing list
+X		# use push so that the soft in $SOFT_DIR has precedence
+X		push(@lstservers, @lstdir);
+X	    }
+X	}
+X	elsif ($c eq 't') {
+X	    # By setting stamp to '', the stamp (or file that
+X	    # indicate that a software is publicly available)
+X	    # is not required. i.e. only the path leading
+X	    # to the place where the file resides when any 
+X	    # is required.
+X	    # for exemple: if 
+X	    # /usr/local/emacs-18.58/install/poly/sun4.1_sparc
+X	    # exists, than the software is taken as existing.
+X	    # Otherwise, with 't' not specified, the file
+X	    # /usr/local/emacs-18.58/install/poly/sun4.1_sparc/$LUDE_STAMP
+X	    # must exist to have a match. ($LUDE_STAMP contains
+X	    # the name of the file that identifies the availability
+X	    # of a software).
+X	    $stamp='';
+X	}
+X	elsif ($c eq 'a') {
+X	    # Keep searching to find all softwares available.
+X	    # The default is to stop searching as soon as a
+X	    # software is found.
+X	    $keepallmatches=$TRUE;
+X	}
+X	else {
+X	    # The command found is not one that is defined.
+X	    &Error($ERR_INTERNAL, "Incorrect parameter to function");
+X	}
+X    }
+X
+X    # look at each servers
+X    for $path (@lstservers) {
+X	# Set the software list to examine
+X	if ($soft ne '') {
+X	    # if a software was specified in parameters, then
+X	    # only that software will be examined.
+X	    @lstsofts=($soft);
+X	}
+X	else {
+X	    # No software was specified. Therefore examine all the
+X	    # available softwares on the current server.
+X	    local(*dir);
+X	    opendir(dir, "$path");
+X	    @lstsofts=grep(!/^\.{1,2}$/, readdir(dir));
+X	    closedir(dir);
+X	}
+X
+X	# Examine the specified software for the current server.
+X	for $s (@lstsofts) {
+X	    if (-r "$path/$s/install") {
+X		# if a modification was specified in parameters, then
+X		# only that modification will be examined.
+X		if ($mod ne '') {
+X		    # Use the specified modification
+X		    @lstmods=($mod);
+X		}
+X		else {
+X		    # No modification was specified. Therefore
+X		    # examine all the available softwares on the
+X		    # current server.
+X		    local(*dir);
+X		    opendir(dir, "$path/$s/install");
+X		    @lstmods=grep(!/^\.{1,2}$/, readdir(dir));
+X		    closedir(dir);
+X		}
+X
+X		# Examine the modifications for the current 
+X		# server/software.
+X		for $m (@lstmods) {
+X		    if (@classes == 1 && $classes[$[] eq '') {
+X			# Use all the available classes, if only
+X			# one class is given and that class is eq
+X			# to the special value ''.
+X			local(*dir);
+X			opendir(dir, "$path/$s/install/$m");
+X			@lstclasses=grep(!/^\.{1,2}$/, readdir(dir));
+X			closedir(dir);
+X		    }
+X		    else {
+X			# if any classes were specified in parameters,
+X			# then only those classes will be examined.
+X			@lstclasses=@classes;
+X		    }
+X
+X		    # Examine the classes for the curent server/soft/mod
+X		    for $c (@lstclasses) {
+X			if (-e "$path/$s/install/$m/$c/$stamp") {
+X			    # The file $stamp exist, therefore the
+X			    # combination server/soft/mod/class is 
+X			    # declared available and added to the
+X			    # list of matches. (Note that if the
+X			    # command 't' was given in parameters
+X			    # $stamp is eq to '', and the test of
+X			    # existence is made only on the directory
+X			    # leading to the place where $LUDE_STAMP
+X			    # resides when existing.
+X			    if ($path =~ m|^($SERVER_DIR)/(.+)$|) {
+X				# The path matches the form
+X				# /usr/local/server/some_server.
+X				# extract the part some_server and
+X				# use this with $s (soft), $m (modification)
+X				# $c (class) to form a new entry in the
+X				# list of matches.
+X				push(@matches, join($;, $2, $s, $m, $c));
+X				if (! $keepallmatches) {
+X				    # Return the first found match
+X				    return @matches;
+X				}
+X			    }
+X			    else {
+X				# The server is local, so use the special
+X				# value '/' as the server.
+X				push(@matches, join($;, '/', $s, $m, $c));
+X				if (! $keepallmatches) {
+X				    # Return the first found match
+X				    return @matches;
+X				}
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X	    else {
+X		# The software is not on this server
+X	    }
+X	}
+X    }
+X
+X    return @matches;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Run a command, and then return so that the execution 
+X#               can continue.
+X#               The global variable $Show is used to determine whether
+X#               to execute the command, or simply display the command
+X#               that is to be run.
+X#
+X# Parameters  : $cmd - Command to run
+X#
+X# Returns     : The returned value from the executed command
+X#               or 0 if $Show is set
+X#               In this case, 0 indicate success because
+X#               returned value correspond to the exit status
+X#               of the command, 0 being the standard exit value
+X#               to indicate success.
+X#
+Xsub RunCmd {
+X    local($cmd)=join(' ', @_);
+X    local($retval)=0;		# success by default
+X    
+X    if (&VerboseRetShow($WARN_CMD, $cmd)) {
+X	# Show is on, so do nothing
+X    }
+X    else {
+X	$retval=system($cmd) / 256;
+X    }
+X    return $retval;
+X}
+X 
+X#-----------------------------------------------------------------------
+X# Description : Validate the value specified for the given switch.
+X#               The value is returned in *value.
+X#
+X# Parameters  : $switch - Name of the switch
+X#               *value  - adress of the variable where the 
+X#                         validated value is placed
+X#               $type   - regexp used to check against the actual
+X#                         value. If the regexp matches the value,
+X#                         then that value is returned as valid.
+X#
+X# Returns     : nothing if no error
+X#               never returns if error
+X#
+Xsub Arg {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)!=3) {
+X	&Error($ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($switch, *value, $type)=@_;
+X    
+X    if (scalar(@ARGV)>0 && $ARGV[0] =~ m/^$type$/) {
+X	# The value is consitent with the type it must have
+X	$value=$ARGV[0];
+X	shift(@ARGV);
+X    }
+X    else {
+X	# The value is inconsistent with the type it must have
+X	&Usage($ERR_ARG, $switch, $type);  
+X    }			
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Test to see if the system has the required
+X#               functionnality.
+X#               Test for the availability of the command
+X#               that will be needed during the execution
+X#               of the lude scripts.
+X#
+X# Parameters  : none
+X#
+X# Returns     : 1 if everything is fine.
+X#               0 if something wrong was found.
+X#
+Xsub VerifySystem {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)!=0) {
+X	&Error($ERR_INTERNAL, 
+X	       sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));
+X    }
+X    local($retval)=1;		# Success by default
+X
+X    # Check if the command tar is available
+X    if (! &Exist((split(/\s+/, "$PROG_TAR", 2))[0])) {
+X	&NFError($ERR_CMD, "$PROG_TAR");
+X	$retval=0;
+X    }
+X    # Check if the command cmp is available
+X    if (! &Exist((split(/\s+/, "$PROG_CMP", 2))[0])) {
+X	&NFError($ERR_CMD, "$PROG_CMP");
+X	$retval=0;
+X    }
+X    # Check if the command $MAKEWHATIS is available
+X    if (! &Exist((split(/\s+/, "$PROG_MAKEWHATIS", 2))[0])) {
+X	&NFError($ERR_CMD, $PROG_MAKEWHATIS);
+X	$retval=0;
+X    }
+X    # Check if the command class is available
+X    if (! &Exist('class')) {
+X	&NFError($ERR_CMD, 'class');
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Search the values associated to the server/soft/mod
+X#               triplet. The values are located in either
+X#               .../install/$IAFA_FILE or .../install/$mod/$LUDE_FILE.
+X#               Files are searched in the given order.
+X#
+X# Parameters  : $server   - Server to look for
+X#               $soft     - Software to look for
+X#               $dataFile - File to search (relative to ....soft/install)
+X#               @kws      - List of keywords to search
+X#
+X# Returns     : an assoc. array of the form $aa{"$keyword"}=$value
+X#               If 2 or more occurence of the same keyword, the last
+X#               value is kept.
+X#               If nothing is found, an empty array is returned.
+X#               if an error occured, undef is returned.
+X#
+Xsub GetKeyWord {
+X    # Make sure that the number of parameters is correct
+X    if (scalar(@_)<4) { &Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__)); }
+X    local($server, $soft, $dataFile, @kws)=@_; 
+X    local(%kwval)=();		# By default nothing was found
+X    local($file, *fptr);
+X    local($kword, $value);
+X
+X    # Determine the location of the file
+X    if ($server ne '/') {
+X	# On a remote server
+X	$file="$SERVER_DIR/$server/$soft/install/$dataFile";
+X    }
+X    else {
+X	# Local server
+X	$file="$SOFT_DIR/$soft/install/$dataFile";
+X    }
+X
+X    # Test for the accessibility of the software's log file
+X    stat($file);
+X    if (-e _ && -f _ && -r _) {
+X	if (! open(fptr, $file)) {
+X	    # Cannot open the log file
+X	    &NFError($ERR_FILE, $file);
+X	}
+X	else {
+X	    # Undef the temporary variable that holds the text
+X	    # for the current keyword. This means that nothing
+X	    # is being accumulated for a keyword.
+X	    undef $value;
+X	    
+X	    # Scan the log file
+X	    while (<fptr>) {
+X		if (! defined($value) || /^[\-a-z]+:/i) {
+X		    # No keyword is currently being processed
+X		    # or the current line has the structure
+X		    # of a line with a keyword. (e.g. 
+X		    # ^keyword: text....)
+X
+X		    # Check the line against all desired keywords
+X		    for $k (@kws) {
+X			if (/^$Logkw{$k}:(.*)$/i) {
+X			    # The current line matches the keyword $k.
+X			    if (defined($value)) {
+X				# A $value was already being accumulated
+X				# for a previously found keyword, so store
+X				# the $value for the previous keyword.
+X				$kwval{"$kword"}=$value;
+X			    }
+X			    # Set the new current keyword
+X			    $kword=$k;
+X			    # Accumulate the first part of the value
+X			    # That was found following the keyword.
+X			    $value="$1\n";
+X			}
+X		    }
+X		}
+X		else {
+X		    # The line is an ordinary line that was preceded
+X		    # by, maybe some ordinary line, and a line containing
+X		    # a keyword.
+X		    # Concatenate the current line to the accumulated
+X		    # value of the current keyword.
+X		    $value .= $_;
+X		}
+X	    }
+X
+X	    # The entire file was scanned
+X
+X	    if (defined($value)) {
+X		# $value contains a value, and file file is
+X		# all scanned. So store the final value for the current
+X		# keyword.
+X		$kwval{"$kword"}=$value;
+X	    }
+X	    # Close the log file
+X	    close(fptr);
+X	}
+X    }
+X    return %kwval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Scan the env. variable PATH to find the given command.
+X#
+X# Parameters  : $cmd - Command to be located.
+X#
+X# Returns     : 1 if command is found
+X#               0 if the command is not found
+X#
+Xsub Exist {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($cmd)=@_;
+X    local(@dir);
+X    local($found)=0;		# Nothing found by default
+X
+X    if ($cmd =~ m|/|) {	
+X	# The command has a path component 
+X	# (e.g. bin/ls ./cat /usr/bin/ls etc)
+X	# so we don't check against PATH
+X	if (-x $cmd) {
+X	    $found=1;
+X	}
+X    }
+X    else {
+X	@dir=split(/:/, $ENV{'PATH'});
+X	for $d (@dir) { $found=1 if (-x "$d/$cmd"); }
+X    }
+X    return $found;
+X}				
+X
+X#-----------------------------------------------------------------------
+X# Description : Output debug tracing information.
+X#
+X# Parameters  : $level - Specify the level of the message.
+X#                        If the level is supperior to the level that
+X#                        is run, then the message is displayed.
+X#               @rest  - List of arguments compatible with printf
+X#                        that represent the debug message.
+X#
+X# Returns     : nothing
+X#
+Xsub Debug {
+X    local($level,@rest)=@_;
+X    if ($Debuglevel > $level) {
+X	print "DEBUG ";
+X	printf (@rest);
+X    }
+X}			       
+X
+X#-----------------------------------------------------------------------
+X# Description : Non Fatal Error. Display the message given and return.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : nothing, but unlike Error it returns!
+X#
+Xsub NFError {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code,@rest)=@_;
+X
+X    print $ERROR "$Progname: ";
+X    printf $ERROR ($MSGS[$code], @rest);
+X    print $ERROR "\n";
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Fatal Error. Display the message given and abort 
+X#               execution.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns  : Never returns.
+X#
+Xsub Error {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code)=@_;
+X    &NFError(@_);
+X    exit($code);
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Warning. Display the message given and return.
+X#
+X# Parameters  : $code - Error code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns  : nothing, but unlike Error and like NFError it returns!
+X#
+Xsub Warning {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code,@rest)=@_;
+X    printf $OUT ($MSGS[$code], @rest);
+X    print $OUT "\n";
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Display a message if the global variable $Verbose
+X#               $FALSE, otherwise, do nothing.
+X#
+X# Parameters  : $code - Code that identifies the message
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : The value of $Show
+X#
+Xsub VerboseRetShow {
+X    &Verbose(@_);
+X    return $Show;
+X}
+Xsub Verbose {
+X    if (@_ != 0) {
+X	local($code,@rest)=@_;
+X	if ($Verbose != $FALSE) {
+X	    printf $OUT ($MSGS[$code], @rest);
+X	    print $OUT "\n";
+X	}
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Extract the directory component of the file name.
+X#               Return that component.
+X#
+X# Parameters  : $name - Full path
+X#
+X# Returns     : Returns the extracted component.
+X#
+Xsub DirName {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($name)=@_;
+X    substr($name, 0, rindex($name, "/"));
+X}				
+X
+X#-----------------------------------------------------------------------
+X# Description : Extract the last component of the file name.
+X#               Return that component.
+X#
+X# Parameters  : $name - Full path. 
+X#
+X# Returns     : Returns the extracted component.
+X#
+Xsub BaseName {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($name)=@_;
+X    substr($name,rindex($name, "/") + 1);
+X}				
+X	
+X#-----------------------------------------------------------------------
+X# Description : Display the usage of the script
+X#
+X# Parameters  : $code - Error code that caused usage to be called.
+X#               @rest - other arguments that are required by
+X#                       the format (a la printf) that correspond
+X#                       to $code.
+X#
+X# Returns     : Never returns.
+X#
+Xsub Usage {			
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)<1){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($code, @rest)=@_;
+X    
+X    printf $ERROR ($MSGS[$code],@rest) if ($code != $OK);
+X    print $ERROR "\n$MSGS[$USAGE]\n";	 
+X    exit $code if ($code);
+X}
+X
+Xsub Help {
+X    print $ERROR "$MSGS[$USAGE]\n\n";
+X    exit 0;
+X}
+X
+X#-----------------------------------------------------------------------
+X#	date(FORMAT): Return date in format yy/mm/dd
+X#
+Xsub Date {
+X    local($FMT_YYMMDD)=0;
+X    local($FMT_YYMMDDHHMMSS)=1;
+X    local($fmt)=@_;
+X    local($sec,$min,$hour,$mday,$mon,$year,@rest)=localtime(time);
+X
+X    $mon++;
+X    if ($fmt==$FMT_YYMMDD) {
+X	sprintf("%2.2d/%2.2d/%2.2d", $year,$mon,$mday);
+X    } 
+X    elsif ($fmt==$FMT_YYMMDDHHMMSS) {
+X	sprintf("%2.2d/%2.2d/%2.2d %2.2d:%2.2d:%2.2d", $year, $mon, 
+X		$mday, $hour, $min, $sec);
+X    }
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description : Append information about a command, to the history
+X#                file of a software.
+X# 
+X# Parameters  : 
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub HistAppend {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=5){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($cmd, $ser, $soft, $mod, $cla)=@_;
+X    local(*histFp, $pathToHistFile);
+X    local($retval)=1;		# Success bu default
+X
+X    $pathToHistFile=
+X      ($ser eq '/') ? "$SOFT_DIR/$soft" : "$SERVER_DIR/$ser/$soft"; 
+X
+X    stat($pathToHistFile);
+X    if (-d _ && -w _) {
+X	local($hostname);
+X	local($domainname);
+X	local($date);
+X	$hostname= `$PROG_HOSTNAME`; chop $hostname;
+X	if ($? != 0) {
+X	    $retval=0;
+X	    &NFError($ERR_HIST);
+X	}
+X	else {
+X	    $domainname= `$PROG_DOMAINNAME`; chop $domainname;
+X	    if ($? != 0) {
+X		$retval=0;
+X		&NFError($ERR_HIST);
+X	    }
+X	    else {
+X	      $date= &Date(1);
+X	      if ($? != 0) {
+X		    $retval=0;
+X		    &NFError($ERR_HIST);
+X		}
+X		else {
+X		    local($loginName)=getlogin();
+X		    local($userName)=(getpwnam($loginName))[6+$[];
+X		    open(histFp, ">>$pathToHistFile/history");
+X		    printf histFp "$cmd: $pathToHistFile $mod $cla:\\\n" .
+X		                  "\t$date:\\\n" .
+X		                  "\t$hostname.$domainname: " .
+X				  "$userName <$loginName@$domainname>\n";
+X		    close(histFp);
+X		}
+X	    }
+X	}
+X    }
+X
+X    return($retval);
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Copy a given source file to a given destination file
+X#
+X# Parameters  : $srcFile - Source file (i.e. file to be copied)
+X#               $dstFile - destination file (i.e. file where to copy)
+X#               $opt - option is optionnal!
+X#                      if eq to 'a' the file is instead appended
+X#                      the default is to overwrite.
+X#
+X# Returns     : 1 on success
+X#               0 if any errors
+X#
+Xsub CopyFile {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=2 && scalar(@_)!=3){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($srcFile, $dstFile, $opt)=@_;
+X    local($retval)=1;		# Success by default.
+X    local($copyMode)='>';	# overwrite copy by default 
+X    local(*fpin, *fpout, $data);
+X
+X    if (scalar(@_) == 3) {
+X	if ($opt eq 'a') {
+X	    # Copy mode is append
+X	    $copyMode='>>';
+X	}
+X	else {
+X	    # Unknown option
+X	    $retval=0;
+X	}
+X    }
+X
+X    if ($retval) {		# If still no error
+X	if (!open(fpin, $srcFile)) {
+X	    # Open failed
+X	    &NFError($ERR_OPEN, $srcFile);
+X	    $retval=0;
+X	}
+X	elsif (!open(fpout, "$copyMode$dstFile")) {
+X	    # Open failed
+X	    close(fpin);
+X	    &NFError($ERR_OPEN, "$copyMode$dstFile");
+X	    $retval=0;
+X	}
+X	else {
+X	    local($bytesRead);
+X	    # Perform the copy
+X	    do {
+X		$bytesRead=sysread(fpin, $data, 2048);
+X		if (!defined($bytesRead)) {
+X		    # Error while reading
+X		    $retval=0;
+X		    last;
+X		}
+X		if (syswrite(fpout, $data, $bytesRead) != $bytesRead) {
+X		    # Error while writing
+X		    $retval=0;
+X		    last;
+X		}
+X	    } while ($bytesRead);
+X	    close(fpin);
+X	    close(fpout);
+X	}
+X    }
+X
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description : Display the software that was found, only the first time
+X#               this function is invoqued. Any other call will be silent.
+X#
+X# Parameters  : $softdir - Directory where the software is located
+X#               $soft    - Software found
+X#               $mod     - Modification of the soft found
+X#               $cla     - Class of the software found
+X#
+X# Returns     : nothing
+X#
+X#This variable is set when ludemisc is required so that it
+X# is ready when the function is called.
+X$DispSoftFoundOnce'done=$FALSE;
+Xsub DispSoftFoundOnce {
+X    # Make sure that the number of parameters is correct
+X    if(scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d",scalar(@_),__FILE__, __LINE__));}
+X    local($softdir, $soft, $mod, $cla)=@_;
+X    if ($DispSoftFoundOnce'done==$FALSE) {
+X        print $OUT "-- $softdir -- $soft -- mod: $mod -- cla: $cla --\n";
+X       $DispSoftFoundOnce'done=$TRUE;
+X    }
+X}
+X
+X
+X1;
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 26934 -ne `wc -c <'lude-1.1/src/orig/src/ludemisc'`; then
+    echo shar: \"'lude-1.1/src/orig/src/ludemisc'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/src/orig/src/ludemisc'
+fi
+echo shar: End of archive 6 \(of 12\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

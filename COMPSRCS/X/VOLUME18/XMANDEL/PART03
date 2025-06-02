@@ -1,0 +1,1772 @@
+Path: uunet!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Newsgroups: comp.sources.x
+Subject: v18i017: Xmandelbrot, Part03/03
+Message-ID: <1992Jul13.155107.6740@msi.com>
+Date: 13 Jul 92 15:51:07 GMT
+References: <csx-18i015-xmandel@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1759
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 18, Issue 17
+Archive-name: xmandel/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file mandel.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping mandel.c'
+else
+echo 'x - continuing file mandel.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'mandel.c' &&
+X
+void start_mandel()
+{
+X	if (manparm.window == 0)
+X		return;
+X	if (manparm.zoom) 
+X	{	/* reset to beginning by popping zps off stack if not already there */
+X		while (zoomtmp = manparm.zoom->zp) 
+X		{	free(manparm.zoom);
+X			manparm.zoom = zoomtmp;
+X		}
+X	} 
+X	else 
+X	{	manparm.zoom = (struct zoomd *) malloc(sizeof (struct zoomd));
+X		manparm.zoom->zp = NULL;	/* NULL means last in stack - don't pop */
+X	}
+X	manparm.zoom->lx = START_LX; manparm.zoom->ux = START_UX;
+X	manparm.zoom->ly = START_LY; manparm.zoom->uy = START_UY;
+X
+X	mandel ();
+}
+X
+/************************************************************************
+*	redo_mandel()		button: recalc		recalc current mandelbrot	*
+************************************************************************/
+X
+void redo_mandel ()
+{	if (manparm.window == 0)
+X		return;
+X	mandel ();
+}
+X
+X
+/************************************************************************
+*	mandel()			do the mandelbrot calculations and send to video*
+************************************************************************/
+X
+static void mandel ()
+{
+X	double wx, wy, oldwx;
+X	double x, y;
+X	double incrx, incry;
+X	int ix, iy;
+X	int		shift;
+X	XEvent event;
+X	XWindowAttributes draw_wattr;
+X	GC draw_gc;
+X	Visual *draw_v;
+X	long	save_event_mask;
+X
+X	if (manparm.window == 0)
+X		return;
+X	manparm.lx = manparm.zoom->lx;
+X	manparm.ly = manparm.zoom->ly;
+X	manparm.ux = manparm.zoom->ux;
+X	manparm.uy = manparm.zoom->uy;
+X	update_coordinates (&manparm, 1);
+X
+X	XGetWindowAttributes (display, manparm.window, &draw_wattr);
+X	draw_gc = screen->default_gc;
+X	draw_v = screen->root_visual;
+X	save_event_mask = draw_wattr.your_event_mask;
+X	if (manparm.pixwidth != draw_wattr.width  ||  manparm.pixheight != draw_wattr.height)
+X	{
+X		/*	screen dimension changed.  rebuild image line information */
+X
+X		manparm.pixheight = draw_wattr.height;
+X		manparm.pixwidth  = draw_wattr.width;
+X		manparm.bytewidth = (manparm.pixwidth + dots_per_byte - 1) / dots_per_byte;
+X		scanline = -1;
+X
+X		if (ximage)
+X		 	XDestroyImage (ximage);		/* also deallocates image_data automagically */
+X		if (manparm.pix)
+X			free (manparm.pix);
+X
+X		image_data = malloc (manparm.bytewidth + 1);	/* Really! bug in ISC X11?? */
+X		manparm.pix = (unsigned char *) malloc (manparm.bytewidth * manparm.pixheight);
+X		if (image_data == NULL  ||  manparm.pix == NULL)
+X		{	printf ("malloc failed\n"); 
+X			return; 
+X		}
+X		ximage = XCreateImage (display, draw_v, depth, ZPixmap, 0, image_data, manparm.pixwidth, 1, 8, 0);
+X		ximage->byte_order = MSBFirst;
+X		ximage->bitmap_bit_order = MSBFirst;
+X	}
+X
+X	/*	incremental x/y values for pixel coordinates */
+X
+X	incrx = (manparm.zoom->ux - manparm.zoom->lx) / manparm.pixwidth;
+X	incry = (manparm.zoom->uy - manparm.zoom->ly) / manparm.pixheight;
+X	y = manparm.zoom->uy;
+X
+X	XClearWindow (display, manparm.window);
+X	XSelectInput (display, manparm.window, ButtonPressMask | ButtonReleaseMask | ExposureMask);
+X
+X	for (iy = 0; iy < draw_wattr.height; iy++, y-= incry) 
+X	{	int i;
+X		if (depth < 8)
+X			for (i = 0; i < manparm.bytewidth; i++) 
+X				*(image_data + i) = 0;
+X		x = manparm.zoom->lx;
+X
+X		/*	compute colour values for each pixel in a single scan line */
+X		
+X		for (ix = 0; ix < manparm.pixwidth; ix++, x+= incrx) 
+X		{
+X			/*	compute set value for current point */
+X
+X			wx = x; wy = y;
+X			for (i = 0; i < ITERATION_DEPTH; i++) 
+X			{	oldwx = wx;
+X				wx = wx * wx - wy * wy + x;
+X				wy = 2 * oldwx * wy + y;
+X				if (wx * wx + wy * wy > 4) 
+X					goto useit;
+X			}
+X			if (depth == 8)
+X			{	if (INFINITY_COLOR >= 0)
+X					i = INFINITY_COLOR - COLOR_BIAS;
+X			}
+X			else
+X			{	if (INFINITY_COLOR >= 0)
+X					i = INFINITY_COLOR;
+X			}
+X
+useit:		/*	assign colour to pixel	*/
+X
+X			switch (depth)
+X			{
+X			case 8:
+X				image_data[ix] = i + COLOR_BIAS;
+X				break;
+X
+X			case 4:
+X				if (ix % 2)
+X					image_data[ix >> 1] |= (i % 16);
+X				else
+X					image_data[ix >> 1] |= ((i % 16) << 4);
+X				break;
+X
+X			case 2:
+X				switch (ix % 4)
+X				{
+X				case 0:		shift = 6;	break;
+X				case 1:		shift = 4;	break;
+X				case 2:		shift = 2;	break;
+X				case 3:		shift = 0;	break;
+X				}
+X				image_data[ix >> 2] |= (i % 4) << shift;
+X				break;
+X
+X			case 1:
+X				if (i % 2)
+X					image_data[ix >> 3] |= 1 << (7 - ix%8);
+X			}
+X		}
+X
+X		/*	save scan line for exposure events or gif output */
+X		
+X		memcpy (manparm.pix + iy * manparm.bytewidth, image_data, manparm.bytewidth);
+X		scanline = iy;
+X
+X		/*	send image line to screen */
+X
+X		XPutImage (display, manparm.window, draw_gc, ximage, 0,0, 0, iy, manparm.pixwidth, 1);
+X
+X		/*	check for exposure or buttons after a few lines have been drawn.
+X			This keeps server queries do a reasonable level while still
+X			allowing exposures without too much delay.
+X		*/
+X		if (iy % EXPOSURE_TEST == 0)
+X		{	/*	XSync to ensure exposure or button is honoured "fast" */
+X
+X			XSync (display, False);
+X
+X			/*	first cleanup any pending exposures */
+X
+X			while (XCheckTypedEvent (display, Expose, &event) == True)
+X				XtDispatchEvent (&event);
+X
+X			/*	then check for abort if a button is pressed */
+X
+X			while (XCheckWindowEvent (display, manparm.window, ButtonPressMask | ButtonReleaseMask, &event) == True)
+X			{	if (event.type == ButtonRelease)
+X					goto escape;
+X			}
+X		}
+X	}
+escape:
+X	XSelectInput (display, manparm.window, save_event_mask);
+}
+X
+/************************************************************************
+*	expose_mandel()			handle mandel exposure event				*
+************************************************************************/
+X
+void expose_mandel (w, unused, event)
+Widget w;
+caddr_t unused;
+XXExposeEvent *event;
+{
+X	if (manparm.window == 0)
+X		return;
+X	if (event  &&  manparm.pix  &&  scanline >= 0)
+X		redraw_mandel (event);
+}
+X
+/************************************************************************
+*	redraw_mandel()			reshow mandelbrot from backup image.		*
+************************************************************************/
+X
+void redraw_mandel (event)
+XXExposeEvent *event;
+{
+X	int  iy;
+X	XWindowAttributes draw_wattr;
+X	GC draw_gc;
+X	Visual *draw_v;
+X	int	maxy;
+X
+X	if (manparm.window == 0)
+X		return;
+X	XGetWindowAttributes (display, manparm.window, &draw_wattr);
+X	draw_gc = screen->default_gc;
+X	draw_v = screen->root_visual;
+X	if (event == NULL)
+X	{
+X		/*	refresh entire window */
+X
+X		maxy = MIN (scanline, manparm.pixheight-1);
+X		for (iy = 0; iy <= maxy; iy++) 
+X		{	memcpy (image_data, manparm.pix + iy * manparm.bytewidth, manparm.bytewidth);
+X			XPutImage (display, manparm.window, draw_gc, ximage, 0,0, 0, iy, manparm.pixwidth, 1);
+X		}
+X	}
+X	else if (event->x < manparm.pixwidth)
+X	{
+X		/*	refresh only exposed area */
+X
+X		int	first_byte, last_byte, nbytes, first_dot, last_dot, ndots;
+X
+X		if (event->x < manparm.pixwidth)
+X		{	first_byte = event->x / dots_per_byte;
+X			first_dot  = first_byte * dots_per_byte;
+X			last_dot   = MIN (manparm.pixwidth - 1, event->x + event->width - 1);
+X			last_byte  = (last_dot + dots_per_byte - 1) / dots_per_byte;
+X			nbytes     = last_byte - first_byte + 1;
+X			ndots      = last_dot - first_dot + 1;
+X			maxy       = MIN (event->y + event->height, manparm.pixheight);
+X			for (iy = event->y; iy < maxy  &&  iy <= scanline; iy++) 
+X			{	memcpy (image_data, manparm.pix + iy * manparm.bytewidth + first_byte, nbytes);
+X				XPutImage (display, manparm.window, draw_gc, ximage, 0,0, event->x, iy, ndots, 1);
+X			}				
+X		}
+X	}
+X
+X	XFlush(display);
+}
+X
+/************************************************************************
+*	do_zoom ()		button: zomm		zoom into mandelbrot			*
+*					The rubber band preserves preserves the current		*
+*					window aspect ration.								*
+************************************************************************/
+X
+void do_zoom (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	XWindowAttributes draw_wattr;
+X	GC draw_gc;
+X	Window Root;
+X	int S;
+X	int	hh, ww, delta;
+X	double scaley, xa, ya, xb, yb;
+X	long	save_event_mask;
+X	int		have_press;
+X
+X	Window	root, child;
+X	int		pos_x, pos_y;
+X	unsigned int keys_buttons;
+X	int		root_x, root_y;
+X
+X	if (activeimage->window == 0)
+X		return;
+X	if (activeimage->zoom == NULL) return;
+X
+X	draw_gc = screen->default_gc;
+X	S = DefaultScreen (display);
+X	Root = RootWindow (display, S);
+X
+X	XSetForeground (display, draw_gc, 255);
+X	XSetSubwindowMode (display, draw_gc, IncludeInferiors);
+X	XSetFunction (display, draw_gc, GXxor);
+X
+X	XGetWindowAttributes (display, activeimage->window, &draw_wattr);
+X
+X	save_event_mask = draw_wattr.your_event_mask;
+X	XSelectInput (display, activeimage->window, ButtonPressMask | ButtonReleaseMask 
+X			| PointerMotionHintMask | PointerMotionMask);
+X
+X	have_press = 0;		/* Motif translation override may cause a 	*/
+X						/* button release BEFORE a button press		*/
+X	while (1) 
+X	{	static int rubberband = 1;
+X		XEvent report;
+X
+X		XNextEvent (display, &report);
+X		if (report.xbutton.window != activeimage->window)
+X			continue;
+X		switch(report.type) 
+X		{
+X			int winx0,winy0,winx1,winy1,width,height;
+X			int x0, y0, x1, y1;
+X			double tw, th;
+X
+X		case ButtonPress:
+X			if (report.xbutton.button != Button1)
+X				break;
+X			x0 = winx0 = report.xbutton.x;
+X			y0 = winy0 = report.xbutton.y;
+X			rubberband = 0;
+X			width = height = 0;
+X			have_press = 1;
+X			break;
+X
+X		case ButtonRelease:
+X			if (have_press == 0)
+X				break;
+X			winx1 = report.xbutton.x;
+X			winy1 = report.xbutton.y;
+X			x0 = MIN (winx0, winx1);
+X			x1 = MAX (winx0, winx1);
+X			y0 = MIN (winy0, winy1);
+X			y1 = MAX (winy0, winy1);
+X			width  = x1 - x0; 
+X			height = y1 - y0;
+X
+X			/*	ensure rubber band preserves the proportions of the
+X				current window.
+X			*/
+X			ww = width;
+X			hh = height;
+X			delta = MAX (ww, hh);
+X			scaley = (double) (draw_wattr.height) / (double) (draw_wattr.width);
+X			x1 = x0 + delta;
+X			y1 = y0 + delta * scaley;
+X			height = y1 - y0;
+X			width  = x1 - x0;
+X
+X			XDrawRectangle (display,activeimage->window, draw_gc, x0, y0, width, height);
+X			rubberband = 1;
+X			XSetFunction (display, draw_gc, GXcopy);
+X			XFlush (display);
+X			if (delta > 5  &&  report.xbutton.button == 1)
+X			{	tw = activeimage->zoom->ux - activeimage->zoom->lx;
+X				th = activeimage->zoom->uy - activeimage->zoom->ly;
+X				zoomtmp = (struct zoomd *) malloc (sizeof (struct zoomd));
+X				zoomtmp->zp = activeimage->zoom;		/* push onto stack */
+X				zoomtmp->ux = activeimage->zoom->lx + ((double) x1 / (double) activeimage->pixwidth) * tw;
+X				zoomtmp->lx = activeimage->zoom->lx + ((double) x0 / (double) activeimage->pixwidth) * tw;
+X				zoomtmp->ly = activeimage->zoom->uy - ((double) y1 / (double) activeimage->pixheight) * th;
+X				zoomtmp->uy = activeimage->zoom->uy - ((double) y0 / (double) activeimage->pixheight) * th;
+X				activeimage->zoom = zoomtmp;			/* activeimage->zoom is current pointer */
+X				XSelectInput (display, activeimage->window, save_event_mask);
+X				if (activeimage == &manparm)
+X					mandel ();
+X				else
+X					julia (0, 0);
+X			}
+X			else
+X			{	/*	too small image or pressing button 2/3 quits zoom */
+X
+X				activeimage->lx = activeimage->zoom->lx;
+X				activeimage->ly = activeimage->zoom->ly;
+X				activeimage->ux = activeimage->zoom->ux;
+X				activeimage->uy = activeimage->zoom->uy;
+#ifndef MOTIF
+X				printf ("\n");
+#else
+X				update_coordinates (activeimage, 0);
+#endif
+X				XSelectInput (display, activeimage->window, save_event_mask);
+X			}
+X			return;
+X
+X		case MotionNotify:
+X			if (!XQueryPointer (display, report.xmotion.window,
+X					&root, &child, &root_x, &root_y,
+X					&pos_x, &pos_y, &keys_buttons))
+X				break;
+X			winx1 = pos_x;
+X			winy1 = pos_y;
+X			if (rubberband == 0)
+X			{	XDrawRectangle (display,activeimage->window, draw_gc, x0, y0, width, height);
+X				x0 = MIN(winx0, winx1);
+X				x1 = MAX(winx0, winx1);
+X				y0 = MIN(winy0, winy1);
+X				y1 = MAX(winy0, winy1);
+X				width  = x1 - x0; 
+X				height = y1 - y0;
+X
+X				/*	ensure rubber band preserves the proportions of the
+X					current window.
+X				*/
+X				ww = width;
+X				hh = height;
+X				delta = MAX (ww, hh);
+X				scaley = (double) (draw_wattr.height) / (double) (draw_wattr.width);
+X				x1 = x0 + delta;
+X				y1 = y0 + delta * scaley;
+X				height = y1 - y0;
+X				width  = x1 - x0;
+X
+X				XDrawRectangle (display,activeimage->window, draw_gc, x0, y0, width, height);
+X
+X				tw = activeimage->zoom->ux - activeimage->zoom->lx;
+X				th = activeimage->zoom->uy - activeimage->zoom->ly;
+X				xa = activeimage->zoom->lx + ((double) x0 / (double) activeimage->pixwidth) * tw;
+X				ya = activeimage->zoom->uy - ((double) y0 / (double) activeimage->pixheight) * th;
+X				xb = activeimage->zoom->lx + ((double) x1 / (double) activeimage->pixwidth) * tw;
+X				yb = activeimage->zoom->uy - ((double) y1 / (double) activeimage->pixheight) * th;
+X
+X				activeimage->lx = MIN (xa, xb);
+X				activeimage->ly = MIN (ya, yb);
+X				activeimage->ux = MAX (xa, xb);
+X				activeimage->uy = MAX (ya, yb);
+X				update_coordinates (activeimage, 0);
+X			}
+X			else
+X			{
+X				tw = activeimage->zoom->ux - activeimage->zoom->lx;
+X				th = activeimage->zoom->uy - activeimage->zoom->ly;
+X				xa = activeimage->zoom->lx + ((double) winx1 / (double) activeimage->pixwidth) * tw;
+X				ya = activeimage->zoom->uy - ((double) winy1 / (double) activeimage->pixheight) * th;
+X
+X				activeimage->pcolour = pixel_colour (activeimage, winx1, winy1);
+X				activeimage->px = xa;
+X				activeimage->py = ya;
+X				update_point (activeimage);
+X			}
+X			fflush (stdout);
+X			XFlush (display);
+X			break;
+X
+X		default:
+X			break;
+X		}
+X	}
+}
+X
+/************************************************************************
+*	do_unzoom()			button: unzoom		recalc previous zoom level.	*
+************************************************************************/
+X
+void do_unzoom (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	if (activeimage->window == 0)
+X		return;
+X	if (activeimage->zoom) 
+X	{	/* selecting mooz before mandel invalid */
+X		if (zoomtmp = activeimage->zoom->zp) 
+X		{	/* last on stack */
+X			free(activeimage->zoom);
+X			activeimage->zoom = zoomtmp;
+X		}
+X		else
+X			return;
+X		if (activeimage == &manparm)
+X			mandel ();
+X		else
+X			julia (0, 0);
+X	}
+}
+X
+/************************************************************************
+*	pixel_colour()		return the colour of a pixel					*
+************************************************************************/
+X
+int pixel_colour (p, ix, iy)
+struct imageparm *p;
+int		ix, iy;
+{	int		colour, shift;
+X	unsigned char *imageline;
+X
+X	imageline = p->pix + iy * p->bytewidth;
+X	switch (depth)
+X	{
+X	case 8:
+X		colour = imageline[ix] & 0x0ff;
+X		break;
+X
+X	case 4:
+X		if (ix % 2)
+X			shift = 0;
+X		else
+X			shift = 4;
+X		colour = (imageline[ix >> 1] >> shift) & 0x0f;
+X		break;
+X
+X	case 2:
+X		switch (ix % 4)
+X		{
+X		case 0:		shift = 6;	break;
+X		case 1:		shift = 4;	break;
+X		case 2:		shift = 2;	break;
+X		case 3:		shift = 0;	break;
+X		}
+X		colour  = (imageline[ix >> 2] >> shift) & 0x03;
+X		break;
+X
+X	case 1:
+X		colour = (imageline[ix >> 3]  >> (7 - ix % 8)) & 0x01;
+X	}
+X	return (colour);
+}
+SHAR_EOF
+echo 'File mandel.c is complete' &&
+chmod 0644 mandel.c ||
+echo 'restore of mandel.c failed'
+Wc_c="`wc -c < 'mandel.c'`"
+test 15435 -eq "$Wc_c" ||
+	echo 'mandel.c: original size 15435, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mandel.h ==============
+if test -f 'mandel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping mandel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mandel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mandel.h' &&
+/* ta=4 */
+/*  xmandel.h  */
+X
+/* ---- some changes you may wish to make ------- */
+X
+/*  memcpy(dest,src,nbytes) is used in various routines.  If memcpy()
+X    is not available, use the #define for bcopy().  If  bcopy() is not
+X    available then enable "NEEDMEMCPY" to use a very inefficient
+X    memory copy.
+*/
+X
+#ifdef HAVEBCOPY
+#define memcpy(a,b,c)	bcopy(b,a,c)	/* bsd type */
+#endif
+X
+/* #define NEEDMEMCPY				/* for systems with neither */
+X
+X
+/* set maximum depth of iteration for mandelbrot and julia sets. */
+X
+#define ITERATION_DEPTH		256
+X
+/* Check for exposure events after this many scan lines have been drawn
+X   by the Mandelbrot or Julia generator.  If you have a very large
+X   ITERATION_DEPTH (e.g. > 400) an EXPOSURE_TEST of 1 or 2 is reasonable  */
+X
+#define EXPOSURE_TEST		4
+X
+/* If a 256 colour display is used, Set a "color bias" to offset into 
+X   the colour table for colour value 0.  Iterations arc coloured
+X   as "iteration_count + COLOR_BIAS".
+*/
+X
+#define COLOR_BIAS		16
+X
+/* Set a color value for INFINITY.  A value >= 0 assigns the specified
+X   colour number.  A value < 0 uses the "default" colour.
+*/
+X
+#define INFINITY_COLOR		-1
+X
+/*  Initial starting coordinates for mandelbrot set */
+X
+#define START_LX -2.25
+#define START_UX  1.0
+#define START_LY -1.5
+#define START_UY  1.5
+X
+X
+/* ----- end configuration ------- */
+X
+#define MIN(a,b)((a) < (b) ? (a) : (b))
+#define MAX(a,b)((a) < (b) ? (b) : (a))
+#define ABS(a) ((a) < 0 ? (-a) : (a))
+X
+/*	for those places where I forgot to make the change... */
+X
+#define malloc(x)	XtMalloc(x)
+#define calloc(x,y)	XtCalloc(x,y)
+#define free(x)		XtFree(x)
+X
+typedef unsigned char	byte;
+X
+struct zoomd 
+{	struct zoomd *zp;		/*	previous zoom pointer		*/
+X	double lx, ux;			/*	bounds for zoom				*/
+X	double ly, uy;
+};
+X
+#define SAVESIZE 25
+X
+struct imageparm
+{	Window	window;			/* image in this window			*/
+X	double	lx, ly, ux, uy;	/* image corner coordinates.	*/
+X	double	px, py;			/* point location (for julia)	*/
+X	int		rotation;		/* current colour rotation		*/
+X	int		totrot;			/*	total rotation count		*/
+X	int		pcolour;		/*	pixel colour				*/
+X	long	pixheight;		/* image height in pixels		*/
+X	long	pixwidth;		/* impage width in pixels		*/
+X	long	bytewidth;		/* width of image line in bytes	*/
+X	unsigned char *pix;		/* copy of generated image 		*/
+X	struct	zoomd *zoom;	/* zoom stack pointer			*/
+X	char 	sux[SAVESIZE];	/* text ux, uy etc. to detect	*/
+X	char 	suy[SAVESIZE];	/* if user changed values.		*/
+X	char	slx[SAVESIZE];
+X	char	sly[SAVESIZE];
+} ;
+X
+struct enter_buttons
+{	char	*button;		/*	label text					*/
+X	int		bx;				/*	lable x						*/
+X	int		by;				/*	label y						*/
+X	char	*field;			/*	data field name				*/
+X	int		fsize;			/*	data field size chars		*/
+} ;
+X
+X
+struct button_list
+{	char	*ident;				/*	widget name				*/
+X	void	(*bcall)();			/*	callback function		*/
+X	int		x;					/*	x column location		*/
+X	int		y;					/*	y row location			*/
+} ;
+X
+X
+#ifdef __STDC__
+/* main.c */
+int main(int argc, char **argv);
+void update_coordinates(struct imageparm *image, int lf);
+void update_point(struct imageparm *image);
+/* mandel.c */
+void start_mandel(void);
+void redo_mandel(void);
+void expose_mandel(Widget w, caddr_t unused, XExposeEvent *event);
+void redraw_mandel(XExposeEvent *event);
+void do_zoom(Widget w, caddr_t client_data, caddr_t call_data);
+void do_unzoom(Widget w, caddr_t client_data, caddr_t call_data);
+int pixel_colour(struct imageparm *p, int ix, int iy);
+/* julia.c */
+void start_julia(int destroy_pixmap, int newimage);
+void julia(int destroy_pixmap, int newimage);
+void expose_julia(Widget w, caddr_t unused, XExposeEvent *event);
+void redraw_julia(XExposeEvent *event);
+/* writegif.c */
+void ws1te_gif_image(char *fname, struct imageparm *imageinfo);
+#else
+/* main.c */
+int main();
+void update_coordinates();
+void update_point();
+/* mandel.c */
+void start_mandel();
+void redo_mandel();
+void expose_mandel();
+void redraw_mandel();
+void do_zoom();
+void do_unzoom();
+int pixel_colour();
+/* julia.c */
+void start_julia();
+void julia();
+void expose_julia();
+void redraw_julia();
+/* writegif.c */
+void write_gif_image();
+#endif
+SHAR_EOF
+chmod 0644 mandel.h ||
+echo 'restore of mandel.h failed'
+Wc_c="`wc -c < 'mandel.h'`"
+test 4079 -eq "$Wc_c" ||
+	echo 'mandel.h: original size 4079, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= writegif.c ==============
+if test -f 'writegif.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping writegif.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting writegif.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'writegif.c' &&
+/* ta=4 */
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xos.h>
+#include <X11/Shell.h>
+#include "mandel.h"
+X
+#define MAX_COLORS 3
+X
+unsigned char	rmap[256], gmap[256], bmap[256];
+static struct imageparm	*image;
+extern Display *display;
+X
+extern int depth;
+typedef long int        count_int;
+X
+#ifdef __STDC__
+static int getcolors(void);
+static int writegif(FILE *fp, byte *pic, int w, int h, byte *rmap, byte *gmap, byte *bmap, int numcols, int colorstyle);
+static void putword(int w, FILE *fp);
+static void compress(int init_bits, FILE *outfile, byte *data, int len);
+static void output(int code);
+static void cl_block(void);
+static void cl_hash(register count_int hsize);
+static void char_init(void);
+static void char_out(int c);
+static void flush_char(void);
+#else
+static int getcolors();
+static int writegif();
+static void putword();
+static void compress();
+static void output();
+static void cl_block();
+static void cl_hash();
+static void char_init();
+static void char_out();
+static void flush_char();
+#endif
+X
+/************************************************************************
+*	write_gif ()														*
+*	X11 image data recorded in *image->pix has pixel colors comressed 	*
+*	to 	adjacent bits.  If there are less than 8 bits per pixel, unpack	*
+*	the bytes - GIF format must have one pixel per output byte.			*
+*	After compression, the wasted space is obviously removed.			*
+************************************************************************/
+X
+void write_gif_image (fname, imageinfo)
+char 	*fname;
+struct imageparm *imageinfo;
+{	FILE	*fp;
+X	int		i;
+X	int		ncolors;
+X	int		ix, iy, shift;
+X	byte	*bytes, *these_bits, *input, *output;
+X
+X	image = imageinfo;
+X	if (image->pix == NULL)
+X		return;
+X
+X	for (i = 0;  i < 256;  i++)
+X		rmap[i] = gmap[i] = bmap[i] = 0;
+X
+X	fp = fopen (fname, "w");
+X	if (fp == NULL)
+X	{	printf ("Cannot open gif output file\n");
+X		exit (0);
+X	}
+X	ncolors = getcolors();
+X	if (depth != 8)
+X	{	bytes = (byte *) malloc (image->pixheight *  image->pixwidth);
+X		for (iy = 0; iy < image->pixheight;  iy++)
+X		{
+X			output = bytes + iy * image->pixwidth;
+X			input = image->pix  + iy * image->bytewidth;
+X			switch (depth)
+X			{
+X			case 4:
+X				for (ix = 0; ix < image->pixwidth; ix++)
+X				{	if (ix % 2)
+X						shift = 0;
+X					else
+X						shift = 4;
+X					output[ix] = (input[ix >> 1] >> shift) & 0x0f;
+X				}
+X				break;
+X
+X			case 2:
+X				for (ix = 0; ix < image->pixwidth; ix++)
+X				{	switch (ix % 4)
+X					{
+X					case 0:		shift = 6;	break;
+X					case 1:		shift = 4;	break;
+X					case 2:		shift = 2;	break;
+X					case 3:		shift = 0;	break;
+X					}
+X					output[ix] = (input[ix >> 2] >> shift) & 0x03;
+X				}
+X				break;
+X
+X			case 1:
+X				for (ix = 0; ix < image->pixwidth; ix++)
+X					output[ix] = (input[ix >> 3]  >> (7 - ix % 8)) & 0x01;
+X			}
+X		}
+X		these_bits = bytes;
+X	}
+X	else
+X	{	these_bits = image->pix;
+X		bytes = NULL;
+X	}
+X	writegif (fp, these_bits, image->pixwidth, image->pixheight, rmap, gmap, bmap, ncolors, 0);
+X	if (bytes)
+X		free (bytes);
+X	fclose (fp);
+}
+X
+/************************************************************************
+*	getcolors ()		get current colour map in rgb for gif output	*
+************************************************************************/
+X
+static int getcolors ()
+{
+X	Colormap default_cmap;
+X	int	ncolors, i;
+X	XColor	my_colors[256];
+X
+X	ncolors = DisplayCells (display, DefaultScreen (display));
+X	default_cmap = DefaultColormap (display, DefaultScreen (display));
+X	for (i = 0;  i < DisplayCells (display, 0);  i++)
+X	{	my_colors[i].pixel = i;
+X		my_colors[i].flags = DoRed | DoGreen | DoBlue;
+X	}
+X
+X	XQueryColors (display, default_cmap, my_colors, ncolors);
+X
+X	/*	scale the colours to a 0..255 range as expected by GIF
+X		X11 always gives RGB values as a 16 bit number.
+X	*/
+X	for (i = 0;  i < ncolors;  i++)
+X	{	rmap[i] = (double) my_colors[i].red / 256.0;
+X		gmap[i] = (double) my_colors[i].green / 256.0;
+X		bmap[i] = (double) my_colors[i].blue / 256.0;
+X	}
+X	return (ncolors);
+}
+X
+X
+/*	Extracted for the XV.2.11 source distribution....
+X *
+X * xvgifwr.c  -  handles writing of GIF files.  based on flgife.c and
+X *               flgifc.c from the FBM Library, by Michael Maudlin
+X *
+X * Contains: 
+X *   WriteGIF(fp, pic, w, h, rmap, gmap, bmap, numcols, colorstyle)
+X *
+X * Note: slightly brain-damaged, in that it'll only write non-interlaced 
+X *       GIF files (in the interests of speed, or something)
+X *
+X */
+X
+X
+X
+/*****************************************************************
+X * Portions of this code Copyright (C) 1989 by Michael Mauldin.
+X * Permission is granted to use this file in whole or in part provided
+X * that you do not sell it for profit and that this copyright notice
+X * and the names of all authors are retained unchanged.
+X *
+X * Authors:  Michael Mauldin (mlm@cs.cmu.edu)
+X *           David Rowley (mgardi@watdcsu.waterloo.edu)
+X *
+X * Based on: compress.c - File compression ala IEEE Computer, June 1984.
+X *
+X *	Spencer W. Thomas       (decvax!harpo!utah-cs!utah-gr!thomas)
+X *	Jim McKie               (decvax!mcvax!jim)
+X *	Steve Davies            (decvax!vax135!petsd!peora!srd)
+X *	Ken Turkowski           (decvax!decwrl!turtlevax!ken)
+X *	James A. Woods          (decvax!ihnp4!ames!jaw)
+X *	Joe Orost               (decvax!vax135!petsd!joe)
+X *****************************************************************/
+X 
+/*
+X * Copyright 1989, 1990 by the University of Pennsylvania
+X *
+X * Permission to use, copy, and distribute for non-commercial purposes,
+X * is hereby granted without fee, providing that the above copyright
+X * notice appear in all copies and that both the copyright notice and this
+X * permission notice appear in supporting documentation.
+X *
+X * The software may be modified for your own purposes, but modified versions
+X * may not be distributed.
+X *
+X * This software is provided "as is" without any express or implied warranty.
+X */
+X
+X
+/* MONO returns total intensity of r,g,b components */
+X
+#define MONO(rd,gn,bl) (((rd)*11 + (gn)*16 + (bl)*5) >> 5)  /*.33R+ .5G+ .17B*/
+X
+int DEBUG = 0;
+X
+static int  Width, Height;
+static int  curx, cury;
+static long CountDown;
+static int  Interlace;
+static byte bw[2] = {0, 0xff};
+X
+/*************************************************************/
+static int writegif (fp, pic, w, h, rmap, gmap, bmap, numcols, colorstyle)
+FILE *fp;
+byte *pic;
+int   w,h;
+byte *rmap, *gmap, *bmap;
+int   numcols, colorstyle;
+{
+X  int RWidth, RHeight;
+X  int LeftOfs, TopOfs;
+X  int Resolution, ColorMapSize, InitCodeSize, Background, BitsPerPixel;
+X  int i,j;
+X
+X
+X  /* if writing B/W stipple... */
+X  if (colorstyle==2) {
+X    rmap = gmap = bmap = bw;
+X    numcols = 2;
+X  }
+X
+X  Interlace = 0;
+X  Background = 0;
+X
+X  /* figure out 'BitsPerPixel' */
+X  for (i=1; i<8; i++)
+X    if ( (1<<i) >= numcols) break;
+X  
+X  BitsPerPixel = i;
+X
+X  ColorMapSize = 1 << BitsPerPixel;
+X	
+X  RWidth  = Width  = w;
+X  RHeight = Height = h;
+X  LeftOfs = TopOfs = 0;
+X	
+X  Resolution = BitsPerPixel;
+X
+X  CountDown = w * h;    /* # of pixels we'll be doing */
+X
+X  if (BitsPerPixel <= 1) InitCodeSize = 2;
+X                    else InitCodeSize = BitsPerPixel;
+X
+X  curx = cury = 0;
+X
+X  if (!fp) {
+X    fprintf(stderr,  "WriteGIF: file not open for writing\n" );
+X    return (1);
+X  }
+X
+X  if (DEBUG) 
+X    fprintf(stderr,"WrGIF: pic=%lx, w,h=%dx%d, numcols=%d, Bits%d,Cmap=%d\n",
+X	    pic, w,h,numcols,BitsPerPixel,ColorMapSize);
+X
+X  fwrite("GIF87a", 1, 6, fp);    /* the GIF magic number */
+X
+X  putword(RWidth, fp);           /* screen descriptor */
+X  putword(RHeight, fp);
+X
+X  i = 0x80;	                 /* Yes, there is a color map */
+X  i |= (8-1)<<4;                 /* OR in the color resolution (hardwired 8) */
+X  i |= (BitsPerPixel - 1);       /* OR in the # of bits per pixel */
+X  fputc(i,fp);          
+X
+X  fputc(Background, fp);         /* background color */
+X
+X  fputc(0, fp);                  /* future expansion byte */
+X
+X
+X  if (colorstyle == 1) {         /* greyscale */
+X    for (i=0; i<ColorMapSize; i++) {
+X      j = MONO(rmap[i], gmap[i], bmap[i]);
+X      fputc(j, fp);
+X      fputc(j, fp);
+X      fputc(j, fp);
+X    }
+X  }
+X  else {
+X    for (i=0; i<ColorMapSize; i++) {       /* write out Global colormap */
+X      fputc(rmap[i], fp);
+X      fputc(gmap[i], fp);
+X      fputc(bmap[i], fp);
+X    }
+X  }
+X
+X  fputc( ',', fp );              /* image separator */
+X
+X  /* Write the Image header */
+X  putword(LeftOfs, fp);
+X  putword(TopOfs,  fp);
+X  putword(Width,   fp);
+X  putword(Height,  fp);
+X  if (Interlace) fputc(0x40, fp);   /* Use Global Colormap, maybe Interlace */
+X            else fputc(0x00, fp);
+X
+X  fputc(InitCodeSize, fp);
+X  compress(InitCodeSize+1, fp, pic, w*h);
+X
+X  fputc(0,fp);                      /* Write out a Zero-length packet (EOF) */
+X  fputc(';',fp);                    /* Write GIF file terminator */
+X
+X  return (0);
+}
+X
+X
+X
+X
+/******************************/
+static void putword(w, fp)
+int w;
+FILE *fp;
+{
+X  /* writes a 16-bit integer in GIF order (LSB first) */
+X  fputc(w & 0xff, fp);
+X  fputc((w>>8)&0xff, fp);
+}
+X
+X
+X
+X
+/***********************************************************************/
+X
+X
+static unsigned long cur_accum = 0;
+static int           cur_bits = 0;
+X
+X
+X
+X
+#define min(a,b)        ((a>b) ? b : a)
+X
+#define BITS	12
+#define MSDOS	1
+X
+#define HSIZE  5003            /* 80% occupancy */
+X
+typedef unsigned char   char_type;
+X
+X
+static int n_bits;                   /* number of bits/code */
+static int maxbits = BITS;           /* user settable max # bits/code */
+static int maxcode;                  /* maximum code, given n_bits */
+static int maxmaxcode = 1 << BITS;   /* NEVER generate this */
+X
+#define MAXCODE(n_bits)     ( (1 << (n_bits)) - 1)
+X
+static  count_int      htab [HSIZE];
+static  unsigned short codetab [HSIZE];
+#define HashTabOf(i)   htab[i]
+#define CodeTabOf(i)   codetab[i]
+X
+static int hsize = HSIZE;            /* for dynamic table sizing */
+X
+/*
+X * To save much memory, we overlay the table used by compress() with those
+X * used by decompress().  The tab_prefix table is the same size and type
+X * as the codetab.  The tab_suffix table needs 2**BITS characters.  We
+X * get this from the beginning of htab.  The output stack uses the rest
+X * of htab, and contains characters.  There is plenty of room for any
+X * possible stack (stack used to be 8000 characters).
+X */
+X
+#define tab_prefixof(i) CodeTabOf(i)
+#define tab_suffixof(i)        ((char_type *)(htab))[i]
+#define de_stack               ((char_type *)&tab_suffixof(1<<BITS))
+X
+static int free_ent = 0;                  /* first unused entry */
+X
+/*
+X * block compression parameters -- after all codes are used up,
+X * and compression rate changes, start over.
+X */
+static int clear_flg = 0;
+X
+static long int in_count = 1;            /* length of input */
+static long int out_count = 0;           /* # of codes output (for debugging) */
+X
+/*
+X * compress stdin to stdout
+X *
+X * Algorithm:  use open addressing double hashing (no chaining) on the 
+X * prefix code / next character combination.  We do a variant of Knuth's
+X * algorithm D (vol. 3, sec. 6.4) along with G. Knott's relatively-prime
+X * secondary probe.  Here, the modular division first probe is gives way
+X * to a faster exclusive-or manipulation.  Also do block compression with
+X * an adaptive reset, whereby the code table is cleared when the compression
+X * ratio decreases, but after the table fills.  The variable-length output
+X * codes are re-sized at this point, and a special CLEAR code is generated
+X * for the decompressor.  Late addition:  construct the table according to
+X * file size for noticeable speed improvement on small files.  Please direct
+X * questions about this implementation to ames!jaw.
+X */
+X
+static int g_init_bits;
+static FILE *g_outfile;
+X
+static int ClearCode;
+static int EOFCode;
+X
+X
+/********************************************************/
+static void compress(init_bits, outfile, data, len)
+int   init_bits;
+FILE *outfile;
+byte *data;
+int   len;
+{
+X  register long fcode;
+X  register int i = 0;
+X  register int c;
+X  register int ent;
+X  register int disp;
+X  register int hsize_reg;
+X  register int hshift;
+X
+X  /*
+X   * Set up the globals:  g_init_bits - initial number of bits
+X   *                      g_outfile   - pointer to output file
+X   */
+X  g_init_bits = init_bits;
+X  g_outfile   = outfile;
+X
+X  /* initialize 'compress' globals */
+X  maxbits = BITS;
+X  maxmaxcode = 1<<BITS;
+X  memset((char *) htab, 0, sizeof(htab));
+X  memset((char *) codetab, 0, sizeof(codetab));
+X  hsize = HSIZE;
+X  free_ent = 0;
+X  clear_flg = 0;
+X  in_count = 1;
+X  out_count = 0;
+X  cur_accum = 0;
+X  cur_bits = 0;
+X
+X
+X  /*
+X   * Set up the necessary values
+X   */
+X  out_count = 0;
+X  clear_flg = 0;
+X  in_count = 1;
+X  maxcode = MAXCODE(n_bits = g_init_bits);
+X
+X  ClearCode = (1 << (init_bits - 1));
+X  EOFCode = ClearCode + 1;
+X  free_ent = ClearCode + 2;
+X
+X  char_init();
+X  ent = *data++;  len--;
+X
+X  hshift = 0;
+X  for ( fcode = (long) hsize;  fcode < 65536L; fcode *= 2L )
+X    hshift++;
+X  hshift = 8 - hshift;                /* set hash code range bound */
+X
+X  hsize_reg = hsize;
+X  cl_hash( (count_int) hsize_reg);            /* clear hash table */
+X
+X  output(ClearCode);
+X    
+X  while (len) {
+X    c = *data++;  len--;
+X    in_count++;
+X
+X    fcode = (long) ( ( (long) c << maxbits) + ent);
+X    i = (((int) c << hshift) ^ ent);    /* xor hashing */
+X
+X    if ( HashTabOf (i) == fcode ) {
+X      ent = CodeTabOf (i);
+X      continue;
+X    }
+X
+X    else if ( (long)HashTabOf (i) < 0 )      /* empty slot */
+X      goto nomatch;
+X
+X    disp = hsize_reg - i;           /* secondary hash (after G. Knott) */
+X    if ( i == 0 )
+X      disp = 1;
+X
+probe:
+X    if ( (i -= disp) < 0 )
+X      i += hsize_reg;
+X
+X    if ( HashTabOf (i) == fcode ) {
+X      ent = CodeTabOf (i);
+X      continue;
+X    }
+X
+X    if ( (long)HashTabOf (i) > 0 ) 
+X      goto probe;
+X
+nomatch:
+X    output(ent);
+X    out_count++;
+X    ent = c;
+X
+X    if ( free_ent < maxmaxcode ) {
+X      CodeTabOf (i) = free_ent++; /* code -> hashtable */
+X      HashTabOf (i) = fcode;
+X    }
+X    else
+X      cl_block();
+X  }
+X
+X  /* Put out the final code */
+X  output(ent);
+X  out_count++;
+X  output(EOFCode);
+}
+X
+X
+/*****************************************************************
+X * TAG( output )
+X *
+X * Output the given code.
+X * Inputs:
+X *      code:   A n_bits-bit integer.  If == -1, then EOF.  This assumes
+X *              that n_bits =< (long)wordsize - 1.
+X * Outputs:
+X *      Outputs code to the file.
+X * Assumptions:
+X *      Chars are 8 bits long.
+X * Algorithm:
+X *      Maintain a BITS character long buffer (so that 8 codes will
+X * fit in it exactly).  Use the VAX insv instruction to insert each
+X * code in turn.  When the buffer fills up empty it and start over.
+X */
+X
+static
+unsigned long masks[] = { 0x0000, 0x0001, 0x0003, 0x0007, 0x000F,
+X                                  0x001F, 0x003F, 0x007F, 0x00FF,
+X                                  0x01FF, 0x03FF, 0x07FF, 0x0FFF,
+X                                  0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF };
+X
+static void output(code)
+int code;
+{
+X  cur_accum &= masks[cur_bits];
+X
+X  if (cur_bits > 0)
+X    cur_accum |= ((long)code << cur_bits);
+X  else
+X    cur_accum = code;
+X	
+X  cur_bits += n_bits;
+X
+X  while( cur_bits >= 8 ) {
+X    char_out( (unsigned int) (cur_accum & 0xff) );
+X    cur_accum >>= 8;
+X    cur_bits -= 8;
+X  }
+X
+X  /*
+X   * If the next entry is going to be too big for the code size,
+X   * then increase it, if possible.
+X   */
+X
+X  if (free_ent > maxcode || clear_flg) {
+X
+X    if( clear_flg ) {
+X      maxcode = MAXCODE (n_bits = g_init_bits);
+X      clear_flg = 0;
+X    }
+X    else {
+X      n_bits++;
+X      if ( n_bits == maxbits )
+X	maxcode = maxmaxcode;
+X      else
+X	maxcode = MAXCODE(n_bits);
+X    }
+X  }
+X	
+X  if( code == EOFCode ) {
+X    /* At EOF, write the rest of the buffer */
+X    while( cur_bits > 0 ) {
+X      char_out( (unsigned int)(cur_accum & 0xff) );
+X      cur_accum >>= 8;
+X      cur_bits -= 8;
+X    }
+X
+X    flush_char();
+X	
+X    fflush( g_outfile );
+X
+X    if( ferror( g_outfile ) )
+X    {	printf ("unable to write GIF file\n");
+X    	exit (1);
+X    }
+X  }
+}
+X
+X
+/********************************/
+static void cl_block ()             /* table clear for block compress */
+{
+X  /* Clear out the hash table */
+X
+X  cl_hash ( (count_int) hsize );
+X  free_ent = ClearCode + 2;
+X  clear_flg = 1;
+X
+X  output(ClearCode);
+}
+X
+X
+/********************************/
+static void cl_hash(hsize)          /* reset code table */
+register count_int hsize;
+{
+X  register count_int *htab_p = htab+hsize;
+X  register long i;
+X  register long m1 = -1;
+X
+X  i = hsize - 16;
+X  do {                            /* might use Sys V memset(3) here */
+X    *(htab_p-16) = m1;
+X    *(htab_p-15) = m1;
+X    *(htab_p-14) = m1;
+X    *(htab_p-13) = m1;
+X    *(htab_p-12) = m1;
+X    *(htab_p-11) = m1;
+X    *(htab_p-10) = m1;
+X    *(htab_p-9) = m1;
+X    *(htab_p-8) = m1;
+X    *(htab_p-7) = m1;
+X    *(htab_p-6) = m1;
+X    *(htab_p-5) = m1;
+X    *(htab_p-4) = m1;
+X    *(htab_p-3) = m1;
+X    *(htab_p-2) = m1;
+X    *(htab_p-1) = m1;
+X    htab_p -= 16;
+X  } while ((i -= 16) >= 0);
+X
+X  for ( i += 16; i > 0; i-- )
+X    *--htab_p = m1;
+}
+X
+X
+/******************************************************************************
+X *
+X * GIF Specific routines
+X *
+X ******************************************************************************/
+X
+/*
+X * Number of characters so far in this 'packet'
+X */
+static int a_count;
+X
+/*
+X * Set up the 'byte output' routine
+X */
+static void char_init()
+{
+X	a_count = 0;
+}
+X
+/*
+X * Define the storage for the packet accumulator
+X */
+static char accum[ 256 ];
+X
+/*
+X * Add a character to the end of the current packet, and if it is 254
+X * characters, flush the packet to disk.
+X */
+static void char_out(c)
+int c;
+{
+X  accum[ a_count++ ] = c;
+X  if( a_count >= 254 ) 
+X    flush_char();
+}
+X
+/*
+X * Flush the packet to disk, and reset the accumulator
+X */
+static void flush_char()
+{
+X  if( a_count > 0 ) {
+X    fputc( a_count, g_outfile );
+X    fwrite( accum, 1, a_count, g_outfile );
+X    a_count = 0;
+X  }
+}	
+SHAR_EOF
+chmod 0644 writegif.c ||
+echo 'restore of writegif.c failed'
+Wc_c="`wc -c < 'writegif.c'`"
+test 17660 -eq "$Wc_c" ||
+	echo 'writegif.c: original size 17660, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xmandel.man ==============
+if test -f 'xmandel.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xmandel.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xmandel.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xmandel.man' &&
+.TH XMANDEL X " 25 April 1992" "X Version 11"
+.UC 4
+.SH NAME
+xmandel \- X11 interface to the Mandelbrot and Julia sets
+.SH SYNOPSIS
+xmandel [-display display]
+.SH DESCRIPTION
+.PP
+.IR Xmandel
+is a user friendly interface for generating and colouring Mandelbrot and Julia sets.
+It initially comes up with with eleven or so command buttons,
+which are described below, for controlling the execution.
+A Mandelbrot set is drawn in the window of the initial form
+when the \fImandel\fP button is selected.
+A separate window is created for drawing the Julia sets.
+.SH THEORY
+Let z0 be a number in the complex plane (x + yi). 
+Choose a complex constant C.  
+Calculate z1 = z0 ** 2 + C.
+Repeat this recursively, so that z2 = z1 ** 2 + C,
+z3 = z2 ** 2 + C and so on.
+z[n] will either tend to infinity or zero, depending
+on its initial value and the constant C.
+Specifically if the absolute value of z[n], 
+expressed as |z| = sqrt(x**2 + y**2) is greater than 2,
+then the recursive formula will diverge.
+.PP
+So, to calculate a Julia set, take each point near (0,0i),
+and use the formula z = z**2 + C recursively.
+The Julia set is the set of points for which
+z = z**2 + C would iterate indefinitely for the constant C.
+Pixels, which represent numbers in the complex plane,
+are set to the number of iterations before |z| exceeds 2.
+This then becomes an index into the hardware colormap.
+Each color then represents the number of iterations before
+divergence is detected.
+.PP
+To calculate a Mandelbrot set, again take each point near (0,0i),
+use the same formula z = z**2 + C recursively.
+This time let C be the initial value of the point itself (C = z0).
+Rather than having the same C for every point in the complex plane
+as in Julia set calculations,
+C is different for each point in the plane.
+Again let the pixel value be the number of iterations
+before |z| exceeds 2.
+.PP
+On monochrome displays, the pixel value is set to 1
+if the iteration count is 64, otherwise 0.
+.PP
+Mandelbrot sets and Julia sets are obviously closely
+related as can be seen from the similarity of their
+respective formulas.
+If the constant C is chosen from the interior of the
+Mandelbrot set, then the Julia set calculated from that
+constant C will be connected, that is have no gaps or discontinuities.
+If the constant C is chosen from outside the Mandelbrot set,
+the Julia set will be disconnected, more like grains of dust (Fatou clouds).
+If the constant C is chosen from the border of the Mandelbrot set, 
+then the Julia set will be more convoluted.
+Given this relationship between points in the Mandelbrot set
+and the Julia set generated, 
+XXmandel provides user selection of the constant C
+by mouse selection in the Mandelbrot window.
+.SH BUTTONS
+To control execution of the calculations, various buttons
+are provided.  The buttons are somewhat different between
+the Athena Widget and Motif Widget implementations.
+The buttons are:
+.TP
+.B mandel
+Calculates a Mandelbrot set from (-2.25, -1.5) to (1.0, 1.5)
+and display it in the window provided.  
+X
+Pressing a mouse button with the cursor in
+the drawing window terminates the calculations.
+.TP
+.B julia
+Calculates a Julia set.
+The user is required to select a point inside the Mandelbrot window using 
+the left mouse button as the constant C for the Julia set calculation.
+It will open a new window if needed.
+The Julia set is centered around (0,0),
+going from (-1.5, -1.5) to (1.5, 1.5).
+Julia set points can be selected from zoomed in Mandelbrot windows as well.
+Beware of selecting points outside the Mandelbrot window.
+X
+Pressing a mouse button in the drawing window terminates the calculations.
+.TP
+.B Image
+After the Mandelbrot or Julia set is generated, the
+.I Image
+button identifies which set is to be used for various manipluations
+such as
+.I zoom
+or 
+.I +colour.
+If this button is pressed, the active image toggles between "Mandel"
+and "Julia" to identify the set that is to be manipulated.
+X
+The Motif implementation uses radio buttons for this toggle.
+.TP
+.B zoom
+In order to zoom in on a given area in the Mandelbrot or Julia set,
+a zoom button is provided.
+The area to be zoomed in on is selected with the left mouse button.
+Left button down begins the selection,
+dragging with left button down draws a rubber banded box to show the zoom area,
+and left button up begins the calculation.
+You can zoom in on a zoomed in area until you reach
+the limits of the precision of your hardware.
+Selecting a zoom area that crosses a window border doesn't work.
+X
+To a certain degree, the zoom rubber banded box may be moved, enlarged
+and otherwise resized by careful use of the mouse.
+X
+Zoom requests less than 5 pixels wide are ignored.  The zoom
+request may be terminated by pressing button 2 or 3 while creating
+the rubber band.
+X
+If the Motif version is used, the zoom coordinates may be specified
+in the
+.I ZOOM COORDINATES
+dialogue boxes.  After the desired coodinates are enterd, pressing the
+.I zoom
+button activates the drawing.
+.TP
+.B unzoom
+Return to previous zoom.  
+Note that you can zoom all the way out by selecting the \fImandel\fP button.
+.TP
+.B recalc
+Recompute the set at the current coordinates.  This is useful
+to redisplay the current image after the set's window has been
+resized.
+X
+If the Motif version is used, the coordinates for recalculation may be
+modified in the
+.I ZOOM COORDINATES
+dialogue boxes.
+.TP
+.B colour
+The
+.I colour
+button selects colour rotation value to be applied when the
+.I +colour
+or
+.I -colour
+buttons are used.
+X
+The "colour step" value is added to each pixel colour before redisplay.
+The effectively rotates the image through the available colour map.
+By default, the rotation value is set to the number of bit planes: for
+an 8 bit display, the rotation value is 8; for a 2 bit display, the rotation
+value is 2; etc.
+X
+The selected set and rotation value is "remembered" for use with the
+.I \+colour
+and
+.I \-colour
+buttons.
+X
+The "rotate" dialogue box in the Motif edition is used to set
+the colour rotation value.
+.TP
+.B \+colour
+The default set
+is rotated in a positive sense by adding the previously 
+specified colour rotation value to all pixels. 
+X
+An interesting "colour zoom" effect can be achieved by first setting the
+colour rotation value to 1 and rapidly pressing the
+.I \+colour
+or
+.I \-colour
+button.
+.TP
+.B \-colour
+The default set
+is rotated in a negative sense by subtracting the previously 
+specified colour rotation value.  In effect,
+.I \-colour
+undoes the effect of
+.I \+colour.
+.TP
+.B gif
+Either the Mandelbrot or Julia image may be captured to a GIF file.
+The Mandelbrot image is saved in the specified file name if the 
+.I Mandelbrot
+radio button is pressed, the Julia image is saved if the 
+.I Julia
+radio button is pressed.
+X
+For the Motif implementation, the desired file name is entered
+into the
+.I Gif file
+dialogue box.  Pressing the
+.I Save
+button saves the default image (set by the radio buttons)
+as a gif file.
+.TP
+.B remove
+Remove the Julia set window.  It will be recreated if another
+Julia display is requested.
+X
+This button is not used in the Motif edition: the Julia set
+may be removed by closing the Julia window.
+.TP
+.B quit
+This causes \fIxmandel\fP to exit.
+.SH MOTIF NOTES
+The
+.I default
+set is selected by the radio buttons
+.I mandel
+or
+.I julia.
+The default set selection is used when the
+.I recalc, \+colour,
+.I \-colour,
+or other buttons are pressed.  For example, if the
+.I julia
+radio button is selected, the
+.I recalc
+button will recompute the Julia set.  The Mandelbrot set is
+unaffected.
+X
+The additional dialog boxes allow you to manually provide the
+Mandelbrot zoom coordinates. Changes to the
+.I POINT COORDINATES
+are not allowed.
+.SH BUGS
+The system works only with 1, 2, 4, or 8 bit displays: 24 bit
+display systems are not supported.
+.PP
+Exposure events are examined after the generation of every 4th
+image scan line: there is some delay after and exposure event
+before the image is actually refreshed.
+.PP
+XXmandel cannot manipluate the colour map.
+.PP
+Performance is slow on workstations,
+especially workstations without floating point hardware.  Alternatively,
+extensive use of
+.I xmandel
+may justify the purchase of a more powerful system.
+.SH AUTHOR
+John L. Freeman (jlf@cray.com)
+.nf
+X
+Changes for gif, Motif and SysV X11-R4:
+X       Tony Field (tony@ajfcal.cuc.ab.ca)
+.fi
+SHAR_EOF
+chmod 0644 xmandel.man ||
+echo 'restore of xmandel.man failed'
+Wc_c="`wc -c < 'xmandel.man'`"
+test 8293 -eq "$Wc_c" ||
+	echo 'xmandel.man: original size 8293, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xmandel.mot.ad ==============
+if test -f 'xmandel.mot.ad' -a X"$1" != X"-c"; then
+	echo 'x - skipping xmandel.mot.ad (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xmandel.mot.ad (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xmandel.mot.ad' &&
+! Translate buttons so that they remain depressed duing the
+! course of calculations or processing.
+X
+xmandel.name.mandel.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.julia.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.recalc.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.unzoom.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.+colour.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.-colour.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.Save.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+X
+xmandel.name.zoom.Translations:  #override \
+X		<Btn1Down>: Arm() \n \
+X		<Btn1Up>:   ArmAndActivate()
+SHAR_EOF
+chmod 0644 xmandel.mot.ad ||
+echo 'restore of xmandel.mot.ad failed'
+Wc_c="`wc -c < 'xmandel.mot.ad'`"
+test 929 -eq "$Wc_c" ||
+	echo 'xmandel.mot.ad: original size 929, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

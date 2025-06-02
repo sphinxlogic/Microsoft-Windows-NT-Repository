@@ -1,0 +1,2341 @@
+Newsgroups: comp.sources.misc
+From: byron@archone.tamu.edu (Byron Rakitzis)
+Subject:  v30i029:  rc - A Plan 9 shell reimplementation, v1.4, Part06/07
+Message-ID: <1992May30.031727.5606@sparky.imd.sterling.com>
+X-Md4-Signature: 966e76fd65ade8700d2d3682daadb8d3
+Date: Sat, 30 May 1992 03:17:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: byron@archone.tamu.edu (Byron Rakitzis)
+Posting-number: Volume 30, Issue 29
+Archive-name: rc/part06
+Environment: UNIX
+Supersedes: rc: Volume 23, Issue 61-66
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  COPYRIGHT Makefile config.h-dist except.c exec.c execve.c
+#   getopt.c jbwrap.h list.c main.c match.c mksignal nalloc.c proto.h
+#   redir.c signal.c status.c tree.c utils.c wait.c which.c
+# Wrapped by kent@sparky on Fri May 29 20:55:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 7)."'
+if test -f 'COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'COPYRIGHT'\"
+else
+  echo shar: Extracting \"'COPYRIGHT'\" \(1106 characters\)
+  sed "s/^X//" >'COPYRIGHT' <<'END_OF_FILE'
+X/*
+X * Copyright 1991 Byron Rakitzis.  All rights reserved.
+X *
+X * This software is not subject to any license of the American Telephone
+X * and Telegraph Company or of the Regents of the University of California.
+X *
+X * Permission is granted to anyone to use this software for any purpose on
+X * any computer system, and to alter it and redistribute it freely, subject
+X * to the following restrictions:
+X *
+X * 1. The author is not responsible for the consequences of use of this
+X *    software, no matter how awful, even if they arise from flaws in it.
+X *
+X * 2. The origin of this software must not be misrepresented, either by
+X *    explicit claim or by omission.  Since few users ever read sources,
+X *    credits must appear in the documentation.
+X *
+X * 3. Altered versions must be plainly marked as such, and must not be
+X *    misrepresented as being the original software.  Since few users
+X *    ever read sources, credits must appear in the documentation.
+X *
+X * 4. This notice may not be removed or altered.
+X *
+X *    [this copyright notice is adapted from Henry Spencer's
+X *    "awf" copyright notice.]
+X */
+END_OF_FILE
+  if test 1106 -ne `wc -c <'COPYRIGHT'`; then
+    echo shar: \"'COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'COPYRIGHT'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1699 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile for rc.
+X
+X# Please check the configuration parameters in config.h (and if you want
+X# to make sure, the definitions in proto.h) to make sure they are correct
+X# for your system.
+X
+XSHELL=/bin/sh
+X
+X# Uncomment this line if you have defined the NOEXECVE macro in config.h
+X#EXECVE=execve.o
+X
+X# Define this macro if you wish to extend rc via locally-defined builtins.
+X# An interface is provided in addon.[ch]. Note that the author does not
+X# endorse any such extensions, rather hopes that this way rc will become
+X# useful to more people.
+X#ADDON=addon.o
+X
+X# Use an ANSI compiler (or at least one that groks prototypes and void *):
+XCC=gcc -g -O
+XCFLAGS=
+XLDFLAGS=
+X
+X# You may substitute "bison -y" for yacc. (You want to choose the one that
+X# makes a smaller y.tab.c.)
+XYACC=yacc
+X
+XOBJS=$(ADDON) builtins.o except.o exec.o $(EXECVE) fn.o footobar.o getopt.o \
+X	glob.o glom.o hash.o heredoc.o input.o lex.o list.o main.o match.o \
+X	nalloc.o open.o print.o redir.o sigmsgs.o signal.o status.o tree.o \
+X	utils.o var.o version.o wait.o walk.o which.o y.tab.o
+X
+X# If rc is compiled with READLINE defined, you must supply the correct
+X# arguments to ld on this line. Typically this would be something like:
+X#
+X#	$(CC) -o $@ $(OBJS) -lreadline -ltermcap
+X
+Xrc: $(OBJS)
+X	$(CC) -o $@ $(OBJS) $(LDFLAGS)
+X
+Xsigmsgs.c: mksignal
+X	sh mksignal /usr/include/sys/signal.h
+X
+Xy.tab.c: parse.y
+X	$(YACC) -d parse.y
+X
+Xconfig.h: config.h-dist
+X	cp config.h-dist config.h
+X
+Xtrip: rc
+X	./rc -p < trip.rc
+X
+Xclean: force
+X	rm -f *.o *.tab.* sigmsgs.*
+X
+Xhistory: force
+X	cd history; make CC="$(CC)" $(HISTORYMAKEFLAGS)
+X
+Xforce:
+X
+X# dependencies:
+X
+X$(OBJS): config.h
+Xsigmsgs.h: sigmsgs.c
+Xlex.o y.tab.o: y.tab.c
+Xbuiltins.c fn.c status.c hash.c: sigmsgs.h
+END_OF_FILE
+  if test 1699 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'config.h-dist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.h-dist'\"
+else
+  echo shar: Extracting \"'config.h-dist'\" \(5082 characters\)
+  sed "s/^X//" >'config.h-dist' <<'END_OF_FILE'
+X/* Copy config.h-dist to config.h and edit config.h, don't edit this file */
+X
+X/*
+X * Configuration parameters for rc. Suggested defaults are at the bottom
+X * of this file (you should probably look at those first to see if your
+X * system matches one of them; you can search for the beginning of the
+X * defaults section by looking for the string "#ifndef CUSTOM"). If you
+X * want to override the suggested defaults, define the macro CUSTOM.
+X#define CUSTOM
+X */
+X
+X/*
+X * (Note that certain default settings redefine this macro)
+X * DEFAULTPATH the default search path that rc uses when it is started
+X * without either a $PATH or $path environment variable. You must pick
+X * something sensible for your system if you don't like the path shown
+X * below.
+X */
+X#define DEFAULTPATH "/usr/ucb", "/usr/bin", "/bin", "."
+X
+X/*
+X * Define the macro NODIRENT if your system has <sys/dir.h> but not
+X * <dirent.h>. (e.g., NeXT-OS and RISCos)
+X#define NODIRENT
+X */
+X
+X/*
+X * Define the macro SVSIGS if your system has System V signal semantics,
+X * i.e., if "slow" system calls are interrupted rather than resumed
+X * after returning from an interrupt handler. (If you are not sure what
+X * this means, see the man page for signal(2). In any case, it is probably
+X * safe to leave this macro undefined.)
+X#define SVSIGS
+X */
+X
+X/*
+X * Define the macro NOCMDARG if you do not have /dev/fd or fifos on your
+X * system. You may also want to define this if you have broken fifos.
+X#define NOCMDARG
+X */
+X
+X/*
+X * Define TMPDIR if you need to have rc create its fifos in a directory
+X * other than /tmp. For example, if you have a Sun with /tmp mounted
+X * as a ramdisk (type "tmpfs") then you cannot use fifos in /tmp (sigh).
+X#define TMPDIR "/var/tmp"
+X */
+X
+X/*
+X * Define the macro DEVFD if your system supports /dev/fd.
+X#define DEVFD
+X */
+X
+X/*
+X * Define the macro NOLIMITS if your system does not support Berkeley
+X * limits.
+X#define NOLIMITS
+X */
+X
+X/*
+X * Define the macro NOSIGCLD if your system uses SIGCLD in the System
+X * V way. (e.g., sgi's Irix)
+X#define NOSIGCLD
+X */
+X
+X/*
+X * Define the macro READLINE if you want rc to call GNU readline
+X * instead of read(2) on interactive shells.
+X#define READLINE
+X */
+X
+X/*
+X * Define the macro NOEXECVE if your Unix does not interpret #! in the
+X * kernel, and uncomment the EXECVE variable in the Makefile.
+X#define NOEXECVE
+X */
+X
+X/*
+X * If you want rc to default to some interpreter for files which don't
+X * have a legal #! on the first line, define the macro DEFAULTINTERP.
+X#define DEFAULTINTERP "/bin/sh"
+X */
+X
+X/*
+X * If your /bin/sh (or another program you care about) rejects environment
+X * variables with special characters in them (such as ':' or '-'), rc can
+X * put out ugly variable names using [_0-9a-zA-Z] that encode the real name;
+X * define PROTECT_ENV for this hack. (Known offenders: every sh I have tried;
+X * SunOS (silently discards), NeXT (aborts with error), SGI (aborts with
+X * error), Ultrix (sh seems to work, sh5 aborts with error))
+X#define PROTECT_ENV
+X */
+X
+X/*
+X * Define the macro NOECHO if you wish to omit rc's echo builtin from the
+X * compile.
+X#define NOECHO
+X */
+X
+X/*
+X * Define the NOJOB if you do *not* wish rc to perform backgrounding
+X * as if it were a job-control shell; that is, if you do *not* wish
+X * it to put a command spawned in the background into a new process
+X * group. Since most systems support job control and since there are
+X * many broken programs that do not behave correctly when backgrounded
+X * in a v7 non-job-control fashion, rc by default performs a job-
+X * control-like backgrounding.
+X#define NOJOB
+X */
+X
+X/* Beginning of defaults section: */
+X
+X#ifndef CUSTOM
+X
+X/*
+X * Suggested settings for Sun, NeXT and sgi (machines here at TAMU):
+X */
+X
+X#ifdef NeXT		/* Used on NextOS 2.1 */
+X#define NODIRENT
+X#define	PROTECT_ENV
+X#define NOCMDARG
+X#endif
+X
+X#ifdef sgi		/* Used on Irix 3.3.[12] */
+X#define SVSIGS
+X#define NOSIGCLD
+X#define	PROTECT_ENV
+X#undef DEFAULTPATH
+X#define DEFAULTPATH "/usr/bsd", "/usr/sbin", "/usr/bin", "/bin", "."
+X#endif
+X
+X#ifdef sun		/* Used on SunOS 4.1.1 */
+X#define PROTECT_ENV
+X#undef DEFAULTPATH
+X#define DEFAULTPATH "/usr/ucb", "/usr/bin", "."
+X#endif
+X
+X/*
+X * Suggested settings for HP300 running 4.3BSD-utah (DWS):
+X */
+X
+X#if defined(hp300) && !defined(hpux)
+X#define NODIRENT
+X#define NOCMDARG
+X#define DEFAULTINTERP "/bin/sh"
+X#define PROTECT_ENV
+X#endif
+X
+X/*
+X * Suggested settings for Ultrix
+X */
+X
+X#ifdef ultrix
+X#define PROTECT_ENV
+X#define DEFAULTINTERP "/bin/sh"	/* so /bin/true can work */
+X#endif
+X
+X/*
+X * Suggested settings for RISCos 4.52
+X */
+X
+X/*
+X   This doesn't work without interfering with other MIPS-based
+X   systems' configuration. Please do it by hand.
+X*/
+X
+X#if defined(host_mips) && defined(MIPSEB) && defined(SYSTYPE_BSD43)
+X#define NODIRENT
+X#define PROTECT_ENV
+X#endif
+X
+X/*
+X * Suggested settings for AIX
+X */
+X
+X#ifdef _AIX
+X#define PROTECT_ENV
+X#endif
+X
+X/*
+X * Suggested settings for OSF/1 1.0
+X */
+X
+X#ifdef OSF1
+X#define PROTECT_ENV
+X#endif
+X
+X/*
+X * Suggested settings for Unicos XXX
+X */
+X
+X#ifdef cray
+X#define PROTECT_ENV
+X#define NOLIMITS
+X#define word _word
+X#define DEFAULTINTERP "/bin/sh"
+X#endif
+X
+X#endif /* CUSTOM */
+X
+X#ifndef TMPDIR
+X#define TMPDIR "/tmp"
+X#endif
+END_OF_FILE
+  if test 5082 -ne `wc -c <'config.h-dist'`; then
+    echo shar: \"'config.h-dist'\" unpacked with wrong size!
+  fi
+  # end of 'config.h-dist'
+fi
+if test -f 'except.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'except.c'\"
+else
+  echo shar: Extracting \"'except.c'\" \(3330 characters\)
+  sed "s/^X//" >'except.c' <<'END_OF_FILE'
+X#include <setjmp.h>
+X#include <signal.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X
+X/*
+X   A return goes back stack frames to the last return. A break does
+X   not. A signal goes to the last interactive level. (see below)
+X*/
+X
+Xbool nl_on_intr = TRUE;
+X
+Xstatic Estack *estack;
+X
+X/* add an exception to the input stack. */
+X
+Xextern void except(ecodes e, Edata data, Estack *ex) {
+X	ex->prev = estack;
+X	estack = ex;
+X	estack->e = e;
+X	estack->data = data;
+X	if (e == eError || e == eBreak || e == eReturn)
+X		estack->interactive = interactive;
+X}
+X
+X/* remove an exception, restore last interactive value */
+X
+Xextern void unexcept() {
+X	switch (estack->e) {
+X	default:
+X		break;
+X	case eError:
+X		interactive = estack->interactive;
+X		break;
+X	case eArena:
+X		restoreblock(estack->data.b);
+X		break;
+X	case eFifo:
+X		unlink(estack->data.name);
+X		break;
+X	case eFd:
+X		close(estack->data.fd);
+X		break;
+X	}
+X	estack = estack->prev;
+X}
+X
+X/*
+X   Raise an exception. The rules are pretty complicated: you can return
+X   from a loop inside a function, but you can't break from a function
+X   inside of a loop. On errors, rc_raise() goes back to the LAST
+X   INTERACTIVE stack frame. If no such frame exists, then rc_raise()
+X   exits the shell.  This is what happens, say, when there is a syntax
+X   error in a noninteractive shell script. While traversing the
+X   exception stack backwards, rc_raise() also removes input sources
+X   (closing file-descriptors, etc.) and pops instances of variables
+X   that have been pushed onto the variable stack (e.g., for a function
+X   call (for $*) or a local assignment).
+X*/
+X
+Xextern void rc_raise(ecodes e) {
+X	if (e == eError && rc_pid != getpid())
+X		exit(1); /* child processes exit on an error/signal */
+X	for (; estack != NULL; estack = estack->prev)
+X		if (estack->e != e) {
+X			if (e == eBreak && estack->e != eArena)
+X				rc_error("break outside of loop");
+X			else if (e == eReturn && estack->e == eError) /* can return from loops inside functions */
+X				rc_error("return outside of function");
+X			switch (estack->e) {
+X			default:
+X				break;
+X			case eVarstack:
+X				varrm(estack->data.name, TRUE);
+X				break;
+X			case eArena:
+X				restoreblock(estack->data.b);
+X				break;
+X			case eFifo:
+X				unlink(estack->data.name);
+X				break;
+X			case eFd:
+X				close(estack->data.fd);
+X				break;
+X			}
+X		} else {
+X			if (e == eError && !estack->interactive) {
+X				popinput();
+X			} else {
+X				Jbwrap *j = estack->data.jb;
+X
+X				interactive = estack->interactive;
+X				estack = estack->prev;
+X				longjmp(j->j, 1);
+X			}
+X		}
+X	rc_exit(1); /* top of exception stack */
+X}
+X
+Xextern bool outstanding_cmdarg() {
+X	return estack->e == eFifo || estack->e == eFd;
+X}
+X
+Xextern void pop_cmdarg(bool remove) {
+X	for (; estack != NULL; estack = estack->prev)
+X		switch (estack->e) {
+X		case eFifo:
+X			if (remove)
+X				unlink(estack->data.name);
+X			break;
+X		case eFd:
+X			if (remove)
+X				close(estack->data.fd);
+X			break;
+X		default:
+X			return;
+X		}
+X}
+X
+X/* exception handlers */
+X
+Xextern void rc_error(char *s) {
+X	pr_error(s);
+X	set(FALSE);
+X	redirq = NULL;
+X	cond = FALSE; /* no longer inside conditional */
+X	rc_raise(eError);
+X}
+X
+Xextern void sigint(int s) {
+X	if (s != SIGINT)
+X		panic("s != SIGINT in sigint catcher");
+X	/* this is the newline you see when you hit ^C while typing a command */
+X	if (nl_on_intr)
+X		fprint(2, "\n");
+X	nl_on_intr = TRUE;
+X	redirq = NULL;
+X	cond = FALSE;
+X	rc_raise(eError);
+X}
+END_OF_FILE
+  if test 3330 -ne `wc -c <'except.c'`; then
+    echo shar: \"'except.c'\" unpacked with wrong size!
+  fi
+  # end of 'except.c'
+fi
+if test -f 'exec.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'exec.c'\"
+else
+  echo shar: Extracting \"'exec.c'\" \(2668 characters\)
+  sed "s/^X//" >'exec.c' <<'END_OF_FILE'
+X/* exec.c */
+X#include <signal.h>
+X#include <errno.h>
+X#include <setjmp.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X
+X/*
+X   Takes an argument list and does the appropriate thing (calls a
+X   builtin, calls a function, etc.)
+X*/
+X
+Xextern void exec(List *s, bool parent) {
+X	char **av, **ev = NULL;
+X	int pid, stat;
+X	builtin_t *b;
+X	char *path = NULL;
+X	bool didfork, returning, saw_exec, saw_builtin;
+X	av = list2array(s, dashex);
+X	saw_builtin = saw_exec = FALSE;
+X	do {
+X		if (*av == NULL	|| isabsolute(*av))
+X			b = NULL;
+X		else if (!saw_builtin && fnlookup(*av) != NULL)
+X			b = funcall;
+X		else
+X			b = isbuiltin(*av);
+X
+X		/*
+X		   a builtin applies only to the immmediately following
+X		   command, e.g., builtin exec echo hi
+X		*/
+X		saw_builtin = FALSE;
+X
+X		if (b == b_exec) {
+X			av++;
+X			saw_exec = TRUE;
+X			parent = FALSE;
+X		} else if (b == b_builtin) {
+X			av++;
+X			saw_builtin = TRUE;
+X		}
+X	} while (b == b_exec || b == b_builtin);
+X	if (*av == NULL && saw_exec) { /* do redirs and return on a null exec */
+X		doredirs();
+X		return;
+X	}
+X	/* force an exit on exec with any rc_error, but not for null commands as above */
+X	if (saw_exec)
+X		rc_pid = -1;
+X	if (b == NULL) {
+X		path = which(*av, TRUE);
+X		if (path == NULL && *av != NULL) { /* perform null commands for redirections */
+X			set(FALSE);
+X			redirq = NULL;
+X			if (parent)
+X				return;
+X			rc_exit(1);
+X		}
+X		ev = makeenv(); /* environment only needs to be built for execve() */
+X	}
+X	/*
+X	   If parent & the redirq is nonnull, builtin or not it has to fork.
+X	   If the fifoq is nonnull, then it must be emptied at the end so we
+X	   must fork no matter what.
+X	 */
+X	if ((parent && (b == NULL || redirq != NULL)) || outstanding_cmdarg()) {
+X		pid = rc_fork();
+X		didfork = TRUE;
+X	} else {
+X		pid = 0;
+X		didfork = FALSE;
+X	}
+X	returning = (!didfork && parent);
+X	switch (pid) {
+X	case -1:
+X		uerror("fork");
+X		rc_error(NULL);
+X		/* NOTREACHED */
+X	case 0:
+X		if (!returning)
+X			setsigdefaults(FALSE);
+X		pop_cmdarg(FALSE);
+X		doredirs();
+X
+X		/* null commands performed for redirections */
+X		if (*av == NULL || b != NULL) {
+X			if (b != NULL)
+X				(*b)(av);
+X			if (returning)
+X				return;
+X			rc_exit(getstatus());
+X		}
+X#ifdef NOEXECVE
+X		my_execve(path, (const char **) av, (const char **) ev); /* bogus, huh? */
+X#else
+X		execve(path, (const char **) av, (const char **) ev);
+X#endif
+X#ifdef DEFAULTINTERP
+X		if (errno == ENOEXEC) {
+X			*av = path;
+X			*--av = DEFAULTINTERP;
+X			execve(*av, (const char **) av, (const char **) ev);
+X		}
+X#endif
+X		uerror(*av);
+X		rc_exit(1);
+X		/* NOTREACHED */
+X	default:
+X		redirq = NULL;
+X		rc_wait4(pid, &stat, TRUE);
+X		setstatus(-1, stat);
+X		if ((stat & 0xff) == 0)
+X			nl_on_intr = FALSE;
+X		SIGCHK;
+X		nl_on_intr = TRUE;
+X		pop_cmdarg(TRUE);
+X	}
+X}
+END_OF_FILE
+  if test 2668 -ne `wc -c <'exec.c'`; then
+    echo shar: \"'exec.c'\" unpacked with wrong size!
+  fi
+  # end of 'exec.c'
+fi
+if test -f 'execve.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'execve.c'\"
+else
+  echo shar: Extracting \"'execve.c'\" \(1889 characters\)
+  sed "s/^X//" >'execve.c' <<'END_OF_FILE'
+X/* execve.c: an execve() for geriatric unices without #! */
+X
+X/*
+X   NOTE: this file depends on a hack in footobar.c which places two free spots before
+X   av[][] so that execve does not have to call malloc.
+X*/
+X
+X#include <errno.h>
+X#include "rc.h"
+X
+X#define giveupif(x) { if (x) goto fail; }
+X
+Xextern int my_execve(const char *path, const char **av, const char **ev) {
+X	int fd, len, fst, snd, end;
+X	bool noarg;
+X	char pb[256]; /* arbitrary but generous limit */
+X	execve(path, av, ev);
+X	if (errno != ENOEXEC)
+X		return -1;
+X	fd = rc_open(path, rFrom);
+X	giveupif(fd < 0);
+X	len = read(fd, pb, sizeof pb);
+X	close(fd);
+X	/* reject scripts which don't begin with #! */
+X	giveupif(len <= 0 || pb[0] != '#' || pb[1] != '!');
+X	for (fst = 2; fst < len && (pb[fst] == ' ' || pb[fst] == '\t'); fst++)
+X		; /* skip leading whitespace */
+X	giveupif(fst == len);
+X	for (snd = fst; snd < len && pb[snd] != ' ' && pb[snd] != '\t' && pb[snd] != '\n'; snd++)
+X		; /* skip first arg */
+X	giveupif(snd == len);
+X	noarg = (pb[snd] == '\n');
+X	pb[snd++] = '\0'; /* null terminate the first arg */
+X	if (!noarg) {
+X		while (snd < len && (pb[snd] == ' ' || pb[snd] == '\t'))
+X			snd++; /* skip whitespace to second arg */
+X		giveupif(snd == len);
+X		noarg = (pb[snd] == '\n'); /* could have trailing whitespace after only one arg */
+X		if (!noarg) {
+X			for (end = snd; end < len && pb[end] != ' ' && pb[end] != '\t' && pb[end] != '\n'; end++)
+X				; /* skip to the end of the second arg */
+X			giveupif(end == len);
+X			if (pb[end] == '\n') {
+X				pb[end] = '\0'; /* null terminate the first arg */
+X			} else {		/* else check for a spurious third arg */
+X				pb[end++] = '\0';
+X				while (end < len && (pb[end] == ' ' || pb[end] == '\t'))
+X					end++;
+X				giveupif(end == len || pb[end] != '\n');
+X			}
+X		}
+X	}
+X	*av = path;
+X	if (!noarg)
+X		*--av = pb + snd;
+X	*--av = pb + fst;
+X	execve(*av, av, ev);
+X	return -1;
+Xfail:	errno = ENOEXEC;
+X	return -1;
+X}
+END_OF_FILE
+  if test 1889 -ne `wc -c <'execve.c'`; then
+    echo shar: \"'execve.c'\" unpacked with wrong size!
+  fi
+  # end of 'execve.c'
+fi
+if test -f 'getopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.c'\"
+else
+  echo shar: Extracting \"'getopt.c'\" \(1664 characters\)
+  sed "s/^X//" >'getopt.c' <<'END_OF_FILE'
+X#include "rc.h"
+X
+Xint     rc_opterr = 1;
+Xint     rc_optind = 1;
+Xint     rc_optopt;
+Xchar    *rc_optarg;
+X
+X/* getopt routine courtesy of David Sanderson */
+X 
+Xextern int rc_getopt(int argc, char **argv, char *opts) {
+X        static int sp = 1;
+X        int c;
+X        char *cp;
+X	if (rc_optind == 0) /* reset rc_getopt() */
+X		rc_optind = sp = 1;
+X        if (sp == 1)
+X                if (rc_optind >= argc || argv[rc_optind][0] != '-' || argv[rc_optind][1] == '\0') {
+X                        return -1;
+X                } else if (strcmp(argv[rc_optind], "--") == 0) {
+X                        rc_optind++;
+X                        return -1;
+X                }
+X        rc_optopt = c = argv[rc_optind][sp];
+X        if (c == ':' || (cp=strchr(opts, c)) == 0) {
+X                fprint(2, "%s: bad option: -%c\n", argv[0], c);
+X                if (argv[rc_optind][++sp] == '\0') {
+X                        rc_optind++;
+X                        sp = 1;
+X                }
+X                return '?';
+X        }
+X        if (*++cp == ':') {
+X                if (argv[rc_optind][sp+1] != '\0') {
+X                        rc_optarg = &argv[rc_optind++][sp+1];
+X                } else if (++rc_optind >= argc) {
+X                        fprint(2, "%s: option requires an argument -- %c\n", argv[0], c);
+X                        sp = 1;
+X                        return '?';
+X                } else
+X                        rc_optarg = argv[rc_optind++];
+X                sp = 1;
+X        } else {
+X                if (argv[rc_optind][++sp] == '\0') {
+X                        sp = 1;
+X                        rc_optind++;
+X                }
+X                rc_optarg = NULL;
+X        }
+X        return c;
+X}
+END_OF_FILE
+  if test 1664 -ne `wc -c <'getopt.c'`; then
+    echo shar: \"'getopt.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.c'
+fi
+if test -f 'jbwrap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jbwrap.h'\"
+else
+  echo shar: Extracting \"'jbwrap.h'\" \(269 characters\)
+  sed "s/^X//" >'jbwrap.h' <<'END_OF_FILE'
+X/* certain braindamaged environments don't define jmp_buf as an array, so... */
+X
+Xstruct Jbwrap {
+X	jmp_buf j;
+X};
+X
+Xextern Jbwrap slowbuf; /* for getting out of interrupts while performing slow i/o on BSD */
+X
+Xextern int setjmp(jmp_buf);
+Xextern void longjmp(jmp_buf, int);
+END_OF_FILE
+  if test 269 -ne `wc -c <'jbwrap.h'`; then
+    echo shar: \"'jbwrap.h'\" unpacked with wrong size!
+  fi
+  # end of 'jbwrap.h'
+fi
+if test -f 'list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'list.c'\"
+else
+  echo shar: Extracting \"'list.c'\" \(1160 characters\)
+  sed "s/^X//" >'list.c' <<'END_OF_FILE'
+X/* list.c: routines for manipulating the List type */
+X
+X#include "rc.h"
+X
+X/*
+X   These list routines assign meta values of null to the resulting lists;
+X   it is impossible to glob with the value of a variable unless this value
+X   is rescanned with eval---therefore it is safe to throw away the meta-ness
+X   of the list.
+X*/
+X
+X/* free a list from malloc space */
+X
+Xextern void listfree(List *p) {
+X	while (p != NULL) {
+X		List *n = p->n;
+X		efree(p->w);
+X		efree(p);
+X		p = n;
+X	}
+X}
+X
+X/* Copy list into malloc space (for storing a variable) */
+X
+Xextern List *listcpy(List *s, void *(*alloc)(SIZE_T)) {
+X	List *top, *r;
+X	for (top = r = NULL; s != NULL; s = s->n) {
+X		if (top == NULL)
+X			r = top = (*alloc)(sizeof (List));
+X		else
+X			r = r->n = (*alloc)(sizeof (List));
+X		r->w = (*alloc)(strlen(s->w) + 1);
+X		strcpy(r->w, s->w);
+X		r->m = NULL;
+X	}
+X	if (r != NULL)
+X		r->n = NULL;
+X	return top;
+X}
+X
+X/* Length of list */
+X
+Xextern SIZE_T listlen(List *s) {
+X	SIZE_T size;
+X	for (size = 0; s != NULL; s = s->n)
+X		size += strlen(s->w) + 1;
+X	return size;
+X}
+X
+X/* Number of elements in list */
+X
+Xextern int listnel(List *s) {
+X	int nel;
+X	for (nel = 0; s != NULL; s = s->n)
+X		nel++;
+X	return nel;
+X}
+END_OF_FILE
+  if test 1160 -ne `wc -c <'list.c'`; then
+    echo shar: \"'list.c'\" unpacked with wrong size!
+  fi
+  # end of 'list.c'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(2559 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/* main.c: handles initialization of rc and command line options */
+X
+X#include "rc.h"
+X
+Xbool dashdee, dashee, dashvee, dashex, dashell, dasheye,
+X	dashen, dashpee, interactive;
+Xint rc_pid;
+X
+Xstatic bool dashoh;
+X
+Xstatic void assigndefault(char *,...);
+Xstatic void checkfd(int, enum redirtype);
+X
+Xextern void main(int argc, char *argv[], char *envp[]) {
+X	char *dashsee[2], *dollarzero, *null[1];
+X	int c;
+X	initprint();
+X	dashsee[0] = dashsee[1] = NULL;
+X	dollarzero = argv[0];
+X	rc_pid = getpid();
+X	dashell = (*argv[0] == '-'); /* Unix tradition */
+X	while ((c = rc_getopt(argc, argv, "nolpeivdxc:")) != -1)
+X		switch (c) {
+X		case 'l':
+X			dashell = TRUE;
+X			break;
+X		case 'e':
+X			dashee = TRUE;
+X			break;
+X		case 'i':
+X			dasheye = interactive = TRUE;
+X			break;
+X		case 'v':
+X			dashvee = TRUE;
+X			break;
+X		case 'x':
+X			dashex = TRUE;
+X			break;
+X		case 'd':
+X			dashdee = TRUE;
+X			break;
+X		case 'c':
+X			dashsee[0] = rc_optarg;
+X			goto quitopts;
+X		case 'n':
+X			dashen = TRUE;
+X			break;
+X		case 'p':
+X			dashpee = TRUE;
+X			break;
+X		case 'o':
+X			dashoh = TRUE;
+X			break;
+X		case '?':
+X			exit(1);
+X		}
+Xquitopts:
+X	argv += rc_optind;
+X	/* use isatty() iff -i is not set, and iff the input is not from a script or -c flag */
+X	if (!dasheye && dashsee[0] == NULL && *argv == NULL)
+X		interactive = isatty(0);
+X	if (!dashoh) {
+X		checkfd(0, rFrom);
+X		checkfd(1, rCreate);
+X		checkfd(2, rCreate);
+X	}
+X	initsignal();
+X	inithash();
+X	initparse();
+X	assigndefault("prompt", "; ", "", (void *)0);
+X#ifdef DEFAULTPATH
+X	assigndefault("path", DEFAULTPATH, (void *)0);
+X#endif
+X	assigndefault("ifs", " ", "\t", "\n", (void *)0);
+X	assigndefault("pid", nprint("%d", rc_pid), (void *)0);
+X	initenv(envp);
+X	initinput();
+X	null[0] = NULL;
+X	starassign(dollarzero, null, FALSE); /* assign $0 to $* */
+X	inithandler();
+X	if (dashsee[0] != NULL) {	/* input from the -c flag? */
+X		if (*argv != NULL)
+X			starassign(dollarzero, argv, FALSE);
+X		pushstring(dashsee, TRUE);
+X	} else if (*argv != NULL) {	/* else from a file? */
+X		b_dot(--argv);
+X		rc_exit(getstatus());
+X	} else {			/* else stdin */
+X		pushfd(0);
+X	}
+X	dasheye = FALSE;
+X	doit(TRUE);
+X	rc_exit(getstatus());
+X}
+X
+Xstatic void assigndefault(char *name,...) {
+X	va_list ap;
+X	List *l;
+X	char *v;
+X	va_start(ap, name);
+X	for (l = NULL; (v = va_arg(ap, char *)) != NULL;)
+X		l = append(l, word(v, NULL));
+X	varassign(name, l, FALSE);
+X	if (streq(name, "path"))
+X		alias(name, l, FALSE);
+X	va_end(ap);
+X}
+X
+X/* open an fd on /dev/null if it is inherited closed */
+X
+Xstatic void checkfd(int fd, enum redirtype r) {
+X	int new = rc_open("/dev/null", r);
+X	if (new != fd && new != -1)
+X		close(new);
+X}
+END_OF_FILE
+  if test 2559 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'match.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'match.c'\"
+else
+  echo shar: Extracting \"'match.c'\" \(2166 characters\)
+  sed "s/^X//" >'match.c' <<'END_OF_FILE'
+X/* match.c: pattern matching routines */
+X
+X#include "rc.h"
+X
+Xstatic int rangematch(char *, char);
+X
+Xenum { RANGE_FAIL = -1, RANGE_ERROR = -2 };
+X
+X/* match() matches a single pattern against a single string. */
+X
+Xextern bool match(char *p, char *m, char *s) {
+X	int i, j;
+X	if (m == NULL)
+X		return streq(p, s);
+X	i = 0;
+X	while (1) {
+X		if (p[i] == '\0')
+X			return *s == '\0';
+X		else if (m[i]) {
+X			switch (p[i++]) {
+X			case '?':
+X				if (*s++ == '\0')
+X					return FALSE;
+X				break;
+X			case '*':
+X				while (p[i] == '*' && m[i] == 1)	/* collapse multiple stars */
+X					i++;
+X				if (p[i] == '\0') 	/* star at end of pattern? */
+X					return TRUE;
+X				while (*s != '\0')
+X					if (match(p + i, m + i, s++))
+X						return TRUE;
+X				return FALSE;
+X			case '[':
+X				if (*s == '\0')
+X					return FALSE;
+X				switch (j = rangematch(p + i, *s)) {
+X				default:
+X					i += j;
+X					break;
+X				case RANGE_FAIL:
+X					return FALSE;
+X				case RANGE_ERROR:
+X					if (*s != '[')
+X						return FALSE;
+X				}
+X				s++;
+X				break;
+X			default:
+X				panic("bad metacharacter in match");
+X				/* NOTREACHED */
+X				return FALSE; /* hush up gcc -Wall */
+X			}
+X		} else if (p[i++] != *s++)
+X			return FALSE;
+X	}
+X}
+X
+X/*
+X   From the ed(1) man pages (on ranges):
+X
+X	The `-' is treated as an ordinary character if it occurs first
+X	(or first after an initial ^) or last in the string.
+X
+X	The right square bracket does not terminate the enclosed string
+X	if it is the first character (after an initial `^', if any), in
+X	the bracketed string.
+X
+X   rangematch() matches a single character against a class, and returns
+X   an integer offset to the end of the range on success, or -1 on
+X   failure.
+X*/
+X
+Xstatic int rangematch(char *p, char c) {
+X	char *orig = p;
+X	bool neg = (*p == '~');
+X	bool matched = FALSE;
+X	if (neg)
+X		p++;
+X	if (*p == ']') {
+X		p++;
+X		matched = (c == ']');
+X	}
+X	for (; *p != ']'; p++) {
+X		if (*p == '\0')
+X			return RANGE_ERROR;	/* bad syntax */
+X		if (p[1] == '-' && p[2] != ']') { /* check for [..-..] but ignore [..-] */
+X			if (c >= *p)
+X				matched |= (c <= p[2]);
+X			p += 2;
+X		} else {
+X			matched |= (*p == c);
+X		}
+X	}
+X	if (matched ^ neg)
+X		return p - orig + 1; /* skip the right-bracket */
+X	else
+X		return RANGE_FAIL;
+X}
+END_OF_FILE
+  if test 2166 -ne `wc -c <'match.c'`; then
+    echo shar: \"'match.c'\" unpacked with wrong size!
+  fi
+  # end of 'match.c'
+fi
+if test -f 'mksignal' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mksignal'\"
+else
+  echo shar: Extracting \"'mksignal'\" \(1821 characters\)
+  sed "s/^X//" >'mksignal' <<'END_OF_FILE'
+X#!/bin/sh
+X# generate rc's internal signal table from signal.h
+X
+Xexec > sigmsgs.c
+X
+Xecho '#include "sigmsgs.h"'
+Xecho
+Xecho 'Sigmsgs signals[] = {'
+X
+Xsed '	s/\/\*[ 	]*//
+X	s/[ 	]*\*\///
+X	s/([@*+!]) //
+X	s/[ 	]*([a-zA-Z,->& ]*)[ 	]*//
+X	s/^[ 	]*\#[ 	]*define/\#define/
+X	s/[ 	]*signal$//' $1 |
+Xawk '
+X	BEGIN {
+X		# assign to nomesg["SIGNAME"] to suppress a long message
+X		nomesg["SIGINT"] = 1
+X		nomesg["SIGPIPE"] = 1
+X		# assign to mesg["SIGNAME"] to override a message
+X		mesg["SIGHUP"] = "hangup"
+X		mesg["SIGKILL"] = "killed"
+X		mesg["SIGQUIT"] = "quit"
+X		mesg["SIGTERM"] = "terminated"
+X		mesg["SIGURG"] = "urgent condition on i/o channel"
+X		mesg["SIGSTOP"] = "stop signal not from tty"
+X		mesg["SIGTSTP"] = "stopped"
+X		mesg["SIGCONT"] = "continue"
+X		mesg["SIGCHLD"] = "child stop or exit"
+X		mesg["SIGTTIN"] = "background tty read"
+X		mesg["SIGTTOU"] = "background tty write"
+X		# assign to ignore["SIGNAME"] to explicitly ignore a named signal
+X		ignore["SIGMAX"] = 1
+X	}
+X	$1 == "#define" && $2 == "NSIG" && $3 ~ /^[0-9]+$/ { nsig = $3 }
+X	$1 == "#define" && $2 ~ /^SIG/ && $3 ~ /^[0-9]+$/ && sig[$3] == "" && ignore[$2] == 0 {
+X		sig[$3] = $2
+X		if ($3 > max)
+X			max = $3
+X		if (mesg[$2] == "" && nomesg[$2] == 0) {
+X			str = $4
+X			for (i = 5; i <= NF; i++)
+X				str = str " " $i
+X			mesg[$2] = str
+X		}
+X	}
+X	END {
+X		if (nsig == 0)
+X			nsig = max + 1
+X		printf "	{!!,		!!},\n"
+X		for (i = 1; i < nsig; i++) {
+X			if (sig[i] == "")
+X				printf "	{!!,		!!},\n"
+X			else
+X				printf "	{!%s!,	!%s!},\n", sig[i], mesg[sig[i]]
+X		}
+X	}
+X' |
+Xtr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!' 'abcdefghijklmnopqrstuvwxyz"'
+X
+Xecho '};'
+X
+Xexec > sigmsgs.h
+X
+Xecho 'typedef struct {'
+Xecho '	char *name, *msg;'
+Xecho '} Sigmsgs;'
+Xecho 'extern Sigmsgs signals[];'
+X
+Xgrep '^	' sigmsgs.c |		# the thing in quotes is ^<tab>
+Xawk '
+X		{ sum = sum + 1; }
+X	END	{ print "#define NUMOFSIGNALS", sum }
+X'
+END_OF_FILE
+  if test 1821 -ne `wc -c <'mksignal'`; then
+    echo shar: \"'mksignal'\" unpacked with wrong size!
+  fi
+  chmod +x 'mksignal'
+  # end of 'mksignal'
+fi
+if test -f 'nalloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nalloc.c'\"
+else
+  echo shar: Extracting \"'nalloc.c'\" \(3180 characters\)
+  sed "s/^X//" >'nalloc.c' <<'END_OF_FILE'
+X/* nalloc.c: a simple single-arena allocator for command-line-lifetime allocation */
+X#include "rc.h"
+X
+Xstatic struct Block {
+X	SIZE_T used, size;
+X	char *mem;
+X	Block *n;
+X} *fl, *ul;
+X
+X/* alignto() works only with power of 2 blocks and assumes 2's complement arithmetic */
+X#define alignto(m, n)   ((m + n - 1) & ~(n - 1))
+X#define BLOCKSIZE ((SIZE_T) 4096)
+X
+X/* Allocate a block from the free list or malloc one if none in the fl fit */
+X
+Xstatic void getblock(SIZE_T n) {
+X	Block *r, *p;
+X	for (r = fl, p = NULL; r != NULL; p = r, r = r->n)
+X		if (n <= r->size)
+X			break;	/* look for a block which fits the request */
+X	if (r != NULL) {	/* if one is found, take it off the free list */	
+X		if (p != NULL)
+X			p->n = r->n;
+X		else
+X			fl = r->n;
+X	} else {		/* else allocate a new block */
+X		r = enew(Block);
+X		r->mem = ealloc(r->size = alignto(n, BLOCKSIZE));
+X	}
+X	r->used = 0;
+X	r->n = ul;
+X	ul = r;
+X}
+X
+X/*
+X   A fast single-arena allocator. Looks at the current block, and if
+X   there is not enough room, it goes to getblock() for more. "ul"
+X   stands for "used list", and the head of the list is the current
+X   block. "ulp" is a register cache for "ul"; this routine is hacked
+X   for speed. (sigh, optimizing RISC compilers still can't cache the
+X   address of a global in a register)
+X*/
+X
+Xextern void *nalloc(SIZE_T n) {
+X	SIZE_T base;
+X	Block *ulp;
+X        n = alignto(n, sizeof (ALIGN_T));
+X	ulp = ul;
+X	if (ulp != NULL && n + (base = ulp->used) < ulp->size) {
+X		ulp->used = base + n;
+X		return &ulp->mem[base];
+X	} else {
+X		getblock(n); /* assert(ul->used) == 0 */
+X		(ulp = ul)->used = n;
+X		return &ulp->mem[0];
+X	}
+X}
+X
+X/*
+X   Frees memory from nalloc space by putting it on the free list.
+X   Returns free blocks to the system, retaining at least MAXMEM bytes
+X   worth of blocks for nalloc.
+X*/
+X
+X#define MAXMEM 500000
+X
+Xextern void nfree() {
+X	SIZE_T count;
+X	Block *r;
+X	if (ul == NULL)
+X		return;
+X	for (r = ul; r->n != NULL; r = r->n)
+X		;	/* get to end of used list */
+X	r->n = fl;	/* tack free list onto it */
+X	fl = ul;	/* and make it the free list */
+X	ul = NULL;	/* finally, zero out the used list */
+X	for (r = fl, count = r->size; r->n != NULL; r = r->n, count += r->size) {
+X		if (count >= MAXMEM) {
+X			Block *tmp = r;
+X			r = r->n;
+X			tmp->n = NULL;		/* terminate the free list */
+X			while (r != NULL) {	/* free memory off the tail of the free list */
+X				tmp = r->n;
+X				efree(r->mem);
+X				efree(r);
+X				r = tmp;
+X			}
+X		return;
+X		}
+X	}
+X}
+X
+X/*
+X   "Allocates" a new arena by zeroing out the old one. Up to the
+X   calling routine to keep the old value of the block around.
+X*/
+X
+Xextern Block *newblock() {
+X	Block *old = ul;
+X	ul = NULL;
+X	return old;
+X}
+X
+X/* "Restores" an arena to its saved value. */
+X
+Xextern void restoreblock(Block *old) {
+X	nfree();
+X	ul = old;
+X}
+X
+X/* generic memory allocation functions */
+X
+Xextern void *ealloc(SIZE_T n) {
+X	extern void *malloc(SIZE_T);
+X	void *p = malloc(n);
+X	if (p == NULL) {
+X		uerror("malloc");
+X		rc_exit(1);
+X	}
+X	return p;
+X}
+X
+Xextern void *erealloc(void *p, SIZE_T n) {
+X	extern void *realloc(void *, SIZE_T);
+X	if ((p = realloc(p, n)) == NULL) {
+X		uerror("realloc");
+X		rc_exit(1);
+X	}
+X	return p;
+X}
+X
+Xextern void efree(void *p) {
+X	extern void free(void *);
+X	if (p != NULL)
+X		free(p);
+X}
+X
+END_OF_FILE
+  if test 3180 -ne `wc -c <'nalloc.c'`; then
+    echo shar: \"'nalloc.c'\" unpacked with wrong size!
+  fi
+  # end of 'nalloc.c'
+fi
+if test -f 'proto.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'proto.h'\"
+else
+  echo shar: Extracting \"'proto.h'\" \(2510 characters\)
+  sed "s/^X//" >'proto.h' <<'END_OF_FILE'
+X/* proto.h
+X	This file provides a definition for size_t and align_t that
+X	should work for your system. If it does not, it is up to you to
+X	make it the right thing. The problem is that I cannot rely upon
+X	<sys/params.h> to do the right thing on machines which don't
+X	yet have ansi header files. Note that on many RISC machines,
+X	align_t must be at least 32 bits wide, and sparc doubles are
+X	aligned on 64 bit boundaries, but of course rc does not use
+X	doubles in its code, so the "typedef long ALIGN_T" is good
+X	enough in the sparc's case. Also for performance reasons on a
+X	VAX one would probably want align_t to be 32 bits wide.
+X
+X	You can override these definitions with compile-line definitions
+X	of the same macros.
+X*/
+X
+X#ifndef ALIGN_T
+Xtypedef long ALIGN_T;
+X#endif
+X#ifndef SIZE_T
+Xtypedef unsigned int SIZE_T;
+X#endif
+X#ifndef MODE_T
+Xtypedef short int MODE_T;
+X#endif
+X#ifndef PID_T
+Xtypedef int PID_T;
+X#endif
+X#ifndef SIG_ATOMIC_T
+Xtypedef int SIG_ATOMIC_T;
+X#endif
+X
+X/* fake stdlib.h */
+X
+Xextern void exit(int);
+Xextern void qsort(void *, SIZE_T, SIZE_T, int (*)(const void *, const void *));
+X
+X/* fake string.h */
+X
+Xextern int strncmp(const char *, const char *, SIZE_T);
+Xextern int strcmp(const char *, const char *);
+Xextern SIZE_T strlen(const char *);
+Xextern char *strchr(const char *, int);
+Xextern char *strrchr(const char *, int);
+Xextern char *strcpy(char *, const char *);
+Xextern char *strncpy(char *, const char *, SIZE_T);
+Xextern char *strcat(char *, const char *);
+Xextern char *strncat(char *, const char *, SIZE_T);
+Xextern void *memcpy(void *, const void *, SIZE_T);
+X
+X/* fake unistd.h */
+X
+Xextern PID_T fork(void);
+Xextern PID_T getpid(void);
+Xextern char *getenv(const char *);
+Xextern int chdir(const char *);
+Xextern int close(int);
+Xextern int dup(int);
+Xextern int dup2(int, int);
+Xextern int execve(const char *, const char **, const char **);
+Xextern int execl(const char *,...);
+Xextern int getegid(void);
+Xextern int geteuid(void);
+Xextern int getgroups(int, int *);
+X/*extern int ioctl(int, long,...);*/ /* too much trouble leaving this uncommented */
+Xextern int isatty(int);
+X#ifndef SYSVR4 /* declares AND defines this in sys/stat.h!! */
+Xextern int mknod(const char *, int, int);
+X#endif
+Xextern int pipe(int *);
+Xextern int read(int, void *, unsigned int);
+Xextern int setpgrp(int, PID_T);
+Xextern int unlink(const char *);
+Xextern int wait(int *);
+Xextern int write(int, const void *, unsigned int);
+X
+X/* fake errno.h for mips (which doesn't declare errno in errno.h!?!?) */
+X
+X#ifdef host_mips
+Xextern int errno;
+X#endif
+END_OF_FILE
+  if test 2510 -ne `wc -c <'proto.h'`; then
+    echo shar: \"'proto.h'\" unpacked with wrong size!
+  fi
+  # end of 'proto.h'
+fi
+if test -f 'redir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'redir.c'\"
+else
+  echo shar: Extracting \"'redir.c'\" \(2097 characters\)
+  sed "s/^X//" >'redir.c' <<'END_OF_FILE'
+X/* redir.c: code for opening files and piping heredocs after fork but before exec. */
+X
+X#include "rc.h"
+X
+X/*
+X   Walk the redirection queue, and open files and dup2 to them. Also,
+X   here-documents are treated here by dumping them down a pipe. (this
+X   should make here-documents fast on systems with lots of memory which
+X   do pipes right. Under sh, a file is copied to /tmp, and then read
+X   out of /tmp again. I'm interested in knowing how much faster, say,
+X   shar runs when unpacking when invoked with rc instead of sh. On my
+X   sun4/280, it runs in about 60-75% of the time of sh for unpacking
+X   the rc source distribution.)
+X*/
+X
+Xextern void doredirs() {
+X	List *fname;
+X	int fd, p[2];
+X	Rq *r;
+X	for (r = redirq; r != NULL; r = r->n) {
+X		switch(r->r->type) {
+X		default:
+X			panic("unexpected node in doredirs");
+X			/* NOTREACHED */
+X		case nRedir:
+X			if (r->r->u[0].i == rHerestring) {
+X				fname = flatten(glom(r->r->u[2].p)); /* fname is really a string */
+X				if (pipe(p) < 0) {
+X					uerror("pipe");
+X					rc_error(NULL);
+X				}
+X				if (rc_fork() == 0) { /* child writes to pipe */
+X					setsigdefaults(FALSE);
+X					close(p[0]);
+X					if (fname != NULL)
+X						writeall(p[1], fname->w, strlen(fname->w));
+X					exit(0);
+X				} else {
+X					close(p[1]);
+X					if (mvfd(p[0], r->r->u[1].i) < 0)
+X						rc_error(NULL);
+X				}
+X			} else {
+X				fname = glob(glom(r->r->u[2].p));
+X				if (fname == NULL)
+X					rc_error("null filename in redirection");
+X				if (fname->n != NULL)
+X					rc_error("multi-word filename in redirection");
+X				switch (r->r->u[0].i) {
+X				default:
+X					panic("unexpected node in doredirs");
+X					/* NOTREACHED */
+X				case rCreate: case rAppend: case rFrom:
+X					fd = rc_open(fname->w, r->r->u[0].i);
+X					break;
+X				}
+X				if (fd < 0) {
+X					uerror(fname->w);
+X					rc_error(NULL);
+X				}
+X				if (mvfd(fd, r->r->u[1].i) < 0)
+X					rc_error(NULL);
+X			}
+X			break;
+X		case nDup:
+X			if (r->r->u[2].i == -1)
+X				close(r->r->u[1].i);
+X			else if (r->r->u[2].i != r->r->u[1].i) {
+X				if (dup2(r->r->u[2].i, r->r->u[1].i) < 0) {
+X					uerror("dup2");
+X					rc_error(NULL);
+X				}
+X			}
+X		}
+X	}
+X	redirq = NULL;
+X}
+END_OF_FILE
+  if test 2097 -ne `wc -c <'redir.c'`; then
+    echo shar: \"'redir.c'\" unpacked with wrong size!
+  fi
+  # end of 'redir.c'
+fi
+if test -f 'signal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'signal.c'\"
+else
+  echo shar: Extracting \"'signal.c'\" \(1559 characters\)
+  sed "s/^X//" >'signal.c' <<'END_OF_FILE'
+X/* signal.c: a Hugh-approved signal handler. */
+X
+X#include <signal.h>
+X#include <setjmp.h>
+X#include "rc.h"
+X#include "sigmsgs.h"
+X#include "jbwrap.h"
+X
+XJbwrap slowbuf;
+Xvolatile SIG_ATOMIC_T slow, interrupt_happened;
+Xvoid (*sighandlers[NUMOFSIGNALS])(int);
+X
+Xstatic volatile SIG_ATOMIC_T sigcount, caught[NUMOFSIGNALS];
+X
+Xextern void catcher(int s) {
+X	if (forked)
+X		exit(1); /* exit unconditionally on a signal in a child process */
+X	if (caught[s] == 0) {
+X		sigcount++;
+X		caught[s] = 1;
+X	}
+X	signal(s, catcher);
+X	interrupt_happened = TRUE;
+X#ifndef SVSIGS
+X	if (slow)
+X		longjmp(slowbuf.j, 1);
+X#endif
+X}
+X
+Xextern void sigchk() {
+X	void (*h)(int);
+X	int s, i;
+X	if (sigcount == 0)
+X		return; /* ho hum; life as usual */
+X	if (forked)
+X		exit(1); /* exit unconditionally on a signal in a child process */
+X	for (i = 0, s = -1; i < NUMOFSIGNALS; i++)
+X		if (caught[i] != 0) {
+X			s = i;
+X			--sigcount;
+X			caught[s] = 0;
+X			break;
+X		}
+X	if (s == -1)
+X		panic("all-zero sig vector with nonzero sigcount");
+X	if ((h = sighandlers[s]) == SIG_DFL)
+X		panic("caught signal set to SIG_DFL");
+X	if (h == SIG_IGN)
+X		panic("caught signal set to SIG_IGN");
+X	(*h)(s);
+X}
+X
+Xextern void (*rc_signal(int s, void (*h)(int)))(int) {
+X	void (*old)(int);
+X	SIGCHK;
+X	old = sighandlers[s];
+X	if (h == SIG_DFL || h == SIG_IGN) {
+X		signal(s, h);
+X		sighandlers[s] = h;
+X	} else {
+X		sighandlers[s] = h;
+X		signal(s, catcher);
+X	}
+X	return old;
+X}
+X
+Xextern void initsignal() {
+X	void (*h)(int);
+X	int i;
+X	for (i = 1; i < NUMOFSIGNALS; i++) {
+X		if ((h = signal(i, SIG_DFL)) != SIG_DFL)
+X			signal(i, h);
+X		sighandlers[i] = h;
+X	}
+X}
+END_OF_FILE
+  if test 1559 -ne `wc -c <'signal.c'`; then
+    echo shar: \"'signal.c'\" unpacked with wrong size!
+  fi
+  # end of 'signal.c'
+fi
+if test -f 'status.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'status.c'\"
+else
+  echo shar: Extracting \"'status.c'\" \(3281 characters\)
+  sed "s/^X//" >'status.c' <<'END_OF_FILE'
+X/* status.c: functions for printing fancy status messages in rc */
+X
+X#include "rc.h"
+X#include "sigmsgs.h"
+X
+X/* status == the wait() value of the last command in the pipeline, or the last command */
+X
+Xstatic int statuses[512];
+Xstatic int pipelength = 1;
+X
+X/*
+X   Test to see if rc's status is true. According to td, status is true
+X   if and only if every pipe-member has an exit status of zero.
+X*/
+X
+Xextern int istrue() {
+X	int i;
+X	for (i = 0; i < pipelength; i++)
+X		if (statuses[i] != 0)
+X			return FALSE;
+X	return TRUE;
+X}
+X
+X/*
+X   Return the status as an integer. A status which has low-bits set is
+X   a signal number, whereas a status with high bits set is a value set
+X   from exit(). The presence of a signal just sets status to 1. Also,
+X   a pipeline with nonzero exit statuses in it just sets status to 1.
+X*/
+X
+Xextern int getstatus() {
+X	int s;
+X	if (pipelength > 1)
+X		return !istrue();
+X	s = statuses[0];
+X	return (s&0xff) ? 1 : (s >> 8) & 0xff;
+X}
+X
+Xextern void set(bool code) {
+X	setstatus(-1, (!code) << 8); /* exit status 1 == 0x100 */
+X}
+X
+X/* take a pipeline and store the exit statuses. Check to see whether any of the children dumped core */
+X
+Xextern void setpipestatus(int stats[], int num) {
+X	int i;
+X	for (i = 0; i < (pipelength = num); i++) {
+X		statprint(-1, stats[i]);
+X		statuses[i] = stats[i];
+X	}
+X}
+X
+X/* set a simple status, as opposed to a pipeline */
+X
+Xextern void setstatus(int pid, int i) {
+X	pipelength = 1;
+X	statuses[0] = i;
+X	statprint(pid, i);
+X}
+X
+X/* print a message if termination was with a signal, and if the child dumped core. exit on error if -e is set */
+X
+Xextern void statprint(int pid, int i) {
+X	if (i & 0xff) {
+X		char *msg = ((i & 0x7f) < NUMOFSIGNALS ? signals[i & 0x7f].msg : "");
+X		if (pid != -1)
+X			fprint(2, "%d: ", pid);
+X		if (i & 0x80) {
+X			if (*msg == '\0')
+X				fprint(2, "core dumped\n");
+X			else
+X				fprint(2, "%s--core dumped\n", msg);
+X		} else if (*msg != '\0')
+X			fprint(2, "%s\n", msg);
+X	}
+X	if (i != 0 && dashee && !cond)
+X		rc_exit(getstatus());
+X}
+X
+X/* prepare a list to be passed back. Used whenever $status is dereferenced */
+X
+Xextern List *sgetstatus() {
+X	List *r;
+X	int i;
+X	for (r = NULL, i = 0; i < pipelength; i++) {
+X		List *q = nnew(List);
+X		int s = statuses[i];
+X		int t;
+X		q->n = r;
+X		r = q;
+X		if ((t = s & 0x7f) != 0) {
+X			const char *core = (s & 0x80) ? "+core" : "";
+X			if (t < NUMOFSIGNALS && *signals[t].name != '\0')
+X				r->w = nprint("%s%s", signals[t].name, core);
+X			else
+X				r->w = nprint("-%d%s", t, core); /* unknown signals are negated */
+X		} else
+X			r->w = nprint("%d", (s >> 8) & 0xff);
+X		r->m = NULL;
+X	}
+X	return r;
+X}
+X
+Xextern void ssetstatus(char **av) {
+X	int i, j, k, l;
+X	bool found;
+X	for (l = 0; av[l] != NULL; l++)
+X		; /* count up array length */
+X	--l;
+X	for (i = 0; av[i] != NULL; i++) {
+X		j = a2u(av[i]);
+X		if (j >= 0) {
+X			statuses[l - i] = j << 8;
+X			continue;
+X		}
+X		found = FALSE;
+X		for (k = 0; k < NUMOFSIGNALS; k++) {
+X			if (streq(signals[k].name, av[i])) {
+X				statuses[l - i] = k;
+X				found = TRUE;
+X				break;
+X			} 
+X			else {
+X				SIZE_T len = strlen(signals[k].name);
+X				if (strncmp(signals[k].name, av[i], len) == 0 && streq(av[i] + len, "+core")) {
+X					statuses[l - i] = k + 0x80;
+X					found = TRUE;
+X					break;
+X				}
+X			}
+X		}
+X		if (!found) {
+X			fprint(2, "bad status\n");
+X			set(FALSE);
+X			return;
+X		}
+X	}
+X	pipelength = i;
+X}
+END_OF_FILE
+  if test 3281 -ne `wc -c <'status.c'`; then
+    echo shar: \"'status.c'\" unpacked with wrong size!
+  fi
+  # end of 'status.c'
+fi
+if test -f 'tree.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tree.c'\"
+else
+  echo shar: Extracting \"'tree.c'\" \(4574 characters\)
+  sed "s/^X//" >'tree.c' <<'END_OF_FILE'
+X/* tree.c: functions for manipulating parse-trees. (create, copy, delete) */
+X
+X#include "rc.h"
+X
+X/* make a new node, pass it back to yyparse. Used to generate the parsetree. */
+X
+Xextern Node *mk(int /*nodetype*/ t,...) {
+X	va_list ap;
+X	Node *n;
+X	va_start(ap, t);
+X	switch (t) {
+X	default:
+X		panic("unexpected node in mk");
+X		/* NOTREACHED */
+X	case nDup:
+X		n = nalloc(offsetof(Node, u[3]));
+X		n->u[0].i = va_arg(ap, int);
+X		n->u[1].i = va_arg(ap, int);
+X		n->u[2].i = va_arg(ap, int);
+X		break;
+X	case nWord: case nQword:
+X		n = nalloc(offsetof(Node, u[2]));
+X		n->u[0].s = va_arg(ap, char *);
+X		n->u[1].s = va_arg(ap, char *);
+X		break;
+X	case nBang: case nNowait:
+X	case nCount: case nFlat: case nRmfn: case nSubshell:
+X	case nVar: case nCase:
+X		n = nalloc(offsetof(Node, u[1]));
+X		n->u[0].p = va_arg(ap, Node *);
+X		break;
+X	case nAndalso: case nAssign: case nBackq: case nBody: case nBrace: case nConcat:
+X	case nElse: case nEpilog: case nIf: case nNewfn: case nCbody:
+X	case nOrelse: case nPre: case nArgs: case nSwitch:
+X	case nMatch: case nVarsub: case nWhile: case nLappend:
+X		n = nalloc(offsetof(Node, u[2]));
+X		n->u[0].p = va_arg(ap, Node *);
+X		n->u[1].p = va_arg(ap, Node *);
+X		break;
+X	case nForin:
+X		n = nalloc(offsetof(Node, u[3]));
+X		n->u[0].p = va_arg(ap, Node *);
+X		n->u[1].p = va_arg(ap, Node *);
+X		n->u[2].p = va_arg(ap, Node *);
+X		break;
+X	case nPipe:
+X		n = nalloc(offsetof(Node, u[4]));
+X		n->u[0].i = va_arg(ap, int);
+X		n->u[1].i = va_arg(ap, int);
+X		n->u[2].p = va_arg(ap, Node *);
+X		n->u[3].p = va_arg(ap, Node *);
+X		break;
+X	case nRedir:
+X	case nNmpipe:
+X		n = nalloc(offsetof(Node, u[3]));
+X		n->u[0].i = va_arg(ap, int);
+X		n->u[1].i = va_arg(ap, int);
+X		n->u[2].p = va_arg(ap, Node *);
+X		break;
+X 	}
+X	n->type = t;
+X	va_end(ap);
+X	return n;
+X}
+X
+X/* copy a tree to malloc space. Used when storing the definition of a function */
+X
+Xextern Node *treecpy(Node *s, void *(*alloc)(SIZE_T)) {
+X	Node *n;
+X	if (s == NULL)
+X		return NULL;
+X	switch (s->type) {
+X	default:
+X		panic("unexpected node in treecpy");
+X		/* NOTREACHED */
+X	case nDup:
+X		n = (*alloc)(offsetof(Node, u[3]));
+X		n->u[0].i = s->u[0].i;
+X		n->u[1].i = s->u[1].i;
+X		n->u[2].i = s->u[2].i;
+X		break;
+X	case nWord: case nQword:
+X		n = (*alloc)(offsetof(Node, u[2]));
+X		n->u[0].s = strcpy((char *) (*alloc)(strlen(s->u[0].s) + 1), s->u[0].s);
+X		if (s->u[1].s != NULL) {
+X			SIZE_T i = strlen(s->u[0].s);
+X			n->u[1].s = (*alloc)(i);
+X			memcpy(n->u[1].s, s->u[1].s, i);
+X		} else
+X			n->u[1].s = NULL;
+X		break;
+X	case nBang: case nNowait: case nCase:
+X	case nCount: case nFlat: case nRmfn: case nSubshell: case nVar:
+X		n = (*alloc)(offsetof(Node, u[1]));
+X		n->u[0].p = treecpy(s->u[0].p, alloc);
+X		break;
+X	case nAndalso: case nAssign: case nBackq: case nBody: case nBrace: case nConcat:
+X	case nElse: case nEpilog: case nIf: case nNewfn: case nCbody:
+X	case nOrelse: case nPre: case nArgs: case nSwitch:
+X	case nMatch: case nVarsub: case nWhile: case nLappend:
+X		n = (*alloc)(offsetof(Node, u[2]));
+X		n->u[0].p = treecpy(s->u[0].p, alloc);
+X		n->u[1].p = treecpy(s->u[1].p, alloc);
+X		break;
+X	case nForin:
+X		n = (*alloc)(offsetof(Node, u[3]));
+X		n->u[0].p = treecpy(s->u[0].p, alloc);
+X		n->u[1].p = treecpy(s->u[1].p, alloc);
+X		n->u[2].p = treecpy(s->u[2].p, alloc);
+X		break;
+X	case nPipe:
+X		n = (*alloc)(offsetof(Node, u[4]));
+X		n->u[0].i = s->u[0].i;
+X		n->u[1].i = s->u[1].i;
+X		n->u[2].p = treecpy(s->u[2].p, alloc);
+X		n->u[3].p = treecpy(s->u[3].p, alloc);
+X		break;
+X	case nRedir:
+X	case nNmpipe:
+X		n = (*alloc)(offsetof(Node, u[3]));
+X		n->u[0].i = s->u[0].i;
+X		n->u[1].i = s->u[1].i;
+X		n->u[2].p = treecpy(s->u[2].p, alloc);
+X		break;
+X	}
+X	n->type = s->type;
+X	return n;
+X}
+X
+X/* free a function definition that is no longer needed */
+X
+Xextern void treefree(Node *s) {
+X	if (s == NULL)
+X		return;
+X	switch (s->type) {
+X	default:
+X		panic("unexpected node in treefree");
+X		/* NOTREACHED */
+X	case nDup:
+X		break;
+X	case nWord: case nQword:
+X		efree(s->u[0].s);
+X		efree(s->u[1].s);
+X		break;
+X	case nBang: case nNowait:
+X	case nCount: case nFlat: case nRmfn:
+X	case nSubshell: case nVar: case nCase:
+X		treefree(s->u[0].p);
+X		break;
+X	case nAndalso: case nAssign: case nBackq: case nBody: case nBrace: case nConcat:
+X	case nElse: case nEpilog: case nIf: case nNewfn:
+X	case nOrelse: case nPre: case nArgs: case nCbody:
+X	case nSwitch: case nMatch:  case nVarsub: case nWhile:
+X	case nLappend:
+X		treefree(s->u[1].p);
+X		treefree(s->u[0].p);
+X		break;
+X	case nForin:
+X		treefree(s->u[2].p);
+X		treefree(s->u[1].p);
+X		treefree(s->u[0].p);
+X		break;
+X	case nPipe:
+X		treefree(s->u[2].p);
+X		treefree(s->u[3].p);
+X		break;
+X	case nRedir:
+X	case nNmpipe:
+X		treefree(s->u[2].p);
+X	}
+X	efree(s);
+X}
+END_OF_FILE
+  if test 4574 -ne `wc -c <'tree.c'`; then
+    echo shar: \"'tree.c'\" unpacked with wrong size!
+  fi
+  # end of 'tree.c'
+fi
+if test -f 'utils.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utils.c'\"
+else
+  echo shar: Extracting \"'utils.c'\" \(2676 characters\)
+  sed "s/^X//" >'utils.c' <<'END_OF_FILE'
+X/* utils.c: functions of general utility */
+X
+X#include <errno.h>
+X#include <setjmp.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X
+X/* print error with line number on noninteractive shells (i.e., scripts) */
+X
+Xextern void pr_error(char *s) {
+X	if (s != NULL) {
+X		if (interactive)
+X			fprint(2, "%s\n", s);
+X		else
+X			fprint(2, "line %d: %s\n", lineno - 1, s);
+X	}
+X}
+X
+X/* our perror */
+X
+Xextern void uerror(char *s) {
+X	extern int sys_nerr;
+X	extern char *sys_errlist[];
+X	if (errno > sys_nerr)
+X		return;
+X	if (s != NULL)
+X		fprint(2, "%s: %s\n", s, sys_errlist[errno]);
+X	else
+X		fprint(2, "%s\n", sys_errlist[errno]);
+X}
+X
+X/* Die horribly. This should never get called. Please let me know if it does. */
+X
+X#define PANICMSG "rc panic: "
+X
+Xextern void panic(char *s) {
+X	write(2, PANICMSG, conststrlen(PANICMSG));
+X	write(2, s, strlen(s));
+X	write(2, "!\n", 2);
+X	exit(1);
+X}
+X
+X/* ascii -> unsigned conversion routines. -1 indicates conversion error. */
+X
+Xextern int n2u(char *s, unsigned int base) {
+X	unsigned int i;
+X	for (i = 0; *s != '\0'; s++) {
+X		unsigned int j = (unsigned int) *s - '0';
+X		if (j >= base) /* small hack with unsigned ints -- one compare for range test */
+X			return -1;
+X		i = i * base + j;
+X	}
+X	return (int) i;
+X}
+X
+X/* The last word in portable ANSI: a strcmp wrapper for qsort */
+X
+Xextern int starstrcmp(const void *s1, const void *s2) {
+X	return strcmp(*(char **)s1, *(char **)s2);
+X}
+X
+X/* tests to see if pathname begins with "/", "./", or "../" */
+X
+Xextern bool isabsolute(char *path) {
+X	return path[0] == '/' || (path[0] == '.' && (path[1] == '/' || (path[1] == '.' && path[2] == '/')));
+X}
+X
+X/* signal-safe read and write (for BSD slow devices). writeall also allows partial writes */
+X
+Xextern void writeall(int fd, char *buf, SIZE_T remain) {
+X	int i;
+X	for (i = 0; remain > 0; buf += i, remain -= i) {
+X		interrupt_happened = FALSE;
+X		if (!setjmp(slowbuf.j)) {
+X			slow = TRUE;
+X			if (interrupt_happened)
+X				break;
+X			else if ((i = write(fd, buf, remain)) <= 0)
+X				break; /* abort silently on errors in write() */
+X		} else
+X			break;
+X		slow = FALSE;
+X	}
+X	slow = FALSE;
+X	SIGCHK;
+X}
+X
+Xextern int rc_read(int fd, char *buf, SIZE_T n) {
+X	long /*ssize_t*/ r;
+X	interrupt_happened = FALSE;
+X	if (!setjmp(slowbuf.j)) {
+X		slow = TRUE;
+X		if (!interrupt_happened)
+X			r = read(fd, buf, n);
+X		else
+X			r = -2;
+X	} else
+X		r = -2;
+X	slow = FALSE;
+X	if (r == -2) {
+X		errno = EINTR;
+X		r = -1;
+X	}
+X	SIGCHK;
+X	return r;
+X}
+X
+X/* clear out z bytes from character string s */
+X
+Xextern char *clear(char *s, SIZE_T z) {
+X	while (z != 0)
+X		s[--z] = 0;
+X	return s;
+X}
+X
+X/* duplicate a fd and close the old one only if necessary */
+X
+Xextern int mvfd(int i, int j) {
+X	if (i != j) {
+X		int s = dup2(i, j);
+X		close(i);
+X		return s;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 2676 -ne `wc -c <'utils.c'`; then
+    echo shar: \"'utils.c'\" unpacked with wrong size!
+  fi
+  # end of 'utils.c'
+fi
+if test -f 'wait.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wait.c'\"
+else
+  echo shar: Extracting \"'wait.c'\" \(2158 characters\)
+  sed "s/^X//" >'wait.c' <<'END_OF_FILE'
+X#include <errno.h>
+X#include <setjmp.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X
+Xbool forked = FALSE;
+X
+Xstatic int rc_wait(int *);
+X
+Xtypedef struct Pid Pid;
+X
+Xstatic struct Pid {
+X	int pid, stat;
+X	bool alive;
+X	Pid *n;
+X} *plist = NULL;
+X
+Xextern int rc_fork() {
+X	Pid *new = enew(Pid);
+X	int pid = fork();
+X	switch (pid) {
+X	case -1:
+X		uerror("fork");
+X		rc_error(NULL);
+X		/* NOTREACHED */
+X	case 0:
+X		forked = TRUE;
+X		SIGCHK;
+X		return 0;
+X	default:
+X		new->pid = pid;
+X		new->alive = TRUE;
+X		new->n = plist;
+X		plist = new;
+X		return pid;
+X	}
+X}
+X
+Xextern int rc_wait4(int pid, int *stat, bool nointr) {
+X	Pid *r, *prev;
+X	int ret;
+X	/* first look for a child which may already have exited */
+Xagain:	for (r = plist, prev = NULL; r != NULL; prev = r, r = r->n)
+X		if (r->pid == pid)
+X			break;
+X	if (r == NULL) {
+X		errno = ECHILD; /* no children */
+X		uerror("wait");
+X		*stat = 0x100; /* exit(1) */
+X		return -1;
+X	}
+X	if (r->alive) {
+X		while (pid != (ret = rc_wait(stat))) {
+X			Pid *q;
+X			if (ret < 0) {
+X				if (nointr)
+X					goto again;
+X				return ret;
+X			}
+X			for (q = plist; q != NULL; q = q->n)
+X				if (q->pid == ret) {
+X					q->alive = FALSE;
+X					q->stat = *stat;
+X					break;
+X				}
+X		}
+X	} else
+X		*stat = r->stat;
+X	if (prev == NULL)
+X		plist = r->n; /* remove element from head of list */
+X	else
+X		prev->n = r->n;
+X	efree(r);
+X	return pid;
+X}
+X
+Xextern List *sgetapids() {
+X	List *r;
+X	Pid *p;
+X	for (r = NULL, p = plist; p != NULL; p = p->n) {
+X		List *q;
+X		if (!p->alive)
+X			continue;
+X		q = nnew(List);
+X		q->w = nprint("%d", p->pid);
+X		q->m = NULL;
+X		q->n = r;
+X		r = q;
+X	}
+X	return r;
+X}
+X
+Xextern void waitforall() {
+X	int stat;
+X	while (plist != NULL) {
+X		int pid = rc_wait4(plist->pid, &stat, FALSE);
+X		if (pid > 0)
+X			setstatus(pid, stat);
+X		else
+X			set(FALSE);
+X		SIGCHK;
+X	}
+X}
+X
+X/*
+X   rc_wait: a wait() wrapper that interfaces wait() w/rc signals.
+X   Note that the signal queue is not checked in this fn; someone
+X   may want to resume the wait() without delivering any signals.
+X*/
+X
+Xstatic int rc_wait(int *stat) {
+X	int r;
+X	interrupt_happened = FALSE;
+X	if (!setjmp(slowbuf.j)) {
+X		slow = TRUE;
+X		if (!interrupt_happened)
+X			r = wait(stat);
+X		else
+X			r = -1;
+X	} else
+X		r = -1;
+X	slow = FALSE;
+X	return r;
+X}
+END_OF_FILE
+  if test 2158 -ne `wc -c <'wait.c'`; then
+    echo shar: \"'wait.c'\" unpacked with wrong size!
+  fi
+  # end of 'wait.c'
+fi
+if test -f 'which.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'which.c'\"
+else
+  echo shar: Extracting \"'which.c'\" \(2794 characters\)
+  sed "s/^X//" >'which.c' <<'END_OF_FILE'
+X/* which.c: check to see if a file is executable.
+X
+X   This function was originally written with Maarten Litmaath's which.c as
+X   a template, but was changed in order to accomodate the possibility of
+X   rc's running setuid or the possibility of executing files not in the
+X   primary group. Much of this file has been re-vamped by Paul Haahr.
+X   I re-re-vamped the functions that Paul supplied to correct minor bugs
+X   and to strip out unneeded functionality.
+X*/
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/param.h>
+X#include <errno.h>
+X#include "rc.h"
+X
+X#define X_USR 0100
+X#define X_GRP 0010
+X#define X_OTH 0001
+X#define X_ALL (X_USR|X_GRP|X_OTH)
+X
+Xextern int stat(const char *, struct stat *);
+X
+Xstatic bool initialized = FALSE;
+Xstatic int uid, gid;
+X
+X#ifdef NGROUPS
+Xstatic int ngroups, gidset[NGROUPS];
+X
+X/* determine whether gid lies in gidset */
+X
+Xstatic int ingidset(int g) {
+X	int i;
+X	for (i = 0; i < ngroups; i++)
+X		if (g == gidset[i])
+X			return 1;
+X	return 0;
+X}
+X#endif
+X
+X/*
+X   A home-grown access/stat. Does the right thing for group-executable files.
+X   Returns a bool instead of this -1 nonsense.
+X*/
+X
+Xstatic bool rc_access(char *path, bool verbose) {
+X	struct stat st;
+X	int mask;
+X	if (stat(path, &st) != 0) {
+X		if (verbose) /* verbose flag only set for absolute pathname */
+X			uerror(path);
+X		return FALSE;
+X	}
+X	if (uid == 0)
+X		mask = X_ALL;
+X	else if (uid == st.st_uid)
+X		mask = X_USR;
+X#ifdef NGROUPS
+X	else if (gid == st.st_gid || ingidset(st.st_gid))
+X#else
+X	else if (gid == st.st_gid)
+X#endif
+X		mask = X_GRP;
+X	else
+X		mask = X_OTH;
+X	if (((st.st_mode & S_IFMT) == S_IFREG) && (st.st_mode & mask))
+X		return TRUE;
+X	errno = EACCES;
+X	if (verbose)
+X		uerror(path);
+X	return FALSE;
+X}
+X
+X/* return a full pathname by searching $path, and by checking the status of the file */
+X
+Xextern char *which(char *name, bool verbose) {
+X	static char *test = NULL;
+X	static SIZE_T testlen = 0;
+X	List *path;
+X	int len;
+X	if (name == NULL)	/* no filename? can happen with "> foo" as a command */
+X		return NULL;
+X	if (!initialized) {
+X		initialized = TRUE;
+X		uid = geteuid();
+X		gid = getegid();
+X#ifdef NGROUPS
+X		ngroups = getgroups(NGROUPS, gidset);
+X#endif
+X	}
+X	if (isabsolute(name)) /* absolute pathname? */
+X		return rc_access(name, verbose) ? name : NULL;
+X	len = strlen(name);
+X	for (path = varlookup("path"); path != NULL; path = path->n) {
+X		SIZE_T need = strlen(path->w) + len + 2; /* one for null terminator, one for the '/' */
+X		if (testlen < need) {
+X			efree(test);
+X			test = ealloc(testlen = need);
+X		}
+X		if (*path->w == '\0') {
+X			strcpy(test, name);
+X		} else {
+X			strcpy(test, path->w);
+X			if (!streq(test, "/")) /* "//" is special to POSIX */
+X				strcat(test, "/");
+X			strcat(test, name);
+X		}
+X		if (rc_access(test, FALSE))
+X			return test;
+X	}
+X	if (verbose)
+X		fprint(2, "%s not found\n", name);
+X	return NULL;
+X}
+END_OF_FILE
+  if test 2794 -ne `wc -c <'which.c'`; then
+    echo shar: \"'which.c'\" unpacked with wrong size!
+  fi
+  # end of 'which.c'
+fi
+echo shar: End of archive 6 \(of 7\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

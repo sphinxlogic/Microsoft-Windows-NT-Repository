@@ -1,0 +1,2255 @@
+Path: comp-sources-3b1
+From: dave@galaxia.network23.com (David H. Brierley)
+Subject:  v02i018:  pcmgr: replacement status and window manager, Part02/03
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 0bb57f7f 37f4e3f1 f8e05b61 f6735f05
+
+Submitted-by: dave@galaxia.network23.com (David H. Brierley)
+Posting-number: Volume 2, Issue 18
+Archive-name: pcmgr/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 3)."
+# Contents:  hotkey.c loadavgd.c subr.c windows.c
+# Wrapped by dave@galaxia on Tue Jul 14 21:15:48 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'hotkey.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hotkey.c'\"
+else
+echo shar: Extracting \"'hotkey.c'\" \(14255 characters\)
+sed "s/^X//" >'hotkey.c' <<'END_OF_FILE'
+X/************************************************************************
+X *
+X * Program:	pcmgr
+X * Module:	hotkey
+X *
+X * This module contains various routines related to processing the special
+X * function keys.
+X *
+X * Copyright 1990 David H. Brierley, All Rights Reserved
+X ************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) hotkey.c: version 2.1 7/14/92 21:12:30";
+X
+Xstatic int      xloc = 0;
+Xstatic int      yloc = 0;
+X
+X/*
+X * Procedure: do_hotkey
+X *
+X * Create a window and execute a command within it.  The size of the window
+X * is defined by the key bindings file which also defines what command is
+X * to be run.
+X */
+Xvoid
+Xdo_hotkey (int code)
+X{
+X    int             wd;
+X    char           *argv[BUFSIZ / 2];
+X    char           *blank;
+X    char           *tname;
+X    int             argc;
+X    int             signo;
+X    int             temp;
+X    int             user_uid;
+X    int             user_gid;
+X    char            cmdbuf[BUFSIZ];
+X    char            keyfile[BUFSIZ];
+X    struct uwdata   uwdata;
+X    struct utdata   utdata;
+X    HotKey         *head;
+X    HotKey         *ptr;
+X    struct passwd  *pw;
+X    char           *ttyname (int);
+X
+X    /*
+X     * Figure out who the currently active user is.
+X     */
+X    if (get_user_id (&user_uid, &user_gid) == -1) {
+X	return;
+X    }
+X    if ((pw = getpwuid (user_uid)) == NULL) {
+X	return;
+X    }
+X
+X    /*
+X     * Read in the key bindings file and figure out which command to run
+X     */
+X    (void) sprintf (keyfile, "%s/.hotkey", pw -> pw_dir);
+X    head = read_keyfile (keyfile);
+X    for (ptr = head; ptr != NULL; ptr = ptr -> h_next) {
+X	if (ptr -> h_key == code) {
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * If the key code specified in the argument was not listed in the key
+X     * bindings file then there is nothing for us to do.
+X     */
+X    if (ptr == NULL) {
+X	free_list (head);
+X	return;
+X    }
+X
+X    /*
+X     * Create a new window and size it and label it according to the
+X     * information read in from the key bindings file.
+X     */
+X    wd = open ("/dev/window", 2);
+X    if (wd == -1) {
+X	free_list (head);
+X	return;
+X    }
+X
+X    if (ioctl (wd, WIOCGETD, &uwdata) == -1) {
+X	(void) close (wd);
+X	free_list (head);
+X	return;
+X    }
+X
+X    uwdata.uw_height = ptr -> h_height * uwdata.uw_vs;
+X    uwdata.uw_width = ptr -> h_width * uwdata.uw_hs;
+X    if (yloc == 0) {
+X	yloc = uwdata.uw_vs;
+X    }
+X    uwdata.uw_x = xloc;
+X    uwdata.uw_y = yloc;
+X    xloc += (2 * uwdata.uw_hs);
+X    yloc += (2 * uwdata.uw_vs);
+X    if (xloc > (8 * uwdata.uw_hs)) {
+X	xloc = 0;
+X	yloc = 0;
+X    }
+X    if ((ptr -> h_height == 24) && (ptr -> h_width == 80)) {
+X	uwdata.uw_uflags = NBORDER;
+X	uwdata.uw_x = 0;
+X	uwdata.uw_y = uwdata.uw_vs;
+X    }
+X    else {
+X	uwdata.uw_uflags = BORDRESIZE;
+X	if (uwdata.uw_x + uwdata.uw_width > WINWIDTH - (3 * uwdata.uw_hs)) {
+X	    temp = WINWIDTH - (3 * uwdata.uw_hs) - uwdata.uw_width;
+X	    if (temp < 0) {
+X		temp = 0;
+X	    }
+X	    uwdata.uw_x = temp;
+X	    uwdata.uw_width = WINWIDTH - (3 * uwdata.uw_hs) - uwdata.uw_x;
+X	}
+X	if (uwdata.uw_y + uwdata.uw_height > WINHEIGHT - (4 * uwdata.uw_vs)) {
+X	    temp = WINHEIGHT - (4 * uwdata.uw_vs) - uwdata.uw_height;
+X	    if (temp < uwdata.uw_vs) {
+X		temp = uwdata.uw_vs;
+X	    }
+X	    uwdata.uw_y = temp;
+X	    uwdata.uw_height = WINHEIGHT - (4 * uwdata.uw_vs) - uwdata.uw_y;
+X	}
+X    }
+X
+X    if (ioctl (wd, WIOCSETD, &uwdata) == -1) {
+X	(void) close (wd);
+X	free_list (head);
+X	return;
+X    }
+X
+X    utdata.ut_num = WTXTLABEL;
+X    (void) strncpy (utdata.ut_text, ptr -> h_cmd, 40);
+X    (void) ioctl (wd, WIOCSETTEXT, &utdata);
+X
+X    utdata.ut_num = WTXTUSER;
+X    (void) strncpy (utdata.ut_text, ptr -> h_name, 40);
+X    (void) ioctl (wd, WIOCSETTEXT, &utdata);
+X
+X    /*
+X     * Break up the command line into words so that it can be used as an
+X     * argument to exec().
+X     */
+X    (void) strcpy (cmdbuf, ptr -> h_cmd);
+X    argc = 0;
+X    blank = cmdbuf;
+X
+X    while (blank != NULL) {
+X	argv[argc++] = blank;
+X	blank = strchr (blank, ' ');
+X	if (blank != NULL) {
+X	    while (*blank == ' ') {
+X		*blank++ = '\0';
+X	    }
+X	}
+X    }
+X    argv[argc] = NULL;
+X
+X    /*
+X     * Everything is all set up: time to fork!
+X     */
+X    if (fork () != 0) {
+X	(void) close (wd);
+X	free_list (head);
+X	return;
+X    }
+X
+X    /*
+X     * fork again so that the new process is not a direct child of the pcmgr
+X     * process.
+X     */
+X    if (fork () != 0) {
+X	_exit (0);
+X    }
+X
+X    /*
+X     * chdir to the users home directory so that they will know what
+X     * directory they are in when the program runs.  also set a few
+X     * basic env variables.
+X     */
+X    (void) chdir (pw -> pw_dir);
+X    setenv ("HOME", pw -> pw_dir);
+X    setenv ("LOGNAME", pw -> pw_name);
+X
+X    if (wd != 0) {
+X	(void) close (0);
+X	(void) dup (wd);
+X    }
+X    (void) close (1);
+X    (void) dup (0);
+X    (void) close (2);
+X    (void) dup (0);
+X    for (wd = 3; wd < _NFILE; ++wd) {
+X	(void) close (wd);
+X    }
+X
+X    /*
+X     * Set the ownership of the window device to the user
+X     */
+X    if ((tname = ttyname (0)) != NULL) {
+X	(void) chmod (tname, 0600);
+X	(void) chown (tname, user_uid, user_gid);
+X    }
+X    (void) setgid (user_gid);
+X    (void) setuid (user_uid);
+X    (void) setpgrp ();
+X    (void) ioctl (0, WIOCPGRP, NULL);
+X    for (signo = 1; signo < NSIG; ++signo) {
+X	(void) signal (signo, SIG_DFL);
+X    }
+X
+X    /*
+X     * First we try calling execvp using the argument array built above. This
+X     * allows commands to be specified in the binding file without requiring
+X     * that the full path name be specified.  If the execvp fails, try
+X     * calling execl to run the command using "sh -c".  If that fails there
+X     * is nothing else to try so just exit.
+X     */
+X    (void) execvp (argv[0], argv);
+X    (void) execl ("/bin/sh", "sh", "-c", ptr -> h_cmd, 0);
+X    _exit (0);
+X
+X}
+X
+X/*
+X * Procedure: read_keyfile
+X *
+X * Read in the specified key bindings file and return a pointer to
+X * a linked list containing hte information.
+X */
+XHotKey         *
+Xread_keyfile (char *filename)
+X{
+X    int             keynum;
+X    int             height;
+X    int             width;
+X    int             n;
+X    HotKey         *head;
+X    char            line[BUFSIZ];
+X    FILE           *fp;
+X    char           *cmd;
+X    char           *semi;
+X
+X    head = NULL;
+X    if ((fp = fopen (filename, "r")) == NULL) {
+X	return (head);
+X    }
+X
+X    while (fgets (line, BUFSIZ - 1, fp) != NULL) {
+X	cmd = line + strlen (line) - 1;
+X	*cmd = '\0';
+X	if ((cmd = strchr (line, ' ')) == NULL) {
+X	    continue;
+X	}
+X	*cmd++ = '\0';
+X	while (*cmd == ' ') {
+X	    ++cmd;
+X	}
+X	if ((semi = strchr (line, ';')) != NULL) {
+X	    ++semi;
+X	}
+X	n = sscanf (line, "%d,%d,%d", &keynum, &height, &width);
+X	switch (n) {
+X	case 3:
+X	    break;
+X	case 1:
+X	    height = 12;
+X	    width = 60;
+X	    break;
+X	default:
+X	    continue;
+X	}
+X	head = insert (head, keynum, height, width, cmd, semi);
+X    }
+X    (void) fclose (fp);
+X    return (head);
+X
+X}
+X
+X/*
+X * Procedure: free_list
+X *
+X * Recurse through the linked list, freeing each entry.
+X */
+Xvoid
+Xfree_list (HotKey * head)
+X{
+X    HotKey         *ptr;
+X    HotKey         *tmp;
+X
+X    ptr = head;
+X    while (ptr != NULL) {
+X	tmp = ptr;
+X	ptr = ptr -> h_next;
+X	(void) free (tmp);
+X    }
+X
+X}
+X
+X/*
+X * Procedure: insert
+X *
+X * This routine does the actual work of inserting the key bindings into
+X * the linked list.
+X */
+XHotKey         *
+Xinsert (HotKey *head, int key, int hgt, int width, char *cmd, char *cmd_name)
+X{
+X    HotKey         *ptr;
+X    HotKey         *old;
+X    char           *blank;
+X
+X    if (strlen (cmd) >= sizeof (ptr -> h_cmd)) {
+X	(void) fprintf (stderr,
+X			"Command string for key %d is too long, max = %d\n",
+X			key, sizeof (ptr -> h_cmd));
+X	exit (1);
+X    }
+X
+X    /*
+X     * first we look to see if this key exists already and delete it.
+X     */
+X    old = NULL;
+X    for (ptr = head; ptr != NULL; ptr = ptr -> h_next) {
+X	if (ptr -> h_key == key) {
+X	    if (old != NULL) {
+X		old -> h_next = ptr -> h_next;
+X	    }
+X	    (void) free (ptr);
+X	    break;
+X	}
+X	old = ptr;
+X    }
+X
+X    /*
+X     * next we find out where this entry belongs
+X     */
+X    old = NULL;
+X    for (ptr = head; ptr != NULL; ptr = ptr -> h_next) {
+X	if (ptr -> h_key > key)
+X	    break;
+X	old = ptr;
+X    }
+X
+X    /*
+X     * allocate new entry
+X     */
+X    ptr = (HotKey *) malloc (sizeof (HotKey));
+X    if (ptr == NULL) {
+X	exit (1);
+X    }
+X
+X    /*
+X     * sanity check for window size
+X     */
+X    if (hgt > 24) {
+X	hgt = 24;
+X    }
+X    if (hgt < 6) {
+X	hgt = 6;
+X    }
+X    if (width > 80) {
+X	width = 80;
+X    }
+X    if (width < 20) {
+X	width = 20;
+X    }
+X
+X    /*
+X     * fill in the new entry
+X     */
+X    ptr -> h_key = key;
+X    ptr -> h_height = hgt;
+X    ptr -> h_width = width;
+X    (void) strcpy (ptr -> h_cmd, cmd);
+X
+X    /*
+X     * if no command name was specified use the first word of the command
+X     */
+X    if (cmd_name != NULL) {
+X	(void) strncpy (ptr -> h_name, cmd_name, H_NAME_MAX);
+X    }
+X    else {
+X	if ((blank = strchr (cmd, ' ')) != NULL) {
+X	    *blank = '\0';
+X	}
+X	(void) strncpy (ptr -> h_name, cmd, H_NAME_MAX);
+X	if (blank != NULL) {
+X	    *blank = ' ';
+X	}
+X    }
+X    ptr -> h_name[H_NAME_MAX] = '\0';
+X
+X    /*
+X     * set the links
+X     */
+X    ptr -> h_next = NULL;
+X    if (old != NULL) {
+X	if (old -> h_next != NULL) {
+X	    ptr -> h_next = old -> h_next;
+X	}
+X	old -> h_next = ptr;
+X    }
+X    if (head == NULL) {
+X	head = ptr;
+X    }
+X    return (head);
+X
+X}
+X
+X/*
+X * Procedure: function_menu
+X *
+X * This procedure displays a list of all of the commands that are bound
+X * to the function keys and allows the user to select one of them.  Because
+X * this routine uses a dynamically sized list it is possible to have more
+X * choices in the list than there are actual function keys.  The extra
+X * entries are only accesible via this routine, they cannot be selected by
+X * pressing any of the special function keys.
+X */
+Xvoid
+Xfunction_menu (void)
+X{
+X    int             key_choice;
+X    int             n;
+X    menu_t          f_menu;
+X    mitem_t        *f_list;
+X    int             f_index;
+X    int             rc;
+X    char            keyfile[BUFSIZ];
+X    HotKey         *head;
+X    HotKey         *ptr;
+X    int             user_uid;
+X    int             user_gid;
+X    struct passwd  *pw;
+X    extern char    *calloc ();
+X
+X    /* find out who the active user is */
+X    if (get_user_id (&user_uid, &user_gid) == -1) {
+X	return;
+X    }
+X    if ((pw = getpwuid (user_uid)) == NULL) {
+X	return;
+X    }
+X
+X    /* fork to avoid possible deadlocks */
+X    if (fork () != 0) {
+X	return;
+X    }
+X
+X    /* read in the key binding file and create the menu list */
+X    (void) sprintf (keyfile, "%s/.hotkey", pw -> pw_dir);
+X    head = read_keyfile (keyfile);
+X    for (f_index = 0, ptr = head; ptr != NULL; ptr = ptr -> h_next) {
+X	++f_index;
+X    }
+X    f_index += 4;
+X    f_list = (mitem_t *) calloc (f_index, sizeof (mitem_t));
+X    if (f_list == NULL) {
+X	_exit (1);
+X    }
+X
+X    keypad (0, 1);
+X    f_menu.m_label = "Functions";
+X    f_menu.m_title = NULL;
+X    f_menu.m_prompt = NULL;
+X    f_menu.m_rows = 0;
+X    f_menu.m_cols = 0;
+X    f_menu.m_iwidth = 0;
+X    f_menu.m_iheight = 0;
+X    f_menu.m_flags = M_USEWIN | M_SINGLE | M_NOMOVE | M_NOHELP | M_NORESIZE;
+X    f_menu.m_lbuf[0] = '\0';
+X    f_menu.m_items = f_list;
+X    f_menu.m_curi = f_list;
+X    f_index = 0;
+X
+X    for (ptr = head; ptr != NULL; ptr = ptr -> h_next) {
+X	f_list[f_index].mi_name = NULL;
+X	f_list[f_index].mi_flags = 0;
+X	f_list[f_index].mi_val = ptr -> h_key;
+X	f_list[f_index].mi_name = msave (ptr -> h_name);
+X	++f_index;
+X    }
+X
+X    /* for completeness we add menu items for login, mail, and msgs */
+X    f_list[f_index].mi_flags = 0;
+X    f_list[f_index].mi_val = -1;
+X    f_list[f_index].mi_name = msave ("New Login Window");
+X    ++f_index;
+X    f_list[f_index].mi_flags = 0;
+X    f_list[f_index].mi_val = -2;
+X    f_list[f_index].mi_name = msave ("Read Mail");
+X    ++f_index;
+X    f_list[f_index].mi_flags = 0;
+X    f_list[f_index].mi_val = -3;
+X    f_list[f_index].mi_name = msave ("Display Messages");
+X    ++f_index;
+X
+X    f_list[f_index].mi_name = NULL;
+X    f_list[f_index].mi_flags = 0;
+X    f_list[f_index].mi_val = 0;
+X
+X    /* Create a window and initialize the menu interface */
+X    f_menu.m_win = wcreate (1, 49, 20, 30, 0);
+X    (void) menu (&f_menu, M_BEGIN);
+X
+X    /*
+X     * Accept input from the menu routines.  Recognize the Exit and Cancl
+X     * keys as cancelling the request.  If the return valud from the menu
+X     * routine is Enter and the m_selcnt field is set to one then the user
+X     * select one of the items and the m_curi pointer in the menu structure
+X     * will point to the item selected.
+X     */
+X    while (1) {
+X	rc = menu (&f_menu, M_INPUT);
+X	if ((rc == Exit) || (rc == Cancl)) {
+X	    key_choice = 0;
+X	    break;
+X	}
+X	if ((rc == Enter) && (f_menu.m_selcnt == 1)) {
+X	    key_choice = f_menu.m_curi -> mi_val;
+X	    break;
+X	}
+X    }
+X
+X    /* Terminate menu input and delete the window */
+X    menu (&f_menu, M_END);
+X    (void) wdelete (f_menu.m_win);
+X
+X    /*
+X     * release the storage used by the menu.  this is not really needed since
+X     * this process is about to be deleted anyway but this was here from a
+X     * previous version which did not do the fork so I decided to leave it
+X     * here for completeness.
+X     */
+X    free_list (head);
+X    for (n = 0; n < f_index; ++n) {
+X	if (f_list[n].mi_name != NULL) {
+X	    (void) free (f_list[n].mi_name);
+X	}
+X    }
+X    (void) free (f_list);
+X
+X    switch (key_choice) {
+X    case -1:			/* login */
+X	make_login ();
+X	break;
+X    case -2:			/* mail */
+X	run_email ();
+X	break;
+X    case -3:			/* messages */
+X	show_msgs ();
+X	break;
+X    case 0:			/* Exit or Cancl */
+X	break;
+X    default:			/* normal menu item selected */
+X	do_hotkey (key_choice);
+X    }
+X
+X    /* since we forked up above we must exit instead of returning */
+X    _exit (0);
+X
+X}
+END_OF_FILE
+if test 14255 -ne `wc -c <'hotkey.c'`; then
+    echo shar: \"'hotkey.c'\" unpacked with wrong size!
+fi
+# end of 'hotkey.c'
+fi
+if test -f 'loadavgd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'loadavgd.c'\"
+else
+echo shar: Extracting \"'loadavgd.c'\" \(10503 characters\)
+sed "s/^X//" >'loadavgd.c' <<'END_OF_FILE'
+X/*
+X * renamed loadavgd.c by Lenny Tropiano (lenny@icus.UUCP ICUS Software Systems)
+X *
+X *	ldavg.c -- compute load averages for System V
+X *	Phil Budne @ Boston U / DSG
+X *
+X *	Forges BSD 4.2 rwhod packets containing system load averages
+X *	(#ifdef RWHOD for this, else a shm segment is used, ftok("/unix", 'a'))
+X */
+X
+X# include <sys/types.h>			/* system types */
+X# include <sys/sysinfo.h>		/* sysinfo structure */
+X# include <sys/utsname.h>		/* for uname(2) */
+X# include <sys/stat.h>			/* for stat(2) */
+X# include <sys/param.h>			/* for HZ */
+X# include <stdio.h>
+X# include <nlist.h>
+X# include <time.h>
+X# include <math.h>
+X# include <utmp.h>
+X# include <fcntl.h>
+X#ifdef RWHOD
+X# include "rwhod.h"			/* (from BSD) */
+X#else  SHM
+X# include <sys/ipc.h>
+X# include <sys/shm.h>
+X#endif RWHOD
+X#ifdef UNIXPC
+X/*
+X * Open a window on the status line.  While SMGR owns columns 33-74, it doesn't
+X * seem to use columns 56-74, which by some strange chance is just enough for
+X * our window.
+X * (Whoops!  Can you say "icon"?  We use the spot reserved for the Phone
+X * Manager instead... your choice.  Compile with -DUNIXPC to get windows;
+X * the generic-System V code will work on the UNIX PC if you don't want them.)
+X */
+X# include <sys/window.h>
+X# include <status.h>
+X#endif UNIXPC
+X
+X/* # define DEBUG /**/
+X#ifdef RWHOD
+X# define UDP 1
+X# define DSK 1
+X# define PMUL 100
+X
+X# if UDP
+X# include "netdb.h"
+Xunsigned short port = 513;
+Xunsigned long ipaddr;
+X# endif
+X#endif RWHOD
+X
+Xextern struct utmp *getutent();
+X
+X# define UNIX "/unix"
+X# define KMEM "/dev/kmem"
+X
+Xstruct nlist nlsym[] = {
+X# define NL_SYSINFO 0
+X        { "sysinfo" },			/* 0 */
+X#ifdef RWHOD
+X# define NL_LBOLT 1
+X	{ "lbolt" },			/* 1 */
+X#endif RWHOD
+X        { 0 }
+X};
+X
+X#ifdef RWHOD
+Xstruct whod proto;
+Xstruct utsname utsn;
+Xchar whopacket[100];
+X#else  SHM
+Xkey_t aven_key;
+Xint aven_shm;
+Xdouble *aven_seg;
+X#endif RWHOD
+Xint fd, memfd;
+X#ifdef UNIXPC
+Xstruct uwdata avenwin = {
+X	0,	0,	288,	12,	NBORDER,	0,	0,	0
+X};
+Xextern char *sys_errlist[];
+Xextern int errno;
+X#endif
+X
+Xchar *unixsys = UNIX;
+Xchar *kmem = KMEM;
+Xchar *argv0;
+X
+Xmain(argc, argv)
+Xint  argc;
+Xchar *argv[];
+X{
+X	switch (fork()) {
+X	case -1:
+X		perror("fork");
+X		exit(1);
+X	case 0:
+X		break;
+X	default:
+X		exit(0);
+X	}
+X	argv0 = argv[0];
+X#ifdef RWHOD
+X	uname(&utsn);			/* get system names */
+X#endif RWHOD
+X	setpgrp();			/* create own pgrp */
+X#ifdef UNIXPC
+X	if (freopen("/dev/window", "r+", stdout) == (FILE *) 0) {
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Can't open load average window:\n%s", argv0, sys_errlist[errno]);
+X		exit(1);
+X	}
+X	ioctl(1, WIOCSETD, &avenwin);
+X	ioctl(0, WIOCSELECT);
+X	fclose(stdin);
+X	fclose(stderr);
+X#endif UNIXPC
+X	init_nlist();			/* get name values, open kmem */
+X	init_packet();			/* initialize packet prototype */
+X	doit();				/* never returns */
+X} /* main */
+X
+Xinit_nlist() {
+X	nlist(unixsys, nlsym);		/* get system values */
+X
+X        if(nlsym[NL_SYSINFO].n_value == 0) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Cannot locate `sysinfo' structure", argv0);
+X#else
+X                fprintf(stderr, "%s: can't find sysinf structure\n", argv0);
+X#endif
+X                exit(1);
+X        } /* no value */
+X
+X	if ((memfd = open(kmem, O_RDONLY)) < 0) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Cannot open kernel memory image:\n%s", argv0, sys_errlist[errno]);
+X#else
+X		fprintf(stderr, "%s: no mem\n", argv0);
+X#endif UNIXPC
+X		exit(1);
+X	} /* could not open kmem */
+X
+X} /* init_nlist */
+X
+X# define PERIOD 5			/* sample period (in seconds) */
+X# define INTERVAL1 60			/* average interval 1 (in seconds) */
+X# define INTERVAL2 (5*60)		/* average interval 2 (in seconds) */
+X# define INTERVAL3 (15*60)		/* average interval 3 (in seconds) */
+X# define PACKINTERVAL 30		/* interval for make_packet */
+X
+Xdoit() {
+X	struct sysinfo sinf;
+X	int packt = 0;
+X	long occ, que, nocc, nque, n, c;
+X	double avg1, avg2, avg3, new;
+X	double exp1, exp2, exp3;
+X
+X	exp1 = exp( - ((double) PERIOD) / INTERVAL1 );
+X	exp2 = exp( - ((double) PERIOD) / INTERVAL2 );
+X	exp3 = exp( - ((double) PERIOD) / INTERVAL3 );
+X
+X	getsysinf(&sinf);		/* prime the pump */
+X	occ = sinf.runocc;		/* number of samples */
+X	que = sinf.runque;		/* run queue summation */
+X
+X	avg1 = avg2 = avg3 = ((double) que) / occ;
+X
+X	for( ; ; ) {
+X		if( --packt < 0 ) {
+X#ifdef RWHOD
+X			make_packet((int) (avg1 * PMUL),
+X				    (int) (avg2 * PMUL),
+X				    (int) (avg3 * PMUL));
+X#else  SHM
+X			make_packet(avg1, avg2, avg3);
+X#endif RWHOD
+X			packt = PACKINTERVAL / PERIOD;
+X		} /* packet time */
+X
+X/*		printf("runque: %ld  runocc: %ld\n", que, occ ); /**/
+X
+X		sleep(PERIOD);
+X		getsysinf(&sinf);	/* get new info */
+X		nocc = sinf.runocc;
+X		nque = sinf.runque;
+X
+X		n = nocc - occ;		/* get number of times updated */
+X		if( n <= 0 ) continue;
+X		c = nque - que - n;	/* get number of runners w/o us */
+X		if( c < 0 ) c = 0;	/* mumble! */
+X
+X		new = ((double) c ) / n; /* new instantaneous avg */
+X
+X		/************************************************/
+X		/*   The following formula is used to achieve   */
+X		/*   exponential decay of old measurements:	*/
+X		/*	avgN = avgN * expN  +  new * (1 - expN)	*/
+X		/*						*/
+X		/*   However, the factorized forms below	*/
+X		/*   require fewer floating point operations.	*/
+X		/************************************************/
+X
+X		avg1 = ((avg1 - new) * exp1) + new;
+X		avg2 = ((avg2 - new) * exp2) + new;
+X		avg3 = ((avg3 - new) * exp3) + new;
+X
+X		occ = nocc;
+X		que = nque;
+X
+X	} /* for ever */
+X} /* doit */
+X
+Xgetsysinf(s)
+Xstruct sysinfo *s;
+X{
+X	l_lseek(memfd, (long)nlsym[NL_SYSINFO].n_value, 0);
+X	r_read(memfd, (char *)s, sizeof(struct sysinfo));
+X}
+X
+X/* lseek with error checking */
+Xl_lseek(fd, offset, whence)
+Xint fd, whence;
+Xlong	offset;
+X{
+X	if (lseek(fd, offset, whence) == -1) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Error during seek in kernel memory image:\n%s", argv0, sys_errlist[errno]);
+X#else
+X		fprintf(stderr, "%s: error on lseek\n", argv0);
+X#endif UNIXPC
+X		exit(1);
+X	}
+X}
+X
+X/* read with error checking */
+Xr_read (fd, buf, nbytes)
+Xint	fd, nbytes;
+Xchar	*buf;
+X{
+X	if (read(fd, buf, nbytes) != nbytes) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Error during read from kernel memory image:\n%s", argv0, sys_errlist[errno]);
+X#else
+X		fprintf(stderr, "%s: error on read\n", argv0);
+X#endif UNIXPC
+X		exit(1);
+X	}
+X}
+X
+Xinit_packet() {
+X#ifdef RWHOD
+X	time_t boothz;
+X# if UDP
+X	struct hostent *he;
+X
+X	he = gethostbyname( "localnet" );
+X	if( he == NULL || he->h_addr == 0 ) {
+X		fprintf(stderr, "no address: localnet\n");
+X		exit( 1 );
+X	}
+X	ipaddr = he->h_addr;
+X# endif
+X# if DSK
+X	sprintf(whopacket, "/usr/spool/rwho/whod.%s", utsn.nodename);
+X# endif
+X	memset(&proto, '\0', sizeof proto);	/* clear proto packet */
+X
+X	strncat(proto.wd_hostname, utsn.nodename, 9); /* at most 9, add null */
+X	proto.wd_vers = WHODVERSION;
+X	proto.wd_type = WHODTYPE_STATUS;
+X
+X	l_lseek(memfd, (long)nlsym[NL_LBOLT].n_value, 0);
+X	r_read(memfd, (char *)&boothz, sizeof( boothz ) );
+X	proto.wd_boottime = time(0) - (boothz / HZ);
+X#else  SHM
+X	if ((aven_key = ftok(UNIX, 'a')) == (key_t) -1) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Can't find shared memory keyfile:\n%s: %s", argv0, UNIX, sys_errlist[errno]);
+X#else
+X		perror(UNIX);
+X#endif UNIXPC
+X		exit(1);
+X	}
+X	if ((aven_shm = shmget(aven_key, 3 * sizeof (double), IPC_CREAT|IPC_EXCL|0644)) < 0) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Can't create shared memory segment:\n%s", argv0, sys_errlist[errno]);
+X#else
+X		perror("shmget");
+X#endif UNIXPC
+X		exit(1);
+X	}
+X	if ((int) (aven_seg = (double *) shmat(aven_shm, (char *) 0, 0)) == -1) {
+X#ifdef UNIXPC
+X		eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Can't attach shared memory segment:\n%s", argv0, sys_errlist[errno]);
+X#else
+X		perror("shmat");
+X#endif UNIXPC
+X		if (shmctl(aven_shm, IPC_RMID, (struct shmid_ds *) 0) < 0)
+X#ifdef UNIXPC
+X			eprintf(ST_OTHER, ST_DISPLAY, (char *) 0, "%s: Can't remove shared memory segment:\n%s", argv0, sys_errlist[errno]);
+X#else
+X			perror("shmctl(IPC_RMID)");
+X#endif UNIXPC
+X		exit(1);
+X	}
+X#endif RWHOD
+X	
+X} /* init_packet */
+X
+Xmake_packet(iavg1, iavg2, iavg3)
+X#ifdef RWHOD
+Xlong iavg1, iavg2, iavg3;
+X#else  SHM
+Xdouble iavg1, iavg2, iavg3;
+X#endif RWHOD
+X{
+X#ifdef RWHOD
+X	static struct whod packet;	/* local packet copy */
+X	register struct whoent *wep;	/* pointer to packet whoent */
+X	register struct utmp *utp;	/* return from getutent */
+X	int whof, cc;			/* output file, char count */
+X
+X	packet = proto;			/* copy proto packet */
+X	time(&packet.wd_sendtime);
+X	time(&packet.wd_recvtime);	/* forge this !! */
+X	packet.wd_loadav[0] = iavg1;
+X	packet.wd_loadav[1] = iavg2;
+X	packet.wd_loadav[2] = iavg3;
+X
+X	setutent();			/* open utmp file */
+X	wep = &packet.wd_we[0];		/* get pointer to first user in pkt */
+X
+X	while( (utp = getutent()) != NULL ) {
+X	    if( (utp->ut_type == USER_PROCESS) && utp->ut_user[0]) {
+X		strncpy(wep->we_utmp.out_line, utp->ut_id, 4);
+X		wep->we_utmp.out_line[4] = '\0';
+X
+X		strncpy(wep->we_utmp.out_name, utp->ut_user, 8);
+X
+X		wep->we_utmp.out_time = utp->ut_time;
+X
+X		wep->we_idle = idletime(utp);
+X		wep++;			/* bump packet pointer */
+X	    } /* user process */
+X	} /* while */
+X	endutent();
+X
+X# if DSK
+X	whof = creat(whopacket, 0644);	/* open packt file */
+X	if( whof >= 0 ) {
+X	    cc = (char *)wep - (char *)&packet;
+X	    if( write(whof, (char *)&packet, cc) != cc )
+X	    	perror("write failed");
+X	    close(whof);
+X	} /* file opened */
+X	else perror(whopacket);
+X# endif
+X# if UDP
+X	cc = (char *)wep - (char *)&packet;
+X	udpsend( (char *)&packet, cc, ipaddr, port, port, 1);
+X# endif
+X# ifdef DEBUG
+X	fprintf(stderr, "wrote packet (%d)\n", cc);
+X	fflush(stderr);
+X# endif
+X#else  SHM
+X	aven_seg[0] = iavg1;
+X	aven_seg[1] = iavg2;
+X	aven_seg[2] = iavg3;
+X#ifdef UNIXPC
+X	printf("\rLoad average: %4.2f %4.2f %4.2f", iavg1, iavg2, iavg3);
+X	fflush(stdout);
+X#endif UNIXPC
+X#endif RWHOD
+X} /* make_packet */
+X
+X#ifdef RWHOD
+Xidletime(up)
+Xstruct utmp *up;
+X{
+X    register int i;
+X    register char *cp, *dp;
+X    char ttyname[10];
+X    struct stat buf;
+X    time_t now;
+X
+X    cp = "/dev/";
+X    dp = ttyname;
+X    
+X    while( *cp != '\0' )		/* copy "/dev/" */
+X        *dp++ = *cp++;
+X
+X    cp = up->ut_line;			/* get line name */
+X    if( *cp == 's' )			/* starts with an 's'? (sxtnnn) */
+X        *dp++ = 'v';			/* insert a 'v' */
+X
+X    for( i = 0; i < 8; i++ )		/* copy line name */
+X        if( (*dp++ = *cp++) == '\0' ) break;	/* or until null */
+X
+X    if( stat(ttyname, &buf) != 0 )	/* get file status */
+X        return( 0 );
+X
+X    time(&now);				/* get current time */
+X    i = now - buf.st_atime;		/* get differnce from last acces */
+X    return( i );			/* return idle time */
+X} /* idletime */
+X#endif RWHOD
+END_OF_FILE
+if test 10503 -ne `wc -c <'loadavgd.c'`; then
+    echo shar: \"'loadavgd.c'\" unpacked with wrong size!
+fi
+# end of 'loadavgd.c'
+fi
+if test -f 'subr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'subr.c'\"
+else
+echo shar: Extracting \"'subr.c'\" \(13685 characters\)
+sed "s/^X//" >'subr.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X *
+X * Program: pcmgr
+X * Module:  subr.c
+X *
+X * This module contains miscellaneous procedures used by the pcmgr program.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X *-------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) subr.c: version 2.1 7/14/92 21:12:46";
+X
+X#ifdef	DEBUG
+X#include <syslog.h>
+X#endif
+X
+Xvoid
+Xmake_login (void)
+X{
+X    int             pid;
+X
+X    pid = fork ();
+X
+X    /*
+X     * If parent, or error, return
+X     */
+X    if (pid != 0) {
+X	return;
+X    }
+X
+X    /*
+X     * fork again and have the parent exit.  this causes the child to be
+X     * inherited by init.  we then exec the window program.
+X     */
+X    if ((pid = fork ()) != 0) {
+X	_exit (0);
+X    }
+X
+X    /*
+X     * chdir to the root directory before doing the exec so that we can be
+X     * sure of what directory we are in.
+X     */
+X    (void) chdir ("/");
+X
+X    /*
+X     * set some env variables
+X     */
+X    setenv ("HOME", "/");
+X    setenv ("LOGNAME", "nobody");
+X
+X    (void) execl (WINDOW_PROG, "window", 0);
+X    _exit (1);
+X
+X}
+X
+Xvoid
+Xcycle_window (int dir)
+X{
+X    int             wd;
+X    int             winno;
+X    int             orig_wd;
+X    int             loop_count;
+X    char            w_name[32];
+X    struct utdata   utdata;
+X
+X    if ((wd = open ("/dev/window", 0)) == -1) {
+X	return;
+X    }
+X    if ((winno = ioctl (wd, WIOCGCURR, NULL)) == -1) {
+X	winno = 0;
+X    }
+X    (void) close (wd);
+X    orig_wd = winno;
+X    loop_count = 0;
+X
+X    while (1) {
+X	winno += dir;
+X	if (winno == orig_wd) {
+X	    if (++loop_count == 2) {
+X		return;
+X	    }
+X	}
+X
+X	/* Generate a window name and test for existence. */
+X	(void) sprintf (w_name, "/dev/w%d", winno);
+X	if ((wd = open (w_name, O_RDONLY)) != -1) {
+X	    utdata.ut_num = WTXTUSER;
+X	    if (ioctl (wd, WIOCGETTEXT, &utdata) == -1) {
+X		(void) close (wd);
+X		continue;
+X	    }
+X	    if (strcmp (utdata.ut_text, "Status Manager") == 0) {
+X		(void) close (wd);
+X		continue;
+X	    }
+X	    if (strcmp (utdata.ut_text, "Window Manager") == 0) {
+X		(void) close (wd);
+X		continue;
+X	    }
+X	    (void) ioctl (wd, WIOCSELECT, NULL);
+X	    (void) close (wd);
+X	    return;
+X	}
+X	else if (errno == ENOENT) {
+X	    winno = (dir == -1) ? MAX_WINDOW : MIN_WINDOW;
+X	}
+X    }
+X}
+X
+Xstatic int      fd_error = -1;			 /* /dev/error */
+X
+Xvoid
+Xrd_dev_error (void)
+X{
+X    int             (*old_alarm) (int sig);
+X    int             len;
+X    static char     ebuffer[257];
+X
+X    if (fd_error == -1) {
+X	fd_error = open (DEV_ERROR, O_RDONLY);
+X    }
+X    if (fd_error == -1) {
+X	return;
+X    }
+X
+X    old_alarm = signal (SIGALRM, trap_alarm);
+X    (void) alarm (1);
+X    len = read (fd_error, ebuffer, 256);
+X    (void) alarm (0);
+X    (void) signal (SIGALRM, old_alarm);
+X    if (len <= 0) {
+X	return;
+X    }
+X
+X    ebuffer[len] = '\0';
+X    write_to_log (*(long *) ebuffer, ebuffer + 4);
+X    parse_ebuffer (ebuffer);
+X
+X    /*
+X     * Recurse to see if there is more than one message pending.
+X     */
+X    rd_dev_error ();
+X
+X}
+X
+X/*
+X * Routine: trap_alarm
+X *
+X * This routine is used to trap and effectively ignore an alarm signal.
+X * The reason for using an actual signal trap instead of just using SIG_IGN
+X * is so that the read() call will be terminated.
+X */
+Xvoid
+Xtrap_alarm (int sig)
+X{
+X
+X    (void) signal (sig, trap_alarm);
+X    return;
+X
+X}
+X
+Xvoid
+Xparse_ebuffer (char *buf)
+X{
+X    int             rc;
+X    int             type;
+X    int             action;
+X    int             alarm_date = 0;
+X    int             alarm_time = 0;
+X    char           *user;
+X    char           *text;
+X
+X    /*
+X     * Does the message begin with a colon?
+X     */
+X    buf += 4;
+X    if (*buf != ':') {
+X	return;
+X    }
+X
+X    /*
+X     * And does it say x:x: ?
+X     */
+X    type = *++buf;
+X    if (*++buf != ':') {
+X	return;
+X    }
+X    action = *++buf;
+X    if (*++buf != ':') {
+X	return;
+X    }
+X
+X    /*
+X     * Only calendar, system, and popup messages are currently processed. All
+X     * others are simply logged.
+X     */
+X    if ((type != 'C') && (type != 'S') && (type != 'P') && (type != 'D')) {
+X	return;
+X    }
+X
+X    /*
+X     * If this is a LOG message it simply goes into the standard log file.
+X     * Multiple log files are not supported.
+X     */
+X    if (action == 'L') {
+X	return;
+X    }
+X
+X    /*
+X     * If we got this far then the user name and text are extracted and
+X     * stored in a linked list for later display.
+X     */
+X    text = user = ++buf;
+X    while (*text != ':') {
+X	++text;
+X    }
+X    *text = '\0';
+X    text++;
+X
+X    /*
+X     * If this is a calendar message, the date string is converted and stored
+X     * in the structure
+X     */
+X    if ((type == 'C') && (action == 'E')) {
+X	parse_cal_trigger (text, &alarm_date, &alarm_time);
+X    }
+X    insert_msg (type, action, alarm_date, alarm_time, user, text);
+X    return;
+X
+X}
+X
+Xvoid
+Xparse_cal_trigger (char *buf, int *adate, int *atime)
+X{
+X    int             year;
+X    int             month;
+X    int             day;
+X    int             hour;
+X    int             minute;
+X    int             rc;
+X
+X    rc = sscanf (buf, "%*s %4d%2d%2d%2d%2d",
+X		 &year, &month, &day, &hour, &minute);
+X
+X    if (rc != 5) {
+X	*atime = 2400;
+X	*adate = 99991231;
+X    }
+X    else {
+X	*atime = (hour * 100) + minute;
+X	*adate = ((year - 1900) * 10000) + ((month - 1) * 100) + day;
+X    }
+X
+X}
+X
+Xvoid
+Xwrite_to_log (long pid, char *buf)
+X{
+X    time_t          clock;
+X    static FILE    *logfp = NULL;
+X    static char    *errfile_name = ERR_LOGFILE;
+X
+X    /*
+X     * Is the log file open yet?
+X     */
+X    if (logfp == NULL) {
+X	logfp = fopen (errfile_name, "a");
+X    }
+X    if (logfp == NULL) {
+X	return;
+X    }
+X
+X    /*
+X     * Write the data out with a time stamp
+X     */
+X    (void) time (&clock);
+X    (void) fprintf (logfp,
+X		    "%.24s: pid %5d: %s\n",
+X		    ctime (&clock), pid, buf);
+X    (void) fflush (logfp);
+X
+X}
+X
+Xstatic struct emsg *msg_head = NULL;		 /* head of message list */
+X
+Xvoid
+Xinsert_msg (int type, int action, int adate, int atime, char *user, char *text)
+X{
+X    struct emsg    *ptr;
+X    struct emsg    *old;
+X    extern int      redraw_all;
+X
+X    for (ptr = msg_head; ptr != NULL; ptr = ptr -> mnext) {
+X	old = ptr;
+X    }
+X
+X    /*
+X     * create a new node and add it to the end
+X     */
+X    ptr = (struct emsg *) malloc (sizeof (struct emsg));
+X    if (ptr == NULL) {
+X	return;
+X    }
+X
+X    ptr -> mtype = type;
+X    ptr -> mact = action;
+X    ptr -> alrm_date = adate;
+X    ptr -> alrm_time = atime;
+X    ptr -> muser = msave (user);
+X    ptr -> mtext = msave (text);
+X    ptr -> mnext = NULL;
+X    if (msg_head == NULL) {
+X	msg_head = ptr;
+X    }
+X    else {
+X	old -> mnext = ptr;
+X    }
+X    ++redraw_all;
+X
+X}
+X
+Xint
+Xmsg_count (void)
+X{
+X    struct emsg    *ptr;
+X    int             count = 0;
+X    static int      uid;
+X    static int      gid;
+X    struct passwd  *pw;
+X    char           *user = "";
+X
+X    if (get_user_id (&uid, &gid) != -1) {
+X	if ((pw = getpwuid (uid)) != NULL) {
+X	    user = pw -> pw_name;
+X	}
+X    }
+X
+X    for (ptr = msg_head; ptr != NULL; ptr = ptr -> mnext) {
+X	if ((ptr -> mtype == 'C') && (ptr -> mact == 'E')) {
+X	    continue;
+X	}
+X	if (ptr -> muser == NULL) {
+X	    count++;
+X	}
+X	else if (strcmp (ptr -> muser, user) == 0) {
+X	    count++;
+X	}
+X    }
+X
+X    return (count);
+X
+X}
+X
+Xvoid
+Xshow_msgs (void)
+X{
+X    int             win;
+X    int             wflags;
+X    int             kflag;
+X    struct emsg    *ptr;
+X    struct emsg    *old;
+X    struct emsg    *new;
+X    int             in_key;
+X    static int      uid;
+X    static int      gid;
+X    struct passwd  *pw;
+X    char           *user = "";
+X    extern int      redraw_all;
+X
+X    /*
+X     * Set the window flags but dont create the window yet.  The window will
+X     * be created further down once it is determined that there really is a
+X     * message to be displayed.  I could call msg_count() to see if there are
+X     * any messages but this way I only have to go through the message list
+X     * once.
+X     */
+X    wflags = 0;			/* BORDER is the default, no other options */
+X    win = -1;
+X
+X    if (get_user_id (&uid, &gid) != -1) {
+X	if ((pw = getpwuid (uid)) != NULL) {
+X	    user = pw -> pw_name;
+X	}
+X    }
+X
+X    old = NULL;
+X    for (ptr = msg_head; ptr != NULL; ptr = new) {
+X	new = ptr -> mnext;
+X	if ((ptr -> mtype == 'C') && (ptr -> mact == 'E')) {
+X	    old = ptr;
+X	    continue;
+X	}
+X	if ((ptr -> muser == NULL) || (strcmp (ptr -> muser, user) == 0)) {
+X
+X	    /*
+X	     * If the display window has not been created yet, create it and
+X	     * set the keypad input mode.
+X	     */
+X	    if (win == -1) {
+X		win = wcreate (2, 20, 10, 40, wflags);
+X		if (win == -1) {
+X		    return;
+X		}
+X		keypad (win, 1);
+X	    }
+X	    wputs (win, "\033[2J");	/* clear */
+X	    wgoto (win, 0, 0);
+X	    wputs (win, "Message type = ");
+X	    switch (ptr -> mtype) {
+X	    case 'M':
+X		wputs (win, "mail");
+X		break;
+X	    case 'C':
+X		wputs (win, "calendar");
+X		break;
+X	    case 'O':
+X		wputs (win, "miscellaneous");
+X		break;
+X	    case 'S':
+X		wputs (win, "system error");
+X		break;
+X	    default:
+X		wputs (win, "unknown");
+X		break;
+X	    }
+X	    wgoto (win, 1, 0);
+X	    wputs (win, "Message action = ");
+X	    switch (ptr -> mact) {
+X	    case 'D':
+X		wputs (win, "display");
+X		break;
+X	    case 'E':
+X		wputs (win, "execute");
+X		break;
+X	    case 'N':
+X		wputs (win, "notify");
+X		break;
+X	    case 'C':
+X		wputs (win, "confirm");
+X		break;
+X	    default:
+X		wputs (win, "display");
+X		break;
+X	    }
+X	    wgoto (win, 3, 0);
+X	    if (ptr -> mtext != NULL) {
+X		wputs (win, ptr -> mtext);
+X	    }
+X	    else {
+X		wputs (win, "(message contains no text portion)");
+X	    }
+X	    wgoto (win, 9, 0);
+X	    wputs (win, "Press ENTER to continue");
+X
+X	    /*
+X	     * Loop until the user presses Enter, Exit, or Cancl.  Enter
+X	     * means display the next message. Exit and Cancl cause the
+X	     * window to be deleted without removing any messages from the
+X	     * message list
+X	     */
+X	    kflag = 1;
+X	    while (kflag) {
+X		in_key = wgetc (win);
+X		switch (in_key) {
+X		case Cancl:
+X		case Exit:
+X
+X		    /*
+X		     * Remove window and exit procedure without removing any
+X		     * more messages from the list.
+X		     */
+X		    wdelete (win);
+X		    return;
+X		    break;
+X		case Enter:
+X		    if (old == NULL) {
+X			msg_head = new;
+X		    }
+X		    else {
+X			old -> mnext = new;
+X		    }
+X		    if (ptr -> muser != NULL) {
+X			free (ptr -> muser);
+X		    }
+X		    if (ptr -> mtext != NULL) {
+X			free (ptr -> mtext);
+X		    }
+X		    free (ptr);
+X		    ptr = old;
+X		    kflag = 0;
+X		    redraw_all++;
+X		    break;
+X		}
+X	    }
+X	}
+X	old = ptr;
+X    }
+X
+X    /*
+X     * If we created a window then we must delete it.
+X     */
+X    if (win != -1) {
+X	wdelete (win);
+X    }
+X
+X}
+X
+Xvoid
+Xcheck_alarms (void)
+X{
+X    struct emsg    *ptr;
+X    struct emsg    *old;
+X    struct emsg    *new;
+X    static int      uid;
+X    static int      gid;
+X    int             flag;
+X    struct passwd  *pw;
+X    char           *user = "";
+X    long            now;
+X    long            discard;
+X    int             cur_date;
+X    int             cur_time;
+X    int             toss_date;
+X    int             toss_time;
+X    struct tm      *tm;
+X
+X    if (get_user_id (&uid, &gid) != -1) {
+X	if ((pw = getpwuid (uid)) != NULL) {
+X	    user = pw -> pw_name;
+X	}
+X    }
+X
+X    (void) time (&now);
+X    tm = localtime (&now);
+X    cur_date = (tm -> tm_year * 10000) + (tm -> tm_mon * 100) + tm -> tm_mday;
+X    cur_time = (tm -> tm_hour * 100) + tm -> tm_min;
+X
+X    old = NULL;
+X    flag = 0;
+X    for (ptr = msg_head; ptr != NULL; ptr = new) {
+X#ifdef	DEBUG
+X	syslog (LOG_DEBUG, "check_alarm: type = %c, user = %s, text = %s",
+X		ptr -> mtype, (ptr -> muser) ? ptr -> muser : "NULL",
+X		ptr -> mtext);
+X#endif
+X	new = ptr -> mnext;
+X	if ((ptr -> mtype != 'C') || (ptr -> mact != 'E')) {
+X	    old = ptr;
+X	    continue;
+X	}
+X	if ((ptr -> muser != NULL) && (strcmp (ptr -> muser, user) != 0)) {
+X	    old = ptr;
+X	    continue;
+X	}
+X#ifdef	DEBUG
+X	syslog (LOG_DEBUG, "cdate=%d, ctime=%d, adate=%d, atime=%d",
+X		cur_date, cur_time, ptr -> alrm_date, ptr -> alrm_time);
+X#endif
+X	if (cur_date < ptr -> alrm_date) {
+X	    old = ptr;
+X	    continue;
+X	}
+X	if (cur_time < ptr -> alrm_time) {
+X	    old = ptr;
+X	    continue;
+X	}
+X	if (flag == 0) {
+X	    discard = now - DISCARD_TIME;
+X	    tm = localtime (&discard);
+X	    toss_date = (tm -> tm_year * 10000)
+X		+ (tm -> tm_mon * 100) + tm -> tm_mday;
+X	    toss_time = (tm -> tm_hour * 100) + tm -> tm_min;
+X#ifdef	    DEBUG
+X	    syslog (LOG_DEBUG, "toss_date=%d, toss_time=%d",
+X		    toss_date, toss_time);
+X#endif
+X	    if ((ptr -> alrm_date > toss_date) || (ptr -> alrm_date = toss_date && ptr -> alrm_time > toss_time)) {
+X		run_calndr (ptr -> mtext);
+X		flag++;
+X	    }
+X	}
+X	if (old == NULL) {
+X	    msg_head = new;
+X	}
+X	else {
+X	    old -> mnext = new;
+X	}
+X	if (ptr -> muser != NULL) {
+X	    free (ptr -> muser);
+X	}
+X	if (ptr -> mtext != NULL) {
+X	    free (ptr -> mtext);
+X	}
+X	free (ptr);
+X    }
+X
+X    return;
+X
+X}
+X
+Xvoid
+Xsetenv (name, value)
+Xchar           *name;
+Xchar           *value;
+X{
+X    auto char      *buf;
+X
+X    buf = malloc (strlen (name) + strlen (value) + 2);
+X    if (buf == NULL) {
+X	fprintf (stderr, "Unable to allocate dynamic memory for setenv\n");
+X	exit (1);
+X    }
+X
+X    (void) sprintf (buf, "%s=%s", name, value);
+X    (void) putenv (buf);
+X
+X}
+END_OF_FILE
+if test 13685 -ne `wc -c <'subr.c'`; then
+    echo shar: \"'subr.c'\" unpacked with wrong size!
+fi
+# end of 'subr.c'
+fi
+if test -f 'windows.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'windows.c'\"
+else
+echo shar: Extracting \"'windows.c'\" \(11288 characters\)
+sed "s/^X//" >'windows.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X *
+X * Program: pcmgr
+X * Module:  windows.c
+X *
+X * This module contains routines that create various windows for
+X * use by the pcmgr program and routines that help manage those
+X * windows.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X *-------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) windows.c: version 2.1 7/14/92 21:13:05";
+X
+X/*
+X * Procedure: window_menu
+X *
+X * Display a list of all active windows on the system and allow the user
+X * to select an entry from the list.
+X */
+Xvoid
+Xwindow_menu (void)
+X{
+X    int             win;
+X    int             w_current;
+X    int             fd;
+X    struct utdata   utdata;
+X    char            win_name[16];
+X    menu_t          w_menu;
+X    mitem_t         w_list[17];
+X    int             w_index;
+X    int             rc;
+X
+X    /* fork to avoid possible deadlocks */
+X    if (fork () != 0) {
+X	return;
+X    }
+X
+X    /*
+X     * initialize the menu structure
+X     */
+X    keypad (0, 1);
+X    w_menu.m_label = "Windows";
+X    w_menu.m_title = "Window Menu";
+X    w_menu.m_prompt = NULL;
+X    w_menu.m_rows = 0;
+X    w_menu.m_cols = 1;
+X    w_menu.m_flags = M_USEWIN | M_SINGLE | M_NOMOVE | M_NOHELP | M_NORESIZE;
+X    w_menu.m_lbuf[0] = '\0';
+X    w_menu.m_items = w_list;
+X    w_menu.m_curi = w_list;
+X    w_index = 0;
+X    w_current = ioctl (0, WIOCGCURR, NULL);
+X
+X    /*
+X     * extract the names of all of the current windows and add them to
+X     * the menu
+X     */
+X    for (win = 1; win <= 15; ++win) {
+X	(void) sprintf (win_name, "/dev/w%d", win);
+X	if ((fd = open (win_name, 0)) == -1) {
+X	    continue;
+X	}
+X	w_list[w_index].mi_name = NULL;
+X	w_list[w_index].mi_flags = 0;
+X	w_list[w_index].mi_val = win;
+X	utdata.ut_num = WTXTUSER;
+X	if (ioctl (fd, WIOCGETTEXT, &utdata) != -1) {
+X	    w_list[w_index].mi_name = msave (utdata.ut_text);
+X	}
+X	if (w_list[w_index].mi_name == NULL) {
+X	    utdata.ut_num = WTXTLABEL;
+X	    if (ioctl (fd, WIOCGETTEXT, &utdata) != -1) {
+X		w_list[w_index].mi_name = msave (utdata.ut_text);
+X	    }
+X	}
+X	(void) close (fd);
+X	if (w_list[w_index].mi_name == NULL) {
+X	    w_list[w_index].mi_name = msave ("Unknown Contents");
+X	}
+X	if (strcmp (w_list[w_index].mi_name, "Window Manager") == 0) {
+X	    (void) free (w_list[w_index].mi_name);
+X	    continue;
+X	}
+X	if (strcmp (w_list[w_index].mi_name, "Status Manager") == 0) {
+X	    (void) free (w_list[w_index].mi_name);
+X	    continue;
+X	}
+X	if (win == w_current) {
+X	    w_menu.m_curi = &w_list[w_index];
+X	}
+X	++w_index;
+X    }
+X
+X    w_list[w_index].mi_name = NULL;
+X    w_list[w_index].mi_flags = 0;
+X    w_list[w_index].mi_val = 0;
+X
+X    /*
+X     * create a window to display the menu in and initialize
+X     * the menu input routines
+X     */
+X    w_menu.m_win = wcreate (1, 50, 6, 25, 0);
+X    (void) menu (&w_menu, M_BEGIN);
+X
+X    /*
+X     * Accept input from the user
+X     */
+X    while (1) {
+X	rc = menu (&w_menu, M_INPUT);
+X	if ((rc == Exit) || (rc == Cancl)) {
+X	    win = -1;
+X	    break;
+X	}
+X	if ((rc == Enter) && (w_menu.m_selcnt == 1)) {
+X	    win = w_menu.m_curi -> mi_val;
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * terminate the menu input routines and delete the menu window
+X     */
+X    menu (&w_menu, M_END);
+X    (void) wdelete (w_menu.m_win);
+X
+X    /*
+X     * cause the window designated by the user to be the currently
+X     * selected window 
+X     */
+X    if (win != -1) {
+X	(void) sprintf (win_name, "/dev/w%d", win);
+X	if ((fd = open (win_name, 0)) != -1) {
+X	    (void) ioctl (fd, WIOCSELECT, NULL);
+X	    (void) close (fd);
+X	}
+X    }
+X
+X    /* clean up time */
+X    for (win = 0; win < w_index; ++win) {
+X	if (w_list[win].mi_name != NULL) {
+X	    (void) free (w_list[win].mi_name);
+X	}
+X    }
+X
+X    /* since we forked above we need to exit here instead of returning */
+X    _exit (0);
+X
+X}
+X
+X/*
+X * Procedure: msave
+X *
+X * Dynamically allocate storage for a character string and copy the
+X * designated string into it.  Return the address of the new string.
+X */
+Xchar           *
+Xmsave (char *str)
+X{
+X    unsigned int    length;
+X    char           *new;
+X
+X    length = strlen (str) + 1;
+X    if (length == 1) {
+X	return (NULL);
+X    }
+X
+X    if ((new = malloc (length)) == NULL) {
+X	perror ("windows");
+X	exit (1);
+X    }
+X
+X    (void) strcpy (new, str);
+X    return (new);
+X
+X}
+X
+X/*
+X * Procedure: run_email
+X *
+X * Create a window and run the mail program in it.
+X */
+Xvoid
+Xrun_email (void)
+X{
+X    static int      user_id;
+X    static int      group_id;
+X    struct uwdata   uwdata;
+X    struct utdata   utdata;
+X    struct passwd  *pw;
+X    struct passwd  *getpwuid ();
+X    int             fd;
+X    int             n;
+X
+X    /*
+X     * First we figure out who the active user is.  If there is no active
+X     * user or if we cannot locate that user in the password file, no
+X     * action is taken
+X     */
+X    if (get_user_id (&user_id, &group_id) == -1) {
+X	return;
+X    }
+X
+X    if ((pw = getpwuid (user_id)) == NULL) {
+X	return;
+X    }
+X
+X    /* fork to avoid possible deadlocks */
+X    if (fork () != 0) {
+X	return;
+X    }
+X
+X    (void) setpgrp ();
+X
+X    /*
+X     * create a full screen window to run the mail program in
+X     */
+X    fd = open ("/dev/window", 2);
+X    if (fd == -1) {
+X	_exit (1);
+X    }
+X
+X    for (n = 0; n < _NFILE; ++n) {
+X	if (n != fd) {
+X	    (void) close (n);
+X	}
+X    }
+X
+X    while (fd != 0) {
+X	(void) close (0);
+X	n = fcntl (fd, F_DUPFD, 0);
+X	if (n != -1) {
+X	    (void) close (fd);
+X	    fd = n;
+X	}
+X    }
+X    (void) dup (0);
+X    (void) dup (0);
+X    (void) ioctl (0, WIOCPGRP, NULL);
+X
+X    if (ioctl (0, WIOCGETD, &uwdata) == -1) {
+X	_exit (1);
+X    }
+X
+X    uwdata.uw_height = 24 * uwdata.uw_vs;
+X    uwdata.uw_width = 80 * uwdata.uw_hs;
+X    uwdata.uw_uflags = NBORDER;
+X    uwdata.uw_x = 0;
+X    uwdata.uw_y = uwdata.uw_vs;
+X
+X    if (ioctl (0, WIOCSETD, &uwdata) == -1) {
+X	_exit (1);
+X    }
+X
+X    /*
+X     * Label the window so that everyone can tell what it is
+X     */
+X    utdata.ut_num = WTXTLABEL;
+X    (void) strcpy (utdata.ut_text, "Mail Reader Program");
+X    (void) ioctl (0, WIOCSETTEXT, &utdata);
+X
+X    /*
+X     * chdir to the users home directory before attempting to run the mail
+X     * program and set up some env variables.
+X     */
+X    (void) chdir (pw -> pw_dir);
+X    setenv ("HOME", pw -> pw_dir);
+X    setenv ("LOGNAME", pw -> pw_name);
+X
+X    /*
+X     * Run the email program.  If the email program is not found then
+X     * run the stock mail program.  This should probably be extended
+X     * to allow a default mail program to be specified at compile time
+X     * but the source for my implementation of email.c should be included
+X     * with this package so why bother?
+X     */
+X    (void) setgid (group_id);
+X    (void) setuid (user_id);
+X    (void) execl ("/usr/bin/email", "email", "-i", "-u", pw -> pw_name);
+X    (void) execl ("/bin/mail", "mail", "-u", pw -> pw_name);
+X    _exit (1);
+X
+X}
+X
+X/*
+X * Procedure: run_calndr
+X *
+X * Create a window and run the pcal program in it.
+X */
+Xvoid
+Xrun_calndr (char *buf)
+X{
+X    static int      user_id;
+X    static int      group_id;
+X    char            alarm_time[16];
+X    struct uwdata   uwdata;
+X    struct utdata   utdata;
+X    struct passwd  *pw;
+X    struct passwd  *getpwuid ();
+X    int             fd;
+X    int             n;
+X
+X    /*
+X     * First we figure out who the active user is.  If there is no active
+X     * user or if we cannot locate that user in the password file, no
+X     * action is taken
+X     */
+X    if (get_user_id (&user_id, &group_id) == -1) {
+X	return;
+X    }
+X
+X    if ((pw = getpwuid (user_id)) == NULL) {
+X	return;
+X    }
+X
+X    /* fork to avoid possible deadlocks */
+X    if (fork () != 0) {
+X	return;
+X    }
+X
+X    (void) setpgrp ();
+X
+X    /*
+X     * create a full screen window to run the pcal program in
+X     */
+X    fd = open ("/dev/window", 2);
+X    if (fd == -1) {
+X	_exit (1);
+X    }
+X
+X    for (n = 0; n < _NFILE; ++n) {
+X	if (n != fd) {
+X	    (void) close (n);
+X	}
+X    }
+X
+X    while (fd != 0) {
+X	(void) close (0);
+X	n = fcntl (fd, F_DUPFD, 0);
+X	if (n != -1) {
+X	    (void) close (fd);
+X	    fd = n;
+X	}
+X    }
+X    (void) dup (0);
+X    (void) dup (0);
+X    (void) ioctl (0, WIOCPGRP, NULL);
+X
+X    if (ioctl (0, WIOCGETD, &uwdata) == -1) {
+X	_exit (1);
+X    }
+X
+X    /*
+X     * Make a relatively small window, pcal will resize it later.
+X     */
+X    uwdata.uw_height = 5 * uwdata.uw_vs;
+X    uwdata.uw_width = 30 * uwdata.uw_hs;
+X    uwdata.uw_uflags = 0;
+X    uwdata.uw_x = 0;
+X    uwdata.uw_y = uwdata.uw_vs;
+X
+X    if (ioctl (0, WIOCSETD, &uwdata) == -1) {
+X	_exit (1);
+X    }
+X
+X    /*
+X     * Label the window so that everyone can tell what it is
+X     */
+X    utdata.ut_num = WTXTLABEL;
+X    (void) strcpy (utdata.ut_text, "Personal Calendar Program");
+X    (void) ioctl (0, WIOCSETTEXT, &utdata);
+X
+X    /*
+X     * chdir to the users home directory before attempting to run
+X     * the pcal program.  If this is not done then the users calendar
+X     * file will not be accessible.
+X     */
+X    (void) chdir (pw -> pw_dir);
+X    setenv ("HOME", pw -> pw_dir);
+X    setenv ("LOGNAME", pw -> pw_name);
+X
+X    /*
+X     * Run the pcal program.
+X     */
+X    (void) setgid (group_id);
+X    (void) setuid (user_id);
+X    if (buf == NULL) {
+X	(void) execl ("/usr/bin/pcal", "pcal", NULL);
+X    }
+X    else {
+X	if (sscanf (buf, "%*s %s", alarm_time) != 1) {
+X	    (void) strcpy (alarm_time, "");
+X	}
+X	(void) write (1, "\007", 1);
+X	(void) execl ("/usr/bin/pcal", "pcal", "-a", alarm_time, NULL);
+X    }
+X    _exit (1);
+X
+X}
+X
+X/*
+X * Procedure: do_sprint
+X *
+X * Run the sprint program to produce a screen dump.
+X */
+Xvoid
+Xdo_sprint (void)
+X{
+X    int             fd;
+X    int             n;
+X    int             oldwd;
+X    int             xd;
+X    char            w_name[32];
+X
+X    /* fork to avoid possible deadlocks */
+X    if (fork () != 0) {
+X	return;
+X    }
+X
+X    (void) setpgrp ();
+X
+X    /*
+X     * create a window to run the sprint program in
+X     */
+X    fd = open ("/dev/window", 2);
+X    if (fd == -1) {
+X	_exit (1);
+X    }
+X
+X    /*
+X     * re-select the previously selected window, otherwise you get a screen
+X     * dump of the newly created empty window.
+X     */
+X    oldwd = ioctl (fd, WIOCGPREV, NULL);
+X    if (oldwd != -1) {
+X	(void) sprintf (w_name, "/dev/w%d", oldwd);
+X	if ((xd = open (w_name, 0)) != -1) {
+X	    (void) ioctl (xd, WIOCSELECT, NULL);
+X	    (void) close (xd);
+X	}
+X    }
+X
+X    for (n = 0; n < _NFILE; ++n) {
+X	if (n != fd) {
+X	    (void) close (n);
+X	}
+X    }
+X
+X    while (fd != 0) {
+X	(void) close (0);
+X	n = fcntl (fd, F_DUPFD, 0);
+X	if (n != -1) {
+X	    (void) close (fd);
+X	    fd = n;
+X	}
+X    }
+X    (void) dup (0);
+X    (void) dup (0);
+X    (void) ioctl (0, WIOCPGRP, NULL);
+X
+X    /*
+X     * Run the sprint program.
+X     */
+X    (void) sleep (4);	/* wait for screen to redraw */
+X    (void) execl ("/usr/bin/sprint", "sprint", NULL);
+X    _exit (1);
+X
+X}
+END_OF_FILE
+if test 11288 -ne `wc -c <'windows.c'`; then
+    echo shar: \"'windows.c'\" unpacked with wrong size!
+fi
+# end of 'windows.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

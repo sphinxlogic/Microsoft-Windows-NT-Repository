@@ -1,0 +1,2156 @@
+Newsgroups: comp.sources.misc
+From: alm@netcom.com (Andrew Moore)
+Subject: v37i096:  ed - POSIX-compliant line editor, Part02/03
+Message-ID: <1993May31.025426.13079@sparky.imd.sterling.com>
+X-Md4-Signature: 5ccb7665ff184c59d6360790bd57f01b
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 31 May 1993 02:54:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: alm@netcom.com (Andrew Moore)
+Posting-number: Volume 37, Issue 96
+Archive-name: ed/part02
+Environment: POSIX, sun, linux, bsd
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  buf.c cbc.c ed.1 ed.h re.c
+# Wrapped by kent@sparky on Sun May 30 21:42:59 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'buf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'buf.c'\"
+else
+  echo shar: Extracting \"'buf.c'\" \(6064 characters\)
+  sed "s/^X//" >'buf.c' <<'END_OF_FILE'
+X/* buf.c: This file contains the scratch-file buffer rountines for the
+X   ed line editor. */
+X/*-
+X * Copyright (c) 1992 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Rodney Ruddock of the University of Guelph.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)buf.c	5.5 (Berkeley) 3/28/93";
+X#endif /* not lint */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/file.h>
+X#include <unistd.h>
+X
+X#include "ed.h"
+X
+Xextern char errmsg[];
+Xextern line_t line0;
+X
+XFILE *sfp;				/* scratch file pointer */
+Xchar *sfbuf = NULL;			/* scratch file input buffer */
+Xint sfbufsz = 0;			/* scratch file input buffer size */
+Xoff_t sfseek;				/* scratch file position */
+Xint seek_write;				/* seek before writing */
+X
+X/* gettxt: get a line of text from the scratch file; return pointer
+X   to the text */
+Xchar *
+Xgettxt(lp)
+X	line_t *lp;
+X{
+X	int len, ct;
+X
+X	if (lp == &line0)
+X		return NULL;
+X	seek_write = 1;				/* force seek on write */
+X	/* out of position */
+X	if (sfseek != lp->seek) {
+X		sfseek = lp->seek;
+X		if (fseek(sfp, sfseek, SEEK_SET) < 0) {
+X			fprintf(stderr, "%s\n", strerror(errno));
+X			sprintf(errmsg, "cannot seek temp file");
+X			return NULL;
+X		}
+X	}
+X	len = lp->len & ~ACTV;
+X	CKBUF(sfbuf, sfbufsz, len + 1, NULL);
+X	if ((ct = fread(sfbuf, sizeof(char), len, sfp)) <  0 || ct != len) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "cannot read temp file");
+X		return NULL;
+X	}
+X	sfseek += len;				/* update file position */
+X	sfbuf[len] = '\0';
+X	return sfbuf;
+X}
+X
+X
+Xextern long curln;
+Xextern long lastln;
+X
+X/* puttxt: write a line of text to the scratch file and add a line node
+X   to the editor buffer;  return a pointer to the end of the text */
+Xchar *
+Xputtxt(cs)
+X	char *cs;
+X{
+X	line_t *lp;
+X	int len, ct;
+X	char *s;
+X
+X	if ((lp = (line_t *) malloc(sizeof(line_t))) == NULL) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "out of memory");
+X		return NULL;
+X	}
+X	/* assert: cs is '\n' terminated */
+X	for (s = cs; *s != '\n'; s++)
+X		;
+X	if (s - cs >= LINECHARS) {
+X		sprintf(errmsg, "line too long");
+X		return NULL;
+X	}
+X	len = (s - cs) & ~ACTV;
+X	/* out of position */
+X	if (seek_write) {
+X		if (fseek(sfp, 0L, SEEK_END) < 0) {
+X			fprintf(stderr, "%s\n", strerror(errno));
+X			sprintf(errmsg, "cannot seek temp file");
+X			return NULL;
+X		}
+X		sfseek = ftell(sfp);
+X		seek_write = 0;
+X	}
+X	/* assert: spl1() */
+X	if ((ct = fwrite(cs, sizeof(char), len, sfp)) < 0 || ct != len) {
+X		sfseek = -1;
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "cannot write temp file");
+X		return NULL;
+X	}
+X	lp->len = len;
+X	lp->seek  = sfseek;
+X	lpqueue(lp);
+X	sfseek += len;			/* update file position */
+X	return ++s;
+X}
+X
+X
+X/* lpqueue: add a line node in the editor buffer after the current line */
+Xvoid
+Xlpqueue(lp)
+X	line_t *lp;
+X{
+X	line_t *cp;
+X
+X	cp = getlp(curln);				/* this getlp last! */
+X	insqueue(lp, cp);
+X	lastln++;
+X	curln++;
+X}
+X
+X
+X/* getaddr: return line number of pointer */
+Xlong
+Xgetaddr(lp)
+X	line_t *lp;
+X{
+X	line_t *cp = &line0;
+X	long n = 0;
+X
+X	while (cp != lp && (cp = cp->next) != &line0)
+X		n++;
+X	return (cp != &line0) ? n : 0;
+X}
+X
+X
+X/* getlp: return pointer to a line node in the editor buffer */
+Xline_t *
+Xgetlp(n)
+X	long n;
+X{
+X	static line_t *lp = &line0;
+X	static long on = 0;
+X
+X	spl1();
+X	if (n > on)
+X		if (n <= (on + lastln) >> 1)
+X			for (; on < n; on++)
+X				lp = lp->next;
+X		else {
+X			lp = line0.prev;
+X			for (on = lastln; on > n; on--)
+X				lp = lp->prev;
+X		}
+X	else
+X		if (n >= on >> 1)
+X			for (; on > n; on--)
+X				lp = lp->prev;
+X		else {
+X			lp = &line0;
+X			for (on = 0; on < n; on++)
+X				lp = lp->next;
+X		}
+X	spl0();
+X	return lp;
+X}
+X
+X
+Xchar sfn[15] = "";				/* scratch file name */
+X
+X/* sbopen: open scratch file */
+Xsbopen()
+X{
+X	strcpy(sfn, "/tmp/ed.XXXXXX");
+X	if (mktemp(sfn) == NULL || (sfp = fopen(sfn, "w+")) == NULL) {
+X		fprintf(stderr, "%s: %s\n", sfn, strerror(errno));
+X		sprintf(errmsg, "cannot open temp file");
+X		return ERR;
+X	}
+X	return 0;
+X}
+X
+X
+X/* sbclose: close scratch file */
+Xsbclose()
+X{
+X	if (sfp) {
+X		if (fclose(sfp) < 0) {
+X			fprintf(stderr, "%s: %s\n", sfn, strerror(errno));
+X			sprintf(errmsg, "cannot close temp file");
+X			return ERR;
+X		}
+X		sfp = NULL;
+X		unlink(sfn);
+X	}
+X	sfseek = seek_write = 0;
+X	return 0;
+X}
+X
+X
+X/* quit: remove scratch file and exit */
+Xvoid
+Xquit(n)
+X	int n;
+X{
+X	if (sfp) {
+X		fclose(sfp);
+X		unlink(sfn);
+X	}
+X	exit(n);
+X}
+END_OF_FILE
+  if test 6064 -ne `wc -c <'buf.c'`; then
+    echo shar: \"'buf.c'\" unpacked with wrong size!
+  fi
+  # end of 'buf.c'
+fi
+if test -f 'cbc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cbc.c'\"
+else
+  echo shar: Extracting \"'cbc.c'\" \(11393 characters\)
+  sed "s/^X//" >'cbc.c' <<'END_OF_FILE'
+X/* cbc.c: This file contains the encryption routines for the ed line editor */
+X/*-
+X * Copyright (c) 1991 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Matt Bishop of Dartmouth College.
+X *
+X * The United States Government has rights in this work pursuant
+X * to contract no. NAG 2-680 between the National Aeronautics and
+X * Space Administration and Dartmouth College.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)cbc.c	5.5 (Berkeley) 6/27/91";
+X#endif /* not lint */
+X
+X/* Author: Matt Bishop
+X *	   Department of Mathematics and Computer Science
+X *	   Dartmouth College
+X *	   Hanover, NH  03755
+X * Email:  Matt.Bishop@dartmouth.edu
+X *	   ...!decvax!dartvax!Matt.Bishop
+X *
+X * See Technical Report PCS-TR91-158, Department of Mathematics and Computer
+X * Science, Dartmouth College, for a detailed description of the implemen-
+X * tation and differences between it and Sun's.  The DES is described in
+X * FIPS PUB 46, and the modes in FIPS PUB 81 (see either the manual page
+X * or the technical report for a complete reference).
+X */
+X
+X#include <errno.h>
+X#include <pwd.h>
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X
+X#include "ed.h"
+X
+X/*
+X * Define a divisor for rand() that yields a uniform distribution in the
+X * range 0-255.
+X */
+X#define	RAND_DIV (((unsigned) RAND_MAX + 1) >> 8)
+X
+X/*
+X * BSD and System V systems offer special library calls that do
+X * block moves and fills, so if possible we take advantage of them
+X */
+X#define	MEMCPY(dest,src,len)	memcpy((dest),(src),(len))
+X#define	MEMZERO(dest,len)	memset((dest), 0, (len))
+X
+X/* Hide the calls to the primitive encryption routines. */
+X#define	DES_KEY(buf) \
+X	if (des_setkey(buf)) \
+X		err("des_setkey");
+X#define	DES_XFORM(buf) \
+X	if (des_cipher(buf, buf, 0L, (inverse ? -1 : 1))) \
+X		err("des_cipher");
+X
+X/*
+X * read/write - no error checking
+X */
+X#define	READ(buf, n, fp)	fread(buf, sizeof(char), n, fp)
+X#define WRITE(buf, n, fp)	fwrite(buf, sizeof(char), n, fp)
+X
+X/*
+X * some things to make references easier
+X */
+Xtypedef char Desbuf[8];
+X#define	CHAR(x,i)	(x[i])
+X#define	UCHAR(x,i)	(x[i])
+X#define	BUFFER(x)	(x)
+X#define	UBUFFER(x)	(x)
+X
+X/*
+X * global variables and related macros
+X */
+X
+Xenum { 					/* encrypt, decrypt, authenticate */
+X	MODE_ENCRYPT, MODE_DECRYPT, MODE_AUTHENTICATE
+X} mode = MODE_ENCRYPT;
+X
+XDesbuf ivec;				/* initialization vector */
+XDesbuf pvec;				/* padding vector */
+Xchar bits[] = {				/* used to extract bits from a char */
+X	'\200', '\100', '\040', '\020', '\010', '\004', '\002', '\001'
+X};
+Xint pflag;				/* 1 to preserve parity bits */
+X
+Xchar des_buf[8];		/* shared buffer for desgetc/desputc */
+Xint des_ct = 0;			/* count for desgetc/desputc */
+Xint des_n = 0;			/* index for desputc/desgetc */
+X
+X
+X/* desinit: initialize DES */
+Xvoid
+Xdesinit()
+X{
+X#ifdef DES
+X	int i;
+X
+X	des_ct = des_n = 0;
+X
+X	/* initialize the initialization vctor */
+X	MEMZERO(ivec, 8);
+X
+X	/* intialize the padding vector */
+X	srand((unsigned) time((time_t *) 0));
+X	for (i = 0; i < 8; i++)
+X		CHAR(pvec, i) = (char) (rand()/RAND_DIV);
+X#endif
+X}
+X
+X
+X/* desgetc: return next char in an encrypted file */
+Xdesgetc(fp)
+X	FILE *fp;
+X{
+X#ifdef DES
+X	if (des_n >= des_ct) {
+X		des_n = 0;
+X		des_ct = cbcdec(des_buf, fp);
+X	}
+X	return (des_ct > 0) ? des_buf[des_n++] : EOF;
+X#endif
+X}
+X
+X
+X/* desputc: write a char to an encrypted file; return char written */
+Xdesputc(c, fp)
+X	int c;
+X	FILE *fp;
+X{
+X#ifdef DES
+X	if (des_n == sizeof des_buf) {
+X		des_ct = cbcenc(des_buf, des_n, fp);
+X		des_n = 0;
+X	}
+X	return (des_ct >= 0) ? (des_buf[des_n++] = c) : EOF;
+X#endif
+X}
+X
+X
+X/* desflush: flush an encrypted file's output; return status */
+Xdesflush(fp)
+X	FILE *fp;
+X{
+X#ifdef DES
+X	if (des_n == sizeof des_buf) {
+X		des_ct = cbcenc(des_buf, des_n, fp);
+X		des_n = 0;
+X	}
+X	return (des_ct >= 0 && cbcenc(des_buf, des_n, fp) >= 0) ? 0 : EOF;
+X#endif
+X}
+X
+X#ifdef DES
+X/*
+X * get keyword from tty or stdin
+X */
+Xgetkey()
+X{
+X	register char *p;		/* used to obtain the key */
+X	Desbuf msgbuf;			/* I/O buffer */
+X
+X	/*
+X	 * get the key
+X	 */
+X	if (*(p = getpass("Enter key: "))) {
+X
+X		/*
+X		 * copy it, nul-padded, into the key area
+X		 */
+X		cvtkey(BUFFER(msgbuf), p);
+X		MEMZERO(p, _PASSWORD_LEN);
+X		makekey(msgbuf);
+X		MEMZERO(msgbuf, sizeof msgbuf);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X
+Xextern char errmsg[];
+X
+X/*
+X * print a warning message and, possibly, terminate
+X */
+Xvoid
+Xerr(s)
+X	char *s;		/* the message */
+X{
+X	(void)sprintf(errmsg, "%s", s ? s : strerror(errno));
+X}
+X
+X/*
+X * map a hex character to an integer
+X */
+Xtobinhex(c, radix)
+X	int c;			/* char to be converted */
+X	int radix;		/* base (2 to 16) */
+X{
+X	switch(c) {
+X	case '0':		return(0x0);
+X	case '1':		return(0x1);
+X	case '2':		return(radix > 2 ? 0x2 : -1);
+X	case '3':		return(radix > 3 ? 0x3 : -1);
+X	case '4':		return(radix > 4 ? 0x4 : -1);
+X	case '5':		return(radix > 5 ? 0x5 : -1);
+X	case '6':		return(radix > 6 ? 0x6 : -1);
+X	case '7':		return(radix > 7 ? 0x7 : -1);
+X	case '8':		return(radix > 8 ? 0x8 : -1);
+X	case '9':		return(radix > 9 ? 0x9 : -1);
+X	case 'A': case 'a':	return(radix > 10 ? 0xa : -1);
+X	case 'B': case 'b':	return(radix > 11 ? 0xb : -1);
+X	case 'C': case 'c':	return(radix > 12 ? 0xc : -1);
+X	case 'D': case 'd':	return(radix > 13 ? 0xd : -1);
+X	case 'E': case 'e':	return(radix > 14 ? 0xe : -1);
+X	case 'F': case 'f':	return(radix > 15 ? 0xf : -1);
+X	}
+X	/*
+X	 * invalid character
+X	 */
+X	return(-1);
+X}
+X
+X/*
+X * convert the key to a bit pattern
+X */
+Xvoid
+Xcvtkey(obuf, ibuf)
+X	char *obuf;			/* bit pattern */
+X	char *ibuf;			/* the key itself */
+X{
+X	register int i, j;		/* counter in a for loop */
+X	int nbuf[64];			/* used for hex/key translation */
+X
+X	/*
+X	 * leading '0x' or '0X' == hex key
+X	 */
+X	if (ibuf[0] == '0' && (ibuf[1] == 'x' || ibuf[1] == 'X')) {
+X		ibuf = &ibuf[2];
+X		/*
+X		 * now translate it, bombing on any illegal hex digit
+X		 */
+X		for (i = 0; ibuf[i] && i < 16; i++)
+X			if ((nbuf[i] = tobinhex((int) ibuf[i], 16)) == -1)
+X				err("bad hex digit in key");
+X		while (i < 16)
+X			nbuf[i++] = 0;
+X		for (i = 0; i < 8; i++)
+X			obuf[i] =
+X			    ((nbuf[2*i]&0xf)<<4) | (nbuf[2*i+1]&0xf);
+X		/* preserve parity bits */
+X		pflag = 1;
+X		return;
+X	}
+X	/*
+X	 * leading '0b' or '0B' == binary key
+X	 */
+X	if (ibuf[0] == '0' && (ibuf[1] == 'b' || ibuf[1] == 'B')) {
+X		ibuf = &ibuf[2];
+X		/*
+X		 * now translate it, bombing on any illegal binary digit
+X		 */
+X		for (i = 0; ibuf[i] && i < 16; i++)
+X			if ((nbuf[i] = tobinhex((int) ibuf[i], 2)) == -1)
+X				err("bad binary digit in key");
+X		while (i < 64)
+X			nbuf[i++] = 0;
+X		for (i = 0; i < 8; i++)
+X			for (j = 0; j < 8; j++)
+X				obuf[i] = (obuf[i]<<1)|nbuf[8*i+j];
+X		/* preserve parity bits */
+X		pflag = 1;
+X		return;
+X	}
+X	/*
+X	 * no special leader -- ASCII
+X	 */
+X	(void)strncpy(obuf, ibuf, 8);
+X}
+X
+X/*****************
+X * DES FUNCTIONS *
+X *****************/
+X/*
+X * This sets the DES key and (if you're using the deszip version)
+X * the direction of the transformation.  This uses the Sun
+X * to map the 64-bit key onto the 56 bits that the key schedule
+X * generation routines use: the old way, which just uses the user-
+X * supplied 64 bits as is, and the new way, which resets the parity
+X * bit to be the same as the low-order bit in each character.  The
+X * new way generates a greater variety of key schedules, since many
+X * systems set the parity (high) bit of each character to 0, and the
+X * DES ignores the low order bit of each character.
+X */
+Xvoid
+Xmakekey(buf)
+X	Desbuf buf;				/* key block */
+X{
+X	register int i, j;			/* counter in a for loop */
+X	register int par;			/* parity counter */
+X
+X	/*
+X	 * if the parity is not preserved, flip it
+X	 */
+X	if (!pflag) {
+X		for (i = 0; i < 8; i++) {
+X			par = 0;
+X			for (j = 1; j < 8; j++)
+X				if ((bits[j]&UCHAR(buf, i)) != 0)
+X					par++;
+X			if ((par&01) == 01)
+X				UCHAR(buf, i) = UCHAR(buf, i)&0177;
+X			else
+X				UCHAR(buf, i) = (UCHAR(buf, i)&0177)|0200;
+X		}
+X	}
+X
+X	DES_KEY(UBUFFER(buf));
+X}
+X
+X
+X/*
+X * This encrypts using the Cipher Block Chaining mode of DES
+X */
+Xcbcenc(msgbuf, n, fp)
+X	char *msgbuf;
+X	int n;
+X	FILE *fp;
+X{
+X	int inverse = 0;	/* 0 to encrypt, 1 to decrypt */
+X
+X	/*
+X	 * do the transformation
+X	 */
+X	if (n == 8) {
+X		for (n = 0; n < 8; n++)
+X			CHAR(msgbuf, n) ^= CHAR(ivec, n);
+X		DES_XFORM(UBUFFER(msgbuf));
+X		MEMCPY(BUFFER(ivec), BUFFER(msgbuf), 8);
+X		return WRITE(BUFFER(msgbuf), 8, fp);
+X	}
+X	/*
+X	 * at EOF or last block -- in either case, the last byte contains
+X	 * the character representation of the number of bytes in it
+X	 */
+X/*
+X	MEMZERO(msgbuf +  n, 8 - n);
+X*/
+X	/*
+X	 *  Pad the last block randomly
+X	 */
+X	(void)MEMCPY(BUFFER(msgbuf + n), BUFFER(pvec), 8 - n);
+X	CHAR(msgbuf, 7) = n;
+X	for (n = 0; n < 8; n++)
+X		CHAR(msgbuf, n) ^= CHAR(ivec, n);
+X	DES_XFORM(UBUFFER(msgbuf));
+X	return WRITE(BUFFER(msgbuf), 8, fp);
+X}
+X
+X/*
+X * This decrypts using the Cipher Block Chaining mode of DES
+X */
+Xcbcdec(msgbuf, fp)
+X	char *msgbuf;		/* I/O buffer */
+X	FILE *fp;			/* input file descriptor */
+X{
+X	Desbuf ibuf;	/* temp buffer for initialization vector */
+X	register int n;		/* number of bytes actually read */
+X	register int c;		/* used to test for EOF */
+X	int inverse = 1;	/* 0 to encrypt, 1 to decrypt */
+X
+X	if ((n = READ(BUFFER(msgbuf), 8, fp)) == 8) {
+X		/*
+X		 * do the transformation
+X		 */
+X		MEMCPY(BUFFER(ibuf), BUFFER(msgbuf), 8);
+X		DES_XFORM(UBUFFER(msgbuf));
+X		for (c = 0; c < 8; c++)
+X			UCHAR(msgbuf, c) ^= UCHAR(ivec, c);
+X		MEMCPY(BUFFER(ivec), BUFFER(ibuf), 8);
+X		/*
+X		 * if the last one, handle it specially
+X		 */
+X		if ((c = fgetc(fp)) == EOF) {
+X			n = CHAR(msgbuf, 7);
+X			if (n < 0 || n > 7) {
+X				err("decryption failed (block corrupted)");
+X				return EOF;
+X			}
+X		} else
+X			(void)ungetc(c, fp);
+X		return n;
+X	}
+X	if (n > 0)
+X		err("decryption failed (incomplete block)");
+X	else if (n < 0)
+X		err("cannot read file");
+X	return EOF;
+X}
+X#endif	/* DES */
+END_OF_FILE
+  if test 11393 -ne `wc -c <'cbc.c'`; then
+    echo shar: \"'cbc.c'\" unpacked with wrong size!
+  fi
+  # end of 'cbc.c'
+fi
+if test -f 'ed.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ed.1'\"
+else
+  echo shar: Extracting \"'ed.1'\" \(20771 characters\)
+  sed "s/^X//" >'ed.1' <<'END_OF_FILE'
+X.TH ED 1 "21 May 1993"
+X.SH NAME
+Xed, red \- text editor
+X.SH SYNOPSIS
+Xed [-] [-sx] [-p \fIstring\fR] [\fIfile\fR]
+X.LP
+Xred [-] [-sx] [-p \fIstring\fR] [\fIfile\fR]
+X.SH DESCRIPTION
+X.B ed
+Xis a line-oriented text editor.
+XIt is used to create, display, modify and otherwise manipulate text
+Xfiles.
+X.B red
+Xis a restricted
+X.BR ed :
+Xit can only edit files in the current
+Xdirectory and cannot execute shell commands.
+X
+XIf invoked with a
+X.I file
+Xargument, then a copy of
+X.I file
+Xis read into the editor's buffer.
+XChanges are made to this copy and not directly to
+X.I file
+Xitself.
+XUpon quitting
+X.BR ed ,
+Xany changes not explicitly saved  with a
+X.I `w'
+Xcommand are lost.
+X
+XEditing is done in two distinct modes:
+X.I command
+Xand
+X.IR input .
+XWhen first invoked,
+X.B ed
+Xis in command mode.
+XIn this mode commands are read from the standard input and
+Xexecuted to manipulate the contents of the editor buffer.
+XA typical command might look like:
+X.sp
+X.RS
+X,s/\fIold\fR/\fInew\fR/g
+X.RE
+X.sp
+Xwhich replaces all occurences of the string
+X.I old
+Xwith
+X.IR new .
+X
+XWhen an input command, such as
+X.I `a'
+X(append),
+X.I `i'
+X(insert) or
+X.I `c'
+X(change), is given,
+X.B ed
+Xenters input mode.  This is the primary means
+Xof adding text to a file.
+XIn this mode, no commands are available;
+Xinstead, the standard input is written
+Xdirectly to the editor buffer.  Lines consist of text up to and
+Xincluding a
+X.IR newline
+Xcharacter.
+XInput mode is terminated by
+Xentering a single period  (\fI.\fR) on a line.
+X
+XAll
+X.B ed
+Xcommands operate on whole lines or ranges of lines; e.g.,
+Xthe
+X.I `d'
+Xcommand deletes lines; the
+X.I `m'
+Xcommand moves lines, and so on.
+XIt is possible to modify only a portion of a line by means of replacement,
+Xas in the example above.  However even here, the
+X.I `s'
+Xcommand is applied to whole lines at a time.
+X
+XIn general,
+X.B ed
+Xcommands consist of zero or more line addresses, followed by a single
+Xcharacter command and possibly additional parameters; i.e.,
+Xcommands have the structure:
+X.sp
+X.RS
+X.I [address [,address]]command[parameters]
+X.RE
+X.sp
+XThe address(es) indicate the line(s) to be affected by the command.
+XIf fewer addresses are given than the command accepts, then default
+Xaddresses are supplied.
+X
+X.SS OPTIONS
+X.TP 8
+X-s
+XSuppresses diagnostics. This should be used if
+X.BR ed 's
+Xstandard input is from a script.
+X
+X.TP 8
+X-x
+XPrompts for an encryption key to be used in subsequent reads and writes
+X(see the
+X.I `x'
+Xcommand).
+X
+X.TP 8
+X.RI \-p \ string
+XSpecifies a command prompt.  This may be toggled on and off with the
+X.I `P'
+Xcommand.
+X
+X.TP 8
+X.I file
+XSpecifies the name of a file to read.  If
+X.I file
+Xis prefixed with a
+Xbang (!), then it is interpreted as a shell command.  In this case,
+Xwhat is read is
+Xthe standard output of
+X.I file
+Xexecuted via
+X.IR sh (1).
+XTo read a file whose name begins with a bang, prefix the
+Xname with a backslash (\\).
+XThe default filename is set to
+X.I file
+Xonly if it is not prefixed with a bang.
+X
+X.SS LINE ADDRESSING
+XAn address represents the number of line in the buffer.
+X.B ed
+Xmaintains a
+X.I current address
+Xwhich is
+Xtypically supplied to commands as the default address when none is specified.
+XWhen a file is first read,  the current address is set to the last line
+Xof the file.  In general, the current address is set to the last line
+Xaffected by a command.
+X
+XA line address is
+Xconstructed from one of the bases in the list below, optionally followed
+Xby a numeric offset.  The offset may include any combination
+Xof digits, operators (i.e.,
+X.IR + ,
+X.I -
+Xand
+X.IR ^ )
+Xand whitespace.
+XAddresses are read from left to right, and their values are computed
+Xrelative to the current address.
+X
+XOne exception to the rule that addresses represent line numbers is the
+Xaddress
+X.I 0
+X(zero).
+XThis means "before the first line,"
+Xand is legal wherever it makes sense.
+X
+XAn address range is two addresses separated either by a comma or
+Xsemi-colon. The value of the first address in a range cannot exceed the
+Xvalue of the the second.  If an
+X.IR n- tuple
+Xof addresses is given where
+X.I n > 2,
+Xthen the corresponding range is determined by the last two addresses
+Xin the
+X.IR n- tuple.
+XIf only one address is expected, then the last
+Xaddress is used.
+X
+XEach address in a comma-delimited range is interpreted relative to the
+Xcurrent address.  In a semi-colon-delimited range, the first address is
+Xused to set the current address, and the second address is interpreted
+Xrelative to the first.
+X
+XThe following address symbols are recognized.
+X
+X.TP 8
+X\fR.\fR
+XThe current line (address) in the buffer.
+X
+X.TP 8
+X$
+XThe last line in the buffer.
+X
+X.TP 8
+Xn
+XThe
+X.IR n th,
+Xline in the buffer
+Xwhere
+X.I n
+Xis a number in the range
+X.I [0,$].
+X
+X.TP 8
+X- or ^
+XThe previous line.
+XThis is equivalent to
+X.I -1
+Xand may be repeated with cumulative effect.
+X
+X.TP 8
+X-\fIn\fR or ^\fIn\fR
+XThe
+X.IR n th
+Xprevious line, where
+X.I n
+Xis a non-negative number.
+X
+X.TP 8
+X+
+XThe
+Xnext line.
+XThis is equivalent to
+X.I +1
+Xand may be repeated with cumulative effect.
+X
+X.TP 8
+X+\fIn\fR or whitespace\fIn\fR
+XThe
+X.IR n th
+Xnext line, where
+X.I n
+Xis a non-negative number.
+X.I whitespace
+Xfollowed by a number
+X.I n
+Xis interpreted as
+X.IR +n .
+X
+X.TP 8
+X, \fRor\fB %
+XThe first through last lines in the buffer.  This is equivalent to
+Xthe address range
+X.I 1,$.
+X
+X.TP 8
+X;
+XThe
+Xcurrent through last lines in the buffer.  This is equivalent to
+Xthe address range
+X.I .,$.
+X
+X.TP 8
+X.RI / re/
+XThe
+Xnext line containing the regular expression
+X.IR re .
+XThe search wraps to the beginning of the buffer and continues down to the
+Xcurrent line, if necessary.
+X// repeats the last search.
+X
+X.TP 8
+X.RI ? re?
+XThe
+Xprevious line containing the regular expression
+X.IR re .
+XThe search wraps to the end of the buffer and continues up to the
+Xcurrent line, if necessary.
+X?? repeats the last search.
+X
+X.TP 8
+X.RI \' lc
+XThe
+Xline previously marked by a
+X.I `k'
+X(mark) command, where
+X.I lc
+Xis a lower case letter.
+X
+X.SS REGULAR EXPRESSIONS
+XRegular expressions are patterns used in selecting text.
+XFor example, the
+X.B ed
+Xcommand
+X.sp
+X.RS
+Xg/\fIstring\fR/
+X.RE
+X.sp
+Xprints all lines containing
+X.IR string .
+XRegular expressions are also
+Xused by the
+X.I `s'
+Xcommand for selecting old text to be replaced with new.
+X
+XIn addition to a specifying string literals, regular expressions can
+Xrepresent
+Xclasses of strings.  Strings thus represented are said to be matched
+Xby the corresponding regular expression.
+XIf it is possible for a regular expression
+Xto match several strings in a line, then the left-most longest match is
+Xthe one selected.
+X
+XThe following symbols are used in constructing regular expressions:
+X
+X.TP 8
+Xc
+XAny character
+X.I c
+Xnot listed below, including `{', '}', `(', `)', `<' and `>',
+Xmatches itself.
+X
+X.TP 8
+X\fR\\\fIc\fR
+XAny backslash-escaped character
+X.IR c ,
+Xexcept for `{', '}', `(', `)', `<' and `>',
+Xmatches itself.
+X
+X.TP 8
+X\fR.\fR
+XMatches any single character.
+X
+X.TP 8
+X.I [char-class]
+XMatches any single character in
+X.IR char-class .
+XTo include a  `]'
+Xin
+X.IR char-class ,
+Xit must be the first character.
+XA range of characters may be specified by separating the end characters
+Xof the range with a `-', e.g., `a-z' specifies the lower case characters.
+XThe following literal expressions can also be used in
+X.I char-class
+Xto specify sets of characters:
+X.sp
+X\ \ [:alnum:]\ \ [:cntrl:]\ \ [:lower:]\ \ [:space:]
+X.PD 0
+X\ \ [:alpha:]\ \ [:digit:]\ \ [:print:]\ \ [:upper:]
+X.PD 0
+X\ \ [:blank:]\ \ [:graph:]\ \ [:punct:]\ \ [:xdigit:]
+X.sp
+XIf `-' appears as the first or last
+Xcharacter of
+X.IR char-class ,
+Xthen it matches itself.
+XAll other characters in
+X.I char-class
+Xmatch themselves.
+X.sp
+XPatterns in
+X.I char-class
+Xof the form:
+X.sp
+X\ \ [.\fIcol-elm\fR.] or,
+X.PD 0
+X\ \ [=\fIcol-elm\fR=]
+X.sp
+Xwhere
+X.I col-elm
+Xis a
+X.I collating element
+Xare interpreted according to
+X.IR locale (5)
+X(not currently supported).
+XSee
+X.IR regex (3)
+Xfor an explanation of these constructs.
+X
+X.TP 8
+X[^\fIchar-class\fR]
+XMatches any single character, other than newline, not in
+X.IR char-class .
+X.IR char-class
+Xis defined
+Xas above.
+X
+X.TP 8
+X^
+XIf `^' is the first character of a regular expression, then it
+Xanchors the regular expression to the beginning of a line.
+XOtherwise, it matches itself.
+X
+X.TP 8
+X$
+XIf `$' is the last character of a regular expression, it
+Xanchors the regular expression to the end of a line.
+XOtherwise, it matches itself.
+X
+X.TP 8
+X\fR\\<\fR
+XAnchors the single character regular expression or subexpression
+Ximmediately following it to the beginning of a word.
+X(This may not be available)
+X
+X.TP 8
+X\fR\\>\fR
+XAnchors the single character regular expression or subexpression
+Ximmediately following it to the end of a word.
+X(This may not be available)
+X
+X.TP 8
+X\fR\\(\fIre\fR\\)\fR
+XDefines a subexpression
+X.IR re .
+XSubexpressions may be nested.
+XA subsequent backreference of the form \fI`\\n'\fR, where
+X.I n
+Xis a number in the range [1,9], expands to the text matched by the
+X.IR n th
+Xsubexpression.
+XFor example, the regular expression `\\(.*\\)\\1' matches any string
+Xconsisting of identical adjacent substrings.
+XSubexpressions are ordered relative to
+Xtheir left delimiter.
+X
+X.TP 8
+X*
+XMatches the single character regular expression or subexpression
+Ximmediately preceding it zero or more times.  If '*' is the first
+Xcharacter of a regular expression or subexpression, then it matches
+Xitself.  The `*' operator sometimes yields unexpected results.
+XFor example, the regular expression `b*' matches the beginning of
+Xthe string `abbb' (as opposed to the substring `bbb'), since a null match
+Xis the only left-most match.
+X
+X.TP 8
+X\fR\\{\fIn,m\fR\\}\fR or \fR\\{\fIn,\fR\\}\fR or \fR\\{\fIn\fR\\}\fR
+XMatches the single character regular expression or subexpression
+Ximmediately preceding it at least
+X.I n
+Xand at most
+X.I m
+Xtimes.
+XIf
+X.I m
+Xis omitted, then it matches at least
+X.I n
+Xtimes.
+XIf the comma is also omitted, then it matches exactly
+X.I n
+Xtimes.
+X
+X.LP
+XAdditional regular expression operators may be defined depending on the
+Xparticular
+X.IR regex (3)
+Ximplementation.
+X
+X.SS COMMANDS
+XAll
+X.B ed
+Xcommands are single characters, though some require additonal parameters.
+XIf a command's parameters extend over several lines, then
+Xeach line except for the last
+Xmust be terminated with a backslash (\\).
+X
+XIn general, at most one command is allowed per line.
+XHowever, most commands accept a print suffix, which is any of
+X.I `p'
+X(print),
+X.I `l'
+X(list) ,
+Xor
+X.I `n'
+X(enumerate),
+Xto print the last line affected by the command.
+X
+XAn interrupt (typically ^C) has the effect of aborting the current command
+Xand returning the editor to command mode.
+X
+X.B ed
+Xrecognizes the following commands.  The commands are shown together with
+Xthe default address or address range supplied if none is
+Xspecified (in parenthesis).
+X
+X.TP 8
+X(.)a
+XAppends text to the buffer after the addressed line.
+XText is entered in input mode.
+XThe current address is set to last line entered.
+X
+X.TP 8
+X(.,.)c
+XChanges lines in the buffer.  The addressed lines are deleted
+Xfrom the buffer, and text is appended in their place.
+XText is entered in input mode.
+XThe current address is set to last line entered.
+X
+X.TP 8
+X(.,.)d
+XDeletes the addressed lines from the buffer.
+XIf there is a line after the deleted range, then the current address is set
+Xto this line. Otherwise the current address is set to the line
+Xbefore the deleted range.
+X
+X.TP 8
+X.RI e \ file
+XEdits
+X.IR file ,
+Xand sets the default filename.
+XIf
+X.I file
+Xis not specified, then the  default filename is used.
+XAny lines in the buffer are deleted before
+Xthe new file is read.
+XThe current address is set to the last line read.
+X
+X.TP 8
+X.RI e \ !command
+XEdits the standard output of
+X.IR `!command' ,
+Xexecuted as described below.
+XThe default filename is unchanged.
+XAny lines in the buffer are deleted before the output of
+X.I command
+Xis read.
+XThe current address is set to the last line read.
+X
+X.TP 8
+X.RI E \ name
+XEdits
+X.I name
+Xunconditionally.
+XThis is similar to the
+X.I e
+Xcommand,
+Xexcept that unwritten changes are discarded without warning.
+XThe current address is set to the last line read.
+X
+X.TP 8
+X.RI f \ name
+XSets the default filename to
+X.IR name .
+XIf
+X.I name
+Xis not specified, then the default unescaped filename is printed.
+X
+X.TP 8
+X.RI (1,$)g /re/command-list
+XApplies
+X.I command-list
+Xto each of the addressed lines matching a regular expression
+X.IR re .
+XThe current address is set to the
+Xline currently matched before
+X.I command-list
+Xis executed.
+XAt the end of the
+X.I `g'
+Xcommand, the current address is set to the last line affected by
+X.IR command-list .
+X
+XEach command in
+X.I command-list
+Xmust be on a separate line,
+Xand every line except for the last must be terminated by a backslash
+X(\\).
+XAny commands are allowed, except for
+X.IR `g' ,
+X.IR `G' ,
+X.IR `v' ,
+Xand
+X.IR `V' .
+X
+X.TP 8
+X.RI (1,$)G /re/
+XInteractively edits the addressed lines matching a regular expression
+X.IR re.
+XFor each matching line,
+Xthe line is printed,
+Xthe current address is set,
+Xand the user is prompted to enter a command list.
+XAt the end of the
+X.I `G'
+Xcommand, the current address
+Xis set to the last line affected by the command
+Xlist.
+X
+XThe format of the command list is the same as that of the
+X.I `g'
+Xcommand.  A newline alone acts as a null command list.
+XA single `&' repeats the last non-null command list.
+X
+X.TP 8
+XH
+XToggles the printing of error explanations.
+XBy default, explanations are not printed.
+XIt is recommended that ed scripts begin with this command to
+Xaid in debugging.
+X
+X.TP 8
+Xh
+XPrints an explanation of the last error.
+X
+X.TP 8
+X(.)i
+XInserts text in the buffer before the current line.
+XText is entered in input mode.
+XThe current address is set to the last line entered.
+X
+X.TP 8
+X(.,.+1)j
+XJoins the addressed lines.  The addressed lines are
+Xdeleted from the buffer and replaced by a single
+Xline containing their joined text.
+XThe current address is set to the resultant line.
+X
+X.TP 8
+X.RI (.)k lc
+XMarks a line with a lower case letter
+X.IR lc .
+XThe  line can then be addressed as
+X.I 'lc
+X(i.e., a single quote followed by
+X.I lc
+X) in subsequent commands.  The mark is not cleared until the line is
+Xdeleted or otherwise modified.
+X
+X.TP 8
+X(.,.)l
+XPrints the addressed lines unambiguously.
+XThe current address is set to the last line
+Xprinted.
+X
+X.TP 8
+X(.,.)m(.)
+XMoves lines in the buffer.  The addressed lines are moved to after the
+Xright-hand destination address, which may be the address
+X.IR 0
+X(zero).
+XThe current address is set to the
+Xlast line moved.
+X
+X.TP 8
+X(.,.)n
+XPrints the addressed lines along with
+Xtheir line numbers.  The current address is set to the last line
+Xprinted.
+X
+X.TP 8
+X(.,.)p
+XPrints the addressed lines. The current address is set to the last line
+Xprinted.
+X
+X.TP 8
+XP
+XToggles the command prompt on and off.
+XUnless a prompt was specified by with command-line option
+X\fI-p string\fR, the command prompt is by default turned off.
+X
+X.TP 8
+Xq
+XQuits ed.
+X
+X.TP 8
+XQ
+XQuits ed unconditionally.
+XThis is similar to the
+X.I q
+Xcommand,
+Xexcept that unwritten changes are discarded without warning.
+X
+X.TP 8
+X.RI ($)r \ file
+XReads
+X.I file
+Xto after the addressed line.  If
+X.I file
+Xis not specified, then the default
+Xfilename is used.  If there was no default filename prior to the command,
+Xthen the default filename is set to
+X.IR file .
+XOtherwise, the default filename is unchanged.
+XThe current address is set to the last line read.
+X
+X.TP 8
+X.RI ($)r \ !command
+XReads
+Xto after the addressed line
+Xthe standard output of
+X.IR `!command' ,
+Xexecuted as described below.
+XThe default filename is unchanged.
+XThe current address is set to the last line read.
+X
+X.HP
+X.RI (.,.)s /re/replacement/
+X.PD 0
+X.HP
+X.RI (.,.)s  /re/replacement/\fRg\fR
+X.HP
+X.RI (.,.)s  /re/replacement/n
+X.br
+XReplaces text in the addressed lines
+Xmatching a regular expression
+X.I re
+Xwith
+X.IR replacement .
+XBy default, only the first match in each line is replaced.
+XThe
+X.I `g'
+X(global) suffix causes every match to be replaced.
+XThe
+X.I `n'
+Xsuffix, where
+X.I n
+Xis a postive number, causes only the
+X.IR n th
+Xmatch to be replaced.
+XThe current address is set the last line affected.
+X
+X.I re
+Xand
+X.I replacement
+Xmay be delimited by any character other than space and newline.
+XIf one or two of the last delimiters is omitted, then the last line
+Xaffected is printed as though the print suffix
+X.I `p'
+Xwere specified.
+X
+X
+XAn unescaped `&' in
+X.I replacement
+Xis replaced by the currently matched text.
+XThe character sequence
+X\fI`\\m'\fR,
+Xwhere
+X.I m
+Xis a number in the range [1,9], is replaced by the
+X.IR m th
+Xbackreference expression of the matched text.
+XIf
+X.I replacement
+Xconsists of a single `%', then
+X.I replacement
+Xfrom the last substitution is used.
+XNewlines may be embedded in
+X.I replacement
+Xif they are escaped with a backslash (\\).
+X
+X.TP 8
+X(.,.)s
+XRepeats the last substitution.
+XThis form of the
+X.I `s'
+Xcommand may be suffixed with
+Xany combination of the characters
+X.IR `r' ,
+X.IR `g' ,
+Xand
+X.IR `p' .
+XThe
+X.I `r'
+Xsuffix causes
+Xthe regular expression of the last search to be used instead of the
+Xthat of the last substitution.
+XThe
+X.I `g'
+Xsuffix toggles the global suffix of the last substitution.
+XThe
+X.I `p'
+Xsuffix toggles the print suffix of the last substitution
+XThe current address is set to the last line affected.
+X
+X.TP 8
+X(.,.)t(.)
+XCopies (i.e., transfers) the addressed lines to after the right-hand
+Xdestination address, which may be the address
+X.IR 0
+X(zero).
+XThe current address is set to the last line
+Xcopied.
+X
+X.TP 8
+Xu
+XUndoes the last command and restores the current address
+Xto what it was before the command.
+XThe global commands
+X.IR `g' ,
+X.IR `G' ,
+X.IR `v' ,
+Xand
+X.IR `V' .
+Xare treated as a single command by undo.
+X.I `u'
+Xis its own inverse.
+X
+X.TP 8
+X.RI (1,$)v /pat/command-list
+XApplies
+X.I command-list
+Xto each of the addressed lines not matching a regular expression
+X.IR re .
+XThis is similar to the
+X.I `g'
+Xcommand.
+X
+X.TP 8
+X.RI (1,$)V /re/
+XInteractively edits the addressed lines not matching a regular expression
+X.IR re.
+XThis is similar to the
+X.I `G'
+Xcommand.
+X
+X.TP 8
+X.RI (1,$)w \ file
+XWrites the addressed lines to
+X.IR file .
+XAny previous contents of
+X.I file
+Xis lost without warning.
+XIf there is no default filename, then the default filename is set to
+X.IR file,
+Xotherwise it is unchanged.  If no filename is specified, then the default
+Xfilename is used.
+XThe current address is unchanged.
+X
+X.TP 8
+X.RI (1,$)wq \ file
+XWrites the addressed lines to
+X.IR file ,
+Xand then executes a
+X.I `q'
+Xcommand.
+X
+X.TP 8
+X.RI (1,$)w \ !command
+XWrites the addressed lines to the standard input of
+X.IR `!command' ,
+Xexecuted as described below.
+XThe default filename and current address are unchanged.
+X
+X.TP 8
+X.RI (1,$)W \ file
+XAppends the addressed lines to the end of
+X.IR file .
+XThis is similar to the
+X.I `w'
+Xcommand, expect that the previous contents of file is not clobbered.
+XThe current address is unchanged.
+X
+X.TP 8
+Xx
+XPrompts for an encryption key which is used in subsequent reads and
+Xwrites.  If a newline alone is entered as the key, then encryption is
+Xturned off.  Otherwise, echoing is disabled while a key is read.
+XEncryption/decryption is done using the bdes(1) algorithm.
+X
+X.TP 8
+X.RI (.+1)z n
+XScrolls
+X.I n
+Xlines at a time starting at addressed line.  If
+X.I n
+Xis not specified, then the current window size is used.
+XThe current address is set to the last line printed.
+X
+X.TP 8
+X.RI ! command
+XExecutes
+X.I command
+Xvia
+X.IR sh (1).
+XIf the first character of
+X.I command
+Xis `!', then it is replaced by text of the
+Xprevious
+X.IR `!command' .
+X.B ed
+Xdoes not process
+X.I command
+Xfor backslash (\\) escapes.
+XHowever, an unescaped
+X.I `%'
+Xis replaced by the default file name.
+XWhen the shell returns from execution, a `!'
+Xis printed to the standard output.
+XThe current line is unchanged.
+X
+X.TP 8
+X.RI (.,.)! command
+XReplaces the addressed lines with the output of
+X.I `!command'
+Xas described above.
+XThe current address is set to the last line read.
+X
+X.TP 8
+X($)=
+XPrints the line number of the addressed line.
+X
+X.TP 8
+X(.+1)newline
+XPrints the addressed line, and sets the current address to
+Xthat line.
+X
+X.SH FILES
+X.TP 20
+X/tmp/ed.*
+XBuffer file
+X.PD 0
+X.TP 20
+X\fR./ed.hup\fR, $HOME/ed.hup
+XFirst and second files to which
+X.B ed
+Xattempts to write the  buffer if the terminal hangs up.
+X
+X.SH SEE ALSO
+X
+X.IR vi (1),
+X.IR sed (1),
+X.IR regex (3),
+X.IR bdes (1),
+X.IR sh (1).
+X
+XUSD:12-13
+X
+XB. W. Kernighan and P. J. Plauger,
+X.I Software Tools in Pascal ,
+XAddison-Wesley, 1981.
+X
+X.SH LIMITATIONS
+X.B ed
+Xprocesses
+X.I file
+Xarguments for backslash escapes, i.e.,  in a filename,
+Xany characters preceded by a backslash (\\) are
+Xinterpreted literally.
+X
+XIf a text (non-binary) file is not terminated by a newline character,
+Xthen
+X.B ed
+Xappends one on reading/writing it.  In the case of a binary file,
+X.B ed
+Xdoes not append a newline on reading/writing.
+X
+Xper line overhead: 4 ints
+X
+X.SH DIAGNOSTICS
+XWhen an error occurs,
+X.B ed
+Xprints a `?' and either returns to command mode
+Xor exits if its input is from a script.
+XAn explanation of the last error can be
+Xprinted with the
+X.I `h'
+Xcommand.
+X
+XIf diagnostics are not disabled, attempting to quit
+X.B ed
+Xor edit another file before writing a modified buffer
+Xresults in an error.
+XIf the command is entered a second time, it succeeds,
+Xbut any changes to the buffer are lost.
+END_OF_FILE
+  if test 20771 -ne `wc -c <'ed.1'`; then
+    echo shar: \"'ed.1'\" unpacked with wrong size!
+  fi
+  # end of 'ed.1'
+fi
+if test -f 'ed.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ed.h'\"
+else
+  echo shar: Extracting \"'ed.h'\" \(7790 characters\)
+  sed "s/^X//" >'ed.h' <<'END_OF_FILE'
+X/* ed.h: type and constant definitions for the ed editor. */
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Andrew Moore, Talke Studio.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	@(#)ed.h	5.5 (Berkeley) 3/28/93
+X */
+X
+X#include <unistd.h>
+X#include <errno.h>
+X#if defined(BSD) && BSD >= 199103 || defined(__386BSD__)
+X# include <sys/param.h>		/* for MAXPATHLEN */
+X#endif
+X#include <regex.h>
+X#include <signal.h>
+X
+X#define BITSPERBYTE 8
+X#define BITS(type)  (BITSPERBYTE * (int)sizeof(type))
+X#define CHARBITS    BITS(char)
+X#define INTBITS     BITS(int)
+X#define INTHIBIT    (1 << (INTBITS - 1))
+X
+X#define ERR		(-2)
+X#define EMOD		(-3)
+X#define FATAL		(-4)
+X
+X#ifndef MAXPATHLEN
+X# define MAXPATHLEN 255		/* _POSIX_PATH_MAX */
+X#endif
+X
+X#define MAXFNAME MAXPATHLEN	/* max file name size */
+X#define MINBUFSZ 512		/* minimum buffer size - must be > 0 */
+X#define LINECHARS (INTHIBIT - 1) /* max chars per line */
+X#define SE_MAX 30		/* max subexpressions in a regular expression */
+X
+Xtypedef regex_t pattern_t;
+X
+X#ifdef GNU_REGEX
+X# define FASTMAP_SIZE 256	/* size of fasmap for 8 bit character set */
+X#endif
+X
+X/* Line node */
+Xtypedef struct	line {
+X	struct line	*next;
+X	struct line	*prev;
+X	off_t		seek;		/* address of line in scratch buffer */
+X
+X#define ACTV INTHIBIT			/* active bit: high bit of len */
+X
+X	int		len;		/* length of line */
+X} line_t;
+X
+X
+Xtypedef struct undo {
+X
+X/* type of undo nodes */
+X#define UADD	0
+X#define UDEL 	1
+X#define UMOV	2
+X#define VMOV	3
+X
+X	int type;			/* command type */
+X	line_t	*h;			/* head of list */
+X	line_t  *t;			/* tail of list */
+X} undo_t;
+X
+X#ifndef max
+X# define max(a,b) ((a) > (b) ? (a) : (b))
+X#endif
+X#ifndef min
+X# define min(a,b) ((a) < (b) ? (a) : (b))
+X#endif
+X
+X/* nextln: return line after l mod k */
+X#define nextln(l,k)	((l)+1 > (k) ? 0 : (l)+1)
+X
+X/* nextln: return line before l mod k */
+X#define prevln(l,k)	((l)-1 < 0 ? (k) : (l)-1)
+X
+X#define	skipblanks() while (isspace(*ibufp) && *ibufp != '\n') ibufp++
+X
+X/* spl1: disable some interrupts (requires reliable signals) */
+X#define spl1() mutex++
+X
+X/* spl0: enable all interrupts; check sigflags (requires reliable signals) */
+X#define spl0() \
+Xif (--mutex == 0) { \
+X	if (sigflags & (1 << SIGHUP)) dohup(SIGHUP); \
+X	if (sigflags & (1 << SIGINT)) dointr(SIGINT); \
+X}
+X
+X#if defined(sun) || defined(NO_REALLOC_NULL)
+X/* CKBUF: assure at least a minimum size for buffer b */
+X#define CKBUF(b,n,i,err) \
+Xif ((i) > (n)) { \
+X	int ti = (n); \
+X	char *ts; \
+X	spl1(); \
+X	if ((b) != NULL) { \
+X		if ((ts = (char *) realloc((b), ti += max((i), MINBUFSZ))) == NULL) { \
+X			fprintf(stderr, "%s\n", strerror(errno)); \
+X			sprintf(errmsg, "out of memory"); \
+X			spl0(); \
+X			return err; \
+X		} \
+X	} else { \
+X		if ((ts = (char *) malloc(ti += max((i), MINBUFSZ))) == NULL) { \
+X			fprintf(stderr, "%s\n", strerror(errno)); \
+X			sprintf(errmsg, "out of memory"); \
+X			spl0(); \
+X			return err; \
+X		} \
+X	} \
+X	(n) = ti; \
+X	(b) = ts; \
+X	spl0(); \
+X}
+X#else /* NO_REALLOC_NULL */
+X/* CKBUF: assure at least a minimum size for buffer b */
+X#define CKBUF(b,n,i,err) \
+Xif ((i) > (n)) { \
+X	int ti = (n); \
+X	char *ts; \
+X	spl1(); \
+X	if ((ts = (char *) realloc((b), ti += max((i), MINBUFSZ))) == NULL) { \
+X		fprintf(stderr, "%s\n", strerror(errno)); \
+X		sprintf(errmsg, "out of memory"); \
+X		spl0(); \
+X		return err; \
+X	} \
+X	(n) = ti; \
+X	(b) = ts; \
+X	spl0(); \
+X}
+X#endif /* NO_REALLOC_NULL */
+X
+X/* requeue: link pred before succ */
+X#define requeue(pred, succ) (pred)->next = (succ), (succ)->prev = (pred)
+X
+X/* insqueue: insert elem in circular queue after pred */
+X#define insqueue(elem, pred) \
+X{ \
+X	requeue((elem), (pred)->next); \
+X	requeue((pred), elem); \
+X}
+X
+X/* remqueue: remove elem from circular queue */
+X#define remqueue(elem) requeue((elem)->prev, (elem)->next);
+X
+X/* nultonl: overwrite ASCII NULs with newlines */
+X#define nultonl(s, l) translit(s, l, '\0', '\n')
+X
+X/* nltonul: overwrite newlines with ASCII NULs */
+X#define nltonul(s, l) translit(s, l, '\n', '\0')
+X
+X#ifndef strerror
+X# define strerror(n) sys_errlist[n]
+X#endif
+X
+X#ifndef __P
+X# ifndef __STDC__
+X#  define __P(proto) ()
+X# else
+X#  define __P(proto) proto
+X# endif
+X#endif
+X
+X/* local function declarations */
+Xint append __P((long, int));
+Xint cbcdec __P((char *, FILE *));
+Xint cbcenc __P((char *, int, FILE *));
+Xchar *ckfn __P((char *));
+Xint ckglob __P((void));
+Xint ckrange __P((long, long));
+Xint desflush __P((FILE *));
+Xint desgetc __P((FILE *));
+Xvoid desinit __P((void));
+Xint desputc __P((int, FILE *));
+Xint docmd __P((int));
+Xvoid err __P((char *));
+Xchar *ccl __P((char *));
+Xvoid cvtkey __P((char *, char *));
+Xlong doglob __P((int));
+Xvoid dohup __P((int));
+Xvoid dointr __P((int));
+Xvoid dowinch __P((int));
+Xint doprint __P((long, long, int));
+Xlong doread __P((long, char *));
+Xlong dowrite __P((long, long, char *, char *));
+Xchar *esctos __P((char *));
+Xlong patscan __P((pattern_t *, int));
+Xlong getaddr __P((line_t *));
+Xchar *getcmdv __P((int *, int));
+Xchar *getfn __P((void));
+Xint getkey __P((void));
+Xchar *getlhs __P((int));
+Xint getline __P((void));
+Xint getlist __P((void));
+Xlong getnum __P((int));
+Xlong getone __P((void));
+Xline_t *getlp __P((long));
+Xint getrhs __P((int));
+Xint getshcmd __P((void));
+Xchar *gettxt __P((line_t *));
+Xvoid init_buf __P((void));
+Xint join __P((long, long));
+Xint lndelete __P((long, long));
+Xline_t *lpdup __P((line_t *));
+Xvoid lpqueue __P((line_t *));
+Xvoid makekey __P((char *));
+Xchar *makesub __P((int));
+Xchar *translit __P((char *, int, int, int));
+Xint move __P((long));
+Xint oddesc __P((char *, char *));
+Xvoid onhup __P((int));
+Xvoid onintr __P((int));
+Xpattern_t *optpat __P((void));
+Xvoid putstr __P((char *, int, long, int));
+Xchar *puttxt __P((char *));
+Xvoid quit __P((int));
+Xint regsub __P((pattern_t *, line_t *, int));
+Xint sbclose __P((void));
+Xint sbopen __P((void));
+Xint sgetline __P((FILE *));
+Xint catsub __P((char *, regmatch_t *, int));
+Xint subst __P((pattern_t *, int));
+Xint tobinhex __P((int, int));
+Xint transfer __P((long));
+Xint undo __P((void));
+Xundo_t *upush __P((int, long, long));
+Xvoid ureset __P((void));
+X
+X
+Xextern char *sys_errlist[];
+Xextern int mutex;
+Xextern int sigflags;
+END_OF_FILE
+  if test 7790 -ne `wc -c <'ed.h'`; then
+    echo shar: \"'ed.h'\" unpacked with wrong size!
+  fi
+  # end of 'ed.h'
+fi
+if test -f 're.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'re.c'\"
+else
+  echo shar: Extracting \"'re.c'\" \(4423 characters\)
+  sed "s/^X//" >'re.c' <<'END_OF_FILE'
+X/* re.c: This file contains the regular expression interface routines for
+X   the ed line editor. */
+X/*-
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley
+X * by Andrew Moore, Talke Studio.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)re.c	5.5 (Berkeley) 3/28/93";
+X#endif /* not lint */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "ed.h"
+X
+Xextern char *lhbuf;
+Xextern int lhbufsz;
+Xextern char *ibufp;
+Xextern int ibufsz;
+Xextern int patlock;
+X
+Xchar errmsg[MAXFNAME + 40] = "";
+X
+X/* optpat: return pointer to compiled pattern from command buffer */
+Xpattern_t *
+Xoptpat()
+X{
+X	static pattern_t *exp = NULL;
+X
+X	char *exps;
+X	char delim;
+X	int n;
+X
+X	if ((delim = *ibufp) == '\n') {
+X		if (!exp) sprintf(errmsg, "no previous pattern");
+X		return exp;
+X	} else if (delim == ' ' || *++ibufp == '\n') {
+X		sprintf(errmsg, "invalid pattern delimiter");
+X		return NULL;
+X	} else if (*ibufp == delim) {
+X		sprintf(errmsg, "no previous pattern");
+X		return exp;
+X	} else if ((exps = getlhs(delim)) == NULL)
+X		return NULL;
+X	/* buffer alloc'd && not reserved */
+X	if (exp && !patlock)
+X		regfree(exp);
+X	else if ((exp = (pattern_t *) malloc(sizeof(pattern_t))) == NULL) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "out of memory");
+X		return NULL;
+X	}
+X	patlock = 0;
+X#ifdef GNU_REGEX
+X	/* initialize pattern buffer */
+X	exp->buffer = NULL;
+X	exp->allocated = 0L;
+X	exp->fastmap = (char *) malloc(FASTMAP_SIZE);
+X	exp->translate = 0;
+X#endif
+X	if (n = regcomp(exp, exps, 0)) {
+X		regerror(n, exp, errmsg, sizeof errmsg);
+X		return NULL;
+X	}
+X	return exp;
+X}
+X
+X
+Xextern int isbinary;
+X
+X/* getlhs: copy a pattern string from the command buffer; return pointer
+X   to the copy */
+Xchar *
+Xgetlhs(delim)
+X	int delim;
+X{
+X	char *nd;
+X	int len;
+X
+X	for (nd = ibufp; *nd != delim && *nd != '\n'; nd++)
+X		switch (*nd) {
+X		default:
+X			break;
+X		case '[':
+X			if ((nd = ccl(++nd)) == NULL) {
+X				sprintf(errmsg, "unbalanced brackets ([])");
+X				return NULL;
+X			}
+X			break;
+X		case '\\':
+X			if (*++nd == '\n') {
+X				sprintf(errmsg, "trailing backslash (\\)");
+X				return NULL;
+X			}
+X			break;
+X		}
+X	len = nd - ibufp;
+X	CKBUF(lhbuf, lhbufsz, len + 1, NULL);
+X	memcpy(lhbuf, ibufp, len);
+X	lhbuf[len] = '\0';
+X	ibufp = nd;
+X	return (isbinary) ? nultonl(lhbuf, len) : lhbuf;
+X}
+X
+X
+X/* ccl: expand a POSIX character class */
+Xchar *
+Xccl(s)
+X	char *s;
+X{
+X	int c, d;
+X
+X	if (*s == '^')
+X		s++;
+X	if (*s == ']')
+X		s++;
+X	for (; *s != ']' && *s != '\n'; s++)
+X		if (*s == '[' && ((d = *(s+1)) == '.' || d == ':' || d == '='))
+X			for (s++, c = *++s; *s != ']' || c != d; s++)
+X				if ((c = *s) == '\n')
+X					return NULL;
+X	return  (*s == ']') ? s : NULL;
+X}
+END_OF_FILE
+  if test 4423 -ne `wc -c <'re.c'`; then
+    echo shar: \"'re.c'\" unpacked with wrong size!
+  fi
+  # end of 're.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

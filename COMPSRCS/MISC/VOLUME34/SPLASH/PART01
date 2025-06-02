@@ -1,0 +1,1947 @@
+Newsgroups: comp.sources.misc
+From: morris@netcom.com (Jim Morris)
+Subject: v34i121: splash - Small Perl-like List And String Handling class lib, v1.8, Part01/03
+Message-ID: <csm-v34i121=splash.154150@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2601085c844b126ccc51b73fff701afa
+Date: Mon, 18 Jan 1993 21:42:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: morris@netcom.com (Jim Morris)
+Posting-number: Volume 34, Issue 121
+Archive-name: splash/part01
+Environment: C++
+
+SPLASH is a c++ class library that implements a string data type and a
+list data type. These data types are based on the equivalent data types
+found in Larry Wall's Perl language.
+
+Splash has extensive regular expression operations on strings and lists
+of strings as well as the typical string operations.
+
+The list data type allows entry of data to the top, bottom and middle
+of the list. It also implements the ability to extract slices from
+lists.
+
+An associative array data type, is also implemented using the list class.
+
+-----------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Patchlevel regex.c sample slicetst.v splash.doc
+# Wrapped by kent@sparky on Mon Jan 18 15:29:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(6887 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThe SPLASH c++ class library
+X============================
+X
+X(Small Perl-like List And String Handling class library)
+X
+X
+XSPLASH is a c++ class library that implements my favourite Perl
+Xconstructs.
+X
+XFor those not familiar with Perl, it is an excellent scripting language
+Xby Larry Wall and is available for most platforms.
+X
+XThis Class library provides List and String handling capabilities based
+Xon those provided in Perl, because the Perl constructs are so useful.
+X
+XOverview
+X-------- 
+XIn a nut-shell SPLASH provides a Dynamic List template class
+X(SPList<T>) that allows you to add and extract data from the top of the
+Xlist (push & pop), and from the bottom of the list (unshift & shift).
+Xie a FIFO could be implemented by push'ing data onto the list and
+Xshift'ing data off the list.  The list can be sorted (uses operator< on
+Xthe elements) and reversed.  (mylist.sort().reverse() will produce a
+Xlist sorted in reverse order).  Another list can be inserted anywhere
+Xin a list, or elements deleted from within the list (splice).  And any
+Xindividual element can be accessed using the '[]' operator.
+X
+XThe String class (SPString) implements a Dynamic string which provides
+Xan index() and rindex() function that finds the offset within the
+Xstring of a sub-string. A substring may be extracted from the string,
+Xor assigned to within a string (expanding or shrinking the string as
+Xrequired). The string may be used anywhere a const char * can be used.
+XThe standard comparison functions (< > == etc) are available.  It
+Xallows string concatenation using the '+' and '+=' operator.  It
+Xprovides regular expressions (with sub-expression extraction) that can
+Xbe easily applied to the strings. A powerful substitute function and
+Xtranslation function (s() and tr()) are available.
+X
+XThe String List class (SPStringList) is basically a List class with
+Xsome added functionality specific to lists of strings. It lets you grep
+Xfor a regular expression within the list, returning a list of strings
+Xthat match. It lets you generate a list of strings from a single string
+Xby splitting the string at a given regular expression (token parsing).
+XIt lets you generate a single string by concatenating a list of strings
+Xseparated by a given string.
+X
+XThe Associative array class (Assoc<T>) lets you keep a list which is
+Xindexed by a string.
+X
+XAll the Classes have fully implemented streams operators for input and
+Xoutput, to allow convenient file or stream processing.
+X
+XThe Regexp class fully encapsulates the regular expression library, so
+Xyou can easily use your own favourite one.
+X
+XUsage Restrictions
+X------------------
+X
+XThere are none. This Code is not Copyright, use as you will.  The
+Xregexp code is Copyright by Henry Spencer, see the comments in regex.c
+Xfor Copyright info.  The only changes I have made are to the header
+Xfile, by adding a c++ prototype field.
+X
+XClass description
+X-----------------
+XThe Class Hierarchy and member functions are:-
+X
+Xclass SPList<T>
+X    T& operator[]	// index into list
+X    void reset()	// clear out list
+X    int scalar()	// returns number of elements in list
+X    int count()		// ditto
+X    T pop()		// returns and removes top of list
+X    void push(T)	// enters element onto top of list
+X    void push(SPList<T>) // enters a list of elements onto top of list
+X    T shift()		// returns & removes element at bottom of list
+X    int unshift(T)	// enters element into bottom of list
+X    int unshift(SPList<T>) // enters lists into bottom of list
+X    SPList<T> reverse()	   // returns reverse order of list
+X    SPList<T> splice(offset) // removes elements in list from 'offset'
+X    SPList<T> splice(offset, len) // removes 'len' elements in list
+X    SPList<T> splice(offset, len, SPList<T>)// replaces elements in list
+X    SPList<T> sort() // sorts list according to result of '<' operator
+X    ostream& operator>>() // input stream
+X    istream& operator<<() // output stream
+X
+X    class SPStringList // everything SPList does and ...
+X        int split(str [,pat] [,limit]) // splits string on pattern
+X	SPString join([pat])	 // concatenates list with 'pat'
+X	int m(exp, targ) 	 // makes list of sub exp matches
+X	SPStringList grep(exp) // returns matches in list
+X	ostream& operator>>()
+X    	istream& operator<<()
+X
+Xclass SPString
+X    int length()	// length of string
+X    char chop()		// remove last character in string
+X    int index(SPString [, offset]) // find string from start
+X    int rindex(SPString [, offset]) // find string from end
+X    SPString substr(offset [, len]) // substring works as lvalue as well
+X    operator[]	// index character
+X    operator<   // less than
+X    operator>
+X    operator<=
+X    operator>=
+X    operator==
+X    operator!=
+X    operator+	    // concatenate 2 strings
+X    operator+=	    // as per c
+X    int m(exp) 	    // return true if regexp matches string
+X    int m(exp, SPStringList&) // ditto & generates a list of subexpressions
+X    int tr(exp, rep [,opts]) // translate 'ex'p into 'rep'
+X    int s(exp, rep [,opts]) // substitute 'exp' with 'rep'
+X    ostream& operator>>()
+X    istream& operator<<()
+X
+XAssociative array and helpers
+X-----------------------------
+X
+Xclass Binar<T>	// a key, value pair
+X    T& value()
+X    SPString& key()
+X
+Xclass Assoc<T>	// an associateive array, loosely based on the perl one
+X    T& operator(SPString) // equivalent to perl $assoc{"one"} = value
+X    Binar& operator[n]      // returns n'th entry in associative array
+X    SPStringList keys()   // returns a list of keys
+X    SPList<T> values()    // returns a list of values
+X    int isin(SPString)    // tests if key is in assoc array
+X    T adelete(SPString)    // deletes given key/value
+X
+XOther Classes
+X-------------
+X
+XVarString	- A variable length string class, used in SPString.
+X
+XSPListBase<T> 	- is the base class for SPList and handles the
+X		  auto expanding dynamic array, optimized for
+X		  prepending and appending data.
+X
+XTempString 	- makes a copy of a string, and can return a char *
+X	     	  and will free the storage when done. Something like
+X		  a cross between strsave() and alloca().
+X
+XRegexp		- Handles the interface to the regular expression
+X		  library being used.
+X
+XRange 		- Simple class to maintain a range, just makes things
+X		  easier.
+X
+XFor More Info
+X=============
+X
+XSee readme.2nd for how to build and test, and various caveats.
+XSee splash.doc for documentation on each function.
+XSee sample/*.c++ for examples of how to use splash
+XSee regexp.doc for an explanation of the regexp library used
+X
+XDistribution
+X------------
+X
+XThis is also available as a compressed tar file or
+X.zoo format with MSDOS compatible names.
+X
+XEmail: morris@netcom.com or jegm@sgi.com for a different format.
+Xor
+Xget the latest version of SPLASH, which is always available via
+Xanonymous FTP.
+X
+XAlso the current alpha version will also be available. This is for
+Xadventurous users only. It will be called splalphaxxx.tar.Z
+X
+Xsite:-
+Xnetcom.com
+X
+XPath:-
+X~ftp/pub/morris/splash.tar.Z
+X~ftp/pub/morris/splash.zoo
+X
+END_OF_FILE
+  if test 6887 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Patchlevel' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Patchlevel'\"
+else
+  echo shar: Extracting \"'Patchlevel'\" \(4 characters\)
+  sed "s/^X//" >'Patchlevel' <<'END_OF_FILE'
+X1.8
+END_OF_FILE
+  if test 4 -ne `wc -c <'Patchlevel'`; then
+    echo shar: \"'Patchlevel'\" unpacked with wrong size!
+  fi
+  # end of 'Patchlevel'
+fi
+if test -f 'regex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regex.c'\"
+else
+  echo shar: Extracting \"'regex.c'\" \(27702 characters\)
+  sed "s/^X//" >'regex.c' <<'END_OF_FILE'
+X/*
+X * regcomp and regexec -- regsub and regerror are elsewhere
+X *
+X *	Copyright (c) 1986 by University of Toronto.
+X *	Written by Henry Spencer.  Not derived from licensed software.
+X *
+X *	Permission is granted to anyone to use this software for any
+X *	purpose on any computer system, and to redistribute it freely,
+X *	subject to the following restrictions:
+X *
+X *	1. The author is not responsible for the consequences of use of
+X *		this software, no matter how awful, even if they arise
+X *		from defects in it.
+X *
+X *	2. The origin of this software must not be misrepresented, either
+X *		by explicit claim or by omission.
+X *
+X *	3. Altered versions must be plainly marked as such, and must not
+X *		be misrepresented as being the original software.
+X *
+X * Beware that some of this code is subtly aware of the way operator
+X * precedence is structured in regular expressions.  Serious changes in
+X * regular-expression syntax might require a total rethink.
+X */
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include "regex.h"
+X#include "regmagic.h"
+X
+X/*
+X * The "internal use only" fields in regexp.h are present to pass info from
+X * compile to execute that permits the execute phase to run lots faster on
+X * simple cases.  They are:
+X *
+X * regstart	char that must begin a match; '\0' if none obvious
+X * reganch	is the match anchored (at beginning-of-line only)?
+X * regmust	string (pointer into program) that match must include, or NULL
+X * regmlen	length of regmust string
+X *
+X * Regstart and reganch permit very fast decisions on suitable starting points
+X * for a match, cutting down the work a lot.  Regmust permits fast rejection
+X * of lines that cannot possibly match.  The regmust tests are costly enough
+X * that regcomp() supplies a regmust only if the r.e. contains something
+X * potentially expensive (at present, the only such thing detected is * or +
+X * at the start of the r.e., which can involve a lot of backup).  Regmlen is
+X * supplied because the test in regexec() needs it and regcomp() is computing
+X * it anyway.
+X */
+X
+X/*
+X * Structure for regexp "program".  This is essentially a linear encoding
+X * of a nondeterministic finite-state machine (aka syntax charts or
+X * "railroad normal form" in parsing technology).  Each node is an opcode
+X * plus a "next" pointer, possibly plus an operand.  "Next" pointers of
+X * all nodes except BRANCH implement concatenation; a "next" pointer with
+X * a BRANCH on both ends of it is connecting two alternatives.  (Here we
+X * have one of the subtle syntax dependencies:  an individual BRANCH (as
+X * opposed to a collection of them) is never concatenated with anything
+X * because of operator precedence.)  The operand of some types of node is
+X * a literal string; for others, it is a node leading into a sub-FSM.  In
+X * particular, the operand of a BRANCH node is the first node of the branch.
+X * (NB this is *not* a tree structure:  the tail of the branch connects
+X * to the thing following the set of BRANCHes.)  The opcodes are:
+X */
+X
+X/* definition	number	opnd?	meaning */
+X#define	END	0	/* no	End of program. */
+X#define	BOL	1	/* no	Match "" at beginning of line. */
+X#define	EOL	2	/* no	Match "" at end of line. */
+X#define	ANY	3	/* no	Match any one character. */
+X#define	ANYOF	4	/* str	Match any character in this string. */
+X#define	ANYBUT	5	/* str	Match any character not in this string. */
+X#define	BRANCH	6	/* node	Match this alternative, or the next... */
+X#define	BACK	7	/* no	Match "", "next" ptr points backward. */
+X#define	EXACTLY	8	/* str	Match this string. */
+X#define	NOTHING	9	/* no	Match empty string. */
+X#define	STAR	10	/* node	Match this (simple) thing 0 or more times. */
+X#define	PLUS	11	/* node	Match this (simple) thing 1 or more times. */
+X#define	OPEN	20	/* no	Mark this point in input as start of #n. */
+X			/*	OPEN+1 is number 1, etc. */
+X#define	CLOSE	30	/* no	Analogous to OPEN. */
+X
+X/*
+X * Opcode notes:
+X *
+X * BRANCH	The set of branches constituting a single choice are hooked
+X *		together with their "next" pointers, since precedence prevents
+X *		anything being concatenated to any individual branch.  The
+X *		"next" pointer of the last BRANCH in a choice points to the
+X *		thing following the whole choice.  This is also where the
+X *		final "next" pointer of each individual branch points; each
+X *		branch starts with the operand node of a BRANCH node.
+X *
+X * BACK		Normal "next" pointers all implicitly point forward; BACK
+X *		exists to make loop structures possible.
+X *
+X * STAR,PLUS	'?', and complex '*' and '+', are implemented as circular
+X *		BRANCH structures using BACK.  Simple cases (one character
+X *		per match) are implemented with STAR and PLUS for speed
+X *		and to minimize recursive plunges.
+X *
+X * OPEN,CLOSE	...are numbered at compile time.
+X */
+X
+X/*
+X * A node is one char of opcode followed by two chars of "next" pointer.
+X * "Next" pointers are stored as two 8-bit pieces, high order first.  The
+X * value is a positive offset from the opcode of the node containing it.
+X * An operand, if any, simply follows the node.  (Note that much of the
+X * code generation knows about this implicit relationship.)
+X *
+X * Using two bytes for the "next" pointer is vast overkill for most things,
+X * but allows patterns to get big without disasters.
+X */
+X#define	OP(p)	(*(p))
+X#define	NEXT(p)	(((*((p)+1)&0377)<<8) + (*((p)+2)&0377))
+X#define	OPERAND(p)	((p) + 3)
+X
+X/*
+X * See regmagic.h for one further detail of program structure.
+X */
+X
+X
+X/*
+X * Utility definitions.
+X */
+X#ifndef CHARBITS
+X#define	UCHARAT(p)	((int)*(unsigned char *)(p))
+X#else
+X#define	UCHARAT(p)	((int)*(p)&CHARBITS)
+X#endif
+X
+X#define	FAIL(m)	{ regerror(m); return(NULL); }
+X#define	ISMULT(c)	((c) == '*' || (c) == '+' || (c) == '?')
+X#define	META	"^$.[()|?+*\\"
+X
+X/*
+X * Flags to be passed up and down.
+X */
+X#define	HASWIDTH	01	/* Known never to match null string. */
+X#define	SIMPLE		02	/* Simple enough to be STAR/PLUS operand. */
+X#define	SPSTART		04	/* Starts with * or +. */
+X#define	WORST		0	/* Worst case. */
+X
+X/*
+X * Global work variables for regcomp().
+X */
+Xstatic char *regparse;		/* Input-scan pointer. */
+Xstatic int regnpar;		/* () count. */
+Xstatic char regdummy;
+Xstatic char *regcode;		/* Code-emit pointer; &regdummy = don't. */
+Xstatic long regsize;		/* Code size. */
+X
+X/*
+X * Forward declarations for regcomp()'s friends.
+X */
+X#ifndef STATIC
+X#define	STATIC	static
+X#endif
+XSTATIC char *reg();
+XSTATIC char *regbranch();
+XSTATIC char *regpiece();
+XSTATIC char *regatom();
+XSTATIC char *regnode();
+XSTATIC char *regnext();
+XSTATIC void regc();
+XSTATIC void reginsert();
+XSTATIC void regtail();
+XSTATIC void regoptail();
+X#ifdef STRCSPN
+XSTATIC int strcspn();
+X#endif
+X
+X/*
+X - regcomp - compile a regular expression into internal code
+X *
+X * We can't allocate space until we know how big the compiled form will be,
+X * but we can't compile it (and thus know how big it is) until we've got a
+X * place to put the code.  So we cheat:  we compile it twice, once with code
+X * generation turned off and size counting turned on, and once "for real".
+X * This also means that we don't allocate space until we are sure that the
+X * thing really will compile successfully, and we never have to move the
+X * code and thus invalidate pointers into it.  (Note that it has to be in
+X * one piece because free() must be able to free it all.)
+X *
+X * Beware that the optimization-preparation code in here knows about some
+X * of the structure of the compiled regexp.
+X */
+Xregexp *
+Xregcomp(exp)
+Xchar *exp;
+X{
+X	register regexp *r;
+X	register char *scan;
+X	register char *longest;
+X	register int len;
+X	int flags;
+X
+X	if (exp == NULL)
+X		FAIL("NULL argument");
+X
+X	/* First pass: determine size, legality. */
+X	regparse = exp;
+X	regnpar = 1;
+X	regsize = 0L;
+X	regcode = &regdummy;
+X	regc(MAGIC);
+X	if (reg(0, &flags) == NULL)
+X		return(NULL);
+X
+X	/* Small enough for pointer-storage convention? */
+X	if (regsize >= 32767L)		/* Probably could be 65535L. */
+X		FAIL("regexp too big");
+X
+X	/* Allocate space. */
+X	r = (regexp *)malloc(sizeof(regexp) + (unsigned)regsize);
+X	if (r == NULL)
+X		FAIL("out of space");
+X
+X	/* Second pass: emit code. */
+X	regparse = exp;
+X	regnpar = 1;
+X	regcode = r->program;
+X	regc(MAGIC);
+X	if (reg(0, &flags) == NULL)
+X		return(NULL);
+X
+X	/* Dig out information for optimizations. */
+X	r->regstart = '\0';	/* Worst-case defaults. */
+X	r->reganch = 0;
+X	r->regmust = NULL;
+X	r->regmlen = 0;
+X	scan = r->program+1;			/* First BRANCH. */
+X	if (OP(regnext(scan)) == END) {		/* Only one top-level choice. */
+X		scan = OPERAND(scan);
+X
+X		/* Starting-point info. */
+X		if (OP(scan) == EXACTLY)
+X			r->regstart = *OPERAND(scan);
+X		else if (OP(scan) == BOL)
+X			r->reganch++;
+X
+X		/*
+X		 * If there's something expensive in the r.e., find the
+X		 * longest literal string that must appear and make it the
+X		 * regmust.  Resolve ties in favor of later strings, since
+X		 * the regstart check works with the beginning of the r.e.
+X		 * and avoiding duplication strengthens checking.  Not a
+X		 * strong reason, but sufficient in the absence of others.
+X		 */
+X		if (flags&SPSTART) {
+X			longest = NULL;
+X			len = 0;
+X			for (; scan != NULL; scan = regnext(scan))
+X				if (OP(scan) == EXACTLY && strlen(OPERAND(scan)) >= len) {
+X					longest = OPERAND(scan);
+X					len = strlen(OPERAND(scan));
+X				}
+X			r->regmust = longest;
+X			r->regmlen = len;
+X		}
+X	}
+X
+X	return(r);
+X}
+X
+X/*
+X - reg - regular expression, i.e. main body or parenthesized thing
+X *
+X * Caller must absorb opening parenthesis.
+X *
+X * Combining parenthesis handling with the base level of regular expression
+X * is a trifle forced, but the need to tie the tails of the branches to what
+X * follows makes it hard to avoid.
+X */
+Xstatic char *
+Xreg(paren, flagp)
+Xint paren;			/* Parenthesized? */
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char *br;
+X	register char *ender;
+X	register int parno;
+X	int flags;
+X
+X	*flagp = HASWIDTH;	/* Tentatively. */
+X
+X	/* Make an OPEN node, if parenthesized. */
+X	if (paren) {
+X		if (regnpar >= NSUBEXP)
+X			FAIL("too many ()");
+X		parno = regnpar;
+X		regnpar++;
+X		ret = regnode(OPEN+parno);
+X	} else
+X		ret = NULL;
+X
+X	/* Pick up the branches, linking them together. */
+X	br = regbranch(&flags);
+X	if (br == NULL)
+X		return(NULL);
+X	if (ret != NULL)
+X		regtail(ret, br);	/* OPEN -> first. */
+X	else
+X		ret = br;
+X	if (!(flags&HASWIDTH))
+X		*flagp &= ~HASWIDTH;
+X	*flagp |= flags&SPSTART;
+X	while (*regparse == '|') {
+X		regparse++;
+X		br = regbranch(&flags);
+X		if (br == NULL)
+X			return(NULL);
+X		regtail(ret, br);	/* BRANCH -> BRANCH. */
+X		if (!(flags&HASWIDTH))
+X			*flagp &= ~HASWIDTH;
+X		*flagp |= flags&SPSTART;
+X	}
+X
+X	/* Make a closing node, and hook it on the end. */
+X	ender = regnode((paren) ? CLOSE+parno : END);	
+X	regtail(ret, ender);
+X
+X	/* Hook the tails of the branches to the closing node. */
+X	for (br = ret; br != NULL; br = regnext(br))
+X		regoptail(br, ender);
+X
+X	/* Check for proper termination. */
+X	if (paren && *regparse++ != ')') {
+X		FAIL("unmatched ()");
+X	} else if (!paren && *regparse != '\0') {
+X		if (*regparse == ')') {
+X			FAIL("unmatched ()");
+X		} else
+X			FAIL("junk on end");	/* "Can't happen". */
+X		/* NOTREACHED */
+X	}
+X
+X	return(ret);
+X}
+X
+X/*
+X - regbranch - one alternative of an | operator
+X *
+X * Implements the concatenation operator.
+X */
+Xstatic char *
+Xregbranch(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char *chain;
+X	register char *latest;
+X	int flags;
+X
+X	*flagp = WORST;		/* Tentatively. */
+X
+X	ret = regnode(BRANCH);
+X	chain = NULL;
+X	while (*regparse != '\0' && *regparse != '|' && *regparse != ')') {
+X		latest = regpiece(&flags);
+X		if (latest == NULL)
+X			return(NULL);
+X		*flagp |= flags&HASWIDTH;
+X		if (chain == NULL)	/* First piece. */
+X			*flagp |= flags&SPSTART;
+X		else
+X			regtail(chain, latest);
+X		chain = latest;
+X	}
+X	if (chain == NULL)	/* Loop ran zero times. */
+X		(void) regnode(NOTHING);
+X
+X	return(ret);
+X}
+X
+X/*
+X - regpiece - something followed by possible [*+?]
+X *
+X * Note that the branching code sequences used for ? and the general cases
+X * of * and + are somewhat optimized:  they use the same NOTHING node as
+X * both the endmarker for their branch list and the body of the last branch.
+X * It might seem that this node could be dispensed with entirely, but the
+X * endmarker role is not redundant.
+X */
+Xstatic char *
+Xregpiece(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char op;
+X	register char *next;
+X	int flags;
+X
+X	ret = regatom(&flags);
+X	if (ret == NULL)
+X		return(NULL);
+X
+X	op = *regparse;
+X	if (!ISMULT(op)) {
+X		*flagp = flags;
+X		return(ret);
+X	}
+X
+X	if (!(flags&HASWIDTH) && op != '?')
+X		FAIL("*+ operand could be empty");
+X	*flagp = (op != '+') ? (WORST|SPSTART) : (WORST|HASWIDTH);
+X
+X	if (op == '*' && (flags&SIMPLE))
+X		reginsert(STAR, ret);
+X	else if (op == '*') {
+X		/* Emit x* as (x&|), where & means "self". */
+X		reginsert(BRANCH, ret);			/* Either x */
+X		regoptail(ret, regnode(BACK));		/* and loop */
+X		regoptail(ret, ret);			/* back */
+X		regtail(ret, regnode(BRANCH));		/* or */
+X		regtail(ret, regnode(NOTHING));		/* null. */
+X	} else if (op == '+' && (flags&SIMPLE))
+X		reginsert(PLUS, ret);
+X	else if (op == '+') {
+X		/* Emit x+ as x(&|), where & means "self". */
+X		next = regnode(BRANCH);			/* Either */
+X		regtail(ret, next);
+X		regtail(regnode(BACK), ret);		/* loop back */
+X		regtail(next, regnode(BRANCH));		/* or */
+X		regtail(ret, regnode(NOTHING));		/* null. */
+X	} else if (op == '?') {
+X		/* Emit x? as (x|) */
+X		reginsert(BRANCH, ret);			/* Either x */
+X		regtail(ret, regnode(BRANCH));		/* or */
+X		next = regnode(NOTHING);		/* null. */
+X		regtail(ret, next);
+X		regoptail(ret, next);
+X	}
+X	regparse++;
+X	if (ISMULT(*regparse))
+X		FAIL("nested *?+");
+X
+X	return(ret);
+X}
+X
+X/*
+X - regatom - the lowest level
+X *
+X * Optimization:  gobbles an entire sequence of ordinary characters so that
+X * it can turn them into a single node, which is smaller to store and
+X * faster to run.  Backslashed characters are exceptions, each becoming a
+X * separate node; the code is simpler that way and it's not worth fixing.
+X */
+Xstatic char *
+Xregatom(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	int flags;
+X
+X	*flagp = WORST;		/* Tentatively. */
+X
+X	switch (*regparse++) {
+X	case '^':
+X		ret = regnode(BOL);
+X		break;
+X	case '$':
+X		ret = regnode(EOL);
+X		break;
+X	case '.':
+X		ret = regnode(ANY);
+X		*flagp |= HASWIDTH|SIMPLE;
+X		break;
+X	case '[': {
+X			register int class;
+X			register int classend;
+X
+X			if (*regparse == '^') {	/* Complement of range. */
+X				ret = regnode(ANYBUT);
+X				regparse++;
+X			} else
+X				ret = regnode(ANYOF);
+X			if (*regparse == ']' || *regparse == '-')
+X				regc(*regparse++);
+X			while (*regparse != '\0' && *regparse != ']') {
+X				if (*regparse == '-') {
+X					regparse++;
+X					if (*regparse == ']' || *regparse == '\0')
+X						regc('-');
+X					else {
+X						class = UCHARAT(regparse-2)+1;
+X						classend = UCHARAT(regparse);
+X						if (class > classend+1)
+X							FAIL("invalid [] range");
+X						for (; class <= classend; class++)
+X							regc(class);
+X						regparse++;
+X					}
+X				} else
+X					regc(*regparse++);
+X			}
+X			regc('\0');
+X			if (*regparse != ']')
+X				FAIL("unmatched []");
+X			regparse++;
+X			*flagp |= HASWIDTH|SIMPLE;
+X		}
+X		break;
+X	case '(':
+X		ret = reg(1, &flags);
+X		if (ret == NULL)
+X			return(NULL);
+X		*flagp |= flags&(HASWIDTH|SPSTART);
+X		break;
+X	case '\0':
+X	case '|':
+X	case ')':
+X		FAIL("internal urp");	/* Supposed to be caught earlier. */
+X		break;
+X	case '?':
+X	case '+':
+X	case '*':
+X		FAIL("?+* follows nothing");
+X		break;
+X	case '\\':
+X		if (*regparse == '\0')
+X			FAIL("trailing \\");
+X		ret = regnode(EXACTLY);
+X		regc(*regparse++);
+X		regc('\0');
+X		*flagp |= HASWIDTH|SIMPLE;
+X		break;
+X	default: {
+X			register int len;
+X			register char ender;
+X
+X			regparse--;
+X			len = strcspn(regparse, META);
+X			if (len <= 0)
+X				FAIL("internal disaster");
+X			ender = *(regparse+len);
+X			if (len > 1 && ISMULT(ender))
+X				len--;		/* Back off clear of ?+* operand. */
+X			*flagp |= HASWIDTH;
+X			if (len == 1)
+X				*flagp |= SIMPLE;
+X			ret = regnode(EXACTLY);
+X			while (len > 0) {
+X				regc(*regparse++);
+X				len--;
+X			}
+X			regc('\0');
+X		}
+X		break;
+X	}
+X
+X	return(ret);
+X}
+X
+X/*
+X - regnode - emit a node
+X */
+Xstatic char *			/* Location. */
+Xregnode(op)
+Xchar op;
+X{
+X	register char *ret;
+X	register char *ptr;
+X
+X	ret = regcode;
+X	if (ret == &regdummy) {
+X		regsize += 3;
+X		return(ret);
+X	}
+X
+X	ptr = ret;
+X	*ptr++ = op;
+X	*ptr++ = '\0';		/* Null "next" pointer. */
+X	*ptr++ = '\0';
+X	regcode = ptr;
+X
+X	return(ret);
+X}
+X
+X/*
+X - regc - emit (if appropriate) a byte of code
+X */
+Xstatic void
+Xregc(b)
+Xchar b;
+X{
+X	if (regcode != &regdummy)
+X		*regcode++ = b;
+X	else
+X		regsize++;
+X}
+X
+X/*
+X - reginsert - insert an operator in front of already-emitted operand
+X *
+X * Means relocating the operand.
+X */
+Xstatic void
+Xreginsert(op, opnd)
+Xchar op;
+Xchar *opnd;
+X{
+X	register char *src;
+X	register char *dst;
+X	register char *place;
+X
+X	if (regcode == &regdummy) {
+X		regsize += 3;
+X		return;
+X	}
+X
+X	src = regcode;
+X	regcode += 3;
+X	dst = regcode;
+X	while (src > opnd)
+X		*--dst = *--src;
+X
+X	place = opnd;		/* Op node, where operand used to be. */
+X	*place++ = op;
+X	*place++ = '\0';
+X	*place++ = '\0';
+X}
+X
+X/*
+X - regtail - set the next-pointer at the end of a node chain
+X */
+Xstatic void
+Xregtail(p, val)
+Xchar *p;
+Xchar *val;
+X{
+X	register char *scan;
+X	register char *temp;
+X	register int offset;
+X
+X	if (p == &regdummy)
+X		return;
+X
+X	/* Find last node. */
+X	scan = p;
+X	for (;;) {
+X		temp = regnext(scan);
+X		if (temp == NULL)
+X			break;
+X		scan = temp;
+X	}
+X
+X	if (OP(scan) == BACK)
+X		offset = scan - val;
+X	else
+X		offset = val - scan;
+X	*(scan+1) = (offset>>8)&0377;
+X	*(scan+2) = offset&0377;
+X}
+X
+X/*
+X - regoptail - regtail on operand of first argument; nop if operandless
+X */
+Xstatic void
+Xregoptail(p, val)
+Xchar *p;
+Xchar *val;
+X{
+X	/* "Operandless" and "op != BRANCH" are synonymous in practice. */
+X	if (p == NULL || p == &regdummy || OP(p) != BRANCH)
+X		return;
+X	regtail(OPERAND(p), val);
+X}
+X
+X/*
+X * regexec and friends
+X */
+X
+X/*
+X * Global work variables for regexec().
+X */
+Xstatic char *reginput;		/* String-input pointer. */
+Xstatic char *regbol;		/* Beginning of input, for ^ check. */
+Xstatic char **regstartp;	/* Pointer to startp array. */
+Xstatic char **regendp;		/* Ditto for endp. */
+X
+X/*
+X * Forwards.
+X */
+XSTATIC int regtry();
+XSTATIC int regmatch();
+XSTATIC int regrepeat();
+X
+X#ifdef DEBUG
+Xint regnarrate = 0;
+Xvoid regdump();
+XSTATIC char *regprop();
+X#endif
+X
+X/*
+X - regexec - match a regexp against a string
+X */
+Xint
+Xregexec(prog, string)
+Xregister regexp *prog;
+Xregister char *string;
+X{
+X	register char *s;
+X	extern char *strchr();
+X
+X	/* Be paranoid... */
+X	if (prog == NULL || string == NULL) {
+X		regerror("NULL parameter");
+X		return(0);
+X	}
+X
+X	/* Check validity of program. */
+X	if (UCHARAT(prog->program) != MAGIC) {
+X		regerror("corrupted program");
+X		return(0);
+X	}
+X
+X	/* If there is a "must appear" string, look for it. */
+X	if (prog->regmust != NULL) {
+X		s = string;
+X		while ((s = strchr(s, prog->regmust[0])) != NULL) {
+X			if (strncmp(s, prog->regmust, prog->regmlen) == 0)
+X				break;	/* Found it. */
+X			s++;
+X		}
+X		if (s == NULL)	/* Not present. */
+X			return(0);
+X	}
+X
+X	/* Mark beginning of line for ^ . */
+X	regbol = string;
+X
+X	/* Simplest case:  anchored match need be tried only once. */
+X	if (prog->reganch)
+X		return(regtry(prog, string));
+X
+X	/* Messy cases:  unanchored match. */
+X	s = string;
+X	if (prog->regstart != '\0')
+X		/* We know what char it must start with. */
+X		while ((s = strchr(s, prog->regstart)) != NULL) {
+X			if (regtry(prog, s))
+X				return(1);
+X			s++;
+X		}
+X	else
+X		/* We don't -- general case. */
+X		do {
+X			if (regtry(prog, s))
+X				return(1);
+X		} while (*s++ != '\0');
+X
+X	/* Failure. */
+X	return(0);
+X}
+X
+X/*
+X - regtry - try match at specific point
+X */
+Xstatic int			/* 0 failure, 1 success */
+Xregtry(prog, string)
+Xregexp *prog;
+Xchar *string;
+X{
+X	register int i;
+X	register char **sp;
+X	register char **ep;
+X
+X	reginput = string;
+X	regstartp = prog->startp;
+X	regendp = prog->endp;
+X
+X	sp = prog->startp;
+X	ep = prog->endp;
+X	for (i = NSUBEXP; i > 0; i--) {
+X		*sp++ = NULL;
+X		*ep++ = NULL;
+X	}
+X	if (regmatch(prog->program + 1)) {
+X		prog->startp[0] = string;
+X		prog->endp[0] = reginput;
+X		return(1);
+X	} else
+X		return(0);
+X}
+X
+X/*
+X - regmatch - main matching routine
+X *
+X * Conceptually the strategy is simple:  check to see whether the current
+X * node matches, call self recursively to see whether the rest matches,
+X * and then act accordingly.  In practice we make some effort to avoid
+X * recursion, in particular by going through "ordinary" nodes (that don't
+X * need to know whether the rest of the match failed) by a loop instead of
+X * by recursion.
+X */
+Xstatic int			/* 0 failure, 1 success */
+Xregmatch(prog)
+Xchar *prog;
+X{
+X	register char *scan;	/* Current node. */
+X	char *next;		/* Next node. */
+X	extern char *strchr();
+X
+X	scan = prog;
+X#ifdef DEBUG
+X	if (scan != NULL && regnarrate)
+X		fprintf(stderr, "%s(\n", regprop(scan));
+X#endif
+X	while (scan != NULL) {
+X#ifdef DEBUG
+X		if (regnarrate)
+X			fprintf(stderr, "%s...\n", regprop(scan));
+X#endif
+X		next = regnext(scan);
+X
+X		switch (OP(scan)) {
+X		case BOL:
+X			if (reginput != regbol)
+X				return(0);
+X			break;
+X		case EOL:
+X			if (*reginput != '\0')
+X				return(0);
+X			break;
+X		case ANY:
+X			if (*reginput == '\0')
+X				return(0);
+X			reginput++;
+X			break;
+X		case EXACTLY: {
+X				register int len;
+X				register char *opnd;
+X
+X				opnd = OPERAND(scan);
+X				/* Inline the first character, for speed. */
+X				if (*opnd != *reginput)
+X					return(0);
+X				len = strlen(opnd);
+X				if (len > 1 && strncmp(opnd, reginput, len) != 0)
+X					return(0);
+X				reginput += len;
+X			}
+X			break;
+X		case ANYOF:
+X 			if (*reginput == '\0' || strchr(OPERAND(scan), *reginput) == NULL)
+X				return(0);
+X			reginput++;
+X			break;
+X		case ANYBUT:
+X 			if (*reginput == '\0' || strchr(OPERAND(scan), *reginput) != NULL)
+X				return(0);
+X			reginput++;
+X			break;
+X		case NOTHING:
+X			break;
+X		case BACK:
+X			break;
+X		case OPEN+1:
+X		case OPEN+2:
+X		case OPEN+3:
+X		case OPEN+4:
+X		case OPEN+5:
+X		case OPEN+6:
+X		case OPEN+7:
+X		case OPEN+8:
+X		case OPEN+9: {
+X				register int no;
+X				register char *save;
+X
+X				no = OP(scan) - OPEN;
+X				save = reginput;
+X
+X				if (regmatch(next)) {
+X					/*
+X					 * Don't set startp if some later
+X					 * invocation of the same parentheses
+X					 * already has.
+X					 */
+X					if (regstartp[no] == NULL)
+X						regstartp[no] = save;
+X					return(1);
+X				} else
+X					return(0);
+X			}
+X			break;
+X		case CLOSE+1:
+X		case CLOSE+2:
+X		case CLOSE+3:
+X		case CLOSE+4:
+X		case CLOSE+5:
+X		case CLOSE+6:
+X		case CLOSE+7:
+X		case CLOSE+8:
+X		case CLOSE+9: {
+X				register int no;
+X				register char *save;
+X
+X				no = OP(scan) - CLOSE;
+X				save = reginput;
+X
+X				if (regmatch(next)) {
+X					/*
+X					 * Don't set endp if some later
+X					 * invocation of the same parentheses
+X					 * already has.
+X					 */
+X					if (regendp[no] == NULL)
+X						regendp[no] = save;
+X					return(1);
+X				} else
+X					return(0);
+X			}
+X			break;
+X		case BRANCH: {
+X				register char *save;
+X
+X				if (OP(next) != BRANCH)		/* No choice. */
+X					next = OPERAND(scan);	/* Avoid recursion. */
+X				else {
+X					do {
+X						save = reginput;
+X						if (regmatch(OPERAND(scan)))
+X							return(1);
+X						reginput = save;
+X						scan = regnext(scan);
+X					} while (scan != NULL && OP(scan) == BRANCH);
+X					return(0);
+X					/* NOTREACHED */
+X				}
+X			}
+X			break;
+X		case STAR:
+X		case PLUS: {
+X				register char nextch;
+X				register int no;
+X				register char *save;
+X				register int min;
+X
+X				/*
+X				 * Lookahead to avoid useless match attempts
+X				 * when we know what character comes next.
+X				 */
+X				nextch = '\0';
+X				if (OP(next) == EXACTLY)
+X					nextch = *OPERAND(next);
+X				min = (OP(scan) == STAR) ? 0 : 1;
+X				save = reginput;
+X				no = regrepeat(OPERAND(scan));
+X				while (no >= min) {
+X					/* If it could work, try it. */
+X					if (nextch == '\0' || *reginput == nextch)
+X						if (regmatch(next))
+X							return(1);
+X					/* Couldn't or didn't -- back up. */
+X					no--;
+X					reginput = save + no;
+X				}
+X				return(0);
+X			}
+X			break;
+X		case END:
+X			return(1);	/* Success! */
+X			break;
+X		default:
+X			regerror("memory corruption");
+X			return(0);
+X			break;
+X		}
+X
+X		scan = next;
+X	}
+X
+X	/*
+X	 * We get here only if there's trouble -- normally "case END" is
+X	 * the terminating point.
+X	 */
+X	regerror("corrupted pointers");
+X	return(0);
+X}
+X
+X/*
+X - regrepeat - repeatedly match something simple, report how many
+X */
+Xstatic int
+Xregrepeat(p)
+Xchar *p;
+X{
+X  	char *strchr();
+X	register int count = 0;
+X	register char *scan;
+X	register char *opnd;
+X
+X	scan = reginput;
+X	opnd = OPERAND(p);
+X	switch (OP(p)) {
+X	case ANY:
+X		count = strlen(scan);
+X		scan += count;
+X		break;
+X	case EXACTLY:
+X		while (*opnd == *scan) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	case ANYOF:
+X		while (*scan != '\0' && strchr(opnd, *scan) != NULL) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	case ANYBUT:
+X		while (*scan != '\0' && strchr(opnd, *scan) == NULL) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	default:		/* Oh dear.  Called inappropriately. */
+X		regerror("internal foulup");
+X		count = 0;	/* Best compromise. */
+X		break;
+X	}
+X	reginput = scan;
+X
+X	return(count);
+X}
+X
+X/*
+X - regnext - dig the "next" pointer out of a node
+X */
+Xstatic char *
+Xregnext(p)
+Xregister char *p;
+X{
+X	register int offset;
+X
+X	if (p == &regdummy)
+X		return(NULL);
+X
+X	offset = NEXT(p);
+X	if (offset == 0)
+X		return(NULL);
+X
+X	if (OP(p) == BACK)
+X		return(p-offset);
+X	else
+X		return(p+offset);
+X}
+X
+X#ifdef DEBUG
+X
+XSTATIC char *regprop();
+X
+X/*
+X - regdump - dump a regexp onto stdout in vaguely comprehensible form
+X */
+Xvoid
+Xregdump(r)
+Xregexp *r;
+X{
+X	register char *s;
+X	register char op = EXACTLY;	/* Arbitrary non-END op. */
+X	register char *next;
+X	extern char *strchr();
+X
+X
+X	s = r->program + 1;
+X	while (op != END) {	/* While that wasn't END last time... */
+X		op = OP(s);
+X		printf("%2d%s", s-r->program, regprop(s));	/* Where, what. */
+X		next = regnext(s);
+X		if (next == NULL)		/* Next ptr. */
+X			printf("(0)");
+X		else 
+X			printf("(%d)", (s-r->program)+(next-s));
+X		s += 3;
+X		if (op == ANYOF || op == ANYBUT || op == EXACTLY) {
+X			/* Literal string, where present. */
+X			while (*s != '\0') {
+X				putchar(*s);
+X				s++;
+X			}
+X			s++;
+X		}
+X		putchar('\n');
+X	}
+X
+X	/* Header fields of interest. */
+X	if (r->regstart != '\0')
+X		printf("start `%c' ", r->regstart);
+X	if (r->reganch)
+X		printf("anchored ");
+X	if (r->regmust != NULL)
+X		printf("must have \"%s\"", r->regmust);
+X	printf("\n");
+X}
+X
+X/*
+X - regprop - printable representation of opcode
+X */
+Xstatic char *
+Xregprop(op)
+Xchar *op;
+X{
+X	register char *p;
+X	static char buf[50];
+X
+X	(void) strcpy(buf, ":");
+X
+X	switch (OP(op)) {
+X	case BOL:
+X		p = "BOL";
+X		break;
+X	case EOL:
+X		p = "EOL";
+X		break;
+X	case ANY:
+X		p = "ANY";
+X		break;
+X	case ANYOF:
+X		p = "ANYOF";
+X		break;
+X	case ANYBUT:
+X		p = "ANYBUT";
+X		break;
+X	case BRANCH:
+X		p = "BRANCH";
+X		break;
+X	case EXACTLY:
+X		p = "EXACTLY";
+X		break;
+X	case NOTHING:
+X		p = "NOTHING";
+X		break;
+X	case BACK:
+X		p = "BACK";
+X		break;
+X	case END:
+X		p = "END";
+X		break;
+X	case OPEN+1:
+X	case OPEN+2:
+X	case OPEN+3:
+X	case OPEN+4:
+X	case OPEN+5:
+X	case OPEN+6:
+X	case OPEN+7:
+X	case OPEN+8:
+X	case OPEN+9:
+X		sprintf(buf+strlen(buf), "OPEN%d", OP(op)-OPEN);
+X		p = NULL;
+X		break;
+X	case CLOSE+1:
+X	case CLOSE+2:
+X	case CLOSE+3:
+X	case CLOSE+4:
+X	case CLOSE+5:
+X	case CLOSE+6:
+X	case CLOSE+7:
+X	case CLOSE+8:
+X	case CLOSE+9:
+X		sprintf(buf+strlen(buf), "CLOSE%d", OP(op)-CLOSE);
+X		p = NULL;
+X		break;
+X	case STAR:
+X		p = "STAR";
+X		break;
+X	case PLUS:
+X		p = "PLUS";
+X		break;
+X	default:
+X		regerror("corrupted opcode");
+X		break;
+X	}
+X	if (p != NULL)
+X		(void) strcat(buf, p);
+X	return(buf);
+X}
+X#endif
+X
+X/*
+X * The following is provided for those people who do not have strcspn() in
+X * their C libraries.  They should get off their butts and do something
+X * about it; at least one public-domain implementation of those (highly
+X * useful) string routines has been published on Usenet.
+X */
+X#ifdef STRCSPN
+X/*
+X * strcspn - find length of initial segment of s1 consisting entirely
+X * of characters not from s2
+X */
+X
+Xstatic int
+Xstrcspn(s1, s2)
+Xchar *s1;
+Xchar *s2;
+X{
+X	register char *scan1;
+X	register char *scan2;
+X	register int count;
+X
+X	count = 0;
+X	for (scan1 = s1; *scan1 != '\0'; scan1++) {
+X		for (scan2 = s2; *scan2 != '\0';)	/* ++ moved down. */
+X			if (*scan1 == *scan2++)
+X				return(count);
+X		count++;
+X	}
+X	return(count);
+X}
+X#endif
+X
+Xvoid regerror(char *s)
+X{
+X    fprintf(stderr, "regerror: %s\n", s);
+X}
+END_OF_FILE
+  if test 27702 -ne `wc -c <'regex.c'`; then
+    echo shar: \"'regex.c'\" unpacked with wrong size!
+  fi
+  # end of 'regex.c'
+fi
+if test ! -d 'sample' ; then
+    echo shar: Creating directory \"'sample'\"
+    mkdir 'sample'
+fi
+if test -f 'slicetst.v' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'slicetst.v'\"
+else
+  echo shar: Extracting \"'slicetst.v'\" \(984 characters\)
+  sed "s/^X//" >'slicetst.v' <<'END_OF_FILE'
+X1,2 1 - 2 (2)
+X
+X1,2,3,4,5,6,7,8,9,10 1 - 10 (10)
+X
+X1,2,5,10 1 - 2 (2)
+X5 - 5 (1)
+X10 - 10 (1)
+X
+X39,1,38,2,4,5,37,7,8,9,20,22 39 - 39 (1)
+X1 - 1 (1)
+X38 - 38 (1)
+X2 - 2 (1)
+X4 - 5 (2)
+X37 - 37 (1)
+X7 - 9 (3)
+X20 - 20 (1)
+X22 - 22 (1)
+X
+Xix1= [0]1 [1]2 [2]3 [3]4 
+X
+Xix2= [0]22 [1]33 
+X
+Xix1(1, 2)= ix2: ix1= [0]1 [1]22 [2]33 [3]4 
+X
+Xtl ctor(ix1(2, 3)): tl= [0]33 [1]4 [2]0 
+X
+Xtl2= [0]0 [1]1 [2]2 [3]3 [4]4 
+X
+Xtl2(2, 3)= [0]2 [1]3 [2]4 
+X
+X
+Xtl2(Slice(1, 2, 4, -1))= [0]1 [1]2 [2]4 
+X
+X
+Xtl= tl2(Range(2, 4)): tl= [0]2 [1]3 [2]4 
+X
+Xtl2(Slice(1, 2, -1))= ix2: tl2 = [0]0 [1]22 [2]33 [3]3 [4]4 
+X
+Xtl3= tl2(1, 4): tl3 = [0]22 [1]33 [2]3 [3]4 
+X
+Xtl3.push(tl2(1, 2)): tl3= [0]22 [1]33 [2]3 [3]4 [4]22 [5]33 
+X
+Xtl3(Slice(4, 1, -1))= [0]22 [1]33 
+X
+X
+Xtl3(Slice(2, 1, -1))= [0]3 [1]33 
+X
+X
+Xtl4("1..3,6,10-22,30,31,35,37") = 1 - 3 (3)
+X6 - 6 (1)
+X10 - 22 (13)
+X30 - 31 (2)
+X35 - 35 (1)
+X37 - 37 (1)
+X
+X[0]1 [1]2 [2]3 [3]6 [4]10 [5]11 [6]12 [7]13 [8]14 [9]15 [10]16 [11]17 [12]18 [13]19 [14]20 [15]21 [16]22 [17]30 [18]31 [19]35 [20]37 
+X
+X
+END_OF_FILE
+  if test 984 -ne `wc -c <'slicetst.v'`; then
+    echo shar: \"'slicetst.v'\" unpacked with wrong size!
+  fi
+  # end of 'slicetst.v'
+fi
+if test -f 'splash.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splash.doc'\"
+else
+  echo shar: Extracting \"'splash.doc'\" \(12844 characters\)
+  sed "s/^X//" >'splash.doc' <<'END_OF_FILE'
+Xclass SPList<T>	- A list of any type specified by T
+X
+X    T& operator[n]	- returns a reference to the element at index
+X			  'n' (0 based). Generates an ASSERT error
+X			  if n < 0, can be used as an lvalue. Using
+X			  an index greater than the current size of the
+X			  list will cause the list to grow upto that
+X			  index. The values inbetween will be undefined
+X			  if <T> is a built-in type.
+X
+X    operator void*()	- returns NULL if the list is empty,
+X			  can be used like: if(list) // not empty
+X
+X    int isempty()	- returns TRUE if the list is empty, as an
+X			  alternative for the previous technique
+X
+X    void reset()	- clears all elements in the list, but doesn't
+X			  actually free up the storage until it is
+X			  destroyed
+X
+X    int count()		- returns the number of elements in the list
+X    int scalar()	- Perl-like Synonym (alias) for count()
+X
+X    T pop()		- removes and returns the last element on the
+X			  list. If the list is empty the value returned
+X			  is usually undefined
+X
+X    void push(T x)	- puts the single value 'x' at the end of the
+X			  list
+X
+X
+X    void push(SPList<T> l)
+X		 	- puts all the elements in the list 'l' at the
+X			  end of the list.
+X
+X    T shift()		- removes and returns the first element
+X			  in the list
+X
+X    int unshift(T x)	- puts the single value 'x' at the start
+X			  of the list
+X
+X    int unshift(SPList<T> l)
+X			- puts all the elements in the list 'l'
+X			  at the start of the list
+X
+X    SPList<T> reverse()
+X			- returns a list that is in the reverse
+X			  order
+X
+X    SPList<T> splice(offset, len, SPList<T> l)
+X			- removes 'len' elements from 'offset' (0 based)
+X			  and inserts all the elements in the list 'l'
+X			  at the same position
+X				
+X    SPList<T> splice(offset, len)
+X			- removes 'len' elements from 'offset' (0 based)
+X
+X    SPList<T> splice(offset)
+X			- removes all the elements from 'offset'
+X			  (0 based)
+X
+X    SPList<T> sort()	- returns a list that has been sorted according
+X			  to the rules that T::operator<() returns
+X			  for the type T.
+X
+X    SubList<T> operator(offset, len)
+X			- Returns the SubList from 'offset' for 'len'
+X			  elements. Maybe assigned to a SPList or used
+X			  wherever an SPList may be used. Can also be
+X			  assigned to, in which case the specified
+X			  elements are replaced with the RHS
+X
+X    SubList<T> operator(Range rng)
+X			- Same as above, but returns the range
+X			  specified by 'rng'
+X
+X    SubList<T> operator(Slice slc)
+X			- Same as above, but returns the slice
+X			  specified by 'slc'. A slice can be a
+X			  non-contiguous set of Ranges. See Slice
+X			  below.
+X
+X    SubList<T> operator(char *s)
+X			- Same as above, but returns the slice
+X			  specified by 's' where 's' is a string that
+X			  specifies a set of indices.
+X			  's' can be:-
+X			    "a..b" or "a-b" which specifies a
+X			     continuous range from a thru' b.
+X			    "a,b,c" which specifies individual indices
+X			     a, b and c.
+X			    "a..b,c,d" which specifies a range and 2
+X			     individual indices.
+X
+Xclass SPStringList	- everything SPList does and ...
+X
+X    int split(str [,pat] [,limit])
+X			- appends the results of splitting the string
+X			  'str' to the list. If 'pat' is specified then
+X			  any string that matches the RE 'pat' is
+X			  considered a separator to split on, the
+X			  default is white-space. If 'limit' is specified
+X			  then no more than that number of elements is
+X			  generated. If 'limit' is not specified, then empty
+X			  entries are stripped from the end of the list.
+X			  If the RE includes subexpressions then they
+X			  are inserted into the list as well.
+X			  If 'pat' is equal to the string "' '" then
+X			  a special case is done which matches awks
+X			  handling of whitespace. If 'pat' is an empty
+X			  string "", then all characters are split into
+X			  the list
+X
+X    SPString join([pat])
+X			- Returns the string that is the result of
+X			  combining all the elements in the list, and
+X			  separating them by 'pat'. If 'pat' is omitted
+X			  then the elements are separated by a space
+X
+X    int m(const char *exp, targ [,opts)
+X			- Appends to the list all the subexpression
+X			  matches that occured when applying the regular
+X			  expression 'exp' to the string 'targ'.
+X			  The number of matches is returned. The first
+X			  element generated is the entire matched string
+X			  opts: (a const char * with default "")
+X			      i - Forces case insensitive match
+X    
+X    SPStringList grep(const char *exp [,opts])
+X			- returns a list of all the elements that
+X			  matched the regular expression 'exp'.
+X			  opts: (a const char * with default "")
+X			      i - Forces the search to be case insensitive
+X
+Xclass SPString		- A standard c null-terminated string may be
+X			  used anywhere that a SPString can be used
+X			  and vice-versa.
+X			- Individual characters may be read with
+X			  the '[]' operator.
+X
+X    int length()	- returns the length of the string
+X
+X    char chop()		- removes and returns the last character in the
+X			  string
+X
+X    int index(SPString str [, offset])
+X			- returns the offset in the string that matches
+X			  the string 'str', starting at position
+X			  'offset' if specified, otherwise searches the
+X			  entire string.
+X			  Returns -1 if no match is found
+X
+X    int rindex(SPString str [, offset])
+X			- returns the offset in the string that matches
+X			  the string 'str', starting at the end of the
+X			  string - 'offset' if specified, otherwise
+X			  searches the entire string.
+X			  Returns -1 if no match is found
+X
+X    substring substr(offset [, len])
+X			- returns the substring within the string that
+X			  starts at 'offset' and is 'len' characters, if
+X			  'len' is omitted the rest of the string is
+X			  returned.
+X			  This may be used as an lvalue, in which case
+X			  the characters are removed, and the RHS of the
+X			  expression in inserted at the same postion.
+X
+X    SPStringList split([,pat] [,limit])
+X			- same as SPStringList::split() but returns
+X			  a list of splits
+X
+X    operator<		- These operators do what you would expect
+X    operator>
+X    operator<=
+X    operator>=
+X    operator==
+X    operator!=
+X
+X    operator+		- returns the result of contenating two or more
+X			  strings
+X
+X    operator+=		- replaces the LHS of the expression with the
+X			  concatenation of the LHS with the RHS
+X
+X    int m(const char *exp [,opts])
+X			- returns 0 if the regular expression 'exp'
+X			  fails to match the string. Returns 1 if a
+X			  match was made
+X			  opts: (a const char * with default "")
+X			      i - Forces case insensitive match
+X    int m(const Regexp& exp)
+X			- Same as above but takes a precompiled
+X			  regular expression.
+X
+X    int m(const char *exp, SPStringList& l [,opts])
+X			- Loads the list 'l' with all subexpression
+X			  matches of the regular expression 'exp' with
+X			  the string. Returns 0 if no matches were made.
+X			  Returns the number of matches if any
+X			  opts: (a const char * with default "")
+X			      i - Forces case insensitive match
+X
+X    int m(const Regexp& exp, SPStringList& l)
+X			- Same as above but takes a precompiled
+X			  regular expression.
+X
+X    int tr(search, repl [,opts])
+X			- replaces all occurrences of characters in 'search'
+X			  with the equivalent character in 'repl'. If 'repl'
+X			  is empty then just counts the characters.
+X			  opts: (a const char *) default is ""
+X			     c - complements the 'search' pattern. Replaces
+X				 all characters that are not in 'search', with
+X				 the last character specified in 'repl'.
+X			     d - deletes characters in 'search' that don't have an
+X				 equivalent 'repl'
+X			    cd - deletes characters not in 'search' 
+X			     s - compresses sequences of translated characters
+X				 in resulting string
+X
+X    int s(exp, repl [,opts])
+X			- substitute the first substring matched by
+X			  'exp' with the string 'repl'. $& in 'repl'
+X			  will be replaced by the entire matching
+X			  string, $1 - $9 will be replaced by the
+X			  respective subexpression match. \$ or \\
+X			  will insert a $ or \ respectively.
+X			  opts: (a const char *) default is ""
+X			     g - causes all occurrences of 'exp' in
+X				 the string to be replaced by 'repl'
+X			     i - Forces case insensitive matching				
+X
+Xclass Assoc<T>		- an associative array whose key is a SPString
+X			  and the value is any type T
+X
+X    Assoc(SPString defkey, T defvalue)
+X			- Constructor for an associative array, 'defkey'
+X			  becomes the default key, and 'defvalue' is the
+X			  default value. The default value is used to
+X			  create a new Association if a key is specified
+X			  that doesn't yet exist.
+X
+X    T& operator(SPString str)
+X			- returns a reference to the value that is
+X			  associated with the key 'str'. This may be
+X			  used as an lvalue, and is in the only way to
+X			  make an association. If the key didn't exist
+X			  it will be entered with the default value, if
+X			  it was specified in the constructor, and a
+X			  reference to that is returned. If no default
+X			  was specified, then the value will be
+X			  undefined
+X
+X    Binar& operator[n]	- Returns the (key, value) pair found at index
+X			  'n' of the associative array
+X
+X    SPStringList keys()
+X			- Returns a list of all the keys in the
+X			  associative array.
+X
+X    SPList<T> values()
+X			- Returns a list of all the values in the
+X			  associative array.
+X
+X    int isin(SPString key)
+X			- Returns 1 if the string 'key' is a valid key
+X			  in the associative array. Returns 0 otherwise.
+X
+X    T adelete(SPString key)
+X			- deletes the entry whose key matches the string
+X			  'key'. The value of the deleted entry is
+X			  returned. Nothing happens if the key is not
+X			  found.
+X
+XMiscellaneous
+X=============
+Xclass Range		- stores the range used in Regexp
+X
+X    Range(s, e)		- creates a range whose start is at position
+X			  's' and the last character in the range is at
+X			  position 'e'. (inclusive range)
+X    
+X    int start()		- returns the start of the range
+X
+X    int end()		- returns the end of the range (the position
+X			  of the last character in the range)
+X
+X    int length()	- returns the length of the range
+X
+X    set(s, e)		- sets the start of the range to 's' and the
+X			  end of the range to 'e'
+X
+Xclass Slice		- allows the creation of a set of index ranges
+X			  for use in SPList to create SubLists.
+X			  The order in which elements of an SPList is
+X			  accessed is the same as the order that the
+X			  indices are added to the Slice.
+X
+X    Slice(const char *s)
+X			- creates a slice specified by 's' where 's' is
+X			  a string that specifies a set of indices.
+X			  's' can be:-
+X			    "a..b" or "a-b" which specifies a
+X			       continuous range from 'a' thru 'b'.
+X			    "a,b,c" which specifies individual indices
+X			       'a' 'b' 'c'.
+X			    "a..b,c,d" which specifies a range and 2
+X				individual indices.
+X
+X    Slice(int i1, i2, ... , -1)
+X			- creates a slice from a set of indices
+X			  specified by 'i1' 'i2' upto a parameter that
+X			  is -1. This is a variable number of arguments
+X			  terminated by a -1. NOTE that this is not
+X			  type safe.
+X
+X    Slice(Range rng)	- creates a slice that is a range specified by
+X			  'rng'.
+X     
+X    add(int i)		- allows the dynamic creation of a slice by
+X			  adding individual indices to the slice.
+X
+X    compact()		- may be used after add()'ing indices to a
+X			  Slice, and before using the Slice to optimise
+X			  it. (Optional)
+X
+Xclass Regexp		- Henry Spencers regular expression package
+X			  oo-ized
+X
+X    Regexp(exp [,opts])	- Compiles a regular expression that can be
+X			  passed to one of the m() functions.
+X			  opts: (an int with default 0)
+X			      Regexp::nocase - Forces case insensitive
+X					       match
+X
+X    int match(targ)	- returns 1 if the compield RE matches 'targ'
+X			  returns 0 if not
+X    
+X    int groups()	- returns 1 + the number of subexpression
+X			  matches found in the last match(). If the
+X			  previous match() succeeded then the whole
+X			  match is included in the count (hence +1)
+X    
+X    Range getgroup(n)	- returns the range of the 'n'th subgroup.
+X			  'n' = 0 is the range of the entire match
+X
+XSPStringList m(exp, targ [,opts])
+X			- returns a list of all the subexpression
+X			  matches that occured when applying the
+X			  regular expression 'exp' to the string
+X			  'targ'. element 0 of the list is the first
+X			  subexpression, element 1 the next, etc.
+X			  opts: (a const char * with default "")
+X			      i - Forces case insensitive match
+X
+Xxin >> astring		- Text from the stream xin is loaded into
+X			  astring, the text is expected to be
+X			  terminated by '\n', which is removed from
+X			  the stream, but not put into astring.
+X			  asring is cleared first.
+X
+Xxin >> astringlist	- Each Text line, as defined above, is loaded
+X			  into an element of astringlist, which
+X			  is reset first.
+X
+XTo pre-compile a regular expression use Regexp(const char *, iflg).
+Xeg
+XRegexp rexp("...([a-z*)$");
+X//Regexp rexp("...([a-z*)$", Regexp::nocase); // for case insensitive
+XSPString s;
+X
+Xfor(int i=0;i<large_number;i++){
+X    ... load s with string ...
+X    if(s.m(rexp)) ... do something when matched
+X}
+X
+X
+END_OF_FILE
+  if test 12844 -ne `wc -c <'splash.doc'`; then
+    echo shar: \"'splash.doc'\" unpacked with wrong size!
+  fi
+  # end of 'splash.doc'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

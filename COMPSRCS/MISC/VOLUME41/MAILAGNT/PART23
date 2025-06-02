@@ -1,0 +1,1749 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i023:  mailagent - Flexible mail filtering and processing package, v3.0, Part23/26
+Message-ID: <1993Dec3.213606.23184@sparky.sterling.com>
+X-Md4-Signature: 31b148cc7acf44dcc63ffda1d51761e0
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Fri, 3 Dec 1993 21:36:06 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 23
+Archive-name: mailagent/part23
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/examples/README agent/examples/profile
+#   agent/files/README agent/files/help/help.SH
+#   agent/files/help/passwd.SH agent/files/help/set.SH
+#   agent/filter/misc.c agent/filter/parser.h agent/filter/sysexits.h
+#   agent/pl/checklock.pl agent/pl/extern.pl agent/pl/free_file.pl
+#   agent/pl/locate.pl agent/pl/rangeargs.pl agent/test/Jmakefile
+#   agent/test/cmd/bounce.t agent/test/cmd/message.t
+#   agent/test/cmd/perl.t agent/test/cmd/post.t
+#   agent/test/filter/backref.t agent/test/filter/default.t
+#   agent/test/filter/multiple.t agent/test/filter/not.t
+#   agent/test/misc/mmdf.t agent/test/option/d.t agent/test/option/q.t
+#   agent/test/option/t.t agent/test/pl/logfile.pl
+#   agent/test/pl/mail.pl misc/shell/shell
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:58 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 23 (of 26)."'
+if test -f 'agent/examples/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/examples/README'\"
+else
+  echo shar: Extracting \"'agent/examples/README'\" \(1409 characters\)
+  sed "s/^X//" >'agent/examples/README' <<'END_OF_FILE'
+XThis directory contains examples of rule files for the mailagent and
+Xother aspects from my own environment.
+X
+Xdaemon:
+X	A small rule file which basically simulates the behaviour of the
+X	vacation program (except that vacation messages are sent every day,
+X	not once).
+X
+Xmailfolders:
+X	This file is a copy of my ~/.mailfolders. It lists all the folders or
+X	directories where the filter drops its incoming mail (appart from my
+X	system mailbox, which is implicetely included). This file is used by
+X	my ~/.profile to compute a suitable MAILPATH value (a colon separated
+X	list of files ksh should monitor for new mail). It is also used by the
+X	mchk script.
+X
+Xmchk:
+X	Check all the folders for new mail.
+X
+Xmhinc:
+X	This script incorporates the filtered mails or news into the
+X	corresponding MH folder.
+X	
+Xnocmds:
+X	A copy of my ~/tmp/nocmds file, which will be mailed back to anybody
+X	who sends me a Command mail, except when sent by myself.
+X
+Xprofile:
+X	An excerpt from my ~/.profile file where the mail related variables
+X	are set. I am using ksh, but some plain sh also handle those variables,
+X	which is why it is not in a ~/.kshrc.
+X
+Xrules:
+X	The rule file I am currently using as of today, June 30th 1992. It is
+X	a good example of what can be done, although it is far from using all
+X	the available features. Heavily commented.
+X
+Xvacation:
+X	A generic vacation message held in ~/.vacation. It shows typical macro
+X	substitutions.
+X
+END_OF_FILE
+  if test 1409 -ne `wc -c <'agent/examples/README'`; then
+    echo shar: \"'agent/examples/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/examples/README'
+fi
+if test -f 'agent/examples/profile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/examples/profile'\"
+else
+  echo shar: Extracting \"'agent/examples/profile'\" \(497 characters\)
+  sed "s/^X//" >'agent/examples/profile' <<'END_OF_FILE'
+X# Check for mail every minute
+XMAILCHECK=60
+Xexport MAILCHECK
+X
+X# Where is the system mailbox ?
+Xif test "$MAIL"; then
+X	mailbox=$MAIL
+Xelif test -d /usr/mail; then
+X	mailbox=/usr/mail/ram
+Xelse
+X	mailbox=/usr/spool/mail/ram
+Xfi
+X
+X# List of folders to look at for new mail
+XMAILPATH=$mailbox
+X
+X# List all the folders to be scanned for, one per line
+Xif test -f $HOME/.mailfolders; then
+X	MAILPATH=`sed \
+X		-e '/^[ 	]*#/d' \
+X		-e "s|~|$HOME|g" <$HOME/.mailfolders \
+X		| tr '\012' ':'`$mailbox
+Xfi
+X
+Xexport MAILPATH
+END_OF_FILE
+  if test 497 -ne `wc -c <'agent/examples/profile'`; then
+    echo shar: \"'agent/examples/profile'\" unpacked with wrong size!
+  fi
+  # end of 'agent/examples/profile'
+fi
+if test -f 'agent/files/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/README'\"
+else
+  echo shar: Extracting \"'agent/files/README'\" \(1362 characters\)
+  sed "s/^X//" >'agent/files/README' <<'END_OF_FILE'
+XThis directory holds the shell version of the filter, and some other
+Xsample files which will be installed in the public mailagent directory.
+X
+Xagenthelp:
+X	The generic help message used by the @SH mailhelp command. You may
+X	of course rewrite this completely to fit your taste.
+X
+Xchkagent.sh:
+X	A small script I am using to monitor the whole mailagent installation.
+X	This is run by cron every night, and mails me problems logged in the
+X	log file, or unusual messages from my ~/.bak, etc...
+X	(The name chkagent.sh was chosen to leave room for the RCS ,v extension
+X	on some old systems with 14 characters limit in the file names.)
+X	Here is my crontab entry:
+X
+X		# Check the mailagent log file for the current day
+X		55 23 * * *		$HOME/etc/checkagent
+X
+Xcommands:
+X	This file holds the allowed commands for @SH hooks.
+X
+Xdistribs:
+X	A description table which states where each program is located,
+X	whether it is archived or not, or has patches, etc... This is
+X	used by the @SH commands.
+X
+Xfilter.sh:
+X	The shell version of the filter program. Note that this script is
+X	not tested by the automatic regression tests and needs some tailoring
+X	before it can be used. It is provided only as a guideline for people
+X	who cannot use the C version.
+X
+Xmailagent.cf:
+X	A template for your ~/.mailagent.
+X
+Xproglist:
+X	A list of program description which will be used by the 'maillist'
+X	command.
+X
+END_OF_FILE
+  if test 1362 -ne `wc -c <'agent/files/README'`; then
+    echo shar: \"'agent/files/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/files/README'
+fi
+if test -f 'agent/files/help/help.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/help/help.SH'\"
+else
+  echo shar: Extracting \"'agent/files/help/help.SH'\" \(1359 characters\)
+  sed "s/^X//" >'agent/files/help/help.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/files/help/help (with variable substitutions)"
+X$spitshell >/dev/null <<!GROK!THIS!
+X# $Id: help.SH,v 3.0 1993/11/29 13:47:56 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: help.SH,v $
+X# Revision 3.0  1993/11/29  13:47:56  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X!GROK!THIS!
+X$spitshell >help <<'!NO!SUBS!'
+XNAME
+X
+X	help -- Tells more about a specific server command
+X
+XSYNOPSIS
+X
+X	help [command]
+X
+XDESCRIPTION
+X
+XThe help command will send you some help regarding a particular command.
+XWithout any argument, it prints a list of all the known commands.
+X
+XEXAMPLE
+X
+X	help addauth
+X!NO!SUBS!
+Xchmod 644 help
+END_OF_FILE
+  if test 1359 -ne `wc -c <'agent/files/help/help.SH'`; then
+    echo shar: \"'agent/files/help/help.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/files/help/help.SH'
+  # end of 'agent/files/help/help.SH'
+fi
+if test -f 'agent/files/help/passwd.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/help/passwd.SH'\"
+else
+  echo shar: Extracting \"'agent/files/help/passwd.SH'\" \(1371 characters\)
+  sed "s/^X//" >'agent/files/help/passwd.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/files/help/passwd (with variable substitutions)"
+X$spitshell >/dev/null <<!GROK!THIS!
+X# $Id: passwd.SH,v 3.0 1993/11/29 13:47:57 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: passwd.SH,v $
+X# Revision 3.0  1993/11/29  13:47:57  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X!GROK!THIS!
+X$spitshell >passwd <<'!NO!SUBS!'
+XNAME
+X
+X	passwd -- Changes power password
+X
+XSYNOPSIS
+X
+X	passwd power old new
+X
+XDESCRIPTION
+X
+XThis command changes a power password from 'old' to 'new'. Since you have to
+Xgive the old password, there is no power requirements.
+X
+XEXAMPLE
+X
+X	passwd list-power oldpass newpass
+X!NO!SUBS!
+Xchmod 644 passwd
+END_OF_FILE
+  if test 1371 -ne `wc -c <'agent/files/help/passwd.SH'`; then
+    echo shar: \"'agent/files/help/passwd.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/files/help/passwd.SH'
+  # end of 'agent/files/help/passwd.SH'
+fi
+if test -f 'agent/files/help/set.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/help/set.SH'\"
+else
+  echo shar: Extracting \"'agent/files/help/set.SH'\" \(1432 characters\)
+  sed "s/^X//" >'agent/files/help/set.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/files/help/set (with variable substitutions)"
+X$spitshell >/dev/null <<!GROK!THIS!
+X# $Id: set.SH,v 3.0 1993/11/29 13:47:59 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: set.SH,v $
+X# Revision 3.0  1993/11/29  13:47:59  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X!GROK!THIS!
+X$spitshell >set <<'!NO!SUBS!'
+XNAME
+X
+X	set -- Sets a command environment variable
+X
+XSYNOPSIS
+X
+X	set variable value
+X
+XDESCRIPTION
+X
+XThis command sets the variable to the specified value. Flags are only
+Xset to 'true' or 'false', although 'on', 'yes' and an empty value are
+Xalso recognized to be 'true', anything else being 'false'.
+X
+XEXAMPLES
+X
+X	set eof END_OF_FILE
+X	set trace on
+X!NO!SUBS!
+Xchmod 644 set
+END_OF_FILE
+  if test 1432 -ne `wc -c <'agent/files/help/set.SH'`; then
+    echo shar: \"'agent/files/help/set.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/files/help/set.SH'
+  # end of 'agent/files/help/set.SH'
+fi
+if test -f 'agent/filter/misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/misc.c'\"
+else
+  echo shar: Extracting \"'agent/filter/misc.c'\" \(1321 characters\)
+  sed "s/^X//" >'agent/filter/misc.c' <<'END_OF_FILE'
+X/*
+X
+X #    #     #     ####    ####            ####
+X ##  ##     #    #       #    #          #    #
+X # ## #     #     ####   #               #
+X #    #     #         #  #        ###    #
+X #    #     #    #    #  #    #   ###    #    #
+X #    #     #     ####    ####    ###     ####
+X
+X	Miscellaneous routines.
+X*/
+X
+X/*
+X * $Id: misc.c,v 3.0 1993/11/29 13:48:16 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: misc.c,v $
+X * Revision 3.0  1993/11/29  13:48:16  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include "confmagic.h"
+X
+Xextern char *malloc();				/* Memory allocation */
+X
+Xpublic char *strsave(string)
+Xchar *string;
+X{
+X	/* Save string somewhere in memory and return a pointer to the new string
+X	 * or NULL if there is not enough memory.
+X	 */
+X
+X	char *new = malloc(strlen(string) + 1);		/* +1 for \0 */
+X	
+X	if (new == (char *) 0)
+X		fatal("no more memory to save strings");
+X
+X	strcpy(new, string);
+X	return new;
+X}
+X
+END_OF_FILE
+  if test 1321 -ne `wc -c <'agent/filter/misc.c'`; then
+    echo shar: \"'agent/filter/misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/misc.c'
+fi
+if test -f 'agent/filter/parser.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/parser.h'\"
+else
+  echo shar: Extracting \"'agent/filter/parser.h'\" \(1285 characters\)
+  sed "s/^X//" >'agent/filter/parser.h' <<'END_OF_FILE'
+X/*
+X
+X #####     ##    #####    ####   ######  #####           #    #
+X #    #   #  #   #    #  #       #       #    #          #    #
+X #    #  #    #  #    #   ####   #####   #    #          ######
+X #####   ######  #####        #  #       #####    ###    #    #
+X #       #    #  #   #   #    #  #       #   #    ###    #    #
+X #       #    #  #    #   ####   ######  #    #   ###    #    #
+X
+X	Configuration variable parsing routines.
+X*/
+X
+X/*
+X * $Id: parser.h,v 3.0 1993/11/29 13:48:19 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: parser.h,v $
+X * Revision 3.0  1993/11/29  13:48:19  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#ifndef _parser_h_
+X#define _parser_h_
+X
+Xextern struct htable symtab;		/* Symbol table */
+Xextern void read_conf();			/* Read configuration file */
+Xextern void set_env_vars();			/* Set correct environment variables */
+Xextern char *homedir();				/* Location of the home directory */
+X
+X#endif
+END_OF_FILE
+  if test 1285 -ne `wc -c <'agent/filter/parser.h'`; then
+    echo shar: \"'agent/filter/parser.h'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/parser.h'
+fi
+if test -f 'agent/filter/sysexits.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/sysexits.h'\"
+else
+  echo shar: Extracting \"'agent/filter/sysexits.h'\" \(1393 characters\)
+  sed "s/^X//" >'agent/filter/sysexits.h' <<'END_OF_FILE'
+X/*
+X
+X  ####    #   #   ####   ######  #    #     #     #####   ####           #    #
+X #         # #   #       #        #  #      #       #    #               #    #
+X  ####      #     ####   #####     ##       #       #     ####           ######
+X      #     #         #  #         ##       #       #         #   ###    #    #
+X #    #     #    #    #  #        #  #      #       #    #    #   ###    #    #
+X  ####      #     ####   ######  #    #     #       #     ####    ###    #    #
+X
+X	Standard exit codes for sendmail and friends.
+X	Original list maintained by Eric Allman <eric@berkeley.edu>.
+X*/
+X
+X/*
+X * $Id: sysexits.h,v 3.0 1993/11/29 13:48:21 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: sysexits.h,v $
+X * Revision 3.0  1993/11/29  13:48:21  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#ifndef _sysexits_h_
+X#define _sysexits_h_
+X
+X#define EX_OK			0
+X#define EX_USAGE		64
+X#define EX_UNAVAILABLE	69
+X#define EX_OSERR		71
+X#define EX_OSFILE		72
+X#define EX_CANTCREAT	73
+X#define EX_IOERR		74
+X#define EX_TEMPFAIL		75
+X
+X#endif
+END_OF_FILE
+  if test 1393 -ne `wc -c <'agent/filter/sysexits.h'`; then
+    echo shar: \"'agent/filter/sysexits.h'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/sysexits.h'
+fi
+if test -f 'agent/pl/checklock.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/checklock.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/checklock.pl'\" \(1223 characters\)
+  sed "s/^X//" >'agent/pl/checklock.pl' <<'END_OF_FILE'
+X;# $Id: checklock.pl,v 3.0 1993/11/29 13:48:36 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: checklock.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:36  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# The $lockext variable must be correctly set.
+X;#
+X# Make sure lock lasts for a reasonable time
+Xsub checklock {
+X	local($file) = shift(@_);				# Full path name
+X	local($lockfile) = $file . $lockext;	# Add lock extension
+X	if (-f $lockfile) {
+X		# There is a lock file -- look for how long it's been there
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X			$atime,$mtime,$ctime,$blksize,$blocks) = stat($lockfile);
+X		if ((time - $mtime) > 3600) {
+X			# More than one hour !! Something must have gone wrong
+X			unlink $lockfile;
+X			$file =~ s|.*/(.*)|$1|;	# Keep only basename
+X			&add_log("UNLOCKED $file (lock older than one hour)")
+X				if $loglvl > 5;
+X		}
+X	}
+X}
+X
+END_OF_FILE
+  if test 1223 -ne `wc -c <'agent/pl/checklock.pl'`; then
+    echo shar: \"'agent/pl/checklock.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/checklock.pl'
+fi
+if test -f 'agent/pl/extern.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/extern.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/extern.pl'\" \(1263 characters\)
+  sed "s/^X//" >'agent/pl/extern.pl' <<'END_OF_FILE'
+X;# $Id: extern.pl,v 3.0 1993/11/29 13:48:43 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: extern.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:43  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# External variables are stored in the dbr database. They provide persistent
+X;# values accross different invocations of the mailagent.
+X;#
+X#
+X# Persitent variables handling
+X#
+X
+Xpackage extern;
+X
+X# Fetch value of a persistent variable
+Xsub val {
+X	local($name) = @_;
+X	local($time, $linenum, @value) = &dbr'info($name, 'VARIABLE');
+X	join("\t", @value);		# TAB is the record separator in dbr
+X}
+X
+X# Update value of a persistent variable
+Xsub set {
+X	local($name, $value) = @_;
+X	&dbr'update($name, 'VARIABLE', undef, $value);
+X}
+X
+X# Fetch age of the variable (elapsed time since last modification)
+Xsub age {
+X	local($name) = @_;
+X	local($time, $linenum) = &dbr'info($name, 'VARIABLE');
+X	time - $time;
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 1263 -ne `wc -c <'agent/pl/extern.pl'`; then
+    echo shar: \"'agent/pl/extern.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/extern.pl'
+fi
+if test -f 'agent/pl/free_file.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/free_file.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/free_file.pl'\" \(1305 characters\)
+  sed "s/^X//" >'agent/pl/free_file.pl' <<'END_OF_FILE'
+X;# $Id: free_file.pl,v 3.0 1993/11/29 13:48:47 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: free_file.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:47  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X# Remove the lock on a file. Returns 0 if ok, -1 otherwise
+Xsub free_file {
+X	local($file) = @_;
+X	local($stamp);		# string written in lock file
+X
+X	if ($cf'nfslock =~ /on/i) {			# NFS-secure lock wanted
+X		$stamp = "$$" . &hostname;		# use PID and hostname
+X	} else {
+X		$stamp = "$$";					# use PID only (may spare a fork)
+X	}
+X
+X	local($lockfile) = $file . $lockext;
+X
+X	if ( -f $lockfile) {
+X		# if lock exists, check for pid
+X		open(FILE, $lockfile);
+X		chop($_ = <FILE>);
+X		close FILE;
+X		if ($_ eq $stamp) {
+X			# pid (plus hostname eventually) is correct
+X			$result = 0;
+X			unlink $lockfile;
+X		} else {
+X			# pid is not correct (we did not get that lock)
+X			$result = -1;
+X		}
+X	} else {
+X		# no lock file
+X		$result = 0;
+X	}
+X	$result;	# return status
+X}
+X
+END_OF_FILE
+  if test 1305 -ne `wc -c <'agent/pl/free_file.pl'`; then
+    echo shar: \"'agent/pl/free_file.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/free_file.pl'
+fi
+if test -f 'agent/pl/locate.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/locate.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/locate.pl'\" \(1404 characters\)
+  sed "s/^X//" >'agent/pl/locate.pl' <<'END_OF_FILE'
+X;# $Id: locate.pl,v 3.0 1993/11/29 13:48:56 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: locate.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:56  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X# If the file name does not start with a '/', then it is assumed to be found
+X# in the mailfilter directory if defined, maildir otherwise, and the home
+X# directory finally. The function returns the full path of the file derived
+X# from those rules but does not actually check whether file exists or not.
+Xsub locate_file {
+X	local($filename) = @_;			# File we are trying to locate
+X	$filename =~ s/~/$cf'home/g;	# ~ substitution
+X	unless ($filename =~ m|^/|) {	# Do nothing if already a full path
+X		if (defined($XENV{'mailfilter'}) && $XENV{'mailfilter'} ne '') {
+X			$filename = $XENV{'mailfilter'} . "/$filename";
+X		} elsif (defined($XENV{'maildir'}) && $XENV{'maildir'} ne '') {
+X			$filename = $XENV{'maildir'} . "/$filename";
+X		} else {
+X			$filename = $cf'home . "/$filename";
+X		}
+X	}
+X	$filename =~ s/~/$cf'home/g;	# ~ substitution
+X	$filename;
+X}
+X
+END_OF_FILE
+  if test 1404 -ne `wc -c <'agent/pl/locate.pl'`; then
+    echo shar: \"'agent/pl/locate.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/locate.pl'
+fi
+if test -f 'agent/pl/rangeargs.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/rangeargs.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/rangeargs.pl'\" \(1307 characters\)
+  sed "s/^X//" >'agent/pl/rangeargs.pl' <<'END_OF_FILE'
+X;# $Id: rangeargs.pl,v 3.0 1993/11/29 13:49:11 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: rangeargs.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:11  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X# Expand a patch list
+Xsub rangeargs {
+X	local(@val);
+X	local($maxspec) = shift;	# maximum patch value
+X	local($args) = $#_;			# number of parameters
+X
+X	while ($args-- >= 0) {
+X		$_ = shift;		# first value remaining in @_
+X		while (/./) {
+X			if (s/^(\d+)-(\d+)//) {
+X				$min = $1;
+X				$max = $2;
+X			} elsif (s/^(\d+)-//) {
+X				$min = $1;
+X				$max = $maxspec;
+X			} elsif (s/^-(\d+)//) {
+X				$max = $1;
+X				$min = 1;
+X			} elsif (s/^(\d+)//) {
+X				$max = $min = $1;
+X			} elsif (s/^,//) {
+X				$min = 1;
+X				$max = 0;	# won't print anything
+X			} else {
+X				# error in format: skip char
+X				s/.//;
+X			}
+X			for ($i = $min; $i <= $max; ++$i) {
+X				push(@val, $i) unless $wanted{$i};	# record only once
+X				$wanted{$i} = 1;
+X			}
+X		}
+X	}
+X	join(' ', @val);
+X}
+X
+END_OF_FILE
+  if test 1307 -ne `wc -c <'agent/pl/rangeargs.pl'`; then
+    echo shar: \"'agent/pl/rangeargs.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/rangeargs.pl'
+fi
+if test -f 'agent/test/Jmakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/Jmakefile'\"
+else
+  echo shar: Extracting \"'agent/test/Jmakefile'\" \(1184 characters\)
+  sed "s/^X//" >'agent/test/Jmakefile' <<'END_OF_FILE'
+X/*
+X * Jmakefile for regression test suite.
+X */
+X
+X;# $Id: Jmakefile,v 3.0 1993/11/29 13:49:20 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: Jmakefile,v $
+X;# Revision 3.0  1993/11/29  13:49:20  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X
+X>RM
+Xall::
+X	@echo "The following may take a while..."
+X	@echo "Don't panic if any of these tests fails and do not stop make."; \
+X	./TEST
+X	@if test -f OK; then \
+X		echo "Failure detected, retrying one more time, just in case..."; \
+X		echo "Successful tests will not be rerun but flagged as 'done'."; \
+X		sleep 2; \
+X		./TEST; \
+X		if test -f OK; then \
+X			echo "Hmm... Still failed... There might be a real problem."; \
+X			echo "I shall be using the plain (non dataloaded) version."; \
+X			sleep 2;\
+X			./TEST -n; \
+X		fi \
+X	fi
+X
+Xtest:
+X	./TEST -i
+X
+Xlocal_clean::
+X	$(RM) -r out
+X	$(RM) OK
+END_OF_FILE
+  if test 1184 -ne `wc -c <'agent/test/Jmakefile'`; then
+    echo shar: \"'agent/test/Jmakefile'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/Jmakefile'
+fi
+if test -f 'agent/test/cmd/bounce.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/bounce.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/bounce.t'\" \(1356 characters\)
+  sed "s/^X//" >'agent/test/cmd/bounce.t' <<'END_OF_FILE'
+X# Test BOUNCE command
+X
+X# $Id: bounce.t,v 3.0 1993/11/29 13:49:29 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: bounce.t,v $
+X# Revision 3.0  1993/11/29  13:49:29  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/cmd.pl';
+Xdo '../pl/mta.pl';
+X
+X&add_header('X-Tag: bounce 1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";		# Mail not saved
+X&get_log(4, 'send.mail');
+X&not_log('^Resent-', 5);		# Bounce does not add any Resent- headers
+X&check_log('^To: ram', 6) == 1 || print "7\n";
+X
+Xopen(LIST, '>list') || print "8\n";
+Xprint LIST <<EOM;
+Xfirst
+X# comment
+Xsecond
+Xthird
+XEOM
+Xclose LIST;
+X
+X&replace_header('X-Tag: bounce 2');
+Xunlink 'send.mail';
+X`$cmd`;
+X$? == 0 || print "9\n";
+X-f "$user" && print "10\n";		# Mail not saved
+X&get_log(11, 'send.mail');
+X&not_log('^Resent-', 12);		# Bounce does not add any Resent- headers
+X&check_log('^To: ram', 13) == 1 || print "14\n";
+X&check_log('^Recipients: first second third$', 15) == 1 || print "16\n";
+X
+X&clear_mta;
+Xunlink 'mail', 'list';
+Xprint "0\n";
+END_OF_FILE
+  if test 1356 -ne `wc -c <'agent/test/cmd/bounce.t'`; then
+    echo shar: \"'agent/test/cmd/bounce.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/bounce.t'
+fi
+if test -f 'agent/test/cmd/message.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/message.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/message.t'\" \(1168 characters\)
+  sed "s/^X//" >'agent/test/cmd/message.t' <<'END_OF_FILE'
+X# Test MESSAGE command
+X
+X# $Id: message.t,v 3.0 1993/11/29 13:49:34 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: message.t,v $
+X# Revision 3.0  1993/11/29  13:49:34  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/cmd.pl';
+Xdo '../pl/mta.pl';
+X
+Xopen(MSG, '>msg') || print "1\n";
+Xprint MSG <<EOM;
+XOrganization: Public Domain Software, Earth, Milkway.
+X
+XSent by %n.
+XEOM
+Xclose MSG;
+X
+X&add_header('X-Tag: message');
+X`$cmd`;
+X$? == 0 || print "2\n";
+X-f "$user" && print "3\n";		# Mail not saved
+X&get_log(4, 'send.mail');
+X&check_log('^$', 5) == 1 || print "6\n";
+X&check_log('^Subject: Re: melting', 7) == 1 || print "8\n";
+X&check_log('^Recipients: compilers-request@iecc', 9) == 1 || print "10\n";
+X&check_log('^Sent by compilers-request.$', 11) == 1 || print "12\n";
+X
+X&clear_mta;
+Xunlink 'mail', 'msg';
+Xprint "0\n";
+END_OF_FILE
+  if test 1168 -ne `wc -c <'agent/test/cmd/message.t'`; then
+    echo shar: \"'agent/test/cmd/message.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/message.t'
+fi
+if test -f 'agent/test/cmd/perl.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/perl.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/perl.t'\" \(1227 characters\)
+  sed "s/^X//" >'agent/test/cmd/perl.t' <<'END_OF_FILE'
+X# Test PERL command
+X
+X# $Id: perl.t,v 3.0 1993/11/29 13:49:38 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: perl.t,v $
+X# Revision 3.0  1993/11/29  13:49:38  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/cmd.pl';
+Xunlink 'perl.1', 'perl.2', 'never', 'always';
+X
+Xopen(PERL, ">perl.1") || print "1\n";
+Xprint PERL <<'EOP';
+X&save('always') || &save('never');
+X&reject('-t');
+X&save('never');
+XEOP
+Xclose PERL;
+X
+Xopen(PERL, ">perl.2") || print "2\n";
+Xprint PERL <<'EOP';
+Xunlink 'always' if -d '../out';
+X&exit(0) if $ARGV[1] != 'arg 1' || $ARGV[2] != 'arg 2';
+X&perl('perl.1');		# Recursion
+X&save('never');
+XEOP
+Xclose PERL;
+X
+X&add_header('X-Tag: perl');
+X`$cmd`;
+X$? == 0 || print "3\n";
+X-f "$user" && print "4\n";
+X-f 'never' && print "5\n";
+X&get_log(6, 'always');
+X&check_log('^To: ram', 7) == 2 || print "8\n";
+X
+Xunlink 'mail', 'perl.1', 'perl.2', 'never', 'always';
+Xprint "0\n";
+END_OF_FILE
+  if test 1227 -ne `wc -c <'agent/test/cmd/perl.t'`; then
+    echo shar: \"'agent/test/cmd/perl.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/perl.t'
+fi
+if test -f 'agent/test/cmd/post.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/post.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/post.t'\" \(1350 characters\)
+  sed "s/^X//" >'agent/test/cmd/post.t' <<'END_OF_FILE'
+X# Test POST command
+X
+X# $Id: post.t,v 3.0 1993/11/29 13:49:39 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: post.t,v $
+X# Revision 3.0  1993/11/29  13:49:39  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/cmd.pl';
+Xdo '../pl/mta.pl';
+X
+X&add_header('X-Tag: post 1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";		# Mail not saved
+X&get_log(4, 'send.news');
+X&not_log('^To: ram', 5);		# Stripped out
+X&not_log('^Received:', 6);		# Stripped out
+X&check_log('^Newsgroups: alt.test,comp.others', 7) == 1 || print "8\n";
+X&not_log('^Distribution:', 9);
+X
+Xopen(LIST, '>list') || print "13\n";
+Xprint LIST <<EOM;
+Xfirst.news
+X# comment
+Xsecond.news
+Xthird.news
+XEOM
+Xclose LIST;
+X
+X&replace_header('X-Tag: post 2');
+Xunlink 'send.news';
+X`$cmd`;
+X$? == 0 || print "10\n";
+X-f "$user" && print "11\n";		# Mail not saved
+X&get_log(12, 'send.news');
+X&check_log('^Newsgroups: first.news,second.news,third.news', 13);
+X&check_log('^Distribution: local', 14);
+X
+X&clear_mta;
+Xunlink 'mail', 'list';
+Xprint "0\n";
+END_OF_FILE
+  if test 1350 -ne `wc -c <'agent/test/cmd/post.t'`; then
+    echo shar: \"'agent/test/cmd/post.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/post.t'
+fi
+if test -f 'agent/test/filter/backref.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/backref.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/backref.t'\" \(1208 characters\)
+  sed "s/^X//" >'agent/test/filter/backref.t' <<'END_OF_FILE'
+X# Test backreferences
+X
+X# $Id: backref.t,v 3.0 1993/11/29 13:49:56 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: backref.t,v $
+X# Revision 3.0  1993/11/29  13:49:56  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+Xunlink 'output', 'comp.unix.wizards';
+X
+X&add_header('X-Tag: backref #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";		# Must have been deleted
+X-f 'output' || print "3\n";		# Created by RUN
+Xchop($output = `cat output 2>/dev/null`);
+X$output eq 'ref,,ram@eiffel.com,melting technology' || print "4\n";
+X
+X&replace_header('X-Tag: backref #2');
+X&add_header('Newsgroups: comp.mail.mh,comp.unix.wizards,talk.bizarre');
+X`$cmd`;
+X$? == 0 || print "5\n";
+X-f "$user" && print "6\n";				# Must have been saved
+X-f 'comp.unix.wizards' || print "7\n";	# Created by SAVE
+X
+Xunlink 'output', 'comp.unix.wizards';
+Xprint "0\n";
+END_OF_FILE
+  if test 1208 -ne `wc -c <'agent/test/filter/backref.t'`; then
+    echo shar: \"'agent/test/filter/backref.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/backref.t'
+fi
+if test -f 'agent/test/filter/default.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/default.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/default.t'\" \(1406 characters\)
+  sed "s/^X//" >'agent/test/filter/default.t' <<'END_OF_FILE'
+X# Make sure default actions apply correctly
+X
+X# $Id: default.t,v 3.0 1993/11/29 13:49:58 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: default.t,v $
+X# Revision 3.0  1993/11/29  13:49:58  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+X
+X&add_header('X-Tag: default #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";		# Must have been deleted
+X
+X&replace_header('X-Tag: default #2');
+X`$cmd`;
+X$? == 0 || print "3\n";
+X-f "$user" || print "4\n";		# A NOP -> default action leave
+X&get_mbox(5);
+X
+X&replace_header('X-Tag: never matched');
+X`$cmd`;
+X$? == 0 || print "6\n";
+X-f "$user" || print "7\n";		# No match -> default action
+X&get_mbox(8);
+X$mbox2 eq $mbox1 || print "9\n";
+X
+X&replace_header('X-Tag: unknonw');
+X`$cmd`;
+X$? == 0 || print "10\n";
+X-f "$user" || print "11\n";		# Unknown action without previous saving
+X&get_mbox(12);
+X$mbox2 eq $mbox1 || print "13\n";
+Xunlink 'mail';
+Xprint "0\n";
+X
+Xsub get_mbox {
+X	local($num);
+X	undef $/;
+X	open(MBOX, "$user");
+X	eval "$mbox$num = <MBOX>";
+X	close MBOX;
+X	$/ = "\n";
+X	unlink "$user";
+X}
+X
+END_OF_FILE
+  if test 1406 -ne `wc -c <'agent/test/filter/default.t'`; then
+    echo shar: \"'agent/test/filter/default.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/default.t'
+fi
+if test -f 'agent/test/filter/multiple.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/multiple.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/multiple.t'\" \(1203 characters\)
+  sed "s/^X//" >'agent/test/filter/multiple.t' <<'END_OF_FILE'
+X# Test matches with multiple headers
+X
+X# $Id: multiple.t,v 3.0 1993/11/29 13:50:03 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: multiple.t,v $
+X# Revision 3.0  1993/11/29  13:50:03  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+X
+Xfor ($i = 1; $i <= 3; $i++) {
+X	unlink "$user.$i";
+X}
+X
+X&add_header('X-Tag: multiple #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user.1" || print "2\n";	# Selection worked
+Xunlink "$user.1";
+X
+X&replace_header('X-Tag: multiple #2');
+X&add_header('X-Other: multiple #2');
+X`$cmd`;
+X$? == 0 || print "3\n";
+X-f "$user.2" || print "4\n";	# Selection worked
+Xunlink "$user.2";
+X
+X&add_header('X-Other: another');
+X`$cmd`;
+X$? == 0 || print "5\n";
+X-f "$user.3" || print "6\n";	# Selection worked
+X-f "$user.2" || print "7\n";	# Selection on non-existent field
+Xunlink "$user.2", "$user.3";
+X
+Xunlink 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 1203 -ne `wc -c <'agent/test/filter/multiple.t'`; then
+    echo shar: \"'agent/test/filter/multiple.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/multiple.t'
+fi
+if test -f 'agent/test/filter/not.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/not.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/not.t'\" \(1218 characters\)
+  sed "s/^X//" >'agent/test/filter/not.t' <<'END_OF_FILE'
+X# Test negation pattern matching with '!'
+X
+X# $Id: not.t,v 3.0 1993/11/29 13:50:04 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: not.t,v $
+X# Revision 3.0  1993/11/29  13:50:04  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+Xunlink 'never', 'always', 'always.2', 'always.3';
+X
+X&add_header('X-Tag: not #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";		# Mail has been deleted
+X-f 'never' && print "3\n";		# Cannot match
+X-f 'always' || print "4\n";		# This one must have matched
+X-f 'always.2' || print "5\n";	# Did not match, but '!' saves us
+X-f 'always.3' || print "6\n";	# No pattern from file matched
+Xunlink 'never', 'always', 'always.2', 'always.3';
+X
+X&replace_header('X-Tag: not #2');
+X`$cmd`;
+X$? == 0 || print "7\n";
+X-f "$user" && print "8\n";		# Mail has been saved
+X-f 'always' || print "9\n";
+Xunlink 'always';
+X
+Xprint "0\n";
+END_OF_FILE
+  if test 1218 -ne `wc -c <'agent/test/filter/not.t'`; then
+    echo shar: \"'agent/test/filter/not.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/not.t'
+fi
+if test -f 'agent/test/misc/mmdf.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/misc/mmdf.t'\"
+else
+  echo shar: Extracting \"'agent/test/misc/mmdf.t'\" \(1306 characters\)
+  sed "s/^X//" >'agent/test/misc/mmdf.t' <<'END_OF_FILE'
+X# Test MMDF-style mailboxes
+X
+X# $Id: mmdf.t,v 3.0 1993/11/29 13:50:09 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: mmdf.t,v $
+X# Revision 3.0  1993/11/29  13:50:09  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/misc.pl';
+Xunlink "$user", 'always';
+X
+X&add_option("-o 'mmdf: ON' -o 'mmdfbox: OFF'");
+X&add_header('X-Tag: mmdf');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" || print "2\n";
+X-f 'always' || print "3\n";
+X
+Xsub has_ctrl {
+X	local($file) = @_;
+X	open(FILE, $file) || return 0;
+X	local($count) = 0;
+X	local($_);
+X	while (<FILE>) {
+X		$count++ if /^\01\01\01\01$/;
+X	}
+X	$count;
+X}
+X
+X&has_ctrl($user) == 0 || print "4\n";
+X&has_ctrl('always') == 0 || print "5\n";
+X
+X$cmd =~ s/mmdfbox: OFF/mmdfbox: ON/ || print "6\n";
+Xunlink 'always';
+X`$cmd`;
+X$? == 0 || print "7\n";
+X-f "$user" || print "8\n";
+X-f 'always' || print "9\n";
+X
+X&has_ctrl($user) == 0 || print "10\n";
+X&has_ctrl('always') == 4 || print "11\n";
+X
+Xunlink $user, 'always', 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 1306 -ne `wc -c <'agent/test/misc/mmdf.t'`; then
+    echo shar: \"'agent/test/misc/mmdf.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/misc/mmdf.t'
+fi
+if test -f 'agent/test/option/d.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/option/d.t'\"
+else
+  echo shar: Extracting \"'agent/test/option/d.t'\" \(1272 characters\)
+  sed "s/^X//" >'agent/test/option/d.t' <<'END_OF_FILE'
+X# -d: dump filter rules (special)
+X
+X# $Id: d.t,v 3.0 1993/11/29 13:50:15 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: d.t,v $
+X# Revision 3.0  1993/11/29  13:50:15  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+Xchdir '../out';
+Xunlink '.rules';
+X# With no rule file, verify it dumps the default rules
+X$output = `$mailagent -d`;
+X$? == 0 || print "1\n";
+X@log = split(/\n/, $output);	# want to use check_log()
+X&check_log('# Rule 1', 2);
+X&check_log('PROCESS', 3);
+X# With an empty rule file, we must also have the default rules
+Xopen(RULES, ">.rules");
+Xclose RULES;
+X$output_bis = `$mailagent -d`;
+X$? == 0 || print "4\n";
+X$output_bis eq $output || print "5\n";
+X# Now check with some rules
+X`cp ../rules .rules`;
+X$output = `$mailagent -d`;
+X$? == 0 || print "6\n";
+X@log = split(/\n/, $output);	# want to use check_log()
+X&check_log('# Rule 1', 7);
+X&check_log('DELETE', 8);
+Xprint "0\n";
+END_OF_FILE
+  if test 1272 -ne `wc -c <'agent/test/option/d.t'`; then
+    echo shar: \"'agent/test/option/d.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/option/d.t'
+fi
+if test -f 'agent/test/option/q.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/option/q.t'\"
+else
+  echo shar: Extracting \"'agent/test/option/q.t'\" \(1433 characters\)
+  sed "s/^X//" >'agent/test/option/q.t' <<'END_OF_FILE'
+X# -q: process the queue (special)
+X
+X# $Id: q.t,v 3.0 1993/11/29 13:50:19 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: q.t,v $
+X# Revision 3.0  1993/11/29  13:50:19  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/init.pl';
+Xchdir '../out';
+Xunlink <queue/*>;
+Xopen(MBOX, ">mbox") || print "1\n";
+Xprint MBOX <<'EOM';
+XFrom ram Sat Jul 11 17:17:12 PDT 1992
+XFrom: ram
+XTo: ram
+XSubject: test #1
+X
+XBody #1
+X
+XFrom ram Sat Jul 11 17:17:12 PDT 1992
+XFrom: ram
+XTo: ram
+XSubject: test #2
+X
+XBody #2
+X
+XFrom ram Sat Jul 11 17:17:12 PDT 1992
+XFrom: ram
+XTo: ram
+XSubject: test #3
+X
+XBody #3
+XEOM
+Xclose MBOX;
+X`$mailagent -f mbox -e 'QUEUE' 2>/dev/null`;
+X$? == 0 || print "2\n";
+X$user = $ENV{'USER'};
+Xunlink "$user";
+X`$mailagent -e 'LEAVE' -q 2>/dev/null`;
+X-f "$user" && print "3\n";
+X@queue = <queue/*>;
+X@queue == 3 || print "4\n";		# Still deferred for 30 minutes
+X$now = time;
+X$now -= 31 * 60;
+Xutime $now, $now, @queue;
+X`$mailagent -e 'LEAVE' -q 2>/dev/null`;
+X-f "$user" || print "5\n";
+X@queue = <queue/*>;
+X@queue == 0 || print "6\n";		# Mails have been processed
+Xunlink "$user", 'mbox';
+Xprint "0\n";
+END_OF_FILE
+  if test 1433 -ne `wc -c <'agent/test/option/q.t'`; then
+    echo shar: \"'agent/test/option/q.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/option/q.t'
+fi
+if test -f 'agent/test/option/t.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/option/t.t'\"
+else
+  echo shar: Extracting \"'agent/test/option/t.t'\" \(1177 characters\)
+  sed "s/^X//" >'agent/test/option/t.t' <<'END_OF_FILE'
+X# -t: track rules on stdout
+X
+X# $Id: t.t,v 3.0 1993/11/29 13:50:21 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: t.t,v $
+X# Revision 3.0  1993/11/29  13:50:21  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/init.pl';
+Xchdir '../out';
+Xopen(MBOX, ">mbox") || print "1\n";
+Xprint MBOX <<'EOM';
+XFrom ram Sat Jul 11 18:51:16 PDT 1992
+XFrom: ram
+XTo: ram
+XSubject: test
+X
+XThis is a test.
+XEOM
+Xclose MBOX;
+X$trace = `$mailagent -t -e 'STRIP To; DELETE; LEAVE' mbox 2>/dev/null`;
+X$? == 0 || print "2\n";
+X@trace = split(/\n/, $trace);
+Xgrep(/^-+\s+From/, @trace) || print "3\n";
+Xgrep(/^>> STRIP/, @trace) || print "4\n";
+Xgrep(/^>> DELETE/, @trace) || print "5\n";
+Xgrep(/^>> LEAVE/, @trace) || print "6\n";
+Xgrep(/match/i, @trace) || print "7\n";
+X$user = $ENV{'USER'};
+X-s "$user" || print "8\n";
+Xunlink "$user", 'mbox';
+Xprint "0\n";
+END_OF_FILE
+  if test 1177 -ne `wc -c <'agent/test/option/t.t'`; then
+    echo shar: \"'agent/test/option/t.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/option/t.t'
+fi
+if test -f 'agent/test/pl/logfile.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/pl/logfile.pl'\"
+else
+  echo shar: Extracting \"'agent/test/pl/logfile.pl'\" \(1162 characters\)
+  sed "s/^X//" >'agent/test/pl/logfile.pl' <<'END_OF_FILE'
+X# Get log file (by default) or any other file into @log
+X
+X# $Id: logfile.pl,v 3.0 1993/11/29 13:50:24 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: logfile.pl,v $
+X;# Revision 3.0  1993/11/29  13:50:24  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X
+Xsub get_log {
+X	local($num, $file) = @_;
+X	$file = 'agentlog' unless $file;
+X	open(LOG, $file) || print "$num\n";
+X	@log = <LOG>;
+X	close LOG;
+X}
+X
+X# Make sure a pattern is within @log, return number of matches
+Xsub check_log {
+X	local($pattern, $num) = @_;
+X	local(@matches);
+X	eval "\@matches = grep(/$pattern/, \@log)" || print "$num\n";
+X	0 + @matches;
+X}
+X
+X# Make sure a pattern is NOT within @log, return number of matches
+Xsub not_log {
+X	local($pattern, $num) = @_;
+X	local(@matches);
+X	eval "\@matches = grep(/$pattern/, \@log)" && print "$num\n";
+X	0 + @matches;
+X}
+END_OF_FILE
+  if test 1162 -ne `wc -c <'agent/test/pl/logfile.pl'`; then
+    echo shar: \"'agent/test/pl/logfile.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/pl/logfile.pl'
+fi
+if test -f 'agent/test/pl/mail.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/pl/mail.pl'\"
+else
+  echo shar: Extracting \"'agent/test/pl/mail.pl'\" \(1459 characters\)
+  sed "s/^X//" >'agent/test/pl/mail.pl' <<'END_OF_FILE'
+X# Utilities to twinkle default mail message
+X
+X# $Id: mail.pl,v 3.0 1993/11/29 13:50:25 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: mail.pl,v $
+X;# Revision 3.0  1993/11/29  13:50:25  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X
+X# Add header line within message
+Xsub add_header {
+X	local($header, $file) = @_;
+X	$file = 'mail' unless $file;
+X	local($_);
+X	open(NEW, ">$file.x");
+X	open(OLD, "$file");
+X	while (<OLD>) {
+X		print NEW $header, "\n" if (1../^$/) && /^$/;
+X		print NEW;
+X	}
+X	close NEW;
+X	close OLD;
+X	rename("$file.x", "$file");
+X}
+X
+X# Change first matching header with new value
+Xsub replace_header {
+X	local($header, $file) = @_;
+X	$file = 'mail' unless $file;
+X	local($field) = $header =~ /^(\S+):/;
+X	local($_);
+X	open(NEW, ">$file.x");
+X	open(OLD, "$file");
+X	while (<OLD>) {
+X		if ((1../^$/) && eval "/^$field:/") {
+X			print NEW $header, "\n";
+X			next;
+X		}
+X		print NEW;
+X	}
+X	close NEW;
+X	close OLD;
+X	rename("$file.x", "$file");
+X}
+X
+X# Add line at the end of the mail message
+Xsub add_body {
+X	local($line, $file) = @_;
+X	$file = 'mail' unless $file;
+X	open(NEW, ">>$file");
+X	print NEW $line, "\n";
+X	close NEW;
+X}
+X
+END_OF_FILE
+  if test 1459 -ne `wc -c <'agent/test/pl/mail.pl'`; then
+    echo shar: \"'agent/test/pl/mail.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/pl/mail.pl'
+fi
+if test -f 'misc/shell/shell' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc/shell/shell'\"
+else
+  echo shar: Extracting \"'misc/shell/shell'\" \(1233 characters\)
+  sed "s/^X//" >'misc/shell/shell' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X# $Id: shell,v 3.0 1993/11/29 13:50:32 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: shell,v $
+X# Revision 3.0  1993/11/29  13:50:32  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X# 
+X
+X# Execute commands from stdin, as transmitted by the mailagent server.
+X# File descriptor #3 is a channel to the session transcript.
+X
+X# Make sure we have the shell power.
+X# Don't even allow the root power to bypass that for security reasons.
+Xcase ":$powers:" in
+X:shell:) ;;
+X*)
+X	echo "Permission denied." >&3
+X	exit 1
+X	;;
+Xesac
+X
+X# Perhaps a shell was defined... Otherwise, use /bin/sh
+Xcase "$shell" in
+X'') shell='/bin/sh';;
+Xesac
+X
+X# Normally, a shell command has its output included in the transcript only in
+X# case of error or when the user requests the trace. Here however, we need to
+X# see what happened, so everything is redirected to the session transcript.
+X
+Xexec $shell -x >&3 2>&3
+END_OF_FILE
+  if test 1233 -ne `wc -c <'misc/shell/shell'`; then
+    echo shar: \"'misc/shell/shell'\" unpacked with wrong size!
+  fi
+  chmod +x 'misc/shell/shell'
+  # end of 'misc/shell/shell'
+fi
+echo shar: End of archive 23 \(of 26\).
+cp /dev/null ark23isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

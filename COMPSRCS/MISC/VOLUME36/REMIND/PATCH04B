@@ -1,0 +1,1852 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v36i002:  remind - A replacement for calendar, Patch04b/3
+Message-ID: <1993Mar8.040340.21098@sparky.imd.sterling.com>
+X-Md4-Signature: 9563706f417c7a25c12f8e8ef10f4ad1
+Date: Mon, 8 Mar 1993 04:03:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 36, Issue 2
+Archive-name: remind/patch04b
+Environment: UNIX, MS-DOS
+Patch-To: remind: Volume 33, Issue 58-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.04.B
+# Wrapped by kent@sparky on Sun Mar  7 21:51:01 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'patch.04.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.04.B'\"
+else
+  echo shar: Extracting \"'patch.04.B'\" \(58300 characters\)
+  sed "s/^X//" >'patch.04.B' <<'END_OF_FILE'
+X***************
+X*** 81,85 ****
+X--- 93,103 ----
+X  
+X  /* Define any overrides here, such as L_ORDINAL_OVERRIDE, L_A_OVER, etc.
+X     See the file dosubst.c for more info. */
+X+ #define L_AMPM_OVERRIDE(ampm, hour)	ampm = (hour < 12) ? (hour<5) ? " nachts" : " vormittags" : (hour > 17) ? " abends" : " nachmittags";
+X+ #define L_ORDINAL_OVERRIDE		plu = ".";
+X+ #define L_A_OVER			sprintf(s, "%s %s, den %d. %s %d", L_ON, DayName[jul%7], d, MonthName[m], y);
+X+ #define	L_G_OVER			sprintf(s, "%s %s, den %d. %s", L_ON, DayName[jul%7], d, MonthName[m]);
+X+ #define L_U_OVER			L_A_OVER
+X+ #define L_V_OVER			L_G_OVER
+X  
+X  #endif /* L_IN_DOSUBST */
+X*** ../patch3/globals.h	Thu Jan 21 16:02:55 1993
+X--- ./globals.h	Mon Mar  1 16:56:30 1993
+X***************
+X*** 36,41 ****
+X--- 36,42 ----
+X  EXTERN  char    LineBuffer[LINELEN];
+X  EXTERN  char    SubstBuffer[LINELEN];
+X  EXTERN  char    TokBuffer[TOKSIZE+1];
+X+ EXTERN  INIT(   char    *MsgCommand, NULL);
+X  EXTERN  INIT(	char    ShowAllErrors, 0);
+X  EXTERN  INIT(	int     DebugFlag, 0);
+X  EXTERN  INIT(   char	DoCalendar, 0);
+X***************
+X*** 50,55 ****
+X--- 51,59 ----
+X  EXTERN  INIT(   char    RunDisabled, 0);
+X  EXTERN  INIT(   char    IgnoreOnce, 0);
+X  EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X+ EXTERN  INIT(   char    SortByTime, 0);
+X+ EXTERN  INIT(   char    SortByDate, 0);
+X+ 
+X  EXTERN	char	*InitialFile;
+X  EXTERN	int	FileAccessDate;
+X  
+X*** ../patch3/init.c	Mon Feb  8 14:41:06 1993
+X--- ./init.c	Mon Mar  1 17:37:26 1993
+X***************
+X*** 62,67 ****
+X--- 62,68 ----
+X   *  -bn      = Time format for cal (0, 1, or 2)
+X   *  -xn      = Max. number of iterations for SATISFY
+X   *  -uname   = Run as user 'name' - only valid when run by root.
+X+  *  -kcmd    = Run 'cmd' for MSG-type reminders instead of printing to stdout
+X   *
+X   **************************************************************/
+X  
+X***************
+X*** 156,161 ****
+X--- 157,178 ----
+X  	       Hush = 1;
+X  	       break;
+X  
+X+ 	    case 'g':
+X+ 	    case 'G':
+X+ 	       SortByDate = SORT_ASCEND;
+X+ 	       SortByTime = SORT_ASCEND;
+X+ 	       if (*arg) {
+X+ 	          if (*arg == 'D' || *arg == 'd')
+X+ 		     SortByDate = SORT_DESCEND;
+X+ 		  arg++;
+X+                }
+X+ 	       if (*arg) {
+X+ 	          if (*arg == 'D' || *arg == 'd')
+X+ 		     SortByTime = SORT_DESCEND;
+X+ 		  arg++;
+X+                }
+X+ 	       break;
+X+ 
+X  #if defined(UNIX) && defined(WANT_U_OPTION)
+X  	    case 'u':
+X  	    case 'U':
+X***************
+X*** 269,274 ****
+X--- 286,297 ----
+X  	       if (MaxSatIter < 10) MaxSatIter=10;
+X  	       break;
+X  
+X+ 	    case 'k':
+X+ 	    case 'K':
+X+ 	       MsgCommand = arg;
+X+ 	       while (*arg) arg++;  /* Chew up remaining chars in this arg */
+X+ 	       break;
+X+ 
+X  	    default:
+X  	       fprintf(ErrFp, "Unknown option '%c'\n", *(arg-1));
+X  	 }
+X***************
+X*** 345,352 ****
+X  void Usage()
+X  #endif
+X  {
+X!    fprintf(ErrFp, "\nREMIND %s (%s version) Copyright 1992, 1993 by David F. Skoll\n\n", VERSION, L_LANGNAME);
+X!    fprintf(ErrFp, "        Usage: remind [options] filename [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X     fprintf(ErrFp, " -r     Disable RUN directives\n");
+X--- 368,375 ----
+X  void Usage()
+X  #endif
+X  {
+X!    fprintf(ErrFp, "\nREMIND %s (%s version) Copyright 1992, 1993 by David F. Skoll\n", VERSION, L_LANGNAME);
+X!    fprintf(ErrFp, "Usage: remind [options] filename [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X     fprintf(ErrFp, " -r     Disable RUN directives\n");
+X***************
+X*** 369,374 ****
+X--- 392,399 ----
+X     fprintf(ErrFp, " -e     Divert messages normally sent to stderr to stdout\n");
+X     fprintf(ErrFp, " -b[n]  Time format for cal: 0=am/pm, 1=24hr, 2=none\n");
+X     fprintf(ErrFp, " -x[n]  Iteration limit for SATISFY clause (def=150)\n");
+X+    fprintf(ErrFp, " -kcmd  Run 'cmd' for MSG-type reminders\n");
+X+    fprintf(ErrFp, " -g[d[d]] Sort reminders by date and time before issuing\n");
+X     exit(1);
+X  }
+X  
+X***************
+X*** 399,405 ****
+X  
+X     static char *NoEnvMem = "Remind: Out of memory for environment\n";
+X     struct passwd *pwent;
+X!    static char *home, *shell, *username;
+X  
+X     myuid = getuid();
+X     if (myuid) {
+X--- 424,430 ----
+X  
+X     static char *NoEnvMem = "Remind: Out of memory for environment\n";
+X     struct passwd *pwent;
+X!    static char *home, *shell, *username, *logname;
+X  
+X     myuid = getuid();
+X     if (myuid) {
+X***************
+X*** 441,453 ****
+X     putenv(shell);
+X  
+X     if (pwent->pw_uid) {
+X!       username = malloc(strlen(pwent->pw_dir) + 6);
+X        if (!username) {
+X           fprintf(ErrFp, NoEnvMem);
+X           exit(1);
+X        }
+X!       sprintf(username, "USER=%s", pwent->pw_dir);
+X        putenv(username);
+X     }
+X  }
+X  #endif /* UNIX && WANT_U_OPTION */
+X--- 466,485 ----
+X     putenv(shell);
+X  
+X     if (pwent->pw_uid) {
+X!       username = malloc(strlen(pwent->pw_name) + 6);
+X        if (!username) {
+X           fprintf(ErrFp, NoEnvMem);
+X           exit(1);
+X        }
+X!       sprintf(username, "USER=%s", pwent->pw_name);
+X        putenv(username);
+X+       logname= malloc(strlen(pwent->pw_name) + 9);
+X+       if (!logname) {
+X+          fprintf(ErrFp, NoEnvMem);
+X+          exit(1);
+X+       }
+X+       sprintf(logname, "LOGNAME=%s", pwent->pw_name);
+X+       putenv(logname);
+X     }
+X  }
+X  #endif /* UNIX && WANT_U_OPTION */
+X*** ../patch3/lang.h	Fri Jan 29 13:39:59 1993
+X--- ./lang.h	Mon Feb 15 13:45:00 1993
+X***************
+X*** 11,18 ****
+X  
+X  /* I'm chauvinistic and name each language with its English name... */
+X  
+X! #define ENGLISH    0
+X! #define GERMAN     1
+X  
+X  /* Add more languages here - but please e-mail dfs@doe.carleton.ca
+X     to have your favorite language assigned a number.  If you add a
+X--- 11,20 ----
+X  
+X  /* I'm chauvinistic and name each language with its English name... */
+X  
+X! #define ENGLISH    0 /* original by David Skoll */
+X! #define GERMAN     1 /* translated by Wolfgang Thronicke */
+X! #define DUTCH      2 /* translated by Willem Kasdorp */
+X! #define FINNISH    3 /* translated by Mikko Silvonen */
+X  
+X  /* Add more languages here - but please e-mail dfs@doe.carleton.ca
+X     to have your favorite language assigned a number.  If you add a
+X***************
+X*** 27,33 ****
+X--- 29,37 ----
+X   *       Define the language you want to use here                       *
+X   *                                                                      *
+X   ************************************************************************/
+X+ #ifndef LANG  /* Allow for definition on compiler command line */
+X  #define LANG ENGLISH
+X+ #endif
+X  
+X  /* If LANG is not defined, it defaults to English. */
+X  #ifndef LANG
+X***************
+X*** 40,45 ****
+X--- 44,53 ----
+X  #include "english.h"
+X  #elif LANG == GERMAN
+X  #include "german.h"
+X+ #elif LANG == DUTCH
+X+ #include "dutch.h"
+X+ #elif LANG == FINNISH
+X+ #include "finnish.h"
+X  
+X  /* If no sensible language, choose English.  I intended to use
+X     the #error directive here, but some C compilers barf. */
+X*** ../patch3/lnk.msc	Wed Dec 16 10:51:54 1992
+X--- ./lnk.msc	Thu Mar  4 10:44:28 1993
+X***************
+X*** 8,13 ****
+X--- 8,14 ----
+X  init.obj +
+X  main.obj +
+X  omit.obj +
+X+ sort.obj +
+X  token.obj +
+X  trigger.obj +
+X  userfns.obj +
+X*** ../patch3/lnk.tc	Wed Dec 16 10:51:54 1992
+X--- ./lnk.tc	Thu Mar  4 10:44:16 1993
+X***************
+X*** 9,14 ****
+X--- 9,15 ----
+X  init.obj
+X  main.obj
+X  omit.obj
+X+ sort.obj
+X  token.obj
+X  trigger.obj
+X  userfns.obj
+X*** ../patch3/main.c	Fri Feb  5 14:55:19 1993
+X--- ./main.c	Mon Mar  1 17:34:01 1993
+X***************
+X*** 112,117 ****
+X--- 112,120 ----
+X     if (RealToday == JulianToday) SetAccessDate(InitialFile, RealToday);
+X  #endif
+X  
+X+    /* If there are sorted reminders, handle them */
+X+    if (SortByDate) IssueSortedReminders();
+X+ 
+X     /* If there are any background reminders queued up, handle them */
+X  #ifdef HAVE_QUEUED
+X     if (NumQueued || Daemon) {
+X***************
+X*** 849,855 ****
+X     else {
+X        if ( (r=ParseRem(p, &trig, &tim)) ) return r;
+X        if (trig.typ != NO_TYPE) return E_PARSE_ERR;
+X!       jul = ComputeTrigger(JulianToday, &trig, &r);
+X        if (r) syndrome = IF_TRUE | BEFORE_ELSE;
+X        else {
+X           if (ShouldTriggerReminder(&trig, &tim, jul))
+X--- 852,858 ----
+X     else {
+X        if ( (r=ParseRem(p, &trig, &tim)) ) return r;
+X        if (trig.typ != NO_TYPE) return E_PARSE_ERR;
+X!       jul = ComputeTrigger(trig.scanfrom, &trig, &r);
+X        if (r) syndrome = IF_TRUE | BEFORE_ELSE;
+X        else {
+X           if (ShouldTriggerReminder(&trig, &tim, jul))
+X*** ../patch3/makefile.msc	Wed Dec 16 10:51:53 1992
+X--- ./makefile.msc	Thu Mar  4 10:46:02 1993
+X***************
+X*** 2,8 ****
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X--- 2,8 ----
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj sort.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X***************
+X*** 19,24 ****
+X--- 19,27 ----
+X  
+X  expr.obj: expr.c
+X  	cl /c $(DEFINES) $(MODEL) /Foexpr.obj expr.c
+X+ 
+X+ sort.obj: sort.c
+X+ 	cl /c $(DEFINES) $(MODEL) /Fosort.obj sort.c
+X  
+X  files.obj: files.c
+X  	cl /c $(DEFINES) $(MODEL) /Fofiles.obj files.c
+X*** ../patch3/makefile.os2	Tue Feb  2 14:36:47 1993
+X--- ./makefile.os2	Mon Mar  1 16:55:19 1993
+X***************
+X*** 25,44 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.03
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+X  defs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1 \
+X! lang.h english.h german.h tstlang.rem
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X--- 25,45 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.04
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finish.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+X  defs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1 \
+X! tstlang.rem
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X***************
+X*** 75,80 ****
+X--- 76,82 ----
+X  init$O: init.c $(STDHDRS) expr.h version.h
+X  main$O: main.c $(STDHDRS) expr.h
+X  omit$O: omit.c $(STDHDRS)
+X+ sort$O: sort.c $(STDHDRS)
+X  token$O: token.c $(STDHDRS)
+X  trigger$O: trigger.c $(STDHDRS) expr.h
+X  userfns$O: userfns.c $(STDHDRS) expr.h
+X*** ../patch3/makefile.tc	Tue Feb  2 14:36:38 1993
+X--- ./makefile.tc	Mon Mar  1 16:55:05 1993
+X***************
+X*** 1,23 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.03
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X! globals.obj init.obj main.obj omit.obj token.obj trigger.obj \
+X  utils.obj userfns.obj var.obj
+X  
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc manifest.dos manifest.unx whatsnew.30 kall kall.1 \
+X! defs.rem readme.os2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1 \
+X! lang.h english.h german.h tstlang.rem
+X  
+X  all: remind.exe rem2ps.exe
+X  
+X--- 1,24 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.04
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finnish.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X! globals.obj init.obj main.obj omit.obj sort.obj token.obj trigger.obj \
+X  utils.obj userfns.obj var.obj
+X  
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc manifest.dos manifest.unx whatsnew.30 kall kall.1 \
+X! tstlang.rem defs.rem readme.os2 makefile.os2 rem2ps.c rem2ps.h remind.def \
+X! rem2ps.1
+X  
+X  all: remind.exe rem2ps.exe
+X  
+X***************
+X*** 51,56 ****
+X--- 52,59 ----
+X  main.obj: main.c $(STDHDRS) expr.h
+X  
+X  omit.obj: omit.c $(STDHDRS)
+X+ 
+X+ sort.obj: sort.c $(STDHDRS)
+X  
+X  token.obj: token.c $(STDHDRS)
+X  
+X*** ../patch3/omit.c	Fri Feb  5 14:56:03 1993
+X--- ./omit.c	Mon Mar  1 12:59:56 1993
+X***************
+X*** 33,40 ****
+X  static int NumFullOmits, NumPartialOmits;
+X  
+X  /* The structure for saving and restoring OMIT contexts */
+X! typedef struct _omitcontext {
+X!    struct _omitcontext *next;
+X     int numfull, numpart;
+X     int *fullsave;
+X     int *partsave;
+X--- 33,40 ----
+X  static int NumFullOmits, NumPartialOmits;
+X  
+X  /* The structure for saving and restoring OMIT contexts */
+X! typedef struct omitcontext {
+X!    struct omitcontext *next;
+X     int numfull, numpart;
+X     int *fullsave;
+X     int *partsave;
+X*** ../patch3/protos.h	Fri Jan  8 13:24:46 1993
+X--- ./protos.h	Tue Mar  2 16:20:16 1993
+X***************
+X*** 33,38 ****
+X--- 33,39 ----
+X  int TriggerReminder ARGS ((ParsePtr p, Trigger *t, TimeTrig *tim, int jul));
+X  int ShouldTriggerReminder ARGS ((Trigger *t, TimeTrig *tim, int jul));
+X  int DoSubst ARGS ((ParsePtr p, char *out, Trigger *t, TimeTrig *tt, int jul, int mode));
+X+ int DoSubstFromString ARGS ((char *source, char *dest, int jul, int tim));
+X  int EvalExpr ARGS ((char **e, Value *v));
+X  int PushValStack ARGS ((Value *val));
+X  int PopValStack ARGS ((Value *val));
+X***************
+X*** 111,113 ****
+X--- 112,119 ----
+X  int DoSatRemind ARGS ((Trigger *trig, TimeTrig *tim, ParsePtr p));
+X  int ParseNonSpaceChar ARGS ((ParsePtr p, int *err, int peek));
+X  int HashVal ARGS ((const char *str));
+X+ int DateOK ARGS ((int y, int m, int d));
+X+ Operator *FindFunc ARGS ((char *name, Operator where[], int num));
+X+ int InsertIntoSortBuffer ARGS ((int jul, int tim, char *body, int typ));
+X+ void IssueSortedReminders ARGS ((void));    
+X+ int UserFuncExists ARGS ((char *fn));
+X*** ../patch3/queue.c	Fri Jan  8 13:24:41 1993
+X--- ./queue.c	Mon Mar  1 12:58:47 1993
+X***************
+X*** 28,35 ****
+X  #include "protos.h"
+X  
+X  /* List structure for holding queued reminders */
+X! typedef struct _queuedrem {
+X!    struct _queuedrem *next;
+X     int typ;
+X     int RunDisabled;
+X     char *text;
+X--- 28,35 ----
+X  #include "protos.h"
+X  
+X  /* List structure for holding queued reminders */
+X! typedef struct queuedrem {
+X!    struct queuedrem *next;
+X     int typ;
+X     int RunDisabled;
+X     char *text;
+X***************
+X*** 270,278 ****
+X     printf("Contents of AT queue:%s", NL);
+X  
+X     while (q) {
+X!       printf("Trigger: %02d:%02d  Activate: %02d:%02d  Rep: %d  Delta: %d%s",
+X!               q->tt.ttime / 60, q->tt.ttime % 60,
+X! 	      q->tt.nexttime / 60, q->tt.nexttime % 60,
+X                q->tt.rep, q->tt.delta, NL);
+X        printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" : "RUN"),
+X                q->text,
+X--- 270,278 ----
+X     printf("Contents of AT queue:%s", NL);
+X  
+X     while (q) {
+X!       printf("Trigger: %02d%c%02d  Activate: %02d%c%02d  Rep: %d  Delta: %d%s",
+X!               q->tt.ttime / 60, TIMESEP, q->tt.ttime % 60,
+X! 	      q->tt.nexttime / 60, TIMESEP, q->tt.nexttime % 60,
+X                q->tt.rep, q->tt.delta, NL);
+X        printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" : "RUN"),
+X                q->text,
+X*** ../patch3/rem2ps.1	Fri Jan 29 13:37:01 1993
+X--- ./rem2ps.1	Mon Feb 15 18:45:11 1993
+X***************
+X*** 24,32 ****
+X  not use this option, the default encoding is used.
+X  .TP
+X  .B \-m media
+X! Set the page size.  You must specify the media type, which can be one of the
+X! following.  (Sizes are approximate.  For a list of media types, type
+X! "rem2ps -m help".)
+X  .RS
+X  .TP
+X  Letter
+X--- 24,32 ----
+X  not use this option, the default encoding is used.
+X  .TP
+X  .B \-m media
+X! Set the page size.  If you use the \-m option, you must specify the
+X! media type, which can be one of the
+X! following.  (Sizes are approximate.)
+X  .RS
+X  .TP
+X  Letter
+X***************
+X*** 69,75 ****
+X  10 x 14 in.
+X  .PP
+X  Type "rem2ps -m help" for a list of available media.  Note that the media
+X! type (and all \fBRem2ps\fR options) are case-sensitive.
+X  .RE
+X  .TP
+X  \fB\-f\fR[\fBshed\fR] \fIfont\fR
+X--- 69,76 ----
+X  10 x 14 in.
+X  .PP
+X  Type "rem2ps -m help" for a list of available media.  Note that the media
+X! type (and all \fBRem2ps\fR options) are case-sensitive.  If you don't use
+X! the \fB\-m\fR option, the media defaults to Letter.
+X  .RE
+X  .TP
+X  \fB\-f\fR[\fBshed\fR] \fIfont\fR
+X*** ../patch3/rem2ps.c	Mon Feb  8 14:31:59 1993
+X--- ./rem2ps.c	Mon Mar  1 12:59:48 1993
+X***************
+X*** 31,38 ****
+X  #endif
+X  #define NEW(type) ((type *) malloc(sizeof(type)))
+X  
+X! typedef struct _CalEntry {
+X!    struct _CalEntry *next;
+X     char *entry;
+X  } CalEntry;
+X  
+X--- 31,38 ----
+X  #endif
+X  #define NEW(type) ((type *) malloc(sizeof(type)))
+X  
+X! typedef struct calentry {
+X!    struct calentry *next;
+X     char *entry;
+X  } CalEntry;
+X  
+X*** ../patch3/remind.1	Tue Feb  2 14:36:32 1993
+X--- ./remind.1	Fri Mar  5 11:51:37 1993
+X***************
+X*** 37,42 ****
+X--- 37,43 ----
+X  empty boxes smaller.  \fISpc\fR specifies how many blank lines to leave
+X  between the day number and the first reminder entry.  It defaults to 1.
+X  .RS
+X+ .PP
+X  Any of \fIcol\fR, \fIpad\fR or \fIspc\fR can be omitted, providing you
+X  provide the correct number of commas.  Don't use any spaces in the option.
+X  .RE
+X***************
+X*** 106,111 ****
+X--- 107,120 ----
+X  Echo lines when displaying error messages
+X  .RE
+X  .TP
+X+ \fB\-g\fR[\fBa|d\fR[\fBa|d\fR]]
+X+ Normally, reminders are issued in the order in which they are encountered
+X+ in the reminder script.  The \fB\-g\fR option cause \fBRemind\fR to
+X+ sort reminders by date and time prior to issuing them.  The optional
+X+ \fBa\fR and \fBd\fR characters specify the sort order (ascending or
+X+ descending) for the date and time fields.  See the section "Sorting
+X+ Reminders" for more information.
+X+ .TP
+X  \fB\-b\fR[\fIn\fR]
+X  Set the time format for the calendar and simple-calendar outputs.  \fIN\fR
+X  can range from 0 to 2, with the default 0.  A value of 0 causes times
+X***************
+X*** 117,122 ****
+X--- 126,165 ----
+X  Sets the iteration limit for the \fBSATISFY\fR clause of a \fBREM\fR
+X  command.  Defaults to 150.
+X  .TP
+X+ \fB\-k\fR\fIcmd\fR
+X+ Instead of simply printing \fBMSG\fR-type reminders, this causes them to be
+X+ passed to the specific \fIcmd\fR.  You must use '%s' where you want the body to
+X+ appear, and may need to enclose this option in quotes.  Also, because
+X+ \fIcmd\fR is run using the \fBsystem()\fR library function, shell quotes in
+X+ the body of the message may cause problems.  Note that this option
+X+ \fBoverrides\fR the \fB\-r\fR option and the \fBRUN OFF\fR command.
+X+ .PP
+X+ .RS
+X+ As an example, suppose you have an X-Windows program called xmessage, which
+X+ pops up a window and displays its invocation arguments.  You could use:
+X+ .PP
+X+ .nf
+X+ 		remind '-kxmessage %s &' ...
+X+ .fi
+X+ .PP
+X+ to have all of your \fBMSG\fR-type reminders processed using xmessage.
+X+ .PP
+X+ A word of warning:  It is very easy to spawn dozens of xmessage processes
+X+ with the above technique.  So be very careful.  Also, the \fIcmd\fR is passed
+X+ as an argument to \fBsprintf()\fR.  If you use formatting directives other
+X+ than %s, or use more than one %s directive, there's a good chance that
+X+ you'll crash \fBRemind\fR.  Finally, because \fIcmd\fR is executed using
+X+ the \fBsystem()\fR library function, shell delimiters in \fBMSG\fR-type
+X+ reminders could cause problems.  \fIIn particular, never run untrusted
+X+ reminders using the \fR\fB\-k\fR\fI option\fR.  A reminder like:
+X+ .PP
+X+ .nf
+X+ 	REM msg foo ; rm -Rf .
+X+ .fi
+X+ .PP
+X+ would cause havoc if run with the \fB\-k\fR option.
+X+ .RE
+X+ .TP
+X  \fB\-z\fR[\fIn\fR]
+X  Runs \fBRemind\fR in the daemon mode.  If \fIn\fR is supplied, it
+X  specifies how often (in minutes) \fBRemind\fR should wake up to
+X***************
+X*** 129,135 ****
+X  The \fB\-u\fR option is available only to root, and cannot be used by normal
+X  users.  The option changes the uid and gid as described, and sets the
+X  environment variables HOME, SHELL and USER to the home directory, shell,
+X! and user name, respectively, of the specified user.  This option is meant for
+X  use in shell scripts which mail reminders to all users.
+X  .PP
+X  If you supply a \fIdate\fR on the command line, it must consist of
+X--- 172,179 ----
+X  The \fB\-u\fR option is available only to root, and cannot be used by normal
+X  users.  The option changes the uid and gid as described, and sets the
+X  environment variables HOME, SHELL and USER to the home directory, shell,
+X! and user name, respectively, of the specified user.  LOGNAME is also
+X! set to the specified user name.  This option is meant for
+X  use in shell scripts which mail reminders to all users.
+X  .PP
+X  If you supply a \fIdate\fR on the command line, it must consist of
+X***************
+X*** 188,193 ****
+X--- 232,238 ----
+X  [\fBOMIT\fR \fIomit_list\fR]
+X  [\fBAT\fR \fItime\fR [\fItdelta\fR] [\fItrepeat\fR]]
+X  [\fBUNTIL\fR \fIexpiry_date\fR]
+X+ [\fBSCANFROM\fR \fIscan_date\fR]
+X  \fBMSG\fR | \fBRUN\fR | \fBCAL\fR | \fBSATISFY\fR
+X  .I body
+X  .RE
+X***************
+X*** 206,214 ****
+X  .PP
+X  The keywords \fBMSG\fR, \fBRUN\fR and \fBCAL\fR denote the \fItype\fR
+X  of the reminder.  (\fBSATISFY\fR is more complicated and will be explained
+X! later.)  A \fBMSG\fR type reminder simply prints a message to the standard
+X  output, after passing the \fIbody\fR through a special substitution filter,
+X! described in the section "The Substitution Filter."  A \fBRUN\fR-type
+X  reminder also passes the \fIbody\fR through the substitution filter, but
+X  then executes the result as a system command.  A \fBCAL\fR-type reminder
+X  is used only to place entries in the calendar produced when \fBRemind\fR
+X--- 251,264 ----
+X  .PP
+X  The keywords \fBMSG\fR, \fBRUN\fR and \fBCAL\fR denote the \fItype\fR
+X  of the reminder.  (\fBSATISFY\fR is more complicated and will be explained
+X! later.)  A \fBMSG\fR-type reminder normally prints a message to the standard
+X  output, after passing the \fIbody\fR through a special substitution filter,
+X! described in the section "The Substitution Filter."  However, if you have
+X! used the \fB\-k\fR command-line option, then \fBMSG\fR-type reminders are
+X! passed to the appropriate program.  Note that the options \fB\-c\fR,
+X! \fB\-s\fR, \fB\-p\fR and \fB\-n\fR disable the \fB\-k\fR option.
+X! .PP
+X! A \fBRUN\fR-type
+X  reminder also passes the \fIbody\fR through the substitution filter, but
+X  then executes the result as a system command.  A \fBCAL\fR-type reminder
+X  is used only to place entries in the calendar produced when \fBRemind\fR
+X***************
+X*** 491,496 ****
+X--- 541,553 ----
+X  period.  Similarly, if you specify a weekday, it is used only to calculate
+X  the initial date, and does not affect the repetition period.
+X  .PP
+X+ .B SCANFROM
+X+ .PP
+X+ The \fBSCANFROM\fR keyword is for advanced \fBRemind\fR programmers
+X+ only, and will be explained in the section "Details about Trigger Computation"
+X+ near the end of this manual.  Note that \fBSCANFROM\fR is available only
+X+ in versions of \fBRemind\fR from 03.00.04 up.
+X+ .PP
+X  .B EXPIRY DATES
+X  .PP
+X  Some reminders should be issued periodically for a certain time, but then
+X***************
+X*** 578,583 ****
+X--- 635,642 ----
+X  by a \fItime\fR and optional \fItdelta\fR and \fItrepeat\fR.  The \fItime\fR
+X  must be specified in 24-hour format, with 0:00 representing midnight,
+X  12:00 representing noon, and 23:59 representing one minute to midnight.
+X+ You can use either a colon or a period to separate the hours from the
+X+ minutes.  That is, 13:39 and 13.39 are equivalent.
+X  .PP
+X  \fBRemind\fR treats timed reminders specially.  If the trigger date
+X  for a timed reminder is the same as the current system date, the
+X***************
+X*** 1043,1049 ****
+X  .PP
+X  If you run \fBRemind\fR with the \fB\-r\fR command-line option,
+X  \fBRUN\fR-type reminders and the \fBshell()\fR function will be disabled,
+X! regardless of any \fBRUN\fR commands in the reminder script.
+X  .PP
+X  One use of the \fBRUN\fR command is to provide a secure interface
+X  between \fBRemind\fR and the \fBElm\fR mail system.  The \fBElm\fR
+X--- 1102,1109 ----
+X  .PP
+X  If you run \fBRemind\fR with the \fB\-r\fR command-line option,
+X  \fBRUN\fR-type reminders and the \fBshell()\fR function will be disabled,
+X! regardless of any \fBRUN\fR commands in the reminder script.  However,
+X! any command supplied with the \fB\-k\fR option will still be executed.
+X  .PP
+X  One use of the \fBRUN\fR command is to provide a secure interface
+X  between \fBRemind\fR and the \fBElm\fR mail system.  The \fBElm\fR
+X***************
+X*** 1071,1076 ****
+X--- 1131,1139 ----
+X  	Reminders for Friday, 30th October, 1992 (today):
+X  .fi
+X  .PP
+X+ (The banner is not printed if any of the calendar-producing options
+X+ is used, or if the \fB\-k\fR option is used.)
+X+ .PP
+X  The \fBBANNER\fR command lets you change the format.  It should appear
+X  before any \fBREM\fR commands.  The format is:
+X  .PP
+X***************
+X*** 1166,1175 ****
+X  .RE
+X  .TP
+X  .B TIME constants
+X! 12:33, 0:01, 14:15, 16:42
+X  .PP
+X  .RS
+X! Note that \fBTIME\fR constants are written in 24-hour format
+X  .RE
+X  .TP
+X  .B DATE constants
+X--- 1229,1241 ----
+X  .RE
+X  .TP
+X  .B TIME constants
+X! 12:33, 0:01, 14:15, 16:42, 12.16, 13.00, 1.11
+X  .PP
+X  .RS
+X! Note that \fBTIME\fR constants are written in 24-hour format.  Either the
+X! period or colon can be used to separate the minutes from the hours.
+X! However, Remind will consistently output times using only one separator
+X! character.  (The output separator character is chosen at compile-time.)
+X  .RE
+X  .TP
+X  .B DATE constants
+X***************
+X*** 1389,1394 ****
+X--- 1455,1468 ----
+X  function returns 0 if the file can be accessed with the specified \fImode\fR,
+X  and -1 otherwise.
+X  .TP
+X+ .B args(s_fname)
+X+ Returns the number of arguments expected by the user-defined function
+X+ \fIfname\fR, or -1 if no such user-defined function exists.  Note that
+X+ this function examines only user-defined functions, not built-in functions.
+X+ Its main use is to determine whether or not a particular user-defined
+X+ function has been defined previously.  The \fBargs()\fR function is
+X+ available only in versions of \fBRemind\fR from 03.00.04 and up.
+X+ .TP
+X  .B asc(s_string)
+X  Returns an \fBINT\fR which is the ASCII code of the first character
+X  in \fIstring\fR.  As a special case, \fBasc("")\fR returns 0.
+X***************
+X*** 1491,1496 ****
+X--- 1565,1587 ----
+X  error if it is undefined or not of type \fBSTRING\fR.
+X  .RE
+X  .TP
+X+ .B dosubst(s_str [,d_date [,t_time]])
+X+ Returns a \fBSTRING\fR which is the result of passing \fIstr\fR through
+X+ the substitution filter described earlier.  The parameters \fIdate\fR
+X+ and \fItime\fR establish the effective trigger date and time used by the
+X+ substitution filter.  If \fIdate\fR and \fItime\fR are omitted, they
+X+ default to \fBtoday()\fR and \fBnow()\fR.
+X+ .RS
+X+ .PP
+X+ Note that if \fIstr\fR does not end with "%", a newline character will be
+X+ added to the end of the result.  Also, calling \fBdosubst()\fR with a
+X+ \fIdate\fR which is in the past (i.e., if \fIdate\fR < \fBtoday()\fR)
+X+ will produce undefined results.
+X+ .PP
+X+ \fBDosubst()\fR is only available starting from version 03.00.04 of
+X+ \fBRemind\fR.
+X+ .RE
+X+ .TP
+X  .B filename()
+X  Returns (as a \fBSTRING\fR) the name of the current file being processed
+X  by \fBRemind\fR.  Inside included files, returns the name of the
+X***************
+X*** 1516,1521 ****
+X--- 1607,1613 ----
+X  string \fIsearch\fR.  The first character of a string is numbered 1.
+X  If \fItarget\fR does not exist in \fIsearch\fR, then 0 is returned.
+X  .RS
+X+ .PP
+X  The optional parameter \fIstart\fR specifies the position in
+X  \fIsearch\fR at which to start looking for \fItarget\fR.
+X  .RE
+X***************
+X*** 1579,1584 ****
+X--- 1671,1677 ----
+X  Can take from one to three arguments.  If one argument is supplied, returns
+X  "s" if \fInum\fR is not 1, and "" if \fInum\fR is 1.
+X  .RS
+X+ .PP
+X  If two arguments are supplied, returns \fIstr1\fR + "s" if \fInum\fR is
+X  not 1.  Otherwise, returns \fIstr1\fR.
+X  .PP
+X***************
+X*** 1622,1628 ****
+X  calendar entry currently being computed.
+X  .TP
+X  .B trigdate()
+X! Returns the calculated trigger date of the last \fBREM\fR command.  If used
+X  in the \fIbody\fR of a \fBREM\fR command, returns that command's trigger date.
+X  .TP
+X  .B trigger(d_date)
+X--- 1715,1722 ----
+X  calendar entry currently being computed.
+X  .TP
+X  .B trigdate()
+X! Returns the calculated trigger date of the last \fBREM\fR
+X! or \fBIFTRIG\fR command.  If used
+X  in the \fIbody\fR of a \fBREM\fR command, returns that command's trigger date.
+X  .TP
+X  .B trigger(d_date)
+X***************
+X*** 1656,1661 ****
+X--- 1750,1756 ----
+X  returns the value of variable XY, if it is defined.  If XY is not defined,
+X  an error results.
+X  .RS
+X+ .PP
+X  However, if you supply a second argument, it is returned if the \fIvarname\fR
+X  is not defined.  The expression value("XY", 0) will return 0 if XY is not
+X  defined, and the value of XY if it is defined.
+X***************
+X*** 1663,1669 ****
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.03, returns "03.00.03".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X--- 1758,1764 ----
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.04, returns "03.00.04".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X***************
+X*** 1725,1730 ****
+X--- 1820,1826 ----
+X  		["SET"] a 1
+X  .fi
+X  .RS
+X+ .PP
+X  This restriction is because \fBRemind\fR must be able to unambiguously
+X  determine the first token of a line for the flow-control commands (to
+X  be discussed later.)
+X***************
+X*** 1886,1891 ****
+X--- 1982,1988 ----
+X  The \fBvalue()\fR function \fIalways\fR accesses the "global" value of a
+X  variable, even if it has the same name as an argument.  For example:
+X  .RS
+X+ .PP
+X  .nf
+X  		fset func(x) value("x")
+X  		set x 1
+X***************
+X*** 1992,1999 ****
+X  for September, 1992.  Labour Day was on Monday, 7 September, 1992.
+X  However, when \fBRemind\fR gets around to calculating the trigger
+X  for Tuesday, 8 September, 1992, the \fBOMIT\fR command will now be
+X! ommitting Labour Day for 1993, and the "Mon AFTER" command
+X! will not be triggered.
+X  .PP
+X  It is probably best to stay away from computing \fBOMIT\fR
+X  trigger dates unless you keep these pitfalls in mind.
+X--- 2089,2097 ----
+X  for September, 1992.  Labour Day was on Monday, 7 September, 1992.
+X  However, when \fBRemind\fR gets around to calculating the trigger
+X  for Tuesday, 8 September, 1992, the \fBOMIT\fR command will now be
+X! omitting Labour Day for 1993, and the "Mon AFTER" command
+X! will not be triggered.  (But see the description of \fBSCANFROM\fR
+X! in the section "Details about Trigger Computation.")
+X  .PP
+X  It is probably best to stay away from computing \fBOMIT\fR
+X  trigger dates unless you keep these pitfalls in mind.
+X***************
+X*** 2178,2183 ****
+X--- 2276,2355 ----
+X  If you use \fBsh\fR or \fBbash\fR, you may have to use the "nohup" command
+X  to ensure that the daemon is not killed when you log out.
+X  .PP
+X+ .SH SORTING REMINDERS
+X+ .PP
+X+ The \fB\-g\fR option causes \fBRemind\fR to sort reminders by
+X+ trigger date and time before issuing them.  Note that reminders are
+X+ still calculated in the order encountered in the script.  However, rather
+X+ than being issued immediately, they are saved in an internal buffer.
+X+ When \fBRemind\fR has finished processing the script, it issues the
+X+ saved reminders in sorted order.  The \fB\-g\fR option can be followed
+X+ by one or two characters, which must be "a" or "d".  The first character
+X+ specifies the sort order by trigger date (ascending or descending) and
+X+ the second specifies the sort order by trigger time.  The default is
+X+ to sort both fields in ascending order.
+X+ .PP
+X+ In ascending order, reminders are issued with the most imminent first.
+X+ Descending order is the reverse.  Reminders are always sorted by
+X+ trigger date, and reminders with the same trigger date are then sorted
+X+ by trigger time.  Non-timed reminders are always issued after timed
+X+ reminders in this mode.
+X+ .PP
+X+ You can define a user-defined function called SORTBANNER which takes one
+X+ \fBDATE\fR-type argument.  In sort mode, the following sequence happens:
+X+ .PP
+X+ If \fBRemind\fR notices that the next reminder to issue has a different
+X+ trigger date from the previous one (or if it is the first one to be
+X+ issued), then SORTBANNER is called with the trigger date as its argument.
+X+ The result is coerced to a string, and passed through the substitution
+X+ filter with the appropriate trigger date.  The result is then displayed.
+X+ .PP
+X+ Here's an example - consider the following fragment:
+X+ .PP
+X+ .nf
+X+ 	# Switch off the normal banner
+X+ 	BANNER %
+X+ 	REM 11 March 1993 ++1 MSG Not so important
+X+ 	REM 17 March 1993 ++7 MSG Way in the future
+X+ 	REM 10 March 1993 MSG Important Reminder
+X+ 	REM 11 March 1993 ++1 MSG Not so important - B
+X+ 	FSET sortbanner(x) iif(x == today(), \\
+X+ 		"***** THINGS TO DO TODAY *****", \\
+X+ 		"----- Things to do %b -----")
+X+ .fi
+X+ .PP
+X+ Running this with the \fB-gaa\fR option on 10 March 1993
+X+ produces the following output:
+X+ .PP
+X+ .nf
+X+ 	***** THINGS TO DO TODAY *****
+X+ 
+X+ 	Important Reminder
+X+ 
+X+ 	----- Things to do tomorrow -----
+X+ 
+X+ 	Not so important
+X+ 
+X+ 	Not so important - B
+X+ 
+X+ 	----- Things to do in 7 days' time -----
+X+ 
+X+ 	Way in the future
+X+ .fi
+X+ .PP
+X+ You can use the \fBargs()\fR built-in function to determine whether or
+X+ not SORTBANNER has been defined.  (This could be used, for example, to
+X+ provide a default definition for SORTBANNER in a system-wide file included
+X+ at the end of the user's file.)  Here's an example:
+X+ .PP
+X+ .nd
+X+ 	# Create a default sortbanner function if it hasn't already
+X+ 	# been defined
+X+ 	if args("sortbanner") != 1
+X+ 		fset sortbanner(x) "--- Things to do %b ---"
+X+ 	endif
+X+ .fi
+X+ .PP
+X  .SH FOREIGN LANGUAGE SUPPORT
+X  .PP
+X  Your version of \fBRemind\fR may have been compiled to support a
+X***************
+X*** 2197,2203 ****
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X  .PP
+X! The following commands can be abbreviated:
+X  .TP
+X  o
+X  \fBREM\fR can be omitted - it is implied if no other valid command
+X--- 2369,2375 ----
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X  .PP
+X! The following tokens can be abbreviated:
+X  .TP
+X  o
+X  \fBREM\fR can be omitted - it is implied if no other valid command
+X***************
+X*** 2220,2225 ****
+X--- 2392,2400 ----
+X  .TP
+X  o
+X  \fBINCLUDE\fR --> \fBINC\fR
+X+ .TP
+X+ o
+X+ \fBSCANFROM\fR --> \fBSCAN\fR
+X  .PP
+X  .B NIFTY EXAMPLES
+X  .PP
+X***************
+X*** 2283,2293 ****
+X  multiples of 4.  The second \fBREM\fR command actually issues the
+X  reminder.
+X  .PP
+X  .B DETAILS ABOUT TRIGVALID()
+X  .PP
+X  The \fBtrigvalid()\fR function returns 1 if \fBRemind\fR could find a trigger
+X  date for the previous \fBREM\fR or \fBIFTRIG\fR command.  More specifically,
+X! it returns 1 if \fBRemind\fR finds a date \fInot in the past\fR which
+X  satisfies the trigger.  In addition, there is one special case in which
+X  \fBtrigvalid()\fR returns 1 and \fBtrigdate()\fR returns a meaningful result:
+X  .PP
+X--- 2458,2532 ----
+X  multiples of 4.  The second \fBREM\fR command actually issues the
+X  reminder.
+X  .PP
+X+ .B DETAILS ABOUT TRIGGER COMPUTATION
+X+ .PP
+X+ Here is a \fIconceptual\fR description of how triggers are calculated.
+X+ Note that \fBRemind\fR actually uses a much more efficient procedure,
+X+ but the results are the same as if the conceptual procedure had been
+X+ followed.
+X+ .PP
+X+ \fBRemind\fR starts from the current date (that is, the value of
+X+ \fBtoday()\fR) and scans forward, examining each day one at a time
+X+ until it finds a date which satisfies the trigger, or can prove that
+X+ no such dates (on or later than \fBtoday()\fR) exist.
+X+ .PP
+X+ If \fBRemind\fR is executing a \fBSATISFY\fR-type reminder, it evaluates
+X+ the expression with \fBtrigdate()\fR set to the date found above.  If
+X+ the expression evaluates to zero or the null string, \fBRemind\fR continues
+X+ the scanning procedure described above, starting with the day after the
+X+ trigger found above.
+X+ .PP
+X+ The \fBSCANFROM\fR clause (having a syntax similar to \fBUNTIL\fR)
+X+ can modify the search strategy used.  In this case, \fBRemind\fR begins the
+X+ scanning procedure at \fIscan_date\fR, which is the date specified in
+X+ the \fBSCANFROM\fR clause.  For example:
+X+ .PP
+X+ .nf
+X+ 	REM Mon 1 SCANFROM 17 Jan 1992 MSG Foo
+X+ .fi
+X+ .PP
+X+ The example above will always have a trigger date of Monday, 3 February 1992.
+X+ That is because \fBRemind\fR starts scanning from 17 January 1992, and
+X+ stops scanning as soon as it hits a date which satisfies "Mon 1."
+X+ .PP
+X+ The main use of \fBSCANFROM\fR is in situations where you want to
+X+ calculate the positions of floating holidays.  Consider the Labour
+X+ Day example shown much earlier.  Labour Day is the first Monday
+X+ in September.  It can move over a range of 7 days.  Consider the
+X+ following sequence:
+X+ .PP
+X+ .nf
+X+ 	REM Mon 1 Sept SCANFROM [trigger(today()-7)] SATISFY 1
+X+ 	OMIT [trigger(trigdate())]
+X+ 
+X+ 	REM Mon AFTER MSG Hello
+X+ .fi
+X+ .PP
+X+ The \fBSCANFROM\fR clause makes sure that \fBRemind\fR begins scanning
+X+ from 7 days before the current date.  This ensures that Labour Day for
+X+ the current year will continue to be triggered until 7 days after it has
+X+ occurred.  This allows you to safely use the AFTER keyword as shown.
+X+ .PP
+X+ In general, use \fBSCANFROM\fR as shown for safe moveable \fBOMITs\fR.  The
+X+ amount you should scan back by (7 days in the example above) depends on
+X+ the number of possible consecutive \fBOMITted\fR days which may occur, and
+X+ on the range of the moveable holiday.  Generally, a value of 7 is safe.
+X+ .PP
+X+ Note that if you use one \fBREM\fR command to calculate a trigger date,
+X+ perform date calculations (addition or subtraction, for example) and
+X+ then use the modified date in a subsequent \fBREM\fR command, the results
+X+ \fImay not be what you intended.\fR  This is because you have circumvented
+X+ the normal scanning mechanism.  You should try to write \fBREM\fR commands
+X+ which compute trigger dates that can be used unmodified in subsequent
+X+ \fBREM\fR commands.  The file "defs.rem" which comes with the \fBRemind\fR
+X+ distribution contains examples.
+X+ .PP
+X  .B DETAILS ABOUT TRIGVALID()
+X  .PP
+X  The \fBtrigvalid()\fR function returns 1 if \fBRemind\fR could find a trigger
+X  date for the previous \fBREM\fR or \fBIFTRIG\fR command.  More specifically,
+X! it returns 1 if \fBRemind\fR finds a date \fInot before the starting
+X! date of the scanning\fR which
+X  satisfies the trigger.  In addition, there is one special case in which
+X  \fBtrigvalid()\fR returns 1 and \fBtrigdate()\fR returns a meaningful result:
+X  .PP
+X***************
+X*** 2294,2300 ****
+X  If the \fBREM\fR or \fBIFTRIG\fR command did not contain an \fBUNTIL\fR
+X  clause, and contained all of the \fIday\fR, \fImonth\fR and \fIyear\fR
+X  components, then \fBRemind\fR will correctly compute a trigger date, even
+X! if it happens to be in the past.  Note that this behaviour is not true for
+X  versions of \fBRemind\fR prior to 03.00.01.
+X  .SH AUTHOR
+X  .PP
+X--- 2533,2540 ----
+X  If the \fBREM\fR or \fBIFTRIG\fR command did not contain an \fBUNTIL\fR
+X  clause, and contained all of the \fIday\fR, \fImonth\fR and \fIyear\fR
+X  components, then \fBRemind\fR will correctly compute a trigger date, even
+X! if it happens to be before the start of scanning.
+X! Note that this behaviour is not true for
+X  versions of \fBRemind\fR prior to 03.00.01.
+X  .SH AUTHOR
+X  .PP
+X*** ../patch3/test.cmp	Tue Feb  2 14:36:18 1993
+X--- ./test.cmp	Wed Mar  3 17:01:52 1993
+X***************
+X*** 199,204 ****
+X--- 199,226 ----
+X  ./test.rem(114): Trig = Monday, 18 February, 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X+ # Test the scanfrom clause
+X+ REM Fri SATISFY 1
+X+ ./test.rem(118): Trig = Friday, 22 February, 1991
+X+ OMIT [trigger(trigdate())]
+X+ trigdate() => 1991/02/22
+X+ trigger(1991/02/22) => "22 February 1991"
+X+ REM Fri after MSG 23 Feb 1991
+X+ ./test.rem(120): Trig = Saturday, 23 February, 1991
+X+ CLEAR-OMIT-CONTEXT
+X+ REM Fri SCANFROM [trigger(today()-7)] SATISFY 1
+X+ today() => 1991/02/16
+X+ 1991/02/16 - 7 => 1991/02/09
+X+ trigger(1991/02/09) => "9 February 1991"
+X+ ./test.rem(122): Trig = Friday, 15 February, 1991
+X+ OMIT [trigger(trigdate())]
+X+ trigdate() => 1991/02/15
+X+ trigger(1991/02/15) => "15 February 1991"
+X+ REM Fri after MSG 16 Feb 1991
+X+ ./test.rem(124): Trig = Saturday, 16 February, 1991
+X+ 16 Feb 1991
+X+ 
+X+ CLEAR-OMIT-CONTEXT
+X  set a000 abs(1)
+X  abs(1) => 1
+X  set a001 abs(-1)
+X***************
+X*** 221,227 ****
+X  coerce("string", 11:44) => "11:44"
+X  set a009 coerce("int", "badnews")
+X  coerce("int", "badnews") => Can't coerce
+X! ./test.rem(126): Can't coerce
+X  set a010 coerce("int", "12")
+X  coerce("int", "12") => 12
+X  set a011 coerce("int", 11:44)
+X--- 243,249 ----
+X  coerce("string", 11:44) => "11:44"
+X  set a009 coerce("int", "badnews")
+X  coerce("int", "badnews") => Can't coerce
+X! ./test.rem(135): Can't coerce
+X  set a010 coerce("int", "12")
+X  coerce("int", "12") => 12
+X  set a011 coerce("int", 11:44)
+X***************
+X*** 233,239 ****
+X  date(1992, 2, 2) => 1992/02/02
+X  set a014 date(1993, 2, 29)
+X  date(1993, 2, 29) => Bad date specification
+X! ./test.rem(131): Bad date specification
+X  set a015 day(today())
+X  today() => 1991/02/16
+X  day(1991/02/16) => 16
+X--- 255,261 ----
+X  date(1992, 2, 2) => 1992/02/02
+X  set a014 date(1993, 2, 29)
+X  date(1993, 2, 29) => Bad date specification
+X! ./test.rem(140): Bad date specification
+X  set a015 day(today())
+X  today() => 1991/02/16
+X  day(1991/02/16) => 16
+X***************
+X*** 328,342 ****
+X  set a050 substr(a049, 2)
+X  a049 => 21
+X  substr(21, 2) => Type mismatch
+X! ./test.rem(169): Type mismatch
+X  set a051 substr(a050, 2, 6)
+X! a050 => ./test.rem(170): Undefined variable: a050
+X  set a052 time(1+2, 3+4)
+X  1 + 2 => 3
+X  3 + 4 => 7
+X  time(3, 7) => 03:07
+X  rem 10 jan 1992 AT 11:22 CAL
+X! ./test.rem(172): Trig = Friday, 10 January, 1992
+X  set a053 trigdate()
+X  trigdate() => 1992/01/10
+X  set a054 trigtime()
+X--- 350,364 ----
+X  set a050 substr(a049, 2)
+X  a049 => 21
+X  substr(21, 2) => Type mismatch
+X! ./test.rem(178): Type mismatch
+X  set a051 substr(a050, 2, 6)
+X! a050 => ./test.rem(179): Undefined variable: a050
+X  set a052 time(1+2, 3+4)
+X  1 + 2 => 3
+X  3 + 4 => 7
+X  time(3, 7) => 03:07
+X  rem 10 jan 1992 AT 11:22 CAL
+X! ./test.rem(181): Trig = Friday, 10 January, 1992
+X  set a053 trigdate()
+X  trigdate() => 1992/01/10
+X  set a054 trigtime()
+X***************
+X*** 349,355 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.03"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 371,377 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.04"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 389,401 ****
+X  fset g(x,y) max(x,y)
+X  fset h(x,y) min(g(x+y, x*y), g(x-y, x/y))
+X  set a071 g(1, 2)
+X! UserFN g(1, 2)
+X  x => 1
+X  y => 2
+X  max(1, 2) => 2
+X  Leaving UserFN g() => 2
+X  set a072 h(2, 3)
+X! UserFN h(2, 3)
+X  x => 2
+X  y => 3
+X  2 + 3 => 5
+X--- 411,423 ----
+X  fset g(x,y) max(x,y)
+X  fset h(x,y) min(g(x+y, x*y), g(x-y, x/y))
+X  set a071 g(1, 2)
+X! Entering UserFN g(1, 2)
+X  x => 1
+X  y => 2
+X  max(1, 2) => 2
+X  Leaving UserFN g() => 2
+X  set a072 h(2, 3)
+X! Entering UserFN h(2, 3)
+X  x => 2
+X  y => 3
+X  2 + 3 => 5
+X***************
+X*** 402,408 ****
+X  x => 2
+X  y => 3
+X  2 * 3 => 6
+X! UserFN g(5, 6)
+X  x => 5
+X  y => 6
+X  max(5, 6) => 6
+X--- 424,430 ----
+X  x => 2
+X  y => 3
+X  2 * 3 => 6
+X! Entering UserFN g(5, 6)
+X  x => 5
+X  y => 6
+X  max(5, 6) => 6
+X***************
+X*** 413,419 ****
+X  x => 2
+X  y => 3
+X  2 / 3 => 0
+X! UserFN g(-1, 0)
+X  x => -1
+X  y => 0
+X  max(-1, 0) => 0
+X--- 435,441 ----
+X  x => 2
+X  y => 3
+X  2 / 3 => 0
+X! Entering UserFN g(-1, 0)
+X  x => -1
+X  y => 0
+X  max(-1, 0) => 0
+X***************
+X*** 421,427 ****
+X  min(6, 0) => 0
+X  Leaving UserFN h() => 0
+X  set a073 h("foo", 11:33)
+X! UserFN h("foo", 11:33)
+X  x => "foo"
+X  y => 11:33
+X  "foo" + 11:33 => "foo11:33"
+X--- 443,449 ----
+X  min(6, 0) => 0
+X  Leaving UserFN h() => 0
+X  set a073 h("foo", 11:33)
+X! Entering UserFN h("foo", 11:33)
+X  x => "foo"
+X  y => 11:33
+X  "foo" + 11:33 => "foo11:33"
+X***************
+X*** 428,434 ****
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(195): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  
+X      Variable  Value
+X--- 450,456 ----
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(204): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  
+X      Variable  Value
+X***************
+X*** 453,459 ****
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.03"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X--- 475,481 ----
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.04"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X*** ../patch3/test.rem	Wed Dec 16 10:51:50 1992
+X--- ./test.rem	Wed Mar  3 17:01:45 1993
+X***************
+X*** 114,119 ****
+X--- 114,128 ----
+X  REM 18 Feb 1991 ++1 MSG 18 Feb 1991 ++1 (17Feb91 omitted)
+X  
+X  CLEAR-OMIT-CONTEXT
+X+ # Test the scanfrom clause
+X+ REM Fri SATISFY 1
+X+ OMIT [trigger(trigdate())]
+X+ REM Fri after MSG 23 Feb 1991
+X+ CLEAR-OMIT-CONTEXT
+X+ REM Fri SCANFROM [trigger(today()-7)] SATISFY 1
+X+ OMIT [trigger(trigdate())]
+X+ REM Fri after MSG 16 Feb 1991
+X+ CLEAR-OMIT-CONTEXT
+X  set a000 abs(1)
+X  set a001 abs(-1)
+X  set a002 asc("foo")
+X*** ../patch3/token.c	Thu Jan 21 16:45:40 1993
+X--- ./token.c	Tue Mar  2 12:10:53 1993
+X***************
+X*** 75,85 ****
+X     { "once", 		3, 	T_Once,		0 },
+X     { "pop-omit-context", 3,	T_Pop,		0 },
+X     { "preserve",        8,      T_Preserve,     0 },
+X!    { "Push-omit-context", 4, 	T_Push,		0 },
+X     { "rem",		3,	T_Rem,		0 },
+X     { "run", 		3, 	T_RemType, 	RUN_TYPE },
+X     { "satisfy",		7,	T_RemType,      SAT_TYPE },
+X     { "saturday",	3,	T_WkDay,	5 },
+X     { "september", 	3, 	T_Month, 	8 },
+X     { "set",		3,	T_Set,		0 },
+X     { "skip", 		3, 	T_Skip, 	SKIP_SKIP },
+X--- 75,86 ----
+X     { "once", 		3, 	T_Once,		0 },
+X     { "pop-omit-context", 3,	T_Pop,		0 },
+X     { "preserve",        8,      T_Preserve,     0 },
+X!    { "push-omit-context", 4, 	T_Push,		0 },
+X     { "rem",		3,	T_Rem,		0 },
+X     { "run", 		3, 	T_RemType, 	RUN_TYPE },
+X     { "satisfy",		7,	T_RemType,      SAT_TYPE },
+X     { "saturday",	3,	T_WkDay,	5 },
+X+    { "scanfrom",	4,	T_Scanfrom,	0 },
+X     { "september", 	3, 	T_Month, 	8 },
+X     { "set",		3,	T_Set,		0 },
+X     { "skip", 		3, 	T_Skip, 	SKIP_SKIP },
+X***************
+X*** 173,178 ****
+X--- 174,180 ----
+X  #endif
+X  {
+X     register int top, bot, mid, r;
+X+    int l;
+X  
+X     tok->type = T_Illegal;
+X     if (! *s) {
+X***************
+X*** 191,196 ****
+X--- 193,199 ----
+X        return;
+X     }
+X  
+X+    l = strlen(s);
+X     bot = 0;
+X     top = sizeof(TokArray) / sizeof(TokArray[0]) - 1;
+X  
+X***************
+X*** 198,207 ****
+X        mid = (top + bot) / 2;
+X        r = TokStrCmp(&TokArray[mid], s);
+X        if (!r) {
+X! 	 tok->type = TokArray[mid].type;
+X! 	 tok->val  = TokArray[mid].val;
+X! 	 return;
+X!       }
+X        if (r > 0) top = mid-1; else bot=mid+1;
+X     }
+X  
+X--- 201,222 ----
+X        mid = (top + bot) / 2;
+X        r = TokStrCmp(&TokArray[mid], s);
+X        if (!r) {
+X!          if (l >= TokArray[mid].MinLen) {
+X!    	    tok->type = TokArray[mid].type;
+X! 	    tok->val  = TokArray[mid].val;
+X! 	    return;
+X!          } else {
+X! 	    while (mid && !TokStrCmp(&TokArray[mid-1],s)) mid--;
+X! 	    while (!TokStrCmp(&TokArray[mid], s) && l < TokArray[mid].MinLen)
+X! 	       mid++;
+X! 	    if (!TokStrCmp(&TokArray[mid], s)) {
+X! 	       tok->type = TokArray[mid].type;
+X! 	       tok->val = TokArray[mid].val;
+X! 	       return;
+X! 	    }
+X!          }
+X! 	 break;
+X!        }
+X        if (r > 0) top = mid-1; else bot=mid+1;
+X     }
+X  
+X***************
+X*** 209,215 ****
+X     array. */
+X  #if LANG != ENGLISH
+X      for (r=0; r<(sizeof(NonEnglishToks) / sizeof(Token)); r++) {
+X!        if (!TokStrCmp(&NonEnglishToks[r], s)) {
+X            tok->type = NonEnglishToks[r].type;
+X            tok->val = NonEnglishToks[r].val;
+X  	  return;
+X--- 224,231 ----
+X     array. */
+X  #if LANG != ENGLISH
+X      for (r=0; r<(sizeof(NonEnglishToks) / sizeof(Token)); r++) {
+X!        if (l >= NonEnglishToks[r].MinLen && 
+X!                 !TokStrCmp(&NonEnglishToks[r], s)) {
+X            tok->type = NonEnglishToks[r].type;
+X            tok->val = NonEnglishToks[r].val;
+X  	  return;
+X***************
+X*** 247,254 ****
+X     if (isdigit(*s)) {
+X        PARSENUM(t->val, s);
+X  
+X!       /* If we hit a colon, we've probably got a time hr:min */
+X!       if (*s == ':') {
+X  	 s++;
+X  	 hour = t->val;
+X  	 PARSENUM(min, s);
+X--- 263,270 ----
+X     if (isdigit(*s)) {
+X        PARSENUM(t->val, s);
+X  
+X!       /* If we hit a colon or a period, we've probably got a time hr:min */
+X!       if (*s == ':' || *s == '.' || *s == TIMESEP) {
+X  	 s++;
+X  	 hour = t->val;
+X  	 PARSENUM(min, s);
+X***************
+X*** 312,327 ****
+X  #endif
+X  {
+X     register int r;
+X-    register int l=0;
+X     char *tk = t->name;
+X     while(*tk && *s) {
+X        r = UPPER(*tk) - UPPER(*s);
+X        tk++;
+X        s++;
+X-       l++;
+X        if (r) return r;
+X     }
+X-    if (l < t->MinLen) return 1;
+X     if (!*s) return 0;
+X     return (*tk - *s);
+X  }
+X--- 328,340 ----
+X*** ../patch3/types.h	Fri Jan  8 13:23:23 1993
+X--- ./types.h	Mon Mar  1 16:56:54 1993
+X***************
+X*** 51,56 ****
+X--- 51,57 ----
+X     int until;
+X     int typ;
+X     int once;
+X+    int scanfrom;
+X  } Trigger;
+X  
+X  /* A time trigger */
+X***************
+X*** 84,90 ****
+X  #define NO_UNTIL -1
+X  #define NO_ONCE 0
+X  #define ONCE_ONCE 1
+X! 
+X  #define NO_SKIP 0
+X  #define SKIP_SKIP 1
+X  #define BEFORE_SKIP 2
+X--- 85,91 ----
+X  #define NO_UNTIL -1
+X  #define NO_ONCE 0
+X  #define ONCE_ONCE 1
+X! #define NO_DATE -1
+X  #define NO_SKIP 0
+X  #define SKIP_SKIP 1
+X  #define BEFORE_SKIP 2
+X***************
+X*** 121,127 ****
+X    T_Number,
+X    T_Clr,
+X    T_Debug,
+X!   T_Dumpvars
+X  };
+X  
+X  /* The structure of a token */
+X--- 122,129 ----
+X    T_Number,
+X    T_Clr,
+X    T_Debug,
+X!   T_Dumpvars,
+X!   T_Scanfrom
+X  };
+X  
+X  /* The structure of a token */
+X***************
+X*** 154,156 ****
+X--- 156,162 ----
+X  #define SC_AMPM   0   /* Time shown as 3:00am, etc. */
+X  #define SC_MIL    1   /* 24-hour time format */
+X  #define SC_NOTIME 2   /* Do not display time in SC format. */
+X+ 
+X+ /* Flags for sorting */
+X+ #define SORT_ASCEND 1
+X+ #define SORT_DESCEND 2
+X*** ../patch3/userfns.c	Fri Feb  5 14:57:30 1993
+X--- ./userfns.c	Tue Mar  2 11:39:01 1993
+X***************
+X*** 27,34 ****
+X  #define FUNC_HASH_SIZE 32   /* Size of User-defined function hash table */
+X  
+X  /* Define the data structure used to hold a user-defined function */
+X! typedef struct _udf_struct {
+X!    struct _udf_struct *next;
+X     char name[VAR_NAME_LEN+1];
+X     char *text;
+X     Var *locals;
+X--- 27,34 ----
+X  #define FUNC_HASH_SIZE 32   /* Size of User-defined function hash table */
+X  
+X  /* Define the data structure used to hold a user-defined function */
+X! typedef struct udf_struct {
+X!    struct udf_struct *next;
+X     char name[VAR_NAME_LEN+1];
+X     char *text;
+X     Var *locals;
+X***************
+X*** 40,45 ****
+X--- 40,49 ----
+X  /* The hash table */
+X  static UserFunc *FuncHash[FUNC_HASH_SIZE];
+X  
+X+ /* Access to built-in functions */
+X+ extern int NumFuncs;
+X+ extern Operator Func[];
+X+ 
+X  /* We need access to the expression evaluation stack */
+X  extern Value ValStack[];
+X  extern int ValStackPtr;
+X***************
+X*** 80,85 ****
+X--- 84,95 ----
+X     func = NEW(UserFunc);
+X     if (!func) return E_NO_MEM;
+X     StrnCpy(func->name, TokBuffer, VAR_NAME_LEN);
+X+    if (!Hush) {
+X+       if (FindFunc(TokBuffer, Func, NumFuncs)) {
+X+          Eprint("Warning:  Attempt to redefine built-in function '%s'",
+X+ 	         TokBuffer);
+X+       }
+X+    }
+X     func->locals = NULL;
+X     func->text = NULL;
+X     func->IsCached = 1;
+X***************
+X*** 252,262 ****
+X     /* Search for the function */
+X     f = FuncHash[h];
+X     while (f && !StrinEq(name, f->name, VAR_NAME_LEN)) f = f->next;
+X!    if (!f) return E_UNDEF_FUNC;
+X! 
+X     /* Debugging stuff */
+X     if (DebugFlag & DB_PRTEXPR) {
+X!       fprintf(ErrFp, "UserFN %s(", f->name);
+X        for (i=0; i<nargs; i++) {
+X           PrintValue(&ValStack[ValStackPtr - nargs + i], ErrFp);
+X           if (i<nargs-1) fprintf(ErrFp, ", ");
+X--- 262,274 ----
+X     /* Search for the function */
+X     f = FuncHash[h];
+X     while (f && !StrinEq(name, f->name, VAR_NAME_LEN)) f = f->next;
+X!    if (!f) {
+X!       Eprint("Undefined function '%s'", name);
+X!       return E_UNDEF_FUNC;
+X!    }
+X     /* Debugging stuff */
+X     if (DebugFlag & DB_PRTEXPR) {
+X!       fprintf(ErrFp, "Entering UserFN %s(", f->name);
+X        for (i=0; i<nargs; i++) {
+X           PrintValue(&ValStack[ValStackPtr - nargs + i], ErrFp);
+X           if (i<nargs-1) fprintf(ErrFp, ", ");
+X***************
+X*** 264,278 ****
+X        fprintf(ErrFp, ")\n");
+X     }
+X     /* Detect illegal recursive call */
+X!    if (f->IsActive) return E_RECURSIVE;
+X! 
+X     /* Check number of args */
+X!    if (nargs != f->nargs)
+X        return (nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS;
+X! 
+X     /* Found the function - set up a local variable frame */
+X     h = SetUpLocalVars(f);
+X!    if (h) return h;
+X  
+X     /* Evaluate the expression */
+X     f->IsActive = 1;
+X--- 276,307 ----
+X        fprintf(ErrFp, ")\n");
+X     }
+X     /* Detect illegal recursive call */
+X!    if (f->IsActive) {
+X!       if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X!          fprintf(ErrFp, "%s\n", ErrMsg[E_RECURSIVE]);
+X!       }
+X!       return E_RECURSIVE;
+X!    }
+X!    
+X     /* Check number of args */
+X!    if (nargs != f->nargs) {
+X!       if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X!          fprintf(ErrFp, "%s\n",
+X! 	    ErrMsg[(nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS]);
+X!       }
+X        return (nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS;
+X!    }
+X     /* Found the function - set up a local variable frame */
+X     h = SetUpLocalVars(f);
+X!    if (h) {
+X!       if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X!          fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X!       }
+X!       return h;
+X!    }
+X  
+X     /* Evaluate the expression */
+X     f->IsActive = 1;
+X***************
+X*** 343,345 ****
+X--- 372,398 ----
+X        v = v->next;
+X     }
+X  }
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  UserFuncExists                                             */
+X+ /*                                                             */
+X+ /*  Return the number of arguments accepted by the function if */
+X+ /*  it is defined, or -1 if it is not defined.                 */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int UserFuncExists(char *fn)
+X+ #else
+X+ int UserFuncExists(fn)
+X+ char *fn;
+X+ #endif
+X+ {
+X+    UserFunc *f;
+X+    int h = HashVal(fn) % FUNC_HASH_SIZE;
+X+ 
+X+    f = FuncHash[h];
+X+    while (f && !StrinEq(fn, f->name, VAR_NAME_LEN)) f = f->next;
+X+    if (!f) return -1;
+X+    else return f->nargs;
+X+ }
+X+ 
+X*** ../patch3/utils.c	Thu Jan 21 16:33:51 1993
+X--- ./utils.c	Thu Feb 18 13:28:38 1993
+X***************
+X*** 19,24 ****
+X--- 19,25 ----
+X  #include <malloc.h>
+X  #endif
+X  #include <ctype.h>
+X+ #include "globals.h"
+X  
+X  #define UPPER(c) (islower(c) ? toupper(c) : c)
+X  
+X***************
+X*** 218,220 ****
+X--- 219,243 ----
+X  }
+X  #endif
+X  
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  DateOK                                                     */
+X+ /*                                                             */
+X+ /*  Return 1 if the date is OK, 0 otherwise.                   */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int DateOK(int y, int m, int d)
+X+ #else
+X+ int DateOK(y, m, d)
+X+ int y, m, d;
+X+ #endif
+X+ {
+X+    if (d < 1                 ||
+X+        m < 0                 ||
+X+        y < BASE              ||
+X+        m > 11                ||
+X+        y > BASE + YR_RANGE   ||
+X+        d > DaysInMonth(m, y) ) return 0;
+X+    else return 1;
+X+ }
+END_OF_FILE
+  if test 58300 -ne `wc -c <'patch.04.B'`; then
+    echo shar: \"'patch.04.B'\" unpacked with wrong size!
+  elif test -f 'patch.04.A'; then
+    echo shar: Combining  \"'patch.04'\" \(111518 characters\)
+    cat 'patch.04.A' 'patch.04.B' > 'patch.04'
+    if test 111518 -ne `wc -c <'patch.04'`; then
+      echo shar: \"'patch.04'\" combined with wrong size!
+    else
+      rm patch.04.A patch.04.B
+    fi
+  fi
+  # end of 'patch.04.B'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

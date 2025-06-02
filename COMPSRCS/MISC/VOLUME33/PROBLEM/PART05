@@ -1,0 +1,1308 @@
+Newsgroups: comp.sources.misc
+From: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Subject:  v33i007:  problem - A Problem Database Manager, Part05/07
+Message-ID: <1992Oct19.165921.4283@sparky.imd.sterling.com>
+X-Md4-Signature: e7833136c1cb6e91ef491e74f7469920
+Date: Mon, 19 Oct 1992 16:59:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Posting-number: Volume 33, Issue 7
+Archive-name: problem/part05
+Environment: UNIX, GDBM, C++, termcap
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 7)."
+# Contents:  problem1.C
+# Wrapped by lijewski@xtesoc2 on Mon Oct 19 11:05:14 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'problem1.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'problem1.C'\"
+else
+echo shar: Extracting \"'problem1.C'\" \(36824 characters\)
+sed "s/^X//" >'problem1.C' <<'END_OF_FILE'
+X/*
+X**
+X** problem - a problem database manager
+X**
+X** Written in C++ using the termcap\(3\) library for screen management
+X** and GDBM as the database library.
+X**
+X** problem.C is made by cating together problem1.C and problem2.C
+X**
+X** problem1.C problem1.C 1.21   Delta\'d: 13:22:00 10/13/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#include <ctype.h>
+X
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif
+X
+X#include <fcntl.h>
+X#include <new.h>
+X#include <osfcn.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/stat.h>
+X#include <sys/types.h>
+X#include <sys/wait.h>
+X#include <time.h>
+X#include <unistd.h>
+X
+X#include "classes.h"
+X#include "display.h"
+X#include "keys.h"
+X#include "lister.h"
+X#include "problem.h"
+X#include "regexp.h"
+X#include "utilities.h"
+X#include "version.h"
+X
+X// a little POSIX stuff
+X#ifndef SEEK_SET
+X#define SEEK_SET 0
+X#endif
+X#ifndef SEEK_END
+X#define SEEK_END 2
+X#endif
+X
+X//
+X// Where problem\'s maillists and the sequence file reside.
+X//
+X#ifdef HOMEBASE
+Xconst char *HomeBase = HOMEBASE;
+X#else
+Xconst char *HomeBase = "/staff/mjlx/src/c++/problem";
+X#endif
+X
+X//
+X// Name of file containing valid problem areas relative to `HomeBase\'.
+X//
+Xconst char *const ProblemAreas = "AREAS";
+X
+X//
+X// Definition of our GDMB filehandle  -- only one open GDBM file at a time.
+X//
+XGDBM_FILE GdbmFile;
+X
+X//
+X// Suffix for gdbm files.
+X//
+Xconst char *const GdbmSuffix = ".gdbm";
+X
+X//
+X// File containing last problem #, relative to `HomeBase\'.
+X//
+Xconst char *const SequenceFile = "SEQUENCE";
+X
+X//
+X// Prefix for maillist files.
+X//
+Xconst char *const MailListPrefix = "MAILLIST";
+X
+X//
+X// Our modeline prefix.
+X//
+Xconst char *const ModelinePrefix = "----- Problem: ";
+X
+X//
+X// Help message for the message window when displaying help.
+X//
+Xconst char *const HELP_MSG[] = {
+X    "Space scrolls forward.  Other keys quit.",
+X    "Space forward, Backspace backward.  Other keys quit.",
+X    "Backspace scrolls backward.  Other keys quit.",
+X    "Any key quits."
+X};
+X
+X//
+X// Our fields.
+X//
+Xstatic const char *const Fields[] =
+X{
+X    "Area",
+X    "Logger",
+X    "Reporter",
+X    "Logged",
+X    "Updated",
+X    "Keywords",
+X    "Summary",
+X    "Status",
+X    "Site",
+X    "Severity",
+X    "Problem #"
+X};
+X
+Xinline int NFields() { return sizeof(Fields) / sizeof(Fields[0]); }
+X
+X//
+X// The current area - used by setCurrentArea\(\) and CurrentArea\(\).
+X//
+Xstatic String current_area;
+X
+Xvoid setCurrentArea(const char *area)
+X{
+X    current_area    = area;
+X    const char *tmp = strchr(current_area, '-');
+X
+X    // strip off any comments
+X    if (tmp)
+X        current_area[tmp - (const char *)current_area] = 0;
+X    else
+X        tmp = (const char *)current_area + current_area.length();
+X
+X    // strip off any trailing blanks
+X    for (--tmp; *tmp == ' ' || *tmp == '\t'; --tmp)
+X        current_area[tmp - (const char *)current_area] = 0;
+X
+X    // set any remaining spaces to underscores
+X    while ((tmp = strchr(current_area, ' ')) != 0)
+X        current_area[tmp - (const char *)current_area] = '_';
+X}
+X
+Xinline const char *CurrentArea() { return current_area; }
+X
+X//
+X// our commands - the first character of each string is the unique
+X//                character identifying that command.
+X//
+Xstatic const char *const Commands[] =
+X{
+X    "l  -- log new problem",
+X    "a  -- append to a problem",
+X    "c  -- close a problem",
+X    "e  -- examine a problem",
+X    "v  -- view problem summaries",
+X    "s  -- subscribe to this problem area",
+X    "u  -- unsubscribe from this problem area",
+X    "k  -- keyword search over problem headers",
+X    "K  -- keyword search over problem headers and data",
+X    "d  -- delete a problem from the database",
+X    "r  -- reorganize the database",
+X    "M  -- modify keyword field",
+X    "R  -- reopen a closed problem",
+X    "q  -- quit"
+X};
+X
+Xinline int NCommands() { return sizeof(Commands) / sizeof(Commands[0]); }
+X
+X/*
+X** exception handler for new\(\) - called once in main\(\)
+X*/
+X
+Xstatic void free_store_exception()
+X{
+X    error("exiting, memory exhausted, sorry");
+X}
+X
+X/*
+X** get_problem_areas - read in the valid problem areas. Exits on error.
+X*/
+X
+Xstatic const char **get_problem_areas()
+X{
+X    static char **Areas;
+X    if (Areas) return (const char **)Areas;
+X
+X    String filename = String(HomeBase) + "/" + ProblemAreas;
+X    FILE *fp = fopen(filename, "r");
+X    if (!fp)
+X        error ("file %s, line %d, couldn't fopen() `%s'",
+X               __FILE__, __LINE__, (const char *)filename);
+X
+X    const int chunksize = 10;  // average number of problem areas expected
+X    const int linelen   = 80;  // average length of line in AREAS expected
+X    Areas = new char*[chunksize];
+X
+X    if (read_file(fp, Areas, chunksize, linelen) < 0)
+X        error("file %s, line %d, error reading `%s'.",
+X              __FILE__, __LINE__, (const char *)filename);
+X
+X    (void)fclose(fp);
+X
+X    return (const char **)Areas;
+X}
+X
+X/*
+X** is_area - is `area\' a valid problem area? Returns 1 if true, else 0.
+X*/
+X
+Xstatic int is_area(const char *area)
+X{
+X    const char **areas = get_problem_areas();
+X
+X    for (int i = 0; areas[i]; i++)
+X    {
+X        const char *space = strchr(areas[i],' ');
+X        int length = space ? space - areas[i] - 1 : (int)strlen(areas[i]);
+X        if (strncmp(area, areas[i], length) == 0) return 1;
+X    }
+X
+X    return 0;
+X}
+X
+X/*
+X** NAreas - the number of areas
+X*/
+X
+Xstatic int NAreas()
+X{
+X    static int nAreas;
+X    if (nAreas) return nAreas;
+X    const char **areas = get_problem_areas();
+X    for (int i = 0; areas[i]; i++) ;
+X    return nAreas = i;
+X}
+X
+X/*
+X** display_area_screen - displays the screen of available areas.
+X**                       We assume that the caller will display the modeline.
+X**                       Needs at least four rows to be useful.
+X*/
+X
+Xstatic void display_area_screen()
+X{
+X    cursor_home();
+X    clear_to_end_of_line();
+X    const char **areas = get_problem_areas();
+X    enter_standout_mode();
+X
+X    //
+X    // If we have enough available screen lines, we display the areas
+X    // one per line.  Otherwise, we display them in columns of up to
+X    // column_width characters.
+X    //
+X    const int column_width = 25;           // space allowed for each area
+X    int dvd = columns() / column_width;    // # compacted areas per row
+X    int rws = rows() - 5;
+X    int compact = NAreas() <= rws ? 0 : 1; // compact the areas?
+X
+X    const char *fmt = NAreas() <= rws * dvd ? "The %d Areas:" :
+X                                              "The First %d Areas:";
+X
+X    char *msg = new char[strlen(fmt) + 8]; // lots of problem areas
+X
+X    (void)sprintf(msg, fmt, NAreas() <= rws * dvd ? NAreas() : rws * dvd);
+X
+X    display_string(msg);
+X
+X    // maximum # of digits we must display
+X    int digits = int(strlen(msg) - strlen(fmt)) + 2;
+X
+X    DELETE msg;
+X
+X    end_standout_mode();
+X    clear_to_end_of_line();
+X    cursor_wrap();
+X
+X    for (int i = 0, offset = 0; i < NAreas() && i < rws * dvd; i++)
+X    {
+X        if (compact)
+X        {
+X            offset = (i / rws) * column_width;
+X            move_cursor((i % rws) + 2, offset);
+X        }
+X        clear_to_end_of_line();
+X        (void)fputs("  ", stdout);  // two spaces for initial indentation
+X        enter_standout_mode();
+X        (void)fprintf(stdout, "%*d", digits, i + 1);
+X        end_standout_mode();
+X        putchar(' ');               // and one more between number and area
+X        display_string(areas[i], 0, digits + 3 + offset);
+X    }
+X
+X    // clear remaining dirty lines
+X    for (; i < rows() - 4; i++) { clear_to_end_of_line(); cursor_wrap(); }
+X}
+X
+X/*
+X** help - display some help lines.  The first two lines of the output
+X**        consists of the message `msg\' and then a blank line.
+X**        This is followed by the contents of `lines\', which has `dim\'
+X**        elements.
+X**
+X*/
+X
+Xstatic void help(const char *lines[], int dim, const char *msg)
+X{
+X    String old_modeline(current_modeline);
+X    update_modeline("----- HELP");
+X    
+X    int position = 0, offset = 0;
+X    char key;
+X    do
+X    {
+X        cursor_home();
+X        if (position == 0)
+X        {
+X            offset = 2;
+X            clear_to_end_of_line();
+X            display_string(msg);
+X            clear_to_end_of_line();
+X            move_cursor(2, 0);
+X        }
+X        for (int i = 0; i + offset < rows()-2 && i + position < dim; i++)
+X        {
+X            clear_to_end_of_line();
+X            display_string(lines[i + position]);
+X        }
+X        move_cursor(i + offset, 0);
+X        for (; i + offset < rows() - 2; i++)
+X        {
+X            clear_to_end_of_line();
+X            cursor_down();
+X        }
+X        clear_message_line();
+X
+X        if (position == 0 && dim + offset <= rows() - 2)
+X            // whole help message fits in initial screen
+X            (void)fputs(HELP_MSG[3], stdout);
+X        else if (position == 0)
+X            // the head of the help message -- it all doesn\'t fit
+X            (void)fputs(HELP_MSG[0], stdout);
+X        else if (position + rows() - 2 >= dim)
+X            // the tail of the help message
+X            (void)fputs(HELP_MSG[2], stdout);
+X        else
+X            //  somewhere in between
+X            (void)fputs(HELP_MSG[1], stdout);
+X        synch_display();
+X
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0 // assume fails only when errno == EINTR
+X            )
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged) { windowSizeChanged = 0; adjust_window(); }
+X#endif
+X            resumingAfterSuspension = 0;
+X            update_modeline();
+X            continue;
+X        }
+X        else if (key == KEY_SPC)
+X        {
+X            if (position >= dim - 1) break;
+X            position += (position == 0 ? rows() - 2 - offset : rows() - 2);
+X        }
+X        else if (key == *BC)
+X        {
+X            if (position == 0) break;
+X            position -= rows() - 2;
+X            if (position < 0) position = 0;
+X        }
+X        else 
+X            break;  // return to the listing
+X        
+X        offset = 0;
+X    }
+X    while (position < dim + offset);
+X
+X    update_modeline(old_modeline);
+X}
+X
+X/*
+X** redisplay_area_screen - suitable for calling after SIGWINCH and SIGTSTP
+X*/
+X
+Xstatic void redisplay_area_screen()
+X{
+X    display_area_screen();
+X    update_modeline();
+X}
+X
+X/*
+X** choose_problem_area - returns a problem area to examine.
+X**                       Also gives user option to exit.
+X*/
+X
+Xstatic const char *choose_problem_area()
+X{
+X    const char **areas = get_problem_areas();
+X    display_area_screen();
+X    update_modeline(ModelinePrefix, "---- q (quit) H (help)");
+X    const char *helpmsg = "The Available Problem Areas:";
+X    char key;
+X    int index;
+X
+X    if (NAreas() < 10)
+X    {
+X        //
+X        // The most usual case.  Read digit as typed.
+X        //
+X        message("Your Choice --> ");
+X
+X        while (1)
+X        {
+X            if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X                windowSizeChanged       ||
+X#endif
+X                read(0, &key, 1) < 0)  // assume only fails when errno==EINTR
+X            { 
+X#ifdef SIGWINCH
+X
+X                if (windowSizeChanged)
+X                {
+X                    windowSizeChanged = 0;
+X                    adjust_window();
+X                }
+X#endif
+X                resumingAfterSuspension = 0;
+X                redisplay_area_screen();
+X                message("Your Choice --> ");
+X                continue;
+X            }
+X            else if (key == KEY_q)
+X            {
+X                clear_message_line();
+X                term_display();
+X                exit(0);
+X            }
+X            else if (key == KEY_H || key == KEY_QM)
+X            {
+X                help(areas, NAreas(), helpmsg);
+X                redisplay_area_screen();
+X                message("Your Choice --> ");
+X            }
+X            else
+X            {
+X                index = key - '0';
+X                if (index > 0 && index <= NAreas()) return areas[index-1];
+X                ding();
+X            }
+X        }
+X    }
+X    else
+X    {
+X        char *response;
+X        while (1)
+X        {
+X            //
+X            // prompt\(\) takes care of window resizes and resume/suspends
+X            //
+X            response = prompt("Your Choice --> ", redisplay_area_screen);
+X            if (*response == KEY_q)
+X            {
+X                clear_message_line();
+X                term_display();
+X                exit(0);
+X            }
+X            else if (*response == KEY_H || *response == KEY_QM)
+X            {
+X                help(areas, NAreas(), helpmsg);
+X                redisplay_area_screen();
+X                message("Your Choice --> ");
+X                DELETE response;
+X            }
+X            else
+X            {
+X                index = atoi(response);
+X                DELETE response;
+X                if (index > 0 && index <= NAreas()) return areas[index - 1];
+X                ding();
+X            }
+X        }
+X    }
+X}
+X
+X/*
+X** max_field_length - returns the length of the longest field
+X*/
+X
+Xstatic int max_field_length()
+X{
+X    static int len;
+X    if (!len) 
+X        for (int i = 0; i < NFields(); i++)
+X            if (len < strlen(Fields[i])) len = (int) strlen(Fields[i]);
+X    return len;
+X}
+X
+X/*
+X** get_severity - prompt for the severity of the problem. Deal with
+X**                getting SIGTSTP or SIGWINCH.
+X*/
+X
+Xstatic char get_severity(auto void (*redisplay)())  // "auto" needed by g++
+X{
+X    const char *msg = "Severity (1 (=highest), 2, 3 or 4 (=lowest)) --> ";
+X    message(msg);
+X    char key;
+X    while (1)
+X    {
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0)   // assume only fails when errno == EINTR 
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged) { windowSizeChanged = 0; adjust_window(); }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X            message(msg);
+X            continue;
+X        }
+X        switch (key)
+X        {
+X          case '1': case '2': case '3': case '4': return key;
+X          default: ding(); break;
+X        }
+X    }
+X}
+X
+X/*
+X** filesize - returns size of file or MAXFILESIZE,
+X**            whichever is smaller. Exits on error.
+X*/
+X
+Xstatic int filesize(const char *file)
+X{
+X#ifdef MAXFILESIZE
+X    const int MaxFileSize =  MAXFILESIZE;
+X#else
+X    const int MaxFileSize = 16000;
+X#endif
+X    struct stat buf;
+X    if (stat(file, &buf) < 0)
+X        error("file %s, line %d, fstat() failed", __FILE__, __LINE__);
+X    return buf.st_size > MaxFileSize ? MaxFileSize : buf.st_size;
+X}
+X
+X/*
+X** sequence_file - returns full pathname of "SequenceFile"
+X*/
+X
+Xstatic const char *sequence_file()
+X{
+X    static String filename;
+X    if (filename == "") filename = String(HomeBase) + "/" + SequenceFile;
+X    return filename;
+X}
+X
+X/*
+X** update_sequence_file - reads the previous problem number from
+X**                        `SequenceFile\'; increments that number;
+X**                        writes it back to the file and returns it.
+X**                        Exits on error. We should have an exclusive
+X**                        lock on the sequence file before we get here.
+X**                        This is to guarantee that we only have one
+X**                        "writer" to the GDBM file.
+X*/
+X
+Xstatic const char *update_sequence_file(int fd)
+X{
+X    static char buf[10];  // won\'t have this many problems for a while
+X
+X    FILE *fp = fdopen(fd, "r+");
+X    if (!fp)
+X        error("file %s, line %d, fdopen() on `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X
+X    char *line = fgetline(fp, 10);
+X
+X    if (!fp)
+X        error("file %s, line %d, fgetline() on `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X    (void)sprintf(buf, "%d", atoi(line) + 1);
+X
+X    //
+X    // Truncate the file.  I\'d like to use ftruncate\(2\) here, but that
+X    // isn\'t as portable as a close\(open\(\)\) scheme.
+X    //
+X    if (close(open(sequence_file(), O_RDWR|O_TRUNC)) < 0)
+X        error("file %s, line %d, close(open()) of `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X
+X    // go to the beginning
+X    if (lseek(fd, 0, SEEK_SET) < 0)
+X        error("file %s, line %d, lseek() on `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X
+X    // write the next problem #
+X    if (write(fd, buf, (unsigned) strlen(buf)) < 0)
+X        error("file %s, line %d, write() to `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X
+X    DELETE line;
+X
+X    return buf;
+X}
+X
+X/*
+X** mail_list_prefix - returns the full pathname of MailListPrefix
+X*/
+X
+Xstatic const char *mail_list_prefix()
+X{
+X    static String filename;
+X    if (filename == "") filename = String(HomeBase) + "/" + MailListPrefix;
+X    return filename;
+X}
+X
+X/*
+X** open_maillist_file - open the file containing the interested parties
+X**                      maillist for the problem area. Exits on error.
+X**                      If the file didn\'t previously exist, it will be
+X**                      created.
+X*/
+X
+Xstatic int open_maillist_file()
+X{
+X    String file = String(mail_list_prefix()) + "." + CurrentArea();
+X    int fd = open((const char *)file, O_RDWR|O_CREAT, 0644);
+X    if (fd < 0)
+X        error("file %s, line %d, open(%s) failed",
+X              __FILE__, __LINE__, (const char *)file);
+X    return fd;
+X}
+X
+X// The ways that a database can get modified.
+Xstatic const char *const How[] = {
+X    "logged",
+X    "appended",
+X    "closed",
+X    "deleted",
+X    "reorganized",
+X    "keywords modified",
+X    "reopened"
+X};
+X
+X// indices into How\[\]
+Xenum Modified {
+X    LOGGED,
+X    APPENDED,
+X    CLOSED,
+X    DELETED,
+X    REORGANIZED,
+X    KEYWORDMOD,
+X    REOPENED
+X};
+X
+X/*
+X** update_subscribers - send a mail file about problem to all
+X**                      those who\'ve subscribed to this `area\'.  If
+X**                      this is an being called after an append,
+X**                      `append\' is non-zero.  Otherwise, we assume
+X**                      it is the initial logging.  If we\'re appending
+X**                      or closing a problem, we pass the offset of the
+X**                      new data that needs to be printed.  When logging,
+X**                      this offset is zero, which we make the default.
+X*/
+X
+Xstatic void update_subscribers(const datum data, const char *number,
+X                               const Modified how, int offset = 0)
+X{
+X#ifdef MAILPROG
+X    const char *mailprog = MAILPROG;
+X#else
+X    const char *mailprog = "/bin/mail";
+X#endif
+X
+X    // does `mailprog\' really exist?
+X    if (!read_and_exec_perm(mailprog))
+X        error("file %s, line %d, `%s' doesn't appear to be executable",
+X              __FILE__, __LINE__, mailprog);
+X
+X    int mailfd   = open_maillist_file();
+X    FILE *mailfp = fdopen(mailfd, "r");
+X    if (!mailfp)
+X        error("file %s, line %d, fdopen() failed", __FILE__, __LINE__);
+X
+X    const int namelen   = 10;  // average length of uid expected
+X    const int chunksize = 20;  // average number of subscribees expected
+X    char **args = new char*[chunksize];
+X    args[0] = "mail";
+X    char *fmt = "Subject: %s problem # %s %s by %s\n\n";
+X    char *subject = new char[strlen(fmt) + strlen(CurrentArea()) +
+X                             strlen(number) + strlen(How[how]) +
+X                             strlen(username()) - 7];
+X    (void)sprintf(subject, fmt, CurrentArea(), number, How[how], username());
+X
+X    //
+X    // Are there any subscribers?
+X    //
+X    int nlines = read_file(mailfp, args, chunksize, namelen, 1);
+X    if (nlines < 0)
+X        error("file %s, line %d, problem reading from maillist file",
+X              __FILE__, __LINE__);
+X    (void)close(mailfd); (void)fclose(mailfp);
+X    if (nlines == 0)
+X    {
+X        //
+X        // No subscribers.
+X        //
+X        DELETE subject;
+X        for (int i = 1; args[i]; i++) DELETE args[i];
+X        DELETE args;
+X
+X        return;
+X    }
+X
+X    int fds[2];
+X    if (pipe(fds) < 0)
+X        error("file %s, line %d, pipe() failed", __FILE__, __LINE__);
+X
+X    switch(fork())
+X    {
+X      case -1: // error
+X        error("file %s, line %d, fork() failed", __FILE__, __LINE__);
+X      case 0:   // in the child
+X      {
+X          //
+X          // Set stdin to the read end of pipe.
+X          //
+X          (void)close(0);
+X          if (dup(fds[0]) < 0)
+X              error("file %s, line %d, dup() failed", __FILE__, __LINE__);
+X          (void)close(fds[0]);
+X          (void)close(fds[1]);
+X          (void)close(1);
+X          (void)close(2);
+X
+X          execvp(mailprog, (char *const *)args);
+X
+X          exit(1);  // exec failed -- can\'t use error\(\) as stdout is now closed
+X      }
+X        break;
+X      default:  // in the parent
+X      {
+X          (void)close(fds[0]);
+X          //
+X          // Write Subject to pipe.
+X          write_to_pipe(fds[1], subject, strlen(subject));
+X          //
+X          // write the mailfile to the pipe
+X          //
+X          switch (how)
+X          {
+X            case CLOSED:
+X            case REOPENED:
+X            case APPENDED:
+X            case KEYWORDMOD:
+X            {
+X                //
+X                // Write the fields and the new data only.
+X                //
+X                char *tail = data.dptr;
+X                for (int i = 0; i < NFields(); i++)
+X                {
+X                    tail = strchr(tail, '\n');
+X                    tail += 1; // step past the newline
+X                }
+X                tail += 1;     // step past the second newline to the 
+X                               // first character past the header
+X                // write the header
+X                write_to_pipe(fds[1], data.dptr, tail - data.dptr);
+X                if (offset <= 0)
+X                    error("file %s, line %d, offset must be positive",
+X                          __FILE__, __LINE__);
+X                write_to_pipe(fds[1], data.dptr + offset, data.dsize-offset-1);
+X            }
+X                break;
+X            case LOGGED:
+X                write_to_pipe(fds[1], data.dptr, data.dsize - 1);
+X                break;
+X            default: error("file %s, line %d, illegal case in switch()",
+X                           __FILE__, __LINE__);
+X          }
+X          (void)close(fds[1]);
+X          for (int i = 1; args[i]; i++) DELETE args[i];
+X          DELETE args;
+X          DELETE subject;
+X
+X          return;
+X      }
+X    }
+X}
+X
+X/*
+X** invoke_editor - invoke users editor on `file\'
+X*/
+X
+Xstatic void invoke_editor(const char *file)
+X{
+X    char *editor = getenv("EDITOR");
+X    if (editor == 0) editor = "vi";
+X    char *space  = strchr(editor, ' ');
+X    if (space) *space = 0;  // only use the first arg if they\'re > 1
+X    const char *args[3];
+X    args[0] = editor; args[1] = file; args[2] = 0;
+X
+X    //
+X    // Position cursor in case the editor doesn\'t do this itself.
+X    // This is primarily for those people who use
+X    // non-fullscreen editors, such as `ed\', which don\'t do this.
+X    // We\'ve just typed a message, so we\'re on the last line of the screen.
+X    //
+X    cursor_wrap();
+X    synch_display();
+X    if (!execute(editor, args) && strstr(editor, "vi") == 0)
+X        error("file %s, line %d, couldn't exec() your editor `%s'",
+X              __FILE__, __LINE__, editor);
+X}
+X
+X/*
+X** database_exists - checks to see if a database for the current area exists.
+X**                   This is important since gdbm_open\(GDBM_READER\)
+X**                   will fail if the database doesn\'t already exist.
+X**                   Returns one if a file of the appropriate name
+X**                   exists, else zero.  There is no guarantee that we
+X**                   actually have a database, only an appropriately
+X**                   named file.
+X*/
+X
+Xint database_exists()
+X{
+X    String filename = String(HomeBase) + "/" + CurrentArea() + GdbmSuffix;
+X    int rc = open((const char *)filename, O_RDONLY);
+X    (void)close(rc);
+X    return rc < 0 ? 0 : 1;
+X}
+X
+X/*
+X** open_database - opens the GDBM database on the current area.
+X**                 Exits on error.
+X*/
+X
+Xvoid open_database(int mode)
+X{
+X    String filename = String(HomeBase) + "/" + CurrentArea() + GdbmSuffix;
+X
+X    if ((GdbmFile = gdbm_open(filename, 0, mode, 00644, 0)) == 0)
+X        if (gdbm_errno != GDBM_CANT_BE_WRITER)
+X            error("file %s, line %d, gdbm_open() failed on `%s'",
+X                  __FILE__, __LINE__, (const char *)filename);
+X        else
+X            error("file %s, line %d, gdbm_open() failed on `%s', errno = %d",
+X                  __FILE__, __LINE__, (const char *)filename, gdbm_errno);
+X}
+X
+X/*
+X** database_directory_exists - does HomeBase exist?
+X*/
+X
+Xstatic int database_directory_exists()
+X{
+X    int rc = open(HomeBase, O_RDONLY);
+X    (void)close(rc);
+X    return rc < 0 ? 0 : 1;
+X}
+X 
+X
+X/*
+X** update_database - updates database on the current area with `problem_data\'.
+X**                   `size\' is total size of data.  This function is
+X**                   used both to insert new entries and to replace
+X**                   old entries. If `offset\' is nonzero, it is the
+X**                   start of problem number field, which we fill in
+X**                   after getting new problem number.  `offset\' is
+X**                   nonzero only when initially logging a problem.
+X*/
+X
+Xstatic void update_database(datum &key, const datum &data, const Modified how,
+X                            int offset = 0)
+X{
+X    int fd = open(sequence_file(), O_RDWR);
+X    if (fd < 0)
+X        error("file %s, line %d, open() on `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X
+X    block_tstp_and_winch();         // block SIGTSTP and WINCH
+X    lock_file(fd);                  // lock our sequence file
+X    open_database(GDBM_WRCREAT);    // open database for writing
+X    if (how != REORGANIZED)
+X        data.dptr[data.dsize - 1] = 0;  // make sure data is stringified
+X
+X    switch (how)
+X    {
+X      case DELETED:
+X        if (gdbm_delete(GdbmFile, key))
+X            error("file %s, line %d, gdbm_delete() failed, errno = %d",
+X                  __FILE__, __LINE__, gdbm_errno);
+X        break;
+X      case REORGANIZED:
+X        if (gdbm_reorganize(GdbmFile))
+X            error("file %s, line %d, gdbm_reorganize() failed, errno = %d",
+X                  __FILE__, __LINE__, gdbm_errno);
+X        break;
+X      case LOGGED:
+X      {
+X          //
+X          // Must fill in key values; we\'re doing an initial log of the problem.
+X          //
+X          key.dptr  = (char *) update_sequence_file(fd);
+X          key.dsize = (int)strlen(key.dptr) + 1;
+X
+X          // update problem # field
+X          for (int i = 0; i < strlen(key.dptr); i++)
+X              data.dptr[offset + i] = key.dptr[i];
+X      }
+X      //
+X      // Fall through.
+X      //
+X      case CLOSED:
+X      case REOPENED:
+X      case APPENDED:
+X      case KEYWORDMOD:
+X        if (gdbm_store(GdbmFile, key, data, how == LOGGED ?
+X                       GDBM_INSERT : GDBM_REPLACE))
+X            error("file %s, line %d, gdbm_store() failed, errno = %d",
+X                  __FILE__, __LINE__, gdbm_errno);
+X        break;
+X      default:
+X        error("file %s, line %d, illegal case in switch()",
+X              __FILE__, __LINE__);
+X    }
+X
+X    gdbm_close(GdbmFile);
+X    unlock_file(fd);
+X    (void)close(fd);
+X    unblock_tstp_and_winch(); // unblock SIGTSTP and WINCH
+X}
+X
+X//
+X// These variables are shared by build_log_screen\(\) and log_new_problem\(\)
+X// so that we can keep track of where we are in case we get a SIGTSTP
+X// or SIGWINCH.  We have to be careful to nullify them after we\'re done
+X// with them so that build_log_screen\(\) knows when it needs to prompt
+X// for fresh data.
+X//
+Xstatic char *logged;
+Xstatic char *reporter;
+Xstatic char *keywords;
+Xstatic char *summary;
+Xstatic char *site;
+Xstatic char severity;
+X
+X/*
+X** build_log_screen - prints the initial screen when logging a problem.
+X**                    Is also called after a SIGTSTP or SIGWINCH to
+X**                    redo the screen appropriately.
+X*/
+X
+X// forward declaration
+Xstatic void redisplay_log_screen();
+X
+Xstatic void build_log_screen()
+X{
+X    cursor_home();
+X    //
+X    // Print as many of the fields as will fit.
+X    // This gets done both on a normal call or on a redisplay.
+X    //
+X    enter_standout_mode();
+X    for (int i = 0; i < NFields() && i < rows() - 2; i++)
+X    {
+X        clear_to_end_of_line();
+X        display_string(Fields[i]);
+X    }
+X    end_standout_mode();
+X
+X    // clear any remaining potentially dirty lines
+X    for (; i < rows() - 2; i++) { clear_to_end_of_line(); cursor_wrap(); }
+X
+X    int flen = max_field_length() + 1; // plus one accounts for the space
+X
+X    int currline = 0;  // keep track of where we are on screen
+X
+X    //
+X    // Fill in those fields which are obvious.
+X    //
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline++, flen);
+X        display_string(CurrentArea(), 0, flen);
+X    }
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        display_string(username(), 0, flen);
+X        currline += 2;
+X    }
+X    time_t t = time(0);
+X    logged = ctime(&t);
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline++, flen);
+X        display_string(logged, 0, flen);
+X    }
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        display_string(logged, 0, flen);
+X        currline += 3;
+X    }
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        display_string("open", 0, flen);
+X    }
+X
+X    //
+X    // Prompt for those that aren\'t.
+X    //
+X    const char *const append = " --> ";
+X    static char *line;
+X    int recursing = 0;  // is this a recursive call?
+X    if (!line)
+X        line = new char[flen + strlen(append)];
+X    else
+X        recursing = 1;
+X    (void)strcpy(line, Fields[2]);
+X    (void)strcat(line, append);
+X    if (!reporter)
+X        if (recursing)
+X            goto exit;
+X        else
+X            reporter = prompt(line, redisplay_log_screen);
+X    currline = 2;
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        display_string(reporter, 0, flen);
+X        currline += 3;
+X    }
+X    (void)strcpy(line, Fields[5]);
+X    (void)strcat(line, append);
+X    if (!keywords)
+X        if (recursing)
+X            goto exit;
+X        else
+X            keywords = prompt(line, redisplay_log_screen);
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline++, flen);
+X        display_string(keywords, 0, flen);
+X    }
+X    (void)strcpy(line, Fields[6]);
+X    (void)strcat(line, append);
+X    if (!summary)
+X        if (recursing)
+X            goto exit;
+X        else
+X            summary = prompt(line, redisplay_log_screen);
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        display_string(summary, 0, flen);
+X        currline += 2;
+X    }
+X    (void)strcpy(line, Fields[8]);
+X    (void)strcat(line, append);
+X    if (!site)
+X        if (recursing)
+X            goto exit;
+X        else
+X            site = prompt(line, redisplay_log_screen);
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline++, flen);
+X        display_string(site, 0, flen);
+X    }
+X    if (!severity)
+X        if (recursing)
+X            goto exit;
+X        else
+X            severity = get_severity(redisplay_log_screen);
+X    if (currline < rows() - 2)
+X    {
+X        move_cursor(currline, flen);
+X        putchar(severity);
+X    }
+X    DELETE line;
+X    line = 0;  // the nullification is important
+X
+X    //
+X    // We got here when we\'ve been called recursively due to servicing
+X    // a SIGTSTP or SIGWINCH.  We don\'t delete `line\' as we\'ll shortly be
+X    // back in our original self where we\'ll continue to use it.
+X    //
+X  exit:
+X    return;
+X}
+X
+X/*
+X** redisplay_log_screen - redisplay the log screen.  Can be called at any
+X**                        point during our building of the log screen to
+X**                        service a SIGTSTP or SIGWINCH.
+X*/
+X
+Xstatic void redisplay_log_screen() { update_modeline(); build_log_screen(); }
+X
+X/*
+X** log_new_problem - need at least 4 rows to be useful
+X*/
+X
+Xstatic void log_new_problem()
+X{
+X    const char *fmt = "%s (logging)";
+X    char *suffix = new char[strlen(fmt) + strlen(CurrentArea()) - 1];
+X    (void)sprintf(suffix, fmt, CurrentArea());
+X    update_modeline(ModelinePrefix, suffix);
+X    DELETE suffix;
+X    build_log_screen();
+X
+X    message("Invoking your editor ...");
+X
+X    //
+X    // Build  tmp file into which the problem will be edited by user.
+X    //
+X    const char *file = temporary_file();
+X
+X    invoke_editor(file);
+X
+X    //
+X    // Generate string just large enough to hold the problem.
+X    // Don\'t forget to add space for the newlines.
+X    //
+X    int flen       = max_field_length() + 1; // plus one accounts for the space
+X    int fsize      = filesize(file);
+X    int totalsize  = fsize + NFields() * flen;
+X    const int PDim = 10;   // spaces reserved for `Problem #\' field
+X    const int StatDim = 6; // big enough for "open" or "closed"
+X    totalsize += int (strlen(CurrentArea()) + strlen(username()) + 2);
+X    totalsize += 50;       // strlen\(ctime\(\)\) == 25 && already contains newline
+X    totalsize += StatDim+1;// "open" or "closed"
+X    totalsize += int (strlen(reporter) + strlen(keywords) + 2);
+X    totalsize += int (strlen(summary) + strlen(site) + 2);
+X    totalsize += 2;        // the severity field and it\'s newline
+X    totalsize += PDim + 2; // space reserved for the problem number
+X                           // and two newlines
+X
+X    datum data;
+X    data.dsize = totalsize + 1; // don\'t forget about the null
+X    data.dptr  = new char[data.dsize];
+X
+X    //
+X    // Write the header info to `data\'.
+X    //
+X    int pos = 0;  // our position in `data\'
+X    (void)sprintf(data.dptr, "%-*.*s%s\n", flen, flen, Fields[0], CurrentArea());
+X    pos += int (flen+strlen(CurrentArea())+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s\n", flen, flen, Fields[1],
+X                  username());
+X    pos += int (flen+strlen(username())+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s\n", flen, flen, Fields[2],
+X                  reporter);
+X    pos += int (flen+strlen(reporter)+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s", flen, flen, Fields[3], logged);
+X    pos += flen+25;
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s", flen, flen, Fields[4], logged);
+X    pos += flen+25;
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s\n", flen, flen, Fields[5],
+X                  keywords);
+X    pos += int (flen+strlen(keywords)+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s\n", flen, flen, Fields[6],
+X                  summary);
+X    pos += int (flen+strlen(summary)+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%-*.*s\n", flen, flen, Fields[7],
+X                  StatDim, StatDim, "open");
+X    pos += flen+StatDim+1;
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%s\n", flen, flen, Fields[8], site);
+X    pos += int (flen+strlen(site)+1);
+X    (void)sprintf(&data.dptr[pos], "%-*.*s%c\n", flen, flen, Fields[9],
+X                  severity);
+X    pos += flen+2;
+X    (void)sprintf(&data.dptr[pos], "%-*.*s          \n\n", flen, flen,
+X                  Fields[10]);
+X    int offset = pos + flen; // data.dptr\[offset\] is where `Problem #\' goes
+X    pos += flen+PDim+2;      // we output two newlines here as separator
+X
+X    //
+X    // Now for the problem itself.  Make sure this read only fails on a
+X    // real error -- block SIGTSTP and SIGWINCH
+X    //
+X    block_tstp_and_winch();
+X
+X    int fd;
+X    if ((fd = open(file, O_RDONLY)) < 0) 
+X        error("file %s, line %d, open(%s, O_RDONLY) failed",
+X              __FILE__, __LINE__, file);
+X
+X    if (read(fd, &data.dptr[pos], fsize) != fsize)
+X        error("file %s, line %d, read() failed", __FILE__, __LINE__);
+X
+X    unblock_tstp_and_winch(); // unblock SIGTSTP and WINCH
+X    (void)close(fd);
+X    (void)unlink(file);
+X
+X    if (yes_or_no("Really log this problem (y|n)? ", redisplay_log_screen, Yes, 1))
+X    {
+X        datum key;  // empty key to be filled in by update_database\(\)
+X        update_database(key, data, LOGGED, offset);
+X        update_subscribers(data, key.dptr, LOGGED);
+X    }
+X
+X    update_modeline();  // redisplay last modeline
+X    DELETE data.dptr;
+X
+X    //
+X    // We have to both delete these and nullify them so that the next
+X    // time we call build_log_screen\(\), we prompt for new data.
+X    //
+X    DELETE reporter;
+X    DELETE keywords;
+X    DELETE summary;
+X    DELETE site;
+X    reporter = 0;
+X    keywords = 0;
+X    summary  = 0;
+X    site     = 0;
+X    severity = 0;  // Just nullify this; it\'s a static char.
+X}
+END_OF_FILE
+if test 36824 -ne `wc -c <'problem1.C'`; then
+    echo shar: \"'problem1.C'\" unpacked with wrong size!
+fi
+# end of 'problem1.C'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

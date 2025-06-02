@@ -1,0 +1,1596 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v33i099:  mailagent - Rule Based Mail Filtering, Part07/17
+Message-ID: <1992Nov20.050547.14095@sparky.imd.sterling.com>
+X-Md4-Signature: 030d168bfd25baa1f52a02c22aa7c7b1
+Date: Fri, 20 Nov 1992 05:05:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 33, Issue 99
+Archive-name: mailagent/part07
+Environment: Perl, Sendmail, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  agent/pl/filter.pl agent/pl/runcmd.pl bin/perload
+# Wrapped by kent@sparky on Wed Nov 18 22:42:23 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 17)."'
+if test -f 'agent/pl/filter.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/filter.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/filter.pl'\" \(20556 characters\)
+  sed "s/^X//" >'agent/pl/filter.pl' <<'END_OF_FILE'
+X;# $Id: filter.pl,v 2.9.1.5 92/11/01 16:01:13 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	filter.pl,v $
+X;# Revision 2.9.1.5  92/11/01  16:01:13  ram
+X;# patch11: space between command and '(' made optional for ONCE and SELECT
+X;# patch11: (feature requested by Nigel Metheringham <nigelm@ohm.york.ac.uk>)
+X;# 
+X;# Revision 2.9.1.4  92/11/01  15:48:44  ram
+X;# patch11: continuation status was not properly updated by ONCE and SELECT
+X;# patch11: (matters for ONCE(...) REJECT; commands for instance)
+X;# 
+X;# Revision 2.9.1.3  92/08/26  13:12:03  ram
+X;# patch8: ASSIGN and SUBST/TR now deal with external variables
+X;# patch8: new PERL command
+X;# 
+X;# Revision 2.9.1.2  92/08/02  16:10:28  ram
+X;# patch2: added arguments to ABORT, REJECT and RESTART
+X;# patch2: moved flow altering functions into actions.pl
+X;# patch2: minor modification to ensure meaningful exit status
+X;# patch2: added -c option to RECORD and UNIQUE
+X;# 
+X;# Revision 2.9.1.1  92/07/25  12:38:07  ram
+X;# patch1: now correctly tags savings in subfolders as such
+X;# 
+X;# Revision 2.9  92/07/14  16:49:57  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X;# There are a number of variables which are used by the filter commands and
+X;# which are in the dynamic scope when those functions are called. The calling
+X;# tree being: analyze_mail -> xeqte -> run_command -> run_*, where '*' stands
+X;# for the action we are currently executing.
+X;#
+X;# All the run_* commands are called from within an eval by run_command, so that
+X;# any otherwise fatal error can be trapped and reported in the log file. This
+X;# is only a precaution against possible typos or other unpredictable errors.
+X;#
+X;# The following variables are inherited from run_command:
+X;#  $mfile is the name of the mail file processed
+X;#  $cmd is the command to be run
+X;#  $cmd_name is the command name (upper-cased)
+X;#  $ever_saved which states whether a saving/discarding action occurred
+X;#  $cont is the continuation status, modified by REJECT and friends
+X;#  $vacation which is a boolean stating whether vacation messages are allowed
+X;# The following variable is inherited from xeqte:
+X;#  $lastcmd is the failure status of the last command (among those to be kept)
+X;# The working mode is held in $wmode (comes from analyze_mail).
+X;#
+X;# All the commands return an exit status: 0 for ok, 1 for failure. This status
+X;# is normally recorded in $lastcmd by run_command, unless the executed action
+X;# belongs to the set of commands whose exit status is discarded (because they
+X;# can never fail).
+X;#
+X#
+X# Filter commands are run from here
+X#
+X
+X# Run the PROCESS command
+Xsub run_process {
+X	if (0 != do process()) {
+X		do add_log("ERROR while processing [$mfile]--queing it")
+X			if ($loglvl > 0);
+X		do queue_mail($file_name);
+X		return 1;
+X	}
+X	do add_log("PROCESSED [$mfile]") if $loglvl > 8;
+X	0;
+X}
+X
+X# Run the LEAVE command
+Xsub run_leave {
+X	local($mbox, $failed) = do leave();
+X	unless ($failed) {
+X		do add_log("LEFT [$mfile] in mailbox") if $loglvl > 2;
+X	}
+X	# Even if it failed, mark it as saved anyway, as the default action would
+X	# be a saving in mailbox and there is little chance another attempt would
+X	# succeed while this one failed.
+X	$ever_saved = 1;		# At least we tried to save it
+X	$failed;
+X}
+X
+X# Run the SAVE command
+Xsub run_save {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	&save_message($folder);
+X}
+X
+X# Run the STORE command
+Xsub run_store {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_APPEND);
+X	unless ($failed) {
+X		$ever_saved = 1;			# We were able to save it
+X		($mbox, $failed) = do leave();
+X		unless ($failed) {
+X			do add_log("STORED [$mfile] in $log_message") if $loglvl > 2;
+X		} else {
+X			do add_log("WARNING only SAVED [$mfile] in $log_message")
+X				if $loglvl > 1;
+X			return 1;
+X		}
+X	} else {
+X		($mbox, $failed) = do leave();
+X		unless ($failed) {
+X			$ever_saved = 1;			# We were able to save it
+X			do add_log("WARNING only LEFT [$mfile] in mailbox")
+X				if $loglvl > 1;
+X		}
+X	}
+X	$failed;
+X}
+X
+X# Run the WRITE command
+Xsub run_write {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_REMOVE);
+X	unless ($failed) {
+X		do add_log("WROTE [$mfile] in $log_message") if $loglvl > 2;
+X		$ever_saved = 1;			# We were able to save it
+X	}
+X	$failed;
+X}
+X
+X# Run the DELETE command
+Xsub run_delete {
+X	do add_log("DELETED [$mfile]") if $loglvl > 2;
+X	$ever_saved = 1;		# User chose to discard it, it counts as a save
+X	0;
+X}
+X
+X# Run the MESSAGE command
+Xsub run_message {
+X	local($msg) = $cmd =~ m|^\w+\s+(\S+)|;	# Vacation message location
+X	$msg =~ s/~/$cf'home/g;					# ~ substitution
+X	local($failed) = do message($msg);
+X	unless ($failed) {
+X		$msg =~ s|^$cf'home|~|;				# Replace the home directory by ~
+X		do add_log("MESSAGE $msg for [$mfile]") if $loglvl > 2;
+X	}
+X	$failed;
+X}
+X
+X# Run the NOTIFY command
+Xsub run_notify {
+X	local($address, $msg) = $cmd =~ m|^\w+\s+(\S+)\s+(\S+)|;
+X	$msg =~ s/~/$cf'home/g;					# ~ substitution
+X	local($failed) = do notify($msg, $address);
+X	unless ($failed) {
+X		$msg =~ s|^$cf'home|~|;				# Replace the home directory by ~
+X		do add_log("NOTIFIED $msg for [$mfile]") if $loglvl > 2;
+X	}
+X	$failed;
+X}
+X
+X# Run the REJECT command
+Xsub run_reject {
+X	local(*perform) = *do_reject;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the RESTART command
+Xsub run_restart {
+X	local(*perform) = *do_restart;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the ABORT command
+Xsub run_abort {
+X	local(*perform) = *do_abort;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the RESYNC command
+Xsub run_resync {
+X	do header_resync();			# Resynchronize the %Header array
+X	do add_log("RESYNCED [$mfile]") if $loglvl > 4;
+X	0;
+X}
+X
+X# Run the BEGIN command
+Xsub run_begin {
+X	local($newstate) = $cmd =~ m|^\w+\s+(\S+)|;	# New state wanted
+X	$newstate = 'INITIAL' unless $newstate;
+X	$wmode = $newstate;			# $wmode comes from analyze_mail
+X	do add_log("BEGUN new state $newstate") if $loglvl > 4;
+X	0;
+X}
+X
+X# Run the RECORD command
+Xsub run_record {
+X	local($option, $mode) = $cmd =~ m|^\w+\s+(-\w)?\s*(\w+)?|;
+X	local($failed) = 0;
+X	if (&history_record) {		# Message already seen
+X		$wmode = '_SEEN_';		# Enter special mode ($wmode from analyze_mail)
+X		&add_log("NOTICE entering seen mode") if $loglvl > 5;
+X		&alter_execution($option, $mode);
+X		$failed = 1;			# Make sure it "fails"
+X	}
+X	&add_log("RECORDED [$mfile]") if $loglvl > 4;
+X	$failed;
+X}
+X
+X# Run the UNIQUE command
+Xsub run_unique {
+X	local($option, $mode) = $cmd =~ m|^\w+\s+(-\w)?\s*(\w+)?|;
+X	local($failed) = 0;
+X	if (&history_record) {		# Message already seen
+X		&add_log("NOTICE message tagged as saved") if $loglvl > 5;
+X		$ever_saved = 1;		# In effect, runs a DELETE
+X		&alter_execution($option, $mode);
+X		$failed = 1;			# Make sure it "fails"
+X	}
+X	&add_log("UNIQUE [$mfile]") if $loglvl > 4;
+X	$failed;
+X}
+X
+X# Run the FORWARD command
+Xsub run_forward {
+X	local($addresses) = $cmd =~ m|^\w+\s+(.*)|;	# Address(es)
+X	local($failed) = do forward($addresses);
+X	unless ($failed) {
+X		do add_log("FORWARDED [$mfile] to $addresses") if $loglvl > 2;
+X		$ever_saved = 1;		# Forwarding succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the BOUNCE command
+Xsub run_bounce {
+X	local($addresses) = $cmd =~ m|^\w+\s+(.*)|;	# Address(es)
+X	local($failed) = do bounce($addresses);
+X	unless ($failed) {
+X		do add_log("BOUNCED [$mfile] to $addresses") if $loglvl > 2;
+X		$ever_saved = 1;		# Bouncing succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the POST command
+Xsub run_post {
+X	local($newsgroups) = $cmd =~ m|^\w+\s+(.*)|;	# Newsgroup(s)
+X	local($failed) = do post($newsgroups);
+X	unless ($failed) {
+X		do add_log("POSTED [$mfile] to $newsgroups") if $loglvl > 2;
+X		$ever_saved = 1;		# Posting succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the RUN command
+Xsub run_run {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $NO_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		do add_log("RAN '$program' for [$mfile]") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PIPE command
+Xsub run_pipe {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $MAIL_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		do add_log("PIPED [$mfile] to '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the GIVE command
+Xsub run_give {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $BODY_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		do add_log("GAVE [$mfile] to '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PASS command
+Xsub run_pass {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $BODY_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		do add_log("PASSED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the FEED command
+Xsub run_feed {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $MAIL_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		do add_log("FED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PURIFY command
+Xsub run_purify {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = do shell_command($program, $HEADER_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		do add_log("PURIFIED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the BACK command
+X# Manipulates dynamically bound variable $cont (output from xeqte)
+Xsub run_back {
+X	# BACK command is handled recursively. The local variable $Back will be set
+X	# by xeq_back() if any feedback is to ever occur. This routine will be
+X	# transparently called instead of the usual handle_output() because of the
+X	# dynamic aliasing done here.
+X	local($Back) = '';					# BACK may be nested
+X	local(*handle_output) = *xeq_back;	# Any output to be put in $Back
+X	local($command) = $cmd =~ m|^BACK\s+(.*)|;
+X	local($failed) = 0;
+X	$command =~ s/%/%%/g;				# Protect against 2nd macro substitution
+X	# Calling run_command will position $lastcmd to be the return status of
+X	# the last meaningful command executed. However, we reset $lastcmd before
+X	# diving into the execution.
+X	$lastcmd = 0;						# Assume everything went fine
+X	&run_command($command);				# Run command (ignore return value)
+X	if ($Back ne '') {
+X		&add_log("got '$Back' back") if $loglvl > 11;
+X		$cont = &xeqte($Back);			# Get continuation status back
+X		$@ = '';						# Avoid cascade of (same) error report
+X		&add_log("BACK from '$command'") if $loglvl > 4;
+X	} else {
+X		&add_log("WARNING got nothing out of '$command'") if $loglvl > 5;
+X	}
+X	$lastcmd;			# Propage error status we got from the $command
+X}
+X
+X# Run the ONCE command
+Xsub run_once {
+X	local($_) = $cmd;					# The whole command line
+X	local($hname);						# Hash name (e-mail address)
+X	local($tag);						# Tag associated with command
+X	local($raw_period);					# The period, as written
+X	if (s/^ONCE\s*\(([^,\)]*),\s*([^,;\)]*),\s*(\w+)\s*\)//) {
+X		($hname, $tag, $raw_period) = ($1, $2, $3);
+X		do add_log("tag is ($hname, $tag, $raw_period)") if $loglvl > 18;
+X	} else {
+X		do add_log("ERROR bad once syntax (invalid tag)") if $loglvl > 1;
+X		return 1;
+X	}
+X	s/^\s*//;							# Remove leading spaces
+X	local($period) = do seconds_in_period($raw_period);
+X	do add_log("period is $raw_period = $period seconds") if $loglvl > 18;
+X
+X	# Calling run_command will set $lastcmd to the status of the command. In
+X	# case we are running a command which does not alter this status, assume
+X	# everything is fine.
+X	$lastcmd = 0;						# Assume command will run correctly
+X
+X	if (&once_check($hname, $tag, $period)) {
+X		do add_log("ONCE ($hname, $tag, $raw_period) $_") if $loglvl > 7;
+X		&s_once($cmd_name, $wmode, $tag);
+X		s/%/%%/g;						# Protect against 2nd macro substitution
+X		$cont = &run_command($_);		# Run it, update continuation status
+X	} else {
+X		do add_log("retry time not reached for $_") if $loglvl > 12;
+X		&s_noretry($cmd_name, $wmode, $tag);
+X	}
+X
+X	$lastcmd;							# Propagates execution status
+X}
+X
+X# Run the SELECT command
+Xsub run_select {
+X	local($_) = $cmd;					# The whole command line
+X	local($start, $end);				# Date strings for start and end
+X	if (s/^SELECT\s*\(([^.\)]*)\.\.\s*([^\)]*)\)//) {
+X		($start, $end) = ($1, $2);
+X		$start =~ s/\s*$//;				# Remove trailing spaces
+X		$end =~ s/\s*$//;
+X		&add_log("time is ($start .. $end)") if $loglvl > 18;
+X	} else {
+X		&add_log("ERROR bad select syntax (invalid time)") if $loglvl > 1;
+X		return 1;
+X	}
+X	local($now) = time;					# Current time
+X	local($sec_start, $sec_end);		# Start and end converted in seconds
+X	$sec_start = &getdate($start, $now);
+X	if ($sec_start == -1) {
+X		&add_log("ERROR in SELECT: 1st time '$start'") if $loglvl > 1;
+X		return 1;
+X	}
+X	$sec_end = &getdate($end, $now);
+X	if ($sec_end == -1) {
+X		&add_log("ERROR in SELECT: 2nd time '$end'") if $loglvl > 1;
+X		return 1;
+X	}
+X	if ($sec_start > $sec_end) {
+X		&add_log("WARNING time selection always impossible?") if $loglvl > 1;
+X		return 0;
+X	}
+X
+X	# Calling run_command will set $lastcmd to the status of the command. In
+X	# case we are running a command which does not alter this status, assume
+X	# everything is fine.
+X	$lastcmd = 0;						# Assume command will run correctly
+X
+X	s/^\s*//;							# Remove leading spaces
+X	if ($now >= $sec_start && $now <= $sec_end) {
+X		&add_log("SELECT ($start .. $end) $_") if $loglvl > 7;
+X		s/%/%%/g;						# Protect against 2nd macro substitution
+X		$cont = &run_command($_);		# Run command and update control flow
+X	} else {
+X		&add_log("time period not good for $_") if $loglvl > 12;
+X	}
+X
+X	$lastcmd;							# Propagates execution status
+X}
+X
+X# Run the NOP command
+Xsub run_nop {
+X	do add_log("NOP [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the STRIP command
+Xsub run_strip {
+X	local($headers) = $cmd =~ m|^\w+\s+(.*)|;	# Headers to remove
+X	do alter_header($headers, $HD_STRIP);
+X	$headers = join(', ', split(/\s/, $headers));
+X	do add_log("STRIPPED $headers from [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the KEEP command
+Xsub run_keep {
+X	local($headers) = $cmd =~ m|^\w+\s+(.*)|;	# Headers to keep
+X	do alter_header($headers, $HD_KEEP);
+X	$headers = join(', ', split(/\s/, $headers));
+X	do add_log("KEPT $headers from [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the ANNOTATE command
+Xsub run_annotate {
+X	local($date, $field, $value) = $cmd =~ m|^\w+\s+(-d\s+)?([\w\-]+):?\s*(.*)|;
+X	if (0 == &annotate_header($field, $value, $date)) {
+X		&add_log("ANNOTATED [$mfile] with $field") if $loglvl > 7;
+X	}
+X	0;
+X}
+X
+X# Run the ASSIGN command
+Xsub run_assign {
+X	local($var, $value) = $cmd =~ m|^\w+\s+(:?\w+)\s+(.*)|;
+X	local($eval);						# Evaluated value for expression
+X	local($@);
+X	# An expression may be provided as a value. If the whole value is enclosed
+X	# within simple quotes, then those are stripped and no evaluation is made.
+X	unless ($value =~ s/^'(.*)'$/$1/) {
+X		eval "\$eval = $value";			# Maybe value is an expression?
+X	} else {
+X		$eval = $value;					# Leading and trailing ' trimmed
+X	}
+X	$value = $eval if $eval && $@ eq '';
+X	if ($var =~ s/^://) {
+X		&extern'set($var, $value);		# Persistent variable is set
+X	} else {
+X		$Variable{$var} = $value;		# User defined variable is set
+X	}
+X	do add_log("ASSGINED '$value' to '$var' [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the TR command
+Xsub run_tr {
+X	local($variable, $tr) = $cmd =~ m|^\w+\s+(#?:?\w+)\s+(.*)|;
+X	&alter_value($variable, "tr$tr");
+X}
+X
+X# Run the SUBST command
+Xsub run_subst {
+X	local($variable, $s) = $cmd =~ m|^\w+\s+(#?:?\w+)\s+(.*)|;
+X	&alter_value($variable, "s$s");
+X}
+X
+X# Run the SPLIT command
+Xsub run_split {
+X	local($folder) = $cmd =~ m|^\w+\s+(.*)|;	# Folder where split occurs
+X	local($failed) = do split($folder);
+X	if (0 == $failed % 2) {			# Message was in digest format
+X		if ($failed & 0x4) {
+X			do add_log("SPLIT [$mfile] in mailagent's queue") if $loglvl > 2;
+X		} else {
+X			do add_log("SPLIT [$mfile] in $folder") if $loglvl > 2;
+X		}
+X		# If digest was not in RFC-934 style, there is a chance the split
+X		# was not correctly performed. To avoid any accidental loss of
+X		# information, the original digest message is also saved if SPLIT
+X		# had a folder argument, or it is not tagged saved.
+X		if ($failed & 0x8) {		# Digest was not RFC-934 compliant
+X			&add_log("NOTICE [$mfile] not RFC-934 compliant") if $loglvl > 6;
+X			if ($folder ne '') {
+X				&add_log("NOTICE saving original [$mfile] in $folder")
+X					if $loglvl > 6;
+X				&save_message($folder);
+X			} else {
+X				&add_log("NOTICE [$mfile] not tagged as saved")
+X					if $loglvl > 6 && ($failed & 0x2);
+X			}
+X		} else {
+X			$ever_saved = 1 if $failed & 0x2;	# Split -i succeeded
+X		}
+X		$failed = 0;
+X	}
+X	# If message was not in digest format and a folder was specified, save
+X	# message in that folder.
+X	if ($failed < 0 && $folder ne '') {
+X		&add_log("NOTICE [$mfile] not in digest format") if $loglvl > 6;
+X		$failed = &save_message($folder);
+X	}
+X	$failed ? 1 : 0;	# Failure status from split can be negative
+X}
+X
+X# Run the VACATION command
+Xsub run_vacation {
+X	return 0 unless $cf'vacation =~ /on/i;	# Ignore if vacation mode off
+X	local($mode) = $cmd =~ m|^\w+\s+(.*)|;	# Vacation mode
+X	$vacation = ($mode =~ /on/i) ? 1 : 0;
+X	$mode = $vacation ? 'on' : 'off';
+X	&add_log("vacation message turned $mode") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the QUEUE command
+Xsub run_queue {
+X	# Mail is saved as a 'qm' file, to avoid endless loops when mailagent
+X	# processes the queue. This means the mail will be deferred for at
+X	# least half an hour.
+X	local($failed) = &queue_mail('', 1);	# No file name, mail in %Header
+X	$ever_saved = 1 unless $failed;			# Queuing counts as saving
+X	$failed;
+X}
+X
+X# Run the PERL command
+Xsub run_perl {
+X	local($script) = $cmd =~ m|^\w+\s+(.*)|;	# Script to be loaded
+X	local($failed) = &perl($script);
+X	unless ($failed) {
+X		$script =~ s/^$cf'home/~/;
+X		&add_log("PERLED [$mfile] through $script") if $loglvl > 7;
+X	}
+X	$failed;
+X}
+X
+X# For SAVE, STORE or WRITE, the job is the same
+Xsub run_saving {
+X	# If the name is not an absolute path, the folder directory is taken
+X	# in the "maildir" environment variable. If none, defaults to ~/Mail.
+X	local($folder, $remove) = @_;				# Shall we remove folder first?
+X	local($folddir) = $XENV{'maildir'};			# Folder directory location
+X	$folder = "~/mbox" unless $folder;			# No folder -> save in mbox
+X	$folder =~ s/~/$cf'home/g;					# ~ substitution
+X	$folddir =~ s/~/$cf'home/g;					# ~ substitution
+X	$folddir = "$cf'home/Mail" unless $folddir;	# Default folders in ~/Mail
+X	$folder = "$folddir/$folder" unless $folder =~ m|^/|;
+X	local($dir) = $folder =~ m|(.*)/.*|;		# Get directory name
+X	unless (-d "$dir") {
+X		do makedir($dir);
+X		unless (-d "$dir") {
+X			do add_log("ERROR couldn't create directory $dir")
+X				if $loglvl > 0;
+X		} else {
+X			do add_log("created directory $dir") if $loglvl > 7;
+X		}
+X	}
+X	if ($remove == $FOLDER_REMOVE) {
+X		# Folder has to be removed before writting into it. However, if it
+X		# is write protected, do not unlink it (save will fail later on anyway).
+X		unlink "$folder" if -f "$folder" && -w _;
+X	}
+X	local($mbox, $failed) = do save($folder);
+X	local($log_message);				# Log message to be issued
+X	unless ($failed) {
+X		local($file) = $folder;			# Work on a copy to detect leading dir
+X		$file =~ s|^$folddir/||;		# Preceded by folder directory?
+X		if ($file ne $folder) {
+X			$log_message = "folder $file";
+X		} else {
+X			$folder =~ s|^$cf'home|~|;	# Replace the home directory by ~
+X			$log_message = "$folder";
+X		}
+X	}
+X
+X	# Return the status of the save command and a part of the logging message
+X	# to be issued. That way, we get a nice contextual log.
+X	($mbox, $failed, $log_message);
+X}
+X
+X# Perform the appropriate continuation status, depending on the option:
+Xsub alter_execution {
+X	local($option) = shift(@_);		# The invocation option
+X	local($mode) = shift(@_);		# Mode we have to change to
+X	if ($mode ne '') {
+X		$wmode = $mode;
+X		&add_log("entering new state $wmode") if $loglvl > 6;
+X	}
+X	&add_log("altering execution in mode '$wmode', option '$option'")
+X		if $loglvl > 18;
+X	if ($option eq '-c') {		# Continue execution
+X		0;
+X	} elsif ($option eq '-r') {	# Asks for RESTART
+X		&do_restart;
+X	} elsif ($option eq '-a') {	# Asks for ABORT
+X		&do_abort;
+X	} else {					# Default is to REJECT
+X		&do_reject;
+X	}
+X	# Propagate return status.
+X}
+X
+X# Save message in specified folder
+Xsub save_message {
+X	local($folder) = @_;
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_APPEND);
+X	unless ($failed) {
+X		do add_log("SAVED [$mfile] in $log_message") if $loglvl > 2;
+X		$ever_saved = 1;			# We were able to save it
+X	}
+X	$failed;
+X}
+X
+END_OF_FILE
+  if test 20556 -ne `wc -c <'agent/pl/filter.pl'`; then
+    echo shar: \"'agent/pl/filter.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/filter.pl'
+fi
+if test -f 'agent/pl/runcmd.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/runcmd.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/runcmd.pl'\" \(9795 characters\)
+  sed "s/^X//" >'agent/pl/runcmd.pl' <<'END_OF_FILE'
+X;# $Id: runcmd.pl,v 2.9.1.2 92/08/26 13:18:01 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	runcmd.pl,v $
+X;# Revision 2.9.1.2  92/08/26  13:18:01  ram
+X;# patch8: new PERL command
+X;# 
+X;# Revision 2.9.1.1  92/08/02  16:14:10  ram
+X;# patch2: added support for escaping of ';' and backslash
+X;# patch2: new %Nostatus table records actions with no exiting status
+X;# patch2: the status of the last command is now recorded in lastcmd
+X;# 
+X;# Revision 2.9  92/07/14  16:50:46  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+X# Executing the action enclose in braces. The current working mode 'wmode' is
+X# a local variable defined in analyze_mail. But this variable is visible when
+X# 'xeqte' is called from within it. Thanks perl.
+X
+X# The following commands are available (case is irrelevent):
+X#  ABORT                    Aborts filtering right away
+X#  ANNOTATE field <value>   Annotation in header a la MH
+X#  ASSIGN var <value>       Assign value to the user-defined variable
+X#  BACK <cmd>               Execute <cmd> and eval its output
+X#  BEGIN state              Enter in a new state for analysis
+X#  BOUNCE address(es)       As FORWARD but leave header intact
+X#  DELETE                   Trash the mail away
+X#  FEED program             Same as PASS, but the whole message is given
+X#  FORWARD address(es)      Forwards mail to specified addresses
+X#  GIVE program             Give the body of the message to a program
+X#  KEEP header(s)           Lists the header fields we want to keep
+X#  LEAVE                    Leave mail in incomming mailbox
+X#  MESSAGE vacation         Sends a vacation-like message back
+X#  NOP                      No operation (useful only with ONCE)
+X#  NOTIFY address message   Notifies address with a given message
+X#  ONCE (period) <cmd>      Executes any other single command once per period
+X#  PASS program             Pass body to program and get new body back
+X#  PERL script              Run script to perform some filtering actions
+X#  PIPE program             Pipes message to program
+X#  POST newsgroup(s)        Post message on specified newsgroups
+X#  PROCESS                  The mailagent processes the commands in body
+X#  PURIFY program           Feed header to program and get new header back
+X#  QUEUE                    Queue mail (counts as save if successful)
+X#  RECORD                   Record message and REJECT in seen mode if present
+X#  REJECT                   Abort execution and continue analysis
+X#  RESTART                  Abort execution and restart analysis from scratch
+X#  RESYNC                   Resynchronize header (useful only with FEED)
+X#  RUN program              Run the specified program
+X#  SAVE folder              Saves mail in folder for delayed reading
+X#  SELECT (when) <cmd>      Run command only within certain time period
+X#  SPLIT folder             Split digest message into folder
+X#  STORE folder             Same as SAVE folder; LEAVE
+X#  STRIP header(s)          Removes the lines from the message's header
+X#  SUBST var //             Apply a substitution on variable
+X#  TR var //                Apply a translation on variable
+X#  UNIQUE                   Delete message if already in history and REJECT
+X#  VACATION on/off			Allow/disallow vacation messages
+X#  WRITE folder             Writes mail in folder (replaces, does not append)
+X
+X# Split the commands and execute them. This function is the main entry point
+X# for nesting level (e.g. execution of commands from BACK are driven by xeqte).
+X# We wish to keep track of the execution status of the last command, as does
+X# the shell with its $? variable. This is done by $lastcmd.
+Xsub xeqte {
+X	local($line) = shift(@_);		# Commands to execute
+X	local(@cmd);					# The commands to be ran
+X	local($status) = $FT_CONT;		# Status returned by run_command
+X	local($lastcmd) = 0;			# Failure status from last command
+X	local($_);
+X
+X	# Normally, a ';' separates each action. However, an escaped one as in \;
+X	# must not be taken into account. We also need to escape a single \, in
+X	# case we want a \ followed by a ; grr...
+X	$line =~ s/\\\\/\02/g;			# \\ -> ^B
+X	$line =~ s/\\;/\01/g;			# \; -> ^A
+X	@cmd = split(/;/, $line);		# Put all commands in an array
+X	foreach (@cmd) {				# Now restore orginal escaped sequences
+X		s/\01/;/g;					# ^A -> ;
+X		s/\02/\\/g;					# ^B -> \
+X	}
+X
+X	# Now run each command in turn
+X	foreach $cmd (@cmd) {
+X		$status = &run_command($cmd);
+X		last unless $status == $FT_CONT;
+X	}
+X
+X	# Remap $FT_ABORT on $FT_CONT. In effect, we just skipped the remaining
+X	# commands on the line and act as if they had been executed. This indeed
+X	# achieves the ABORT command.
+X	$status = $FT_CONT if $status == $FT_ABORT;
+X	$status;
+X}
+X
+X# Executes a filter command and return continuing status:
+X#  FT_CONT to continue
+X#  FT_REJECT if a reject was found
+X#  FT_RESTART if a restart was found
+X#  FT_ABORT if an abort was found
+Xsub run_command {
+X	local($cmd) = @_;				# Command to be run (passed to subroutines)
+X	local($cmd_name);				# Command name
+X	local($cont) = $FT_CONT;		# Continue by default
+X	local($mfile) = $file_name =~ m|.*/(.*)|;	# Basename of mail file
+X	$mfile = $file_name unless $mfile;			# There was no / in name
+X	$mfile = '<stdin>' unless $mfile;			# No $file_name if from STDIN
+X	do macros_subst(*cmd);			# Macros substitutions
+X	$cmd =~ s/^\s*//;				# Remove leading spaces
+X	$cmd =~ s/\s*$//;				# And trailing ones
+X	return $cont unless $cmd;		# Ignore null instructions
+X	($cmd_name) = $cmd =~ /^(\w+)/;
+X	$cmd_name =~ tr/a-z/A-Z/;		# In uppercase from now on
+X	# In the special mode _SEEN_, only a restricted set of action are allowed
+X	if ($wmode eq '_SEEN_') {
+X		if ($Rfilter{$cmd_name}) {
+X			do add_log("WARNING command $cmd_name not allowed") if $loglvl > 5;
+X			return $cont;
+X		}
+X	}
+X	do add_log("XEQ ($cmd)") if $loglvl > 10;
+X	print ">> $cmd\n" if $track_all;		# Option -t
+X	local($routine) = $Filter{$cmd_name};
+X	# Unknown commands default to LEAVE if no save have ever been done.
+X	# Otherwise, they are simply ignored.
+X	unless ($routine) {
+X		local($what) = 'defaults to LEAVE';
+X		$what = 'ignored' if $ever_saved;
+X		do add_log("ERROR unknown command $cmd_name ($what)")
+X			if $loglvl > 1;
+X		$routine = $Filter{'LEAVE'};		# Default action
+X		return $cont if $ever_saved;		# Command ignored
+X	}
+X	local($failed) = eval("&$routine");		# Eval traps all fatal errors
+X	$failed = 1 if &eval_error;				# Make sure eval worked
+X
+X	# If command does not belong to the set of those who do not modify the
+X	# last execution status recorded, then update $lastcmd with the failure
+X	# status.
+X	$lastcmd = $failed unless $Nostatus{$cmd_name};
+X
+X	# Update statistics
+X	unless ($failed) {
+X		&s_action($cmd_name, $wmode);
+X	} else {
+X		&s_failed($cmd_name, $wmode);
+X	}
+X	$cont;				# Continue status
+X}
+X
+X# Each filter command is handled by a specific function. The Filter array
+X# maps an action name to a subroutine, while the Rfilter array lists the
+X# authorized actions in the special mode _SEEN_ (used when a mail already
+X# filtered is processed).
+X# The %Nostatus array records the commands which do not modify the execution
+X# status recorded by the last command. Typically, those are commands which can
+X# never fail.
+Xsub init_filter {
+X	%Filter = (
+X		'ABORT', 'run_abort',		# Aborts application of filtering rules
+X		'ANNOTATE', 'run_annotate',	# Add new field into header
+X		'ASSIGN', 'run_assign',		# Assign value to variable
+X		'BACK', 'run_back',			# Eval feedback
+X		'BEGIN', 'run_begin',		# Enter in a new state
+X		'BOUNCE', 'run_bounce',		# Bounce message
+X		'DELETE', 'run_delete',		# Throw mail away, explicitely
+X		'FEED', 'run_feed',			# Feed back mail through program
+X		'FORWARD', 'run_forward',	# Forward mail
+X		'GIVE', 'run_give',			# Give body to command
+X		'KEEP', 'run_keep',			# Keep only the listed header fields
+X		'LEAVE', 'run_leave',		# Saving in incomming mailbox
+X		'MESSAGE', 'run_message',	# Send a vacation-like file
+X		'NOP', 'run_nop',			# No operation
+X		'NOTIFY', 'run_notify',		# Notify reception of message
+X		'ONCE', 'run_once',			# Once control
+X		'PASS', 'run_pass',			# Pass body to program with feedback
+X		'PERL', 'run_perl',			# Perform actions from within a perl script
+X		'PIPE', 'run_pipe',			# Pipe message to specified command
+X		'POST', 'run_post',			# Post mail to the net
+X		'PROCESS', 'run_process',	# Mailagent processing
+X		'PURIFY', 'run_purify',		# Purify header through a program
+X		'QUEUE', 'run_queue',		# Queue mail
+X		'RECORD', 'run_record',		# Record message in history
+X		'REJECT', 'run_reject',		# Reject
+X		'RESTART', 'run_restart',	# Restart
+X		'RESYNC', 'run_resync',		# Resynchronizes the header
+X		'RUN', 'run_run',			# Run specified program
+X		'SAVE', 'run_save',			# Save in a folder
+X		'SELECT', 'run_select',		# Time selection control
+X		'SPLIT', 'run_split',		# Split digest message
+X		'STORE', 'run_store',		# Save and leave copy in mailbox
+X		'STRIP', 'run_strip',		# Strip some header lines
+X		'SUBST', 'run_subst',		# Substitution on variable
+X		'TR', 'run_tr',				# Translation on variable
+X		'UNIQUE', 'run_unique',		# Delete message if already in history
+X		'VACATION', 'run_vacation',	# Allow or forbid vacation messages
+X		'WRITE', 'run_write',		# Write mail in folder
+X	);
+X	# Restricted filter actions: the commands listed below cannot be
+X	# executed in the special seen mode (in order to avoid loops).
+X	%Rfilter = (
+X		'BACK', 1,
+X		'BOUNCE', 1,
+X		'FEED', 1,
+X		'FORWARD', 1,
+X		'GIVE', 1,
+X		'NOTIFY', 1,
+X		'PASS', 1,
+X		'PIPE', 1,
+X		'POST', 1,
+X		'PURIFY', 1,
+X		'QUEUE', 1,
+X		'RUN', 1,
+X	);
+X	# The following commands do not modify the last status recorded.
+X	%Nostatus = (
+X		'ABORT', 1,
+X		'ASSIGN', 1,
+X		'BEGIN', 1,
+X		'KEEP', 1,
+X		'NOP', 1,
+X		'REJECT', 1,
+X		'RESTART', 1,
+X		'RESYNC', 1,
+X		'STRIP', 1,
+X		'VACATION', 1,
+X	);
+X}
+X
+END_OF_FILE
+  if test 9795 -ne `wc -c <'agent/pl/runcmd.pl'`; then
+    echo shar: \"'agent/pl/runcmd.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/runcmd.pl'
+fi
+if test -f 'bin/perload' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bin/perload'\"
+else
+  echo shar: Extracting \"'bin/perload'\" \(21206 characters\)
+  sed "s/^X//" >'bin/perload' <<'END_OF_FILE'
+X# feed this into perl
+X'/bin/true' && eval 'exec perl -S $0 "$@"'
+X	if $running_under_some_shell;
+X'di';
+X'ig00';
+X
+X#
+X# This perl script is its own manual page [generated by wrapman]
+X#
+X
+X# $Id: perload,v 2.9.1.4 92/11/10 10:14:47 ram Exp $
+X#
+X#  Copyright (c) 1992, Raphael Manfredi
+X#
+X#  You may redistribute only under the terms of the GNU General Public
+X#  Licence as specified in the README file that comes with dist.
+X#
+X# $Log:	perload,v $
+X# Revision 2.9.1.4  92/11/10  10:14:47  ram
+X# patch12: fixed English typo in manual section
+X# 
+X# Revision 2.9.1.3  92/08/26  13:22:38  ram
+X# patch8: added -t option to include untainting of loaded code
+X# 
+X# Revision 2.9.1.2  92/08/12  21:36:54  ram
+X# patch6: new -o option which optimizes dataloading by building an offset table
+X# patch6: loading routines now avoid unnecessary strings operations
+X# patch6: previous changes contributed by Wayne Scott <wscott@ecn.purdue.edu>
+X# 
+X# Revision 2.9.1.1  92/08/02  16:25:43  ram
+X# patch2: dataloading routines now fully operate in perload package
+X# 
+X# Revision 2.9  92/07/14  16:53:40  ram
+X# 3.0 beta baseline.
+X# 
+X
+X# Replace each function definition in a loading section by two stubs and
+X# reject the definition into the DATA part of the script if in a dataload
+X# section or into a FILE if in an autoload section.
+X
+X$in_load = 0;					# In a loading section
+X$autoload = '';					# Name of autoloaded file
+X$has_invocation_stub = 0;		# True if we detect a #! stub
+X$current_package = 'main';		# Current package
+X$init_emitted = 0;				# True when dataloading stamp was emitted
+X$in_function = 0;
+X
+Xrequire 'getopt.pl';
+X&Getopt;
+X
+Xwhile (<>) {
+X	if ($. == 1 && /^#.*perl/) {	# Invocation stub
+X		$has_invocation_stub = 1;
+X		print;
+X		next;
+X	}
+X	if ($. <= 3 && $has_invocation_stub) {
+X		print;
+X		next;
+X	}
+X	if (/^\s*$/) {
+X		&flush_comment;
+X		print unless $in_function;
+X		print if $in_function && !$in_load;
+X		if ($in_function && $in_load) {
+X			push(@Data, "\n") unless $autoload;
+X			$Auto{$autoload} .= "\n" if $autoload;
+X		}
+X		next;
+X	}
+X	if (/^\s*#/) {
+X		if (/^#\s*perload on/i) {		# Enter a loading section
+X			print unless /:$/;
+X			$in_load = 1;
+X			next;
+X		}
+X		if (/^#\s*perload off/i) {		# End a loading section
+X			print unless /:$/;
+X			$in_load = 0;
+X			next;
+X		}
+X		if (/^#\s*autoload (\S+)/i) {	# Enter autoloading section
+X			print unless /:$/;
+X			push(@autoload, $autoload);	# Directives may be nested
+X			$autoload = $1;
+X			$in_load += 2;
+X			next;
+X		}
+X		if (/^#\s*offload/i) {			# End autoloading section
+X			print unless /:$/;
+X			$autoload = pop(@autoload);	# Revert to previously active file
+X			$in_load -= 2;
+X			next;
+X		}
+X		&emit_init unless $init_emitted;
+X		push(@Comment, $_) unless $in_function;
+X		print if $in_function && !$in_load;
+X		next unless $in_function;
+X		push(@Data, $_) unless $autoload;
+X		$Auto{$autoload} .= $_ if $autoload;
+X		next;
+X	}
+X	&emit_init unless $init_emitted;
+X	/^package (\S+)\s*;/ && ($current_package = $1);
+X	unless ($in_load) {
+X		&flush_comment;
+X		print;
+X		next;
+X	}
+X	# We are in a loading section
+X	if (/^sub\s+([\w']+)\s*\{(.*)/) {
+X		die "line $.: function $1 defined within another function.\n"
+X			if $in_function;
+X		# Silently ignore one-line functions
+X		if (/\}/) {
+X			&flush_comment;
+X			print;
+X			next;
+X		}
+X		$comment = $2;
+X		$in_function = 1;
+X		$function = $1;
+X		($fn_package, $fn_basename) = $function =~ /^(\w+)'(\w+)/;
+X		unless ($fn_package) {
+X			$fn_package = $current_package;
+X			$fn_basename = $function;
+X		}
+X		# Keep leading function comment
+X		foreach (@Comment) {
+X			push(@Data, $_) unless $autoload;
+X			$Auto{$autoload} .= $_ if $autoload;
+X		}
+X		@Comment = ();
+X		# Change package context for correct compilation: the name is visible
+X		# within the original function package while the body of the function
+X		# is compiled within the current package.
+X		$declaration = "sub $fn_package" . "'load_$fn_basename {$comment\n";
+X		$package_context = "\tpackage $current_package;\n";
+X		if ($autoload) {
+X			$Auto{$autoload} .= $declaration . $package_context;
+X		} else {
+X			push(@Data, $declaration, $package_context);
+X		}
+X		# Emit stubs
+X		print "sub $fn_package", "'$fn_basename";
+X		print " { &auto_$fn_package", "'$fn_basename; }\n";
+X		print "sub auto_$fn_package", "'$fn_basename { ";
+X		print '&main\'dataload' unless $autoload;
+X		print '&main\'autoload(' . "'$autoload'" . ', @_)' if $autoload;
+X		print "; }\n";
+X		next;
+X	}
+X	unless ($in_function) {
+X		&flush_comment;
+X		print;
+X		next;
+X	}
+X	# We are in a loading section and inside a function body
+X	push(@Data, $_) unless $autoload;
+X	$Auto{$autoload} .= $_ if $autoload;
+X	$in_function = 0 if /^\}/;
+X	if (/^\}/) {
+X		push(@Data, "\n") unless $autoload;
+X		$Auto{$autoload} .= "\n" if $autoload;
+X	}
+X}
+X
+X@auto = keys %Auto;
+Xif (@auto > 0) {
+X	print &q(<<'EOC');
+X:# Load the calling function from file and call it. This function is called
+X:# only once per file to be loaded.
+X:sub main'autoload {
+X:	local($__file__) = shift(@_);
+X:	local($__packname__) = (caller(1))[3];
+X:	local($__rpackname__) = $__packname__;
+X:	local($__saved__) = $@;
+X:	$__rpackname__ =~ s/^auto_//;
+X:	&perload'load_from_file($__file__);
+X:	$__rpackname__ =~ s/'/'load_/;
+X:	$@ = $__saved__;		# Restore value $@ had on entrance
+X:	&$__rpackname__(@_);	# Call newly loaded function
+X:}
+X:
+X:# Load file and compile it, substituing the second stub function with the
+X:# loaded ones. Location of the file uses the @AUTO array.
+X:sub perload'load_from_file {
+X:	package perload;
+X:	local($file) = @_;				# File to be loaded
+X:	local($body) = ' ' x 1024;		# Pre-extent
+X:	local($load) = ' ' x 256;		# Loading operations
+X:	# Avoid side effects by protecting special variables which will be
+X:	# changed by the autoloading operation.
+X:	local($., $_, $@);
+X:	$body = '';
+X:	$load = '';
+X:	&init_auto unless defined(@'AUTO);	# Make sure we have a suitable @AUTO
+X:	&locate_file unless -f "$file";		# Locate file if relative path
+X:	open(FILE, $file) ||
+X:		die "Can't load $'__rpackname__ from $file: $!\n";
+X:	while (<FILE>) {
+X:		$load .= '*auto_' . $1 . '\'' . $2 . '= *' . $1 . '\'' . "load_$2;\n"
+X:			if (/^sub\s+(\w+)'load_(\w+)\s*\{/);
+X:		$body .= $_;
+X:	}
+X:	close FILE;
+XEOC
+X	if ($opt_t) {
+X		print &q(<<'EOC');
+X:	# Untaint body when running setuid
+X:	$body =~ /^([^\0]*)/;
+X:	# No need to untaint $load, as it was built using trusted variables
+X:	eval $1 . $load;
+XEOC
+X	} else {
+X		print &q(<<'EOC');
+X:	eval $body . $load;
+XEOC
+X	}
+X	print &q(<<'EOC');
+X:	chop($@) && die "$@, while parsing code of $file.\n";
+X:}
+X:
+X:# Initialize the @AUTO array. Attempt defining it by using the AUTOLIB
+X:# environment variable if set, otherwise look in auto/ first, then in the
+X:# current directory.
+X:sub perload'init_auto {
+X:	if (defined $ENV{'AUTOLIB'} && $ENV{'AUTOLIB'}) {
+X:		@AUTO = split(':', $ENV{'AUTOLIB'});
+X:	} else {
+X:		@AUTO = ('auto', '.');
+X:	}
+X:}
+X:
+X:# Locate to-be-loaded file held in $file by looking through the @AUTO array.
+X:# This variable, defined in 'load_from_file', is modified as a side effect.
+X:sub perload'locate_file {
+X:	package perload;
+X:	local($fullpath);
+X:	foreach $dir (@'AUTO) {
+X:		$fullpath = $dir . '/' . $file;
+X:		last if -f "$fullpath";
+X:		$fullpath = '';
+X:	}
+X:	$file = $fullpath if $fullpath;		# Update var from 'load_from_file'
+X:}
+X:
+XEOC
+X}
+X
+Xif (@Data > 0) {
+X	print &q(<<'EOC');
+X:# Load the calling function from DATA segment and call it. This function is
+X:# called only once per routine to be loaded.
+X:sub main'dataload {
+X:	local($__packname__) = (caller(1))[3];
+X:	local($__rpackname__) = $__packname__;
+X:	local($__at__) = $@;
+X:	$__rpackname__ =~ s/^auto_//;
+X:	&perload'load_from_data($__rpackname__);
+X:	local($__fun__) = "$__rpackname__";
+X:	$__fun__ =~ s/'/'load_/;
+X:	eval "*$__packname__ = *$__fun__;";	# Change symbol table entry
+X:	die $@ if $@;		# Should not happen
+X:	$@ = $__at__;		# Restore value $@ had on entrance
+X:	&$__fun__;			# Call newly loaded function
+X:}
+X:
+X:# Load function name given as argument, fatal error if not existent
+X:sub perload'load_from_data {
+X:	package perload;
+X:	local($pos) = $Datapos{$_[0]};			# Offset within DATA
+X:	# Avoid side effects by protecting special variables which will be changed
+X:	# by the dataloading operation.
+X:	local($., $_, $@);
+X:	$pos = &fetch_function_code unless $pos;
+X:	die "Function $_[0] not found in data section.\n" unless $pos;
+X:	die "Cannot seek to $pos into data section.\n"
+X:		unless seek(main'DATA, $pos, 0);
+X:	local($/) = "\n}";
+X:	local($body) = scalar(<main'DATA>);
+X:	local($*) = 1;
+X:	die "End of file found while loading $_[0].\n" unless $body =~ /^\}$/;
+XEOC
+X	if ($opt_t) {
+X		print &q(<<'EOC');
+X:	# Untaint body when running setuid
+X:	$body =~ /^([^\0]*)/;
+X:	# Now we may safely eval it without getting an insecure dependency
+X:	eval $1;		# Load function into perl space
+XEOC
+X	} else {
+X		print &q(<<'EOC');
+X:	eval $body;		# Load function into perl space
+XEOC
+X	}
+X	print &q(<<'EOC');
+X:	chop($@) && die "$@, while parsing code of $_[0].\n";
+X:}
+X:
+XEOC
+X	print &q(<<'EOC') unless $opt_o;
+X:# Parse text after the END token and record defined loadable functions (i.e.
+X:# those whose name starts with load_) into the %Datapos array. Such function
+X:# definitions must be left adjusted. Stop as soon as the function we want
+X:# has been found.
+X:sub perload'fetch_function_code {
+X:	package perload;
+X:	local($pos) = tell main'DATA;
+X:	local($in_function) = 0;
+X:	local($func_name);
+X:	local($., $_);
+X:	while (<main'DATA>) {
+X:		if (/^sub\s+(\w+)'load_(\w+)\s*\{/) {
+X:			die "DATA line $.: function $1'$2 defined within $func_name.\n"
+X:				if $in_function;
+X:			$func_name = $1 . '\'' . $2;
+X:			$Datapos{$func_name} = $pos;
+X:			$in_function = 1;
+X:			next;
+X:		}
+X:		$in_function = 0 if /^\}/;
+X:		next if $in_function;
+X:		return $pos if $func_name eq $_[0];
+X:		$pos = tell main'DATA;
+X:	}
+X:	0;		# Function not found
+X:}
+X:
+XEOC
+X	print &q(<<'EOC') if $opt_o;
+X:# This function is called only once, and fills in the %Datapos array with
+X:# the offset of each of the dataloaded routines held in the data section.
+X:sub perload'fetch_function_code {
+X:	package perload;
+X:	local($start) = 0;
+X:	local($., $_);
+X:	while (<main'DATA>) {			# First move to start of offset table
+X:		next if /^#/;
+X:		last if /^$/ && ++$start > 2;	# Skip two blank line after end token
+X:	}
+X:	$start = tell(main'DATA);		# Offsets in table are relative to here
+X:	local($key, $value);
+X:	while (<main'DATA>) {			# Load the offset table
+X:		last if /^$/;				# Ends with a single blank line
+X:		($key, $value) = split(' ');
+X:		$Datapos{$key} = $value + $start;
+X:	}
+X:	$Datapos{$_[0]};		# All that pain to get this offset...
+X:}
+X:
+XEOC
+X	print &q(<<'EOC');
+X:#
+X:# The perl compiler stops here.
+X:#
+X:
+X:__END__
+X:
+X:#
+X:# Beyond this point lie functions we may never compile.
+X:#
+X:
+XEOC
+X	# Option -o directs us to optimize the function location by emitting an
+X	# offset table, which lists all the position within DATA for each possible
+X	# dataloaded routine.
+X	if ($opt_o) {
+X		print &q(<<'EOC');
+X:#
+X:# DO NOT CHANGE A IOTA BEYOND THIS COMMENT!
+X:# The following table lists offsets of functions within the data section.
+X:# Should modifications be needed, change original code and rerun perload
+X:# with the -o option to regenerate a proper offset table.
+X:#
+X:
+XEOC
+X		$trailing_message = &q(<<'EOC');
+X:
+X:#
+X:# End of offset table and beginning of dataloading section.
+X:#
+X:
+XEOC
+X		$pos = 0;			# Offset relative to this point (start of table)
+X		foreach (@Data) {
+X			$Datapos{"$1\'$2"} = $pos - $now
+X				if /^sub\s+(\w+)'load_(\w+)\s*\{/;	# } for vi
+X			$pos += length;
+X		}
+X		@poskeys = keys %Datapos;	# Array of routine names (fully qualified)
+X
+X		# Write out a formatted table, each entry stored on $entry bytes and
+X		# formatted with the $format string.
+X		($entry, $format) = &get_format(*poskeys);
+X
+X		# The total size occupied by the table is the size of one item times
+X		# the number of items plus the final trailing message at the end of
+X		# the table.
+X		$table_size = $entry * @poskeys + length($trailing_message);
+X
+X		# Output formatted table
+X		foreach (sort @poskeys) {
+X			printf($format, $_, $table_size + $Datapos{$_});
+X		}
+X		print $trailing_message;
+X	}
+X
+X	# Output code for each dataloaded function
+X	foreach (@Data) {
+X		print;
+X	}
+X	print &q(<<'EOC');
+X:#
+X:# End of dataloading section.
+X:#
+X:
+XEOC
+X}
+X
+Xif (@auto > 0) {
+X	mkdir('auto',0755) unless -d 'auto';
+X	foreach $file (@auto) {
+X		unless (open(AUTO, ">auto/$file")) {
+X			warn "Can't create auto/$file: $!\n";
+X			next;
+X		}
+X		print AUTO &q(<<'EOC');
+X:# This file was generated by perload
+X:
+XEOC
+X		print AUTO $Auto{$file};
+X		close AUTO;
+X	}
+X}
+X
+X# Compute optimum format for routine offset table, returning both the size of
+X# each entry and the formating string for printf.
+Xsub get_format {
+X	local(*names) = @_;
+X	local($name_len) = 0;
+X	local($max_len) = 0;
+X	foreach (@names) {
+X		$name_len = length;
+X		$max_len = $name_len if $name_len > $max_len;
+X	}
+X	# The size of each entry (preceded by one tab, followed by 12 chars)
+X	$name_len = $max_len + 1 + 12;
+X	($name_len, "\t%${max_len}s %10d\n");
+X}
+X
+Xsub emit_init {
+X	print &q(<<'EOC');
+X:#
+X:# This perl program uses dynamic loading [generated by perload]
+X:#
+X:
+XEOC
+X	$init_emitted = 1;
+X}
+X
+Xsub flush_comment {
+X	print @Comment if @Comment > 0;
+X	@Comment = ();
+X}
+X
+Xsub q {
+X	local($_) = @_;
+X	local($*) = 1;
+X	s/^://g;
+X	$_;
+X}
+X
+X#
+X# These next few lines are legal in both perl and nroff.
+X#
+X
+X.00;		# finish .ig
+X 
+X'di			\" finish diversion--previous line must be blank
+X.nr nl 0-1	\" fake up transition to first page again
+X.nr % 0		\" start at page 1
+X'; __END__	\" the perl compiler stops here
+X
+X'''
+X''' From here on it's a standard manual page.
+X'''
+X
+X.TH PERLOAD 1 "June 20, 1992"
+X.AT 3
+X.SH NAME
+Xperload \- builds up autoloaded and dataloaded perl scripts
+X.SH SYNOPSIS
+X.B perload
+X[ \fB\-ot\fR ]
+X[ \fIfile\fR ]
+X.SH DESCRIPTION
+X.I Perload
+Xtakes a perl script as argument (or from stdin if no argument is supplied)
+Xand prints out on stdout an equivalent script set-up to perform autoloading
+Xor dataloading. The translation is directed by special comments within the
+Xoriginal script. Using dynamic loading can drastically improve start-up
+Xperformances, both in time and in memory, as perl does not need to compile
+Xthe whole script nor store its whole compiled form in memory.
+X.PP
+X.I Autoloading
+Xdelays compilation of some functions until they are needed. The code for these
+Xfunctions is loaded dynamically at run-time. The atomicity of loading is a
+Xfile, which means that putting more than one function into a file will cause
+Xall these functions to be loaded and compiled as soon as one among them is
+Xneeded.
+X.PP
+X.I Dataloading
+Xis a form of autoloading where no extra file are needed. The script carries
+Xall the functions whose compilation is to be delayed in its data segment
+X(in the \fIperl\fR sense, i.e. they are accessible via the DATA filehandle).
+XThe scripts parses the data segment and extracts only the code for the needed
+Xsubroutine, which means granularity is better than with autloading.
+X.PP
+XIt is possible for a single script to use both autoloading and dataloading at
+Xthe same time. However, it should be noted that a script using only dataloading
+Xis self contained and can be moved or shared accross different platforms without
+Xfear. On the contrary, a script using only autoloading relies on some externally
+Xprovided files. Sharing this script among different platforms requires sharing
+Xof these external files. The script itself cannot be redistributed without
+Xalso giving the extra files holding the autoloaded functions.
+X.PP
+XThe major drawback with dataloading is that the DATA filehandle cannot be used
+Xfor anything else and may result in code duplication when two scripts could
+Xshare the same pieces of code. Autoloading appears as the perfect solution in
+Xthis case since two scripts may freely share the same functions without
+Xactually duplicating them on the disk (hence saving some precious disk blocks
+X:-).
+X.SH CRITERIA
+XFunctions to be dataloaded or autoloaded must meet the following layout
+Xcriteria:
+X.TP 5
+X\-
+XThey must not be one-line functions like \fIsub sorter { $a <=> $b }\fR.
+XThose functions are simply output verbatim, as they are already so
+Xsmall that it would not be worth to dynamically load them,
+X.TP
+X\-
+XThe first line must be of the form \fIsub routine_name {\fR, with an optional
+Xcomment allowed after the '{'.
+X.TP
+X\-
+XThe function definition must end with a single '}' character left aligned.
+X.TP
+X\-
+XPackage directives outside any function must be left aligned.
+X.PP
+XAll the above restrictions should not be source of a problem if "standard"
+Xwriting style is used. There are also some name restrictions: the package
+Xname \fIperload\fR is reserved, as is the \fI@AUTO\fR array when autoloading
+Xis used. Packages must not start with \fIauto_\fR, as this is prepended to
+Xuser's package names when building the stubs. Furthermore, the subroutines
+Xnames \fImain'autoload\fR and
+X\fImain'dataload\fR must not be used by the original script. Again, these
+Xshould not cause any grief.
+X.SH DIRECTIVES
+XThe translation performed by
+X.I Perload
+Xis driven by some special comment directives placed directly within the code.
+XEnding those directives with a ':' character will actually prevent them from
+Xbeing output into the produced script. Case is irrelevant for all the directives
+Xand the comment need not be left-aligned, although it must be the first
+Xnon-space item on the line.
+X.PP
+XThe following directives are available:
+X.TP 10
+X# Perload ON
+XTurns on the \fIperload\fR processing. Any function definition which meets
+Xthe criteria listed in the previous section will be replaced by two stubs and
+Xits actual definition will be rejected into the data segment (default) or a
+Xfile when inside an autoloading section.
+X.TP
+X# Perload OFF
+XTurns off any processing. The script is written as-is on the standard output.
+X.TP
+X# Autoload \fIpath\fR
+XRequests autoloading from file \fIpath\fR, which may be an absolute path or
+Xa relative path. The file will be located at run-time using the @AUTO array
+Xif a non-absolute path is supplied or if the file does not exist as listed.
+XAutoloading directives may be nested.
+X.TP
+X# Offload \fIpath\fR
+XThe argument is not required. The directive ends the previous autoloading
+Xdirective (the inmost one). This does not turn off the \fIperload\fR processing
+Xthough. The \fIpath\fR name is optional here (in fact, it has only a comment
+Xvalue).
+X.SH OPTIONS
+XPerload accepts only two options. Using \fB\-o\fR is meaningful only when
+Xdataloading is used. It outputs an offset table which lists the relative
+Xoffset of the dataloaded functions within the data section. This will spare
+Xperl the run-time parsing needed to locate the function, and results in an good
+Xspeed gain. However, it has one major drawback: it prevents people from
+Xactually modifying the source beyond the start of the table. But anything
+Xbefore can be freely edited, which is particulary useful when tailoring the
+Xscript.
+X.PP
+XThis option should not be used when editing of functions within the data
+Xsection is necessary for whatever reason. When \fB\-o\fR is used, any
+Xchange in the dataloaded function must be committed by re-running perload
+Xon the original script.
+X.PP
+XThe other option \fB\-t\fR is to be used when producing a script which is
+Xgoing to run setuid. The body of the loaded function is untainted before being
+Xfed to eval, which slightly slows down loading (the first time the function is
+Xcalled), but avoids either an insecure dependency report or weird warnings from
+Xtaintperl stating something is wrong (which is the behaviour with 4.0 PL35).
+X.SH FILES
+X.TP 10
+Xauto
+Xthe subdirectory where all produced autoloaded files are written.
+X.SH ENVIRONMENT
+XNo environment variables are used by \fIperload\fR. However, the autoloaded
+Xversion of the script pays attention to the \fIAUTOLIB\fR variable as a colon
+Xseparated set of directories where the to-be-loaded files are to be found
+Xwhen a non-absolute path was specified. If the \fIAUTOLIB\fR variable is not
+Xset, the default value 'auto:.' is used (i.e. look first in the auto/
+Xsubdirectory, then in the current directory.
+X.SH CAVEAT
+XSpecial care is required when using an autoloading script, especially when
+Xexecuted by the super-user: it would be very easy for someone to leave a
+Xspecial version of a routine to be loaded, in the hope the super-user (or
+Xanother suitable target) executes the autoloaded version of the script with
+Xsome \fIad hoc\fR changes...
+X.PP
+XThe directory holding the to-be-loaded files should therefore be protected
+Xagainst unauthorized access, and no file should have write permission on them.
+XThe directory itself should not be world-writable either, or someone might
+Xsubstitute his own version.
+XIt should also be considered wise to manually set the @AUTO variable to a
+Xsuitable value within the script itself.
+X.PP
+XThe \fB\-o\fR option uses \fIperl\fR's special variable \fI$/\fR with a
+Xmulti-character value. I suspect this did not work with versions of \fIperl\fR
+Xprior to 4.0, so any script using this optimized form of dataloading will not
+Xbe 100% backward compatible.
+X.SH AUTHOR
+XRaphael Manfredi <ram@eiffel.com>
+X.SH CREDITS
+XValuable input came from Wayne H. Scott <wscott@ecn.purdue.edu>. He is
+Xmerely the author of the optimizing offset table (\fB\-o\fR option).
+X.PP
+X.I Perload
+Xis based on an article from Tom Christiansen <tchrist@convex.com>,
+X.I Autoloading in Perl,
+Xexplaining the concept of dataloading and giving a basic implementation.
+X.SH "SEE ALSO"
+Xperl(1).
+END_OF_FILE
+  if test 21206 -ne `wc -c <'bin/perload'`; then
+    echo shar: \"'bin/perload'\" unpacked with wrong size!
+  fi
+  chmod +x 'bin/perload'
+  # end of 'bin/perload'
+fi
+echo shar: End of archive 7 \(of 17\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 17 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

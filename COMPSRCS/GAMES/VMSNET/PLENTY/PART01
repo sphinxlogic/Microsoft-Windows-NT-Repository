@@ -1,0 +1,206 @@
+Path: uunet!stanford.edu!rutgers!jvnc.net!yale.edu!think.com!sdd.hp.com!swrinde!elroy.jpl.nasa.gov!nntp-server.caltech.edu!erin.caltech.edu!shoppa
+From: shoppa@erin.caltech.edu (TIM SHOPPA)
+Newsgroups: vmsnet.sources.games
+Subject: Plenty Questions (1/1) Game!
+Keywords: game vms plenty questions
+Message-ID: <4JUN199210143337@erin.caltech.edu>
+Date: 4 Jun 92 18:14:00 GMT
+Sender: news@cco.caltech.edu
+Organization: California Institute of Technology
+Lines: 193
+News-Software: VAX/VMS VNEWS 1.41
+Nntp-Posting-Host: erin.caltech.edu
+
+Hello!
+	This is a short little game that I wrote several years ago, patterned
+upon an ancient game in Beagle Bros' Magic Pack on their Game Disk.  It is
+a version of "20 questions", where the computer asks the questions, and
+then gives an answer.  It's written in uncommented Fortran, and uses the
+Vax SMG package to do some of the screen and keyboard manipulation.  It needs
+a VT-100 compatible terminal to work at present, but with proper use of SMG
+it could probably be modified to work with any SMG-supported terminal.
+	Of course, looking at the possible answers in the list below, something
+suspicious must be going on if this program is to do anything interesting.
+Note that if you type Control-A at the prompt "Press any key to continue..."
+then the logical flag CHEAT is set to .TRUE.  When this flag is set, the
+first key typed in response to the questions the comptuer asks is not displayed,
+but is instead stored.  When the computer gets to the twentieth question
+(or a period is typed as the "unprinted response"), it will then make its
+guess, displaying the stored keystrokes instead of an answer from the list
+below.  (The list below is used to display a dummy answer if control-A
+wasn't typed.)
+	Not much of a game, but good for amazing your friends a few times.
+(As long as you are sitting at the keyboard, that is.)
+To comple use:$FORT PLENTY
+	      $LINK PLENTY
+Then run with:$RUN PLENTY
+
+						Tim
+						(Shoppa@erin.caltech.edu)
+
+
+
+	program plenty
+c Plenty Questions, patterned after Beagle Bros' Magic Pack.
+c Feel free to modify and improve this game as you wish, and maybe
+c even send me your improved versions!  Certainly the question list can
+c be improved (the "no" to "yes" ratio of answers is way to high).
+c Also, the control sequences are currently VT-100 dependent, a better
+c written program would use SMG to do all the screen manipulation.
+c Note: if the game doesn't seem to be working, look closely at the use
+c of the logical variable CHEAT.
+c Original concept: Beagle Bros., early 80's, on Apple II Game Disk.
+c This version: Tim Shoppa (shoppa@erin.caltech.edu), 1987 or so.
+	logical cheat
+	parameter nq=32
+	character*40 question(nq)
+	logical used(100)
+	logical done
+	character*20 answer
+	parameter na=20
+	character*20 ansf(na)
+	character*1 let
+	parameter esc=27
+	data question/
+     !  	'Is it bigger than a breadbox?',
+     !  	'Does it have legs?',
+     !		'Is it orange?',
+     !		'Can it fly?',
+     !		'Can you eat it?',
+     !		'Can you hold it?',
+     !		'Does it go ''moo''?',
+     !		'Is it older than you?',
+     !		'Does it cost more that $500?',
+     !		'Does it weigh more than an elephant?',
+     !		'Is it part of a bigger thing?',
+     !		'Can it bark?',
+     !		'Does it need water?',
+     !		'Is it brown?',
+     !		'Is it shiny?',
+     ! 		'Can it be bent easily?',
+     !		'Can you buy it in a supermarket?',
+     !		'Is it transparent?',
+     !		'Is it round?',
+     !		'Can it bounce?',
+     !		'Does it melt?',
+     !		'Do you find it outside?',
+     !		'Is it skinny?',
+     !		'Is it underground?',
+     !		'Can you wear it?',
+     !		'Does it have holes?',
+     !		'Is there one in this room?',
+     !		'Does it make any noise?',
+     !		'Is it electric?',
+     !		'Is it flat?',
+     !		'Is it a liquid?',
+     !		'Does it have eyes?'/
+	data ansf/
+     !		'coffee cup',
+     !		'volkswagon',
+     !		'volleyball',
+     !		'snow shovel',
+     !		'jumbo jet',
+     !		'chair',
+     !		'elephant',
+     !		'radio',
+     !		'desk',
+     !		'orange',
+     !		'toothbrush',
+     !		'pogo stick',
+     !		'screwdriver',
+     !		'elevator',
+     !		'party',
+     !		'president',
+     !		'eraser',
+     !		'bumper sticker',
+     !		'bottle',
+     !		'driveway'/
+	OPEN(UNIT=10,NAME='TT:',STATUS='UNKNOWN',CARRIAGECONTROL='NONE')
+	cheat=.false.
+	CALL SMG$CREATE_VIRTUAL_KEYBOARD(ID)
+	call home
+	type *,'Welcome to the game of plenty questions.'
+	type *,'You think of an object, and I''ll ask the questions.'
+	type *,'(Follow the instructions in the manual exactly, or else the'
+	type *,' program will not work correctly, even though it may appear'
+	type *,' to be working.)'
+	type *,'Press any key to continue ...'
+10	CALL SMG$READ_KEYSTROKE(ID,N)
+	if (n.eq.1) cheat=.true.
+	answer='.'
+	done=.false.
+	do 20 i=1,100
+20	used(i)=.false.
+	call home
+	write(10,98)
+98	format('*****************  Plenty Questions *******************')
+	type *
+	do 200 i=1,20
+99	n=nq*ran(nseed)+1
+96	if (used(n)) then
+	  n=n+1
+	  if (n.le.nq) go to 96
+	  n=1
+	  go to 96
+	end if
+	used(n)=.true.
+	write (10,101) i,question(n)
+101	format(i2,'. ',a40,$)
+102	if (cheat) then
+	  if (.not.done) then
+	    call smg$read_keystroke(id,n)
+	    write (let,138) n
+138	    format(a1,$)
+	    if (let.eq.'.') then
+	      done=.true.
+	    else
+	      answer(i:i)=let
+	    end if
+	  end if
+	end if
+	j=1
+	iseed=0
+140	call smg$read_keystroke(id,n)
+	if (n.eq.13) then
+	  if (j.gt.1) then
+	    nseed=nseed+iseed*41
+	    go to 200
+	  else
+	    go to 140
+	  end if
+	end if
+	if (n.eq.127) then
+	  if (j.eq.1) then
+	    if (cheat) go to 102
+	  else
+	    write(10,142) esc,esc
+142	    format(a1,'[D ',a1,'[D')
+	    j=j-1
+	  end if
+	else
+	  write(10,110) n
+110	  format(a1,$)
+	  if (j.eq.1) iseed=n
+	  j=j+1
+	end if
+	go to 140
+200	type *
+300	write (10,301),7
+301	format(a1,'I''ve got it! Its a ')
+	do 310 i=1,100
+	n=na*ran(nseed)+1
+	write (10,302) ansf(n),esc
+302	format(a20,a1,'[20D')
+310	call lib$wait(0.1)	
+	if (cheat) then
+	  write (10,201)answer
+201	  format(a20)
+	end if
+	END
+
+	subroutine home
+	parameter esc=27
+	write(10,1) esc,esc
+1	format(a1,'[2J',a1,'[1;1H',$)
+	return
+	end

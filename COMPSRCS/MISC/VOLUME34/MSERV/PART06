@@ -1,0 +1,1854 @@
+Newsgroups: comp.sources.misc
+From: jv@squirrel.mh.nl (Johan Vromans)
+Subject: v34i097:  mserv - Squirrel Mail Server Software, version 3.1, Part06/06
+Message-ID: <1993Jan7.035021.11861@sparky.imd.sterling.com>
+X-Md4-Signature: 12f4bd265872fd362578dfc193d06659
+Date: Thu, 7 Jan 1993 03:50:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@squirrel.mh.nl (Johan Vromans)
+Posting-number: Volume 34, Issue 97
+Archive-name: mserv/part06
+Environment: Perl
+Supersedes: mserv-3.0: Volume 30, Issue 46-49
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  mserv-3.1/CRONTAB.sample mserv-3.1/README
+#   mserv-3.1/do_runq.sh mserv-3.1/dr_pack.pl mserv-3.1/dr_uucp.pl
+#   mserv-3.1/ixlookup.patch mserv-3.1/makeindex.pl
+#   mserv-3.1/ms_common.pl mserv-3.1/ms_lock.pl mserv-3.1/mserv.hints
+#   mserv-3.1/mserv.notes mserv-3.1/patchlevel.h
+#   mserv-3.1/pr_doindex.pl mserv-3.1/pr_dsearch.pl
+#   mserv-3.1/pr_isearch.pl mserv-3.1/rfc822.pl mserv-3.1/testlock.pl
+#   mserv-3.1/ud_sample2.pl mserv-3.1/unpack.pl
+# Wrapped by kent@sparky on Wed Jan  6 21:39:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 6)."'
+if test -f 'mserv-3.1/CRONTAB.sample' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/CRONTAB.sample'\"
+else
+  echo shar: Extracting \"'mserv-3.1/CRONTAB.sample'\" \(302 characters\)
+  sed "s/^X//" >'mserv-3.1/CRONTAB.sample' <<'END_OF_FILE'
+X# CRONTAB -- cron entries for mail server -- @(#)@ CRONTAB.sample	1.3
+X30 0,2,4,6,18,20,22 * * * /usr/local/lib/mserv/do_runq
+X0 3 * * * /usr/local/lib/mserv/makeindex
+X0 7 * * * /usr/local/lib/mserv/do_report -errors -since .errrun
+X10 7 * * 7 /usr/local/lib/mserv/do_report -full -collect -ftp -ftpclean
+END_OF_FILE
+  if test 302 -ne `wc -c <'mserv-3.1/CRONTAB.sample'`; then
+    echo shar: \"'mserv-3.1/CRONTAB.sample'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/CRONTAB.sample'
+fi
+if test -f 'mserv-3.1/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/README'\"
+else
+  echo shar: Extracting \"'mserv-3.1/README'\" \(2770 characters\)
+  sed "s/^X//" >'mserv-3.1/README' <<'END_OF_FILE'
+X    Announcing: Squirrel Mail Server Software, version 3.1
+X    ======================================================
+X
+XFor the user:
+X-------------
+XThe Squirrel Mail Server is a mail response program. You can send
+Xemail to it, and it will try to react sensible to your message.
+X
+XMain purpose of the mail server is to obtain files from a local
+Xarchive or FTP servers. It is also possible to search for files and to
+Xgenerate directory listings. A powerful index mechanism obsoletes the
+Xneed to transfer huge "ls-lR" files.
+X
+XWhile looking for files, the server knows about commonly used
+Xextensions to filenames (e.g. ".tar.Z" in "foo.tar.Z") and pseudo-
+Xstandard version numbering (e.g. "gcc-2.1.tar.Z").  It is quite well
+Xpossible that a simple request for "emacs" will actually transmit the
+Xfile "gnu/emacs-18/dist/emacs-18.59.tar.Z".
+X
+XDelivery of information can take place via email or UUCP or both.
+XFiles are compressed if possible, encoded if necessary, and split into
+Xpieces if needed. If a transfer fails, it it always possible to
+Xrequest retransmission of the failed parts only.
+X
+XFor the implementor:
+X--------------------
+XAll written in perl, hence portable and easily maintainable.  Code is
+Xreadable; useful, plentiful comments. Very extentable and easily
+Xmodified. Easy to install. Over 2000 lines of documentation.
+X
+XArchives can be split over a number of directories or file systems.
+X
+XRequests are queued and processed by a separate daemon process (e.g.
+Xfrom cron) to cut down on the system load. Moreover, the implementor
+Xcan control when the queue is being run.
+X
+XAll transfers are logged. Maintenance procedures include a reporting
+Xtool.
+X
+XFiles retrieved via FTP are kept on local store for some time, so
+Xsubsequent requests can be honoured from the cache.
+X
+XRequirements:
+X-------------
+XPerl 4.0 patchlevel 35 or later.
+XNOTE that perl 4.0 pl35 contains a bug that can be fixed by an
+X(unofficial) patch obtainable from the NLUUG mail server -- see below.
+X
+XGNU find 3.6 or later (only if you want to exploit the index
+Xfeatures).
+X
+XA decent mail system that can deliver mail to a process (sendmail,
+Xsmail3, or smail2.5 w/ mods).
+X
+XCommon tools like compress, zoo, zip, uuencode etc.
+X
+XHow to get it:
+X--------------
+XSend a mail message to <mail-server@nluug.nl> with contents
+X
+X    begin
+X    send mserv-3.1.tar.Z
+X    send XPatch-4.035.tar.Z
+X    end
+X
+XThe latter file contains some unofficial patches to perl 4.0
+Xpatchlevel 35.
+X
+XAlso available are nicely formatted PostScript versions of the 
+XUser Guide and Installation Guide:
+X
+X    send usrguide.ps.Z
+X    send mservmgr.ps.Z
+X
+XThe Squirrel Mail Server Software is 
+X
+X    Copyright 1988,1992,1993 Johan Vromans.
+X
+XIt is distributed under the terms of the GNU Public Licence.
+X
+XFor more information: Johan Vromans <jv@mh.nl> .
+END_OF_FILE
+  if test 2770 -ne `wc -c <'mserv-3.1/README'`; then
+    echo shar: \"'mserv-3.1/README'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/README'
+fi
+if test -f 'mserv-3.1/do_runq.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/do_runq.sh'\"
+else
+  echo shar: Extracting \"'mserv-3.1/do_runq.sh'\" \(328 characters\)
+  sed "s/^X//" >'mserv-3.1/do_runq.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X# do_runq.sh -- run mail server queue
+X# SCCS Status     : @(#)@ do_runq	1.1
+X# Author          : Johan Vromans
+X# Created On      : Sat May  2 14:15:16 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat May  2 14:16:50 1992
+X# Update Count    : 1
+X# Status          : OK
+X
+Xexec `dirname $0`/dorequest ${1+"$@"}
+END_OF_FILE
+  if test 328 -ne `wc -c <'mserv-3.1/do_runq.sh'`; then
+    echo shar: \"'mserv-3.1/do_runq.sh'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/do_runq.sh'
+fi
+if test -f 'mserv-3.1/dr_pack.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/dr_pack.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/dr_pack.pl'\" \(2830 characters\)
+  sed "s/^X//" >'mserv-3.1/dr_pack.pl' <<'END_OF_FILE'
+X# dr_pack.pl -- handle packing
+X# SCCS Status     : @(#)@ dr_pack.pl	3.3
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:22:49 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Dec 12 01:56:08 1992
+X# Update Count    : 8
+X# Status          : OK
+X
+Xsub pack_mail_request {
+X    local ($rcpt, $dest, $uunote, $request, $file, 
+X	   $coding, $limit, $packing, $parts) = @_;
+X
+X    if ( $opt_debug ) {
+X	print STDERR ("&pack_mail_request(rcpt=$rcpt, address=$dest, ",
+X		      "request=$request,\n",
+X		      "    file=$file,\n",
+X		      "    limit=$limit, packing=$packing, parts=$parts)\n");
+X    }
+X
+X    ($request, $file) = &packing ($request, $file, $packing);
+X    require "$libdir/dr_mail.pl";
+X    &mail_request ($rcpt, $dest, $uunote, $request, $file, 
+X		   $coding, $limit, $parts);
+X    unlink ($file) unless $opt_keep;
+X}
+X
+Xsub pack_uucp_request {
+X    local ($rcpt, $uupath, $uunote, $request, $file, 
+X	   $coding, $limit, $packing, $parts) = @_;
+X
+X    if ( $opt_debug ) {
+X	print STDERR ("&pack_uucp_request(rcpt=$rcpt, uupath=$uupath,\n",
+X		      "    uunote=$uunote, request=$request,\n",
+X		      "    file=$file,\n",
+X		      "    limit=$limit, oacking=$packing, parts=$parts)\n");
+X    }
+X
+X    ($request, $file) = &packing ($request, $file, $packing);
+X    require "$libdir/dr_uucp.pl";
+X    &uucp_request ($rcpt, $uupath, $uunote, $request, $file, 
+X		   $coding, $limit, $parts);
+X    unlink ($file) unless $opt_keep;
+X}
+X
+Xsub packing {
+X    local ($request, $file, $packing) = @_;
+X
+X    # Packs the files in directory $file into an $packing-archive, and
+X    # returns an array containing the modified name of the request
+X    # and the name of the archive file.
+X
+X    &check_file ($file, 1);
+X
+X    local ($dir, $realname) = &fnsplit ($file);
+X    local ($tmpfile_prefix) = $opt_keep || "$tmpdir/pck$$.";
+X    local ($cmd) = "$find $realname -follow -type f ! -name '.*' -print | ";
+X
+X    chdir $dir || &die ("Cannot chdir to $dir [$!]");
+X
+X    if ( $packing eq "tar" ) {
+X	$file = $tmpfile_prefix . "tar.Z";
+X	$cmd .= $pdtar ? "$pdtar -z -c -h -T - -f $file"
+X		: "$tar -c -h -T - -f - | $compress > $file";
+X	&system ($cmd);
+X	&die ("Problem executing \"$cmd\"") unless -s $file;
+X	return ($request . "-tar.Z", $file);
+X    }
+X
+X    if ( $packing eq "zoo" ) {
+X	$file = $tmpfile_prefix . "zoo";
+X	$cmd .= "$zoo aIqq $file";
+X	&system ($cmd);
+X	&die ("Problem executing \"$cmd\"") unless -s $file;
+X	return ($request . "-zoo", $file);
+X    }
+X
+X    if ( $packing eq "zip" ) {
+X	$file = $tmpfile_prefix . "zip";
+X	# It is not really necessary to use find for zip,
+X	# but this is the only way to exclude .-files.
+X	$cmd .= "$zip -n Z -q -b $tmpdir -@ $file";
+X	&system ($cmd);
+X	&die ("Problem executing \"$cmd\"") unless -s $file;
+X	return ($request . "-zip", $file);
+X    }
+X
+X    &die ("Invalid packing code in queue");
+X    (undef, undef);
+X}
+X
+X1;
+END_OF_FILE
+  if test 2830 -ne `wc -c <'mserv-3.1/dr_pack.pl'`; then
+    echo shar: \"'mserv-3.1/dr_pack.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/dr_pack.pl'
+fi
+if test -f 'mserv-3.1/dr_uucp.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/dr_uucp.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/dr_uucp.pl'\" \(3896 characters\)
+  sed "s/^X//" >'mserv-3.1/dr_uucp.pl' <<'END_OF_FILE'
+X# dr_uucp.pl -- handle request via uucp
+X# SCCS Status     : @(#)@ dr_uucp.pl	3.7
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:22:49 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Tue Dec 15 23:12:24 1992
+X# Update Count    : 25
+X# Status          : OK
+X
+Xsub uucp_request {
+X
+X    local ($rcpt, $uupath, $uunote, $request, $file, $encoding, $limit, $parts) = @_;
+X
+X    if ( $opt_debug ) {
+X	print STDERR ("&uucp_request(rcpt=$rcpt, uupath=$uupath,\n",
+X		      "    uunote=$uunote, request=$request,\n",
+X		      "    file=$file,\n",
+X		      "    encoding=$encoding, limit=$limit, parts=$parts,",
+X		      " remove=$remove_file)\n");
+X    }
+X
+X    # This routine handles the requests.
+X
+X    &check_file ($file, 0);
+X
+X    local ($fname);		# Basename of file to send
+X    local ($size);		# Size of file
+X    local ($files);		# Number of files to send
+X    local (@parts);		# List of parts to send
+X    local ($tmpfile_prefix) = $opt_keep || "$tmpdir/drq$$.";
+X    local ($compressed) = '';	# we compressed it
+X
+X    # Limit must be between 10 and 1024K, with 256K default.
+X    $limit =   32*1024 unless defined $limit;
+X    $limit = $` * 1024 if $limit =~ /K$/;
+X    $limit =   10*1024 if $limit <   10*1024;
+X    $limit = 1024*1024 if $limit > 1024*1024;
+X
+X    # Build an acceptable filename for uucp.
+X    if ( $request =~ m|[\s\047\042?%*{}]| ) {
+X	$fname = (&fnsplit ($file))[1];
+X    }
+X    else {
+X	if ( index ($request, $tmpdir) == $[ ) {
+X	    # Get last part (basename) of the requested file.
+X	    $fname = (&fnsplit ($request))[1];
+X	}
+X	else {
+X	    $fname = &canon_fname ($request);
+X	}
+X    }
+X
+X    # Compress first, if requested.
+X    if ( $encoding =~ /^[^ap].*z$/i && $compress ) {
+X	local ($tmp) = &fttemp;
+X	print STDERR ("Using compression\n") if $opt_debug;
+X	&system ("$compress < $file > $tmp");
+X	if ( $remove_file ) {
+X	    print STDERR ("Unlinking $file\n") if $opt_debug;
+X	    unlink ($file);
+X	}
+X	$remove_file = 1;
+X	$file = $tmp;
+X	$compressed = chop ($encoding);
+X    }
+X
+X    $size = (stat ($file))[7];
+X    if ( $size > $limit ) {
+X
+X	open (F, $file) || &die ("Cannot read $file [$!]");
+X
+X	$files = int (($size - 1 ) / $limit) + 1;
+X	print STDERR ("Size = $size, files = $files\n")
+X	    if $opt_debug;
+X
+X	if (  $parts =~ /\S/ ) {
+X	    @parts = grep ($_ && $_ <= $files, split (/,/, $parts));
+X	}
+X	else {
+X	    @parts = (1..$files);
+X	}
+X	
+X	local ($i) = length "$files";
+X	local ($partfmt) = "part%0${i}dof%0${i}d";
+X	
+X	foreach $the_part ( @parts ) {
+X
+X	    local ($cnt) = 0;
+X	    local ($need) = $limit;
+X	    local ($uutmp) = $tmpfile_prefix . "uu";
+X
+X	    print STDERR ("Sending $file, part $the_part of $files\n")
+X		if $opt_debug;
+X
+X	    seek (F, ($the_part-1) * $limit, 0);
+X	    open (S, ">$uutmp") || &die ("Cannot create $uutmp [$!]");
+X	    while ( $need > 0 ) {
+X		local ($try) = 10240;
+X		$try = $need if $try > $need;
+X		$res = sysread (F, $buf, $try);
+X		last unless defined $res && $res > 0;
+X		syswrite (S, $buf, $res);
+X		$need -= $res;
+X		$cnt += $res;
+X	    }
+X	    close (S);
+X
+X	    # Send it (w/ copy to UUCP spool).
+X	    &system ("$uucp -d -r -C -n$uunote $uutmp ".
+X		     "$uupath/$fname/".sprintf ($partfmt, $the_part, $files));
+X
+X	    # Write a log message.
+X	    $uupath =~ /!/;
+X	    &writelog ("U \"$`!$uunote\" $request $compressed$the_part".
+X		       "/$files $cnt");
+X
+X	    unlink ($uutmp) unless $opt_keep;
+X	}
+X	close (F);
+X    }
+X    else {
+X	print STDERR ("Sending file: ", $file, "\n")
+X	    if $opt_debug;
+X
+X	# Send it. Prevent copy to spool if possible.
+X	$cmd = "$uucp -d -r " .
+X	       ($remove_file ? '-C' : '-c') .
+X	       " -n$uunote $file $uupath/$fname";
+X
+X	if ( $opt_nouucp ) {
+X	    print STDERR ("[Would call \"$cmd\"]\n");
+X	}
+X	else {
+X	    &system ($cmd);
+X	}
+X
+X	# Write a log message.
+X	$uupath =~ /!/;
+X	&writelog ("U \"$`!$uunote\" $request ${compressed}1/1 $size");
+X    }
+X
+X    if ( $remove_file ) {
+X	print STDERR ("Unlinking $file\n") if $opt_debug;
+X	unlink ($file);
+X    }
+X}
+X
+X1;
+END_OF_FILE
+  if test 3896 -ne `wc -c <'mserv-3.1/dr_uucp.pl'`; then
+    echo shar: \"'mserv-3.1/dr_uucp.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/dr_uucp.pl'
+fi
+if test -f 'mserv-3.1/ixlookup.patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ixlookup.patch'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ixlookup.patch'\" \(1123 characters\)
+  sed "s/^X//" >'mserv-3.1/ixlookup.patch' <<'END_OF_FILE'
+X# ixlookup.patch -- patch to GNU locate
+X# SCCS Status     : @(#)@ ixlookup.patch	1.3
+X# Author          : Johan Vromans
+X# Created On      : Thu May  7 20:51:33 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Jun 10 11:57:25 1992
+X# Update Count    : 2
+X# Status          : OK
+X
+XThis patch enhances GNU locate with the possibility to select a
+Xdatabase using environment variable FCODES.
+X
+XThis patch is based on GNU find 3.5.
+X
+X*** /usr/local/src/find-3.5/locate/locate.c	Tue Dec 24 08:37:44 1991
+X--- ixlookup.c	Wed Apr 22 13:28:51 1992
+X***************
+X*** 97,106 ****
+X    int path_max;
+X    char bigram1[128], bigram2[128];
+X    int found = NO;
+X  
+X!   fp = fopen (FCODES, "r");
+X    if (fp == NULL)
+X!     error (1, errno, "%s", FCODES);
+X  
+X    path_max = PATH_MAX;
+X    if (path_max < 1)
+X--- 97,109 ----
+X    int path_max;
+X    char bigram1[128], bigram2[128];
+X    int found = NO;
+X+   char *fcodes = (char*) getenv ("LOCATE_DB");
+X+   if ( fcodes == NULL )
+X+     fcodes = FCODES;
+X  
+X!   fp = fopen (fcodes, "r");
+X    if (fp == NULL)
+X!     error (1, errno, "%s", fcodes);
+X  
+X    path_max = PATH_MAX;
+X    if (path_max < 1)
+END_OF_FILE
+  if test 1123 -ne `wc -c <'mserv-3.1/ixlookup.patch'`; then
+    echo shar: \"'mserv-3.1/ixlookup.patch'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ixlookup.patch'
+fi
+if test -f 'mserv-3.1/makeindex.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/makeindex.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/makeindex.pl'\" \(3594 characters\)
+  sed "s/^X//" >'mserv-3.1/makeindex.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# makeindex.pl -- make index for mail server
+X# SCCS Status     : @(#)@ makeindex	1.11
+X# Author          : Johan Vromans
+X# Created On      : Tue Apr 21 20:36:56 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Dec 23 23:02:37 1992
+X# Update Count    : 38
+X# Status          : Going steady
+X
+X# makeindex.pl, based on GNU find's updatedb.
+X$my_name = "makeindex";
+X$my_version = "1.11";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+X
+X################ Options handling ################
+X
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+Xrequire "ms_common.pl";
+X@ARGV = ("-") unless @ARGV > 0;
+Xprint STDERR "$my_package [$my_name $my_version]\n"
+X    if defined $opt_ident;
+X
+X################ Setup ################
+X
+X&die ("Index search not selected -- nothing to do")
+X    unless $doindexsearch;
+X
+X# Work files.
+X$bigrams  = "$tmpdir/f.bigrams$$";
+X$filelist = "$tmpdir/f.list$$";
+X$errs     = "$tmpdir/f.errs$$";
+X
+X$SIG{"INT"}  = "catch";
+X$SIG{"QUIT"} = "catch";
+X$SIG{"HUP"}  = "IGNORE";
+X$SIG{"TERM"} = "catch";
+X
+X################ Go! ################
+X
+Xif ( $indexfile =~ m|^/| ) {
+X    # Create one single index file.
+X    &makeindex (defined $indexlib ? $indexlib : "@libdirs", $indexfile,
+X		shift(@libprunes));
+X}
+Xelse {
+X    # Create one index file per library dir.
+X    local (@prunes) = @libprunes;
+X    foreach $lib ( @libdirs ) {
+X	&makeindex ($lib, "$lib/$indexfile", shift(@prunes));
+X    }
+X}
+X
+Xexit (0);
+X
+X################ Subroutines ################
+X
+Xsub makeindex {
+X    local ($list, $indexfile, $pruneregex) = @_;
+X    local ($cmd) = "-follow ! -type d -printf \"%P\\t%k\\t%Ty%Tm%Td\\n\"";
+X
+X    $cmd = "\\( -type d -regex $pruneregex -prune \\) -o \\( $cmd \\)"
+X	if defined $pruneregex && $pruneregex ne "";
+X
+X    # Make a file list.  Alphabetize '/' before any other char with 'tr'.
+X    &system ("$gfind $list " . $cmd . " " .
+X	     "| tr '/' '\\001' | sort -f 2> $errs " .
+X	     "| tr '\\001' '/' > $filelist");
+X
+X    # Compute common bigrams.
+X    &system ("$locatelib/bigram < $filelist | sort 2>> $errs | uniq -c " .
+X	     "| sort -nr | awk '{ if (NR <= 128) print \$2 }' " .
+X	     "| tr -d '\\012' > $bigrams");
+X
+X    printf STDERR ($my_name, ": Out of sort space\n")
+X	if -s $errs;
+X
+X    # Code the file list.
+X    &system ("$locatelib/code $bigrams < $filelist > $indexfile~");
+X    &rename ("$indexfile~", $indexfile);
+X    chmod (0644, $indexfile);
+X
+X    &cleanup;
+X}
+X
+Xsub system {
+X    local ($cmd) = (@_);
+X    local ($ret);
+X    print STDERR ("+ $cmd\n");
+X    $ret = system ($cmd);
+X    &die (sprintf ("Return 0x%x from \"$cmd\"", $ret))
+X	unless $ret == 0;
+X    $ret;
+X}
+X
+Xsub rename {
+X    local ($old, $new) = @_;
+X    print STDERR ("+ rename $old $new\n");
+X    rename ($old, $new) || &system ("mv $old $new");
+X}
+X
+Xsub die {
+X    local ($msg) = (@_);
+X    warn ($my_name . ": " . $msg . "\n");
+X    &cleanup;
+X    exit (1);
+X}
+X
+Xsub catch {
+X    print STDERR ("+ Ouch!\n");
+X    &cleanup;
+X    exit(1);
+X}
+X
+Xsub cleanup {
+X    unlink ($bigrams, $filelist, $errs);
+X}
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    if ( !&NGetOpt ("config=s", "debug", "ident", "trace", "help")
+X	|| defined $opt_help ) {
+X	&usage;
+X    }
+X    $config_file = $opt_config if defined $opt_config;
+X}
+X
+Xsub usage {
+X    require "ms_common.pl";
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [options]
+X
+XOptions:
+X    -config XX	use alternate config file
+X    -help	this message
+X    -trace	show commands
+X    -ident	show identification
+X    -debug	for debugging
+XEndOfUsage
+X    exit (!defined $opt_help);
+X}
+END_OF_FILE
+  if test 3594 -ne `wc -c <'mserv-3.1/makeindex.pl'`; then
+    echo shar: \"'mserv-3.1/makeindex.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/makeindex.pl'
+fi
+if test -f 'mserv-3.1/ms_common.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ms_common.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ms_common.pl'\" \(4338 characters\)
+  sed "s/^X//" >'mserv-3.1/ms_common.pl' <<'END_OF_FILE'
+X# ms_common.pl -- common info for mail server
+X# SCCS Status     : @(#)@ ms_common	1.38
+X# Author          : Johan Vromans
+X# Created On      : Fri Apr 17 11:02:58 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Tue Jan  5 19:43:48 1993
+X# Update Count    : 110
+X# Status          : OK
+X
+X################ Preamble ################
+X#
+X# Package info. Do not change this.
+X$my_package = "Squirrel Mail Server Software V3.01";
+X#
+Xif ( defined $config_file && $config_file ne '' ) {
+X    require $config_file;
+X}
+Xelse {
+X    require "ms_config.pl";
+X}
+Xrequire "ms_lock.pl";
+X#
+X# It is not always clear if 'not setting' means 'not defining' or
+X# 'leaving it empty'.
+X# This guarantees some consistency.
+X
+Xundef $uucp
+X    unless defined $uucp && $uucp ne "";
+X$email = 1 unless defined $uucp;
+Xundef $email
+X    unless defined $email && $email;
+X$chunkmail = $sendmail
+X    unless defined $chunkmail && $chunkmail ne "";
+X$mserv_bcc = ""
+X    unless defined $mserv_bcc;
+Xundef $sender
+X    unless defined $sender && $sender ne "";
+Xundef $mailer_delay
+X    unless defined $mailer_delay && $mailer_delay > 0;
+Xundef $lockfile
+X    unless defined $lockfile && $lockfile ne "";
+Xundef $lock_lockf
+X    unless defined $lock_lockf && $lock_lockf != 0;
+Xundef $lock_flock
+X    unless defined $lock_flock && $lock_flock != 0;
+Xundef $lock_fcntl
+X    unless defined $lock_fcntl && $lock_fcntl != 0;
+Xundef $sender
+X    unless defined $sender && $sender ne "";
+Xundef @x_headers
+X    unless defined @x_headers && @x_headers ne 0;
+Xundef $logfile
+X    unless defined $logfile && $logfile ne "";
+Xundef $indexfile
+X    unless defined $indexfile && $indexfile ne "";
+Xundef $indexlib
+X    unless defined $indexfile && defined $indexlib && $indexlib ne "";
+X$maxindexlines = 0
+X    unless defined $maxindexlines && $maxindexlines > 0;
+X$uuname = ""
+X    unless defined $uuname;
+Xundef $auto_packing
+X    unless defined $auto_packing && $auto_packing && $packing_limit > 0;
+Xundef $packing_limit 
+X    unless defined $packing_limit && $packing_limit > 0;
+Xundef $pdtar
+X    unless defined $pdtar && $pdtar ne "";
+X$auto_runrequest = 0
+X    unless defined $auto_runrequest && $auto_runrequest > 0;
+X$auto_compress = 0
+X    unless defined $auto_compress && $auto_compress && $compress;
+Xundef @black_list
+X    unless defined @black_list && @black_list > 0;
+X
+X################ Subroutines ################
+X
+Xsub fnsplit {
+X    local ($file) = @_;
+X    # Normalize $file -> ($dir, $basename)
+X
+X    return ($1, $2) if $file =~ /^(\[.*\])(.*)$/;	# VMS
+X
+X    local (@path) = split (/\/+/, $file);
+X    (join ("/", @path[0..$#path-1]), $path[$#path]);
+X}
+X
+Xsub fttemp {
+X    $int'fttemp = 'aa' unless defined $int'fttemp;
+X    local ($thefile) = "$tmpdir/ft$$." . $int'fttemp;
+X    $int'fttemp++;
+X    $thefile;
+X}
+X
+Xsub canon_fname {
+X    local ($fname) = @_;
+X
+X    # Canonical form for filename.
+X
+X    if ( $fname =~ /^([-a-z0-9._]+):/i ) {
+X	&ftp_archname ($1, $');
+X    }
+X    else {
+X	&ftp_archname ('', $fname);
+X    }
+X}
+X
+Xsub ftp_archname {
+X    local ($host, $file) = @_;
+X
+X    # Transforms host:filename into ftp cache name.
+X
+X    # Reverse the elements of the host name, and lowcase it.
+X    local ($result) = '';
+X    $result = join ('/', reverse(split(/\./,$host))) . '/' if $host;
+X
+X    if ( $file =~ /^\[(\.?PUB)?([^\]]*)\]([^\[\]]+)$/i ) {
+X	# VMS file name.
+X	# $2 contains the path (with [ ] stripped), and
+X	# $3 the file name. 
+X	# $1 has been used to strip off an optional leading .PUB.
+X	$result .= join ('/', split(/\.+/, $2), $3);
+X
+X	# Lowercase the result.
+X	$result =~ tr/A-Z/a-z/;
+X    }
+X    else {
+X	# Assume UNIX file name.
+X	# Strip leading / and pub/ .
+X	$file = $' if $file =~ m|^/+|;
+X	$file = $' if $file =~ m|^pub/+|i;
+X
+X	# Lowcase the host name, and append the file.
+X	$result =~ tr/A-Z/a-z/;
+X	$result .= $file;
+X    }
+X
+X    # Squeeze multiple slashes.
+X    $result =~ s|//+|/|g;
+X
+X    $result;
+X}
+X
+Xsub writelog {
+X
+X    # Write message to logfile, if possible, Otherwise use STDERR.
+X
+X    local (@tm) = localtime (time);
+X    local ($msg) = sprintf ("%02d%02d%02d %02d:%02d %s\n", 
+X			    $tm[5], $tm[4]+1, $tm[3], $tm[2], $tm[1], $_[0]);
+X
+X    if ( !$opt_nolog && defined $logfile && ( -w $logfile ) && 
+X	open (LOG, ">>" . $logfile) ) {
+X	if ( &locking (*LOG, 1) ) {
+X	    seek (LOG, 0, 2);
+X	    print LOG $msg;
+X	    close LOG;
+X	    return unless $opt_debug;
+X	}
+X    }
+X
+X    print STDERR $msg;
+X}
+X
+X################ 1 ################
+X1;
+X
+END_OF_FILE
+  if test 4338 -ne `wc -c <'mserv-3.1/ms_common.pl'`; then
+    echo shar: \"'mserv-3.1/ms_common.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ms_common.pl'
+fi
+if test -f 'mserv-3.1/ms_lock.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ms_lock.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ms_lock.pl'\" \(2911 characters\)
+  sed "s/^X//" >'mserv-3.1/ms_lock.pl' <<'END_OF_FILE'
+X# ms_lock.pl -- locking
+X# SCCS Status     : @(#)@ ms_lock.pl	3.1
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 21:22:45 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Jun  6 21:01:29 1992
+X# Update Count    : 67
+X# Status          : OK
+X
+X# This file defines the function 'locking' as follows:
+X#
+X#    &locking (*FH, $wait)
+X#
+X#    FH is a handle to an opened file, with r/w access.
+X#    $wait indicates if the process is to wait for the lock.
+X#
+X# Return values:
+X#     1  lock succeeded
+X#     0  lock not succeeded, $wait == 0
+X#    -1  lock failed
+X#
+X# Preferrably, &locking is implemented using the fcntl(2) system
+X# call that is available on most modern systems.
+X# As an alternative, code is included to use flock(2) style locking
+X# available on BSD systems.
+X# Also code is included to use lockf(2), but this has not been tested.
+X# Note that this is lockf(2), not lockf(3): the system call, not the
+X# library routine.
+X#
+X# The functioning of this module can be tested using the program
+X# testlock.pl.
+X
+Xif ( defined $lock_fcntl && $lock_fcntl ) {
+X    eval <<'EOD';
+X	sub locking {			# using fcntl(2)
+X	    local (*FH, $wait) = @_;
+X
+X	    require "errno.ph";
+X	    require "fcntl.ph";
+X
+X	    local ($func) = 
+X		$wait ? &F_SETLKW	# set lock and wait for it
+X		    : &F_SETLK;		# don't wait for it
+X	    local ($lck) = 
+X		pack ("sslli",	# see man for flock(2)
+X		      &F_WRLCK,	# short l_type (F_WRLCK: write lock)
+X		      0,	# short l_whence (as in lseek(2))
+X		      0,	# long l_start (start of region)
+X		      0,	# long l_len (0 -> whole file)
+X		      0);	# int l_pid (not used)
+X	    local ($ret) = fcntl (FH, $func, $lck);
+X	    return 1 if $ret eq "0 but true";
+X	    # print STDERR ("=> ret = $ret, \$! = $! [", 0+$!, "]\n");
+X	    return 0 if $! == &EACCES && !$wait;
+X	    -1;			# failed
+X	}
+XEOD
+X}
+Xelsif ( defined $lock_flock && $lock_flock ) {
+X    eval <<'EOD';
+X	sub locking {			# using flock(2)
+X	    local (*FH, $wait) = @_;
+X
+X	    require "sys/file.ph";
+X	    require "errno.ph";
+X
+X	    local ($wp) = &LOCK_EX;
+X	    $wp |= &LOCK_NB unless $wait;
+X	    local ($ret) = flock (FH, $wp);
+X	    return 1 if $ret;
+X	    # print STDERR ("=> ret = $ret, \$! = $! [", 0+$!, "]\n");
+X	    return 0 if $! == &EWOULDBLOCK && !$wait;
+X	    -1;				# failed
+X	}
+XEOD
+X}
+Xelsif ( defined $lock_lockf && $lock_lockf) {
+X    eval <<'EOD';
+X	sub locking {			# using lockf(2) **UNTESTED**
+X	    local (*FH, $wait) = @_;
+X
+X	    require "errno.ph";
+X	    require "unistd.ph";
+X	    require "sys/syscall.ph";
+X
+X	    local ($func) = $wait ? &F_LOCK : &F_TLOCK;
+X	    local ($here) = tell (FH);
+X
+X	    seek (FH, 0, 0);
+X	    local ($ret) = syscall (&SYS_lockf, fileno(FH), $func, 0);
+X	    seek (FH, $here, 0);
+X	    return 1 if $ret == 0;
+X	    return 0 if $! == &EACCES && !$wait;
+X	    -1;				# failed
+X	}
+XEOD
+X}
+Xelse {
+X    eval <<'EOD';
+X	sub locking {			# no locking
+X	    local (*FH, $wait) = @_;
+X	    return $wait ? 1 : 0;
+X	}
+XEOD
+X}
+X
+X1;
+END_OF_FILE
+  if test 2911 -ne `wc -c <'mserv-3.1/ms_lock.pl'`; then
+    echo shar: \"'mserv-3.1/ms_lock.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ms_lock.pl'
+fi
+if test -f 'mserv-3.1/mserv.hints' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/mserv.hints'\"
+else
+  echo shar: Extracting \"'mserv-3.1/mserv.hints'\" \(410 characters\)
+  sed "s/^X//" >'mserv-3.1/mserv.hints' <<'END_OF_FILE'
+XYou may obtain the following packages from the server:
+X
+X    btoa	btoa/atob support programs
+X    uudecode	uuencode/uudecode support programs
+X    xxdecode	xxencode/xxdecode support programs
+X    uux		Dumas' uud/uue encoding programs
+X    compress	compress/uncompress support programs
+X    mail-server The mail server software itself
+X
+XExcept for the mail-server, these packages are send unencoded, in
+X"shar" format.
+END_OF_FILE
+  if test 410 -ne `wc -c <'mserv-3.1/mserv.hints'`; then
+    echo shar: \"'mserv-3.1/mserv.hints'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/mserv.hints'
+fi
+if test -f 'mserv-3.1/mserv.notes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/mserv.notes'\"
+else
+  echo shar: Extracting \"'mserv-3.1/mserv.notes'\" \(79 characters\)
+  sed "s/^X//" >'mserv-3.1/mserv.notes' <<'END_OF_FILE'
+X>>> PLEASE DO NOT REPLY TO THIS MESSAGE. REPLIES ARE AUTOMATICALLY DISCARDED.
+X
+END_OF_FILE
+  if test 79 -ne `wc -c <'mserv-3.1/mserv.notes'`; then
+    echo shar: \"'mserv-3.1/mserv.notes'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/mserv.notes'
+fi
+if test -f 'mserv-3.1/patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/patchlevel.h'\"
+else
+  echo shar: Extracting \"'mserv-3.1/patchlevel.h'\" \(244 characters\)
+  sed "s/^X//" >'mserv-3.1/patchlevel.h' <<'END_OF_FILE'
+X# @(#)@ patchlevel.h	3.1.19		-*- perl -*-
+X# Squirrel Mail Server Software -- Copyright 1988, 1992 Johan Vromans
+X# This file is used to verify the correctness of a batch of patches.
+X$ms_version = "V3.01";		# Should match version in ms_common.pl
+END_OF_FILE
+  if test 244 -ne `wc -c <'mserv-3.1/patchlevel.h'`; then
+    echo shar: \"'mserv-3.1/patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/patchlevel.h'
+fi
+if test -f 'mserv-3.1/pr_doindex.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_doindex.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_doindex.pl'\" \(2062 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_doindex.pl' <<'END_OF_FILE'
+X# pr_doindex.pl -- execute index requests
+X# SCCS Status     : @(#)@ pr_doindex.pl	3.4
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:15:51 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Dec 23 22:06:54 1992
+X# Update Count    : 6
+X# Status          : OK
+X
+Xsub index_loop {
+X
+X    local ($entries) = 0;
+X    local ($name, $size, $date);
+X    local ($tally);
+X    local ($list_type) = "Index";
+X    local ($limit);
+X
+X    print STDOUT ("Index results:\n");
+X
+X    foreach $query ( @indexq ) {
+X
+X	$~ = "list_header";
+X	write;
+X	$~ = "list_format";
+X	$: = " /";		# break filenames at logical places
+X	$= = 99999;
+X	$tally = 0;
+X	$limit = $maxindexlines > 0 ? $maxindexlines : 65535;
+X
+X	if ( $indexfile =~ m|^/| ) {
+X	    if ( -r "$indexfile" ) {
+X		print STDOUT ("Index $query in $indexfile...\n")
+X		    if $opt_debug;
+X		$ENV{"LOCATE_DB"} = $indexfile;		# GNU find 3.6
+X		$ENV{"LOCATE_PATH"} = $indexfile;	# GNU find 3.7
+X		open ( IX, "$ixlookup '$query' |");
+X		while ( <IX> ) {
+X		    ($name, $size, $date) = /^(.+)\?(\d+)\?(\d+)$/;
+X		    $date =~ s|^(..)(..)(..)|1900+$1."/$2/$3"|e;
+X		    $size .= "K";
+X		    write;
+X		    last if ++$tally >= $limit;
+X		}
+X		close (IX);
+X	    }
+X	}
+X	else {
+X	    foreach $lib ( @libdirs ) {
+X		next unless -r "$lib/$indexfile" || $tally > $limit;
+X		print STDOUT ("Index $query in $lib/$indexfile...\n")
+X		    if $opt_debug;
+X		$ENV{"LOCATE_DB"} = "$lib/$indexfile";		# GNU find 3.6
+X		$ENV{"LOCATE_PATH"} = "$lib/$indexfile";	# GNU find 3.7
+X
+X		open ( IX, "$ixlookup '$query' |");
+X		while ( <IX> ) {
+X		    ($name, $size, $date) = /^(.+)\?(\d+)\?(\d+)$/;
+X		    $date =~ s|^(..)(..)(..)|1900+$1."/$2/$3"|e;
+X		    $size .= "K";
+X		    write;
+X		    last if ++$tally >= $limit;
+X		}
+X		close (IX);
+X	    }
+X	}
+X	if ( $tally == 0 ) {
+X	    $name = "***not found***";
+X	    write;
+X	}
+X	elsif ( $tally >= $limit ) {
+X	    print STDOUT ("*** Too much output, remaining lines flushed ***\n");
+X	    # Lower the limit, but avoid zero value.
+X	    $maxindexlines = int ($maxindexlines / 2) + 1;
+X	}
+X    }
+X    @indexq = ();
+X    print STDOUT ("\n");
+X}
+X
+X1;
+END_OF_FILE
+  if test 2062 -ne `wc -c <'mserv-3.1/pr_doindex.pl'`; then
+    echo shar: \"'mserv-3.1/pr_doindex.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_doindex.pl'
+fi
+if test -f 'mserv-3.1/pr_dsearch.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_dsearch.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_dsearch.pl'\" \(2649 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_dsearch.pl' <<'END_OF_FILE'
+X# pr_dsearch.pl -- directory search
+X# SCCS Status     : @(#)@ pr_dsearch.pl	3.1
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:13:23 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Thu Jun  4 23:05:39 1992
+X# Update Count    : 4
+X# Status          : OK
+X
+Xsub dirsearch {
+X
+X    local ($libdir, $request) = @_;
+X
+X    # Locate an archive item $request in library $libdir by
+X    # performing a directory lookup.
+X    # Eligible items are in the format XXX.EXT, or XXX-VVV.EXT, where
+X    # VVV is assumed to be a version indicator (and must start with a digit).
+X    # If an eligible item appears to be a directory, the search continues
+X    # recursively.
+X    #
+X    # See "sub search" for a description of the return values.
+X
+X    local ($size);
+X    local (@retval);		# return value
+X    local (@a);			# to hold stat() result
+X
+X    # Normalize the request. 
+X    # $tryfile will be the basename of the request.
+X    # $subdir holds the part between $libdir and $tryfile.
+X    local ($subdir, $tryfile) = &fnsplit ($request);
+X
+X    print STDOUT ("Search $libdir$subdir for $tryfile...\n") if $opt_debug;
+X
+X    $subdir .= "/" if $subdir && $subdir !~ m|/$|;
+X    $libdir .= "/" if $libdir && $libdir !~ m|/$|;
+X
+X    # Gather files info for the lib dir.
+X    local (@files, @found, $pat);
+X
+X    # Get all filenames.
+X    opendir (DIR, $libdir.$subdir);
+X    @files = readdir (DIR);
+X    closedir (DIR);
+X    local ($tmp) = 0+@files if $opt_debug;
+X    return @retval unless @files > 0;	# No need to proceed.
+X
+X    # Form pattern to match search arg.
+X    ($pat = $tryfile) =~ s/(\W)/\\\1/g;
+X
+X    # Extract valid items.
+X    @found = grep(/^$pat/, @files);
+X    print STDOUT ("Found ", 0+@found, " candidates out of ", $tmp, " files.\n")
+X	if $opt_debug;
+X    @files = ();		# Deallocate.
+X
+X    return @retval unless @found > 0;	# No need to proceed.
+X
+X    foreach $file ( @found ) {
+X
+X	local ($base, $version, $extension);
+X
+X	(($base, $version, $extension) =
+X	 $file =~ /^($pat)(-\d.*|)$extpat$/)
+X	    || (($base, $version, $extension) =
+X		$file =~ /^($pat)(-\d.*|)$/);
+X
+X	# Nope.
+X	next unless defined $base;
+X
+X	$extension = "" unless defined $extension;
+X
+X	# Recurse if directory.
+X	if ( -d $libdir.$subdir.$file && -r _ ) {
+X	    print STDOUT ("File $libdir$subdir$file (directory)\n")
+X		if $opt_debug;
+X	    push (@retval, 
+X		  &dirsearch ($libdir, "$subdir$file/$tryfile"));
+X	    next;
+X	}
+X
+X	# Try file.
+X	next unless -f _ && -r _ ;
+X
+X	# We have a file.
+X	@a = stat(_);
+X	print STDOUT ("File $libdir$subdir$file (known)\n")
+X	    if $opt_debug;
+X	push (@retval, 
+X	      &zp ($base.$version.$extension, $a[7], $a[9], $libdir, $subdir));
+X    }
+X
+X    return @retval;
+X}
+X
+X1;
+END_OF_FILE
+  if test 2649 -ne `wc -c <'mserv-3.1/pr_dsearch.pl'`; then
+    echo shar: \"'mserv-3.1/pr_dsearch.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_dsearch.pl'
+fi
+if test -f 'mserv-3.1/pr_isearch.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_isearch.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_isearch.pl'\" \(2388 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_isearch.pl' <<'END_OF_FILE'
+X# pr_isearch.pl -- index search
+X# SCCS Status     : @(#)@ pr_isearch.pl	3.3
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:13:56 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Mon Aug 17 17:38:56 1992
+X# Update Count    : 8
+X# Status          : OK
+X
+Xsub indexsearch {
+X
+X    local ($ixfile, $lib, $request) = @_;
+X
+X    # Locate an archive item $request in library $libdir by
+X    # inspecting the associated index file.
+X    # Eligible items are in the format XXX.EXT, or XXX-VVV.EXT, where
+X    # VVV is assumed to be a version indicator (and must start with a digit).
+X    #
+X    # See "sub search" for a description of the return values.
+X
+X    return () unless -s $ixfile;
+X
+X    # Lookup a request in index.
+X
+X    local ($tryfile, $subdir, $pat);
+X    local (@retval);		# return value
+X
+X    # Normalize the request.
+X    ($subdir, $tryfile) = &fnsplit ($request);
+X    $pat = $subdir ne "" ? "$subdir/$tryfile" : $tryfile;
+X    $pat =~ s/(\W)/\\\1/g;
+X
+X    print STDOUT ("Lookup $tryfile ($pat) in $ixfile...\n") if $opt_debug;
+X
+X    # GNU locate 3.6 (or a customized version of GNU locate 3.5)
+X    # will return info.
+X    $ENV{"LOCATE_DB"} = $ixfile;	# find 3.6 or 3.5cust
+X    $ENV{"LOCATE_PATH"} = $ixfile;	# find 3.7
+X    open (INDEX, "$ixlookup '$tryfile' |");
+X
+X    local ($base, $version, $extension);
+X    local ($date, $size, $file);
+X
+X    while ( <INDEX> ) {
+X	chop;
+X
+X	# Returned info: path?size in K?mdate, e.g.
+X	# zoo-2.01/zoo.TZ?172?910807
+X
+X	($file, $size, $date) = /^(.+)\?(\d+)\?(\d+)$/;
+X
+X	if ( defined $file ) {
+X
+X	    (($base, $version, $extension) =
+X	     $file =~ m:^($pat|.+/$pat)(-\d[^/]*|)$extpat$:)
+X		|| (($base, $version, $extension) =
+X		    $file =~ m:^($pat|.+/$pat)(-\d[^/]*|)$:);
+X
+X	    # Nope.
+X	    next unless defined $base;
+X	    $file = $base;
+X
+X	    # Adjust XX -YYY.tar .Z -> XX -YYY .tar.Z 
+X	    $extension = "" unless defined $extension;
+X	    ($version, $extension) = ($`, $&.$extension) 
+X		if $extension eq ".Z" && $version =~ /\.(sh|t)ar$/;
+X
+X	    $date =~ s|^(..)(..)(..)|1900+$1."/$2/$3"|e;
+X
+X	    ($subdir, $base) = &fnsplit ($file);
+X	    $subdir .= "/" if $subdir ne "";
+X	    $lib .= "/" unless $lib =~ m|/$|;
+X
+X	    push (@retval,
+X		  &zp ($base.$version.$extension, $size."K", "T".$date,
+X		       $lib, $subdir));
+X	    next;
+X	}
+X
+X    }
+X
+X    close (INDEX);
+X    print STDOUT ("Found ", 0+@retval, " entries\n") if $opt_debug;
+X    @retval;
+X}
+X
+X1;
+END_OF_FILE
+  if test 2388 -ne `wc -c <'mserv-3.1/pr_isearch.pl'`; then
+    echo shar: \"'mserv-3.1/pr_isearch.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_isearch.pl'
+fi
+if test -f 'mserv-3.1/rfc822.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/rfc822.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/rfc822.pl'\" \(4456 characters\)
+  sed "s/^X//" >'mserv-3.1/rfc822.pl' <<'END_OF_FILE'
+X# rfc822.pl -- RFC822 support
+X# SCCS Status     : @(#)@ rfc822	2.2
+X# Author          : Johan Vromans
+X# Created On      : Oct 26 20:39:18 1989
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Thu Apr 30 14:56:44 1992
+X# Update Count    : 29
+X# Status          : OK
+X#
+X# Copyright 1989, 1992 Johan Vromans
+X#
+X# This software may be redistributed on the same terms as the 
+X# GNU Public Licence.
+X
+X# Exported routines
+X#
+X#   start_read -- initializes this module
+X#
+X#	must be passed the filename to read from
+X#
+X#   read_header -- reads, and parses RFC822 header
+X#
+X#	returns $VALID_HEADER if a valid RFC822 header was found.
+X#	$header and $contents contain the header and contents.
+X#	$line contains the normalized header.
+X#
+X#   read_body -- reads a line from the message body
+X#
+X#	returns $EMPTY_LINE if an empty line was read.
+X#
+X#	returns $DATA_LINE otherwise.
+X#	$line contains the contents of the line.
+X#
+X#   parse_addresses -- parses an address specification.
+X#
+X#	return addresses in @addresses, the address
+X#	comments in %addr_comments.
+X#
+X
+X# Export the routines in the requiring package.
+X*start_read = *rfc822'start_read;
+X*read_header = *rfc822'read_header;
+X*read_body = *rfc822'read_body;
+X*parse_addresses = *rfc822'parse_addresses;
+X
+X# Switch to package context.
+Xpackage rfc822;
+X
+X$[ = 0;				# let arrays start at 0 ];
+X
+X################ Global constants ################
+X$EOF = 0;
+X$VALID_HEADER = 1;
+X$EMPTY_LINE = 2;
+X$DATA_LINE = 3;
+X
+X################ Variables ################
+X$version = "@(#)@ rfc822	2.2 - rfc822.pl";
+Xundef $line_in_cache;
+X$have_input_stream = 0;
+X$line = "";
+X$header = "";
+X$contents = "";
+X@addresses = ();
+X%addr_comments = ();
+Xlocal (*INPUT);
+X
+X################ Subroutines ################
+X
+Xsub start_read {
+X    local ($file) = @_;
+X
+X    close (INPUT) if $have_input_stream;
+X
+X    return 0 unless open (INPUT, $file);
+X
+X    # Initialize the read ahead system.
+X    $line_in_cache = <INPUT>;
+X
+X    # Will supply return value.
+X    $have_input_stream = 1;
+X}
+X
+Xsub read_body {
+X
+X    if ( defined $line_in_cache ) {
+X	$line = $line_in_cache;
+X	undef $line_in_cache;
+X    } 
+X    else {
+X	return $EOF if eof(INPUT);
+X	$line = <INPUT>;
+X    }
+X
+X    chop ($line);
+X    $header = $contents = undef;
+X    return ($line eq "") ? $EMPTY_LINE : $DATA_LINE;
+X}
+X
+Xsub read_header {
+X
+X    if ( defined $line_in_cache ) {
+X	$line = $line_in_cache;
+X	undef $line_in_cache;
+X    } 
+X    else {
+X	return $EOF if eof(INPUT);
+X	$line = <INPUT>;
+X    }
+X
+X    chop ($line);
+X    if ( $line =~ /^([-\w]+)\s*:\s*/ ) {
+X	$header = $1;
+X	$contents = $';			#';
+X    } 
+X    else {
+X	$header = $contents = undef;
+X	return ($line eq "") ? $EMPTY_LINE : $DATA_LINE;
+X    }
+X
+X    # Handle continuation lines.
+X    while ( ! eof(INPUT) ) {
+X	chop ($line = <INPUT>);
+X	if ( $line =~ /^\s+/ ) {
+X	    # Append.
+X	    $contents .= " " . $';		#';
+X	}
+X	else {
+X	    # Too far.
+X	    $line_in_cache = $line . "\n";
+X	    last;
+X	}
+X    }
+X
+X    $line = $header . ": " . $contents;
+X    return $VALID_HEADER;
+X}
+X
+Xsub parse_addresses {
+X
+X    # Given an RFC822 compliant series of addresses, parse them, and
+X    # return:
+X    #    @addresses -- array with parsed addresses.
+X    #    %addr_comments -- the comments for each of the addresses.
+X    #
+X    # RFC822 syntax:
+X    #    address [, address ...]
+X    #    address: addr [ ( comment ) ] | [ comment ] <addr>
+X
+X    local ($addr) = shift (@_);
+X    local ($left);
+X    local (@left);
+X    local ($right);
+X    local ($comment);
+X
+X    @addresses = ();
+X    %addr_comments = ();
+X
+X    # First break out the (...) comments.
+X    while ( $addr =~ /\(([^)]*)\)/ ) {
+X	$right = $';
+X	$comment = $1;
+X	@left = split (/[ \t]+/, $`);
+X	if ( $#left >= 0 ) {
+X	    # print "() match: \"", $left[$#left], "\" -> \"$1\"\n";
+X	    unshift (@addresses, pop (@left));
+X	    $addr_comments{$addresses[0]} = $1;
+X	}
+X	if ( $right =~ /^\s*,\s*/ ) {
+X	    $right = $';
+X	}
+X	$addr = join (" ", @left) . " " . $right;
+X	# print "todo: $addr\n";
+X    }
+X
+X    # Then split on commas, and handle each part separately.
+X    @addr = split (/,/, $addr);
+X
+X    while ( $#addr >= 0 ) {
+X	$addr = shift (@addr);
+X	# print "doing: \"$addr\"\n";
+X	$addr = $' if $addr =~ /^\s+/ ;
+X	$addr = $` if $addr =~ /\s+$/ ;
+X	next if $addr eq "";
+X	if ( $addr =~ /<([^>]+)>/ ) {
+X	    # print "\"$addr\" matched: \"$`\"-\"$+\"-\"$'\"\n";
+X	    unshift (@addresses, $1);
+X	    $addr_comments{$1} = join (" ", split (/[ \t]+/, "$` $'"));
+X	}
+X	else {
+X	    unshift (@addresses, $addr);
+X	    $addr_comments{$addr} = "";
+X	    # print "did: \"$addr\"\n";
+X	}
+X    }
+X}
+X
+X1;
+END_OF_FILE
+  if test 4456 -ne `wc -c <'mserv-3.1/rfc822.pl'`; then
+    echo shar: \"'mserv-3.1/rfc822.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/rfc822.pl'
+fi
+if test -f 'mserv-3.1/testlock.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/testlock.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/testlock.pl'\" \(1539 characters\)
+  sed "s/^X//" >'mserv-3.1/testlock.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl -s
+X# testlock.pl -- test locking
+X# SCCS Status     : @(#)@ testlock	1.2
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 21:22:45 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sun Jul 19 13:52:56 1992
+X# Update Count    : 65
+X# Status          : 
+X
+X# Simpel testbed for mail server locking.
+X#
+X# To test, execute
+X#
+X#   % perl -s testlock.pl -test1 &
+X#
+X# It should say "Got the lock -- waiting ...".
+X# Then execute
+X#
+X#   % perl -s testlock.pl -test2 &
+X#
+X# It should say "Good. Could not lock -- waiting ...".
+X# Now kill the first process. The second process should print "ret = 1" 
+X# and exit.
+X
+X$my_name = "testlock";
+X$my_version = "1.2";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+Xrequire "ms_common.pl";
+X
+X################ Main ################
+X
+X$tf = "/usr/tmp/f1lock";
+X
+Xif ( defined $test1 ) {
+X
+X    open ( F1, ">$tf");
+X
+X    local ($ret) =  &locking (*F1, 0);
+X    if ( $ret == 1 ) {
+X	print ("Got the lock -- waiting ...\n");
+X	sleep 600;
+X	close (F1);
+X	unlink ($tf);
+X	exit (0);
+X    }
+X
+X    print ("Locking problem: ret = $ret [$!]\n");
+X}
+X
+Xif ( defined $test2 ) {
+X
+X    open (F2, "+<$tf") || print ("Cannot open $tf [$!]\n");
+X
+X    local ($ret) = &locking (*F2, 0);
+X    if ( $ret == 0 ) {
+X	print ("Good, could not lock -- waiting ...\n");
+X	$ret = &locking (*F2, 1);
+X	print ("Ret = $ret\n");
+X	close (F2);
+X	unlink ($tf);
+X	exit (0);
+X    }
+X
+X    print ("Cannot lock exclusive: ret = $ret [$!]\n");
+X    close (F2);
+X}
+END_OF_FILE
+  if test 1539 -ne `wc -c <'mserv-3.1/testlock.pl'`; then
+    echo shar: \"'mserv-3.1/testlock.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/testlock.pl'
+fi
+if test -f 'mserv-3.1/ud_sample2.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ud_sample2.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ud_sample2.pl'\" \(1141 characters\)
+  sed "s/^X//" >'mserv-3.1/ud_sample2.pl' <<'END_OF_FILE'
+X# ud_sample2.pl -- 
+X# SCCS Status     : @(#)@ ud_sample2.pl	1.3
+X# Author          : Johan Vromans
+X# Created On      : Sat Dec 19 16:02:45 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Fri Jan  1 18:03:37 1993
+X# Update Count    : 2
+X# Status          : Unknown, Use with caution!
+X
+X# As an example, the following code modifies the SEND request to add 
+X# special behaviour to 'SEND CONFIG'.
+X
+X# Save original SEND command routine.
+X$cmd_config'orig_send = $cmd_tbl{'SEND'};
+X
+Xsub cmd_config {
+X    # Check syntax.
+X    # $cmd is the command verb, upcased.
+X    # @cmd has the remainder of the command.
+X
+X    # Pass to original SEND command unless it is for us.
+X    return &$cmd_config'orig_send
+X	unless @cmd == 1 && "\L$cmd[0]\E" eq 'config';
+X
+X    # Push exe command on work queue.
+X    push (@workq, &zp ('c'));
+X
+X    # Feedback.
+X    print STDOUT ("=> Okay\n");
+X    1;
+X}
+X
+X# Store new command.
+X$cmd_tbl{'SEND'} = 'cmd_config';
+X
+Xsub exe_config {
+X    &do_unix ("$libdir/chkconfig");
+X    1;
+X}
+X
+X$exe_tbl{'c'} = 'exe_config';
+X
+X&add_help ('SEND CONFIG',
+X	   'Generate a mail server configuration report.');
+X
+X################ 1 ################
+X1;
+END_OF_FILE
+  if test 1141 -ne `wc -c <'mserv-3.1/ud_sample2.pl'`; then
+    echo shar: \"'mserv-3.1/ud_sample2.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ud_sample2.pl'
+fi
+if test -f 'mserv-3.1/unpack.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/unpack.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/unpack.pl'\" \(4362 characters\)
+  sed "s/^X//" >'mserv-3.1/unpack.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# unpack.pl -- unpack files
+X# SCCS Status     : @(#)@ unpack	2.5
+X# Author          : Johan Vromans
+X# Created On      : Oct  2 21:33:00 1989
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Dec 12 00:55:19 1992
+X# Update Count    : 8
+X# Status          : Going steady
+X
+X# Unpack a set of files sent by the mail server with a tiny bit
+X# of error detection.
+X#
+X# Usage: save all the parts in one big file (in the correct order), 
+X# say "foo", and then execute:
+X#
+X#   perl unpack.pl foo
+X#
+X# Note: if the filename contains a path, all subdirectories should 
+X# exist!
+X# Multiple files in one input stream are allowed: e.g:
+X#
+X#------ begin of INDEX -- ascii -- complete ------
+X#------ end of INDEX -- ascii -- complete ------
+X#------ begin of zoo.TZ -- btoa encoded -- part 1 of 2 ------
+X#------ end of zoo.TZ -- btoa encoded -- part 1 of 2 ------
+X#------ begin of zoo.TZ -- btoa encoded -- part 2 of 2 ------
+X#------ end of zoo.TZ -- btoa encoded -- part 2 of 2 ------
+X#
+X#
+X################ configuration section ################
+X#
+X# Where to find these...
+X#
+X$atob = "atob";			# Ascii -> Binary
+X$uudecode = "uudecode";		# UU
+X$xxdecode = "xxdecode";		# XX
+X$uud = "uud";			# Dumas' uue/uud programs.
+X$uncompress = "compress -d";	# Uncompress.
+X#
+X################ end of configuration section ################
+X
+X&init;
+X
+Xwhile ( $line = <> ) {
+X
+X    if ( $line =~ /^------ begin of (.+) -- (.+) -- (.+) ------/ ) {
+X	print STDERR $line;
+X
+X	# If a filename is known, it must be the same.
+X	if ( $file ) {
+X	    if ( $file != $1 ) {
+X		&errmsg ("Filename mismatch");
+X	    }
+X	}
+X	else {
+X	    $file = $1;
+X	}
+X
+X	# If an encoding is known, it must be the same.
+X	if ( $encoding ) {
+X	    if ( $encoding != $2 ) {
+X		&errmsg ("Encoding mismatch");
+X	    }
+X	}
+X	else {
+X	    # Determine encoding and build command.
+X	    $enc = $2;
+X	    if ( $enc =~ /^compressed,/ ) {
+X		$encoding = $';
+X		$comp = "|$uncompress";
+X	    }
+X	    else {
+X		$comp = '';
+X		$encoding = $enc;
+X	    }
+X
+X	    if ( $encoding eq "uuencoded" ) {
+X		$cmd = "|$uudecode";
+X	    }
+X	    elsif ( $encoding eq "xxencoded" ) {
+X		$cmd = "|$xxdecode";
+X	    }
+X	    elsif ( $encoding eq "btoa encoded" ) {
+X		$cmd = "|$atob $comp > $file";
+X	    }
+X	    elsif ( $encoding eq "uue-encoded" ) {
+X		$cmd = "|$uud - ";
+X	    }
+X	    else {
+X		$cmd = "$comp >$file";
+X	    }
+X	}
+X
+X	# If a 'parts' section is known, it must match.
+X	# A bit more complex ...
+X	$tparts = $3;
+X	if ( $parts ) {
+X	    if ( $tparts =~ /part (\d+) of (\d+)/ ) {
+X
+X		$thispart++;	# Increment part number and check.
+X		if ( $thispart != $1 ) {
+X		    &errmsg ("Sequence mismatch");
+X		}
+X
+X		# Total number must match also.
+X		if ( $numparts ) {
+X		    if ( $numparts != $2 ) {
+X			&errmsg ("Numparts mismatch");
+X		    }
+X		}
+X		else {
+X		    $numparts = $2;
+X		}
+X	    }
+X	    elsif ( $parts ne $tparts ) {
+X		&errmsg ("Parts mismatch");
+X	    }
+X	}
+X	else {
+X
+X	    # No 'parts' known yet.
+X	    $parts = $tparts;
+X	    if ( $tparts =~ /part (\d+) of (\d+)/ ) {
+X		$thispart = $1;
+X		# Should be first part.
+X		if ( $thispart != 1 ) {
+X		    &errmsg ("Sequence mismatch");
+X		}
+X		$numparts = $2;
+X	    }
+X	    else {
+X		$numparts = $thispart = 1;
+X	    }
+X	}
+X
+X	# If we have a file open, enable copying.
+X	if ( $fileok ) {
+X	    $copy = 1;
+X	}
+X	elsif ( open (OUTFILE, $cmd) ) {
+X	    $fileok = 1;
+X	    $copy = 1;
+X	}
+X	else {
+X	    &errmsg ("Cannot create $cmd");
+X	}
+X
+X	# Matching end header to look for.
+X	$trailer = "------ end " . substr ($line, 13, length($line)-13);
+X
+X    }
+X    elsif ( $line =~ /^------ end of (.+) -- (.+) -- (.+) ------/ ) {
+X
+X	print STDERR $line;
+X
+X	# Check that the header matches.
+X	if ( $line ne $trailer ) {
+X	    &errmsg ("Header/trailer mismatch");
+X	}
+X
+X	# Wrap up if this was the last part.
+X	&wrapup if $thispart == $numparts;
+X
+X	# Stop copying.
+X	$copy = 0;
+X    }
+X    else {
+X	if ( $copy ) {
+X	    print OUTFILE $line;
+X	}
+X    }
+X}
+X
+Xif ( $numparts && ( $thispart != $numparts )) {
+X    &errmsg ("Only $thispart of $numparts parts found");
+X}
+X
+Xif ( $fileok) {
+X    &errmsg ("Unterminated section") if $?;
+X}
+X
+X################ Subroutines ################
+X
+Xsub init {
+X    $encoding = "";
+X    $parts = "";
+X    $numparts = "";
+X    $file = "";
+X    $copy = 0;
+X    $thispart = 0;
+X    $fileok = "";
+X}
+X
+Xsub wrapup {
+X    close (OUTFILE);
+X    &errmsg ("Output close error [$?]") if $?;
+X    &init;
+X}
+X
+Xsub errmsg {
+X    print STDERR ($my_name, ": ", pop(@_), " at input line $..\n");
+X    exit 1;
+X}
+END_OF_FILE
+  if test 4362 -ne `wc -c <'mserv-3.1/unpack.pl'`; then
+    echo shar: \"'mserv-3.1/unpack.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/unpack.pl'
+fi
+echo shar: End of archive 6 \(of 6\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

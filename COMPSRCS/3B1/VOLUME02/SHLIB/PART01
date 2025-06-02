@@ -1,0 +1,2187 @@
+Path: comp-sources-3b1
+From: buhrt@prslnk.uucp (Jeff Buhrt)
+Subject:  v02i001:  3b1 Shared Library Builder, Part01/02
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.newport.ri.us
+X-Checksum-Snefru: 0ab85913 88c9d211 ccaec1cc 4d47495c
+
+Submitted-by: buhrt@prslnk.uucp (Jeff Buhrt)
+Posting-number: Volume 2, Issue 1
+Archive-name: shlib/part01
+
+
+This archive is setup to allow adding dirent, gcc functions, and curses
+to /lib/shlib on a 3b1 (7300, unixpc, etc).
+
+The big thing with curses was to comment out the TAM functions and just
+use the curses functions (that may be of the same name, but have different
+internal data structures).
+
+We have been using this code for 1, 2 maybe 3 years.
+
+						-Jeff Buhrt
+					{nstar,uunet}!sawmill!prslnk!buhrt
+					812-275-0750 work
+					Proslink, Inc.
+
+[ Note: I repackaged this so that each piece was less than 60K.  The	]
+[ original file I received was one big shar file.  -dhb			]
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  MANIFEST Makefile README ccc curses curses/Makefile.curo
+#   curses/Makefile.curse curses/shmydef.c daddr.prl minic
+#   minic/Makefile.minic new.iCURSES new.ifile shlib.4 stubs.s test
+#   test/Makefile test/genaddr.c test/h.c test/t.c
+# Wrapped by dave@galaxia on Tue Feb 25 08:01:27 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(778 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	
+X Makefile                   1	
+X README                     1	
+X ccc                        1	
+X curses                     1	
+X curses/Makefile.curo       1	
+X curses/Makefile.curse      1	
+X curses/shmydef.c           1	
+X daddr.prl                  1	
+X minic                      1	
+X minic/Makefile.minic       1	
+X new.iCURSES                1	
+X new.ifile                  1	
+X newshlib.iCURS             2	
+X newshlib.ifile             2	
+X shlib.4                    1	
+X stubs.s                    1	
+X test                       1	
+X test/Makefile              1	
+X test/genaddr.c             1	
+X test/h.c                   1	
+X test/t.c                   1	
+END_OF_FILE
+if test 778 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(666 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XMINIC =minic/libminic.a
+X#DIRENT=dirent/libdirent.a
+XDIRENT=/lib/libdirent.a
+X#GNULIB=/usr/lib/gcc-gnulib
+XGNULIB=/usr/local/lib/gcc-gnulib
+XCURSESLIB=shcurses.a
+XNEWLIB=newshlib
+XMAP=  -m
+X
+Xall: ${NEWLIB}
+X
+Xstubs.o: stubs.s
+X	as stubs.s
+X
+Xextra.o: ${DIRENT} stubs.o
+X#	ld -r -o extra.o stubs.o ${GNULIB} ${MINIC} ${DIRENT} ${CURSESLIB}
+X# We must put curses first because we need to make sure what data addresses
+X# are (aren't moved by the other things in the load list.
+X# Text entry points don't matter because they are in stubs.s
+X	ld -r -o extra.o stubs.o ${CURSESLIB} ${GNULIB} ${MINIC} ${DIRENT}
+X
+X${NEWLIB}: extra.o
+X#	ld -o $@ ${MAP} new.ifile
+X	ld -o $@ ${MAP} new.iCURSES
+X
+END_OF_FILE
+if test 666 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2646 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X>
+X>This distribution is pretty rough, but it was either get it out 
+X>rough or wait until I had more time (HAH!) which could be weeks.
+X>
+X>This is all the stuff that you need to build a new shared library for
+X>the 3b1 (7300). I build it, installed it, and my machine still works.
+X>Other then that, I haven't had time to test it much. I'll be testing it more,
+X>and I'd like to here about any bugs.
+X>
+X>#################################		           :alex.
+X>#Disclamer: Anyone who agrees   #                 Systems Programmer
+X>#with me deserves what they get.#    University of Maryland Baltimore County
+X>#################################	    alex@umbc3.umbc.edu
+X>
+X>The enclosed files are:
+X>	README		-	This file
+X>	Makefile	-	A makefile for the library
+X>	Makefile.minic	-	A makefile for libminic.a
+X>	stubs.s		-	The new jumptable
+X>	new.ifile	-	The ifile for creating the shared library.
+X>	newshlib.ifile	-	A replacement for /lib/shlib.ifile
+X>	shlib.4		-	An tbl/roff manpage
+X>	newshlib.iCURS	-	shlib.iCURSES use along /w -lcurses_s
+X>	Makefile.curse	-	A makefile for libcurses_s.a
+X>	shmydef		-	replacement defs from libcurses.a termcap.o
+X>				-these are defined out in shlib.iCURSES
+X
+X
+X						-Jeff Buhrt
+X					{nstar,uunet}!sawmill!prslnk!buhrt
+X					812-275-0750 work
+X					Proslink, Inc.
+X
+XThis is set up to build a new shared library out of:
+X
+X	1) the old shared library
+X	2) the missing parts of libc.a
+X	3) libdirent
+X	4) gnulib (v1.37)
+X	5) curses
+X
+XNote that libdirent.a and gnulib are *NOT* included, you will need to snarf 
+Xthem from somewhere else (you can get both from ohio-state).
+X
+XI build mine with three subdirectories, minic and dirent, curses.
+X	To do it this way:
+X	BACKUP /lib/shlib and shlib.ifile (and shlib.iCURSES if you have it)
+X	build libdirent.a and put it in a subdirectory
+X		called dirent (or ln from /usr/lib if it is there). 
+X	make a directory minic and move Makefile.minic there, type "make".
+X	make a directory curses and move Makefile.curse and shmydef.o there,
+X		and type 'make -f Makefile.curse' (as root)
+X	edit Makefile to suit your tastes.
+X	ln /lib/shlib shlib.o
+X	type "make"
+X	cp newshlib.ifile /lib/shlib.ifile
+X	cp newshlib.CURS /lib/shlib.iCURSES
+X	carefully replace /lib/shlib with newshlib (mv shlib away to new name)
+X	cross your fingers
+X	reboot the system.
+X
+XIf this goes well, try compiling some programs using the new shlib symbols.
+XThe few tests that I did worked, and the theory seems sound enough, and my
+Xmachine hasn't crashed recently. I'd like to here about any bugs, typo's,
+Xblatently missing symbols, etc.
+X
+XTo compile w/ shared library curses:
+Xld -G -Z -s /lib/crt0s.o -o prog prog.o -lm -lcurses_s  /lib/shlib.iCURSES
+END_OF_FILE
+if test 2646 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'ccc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ccc'\"
+else
+echo shar: Extracting \"'ccc'\" \(4760 characters\)
+sed "s/^X//" >'ccc' <<'END_OF_FILE'
+X#########################################################################
+X#									#
+X# Program:		/bin/ccc		(Bourne Shell Script)	#
+X# Version:		1.2						#
+X#									#
+X# Original Coding:	Arnold Robbins - Emory Univ. Computing Center	#
+X#									#
+X# SYNOPSIS								#
+X#	ccc  [ options ]  file  [ file ... ]				#
+X#									#
+X# DESCRIPTION								#
+X#	"ccc" is an interface for the standard C-compiler (/bin/cc) on	#
+X#	the AT&T UNIX-pc (aka 3B1) which allows a more natural usage of	#
+X#	the shared library facilities on this machine.			#
+X#									#
+X#	To use this script, you must:					#
+X#		2:  Install this script as  /bin/ccc			#
+X#									#
+X#	You may use this replacement "ccc" as you would the original	#
+X#	with the added benefit that programs will now be compiled using	#
+X#	the shared library.						#
+X#									#
+X# REVISION HISTORY							#
+X#	09-10-87  V1.0: Jeffery Small  (uunet!hsi!cjsa!jeff)		#
+X#			- Add/modify support for -[CUefouLW] & -VS flag	#
+X#			- Expanded comments				#
+X#			- Performed some minor reorganization.		#
+X#	09-22-87  V1.1: Jeffery Small  (uunet!hsi!cjsa!jeff)		#
+X#			- Modified script to leave /bin/cc alone 	#
+X#			- Rename this script to /bin/ccc		#
+X#			- Prevent loader-step from starting if an error #
+X#			    occurs in the compiling stage.		#
+X#	01-20-88  V1.2: Jeffery Small  (uunet!hsi!cjsa!jeff)		#
+X#			- Added support to allow curses programs to be	#
+X#			  compiled with the shared library.  This 	#
+X#			  requires the following two support files.	#
+X#			    (1) /lib/shlib.iCURSES - edited version of	#
+X#				/lib/shlib.ifile modified to eliminate	#
+X#				conflicts with the curses library. Idea	#
+X#				credits	to Emmet P. Gray (fthood!egray)	#
+X#			    (2) /lib/libCURSES.a - missing routines	#
+X#				from /lib/libc.a not defined by the	#
+X#				shared libraries.			#
+X#									#
+X#########################################################################
+X
+XPATH=/bin:/usr/bin:/usr/local/bin
+Xexport PATH
+X
+Xif [ "X`basename $0`" = "Xgccc" ] ;then
+X	OCC=${OCC-/usr/local/bin/gcc}
+Xelse
+X	OCC=${OCC-/bin/cc}		# allows compiler to be renamed
+Xfi
+X
+Xstartoff=/lib/crt0s.o			# use the shared library by default
+X#libc=/lib/shlib.ifile
+Xlibc=/lib/shlib.iCURSES
+X
+Xfiles=
+Xofiles=
+Xldargs=
+Xccargs=-c				# have to run $OCC with this
+X
+Xload=1					# run ld  (1=yes  0=no)
+Xjustprint=0				# just print what would do, -#
+Xverbose=0				# be verbose, -v
+X
+Xwhile [ $# -gt 0 ]
+Xdo
+X	case "$1" in
+X	-C)		ccargs="$ccargs $1"		# cpp flag
+X			;;
+X	-[UDI]*)	ccargs="$ccargs $1"		# cpp flags
+X			;;
+X	-#)		ccargs="$ccargs $1"		# cc flag
+X			justprint=1
+X			;;
+X	-c)		load=0				# cc flag
+X			;;
+X	-[EPS])		ccargs="$ccargs $1"		# cc flags
+X			load=0
+X			;;
+X	-g)		ccargs="$ccargs $1"		# cc & ld flags
+X			ldargs="$ldargs -lg"
+X			startoff=/lib/crt0.o
+X			libc=/lib/libc.a
+X			;;
+X	-O)		ccargs="$ccargs $1"		# cc flag
+X			;;
+X	-Q)		libc=/lib/shlib.iCURSES		# to satisfy cbase
+X#			ldargs="$ldargs -lCURSES"
+X			;;
+X	-p)		ccargs="$ccargs $1"		# cc & ld flags
+X			ldargs="$ldargs -L/lib/libp"
+X			startoff=/lib/mcrt0.o
+X			libc=/lib/libc.a
+X			;;
+X	-W*)		ccargs="$ccargs $1"		# cc flag
+X			;;
+X	-680[012]0)	ccargs="$ccargs $1"		# cc flags
+X			;;
+X	-v)		ccargs="$ccargs $1"		# cc flag
+X			verbose=1
+X			;;
+X	-T)		ccargs="$ccargs $1"		# cc & ld flags
+X			ldargs="$ldargs -G"
+X			;;
+X	-[efouL])	ldargs="$ldargs $1 $2"		# ld flags
+X			shift
+X			;;
+X	-VS)		ldargs="$ldargs $1 $2"		#ld flags
+X			shift
+X			;;
+X	-[nNzF])	;;				# ifile sets load type
+X	-ltam)		;;				# get from shared lib
+X	-lc)		;;				# get from shared lib
+X	-ltermlib)	;;				# get from shared lib
+X	-ltermcap)	;;				# get from shared lib
+X	-lcurses)	libc=/lib/shlib.iCURSES
+X#			ldargs="$ldargs $1 -lcurses_s"
+X			ldargs="$ldargs -lcurses_s"
+X			;;
+X	-lcbase)	libc=/lib/shlib.iCURSES
+X			ldargs="$ldargs $1 -lcbcu_s"
+X			;;
+X	-*)		ldargs="$ldargs $1"		# other flags go to ld
+X			;;
+X	*.[ao])		ofiles="$ofiles $1"		# files for ld
+X			;;
+X	*.[cs])		files="$files $1"		# files for cc and ld
+X			ofiles="$ofiles `basename $1 .[cs]`.o"
+X			;;
+X	*)		files="$files $1"		# files(?) for cc & ld
+X			ofiles="$ofiles $1"
+X			;;
+X	esac
+X	shift
+Xdone
+X
+X# We need some special handling when we use the GNU C compiler:
+X# First, we need to include the GNU library;
+X# Second, `gcc' called without arguments is an error (as opposed to
+X# calling `cc' with no args, which does nothing successfully).
+X#
+X
+Xif [ "Xgcc" = "X`basename ${OCC}`" ] ;then
+X	ldargs="$ldargs /usr/local/lib/gcc-gnulib"
+Xfi >/dev/null
+X
+Xif [ "X${files}" != "X" ] ;then
+X	$OCC $ccargs $files				# compile source files
+Xfi
+X
+Xif [ "$?" != "0" ]					# exit upon error
+Xthen							# do not attempt ld
+X	exit $?
+X
+Xelif [ "$load" -eq 1 ]					# run ld phase
+Xthen
+X	run="/bin/ld $startoff $libc $ofiles $ldargs"
+X
+X	if [ "$verbose" -eq 1 ]
+X	then
+X		echo "Loading ($run)..."
+X	fi
+X
+X	if [ "$justprint" -eq 1 ]
+X	then
+X		echo callsys $run
+X	else
+X		eval $run
+X	fi
+Xfi
+Xexit $?
+END_OF_FILE
+if test 4760 -ne `wc -c <'ccc'`; then
+    echo shar: \"'ccc'\" unpacked with wrong size!
+fi
+chmod +x 'ccc'
+# end of 'ccc'
+fi
+if test ! -d 'curses' ; then
+    echo shar: Creating directory \"'curses'\"
+    mkdir 'curses'
+fi
+if test -f 'curses/Makefile.curo' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'curses/Makefile.curo'\"
+else
+echo shar: Extracting \"'curses/Makefile.curo'\" \(2450 characters\)
+sed "s/^X//" >'curses/Makefile.curo' <<'END_OF_FILE'
+X#
+X#	Makefile for Yet Another Shared CC driver
+X#
+X
+XLIBCURSES_S	= /usr/lib/libcurses_s.a
+XLIBCURSES	= /usr/lib/libcurses.a
+XSHCUR		= ../shcurses.a
+X
+X# Not used in the Shared Library:
+X# ospeed, LINES, COLS are in curses.o and there are things there
+X#	I don't want to muck w/ yet.
+X# endwin: other people in curses call _endwin (also) :-(
+XCURRDEF	= \
+X	V2.__sscans.o V2._sprintw.o V2.makenew.o \
+X	addch.o beep.o box.o capnames.o cbreak.o \
+X	chkinput.o cio.o clear.o clearok.o \
+X	copywin.o crmode.o curs_set.o curses.o \
+X	def_prog.o del_TERM.o delay.o delay_out.o delch.o deleteln.o \
+X	delwin.o doupdate.o draino.o ec_quit.o endwin.o erase.o \
+X	erasechar.o fixdelay.o flash.o flushinp.o garbaged.o getch.o \
+X	getstr.o getsyx.o gettmode.o halfdelay.o has_ic.o has_il.o idlok.o\
+X	initkeypad.o insch.o insdelchar.o insdelline.o insertln.o \
+X	intrflush.o keyname.o killchar.o leaveok.o ll_echo.o \
+X	ll_init.o ll_newtty.o ll_refresh.o ll_scrdown.o ll_sub.o ll_trm.o \
+X	longname.o m_addch.o m_addstr.o m_clear.o m_erase.o m_initscr.o \
+X	m_move.o m_newterm.o m_refresh.o makenew.o memSset.o meta.o \
+X	mvcur.o mvprintw.o mvscanw.o mvwin.o mvwprintw.o mvwscanw.o napms.o \
+X	newpad.o newterm.o nl.o nocbreak.o nocrmode.o nodelay.o nonl.o \
+X	noraw.o notimeout.o overlay.o overwrite.o pechochar.o \
+X	pnoutref.o pos.o prefresh.o putp.o raw.o \
+X	reset_sh.o restart.o ripoffline.o resetty.o saveterm.o savetty.o\
+X	scanw.o scr_dump.o scr_init.o scr_rest.o scroll.o \
+X	scrollok.o set_TERM.o set_term.o setsyx.o setupterm.o \
+X	slk_clear.o slk_init.o slk_label.o slk_nout.o slk_ref.o slk_rest.o \
+X	slk_set.o slk_touch.o subpad.o subwin.o termcap.o \
+X	tiget.o touchline.o touchwin.o tparm.o tputs.o trace.o trm.o tstp.o \
+X	typeahead.o unctrl.o ungetch.o vidputs.o vsscanf.o \
+X	vwprintw.o vwscanw.o wattroff.o wattron.o wattrset.o wechochar.o \
+X	wnoutref.o wprintw.o wscanw.o
+X#cbreak.o  flushinp.o getch.o nl.o nocbreak.o nonl.o resetty.o savetty.o
+X#termcap.o tputs.o
+X
+XSHCURDEF = \
+X	addstr.o baudrate.o clrtobot.o clrtoeol.o echo.o fixterm.o \
+X	initscr.o keypad.o \
+X	move.o noecho.o printw.o refresh.o resetterm.o \
+X	setterm.o standout.o tgoto.o 
+X
+Xall:	$(LIBCURSES_S) $(SHCUR)
+X
+X$(LIBCURSES_S):	$(LIBCURSES) ../Makefile shmydef.o
+X#		ar x $(LIBCURSES) $(CURRDEF)
+X		ar x $(LIBCURSES)
+X		ar cr $@ $(CURRDEF)
+X
+X$(SHCUR):	$(LIBCURSES_S) ../Makefile
+X		ar cr $@ $(SHCURDEF)
+X
+Xclean:
+X	rm $(CURRDEF) $(SHCURDEF) shmydef.o
+X
+Xclean2:
+X	rm $(SHCURDEF) shmydef.o
+X
+Xclobber:
+X	rm $(LIBCURSES_S) $(SHCUR)
+END_OF_FILE
+if test 2450 -ne `wc -c <'curses/Makefile.curo'`; then
+    echo shar: \"'curses/Makefile.curo'\" unpacked with wrong size!
+fi
+# end of 'curses/Makefile.curo'
+fi
+if test -f 'curses/Makefile.curse' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'curses/Makefile.curse'\"
+else
+echo shar: Extracting \"'curses/Makefile.curse'\" \(2441 characters\)
+sed "s/^X//" >'curses/Makefile.curse' <<'END_OF_FILE'
+X#
+X#	Makefile for Yet Another Shared CC driver
+X#
+X
+XLIBCURSES_S	= /usr/lib/libcurses_s.a
+XLIBCURSES	= /usr/lib/libcurses.a
+XSHCUR		= ../shcurses.a
+X
+X# Not used in the Shared Library:
+X# ospeed, LINES, COLS are in curses.o and there are things there
+X#	I don't want to muck w/ yet.
+X# endwin: other people in curses call _endwin (also) :-(
+XCURRDEF	= \
+X	V2.__sscans.o V2._sprintw.o V2.makenew.o \
+X	beep.o box.o capnames.o  \
+X	clear.o clearok.o \
+X	copywin.o crmode.o curs_set.o \
+X	delay_out.o delch.o deleteln.o \
+X	draino.o erase.o \
+X	erasechar.o flash.o garbaged.o \
+X	getstr.o getsyx.o gettmode.o halfdelay.o has_ic.o has_il.o idlok.o\
+X	insch.o insertln.o \
+X	intrflush.o keyname.o killchar.o leaveok.o \
+X	longname.o m_addch.o m_addstr.o m_clear.o m_erase.o m_initscr.o \
+X	m_move.o m_newterm.o m_refresh.o meta.o \
+X	mvprintw.o mvscanw.o mvwin.o mvwscanw.o napms.o \
+X	newpad.o nocrmode.o nodelay.o \
+X	notimeout.o overlay.o overwrite.o pechochar.o \
+X	pnoutref.o prefresh.o putp.o raw.o \
+X	restart.o ripoffline.o \
+X	scanw.o scr_dump.o scr_init.o scr_rest.o  \
+X	scrollok.o set_TERM.o set_term.o setsyx.o \
+X	slk_clear.o slk_label.o slk_nout.o slk_ref.o slk_rest.o \
+X	slk_set.o subpad.o subwin.o \
+X	tiget.o touchline.o trace.o tstp.o \
+X	ungetch.o vsscanf.o \
+X	vwscanw.o wattroff.o wattrset.o \
+X	wprintw.o wscanw.o
+X
+XSHCURDEF = \
+X	addch.o addstr.o baudrate.o cbreak.o chkinput.o cio.o \
+X	clrtobot.o clrtoeol.o curses.o def_prog.o delay.o \
+X	ec_quit.o echo.o del_TERM.o delwin.o doupdate.o endwin.o \
+X	fixdelay.o fixterm.o flushinp.o getch.o initkeypad.o initscr.o \
+X	insdelchar.o insdelline.o keypad.o \
+X	ll_echo.o ll_init.o ll_newtty.o ll_refresh.o ll_scrdown.o \
+X	ll_sub.o ll_trm.o \
+X	makenew.o memSset.o move.o mvcur.o mvwprintw.o \
+X	newterm.o noecho.o nl.o nocbreak.o nonl.o noraw.o \
+X	pos.o printw.o refresh.o resetterm.o reset_sh.o \
+X	resetty.o savetty.o saveterm.o scroll.o setterm.o setupterm.o \
+X	slk_init.o slk_touch.o standout.o \
+X	termcap.o tgoto.o touchwin.o tparm.o tputs.o trm.o typeahead.o \
+X	unctrl.o vidputs.o vwprintw.o wattron.o wechochar.o wnoutref.o
+X
+Xall:	$(LIBCURSES_S) $(SHCUR)
+X
+X$(LIBCURSES_S):	$(LIBCURSES) ../Makefile # shmydef.o
+X#$(LIBCURSES_S):	$(LIBCURSES) ../Makefile shmydef.o
+X#		ar x $(LIBCURSES) $(CURRDEF)
+X		ar x $(LIBCURSES)
+X		ar cr $@ $(CURRDEF)
+X
+X$(SHCUR):	$(LIBCURSES_S) ../Makefile
+X		ar cr $@ $(SHCURDEF)
+X
+Xclean:
+X	rm $(CURRDEF) $(SHCURDEF) shmydef.o
+X
+Xclean2:
+X	rm $(SHCURDEF) shmydef.o
+X
+Xclobber:
+X	rm $(LIBCURSES_S) $(SHCUR)
+END_OF_FILE
+if test 2441 -ne `wc -c <'curses/Makefile.curse'`; then
+    echo shar: \"'curses/Makefile.curse'\" unpacked with wrong size!
+fi
+# end of 'curses/Makefile.curse'
+fi
+if test -f 'curses/shmydef.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'curses/shmydef.c'\"
+else
+echo shar: Extracting \"'curses/shmydef.c'\" \(37 characters\)
+sed "s/^X//" >'curses/shmydef.c' <<'END_OF_FILE'
+Xchar	*UP, *BC, PC;
+Xshort	int	ospeed;
+END_OF_FILE
+if test 37 -ne `wc -c <'curses/shmydef.c'`; then
+    echo shar: \"'curses/shmydef.c'\" unpacked with wrong size!
+fi
+# end of 'curses/shmydef.c'
+fi
+if test -f 'daddr.prl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'daddr.prl'\"
+else
+echo shar: Extracting \"'daddr.prl'\" \(153 characters\)
+sed "s/^X//" >'daddr.prl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+Xwhile (<>) {
+X	s/[, ]//g;
+X	@fileline = split(/\|/);
+X	printf("%s = _dbase + 0x%x;\n", $fileline[0],
+X		$fileline[1] - 0x301000);
+X}
+X
+END_OF_FILE
+if test 153 -ne `wc -c <'daddr.prl'`; then
+    echo shar: \"'daddr.prl'\" unpacked with wrong size!
+fi
+# end of 'daddr.prl'
+fi
+if test ! -d 'minic' ; then
+    echo shar: Creating directory \"'minic'\"
+    mkdir 'minic'
+fi
+if test -f 'minic/Makefile.minic' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'minic/Makefile.minic'\"
+else
+echo shar: Extracting \"'minic/Makefile.minic'\" \(1126 characters\)
+sed "s/^X//" >'minic/Makefile.minic' <<'END_OF_FILE'
+X#
+X#	Makefile for Yet Another Shared CC driver
+X#
+X
+XLIBMINIC=	libminic.a
+XLIBC=		/lib/libc.a
+X
+X# Things missing from the shared version of libc.  I used the same list
+X# as is in Jeffery Small's ccc, who did the hard part and figured out
+X# what was missing (and he credits Jim Apedaile for the 3.5 stuff).
+X# Thanks Jeffery and Jim!
+X
+XMISSING35=	acct.o assert.o aulrem.o biglitpow.o bsearch.o clrerr.o \
+X		doprnt.o doscan.o dtop.o fakcu.o findiop.o hsearch.o \
+X	        lfind.o lockf.o lsearch.o ltostr.o mcount.o mon.o ptod.o \
+X		setvbuf.o sigrte.o strtod.o sigtrap.o tell.o tfind.o \
+X		tsearch.o vfprintf.o vprintf.o vsprintf.o __cerror.o signal.o
+XMISSING351=	acct.o aulrem.o biglitpow.o clrerr.o doprnt.o doscan.o \
+X		dtop.o fakcu.o findiop.o lfind.o lockf.o lsearch.o ltostr.o \
+X		mcount.o ptod.o setvbuf.o sigrte.o strtod.o tell.o tfind.o \
+X		vfprintf.o vprintf.o vsprintf.o __cerror.o signal.o
+X
+X# Now pick MISSING35 if you're using Version 3.5 of the OS, MISSING351 if
+X# you're using version 3.51:
+X
+X#MISSING=	$(MISSING35)
+XMISSING=	$(MISSING351)
+X
+X$(LIBMINIC):	$(LIBC) ../Makefile
+X		ar x $(LIBC) $(MISSING)
+X		ar cr $@ $(MISSING)
+X
+END_OF_FILE
+if test 1126 -ne `wc -c <'minic/Makefile.minic'`; then
+    echo shar: \"'minic/Makefile.minic'\" unpacked with wrong size!
+fi
+# end of 'minic/Makefile.minic'
+fi
+if test -f 'new.iCURSES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'new.iCURSES'\"
+else
+echo shar: Extracting \"'new.iCURSES'\" \(10470 characters\)
+sed "s/^X//" >'new.iCURSES' <<'END_OF_FILE'
+XMEMORY {
+X	user_mem : origin = 0x300000 , length = 0x7ff000
+X}
+X
+XSECTIONS {
+X	.text 0x310000 BLOCK(1024) : { 
+X		shlib.o(.text)
+X		.=align(0x10000);
+X		extra.o(.text)
+X	}
+X	GROUP 0x300000 BLOCK(1024) : {
+X		.data : { 
+X			shlib.o(.data .bss) 
+X			extra.o(.data .bss)
+X/*			extra.o(.data) */
+X		}
+X/*		.bss : { extra.o(.bss) }*/
+X	}
+X}
+X
+X
+Xtimezone = 0x00300000;
+Xtzname = 0x00300004;
+Xpatblack = 0x00300014;
+Xpatwhite = 0x00300034;
+Xpatgray = 0x00300054;
+Xpatltgray = 0x00300074;
+X_iob = 0x0030009c;
+X_bufendtab = 0x003001b8;
+X_ctype = 0x0030020c;
+Xsys_errlist = 0x0030030e;
+X_iob2 = 0x00300bc0;
+X_buf2endtab = 0x00300f0c;
+X_dbase = 0x00301000;
+Xerrno = _dbase + 0x0;
+Xenviron = _dbase + 0x4;
+XxPC = _dbase + 0x8;
+XxBC = _dbase + 0xc;
+XxUP = _dbase + 0x10;
+Xxospeed = _dbase + 0x14;
+XxLINES = _dbase + 0x18;
+XxCOLS = _dbase + 0x1c;
+Xwncur = _dbase + 0x20;
+Xoptind = _dbase + 0x22;
+Xoptarg = _dbase + 0x26;
+Xopterr = _dbase + 0x2a;
+Xoptopt = _dbase + 0x2e;
+Xsys_nerr = _dbase + 0x32;
+XFPA_flag = _dbase + 0x36;
+XFPA_s = _dbase + 0x3a;
+XFPA_d = _dbase + 0x3e;
+X_sibuf = 0x00306000;
+X_sobuf = 0x00306408;
+X_tbase = 0x00310000;
+Xshlbat = _tbase + 0x0;
+Xshlbatid = _tbase + 0x6;
+Xaccess = _tbase + 0xc;
+Xalarm = _tbase + 0x12;
+Xbrk = _tbase + 0x18;
+Xibrk = _tbase + 0x1e;
+Xsbrk = _tbase + 0x24;
+Xchdir = _tbase + 0x2a;
+Xchmod = _tbase + 0x30;
+Xchown = _tbase + 0x36;
+Xchroot = _tbase + 0x3c;
+Xclose = _tbase + 0x42;
+Xcreat = _tbase + 0x48;
+Xdup = _tbase + 0x4e;
+Xexecl = _tbase + 0x54;
+Xexecv = _tbase + 0x5a;
+Xexecle = _tbase + 0x60;
+Xexecve = _tbase + 0x66;
+Xexeclp = _tbase + 0x6c;
+Xexecvp = _tbase + 0x72;
+Xexit = _tbase + 0x78;
+X_exit = _tbase + 0x7e;
+Xfcntl = _tbase + 0x84;
+Xfork = _tbase + 0x8a;
+Xgetpid = _tbase + 0x90;
+Xgetpgrp = _tbase + 0x96;
+Xgetppid = _tbase + 0x9c;
+Xgetuid = _tbase + 0xa2;
+Xgeteuid = _tbase + 0xa8;
+Xgetgid = _tbase + 0xae;
+Xgetegid = _tbase + 0xb4;
+Xgtty = _tbase + 0xba;
+Xioctl = _tbase + 0xc0;
+Xkill = _tbase + 0xc6;
+Xlink = _tbase + 0xcc;
+Xlocking = _tbase + 0xd2;
+Xlseek = _tbase + 0xd8;
+Xmknod = _tbase + 0xde;
+Xmount = _tbase + 0xe4;
+Xmsgctl = _tbase + 0xea;
+Xmsgget = _tbase + 0xf0;
+Xmsgsnd = _tbase + 0xf6;
+Xmsgrcv = _tbase + 0xfc;
+Xnice = _tbase + 0x102;
+Xopen = _tbase + 0x108;
+Xopeni = _tbase + 0x10e;
+Xpause = _tbase + 0x114;
+Xpipe = _tbase + 0x11a;
+Xprofil = _tbase + 0x120;
+Xptrace = _tbase + 0x126;
+Xread = _tbase + 0x12c;
+Xsemctl = _tbase + 0x132;
+Xsemget = _tbase + 0x138;
+Xsemop = _tbase + 0x13e;
+Xsetpgrp = _tbase + 0x144;
+Xsetuid = _tbase + 0x14a;
+Xsetgid = _tbase + 0x150;
+Xshmctl = _tbase + 0x156;
+Xshmget = _tbase + 0x15c;
+Xshmat = _tbase + 0x162;
+Xshmdt = _tbase + 0x168;
+Xstat = _tbase + 0x174;
+Xstty = _tbase + 0x17a;
+Xfstat = _tbase + 0x180;
+Xstime = _tbase + 0x186;
+Xswrite = _tbase + 0x18c;
+Xsync = _tbase + 0x192;
+Xsyslocal = _tbase + 0x198;
+Xtime = _tbase + 0x19e;
+Xtimes = _tbase + 0x1a4;
+Xulimit = _tbase + 0x1aa;
+Xumask = _tbase + 0x1b0;
+Xumount = _tbase + 0x1b6;
+Xuname = _tbase + 0x1bc;
+Xunlink = _tbase + 0x1c2;
+Xustat = _tbase + 0x1c8;
+Xutime = _tbase + 0x1ce;
+Xwait = _tbase + 0x1d4;
+Xwrite = _tbase + 0x1da;
+Xabort = _tbase + 0x1e0;
+Xabs = _tbase + 0x1e6;
+Xatof = _tbase + 0x1ec;
+Xclock = _tbase + 0x1f2;
+Xcrypt = _tbase + 0x1f8;
+Xsetkey = _tbase + 0x1fe;
+Xencrypt = _tbase + 0x204;
+Xctermid = _tbase + 0x20a;
+Xctime = _tbase + 0x210;
+Xlocaltime = _tbase + 0x216;
+Xgmtime = _tbase + 0x21c;
+Xasctime = _tbase + 0x222;
+Xtzset = _tbase + 0x228;
+Xcuserid = _tbase + 0x22e;
+Xecvt = _tbase + 0x234;
+Xfcvt = _tbase + 0x23a;
+Xgcvt = _tbase + 0x240;
+Xfclose = _tbase + 0x246;
+Xfflush = _tbase + 0x24c;
+Xfopen = _tbase + 0x252;
+Xfreopen = _tbase + 0x258;
+Xfdopen = _tbase + 0x25e;
+Xfread = _tbase + 0x264;
+Xfwrite = _tbase + 0x26a;
+Xfrexp = _tbase + 0x270;
+Xldexp = _tbase + 0x276;
+Xmodf = _tbase + 0x27c;
+Xfseek = _tbase + 0x282;
+Xrewind = _tbase + 0x288;
+Xftell = _tbase + 0x28e;
+Xftw = _tbase + 0x294;
+Xfgetc = _tbase + 0x29a;
+Xgetw = _tbase + 0x2a0;
+Xgetcwd = _tbase + 0x2a6;
+Xgetenv = _tbase + 0x2ac;
+Xgetgrent = _tbase + 0x2b2;
+Xgetgrgid = _tbase + 0x2b8;
+Xgetgrnam = _tbase + 0x2be;
+Xsetgrent = _tbase + 0x2c4;
+Xendgrent = _tbase + 0x2ca;
+Xgetlogin = _tbase + 0x2d0;
+Xgetopt = _tbase + 0x2d6;
+Xgetpass = _tbase + 0x2dc;
+Xgetpw = _tbase + 0x2e2;
+Xgetpwent = _tbase + 0x2e8;
+Xgetpwuid = _tbase + 0x2ee;
+Xgetpwnam = _tbase + 0x2f4;
+Xsetpwent = _tbase + 0x2fa;
+Xendpwent = _tbase + 0x300;
+Xgets = _tbase + 0x306;
+Xgetchar = _tbase + 0x30c;
+Xfgets = _tbase + 0x312;
+Xgetutent = _tbase + 0x318;
+Xgetutid = _tbase + 0x31e;
+Xgetutline = _tbase + 0x324;
+Xpututline = _tbase + 0x32a;
+Xsetutent = _tbase + 0x330;
+Xendutent = _tbase + 0x336;
+Xutmpname = _tbase + 0x33c;
+Xmalloc = _tbase + 0x342;
+Xfree = _tbase + 0x348;
+Xrealloc = _tbase + 0x34e;
+Xcalloc = _tbase + 0x354;
+Xcfree = _tbase + 0x35a;
+Xmemccpy = _tbase + 0x360;
+Xmemchr = _tbase + 0x366;
+Xmemcmp = _tbase + 0x36c;
+Xmemcpy = _tbase + 0x372;
+Xmemset = _tbase + 0x378;
+Xmktemp = _tbase + 0x37e;
+Xmonitor = _tbase + 0x384;
+Xperror = _tbase + 0x38a;
+Xpopen = _tbase + 0x390;
+Xpclose = _tbase + 0x396;
+Xprintf = _tbase + 0x39c;
+Xfprintf = _tbase + 0x3a2;
+Xsprintf = _tbase + 0x3a8;
+Xfputc = _tbase + 0x3ae;
+Xputw = _tbase + 0x3b4;
+Xputpwent = _tbase + 0x3ba;
+Xputs = _tbase + 0x3c0;
+Xputchar = _tbase + 0x3c6;
+Xfputs = _tbase + 0x3cc;
+Xscanf = _tbase + 0x3d2;
+Xfscanf = _tbase + 0x3d8;
+Xsscanf = _tbase + 0x3de;
+Xsetbuf = _tbase + 0x3e4;
+Xsleep = _tbase + 0x3ea;
+Xssignal = _tbase + 0x3f0;
+Xgsignal = _tbase + 0x3f6;
+Xstrcat = _tbase + 0x3fc;
+Xstrncat = _tbase + 0x402;
+Xstrcmp = _tbase + 0x408;
+Xstrncmp = _tbase + 0x40e;
+Xstrcpy = _tbase + 0x414;
+Xstrncpy = _tbase + 0x41a;
+Xstrlen = _tbase + 0x420;
+Xstrchr = _tbase + 0x426;
+Xstrrchr = _tbase + 0x42c;
+Xstrpbrk = _tbase + 0x432;
+Xstrspn = _tbase + 0x438;
+Xstrcspn = _tbase + 0x43e;
+Xstrtok = _tbase + 0x444;
+Xstrtol = _tbase + 0x44a;
+Xatol = _tbase + 0x450;
+Xatoi = _tbase + 0x456;
+Xswab = _tbase + 0x45c;
+Xsystem = _tbase + 0x462;
+Xtmpfile = _tbase + 0x468;
+Xtmpnam = _tbase + 0x46e;
+Xtempnam = _tbase + 0x474;
+Xttyname = _tbase + 0x47a;
+Xisatty = _tbase + 0x480;
+Xttyslot = _tbase + 0x486;
+Xungetc = _tbase + 0x48c;
+X_filbuf = _tbase + 0x492;
+X_flsbuf = _tbase + 0x498;
+Xlmul__ = _tbase + 0x49e;
+Xlmul = _tbase + 0x4a4;
+Xldiv__ = _tbase + 0x4aa;
+Xldiv = _tbase + 0x4b0;
+Xlrem__ = _tbase + 0x4b6;
+Xlrem = _tbase + 0x4bc;
+Xaldiv = _tbase + 0x4c2;
+Xalmul = _tbase + 0x4c8;
+Xalrem = _tbase + 0x4ce;
+Xulmul = _tbase + 0x4d4;
+Xuldiv__ = _tbase + 0x4da;
+Xuldiv = _tbase + 0x4e0;
+Xulrem__ = _tbase + 0x4e6;
+Xulrem = _tbase + 0x4ec;
+Xqsort = _tbase + 0x4f2;
+Xl3tol = _tbase + 0x4f8;
+Xltol3 = _tbase + 0x4fe;
+Xxtgetflag = _tbase + 0x504;
+Xxtgetent = _tbase + 0x50a;
+Xxtgetstr = _tbase + 0x510;
+Xxtgetnum = _tbase + 0x516;
+Xxtgoto = _tbase + 0x51c;
+Xxtputs = _tbase + 0x522;
+Xform = _tbase + 0x528;
+Xmenu = _tbase + 0x52e;
+Xmessage = _tbase + 0x534;
+Xsetattr = _tbase + 0x53a;
+Xpb_open = _tbase + 0x540;
+Xadf_gtxcd = _tbase + 0x546;
+Xadf_gtwrd = _tbase + 0x54c;
+Xpb_gets = _tbase + 0x552;
+Xpb_check = _tbase + 0x558;
+Xpb_weof = _tbase + 0x55e;
+Xpb_seek = _tbase + 0x564;
+Xpb_puts = _tbase + 0x56a;
+Xpb_name = _tbase + 0x570;
+Xpb_empty = _tbase + 0x576;
+Xpb_gbuf = _tbase + 0x57c;
+Xadf_gttok = _tbase + 0x582;
+Xxwrefresh = _tbase + 0x588;
+Xtrack = _tbase + 0x58e;
+Xwcreate = _tbase + 0x594;
+Xxinitscr = _tbase + 0x59a;
+Xxcbreak = _tbase + 0x5a0;
+Xattroff = _tbase + 0x5a6;
+Xxnl = _tbase + 0x5ac;
+Xattron = _tbase + 0x5b2;
+Xxflushinp = _tbase + 0x5b8;
+Xxnoecho = _tbase + 0x5be;
+Xinch = _tbase + 0x5c4;
+Xgetch = _tbase + 0x5ca;
+Xxsavetty = _tbase + 0x5d0;
+Xxresetty = _tbase + 0x5d6;
+Xxecho = _tbase + 0x5dc;
+Xxnocbreak = _tbase + 0x5e2;
+Xxnonl = _tbase + 0x5e8;
+Xwdelete = _tbase + 0x5ee;
+Xwprexec = _tbase + 0x5f4;
+Xwpostwait = _tbase + 0x5fa;
+Xwgetc = _tbase + 0x600;
+Xkcodemap = _tbase + 0x606;
+Xxkeypad = _tbase + 0x60c;
+Xwsigintr = _tbase + 0x612;
+Xwind = _tbase + 0x618;
+Xwsigcatch = _tbase + 0x61e;
+Xwinit = _tbase + 0x624;
+Xwsetbuf = _tbase + 0x62a;
+Xiswind = _tbase + 0x630;
+Xwexit = _tbase + 0x636;
+Xxendwin = _tbase + 0x63c;
+Xwgetpos = _tbase + 0x642;
+Xwgoto = _tbase + 0x648;
+Xwinstr = _tbase + 0x64e;
+Xwreadmouse = _tbase + 0x654;
+Xwsetmouse = _tbase + 0x65a;
+Xwgetmouse = _tbase + 0x660;
+Xwnl = _tbase + 0x666;
+Xwndelay = _tbase + 0x66c;
+Xwprompt = _tbase + 0x672;
+Xwguser = _tbase + 0x678;
+Xwcmd = _tbase + 0x67e;
+Xwslk = _tbase + 0x684;
+Xwlabel = _tbase + 0x68a;
+Xwuser = _tbase + 0x690;
+Xwprintf = _tbase + 0x696;
+Xxprintw = _tbase + 0x69c;
+Xwputc = _tbase + 0x6a2;
+Xwputs = _tbase + 0x6a8;
+Xwrastop = _tbase + 0x6ae;
+Xwselect = _tbase + 0x6b4;
+Xwgetsel = _tbase + 0x6ba;
+Xwsetstat = _tbase + 0x6c0;
+Xwgetstat = _tbase + 0x6c6;
+Xsetty = _tbase + 0x6cc;
+Xxfixterm = _tbase + 0x6d2;
+Xphysclr = _tbase + 0x6d8;
+Xxresetterm = _tbase + 0x6de;
+Xxsetterm = _tbase + 0x6e4;
+Xgetterm = _tbase + 0x6ea;
+Xxbaudrate = _tbase + 0x6f0;
+Xparseline = _tbase + 0x6f6;
+Xslkcol = _tbase + 0x6fc;
+Xsetjmp = _tbase + 0x702;
+Xlongjmp = _tbase + 0x708;
+Xafmulf = _tbase + 0x70e;
+Xafdivf = _tbase + 0x714;
+Xafaddf = _tbase + 0x71a;
+X_cvfd = _tbase + 0x720;
+X_cvif = _tbase + 0x726;
+Xfltused = _tbase + 0x72c;
+Xnlist = _tbase + 0x732;
+Xfmul = _tbase + 0x738;
+Xfdiv = _tbase + 0x73e;
+Xfadd = _tbase + 0x744;
+Xfsub = _tbase + 0x74a;
+X_cvdf = _tbase + 0x750;
+X_cvdi = _tbase + 0x756;
+X_cvid = _tbase + 0x75c;
+X_cvfi = _tbase + 0x762;
+Xafadd = _tbase + 0x768;
+Xafsub = _tbase + 0x76e;
+Xafsubf = _tbase + 0x774;
+Xafmul = _tbase + 0x77a;
+Xexhelp = _tbase + 0x780;
+Xtolower = _tbase + 0x786;
+Xwicon = _tbase + 0x78c;
+Xwicoff = _tbase + 0x792;
+Xtoupper = _tbase + 0x798;
+Xl64a = _tbase + 0x79e;
+Xa64l = _tbase + 0x7a4;
+X_bufsync = _tbase + 0x7aa;
+Xsetuname = _tbase + 0x7b0;
+Xauldiv = _tbase + 0x7b6;
+Xeprintf = _tbase + 0x7bc;
+Xdbsub__ = _tbase + 0x7c2;
+Xdbadd__ = _tbase + 0x7c8;
+Xdbdiv__ = _tbase + 0x7ce;
+Xdbmul__ = _tbase + 0x7d4;
+Xltodb__ = _tbase + 0x7da;
+Xdbtol__ = _tbase + 0x7e0;
+Xdbtofl__ = _tbase + 0x7e6;
+Xfltodb__ = _tbase + 0x7ec;
+Xltofl__ = _tbase + 0x7f2;
+Xfltol__ = _tbase + 0x7f8;
+Xultodb__ = _tbase + 0x7fe;
+Xultofl__ = _tbase + 0x804;
+Xaulmul = _tbase + 0x80a;
+Xafdiv = _tbase + 0x810;
+Xdbtst__ = _tbase + 0x816;
+Xfltst__ = _tbase + 0x81c;
+Xplock = _tbase + 0x822;
+Xdial = _tbase + 0x828;
+Xcallout = _tbase + 0x82e;
+Xundial = _tbase + 0x834;
+Xdrand48 = _tbase + 0x83a;
+Xerand48 = _tbase + 0x840;
+Xlrand48 = _tbase + 0x846;
+Xmrand48 = _tbase + 0x84c;
+Xsrand48 = _tbase + 0x852;
+Xjrand48 = _tbase + 0x858;
+Xseed48 = _tbase + 0x85e;
+Xlcong48 = _tbase + 0x864;
+Xrand = _tbase + 0x86a;
+Xsrand = _tbase + 0x870;
+Xftok = _tbase + 0x876;
+Xputenv = _tbase + 0x87c;
+Xtargets = _tbase + 0x882;
+Xn_targets = _tbase + 0x888;
+Xwtargeton = _tbase + 0x88e;
+Xw_target = _tbase + 0x894;
+X_fpachk = _tbase + 0x89a;
+X_assert = _tbase + 0x8a0;
+Xbsearch = _tbase + 0x8a6;
+Xhcreate = _tbase + 0x8ac;
+Xhsearch = _tbase + 0x8b2;
+Xhdestroy = _tbase + 0x8b8;
+Xtsearch = _tbase + 0x8be;
+Xtdelete = _tbase + 0x8c4;
+Xtwalk = _tbase + 0x8ca;
+Xnrand48 = _tbase + 0x8d0;
+END_OF_FILE
+if test 10470 -ne `wc -c <'new.iCURSES'`; then
+    echo shar: \"'new.iCURSES'\" unpacked with wrong size!
+fi
+# end of 'new.iCURSES'
+fi
+if test -f 'new.ifile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'new.ifile'\"
+else
+echo shar: Extracting \"'new.ifile'\" \(10418 characters\)
+sed "s/^X//" >'new.ifile' <<'END_OF_FILE'
+XMEMORY {
+X	user_mem : origin = 0x300000 , length = 0x7ff000
+X}
+X
+XSECTIONS {
+X	.text 0x310000 BLOCK(1024) : { 
+X		shlib.o(.text)
+X		.=align(0x10000);
+X		extra.o(.text)
+X	}
+X	GROUP 0x300000 BLOCK(1024) : {
+X		.data : { 
+X			shlib.o(.data .bss) 
+X			extra.o(.data .bss) 
+X		}
+X/*		.bss : { extra.o(.bss) }*/
+X	}
+X}
+X
+X
+Xtimezone = 0x00300000;
+Xtzname = 0x00300004;
+Xpatblack = 0x00300014;
+Xpatwhite = 0x00300034;
+Xpatgray = 0x00300054;
+Xpatltgray = 0x00300074;
+X_iob = 0x0030009c;
+X_bufendtab = 0x003001b8;
+X_ctype = 0x0030020c;
+Xsys_errlist = 0x0030030e;
+X_iob2 = 0x00300bc0;
+X_buf2endtab = 0x00300f0c;
+X_dbase = 0x00301000;
+Xerrno = _dbase + 0x0;
+Xenviron = _dbase + 0x4;
+XPC = _dbase + 0x8;
+XBC = _dbase + 0xc;
+XUP = _dbase + 0x10;
+Xospeed = _dbase + 0x14;
+XLINES = _dbase + 0x18;
+XCOLS = _dbase + 0x1c;
+Xwncur = _dbase + 0x20;
+Xoptind = _dbase + 0x22;
+Xoptarg = _dbase + 0x26;
+Xopterr = _dbase + 0x2a;
+Xoptopt = _dbase + 0x2e;
+Xsys_nerr = _dbase + 0x32;
+XFPA_flag = _dbase + 0x36;
+XFPA_s = _dbase + 0x3a;
+XFPA_d = _dbase + 0x3e;
+X_sibuf = 0x00306000;
+X_sobuf = 0x00306408;
+X_tbase = 0x00310000;
+Xshlbat = _tbase + 0x0;
+Xshlbatid = _tbase + 0x6;
+Xaccess = _tbase + 0xc;
+Xalarm = _tbase + 0x12;
+Xbrk = _tbase + 0x18;
+Xibrk = _tbase + 0x1e;
+Xsbrk = _tbase + 0x24;
+Xchdir = _tbase + 0x2a;
+Xchmod = _tbase + 0x30;
+Xchown = _tbase + 0x36;
+Xchroot = _tbase + 0x3c;
+Xclose = _tbase + 0x42;
+Xcreat = _tbase + 0x48;
+Xdup = _tbase + 0x4e;
+Xexecl = _tbase + 0x54;
+Xexecv = _tbase + 0x5a;
+Xexecle = _tbase + 0x60;
+Xexecve = _tbase + 0x66;
+Xexeclp = _tbase + 0x6c;
+Xexecvp = _tbase + 0x72;
+Xexit = _tbase + 0x78;
+X_exit = _tbase + 0x7e;
+Xfcntl = _tbase + 0x84;
+Xfork = _tbase + 0x8a;
+Xgetpid = _tbase + 0x90;
+Xgetpgrp = _tbase + 0x96;
+Xgetppid = _tbase + 0x9c;
+Xgetuid = _tbase + 0xa2;
+Xgeteuid = _tbase + 0xa8;
+Xgetgid = _tbase + 0xae;
+Xgetegid = _tbase + 0xb4;
+Xgtty = _tbase + 0xba;
+Xioctl = _tbase + 0xc0;
+Xkill = _tbase + 0xc6;
+Xlink = _tbase + 0xcc;
+Xlocking = _tbase + 0xd2;
+Xlseek = _tbase + 0xd8;
+Xmknod = _tbase + 0xde;
+Xmount = _tbase + 0xe4;
+Xmsgctl = _tbase + 0xea;
+Xmsgget = _tbase + 0xf0;
+Xmsgsnd = _tbase + 0xf6;
+Xmsgrcv = _tbase + 0xfc;
+Xnice = _tbase + 0x102;
+Xopen = _tbase + 0x108;
+Xopeni = _tbase + 0x10e;
+Xpause = _tbase + 0x114;
+Xpipe = _tbase + 0x11a;
+Xprofil = _tbase + 0x120;
+Xptrace = _tbase + 0x126;
+Xread = _tbase + 0x12c;
+Xsemctl = _tbase + 0x132;
+Xsemget = _tbase + 0x138;
+Xsemop = _tbase + 0x13e;
+Xsetpgrp = _tbase + 0x144;
+Xsetuid = _tbase + 0x14a;
+Xsetgid = _tbase + 0x150;
+Xshmctl = _tbase + 0x156;
+Xshmget = _tbase + 0x15c;
+Xshmat = _tbase + 0x162;
+Xshmdt = _tbase + 0x168;
+Xstat = _tbase + 0x174;
+Xstty = _tbase + 0x17a;
+Xfstat = _tbase + 0x180;
+Xstime = _tbase + 0x186;
+Xswrite = _tbase + 0x18c;
+Xsync = _tbase + 0x192;
+Xsyslocal = _tbase + 0x198;
+Xtime = _tbase + 0x19e;
+Xtimes = _tbase + 0x1a4;
+Xulimit = _tbase + 0x1aa;
+Xumask = _tbase + 0x1b0;
+Xumount = _tbase + 0x1b6;
+Xuname = _tbase + 0x1bc;
+Xunlink = _tbase + 0x1c2;
+Xustat = _tbase + 0x1c8;
+Xutime = _tbase + 0x1ce;
+Xwait = _tbase + 0x1d4;
+Xwrite = _tbase + 0x1da;
+Xabort = _tbase + 0x1e0;
+Xabs = _tbase + 0x1e6;
+Xatof = _tbase + 0x1ec;
+Xclock = _tbase + 0x1f2;
+Xcrypt = _tbase + 0x1f8;
+Xsetkey = _tbase + 0x1fe;
+Xencrypt = _tbase + 0x204;
+Xctermid = _tbase + 0x20a;
+Xctime = _tbase + 0x210;
+Xlocaltime = _tbase + 0x216;
+Xgmtime = _tbase + 0x21c;
+Xasctime = _tbase + 0x222;
+Xtzset = _tbase + 0x228;
+Xcuserid = _tbase + 0x22e;
+Xecvt = _tbase + 0x234;
+Xfcvt = _tbase + 0x23a;
+Xgcvt = _tbase + 0x240;
+Xfclose = _tbase + 0x246;
+Xfflush = _tbase + 0x24c;
+Xfopen = _tbase + 0x252;
+Xfreopen = _tbase + 0x258;
+Xfdopen = _tbase + 0x25e;
+Xfread = _tbase + 0x264;
+Xfwrite = _tbase + 0x26a;
+Xfrexp = _tbase + 0x270;
+Xldexp = _tbase + 0x276;
+Xmodf = _tbase + 0x27c;
+Xfseek = _tbase + 0x282;
+Xrewind = _tbase + 0x288;
+Xftell = _tbase + 0x28e;
+Xftw = _tbase + 0x294;
+Xfgetc = _tbase + 0x29a;
+Xgetw = _tbase + 0x2a0;
+Xgetcwd = _tbase + 0x2a6;
+Xgetenv = _tbase + 0x2ac;
+Xgetgrent = _tbase + 0x2b2;
+Xgetgrgid = _tbase + 0x2b8;
+Xgetgrnam = _tbase + 0x2be;
+Xsetgrent = _tbase + 0x2c4;
+Xendgrent = _tbase + 0x2ca;
+Xgetlogin = _tbase + 0x2d0;
+Xgetopt = _tbase + 0x2d6;
+Xgetpass = _tbase + 0x2dc;
+Xgetpw = _tbase + 0x2e2;
+Xgetpwent = _tbase + 0x2e8;
+Xgetpwuid = _tbase + 0x2ee;
+Xgetpwnam = _tbase + 0x2f4;
+Xsetpwent = _tbase + 0x2fa;
+Xendpwent = _tbase + 0x300;
+Xgets = _tbase + 0x306;
+Xgetchar = _tbase + 0x30c;
+Xfgets = _tbase + 0x312;
+Xgetutent = _tbase + 0x318;
+Xgetutid = _tbase + 0x31e;
+Xgetutline = _tbase + 0x324;
+Xpututline = _tbase + 0x32a;
+Xsetutent = _tbase + 0x330;
+Xendutent = _tbase + 0x336;
+Xutmpname = _tbase + 0x33c;
+Xmalloc = _tbase + 0x342;
+Xfree = _tbase + 0x348;
+Xrealloc = _tbase + 0x34e;
+Xcalloc = _tbase + 0x354;
+Xcfree = _tbase + 0x35a;
+Xmemccpy = _tbase + 0x360;
+Xmemchr = _tbase + 0x366;
+Xmemcmp = _tbase + 0x36c;
+Xmemcpy = _tbase + 0x372;
+Xmemset = _tbase + 0x378;
+Xmktemp = _tbase + 0x37e;
+Xmonitor = _tbase + 0x384;
+Xperror = _tbase + 0x38a;
+Xpopen = _tbase + 0x390;
+Xpclose = _tbase + 0x396;
+Xprintf = _tbase + 0x39c;
+Xfprintf = _tbase + 0x3a2;
+Xsprintf = _tbase + 0x3a8;
+Xfputc = _tbase + 0x3ae;
+Xputw = _tbase + 0x3b4;
+Xputpwent = _tbase + 0x3ba;
+Xputs = _tbase + 0x3c0;
+Xputchar = _tbase + 0x3c6;
+Xfputs = _tbase + 0x3cc;
+Xscanf = _tbase + 0x3d2;
+Xfscanf = _tbase + 0x3d8;
+Xsscanf = _tbase + 0x3de;
+Xsetbuf = _tbase + 0x3e4;
+Xsleep = _tbase + 0x3ea;
+Xssignal = _tbase + 0x3f0;
+Xgsignal = _tbase + 0x3f6;
+Xstrcat = _tbase + 0x3fc;
+Xstrncat = _tbase + 0x402;
+Xstrcmp = _tbase + 0x408;
+Xstrncmp = _tbase + 0x40e;
+Xstrcpy = _tbase + 0x414;
+Xstrncpy = _tbase + 0x41a;
+Xstrlen = _tbase + 0x420;
+Xstrchr = _tbase + 0x426;
+Xstrrchr = _tbase + 0x42c;
+Xstrpbrk = _tbase + 0x432;
+Xstrspn = _tbase + 0x438;
+Xstrcspn = _tbase + 0x43e;
+Xstrtok = _tbase + 0x444;
+Xstrtol = _tbase + 0x44a;
+Xatol = _tbase + 0x450;
+Xatoi = _tbase + 0x456;
+Xswab = _tbase + 0x45c;
+Xsystem = _tbase + 0x462;
+Xtmpfile = _tbase + 0x468;
+Xtmpnam = _tbase + 0x46e;
+Xtempnam = _tbase + 0x474;
+Xttyname = _tbase + 0x47a;
+Xisatty = _tbase + 0x480;
+Xttyslot = _tbase + 0x486;
+Xungetc = _tbase + 0x48c;
+X_filbuf = _tbase + 0x492;
+X_flsbuf = _tbase + 0x498;
+Xlmul__ = _tbase + 0x49e;
+Xlmul = _tbase + 0x4a4;
+Xldiv__ = _tbase + 0x4aa;
+Xldiv = _tbase + 0x4b0;
+Xlrem__ = _tbase + 0x4b6;
+Xlrem = _tbase + 0x4bc;
+Xaldiv = _tbase + 0x4c2;
+Xalmul = _tbase + 0x4c8;
+Xalrem = _tbase + 0x4ce;
+Xulmul = _tbase + 0x4d4;
+Xuldiv__ = _tbase + 0x4da;
+Xuldiv = _tbase + 0x4e0;
+Xulrem__ = _tbase + 0x4e6;
+Xulrem = _tbase + 0x4ec;
+Xqsort = _tbase + 0x4f2;
+Xl3tol = _tbase + 0x4f8;
+Xltol3 = _tbase + 0x4fe;
+Xtgetflag = _tbase + 0x504;
+Xtgetent = _tbase + 0x50a;
+Xtgetstr = _tbase + 0x510;
+Xtgetnum = _tbase + 0x516;
+Xtgoto = _tbase + 0x51c;
+Xtputs = _tbase + 0x522;
+Xform = _tbase + 0x528;
+Xmenu = _tbase + 0x52e;
+Xmessage = _tbase + 0x534;
+Xsetattr = _tbase + 0x53a;
+Xpb_open = _tbase + 0x540;
+Xadf_gtxcd = _tbase + 0x546;
+Xadf_gtwrd = _tbase + 0x54c;
+Xpb_gets = _tbase + 0x552;
+Xpb_check = _tbase + 0x558;
+Xpb_weof = _tbase + 0x55e;
+Xpb_seek = _tbase + 0x564;
+Xpb_puts = _tbase + 0x56a;
+Xpb_name = _tbase + 0x570;
+Xpb_empty = _tbase + 0x576;
+Xpb_gbuf = _tbase + 0x57c;
+Xadf_gttok = _tbase + 0x582;
+Xwrefresh = _tbase + 0x588;
+Xtrack = _tbase + 0x58e;
+Xwcreate = _tbase + 0x594;
+Xinitscr = _tbase + 0x59a;
+Xcbreak = _tbase + 0x5a0;
+Xattroff = _tbase + 0x5a6;
+Xnl = _tbase + 0x5ac;
+Xattron = _tbase + 0x5b2;
+Xflushinp = _tbase + 0x5b8;
+Xnoecho = _tbase + 0x5be;
+Xinch = _tbase + 0x5c4;
+Xgetch = _tbase + 0x5ca;
+Xsavetty = _tbase + 0x5d0;
+Xresetty = _tbase + 0x5d6;
+Xecho = _tbase + 0x5dc;
+Xnocbreak = _tbase + 0x5e2;
+Xnonl = _tbase + 0x5e8;
+Xwdelete = _tbase + 0x5ee;
+Xwprexec = _tbase + 0x5f4;
+Xwpostwait = _tbase + 0x5fa;
+Xwgetc = _tbase + 0x600;
+Xkcodemap = _tbase + 0x606;
+Xkeypad = _tbase + 0x60c;
+Xwsigintr = _tbase + 0x612;
+Xwind = _tbase + 0x618;
+Xwsigcatch = _tbase + 0x61e;
+Xwinit = _tbase + 0x624;
+Xwsetbuf = _tbase + 0x62a;
+Xiswind = _tbase + 0x630;
+Xwexit = _tbase + 0x636;
+Xendwin = _tbase + 0x63c;
+Xwgetpos = _tbase + 0x642;
+Xwgoto = _tbase + 0x648;
+Xwinstr = _tbase + 0x64e;
+Xwreadmouse = _tbase + 0x654;
+Xwsetmouse = _tbase + 0x65a;
+Xwgetmouse = _tbase + 0x660;
+Xwnl = _tbase + 0x666;
+Xwndelay = _tbase + 0x66c;
+Xwprompt = _tbase + 0x672;
+Xwguser = _tbase + 0x678;
+Xwcmd = _tbase + 0x67e;
+Xwslk = _tbase + 0x684;
+Xwlabel = _tbase + 0x68a;
+Xwuser = _tbase + 0x690;
+Xwprintf = _tbase + 0x696;
+Xprintw = _tbase + 0x69c;
+Xwputc = _tbase + 0x6a2;
+Xwputs = _tbase + 0x6a8;
+Xwrastop = _tbase + 0x6ae;
+Xwselect = _tbase + 0x6b4;
+Xwgetsel = _tbase + 0x6ba;
+Xwsetstat = _tbase + 0x6c0;
+Xwgetstat = _tbase + 0x6c6;
+Xsetty = _tbase + 0x6cc;
+Xfixterm = _tbase + 0x6d2;
+Xphysclr = _tbase + 0x6d8;
+Xresetterm = _tbase + 0x6de;
+Xsetterm = _tbase + 0x6e4;
+Xgetterm = _tbase + 0x6ea;
+Xbaudrate = _tbase + 0x6f0;
+Xparseline = _tbase + 0x6f6;
+Xslkcol = _tbase + 0x6fc;
+Xsetjmp = _tbase + 0x702;
+Xlongjmp = _tbase + 0x708;
+Xafmulf = _tbase + 0x70e;
+Xafdivf = _tbase + 0x714;
+Xafaddf = _tbase + 0x71a;
+X_cvfd = _tbase + 0x720;
+X_cvif = _tbase + 0x726;
+Xfltused = _tbase + 0x72c;
+Xnlist = _tbase + 0x732;
+Xfmul = _tbase + 0x738;
+Xfdiv = _tbase + 0x73e;
+Xfadd = _tbase + 0x744;
+Xfsub = _tbase + 0x74a;
+X_cvdf = _tbase + 0x750;
+X_cvdi = _tbase + 0x756;
+X_cvid = _tbase + 0x75c;
+X_cvfi = _tbase + 0x762;
+Xafadd = _tbase + 0x768;
+Xafsub = _tbase + 0x76e;
+Xafsubf = _tbase + 0x774;
+Xafmul = _tbase + 0x77a;
+Xexhelp = _tbase + 0x780;
+Xtolower = _tbase + 0x786;
+Xwicon = _tbase + 0x78c;
+Xwicoff = _tbase + 0x792;
+Xtoupper = _tbase + 0x798;
+Xl64a = _tbase + 0x79e;
+Xa64l = _tbase + 0x7a4;
+X_bufsync = _tbase + 0x7aa;
+Xsetuname = _tbase + 0x7b0;
+Xauldiv = _tbase + 0x7b6;
+Xeprintf = _tbase + 0x7bc;
+Xdbsub__ = _tbase + 0x7c2;
+Xdbadd__ = _tbase + 0x7c8;
+Xdbdiv__ = _tbase + 0x7ce;
+Xdbmul__ = _tbase + 0x7d4;
+Xltodb__ = _tbase + 0x7da;
+Xdbtol__ = _tbase + 0x7e0;
+Xdbtofl__ = _tbase + 0x7e6;
+Xfltodb__ = _tbase + 0x7ec;
+Xltofl__ = _tbase + 0x7f2;
+Xfltol__ = _tbase + 0x7f8;
+Xultodb__ = _tbase + 0x7fe;
+Xultofl__ = _tbase + 0x804;
+Xaulmul = _tbase + 0x80a;
+Xafdiv = _tbase + 0x810;
+Xdbtst__ = _tbase + 0x816;
+Xfltst__ = _tbase + 0x81c;
+Xplock = _tbase + 0x822;
+Xdial = _tbase + 0x828;
+Xcallout = _tbase + 0x82e;
+Xundial = _tbase + 0x834;
+Xdrand48 = _tbase + 0x83a;
+Xerand48 = _tbase + 0x840;
+Xlrand48 = _tbase + 0x846;
+Xmrand48 = _tbase + 0x84c;
+Xsrand48 = _tbase + 0x852;
+Xjrand48 = _tbase + 0x858;
+Xseed48 = _tbase + 0x85e;
+Xlcong48 = _tbase + 0x864;
+Xrand = _tbase + 0x86a;
+Xsrand = _tbase + 0x870;
+Xftok = _tbase + 0x876;
+Xputenv = _tbase + 0x87c;
+Xtargets = _tbase + 0x882;
+Xn_targets = _tbase + 0x888;
+Xwtargeton = _tbase + 0x88e;
+Xw_target = _tbase + 0x894;
+X_fpachk = _tbase + 0x89a;
+X_assert = _tbase + 0x8a0;
+Xbsearch = _tbase + 0x8a6;
+Xhcreate = _tbase + 0x8ac;
+Xhsearch = _tbase + 0x8b2;
+Xhdestroy = _tbase + 0x8b8;
+Xtsearch = _tbase + 0x8be;
+Xtdelete = _tbase + 0x8c4;
+Xtwalk = _tbase + 0x8ca;
+Xnrand48 = _tbase + 0x8d0;
+END_OF_FILE
+if test 10418 -ne `wc -c <'new.ifile'`; then
+    echo shar: \"'new.ifile'\" unpacked with wrong size!
+fi
+# end of 'new.ifile'
+fi
+if test -f 'shlib.4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shlib.4'\"
+else
+echo shar: Extracting \"'shlib.4'\" \(3126 characters\)
+sed "s/^X//" >'shlib.4' <<'END_OF_FILE'
+X.TH shlib 4 UNIX-PC "CTIX 3.51"
+X.SH NAME
+Xshlib - the system shared libraries
+X.SH SYNTAX
+Xld /lib/crt0s.o /lib/shlib.ifile 
+X.SH DESCRIPTION
+XThe unixpc employees a single shared library to reduce the size of
+Xexecutable programs. As distributed, the shared library contains 
+Xmuch (but not all) of 
+X.I libc.a ,
+X.I libtermlib.a 
+Xand 
+X.I libcurses.a .
+XWhile useful in reducing the size of executables, using the shared library
+Xcan be frustrating to programmers because (a) it is not a complete library
+Xand (b) trying to link with the shared library 
+X.I and
+Xthe regular libc.a is not a trivial task, in some instances.
+X
+XSpecifically, the shared library (/lib/shlib) is a compiled object that 
+Xis mapped into a constant piece of
+X.I "virtual memory" .
+XThat is, the code in /lib/shlib appears at the same virtual address in every
+Xprogram that accesses it. Since this address space (0x300000-0x380000) is 
+Xoutside of the space normally used by executing programs, it goes unnoticed
+Xif it is not referenced. Furthermore, this address range (like any other) is
+Xdemand paged, so the library code is swapped out if it is not used.
+X
+X.SH CONSTRUCTION
+XThe shared library is a normal 3 part (TEXT, DATA and BSS) object file.
+XThe DATA and BSS sections are continuous and begin at virtual address 0x300000.
+XThe TEXT area begins at virtual address 0x310000.
+XThe first object in the text area is a jump table, which indexes the other 
+Xfunctions in the library. The presence of the jump table enables function
+Xaddresses to remain constant, even if the library is recompiled or reordered.
+X
+X.SH MODIFICATION
+XThe shared library is loaded on boot from the file /lib/shlib. This object
+Xcan be any non-relocatable object (created via /bin/ld). 
+XFor backward compatibility, is is recommend that any modifications to the
+Xlibrary be in the form of additions to the existing library (This is so
+Xthat the existing software will continue to work).
+X
+XThe rules of thumb for modifying the library are:
+X.RS
+X.HP
+X(a) maintain 3 sections (TEXT, DATA and BSS) as there is no specification
+Xregarding non-standard sections.
+X.HP
+X(b) Always 
+X.I append
+Xdata to sections. For compatibility, the new sections must overlay the old
+Xones perfectly, with new data overlaying previously unallocated space.
+X.RE
+X
+XAn example shared library is shown below:
+X.TS
+Xtab(@);
+Xcb cb
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc|l|l|
+Xc l
+Xc|l|l|.
+XAddress Range@Description@Section
+X@_@_
+X@New Text area@
+X0x330000@New Jump Table@
+X@_@
+X@*avail*@Text
+X@_@
+X@Old Text@
+X0x310000@Old Jump Table@
+X@_@_
+X@
+X@_@_
+X@New BSS@BSS
+X@_@_
+X@New Data@
+X@_@DATA
+X0x300000@Old DATA AND BSS@
+X@_@_
+X.TE
+X
+XNote that the old sections are aligned to the same addresses that they 
+Xwere before, and that new sections have been fitted around them. This example
+Xuses a second jump table rather then appending to the first one because it 
+Xassumes that source for the first library is unavailable. Having the second
+Xjump table (aligned at 0x330000 for neatness) means that further modification
+Xof the table is a trivial matter of adding indexes to the jump table and
+Xrecompiling.
+X
+X.SH FILES
+X.nf
+X/lib/shlib
+X/lib/shlib.ifile
+X.fi
+END_OF_FILE
+if test 3126 -ne `wc -c <'shlib.4'`; then
+    echo shar: \"'shlib.4'\" unpacked with wrong size!
+fi
+# end of 'shlib.4'
+fi
+if test -f 'stubs.s' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'stubs.s'\"
+else
+echo shar: Extracting \"'stubs.s'\" \(6307 characters\)
+sed "s/^X//" >'stubs.s' <<'END_OF_FILE'
+X	text
+X	even
+XLIB__EPRINTF:
+X	jmp __eprintf
+XLIB__BUILTIN_NEW:
+X	jmp __builtin_new
+XLIB__BUILTIN_VEC_NEW:
+X	jmp __builtin_vec_new
+XLIB__SET_NEW_HANDLER:
+X	jmp __set_new_handler
+XLIBSET_NEW_HANDLER:
+X	jmp set_new_handler
+XLIB__BUILTIN_DELETE:
+X	jmp __builtin_delete
+XLIB__BUILTIN_VEC_DELETE:
+X	jmp __builtin_vec_delete
+XLIB__UMULSI3:
+X	jmp __umulsi3
+XLIB__MULSI3:
+X	jmp __mulsi3
+XLIB__UDIVSI3:
+X	jmp __udivsi3
+XLIB__DIVSI3:
+X	jmp __divsi3
+XLIB__UMODSI3:
+X	jmp __umodsi3
+XLIB__MODSI3:
+X	jmp __modsi3
+XLIB__LSHRSI3:
+X	jmp __lshrsi3
+XLIB__LSHLSI3:
+X	jmp __lshlsi3
+XLIB__ASHRSI3:
+X	jmp __ashrsi3
+XLIB__ASHLSI3:
+X	jmp __ashlsi3
+XLIB__DIVDF3:
+X	jmp __divdf3
+XLIB__MULDF3:
+X	jmp __muldf3
+XLIB__NEGDF2:
+X	jmp __negdf2
+XLIB__ADDDF3:
+X	jmp __adddf3
+XLIB__SUBDF3:
+X	jmp __subdf3
+XLIB__CMPDF2:
+X	jmp __cmpdf2
+XLIB__FIXUNSDFSI:
+X	jmp __fixunsdfsi
+XLIB__FIXDFSI:
+X	jmp __fixdfsi
+XLIB__FLOATSIDF:
+X	jmp __floatsidf
+XLIB__TRUNCDFSF2:
+X	jmp __truncdfsf2
+XLIB__EXTENDSFDF2:
+X	jmp __extendsfdf2
+XLIB__ADDSF3:
+X	jmp __addsf3
+XLIB__NEGSF2:
+X	jmp __negsf2
+XLIB__SUBSF3:
+X	jmp __subsf3
+XLIB__CMPSF2:
+X	jmp __cmpsf2
+XLIB__MULSF3:
+X	jmp __mulsf3
+XLIB__DIVSF3:
+X	jmp __divsf3
+XLIB__BUILTIN_SAVEREGS:
+X	jmp __builtin_saveregs
+XLIB__ADDDI3:
+X	jmp __adddi3
+XLIB__SUBDI3:
+X	jmp __subdi3
+XLIB__MULDI3:
+X	jmp __muldi3
+XLIB__DIVDI3:
+X	jmp __divdi3
+XLIB__MODDI3:
+X	jmp __moddi3
+XLIB__UDIVDI3:
+X	jmp __udivdi3
+XLIB__UMODDI3:
+X	jmp __umoddi3
+XLIB__NEGDI2:
+X	jmp __negdi2
+XLIB__ANDDI3:
+X	jmp __anddi3
+XLIB__IORDI3:
+X	jmp __iordi3
+XLIB__XORDI3:
+X	jmp __xordi3
+XLIB__LSHRDI3:
+X	jmp __lshrdi3
+XLIB__LSHLDI3:
+X	jmp __lshldi3
+XLIB__ASHLDI3:
+X	jmp __ashldi3
+XLIB__ASHRDI3:
+X	jmp __ashrdi3
+XLIB__ONE_CMPLDI2:
+X	jmp __one_cmpldi2
+XLIB__BDIV:
+X	jmp __bdiv
+XLIB__CMPDI2:
+X	jmp __cmpdi2
+XLIB__UCMPDI2:
+X	jmp __ucmpdi2
+XLIB__FIXUNSDFDI:
+X	jmp __fixunsdfdi
+XLIB__FIXDFDI:
+X	jmp __fixdfdi
+XLIB__FLOATDIDF:
+X	jmp __floatdidf
+X# __new_handler is data not text (per the C++ def.)
+X	long	1
+X	short	0	# pad to 6 bytes
+X#LIB__NEW_HANDLER:
+X#	jmp __new_handler
+XLIB_ACCT:
+X	jmp	acct
+XLIB_AULREM:
+X	jmp	aulrem
+XLIB_CLEARERR:
+X	jmp	clearerr
+XLIB__DOPRNT:
+X	jmp	_doprnt
+XLIB__DOSCAN:
+X	jmp	_doscan
+XLIB__DTOP:
+X	jmp	_dtop
+XLIB__CLEANUP:
+X	jmp	_cleanup
+XLIB__FINDIOP:
+X	jmp	_findiop
+XLIB_LFIND:
+X	jmp	lfind
+XLIB_LOCKF:
+X	jmp	lockf
+XLIB_LSEARCH:
+X	jmp	lsearch
+XLIB__LTOSTR:
+X	jmp	_ltostr
+XLIB_MCOUNT:
+X	jmp	mcount
+XLIB__PTOD:
+X	jmp	_ptod
+XLIB_SETVBUF:
+X	jmp	setvbuf
+XLIB__SIGHND:
+X	jmp	_sighnd
+XLIB_STRTOD:
+X	jmp	strtod
+XLIB_TELL:
+X	jmp	tell
+XLIB_TFIND:
+X	jmp	tfind
+XLIB_VFPRINTF:
+X	jmp	vfprintf
+XLIB_VPRINTF:
+X	jmp	vprintf
+XLIB_VSPRINTF:
+X	jmp	vsprintf
+XLIB_SIGNAL:
+X	jmp	signal
+XLIB_OPENDIR:
+X	jmp	opendir
+XLIB_READDIR:
+X	jmp	readdir
+XLIB_TELLDIR:
+X	jmp	telldir
+XLIB_SEEKDIR:
+X	jmp	seekdir
+XLIB_REWINDDIR:
+X	jmp	rewinddir
+XLIB_CLOSEDIR:
+X	jmp	closedir
+XLIB_GETDENTS:
+X	jmp	getdents
+X	global daylight
+Xdaylight:
+X	long	1
+X	short	0	# pad daylight to 6 bytes
+X
+X# Curses things (vs TAM)
+XLIB_WADDCH:
+X	jmp	waddch;
+XLIB_WADDSTR:
+X	jmp	waddstr;
+XLIB_BAUDRATE:
+X	jmp	baudrate;
+XLIB_CBREAK:
+X	jmp	cbreak;
+XLIB__CBREAK:
+X	jmp	_cbreak;
+XLIB__CHK_INPUT:
+X	jmp	_chk_input;
+XLIB__UNGETCH:
+X	jmp	_ungetch;
+XLIB__OUTCH:
+X	jmp	_outch;
+XLIB___CFLUSH:
+X	jmp	__cflush;
+XLIB__SETBUFFERED:
+X	jmp	_setbuffered;
+XLIB_WCLRTOBOT:
+X	jmp	wclrtobot;
+XLIB_WCLRTOEOL:
+X	jmp	wclrtoeol;
+XLIB_DEF_PROG_MODE:
+X	jmp	def_prog_mode;
+XLIB__DELAY:
+X	jmp	_delay;
+XLIB__EC_QUIT:
+X	jmp	_ec_quit;
+XLIB_ECHO:
+X	jmp	echo;
+XLIB_DEL_CURTERM:
+X	jmp	del_curterm;
+XLIB_DELWIN:
+X	jmp	delwin;
+XLIB_DOUPDATE:
+X	jmp	doupdate;
+XLIB_ISENDWIN:
+X	jmp	isendwin;
+XLIB_ENDWIN:
+X	jmp	endwin;
+XLIB__FORCE_DOUPDATE:
+X	jmp	_force_doupdate;
+XLIB__FIXDELAY:
+X	jmp	_fixdelay;
+XLIB_FIXTERM:
+X	jmp	fixterm;
+XLIB_FLUSHINP:
+X	jmp	flushinp;
+XLIB_WGETCH:
+X	jmp	wgetch;
+XLIB_COLLAPSE:
+X	jmp	collapse;
+XLIB__CATCH_ALARM:
+X	jmp	_catch_alarm;
+XLIB__INIT_KEYPAD:
+X	jmp	_init_keypad;
+XLIB_INITSCR:
+X	jmp	initscr;
+XLIB__ID_CHAR:
+X	jmp	_id_char;
+XLIB__ID_LINE:
+X	jmp	_id_line;
+XLIB__CHK_TYPEAHEAD:
+X	jmp	_chk_typeahead;
+XLIB_KEYPAD:
+X	jmp	keypad;
+XLIB__LL_ECHOCHAR:
+X	jmp	_ll_echochar;
+XLIB__INIT_COSTS:
+X	jmp	_init_costs;
+XLIB__COUNTCHAR:
+X	jmp	_countchar;
+XLIB__INIT_ACS:
+X	jmp	_init_acs;
+XLIB__NEW_TTY:
+X	jmp	_new_tty;
+XLIB_FILTER:
+X	jmp	filter;
+XLIB__NUM_LINES:
+X	jmp	_num_lines;
+XLIB__LL_REFRESH:
+X	jmp	_ll_refresh;
+XLIB__CHECK_CLREOS:
+X	jmp	_check_clreos;
+XLIB__SCRDOWN:
+X	jmp	_scrdown;
+XLIB__LINE_ALLOC:
+X	jmp	_line_alloc;
+XLIB__LINE_FREE:
+X	jmp	_line_free;
+XLIB__LL_ENDMOVE:
+X	jmp	_ll_endmove;
+XLIB__LL_SETYX:
+X	jmp	_ll_setyx;
+XLIB__LL_MOVE:
+X	jmp	_ll_move;
+XLIB__COMPHASH:
+X	jmp	_comphash;
+XLIB__SYNCMODES:
+X	jmp	_syncmodes;
+XLIB__HLMODE:
+X	jmp	_hlmode;
+XLIB__SETHL:
+X	jmp	_sethl;
+XLIB__SETMODE:
+X	jmp	_setmode;
+XLIB__SETWIND:
+X	jmp	_setwind;
+XLIB__KPMODE:
+X	jmp	_kpmode;
+XLIB__WINDOW:
+X	jmp	_window;
+XLIB__ABSMOVEHOME:
+X	jmp	_absmovehome;
+XLIB__RESET:
+X	jmp	_reset;
+XLIB__MAKENEW:
+X	jmp	_makenew;
+XLIB_MEMSSET:
+X	jmp	memSset;
+XLIB_WMOVE:
+X	jmp	wmove;
+XLIB_MVCUR:
+X	jmp	mvcur;
+XLIB_MVWPRINTW:
+X	jmp	mvwprintw;
+XLIB_NEWTERM:
+X	jmp	newterm;
+XLIB_NEWWIN:
+X	jmp	newwin;
+XLIB_NOECHO:
+X	jmp	noecho;
+XLIB_NL:
+X	jmp	nl;
+XLIB_NOCBREAK:
+X	jmp	nocbreak;
+XLIB__NOCBREAK:
+X	jmp	_nocbreak;
+XLIB_NONL:
+X	jmp	nonl;
+XLIB_NORAW:
+X	jmp	noraw;
+XLIB__NORAW:
+X	jmp	_noraw;
+XLIB__POS:
+X	jmp	_pos;
+XLIB_PRINTW:
+X	jmp	printw;
+XLIB_WREFRESH:
+X	jmp	wrefresh;
+XLIB_RESETTERM:
+X	jmp	resetterm;
+XLIB_RESET_SHELL_MODE:
+X	jmp	reset_shell_mode;
+XLIB_RESETTY:
+X	jmp	resetty;
+XLIB_SAVETTY:
+X	jmp	savetty;
+XLIB_SAVETERM:
+X	jmp	saveterm;
+XLIB_SCROLL:
+X	jmp	scroll;
+XLIB__TSCROLL:
+X	jmp	_tscroll;
+XLIB_SETTERM:
+X	jmp	setterm;
+XLIB_SETUPTERM:
+X	jmp	setupterm;
+XLIB_RESET_PROG_MODE:
+X	jmp	reset_prog_mode;
+XLIB_DEF_SHELL_MODE:
+X	jmp	def_shell_mode;
+XLIB_SLK_INIT:
+X	jmp	slk_init;
+XLIB__SLK_INIT:
+X	jmp	_slk_init;
+XLIB__SLK_WINIT:
+X	jmp	_slk_winit;
+XLIB_SLK_TOUCH:
+X	jmp	slk_touch;
+XLIB_WSTANDOUT:
+X	jmp	wstandout;
+XLIB_WSTANDEND:
+X	jmp	wstandend;
+XLIB_TGETENT:
+X	jmp	tgetent;
+XLIB_TGETFLAG:
+X	jmp	tgetflag;
+XLIB_TGETNUM:
+X	jmp	tgetnum;
+XLIB_TGETSTR:
+X	jmp	tgetstr;
+XLIB_TGOTO:
+X	jmp	tgoto;
+XLIB_TOUCHWIN:
+X	jmp	touchwin;
+XLIB_TPARM:
+X	jmp	tparm;
+XLIB__BRANCHTO:
+X	jmp	_branchto;
+XLIB_TPUTS:
+X	jmp	tputs;
+XLIB__INSMODE:
+X	jmp	_insmode;
+XLIB__FORCEHL:
+X	jmp	_forcehl;
+XLIB__CLEARHL:
+X	jmp	_clearhl;
+XLIB__INSLINES:
+X	jmp	_inslines;
+XLIB__DELLINES:
+X	jmp	_dellines;
+XLIB__CLREOL:
+X	jmp	_clreol;
+XLIB__SCROLLF:
+X	jmp	_scrollf;
+XLIB__WRITECHARS:
+X	jmp	_writechars;
+XLIB__BLANKS:
+X	jmp	_blanks;
+XLIB__CLRLINE:
+X	jmp	_clrline;
+XLIB__CLRBOL:
+X	jmp	_clrbol;
+XLIB__DELCHARS:
+X	jmp	_delchars;
+XLIB__INSCHARS:
+X	jmp	_inschars;
+XLIB_TYPEAHEAD:
+X	jmp	typeahead;
+XLIB_VIDPUTS:
+X	jmp	vidputs;
+XLIB_VWPRINTW:
+X	jmp	vwprintw;
+XLIB_WATTRON:
+X	jmp	wattron;
+XLIB_WECHOCHAR:
+X	jmp	wechochar;
+XLIB_WNOUTREFRESH:
+X	jmp	wnoutrefresh;
+END_OF_FILE
+if test 6307 -ne `wc -c <'stubs.s'`; then
+    echo shar: \"'stubs.s'\" unpacked with wrong size!
+fi
+# end of 'stubs.s'
+fi
+if test ! -d 'test' ; then
+    echo shar: Creating directory \"'test'\"
+    mkdir 'test'
+fi
+if test -f 'test/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test/Makefile'\"
+else
+echo shar: Extracting \"'test/Makefile'\" \(309 characters\)
+sed "s/^X//" >'test/Makefile' <<'END_OF_FILE'
+XLIBS	=	# $(GNULIB) -lcbcu_s -lcurses -lm # -lCURSES
+XSCRT0 = /lib/crt0s.o
+XCSLIBC = /lib/shlib.iCURSES
+XEXFLAGS = -Z 
+XCFLAGS = -g
+XLD = ld
+XCC=gcc
+X
+Xall: t1 t2
+X
+Xt1:	t1.o
+X	$(LD) $(EXFLAGS) $(SCRT0) -o t1 t1.o $(LIBS) $(CSLIBC) # readdir.o getdents.o
+X
+Xt2:	t2.o
+X	$(LD) $(EXFLAGS) $(SCRT0) -o t2 t2.o $(LIBS) $(CSLIBC)
+END_OF_FILE
+if test 309 -ne `wc -c <'test/Makefile'`; then
+    echo shar: \"'test/Makefile'\" unpacked with wrong size!
+fi
+# end of 'test/Makefile'
+fi
+if test -f 'test/genaddr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test/genaddr.c'\"
+else
+echo shar: Extracting \"'test/genaddr.c'\" \(157 characters\)
+sed "s/^X//" >'test/genaddr.c' <<'END_OF_FILE'
+X#include <stdio.h>
+Xmain()
+X{	int	start	= 0x144;
+X	char	str[50];
+X
+X	while(gets(str) != NULL)
+X	{	start += 6;
+X		printf("%s = _Etbase + 0x%x;\n", str, start);
+X	}
+X}
+END_OF_FILE
+if test 157 -ne `wc -c <'test/genaddr.c'`; then
+    echo shar: \"'test/genaddr.c'\" unpacked with wrong size!
+fi
+# end of 'test/genaddr.c'
+fi
+if test -f 'test/h.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test/h.c'\"
+else
+echo shar: Extracting \"'test/h.c'\" \(236 characters\)
+sed "s/^X//" >'test/h.c' <<'END_OF_FILE'
+X#include <stdio.h>
+Xmain()
+X{	int	num = 0;
+X	int	lastnum = -6;
+X
+X	while(scanf("0x%x\n", &num) != EOF)
+X	{	if (num != lastnum + 6)
+X			printf("bad sequence: ");
+X		printf("%x : %x\n", num, lastnum + 6);
+X		lastnum = num;
+X	}
+X	printf("done\n");
+X}
+END_OF_FILE
+if test 236 -ne `wc -c <'test/h.c'`; then
+    echo shar: \"'test/h.c'\" unpacked with wrong size!
+fi
+# end of 'test/h.c'
+fi
+if test -f 'test/t.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test/t.c'\"
+else
+echo shar: Extracting \"'test/t.c'\" \(340 characters\)
+sed "s/^X//" >'test/t.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <dirent.h>
+Xmain()
+X{
+X	DIR	*dirp;
+X	struct	dirent *dp;
+X
+X	fprintf(stderr, "Starting\n");
+X	if ((dirp = opendir(".")) != NULL)
+X	{
+X		fprintf(stderr, "Open\n");
+X		while((dp = readdir(dirp)) != NULL)
+X			fprintf(stderr, ":%s:\n", dp->d_name);
+X		closedir(dirp);
+X	}
+X	fprintf(stderr, "Ending\n");
+X}
+X		
+END_OF_FILE
+if test 340 -ne `wc -c <'test/t.c'`; then
+    echo shar: \"'test/t.c'\" unpacked with wrong size!
+fi
+# end of 'test/t.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.newport.ri.us; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.newport.ri.us
+%% Can I be excused, my brain is full. **

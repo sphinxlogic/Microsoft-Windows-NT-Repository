@@ -1,0 +1,1234 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v38i025:  procmail - mail processing package v2.90, Part06/11
+Message-ID: <1993Jul1.151140.21429@sparky.imd.sterling.com>
+X-Md4-Signature: 67d7a60a2d5b53ceec60c1634904ee1f
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 1 Jul 1993 15:11:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 38, Issue 25
+Archive-name: procmail/part06
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Supersedes: procmail: Volume 35, Issue 21-32,124,125
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 11)."
+# Contents:  procmail/INSTALL procmail/mailinglist/INSTALL
+#   procmail/mailinglist/INTRO procmail/mailinglist/bin/delink
+#   procmail/src/goodies.c procmail/src/lockfile.c
+# Wrapped by berg@tubastos on Thu Jul  1 14:06:16 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/INSTALL'\"
+else
+echo shar: Extracting \"'procmail/INSTALL'\" \(8379 characters\)
+sed "s/^X//" >'procmail/INSTALL' <<'END_OF_FILE'
+XDiscusses:
+X		1. Getting the lot to compile
+X		2. IMPORTANT info for people with remote filesystems (like NFS)
+X		3. DEBUGGING AID
+X		4. Setting up the environment
+X		5. Extra options if you are a system administrator
+X
+X				---
+X
+X1. Getting the lot to compile
+X   --------------------------
+X
+XTo install procmail, lockfile and formail: edit Makefile & config.h accordingly
+Xand type 'make install'.
+XIntended configurable options in Makefile are:
+X	the install-destinations and the LOCKINGTEST directories.
+XIntended configurable options in config.h are:
+X	MMDF support, standard environment presettings, trusted userids.
+X
+X'make install' will:
+X      - implicitly do a 'make init', which will check your basic utilities for
+X	POSIX compliance, and generates correcting Makefiles accordingly
+X      - execute autoconf (a shell script that repeatedly calls the C compiler
+X	to determine if certain features/symbols are supported), which will
+X	create a file named autoconf.h
+X      - create three stripped binaries, a shell script and five man pages in
+X	the new/ subdirectory (all that is needed to install):
+X	procmail, lockfile, formail, mailstat, procmail.1, lockfile.1,
+X	formail.1, procmailrc.5, procmailex.5
+X      - copy these binaries and mailstat to $(BINDIR)
+X      - copy the man pages to $(MAN1DIR) and $(MAN5DIR)
+X
+X'make deinstall' will:
+X      - remove the just installed files in $(BINDIR)
+X      - remove the just installed files in $(MAN1DIR) and $(MAN5DIR)
+X
+X
+XMinimal requirements (for regular uses):
+X
+Xprocmail must be installed.
+X
+XOptional files (depending on your requirements):
+X
+Xlockfile only needs to be installed if you plan to read several mailboxes
+X	with one of the standard mailers that don't support lockfiles.
+Xformail only needs to be installed if mail sometimes arrives in nonstandard
+X	mailbox format (or if you want to generate auto replies, split up
+X	mailboxes/digests etc., see the man page of formail for more info).
+Xmailstat is an "example" shell script that can be used as is to produce
+X	summaries of the procmail generated logfiles; it is not needed by
+X	procmail itself in any way.
+X
+Xprocmail, lockfile, formail and mailstat are all *standalone* programs, i.e.
+Xthey do *not* use any compiled-in paths or files, they all can be used and
+Xinstalled independently without the need to install the others.
+X
+XIf things don't compile automagically, I suggest you take a look at:
+Xsrc/autoconf, autoconf.h, config.h, src/includes.h
+X
+XFor autoconf to work as intended, your compiler should either be fully ANSI
+Xcompliant, or you should NOT turn off all warnings; enabling all warnings
+Xshouldn't hurt.	 In most cases the default options in the Makefile will do.
+X
+XThe sources are supposed to be fully ANSI, K&R and POSIX compliant.
+X
+XN.B. If you encounter any difficulty at all in installing procmail (e.g. if you
+X     had to change Makefile or config.h in unpredicted ways, or a simple
+X     "make install" doesn't work), I'd very much like to hear about it; who
+X     knows, next time you might be able to simply "make install" as well.
+X
+X				---
+X
+X2. IMPORTANT info for people with remote filesystems (like NFS)
+X   ------------------------------------------------------------
+X
+XThe autoconf script tries to determine what kernel locking functions are
+Xavailable *and* reliable on your system.  In order to do this it exercises
+Xall the available locking methods (fcntl(), lockf() and flock()) on some
+Xsample files extensively.
+X
+XThese tests produce results which depend on the filesystem which is being
+Xused to perform the tests.  If you haven't defined LOCKINGTEST in the Makefile
+X(you can include as many directories as you want) autoconf will prompt you
+Xto enter any additional directories (preferably on distinct filesystems)
+Xyou want it to run the tests on.
+X
+XWhen specifying directories to test, it would probably be advisable to
+Xpick exactly those directories which belong to a unique fileserver-fileclient
+Xpair.  I.e. one local file system will suffice.	 Only if you have remote
+Xfilesystems, you might have to specify several.
+XThis makes sure that the locking tests will properly reflect the (lowest common
+Xdenominator) locking capabilities on all filesystems available.
+X
+XIf you have a very heterogenous environment (like several OS versions
+Xon machines (perhaps even from different vendors) that have NFS mounted file
+Xsystems all over each other), then it could happen that some tests which
+Xare reliable with one remote filesystem, turn out to be unreliable across
+Xanother (it all depends on the OS versions of clients and servers).
+X
+XIf do not want to perform the locking tests on all those filesystems, but
+Xif you know what locking methods are unreliable anyway, then you can edit
+Xsome defines in the config.h file (NO_fcntl_LOCK, NO_lockf_LOCK and
+XNO_flock_LOCK).	 These can be uncommented by hand to prevent procmail
+Xfrom using them.
+X
+XThe most typical case would be if you happen to be using NFS.  Autoconf
+Xnormally is very well capable of finding out if your lockd is reliable enough.
+XIn a very heterogenous environment (many different servers, many different
+Xlockd's (of perhaps different version and patchlevel)) however, it might
+Xbe hard to determine if all the lockd's are equally reliable.  In such a
+Xcase (typically on SunOS :-), you might consider uncommenting both
+XNO_fcntl_LOCK and NO_lockf_LOCK (NO_flock_LOCK normally doesn't rely on the
+Xinfamous lockd, so you can leave it commented out).  But, only do so if you
+Xthink you know it better than autoconf.
+X
+X				---
+X
+X3. DEBUGGING AID
+X   -------------
+X
+XSince procmail is intended to run completely independent of any terminals, it
+Xdoesn't use the stderr output to display error messages.  It is recommended,
+Xespecially during debugging, to specify a LOGFILE (see man page) in the
+Xrcfile or on the command line.	Procmail will log all serious problems it
+Xencounters.  Of course, instead of a regular file, one could also specify a
+Xterminal as the default logfile.
+X
+XAlso, procmail can be persuaded to be a lot more verbose by inserting the
+Xfollowing assignment at the top of your rcfile:
+X
+X	VERBOSE=on
+X
+XTherefore a suggested command line for your first trial run (no rcfiles
+Xneeded) would be:
+X
+X	procmail VERBOSE=on
+X
+X(now type in a pseudo mail-message)
+X
+XIf all else fails, you can try uncommenting the "#define console" entry
+Xin the config.h file.  This will provide you with the most verbose procmail
+Xyou can make.  It is of course a good idea to comment out this line again
+Xafter your troubles have been solved.
+X
+XIf you run procmail by hand and pipe in some sample mail, then make
+Xsure that if you kill procmail, you use "kill pid" and NOT "kill -9 pid".
+XShould procmail seem to hang, check if any lockfiles are still present.
+XIf you kill procmail with "kill pid" it will clean up any lockfiles it created
+Xitself.
+X
+X				---
+X
+X4. Setting up the environment
+X   --------------------------
+X
+XEvery user that wants to use procmail should have a .forward and a
+X.procmailrc file in his HOME directory.	 For starters, you can look
+Xat the supplied example files in "examples".
+X(BTW, be sure to make .forward *world* readable).
+XMMDF users should note that they need a .maildelivery file *instead* of the
+X.forward file (see the procmail(1) man page for more information).
+X
+X				---
+X
+X5. Extra options if you are a system administrator
+X   -----------------------------------------------
+X
+XIf you are a system administrator you can decide to install procmail
+Xglobally (i.e. as a more robust drop-in replacement for the local-
+Xmaildelivery-capabilities of /bin/mail), this has the advantage that users do
+Xnot need to have a .forward file anymore that calls up procmail.  Simply
+Xhaving a .procmailrc file in the HOME directory will suffice.  Operation is
+Xtransparent in this case (i.e. if no .procmailrc file is present in the HOME
+Xdirectory, mail will be delivered as usual and procmail behaves like a more
+Xreliable /bin/mail substitute).
+X
+XFor direct examples on how to do this, look at the examples/advanced file.
+X
+X*******************************************************************************
+XHIGHLY RECOMMENDED: install "procmail" suid root (and/or sgid maildaemon)
+X		    install "lockfile" sgid maildaemon
+X
+XTo obtain specific instructions on the best installation, type "make recommend"
+X*******************************************************************************
+X
+X				---
+X
+XFor more info about the program, see the man pages or the FAQ list.
+END_OF_FILE
+if test 8379 -ne `wc -c <'procmail/INSTALL'`; then
+    echo shar: \"'procmail/INSTALL'\" unpacked with wrong size!
+fi
+# end of 'procmail/INSTALL'
+fi
+if test -f 'procmail/mailinglist/INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/INSTALL'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/INSTALL'\" \(6110 characters\)
+sed "s/^X//" >'procmail/mailinglist/INSTALL' <<'END_OF_FILE'
+XDiscusses:
+X		1. Prerequisites
+X		2. Installing the scripts
+X		3. Sharing the scripts on multiple architectures
+X		4. If you don't have a sendmail compatible mailer
+X		5. Upgrading from previous versions of these scripts
+X
+X				---
+X
+X1. Prerequisites
+X   -------------
+X
+XIn order to make sure that the mailinglist scripts work reliably for both
+Xremote and local mail, they have to be run under someone's account.
+XThe recommended procedure would be to create a new account and group named
+X"list" that is only going to be used to manage the mailinglist stuff.
+X
+XIf you are unable/unwilling to create a new user just for the mailinglist
+Xstuff, then the mailinglist scripts should be installed in a separate
+Xsubdirectory.  This user will still be able to receive regular mail.
+X
+XIn the mailinglist scripts I made use of the -f option of sendmail.  This
+Xoption makes sure that the sender address on the envelope (the From_ line)
+Xcontains the proper list address.  In order for this option to work, the
+Xuser using it (either "list" or the regular user the lists run under) must
+Xbe on the trusted-user-list of sendmail.  To enter the user "list" on the
+Xtrusted-user-list simply edit the sendmail.cf file and add a line reading:
+X
+XTlist
+X
+XRestarting sendmail is not necessary.
+X
+X				---
+X
+X2. Installing the scripts
+X   ----------------------
+X
+XSuppose you have created this pseudo user "list" with a specified home
+Xdirectory of /home/list
+X
+XNow create /home/list by hand and make sure that you chown it to "list".
+X
+XNext, make sure that you are running as root (su root) and execute the
+X"install.sh" script present in this directory by typing something like:
+X
+X	sh install.sh /home/list
+X
+XThis script will then create two subdirectories (.bin and .etc) in
+X/home/list.  These directories will be filled with the files contained
+Xin the bin and etc subdirectories here.	 It will also make sure that
+Xthe "multigram" program is compiled from the procmail*/src directory and
+Xcopied into /home/list/.bin.
+X
+XFurthermore install.sh will link /home/list/.etc/rc.main to
+X/home/list/.procmailrc.	 This is of course superfluous (but nondestructive) if
+Xyou are still using this account to receive regular mail.
+X
+XDepending on your mail configuration, if procmail has not been integrated
+Xin the maildelivery system (see procmail*/examples/advanced for more
+Xinformation on that topic) you also have to create a .forward file with an
+Xappropriate content (see "man procmail", the NOTES section at the end).	 This,
+Xhowever, is only necessary if you created a seperate "list" account.
+X
+X	Next, edit the /home/list/.etc/rc.init file.	Make sure that
+X	"domain" is set to the right value, and you can optionally specify a
+X	"listmaster";  also check if the PATH is correct and make sure
+X	that the procmail and formail are in the path.
+X
+XFor further instructions, you should read the "Manual" file, it has
+Xbeen copied to the /home/list/.etc directory as well, and can serve as a
+Xquick reference.
+X
+X				---
+X
+X3. Sharing the scripts on multiple architectures
+X   ---------------------------------------------
+X
+XFor people that want to run the lists on a shared filesystem across different
+Xarchitectures there exists the possibility of using several .bin directories.
+XSimply use something like:
+X	sh install.sh /home/list .bin.sun4
+Xto install to a different .bin directory.  Repeat the complete procmail and
+Xmailinglist installation for every architecture, specifying a different .bin
+Xdirectory every time.
+X
+X				---
+X
+X4. If you don't have a sendmail compatible mailer
+X   ----------------------------------------------
+X
+XAs is, these scripts are preconfigured to use sendmail (or a compatible
+Xmailer like smail) to actually transport the mails.  If your system only
+Xsupplies a /bin/rmail or /bin/mail to transport mails, then several of
+Xthe options used when invoking sendmail will not work.
+X
+XFor these cases you have to edit the /home/list/.etc/rc.init file.
+XLook for a SENDMAIL assignment.	 Supplied with these scripts is a poor man's
+Xsendmail.  It was installed in the .bin directory belonging to the
+Xlist.  Make sure that the SENDMAIL assignment points at the sendmails script.
+XAnd, of course, don't forget to uncomment the SENDMAIL assignment and
+Xthe two sendmailOPT* assigments following it.
+X
+X				---
+X
+X5. Upgrading from previous versions of these scripts
+X   -------------------------------------------------
+X
+XBefore you start the upgrade, create the file /home/list/.etc/rc.lock
+XNow do a ps and see if any procmail-list instances are currently
+Xrunning.  Wait till they are gone.  Now touch the rc.lock file once more.
+XYou know have 17 minutes to complete the upgrade.  If it should take
+Xlonger, touch the rc.lock file every so often.	As soon as the difference
+Xbetween its mtime and the current time exceeds 17 minutes, the flist
+Xprograms start delivering mail to the lists again.
+X
+XYou can simply use the install.sh script again to install directly over
+Xthe old installation IF you customised ONLY the master rc.init and rc.custom
+Xfiles.	Once you ran the install.sh script, you'll have to merge the changes
+Xyou made to the old rc.init file (still there) into the rc.init.new file.
+XThen cat (yes, use `cat', because you have to preserve the hardlinks) the
+Xrc.init.new file into the rc.init file.
+XThere are some new entries in the new rc.custom file template.	Since they
+Xare commented out (i.e. rc.init already provides defaults) their omission
+Xin the old rc.custom files should not cause any problems.
+X
+XIf you customised more than just the rc.init or rc.custom files, you'll
+Xhave to make diffs between the old versions of the scripts, then install
+Xthe new scripts and then apply back the diffs (probably by hand).
+XThe reason why parts of the old scripts cannot operate with the new scripts
+Xis because they expect several new environment variables to be set (like
+Xdigest selection or not).  The new rc.init sets them of course.
+X
+XYou can quickly verify which files are linked to other files by
+Xsimply typing something like:
+X
+X	showlink rc.init
+X
+XAfter you are finished, remove the rc.lock file again.	If it is older
+Xthan 17 minutes it is ignored anyway, but it's cleaner this way.
+END_OF_FILE
+if test 6110 -ne `wc -c <'procmail/mailinglist/INSTALL'`; then
+    echo shar: \"'procmail/mailinglist/INSTALL'\" unpacked with wrong size!
+fi
+# end of 'procmail/mailinglist/INSTALL'
+fi
+if test -f 'procmail/mailinglist/INTRO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/INTRO'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/INTRO'\" \(9350 characters\)
+sed "s/^X//" >'procmail/mailinglist/INTRO' <<'END_OF_FILE'
+X$Id: INTRO,v 1.5 1993/01/28 14:21:56 berg Exp $
+X
+X			How to set up mailing lists
+X			---------------------------
+X
+X		Written by Stephen R. van den Berg.
+X					berg@pool.informatik.rwth-aachen.de
+X					berg@physik.tu-muenchen.de
+X
+XThis document mainly describes a sendmail environment, much of it applies
+Xto non-sendmail mail agents as well.
+X
+X
+XContents:
+X---------	1. Intro
+X		2. Bouncing mail
+X		3. The disadvantages
+X		4. How to circumvent these disadvantages
+X		5. Why use procmail to filter the mailinglist mail?
+X		6. How do I use procmail to filter the mailinglist mail?
+X
+X1. Intro
+X   -----
+X
+XThe simplest and most direct way to setup a mailinglist is by inserting a line
+Xin the /usr/lib/aliases file looking like:
+X
+Xmylist: fred,john, wilma, barney@bedrock, pebbles
+X
+XNow all the mail arriving at your machine for "mylist" (either local or
+Xmylist@your.domain) will be automatically forwarded to all the mentioned
+Xaddresses (fred, john, etc.).
+X
+XThe address mylist@your.domain is intended for submissions to the list that
+Xare supposed to be forwarded to all the subscribers.  For the administrative
+Xtasks like removals from the list, new subscriptions to the list, or address
+Xchanges of subscribers, it is common practice to create a second entry in the
+X/usr/lib/aliases file:
+X
+Xmylist-request: your_login_name@your.domain
+X
+X
+X2. Bouncing mail
+X   -------------
+X
+XIn order to deal with bouncing mail gracefully, an extra precaution should
+Xbe taken.  If for example mail to wilma bounces (user non-existent, mail
+Xfilesystem full, etc.), it will bounce back to the original sender.
+XNow, the only person that should be concerned with distribution failures
+Xshould be the mylist-request holder.  Therefore you should be using a
+Xsendmail special alias like:
+X
+Xowner-mylist: mylist-request@your.domain
+X
+XThis way local mail will bounce back to mylist-request@your.domain.
+X
+X
+X3. The disadvantages
+X   -----------------
+X
+XIf you are using the above methods, some obvious disadvantages come to mind
+Xhowever:
+X
+Xa. The subscriber list cannot exceed 1000 bytes (on many sendmails).
+Xb. The subscriber list cannot be changed on-the-fly (/usr/lib/aliases needs
+X   to be edited, and newaliases has to be run).
+Xc. People cannot be prevented from submitting messages like "Please remove
+X   me from this mailinglist" to mylist (and thereby annoying all subscribers).
+Xd. People cannot be guarded from themselves in case they insert
+X   "Return-Receipt-To:" fields in their headers (if they are particularly
+X   unlucky, they will receive an acknowledge mail from *every* subscriber's
+X   sendmail).
+Xe. People including "Errors-To:" or "Sender:" fields can cause the bounce
+X   messages to bypass owner-mylist anyway.
+Xf. There is no way of limiting the number of submitters, i.e. every person
+X   who knows the name of the mailing list and who can send mail to your.domain
+X   is able to submit messages to the list.  This means, for example, that you
+X   cannot limit a mailing list to local users (i.e. only local users can
+X   submit).
+Xg. You are unable to insert a "Reply-To: mylist@your.domain" in case you
+X   would want to (this makes replying to the list easier, too easy as some
+X   people say).
+X
+X
+X4. How to circumvent these disadvantages
+X   -------------------------------------
+X
+Xa. Can be circumvented by using nested aliases like:
+X	mylist: mylist1, mylist2
+X	mylist1: fred,john
+X	mylist2: wilma,barney@bedrock,pebbles
+X   This can however, become extremely messy to maintain.
+X
+Xb. This can be avoided if you use aliases like:
+X	mylist: :include:/path/to/the/memberfile
+X   The memberfile should contain:
+X	fred,john,wilma,barney@bedrock,pebbles
+X   This will also take care of the upper limit on aliases expansions and
+X   newaliases need not be run again every time you change the file.
+X
+Xc. Can only be taken care of by using a mailfilter like procmail.
+X
+Xd. Can only be taken care of by using a mailfilter like procmail.
+X
+Xe. Can only be taken care of by using a mailfilter like procmail.
+X
+Xf. Can only be taken care of by using a mailfilter like procmail.
+X
+Xg. Can only be taken care of by using a mailfilter like procmail.
+X
+X
+X5. Why use procmail to filter the mailinglist mail?
+X   ------------------------------------------------
+X
+XInstead of using a mailfilter you could also take care of most of the problems
+Xthree till seven by editing the sendmail.cf file.  I would strongly recommend
+Xagainst this approach however, since this will be too much of a customising
+Xoperation and surely will not be a trivial task (in all cases).	 As a general
+Xrule: don't mess with a sendmail.cf file once it works :-).
+X
+XNow, you could, instead of procmail, simply use immediate VNIX commands
+Xlike grep, sed or awk to do the mail filtering.	 Again, there are some obvious
+Xdisadvantages with this approach:
+X
+XA. In case any system resources go out (no more file descriptors, no more
+X   swap space, process table full, file system full (for temporary files))
+X   your awk or shell script will fail generously (i.e. several bad things
+X   could happen: mail munged, truncated, lost, hanging awk or sh programs,
+X   etc., you get the picture).
+X
+XB. All mail headers (including From: and Reply-To:) could very well be
+X   multi-line headers; it will be very difficult to make it understandable
+X   to awk that somehow the header line could continue on the next line
+X   (in case you want to remove a header, or do some complicated substitution).
+X
+XC. Another hairy problem will be determining the end of the header, of course
+X   that is solvable, but you have to make some extra precautions in your
+X   awk script to ensure that any substitutions/changes will not occur in
+X   the body of the message (further degrading performance and increasing the
+X   load on your machine).
+X
+XD. Starting programs directly from within aliases or .forward files can get
+X   extremely messy, since the environment the program starts in is
+X   potentially hostile.
+X
+XProcmail does not *directly* allow you to change any headers, but that
+Xfeature is not really necessary since you can tell procmail to send ONLY the
+Xheader through some filter of your choice.
+X
+XTo comment on the previously mentioned three disadvantages:
+X
+XA. Procmail takes care of that.	 Should the filter have problems anyway,
+X   procmail will graciously notice that the filter was in some kind of
+X   trouble, and will try something else with the original unmunged mail
+X   (you can specify what it should do of course, obvious choices: try
+X   the same filter again, drop the mail in a file and send you a notice,
+X   forward the mail to you instead (unfiltered), etc.)
+X
+XB. In order to make consistent scanning of the header possible using the
+X   egrep regular expressions built in to procmail, procmail will internally
+X   concatenate any headers that were continued according to the RCF 822
+X   recommendations, in order for external filters to benefit from this, you
+X   would use the formail program to pre-filter the mail.
+X
+XC. Procmail can be told to send the header, the body or both through the
+X   filter, hence your filter need not watch out to avoid doing any
+X   substitutions in the body, and the filter can therefore be a lot simpler.
+X
+XD. Procmail makes no assumptions about the environment it is started in, it
+X   assumes that everything is hostile and fights its way back to the
+X   civilised world by initialising *everything* to sane and expected default
+X   values.  Thereby providing a warm bed for any program started from within
+X   procmail.
+X
+XBut procmail has some additional advantages as well:
+X
+X -- It will probably all go a bit faster, since only the header of the mail
+X    is being piped through the filter.	Also, procmail reads in the mail in
+X    16KB chunks, not line by line as sed does.
+X
+X -- You could use procmail to filter out any messages to the normal mailing
+X    list that should have gone to the mylist-request and remail them to
+X    mylist-request.
+X
+XWell, anyway, as you see, procmail does not give you everything you would want,
+Xbut this was intentional in accordance to the true VNIX spirit (modularity).
+XWhat procmail does provide is a *very* reliable hook (you might say it
+Xprovides an anchor :-) for any mail processing you might do.  For the more
+Xcomplex things you still have to use shell scripts or call other programs
+Xfrom within procmail, but then again, that saves you from learning any
+Xparticular syntax procmail would have had to do the same.
+X
+XAs it happens, the accompanying formail program is able to cater to most
+X(if not all) of your needs regarding mail munging.
+X
+X
+X6. How do I use procmail to filter the mailinglist mail?
+X   -----------------------------------------------------
+X
+XIn order to cater for most wishes regarding mailinglist setup, I took the
+Xliberty to write some rcfiles for procmail that can readily be used to create
+Xany number of mailinglists in a comfortable and simple way.
+X
+XSee the FEATURES file in this directory for more information on what
+Xthese mailinglist scripts will do for you.
+X
+XIf the scripts do not exactly do what you would have liked, you are invited to
+Xedit them to taste.  Perhaps you could send your changes to the procmail
+Xmailinglist if you feel that they could be useful to others.
+X
+XTo get started I suggest you read the INSTALL file in this directory.
+X
+XFor operating instructions you should read the Manual file in this directory.
+X
+X
+XP.S. Any suggestions/corrections/improvements on this document are welcome.
+END_OF_FILE
+if test 9350 -ne `wc -c <'procmail/mailinglist/INTRO'`; then
+    echo shar: \"'procmail/mailinglist/INTRO'\" unpacked with wrong size!
+fi
+# end of 'procmail/mailinglist/INTRO'
+fi
+if test -f 'procmail/mailinglist/bin/delink' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/mailinglist/bin/delink'\"
+else
+echo shar: Extracting \"'procmail/mailinglist/bin/delink'\" \(756 characters\)
+sed "s/^X//" >'procmail/mailinglist/bin/delink' <<'END_OF_FILE'
+X#! /bin/sh
+X: &&O= || exec /bin/sh $0 $argv:q # we're in a csh, feed myself to sh
+X#########################################################################
+X#	delink		Gracefully disconnects a hardlinked file	#
+X#									#
+X#	Created by S.R. van den Berg, The Netherlands			#
+X#########################################################################
+X#$Id: delink,v 1.4 1993/06/02 15:30:42 berg Exp $
+X
+Xecho=echo		# /bin/echo
+Xtest=test		# /bin/test
+Xrm=rm			# /bin/rm
+Xmv=mv			# /bin/mv
+Xcp=cp			# /bin/cp
+Xdirname=dirname		# /bin/dirname
+X
+X$test 0 = $# && $echo "Usage: delink filename ..." 1>&2 && exit 64
+X
+XTMPF=delink.$$
+X
+Xtrap "$rm -f \$TMPF; exit 1" 1 2 3 15
+X
+Xfor a in "$@"
+Xdo
+X  TMPF="`dirname \"$a\"`"/delink.$$
+X  $cp -p "$a" "$TMPF" && $mv -f "$TMPF" "$a"
+Xdone
+END_OF_FILE
+if test 756 -ne `wc -c <'procmail/mailinglist/bin/delink'`; then
+    echo shar: \"'procmail/mailinglist/bin/delink'\" unpacked with wrong size!
+fi
+chmod +x 'procmail/mailinglist/bin/delink'
+# end of 'procmail/mailinglist/bin/delink'
+fi
+if test -f 'procmail/src/goodies.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/goodies.c'\"
+else
+echo shar: Extracting \"'procmail/src/goodies.c'\" \(9686 characters\)
+sed "s/^X//" >'procmail/src/goodies.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	Collection of library-worthy routines				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: goodies.c,v 1.15 1993/06/21 14:24:17 berg Exp $";
+X#endif
+X#include "procmail.h"
+X#include "sublib.h"
+X#include "robust.h"
+X#include "shell.h"
+X#include "misc.h"
+X#include "pipes.h"
+X#include "common.h"
+X#include "cstdio.h"
+X#include "goodies.h"
+X
+Xlong Stdfilled;
+X#ifndef GOT_bin_test
+Xconst char test[]="test";
+X#endif
+Xconst char*Tmnate,*All_args;
+X
+X#define NOTHING_YET	(-1)	 /* readparse understands a very complete    */
+X#define SKIPPING_SPACE	0	 /* subset of the standard /bin/sh syntax    */
+X#define NORMAL_TEXT	1	 /* that includes single-, double- and back- */
+X#define DOUBLE_QUOTED	2	 /* quotes, backslashes and $subtitutions    */
+X#define SINGLE_QUOTED	3
+X
+X#define fgetc() (*fpgetc)()	   /* some compilers previously choked on it */
+X
+X/* sarg==0 : normal parsing, split up arguments like in /bin/sh
+X * sarg==1 : environment assignment parsing, parse up till first whitespace
+X * sarg==2 : normal parsing, split up arguments by single spaces
+X */
+Xvoid readparse(p,fpgetc,sarg)register char*p;int(*const fpgetc)();
+X const int sarg;
+X{ static i;int got;char*startb;
+X  All_args=0;
+X  for(got=NOTHING_YET;;)		    /* buf2 is used as scratch space */
+Xloop:
+X   { i=fgetc();
+X     if(buf+linebuf-3<p)	    /* doesn't catch everything, just a hint */
+X      { nlog("Exceeded LINEBUF\n");p=buf+linebuf-3;goto ready;
+X      }
+Xnewchar:
+X     switch(i)
+X      { case EOF:	/* check sarg too to prevent warnings in the recipe- */
+X	   if(sarg!=2&&got>NORMAL_TEXT)		 /* condition expansion code */
+Xearly_eof:    nlog(unexpeof);
+Xready:	   if(got!=SKIPPING_SPACE||sarg)  /* not terminated yet or sarg==2 ? */
+X	      *p++='\0';
+X	   Tmnate=p;return;
+X	case '\\':
+X	   if(got==SINGLE_QUOTED)
+X	      break;
+X	   switch(i=fgetc())
+X	    { case EOF:goto early_eof;			  /* can't quote EOF */
+X	      case '\n':continue;			/* concatenate lines */
+X	      case '#':
+X		 if(got>SKIPPING_SPACE) /* escaped comment at start of word? */
+X		    goto noesc;			/* apparently not, literally */
+X	      case ' ':case '\t':case '\'':
+X		 if(got==DOUBLE_QUOTED)
+X		    goto noesc;
+X	      case '"':case '\\':case '$':case '`':goto nodelim;
+X	    }
+X	   if(got>NORMAL_TEXT)
+Xnoesc:	      *p++='\\';		/* nothing to escape, just echo both */
+X	   break;
+X	case '`':
+X	   if(got==SINGLE_QUOTED)
+X	      goto nodelim;
+X	   for(startb=p;;)			       /* mark your position */
+X	    { switch(i=fgetc())			 /* copy till next backquote */
+X	       { case '\\':
+X		    switch(i=fgetc())
+X		     { case EOF:nlog(unexpeof);goto forcebquote;
+X		       case '\n':continue;
+X		       case '"':
+X			  if(got!=DOUBLE_QUOTED)
+X			     break;
+X		       case '\\':case '$':case '`':goto escaped;
+X		     }
+X		    *p++='\\';break;
+X		 case '"':
+X		    if(got!=DOUBLE_QUOTED)     /* missing closing backquote? */
+X		       break;
+Xforcebquote:	 case EOF:case '`':
+X		  { int osh=sh;
+X		    *p='\0';
+X		    if(!(sh=!!strpbrk(startb,tgetenv(shellmetas))))
+X		     { const char*save=sgetcp,*sall_args=All_args;
+X		       sgetcp=p=tstrdup(startb);readparse(startb,sgetc,0);
+X		       if(!All_args)	       /* only one can be remembered */
+X			  All_args=sall_args;		    /* this is a bug */
+X#ifndef GOT_bin_test
+X		       if(!strcmp(test,startb))
+X			  strcpy(startb,p),sh=1;       /* oops, `test' found */
+X#endif
+X		       free(p);sgetcp=save;		       /* chopped up */
+X		     }		    /* drop source buffer, read from program */
+X		    startb=
+X		     fromprog(p=startb,startb,(size_t)(buf-startb+linebuf-3));
+X		    sh=osh;				       /* restore sh */
+X		    if(got!=DOUBLE_QUOTED)
+X		     { i=0;startb=p;goto simplsplit;	      /* split it up */
+X		     }
+X		    if(i=='"'||got<=SKIPPING_SPACE)   /* missing closing ` ? */
+X		       got=NORMAL_TEXT;			     /* or sarg!=0 ? */
+X		    p=startb;goto loop;
+X		  }
+X		 case '\n':i=';';	       /* newlines separate commands */
+X	       }
+Xescaped:      *p++=i;
+X	    }
+X	case '"':
+X	   switch(got)
+X	    { case DOUBLE_QUOTED:got=NORMAL_TEXT;continue;	/* closing " */
+X	      case SINGLE_QUOTED:goto nodelim;
+X	    }
+X	   got=DOUBLE_QUOTED;continue;				/* opening " */
+X	case '\'':
+X	   switch(got)
+X	    { case DOUBLE_QUOTED:goto nodelim;
+X	      case SINGLE_QUOTED:got=NORMAL_TEXT;continue;}	/* closing ' */
+X	   got=SINGLE_QUOTED;continue;				/* opening ' */
+X	case '#':
+X	   if(got>SKIPPING_SPACE)		/* comment at start of word? */
+X	      break;
+X	   while((i=fgetc())!=EOF&&i!='\n');		    /* skip till EOL */
+X	   goto ready;
+X	case '$':
+X	   if(got==SINGLE_QUOTED)
+X	      break;
+X	   startb=buf2;
+X	   switch(i=fgetc())
+X	    { case EOF:*p++='$';goto ready;
+X	      case '@':
+X		 if(got!=DOUBLE_QUOTED)
+X		    goto normchar;
+X		 All_args=p;continue;
+X	      case '{':						  /* ${name} */
+X		 while(EOF!=(i=fgetc())&&alphanum(i))
+X		    *startb++=i;
+X		 *startb='\0';
+X		 if(i!='}'||numeric(*buf2)&&buf2[1])
+X		  { nlog("Bad substitution of");logqnl(buf2);continue;
+X		  }
+X		 i='\0';break;					  /* $$ =pid */
+X	      case '$':ultstr(0,(unsigned long)thepid,p);goto ieofstr;
+X	      case '?':strcpy(p,"-1");
+X		 if(lexitcode>=0)  /* $? =exitcode from last started program */
+X		    ultstr(0,(unsigned long)lexitcode,p);
+X		 goto ieofstr; /* $# =number of extra command-line arguments */
+X	      case '#':ultstr(0,(unsigned long)crestarg,p);goto ieofstr;
+X	      case '-':strcpy(p,tgetenv(lastfolder));
+Xieofstr:	 i='\0';goto eofstr;			   /* $- =lastfolder */
+X	      default:
+X		 if(numeric(i))			   /* $n positional argument */
+X		  { *startb++=i;i='\0';goto finsb;
+X		  }
+X		 if(alphanum(i))				    /* $name */
+X		  { do *startb++=i;
+X		    while(EOF!=(i=fgetc())&&alphanum(i));
+X		    if(i==EOF)
+X			i='\0';
+Xfinsb:		    *startb='\0';break;
+X		  }
+Xnormchar:	 *p++='$';goto newchar;		       /* not a substitution */
+X	    }
+X	   ;{ int j;
+X	      startb=(unsigned)(j=(*buf2)-'0')>9?(char*)tgetenv(buf2):
+X	       !j?(char*)argv0:j<=crestarg?(char*)restargv[j-1]:"";
+X	    }
+X	   if(got!=DOUBLE_QUOTED)
+Xsimplsplit:   for(;;startb++)		  /* simply split it up in arguments */
+X	       { switch(*startb)
+X		  { case ' ':case '\t':case '\n':
+X		       if(got<=SKIPPING_SPACE)
+X			  continue;
+X		       *p++=sarg?' ':'\0';got=SKIPPING_SPACE;continue;
+X		    case '\0':goto eeofstr;
+X		  }
+X		 *p++= *startb;got=NORMAL_TEXT;
+X	       }
+X	   else
+X	    { strcpy(p,startb);				   /* simply copy it */
+Xeofstr:	      if(got<=SKIPPING_SPACE)		/* can only occur if sarg!=0 */
+X		 got=NORMAL_TEXT;
+X	      p=strchr(p,'\0');
+X	    }
+Xeeofstr:   if(i)			     /* already read next character? */
+X	      goto newchar;
+X	   continue;
+X	case ' ':case '\t':
+X	   switch(got)
+X	    { case NORMAL_TEXT:
+X		 if(sarg==1)
+X		    goto ready;		/* already fetched a single argument */
+X		 got=SKIPPING_SPACE;*p++=sarg?' ':'\0';	 /* space or \0 sep. */
+X	      case NOTHING_YET:case SKIPPING_SPACE:continue;   /* skip space */
+X	    }
+X	case '\n':
+X	   if(got<=NORMAL_TEXT)
+X	      goto ready;			    /* EOL means we're ready */
+X      }
+Xnodelim:
+X     *p++=i;					   /* ah, a normal character */
+X     if(got<=SKIPPING_SPACE)		 /* should we bother to change mode? */
+X	got=NORMAL_TEXT;
+X   }
+X}
+X
+Xwaitfor(pid)const pid_t pid;		      /* wait for a specific process */
+X{ int i;pid_t j;
+X  while(pid!=(j=wait(&i))||WIFSTOPPED(i))
+X     if(-1==j)
+X	return -1;
+X  return lexitcode=WIFEXITED(i)?WEXITSTATUS(i):-1;
+X}
+X
+Xstatic struct lienv{struct lienv*enext;char ename[255];}*myenv;
+Xstatic char**lastenv;
+X			      /* smart putenv, the way it was supposed to be */
+Xvoid sputenv(a)const char*const a;
+X{ static alloced;int i,remove;char*split,**preenv;struct lienv*curr,**last;
+X  yell("Assigning",a);remove=0;
+X  if(!(split=strchr(a,'=')))			   /* assignment or removal? */
+X     remove=1,split=strchr(a,'\0');
+X  i=split-a;
+X  for(curr= *(last= &myenv);curr;curr= *(last= &curr->enext))	/* is it one */
+X     if(!strncmp(a,curr->ename,i)&&curr->ename[i]=='=')	  /* I made earlier? */
+X      { split=curr->ename;*last=curr->enext;free(curr);
+X	for(preenv=environ;*preenv!=split;preenv++);
+X	goto wipenv;
+X      }
+X  for(preenv=environ;*preenv;preenv++)		    /* is it in the standard */
+X     if(!strncmp(a,*preenv,i)&&(*preenv)[i]=='=')	     /* environment? */
+Xwipenv:
+X      { while(*preenv=preenv[1])   /* wipe this entry out of the environment */
+X	   preenv++;
+X	break;
+X      }
+X  i=(preenv-environ+2)*sizeof*environ;
+X  if(alloced)		   /* have we ever alloced the environ array before? */
+X     environ=realloc(environ,i);
+X  else
+X     alloced=1,environ=tmemmove(malloc(i),environ,i-sizeof*environ);
+X  if(!remove)		  /* if not remove, then add it to both environments */
+X   { for(preenv=environ;*preenv;preenv++);
+X     curr=malloc(ioffsetof(struct lienv,ename[0])+(i=strlen(a)+1));
+X     tmemmove(*(lastenv=preenv)=curr->ename,a,i);preenv[1]=0;curr->enext=myenv;
+X     myenv=curr;
+X   }
+X}
+X			    /* between calling primeStdout() and retStdout() */
+Xvoid primeStdout P((void))	    /* *no* environment changes are allowed! */
+X{ char*p;
+X  if((p=strchr(buf,'\0'))[-1]!='=')		   /* does it end in an '='? */
+X     *p='=',p[1]='\0';					/* make sure it does */
+X  sputenv(buf);Stdout=(char*)myenv;
+X  Stdfilled=ioffsetof(struct lienv,ename[0])+strlen(myenv->ename);
+X}
+X
+Xvoid retStdout(newmyenv)char*const newmyenv;	/* see note on primeStdout() */
+X{ if(newmyenv[Stdfilled-1]=='\n')	       /* strip one trailing newline */
+X     Stdfilled--;
+X  newmyenv[Stdfilled]='\0';*lastenv=(myenv=(struct lienv*)newmyenv)->ename;
+X  Stdout=0;
+X}
+X
+Xvoid postStdout P((void))		 /* throw it into the keyword parser */
+X{ const char*p;size_t i;
+X  p= *lastenv;tmemmove(buf,p,i=strchr(p,'=')-p);buf[i]='\0';asenv(p+i+1);
+X}
+END_OF_FILE
+if test 9686 -ne `wc -c <'procmail/src/goodies.c'`; then
+    echo shar: \"'procmail/src/goodies.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/goodies.c'
+fi
+if test -f 'procmail/src/lockfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/lockfile.c'\"
+else
+echo shar: Extracting \"'procmail/src/lockfile.c'\" \(9418 characters\)
+sed "s/^X//" >'procmail/src/lockfile.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	lockfile - The conditional semaphore-file creator		*
+X *									*
+X *	It has been designed to be able to be run sgid mail or		*
+X *	any gid you see fit (in case your mail spool area is *not*	*
+X *	world writeable, but group writeable), without creating		*
+X *	security holes.							*
+X *									*
+X *	Seems to be relatively bug free.				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: lockfile.c,v 1.15 1993/06/21 14:24:28 berg Exp $";
+X#endif
+Xstatic /*const*/char rcsdate[]="$Date: 1993/06/21 14:24:28 $";
+X#include "includes.h"
+X#include "sublib.h"
+X#include "exopen.h"
+X
+X#ifndef SYSTEM_MBOX
+X#define SYSTEM_MBOX	SYSTEM_MAILBOX
+X#endif
+X
+Xstatic volatile exitflag;
+Xpid_t thepid;
+Xstatic char systm_mbox[]=SYSTEM_MBOX;
+Xstatic const char dirsep[]=DIRSEP,lockext[]=DEFlockext,
+X nameprefix[]="lockfile: ",lgname[]="LOGNAME",home[]="HOME";
+X
+Xstatic void failure P((void))				      /* signal trap */
+X{ exitflag=2;					       /* merely sets a flag */
+X}
+X				    /* see locking.c for comment on xcreat() */
+Xstatic xcreat(name,tim)const char*const name;time_t*const tim;
+X{ char*p,*q;int j= -1,i;struct stat stbuf;
+X  for(q=(char*)name;p=strpbrk(q,dirsep);q=p+1);
+X  i=q-name;
+X  if(!(p=malloc(i+UNIQnamelen)))
+X     return exitflag=1;
+X  strncpy(p,name,i);
+X  if(unique(p,p+i,0,0))
+X     stat(p,&stbuf),*tim=stbuf.st_mtime,j=myrename(p,name);
+X  free(p);return j;
+X}
+X
+Xvoid elog(a)const char*const a;
+X{ write(STDERR,a,strlen(a));
+X}
+X
+Xvoid nlog(a)const char*const a;
+X{ elog(nameprefix);elog(a);  /* decent error messages should start with this */
+X}
+X
+Xstatic size_t parsecopy(dest,org,pass)char*const dest;const char*org;
+X const struct passwd*const pass; /* try and digest the mailbox-lockfile name */
+X{ size_t len;const char*chp;char*p;unsigned i;
+X  for(p=dest,len=STRLEN(lockext)+1;;)
+X   { switch(*org)
+X      { case '$':					    /* we substitute */
+X	   if(!strncmp(++org,lgname,STRLEN(lgname)))
+X	      org+=STRLEN(lgname),chp=pass->pw_name;	     /* $LOGNAME and */
+X	   else if(!strncmp(org,home,STRLEN(home)))
+X	      org+=STRLEN(home),chp=pass->pw_dir;		    /* $HOME */
+X	   else
+X	      goto capac;			     /* no other fancy stuff */
+X	   if((i= *org)-'a'<='z'-'a'||i-'A'<='Z'-'A'||numeric(i)||i=='_')
+X	      goto capac;
+X	   if(p)
+X	      p+=strlen(strcpy(p,chp));			      /* paste it in */
+X	   len+=strlen(chp);continue;
+X	default:
+X	   if(p)
+X	      *p++= *org;		      /* simply copy everything else */
+X	   len++;org++;continue;      /* except suspicous looking characters */
+X	case '\'':case '`':case '"':case '\\':case '{':goto capac;
+X	case '\0':;
+X      }
+X     if(p)
+X      { if(p==dest||!strchr(dirsep,*dest))	     /* absolute path wanted */
+Xcapac:	 { nlog("Sorry, but turning this mess into a useable mailbox \
+Xexceeds my humble\ncapacities");return 0;
+X	 }
+X	strcpy(p,lockext);
+X      }
+X     return len;
+X   }
+X}
+X
+Xstatic PROGID;
+X
+Xmain(argc,argv)const char*const argv[];
+X{ const char*const*p,*const*lastf;char*cp;uid_t uid;
+X  int sleepsec,retries,invert,force,suspend,retval=EX_OK,virgin=1;
+X  static const char usage[]="Usage: lockfile -nnn | -r nnn | -l nnn | -s nnn \
+X| -! | -ml | -mu | file ...\n";
+X  if(argc<=1)			       /* sanity check, any argument at all? */
+X     goto usg;
+X  sleepsec=DEFlocksleep;force=invert=(char*)progid-(char*)progid;retries= -1;
+X  suspend=DEFsuspend;thepid=getpid();uid=getuid();signal(SIGPIPE,SIG_IGN);
+Xagain:
+X  signal(SIGHUP,(void(*)())failure);signal(SIGINT,(void(*)())failure);
+X  signal(SIGQUIT,(void(*)())failure);signal(SIGTERM,(void(*)())failure);
+X  for(lastf=p=argv;--argc;)
+X     if(*(cp=(char*)*++p)=='-')
+X	for(cp++;;)
+X	 { char*cp2=cp;int i;
+X	   switch(*cp++)
+X	    { case '!':invert^=1;continue;	      /* invert the exitcode */
+X	      case 'r':case 'l':case 's':
+X		 if(!*cp&&(cp=(char*)*++p,!--argc)) /* concatenated/seperate */
+X		    goto eusg;
+X		 i=strtol(cp,&cp,10);
+X		 switch(*cp2)
+X		  { case 'r':retries=i;goto checkrdec;
+X		    case 'l':force=i;goto checkrdec;
+X		    default:
+X		       if(i<0)			    /* suspend should be >=0 */
+X			  goto eusg;
+X		       suspend=i;goto checkrdec;
+X		  }
+X	      case HELPOPT1:case HELPOPT2:elog(usage);
+X		 elog(
+X "\t-nnn\twait nnn seconds between locking attempts\
+X\n\t-r nnn\tmake at most nnn retries before giving up on a lock\
+X\n\t-l nnn\tset locktimeout to nnn seconds\
+X\n\t-s nnn\tsuspend nnn seconds after a locktimeout occurred\
+X\n\t-!\tinvert the exit code of lockfile\
+X\n\t-ml\tlock your system mail-spool file\
+X\n\t-mu\tunlock your system mail-spool file\n");goto xusg;
+X	      default:
+X		 if(sleepsec>=0)	    /* is this still the first pass? */
+X		  { if((sleepsec=strtol(cp2,&cp,10))<0)
+X		       goto eusg;
+Xcheckrdec:	    if(cp2==cp)
+Xeusg:		     { elog(usage);		    /* regular usage message */
+Xxusg:		       retval=EX_USAGE;goto nfailure;
+X		     }
+X		  }
+X		 else		      /* no second pass, so leave sleepsec<0 */
+X		    strtol(cp2,&cp,10);		   /* and discard the number */
+X		 continue;
+X	      case 'm':		  /* take $LOGNAME as a hint, check if valid */
+X	       { struct passwd*pass;static char*ma;size_t alen;
+X		 if(*cp&&cp[1]||ma&&sleepsec>=0)	     /* second pass? */
+X		    goto eusg;
+X		 if(!ma)			/* ma initialised last time? */
+X		  { if(!((ma=(char*)getenv(lgname))&&(pass=getpwnam(ma))&&
+X		     pass->pw_uid==uid||(pass=getpwuid(uid))))
+X		     { nlog("Can't determine your mailbox, who are you?\n");
+X		       goto nfailure;	 /* panic, you're not in /etc/passwd */
+X		     }
+X		    if(!(alen=parsecopy((char*)0,systm_mbox,pass)))
+X		     { cp=systm_mbox;goto lfailure;	  /* couldn't digest */
+X		     }						  /* mailbox */
+X		    if(!(ma=malloc(alen)))	       /* ok, make some room */
+X		       goto outofmem;
+X		    parsecopy(ma,systm_mbox,pass);	  /* and fill her up */
+X		  }
+X		 switch(*cp)
+X		  { default:goto eusg;		    /* somebody goofed again */
+X		    case 'l':				 /* lock the mailbox */
+X		       if(sleepsec>=0)			      /* first pass? */
+X			{ cp=ma;goto stilv;		    /* yes, lock it! */
+X			}
+X		    case 'u':			       /* unlock the mailbox */
+X		       if(unlink(ma))
+X			{ nlog("Can't unlock \"");elog(ma);elog("\"");
+X			  if(*cp=='l')	 /* they messed up, give them a hint */
+X			     elog(" again,\n already dropped my privileges");
+X			  elog("\n");
+X			}
+X		       else
+X			  virgin=0;
+X		  }
+X	       }
+X	      case '\0':;
+X	    }
+X	   break;
+X	 }
+X     else if(sleepsec<0)      /* second pass, release everything we acquired */
+X	unlink(cp);
+X     else
+X      { time_t t;int permanent;
+X	setgid(getgid());		      /* just to be on the safe side */
+Xstilv:	virgin=0;permanent=nfsTRY;
+X	while(0>xcreat(cp,&t))				     /* try and lock */
+X	 { struct stat stbuf;
+X	   if(exitflag)					    /* time to stop? */
+X	    { if(exitflag==1)		     /* was it failure() or malloc() */
+Xoutofmem:	 retval=EX_OSERR,nlog("Out of memory");
+X	      else
+X		 retval=EX_TEMPFAIL,nlog("Signal received");
+X	      goto lfailure;
+X	    }
+X	   switch(errno)		    /* why did the lock not succeed? */
+X	    { case EEXIST:			  /* hmmm..., by force then? */
+X		 if(force&&!lstat(cp,&stbuf)&&force<t-stbuf.st_mtime)
+X		  { nlog(unlink(cp)?"Forced unlock denied on \"":
+X		     "Forcing lock on \"");
+X		    elog(cp);elog("\"\n");sleep(suspend);	/* important */
+X		  }
+X		 else					   /* no forcing now */
+X	      case ENOSPC:
+X#ifdef EDQUOT
+X	      case EDQUOT:
+X#endif
+X		    switch(retries)    /* await your turn like everyone else */
+X		     { case 0:nlog("Sorry");retval=EX_CANTCREAT;
+X			  goto lfailure;      /* patience exhausted, give up */
+X		       default:retries--;		      /* count sheep */
+X		       case -1:sleep(sleepsec);		     /* wait and see */
+X		     }
+X		 break;
+X	      case ENOENT:case ENOTDIR:case EIO:case EACCES:
+X		 if(!--permanent)	 /* NFS sporadically generates these */
+X		  { sleep(sleepsec);continue;		      /* unwarranted */
+X		  }				     /* so ignore them first */
+X	      default:		     /* but, it seems to persist, so give up */
+X		 nlog("Try praying");retval=EX_UNAVAILABLE;
+X#ifdef ENAMETOOLONG
+X		 goto lfailure;
+X	      case ENAMETOOLONG:
+X		 if(0<(permanent=strlen(cp)-1)&&      /* can we truncate it? */
+X		  !strchr(dirsep,cp[permanent-1]))
+X		  { nlog("Truncating \"");elog(cp);	      /* then try it */
+X		    elog("\" and retrying lock\n");cp[permanent]='\0';break;
+X		  }				     /* otherwise, forget it */
+X		 nlog("Filename too long");retval=EX_UNAVAILABLE;
+X#endif
+Xlfailure:	 elog(", giving up on \"");elog(cp);elog("\"\n");
+Xnfailure:	 sleepsec= -1;argc=lastf-argv+1;goto again; /* mark sleepsec */
+X	    }  /* for second pass, and adjust argc to the no. of args parsed */
+X	   permanent=nfsTRY;	       /* refresh the NFS-error-ignore count */
+X	 }
+X	lastf=p;					  /* last valid file */
+X      }
+X  if(retval==EX_OK&&virgin)		 /* any errors?	 did we do anything? */
+Xusg:
+X   { elog(usage);return EX_USAGE;
+X   }
+X  if(invert)
+X     switch(retval)			 /* we only invert the regular cases */
+X      { case EX_OK:return EX_CANTCREAT;
+X	case EX_CANTCREAT:return EX_OK;
+X      }
+X  return retval;			       /* all other exitcodes remain */
+X}
+X
+Xvoid*tmalloc(len)const size_t len;				     /* stub */
+X{ return malloc(len);
+X}
+X
+Xropen(name,mode,mask)const char*const name;const int mode;const mode_t mask;
+X{ return open(name,mode,mask);					     /* stub */
+X}
+X
+Xrclose(fd)const int fd;						     /* stub */
+X{ return close(fd);
+X}
+X
+Xvoid writeerr(a)const char*const a;				     /* stub */
+X{
+X}
+END_OF_FILE
+if test 9418 -ne `wc -c <'procmail/src/lockfile.c'`; then
+    echo shar: \"'procmail/src/lockfile.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/lockfile.c'
+fi
+echo shar: End of archive 6 \(of 11\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"Always look on the bright side of life!"
+
+exit 0 # Just in case...

@@ -1,0 +1,2106 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i061: Video Extension for X (v2r2), Part10/29
+Message-ID: <1992Feb6.145547.253@msi.com>
+Date: 6 Feb 92 14:55:47 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2093
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 61
+Archive-name: vex.v2r2/part10
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 10 (of 29)."
+# Contents:  server/ddx/cfb32/cfbtileodd.c server/ddx/sun/sunCG8C.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:46 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'server/ddx/cfb32/cfbtileodd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbtileodd.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbtileodd.c'\" \(24954 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbtileodd.c' <<'END_OF_FILE'
+X/*
+X * Fill odd tiled rectangles and spans.
+X * no depth dependencies.
+X */
+X
+X/*
+XCopyright 1989 by the Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the name of M.I.T. not be used in
+Xadvertising or publicity pertaining to distribution of the software
+Xwithout specific, written prior permission.  M.I.T. makes no
+Xrepresentations about the suitability of this software for any
+Xpurpose.  It is provided "as is" without express or implied warranty.
+X*/
+X
+X/* $XConsortium: cfbtileodd.c,v 1.13 91/07/10 17:26:10 keith Exp $ */
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X#include "gcstruct.h"
+X#include "window.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "cfb8bit.h"
+X
+X#include "mergerop.h"
+X
+X#define LastTileBits {\
+X    tmp = bits; \
+X    if (tileEndPart) \
+X	bits = (*pSrc & tileEndMask) | BitRight (*pSrcLine, tileEndLeftShift); \
+X    else \
+X	bits = *pSrc; \
+X}
+X
+X#define ResetTileBits {\
+X    pSrc = pSrcLine; \
+X    nlwSrc = widthSrc;\
+X    if (tileEndPart) { \
+X	if (PPW - xoff + tileEndPart <= PPW) {\
+X	    bits = *pSrc++; \
+X	    nlwSrc--; \
+X	} else \
+X	    bits = BitLeft(tmp, tileEndLeftShift) | \
+X		   BitRight(bits, tileEndRightShift); \
+X	xoff = (xoff + xoffStep) & PIM; \
+X	leftShift = xoff << (5-PWSH); \
+X	rightShift = 32 - leftShift; \
+X    }\
+X}
+X
+X#define NextTileBits {\
+X    if (nlwSrc == 1) {\
+X	LastTileBits\
+X    } else { \
+X    	if (nlwSrc == 0) {\
+X	    ResetTileBits\
+X    	} \
+X	if (nlwSrc == 1) {\
+X	    LastTileBits\
+X	} else {\
+X	    tmp = bits; \
+X	    bits = *pSrc++; \
+X	}\
+X    }\
+X    nlwSrc--; \
+X}
+X
+Xvoid
+XMROP_NAME(cfbFillBoxTileOdd) (pDrawable, nBox, pBox, tile, xrot, yrot, alu, planemask)
+X    DrawablePtr	    pDrawable;
+X    int		    nBox;	/* number of boxes to fill */
+X    register BoxPtr pBox;	/* pointer to list of boxes to fill */
+X    PixmapPtr	    tile;	/* tile */
+X    int		    xrot, yrot;
+X    int		    alu;
+X    unsigned long   planemask;
+X{
+X    int tileWidth;	/* width of tile in pixels */
+X    int tileHeight;	/* height of the tile */
+X    int widthSrc;
+X
+X    int widthDst;		/* width in longwords of the dest pixmap */
+X    int w;		/* width of current box */
+X    int h;		/* height of current box */
+X    unsigned long startmask;
+X    unsigned long endmask;	/* masks for reggedy bits at either end of line */
+X    int nlwMiddle;	/* number of longwords between sides of boxes */
+X    int nlwSrc;		/* number of whole longwords in source */
+X    
+X    register int nlw;	/* loop version of nlwMiddle */
+X    int srcy;		/* current tile y position */
+X    int srcx;		/* current tile x position */
+X    int xoffDst, xoffSrc;
+X    int leftShift, rightShift;
+X
+X    MROP_DECLARE_REG()
+X
+X    unsigned long *pDstBase;	/* pointer to start of dest */
+X    unsigned long *pDstLine;	/* poitner to start of dest box */
+X    unsigned long *pSrcBase;	/* pointer to start of source */
+X    unsigned long *pSrcLine;	/* pointer to start of source line */
+X    register unsigned long *pDst;
+X    register unsigned long *pSrc;
+X    register unsigned long bits, tmp;
+X    register int	   nlwPart;
+X    int xoffStart, xoff;
+X    int leftShiftStart, rightShiftStart, nlwSrcStart;
+X    unsigned long tileEndMask;
+X    int tileEndLeftShift, tileEndRightShift;
+X    int	xoffStep;
+X    int tileEndPart;
+X    int needFirst;
+X    unsigned long   narrow[2];
+X    unsigned long   narrowMask;
+X    int	    narrowShift;
+X    Bool    narrowTile;
+X
+X    MROP_INITIALIZE (alu, planemask)
+X
+X    tileHeight = tile->drawable.height;
+X    tileWidth = tile->drawable.width;
+X    widthSrc = tile->devKind >> 2;
+X    narrowTile = FALSE;
+X    if (widthSrc == 1)
+X    {
+X	narrowShift = tileWidth;
+X	narrowMask = cfbendpartial [tileWidth];
+X	tileWidth *= 2;
+X	widthSrc = 2;
+X	narrowTile = TRUE;
+X    }
+X    pSrcBase = (unsigned long *)tile->devPrivate.ptr;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pDstBase)
+X
+X    tileEndPart = tileWidth & PIM;
+X    tileEndMask = cfbendpartial[tileEndPart];
+X    tileEndLeftShift = (tileEndPart) << (5-PWSH);
+X    tileEndRightShift = 32 - tileEndLeftShift;
+X    xoffStep = PPW - tileEndPart;
+X    /*
+X     * current assumptions: tile > 32 bits wide.
+X     */
+X    while (nBox--)
+X    {
+X	w = pBox->x2 - pBox->x1;
+X	h = pBox->y2 - pBox->y1;
+X	modulus (pBox->x1 - xrot, tileWidth, srcx);
+X	modulus (pBox->y1 - yrot, tileHeight, srcy);
+X	xoffDst = pBox->x1 & PIM;
+X	if (xoffDst + w < PPW)
+X	{
+X	    maskpartialbits(pBox->x1, w, startmask);
+X	    endmask = 0;
+X	    nlwMiddle = 0;
+X	}
+X	else
+X	{
+X	    maskbits (pBox->x1, w, startmask, endmask, nlwMiddle)
+X	}
+X	pDstLine = pDstBase + (pBox->y1 * widthDst) + (pBox->x1 >> PWSH);
+X	pSrcLine = pSrcBase + (srcy * widthSrc);
+X	xoffSrc = srcx & PIM;
+X	if (xoffSrc >= xoffDst)
+X	{
+X	    xoffStart = xoffSrc - xoffDst;
+X	    needFirst = 1;
+X	}
+X	else
+X	{
+X	    xoffStart = PPW - (xoffDst - xoffSrc);
+X	    needFirst = 0;
+X	}
+X	leftShiftStart = (xoffStart) << (5-PWSH);
+X	rightShiftStart = 32 - leftShiftStart;
+X	nlwSrcStart = widthSrc - (srcx >> PWSH);
+X	while (h--)
+X	{
+X	    /* XXX only works when narrowShift >= PPW/2 */
+X	    if (narrowTile)
+X	    {
+X		tmp = pSrcBase[srcy] & narrowMask; /* source width == 1 */
+X		narrow[0] = tmp | SCRRIGHT (tmp, narrowShift);
+X		narrow[1] = SCRLEFT (tmp, PPW - narrowShift) |
+X			    SCRRIGHT(tmp, 2 * narrowShift - PPW);
+X		pSrcLine = narrow;
+X	    }
+X	    xoff = xoffStart;
+X	    leftShift = leftShiftStart;
+X	    rightShift = rightShiftStart;
+X	    nlwSrc = nlwSrcStart;
+X	    pSrc = pSrcLine + (srcx >> PWSH);
+X	    pDst = pDstLine;
+X	    bits = 0;
+X	    if (needFirst)
+X	    {
+X		NextTileBits
+X	    }
+X	    if (startmask)
+X	    {
+X		NextTileBits
+X		tmp = BitLeft(tmp, leftShift);
+X 		if (rightShift != 32)
+X		    tmp |= BitRight(bits,rightShift);
+X		*pDst = MROP_MASK (tmp, *pDst, startmask);
+X		++pDst;
+X	    }
+X	    nlw = nlwMiddle;
+X	    while (nlw)
+X	    {
+X#if MROP == Mcopy
+X		if (nlwSrc > 1)
+X		{
+X		    nlwPart = nlw;
+X		    if (nlwPart >= nlwSrc)
+X			nlwPart = nlwSrc - 1;
+X		    nlw -= nlwPart;
+X		    nlwSrc -= nlwPart;
+X		    if (rightShift != 32)
+X		    {
+X			while (nlwPart--)
+X			{
+X			    tmp = bits;
+X			    bits = *pSrc++;
+X			    *pDst = MROP_SOLID(BitLeft(tmp, leftShift) |
+X					      BitRight (bits, rightShift),
+X					      *pDst);
+X			    ++pDst;
+X			}
+X		    }
+X		    else
+X		    {
+X			if (nlwPart)
+X			{
+X			    *pDst = MROP_SOLID (bits, *pDst);
+X			    ++pDst;
+X			    nlwPart--;
+X			    while (nlwPart--)
+X			    {
+X				*pDst = MROP_SOLID(*pSrc, *pDst);
+X				++pDst; ++pSrc;
+X			    }
+X			    bits = *pSrc++;
+X			}
+X		    }
+X		}
+X		else
+X#endif
+X		{
+X		    NextTileBits
+X		    if (rightShift != 32)
+X		    {
+X			*pDst = MROP_SOLID(BitLeft(tmp, leftShift) |
+X					   BitRight(bits, rightShift),
+X					   *pDst);
+X		    }
+X		    else
+X		    {
+X			*pDst = MROP_SOLID (tmp, *pDst);
+X		    }
+X		    ++pDst;
+X		    nlw--;
+X		}
+X	    }
+X	    if (endmask)
+X	    {
+X		NextTileBits
+X		if (rightShift == 32)
+X		    bits = 0;
+X		*pDst = MROP_MASK (BitLeft(tmp, leftShift) |
+X				   BitRight(bits,rightShift),
+X				   *pDst, endmask);
+X	    }
+X	    pDstLine += widthDst;
+X	    pSrcLine += widthSrc;
+X	    if (++srcy == tileHeight)
+X	    {
+X		srcy = 0;
+X		pSrcLine = pSrcBase;
+X	    }
+X	}
+X	pBox++;
+X    }
+X}
+X
+Xvoid
+XMROP_NAME(cfbFillSpanTileOdd) (pDrawable, n, ppt, pwidth, tile, xrot, yrot, alu, planemask)
+X    DrawablePtr	pDrawable;
+X    int		n;
+X    DDXPointPtr	ppt;
+X    int		*pwidth;
+X    PixmapPtr	tile;
+X    int		xrot, yrot;
+X    int		alu;
+X    unsigned long   planemask;
+X{
+X    int tileWidth;	/* width of tile in pixels */
+X    int tileHeight;	/* height of the tile */
+X    int widthSrc;
+X
+X    int widthDst;		/* width in longwords of the dest pixmap */
+X    int w;		/* width of current span */
+X    unsigned long startmask;
+X    unsigned long endmask;	/* masks for reggedy bits at either end of line */
+X    int nlwSrc;		/* number of whole longwords in source */
+X    
+X    register int nlw;	/* loop version of nlwMiddle */
+X    int srcy;		/* current tile y position */
+X    int srcx;		/* current tile x position */
+X    int xoffDst, xoffSrc;
+X    int leftShift, rightShift;
+X
+X    MROP_DECLARE_REG()
+X
+X    unsigned long *pDstBase;	/* pointer to start of dest */
+X    unsigned long *pDstLine;	/* poitner to start of dest box */
+X    unsigned long *pSrcBase;	/* pointer to start of source */
+X    unsigned long *pSrcLine;	/* pointer to start of source line */
+X    register unsigned long *pDst;
+X    register unsigned long *pSrc;
+X    register unsigned long bits, tmp;
+X    register int	   nlwPart;
+X    int xoffStart, xoff;
+X    int leftShiftStart, rightShiftStart, nlwSrcStart;
+X    unsigned long tileEndMask;
+X    int tileEndLeftShift, tileEndRightShift;
+X    int	xoffStep;
+X    int tileEndPart;
+X    int needFirst;
+X    unsigned long   narrow[2];
+X    unsigned long   narrowMask;
+X    int	    narrowShift;
+X    Bool    narrowTile;
+X
+X    MROP_INITIALIZE (alu, planemask)
+X
+X    tileHeight = tile->drawable.height;
+X    tileWidth = tile->drawable.width;
+X    widthSrc = tile->devKind >> 2;
+X    narrowTile = FALSE;
+X    if (widthSrc == 1)
+X    {
+X	narrowShift = tileWidth;
+X	narrowMask = cfbendpartial [tileWidth];
+X	tileWidth *= 2;
+X	widthSrc = 2;
+X	narrowTile = TRUE;
+X    }
+X    pSrcBase = (unsigned long *)tile->devPrivate.ptr;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pDstBase)
+X
+X    tileEndPart = tileWidth & PIM;
+X    tileEndMask = cfbendpartial[tileEndPart];
+X    tileEndLeftShift = (tileEndPart) << (5-PWSH);
+X    tileEndRightShift = 32 - tileEndLeftShift;
+X    xoffStep = PPW - tileEndPart;
+X    while (n--)
+X    {
+X	w = *pwidth++;
+X	modulus (ppt->x - xrot, tileWidth, srcx);
+X	modulus (ppt->y - yrot, tileHeight, srcy);
+X	xoffDst = ppt->x & PIM;
+X	if (xoffDst + w < PPW)
+X	{
+X	    maskpartialbits(ppt->x, w, startmask);
+X	    endmask = 0;
+X	    nlw = 0;
+X	}
+X	else
+X	{
+X	    maskbits (ppt->x, w, startmask, endmask, nlw)
+X	}
+X	pDstLine = pDstBase + (ppt->y * widthDst) + (ppt->x >> PWSH);
+X	pSrcLine = pSrcBase + (srcy * widthSrc);
+X	xoffSrc = srcx & PIM;
+X	if (xoffSrc >= xoffDst)
+X	{
+X	    xoffStart = xoffSrc - xoffDst;
+X	    needFirst = 1;
+X	}
+X	else
+X	{
+X	    xoffStart = PPW - (xoffDst - xoffSrc);
+X	    needFirst = 0;
+X	}
+X	leftShiftStart = (xoffStart) << (5-PWSH);
+X	rightShiftStart = 32 - leftShiftStart;
+X	nlwSrcStart = widthSrc - (srcx >> PWSH);
+X	/* XXX only works when narrowShift >= PPW/2 */
+X	if (narrowTile)
+X	{
+X	    tmp = pSrcBase[srcy] & narrowMask;	/* source width == 1 */
+X	    narrow[0] = tmp | SCRRIGHT (tmp, narrowShift);
+X	    narrow[1] = SCRLEFT (tmp, PPW - narrowShift) |
+X			SCRRIGHT(tmp, 2 * narrowShift - PPW);
+X	    pSrcLine = narrow;
+X	}
+X	xoff = xoffStart;
+X	leftShift = leftShiftStart;
+X	rightShift = rightShiftStart;
+X	nlwSrc = nlwSrcStart;
+X	pSrc = pSrcLine + (srcx >> PWSH);
+X	pDst = pDstLine;
+X	bits = 0;
+X	if (needFirst)
+X	{
+X	    NextTileBits
+X	}
+X	if (startmask)
+X	{
+X	    NextTileBits
+X	    tmp = BitLeft(tmp, leftShift);
+X	    if (rightShift != 32)
+X		tmp |= BitRight(bits,rightShift);
+X	    *pDst = MROP_MASK (tmp, *pDst, startmask);
+X	    ++pDst;
+X	}
+X	while (nlw)
+X	{
+X#if MROP == Mcopy
+X	    if (nlwSrc > 1)
+X	    {
+X		nlwPart = nlw;
+X		if (nlwPart >= nlwSrc)
+X		    nlwPart = nlwSrc - 1;
+X		nlw -= nlwPart;
+X		nlwSrc -= nlwPart;
+X		if (rightShift != 32)
+X		{
+X		    while (nlwPart--)
+X		    {
+X			tmp = bits;
+X			bits = *pSrc++;
+X			*pDst = MROP_SOLID(BitLeft(tmp, leftShift) |
+X					  BitRight (bits, rightShift),
+X					  *pDst);
+X			++pDst;
+X		    }
+X		}
+X		else
+X		{
+X		    if (nlwPart)
+X		    {
+X			*pDst = MROP_SOLID (bits, *pDst);
+X			++pDst;
+X			nlwPart--;
+X			while (nlwPart--)
+X			{
+X			    *pDst = MROP_SOLID(*pSrc, *pDst);
+X			    ++pDst; ++pSrc;
+X			}
+X			bits = *pSrc++;
+X		    }
+X		}
+X	    }
+X	    else
+X#endif
+X	    {
+X		NextTileBits
+X		if (rightShift != 32)
+X		{
+X		    *pDst = MROP_SOLID(BitLeft(tmp, leftShift) |
+X				       BitRight(bits, rightShift),
+X				       *pDst);
+X		    ++pDst;
+X		}
+X		else
+X		{
+X		    *pDst = MROP_SOLID (tmp, *pDst);
+X		    ++pDst;
+X		}
+X		nlw--;
+X	    }
+X	}
+X	if (endmask)
+X	{
+X	    NextTileBits
+X	    if (rightShift == 32)
+X		bits = 0;
+X	    *pDst = MROP_MASK (BitLeft(tmp, leftShift) |
+X			       BitRight(bits,rightShift),
+X			       *pDst, endmask);
+X	}
+X	ppt++;
+X    }
+X}
+X
+X# include "fastblt.h"
+X
+X#define IncSrcPtr   psrc++; if (!--srcRemaining) { srcRemaining = widthSrc; psrc = psrcStart; }
+X
+XMROP_NAME(cfbFillBoxTile32s) (pDrawable, nBox, pBox, tile, xrot, yrot, alu, planemask)
+X    DrawablePtr	    pDrawable;
+X    int		    nBox;	/* number of boxes to fill */
+X    register BoxPtr pBox;	/* pointer to list of boxes to fill */
+X    PixmapPtr	    tile;	/* tile */
+X    int		    xrot, yrot;
+X    int		    alu;
+X    unsigned long   planemask;
+X{
+X    int	tileWidth;	/* width of tile */
+X    int tileHeight;	/* height of the tile */
+X    int	widthSrc;	/* width in longwords of the source tile */
+X
+X    int widthDst;	/* width in longwords of the dest pixmap */
+X    int w;		/* width of current box */
+X    int h;		/* height of current box */
+X    unsigned long startmask;
+X    unsigned long endmask;	/* masks for reggedy bits at either end of line */
+X    int nlMiddle;	/* number of longwords between sides of boxes */
+X    
+X    register int nl;	/* loop version of nlMiddle */
+X    int srcy;		/* current tile y position */
+X    int srcx;		/* current tile x position */
+X    int	srcRemaining;	/* number of longwords remaining in source */
+X    int xoffDst, xoffSrc;
+X    int	srcStart;	/* number of longwords source offset at left of box */
+X    int	leftShift, rightShift;
+X
+X    MROP_DECLARE_REG()
+X
+X    unsigned long	    *pdstBase;	/* pointer to start of dest */
+X    unsigned long	    *pdstLine;	/* poitner to start of dest box */
+X    unsigned long	    *psrcBase;	/* pointer to start of source */
+X    unsigned long	    *psrcLine;	/* pointer to fetch point of source */
+X    unsigned long	    *psrcStart;	/* pointer to start of source line */
+X    register unsigned long  *pdst;
+X    register unsigned long  *psrc;
+X    register unsigned long  bits, bits1;
+X    register int	    nlTemp;
+X
+X    MROP_INITIALIZE (alu, planemask)
+X
+X    psrcBase = (unsigned long *)tile->devPrivate.ptr;
+X    tileHeight = tile->drawable.height;
+X    tileWidth = tile->drawable.width;
+X    widthSrc = tileWidth >> PWSH;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pdstBase)
+X
+X    while (nBox--)
+X    {
+X	w = pBox->x2 - pBox->x1;
+X	h = pBox->y2 - pBox->y1;
+X
+X	/* set up source */
+X	modulus (pBox->x1 - xrot, tileWidth, srcx);
+X	modulus (pBox->y1 - yrot, tileHeight, srcy);
+X	xoffSrc = srcx & PIM;
+X	srcStart = (srcx >> PWSH);
+X	psrcStart = psrcBase + (srcy * widthSrc);
+X	psrcLine = psrcStart + srcStart;
+X
+X	/* set up dest */
+X	xoffDst = pBox->x1 & PIM;
+X	pdstLine = pdstBase + (pBox->y1 * widthDst) + (pBox->x1 >> PWSH);
+X	/* set up masks */
+X	if (xoffDst + w < PPW)
+X	{
+X	    maskpartialbits(pBox->x1, w, startmask);
+X	    endmask = 0;
+X	    nlMiddle = 0;
+X	}
+X	else
+X	{
+X	    maskbits (pBox->x1, w, startmask, endmask, nlMiddle)
+X	}
+X
+X	if (xoffSrc == xoffDst)
+X	{
+X	    while (h--)
+X	    {
+X		psrc = psrcLine;
+X		pdst = pdstLine;
+X		srcRemaining = widthSrc - srcStart;
+X		if (startmask)
+X		{
+X		    *pdst = MROP_MASK (*psrc, *pdst, startmask);
+X		    pdst++;
+X		    IncSrcPtr
+X		}
+X		nlTemp = nlMiddle;
+X		while (nlTemp)
+X		{
+X		    nl = nlTemp;
+X		    if (nl > srcRemaining)
+X			nl = srcRemaining;
+X
+X		    nlTemp -= nl;
+X		    srcRemaining -= nl;
+X
+X#if MROP == Mcopy
+X#ifdef LARGE_INSTRUCTION_CACHE
+X#ifdef FAST_CONSTANT_OFFSET_MODE
+X
+X		    psrc += nl & (UNROLL-1);
+X		    pdst += nl & (UNROLL-1);
+X
+X#define BodyOdd(n) pdst[-n] = MROP_SOLID (psrc[-n], pdst[-n]);
+X#define BodyEven(n) pdst[-n] = MROP_SOLID (psrc[-n], pdst[-n]);
+X
+X#define LoopReset \
+Xpdst += UNROLL; \
+Xpsrc += UNROLL;
+X
+X#else
+X
+X#define BodyOdd(n)  *pdst = MROP_SOLID (*psrc, *pdst); pdst++; psrc++;
+X#define BodyEven(n) BodyOdd(n)
+X
+X#define LoopReset   ;
+X
+X#endif
+X		    PackedLoop
+X
+X#undef BodyOdd
+X#undef BodyEven
+X#undef LoopReset
+X
+X#else
+X		    DuffL(nl, label1,
+X			    *pdst = MROP_SOLID (*psrc, *pdst);
+X			    pdst++; psrc++;)
+X#endif
+X#else
+X		    while (nl--) {
+X			    *pdst = MROP_SOLID (*psrc, *pdst);
+X			    pdst++; psrc++;
+X		    }
+X#endif
+X		    if (!srcRemaining)
+X		    {
+X			srcRemaining = widthSrc;
+X			psrc = psrcStart;
+X		    }
+X		}
+X		if (endmask)
+X		{
+X		    *pdst = MROP_MASK (*psrc, *pdst, endmask);
+X		}
+X		pdstLine += widthDst;
+X		psrcLine += widthSrc;
+X		psrcStart += widthSrc;
+X		if (++srcy == tileHeight)
+X		{
+X		    psrcStart = psrcBase;
+X		    psrcLine = psrcStart + srcStart;
+X		    srcy = 0;
+X		}
+X	    }
+X	}
+X	else
+X	{
+X	    if (xoffSrc > xoffDst)
+X	    {
+X		leftShift = (xoffSrc - xoffDst) << (5 - PWSH);
+X		rightShift = 32 - leftShift;
+X	    }
+X	    else
+X	    {
+X		rightShift = (xoffDst - xoffSrc) << (5 - PWSH);
+X		leftShift = 32 - rightShift;
+X	    }
+X	    while (h--)
+X	    {
+X		psrc = psrcLine;
+X		pdst = pdstLine;
+X		bits = 0;
+X		srcRemaining = widthSrc - srcStart;
+X		if (xoffSrc > xoffDst)
+X		{
+X		    bits = *psrc;
+X		    IncSrcPtr
+X		}
+X		if (startmask)
+X		{
+X		    bits1 = BitLeft(bits,leftShift);
+X		    bits = *psrc;
+X		    IncSrcPtr
+X		    bits1 |= BitRight(bits,rightShift);
+X		    *pdst = MROP_MASK(bits1, *pdst, startmask);
+X		    pdst++;
+X		}
+X		nlTemp = nlMiddle;
+X		while (nlTemp)
+X		{
+X		    nl = nlTemp;
+X		    if (nl > srcRemaining)
+X			nl = srcRemaining;
+X
+X		    nlTemp -= nl;
+X		    srcRemaining -= nl;
+X    
+X#if MROP == Mcopy
+X#ifdef LARGE_INSTRUCTION_CACHE
+X		    bits1 = bits;
+X    
+X#ifdef FAST_CONSTANT_OFFSET_MODE
+X    
+X		    psrc += nl & (UNROLL-1);
+X		    pdst += nl & (UNROLL-1);
+X    
+X#define BodyOdd(n) \
+X    bits = psrc[-n]; \
+X    pdst[-n] = MROP_SOLID(BitLeft(bits1, leftShift) | BitRight(bits, rightShift), pdst[-n]);
+X    
+X#define BodyEven(n) \
+X    bits1 = psrc[-n]; \
+X    pdst[-n] = MROP_SOLID(BitLeft(bits, leftShift) | BitRight(bits1, rightShift), pdst[-n]);
+X    
+X#define LoopReset \
+X    pdst += UNROLL; \
+X    psrc += UNROLL;
+X    
+X#else
+X    
+X#define BodyOdd(n) \
+X    bits = *psrc++; \
+X    *pdst = MROP_SOLID(BitLeft(bits1, leftShift) | BitRight(bits, rightShift), *pdst); \
+X    pdst++;
+X	       	   
+X#define BodyEven(n) \
+X    bits1 = *psrc++; \
+X    *pdst = MROP_SOLID(BitLeft(bits, leftShift) | BitRight(bits1, rightShift), *pdst); \
+X    pdst++;
+X    
+X#define LoopReset   ;
+X    
+X#endif	/* !FAST_CONSTANT_OFFSET_MODE */
+X    
+X		    PackedLoop
+X    
+X#undef BodyOdd
+X#undef BodyEven
+X#undef LoopReset
+X    
+X#else
+X		    DuffL (nl,label2,
+X		    	bits1 = BitLeft(bits, leftShift);
+X		    	bits = *psrc++;
+X		    	*pdst = MROP_SOLID (bits1 | BitRight(bits, rightShift), *pdst);
+X		    	pdst++;
+X		    )
+X#endif
+X#else
+X		    while (nl--) {
+X		    	bits1 = BitLeft(bits, leftShift);
+X		    	bits = *psrc++;
+X		    	*pdst = MROP_SOLID (bits1 | BitRight(bits, rightShift), *pdst);
+X		    	pdst++;
+X		    }
+X#endif
+X		    if (!srcRemaining)
+X		    {
+X			srcRemaining = widthSrc;
+X			psrc = psrcStart;
+X		    }
+X		}
+X
+X		if (endmask)
+X		{
+X		    bits1 = BitLeft(bits, leftShift);
+X		    if (BitLeft(endmask, rightShift))
+X		    {
+X			bits = *psrc;
+X			bits1 |= BitRight(bits, rightShift);
+X		    }
+X		    *pdst = MROP_MASK (bits1, *pdst, endmask);
+X		}
+X		pdstLine += widthDst;
+X		psrcLine += widthSrc;
+X		psrcStart += widthSrc;
+X		if (++srcy == tileHeight)
+X		{
+X		    psrcStart = psrcBase;
+X		    psrcLine = psrcStart + srcStart;
+X		    srcy = 0;
+X		}
+X	    }
+X	}
+X	pBox++;
+X    }
+X}
+X
+XMROP_NAME(cfbFillSpanTile32s) (pDrawable, n, ppt, pwidth, tile, xrot, yrot, alu, planemask)
+X    DrawablePtr	pDrawable;
+X    int		n;
+X    DDXPointPtr	ppt;
+X    int		*pwidth;
+X    PixmapPtr	tile;
+X    int		xrot, yrot;
+X    int		alu;
+X    unsigned long   planemask;
+X{
+X    int	tileWidth;	/* width of tile */
+X    int tileHeight;	/* height of the tile */
+X    int	widthSrc;	/* width in longwords of the source tile */
+X
+X    int widthDst;	/* width in longwords of the dest pixmap */
+X    int w;		/* width of current box */
+X    unsigned long startmask;
+X    unsigned long endmask;	/* masks for reggedy bits at either end of line */
+X    int nlMiddle;	/* number of longwords between sides of boxes */
+X    
+X    register int nl;	/* loop version of nlMiddle */
+X    int srcy;		/* current tile y position */
+X    int srcx;		/* current tile x position */
+X    int	srcRemaining;	/* number of longwords remaining in source */
+X    int xoffDst, xoffSrc;
+X    int	srcStart;	/* number of longwords source offset at left of box */
+X    int	leftShift, rightShift;
+X
+X    MROP_DECLARE_REG()
+X
+X    unsigned long	    *pdstBase;	/* pointer to start of dest */
+X    unsigned long	    *pdstLine;	/* poitner to start of dest box */
+X    unsigned long	    *psrcBase;	/* pointer to start of source */
+X    unsigned long	    *psrcLine;	/* pointer to fetch point of source */
+X    unsigned long	    *psrcStart;	/* pointer to start of source line */
+X    register unsigned long  *pdst;
+X    register unsigned long  *psrc;
+X    register unsigned long  bits, bits1;
+X    register int	    nlTemp;
+X
+X    MROP_INITIALIZE (alu, planemask)
+X
+X    psrcBase = (unsigned long *)tile->devPrivate.ptr;
+X    tileHeight = tile->drawable.height;
+X    tileWidth = tile->drawable.width;
+X    widthSrc = tileWidth >> PWSH;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pdstBase)
+X
+X    while (n--)
+X    {
+X	w = *pwidth++;
+X
+X	/* set up source */
+X	modulus (ppt->x - xrot, tileWidth, srcx);
+X	modulus (ppt->y - yrot, tileHeight, srcy);
+X	xoffSrc = srcx & PIM;
+X	srcStart = (srcx >> PWSH);
+X	psrcStart = psrcBase + (srcy * widthSrc);
+X	psrcLine = psrcStart + srcStart;
+X
+X	/* set up dest */
+X	xoffDst = ppt->x & PIM;
+X	pdstLine = pdstBase + (ppt->y * widthDst) + (ppt->x >> PWSH);
+X	/* set up masks */
+X	if (xoffDst + w < PPW)
+X	{
+X	    maskpartialbits(ppt->x, w, startmask);
+X	    endmask = 0;
+X	    nlMiddle = 0;
+X	}
+X	else
+X	{
+X	    maskbits (ppt->x, w, startmask, endmask, nlMiddle)
+X	}
+X
+X	if (xoffSrc == xoffDst)
+X	{
+X	    psrc = psrcLine;
+X	    pdst = pdstLine;
+X	    srcRemaining = widthSrc - srcStart;
+X	    if (startmask)
+X	    {
+X		*pdst = MROP_MASK (*psrc, *pdst, startmask);
+X		pdst++;
+X		IncSrcPtr
+X	    }
+X	    nlTemp = nlMiddle;
+X	    while (nlTemp)
+X	    {
+X		nl = nlTemp;
+X		if (nl > srcRemaining)
+X		    nl = srcRemaining;
+X
+X		nlTemp -= nl;
+X		srcRemaining -= nl;
+X
+X#if MROP == Mcopy
+X#ifdef LARGE_INSTRUCTION_CACHE
+X#ifdef FAST_CONSTANT_OFFSET_MODE
+X
+X		psrc += nl & (UNROLL-1);
+X		pdst += nl & (UNROLL-1);
+X
+X#define BodyOdd(n) pdst[-n] = MROP_SOLID (psrc[-n], pdst[-n]);
+X#define BodyEven(n) pdst[-n] = MROP_SOLID (psrc[-n], pdst[-n]);
+X
+X#define LoopReset \
+Xpdst += UNROLL; \
+Xpsrc += UNROLL;
+X
+X#else
+X
+X#define BodyOdd(n)  *pdst = MROP_SOLID (*psrc, *pdst); pdst++; psrc++;
+X#define BodyEven(n) BodyOdd(n)
+X
+X#define LoopReset   ;
+X
+X#endif
+X		PackedLoop
+X
+X#undef BodyOdd
+X#undef BodyEven
+X#undef LoopReset
+X
+X#else
+X		DuffL(nl, label1,
+X			*pdst = MROP_SOLID (*psrc, *pdst);
+X			pdst++; psrc++;)
+X#endif
+X#else
+X		while (nl--) {
+X			*pdst = MROP_SOLID (*psrc, *pdst);
+X			pdst++; psrc++;
+X		}
+X#endif
+X		if (!srcRemaining)
+X		{
+X		    srcRemaining = widthSrc;
+X		    psrc = psrcStart;
+X		}
+X	    }
+X	    if (endmask)
+X	    {
+X		*pdst = MROP_MASK (*psrc, *pdst, endmask);
+X	    }
+X	}
+X	else
+X	{
+X	    if (xoffSrc > xoffDst)
+X	    {
+X		leftShift = (xoffSrc - xoffDst) << (5 - PWSH);
+X		rightShift = 32 - leftShift;
+X	    }
+X	    else
+X	    {
+X		rightShift = (xoffDst - xoffSrc) << (5 - PWSH);
+X		leftShift = 32 - rightShift;
+X	    }
+X	    psrc = psrcLine;
+X	    pdst = pdstLine;
+X	    bits = 0;
+X	    srcRemaining = widthSrc - srcStart;
+X	    if (xoffSrc > xoffDst)
+X	    {
+X		bits = *psrc;
+X		IncSrcPtr
+X	    }
+X	    if (startmask)
+X	    {
+X		bits1 = BitLeft(bits,leftShift);
+X		bits = *psrc;
+X		IncSrcPtr
+X		bits1 |= BitRight(bits,rightShift);
+X		*pdst = MROP_MASK(bits1, *pdst, startmask);
+X		pdst++;
+X	    }
+X	    nlTemp = nlMiddle;
+X	    while (nlTemp)
+X	    {
+X		nl = nlTemp;
+X		if (nl > srcRemaining)
+X		    nl = srcRemaining;
+X
+X		nlTemp -= nl;
+X		srcRemaining -= nl;
+X
+X#if MROP == Mcopy
+X#ifdef LARGE_INSTRUCTION_CACHE
+X		bits1 = bits;
+X
+X#ifdef FAST_CONSTANT_OFFSET_MODE
+X
+X		psrc += nl & (UNROLL-1);
+X		pdst += nl & (UNROLL-1);
+X
+X#define BodyOdd(n) \
+Xbits = psrc[-n]; \
+Xpdst[-n] = MROP_SOLID(BitLeft(bits1, leftShift) | BitRight(bits, rightShift), pdst[-n]);
+X
+X#define BodyEven(n) \
+Xbits1 = psrc[-n]; \
+Xpdst[-n] = MROP_SOLID(BitLeft(bits, leftShift) | BitRight(bits1, rightShift), pdst[-n]);
+X
+X#define LoopReset \
+Xpdst += UNROLL; \
+Xpsrc += UNROLL;
+X
+X#else
+X
+X#define BodyOdd(n) \
+Xbits = *psrc++; \
+X*pdst = MROP_SOLID(BitLeft(bits1, leftShift) | BitRight(bits, rightShift), *pdst); \
+Xpdst++;
+X	       
+X#define BodyEven(n) \
+Xbits1 = *psrc++; \
+X*pdst = MROP_SOLID(BitLeft(bits, leftShift) | BitRight(bits1, rightShift), *pdst); \
+Xpdst++;
+X
+X#define LoopReset   ;
+X
+X#endif	/* !FAST_CONSTANT_OFFSET_MODE */
+X
+X		PackedLoop
+X
+X#undef BodyOdd
+X#undef BodyEven
+X#undef LoopReset
+X
+X#else
+X		DuffL (nl,label2,
+X		    bits1 = BitLeft(bits, leftShift);
+X		    bits = *psrc++;
+X		    *pdst = MROP_SOLID (bits1 | BitRight(bits, rightShift), *pdst);
+X		    pdst++;
+X		)
+X#endif
+X#else
+X		while (nl--) {
+X		    bits1 = BitLeft(bits,leftShift);
+X		    bits = *psrc++;
+X		    *pdst = MROP_SOLID(bits1|BitRight(bits,rightShift), *pdst);
+X		    pdst++;
+X		}
+X#endif
+X		if (!srcRemaining)
+X		{
+X		    srcRemaining = widthSrc;
+X		    psrc = psrcStart;
+X		}
+X	    }
+X
+X	    if (endmask)
+X	    {
+X		bits1 = BitLeft(bits, leftShift);
+X		if (BitLeft(endmask, rightShift))
+X		{
+X		    bits = *psrc;
+X		    bits1 |= BitRight(bits, rightShift);
+X		}
+X		*pdst = MROP_MASK (bits1, *pdst, endmask);
+X	    }
+X	}
+X	ppt++;
+X    }
+X}
+END_OF_FILE
+if test 24954 -ne `wc -c <'server/ddx/cfb32/cfbtileodd.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbtileodd.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbtileodd.c'
+fi
+if test -f 'server/ddx/sun/sunCG8C.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/sunCG8C.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/sunCG8C.c'\" \(26860 characters\)
+sed "s/^X//" >'server/ddx/sun/sunCG8C.c' <<'END_OF_FILE'
+X/*-
+X * sunCG8C.c --
+X *	Functions to support the sun CG8 board as a memory frame buffer.
+X */
+X
+X/****************************************************************/
+X/* Modified from sunCG4C.c for X11R4 by TAKAHASHI Naoto	        */
+X/****************************************************************/
+X
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X
+X#ifndef	lint
+Xstatic char sccsid[] = "@(#)sunCG8C.c	1.4 6/1/87 Copyright 1987 Sun Micro";
+X#endif
+X
+X#include    "sun.h"
+X#include    "sunCG8C.h"
+X
+X#include    <sys/mman.h>
+X#include    <pixrect/memreg.h>
+X#include    <sbusdev/memfb.h>
+X#include    <sundev/cg8reg.h>
+X
+X#include    <sys/ioccom.h>
+X#include    <sys/fcntl.h>
+X#include    <sun/fbio.h>
+X#include    <pixrect/pr_planegroups.h>
+X
+X#include    "colormap.h"
+X#include    "colormapst.h"
+X#include    "resource.h"
+X#include    "mibstore.h"
+X#include    <struct.h>
+X
+X#include    "cfb.h"
+X#include    "xfbstruct.h"
+X#include    "gcstruct.h"
+X#include    "pixmapstr.h"
+X#include    "servermd.h"
+X#include    "regionstr.h"
+X
+X/*-
+X * The cg8 frame buffer is divided into several pieces.
+X *	1) an array of 24-bit pixels
+X *	2) a one-bit deep overlay plane
+X *	3) an enable plane
+X *	4) a colormap and status register
+X *
+X * XXX - put the cursor in the overlay plane
+X */
+X#define	CG8_HEIGHT	900
+X#define	CG8_WIDTH	1152
+X
+Xtypedef struct cg8c {
+X	u_char mpixel[128*1024];		/* bit-per-pixel memory */
+X	u_char epixel[128*1024];		/* enable plane */
+X	u_long cpixel[CG8_HEIGHT][CG8_WIDTH];	/* word-per-pixel memory */
+X} CG8C, CG8CRec, *CG8CPtr;
+X
+X#define CG8C_IMAGE(fb)	    ( (pointer)((u_int)(fb) + \
+X				(u_int)(((TcPrivate *)sunFbs[index].fbPriv)-> \
+X				pgInfo[PIXPG_24BIT_COLOR].mmap_offset)) )
+X#define CG8C_IMAGEOFF	    ((off_t)0x0)
+X#define CG8C_IMAGELEN	    (((4*CG8_HEIGHT*CG8_WIDTH + 8191)/8192)*8192)
+X
+X#define CG8C_MONO(fb)	    ( (pointer)((u_int)(fb) + \
+X				(u_int)(((TcPrivate *)sunFbs[index].fbPriv)-> \
+X				pgInfo[PIXPG_OVERLAY].mmap_offset)) )
+X#define	CG8C_MONOLEN	    (128*1024)
+X
+X#define CG8C_ENABLE(fb)	    ( (pointer)((u_int)(fb)+ \
+X				(u_int)(((TcPrivate *)sunFbs[index].fbPriv)->  \
+X				pgInfo[PIXPG_OVERLAY_ENABLE].mmap_offset)) )
+X#define	CG8C_ENBLEN	    CG8C_MONOLEN
+X
+Xstatic CG8CPtr CG8Cfb = NULL;
+X
+X/* defines for cg12 state */
+X#define	CG12_SETUP_ENABLE   0
+X#define	CG12_SETUP_OVERLAY  1
+X#define CG12_SETUP_24BIT    2
+X#define CG12_SETUP_WID	    3
+X
+X/* this is for mmaping the cg12 control registers */
+Xstatic struct cg12_ctl_sp	*cg12_ctl;
+X
+Xextern Bool sunSupportsDepth24;
+X
+X#include <stdio.h>
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * sunCG8CUpdateColormap --
+X *
+X *-----------------------------------------------------------------------
+X */
+Xstatic void
+XsunCG8CUpdateColormap(pScreen, index, count, rmap, gmap, bmap)
+X    ScreenPtr	pScreen;
+X    int		index, count;
+X    u_char	*rmap, *gmap, *bmap;
+X{
+Xint	ioctl_return_code;
+X    struct fbcmap sunCmap;
+X
+X    sunCmap.index = index;
+X    /* added for cg12 */
+X#ifdef PIX_GROUP
+X    sunCmap.index |= PIX_GROUP(PIXPG_24BIT_COLOR);
+X#endif
+X    sunCmap.count = count;
+X    sunCmap.red = &rmap[index];
+X    sunCmap.green = &gmap[index];
+X    sunCmap.blue = &bmap[index];
+X
+X#ifdef SUN_WINDOWS
+X    if (sunUseSunWindows()) {
+X	static Pixwin *pw = 0;
+X
+X	if (! pw) {
+X	    if ( ! (pw = pw_open(windowFd)) )
+X		FatalError( "sunCG8CUpdateColormap: pw_open failed\n" );
+X	    pw_setcmsname(pw, "X.V11");
+X	}
+X	pw_putcolormap(
+X	    pw, index, count, &rmap[index], &gmap[index], &bmap[index]);
+X    }
+X#endif SUN_WINDOWS
+X
+X/* Note: this section of code is commented out for the CG12, as it
+Xinstalls a linear ramp in red, but all zeros in blue and green.
+XThere appears to be a bug in the sunCG8CInstallColormap routine
+Xthat is incorrectly setting up the sunCmap entries */
+X
+X#if FALSE
+X    if (ioctl(sunFbs[pScreen->myNum].fd, FBIOPUTCMAP, &sunCmap) < 0) {
+X	perror("sunCG8CUpdateColormap");
+X	FatalError( "sunCG8CUpdateColormap: FBIOPUTCMAP failed\n" );
+X    }
+X#endif
+X}
+X
+Xstatic VisualRec visuals[] = {
+X/* vid  class        bpRGB cmpE nplan rMask gMask bMask oRed oGreen oBlue */
+X   0,   StaticGray, 1,    2,   1,    0,    0,    0,    0,   0,     0,
+X   0,   TrueColor,  8, 1<<8,       8,  255, 255<<8, 255<<16, 0, 8, 16,
+X};
+X
+X#define	NUMVISUALS	2
+X#define	NUMVISUALS1	1
+X#define	NUMVISUALS24    1
+X
+Xstatic  VisualID VIDs[NUMVISUALS];
+X
+Xstatic DepthRec depths[] = {
+X/* depth	numVid		vids */
+X  1,		1,	&VIDs[0],
+X  24,		1,	&VIDs[1]
+X};
+X
+X#define NUMDEPTHS	((sizeof depths)/(sizeof depths[0]))
+X#define DEPTH 1
+X
+Xstatic int cg8ScreenPrivateIndex;
+Xstatic int cg8WindowPrivateIndex;
+Xstatic int cg8GCPrivateIndex;
+Xstatic PixmapPtr cg8SelectPixmap;
+Xstatic void cg8SetDepth();
+Xstatic Bool cg8CloseScreen();
+X
+Xstatic int sunCG8Generation;
+X
+Xtypedef struct cg8Screen {
+X  GCPtr pSelectGC;
+X  GCPtr pMonoGC;
+X  PixmapPtr pSelectPixmap;
+X  Bool (* CloseScreen)();
+X} cg8ScreenRec, *cg8ScreenPtr;
+X
+Xstatic Bool
+Xcg8CloseScreen(index, pScreen)
+X
+Xint index;
+XScreenPtr pScreen;
+X
+X{
+X  cg8ScreenPtr cg8s;
+X
+X  cg8s = (cg8ScreenPtr)pScreen->devPrivates[cg8ScreenPrivateIndex].ptr;
+X
+X  if (cg8s->pSelectGC) FreeScratchGC(cg8s->pSelectGC);
+X  if (cg8s->pMonoGC) FreeScratchGC(cg8s->pMonoGC);
+X
+X  (*cg8s->CloseScreen)(index,pScreen);
+X
+X  xfree(cg8s->pSelectPixmap);
+X  xfree(cg8s);
+X
+X}
+X
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * sunCG8CInit --
+X *	Attempt to find and initialize a cg8 framebuffer used as mono
+X *
+X * Results:
+X *	TRUE if everything went ok. FALSE if not.
+X *
+X * Side Effects:
+X *	Most of the elements of the ScreenRec are filled in. Memory is
+X *	allocated for the frame buffer and the buffer is mapped. The
+X *	video is enabled for the frame buffer...
+X *
+X *-----------------------------------------------------------------------
+X */
+X/*ARGSUSED*/
+Xstatic Bool
+XsunCG8CInit (index, pScreen, argc, argv)
+X    int	    	  index;    	/* The index of pScreen in the ScreenInfo */
+X    ScreenPtr	  pScreen;  	/* The Screen to initialize */
+X    int	    	  argc;	    	/* The number of the Server's arguments. */
+X    char    	  **argv;   	/* The arguments themselves. Don't change! */
+X{
+X    sunScreenPtr	pPrivate;
+X    int			i;
+X    pointer             pbitsd[NUMDEPTHS];
+X    extern miBSFuncRec	cfb32BSFuncRec;
+X    cg8ScreenPtr cg8s;
+X
+X    if (sunCG8Generation != serverGeneration)
+X      {
+X	cg8ScreenPrivateIndex = AllocateScreenPrivateIndex();
+X	cg8s = (cg8ScreenPtr)xalloc(sizeof(cg8ScreenRec));
+X	cg8s->pSelectGC = (GCPtr)NULL;
+X	cg8s->pMonoGC = (GCPtr)NULL;
+X	pScreen->devPrivates[cg8ScreenPrivateIndex].ptr = (pointer)cg8s;
+X	
+X	/*  Set up the visual IDs */
+X	for (i = 0; i < NUMVISUALS; i++) {
+X	  visuals[i].vid = FakeClientID(0);
+X	  VIDs[i] = visuals[i].vid;
+X	}
+X	sunCG8Generation = serverGeneration;
+X	
+X	cg8InitDepth(pScreen);
+X	
+X      }
+X    else
+X      {
+X	cg8s = (cg8ScreenPtr)pScreen->devPrivates[cg8ScreenPrivateIndex].ptr;
+X      }
+X
+X    for (i=0; i<NUMDEPTHS; i++)
+X      {
+X	pbitsd[i] = (pointer)NULL;
+X
+X	if (depths[i].depth == 24)
+X	  pbitsd[i] = (pointer)CG8C_IMAGE(CG8Cfb);
+X
+X      }
+X
+X    if (!xfbScreenInit(pScreen, (pointer)CG8C_MONO(CG8Cfb),
+X			sunFbs[index].info.fb_width,
+X			sunFbs[index].info.fb_height,
+X			monitorResolution, monitorResolution,
+X			sunFbs[index].info.fb_width,
+X			DEPTH, NUMDEPTHS, depths,
+X			visuals[0].vid, NUMVISUALS, visuals,
+X		        pbitsd,
+X			cg8SetDepth))
+X	return (FALSE);
+X
+X    cg8s->CloseScreen = pScreen->CloseScreen;
+X    pScreen->CloseScreen = cg8CloseScreen;
+X
+X    if (!sunScreenAllocate (pScreen))
+X	return FALSE;
+X
+X    sunCGScreenInit (pScreen);
+X
+X    if (!sunScreenInit (pScreen))
+X	return FALSE;
+X
+X    pPrivate = GetScreenPrivate (pScreen);
+X
+X    pPrivate->UpdateColormap = sunCG8CUpdateColormap;
+X    pScreen->CreateColormap = cfbInitializeColormap;
+X    pScreen->DestroyColormap = NoopDDA;
+X#ifdef XV
+X    XvropScreenInit(pScreen);
+X#endif XV
+X
+X    pScreen->defColormap = FakeClientID(0);
+X    return cfbCreateDefColormap(pScreen);
+X}
+X
+X/*-
+X *--------------------------------------------------------------
+X * sunCG8CSwitch --
+X *      Enable or disable color plane 
+X *
+X * Results:
+X *      Color plane enabled for select =0, disabled otherwise.
+X *
+X *--------------------------------------------------------------
+X */
+Xstatic void
+XsunCG8CSwitch (pScreen, select)
+X    ScreenPtr  pScreen;
+X    u_char     select;
+X{
+X    int index, mindex;
+X    register int  *i, *j, *k, *end;
+X
+X    index = pScreen->myNum;
+X    mindex = index?0:1;
+X    CG8Cfb = (CG8CPtr) sunFbs[index].fb;
+X
+X    i = (int *) CG8C_ENABLE(CG8Cfb);
+X    j = (int *) CG8C_MONO(CG8Cfb);
+X    k = (int *) ((TcPrivate *)sunFbs[index].fbPriv)->mbak;
+X    end = i + ( (sunFbs[index].info.fb_width/32) 
+X				* sunFbs[index].info.fb_height ); /* Should use linebytes! */
+X#ifdef NOTDEF
+X    if ( screenInfo.screens[mindex] )
+X      ((PixmapPtr)screenInfo.screens[mindex]
+X        ->devPrivate)->devPrivate.ptr 
+X        = (pointer)( !select ? ((TcPrivate *)sunFbs[index].fbPriv)->mbak :
+X			CG8C_MONO(CG8Cfb) );
+X#else
+X    select = 0;
+X#endif
+X    if (!select)
+X      while (i < end) {
+X	*i++ = 0;
+X	*k++ = *j;
+X	*j++ = 0;
+X      }
+X    else
+X
+X      while (i < end) {
+X	*i++ = ~0;
+X	*j++ = *k++;
+X      }
+X}
+X
+X#ifdef NOTDEF
+X/*-
+X *--------------------------------------------------------------
+X * sunCG12CSetupState --
+X *      setup cg12 registers for desired state
+X *
+X *--------------------------------------------------------------
+X */
+Xstatic void
+XsunCG12CSetupState(state)
+Xint	state;
+X{
+X    /*
+X     * NB: It's important that host control be the first register to be
+X     * set
+X     */
+X    cg12_ctl->eic.host_control = CG12_EIC_WSTATUS;
+X
+X    switch (state) {
+X	case CG12_SETUP_ENABLE:			/* setup enable plane */
+X	    cg12_ctl->apu.hpage = CG12_HPAGE_ENABLE;
+X	    cg12_ctl->apu.haccess = CG12_HACCESS_ENABLE;
+X	    cg12_ctl->dpu.pln_sl_host = CG12_PLN_SL_ENABLE;
+X	    cg12_ctl->dpu.pln_rd_msk_host = CG12_PLN_RD_ENABLE;
+X	    cg12_ctl->dpu.pln_wr_msk_host = CG12_PLN_WR_ENABLE;
+X	break;
+X	case CG12_SETUP_OVERLAY:		/* setup overlay plane */
+X	    cg12_ctl->apu.hpage = CG12_HPAGE_OVERLAY;
+X	    cg12_ctl->apu.haccess = CG12_HACCESS_OVERLAY;
+X	    cg12_ctl->dpu.pln_sl_host = CG12_PLN_SL_OVERLAY;
+X	    cg12_ctl->dpu.pln_rd_msk_host = CG12_PLN_RD_OVERLAY;
+X	    cg12_ctl->dpu.pln_wr_msk_host = CG12_PLN_WR_OVERLAY;
+X	break;
+X	case CG12_SETUP_24BIT:			/* setup color planes */
+X	    cg12_ctl->apu.hpage = CG12_HPAGE_24BIT;
+X	    cg12_ctl->apu.haccess = CG12_HACCESS_24BIT;
+X	    cg12_ctl->dpu.pln_sl_host = CG12_PLN_SL_24BIT;
+X	    cg12_ctl->dpu.pln_rd_msk_host = CG12_PLN_RD_24BIT;
+X	    cg12_ctl->dpu.pln_wr_msk_host = CG12_PLN_WR_24BIT;
+X	break;
+X	case CG12_SETUP_WID:			/* setup window id planes */
+X	    cg12_ctl->apu.hpage = CG12_HPAGE_WID;
+X	    cg12_ctl->apu.haccess = CG12_HACCESS_WID;
+X	    cg12_ctl->dpu.pln_sl_host = CG12_PLN_SL_WID;
+X	    cg12_ctl->dpu.pln_rd_msk_host = CG12_PLN_RD_WID;
+X	    cg12_ctl->dpu.pln_wr_msk_host = CG12_PLN_WR_WID;
+X	break;
+X    }
+X}
+X
+X/*-
+X *--------------------------------------------------------------
+X * sunCG12CSwitch --
+X *      Enable or disable color plane 
+X *
+X * Results:
+X *      Color plane enabled for select =0, disabled otherwise.
+X *
+X *--------------------------------------------------------------
+X */
+Xstatic void
+XsunCG12CSwitch (pScreen, select)
+X    ScreenPtr  pScreen;
+X    u_char     select;
+X{
+X    int             index, mindex;
+X    register int   *i, *j, *k, *end;
+X
+X    index = pScreen->myNum;
+X    mindex = index ? 0 : 1;
+X    CG8Cfb = (CG8CPtr) sunFbs[index].fb;
+X
+X    i = (int *) CG8Cfb->epixel;
+X    j = (int *) CG8Cfb->mpixel;
+X    k = (int *) ((TcPrivate *)sunFbs[index].fbPriv)->mbak;
+X    end = i + (128 / sizeof(int)) * 1024;
+X#ifdef NOTDEF
+X    if (screenInfo.screens[mindex])
+X	    ((PixmapPtr) screenInfo.screens[mindex]
+X	     ->devPrivate)->devPrivate.ptr
+X		    = (pointer) (!select ? ((TcPrivate *)sunFbs[index].fbPriv)->mbak : 
+X			   CG8Cfb->mpixel);
+X#endif
+X    if (!select) {
+X	/* setup overlay, back it up */
+X	sunCG12CSetupState(CG12_SETUP_OVERLAY);
+X	while (i < end) {
+X	    i++;
+X	    *k++ = *j;
+X	    *j++ = 0;
+X	}
+X	/* setup enable, clear it */
+X	sunCG12CSetupState(CG12_SETUP_ENABLE);
+X	i = (int *) CG8Cfb->epixel;
+X	while (i < end) {
+X	    *i++ = 0;
+X	}
+X	/* setup 24 bit */
+X	sunCG12CSetupState(CG12_SETUP_24BIT);
+X    } else {
+X	/* setup enable, set it */
+X	sunCG12CSetupState(CG12_SETUP_ENABLE);
+X	while (i < end) {
+X	    *i++ = ~0;
+X	}
+X	/* setup overlay, restore it */
+X	sunCG12CSetupState(CG12_SETUP_OVERLAY);
+X	i = (int *) CG8Cfb->epixel;
+X	while (i < end) {
+X	    i++;
+X	    *j++ = *k++;
+X	}
+X    }
+X}
+X#endif
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * sunCG8CProbe --
+X *	Attempt to find and initialize a cg8 framebuffer used as mono
+X *
+X * Results:
+X *	TRUE if everything went ok. FALSE if not.
+X *
+X * Side Effects:
+X *	Memory is allocated for the frame buffer and the buffer is mapped.
+X *
+X *-----------------------------------------------------------------------
+X */
+X/*ARGSUSED*/
+XBool
+XsunCG8CProbe (pScreenInfo, index, fbNum, argc, argv)
+X    ScreenInfo	  *pScreenInfo;	/* The screenInfo struct */
+X    int	    	  index;    	/* The index of pScreen in the ScreenInfo */
+X    int	    	  fbNum;    	/* Index into the sunFbData array */
+X    int	    	  argc;	    	/* The number of the Server's arguments. */
+X    char    	  **argv;   	/* The arguments themselves. Don't change! */
+X{
+X    int           fd;		/* File descriptor for our device. */
+X    Fb_Info 	  fb_info;	/* Information from FB_INFO ioctl. */
+X    TcPrivate	  *fbpr;	/* Pointer to private info for frame buf. */
+X    struct fbtype fbType;	/* Type information from GTYPE ioctl. */
+X    u_int 	  mmap_size;	/* Amount of virtual space to memory map. */
+X    int		  pgi;		/* Index: entry in fb_descriptions to access. */
+X
+X    if ((fd = sunOpenFrameBuffer(FBTYPE_MEMCOLOR, &fbType, index, fbNum,
+X				 argc, argv)) < 0)
+X	return FALSE;
+X
+X    fbpr = (TcPrivate *)malloc(sizeof(TcPrivate));
+X    sunFbs[index].fbPriv = (pointer)fbpr;
+X
+X    /*
+X     *	See if the driver supports FB_INFO ioctl. If not use the defaults, if
+X     *	so use the memory map information returned.
+X     */
+X    if ( ioctl(fd, FB_INFO, &fb_info) != 0 )
+X    {
+X	fbpr->pgInfo[PIXPG_OVERLAY].mmap_offset = 0x00000;
+X	fbpr->pgInfo[PIXPG_OVERLAY_ENABLE].mmap_offset = 0x20000;
+X	fbpr->pgInfo[PIXPG_24BIT_COLOR].mmap_offset = 0x40000;
+X	mmap_size = CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN;
+X    }
+X    else
+X    {
+X	for ( pgi = 0; pgi < fb_info.frame_buffer_count; pgi++ )
+X	{
+X	    fbpr->pgInfo[fb_info.fb_descriptions[pgi].group] =
+X		fb_info.fb_descriptions[pgi];
+X	}
+X	mmap_size = fb_info.total_mmap_size;
+X    }
+X
+X#ifdef	_MAP_NEW
+X    if ((int)(CG8Cfb = (CG8CPtr) mmap((caddr_t) 0,
+X             mmap_size,
+X	     PROT_READ | PROT_WRITE,
+X	     MAP_SHARED | _MAP_NEW, fd, 0)) == -1) {
+X	Error("Mapping cg8c");
+X	(void) close(fd);
+X	return FALSE;
+X    }
+X#else	_MAP_NEW
+X    CG8Cfb = (CG8CPtr) valloc(CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN);
+X    if (CG8Cfb == (CG8CPtr) NULL) {
+X	ErrorF("Could not allocate room for frame buffer.\n");
+X	return FALSE;
+X    }
+X
+X    if (mmap((caddr_t) CG8Cfb, CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN,
+X	     PROT_READ | PROT_WRITE,
+X	     MAP_SHARED, fd, 0) < 0) {
+X	Error("Mapping cg8c");
+X	(void) close(fd);
+X	return FALSE;
+X    }
+X#endif	_MAP_NEW
+X
+X    {
+X      int rc;
+X      u_char  red[4];
+X      u_char  green[4];
+X      u_char  blue[4];
+X      struct fbcmap cmap;
+X
+X      blue[0] = green[0] = red[0] = 0;
+X      blue[1] = green[1] = red[1] = 0x00;
+X      blue[2] = green[2] = red[2] = 0xff;
+X      blue[3] = green[3] = red[3] = 0xff;
+X      
+X      cmap.red = red;
+X      cmap.blue = blue;
+X      cmap.green = green;
+X      cmap.index = PIX_GROUP(PIXPG_OVERLAY);
+X      cmap.count = 4;
+X      
+X      rc = ioctl(fd, FBIOPUTCMAP, &cmap);
+X      if ( rc != 0 ) printf("Bad FBIOPUTCMAP: %08x\n", rc);
+X    }
+X
+X    sunFbs[index].fd = fd;
+X    sunFbs[index].info = fbType;
+X    sunFbs[index].fb = (pointer) CG8Cfb;
+X/*    sunFbs[index].EnterLeave = sunCG8CSwitch; */
+X    sunSupportsDepth24 = TRUE;
+X    return TRUE;
+X}
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * sunCG9CProbe --
+X *	Attempt to find and initialize a cg9 framebuffer used as mono
+X *
+X * Results:
+X *	TRUE if everything went ok. FALSE if not.
+X *
+X * Side Effects:
+X *	Memory is allocated for the frame buffer and the buffer is mapped.
+X *
+X *-----------------------------------------------------------------------
+X */
+XBool
+XsunCG9CProbe (pScreenInfo, index, fbNum, argc, argv)
+X    ScreenInfo	  *pScreenInfo;	/* The screenInfo struct */
+X    int	    	  index;    	/* The index of pScreen in the ScreenInfo */
+X    int	    	  fbNum;    	/* Index into the sunFbData array */
+X    int	    	  argc;	    	/* The number of the Server's arguments. */
+X    char    	  **argv;   	/* The arguments themselves. Don't change! */
+X{
+X    int         fd;
+X    TcPrivate	  *fbpr;	/* Pointer to private info for frame buf. */
+X    struct fbtype fbType;
+X
+X    if ((fd = sunOpenFrameBuffer(FBTYPE_SUNROP_COLOR, &fbType, index, fbNum,
+X				 argc, argv)) < 0)
+X	return FALSE;
+X
+X    fbpr = (TcPrivate *)sunFbs[index].fbPriv;
+X    fbpr->pgInfo[PIXPG_OVERLAY].mmap_offset = 0x00000;
+X    fbpr->pgInfo[PIXPG_OVERLAY_ENABLE].mmap_offset = 0x20000;
+X    fbpr->pgInfo[PIXPG_24BIT_COLOR].mmap_offset = 0x40000;
+X
+X#ifdef	_MAP_NEW
+X    if ((int)(CG8Cfb = (CG8CPtr) mmap((caddr_t) 0,
+X	     CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN,
+X	     PROT_READ | PROT_WRITE,
+X	     MAP_SHARED | _MAP_NEW, fd, 0)) == -1) {
+X	Error("Mapping cg9c");
+X	(void) close(fd);
+X	return FALSE;
+X    }
+X#else	_MAP_NEW
+X    CG8Cfb = (CG8CPtr) valloc(CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN);
+X    if (CG8Cfb == (CG8CPtr) NULL) {
+X	ErrorF("Could not allocate room for frame buffer.\n");
+X	return FALSE;
+X    }
+X
+X    if (mmap((caddr_t) CG8Cfb, CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN,
+X	     PROT_READ | PROT_WRITE,
+X	     MAP_SHARED, fd, 0) < 0) {
+X	Error("Mapping cg9c");
+X	(void) close(fd);
+X	return FALSE;
+X    }
+X#endif	_MAP_NEW
+X
+X    sunFbs[index].fd = fd;
+X    sunFbs[index].info = fbType;
+X    sunFbs[index].fb = (pointer) CG8Cfb;
+X    sunFbs[index].EnterLeave = sunCG8CSwitch;
+X    sunSupportsDepth24 = TRUE;
+X    return TRUE;
+X}
+X
+X#ifdef NOTDEF
+X/*-
+X *-----------------------------------------------------------------------
+X * sunCG12CProbe --
+X *	Attempt to find and initialize a cg12 framebuffer used as mono
+X *
+X * Results:
+X *	TRUE if everything went ok. FALSE if not.
+X *
+X * Side Effects:
+X *	Memory is allocated for the frame buffer and the buffer is mapped.
+X *
+X *-----------------------------------------------------------------------
+X */
+XBool
+XsunCG12CProbe (pScreenInfo, index, fbNum, argc, argv)
+X    ScreenInfo	  *pScreenInfo;	/* The screenInfo struct */
+X    int	    	  index;    	/* The index of pScreen in the ScreenInfo */
+X    int	    	  fbNum;    	/* Index into the sunFbData array */
+X    int	    	  argc;	    	/* The number of the Server's arguments. */
+X    char    	  **argv;   	/* The arguments themselves. Don't change! */
+X{
+X    int             fd;
+X    TcPrivate	    *fbpr;	/* Pointer to private info for frame buf. */
+X    struct fbtype   fbType;
+X
+X    if ((fd = sunOpenFrameBuffer(FBTYPE_SUNGP3, &fbType, index, fbNum,
+X	    argc, argv)) < 0)
+X	return FALSE;
+X
+X    fbpr = (TcPrivate *)sunFbs[index].fbPriv;
+X    fbpr->pgInfo[PIXPG_OVERLAY].mmap_offset = 0x00000;
+X    fbpr->pgInfo[PIXPG_OVERLAY_ENABLE].mmap_offset = 0x20000;
+X    fbpr->pgInfo[PIXPG_24BIT_COLOR].mmap_offset = 0x40000;
+X
+X#ifdef	_MAP_NEW
+X    if ((int) (CG8Cfb = (CG8CPtr) mmap((caddr_t) 0,
+X	    CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN,
+X	    PROT_READ | PROT_WRITE,
+X	    MAP_SHARED | _MAP_NEW, fd, 0)) == -1) {
+X	Error("Mapping cg12c");
+X	(void) close(fd);
+X	return FALSE;
+X    } 
+X    {
+X	int		    *wid_ptr, *i, *j, *k, *end;
+X	struct fb_wid_item  wid_item;
+X	struct fb_wid_list  wid_list;
+X	struct fb_wid_alloc wid_alloc;
+X
+X	/* mmap cg12 control registers  - this needs to be done before
+X	   sunCG12CSetupState is called! */
+X	if ((int) (cg12_ctl = (struct cg12_ctl_sp *) mmap((caddr_t) 0,
+X		sizeof(struct cg12_ctl_sp),
+X		PROT_READ | PROT_WRITE,
+X		MAP_SHARED | _MAP_NEW, fd, CG12_VOFF_CTL)) == -1) {
+X	    Error("Mapping cg12 ctl");
+X	    (void) close(fd);
+X	    return FALSE;
+X	}
+X
+X	/* mmap cg12 window id planes */
+X	if ((int) (wid_ptr = (int *) mmap((caddr_t) 0,
+X		CG12_WID_SIZE,
+X		PROT_READ | PROT_WRITE,
+X		MAP_SHARED | _MAP_NEW, fd, CG12_VOFF_WID)) == -1) {
+X	    Error("Mapping cg12 wid");
+X	    (void) close(fd);
+X	    return FALSE;
+X	}
+X	/* ask kernel to reserve window ID for 24 bit */
+X	wid_alloc.wa_type = FB_WID_SHARED_24;
+X	wid_alloc.wa_index = -1;
+X	wid_alloc.wa_count = 1;
+X
+X	/* check ret val  >= 0 */
+X	if (ioctl(fd, FBIO_WID_ALLOC, &wid_alloc) < 0) {
+X	    Error("Allocating cg12 wid");
+X	    (void) close(fd);
+X	    return FALSE;
+X	}
+X
+X	/* set the allocated window ID to 24 bit */
+X	wid_item.wi_type = 0;
+X	wid_item.wi_index = wid_alloc.wa_index;
+X	wid_item.wi_attrs = 1;	/* 1 for ALL displays */
+X	wid_item.wi_values[0] = 0;
+X	wid_item.wi_attrs |= (1 << CG12_WID_ALT_CMAP);
+X	wid_item.wi_values[CG12_WID_ALT_CMAP] = 0;
+X	wid_item.wi_attrs |= (1 << CG12_WID_ENABLE_2);
+X	wid_item.wi_values[CG12_WID_ENABLE_2] = 0;
+X	wid_list.wl_flags = 0;
+X	wid_list.wl_count = 1;
+X	wid_list.wl_list = &wid_item;
+X	if (ioctl(fd, FBIO_WID_PUT, &wid_list) < 0)
+X	    return PIX_ERR;
+X    
+X	/* paint window ID into wid plane group */
+X	i = (int *) wid_ptr;
+X	end = i + CG12_WID_SIZE / sizeof(int);
+X	sunCG12CSetupState(3);
+X	while (i < end) {
+X	    *i++ = wid_item.wi_index;
+X	}
+X	/* done with window id planes */
+X	munmap(wid_ptr, CG12_WID_SIZE);
+X
+X    }
+X#else	/* _MAP_NEW */
+X
+X/* Note: This section has not been implemented correctly, but then
+Xa cg12 won't run in a system that's not capable of the new style mmaping */
+X
+X    CG8Cfb = (CG8CPtr) valloc(CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN);
+X    if (CG8Cfb == (CG8CPtr) NULL) {
+X	    ErrorF("Could not allocate room for frame buffer.\n");
+X	    return FALSE;
+X    }
+X    if (mmap((caddr_t) CG8Cfb, CG8C_MONOLEN + CG8C_ENBLEN + CG8C_IMAGELEN,
+X	     PROT_READ | PROT_WRITE,
+X	     MAP_SHARED, fd, 0) < 0) {
+X	    Error("Mapping cg12c");
+X	    (void) close(fd);
+X	    return FALSE;
+X    }
+X#endif	/* _MAP_NEW */
+X
+X    sunFbs[index].fd = fd;
+X    sunFbs[index].info = fbType;
+X    sunFbs[index].fb = (pointer) CG8Cfb;
+X    sunFbs[index].EnterLeave = sunCG12CSwitch;
+X    sunSupportsDepth24 = TRUE;
+X    return TRUE;
+X}
+X#endif
+X
+X/*-
+X *--------------------------------------------------------------
+X * sunCG8CCreate --
+X *
+X *--------------------------------------------------------------
+X */
+XBool
+XsunCG8CCreate(pScreenInfo, argc, argv)
+X    ScreenInfo	  *pScreenInfo;
+X    int	    	  argc;
+X    char    	  **argv;
+X{
+X    int i;
+X
+X    i = AddScreen(sunCG8CInit, argc, argv);
+X    if (i >= 0)
+X    {
+X#ifdef nomoredcc
+X	sunCG8CSwitch(pScreenInfo->screens[i], i != 0);
+X#endif nomoredcc
+X	return TRUE;
+X    }
+X    return FALSE;
+X}
+X
+X#ifdef NOTDEF
+X/*-
+X *--------------------------------------------------------------
+X * sunCG12CCreate --
+X *
+X *--------------------------------------------------------------
+X */
+XBool
+XsunCG12CCreate(pScreenInfo, argc, argv)
+X    ScreenInfo    *pScreenInfo;
+X    int           argc;
+X    char          **argv;
+X{
+X    int i;
+X
+X    i = AddScreen(sunCG8CInit, argc, argv);
+X    if (i >= 0)
+X    {
+X        sunCG12CSwitch(pScreenInfo->screens[i], i != 0);
+X        return TRUE;
+X    }
+X    return FALSE;
+X}
+X
+X#endif
+X
+Xstatic void
+Xcg8SetDepth(pScreen, pRegion, depth)
+X
+XScreenPtr pScreen;
+XRegionPtr pRegion;
+Xint depth;
+X
+X{
+X
+X  CARD32 attributes[2];
+X  xRectangle rect;
+X  unsigned int fgpixel;
+X  int nbox, w, h;
+X  BoxPtr pbox;
+X  GCPtr pGC;
+X  cg8ScreenPtr cg8s;
+X
+X  cg8s = (cg8ScreenPtr)pScreen->devPrivates[cg8ScreenPrivateIndex].ptr;
+X
+X  if (!(pGC = cg8s->pSelectGC))
+X    {
+X      pGC = cg8s->pSelectGC = (GCPtr)CreateScratchGC(pScreen,1);
+X    }
+X
+X  if (depth == 24) fgpixel = 0;
+X  else fgpixel = 1;
+X
+X  if (pGC->fgPixel != fgpixel)
+X    {
+X      attributes[0] = fgpixel;
+X      (void)ChangeGC(pGC, GCForeground, attributes);
+X      ValidateGC(&cg8s->pSelectPixmap->drawable, pGC);
+X    }
+X
+X  nbox = REGION_NUM_RECTS(pRegion);
+X  pbox = REGION_RECTS(pRegion);
+X
+X  while (nbox--) 
+X    {
+X      rect.x = pbox->x1;
+X      rect.y = pbox->y1;
+X      rect.width = pbox->x2 - pbox->x1;
+X      rect.height = pbox->y2 - pbox->y1;
+X      (*pGC->ops->PolyFillRect) (&cg8s->pSelectPixmap->drawable, 
+X				   pGC, 1, &rect);
+X
+X      pbox++;
+X    }
+X
+X  if (depth == 1) return;
+X
+X  /* MUST CLEAR THE MONO SCREEN ABOVE 24 BIT WINDOW */
+X
+X  if (!(pGC = cg8s->pMonoGC))
+X    {
+X      pGC = cg8s->pMonoGC = (GCPtr)CreateScratchGC(pScreen,1);
+X      attributes[0] = fgpixel;
+X      (void)ChangeGC(pGC, GCForeground, attributes);
+X      ValidateGC((DrawablePtr)pScreen->devPrivate, pGC);
+X    }
+X
+X  nbox = REGION_NUM_RECTS(pRegion);
+X  pbox = REGION_RECTS(pRegion);
+X
+X  while (nbox--) 
+X    {
+X      rect.x = pbox->x1;
+X      rect.y = pbox->y1;
+X      rect.width = pbox->x2 - pbox->x1;
+X      rect.height = pbox->y2 - pbox->y1;
+X      (*pGC->ops->PolyFillRect) ((DrawablePtr)pScreen->devPrivate, 
+X				 pGC, 1, &rect);
+X
+X      pbox++;
+X    }
+X
+X}
+X
+X
+Xcg8InitDepth(pScreen)
+X
+XScreenPtr pScreen;
+X
+X{
+X
+X  PixmapPtr pPixmap;
+X  int index,width,height;
+X  cg8ScreenPtr cg8s;
+X
+X  cg8s = (cg8ScreenPtr)pScreen->devPrivates[cg8ScreenPrivateIndex].ptr;
+X
+X  index = pScreen->myNum;
+X
+X  width = sunFbs[index].info.fb_width;
+X  height = sunFbs[index].info.fb_height;
+X
+X  pPixmap = (PixmapPtr) xalloc(sizeof(PixmapRec));
+X  if (!pPixmap)
+X    return FALSE;
+X  pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X  pPixmap->drawable.class = 0;
+X  pPixmap->drawable.pScreen = pScreen;
+X  pPixmap->drawable.depth = 1;
+X  pPixmap->drawable.bitsPerPixel = 1;
+X  pPixmap->drawable.id = 0;
+X  pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
+X  pPixmap->drawable.x = 0;
+X  pPixmap->drawable.y = 0;
+X  pPixmap->drawable.width = width;
+X  pPixmap->drawable.height = height;
+X  pPixmap->devKind = PixmapBytePad(width, 1);
+X  pPixmap->refcnt = 1;
+X  pPixmap->devPrivate.ptr = (pointer)CG8C_ENABLE(CG8Cfb), 
+X
+X  cg8s->pSelectPixmap = pPixmap;
+X
+X  sunCG8CSwitch(pScreen, 1);
+X
+X}
+END_OF_FILE
+if test 26860 -ne `wc -c <'server/ddx/sun/sunCG8C.c'`; then
+    echo shar: \"'server/ddx/sun/sunCG8C.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/sunCG8C.c'
+fi
+echo shar: End of archive 10 \(of 29\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

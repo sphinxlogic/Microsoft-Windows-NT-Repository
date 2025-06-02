@@ -1,0 +1,1648 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i041:  xarchie - An X browser interface to Archie, v2.0.6, Part13/24
+Message-ID: <1993Jun15.223352.808@sparky.imd.sterling.com>
+X-Md4-Signature: 5b815cfce8a609b8aefbd25d6bfb1c48
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:33:52 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 41
+Archive-name: xarchie/part13
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part13
+
+#!/bin/sh
+# this is Part.13 (part 13 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/pfs.h continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 13; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/pfs.h'
+else
+echo 'x - continuing file xarchie-2.0.6/pfs.h'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/pfs.h' &&
+#  include <stdio.h>
+# else
+#  define NULL 0
+# endif /* MSDOS */
+#endif /* NULL */
+X
+#define		PFS_RELEASE	"Beta.4.2E"
+#define		PFS_SW_ID	"B42E"
+X
+/* moved up for vdir_init */
+#define BZERO(p)		bzero((char *)(p), sizeof(*(p)))
+X
+/* General Definitions */
+X
+#define		MAX_PTXT_LEN	1250     /* Max length of PTEXT structure   */
+#define		MAX_PTXT_HDR	32       /* Max offset for start            */
+#define		P_ERR_STRING_SZ 100	 /* Size of error string	    */
+#define		MAX_VPATH	1024	 /* Max length of virtual pathname  */
+X
+/* Definition of text structure used to pass text around */
+X
+struct ptext {
+X    int			length;		  /* Length of text (from start)    */
+X    char		*start;		  /* Start of text		    */
+X    char		dat[MAX_PTXT_LEN+2*MAX_PTXT_HDR];/* The data itself */
+X    unsigned long 	mbz;		  /* ZERO to catch runaway strings  */
+X    struct ptext	*previous;        /* Previous element in list       */
+X    struct ptext	*next;		  /* Next element in linked list    */
+X    int			seq;		  /* Sequence Number		    */
+};
+X
+typedef struct ptext *PTEXT;
+typedef struct ptext PTEXT_ST;
+X
+/* Request structure: maintains information about server requests */
+struct preq {
+X    int			cid;		  /* Connection ID                  */
+X    short		priority;	  /* Connection priority            */
+X    int			pf_priority;	  /* Priority assigned by pri_func  */
+X    int			recv_tot;	  /* Total # of packets received    */
+X    int			trns_tot;	  /* Total # of packets to transmit */
+X    struct ptext	*cpkt;		  /* Current packet being filled in */
+X    struct ptext	*recv;		  /* Received packets               */
+X    struct ptext	*trns;		  /* Transmitted packets            */
+X    int			rcvd_thru;	  /* Received all packets through # */
+X    struct preq		*previous;        /* Previous element in list       */
+X    struct preq		*next;		  /* Next element in linked list    */
+X    struct sockaddr_in	fromto; 	  /* Sender/Destination		    */
+};
+X
+typedef struct preq *PREQ;
+typedef struct preq PREQ_ST;
+X
+X
+/* Definition of structure containing information on virtual link */
+X
+struct vlink {
+X    int			dontfree;	  /* Flag: don't free this link     */
+X    char		*name;		  /* Component of path name	    */
+X    char		linktype;	  /* L = Link, U = Union, N= Native */
+X    int			expanded;	  /* Has a union link been expanded */
+X    char		*type;            /* Type of object pointed to      */
+X    struct vlink	*filters;	  /* Filters associated with link   */
+X    struct vlink	*replicas;	  /* Replicas (* see comment below) */
+X    char		*hosttype;	  /* Type of hostname		    */
+X    char		*host;		  /* Files physical location	    */
+X    char		*nametype;	  /* Type of filename		    */
+X    char		*filename;	  /* System level filename	    */
+X    long		version;	  /* Version number of destination  */
+X    long		f_magic_no;	  /* File's magic number	    */
+X    struct acl		*acl;		  /* ACL for link		    */
+X    long		dest_exp;	  /* Expiration for dest of link    */
+X    long		link_exp;	  /* Expiration of link itself      */
+X    char		*args;		  /* Arguments if this is a filter  */
+X    struct pattrib	*lattrib;	  /* Attributes associated w/ link  */
+X    struct pfile	*f_info;	  /* Info to be assoicated w/ file  */
+X    struct vlink	*previous;        /* Previous elt in linked list    */
+X    struct vlink	*next;		  /* Next element in linked list    */
+};
+X
+typedef struct vlink *VLINK;
+typedef struct vlink VLINK_ST;
+X
+/* * Note that vlink->replicas is not really a list of replicas of the  */
+/*   object.  Instead, it is a list of the objects returned during name */
+/*   resolution that share the same name as the current object.  Such   */
+/*   an object should only be considered a replica if it also shares    */
+/*   the same non-zero magic number.                                    */
+X
+/* Definition of structure continiaing virtual directory information    */
+X
+struct vdir {
+X    int			version;	  /* Version of local directory fmt  */
+X    int			inc_native;	  /* Include the native directory    */
+X    long		magic_no;	  /* Magic number of current file    */
+X    struct acl		*dacl;            /* Default acl for links in dir    */
+X    struct pfile	*f_info;	  /* Directory file info             */
+X    struct vlink	*links;		  /* The directory entries	     */
+X    struct vlink	*lastlink;	  /* Last directory entry            */
+X    struct vlink	*ulinks;	  /* The entries for union links     */
+X    struct vdir		*previous;        /* Previous element in linked list */
+X    struct vdir		*next;		  /* Next element in linked list     */
+};
+X
+typedef struct vdir *PVDIR;
+typedef struct vdir VDIR_ST;
+X
+/* Initialize directory */
+#define vdir_init(dir)  BZERO(dir)
+/* XXX: was
+X
+X  dir->version = 0;     dir->inc_native = 0; \
+X  dir->magic_no = 0;    dir->f_info = NULL; \
+X  dir->links = NULL;    dir->lastlink = NULL; \
+X  dir->ulinks = NULL;   dir->dacl = NULL; \
+X  dir->previous = NULL; dir->next = NULL;
+*/
+X
+#define vdir_copy(d1,d2) d2->version = d1->version; \
+X                         d2->inc_native = d1->inc_native; \
+X                         d2->magic_no = d1->magic_no; \
+X    			 d2->f_info = d1->f_info; \
+X                         d2->links = d1->links; \
+X                         d2->lastlink = d1->lastlink; \
+X                         d2->ulinks = d1->ulinks; \
+X                         d2->dacl = d1->dacl; \
+X                         d2->previous = d1->previous; \
+X                         d2->next = d1->next; 
+X                         
+/* Values of ->inc_native in vdir structure */
+#define VDIN_REALONLY	-1   /* Include native files, but not . and ..       */
+#define VDIN_NONATIVE	 0   /* Do not include files from native directory   */
+#define VDIN_INCLNATIVE	 1   /* Include files from native directory          */
+#define VDIN_NATIVEONLY  2   /* All entries in directory are from native dir */
+#define VDIN_PSEUDO      3   /* Directory is not real                        */
+X
+X
+/* Definition of structure containing information on a specific file */
+X
+union avalue {
+X    char		*ascii;		/* Character string                */
+X    struct vlink	*link;		/* A link			   */
+};
+X
+X
+struct pattrib {
+X    char		precedence;	/* Precedence for link attribute   */
+X    char		*aname;		/* Name of the attribute           */
+X    char		*avtype;	/* Type of the attribute value     */
+X    union avalue	value;		/* Attribute Value                 */
+X    struct pattrib	*previous;      /* Previous element in linked list */
+X    struct pattrib	*next;		/* Next element in linked list     */
+};
+X
+typedef struct pattrib *PATTRIB;
+typedef struct pattrib PATTRIB_ST;
+X
+#define 	ATR_PREC_OBJECT  'O'   /* Authoritative answer for object */
+#define 	ATR_PREC_LINK    'L'   /* Authoritative answer for link   */
+#define 	ATR_PREC_CACHED  'C'   /* Object info cached w/ link      */
+#define 	ATR_PREC_REPLACE 'R'   /* From link (replaces O)          */
+#define 	ATR_PREC_ADD     'A'   /* From link (additional value)    */
+X
+/* **** Incomplete **** */
+struct pfile {
+X    int			version;	  /* Version of local finfo format   */
+X    long		f_magic_no;	  /* Magic number of current file    */
+X    long		exp;		  /* Expiration date of timeout      */
+X    long		ttl;		  /* Time to live after reference    */
+X    long		last_ref;	  /* Time of last reference          */
+X    struct vlink	*forward;	  /* List of forwarding pointers     */
+X    struct vlink	*backlinks;	  /* Partial list of back links      */
+X    struct pattrib	*attributes;	  /* List of file attributes         */
+X    struct pfile	*previous;        /* Previous element in linked list */
+X    struct pfile	*next;		  /* Next element in linked list     */
+};
+X
+typedef struct pfile *PFILE;
+typedef struct pfile PFILE_ST;
+X
+/* Definition of structure contining an access control list entry */
+X
+struct acl {
+X    int			acetype;	  /* Access Contol Entry type       */
+X    char		*atype;           /* Authentication type            */
+X    char		*rights;          /* Rights                         */
+X    char		*principals;      /* Authorized principals          */
+X    struct restrict     *restrictions;    /* Restrictions on use            */
+X    struct acl		*previous;        /* Previous elt in linked list    */
+X    struct acl		*next;		  /* Next element in linked list    */
+};
+typedef struct acl *ACL;
+typedef struct acl ACL_ST;
+X
+#define ACL_NONE		0         /* Nobody authorized by ths entry */
+#define ACL_DEFAULT		1         /* System default                 */
+#define ACL_SYSTEM		2         /* System administrator           */
+#define ACL_OWNER               3         /* Directory owner                */
+#define ACL_DIRECTORY           4         /* Same as directory              */
+#define ACL_ANY                 5         /* Any user                       */
+#define ACL_AUTHENT             6         /* Authenticated principal        */
+#define ACL_LGROUP              7         /* Local group                    */
+#define ACL_GROUP               8         /* External group                 */
+#define ACL_ASRTHOST            10        /* Check host and asserted userid */
+#define ACL_TRSTHOST            11        /* ASRTHOST from privileged port  */
+X
+X
+/* Definition of structure contining access restrictions */
+/* for future extensions                                 */
+struct restrict {
+X    struct acl		*previous;        /* Previous elt in linked list    */
+X    struct acl		*next;		  /* Next element in linked list    */
+};
+X
+/* Definitions for send_to_dirsrv */
+#define	CLIENT_DIRSRV_TIMEOUT		4	/* time between retries      */
+#define CLIENT_DIRSRV_BACKOFF(x)  (2 * x)	/* Backoff algorithm         */
+#define CLIENT_DIRSRV_RETRY		3	/* retry this many times     */
+X
+/* Definitions for rd_vlink and rd_vdir */
+#define		SYMLINK_NESTING 10       /* Max nesting depth for sym links */
+X
+/* Definition fo check_acl */
+#define		ACL_NESTING     10       /* Max depth for ACL group nesting */
+X
+/* Flags for mk_vdir */
+#define	     MKVD_LPRIV     1   /* Minimize privs for creator in new ACL    */
+X
+/* Flags for get_vdir */
+#define	     GVD_UNION      0	/* Do not expand union links 		     */
+#define      GVD_EXPAND     1   /* Expand union links locally		     */
+#define	     GVD_LREMEXP    3   /* Request remote expansion of local links   */
+#define	     GVD_REMEXP     7   /* Request remote expansion of all links     */
+#define	     GVD_VERIFY     8	/* Only verify args are for a directory      */
+#define      GVD_FIND	   16   /* Stop expanding when match is found        */
+#define	     GVD_ATTRIB    32   /* Request attributes from remote server     */
+#define	     GVD_NOSORT	   64   /* Do not sort links when adding to dir      */
+X
+/* Flags for rd_vdir */
+#define	     RVD_UNION      GVD_UNION
+#define	     RVD_EXPAND     GVD_EXPAND 
+#define	     RVD_LREMEXP    GVD_LREMEXP
+#define	     RVD_REMEXP     GVD_REMEXP
+#define	     RVD_DFILE_ONLY GVD_VERIFY /* Only return ptr to dir file        */
+#define      RVD_FIND       GVD_FIND   
+#define      RVD_ATTRIB     GVD_ATTRIB
+#define	     RVD_NOSORT	    GVD_NOSORT
+#define	     RVD_NOCACHE    128
+X
+/* Flags for add_vlink */
+#define	     AVL_UNION      1   /* Link is a union link                      */
+X
+/* Flags for vl_insert */
+#define	     VLI_NOCONFLICT 0   /* Do not insert links w/ conflicting names  */
+#define      VLI_ALLOW_CONF 1   /* Allow links with conflicting names        */
+#define	     VLI_NOSORT     2   /* Allow conflicts and don't sort            */
+X
+/* Flags for mapname */
+#define      MAP_READWRITE  0   /* Named file to be read and written         */
+#define	     MAP_READONLY   1   /* Named file to be read only                */
+X
+/* Flags for modify_acl */
+#define	     MACL_NOSYSTEM   0x01
+#define      MACL_NOSELF     0x02
+#define      MACL_DEFAULT    0x08
+#define      MACL_SET        0x0C
+#define      MACL_INSERT     0x14
+#define      MACL_DELETE     0x10
+#define      MACL_ADD        0x1C
+#define      MACL_SUBTRACT   0x18
+#define      MACL_LINK       0x00
+#define      MACL_DIRECTORY  0x20
+#define      MACL_OBJECT     0x60
+#define      MACL_INCLUDE    0x40
+X
+#define      MACL_OP    (MACL_DEFAULT|MACL_SET|MACL_INSERT|\
+X			 MACL_DELETE|MACL_ADD|MACL_SUBTRACT)
+X
+#define      MACL_OTYPE (MACL_LINK|MACL_DIRECTORY|MACL_OBJECT|MACL_INCLUDE)
+X
+/* Flags for dsrdir */
+#define DSRD_ATTRIBUTES                      0x1 /* Fill in attributes for links */
+X
+/* Access methods returned by Pget_am */
+#define P_AM_ERROR			0
+#define P_AM_FTP			1
+#define P_AM_AFTP			2  /* Anonymous FTP  */
+#define P_AM_NFS			4
+#define P_AM_KNFS			8  /* Kerberized NFS */
+#define P_AM_AFS		       16
+X
+/* Return codes */
+X
+#define		PSUCCESS	0
+#define		PFAILURE	255
+X
+/* Hush up warnings.  */
+void vllfree();
+X
+/* Procedures in libpfs.a */
+X
+char *pget_wdhost(), *pget_wdfile(), *pget_wd(), *pget_hdhost();
+char *pget_hdfile(), *pget_hd(), *pget_rdhost(), *pget_rdfile();
+char *pget_dhost(), *pget_dfile(), *pget_vsname(), *nlsindex();
+char *sindex(), *nxtline(), *unquote(), *stcopy();
+char *stcopyr(), *readheader(), *month_sname();
+X
+long		asntotime();
+void		procquery();
+X
+PTEXT		ptalloc();
+PTEXT		dirsend();
+void		ptfree();
+void		ptlfree();
+X
+PREQ		pralloc();
+PREQ		get_next_request();
+X
+VLINK		rd_slink();
+VLINK		rd_vlink();
+VLINK		vl_delete();
+VLINK		vlalloc();
+VLINK		vlcopy();
+void		vlfree();
+X
+PFILE		pfalloc();
+X
+PATTRIB         parse_attribute();
+PATTRIB         atalloc();
+PATTRIB 	pget_at();
+void		atfree();
+void		atlfree();
+X
+ACL             acalloc();
+ACL             get_acl();
+X
+void		stfree();
+X
+/* Miscellaneous useful definitions */
+#ifndef TRUE
+#define TRUE		1
+#define FALSE		0
+#endif
+X
+#define AUTHORIZED      1
+#define NOT_AUTHORIZED  0
+#define NEG_AUTHORIZED  -1
+X
+#ifndef NULL
+#define NULL		0
+#endif
+X
+#define FAILED		-1
+X
+#endif /* PFS_H */
+SHAR_EOF
+echo 'File xarchie-2.0.6/pfs.h is complete' &&
+chmod 0644 xarchie-2.0.6/pfs.h ||
+echo 'restore of xarchie-2.0.6/pfs.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/pfs.h'`"
+test 14346 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/pfs.h: original size 14346, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/pmachine.h ==============
+if test -f 'xarchie-2.0.6/pmachine.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/pmachine.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/pmachine.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/pmachine.h' &&
+/*
+X * This is where we drop in the various dependencies for different systems.
+X * Someday this might be remotely complete.
+X *
+X * I kept the name pmachine.h because it was already in all of the files...this
+X * barely resembles the pmachine.h that comes with the real Prospero, though.
+X *
+X * $Revision: 1.12 $
+X * gf 23 Nov 1992 : Added section for defining malloc() & co.
+X */
+X
+#ifdef u3b2
+# define USG
+# define NOREGEX
+# define MAXPATHLEN 1024       /* There's no maxpathlen in any 3b2 .h file.  */
+#endif
+X
+#ifdef m88k
+#define MAXPATHLEN 1024
+#endif
+X
+#ifdef hpux
+# ifndef bcopy
+#  define FUNCS			/* HP/UX 8.0 has the fns.  */
+# endif
+# define NOREGEX
+# define NEED_STRING_H
+#endif
+X
+/* These are required for a Sequent running Dynix/PTX, their SysV variant.
+X   Archie builds fine untouched on a system running their BSD-based OS.  */
+#ifdef _SEQUENT_
+# define NOREGEX
+# define USG
+#endif
+X
+#if defined(USG) || defined(SYSV)
+# define FUNCS
+#endif
+X
+#ifdef SOLARIS2
+#define FUNCS
+#define NOREGEX
+#define NEED_STRING_H
+#endif
+X
+#ifdef ISC
+# define FUNCS
+# define STRSPN
+# define NOREGEX
+#endif
+X
+#ifdef PCNFS
+# define FUNCS
+# define NEED_STRING_H
+#ifndef MSDOS
+# define MSDOS
+#endif
+#endif
+X
+#ifdef CUTCP
+# define FUNCS
+# define NOREGEX
+# define NEED_STRING_H
+# define SELECTARG int
+# ifndef MSDOS
+#  define MSDOS
+# endif
+#endif
+X
+#ifdef _AUX_SOURCE
+# define AUX
+# define NOREGEX
+# define NBBY 8	/* Number of bits in a byte.  */
+typedef long Fd_mask;
+# define NFDBITS (sizeof(Fd_mask) * NBBY)	/* bits per mask */
+#endif
+X
+#ifdef OS2
+# define NOREGEX
+# include <pctcp.h>
+#endif
+#ifdef MSDOS
+# define USG
+# define NOREGEX
+# include <string.h>
+# include <stdlib.h>
+#endif
+X
+#ifdef _AIX
+# ifdef u370
+#  define FUNCS
+# endif /* AIX/370 */
+# define _NONSTD_TYPES
+# define _BSD_INCLUDES
+# define NEED_STRING_H
+# define NEED_SELECT_H
+# define NEED_TIME_H
+#endif
+X
+/* General problems.  */
+X
+#ifdef FUNCS
+# define index		strchr
+/* According to mycroft@gnu.ai.mit.edu. */
+# ifdef _IBMR2
+char *strchr();
+# endif
+# define rindex		strrchr
+# ifndef _AUX_SOURCE
+#  define bcopy(a,b,n)	memcpy(b,a,n)
+#  define bzero(a,n)	memset(a,0,n)
+# ifdef _IBMR2
+char *memset();
+# endif
+# endif
+#endif
+X
+#if defined(_IBMR2) || defined(_BULL_SOURCE)
+# define NEED_SELECT_H
+#endif
+#if defined(USG) || defined(UTS)
+# define NEED_STRING_H
+#endif
+#if defined(USG) || defined(UTS) || defined(_AUX_SOURCE)
+# define NEED_TIME_H
+# ifdef UTS
+#  define WANT_BOTH_TIME
+# endif
+#endif
+X
+#ifdef VMS
+/* Get the system status stuff.  */
+# include <ssdef.h>
+#endif /* VMS */
+X
+/*
+X * FD_SET: lib/pfs/dirsend.c, user/vget/ftp.c
+X */
+#ifndef CUTCP
+X
+#define SELECTARG fd_set
+#if !defined(FD_SET) && !defined(VMS) && !defined(NEED_SELECT_H)
+#define	FD_SETSIZE	32
+#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+#undef FD_ZERO
+#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+#endif
+X
+#endif /* not CUTCP */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/pmachine.h ||
+echo 'restore of xarchie-2.0.6/pmachine.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/pmachine.h'`"
+test 3020 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/pmachine.h: original size 3020, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/popups.c ==============
+if test -f 'xarchie-2.0.6/popups.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/popups.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/popups.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/popups.c' &&
+/*
+X * popups.c : Generic blocking popup routines
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Dialog.h>
+extern Widget toplevel;		/* this is the only external */
+X
+/*
+X * Functions defined here:
+X */
+Widget createPopup();				/* Generic popup routines */
+void setPopupLabel();
+void popupMainLoop();
+void popupDone();				/* Call this when done */
+X
+static void centerWidgetAndMouse();
+X
+/*
+X * Data defined here:
+X */
+static int popupIsDone;
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+Widget
+createPopup(basename,num_buttons,callback)
+char *basename;
+int num_buttons;
+XXtCallbackProc callback;
+{
+X    Widget shell,dialog;
+X    char name[256];
+X    int i;
+X
+X    sprintf(name,"%sShell",basename);
+X    shell = XtCreatePopupShell(name,transientShellWidgetClass,toplevel,NULL,0);
+X    sprintf(name,"%sDialog",basename);
+X    dialog = XtCreateManagedWidget(name,dialogWidgetClass,shell,NULL,0);
+X    for (i=0; i < num_buttons; i++) {
+X	sprintf(name,"%sButton%d",basename,i);
+X	XawDialogAddButton(dialog,name,callback,(XtPointer)i);
+X    }
+X    XtRealizeWidget(shell);
+X    return(shell);
+}
+X
+void
+setPopupLabel(w,basename,str)
+Widget w;
+char *basename,*str;
+{
+X    char name[256];
+X    Widget dialog;
+X    Arg args[1];
+X
+X    sprintf(name,"%sDialog",basename);
+X    dialog = XtNameToWidget(w,name);
+X    XtSetArg(args[0],XtNlabel,str);
+X    XtSetValues(dialog,args,1);
+}
+X
+/*
+X * Popup "shell" with an exclusive grab, then dispatch events until
+X * popupDone becomes True, then pop "shell" down.
+X */
+void
+popupMainLoop(shell)
+Widget shell;
+{
+X    /* Go synchronous or the widgets don't resize properly */
+X    XSynchronize(XtDisplay(toplevel),True);
+X    /* Center the popup */
+X    centerWidgetAndMouse(shell,toplevel,shell);
+X    /* Beep */
+X    XBell(XtDisplay(toplevel),0);
+X    /* Pop it up and block until one of the buttons is clicked */
+X    popupIsDone = 0;
+X    XtPopup(shell,XtGrabExclusive);
+X    while (!popupIsDone) {
+X	/*
+X	 * Only dispatch XEvents since we don't want input events or
+X	 * timers to get in the way
+X	 */
+X	XtAppProcessEvent(XtWidgetToApplicationContext(toplevel),XtIMXEvent);
+X    }
+X    /* Okay, pop it down */
+X    XtPopdown(shell);
+#ifndef DEBUG
+X    /* Back to normal */
+X    XSynchronize(XtDisplay(toplevel),False);
+#endif
+}
+X
+void
+popupDone()
+{
+X    popupIsDone = 1;
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Center widget "widget" inside widget "pwidget" and warp mouse to middle
+X * of "mwidget".
+X */
+static void
+centerWidgetAndMouse(widget,pwidget,mwidget)
+Widget widget,pwidget,mwidget;
+{
+X    Arg args[2];
+X    Window rwin,child;
+X    int x,y,px,py;
+X    unsigned int w,h,pw,ph,bw,d;
+X
+X    /* Get child size */
+X    XGetGeometry(XtDisplay(widget),XtWindow(widget),
+X		 &rwin,&x,&y,&w,&h,&bw,&d);
+X    /* Get parent size, position */
+X    XGetGeometry(XtDisplay(pwidget),XtWindow(pwidget),
+X		 &rwin,&px,&py,&pw,&ph,&bw,&d);
+X    /* Need position in root window coords, don't ask me why */
+X    XTranslateCoordinates(XtDisplay(widget),XtWindow(pwidget),rwin,
+X			  px,py,&x,&y,&child);
+X    px = x;
+X    py = y;
+X    /* Compute child position */
+X    x = px + pw/2 - w/2;
+X    if (x < 0)
+X	x = 0;
+X    else if (x > WidthOfScreen(XtScreen(widget))-w)
+X	x = WidthOfScreen(XtScreen(widget))-w;
+X    y = py + ph/2 - h/2;
+X    if (y < 0)
+X	y = 0;
+X    else if (y > HeightOfScreen(XtScreen(widget))-h)
+X	y = WidthOfScreen(XtScreen(widget))-h;
+X    /* Set child position */
+X    XtSetArg(args[0],XtNx,x);
+X    XtSetArg(args[1],XtNy,y);
+X    XtSetValues(widget,args,2);
+X    /* Get dest size, position */
+X    XGetGeometry(XtDisplay(mwidget),XtWindow(mwidget),
+X		 &rwin,&x,&y,&w,&h,&bw,&d);
+X    /* Move mouse there */
+X    XWarpPointer(XtDisplay(mwidget),None,XtWindow(mwidget),
+X		 0,0,0,0,w/2,h/2);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/popups.c ||
+echo 'restore of xarchie-2.0.6/popups.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/popups.c'`"
+test 3747 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/popups.c: original size 3747, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/popups.h ==============
+if test -f 'xarchie-2.0.6/popups.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/popups.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/popups.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/popups.h' &&
+/*
+X * popups.h : External defs for alert, confirm, and dialog boxes
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef POPUPS_H
+#define POPUPS_H
+X
+extern Widget createPopup();			/* Generic popup routines */
+extern void setPopupLabel();
+extern void popupMainLoop();
+extern void popupDone();			/* Call this when done */
+X
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/popups.h ||
+echo 'restore of xarchie-2.0.6/popups.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/popups.h'`"
+test 350 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/popups.h: original size 350, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/pprot.h ==============
+if test -f 'xarchie-2.0.6/pprot.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/pprot.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/pprot.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/pprot.h' &&
+/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+#include <copyright.h>
+X
+#ifndef MAXPATHLEN
+# ifdef VMS
+#  define MAXPATHLEN 32
+# else /* not VMS */
+#  if defined(MSDOS) && !defined(OS2)
+#   define MAXPATHLEN 255
+#  else /* not MSDOS */
+#   ifdef ISC
+#    define MAXPATHLEN 512
+#   else /* not Interactive..normal! (gasp) */
+#    include <sys/param.h>
+#   endif /* ISC */
+#  endif /* MSDOS && !OS2 */
+# endif /* VMS */
+#endif
+X
+/* Protocol Definitions */
+X
+#define	       VFPROT_VNO	1      /* Protocol Version Number           */
+X
+#define	       DIRSRV_PORT      1525   /* Server port used if not in srvtab */
+#define        PROSPERO_PORT	191    /* Officially assigned prived port   */
+#define	       PROS_FIRST_PRIVP 901    /* First privileged port to try      */
+#define        PROS_NUM_PRIVP   20     /* Number of privileged ports to try */
+X
+#define	       MAXPKT	        1024   /* Max size of response from server  */
+#define	       SEQ_SIZE		32     /* Max size of sequence text in resp */ 
+#define	       MAX_DIR_LINESIZE 160+MAXPATHLEN /* Max linesize in directory */
+X
+#define	       MAX_FWD_DEPTH    20     /* Max fwd pointers to follow        */
+X
+#define S_AD_SZ		sizeof(struct sockaddr_in)
+X
+/* Replacement for strtok that doesn't keep state.  Both the variable  */
+/* S and the variable S_next must be defined.  To initialize, assign   */
+/* the string to be stepped through to S_next, then call get_token on  */
+/* S.  The first token will be in S, and S_next will point to the next */
+/* token.  Like strtok, this macro does modify the string passed to it */
+#ifdef __GNUC__
+#define get_token(S,C) \
+X  do { \
+X    S = S##_next; \
+X    if(S) { \
+X     while(*S == C) S++; \
+X     S##_next = index(S,C); \
+X     if(S##_next) *(S##_next++) = '\0'; \
+X     if(!*S) S = NULL; \
+X    } \
+X  } while (0)
+#else
+#define get_token(S,C) \
+X    S = S/**/_next; \
+X  do { \
+X    if(S) { \
+X     while(*S == C) S++; \
+X     S/**/_next = index(S,C); \
+X     if(S/**/_next) *(S/**/_next++) = '\0'; \
+X     if(!*S) S = NULL; \
+X    } \
+X  } while (0)
+#endif /* __GNUC__ */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/pprot.h ||
+echo 'restore of xarchie-2.0.6/pprot.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/pprot.h'`"
+test 2159 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/pprot.h: original size 2159, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/ptalloc.c ==============
+if test -f 'xarchie-2.0.6/ptalloc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/ptalloc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/ptalloc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/ptalloc.c' &&
+/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X * v1.3.2 - bpk - for Archie client 1.3.2, except gf ZERO->BZERO
+X * v1.1.2 - gf  11/02/91 - renamed ZERO() to BZERO() for X
+X */
+X
+#include <copyright.h>
+#include <stdio.h>
+X
+#include <pfs.h>
+#include "config.h"	/* gf */
+#include "stringdefs.h"	/* for correct definition of bzero used by BZERO */
+#ifdef MSDOS
+# define free _pfree   /* otherwise we get conflicts with free() */
+#endif
+X
+static PTEXT	free = NULL;
+int 		ptext_count = 0;
+int		ptext_max = 0;
+X
+/*
+X * ptalloc - allocate and initialize ptext structure
+X *
+X *    PTALLOC returns a pointer to an initialized structure of type
+X *    PTEXT.  If it is unable to allocate such a structure, it
+X *    returns NULL.
+X */
+PTEXT
+ptalloc()
+X    {
+X	PTEXT	vt;
+X	if(free) {
+X	    vt = free;
+X	    free = free->next;
+X	}
+X	else {
+X	    vt = (PTEXT) malloc(sizeof(PTEXT_ST));
+X	    if (!vt) return(NULL);
+X	    ptext_max++;
+X	}
+X	ptext_count++;
+X
+X	/* nearly all parts are 0 [or NULL] */
+X	BZERO(vt);
+X	/* The offset is to leave room for additional headers */
+X	vt->start = vt->dat + MAX_PTXT_HDR;
+X
+X	return(vt);
+X    }
+X
+/*
+X * ptfree - free a VTEXT structure
+X *
+X *    VTFREE takes a pointer to a VTEXT structure and adds it to
+X *    the free list for later reuse.
+X */
+void
+ptfree(vt)
+X    PTEXT	vt;
+X    {
+X	vt->next = free;
+X	vt->previous = NULL;
+X	free = vt;
+X	ptext_count--;
+X    }
+X
+/*
+X * ptlfree - free a VTEXT structure
+X *
+X *    VTLFREE takes a pointer to a VTEXT structure frees it and any linked
+X *    VTEXT structures.  It is used to free an entrie list of VTEXT
+X *    structures.
+X */
+void
+ptlfree(vt)
+X    PTEXT	vt;
+X    {
+X	PTEXT	nxt;
+X
+X	while(vt != NULL) {
+X	    nxt = vt->next;
+X	    ptfree(vt);
+X	    vt = nxt;
+X	}
+X    }
+X
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/ptalloc.c ||
+echo 'restore of xarchie-2.0.6/ptalloc.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/ptalloc.c'`"
+test 1798 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/ptalloc.c: original size 1798, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/query.c ==============
+if test -f 'xarchie-2.0.6/query.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/query.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/query.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/query.c' &&
+/*
+X * query.c : Programmatic Prospero interface to Archie
+X *
+X * Copyright (c) 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X * Originally part of the Prospero Archie client by Clifford 
+X * Neuman (bcn@isi.edu).  Modifications, addition of programmatic interface,
+X * and new sorting code by George Ferguson (ferguson@cs.rochester.edu) 
+X * and Brendan Kehoe (brendan@cs.widener.edu).
+X *
+X * v2.0   - 04/23/93 (gf)  - for xarchie 2.0 - and now we part company...
+X * v1.3.2 - bpk - for Archie client 1.3.2
+X * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+X * v1.1.3 - 08/30/91 (bpk) - cast index()
+X * v1.1.2 - 08/20/91 (bcn) - make it do it properly (new invdatecmplink)
+X * v1.1.1 - 08/20/91 (bpk) - made sorting go inverted as we purport it does
+X */
+#include <copyright.h>
+#include <stdio.h>
+#include <pfs.h>
+#include <perrno.h>
+#include <archie.h>
+X
+#include "config.h"
+#ifdef TM_IN_SYS_TIME
+# include <sys/time.h>
+#else
+# include <time.h>
+#endif
+#include "stringdefs.h"
+#include "xtypes.h"
+#include "db.h"
+#include "appres.h"
+#include "browser.h"
+#include "alert.h"
+#include "status.h"
+#include "debug.h"
+extern DbEntry *db;
+X
+/* These are in dirsend.c */
+extern int client_dirsrv_timeout,client_dirsrv_retry,rdgram_priority;
+X
+/* Functions defined here: */
+void queryItemAndParse(),queryHostAndParse(),queryLocationAndParse();
+VLINK stringQuery();
+int parseArchieQueryResults(), parseStringQueryResults();
+int handleProsperoErrors();
+X
+static void doQueryAndParse();
+static void parseHostAndFilename(), parseAttributes();
+X
+/* Data defined here */
+int pfs_debug;
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Main function to call to process a query from the user.
+X */
+void
+queryItemAndParse(query)
+char *query;
+{
+X    char qstring[MAX_VPATH];
+X
+X    DEBUG1("queryItemAndParse: \"%s\"\n",query);
+X    sprintf(qstring,"ARCHIE/MATCH(%d,%d,%c)/%s",
+X	    appResources.maxHits,appResources.offset,appResources.searchType,
+X	    query);
+X    doQueryAndParse(qstring);
+X    DEBUG0("queryItemAndParse: done\n");
+}
+X
+/*
+X * Main function to open a host specified by the user.
+X */
+void
+queryHostAndParse(hostname)
+char *hostname;
+{
+X    char qstring[MAX_VPATH];
+X
+X    DEBUG1("queryHostAndParse: \"%s\"\n",hostname);
+X    sprintf(qstring,"ARCHIE/HOST/%s",hostname);
+X    doQueryAndParse(qstring);
+X    DEBUG0("queryHostAndParse: done\n");
+}
+X
+/*
+X * Main function to open a host specified by the user.
+X */
+void
+queryLocationAndParse(hostname,location)
+char *hostname,*location;
+{
+X    char qstring[MAX_VPATH];
+X
+X    DEBUG2("queryLocationAndParse: \"%s:%s\"\n",hostname,location);
+X    sprintf(qstring,"ARCHIE/HOST/%s%s",hostname,location);
+X    doQueryAndParse(qstring);
+X    DEBUG0("queryLocationAndParse: done\n");
+}
+X
+/*
+X * Used by both query functions to send the string to Archie and interpret
+X * the results into the browser.
+X */
+static void
+doQueryAndParse(str)
+char *str;
+{
+X    VLINK links;
+X    int num;
+X
+X    /* Send the query to Archie */
+X    DEBUG1("doQueryAndParse: \"%s\"\n",str);
+X    DEBUG0("calling stringQuery...\n");
+X    links = stringQuery(appResources.archieHost,str);
+X    DEBUG0("calling handleProsperoErrors...\n");
+X    (void)handleProsperoErrors();
+X    /* If we aborted or had an error, then don't clear the db */
+X    if (links == NULL ) {
+X	/* Wasn't an error... */
+X	if (perrno == PSUCCESS)
+X	    status0("No matches -- Ready.");
+X	return;
+X    }
+X    /* Reset browser to leftmost position */
+X    resetBrowser();
+X    /* Empty (and free) previous contents of database */
+X    clearEntries(db);
+X    /* Process the results into the database */
+X    status0("Parsing...");
+X    DEBUG0("calling parseArchieQueryResults\n");
+X    switch(appResources.sortType) {
+X	case GfName:
+X	    num = parseArchieQueryResults(db,links,cmpEntryNames);
+X	    break;
+X	case GfDate:
+X	    num = parseArchieQueryResults(db,links,cmpEntryDates);
+X	    break;
+X	case GfWeight:
+X	    num = parseArchieQueryResults(db,links,cmpEntryWeights);
+X	    break;
+X    }
+X    /* Display results in browser */
+X    DEBUG0("calling displayEntries\n");
+X    displayEntries(db,0);
+X    status1("Found %d matches -- Ready",(char *)num);
+X    DEBUG0("doQueryAndParse: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Returns an unsorted, untranslated list of vlinks for string from host.
+X */
+VLINK
+stringQuery(host,string)
+char *host,*string;
+{
+X    VLINK links;		/* Matches returned by server */
+X    VDIR_ST dir_st;		/* Filled in by get_vdir      */
+X    PVDIR dir = &dir_st;
+X    VLINK p,nextp,r;
+X    int	tmp;
+X    
+X    /* initialize Prospero globals from appResources */
+X    pfs_debug = appResources.debugLevel;
+X    rdgram_priority = appResources.niceLevel;
+X    client_dirsrv_timeout = appResources.timeout;
+X    client_dirsrv_retry = appResources.retries;
+X
+X    /* Initialize Prospero structures */
+X    perrno = PSUCCESS; *p_err_string = '\0';
+X    pwarn = PNOWARN; *p_warn_string = '\0';
+X    vdir_init(dir);
+X    
+X    /* Retrieve the list of matches, return error if there was one */
+#if defined(MSDOS)
+X    if ((tmp=get_vdir(host,string,"",dir,
+X		      (long)GVD_ATTRIB|GVD_NOSORT,NULL,NULL)) != 0) {
+#else
+X    if ((tmp=get_vdir(host,string,"",dir,
+X		      GVD_ATTRIB|GVD_NOSORT,NULL,NULL)) != 0) {
+# endif
+X	perrno = tmp;
+X	return(NULL);
+X    }
+X    
+X    /* Save the links, and clear in dir in case it's used again   */
+X    links = dir->links; dir->links = NULL;
+X    
+X    /* As returned, list is sorted by suffix, and conflicting     */
+X    /* suffixes appear on a list of "replicas".  We want to       */
+X    /* create a one-dimensional list sorted by host then filename */
+X    /* and maybe by some other parameter                          */
+X    
+X    /* First flatten the doubly-linked list */
+X    for (p = links; p != NULL; p = nextp) {
+X	nextp = p->next;
+X	if (p->replicas != NULL) {
+X	    p->next = p->replicas;
+X	    p->next->previous = p;
+X	    for (r = p->replicas; r->next != NULL; r = r->next)
+X		/*EMPTY*/ ;
+X	    r->next = nextp;
+X	    nextp->previous = r;
+X	    p->replicas = NULL;
+X	}
+X    }
+X    perrno = PSUCCESS;
+X    return(links);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Here take the list of untranslated unsorted links and put them into the
+X * database, translating and sorting as needed. The entries are added to
+X * make a host-location-file hierarchy as appropriate for the top of the
+X * database query for a query. Returns number of entries returned from query.
+X * This routine is also used by the routine that reloads a database.
+X */
+int
+parseArchieQueryResults(parent,links,cmp_proc)
+DbEntry *parent;
+VLINK links;
+int (*cmp_proc)();
+{
+X    VLINK vl;
+X    DbEntry *firstHost,*firstLoc;
+X    DbEntry *thisHost,*thisLoc,*thisFile;
+X    char hostname[MAX_VPATH],location[MAX_VPATH],filename[MAX_VPATH];
+X    int type;
+#ifdef MSDOS
+X    unsigned long size;
+#else
+X    int size;
+#endif
+X    char *modes,*gt_date,*archie_date;
+X    int num;
+X
+X    DEBUG0("parseArchieQueryResults: parsing links...\n");
+X    num = 0;
+X    firstHost = firstLoc = NULL;
+X    for (vl=links; vl != NULL; vl = vl->next) {
+X	parseHostAndFilename(vl,hostname,location,filename);
+X	parseAttributes(vl,&type,&size,&modes,&archie_date,&gt_date);
+X	if (firstHost == NULL) {
+X	    firstHost = thisHost = addEntry(parent,NULL);
+X	    firstLoc = thisLoc = addEntry(firstHost,NULL);
+X	    thisFile = addEntry(firstLoc,NULL);
+X	} else {
+X	    if ((thisHost=findEntryFromString(parent,hostname)) == NULL)
+X		thisHost = addEntry(parent,NULL);
+X	    if ((thisLoc=findEntryFromString(thisHost,location)) == NULL)
+X		thisLoc = addEntry(thisHost,NULL);
+X	    thisFile = addEntry(thisLoc,NULL);
+X	}
+X	setEntryData(thisHost,hostname,DB_HOST,0,"","","",NULL);
+X	setEntryData(thisLoc,location,DB_LOCATION,0,"","","",NULL);
+X	setEntryData(thisFile,filename,type,size,modes,archie_date,gt_date,vl);
+X	num += 1;
+X    }
+X    DEBUG0("parseArchieQueryResults: sorting entries...\n");
+X    sortEntriesRecursively(parent,cmp_proc);
+X    DEBUG1("parseArchieQueryResults: returning %d matches\n",num);
+X    return(num);
+}
+X
+/*
+X * Like parseArchieQueryresults(), but all the entries for the links are
+X * added as immediate children of parent, rather than a three-level tree.
+X * This is used to expand the browser below some item.
+X */
+int
+parseStringQueryResults(parent,links,cmp_proc)
+DbEntry *parent;
+VLINK links;
+int (*cmp_proc)();
+{
+X    VLINK vl;
+X    DbEntry *dbp;
+X    char hostname[MAX_VPATH],location[MAX_VPATH],filename[MAX_VPATH];
+X    int type,size;
+X    char *modes,*gt_date,*archie_date;
+X    int num;
+X
+X    DEBUG0("parseStringQueryResults: parsing links...\n");
+X    num = 0;
+X    for (vl=links; vl != NULL; vl = vl->next) {
+X	parseHostAndFilename(vl,hostname,location,filename);
+X	parseAttributes(vl,&type,&size,&modes,&archie_date,&gt_date);
+X	dbp = addEntry(parent,NULL);
+X	setEntryData(dbp,filename,type,size,modes,archie_date,gt_date,vl);
+X	num += 1;
+X    }
+X    DEBUG0("parseStringQueryResults: sortign entries...\n");
+X    sortEntriesRecursively(parent,cmp_proc);
+X    DEBUG1("parseStringQueryResults: returning %d matches\n",num);
+X    return(num);
+}
+X    
+/*
+X * Fills in hostname, location, and filename with the appropriately-translated
+X * and adjusted information from the link vl.
+X */
+static void
+parseHostAndFilename(vl,hostname,location,filename)
+VLINK vl;
+char *hostname,*location,*filename;
+{
+X    char *slash;
+X
+X    DEBUG3(" input:host=\"%s\"\n       filename=\"%s\"\n       name=\"%s\"\n",
+X	   vl->host,vl->filename,vl->name);
+X    /* If the link is for an Archie pseudo-directory, adjust names. */
+X    if (strcmp(vl->type,"DIRECTORY") == 0 &&
+X	strncmp(vl->filename,"ARCHIE/HOST",11) == 0) {
+X	strcpy(hostname,vl->filename+12);
+X	slash = index(hostname,'/');
+X	if (slash != NULL) {
+X	    strcpy(filename,slash);
+X	    *slash = '\0';
+X	} else
+X	    strcpy(filename,"/");
+X    } else {
+X	/* else just use the names as is */
+X	strcpy(hostname,vl->host);
+X	strcpy(filename,vl->filename);
+X    }
+X    /* The "location" is the leading part of the pathname */
+X    strcpy(location,filename);
+X    slash = rindex(location,'/');
+X    /* If filename ends with slash, try going back one more slash */
+X    if (slash && *(slash+1) == '\0')
+X	slash = (char *)rindex(slash,'/');
+X    if (slash) {
+X	strcpy(filename,slash+1);
+X	*slash = '\0';
+X    } else
+X	strcpy(location,"/");
+X    /* If filename was /foo, then we need to leave the slash there */
+X    if (*location == '\0')
+X	strcpy(location,"/");
+X    DEBUG3(" output:host=\"%s\"\n        location=\"%s\"\n        filename=\"%s\"\n",
+X	   hostname,location,filename);
+}
+X
+/*
+X * Fills in *sizep, *modesp, and archie_date with the information in the
+X * attribute list of the link vl.
+X */
+static void
+parseAttributes(vl,typep,sizep,modesp,archie_datep,gt_datep)
+VLINK vl;
+int *typep;
+#ifdef MSDOS
+unsigned long *sizep;
+#else
+int *sizep;
+#endif
+char **modesp,**archie_datep,**gt_datep;
+{
+X    static char date[64];
+X    PATTRIB ap;
+X    int  gt_year,gt_mon,gt_day,gt_hour,gt_min;
+X    struct tm *presenttime;
+X    long now;
+X
+X    (void)time(&now);
+X    presenttime = localtime(&now);
+X    if (strcmp(vl->type,"DIRECTORY") == 0) {
+X	*typep = DB_DIRECTORY;
+X    } else {
+X	*typep = DB_FILE;
+X    }
+X    *sizep = 0;
+X    *modesp = "";
+X    *archie_datep = "";
+X    *gt_datep = "";
+X    gt_year = gt_mon = gt_day = gt_hour = gt_min = 0;
+X    for (ap = vl->lattrib; ap; ap = ap->next) {
+X	if (strcmp(ap->aname,"SIZE") == 0) {
+#ifdef MSDOS
+X	    sscanf(ap->value.ascii,"%lu",sizep);
+#else
+X	    sscanf(ap->value.ascii,"%d",sizep);
+#endif
+X	} else if(strcmp(ap->aname,"UNIX-MODES") == 0) {
+X	    *modesp = ap->value.ascii;
+X	} else if(strcmp(ap->aname,"LAST-MODIFIED") == 0) {
+X	    *gt_datep = ap->value.ascii;
+X	    sscanf(*gt_datep,"%4d%2d%2d%2d%2d",&gt_year,
+X		   &gt_mon, &gt_day, &gt_hour, &gt_min);
+X	    if ((12 * (presenttime->tm_year + 1900 - gt_year) +
+X		 presenttime->tm_mon - gt_mon) > 6)
+X		sprintf(date,"%s %2d %4d",month_sname(gt_mon),
+X			gt_day, gt_year);
+X	    else
+X		sprintf(date,"%s %2d %02d:%02d",month_sname(gt_mon),
+X			gt_day, gt_hour, gt_min);
+X	    *archie_datep = date;
+X	}
+X    }
+}
+X
+/*
+X * Pops up alerts depending on perrno and pwarn.
+X * Used in several places after calling Archie.
+X */
+int
+handleProsperoErrors()
+{
+X    int err = 0;
+X
+X    /* Error? */
+X    if (perrno != PSUCCESS) {
+X	if (p_err_text[perrno]) {
+X	  if (*p_err_string)
+X		alert2("Prospero error: %.100s - %.100s",p_err_text[perrno],
+X			p_err_string);
+X	  else
+X		alert1("Prospero error: %.200s",p_err_text[perrno]);
+X	} else
+X	    alert1("Prospero error: Undefined error %d (prospero)",(char*)perrno);
+X	err = 1;
+X    }
+X    /* Warning? */
+X    if (pwarn != PNOWARN) {
+X        if (*p_warn_string)
+X            alert2("Prospero warning: %.100s - %.100s",
+X                   p_warn_text[pwarn], p_warn_string);
+X        else
+X            alert1("Prospero warning: %.200s",p_warn_text[pwarn]);
+X        status0("Ready");
+X    }
+X    return(err);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/query.c ||
+echo 'restore of xarchie-2.0.6/query.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/query.c'`"
+test 12690 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/query.c: original size 12690, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/query.h ==============
+if test -f 'xarchie-2.0.6/query.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/query.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/query.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/query.h' &&
+/*
+X * query.h : Interface routines to Prospero querying
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#include "pfs.h"
+X
+extern void queryItemAndParse(),queryHostAndParse(),queryLocationAndParse();
+extern VLINK stringQuery();
+extern int parseArchieQueryResults(), parseStringQueryResults();
+extern int handleProsperoErrors();
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/query.h ||
+echo 'restore of xarchie-2.0.6/query.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/query.h'`"
+test 347 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/query.h: original size 347, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/rdgram.h ==============
+if test -f 'xarchie-2.0.6/rdgram.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/rdgram.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/rdgram.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/rdgram.h' &&
+/*
+X * Copyright (c) 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+#include <copyright.h>
+X
+/* Queuing priorities for datagrams */
+#define	       RDGRAM_MAX_PRI   32765  /* Maximum user proiority          */
+#define	       RDGRAM_MAX_SPRI  32767  /* Maximum priority for system use */
+#define	       RDGRAM_MIN_PRI  -32765  /* Maximum user proiority          */
+#define	       RDGRAM_MIN_SPRI -32768  /* Maximum priority for system use */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/rdgram.h ||
+echo 'restore of xarchie-2.0.6/rdgram.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/rdgram.h'`"
+test 519 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/rdgram.h: original size 519, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/regex.c ==============
+if test -f 'xarchie-2.0.6/regex.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/regex.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/regex.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/regex.c' &&
+/*
+X * These routines are BSD regex(3)/ed(1) compatible regular-expression
+X * routines written by Ozan S. Yigit, Computer Science, York University.
+X * Parts of the code that are not needed by Prospero have been removed,
+X * but most of the accompanying information has been left intact. 
+X * This file is to be included on those operating systems that do not
+X * support re_comp and re_exec.
+X */
+X
+/*
+X * regex - Regular expression pattern matching
+X *         and replacement
+X *
+X * by:  Ozan S. Yigit (oz@nexus.yorku.ca)
+X *	Dept. of Computing Services
+X *      York University
+X *
+X * These routines are the PUBLIC DOMAIN equivalents 
+X * of regex routines as found in 4.nBSD UN*X, with minor
+X * extensions.
+X *
+X * Modification history:
+X *
+X * Log:	regex.c,v
+X * Revision 1.3  89/04/01  14:18:09  oz
+X * Change all references to a dfa: this is actually an nfa.
+X * 
+X * Revision 1.2  88/08/28  15:36:04  oz
+X * Use a complement bitmap to represent NCL.
+X * This removes the need to have seperate 
+X * code in the pmatch case block - it is 
+X * just CCL code now.
+X * 
+X * Use the actual CCL code in the CLO
+X * section of pmatch. No need for a recursive
+X * pmatch call.
+X * 
+X * Use a bitmap table to set char bits in an
+X * 8-bit chunk.
+X * 
+X * Routines:
+X *      re_comp:        compile a regular expression into
+X *                      a NFA.
+X *
+X *			char *re_comp(s)
+X *			char *s;
+X *
+X *      re_exec:        execute the NFA to match a pattern.
+X *
+X *			int re_exec(s)
+X *			char *s;
+X *
+X * Regular Expressions:
+X *
+X *      [1]     char    matches itself, unless it is a special
+X *                      character (metachar): . \ [ ] * + ^ $
+X *
+X *      [2]     .       matches any character.
+X *
+X *      [3]     \       matches the character following it, except
+X *			when followed by a left or right round bracket,
+X *			a digit 1 to 9 or a left or right angle bracket. 
+X *			(see [7], [8] and [9])
+X *			It is used as an escape character for all 
+X *			other meta-characters, and itself. When used
+X *			in a set ([4]), it is treated as an ordinary
+X *			character.
+X *
+X *      [4]     [set]   matches one of the characters in the set.
+X *                      If the first character in the set is "^",
+X *                      it matches a character NOT in the set, i.e. 
+X *			complements the set. A shorthand S-E is 
+X *			used to specify a set of characters S upto 
+X *			E, inclusive. The special characters "]" and 
+X *			"-" have no special meaning if they appear 
+X *			as the first chars in the set.
+X *                      examples:        match:
+X *
+X *                              [a-z]    any lowercase alpha
+X *
+X *                              [^]-]    any char except ] and -
+X *
+X *                              [^A-Z]   any char except uppercase
+X *                                       alpha
+X *
+X *                              [a-zA-Z] any alpha
+X *
+X *      [5]     *       any regular expression form [1] to [4], followed by
+X *                      closure char (*) matches zero or more matches of
+X *                      that form.
+X *
+X *      [6]     +       same as [5], except it matches one or more.
+X *
+X *      [7]             a regular expression in the form [1] to [10], enclosed
+X *                      as \(form\) matches what form matches. The enclosure
+X *                      creates a set of tags, used for [8] and for
+X *                      pattern substution. The tagged forms are numbered
+X *			starting from 1.
+X *
+X *      [8]             a \ followed by a digit 1 to 9 matches whatever a
+X *                      previously tagged regular expression ([7]) matched.
+X *
+X *	[9]	\<	a regular expression starting with a \< construct
+X *		\>	and/or ending with a \> construct, restricts the
+X *			pattern matching to the beginning of a word, and/or
+X *			the end of a word. A word is defined to be a character
+X *			string beginning and/or ending with the characters
+X *			A-Z a-z 0-9 and _. It must also be preceded and/or
+X *			followed by any character outside those mentioned.
+X *
+X *      [10]            a composite regular expression xy where x and y
+X *                      are in the form [1] to [10] matches the longest
+X *                      match of x followed by a match for y.
+X *
+X *      [11]	^	a regular expression starting with a ^ character
+X *		$	and/or ending with a $ character, restricts the
+X *                      pattern matching to the beginning of the line,
+X *                      or the end of line. [anchors] Elsewhere in the
+X *			pattern, ^ and $ are treated as ordinary characters.
+X *
+X *
+X * Acknowledgements:
+X *
+X *	HCR's Hugh Redelmeier has been most helpful in various
+X *	stages of development. He convinced me to include BOW
+X *	and EOW constructs, originally invented by Rob Pike at
+X *	the University of Toronto.
+X *
+X * References:
+X *              Software tools			Kernighan & Plauger
+X *              Software tools in Pascal        Kernighan & Plauger
+X *              Grep [rsx-11 C dist]            David Conroy
+X *		ed - text editor		Un*x Programmer's Manual
+X *		Advanced editing on Un*x	B. W. Kernighan
+X *		regexp routines			Henry Spencer
+X *
+X * Notes:
+X *
+X *	This implementation uses a bit-set representation for character
+X *	classes for speed and compactness. Each character is represented 
+X *	by one bit in a 128-bit block. Thus, CCL always takes a 
+X *	constant 16 bytes in the internal nfa, and re_exec does a single
+X *	bit comparison to locate the character in the set.
+X *
+X * Examples:
+X *
+X *	pattern:	foo*.*
+X *	compile:	CHR f CHR o CLO CHR o END CLO ANY END END
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/regex.c failed'
+fi
+echo 'End of xarchie-2.0.6 part 13'
+echo 'File xarchie-2.0.6/regex.c is continued in part 14'
+echo 14 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

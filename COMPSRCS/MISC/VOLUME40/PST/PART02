@@ -1,0 +1,2226 @@
+Newsgroups: comp.sources.misc
+From: Panos Tsirigotis (panos@cs.colorado.edu)
+Subject: v40i173:  pst - extract text from a postscript file, Part02/06
+Message-ID: <1993Nov26.170637.6397@sparky.sterling.com>
+X-Md4-Signature: fc69f70b650e62f06cbde4110ed57ef4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 26 Nov 1993 17:06:37 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Panos Tsirigotis (panos@cs.colorado.edu)
+Posting-number: Volume 40, Issue 173
+Archive-name: pst/part02
+Environment: BSD, SUNOS, ULTRIX, SYSVR4, SYSVR3, POSIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  libs/src/sio/sio.3 libs/src/sio/sio.c libs/src/sio/sio.h
+#   libs/src/sio/suite/print.c libs/src/str/strs.c
+# Wrapped by kent@sparky on Fri Nov 26 11:02:45 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 6)."'
+if test -f 'libs/src/sio/sio.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/sio.3'\"
+else
+  echo shar: Extracting \"'libs/src/sio/sio.3'\" \(13341 characters\)
+  sed "s/^X//" >'libs/src/sio/sio.3' <<'END_OF_FILE'
+X.\"(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X.\"All rights reserved.  The file named COPYRIGHT specifies the terms 
+X.\"and conditions for redistribution.
+X.\"
+X.\" $Id: sio.3,v 8.2 1993/11/22 19:00:24 panos Exp $
+X.TH SIO 3X "29 May 1992"
+X.SH NAME
+XSread, Sgetc, Srdline, Sfetch, Swrite, Sputc, Sprint, Sprintv, Sdone, Sundo, Stie, Suntie, Sflush, Sclose, Sbuftype, Smorefds, Sgetchar, Sputchar, SIOLINELEN, SIOMAXLINELEN - fast stream I/O
+X.SH SYNOPSIS
+X.LP
+X.nf
+X.ft B
+X#include "sio.h"
+X.LP
+X.ft B
+Xint Sread( fd, buf, nbytes )
+Xint fd ;
+Xchar *buf ;
+Xint nbytes ;
+X.LP
+X.ft B
+Xint Sgetc( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xchar *Srdline( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xchar *Sfetch( fd, length )
+Xint fd ;
+Xlong *length ;
+X.LP
+X.ft B
+Xint Swrite( fd, buf, nbytes )
+Xint fd ;
+Xchar *buf ;
+Xint nbytes ;
+X.LP
+X.ft B
+Xint Sputc( fd, c )
+Xint fd ;
+Xchar c ;
+X.LP
+X.ft B
+Xint Sprint( fd, format [ , ... ] )
+Xint fd ;
+Xchar *format ;
+X.LP
+X.ft B
+Xint Sprintv( fd, format, ap )
+Xint fd ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xint Sdone( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint Sundo( fd, type )
+Xint fd ;
+Xint type ;
+X.LP
+X.ft B
+Xint Stie( ifd, ofd )
+Xint ifd, ofd ;
+X.LP
+X.ft B
+Xint Suntie( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint Sbuftype( fd, type )
+Xint fd, type ;
+X.LP
+X.ft B
+Xint Smorefds()
+X.LP
+X.ft B
+Xint Sflush( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint Sclose( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint Sgetchar( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint Sputchar( fd, c )
+Xint fd;
+Xchar c ;
+X.LP
+X.ft B
+Xint SIOLINELEN( fd )
+Xint fd ;
+X.LP
+X.ft B
+Xint SIOMAXLINELEN( fd )
+Xint fd ;
+X.SH DESCRIPTION
+XThe \fISIO\fR library provides support
+Xfor \fIstream\fR I/O on file descriptors.
+XThe first argument of every function
+Xor macro is a file descriptor. The file descriptor may be used either for
+Xinput or for output, but not both. Attempting to use a descriptor for
+Xboth input and output will cause the call for the latter use to fail.
+XWhen you are
+Xdone with using a file descriptor, you should inform \fISIO\fR
+Xby invoking \fBSdone()\fR (unless the program is about to 
+Xcall \fIexit(3)\fR).
+XYou can also use \fBSdone()\fR if
+Xyou want to perform a different type of operation on the same
+Xfile descriptor (e.g. first you were reading data from the file
+Xdescriptor and then you want to write some data).
+XAnother possibility is to do stream I/O at different file offsets
+Xby using \fBSdone()\fR before using \fBlseek(2)\fR to move to a
+Xnew file offset.
+X.LP
+XI/O operations on different file descriptors do not interfere
+X(unless the file descriptors refer to the same file, in which case
+Xthe results are undefined).
+X.LP
+XFor disk files, I/O always starts at the current file offset.
+XIf that offset is not a multiple of the preferred block size for file
+Xsystem I/O, performance will not be optimal
+X(the preferred block size is determined from the
+X\fIst_blksize\fR field in \fIstruct stat\fR).
+XFor optimal performance, it is recommended that no I/O operations
+X(like \fIread(2)\fR or \fIwrite(2)\fR)
+Xare applied to the file descriptor if it is to be used by \fISIO\fR.
+X.LP
+XRead I/O is either buffered, or is done using memory mapping whenever
+Xthat is possible and appropriate.
+X.LP
+XThe library functions that do stream I/O resemble system calls
+X(for example \fBSread()\fR resembles \fIread(2)\fR) so that modifying
+Xa program that uses the system calls to use the \fISIO\fR functions
+Xis easy (e.g. just replace \fIread(2)\fR with \fBSread()\fR; the function
+Xsignatures as well as the return values are exactly the same; also make
+Xsure to replace calls to \fIclose(2)\fP with \fBSclose()\fP).
+X.LP
+X\fISIO\fR uses the underlying system calls \fIread(2)\fR and \fIwrite(2)\fR
+Xto do I/O (except when reading files using memory mapping).
+XThese calls may be interrupted (i.e. they may return -1 with
+X.I errno
+Xset to EINTR). Such interruptions are ignored by \fISIO\fR which
+Xsimply reissues the system call
+X(this means that a \fISIO\fP call will never fail because the
+Xunderlying I/O system call was interrupted).
+X.LP
+X.B Sread()
+Xreads \fInbytes\fR bytes from the stream associated with file 
+Xdescriptor \fIfd\fR into the buffer pointed to by \fIbuf\fR.
+X.LP
+X.B Sgetc()
+Xreads a character from the stream
+Xassociated with file descriptor \fIfd\fR.
+XIt returns \fBSIO_EOF\fR if the end of file has been reached.
+X.LP
+X.B Sgetchar()
+X(a macro) performs exactly the same function as \fBSgetc()\fR but
+Xit is much faster.
+X.LP
+X.B Srdline()
+Xreads a line from the stream
+Xassociated with file descriptor \fIfd\fR.
+XThe newline at the end of the line is replaced by a NUL byte. Lines
+Xlonger than the maximum line length supported by \fISIO\fR will
+Xhave characters deleted.
+X.LP
+X.B SIOLINELEN()
+X(a macro) returns the length of
+Xthe line returned by the last call to \fBSrdline()\fR
+X(the value returned by \fBSIOLINELEN()\fR is valid only after
+X\fBSrdline()\fR and as long as no other 
+X\fISIO\fR calls are performed on that file descriptor).
+X.LP
+X.B SIOMAXLINELEN()
+X(a macro) returns
+Xthe maximul line length supported by \fISIO\fR for the file
+Xdescriptor. As a side-effect it initializes \fIfd\fR for input.
+X.LP
+X.B Sfetch()
+Xreturns a pointer to data coming from the stream
+Xassociated with file
+Xdescriptor \fIfd\fR. The amount of data available is indicated
+Xby the \fIlength\fR argument. One possible use for this function
+Xis to copy files.
+X.LP
+X.B Swrite()
+Xwrites \fInbytes\fR bytes to the stream associated with file
+Xdescriptor \fIfd\fR from the buffer pointed to by \fIbuf\fR.
+X.LP
+X.B Sputc()
+Xwrites a single character to the stream
+Xassociated with file descriptor \fIfd\fR.
+X.LP
+X.B Sputchar()
+X(a macro) performs exactly the same function as \fBSputc()\fR
+Xbut it is much faster.
+X.LP
+X.B Sprint()
+Ximitates the behavior of printf(3) as defined in the
+XANSI C Standard. There are some limitations. Check the \fBSprint()\fR
+Xman page for more information.
+X.LP
+X.B Sprintv()
+Xis the same as \fBSprint()\fR except that it uses a
+X\fIvarargs\fR argument list.
+X.LP
+X.B Sundo()
+Xreturns the characters returned by the last call to
+X\fBSrdline()\fR, \fBSgetc()\fR or \fBSgetchar()\fR to the stream
+Xso that they can be reread. The \fItype\fR argument to \fBSundo()\fR
+Xcan be \fBSIO_UNDO_LINE\fR or \fBSIO_UNDO_CHAR\fR depending
+Xon whether the call whose effect needs to be undone was
+X\fBSrdline()\fR or \fBSgetc()\fR/\fBSgetchar()\fR respectively.
+XThere is no check on
+Xwhether the last function invoked on \fIfd\fR was one of the above
+Xand the results are undefined if there is no correspondence
+Xbetween the \fItype\fR and the last operation on \fIfd\fR.
+X(i.e. the result is undefined if you try \fBSIO_UNDO_CHAR\fR 
+Xand the last operation was not \fBSgetchar()\fR or \fBSgetc()\fR).
+X.LP
+X.B Stie()
+Xties the file descriptor \fIifd\fR to the file descriptor \fIofd\fR.
+XThis means that whenever a \fIread(2)\fR is done on \fIifd\fR, it is
+Xpreceded by a \fIwrite(2)\fR on \fIofd\fR.
+XFor filters it is useful to do \fIStie( 0, 1 )\fR to maximize concurrency.
+XIt is also useful to do the same thing when you issue prompts to the
+Xuser and you want the user reply to appear on the same line with the
+Xprompt.
+X\fIifd\fR, \fIofd\fR  will be initialized for input, output respectively
+X(if any of them is initialized, it must be for the appropriate
+Xstream type (input or output)).
+XIf \fIifd\fR was tied to another file descriptor, the old tie is broken.
+X.LP
+X.B Suntie()
+Xundoes the effect of \fBStie()\fR for the specified input file descriptor.
+X.LP
+X.B Sbuftype()
+Xdetermines the buffering type for the output stream associated with
+Xfile descriptor \fIfd\fR.
+XBy default output directed to terminals is line buffered, output
+Xdirected to file descriptor 2 (standard error) is unbuffered and
+Xeverything else is fully buffered.
+XPossible values for the \fItype\fR argument are
+X.RS
+X.TP 15
+X.SB SIO_FULLBUF
+Xfor full buffering
+X.TP
+X.SB SIO_LINEBUF
+Xfor line buffering
+X.TP
+X.SB SIO_NOBUF
+Xfor no buffering
+X.RE
+X.LP
+X.B Smorefds()
+Xshould be used to inform \fBSIO\fR that the number of available file
+Xdescriptors has been increased. \fBSIO\fR uses an array of internal
+Xstream descriptors which are indexed by the file descriptor number. Some
+Xoperating systems (ex. SunOS 4.1[.x]) allow the number of available
+Xfile descriptors to vary. If that number is increased beyond its initial
+Xvalue \fBSIO\fR needs to know in order to allocate more stream descriptors.
+X.LP
+X.B Sdone()
+Xflushes any buffered output for \fIfd\fR 
+Xand releases the \fISIO\fR resources used. \fBSdone()\fR 
+Xis useful in case the program needs to reprocess the
+Xdata of a file descriptor (assuming the file descriptor corresponds
+Xto a file).  The program can call \fBSdone()\fR,
+X\fIlseek(2)\fR to the beginning of the file
+Xand then proceed to reread the file.
+X.LP
+X.B Sflush()
+Xcauses any buffered stream output to be written to the
+Xfile descriptor. If its argument is the special value \fBSIO_FLUSH_ALL\fR
+Xthen all output streams will be flushed.
+X.LP
+X.B Sclose()
+Xcloses a file descriptor used for stream I/O, flushes
+Xany buffered output and releases the \fISIO\fR resources used.
+X.SH EXAMPLES
+X.LP
+XThe following code implements a (poor) substitute for the tee command
+X(it copies standard input to a file as well as to standard output).
+X.ne 10
+X.RS
+X.nf
+X.ft B
+X#include "sio.h"
+X.sp .5
+Xmain( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X	char *file = (argc > 1) ? argv[ 1 ] : "tee.file" ;
+X	int fd = creat( file, 0644 ) ;
+X	long length ;
+X	char *s ;
+X.sp .5
+X	while ( s = Sfetch( 0, &length ) )
+X	{
+X		Swrite( 1, s, length ) ;
+X		Swrite( fd, s, length ) ;
+X	}
+X	exit( 0 ) ;
+X}
+X.fi
+X.ft R
+X.RE
+X.SH RETURN VALUES
+X.LP
+X.B Sread()
+Xreturns the number of bytes read on success
+X(0 means end-of-file)
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sgetc()
+Xreturns the character read on success,
+XSIO_EOF when the end-of-file is reached,
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Srdline()
+Xreturns a pointer to the next line on success.
+XOn failure or when the end-of-file is reached it returns
+X.SM NULL.
+XIf the end-of-file is reached \fIerrno\fR is set to 0, otherwise it indicates
+Xthe error.
+X.LP
+X.B Sfetch()
+Xreturns a pointer to file data on success.
+X(the \fIlength\fR argument indicates how many bytes
+Xare available).
+XOn failure or when the end-of-file is reached it returns
+X.SM NULL.
+XIf the end-of-file is reached \fIerrno\fR is set to 0, otherwise it indicates
+Xthe error.
+X.LP
+X.B Swrite()
+Xreturns the number of bytes written on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sputc()
+Xreturns the character it was given as an argument on success
+X.B Sprint()
+Xreturns the number of characters printed on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sdone()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sundo()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Stie()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Suntie()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure
+X(\fIerrno\fR is set to \fBEBADF\fR if there
+Xwas no tied file descriptor).
+X.LP
+X.B Sbuftype()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure
+X(\fIerrno\fR is set to \fBEBADF\fR if this is not an output stream
+Xor to \fBEINVAL\fR if an unknown \fItype\fR is specified).
+X.LP
+X.B Smorefds()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (because of lack of memory).
+X.LP
+X.B Sflush()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sclose()
+Xreturns \fB0\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sgetchar()
+Xreturns the character read on success,
+XSIO_EOF when the end-of-file is reached,
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B Sputchar()
+Xreturns the character it was given as an argument on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+X.B SIOLINELEN()
+Xreturns the length of the last line read by \fBSrdline()\fR.
+X.LP
+X.B SIOMAXLINELEN()
+Xreturns the length of the longest line supported by \fISIO\fR on success
+Xor \fBSIO_ERR\fR on failure (\fIerrno\fR is set to indicate the error).
+X.LP
+XAttempting a read operation on a descriptor opened for writing or vice
+Xversa will cause the operation to fail with \fIerrno\fR set to \fBEBADF\fR.
+X.LP
+XThe first \fISIO\fR operation on a descriptor must be a read or write
+Xoperation. It cannot be a control operation (like \fBSflush()\fR). Such
+Xan operation will fail with \fIerrno\fR set to \fBEBADF\fR.
+X.LP
+X.IP "\fBNOTE 1:\fR" 15
+X\fBStie()\fR is an input/output operation for the
+Xrespective file descriptors, not a control operation. \fBSuntie()\fR
+Xis a control operation.
+X.IP "\fBNOTE 2:\fR"
+X\fBSIO_ERR\fR is defined to be \fB-1\fR.
+X.SH "SEE ALSO"
+X.LP
+XSprint(3)
+X.SH BUGS
+X.LP
+XIf the operating system does not provide for invocation of a
+Xfinalization function upon exit, the program will have to
+Xexplicitly flush all output streams.
+XThe following operating systems provide such a facility:
+XSunOS 4.x, Ultrix 4.x, SunOS 5.x
+X.LP
+XSocket file descriptors can be used for input as well as output but
+X\fBSIO\fR does not support this.
+X.LP
+XThe current implementation will not try to use memory mapping to
+Xread a file if the file offset is not 0 (it will use buffered I/O instead).
+X.LP
+XPointers returned by \fBSfetch()\fR point to read-only memory.
+XAttempting to modify this memory will result in a segmentation
+Xviolation.
+END_OF_FILE
+  if test 13341 -ne `wc -c <'libs/src/sio/sio.3'`; then
+    echo shar: \"'libs/src/sio/sio.3'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/sio.3'
+fi
+if test -f 'libs/src/sio/sio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/sio.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/sio.c'\" \(15212 characters\)
+  sed "s/^X//" >'libs/src/sio/sio.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: sio.c,v 8.1 1993/03/13 01:15:55 panos Exp $" ;
+Xstatic char sio_version[] = VERSION ;
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#include "sio.h"
+X#include "impl.h"
+X
+X#ifdef EVENTS
+X#include "events.h"
+X#endif
+X
+X/*
+X * SIO WRITE FUNCTIONS: Swrite, Sputc
+X */
+X
+X/*
+X * Stream write call: arguments same as those of write(2)
+X */
+Xint Swrite( fd, addr, nbytes )
+X	int fd ;
+X	register char *addr ;
+X	register int nbytes ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_od_t *odp = ODP( dp ) ;
+X	register int b_transferred ;
+X	register int b_avail ;
+X	int total_b_transferred ;
+X	int b_written ;
+X	int b_in_buffer ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SWRITE ) ;
+X#endif
+X
+X	IO_SETUP( fd, dp, __SIO_OUTPUT_STREAM, SIO_ERR ) ;
+X	ASSERT( odp->start <= odp->nextb && odp->nextb <= odp->buf_end ) ;
+X
+X	b_avail = odp->buf_end - odp->nextb ;
+X	b_transferred = MIN( nbytes, b_avail ) ;
+X	sio_memcopy( addr, odp->nextb, b_transferred ) ;
+X	odp->nextb += b_transferred ;
+X
+X	/*
+X	 * check if we are done
+X	 */
+X	if ( b_transferred == nbytes )
+X		return( b_transferred ) ;
+X
+X	/*
+X	 * at this point we know that the buffer is full
+X	 */
+X	b_in_buffer = odp->buf_end - odp->start ;
+X	b_written = __sio_writef( odp, fd ) ;
+X	if ( b_written != b_in_buffer )
+X		return( (b_written >= nbytes) ? nbytes : b_written ) ;
+X	
+X	total_b_transferred = b_transferred ;
+X	addr += b_transferred ;
+X	nbytes -= b_transferred ;
+X
+X	for ( ;; )
+X	{
+X		b_transferred = MIN( nbytes, odp->buffer_size ) ;
+X		sio_memcopy( addr, odp->nextb, b_transferred ) ;
+X		odp->nextb += b_transferred ;
+X		nbytes -= b_transferred ;
+X		if ( nbytes == 0 )
+X		{
+X			total_b_transferred += b_transferred ;
+X			break ;
+X		}
+X		/*
+X		 * the buffer is full
+X		 */
+X		b_written = __sio_writef( odp, fd ) ;
+X		if ( b_written != odp->buffer_size )
+X		{
+X			if ( b_written != SIO_ERR )
+X			{
+X				total_b_transferred += b_written ;
+X				odp->nextb += b_written ;
+X			}
+X			break ;
+X		}
+X		/*
+X		 * everything is ok
+X		 */
+X		total_b_transferred += b_transferred ;
+X		addr += b_transferred ;
+X	}
+X	return( total_b_transferred ) ;
+X}
+X
+X
+X/*
+X * Add a character to a file
+X */
+Xint Sputc( fd, c )
+X	int fd ;
+X	char c ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_od_t *odp = ODP( dp ) ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SPUTC ) ;
+X#endif
+X	
+X	IO_SETUP( fd, dp, __SIO_OUTPUT_STREAM, SIO_ERR ) ;
+X	ASSERT( odp->start <= odp->nextb && odp->nextb <= odp->buf_end ) ;
+X
+X	/*
+X	 * The following is a weak check since we should really be
+X	 * checking that nextb == buf_end (it would be an error for
+X	 * nextb to exceed buf_end; btw, the assertion above, when
+X	 * enabled makes sure this does not occur).
+X	 *
+X	 * NOTE: __sio_writef NEVER uses data beyond the end of buffer.
+X	 */
+X	if ( odp->nextb >= odp->buf_end )
+X	{
+X		int b_in_buffer = odp->buf_end - odp->start ;
+X
+X		/*
+X		 * There is nothing we can do if __sio_writef does not manage
+X		 * to write the whole buffer
+X		 */
+X		if ( __sio_writef( odp, fd ) != b_in_buffer )
+X			return( SIO_ERR ) ;
+X	}
+X	*odp->nextb++ = c ;
+X	if ( __SIO_MUST_FLUSH( *odp, c ) && __sio_writef( odp, fd ) == SIO_ERR )
+X		return( SIO_ERR ) ;
+X	return ( c ) ;
+X}
+X
+X
+X
+X/*
+X * SIO READ FUNCTIONS
+X */
+X
+X/*
+X * Stream read call: arguments same as those of read(2)
+X */
+Xint Sread( fd, addr, nbytes )
+X	int fd ;
+X	char *addr ;
+X	int nbytes ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_id_t *idp = IDP( dp ) ;
+X	register int b_transferred ;
+X	int b_read ;
+X	int total_b_transferred ;
+X	int b_left ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SREAD ) ;
+X#endif
+X
+X	IO_SETUP( fd, dp, __SIO_INPUT_STREAM, SIO_ERR ) ;
+X	ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X
+X	b_left = idp->end - idp->nextb ;
+X	b_transferred = MIN( b_left, nbytes ) ;
+X	sio_memcopy( idp->nextb, addr, b_transferred ) ;
+X	idp->nextb += b_transferred ;
+X	if ( b_transferred == nbytes )
+X		return( b_transferred ) ;
+X	
+X	nbytes -= b_transferred ;
+X	total_b_transferred = b_transferred ;
+X	addr += b_transferred ;
+X
+X	do
+X	{
+X		b_read = __sio_readf( idp, fd ) ;
+X		switch ( b_read )
+X		{
+X			case SIO_ERR:
+X				if ( total_b_transferred == 0 )
+X					return( SIO_ERR ) ;
+X				/* FALL THROUGH */
+X			
+X			case 0:
+X				return( total_b_transferred ) ;
+X		}
+X			
+X		b_transferred = MIN( b_read, nbytes ) ;
+X		sio_memcopy( idp->nextb, addr, b_transferred ) ;
+X		addr += b_transferred ;
+X		idp->nextb += b_transferred ;
+X		total_b_transferred += b_transferred ;
+X		nbytes -= b_transferred ;
+X	}
+X	while ( nbytes && b_read == idp->buffer_size ) ;
+X	return( total_b_transferred ) ;
+X}
+X
+X
+X
+X/*
+X * Read a line from a file
+X * Returns a pointer to the beginning of the line or NULL
+X */
+Xchar *Srdline( fd )
+X	int fd ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_id_t *idp = IDP( dp ) ;
+X	register char *cp ;
+X	register char *line_start ;
+X	register int b_left ;
+X	register int extension ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SRDLINE ) ;
+X#endif
+X
+X	IO_SETUP( fd, dp, __SIO_INPUT_STREAM, NULL ) ;
+X	ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X
+X#ifdef HAS_MMAP
+X	if ( idp->memory_mapped && __sio_switch( idp, fd ) == FAILURE )
+X		return( NULL ) ;
+X#endif
+X
+X	b_left = idp->end - idp->nextb ;
+X	/*
+X	 * Look for a '\n'. If the search fails, extend the buffer
+X	 * and search again (the extension is performed by copying the
+X	 * bytes that were searched to the auxiliary buffer and reading 
+X	 * new input in the main buffer).
+X	 * If the new input still does not contain a '\n' and there is
+X	 * more space in the main buffer (this can happen with network
+X	 * connections), read more input until either the buffer is full
+X	 * or a '\n' is found.
+X	 * Finally, set cp to point to the '\n', and line_start to
+X	 * the beginning of the line
+X	 */
+X	if ( b_left && ( cp = sio_memscan( idp->nextb, b_left, '\n' ) ) != NULL )
+X	{
+X		line_start = idp->nextb ;
+X		idp->nextb = cp + 1 ;
+X	}
+X	else
+X	{
+X		extension = __sio_extend_buffer( idp, fd, b_left ) ;
+X		if ( extension > 0 )
+X		{
+X			ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X
+X			line_start = idp->start ;
+X			cp = sio_memscan( idp->nextb, extension, '\n' ) ;
+X			if ( cp != NULL )
+X				idp->nextb = cp + 1 ;
+X			else
+X				for ( ;; )
+X				{
+X					idp->nextb = idp->end ;
+X					extension = __sio_more( idp, fd ) ;
+X					if ( extension > 0 )
+X					{
+X						cp = sio_memscan( idp->nextb, extension, '\n' ) ;
+X						if ( cp == NULL )
+X							continue ;
+X						idp->nextb = cp + 1 ;
+X						break ;
+X					}
+X					else
+X					{
+X						/*
+X						 * If there is spare room in the buffer avoid trashing
+X						 * the last character
+X						 */
+X						if ( idp->end < &idp->buf[ idp->buffer_size ] )
+X							cp = idp->end ;
+X						else
+X							cp = &idp->buf[ idp->buffer_size - 1 ] ;
+X						break ;
+X					}
+X				}
+X		}
+X		else					/* buffer could not be extended */
+X			if ( b_left == 0 )
+X			{
+X				/*
+X				 * Set errno to 0 if EOF has been reached
+X				 */
+X				if ( extension == 0 )
+X					errno = 0 ;
+X				return( NULL ) ;
+X			}
+X			else
+X			{
+X				line_start = idp->start ;
+X				cp = idp->end ;
+X				/*
+X				 * By setting idp->nextb to be equal to idp->end,
+X				 * subsequent calls to Srdline will return NULL because
+X				 * __sio_extend_buffer will be invoked and it will return 0.
+X				 */
+X				idp->nextb = idp->end ;
+X			}
+X	}
+X	*cp = NUL ;
+X	idp->line_length = cp - line_start ;
+X	return( line_start ) ;
+X}
+X
+X
+X/*
+X * Get a character from a file
+X */
+Xint Sgetc( fd )
+X	int fd ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_id_t *idp = IDP( dp ) ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SGETC ) ;
+X#endif
+X
+X	IO_SETUP( fd, dp, __SIO_INPUT_STREAM, SIO_ERR ) ;
+X	ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X	if ( idp->nextb >= idp->end )
+X	{
+X		register int b_read = __sio_readf( idp, fd ) ;
+X
+X		if ( b_read == 0 )
+X			return( SIO_EOF ) ;
+X		else if ( b_read == SIO_ERR )
+X			return( SIO_ERR ) ;
+X	}
+X	return( (int) *idp->nextb++ ) ;
+X}
+X
+X
+Xchar *Sfetch( fd, lenp )
+X	int fd ;
+X	long *lenp ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X	register __sio_id_t *idp = IDP( dp ) ;
+X	register int b_read ;
+X	register char *p ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SFETCH ) ;
+X#endif
+X
+X	IO_SETUP( fd, dp, __SIO_INPUT_STREAM, NULL ) ;
+X	ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X	if ( idp->nextb >= idp->end )
+X	{
+X		b_read = __sio_readf( idp, fd ) ;
+X		if ( b_read == SIO_ERR )
+X			return( NULL ) ;
+X		if ( b_read == 0 )
+X		{
+X			errno = 0 ;
+X			return( NULL ) ;
+X		}
+X	}
+X	*lenp = idp->end - idp->nextb ;
+X	p = idp->nextb ;
+X	idp->nextb = idp->end ;
+X	return( p ) ;
+X}
+X
+X
+X
+X/*
+X * SIO CONTROL FUNCTIONS
+X */
+X
+X/*
+X * Undo the last Srdline or Sgetc
+X */
+Xint Sundo( fd, type )
+X	int fd ;
+X	int type ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ; 
+X	register __sio_id_t *idp = IDP( dp ) ;
+X	int retval = 0 ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SUNDO ) ;
+X#endif
+X
+X	CONTROL_SETUP( dp, __SIO_INPUT_STREAM, SIO_ERR ) ;
+X
+X	/*
+X	 * Undo works only for fd's used for input
+X	 */
+X	if ( dp->stream_type != __SIO_INPUT_STREAM )
+X		return( SIO_ERR ) ;
+X
+X	/*
+X	 * Check if the operation makes sense; if so, do it, otherwise ignore it
+X	 */
+X	switch ( type )
+X	{
+X		case SIO_UNDO_LINE:
+X			if ( idp->nextb - idp->line_length > idp->start )
+X			{
+X				*--idp->nextb = '\n' ;
+X				idp->nextb -= idp->line_length ;
+X			}
+X			ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X			break ;
+X		
+X		case SIO_UNDO_CHAR:
+X			if ( idp->nextb > idp->start )
+X				idp->nextb-- ;
+X			ASSERT( idp->start <= idp->nextb && idp->nextb <= idp->end ) ;
+X			break ;
+X		
+X		default:
+X			retval = SIO_ERR ;
+X			break ;
+X	}
+X	return( retval ) ;
+X}
+X
+X
+X/*
+X * Flush the buffer associated with the given file descriptor
+X * The special value, SIO_FLUSH_ALL flushes all buffers
+X *
+X * Return value:
+X *			0 :  if fd is SIO_FLUSH_ALL or if the flush is successful
+X *		SIO_ERR: if fd is not SIO_FLUSH_ALL and
+X *								the flush is unsuccessful
+X *							or the descriptor is not initialized or it is not 
+X *								an output descriptor
+X */
+Xint Sflush( fd )
+X	int fd ;
+X{
+X   register __sio_descriptor_t *dp ;
+X   int b_in_buffer ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SFLUSH ) ;
+X#endif
+X
+X   if ( fd == SIO_FLUSH_ALL )
+X   {
+X      for ( fd = 0, dp = __sio_descriptors ;
+X				fd < N_SIO_DESCRIPTORS ;
+X				dp++, fd++ )
+X         if ( DESCRIPTOR_INITIALIZED( dp ) &&
+X							dp->stream_type == __SIO_OUTPUT_STREAM )
+X            (void) __sio_writef( ODP( dp ), fd ) ;
+X      return( 0 ) ;
+X   }
+X   else
+X   {
+X      dp = &__sio_descriptors[ fd ] ;
+X
+X		CONTROL_SETUP( dp, __SIO_OUTPUT_STREAM, SIO_ERR ) ;
+X      b_in_buffer = ODP( dp )->nextb - ODP( dp )->start ;
+X      if ( __sio_writef( ODP( dp ), fd ) != b_in_buffer )
+X         return( SIO_ERR ) ;
+X      else
+X         return( 0 ) ;
+X   }
+X}
+X
+X
+X/*
+X * Close the file descriptor. This call is provided because
+X * a file descriptor may be closed and then reopened. There is
+X * no easy way for SIO to identify such a situation, so Sclose
+X * must be used.
+X *
+X * Sclose invokes Sdone which finalizes the buffer.
+X * There is no SIO_CLOSE_ALL value for fd because such a thing
+X * would imply that the program will exit very soon, therefore
+X * the closing of all file descriptors will be done in the kernel
+X * (and the finalization will be done by the finalization function
+X * NOTE: not true if the OS does not support a finalization function)
+X *
+X * There is no need to invoke SETUP; Sdone will do it.
+X */
+Xint Sclose( fd )
+X	int fd ;
+X{
+X#ifdef EVENTS
+X	EVENT( fd, EV_SCLOSE ) ;
+X#endif
+X
+X	if ( __SIO_FD_INITIALIZED( fd ) )
+X		if ( Sdone( fd ) == SIO_ERR )
+X			return( SIO_ERR ) ;
+X	return( close( fd ) ) ;
+X}
+X
+X
+X
+X/*
+X * Tie the file descriptor in_fd to the file descriptor out_fd
+X * This means that whenever a read(2) is done on in_fd, it is
+X * preceded by a write(2) on out_fd.
+X * Why this is nice to have:
+X * 	1) When used in filters it maximizes concurrency
+X *		2) When the program prompts the user for something it forces
+X *			the prompt string to be displayed even if it does not
+X *			end with a '\n' (which would cause a flush).
+X * In this implementation, out_fd cannot be a regular file.
+X * This is done to avoid non-block-size write's.
+X * The file descriptors are initialized if that has not been done
+X * already. If any of them is initialized, it must be for the appropriate
+X * stream type (input or output).
+X *
+X * NOTE: the code handles correctly the case when in_fd == out_fd
+X */
+Xint Stie( in_fd, out_fd )
+X	int in_fd, out_fd ;
+X{
+X	struct stat st ;
+X	register __sio_descriptor_t *dp ;
+X	int was_initialized ;
+X	boolean_e failed = NO ;
+X
+X#ifdef EVENTS
+X	EVENT( in_fd, EV_STIE ) ;
+X#endif
+X
+X	/*
+X	 * Check if the out_fd is open
+X	 */
+X	if ( fstat( out_fd, &st ) == -1 )
+X		return( SIO_ERR ) ;
+X
+X	/*
+X	 * If the out_fd refers to a regular file, the request is silently ignored
+X	 */
+X	if ( ( st.st_mode & S_IFMT ) == S_IFREG )
+X		return( 0 ) ;
+X	
+X	dp = &__sio_descriptors[ in_fd ] ;
+X	was_initialized = dp->initialized ;		/* remember if it was initialized */
+X	IO_SETUP( in_fd, dp, __SIO_INPUT_STREAM, SIO_ERR ) ;
+X
+X	/*
+X	 * Perform manual initialization of out_fd to avoid leaving in_fd
+X	 * initialized if the initialization of out_fd fails.
+X	 * If out_fd is initialized, check if it is used for output.
+X	 * If it is not initialized, initialize it for output.
+X	 */
+X	dp = &__sio_descriptors[ out_fd ] ;
+X	if ( DESCRIPTOR_INITIALIZED( dp ) )
+X	{
+X		if ( dp->stream_type != __SIO_OUTPUT_STREAM )
+X		{
+X			failed = YES ;
+X			errno = EBADF ;
+X		}
+X	}
+X	else
+X		if ( __sio_init( dp, out_fd, __SIO_OUTPUT_STREAM ) == SIO_ERR )
+X			failed = YES ;
+X
+X	if ( failed == NO )
+X	{
+X		__SIO_ID( in_fd ).tied_fd = out_fd ;
+X		return( 0 ) ;
+X	}
+X	else
+X	{
+X		/*
+X		 * We failed. If we did any initialization, undo it
+X		 */
+X		if ( ! was_initialized )
+X		{
+X			int save_errno = errno ;
+X
+X			(void) Sdone( in_fd ) ;
+X			errno = save_errno ;
+X		}
+X		return( SIO_ERR ) ;
+X	}
+X}
+X
+X
+X/*
+X * Untie a file descriptor
+X */
+Xint Suntie( fd )
+X	int fd ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SUNTIE ) ;
+X#endif
+X
+X	CONTROL_SETUP( dp, __SIO_INPUT_STREAM, SIO_ERR ) ;
+X	
+X	if ( IDP( dp )->tied_fd != SIO_NO_TIED_FD )
+X	{
+X		IDP( dp )->tied_fd = SIO_NO_TIED_FD ;
+X		return( 0 ) ;
+X	}
+X	else
+X	{
+X		errno = EBADF ;
+X		return( SIO_ERR ) ;
+X	}
+X}
+X
+X
+X/*
+X * Changes the type of buffering on the specified descriptor.
+X * As a side-effect, it initializes the descriptor as an output stream.
+X */
+Xint Sbuftype( fd, type )
+X	int fd, type ;
+X{
+X	register __sio_descriptor_t *dp = &__sio_descriptors[ fd ] ;
+X
+X#ifdef EVENTS
+X	EVENT( fd, EV_SBUFTYPE ) ;
+X#endif
+X
+X	/*
+X	 * Check for a valid type
+X	 */
+X	if ( type != SIO_LINEBUF && type != SIO_FULLBUF && type != SIO_NOBUF )
+X	{
+X		errno = EINVAL ;
+X		return( SIO_ERR ) ;
+X	}
+X
+X	IO_SETUP( fd, dp, __SIO_OUTPUT_STREAM, SIO_ERR ) ;
+X	ODP( dp )->buftype = type ;
+X	return( 0 ) ;
+X}
+X
+X
+X#ifndef sio_memscan
+X
+XPRIVATE char *sio_memscan( from, how_many, ch )
+X   char *from ;
+X   int how_many ;
+X   register char ch ;
+X{
+X   register char *p ;
+X   register char *last = from + how_many ;
+X
+X   for ( p = from ; p < last ; p++ )
+X      if ( *p == ch )
+X         return( p ) ;
+X      return( 0 ) ;
+X}
+X
+X#endif	/* sio_memscan */
+X
+X
+X#ifdef NEED_MEMCOPY
+X
+Xvoid __sio_memcopy( from, to, nbytes )
+X   register char *from, *to ;
+X   register int nbytes ;
+X{
+X   while ( nbytes-- )
+X      *to++ = *from++ ;
+X}
+X
+X#endif /* NEED_MEMCOPY */
+X
+X
+END_OF_FILE
+  if test 15212 -ne `wc -c <'libs/src/sio/sio.c'`; then
+    echo shar: \"'libs/src/sio/sio.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/sio.c'
+fi
+if test -f 'libs/src/sio/sio.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/sio.h'\"
+else
+  echo shar: Extracting \"'libs/src/sio/sio.h'\" \(6642 characters\)
+  sed "s/^X//" >'libs/src/sio/sio.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X/*
+X * $Id: sio.h,v 8.1 1993/03/13 01:13:58 panos Exp $
+X */
+X
+X#ifndef __SIO_H
+X#define __SIO_H
+X
+X#include <errno.h>
+X#include <varargs.h>
+X
+X/*
+X * Naming conventions:
+X *		1) SIO functions and macros have names starting with a capital S
+X *		2) SIO constants meant to be used by user programs have 
+X *			names starting with SIO_
+X *		3) Internal functions, struct identifiers, enum identifiers 
+X *			etc. have names starting with __sio
+X *		4) Internal constants and macros have names starting with __SIO
+X */
+X
+X
+X/*
+X * external constants
+X *
+X * SIO_FLUSH_ALL: flush all output streams
+X * SIO_EOF:	eof on stream
+X * SIO_ERR: operation failed
+X */
+X#define SIO_FLUSH_ALL				(-1)
+X#define SIO_EOF						(-2)
+X#define SIO_ERR						(-1)
+X
+X/*
+X * Undo types
+X */
+X#define SIO_UNDO_LINE		0
+X#define SIO_UNDO_CHAR		1
+X
+X/*
+X * Buffering types
+X */
+X#define SIO_FULLBUF			0
+X#define SIO_LINEBUF			1
+X#define SIO_NOBUF				2
+X
+X/*
+X * Descriptor for an input stream
+X */
+Xstruct __sio_input_descriptor
+X{
+X	/*
+X	 * buf:		points to the buffer area.
+X	 *				When doing memory mapping, it is equal to the unit 
+X	 *				from which we are reading. When doing buffered I/O
+X	 *				it points to the primary buffer.
+X	 */
+X	char *buf ;
+X	unsigned buffer_size ;
+X
+X	char *start ;                 /* start of valid buffer contents   	*/
+X	char *end ;                   /* end of valid buffer contents + 1 	*/
+X	char *nextb ;                 /* pointer to next byte to read/write 	*/
+X											/* Always:  start <= nextb < end			*/
+X
+X	unsigned line_length ;
+X	int max_line_length ;
+X	int tied_fd ;
+X
+X	int memory_mapped ;				/* flag to denote if we use				*/
+X											/* memory mapping								*/
+X} ;
+X
+Xtypedef struct __sio_input_descriptor __sio_id_t ;
+X
+X
+X/*
+X * Descriptor for an output stream
+X */
+Xstruct __sio_output_descriptor
+X{
+X	/*
+X	 * buf:		points to the buffer area.
+X	 * buf_end: is equal to buf + buffer_size
+X	 */
+X	char *buf ;
+X	char *buf_end ;
+X
+X	unsigned buffer_size ;
+X
+X	char *start ;                 /* start of valid buffer contents   	*/
+X											/* (used by the R and W functions) 		*/
+X	char *nextb ;                 /* pointer to next byte to read/write  */
+X											/* Always:  start <= nextb < buf_end	*/
+X	int buftype ;						/* type of buffering 						*/
+X} ;
+X
+Xtypedef struct __sio_output_descriptor __sio_od_t ;
+X
+X
+X
+X/*
+X * Stream types
+X */
+Xenum __sio_stream { __SIO_INPUT_STREAM, __SIO_OUTPUT_STREAM } ;
+X
+X
+X/*
+X * General descriptor
+X */
+Xstruct __sio_descriptor
+X{
+X	union
+X	{
+X		__sio_id_t input_descriptor ;
+X		__sio_od_t output_descriptor ;
+X	} descriptor ;
+X	enum __sio_stream stream_type ;
+X	int initialized ;
+X} ;
+X
+Xtypedef struct __sio_descriptor __sio_descriptor_t ;
+X
+X
+X/*
+X * The array of descriptors (as many as available file descriptors)
+X */
+Xextern __sio_descriptor_t *__sio_descriptors ;
+X
+Xextern int errno ;
+X
+X
+X/*
+X * Internally used macros
+X */
+X#define __SIO_FD_INITIALIZED( fd )		(__sio_descriptors[ fd ].initialized)
+X#define __SIO_ID( fd )	(__sio_descriptors[ fd ].descriptor.input_descriptor)
+X#define __SIO_OD( fd )	(__sio_descriptors[ fd ].descriptor.output_descriptor)
+X#define __SIO_MUST_FLUSH( od, ch )													\
+X					( (od).buftype != SIO_FULLBUF &&									\
+X						( (od).buftype == SIO_NOBUF || ch == '\n' ) )
+X
+X
+X/*
+X * SIO Macros:
+X *
+X *		SIOLINELEN( fd )
+X *		SIOMAXLINELEN( fd )
+X *		Sputchar( fd, c )
+X *		Sgetchar( fd )
+X *
+X * NOTE: The maximum line size depends on whether the descriptor
+X *			was originally memory mapped. If it was, then the maximum
+X *			line size will be the map_unit_size (a function of the system
+X *			page size and PAGES_MAPPED). Otherwise, it will be either the
+X *			optimal block size as reported by stat(2) or SIO_BUFFER_SIZE.
+X */
+X
+X#define SIOLINELEN( fd )      __SIO_ID( fd ).line_length
+X#define SIOMAXLINELEN( fd )																	\
+X	(																									\
+X		__SIO_FD_INITIALIZED( fd )																\
+X			? ( 																						\
+X				 (__sio_descriptors[ fd ].stream_type == __SIO_INPUT_STREAM)		\
+X					? __SIO_ID( fd ).max_line_length											\
+X					: ( errno = EBADF, SIO_ERR )												\
+X			  )																						\
+X			: (		/* not initialized; initialize it for input */					\
+X				 (__sio_init( &__sio_descriptors[ fd ], fd, __SIO_INPUT_STREAM )	\
+X																					== SIO_ERR)		\
+X					? SIO_ERR																		\
+X					: __SIO_ID( fd ).max_line_length											\
+X			  )																						\
+X	)
+X
+X
+X
+X/*
+X * Adds a character to a buffer, returns the character or SIO_ERR
+X */
+X#define  __SIO_ADDCHAR( od, fd, c )                                  \
+X     ( od.buftype == SIO_FULLBUF )                                   \
+X         ? (int) ( *(od.nextb)++ = (unsigned char) (c) )             \
+X         : ( od.buftype == SIO_LINEBUF )                             \
+X               ? ( ( *(od.nextb) = (unsigned char) (c) ) != '\n' )   \
+X                     ? (int) *(od.nextb)++                           \
+X                     : Sputc( fd, *(od.nextb) )                      \
+X               : Sputc( fd, c )
+X
+X
+X/*
+X * The Sgetchar/Sputchar macros depend on the fact that the fields 
+X * 				nextb, buf_end, end
+X * are 0 if a stream descriptor is not being used or has not yet been
+X * initialized.
+X * This is true initially because of the static allocation of the
+X * descriptor array, and Sdone must make sure that it is true
+X * after I/O on a descriptor is over.
+X */
+X#define Sputchar( fd, c )														\
+X		(																				\
+X			( __SIO_OD( fd ).nextb < __SIO_OD( fd ).buf_end )			\
+X				? ( __SIO_ADDCHAR( __SIO_OD( fd ), fd, c ) )				\
+X				: Sputc( fd, c )													\
+X		)
+X
+X#define Sgetchar( fd )													\
+X		(																		\
+X			( __SIO_ID( fd ).nextb < __SIO_ID( fd ).end )		\
+X				? (int) *__SIO_ID( fd ).nextb++ 						\
+X				: Sgetc( fd )												\
+X		)
+X
+X
+X#ifdef __ARGS
+X#undef __ARGS
+X#endif
+X
+X#ifdef PROTOTYPES
+X#	define __ARGS( s )					s
+X#else
+X#	define __ARGS( s )					()
+X#endif
+X
+X/*
+X * The Read functions
+X */
+Xint Sread __ARGS( ( int fd, char *buf, int nbytes ) ) ;
+Xint Sgetc __ARGS( ( int fd ) ) ;
+Xchar *Srdline __ARGS( ( int fd ) ) ;
+Xchar *Sfetch __ARGS( ( int fd, long *length ) ) ;
+X
+X/*
+X * The Write functions
+X */
+Xint Swrite __ARGS( ( int fd, char *buf, int nbytes ) ) ;
+Xint Sputc __ARGS( ( int fd, char c ) ) ;
+Xint Sprint __ARGS( ( int fd, char *format, ... ) ) ;
+Xint Sprintv __ARGS( ( int fd, char *format, va_list ) ) ;
+X
+X/*
+X * other functions
+X */
+Xint Sdone __ARGS( ( int fd ) ) ;
+Xint Sundo __ARGS( ( int fd, int type ) ) ;
+Xint Sflush __ARGS( ( int fd ) ) ;
+Xint Sclose __ARGS( ( int fd ) ) ;
+Xint Sbuftype __ARGS( ( int fd, int type ) ) ;
+X
+X#endif /* __SIO_H */
+X
+END_OF_FILE
+  if test 6642 -ne `wc -c <'libs/src/sio/sio.h'`; then
+    echo shar: \"'libs/src/sio/sio.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/sio.h'
+fi
+if test -f 'libs/src/sio/suite/print.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/print.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/print.c'\" \(8243 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/print.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: print.c,v 8.1 1993/03/13 01:21:48 panos Exp $" ;
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <values.h>
+X#include <string.h>
+X
+X#include "sio.h"
+X
+X#define FLUSH()			fflush( stdout ) ; Sflush( 1 )
+X#define COMPARE( printf_count, sprint_count )										\
+X							if ( printf_count != sprint_count )							\
+X								printf( "printf_count = %d, sprint_count = %d\n",	\
+X											printf_count, sprint_count )
+X
+Xenum bool { NO = 0, YES = 1 } ;
+X
+Xenum test_flag
+X{
+X	DECIMAL, HEX, CAP_HEX, OCTAL, UNSIGNED,
+X	F_FLOAT, G_FLOAT, E_FLOAT, CAP_E_FLOAT, CAP_G_FLOAT,
+X	CHAR, STRING,
+X	POINTER,
+X	BOUND,
+X	N_FLAGS
+X} ;
+X
+Xtypedef enum test_flag FLAG ;
+X
+X#define CHECK( f )				if ( ! flags[ f ] ) return
+X
+X/*
+X * Flags
+X */
+Xenum bool flags[ N_FLAGS ] ;
+X
+Xchar *precision ;
+Xchar *width ;
+Xchar *print_flags ;
+X
+Xint i_begin = 123456 ;
+Xint i_end = 123470 ;
+Xint i_step = 1 ;
+X
+Xdouble f_begin = 1.234567654312 ;
+Xdouble f_end = 2.0 ;
+Xdouble f_step = 0.011 ;
+X
+X#define LEN( s )					( s ? strlen( s ) : 0 )
+X
+Xchar *format( f )
+X	char *f ;
+X{
+X	char *malloc() ;
+X	static char *newfmt ;
+X
+X	if ( newfmt )
+X		free( newfmt ) ;
+X
+X	newfmt = malloc( strlen( f )
+X				+ LEN( precision ) + LEN( width ) + LEN( print_flags ) + 2 ) ;
+X	(void) strcpy( newfmt, "%" ) ;
+X	if ( print_flags )
+X		(void) strcat( newfmt, print_flags ) ;
+X	if ( width )
+X		(void) strcat( newfmt, width ) ;
+X	if ( precision )
+X		(void) strcat( strcat( newfmt, "." ), precision ) ;
+X	(void) strcat( newfmt, &f[1] ) ;
+X	return( newfmt ) ;
+X}
+X
+X#define decimal_test()			integer_test( "%d %d\n", DECIMAL )
+X#define hex_test()				integer_test( "%x %x\n", HEX )
+X#define cap_hex_test()			integer_test( "%X %X\n", CAP_HEX )
+X#define octal_test()				integer_test( "%o %o\n", OCTAL )
+X#define unsigned_test()			integer_test( "%u %u\n", UNSIGNED )
+X
+Xvoid integer_test( fmt, flag )
+X	char *fmt ;
+X	FLAG flag ;
+X{
+X	int i ;
+X	int ccs, ccp ;
+X
+X	CHECK( flag ) ;
+X	fmt = format( fmt ) ;
+X
+X	for ( i = i_begin ; i < i_end ; i += i_step )
+X	{
+X		ccp = printf( fmt, -i, i ) ;
+X		ccs = Sprint( 2, fmt, -i, i ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X	}
+X}
+X
+X
+X#define f_float_test()			fp_test( "%f\n", F_FLOAT )
+X#define g_float_test()			fp_test( "%g\n", G_FLOAT )
+X#define e_float_test()			fp_test( "%e\n", E_FLOAT )
+X#define cap_e_float_test()		fp_test( "%E\n", CAP_E_FLOAT )			
+X#define cap_g_float_test()		fp_test( "%G\n", CAP_G_FLOAT )
+X
+Xvoid fp_test( fmt, flag )
+X	char *fmt ;
+X	FLAG flag ;
+X{
+X	double d ;
+X	double step ;
+X	int ccs, ccp ;
+X
+X	CHECK( flag ) ;
+X	fmt = format( fmt ) ;
+X	
+X	for ( d = f_begin, step = f_step ; d < f_end ; d += step, step += step )
+X	{
+X
+X		ccp = printf( fmt, d ) ;
+X		ccs = Sprint( 2, fmt, d ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X	}
+X}
+X
+X
+Xvoid char_test()
+X{
+X	char *s = "foobar" ;
+X	int len = strlen( s ) ;
+X	int i ;
+X	char *fmt = "%c\n" ;
+X	int ccs, ccp ;
+X
+X	CHECK( CHAR ) ;
+X	fmt = format( fmt ) ;
+X
+X	for ( i = 0 ; i < len ; i++ )
+X	{
+X		ccp = printf( fmt, s[ i ] ) ;
+X		ccs = Sprint( 2, fmt, s[ i ] ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X	}
+X}
+X
+X
+Xvoid string_test()
+X{
+X	static char *list[] = 
+X	{
+X		"foobar",
+X		"hello",
+X		"world",
+X		"this is a very long string, a really long string, really, true, honest",
+X		"i am getting tired of this",
+X		"SO THIS IS THE END",
+X		0
+X	} ;
+X	char *fmt = "%s\n" ;
+X	char **p ;
+X	int ccp, ccs ;
+X
+X	CHECK( STRING ) ;
+X	fmt = format( fmt ) ;
+X
+X	for ( p = &list[ 0 ] ; *p ; p++ )
+X	{
+X		ccp = printf( fmt, *p ) ;
+X		ccs = Sprint( 2, fmt, *p ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X	}
+X}
+X
+X
+Xvoid pointer_test()
+X{
+X	struct foo
+X	{
+X		char bar1 ;
+X		short bar2 ;
+X		int bar3 ;
+X		long bar4 ;
+X		char *bar5 ;
+X	} foo, *end = &foo, *p ;
+X	char *fmt = "%p\n" ;
+X	int ccp, ccs ;
+X
+X	CHECK( POINTER ) ;
+X	fmt = format( fmt ) ;
+X
+X	end += 10 ;
+X	for ( p = &foo ; p < end ; p++ )
+X	{
+X		ccp = printf( fmt, p ) ;
+X		ccs = Sprint( 2, fmt, p ) ;
+X		FLUSH() ;
+X	}
+X}
+X
+X
+X/* 
+X * bound_test is only available on SunOS 4.x
+X */
+X#if defined( sun )
+X
+Xvoid bound_test()
+X{
+X	char *fmt ;
+X	double bound_values[ 10 ] ;
+X	static char *bound_names[] =
+X	{
+X		"min_subnormal",
+X		"max_subnormal",
+X		"min_normal",
+X		"max_normal",
+X		"infinity",
+X		"quiet_nan",
+X		"signaling_nan"
+X	} ;
+X	int n_values ;
+X	int i ;
+X	int ccp, ccs ;
+X
+X	bound_values[ 0 ] = min_subnormal() ;
+X	bound_values[ 1 ] = max_subnormal() ;
+X	bound_values[ 2 ] = min_normal() ;
+X	bound_values[ 3 ] = max_normal() ;
+X	bound_values[ 4 ] = infinity() ;
+X	bound_values[ 5 ] = quiet_nan( 7L ) ;
+X	bound_values[ 6 ] = signaling_nan( 7L ) ;
+X	n_values = 7 ;
+X
+X	CHECK( BOUND ) ;
+X
+X	for ( i = 0 ; i < n_values ; i++ )
+X	{
+X		double d = bound_values[ i ] ;
+X		char *name = bound_names[ i ] ;
+X
+X		fmt = format( "%f (%s)\n" ) ;
+X		ccp = printf( fmt, d, name ) ;
+X		ccs = Sprint( 2, fmt, d, name ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X
+X		fmt = format( "%e (%s)\n" ) ;
+X		ccp = printf( fmt, d, name ) ;
+X		ccs = Sprint( 2, fmt, d, name ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X
+X		fmt = format( "%g (%s)\n" ) ;
+X		ccp = printf( fmt, d, name ) ;
+X		ccs = Sprint( 2, fmt, d, name ) ;
+X		FLUSH() ;
+X		COMPARE( ccp, ccs ) ;
+X	}
+X
+X	fmt = format( "%d (MININT)\n" ) ;
+X	ccp = printf( fmt, -MAXINT-1 ) ;
+X	ccs = Sprint( 2, fmt, -MAXINT-1 ) ;
+X	COMPARE( ccp, ccs ) ;
+X}
+X#else
+Xvoid bound_test()
+X{
+X}
+X#endif
+X
+X
+Xint get_options( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X	int arg_index = 1 ;
+X	char *p ;
+X	double atof() ;
+X
+X	for ( arg_index = 1 ;
+X			arg_index < argc && argv[ arg_index ][ 0 ] == '-' ; arg_index++ )
+X	{
+X		switch ( argv[ arg_index ][ 1 ] )
+X		{
+X			case 'd':
+X				flags[ DECIMAL ] = YES ;
+X				break ;
+X			
+X			case 'x':
+X				flags[ HEX ] = YES ;
+X				break ;
+X			
+X			case 'X':
+X				flags[ CAP_HEX ] = YES ;
+X				break ;
+X			
+X			case 'o':
+X				flags[ OCTAL ] = YES ;
+X				break ;
+X			
+X			case 'u':
+X				flags[ UNSIGNED ] = YES ;
+X				break ;
+X
+X			case 'f':
+X				flags[ F_FLOAT ] = YES ;
+X				break ;
+X			
+X			case 'g':
+X				flags[ G_FLOAT ] = YES ;
+X				break ;
+X			
+X			case 'e':
+X				flags[ E_FLOAT ] = YES ;
+X				break ;
+X			
+X			case 'E':
+X				flags[ CAP_E_FLOAT ] = YES ;
+X				break ;
+X			
+X			case 'G':
+X				flags[ CAP_G_FLOAT ] = YES ;
+X				break ;
+X
+X			case 'c':
+X				flags[ CHAR ] = YES ;
+X				break ;
+X			
+X			case 's':
+X				flags[ STRING ] = YES ;
+X				break ;
+X			
+X			case 'p':
+X				flags[ POINTER ] = YES ;
+X				break ;
+X			
+X			case 'b':		/* this is for checking bounds in fp formats */
+X				flags[ BOUND ] = YES ;
+X				break ;
+X				
+X			case 'P':	/* precision, must be followed by a number, e.g. -P10 */
+X				precision = &argv[ arg_index ][ 2 ] ;
+X				break ;
+X			
+X			case 'W':	/* width, must be followed by a number, e.g. -w10 */
+X				width = &argv[ arg_index ][ 2 ] ;
+X				break ;
+X			
+X			case 'F':	/* flags, whatever is after the F */
+X				print_flags = &argv[ arg_index ][ 2 ] ;
+X				break ;
+X			
+X			/*
+X			 * Options recognized in this case:	-Vf, -Vi
+X			 * Usage: -V[if] start end step
+X			 */
+X			case 'V':
+X				/*
+X				 * Check if we have enough extra arguments
+X				 */
+X				if ( argc - ( arg_index + 1 ) < 3 )
+X				{
+X					fprintf( stderr, "Insufficient # of args after V option\n" ) ;
+X					exit( 1 ) ;
+X				}
+X				switch ( argv[ arg_index ][ 2 ] )
+X				{
+X					case 'f':
+X						f_begin = atof( argv[ arg_index+1 ] ) ;
+X						f_end   = atof( argv[ arg_index+2 ] ) ;
+X						f_step  = atof( argv[ arg_index+3 ] ) ;
+X						break ;
+X					
+X					case 'i':
+X						i_begin = atoi( argv[ arg_index+1 ] ) ;
+X						i_end   = atoi( argv[ arg_index+2 ] ) ;
+X						i_step  = atoi( argv[ arg_index+3 ] ) ;
+X						break ;
+X				}
+X				arg_index += 3 ;
+X				break ;
+X
+X			case 'S':
+X				f_step = atof( &argv[ arg_index ][ 2 ] ) ;
+X				break ;
+X		}
+X	}
+X	return( arg_index ) ;
+X}
+X
+X
+X#define EQ( s1, s2 )				( strcmp( s1, s2 ) == 0 )
+X
+X
+Xint main( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X
+X	if ( Sbuftype( 2, SIO_LINEBUF ) == SIO_ERR )
+X	{
+X		char *msg = "Sbuftype failed\n" ;
+X
+X		write( 2, msg, strlen( msg ) ) ;
+X		exit( 1 ) ;
+X	}
+X
+X	if ( argc == 1 || argc == 2 && EQ( argv[ 1 ], "ALL" ) )
+X	{
+X		/* perform all tests */
+X		int i ;
+X
+X		for ( i = 0 ; i < N_FLAGS ; i++ )
+X			flags[ i ] = YES ;
+X	}
+X	else
+X		(void) get_options( argc, argv ) ;
+X
+X	decimal_test() ;
+X	hex_test() ;
+X	cap_hex_test() ;
+X	octal_test() ;
+X	unsigned_test() ;
+X
+X	f_float_test() ;
+X	g_float_test() ;
+X	e_float_test() ;
+X	cap_g_float_test() ;
+X	cap_e_float_test() ;
+X
+X	string_test() ;
+X	char_test() ;
+X	pointer_test() ;
+X	bound_test() ;
+X	exit( 0 ) ;
+X}
+END_OF_FILE
+  if test 8243 -ne `wc -c <'libs/src/sio/suite/print.c'`; then
+    echo shar: \"'libs/src/sio/suite/print.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/print.c'
+fi
+if test -f 'libs/src/str/strs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strs.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/strs.c'\" \(6391 characters\)
+  sed "s/^X//" >'libs/src/str/strs.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: strs.c,v 3.1 1993/06/13 02:50:39 panos Exp $" ;
+X
+X#include <ctype.h>
+X#include <memory.h>
+X#include <varargs.h>
+X
+Xchar *malloc() ;
+X
+X#include "ss_impl.h"
+X
+X/*
+X * NOTE: The brute force method (with the __strs_bfops) must be always 
+X * 		available so that we can switch to it if another method fails.
+X */
+Xextern struct ss_ops __strs_bfops ;
+Xextern struct ss_ops __strs_rkops ;
+Xextern struct ss_ops __strs_kmpops ;
+Xextern struct ss_ops __strs_sbmops ;
+Xextern struct ss_ops __strs_bmhops ;
+Xextern struct ss_ops __strs_soops ;
+X
+X/*
+X * NOTE: This table is arranged according to increasing method number.
+X *			This allows quick indexing into it using the user-provided
+X *			method as a hint:
+X *				if ( selection_table[ user_method ].method == user_method )
+X *					FOUND
+X *				else
+X *					DO SEQUENTIAL SEARCH
+X *			This allows both quick access and a change of method numbers
+X *			in the future without requiring recompilation of programs in
+X *			order to work with new versions of the library.
+X */
+Xstatic struct ss_select selection_table[] =
+X	{
+X		{ STRS_BF,					&__strs_bfops		},
+X		{ STRS_RK,					&__strs_rkops		},
+X		{ STRS_KMP,					&__strs_kmpops		},
+X		{ STRS_SBM,					&__strs_sbmops		},
+X		{ STRS_BMH,					&__strs_bmhops		},
+X		{ STRS_SO,					&__strs_soops		},
+X		{ 0,							0						}
+X	} ;
+X
+Xstatic char identity_map[ ALPHABET_SIZE ] ;
+Xstatic char upper_to_lower_map[ ALPHABET_SIZE ] ;
+X
+Xstatic int tables_initialized ;
+X
+X/*
+X * This header is returned when an empty pattern is given to strs_setup.
+X * The rest of the functions check ss_patlen and do nothing if that is zero.
+X * ss_patlen in this header will be initialized to zero.
+X */
+Xstatic header_s empty_pattern_header ;
+X
+X
+XPRIVATE void initialize_tables()
+X{
+X	int i ;
+X
+X	for ( i = 0 ; i < sizeof( upper_to_lower_map ) ; i++ )
+X	{
+X		if ( isascii( i ) && isupper( i ) )
+X			upper_to_lower_map[ i ] = i + 'a' - 'A' ;
+X		else
+X			upper_to_lower_map[ i ] = i ;
+X		identity_map[ i ] = i ;
+X	}
+X}
+X
+X
+X/*
+X * Initializes header
+X *
+X * Note that 'pattern' does not need to be a NUL-terminated string.
+X */
+XPRIVATE int init( hp, flags, pattern, patlen )
+X	register header_s		*hp ;
+X	int						flags ;
+X	char						*pattern ;
+X	int						patlen ;
+X{
+X	int requested_method = SS_GETMETHOD( flags ) ;
+X	register struct ss_select *selp ;
+X
+X	if ( ! tables_initialized )
+X	{
+X		initialize_tables() ;
+X		tables_initialized = TRUE ;
+X	}
+X
+X	/*
+X	 * Initialize header fields
+X	 */
+X	SS_FLAGS( hp ) = SS_GETFLAGS( flags ) ;
+X	SS_PATLEN( hp ) = patlen ;
+X	if ( SS_SWITCH( hp ) && patlen < 4 )
+X		SS_OPS( hp ) = &__strs_bfops ;		/* brute force */
+X	else
+X	{
+X		/*
+X		 * Determine ops
+X		 */
+X		if ( selection_table[ requested_method ].sel_method == requested_method )
+X			selp = &selection_table[ requested_method ] ;
+X		else
+X			for ( selp = &selection_table[ 0 ] ; selp->sel_ops ; selp++ )
+X				if ( requested_method == selp->sel_method )
+X					break ;
+X		if ( selp->sel_ops )
+X			SS_OPS( hp ) = selp->sel_ops ;
+X		else if ( SS_SWITCH( hp ) )
+X			SS_OPS( hp ) = &__strs_bfops ;		/* brute force */
+X		else
+X			return( SS_ERR ) ;
+X	}
+X
+X	if ( SS_MALLOC( hp ) )
+X	{
+X		SS_PATTERN( hp ) = malloc( (unsigned)SS_PATLEN( hp ) ) ;
+X		if ( SS_PATTERN( hp ) == CHAR_NULL )
+X		{
+X			(void) free( (char *)hp ) ;
+X			return( SS_ERR ) ;
+X		}
+X		(void) memcpy( SS_PATTERN( hp ), pattern, (int)SS_PATLEN( hp ) ) ;
+X	}
+X	else
+X		SS_PATTERN( hp ) = pattern ;
+X
+X	/*
+X	 * If the user asked for case-insensitive search, we create our own
+X	 * copy of the pattern in lower case. If the pattern is malloc'ed
+X	 * we overwrite, otherwise we malloc some memory and clear the
+X	 * STRS_NOMALLOC flag.
+X	 */
+X	if ( SS_IGNCASE( hp ) )
+X	{
+X		char *new_pattern ;
+X		register int i ;
+X
+X		SS_SETMAP( hp, upper_to_lower_map ) ;
+X
+X		if ( SS_MALLOC( hp ) )
+X			new_pattern = SS_PATTERN( hp ) ;
+X		else
+X		{
+X			new_pattern = malloc( (unsigned)SS_PATLEN( hp ) + 1 ) ;
+X			if ( new_pattern == CHAR_NULL )
+X				return( SS_ERR ) ;
+X			SS_SETMALLOC( hp ) ;			/* clears the STRS_NOMALLOC flag */
+X		}
+X		for ( i = 0 ; i < SS_PATLEN( hp ) ; i++ )
+X			new_pattern[ i ] = SS_MAP( hp, SS_PATTERN( hp )[ i ] ) ;
+X		SS_PATTERN( hp ) = new_pattern ;
+X	}
+X	else
+X		SS_SETMAP( hp, identity_map ) ;
+X
+X	for ( ;; )
+X	{
+X		if ( SS_SETUP( hp ) == SS_OK )
+X			return( SS_OK ) ;
+X		else
+X		{
+X			if ( ! SS_SWITCH( hp ) || SS_OPS( hp ) == &__strs_bfops )
+X			{
+X				if ( SS_MALLOC( hp ) )
+X					(void) free( (char *)hp ) ;
+X				return( SS_ERR ) ;
+X			}
+X			SS_OPS( hp ) = &__strs_bfops ;
+X		}
+X	}
+X}
+X
+X
+X/*
+X * Finalize header
+X */
+XPRIVATE void fini( hp )
+X	header_s *hp ;
+X{
+X	SS_DONE( hp ) ;
+X	if ( SS_MALLOC( hp ) )
+X		(void) free( SS_PATTERN( hp ) ) ;
+X}
+X
+X
+X/*
+X * Create a search handle
+X */
+Xstrs_h strs_setup( flags, pattern, va_alist )
+X	int	flags ;
+X	char	*pattern ;
+X	va_dcl
+X{
+X	header_s		*hp ;
+X	int			patlen ;
+X	va_list		ap ;
+X
+X	hp = HP( malloc( sizeof( *hp ) ) ) ;
+X	if ( hp == NULL )
+X		return( NULL_HANDLE ) ;
+X	
+X	if ( flags & STRS_PATLEN )
+X	{
+X		va_start( ap ) ;
+X		patlen = va_arg( ap, int ) ;
+X		va_end( ap ) ;
+X	}
+X	else
+X		patlen = strlen( pattern ) ;
+X
+X	if ( patlen == 0 )
+X		return( (strs_h) &empty_pattern_header ) ;
+X
+X	if ( init( hp, flags, pattern, patlen ) == SS_OK )
+X		return( (strs_h)hp ) ;
+X	else
+X	{
+X		free( (char *)hp ) ;
+X		return( NULL_HANDLE ) ;
+X	}
+X}
+X
+X
+X/*
+X * Destroy a search handle
+X */
+Xvoid strs_done( handle )
+X	strs_h handle ;
+X{
+X	header_s *hp = HP( handle ) ;
+X
+X	if ( SS_PATLEN( hp ) != 0 )
+X	{
+X		fini( hp ) ;
+X		(void) free( (char *) handle ) ;
+X	}
+X}
+X
+X
+Xchar *strs_match( handle, str, len )
+X	strs_h	handle ;
+X	char		*str ;
+X	int		len ;
+X{
+X	register header_s *hp = HP( handle ) ;
+X
+X	if ( SS_PATLEN( hp ) == 0 )
+X		return( str ) ;
+X	if ( SS_PATLEN( hp ) > len )
+X		return( CHAR_NULL ) ;
+X	return( SS_MATCH( hp, str, len ) ) ;
+X}
+X
+X
+X
+Xchar *strs_search( flags, str, len, pattern, va_alist )
+X	int	flags ;
+X	char	*str ;
+X	int	len ;
+X	char	*pattern ;			/* NUL-terminated */
+X	va_dcl
+X{
+X	header_s		t_header ;
+X	char			*p ;
+X	int			patlen ;
+X	va_list		ap ;
+X
+X	if ( flags & STRS_PATLEN )
+X	{
+X		va_start( ap ) ;
+X		patlen = va_arg( ap, int ) ;
+X		va_end( ap ) ;
+X	}
+X	else
+X		patlen = strlen( pattern ) ;
+X
+X	if ( patlen == 0 )
+X		return( str ) ;
+X
+X	if ( patlen > len )
+X		return( CHAR_NULL ) ;
+X
+X	if ( init( &t_header, flags | STRS_NOMALLOC, pattern, patlen ) == SS_OK )
+X	{
+X		p = SS_MATCH( &t_header, str, len ) ;
+X		fini( &t_header ) ;
+X		return( p ) ;
+X	}
+X	else
+X		return( CHAR_NULL ) ;
+X}
+X
+X
+END_OF_FILE
+  if test 6391 -ne `wc -c <'libs/src/str/strs.c'`; then
+    echo shar: \"'libs/src/str/strs.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strs.c'
+fi
+echo shar: End of archive 2 \(of 6\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

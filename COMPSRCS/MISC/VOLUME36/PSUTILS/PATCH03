@@ -1,0 +1,738 @@
+Newsgroups: comp.sources.misc
+From: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Subject: v36i095:  psutils - Postscript document manipulation tools, Patch03
+Message-ID: <1993Apr4.222504.6468@sparky.imd.sterling.com>
+X-Md4-Signature: 5da466d7b7abd79955fb69d8c404e60d
+Date: Sun, 4 Apr 1993 22:25:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Posting-number: Volume 36, Issue 95
+Archive-name: psutils/patch03
+Environment: UNIX, VMS
+Patch-To: psutils: Volume 35, Issue 8-11
+
+This is patch 3 to psutils (c.s.m. volume 35), bringing it up to patchlevel
+10. This patch does the following:
+
+* all utilities use malloc to allocate space for page pointers, removing the
+  maximum page limit.
+
+* improves psselect to allow pages to be given relative to the end of the
+  document.
+
+* improves the arbitrary coordinate system support to work with GhostView
+
+* alters fixwpps for WordPerfect 5.1 output
+
+* miscellaneous changes to manual pages and Makefile
+
+a.
+--
+Angus Duggan, Department of Computer Science,	| I'm pink, therefore I'm Spam.
+University of Edinburgh, The King's Buildings,  | PHONE: +44(0)31 650 5126
+Mayfield Road, Edinburgh EH9 3JZ, Scotland.	| INET: ajcd@dcs.ed.ac.uk
+
+
+diff -cr psutils-dist/Makefile psutils/Makefile
+*** psutils-dist/Makefile	Wed Mar 31 15:57:34 1993
+--- psutils/Makefile	Wed Mar 31 15:14:11 1993
+***************
+*** 30,42 ****
+  pstops: pstops.o psutil.o
+  	$(CC) $(CFLAGS) -o pstops psutil.o pstops.o
+  
+! psbook.c: psutil.h patchlevel.h
+  
+! pstops.c: psutil.h patchlevel.h
+  
+! psutil.c: psutil.h patchlevel.h
+  
+! psselect.c: psutil.h patchlevel.h
+  
+  psnup: psnup.sh patchlevel.h
+  	r=`sed -n -e "s/^#define RELEASE \([0-9][0-9]*\)/\1/p" <patchlevel.h`; \
+--- 30,42 ----
+  pstops: pstops.o psutil.o
+  	$(CC) $(CFLAGS) -o pstops psutil.o pstops.o
+  
+! psbook.o: psutil.h patchlevel.h psbook.c
+  
+! pstops.o: psutil.h patchlevel.h pstops.c
+  
+! psutil.o: psutil.h patchlevel.h psutil.c
+  
+! psselect.o: psutil.h patchlevel.h psselect.c
+  
+  psnup: psnup.sh patchlevel.h
+  	r=`sed -n -e "s/^#define RELEASE \([0-9][0-9]*\)/\1/p" <patchlevel.h`; \
+diff -cr psutils-dist/fixwpps psutils/fixwpps
+*** psutils-dist/fixwpps	Fri Mar 19 14:48:40 1993
+--- psutils/fixwpps	Mon Mar 29 13:06:50 1993
+***************
+*** 7,25 ****
+  
+  $page = 1;
+  while (<>) {
+!    s/(_[a-zA-Z]+)([0-9]+)/\1 \2/g;
+     if (/^_bp/) {
+        print STDOUT "%%Page: $page $page\n";
+        print STDOUT $_;
+        $page++;
+!    } elsif (/^([^\/].*\S.*)(_bp.*)/) {
+        print STDOUT "$1\n";
+        print STDOUT "%%Page: $page $page\n";
+        print STDOUT "$2\n";
+        $page++;
+!    } elsif (/^_ed/) {
+        print STDOUT "%%Trailer:\n";
+!       print STDOUT $_;
+     } else {
+        print STDOUT $_;
+     }
+--- 7,26 ----
+  
+  $page = 1;
+  while (<>) {
+! #   s/([^\/]_[a-zA-Z]+)([0-9]+)/\1 \2/g;	# removed for wp 5.1
+     if (/^_bp/) {
+        print STDOUT "%%Page: $page $page\n";
+        print STDOUT $_;
+        $page++;
+!    } elsif (/^([^\/\s].*)\s(_bp.*)/) {
+        print STDOUT "$1\n";
+        print STDOUT "%%Page: $page $page\n";
+        print STDOUT "$2\n";
+        $page++;
+!    } elsif (/^(.*\s)?(_ed.*)/) {
+!       print STDOUT "$1\n" if defined($1);
+        print STDOUT "%%Trailer:\n";
+!       print STDOUT "$2\n";
+     } else {
+        print STDOUT $_;
+     }
+diff -cr psutils-dist/patchlevel.h psutils/patchlevel.h
+*** psutils-dist/patchlevel.h	Wed Mar 31 15:57:35 1993
+--- psutils/patchlevel.h	Wed Mar 31 15:11:24 1993
+***************
+*** 1,2 ****
+  #define RELEASE 1
+! #define PATCHLEVEL 9
+--- 1,2 ----
+  #define RELEASE 1
+! #define PATCHLEVEL 10
+diff -cr psutils-dist/psbook.1 psutils/psbook.1
+*** psutils-dist/psbook.1	Mon Feb  8 11:33:45 1993
+--- psutils/psbook.1	Wed Mar 31 15:33:31 1993
+***************
+*** 33,42 ****
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psselect(1), pstops(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Psbook
+! cannot cope with documents longer than 5000 pages.
+--- 33,42 ----
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psselect(1), pstops(1), psnup(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Psbook
+! does not accept all DSC comments.
+diff -cr psutils-dist/psbook.c psutils/psbook.c
+*** psutils-dist/psbook.c	Mon Feb  8 11:33:45 1993
+--- psutils/psbook.c	Wed Mar 31 17:47:59 1993
+***************
+*** 72,78 ****
+  
+     /* rearrange pages */
+     writeheader(maxpage);
+!    writeprolog();
+     for (currentpg = 0; currentpg < maxpage; currentpg++) {
+        int actualpg = currentpg - currentpg%signature;
+        switch(currentpg%4) {
+--- 72,78 ----
+  
+     /* rearrange pages */
+     writeheader(maxpage);
+!    writeprolog("");
+     for (currentpg = 0; currentpg < maxpage; currentpg++) {
+        int actualpg = currentpg - currentpg%signature;
+        switch(currentpg%4) {
+diff -cr psutils-dist/psnup.1 psutils/psnup.1
+*** psutils-dist/psnup.1	Wed Mar 31 15:57:36 1993
+--- psutils/psnup.1	Wed Mar 31 15:33:22 1993
+***************
+*** 27,54 ****
+  ]
+  [
+  .I infile
+! ]
+  .SH DESCRIPTION
+  .I Psnup
+  is a script making the use of 
+  .I pstops 
+  easier.
+! It sets up standard width and height parameters and 
+  .I Pstops
+! rearranges pages from a PostScript document, creating a new PostScript file.
+  The input PostScript file should follow the Adobe Document Structuring
+  Conventions.
+- .I Pstops
+- can be used to perform a large number of arbitrary re-arrangements of
+- Documents, including arranging for printing 2-up, 4-up, booklets, reversing,
+- selecting front or back sides of documents, scaling, etc.
+  .PP
+  The
+  .I \-w
+! option gives the width, the default is (21cm),
+  .I \-h
+! option gives the height, the default is (29.7cm), 
+! and are normally specified in
+  .B "cm"
+  or
+  .B "in"
+--- 27,53 ----
+  ]
+  [
+  .I infile
+! [
+! .I outfile
+! ] ]
+  .SH DESCRIPTION
+  .I Psnup
+  is a script making the use of 
+  .I pstops 
+  easier.
+! It uses
+  .I Pstops
+! to put more than one logical page of a PostScript document on each physical
+! page of output.
+  The input PostScript file should follow the Adobe Document Structuring
+  Conventions.
+  .PP
+  The
+  .I \-w
+! option gives the paper width, and the
+  .I \-h
+! option gives the paper height,
+! normally specified in
+  .B "cm"
+  or
+  .B "in"
+***************
+*** 72,81 ****
+  .BR \-8 ,
+  and
+  .BR \-9
+! options print 2-,
+! 4-,
+! 8-,
+! and 9-up.
+  .PP
+  The
+  .I \-b
+--- 71,80 ----
+  .BR \-8 ,
+  and
+  .BR \-9
+! options put 2,
+! 4,
+! 8,
+! or 9 logical pages on each physical page.
+  .PP
+  The
+  .I \-b
+***************
+*** 111,120 ****
+  .br
+  brianc@labmed.ucsf.edu
+  .SH "SEE ALSO"
+! psbook(1), pstops(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Pstops
+! cannot cope with documents longer than 5000 pages.
+--- 110,119 ----
+  .br
+  brianc@labmed.ucsf.edu
+  .SH "SEE ALSO"
+! psbook(1), pstops(1), psselect(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Pstops
+! does not accept all DSC comments.
+diff -cr psutils-dist/psnup.sh psutils/psnup.sh
+*** psutils-dist/psnup.sh	Fri Mar 19 14:48:41 1993
+--- psutils/psnup.sh	Wed Mar 31 15:27:44 1993
+***************
+*** 1,7 ****
+  #!/bin/sh
+  # psnup: put multiple pages onto one physical sheet of paper.
+  # usage:
+! #       psnup [-w<dim>] [-h<dim>] [-ppaper] [-l] [-2|-4|-8|-9] [file...]
+  #               -w<dim> sets the paper width
+  #               -h<dim> sets the paper height
+  #               -ppaper sets the paper size (width and height) by name
+--- 1,7 ----
+  #!/bin/sh
+  # psnup: put multiple pages onto one physical sheet of paper.
+  # usage:
+! #       psnup [-q] [-w<dim>] [-h<dim>] [-ppaper] [-l] [-2|-4|-8|-9] [in [out]]
+  #               -w<dim> sets the paper width
+  #               -h<dim> sets the paper height
+  #               -ppaper sets the paper size (width and height) by name
+***************
+*** 21,27 ****
+          -8)     nup=8 ;;
+          -9)     nup=9 ;;
+          -s*)    xscale=`echo "$1" | sed "s/^-./@/"` ;;
+!         -v)     echo "psnup release @RELEASE@ patchlevel @PATCHLEVEL@" ; exit 1 ;;
+          *)      io="$io $1"
+          esac
+          shift
+--- 21,29 ----
+          -8)     nup=8 ;;
+          -9)     nup=9 ;;
+          -s*)    xscale=`echo "$1" | sed "s/^-./@/"` ;;
+!         -v)     echo "psnup release @RELEASE@ patchlevel @PATCHLEVEL@" 1>&2
+!                 echo "Usage: $0 [-w<dim>] [-h<dim>] [-ppaper] [-l] [-2|-4|-8|-9] [-q] [-b] [infile [outfile]]" 1>&2
+!                 exit 1 ;;
+          *)      io="$io $1"
+          esac
+          shift
+diff -cr psutils-dist/psselect.1 psutils/psselect.1
+*** psutils-dist/psselect.1	Mon Feb  8 11:33:46 1993
+--- psutils/psselect.1	Wed Mar 31 15:33:42 1993
+***************
+*** 44,49 ****
+--- 44,52 ----
+  or a page range of the form \fIfirst\fR-\fIlast\fR. If \fIfirst\fR is omitted,
+  the
+  first page is assumed, and if \fIlast\fR is omitted, the last page is assumed.
++ 
++ The prefix character `_' indicates that the page number is relative to the end
++ of the document, counting backwards.
+  .PP
+  The 
+  .I \-r
+***************
+*** 66,80 ****
+  .SH NOTES
+  The page number given to
+  .I psselect
+! is the number of the page counting from the start of the file, starting at
+! one. The actual page number in the document may be different.
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psbook(1), pstops(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Psselect
+! cannot cope with documents longer than 5000 pages.
+--- 69,83 ----
+  .SH NOTES
+  The page number given to
+  .I psselect
+! is the number of the page counting from the start or end of the file, starting
+! at one. The actual page number in the document may be different.
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psbook(1), pstops(1), psnup(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Psselect
+! does not accept all DSC comments.
+diff -cr psutils-dist/psselect.c psutils/psselect.c
+*** psutils-dist/psselect.c	Wed Mar 31 15:57:36 1993
+--- psutils/psselect.c	Wed Mar 31 17:59:40 1993
+***************
+*** 48,55 ****
+       range *rp;
+  {
+     int first=0;
+     if (isdigit(*str)) {
+!       first = atoi(str);
+        while (isdigit(*str)) str++;
+     }
+     switch (*str) {
+--- 48,57 ----
+       range *rp;
+  {
+     int first=0;
++    int sign;
++    sign = (*str == '_' && ++str) ? -1 : 1;
+     if (isdigit(*str)) {
+!       first = sign*atoi(str);
+        while (isdigit(*str)) str++;
+     }
+     switch (*str) {
+***************
+*** 64,71 ****
+     case '-':
+     case ':':
+        str++;
+        if (isdigit(*str)) {
+! 	 int last = atoi(str);
+  	 while (isdigit(*str)) str++;
+  	 if (!first)
+  	    first = 1;
+--- 66,74 ----
+     case '-':
+     case ':':
+        str++;
++       sign = (*str == '_' && ++str) ? -1 : 1;
+        if (isdigit(*str)) {
+! 	 int last = sign*atoi(str);
+  	 while (isdigit(*str)) str++;
+  	 if (!first)
+  	    first = 1;
+***************
+*** 77,83 ****
+  	       return (addrange(str+1, makerange(first, last, rp)));
+  	    }
+        } else if (*str == '\0')
+! 	 return (makerange(first, MAXPAGES, rp));
+     }
+     fprintf(stderr, "%s: invalid page range\n", prog);
+     fflush(stderr);
+--- 80,88 ----
+  	       return (addrange(str+1, makerange(first, last, rp)));
+  	    }
+        } else if (*str == '\0')
+! 	 return (makerange(first, -1, rp));
+!       else if (*str == ',')
+! 	 return (addrange(str+1, makerange(first, -1, rp)));
+     }
+     fprintf(stderr, "%s: invalid page range\n", prog);
+     fflush(stderr);
+***************
+*** 162,177 ****
+     for (pass = 0; pass < 2; pass++) {
+        if (pass) {                           /* write header on second pass */
+  	 writeheader(maxpage);
+! 	 writeprolog();
+        }
+        if (pagerange) {
+  	 range *r;
+  	 for (r = pagerange; r; r = r->next) {
+! 	    if (pagerange->last == MAXPAGES)
+! 	       pagerange->last = pages;
+  	    if (reverse) {
+  	       for (currentpg = r->last; currentpg >= r->first; currentpg--) {
+! 		  if ((currentpg&1) ? (odd || all) : (even || all)) {
+  		     if (pass)
+  			writepage(currentpg-1);
+  		     else
+--- 167,191 ----
+     for (pass = 0; pass < 2; pass++) {
+        if (pass) {                           /* write header on second pass */
+  	 writeheader(maxpage);
+! 	 writeprolog("");
+        }
+        if (pagerange) {
+  	 range *r;
+  	 for (r = pagerange; r; r = r->next) {
+! 	    if (pagerange->first < 0) {
+! 	       pagerange->first += pages + 1;
+! 	       if (pagerange->first < 0)
+! 		  pagerange->first = 0;
+! 	    }
+! 	    if (pagerange->last < 0) {
+! 	       pagerange->last += pages + 1;
+! 	       if (pagerange->last < 0)
+! 		  pagerange->last = 0;
+! 	    }
+  	    if (reverse) {
+  	       for (currentpg = r->last; currentpg >= r->first; currentpg--) {
+! 		  if (currentpg <= pages &&
+! 		      ((currentpg&1) ? (odd || all) : (even || all))) {
+  		     if (pass)
+  			writepage(currentpg-1);
+  		     else
+***************
+*** 180,186 ****
+  	       }
+  	    } else {
+  	       for (currentpg = r->first; currentpg <= r->last; currentpg++) {
+! 		  if ((currentpg&1) ? (odd || all) : (even || all)) {
+  		     if (pass)
+  			writepage(currentpg-1);
+  		     else
+--- 194,201 ----
+  	       }
+  	    } else {
+  	       for (currentpg = r->first; currentpg <= r->last; currentpg++) {
+! 		  if (currentpg <= pages &&
+! 		      ((currentpg&1) ? (odd || all) : (even || all))) {
+  		     if (pass)
+  			writepage(currentpg-1);
+  		     else
+diff -cr psutils-dist/pstops.1 psutils/pstops.1
+*** psutils-dist/pstops.1	Mon Feb  8 11:33:21 1993
+--- psutils/pstops.1	Wed Mar 31 15:33:55 1993
+***************
+*** 42,48 ****
+  .I = spec[+specs][,specs]
+  .TP
+  .I spec
+! .I = [-]pageno[@scale][L][R][U][(xoff,yoff)]
+  .RE
+  .sp
+  .I modulo
+--- 42,48 ----
+  .I = spec[+specs][,specs]
+  .TP
+  .I spec
+! .I = [-]pageno[L][R][U][@scale][(xoff,yoff)]
+  .RE
+  .sp
+  .I modulo
+***************
+*** 89,94 ****
+--- 89,98 ----
+  If there is only one page specification, with
+  .I pageno
+  zero, the \fIpageno\fR may be omitted.
++ 
++ The shift, rotation, and scaling are performed
++ in that order regardless of which order
++ they appear on the command line.
+  .PP
+  The
+  .I \-w
+***************
+*** 137,146 ****
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psbook(1), psselect(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Pstops
+! cannot cope with documents longer than 5000 pages.
+--- 141,150 ----
+  .SH AUTHOR
+  Angus Duggan
+  .SH "SEE ALSO"
+! psbook(1), psselect(1), psnup(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+  .SH BUGS
+  .I Pstops
+! does not accept all DSC comments.
+diff -cr psutils-dist/pstops.c psutils/pstops.c
+*** psutils-dist/pstops.c	Wed Mar 31 15:57:37 1993
+--- psutils/pstops.c	Wed Mar 31 17:43:53 1993
+***************
+*** 300,306 ****
+        writestring("/initmatrix lcvx/initclip lcvx /newpath lcvx\n");
+        writestring(" 0 0 /moveto lcvx\n");
+        sprintf(buffer,
+! 	      " %lf 0/rlineto lcvx 0 %lf/rlineto lcvx -%lf 0/rlineto lcvx\n",
+  	      width, height, width);
+        writestring(buffer);
+        writestring(" /clip lcvx /newpath lcvx /setmatrix lcvx /exec lcvx]\n");
+--- 300,306 ----
+        writestring("/initmatrix lcvx/initclip lcvx /newpath lcvx\n");
+        writestring(" 0 0 /moveto lcvx\n");
+        sprintf(buffer,
+! 	      " %lf 0/rlineto lcvx\n 0 %lf/rlineto lcvx\n -%lf 0/rlineto lcvx\n /closepath lcvx\n",
+  	      width, height, width);
+        writestring(buffer);
+        writestring(" /clip lcvx /newpath lcvx /setmatrix lcvx /exec lcvx]\n");
+***************
+*** 312,321 ****
+     if (nobinding) /* desperation measures */
+        writestring("/bind{}def\n");
+     writestring("%%EndProcSet\n");
+-    writeprolog();
+     /* save transformation from original to current matrix */
+!    writestring("/pstopsxform pstopsmatrix matrix currentmatrix matrix\n");
+!    writestring("invertmatrix matrix concatmatrix matrix invertmatrix store\n");
+     for (thispg = 0; thispg < maxpage; thispg += modulo) {
+        int add_last = 0;
+        struct pagespec *ps;
+--- 312,319 ----
+     if (nobinding) /* desperation measures */
+        writestring("/bind{}def\n");
+     writestring("%%EndProcSet\n");
+     /* save transformation from original to current matrix */
+!    writeprolog("/pstopsxform pstopsmatrix matrix currentmatrix matrix invertmatrix matrix concatmatrix matrix invertmatrix store\n");
+     for (thispg = 0; thispg < maxpage; thispg += modulo) {
+        int add_last = 0;
+        struct pagespec *ps;
+***************
+*** 353,358 ****
+--- 351,357 ----
+  	    }
+  	    writestring("pstopsxform concat\n");
+  	    writestring("/pstopsmatrix matrix currentmatrix def\n");
++ 
+  	 }
+  	 if (add_next) {
+  	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+diff -cr psutils-dist/psutil.c psutils/psutil.c
+*** psutils-dist/psutil.c	Wed Mar 31 15:57:37 1993
+--- psutils/psutil.c	Wed Mar 31 17:50:28 1993
+***************
+*** 22,31 ****
+--- 22,34 ----
+  static long bytes = 0;
+  static long pagescmt = 0;
+  static long headerlen = 0;
++ static long endsetup = 0;
+  static int outputpage = 0;
+  static char pagelabel[BUFSIZ];
+  static int pageno;
+  static long pagelength;
++ static int maxpages = 100;
++ static long *pageptr;
+  
+  /* make a file seekable; trick stolen from Chris Torek's libdvi */
+  
+***************
+*** 96,101 ****
+--- 99,109 ----
+     register long int this_record;
+  #endif
+  
++    if ((pageptr = (long *)malloc(sizeof(long)*maxpages)) == NULL) {
++       fprintf(stderr, "%s: out of memory\n", prog);
++       fflush(stderr);
++       exit(1);
++    }
+     pages = 0;
+     fseek(infile, 0L, 0);
+  #ifdef VMS
+***************
+*** 105,117 ****
+  #endif
+        if (*buffer == '%') {
+  	 if (buffer[1] == '%') {
+! 	    if (nesting == 0 && strncmp(comment, "Page:", 5) == 0)
+  #ifdef VMS
+  	       pageptr[pages++] = this_record;
+  #else
+  	       pageptr[pages++] = ftell(infile)-strlen(buffer);
+  #endif
+! 	    else if (headerlen == 0 && strncmp(comment, "Pages:", 6) == 0)
+  #ifdef VMS
+  	       pagescmt = this_record;
+  #else
+--- 113,134 ----
+  #endif
+        if (*buffer == '%') {
+  	 if (buffer[1] == '%') {
+! 	    if (nesting == 0 && strncmp(comment, "Page:", 5) == 0) {
+! 	       if (pages >= maxpages-1) {
+! 		  maxpages *= 2;
+! 		  if ((pageptr = (long *)realloc((char *)pageptr,
+! 					     sizeof(long)*maxpages)) == NULL) {
+! 		     fprintf(stderr, "%s: out of memory\n", prog);
+! 		     fflush(stderr);
+! 		     exit(1);
+! 		  }
+! 	       }
+  #ifdef VMS
+  	       pageptr[pages++] = this_record;
+  #else
+  	       pageptr[pages++] = ftell(infile)-strlen(buffer);
+  #endif
+! 	    } else if (headerlen == 0 && strncmp(comment, "Pages:", 6) == 0)
+  #ifdef VMS
+  	       pagescmt = this_record;
+  #else
+***************
+*** 128,133 ****
+--- 145,156 ----
+  	       nesting++;
+  	    else if (strncmp(comment, "EndBinary", 9) == 0)
+  	       nesting--;
++ 	    else if (nesting == 0 && strncmp(comment, "EndSetup", 8) == 0)
++ #ifdef VMS
++ 	       endsetup = this_record;
++ #else
++ 	       endsetup = ftell(infile)-strlen(buffer);
++ #endif
+  	    else if (nesting == 0 && strncmp(comment, "Trailer", 7) == 0) {
+  #ifdef VMS
+  	       fseek(infile, this_record, 0);
+***************
+*** 149,154 ****
+--- 172,179 ----
+  	 headerlen = ftell(infile)-strlen(buffer);
+  #endif
+     pageptr[pages] = ftell(infile);
++    if (endsetup == 0)
++       endsetup = pageptr[0];
+  }
+  
+  seekpage(p)
+***************
+*** 225,233 ****
+  }
+  
+  
+! writeprolog()
+  {
+!    if (!fcopy(pageptr[0]-headerlen)) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+        fflush(stderr);
+        exit(1);
+--- 250,265 ----
+  }
+  
+  
+! writeprolog(setup)
+!      char *setup;
+  {
+!    if (!fcopy(endsetup-headerlen)) {
+!       fprintf(stderr, "%s: I/O error in prologue\n", prog);
+!       fflush(stderr);
+!       exit(1);
+!    }
+!    writestring(setup);
+!    if (!fcopy(pageptr[0]-endsetup)) {
+        fprintf(stderr, "%s: I/O error in prologue\n", prog);
+        fflush(stderr);
+        exit(1);
+diff -cr psutils-dist/psutil.h psutils/psutil.h
+*** psutils-dist/psutil.h	Wed Mar 31 15:57:37 1993
+--- psutils/psutil.h	Wed Mar 31 11:23:06 1993
+***************
+*** 11,20 ****
+  #endif
+  
+  #define TMPDIR "/tmp"
+- #define MAXPAGES 5000 /* max pages in document */
+  
+  LOCAL char *prog;
+- LOCAL long pageptr[MAXPAGES];
+  LOCAL int pages;
+  LOCAL int verbose;
+  LOCAL FILE *infile;
+--- 11,18 ----
+
+exit 0 # Just in case...

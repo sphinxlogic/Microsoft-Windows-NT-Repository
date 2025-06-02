@@ -1,0 +1,1737 @@
+Path: comp-sources-3b1
+From: vern@zebra.alphacdc.com (vern)
+Subject:  v02i036:  3B1 Tape processing utilities, Part02/04
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 9ed9d595 46be13d9 bee57164 a43be435
+
+Submitted-by: vern@zebra.alphacdc.com (vern)
+Posting-number: Volume 2, Issue 36
+Archive-name: tapeops/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 4)."
+# Contents:  backup.sh link.list squirrel.sh src/fix.cpio.c
+#   src/mini-z.c utils/copy.sh utils/panic.pl utils/trim.pl
+# Wrapped by vern@zebra on Mon Mar  8 08:57:35 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f backup.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"backup.sh\"
+else
+echo shar: Extracting \"backup.sh\" \(4216 characters\)
+sed "s/^X//" >backup.sh <<'END_OF_backup.sh'
+XHOME=`pwd`
+XWRKDIR=/news/backup
+XSRCDIR=/news/.tape.ops/src
+X
+Xfunction cleanup
+X{
+X	Tgetname -l
+X	rm -f /tmp/tape.vtoc
+X	rm -f /tmp/ss.osets
+X	rm -f /tmp/size*
+X	rm -f /tmp/BUlist*
+X	cd $HOME
+X	rm -rf $WRKDIR
+X}
+X
+Xif [ ! -d $WRKDIR ]
+Xthen
+X	mkdir $WRKDIR
+Xfi
+Xcd $WRKDIR
+X
+Xecho `date +%T`" Making Backup List ( approx. 5 min. )"
+Xecho "\tTotal time about an hour and 5 min."
+X>users
+Xfind / -print | sed -e '\:^\/news\/\.: p
+X\:^\/news: d
+X\:^\/u\/: w users
+X\:^\/u\/: d' | sort > $WRKDIR/BUfiles
+X
+Xsort users >> $WRKDIR/BUfiles
+X
+Xecho `date +%T`" Checking Tape"
+Xpau=0
+Xwhile [ $pau = 0 ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret != 0 ]
+X	then
+X		echo "Please insert a tape. Q)uit or <cr> to continue. \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			cleanup
+X			exit 1
+X		fi
+X	else
+X		Tgetname -v > /dev/null
+X		ret=$?
+X		set `Tgetname -r | tr -d "'"`
+X		tname=$1
+X		toffset=$2
+X		if [ $ret = 30 ]
+X		then
+X			echo "\n\tThis tape has the \"SAFE\" key set.
+X\tPlease exchange it for a tape we can write onto.
+X\t	<cr> to continue. Q)uit."
+X			read -r ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				cleanup
+X				exit 1
+X			fi
+X		else
+X# 'read.vtoc -w9' will write all used chapters to standard out in column
+X# format.  'read.vtoc -c' puts the next chapter number and the next offset
+X# on standard output.  A return of '10' indicates that the tape is full.
+X
+Xecho `date +%T`" The contents of tape \""$tname"\" are:"
+X			$SRCDIR/read.vtoc -w9
+X			set `$SRCDIR/read.vtoc -c`
+X			chap=$1
+X			offset=$2
+X			echo \
+X"\tThere are "$toffset" blocks of data already on this tape.
+X\tOkay to write to this tape? <y/n> \c"
+X			read -r ch
+X			if [ "$ch" = "n" -o "$ch" = "N" ]
+X			then
+X				cleanup
+X				exit
+X			fi
+X			offset=$toffset
+Xecho "\n\tThe name of this tape is \"$tname\".
+X\tShall we keep the name? <y/n> \c "
+X			read -r ch
+X			while [ "$ch" = "n" -o "$ch" = "N" ]
+X			do
+X				echo "Enter the new name: \c"
+X				read tname
+Xecho "\tThe name will be \"$tname\". Okay? <y/n> \c"
+X				read -r ch
+X			done
+X		pau=1
+X		fi
+X	fi
+X	if [ $pau = 0 ]
+X	then
+Xecho "\tWaiting for another tape to be inserted.
+X\t<cr> to continue. Q)uit \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			cleanup
+X			exit 1
+X		fi
+X		ret=1
+X	fi
+Xdone
+X
+Xoffset=0
+X
+Xecho `date +%T`" Preparing ss.filelist."
+XTmakessList $offset < BUfiles > ss.filelist
+Xnumtps=$?
+Xeval set `wc -l ss.filelist`
+XNFILES=$1
+XBTYPE="Backup by Names"
+X
+Xif [ $numtps -gt 1 ]
+Xthen
+X	echo "\tYou will need $numtps tapes for this backup.
+X	Are they ready? <y/n>. \c"
+X	read ans
+X	if [ "$ans" = "n" -o "$ans" = "N" ]
+X	then
+X		cleanup
+X		exit
+X	fi
+Xfi
+X
+Xecho `date +%T`\
+X" Writing chapter $chap to tape '$tname' starting at block $offset."
+Xecho "\tFirst tape approx. 17 min., 2nd tape approx. 10 min."
+Xecho "ss.filelist" > BUlist$$
+Xcat BUlist$$ BUfiles | \
+X	tapecpio -ocT124 2>/tmp/size$$ | \
+X	dbuf -oT124O$offset > /dev/rft3
+Xret=$?
+X
+Xif [ "$ret" != "0" ]
+Xthen
+X	if [ $ret = 4 ]
+X	then
+X		echo "This tape operation has been aborted."
+X		Tgetname -l
+X		cleanup
+X		exit 1
+X	else
+X		echo "\
+X\tAn error has occurred while trying to create this backup-set.
+X\tCheck that a formatted tape has been properly inserted and has
+X\tfinished rewinding.  Enter <q> to quit. \c"
+X		read ch
+X		cleanup
+X		exit 1
+X	fi
+Xfi
+X
+Xecho `date +%T`" Performing verify pass."
+Xecho "\tFirst tape 13 min., 2nd tape 10 min."
+Xeval set `grep "blocks" /tmp/size$$`
+XNBLOCKS=$1
+X(( bytes = NBLOCKS * 512 ))
+Xset `wc -l ss.filelist`
+XNFILES=$1
+Xecho "NFILES = $NFILES, NBLOCKS = $NBLOCKS or $bytes bytes."
+Xecho "\tPlease re-insert the first tape. <cr> \c"
+Xread ch
+XTgetname -t
+Xdbuf -iT124O$offset"S"$NBLOCKS /dev/rft3 | cat > /dev/null
+Xret=$?
+Xecho "ret = $ret"
+Xif [ "$ret" != "0" ]
+Xthen
+X	echo "\
+X\n\tAn error has been discovered while trying to verify this tape.
+X\tYou will have to get another tape and start over. \c"
+X	read
+X	cleanup
+X	exit 1
+Xfi
+X
+XSSNAME="fooey"
+XSSCMNT=`date '+%a, %h. %d 19%y %H:%M'`
+Xwhich=0
+Xwhile [ $which -lt $numtps ]
+Xdo
+X	(( which = which + 1 ))
+X	if [ $which -lt $numtps ]
+X	then
+X		BACKTYPE="Backup Broken"
+X	else
+X		BACKTYPE="Complete Backup"
+X	fi
+X	if [ $which -ne 1 ]
+X	then
+X		NBLOCKS=-1
+X	fi
+X	echo "Please insert tape number $which. <cr> \c"
+X	read
+X	Tgetname -t
+X	Tgetname -w "$BACKTYPE" "$tname" "$SSNAME" "$SSCMNT" \
+X		$offset $NBLOCKS $NFILES
+Xdone
+Xecho `date +%T`" Verify Completed"
+X
+Xcleanup
+END_OF_backup.sh
+if test 4216 -ne `wc -c <backup.sh`; then
+    echo shar: \"backup.sh\" unpacked with wrong size!
+fi
+chmod +x backup.sh
+# end of overwriting check
+fi
+if test -f link.list -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"link.list\"
+else
+echo shar: Extracting \"link.list\" \(0 character\)
+sed "s/^X//" >link.list <<'END_OF_link.list'
+END_OF_link.list
+if test 0 -ne `wc -c <link.list`; then
+    echo shar: \"link.list\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f squirrel.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"squirrel.sh\"
+else
+echo shar: Extracting \"squirrel.sh\" \(4522 characters\)
+sed "s/^X//" >squirrel.sh <<'END_OF_squirrel.sh'
+X# The purpose of this script is to 'squirrel' away files in the news
+X# files for transfer to tape.  By linking these files to entries in
+X# the 'arcdir', they are protected from 'expire' yet do not use up an
+X# great amount of disk space.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/header.sh
+Xfi
+X
+Xcd $WRKDIR
+X
+X# To commence, let's find out the status of our files and generate
+X# the directories and file entries which are missing.
+X
+Xif [ ! -d $ARCDIR ]
+Xthen
+X	mkdir $ARCDIR
+X	chmod 755 $ARCDIR
+Xfi
+X
+Xif [ ! -s $PARAMS ]
+Xthen
+X	> $PARAMS
+X	chgrp $GRP $PARAMS
+X	chown $OWN $PARAMS
+Xfi
+X
+X# Check that the 'params' file has the proper entries.
+Xawk -F"	" - '{ 
+X		if ( $0 ~ /Next fnum to link:/ ) ok1 = 1
+X		if ( $0 ~ /Number of bytes held:/ ) ok2 = 1
+X		if ( $0 ~ /Date last squirreled:/ ) ok3 = 1
+X		if ( $0 ~ /Name of work tape:/ ) ok4 = 1
+X		if ( $0 ~ /Blocks of offset:/ ) ok5 = 1
+X		if ( $0 ~ /Date last taped:/ ) ok6 = 1
+X		if ( $0 ~ /Blocks available:/ ) ok7 = 1
+X		if ( $0 ~ /Next chapter number:/ ) ok8 = 1
+X		if ( $0 ~ /Compression factor:/ ) ok9 = 1
+X		}
+X		END{
+X		if ( ok1 != 1 )	print "Next fnum to link:	1"
+X		if ( ok2 != 1 )	print "Number of bytes held:	0"
+X		if ( ok3 != 1 )	print "Date last squirreled:	0"
+X		if ( ok4 != 1 )	print "Name of work tape:	News-000"
+X		if ( ok5 != 1 )	print "Blocks of offset:	0"
+X		if ( ok6 != 1 )	print "Date last taped:	0"
+X		if ( ok7 != 1 )	print "Blocks available:	45566"
+X		if ( ok8 != 1 )	print "Next chapter number:	0"
+X		if ( ok9 != 1 )	print "Compression factor:	1000"
+X	}' $PARAMS >> $PARAMS
+X
+Xfnum=`sed -n 's/Next fnum to link:\	//p' $PARAMS`
+X
+Xtoday=`date '+%y-%m-%d'`
+X
+X# If we have a 'link.list' file, remove entries over two months old
+Xif [ -s $LINKS ]
+Xthen
+X	cp $LINKS $KLINKS
+X	> $TMP
+X	awk - 'BEGIN{ now = "'"$today"'"
+X		split( now, old, "-" )
+X		old[2] -= 2
+X		if ( old[2] < 1 ){
+X			old[1] -= 1
+X			old[2] += 12
+X		}
+X		if ( old[1] < 70 ) old[1] += 100
+X		daysofmonth = "31 28 31 30 31 30 31 31 30 31 30 31"
+X		split( daysofmonth, days )
+X		if ( old[3] > days[ old[2] ] ) old[3] = days[ old[2] ]
+X		FS = "	"
+X	}
+X	{ split( $2, was, "-" )
+X		if ( was[1] < 70 ) was[1] += 100
+X		if ( old[1] > was[1] ){ next }
+X		if ( old[1] == was[1] && old[2] > was[2] ){ next }
+X		if ( old[1] == was[1] && old[2] == was[2] && \
+X				old[3] > was[3] ){ next }
+X		print $0 >> "'$TMP'"
+X	}' $KLINKS
+X	mv $TMP $KLINKS
+Xelse
+X	> $KLINKS
+X	> $LINKS
+Xfi
+X
+Xx=fnum
+Xwhile [ -f $ARCDIR/$x ]
+Xdo
+X	rm -f $ARCDIR/$x
+X	(( x = x + 1 ))
+Xdone
+X
+Xrm -f $WRKDIR/contents
+Xrm -f $GOOFS
+X
+Xfunction recur
+X{
+X	if [ -d $1 -a `du -s $1 | cut -f1` = 1 ]
+X	then
+X		return -1
+X	fi
+X	typeset this next
+X	this=$1
+X	set `ls -1 $1`
+X	while [ $1 ]
+X	do
+X		next=$this/$1
+X		if [ -d $next ]
+X		then
+X			recur $next
+X		fi
+X		if [ -f $next ]
+X		then
+X			id=`sed -n '/^Message-ID:/ {
+X				s/Message-ID: //p
+X				q
+X				}' $next | tr -d "/*?^$\[\]|"`
+X			if [ -n "$id" ]
+X			then
+X				if
+X					[ -z "`sed -n '/'"$id"'/p' $KLINKS`" ]
+X				then
+X					if ln $next $ARCDIR/$fnum
+X					then
+X						let fnum="fnum+1"
+X					echo "$id""\t"$today >> $KLINKS
+X					else
+X				echo $next",  "$ARCDIR/$fnum >> $GOOFS
+X					fi
+X				fi
+X			fi
+X		fi
+X		shift
+X	done
+X}
+X
+Xwhile
+X	read fname
+Xdo
+X	dname=`echo $fname | cut -f1 -d"#"`
+X	if [ -n "$dname" ]
+X	then
+X		recur $dname
+X	fi
+Xdone <$LIST
+X
+Xfunction commas
+X{ echo `echo $1 | awk - '{ n = length( $0 )
+X	s = n % 3
+X	if ( s == 0 ) s = 3
+X	m = substr( $0, 1, s )
+X	s++
+X	while ( n > s ){
+X		o = substr( $0, s, 3 )
+X		m = m","o
+X		s += 3
+X	}
+X	print m }' -`
+X}
+X
+Xnbytes=`ls -l $ARCDIR | awk - '{ sum = sum + $5 }
+X		END{ print sum }' - `
+Xcbytes=`commas $nbytes`
+X
+Xsort -d -o $LINKS $KLINKS
+X
+X> $TMP
+Xawk -F"	" - '{ if ( $0 ~ /Next fnum to link:/ ) $2 = "'"$fnum"'"
+X		if ( $0 ~ /Number of bytes held:/ ) $2 = "'"$cbytes"'"
+X		if ( $0 ~ /Date last squirreled:/ ) $2 = "'"$today"'"
+X		print $1"	"$2 >> "'$TMP'"
+X		}' $PARAMS
+Xmv $TMP $PARAMS
+Xchgrp $GRP $PARAMS
+Xchown $OWN $PARAMS
+Xchgrp $GRP $LINKS
+Xchown $OWN $LINKS
+Xrm -f $KLINKS
+X
+Xoffset=`sed -n 's/Blocks of offset:\	//p' $PARAMS`
+Xchap=`sed -n 's/Next chapter number:\	//p' $PARAMS`
+Xfactor=`sed -n 's/Compression factor:\	//p' $PARAMS`
+X
+X(( min_size = ( MAXOFFSET - offset ) / (10 - chap) ))  
+X(( this = nbytes/factor ))	# blocks for this collection
+X
+Xecho "To: netnews
+XSubject: File Squirreling.\n
+XYour 'savdir' currently has $cbytes bytes of news articles saved.
+X	Recommended size of next tape entry:	$min_size	blocks
+X	Approximate size of this collection:	$this	blocks" > $TMP
+Xif [ "$this" -gt "$min_size" ]
+Xthen
+X	echo "\t\tYou better transfer these to tape soon.!" >> $TMP
+Xfi
+Xecho "\nThis is from your friendly file saver." >> $TMP
+Xcat $TMP | /bin/rmail netnews
+Xrm $TMP
+END_OF_squirrel.sh
+if test 4522 -ne `wc -c <squirrel.sh`; then
+    echo shar: \"squirrel.sh\" unpacked with wrong size!
+fi
+chmod +x squirrel.sh
+# end of overwriting check
+fi
+if test -f src/fix.cpio.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/fix.cpio.c\"
+else
+echo shar: Extracting \"src/fix.cpio.c\" \(4621 characters\)
+sed "s/^X//" >src/fix.cpio.c <<'END_OF_src/fix.cpio.c'
+X#include <stdio.h>
+X#include <sys/dir.h>
+X#include <errno.h>
+X#include <sys/types.h>
+X#include <fcntl.h>
+X
+X/* For -c1, write to /dev/null until after the first 'TRAILER!!!'.
+X * otherwise write everthing up to the first 'TRAILER!!!' then exit */
+X
+X/* #define DEBUG */
+X
+Xextern char *sys_errlist[];
+X
+Xstruct utimbuf {
+X	time_t actime;
+X	time_t modtime;
+X};
+X
+Xstruct {
+X	short h_magic;								/* short */
+X	dev_t h_dev;								/* short dev_t */
+X	ino_t h_ino;								/* ushort ino_t */
+X	ushort h_mode;								/* ushort */
+X	ushort h_uid;								/* ushort */
+X	ushort h_gid;								/* ushort */
+X	short h_nlink;								/* short */
+X	dev_t h_rdev;								/* short dev_t */
+X	time_t h_mtime;							/* long time_t */
+X	int h_namesize;							/* int */
+X	long h_filesize;							/* int long */
+X	char h_name[120];
+X} HDR;
+X
+Xmain( argc, argv )
+Xint argc;
+Xchar *argv[];
+X{
+X	char ch, *m, *p, *q, *w;
+X	int hdr, part, flag;
+X	int cnt, i, blocks;
+X	int end_cnt;
+X	struct utimbuf tbuf;
+X	FILE *sfd;
+X	int dfd;
+X	static char trail[] = "TRAILER!!!";
+X	static char magic[] = "070707";
+X	char wrkbuf[120];
+X	char name[80];
+X	char blk_buf[15];
+X
+X	flag = 0;
+X	part = 0;
+X	for ( i = 1; i < argc; i++ ) {
+X		p = argv[i];
+X		while ( *p ) {
+X			if ( *p == '-' ) {
+X				p++;
+X				switch ( *p ) {
+X				case 'c':
+X					if ( *(++p) == '1' ) part = 0;
+X					else part = 1;
+X					break;
+X				case 'b': flag = 1;
+X					q = blk_buf;
+X					p++;
+X					break;
+X				default: q = wrkbuf;
+X					break;
+X				}
+X			}
+X			else while ( *p ) *q++ = *p++;
+X		}
+X		*q = '\0';
+X	}
+X	switch( flag ) {
+X	case 0: fprintf( stderr, "Usage: fix.cpio -b<num_blocks>\n" );
+X		exit( 1 );
+X		break;
+X	case 1: blocks = atoi( blk_buf );
+X		blocks -= 10;
+X		break;
+X	}
+X	hdr = 0;
+X	if (( sfd = fopen( "/dev/null", "w" )) == NULL ) {
+X		fprintf( stderr, "Can't open '/dev/null', %s\n",
+X			sys_errlist[errno] );
+X		exit( 1 );
+X	}
+X	m = magic;
+X#ifdef DEBUG
+X	printf( "Starting fix.cpio:\n" );
+X#endif
+X	cnt = 0;
+X	w = wrkbuf;
+X	hdr = 0;
+X	while( 1 ) {
+X		cnt++;
+X		ch = getc( stdin );
+X		if ( hdr ) {
+X			*w++ = ch;
+X			if ( ch == '\0' ) {
+X#ifdef DEBUG
+X			printf( "sscanf wrkbuf;\n>%s<\n", wrkbuf );
+X#endif
+X				sscanf( wrkbuf,
+X			"%6ho%6ho%6ho%6ho%6ho%6ho%6ho%6ho%11lo%6o%11lo%s",
+X						&HDR.h_magic, &HDR.h_dev, &HDR.h_ino, &HDR.h_mode,
+X						&HDR.h_uid, &HDR.h_gid, &HDR.h_nlink, &HDR.h_rdev,
+X						&HDR.h_mtime, &HDR.h_namesize, &HDR.h_filesize,
+X						HDR.h_name );
+X#ifdef DEBUG
+X				printf( "Bytes = %d, Blocks = %d\n", cnt, cnt/512 );
+X				show_hdr();
+X#endif
+X				end_cnt = HDR.h_filesize + cnt;
+X				fflush( sfd );
+X				fclose( sfd );
+X				if (( strcmp( trail, HDR.h_name )) == 0 ) {
+X					if ( part != 0 || cnt/512 > blocks ) {
+X						printf( "%d bytes, %d blocks\n", cnt, cnt/512 );
+X						exit( 0 );
+X					}
+X					part++;
+X					if (( sfd = fopen( "/dev/null", "w" )) == NULL ) {
+X						fprintf( stderr, "Can't open /dev/null, %s\n",
+X							sys_errlist[errno] );
+X						exit( 1 );
+X					}
+X					end_cnt = blocks * 512;
+X				}
+X				else {
+X					if ( ! part ) strcat( strcpy( name, "A" ), HDR.h_name );
+X					else strcpy( name, HDR.h_name );
+X					if (( sfd = fopen( name, "w" )) == NULL ) {
+X						fprintf( stderr, "Can't open %s, %s\n",
+X							HDR.h_name,
+X							sys_errlist[errno] );
+X						exit( 1 );
+X					}
+X					chmod( name, HDR.h_mode);
+X					chown( name, HDR.h_uid, HDR.h_gid );
+X					tbuf.actime = HDR.h_mtime;
+X					tbuf.modtime = HDR.h_mtime;
+X					utime( name, &tbuf );
+X				}
+X				hdr = 0;
+X				w = wrkbuf;
+X				m = magic;
+X			}
+X		}
+X		else if ( ch == *m ) {
+X			*w++ = ch;
+X			if ( *(++m) == '\0' ) hdr = 1;
+X		}
+X		else if ( m != magic ) {
+X			q = magic;
+X			while ( q < m ) {
+X				putc( *q, sfd );
+X				q++;
+X			}
+X			m = magic;
+X			hdr = 0;
+X			w = wrkbuf;
+X			putc( ch, sfd );
+X		}
+X		else {
+X			putc( ch, sfd );
+X/* 			if ( cnt > end_cnt ) {
+X * 				fprintf( stderr, "File too long. Quitting! \n" );
+X * 				exit( -1 );
+X *			} */
+X		}
+X	}
+X}
+X
+X#ifdef DEBUG
+Xshow_hdr()
+X{
+X	printf( "Magic = 0%o,\tDev = %d,\tInode = %d\n\
+XMode = 0%o,\tUser = %d,\tGroup = %d,\n\
+XLinks = %d\tODev = %u,\tmtime = %ld\n\
+XName size = %d\tLength = %ld, Name = %s\n",
+X		HDR.h_magic, HDR.h_dev, HDR.h_ino, HDR.h_mode, HDR.h_uid,
+X		HDR.h_gid, HDR.h_nlink, HDR.h_rdev, HDR.h_mtime,
+X		HDR.h_namesize, HDR.h_filesize, HDR.h_name );
+X/* 	sleep(5); */
+X}
+X#endif
+X
+X/* 	short h_magic;									/* short */
+X/* 	dev_t h_dev;									/* short dev_t */
+X/* 	ino_t h_ino;									/* ushort ino_t */
+X/* 	ushort h_mode;								/* ushort */
+X/* 	ushort h_uid;								/* ushort */
+X/* 	ushort h_gid;								/* ushort */
+X/* 	short h_nlink;								/* short */
+X/* 	dev_t h_rdev;								/* short dev_t */
+X/* 	time_t h_mtime;								/* long time_t */
+X/* 	int h_namesize;								/* int */
+X/* 	long h_filesize;								/* int long */
+X/* 	char h_name[DIRSIZ]; */
+X
+END_OF_src/fix.cpio.c
+if test 4621 -ne `wc -c <src/fix.cpio.c`; then
+    echo shar: \"src/fix.cpio.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/mini-z.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/mini-z.c\"
+else
+echo shar: Extracting \"src/mini-z.c\" \(8868 characters\)
+sed "s/^X//" >src/mini-z.c <<'END_OF_src/mini-z.c'
+X/* 
+X * Compress - data compression program 
+X */
+X#define	min(a,b)	((a>b) ? b : a)
+X
+X/*
+X * Set USERMEM to the maximum amount of physical user memory available
+X * in bytes.  USERMEM is used to determine the maximum BITS that can be
+X * used for compression.
+X */
+X
+X#define USERMEM 	450000	/* default user memory */
+X#define BITS 16
+X#define HSIZE	69001			/* 95% occupancy */
+X
+X/*
+X * a code_int must be able to hold 2**BITS values of type int, and also -1
+X */
+Xtypedef long int code_int;
+Xtypedef long int count_int;
+Xtypedef unsigned char char_type;
+X
+Xchar_type magic_header[] = { "\037\235" };	/* 1F 9D */
+X
+X	/* Defines for third byte of header */
+X#define BIT_MASK	0x1f
+X#define BLOCK_MASK	0x80
+X	/* Masks 0x40 and 0x20 are free.
+X	 * I think 0x20 should mean that there is
+X	 * a fourth header byte (for expansion).
+X	*/
+X#define INIT_BITS 9			/* initial number of bits/code */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#define ARGVAL() (*++(*argv) || (--argc && *++argv))
+X
+Xint n_bits;									/* number of bits/code */
+Xint maxbits = BITS;						/* user settable max # bits/code */
+Xcode_int maxcode;							/* maximum code, given n_bits */
+Xcode_int maxmaxcode = 1L << BITS;	/* should NEVER generate this code */
+X
+X#define MAXCODE(n_bits)	((1L << (n_bits)) - 1)
+X
+Xcount_int htab [HSIZE];
+Xunsigned short codetab [HSIZE];
+X#define htabof(i)	htab[i]
+X#define codetabof(i)	codetab[i]
+X
+X/*
+X * To save much memory, we overlay the table used by compress() with those
+X * used by decompress().  The tab_prefix table is the same size and type
+X * as the codetab.  The tab_suffix table needs 2**BITS characters.  We
+X * get this from the beginning of htab.  The output stack uses the rest
+X * of htab, and contains characters.  There is plenty of room for any
+X * possible stack (stack used to be 8000 characters).
+X */
+X
+X#define tab_prefixof(i)	codetabof(i)
+X#define tab_suffixof(i)	((char_type *)(htab))[i]
+X#define de_stack			((char_type *)&tab_suffixof(1<<BITS))
+X
+Xcode_int free_ent = 0;			/* first unused entry */
+Xint exit_stat = 0;
+X
+Xcode_int getcode();
+X
+Xint nomagic = 0;	/* Use a 3-byte magic number header, unless old file */
+X
+X/*
+X * block compression parameters -- after all codes are used up,
+X * and compression rate changes, start over.
+X */
+Xint block_compress = BLOCK_MASK;
+Xint clear_flg = 0;
+X#define CHECK_GAP 10000		/* ratio check interval */
+X	/*
+X	 * the next two codes should not be changed lightly, as they must not
+X	 * lie within the contiguous general code space.
+X	 */ 
+X#define FIRST	257	/* first free entry */
+X#define	CLEAR	256	/* table clear output code */
+X
+Xchar ofname [100];
+Xint (*bgnd_flag)();
+Xint do_decomp = 0;
+X
+Xmain( argc, argv )
+Xregister int argc; char **argv;
+X{
+X    char **filelist, **fileptr;
+X    char *cp, *rindex(), *malloc();
+X    extern onintr(), oops();
+X
+X	if ( (bgnd_flag = signal ( SIGINT, SIG_IGN )) != SIG_IGN ) {
+X		signal ( SIGINT, onintr );
+X		signal ( SIGSEGV, oops );
+X	}
+X
+X	filelist = fileptr = (char **)(malloc(argc * sizeof(*argv)));
+X	*filelist = NULL;
+X
+X	if((cp = rindex(argv[0], '/')) != 0) {
+X		cp++;
+X	} else {
+X		cp = argv[0];
+X	}
+X	if(strcmp(cp, "mini-z") == 0) do_decomp = 1;
+X
+X	for (argc--, argv++; argc > 0; argc--, argv++) {
+X		*fileptr++ = *argv;	/* Build input file list */
+X		*fileptr = NULL;
+X						/* process nextarg; */
+X	}
+X
+X	if(maxbits < INIT_BITS) maxbits = INIT_BITS;
+X	if (maxbits > BITS) maxbits = BITS;
+X	maxmaxcode = 1L << maxbits;
+X
+X	if (*filelist != NULL) {
+X		for (fileptr = filelist; *fileptr; fileptr++) {
+X			exit_stat = 0;
+X				/* Check for .Z suffix */
+X					/* Open input file */
+X			if ((freopen(*fileptr, "r", stdin)) == NULL) {
+X				exit_stat = 1;
+X				perror(*fileptr); continue;
+X			}
+X					/* Check the magic number */
+X			if (nomagic == 0) {
+X				if ((getchar() != (magic_header[0] & 0xFF))
+X								|| (getchar() != (magic_header[1] & 0xFF))) {
+X					fprintf(stderr, "%s: not in compressed format\n",
+X								*fileptr);
+X					exit_stat = 1;
+X					continue;
+X				}
+X				maxbits = getchar();	/* set -b from file */
+X				block_compress = maxbits & BLOCK_MASK;
+X				maxbits &= BIT_MASK;
+X				maxmaxcode = 1L << maxbits;
+X				if(maxbits > BITS) {
+X					fprintf(stderr,
+X						"%s: compressed with %d bits, can only handle %d bits\n",
+X						*fileptr, maxbits, BITS);
+X					exit_stat = 1;
+X					continue;
+X				}
+X			}
+X						/* Generate output filename */
+X			strcpy(ofname, *fileptr);
+X			ofname[strlen(*fileptr) - 2] = '\0';  /* Strip off .Z */
+X				/* Actually do the compression/decompression */
+X			decompress();
+X		}
+X	}
+X	exit(exit_stat);
+X}
+X
+Xchar_type rmask[9] = {
+X	0x00, 0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x7f, 0xff
+X};
+X
+X/*
+X * Decompress stdin to stdout.  This routine adapts to the codes in the
+X * file building the "string" table on-the-fly; requiring no table to
+X * be stored in the compressed file.  The tables used herein are shared
+X * with those of the compress() routine.  See the definitions above.
+X */
+X
+Xdecompress() {
+X	register char_type *stackp;
+X	register int finchar;
+X	register code_int code, oldcode, incode;
+X
+X			/* These are the mini.z additions */
+X	char *patt = "Subject: ";
+X	char *p;
+X	int out;
+X	p = patt;
+X	out = 0;
+X
+X		/*
+X		 * As above, initialize the first 256 entries in the table.
+X		 */
+X	maxcode = MAXCODE(n_bits = INIT_BITS);
+X	for ( code = 255; code >= 0; code-- ) {
+X		tab_prefixof(code) = 0;
+X		tab_suffixof(code) = (char_type)code;
+X	}
+X	free_ent = ((block_compress) ? FIRST : 256 );
+X
+X	finchar = oldcode = getcode();
+X	if(oldcode == -1)	/* EOF already? */
+X		return;			/* Get out of here */
+X/* 	putchar( (char)finchar );		/* first code must be 8 bits = char */
+X	if(ferror(stdout))				/* Crash if can't write */
+X		writeerr();
+X	stackp = de_stack;
+X
+X	while ( (code = getcode()) > -1 ) {
+X		if ( (code == CLEAR) && block_compress ) {
+X			for ( code = 255; code >= 0; code-- ) tab_prefixof(code) = 0;
+X			clear_flg = 1;
+X			free_ent = FIRST - 1;
+X					/* O, untimely death! */
+X			if ( (code = getcode ()) == -1 ) break;
+X		}
+X		incode = code;
+X			/*
+X			 * Special case for KwKwK string.
+X			 */
+X		if ( code >= free_ent ) {
+X			*stackp++ = finchar;
+X			code = oldcode;
+X		}
+X
+X		/*
+X		 * Generate output characters in reverse order
+X		 */
+X		while ( code >= 256 ) {
+X			*stackp++ = tab_suffixof(code);
+X			code = tab_prefixof(code);
+X		}
+X		*stackp++ = finchar = tab_suffixof(code);
+X
+X		/*
+X		 * And put them out in forward order
+X		 */
+X
+X		/* This section corrupted for nini.z */
+X		do {
+X			--stackp;
+X			if ( out ) {
+X				putchar ( *stackp );
+X				if ( *stackp == '\n' ) exit( 0 );
+X			}
+X			else {
+X				if ( *p == *stackp ) p++;
+X				else p = patt;
+X				if ( *p == '\0' ) out = 1;
+X			}
+X		} while ( stackp > de_stack );
+X
+X		/*
+X		 * Generate the new entry.
+X		 */
+X		if ( (code=free_ent) < maxmaxcode ) {
+X			tab_prefixof(code) = (unsigned short)oldcode;
+X			tab_suffixof(code) = finchar;
+X			free_ent = code+1;
+X		} 
+X		/*
+X		 * Remember previous code.
+X		 */
+X		oldcode = incode;
+X	}
+X	fflush( stdout );
+X	if(ferror(stdout))
+X	writeerr();
+X}
+X
+X/*****************************************************************
+X * TAG( getcode )
+X *
+X * Read one code from the standard input.  If EOF, return -1.
+X * Inputs:
+X * 	stdin
+X * Outputs:
+X * 	code or -1 is returned.
+X */
+X
+Xcode_int
+Xgetcode() {
+X	register code_int code;
+X	static int offset = 0, size = 0;
+X	static char_type buf[BITS];
+X	register int r_off, bits;
+X	register char_type *bp = buf;
+X
+X	if ( clear_flg > 0 || offset >= size || free_ent > maxcode ) {
+X		/*
+X		 * If the next entry will be too big for the current code
+X		 * size, then we must increase the size.  This implies reading
+X		 * a new buffer full, too.
+X		 */
+X		if ( free_ent > maxcode ) {
+X			n_bits++;
+X			if ( n_bits == maxbits )
+X					maxcode = maxmaxcode;	/* won't get any bigger now */
+X			else
+X					maxcode = MAXCODE(n_bits);
+X		}
+X		if ( clear_flg > 0) {
+X			maxcode = MAXCODE (n_bits = INIT_BITS);
+X			clear_flg = 0;
+X		}
+X		size = fread( buf, 1, n_bits, stdin );
+X		if ( size <= 0 )
+X				return -1;			/* end of file */
+X		offset = 0;
+X			/* Round size down to integral number of codes */
+X		size = (size << 3) - (n_bits - 1);
+X	}
+X	r_off = offset;
+X	bits = n_bits;
+X		/*
+X		 * Get to the first byte.
+X		 */
+X	bp += (r_off >> 3);
+X	r_off &= 7;
+X		/* Get first part (low order bits) */
+X	code = (*bp++ >> r_off);
+X	bits -= (8 - r_off);
+X	r_off = 8 - r_off;		/* now, offset into code word */
+X		/* Get any 8 bit parts in the middle (<=1 for up to 16 bits). */
+X	if ( bits >= 8 ) {
+X		code |= *bp++ << r_off;
+X		r_off += 8;
+X		bits -= 8;
+X	}
+X			/* high order bits. */
+X	code |= (*bp & rmask[bits]) << r_off;
+X	offset += n_bits;
+X	return code;
+X}
+X
+Xchar *
+Xrindex(s, c)		/* For those who don't have it in libc.a */
+Xregister char *s, c;
+X{
+X	char *p;
+X	for (p = NULL; *s; s++)
+X		if (*s == c) p = s;
+X	return(p);
+X}
+X
+Xwriteerr()
+X{
+X    perror ( ofname );
+X    unlink ( ofname );
+X    exit ( 1 );
+X}
+X
+Xonintr ( )
+X{
+X	unlink ( ofname );
+X	exit ( 1 );
+X}
+X
+Xoops ( )	/* wild pointer -- assume bad input */
+X{
+X	if ( do_decomp == 1 ) 
+X		fprintf ( stderr, "uncompress: corrupt input\n" );
+X	unlink ( ofname );
+X	exit ( 1 );
+X}
+END_OF_src/mini-z.c
+if test 8868 -ne `wc -c <src/mini-z.c`; then
+    echo shar: \"src/mini-z.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f utils/copy.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/copy.sh\"
+else
+echo shar: Extracting \"utils/copy.sh\" \(7662 characters\)
+sed "s/^X//" >utils/copy.sh <<'END_OF_utils/copy.sh'
+X# This script is presented as a recovery tool to be used if a verify
+X# failure occurs when writing to tape using these scripts.  It copies
+X# data from one tape to another chapter by chapter.
+X
+X# It requires that the source tape be written by the 'wr.tape.sh' script
+X# which is included in this collection of scripts.  Changes might be made
+X# to these scripts so that other data can be copied, but I haven't had
+X# need to generate such revisions.  That is left as an exercise for you.
+X
+X# A test is first run to determine that there is sufficient disk space
+X# available to copy each chapter.  If insufficient space is available,
+X# the amount of additional space required is reported.
+X
+X# Space can be attained by copying some files to floppy disk.  Also, if
+X# you have the time to rerun the 'prep.sh' script, you can free disk space
+X# by issuing the 'rm -r savdir' command..
+X
+X# These routines will overwrite existing tapes if you desire.  This option
+X# is made at the begining of the 'wr.tape.sh' operation.  If you want to
+X# add on to an existing tape, you must edit this script in the initialization
+X# of the $RDPARMS routine.  You can also edit 'cp.params' from another window
+X# while the read operation is running.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh	# Use this for start up
+Xfi
+X
+Xfunction clean
+X{
+X	rm -f $CONFILE
+X	rm -f $CPNTRS
+X	rm -f $TMP1
+X	rm -f $TMP2
+X	rm -f $WRKDIR/errs
+X}
+X
+Xexport COPY=1
+Xpau=0
+Xwhile [ $pau -eq 0 ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret -ne 0 ]
+X	then
+X		echo \
+X"Please insert a source tape. Q)uit or <cr> to continue. \c"
+X		read ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X	else
+Xecho `date +%T`" Checking available memory and setting up files. "
+X		Tgetname -v > /dev/null
+X		set `Tgetname -r | tr -d "'"`
+X		name=$1
+X		biggest=`$SRCDIR/read.vtoc -g`
+X		set `df $NEWSDEV`
+X		avail=$3
+X		(( dif = biggest + PERCENT - avail ))
+X		if [ $dif -gt 0 ]
+X		then
+X	echo "The copy operation requires $dif more blocks of disk space."
+X			exit
+X		fi
+X		pau=1
+X	fi
+X	if [ ! -d $CACHE ]
+X	then
+X		echo "There is not a 'cache' directory. Run 'set_up.sh'."
+X	fi
+Xdone
+X
+Xif [ ! -s $RDPARMS ]
+Xthen
+X	> $RDPARMS
+Xfi
+X
+X# Check that the 'cp.params' file has the proper entries.
+Xawk -F"	" - '{	if ( $0 ~ /Number of bytes held:/ ) ok1 = 1
+X		if ( $0 ~ /Next fnum to link:/ ) ok2 = 1
+X		if ( $0 ~ /Name of work tape:/ ) ok3 = 1
+X		if ( $0 ~ /Blocks of offset:/ ) ok4 = 1
+X		if ( $0 ~ /Date last taped:/ ) ok5 = 1
+X		if ( $0 ~ /Blocks available:/ ) ok6 = 1
+X		if ( $0 ~ /Next chapter number:/ ) ok7 = 1
+X		if ( $0 ~ /Compression factor:/ ) ok8 = 1
+X		if ( $0 ~ /Name of source tape:/ ) ok11 = 1
+X		if ( $0 ~ /Next source chapter:/ ) ok9 = 1
+X		if ( $0 ~ /Comment:/ ) ok10 = 1
+X	}
+X	END{	if ( ok1 != 1 ) print "Number of bytes held:	0"
+X		if ( ok2 != 1 ) print "Next fnum to link:	0"
+X		if ( ok3 != 1 ) print "Name of work tape:	blank"
+X		if ( ok4 != 1 ) print "Blocks of offset:	0"
+X		if ( ok5 != 1 ) print "Date last taped:	1-1-1"
+X		if ( ok6 != 1 ) print "Blocks available:	45384"
+X		if ( ok7 != 1 ) print "Next chapter number:	1"
+X		if ( ok8 != 1 ) print "Compression factor:	1024"
+X		if ( ok11 != 1 ) print "Name of source tape:	blank"
+X		if ( ok9 != 1 ) print "Next source chapter:	1"
+X		if ( ok10 != 1 ) print "Comment:	"
+X	}' $RDPARMS >> $RDPARMS
+X
+X	> $TMP1
+X	awk -F"	" - '{
+X		if ( $0 ~ /Name of source tape:/ ) $2 = "'"$name"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X	}' $RDPARMS
+X	mv $TMP1 $RDPARMS
+X
+Xpau=0
+Xwhile [ "$pau" -eq 0 ]
+Xdo
+X	$WRKDIR/trim.sh test
+X	blks=$?
+X
+X	if [ $blks -eq 0 ]
+X	then
+Xecho "\tInsert the source tape now. <cr> to continue, Q)uit, N)ew? \c"
+X		read ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			clean
+X			exit
+X		elif [ "$ch" = "n" -o "$ch" = "N" ]
+X		then
+X			> $TMP1
+X			awk -F"	" - '{
+X				if ( $0 ~ /Next source chapter:/ ) $2 = 1
+X				print $1"	"$2 >> "'$TMP1'"
+X			}' $RDPARMS
+X			mv $TMP1 $RDPARMS
+X		fi
+X		ret=1
+X		while [ $ret != 0 ]
+X		do
+X			echo `date +%T`" Starting read operations. "
+X			today=`date '+%y-%m-%d'`
+X
+X			Tgetname -t
+X			ret=$?
+X			if [ $ret != 0 ]
+X			then
+Xecho "Please insert the source tape. <cr> to continue, Q)uit? \c"
+X				read  ch
+X				if [ "$ch" = "q" -o "$ch" = "Q" ]
+X				then
+X					exit 1
+X				fi
+X				ret=1
+X			else
+X				Tgetname -v
+X				set `Tgetname -r | tr -d "'"`
+X				name=$1
+X				toffset=$2
+X			fi
+X		done
+X
+X# Get params
+X		chap=`sed -n 's/Next source chapter:\	//p' $RDPARMS`
+X		fname=`sed -n 's/Name of source tape:\	//p' $RDPARMS`
+X		if [ "$fname" != "$name" ]
+X		then
+X			echo \
+X"I was looking for tape '$fname' but have '$name' installed.
+XEnter 'c' if you want to change tapes. \c"
+X			read ch
+X			if [ "$ch" = "c" -o "$ch" = "C" ]
+X			then
+X				continue;
+X			fi
+X			> $TMP1
+X			awk -F"	" - '{ 
+X				if ( $0 ~ /Name of source tape:/ )
+X					$2 = "'"$fname"'"
+X				print $1"	"$2 >> "'$TMP1'"
+X				}' $RDPARMS
+X			mv $TMP1 $RDPARMS
+X		fi
+X		set `$SRCDIR/read.vtoc -r$chap`
+X		if [ $3 -ne 0 ]
+X		then
+X			fchap=$1
+X			offset=$2
+X			blocks=$3
+X			if [ -d $ARCDIR ]
+X			then
+X			echo `date +%T`" Purging old 'arcdir' directory. "
+X				rm -r $ARCDIR
+X			fi
+X			mkdir $ARCDIR
+X		echo `date +%T`" The contents of tape \"$name\" are:"
+X			$SRCDIR/read.vtoc -w9
+X			cd $ARCDIR
+X			echo `date +%T`\
+X" Reading chapter $chap from tape '$name' starting at $offset offset."
+X			dbuf -iT248O$offset /dev/rft3 2>/dev/null | \
+X		execStrip tapecpio -icdR"T248" >/dev/null 2>$WRKDIR/errs
+X			ret=$?
+X
+X			cd $WRKDIR
+X			if [ $ret != 0 ]
+X			then
+X				echo "\tThis chapter appears corrupted.
+X\tShall we attempt to recover? <y/n> \c"
+X				read ch
+X				if [ "$ch" = "y" -o "$ch" = "Y" ]
+X				then
+X					sleep 5
+X					recov.sh
+X				else
+X					echo "Shall we quit? <y/n> \c"
+X					read ch
+X					if [ "$ch" = "y" -o "$ch" = "Y" ]
+X					then
+X						exit
+X					fi
+X					echo "Pressing on."
+X				rm -f $SAVDIR/contents $SAVDIR/ss.filelist
+X				fi
+X			fi
+X
+X			(( chap = chap + 1 ))
+X			$SRCDIR/read.vtoc -r$chap > /dev/null
+X			ret=$?
+X			if [ $chap -ge $ret ]
+X			then
+X				echo "This was the last chapter on this tape."
+X			fi
+X
+X			> $TMP1
+X			awk -F"	" - '{
+X				if ( $0 ~ /Next source chapter:/ )
+X					$2 = "'"$chap"'"
+X				print $1"	"$2 >> "'$TMP1'"
+X			}' $RDPARMS
+X			mv $TMP1 $RDPARMS
+X		fi
+X	fi
+X	$WRKDIR/trim.pl
+X	ret=$?
+X	if [ $ret -ne 0 ]
+X	then
+X		continue
+X	fi
+X
+X	echo "\tIt is okay to change tapes now."
+X
+X	echo `date +%T`" Changing arrangement of the 'contents' file. "
+X
+X# Sort the 'contents' then run 'group' to place followup articles
+X# following the original.  'Group' also produces 'c.pntrs' which is
+X# a listing of the files in the same order that they appear
+X# in the 'contents'.
+X
+X	sort -fd -o $CONFILE $CONFILE
+X	$SRCDIR/group $CONFILE
+X
+X	(( chap = chap - 1 ))
+X	$SRCDIR/read.vtoc -w9
+X	$SRCDIR/read.vtoc -w9 > xyz
+X	for i in 1 2 3 4 5 6 7 8 9
+X	do
+X		while
+X			read line
+X		do
+X			set $line
+X			if [ "$1" = "$i" ]
+X			then
+X				CHAP=$1
+X				SSNAME=$2
+X				SSCMNT="$3 $4 $5 $6 $7"
+X				NFILES=$8
+X				OFFSET=$9
+X				shift
+X				NBLOCKS=$9
+X			fi
+X		done < xyz
+X		if [ "$CHAP" = "$chap" ]
+X		then
+X			while
+X				echo \
+X"\nThe comment will be: '$SSCMNT'. Okay? <y/n> \c"
+X				read ch
+X				[ "$ch" = "n" -o "$ch" = "N" ]
+X			do
+X				read SSCMNT?"Enter comment: "
+X			done
+X			> $TMP1
+X	awk -F"	" - '{ if ( $0 ~ /Comment:/ ) $2 = "'"$SSCMNT"'"
+X			print $1"	"$2 >> "'$TMP1'"
+X			}' $RDPARMS
+X			mv $TMP1 $RDPARMS
+X				break
+X		fi
+X	done
+X	rm -f xyz
+X
+X	echo `date +%T`\
+X" Insert the target tape now. <cr> to continue, Q)uit, N)ew? \c"
+X	read ch
+X	if [ "$ch" = "q" -o "$ch" = "Q" ]
+X	then
+X		clean
+X		exit
+X	elif [ "$ch" = "n" -o "$ch" = "N" ]
+X	then
+X		> $TMP1
+X		awk -F"	" - '{
+X		if ( $0 ~ /Number of bytes held:/ ) $2 = 0
+X		if ( $0 ~ /Blocks of offset:/ ) $2 = 0
+X		if ( $0 ~ /Blocks available:/ ) $2 = "'"$MAXOFFSET"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = 1
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $PARAMS
+X		mv $TMP1 $RDPARMS
+X	fi
+X
+X	$WRKDIR/wr.tape.sh
+X
+Xdone
+Xclean
+XTgetname -l
+Xexit 0
+END_OF_utils/copy.sh
+if test 7662 -ne `wc -c <utils/copy.sh`; then
+    echo shar: \"utils/copy.sh\" unpacked with wrong size!
+fi
+chmod +x utils/copy.sh
+# end of overwriting check
+fi
+if test -f utils/panic.pl -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/panic.pl\"
+else
+echo shar: Extracting \"utils/panic.pl\" \(1265 characters\)
+sed "s/^X//" >utils/panic.pl <<'END_OF_utils/panic.pl'
+X
+X# The purpose of this script is to prepare the 'squirrel'ed files
+X# for transfer to tape.  This consists of building a 'contents'
+X# file from the "Subject" line in the posted articles.  The 'contents'
+X# is sorted and similar titles are moved together for easier reference.
+X# The articles are then compressed and moved to the 'savdir' where
+X# they can copied to tape.
+X
+Xexport NEWSDEV=/dev/fp002
+Xexport WRKDIR=/news/.tape.ops/utils
+Xexport CACHE=$WRKDIR/cache
+Xexport ARCDIR=$WRKDIR/arcdir
+Xexport RDPARMS=$WRKDIR/rd.params
+Xexport PARAMS=$WRKDIR/rd.params		# was "wr.params"
+Xexport SAVDIR=$WRKDIR/savdir
+Xexport CONFILE=$WRKDIR/contents
+Xexport SRCDIR=/news/.tape.ops/src
+Xexport PNTRS=$WRKDIR/pntrs
+Xexport CPNTRS=$WRKDIR/c.pntrs
+Xexport LIST=$WRKDIR/save.list		# Directory list to be saved
+Xexport LINKS=$WRKDIR/link.list
+Xexport KLINKS=$WRKDIR/wrk.links
+Xexport GOOFS=$WRKDIR/goofs
+Xexport TMP1=$WRKDIR/tmpp1
+Xexport TMP2=$WRKDIR/tmpp2
+Xexport COPY=1
+Xexport GRP=news
+Xexport OWN=netnews
+Xexport PERCENT=6200	# This is the last five percent of disk space
+Xexport MAXOFFSET=45384  # or B1FE 512 byte blocks = 23329792 bytes
+X# was 45566
+X# If we add 2 blocks for header, B200 512 byte blocks
+X# or 1DAA blocks per stream???
+X# The MAXOFFSET revised 9-29-92 by experimentation.
+X
+Xtrim.pl
+END_OF_utils/panic.pl
+if test 1265 -ne `wc -c <utils/panic.pl`; then
+    echo shar: \"utils/panic.pl\" unpacked with wrong size!
+fi
+chmod +x utils/panic.pl
+# end of overwriting check
+fi
+if test -f utils/trim.pl -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/trim.pl\"
+else
+echo shar: Extracting \"utils/trim.pl\" \(7267 characters\)
+sed "s/^X//" >utils/trim.pl <<'END_OF_utils/trim.pl'
+Xeval 'exec /usr/local/bin/perl -S $0 ${1+"$@"}'
+X	if 0;
+X
+Xrequire 'importenv.pl';
+Xrequire 'flush.pl';
+X
+Xprint &ntime(time)," Making preparations to move files. ";
+X
+Xif ( $WRKDIR   eq "" ) { $WRKDIR = "/news/.tape.ops/utils" };
+Xif ( $ARCDIR   eq "" ) { $ARCDIR = $WRKDIR . "/arcdir" };
+Xif ( $SAVDIR   eq "" ) { $SAVDIR = $WRKDIR . "/savdir" };
+Xif ( $CACHE    eq "" ) { $CACHE  = $WRKDIR . "/cache" };
+Xif ( $SRCDIR   eq "" ) { $SRCDIR = "/news/.tape.ops/src" };
+Xif ( $RDPARMS  eq "" ) { $RDPARMS = $WRKDIR . "/rd.params" };
+Xif ( $CONFILE  eq "" ) { $CONFILE = $WRKDIR . "/contents" };
+Xif ( $SSFILE   eq "" ) { $SSFILE = $WRKDIR . "/ss.filelist" };
+Xif ( $PNTRS    eq "" ) { $PNTRS = $WRKDIR . "/pntrs" };
+Xif ( $CPNTRS   eq "" ) { $CPNTRS = $WRKDIR . "/c.pntrs" };
+Xif ( $TMP1     eq "" ) { $TMP2 = $WRKDIR . "/tmpp1" };
+Xif ( $TMP2     eq "" ) { $TMP2 = $WRKDIR . "/tmpp2" };
+Xif ( $GRP      eq "" ) { $GRP = "news" };
+Xif ( $OWN      eq "" ) { $OWN = "netnews" };
+Xif ( $COPY     eq "" ) { $COPY = "1" };
+Xif ( $MAXOFFSET == 0 ) { $MAXOFFSET = 45384 };
+X
+X# The length of the cpio header is 76 bytes plus length of name plus
+X# a trailing '\0'.  We need headers for 'contents', 'ss.filelist' and
+X# 'TRAILER!!!', these have name lengths of 8, 11 and 10.
+X	$hdr = 77;
+X
+Xif ( -e "carry" ) {
+X	open( PARMS, "<carry" );
+X	while ( <PARMS> ) { ( $limit, $sum, $fnum) = split; }
+X}
+Xelse {
+X# "contents" = 8, "ss.filelist" = 11, "TRAILER!!!" = 10.
+X#		8 + 11 + 10 = 29.
+X	$sum = ( $hdr * 3 ) + 29 + 10;
+X	$fnum = 1;
+X	open( PARMS, $RDPARMS );
+X	while ( <PARMS> ) {
+X		if ( /^Blocks of offset:\t(.*)/ ) { $offset = $1; }
+X		if ( /^Next chapter number:\t(.*)/ ) { $chap = $1; }
+X		$limit = int(( $MAXOFFSET - $offset ) / ( 10 - $chap ));
+X	}
+X	while (( $limit % 248 ) != 0 ) { $limit++; }
+X}
+Xclose( PARMS );
+X
+Xprint "Moving $limit blocks.\n";
+X$max = int( $limit * 512 );
+X
+Xif ( ! -d $CACHE  ) { mkdir( $CACHE, 0666 ); }
+Xif ( ! -d $ARCDIR ) { mkdir( $ARCDIR, 0666 ); }
+Xif ( ! -d $SAVDIR ) { mkdir( $SAVDIR, 0666 ); }
+Xopen( CON, ">>$CONFILE" );
+Xopen( SS,  ">>$SSFILE" );
+Xprint SS "-contents\n";
+X
+Xsystem( "rm -f $CACHE/contents $CACHE/ss.filelist" );
+Xopen( FRM, "ls -l $CACHE | cut -c27-37,51- | sort -nr |" );
+X$first = 1;
+Xwhile( <FRM> ) {
+X	if ( $_ != 0 ) {
+X		chop;
+X		if ( $first ) {
+X			print &ntime(time),
+X				" Moving residual 'cache'  to 'savdir'.\n";
+X			$first = 0;
+X		}
+X		&move_em( $CACHE, $_ );
+X	}
+X	else { &flush( FRM ); }
+X}
+Xclose( FRM );
+X
+Xsystem( "rm -f $ARCDIR/contents $ARCDIR/ss.filelist" );
+Xopen( FRM, "ls -l $ARCDIR | cut -c27-37,51- | sort -nr |" );
+X$first = 1;
+Xwhile( <FRM> ) {
+X	if ( $_ != 0 ) {
+X		chop;
+X		if ( $first ) {
+X			print &ntime(time),
+X				" Moving data in  'arcdir' to 'savdir'.\n";
+X			$first = 0;
+X		}
+X		&move_em( $ARCDIR, $_ );
+X	}
+X	else { &flush( FRM ); }
+X}
+Xclose( FRM );
+X
+X$move = 1;
+Xopen( FRM, "ls -l $CACHE |" );
+Xwhile( <FRM> ) {
+X	if ( /^total (.*)/ ) {
+X		$move = $1;
+X	}
+X}
+X&flush( FRM );
+Xclose( FRM );
+X
+Xopen( FRM, "ls -l $ARCDIR | cut -c27-37,51- | sort -nr |" );
+X$first = 1;
+Xwhile( <FRM> ) {
+X	chop;
+X	if ( $_ == 0 ) { last; }
+X	if ( $move ) {
+X		if ( $first ) {
+X			print &ntime(time),
+X				" Moving residual 'arcdir' to 'cache'.\n";
+X			$first = 0;
+X		}
+X		($size, $fname) = split( ' ' );
+X		if ( $fname eq "" ) { next; }
+X		system( "mv $ARCDIR/$fname $CACHE/$$.$fname" );
+X	}
+X	else {
+X		print &ntime(time)," Moving 'arcdir' to 'cache'.\n";
+X		system( "rm -fr cache; mv arcdir cache" );
+X		last;
+X	}
+X}
+X&flush( FRM );
+Xclose( FRM );
+X
+Xclose( CON );
+Xclose( SS );
+X
+X# Prepare report
+Xsystem( "rm -f $SAVDIR/contents $SAVDIR/ss.filelist" );
+Xlink( $CONFILE, "$SAVDIR/contents" );
+Xlink( $SSFILE, "$SAVDIR/ss.filelist" );
+X
+Xprint &ntime(time)," Counting actual size of 'savdir'.\n";
+X$ssize = 0;
+X$scnt = 0;
+X$shdrs = 0;
+Xopen( FRM, "ls -l $SAVDIR | cut -c27-37,51- |" );
+Xwhile( <FRM> ) {
+X	( $xsize, $ssname ) = split( ' ' );
+X	if ( $xsize == 0 ) { next; }
+X	$ssize += $xsize;
+X	$shdrs += $hdr + length( $ssname );
+X	$scnt++;
+X}
+Xclose( FRM );
+X
+X$left = $max - $sum;
+X$blks = $sum / 512;
+X$err = int ( $left / ( $fnum + 2 ));
+X
+X$sdiff = $max - $ssize;
+X$sblks = $ssize / 512;
+X$comp = $ssize + $shdrs + $hdr + 10;
+X$cblks = $comp / 512;
+X$cdiff = $max - $comp;
+X
+Xopen( RPT, ">>data" );
+Xprint( RPT &ntime(time),
+X	" Data for target chapter $chap, Nominal size of $limit blocks.\n" );
+Xprint( RPT "Desired blks  = $limit,\t\tbytes = $max\n" );
+Xprintf( RPT "Measured blks = %.2f,\tbytes = %d\n", $blks, $sum );
+Xprintf( RPT "Actual blks   = %.2f,\tbytes = %d\n", $sblks, $ssize );
+Xprintf( RPT "Compensated   = %.2f,\tbytes = %d\n", $cblks, $comp );
+Xprint( RPT "Actual Files  = $scnt,\t\tMeasured Files = $fnum\n" );
+Xprint( RPT "Desired - Actual = $sdiff\tDesired - Measured = $left\n" );
+Xprint( RPT "Bytes per file   = $err\t\tDesired - Comp     = $cdiff\n\n" );
+Xclose RPT;
+X
+X$diff = $limit - $blks;
+Xif ( $diff gt 1 ) {
+X
+X	printf( "\n\tWe will have %.2f empty blocks remaining.
+X\tShall we read another chapter? <y/n> ", $diff );
+X	$ch = <STDIN>;
+X	if ( $ch =~ /^[y,Y]/ ) {
+X		open( PARMS, ">carry" );
+X		print PARMS "$limit $sum $fnum";
+X		close PARMS;
+X		exit 1;
+X	}
+X}
+X
+Xsystem( "rm -f carry" );
+Xexit 0;
+X
+Xsub move_em {
+X	local( $from, $wrk ) = @_;
+X
+X	local( $size, $fname ) = split( ' ', $wrk );
+X	if ( $fname eq "" || $size == 0 ) { next; }
+X
+X	if ( $sum + $size + 120 < $max ) { 
+X		$pid = open( ZCAT, "$SRCDIR/mini-z $from/$fname |" );
+X		while( <ZCAT> ) {
+X			chop;
+X			$subj = $_;
+X		}
+X# This patch inserted to cull duplicates when confused.
+X#		if ( $subj eq $old_subj && $size == $old_size ) {
+X#			system( "rm -f $from/$fname" );
+X#			return;
+X#		}
+X#		$old_subj = $subj;
+X#		$old_size = $size;
+X# We need to add the size of a $hdr + length( $fnum ) plus 2 for '.Z'.
+X# For 'contents' we add length( $subj ) plus tab + length( $fnum ) + '\n'.
+X# For 'ss.filelist' we need length ( $fnum ) + '-' + '.Z\n'.
+X		$tsum = $sum + $size + $hdr + length( $subj )
+X			+ ( length( $fnum ) * 3 ) + 8;
+X		if ( $tsum <  $max ) {
+X			print CON "$subj\t$fnum\n";
+X			print SS "-$fnum.Z\n";
+X			system( "mv $from/$fname $SAVDIR/$fnum.Z" );
+X			$fnum++;
+X			$sum = $tsum;
+X		}
+X		if ( $max - $sum < 150 ) { &flush( FRM ); }
+X	}
+X}
+X
+X
+XCONFIG: {
+X    package ctime;
+X
+X    @DoW = ('Sun','Mon','Tue','Wed','Thu','Fri','Sat');
+X    @MoY = ('Jan','Feb','Mar','Apr','May','Jun',
+X	    'Jul','Aug','Sep','Oct','Nov','Dec');
+X}
+X
+Xsub ntime {
+X    package ctime;
+X
+X    local($time) = @_;
+X    local($[) = 0;
+X    local($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst);
+X
+X    # Determine what time zone is in effect.
+X    # Use GMT if TZ is defined as null, local time if TZ undefined.
+X    # There's no portable way to find the system default timezone.
+X
+X    $TZ = defined($ENV{'TZ'}) ? ( $ENV{'TZ'} ? $ENV{'TZ'} : 'GMT' ) : '';
+X    ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) =
+X        ($TZ eq 'GMT') ? gmtime($time) : localtime($time);
+X
+X    # Hack to deal with 'PST8PDT' format of TZ
+X    # Note that this can't deal with all the esoteric forms, but it
+X    # does recognize the most common: [:]STDoff[DST[off][,rule]]
+X
+X    if($TZ=~/^([^:\d+\-,]{3,})([+-]?\d{1,2}(:\d{1,2}){0,2})([^\d+\-,]{3,})?/){
+X        $TZ = $isdst ? $4 : $1;
+X    }
+X    $TZ .= ' ' unless $TZ eq '';
+X
+X    $year += ($year < 70) ? 2000 : 1900;
+X    sprintf("%02d:%02d:%02d", $hour, $min, $sec );
+X#    sprintf("%s %s %2d %2d:%02d:%02d %s%4d\n",
+X#      $DoW[$wday], $MoY[$mon], $mday, $hour, $min, $sec, $TZ, $year);
+X}
+END_OF_utils/trim.pl
+if test 7267 -ne `wc -c <utils/trim.pl`; then
+    echo shar: \"utils/trim.pl\" unpacked with wrong size!
+fi
+chmod +x utils/trim.pl
+# end of overwriting check
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+Vernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+3975 W. 29th Ave.                                   vern@zebra.alphacdc.COM
+Denver, Colo., 80212          voice: 303-477-1780        uucp: 303-455-2670
+
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Pardon me Professor, can I be excused, my brain is full. **

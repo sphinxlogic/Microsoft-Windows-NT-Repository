@@ -1,0 +1,407 @@
+Newsgroups: comp.sources.misc
+From: culbert@ninja-turtle.MIT.EDU (Jim Culbert)
+Subject: v34i084:  rfcget - RFC retrieval mechanism, Part01/01
+Message-ID: <1992Dec21.161305.27677@sparky.imd.sterling.com>
+X-Md4-Signature: d27192d930926b39de7b3fd85154b98f
+Date: Mon, 21 Dec 1992 16:13:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: culbert@ninja-turtle.MIT.EDU (Jim Culbert)
+Posting-number: Volume 34, Issue 84
+Archive-name: rfcget/part01
+Environment: Internet, C-shell
+
+rfcget is a c-shell script which facilitates  the  retrieval
+of Request For Comments (RFC) Documents. The script supports
+two functions; topic searching, rfc document retrieval.  The
+script  uses  a  local  copy of the rfc index file for topic
+searches. This index must be located in a directory named by
+the  environment  variable RFC_DIR. If you choose not to set
+this variable, the script uses the local directory.  RFC_DIR
+is  also  used as the location where retrieved documents are
+placed. You are warned by the script if this variable  isn't
+set.  If the index file is not found when the script is run,
+the tool "syncs" with a nic server copy then  proceeds  with
+argument processing.
+
+Jim
+---------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  rfcget rfcget.1
+# Wrapped by kent@sparky on Mon Dec 21 10:07:09 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'rfcget' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rfcget'\"
+else
+  echo shar: Extracting \"'rfcget'\" \(5258 characters\)
+  sed "s/^X//" >'rfcget' <<'END_OF_FILE'
+X#! /bin/csh -f
+X
+X########################################################################
+X#
+X#       Copyright 1992 by the Massachusetts Institute of Technology.
+X#       All rights reserved.
+X#
+X#       Developed by the Intelligent Engineering Systems Laboratory
+X#       M.I.T., Cambridge, Massachusetts.
+X#
+X#	THIS SOFTWARE IS PROVIDED "AS IS", AND M.I.T. MAKES NO REPRESENTATIONS
+X#       OR WARRANTIES, EXPRESS OR IMPLIED. By way of example, but not 
+X#       limitation, M.I.T. MAKES NO REPRESENTATIONS OR WARRANTIES OF 
+X#       MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR 
+X#	THAT THE USE OF THE LISCENCED SOFTWARE OR DOCUMENTATION WILL NOT 
+X#	INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER 
+X#       RIGHTS.
+X#
+X#	The name of Massachusetts Institute of Technology or M.I.T. may
+X#	NOT be used in advertising or publicity pertaining to distribution
+X#	of the software. Title to copyright in this software and any 
+X#	associated documentation shall at all times remain with M.I.T., 
+X#	and USER agrees to preserve the same.
+X#
+X#	Permission to use, copy, modify, and distribute this material 
+X#	for any purpose and without fee is hereby granted, provided that 
+X#	the above copyright notice and this permission notice appear in 
+X#	all copies.
+X#
+X########################################################################
+X
+X
+X
+X
+X#look for environment variable for dumping directory......
+X
+Xsetenv | grep RFC_DIR >&! /dev/null
+Xif ( $status ) then
+X	setenv RFC_DIR `pwd`
+X	echo "You have not specified a directory to place the"
+X	echo "rfc index and retrieved rfc files. These will be"
+X	echo "placed in $RFC_DIR."
+X	echo "To specify a directory set the RFC_DIR environment variable"
+X	echo ""
+X	echo ""
+Xendif
+X
+X##################################################################
+X#	archive site
+X#
+X#	CHANGE THIS VARIABLE TO ACCESS A DIFFERENT ARCHIVE SITE!!!
+X#
+X##################################################################
+X
+Xset rfc_archive = ftp.nisc.sri.com
+X
+X#Various and sundry other variables
+X
+X#set index_name = rfc-index-title-first.txt
+Xset index_name = rfc-index.txt
+Xset local_dir = $RFC_DIR
+Xset remote_dir = rfc 
+Xset rfcnum = ()
+Xset resp = y
+X
+X# this is another hack that I should fix someday....
+Xset charlist = abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+X
+X# Look for local copy of rfc index.
+X
+Xif ( ! -e $RFC_DIR/$index_name ) then
+X	echo "Local copy of rfc index not found in $RFC_DIR."
+X	echo "(Forget to set your RFC_DIR environment variable?)."
+X	echo "This command will force a sync."
+X	setenv SYNC_ME 1
+Xelse
+X	setenv SYNC_ME 0
+Xendif
+X
+X# Usage statement
+X
+Xif $#argv == 0 then
+X	echo "Usage: get_rfc [options] [rfc-num list]"
+X	echo "options"
+X	echo "	-i	interactive file request"
+X	echo "	-t	search for internet topic"
+X	echo "	-s	sync local index with archive site"
+X	goto DONE
+Xendif
+X
+X#process topic and sync before processing interactive
+X
+X# If there is no index we do a sync. First
+X# scan arglist and delete sync requests. Then
+X# prepend sync option. It works anyway.....
+X
+Xif $SYNC_ME then
+X	set cpy = ( $argv )
+X	set cpy1 = ""
+X	while ( $#cpy > 0 )
+X		switch ( $cpy[1] )
+X
+X			case "-s":
+X				breaksw
+X
+X			default:
+X				set cpy1 = "$cpy1 $cpy[1]"
+X		endsw
+X	shift cpy
+X	end
+X
+X	set cpy1 = "-s $cpy1"
+X	set argv = ( $cpy1 )
+Xendif
+X
+Xset cpy = ( $argv )
+X
+XFIRST_ARG_LOOP:
+Xwhile ( $#cpy > 0 )
+Xswitch ( $cpy[1] )
+X
+X	case "-t":
+X		shift cpy
+X		set again = y
+X		while ( $again == y )
+X			echo -n "Enter topic: "
+X			set resp = "$<"
+X			if ( "$resp" != "" ) then
+X				egrep -i "$resp" $RFC_DIR/$index_name
+X			endif
+X			set again = "n"
+X			echo -n "Search again? (y/n) [n]: "
+X			set again = $<
+X			if ( "$again" != "" ) then
+X				set again = `expr substr "$again" 1 1`
+X			endif
+X		end
+X		breaksw
+X
+X	case "-s":
+X		shift cpy
+X		echo "Syncing local index with copy at $rfc_archive"
+X		set file_list = $index_name
+X		goto DO_FETCH
+X		breaksw		
+X
+X	default:
+X		shift cpy
+Xendsw
+Xend
+X
+Xset cpy = ( $argv )
+X
+XSECOND_ARG_LOOP:
+Xwhile ( $#cpy > 0 )
+Xswitch ( $cpy[1] )
+X
+X	case "-s":
+X	case "-t":
+X		shift cpy
+X		breaksw
+X
+X	case "-i"
+X		shift cpy
+X		echo -n "Get RFC Number(s): "
+X		set rfcnum =  ( $< )
+X
+X	default:
+X		set num_list = ( $cpy $rfcnum )
+X
+X		while( $#num_list > 0 )
+X			set not_num = `expr index $num_list[1] $charlist`
+X			if ( $not_num ) then
+X				echo Bad rfc number $num_list[1]. EXIT.
+X				exit 1
+X			endif
+X
+X			shift num_list
+X		end
+X		set rfcnum = ( $cpy $rfcnum )
+X		break
+Xendsw
+Xend
+X
+X
+XFETCH:
+X#
+X# if there's nothing in the rfcnum variable, quit.
+X#
+X
+Xif ( $#rfcnum == 0 ) goto DONE
+X
+X#
+X# Build the file list from the index number list
+X#
+X
+Xset file_list = ()
+Xforeach f_index ( $rfcnum )
+X	set file_list = ( $file_list rfc$f_index.txt )
+Xend
+X
+Xecho "Getting the following files from from $rfc_archive;"
+Xforeach file ( $file_list )
+X	echo $file
+Xend 
+X
+Xecho -n "Continue? y/n [y]: "
+Xset resp = $<
+Xif ( "$resp" == "n" ) then
+X	echo ABORT
+X	goto DONE
+Xendif
+X
+X
+X#
+X# Do the fetch!!
+X#
+X
+XDO_FETCH:
+X
+Xftp -n -i << +
+Xopen $rfc_archive
+Xuser anonymous culbert@iesl.mit.edu
+Xcd $remote_dir
+Xlcd $local_dir
+Xbin
+Xmget $file_list
+Xbye
+X+
+X
+X# If this was a forced sync, return to the argument processing loops.
+X
+Xif $SYNC_ME then 
+X	setenv SYNC_ME 0
+X	goto FIRST_ARG_LOOP
+Xendif
+X
+X#
+X# List the files locally to give a little confidence that all went well...
+X
+Xpushd $local_dir >&! /dev/null
+Xls -l $file_list
+Xpopd >&! /dev/null
+X
+X#
+X# BYE!!!!
+X#
+X
+XDONE:
+X
+Xexit 0
+X
+END_OF_FILE
+  if test 5258 -ne `wc -c <'rfcget'`; then
+    echo shar: \"'rfcget'\" unpacked with wrong size!
+  fi
+  chmod +x 'rfcget'
+  # end of 'rfcget'
+fi
+if test -f 'rfcget.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rfcget.1'\"
+else
+  echo shar: Extracting \"'rfcget.1'\" \(2368 characters\)
+  sed "s/^X//" >'rfcget.1' <<'END_OF_FILE'
+X.TH RFCGET 1  "17 Dec 1992"
+X.SH NAME
+Xrfcget \- Simple rfc retrieval tool
+X.SH SYNOPSIS
+X.na
+X.B rfcget
+X[ options ] [
+X.I rfc-number
+X]
+X.br
+X.ad
+X.SH DESCRIPTION
+X.LP
+X.I rfcget
+Xis a c-shell script which facilitates the retrieval of Request For Comments
+X(RFC) Documents. The script supports two functions; topic searching, rfc 
+Xdocument retrieval. The script uses a local copy of the rfc index file for 
+Xtopic searches. This index must be located in a directory named by the 
+Xenvironment variable RFC_DIR. If you choose not to set this variable,
+Xthe script uses the local directory. RFC_DIR is also used as the location
+Xwhere retrieved documents are placed. You are warned by the script if this
+Xvariable isn't set. If the index file is not found when the script is
+Xrun, the tool "syncs" with a nic server copy then proceeds with argument 
+Xprocessing.
+X
+X
+X.SH OPTIONS
+X.I rfcget
+Xallows you to specify three options on the command line. The options 
+Xsupported are as follows:
+X
+X.TP
+X-i
+XRun the program in interactive mode prompting the user for the numbers
+Xof the rfc documents to retrieve from the server.
+X.TP
+X-t
+XPrompt the user for a topic to search in the index file.
+X.TP
+X-s
+XSynchronize local index file with the one found at the nic.
+X
+X.SH EXAMPLE
+X.nf
+X% rfcget -i -t
+XEnter topic: DVMRP
+XSearch again? (y/n) [n]: y
+XEnter topic: distance vector
+X1075  Distance Vector Multicast Routing Protocol. Waitzman,D.;Partridge,C.;
+XSearch again? (y/n) [n]: n
+XGet RFC Number(s): 1075
+XGetting the following files from from ftp.nisc.sri.com;
+Xrfc1075.txt
+XContinue? y/n [y]: y
+XLocal directory now /mit/staff/RFC
+X-rw-rw-r--  1 staff     53385 Dec 18 13:33 rfc1075.txt
+X
+X
+X.SH FILES
+X$RFC_DIR/rfc-index.txt
+X
+X.SH AUTHOR
+XJim Culbert (culbert@iesl.mit.edu)
+X.SH BUGS
+XThe script has hardwired references to a specific nic and a specific
+Xindex file name. If these change, the script will break. The user 
+Xmust modify script variables if the nic becomes unavailable or if 
+Xthe index is put into another file name. It should be possible to 
+Xoverride these parameters via options or a configuration file.
+XThe current site accessed is ftp.nisc.sri.com and the index file
+Xsearched for is rfc-index.txt.
+X
+XSimilarly, the script assumes a file name format of rfcxxxx.txt for
+Xthe files to be retrieved. Problems will arise if this ever changes.
+X
+XThere should be an option to search for .ps files as well as .txt 
+Xfiles.
+X
+END_OF_FILE
+  if test 2368 -ne `wc -c <'rfcget.1'`; then
+    echo shar: \"'rfcget.1'\" unpacked with wrong size!
+  fi
+  # end of 'rfcget.1'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1432 @@
+Newsgroups: comp.sources.misc
+From: ROSS@emf780.den.mmc.com ("Perry R. Ross")
+Subject:  v28i094:  ldb - Play backgammon by e-mail, Part02/05
+Message-ID: <1992Mar13.035456.11725@sparky.imd.sterling.com>
+X-Md4-Signature: 169056609dd00471941cf5bbd9b2e59c
+Date: Fri, 13 Mar 1992 03:54:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ROSS@emf780.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 28, Issue 94
+Archive-name: ldb/part02
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 5)."
+# Contents:  ldb.h main.c misc.c r_xrand.c vars.c
+# Wrapped by ross@emf780 on Tue Mar 10 09:24:16 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'ldb.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ldb.h'\"
+else
+echo shar: Extracting \"'ldb.h'\" \(11498 characters\)
+sed "s/^X//" >'ldb.h' <<'END_OF_FILE'
+X/*	ldb.h		8/3/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "patchlevel.h"
+X
+X#define LDB_VER		((VERSION*100)+PATCHLEVEL)	/* used in sendpkt */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <curses.h>
+X#include <signal.h>
+X
+X#ifdef vaxc
+X#define OLD_CURSES 1
+X#define unlink(X) delete(X)
+X#endif
+X
+X#ifdef sequent
+X#define OLD_CURSES 1
+X#endif
+X
+X#ifdef OLD_CURSES
+X#define cbreak() crmode()	/* from ancient curses */
+X#define nocbreak() nocrmode()
+X#endif
+X
+X	/* swiped from X toolkit */
+X#define Offset(T,F) ((int)(((char *)(&(((T)NULL)->F)))-((char *)NULL)))
+X
+X#define PRIVATE static		/* for private functions */
+X
+X#define INTGFILE "interrupt.ldbdata"	/* file to save games to on ^C */
+X#define BLANKS(X) (&blk76[76-(X)])	/* blank string of specified length */
+X
+X		/* locations in board typedef */
+X#define UPBAR		0		/* BAR point for up-bound player */
+X#define DOWNBAR		25		/* BAR point for down-bound player */
+X#define UPOFF		26		/* off point for up-bound player */
+X#define DOWNOFF		27		/* off point for down-bound player */
+X#define BOARDSIZE	28		/* number of points in board */
+X
+X	/* BARPT takes a direction (-1 or 1) and returns the	*/
+X	/* point in the board typedef that represents that	*/
+X	/* players bar.  OFFPT does the same thing for the	*/
+X	/* point that pieces go to when they are thrown off.	*/
+X	/* REV(direction) returns the opposite direction.	*/
+X#define BARPT(D)	(((D)>0)?UPBAR:DOWNBAR)
+X#define OFFPT(D)	(((D)>0)?UPOFF:DOWNOFF)
+X#define REV(D)		(-(D))
+X
+X		/* states we can be in */
+X#define ST_OPSTART	0		/* we have sent a START (or rcvd one)*/
+X#define ST_OPTURN	1		/* Its the opponent's turn */
+X#define ST_OPACCEPT	2		/* I have offered to double */
+X
+X#define OPSTATES	3		/* < OPSTATES needs remote input */
+X
+X#define ST_MYTURN	3		/* My turn, I haven't rolled yet */
+X#define ST_MYMOVE	4		/* I've rolled, but I haven't moved */
+X#define ST_MYACCEPT	5		/* Opponent has offered to double */
+X#define ST_GAMEOVER	6		/* game is dead, see T_* for reason */
+X#define NSTATE		7		/* number of possible states */
+X
+X		/* operations to send or receive */
+X#define START		0		/* start a game */
+X#define USTART		1		/* if rcvd, we won the initial roll */
+X#define TIE		2		/* tie on initial roll, restart */
+X#define MOVE		3		/* send a move */
+X#define OFRDBL		4		/* offer to double */
+X#define ACPTDBL		5		/* double accepted */
+X#define DECDBL		6		/* double declined, game over */
+X#define CONCEDE		7		/* we give up */
+X#define RSTART		8		/* remote start packet */
+X#define RESTART		9		/* repeat initial roll */
+X#define NOP		10		/* number of possible operations */
+X
+X		/* termination codes for state ST_GAMEOVER */
+X#define T_ICONCEDE	1		/* I gave up */
+X#define T_OPCONCEDE	2		/* opponent gave up */
+X#define T_IDECLINE	3		/* I declined double */
+X#define T_OPDECLINE	4		/* opponent declined double */
+X#define T_ILOSE		5		/* opponent moved all pieces off */
+X#define T_IWIN		6		/* I moved all pieces off */
+X
+X		/* flags passed to apply */
+X#define A_REDRAW	1	/* redraw the pieces moved */
+X#define A_CHKONLY	2	/* check move but don't move pieces */
+X
+X		/* codes returned by apply */
+X#define MVOK		0	/* move was accepted by apply() */
+X#define RJ_NOROLL	-1	/* move does not contain valid roll */
+X#define RJ_NOOFF	-2	/* all pcs not in inner tbl, can't throw off */
+X#define RJ_NOPIECE	-3	/* no piece at specified point */
+X#define RJ_OCC		-4	/* destination occupied */
+X#define RJ_ONBAR	-5	/* can't move, pieces are on bar */
+X#define RJ_NOTYOURS	-6	/* wrong color, dummy */
+X#define RJ_EXACT	-7	/* must use exact roll except for outer pc */
+X
+X		/* bits for flags field of game struct */
+X#define F_IDOUBLED	1	/* I doubled last */
+X#define F_SENTNAME	2	/* I sent my name */
+X#define F_INVERT	4	/* I want my board upside down */
+X#define F_DELETE	8	/* this game is deleted */
+X
+X		/* field types for reading name/value files */
+X#define FT_CHAR		1	/* store a single character */
+X#define FT_INT		2	/* store a single integer */
+X#define FT_STRING	3	/* store a char * (use save()) */
+X#define FT_MOVE		4	/* a struct mv */
+X#define FT_BOARD	5	/* a board image */
+X#define FT_STRLKUP	6	/* lookup string in table & store index */
+X#define FT_TIME		7	/* a timestamp */
+X#define FT_END		99	/* end of structure */
+X
+X		/* which board is currently displayed (g->curbd) */
+X#define BD_BEFOP	0	/* before op's move (after my previous) */
+X#define BD_AFTOP	1	/* after op's move (before my next) */
+X#define BD_CUR		2	/* current (with any moves I've made so far) */
+X
+X		/* these are the command line options */
+X#define OPT_START	1	/* start a game */
+X#define OPT_READ	2	/* read incoming mail */
+X#define OPT_PLAY	3	/* play any games that are waiting for me */
+X#define OPT_COLOR	4	/* set the color for created games */
+X#define OPT_DIRECTION	5	/* set the direction for created games */
+X#define OPT_RSTART	6	/* remote start a game */
+X#define OPT_HELP	7	/* print long help */
+X#define OPT_CONTROL	8	/* go into control mode */
+X#define OPT_MYADDR	9	/* set my e-mail address (override .ldbrc) */
+X#define OPT_BCAST	10	/* send a mail message to all opponents */
+X
+Xstruct opt {			/* used to make list of command line options */
+X	char	*name;		/* name of option (as used on command line) */
+X	int	index;		/* OPT_* */
+X	char	*args;		/* arguments the option takes, if any */
+X	char	*help;		/* 1-line help string for option */
+X	};
+X
+Xstruct ldbrc {		/* struct where all fields from .ldbrc are stored */
+X	char	*myaddr;	/* my e-mail address */
+X	char	*myname;	/* my name */
+X	char	*gfile;		/* games file */
+X	char	*gbackup;	/* where to save old game file */
+X	char	*mfile;		/* mail file */
+X	char	*sendcmd;	/* mail send command */
+X	char	*tempfile;	/* temp file for sendpkt */
+X	char	*defclrs;	/* default colors (2 from [rwb]) */
+X	char	*defdir;	/* default direction (up/down) */
+X	char	*initboard;	/* init. brd display (before/after/current) */
+X	char	*autoroll;	/* enable autoroll? (yes/no) */
+X	char	*automove;	/* enable automove? (yes/no) */
+X	int	autodouble;	/* autodouble count, 0 to disable */
+X	char	*supercmd;	/* command to run to fool supervisor */
+X	char	superkey;	/* key to activate supercmd */
+X	char	*chkpt;		/* keep games up to date? */
+X	};
+X
+X		/* the following structure is used to save/load */
+X		/* the games file, the .ldbrc, and to send	*/
+X		/* packets between the players.  It stores a	*/
+X		/* name, the type (see FT_* above), and the	*/
+X		/* offset into a structure.  A pointer to the	*/
+X		/* structure is provided at runtime.		*/
+Xstruct namevalue {
+X       char *name;		/* name of the field */
+X       char type;		/* type of the field (T_*) */
+X       int offset;		/* where to store value */
+X       };
+X
+Xunion nvtypes {			/* convert char* to/from FT_* */
+X	char	*nvchar;	/* FT_CHAR */
+X	int	*nvint;		/* FT_INT */
+X	long	*nvtime;	/* FT_TIME */
+X	char	**nvstring;	/* FT_STRING */
+X	struct mv *nvmove;	/* FT_MOVE */
+X	struct point *nvboard;	/* FT_BOARD */
+X	};
+X
+Xstruct mv {
+X	char	roll;			/* # on 1 die, 0 = DOUBLE, -1=empty */
+X	char	pt;			/* point move is from, -1=UNUSED */
+X	};
+X
+Xstruct point {
+X	char	qty;			/* number of pieces on this point */
+X	char	color;			/* color of pieces on this point */
+X	};
+X
+Xtypedef struct point board[BOARDSIZE];	/* board is array of points */
+X
+Xstruct game {				/* all info about a game in progress */
+X	char	*gameid;		/* unique game id */
+X	char	*opaddr;		/* email path to opponent */
+X	char	*opname;		/* full name of opponent */
+X	char	mycolor;		/* char to represent my pieces */
+X	char	opcolor;		/* opponent's pieces */
+X	char	mydir;			/* 1/-1 direction I am moving */
+X	char	opdir;			/* 1/-1 direction opponent is moving */
+X	int	gameval;		/* current value of game */
+X	int	adcnt;			/* current number of autodoubles */
+X	int	admax;			/* max autodoubles allowed */
+X	int	flags;			/* various flags (F_*) */
+X	char	state;			/* my current state (ST_*) */
+X	char	term;			/* if game over, why (T_*) */
+X	int	seq;			/* sequence number of next pkt */
+X	int	lastop;			/* last opcode sent (for resends) */
+X	char	*mycmt;			/* comment I sent with last move */
+X	char	*mycmt2;		/* second line of mycmt */
+X	char	*opcmt;			/* comment I received with last move */
+X	char	*opcmt2;		/* second line of opcmt */
+X	char	*dispmsg;		/* msg to display when game drawn */
+X	struct mv opmvs[4];		/* opponent's last move */
+X	char	blot[4];		/* my blots that were hit */
+X	struct mv mvs[4];		/* my move, holds roll until I move */
+X	int	maxused;		/* # of rolls in mvs that can be used*/
+X	int	hiused;			/* highest roll that can be used */
+X	board	opbd;			/* board image before opmvs applied */
+X	board	mybd;			/* board before mvs (for Reset) */
+X	board	board;			/* current board image */
+X	char	curbd;			/* which brd is currently displayed */
+X	struct game *prev;		/* back link in game list */
+X	struct game *next;		/* forward link in game list */
+X	};
+X
+Xstruct packet {
+X	int	version;		/* ldb version */
+X	long	timestamp;		/* time packet was sent */
+X	char	*gameid;		/* the gameid string */
+X	int	opcode;			/* operation being performed */
+X	char	*name;			/* name */
+X	char	*addr;			/* mail address */
+X	char	*comment;		/* comment received */
+X	char	*comment2;		/* second line of comment */
+X	int	seq;			/* sequence number */
+X	char	*colors;		/* colors of new game */
+X	char	*dir;			/* direction of game starter */
+X	char	*autodbl;		/* autodouble count (sprintf'ed) */
+X	struct mv mvs[4];		/* moves (if opcode == MOVE) */
+X	struct game *gameptr;		/* not a pkt field, set by getpkt() */
+X	};
+X
+Xstruct legal {				/* list of legal moves */
+X	int nmove;			/* number of moves in this entry */
+X	int himove;			/* highest roll used in this entry */
+X	struct mv mvs[4];		/* the rolls and moves */
+X	struct legal *prev;		/* pointer to the previous entry */
+X	struct legal *next;		/* pointer to the previous entry */
+X	};
+X
+Xextern int Pflag;			/* should I process local input? */
+Xextern int Rflag;			/* should I look for mail? */
+Xextern struct game *ghead;		/* head of linked list of games */
+Xextern struct game *gtail;		/* tail of linked list of games */
+Xextern struct legal *lhead;		/* head of list of legal moves */
+Xextern struct legal *ltail;		/* tail of list of legal moves */
+Xextern int (*func[OPSTATES][NOP])();	/* receive state machine */
+Xstruct ldbrc rc;			/* stuff from .ldbrc */
+Xextern struct opt options[];		/* command line options */
+Xextern char *rejmsg[];			/* explanation of reject codes */
+Xextern char *opcodes[];
+Xextern char *bdlabels[];
+Xextern char blk76[];			/* 76 blanks */
+Xextern struct packet P;			/* last packet read */
+Xextern char cr_mycolor;			/* my color when game is created */
+Xextern char cr_opcolor;			/* opponent's color for new games */
+Xextern char cr_mydir;			/* my direction for new games */
+Xextern char *states[];			/* description of the states */
+X
+Xextern char FeIsActive;			/* front-end been initialized? */
+X
+Xextern struct namevalue nv_rcfile[], nv_gfile[], nv_packet[];
+X
+Xchar *tgetstr();
+Xchar *save(), *makeid(), *calloc();
+Xchar *nvscan(), *strchr(), *boardstr(), *colorname();
+Xstruct game *startgame(), *addgame(), *findgame();
+X
+Xint start(), istart(), tie(), restart();
+Xint opmove(), opofr(), opconc(), opacpt(), opdec();
+Xint smerr();
+X
+Xchar FeMenu();
+END_OF_FILE
+if test 11498 -ne `wc -c <'ldb.h'`; then
+    echo shar: \"'ldb.h'\" unpacked with wrong size!
+fi
+chmod +x 'ldb.h'
+# end of 'ldb.h'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(10795 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*	main.c		8/3/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*============================================================================
+X *	ldb --	Long Distance Backgammon
+X *
+X * The following arguments are recognized:
+X *	-read		Mail is read, and the games are updated and saved.
+X *			The user is not prompted for his moves.
+X *	-play		Any games that are waiting for local input are
+X *			displayed for the user to process.  No mail is read.
+X *	-color xy	The colors for any games started are set to x and y.
+X *			The first color is played by the local user, and the
+X *			other is played by the opponent.  Legal color
+X *			characters are r(red), w(white), and b(black).
+X *			The default is "-color rw".
+X *	-direction up/down
+X *			The direction of play for the local user is set
+X *			to the specified value.  The default is
+X *			"-direction up".
+X *	-myaddr addr	Override the "myaddr" field of .ldbrc for any
+X *			games started by this invocation of ldb.  This
+X *			is effective only for games started by -start
+X *			and only for -start's that appear after the -myaddr
+X *			on the command line.
+X *	-start user	A game is started with the specified user.
+X *	-remotestart user1 user2
+X *			A game is started between user1 and user2.  The local
+X *			host sends a remote start message to user1 instructing
+X *			it to start a game with user2.  The local host
+X *			does not participate thereafter in the game.
+X *			For the purposes of the -color and -direction options,
+X *			user1 is considered the local user.
+X *	-broadcast file
+X *			A file is mailed to all opponents.  This is useful
+X *			for announcing vacation absences, etc.
+X *
+X * If neither -read or -play is given, the default is to do both; incoming mail
+X * is read, then any games requiring the user's attention are displayed.
+X *
+X * Note that the -start and -remotestart options use the color and direction
+X * options that have been set *at the time the argument is processed*.
+X * Thus,
+X *
+X *	ldb -start joe@momma -color rb
+X *
+X * will NOT use the colors r and b for the game with joe, but
+X *
+X *	ldb -color rb -start joe@momma
+X *
+X * will.  The color and direction arguments may be changed between -start
+X * and -remotestart arguments.  For example,
+X *
+X *	ldb -color wr -direction down -start user1 -direction up -start user2
+X *
+X * will start a game with user1 with your direction being down, and one with
+X * user2 with your direction being up.
+X *----------------------------------------------------------------------------
+X */
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+Xstruct game *g;
+Xchar subj[128];
+Xint i, j;
+Xchar c;
+Xint done;
+Xint ldbsignal();
+X
+Xghead = NULL;			/* init game list to empty */
+Xgtail = NULL;
+Xsignal(SIGINT,ldbsignal);	/* set up interrupt trap to save games */
+XRflag = 1;		/* should we try to extract incoming mail? */
+XPflag = 1;		/* should we process waiting games? */
+XRandomInit(time(0));	/* seed the random number generator */
+X
+Xreadldbrc();		/* read startup file */
+X
+Xcr_mycolor = rc.defclrs[0];	/* default color when creating games */
+Xcr_opcolor = rc.defclrs[1];
+Xcr_mydir = (*rc.defdir == 'u') ? 1 : -1;	/* default direction */
+X
+Xreadgames();		/* load games in progress */
+X
+Xfor (i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
+X	for (j = 0; options[j].name != NULL; j++)	/* look for arg */
+X		if (strcmp(options[j].name,&argv[i][1]) == 0)
+X			break;
+X	if (options[j].name == NULL) {
+X		printf("%s:\tunrecognized option: %s\n\n",*argv,argv[i]);
+X		usage(0);		/* print short help */
+X		exit(1);
+X		}
+X	switch (options[j].index) {
+X	case OPT_START:			/* start a game */
+X		i++;
+X		if (argv[i] == NULL) {
+X			printf("%s: -start needs argument\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		startgame(argv[i],cr_mydir,cr_mycolor,cr_opcolor);
+X		break;
+X	case OPT_READ:
+X		Pflag = 0;		/* just read, no processing */
+X		break;
+X	case OPT_PLAY:
+X		Rflag = 0;		/* just process, no read */
+X		break;
+X	case OPT_MYADDR:		/* set my e-mail address */
+X		i++;
+X		if (argv[i] == NULL) {
+X			printf("%s: -myaddr needs argument\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		strcpy(rc.myaddr,argv[i]);	/* copy in new address */
+X		break;
+X	case OPT_HELP:			/* print long help */
+X		usage(1);
+X		exit(0);
+X	case OPT_RSTART:		/* remote start */
+X		i++;
+X		if ( (argv[i] == NULL) || (argv[i+1] == NULL) ) {
+X			printf("%s: -remotestart needs two arguments\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		remotestart(argv[i],argv[i+1]);
+X		i++;
+X		break;
+X	case OPT_COLOR:			/* set colors */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -color option needs argument\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		cr_mycolor = argv[i][0];	/* first char is my color */
+X		if (isupper(cr_mycolor))	/* convert to lower case */
+X			cr_mycolor = tolower(cr_mycolor);
+X		cr_opcolor = argv[i][1]; /* second char is opponent's color */
+X		if (isupper(cr_opcolor))	/* convert to lower case */
+X			cr_opcolor = tolower(cr_opcolor);
+X		if (strchr("rwb",cr_mycolor) == NULL) {
+X			printf("%s: invalid color: %c\n",*argv,cr_mycolor);
+X			usage(0);
+X			exit(1);
+X			}
+X		if (strchr("rwb",cr_opcolor) == NULL) {
+X			printf("%s: invalid color: %c\n",*argv,cr_opcolor);
+X			usage(0);
+X			exit(1);
+X			}
+X		if (cr_mycolor == cr_opcolor) {
+X			printf("%s: duplicate color: %c\n",*argv,cr_mycolor);
+X			usage(0);
+X			exit(1);
+X			}
+X		break;
+X	case OPT_DIRECTION:		/* set direction */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -direction option needs argument\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		c = argv[i][0];
+X		if (isupper(c))
+X			c = tolower(c);
+X		if (c == 'u')
+X			cr_mydir = 1;		/* I play up */
+X		else if (c == 'd')
+X			cr_mydir = -1;		/* I play down */
+X		else {
+X			printf("%s: invalid direction: %s\n",*argv,argv[i]);
+X			usage(0);
+X			exit(1);
+X			}
+X		break;
+X	case OPT_BCAST:				/* broadcast a message */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -broadcast option needs argument\n",*argv);
+X			usage(0);
+X			exit(1);
+X			}
+X		sprintf(subj,"LDB Broadcast Message from %s",rc.myname);
+X		for (g = ghead; g != NULL; g = g->next)
+X			TSendFile(g->opaddr,argv[i],subj);
+X		break;
+X	case OPT_CONTROL:			/* control my games */
+X		control();
+X		exit(0);
+X	default:
+X		fprintf(stderr,
+X		   "Sorry, the %s option is not implemented yet.\n",
+X			options[j].name);
+X		exit(1);
+X		}
+X	}
+Xif ( (Pflag == 0) && (Rflag == 0) ) {	/* user gave both -play and -read */
+X	Pflag = 1;			/* turn both back on */
+X	Rflag = 1;
+X	}
+Xwhile (i < argc)		/* if files given on command line, read them */
+X	readmail(argv[i++]);
+Xif (Rflag)			/* if we are supposed to read default file */
+X	readmail(rc.mfile);	/* do that too */
+Xi = 0;
+Xfor (g = ghead; g != NULL; g = g->next)		/* does any game need */
+X	if (g->state >= OPSTATES)		/* our input? */
+X		i++;
+Xif ( (i == 0) || (Pflag == 0) ) {		/* if not, exit */
+X	writegames(rc.gfile,rc.gbackup);	/* save games */
+X	exit(0);
+X	}
+XTInitialize();					/* fire up the transport */
+XFeInitialize();					/* fire up the front end */
+XFeDrawScreen();				/* draw the screen outline */
+Xfor (g = ghead, done = 0; (g != NULL) && (done >= 0); g = g->next)
+X	while ( (done = process(g)) > 0);	/* process game til done */
+XFeFinishSession();				/* close down the front end */
+XTFinishSession();				/* close down the transport */
+Xwritegames(rc.gfile,rc.gbackup);		/* save the games in a file */
+Xexit(0);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	ldbsignal -- signal handler
+X *
+X * This function is called when the user hits the interrupt character.
+X * It is currently a very simple function; it saves the games in the
+X * INTGFILE file, closes down the front end and the transport, and exits.
+X *----------------------------------------------------------------------
+X */
+X
+Xldbsignal()
+X{
+X
+Xwritegames(INTGFILE,NULL);
+XFeFinishSession();	/* let front-end close down gracefully */
+XTFinishSession();	/* let transport close down gracefully */
+Xfprintf(stderr,"WARNING: games saved in %s\n",INTGFILE);
+Xexit(1);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	usage -- print command line options.
+X *
+X * This function prints a help message.  This can be either in the
+X * short or long format.  The short format merely lists all options
+X * in a very dense format.  The long format prints each option on
+X * a separate line, along with a short explanation of its purpose.
+X *----------------------------------------------------------------------
+X */
+X
+Xusage(help)
+Xint help;		/* 0 = short message, 1 = long message */
+X{
+Xstruct opt *o;
+Xint l;
+X
+Xprintf("options:\n");
+Xif (help) {		/* print out the whole shootin' match */
+X	for (o = options; o->name != NULL; o++)
+X		printf("\t-%s%s:%s\n",o->name,o->args,o->help);
+X	printf("\nLdb version %d.%02d by Perry R. Ross.  Mail comments\n",
+X		VERSION,PATCHLEVEL);
+X	printf("or suggestions to \"%s\".\n",AUTHOR_EMAIL);
+X	}
+Xelse {
+X	l = 0;
+X	printf("\t");
+X	for (o = options; o->name != NULL; o++) {
+X		if ( (l += (strlen(o->name)+strlen(o->args)+3)) > 55) {
+X			printf("\n\t");
+X			l = 0;
+X			}
+X		printf("[-%s%s] ",o->name,o->args);
+X		}
+X	}
+Xprintf("\n\n");
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	remotestart -- start a game between two other people
+X *
+X * This function tells a user to start a game with another user.
+X * Neither user needs to be the one running remotestart; although
+X * this would work, -start is a more efficient way to do that.
+X * Remotestart could be used to start games between opponents in
+X * a tournament, or to set up a pickup game facility, where people
+X * wanting to play would mail to a central machine, which would
+X * pair players by some criteria (such as ability) and start a
+X * game between them.
+X *----------------------------------------------------------------------
+X */
+X
+Xremotestart(u1,u2)
+Xchar *u1, *u2;
+X{
+Xstruct packet p;
+Xchar colors[4];
+X
+Xp.version = LDB_VER;		/* fill in a packet */
+Xp.gameid = "REMOTESTART";	/* give it a phony gameid */
+Xp.opcode = RSTART;		/* remote start opcode */
+Xp.name = NULL;			/* we don't need to send a name */
+Xp.addr = u2;			/* put opponent's address in packet */
+Xp.comment = NULL;		/* don't have a comment */
+Xp.comment2 = NULL;
+Xp.seq = 1;			/* start with sequence number 1 */
+Xclearmvs(p.mvs);		/* no moves to send */
+Xsprintf(colors,"%c%c",cr_mycolor,cr_opcolor);
+Xp.colors = colors;
+Xp.dir = (cr_mydir > 0) ? "up" : "down";
+XTSendPacket(&p,u1);		/* send the remote start command to u1 */
+X}
+END_OF_FILE
+if test 10795 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+chmod +x 'main.c'
+# end of 'main.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+echo shar: Extracting \"'misc.c'\" \(6988 characters\)
+sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*	misc.c		8/8/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X
+X/*----------------------------------------------------------------------
+X *	rolldice -- roll two dice
+X *
+X * This function calls Rolldie twice and fills in the game structure
+X * with the resulting values.  If the two calls to Rolldie return the
+X * same number, the mvs field is filled in so that the user has 4 rolls
+X * to use, otherwise the rolls are stored in the first two elements
+X * of the mvs field and the last two are marked unused.
+X *----------------------------------------------------------------------
+X */
+X
+Xrolldice(g)
+Xstruct game *g;
+X{
+X
+Xclearmvs(g->mvs);			/* clear old stuff */
+Xg->mvs[0].roll = Rolldie();             /* roll the dice */
+Xg->mvs[1].roll = Rolldie();
+Xif (g->mvs[0].roll == g->mvs[1].roll) {	/* hot damn, we got doubles */
+X	g->mvs[2].roll = g->mvs[0].roll;	/* copy roll into two */
+X	g->mvs[3].roll = g->mvs[0].roll;	/* more moves */
+X	}
+Xlegalmoves(g);			/* calculate the # of moves & hi roll */
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	sendpkt -- send a packet to the opponent
+X *
+X * This function fills in the fields of a packet and passes that
+X * packet to the transport using TSendPacket.  It also stores the
+X * opcode sent in the lastop field of the game, so the packet
+X * can be regenerated if necessary.
+X *----------------------------------------------------------------------
+X */
+X
+Xsendpkt(g,op)
+Xstruct game *g;
+Xchar op;
+X{
+Xstatic char colors[4], adbl[10];
+Xint i;
+X
+Xif (FeIsActive)
+X	FeMessage("Sending...");
+XP.version = LDB_VER;			/* these fields go in all packets */
+XP.gameid = g->gameid;
+XP.opcode = op;
+XP.seq = g->seq;
+XP.comment = g->mycmt;
+XP.comment2 = g->mycmt2;
+Xif ( (g->flags & F_SENTNAME) == 0) {	/* if I haven't already sent my name */
+X	P.name = rc.myname;		/* send it */
+X	g->flags |= F_SENTNAME;		/* set flag */
+X	}
+Xelse
+X	P.name = NULL;
+XP.addr = NULL;				/* these fields only used by START */
+XP.colors = NULL;
+XP.dir = NULL;
+XP.autodbl = NULL;			/* used by START and TIE */
+Xclearmvs(P.mvs);
+Xswitch (op) {				/* now do operation-specific stuff */
+Xcase START:
+X	P.addr = rc.myaddr;		/* send opponent my email address */
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send initial die roll */
+X	sprintf(colors,"%c%c",g->mycolor,g->opcolor);
+X	P.colors = colors;
+X	P.dir = (g->mydir > 0) ? "down" : "up";
+X	sprintf(adbl,"%d",rc.autodouble);
+X	P.autodbl = adbl;
+X	break;
+Xcase USTART:
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send both initial dice */
+X	P.mvs[1].roll = g->mvs[1].roll;
+X	break;
+Xcase RESTART:				/* retry initial roll */
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send new roll */
+X	break;
+Xcase TIE:
+X	if (g->adcnt > 0) {		/* send current autodouble count */
+X		sprintf(adbl,"%d",g->adcnt);
+X		P.autodbl = adbl;
+X		}
+X	break;
+Xcase MOVE:
+X	for (i = 0; i < 4; i++)
+X		P.mvs[i] = g->mvs[i];
+X	break;
+X	}
+Xg->lastop = op;				/* save last op for resend */
+XTSendPacket(&P,g->opaddr);		/* send the packet */
+Xif (FeIsActive)				/* clear "Sending..." from mesg line */
+X	FeMessage(NULL);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	str2mv -- decode move string to struct mv
+X *
+X * This function takes a string representation of a move, decodes it,
+X * and places the information into a mv structure.  This format is:
+X *
+X *	roll/move
+X *
+X * where roll is the die value used in the move, and is a single
+X * digit in [1..6], and move is one of the following:
+X *
+X *	a 1 or 2 digit number in [1..24]
+X *		This designates the point the move originates from.
+X *		This number is stored in the "pt" field of the move
+X *		structure without modification.
+X *	the string "BAR"
+X *		This means the piece is coming off the bar.
+X *		Zero is stored in the "pt" field of the move structure,
+X *		regardless of whether the player's bar point is 0 or 25.
+X *		Apply() and FeDrawMove understand this and convert 0 to
+X *		the appropriate bar point before using it.
+X *	the string "UNUSED"
+X *		This means the roll is unused.  -1 is stored in the
+X *		"pt" field of the mv structure.
+X *----------------------------------------------------------------------
+X */
+X
+Xstr2mv(s,m)
+Xchar *s;
+Xstruct mv *m;
+X{
+Xchar *p, *strchr();
+X
+Xif ( (p = strchr(s,'/')) == NULL) {
+X	fprintf(stderr,"ERROR: malformed move: %s\n",s);
+X	return;
+X	}
+Xif ( ( (m->roll = atoi(s)) < 0) || (m->roll > 6) ) {
+X	fprintf(stderr,"ERROR: invalid roll: %d\n",m->roll);
+X	return;
+X	}
+Xp++;
+Xif ( (m->roll == 0) || (*p == 'U') || (*p == 'u') )
+X	m->pt = -1;		/* this roll is unused */
+Xelse if ( (*p == 'B') || (*p == 'b') )
+X	m->pt = 0;		/* move from bar */
+Xelse if ( ( (m->pt = atoi(p)) < 0) || (m->pt > 25) ) {
+X	fprintf(stderr,"ERROR: invalid point: %d\n",m->pt);
+X	return;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	mv2str -- encode move string from struct mv
+X *
+X * This function forms a string representation of a move based on
+X * the information in a mv structure.  This format is:
+X *
+X *	roll/move
+X *
+X * where roll is the die value stored in mv->roll, and move is:
+X *
+X *	mv->pt if mv->pt is in [1..24]
+X *	the string "BAR", if mv->pt is 0 or 25
+X *	the string "UNUSED", if mv->pt is < 0
+X *----------------------------------------------------------------------
+X */
+X
+Xmv2str(m,s)
+Xstruct mv *m;
+Xchar *s;
+X{
+X
+Xif (m->roll <= 0) {		/* non-existant roll */
+X	strcpy(s,"0/0");	/* should be skipped by nvwrite */
+X	return;			/* so we should never get here */
+X	}
+Xif (m->pt < 0)
+X	sprintf(s,"%d/UNUSED",m->roll);
+Xelse if ( (m->pt == DOWNBAR) || (m->pt == UPBAR) )
+X	sprintf(s,"%d/BAR",m->roll);
+Xelse
+X	sprintf(s,"%d/%d",m->roll,m->pt);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	clearmvs -- mark all entries in a mv array empty
+X *
+X * This function marks all elements of a mv array as being unused.
+X *----------------------------------------------------------------------
+X */
+X
+X
+Xclearmvs(m)
+Xstruct mv *m;
+X{
+Xint i;
+X
+Xfor (i = 0; i < 4; i++) {
+X	m[i].roll = -1;
+X	m[i].pt = -1;
+X	}
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	colorname -- convert color character to color name
+X *
+X * This function expands a color character to the full color name.
+X * Legal colors are: r (Red), w (White), and b (Black).
+X *----------------------------------------------------------------------
+X */
+X
+Xchar *colorname(c)
+Xchar c;
+X{
+X
+Xswitch (c) {
+Xcase 'r':
+X	return("Red");
+Xcase 'w':
+X	return("White");
+Xcase 'b':
+X	return("Black");
+Xdefault:
+X	return("*BAD COLOR*");
+X	}
+X}
+END_OF_FILE
+if test 6988 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+fi
+chmod +x 'misc.c'
+# end of 'misc.c'
+fi
+if test -f 'r_xrand.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'r_xrand.c'\"
+else
+echo shar: Extracting \"'r_xrand.c'\" \(8623 characters\)
+sed "s/^X//" >'r_xrand.c' <<'END_OF_FILE'
+X/*	r_xrand.c
+X */
+X
+X#include "ldb.h"
+X#include <math.h>
+X
+X/*======================================================================
+X * This file contains the random number generator.  It is accessed by
+X * calling RandomInit with a 32-bit seed, then calling Rolldie() to
+X * generate integers in the range [1-6].  This particular implementation
+X * was taken from xrand in volume 2 of comp.sources.misc.  It was
+X * written by Andreas Nowatzyk, then of Carnegie-Mellon University, and
+X * is reproduced here essentially unchanged (although I omitted
+X * all routines but the ones needed for integers in [1-6]).
+X * It is used by permission of the author, whose original copyright
+X * and permission-to-use appears below.
+X *======================================================================
+X */
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	Rolldie -- return a random number between 1 and 6
+X *----------------------------------------------------------------------
+X */
+X
+XRolldie()
+X{
+X
+Xreturn(rnd_ri(6)+1);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	RandomInit -- initialize the random number generator
+X *
+X * This function should be called once, before Rolldie is called.
+X * The seed may be any more or less random number; the time seems
+X * to be conventional.
+X *----------------------------------------------------------------------
+X */
+X
+XRandomInit(seed)
+Xlong seed;
+X{
+X
+Xrnd_init(seed);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *From:	EMF780::WINS%"Andreas.Nowatzyk@eng.sun.com" 20-NOV-1991 17:50:38.73
+X *To:	ROSS
+X *CC:	
+X *Subj:	Re:  xrand
+X *
+X *Return-Path: <Andreas.Nowatzyk@eng.sun.com>
+X *Received: from everest.den.mmc.com by emf780.den.mmc.com with SMTP ; 
+X *          Wed, 20 Nov 91 16:50:29 MDT
+X *Received: from Sun.COM by everest.den.mmc.com (4.1/1.34.a)
+X *	id AA27426; Wed, 20 Nov 91 17:52:10 MST
+X *Received: from Eng.Sun.COM (zigzag-bb.Corp.Sun.COM) by Sun.COM (4.1/SMI-4.1)
+X *	id AA07190; Wed, 20 Nov 91 16:50:53 PST
+X *Received: from bovic.Eng.Sun.COM by Eng.Sun.COM (4.1/SMI-4.1)
+X *	id AA21474; Wed, 20 Nov 91 16:49:44 PST
+X *Received: by bovic.Eng.Sun.COM (4.1/SMI-4.1)
+X *	id AA02462; Wed, 20 Nov 91 16:49:16 PST
+X *Date: Wed, 20 Nov 91 16:49:16 PST
+X *From: Andreas.Nowatzyk@eng.sun.com (Andreas G. Nowatzyk)
+X *Message-Id: <9111210049.AA02462@bovic.Eng.Sun.COM>
+X *To: ross@emf780.den.mmc.com
+X *Subject: Re:  xrand
+X *
+X *I have no objection to distributing xrand, provided that this is not done
+X *for profit and that the source is credited.
+X *
+X *  --  Andreas
+X *
+X *PS: There was a bug is some version of xrand.c: The costant for the most
+X *    positive integer (0x7fffffff) had an 'f' missing in two places. Its should
+X *    have used a #define MAX_INT with apropriate value instead of hardwiring
+X *    an hex-constant.
+X *----------------------------------------------------------------------
+X */
+X
+X#define MAX_INT 0x7fffffff
+X
+X/* Random number generators:
+X *
+X *  rnd_init (unsigned seed) 
+X *			: initializes the generator
+X *
+X *  rnd_i ()		: returns positive integers [0,0x7fffffff]
+X *  rnd_ri (long n)	: returns positive integers [0,n-1]
+X *
+X *  Algorithm M as describes in Knuth's "Art of Computer Programming", Vol 2. 1969
+X *  is used with a linear congruential generator (to get a good uniform
+X *  distribution) that is permuted with a Fibonacci additive congruential
+X *  generator to get good independence.
+X *
+X *  Bit, byte, and word distributions were extensively tested and pass
+X *  Chi-squared test near perfect scores (>7E8 numbers tested, Uniformity
+X *  assumption holds with probability > 0.999)
+X *
+X *  Run-up tests for on 7E8 numbers confirm independence with
+X *  probability > 0.97.
+X *
+X *  Plotting random points in 2d reveals no apparent structure.
+X *
+X *  Autocorrelation on sequences of 5E5 numbers (A(i) = SUM X(n)*X(n-i), i=1..512)
+X *  results in no obvious structure (A(i) ~ const).
+X *
+X *  On a SUN 3/60, rnd_u() takes about 19.4 usec per call, which is about 44%
+X *  slower than Berkeley's random() (13.5 usec/call).
+X *
+X *  Except for speed and memory requirements, this generator outperforms
+X *  random() for all tests. (random() scored rather low on uniformity tests,
+X *  while independence test differences were less dramatic).
+X *
+X *  Thanks to M.Mauldin, H.Walker, J.Saxe and M.Molloy for inspiration & help.
+X *
+X *  (c) Copyright 1988 by A. Nowatzyk
+X *
+X */
+X
+X/* LC-parameter selection follows recommendations in 
+X * "Handbook of Mathematical Functions" by Abramowitz & Stegun 10th, edi.
+X */
+X#define LC_A 66049		    /* = 251^2, ~= sqrt(2^32)			*/
+X#define LC_C 3907864577		    /* result of a long trial & error series    */
+X
+X#define Xrnd(x) (x * LC_A + LC_C)   /* the LC polynomial			*/
+X			
+Xstatic unsigned long Fib[55];	    /* will use X(n) = X(n-55) - X(n-24)	*/
+Xstatic int Fib_ind;		    /* current index in circular buffer		*/
+Xstatic unsigned long Xrnd_var;	    /* LCA - recurrence variable		*/
+Xstatic unsigned long auxtab[256];   /* temporal permutation table		*/
+Xstatic unsigned long prmtab[64] = { /* spatial permutation table		*/
+X    0xffffffff, 0x00000000,  0x00000000,  0x00000000,  /* 3210 */
+X    0x0000ffff, 0x00ff0000,  0x00000000,  0xff000000,  /* 2310 */
+X    0xff0000ff, 0x0000ff00,  0x00000000,  0x00ff0000,  /* 3120 */
+X    0x00ff00ff, 0x00000000,  0xff00ff00,  0x00000000,  /* 1230 */
+X
+X    0xffff0000, 0x000000ff,  0x00000000,  0x0000ff00,  /* 3201 */
+X    0x00000000, 0x00ff00ff,  0x00000000,  0xff00ff00,  /* 2301 */
+X    0xff000000, 0x00000000,  0x000000ff,  0x00ffff00,  /* 3102 */
+X    0x00000000, 0x00000000,  0x00000000,  0xffffffff,  /* 2103 */
+X
+X    0xff00ff00, 0x00000000,  0x00ff00ff,  0x00000000,  /* 3012 */
+X    0x0000ff00, 0x00000000,  0x00ff0000,  0xff0000ff,  /* 2013 */
+X    0x00000000, 0x00000000,  0xffffffff,  0x00000000,  /* 1032 */
+X    0x00000000, 0x0000ff00,  0xffff0000,  0x000000ff,  /* 1023 */
+X
+X    0x00000000, 0xffffffff,  0x00000000,  0x00000000,  /* 0321 */
+X    0x00ffff00, 0xff000000,  0x00000000,  0x000000ff,  /* 0213 */
+X    0x00000000, 0xff000000,  0x0000ffff,  0x00ff0000,  /* 0132 */
+X    0x00000000, 0xff00ff00,  0x00000000,  0x00ff00ff   /* 0123 */
+X};
+X
+Xunion hack {			    /* used to access doubles as unsigneds	*/
+X    double d;
+X    unsigned long u[2];
+X};
+X
+Xstatic union hack man;		    /* mantissa bit vector			*/
+X
+Xrnd_init (seed)			    /* modified: seed 0-31 use precomputed stuff */
+X    unsigned seed;
+X{
+X    register unsigned long u;
+X    register int i;
+X    double x, y;
+X    union hack t;
+X
+X    static unsigned seed_tab[32] = {
+X		0xbdcc47e5, 0x54aea45d, 0xec0df859, 0xda84637b,
+X		0xc8c6cb4f, 0x35574b01, 0x28260b7d, 0x0d07fdbf,
+X		0x9faaeeb0, 0x613dd169, 0x5ce2d818, 0x85b9e706,
+X		0xab2469db, 0xda02b0dc, 0x45c60d6e, 0xffe49d10,
+X		0x7224fea3, 0xf9684fc9, 0xfc7ee074, 0x326ce92a,
+X		0x366d13b5, 0x17aaa731, 0xeb83a675, 0x7781cb32,
+X		0x4ec7c92d, 0x7f187521, 0x2cf346b4, 0xad13310f,
+X		0xb89cff2b, 0x12164de1, 0xa865168d, 0x32b56cdf  };
+X
+X    if (seed < 32)
+X	u = seed_tab[seed];
+X    else
+X	u = seed ^ seed_tab[seed & 31];
+X
+X    for (i = 55; i--;)		    /* set up Fibonacci additive congruential	*/
+X	Fib[i] = u = Xrnd(u);
+X
+X    for (i = 256; i--;)
+X	auxtab[i] = u = Xrnd(u);
+X
+X    Fib_ind = u % 55;		    /* select a starting point			*/
+X
+X    Xrnd_var = u;
+X
+X    if (sizeof(x) != 2 * sizeof(unsigned long)) {
+X	x = 0.0;
+X	y = 1.0;
+X	y /= x;			    /*** intentional divide by 0: rnd_01d will
+X					 not work because a double doesn't fit
+X					 in 2 unsigned longs on your machine! ***/
+X    };
+X
+X    x = 1.0;
+X    y = 0.5;
+X    do {			    /* find largest fp-number < 2.0		*/
+X	t.d = x;
+X	x += y;
+X	y *= 0.5;
+X    } while (x != t.d && x < 2.0);
+X
+X    man.d = 1.0;
+X    man.u[0] ^= t.u[0];
+X    man.u[1] ^= t.u[1];		    /* man is now 1 for each mantissa bit	*/
+X}
+X
+Xlong rnd_i ()
+X/*
+X * returns a positive, uniformly distributed random number in [0,0x7fffffff]
+X */
+X{ 
+X    register unsigned long i, j, *t = Fib;
+X
+X    i = Fib_ind;
+X    j = t[i];				    /* = X(n-55) */
+X    j -= (i >= 24) ? t[i - 24] : t[i + 21]; /* = X(n-24) */
+X    t[i] = j;
+X    if (++i >= 55) i = 0;
+X    Fib_ind = i;
+X
+X    t = &auxtab[(j >> 24) & 0xff];
+X    i = *t;
+X    Xrnd_var = *t = Xrnd(Xrnd_var);
+X    t = &prmtab[j & 0x3c];
+X
+X    j =  *t++ & i;
+X    j |= *t++ & ((i << 24) | ((i >>  8) & 0x00ffffff));
+X    j |= *t++ & ((i << 16) | ((i >> 16) & 0x0000ffff));
+X    j |= *t   & ((i <<  8) | ((i >> 24) & 0x000000ff));
+X    
+X    return j & MAX_INT;
+X}
+X
+X
+Xlong rnd_ri (rng)
+X    long rng;
+X/*
+X * randint: Return a random integer in a given Range [0..rng-1]
+X *          Note:  0 < rng
+X */
+X{
+X    register unsigned long  r, a;
+X
+X    do {
+X	r = rnd_i();
+X	a = (r / rng) + 1;
+X	a *= rng;
+X    } while (a >= MAX_INT);
+X    
+X    a--;
+X    return a - r;
+X}
+END_OF_FILE
+if test 8623 -ne `wc -c <'r_xrand.c'`; then
+    echo shar: \"'r_xrand.c'\" unpacked with wrong size!
+fi
+# end of 'r_xrand.c'
+fi
+if test -f 'vars.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vars.c'\"
+else
+echo shar: Extracting \"'vars.c'\" \(7664 characters\)
+sed "s/^X//" >'vars.c' <<'END_OF_FILE'
+X/*	vars.c		8/4/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file contains the definition for all global variables, as well
+X * as the static initialization values for those that need it.
+X *======================================================================
+X */
+X
+Xint Pflag;			/* should I process local input? */
+Xint Rflag;			/* should I look for mail? */
+Xstruct game *ghead;		/* head of linked list of games */
+Xstruct game *gtail;		/* tail of linked list of games */
+Xstruct legal *lhead;		/* head of list of legal moves */
+Xstruct legal *ltail;		/* tail of list of legal moves */
+Xstruct packet P;		/* last packet read */
+Xchar cr_mycolor;		/* my color when game is created */
+Xchar cr_opcolor;		/* opponent's color for new games */
+Xchar cr_mydir;			/* my direction for new games */
+Xchar blk76[] =			/* 76 blanks */
+X"                                                                            ";
+X
+Xchar FeIsActive = 0;		/* has the front-end been initialized? */
+X
+Xchar *states[] = {		/* description of the states */
+X	"Waiting for opponent to start game",
+X	"Waiting for opponent to move",
+X	"Waiting for opponent to accept double",
+X	"Your turn (you haven't rolled yet)",
+X	"Your move (you have rolled)",
+X	"Waiting for you to accept double",
+X	"Game over"
+X	};
+X
+Xstruct opt options[] = {
+X	"read",		OPT_READ,	"",
+X	"\t\t\tRead incoming mail but do not play",
+X	"play",		OPT_PLAY,	"",
+X	"\t\t\tPlay any waiting games but do not read mail",
+X	"color",	OPT_COLOR,	" xx",
+X	"\t\tSet colors for new game [r, w, and b]",
+X	"direction",	OPT_DIRECTION,	" dir",
+X	"\t\tSet direction for new game [up or down]",
+X	"myaddr",	OPT_MYADDR,	" addr",
+X	"\t\tSet local e-mail address",
+X	"start",	OPT_START,	" user",
+X	"\t\tStart a game with another user",
+X	"remotestart",	OPT_RSTART,	" u1 u2",
+X	"\tStart a game between u1 and u2",
+X	"broadcast",	OPT_BCAST,	" file",
+X	"\tSend a mail message to all opponents",
+X	"control",	OPT_CONTROL,	"",
+X	"\t\tPerform control functions on games",
+X	"help",		OPT_HELP,	"",
+X	"\t\t\tPrint this message",
+X	NULL,		-1,		NULL,		NULL
+X	};
+X
+Xchar *opcodes[] = {
+X        "START", "USTART", "TIE",  "MOVE", "OFFERDOUBLE", "ACCEPTDOUBLE",
+X	"DECLINEDOUBLE", "CONCEDE", "REMOTESTART", "RESTART",
+X	NULL
+X        };
+X
+Xchar *bdlabels[] = {
+X	"Board Before Opponent's Move",
+X	"Board After Opponent's Move",
+X	"Current Board"
+X	};
+X
+Xstruct namevalue nv_rcfile[] = {
+X	"myname",	FT_STRING,	Offset(struct ldbrc *,myname),
+X	"myaddr",	FT_STRING,	Offset(struct ldbrc *,myaddr),
+X	"gamefile",	FT_STRING,	Offset(struct ldbrc *,gfile),
+X	"backupfile",	FT_STRING,	Offset(struct ldbrc *,gbackup),
+X	"mailfile",	FT_STRING,	Offset(struct ldbrc *,mfile),
+X	"sendcmd",	FT_STRING,	Offset(struct ldbrc *,sendcmd),
+X	"tempfile",	FT_STRING,	Offset(struct ldbrc *,tempfile),
+X	"colors",	FT_STRING,	Offset(struct ldbrc *,defclrs),
+X	"direction",	FT_STRING,	Offset(struct ldbrc *,defdir),
+X	"initialboard",	FT_STRING,	Offset(struct ldbrc *,initboard),
+X	"autoroll",	FT_STRING,	Offset(struct ldbrc *,autoroll),
+X	"automove",	FT_STRING,	Offset(struct ldbrc *,automove),
+X	"autodouble",	FT_INT,		Offset(struct ldbrc *,autodouble),
+X	"supercmd",	FT_STRING,	Offset(struct ldbrc *,supercmd),
+X	"superkey",	FT_CHAR,	Offset(struct ldbrc *,superkey),
+X	"checkpoint",	FT_STRING,	Offset(struct ldbrc *,chkpt),
+X	NULL,		0,		-1
+X	};
+X
+Xstruct namevalue nv_gfile[] = {		/* extracts into global var G */
+X	"gameid",	FT_STRING,	Offset(struct game *,gameid),
+X	"opaddr",	FT_STRING,	Offset(struct game *,opaddr),
+X	"opname",	FT_STRING,	Offset(struct game *,opname),
+X	"mycolor",	FT_CHAR,	Offset(struct game *,mycolor),
+X	"opcolor",	FT_CHAR,	Offset(struct game *,opcolor),
+X	"mydir",	FT_CHAR,	Offset(struct game *,mydir),
+X	"opdir",	FT_CHAR,	Offset(struct game *,opdir),
+X	"gameval",	FT_INT,		Offset(struct game *,gameval),
+X	"flags",	FT_INT,		Offset(struct game *,flags),
+X	"state",	FT_CHAR,	Offset(struct game *,state),
+X	"term",		FT_CHAR,	Offset(struct game *,term),
+X	"seq",		FT_INT,		Offset(struct game *,seq),
+X	"lastop",	FT_STRLKUP,	Offset(struct game *,lastop),
+X	"mycmt",	FT_STRING,	Offset(struct game *,mycmt),
+X	"mycmt2",	FT_STRING,	Offset(struct game *,mycmt2),
+X	"opcmt",	FT_STRING,	Offset(struct game *,opcmt),
+X	"opcmt2",	FT_STRING,	Offset(struct game *,opcmt2),
+X	"dispmsg",	FT_STRING,	Offset(struct game *,dispmsg),
+X	"opmvs0",	FT_MOVE,	Offset(struct game *,opmvs[0]),
+X	"opmvs1",	FT_MOVE,	Offset(struct game *,opmvs[1]),
+X	"opmvs2",	FT_MOVE,	Offset(struct game *,opmvs[2]),
+X	"opmvs3",	FT_MOVE,	Offset(struct game *,opmvs[3]),
+X	"blot0",	FT_CHAR,	Offset(struct game *,blot[0]),
+X	"blot1",	FT_CHAR,	Offset(struct game *,blot[1]),
+X	"blot2",	FT_CHAR,	Offset(struct game *,blot[2]),
+X	"blot3",	FT_CHAR,	Offset(struct game *,blot[3]),
+X	"mvs0",		FT_MOVE,	Offset(struct game *,mvs[0]),
+X	"mvs1",		FT_MOVE,	Offset(struct game *,mvs[1]),
+X	"mvs2",		FT_MOVE,	Offset(struct game *,mvs[2]),
+X	"mvs3",		FT_MOVE,	Offset(struct game *,mvs[3]),
+X	"maxused",	FT_INT,		Offset(struct game *,maxused),
+X	"hiused",	FT_INT,		Offset(struct game *,hiused),
+X	"adcnt",	FT_INT,		Offset(struct game *,adcnt),
+X	"admax",	FT_INT,		Offset(struct game *,admax),
+X	"opbd",		FT_BOARD,	Offset(struct game *,opbd[0]),
+X	"mybd",		FT_BOARD,	Offset(struct game *,mybd[0]),
+X	"board",	FT_BOARD,	Offset(struct game *,board[0]),
+X	"curbd",	FT_CHAR,	Offset(struct game *,curbd),
+X	"end",		FT_END,		-1,
+X	NULL,		0,		-1
+X	};
+X
+Xstruct namevalue nv_packet[] = {
+X	"version",	FT_INT,		Offset(struct packet *,version),
+X	"timestamp",	FT_TIME,	Offset(struct packet *,timestamp),
+X	"gameid",	FT_STRING,	Offset(struct packet *,gameid),
+X	"opcode",	FT_STRLKUP,	Offset(struct packet *,opcode),
+X	"move0",	FT_MOVE,	Offset(struct packet *,mvs[0]),
+X	"move1",	FT_MOVE,	Offset(struct packet *,mvs[1]),
+X	"move2",	FT_MOVE,	Offset(struct packet *,mvs[2]),
+X	"move3",	FT_MOVE,	Offset(struct packet *,mvs[3]),
+X	"name",		FT_STRING,	Offset(struct packet *,name),
+X	"addr",		FT_STRING,	Offset(struct packet *,addr),
+X	"comment",	FT_STRING,	Offset(struct packet *,comment),
+X	"comment2",	FT_STRING,	Offset(struct packet *,comment2),
+X	"seq",		FT_INT,		Offset(struct packet *,seq),
+X	"colors",	FT_STRING,	Offset(struct packet *,colors),
+X	"direction",	FT_STRING,	Offset(struct packet *,dir),
+X	"autodouble",	FT_STRING,	Offset(struct packet *,autodbl),
+X	"end",		FT_END,		-1,
+X	NULL,		0,		-1
+X	};
+X
+Xint (*func[OPSTATES][NOP])() = { /*
+XSTART  USTART  TIE	MOVE    OFRDBL ACPTDBL DECDBL CONCEDE RSTART  RESTART*/
+Xstart, istart, tie,     opmove, smerr, smerr,  smerr, opconc, smerr,  restart,
+Xsmerr, smerr,  smerr,   opmove, opofr, smerr,  smerr, opconc, smerr,  smerr,
+Xsmerr, smerr,  smerr,   smerr,  smerr, opacpt, opdec, opconc, smerr,  smerr
+X	};
+X
+Xchar *rejmsg[] = {			/* explanation of reject codes */
+X	"Move Accepted.",		/* no error */
+X	"Move does not contain a legal roll.",	/* bad roll */
+X	"Cannot remove pieces before filling inner table.",
+X	"There is no piece at the specified location.",
+X	"The destination of this move is occupied.",
+X	"Attempt to move while pieces are on the bar.",
+X	"Attempt to move wrong color.",
+X	"That piece must be borne off by an exact roll."
+X	};
+END_OF_FILE
+if test 7664 -ne `wc -c <'vars.c'`; then
+    echo shar: \"'vars.c'\" unpacked with wrong size!
+fi
+chmod +x 'vars.c'
+# end of 'vars.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+
+exit 0 # Just in case...

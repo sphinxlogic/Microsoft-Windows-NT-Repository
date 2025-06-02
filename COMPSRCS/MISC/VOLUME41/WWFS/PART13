@@ -1,0 +1,3479 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i098:  wwfs - WorldWide File System, Part13/22
+Message-ID: <1994Jan17.202348.20120@sparky.sterling.com>
+X-Md4-Signature: be284f556928513a7a4c2d3107b50bdc
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Nara Institute of Science and Technology, Japan
+Date: Mon, 17 Jan 1994 20:23:48 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 98
+Archive-name: wwfs/part13
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  csd/dir.c csd/ftp_list.c csd/root.c csd/uip.c
+#   gtr/resolv.pl mosaic/htget.pl mosaic/url.pl
+# Wrapped by kent@sparky on Sun Jan 16 17:48:35 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 22)."'
+if test -f 'csd/dir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/dir.c'\"
+else
+  echo shar: Extracting \"'csd/dir.c'\" \(10665 characters\)
+  sed "s/^X//" >'csd/dir.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* directory management routines */
+Xstatic char *AtFSid = "$Header: dir.c[109.0] Wed Nov 24 03:47:07 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>		/* for struct stat */
+X#include <fcntl.h>		/* for O_WRONLY etc. */
+X#include <string.h>
+X#include <stdio.h>
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X/* not used actually. */
+Xstruct save_file {
+X	long	fileid;
+X	int	namelen;
+X	char	*name;
+X	int	linklen;
+X	char	*link;
+X	struct	fattr *fattr;
+X};
+X
+X/* not used actually. */
+Xstruct save_dir {
+X#define	WF_DIR_MAGIC	0xbaddeaL
+X	long	magic;
+X	int	namelen;
+X	char	*name;		/* entire directory name */
+X	long	ctime;
+X	int	nfile;
+X	struct	save_file *file;
+X};
+X
+Xwf_dir *dir_load();
+X
+Xtypedef struct {
+X	qelem	q;
+X	wf_dir	*dir;
+X} wf_dirq;
+X
+Xextern qelem dir_head;
+Xqelem dir_head = { &dir_head, &dir_head };		/* chain of wf_dirq */
+Xstatic void *dir_callout;
+X
+Xextern qelem olddir_head;
+Xqelem olddir_head = { &olddir_head, &olddir_head };	/* chain of wf_dir */
+X
+Xstatic void dir_gc(), dir_free();
+X
+Xvoid
+Xdir_start()
+X{
+X	dir_callout = timeout_set(gettime()+60, dir_gc, 0);
+X}
+X
+Xstatic void
+Xdir_gc()
+X{
+X	wf_dirq *p, *p2;
+X
+X	ITER2(p, p2, wf_dirq, &dir_head) {
+X		if (p->dir->flag & WF_DIR_WIREDDOWN || p->dir->n_xfer)
+X			continue;
+X		p->dir->idle += 60;
+X		if (p->dir->idle > WF_DIR_TTLMEM) {
+X			q_remove(p);
+X			dir_free(p->dir);
+X			FREE(p);
+X		}
+X	}
+X	dir_callout = timeout_set(gettime()+60, dir_gc, 0);
+X}
+X
+Xvoid
+Xdir_addfile(dirp, filep)
+Xwf_dir *dirp;
+Xwf_file *filep;
+X{
+X	q_insert(filep, LAST(wf_file, &dirp->file->q));
+X}
+X
+Xvoid
+Xdir_deletefile(filep)
+Xwf_file *filep;
+X{
+X	q_remove(filep);
+X}
+X
+X/* subdirectory */
+Xwf_file *
+Xdir_adddir(dirp, name, volid, dirid)
+Xwf_dir *dirp;
+Xchar *name;
+Xlong volid, dirid;
+X{
+X	wf_file *filep;
+X
+X	filep = file_alloc();
+X	attr_initdir(&filep->fattr);
+X	filep->name = strdup(name);
+X	filep->fattr.fsid = volid;
+X	filep->id = filep->fattr.fileid = dirid;
+X	filep->crc = updcrc(0L, name, strlen(name)+1);
+X	dir_addfile(dirp, filep);
+X	return filep;
+X}
+X
+Xstatic wf_dir *
+Xdir_alloc(volp)
+Xwf_vol *volp;
+X{
+X	wf_dir *dirp;
+X	wf_dirq *q;
+X
+X	dirp = ALLOC(wf_dir);
+X	dirp->file = (wf_file *) q_alloc();
+X	q_insert(dirp, volp->dirp);
+X
+X	q = ALLOC(wf_dirq);
+X	q->dir = dirp;
+X	q_insert(q, &dir_head);
+X	return dirp;
+X}
+X
+Xstatic void
+Xdir_free(dirp)
+Xwf_dir *dirp;
+X{
+X	wf_file *filep, *filep2;
+X
+X	file_uncache(dirp);
+X	if (dirp->id == 0) {
+X		syslog(LOG_WARNING, "dirp->id == 0");
+X	}
+X#ifdef DEBUG_GC
+X	dlog("free wf_dir \"%s\"", dirp->name);
+X#endif
+X	ITER2 (filep, filep2, wf_file, &dirp->file->q) {
+X		file_free(filep);
+X	}
+X	FREE(dirp->file);
+X	q_remove(dirp);
+X	FREE(dirp);
+X}
+X
+Xstatic void
+Xdir_makeobsolete(dirp)
+Xwf_dir *dirp;
+X{
+X	q_remove(dirp);
+X	q_insert(dirp, &olddir_head);
+X}
+X
+Xwf_dir *
+Xdir_new(volp, id, dir, subdir)
+Xwf_vol *volp;
+Xlong id;
+Xchar *dir, *subdir;
+X{
+X	wf_dir *dirp;
+X	int dirlen;
+X
+X	if ((dirp = dir_findcache(volp, id)) != (wf_dir *)0) {
+X		dir_makeobsolete(dirp);
+X	}
+X	dirp = dir_alloc(volp);
+X	dirp->id = id;
+X	dirp->ctime = gettime();
+X	if (dir && subdir) {
+X		dirlen = strlen(dir);
+X		dirp->name = malloc(dirlen + strlen(subdir) + 2);
+X		if (dirlen && dir[dirlen-1] == '/') {
+X			sprintf(dirp->name, "%s%s", dir, subdir);
+X		} else if (! strcmp(subdir, ".")) {
+X			/* avoid "foo/./././." */
+X			sprintf(dirp->name, "%s", dir);
+X		} else {
+X			sprintf(dirp->name, "%s/%s", dir, subdir);
+X		}
+X	} else {
+X		dirp->name = strdup("/");
+X	}
+X	return dirp;
+X}
+X
+Xwf_dir *
+Xdir_findcache(volp, dirid)
+Xwf_vol *volp;
+Xlong dirid;
+X{
+X	wf_dir *dirp;
+X	qelem *q;
+X
+X	q = &volp->dirp->q;
+X	/* search memory cache */
+X	ITER(dirp, wf_dir, q) {
+X		if (dirp->id == dirid) {
+X			if (dirp->idle > 0)
+X				dirp->idle = 0;
+X			goto found;
+X		}
+X	}
+X
+X	/* search disk cache */
+X	dirp = dir_load(volp, dirid);
+X
+X found:
+X	/* check freshness */
+X	if (dirp && !(dirp->flag & WF_DIR_WIREDDOWN)) {
+X		if (gettime() - dirp->ctime > WF_DIR_TTLDISK
+X		    || volp->mtime > dirp->ctime)
+X			dirp->flag |= WF_DIR_OBSOLETE;
+X	}
+X	return dirp;
+X}
+X
+Xwf_dir *
+Xdir_load(volp, dirid)
+Xwf_vol *volp;
+Xlong dirid;
+X{
+X	wf_dir *dirp;
+X	FILE *fp;
+X	long magic;
+X	int namelen, qlen;
+X	wf_file *filep;
+X	struct stat statbuf;
+X	char path[MAXPATHLEN];
+X
+X	sprintf(path, "%s/cache/%lx/dir/%lx", cs_topdir, volp->id, dirid);
+X	stat(path, &statbuf);
+X	if (statbuf.st_size == 0) return NULL;
+X	fp = fopen(path, "r");
+X	if (fp == NULL) return NULL;
+X
+X	/* allocate dirp */
+X	dirp = dir_alloc(volp);
+X	dirp->id = dirid;
+X
+X	/* read per-directory info */
+X	WF_READ(fp, magic);
+X	if (magic != WF_DIR_MAGIC) {
+X		syslog(LOG_WARNING, "dir magic mismatch");
+X		fclose(fp);
+X		return NULL;
+X	}
+X	WF_READ(fp, namelen);
+X	dirp->name = malloc(namelen);
+X	fread(dirp->name, namelen, 1, fp);
+X	WF_READ(fp, dirp->ctime);
+X
+X	/* read per-file info */
+X	WF_READ(fp, qlen);
+X	while (qlen--) {
+X		filep = file_alloc();
+X		dir_addfile(dirp, filep);
+X		WF_READ(fp, filep->id);
+X		filep->fattr.fileid = filep->id;
+X		WF_READ(fp, namelen);
+X		filep->name = malloc(namelen);
+X		fread(filep->name, namelen, 1, fp);
+X		WF_READ(fp, namelen);
+X		if (namelen) {
+X			filep->link = malloc(namelen);
+X			fread(filep->link, namelen, 1, fp);
+X		}
+X
+X		WF_READ(fp, filep->fattr.type);
+X		WF_READ(fp, filep->fattr.mode);
+X		WF_READ(fp, filep->fattr.nlink);
+X		WF_READ(fp, filep->fattr.uid);
+X		WF_READ(fp, filep->fattr.gid);
+X		WF_READ(fp, filep->fattr.size);
+X		WF_READ(fp, filep->fattr.blocksize);
+X		WF_READ(fp, filep->fattr.rdev);
+X		WF_READ(fp, filep->fattr.blocks);
+X		WF_READ(fp, filep->fattr.fsid);
+X		WF_READ(fp, filep->crc);
+X		WF_READ(fp, filep->fattr.atime.seconds);
+X		WF_READ(fp, filep->fattr.atime.useconds);
+X		WF_READ(fp, filep->fattr.mtime.seconds);
+X		WF_READ(fp, filep->fattr.mtime.useconds);
+X		WF_READ(fp, filep->fattr.ctime.seconds);
+X		WF_READ(fp, filep->fattr.ctime.useconds);
+X	}
+X
+X	fclose(fp);
+X	return dirp;
+X}
+X
+Xvoid
+Xdir_save(volp, dirp, olddirp)
+Xwf_vol *volp;
+Xwf_dir *dirp, *olddirp;
+X{
+X	FILE *fp;
+X	long magic = WF_DIR_MAGIC;
+X	int namelen, qlen;
+X	wf_file *filep;
+X	char path[MAXPATHLEN];
+X
+X	sprintf(path, "%s/cache/%lx/dir/%lx", cs_topdir, volp->id, dirp->id);
+X	mkdirs(path);
+X	fp = fopen(path, "w+");
+X
+X	/* write per-directory info */
+X	WF_WRITE(fp, magic);
+X	namelen = strlen(dirp->name)+1;
+X	WF_WRITE(fp, namelen);
+X	fwrite(dirp->name, namelen, 1, fp);
+X	WF_WRITE(fp, dirp->ctime);
+X
+X	/* write per-file info */
+X	qlen = q_len(dirp->file);
+X	WF_WRITE(fp, qlen);
+X	ITER(filep, wf_file, &dirp->file->q) {
+X		WF_WRITE(fp, filep->id);
+X		namelen = strlen(filep->name)+1;
+X		WF_WRITE(fp, namelen);
+X		fwrite(filep->name, namelen, 1, fp);
+X		if (filep->link) {
+X			namelen = strlen(filep->link)+1;
+X			WF_WRITE(fp, namelen);
+X			fwrite(filep->link, namelen, 1, fp);
+X		} else {
+X			namelen = 0;
+X			WF_WRITE(fp, namelen);
+X		}
+X
+X		WF_WRITE(fp, filep->fattr.type);
+X		WF_WRITE(fp, filep->fattr.mode);
+X		WF_WRITE(fp, filep->fattr.nlink);
+X		WF_WRITE(fp, filep->fattr.uid);
+X		WF_WRITE(fp, filep->fattr.gid);
+X		WF_WRITE(fp, filep->fattr.size);
+X		WF_WRITE(fp, filep->fattr.blocksize);
+X		WF_WRITE(fp, filep->fattr.rdev);
+X		WF_WRITE(fp, filep->fattr.blocks);
+X		WF_WRITE(fp, filep->fattr.fsid);
+X		WF_WRITE(fp, filep->crc);
+X		WF_WRITE(fp, filep->fattr.atime.seconds);
+X		WF_WRITE(fp, filep->fattr.atime.useconds);
+X		WF_WRITE(fp, filep->fattr.mtime.seconds);
+X		WF_WRITE(fp, filep->fattr.mtime.useconds);
+X		WF_WRITE(fp, filep->fattr.ctime.seconds);
+X		WF_WRITE(fp, filep->fattr.ctime.useconds);
+X	}
+X
+X	fclose(fp);
+X	if (olddirp) {
+X		/* reclaim */
+X		ITER(filep, wf_file, &olddirp->file->q) {
+X			if (filep->fattr.type != NFDIR) continue;
+X			if (! strcmp(filep->name, "..")) continue;
+X			if (file_findid(dirp, FSID(filep), FID(filep)) == 0) {
+X				/* directory was removed at fileserver.
+X				 * reflect the change.
+X				 */
+X				dir_dispose(volp, FID(filep));
+X			}
+X		}
+X	}
+X}
+X
+Xvoid
+Xdir_realdir(path, volp, dirp)
+Xchar *path;
+Xwf_vol *volp;
+Xwf_dir *dirp;
+X{
+X	char *p;
+X	char path2[MAXPATHLEN];
+X	int fd;
+X
+X	strcpy(path2, path);
+X	p = strrchr(path2, '/');
+X	strcpy(p+1, ".realdir");
+X	fd = open(path2, O_WRONLY|O_CREAT|O_TRUNC, 0660);
+X	if (fd < 0)
+X		dlog("dir_realdir: couldn't create file");
+X	sprintf(path2, "%s/%s%s", volp->dir, volp->name,
+X		dirp ? dirp->name : " (directory)");
+X	write(fd, path2, strlen(path2)+1);
+X	close(fd);
+X}
+X
+Xvoid
+Xdir_dispose(volp, dirid)
+Xwf_vol *volp;
+Xlong dirid;
+X{
+X	char path[MAXPATHLEN], path2[MAXPATHLEN];
+X
+X	sprintf(path, "%s/cache/%lx/dir/%lx",
+X		cs_topdir, volp->id, dirid);
+X	sprintf(path2, "%s/stale/%s.%d/%lx/dir/%lx",
+X		cs_topdir, cs_date, cs_serial, volp->id, dirid);
+X	mkdirs(path2);
+X	rename(path, path2);
+X	sprintf(path, "/bin/mv -f %s/cache/%lx/%lx %s/stale/%s.%d/%lx",
+X		cs_topdir, volp->id, dirid,
+X		cs_topdir, cs_date, cs_serial, volp->id);
+X	unix_command(path);
+X#if 0
+X	cs_serial++;
+X#endif
+X}
+X
+Xvoid
+Xdir_inspect(reqp, name)
+Xwf_req *reqp;
+Xchar *name;
+X{
+X	int ret;
+X	wf_ih ih;
+X	int id = reqp->id;
+X
+X	ret = root_name2ih(name, &ih);
+X	if (ret != WF_REP_OK) {
+X		req_send(reqp, "513.%03d root_name2ih: error code %d.\n",
+X			 id, ret);
+X		return;
+X	}
+X	req_send(reqp, "220-%03d dir %s\n", id, name);
+X	req_send(reqp, "213-%03d name = %s\n", id, PROT(ih.dirp->name));
+X	req_send(reqp, "213-%03d id = %lx\n", id, ih.dirp->id);
+X	req_send(reqp, "213-%03d flag = %x\n", id, ih.dirp->flag);
+X	req_send(reqp, "213-%03d idle = %d\n", id, ih.dirp->idle);
+X	req_send(reqp, "213-%03d ctime = %ld (%20.20s)\n",
+X		 id, ih.dirp->ctime, ctime(&ih.dirp->ctime)+4);
+X	req_send(reqp, "213.%03d n_xfer = %d\n", id, ih.dirp->n_xfer);
+X}
+X
+END_OF_FILE
+  if test 10665 -ne `wc -c <'csd/dir.c'`; then
+    echo shar: \"'csd/dir.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/dir.c'
+fi
+if test -f 'csd/ftp_list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/ftp_list.c'\"
+else
+  echo shar: Extracting \"'csd/ftp_list.c'\" \(11734 characters\)
+  sed "s/^X//" >'csd/ftp_list.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* NFS over FTP */
+Xstatic char *AtFSid = "$Header: ftp_list.c[109.0] Wed Nov 24 03:47:09 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#include <sys/ioctl.h>		/* for FIONREAD */
+X#include <ctype.h>
+X#include <string.h>		/* for strchr */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+Xstatic void
+Xftp_readdir_lock(c)
+Xwf_thrd *c;
+X{
+X	c->filep->thrdp = c;
+X	++c->dotdotp->n_xfer;
+X}
+X
+Xstatic void
+Xftp_readdir_unlock(c)
+Xwf_thrd *c;
+X{
+X	c->filep->thrdp = (wf_thrd *)0;
+X	warn_negative(--c->dotdotp->n_xfer);
+X	if (c->cp)
+X		c->cp->thrdp = (wf_thrd *)0;
+X}
+X
+Xstatic void ftp_readdir_2(), ftp_readdir_3(), ftp_readdir_fail();
+Xvoid
+Xftp_readdir_miss(c)
+Xwf_thrd *c;
+X/* in: rqstp, volp, filep, fhp, cookie, count, dotdotp, olddirp */
+X/* out: cp, dirp, flag */
+X{
+X	wf_file *p;
+X
+X	ftp_readdir_lock(c);
+X	if (c->fhp->child_dir > WF_VOL_BASE) {
+X		if (c->olddirp) {
+X			c->dirp = dir_new(c->child_volp, c->fhp->child_dir,
+X					  c->dotdotp->name, "");
+X		} else {
+X			c->dirp = vol_newroot(c->child_volp);
+X		}
+X	} else {
+X		c->dirp = dir_new(c->child_volp, c->fhp->child_dir,
+X				  c->dotdotp->name, c->filep->name);
+X	}
+X	p = dir_adddir(c->dirp, ".", c->child_volp->id, c->dirp->id);
+X	attr_touch(&p->fattr);
+X	p = dir_adddir(c->dirp, "..", c->parent_volp->id, c->dotdotp->id);
+X	attr_touch(&p->fattr);
+X
+X	c->cp = vol_getconn(c->child_volp);
+X	if (c->cp == (wf_conn *)0) {
+X		if ((c->child_volp->flag & WF_VOL_XCONN)
+X		    || (c->cp = vol_newconn(c->child_volp)) == (wf_conn *)0) {
+X			/* exceeded resource limit */
+X			ftp_readdir_unlock(c);
+X			(*c->reply)(c, WF_ERR_NQUOT);
+X			return;
+X		}
+X		assert(c->cp != (wf_conn *)0);
+X		/* new connection needed */
+X		sched_task(ftp_readdir_2, c, &c->cp);
+X		thrd_watch(c);
+X		c->flag |= WF_THREAD_BUSY;
+X		ftp_conn_open(c);
+X		return;
+X	}
+X	c->flag |= WF_THREAD_BUSY;
+X	ftp_readdir_2(c);
+X}
+X
+Xstatic void
+Xftp_readdir_2(c)
+Xwf_thrd *c;
+X{
+X	int ret;
+X
+X	c->idle = 0;
+X	switch (c->step) {
+X	case FTPS_CONN_FAIL:
+X		ftp_readdir_fail(c);
+X		return;
+X	case FTPS_PROMPT:
+X#ifdef VERBOSE
+X		talk(c->client, "listing directory %s", c->dirp->name);
+X		dlog("listing directory %s", c->dirp->name);
+X#endif
+X		c->cp->thrdp = c;
+X		c->flag |= WF_THREAD_RISKY;
+X		c->give_up = ftp_readdir_fail;
+X		c->closure = (void *)c;
+X		ret = tcp_send(c->cp->id, "STAT %s/%s%s/\r\n",
+X			       c->cp->srv->variant & WF_FTP_FOLLOW ? "-L ": "",
+X			       c->cp->info, c->dirp->name);
+X		if (cs_ftp_debug) {
+X			req_send(cs_ftp_debug, "STAT /%s%s/\r\n",
+X				 c->cp->info, c->dirp->name);
+X		}
+X		if (ret < 0) {
+X			ftp_readdir_fail(c);
+X			return;
+X		}
+X		c->step = FTPS_STAT_RECV;
+X		so_clear(c->cp->id);
+X		so_callback(c->cp->id, ftp_readdir_2, c);
+X		return;
+X	case FTPS_STAT_RECV:
+X		so_clear(c->cp->id);
+X		/* now receive listings. */
+X		c->step = FTPS_STAT_RECVINIT;
+X		sched_task(ftp_readdir_3, c, &c->cp->id);
+X		ftp_recv_list(c);
+X		return;
+X	}
+X}
+X
+X#ifdef TRACE
+Xstatic void
+Xftp_readdir_trace(c)
+Xwf_thrd *c;
+X{
+X	wf_trace *tracep;
+X	tracep = ALLOC(wf_trace);
+X	tracep->time = gettime();
+X	tracep->volume = c->child_volp->id;
+X	tracep->dir = c->dirp->id;
+X	tracep->op = WF_OP_READDIR;
+X	tracep->hit = WF_CACHE_READY;
+X	trace_event(c, tracep);
+X}
+X#endif
+X
+Xstatic void
+Xftp_readdir_3(c)
+Xwf_thrd *c;
+X{
+X	ftp_readdir_unlock(c);
+X	vol_releaseconn(c->child_volp);
+X	c->flag &= ~WF_THREAD_BUSY;
+X
+X#ifdef TRACE
+X	ftp_readdir_trace(c);
+X#endif
+X
+X	if (c->flag & WF_THREAD_ERROR) {
+X#ifdef VERBOSE
+X		talk(c->client, "FTP readdir failed for volume \"%s\" directory \"%s\"",
+X		     c->child_volp->name, c->dirp->name);
+X		dlog("FTP readdir failed for volume \"%s\" directory \"%s\"",
+X		     c->child_volp->name, c->dirp->name);
+X#endif
+X		(*c->reply)(c, WF_ERR_IO);
+X	} else {
+X		wf_file *f;
+X
+X		f = file_findname(c->dirp, ".");
+X		c->filep->fattr.nlink = f->fattr.nlink;
+X		dir_save(c->child_volp, c->dirp, c->olddirp);
+X		(*c->reply)(c, WF_REP_OK);
+X	}
+X}
+X
+Xstatic void
+Xftp_readdir_fail(c)
+Xwf_thrd *c;
+X{
+X	wf_conn *cp = c->cp;
+X	c->flag |= WF_THREAD_ERROR;
+X	ftp_readdir_3(c);
+X	conn_shutdown(cp, 2);
+X}
+X
+Xvoid
+Xftp_recv_list(c)
+Xwf_thrd *c;
+X{
+X	long navail;
+X	int nread;
+X	char *q;
+X	int ret, optlen;
+X
+X	c->idle = 0;
+X	switch (c->step) {
+X	case FTPS_STAT_RECVINIT:
+X		/* initialize */
+X		so_callback(c->cp->id, ftp_recv_list, c);
+X		c->buf = so_getbuf(c->cp->id);
+X	case FTPS_STAT_RECVLOOP:
+X		c->step = FTPS_STAT_RECVLOOP;
+X		ioctl(c->cp->id, FIONREAD, &navail);
+X		nread = MIN(navail, NFS_MAXDATA);
+X		if (nread == 0) {
+X			optlen = sizeof(int);
+X			getsockopt(c->cp->id, SOL_SOCKET, SO_ERROR,
+X				   &ret, &optlen);
+X			if (ret && ret < sys_nerr)
+X				dlog("ftp_recv_list: %s", sys_errlist[ret]);
+X			c->flag |= WF_THREAD_ERROR;
+X			break;
+X		}
+X		ret = recv(c->cp->id, c->buf, nread, MSG_PEEK);
+X		if (ret < 0) {
+X			errno_diag();
+X			c->flag |= WF_THREAD_ERROR;
+X			break;
+X		}
+X		c->buf[nread] = '\0';
+X		if ((q = strrchr(c->buf, '\n')) == NULL) return;
+X		nread = q - c->buf + 1;
+X		recv(c->cp->id, c->buf, nread, 0);
+X		c->cp->stats.bytes_from_server += nread;
+X		c->child_volp->stats.bytes_from_server += nread;
+X		q[1] = '\0';
+X		ret = ftp_parse_list(c->buf, c->child_volp,
+X					c->dirp, c->olddirp);
+X		if (ret == 211)
+X			break;
+X		if (ret > 400) {
+X			c->flag |= WF_THREAD_ERROR;
+X			break;
+X		}
+X		return;
+X	}
+X	so_clear(c->cp->id);
+X	so_callback(c->cp->id, ftp_recv_junk, (void *)c->cp->id);
+X	wakeup(&c->cp->id);
+X}
+X
+X/* parse "LIST" output */
+Xint
+Xftp_parse_list(buftop, volp, dirp, olddirp)
+Xchar *buftop;
+Xwf_vol *volp;
+Xwf_dir *dirp, *olddirp;
+X{
+X	char *p, *bufp = buftop;
+X	struct tm tm;
+X	int i, status = 0;
+X
+X	wf_file *f;
+X	char *f_name, *f_link;
+X	ftype f_type;
+X	u_int f_nlink, f_mode, f_uid, f_gid, f_id, f_fsid;
+X	long f_size, f_time;
+X
+X	/* ^[\-ld][\-rwxs]{9} \d+ [^ ]+ [^ ]+ \d+ [a-zA-Z]{3} \d+ (\d\d:\d\d|\d\d\d\d) [^ ]+ */
+X	while (1) {
+X		if (*bufp == '\0') {
+X			return status;
+X		}
+X		if (strchr("-bcdl", *bufp)) {
+X			/* /^[\-bcdl]/ -- file type */
+X			f_link = 0, f_mode = 0, f_id = 0;
+X			switch (*bufp) {
+X			case 'b':
+X				f_type = NFBLK;
+X				break;
+X			case 'c':
+X				f_type = NFCHR;
+X				break;
+X			case 'd':
+X				f_type = NFDIR;
+X				break;
+X			case 'l':
+X				f_type = NFLNK;
+X				break;
+X			case '-':
+X				f_type = NFREG;
+X				break;
+X			default:
+X				dlog("ftp_parse_list: unknown file type %c", *bufp);
+X				return 550;
+X			}
+X			++bufp;
+X		} else {
+X			if (isdigit(*bufp)) {
+X				/* /^\d{3}\s/ -- status */
+X				/* ignore /^\d{3}\-/ */
+X				if (isspace(bufp[3])) {
+X					status = atoi(bufp);
+X				}
+X				bufp = strchr(bufp, '\n')+1;
+X				continue;
+X			}
+X			else if (*bufp == 't' && ! strncmp(bufp, "total", 5)) {
+X				/* ^total -- total size in kilobytes */
+X				bufp = strchr(bufp, '\n')+1;
+X				continue;
+X			}
+X			else {
+X				dlog("FTP parse error: \"%32.32s...\"", bufp);
+X				return 550;
+X			}
+X		}
+X
+X		/* /[\-rwxs]{9}/ -- permission */
+X		if (strchr("-rwxs", *bufp)) {
+X			for (i = 0; i < 9; ++i) {
+X				f_mode <<= 1;
+X				if (strchr("rwxs", *bufp))
+X					f_mode += 1;
+X				++bufp;
+X			}
+X			f_mode &= ~0222;
+X			if (f_mode & 0444) f_mode |= 0644;
+X			if (f_mode & 0111) f_mode |= 0111;
+X		} else {
+X			dlog("ftp_parse_list: unknown permission format");
+X			return 550;
+X		}
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /\d+/ -- nlinks */
+X		if (isdigit(*bufp)) {
+X			f_nlink = atoi(bufp);
+X			while (isdigit(*bufp)) ++bufp;
+X		} else {
+X			dlog("ftp_parse_list: no nlink");
+X			return 550;
+X		}
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /[^ ]+/ -- owner */
+X		while (! isspace(*bufp)) ++bufp;
+X		f_uid = 0;
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /[^ ]+/ -- group */
+X		while (! isspace(*bufp)) ++bufp;
+X		f_gid = 0;
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /\d+/ -- file size */
+X		if (isdigit(*bufp)) {
+X			f_size = atoi(bufp);
+X			while (isdigit(*bufp)) ++bufp;
+X		} else {
+X			dlog("ftp_parse_list: no size");
+X			return 550;
+X		}
+X
+X		bzero(&tm, sizeof (struct tm));
+X		while (isspace(*bufp)) ++bufp;
+X		/* /[a-zA-Z]{3}/ -- month */
+X		if (! isalpha(*bufp)) {
+X			dlog("ftp_parse_list: no month");
+X			return 550;
+X		}
+X		switch (bufp[0] + bufp[1] + bufp[2]) {
+X		case 0x119:	/* Jan */
+X			tm.tm_mon = 0;
+X			break;
+X		case 0x10d:	/* Feb */
+X			tm.tm_mon = 1;
+X			break;
+X		case 0x120:	/* Mar */
+X			tm.tm_mon = 2;
+X			break;
+X		case 0x123:	/* Apr */
+X			tm.tm_mon = 3;
+X			break;
+X		case 0x127:	/* May */
+X			tm.tm_mon = 4;
+X			break;
+X		case 0x12d:	/* Jun */
+X			tm.tm_mon = 5;
+X			break;
+X		case 0x12b:	/* Jul */
+X			tm.tm_mon = 6;
+X			break;
+X		case 0x11d:	/* Aug */
+X			tm.tm_mon = 7;
+X			break;
+X		case 0x128:	/* Sep */
+X			tm.tm_mon = 8;
+X			break;
+X		case 0x126:	/* Oct */
+X			tm.tm_mon = 9;
+X			break;
+X		case 0x133:	/* Nov */
+X			tm.tm_mon = 10;
+X			break;
+X		case 0x10c:	/* Dec */
+X			tm.tm_mon = 11;
+X			break;
+X		default:
+X			dlog("ftp_parse_list: unknown month");
+X			return 550;
+X		}
+X		bufp += 3;
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /\d+/ -- day of month */
+X		tm.tm_mday = atoi(bufp);
+X		while (! isspace(*bufp)) ++bufp;
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /(\d\d:\d\d|\d{4})/ -- time or year */
+X		if (bufp[2] == ':') {
+X			tm.tm_year = cs_year;
+X			if (tm.tm_mon > cs_month) {
+X				--tm.tm_year;
+X			}
+X			tm.tm_hour = atoi(bufp);
+X			bufp += 3;
+X			tm.tm_min = atoi(bufp);
+X			bufp += 2;
+X		} else {
+X			tm.tm_year = atoi(bufp) - 1900;
+X			bufp += 4;
+X		}
+X		f_time = tm2time(&tm);
+X
+X		while (isspace(*bufp)) ++bufp;
+X		/* /[^ ]+/ -- filename */
+X		if (f_type != NFLNK) {
+X			p = strchr(bufp, '\r');
+X			*p = '\0';
+X			if (*bufp == '.' && (strcmp(bufp, ".") == 0
+X					     || strcmp(bufp, "..") == 0)) {
+X				/*
+X				 * We do not put "." and ".." onto directory
+X				 * chain; update attributes where necessary.
+X				 */
+X				f = file_findname(dirp, bufp);
+X				assert(f != (wf_file *)0);
+X				f->fattr.nlink = f_nlink;
+X				f->fattr.atime.seconds
+X					= f->fattr.mtime.seconds
+X					= f->fattr.ctime.seconds = f_time;
+X				bufp = p + 2;		/* skip \r\n */
+X				continue;
+X			}
+X			f_name = strdup(bufp);
+X			if (f_type == NFDIR) {
+X				if (olddirp &&
+X				    (f = file_findname(olddirp, f_name))) {
+X					f_id = f->id;
+X				} else {
+X					f_id = vol_allocid(volp);
+X				}
+X			}
+X			*p = '\r';
+X		} else {
+X			p = bufp;
+X			while (p = strchr(p, '-')) {
+X				if (*++p == '>') break;
+X			}
+X			if (!p) {
+X				dlog("symlink botch");
+X				return 550;
+X			}
+X			*(p-2) = '\0';
+X			f_name = strdup(bufp);
+X			*(p-2) = ' ';
+X			bufp = p+2;
+X			p = strchr(bufp, '\r');	/* assuming \r\n */
+X			*p = '\0';
+X			f_link = strdup(bufp);
+X			*p = '\r';
+X		}
+X		f_fsid = volp->id;
+X		f = file_new(f_name, f_link, f_type, f_nlink, f_mode,
+X			 f_uid, f_gid, f_size, f_time, f_id, f_fsid);
+X		dir_addfile(dirp, f);
+X		bufp = strchr(bufp, '\n')+1;
+X	}
+X}
+X
+END_OF_FILE
+  if test 11734 -ne `wc -c <'csd/ftp_list.c'`; then
+    echo shar: \"'csd/ftp_list.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/ftp_list.c'
+fi
+if test -f 'csd/root.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/root.c'\"
+else
+  echo shar: Extracting \"'csd/root.c'\" \(12637 characters\)
+  sed "s/^X//" >'csd/root.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* root of the world view */
+Xstatic char *AtFSid = "$Header: root.c[109.3] Thu Dec 16 20:39:22 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#ifdef _POSIX_SOURCE
+X#include <dirent.h>
+X#define	DIRENT	struct dirent
+X#else
+X#include <sys/dir.h>
+X#define	DIRENT	struct direct
+X#endif
+X
+X#include <sys/stat.h>
+X#include <fcntl.h>		/* for O_WRONLY etc. */
+X#include <string.h>		/* for strchr */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+Xvoid root_getattr_miss(), root_lookup_miss(), root_read_miss(), root_getuda();
+X
+Xwf_proto proto_root = {
+X	"root", cmfs_getattr, root_getattr_miss,
+X	cmfs_lookup, root_lookup_miss, cmfs_readlink,
+X	cmfs_read, root_read_miss, cmfs_readdir, err_readdir_miss,
+X	root_getuda, err_keepalive, err_close, err_shutdown, 0
+X};
+X
+X/*
+X * ID mappings are somewhat tricky:
+X * parent_dir == child_dir == WF_ROOT_DIR_ID
+X */
+X
+Xwf_vol	*root_vol;
+Xwf_dir	*root_dir;
+Xstatic wf_file	*root_file;
+Xstatic fattr	*root_fattr;
+X
+X/* general functions, not bound to NFS, goes here */
+X
+Xstatic void
+Xroot_load(volp, dotdotp)
+Xwf_vol *volp;
+Xwf_dir *dotdotp;
+X{
+X	DIR *dp;
+X	struct direct *p;
+X	struct stat statbuf;
+X	long dirid;
+X	wf_dir *dirp;
+X	wf_file *filep, *f;
+X	char path[MAXPATHLEN], path2[MAXPATHLEN];
+X
+X	vol_destroyid(volp);		/* clean up bitmap first */
+X	sprintf(path, "%s/vol/%s", cs_topdir, volp->name);
+X	dp = opendir(path);
+X	while (p = readdir(dp)) {
+X		if (p->d_name[0] == '.')
+X			continue;	/* ignore "." and ".." */
+X		sprintf(path2, "%s/vol/%s/%s",
+X			cs_topdir, volp->name, p->d_name);
+X		stat(path2, &statbuf);
+X		if (statbuf.st_mode & S_IFDIR) {
+X			dirid = vol_allocid(volp) + WF_GLUE_BASE;
+X			dirp = dir_new(volp, dirid, "/", p->d_name);
+X			f = dir_adddir(dirp, ".", volp->id, dirid);
+X			attr_touch(&f->fattr);
+X			f = dir_adddir(dirp, "..", volp->id, dotdotp->id);
+X			attr_touch(&f->fattr);
+X			dirp->flag |= WF_DIR_WIREDDOWN;
+X			filep = file_newvol(p->d_name);
+X			FSID(filep) = volp->id;
+X			FID(filep) = filep->fattr.fileid = dirid;
+X			attr_touch(&filep->fattr);
+X			dir_addfile(dotdotp, filep);
+X
+X			/*
+X			 * insert index file
+X			 */
+X			filep = file_new("INDEX", 0, NFREG, 1, 0644, 0, 0,
+X					 0, now, 0, volp->id);
+X			filep->flag |= WF_FILE_MUTABLE;
+X			dir_addfile(dirp, filep);
+X		}
+X	}
+X	closedir(dp);
+X}
+X
+Xvoid
+Xroot_start()
+X{
+X	wf_vol *volp;
+X	wf_dir *dirp;
+X	wf_file *filep;
+X	char path[MAXPATHLEN];
+X
+X	/*
+X	 * create root volume
+X	 */
+X	root_vol = volp = vol_alloc();
+X	volp->id = WF_ROOT_VOL_ID;
+X	volp->name = ".";			/* name2ih need it */
+X	volp->dir = "";				/* name2ih need it */
+X	/*
+X	 * Bypass file caching mechanism
+X	 * for files directly placed in the root volume, such as INDEX.
+X	 */
+X	volp->flag |= WF_VOL_DIRECTFILE;
+X	sprintf(path, "%s/vol", cs_topdir);
+X	volp->topdir = strdup(path);
+X	/*
+X	 * create root directory
+X	 */
+X	root_dir = dirp = dir_new(volp, WF_ROOT_DIR_ID, 0, 0);
+X	dir_adddir(dirp, ".", WF_ROOT_VOL_ID, WF_ROOT_DIR_ID);
+X	dir_adddir(dirp, "..", WF_ROOT_VOL_ID, WF_ROOT_DIR_ID);
+X
+X	/*
+X	 * create root node
+X	 */
+X	root_file = file_findid(dirp, WF_ROOT_VOL_ID, WF_ROOT_DIR_ID);
+X	root_fattr = &root_file->fattr;
+X	attr_touch(root_fattr);
+X	dirp->flag |= WF_DIR_WIREDDOWN;
+X
+X	/*
+X	 * create subdirectories
+X	 */
+X	root_load(root_vol, root_dir);
+X
+X	/*
+X	 * insert index file
+X	 */
+X	filep = file_new("INDEX", 0, NFREG, 1, 0644, 0, 0,
+X			 0, now, 0, volp->id);
+X	filep->flag |= WF_FILE_MUTABLE;
+X	dir_addfile(dirp, filep);
+X}
+X
+Xwf_file *
+Xroot_attach(dirp, name)
+Xwf_dir *dirp;
+Xchar *name;
+X{
+X	/*
+X	 * Attach a volume to the specified directory.
+X	 */
+X	wf_vol *volp;
+X	wf_file *filep;
+X	int ret;
+X	char *p, *volume;
+X
+X	p = strrchr(name, '/');
+X	volume = p ? p+1 : name;
+X	volp = vol_findname(dirp->name, volume);
+X	if (volp == (wf_vol *)0)
+X		return (wf_file *)0;
+X
+X	filep = file_newvol(volume);
+X	FSID(filep) = volp->id;
+X	FID(filep) = filep->fattr.fileid = volp->id + WF_VOL_BASE;
+X	dir_addfile(dirp, filep);
+X	return filep;
+X}
+X
+Xint
+Xroot_deletevol(name)
+Xchar *name;
+X{
+X	/*
+X	 * Delete a volume from the root namespace.
+X	 */
+X	wf_file *filep;
+X	wf_ih ih;
+X	int ret;
+X
+X	ret = root_name2ih(name, &ih);
+X	if (ret != WF_REP_OK)
+X		return ret;
+X	if (ih.filep) {
+X		dir_deletefile(ih.filep);
+X		file_uncache(ih.dirp);
+X		file_free(ih.filep);
+X	}
+X	vol_free(ih.child_volp);
+X	return WF_REP_OK;
+X}
+X
+Xint
+Xroot_fhn2ih(pname, ihp)
+Xchar *pname;
+Xwf_ih *ihp;	/* result */
+X{
+X	/* convert "+fh/name" into internal handle */
+X	char *p = pname, *q;
+X	long pvid, pfid, cvid, cfid;
+X
+X	/*
+X	 * see bfs.c:fh_read() for ASCII representation of fh
+X	 */
+X	pvid = strtol(++p, &q, 16);
+X	if (p == q)
+X		return WF_ERR_STALE;	/* stale ascii file handle */
+X
+X	pfid = strtol(p = ++q, &q, 16);
+X	if (p == q)
+X		return WF_ERR_STALE;	/* stale ascii file handle */
+X
+X	cvid = strtol(p = ++q, &q, 16);
+X	ihp->parent_volp = vol_findid(cvid);
+X	if (! ihp->parent_volp || p == q)
+X		return WF_ERR_STALE;	/* stale ascii file handle */
+X
+X	cfid = strtol(p = ++q, &q, 16);
+X	ihp->dirp = dir_findcache(ihp->parent_volp, cfid);
+X	if (p == q)
+X		return WF_ERR_STALE;	/* stale ascii file handle */
+X	if (! ihp->dirp || (ihp->dirp->flag & WF_DIR_OBSOLETE)) {
+X		/* Directory not cached. This is likely to happen
+X		 * when only /a is cached upon request "/a/b/c".
+X		 * Forcibly ignore the following path components...
+X		 */
+X		ihp->child_volp = ihp->parent_volp;
+X		ihp->dirp = dir_findcache(ihp->parent_volp, pfid);
+X		if (! ihp->dirp)
+X			return WF_ERR_STALE;
+X		ihp->filep = file_findid(ihp->dirp, ihp->child_volp->id, cfid);
+X		if (! ihp->filep)
+X			return WF_ERR_STALE;
+X		return WF_REP_WAIT;
+X	}
+X
+X	if (*q != '/')
+X		return WF_ERR_NOTDIR;
+X	if (*++q == '\0') q = ".";	/* "fh/" --> "fh/." */
+X	ihp->filep = file_findname(ihp->dirp, q);
+X	if (! ihp->filep) {
+X		if (ihp->dirp->flag & WF_DIR_WIREDDOWN) {
+X			/* XXX assuming WF_DIR_WIREDDOWN = root/glue */
+X			/*
+X			 * looking at invisible volumes...
+X			 * let's make it visible.
+X			 */
+X			ihp->filep = root_attach(ihp->dirp, q);
+X		}
+X		if (! ihp->filep) {
+X			return WF_ERR_NOENT;
+X		}
+X	}
+X	ihp->child_volp = vol_findid(FSID(ihp->filep));
+X	if (! ihp->child_volp) {
+X		return WF_ERR_NOENT;
+X	}
+X	return WF_REP_OK;
+X}
+X
+Xint
+Xroot_name2ih(pname, ihp)
+Xchar *pname;
+Xwf_ih *ihp;	/* result */
+X{
+X	char *p, *q = pname;
+X	wf_vol *volp = root_vol;
+X	wf_dir *dirp = root_dir, *dirp2 = root_dir;
+X	wf_file *filep = root_file;
+X	long prev_vol = volp->id;
+X	int ret = WF_REP_OK;
+X
+X	ihp->parent_volp = volp;
+X	while (q) {
+X		p = q;
+X		/* end of path? */
+X		while (*p == '/') ++p;
+X		if (*p == '\0') break;
+X		dirp = dirp2;
+X		ihp->parent_volp = volp;
+X		/* lookup a path component */
+X		q = strchr(p, '/');
+X		if (q) *q = '\0';
+X		filep = file_findname(dirp, p);
+X		if (q) *q = '/';
+X		if (!filep) {
+X			if (dirp->flag & WF_DIR_WIREDDOWN) {
+X				/* XXX assuming WF_DIR_WIREDDOWN = root/glue */
+X				/*
+X				 * looking at invisible volumes...
+X				 * let's make it visible.
+X				 */
+X				if (q) *q = '\0';
+X				filep = root_attach(dirp, p);
+X				if (q) *q = '/';
+X			}
+X			if (!filep) {
+X				ret = WF_ERR_NOENT;
+X				goto fin;
+X			}
+X		}
+X		if (filep->fattr.type == NFREG) break;
+X		if (prev_vol != FSID(filep)) {
+X			volp = vol_findid(FSID(filep));
+X			if (!volp) {
+X				dlog("root_name2ih: illegal fsid");
+X				ret = WF_ERR_STALE;
+X				goto fin;
+X			}
+X			prev_vol = volp->id;
+X		}
+X		dirp2 = dir_findcache(volp, filep->id);
+X		if (!dirp2 || (dirp2->flag & WF_DIR_OBSOLETE)) {
+X			/* Directory not cached. This is likely to happen
+X			 * when only /a is cached upon request "/a/b/c".
+X			 * Forcibly ignore the following path components...
+X			 */
+X			ret = WF_REP_WAIT;
+X			goto fin;
+X		}
+X	}
+X fin:
+X	ihp->child_volp = volp;
+X	ihp->dirp = dirp;
+X	ihp->filep = filep;
+X	return ret;
+X}
+X
+Xvoid
+Xih2fh(ihp, fhp)
+Xwf_ih *ihp;
+Xwf_fh *fhp;	/* result */
+X{
+X	fhp->world_id = cs_world;
+X	fhp->parent_vol = ihp->parent_volp->id;
+X	fhp->dir_id = ihp->dirp->id;
+X	fhp->child_vol = ihp->child_volp->id;
+X	fhp->file_id = ihp->filep->id;
+X}
+X
+Xint
+Xroot_name2fh(pname, fhp)
+Xchar *pname;
+Xwf_fh *fhp;	/* result */
+X{
+X	int ret;
+X	wf_ih ih;
+X
+X	ret = root_name2ih(pname, &ih);
+X	if (ret == WF_REP_OK) {
+X		ih2fh(&ih, fhp);
+X	}
+X	return ret;
+X}
+X
+Xvoid
+Xroot_inspect(reqp, arg)
+Xwf_req *reqp;
+Xchar *arg;
+X{
+X	int ret;
+X	wf_fh fh;
+X	int id = reqp->id;
+X
+X	ret = root_name2fh(arg, &fh);
+X	if (ret != WF_REP_OK) {
+X		req_send(reqp, "513.%03d root_name2fh: error code %d.\n",
+X			 id, ret);
+X		return;
+X	}
+X	req_send(reqp, "220-%03d fhd %s\n", id, arg);
+X	req_send(reqp, "213-%03d world_id = %lx\n", id, fh.world_id);
+X	req_send(reqp, "213-%03d parent_vol = %lx\n", id, fh.parent_vol);
+X	req_send(reqp, "213-%03d dir_id = %lx\n", id, fh.dir_id);
+X	req_send(reqp, "213-%03d child_vol = %lx\n", id, fh.child_vol);
+X	req_send(reqp, "213.%03d file_id = %lx\n", id, fh.file_id);
+X}
+X
+X/* NFS-delegate functions */
+X
+Xvoid
+Xroot_getattr_miss(c)
+Xwf_thrd *c;	/* volp, dirp, filep */
+X{
+X	fattr *attrp = &c->filep->fattr;
+X	struct stat statbuf;
+X	char path[MAXPATHLEN];
+X
+X	file_getpath(path, c->child_volp, c->dirp, c->filep);
+X	if (stat(path, &statbuf) == 0) {
+X		attrp->nlink = statbuf.st_nlink;
+X		attrp->size = statbuf.st_size;
+X		/* sgi doesn't have st_blocks, so... */
+X		attrp->blocks = (statbuf.st_size + 1024) >> 10;
+X		attrp->atime.seconds = statbuf.st_atime;
+X		attrp->mtime.seconds = statbuf.st_mtime;
+X		attrp->ctime.seconds = statbuf.st_ctime;
+X	} else {
+X		/* File does not exist; fake it. */
+X		attrp->nlink = 1;
+X		attrp->size = 0;
+X		/* sgi doesn't have st_blocks, so... */
+X		attrp->blocks = 1;
+X		attrp->atime.seconds = attrp->mtime.seconds = 
+X			attrp->ctime.seconds = now;
+X	}
+X}
+X
+Xvoid
+Xroot_read_miss(c)
+Xwf_thrd *c;
+X/* in: rqstp, volp, offset, count, totalcount, dirp, filep */
+X{
+X	FILE *fp;
+X	char path[MAXPATHLEN];
+X
+X	if (strcmp(c->filep->name, "INDEX") == 0) {
+X		/* INDEX does not exist; generate it on the fly... */
+X		file_getpath(path, c->child_volp, c->dirp, c->filep);
+X		fp = fopen(path, "w");
+X		if (! fp) {
+X			dlog("Could not open %s for writing: errno=%d",
+X			     path, errno);
+X			(*c->reply)(c, WF_ERR_IO);
+X			return;
+X		}
+X		fprintf(fp,
+X			"Sorry, but INDEX cannot be generated automatically.\n\
+XPlease e-mail your WWFS Administrator <wwfs@%s.%s>\n\
+Xand ask him/her for help.\n\
+X\n\
+XThank you.\n\
+X		\"csd\" running on %s.%s\n\
+X		WorldWide File System\n\
+X		A research product of Osaka University, Japan\n",
+X			cs_hostname, cs_domain,
+X			cs_hostname, cs_domain);
+X		fclose(fp);
+X		/* try to read me again... */
+X		(*c->reply)(c, WF_ERR_STALE);
+X	} else {
+X		/* strange.. real file should not exist except INDEX */
+X		(*c->reply)(c, WF_ERR_IO);
+X	}
+X}
+X
+Xvoid
+Xroot_lookup_miss(c)
+Xwf_thrd *c;	/* rqstp, volp, fhp, fname, dotdotp */
+X{
+X	wf_vol		*subvolp;
+X	wf_fh		*resfhp;
+X
+X	c->parent_volp = c->child_volp;
+X	c->child_volp = vol_findname(c->dotdotp->name, c->fname);
+X	if (c->child_volp == NULL) {
+X		(*c->reply)(c, WF_ERR_NOENT);
+X		return;
+X	}
+X
+X	/* update root fattr */
+X	++root_fattr->nlink;
+X	attr_touch(root_fattr);
+X
+X	/* filehandle response */
+X	resfhp = c->resfhp = CLONE(c->fhp);
+X	c->resfhp->world_id = cs_world;
+X	c->resfhp->parent_vol = c->parent_volp->id;
+X	c->resfhp->parent_dir = c->fhp->child_dir;
+X	c->resfhp->child_vol = c->child_volp->id;
+X	c->resfhp->child_dir = c->child_volp->id + WF_VOL_BASE;
+X	/* make it visible */
+X	c->filep = file_newvol(c->fname);
+X	FSID(c->filep) = c->child_volp->id;
+X	FID(c->filep) = c->filep->fattr.fileid = c->resfhp->file_id;
+X	dir_addfile(c->dotdotp, c->filep);
+X	(*c->reply)(c, WF_REP_OK);
+X	FREE(resfhp);
+X}
+X
+Xvoid
+Xroot_getuda()
+X{
+X	/* XXX not implemented yet */
+X}
+END_OF_FILE
+  if test 12637 -ne `wc -c <'csd/root.c'`; then
+    echo shar: \"'csd/root.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/root.c'
+fi
+if test -f 'csd/uip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/uip.c'\"
+else
+  echo shar: Extracting \"'csd/uip.c'\" \(12592 characters\)
+  sed "s/^X//" >'csd/uip.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/*
+X * UIP: WWFS User Interface Protocol.
+X * Both UIP/UDP and UIP/TCP are implemented for ease of use from variety
+X * of programming languages.
+X */
+Xstatic char *AtFSid = "$Header: uip.c[109.1] Thu Dec 16 20:39:25 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/ioctl.h>		/* for FIONREAD */
+X#include <ctype.h>
+X#include <string.h>		/* for strchr */
+X#include "wfs.h"
+X#include "global.h"
+X#include "util.h"
+X
+Xstatic wf_req *
+Xuip_alloc()
+X{
+X	wf_req *p;
+X
+X	p = ALLOC(wf_req);
+X	return p;
+X}
+X
+Xstatic void
+Xuip_free(p)
+Xwf_req *p;
+X{
+X	FREE(p);
+X}
+X
+Xint
+Xuip_id()
+X{
+X	static int id;
+X	if (++id < 0)
+X		id = 0;
+X	return id;
+X}
+X
+Xstatic void
+Xuip_emsg(reqp, buf)
+Xwf_req *reqp;
+Xchar *buf;
+X{
+X	if (strncmp(buf, "progress", 8) == 0) {
+X	}
+X	else if (strncmp(buf, "block", 5) == 0) {
+X	}
+X	else if (strncmp(buf, "ftptrace", 8) == 0) {
+X		cs_ftp_debug = reqp;	/* only one for now */
+X	}
+X	else {
+X		req_send(reqp, "520-%03d opt %s\n", reqp->id, buf);
+X		req_send(reqp, "513.%03d Unknown subcommand.\n", reqp->id);
+X	}
+X}
+X
+Xstatic void
+Xuip_dmsg(reqp, buf)
+Xwf_req *reqp;
+Xchar *buf;
+X{
+X}
+X
+Xstatic void
+Xuip_diag(reqp, buf)
+Xwf_req *reqp;
+Xchar *buf;
+X{
+X#ifdef DEBUG_MALLOC
+X	static unsigned long hist1, hist2;
+X#endif
+X
+X	if (strncmp(buf, "thread", 6) == 0) {
+X		thrd_inspect(reqp);
+X	}
+X	else if (strncmp(buf, "connection", 10) == 0) {
+X		conn_inspect(reqp);
+X	}
+X	else if (strncmp(buf, "file", 4) == 0) {
+X		file_inspect(reqp, buf + 5);
+X	}
+X	else if (strncmp(buf, "dir", 3) == 0) {
+X		dir_inspect(reqp, buf + 4);
+X	}
+X	else if (strncmp(buf, "vol", 3) == 0) {
+X		vol_inspect(reqp, buf + 4);
+X	}
+X	else if (strncmp(buf, "fh", 2) == 0) {
+X		root_inspect(reqp, buf+3);
+X	}
+X#ifdef DEBUG_MALLOC
+X	else if (strncmp(buf, "mallocdump", 10) == 0) {
+X		malloc_dump(reqp->so);
+X	}
+X	else if (strncmp(buf, "malloclist", 10) == 0) {
+X		malloc_inuse(&hist2);
+X		malloc_list(reqp->so, hist1, hist2);
+X	}
+X	else if (strncmp(buf, "mallocfrom", 10) == 0) {
+X		malloc_inuse(&hist1);
+X	}
+X#endif
+X	else {
+X		req_send(reqp, "520-%03d opt %s\n", reqp->id, buf);
+X		req_send(reqp, "513.%03d Unknown subcommand.\n", reqp->id);
+X	}
+X}
+X
+Xstatic void
+Xuip_rtoc(reqp, arg)
+Xwf_req *reqp;
+Xchar *arg;
+X{
+X	int ret;
+X	wf_ih ih;
+X	char path[MAXPATHLEN];
+X
+X	if (strlen(arg) < 5) {
+X		req_send(reqp, "520-%03d cmd RTOC %s\n", reqp->id, arg);
+X		req_send(reqp, "513.%03d Invalid argument.\n", reqp->id);
+X	}
+X	ret = root_name2ih(arg + 4, &ih);
+X	if (ret != WF_REP_OK) {
+X		req_send(reqp, "520-%03d %s\n", reqp->id, arg);
+X		req_send(reqp, "510.%03d root_name2ih: error code %d.\n",
+X			 reqp->id, ret);	/* XXX */
+X		return;
+X	}
+X	if (strncmp(arg, "dir", 3) == 0) {
+X		req_send(reqp, "220.%03d c_p %s/cache/%lx/dir/%lx\n",
+X			 reqp->id, cs_topdir, ih.child_volp->id, ih.filep->id);
+X	}
+X	else if (strncmp(arg, "fil", 3) == 0) {
+X		file_getpath(path, ih.child_volp, ih.dirp, ih.filep);
+X		req_send(reqp, "220.%03d c_p %s\n", reqp->id, path);
+X	}
+X	else {
+X		req_send(reqp, "520-%03d opt %s\n", reqp->id, arg);
+X		req_send(reqp, "513.%03d Unknown subcommand.\n", reqp->id);
+X	}
+X}
+X
+Xstatic void
+Xuip_retr_done(c, status)
+Xwf_thrd *c;
+Xint status;
+X{
+X	/* UIP connection might have dropped, but it's harmless since
+X	 * session ID is guaranteed to be unique and wf_thrd has "deepcopy"
+X	 * of necessary member variables.
+X	 */
+X
+X	switch (status) {
+X	case WF_REP_OK:
+X		req_send(&c->req, "210.%03d Transfer complete.\n", c->req.id);
+X		break;
+X	case WF_REP_WAIT:
+X		req_send(&c->req, "210 %03d Transfer ongoing.\n", c->req.id);
+X		break;
+X	default:
+X		req_send(&c->req, "510.%03d Transfer failed, error=%d\n",
+X			 c->req.id, status);	/* XXX */
+X		break;
+X	}
+X	if (! (c->flag & WF_THREAD_BUSY)) {
+X		FREE(c->fhp);
+X		thrd_free(c);
+X	}
+X}
+X
+Xstatic void
+Xuip_retr_loop(c, status)
+Xwf_thrd *c;
+Xint status;
+X{
+X	if (status == WF_REP_OK) {
+X		status = uip_retr_2(&c->req, c->pathname);
+X		if (status != WF_REP_WAIT && c->pathname)
+X			free(c->pathname);
+X		FREE(c->fhp);
+X		thrd_free(c);
+X	} else {
+X		/* error listing dir */
+X		if (c->pathname) free(c->pathname);
+X		uip_retr_done(c, status);
+X	}
+X}
+X
+Xstatic int
+Xuip_retr_2(reqp, pathname)
+Xwf_req *reqp;
+Xchar *pathname;
+X{
+X	int ret;
+X	wf_ih ih;
+X	wf_thrd *c;
+X
+X	c = thrd_alloc();
+X	c->req = *reqp;
+X	c->fhp = ALLOC(wf_fh);
+X
+X	if (pathname[0] == '+') {
+X		ret = root_fhn2ih(pathname, &ih);
+X	} else {
+X		ret = root_name2ih(pathname, &ih);
+X	}
+X	if (ret == WF_REP_OK || ret == WF_REP_WAIT) {
+X		c->parent_volp = ih.parent_volp;
+X		c->child_volp = ih.child_volp;
+X		ih2fh(&ih, c->fhp);
+X		if (ret == WF_REP_OK) {
+X			c->reply = uip_retr_done;
+X		} else {
+X			c->pathname = pathname;
+X			c->reply = uip_retr_loop;
+X		}
+X		if (ih.filep->fattr.type == NFDIR)
+X			proto_readdir(c);
+X		else
+X			proto_read(c);
+X	}
+X	else {
+X		uip_retr_done(c, ret);
+X	}
+X	return ret;
+X}
+X
+Xstatic void
+Xuip_retr(reqp, arg)
+Xwf_req *reqp;
+Xchar *arg;
+X{
+X	req_send(reqp, "220 %03d fil %s\n", reqp->id, arg);
+X	uip_retr_2(reqp, strdup(arg));
+X}
+X
+Xstatic void
+Xuip_load(reqp, arg)
+Xwf_req *reqp;
+Xchar *arg;
+X{
+X	int ret;
+X	wf_ih ih;
+X
+X	ret = root_name2ih(arg, &ih);
+X	if (ret == WF_REP_OK) {
+X		req_send(reqp, "220-%03d vol %s\n", reqp->id, arg);
+X		req_send(reqp, "211.%03d Volume \"%s\" is now visible.\n",
+X			 reqp->id, arg);
+X	}
+X	else {
+X		req_send(reqp, "520-%03d vol %s\n", reqp->id, arg);
+X		req_send(reqp, "511.%03d \"%s\": No such volume.\n",
+X			 reqp->id, arg);
+X	}
+X}
+X
+Xstatic void
+Xuip_unload(reqp, arg)
+Xwf_req *reqp;
+Xchar *arg;
+X{
+X	int ret;
+X
+X	ret = root_deletevol(arg);
+X	if (ret == WF_REP_OK) {
+X		req_send(reqp, "220-%03d vol %s\n", reqp->id, arg);
+X		req_send(reqp, "211.%03d Volume \"%s\" is now invisible.\n",
+X			 reqp->id, arg);
+X	} else {
+X		req_send(reqp, "520-%03d vol %s\n", reqp->id, arg);
+X		req_send(reqp, "511.%03d \"%s\": No such volume.\n",
+X			 reqp->id, arg);
+X	}
+X}
+X
+Xstatic void
+Xuip_close(reqp)
+Xwf_req *reqp;
+X{
+X	int optlen, sotype;
+X
+X	if (reqp->flag & WF_REQ_PRIV) {
+X		dlog("privileged connection closed");
+X	}
+X	optlen = sizeof(int);
+X	getsockopt(reqp->so, SOL_SOCKET, SO_TYPE, &sotype, &optlen);
+X	if (sotype == SOCK_STREAM) {
+X		so_clear(reqp->so);
+X		so_unregister(reqp->so, WF_SO_ALL);
+X		close(reqp->so);
+X		uip_free(reqp);
+X	}
+X	if (cs_ftp_debug == reqp) {	/* XXX */
+X		cs_ftp_debug = (wf_req *) 0;
+X	}
+X}
+X
+Xstatic
+Xvoid
+Xuip_parse(reqp, buf)
+Xwf_req *reqp;
+Xchar *buf;
+X{
+X	int ret;
+X	char *arg;
+X
+X	if (! isalpha(buf[0])) {
+X		req_send(reqp, "510.000 Illegal command.\n");
+X		return;
+X	}
+X	reqp->id = uip_id();
+X	arg = buf+5;
+X	switch (buf[0]) {
+X	case 'D':
+X		if (strncmp(buf, "DMSG", 4) == 0) {
+X			uip_dmsg(reqp, arg);
+X		}
+X		else if (strncmp(buf, "DIAG", 4) == 0) {
+X			uip_diag(reqp, arg);
+X		}
+X		break;
+X	case 'E':
+X		if (strncmp(buf, "EMSG", 4) == 0) {
+X			uip_emsg(reqp, arg);
+X		}
+X		break;
+X	case 'F':
+X		if (strncmp(buf, "FILL", 4) == 0) {
+X		}
+X		break;
+X	case 'J':
+X		if (strncmp(buf, "JUNK", 4) == 0) {
+X		}
+X		break;
+X	case 'R':
+X		if (strncmp(buf, "RTOC", 4) == 0) {
+X			uip_rtoc(reqp, arg);
+X		}
+X		else if (strncmp(buf, "RETR", 4) == 0) {
+X			uip_retr(reqp, arg);
+X		}
+X		break;
+X	case 'L':
+X		if (strncmp(buf, "LOAD", 4) == 0) {
+X			uip_load(reqp, arg);
+X		}
+X		break;
+X	case 'U':
+X		if (strncmp(buf, "UNLD", 4) == 0) {
+X			uip_unload(reqp, arg);
+X		}
+X		break;
+X	case 'Q':
+X		if (strncmp(buf, "QUIT", 4) == 0) {
+X			uip_close(reqp);
+X			break;
+X		}
+X	default:
+X		req_send(reqp, "513.%03d Unknown command.\n", reqp->id);
+X		break;
+X	}
+X}
+X
+X/* WWUIP over TCP and "connected UDP" */
+Xstatic void
+Xuip_recv(reqp)
+Xwf_req *reqp;
+X{
+X	char *buf, *nl;
+X	long navail;
+X	int nread, ret, optlen, sinlen;
+X	int so = reqp->so;
+X
+X	/*
+X	 * check data
+X	 */
+X	ioctl(so, FIONREAD, &navail);
+X	nread = MIN(navail, NFS_MAXDATA);
+X	/*
+X	 * Beware: FIONREAD gives incorrect value for UDP sockets.
+X	 * We cannot trust "nread", but at least it's larger than
+X	 * actually available bytes. 'mbuf' structure is assumed here,
+X	 * but even if it doesn't hold, correct UDP implementation
+X	 * should provide correct "nread" values.
+X	 */
+X	if (nread == 0) {
+X		optlen = sizeof(int);
+X		getsockopt(so, SOL_SOCKET, SO_ERROR, &ret, &optlen);
+X		if (ret)
+X			dlog("uip_recv: %s", sys_errlist[ret]);
+X		uip_close(reqp);
+X		return;
+X	}
+X
+X	/*
+X	 * get one line
+X	 */
+X	buf = so_getbuf(so);
+X	sinlen = sizeof(reqp->sin);
+X	ret = recvfrom(so, buf, nread, MSG_PEEK,
+X		       (struct sockaddr *) &reqp->sin, &sinlen);
+X	/*
+X	 * recvfrom() gives number of bytes read, and it's *correct*.
+X	 */
+X	buf[ret] = '\0';
+X	if ((nl = strchr(buf, '\n')) == NULL) return;
+X	nread = nl - buf + 1;
+X	nread = recvfrom(so, buf, nread, 0,
+X			 (struct sockaddr *) &reqp->sin, &sinlen);
+X	if (nread == 1)
+X		return;		/* newline alone doesn't make sense */
+X	if (buf[nread-2] == '\r') {
+X		/* telnet oddity here */
+X		buf[nread-2] = '\0';
+X	} else {
+X		buf[nread-1] = '\0';
+X	}
+X#ifdef DEBUG_UIP
+X	dlog("%s.%d -> %s", inet_ntoa(reqp->sin.sin_addr),
+X	     ntohs(reqp->sin.sin_port), buf);
+X#endif
+X	if (inet_netof(reqp->sin.sin_addr) == inet_netof(cs_ipaddr)
+X	    || reqp->sin.sin_addr.s_addr == inet_addr("127.0.0.1")) {
+X		/*
+X		 * Accept request only from the same network.
+X		 * Further access control can be provided in each volume.
+X		 */
+X		uip_parse(reqp, buf);
+X	} else {
+X		req_send(reqp, "510.000 Access denied.\n");
+X		dlog("Invalid access from %s", inet_ntoa(reqp->sin.sin_addr));
+X	}
+X}
+X
+Xstatic void
+Xuip_recvfrom(so)
+Xint so;
+X{
+X	static wf_req req;	/* XXX bug if two UIP/UDP come simutaneously */
+X
+X	bzero(&req, sizeof(req));
+X	req.so = so;
+X	uip_recv(&req);
+X}
+X
+X/* start WWUIP over TCP */
+Xstatic void
+Xuip_accept(so)
+Xint so;
+X{
+X	int sinlen;
+X	wf_req *p = uip_alloc();
+X
+X	/*
+X	 * accept
+X	 */
+X	sinlen = sizeof(sockaddr_in);
+X	p->so = accept(so, (struct sockaddr *) &p->sin, &sinlen);
+X	if (p->so < 0) {
+X		errno_diag();
+X		return;
+X	}
+X
+X	/*
+X	 * check peer privilege
+X	 */
+X	if (bcmp(&p->sin.sin_addr, &cs_ipaddr, sizeof (struct in_addr)) == 0) {
+X		if (ntohs(p->sin.sin_port) < IPPORT_RESERVED) {
+X			p->flag |= WF_REQ_PRIV;
+X			dlog("privileged connection established");
+X		}
+X	} else {
+X#if 0
+X		/* TCP connection from other hosts.
+X		 * Reject it to conserve open file descriptor.
+X		 */
+X		close(p->so);
+X		return;
+X#endif
+X	}
+X	so_register(p->so, WF_SO_READ);
+X	so_callback(p->so, uip_recv, p);
+X}
+X
+X/*
+X * WWUIP/TCP for telnet,
+X * WWUIP/UDP for Tcl/Tk and other utilities.
+X *
+X * UDP version is preferable since it doesn't consume file descriptor..
+X */
+Xvoid
+Xuip_start()
+X{
+X	int opt, tcp_so, udp_so;
+X	struct sockaddr_in sin;
+X	int ret;
+X
+X	/*
+X	 * create tcp socket
+X	 */
+X	tcp_so = socket(AF_INET, SOCK_STREAM, 0);
+X	if (tcp_so < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	opt = 1;
+X#if 0	/* for debug_malloc ? */
+X	ioctl(tcp_so, FIONBIO, &opt);
+X#endif
+X	setsockopt(tcp_so, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int));
+X	so_register(tcp_so, WF_SO_READ);
+X	bzero(&sin, sizeof(sin));
+X	sin.sin_family = AF_INET;
+X	sin.sin_addr.s_addr = htonl(INADDR_ANY);
+X	sin.sin_port = htons(8002);
+X	ret = bind(tcp_so, (struct sockaddr *) &sin, sizeof (sin));
+X	if (ret < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	listen(tcp_so, 1);
+X	so_callback(tcp_so, uip_accept, tcp_so);
+X
+X	/*
+X	 * create udp socket
+X	 */
+X	udp_so = socket(AF_INET, SOCK_DGRAM, 0);
+X	if (udp_so < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	opt = 1;
+X	ioctl(udp_so, FIONBIO, &opt);
+X	so_register(udp_so, WF_SO_READ);
+X	bzero(&sin, sizeof(sin));
+X	sin.sin_family = AF_INET;
+X	sin.sin_addr.s_addr = htonl(INADDR_ANY);
+X	sin.sin_port = htons(8002);
+X	ret = bind(udp_so, (struct sockaddr *) &sin, sizeof (sin));
+X	if (ret < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	so_callback(udp_so, uip_recvfrom, udp_so);
+X}
+X
+END_OF_FILE
+  if test 12592 -ne `wc -c <'csd/uip.c'`; then
+    echo shar: \"'csd/uip.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/uip.c'
+fi
+if test -f 'gtr/resolv.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gtr/resolv.pl'\"
+else
+  echo shar: Extracting \"'gtr/resolv.pl'\" \(11569 characters\)
+  sed "s/^X//" >'gtr/resolv.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# DNS resolver library.  See RFC1035 for more details.
+X# by Marc Horowitz <marc@mit.edu>
+X
+X# $Id: resolv.pl,v 1.3 91/11/09 00:35:49 marc Exp $
+X
+X# The interface works like this (all functions are in the main package)
+X#
+X# res_init()
+X#	One-time initialization
+X#
+X# res_open($nameserver)
+X#	Sets up a connection to $nameserver.
+X#	If $nameserver is undefined or empty, then the server is
+X#	looked up in /etc/resolv.conf.  Returns the filehandle.
+X#
+X# res_mkquery($name, $type, $class, $id)
+X#	builds and returns a query for the given name, type, class,
+X#	and id.  If no id is given, a random ID is chosen.
+X#
+X# res_send($fh, $query)
+X#	sends $query to the server at $fh.  Returns the response from the
+X#	server.
+X#
+X# response format:
+X# [0] = id
+X# [1] = authoritative
+X# [2] = recursion available
+X# [3] = query name
+X# [4] = query class
+X# [5] = query type
+X# [6] = start of answers
+X# [7] = end of answers
+X# [8] = start of authority records
+X# [9] = end of authority records
+X# [10] = start of add'l records
+X# [11] = end of add'l records
+X# [12] ...   resource records (in multiples of 5)
+X#
+X# The variable res'options can be set to any of the values
+X# which _res.options can be set to.  The constants will be in the 
+X# main package.
+X#
+X# Not implemented yet:
+X# Only one query is sent out.  That is, RES_DNSRCH is ignored, and
+X#	only the primary nameserver is used.
+X# RES_DEBUG doesn't print anything
+X#	
+X
+X## Everything after this is code.  If you look at it, you're
+X## violating an abstraction barrier.  Shame on you.  :-)
+X
+X# hack! hack!  This is to confuse the byte order stuff in arpa/nameser.h
+X# nothing here depends on it anyway.
+X
+Xsub MIPSEB {1;}
+X
+Xrequire 'sys/socket.ph' || die "can\'t do sys/socket.ph: $@";
+Xrequire 'arpa/nameser.ph' || die "can\'t do arpa/nameser.ph: $@";
+Xrequire 'resolv.ph' || die "can\'t do resolv.ph: $@";
+X
+X# who? me? kludge?
+X
+Xundef &MIPSEB;
+X
+Xpackage res;
+X
+X# Create conversion arrays unfortunately, I need to hardcode lists
+X# of the types and classes.
+X
+X@qtypes = ("A", "NS", "MD", "MF", "CNAME", "SOA", "MB", "MG", "MR", "NULL",
+X	    "WKS", "PTR", "HINFO", "MINFO", "MX", "TXT", "UINFO", "UID", "GID",
+X	    "UNSPEC", "UNSPECA", "AXFR", "MAILB", "MAILA", "ANY");
+X
+X@qclasses = ("IN", "CHAOS", "HS", "ANY");
+X
+Xfor (@qtypes) {
+X    eval "\@qtype[&main'T_$_] = \"$_\";\$qtype{\$_} = &main'T_$_;";
+X}
+X
+Xfor (@qclasses) {
+X    eval "\@qclass[&main'C_$_] = \"$_\";\$qclass{\$_} = &main'C_$_;";
+X}
+X
+Xsub qtype_strtonum {
+X    return($qtype{$_[0]} || -1);
+X}
+X
+Xsub qclass_strtonum {
+X    return($qclass{$_[0]} || -1);
+X}
+X
+Xsub qtype_numtostr {
+X	local($str) = @qtype[$_[0]];
+X
+X	if (defined($str)) {
+X		return($str);
+X	} else {
+X		return("$_[0]");
+X	}
+X}
+X
+Xsub qclass_numtostr {
+X	local($str) = @qclass[$_[0]];
+X
+X	if (defined($str)) {
+X		return($str);
+X	} else {
+X		return("$_[0]");
+X	}
+X}
+X
+X# option bits and defaults
+X
+X$options = &main'RES_DEFAULT;
+X$domain = "";
+X
+Xsub debug { $options & &main'RES_DEBUG; }
+X
+Xsub ipaddr {
+X    if ($_[0] =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)/) {
+X	$saddr = pack("CCCC", $1, $2, $3, $4);
+X    } else {
+X	($saddr = ((gethostbyname($_[0]))[4] || undef)) ||
+X	    return(undef);
+X    }
+X}
+X
+Xsub read_conf {
+X    return if ($domain);
+X
+X    local($addr);
+X
+X    print "Reading /etc/resolv.conf\n" if &debug;
+X
+X    if (open(CONF,"/etc/resolv.conf")) {
+X	local($") = ",";
+X	while(<CONF>) {
+X	    chop;
+X	    if (/^domain\s+/) { $domain = $'; }
+X	    elsif (/^nameserver\s+/) {
+X		if ($addr = &ipaddr($')) { push(@servers,$addr); }
+X	    }
+X	}
+X	close(CONF);
+X    } else {
+X	$domain = '';
+X	@servers = ("\0\0\0\0");
+X    }
+X    print "domain is ",$domain,"\nresolvers are @servers\n" if &debug;
+X}
+X
+X# one-time initialization
+X
+X$inited = 0;
+X
+Xsub main'res_init {
+X    return if ($options & &main'RES_INIT);
+X
+X    local($fh);
+X
+X    socket(NSUDP, &main'AF_INET, &main'SOCK_DGRAM, &main'PF_UNSPEC) ||
+X	die "socket: $!";
+X
+X    $options |= &main'RES_INIT;
+X    &read_conf;
+X
+X    $fh = select(NSUDP); $| = 1;   # set nonbufferred
+X    select($fh);
+X}
+X
+X# begin a conversation with a nameserver
+X
+Xsub main'res_open {			# @_ = ($nameserver)
+X    local($saddr,$port);
+X
+X    &main'res_init if (!($options & &main'RES_INIT));
+X
+X    if ($_[0]) {
+X	if ($_[0] =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)/) {
+X	    $saddr = pack("CCCC", $1, $2, $3, $4);
+X	} else {
+X	    ($saddr = ((gethostbyname($_[0]))[4] || undef)) ||
+X		return(undef);
+X	}
+X    } else {
+X	$saddr = $servers[0];
+X    }
+X
+X    # lossage in /etc/services.  hardcode for now.
+X    #$port = (getservbyname("nameserver","tcp"))[2];
+X    $port = 53;
+X
+X    $port = pack("S n a4 x8",&main'AF_INET,$port,$saddr);
+X
+X    return($port);
+X}
+X
+Xsub main'res_mkquery { # @_ = ($name,$type,$class,$id)
+X    local($question);
+X
+X    print "building query for <$_[0],$_[1],$_[2]>\n" if &debug;
+X
+X    $question = (($options & &main'RES_RECURSE)? #  header
+X		 pack("n6",$_[3],0x0100,1,0,0,0):
+X		 pack("n6",$_[3],0x0000,1,0,0,0));
+X    $question .= ((($options & &main'RES_DEFNAMES) &&
+X		   (substr($_[0],-1,1) ne "."))?
+X		  &unparse_name($_[0].".".$domain):
+X		  &unparse_name($_[0]));
+X    $question .= pack("n n",&qtype_strtonum($_[1]), # query
+X		      &qclass_strtonum($_[2]));
+X}
+X
+Xsub unparse_name {
+X	local($label,$labellen,$str);
+X	$str = "";
+X	foreach $label (split(/\./,$_[0])) {
+X		$labellen = length($label);
+X		$str .= pack("Ca$labellen",$labellen,$label);
+X	}
+X	$str .= pack("C",0);		# root octet
+X}
+X
+X%nstcp = ();			# assoc array of open VC's
+X$sockcnt = "nstcp000";
+X
+Xsub main'res_send { # @_ = ($socket,$query)
+X    local($sin,$len,$packet) = ($_[0],pack("n",length($_[1])),$_[1]);
+X    local($fh,$resp);
+X
+X    if ($options & &main'RES_USEVC) { # 
+X	$fh = $nstcp{$sin};
+X	if (!$fh) {
+X	    $fh = $sockcnt++;
+X
+X	    if (&debug) {
+X		local($,) = (".");
+X		print "Connecting to ",(unpack("S n C4",$sin))[2..5,1],"\n";
+X	    }
+X
+X	    socket($fh,&main'AF_INET,&main'SOCK_STREAM,&main'PF_UNSPEC) ||
+X		die "socket: $!";
+X	    connect($fh, $sin) || die "connect: $!";
+X
+X	    $nstcp{$sin} = $fh;
+X	}
+X
+X	if (&debug) {
+X	    local($,) = (".");
+X	    print "Sending to ",(unpack("S n C4",$sin))[2..5,1]," via TCP\n";
+X	}
+X
+X	send($fh,$len,0);
+X	send($fh,$packet,0);
+X
+X	if (&debug) {
+X	    local($,) = (".");
+X	    print "Receiving from ",(unpack("S n C4",$sin))[2..5,1]
+X		," via TCP\n";
+X	}
+X
+X	read($fh,$len,2) || die "recv: $!,$@";
+X	if ($len = unpack("n",$len)) {
+X	    read($fh,$resp,$len) || die "recv: $!";
+X	}
+X
+X	print "Got a response (size=$len)\n" if (&debug);
+X
+X	if (! ($options & &main'RES_STAYOPEN)) {
+X	    foreach (keys(%nstcp)) {
+X		if (&debug) {
+X		    local($,) = (".");
+X		    print "Disconnecting from ",(unpack("S n C4",$_))[2..5,1]
+X			,"\n";
+X		}
+X
+X		close($_);
+X	    }
+X	    %nstcp = ();
+X	}
+X    } else {
+X	if (&debug) {
+X	    local($,) = (".");
+X	    print "Sending to ",(unpack("S n C4",$sin))[2..5,1]," via UDP\n";
+X	}
+X
+X	send(NSUDP,$packet,0,$sin) || die "send: $!";
+X
+X	if (&debug) {
+X	    local($,) = (".");
+X	    print "Receiving from ",(unpack("S n C4",$sin))[2..5,1]," via UDP\n";
+X	}
+X
+X	$len = 512;
+X	read(NSUDP,$resp,512,0) || die "recv: $!";
+X
+X	print "Got a response (size=$len)\n" if (&debug);
+X    }
+X
+X    &parse_response($resp);
+X}
+X
+Xsub parse_response { # @_ = ($response)
+X	local($response,@resp,@ptr) = @_;
+X
+X	@ptr = ($response,0);
+X
+X	$header = &next_chars(12,@ptr);
+X	($id,$bits,$qdcount,$ancount,$nscount,$adcount) = unpack("n6",$header);
+X	$auth = ($bits >> 10) & 0x01;
+X	$recurse = ($bits >> 8) & 0x01;
+X	if ((!$auth) && ($options & &main'RES_AAONLY)) {
+X	    ($ancount,$nscount,$adcount) = (0,0,0);
+X	}
+X	    
+X	$rrs = $ancount+$nscount+$adcount;
+X	@resp = ($id,$auth,$recurse);		# 		[0..2]
+X
+X	push(@resp,&parse_name(@ptr)); 		# QNAME		[3]
+X	push(@resp,&next_netshort(@ptr));	# QTYPE		[4]
+X	push(@resp,&next_netshort(@ptr));	# QCLASS	[5]
+X
+X	push(@resp,12);				# 		[6]
+X	push(@resp,@resp[$#resp]+5*$ancount-1);	#		[7]
+X
+X	push(@resp,@resp[$#resp]+1);		#		[8]
+X	push(@resp,@resp[$#resp]+5*$nscount-1);	#		[9]
+X
+X	push(@resp,@resp[$#resp]+1);		#		[10]
+X	push(@resp,@resp[$#resp]+5*$adcount-1);	#		[11]
+X
+X	for ($i = 0 ; $i < $rrs ; $i++) {
+X	    push(@resp,&parse_rrbits(@ptr));
+X	}
+X	return(@resp);
+X}
+X
+Xsub parse_name {
+X	local($name,$ch,$ptr,@temp) = ("",substr($_[0],$_[1],1));
+X	while (ord($ch = substr($_[0],$_[1],1)) != 0) {
+X		# Message compression (RFC1035 4.1.4)
+X		if (ord($ch) >= 0xc0) {
+X			$ptr = &next_netshort(@_) & 0x3fff;
+X			@temp=($_[0],$ptr);
+X			$name .= "".&parse_name(@temp);
+X			return($name);
+X		}
+X		$name .= &next_str(@_).".";
+X	}
+X	&next_chars(1,@_);	# move past \0
+X	if ($name eq "") { $name = ".."; }
+X	chop($name);  # remove trailing "."
+X	return($name);
+X}
+X
+Xsub parse_rrbits {
+X	local(@rrec,$name,$rdlen,$pfct);
+X	@rrec = ();
+X
+X	$name = &parse_name(@_);
+X	# if NAME is an odd number of bytes, eat an extra byte
+X	if (($name == "") || (length($name)%2 == 1)) {&next_chars(1,$_[0]);}
+X	@rrec = ($name);					# NAME
+X	push(@rrec,&qtype_numtostr(&next_netshort(@_)));	# TYPE
+X	push(@rrec,&qclass_numtostr(&next_netshort(@_)));	# CLASS
+X	push(@rrec,&next_netlong(@_));				# TTL (integer)
+X
+X	$rdlen = &next_netshort(@_);
+X#	push(@rrec,&next_chars($rdlen,@_));			# RDATA
+X	$pfct = "rrparse_".&qtype_numtostr($rrec[1]);
+X	push(@rrec,&$pfct(@_,$rdlen));				# RDATA
+X	return(@rrec);
+X}
+X
+Xsub next_netshort {unpack("n",&next_chars(2,@_));}
+Xsub next_netlong  {unpack("N",&next_chars(4,@_));}
+X
+X# strips the first character-string from the argument, and returns it as a
+X# perl string
+Xsub next_str {
+X	local($cslen);
+X	$cslen = unpack("C",&next_chars(1,@_));
+X	&next_chars($cslen,@_);
+X}
+X
+X# returns the first $_[0] chars at position $_[2] in string $_[1]
+X# and increments $_[2]
+Xsub next_chars {
+X	local($len,$str) = (length($_[1]),$_[1]);
+X	$_[2] += $_[0];
+X	substr($_[1],$_[2]-$_[0],$_[0]);
+X}
+X
+X# routines to parse apart the rrdata
+X
+Xsub rrparse_A {
+X    join('.',unpack("C4",&next_chars(4,@_)));
+X}
+X
+Xsub rrparse_NS {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_MD {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_MF {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_CNAME {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_SOA {
+X    join(' ',
+X	 join('.',&parse_name(@_)),
+X	 join('.',&parse_name(@_)),
+X	 &next_netlong(@_),
+X	 &next_netlong(@_),
+X	 &next_netlong(@_),
+X	 &next_netlong(@_),
+X	 &next_netlong(@_));
+X}
+X
+Xsub rrparse_MB {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_MG {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_MR {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_NULL {
+X    return(&next_chars($_[2],@_));
+X}
+X
+Xsub rrparse_WKS {
+X    local(@resp,$bitmap,$len,%bit);
+X
+X    push(@resp,
+X	 &rrparse_A(@_),
+X	 ord(&next_chars(1,@_)));
+X    $bitmap = &next_chars($_[2]-5,@_);
+X    @bit{0..(length($bitmap)*8)} = split(//,unpack("B*", $bitmap));
+X    push(@resp, grep($bit{$_},keys(%bit)));
+X
+X#    for (unpack("B$len", $bitmap)) {
+X#	push(@resp, $_) if $_;
+X#    }
+X
+X#    for ($i=0;$i<length($bitmap)*8;$i++) {
+X#	if (vec($bitmap,$i,1)) { push(@resp,$i); }
+X#    }
+X    join(' ',@resp);
+X}
+X
+Xsub rrparse_PTR {
+X    join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_HINFO {
+X    &next_str(@_).$;.&next_str(@_);
+X}
+X
+Xsub rrparse_MINFO {
+X    join('.',&parse_name(@_)).",".join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_MX {
+X    &next_netshort(@_)." ".join('.',&parse_name(@_));
+X}
+X
+Xsub rrparse_TXT {
+X    local(@data,$end);
+X    $end = $_[1]+$_[2];
+X    while ($_[1] < $end) {
+X	push(@data,&next_str(@ptr));
+X    }
+X    if ($_[1] > $end) { print STDERR "Something weird in rrparse_TXT\n"; }
+X    join($;,@data);
+X}
+X
+Xsub rrparse_UNSPEC {
+X    &next_chars($_[2],@_);
+X}
+X
+Xsub rrparse_UNSPECA {
+X    &next_chars($_[2],@_);
+X}
+X
+Xsub rrparse {
+X    local($type,$class) = (&qtype_numtostr($_[1]),&qclass_numtostr($_[2]));
+X    local(@rrout);
+X
+X    eval("\@rrout = &rrparse_$type(\$_[4])") || (@rrout = ("< ".$_[4]." >"));
+X    return($_[0],$type,$class,$_[3],@rrout);
+X}
+X
+Xsub qdparse {
+X    return($_[0],&qtype_numtostr($_[1]),&qclass_numtostr($_[2]));
+X}
+END_OF_FILE
+  if test 11569 -ne `wc -c <'gtr/resolv.pl'`; then
+    echo shar: \"'gtr/resolv.pl'\" unpacked with wrong size!
+  fi
+  # end of 'gtr/resolv.pl'
+fi
+if test -f 'mosaic/htget.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/htget.pl'\"
+else
+  echo shar: Extracting \"'mosaic/htget.pl'\" \(12127 characters\)
+  sed "s/^X//" >'mosaic/htget.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+X# htget               --- recursively get HTMLs starting at a given URL
+X#
+X# Given a starting URL, htget will recursively retrieve HTML pages.
+X# It will also generate "htget.log" -- a table of titles and hosts.
+X# Tries to find as many new hosts as possible, and strictly
+X# limits the number of pages it will request from any one server.
+X#
+X# htget will stop when $maxtotal pages are retrieved (1000!),
+X# or when the all pages were retrieved,
+X# or when SIGINT is received (^C).
+X#
+X# NB: to get all pages recursively, try:
+X#       htget -ls <home-page>
+X#
+X# Author: Youki Kadobayashi <youki@wide.ad.jp>
+X# derived from "explore" written by: Oscar Nierstrasz oscar@cui.unige.ch
+X# This file is part of WWFS.
+X#
+X#v = '(v1.0)'; # August 30, 1993
+X#v = '(v1.1)'; # August 31 -- added triggering of xmosaic
+X#v = '(v1.2)'; # Sept 1 -- added various options; SIGINT handling
+X#v = '(v1.3)'; # Oct 21 -- fixed counting of hosts; added -d
+X#v = '(v1.4)'; # Oct 23 -- fixed sigint to allow <CR> to continue
+X#                #       -- fixed printing of $hostsig
+X#v = '(v1.0)'; # Nov 14, 1993 -- htget initial revision
+X$v = '(v1.1)'; # Dec 8, 1993 -- htget initial revision
+X
+Xrequire '/etc/csd.pl';
+Xunshift(@INC, "$WWFSDIR/lib");
+Xrequire 'url.pl';
+Xrequire 'dirutil.pl';
+X
+X$usg = 'Usage: htget [<options>] <http-url> <output file>
+X	<http-url>	-- URL to start with (no default)
+X	<output file>	-- default is htget.log
+X	-m <maxpages>	-- max pages to get per site (default 5)
+X	-t <maxtotal>	-- max total pages to get (default 100)
+X	-h <maxhosts>	-- max hosts to explore (default unlimited)
+X	-s <savedir>	-- directory to save pages to (default current)
+X	-a <altdir>	-- alternate directory to search
+X	-x <regexp>	-- exclude files matching regexp
+X	-ls		-- list all pages at starting site (use with care!)
+X	-i		-- also get embedded images
+X';
+X$maxpages = 5;          # max pages to retrieve per site
+X$maxtotal = 100;        # max pages to retrieve in total
+X$maxhosts = undef;      # max hosts to visit
+X
+X$hosts = 1;             # hosts visited (always at least 1)
+X
+Xchop($date = `date +%d.%m.%y`);
+X$sig = "This page was generated by htget $v on $date.\n";
+X
+X# A good default starting point:
+X# $whatsnew = "http://www.ncsa.uiuc.edu/SDG/Software/Mosaic/Docs/whats-new.html";
+X# $start = "http://www.ncsa.uiuc.edu/SDG/Software/Mosaic/StartingPoints/NetworkStartingPoints.html";
+X
+X# default log file:
+X$deflog = "htget.log";
+X
+X# default save directory:
+X$savedir = ".";
+X
+Xwhile ($#ARGV >= $[) {
+X	$arg = shift @ARGV;
+X
+X	if ($arg eq "-m") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxpages = $arg (was $maxpages)\n";
+X			$maxpages = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -m\n$usg"; }
+X	}
+X
+X	if ($arg eq "-t") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxtotal = $arg (was $maxtotal)\n";
+X			$maxtotal = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -t\n$usg"; }
+X	}
+X
+X	if ($arg eq "-h") {
+X		$arg = shift @ARGV;
+X		if ($arg =~ /^\d+$/){
+X			print STDERR "maxhosts = $arg (was $maxhosts)\n";
+X			$maxhosts = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -h\n$usg"; }
+X	}
+X
+X	if ($arg eq "-s") {
+X		$arg = shift @ARGV;
+X		if (-d $arg) {
+X			print STDERR "directory = $arg (was $savedir)\n";
+X			$savedir = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -s\n$usg"; }
+X	}
+X
+X	if ($arg eq "-a") {
+X		$arg = shift @ARGV;
+X		if (-d $arg) {
+X			print STDERR "directory = $arg (was $altdir)\n";
+X			$altdir = $arg;
+X			next;
+X		}
+X		else { die "Bad arg for -a\n$usg"; }
+X	}
+X
+X	if ($arg eq "-x") {
+X		$arg = shift @ARGV;
+X		print STDERR "exclude = $arg\n";
+X		$exclude = $arg;
+X		next;
+X	}
+X
+X	if ($arg eq "-ls") {
+X		$maxhosts = 1;
+X		$maxtotal = $maxpages = 1000;
+X		next;
+X	}
+X
+X	if ($arg eq "-i") { $img = 1; next; }
+X	if ($arg eq "-h") { die "$usg"; }
+X	if ($arg =~ /^-/) { die "Invalid flag\n$usg"; }
+X	if ($arg =~ /^http:/) {
+X		if ($start) { die "Please give only one URL\n$usg"; }
+X		$start = $arg;
+X	}
+X	else {
+X		if ($log) { die "Please give only one output file\n$usg"; }
+X		$log = $arg;
+X	}
+X}
+X
+Xunless ($log) { $log = $deflog; }
+X$dump = $log;
+X$dump =~ s/\.[a-z]+/.dump/ || ($dump = "$log.dump");
+Xunless ($start || -f $dump) { die "$usg"; }
+X
+X(open(STDOUT,">>$log")) || die "Can't create/append $log\n";
+X$| = 1;
+Xprint STDERR "Writing output to $log\n";
+X
+Xif (-f $dump && open (DUMP, $dump)) {
+X	print STDERR "Reading TODOs from $dump...\n";
+X	$page = <DUMP>;
+X	@tocheck = split("\n", $page);
+X	close (DUMP);
+X	unlink($dump);
+X	$start = shift @tocheck;
+X}
+X
+X&explore($start);
+X
+X# Explore the web, starting at $url.
+X# Maintains a list @tocheck of URLs to try.
+Xsub explore {
+X	local($url) = @_;
+X	if ($maxhosts == 1) {
+X		print "Log of HTML transfer from $url\n$sig\n";
+X	}
+X	else {
+X		print "Log of HTML transfer starting at $url\n";
+X		if ($maxhosts) {
+X			print "Maximum hosts to visit = $maxhosts.\n";
+X		}
+X		print "Max pages per site = $maxpages.\n",
+X			"Max total pages = $maxtotal.\n$sig\n";
+X	}
+X
+X	$SIG{'INT'} = 'sigint'; # Stop when SIGINT is received
+X	push(@tocheck,$url);    # Initialize
+X	$seen{$url} = 1;        # Remember that we've seen it
+X	($thistype,$thishost, $thisport, $thispath, $request) =
+X		&url'parse(undef,undef,undef,undef,$url);
+X	$seenhost{$thishost} = 1;
+X
+X	while ($#tocheck >= $[) {
+X		$url = shift @tocheck;
+X		# Remember current host, port and path:
+X		($thistype,$thishost, $thisport, $thispath, $request) =
+X			&url'parse(undef,undef,undef,undef,$url);
+X		# Check file size:
+X		$page = &url'http_head($thishost, $thisport, $request);
+X		$title = split(/\n/, $page, 1);
+X		if (($title =~ /Server Error:/)
+X			|| ($title =~ /Bad File Request/)
+X			|| ($title =~ /404 Not Found/)) {
+X			print "Invalid page: $url\n";
+X			next;
+X		}
+X		if ($page =~ /Content-length:\s+/) {
+X			$length = $';
+X		} else {
+X			$length = 0;
+X			print "No content-length: $url\n";
+X		}
+X		if (&gotit("$savedir/$request", "$altdir/$request")
+X		    && &length("$savedir/$request", "$altdir/$request") == $length) {
+X			# Cached file seems to be valid
+X			$page = &loadfile("$savedir/$request");
+X		} else {
+X			# Not fetched or invalid cache
+X			print STDERR "Requesting $url\n";
+X			unless ($page = &url'get($url)) {
+X				print "Can't get $url\n";
+X				next;
+X			} ;
+X
+X			# Extract the title and detect errors
+X			if ($page =~ m|<title>([^<]+)</title>|i)
+X				{ $title = $1; }
+X			else { $title = "UNTITLED"; }
+X			if (($title =~ /Server Error:/)
+X			    || ($title =~ /Bad File Request/)
+X			    || ($title =~ /404 Not Found/)) {
+X				print "Invalid page: $url\n";
+X				next;
+X			}
+X
+X			&savefile($savedir . $request, $page);
+X			&save_url($savedir . $request, $url);
+X			if (!($maxhosts == 1)) { $hostsig = " ($thishost)"; }
+X			$title =~ s/\n/ /g;
+X			# This page is ok, so log it:
+X			print "$title$hostsig\n";
+X			# from the last request
+X			if (++$entries >= $maxtotal) { &dump; last; }
+X		}
+X		foreach $href (&hrefs($page)) {
+X			$href =~ s/#.*$//;
+X			next if $href eq "";
+X			# Parse the URL, if possible:
+X			($type,$host,$port,$path,$request) =
+X				&url'parse($thistype,$thishost,
+X					$thisport,$thispath,$href);
+X			unless ($type eq "http") { next; }
+X			# Skip this host if invalid:
+X			unless ($host) { next; }
+X			# Convert from relative to absolute URL:
+X			$href = "http://$host:$port$request";
+X			# Skip if seen already:
+X			if ($seen{$href}) { next; }
+X			$seen{$href} = 1;
+X			# Don't ask too many pages from a given host:
+X			unless (++$count{$host} <= $maxpages) { next; }
+X			# Only look at guaranteed .html files:
+X			unless ($request =~ /\.html$/ || $request =~ /\/$/) {
+X				if ($exclude && eval "\$request =~ $exclude") {
+X					next;
+X				}
+X			}
+X			if ($seenhost{$host}) {
+X				# Seen this host, so add to end of queue:
+X				print STDERR "Pushing $href\n";
+X				if ($request =~ /\.html$/
+X				    || $request =~ /\/$/) {
+X					# HTML file -- add to checklist
+X					push(@tocheck,$href);
+X				} else {
+X					# Plain file -- add to xfer list
+X					push (@toget, $href);
+X				}
+X			}
+X			else {
+X				if ($maxhosts) {
+X					if (++$hosts > $maxhosts) { next; }
+X				}
+X				# New host, so add to front:
+X				print STDERR "Queueing $href\n";
+X				if ($request =~ /\.html$/
+X				    || $request =~ /\/$/) {
+X					# HTML file -- add to checklist
+X					unshift(@tocheck,$href);
+X				} else {
+X					# Plain file -- add to xfer list
+X					unshift (@toget, $href);
+X				}
+X				$seenhost{$host} = 1;
+X			}
+X		}
+X		if ($img) { push(@toget, &srcs($page)) };
+X		foreach $url (@toget) {
+X			# Parse the URL, if possible:
+X			($type,$host,$port,$path,$request) =
+X				&url'parse($thistype,$thishost,
+X					$thisport,$thispath,$url);
+X			unless ($type eq "http") { next; }
+X			# Skip this host if invalid:
+X			unless ($host) { next; }
+X			# Convert from relative to absolute URL:
+X			$url = "http://$host:$port$request";
+X			# Check file size:
+X			$page = &url'http_head($host, $port, $request);
+X			$title = split(/\n/, $page, 1);
+X			if (($title =~ /Server Error:/)
+X			    || ($title =~ /Bad File Request/)
+X			    || ($title =~ /404 Not Found/)) {
+X				print "Invalid IMG: $url\n";
+X				next;
+X			}
+X			if ($page =~ /Content-length:\s+/) {
+X				$length = $';
+X				if (&gotit("$savedir/$request", "$altdir/$request")
+X				    && &length("$savedir/$request", "$altdir/$request") == $length) {
+X					next;
+X				}
+X			} else {
+X				print "No content-length: $url\n";
+X			}
+X			# Skip if seen already:
+X			if ($seen{$url}) { next; }
+X			$seen{$url} = 1;
+X
+X			print STDERR "Requesting $url\n";
+X			unless ($page = &url'get($url)) {
+X				print "Can't get $url\n";
+X				next;
+X			} ;
+X			&savefile($savedir . $request, $page);
+X			&save_url($savedir . $request, $url);
+X			print "(plain file)\n";
+X		}
+X		@toget = ();
+X	}
+X
+X	print "\nSearch completed.\n";
+X	close(STDOUT);
+X	print STDERR "Result of exploration in $log\n";
+X}
+X
+Xsub gotit {
+X	# check if a file has been retrieved already
+X	local ($path, $alt) = @_;
+X
+X	return 1 if (-e $path || -e $alt);
+X	0;
+X}
+X
+Xsub length {
+X	local ($path, $alt) = @_;
+X
+X	return (stat($path))[7] if (-e $path);
+X	return (stat($alt))[7] if (-e $alt);
+X}
+X
+Xsub save_url {
+X	# keep url-to-file mapping information
+X	local ($path, $url) = @_;
+X	local ($dir, $file);
+X
+X	($dir, $file) = &basename($path);
+X	($url, $file) = &basename($url);
+X	if (! -e "$dir/.url") {
+X		open(URL, ">$dir/.url");
+X		print URL "$url\n";
+X		close(URL);
+X	}
+X}
+X
+Xsub savefile {
+X	local ($path, $page) = @_;
+X	local ($dir, $file);
+X
+X	($dir, $file) = &basename($path);
+X	# make directories if necessary, and write the page
+X	if (! -d $dir) {
+X		if (&mkdirhier($dir)) {
+X			print "mkdir $dir\n";
+X		} else {
+X			print "Error in creating $dir: $!\n";
+X		}
+X	}
+X	if ($path =~ m:/$:) {
+X		# httpd may have mapped directory to a page,
+X		# e.g, "/" -> "/foo/Welcome.html".
+X		# as a workaround, we save it under some name
+X		# unlikely to conflict.
+X		$path .= "urlget_dir.html";
+X	}
+X	if (open(FILE, ">$path")) {
+X		print FILE $page;
+X		close(FILE);
+X		print "got $path: ";
+X	} else {
+X		print "Error in creating $path: $!: ";
+X	}
+X}
+X
+Xsub loadfile {
+X	local ($path) = @_;
+X	local ($page);
+X	local ($/);
+X
+X	if (open(FILE, "$path")) {
+X		$page = <FILE>;
+X		close(FILE);
+X		$page;
+X	} else {
+X		print "Error in reading $path: $!\n";
+X		undef;
+X	}
+X}
+X
+Xsub dump {
+X	# dump @tocheck in a file so that htget can be resumed later.
+X
+X	open(DUMP, "> $dump");
+X	print DUMP join("\n", @tocheck);
+X	close(DUMP);
+X}
+X
+Xsub sigint {
+X	local ($/) = "\n";
+X	local ($res);
+X	print STDERR "Enter <CR> to continue, \"q\" to quit\n";
+X	chop ($res = <STDIN>);
+X	return if ($res eq "");
+X	if ($res ne "q") {
+X	    print STDERR "Invalid response -- continuing\n";
+X	    return;
+X	}
+X	print STDERR "Quitting...\n";
+X	&dump;		# dump @tocheck in a file.
+X	print "\n\nInterrupted!\n";
+X	close(STDOUT);
+X	print STDERR "Result of exploration in $log\n";
+X	exit(0);
+X}
+X
+X# return a list of all the hrefs in a page
+Xsub hrefs {
+X	local($page) = @_;
+X	$page =~ s/^[^<]+</</;
+X	$page =~ s/>[^<]*</></g;
+X	$page =~ s/>[^<]*$/>/g;
+X	$page =~ s/<a[^>]*href\s*=\s*"([^"]+)"[^>]*>/$1\n/gi;
+X	$page =~ s/<[^>]*>//g;
+X	$page =~ s/\n+/\n/g;
+X	split(/\n/,$page);
+X}
+X
+X# return a list of all the embedded images in a page
+Xsub srcs {
+X	local($page) = @_;
+X	$page =~ s/^[^<]+</</;
+X	$page =~ s/>[^<]*</></g;
+X	$page =~ s/>[^<]*$/>/g;
+X	$page =~ s/<img[^>]*src\s*=\s*"([^"]+)"[^>]*>/$1\n/gi;
+X	$page =~ s/<[^>]*>//g;
+X	$page =~ s/\n+/\n/g;
+X	split(/\n/,$page);
+X}
+X
+X# Local Variables:
+X# mode: cperl
+X# cperl-indent-level: 8
+X# cperl-continued-statement-offset: 8
+X# End:
+END_OF_FILE
+  if test 12127 -ne `wc -c <'mosaic/htget.pl'`; then
+    echo shar: \"'mosaic/htget.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'mosaic/htget.pl'
+  # end of 'mosaic/htget.pl'
+fi
+if test -f 'mosaic/url.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/url.pl'\"
+else
+  echo shar: Extracting \"'mosaic/url.pl'\" \(12077 characters\)
+  sed "s/^X//" >'mosaic/url.pl' <<'END_OF_FILE'
+X#! /bin/perl
+X#
+X# url.pl        --- recognize, parse and retrieve URLs
+X#
+X# This package contains:
+X#
+X# url'href:     identify URLs and turn them into hypertext links
+X# url'get:      parse an URL and perform an http get
+X# url'parse:    parse an URL and return ($type,$host,$port,$path,$request)
+X# url'abs:      convert relative URLs to absolute ones
+X# url'http:     perform an http request and return the result
+X# url'gopher:   perform a gopher request and return the result
+X# url'ftp:      perform an ftp request and return the result
+X# 
+X# Oscar Nierstrasz 26/8/93 oscar@cui.unige.ch
+X#
+X# 14/9/93 -- added url'gopher (not 100% stable) and url'ftp
+X#
+X# BUGS: relative paths work only if directories are always
+X# terminated with a "/" -- otherwise assumes the directory is
+X# just a filename and remembers the parent directory as the
+X# current path.
+X#
+X# Can't get $! to return error messages properly.
+X
+Xpackage url;
+X
+Xrequire "sys/socket.ph";
+X
+X# unshift(@INC, "/homes/spaf/lib/perl");
+X# unshift(@INC, "/user/u1/oscar/Cmd/PerlLib");
+X
+X# Gene Spafford's ftp package (and using the chat package).
+X# Added ftp'grab -- a variant of ftp'get that returns its result
+X# rather than writing to a local file.
+Xrequire "ftplib.pl";
+X
+X$user = getlogin;
+X
+X# locals:
+X$type = undef;
+X$host = undef;
+X$port = undef;
+X$path = undef;
+X$request = undef;
+X
+X$sockaddr = 'S n a4 x8';
+Xchop($thishost = `hostname`);
+X($name, $aliases, $proto) = getprotobyname("tcp");
+X($name, $aliases, $type, $len, $thisaddr) = gethostbyname($thishost);
+X$thissock = pack($sockaddr, &AF_INET, 0, $thisaddr);
+X
+X# Try to recognize URLs and ftp file indentifiers and convert them into HREFs:
+X# This routine is evolving.  The patterns are not perfect.
+X# This is really a parsing problem, and not a job for perl ...
+X# It is also generally impossible to distinguish ftp site names
+X# from newsgroup names if the ":<directory>" is missing.
+X# An arbitrary file name ("runtime.pl") can also be confused.
+Xsub href {
+X        # study; # doesn't speed things up ...
+X
+X        # to avoid special cases for beginning & end of line
+X        s|^|#|; s|$|#|;
+X
+X        # URLS: <serice>:<rest-of-url>
+X        s|(news:[\w.]+)|<A HREF="$&">$&</A>|g;
+X        s|(http:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        s|(file:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        s|(ftp:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        s|(wais:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        s|(gopher:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        s|(telnet:[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X        # s|(\w+://[\w/.:+\-]+)|<A HREF="$&">$&</A>|g;
+X
+X        # catch some newsgroups to avoid confusion with sites:
+X        s|([^\w\-/.:@>])(alt\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(bionet\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(bit\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(comp\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(gnu\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(misc\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(news\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X        s|([^\w\-/.:@>])(rec\.[\w.+\-]+[\w+\-]+)|$1<A HREF="news:$2">$2</A>|g;
+X
+X        # FTP locations (with directory):
+X        # anonymous@<site>:<path>
+X        s|(anonymous@)([a-zA-Z][\w.+\-]+\.[a-zA-Z]{2,}):(\s*)([\w\d+\-/.]+)|$1<A HREF="file://$2/$4">$2:$4</A>$3|g;
+X        # ftp@<site>:<path>
+X        s|(ftp@)([a-zA-Z][\w.+\-]+\.[a-zA-Z]{2,}):(\s*)([\w\d+\-/.]+)|$1<A HREF="file://$2/$4">$2:$4</A>$3|g;
+X        # <site>:<path>
+X        s|([^\w\-/.:@>])([a-zA-Z][\w.+\-]+\.[a-zA-Z]{2,}):(\s*)([\w\d+\-/.]+)|$1<A HREF="file://$2/$4">$2:$4</A>$3|g;
+X        # NB: don't confuse an http server with a port number for
+X        # an FTP location!
+X        # internet number version: <internet-num>:<path>
+X        s|([^\w\-/.:@])(\d{2,}\.\d{2,}\.\d+\.\d+):([\w\d+\-/.]+)|$1<A HREF="file://$2/$3">$2:$3</A>|g;
+X
+X        # just the site name (assume two dots): <site>
+X        s|([^\w\-/.:@>])([a-zA-Z][\w+\-]+\.[\w.+\-]+\.[a-zA-Z]{2,})([^\w\d\-/.:!])|$1<A HREF="file://$2">$2</A>$3|g;
+X        # NB: can be confused with newsgroup names!
+X        # <site>.com has only one dot:
+X        s|([^\w\-/.:@>])([a-zA-Z][\w.+\-]+\.com)([^\w\-/.:])|$1<A HREF="file://$2">$2</A>$3|g;
+X
+X        # just internet numbers:
+X        s|([^\w\-/.:@])(\d+\.\d+\.\d+\.\d+)([^\w\-/.:])|$1<A HREF="file://$2">$2</A>$3|g;
+X        # unfortunately inet numbers can easily be confused with
+X        # european telephone numbers ...
+X
+X        s|^#||; s|#$||;
+X}
+X
+X# parse an URL, issue the request and return the result
+Xsub get {
+X        local($url,$version) = @_;
+X        ($type,$host,$port,$path,$request) = &parse($type,$host,$port,$path,$url);
+X        if ($host) {
+X                if ($type eq "http") { &http($host,$port,$request,$version); }
+X                elsif ($type eq "gopher") { &gopher($host,$port,$request); }
+X                elsif ($type eq "ftp") { &ftp($host,$request); }
+X                else { print STDERR "url'get: $type requests unimplemented\n"; }
+X        }
+X        else {
+X                undef;
+X        }
+X}
+X
+X# convert an URL to ($type,host,port,path,request)
+X# given previous type, host, port and path, will handle relative URLs
+X# NB: May need special processing for different service types (e.g., news)
+Xsub parse {
+X        local($type,$host,$port,$path,$url) = @_;
+X        if ($url =~ m|^(\w+)://(.*)|) {
+X                $type = $1;
+X                $host = $2;
+X                $port = &defport($type);
+X                $request = "/"; # default
+X                ($host =~ s|^([^/]+)(/.*)$|$1|) && ($request = $2);
+X                ($host =~ s/:(\d+)$//) && ($port = $1);
+X                ($path = $request) =~ s|[^/]*$||;
+X        }
+X        else {
+X                # relative URL of form "<type>:<request>"
+X                if ($url =~ /^(\w+):(.*)/) {
+X                        $type = $1;
+X                        $request = $2;
+X                }
+X                # relative URL of form "<request>"
+X                else { $request = $url; }
+X                $request =~ s|^$|/|;
+X                $request =~ s|^([^/])|$path$1|; # relative path
+X                $request =~ s|/\./|/|g;
+X                while ($request =~ m|/\.\./|) {
+X                        $request =~ s|[^/]*/\.\./||;
+X                }
+X		# file:/path and wwfs:/path does not need host & port.
+X#                 # assume previous host & port:
+X#                 unless ($host) {
+X#                         # $! = "url'parse: no host for $url\n";
+X#                         print STDERR "url'parse: no host for $url\n";
+X#                         return (undef,undef,undef,undef,undef);
+X#                 }
+X        }
+X        ($type,$host,$port,$path,$request);
+X}
+X
+X# convert relative http URLs to absolute ones:
+X# should be patched to handle HREFs w/o double quotes ...
+X# also need to handle inlined images!
+Xsub abs {
+X        local($url,$page) = @_;
+X        ($type,$host,$port,$path,$request) = &parse(undef,undef,undef,undef,$url);
+X        $root = "http://$host:$port";
+X        @hrefs = split(/<[Aa]/,$page);
+X        $n = $[;
+X        while (++$n <= $#hrefs) {
+X                # absolute URLs ok:
+X                ($hrefs[$n] =~ m|href\s*=\s*"http://|i) && next;
+X                ($hrefs[$n] =~ m|href\s*=\s*"\w+:|i) && next;
+X		# relative URL without "scheme"
+X                ($hrefs[$n] =~ s|href\s*=\s*"//([^"]*)"|HREF="http:$1"|i) && next;
+X                # relative URL from root:
+X                ($hrefs[$n] =~ s|href\s*=\s*"/([^"]*)"|HREF="$root/$1"|i) && next;
+X                ($hrefs[$n] =~ s|href\s*=\s*/([^>]*)>|HREF=$root/$1>|i) && next;
+X                # relative from $path:
+X                $hrefs[$n] =~ s|href\s*=\s*"([^/"][^"]*)"|HREF="$root$path$1"|i;
+X                $hrefs[$n] =~ s|href\s*=\s*([^/">][^>]*)>|HREF=$root$path$1>|i;
+X                # collapse relative paths:
+X                $hrefs[$n] =~ s|/\./|/|g;
+X                while ($hrefs[$n] =~ m|/\.\./|) {
+X                        $hrefs[$n] =~ s|[^/]*/\.\./||;
+X                }
+X        }
+X        join("<A",@hrefs);
+X}
+X
+X# perform an http request and return the result
+X# Code adapted from Marc van Heyningen
+Xsub http {
+X        local($host,$port,$request,$version) = @_;
+X        ($fqdn, $aliases, $type, $len, $thataddr) = gethostbyname($host);
+X        $that = pack($sockaddr, &AF_INET, $port, $thataddr);
+X        socket(FS, &AF_INET, &SOCK_STREAM, $proto) || return undef;
+X        bind(FS, $thissock) || return undef;
+X        local($/);
+X        unless (eval q!
+X                $SIG{'ALRM'} = "url'timeout";
+X                alarm(30);
+X                connect(FS, $that) || return undef;
+X                select(FS); $| = 1; select(STDOUT);
+X                # NB: Need extra \n to terminate MIME header:
+X                if ($version) { print FS "GET $request HTTP/1.0\r\n\n"; }
+X                else { print FS "GET $request\r\n"; }
+X                $page = <FS>; 
+X                $SIG{'ALRM'} = "IGNORE";
+X                !) {
+X                        return undef;
+X                }
+X        close(FS);
+X        # With HTTP/1.0 would include MIME header
+X        $page;
+X}
+X
+X# perform an http HEAD request and return the result
+Xsub http_head {
+X        local($host,$port,$request) = @_;
+X        ($fqdn, $aliases, $type, $len, $thataddr) = gethostbyname($host);
+X        $that = pack($sockaddr, &AF_INET, $port, $thataddr);
+X        socket(FS, &AF_INET, &SOCK_STREAM, $proto) || return undef;
+X        bind(FS, $thissock) || return undef;
+X        local($/);
+X        unless (eval q!
+X                $SIG{'ALRM'} = "url'timeout";
+X                alarm(30);
+X                connect(FS, $that) || return undef;
+X                select(FS); $| = 1; select(STDOUT);
+X                # NB: Need extra \n to terminate MIME header:
+X                print FS "HEAD $request HTTP/1.0\r\n\n";
+X                $page = <FS>; 
+X                $SIG{'ALRM'} = "IGNORE";
+X                !) {
+X                        return undef;
+X                }
+X        close(FS);
+X        # With HTTP/1.0 would include MIME header
+X        $page;
+X}
+X
+X# This doesn't always work -- gopher URLs sometimes contain
+X# a leading file type in the pathname which must be stripped off.
+X# needs work.  URLs may also contain blanks, tabs and other nasties.
+X# IS THIS THE RIGHT PROTOCOL FOR GOPHER???
+Xsub gopher {
+X        local($host,$port,$request) = @_;
+X        ($fqdn, $aliases, $type, $len, $thataddr) = gethostbyname($host);
+X        $that = pack($sockaddr, &AF_INET, $port, $thataddr);
+X        socket(FS, &AF_INET, &SOCK_STREAM, $proto) || return undef;
+X        bind(FS, $thissock) || return undef;
+X        # gopher doesn't need leading "/":
+X        $request =~ s|^/||;
+X#        # try to strip off the gopher type ...
+X#        ($request =~ s|^([I]?\d+)/||) && ($gtype = $1);
+X        local($/);
+X        unless (eval q!
+X                $SIG{'ALRM'} = "url'timeout";
+X                alarm(30);
+X                connect(FS, $that) || return undef;
+X                select(FS); $| = 1; select(STDOUT);
+X                print FS "$request\r\n";
+X                print STDERR "Gopher: $request\n"; # debug
+X                $page = <FS>; 
+X                $SIG{'ALRM'} = "IGNORE";
+X                !) {
+X                        return undef;
+X                }
+X        close(FS);
+X        # This return value will also contain a leading type field.
+X        # Should be stripped off by the calling routine ...
+X        $page;
+X}
+X
+X# ftp'grab is a version of ftp'get that returns the page
+X# retrieved rather than writing it to a local file.
+X# Perhaps not so nice for big files, but what the heck.
+Xsub ftp {
+X        local($host,$file) = @_;
+X        &ftp'open($host, "ftp", "$user@$thishost") || &fail;
+X        &ftp'type("i") || &fail;
+X        $page = &ftp'grab($file) || &fail;
+X        &ftp'close;
+X        $page;
+X}
+X
+Xsub fail {
+X        $save = &ftp'error;
+X        &ftp'close;
+X        die $save;
+X}
+X
+Xsub timeout { die "Timeout\n"; }
+X
+X# default ports
+Xsub defport {
+X        local($type) = @_;
+X        if ($type eq "http") { 80; }
+X        elsif ($type eq "gopher") { 70; }
+X        else { undef; }
+X}
+X
+X1;
+X
+END_OF_FILE
+  if test 12077 -ne `wc -c <'mosaic/url.pl'`; then
+    echo shar: \"'mosaic/url.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mosaic/url.pl'
+fi
+echo shar: End of archive 13 \(of 22\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1519 @@
+From: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Subject: v02i036: dired - (Ver. 1.8) directory editor in C++, Part04/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Posting-number: Volume 2, Issue 36
+Archive-name: dired/part04
+Supersedes: dired: Volume 2, Issue 7-12
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 5)."
+# Contents:  classes.C dired.C display.C globals.C
+# Wrapped by lijewski@xtesoc2 on Mon Oct  5 14:53:40 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'classes.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'classes.C'\"
+else
+echo shar: Extracting \"'classes.C'\" \(8091 characters\)
+sed "s/^X//" >'classes.C' <<'END_OF_FILE'
+X/*
+X** classes.C - contains definitions of the member functions which
+X**             aren\'t defined in the relevant class declarations.
+X**
+X** classes.C 1.25   Delta\'d: 09:49:36 9/28/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#include <new.h>
+X#include <stdio.h>
+X#include <string.h>
+X
+X#include "dired.h"
+X
+XDirList::DirList(char *name)
+X{
+X    _head = _tail = 0;
+X    _next = _prev = 0;
+X    _nelems = 0;
+X    _name = name;
+X}
+X
+X/*
+X** Inserts a new DirLine, constructed from the given char**, after
+X** the current line in the DirList.
+X*/
+X
+XDirLine *DirList::insert(char **line)
+X{
+X    DirLine *new_line = new DirLine(line);
+X    DirLine *ln = currLine();
+X
+X    if (atEndOfList())
+X    {
+X        ln->_next = new_line;
+X        new_line->_prev = ln;
+X        _tail = new_line;
+X    }
+X    else
+X    {
+X        new_line->_next = ln->next();
+X        new_line->_prev = ln;
+X        ln->_next->_prev = new_line;
+X        ln->_next = new_line;
+X    }
+X    _nelems++;
+X    return new_line;
+X}
+X
+X/*
+X** Adds the DirLine to the listing maintained by DirList.
+X*/
+X
+Xvoid DirList::add(DirLine *link)
+X{
+X    if (nelems())
+X    {
+X        _tail->_next = link;
+X        _tail->_next->_prev = tail();
+X        _tail = link;
+X        _nelems++;
+X    }
+X    else
+X    {
+X        _head = _tail = link;
+X        _nelems = 1;
+X    }
+X}
+X
+X/*
+X** Delete the current listing line in the window
+X** and update our view.  The width of our view
+X** always decreases by one.  If the calling procedure
+X** adds more lines to the screen, they\'ll have to reset
+X** lastLine\(\) and/or firstLine\(\), but currLine doesn\'t need to change.
+X*/
+X
+Xvoid DirList::deleteLine()
+X{
+X    DirLine *line = currLine();
+X
+X    if (atBegOfList())
+X    {
+X        //
+X        // that is, firstLine\(\) == head\(\)
+X        //
+X        _head = _firstLine = _currLine = head()->next();
+X        _head->_prev = 0;
+X    }
+X    else if (atWindowTop())
+X    {
+X        //
+X        // but firstLine\(\) != head\(\)
+X        //
+X        _firstLine = _currLine = line->next();
+X        line->_next->_prev = line->prev();
+X        line->_prev->_next = line->next();
+X    }
+X    else if (atEndOfList())
+X    {
+X        //
+X        // lastLine\(\) == tail\(\)
+X        //
+X        _tail = _lastLine = _currLine = line->prev();
+X        _tail->_next = 0;
+X    }
+X    else
+X    {
+X        _currLine = line->next();
+X        line->_next->_prev = line->prev();
+X        line->_prev->_next = line->next();
+X    }
+X
+X    _nelems--;
+X    delete line;
+X}
+X
+XDirList::~DirList()
+X{
+X    if (nelems())
+X    {
+X        DirLine *tmp = tail(), *prev = tail()->prev();
+X        while(tmp)
+X        {
+X            delete tmp;
+X            if ((tmp = prev) != 0) prev = tmp->prev();
+X        }
+X        delete tmp;
+X        DELETE _name;
+X    }
+X}
+X
+Xvoid DirStack::push(DirList *list)
+X{
+X    if (nelems())
+X    {
+X        top()->setNext(list);
+X        list->setPrev(top());
+X        _top = list;
+X        _nelems++;
+X    }
+X    else
+X    {
+X        _top    = list;
+X        _nelems = 1;
+X    }
+X}
+X
+XDirList *DirStack::pop()
+X{
+X    DirList *tmp = top();
+X
+X    if (nelems() > 1)
+X    {
+X        _top = top()->prev();
+X        top()->setNext(0);
+X    }
+X    else
+X        _top = 0;
+X
+X    _nelems--;
+X    return tmp;
+X}
+X
+X/*
+X** The definition of the head of the freelist that DirLine::operator new\(\)
+X** uses to dole out dirLines efficiently.
+X*/
+X
+XDirLine *DirLine::freeList;
+X
+Xtypedef void (*PEHF)();
+X
+Xvoid *DirLine::operator new(size_t size)
+X{
+X    if (size != sizeof(DirLine)) return ::new char[size];
+X
+X    DirLine *line = freeList;
+X
+X    if (line)
+X        freeList = line->next();
+X    else
+X    {
+X        DirLine *block = (DirLine *) ::new char[chunksize * sizeof(DirLine)];
+X        if (block == 0)
+X        {
+X            PEHF newHandler = set_new_handler(0);
+X            set_new_handler(newHandler);
+X            if (newHandler)
+X                newHandler();
+X            else
+X                return 0;
+X        }
+X        for (int i = 0; i < chunksize - 1; i++)
+X            block[i]._next = (DirLine *)&block[i + 1];
+X        block[chunksize - 1]._next = 0;
+X        line = block;
+X        freeList = &block[1];
+X    }
+X    return line;
+X}
+X
+Xvoid DirLine::operator delete(void *object)
+X{
+X    DirLine *line = (DirLine *)object;
+X    line->_next = freeList;
+X    freeList = line;
+X}
+X
+XStringRep::StringRep(const char *s)
+X{
+X    len = ::strlen(s);
+X    rep = ::new char[len + 1];
+X    ::strcpy(rep, s);
+X    count = 1;
+X}
+X
+XString StringRep::operator+(const String& s) const
+X{
+X    size_t slen  = s.length() + length();
+X    char *buf    = ::new char[slen + 1];
+X    ::strcpy(buf, rep);
+X    ::strcat(buf, s.p->rep);
+X    return String(&buf, slen);
+X}
+X
+X/*
+X** The definition of the head of the freelist that StringRep::operator new\(\)
+X** uses to dole out StringReps efficiently.
+X*/
+X
+XStringRep *StringRep::freeList;
+X
+Xvoid* StringRep::operator new(size_t size)
+X{
+X    if (size != sizeof(StringRep)) return ::new char[size];
+X
+X    StringRep *s = freeList;
+X
+X    if (s)
+X        freeList = s->next;
+X    else
+X    {
+X        StringRep *block = (StringRep*)::new char[chunksize*sizeof(StringRep)];
+X        if (block == 0)
+X        {
+X            PEHF newHandler = set_new_handler(0);
+X            set_new_handler(newHandler);
+X            if (newHandler)
+X                newHandler();
+X            else
+X                return 0;
+X        }
+X        for (int i = 0; i < chunksize - 1; i++)
+X            block[i].next = (StringRep *)&block[i + 1];
+X        block[chunksize - 1].next = 0;
+X        s = block;
+X        freeList = &block[1];
+X    }
+X    return s;
+X}
+X
+Xvoid StringRep::operator delete(void *object)
+X{
+X    StringRep *s = (StringRep *)object;
+X    s->next = freeList;
+X    freeList = s;
+X}
+X
+XString::~String() { if (--p->count <= 0) delete p; }
+X
+XString& String::operator=(const String& rhs)
+X{
+X    rhs.p->count++;
+X    if (--p->count <= 0) delete p;
+X    p = rhs.p;
+X    return *this;
+X}
+X
+Xvoid String::operator+=(const String& rhs)
+X{
+X    size_t slen = p->length() + rhs.length();
+X    char *buf   = ::new char[slen + 1];
+X    (void)strcpy(buf, p->rep);
+X    (void)strcat(buf, rhs.p->rep);
+X    if (p->count == 1)
+X    {
+X        DELETE p->rep;
+X        p->rep = buf;
+X        p->len = slen;
+X    }
+X    else
+X        operator=(String(&buf, slen));
+X}
+X
+Xvoid String::operator+=(const char *rhs)
+X{
+X    size_t slen = p->length() + ::strlen(rhs);
+X    char *buf = ::new char[slen + 1];
+X    ::strcpy(buf, p->rep);
+X    ::strcat(buf, rhs);
+X    if (p->count == 1)
+X    {
+X        DELETE p->rep;
+X        p->rep = buf;
+X        p->len = slen;
+X    }
+X    else
+X        operator=(String(&buf, slen));
+X}
+X
+Xvoid String::range_error(int index)
+X{
+X    ::error("range error: %d out of bounds", index);
+X    exit(1);
+X}
+X
+XSBHelper String::operator[](int index)
+X{
+X    if (index < 0 || index >= length()) range_error(index);
+X    return SBHelper(*this, index);
+X}
+X
+XSBHelper::SBHelper(String& s, int i) : str(s), index(i) { };
+X
+Xchar SBHelper::operator=(char c)
+X{
+X    if (str.p->count == 1)
+X        //
+X        // Only one reference to our String.  Just assign the character to
+X        // the appropriate place.  Note that String::operator\[\] does the
+X        // range checking.
+X        //
+X        str.p->rep[index] = c;
+X    else
+X    {
+X        // We have to uniquify our str.
+X        str = String(str.p->rep);
+X        str.p->rep[index] = c;
+X    }
+X    return c;
+X}
+END_OF_FILE
+if test 8091 -ne `wc -c <'classes.C'`; then
+    echo shar: \"'classes.C'\" unpacked with wrong size!
+fi
+# end of 'classes.C'
+fi
+if test -f 'dired.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dired.C'\"
+else
+echo shar: Extracting \"'dired.C'\" \(5111 characters\)
+sed "s/^X//" >'dired.C' <<'END_OF_FILE'
+X/*
+X**
+X** dired - a directory editor modelled after GNU Emacs Dired mode.
+X**
+X** Written in C++ using the termcap\(3\) library
+X**
+X** dired.C 1.47  Delta\'d: 14:27:39 10/5/92  Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif
+X#include <new.h>
+X#include <osfcn.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <string.h>
+X
+X#include "dired.h"
+X#include "display.h"
+X
+X/*
+X** exception handler for new\(\) - called once in main\(\)
+X*/
+X
+Xstatic void free_store_exception()
+X{
+X    error("exiting, memory exhausted, sorry");
+X}
+X
+X/*
+X** dired - Edit the given directory. We must have read and execute
+X**         permission to edit a directory; calling routines must
+X**         guarantee this.
+X*/
+X
+Xvoid dired(const char *dirname)
+X{
+X    if (chdir(dirname) < 0)
+X        error("File %s, line %d: couldn't chdir() to `%s'",
+X              __FILE__, __LINE__, dirname);
+X
+X    char *fullname = current_directory();
+X    if (fullname == 0)
+X        error("File %s, line %d: current_directory() failed on `%s'.",
+X              __FILE__, __LINE__, dirname);
+X
+X    DirList *dir_list = get_directory_listing(fullname);
+X    if (dir_list == 0)
+X        error("File %s, line %d: couldn't read directory `%s'",
+X              __FILE__, __LINE__, fullname);
+X
+X    //
+X    // We track the CWD and PWD variables, if they\'re defined, so that
+X    // applications such as emacs which use them will work properly.
+X    //
+X    if (getenv("CWD"))
+X    {
+X        static String str;
+X        static String ostr;
+X        str = String("CWD=") + fullname;
+X        if (putenv(str) < 0)
+X            error("File %s, line %d: putenv(%s) failed.",
+X                  __FILE__, __LINE__, fullname);
+X        ostr = str;
+X    }
+X
+X    if (getenv("PWD"))
+X    {
+X        static String str;
+X        static String ostr;
+X        str = String("PWD=") + fullname;
+X        if (putenv(str) < 0)
+X            error("File %s, line %d: putenv(%s) failed.",
+X                  __FILE__, __LINE__, fullname);
+X        ostr = str;
+X    }
+X
+X    dir_stack->push(dir_list);
+X    initial_listing(dir_list);
+X    update_modeline(modeline_prefix, fullname);
+X    dir_list->saveYXPos(0, goal_column(dir_list));
+X
+X    if (dir_list->currLine()->length() > columns())    
+X        leftshift_current_line(dir_list);
+X    else
+X        move_cursor(dir_list->savedYPos(), dir_list->savedXPos());
+X
+X    synch_display();
+X
+X    read_commands(dir_list);  // main command loop
+X}
+X
+Xint main(int argc, char *argv[])
+X{
+X    char *dirname;
+X
+X    //
+X    // Process options - the only options we accept are -t -u or -c.
+X    //
+X    if (argc < 2)
+X        // edit current directory
+X        dirname = ".";
+X    else
+X    {
+X        while(**++argv == '-')
+X        {
+X            if (strcmp(*argv, "-t") == 0)
+X            {
+X                set_sort_order(MODIFICATION_TIME);
+X                continue;
+X            }
+X            if (strcmp(*argv, "-u") == 0)
+X            {
+X                set_sort_order(ACCESS_TIME);
+X                continue;
+X            }
+X            if (strcmp(*argv, "-c") == 0)
+X            {
+X                set_sort_order(INODE_CHANGE_TIME);
+X                continue;
+X            }
+X        }
+X        dirname = *argv ? *argv : ".";
+X    }
+X
+X    if (!isatty(0) || !isatty(1))
+X    {
+X        (void)fputs("stdin & stdout must be terminals\n", stderr);
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    //
+X    // If you don\'t have SIGINTERRUPT then signals almost surely interrupt
+X    // read\(2\).  If you do have it, you\'ll need this to ensure that signals
+X    // interrupt slow system calls -- we\'re only interested in read\(2\).
+X    //
+X#if defined(SIGINTERRUPT) && defined(SIGTSTP)
+X    if (siginterrupt(SIGTSTP, 1) < 0 || siginterrupt(SIGWINCH, 1) < 0)
+X    {
+X        perror("siginterrupt()");
+X        exit(1);
+X    }
+X#endif
+X
+X    set_new_handler(free_store_exception);
+X    init_display();
+X    set_signals();
+X
+X    if (!is_directory(dirname))
+X        error("File %s, line %d: `%s' isn't a directory",
+X              __FILE__, __LINE__, dirname);
+X
+X    if (!read_and_exec_perm(dirname))
+X        error("File %s, line %d: need read & exec permission to edit `%s'",
+X              __FILE__, __LINE__, dirname);
+X
+X    dir_stack = new DirStack();
+X
+X    dired(dirname);
+X
+X    return 0;
+X}
+END_OF_FILE
+if test 5111 -ne `wc -c <'dired.C'`; then
+    echo shar: \"'dired.C'\" unpacked with wrong size!
+fi
+# end of 'dired.C'
+fi
+if test -f 'display.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.C'\"
+else
+echo shar: Extracting \"'display.C'\" \(20550 characters\)
+sed "s/^X//" >'display.C' <<'END_OF_FILE'
+X/*
+X** Routines controlling the physical display
+X**
+X** display.C 1.30   Delta\'d: 14:27:58 10/5/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif /*_IBMR2*/
+X
+X#include <osfcn.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <sys/ioctl.h>
+X
+X#ifdef TERMIOS
+X#include <termios.h>
+X#include <unistd.h>
+X#elif  TERMIO
+X#include <termio.h>
+X#else
+X#include <sgtty.h>
+X#endif
+X
+X#include "dired.h"
+X#include "display.h"
+X
+X/*
+X** The definition of `ospeed\' -- needed by the termcap routines.
+X*/
+Xshort ospeed;
+X
+X//
+X// termcap capabilities we use
+X//
+Xchar *AL;               // insert blank line before cursor
+Xchar *ALN;              // insert N blank lines at cursor
+Xint   AM;               // automatic margins?
+Xchar *BC;               // backspace, if not BS
+Xint   BS;               // ASCII backspace works
+Xchar *CD;               // clear to end of display
+Xchar *CE;               // clear to end of line
+Xchar *CL;               // clear screen
+Xint   CO;               // number of columns
+Xchar *CM;               // cursor motion
+Xchar *CR;               // cursor beginning of line
+Xchar *CS;               // set scroll region
+Xint   DA;               // backing store off top?
+Xint   DB;               // backing store off bottom?
+Xchar *DC;               // delete character at cursor
+Xchar *DL;               // delete line cursor is on
+Xchar *DLN;              // delete N lines from cursor
+Xchar *DM;               // string to enter delete mode
+Xchar *DO;               // cursor down
+Xchar *ED;               // string to end delete mode
+Xint   HC;               // hardcopy terminal?
+Xchar *IS;               // initialize terminal
+Xchar *HO;               // cursor home
+Xchar *KD;               // down arrow key
+Xchar *KE;               // de-initialize keypad
+Xchar *KS;               // initialize keypad \(for arrow keys\)
+Xchar *KU;               // up arrrow key
+Xchar *LE;               // cursor back one column
+Xint   LI;               // number of rows
+Xchar *LL;               // cursor to lower left
+Xint   OS;               // terminal overstrikes?
+Xchar  PC;               // pad character
+Xchar *PCstr;            // pad string
+Xchar *SE;               // end standout mode
+Xchar *SF;               // scroll screen up one line
+Xchar *SO;               // enter standout mode
+Xchar *SR;               // scroll screen down one line
+Xchar *TE;               // end cursor addressing mode
+Xchar *TI;               // enter cursor addressing mode
+Xchar *UP;               // cursor up
+Xchar *VE;               // end visual mode
+Xchar *VS;               // enter visual mode
+Xchar *XN;               // strange wrap behaviour
+X
+X/*
+X** termcap - reads termcap file setting all the terminal capabilities
+X**           which we\'ll use.
+X*/
+X
+Xvoid termcap(const char *term_type)
+X{
+X    static char capability_buffer[512], *bp = capability_buffer;
+X    char termcap_buffer[2048];
+X
+X    switch (tgetent(termcap_buffer, term_type))
+X    {
+X      case -1:
+X        (void)fputs("couldn't open termcap database\n", stderr);
+X        exit(1);
+X      case 0:
+X        (void)fprintf(stderr, "invalid terminal type: `%s'\n", term_type);
+X        exit(1);
+X      default: break;
+X    }
+X
+X    AL = tgetstr("al", &bp);
+X    ALN = tgetstr("AL", &bp);
+X    AM = tgetflag("am");
+X    BC = tgetstr("bc", &bp);
+X    BS = tgetflag("bs");
+X    CD = tgetstr("cd", &bp);
+X    CE = tgetstr("ce", &bp);
+X    CL = tgetstr("cl", &bp);
+X    CM = tgetstr("cm", &bp);
+X    CR = tgetstr("cr", &bp);
+X    CS = tgetstr("cs", &bp);
+X    DA = tgetflag("da");
+X    DB = tgetflag("db");
+X    DC = tgetstr("dc", &bp);
+X    DL = tgetstr("dl", &bp);
+X    DLN = tgetstr("DL", &bp);
+X    DM = tgetstr("dm", &bp);
+X    DO = tgetstr("do", &bp);
+X    ED = tgetstr("ed", &bp);
+X    HC = tgetflag("hc");
+X    HO = tgetstr("ho", &bp);
+X    IS = tgetstr("is", &bp);
+X    KD = tgetstr("kd", &bp);
+X    KE = tgetstr("ke", &bp);
+X    KS = tgetstr("ks", &bp);
+X    KU = tgetstr("ku", &bp);
+X    LE = tgetstr("le", &bp);
+X    LL = tgetstr("ll", &bp);
+X    OS = tgetflag("os");
+X    PCstr = tgetstr("pc", &bp);
+X    SE = tgetstr("se", &bp);
+X    SF = tgetstr("sf", &bp);
+X    SO = tgetstr("so", &bp);
+X    SR = tgetstr("sr", &bp);
+X    TE = tgetstr("te", &bp);
+X    TI = tgetstr("ti", &bp);
+X    UP = tgetstr("up", &bp);
+X    VE = tgetstr("ve", &bp);
+X    VS = tgetstr("vs", &bp);
+X    XN = tgetstr("xn", &bp);
+X
+X    PC = PCstr ? PCstr[0] :  0;
+X
+X    if (!BC && !LE && !BS)
+X    {
+X        (void)fputs("terminal can't backspace - unusable\n", stderr);
+X        exit(1);
+X    }
+X
+X    if (!BC) BC = LE ? LE : "\b";
+X    if (!CR) CR = "\r";
+X    if (!DO) DO = SF ? SF : "\n";
+X
+X    const char *tmp = getenv("LINES");
+X    if (tmp) LI = atoi(tmp);
+X    tmp = getenv("COLUMNS");
+X    if (tmp) CO = atoi(tmp);
+X
+X#ifdef TIOCGWINSZ
+X    struct winsize win;
+X    if (ioctl(2, TIOCGWINSZ, (char *)&win) == 0)
+X    {
+X        if (LI == 0 && win.ws_row > 0) LI = win.ws_row;
+X        if (CO == 0 && win.ws_col > 0) CO = win.ws_col;
+X    }
+X#endif
+X
+X    if (CO == 0) CO = tgetnum("co");
+X    if (LI == 0) LI = tgetnum("li");
+X
+X    if (LI == -1 || CO == -1 || HC || !CM || !CE)
+X    {
+X        (void)fputs("terminal too dumb to be useful\n", stderr);
+X        exit(1);
+X    }
+X    if (LI < 5)
+X    {
+X        (void)fputs("too few rows to be useful\n", stderr);
+X        exit(1);
+X    }
+X}
+X
+X/*
+X** setraw - puts terminal into raw mode.  Cbreak mode actually, but
+X**          why be pedantic.  Flow control is disabled as well as BREAK keys.
+X**          Echoing is turned off as well as signal generation.  Hence
+X**          keyboard generated signals must be simulated.  Also sets
+X**          `ospeed\'.
+X*/
+X
+X#ifdef TERMIOS
+Xstatic struct termios tty_mode;	/* save tty mode here */
+X#elif  TERMIO
+Xstatic struct termio tty_mode;	/* save tty mode here */
+X#else
+Xstatic struct sgttyb  oarg;      /* save tty stuff here */
+Xstatic struct tchars  otarg;
+Xstatic struct ltchars oltarg;
+X#endif
+X
+Xvoid setraw()
+X{
+X#ifdef TERMIOS
+X    struct termios temp_mode;
+X
+X    if (tcgetattr(STDIN_FILENO, &temp_mode) < 0)
+X    {
+X        perror("tcgetattr");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    tty_mode = temp_mode;  /* save for latter restoration */
+X
+X    temp_mode.c_iflag &= ~(IGNBRK|ICRNL|INLCR);
+X    temp_mode.c_lflag &= ~(ICANON|ECHO|IEXTEN);
+X    temp_mode.c_oflag &= ~OPOST;
+X    temp_mode.c_cc[VQUIT] = 28; // C-\ is QUIT
+X    temp_mode.c_cc[VMIN]  = 1;	// min #chars to satisfy read
+X    temp_mode.c_cc[VTIME] = 0;	// read returns immediately
+X
+X    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &temp_mode) < 0)
+X    {
+X        perror("tcsetattr");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    ospeed = cfgetospeed(&temp_mode);
+X#elif TERMIO
+X    struct termio temp_mode;
+X    
+X    if (ioctl(0, TCGETA, (char *)&temp_mode) < 0)
+X    {
+X        perror("ioctl - TCGETA");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    tty_mode = temp_mode;  /* save for latter restoration */
+X
+X    temp_mode.c_iflag &= ~(IGNBRK|ICRNL|INLCR);
+X    temp_mode.c_lflag &= ~(ICANON|ECHO);
+X    temp_mode.c_oflag &= ~OPOST;
+X    temp_mode.c_cc[VQUIT] = 28; // C-\ is QUIT
+X    temp_mode.c_cc[VMIN]  = 1;	// min #chars to satisfy read
+X    temp_mode.c_cc[VTIME] = 0;	// read returns immediately
+X
+X    if (ioctl(0, TCSETA, (char *)&temp_mode) < 0)
+X    {
+X        perror("ioctl - TCSETA");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    ospeed = temp_mode.c_cflag & CBAUD;
+X#else
+X    struct sgttyb arg;
+X    struct tchars targ;
+X    struct ltchars ltarg;
+X
+X    if (ioctl(fileno(stdin), TIOCGETP, (char *)&arg) < 0)
+X    {
+X        perror("ioctl - TIOCGETP");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCGETC, (char *)&targ) < 0)
+X    {
+X        perror("ioctl - TIOCGETC");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCGLTC, (char *)&ltarg) < 0)
+X    {
+X        perror("ioctl - TIOCGLTC");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    oarg   = arg;
+X    otarg  = targ;
+X    oltarg = ltarg;
+X
+X    arg.sg_flags=((arg.sg_flags&~(ECHO|CRMOD))|CBREAK) ;
+X    targ.t_eofc    = -1;  // turn off end-of-file character
+X    targ.t_brkc    = -1;  // turn off break delimiter
+X    ltarg.t_dsuspc = -1;  // turn off delayed suspend character
+X    ltarg.t_rprntc = -1;  // turn off reprint line character
+X    ltarg.t_flushc = -1;  // turn off flush character
+X    ltarg.t_werasc = -1;  // turn off erase work character
+X    ltarg.t_lnextc = -1;  // turn off literal next char
+X
+X    if (ioctl(fileno(stdin), TIOCSETN, (char *)&arg) < 0)
+X    {
+X        perror("ioctl - TIOCSETN");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCSETC, (char *)&targ) < 0)
+X    {
+X        perror("ioctl - TIOCSETC");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCSLTC, (char *)&ltarg) < 0)
+X    {
+X        perror("ioctl - TIOCSLTC");
+X        exit(EXIT_FAILURE);
+X    }
+X
+X    ospeed = arg.sg_ospeed;
+X#endif
+X}
+X
+X/*
+X * unsetraw - Restore a terminal\'s mode to whatever it was on the most
+X *            recent call to the setraw\(\) function above.
+X *            Exits with EXIT_FAILURE on failure.
+X */
+X
+Xvoid unsetraw()
+X{
+X#ifdef TERMIOS
+X    if (tcsetattr(0, TCSAFLUSH, &tty_mode) < 0)
+X    {
+X        perror("tcsetattr");
+X        exit(EXIT_FAILURE);
+X    }
+X#elif TERMIO
+X    if (ioctl(0, TCSETA, (char *)&tty_mode) < 0)
+X    {
+X        perror("ioctl - TCSETA");
+X        exit(EXIT_FAILURE);
+X    }
+X#else
+X    if (ioctl(fileno(stdin), TIOCSETN, (char *)&oarg) < 0)
+X    {
+X        perror("ioctl - TIOSETN");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCSETC, (char *)&otarg) < 0)
+X    {
+X        perror("ioctl - TIOSETC");
+X        exit(EXIT_FAILURE);
+X    }
+X    if (ioctl(fileno(stdin), TIOCSLTC, (char *)&oltarg) < 0)
+X    {
+X        perror("ioctl - TIOSLTC");
+X        exit(EXIT_FAILURE);
+X    }
+X#endif
+X}
+X
+X/*
+X** outputch - a function to output a single character.
+X**            Termcap routines NEED a function.
+X*/
+X
+Xint outputch(int ch) { return putchar(ch); }
+X
+X/*
+X** initialize display
+X*/
+X
+Xvoid init_display()
+X{
+X    setvbuf(stdout, 0, _IOFBF, 0);  // fully buffer stdout
+X    setvbuf(stdin , 0, _IONBF, 0);  // no buffering on stdin
+X
+X    const char *term = getenv("TERM");
+X    if (term == 0 || *term == 0)
+X    {
+X        (void)fputs("please set your TERM variable appropriately\n", stderr);
+X        exit(1);
+X    }
+X
+X    termcap(term);
+X
+X    setraw();
+X    initialize_terminal();
+X    enter_cursor_addressing_mode();
+X    enter_visual_mode();
+X    enable_keypad();
+X    clear_display();
+X    synch_display();
+X}
+X
+X/*
+X** terminate display
+X*/
+X
+Xvoid term_display()
+X{
+X    output_string_capability(tgoto(CM, 0, rows()-1));
+X    end_visual_mode();
+X    end_cursor_addressing_mode();
+X    disable_keypad();
+X    synch_display();
+X    unsetraw();
+X}
+X
+X/*
+X** scroll_listing_up_N - scrolls the listing window up n lines.
+X**                       The cursor is left in column 0 of the first
+X**                       line to scroll into the window.
+X**                       Must have CS capability.
+X*/
+X
+Xvoid scroll_listing_up_N(int n)
+X{
+X    output_string_capability(tgoto(CS, rows()-3, 0));
+X    move_cursor(rows()-3, 0);
+X    for (int i = 0; i < n; i++) cursor_down();
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X    move_cursor(rows()-2-n, 0);
+X}
+X
+X/*
+X** scroll_listing_down_N - half_down - scrolls the listing window
+X**                         \(line 0 - rows\(\)-3\) down \(rows\(\)-2\)/2 lines.
+X**                         The cursor is left in HOME position.
+X**                         Must have CS capability.
+X*/
+X
+Xvoid scroll_listing_down_N(int n)
+X{
+X    output_string_capability(tgoto(CS, rows()-3, 0));
+X    move_cursor(0, 0);
+X    for (int i = 0; i < n; i++) output_string_capability(SR, rows()-2);
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X    cursor_home();
+X}
+X
+X
+X/*
+X** scroll_listing_up_one - scrolls the listing window \(line 0 - rows\(\)-3\)
+X**                         up one row. The cursor is left in column
+X**                         0 of rows\(\)-3 row.  Assumes CS capability.
+X*/
+X
+Xvoid scroll_listing_up_one()
+X{
+X    output_string_capability(tgoto(CS, rows()-3, 0));
+X    move_cursor(rows()-3, 0);
+X    cursor_down();
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X    move_cursor(rows()-3, 0);
+X}
+X
+X/*
+X** scroll_listing_down_one - scrolls the listing window \(line 0 - rows\(\)-3\)
+X**                           down one row. The cursor is left at HOME.
+X**                           Assumes CS capability.
+X*/
+X
+Xvoid scroll_listing_down_one()
+X{
+X    output_string_capability(tgoto(CS, rows()-3, 0));
+X    cursor_home();
+X    output_string_capability(SR, rows()-2);
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X    cursor_home();
+X}
+X
+X/*
+X** insert_listing_line - inserts a blank line at line y, scrolling everything
+X**                       from y on down one line.  We only call this routine
+X**                       when we KNOW that y != rows\(\)-3 - the last listing
+X**                       line. Leaves the cursor in column 0 of the opened up
+X**                       line. Must have CS capability.
+X*/
+X
+Xvoid insert_listing_line(int y)
+X{
+X    output_string_capability(tgoto(CS, rows()-3, y));
+X    move_cursor(y, 0);
+X    output_string_capability(SR, rows()-3-y);
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X    move_cursor(y, 0);
+X}
+X
+X/*
+X** delete_listing_line - deletes line at line y, scrolling the lines below
+X**                       y up.  We only call this routine when we KNOW that
+X**                       there is at least one line in need of being scrolled
+X**                       up. Must have CS capability.
+X*/
+X
+Xvoid delete_listing_line(int y)
+X{
+X    move_cursor(y, 0);
+X    clear_to_end_of_line();
+X    output_string_capability(tgoto(CS, rows()-3, y));
+X    move_cursor(rows()-3, 0);
+X    cursor_down();
+X    output_string_capability(tgoto(CS, rows()-1, 0));
+X}
+X
+X/*
+X** termstop - service a SIGTSTP
+X*/
+X
+X#ifdef SIGTSTP
+Xvoid termstop(int)
+X{
+X    (void)signal(SIGTSTP,  SIG_IGN);
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, SIG_IGN);
+X#endif
+X    clear_display();
+X    synch_display();
+X    unsetraw();
+X    (void)kill(getpid(), SIGSTOP);
+X    setraw();
+X    (void)signal(SIGTSTP,  termstop);
+X#ifdef SIGWINCH
+X    (void)signal(SIGWINCH, winch);
+X#endif
+X
+X    //
+X    // window size may have changed
+X    //
+X#ifdef TIOCGWINSZ
+X    int oCO = columns(), oLI = rows();
+X    struct winsize w;
+X    if (ioctl(2, TIOCGWINSZ, (char *)&w) == 0 && w.ws_row > 0) LI = w.ws_row;
+X    if (ioctl(2, TIOCGWINSZ, (char *)&w) == 0 && w.ws_col > 0) CO = w.ws_col;
+X    if (oCO != columns() || oLI != rows())
+X        win_size_changed = 1;
+X    else
+X        redisplay();
+X#else
+X    redisplay();
+X#endif
+X}
+X#endif /*SIGTSTP*/
+X
+X/*
+X** clear_display
+X*/
+X
+Xvoid clear_display()
+X{
+X    if (CL)
+X        output_string_capability(CL);
+X    else if (CD)
+X    {
+X        cursor_home();
+X        output_string_capability(CD);
+X    }
+X    else
+X    {
+X        cursor_home();
+X        for (int i = 0; i < rows(); i++)
+X        {
+X            clear_to_end_of_line();
+X            cursor_down();
+X        }
+X        cursor_home();
+X    }
+X}
+X
+X/*
+X** scroll_screen_up_one - must have DL or SF
+X*/
+X
+Xvoid scroll_screen_up_one()
+X{
+X    if (DL)
+X    {
+X        cursor_home();
+X        output_string_capability(DL, rows());
+X    }
+X    else
+X    {
+X        move_cursor(rows()-1, 0);
+X        output_string_capability(SF, rows());
+X    }
+X    if (DB) clear_message_line();
+X}
+X
+X/*
+X** scroll_screen_down_one - must have AL or SR
+X*/
+X
+Xvoid scroll_screen_down_one()
+X{
+X    cursor_home();
+X
+X    if (AL)
+X        output_string_capability(AL, rows());
+X    else
+X        output_string_capability(SR, rows());
+X    if (DA) clear_to_end_of_line();
+X}
+X
+X/*
+X** scroll_screen_up_N - must have DLN, DL or SF.
+X**         
+X*/
+X
+Xvoid scroll_screen_up_N(int n)
+X{
+X    if (DLN)
+X    {
+X        cursor_home();
+X        output_string_capability(tgoto(DLN, 0, n), rows());
+X    }
+X    else if (DL)
+X    {
+X        cursor_home();
+X        for (int i = 0; i < n; i++)
+X            output_string_capability(DL, rows());
+X    }
+X    else
+X    {
+X        move_cursor(rows()-1, 0);
+X        for (int i = 0; i < n; i++)
+X            output_string_capability(SF, rows());
+X    }
+X    if (DB) clear_to_end_of_screen(rows()-n);
+X}
+X
+X/*
+X** scroll_screen_down_N - must have ALN, AL or SR.
+X*/
+X
+Xvoid scroll_screen_down_N(int n)
+X{
+X    cursor_home();
+X	int i;
+X    if (ALN)
+X        output_string_capability(tgoto(ALN, 0, n), rows());
+X    else if (AL)
+X        for (i = 0; i < n; i++)
+X            output_string_capability(AL, rows());
+X    else
+X        for (i = 0; i < n; i++)
+X            output_string_capability(SR, rows());
+X    if (DA)
+X    {
+X        for (i = 0; i < n; i++)
+X        {
+X            clear_to_end_of_line();
+X            cursor_down();
+X        }
+X        cursor_home();
+X    }
+X}
+X
+X/*
+X** clear_to_end_of_screen - clears screen from line y to the bottom
+X*/
+X
+Xvoid clear_to_end_of_screen(int y)
+X{
+X    move_cursor(y, 0);
+X    if (CD)
+X        output_string_capability(DL, rows()-y);
+X    else
+X        for (int i = 0; i < rows()-y; i++)
+X        {
+X            clear_to_end_of_line();
+X            putchar('\n');
+X        }
+X}
+X
+X/*
+X** update_screen_line
+X**
+X**     `oldline\' is what is currently on the screen in row `y\'
+X**     `newline\' is what we want on the screen in row `y\'
+X**
+X**     We make a good attempt to optimize the output of characters to
+X**     the screen.  We want to display `newline\' on the screen,
+X**     assuming `oldline\' is what is currently displayed.  This
+X**     will be "good" if `oldline\' and `newline\' are quite similar.
+X**     That is to say, this should only be called when there is an
+X**     expectation that `oldline\' and `newline\' are "almost" the same.
+X*/
+X
+Xvoid update_screen_line(const char *oldline, const char *newline, int y)
+X{
+X    if (strcmp(oldline, newline) == 0) return;
+X
+X    size_t olen = strlen(oldline);
+X    size_t nlen = strlen(newline);
+X    size_t  len = olen < nlen ? olen : nlen;
+X
+X    //
+X    // Never display more than columns\(\) characters.
+X    //
+X    int chop = 0;  // do we need to chop off the tail?
+X    if (len > columns())
+X    {
+X        chop = 1;
+X        len = columns();
+X    }
+X
+X    char *equal = new char[len];
+X
+X    //
+X    // How similar are the two strings?
+X    //
+X    int differences = 0;
+X    for (int i = 0; i < len; i++) equal[i] = 1;
+X    for (i = 0; i < len; i++)
+X        if (oldline[i] != newline[i])
+X        {
+X            differences++;
+X            equal[i] = 0;
+X        }
+X
+X    if (differences > columns()/2)
+X    {
+X        //
+X        // We just display the new line.
+X        //
+X        clear_to_end_of_line();
+X        (void)fputs(newline, stdout);
+X        DELETE equal;
+X
+X        return;
+X    }
+X
+X    if (!OS)
+X    {
+X        //
+X        // We can just overwrite the old with the new.
+X        //
+X        int last = -2;  // position of last character written
+X        for (i = 0; i < len; i++)
+X        {
+X            if (equal[i]) continue;
+X            if (i - 1 != last) move_cursor(y, i);
+X            (i == len - 1 && chop) ? putchar('!') : putchar(newline[i]);
+X            last = i;
+X        }
+X        if (nlen > olen)
+X        {
+X            //
+X            // Have more characters to output.
+X            //
+X            chop = len > columns();
+X            move_cursor(y, i);
+X            for (i = (int)len; i < nlen && i < columns(); i++)
+X                (i == columns()-1 && chop) ? putchar('!') : putchar(newline[i]);
+X        }
+X        else if (nlen < olen)
+X        {
+X            move_cursor(y, i);
+X            clear_to_end_of_line();
+X        }
+X    }
+X    else
+X    {
+X        //
+X        // We can\'t overwrite.  Truncate at first difference.
+X        //
+X        int first = 0;
+X        for (i = 0; i < len; i++)
+X            if (!equal[i])
+X            {
+X                first = i;
+X                break;
+X            }
+X        move_cursor(y, i);
+X        clear_to_end_of_line();
+X        for (; i < nlen && i < columns(); i++)
+X            (i == columns() - 1) ? putchar('!') : putchar(newline[i]);
+X    }
+X
+X    DELETE equal;
+X}
+END_OF_FILE
+if test 20550 -ne `wc -c <'display.C'`; then
+    echo shar: \"'display.C'\" unpacked with wrong size!
+fi
+# end of 'display.C'
+fi
+if test -f 'globals.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'globals.C'\"
+else
+echo shar: Extracting \"'globals.C'\" \(4848 characters\)
+sed "s/^X//" >'globals.C' <<'END_OF_FILE'
+X/*
+X** globals.C - global definitions
+X**
+X** globals.C 1.3   Delta\'d: 14:50:08 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#include "dired.h"
+X#include "version.h"
+X
+X// the stack of directories being edited
+XDirStack *dir_stack;
+X
+X// The default sort order is ALPHABETICALLY.
+Xsort_order how_to_sort = ALPHABETICALLY;
+X
+X//
+X// commands to get long directory listings:
+X//
+X//    ls_cmd\[0\] gives alphabetical listing
+X//    ls_cmd\[1\] gives listing sorted by modification time
+X//    ls_cmd\[2\] gives listing sorted by access time
+X//    ls_cmd\[3\] gives listing sorted by inode-change time
+X//
+Xconst char *const ls_cmd[4] =
+X#ifdef L_AND_G
+X  { "ls -agl ", "ls -aglt ", "ls -agltu ", "ls -acglt " };
+X#else
+X  { "ls -al ", "ls -alt ", "ls -altu ", "ls -aclt " };
+X#endif
+X
+X// the modeline prefix
+Xconst char *const modeline_prefix = "----- Dired: ";
+X
+X// the help messages
+Xconst char *const help_file[] = {
+X    " CURSOR MOVEMENT COMMANDS:",
+X    "",
+X    "    ?  H               Display this help.",
+X    "    q                  Back up directory tree if possible, else quit.",
+X    "    Q                  Exit immediately.",
+X    "    j  n  ^N  SPC  CR  Forward  one line.",
+X    "    DOWN_ARROW_KEY             \"        .",
+X    "    k  p  ^P  ^Y       Backward one line.",
+X    "    UP_ARROW_KEY               \"        .",
+X    "    ^F  ^V             Forward  one window.",
+X    "    b  ^B  ESC-V       Backward one window.",
+X    "    ^D                 Forward  one half-window.",
+X    "    ^U                 Backward one half-window.",
+X    "    <                  Go to first line of listing.",
+X    "    >                  Go to last line of listing.",
+X    "    /                  Search forward for string.",
+X    "    \\                  Search backward for string.",
+X    "",
+X    " COMMANDS WHICH OPERATE ON THE CURRENT FILE:",
+X    "",
+X    "    c                  Copy current file - prompts for destination file.",
+X    "    d                  Delete current file - prompts for affirmation.",
+X    "    e  f               Edit the current file with $EDITOR (default `vi').",
+X    "                       or the current directory with `dired'.",
+X    "    m  v               View current file with $PAGER (default `more').",
+X    "    r                  Rename current file.",
+X    "    C                  Compress current file.",
+X    "    E                  Prompt for and edit a directory.",
+X    "    G                  Change the group of the current file.",
+X    "    L                  Link current file to another file.",
+X    "    M                  Change the mode of the current file.",
+X    "    P                  Print current file with $DIREDPRT (default `lpr').",
+X    "    O                  Prompt for a new sorting order (a, c, t, or u).",
+X    "    R  g               Rereads the current directory and updates the display.",
+X#ifndef NO_SYMLINKS
+X    "    S                  Create symbolic link to current file.",
+X#endif
+X    "    U                  Uncompress current file.",
+X    "",
+X    " MISCELLANEOUS COMMANDS:",
+X    "",
+X    "    !                  starts up a shell.",
+X    "    ! cmd              executes a shell command - prompts for command.",
+X    "                       A `%' in \"cmd\" is replaced by the current",
+X    "                       filename before execution.",
+X    "    !!                 reexecutes previous shell command.",
+X    "    ![                 reexecutes previous shell command, reexpanding",
+X    "                       any `%' to the now current file name.",
+X    "    ^L                 Repaint screen.",
+X    "    ^G                 Abort from a prompt.",
+X    "    CR                 Signifies end-of-response when in a prompt.",
+X    "    V                  Print out version string."
+X};
+X
+X// number of entries in help_file
+Xconst int HELP_FILE_DIM = int(sizeof(help_file) / sizeof(help_file[0]));
+X
+X// has window size changed -- should really be a sig_atomic_t
+Xint win_size_changed;
+END_OF_FILE
+if test 4848 -ne `wc -c <'globals.C'`; then
+    echo shar: \"'globals.C'\" unpacked with wrong size!
+fi
+# end of 'globals.C'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

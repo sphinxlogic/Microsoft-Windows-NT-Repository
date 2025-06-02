@@ -1,0 +1,2398 @@
+Newsgroups: comp.sources.misc
+From: db15@ukc.ac.uk (Damiano Bolla)
+Subject: v40i159:  ipp - IPP Routing Architecture Toolkit, Part01/06
+Message-ID: <csm-v40i159=ipp.133317@sparky.Sterling.COM>
+X-Md4-Signature: e073c53304d3c2464fef44181d845561
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Computing Lab, University of Kent at Canterbury, UK.
+Date: Wed, 24 Nov 1993 19:35:19 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: db15@ukc.ac.uk (Damiano Bolla)
+Posting-number: Volume 40, Issue 159
+Archive-name: ipp/part01
+Environment: INET
+
+I am currently working on network routing architectures and I would like
+the Network opinion on what I am doing.  What follows is the abstract of 
+the work I am currently doing.
+
+This is the source code for the IPP toolkit. There is also a postscript file 
+(IPP.ps) that better describes the IPP protocol.
+
+Please do not followup on this newsgroup, see comp.protocols.tcp-ip.
+
+ [-------------------------------------------------------------------------]
+ [ Moderator's Note:                                                       ]
+ [     The shar utility that I use does not support unresolved symbolic    ]
+ [     links.  There were 4 symbolic links that are not included that      ]
+ [     need to be there.  The links will be resolved after the software    ]
+ [     is built.  Please add the following if you system support symlinks. ]
+ [     If it does not then you will have to copy the built files into      ]
+ [     place.                                                              ]
+ [                                                                         ]
+ [     $ cd IPP/config/ex1                                                 ]
+ [     $ ln -s ../../host/host host                                        ]
+ [     $ ln -s ../../router/router router                                  ]
+ [     $ cd ../ex2                                                         ]
+ [     $ ln -s ../../host/host host                                        ]
+ [     $ ln -s ../../router/router router                                  ]
+ [                                                                         ]
+ [     Sorry for the inconvenience.                  -Kent+                  ]
+ [-------------------------------------------------------------------------]
+
+                             IPP Routing Architecture
+                                  Damiano Bolla
+                    University of Kent at Canterbury, England
+                                  November 1993
+
+
+            Abstract
+            This paper  describes the  structure of  the  IPP routing
+            architecture. IPP is an evolution of the IP protocol with
+            the following characteristics.
+            -  Network structure  is  an extension  of  a class  B  IP
+               network with  Subnet 255.255.255.0.  The addresses  are
+               aggregated in further Subnets  depending on the  length
+               of the address.
+            -  Address space  is  of  variable length  limited  to  15
+               bytes. The  format of  the addresses  are  like IP  but
+               extended. An example can be 147.162.2.78.45.44
+            -  Routing tables are all direct  tables and all of  fixed
+               size no matter how big the currently used address space
+               is. The use of direct tables provides the base for high
+               speed routing algorithms.
+            -  The architecture  supports and  encourages the  use  of
+               redundant routes and load balancing to a given  host or
+               Subnet. This  allows  and encourages  the  creation  of
+               extra links as the  load increases and provides  higher
+               network reliability.
+            -  Packet  size  overload  is  optimised  for  local  area
+               networks and  only the  information that  is needed  to
+               reach the desired destination is sent on the network.
+            -  Broadcast is  supported with  IP style.  An example  of
+               broadcast to a Subnet can be  147.162.2.3.255 that will
+               send a broadcast  to Subnet  147.162.2.3. Multicast  is
+               supported as an addressed broadcast.
+            IPP aims to  keep all the  other qualities of  IP and the
+            related IP functions  to manage  a link. What  changes is
+            only the structure of  an address, the  routing table and
+            routing functions.
+
+-------------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  IPP IPP/IPP.ps.B IPP/config IPP/config/ex1 IPP/config/ex2
+#   IPP/ethernet IPP/host IPP/include IPP/lib IPP/lib/route
+#   IPP/lib/utils IPP/logd IPP/monitor IPP/router
+#   IPP/router/RouterIo.c
+# Wrapped by kent@sparky on Wed Nov 24 11:50:56 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 6)."'
+if test ! -d 'IPP' ; then
+    echo shar: Creating directory \"'IPP'\"
+    mkdir 'IPP'
+fi
+if test -f 'IPP/IPP.ps.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/IPP.ps.B'\"
+else
+  echo shar: Extracting \"'IPP/IPP.ps.B'\" \(59971 characters\)
+  sed "s/^X//" >'IPP/IPP.ps.B' <<'END_OF_FILE'
+X405 1035 256 (Loop table) 256 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1096 93 (This ) 97 SB
+X397 1096 100 (table ) 104 SB
+X501 1096 42 (is ) 46 SB
+X547 1096 135 (needed ) 139 SB
+X686 1096 47 (to ) 51 SB
+X737 1096 130 (handle ) 134 SB
+X871 1096 66 (the ) 70 SB
+X941 1096 159 (possible ) 163 SB
+X1104 1096 109 (loops ) 113 SB
+X1217 1096 81 (that ) 85 SB
+X1302 1096 68 (are ) 72 SB
+X1374 1096 142 (present ) 146 SB
+X1520 1096 46 (in ) 50 SB
+X1570 1096 33 (a ) 37 SB
+X1607 1096 145 (domain ) 150 SB
+X1757 1096 107 (when ) 112 SB
+X1869 1096 101 (there ) 106 SB
+X1975 1096 56 (are) 56 SB
+X300 1151 160 (multiple ) 166 SB
+X466 1151 123 (routes ) 129 SB
+X595 1151 47 (to ) 53 SB
+X648 1151 33 (a ) 39 SB
+X687 1151 99 (host. ) 105 SB
+X792 1151 82 (The ) 88 SB
+X880 1151 171 (principle ) 177 SB
+X1057 1151 42 (is ) 48 SB
+X1105 1151 81 (that ) 87 SB
+X1192 1151 33 (a ) 39 SB
+X1231 1151 130 (packet ) 136 SB
+X1367 1151 144 (coming ) 150 SB
+X1517 1151 99 (from ) 105 SB
+X1622 1151 75 (one ) 81 SB
+X1703 1151 87 (host ) 93 SB
+X1796 1151 91 (with ) 98 SB
+X1894 1151 33 (a ) 40 SB
+X1934 1151 97 (given) 97 SB
+X300 1206 1194 (PacketId should not appear again within a certain amount of time.) 1194 SB
+X300 1316 111 (Since ) 119 SB
+X419 1316 101 (there ) 109 SB
+X528 1316 68 (are ) 76 SB
+X604 1316 81 (254 ) 89 SB
+X693 1316 159 (possible ) 167 SB
+X860 1316 141 ("hosts" ) 149 SB
+X1009 1316 46 (in ) 54 SB
+X1063 1316 33 (a ) 42 SB
+X1105 1316 145 (domain ) 154 SB
+X1259 1316 77 (and ) 86 SB
+X1345 1316 94 (each ) 103 SB
+X1448 1316 75 (one ) 84 SB
+X1532 1316 75 (can ) 84 SB
+X1616 1316 163 (generate ) 172 SB
+X1788 1316 81 (255 ) 90 SB
+X1878 1316 153 (different) 153 SB
+X300 1371 130 (packet ) 132 SB
+X432 1371 46 (id ) 48 SB
+X480 1371 145 (follows ) 148 SB
+X628 1371 81 (that ) 84 SB
+X712 1371 77 (this ) 80 SB
+X792 1371 100 (table ) 103 SB
+X895 1371 42 (is ) 45 SB
+X940 1371 33 (a ) 36 SB
+X976 1371 114 (direct ) 117 SB
+X1093 1371 100 (table ) 103 SB
+X1196 1371 146 (holding ) 149 SB
+X1345 1371 171 (254*255 ) 174 SB
+X1519 1371 131 (entries ) 134 SB
+X1653 1371 94 (each ) 97 SB
+X1750 1371 75 (one ) 78 SB
+X1828 1371 146 (holding ) 149 SB
+X1977 1371 54 (the) 54 SB
+X300 1426 1448 (last time a packet coming from the given sender with the given Id has been seen.) 1448 SB
+X300 1536 111 (Note: ) 116 SB
+X416 1536 40 (It ) 45 SB
+X461 1536 42 (is ) 47 SB
+X508 1536 159 (possible ) 164 SB
+X672 1536 47 (to ) 52 SB
+X724 1536 62 (set ) 67 SB
+X791 1536 58 (up ) 63 SB
+X854 1536 66 (the ) 71 SB
+X925 1536 145 (domain ) 151 SB
+X1076 1536 142 (routing ) 148 SB
+X1224 1536 118 (tables ) 124 SB
+X1348 1536 52 (so ) 58 SB
+X1406 1536 109 (loops ) 115 SB
+X1521 1536 68 (are ) 74 SB
+X1595 1536 217 (impossible. ) 223 SB
+X1818 1536 49 (In ) 55 SB
+X1873 1536 112 (doing ) 118 SB
+X1991 1536 40 (so) 40 SB
+X300 1591 105 (some ) 110 SB
+X410 1591 221 (redundancy ) 226 SB
+X636 1591 89 (may ) 94 SB
+X730 1591 54 (be ) 59 SB
+X789 1591 89 (lost. ) 94 SB
+X883 1591 239 (Experiments ) 244 SB
+X1127 1591 97 (done ) 102 SB
+X1229 1591 91 (with ) 97 SB
+X1326 1591 66 (the ) 72 SB
+X1398 1591 81 (tool ) 87 SB
+X1485 1591 59 (kit ) 65 SB
+X1550 1591 124 (shows ) 130 SB
+X1680 1591 81 (that ) 87 SB
+X1767 1591 66 (the ) 72 SB
+X1839 1591 149 (number ) 155 SB
+X1994 1591 37 (of) 37 SB
+X300 1646 148 (packets ) 149 SB
+X449 1646 159 (dropped ) 161 SB
+X610 1646 76 (due ) 78 SB
+X688 1646 47 (to ) 49 SB
+X737 1646 91 (loop ) 93 SB
+X830 1646 174 (detection ) 176 SB
+X1006 1646 64 (\(In ) 66 SB
+X1072 1646 66 (the ) 68 SB
+X1140 1646 90 (case ) 92 SB
+X1232 1646 49 (of ) 51 SB
+X1283 1646 142 (routing ) 144 SB
+X1427 1646 118 (tables ) 120 SB
+X1547 1646 91 (with ) 93 SB
+X1640 1646 124 (loops\) ) 126 SB
+X1766 1646 42 (is ) 44 SB
+X1810 1646 56 (on ) 58 SB
+X1868 1646 66 (the ) 68 SB
+X1936 1646 95 (order) 95 SB
+X300 1701 39 (if ) 40 SB
+X340 1701 85 (5%. ) 86 SB
+X426 1701 175 (However ) 176 SB
+X602 1701 77 (this ) 78 SB
+X680 1701 42 (is ) 43 SB
+X723 1701 69 (not ) 70 SB
+X793 1701 33 (a ) 35 SB
+X828 1701 103 (fixed ) 105 SB
+X933 1701 119 (figure ) 121 SB
+X1054 1701 77 (and ) 79 SB
+X1133 1701 80 (will ) 82 SB
+X1215 1701 93 (vary ) 95 SB
+X1310 1701 195 (depending ) 197 SB
+X1507 1701 56 (on ) 58 SB
+X1565 1701 66 (the ) 68 SB
+X1633 1701 158 (network ) 160 SB
+X1793 1701 182 (topology, ) 184 SB
+X1977 1701 54 (the) 54 SB
+X300 1756 564 (routes cost and the traffic type.) 564 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1916 42 (4.) 42 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X342 1916 70 (     ) 70 SB
+X405 1916 451 (Example programs) 451 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1977 93 (This ) 99 SB
+X399 1977 138 (section ) 144 SB
+X543 1977 179 (describes ) 185 SB
+X728 1977 66 (the ) 72 SB
+X800 1977 163 (example ) 169 SB
+X969 1977 184 (programs ) 190 SB
+X1159 1977 81 (that ) 87 SB
+X1246 1977 125 (comes ) 131 SB
+X1377 1977 91 (with ) 97 SB
+X1474 1977 66 (the ) 72 SB
+X1546 1977 245 (experimental ) 251 SB
+X1797 1977 81 (tool ) 87 SB
+X1884 1977 71 (kit. ) 77 SB
+X1961 1977 70 (The) 70 SB
+X300 2032 81 (tool ) 84 SB
+X384 2032 59 (kit ) 62 SB
+X446 2032 42 (is ) 45 SB
+X491 2032 33 (a ) 36 SB
+X527 2032 114 (series ) 117 SB
+X644 2032 49 (of ) 52 SB
+X696 2032 184 (programs ) 187 SB
+X883 2032 81 (that ) 84 SB
+X967 2032 129 (allows ) 132 SB
+X1099 2032 66 (the ) 69 SB
+X1168 2032 201 (simulation ) 204 SB
+X1372 2032 49 (of ) 52 SB
+X1424 2032 66 (the ) 70 SB
+X1494 2032 192 (behaviour ) 196 SB
+X1690 2032 49 (of ) 53 SB
+X1743 2032 55 (an ) 59 SB
+X1802 2032 79 (IPP ) 83 SB
+X1885 2032 146 (network) 146 SB
+X300 2087 99 (from ) 103 SB
+X403 2087 66 (the ) 70 SB
+X473 2087 142 (routing ) 146 SB
+X619 2087 104 (point ) 108 SB
+X727 2087 49 (of ) 53 SB
+X780 2087 97 (view ) 101 SB
+X881 2087 102 (only. ) 106 SB
+X987 2087 40 (It ) 44 SB
+X1031 2087 42 (is ) 46 SB
+X1077 2087 167 (assumed ) 171 SB
+X1248 2087 81 (that ) 85 SB
+X1333 2087 33 (a ) 37 SB
+X1370 2087 96 (fully ) 100 SB
+X1470 2087 241 (implemented ) 246 SB
+X1716 2087 79 (IPP ) 84 SB
+X1800 2087 158 (network ) 163 SB
+X1963 2087 68 (will) 68 SB
+X300 2142 1396 (implement all features of IP plus the changed addressing and routing scheme.) 1396 SB
+X300 2252 755 (Note that even if this test implementation ) 756 SB
+X1056 2252 93 (does ) 94 SB
+X1150 2252 69 (not ) 70 SB
+X1220 2252 129 (permit ) 130 SB
+X1350 2252 79 (two ) 80 SB
+X1430 2252 139 (routers ) 140 SB
+X1570 2252 47 (to ) 48 SB
+X1618 2252 108 (share ) 109 SB
+X1727 2252 75 (one ) 76 SB
+X1803 2252 162 (physical ) 163 SB
+X1966 2252 65 (line) 65 SB
+X300 2307 1030 (it is obviously possible to do so in a real implementation.) 1030 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2442 84 (4.1.) 84 SB
+X405 2442 571 (How to build the tool kit) 571 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2503 1703 (The tool kit is delivered as a tarred and gzipped file. Installation is done by creating a working) 1703 SB
+X300 2559 1494 (directory and then extracting the material into that directory. Once this is done the ) 1494 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1794 2558 143 (readme) 143 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1937 2559 70 ( file) 70 SB
+X300 2614 1582 (in the main tool kit directory can be read and the instructions inside should be followed.) 1582 SB
+X300 2724 1454 (The tool kit can be obtained via anonymous ftp from: ......... in the ...... directory) 1454 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2854 84 (4.2.) 84 SB
+X405 2854 602 (How to use the programs) 602 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2915 93 (This ) 94 SB
+X394 2915 138 (section ) 140 SB
+X534 2915 162 (explains ) 164 SB
+X698 2915 66 (the ) 68 SB
+X766 2915 106 (basic ) 108 SB
+X874 2915 173 (structure ) 175 SB
+X1049 2915 49 (of ) 51 SB
+X1100 2915 66 (the ) 68 SB
+X1168 2915 81 (tool ) 83 SB
+X1251 2915 59 (kit ) 61 SB
+X1312 2915 77 (and ) 79 SB
+X1391 2915 128 (guides ) 130 SB
+X1521 2915 46 (in ) 48 SB
+X1569 2915 55 (its ) 57 SB
+X1626 2915 84 (use. ) 86 SB
+X1712 2915 82 (The ) 84 SB
+X1796 2915 81 (tool ) 83 SB
+X1879 2915 59 (kit ) 61 SB
+X1940 2915 91 (parts) 91 SB
+X300 2970 68 (are ) 73 SB
+X373 2970 143 (divided ) 148 SB
+X521 2970 46 (in ) 51 SB
+X572 2970 165 (different ) 170 SB
+X742 2970 76 (sub ) 81 SB
+X823 2970 201 (directories ) 206 SB
+X1029 2970 94 (each ) 99 SB
+X1128 2970 75 (one ) 80 SB
+X1208 2970 146 (holding ) 151 SB
+X1359 2970 85 (part ) 90 SB
+X1449 2970 49 (of ) 54 SB
+X1503 2970 66 (the ) 71 SB
+X1574 2970 148 (system. ) 154 SB
+X1728 2970 82 (The ) 88 SB
+X1816 2970 99 (most ) 105 SB
+X1921 2970 110 (useful) 110 SB
+X300 3026 85 (part ) 93 SB
+X393 3026 42 (is ) 50 SB
+X443 3026 174 (probably ) 182 SB
+X625 3026 66 (the ) 74 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X699 3025 83 (logd) 83 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X782 3026 12 ( ) 20 SB
+X802 3026 143 (demon. ) 151 SB
+X953 3026 93 (This ) 101 SB
+X1054 3026 166 (program ) 174 SB
+X1228 3026 81 (that ) 89 SB
+X1317 3026 42 (is ) 50 SB
+X1367 3026 114 (under ) 122 SB
+X1489 3026 66 (the ) 74 SB
+X32 0 0 46 46 1 0 0 42 /Times-Roman /font32 ANSIFont font
+X1563 3026 78 (logd) 78 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1641 3026 12 ( ) 20 SB
+X1661 3026 174 (directory ) 182 SB
+X1843 3026 126 (listens ) 135 SB
+X1978 3026 53 (for) 53 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1155 3158 21 (6) 21 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Bold
+X%%+ font Times-Roman
+X%%Page: 7 7
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X0 0 0 fC
+X300 209 1329 (packets on udp port 1234 of the local machine. The other part of the tool ) 1330 SB
+X1630 209 59 (kit ) 60 SB
+X1690 209 80 (will ) 81 SB
+X1771 209 88 (then ) 89 SB
+X1860 209 93 (send ) 94 SB
+X1954 209 77 (data) 77 SB
+X300 264 1140 (to this daemon when they need to show debugging information.) 1140 SB
+X300 374 1661 (The second most important program is the router. The router requires the configuration file ) 1662 SB
+X1962 374 69 (that) 69 SB
+X300 429 168 (specifies ) 175 SB
+X475 429 55 (its ) 62 SB
+X537 429 160 (address, ) 167 SB
+X704 429 66 (the ) 73 SB
+X777 429 104 (ports ) 111 SB
+X888 429 47 (to ) 54 SB
+X942 429 150 (connect ) 157 SB
+X1099 429 59 (to, ) 66 SB
+X1165 429 66 (the ) 73 SB
+X1238 429 187 (interfaces ) 195 SB
+X1433 429 47 (to ) 55 SB
+X1488 429 120 (create ) 128 SB
+X1616 429 77 (and ) 85 SB
+X1701 429 66 (the ) 74 SB
+X1775 429 142 (routing ) 150 SB
+X1925 429 106 (tables) 106 SB
+X300 484 253 (specification. ) 256 SB
+X556 484 93 (This ) 96 SB
+X652 484 70 (file ) 73 SB
+X725 484 100 (must ) 103 SB
+X828 484 54 (be ) 57 SB
+X885 484 109 (given ) 112 SB
+X997 484 56 (on ) 59 SB
+X1056 484 66 (the ) 69 SB
+X1125 484 121 (router ) 124 SB
+X1249 484 111 (stdin. ) 114 SB
+X1363 484 106 (Once ) 109 SB
+X1472 484 134 (started ) 137 SB
+X1609 484 33 (a ) 36 SB
+X1645 484 121 (router ) 125 SB
+X1770 484 80 (will ) 84 SB
+X1854 484 129 (output ) 133 SB
+X1987 484 44 (on) 44 SB
+X300 539 1577 (stdout the "interfaces" it has created and then start accepting packets from the network.) 1577 SB
+X300 650 217 (Connection ) 222 SB
+X522 650 47 (to ) 52 SB
+X574 650 33 (a ) 38 SB
+X612 650 121 (router ) 127 SB
+X739 650 75 (can ) 81 SB
+X820 650 54 (be ) 60 SB
+X880 650 97 (done ) 103 SB
+X983 650 57 (by ) 63 SB
+X1046 650 109 (using ) 115 SB
+X1161 650 66 (the ) 72 SB
+X1233 650 166 (program ) 172 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1405 649 83 (mon) 83 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1488 650 12 ( ) 18 SB
+X1506 650 114 (under ) 120 SB
+X1626 650 66 (the ) 72 SB
+X32 0 0 46 46 1 0 0 42 /Times-Roman /font32 ANSIFont font
+X1698 650 141 (monitor) 141 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1839 650 12 ( ) 18 SB
+X1857 650 174 (directory.) 174 SB
+X300 705 93 (This ) 95 SB
+X395 705 42 (is ) 44 SB
+X439 705 55 (an ) 57 SB
+X496 705 201 (interactive ) 203 SB
+X699 705 178 (program. ) 180 SB
+X879 705 40 (It ) 42 SB
+X921 705 80 (will ) 82 SB
+X1003 705 73 (ask ) 75 SB
+X1078 705 65 (for ) 67 SB
+X1145 705 66 (the ) 68 SB
+X1213 705 53 (IP ) 55 SB
+X1268 705 86 (port ) 88 SB
+X1356 705 47 (to ) 49 SB
+X1405 705 150 (connect ) 152 SB
+X1557 705 59 (to, ) 62 SB
+X1619 705 77 (this ) 80 SB
+X1699 705 42 (is ) 45 SB
+X1744 705 77 (like ) 80 SB
+X1824 705 33 (a ) 36 SB
+X1860 705 171 (telephone) 171 SB
+X300 760 149 (number ) 150 SB
+X450 760 47 (to ) 48 SB
+X498 760 79 (dial ) 80 SB
+X578 760 47 (to ) 48 SB
+X626 760 150 (connect ) 151 SB
+X777 760 47 (to ) 48 SB
+X825 760 66 (the ) 68 SB
+X893 760 133 (router. ) 135 SB
+X1028 760 93 (This ) 95 SB
+X1123 760 223 (information ) 225 SB
+X1348 760 75 (can ) 77 SB
+X1425 760 54 (be ) 56 SB
+X1481 760 116 (found ) 118 SB
+X1599 760 57 (by ) 59 SB
+X1658 760 146 (looking ) 148 SB
+X1806 760 46 (at ) 48 SB
+X1854 760 66 (the ) 68 SB
+X1922 760 109 (router) 109 SB
+X300 815 1626 (output after it has been started. Mon will then ask for its own address and for the address ) 1627 SB
+X1927 815 49 (of ) 50 SB
+X1977 815 54 (the) 54 SB
+X300 870 1313 (router in this domain. This is the single trailing  byte of a router address.) 1313 SB
+X300 980 106 (Once ) 109 SB
+X409 980 77 (this ) 80 SB
+X489 980 223 (information ) 226 SB
+X715 980 42 (is ) 45 SB
+X760 980 109 (given ) 112 SB
+X872 980 66 (the ) 69 SB
+X941 980 90 (mon ) 93 SB
+X1034 980 80 (will ) 83 SB
+X1117 980 90 (wait ) 93 SB
+X1210 980 65 (for ) 68 SB
+X1278 980 148 (packets ) 151 SB
+X1429 980 47 (to ) 51 SB
+X1480 980 142 (display ) 146 SB
+X1626 980 99 (from ) 103 SB
+X1729 980 66 (the ) 70 SB
+X1799 980 121 (router ) 125 SB
+X1924 980 50 (or ) 54 SB
+X1978 980 53 (for) 53 SB
+X300 1035 293 (user commands.) 293 SB
+X300 1145 528 (A typical command is to ask ) 529 SB
+X829 1145 47 (to ) 48 SB
+X877 1145 66 (the ) 67 SB
+X944 1145 121 (router ) 122 SB
+X1066 1145 47 (to ) 48 SB
+X1114 1145 106 (show ) 107 SB
+X1221 1145 55 (its ) 56 SB
+X1277 1145 142 (routing ) 143 SB
+X1420 1145 112 (table. ) 113 SB
+X1533 1145 42 (If ) 43 SB
+X1576 1145 33 (a ) 34 SB
+X1610 1145 170 (topology ) 171 SB
+X1781 1145 51 (as ) 52 SB
+X1833 1145 46 (in ) 47 SB
+X1880 1145 151 (example) 151 SB
+X300 1200 79 (two ) 85 SB
+X385 1200 42 (is ) 48 SB
+X433 1200 94 (used ) 100 SB
+X533 1200 66 (the ) 72 SB
+X605 1200 153 (monitor ) 159 SB
+X764 1200 123 (would ) 129 SB
+X893 1200 96 (have ) 102 SB
+X995 1200 148 (address ) 154 SB
+X1149 1200 47 (1, ) 53 SB
+X1202 1200 66 (the ) 72 SB
+X1274 1200 121 (router ) 127 SB
+X1401 1200 123 (would ) 129 SB
+X1530 1200 54 (be ) 60 SB
+X1590 1200 148 (address ) 154 SB
+X1744 1200 35 (2 ) 41 SB
+X1785 1200 52 (so ) 58 SB
+X1843 1200 47 (to ) 54 SB
+X1897 1200 73 (ask ) 80 SB
+X1977 1200 54 (the) 54 SB
+X300 1255 695 (router 2 to show its routing table type:) 695 SB
+X300 1365 268 (Destination> 2) 268 SB
+X300 1420 781 (packet Type \(Data, RecordRoute Ping\) > d) 781 SB
+X300 1475 314 (data> show route) 314 SB
+X300 1585 976 (If something goes wrong the logd should explain why.) 976 SB
+X300 1696 82 (The ) 83 SB
+X383 1696 104 (other ) 105 SB
+X488 1696 166 (program ) 167 SB
+X655 1696 81 (that ) 82 SB
+X737 1696 42 (is ) 43 SB
+X780 1696 94 (used ) 95 SB
+X875 1696 46 (in ) 48 SB
+X923 1696 77 (this ) 79 SB
+X1002 1696 143 (version ) 145 SB
+X1147 1696 49 (of ) 51 SB
+X1198 1696 66 (the ) 68 SB
+X1266 1696 81 (tool ) 83 SB
+X1349 1696 59 (kit ) 61 SB
+X1410 1696 42 (is ) 44 SB
+X1454 1696 66 (the ) 68 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1522 1695 80 (host) 80 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1602 1696 24 (. ) 26 SB
+X1628 1696 44 (A ) 46 SB
+X1674 1696 87 (host ) 89 SB
+X1763 1696 42 (is ) 44 SB
+X1807 1696 33 (a ) 35 SB
+X1842 1696 189 (simulation) 189 SB
+X300 1751 49 (of ) 50 SB
+X350 1751 33 (a ) 34 SB
+X384 1751 87 (host ) 88 SB
+X472 1751 204 (behaviour. ) 205 SB
+X677 1751 40 (It ) 41 SB
+X718 1751 42 (is ) 43 SB
+X761 1751 205 (configured ) 206 SB
+X967 1751 57 (by ) 58 SB
+X1025 1751 33 (a ) 34 SB
+X1059 1751 125 (config ) 127 SB
+X1186 1751 70 (file ) 72 SB
+X1258 1751 133 (passed ) 135 SB
+X1393 1751 46 (in ) 48 SB
+X1441 1751 99 (stdin ) 101 SB
+X1542 1751 77 (and ) 79 SB
+X1621 1751 100 (what ) 102 SB
+X1723 1751 37 (it ) 39 SB
+X1762 1751 93 (does ) 95 SB
+X1857 1751 42 (is ) 44 SB
+X1901 1751 47 (to ) 49 SB
+X1950 1751 81 (send) 81 SB
+X300 1806 600 (data to the specified destinations.) 600 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1941 84 (4.3.) 84 SB
+X405 1941 317 (Example One) 317 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2002 93 (This ) 96 SB
+X396 2002 163 (example ) 166 SB
+X562 2002 124 (shows ) 127 SB
+X689 2002 88 (how ) 92 SB
+X781 2002 33 (a ) 37 SB
+X818 2002 138 (Subnet ) 142 SB
+X960 2002 75 (can ) 79 SB
+X1039 2002 54 (be ) 58 SB
+X1097 2002 191 (connected ) 195 SB
+X1292 2002 47 (to ) 51 SB
+X1343 2002 33 (a ) 37 SB
+X1380 2002 126 (parent ) 130 SB
+X1510 2002 57 (by ) 61 SB
+X1571 2002 79 (two ) 83 SB
+X1654 2002 123 (routes ) 127 SB
+X1781 2002 77 (and ) 81 SB
+X1862 2002 88 (how ) 92 SB
+X1954 2002 77 (load) 77 SB
+X300 2057 813 (balancing can be performed on the two links.) 813 SB
+X300 2167 117 (There ) 128 SB
+X428 2167 42 (is ) 53 SB
+X481 2167 33 (a ) 44 SB
+X525 2167 126 (parent ) 137 SB
+X662 2167 158 (network ) 169 SB
+X831 2167 192 (composed ) 203 SB
+X1034 2167 49 (of ) 60 SB
+X1094 2167 101 (three ) 112 SB
+X1206 2167 139 (routers ) 150 SB
+X1356 2167 77 (and ) 88 SB
+X1444 2167 101 (three ) 113 SB
+X1557 2167 105 (hosts ) 117 SB
+X1674 2167 77 (and ) 89 SB
+X1763 2167 33 (a ) 45 SB
+X1808 2167 138 (Subnet ) 150 SB
+X1958 2167 73 (also) 73 SB
+X300 2222 192 (composed ) 197 SB
+X497 2222 49 (of ) 54 SB
+X551 2222 101 (three ) 106 SB
+X657 2222 139 (routers ) 144 SB
+X801 2222 77 (and ) 82 SB
+X883 2222 101 (three ) 106 SB
+X989 2222 117 (hosts. ) 122 SB
+X1111 2222 82 (The ) 87 SB
+X1198 2222 105 (hosts ) 110 SB
+X1308 2222 93 (send ) 98 SB
+X1406 2222 89 (data ) 94 SB
+X1500 2222 47 (to ) 52 SB
+X1552 2222 94 (each ) 100 SB
+X1652 2222 104 (other ) 110 SB
+X1762 2222 77 (and ) 83 SB
+X1845 2222 66 (the ) 72 SB
+X1917 2222 114 (option) 114 SB
+X300 2277 985 (Record Route will show the path taken by the packets.) 985 SB
+X300 2387 82 (The ) 85 SB
+X385 2387 167 (numbers ) 170 SB
+X555 2387 56 (on ) 59 SB
+X614 2387 66 (the ) 69 SB
+X683 2387 98 (links ) 101 SB
+X784 2387 153 (indicate ) 156 SB
+X940 2387 66 (the ) 69 SB
+X1009 2387 169 (interface ) 172 SB
+X1181 2387 81 (that ) 84 SB
+X1265 2387 66 (the ) 69 SB
+X1334 2387 121 (router ) 124 SB
+X1458 2387 42 (is ) 45 SB
+X1503 2387 109 (using ) 112 SB
+X1615 2387 47 (to ) 50 SB
+X1665 2387 150 (connect ) 153 SB
+X1818 2387 47 (to ) 51 SB
+X1869 2387 66 (the ) 70 SB
+X1939 2387 92 (other) 92 SB
+X300 2442 1218 (end. If the interface number has a slash after it this means that it is ) 1219 SB
+X1519 2442 33 (a ) 34 SB
+X1553 2442 164 (listening ) 165 SB
+X1718 2442 181 (interface, ) 182 SB
+X1900 2442 67 (i.e. ) 68 SB
+X1968 2442 63 (one) 63 SB
+X300 2497 500 (that accepts incoming calls.) 500 SB
+X300 2608 82 (The ) 89 SB
+X389 2608 121 (router ) 129 SB
+X518 2608 77 (and ) 85 SB
+X603 2608 87 (host ) 95 SB
+X698 2608 185 (addresses ) 193 SB
+X891 2608 68 (are ) 76 SB
+X967 2608 161 (prefixed ) 169 SB
+X1136 2608 57 (by ) 65 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1201 2607 33 (R) 33 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1234 2608 12 ( ) 20 SB
+X1254 2608 65 (for ) 73 SB
+X1327 2608 66 (the ) 74 SB
+X1401 2608 139 (routers ) 147 SB
+X1548 2608 77 (and ) 85 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1633 2607 36 (H) 36 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1669 2608 12 ( ) 20 SB
+X1689 2608 65 (for ) 73 SB
+X1762 2608 66 (the ) 74 SB
+X1836 2608 117 (hosts. ) 125 SB
+X1961 2608 70 (The) 70 SB
+X300 2664 583 (monitor is prefixed by the letter ) 583 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X883 2663 43 (M) 43 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X926 2664 12 (.) 12 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1155 3158 21 (7) 21 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Bold
+X%%+ font Times-Roman
+X%%Page: 8 8
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X0 lc
+X0 lj
+X0 0 0 pC
+X6 4 SP
+X216 224 551 584 B
+XS
+Xn
+X215 224 1081 584 B
+XS
+Xn
+X216 224 1635 584 B
+XS
+Xn
+X216 224 551 1253 B
+XS
+Xn
+X215 224 1081 1253 B
+XS
+Xn
+X216 224 1635 1253 B
+XS
+Xn
+X1 lc
+X1 lj
+X6 1 SP
+X551 250 767 398 12 19 RR
+XS
+Xn
+X1081 250 1296 398 12 19 RR
+XS
+Xn
+X1635 250 1851 398 12 19 RR
+XS
+Xn
+X551 1663 767 1811 12 18 RR
+XS
+Xn
+X1081 1663 1296 1811 12 18 RR
+XS
+Xn
+X1635 1663 1851 1811 12 18 RR
+XS
+Xn
+X32 0 0 62 62 0 0 0 55 /Times-Roman /font32 ANSIFont font
+X0 0 0 fC
+X566 604 88 (R 2) 88 SB
+X1099 604 119 (R 15) 119 SB
+X1659 609 119 (R 16) 119 SB
+X566 1269 135 (R 1.1) 135 SB
+X1096 1278 166 (R 1.30) 166 SB
+X1647 1269 166 (R 1.20) 166 SB
+X572 284 123 (H 10) 123 SB
+X1102 284 92 (H 5) 92 SB
+X1653 293 123 (H 11) 123 SB
+X575 1706 139 (H 1.3) 139 SB
+X1111 1701 139 (H 1.4) 139 SB
+X1656 1696 139 (H 1.5) 139 SB
+Xgs 1 187 647 1477 CB
+X647 1477 M 0 186 1 PP
+XS
+Xn
+Xgr
+Xgs 1 187 1177 1477 CB
+X1177 1477 M 0 186 1 PP
+XS
+Xn
+Xgr
+Xgs 1 187 1731 1477 CB
+X1731 1477 M 0 186 1 PP
+XS
+Xn
+Xgr
+Xgs 1 187 647 399 CB
+X647 585 M 0 -186 1 PP
+XS
+Xn
+Xgr
+Xgs 1 187 1177 399 CB
+X1177 585 M 0 -186 1 PP
+XS
+Xn
+Xgr
+Xgs 1 187 1755 399 CB
+X1755 585 M 0 -186 1 PP
+XS
+Xn
+Xgr
+Xgs 314 1 768 697 CB
+X768 697 M 313 0 1 PP
+XS
+Xn
+Xgr
+Xgs 339 1 1297 697 CB
+X1297 697 M 338 0 1 PP
+XS
+Xn
+Xgr
+Xgs 314 1 768 1366 CB
+X768 1366 M 313 0 1 PP
+XS
+Xn
+Xgr
+Xgs 339 1 1297 1366 CB
+X1297 1366 M 338 0 1 PP
+XS
+Xn
+Xgr
+X2 1 SP
+Xgs 1 447 647 808 CB
+X647 808 M 0 446 1 PP
+XS
+Xn
+Xgr
+Xgs 1 447 1755 808 CB
+X1755 808 M 0 446 1 PP
+XS
+Xn
+Xgr
+X0 lc
+X0 lj
+X3 1 SP
+X1612 966 358 1031 B
+XS
+Xn
+X1613 706 358 213 B
+XS
+Xn
+X671 1162 31 (1) 31 SB
+X792 1274 48 (2/) 48 SB
+X671 1497 48 (3/) 48 SB
+X1201 1497 48 (4/) 48 SB
+X1045 1283 31 (1) 31 SB
+X1316 1283 48 (2/) 48 SB
+X1575 1288 31 (2) 31 SB
+X1770 1153 31 (1) 31 SB
+X1743 1497 48 (4/) 48 SB
+X662 493 48 (2/) 48 SB
+X783 604 48 (1/) 48 SB
+X665 823 48 (4/) 48 SB
+X1189 497 48 (4/) 48 SB
+X1310 609 48 (2/) 48 SB
+X1036 609 31 (1) 31 SB
+X1575 618 31 (1) 31 SB
+X1776 507 48 (4/) 48 SB
+X1773 818 48 (3/) 48 SB
+X1 lc
+X1 lj
+X6 4 SP
+X255 255 255 fC
+X/fm 256 def
+X376 431 574 543 12 18 RR
+X1 F
+XS
+Xn
+X0 0 0 fC
+X394 456 86 (M1) 86 SB
+X6 1 SP
+Xgs 1 141 454 543 CB
+X454 543 M 0 140 1 PP
+XS
+Xn
+Xgr
+Xgs 95 1 454 683 CB
+X454 683 M 94 0 1 PP
+XS
+Xn
+Xgr
+X491 693 48 (3/) 48 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2062 93 (This ) 104 SB
+X404 2062 163 (example ) 174 SB
+X578 2062 75 (can ) 86 SB
+X664 2062 54 (be ) 65 SB
+X729 2062 73 (run ) 84 SB
+X813 2062 109 (using ) 120 SB
+X933 2062 66 (the ) 78 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X1011 2061 68 (run) 68 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1079 2062 12 ( ) 24 SB
+X1103 2062 187 (command ) 199 SB
+X1302 2062 46 (in ) 58 SB
+X1360 2062 66 (the ) 78 SB
+X1438 2062 203 (config/ex1 ) 215 SB
+X1653 2062 186 (directory. ) 198 SB
+X1851 2062 99 (Note ) 111 SB
+X1962 2062 69 (that) 69 SB
+X300 2117 479 (something may go wrong, ) 480 SB
+X780 2117 159 (possible ) 160 SB
+X940 2117 131 (causes ) 132 SB
+X1072 2117 89 (may ) 90 SB
+X1162 2117 54 (be ) 55 SB
+X1217 2117 66 (the ) 67 SB
+X1284 2117 81 (fact ) 82 SB
+X1366 2117 81 (that ) 82 SB
+X1448 2117 66 (the ) 67 SB
+X1515 2117 45 (X ) 46 SB
+X1561 2117 126 (screen ) 127 SB
+X1688 2117 42 (is ) 43 SB
+X1731 2117 69 (too ) 70 SB
+X1801 2117 109 (small ) 110 SB
+X1911 2117 50 (or ) 51 SB
+X1962 2117 69 (that) 69 SB
+X300 2172 1314 (the PATH is not correct. In this case the system can be built by hand by ) 1315 SB
+X1615 2172 149 (starting ) 150 SB
+X1765 2172 75 (one ) 76 SB
+X1841 2172 121 (router ) 122 SB
+X1963 2172 46 (at ) 47 SB
+X2010 2172 21 (a) 21 SB
+X300 2227 889 (time and understanding what the system is doing.) 889 SB
+X300 2338 82 (The ) 91 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X391 2337 83 (logd) 83 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X474 2338 12 ( ) 21 SB
+X495 2338 152 (daemon ) 161 SB
+X656 2338 131 (should ) 140 SB
+X796 2338 138 (always ) 147 SB
+X943 2338 54 (be ) 63 SB
+X1006 2338 134 (started ) 143 SB
+X1149 2338 86 (first ) 96 SB
+X1245 2338 103 (since ) 113 SB
+X1358 2338 77 (this ) 87 SB
+X1445 2338 80 (will ) 90 SB
+X1535 2338 174 (probably ) 184 SB
+X1719 2338 106 (show ) 116 SB
+X1835 2338 100 (what ) 110 SB
+X1945 2338 86 (went) 86 SB
+X300 2393 126 (wrong.) 126 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2528 84 (4.4.) 84 SB
+X405 2528 322 (Example Two) 322 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2589 93 (This ) 96 SB
+X396 2589 163 (example ) 166 SB
+X562 2589 124 (shows ) 127 SB
+X689 2589 88 (how ) 91 SB
+X780 2589 37 (it ) 40 SB
+X820 2589 42 (is ) 45 SB
+X865 2589 159 (possible ) 163 SB
+X1028 2589 47 (to ) 51 SB
+X1079 2589 147 (achieve ) 151 SB
+X1230 2589 89 (load ) 93 SB
+X1323 2589 187 (balancing ) 191 SB
+X1514 2589 46 (at ) 50 SB
+X1564 2589 66 (the ) 70 SB
+X1634 2589 104 (same ) 108 SB
+X1742 2589 145 (domain ) 149 SB
+X1891 2589 108 (level. ) 112 SB
+X2003 2589 28 (It) 28 SB
+X300 2644 85 (also ) 88 SB
+X388 2644 124 (shows ) 127 SB
+X515 2644 88 (how ) 91 SB
+X606 2644 77 (this ) 80 SB
+X686 2644 158 (network ) 161 SB
+X847 2644 254 (configuration ) 257 SB
+X1104 2644 80 (will ) 83 SB
+X1187 2644 86 (lead ) 90 SB
+X1277 2644 47 (to ) 51 SB
+X1328 2644 142 (routing ) 146 SB
+X1474 2644 109 (loops ) 113 SB
+X1587 2644 90 (only ) 94 SB
+X1681 2644 46 (in ) 50 SB
+X1731 2644 135 (certain ) 139 SB
+X1870 2644 120 (cases. ) 124 SB
+X1994 2644 37 (In) 37 SB
+X300 2699 66 (the ) 68 SB
+X368 2699 90 (case ) 92 SB
+X460 2699 49 (of ) 51 SB
+X511 2699 142 (routing ) 144 SB
+X655 2699 109 (loops ) 111 SB
+X766 2699 37 (it ) 39 SB
+X805 2699 75 (can ) 77 SB
+X882 2699 54 (be ) 56 SB
+X938 2699 90 (seen ) 92 SB
+X1030 2699 88 (how ) 90 SB
+X1120 2699 111 (many ) 113 SB
+X1233 2699 148 (packets ) 150 SB
+X1383 2699 156 (actually ) 159 SB
+X1542 2699 66 (get ) 69 SB
+X1611 2699 184 (discarded ) 187 SB
+X1798 2699 76 (due ) 79 SB
+X1877 2699 47 (to ) 50 SB
+X1927 2699 33 (a ) 36 SB
+X1963 2699 68 (real) 68 SB
+X300 2754 833 (loop and how many still get to the destination.) 833 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1155 3158 21 (8) 21 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Bold
+X%%+ font Times-Roman
+X%%Page: 9 9
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X0 lc
+X0 lj
+X0 0 0 pC
+X6 5 SP
+X255 255 255 fC
+X/fm 256 def
+X240 181 720 483 B
+X1 F
+XS
+Xn
+X241 181 1353 483 B
+X1 F
+XS
+Xn
+X240 181 720 936 B
+X1 F
+XS
+Xn
+X241 181 1353 936 B
+X1 F
+XS
+Xn
+X1 lc
+X1 lj
+X75 75 583 377 E
+X1 F
+XS
+Xn
+X75 75 1729 377 E
+X1 F
+XS
+Xn
+X75 75 599 1283 E
+X1 F
+XS
+Xn
+X75 75 1745 1283 E
+X1 F
+XS
+Xn
+X6 1 SP
+Xgs 73 43 637 438 CB
+X637 438 M 72 42 1 PP
+XS
+Xn
+Xgr
+Xgs 69 95 641 1118 CB
+X709 1118 M -68 94 1 PP
+XS
+Xn
+Xgr
+Xgs 95 92 1595 1121 CB
+X1595 1121 M 94 91 1 PP
+XS
+Xn
+Xgr
+Xgs 73 57 1591 420 CB
+X1591 476 M 72 -56 1 PP
+XS
+Xn
+Xgr
+Xgs 1 272 841 665 CB
+X841 665 M 0 271 1 PP
+XS
+Xn
+Xgr
+Xgs 393 1 961 1027 CB
+X961 1027 M 392 0 1 PP
+XS
+Xn
+Xgr
+Xgs 393 1 961 574 CB
+X961 574 M 392 0 1 PP
+XS
+Xn
+Xgr
+Xgs 1 272 1474 665 CB
+X1474 665 M 0 271 1 PP
+XS
+Xn
+Xgr
+Xgs 393 272 961 665 CB
+X1353 665 M -392 271 1 PP
+XS
+Xn
+Xgr
+Xgs 393 272 961 665 CB
+X961 665 M 392 271 1 PP
+XS
+Xn
+Xgr
+X6 5 SP
+X720 212 991 302 15 15 RR
+X1 F
+XS
+Xn
+X6 1 SP
+Xgs 1 182 841 303 CB
+X841 303 M 0 181 1 PP
+XS
+Xn
+Xgr
+X32 0 0 50 50 0 0 0 45 /Times-Roman /font32 ANSIFont font
+X0 0 0 fC
+X690 409 39 (1/) 39 SB
+X871 409 39 (5/) 39 SB
+X992 499 39 (2/) 39 SB
+X992 620 39 (3/) 39 SB
+X871 680 39 (4/) 39 SB
+X1625 469 39 (1/) 39 SB
+X1504 680 39 (2/) 39 SB
+X1323 680 39 (3/) 39 SB
+X1293 499 25 (4) 25 SB
+X1504 862 25 (4) 25 SB
+X1625 1073 39 (1/) 39 SB
+X1293 1043 39 (2/) 39 SB
+X1327 854 25 (3) 25 SB
+X980 1043 25 (4) 25 SB
+X720 1163 39 (1/) 39 SB
+X871 862 25 (2) 25 SB
+X992 914 25 (3) 25 SB
+X32 0 0 60 60 0 0 0 54 /Times-Roman /font32 ANSIFont font
+X796 531 70 (R2) 70 SB
+X1421 539 70 (R3) 70 SB
+X1418 999 70 (R4) 70 SB
+X792 996 70 (R5) 70 SB
+X539 335 72 (H6) 72 SB
+X1697 339 72 (H7) 72 SB
+X1704 1252 72 (H8) 72 SB
+X562 1252 72 (H9) 72 SB
+X777 215 83 (M1) 83 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1526 42 (5.) 42 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X342 1526 70 (     ) 70 SB
+X405 1526 626 (Parts not yet implemented) 626 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1587 1729 (This section describes the parts of the project that are not yet implemented but that are planned.) 1729 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1722 84 (5.1.) 84 SB
+X405 1722 246 (Broadcast) 246 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1783 79 (IPP ) 81 SB
+X381 1783 188 (broadcast ) 190 SB
+X571 1783 42 (is ) 44 SB
+X615 1783 91 (very ) 93 SB
+X708 1783 137 (similar ) 139 SB
+X847 1783 47 (to ) 49 SB
+X896 1783 53 (IP ) 55 SB
+X951 1783 200 (broadcast, ) 202 SB
+X1153 1783 67 (i.e. ) 69 SB
+X1222 1783 81 (255 ) 83 SB
+X1305 1783 42 (is ) 44 SB
+X1349 1783 94 (used ) 96 SB
+X1445 1783 47 (to ) 50 SB
+X1495 1783 129 (denote ) 132 SB
+X1627 1783 33 (a ) 36 SB
+X1663 1783 188 (broadcast ) 191 SB
+X1854 1783 142 (packet. ) 145 SB
+X1999 1783 32 (A) 32 SB
+X300 1838 121 (router ) 123 SB
+X423 1838 123 (would ) 125 SB
+X548 1838 88 (then ) 90 SB
+X638 1838 93 (send ) 95 SB
+X733 1838 33 (a ) 35 SB
+X768 1838 99 (copy ) 101 SB
+X869 1838 49 (of ) 51 SB
+X920 1838 66 (the ) 68 SB
+X988 1838 130 (packet ) 133 SB
+X1121 1838 47 (to ) 50 SB
+X1171 1838 57 (all ) 60 SB
+X1231 1838 148 (directly ) 151 SB
+X1382 1838 191 (connected ) 194 SB
+X1576 1838 139 (routers ) 142 SB
+X1718 1838 77 (and ) 80 SB
+X1798 1838 117 (hosts. ) 120 SB
+X1918 1838 113 (Loops) 113 SB
+X300 1893 663 (are avoided by using the LoopTable.) 663 SB
+X300 2003 40 (It ) 45 SB
+X345 2003 42 (is ) 47 SB
+X392 2003 188 (obviously ) 193 SB
+X585 2003 159 (possible ) 164 SB
+X749 2003 47 (to ) 52 SB
+X801 2003 93 (send ) 98 SB
+X899 2003 33 (a ) 38 SB
+X937 2003 188 (broadcast ) 193 SB
+X1130 2003 56 (on ) 61 SB
+X1191 2003 147 (another ) 152 SB
+X1343 2003 138 (Subnet ) 143 SB
+X1486 2003 77 (and ) 83 SB
+X1569 2003 37 (it ) 43 SB
+X1612 2003 89 (may ) 95 SB
+X1707 2003 54 (be ) 60 SB
+X1767 2003 174 (desirable ) 180 SB
+X1947 2003 84 (have) 84 SB
+X300 2058 959 (broadcast on multiple Subnets. Ex: 147.162.255.255) 959 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2193 84 (5.2.) 84 SB
+X405 2193 217 (Multicast) 217 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2254 822 (The way Multicast should be implemented is ) 823 SB
+X1123 2254 51 (as ) 52 SB
+X1175 2254 55 (an ) 56 SB
+X1231 2254 189 (addressed ) 190 SB
+X1421 2254 200 (broadcast, ) 201 SB
+X1622 2254 67 (i.e. ) 68 SB
+X1690 2254 57 (by ) 58 SB
+X1748 2254 109 (using ) 110 SB
+X1858 2254 173 (addresses) 173 SB
+X300 2309 214 (of the form.) 214 SB
+X300 2419 162 (3.255.43) 162 SB
+X600 2419 967 (This would be a Multicast on address 43 on Subnet 3) 967 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2554 84 (5.3.) 84 SB
+X405 2554 449 (Two routers in one) 449 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2615 40 (It ) 42 SB
+X342 2615 75 (can ) 77 SB
+X419 2615 54 (be ) 57 SB
+X476 2615 90 (seen ) 93 SB
+X569 2615 81 (that ) 84 SB
+X653 2615 101 (there ) 104 SB
+X757 2615 42 (is ) 45 SB
+X802 2615 138 (always ) 141 SB
+X943 2615 33 (a ) 36 SB
+X979 2615 80 (link ) 83 SB
+X1062 2615 159 (between ) 162 SB
+X1224 2615 79 (two ) 82 SB
+X1306 2615 168 (Subnets. ) 171 SB
+X1477 2615 93 (This ) 96 SB
+X1573 2615 80 (link ) 83 SB
+X1656 2615 42 (is ) 45 SB
+X1701 2615 46 (in ) 49 SB
+X1750 2615 99 (most ) 102 SB
+X1852 2615 108 (cases ) 111 SB
+X1963 2615 68 (real) 68 SB
+X300 2670 1299 (but in other cases can be imaginary. A typical case is when two Subnet ) 1300 SB
+X1600 2670 68 (are ) 69 SB
+X1669 2670 191 (connected ) 192 SB
+X1861 2670 91 (with ) 92 SB
+X1953 2670 78 (only) 78 SB
+X300 2725 1528 (one box between them. In this case the box would contain two routers with a hidden ) 1529 SB
+X1829 2725 92 (link. ) 93 SB
+X1922 2725 40 (It ) 41 SB
+X1963 2725 68 (will) 68 SB
+X300 2780 135 (appear ) 136 SB
+X436 2780 51 (as ) 52 SB
+X488 2780 79 (two ) 80 SB
+X568 2780 139 (routers ) 140 SB
+X708 2780 77 (and ) 78 SB
+X786 2780 75 (one ) 76 SB
+X862 2780 80 (link ) 81 SB
+X943 2780 99 (from ) 100 SB
+X1043 2780 66 (the ) 67 SB
+X1110 2780 158 (network ) 159 SB
+X1269 2780 104 (point ) 105 SB
+X1374 2780 49 (of ) 50 SB
+X1424 2780 97 (view ) 98 SB
+X1522 2780 71 (but ) 72 SB
+X1594 2780 37 (it ) 38 SB
+X1632 2780 80 (will ) 81 SB
+X1713 2780 54 (be ) 55 SB
+X1768 2780 75 (one ) 76 SB
+X1844 2780 117 (single ) 119 SB
+X1963 2780 68 (box) 68 SB
+X300 2835 737 (and no wires from the real point of view.) 737 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1155 3158 21 (9) 21 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Roman
+X%%Page: 10 10
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X0 0 0 pC
+X6 4 SP
+X775 414 M 803 0 1 PP
+XS
+Xn
+X1 lc
+X1 lj
+X775 811 M 825 0 1 PP
+XS
+Xn
+X0 lc
+X0 lj
+X255 255 255 fC
+X/fm 256 def
+X149 249 825 486 B
+X1 F
+XS
+Xn
+X1 lc
+X1 lj
+X37 37 1061 301 E
+X1 F
+XS
+Xn
+X37 37 1387 301 E
+X1 F
+XS
+Xn
+X37 37 1137 901 E
+X1 F
+XS
+Xn
+X37 37 1487 901 E
+X1 F
+XS
+Xn
+X1060 339 M 0 75 1 PP
+XS
+Xn
+X1388 342 M 0 75 1 PP
+XS
+Xn
+X1135 814 M 0 47 1 PP
+XS
+Xn
+X1485 814 M 0 47 1 PP
+XS
+Xn
+X897 414 M 0 72 1 PP
+XS
+Xn
+X900 739 M 0 72 1 PP
+XS
+Xn
+X2 1 SP
+X675 211 1649 560 40 40 RR
+XS
+Xn
+X675 636 1649 1035 50 50 RR
+XS
+Xn
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X0 0 0 fC
+X725 273 148 (Subnet 1) 148 SB
+X700 898 180 (Subnet 1.2) 180 SB
+X850 673 85 (1.2.1) 85 SB
+X1125 948 85 (1.2.2) 85 SB
+X1475 948 106 (1.2.10) 106 SB
+X875 498 53 (1.1) 53 SB
+X1125 248 53 (1.2) 53 SB
+X1450 273 53 (1.3) 53 SB
+X1000 673 639 (Single router between the two subnets) 639 SB
+X1 1 SP
+Xgs 1 76 900 561 CB
+X900 561 M 0 75 1 PP
+XS
+Xn
+Xgr
+X1000 573 620 (Hidden link between the two subnets) 620 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1177 84 (5.4.) 84 SB
+X405 1177 571 (Routing tables manager) 571 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1238 157 (Routing ) 166 SB
+X466 1238 118 (tables ) 127 SB
+X593 1238 65 (for ) 74 SB
+X667 1238 94 (each ) 103 SB
+X770 1238 145 (domain ) 154 SB
+X924 1238 68 (are ) 77 SB
+X1001 1238 47 (to ) 56 SB
+X1057 1238 54 (be ) 63 SB
+X1120 1238 173 (managed ) 182 SB
+X1302 1238 57 (by ) 66 SB
+X1368 1238 55 (an ) 64 SB
+X1432 1238 176 (authority ) 185 SB
+X1617 1238 65 (for ) 75 SB
+X1692 1238 81 (that ) 91 SB
+X1783 1238 157 (domain. ) 167 SB
+X1950 1238 81 (This) 81 SB
+X300 1293 533 (authority will decide the cost ) 534 SB
+X834 1293 49 (of ) 50 SB
+X884 1293 94 (each ) 95 SB
+X979 1293 117 (route, ) 118 SB
+X1097 1293 88 (how ) 89 SB
+X1186 1293 47 (to ) 48 SB
+X1234 1293 150 (balance ) 151 SB
+X1385 1293 66 (the ) 67 SB
+X1452 1293 158 (network ) 159 SB
+X1611 1293 101 (load, ) 102 SB
+X1713 1293 77 (and ) 78 SB
+X1791 1293 100 (what ) 101 SB
+X1892 1293 47 (to ) 48 SB
+X1940 1293 56 (do ) 57 SB
+X1997 1293 34 (in) 34 SB
+X300 1348 352 (case of faulty lines.) 352 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1483 84 (5.5.) 84 SB
+X405 1483 561 (Single Byte Addressing) 561 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1544 110 (From ) 113 SB
+X413 1544 66 (the ) 69 SB
+X482 1544 173 (structure ) 176 SB
+X658 1544 49 (of ) 52 SB
+X710 1544 66 (the ) 69 SB
+X779 1544 136 (system ) 139 SB
+X918 1544 37 (it ) 40 SB
+X958 1544 42 (is ) 45 SB
+X1003 1544 159 (possible ) 162 SB
+X1165 1544 47 (to ) 50 SB
+X1215 1544 68 (see ) 71 SB
+X1286 1544 81 (that ) 84 SB
+X1370 1544 39 (if ) 42 SB
+X1412 1544 66 (the ) 70 SB
+X1482 1544 208 (destination ) 212 SB
+X1694 1544 42 (is ) 46 SB
+X1740 1544 125 (within ) 129 SB
+X1869 1544 66 (the ) 70 SB
+X1939 1544 92 (same) 92 SB
+X300 1599 145 (domain ) 146 SB
+X446 1599 101 (there ) 102 SB
+X548 1599 42 (is ) 43 SB
+X591 1599 56 (no ) 57 SB
+X648 1599 94 (need ) 95 SB
+X743 1599 47 (to ) 48 SB
+X791 1599 93 (send ) 95 SB
+X886 1599 66 (the ) 68 SB
+X954 1599 74 (full ) 76 SB
+X1030 1599 128 (sender ) 130 SB
+X1160 1599 148 (address ) 150 SB
+X1310 1599 77 (and ) 79 SB
+X1389 1599 66 (the ) 68 SB
+X1457 1599 74 (full ) 76 SB
+X1533 1599 168 (recipient ) 170 SB
+X1703 1599 160 (address. ) 162 SB
+X1865 1599 101 (Only ) 103 SB
+X1968 1599 63 (one) 63 SB
+X300 1654 1002 (byte is needed to uniquely identify sender and recipient.) 1002 SB
+X300 1764 42 (If ) 51 SB
+X351 1764 33 (a ) 42 SB
+X393 1764 208 (destination ) 217 SB
+X610 1764 42 (is ) 51 SB
+X661 1764 56 (on ) 65 SB
+X726 1764 147 (another ) 156 SB
+X882 1764 145 (domain ) 155 SB
+X1037 1764 90 (only ) 100 SB
+X1137 1764 66 (the ) 76 SB
+X1213 1764 148 (address ) 158 SB
+X1371 1764 103 (parts ) 113 SB
+X1484 1764 81 (that ) 91 SB
+X1575 1764 68 (are ) 78 SB
+X1653 1764 165 (different ) 175 SB
+X1828 1764 94 (need ) 104 SB
+X1932 1764 47 (to ) 57 SB
+X1989 1764 42 (be) 42 SB
+X300 1819 184 (specified. ) 196 SB
+X496 1819 75 (Ex: ) 87 SB
+X583 1819 42 (If ) 54 SB
+X637 1819 68 (my ) 80 SB
+X717 1819 148 (address ) 160 SB
+X877 1819 42 (is ) 54 SB
+X931 1819 140 (1.2.3.4 ) 152 SB
+X1083 1819 77 (and ) 90 SB
+X1173 1819 66 (the ) 79 SB
+X1252 1819 208 (destination ) 221 SB
+X1473 1819 42 (is ) 55 SB
+X1528 1819 140 (1.2.5.6 ) 153 SB
+X1681 1819 66 (the ) 79 SB
+X1760 1819 128 (sender ) 141 SB
+X1901 1819 75 (can ) 88 SB
+X1989 1819 42 (be) 42 SB
+X300 1874 189 (addressed ) 193 SB
+X493 1874 51 (as ) 55 SB
+X548 1874 70 (3.4 ) 74 SB
+X622 1874 77 (and ) 81 SB
+X703 1874 66 (the ) 70 SB
+X773 1874 208 (destination ) 212 SB
+X985 1874 51 (as ) 55 SB
+X1040 1874 70 (5.6 ) 74 SB
+X1114 1874 103 (since ) 107 SB
+X1221 1874 88 (they ) 93 SB
+X1314 1874 92 (both ) 97 SB
+X1411 1874 68 (are ) 73 SB
+X1484 1874 33 (a ) 38 SB
+X1522 1874 138 (Subnet ) 143 SB
+X1665 1874 49 (of ) 54 SB
+X1719 1874 82 (1.2. ) 87 SB
+X1806 1874 60 (Of ) 65 SB
+X1871 1874 130 (course ) 135 SB
+X2006 1874 25 (it) 25 SB
+X300 1930 100 (must ) 101 SB
+X401 1930 54 (be ) 55 SB
+X456 1930 172 (specified ) 173 SB
+X629 1930 46 (at ) 47 SB
+X676 1930 100 (what ) 102 SB
+X32 0 0 46 46 0 0 0 43 /Times-Bold /font29 ANSIFont font
+X778 1929 109 (depth) 109 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X887 1930 12 ( ) 14 SB
+X901 1930 46 (in ) 48 SB
+X949 1930 66 (the ) 68 SB
+X1017 1930 79 (tree ) 81 SB
+X1098 1930 66 (the ) 68 SB
+X1166 1930 185 (addresses ) 187 SB
+X1353 1930 68 (are ) 70 SB
+X1423 1930 178 (common. ) 180 SB
+X1603 1930 49 (In ) 51 SB
+X1654 1930 77 (this ) 79 SB
+X1733 1930 90 (case ) 92 SB
+X1825 1930 37 (it ) 39 SB
+X1864 1930 123 (would ) 125 SB
+X1989 1930 42 (be) 42 SB
+X300 1985 35 (2.) 35 SB
+X32 0 0 50 50 0 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2120 84 (5.6.) 84 SB
+X405 2120 347 (Migration Path) 347 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2181 82 (The ) 84 SB
+X384 2181 98 (huge ) 101 SB
+X485 2181 148 (address ) 151 SB
+X636 2181 113 (space ) 116 SB
+X752 2181 49 (of ) 52 SB
+X804 2181 79 (IPP ) 82 SB
+X886 2181 131 (should ) 134 SB
+X1020 2181 69 (not ) 72 SB
+X1092 2181 54 (be ) 57 SB
+X1149 2181 137 (wasted ) 140 SB
+X1289 2181 46 (in ) 49 SB
+X1338 2181 33 (a ) 36 SB
+X1374 2181 91 (very ) 94 SB
+X1468 2181 217 (unbalanced ) 220 SB
+X1688 2181 91 (tree. ) 94 SB
+X1782 2181 40 (It ) 43 SB
+X1825 2181 42 (is ) 45 SB
+X1870 2181 161 (therefore) 161 SB
+X300 2236 182 (advisable ) 193 SB
+X493 2236 47 (to ) 58 SB
+X551 2236 141 (specify ) 152 SB
+X703 2236 165 (different ) 176 SB
+X879 2236 156 (Subnets ) 167 SB
+X1046 2236 195 (depending ) 206 SB
+X1252 2236 56 (on ) 67 SB
+X1319 2236 158 (regional ) 169 SB
+X1488 2236 107 (areas ) 118 SB
+X1606 2236 77 (and ) 88 SB
+X1694 2236 104 (other ) 116 SB
+X1810 2236 156 (Subnets ) 168 SB
+X1978 2236 53 (for) 53 SB
+X300 2291 1178 (organisations that would like to keep their own network separate.) 1178 SB
+X300 2401 541 (A possible structure would be) 541 SB
+X300 2456 126 (Subnet) 126 SB
+X450 2456 126 (Subnet) 126 SB
+X300 2511 23 (1) 23 SB
+X450 2511 90 (USA) 90 SB
+X450 2566 23 (1) 23 SB
+X600 2566 110 (Texas) 110 SB
+X450 2621 23 (2) 23 SB
+X600 2621 190 (Minnesota) 190 SB
+X450 2676 23 (3) 23 SB
+X600 2676 250 (North Dakota) 250 SB
+X450 2731 48 (....) 48 SB
+X300 2786 23 (2) 23 SB
+X450 2786 131 (Europe) 131 SB
+X450 2841 23 (1) 23 SB
+X600 2841 149 (England) 149 SB
+X450 2896 35 (2 ) 35 SB
+X600 2896 83 (Italy) 83 SB
+X450 2951 23 (3) 23 SB
+X600 2951 167 (Germany) 167 SB
+X450 3006 48 (....) 48 SB
+X300 3061 23 (3) 23 SB
+X450 3061 168 (Australia) 168 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1144 3158 42 (10) 42 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Bold
+X%%+ font Times-Roman
+X%%Page: 11 11
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X0 0 0 fC
+X300 209 23 (4) 23 SB
+X450 209 123 (Russia) 123 SB
+X300 264 60 (.....) 60 SB
+X300 374 1002 (Subnets can be allocated to companies. Something like.) 1002 SB
+X300 484 23 (5) 23 SB
+X450 484 175 (Company) 175 SB
+X450 539 23 (1) 23 SB
+X600 539 169 (Motorola) 169 SB
+X450 594 23 (2) 23 SB
+X600 594 86 (IBM) 86 SB
+X450 649 23 (3) 23 SB
+X600 649 59 (HP) 59 SB
+X450 704 48 (....) 48 SB
+X300 814 23 (6) 23 SB
+X450 814 241 (Packet Radio) 241 SB
+X300 924 40 (It ) 43 SB
+X343 924 42 (is ) 45 SB
+X388 924 159 (possible ) 162 SB
+X550 924 47 (to ) 50 SB
+X600 924 68 (see ) 71 SB
+X671 924 81 (that ) 84 SB
+X755 924 66 (the ) 69 SB
+X824 924 70 (top ) 73 SB
+X897 924 96 (level ) 99 SB
+X996 924 154 (remains ) 157 SB
+X1153 924 101 (quite ) 104 SB
+X1257 924 139 (sparse. ) 142 SB
+X1399 924 121 (Again ) 124 SB
+X1523 924 77 (this ) 80 SB
+X1603 924 127 (choice ) 130 SB
+X1733 924 42 (is ) 45 SB
+X1778 924 185 (debatable ) 188 SB
+X1966 924 65 (and) 65 SB
+X300 979 283 (open to change.) 283 SB
+X300 1089 63 (To ) 64 SB
+X364 1089 149 (migrate ) 150 SB
+X514 1089 99 (from ) 100 SB
+X614 1089 53 (IP ) 54 SB
+X668 1089 47 (to ) 48 SB
+X716 1089 79 (IPP ) 80 SB
+X796 1089 33 (a ) 34 SB
+X830 1089 126 (means ) 127 SB
+X957 1089 100 (must ) 101 SB
+X1058 1089 54 (be ) 55 SB
+X1113 1089 170 (provided ) 171 SB
+X1284 1089 47 (to ) 48 SB
+X1332 1089 250 (transparently ) 251 SB
+X1583 1089 125 (obtain ) 126 SB
+X1709 1089 66 (the ) 68 SB
+X1777 1089 79 (IPP ) 81 SB
+X1858 1089 173 (addresses) 173 SB
+X300 1144 49 (of ) 50 SB
+X350 1144 33 (a ) 34 SB
+X384 1144 99 (host. ) 100 SB
+X484 1144 40 (It ) 42 SB
+X526 1144 42 (is ) 44 SB
+X570 1144 159 (possible ) 161 SB
+X731 1144 47 (to ) 49 SB
+X780 1144 139 (modify ) 141 SB
+X921 1144 66 (the ) 68 SB
+X989 1144 145 (domain ) 147 SB
+X1136 1144 108 (name ) 110 SB
+X1246 1144 122 (server ) 124 SB
+X1370 1144 91 (bind ) 93 SB
+X1463 1144 47 (to ) 49 SB
+X1512 1144 121 (return ) 123 SB
+X1635 1144 79 (IPP ) 81 SB
+X1716 1144 185 (addresses ) 187 SB
+X1903 1144 51 (as ) 53 SB
+X1956 1144 75 (well) 75 SB
+X300 1199 51 (as ) 52 SB
+X352 1199 53 (IP ) 54 SB
+X406 1199 39 (if ) 40 SB
+X446 1199 145 (queried ) 146 SB
+X592 1199 77 (for. ) 78 SB
+X670 1199 49 (In ) 50 SB
+X720 1199 66 (the ) 67 SB
+X787 1199 183 (transition ) 184 SB
+X971 1199 126 (period ) 127 SB
+X1098 1199 66 (the ) 67 SB
+X1165 1199 104 (same ) 105 SB
+X1270 1199 162 (physical ) 164 SB
+X1434 1199 98 (links ) 100 SB
+X1534 1199 80 (will ) 82 SB
+X1616 1199 54 (be ) 56 SB
+X1672 1199 143 (serving ) 145 SB
+X1817 1199 92 (both ) 94 SB
+X1911 1199 53 (IP ) 55 SB
+X1966 1199 65 (and) 65 SB
+X300 1254 708 (IPP depending on the address supplied.) 708 SB
+X300 1364 40 (It ) 50 SB
+X350 1364 42 (is ) 52 SB
+X402 1364 159 (possible ) 169 SB
+X571 1364 47 (to ) 57 SB
+X628 1364 73 (say ) 83 SB
+X711 1364 81 (that ) 91 SB
+X802 1364 66 (the ) 76 SB
+X878 1364 148 (address ) 158 SB
+X1036 1364 49 (of ) 59 SB
+X1095 1364 196 (something ) 207 SB
+X1302 1364 42 (is ) 53 SB
+X1355 1364 210 (determined ) 221 SB
+X1576 1364 57 (by ) 68 SB
+X1644 1364 120 (where ) 131 SB
+X1775 1364 37 (it ) 48 SB
+X1823 1364 42 (is ) 53 SB
+X1876 1364 155 (logically) 155 SB
+X300 1419 203 (connected. ) 209 SB
+X509 1419 42 (If ) 49 SB
+X558 1419 65 (for ) 72 SB
+X630 1419 163 (example ) 170 SB
+X800 1419 33 (a ) 40 SB
+X840 1419 98 (Host ) 105 SB
+X945 1419 50 (or ) 57 SB
+X1002 1419 136 (Router ) 143 SB
+X1145 1419 168 (connects ) 175 SB
+X1320 1419 47 (to ) 54 SB
+X1374 1419 33 (a ) 40 SB
+X1414 1419 121 (router ) 128 SB
+X1542 1419 81 (that ) 88 SB
+X1630 1419 73 (has ) 80 SB
+X1710 1419 148 (address ) 155 SB
+X1865 1419 105 (1.2.3 ) 112 SB
+X1977 1419 54 (the) 54 SB
+X300 1474 148 (address ) 149 SB
+X449 1474 75 (can ) 76 SB
+X525 1474 90 (only ) 91 SB
+X616 1474 54 (be ) 55 SB
+X671 1474 113 (either ) 114 SB
+X785 1474 33 (a ) 34 SB
+X819 1474 126 (parent ) 127 SB
+X946 1474 49 (of ) 50 SB
+X996 1474 105 (1.2.3 ) 106 SB
+X1102 1474 50 (or ) 52 SB
+X1154 1474 46 (in ) 48 SB
+X1202 1474 66 (the ) 68 SB
+X1270 1474 104 (same ) 106 SB
+X1376 1474 145 (domain ) 147 SB
+X1523 1474 51 (as ) 53 SB
+X1576 1474 105 (1.2.3 ) 107 SB
+X1683 1474 50 (or ) 52 SB
+X1735 1474 33 (a ) 35 SB
+X1770 1474 138 (Subnet ) 140 SB
+X1910 1474 49 (of ) 51 SB
+X1961 1474 70 (1.2.) 70 SB
+X300 1529 93 (This ) 99 SB
+X399 1529 144 (scheme ) 150 SB
+X549 1529 42 (is ) 48 SB
+X597 1529 77 (like ) 83 SB
+X680 1529 66 (the ) 72 SB
+X752 1529 93 (road ) 99 SB
+X851 1529 136 (system ) 142 SB
+X993 1529 120 (where ) 126 SB
+X1119 1529 95 (your ) 101 SB
+X1220 1529 109 (home ) 116 SB
+X1336 1529 148 (address ) 155 SB
+X1491 1529 42 (is ) 49 SB
+X1540 1529 210 (determined ) 217 SB
+X1757 1529 57 (by ) 64 SB
+X1821 1529 120 (where ) 127 SB
+X1948 1529 83 (your) 83 SB
+X300 1584 465 (house is related to a road.) 465 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 1744 42 (6.) 42 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X342 1744 70 (     ) 70 SB
+X405 1744 272 (Conclusion) 272 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 1805 44 (A ) 45 SB
+X345 1805 273 (connectionless ) 274 SB
+X619 1805 180 (approach ) 181 SB
+X800 1805 47 (to ) 48 SB
+X848 1805 158 (network ) 159 SB
+X1007 1805 142 (routing ) 144 SB
+X1151 1805 105 (gives ) 107 SB
+X1258 1805 213 (advantages ) 215 SB
+X1473 1805 46 (in ) 48 SB
+X1521 1805 112 (terms ) 114 SB
+X1635 1805 49 (of ) 51 SB
+X1686 1805 89 (load ) 91 SB
+X1777 1805 187 (balancing ) 189 SB
+X1966 1805 65 (and) 65 SB
+X300 1860 186 (reliability ) 197 SB
+X497 1860 49 (of ) 60 SB
+X557 1860 33 (a ) 44 SB
+X601 1860 158 (network ) 169 SB
+X770 1860 218 (connection. ) 229 SB
+X999 1860 40 (It ) 51 SB
+X1050 1860 42 (is ) 53 SB
+X1103 1860 85 (also ) 96 SB
+X1199 1860 159 (possible ) 170 SB
+X1369 1860 47 (to ) 59 SB
+X1428 1860 108 (make ) 120 SB
+X1548 1860 66 (the ) 78 SB
+X1626 1860 127 (choice ) 139 SB
+X1765 1860 49 (of ) 61 SB
+X1826 1860 33 (a ) 45 SB
+X1871 1860 105 (route ) 117 SB
+X1988 1860 43 (an) 43 SB
+X300 1915 189 (extremely ) 190 SB
+X490 1915 111 (quick ) 112 SB
+X602 1915 148 (process ) 149 SB
+X751 1915 39 (if ) 40 SB
+X791 1915 66 (the ) 67 SB
+X858 1915 118 (tables ) 119 SB
+X977 1915 81 (that ) 82 SB
+X1059 1915 68 (are ) 69 SB
+X1128 1915 110 (being ) 111 SB
+X1239 1915 205 ("searched" ) 206 SB
+X1445 1915 68 (are ) 69 SB
+X1514 1915 114 (direct ) 115 SB
+X1629 1915 130 (tables. ) 131 SB
+X1760 1915 144 (Having ) 145 SB
+X1905 1915 33 (a ) 35 SB
+X1940 1915 91 (fixed) 91 SB
+X300 1970 81 (size ) 84 SB
+X384 1970 114 (direct ) 117 SB
+X501 1970 136 (lookup ) 139 SB
+X640 1970 142 (routing ) 145 SB
+X785 1970 118 (tables ) 121 SB
+X906 1970 116 (opens ) 119 SB
+X1025 1970 66 (the ) 69 SB
+X1094 1970 87 (way ) 91 SB
+X1185 1970 47 (to ) 51 SB
+X1236 1970 66 (the ) 70 SB
+X1306 1970 235 (construction ) 239 SB
+X1545 1970 49 (of ) 53 SB
+X1598 1970 91 (very ) 95 SB
+X1693 1970 90 (high ) 94 SB
+X1787 1970 113 (speed ) 117 SB
+X1904 1970 127 (routers) 127 SB
+X300 2025 1089 (since most of the routing functions can be built in hardware.) 1089 SB
+X300 2135 1676 (The fact that the network administrator of a domain only sees and cares for a limited part of ) 1677 SB
+X1977 2135 54 (the) 54 SB
+X300 2190 158 (network ) 163 SB
+X463 2190 131 (should ) 136 SB
+X599 2190 108 (make ) 114 SB
+X713 2190 158 (network ) 164 SB
+X877 2190 272 (administration ) 278 SB
+X1155 2190 117 (easier ) 123 SB
+X1278 2190 77 (and ) 83 SB
+X1361 2190 103 (more ) 109 SB
+X1470 2190 159 (efficient ) 165 SB
+X1635 2190 162 (possibly ) 168 SB
+X1803 2190 168 (reducing ) 174 SB
+X1977 2190 54 (the) 54 SB
+X300 2245 360 (downtime of routes.) 360 SB
+X300 2355 44 (A ) 48 SB
+X348 2355 158 (variable ) 162 SB
+X510 2355 134 (length, ) 138 SB
+X648 2355 148 (limited, ) 152 SB
+X800 2355 148 (address ) 152 SB
+X952 2355 113 (space ) 117 SB
+X1069 2355 105 (gives ) 109 SB
+X1178 2355 138 (greater ) 142 SB
+X1320 2355 199 (possibility ) 204 SB
+X1524 2355 47 (to ) 52 SB
+X1576 2355 164 (organise ) 169 SB
+X1745 2355 66 (the ) 71 SB
+X1816 2355 173 (structure ) 178 SB
+X1994 2355 37 (of) 37 SB
+X300 2410 66 (the ) 68 SB
+X368 2410 158 (network ) 160 SB
+X528 2410 46 (in ) 48 SB
+X576 2410 33 (a ) 35 SB
+X611 2410 133 (logical ) 136 SB
+X747 2410 87 (way ) 90 SB
+X837 2410 77 (and ) 80 SB
+X917 2410 77 (this ) 80 SB
+X997 2410 80 (will ) 83 SB
+X1080 2410 113 (result ) 116 SB
+X1196 2410 46 (in ) 49 SB
+X1245 2410 79 (less ) 82 SB
+X1327 2410 157 (illogical ) 160 SB
+X1487 2410 123 (routes ) 126 SB
+X1613 2410 109 (taken ) 112 SB
+X1725 2410 57 (by ) 60 SB
+X1785 2410 148 (packets ) 151 SB
+X1936 2410 95 (when) 95 SB
+X300 2465 690 (trying to reach the desired destination.) 690 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X300 2625 42 (7.) 42 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X342 2625 70 (     ) 70 SB
+X405 2625 306 (Bibliography) 306 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 2741 152 ([leis-92]) 152 SB
+X600 2741 151 (Charles ) 160 SB
+X760 2741 52 (E. ) 61 SB
+X821 2741 198 (Leiserson, ) 208 SB
+X1029 2741 116 (1992: ) 126 SB
+X1155 2741 100 ("The ) 110 SB
+X1265 2741 169 (Network ) 179 SB
+X1444 2741 237 (Architecture ) 247 SB
+X1691 2741 49 (of ) 59 SB
+X1750 2741 66 (the ) 76 SB
+X1826 2741 205 (Connection) 205 SB
+X600 2796 169 (Machine ) 225 SB
+X825 2796 152 (CM-5," ) 208 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1033 2796 176 (Thinking ) 232 SB
+X1265 2796 190 (Machines ) 247 SB
+X1512 2796 243 (Corporation ) 300 SB
+X1812 2796 219 (Cambridge,) 219 SB
+X600 2851 273 (Massachussets) 273 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X873 2851 281 ( April 27, 1992) 281 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1144 3158 42 (11) 42 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Italic
+X%%+ font Times-Roman
+X%%Page: 12 12
+X%%PageResources: (atend)
+XSS
+X0 0 25 31 776 1169 300 SM
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X0 0 0 fC
+X300 259 42 (8.) 42 SB
+X32 0 0 50 50 1 0 0 47 /Helvetica-Bold /font13 ANSIFont font
+X342 259 70 (     ) 70 SB
+X405 259 386 (Further Reading) 386 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X300 375 189 ([zaum-91]) 189 SB
+X600 375 158 (William ) 160 SB
+X760 375 53 (T. ) 55 SB
+X815 375 171 (Zaumen, ) 173 SB
+X988 375 60 (J.J ) 62 SB
+X1050 375 244 (Garcia-Luna ) 246 SB
+X1296 375 154 (Aceves, ) 156 SB
+X1452 375 116 (1991: ) 119 SB
+X1571 375 212 ("Dynamics ) 215 SB
+X1786 375 49 (of ) 52 SB
+X1838 375 193 (distributed) 193 SB
+X600 430 247 (shortest-path ) 250 SB
+X850 430 142 (routing ) 145 SB
+X995 430 234 (algorithms," ) 238 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1233 430 196 (Computer ) 200 SB
+X1433 430 306 (Communication ) 310 SB
+X1743 430 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1863 430 24 (, ) 28 SB
+X1891 430 78 (Vol ) 82 SB
+X1973 430 58 (21,) 58 SB
+X600 485 291 (No. 6, pp.31-42) 291 SB
+X300 595 188 ([sidhu-91]) 188 SB
+X600 595 197 (Deepinder ) 200 SB
+X800 595 117 (Sidhu ) 120 SB
+X920 595 77 (and ) 80 SB
+X1000 595 83 (rajy ) 86 SB
+X1086 595 94 (Nair ) 98 SB
+X1184 595 77 (and ) 81 SB
+X1265 595 133 (Shukri ) 137 SB
+X1402 595 189 (Abdallah, ) 193 SB
+X1595 595 116 (1991: ) 120 SB
+X1715 595 168 ("Finding ) 172 SB
+X1887 595 144 (Disjoint) 144 SB
+X600 650 109 (paths ) 111 SB
+X711 650 46 (in ) 48 SB
+X759 650 217 (Networks," ) 219 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X978 650 196 (Computer ) 198 SB
+X1176 650 306 (Communication ) 308 SB
+X1484 650 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1604 650 24 (, ) 26 SB
+X1630 650 78 (Vol ) 80 SB
+X1710 650 70 (21, ) 72 SB
+X1782 650 79 (No. ) 81 SB
+X1863 650 47 (6, ) 49 SB
+X1912 650 119 (pp.43-) 119 SB
+X600 705 46 (51) 46 SB
+X300 870 145 ([tsu-91]) 145 SB
+X600 870 94 (Paul ) 95 SB
+X695 870 50 (F. ) 52 SB
+X747 870 191 (Tsuchiya, ) 193 SB
+X940 870 116 (1991: ) 118 SB
+X1058 870 186 ("Efficient ) 188 SB
+X1246 870 77 (and ) 79 SB
+X1325 870 142 (Robust ) 144 SB
+X1469 870 126 (Policy ) 128 SB
+X1597 870 157 (Routing ) 159 SB
+X1756 870 118 (Using ) 120 SB
+X1876 870 155 (Multiple) 155 SB
+X600 925 236 (Hierarchical ) 243 SB
+X843 925 226 (Addresses," ) 233 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1076 925 196 (Computer ) 203 SB
+X1279 925 306 (Communication ) 314 SB
+X1593 925 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1713 925 24 (, ) 32 SB
+X1745 925 78 (Vol ) 86 SB
+X1831 925 70 (21, ) 78 SB
+X1909 925 79 (No. ) 87 SB
+X1996 925 35 (6,) 35 SB
+X600 980 177 (pp. 53-65) 177 SB
+X300 1090 173 ([haas-91]) 173 SB
+X600 1090 176 (Zygmunt ) 182 SB
+X782 1090 117 (Haas, ) 123 SB
+X905 1090 116 (1991: ) 122 SB
+X1027 1090 194 ("Adaptive ) 200 SB
+X1227 1090 204 (Admission ) 211 SB
+X1438 1090 215 (Congestion ) 222 SB
+X1660 1090 180 (Control," ) 187 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1847 1090 184 (Computer) 184 SB
+X600 1145 426 (Communication review) 426 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1026 1145 475 (, Vol 21, No. 5, pp. 58-76) 475 SB
+X300 1255 141 ([est-91]) 141 SB
+X600 1255 168 (Deborah ) 173 SB
+X773 1255 121 (Estrin ) 126 SB
+X899 1255 77 (and ) 82 SB
+X981 1255 146 (Martha ) 151 SB
+X1132 1255 216 (Steenstrup, ) 221 SB
+X1353 1255 116 (1991: ) 121 SB
+X1474 1255 115 ("Inter ) 121 SB
+X1595 1255 156 (Domain ) 162 SB
+X1757 1255 126 (Policy ) 132 SB
+X1889 1255 142 (routing:) 142 SB
+X600 1310 187 (Overview ) 195 SB
+X795 1310 49 (of ) 57 SB
+X852 1310 226 (architecture ) 234 SB
+X1086 1310 77 (and ) 85 SB
+X1171 1310 201 (Protocols" ) 209 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1380 1310 196 (Computer ) 204 SB
+X1584 1310 306 (Communication ) 315 SB
+X1899 1310 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X2019 1310 12 (,) 12 SB
+X600 1365 439 (Vol 21, No. 1, pp.71-78) 439 SB
+X300 1475 188 ([wang-92]) 188 SB
+X600 1475 125 (Zheng ) 134 SB
+X734 1475 132 (Wang, ) 141 SB
+X875 1475 116 (1992: ) 125 SB
+X1000 1475 187 ("Analysis ) 196 SB
+X1196 1475 49 (of ) 58 SB
+X1254 1475 258 (Shortest-Path ) 267 SB
+X1521 1475 215 (Algorithms ) 224 SB
+X1745 1475 46 (in ) 55 SB
+X1800 1475 33 (a ) 43 SB
+X1843 1475 188 (Dynaming) 188 SB
+X600 1530 169 (Network ) 171 SB
+X771 1530 265 (environment," ) 267 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1038 1530 196 (Computer ) 198 SB
+X1236 1530 306 (Communication ) 308 SB
+X1544 1530 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1664 1530 24 (, ) 26 SB
+X1690 1530 78 (Vol ) 80 SB
+X1770 1530 70 (22, ) 72 SB
+X1842 1530 79 (No. ) 81 SB
+X1923 1530 47 (2, ) 50 SB
+X1973 1530 58 (pp.) 58 SB
+X600 1585 107 (63-71) 107 SB
+X300 1695 161 ([bier-92]) 161 SB
+X600 1695 109 (Ernst ) 111 SB
+X711 1695 67 (W. ) 69 SB
+X780 1695 182 (Biersack, ) 184 SB
+X964 1695 116 (1992: ) 119 SB
+X1083 1695 62 ("A ) 65 SB
+X1148 1695 201 (simulation ) 204 SB
+X1352 1695 110 (study ) 113 SB
+X1465 1695 49 (of ) 52 SB
+X1517 1695 156 (forward ) 159 SB
+X1676 1695 110 (Error ) 113 SB
+X1789 1695 205 (Correction ) 208 SB
+X1997 1695 34 (in) 34 SB
+X600 1750 331 (ATM Networks," ) 331 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X931 1750 622 (Computer Communication review) 622 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1553 1750 463 (, Vol 22, No. 1, pp.36-46) 463 SB
+X300 1860 166 ([Estr-92]) 166 SB
+X600 1860 168 (Deborah ) 171 SB
+X771 1860 133 (Estrin, ) 136 SB
+X907 1860 131 (Yakov ) 134 SB
+X1041 1860 185 (Rekheter, ) 188 SB
+X1229 1860 133 (Steven ) 136 SB
+X1365 1860 112 (Hotz, ) 115 SB
+X1480 1860 116 (1992: ) 119 SB
+X1599 1860 184 ("Scalable ) 188 SB
+X1787 1860 244 (Inter-Domain) 244 SB
+X600 1915 157 (Routing ) 169 SB
+X769 1915 267 (Architecture," ) 279 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1048 1915 196 (Computer ) 208 SB
+X1256 1915 306 (Communication ) 318 SB
+X1574 1915 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1694 1915 24 (, ) 36 SB
+X1730 1915 78 (Vol ) 91 SB
+X1821 1915 70 (22, ) 83 SB
+X1904 1915 79 (No. ) 92 SB
+X1996 1915 35 (4,) 35 SB
+X600 1970 165 (pp.40-52) 165 SB
+X300 2080 179 ([bahk-92]) 179 SB
+X600 2080 198 (Saewoong ) 204 SB
+X804 2080 119 (Bahk, ) 125 SB
+X929 2080 139 (Magda ) 146 SB
+X1075 2080 52 (El ) 59 SB
+X1134 2080 123 (Zarki, ) 130 SB
+X1264 2080 116 (1992: ) 123 SB
+X1387 2080 194 ("Dynamic ) 201 SB
+X1588 2080 207 (Multi-path ) 214 SB
+X1802 2080 157 (Routing ) 164 SB
+X1966 2080 65 (and) 65 SB
+X600 2135 88 (how ) 98 SB
+X698 2135 37 (it ) 47 SB
+X745 2135 185 (compares ) 195 SB
+X940 2135 91 (with ) 101 SB
+X1041 2135 104 (other ) 114 SB
+X1155 2135 176 (Dynamic ) 186 SB
+X1341 2135 157 (Routing ) 167 SB
+X1508 2135 215 (Algorithms ) 226 SB
+X1734 2135 65 (for ) 76 SB
+X1810 2135 101 (High ) 112 SB
+X1922 2135 109 (Speed) 109 SB
+X600 2190 108 (Wide ) 118 SB
+X718 2190 100 (Area ) 111 SB
+X829 2190 217 (Networks," ) 228 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1057 2190 196 (Computer ) 207 SB
+X1264 2190 306 (Communication ) 317 SB
+X1581 2190 120 (review) 120 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1701 2190 24 (, ) 35 SB
+X1736 2190 78 (Vol ) 89 SB
+X1825 2190 70 (22, ) 81 SB
+X1906 2190 79 (No. ) 90 SB
+X1996 2190 35 (4,) 35 SB
+X600 2245 165 (pp.53-64) 165 SB
+X300 2355 145 ([tsu-92]) 145 SB
+X600 2355 94 (Paul ) 100 SB
+X700 2355 50 (F. ) 56 SB
+X756 2355 169 (Tsuchia, ) 175 SB
+X931 2355 116 (1992: ) 122 SB
+X1053 2355 169 ("Internet ) 175 SB
+X1228 2355 157 (Routing ) 163 SB
+X1391 2355 91 (over ) 98 SB
+X1489 2355 118 (Large ) 125 SB
+X1614 2355 128 (Public ) 135 SB
+X1749 2355 100 (Data ) 107 SB
+X1856 2355 175 (Networks) 175 SB
+X600 2410 324 (using Shortcuts," ) 324 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X924 2410 622 (Computer Communication review) 622 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1546 2410 463 (, Vol 22, No. 4, pp.65-75) 463 SB
+X300 2520 138 ([bil-91]) 138 SB
+X600 2520 94 (Paul ) 100 SB
+X700 2520 85 (Bay ) 91 SB
+X791 2520 77 (and ) 83 SB
+X874 2520 216 (Gianfranco ) 222 SB
+X1096 2520 149 (Bilardi, ) 155 SB
+X1251 2520 116 (1991: ) 122 SB
+X1373 2520 273 ("Deterministic ) 280 SB
+X1653 2520 163 (On-Line ) 170 SB
+X1823 2520 157 (Routing ) 164 SB
+X1987 2520 44 (on) 44 SB
+X600 2575 289 (Area-Universal ) 301 SB
+X901 2575 217 (Networks," ) 229 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1130 2575 240 (Proceedings ) 252 SB
+X1382 2575 48 (of ) 60 SB
+X1442 2575 68 (the ) 80 SB
+X1522 2575 58 (31 ) 71 SB
+X1593 2575 145 (Annual ) 158 SB
+X1751 2575 221 (Symposium ) 234 SB
+X1985 2575 46 (on) 46 SB
+X600 2630 1126 (Foundations of computer Science \(St. Louis, MO, Oct 22-24\)) 1126 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1726 2630 235 ( pp. 297-306) 235 SB
+X300 2740 179 ([gaug-93]) 179 SB
+X600 2740 142 (Patrick ) 151 SB
+X751 2740 53 (T. ) 62 SB
+X813 2740 176 (Gaughan ) 186 SB
+X999 2740 77 (and ) 87 SB
+X1086 2740 185 (Sudhakar ) 195 SB
+X1281 2740 265 (Yalamanchili, ) 275 SB
+X1556 2740 116 (1993: ) 126 SB
+X1682 2740 194 ("Adaptive ) 204 SB
+X1886 2740 145 (Routing) 145 SB
+X600 2795 183 (Protocols ) 191 SB
+X791 2795 65 (for ) 73 SB
+X864 2795 210 (Hypercube ) 218 SB
+X1082 2795 291 (Interconnection ) 299 SB
+X1381 2795 217 (Networks," ) 225 SB
+X32 0 0 46 46 0 0 0 42 /Times-Italic /font31 ANSIFont font
+X1606 2795 184 (Computer) 184 SB
+X32 0 0 46 46 0 0 0 42 /Times-Roman /font32 ANSIFont font
+X1790 2795 24 (, ) 32 SB
+X1822 2795 96 (May ) 105 SB
+X1927 2795 104 (1993,) 104 SB
+X600 2850 177 (pp. 12-23) 177 SB
+X32 0 0 42 42 0 0 0 38 /Times-Roman /font32 ANSIFont font
+X1144 3158 42 (12) 42 SB
+X1 #C
+Xstatusdict begin /manualfeed false store end
+XEJ RS
+X%%PageTrailer
+X%%PageResources: font Helvetica-Bold
+X%%+ font Times-Italic
+X%%+ font Times-Roman
+X%%Trailer
+Xend
+X%%Pages: 12
+X% TrueType font name key:
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT310000 = 
+X%    MSTT31c17c = 222fDTimes New RomanF0000005c000001900000
+X%    MSTT31c189 = 222fDTimes New RomanF0000003a000001900000
+X%    MSTT31c196 = 222fDTimes New RomanF0000002e000001900000
+X%    MSTT31c1a3 = 222fDTimes New RomanF0000004b000001900000
+X%    MSTT31c1b0 = 222fDArialF00000032000002bc0000
+X%    MSTT31c1bb = 222fDTimes New RomanF0000002e000002bc0000
+X%    MSTT31c1c8 = 222fDTimes New RomanF0000002a000001900000
+X%    MSTT31c1d5 = 222fDTimes New RomanF00000021000001900000
+X%    MSTT31c1e2 = 222fDTimes New RomanF00000018000001900000
+X%    MSTT31c1ef = 222fDTimes New RomanF0000003e000001900000
+X%    MSTT31c1fc = 222fDTimes New RomanF00000024000001900000
+X%    MSTT31c209 = 222fDTimes New RomanF00000032000001900000
+X%    MSTT31c216 = 222fDTimes New RomanF0000003c000001900000
+X%    MSTT31c223 = 222fDTimes New RomanF0000001d000001900000
+X%    MSTT31c230 = 222fDTimes New RomanF0000002e000001900001
+X%%DocumentSuppliedResources: procset Win35Dict 3 1
+X
+X%%DocumentNeededResources: font Helvetica-Bold
+X%%+ font Symbol
+X%%+ font Times-Bold
+X%%+ font Times-Italic
+X%%+ font Times-Roman
+X
+X%%EOF
+X
+END_OF_FILE
+  if test 59971 -ne `wc -c <'IPP/IPP.ps.B'`; then
+    echo shar: \"'IPP/IPP.ps.B'\" unpacked with wrong size!
+  elif test -f 'IPP/IPP.ps.A'; then
+    echo shar: Combining  \"'IPP/IPP.ps'\" \(125004 characters\)
+    cat 'IPP/IPP.ps.A' 'IPP/IPP.ps.B' > 'IPP/IPP.ps'
+    if test 125004 -ne `wc -c <'IPP/IPP.ps'`; then
+      echo shar: \"'IPP/IPP.ps'\" combined with wrong size!
+    else
+      rm IPP/IPP.ps.A IPP/IPP.ps.B
+    fi
+  fi
+  # end of 'IPP/IPP.ps.B'
+fi
+if test ! -d 'IPP/config' ; then
+    echo shar: Creating directory \"'IPP/config'\"
+    mkdir 'IPP/config'
+fi
+if test ! -d 'IPP/config/ex1' ; then
+    echo shar: Creating directory \"'IPP/config/ex1'\"
+    mkdir 'IPP/config/ex1'
+fi
+if test ! -d 'IPP/config/ex2' ; then
+    echo shar: Creating directory \"'IPP/config/ex2'\"
+    mkdir 'IPP/config/ex2'
+fi
+if test ! -d 'IPP/ethernet' ; then
+    echo shar: Creating directory \"'IPP/ethernet'\"
+    mkdir 'IPP/ethernet'
+fi
+if test ! -d 'IPP/host' ; then
+    echo shar: Creating directory \"'IPP/host'\"
+    mkdir 'IPP/host'
+fi
+if test ! -d 'IPP/include' ; then
+    echo shar: Creating directory \"'IPP/include'\"
+    mkdir 'IPP/include'
+fi
+if test ! -d 'IPP/lib' ; then
+    echo shar: Creating directory \"'IPP/lib'\"
+    mkdir 'IPP/lib'
+fi
+if test ! -d 'IPP/lib/route' ; then
+    echo shar: Creating directory \"'IPP/lib/route'\"
+    mkdir 'IPP/lib/route'
+fi
+if test ! -d 'IPP/lib/utils' ; then
+    echo shar: Creating directory \"'IPP/lib/utils'\"
+    mkdir 'IPP/lib/utils'
+fi
+if test ! -d 'IPP/logd' ; then
+    echo shar: Creating directory \"'IPP/logd'\"
+    mkdir 'IPP/logd'
+fi
+if test ! -d 'IPP/monitor' ; then
+    echo shar: Creating directory \"'IPP/monitor'\"
+    mkdir 'IPP/monitor'
+fi
+if test ! -d 'IPP/router' ; then
+    echo shar: Creating directory \"'IPP/router'\"
+    mkdir 'IPP/router'
+fi
+if test -f 'IPP/router/RouterIo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/router/RouterIo.c'\"
+else
+  echo shar: Extracting \"'IPP/router/RouterIo.c'\" \(1079 characters\)
+  sed "s/^X//" >'IPP/router/RouterIo.c' <<'END_OF_FILE'
+X/* --------------------------------------------------------------------------
+X * Ident: RouterIo.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <defs.h>
+X#include <debug.h>
+X#include <packet.h>
+X#include <router.h>
+X#include <func_defs.h>
+X
+X/* This function knows that there is something to process and then will doit
+X * This function will either process a packet or accept a ringing
+X */
+X
+Xint RouterIo ( struct Routing *rinfo )
+X   {
+X   int c;
+X   int  Newsocket;
+X   char Msg[CONF_LLEN+2];
+X
+X   for (c=1; c <=IF_MAX; c++ ) 
+X       if ( FD_ISSET (rinfo->ifdata[c].Line, &rinfo->readfds) )
+X          ProcessPack ( rinfo, c );
+X
+X   /* The function RoParseCall is in charge of closing the new socket if not needed	*/
+X   for (c=1; c <=IF_MAX; c++ ) 
+X      if ( FD_ISSET (rinfo->ifdata[c].Ring, &rinfo->readfds) )
+X         if ( Accept ( rinfo->ifdata[c].Ring, &Newsocket, Msg, CONF_LLEN ) == DONE )
+X            ProcessCall ( rinfo, c, Newsocket, Msg );
+X
+X
+X   return (DONE);
+X   }
+END_OF_FILE
+  if test 1079 -ne `wc -c <'IPP/router/RouterIo.c'`; then
+    echo shar: \"'IPP/router/RouterIo.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/router/RouterIo.c'
+fi
+echo shar: End of archive 1 \(of 6\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

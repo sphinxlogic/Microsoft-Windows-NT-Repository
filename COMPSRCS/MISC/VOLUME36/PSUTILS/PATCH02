@@ -1,0 +1,480 @@
+Newsgroups: comp.sources.misc
+From: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Subject: v36i033:  psutils - Postscript document manipulation tools, Patch02
+Message-ID: <1993Mar22.150304.26989@sparky.imd.sterling.com>
+X-Md4-Signature: 39f7e85c5d70b7dc8d57192b351022d8
+Date: Mon, 22 Mar 1993 15:03:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ajcd@dcs.ed.ac.uk (Angus Duggan)
+Posting-number: Volume 36, Issue 33
+Archive-name: psutils/patch02
+Environment: UNIX, VMS
+Patch-To: psutils: Volume 35, Issue 8-11
+
+Here's a second patch to the latest version of PSUtils, bringing it up
+to version 1.9. This patch allows pstops to work with arbitrary global
+coordinate systems, fixes a bug in psselect to do with selecting everything
+upto the end of a document, and adds some VMS support.
+
+a.
+--
+Angus Duggan, Department of Computer Science,	| I'm pink, therefore I'm Spam.
+University of Edinburgh, The King's Buildings,  | PHONE: +44(0)31 650 5126
+Mayfield Road, Edinburgh EH9 3JZ, Scotland.	| INET: ajcd@dcs.ed.ac.uk
+
+diff +new -cr psutils-dist/Makefile psutils/Makefile
+*** psutils-dist/Makefile	Fri Mar 19 14:48:34 1993
+--- psutils/Makefile	Fri Mar 19 17:14:08 1993
+***************
+*** 22,34 ****
+  	$(CC) $(CFLAGS) -o epsffit epsffit.c
+  
+  psbook: psbook.o psutil.o
+! 	$(CC) -o psbook psutil.o psbook.o
+  
+  psselect: psselect.o psutil.o
+! 	$(CC) -o psselect psutil.o psselect.o
+  
+  pstops: pstops.o psutil.o
+! 	$(CC) -o pstops psutil.o pstops.o
+  
+  psbook.c: psutil.h patchlevel.h
+  
+--- 22,34 ----
+  	$(CC) $(CFLAGS) -o epsffit epsffit.c
+  
+  psbook: psbook.o psutil.o
+! 	$(CC) $(CFLAGS) -o psbook psutil.o psbook.o
+  
+  psselect: psselect.o psutil.o
+! 	$(CC) $(CFLAGS) -o psselect psutil.o psselect.o
+  
+  pstops: pstops.o psutil.o
+! 	$(CC) $(CFLAGS) -o pstops psutil.o pstops.o
+  
+  psbook.c: psutil.h patchlevel.h
+  
+diff +new -cr psutils-dist/Manifest psutils/Manifest
+*** psutils-dist/Manifest	Fri Mar 19 14:48:35 1993
+--- psutils/Manifest	Fri Mar 19 17:28:00 1993
+***************
+*** 2,7 ****
+--- 2,8 ----
+  Makefile
+  Manifest
+  README
++ descrip.mms
+  epsffit.1
+  epsffit.c
+  fixfmps
+diff +new -cr psutils-dist/README psutils/README
+*** psutils-dist/README	Fri Mar 19 14:48:35 1993
+--- psutils/README	Fri Mar 19 17:18:38 1993
+***************
+*** 98,103 ****
+          Kristian Jorg           etxkrjg@se.ericsson.solsta
+          Larry Weissman          larryw@nsr.bioeng.washington.edu 
+          Michael L. Brown        brown%uucp.vidiot@edu.wisc.cs
+!         
+  (Apologies to anyone who I have left out.)
+  
+--- 98,105 ----
+          Kristian Jorg           etxkrjg@se.ericsson.solsta
+          Larry Weissman          larryw@nsr.bioeng.washington.edu 
+          Michael L. Brown        brown%uucp.vidiot@edu.wisc.cs
+!         Hunter Goatley	        goathunter@wkuvx1.bitnet
+!         John Interrante         interran@uluru.Stanford.edu
+! 
+  (Apologies to anyone who I have left out.)
+  
+diff +new -cr psutils-dist/descrip.mms psutils/descrip.mms
+*** psutils-dist/descrip.mms
+--- psutils/descrip.mms	Fri Mar 19 17:27:38 1993
+***************
+*** 0 ****
+--- 1,52 ----
++ #
++ #  VMS MMS build file for PS utilities
++ #
++ #  Hunter Goatley, 16-MAR-1993 14:47
++ #
++ CFLAGS = /NOLIST/OBJECT=$(MMS$TARGET)
++ LFLAGS = /NOTRACE/EXEC=$(MMS$TARGET)
++ 
++ .IFDEF __ALPHA__               #If building with Alpha cross-compilers, OBJ
++ OPTIONS_FILE =                  #... is defined already
++ LINKOPT =
++ CFLAGS = /NOLIST/OBJECT=$(MMS$TARGET)/STANDARD=VAXC
++ .ELSE
++ OBJ = .OBJ
++ EXE = .EXE
++ OPTIONS_FILE = ,VAXC.OPT
++ LINKOPT = $(options_file)/OPTIONS
++ .ENDIF
++ 
++ # epsffit fits an epsf file to a given bounding box
++ # psbook rearranges pages into signatures
++ # psselect selects page ranges
++ # pstops performs general page rearrangement and merging
++ 
++ all : psbook$(exe), psselect$(exe), pstops$(exe), epsffit$(exe)
++         @ write sys$output "PSUTILS build complete"
++ 
++ epsffit$(exe) : epsffit$(obj)$(options_file)
++         $(LINK)$(LFLAGS) $(MMS$SOURCE)$(linkopt)
++ 
++ psbook$(exe) :  psbook$(obj), psutil$(obj)$(options_file)
++         $(LINK)$(LFLAGS) psbook$(obj),psutil$(obj)$(linkopt)
++ 
++ psselect$(exe) :        psselect$(obj), psutil$(obj)
++         $(LINK)$(LFLAGS) psselect$(obj),psutil$(obj)$(linkopt)
++ 
++ pstops$(exe) :  pstops$(obj), psutil$(obj)
++         $(LINK)$(LFLAGS) pstops$(obj),psutil$(obj)$(linkopt)
++ 
++ psbook$(obj) : psbook.c psutil.h patchlevel.h
++ 
++ pstops$(obj) : pstops.c, psutil.h patchlevel.h
++ 
++ psutil$(obj) : psutil.c, psutil.h patchlevel.h
++ 
++ psselect$(obj) : psselect.c, psutil.h patchlevel.h
++ 
++ clean :
++         delete/log *$(obj);*,psbook$(exe);*,psselect$(exe);*,pstops$(exe);*,epsf
++ fit$(e
++ xe);*
++ 
+diff +new -cr psutils-dist/patchlevel.h psutils/patchlevel.h
+*** psutils-dist/patchlevel.h	Fri Mar 19 14:48:41 1993
+--- psutils/patchlevel.h	Fri Mar 19 14:32:42 1993
+***************
+*** 1,2 ****
+  #define RELEASE 1
+! #define PATCHLEVEL 8
+--- 1,2 ----
+  #define RELEASE 1
+! #define PATCHLEVEL 9
+diff +new -cr psutils-dist/psnup.1 psutils/psnup.1
+*** psutils-dist/psnup.1	Mon Feb  8 11:33:46 1993
+--- psutils/psnup.1	Fri Mar 19 17:16:58 1993
+***************
+*** 4,12 ****
+  .SH SYNOPSIS
+  .B psnup
+  [
+- .B \-q
+- ]
+- [
+  .B \-w\fIwidth\fR
+  ]
+  [
+--- 4,9 ----
+***************
+*** 15,28 ****
+  [
+  .B \-p\fIpaper\fR
+  ]
+  .B \-l
+  ]
+  [
+! .B \-2 | \-4 | \-8 | \-h
+  ]
+  [
+  .I infile
+! ] ]
+  .SH DESCRIPTION
+  .I Psnup
+  is a script making the use of 
+--- 12,33 ----
+  [
+  .B \-p\fIpaper\fR
+  ]
++ [
+  .B \-l
+  ]
+  [
+! .B \-2 | \-4 |
+! .B \-8 | \-9
+! ]
+! [
+! .B \-b
+! ]
+! [
+! .B \-q
+  ]
+  [
+  .I infile
+! ]
+  .SH DESCRIPTION
+  .I Psnup
+  is a script making the use of 
+***************
+*** 58,63 ****
+--- 63,83 ----
+  .B legal.
+  .PP
+  The
++ .B \-l
++ option prints in landscape mode.
++ .PP
++ The
++ .BR \-2 ,
++ .BR \-4 ,
++ .BR \-8 ,
++ and
++ .BR \-9
++ options print 2-,
++ 4-,
++ 8-,
++ and 9-up.
++ .PP
++ The
+  .I \-b
+  option prevents any
+  .B bind
+***************
+*** 71,82 ****
+  The potential use of this utility is varied but one particular 
+  use is in conjunction with 
+  .I psbook(1).
+! For example, using psroff to create a PostScript document and lpr as 
+  the 
+  .SM UNIX 
+  print spooler a typical command line might look like this: 
+  .sp
+! psroff -ms \fIfile\fP | psbook | psnup -2 | lpr
+  .sp
+  Where file is a 4 page document this command will result in a 
+  two page document printing two pages of \fIfile\fP per page and
+--- 91,102 ----
+  The potential use of this utility is varied but one particular 
+  use is in conjunction with 
+  .I psbook(1).
+! For example, using groff to create a PostScript document and lpr as 
+  the 
+  .SM UNIX 
+  print spooler a typical command line might look like this: 
+  .sp
+! groff -Tps -ms \fIfile\fP | psbook | psnup -2 | lpr
+  .sp
+  Where file is a 4 page document this command will result in a 
+  two page document printing two pages of \fIfile\fP per page and
+***************
+*** 87,97 ****
+  .SH AUTHOR
+  Angus Duggan
+  .br
+! Brian Colfer, University of California, San Francisco
+  .br
+  brianc@labmed.ucsf.edu
+  .SH "SEE ALSO"
+! psbook(1), pstops(1), psroff(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+--- 107,117 ----
+  .SH AUTHOR
+  Angus Duggan
+  .br
+! Manual page by Brian Colfer, University of California, San Francisco
+  .br
+  brianc@labmed.ucsf.edu
+  .SH "SEE ALSO"
+! psbook(1), pstops(1)
+  .SH TRADEMARKS
+  .B PostScript
+  is a trademark of Adobe Systems Incorporated.
+diff +new -cr psutils-dist/psselect.c psutils/psselect.c
+*** psutils-dist/psselect.c	Mon Feb  8 11:33:47 1993
+--- psutils/psselect.c	Fri Mar 19 16:24:09 1993
+***************
+*** 167,172 ****
+--- 167,174 ----
+        if (pagerange) {
+  	 range *r;
+  	 for (r = pagerange; r; r = r->next) {
++ 	    if (pagerange->last == MAXPAGES)
++ 	       pagerange->last = pages;
+  	    if (reverse) {
+  	       for (currentpg = r->last; currentpg >= r->first; currentpg--) {
+  		  if ((currentpg&1) ? (odd || all) : (even || all)) {
+diff +new -cr psutils-dist/pstops.c psutils/pstops.c
+*** psutils-dist/pstops.c	Mon Feb  8 11:33:48 1993
+--- psutils/pstops.c	Fri Mar 19 16:47:14 1993
+***************
+*** 273,279 ****
+     /* rearrange pages: doesn't cope properly with:
+      * initmatrix, initgraphics, defaultmatrix, grestoreall, initclip */
+     writeheader((maxpage/modulo)*pagesperspec);
+!    writestring("%%BeginProcSet: pstops 1 0\n");
+     writestring("[/showpage/erasepage/copypage]{dup where{pop dup load\n");
+     writestring(" type/operatortype eq{1 array cvx dup 0 3 index cvx put\n");
+     writestring(" bind def}{pop}ifelse}{pop}ifelse}forall\n");
+--- 273,279 ----
+     /* rearrange pages: doesn't cope properly with:
+      * initmatrix, initgraphics, defaultmatrix, grestoreall, initclip */
+     writeheader((maxpage/modulo)*pagesperspec);
+!    writestring("%%BeginProcSet: pstops 1 1\n");
+     writestring("[/showpage/erasepage/copypage]{dup where{pop dup load\n");
+     writestring(" type/operatortype eq{1 array cvx dup 0 3 index cvx put\n");
+     writestring(" bind def}{pop}ifelse}{pop}ifelse}forall\n");
+***************
+*** 285,290 ****
+--- 285,291 ----
+     writestring(" {/arraytype eq{dup xcheck{exch pop aload pop}\n");
+     writestring(" {pop cvx}ifelse}{pop cvx}ifelse}ifelse}bind def\n");
+     writestring("/pstopsmatrix matrix currentmatrix def\n");
++    writestring("/pstopsxform matrix def\n");
+     writestring("/defaultmatrix{pstopsmatrix exch copy}bind def\n");
+     writestring("/initmatrix{matrix defaultmatrix setmatrix}bind def\n");
+     writestring("/pathtoproc{[{currentpoint}stopped{$error/newerror false\n");
+***************
+*** 312,317 ****
+--- 313,321 ----
+        writestring("/bind{}def\n");
+     writestring("%%EndProcSet\n");
+     writeprolog();
++    /* save transformation from original to current matrix */
++    writestring("/pstopsxform pstopsmatrix matrix currentmatrix matrix\n");
++    writestring("invertmatrix matrix concatmatrix matrix invertmatrix store\n");
+     for (thispg = 0; thispg < maxpage; thispg += modulo) {
+        int add_last = 0;
+        struct pagespec *ps;
+***************
+*** 330,335 ****
+--- 334,340 ----
+  	 writestring("/pstopssaved save def\n");
+  	 if (ps->flags & GSAVE) {
+  	    char buffer[BUFSIZ];
++ 	    writestring("pstopsmatrix setmatrix\n");
+  	    if (ps->flags & OFFSET) {
+  	       sprintf(buffer, "%lf %lf translate\n", ps->xoff, ps->yoff);
+  	       writestring(buffer);
+***************
+*** 342,351 ****
+  	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+  	       writestring(buffer);
+  	    }
+  	    writestring("/pstopsmatrix matrix currentmatrix def\n");
+- 	 }
+- 	 if (width > 0.0 && height > 0.0) {
+- 	    writestring("initclip\n");
+  	 }
+  	 if (add_next) {
+  	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+--- 347,358 ----
+  	       sprintf(buffer, "%lf dup scale\n", ps->scale);
+  	       writestring(buffer);
+  	    }
++ 	    if (width > 0.0 && height > 0.0) {
++ 	       writestring("/pstopsmatrix matrix currentmatrix def\n");
++ 	       writestring("initclip\n");
++ 	    }
++ 	    writestring("pstopsxform concat\n");
+  	    writestring("/pstopsmatrix matrix currentmatrix def\n");
+  	 }
+  	 if (add_next) {
+  	    writestring("/showpage{}def/copypage{}def/erasepage{}def\n");
+diff +new -cr psutils-dist/psutil.c psutils/psutil.c
+*** psutils-dist/psutil.c	Mon Feb  8 11:33:36 1993
+--- psutils/psutil.c	Fri Mar 19 17:26:19 1993
+***************
+*** 3,13 ****
+--- 3,21 ----
+   * utilities for PS programs
+   */
+  
++ /*
++  *  Hunter Goatley     2-MAR-1993 14:41
++  *    Added VMS support.
++  */
+  #define LOCAL
+  #include "psutil.h"
+  #include "patchlevel.h"
+  
++ #ifdef VMS
++ #include <file.h>
++ #else
+  #include <fcntl.h>
++ #endif
+  #include <string.h>
+  
+  static char buffer[BUFSIZ];
+***************
+*** 84,99 ****
+--- 92,122 ----
+  {
+     register char *comment = buffer+2;
+     register int nesting = 0;
++ #ifdef VMS
++    register long int this_record;
++ #endif
+  
+     pages = 0;
+     fseek(infile, 0L, 0);
++ #ifdef VMS
++    while (this_record = ftell(infile), fgets(buffer, BUFSIZ, infile) != NULL)
++ #else
+     while (fgets(buffer, BUFSIZ, infile) != NULL)
++ #endif
+        if (*buffer == '%') {
+  	 if (buffer[1] == '%') {
+  	    if (nesting == 0 && strncmp(comment, "Page:", 5) == 0)
++ #ifdef VMS
++ 	       pageptr[pages++] = this_record;
++ #else
+  	       pageptr[pages++] = ftell(infile)-strlen(buffer);
++ #endif
+  	    else if (headerlen == 0 && strncmp(comment, "Pages:", 6) == 0)
++ #ifdef VMS
++ 	       pagescmt = this_record;
++ #else
+  	       pagescmt = ftell(infile)-strlen(buffer);
++ #endif
+  	    else if (headerlen == 0 &&
+  		     strncmp(comment, "EndComments", 11) == 0)
+  	       headerlen = ftell(infile);
+***************
+*** 106,118 ****
+--- 129,153 ----
+  	    else if (strncmp(comment, "EndBinary", 9) == 0)
+  	       nesting--;
+  	    else if (nesting == 0 && strncmp(comment, "Trailer", 7) == 0) {
++ #ifdef VMS
++ 	       fseek(infile, this_record, 0);
++ #else
+  	       fseek(infile, (long)(-strlen(buffer)), 1);
++ #endif
+  	       break;
+  	    }
+  	 } else if (headerlen == 0 && buffer[1] != '!')
++ #ifdef VMS
++ 	    headerlen = this_record;
++ #else
+  	    headerlen = ftell(infile)-strlen(buffer);
++ #endif
+        } else if (headerlen == 0)
++ #ifdef VMS
++ 	 headerlen = this_record;
++ #else
+  	 headerlen = ftell(infile)-strlen(buffer);
++ #endif
+     pageptr[pages] = ftell(infile);
+  }
+  
+diff +new -cr psutils-dist/psutil.h psutils/psutil.h
+*** psutils-dist/psutil.h	Mon Feb  8 11:33:48 1993
+--- psutils/psutil.h	Fri Mar 19 17:20:02 1993
+***************
+*** 37,39 ****
+--- 37,42 ----
+  extern long lseek();
+  extern long ftell();
+  extern char *getenv();
++ #ifdef VMS
++ #define unlink delete
++ #endif
+
+exit 0 # Just in case...

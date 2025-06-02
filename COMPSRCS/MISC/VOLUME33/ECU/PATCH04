@@ -1,0 +1,1210 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v33i079:  ecu - ECU Asynchronous Communications v3.20, Patch04
+Message-ID: <1992Nov16.190024.10643@sparky.imd.sterling.com>
+X-Md4-Signature: d9e4ae5a423b31099bfcd12be36a8e10
+Date: Mon, 16 Nov 1992 19:00:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 33, Issue 79
+Archive-name: ecu/patch04
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Patch-To: ecu: Volume 32, Issue 36-75
+
+This is patch 4 to ECU 3.20.
+
+To apply this patch, extract the shell archive below in the ECU
+distribution directory, creating one new file (PATCH04).
+Then patch by
+
+    patch -p0 < PATCH04
+
+Then, make depend, make, su root, make install.
+Configure is not necessary for this patch.
+
+==> Patch 4 (from CHANGES)
+
+13. jeff@samantha.chi.il.us (Jeff Johnson) suggested a change
+in the SVR4 LCK.. logic, stating that the use of <sys/sysmacros.h>
+is deprecated.
+
+14. On some systems, the video attributes were not reverted to
+"normal" after some reverse video or underlined strings (e.g,
+"[interactive mode]").
+
+15. I removed the Metro Link pts support.  This was quite obsolete
+since only very early Metro Link software used pts'.
+
+16.  FAS 2.10 users are getting SIGUSR1 sent to the transmitter.
+I suspect this is a bug in FAS evoked by the kill(getty,SIGUSR1)
+performed by ecuungetty, but I am have no real clue.  This needs
+resolving, but I have little time right now.  This patch adds
+signal(SIGUSR1,SIG_IGN) to eliminate the problem.
+
+17. Console xon/xoff support has been added.  EMACS users
+lament the loss of ^S/^Q.  (I personally consider it evolution
+in action :->).  A new inetractive and a new procedure
+command have been added  Also, the status is reported by
+the interactive stat command.
+
+   conxon on  - honor xon/xoff locally
+   conxon off - pass ^S/^U to remote
+
+If you turn conxon off, there will be no local software flow control
+so you probably need hardware flow control for proper operation.
+Refer to the rtscts command descriptions for more information
+(I pray you are using a tty driver that supports the kind
+of hardware flow control your modem requires).
+
+18.  The procedure file transfer commands did not get
+rearranged to look for the file transfer programs in the
+ecu library directory.
+
+19. Chains of else statements may fail to operate properly
+in certain arrangements.  The known failure was fixed.
+
+#!/bin/sh
+# This is a shell archive (shar 3.461)
+# made 11/16/1992 17:53 UTC by wht@n4hgf
+# Source directory /u1/src/ecu-shars
+#
+# existing files WILL be overwritten
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  32607 -rw-r--r-- PATCH04
+#
+# ============= PATCH04 ==============
+echo 'x - extracting PATCH04 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'PATCH04' &&
+X:
+X#-------------------------------------------------------
+X# PATCH04.01
+X# created by gendiff x1.30 on 16 Nov 1992 02:05 UTC
+X#-------------------------------------------------------
+XPrereq: 23
+X*** ../ecu-3.23/patchlevel.h	Sun Nov 15 20:39:21 1992
+X--- patchlevel.h	Mon Oct  5 13:59:40 1992
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL 23
+X--- 1 ----
+X! #define PATCHLEVEL 24
+X*** ../ecu-3.23/CHANGES	Sun Nov 15 20:38:30 1992
+X--- CHANGES	Sat Nov 14 22:39:50 1992
+X***************
+X*** 39,41 ****
+X--- 39,145 ----
+X  1992-09-15-18:52-ecutty.c-wht@n4hgf-left some debug code in patch01 dammit 
+X  
+X  6. Remove debug code from _setcolor().
+X+ 
+X+ ==> Patch 3
+X+ 
+X+ 1992-09-17-06:27-ecuicmd.c-wht@n4hgf-add <7-bit kbd> to stat 
+X+ 1992-09-17-05:33-mapkey/README-wht@n4hgf-0xE0 should read 0xE1
+X+ 1992-09-17-05:16-ecuxkey.h-wht@n4hgf-finally, 0xE1-0xFA as promised in 3.10  
+X+ 1992-09-16-14:13-ecunumrev.c-wht@n4hgf-add M and F version qualifiers 
+X+ 1992-09-16-13:54-ecuusage.c-wht@n4hgf-add fkmap usage 
+X+ 1992-09-16-13:33-funckeymap.c-wht@n4hgf-add fkmap -l name 
+X+ 1992-09-16-13:29-termecu.h-wht@n4hgf-add TERMECU_UNRECOVERABLE 
+X+ 1992-09-16-13:29-ecusighdl.c-wht@n4hgf-add TERMECU_UNRECOVERABLE text 
+X+ 1992-09-15-18:52-ecutty.c-wht@n4hgf-left some debug code in patch01 dammit 
+X+ 
+X+ 7.  Information on tty "Device busy" errors and color support
+X+ have been added to README.Q-and-A.  Obsolete information was
+X+ removed.
+X+ 
+X+ 8. The -l switch was added to the fkmap commands:
+X+        fkmap -l <name>
+X+ The -l form reads an entire funckeymap definition matching <name>
+X+ from ~/.ecu/funckeymap (if not found there, in a file by the same
+X+ name in the library directory).  This form behaves exactly
+X+ in the same manner as the command line switch -F.
+X+ Due to the drastic nature of this command, if it fails to
+X+ execute properly, ECU terminates itself.  Note that
+X+ improper use of this form of the command can still render
+X+ ECU an albatross (with Home unrecognizable).
+X+ 
+X+ 9.  The original high-bit character space assignments for Alt-A
+X+ through Alt-Z that I chose for ECU made good sense ...  to a
+X+ parochial American.  Michael Traub <emory!btcs.bt.co.uk!traub>
+X+ sets me straight, but mapkey/README was incorrect.  Each hex
+X+ value was off by one.
+X+ 
+X+ 10.  If the console has parity enabled, the interactive stat
+X+ command now reports <7-bit kbd>.  Knowing this can be important
+X+ if you are using Alt-[A-Z].  Or if you are trying for some kind
+X+ of unlikely tandem 8-bit transparent path (telnet to a box, run
+X+ ecu to call home, login, use ECU there to talk to your amateur
+X+ radio PK-232/MBX TNC over 14 MHz AMTOR to the UK to a Kantronics
+X+ TNC hooked to an SCO box, login, make an ECU call to a certain
+X+ Universal Import-Export ...  uh, hi -- I seem to have dozed off).
+X+ 
+X+ 11.  At least one ISC SVR3 user had a Devices entry with the
+X+ modem control ",M" suffix I thought was only used in SVR4 UUCP.
+X+ The suffix presence is now detected on all platforms.
+X+ 
+X+ 12. ecusea.c had two fcntl.h inclusions.  XENIX could not
+X+ handle this.
+X+ 
+X+ ==> Patch 4
+X+ 
+X+ 13. jeff@samantha.chi.il.us (Jeff Johnson) suggested a change
+X+ in the SVR4 LCK.. logic, stating that the use of <sys/sysmacros.h>
+X+ is deprecated.
+X+ 
+X+ > Here is an excerpt from my <sys/sysmacros.h>:
+X+ > 
+X+ >    WARNING: The device number macros defined here should not be
+X+ >    used by device drivers or user software.  Device drivers
+X+ >    should use the device functions defined in the DDI/DKI
+X+ >    interface (see also ddi.h).  Application software should make
+X+ >    use of the library routines available in makedev(3).  A set of
+X+ >    new device macros are provided to operate on the expanded
+X+ >    device number format supported in SVR4.  Macro versions of the
+X+ >    DDI device functions are provided for use by kernel proper
+X+ >    routines only.  Macro routines bmajor(), major(), minor(),
+X+ >    emajor(), eminor(), and makedev() will be removed or their
+X+ >    definitions changed at the next major release following SVR4.
+X+ 
+X+ 14. On some systems, the video attributes were not reverted to
+X+ "normal" after some reverse video or underlined strings (e.g,
+X+ "[interactive mode]").
+X+ 
+X+ 15. I removed the Metro Link pts support.  This was quite obsolete
+X+ since only very early Metro Link software used pts'.
+X+ 
+X+ 16.  FAS 2.10 users are getting SIGUSR1 sent to the transmitter.
+X+ I suspect this is a bug in FAS evoked by the kill(getty,SIGUSR1)
+X+ performed by ecuungetty, but I am have no real clue.  This needs
+X+ resolving, but I have little time right now.  This patch adds
+X+ signal(SIGUSR1,SIG_IGN) to eliminate the problem.
+X+ 
+X+ 17. Console xon/xoff support has been added.  EMACS users
+X+ lament the loss of ^S/^Q.  (I personally consider it evolution
+X+ in action :->).  A new inetractive and a new procedure
+X+ command have been added  Also, the status is reported by
+X+ the interactive stat command.
+X+ 
+X+    conxon on  - honor xon/xoff locally
+X+    conxon off - pass ^S/^U to remote
+X+ 
+X+ If you turn conxon off, there will be no local software flow control
+X+ so you probably need hardware flow control for proper operation.
+X+ Refer to the rtscts command descriptions for more information
+X+ (I pray you are using a tty driver that supports the kind
+X+ of hardware flow control your modem requires).
+X+ 
+X+ 18.  The procedure file transfer commands did not get
+X+ rearranged to look for the file transfer programs in the
+X+ ecu library directory.
+X+ 
+X+ 19. Chains of else statements may fail to operate properly
+X+ in certain arrangements.  The known failure was fixed.
+X*** ../ecu-3.23/doc/_icmd.txt	Sun Nov 15 20:39:23 1992
+X--- doc/_icmd.txt	Sun Oct 18 16:02:32 1992
+X***************
+X*** 116,121 ****
+X--- 116,136 ----
+X  interactive command to return to the previous directory.
+X  
+X  Other %options have usage information by entering them with no arguments.
+X+ 
+X+ .*s 2 "CONXon : console xon/xoff flow control"
+X+ .DS L
+X+ usage: conxon [<arg>]
+X+ where <arg> is on    honor ^S/^Q local flow control (DEFAULT)
+X+                off   pass ^S/^Q to remote
+X+ .DE
+X+ 
+X+ This command enables or disables console xon/xoff flow control.
+X+ If the argument is omitted, the current flow control state is displayed.
+X+ 
+X+ If on, typing ^S/^Q stops or restarts the local console driver
+X+ output.  If off, ^S and ^Q are passed to the remote (for EMACS,
+X+ of course -- who else?).
+X+ 
+X  .*s 2 "DA : decimal to ascii char"
+X  .DS L
+X  usage: da [<decimal-val>]
+X***************
+X*** 1156,1162 ****
+X  and two-character control character identifier.
+X  
+X  
+X! .*s 2 "XON : xon/xoff flow control"
+X  .DS L
+X  usage: xon [<arg>]
+X  where <arg> is on    input and output flow control
+X--- 1171,1177 ----
+X  and two-character control character identifier.
+X  
+X  
+X! .*s 2 "XON : line xon/xoff flow control"
+X  .DS L
+X  usage: xon [<arg>]
+X  where <arg> is on    input and output flow control
+X*** ../ecu-3.23/doc/_p_cmd.txt	Sun Nov 15 20:39:24 1992
+X--- doc/_p_cmd.txt	Sun Oct 18 16:02:41 1992
+X***************
+X*** 179,184 ****
+X--- 179,198 ----
+X  .B else
+X  command.
+X  
+X+ .*s 2 "conxon"
+X+ .DS L
+X+ usage: conxon [<arg>]
+X+ where <arg> is on    honor ^S/^Q local flow control (DEFAULT)
+X+                off   pass ^S/^Q to remote
+X+ .DE
+X+ 
+X+ This command enables or disables console xon/xoff flow control.
+X+ If the argument is omitted, the current flow control state is displayed.
+X+ 
+X+ If on, typing ^S/^Q stops or restarts the local console driver
+X+ output.  If off, ^S and ^Q are passed to the remote (for EMACS,
+X+ of course -- who else?).
+X+ 
+X  .*s 2 "cursor"
+X  
+X  usage: cursor <row> [<col>]
+X*** ../ecu-3.23/doc/_p_ifunc.txt	Sun Nov 15 16:43:02 1992
+X--- doc/_p_ifunc.txt	Mon Oct 26 13:15:19 1992
+X***************
+X*** 432,438 ****
+X  .*s 2 "%rchr"
+X  
+X  This function returns the number of characters
+X! received by ECU since the program starrted.
+X  
+X  .*s 2 "%rchrc"
+X  
+X--- 432,438 ----
+X  .*s 2 "%rchr"
+X  
+X  This function returns the number of characters
+X! received by ECU since the program started.
+X  
+X  .*s 2 "%rchrc"
+X  
+X*** ../ecu-3.23/doc/_top.txt	Sun Nov 15 16:43:09 1992
+X--- doc/_top.txt	Sun Oct 18 16:19:55 1992
+X***************
+X*** 31,37 ****
+X  .sp .5i
+X  .ce 100
+X  Technical Description
+X! Revision 3.20
+X  \n(mo/\n(dy/\n(yr
+X  .ce 0
+X  .sp 1i
+X--- 31,37 ----
+X  .sp .5i
+X  .ce 100
+X  Technical Description
+X! Revision 3.24
+X  \n(mo/\n(dy/\n(yr
+X  .ce 0
+X  .sp 1i
+X*** ../ecu-3.23/doc/proc.txt	Sun Nov 15 16:43:12 1992
+X--- doc/proc.txt	Sun Oct 18 16:20:02 1992
+X***************
+X*** 32,38 ****
+X  .sp 1i
+X  .ce 100
+X  Procedure Language
+X! Revision 3.20
+X  \n(mo/\n(dy/\n(yr
+X  .ce 0
+X  .sp 1i
+X--- 32,38 ----
+X  .sp 1i
+X  .ce 100
+X  Procedure Language
+X! Revision 3.24
+X  \n(mo/\n(dy/\n(yr
+X  .ce 0
+X  .sp 1i
+X*** ../ecu-3.23/ecuLCK.c	Sun Nov 15 16:37:26 1992
+X--- ecuLCK.c	Wed Oct  7 21:19:40 1992
+X***************
+X*** 1,7 ****
+X--- 1,9 ----
+X  #define HONEYDANBER /* means use ASCII pids in lock files */
+X+ #define USE_SVR4_MKDEV_H /* jeff@samantha.chi.il.us SVR4 lock file correction */
+X  #if defined(SHARE_DEBUG)
+X  #define LOG_LOCKS
+X  #endif
+X+ 
+X  /*+-----------------------------------------------------------------------
+X  	ecuLCK.c -- ECU lock file management
+X  	wht@n4hgf.Mt-Park.GA.US
+X***************
+X*** 16,21 ****
+X--- 18,24 ----
+X  check for both.
+X  ------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-07-1992-21:09-jeff@samantha.chi.il.us-SVR4 lock file correction */
+X  /*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X  /*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X  /*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X***************
+X*** 34,40 ****
+X--- 37,47 ----
+X  #include "ecu.h"
+X  #include "utmpstatus.h"
+X  #if defined(SVR4)
+X+ #ifndef USE_SVR4_MKDEV_H
+X  # include <sys/sysmacros.h>
+X+ #else
+X+ # include <sys/mkdev.h>
+X+ #endif /* USE_SVR4_MKDEV_H */
+X  #endif
+X  
+X  extern int errno;
+X***************
+X*** 63,69 ****
+X  	}
+X  	sprintf(lock_file_name,"%s/LK.%03u.%03u.%03u",
+X  		lock_dir_name,major(tbuf.st_dev),
+X! 	    tbuf.st_rdev >> 18, minor(tbuf.st_rdev));
+X  #else
+X  
+X  	/*
+X--- 70,81 ----
+X  	}
+X  	sprintf(lock_file_name,"%s/LK.%03u.%03u.%03u",
+X  		lock_dir_name,major(tbuf.st_dev),
+X! #ifndef USE_SVR4_MKDEV_H
+X! 	    tbuf.st_rdev >> 18,
+X! #else
+X! 	    major(tbuf.st_rdev),
+X! #endif /* USE_SVR4_MKDEV_H */
+X! 		 minor(tbuf.st_rdev));
+X  #else
+X  
+X  	/*
+X*** ../ecu-3.23/ecucmd.h	Sun Nov 15 16:37:32 1992
+X--- ecucmd.h	Sun Oct 18 15:09:37 1992
+X***************
+X*** 3,8 ****
+X--- 3,9 ----
+X  	wht@n4hgf.Mt-Park.GA.US
+X  --------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-18-1992-14:26-wht@n4hgf-add conxon */
+X  /*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X  /*:08-30-1992-23:06-wht@n4hgf-add fkmap */
+X  /*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X***************
+X*** 37,42 ****
+X--- 38,44 ----
+X  	CTbreak,
+X  	CTcd,
+X  	CTclrx,
+X+ 	CTconxon,
+X  	CTda,
+X  	CTdcdwatch,
+X  	CTdial,
+X***************
+X*** 123,128 ****
+X--- 125,131 ----
+X  S int pcmd_cls() BODY
+X  S int pcmd_color() BODY
+X  S int pcmd_continue() BODY
+X+ S int pcmd_conxon() BODY
+X  S int pcmd_cursor() BODY
+X  S int pcmd_dcdwatch() BODY
+X  S int pcmd_delline() BODY
+X***************
+X*** 247,252 ****
+X--- 250,256 ----
+X  	{ "cls",	0,0,		"",								pcmd_cls,	0  },
+X  	{ "color",	0,0,		"",								pcmd_color,	0  },
+X  	{ "continue",0,0,		"",								pcmd_continue,0},
+X+ 	{ "conxon",	4,CTconxon,	"console software flow control",pcmd_conxon,  0},
+X  	{ "cursor",	0,0,		"",								pcmd_cursor,0  },
+X  	{ "da",		2,CTda,		"decimal to ascii char",		0,          ccG},
+X  	{ "dcdwatch",3,CTdcdwatch,"control DCD disconnect",		pcmd_dcdwatch,ccC},
+X***************
+X*** 364,370 ****
+X  	{ "whiles",	0,0,		"",								pcmd_whiles,0  },
+X  	{ "xa",		2,CTxa,		"hex to ascii char",			0,         ccG },
+X  	{ "xlog",	2,CTxlog,	"protocol packet logging",		0,         ccT },
+X! 	{ "xon",	2,CTxon,	"xon/xoff flow control",		pcmd_xon,  ccC },
+X  /* these cmds are interecepted by special code in ecucmd.h and appear
+X   * here only so they will be picked up by the help system.
+X   */
+X--- 368,374 ----
+X  	{ "whiles",	0,0,		"",								pcmd_whiles,0  },
+X  	{ "xa",		2,CTxa,		"hex to ascii char",			0,         ccG },
+X  	{ "xlog",	2,CTxlog,	"protocol packet logging",		0,         ccT },
+X! 	{ "xon",	2,CTxon,	"line xon/xoff flow control",	pcmd_xon,  ccC },
+X  /* these cmds are interecepted by special code in ecucmd.h and appear
+X   * here only so they will be picked up by the help system.
+X   */
+X*** ../ecu-3.23/ecuicmd.c	Sun Nov 15 20:39:26 1992
+X--- ecuicmd.c	Fri Oct 30 11:49:05 1992
+X***************
+X*** 9,14 ****
+X--- 9,16 ----
+X  
+X  ------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-18-1992-14:26-wht@n4hgf-add conxon */
+X+ /*:10-08-1992-01:12-wht@n4hgf-no more obsolete Metro Link PTS */
+X  /*:09-17-1992-06:27-wht@n4hgf-add <7-bit kbd> to stat */
+X  /*:09-13-1992-12:52-wht@n4hgf-show tty_is_scoterm during stat */
+X  /*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X***************
+X*** 61,69 ****
+X  extern long tty_escape_timeout;		/* timeout on waiting for char after ESC */
+X  extern int tcap_COLS;
+X  extern int tcap_LINES;
+X- #if defined(METROLINK_X11R4_PTS)
+X- extern int tty_is_pts;
+X- #endif /* METROLINK_X11R4_PTS */
+X  extern int errno;
+X  extern int proc_interrupt;
+X  extern int proctrace;
+X--- 63,68 ----
+X***************
+X*** 143,148 ****
+X--- 142,148 ----
+X  	long atol();
+X  	char *find_procedure();
+X  	char *xon_status();
+X+ 	char *console_xon_status();
+X  #ifdef sun
+X  	int modem_lines;
+X  #endif
+X***************
+X*** 632,638 ****
+X  		ff(se,"Hardware flow control configuration: ");
+X  		display_hw_flow_config();
+X  #else
+X! 		ff(se,"no hardware flow control available\n");
+X  #endif
+X  
+X  		if(!shm->Lconnected)
+X--- 632,638 ----
+X  		ff(se,"Hardware flow control configuration: ");
+X  		display_hw_flow_config();
+X  #else
+X! 		ff(se,"no hardware flow control available\r\n");
+X  #endif
+X  
+X  		if(!shm->Lconnected)
+X***************
+X*** 663,674 ****
+X  			ff(se,"<scoterm> ");
+X  		if(tty_is_pty)
+X  			ff(se,"<pty> ");
+X- #if defined(METROLINK_X11R4_PTS)
+X- 		if(tty_is_pts)
+X- 			ff(se,"<pts> ");
+X- #endif /* METROLINK_X11R4_PTS */
+X  		if(kbd_is_7bit)
+X  			ff(se,"<7-bit kbd> ");
+X  		ff(se,"\r\n");
+X  
+X  #if defined(USE_ECUUNGETTY)
+X--- 663,671 ----
+X  			ff(se,"<scoterm> ");
+X  		if(tty_is_pty)
+X  			ff(se,"<pty> ");
+X  		if(kbd_is_7bit)
+X  			ff(se,"<7-bit kbd> ");
+X+ 		fputs(console_xon_status(),se);
+X  		ff(se,"\r\n");
+X  
+X  #if defined(USE_ECUUNGETTY)
+X***************
+X*** 728,733 ****
+X--- 725,742 ----
+X  			break;
+X  		}
+X  		ff(se,"  xon/xoff flow control: %s\r\n",xon_status());
+X+ 		break;
+X+ 
+X+ 		case CTconxon:
+X+ 		if(narg > 1)
+X+ 		{
+X+ 			if(set_console_xon_xoff_by_arg(arg[1]))
+X+ 				ff(se,"  argument error\r\n");
+X+ 			else
+X+ 				ff(se,"\r\n");
+X+ 			break;
+X+ 		}
+X+ 		ff(se,"\r\nconsole xon/xoff flow control: %s\r\n",console_xon_status());
+X  		break;
+X  
+X  		case CTsgr:
+X*** ../ecu-3.23/ecusighdl.c	Sun Nov 15 20:39:28 1992
+X--- ecusighdl.c	Sun Oct 18 14:11:12 1992
+X***************
+X*** 29,34 ****
+X--- 29,35 ----
+X  
+X  ------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-18-1992-14:11-wht@n4hgf-FAS 2.10 users getting SIGUSR1 on xmtr */
+X  /*:09-16-1992-13:29-wht@n4hgf-add TERMECU_UNRECOVERABLE text */
+X  /*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X  /*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X***************
+X*** 586,596 ****
+X--- 587,601 ----
+X  			case SIGCLD:
+X  				signal(sig,xmtr_SIGCLD_handler);
+X  				break;
+X+ 			case SIGUSR1:
+X+ 				signal(sig,SIG_IGN);
+X+ 				break;
+X  			case SIGUSR2:
+X  				signal(sig,xmtr_SIGUSR2_handler);
+X  				break;
+X  			default:
+X  				signal(sig,xmtr_death_handler);
+X+ 				break;
+X  		}
+X  	}
+X  
+X*** ../ecu-3.23/ecutty.c	Sun Nov 15 20:39:29 1992
+X--- ecutty.c	Sun Oct 18 16:02:05 1992
+X***************
+X*** 83,88 ****
+X--- 83,91 ----
+X  
+X  --------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-18-1992-14:26-wht@n4hgf-add console xon/xoff control */
+X+ /*:10-08-1992-01:12-wht@n4hgf-no more obsolete Metro Link PTS */
+X+ /*:10-08-1992-01:06-wht@n4hgf-SVR4 color work + !use_color normal fix */
+X  /*:09-15-1992-18:52-wht@n4hgf-left some debug code in patch01 dammit */
+X  /*:09-13-1992-12:52-wht@n4hgf-add tty_is_scoterm */
+X  /*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X***************
+X*** 158,170 ****
+X  uint LINESxCOLS;
+X  int current_ttymode = 0;
+X  int ttymode_termecu_on_sigint = 0;
+X- #if defined(METROLINK_X11R4_PTS)
+X- int tty_is_pts;
+X- #endif
+X  int tty_is_pty;
+X  int tty_is_multiscreen;
+X  int tty_is_scoterm;
+X  int tty_not_char_special;
+X  int use_colors = 0;		/* set by ttyinit, but default no */
+X  char *ttype;			/* getenv("TERM") */
+X  
+X--- 161,171 ----
+X  uint LINESxCOLS;
+X  int current_ttymode = 0;
+X  int ttymode_termecu_on_sigint = 0;
+X  int tty_is_pty;
+X  int tty_is_multiscreen;
+X  int tty_is_scoterm;
+X  int tty_not_char_special;
+X+ int tty_use_kbd_sw_flow_control = 1;
+X  int use_colors = 0;		/* set by ttyinit, but default no */
+X  char *ttype;			/* getenv("TERM") */
+X  
+X***************
+X*** 178,186 ****
+X  struct stat dn;
+X  struct stat tty01;
+X  struct stat ttyp0;
+X- #if defined(METROLINK_X11R4_PTS)
+X- struct stat pts000;
+X- #endif /* METROLINK_X11R4_PTS */
+X  struct stat console;
+X  
+X  uchar kbdeof;			/* current input EOF */
+X--- 179,184 ----
+X***************
+X*** 208,242 ****
+X   *
+X   */
+X  #ifdef M_SYSV /* SCO */
+X- ulong colors_current = 0x04070A00L;
+X- ulong colors_normal = 0x04070A00L;	/* default lt_green/black red/white */
+X  ulong colors_initial = 0x04070A00L;	/* default initial colors */
+X  ulong colors_success = 0x07000A00L;	/* lt_green/black red/white */
+X! ulong colors_alert = 0x0E000E00L;	/* yellow */
+X! ulong colors_error = 0x04000400L;	/* red */
+X! ulong colors_notify = 0x08000800L;	/* gray */
+X  #define COLORS_DEFINED
+X  #endif /* M_SYSV */
+X  
+X  #if defined(ISCSVR4)
+X  ulong colors_current = 0x00003740L;
+X! ulong colors_normal = 0x00003740L;	/* */
+X! ulong colors_initial = 0x00003740L;	/* */
+X! ulong colors_success = 0x00003740L;	/* */
+X! ulong colors_alert = 0x00003740L;	/* */
+X! ulong colors_error = 0x00003140L;	/* */
+X! ulong colors_notify = 0x00003340L;	/* */
+X  #define COLORS_DEFINED
+X  #endif /* ISCSVR4 */
+X  
+X  #if defined(ESIXSVR4)
+X  ulong colors_current = 0x00003740L;
+X! ulong colors_normal = 0x00003740L;	/* not correct - THESE NEED FIXING */
+X! ulong colors_initial = 0x00003740L;	/* not correct - THESE NEED FIXING */
+X! ulong colors_success = 0x00003740L;	/* not correct - THESE NEED FIXING */
+X! ulong colors_alert = 0x00003740LL;	/* not correct - THESE NEED FIXING */
+X! ulong colors_error = 0x00003140L;	/* not correct - THESE NEED FIXING */
+X! ulong colors_notify = 0x00003340L;	/* not correct - THESE NEED FIXING */
+X  #define COLORS_DEFINED
+X  
+X  static struct color_remapping {
+X--- 206,240 ----
+X   *
+X   */
+X  #ifdef M_SYSV /* SCO */
+X  ulong colors_initial = 0x04070A00L;	/* default initial colors */
+X+ ulong colors_current = 0x04070A00L; /* colors set during execution */
+X+ ulong colors_normal  = 0x04070A00L;	/* default lt_green/black red/white */
+X  ulong colors_success = 0x07000A00L;	/* lt_green/black red/white */
+X! ulong colors_alert   = 0x0E000E00L;	/* yellow */
+X! ulong colors_error   = 0x04000400L;	/* red */
+X! ulong colors_notify  = 0x08000800L;	/* gray */
+X  #define COLORS_DEFINED
+X  #endif /* M_SYSV */
+X  
+X  #if defined(ISCSVR4)
+X+ ulong colors_initial = 0x00003740L;
+X  ulong colors_current = 0x00003740L;
+X! ulong colors_normal  = 0x00003740L;	/* white */
+X! ulong colors_success = 0x00003240L;	/* green */
+X! ulong colors_alert   = 0x00003340L;	/* yellow */
+X! ulong colors_error   = 0x00003140L;	/* red  */
+X! ulong colors_notify  = 0x00003640L;	/* cyan */
+X  #define COLORS_DEFINED
+X  #endif /* ISCSVR4 */
+X  
+X  #if defined(ESIXSVR4)
+X+ ulong colors_initial = 0x00003740L;
+X  ulong colors_current = 0x00003740L;
+X! ulong colors_normal  = 0x00003740L;	/* ? */
+X! ulong colors_success = 0x00003240L;	/* ? */
+X! ulong colors_alert   = 0x00003340L;	/* ? */
+X! ulong colors_error   = 0x00003140L;	/* ? */
+X! ulong colors_notify  = 0x00003640L;	/* ? */
+X  #define COLORS_DEFINED
+X  
+X  static struct color_remapping {
+X***************
+X*** 287,298 ****
+X  {
+X  	long ms = 300L;
+X  
+X- 	/* make pts sweat, but don't make as many mistakes */
+X- #if defined(METROLINK_X11R4_PTS)
+X- 	if(tty_is_pts)
+X- 		return(ms);
+X- #endif /* METROLINK_X11R4_PTS */
+X- 
+X  	/* make network/xterm/pty sweat, but don't make as many mistakes */
+X  	if(tty_is_pty)
+X  		return(ms);
+X--- 285,290 ----
+X***************
+X*** 437,444 ****
+X  			tcap_stand_out();
+X  		else
+X  		{
+X! 			tcap_underscore_on();
+X! 			tcap_bold_on();
+X  			tcap_stand_end();
+X  		}
+X  		return;
+X--- 429,436 ----
+X  			tcap_stand_out();
+X  		else
+X  		{
+X! 			tcap_underscore_off();
+X! 			tcap_bold_off();
+X  			tcap_stand_end();
+X  		}
+X  		return;
+X***************
+X*** 738,753 ****
+X  		tty_is_pty = 1;
+X  
+X  	/*
+X- 	 * if pts
+X- 	 */
+X- #if defined(METROLINK_X11R4_PTS)
+X- 	memset((char *)&pts000,0xFF,sizeof(struct stat));
+X- 	stat("/dev/pts000",&pts000);
+X- 	if((tty_stat.st_rdev & 0xFF00) == (pts000.st_rdev & 0xFF00))
+X- 		tty_is_pts = 1;
+X- #endif /* METROLINK_X11R4_PTS */
+X- 
+X- 	/*
+X  	 * use color if we are on a display that supports it and we know how :-|
+X  	 */
+X  	use_colors = 0;
+X--- 730,735 ----
+X***************
+X*** 885,891 ****
+X  		/* don't want to honor tty xon/xoff, but pass to other end */
+X  		tty_termio_current.c_iflag &=
+X  			~(INLCR | ICRNL | IGNCR | IUCLC | ISTRIP);
+X! 		tty_termio_current.c_iflag |= IXON | IXOFF;	/* both ends xon/xoff */
+X  
+X  		tty_termio_current.c_oflag |= OPOST;
+X  		tty_termio_current.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONOCR | ONLRET);
+X--- 867,876 ----
+X  		/* don't want to honor tty xon/xoff, but pass to other end */
+X  		tty_termio_current.c_iflag &=
+X  			~(INLCR | ICRNL | IGNCR | IUCLC | ISTRIP);
+X! 		if(tty_use_kbd_sw_flow_control)
+X! 			tty_termio_current.c_iflag |= IXON | IXOFF;
+X! 		else
+X! 			tty_termio_current.c_iflag &= ~(IXON | IXOFF);
+X  
+X  		tty_termio_current.c_oflag |= OPOST;
+X  		tty_termio_current.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONOCR | ONLRET);
+X***************
+X*** 1447,1452 ****
+X--- 1432,1478 ----
+X  	return(ttname);
+X  #endif
+X  }	/* end of get_ttyname */
+X+ 
+X+ /*+-------------------------------------------------------------------------
+X+ 	set_console_xon_xoff_by_arg(arg)
+X+ --------------------------------------------------------------------------*/
+X+ int
+X+ set_console_xon_xoff_by_arg(arg)
+X+ char *arg;
+X+ {
+X+ 	int new_xon_xoff = 0;
+X+ 
+X+ 	if(ulcmpb(arg,"on") < 0)
+X+ 	{
+X+ 		new_xon_xoff = IXON | IXOFF;
+X+ 		tty_use_kbd_sw_flow_control = 1;
+X+ 	}
+X+ 	else if(ulcmpb(arg,"off") < 0)
+X+ 	{
+X+ 		new_xon_xoff = 0;
+X+ 		tty_use_kbd_sw_flow_control = 0;
+X+ 	}
+X+ 	else
+X+ 		return(-1);
+X+ 
+X+ 	tty_termio_current.c_iflag &= ~(IXON|IXOFF);
+X+ 	tty_termio_current.c_iflag |= new_xon_xoff;
+X+ 	ioctl(TTYIN,TCSETA,(char *)&tty_termio_current);
+X+ 	return(0);
+X+ 
+X+ }	/* end of set_console_xon_xoff_by_arg */
+X+ 
+X+ /*+-------------------------------------------------------------------------
+X+ 	console_xon_status()
+X+ --------------------------------------------------------------------------*/
+X+ char *
+X+ console_xon_status()
+X+ {
+X+ 	if(tty_use_kbd_sw_flow_control)
+X+ 		return("HONOR ^S/^Q locally");
+X+ 	else
+X+ 		return("PASS ^S/^Q to remote");
+X+ }	/* end of console_xon_status */
+X  
+X  /* end of ecutty.c */
+X  /* vi: set tabstop=4 shiftwidth=4: */
+X*** ../ecu-3.23/ecuutil.c	Sun Nov 15 16:38:34 1992
+X--- ecuutil.c	Wed Nov 11 14:47:13 1992
+X***************
+X*** 261,266 ****
+X--- 261,270 ----
+X  	}
+X  
+X  	token = parseptr;
+X+ 
+X+ 	/*
+X+ 	 * tokens beginning with apostrophe or quotes kept together
+X+ 	 */
+X  	if(*token == '\'')
+X  	{
+X  		token++;
+X***************
+X*** 278,283 ****
+X--- 282,305 ----
+X  		str_token_static = (char *)0;
+X  		return(token);
+X  	}
+X+ 	else if(*token == '"')
+X+ 	{
+X+ 		token++;
+X+ 		parseptr++;
+X+ 		while(*parseptr)
+X+ 		{
+X+ 			if(*parseptr == '"')
+X+ 			{
+X+ 				str_token_static = parseptr + 1;
+X+ 				*parseptr = 0;
+X+ 				return(token);
+X+ 			}
+X+ 			parseptr++;
+X+ 		}
+X+ 		str_token_static = (char *)0;
+X+ 		return(token);
+X+ 	}
+X+ 
+X  	while(*parseptr)
+X  	{
+X  		if(strchr(termchars,*parseptr))
+X*** ../ecu-3.23/help/ecuhelp.src	Sun Nov 15 20:39:35 1992
+X--- help/ecuhelp.src	Sun Oct 18 16:02:52 1992
+X***************
+X*** 1,5 ****
+X  # ecu help source file
+X! #+:EDITS:*/
+X  #:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X  #:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X  #:04-19-1992-20:41-wht@n4hgf-upgrade kbdtest entry
+X--- 1,6 ----
+X  # ecu help source file
+X! #+:EDITS:
+X! #:10-18-1992-15:16-wht@n4hgf-add conxon
+X  #:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X  #:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA
+X  #:04-19-1992-20:41-wht@n4hgf-upgrade kbdtest entry
+X***************
+X*** 97,102 ****
+X--- 98,114 ----
+X  from the list or saving the list to file ~/.ecu/dir.  This file is
+X  automatically read at ecu startup, providing a convenient list of
+X  directories available for quick selection.
+X+ #--------------------------------------------------------------------
+X+ %conxon
+X+ Usage: conxon [<arg>]
+X+ where <arg> is on    honor ^S/^Q local flow control (DEFAULT)
+X+                off   pass ^S/^Q to remote
+X+ 
+X+ This command enables or disables console xon/xoff flow control.
+X+ If the argument is omitted, the current flow control state is
+X+ displayed.  If on, typing ^S/^Q stops or restarts the local
+X+ console driver output.  If off, ^S and ^Q are passed to the
+X+ remote (for EMACS, of course -- who else?).
+X  #--------------------------------------------------------------------
+X  %dcdwatch
+X  Usage: dcdwatch [<dcdwatch-param>]
+X*** ../ecu-3.23/models/if_test.ep	Sun Nov 15 16:43:28 1992
+X--- models/if_test.ep	Sat Nov 14 23:02:36 1992
+X***************
+X*** 31,34 ****
+X  	else ifle 5
+X  		echo 'bad news 5'
+X  	else
+X! 		echo 'compound if works'
+X--- 31,56 ----
+X  	else ifle 5
+X  		echo 'bad news 5'
+X  	else
+X! 		echo 'compound if 1 works'
+X! 
+X! 	$s0 = '123'
+X! 	ifi %len($s0) == 0
+X! 		echo 'bad news 20'
+X! 	else
+X! 	{
+X! 		ifs $s0 == '123'
+X! 			echo 'compound if 2 works'
+X! 		else ifs $s0 == 'def'
+X! 			echo 'bad news 21'
+X! 		else
+X! 			echo 'bad news 22'
+X! 	}
+X! 
+X! 	$s0 = '123'
+X! 	ifs $s0 == 'def'
+X! 		echo 'bad news 31'
+X! 	else ifs $s0 == '123'
+X! 		echo 'compound if 3 works'
+X! 	else
+X! 		echo 'bad news 32'
+X! 
+X*** ../ecu-3.23/pcmdif.c	Sun Nov 15 16:40:10 1992
+X--- pcmdif.c	Sat Nov 14 23:15:53 1992
+X***************
+X*** 28,33 ****
+X--- 28,34 ----
+X  
+X  --------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:11-14-1992-22:37-wht@n4hgf-multiple else loses track of truth */
+X  /*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X  /*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X  /*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X***************
+X*** 253,258 ****
+X--- 254,261 ----
+X  
+X  	if(!(tesd1 = esdalloc(256)) || !(tesd2 = esdalloc(256)))
+X  	{
+X+ 		if(tesd1)
+X+ 			esdfree(tesd1);
+X  		erc = eNoMemory;
+X  		goto RETURN;
+X  	}	
+X***************
+X*** 345,351 ****
+X  		}
+X  	}
+X  
+X! 	truth_already[if_level] = truth;
+X  
+X  /* if end of command, execute frame else conditionally execute rest of esd */
+X  	s80[0] = 0;
+X--- 348,354 ----
+X  		}
+X  	}
+X  
+X! 	truth_already[if_level] |= truth;
+X  
+X  /* if end of command, execute frame else conditionally execute rest of esd */
+X  	s80[0] = 0;
+X***************
+X*** 383,395 ****
+X  	}
+X  
+X  /* we have an "else" condition */
+X- 	truth = !truth;
+X  	pcb->current = pcb->current->next;
+X  
+X  	trace_proc_cmd(pcb);
+X  
+X  	if(end_of_cmd(else_line))
+X  		erc = execute_frame(truth);
+X  	else
+X  	{
+X  		save_index = else_line->old_index = else_line->index;
+X--- 386,400 ----
+X  	}
+X  
+X  /* we have an "else" condition */
+X  	pcb->current = pcb->current->next;
+X  
+X  	trace_proc_cmd(pcb);
+X  
+X  	if(end_of_cmd(else_line))
+X+ 	{
+X+ 		truth = !truth_already[if_level];
+X  		erc = execute_frame(truth);
+X+ 	}
+X  	else
+X  	{
+X  		save_index = else_line->old_index = else_line->index;
+X***************
+X*** 465,470 ****
+X--- 470,476 ----
+X  		else if(!strncmp(s80,"while",5))
+X  		{
+X  			pputs("'while' command not allowed as 'else' conditional\n");
+X+ 			pputs("put the statement inside braces\n");
+X  			return(eFATAL_ALREADY);
+X  		}
+X  		else
+X*** ../ecu-3.23/pcmdtty.c	Sun Nov 15 16:40:14 1992
+X--- pcmdtty.c	Sun Oct 18 14:32:21 1992
+X***************
+X*** 21,26 ****
+X--- 21,27 ----
+X  
+X  --------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-18-1992-14:26-wht@n4hgf-add conxon */
+X  /*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X  /*:08-30-1992-23:15-wht@n4hgf-add fkmap */
+X  /*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X***************
+X*** 424,429 ****
+X--- 425,460 ----
+X  	tcap_delete_lines(1);
+X  	return(0);
+X  }	/* end of pcmd_delline */
+X+ 
+X+ /*+-------------------------------------------------------------------------
+X+ 	pcmd_conxon(param)
+X+ --------------------------------------------------------------------------*/
+X+ int
+X+ pcmd_conxon(param)
+X+ ESD *param;
+X+ {
+X+ 	int erc;
+X+ 	char new_xonxoff[8];
+X+ 	char *conxon_status();
+X+ 
+X+ 	if(shm->Liofd < 0)
+X+ 		return(eNoLineAttached);
+X+ 
+X+ 	if(erc = get_alpha_zstr(param,new_xonxoff,sizeof(new_xonxoff)))
+X+ 		return(erc);
+X+ 
+X+ 	if(set_console_xon_xoff_by_arg(new_xonxoff))
+X+ 		return(eBadParameter);
+X+ 
+X+ 	if(proctrace)
+X+ 	{
+X+ 		pprintf("console xon/xoff flow control set to %s\n",
+X+ 			console_xon_status());
+X+ 	}
+X+ 
+X+ 	return(erc);
+X+ 
+X+ }	/* end of pcmd_conxon */
+X  
+X  /* vi: set tabstop=4 shiftwidth=4: */
+X  /* end of pcmdtty.c */
+X*** ../ecu-3.23/pcmdxfer.c	Sun Nov 15 16:40:16 1992
+X--- pcmdxfer.c	Wed Oct 21 19:19:49 1992
+X***************
+X*** 20,25 ****
+X--- 20,26 ----
+X  
+X  --------------------------------------------------------------------------*/
+X  /*+:EDITS:*/
+X+ /*:10-21-1992-19:15-wht@n4hgf-proc file xfer didnt learn about eculibdir */
+X  /*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X  /*:09-05-1992-15:35-wht@n4hgf-add -r to sz */
+X  /*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X***************
+X*** 247,253 ****
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"ecusz -X -. %d ",shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  
+X  #if defined(WHT)	/* for testing */
+X--- 248,254 ----
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"%s/ecusz -X -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  
+X  #if defined(WHT)	/* for testing */
+X***************
+X*** 320,326 ****
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"ecusz -Y -. %d -k ",shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  	if(strchr(switches,'a'))
+X  		strcat(cmdesd->pb,"-a ");
+X--- 321,327 ----
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"%s/ecusz -Y -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  	if(strchr(switches,'a'))
+X  		strcat(cmdesd->pb,"-a ");
+X***************
+X*** 397,403 ****
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"ecusz -Z -. %d -y ",shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  
+X  	if(strchr(switches,'N'))		/* force "no curses" */
+X--- 398,404 ----
+X  	/*
+X  	 * build command at beginning of 'cmdesd' ESD
+X  	 */
+X! 	sprintf(cmdesd->pb,"%s/ecusz -Z -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdesd->pb,bottom_label);
+X  
+X  	if(strchr(switches,'N'))		/* force "no curses" */
+X***************
+X*** 631,637 ****
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"ecurz -X -. %d -c ",shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  	if(!strchr(switches,'b'))
+X  		strcat(cmdstr,"-b ");
+X--- 632,638 ----
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"%s/ecurz -X -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  	if(!strchr(switches,'b'))
+X  		strcat(cmdstr,"-b ");
+X***************
+X*** 677,683 ****
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"ecurz -Y -. %d -y ",shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  	file_xfer_start();
+X  	if(exec_cmd(cmdstr))
+X--- 678,684 ----
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"%s/ecurz -Y -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  	file_xfer_start();
+X  	if(exec_cmd(cmdstr))
+X***************
+X*** 712,718 ****
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"ecurz -Z -. %d ",shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  
+X  	if(strchr(switches,'N'))		/* force "no curses" */
+X--- 713,719 ----
+X  	/*
+X  	 * build command in 'cmdstr' string
+X  	 */
+X! 	sprintf(cmdstr,"%s/ecurz -Z -. %d ",eculibdir,shm->Liofd);
+X  	strcat(cmdstr,bottom_label);
+X  
+X  	if(strchr(switches,'N'))		/* force "no curses" */
+X*** ../ecu-3.23/sea/ecusea.c	Sun Nov 15 16:41:17 1992
+X--- sea/ecusea.c	Sun Oct  4 21:59:05 1992
+X***************
+X*** 81,87 ****
+X  #include <signal.h>
+X  #include <setjmp.h>
+X  #include <fcntl.h>
+X- #include <fcntl.h>
+X  #include <errno.h>
+X  #if defined(sun)
+X  #include <termios.h>
+X--- 81,86 ----
+SHAR_EOF
+chmod 0644 PATCH04 ||
+echo 'restore of PATCH04 failed'
+Wc_c="`wc -c < 'PATCH04'`"
+test 32607 -eq "$Wc_c" ||
+	echo 'PATCH04: original size 32607, current size' "$Wc_c"
+exit 0
+
+--------------------------------------------------------------------
+Warren Tucker, TuckerWare       n4hgf!wht or wht@n4hgf.Mt-Park.GA.US
+Hacker Extraordinaire  d' async PADs,  pods,  proteins and protocols
+
+exit 0 # Just in case...

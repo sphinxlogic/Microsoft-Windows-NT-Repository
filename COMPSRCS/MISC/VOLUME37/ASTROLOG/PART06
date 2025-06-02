@@ -1,0 +1,1531 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i075:  astrolog - Generation of astrology charts v3.05, Part06/12
+Message-ID: <1993May19.061845.12083@sparky.imd.sterling.com>
+X-Md4-Signature: 35ae020f82fd2cd902b829e41b0ead63
+Date: Wed, 19 May 1993 06:18:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 75
+Archive-name: astrolog/part06
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 12)."
+# Contents:  xcharts.c
+# Wrapped by pul@hardy on Sun May 16 22:23:17 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xcharts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xcharts.c'\"
+else
+echo shar: Extracting \"'xcharts.c'\" \(52928 characters\)
+sed "s/^X//" >'xcharts.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: xcharts.c
+X** Initially programmed 10/23-29/1991
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef GRAPH
+X
+X/* Are particular coordinates on the chart? */
+X#define ISLEGAL(X, Y) \
+X  ((X) >= 0 && (X) < chartx && (Y) >= 0 && (Y) < chartx)
+X
+X/* draw a rectangle with thin sides. */
+X#define DrawEdge(X1, Y1, X2, Y2, O) \
+X  DrawBox(X1, Y1, X2, Y2, 1, 1, O)
+X
+X/* draw a border around the whole window. */
+X#define DrawBoxAll(XSIZ, YSIZ, O) \
+X  DrawBox(0, 0, chartx-1, charty-1, XSIZ, YSIZ, O)
+X
+Xreal symbol[TOTAL+1];
+Xcirclestruct PTR circ = NULL;
+X
+X
+X/*
+X*******************************************************************************
+X** Main subprograms
+X*******************************************************************************
+X*/
+X
+X/* Return whether the specified object should be displayed in the current  */
+X/* graphics chart type. For example, don't include the Moon in the solar   */
+X/* system charts, don't include house cusps in astro-graph, and so on.     */
+X
+Xint Proper(i)
+Xint i;
+X{
+X  int j;
+X
+X  if (modex == 'l')                            /* astro-graph charts */
+X    j = (i <= THINGS || i > C_HI);
+X  else if (modex == 'z' || modex == 'g')       /* horizon or zenith charts */
+X    j = (i < THINGS || i > C_HI);
+X  else if (modex == 's')                       /* solar system charts */
+X    j = (i != 2 && (i < THINGS || i > C_HI));
+X  else
+X    j = TRUE;
+X  return j && !ignore[i];                      /* check restriction status */
+X}
+X
+X
+X/* Adjust an array of zodiac positions so that no two positions are within   */
+X/* a certain orb of each other. This is used by the wheel drawing chart      */
+X/* routines in order to make sure that we don't draw any planet glyphs on    */
+X/* top of each other. We'll later draw the glyphs at the adjusted positions. */
+X
+Xvoid FillSymbolRing(symbol)
+Xreal *symbol;
+X{
+X  int i, j, k = 1, l, k1, k2;
+X  real orb = DEFORB*256.0/(real)charty*(real)SCALE, temp;
+X
+X  /* Keep adjusting as long as we can still make changes, or until we do 'n' */
+X  /* rounds. (With many objects, there just may not be enough room for all.) */
+X
+X  for (l = 0; k && l < divisions*4; l++) {
+X    k = 0;
+X    for (i = 1; i <= total; i++) if (Proper(i)) {
+X
+X      /* For each object, determine who is closest on either side. */
+X
+X      k1 = 1000; k2 = -1000;
+X      for (j = 1; j <= total; j++)
+X        if (Proper(j) && i != j) {
+X          temp = symbol[j]-symbol[i];
+X          if (dabs(temp) > 180.0)
+X            temp -= DEGREES*Sgn(temp);
+X          if (temp<k1 && temp>=0.0)
+X            k1 = temp;
+X          else if (temp>k2 && temp<=0.0)
+X            k2 = temp;
+X        }
+X
+X      /* If an object's too close on one side, then we move to the other. */
+X
+X      if (k2>-orb && k1>orb) {
+X        k = 1; symbol[i] = Mod(symbol[i]+orb*0.51+k2*0.49);
+X      } else if (k1<orb && k2<-orb) {
+X        k = 1; symbol[i] = Mod(symbol[i]-orb*0.51+k1*0.49);
+X
+X      /* If we are bracketed by close objects on both sides, then let's move */
+X      /* to the midpoint, so we are as far away as possible from either one. */
+X
+X      } else if (k2>-orb && k1<orb) {
+X        k = 1; symbol[i] = Mod(symbol[i]+(k1+k2)*0.5);
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Set up arrays with the sine and cosine values of each degree. This is   */
+X/* used by the wheel chart routines which draw lots of circles. Memory is  */
+X/* allocated for this array if not already done. The allocation and        */
+X/* initialization is only done once, the first time the routine is called. */
+X
+Xvoid InitCircle()
+X{
+X  int i;
+X
+X  if (circ != NULL)
+X    return;
+X  Allocate(circ, sizeof(circlestruct), circlestruct PTR);
+X  if (circ == NULL
+X#ifndef NOPC
+X    /* For PC's the array better not cross a segment boundary. */
+X    || HIWORD(LOWORD(circ) + sizeof(circlestruct)) > 0
+X#endif
+X    ) {
+X    fprintf(stderr, "%s: Out of memory for sine table.\n", appname);
+X    Terminate(1);
+X  }
+X  for (i = 0; i < 360; i++) {
+X    circ->x[i] = COSD((real) i);
+X    circ->y[i] = SIND((real) i);
+X  }
+X  circ->x[360] = circ->x[0]; circ->y[360] = circ->y[0];
+X}
+X
+X
+X/* Get a coordinate based on chart radius, a fraction, and (co)sin value. */
+X#define POINT(U, R, S) ((int) ((R)*(real)(U)*(S)+0.5))
+X
+X/* Determine (co)sin factor based on zodiac angle and chart orientation. */
+X#define PX(A) COSD(180.0-(A)+Asc)
+X#define PY(A) SIND(180.0-(A)+Asc)
+X
+X/* Draw a wheel chart, in which the 12 signs and houses are delineated, and  */
+X/* the planets are inserted in their proper places. This is the default      */
+X/* graphics chart to generate, as is done when the -v or -w (or no) switches */
+X/* are included with -X. Draw the aspects in the middle of chart, too.       */
+X
+Xvoid XChartWheel()
+X{
+X  int cx = chartx / 2, cy = charty / 2, unitx, unity, i, j, count = 0;
+X  real Asc, orb = DEFORB*256.0/(real)charty*(real)SCALE, temp;
+X
+X  DrawBoxAll(1, 1, hilite);
+X  unitx = cx; unity = cy;
+X  Asc = xeast ? planet[abs(xeast)]+90*(xeast < 0) : house[1];
+X  InitCircle();
+X
+X  /* Draw Ascendant/Descendant and Midheaven/Nadir lines across whole chart. */
+X
+X  DrawLine(cx+POINT(unitx, 0.99, PX(house[1])),
+X           cy+POINT(unity, 0.99, PY(house[1])),
+X           cx+POINT(unitx, 0.99, PX(house[7])),
+X           cy+POINT(unity, 0.99, PY(house[7])), hilite, !xcolor);
+X  DrawLine(cx+POINT(unitx, 0.99, PX(house[10])),
+X           cy+POINT(unity, 0.99, PY(house[10])),
+X           cx+POINT(unitx, 0.99, PX(house[4])),
+X           cy+POINT(unity, 0.99, PY(house[4])), hilite, !xcolor);
+X
+X  /* Draw small five or one degree increments around the zodiac sign ring. */
+X
+X  for (i = 0; i < 360; i += 5-xcolor*4) {
+X    temp = (real) i;
+X    DrawLine(cx+POINT(unitx, 0.80, PX(temp)), cy+POINT(unity, 0.80, PY(temp)),
+X      cx+POINT(unitx, 0.75, PX(temp)), cy+POINT(unity, 0.75, PY(temp)),
+X      i%5 ? gray : on, 0);
+X  }
+X
+X  /* Draw circles for the zodiac sign and house rings. */
+X
+X  for (i = 0; i < 360; i++) {
+X    DrawLine(cx+POINT(unitx, 0.95, circ->x[i]),
+X      cy+POINT(unity, 0.95, circ->y[i]), cx+POINT(unitx, 0.95, circ->x[i+1]),
+X      cy+POINT(unity, 0.95, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.80, circ->x[i]),
+X      cy+POINT(unity, 0.80, circ->y[i]), cx+POINT(unitx, 0.80, circ->x[i+1]),
+X      cy+POINT(unity, 0.80, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.75, circ->x[i]),
+X      cy+POINT(unity, 0.75, circ->y[i]), cx+POINT(unitx, 0.75, circ->x[i+1]),
+X      cy+POINT(unity, 0.75, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.65, circ->x[i]),
+X      cy+POINT(unity, 0.65, circ->y[i]), cx+POINT(unitx, 0.65, circ->x[i+1]),
+X      cy+POINT(unity, 0.65, circ->y[i+1]), on, 0);
+X  }
+X
+X  /* Draw the glyphs for the signs and houses themselves. */
+X
+X  for (i = 1; i <= SIGNS; i++) {
+X    temp = (real) (i-1)*30.0;
+X    DrawLine(cx+POINT(unitx, 0.95, PX(temp)),       /* Draw lines separating */
+X      cy+POINT(unity, 0.95, PY(temp)),              /* each sign and house   */
+X      cx+POINT(unitx, 0.80, PX(temp)),              /* from each other.      */
+X      cy+POINT(unity, 0.80, PY(temp)), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.75, PX(house[i])),
+X      cy+POINT(unity, 0.75, PY(house[i])),
+X      cx+POINT(unitx, 0.65, PX(house[i])),
+X      cy+POINT(unity, 0.65, PY(house[i])), on, 0);
+X    if (xcolor && i%3 != 1)                                    /* Lines from */
+X      DrawLine(cx, cy, cx+POINT(unitx, 0.65, PX(house[i])),    /* each house */
+X        cy+POINT(unity, 0.65, PY(house[i])), gray, 1);         /* to center. */
+X    temp += 15.0;
+X    DrawTurtle(signdraw[i], cx+POINT(unitx, 0.875, PX(temp)),
+X      cy+POINT(unity, 0.875, PY(temp)), elemcolor[(i-1)%4]);
+X    temp = Midpoint(house[i], house[Mod12(i+1)]);
+X    DrawTurtle(housedraw[i], cx+POINT(unitx, 0.70, PX(temp)),
+X      cy+POINT(unity, 0.70, PY(temp)), elemcolor[(i-1)%4]);
+X  }
+X  for (i = 1; i <= total; i++) {   /* Figure out where to put planet glyphs. */
+X    symbol[i] = planet[i];
+X  }
+X  FillSymbolRing(symbol);
+X
+X  /* For each planet, draw a small dot indicating where it is, and then */
+X  /* a line from that point to the planet's glyph.                      */
+X
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    temp = symbol[i];
+X    DrawLine(cx+POINT(unitx, 0.52, PX(planet[i])),
+X      cy+POINT(unity, 0.52, PY(planet[i])),
+X      cx+POINT(unitx, 0.56, PX(temp)),
+X      cy+POINT(unity, 0.56, PY(temp)),
+X      ret[i] < 0.0 ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X    DrawObject(i, cx+POINT(unitx, 0.60, PX(temp)),
+X      cy+POINT(unity, 0.60, PY(temp)));
+X    DrawPoint(cx+POINT(unitx, 0.50, PX(planet[i])),
+X      cy+POINT(unity, 0.50, PY(planet[i])), objectcolor[i]);
+X  }
+X  if (bonus)    /* Don't draw aspects in bonus mode. */
+X    return;
+X
+X  /* Draw lines connecting planets which have aspects between them. */
+X
+X  CreateGrid(FALSE);
+X  for (j = total; j >= 2; j--)
+X    for (i = j-1; i >= 1; i--)
+X      if (grid->n[i][j] && Proper(i) && Proper(j))
+X        DrawLine(cx+POINT(unitx, 0.48, PX(planet[i])),
+X          cy+POINT(unity, 0.48, PY(planet[i])),
+X          cx+POINT(unitx, 0.48, PX(planet[j])),
+X          cy+POINT(unity, 0.48, PY(planet[j])),
+X          aspectcolor[grid->n[i][j]], abs(grid->v[i][j]/60/2));
+X}
+X
+X
+X/* Draw another wheel chart; however, this time we have two rings of planets */
+X/* because we are doing a relationship chart between two sets of data. This  */
+X/* chart is obtained when the -r0 is combined with the -X switch.            */
+X
+Xvoid XChartWheelRelation()
+X{
+X  int cx = chartx / 2, cy = charty / 2, unitx, unity, i, j;
+X  real Asc, temp;
+X
+X  DrawBoxAll(1, 1, hilite);
+X  unitx = cx; unity = cy;
+X  Asc = xeast ? planet1[abs(xeast)]+90*(xeast < 0) : house1[1];
+X  InitCircle();
+X
+X  /* Draw the horizon and meridian lines across whole chart, and draw the */
+X  /* zodiac and house rings, exactly like before. We are drawing only the */
+X  /* houses of one of the two charts in the relationship, however.        */
+X
+X  DrawLine(cx+POINT(unitx, 0.99, PX(house1[1])),
+X           cy+POINT(unity, 0.99, PY(house1[1])),
+X           cx+POINT(unitx, 0.99, PX(house1[7])),
+X           cy+POINT(unity, 0.99, PY(house1[7])), hilite, !xcolor);
+X  DrawLine(cx+POINT(unitx, 0.99, PX(house1[10])),
+X           cy+POINT(unity, 0.99, PY(house1[10])),
+X           cx+POINT(unitx, 0.99, PX(house1[4])),
+X           cy+POINT(unity, 0.99, PY(house1[4])), hilite, !xcolor);
+X  for (i = 0; i < 360; i += 5-xcolor*4) {
+X    temp = (real) i;
+X    DrawLine(cx+POINT(unitx, 0.82, PX(temp)), cy+POINT(unity, 0.82, PY(temp)),
+X      cx+POINT(unitx, 0.78, PX(temp)), cy+POINT(unity, 0.78, PY(temp)),
+X      i%5 ? gray : on, 0);
+X  }
+X  for (i = 0; i < 360; i++) {
+X    DrawLine(cx+POINT(unitx, 0.95, circ->x[i]),
+X      cy+POINT(unity, 0.95, circ->y[i]), cx+POINT(unitx, 0.95, circ->x[i+1]),
+X      cy+POINT(unity, 0.95, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.82, circ->x[i]),
+X      cy+POINT(unity, 0.82, circ->y[i]), cx+POINT(unitx, 0.82, circ->x[i+1]),
+X      cy+POINT(unity, 0.82, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.78, circ->x[i]),
+X      cy+POINT(unity, 0.78, circ->y[i]), cx+POINT(unitx, 0.78, circ->x[i+1]),
+X      cy+POINT(unity, 0.78, circ->y[i+1]), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.70, circ->x[i]),
+X      cy+POINT(unity, 0.70, circ->y[i]), cx+POINT(unitx, 0.70, circ->x[i+1]),
+X      cy+POINT(unity, 0.70, circ->y[i+1]), on, 0);
+X  }
+X  for (i = 1; i <= SIGNS; i++) {
+X    temp = (real) (i-1)*30.0;
+X    DrawLine(cx+POINT(unitx, 0.95, PX(temp)),
+X      cy+POINT(unity, 0.95, PY(temp)),
+X      cx+POINT(unitx, 0.82, PX(temp)),
+X      cy+POINT(unity, 0.82, PY(temp)), on, 0);
+X    DrawLine(cx+POINT(unitx, 0.78, PX(house1[i])),
+X      cy+POINT(unity, 0.78, PY(house1[i])),
+X      cx+POINT(unitx, 0.70, PX(house1[i])),
+X      cy+POINT(unity, 0.70, PY(house1[i])), on, 0);
+X    if (xcolor && i%3 != 1)
+X      DrawLine(cx, cy, cx+POINT(unitx, 0.70, PX(house1[i])),
+X        cy+POINT(unity, 0.70, PY(house1[i])), gray, 1);
+X    temp += 15.0;
+X    DrawTurtle(signdraw[i], cx+POINT(unitx, 0.885, PX(temp)),
+X      cy+POINT(unity, 0.885, PY(temp)), elemcolor[(i-1)%4]);
+X    temp = Midpoint(house1[i], house1[Mod12(i+1)]);
+X    DrawTurtle(housedraw[i], cx+POINT(unitx, 0.74, PX(temp)),
+X      cy+POINT(unity, 0.74, PY(temp)), elemcolor[(i-1)%4]);
+X  }
+X
+X  /* Draw the outer ring of planets (based on the planets in the chart     */
+X  /* which the houses do not reflect - the houses belong to the inner ring */
+X  /* below). Draw each glyph, a line from it to its actual position point  */
+X  /* in the outer ring, and then draw another line from this point to a    */
+X  /* another dot at the same position in the inner ring as well.           */
+X
+X  for (i = 1; i <= total; i++) {
+X    symbol[i] = planet2[i];
+X  }
+X  FillSymbolRing(symbol);
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    temp = symbol[i];
+X    DrawLine(cx+POINT(unitx, 0.58, PX(planet2[i])),
+X      cy+POINT(unity, 0.58, PY(planet2[i])),
+X      cx+POINT(unitx, 0.61, PX(temp)),
+X      cy+POINT(unity, 0.61, PY(temp)),
+X      ret2[i] < 0.0 ? gray : on, (ret2[i] < 0.0 ? 1 : 0) - xcolor);
+X    DrawObject(i, cx+POINT(unitx, 0.65, PX(temp)),
+X      cy+POINT(unity, 0.65, PY(temp)));
+X    DrawPoint(cx+POINT(unitx, 0.56, PX(planet2[i])),
+X      cy+POINT(unity, 0.56, PY(planet2[i])), objectcolor[i]);
+X    DrawPoint(cx+POINT(unitx, 0.43, PX(planet2[i])),
+X      cy+POINT(unity, 0.43, PY(planet2[i])), objectcolor[i]);
+X    DrawLine(cx+POINT(unitx, 0.45, PX(planet2[i])),
+X      cy+POINT(unity, 0.45, PY(planet2[i])),
+X      cx+POINT(unitx, 0.54, PX(planet2[i])),
+X      cy+POINT(unity, 0.54, PY(planet2[i])),
+X      ret2[i] < 0.0 ? gray : on, 2-xcolor);
+X  }
+X
+X  /* Now draw the inner ring of planets. If it weren't for the outer ring,  */
+X  /* this would be just like the standard non-relationship wheel chart with */
+X  /* only one set of planets. Again, draw glyph, and a line to true point.  */
+X
+X  for (i = 1; i <= total; i++) {
+X    symbol[i] = planet1[i];
+X  }
+X  FillSymbolRing(symbol);
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    temp = symbol[i];
+X    DrawLine(cx+POINT(unitx, 0.45, PX(planet1[i])),
+X      cy+POINT(unity, 0.45, PY(planet1[i])),
+X      cx+POINT(unitx, 0.48, PX(temp)),
+X      cy+POINT(unity, 0.48, PY(temp)),
+X      ret1[i] < 0.0 ? gray : on, (ret1[i] < 0.0 ? 1 : 0) - xcolor);
+X    DrawObject(i, cx+POINT(unitx, 0.52, PX(temp)),
+X      cy+POINT(unity, 0.52, PY(temp)));
+X    DrawPoint(cx+POINT(unitx, 0.43, PX(planet1[i])),
+X      cy+POINT(unity, 0.43, PY(planet1[i])), objectcolor[i]);
+X  }
+X  if (bonus)    /* Don't draw aspects in bonus mode. */
+X    return;
+X
+X  /* Draw lines connecting planets between the two charts that have aspects. */
+X
+X  CreateGridRelation(FALSE);
+X  for (j = total; j >= 1; j--)
+X    for (i = total; i >= 1; i--)
+X      if (grid->n[i][j] && Proper(i) && Proper(j))
+X        DrawLine(cx+POINT(unitx, 0.41, PX(planet1[j])),
+X          cy+POINT(unity, 0.41, PY(planet1[j])),
+X          cx+POINT(unitx, 0.41, PX(planet2[i])),
+X          cy+POINT(unity, 0.41, PY(planet2[i])),
+X          aspectcolor[grid->n[i][j]], abs(grid->v[i][j]/60/2));
+X}
+X
+X
+X/* Given longitude and latitude values on a globe, return the window        */
+X/* coordinates corresponding to them. In other words, project the globe     */
+X/* onto the view plane, and return where our coordinates got projected to,  */
+X/* as well as whether our location is hidden on the back side of the globe. */
+X
+Xint GlobeCalc(x1, y1, u, v, cx, cy, rx, ry, deg)
+Xreal x1, y1;
+Xint *u, *v, cx, cy, rx, ry, deg;
+X{
+X  real j;
+X
+X  /* Compute coordinates for a general globe invoked with -XG switch. */
+X
+X  if (modex == 'g') {
+X    x1 = Mod(x1+(real)deg);    /* Shift by current globe rotation value. */
+X    if (tilt != 0.0) {
+X      x1 = DTOR(x1); y1 = DTOR(90.0-y1);         /* Do another coordinate  */
+X      CoorXform(&x1, &y1, tilt / DEGTORAD);      /* shift if the globe's   */
+X      x1 = Mod(RTOD(x1)); y1 = 90.0-RTOD(y1);    /* equator is tilted any. */
+X    }
+X    *v = cy + (int) ((real)(ry+1)*-COSD(y1));
+X    *u = cx + (int) ((real)(rx+1)*-COSD(x1)*SIND(y1));
+X    return x1 > 180.0;
+X  }
+X
+X  /* Compute coordinates for a polar globe invoked with -XP switch. */
+X
+X  j = bonus ? 90.0+x1+deg : 270.0-x1-deg;
+X  *v = cy + (int) (SIND(y1)*(real)(ry+1)*SIND(j));
+X  *u = cx + (int) (SIND(y1)*(real)(rx+1)*COSD(j));
+X  return bonus ? y1 < 90.0 : y1 > 90.0;
+X}
+X
+X
+X/* Draw a globe in the window, based on the specified rotational and tilt  */
+X/* values. In addition, we may draw in each planet at its zenith position. */
+X
+Xvoid DrawGlobe(deg)
+Xint deg;
+X{
+X  char *nam, *loc, *lin, d;
+X  int X[TOTAL+1], Y[TOTAL+1], M[TOTAL+1], N[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, rx, ry, lon, lat, unit = 12*SCALE,
+X    x, y, m, n, u, v, i, J, k, l;
+X  real planet1[TOTAL+1], planet2[TOTAL+1], x1, y1, j;
+X  color c;
+X
+X  rx = cx-1; ry = cy-1;
+X
+X  /* Loop through each coastline string, drawing visible parts on the globe. */
+X
+X  while (ReadWorldData(&nam, &loc, &lin)) {
+X    i = nam[0]-'0';
+X    c = (modex == 'g' && bonus) ? gray : (i ? rainbowcolor[i] : maincolor[6]);
+X
+X    /* Get starting longitude and latitude of current coastline piece. */
+X
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    x = 180-lon;
+X    y = 90-lat;
+X    GlobeCalc((real) x, (real) y, &m, &n, cx, cy, rx, ry, deg);
+X
+X    /* Go down the coastline piece, drawing each visible segment on globe. */
+X
+X    for (i = 0; d = lin[i]; i++) {
+X      if (d == 'L' || d == 'H' || d == 'G')
+X        x--;
+X      else if (d == 'R' || d == 'E' || d == 'F')
+X        x++;
+X      if (d == 'U' || d == 'H' || d == 'E')
+X        y--;
+X      else if (d == 'D' || d == 'G' || d == 'F')
+X        y++;
+X      if (x > 359)
+X        x = 0;
+X      else if (x < 0)
+X        x = 359;
+X      if (!GlobeCalc((real) x, (real) y, &u, &v, cx, cy, rx, ry, deg))
+X        DrawLine(m, n, u, v, c, 0);
+X      m = u; n = v;
+X    }
+X  }
+X
+X  /* Finally, draw the circular outline of the globe itself. */
+X
+X  m = cx+rx+1; n = cy;
+X  for (i = 0; i <= 360; i++) {
+X    u = cx+(rx+1)*COSD((real)i); v = cy+(ry+1)*SIND((real)i);
+X    u = MIN(u, cx+rx); v = MIN(v, cy+ry);
+X    DrawLine(m, n, u, v, on, 0); m = u; n = v;
+X  }
+X
+X  /* Now, only if we are in bonus chart mode, draw each planet at its */
+X  /* zenith location on the globe, assuming that location is visible. */
+X
+X  if (modex != 'g' || !bonus)
+X    return;
+X  j = Lon;
+X  if (j < 0.0)
+X    j += DEGREES;
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);    /* Calculate zenith long. & lat. */
+X  }
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    x1 = planet1[18]-planet1[i];
+X    if (x1 < 0.0)
+X      x1 += 2.0*PI;
+X    if (x1 > PI)
+X      x1 -= 2.0*PI;
+X    x1 = Mod(180.0-j-RTOD(x1));
+X    y1 = 90.0-RTOD(planet2[i]);
+X    X[i] = GlobeCalc(x1, y1, &u, &v, cx, cy, rx, ry, deg) ? -1000 : u;
+X    Y[i] = v; M[i] = X[i]; N[i] = Y[i]+unit/2;
+X  }
+X
+X  /* Now that we have the coordinates of each object, figure out where to    */
+X  /* draw the glyphs. Again, we try not to draw glyphs on top of each other. */
+X
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    k = l = chartx+charty;
+X
+X    /* For each planet, we draw the glyph either right over or right under */
+X    /* the actual zenith location point. So, find out the closest distance */
+X    /* of any other planet assuming we place ours at both possibilities.   */
+X
+X    for (J = 1; J < i; J++) if (Proper(J)) {
+X      k = MIN(k, abs(M[i]-M[J])+abs(N[i]-N[J]));
+X      l = MIN(l, abs(M[i]-M[J])+abs(N[i]-unit-N[J]));
+X    }
+X
+X    /* Normally, we put the glyph right below the actual point. If however   */
+X    /* another planet is close enough to have their glyphs overlap, and the  */
+X    /* above location is better of, then we'll draw the glyph above instead. */
+X
+X    if (k < unit || l < unit)
+X      if (k < l)
+X        N[i] -= unit;
+X  }
+X  for (i = total; i >= 1; i--) if (X[i] >= 0 && Proper(i))      /* Draw the */
+X    DrawObject(i, M[i], N[i]);                                  /* glyphs.  */
+X  for (i = total; i >= 1; i--) if (X[i] >= 0 && Proper(i)) {
+X#ifdef WIN
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X#endif
+X    DrawSpot(X[i], Y[i], objectcolor[i]);
+X  }
+X}
+X
+X
+X/* Draw one "Ley line" on the world map, based coordinates given in terms of */
+X/* longitude and vertical fractional distance from the center of the earth.  */
+X
+Xvoid DrawLeyLine(l1, f1, l2, f2, o)
+Xreal l1, f1, l2, f2;
+Xbit o;
+X{
+X  l1 = Mod(l1); l2 = Mod(l2);
+X
+X  /* Convert vertical fractional distance to a corresponding coordinate. */
+X
+X  f1 = 90.0-ASIN(f1)/(PI/2.0)*90.0; f2 = 90.0-ASIN(f2)/(PI/2.0)*90.0;
+X  DrawWrap((int) (l1*(real)SCALE+0.5)+1,
+X           (int) (f1*(real)SCALE+0.5)+1,
+X           (int) (l2*(real)SCALE+0.5)+1,
+X           (int) (f2*(real)SCALE+0.5)+1, o);
+X}
+X
+X
+X/* Draw the main set of planetary Ley lines on the map of the world. This */
+X/* consists of drawing an icosahedron and then a dodecahedron lattice.    */
+X
+Xvoid DrawLeyLines(deg)
+Xint deg;
+X{
+X  color icosa, dodeca;
+X  real off = (real) deg, phi, h, h1, h2, r, i;
+X
+X  icosa = aspectcolor[10]; dodeca = aspectcolor[13];
+X  phi = (sqrt(5.0)+1.0)/2.0;                     /* Icosahedron constants. */
+X  h = 1.0/(phi*2.0-1.0);
+X  for (i = off; i < DEGREES+off; i += 72.0) {    /* Draw icosahedron edges. */
+X    DrawLeyLine(i, h, i+72.0, h, icosa);
+X    DrawLeyLine(i-36.0, -h, i+36.0, -h, icosa);
+X    DrawLeyLine(i, h, i, 1.0, icosa);
+X    DrawLeyLine(i+36.0, -h, i+36.0, -1.0, icosa);
+X    DrawLeyLine(i, h, i+36.0, -h, icosa);
+X    DrawLeyLine(i, h, i-36.0, -h, icosa);
+X  }
+X  r = 1.0/sqrt(3.0)/phi/cos(DTOR(54.0));         /* Dodecahedron constants. */
+X  h2 = sqrt(1.0-r*r); h1 = h2/(phi*2.0+1.0);
+X  for (i = off; i < DEGREES+off; i += 72.0) {    /* Draw docecahedron edges. */
+X    DrawLeyLine(i-36.0, h2, i+36.0, h2, dodeca);
+X    DrawLeyLine(i, -h2, i+72.0, -h2, dodeca);
+X    DrawLeyLine(i+36.0, h2, i+36.0, h1, dodeca);
+X    DrawLeyLine(i, -h2, i, -h1, dodeca);
+X    DrawLeyLine(i+36.0, h1, i+72.0, -h1, dodeca);
+X    DrawLeyLine(i+36.0, h1, i, -h1, dodeca);
+X  }
+X}
+X
+X
+X/* Draw a map of the world on the screen. This is similar to drawing the  */
+X/* globe, but is simplified because this is just a rectangular image, and */
+X/* the window coordinates are proportional to the longitude and latitude. */
+X
+Xvoid DrawWorld(deg)
+Xint deg;
+X{
+X  char *nam, *loc, *lin, d;
+X  int lon, lat, x, y, xold, yold, i;
+X  color c;
+X
+X  /* Loop through each coastline string, drawing it on the world map. */
+X
+X  while (ReadWorldData(&nam, &loc, &lin)) {
+X    i = nam[0]-'0';
+X    c = modex == 'l' ? on : (i ? rainbowcolor[i] : maincolor[6]);
+X
+X    /* Get starting longitude and latitude of current coastline piece. */
+X
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    xold = x = (int) Mod((real)(180-lon+deg));
+X    yold = y = 91-lat;
+X
+X    /* Go down the coastline piece, drawing each segment on world map. */
+X
+X    for (i = 0; d = lin[i]; i++) {
+X      if (d == 'L' || d == 'H' || d == 'G')
+X        x--;
+X      else if (d == 'R' || d == 'E' || d == 'F')
+X        x++;
+X      if (d == 'U' || d == 'H' || d == 'E')
+X        y--;
+X      else if (d == 'D' || d == 'G' || d == 'F')
+X        y++;
+X      if (x > 360) {
+X        x = 1;
+X        xold = 0;
+X      }
+X
+X      /* If we are doing a Mollewide map projection, then transform the */
+X      /* coordinates appropriately before drawing the segment.          */
+X
+X      if ((exdisplay & DASHXW0) > 0 && modex != 'l')
+X        DrawLine((180+(xold-180)*(int)sqrt((real)(32400-4*(yold-91)*(yold-91)
+X                 ))/180)*SCALE, yold*SCALE,
+X                 (180+(x-180)*(int)sqrt((real)(32400-4*(y-91)*(y-91)))/180)*
+X                 SCALE, y*SCALE, c, 0);
+X      else
+X        DrawLine(xold*SCALE, yold*SCALE, x*SCALE, y*SCALE, c, 0);
+X      if (x < 1)
+X        x = 360;
+X      xold = x; yold = y;
+X    }
+X  }
+X
+X  /* Again, if we are doing the non-rectangular Mollewide map projection, */
+X  /* draw the outline of the globe/map itself.                            */
+X
+X  if ((exdisplay & DASHXW0) > 0 && modex != 'l') {
+X    if (!bonus)
+X      for (xold = 0, y = -89; y <= 90; y++, xold = x)
+X        for (x = (int)(sqrt((real)(32400-4*y*y))+0.5), i = -1; i < 2; i += 2)
+X          DrawLine((180+i*xold)*SCALE, (90+y)*SCALE,
+X            (180+i*x)*SCALE, (91+y)*SCALE, on, 0);
+X  } else
+X    DrawBoxAll(1, 1, hilite);
+X}
+X
+X
+X/* Adjust an array of longitude positions so that no two are within a    */
+X/* certain orb of each other. This is used by the astro-graph routine to */
+X/* make sure we don't draw any planet glyphs marking the lines on top of */
+X/* each other. This is almost identical to the FillSymbolRing() routine  */
+X/* used by the wheel charts; however, there the glyphs are placed in a   */
+X/* continuous ring, while here we have the left and right screen edges.  */
+X/* Also, here we are placing two sets of planets at the same time.       */
+X
+Xvoid FillSymbolLine(symbol)
+Xreal *symbol;
+X{
+X  real orb = DEFORB*1.35*(real)SCALE, max = DEGREES*(real)SCALE, temp;
+X  int i, j, k = 1, l, k1, k2;
+X
+X  /* Keep adjusting as long as we can still make changes. */
+X
+X  for (l = 0; k && l < divisions*4; l++) {
+X    k = 0;
+X    for (i = 1; i <= TOTAL*2; i++)
+X      if (Proper((i+1)/2) && symbol[i] >= 0.0) {
+X
+X        /* For each object, determine who is closest to the left and right. */
+X
+X        k1 = max-symbol[i]; k2 = -symbol[i];
+X        for (j = 1; j <= THINGS*2; j++) {
+X          if (Proper((j+1)/2) && i != j) {
+X            temp = symbol[j]-symbol[i];
+X            if (temp<k1 && temp>=0.0)
+X              k1 = temp;
+X            else if (temp>k2 && temp<=0.0)
+X              k2 = temp;
+X          }
+X        }
+X
+X        /* If an object's too close on one side, then we move to the other. */
+X
+X        if (k2>-orb && k1>orb) {
+X          k = 1; symbol[i] = symbol[i]+orb*0.51+k2*0.49;
+X        } else if (k1<orb && k2<-orb) {
+X          k = 1; symbol[i] = symbol[i]-orb*0.51+k1*0.49;
+X        } else if (k2>-orb && k1<orb) {
+X          k = 1; symbol[i] = symbol[i]+(k1+k2)*0.5;
+X        }
+X      }
+X  }
+X}
+X
+X
+X/* Draw an astro-graph chart on a map of the world, i.e. the draw the     */
+X/* Ascendant, Descendant, Midheaven, and Nadir lines corresponding to the */
+X/* time in the chart. This chart is done when the -L switch is combined   */
+X/* with the -X switch.                                                    */
+X
+Xvoid XChartAstroGraph()
+X{
+X  real planet1[TOTAL+1], planet2[TOTAL+1],
+X    end1[TOTAL*2+1], end2[TOTAL*2+1],
+X    symbol1[TOTAL*2+1], symbol2[TOTAL*2+1],
+X    lon = Lon, longm, x, y, z, ad, oa, am, od, dm, lat;
+X  int unit = SCALE, lat1 = -60, lat2 = 75, y1, y2, xold1, xold2, i, j, k;
+X
+X  /* Erase top and bottom parts of map. We don't draw the astro-graph lines */
+X  /* above certain latitudes, and this gives us room for glyph labels, too. */
+X
+X  y1 = (91-lat1)*SCALE;
+X  y2 = (91-lat2)*SCALE;
+X  DrawBlock(1, 1, chartx-2, y2-1, off);
+X  DrawBlock(1, charty-2, chartx-2, y1+1, off);
+X  DrawLine(0, charty/2, chartx-2, charty/2, hilite, 4);    /* Draw equator. */
+X  DrawLine(1, y2, chartx-2, y2, on, 0);
+X  DrawLine(1, y1, chartx-2, y1, on, 0);
+X  for (i = 1; i <= total*2; i++)
+X    end1[i] = end2[i] = -1000.0;
+X
+X  /* Draw small hatches every 5 degrees along edges of world map. */
+X
+X  for (i = lat1; i <= lat2; i += 5) {
+X    j = (91-i)*SCALE;
+X    k = 2+(i%10 == 0)+2*(i%30 == 0);
+X    DrawLine(1, j, k, j, hilite, 0);
+X    DrawLine(chartx-2, j, chartx-1-k, j, hilite, 0);
+X  }
+X  for (i = -180; i < 180; i += 5) {
+X    j = (180-i)*SCALE;
+X    k = 2+(i%10 == 0)+2*(i%30 == 0)+(i%90 == 0);
+X    DrawLine(j, y2+1, j, y2+k, hilite, 0);
+X    DrawLine(j, y1-1, j, y1-k, hilite, 0);
+X  }
+X
+X  /* Calculate zenith locations of each planet. */
+X
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X
+X  /* Draw the Midheaven lines and zenith location markings. */
+X
+X  if (lon < 0.0)
+X    lon += DEGREES;
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    x = DTOR(MC)-planet1[i];
+X    if (x < 0.0)
+X      x += 2.0*PI;
+X    if (x > PI)
+X      x -= 2.0*PI;
+X    z = lon+RTOD(x);
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    j = (int) (Mod(180.0-z+degree)*(real)SCALE);
+X    DrawLine(j, y1+unit*4, j, y2-unit*1, elemcolor[1], 0);
+X    end2[i*2-1] = (real) j;
+X    y = RTOD(planet2[i]);
+X    k = (int) ((91.0-y)*(real)SCALE);
+X    DrawBlock(j-1, k-1, j+1, k+1, hilite);
+X    DrawBlock(j, k, j, k, off);
+X
+X    /* Draw Nadir lines assuming we aren't in bonus chart mode. */
+X
+X    if (!bonus) {
+X      j += 180*SCALE;
+X      if (j > chartx-2)
+X        j -= (chartx-2);
+X      end1[i*2-1] = (real) j;
+X      DrawLine(j, y1+unit*2, j, y2-unit*2, elemcolor[3], 0);
+X    }
+X  }
+X
+X  /* Now, normally, unless we are in bonus chart mode, we will go on to draw */
+X  /* the Ascendant and Descendant lines here.                                */
+X
+X  longm = DTOR(Mod(MC+lon));
+X  if (!bonus) for (i = 1; i <= total; i++) if (Proper(i)) {
+X    xold1 = xold2 = -1000;
+X    for (lat = (real) lat1; lat <= (real) lat2;
+X      lat += 1.0/(real)SCALE) {
+X
+X      /* First compute and draw the current segment of Ascendant line. */
+X
+X      j = (int) ((91.0-lat)*(real)SCALE);
+X      ad = tan(planet2[i])*tan(DTOR(lat));
+X      if (ad*ad > 1.0)
+X        ad = 1000.0;
+X      else {
+X        ad = ASIN(ad);
+X        oa = planet1[i]-ad;
+X        if (oa < 0.0)
+X          oa += 2.0*PI;
+X        am = oa-PI/2.0;
+X        if (am < 0.0)
+X          am += 2.0*PI;
+X        z = longm-am;
+X        if (z < 0.0)
+X          z += 2.0*PI;
+X        if (z > PI)
+X          z -= 2.0*PI;
+X        z = RTOD(z);
+X        k = (int) (Mod(180.0-z+degree)*(real)SCALE);
+X        DrawWrap(xold1, j+1, k, j, elemcolor[0]);
+X        if (lat == (real) lat1) {                            /* Line segment */
+X          DrawLine(k, y1, k, y1+unit*4, elemcolor[0], 0);    /* pointing to  */
+X          end2[i*2] = (real) k;                              /* Ascendant.   */
+X        }
+X        xold1 = k;
+X      }
+X
+X      /* The curving Ascendant and Descendant lines actually touch each at  */
+X      /* low latitudes. Sometimes when we start out, a particular planet's  */
+X      /* lines haven't appeared yet, i.e. we are scanning at a latitude     */
+X      /* where our planet's lines don't exist. If this is the case, then    */
+X      /* when they finally do start, draw a thin horizontal line connecting */
+X      /* the Ascendant and Descendant lines so they don't just start in     */
+X      /* space. Note that these connected lines aren't labeled with glyphs. */
+X
+X      if (ad == 1000.0) {
+X        if (xold1 >= 0) {
+X          DrawWrap(xold1, j+1, xold2, j+1, gray);
+X          lat = 90.0;
+X        }
+X      } else {
+X
+X      /* Then compute and draw corresponding segment of Descendant line. */
+X
+X        od = planet1[i]+ad;
+X        dm = od+PI/2.0;
+X        z = longm-dm;
+X        if (z < 0.0)
+X          z += 2.0*PI;
+X        if (z > PI)
+X          z -= 2.0*PI;
+X        z = RTOD(z);
+X        k = (int) (Mod(180.0-z+degree)*(real)SCALE);
+X        DrawWrap(xold2, j+1, k, j, elemcolor[2]);
+X        if (xold2 < 0)
+X          DrawWrap(xold1, j, k, j, gray);
+X        if (lat == (real) lat1)                              /* Line segment */
+X          DrawLine(k, y1, k, y1+unit*2, elemcolor[2], 0);    /* pointing to  */
+X        xold2 = k;                                           /* Descendant.  */
+X      }
+X    }
+X
+X    /* Draw segments pointing to top of Ascendant and Descendant lines. */
+X
+X    if (ad != 1000.0) {
+X      DrawLine(xold1, y2, xold1, y2-unit*1, elemcolor[0], 0);
+X      DrawLine(k, y2, k, y2-unit*2, elemcolor[2], 0);
+X      end1[i*2] = (real) k;
+X    }
+X  }
+X#ifdef WIN
+X  if (!xbitmap)
+X    Xcolor(maincolor[5]);
+X#endif
+X  DrawPoint((int)((180.0-Lon)*(real)SCALE), (int)((91-Lat)*(real)SCALE), on);
+X#ifdef WIN
+X  if (!xbitmap)
+X    Xcolor(on);
+X#endif
+X
+X  /* Determine where to draw the planet glyphs. We have four sets of each    */
+X  /* planet - each planet's glyph appearing in the chart up to four times -  */
+X  /* one for each type of line. The Midheaven and Ascendant lines are always */
+X  /* labeled at the bottom of the chart, while the Nadir and Midheaven lines */
+X  /* at the top. Therefore we need to place two sets of glyphs, twice.       */
+X
+X  for (i = 1; i <= total*2; i++) {
+X    symbol1[i] = end1[i];
+X    symbol2[i] = end2[i];
+X  }
+X  FillSymbolLine(symbol1);
+X  FillSymbolLine(symbol2);
+X
+X  /* Now actually draw the planet glyphs. */
+X
+X  for (i = 1; i <= total*2; i++) {
+X    j = (i+1)/2;
+X    if (Proper(j)) {
+X      if ((turtlex = (int) symbol1[i]) > 0) {
+X        DrawLine((int) end1[i], y2-unit*2, (int) symbol1[i], y2-unit*4,
+X          ret[j] < 0.0 ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X        DrawObject(j, turtlex, y2-unit*10);
+X      }
+X      if ((turtlex = (int) symbol2[i]) > 0) {
+X        DrawLine((int) end2[i], y1+unit*4, (int) symbol2[i], y1+unit*8,
+X          ret[j] < 0.0 ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X        DrawObject(j, turtlex, y1+unit*14);
+X        DrawTurtle(objectdraw[i & 1 ? 18 : 19], (int) symbol2[i],
+X          y1+unit*24, objectcolor[j]);
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Draw an aspect and midpoint grid in the window, with planets labeled down */
+X/* the diagonal. This chart is done when the -g switch is combined with the  */
+X/* -X switch. The chart is always 20 by 20 cells in size; therefore based on */
+X/* how the restrictions are set up, there may be blank columns and rows, or  */
+X/* else only the first 20 unrestricted objects will be included.             */
+X
+Xvoid XChartGrid()
+X{
+X  int unit, siz, x, y, i, j, k;
+X  color c;
+X
+X  unit = CELLSIZE*SCALE; siz = OBJECTS*unit;
+X  CreateGrid(bonus);
+X  
+X  /* Loop through each cell in each row and column of grid. */
+X
+X  for (y = 1, j = 0; y <= OBJECTS; y++) {
+X    do {
+X      j++;
+X    } while (ignore[j] && j <= total);
+X    DrawLine(0, y*unit, siz, y*unit, gray, !xcolor);
+X    DrawLine(y*unit, 0, y*unit, siz, gray, !xcolor);
+X    if (j <= total) for (x = 1, i = 0; x <= OBJECTS; x++) {
+X      do {
+X        i++;
+X      } while (ignore[i] && i <= total);
+X      if (i <= total) {
+X        turtlex = x*unit-unit/2;
+X        turtley = y*unit-unit/2 - (scale > 200 ? 5 : 0);
+X
+X        /* If this is an aspect cell, draw glyph of aspect in effect. */
+X
+X        if (bonus ? x > y : x < y)
+X          DrawTurtle(aspectdraw[grid->n[i][j]], turtlex,
+X            turtley, c = aspectcolor[grid->n[i][j]]);
+X
+X        /* If this is a midpoint cell, draw glyph of sign of midpoint. */
+X
+X        else if (bonus ? x < y : x > y)
+X          DrawTurtle(signdraw[grid->n[i][j]], turtlex,
+X            turtley, c = elemcolor[(grid->n[i][j]-1)%4]);
+X
+X        /* For cells on main diagonal, draw glyph of planet. */
+X
+X        else {
+X          DrawEdge((y-1)*unit, (y-1)*unit, y*unit, y*unit, hilite);
+X          DrawObject(i, turtlex, turtley);
+X        }
+X
+X        /* When the scale size is 300, we can print text in each cell: */
+X
+X        if (scale > 200 && label) {
+X          k = abs(grid->v[i][j]);
+X
+X          /* For the aspect portion, print the orb in degrees and minutes. */
+X
+X          if (bonus ? x > y : x < y) {
+X            if (grid->n[i][j])
+X              sprintf(string, "%c%d %d%d'", k != grid->v[i][j] ? '-' : '+',
+X                k/60, (k%60)/10, (k%60)%10);
+X            else
+X              sprintf(string, "");
+X
+X          /* For the midpoint portion, print the degrees and minutes. */
+X
+X          } else if (bonus ? x < y : x > y)
+X            sprintf(string, "%d%d %d%d'",
+X              (k/60)/10, (k/60)%10, (k%60)/10, (k%60)%10);
+X
+X          /* For the main diagonal, print degree and sign of each planet. */
+X
+X          else {
+X            c = elemcolor[(grid->n[i][j]-1)%4];
+X            sprintf(string, "%c%c%c %d%d", SIGNAM(grid->n[i][j]), k/10, k%10);
+X          }
+X          DrawText(string, x*unit-unit/2-FONTX*3, y*unit-3, c);
+X        }
+X      }
+X    }
+X  }
+X  DrawBoxAll(1, 1, hilite);
+X}
+X
+X
+X/* Draw an aspect (or midpoint) grid in the window, between the planets in  */
+X/* two different charts, with the planets labeled at the top and side. This */
+X/* chart is done when the -g switch is combined with the -r0 and -X switch. */
+X/* Like above, the chart always has a fixed number of cells.                */
+X
+Xvoid XChartGridRelation()
+X{
+X  int unit, siz, x, y, i, j, k, l;
+X  color c;
+X
+X  unit = CELLSIZE*SCALE; siz = (OBJECTS+1)*unit;
+X  CreateGridRelation(bonus != (exdisplay & DASHg0) > 0);
+X  for (y = 0, j = -1; y <= OBJECTS; y++) {
+X    do {
+X      j++;
+X    } while (ignore[j] && j <= total);
+X    DrawLine(0, (y+1)*unit, siz, (y+1)*unit, gray, !xcolor);
+X    DrawLine((y+1)*unit, 0, (y+1)*unit, siz, gray, !xcolor);
+X    DrawEdge(0, y*unit, unit, (y+1)*unit, hilite);
+X    DrawEdge(y*unit, 0, (y+1)*unit, unit, hilite);
+X    if (j <= total) for (x = 0, i = -1; x <= OBJECTS; x++) {
+X      do {
+X        i++;
+X      } while (ignore[i] && i <= total);
+X
+X      /* Again, we are looping through each cell in each row and column. */
+X
+X      if (i <= total) {
+X        turtlex = x*unit+unit/2;
+X        turtley = y*unit+unit/2 - (!xbitmap && scale > 200 ? 5 : 0);
+X
+X        /* If current cell is on top row or left hand column, draw glyph */
+X        /* of planet owning the particular row or column in question.    */
+X
+X        if (y == 0 || x == 0) {
+X          if (x+y > 0)
+X            DrawObject(j == 0 ? i : j, turtlex, turtley);
+X        } else {
+X
+X        /* Otherwise, draw glyph of aspect in effect, or glyph of */
+X        /* sign of midpoint, between the two planets in question. */
+X
+X          if (bonus == (exdisplay & DASHg0) > 0)
+X            DrawTurtle(aspectdraw[grid->n[i][j]], turtlex, turtley,
+X              c = aspectcolor[grid->n[i][j]]);
+X          else
+X            DrawTurtle(signdraw[grid->n[i][j]], turtlex, turtley,
+X              c = elemcolor[(grid->n[i][j]-1)%4]);
+X        }
+X
+X        /* Again, when scale size is 300, print some text in current cell: */
+X
+X        if (scale > 200 && label) {
+X
+X          /* For top and left edges, print sign and degree of the planet. */
+X
+X          if (y == 0 || x == 0) {
+X            if (x+y > 0) {
+X              k = (int)((y == 0 ? planet2[i] : planet1[j])/30.0)+1;
+X              l = (int)((y == 0 ? planet2[i] : planet1[j])-(real)(k-1)*30.0);
+X              c = elemcolor[(k-1)%4];
+X              sprintf(string, "%c%c%c %d%d", SIGNAM(k), l/10, l%10);
+X
+X              /* For extreme upper left corner, print some little arrows */
+X              /* pointing out chart1's planets and chart2's planets.     */
+X
+X            } else {
+X              c = hilite;
+X              sprintf(string, "1v 2->");
+X            }
+X          } else {
+X            k = abs(grid->v[i][j]);
+X
+X            /* For aspect cells, print the orb in degrees and minutes. */
+X
+X            if (bonus == (exdisplay & DASHg0) > 0)
+X              if (grid->n[i][j])
+X                sprintf(string, "%c%d %d%d'", k != grid->v[i][j] ? (exdisplay &
+X                  DASHga ? 'a' : '-') : (exdisplay & DASHga ? 's' : '+'),
+X                  k/60, (k%60)/10, (k%60)%10);
+X              else
+X                sprintf(string, "");
+X
+X            /* For midpoint cells, print degree and minute. */
+X
+X            else
+X              sprintf(string, "%d%d %d%d'",
+X                (k/60)/10, (k/60)%10, (k%60)/10, (k%60)%10);
+X          }
+X          DrawText(string, x*unit+unit/2-FONTX*3, (y+1)*unit-3, c);
+X        }
+X      }
+X    }
+X  }
+X  DrawBoxAll(1, 1, hilite);
+X}
+X
+X
+X/* Draw the local horizon, and draw in the planets where they are at the */
+X/* time in question, as done when the -Z is combined with the -X switch. */
+X
+Xvoid XChartHorizon()
+X{
+X  real lon, lat,
+X    lonz[TOTAL+1], latz[TOTAL+1], azi[TOTAL+1], alt[TOTAL+1];
+X  int x[TOTAL+1], y[TOTAL+1], m[TOTAL+1], n[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*SCALE,
+X    x1, y1, x2, y2, xs, ys, i, j, k, l;
+X
+X  DrawBoxAll(1, 1, hilite);
+X
+X  /* Make a slightly smaller rectangle within the window to draw the planets */
+X  /* in. Make segments on all four edges marking 5 degree increments.        */
+X
+X  x1 = y1 = unit/2; x2 = chartx-x1; y2 = charty-y1;
+X  xs = x2-x1; ys = y2-y1;
+X  for (i = 0; i < 180; i += 5) {
+X    j = y1+(int)((real)i*(real)ys/180.0);
+X    k = 2+(i%10 == 0)+2*(i%30 == 0);
+X    DrawLine(x1+1, j, x1+1+k, j, hilite, 0);
+X    DrawLine(x2-1, j, x2-1-k, j, hilite, 0);
+X  }
+X  for (i = 0; i < 360; i += 5) {
+X    j = x1+(int)((real)i*(real)xs/DEGREES);
+X    k = 2+(i%10 == 0)+2*(i%30 == 0);
+X    DrawLine(j, y1+1, j, y1+1+k, hilite, 0);
+X    DrawLine(j, y2-1, j, y2-1-k, hilite, 0);
+X  }
+X
+X  /* Draw vertical lines dividing our rectangle into four areas. In our     */
+X  /* local space chart, the middle line represents due south, the left line */
+X  /* due east, the right line due west, and the edges due north. A fourth   */
+X  /* horizontal line divides that which is above and below the horizon.     */
+X
+X  DrawLine(cx, y1, cx, y2, gray, 1);
+X  DrawLine((cx+x1)/2, y1, (cx+x1)/2, y2, gray, 1);
+X  DrawLine((cx+x2)/2, y1, (cx+x2)/2, y2, gray, 1);
+X  DrawEdge(x1, y1, x2, y2, on);
+X  DrawLine(x1, cy, x2, cy, on, 1);
+X
+X  /* Calculate the local horizon coordinates of each planet. First convert */
+X  /* zodiac position and declination to zenith longitude and latitude.     */
+X
+X  lon = DTOR(Mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= total; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    lonz[i] = DTOR(Mod(RTOD(lonz[18]-lonz[i]+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X    x[i] = x1+(int)((real)xs*(Mod(90.0-azi[i]))/DEGREES+0.5);
+X    y[i] = y1+(int)((real)ys*(90.0-alt[i])/180.0+0.5);
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X
+X  /* As in the DrawGlobe() routine, we now determine where to draw the   */
+X  /* glyphs in relation to the actual points, so that the glyphs aren't  */
+X  /* drawn on top of each other if possible. Again, we assume that we'll */
+X  /* put the glyph right under the point, unless there would be some     */
+X  /* overlap and the above position is better off.                       */
+X
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    k = l = chartx+charty;
+X    for (j = 1; j < i; j++) if (Proper(j)) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X        n[i] -= unit;
+X  }
+X  for (i = total; i >= 1; i--) if (Proper(i))    /* Draw planet's glyph. */
+X    DrawObject(i, m[i], n[i]);
+X  for (i = total; i >= 1; i--) if (Proper(i)) {
+X#ifdef WIN
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X#endif
+X    if (!bonus || i > BASE)
+X      DrawPoint(x[i], y[i], objectcolor[i]);    /* Draw small or large dot */
+X    else                                        /* near glyph indicating   */
+X      DrawSpot(x[i], y[i], objectcolor[i]);     /* exact local location.   */
+X  }
+X}
+X
+X
+X/* Draw the local horizon, and draw in the planets where they are at the  */
+X/* time in question. This chart is done when the -Z0 is combined with the */
+X/* -X switch. This is an identical function to XChartHorizon(); however,  */
+X/* that routine's chart is entered on the horizon and meridian. Here we   */
+X/* center the chart around the center of the sky straight up from the     */
+X/* local horizon, with the horizon itself being an encompassing circle.   */
+X
+Xvoid XChartHorizonSky()
+X{
+X  real lon, lat, rx, ry, s, a, sqr2,
+X    lonz[TOTAL+1], latz[TOTAL+1], azi[TOTAL+1], alt[TOTAL+1];
+X  int x[TOTAL+1], y[TOTAL+1], m[TOTAL+1], n[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*SCALE, i, j, k, l;
+X
+X  /* Draw a circle in window to indicate horizon line, lines dividing   */
+X  /* the window into quadrants to indicate n/s and w/e meridians, and   */
+X  /* segments on these lines and the edges marking 5 degree increments. */
+X
+X  InitCircle();
+X  sqr2 = sqrt(2.0);
+X  DrawLine(cx, 0, cx, charty-1, gray, 1);
+X  DrawLine(0, cy, chartx-1, cy, gray, 1);
+X  for (i = -125; i <= 125; i += 5) {
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    s = 1.0/(90.0*sqr2);
+X    j = cy+(int)(s*cy*i);
+X    DrawLine(cx-k, j, cx+k, j, hilite, 0);
+X    j = cx+(int)(s*cx*i);
+X    DrawLine(j, cy-k, j, cy+k, hilite, 0);
+X  }
+X  for (i = 5; i < 55; i += 5) {
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    s = 1.0/(180.0-90.0*sqr2);
+X    j = (int)(s*cy*i);
+X    DrawLine(0, j, k, j, hilite, 0);
+X    DrawLine(0, charty-1-j, k, charty-1-j, hilite, 0);
+X    DrawLine(chartx-1, j, chartx-1-k, j, hilite, 0);
+X    DrawLine(chartx-1, charty-1-j, chartx-1-k, charty-1-j, hilite, 0);
+X    j = (int)(s*cx*i);
+X    DrawLine(j, 0, j, k, hilite, 0);
+X    DrawLine(chartx-1-j, 0, chartx-1-j, k, hilite, 0);
+X    DrawLine(j, charty-1, j, charty-1-k, hilite, 0);
+X    DrawLine(chartx-1-j, charty-1, chartx-1-j, charty-1-k, hilite, 0);
+X  }
+X  rx = cx/sqr2; ry = cy/sqr2;
+X  for (i = 0; i < 360; i++)
+X    DrawLine(cx+(int)(rx*circ->x[i]), cy+(int)(ry*circ->y[i]),
+X      cx+(int)(rx*circ->x[i+1]), cy+(int)(ry*circ->y[i+1]), on, 0);
+X  for (i = 0; i < 360; i += 5) {
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    DrawLine(cx+(int)((rx-k)*circ->x[i]), cy+(int)((ry-k)*circ->y[i]),
+X      cx+(int)((rx+k)*circ->x[i]), cy+(int)((ry+k)*circ->y[i]), on, 0);
+X  }
+X
+X  /* Calculate the local horizon coordinates of each planet. First convert */
+X  /* zodiac position and declination to zenith longitude and latitude.     */
+X
+X  lon = DTOR(Mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= total; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    lonz[i] = DTOR(Mod(RTOD(lonz[18]-lonz[i]+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = a = DEGREES-RTOD(lonz[i]); alt[i] = 90.0-RTOD(latz[i]);
+X    s = alt[i]/90.0;
+X    x[i] = cx+(int)(rx*s*COSD(180.0+azi[i])+0.5);
+X    y[i] = cy+(int)(ry*s*SIND(180.0+azi[i])+0.5);
+X    if (!ISLEGAL(x[i], y[i]))
+X      x[i] = -1000;
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X
+X  /* As in the DrawGlobe() routine, we now determine where to draw the   */
+X  /* glyphs in relation to the actual points, so that the glyphs aren't  */
+X  /* drawn on top of each other if possible. Again, we assume that we'll */
+X  /* put the glyph right under the point, unless there would be some     */
+X  /* overlap and the above position is better off.                       */
+X
+X  for (i = 1; i <= total; i++) if (Proper(i)) {
+X    k = l = chartx+charty;
+X    for (j = 1; j < i; j++) if (Proper(j)) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X        n[i] -= unit;
+X  }
+X  for (i = total; i >= 1; i--) if (m[i] >= 0 && Proper(i))    /* Draw glyph. */
+X    DrawObject(i, m[i], n[i]);
+X  for (i = total; i >= 1; i--) if (x[i] >= 0 && Proper(i)) {
+X#ifdef WIN
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X#endif
+X    if (!bonus || i > BASE)
+X      DrawPoint(x[i], y[i], objectcolor[i]);    /* Draw small or large dot */
+X    else                                        /* near glyph indicating   */
+X      DrawSpot(x[i], y[i], objectcolor[i]);     /* exact local location.   */
+X  }
+X  DrawBoxAll(1, 1, hilite);
+X}
+X
+X
+X/* Given an x and y coordinate, return the angle formed by the line from the */
+X/* origin to this coordinate. This is just converting from rectangular to    */
+X/* polar coordinates; however, we don't determine the radius here.           */
+X
+Xreal Angle(x, y)
+Xreal x, y;
+X{
+X  real a;
+X
+X  a = atan(y/x);
+X  if (a < 0.0)
+X    a += PI;
+X  if (y < 0.0)
+X    a += PI;
+X  return Mod(RTOD(a));
+X}
+X
+X
+X/* Draw a chart depicting an aerial view of the solar system in space, with */
+X/* all the planets drawn around the Sun, and the specified central planet   */
+X/* in the middle, as done when the -S is combined with the -X switch.       */
+X
+Xvoid XChartSpace()
+X{
+X  int x[TOTAL+1], y[TOTAL+1], m[TOTAL+1], n[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*SCALE, i, j, k, l;
+X  real sx, sy, sz = 30.0, x1, y1, a;
+X
+X  /* Determine the scale of the window. For a scale size of 300, make    */
+X  /* the window 6 AU in radius (enough for inner planets out to asteroid */
+X  /* belt). For a scale of 200, make window 30 AU in radius (enough for  */
+X  /* planets out to Neptune). For scale of 100, make it 90 AU in radius  */
+X  /* (enough for all planets including the orbits of the uranians.)      */
+X
+X  if (scale < 200)
+X    sz = 90.0;
+X  else if (scale > 200)
+X    sz = 6.0;
+X  sx = (real)cx/sz; sy = (real)cy/sz;
+X  for (i = 0; i <= BASE; i++) if (Proper(i)) {
+X
+X    /* Determine what glyph corresponds to our current planet. Normally the */
+X    /* array indices are the same, however we have to do some swapping for  */
+X    /* non-geocentric based charts where a planet gets replaced with Earth. */
+X
+X    if (centerplanet == 0)
+X      j = i < 2 ? 1-i : i;
+X    else if (centerplanet == 1)
+X      j = i;
+X    else
+X      j = i == 0 ? centerplanet : (i == centerplanet ? 0 : i);
+X    x1 = spacex[j]; y1 = spacey[j];
+X    x[i] = cx-(int)(x1*sx); y[i] = cy+(int)(y1*sy);
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X
+X  /* As in the DrawGlobe() routine, we now determine where to draw the   */
+X  /* glyphs in relation to the actual points, so that the glyphs aren't  */
+X  /* drawn on top of each other if possible. Again, we assume that we'll */
+X  /* put the glyph right under the point, unless there would be some     */
+X  /* overlap and the above position is better off.                       */
+X
+X  for (i = 0; i <= BASE; i++) if (Proper(i)) {
+X    k = l = chartx+charty;
+X    for (j = 0; j < i; j++) if (Proper(j)) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X        n[i] -= unit;
+X  }
+X
+X  /* Draw the 12 sign boundaries from the center body to edges of screen. */
+X
+X  a = Mod(Angle(spacex[3], spacey[3])-planet[3]);
+X  for (i = 0; i < SIGNS; i++) {
+X    k = cx+2*(int)((real)cx*COSD((real)i*30.0+a));
+X    l = cy+2*(int)((real)cy*SIND((real)i*30.0+a));
+X    DrawClip(cx, cy, k, l, gray, 1);
+X  }
+X  for (i = BASE; i >= 0; i--) if (Proper(i) && ISLEGAL(m[i], n[i]))
+X    DrawObject(i, m[i], n[i]);
+X  for (i = BASE; i >= 0; i--) if (Proper(i) && ISLEGAL(x[i], y[i])) {
+X#ifdef WIN
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X#endif
+X    if (!bonus || i > BASE)
+X      DrawPoint(x[i], y[i], objectcolor[i]);    /* Draw small or large dot */
+X    else                                        /* near glyph indicating   */
+X      DrawSpot(x[i], y[i], objectcolor[i]);     /* exact local location.   */
+X  }
+X  DrawBoxAll(1, 1, hilite);
+X}
+X
+X
+X/* Create a chart in the window based on the current graphics chart mode. */
+X/* This is the main dispatch routine for all of the program's graphics.   */
+X
+Xvoid XChart()
+X{
+X  int i, j, k;
+X
+X  if (xbitmap) {
+X    if (chartx > BITMAPX)
+X      chartx = BITMAPX;
+X    if (charty > BITMAPY)
+X      charty = BITMAPY;
+X    DrawBlock(0, 0, chartx - 1, charty - 1, off);    /* Clear bitmap screen. */
+X  }
+X  switch (modex) {
+X  case 'c':
+X    if (relation != DASHr0)
+X      XChartWheel();
+X    else
+X      XChartWheelRelation();
+X    break;
+X  case 'l':
+X    DrawWorld(degree);     /* First draw map of world.           */
+X    XChartAstroGraph();    /* Then draw astro-graph lines on it. */
+X    break;
+X  case 'a':
+X    if (relation != DASHr0)
+X      XChartGrid();
+X    else
+X      XChartGridRelation();
+X    break;
+X  case 'z':
+X    if (exdisplay & DASHZ0)
+X      XChartHorizonSky();
+X    else
+X      XChartHorizon();
+X    break;
+X  case 's':
+X    XChartSpace();
+X    break;
+X  case 'w':
+X    DrawWorld(degree);                          /* First draw map of world. */
+X    if (bonus && (exdisplay & DASHXW0) == 0)    /* Then maybe Ley lines.    */
+X      DrawLeyLines(degree);
+X    break;
+X  case 'p':
+X  case 'g':
+X    DrawGlobe(degree);
+X    break;
+X  }
+X
+X  /* Print text showing chart information at bottom of window. */
+X
+X  if (xtext && modex != 'w' && modex != 'p' && modex != 'g') {
+X    if (Mon == -1)
+X      sprintf(string, "(no time or space)");
+X    else if (relation == DASHrc)
+X      sprintf(string, "(composite)");
+X    else {
+X      i = (int) Mon; j = (int) (FRACT(Tim)*100.0+0.1);
+X      k = ansi; ansi = FALSE;
+X      sprintf(string, "%2.0f %c%c%c %.0f %2.0f:%d%d (%.2f GMT) %s",
+X        Day, monthname[i][0], monthname[i][1], monthname[i][2], Yea,
+X        floor(Tim), j/10, j%10, -Zon, StringLocation(Lon, Lat, 100.0));
+X      ansi = k;
+X    }
+X    DrawText(string, (chartx-StringLen(string)*FONTX)/2, charty-3, hilite);
+X  }
+X}
+X#endif
+X
+X/* xcharts.c */
+END_OF_FILE
+if test 52928 -ne `wc -c <'xcharts.c'`; then
+    echo shar: \"'xcharts.c'\" unpacked with wrong size!
+fi
+# end of 'xcharts.c'
+fi
+echo shar: End of archive 6 \(of 12\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

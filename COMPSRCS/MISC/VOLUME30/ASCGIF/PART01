@@ -1,0 +1,563 @@
+Newsgroups: comp.sources.misc
+From: jwf10@ccc.amdahl.com (John Ferrell Jr)
+Subject:  v30i019:  ascgif - ASCII gif viewer for mainframes, Part01/01
+Message-ID: <1992May24.040232.21900@sparky.imd.sterling.com>
+X-Md4-Signature: 72968f6a036b0ee6f1fa50da1049537e
+Date: Sun, 24 May 1992 04:02:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwf10@ccc.amdahl.com (John Ferrell Jr)
+Posting-number: Volume 30, Issue 19
+Archive-name: ascgif/part01
+Environment: UNIX
+
+Ascgif version 1.6 is a mainframe gif viewer for text output.  New with 
+version 1.6 is screen capture.  Views gifs in ascii characters. Not 
+breath-taking but good for a preview or gif 87a checker before file 
+transfer to pc. Best when viewed by a terminal with light characters and 
+a black background.  C code for mainframes follows at end.
+Here are some samples:
+
+79x23 output from ascgif
+rat.gif    A rat leaning over a shelf.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;;;;;;;;;;;+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;;;;;;;;;;;;+;;;;;;+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;+;;;;;;;+;;++;++++++++;+;;;;;;IT=;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;++;+;+++++(IHXXXXXXOOOHLT)(TI))IIT;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+;;;;;;;;;;;;;;;++HHHLLHX88888888X8XXXOOHHTI)IITIIT;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
++;;;;;+;;+;;;;++TOOOHTTHHO888XXXXXOOOXOLL))IIIITTT)++;;;;;;;;;;;;;;;;;;;;;;;;;; 
++;;;;;++++++++IOOOOLHLHOXX888888888888OLI)I)IITTTTTI)=+;;;;;;;;;;;;;;;;;;;;;;;; 
+;+;;;;+++++=H888OOHHHOXXX88888888XOOOHHTTI(()ITTTIIII)(=+;;;;;;;;;;;;;;;;;;;;;; 
++;;+;++++=IO88888OOOHOO888888888XOLLLLTT)()()))IIIII)))(+;;;;;;;;;;;;;;;;;;;;;; 
++;++++++=IX8888888XXHHX8XXX888XXHLT)))I)I)((((()((((((((=+;;;;;;;;;;;;;;;;;;;;; 
+++;;+++=(HX88888888OOHOX;LOXXXXOHI+..;)))(===+=(((=======+;;++;;;;;;;;;;;;;;;;; 
+++;++++=)HOXX888888XXHHOOOOXXOOHTIIIIII)=((=====(((=++++++;;;;;;;;;;;;;;;;;;;;; 
+++++++++=THOXXXXXXXXOHHHHHHOHLLTTI)I)(((==++=((((==++;++++;;;;;;;;;;;;;;;;;;;;; 
++++++++++IHHOOXOOOOHHHLTHLLLTTI)))()(((=(==(=======+;++;;;;;;;;;;;;;;;;;;;;;;;; 
+=())II(+++(THHHOHLHLLLHLTTT)==+(((=========+====(==++;,,:;;;;;;;;;;;;;;;;;;;;;; 
+)))III=:+++(ITHHHLLTTTTLLTT)(((=+===((==+++========+,,:,:;;;;;;;;;;;;;;;;;;;;;; 
+.............,.,,:==)IIIITII))((========+;::,..;==+:.................,,,,,::::: 
+......................,,=))))(((==:............:+++,;.......................... 
+.........................,.,,:+====+;:........+:.+:;........................... 
+..................................+==+;.........:.............................. 
+..................................,..:;........................................ 
+(v)iew (z Z)oom (c)opy (l,r,u,d)=PAN (g)rey (+)(-) (s)wap (1-4)=MIX (q)uit:
+
+----------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  ascgif.c
+# Wrapped by kent@sparky on Sat May 23 22:57:11 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'ascgif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ascgif.c'\"
+else
+  echo shar: Extracting \"'ascgif.c'\" \(17535 characters\)
+  sed "s/^X//" >'ascgif.c' <<'END_OF_FILE'
+X/* Ascii Gif Viewer Version 1.6 May (c) 1992 John Ferrell jwf10@juts.ccc.amdahl.com*/
+X/* 5 changes for pc to mainframe portability. (search on 'mainframes') */
+X
+X#include <string.h>
+X#include <libc.h>     /* libc.h for mainframes, stdlib.h for pc */
+X#include <stdio.h>
+X
+X#define UBYTE unsigned char  /* 8Bit */
+X#define UWORD unsigned short /* 16Bit */
+X#define ULONG unsigned int   /* 32Bit  int for mainframes, long for pc */
+X#define BOOL unsigned short
+X
+X#define TRUE  1
+X#define FALSE 0
+X
+X
+Xstruct GIFdescriptor {
+X   UWORD gd_Width;
+X   UWORD gd_Height;
+X   UBYTE gd_ColInfo;
+X   UBYTE gd_BackGround;
+X   UBYTE gd_PixelAspect;
+X};
+X
+Xstruct ImageDesc {
+X   UWORD id_Left;
+X   UWORD id_Top;
+X   UWORD id_Width;
+X   UWORD id_Height;
+X   UBYTE id_Info;
+X};
+X
+Xstruct RGB {
+X   UBYTE rgb_Red;
+X   UBYTE rgb_Green;
+X   UBYTE rgb_Blue;
+X};
+X
+X
+X#define GIF_IMAGE       0x2C
+X#define GIF_EXTENSION   0x21
+X#define GIF_TERMINATOR  0x3B
+X#define GIF_COMMENT_EXT 0xFE
+X
+X/* void *screen; */  /* uncomment for pc, comment out for mainframes */
+X
+Xint gx=79;
+Xint gy=23;
+X
+Xstruct GIFdescriptor gdesc;
+X
+XUBYTE **BitPlane;
+Xstruct RGB GlobalColourTable[256];
+X
+XUBYTE Map[256];
+X
+XULONG ImageNumber;
+X
+XFILE *GIFfh = NULL;
+XFILE *CAPT = NULL;
+X
+Xvoid ERROR(str)
+X   char *str;
+X   {
+X   printf(str);
+X   exit(1);
+X   }
+X
+Xvoid FlipWord(word)
+X   UWORD *word;
+X   {
+X   UBYTE swap1;
+X   UBYTE swap2;
+X   swap1 = *word & 0xFF;                /*comment out for pc, needed for mainframes */
+X   swap2 = (*word & 0xFF00) >> 8;       /*       "                "                 */
+X   *word = swap1 << 8 | swap2;          /*       "                "                 */
+X   }
+X
+Xstatic struct ImageDesc idesc;
+Xstatic struct RGB LocalColourTable[256];
+X
+Xstatic UWORD Xpos, Ypos;
+Xstatic BOOL interleave;
+X
+Xstatic UBYTE LeaveStep[5]  = {1, 8, 8, 4, 2};
+Xstatic UBYTE LeaveFirst[5] = {0, 0, 4, 2, 1};
+X
+Xstatic int ReadError;
+Xstatic UBYTE CodeSize;
+Xstatic int EOFCode;
+Xstatic UBYTE ReadMask;
+Xstatic int CompDataPointer;
+Xstatic int CompDataCount;
+Xstatic UBYTE CompData[256];
+X
+Xstatic UWORD Prefix[4096];
+Xstatic UBYTE Suffix[4096];
+Xstatic UBYTE OutCode[1025];
+X
+Xstatic UBYTE ByteBuf;
+X
+Xint ReadCode(fh)
+X   FILE *fh;
+X   {
+X   register int temp;
+X   register int DstMasked;
+X   register int DstMask;
+X   long size;
+X   temp = 0;                             
+X   DstMasked = 1L << CodeSize;           
+X   for (DstMask = 1; DstMask != DstMasked; DstMask <<= 1)
+X      {                                  
+X      if (!ReadMask)                     
+X         {                               
+X         if (CompDataPointer == CompDataCount)
+X            {
+X            if ((size = fgetc(fh)) == -1)
+X               {                         
+X               printf("\nI/O Error during decompression.\n");
+X               ReadError = 1;            
+X               return EOFCode;           
+X               }                         
+X            if (fread((char *)CompData,1,size,fh) != size)
+X               {                         
+X               printf("\nI/O Error during decompression.\n");
+X               ReadError = 1;            
+X               return EOFCode;           
+X               }                         
+X            CompDataCount = size;        
+X            CompDataPointer = 0;         
+X            }                            
+X         ReadMask = 1;                   
+X         ByteBuf = CompData[CompDataPointer++];
+X         }                               
+X      if (ByteBuf & ReadMask) temp |= DstMask;
+X      ReadMask <<= 1;                    
+X      }                                  
+X   return temp;                          
+X   }                                     
+X                                         
+Xvoid AddPixel(index)                     
+X   UBYTE index;                          
+X   {                                     
+X   register UWORD XStore;
+X   register UWORD YStore;
+X   XStore = Xpos + idesc.id_Left;        
+X   YStore = Ypos + idesc.id_Top;         
+X   BitPlane[YStore][XStore] = index;
+X   if (++Xpos == idesc.id_Width)         
+X      {                                  
+X      Xpos = 0;                          
+X      Ypos += LeaveStep[interleave];
+X      if (Ypos >= idesc.id_Height) Ypos = LeaveFirst[++interleave];
+X      }                                  
+X   }                                     
+X                                         
+XBOOL DoImage(fh)                         
+X   FILE *fh;                             
+X   {                                     
+X   register int index;
+X   register int colours;
+X   int Code;
+X   printf("Image #%ld encountered.\n", ImageNumber++);
+X   if (fread((char *)&idesc,1,9,fh) != 9)
+X      ERROR("Error reading image descriptor.\n");
+X   FlipWord(&idesc.id_Left);             
+X   FlipWord(&idesc.id_Top);              
+X   FlipWord(&idesc.id_Width);            
+X   FlipWord(&idesc.id_Height);           
+X   interleave = idesc.id_Info & 1L << 6;
+X   if (interleave) interleave = 1;       
+X   printf("Xpos from %d to %d, Ypos from %d to %d, %sinterlaced.\n",
+X      idesc.id_Left, idesc.id_Left + idesc.id_Width - 1,
+X      idesc.id_Top, idesc.id_Top + idesc.id_Height - 1,
+X      interleave ? "" : "not ");         
+X   if (idesc.id_Info & 1L << 7)          
+X      {                                  
+X      colours = 1L << ((idesc.id_Info & 7) + 1);
+X      printf("Local colour map contains %d entries.\n", colours);
+X      for (index = 0; index < colours; index++)
+X        if (fread(&LocalColourTable[index],1,3,fh) != 3)
+X            ERROR("......Error reading local colour\n");
+X      }                                  
+X   else                                  
+X      {                                  
+X      colours = 1L << ((gdesc.gd_ColInfo & 7) + 1);
+X      for (index=0; index<colours; index++)
+X        LocalColourTable[index]=GlobalColourTable[index];
+X      }                                  
+X   Xpos = Ypos = 0;                      
+X                                         
+X   {                                     
+X      int MaxCode, ClearCode, CurCode,   
+X          OldCode, InCode, FreeCode;     
+X      int OutCount;                      
+X      int FirstFree;                     
+X      UBYTE InitCodeSize, FinChar, BitMask;
+X      if ((CodeSize = fgetc(fh)) == -1)
+X         ERROR("\n......I/O Error during decompression.\n");
+X      ClearCode = 1L << CodeSize;        
+X      EOFCode = ClearCode + 1;           
+X      FreeCode = FirstFree = ClearCode + 2;
+X      CodeSize++;                        
+X      InitCodeSize = CodeSize;           
+X      MaxCode = 1L << CodeSize;          
+X      ReadError = ReadMask = OutCount = 0;
+X      CompDataPointer = CompDataCount = 0;
+X      BitMask = colours - 1;             
+X      Code = ReadCode(fh);               
+X      while (Code != EOFCode)            
+X         {                               
+X         if (ReadError) return TRUE;     
+X         if (Code == ClearCode)          
+X            {                            
+X            CodeSize = InitCodeSize;     
+X            MaxCode = 1L << CodeSize;    
+X            FreeCode = FirstFree;        
+X            FinChar = CurCode = OldCode = Code = ReadCode(fh);
+X            AddPixel(FinChar);           
+X            }                            
+X         else                            
+X            {                            
+X            CurCode = InCode = Code;     
+X            if (CurCode >= FreeCode)     
+X               {                         
+X               CurCode = OldCode;        
+X               OutCode[OutCount++] = FinChar;
+X               }                         
+X            while (CurCode > BitMask)    
+X               {                         
+X               if (OutCount > 1024)      
+X                  {                      
+X                  printf("\nCorrupt GIF file (OutCount)\n");
+X                  return TRUE;           
+X                  }                      
+X                  OutCode[OutCount++] = Suffix[CurCode];
+X                  CurCode = Prefix[CurCode];
+X               }                         
+X            FinChar = CurCode;           
+X            AddPixel(FinChar);           
+X            for (index = OutCount - 1; index >= 0; index--)
+X              AddPixel(OutCode[index]);
+X            OutCount = 0;                
+X            Prefix[FreeCode] = OldCode;
+X            Suffix[FreeCode] = FinChar;
+X            OldCode = InCode;            
+X            if (++FreeCode >= MaxCode)   
+X               {                         
+X               if (CodeSize < 12)        
+X                  {                      
+X                  CodeSize++;            
+X                  MaxCode <<= 1;         
+X                  }                      
+X               }                         
+X            }                            
+X         Code = ReadCode(fh);            
+X      }                                  
+X   }                                     
+X   if ((Code = fgetc(fh)) == -1) return TRUE;
+X   if (Code != 0) printf("Warning:  Unaligned packet.\n");
+X   return FALSE;                         
+X   }                                     
+X                                         
+X/* #define gx 79 */
+X/* #define gy 23 */
+X#define base 5                           
+X#define colors 16
+X
+Xchar *colortab[colors] =
+X   {".",",",":",";","+","=","i",")","I","T","L","H","O","X","8","#"};
+X                                         
+Xvoid show(name)
+X   char *name;
+X   {
+X   register int i,j,x,y;
+X   register int ix,iy,ii,jj;
+X   struct RGB colour;
+X   char Cbuf [1];
+X   int flag, cc, zz, dx, dy, z, dcnt, g, gc;
+X   x=y=ix=iy=dx=dy=i=j=zz=z=dcnt=g=0;
+X   gc=20;
+X   cc=1;
+X   dx=(idesc.id_Width<<base)/gx;
+X   dy=(idesc.id_Height<<base)/gy;
+X   do                                    
+X   {                                     
+X   printf("\n(v)iew (z Z)oom (c)opy (l,r,u,d)=PAN (g)rey (+)(-) (s)wap (1-4)=MIX (h)elp: ");
+X   while ((flag=getchar())==(char)10);
+X   if (flag == 'v' || flag == 'z' || flag == 'Z' ||
+X       flag == 'l' || flag == 'h' || flag == 'c' ||
+X       flag == 'r' || flag == 'u' || flag == 'd' || flag == 's' ||
+X       flag == 'g' || flag == 'G' || flag == '1' || flag == '2' ||
+X       flag == '3' || flag == '4' || flag == '+' || flag == '-'); else return;
+X   if (flag=='v')cc=1;
+X   if (flag=='1'){cc=1; printf("\nDefault Mix\n");}
+X   if (flag=='2'){cc=2; printf("\nRed Mix Blocked\n");}
+X   if (flag=='3'){cc=3; printf("\nGreen Mix Blocked\n");}
+X   if (flag=='4'){cc=4; printf("\nBlue Mix Blocked\n");}
+X   if (flag=='g'){cc=5; printf("\nAssuming This Is A Grey Scale Gif\n");}
+X   if (flag=='+'){cc=5; gc+=5; printf("\nRaising Sensitivity To %d, Assuming This Is A Grey Scale Gif\n", gc);}
+X   if (flag=='-'){cc=5; gc-=5; printf("\nLowering Sensitivity To %d Assuming This Is A Grey Scale Gif\n", gc);}
+X   if (flag=='s'){cc=5;if (g==0)g=1; else g=0; printf("\nSwapping Background For Grey Scale Gif, Assuming This Is A Grey Scale Gif\n");}
+X   if (flag=='c'){
+X      printf("\nAppending copy of screen to file ascgifs\n");
+X      if (!(CAPT = fopen("ascgifs","a"))) ERROR("Open error\n");
+X      Cbuf[0] = 10;
+X      if(fwrite(Cbuf,1,1,CAPT) != 1)
+X         ERROR("Unable to write to ascgifs.\n");
+X      if(fwrite(name,1,strlen(name),CAPT) != strlen(name))
+X          ERROR("Unable to write to ascgifs.\n");
+X      }
+X   if (flag=='u'){if(iy>=dy*gy/4) iy=iy-dy*gy/4;};
+X   if (flag=='d'){if(iy+dy*gy+2*dy<((idesc.id_Height)<<base)) iy=iy+dy*gy/4;};
+X   if (flag=='z'){
+X      dx>>=1;                            
+X      dy>>=1;
+X      ix=ix+dx*gx/2;
+X      iy=iy+dy*gy/2;
+X      };
+X   if (flag=='Z'){
+X      dx=(idesc.id_Width<<base)/gx;
+X      dy=(idesc.id_Height<<base)/gy;
+X      ix=0;
+X      iy=0;
+X      };
+X   if (flag=='r'){if(ix+dx*gx+2*dx<((idesc.id_Width)<<base)) ix=ix+dx*gx/4;};
+X   if (flag=='l'){if(ix>=dx*gx/4) ix=ix-dx*gx/4;};
+X   y=iy;
+X   if (zz == 0){
+X      colour=LocalColourTable[BitPlane[(y>>base)+idesc.id_Top]
+X                       [(x>>base)+idesc.id_Left]];
+X      zz=(colour.rgb_Red+colour.rgb_Green+colour.rgb_Blue)/3;
+X   }
+X   if (flag == 'h'){
+X   printf("\nv = View The Gif\n");
+X   printf("z = Zoom In On The Center\n");
+X   printf("Z = Zoom Out To Normal Size\n");
+X   printf("c = Capture screen\n");
+X   printf("l = Pan Left\n");
+X   printf("r = Pan Right\n");
+X   printf("u = Pan Up\n");
+X   printf("d = Pan Down\n");
+X   printf("g = Display A Grey Scale Gif, Use Only With A Grey Scale Gif\n");
+X   printf("+ = Raise Sensitivity For A Grey Scale Gif\n");
+X   printf("- = Lower Sensitivity For A Grey Scale Gif\n");
+X   printf("s = Swap Background For Grey Scale Gif From/To Black/White\n");
+X   printf("1 = Default Mix\n");
+X   printf("2 = Red Mix Blocked\n");
+X   printf("3 = Green Mix Blocked\n");
+X   printf("4 = Blue Mix Blocked\n");
+X   printf("Any other character will quit\n");
+X   }
+X   else {
+X   for (j=0; j<gy; j++)
+X      {
+X      if (flag== 'c'){
+X        Cbuf[0] = 10;
+X        if(fwrite(Cbuf,1,1,CAPT) != 1)
+X          ERROR("Unable to write to ascgifs.\n");
+X      }
+X      printf("\n");
+X      x=ix;
+X      for (i=0; i<gx; i++)
+X         {                               
+X         if (cc==5){
+X          dcnt=0;
+X           for (jj=y; jj-y<dy; jj+=4){
+X              for (ii=x; ii-x<dx; ii+=4){
+X                colour=LocalColourTable[BitPlane[(jj>>base)+idesc.id_Top]
+X                                             [(ii>>base)+idesc.id_Left]];
+X                z=(colour.rgb_Red+colour.rgb_Green+colour.rgb_Blue)/3;
+X                if (g == 1){
+X                  if (zz==z)dcnt++;}
+X                else if (zz!=z) dcnt++;
+X              }
+X           };
+X           z=dcnt/(dx/gc+dy/gc);
+X           if (z<1)z=1;
+X           if (z>256)z=256;
+X         }
+X         else {
+X          colour=LocalColourTable[BitPlane[(y>>base)+idesc.id_Top]
+X                                         [(x>>base)+idesc.id_Left]];
+X          if (cc==2){
+X            z=(colour.rgb_Green+colour.rgb_Blue)/2;}
+X          else if (cc==3){
+X                 z=(colour.rgb_Red+colour.rgb_Blue)/2;}
+X              else if (cc==4){
+X                      z=(colour.rgb_Red+colour.rgb_Green)/2;}
+X                   else {
+X                        z=(colour.rgb_Red+colour.rgb_Green+colour.rgb_Blue)/3;
+X                        };
+X         }
+X         if (flag=='c'){
+X           Cbuf[0] = *colortab[(z+gc-20)*colors/0x100];
+X           if(fwrite(Cbuf,1,1,CAPT) != 1)
+X             ERROR("Unable to write to ascgifs.\n");
+X         }
+X         printf(colortab[(z+gc-20)*colors/0x100]);
+X         x+=dx;
+X         if (x<0)return;
+X      }
+X      y+=dy;                             
+X      }
+X      }
+X   if (flag== 'c') fclose(CAPT);
+X   } while (TRUE);
+X   }                                     
+X                                         
+Xmain(argc,argv)                          
+X   int argc;
+X   char *argv[];
+X   {                                     
+X   register int index;
+X   char sig[7];
+X   int size;
+X   int error;                            
+X   int colours;                          
+X   long cmdcode;                         
+X   if (argc < 2) ERROR("ascgif(1.6) use: ascgif name.gif <output width> <output height>\n");
+X   if (!(GIFfh = fopen(argv[1],"r"))) ERROR("Open error\n"); /*"rb" for pc, "r" for SOME mainframes */
+X   if (argc > 2){
+X     if (!(gx=atoi(argv[2]))) ERROR("3rd parameter not numeric, (width)\n");
+X     if (!(gy=atoi(argv[3]))) ERROR("4th parameter not numeric, (height)\n");
+X     }
+X   else { gx = 79;
+X          gy = 23;
+X        };
+X   sig[6] = '\0';
+X   if (fread(sig,1,6,GIFfh) != 6 || strcmp("GIF87a", sig))
+X      ERROR("Not an 87a GIF file...\n");
+X   if (fread((char *)&gdesc,1,7,GIFfh) != 7)
+X      ERROR("Error reading screen descriptor\n");
+X   FlipWord(&gdesc.gd_Width);
+X   FlipWord(&gdesc.gd_Height);           
+X   printf("Ascgif Ver 1.6\n");
+X   printf("Signature = \"%s\", Width = %u, Height = %u\n",
+X      sig, gdesc.gd_Width, gdesc.gd_Height);
+X   colours = 1L << ((gdesc.gd_ColInfo & 7) + 1);
+X   if (!(gdesc.gd_ColInfo & 1L << 7))    
+X      {                                  
+X      printf("No global colour map supplied, using internal.\n");
+X      for (index = 0; index < colours; index++)
+X         {                               
+X         GlobalColourTable[index].rgb_Red   =
+X         GlobalColourTable[index].rgb_Green =
+X         GlobalColourTable[index].rgb_Blue  = index;
+X         }                               
+X      }                                  
+X   else                                  
+X      {                                  
+X      printf("Global colour map contains %d entries.\n", colours);
+X      for (index = 0; index < colours; index++)
+X         if (fread(&GlobalColourTable[index],1,3,GIFfh) != 3)
+X            ERROR("Error reading global colour\n");
+X      }
+X   size = ((gdesc.gd_Width + 7) / 8) + 1;
+X   size += (size + 127) >> 7;
+X   if (!(BitPlane = (UBYTE **)malloc(gdesc.gd_Height * sizeof(UBYTE *))))
+X      ERROR("Not enough memory\n");
+X   size = (gdesc.gd_Width + 1) * sizeof(UBYTE);
+X   for (index = 0; index < gdesc.gd_Height; index++)
+X      if (!(BitPlane[index] = (UBYTE *)malloc(size)))
+X         ERROR("Not enough memory\n");
+X   ImageNumber = 1;
+X   for (error = FALSE; error == FALSE;)
+X      {
+X      if ((cmdcode = fgetc(GIFfh)) == -1) break;
+X      if (cmdcode ==
+X          GIF_IMAGE){
+X            error = DoImage(GIFfh);
+X            } else
+X      if (cmdcode ==
+X           GIF_EXTENSION){
+X            error = TRUE;                
+X           } else
+X      if (cmdcode ==
+X           GIF_TERMINATOR){
+X            show(argv[1]);
+X            break;
+X           }
+X           else {
+X            printf("Unknown directive encountered.\n");                         
+X            error = TRUE;                
+X           }
+X      }                                  
+X      printf("End of GIF session\n");    
+X      exit(0);                           
+X   } 
+X
+END_OF_FILE
+  if test 17535 -ne `wc -c <'ascgif.c'`; then
+    echo shar: \"'ascgif.c'\" unpacked with wrong size!
+  fi
+  # end of 'ascgif.c'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

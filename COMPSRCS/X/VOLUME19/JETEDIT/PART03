@@ -1,0 +1,1612 @@
+Newsgroups: comp.sources.x
+From: duane@blacks.jpl.nasa.gov (Duane Clark)
+Subject: v19i082:  Jetedit - A Motif text editor, Part03/04
+Message-ID: <1993Apr8.144500.20324@sparky.imd.sterling.com>
+X-Md4-Signature: f5ab1f656dcb443254cab600032e05fc
+Date: Thu, 8 Apr 1993 14:45:00 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: duane@blacks.jpl.nasa.gov (Duane Clark)
+Posting-number: Volume 19, Issue 82
+Archive-name: Jetedit/part03
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  xmedialg.c xmemisc.c
+# Wrapped by duane@blacks.jpl.nasa.gov on Sat Apr  3 20:04:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xmedialg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmedialg.c'\"
+else
+echo shar: Extracting \"'xmedialg.c'\" \(22684 characters\)
+sed "s/^X//" >'xmedialg.c' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***     
+X***	file:		xmedialg.c
+X***
+X***	project:	jetedit - Motif Widgets text editor
+X***
+X***-------------------------------------------------------------------*/
+X
+X#include "xme.h"
+X
+X#define DIALOG_FSELECT		300
+X#define DIALOG_OWARNING		301
+X#define DIALOG_NWARNING		302
+X#define DIALOG_CWARNING		303
+X#define DIALOG_XWARNING		304
+X#define DIALOG_NEW		305
+X#define DIALOG_SAVE_AS		306
+X#define DIALOG_HELP		307
+X#define DIALOG_PRINT		308
+X#define DIALOG_GOTO		309
+X#define DIALOG_FIND		310
+X#define DIALOG_F_EXISTS		311
+X#define DIALOG_F_MODE		312
+X#define DIALOG_EXISTS_AS	313
+X#define DIALOG_PREF		314
+X
+Xextern char warningBits[];
+X
+Xchar	find_help_string[] = "\n\
+X     Regular Expressions Quick Reference\n\
+X**********************************************\n\
+X  RE refers to a regular expression.\n\
+X^RE$         Anchor the beginning and end of a line.\n\
+X.            Matches any character.\n\
+X[...]        Brackets match any characters they contain,\n\
+X             unless the first character is ^, in which\n\
+X             case they match characters NOT contained.\n\
+X[a-e]        Matches a,b,c,d or e.\n\
+XRE*          Matches zero or more occurences of RE.\n\
+XRE\\{m,n\\}    Matches a minimum m and maximum n occurrences\n\
+X             of RE.\n\
+X**********************************************\n\
+XTo enter a Tab into the Find or Replace strings, type the Tab into the editor's main window, then copy it into the dialog.\n\
+X";
+X
+X/*-------------------------------------------------------------
+X**	DialogAcceptCB
+X**		Process callback from Dialog "Ok" actions.
+X*/
+Xvoid DialogAcceptCB (w, client_data, call_data) 
+XWidget 		w;		/*  widget id           */
+Xcaddr_t		client_data;	/*  data from application   */
+Xcaddr_t		call_data;	/*  data from widget class  */
+X{
+X    char	*command;	/* command used in printing */
+X    char	*goto_string=NULL;
+X    char	line_string[15];
+X    int		tfd;		/* temporary file descriptor */
+X    Arg		al[1];
+X    mode_t	mode_mask;
+X    struct stat statbuf;	/* Information on a file. */
+X    char	dir_string[120];
+X    int		i,j;
+X 
+X    switch ((int)client_data)
+X    {
+X    case DIALOG_FSELECT:
+X        /* open the file and read it into the text widget */
+X        thefile = NULL;
+X        {
+X        XmFileSelectionBoxCallbackStruct *fcb =
+X                (XmFileSelectionBoxCallbackStruct *) call_data;
+X
+X        /* get the thefile from the file selection box */
+X        XmStringGetLtoR(fcb->value, charset, &thefile);
+X        }
+X        /* Open file, print error if it does not exist. */
+X        if ((tfd = open(thefile, O_RDONLY)) == -1)  {
+X            XtUnmanageChild (open_dialog);
+X            XtManageChild (refused_dialog);
+X        }
+X        else {
+X            if (stat(thefile, &statbuf) == 0) {
+X                file_mode = statbuf.st_mode;
+X                if (S_ISDIR(file_mode)) {
+X                    /* This stuff allows directory traversal under Motif1.0 */
+X                    strcpy(dir_string, thefile);
+X                    i=strlen(dir_string);
+X                    if (dir_string[i-1]=='.') {
+X                        if (dir_string[i-2]=='.') {
+X                            j=i-4;
+X                            while (dir_string[j]!='/' && j>=0)
+X                                j--;
+X                            if (j>=0)
+X                                dir_string[j+1] = '\0';
+X                            else
+X                                dir_string[i-2] = '\0';
+X                        }
+X                        else dir_string[i-1] = '\0';
+X                    }
+X                    else 
+X                        strcat(dir_string, "/");
+X                    XmFileSelectionDoSearch(open_dialog,
+X                      XmStringCreateLtoR(dir_string, charset)); 
+X                }
+X                if (S_ISREG(file_mode)) {
+X                    XtUnmanageChild (open_dialog);
+X                    OpenFile(tfd);
+X                   /* close up the file */
+X                    if (close(tfd) != NULL) 
+X                        strcat (message_string, 
+X                        "  \7Warning: unable to close file.");
+X                }
+X            }
+X        }
+X        break;
+X
+X    case DIALOG_OWARNING:
+X        /* save the file */
+X        if (SaveFile()) {
+X            CloseFile(); /* close the file */
+X            file_saved = True; /* reset the default */
+X        }
+X        break;
+X
+X    case DIALOG_NEW:
+X        /* Open the file and read it into the text widget. */
+X        if (thefile != NULL) {
+X            oldfile = XtMalloc (strlen (thefile) + 1);
+X            strcpy (oldfile, thefile);
+X            thefile = NULL;
+X        }
+X        {
+X        XmSelectionBoxCallbackStruct *scb =
+X            (XmSelectionBoxCallbackStruct *) call_data;
+X
+X        /* get thefile string from the file name prompt box */
+X        XmStringGetLtoR(scb->value, charset, &thefile);
+X        }
+X        XtUnmanageChild (new_dialog);
+X        if ((tfd = open (thefile, O_RDONLY)) == -1) {
+X            XtFree (oldfile);
+X            no_undo = True;
+X            XmTextSetString (text, "");
+X            no_undo = False;
+X            file_saved = True;
+X            
+X            lines = 1;
+X            sprintf (line_string, " Line:  %4d", lines);
+X            XtSetArg(al[0], XmNlabelString, 
+X                XmStringCreateLtoR(line_string, charset));
+X            XtSetValues(line, al, 1);
+X            
+X            mode_mask = umask(0);
+X            umask(mode_mask);
+X            file_mode = ((S_IFREG | 0777) & ~mode_mask);
+X            file_user = UID_NO_CHANGE;
+X            file_group = GID_NO_CHANGE;
+X            
+X            XtSetSensitive(text, True);
+X            XtSetSensitive(cut_button, True);
+X            XtSetSensitive(copy_button, True);
+X            XtSetSensitive(paste_button, True);
+X            XtSetSensitive(find_button, True);
+X            XtSetSensitive(goto_button, True);
+X            InitUndoBuffer();
+X            
+X            sprintf (message_string, " Editing:  %s", thefile);
+X            XtSetArg(al[0], XmNlabelString, 
+X                XmStringCreateLtoR(message_string, charset));
+X            XtSetValues(message, al, 1);
+X        }
+X        else {
+X            close (tfd);
+X            XtManageChild (file_exists_dialog);
+X        }
+X        break;
+X
+X    case DIALOG_NWARNING:
+X        /* save the file */
+X        if (SaveFile()) {
+X            CloseFile(); /* close the file */
+X            file_saved = True; /* reset the default */
+X        }
+X        break;
+X
+X    case DIALOG_F_EXISTS:
+X        XtFree (oldfile);
+X        XmTextSetString (text, "");
+X        XtSetSensitive(text, True);
+X        XtSetSensitive(cut_button, True);
+X        XtSetSensitive(copy_button, True);
+X        XtSetSensitive(paste_button, True);
+X        XtSetSensitive(find_button, True);
+X        XtSetSensitive(goto_button, True);
+X        file_saved = True; /* reset the default */
+X        sprintf (message_string, " Editing:  %s", thefile);
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(message_string, charset));
+X        XtSetValues(message, al, 1);
+X        break;
+X
+X    case DIALOG_CWARNING:
+X        /* save the file */
+X        if (SaveFile()) {
+X            CloseFile(); /* close the file */
+X            file_saved = True; /* reset the default */
+X            XtSetSensitive(text, False);
+X            XtSetSensitive(cut_button, False);
+X            XtSetSensitive(copy_button, False);
+X            XtSetSensitive(paste_button, False);
+X            XtSetSensitive(find_button, False);
+X            XtSetSensitive(goto_button, False);
+X            sprintf (message_string, " Editing:");
+X            XtSetArg(al[0], XmNlabelString, 
+X                XmStringCreateLtoR(message_string, charset));
+X            XtSetValues(message, al, 1);
+X        }
+X        break;
+X
+X    case DIALOG_XWARNING:
+X        /* save the file */
+X        if (SaveFile()) {
+X            CloseFile(); /* close the file */
+X            CloseUndoBuffer ();
+X            exit(0);
+X        }
+X        break;
+X
+X    case DIALOG_SAVE_AS:
+X        /* open the file and read it into the text widget */
+X        if (thefile != NULL) {
+X            oldfile = XtMalloc (strlen (thefile) + 1);
+X            strcpy (oldfile, thefile);
+X            thefile = NULL;
+X        }
+X        {
+X        XmSelectionBoxCallbackStruct *scb =
+X            (XmSelectionBoxCallbackStruct *) call_data;
+X
+X        /* get the thefile string from the file name prompt box */
+X        XmStringGetLtoR(scb->value, charset, &thefile);
+X        }
+X        XtUnmanageChild (save_as_dialog);
+X        if ((tfd = open (thefile, O_RDONLY)) == -1) {
+X            XtFree (oldfile);
+X            SaveFile();
+X        }
+X        else {
+X            close (tfd);
+X            XtManageChild (exists_as_dialog);
+X        }
+X        break;
+X
+X    case DIALOG_EXISTS_AS:
+X        XtFree (oldfile);
+X        SaveFile();
+X        break;  
+X    
+X    case DIALOG_F_MODE:
+X        break;
+X    
+X    case DIALOG_GOTO:
+X        {
+X        XmSelectionBoxCallbackStruct *scb =
+X                (XmSelectionBoxCallbackStruct *) call_data;
+X
+X        /* get the find string from the prompt box */
+X        XmStringGetLtoR(scb->value, charset, &goto_string);
+X        GotoString(goto_string);
+X        }
+X        break;
+X
+X    case DIALOG_HELP:
+X        /* no help at this time */
+X        break;
+X
+X    default:
+X        /* unknown callback type */
+X        fprintf (stderr, "\7Warning: in accept callback\n");
+X        break;
+X    }
+X}
+X
+X
+X
+X/*-------------------------------------------------------------
+X**	DialogApplyCB
+X**		Process callback from Dialog "Discard" actions.
+X*/
+Xvoid DialogApplyCB (w, client_data, call_data) 
+XWidget		w;		/*  widget id			*/
+Xcaddr_t		client_data;	/*  data from application	*/
+Xcaddr_t		call_data;	/*  data from widget class	*/
+X{
+X    char *command;		/* command used in printing */
+X
+X    switch ((int)client_data)
+X    {
+X        case DIALOG_OWARNING:
+X            CloseFile();
+X            file_saved = True;
+X            XtUnmanageChild (open_warning);
+X            break;
+X
+X        case DIALOG_NWARNING:
+X            CloseFile();
+X            file_saved = True;
+X            XtUnmanageChild (new_warning);
+X            break;
+X
+X        case DIALOG_CWARNING:
+X            CloseFile();
+X            file_saved = True;
+X            XtUnmanageChild (close_warning);
+X            break;
+X
+X        case DIALOG_XWARNING:
+X            CloseFile();
+X            CloseUndoBuffer();
+X            XtUnmanageChild (exit_warning);
+X            exit();
+X            break;          
+X
+X        default:
+X            /* unknown client_data was recieved and
+X               there is no setup to handle this */
+X            fprintf (stderr, "\7Warning: in apply callback\n");
+X            break;
+X
+X    }
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**	DialogCancelCB
+X**		Process callback from Dialog "Cancel" actions.
+X*/
+Xvoid DialogCancelCB (w, client_data, call_data) 
+XWidget		w;		/*  widget id           */
+Xcaddr_t		client_data;	/*  data from application   */
+Xcaddr_t		call_data;	/*  data from widget class  */
+X{
+X    int  theerror;
+X    
+X    switch ((int)client_data)
+X    {
+X        case DIALOG_FSELECT:
+X        case DIALOG_OWARNING:
+X            /* popdown the file selection box */
+X            XtUnmanageChild (open_dialog);
+X            break;
+X
+X        case DIALOG_NWARNING:
+X            /* popdown the file selection box */
+X            XtUnmanageChild (new_dialog);
+X            break;
+X        case DIALOG_F_EXISTS:
+X        case DIALOG_EXISTS_AS:
+X            strcpy (thefile, oldfile);
+X            XtFree (oldfile);
+X            break;
+X            
+X        case DIALOG_F_MODE:
+X            chmod (thefile, file_mode);
+X            CloseFile();
+X            file_saved = True;
+X            break;
+X        
+X        case DIALOG_GOTO:
+X            XtUnmanageChild (goto_dialog);
+X            break;
+X        
+X        case DIALOG_CWARNING:
+X        case DIALOG_XWARNING:
+X        case DIALOG_NEW:
+X        case DIALOG_SAVE_AS:
+X        case DIALOG_HELP:
+X            /* no action is necessary at this time */
+X            break;
+X
+X        default:
+X            /* a unknown client_data was recieved and
+X               there is no setup to handle this */
+X            fprintf (stderr, "\7Warning: in cancel callback\n");
+X            break;
+X    }
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**	CreateMenuDialogs
+X**		Create the popup dialogs.
+X*/
+Xvoid CreateMenuDialogs (menu_bar)
+XWidget menu_bar;
+X{
+X    Arg		al[10];
+X    Cardinal	ac;
+X    XImage 	*image;         /*  image for warning pixmap    */
+X    Widget	button;
+X 
+X
+X    image = CreateDefaultImage (warningBits, 32, 32);
+X    XmInstallImage (image, "warning_image");
+X                                        
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdirMask, ""); ac++;
+X    XtSetArg(al[ac], XmNwidth, 220); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("File Selection", charset));  ac++;
+X    open_dialog = XmCreateFileSelectionDialog(menu_bar,
+X            "file selection dialog", al, ac);
+X    XtAddCallback (open_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_FSELECT);
+X    XtAddCallback (open_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_FSELECT);
+X    button = XmFileSelectionBoxGetChild (open_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Open Warning", charset));  ac++;
+X    open_warning = CreateSpecialWarningDialog(menu_bar, "open warning",
+X            "warning_image", "Save Changes?", al, ac);
+X    XtAddCallback (open_warning, XmNapplyCallback,
+X            DialogApplyCB, DIALOG_OWARNING);
+X    XtAddCallback (open_warning, XmNokCallback,
+X            DialogAcceptCB, DIALOG_OWARNING);
+X    XtAddCallback (open_warning, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_OWARNING);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X           ("Enter name of new file (including complete path).", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("New File", charset));  ac++;
+X    new_dialog = XmCreatePromptDialog(menu_bar,
+X           "new file dialog", al, ac);
+X    XtAddCallback (new_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_NEW);
+X    XtAddCallback (new_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_NEW);
+X    button = XmSelectionBoxGetChild (new_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("New Warning", charset));  ac++;
+X    new_warning = CreateSpecialWarningDialog(menu_bar, "new_warning",
+X           "warning_image", "Save Changes?", al, ac);
+X    XtAddCallback (new_warning, XmNapplyCallback,
+X           DialogApplyCB, DIALOG_NWARNING);
+X    XtAddCallback (new_warning, XmNokCallback,
+X           DialogAcceptCB, DIALOG_NWARNING);
+X    XtAddCallback (new_warning, XmNcancelCallback,
+X           DialogCancelCB, DIALOG_NWARNING);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X           ("This file already exists.", charset));  ac++;
+X    XtSetArg(al[ac], XmNokLabelString,
+X         XmStringCreateLtoR("Overwrite", charset)); ac++;
+X    XtSetArg(al[ac], XmNdefaultButtonType, XmDIALOG_CANCEL_BUTTON);  ac++;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("File Exists Warning", charset));  ac++;
+X    file_exists_dialog = XmCreateWarningDialog(menu_bar,
+X           "file exists dialog", al, ac);
+X    XtAddCallback (file_exists_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_F_EXISTS);
+X    XtAddCallback (file_exists_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_F_EXISTS);
+X    button = XmMessageBoxGetChild (file_exists_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Close Warning", charset));  ac++;
+X    close_warning = CreateSpecialWarningDialog(menu_bar, "close_warning",
+X           "warning_image", "Save Changes?", al, ac);
+X    XtAddCallback (close_warning, XmNapplyCallback,
+X           DialogApplyCB, DIALOG_CWARNING);
+X    XtAddCallback (close_warning, XmNokCallback,
+X           DialogAcceptCB, DIALOG_CWARNING);
+X    XtAddCallback (close_warning, XmNcancelCallback,
+X           DialogCancelCB, DIALOG_CWARNING);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X           ("Save As...", charset));  ac++;
+X    XtSetArg(al[ac], XmNtextString, XmStringCreateLtoR
+X           (thefile, charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Save As", charset));  ac++;
+X    save_as_dialog = XmCreatePromptDialog(menu_bar, "save as dialog", al, ac);
+X    XtAddCallback (save_as_dialog, XmNokCallback,
+X           DialogAcceptCB, DIALOG_SAVE_AS);
+X    button = XmSelectionBoxGetChild (save_as_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X           ("This file already exists.", charset));  ac++;
+X    XtSetArg(al[ac], XmNokLabelString,
+X         XmStringCreateLtoR("Overwrite", charset)); ac++;
+X    XtSetArg(al[ac], XmNdefaultButtonType, XmDIALOG_CANCEL_BUTTON);  ac++;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("File Exists Warning", charset));  ac++;
+X    exists_as_dialog = XmCreateWarningDialog(menu_bar,
+X           "file exists as dialog", al, ac);
+X    XtAddCallback (exists_as_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_EXISTS_AS);
+X    XtAddCallback (exists_as_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_EXISTS_AS);
+X    button = XmMessageBoxGetChild (exists_as_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X           ("This file does not have write permission.", charset));  ac++;
+X    XtSetArg(al[ac], XmNokLabelString,
+X         XmStringCreateLtoR("Continue", charset)); ac++;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Permission Warning", charset));  ac++;
+X    file_mode_dialog = XmCreateWarningDialog(menu_bar,
+X           "file mode dialog", al, ac);
+X    XtAddCallback (file_mode_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_F_MODE);
+X    XtAddCallback (file_mode_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_F_MODE);
+X    button = XmMessageBoxGetChild (file_mode_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X    XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X           ("Access permission Denied.", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Refused Warning", charset));  ac++;
+X    refused_dialog = XmCreateMessageDialog(menu_bar, "refused", al, ac);
+X    button = XmMessageBoxGetChild (refused_dialog, XmDIALOG_CANCEL_BUTTON);
+X    XtUnmanageChild (button);
+X    button = XmMessageBoxGetChild (refused_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Exit Warning", charset));  ac++;
+X    exit_warning = CreateSpecialWarningDialog(menu_bar, "exit_warning",
+X          "warning_image", "Save Changes?", al, ac);
+X    XtAddCallback (exit_warning, XmNapplyCallback,
+X        DialogApplyCB, DIALOG_XWARNING);
+X    XtAddCallback (exit_warning, XmNokCallback,
+X        DialogAcceptCB, DIALOG_XWARNING);
+X
+X    ac = 0;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X    XtSetArg (al[ac], XmNautoUnmanage, False);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Find/Replace", charset));  ac++;
+X    find_dialog = CreateSpecialFindDialog(menu_bar,
+X         "Find", al, ac);
+X
+X    ac = 0;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Find Help", charset));  ac++;
+X    find_help_dialog = CreateSpecialHelpDialog(menu_bar, &find_help_text,
+X         "find_help", al, ac);
+X    XmTextSetString(find_help_text, find_help_string);
+X
+X    ac = 0;
+X    XtSetArg(al[ac], XmNselectionLabelString,
+X        XmStringCreateLtoR ("Go to line:", charset));  ac++;
+X    XtSetArg(al[ac], XmNcancelLabelString,
+X        XmStringCreateLtoR ("Done", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X    XtSetArg (al[ac], XmNautoUnmanage, False);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("GoTo", charset));  ac++;
+X    goto_dialog = XmCreatePromptDialog(menu_bar,
+X           "goto dialog", al, ac);
+X    XtAddCallback (goto_dialog, XmNokCallback,
+X            DialogAcceptCB, DIALOG_GOTO);
+X    XtAddCallback (goto_dialog, XmNcancelCallback,
+X            DialogCancelCB, DIALOG_GOTO);
+X    button = XmSelectionBoxGetChild (goto_dialog, XmDIALOG_HELP_BUTTON);
+X    XtUnmanageChild (button);
+X
+X    ac = 0;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Preferences", charset));  ac++;
+X    prefer_dialog = CreatePreferencesDialog(menu_bar,
+X         "preferences", al, ac);
+X
+X    ac = 0;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNdialogTitle, 
+X        XmStringCreateLtoR("Preferences Help", charset));  ac++;
+X    help_dialog = CreateSpecialHelpDialog(menu_bar, &help_text,
+X         "help", al, ac);
+X}
+X
+END_OF_FILE
+if test 22684 -ne `wc -c <'xmedialg.c'`; then
+    echo shar: \"'xmedialg.c'\" unpacked with wrong size!
+fi
+chmod +x 'xmedialg.c'
+# end of 'xmedialg.c'
+fi
+if test -f 'xmemisc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmemisc.c'\"
+else
+echo shar: Extracting \"'xmemisc.c'\" \(27127 characters\)
+sed "s/^X//" >'xmemisc.c' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***     
+X***	file:		xmemisc.c
+X***
+X***	project:	jetedit - Motif Widgets text editor
+X***
+X***-------------------------------------------------------------------*/
+X
+X#define  BUFFER  20	/* The number of commands that can be undone. */
+X#define  BUFSIZE 40	/* The default storage size for the undo data. */
+X#include "xme.h"
+X
+Xstruct UndoRecord {
+X    XmTextPosition  start_pos;
+X    XmTextPosition  end_pos;
+X    XmTextPosition  cursor_pos;
+X    char  *delete_string;
+X} UndoRecordPtr[BUFFER];
+X
+Xint	head, tail;
+X
+X/*--------------------------------------------------------------
+X**      OpenUndoBuffer
+X**              Initialize an array of UndoRecord structures.
+X*/
+Xvoid OpenUndoBuffer()
+X{
+X    int  i;
+X    
+X    for (i=0; i<BUFFER; i++) {
+X        UndoRecordPtr[i].delete_string = XtMalloc (BUFSIZE);
+X        (UndoRecordPtr[i].delete_string)[0] = '\0';
+X        UndoRecordPtr[i].start_pos = 0;
+X        UndoRecordPtr[i].end_pos = 0;
+X        UndoRecordPtr[i].cursor_pos = 0;
+X    }
+X    head = 0;
+X    tail = 0;
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      InitUndoBuffer
+X**              Reinitialize the array of UndoRecord structures.
+X*/
+Xvoid InitUndoBuffer()
+X{
+X    int  i;
+X    
+X    for (i=0; i<BUFFER; i++) {
+X        UndoRecordPtr[i].delete_string = 
+X              XtRealloc (UndoRecordPtr[i].delete_string, BUFSIZE);
+X        (UndoRecordPtr[i].delete_string)[0] = '\0';
+X        UndoRecordPtr[i].start_pos = 0;
+X        UndoRecordPtr[i].end_pos = 0;
+X        UndoRecordPtr[i].cursor_pos = 0;
+X    }
+X    head = 0;
+X    tail = 0;
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      CloseUndoBuffer
+X**              Deallocate the string arrays.
+X*/
+Xvoid CloseUndoBuffer()
+X{
+X    int  i;
+X    
+X    XtSetSensitive(undo_button, False);
+X    for (i=0; i<BUFFER; i++)
+X        XtFree (UndoRecordPtr[i].delete_string);
+X}
+X    
+X    
+X/*--------------------------------------------------------------
+X**      UndoStoreCB
+X**              Store an UndoRecord structure.
+X*/
+Xvoid UndoStoreCB (w, client_data, call_data)
+XWidget	w;
+Xcaddr_t	client_data;
+Xcaddr_t	call_data;
+X{
+X    XmTextVerifyCallbackStruct *cb = (XmTextVerifyCallbackStruct *) call_data;
+X    XmTextPosition	startpos, endpos;
+X    char	*deltext;	/* text being deleted */
+X    char	*thestring;	/* the complete text in the text widget */
+X    int		textl;		/* the length of the text to be inserted */
+X    long	i, j;
+X    Arg		al[1];
+X    int		newlines;
+X    
+X    if (no_undo) return;	/* a flag indicating to not store an undo record */
+X    
+X    if (file_saved) {
+X        file_saved = False;
+X        XtSetSensitive(save_button, True);
+X        sprintf (message_string, " Editing:  %s", thefile);
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(message_string, charset));
+X        XtSetValues(message, al, 1);
+X    }
+X    XtSetSensitive(undo_button, True);
+X    head++;
+X    if (head >= BUFFER) 
+X        head = 0;
+X    if (head == tail) {
+X        tail++;
+X        if (tail >= BUFFER)
+X            tail = 0;
+X    }
+X    
+X    startpos = cb->startPos;
+X    endpos   = cb->endPos;
+X    textl  = cb->text->length;
+X    thestring = cb->text->ptr;
+X    deltext = UndoRecordPtr[head].delete_string;
+X    deltext[0] = '\0';
+X    UndoRecordPtr[head].cursor_pos = cb->currInsert;
+X    UndoRecordPtr[head].start_pos = startpos;
+X    UndoRecordPtr[head].end_pos = startpos + textl;
+X
+X    newlines = 0;
+X    if (textl) {     /* text is being inserted */
+X        for (i=0; i<textl; i++)
+X            if (thestring[i] == '\n')
+X                newlines++;
+X    }
+X    if (endpos != startpos) {	  /* text is being deleted */
+X        if (endpos - startpos + 1 > BUFSIZE) {
+X            deltext = XtRealloc 
+X                  (UndoRecordPtr[head].delete_string, endpos - startpos +1);
+X            UndoRecordPtr[head].delete_string = deltext;
+X        }
+X        thestring = XmTextGetString(w);
+X        j=0;
+X        for (i=startpos; i<endpos; i++,j++) {
+X            deltext[j] = thestring[i];
+X            if (deltext[j] == '\n')
+X                newlines--;
+X        }
+X        deltext[j] = '\0';
+X        XtFree(thestring);
+X    }
+X    
+X    if (newlines) {
+X        /* update the line number message */
+X        lines += newlines;
+X        sprintf (message_string, " Line:  %4d", lines);
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(message_string, charset));
+X        XtSetValues(line, al, 1);
+X    }
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      Undo
+X**              Restore previous condition from an UndoRecord Structure.
+X*/
+Xvoid Undo(event)
+XXKeyEvent *event;
+X{
+X    XmTextPosition startpos;
+X    XmTextPosition endpos;
+X    char	*thestring;
+X    int		length, j, newlines;
+X    char 	*file_string;
+X    char	line_string[15];
+X    Arg		al[1];
+X    
+X    if (head == tail) return;
+X    no_undo = True;
+X    startpos = UndoRecordPtr[head].start_pos;
+X    endpos = UndoRecordPtr[head].end_pos;
+X    thestring = UndoRecordPtr[head].delete_string;
+X    length = strlen(thestring);
+X    
+X    XmTextReplace (text, startpos, endpos, thestring);
+X    if (length > 1)
+X        XmTextSetSelection(text, startpos, startpos+length, event->time+1);
+X    MoveTo(UndoRecordPtr[head].cursor_pos);
+X    
+X    file_string = (char *)XmTextGetString(text);
+X    newlines = 1;
+X    for (j=0; j<UndoRecordPtr[head].cursor_pos; j++)
+X        if(file_string[j] == '\n')
+X            newlines++;
+X    
+X    if (lines != newlines) {
+X        lines = newlines;
+X        /* update the line number message */
+X        sprintf (line_string, " Line:%5d", lines);
+X        XtSetArg(al[0], XmNlabelString, 
+X            XmStringCreateLtoR(line_string, charset));
+X        XtSetValues(line, al, 1);
+X    }
+X    XtFree (file_string);
+X    
+X    head--;
+X    if (head < 0)
+X        head = BUFFER - 1;
+X    if (head == tail)
+X        XtSetSensitive(undo_button, False);
+X    no_undo = False;
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      Indent
+X**              Insert tab stop or spaces as appropriate.
+X**		Return the number of characters inserted.
+X*/
+Xint Indent(file_string, cursorPos, fixCursor)
+Xchar    *file_string;
+XXmTextPosition cursorPos;
+XBoolean fixCursor;
+X{
+X    XmTextPosition linePos;
+X    int  	i,j;
+X    char 	theChar;
+X    int  	numSpaces;
+X    char 	insertionText[MAX_TAB_SPACES+1];
+X    Boolean	leading;	/* leading or trailing flag */
+X    
+X    /* if real tabs are selected, just insert and return */
+X    if (leading_tabs && trailing_tabs) {
+X        XmTextReplace(text, cursorPos, cursorPos, "\t");
+X        return(1);
+X    }
+X    
+X    /* FixCursor is a flag indicating this routine was called from
+X        the auto indenting routines in NewLine. NewLine sends only
+X        single lines of text in file_string rather than the entire
+X        file. */
+X    if (fixCursor)
+X        linePos = strlen (file_string);
+X    else linePos = cursorPos;
+X    
+X    /* We now figure out where to tab to. The first step is to move back
+X        to the first non-space character, counting spaces as we go. */
+X    numSpaces = 0;
+X    while (linePos-- > 0) {
+X        if (file_string[linePos] != ' ')
+X            break;
+X        numSpaces++;
+X    }
+X    
+X    /* If the first none space character is a newline, or we reach the 
+X        beginning of the string without finding anything but spaces,
+X        we are inserting a leading tab stop. */
+X    theChar = file_string[linePos];
+X    if ((theChar == '\n') || (linePos < 0))
+X        leading = True;
+X    
+X    /* else if the character was anything but '\t', we are 
+X        inserting a trailing tab. Determine the total number of
+X        characters on the line (stop counting if '\t' is encountered) */
+X    else if (theChar != '\t') {
+X        leading = False;
+X        numSpaces++;
+X        while (linePos-- > 0) {
+X            if ((file_string[linePos] == '\n') || (file_string[linePos] == '\t'))
+X                break;
+X            numSpaces++;
+X        }
+X    }
+X    
+X    /* else the character must have been '\t'. We check to see if there is anything
+X        but spaces or tabs back on the line. If there are, it's a trailing tab.
+X        If not, it's a leading tab. */
+X    else {
+X        while (linePos >= 0) {
+X            if ((file_string[linePos] != ' ') && (file_string[linePos] != '\t'))
+X                break;
+X            linePos--;
+X        }
+X        if ((file_string[linePos] == '\n') || (linePos < 0))
+X            leading = True;
+X        else leading = False;
+X    }
+X    
+X    if ((leading && leading_tabs) || (!leading && trailing_tabs)) {
+X        XmTextReplace(text, cursorPos, cursorPos, "\t");
+X        return(1);
+X    }
+X    
+X    /* Insert enough spaces to fill out to the next tab_spaces stop. */
+X    i = tab_spaces - (numSpaces % tab_spaces);
+X    for (j=0; j<i; j++)
+X        insertionText[j] = ' ';
+X    insertionText[i] = '\0';
+X    XmTextReplace(text, cursorPos, cursorPos, insertionText);
+X    return (i);
+X}
+X
+X
+X
+X/*--------------------------------------------------------------
+X**      Outdent
+X**              Delete to previous tab stop.
+X*/
+Xint Outdent(file_string, cursorPos, fixCursor)
+Xchar    *file_string;
+XXmTextPosition cursorPos;
+XBoolean fixCursor;
+X{
+X    XmTextPosition linePos;
+X    int  i;
+X    int  numSpaces;
+X    int  numNotabs;
+X    
+X    numSpaces=0;
+X    /* FixCursor is a flag indicating this routine was called from
+X        the auto indenting routines in NewLine. NewLine sends only
+X        single lines of text in file_string rather than the entire
+X        file. */
+X    if (fixCursor)
+X        linePos = strlen (file_string);
+X    else linePos = cursorPos;
+X    /* find previous none space */
+X    while (linePos > 0) {
+X        linePos--;
+X        if (file_string[linePos] != ' ')
+X            break;
+X        numSpaces++;
+X    }
+X    /* Now we determine the total number of characters in the line.
+X       We stop counting if we find a '\n' or '\t'. */
+X    numNotabs = numSpaces;
+X    if (file_string[linePos] != ' ') {
+X        while (linePos > 0) {
+X            if ((file_string[linePos] == '\n') || (file_string[linePos] == '\t'))
+X                break;
+X            numNotabs++;
+X            linePos--;		
+X        }
+X    }
+X    
+X    if (numNotabs) {
+X        i = numNotabs % tab_spaces;
+X        if (i == 0)
+X            i = tab_spaces;
+X        if (i > numSpaces)
+X            i = numSpaces;
+X    }
+X    else {
+X        if (file_string[linePos] == '\t')
+X            i=1;
+X        else i=0;
+X    }
+X
+X    if (i)
+X        XmTextReplace(text, cursorPos-i, cursorPos, "");
+X    return (i);
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      IndentText
+X**              Indent each line in a block of selected text
+X**		or at the cursor if no text selected.
+X*/
+Xvoid IndentText(w,event)
+XWidget	  w;
+XXKeyEvent *event;
+X{
+X    XmTextPosition cursorPos;
+X    XmTextPosition linePos;
+X    XmTextPosition endPos;
+X    XmTextPosition startPos;
+X    Arg  al[2];
+X    char *selString;			/* the selected block of text */
+X    char *file_string;
+X    int	 i;
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    /* get cursor position */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X    
+X    /* The cursor may be located at either the start or end of the
+X       selected block of text. */
+X    selString = NULL;
+X    if ((selString = XmTextGetSelection (text)) && strlen(selString)) {
+X        if (!strncmp (selString, file_string+cursorPos, strlen(selString))) {
+X            startPos = cursorPos;
+X            endPos = cursorPos + strlen (selString);
+X        }
+X        else {
+X            startPos = cursorPos - strlen (selString);
+X            endPos = cursorPos;
+X        }
+X        cursorPos = endPos;
+X        
+X        if (file_string[--cursorPos] == '\n')
+X            cursorPos--;	/* if last character is newline,
+X                                    move back one character */
+X        while (cursorPos >= startPos) {
+X            /* find start of line */
+X            while (file_string[cursorPos] != '\n' && cursorPos >= startPos)
+X                cursorPos--;
+X            linePos = cursorPos + 1;
+X            while (linePos < endPos) {
+X                if ((file_string[linePos] != ' ') && (file_string[linePos] != '\t'))
+X                    break;
+X                linePos++;
+X            }
+X            i = Indent (file_string, linePos, False);
+X            endPos += i;
+X            cursorPos --;
+X        }
+X        /* the widget apparently clears the selection at event->time,
+X           so we need to add one to get it to set a new selection */
+X        XmTextSetSelection (text, startPos, endPos, event->time+1);
+X        MoveTo(endPos);
+X    }
+X    else {
+X        Indent(file_string, cursorPos, False);
+X    }
+X    
+X    if (selString)
+X        XtFree(selString);
+X    XtFree (file_string);
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**      OutdentText
+X**              Outdent each line in a block of selected text
+X**		or at the cursor if no text selected.
+X*/
+Xvoid OutdentText(w,event)
+XWidget	  w;
+XXKeyEvent *event;
+X{
+X    XmTextPosition cursorPos;		/* text cursor position    */
+X    XmTextPosition endPos;
+X    XmTextPosition startPos;
+X    XmTextPosition oldPos;
+X    Arg  al[2];
+X    char *selString;			/* the selected block of text */
+X    char *file_string;
+X    char theChar;
+X    
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    /* get cursor position */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X    
+X    selString = NULL;
+X    if ((selString = XmTextGetSelection (text)) && strlen(selString)) {
+X        /*determine if cursor is at the beginning or end of selected block */
+X        if (!strncmp (selString, file_string+cursorPos, strlen(selString))) {
+X            startPos = cursorPos;
+X            endPos = cursorPos + strlen (selString);
+X        }
+X        else {
+X            startPos = cursorPos - strlen (selString);
+X            endPos = cursorPos;
+X        }
+X        cursorPos = endPos;
+X        
+X        if (file_string[--cursorPos] == '\n')
+X            cursorPos--;		/* if last character is \n, skip */
+X        while (cursorPos >= startPos) {
+X            /* find start of line */
+X            while (file_string[cursorPos] != '\n' && cursorPos >= startPos)
+X                cursorPos--;
+X            /* find first non space or tab */
+X            oldPos = cursorPos;
+X            while ((theChar = file_string[++cursorPos]) == '\t' || theChar == ' ')
+X                ;
+X            endPos -= Outdent(file_string, cursorPos, False);
+X            cursorPos = oldPos-1;
+X        }
+X        /* the widget apparently clears the selection at event->time,
+X           so we need to add one to get it to set a new selection */
+X        XmTextSetSelection (text, startPos, endPos, event->time+1);
+X    }
+X    else Outdent(file_string, cursorPos, False);
+X    
+X    if (selString)
+X        XtFree(selString);
+X    XtFree (file_string);
+X}
+X
+X
+X/*--------------------------------------------------------------
+X**	GetPrevLine
+X**		Get the previous line minus leading and trailing
+X**		spaces and tabs.
+X**
+X**		This routine alters the contents of file_string.
+X**		It returns a pointer to the
+X**		position in file_string of the first non whitespace
+X**		character of the first line before old_pos which is
+X**		not a comment line. This can be the line containing
+X**		old_pos. '\0's are put at the starting value of
+X**		old_pos and at the end of the returned line but
+X**		before trailing comments or whitespace.
+X**
+X**		On entry, old_pos points to the current insert point.
+X**		On exit, it points to the '\n' immediately preceding
+X**		the returned line. If there is no '\n', old_pos returns
+X**		-1.
+X**
+X**		text_pos returns the offset from 
+X**		the beginning of file_string of the beginning of
+X**		the returned string.
+X**
+X**		spacetab will contain a '\n' followed by the leading
+X**		whitespace and terminated with '\0'. This is for use
+X**		in indenting the next line to the same position as the 
+X**		previous one.
+X*/
+Xchar *GetPrevLine(file_string, old_pos, text_pos, spacetab)
+Xchar *file_string;
+Xlong *old_pos;
+Xlong *text_pos;
+Xchar *spacetab;
+X{
+X    char *trailing;
+X    long  i;
+X    char theChar;
+X    char *theLine;
+X    
+X    /* the while loop eliminates lines of only tabs, spaces & comments */
+X    i=0;
+X    while (*old_pos > 0) {
+X        /* get the line */
+X        file_string[*old_pos] = '\0';
+X        while (file_string[--(*old_pos)] != '\n') 
+X            if (*old_pos < 0) break;
+X        *text_pos = *old_pos;
+X        (*text_pos)++;
+X        /* save leading spaces and tabs */
+X        i=0;
+X        spacetab[i++] = '\n';
+X        while ((file_string[*text_pos] == ' ') || (file_string[*text_pos] == '\t')) {
+X            spacetab[i++] = file_string[*text_pos];
+X            (*text_pos)++;
+X        }
+X        /* strip the returned line of leading tabs & spaces */
+X        theLine = (char *)(file_string + *text_pos);
+X        /* if the line contains any characters, check for a comment line */
+X        if (theLine[0] != '\0') {
+X            /* break if this line is not a comment */
+X            if (theLine[0] != '*' && strncmp (theLine, "/*", 2))
+X                break;
+X        }
+X    }
+X    spacetab[i] = '\0';
+X    spacetab[i+1] = '\0';	/* used by NewLine */
+X
+X    /* delete trailing comments */
+X    if (trailing = strchr (theLine, '/'))
+X        if (trailing[1] == '*')
+X            trailing[0] = '\0';
+X    
+X    /* delete trailing spaces & tabs */
+X    i = strlen (theLine);
+X    while (((theChar = theLine[--i]) == ' ') || (theChar == '\t'))
+X        ;
+X    theLine[i+1] = '\0';
+X    return (theLine);
+X}
+X
+X/*--------------------------------------------------------------
+X**      InSwitch
+X**              Determine whether text_pos is in a switch.
+X*/
+XBoolean	InSwitch(file_string, text_pos)
+Xchar	*file_string;
+Xlong	text_pos;
+X{
+X    int 	close_brackets;
+X    char	*theLine;
+X    
+X    close_brackets = 0;
+X    while (text_pos-- > 0) {
+X        if (file_string[text_pos] == '}')
+X            close_brackets++;
+X        else if (file_string[text_pos] == '{') 
+X            if (close_brackets >= 0)
+X                close_brackets--;
+X            else 
+X                return False;
+X        else if (file_string[text_pos] == 's') {
+X            theLine = (char *)(file_string + text_pos);
+X            if (!strncmp (theLine, "switch", 6))
+X                return True;
+X        }
+X    }
+X    return False;
+X}
+X                
+X/*--------------------------------------------------------------
+X**      NewLine
+X**              Indent new line to appropriate syntax sensitive 
+X**		position.
+X*/
+Xvoid NewLine(w,event)
+XWidget	  w;
+XXKeyEvent *event;
+X{
+X    XmTextPosition cursorPos;       /* text cursor position    */
+X    Arg  	al[1];
+X    char 	*file_string;
+X    long 	textPos;
+X    long 	oldPos;
+X    char 	spacetab[100];
+X    char 	garbage[100];
+X    char 	*theLine;
+X    char 	*oldLine;
+X    char 	theChar;
+X    int  	i;
+X    Boolean	inFlag;
+X    char	line_string[15];
+X    
+X    /* get the cursor position */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    if ((indent_style==NONE) || (file_string[cursorPos-1] == '\n') || (cursorPos == 0)) {
+X        XmTextReplace(text, cursorPos, cursorPos, "\n");
+X        MoveTo(cursorPos+1);
+X        return;
+X    }
+X        
+X    oldPos = (long)cursorPos;
+X    theLine = GetPrevLine(file_string, &oldPos, &textPos, &spacetab[0]);
+X
+X    /* indent new line to position of previous line - smart indenting */
+X    XmTextReplace(text, cursorPos, cursorPos, spacetab);
+X    cursorPos += strlen (spacetab);
+X    if (indent_style == SMART) {
+X        MoveTo(cursorPos);
+X        return;
+X    }
+X    
+X    /* C syntax sensitive indenting. */
+X    /* if theLine is not empty, check whether to indent or outdent */
+X    if (i = strlen(theLine)) {
+X        if (theLine[i-1] != ';') {
+X            inFlag = False;
+X            switch (theLine[0]) {
+X            case 'c':
+X                if (!strncmp (theLine, "case", 4))
+X                    inFlag = True;
+X                break;
+X            case 'd':
+X                if (!strncmp (theLine, "do", 2))
+X                    inFlag = True;
+X                break;
+X            case 'e':
+X                if (!strncmp (theLine, "else", 4))
+X                    inFlag = True;
+X                break;
+X            case 'f':
+X                if (!strncmp (theLine, "for", 3))
+X                    inFlag = True;
+X                break;
+X            case 'i':
+X                if (!strncmp (theLine, "if", 2))
+X                    inFlag = True;
+X                break;
+X            case 's':
+X                if (!strncmp (theLine, "struct", 6))
+X                    inFlag = True;
+X                else if (!strncmp (theLine, "static", 6))
+X                    inFlag = True;
+X                else if (!strncmp (theLine, "switch", 6))
+X                    if (indent_case || open_brace != 2)
+X                        inFlag = True;
+X                break;
+X            case 't':
+X                if (!strncmp (theLine, "typedef", 7))
+X                    inFlag = True;
+X                break;
+X            case 'w':
+X                if (!strncmp (theLine, "while", 5))
+X                    inFlag = True;
+X                break;
+X            case '{':
+X                if (open_brace != 1 && theLine[1] == '\0') {
+X                    if (oldPos>0) {
+X                        theLine = GetPrevLine(file_string, &oldPos, &textPos, &garbage[0]);
+X                        if (indent_case || strncmp(theLine, "switch", 6))
+X                            inFlag = True;
+X                    }
+X                }
+X                break;
+X            case '}':
+X                if (close_brace == 1)
+X                    Outdent(spacetab, cursorPos, True);
+X                break;
+X            }
+X            if (inFlag)
+X                Indent (spacetab, cursorPos, True);
+X        }
+X        /* Else the previous line ends in a ';'. We need to check the line
+X        ** before it to decide whether to outdent.
+X        */
+X        else {
+X            /* outdent after a break when in a switch */
+X            if (!strncmp (theLine, "break", 5)) {
+X                if (InSwitch(file_string, oldPos))
+X                    Outdent (spacetab, cursorPos, True);
+X            }
+X            else if (oldPos>0) {
+X                theLine = GetPrevLine(file_string, &oldPos, &textPos, &garbage[0]);
+X                if (i = strlen(theLine))
+X                    switch (theLine[i-1]) {
+X                    case ';':
+X                    case ':':
+X                    case '{':
+X                    case '}':
+X                        break;
+X                    default:
+X                        Outdent (spacetab, cursorPos, True);
+X                        break;
+X                    }
+X            }
+X        }
+X    }
+X    XtFree (file_string);
+X}
+X    
+X/*--------------------------------------------------------------
+X**      LeftBrace
+X**              Outdent when a left brace is typed when using
+X**		syntax sensitive indenting and open_brace==0.
+X*/
+Xvoid LeftBrace(w,event)
+XWidget	  w;
+XXKeyEvent *event;
+X{
+X    XmTextPosition cursorPos;		/* text cursor position    */
+X    XmTextPosition thePos;
+X    long textPos;
+X    Arg  al[10];
+X    char *file_string;
+X    char spacetab[100];
+X    char *theLine;
+X    char theChar;
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    /* get cursor position */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X    XmTextReplace(text, cursorPos, cursorPos, "{");
+X    if ((indent_style==SYNTAX) && (open_brace == 0)) {
+X        /* we need to make sure this is the first character on the line to
+X            prevent outdenting { typed in comments */
+X        thePos = cursorPos;
+X        while (thePos > 0) {
+X            thePos--;
+X            if ((theChar = file_string[thePos]) == '\n') {
+X                Outdent (file_string, cursorPos, False);
+X                break;
+X            }
+X            else if (theChar != ' ' && theChar != '\t')
+X                break;
+X        }
+X    }
+X    XtFree (file_string);
+X}
+X
+X/*--------------------------------------------------------------
+X**      RightBrace
+X**              Outdent when a right brace is typed when using
+X**		syntax sensitive indenting and close_brace==0.
+X**		It's a little more complex if the right brace follows
+X**		a break.
+X*/
+Xvoid RightBrace(w,event)
+XWidget	  w;
+XXKeyEvent *event;
+X{
+X    XmTextPosition cursorPos;		/* text cursor position    */
+X    XmTextPosition thePos;
+X    long textPos;
+X    Arg  al[10];
+X    char *file_string;
+X    char spacetab[100];
+X    char *theLine;
+X    char theChar;
+X    
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    /* get cursor position */
+X    XtSetArg(al[0], XmNcursorPosition, &cursorPos);
+X    XtGetValues(text, al, 1);
+X    XmTextReplace(text, cursorPos, cursorPos, "}");
+X    if ((close_brace==0) && (indent_style==SYNTAX)) {
+X        thePos = cursorPos;
+X        while (thePos > 0) {
+X            thePos--;
+X            if ((theChar = file_string[thePos]) == '\n') {
+X                thePos = cursorPos;
+X                theLine = GetPrevLine(file_string, &thePos, &textPos, &spacetab[0]);
+X                if (strncmp(theLine, "break", 5)) {
+X                    XtFree (file_string);
+X                    file_string = (char *)XmTextGetString(text);
+X                    Outdent (file_string, cursorPos, False);
+X                }
+X                else {
+X                    if (indent_case || !InSwitch(file_string, thePos)) {
+X                        XtFree (file_string);
+X                        file_string = (char *)XmTextGetString(text);
+X                        Outdent (file_string, cursorPos, False);
+X                    }
+X                }
+X                break;
+X            }
+X            else if (theChar != ' ' && theChar != '\t')
+X                break;
+X        }
+X    }
+X    XtFree (file_string);
+X}
+X
+X/*-------------------------------------------------------------
+X**      Goto Line
+X*/
+Xvoid GotoString(goto_string)
+Xchar    *goto_string;
+X{
+X    char 	*file_string;
+X    XmTextPosition cursorPos;
+X    Arg		al[1];
+X    int		line_number;
+X    int		i;
+X    long	j;
+X    long	string_length;
+X
+X    /* get the text string */
+X    file_string = (char *)XmTextGetString(text);
+X    j=0;
+X    string_length = strlen (file_string);
+X    sscanf (goto_string, "%d", &line_number);
+X
+X    for (i=0; i<(line_number-1); i++) {
+X        while (file_string[j++] != '\n') {
+X           if (j >= string_length) {
+X               fprintf (stderr, "\7");	/* beep if at end of file */
+X               break;
+X            }
+X        }
+X        if (j >= string_length) break;
+X    }
+X
+X    if (j < string_length) {
+X        MoveTo((XmTextPosition)j);
+X    }
+X    XtFree (file_string);
+X}
+X
+X/*-------------------------------------------------------------
+X**      MoveTo
+X**		We needed this function because Motif1.1 seems to
+X**		have real problems with:
+X**			XtSetArg (al[0], XmNcursorPosition, position);
+X**			XtSetValues (text, al, 1);
+X**		The function:
+X**			XmTextSetCursorPosition(text, position);
+X**		works fine, but is unavailable in Motif1.0
+X*/
+Xvoid MoveTo(position)
+XXmTextPosition	position;
+X{
+X    Arg al[1];
+X    
+X#ifdef Motif1.0
+X    XtSetArg (al[0], XmNcursorPosition, position);
+X    XtSetValues (text, al, 1);
+X#else
+X    XmTextSetCursorPosition(text, position);
+X#endif
+X}
+X
+END_OF_FILE
+if test 27127 -ne `wc -c <'xmemisc.c'`; then
+    echo shar: \"'xmemisc.c'\" unpacked with wrong size!
+fi
+chmod +x 'xmemisc.c'
+# end of 'xmemisc.c'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

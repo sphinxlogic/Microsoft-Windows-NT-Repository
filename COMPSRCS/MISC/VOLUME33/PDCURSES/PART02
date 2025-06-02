@@ -1,0 +1,1925 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i082:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part02/11
+Message-ID: <1992Nov19.035949.6482@sparky.imd.sterling.com>
+X-Md4-Signature: c60892a2b557896b3a5bf8736debbddf
+Date: Thu, 19 Nov 1992 03:59:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 82
+Archive-name: pdcurses/part02
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  demos/xmas.c nonport/wbox.c private/_vsscanf.c
+#   tools/buildlrf.def
+# Wrapped by kent@sparky on Wed Nov 18 21:44:06 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 11)."'
+if test -f 'demos/xmas.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demos/xmas.c'\"
+else
+  echo shar: Extracting \"'demos/xmas.c'\" \(33528 characters\)
+  sed "s/^X//" >'demos/xmas.c' <<'END_OF_FILE'
+X/******************************************************************************/
+X/* asciixmas                                                                  */
+X/* December 1989             Larry Bartz           Indianapolis, IN           */
+X/*                                                                            */
+X/*                                                                            */
+X/* I'm dreaming of an ascii character-based monochrome Christmas,             */
+X/* Just like the one's I used to know!                                        */
+X/* Via a full duplex communications channel,                                  */
+X/* At 9600 bits per second,                                                   */
+X/* Even though it's kinda slow.                                               */
+X/*                                                                            */
+X/* I'm dreaming of an ascii character-based monochrome Christmas,             */
+X/* With ev'ry C program I write!                                              */
+X/* May your screen be merry and bright!                                       */
+X/* And may all your Christmases be amber or green,                            */
+X/* (for reduced eyestrain and improved visibility)!                           */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/* IMPLEMENTATION                                                             */
+X/*                                                                            */
+X/* Feel free to modify the defined string FROMWHO to reflect you, your        */
+X/* organization, your site, whatever.                                         */
+X/*                                                                            */
+X/* This really looks a lot better if you can turn off your cursor before      */
+X/* execution. I wanted to do that here but very few termcap entries or        */
+X/* terminfo definitions have the appropriate string defined. If you know      */
+X/* the string(s) for the terminal(s) you use or which your site supports,     */
+X/* you could call asciixmas from within a shell in which you issue the        */
+X/* string to the terminal. The cursor is distracting but it doesn't really    */
+X/* ruin the show.                                                             */
+X/*                                                                            */
+X/* At our site, we invoke this for our users just after login and the         */
+X/* determination of terminal type.                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/* PORTABILITY                                                                */
+X/*                                                                            */
+X/* I wrote this using only the very simplest curses functions so that it      */
+X/* might be the most portable. I was personally able to test on five          */
+X/* different cpu/UNIX combinations.                                           */
+X/*                                                                            */
+X/*                                                                            */
+X/* COMPILE                                                                    */
+X/*                                                                            */
+X/* usually this:                                                              */
+X/*                                                                            */
+X/* cc -O asciixmas.c -lcurses -o asciixmas -s                                 */
+X/*                                                                            */
+X/*                                                                            */
+X/* Zilog S8000 models 11, 21, 31, etc with ZEUS variant of SYSTEM III         */
+X/* maybe other SYSTEM III also:                                               */
+X/*                                                                            */
+X/* cc asciixmas.c -lcurses -ltermlib -o asciixmas -s                          */
+X/*                                                                            */
+X/* as above with optional "peephole optimizer" installed:                     */
+X/*                                                                            */
+X/* cc -O asciixmas.c -lcurses -ltermlib -o asciixmas -s                       */
+X/*                                                                            */
+X/*                                                                            */
+X/* Zilog S8000 models 32, 130 with WE32100 chip and SYS V, REL2               */
+X/* maybe 3B2 also?                                                            */
+X/*                                                                            */
+X/* cc -f -O -K sd asciixmas.c -lcurses -o asciixmas -s                        */
+X/*                                                                            */
+X/*                                                                            */
+X/* Pyramid, Sequent, any other "dual universe" types compile and execute      */
+X/* under either universe. The compile line for the ucb universe (as you       */
+X/* might expect) is the same as for SYS III UNIX:                             */
+X/*                                                                            */
+X/* cc -O asciixmas.c -lcurses -ltermlib -o asciixmas -s                       */
+X/*                                                                            */
+X/* The above compile will also hold true for other BSD systems. (I hope)      */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/* For the Scrooges out there among you who don't want this thing to loop     */
+X/* forever (or until the user hits DEL), insert this into your compile        */
+X/* line just after "cc" :                                                     */
+X/*                                                                            */
+X/* -DNOLOOP                                                                   */
+X/*                                                                            */
+X/* like so:                                                                   */
+X/*                                                                            */
+X/* cc -DNOLOOP -O asciixmas.c -lcurses -o asciixmas -s                        */
+X/*                                                                            */
+X/*                                                                            */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X#include <curses.h>
+X#include <signal.h>
+X
+X#define FROMWHO "Mark Hessling - (M.Hessling@itc.gu.edu.au)"
+X
+Xint y_pos, x_pos;
+X
+XWINDOW
+X       *treescrn, *treescrn2,*treescrn3, *treescrn4,*treescrn5, *treescrn6,
+X       *treescrn7, *treescrn8,
+X       *dotdeer0,
+X       *stardeer0,
+X       *lildeer0, *lildeer1, *lildeer2, *lildeer3,
+X       *middeer0, *middeer1, *middeer2, *middeer3,
+X       *bigdeer0, *bigdeer1, *bigdeer2, *bigdeer3, *bigdeer4,
+X       *lookdeer0, *lookdeer1, *lookdeer2, *lookdeer3, *lookdeer4,
+X       *w_holiday,
+X       *w_del_msg;
+X
+Xvoid main()
+X{
+X void done();
+X int loopy;
+X
+X  initscr();
+X  noecho();
+X  nonl();
+X  refresh();
+X  signal(SIGINT,done);
+X  signal(SIGTERM,done);
+X#if !defined	DOS && !defined OS2
+X  signal(SIGHUP,done);
+X  signal(SIGQUIT,done);
+X#endif
+X
+X
+X
+X  treescrn = newwin(16,27,3,53);
+X  treescrn2 = newwin(16,27,3,53);
+X  treescrn3 = newwin(16,27,3,53);
+X  treescrn4 = newwin(16,27,3,53);
+X  treescrn5 = newwin(16,27,3,53);
+X  treescrn6 = newwin(16,27,3,53);
+X  treescrn7 = newwin(16,27,3,53);
+X  treescrn8 = newwin(16,27,3,53);
+X
+X  dotdeer0 = newwin(3,71,0,8);
+X
+X  stardeer0 = newwin(4,56,0,8);
+X
+X  lildeer0 = newwin(7,53,0,8);
+X  lildeer1 = newwin(2,4,0,0);
+X  lildeer2 = newwin(2,4,0,0);
+X  lildeer3 = newwin(2,4,0,0);
+X
+X  middeer0 = newwin(15,42,0,8);
+X  middeer1 = newwin(3,7,0,0);
+X  middeer2 = newwin(3,7,0,0);
+X  middeer3 = newwin(3,7,0,0);
+X
+X  bigdeer0 = newwin(10,23,0,0);
+X  bigdeer1 = newwin(10,23,0,0);
+X  bigdeer2 = newwin(10,23,0,0);
+X  bigdeer3 = newwin(10,23,0,0);
+X  bigdeer4 = newwin(10,23,0,0);
+X
+X  lookdeer0 = newwin(10,25,0,0);
+X  lookdeer1 = newwin(10,25,0,0);
+X  lookdeer2 = newwin(10,25,0,0);
+X  lookdeer3 = newwin(10,25,0,0);
+X  lookdeer4 = newwin(10,25,0,0);
+X
+X  w_holiday = newwin(1,26,3,27);
+X
+X  w_del_msg = newwin(1,12,23,68);
+X
+X  mvwaddstr(w_del_msg,0,0,"DEL to quit");
+X
+X  mvwaddstr(w_holiday,0,0,"H A P P Y  H O L I D A Y S");
+X
+X  /* set up the windows for our various reindeer */
+X
+X  /* lildeer1 */
+X  mvwaddch(lildeer1,0,0,(chtype)'V');
+X  mvwaddch(lildeer1,1,0,(chtype)'@');
+X  mvwaddch(lildeer1,1,1,(chtype)'<');
+X  mvwaddch(lildeer1,1,2,(chtype)'>');
+X  mvwaddch(lildeer1,1,3,(chtype)'~');
+X
+X  /* lildeer2 */
+X  mvwaddch(lildeer2,0,0,(chtype)'V');
+X  mvwaddch(lildeer2,1,0,(chtype)'@');
+X  mvwaddch(lildeer2,1,1,(chtype)'|');
+X  mvwaddch(lildeer2,1,2,(chtype)'|');
+X  mvwaddch(lildeer2,1,3,(chtype)'~');
+X
+X  /* lildeer3 */
+X  mvwaddch(lildeer3,0,0,(chtype)'V');
+X  mvwaddch(lildeer3,1,0,(chtype)'@');
+X  mvwaddch(lildeer3,1,1,(chtype)'>');
+X  mvwaddch(lildeer3,1,2,(chtype)'<');
+X  mvwaddch(lildeer2,1,3,(chtype)'~');
+X
+X
+X  /* middeer1 */
+X  mvwaddch(middeer1,0,2,(chtype)'y');
+X  mvwaddch(middeer1,0,3,(chtype)'y');
+X  mvwaddch(middeer1,1,2,(chtype)'0');
+X  mvwaddch(middeer1,1,3,(chtype)'(');
+X  mvwaddch(middeer1,1,4,(chtype)'=');
+X  mvwaddch(middeer1,1,5,(chtype)')');
+X  mvwaddch(middeer1,1,6,(chtype)'~');
+X  mvwaddch(middeer1,2,3,(chtype)'\\');
+X  mvwaddch(middeer1,2,4,(chtype)'/');
+X
+X  /* middeer2 */
+X  mvwaddch(middeer2,0,2,(chtype)'y');
+X  mvwaddch(middeer2,0,3,(chtype)'y');
+X  mvwaddch(middeer2,1,2,(chtype)'0');
+X  mvwaddch(middeer2,1,3,(chtype)'(');
+X  mvwaddch(middeer2,1,4,(chtype)'=');
+X  mvwaddch(middeer2,1,5,(chtype)')');
+X  mvwaddch(middeer2,1,6,(chtype)'~');
+X  mvwaddch(middeer2,2,3,(chtype)'|');
+X  mvwaddch(middeer2,2,5,(chtype)'|');
+X
+X  /* middeer3 */
+X  mvwaddch(middeer3,0,2,(chtype)'y');
+X  mvwaddch(middeer3,0,3,(chtype)'y');
+X  mvwaddch(middeer3,1,2,(chtype)'0');
+X  mvwaddch(middeer3,1,3,(chtype)'(');
+X  mvwaddch(middeer3,1,4,(chtype)'=');
+X  mvwaddch(middeer3,1,5,(chtype)')');
+X  mvwaddch(middeer3,1,6,(chtype)'~');
+X  mvwaddch(middeer3,2,2,(chtype)'/');
+X  mvwaddch(middeer3,2,6,(chtype)'\\');
+X
+X
+X  /* bigdeer1 */
+X  mvwaddch(bigdeer1,0,17,(chtype)'\\');
+X  mvwaddch(bigdeer1,0,18,(chtype)'/');
+X  mvwaddch(bigdeer1,0,20,(chtype)'\\');
+X  mvwaddch(bigdeer1,0,21,(chtype)'/');
+X  mvwaddch(bigdeer1,1,18,(chtype)'\\');
+X  mvwaddch(bigdeer1,1,20,(chtype)'/');
+X  mvwaddch(bigdeer1,2,19,(chtype)'|');
+X  mvwaddch(bigdeer1,2,20,(chtype)'_');
+X  mvwaddch(bigdeer1,3,18,(chtype)'/');
+X  mvwaddch(bigdeer1,3,19,(chtype)'^');
+X  mvwaddch(bigdeer1,3,20,(chtype)'0');
+X  mvwaddch(bigdeer1,3,21,(chtype)'\\');
+X  mvwaddch(bigdeer1,4,17,(chtype)'/');
+X  mvwaddch(bigdeer1,4,18,(chtype)'/');
+X  mvwaddch(bigdeer1,4,19,(chtype)'\\');
+X  mvwaddch(bigdeer1,4,22,(chtype)'\\');
+X  mvwaddstr(bigdeer1,5,7,"^~~~~~~~~//  ~~U");
+X  mvwaddstr(bigdeer1,6,7,"( \\_____( /");
+X  mvwaddstr(bigdeer1,7,8,"( )    /");
+X  mvwaddstr(bigdeer1,8,9,"\\\\   /");
+X  mvwaddstr(bigdeer1,9,11,"\\>/>");
+X
+X  /* bigdeer2 */
+X  mvwaddch(bigdeer2,0,17,(chtype)'\\');
+X  mvwaddch(bigdeer2,0,18,(chtype)'/');
+X  mvwaddch(bigdeer2,0,20,(chtype)'\\');
+X  mvwaddch(bigdeer2,0,21,(chtype)'/');
+X  mvwaddch(bigdeer2,1,18,(chtype)'\\');
+X  mvwaddch(bigdeer2,1,20,(chtype)'/');
+X  mvwaddch(bigdeer2,2,19,(chtype)'|');
+X  mvwaddch(bigdeer2,2,20,(chtype)'_');
+X  mvwaddch(bigdeer2,3,18,(chtype)'/');
+X  mvwaddch(bigdeer2,3,19,(chtype)'^');
+X  mvwaddch(bigdeer2,3,20,(chtype)'0');
+X  mvwaddch(bigdeer2,3,21,(chtype)'\\');
+X  mvwaddch(bigdeer2,4,17,(chtype)'/');
+X  mvwaddch(bigdeer2,4,18,(chtype)'/');
+X  mvwaddch(bigdeer2,4,19,(chtype)'\\');
+X  mvwaddch(bigdeer2,4,22,(chtype)'\\');
+X  mvwaddstr(bigdeer2,5,7,"^~~~~~~~~//  ~~U");
+X  mvwaddstr(bigdeer2,6,7,"(( )____( /");
+X  mvwaddstr(bigdeer2,7,7,"( /      |");
+X  mvwaddstr(bigdeer2,8,8,"\\/      |");
+X  mvwaddstr(bigdeer2,9,9,"|>     |>");
+X
+X  /* bigdeer3 */
+X  mvwaddch(bigdeer3,0,17,(chtype)'\\');
+X  mvwaddch(bigdeer3,0,18,(chtype)'/');
+X  mvwaddch(bigdeer3,0,20,(chtype)'\\');
+X  mvwaddch(bigdeer3,0,21,(chtype)'/');
+X  mvwaddch(bigdeer3,1,18,(chtype)'\\');
+X  mvwaddch(bigdeer3,1,20,(chtype)'/');
+X  mvwaddch(bigdeer3,2,19,(chtype)'|');
+X  mvwaddch(bigdeer3,2,20,(chtype)'_');
+X  mvwaddch(bigdeer3,3,18,(chtype)'/');
+X  mvwaddch(bigdeer3,3,19,(chtype)'^');
+X  mvwaddch(bigdeer3,3,20,(chtype)'0');
+X  mvwaddch(bigdeer3,3,21,(chtype)'\\');
+X  mvwaddch(bigdeer3,4,17,(chtype)'/');
+X  mvwaddch(bigdeer3,4,18,(chtype)'/');
+X  mvwaddch(bigdeer3,4,19,(chtype)'\\');
+X  mvwaddch(bigdeer3,4,22,(chtype)'\\');
+X  mvwaddstr(bigdeer3,5,7,"^~~~~~~~~//  ~~U");
+X  mvwaddstr(bigdeer3,6,6,"( ()_____( /");
+X  mvwaddstr(bigdeer3,7,6,"/ /       /");
+X  mvwaddstr(bigdeer3,8,5,"|/          \\");
+X  mvwaddstr(bigdeer3,9,5,"/>           \\>");
+X
+X  /* bigdeer4 */
+X  mvwaddch(bigdeer4,0,17,(chtype)'\\');
+X  mvwaddch(bigdeer4,0,18,(chtype)'/');
+X  mvwaddch(bigdeer4,0,20,(chtype)'\\');
+X  mvwaddch(bigdeer4,0,21,(chtype)'/');
+X  mvwaddch(bigdeer4,1,18,(chtype)'\\');
+X  mvwaddch(bigdeer4,1,20,(chtype)'/');
+X  mvwaddch(bigdeer4,2,19,(chtype)'|');
+X  mvwaddch(bigdeer4,2,20,(chtype)'_');
+X  mvwaddch(bigdeer4,3,18,(chtype)'/');
+X  mvwaddch(bigdeer4,3,19,(chtype)'^');
+X  mvwaddch(bigdeer4,3,20,(chtype)'0');
+X  mvwaddch(bigdeer4,3,21,(chtype)'\\');
+X  mvwaddch(bigdeer4,4,17,(chtype)'/');
+X  mvwaddch(bigdeer4,4,18,(chtype)'/');
+X  mvwaddch(bigdeer4,4,19,(chtype)'\\');
+X  mvwaddch(bigdeer4,4,22,(chtype)'\\');
+X  mvwaddstr(bigdeer4,5,7,"^~~~~~~~~//  ~~U");
+X  mvwaddstr(bigdeer4,6,6,"( )______( /");
+X  mvwaddstr(bigdeer4,7,5,"(/          \\");
+X  mvwaddstr(bigdeer4,8,0,"v___=             ----^");
+X
+X
+X  /* lookdeer1 */
+X  mvwaddstr(lookdeer1,0,16,"\\/     \\/");
+X  mvwaddstr(lookdeer1,1,17,"\\Y/ \\Y/");
+X  mvwaddstr(lookdeer1,2,19,"\\=/");
+X  mvwaddstr(lookdeer1,3,17,"^\\o o/^");
+X  mvwaddstr(lookdeer1,4,17,"//( )");
+X  mvwaddstr(lookdeer1,5,7,"^~~~~~~~~// \\O/");
+X  mvwaddstr(lookdeer1,6,7,"( \\_____( /");
+X  mvwaddstr(lookdeer1,7,8,"( )    /");
+X  mvwaddstr(lookdeer1,8,9,"\\\\   /");
+X  mvwaddstr(lookdeer1,9,11,"\\>/>");
+X
+X  /* lookdeer2 */
+X  mvwaddstr(lookdeer2,0,16,"\\/     \\/");
+X  mvwaddstr(lookdeer2,1,17,"\\Y/ \\Y/");
+X  mvwaddstr(lookdeer2,2,19,"\\=/");
+X  mvwaddstr(lookdeer2,3,17,"^\\o o/^");
+X  mvwaddstr(lookdeer2,4,17,"//( )");
+X  mvwaddstr(lookdeer2,5,7,"^~~~~~~~~// \\O/");
+X  mvwaddstr(lookdeer2,6,7,"(( )____( /");
+X  mvwaddstr(lookdeer2,7,7,"( /      |");
+X  mvwaddstr(lookdeer2,8,8,"\\/      |");
+X  mvwaddstr(lookdeer2,9,9,"|>     |>");
+X
+X  /* lookdeer3 */
+X  mvwaddstr(lookdeer3,0,16,"\\/     \\/");
+X  mvwaddstr(lookdeer3,1,17,"\\Y/ \\Y/");
+X  mvwaddstr(lookdeer3,2,19,"\\=/");
+X  mvwaddstr(lookdeer3,3,17,"^\\o o/^");
+X  mvwaddstr(lookdeer3,4,17,"//( )");
+X  mvwaddstr(lookdeer3,5,7,"^~~~~~~~~// \\O/");
+X  mvwaddstr(lookdeer3,6,6,"( ()_____( /");
+X  mvwaddstr(lookdeer3,7,6,"/ /       /");
+X  mvwaddstr(lookdeer3,8,5,"|/          \\");
+X  mvwaddstr(lookdeer3,9,5,"/>           \\>");
+X
+X  /* lookdeer4 */
+X  mvwaddstr(lookdeer4,0,16,"\\/     \\/");
+X  mvwaddstr(lookdeer4,1,17,"\\Y/ \\Y/");
+X  mvwaddstr(lookdeer4,2,19,"\\=/");
+X  mvwaddstr(lookdeer4,3,17,"^\\o o/^");
+X  mvwaddstr(lookdeer4,4,17,"//( )");
+X  mvwaddstr(lookdeer4,5,7,"^~~~~~~~~// \\O/");
+X  mvwaddstr(lookdeer4,6,6,"( )______( /");
+X  mvwaddstr(lookdeer4,7,5,"(/          \\");
+X  mvwaddstr(lookdeer4,8,0,"v___=             ----^");
+X
+X
+X
+X  /***********************************************/
+X
+X  do
+X  {
+X    clear();
+X    werase(treescrn);
+X    touchwin(treescrn);
+X    werase(treescrn2);
+X    touchwin(treescrn2);
+X    werase(treescrn8);
+X    touchwin(treescrn8);
+X    refresh();
+X    delay_output(1000);
+X    boxit();
+X    del_msg();
+X    delay_output(1000);
+X    seas();
+X    del_msg();
+X    delay_output(1000);
+X    greet();
+X    del_msg();
+X    delay_output(1000);
+X    fromwho();
+X    del_msg();
+X    delay_output(1000);
+X    tree();
+X    delay_output(1000);
+X    balls();
+X    delay_output(1000);
+X    star();
+X    delay_output(1000);
+X    strng1();
+X    strng2();
+X    strng3();
+X    strng4();
+X    strng5();
+X
+X
+X  /* set up the windows for our blinking trees */
+X  /* **************************************** */
+X  /* treescrn3 */
+X
+X               overlay(treescrn, treescrn3);
+X
+X             /*balls*/
+X               mvwaddch(treescrn3, 4, 18, ' ');
+X               mvwaddch(treescrn3, 7, 6, ' ');
+X               mvwaddch(treescrn3, 8, 19, ' ');
+X               mvwaddch(treescrn3, 11, 22, ' ');
+X
+X             /*star*/
+X               mvwaddch(treescrn3, 0, 12, '*');
+X
+X             /*strng1*/
+X               mvwaddch(treescrn3, 3, 11, ' ');
+X
+X             /*strng2*/
+X               mvwaddch(treescrn3, 5, 13, ' ');
+X               mvwaddch(treescrn3, 6, 10, ' ');
+X
+X             /*strng3*/
+X               mvwaddch(treescrn3, 7, 16, ' ');
+X               mvwaddch(treescrn3, 7, 14, ' ');
+X
+X             /*strng4*/
+X               mvwaddch(treescrn3, 10, 13, ' ');
+X               mvwaddch(treescrn3, 10, 10, ' ');
+X               mvwaddch(treescrn3, 11, 8, ' ');
+X
+X             /*strng5*/
+X               mvwaddch(treescrn3, 11, 18, ' ');
+X               mvwaddch(treescrn3, 12, 13, ' ');
+X
+X
+X  /* treescrn4 */
+X
+X               overlay(treescrn, treescrn4);
+X
+X             /*balls*/
+X               mvwaddch(treescrn4, 3, 9, ' ');
+X               mvwaddch(treescrn4, 4, 16, ' ');
+X               mvwaddch(treescrn4, 7, 6, ' ');
+X               mvwaddch(treescrn4, 8, 19, ' ');
+X               mvwaddch(treescrn4, 11, 2, ' ');
+X               mvwaddch(treescrn4, 12, 23, ' ');
+X
+X             /*star*/
+X               wstandout(treescrn4);
+X               mvwaddch(treescrn4, 0, 12, '*');
+X               wstandend(treescrn4);
+X
+X             /*strng1*/
+X               mvwaddch(treescrn4, 3, 13, ' ');
+X
+X             /*strng2*/
+X
+X	     /*strng3*/
+X               mvwaddch(treescrn4, 7, 15, ' ');
+X               mvwaddch(treescrn4, 8, 11, ' ');
+X
+X             /*strng4*/
+X               mvwaddch(treescrn4, 9, 16, ' ');
+X               mvwaddch(treescrn4, 10, 12, ' ');
+X               mvwaddch(treescrn4, 11, 8, ' ');
+X
+X             /*strng5*/
+X               mvwaddch(treescrn4, 11, 18, ' ');
+X	       mvwaddch(treescrn4, 12, 14, ' ');
+X
+X
+X  /* treescrn5 */
+X
+X               overlay(treescrn, treescrn5);
+X
+X             /*balls*/
+X               mvwaddch(treescrn5, 3, 15, ' ');
+X               mvwaddch(treescrn5, 10, 20, ' ');
+X               mvwaddch(treescrn5, 12, 1, ' ');
+X
+X             /*star*/
+X               mvwaddch(treescrn5, 0, 12, '*');
+X
+X             /*strng1*/
+X               mvwaddch(treescrn5, 3, 11, ' ');
+X
+X             /*strng2*/
+X               mvwaddch(treescrn5, 5, 12, ' ');
+X
+X             /*strng3*/
+X	       mvwaddch(treescrn5, 7, 14, ' ');
+X               mvwaddch(treescrn5, 8, 10, ' ');
+X
+X             /*strng4*/
+X               mvwaddch(treescrn5, 9, 15, ' ');
+X               mvwaddch(treescrn5, 10, 11, ' ');
+X               mvwaddch(treescrn5, 11, 7, ' ');
+X
+X             /*strng5*/
+X               mvwaddch(treescrn5, 11, 17, ' ');
+X               mvwaddch(treescrn5, 12, 13, ' ');
+X
+X  /* treescrn6 */
+X
+X               overlay(treescrn, treescrn6);
+X
+X             /*balls*/
+X               mvwaddch(treescrn6, 6, 7, ' ');
+X               mvwaddch(treescrn6, 7, 18, ' ');
+X               mvwaddch(treescrn6, 10, 4, ' ');
+X               mvwaddch(treescrn6, 11, 23, ' ');
+X
+X	     /*star*/
+X               wstandout(treescrn6);
+X               mvwaddch(treescrn6, 0, 12, '*');
+X               wstandend(treescrn6);
+X
+X             /*strng1*/
+X
+X             /*strng2*/
+X               mvwaddch(treescrn6, 5, 11, ' ');
+X
+X             /*strng3*/
+X	       mvwaddch(treescrn6, 7, 13, ' ');
+X               mvwaddch(treescrn6, 8, 9, ' ');
+X
+X             /*strng4*/
+X               mvwaddch(treescrn6, 9, 14, ' ');
+X               mvwaddch(treescrn6, 10, 10, ' ');
+X               mvwaddch(treescrn6, 11, 6, ' ');
+X
+X             /*strng5*/
+X               mvwaddch(treescrn6, 11, 16, ' ');
+X               mvwaddch(treescrn6, 12, 12, ' ');
+X
+X  /* treescrn7 */
+X
+X               overlay(treescrn, treescrn7);
+X
+X             /*balls*/
+X               mvwaddch(treescrn7, 3, 15, ' ');
+X               mvwaddch(treescrn7, 6, 7, ' ');
+X               mvwaddch(treescrn7, 7, 18, ' ');
+X               mvwaddch(treescrn7, 10, 4, ' ');
+X               mvwaddch(treescrn7, 11, 22, ' ');
+X
+X             /*star*/
+X               mvwaddch(treescrn7, 0, 12, '*');
+X
+X             /*strng1*/
+X               mvwaddch(treescrn7, 3, 12, ' ');
+X
+X             /*strng2*/
+X               mvwaddch(treescrn7, 5, 13, ' ');
+X               mvwaddch(treescrn7, 6, 9, ' ');
+X
+X	     /*strng3*/
+X               mvwaddch(treescrn7, 7, 15, ' ');
+X               mvwaddch(treescrn7, 8, 11, ' ');
+X
+X             /*strng4*/
+X               mvwaddch(treescrn7, 9, 16, ' ');
+X               mvwaddch(treescrn7, 10, 12, ' ');
+X               mvwaddch(treescrn7, 11, 8, ' ');
+X
+X             /*strng5*/
+X               mvwaddch(treescrn7, 11, 18, ' ');
+X	       mvwaddch(treescrn7, 12, 14, ' ');
+X
+X
+X    delay_output(1000);
+X    reindeer();
+X
+X    touchwin(w_holiday);
+X    wrefresh(w_holiday);
+X    wrefresh(w_del_msg);
+X
+X    delay_output(1000);
+X    for(loopy = 0;loopy < 100;loopy++)
+X    {
+X      blinkit();
+X    }
+X
+X#ifdef NOLOOP
+X    done();
+X#endif
+X
+X  }
+X  while(!typeahead(stdin));
+X}
+X
+Xboxit()
+X{
+X int x = 0;
+X
+X  while(x < 20)
+X  {
+X    mvaddch(x, 7, '|');
+X    ++x;
+X  }
+X
+X  x = 8;
+X
+X  while(x < 80)
+X  {
+X    mvaddch(19, x, '_');
+X    ++x;
+X  }
+X
+X  x = 0;
+X
+X  while(x < 80)
+X  {
+X    mvaddch(22, x, '_');
+X    ++x;
+X  }
+X
+X  return( 0 );
+X}
+X
+Xseas()
+X{
+X  mvaddch(4, 1, 'S');
+X  mvaddch(6, 1, 'E');
+X  mvaddch(8, 1, 'A');
+X  mvaddch(10, 1, 'S');
+X  mvaddch(12, 1, 'O');
+X  mvaddch(14, 1, 'N');
+X  mvaddch(16, 1, '`');
+X  mvaddch(18, 1, 'S');
+X
+X  return( 0 );
+X}
+X
+X
+Xgreet()
+X{
+X  mvaddch(3, 5, 'G');
+X  mvaddch(5, 5, 'R');
+X  mvaddch(7, 5, 'E');
+X  mvaddch(9, 5, 'E');
+X  mvaddch(11, 5, 'T');
+X  mvaddch(13, 5, 'I');
+X  mvaddch(15, 5, 'N');
+X  mvaddch(17, 5, 'G');
+X  mvaddch(19, 5, 'S');
+X
+X  return( 0 );
+X}
+X
+X
+Xfromwho()
+X{
+X  mvaddstr(21, 13, FROMWHO);
+X  return( 0 );
+X}
+X
+X
+Xdel_msg()
+X{
+X  mvaddstr(23, 68, "DEL to quit");
+X
+X  refresh();
+X
+X  return( 0 );
+X}
+X
+X
+Xtree()
+X{
+X  mvwaddch(treescrn, 1, 11, (chtype)'/');
+X  mvwaddch(treescrn, 2, 11, (chtype)'/');
+X  mvwaddch(treescrn, 3, 10, (chtype)'/');
+X  mvwaddch(treescrn, 4, 9, (chtype)'/');
+X  mvwaddch(treescrn, 5, 9, (chtype)'/');
+X  mvwaddch(treescrn, 6, 8, (chtype)'/');
+X  mvwaddch(treescrn, 7, 7, (chtype)'/');
+X  mvwaddch(treescrn, 8, 6, (chtype)'/');
+X  mvwaddch(treescrn, 9, 6, (chtype)'/');
+X  mvwaddch(treescrn, 10, 5, (chtype)'/');
+X  mvwaddch(treescrn, 11, 3, (chtype)'/');
+X  mvwaddch(treescrn, 12, 2, (chtype)'/');
+X
+X  mvwaddch(treescrn, 1, 13, (chtype)'\\');
+X  mvwaddch(treescrn, 2, 13, (chtype)'\\');
+X  mvwaddch(treescrn, 3, 14, (chtype)'\\');
+X  mvwaddch(treescrn, 4, 15, (chtype)'\\');
+X  mvwaddch(treescrn, 5, 15, (chtype)'\\');
+X  mvwaddch(treescrn, 6, 16, (chtype)'\\');
+X  mvwaddch(treescrn, 7, 17, (chtype)'\\');
+X  mvwaddch(treescrn, 8, 18, (chtype)'\\');
+X  mvwaddch(treescrn, 9, 18, (chtype)'\\');
+X  mvwaddch(treescrn, 10, 19, (chtype)'\\');
+X  mvwaddch(treescrn, 11, 21, (chtype)'\\');
+X  mvwaddch(treescrn, 12, 22, (chtype)'\\');
+X
+X  mvwaddch(treescrn, 4, 10, (chtype)'_');
+X  mvwaddch(treescrn, 4, 14, (chtype)'_');
+X  mvwaddch(treescrn, 8, 7, (chtype)'_');
+X  mvwaddch(treescrn, 8, 17, (chtype)'_');
+X
+X  mvwaddstr(treescrn, 13, 0, "//////////// \\\\\\\\\\\\\\\\\\\\\\\\");
+X
+X  mvwaddstr(treescrn, 14, 11, "| |");
+X  mvwaddstr(treescrn, 15, 11, "|_|");
+X
+X  wrefresh(treescrn);
+X  wrefresh(w_del_msg);
+X
+X  return( 0 );
+X}
+X
+X
+Xballs()
+X{
+X
+X  overlay(treescrn, treescrn2);
+X
+X  mvwaddch(treescrn2, 3, 9, (chtype)'@');
+X  mvwaddch(treescrn2, 3, 15, (chtype)'@');
+X  mvwaddch(treescrn2, 4, 8, (chtype)'@');
+X  mvwaddch(treescrn2, 4, 16, (chtype)'@');
+X  mvwaddch(treescrn2, 5, 7, (chtype)'@');
+X  mvwaddch(treescrn2, 5, 17, (chtype)'@');
+X  mvwaddch(treescrn2, 7, 6, (chtype)'@');
+X  mvwaddch(treescrn2, 7, 18, (chtype)'@');
+X  mvwaddch(treescrn2, 8, 5, (chtype)'@');
+X  mvwaddch(treescrn2, 8, 19, (chtype)'@');
+X  mvwaddch(treescrn2, 10, 4, (chtype)'@');
+X  mvwaddch(treescrn2, 10, 20, (chtype)'@');
+X  mvwaddch(treescrn2, 11, 2, (chtype)'@');
+X  mvwaddch(treescrn2, 11, 22, (chtype)'@');
+X  mvwaddch(treescrn2, 12, 1, (chtype)'@');
+X  mvwaddch(treescrn2, 12, 23, (chtype)'@');
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstar()
+X{
+X  wstandout(treescrn2);
+X  mvwaddch(treescrn2, 0, 12, (chtype)'*');
+X  wstandend(treescrn2);
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstrng1()
+X{
+X  mvwaddch(treescrn2, 3, 13, (chtype)'\'');
+X  mvwaddch(treescrn2, 3, 12, (chtype)':');
+X  mvwaddch(treescrn2, 3, 11, (chtype)'.');
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstrng2()
+X{
+X  mvwaddch(treescrn2, 5, 14, (chtype)'\'');
+X  mvwaddch(treescrn2, 5, 13, (chtype)':');
+X  mvwaddch(treescrn2, 5, 12, (chtype)'.');
+X  mvwaddch(treescrn2, 5, 11, (chtype)',');
+X  mvwaddch(treescrn2, 6, 10, (chtype)'\'');
+X  mvwaddch(treescrn2, 6, 9, (chtype)':');
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstrng3()
+X{
+X  mvwaddch(treescrn2, 7, 16, (chtype)'\'');
+X  mvwaddch(treescrn2, 7, 15, (chtype)':');
+X  mvwaddch(treescrn2, 7, 14, (chtype)'.');
+X  mvwaddch(treescrn2, 7, 13, (chtype)',');
+X  mvwaddch(treescrn2, 8, 12, (chtype)'\'');
+X  mvwaddch(treescrn2, 8, 11, (chtype)':');
+X  mvwaddch(treescrn2, 8, 10, (chtype)'.');
+X  mvwaddch(treescrn2, 8, 9, (chtype)',');
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstrng4()
+X{
+X  mvwaddch(treescrn2, 9, 17, (chtype)'\'');
+X  mvwaddch(treescrn2, 9, 16, (chtype)':');
+X  mvwaddch(treescrn2, 9, 15, (chtype)'.');
+X  mvwaddch(treescrn2, 9, 14, (chtype)',');
+X  mvwaddch(treescrn2, 10, 13, (chtype)'\'');
+X  mvwaddch(treescrn2, 10, 12, (chtype)':');
+X  mvwaddch(treescrn2, 10, 11, (chtype)'.');
+X  mvwaddch(treescrn2, 10, 10, (chtype)',');
+X  mvwaddch(treescrn2, 11, 9, (chtype)'\'');
+X  mvwaddch(treescrn2, 11, 8, (chtype)':');
+X  mvwaddch(treescrn2, 11, 7, (chtype)'.');
+X  mvwaddch(treescrn2, 11, 6, (chtype)',');
+X  mvwaddch(treescrn2, 12, 5, (chtype)'\'');
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+Xstrng5()
+X{
+X  mvwaddch(treescrn2, 11, 19, (chtype)'\'');
+X  mvwaddch(treescrn2, 11, 18, (chtype)':');
+X  mvwaddch(treescrn2, 11, 17, (chtype)'.');
+X  mvwaddch(treescrn2, 11, 16, (chtype)',');
+X  mvwaddch(treescrn2, 12, 15, (chtype)'\'');
+X  mvwaddch(treescrn2, 12, 14, (chtype)':');
+X  mvwaddch(treescrn2, 12, 13, (chtype)'.');
+X  mvwaddch(treescrn2, 12, 12, (chtype)',');
+X
+X  /* save a fully lit tree */
+X  overlay(treescrn2, treescrn);
+X
+X  wrefresh(treescrn2);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+X
+Xblinkit()
+X{
+X static int cycle;
+X
+X  if(cycle > 4)
+X  {
+X    cycle = 0;
+X  }
+X
+X
+X  touchwin(treescrn8);
+X
+X  switch(cycle)
+X  {
+X
+X    case 0:
+X               overlay(treescrn3, treescrn8);
+X               wrefresh(treescrn8);
+X               wrefresh(w_del_msg);
+X
+X               break;
+X    case 1:
+X               overlay(treescrn4, treescrn8);
+X               wrefresh(treescrn8);
+X               wrefresh(w_del_msg);
+X
+X               break;
+X    case 2:
+X               overlay(treescrn5, treescrn8);
+X               wrefresh(treescrn8);
+X               wrefresh(w_del_msg);
+X
+X               break;
+X    case 3:
+X               overlay(treescrn6, treescrn8);
+X               wrefresh(treescrn8);
+X               wrefresh(w_del_msg);
+X
+X               break;
+X    case 4:
+X               overlay(treescrn7, treescrn8);
+X               wrefresh(treescrn8);
+X               wrefresh(w_del_msg);
+X
+X               break;
+X  }
+X
+X   touchwin(treescrn8);
+X
+X
+X
+X   /*ALL ON***************************************************/
+X
+X
+X   overlay(treescrn, treescrn8);
+X   wrefresh(treescrn8);
+X   wrefresh(w_del_msg);
+X
+X
+X  ++cycle;
+X  return( 0 );
+X}
+X
+X
+Xreindeer()
+X{
+X int looper;
+X
+X  y_pos = 0;
+X
+X
+X  for(x_pos = 70; x_pos > 62; x_pos--)
+X  {
+X    if(x_pos < 62)
+X    {
+X      y_pos = 1;
+X    }
+X    for(looper = 0; looper < 4; looper++)
+X    {
+X      mvwaddch(dotdeer0, y_pos, x_pos, (chtype)'.');
+X      wrefresh(dotdeer0);
+X      wrefresh(w_del_msg);
+X      werase(dotdeer0);
+X      wrefresh(dotdeer0);
+X      wrefresh(w_del_msg);
+X    }
+X  }
+X
+X  y_pos = 2;
+X
+X  for(; x_pos > 50; x_pos--)
+X  {
+X
+X    for(looper = 0; looper < 4; looper++)
+X    {
+X
+X      if(x_pos < 56)
+X      {
+X        y_pos = 3;
+X
+X        mvwaddch(stardeer0, y_pos, x_pos, (chtype)'*');
+X        wrefresh(stardeer0);
+X        wrefresh(w_del_msg);
+X        werase(stardeer0);
+X        wrefresh(stardeer0);
+X        wrefresh(w_del_msg);
+X      }
+X      else
+X      {
+X        mvwaddch(dotdeer0, y_pos, x_pos, (chtype)'*');
+X        wrefresh(dotdeer0);
+X        wrefresh(w_del_msg);
+X        werase(dotdeer0);
+X        wrefresh(dotdeer0);
+X        wrefresh(w_del_msg);
+X      }
+X    }
+X  }
+X
+X  x_pos = 58;
+X
+X  for(y_pos = 2; y_pos < 5; y_pos++)
+X  {
+X
+X    touchwin(lildeer0);
+X    wrefresh(lildeer0);
+X    wrefresh(w_del_msg);
+X
+X    for(looper = 0; looper < 4; looper++)
+X    {
+X      mvwin(lildeer3, y_pos, x_pos);
+X      wrefresh(lildeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lildeer2, y_pos, x_pos);
+X      wrefresh(lildeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lildeer1, y_pos, x_pos);
+X      wrefresh(lildeer1);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lildeer2, y_pos, x_pos);
+X      wrefresh(lildeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lildeer3, y_pos, x_pos);
+X      wrefresh(lildeer3);
+X      wrefresh(w_del_msg);
+X
+X      touchwin(lildeer0);
+X      wrefresh(lildeer0);
+X      wrefresh(w_del_msg);
+X
+X      x_pos -= 2;
+X    }
+X  }
+X
+X
+X  x_pos = 35;
+X
+X  for(y_pos = 5; y_pos < 10; y_pos++)
+X  {
+X
+X    touchwin(middeer0);
+X    wrefresh(middeer0);
+X    wrefresh(w_del_msg);
+X
+X    for(looper = 0; looper < 2; looper++)
+X    {
+X      mvwin(middeer3, y_pos, x_pos);
+X      wrefresh(middeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(middeer2, y_pos, x_pos);
+X      wrefresh(middeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(middeer1, y_pos, x_pos);
+X      wrefresh(middeer1);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(middeer2, y_pos, x_pos);
+X      wrefresh(middeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(middeer3, y_pos, x_pos);
+X      wrefresh(middeer3);
+X      wrefresh(w_del_msg);
+X
+X      touchwin(middeer0);
+X      wrefresh(middeer0);
+X      wrefresh(w_del_msg);
+X
+X      x_pos -= 3;
+X    }
+X  }
+X
+X  delay_output(2000);
+X
+X  y_pos = 1;
+X
+X  for(x_pos = 8; x_pos < 16; x_pos++)
+X  {
+X
+X      mvwin(bigdeer4, y_pos, x_pos);
+X      wrefresh(bigdeer4);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer3, y_pos, x_pos);
+X      wrefresh(bigdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer2, y_pos, x_pos);
+X      wrefresh(bigdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer1, y_pos, x_pos);
+X      wrefresh(bigdeer1);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer2, y_pos, x_pos);
+X      wrefresh(bigdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer3, y_pos, x_pos);
+X      wrefresh(bigdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer4, y_pos, x_pos);
+X      wrefresh(bigdeer4);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer0, y_pos, x_pos);
+X      wrefresh(bigdeer0);
+X      wrefresh(w_del_msg);
+X  }
+X
+X    --x_pos;
+X
+X    for(looper = 0; looper < 6; looper++)
+X    {
+X      mvwin(lookdeer4, y_pos, x_pos);
+X      wrefresh(lookdeer4);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer3, y_pos, x_pos);
+X      wrefresh(lookdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer2, y_pos, x_pos);
+X      wrefresh(lookdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer1, y_pos, x_pos);
+X      wrefresh(lookdeer1);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer2, y_pos, x_pos);
+X      wrefresh(lookdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer3, y_pos, x_pos);
+X      wrefresh(lookdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(lookdeer4, y_pos, x_pos);
+X      wrefresh(lookdeer4);
+X      wrefresh(w_del_msg);
+X
+X    }
+X
+X    mvwin(lookdeer0, y_pos, x_pos);
+X    wrefresh(lookdeer0);
+X    wrefresh(w_del_msg);
+X
+X  for(; y_pos < 10; y_pos++)
+X  {
+X
+X    for(looper = 0; looper < 2; looper++)
+X    {
+X      mvwin(bigdeer4, y_pos, x_pos);
+X      wrefresh(bigdeer4);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer3, y_pos, x_pos);
+X      wrefresh(bigdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer2, y_pos, x_pos);
+X      wrefresh(bigdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer1, y_pos, x_pos);
+X      wrefresh(bigdeer1);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer2, y_pos, x_pos);
+X      wrefresh(bigdeer2);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer3, y_pos, x_pos);
+X      wrefresh(bigdeer3);
+X      wrefresh(w_del_msg);
+X
+X      mvwin(bigdeer4, y_pos, x_pos);
+X      wrefresh(bigdeer4);
+X      wrefresh(w_del_msg);
+X    }
+X      mvwin(bigdeer0, y_pos, x_pos);
+X      wrefresh(bigdeer0);
+X      wrefresh(w_del_msg);
+X  }
+X
+X  --y_pos;
+X
+X  mvwin(lookdeer3, y_pos, x_pos);
+X  wrefresh(lookdeer3);
+X  wrefresh(w_del_msg);
+X  return( 0 );
+X}
+X
+X
+X
+Xvoid done()
+X{
+X  signal(SIGINT,done);
+X  signal(SIGTERM,done);
+X#if !defined	DOS && !defined OS2
+X  signal(SIGHUP,done);
+X  signal(SIGQUIT,done);
+X#endif
+X  clear();
+X  refresh();
+X  endwin();
+X  exit(0);
+X}
+END_OF_FILE
+  if test 33528 -ne `wc -c <'demos/xmas.c'`; then
+    echo shar: \"'demos/xmas.c'\" unpacked with wrong size!
+  fi
+  # end of 'demos/xmas.c'
+fi
+if test -f 'nonport/wbox.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nonport/wbox.c'\"
+else
+  echo shar: Extracting \"'nonport/wbox.c'\" \(5122 characters\)
+  sed "s/^X//" >'nonport/wbox.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wbox
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wbox = "$Header: c:/curses/nonport/RCS/wbox.c%v 2.0 1992/11/15 03:18:30 MH Rel $";
+X#endif
+X
+X/*man-start*********************************************************************
+X
+X  wbox()	- draw box
+X
+X  PDCurses Description:
+X 	Draws a box in window 'win', enclosing the area xmin-xmax and
+X 	ymin-xmax. If xmax and/or ymax is 0, the window max value is
+X 	used. 'v' and 'h' are the vertical and horizontal characters
+X 	to use.	 If 'v' and 'h' are PC grapics lines, wbox will make
+X 	the corners in a pretty way.
+X
+X 	    Single Bar Box		    Double Bar Box
+X 	----------------------		======================
+X 	(0xDA)	(0xC4)	(0xBF)		(0xC9)	(0xCD)	(0xBB)
+X 	  +	  -	  +		  +	  =	  +
+X 	  | (0xB3)  	  |		  || (0xBA)	 ||
+X 	  +	  -	  +		  +	  =	  +
+X 	(0xC0)		(0xD9)		(0xC8)		(0xBC)
+X
+X 	PC Graphic Graphic Character Solids:
+X 		# (quarter-tone)	(0xB0)
+X 		# (half-tone)		(0xB1)
+X 		# (three-quarter-tone)	(0xB2)
+X 		# (solid)		(0xDB)
+X
+X  PDCurses Return Value:
+X 	The wbox() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int wbox( WINDOW* win,  int ymin, int xmin,
+X 						int ymax, int xmax,
+X 						chtype v,   chtype h );
+X 	BSD Curses
+X 	SYS V Curses
+X
+X**man-end**********************************************************************/
+X
+Xint	wbox(WINDOW *win,int ymin,int xmin,int ymax,int xmax,chtype v,chtype h)
+X{
+X	chtype	l;		/* border chars */
+X	chtype	r;
+X	chtype	t;
+X	chtype	b;
+X	chtype	tl;
+X	chtype	tr;
+X	chtype	bl;
+X	chtype	br;
+X	chtype	vattr;
+X	chtype	hattr;
+X	int	i;
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X	if (ymax == 0)
+X		ymax = win->_maxy - 1;
+X	if (xmax == 0)
+X		xmax = win->_maxx - 1;
+X
+X	if ((ymin >= win->_maxy) ||
+X	    (ymax > win->_maxy) ||
+X	    (xmin >= win->_maxx) ||
+X	    (xmax > win->_maxx) ||
+X	    (ymin >= ymax) ||
+X	    (xmin >= xmax))
+X	{
+X		return (ERR);
+X	}
+X
+X	l = r	= v & A_CHARTEXT;
+X	t = b	= h & A_CHARTEXT;
+X
+X/* if the incoming character doesn't have its own attribute
+X   then	use the	current	attributes for the window.
+X   if the incoming character has attributes but	not a colour
+X   component, or the attributes	to the current attributes
+X   for the window.
+X   if the incoming character has a colour component use	the
+X   attributes solely from the incoming character */
+X
+X	if ((h	& A_ATTRIBUTES)	== 0)
+X	   hattr	= win->_attrs;
+X	else
+X	   if ((h & A_COLOR) == 0)
+X	      hattr = (h & A_ATTRIBUTES) | win->_attrs;
+X	   else
+X	      hattr = (h & A_ATTRIBUTES);
+X
+X	if ((v	& A_ATTRIBUTES)	== 0)
+X	   vattr	= win->_attrs;
+X	else
+X	   if ((v & A_COLOR) == 0)
+X	      vattr = (v | win->_attrs);
+X	   else
+X	      vattr = v;
+X
+X	tl = tr = bl = br = l;		/* default same as vertical	     */
+X
+X	if (l == 0xba)			/* vertical double bars		     */
+X	{
+X		if (t == 0xcd)		/* horizontal too?		     */
+X		{
+X			tl = 0xc9;	/* use double bar corners	     */
+X			tr = 0xbb;
+X			bl = 0xc8;
+X			br = 0xbc;
+X		}
+X		else
+X		{
+X			tl = 0xd6;	   /* use horz-s vert-d corners	     */
+X			tr = 0xb7;
+X			bl = 0xd3;
+X			br = 0xbd;
+X		}
+X	}
+X
+X	if (l == 0xb3)			   /* vertical single bars	     */
+X	{
+X		if (t == 0xcd)
+X		{
+X			tl = 0xd5;	   /* horizontal double bars	     */
+X			tr = 0xb8;
+X			bl = 0xd4;
+X			br = 0xbe;
+X		}
+X		else
+X		{
+X			tl = 0xda;	   /* use horz-s vert-s bars	     */
+X			tr = 0xbf;
+X			bl = 0xc0;
+X			br = 0xd9;
+X		}
+X	}
+X
+X	/*
+X	 * wborder() settings override parms
+X	 */
+X	if (win->_borderchars[0]) l  = win->_borderchars[0];
+X	if (win->_borderchars[1]) r  = win->_borderchars[1];
+X	if (win->_borderchars[2]) t  = win->_borderchars[2];
+X	if (win->_borderchars[3]) b  = win->_borderchars[3];
+X	if (win->_borderchars[4]) tl = win->_borderchars[4];
+X	if (win->_borderchars[5]) tr = win->_borderchars[5];
+X	if (win->_borderchars[6]) bl = win->_borderchars[6];
+X	if (win->_borderchars[7]) br = win->_borderchars[7];
+X
+X	if  (!(v|h) && !(l|r|t|b|tl|tr|bl|br))
+X	{
+X		/*
+X		 *	Appropriate default:
+X		 *
+X		 *	Single box with parent window's title attribute
+X		 */
+X		l  = r = 0xb3 | win->_title_attr;
+X		t  = b = 0xc4 | win->_title_attr;
+X		tl = 0xda | win->_attrs;
+X		tr = 0xbf | win->_attrs;
+X		bl = 0xc0 | win->_attrs;
+X		br = 0xd9 | win->_attrs;
+X	}
+X
+X	for (i = xmin + 1; i <= xmax - 1; i++)
+X	{
+X		win->_y[ymin][i] = (t | hattr);
+X		win->_y[ymax][i] = (b | hattr);
+X	}
+X
+X	for (i = ymin + 1; i <= ymax - 1; i++)
+X	{
+X		win->_y[i][xmin] = (l | vattr);
+X		win->_y[i][xmax] = (r | vattr);
+X	}
+X
+X	win->_y[ymin][xmin] = (tl | vattr);
+X	win->_y[ymin][xmax] = (tr | vattr);
+X	win->_y[ymax][xmin] = (bl | vattr);
+X	win->_y[ymax][xmax] = (br | vattr);
+X
+X	for (i = ymin; i <= ymax; i++)
+X	{
+X		if (win->_firstch[i] == _NO_CHANGE)
+X		{
+X			win->_firstch[i] = xmin;
+X			win->_lastch[i] = xmax;
+X		}
+X		else
+X		{
+X			win->_firstch[i] = min(win->_firstch[i], xmin);
+X			win->_lastch[i] = max(win->_lastch[i], xmax);
+X		}
+X	}
+X	/*
+X	 * set wborder() settings to current values
+X	 */
+X	win->_borderchars[0] = l  | vattr;
+X	win->_borderchars[1] = r  | vattr;
+X	win->_borderchars[2] = t  | hattr;
+X	win->_borderchars[3] = b  | hattr;
+X	win->_borderchars[4] = tl | vattr;
+X	win->_borderchars[5] = tr | vattr;
+X	win->_borderchars[6] = bl | vattr;
+X	win->_borderchars[7] = br | vattr;
+X	return (OK);
+X}
+END_OF_FILE
+  if test 5122 -ne `wc -c <'nonport/wbox.c'`; then
+    echo shar: \"'nonport/wbox.c'\" unpacked with wrong size!
+  fi
+  # end of 'nonport/wbox.c'
+fi
+if test -f 'private/_vsscanf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_vsscanf.c'\"
+else
+  echo shar: Extracting \"'private/_vsscanf.c'\" \(12556 characters\)
+  sed "s/^X//" >'private/_vsscanf.c' <<'END_OF_FILE'
+X/*
+X * This module is based on vsscanf.c and input.c from emx 0.8f library
+X * source which is Copyright (c) 1990-1992 by Eberhard Mattes.
+X * Eberhard Mattes has kindly agreed to allow this module to be incorporated
+X * into PDCurses.
+X */
+X#ifndef	NDEBUG
+Xchar *rcsid__vsscanf = "$Header: c:/curses/private/RCS/_vsscanf.c%v 2.0 1992/11/15 03:24:18 MH Rel $";
+X#endif
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <stdarg.h>
+X#include <string.h>
+X#include <limits.h>
+X#include <ctype.h>
+X
+X#define TRUE 1
+X#define FALSE 0
+X
+X#define WHITE(x) ((x) == ' ' || (x) == '\t' || (x) == '\n')
+X
+X#define NEXT(x) \
+X        do { \
+X            x = *buf++; \
+X            if (x == '\0') \
+X               return (count == 0 ? EOF : count); \
+X            ++chars; \
+X           } while (0)
+X#define UNGETC(x) \
+X        do { \
+X            --buf; *buf = x; --chars; \
+X           } while (0)
+X
+X/*man-start*********************************************************************
+X
+X  PDC_vsscanf()	- Internal routine to parse and format an input buffer.
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Scan a series of input fields. Each field is formatted according to
+X 	a supplied format string and the formatted input is stored in the
+X 	variable number of addresses passed.
+X
+X  PDCurses Return Value:
+X 	This function returns the number of input fields or EOF on error.
+X
+X  PDCurses Errors:
+X 	If the supplied data is invalid or an incorrect number of arguments
+X 	are passed, EOF is returned as an error.
+X
+X  Portability:
+X 	PDCurses	int PDC_vsscanf(char *buf,const char *fmt,va_list arg_ptr);
+X
+X**man-end**********************************************************************/
+X
+Xint PDC_vsscanf ( char *buf, const char *fmt, char *arg_ptr)
+X{
+X  int count, chars, c, width, radix, d, i;
+X  int *int_ptr;
+X  long *long_ptr;
+X  short *short_ptr;
+X  char *char_ptr;
+X  unsigned char f;
+X  char neg, assign, ok, size;
+X  unsigned long n;
+X  char map[256], end;
+X  double dx, dd, *dbl_ptr;
+X  float *flt_ptr;
+X  int exp;
+X  char eneg;
+X
+X  count = 0; chars = 0; c = 0;
+X  while ((f = *fmt) != 0)
+X    {
+X      if (WHITE (f))
+X        {
+X          do
+X            {
+X              ++fmt; f = *fmt;
+X            } while (WHITE (f));
+X          do
+X            {
+X              c = *buf++;
+X              if (c == '\0')
+X                {
+X                  if (f == 0 || count != 0)
+X                    return (count);
+X                  else
+X                    return (EOF);
+X                }
+X              else
+X                ++chars;
+X            } while (WHITE (c));
+X          UNGETC (c);
+X        }
+X      else if (f != '%')
+X        {
+X          NEXT (c);
+X          if (c != f)
+X            return (count);
+X          ++fmt;
+X        }
+X      else
+X        {
+X          assign = TRUE; width = INT_MAX;
+X          char_ptr = NULL;
+X          ++fmt;
+X          if (*fmt == '*')
+X            {
+X              assign = FALSE;
+X              ++fmt;
+X            }
+X          if (isdigit (*fmt))
+X            {
+X              width = 0;
+X              while (isdigit (*fmt))
+X                width = width * 10 + (*fmt++ - '0');
+X              if (width == 0) width = INT_MAX;
+X            }
+X          size = 0;
+X          if (*fmt == 'h' || *fmt == 'l')
+X            size = *fmt++;
+X          f = *fmt;
+X          switch (f)
+X            {
+X            case 'c':
+X              if (width == INT_MAX)
+X                width = 1;
+X              if (assign)
+X                char_ptr = va_arg (arg_ptr, char *);
+X              while (width > 0)
+X                {
+X                  --width;
+X                  NEXT (c);
+X                  if (assign)
+X                    {
+X                      *char_ptr++ = (char)c;
+X                      ++count;
+X                    }
+X                }
+X              break;
+X            case '[':
+X              (void)memset (map, 0, 256);
+X              end = 0;
+X              ++fmt;
+X              if (*fmt == '^')
+X                {
+X                  ++fmt; end = 1;
+X                }
+X              i = 0;
+X              for (;;)
+X                {
+X                  f = (unsigned char)*fmt;
+X                  switch (f)
+X                    {
+X                    case 0:
+X                      --fmt;       /* avoid skipping past 0 */
+X                      NEXT (c);
+X                      goto string;
+X                    case ']':
+X                      if (i > 0)
+X                        {
+X                          NEXT (c);
+X                          goto string;
+X                        }
+X                      /* no break */
+X                    default:
+X                      if (fmt[1] == '-' && fmt[2] != 0 &&
+X                          f < (unsigned char)fmt[2])
+X                        {
+X                          (void)memset (map+f, 1, (unsigned char)fmt[2]-f);
+X                          fmt += 2;
+X                        }
+X                      else
+X                        map[f] = 1;
+X                      break;
+X                    }
+X                  ++fmt; ++i;
+X                }
+X            case 's':
+X              (void)memset (map, 0, 256);
+X              map[' '] = 1;
+X              map['\n'] = 1;
+X              map['\t'] = 1;
+X              end = 1;
+X              do
+X                {
+X                  NEXT (c);
+X                } while (WHITE (c));
+Xstring:
+X              if (assign)
+X                char_ptr = va_arg (arg_ptr, char *);
+X              while (width > 0 && map[(unsigned char)c] != end)
+X                {
+X                  --width;
+X                  if (assign)
+X                    *char_ptr++ = (char)c;
+X                  c = *buf++;
+X                  if (c == '\0')
+X                    break;
+X                  else
+X                    ++chars;
+X                }
+X              if (assign)
+X                {
+X                  *char_ptr = 0;
+X                  ++count;
+X                }
+X              if (c == '\0')
+X                return (count);
+X              else
+X                UNGETC (c);
+X              break;
+X            case 'f':
+X            case 'e':
+X            case 'E':
+X            case 'g':
+X            case 'G':
+X              neg = ok = FALSE; dx = 0.0;
+X              do
+X                {
+X                  NEXT (c);
+X                } while (WHITE (c));
+X              if (c == '+')
+X                {
+X                  NEXT (c); --width;
+X                }
+X              else if (c == '-')
+X                {
+X                  neg = TRUE; NEXT (c); --width;
+X                }
+X              while (width > 0 && isdigit (c))
+X                {
+X                  --width;
+X                  dx = dx * 10.0 + (double)(c - '0');
+X                  ok = TRUE;
+X                  c = *buf++;
+X                  if (c == '\0')
+X                    break;
+X                  else
+X                    ++chars;
+X                }
+X              if (width > 0 && c == '.')
+X                {
+X                  --width;
+X                  dd = 10.0; NEXT (c);
+X                  while (width > 0 && isdigit (c))
+X                    {
+X                      --width;
+X                      dx += (double)(c - '0') / dd;
+X                      dd *= 10.0;
+X                      ok = TRUE;
+X                      c = *buf++;
+X                      if (c == '\0')
+X                        break;
+X                      else
+X                        ++chars;
+X                    }
+X                }
+X              if (!ok)
+X                return (count);
+X              if (width > 0 && (c == 'e' || c == 'E'))
+X                {
+X                  eneg = FALSE; exp = 0; NEXT (c); --width;
+X                  if (width > 0 && c == '+')
+X                    {
+X                      NEXT (c); --width;
+X                    }
+X                  else if (width > 0 && c == '-')
+X                    {
+X                      eneg = TRUE; NEXT (c); --width;
+X                    }
+X                  if (!(width > 0 && isdigit (c)))
+X                    {
+X                      UNGETC (c);
+X                      return (count);
+X                    }
+X                  while (width > 0 && isdigit (c))
+X                    {
+X                      --width;
+X                      exp = exp * 10 + (c - '0');
+X                      c = *buf++;
+X                      if (c == '\0')
+X                        break;
+X                      else
+X                        ++chars;
+X                    }
+X                  if (eneg) exp = -exp;
+X                  while (exp > 0)
+X                    {
+X                      dx *= 10.0;
+X                      --exp;
+X                    }
+X                  while (exp < 0)
+X                    {
+X                      dx /= 10.0;
+X                      ++exp;
+X                    }
+X                }
+X              if (assign)
+X                {
+X                  if (neg) dx = -dx;
+X                  if (size == 'l')
+X                    {
+X                      dbl_ptr = va_arg (arg_ptr, double *);
+X                      *dbl_ptr = dx;
+X                    }
+X                  else
+X                    {
+X                      flt_ptr = va_arg (arg_ptr, float *);
+X                      *flt_ptr = (float)dx;
+X                    }
+X                  ++count;
+X                }
+X              if (c == '\0')
+X                return (count);
+X              else
+X                UNGETC (c);
+X              break;
+X            case 'i':
+X              neg = FALSE; radix = 10;
+X              do
+X                {
+X                  NEXT (c);
+X                } while (WHITE (c));
+X              if (!(width > 0 && c == '0'))
+X                goto scan_complete_number;
+X              NEXT (c); --width;
+X              if (width > 0 && (c == 'x' || c == 'X'))
+X                {
+X                  NEXT (c); radix = 16; --width;
+X                }
+X              else if (width > 0 && (c >= '0' && c <= '7'))
+X                radix = 8;
+X              goto scan_unsigned_number;
+X            case 'd':
+X            case 'u':
+X            case 'o':
+X            case 'x':
+X            case 'X':
+X              do
+X                {
+X                  NEXT (c);
+X                } while (WHITE (c));
+X              switch (f)
+X                {
+X                case 'o':           radix = 8; break;
+X                case 'x': case 'X': radix = 16; break;
+X                default:            radix = 10; break;
+X                }
+Xscan_complete_number:
+X              neg = FALSE;
+X              if (width > 0 && c == '+')
+X                {
+X                  NEXT (c); --width;
+X                }
+X              else if (width > 0 && c == '-' && radix == 10)
+X                {
+X                  neg = TRUE; NEXT (c); --width;
+X                }
+Xscan_unsigned_number:
+X              n = 0; ok = FALSE;
+X              while (width > 0)
+X                {
+X                  --width;
+X                  if (isdigit (c))
+X                    d = c - '0';
+X                  else if (isupper (c))
+X                    d = c - 'A' + 10;
+X                  else if (islower (c))
+X                    d = c - 'a' + 10;
+X                  else
+X                    break;
+X                  if (d < 0 || d >= radix)
+X                    break;
+X                  ok = TRUE;
+X                  n = n * radix + d;
+X                  c = *buf++;
+X                  if (c == '\0')
+X                    break;
+X                  else
+X                    ++chars;
+X                }
+X              if (!ok)
+X                return (count);
+X              if (assign)
+X                {
+X                  if (neg) n = -n;
+X                  switch(size)
+X                     {
+X                      case 'h':
+X                              short_ptr = va_arg (arg_ptr, short *);
+X                              *short_ptr = (short)n;
+X                              break;
+X                      case 'l':
+X                              long_ptr = va_arg (arg_ptr, long *);
+X                              *long_ptr = (long)n;
+X                              break;
+X                      default:
+X                              int_ptr = va_arg (arg_ptr, int *);
+X                              *int_ptr = (int)n;
+X                     }
+X                  ++count;
+X                }
+X              if (c == '\0')
+X                return (count);
+X              else
+X                UNGETC (c);
+X              break;
+X            case 'n':
+X              if (assign)
+X                {
+X                  int_ptr = va_arg (arg_ptr, int *);
+X                  *int_ptr = chars;
+X                  ++count;
+X                }
+X              break;
+X            default:
+X              if (f == 0)                 /* % at end of string */
+X                return (count);
+X              NEXT (c);
+X              if (c != f)
+X                return (count);
+X              break;
+X            }
+X          ++fmt;
+X        }
+X    }
+X  return (count);
+X}
+END_OF_FILE
+  if test 12556 -ne `wc -c <'private/_vsscanf.c'`; then
+    echo shar: \"'private/_vsscanf.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_vsscanf.c'
+fi
+if test -f 'tools/buildlrf.def' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tools/buildlrf.def'\"
+else
+  echo shar: Extracting \"'tools/buildlrf.def'\" \(74 characters\)
+  sed "s/^X//" >'tools/buildlrf.def' <<'END_OF_FILE'
+XNAME buildlrf windowcompat
+X
+XDESCRIPTION 'test'
+X
+XPROTMODE
+X
+XSTACKSIZE 32767
+END_OF_FILE
+  if test 74 -ne `wc -c <'tools/buildlrf.def'`; then
+    echo shar: \"'tools/buildlrf.def'\" unpacked with wrong size!
+  fi
+  # end of 'tools/buildlrf.def'
+fi
+echo shar: End of archive 2 \(of 11\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

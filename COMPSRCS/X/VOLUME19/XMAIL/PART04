@@ -1,0 +1,1768 @@
+Newsgroups: comp.sources.x
+From: markham@cadence.com (Jeff Markham)
+Subject: v19i029:  xmail - X Window System interface to the mail program, Part04/10
+Message-ID: <1993Mar10.202831.10887@sparky.imd.sterling.com>
+X-Md4-Signature: 66309127f61e3679b5542cc6152d4520
+Date: Wed, 10 Mar 1993 20:28:31 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: markham@cadence.com (Jeff Markham)
+Posting-number: Volume 19, Issue 29
+Archive-name: xmail/part04
+Environment: X11
+Supersedes: xmail: Volume 15, Issue 18-26
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Mailwatch.h actions.c xmail.c
+# Wrapped by chris@sparky on Wed Mar 10 14:17:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 10)."'
+if test -f 'Mailwatch.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Mailwatch.h'\"
+else
+  echo shar: Extracting \"'Mailwatch.h'\" \(1082 characters\)
+  sed "s/^X//" >'Mailwatch.h' <<'END_OF_FILE'
+X/*
+X * Author:  Dan heller
+X */
+X
+X#ifndef _XtMailwatch_h
+X#define _XtMailwatch_h
+X
+X/*
+X * Mailwatch widget; looks a lot like the Mailbox widget, don't it...
+X */
+X
+X#ifndef XtNupdate
+X#define XtNupdate	"update"	/* Int: how often to check mail */
+X#endif /* XtNupdate */
+X
+X#ifndef XtNfile
+X#define XtNfile		"file"		/* String:  file name to check */
+X#endif /* Xtfile */
+X
+X#define XtNbell		"bell"		/* boolean to ring bell on new mail */
+X#define XtNmailFlag	"mailFlag"	/* path to icon file for mail */
+X#define XtNnoMailFlag	"noMailFlag"	/* path to icon file for no mail */
+X#define XtNmail		"mail"		/* For XtGetValues to get mail info */
+X
+X#define XtCPixmapMask	"PixmapMask"
+X#define XtCMailFlag	"MailFlag"	/* Class name of icon file for mail */
+X#define XtCNoMailFlag	"NoMailFlag"	/* Class name of icon file for nomail */
+X
+X/* structures */
+Xtypedef struct _MailwatchRec *MailwatchWidget;  /* see MailwatchP.h */
+Xtypedef struct _MailwatchClassRec *MailwatchWidgetClass;  /* see MailwatchP.h */
+X
+Xextern WidgetClass mailwatchWidgetClass;
+X
+X#endif /* _XtMailwatch_h */
+X/* DON'T ADD STUFF AFTER THIS #endif */
+END_OF_FILE
+  if test 1082 -ne `wc -c <'Mailwatch.h'`; then
+    echo shar: \"'Mailwatch.h'\" unpacked with wrong size!
+  fi
+  # end of 'Mailwatch.h'
+fi
+if test -f 'actions.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'actions.c'\"
+else
+  echo shar: Extracting \"'actions.c'\" \(33275 characters\)
+  sed "s/^X//" >'actions.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * The following software modules were created and are Copyrighted by
+X * National Semiconductor Corporation:
+X *
+X *  1. initfoldir:
+X *  2. str_compare:
+X *  3. CheckInsert:
+X *  4. EraseIt:
+X *  5. DeleteChar:
+X *  6. DeleteLine:
+X *  7. DeleteWord:
+X *  8. DoCmd:
+X *  9. DoDone:
+X * 10. DoNothing:
+X * 11. DoReply:
+X * 12. DoSave:
+X * 13. DoSelected:
+X * 14. Folder:
+X * 15. Iconify:
+X * 16. MyNotify:
+X * 17. NextField:
+X * 18. PrintMsg:
+X * 19. Quit:
+X * 20. SetAliases:
+X * 21. SetNewness:
+X * 22. SetFolders:
+X * 23. SetMenu:
+X * 24. SetPopup:
+X * 25. SetSelect: and
+X * 26. ShowHelp.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X
+X#include "global.h"
+X#include <unistd.h>
+X#include <ctype.h>
+X#include <sys/stat.h>
+X#include <pwd.h>
+X#include "xmailregexp.h"
+X
+X#ifdef	AIXV3
+X#include <sys/mode.h>
+X#endif
+X
+X#ifndef	S_ISDIR
+X#define	S_ISDIR(m)	(((m)&S_IFMT) == S_IFDIR)
+X#endif
+X
+X#ifdef USE_DIRENT
+X#include <dirent.h>
+X#else
+X#include <sys/dir.h>
+X#endif
+X
+X
+Xvoid
+Xinitfoldir()
+X{
+X String	cp;
+X
+X
+X if (! foldir[0])
+X    if (cp = GetMailEnv("folder")) {
+X       if (strchr("/.", *cp))
+X          (void) strcpy(foldir, cp);
+X       else
+X          (void) sprintf(foldir, "%s/%s", HOME, cp);
+X
+X       XtFree((String) cp);
+X       if (LASTCH(foldir) != '/')
+X          (void) strcat(foldir, "/");
+X      }
+X}
+X
+X
+X/*
+X** @(#)str_compare() - compare function for the qsort of folder names
+X*/
+Xstr_compare(s1, s2)
+Xchar **s1, **s2;
+X{
+X return(strcmp(*s1, *s2));
+X}
+X
+X
+X/*
+X** @(#)CheckInsert() - prevents the user from munging up the File: prompt.
+X** If the current insertion point is less than the minimum StartPos, move
+X** the insertion point to the StartPos.
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XCheckInsert(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X if (XawTextGetInsertionPoint(w) < StartPos)
+X     XawTextSetInsertionPoint(w, (XawTextPosition) StartPos);
+X} /* CheckInsert */
+X
+X
+X/*
+X** @(#)EraseIt() - Delete the specified portion of text.
+X*/
+Xvoid
+XEraseIt(w, i, pos)
+XWidget	w;
+XXawTextPosition	i, pos;
+X{
+X XawTextBlock	textblock;
+X
+X textblock.firstPos = 0;
+X textblock.length   = 0;
+X textblock.ptr      = "";
+X
+X XawTextReplace(w, i, pos, &textblock);
+X
+X XawTextSetInsertionPoint(w, (XawTextPosition) i);
+X} /* EraseIt */
+X
+X
+X/*
+X** @(#)DeleteChar() - prevents the user from deleting past the File: prompt.
+X** If the current insertion point is greater than the minimum StartPos, then
+X** delete the previous character.
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XDeleteChar(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X XawTextPosition pos, i;
+X
+X pos = XawTextGetInsertionPoint(w);
+X if (pos > StartPos) {
+X    i = pos - 1;
+X    EraseIt(w, i, pos);
+X   }
+X} /* DeleteChar */
+X
+X
+X/*
+X** @(#)DeleteLine() - Deletes the entire current line from the file window.
+X**                    Simulates the action of the KILL character (ctrl-U).
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XDeleteLine(w, event, params, num_params)
+XWidget			w;
+XXEvent			*event;
+XString			*params;
+XCardinal		*num_params;
+X{
+X XawTextPosition	pos, i;
+X String			FBuf;
+X Arg			args[1];
+X
+X
+X pos = XawTextGetInsertionPoint(w);
+X if (pos > StartPos) {
+X    XtSetArg(args[0], XtNstring, &FBuf);
+X    XtGetValues(w, args, ONE);
+X
+X    for (i = pos; i > StartPos && FBuf[i - 1] != '\n'; i--);
+X
+X    EraseIt(w, i, pos);
+X   }
+X} /* DeleteLine */
+X
+X
+X/*
+X** @(#)DeleteWord() - Erases the preceding word in the fileWindow buffer.
+X** Simulates the action of the WERASE character (ctrl-W).
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XDeleteWord(w, event, params, num_params)
+XWidget			w;
+XXEvent			*event;
+XString			*params;
+XCardinal		*num_params;
+X{
+X XawTextPosition	pos, i;
+X String			FBuf;
+X Arg			args[1];
+X
+X pos = XawTextGetInsertionPoint(w);
+X if (pos > StartPos) {
+X    XtSetArg(args[0], XtNstring, &FBuf);
+X    XtGetValues(w, args, ONE);
+X
+X    for (i = pos; i > StartPos && FBuf[i - 1] == ' '; i--);
+X    for (; i > StartPos && FBuf[i - 1] != ' '; i--);
+X
+X    EraseIt(w, i, pos);
+X   }
+X} /* DeleteWord */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DoCmd() - send (multi-word) command to mail
+X*/
+XXtActionProc
+XDoCmd(w, event, params, num_params)
+XWidget		w;			/* unused */
+XXEvent		*event;			/* unused */
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		i;
+X char		buf[BUFSIZ];
+X
+X
+X if (strcmp(params[0], "drop") == 0) {
+X    SetCursor(NORMAL);
+X    DropIt(w, *params, NULL);
+X   } else {
+X    buf[0] = '\0';
+X    for (i = 0; i < *num_params; i++) {
+X        if (i > 0)
+X           (void) strcat(buf, " ");
+X        (void) strcat(buf, params[i]);
+X       }
+X    DoIt(w, buf, NULL);			/* Let DoIt (CallbackProc) do work */
+X   }
+X} /* DoCmd */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DoDone() - execute one of the selected message composition callbacks
+X*/
+XXtActionProc
+XDoDone(w, event, params, num_params)
+XWidget		w;			/* unused */
+XXEvent		*event;			/* unused */
+XString		*params;
+XCardinal	*num_params;		/* unused */
+X{
+X char		buf[11];
+X Widget		button;
+X
+X if (strcmp(*params, "ReEdit") == 0)
+X    ReEdit(w, *params, NULL);
+X else if (strcmp(&params[0][1], "utograph") == 0) {
+X    (void) sprintf(buf, "*%s", *params);
+X    button = XtNameToWidget(XtParent(w), buf);
+X    Autograph(button, *params, NULL);
+X   } else {
+X    button = XtNameToWidget(XtParent(w), "*Deliver");
+X    Done(button, *params, NULL);
+X   }
+X} /* DoDone */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DoNothing() - dummy action for unwanted button(s)
+X*/
+XXtActionProc
+XDoNothing(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X return;
+X} /* DoNothing */
+X
+X
+X/*
+X** @(#)DoReply() - call Reply() CallbackProc from an ActionProc
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XDoReply(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X Reply(w, *params, NULL);
+X} /* DoReply */
+X
+X
+X/*
+X** @(#)DoSave() - call Save() CallbackProc from an ActionProc
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XDoSave(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X Save(w, *params, NULL);
+X} /* DoSave */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DoSelected() - execute specified command using selected message number
+X*/
+XXtActionProc
+XDoSelected(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		LastNumber(), num = 0;
+X char		cmd[2];
+X
+X
+X Waiting = TRUE;              /* so popup's EnterNotify won't erase the msg */
+X if (! mailpid) Bell("No current mail connection\n");
+X else if (num_params) {
+X         (void) strcpy(cmd, params[0]);
+X         num = SelectionNumber(cmd[0] == 'u');
+X         /*
+X         ** For 'next' and 'previous' commands, remember that
+X         ** mail's idea of the current message number may not
+X         ** match what the user has selected (without reading).
+X         */
+X         if (cmd[0] == 'n') {
+X            if (++num <= LastNumber(/* of the index */)) cmd[0] = 'p';
+X            else {			/* just say what would be said */
+X               Bell("At EOF\n");	/* if last msg num was current */
+X               return;
+X              }
+X           }
+X         if (cmd[0] == '-') {
+X            if (--num) cmd[0] = 'p';
+X            else {			/* just say what would be said if */
+X               Bell("Referencing before first message\n"); /* first was current */
+X               return;
+X              }
+X           }
+X
+X         SetCursor(WATCH);
+X         if (num) (void) sprintf(Command, "%s %d\n", cmd, num);
+X         else (void) sprintf(Command, "%s\n", cmd);
+X
+X         writeMail(Command);
+X        }
+X} /* DoSelected */
+X
+X
+X/*
+X** @(#)Folder() - change folders - must have specified folder name or error
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XFolder(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X XawTextPosition pos;
+X String		c, p, buf;
+X Widget		fw = XtNameToWidget(toplevel, "topBox.commandPanel.fileWindow");
+X Arg		args[1];
+X
+X#ifndef	NO_FOLDER_NAME
+X#define	NO_FOLDER_NAME	"Specify a folder name (in the [File: ] box) first\n"
+X#endif
+X
+X pos = TextGetLastPos(fw);
+X if (pos - StartPos <= 0) {
+X    Bell(NO_FOLDER_NAME);
+X   } else {
+X    buf = NULL;
+X    XtSetArg(args[0], XtNstring, &buf);
+X    XtGetValues(fw, args, ONE);
+X
+X    if (buf[pos] != '\0') buf[pos] = '\0';
+X    for (pos = StartPos; buf[pos] && strchr(" \t", buf[pos]);) pos++;
+X
+X    if (! buf[pos]) {
+X       EraseIt(fw, (XawTextPosition) StartPos, pos);
+X       Bell(NO_FOLDER_NAME);
+X      } else {
+X       p = XtNewString(&buf[pos]);
+X
+X       if (mailpid) {			/* check for commit of any changes */
+X          buf = NULL;
+X          XtSetArg(args[0], XtNlabel, &buf);
+X          XtGetValues(XtNameToWidget(toplevel,"topBox.titleBar.title"),args,1);
+X
+X          c = strrchr(buf, 'l');  if (c) c -= 2;
+X
+X          if (! c || strncmp(c, "deleted", 7) != 0 ||
+X              Confirm("COMMIT all changes to this folder")) {
+X             (void) sprintf(Command, "file %s\n", p);
+X             writeMail(Command);
+X             SetCursor(WATCH);		/* will be reset by parser routine */
+X             (void) strcpy(lastFolder, buf);	/* save titlebar for utimes */
+X            }
+X          XtFree((String) p);
+X         } else {
+X          /*
+X          ** We must first re-establish contact with the mail utility.
+X          ** This time, we indicate a specific mail folder to process.
+X          */
+X          XtFree((String) XMail.MFileName);
+X          XMail.MFileName = p;
+X          if (mailargc > 2 && strcmp(mailargv[mailargc - 2], "-f") == 0) {
+X             mailargv[mailargc - 1] = XMail.MFileName;
+X            } else {
+X             mailargv[mailargc++] = "-f";
+X             mailargv[mailargc++] = XMail.MFileName;
+X             mailargv[mailargc] = NULL;	/* list MUST be NULL terminated */
+X            }
+X          callMail(mailargv);
+X          (void) strcpy(Command, "Start");	/* Let em know we've re-started */
+X          In_Bogus_Mail_File = FALSE;	/* reset this so titleBar will chg */
+X          SetCursor(WATCH);		/* will be reset by parser routine */
+X         }
+X      } /* end - if a folder name was specified */
+X   }
+X} /* Folder */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)Iconify() - request window iconification
+X*/
+XXtActionProc
+XIconify(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X Display		*disp = XtDisplay(toplevel);
+X
+X
+X if (! XIconifyWindow(disp, XtWindow(toplevel), DefaultScreen(disp)))
+X    XBell(disp, 33);
+X}
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)MyNotify() - call widget callbacks with passed parameter
+X*/
+XXtActionProc
+XMyNotify(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X XtCallCallbacks(w, XtNcallback, *params);
+X} /* MyNotify */
+X
+X
+X/*
+X** @(#)NextField() - warps pointer to next field in the Send command window.
+X** This allows carriage return to focus attention on the next data requirement.
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XNextField(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X String	name;
+X Widget	shell;
+X
+X
+X if (strcmp(w->core.name, "Cc") == 0)
+X    name = "Bcc"; else
+X if (strcmp(w->core.name, "Bcc") == 0)
+X    name = "To"; else
+X if (strcmp(w->core.name, "To") == 0)
+X    name = "Subject"; else
+X    name = "Cc";
+X
+X if ((shell = XtNameToWidget(XtParent(w), name)) != NULL)
+X    XWarpPointer(XtDisplay(toplevel), None, XtWindow(shell), 0,0,0,0, 15, 10);
+X
+X} /* NextField */
+X
+X
+X/*
+X** @(#)PrintMsg() - sends the selected mail message to the system printer
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XPrintMsg(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		k, num;
+X String		cp, sp;
+X char		buf[BUFSIZ];
+X
+X
+X if (! mailpid) Bell("No current mail connection\n");
+X else {
+X    num = SelectionNumber(FALSE);	/* no current message returns zero */
+X    if (! num) Bell("No messages to print.\n");
+X    else {
+X       SetCursor(WATCH);		/* will be reset by parser routine */
+X       cp = QueryMail("|");
+X       if (strncmp(cp, "Unknown", 7) == 0) {	/* Then this is NOT Sun mail */
+X          (void) sprintf(buf, "copy %d %s", num, tmpName);
+X          cp = QueryMail(buf);			/* write message to a file */
+X          sp = strrchr(cp, '/');		/* get the size of the file */
+X          if (sp)
+X             (void) sscanf(sp, "/%d", &k);
+X          else {
+X             struct stat	sb;
+X
+X             if (stat(tmpName, &sb) == 0)
+X                k = sb.st_size;
+X             else k = 0;
+X            }
+X          if (! (cp = GetMailEnv("printmail")))
+X             (void) sprintf(buf, "lpr -p %s && rm -f %s &", tmpName, tmpName);
+X          else {
+X             (void) sprintf(buf, "%s %s && rm -f %s &", cp, tmpName, tmpName);
+X             XtFree((String) cp);
+X            }
+X
+X          (void) system(buf);
+X          (void) sprintf(buf, "Message %d sent to printer -- %d bytes\n",num,k);
+X          Bell(buf);				/* Notify user of action */
+X          Command[0] = '\0';			/* Toss any previous value */
+X          SetCursor(NORMAL);
+X         } else {
+X          if (! (cp = GetMailEnv("printmail")))
+X             (void) sprintf(Command, "| %d \"lpr -p\"\n", num);
+X          else {
+X             (void) sprintf(Command, "| %d \"%s\"\n", num, cp);
+X             XtFree((String) cp);
+X            }
+X
+X          writeMail(Command);
+X         }
+X      }
+X   }
+X} /* PrintMsg */
+X
+X
+X/*
+X** @(#)Quit() - call DoQuit() CallbackProc from the Quit ActionProc
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XQuit(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;	/* unused */
+X{
+X if (event->type == ClientMessage &&
+X    event->xclient.data.l[0] != wmDeleteWindow) {
+X    XBell (XtDisplay(w), 0);
+X    return;
+X   }
+X
+X DoQuit(w, *params, NULL);
+X} /* Quit */
+X
+X
+X/*
+X** @(#)SetAliases() - create a menu list of alias names
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XSetAliases(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		columns, j, k, n;
+X Cardinal	numChildren = 0;
+X Widget		bw, lw, popup, above, left, parent = XtParent(w);
+X Display	*dpy = XtDisplay(parent);
+X Window		rootW, parentW, *cL, *childList = 0;
+X Arg		args[6];
+X
+X static String l_Trans = "<Btn3Up>:	MenuPopdown(aliasList)";
+X static String fl_trans = "<Enter>: set()\n<Leave>: unset()\n<Btn3Up>: notify()";
+X
+X
+X popup = XtNameToWidget(parent, "aliasList");
+X
+X if (! popup) {
+X    (void) alias(NULL);			/* ensure our aliases list is set */
+X/*
+X** determine proper label width by finding longest name length
+X*/
+X    j = k = columns = 0;
+X    for (n = 0; aliases[n]; n++)
+X        if ((columns = strlen(aliases[n]->name)) > k) {
+X           k = columns;
+X           j = n;
+X          }
+X
+X    if (k > 0) {				/* some alias names exist */
+X       /*
+X       ** Make equal width command buttons which contain the alias names
+X       */
+X       XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(l_Trans));
+X       popup = XtCreatePopupShell("aliasList", overrideShellWidgetClass, parent, args, 1);
+X
+X       XtSetArg(args[0], XtNdefaultDistance, (XtArgVal) 1);
+X       lw = XtCreateManagedWidget("table", formWidgetClass, popup, args, 1);
+X
+X       XtSetArg(args[0], XtNwidth, XTextWidth(XMail.buttonFont, aliases[j]->name, k) + 14);
+X       XtSetArg(args[1], XtNfont, XMail.buttonFont);
+X       XtSetArg(args[2], XtNtranslations, XtParseTranslationTable(fl_trans));
+X
+X       columns = XMail.shellWidth / args[0].value;	/* no wider than this */
+X       while (columns * columns > n) columns--;	/* try to shape into a square */
+X
+X       k = 0;
+X       above = left = NULL;
+X       for (n = 0; aliases[n]; n++) {
+X           XtSetArg(args[3], XtNlabel, aliases[n]->name);
+X           XtSetArg(args[4], XtNfromHoriz, left);			j = 5;
+X           if (! left)			/* also anchor to the button above */
+X              XtSetArg(args[j], XtNfromVert, above);			j++;
+X
+X           bw = XtCreateManagedWidget("entry", commandWidgetClass, lw, args, j);
+X           AddInfoHandler(bw, "Copy this alias to the current header field");
+X
+X           if (! left) above = bw;
+X           left = bw;
+X
+X           if (++k % columns == 0) {	/* make a box # columns wide */
+X              k = 0;
+X              left = NULL;		/* start next row at left edge of box */
+X             }
+X          } /* end - for all the aliases in the list */
+X      }	/* end - if some alias names exist */
+X   } /* end - if popup did not previously exist */
+X/*
+X** If the popup menu of aliases does exist, add a window-specific callback,
+X** set the menu's x,y coordinates and then pop it up
+X*/
+X if (! popup)
+X    XBell(XtDisplay(toplevel), 33);
+X else {
+X    if (! XtIsRealized(popup))
+X       XtRealizeWidget(popup);
+X
+X    lw = XtNameToWidget(popup, "*table");
+X    if (XQueryTree(dpy, XtWindow(lw), &rootW, &parentW, &childList, &numChildren)) {
+X       for (cL = childList; numChildren--;) {
+X            bw = XtWindowToWidget(dpy, *cL++);
+X
+X           if (XtHasCallbacks(bw, XtNcallback) == XtCallbackHasSome)
+X              XtRemoveAllCallbacks(bw, XtNcallback);
+X
+X           XtAddCallback(bw, XtNcallback, (XtCallbackProc) GetAliasName, w);
+X          }
+X
+X       XFree((Window *) childList);
+X      }
+X
+X    SetXY(popup, w, XMail.menuX, XMail.buttonHeight / 2);
+X
+X    XtPopupSpringLoaded(popup);
+X   }
+X} /* SetAliases */
+X
+X
+X/*
+X** @(#)SetNewness() - hatch label background of folder if recently modified
+X*/
+Xvoid
+XSetNewness(parent, path)
+XWidget	parent;
+Xchar	*path;
+X{
+X Cardinal	numChildren = 0;
+X char		*folder_name, buf[BUFSIZ];
+X Display	*dpy = XtDisplay(parent);
+X Window		rootW, parentW, *cL, *childList = 0;
+X Widget		w;
+X Arg		args[1];
+X struct	stat	stb;
+X
+X
+X if (XQueryTree(dpy, XtWindow(parent), &rootW, &parentW, &childList, &numChildren)) {
+X    for (cL = childList; numChildren--;) {
+X        w = XtWindowToWidget(dpy, *cL++);
+X
+X        XtSetArg(args[0], XtNlabel, &folder_name);
+X        XtGetValues(w, args, 1);
+X
+X        if (LASTCH(folder_name) != '/') {	/* If its not a directory... */
+X           (void) strcpy(buf, path);		/* build complete foldername */
+X           if (folder_name[0] == '+')		/* must be a toplevel folder */
+X              (void) strcat(buf, folder_name + 1);	/* (no plus sign) */
+X           else {
+X              (void) strcat(buf, "/");
+X              (void) strcat(buf, folder_name);
+X             }
+X           /*
+X           ** Using access versus modified timestamps is inherently unreliable
+X           ** in determining the newness of messages in a folder, but the
+X           ** alternative of examining the file for the last Status or From is
+X           ** horribly slow. 
+X           */
+X           if (stat(buf, &stb) == 0) {
+X              if (stb.st_size && stb.st_atime < stb.st_mtime)
+X                 XtSetArg(args[0], XtNbackgroundPixmap, hatch);
+X              else
+X                 XtSetArg(args[0], XtNbackgroundPixmap, XtUnspecifiedPixmap);
+X              XtSetValues(w, args, 1);
+X             } /* end - if readable */
+X          } /* end - if not a directory */
+X       } /* end - for each child in the list */
+X
+X    XFree((Window *) childList);
+X   } /* end - if some children exist */
+X} /* end - SetNewness */
+X
+X
+X/*
+X** @(#)SetFolders() - create a menu list of folder names
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XSetFolders(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;
+XCardinal	*num_params;
+X{
+X int		m, n, total, no_List = TRUE;
+X int		isAdir, freeable = FALSE;	/* If we built list then true */
+X String		*ftbl = NULL;
+X String		cp, List = NULL;
+X char		trans[BUFSIZ], tmp[BUFSIZ], buf[BUFSIZ];
+X Widget		lw, above, this_one, to_left, popup;
+X Arg		args[8];
+X DIR		*dirp = NULL;
+X struct	stat	st_buf;
+X
+X
+X#ifdef USE_DIRENT
+X struct dirent	*dp;
+X#else
+X struct direct	*dp;
+X#endif
+X
+X static String dir_Trans = "<Btn1Down>: SetDirectory(%s,%s,%s)";
+X static String  l_Trans = "<Btn3Up>: MenuPopdown(popupList)";
+X static String fl_trans = "<Enter>: set()\n<Leave>: unset()\n\
+X        		   <Btn3Up>: notify() MenuPopdown(popupList)";
+X
+X static XtCallbackRec fl_callbacks[] = {
+X        { (XtCallbackProc) GetFolderName, NULL },
+X        { NULL,          NULL }
+X       };
+X
+X
+X popup = XtNameToWidget(w, "popupList");
+X
+X if (! popup) {
+X    XtSetSensitive(w, FALSE);
+X    XFlush(XtDisplay(toplevel));
+X    initfoldir();
+X
+X    if (foldir[0]) {				/* if folder variable exists */
+X       if (mailpid) {				/* try to get list from mail */
+X          List = QueryMail("folders");		/* returns a string of names */
+X         } else {
+X          if (dirp = opendir((char *)foldir)) {	/* and folder is readable... */
+X             n = BUFSIZ;			/* start with a BUFSIZ block */
+X             List = (String) XtMalloc((unsigned) n);
+X             List[0] = '\0';
+X             freeable = TRUE;
+X             for (dp = readdir(dirp); dp != NULL; dp = readdir(dirp))
+X                 if (dp->d_name[0] != '.') {	/* skip parent and dot files */
+X                    if (strlen(List) + strlen(dp->d_name) + 2 > n) {
+X                       n += BUFSIZ;
+X                       List = (String) XtRealloc(List, n);
+X                      }
+X                    if (List[0]) (void) strcat(List, " ");
+X                    (void) strcat(List, dp->d_name);
+X                   }
+X             (void) closedir(dirp);
+X             List = (String) XtRealloc(List, strlen(List) + 1);
+X            } /* end - if folder directory is readable */
+X         } /* end - if mail process is running */
+X      } /* end - if a folder value exists */
+X
+X    if (List) {				/* could be null if no current mail */
+X       no_List = FALSE;
+X       if (XM_O_BELL == match(output_pattern, List)) {
+X          if (strlen(List) + 1 < BUFSIZ)
+X             (void) sprintf(tmp, "%s\n", List);
+X          else
+X             (void) sprintf(tmp, "Cannot access folders\n");
+X          Bell(tmp);
+X          if (freeable) {
+X             freeable = FALSE;
+X             XtFree((String)List);
+X             List = NULL;
+X            } else List[0] = '\0';
+X          no_List = TRUE;
+X         }
+X      }
+X
+X    if (List && List[0]) {			/* if some folder names exist */
+X       no_List = FALSE;
+X       for (total = 1, cp = List; *cp; cp++)	/* count number of names */
+X           if (strchr(" \t\n", *cp)) {
+X              total++;			/* (increase the folder name count) */
+X              while (*(cp+1) && strchr(" \t\n", *(cp+1))) cp++;
+X             }
+X       ftbl = (String *) XtMalloc((unsigned) (total + 1) * sizeof(String));
+X       m = n = 0;
+X       for (cp = List; *cp; cp++) {	/* stuff word pointers into a table */
+X           while (*(cp+n) && ! strchr(" \t\n", *(cp+n))) n++;
+X           if (*(cp+n)) *(cp+n) = '\0';	/* mark off the end of this name */
+X           ftbl[m++] = cp;		/* save this pointer in our table */
+X           cp += n;			/* find start of next folder name */
+X           n = 0;
+X           while (*(cp+1) && strchr(" \t\n", *(cp+1))) cp++;
+X          }
+X       ftbl[m] = NULL;			/* NULL terminate our table */
+X       /*
+X       ** (quick) sort our table into ascending alphabetical order
+X       */
+X       if (total > 1)
+X          qsort((String) ftbl, total, sizeof(String), str_compare);
+X       /*
+X       ** Next, determine label width of longest word in our table
+X       */
+X       for (m = n = 0; n < total && ftbl[n]; n++) {
+X           if (strlen(ftbl[n]) > strlen(ftbl[m])) m = n;
+X          }
+X       /*
+X       ** Now, make equal width command buttons which contain the folder names
+X       */
+X       XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(l_Trans));
+X       popup = XtCreatePopupShell("popupList",overrideShellWidgetClass,w,args,1);
+X
+X       XtSetArg(args[0], XtNdefaultDistance, 1);
+X       lw = XtCreateManagedWidget("list", formWidgetClass, popup, args, 1);
+X
+X       n = XTextWidth(XMail.buttonFont, ftbl[m], strlen(ftbl[m]));
+X
+X       XtSetArg(args[0], XtNwidth, n + 20);
+X       XtSetArg(args[1], XtNfont, XMail.buttonFont);
+X       XtSetArg(args[2], XtNtranslations, XtParseTranslationTable(fl_trans));
+X       XtSetArg(args[3], XtNcallback, fl_callbacks);
+X
+X       above = this_one = to_left = NULL;
+X       tmp[0] = '\0';
+X       (void) strcpy(buf, foldir);
+X       n = strlen(buf) - 1;
+X       for (m = 0; m < total; m++) {
+X           buf[n] = '\0';		/* restore name only value for tests */
+X           /*
+X           ** Watch out for special case of only one folder which isn't
+X           ** really a directory... (i.e. foldir and folder are same name)
+X           */
+X           if (0 != strcmp(ftbl[m], buf))
+X              (void) strcpy(tmp, "+");	/* true folders start with a 'plus' */
+X           (void) strcat(tmp, ftbl[m]);
+X           /*
+X           ** mark any directory 'folders' with a trailing slash '/'.
+X           */
+X           isAdir = FALSE;			/* assume its a regular file */
+X           (void) strcat(buf, "/");
+X           (void) strcat(buf, ftbl[m]);
+X           if (access(buf, R_OK) == 0 &&	/* IF exists and is readable */
+X               access(buf, X_OK) == 0 &&	/* and we can execute/search */
+X               stat(buf, &st_buf) == 0)
+X	      if (S_ISDIR(st_buf.st_mode)) { 	/* and has directory bit set */
+X                 isAdir = TRUE;
+X	         if (LASTCH(tmp) != '/')
+X                 (void) strcat(tmp, "/");	/* If a directory mark it so */
+X                } else isAdir = FALSE;
+X
+X           XtSetArg(args[4], XtNlabel, tmp);
+X           XtSetArg(args[5], XtNfromHoriz, to_left);
+X           if (! to_left) XtSetArg(args[6], XtNfromVert, above);
+X
+X           this_one = XtCreateManagedWidget("menubutton", commandWidgetClass, lw, args, 7);
+X
+X           if (to_left == NULL) above = this_one;
+X           to_left = this_one;
+X
+X           if ((m+1) % 5 == 0)
+X              to_left = NULL;
+X/*
+X** If this 'folder' is a directory, add a button to popup a menu of filenames.
+X*/
+X           if (isAdir) {
+X              (void) sprintf(trans, dir_Trans, &tmp[1], buf, "0");
+X              XtOverrideTranslations(this_one, XtParseTranslationTable(trans));
+X              AddInfoHandler(this_one, Folder_Info[2]);
+X             } else
+X              AddInfoHandler(this_one, Folder_Info[1]);
+X          } /* end - for each folder name in the table of folders */
+X       XtFree((String) ftbl);
+X      }	/* end - if some folder names exist */
+X    XtSetSensitive(w, TRUE);
+X
+X    if (freeable)
+X       XtFree((String) List);
+X   } /* end - if no popup previously existed */
+X/*
+X** If no folders to display, tell the user why
+X*/
+X if (! popup) {
+X    if (! foldir[0])
+X       Bell("No value set for \"folder\"\n");
+X    else if (dirp || no_List == FALSE) {
+X            if (! mailpid || no_List == FALSE)
+X               Bell("No mail folders exist\n");
+X              }
+X   } else {
+X    /*
+X    ** If folders menu exists, pop it up, after setting x,y coordinates
+X    */
+X    if (! XtIsRealized(popup))
+X       XtRealizeWidget(popup);
+X    /*
+X    ** Mark folders with new messages by changing the background Pixmap
+X    */
+X    SetNewness(XtNameToWidget(popup, "*list"), foldir);
+X    /*
+X    ** If folder list is small enough, anchor it to
+X    ** the folder button instead of the commandPanel
+X    */
+X    if (popup->core.width + (3 * (XMail.buttonWidth + 12)) <= XMail.shellWidth)
+X       SetXY(popup, w, XMail.menuX, XMail.buttonHeight / 2);
+X    else
+X       SetXY(popup, XtNameToWidget(toplevel, "topBox.commandPanel"),
+X             XMail.menuX, XMail.commandHeight / 2);
+X
+X    XtPopupSpringLoaded(popup);
+X   }
+X} /* SetFolders */
+X
+X
+X
+X/* 
+X** @(#)SetMenu() - create a menu for toggling selected mail options
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XSetMenu(parent, event, params, num_params)
+XWidget		parent;
+XXEvent		*event;		/* unused */
+XString		*params;	/* unused */
+XCardinal	*num_params;	/* unused */
+X{
+X int		indx;
+X String		c, info;
+X char		label[BUFSIZ], name[BUFSIZ];		
+X Widget		menu, layout, previous, next;
+X Arg	 	args[6];
+X
+X static String m_Trans = "<Btn3Up>: MenuPopdown(set_menu)";
+X static String b_Trans = "<Enter>: set()\n<Leave>: reset()\n<Btn3Up>: notify() unset()";
+X
+X static String list[] = { "alwaysignore",
+X                           "editheaders",
+X                             "autoprint",
+X                                  "hold",
+X                                "expert",
+X                           NULL };
+X
+X static String set_info[] = {
+X "Skip 'ignore'd header fields everywhere, not just during a print or read",
+X "Enable editing of selected headers within the message body when sending",
+X "Enable automatic printing of messages after delete and undelete commands",
+X "Preserve messages in the system mailbox after they have been read",
+X "Don't ask for confirmation when commiting changes or aborting a new letter",
+X NULL
+X };
+X
+X static String unset_info[] = {
+X "Skip 'ignore'd header fields only when doing a print or read command",
+X "Disallow editing of selected headers within the message body when sending",
+X "Disable automatic printing of messages after delete and undelete commands",
+X "Move system mailbox messages to the mbox save file after you read them",
+X "Ask for confirmation before commiting any changes or aborting a new letter",
+X NULL
+X };
+X
+X
+X menu = XtNameToWidget(parent, "set_menu");
+X
+X if (! menu || menu->core.being_destroyed) {
+X    XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(m_Trans));
+X    menu = XtCreatePopupShell("set_menu",overrideShellWidgetClass,parent,args,1);
+X
+X    XtSetArg(args[0], XtNdefaultDistance, (XtArgVal) 1);
+X    layout = XtCreateManagedWidget("menu", formWidgetClass, menu, args, 1);
+X/*
+X** create the menu buttons
+X*/
+X    previous = NULL;
+X    XtSetArg(args[0], XtNwidth, figureWidth(XMail.buttonFont) * 18 + 12);
+X    XtSetArg(args[1], XtNfont, XMail.buttonFont);
+X    XtSetArg(args[2], XtNjustify, XtJustifyLeft);
+X    XtSetArg(args[3], XtNtranslations, XtParseTranslationTable(b_Trans));
+X    for (indx = 0; list[indx] != NULL; indx++) {
+X        info = set_info[indx];
+X        (void) strcpy(label, "set ");
+X        if (strcmp(list[indx], "expert") == 0) {
+X           if (XMail.expert) {
+X              info = unset_info[indx];
+X              (void) strcat(label, "no");
+X             }
+X          } else if ((c = GetMailEnv(list[indx])) != NULL) {
+X              info = unset_info[indx];
+X              (void) strcat(label, "no");
+X              XtFree((String) c);
+X          }
+X        (void) strcat(label, list[indx]);	/* set window name by label */
+X        (void) strcpy(name, &label[4]);
+X        XtSetArg(args[4], XtNlabel, label);
+X        XtSetArg(args[5], XtNfromVert, previous);
+X        next = XtCreateManagedWidget(name, commandWidgetClass, layout, args, 6);
+X        XtAddCallback(next, XtNcallback, (XtCallbackProc) DoSet, NULL);
+X        AddInfoHandler(next, info);
+X        previous = next;
+X       }
+X   } /* end - menu creation */
+X SetXY(menu, parent, XMail.menuX, XMail.buttonHeight / 2);
+X} /* SetMenu */
+X
+X
+X/*
+X** @(#)SetPopup() - place named popup at menuX, menuY relative to Widget w.
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XSetPopup(w, event, params, num_params)
+XWidget w;
+XXEvent *event; /* unused */
+XString *params;
+XCardinal *num_params;
+X{
+X String		p;
+X Widget		shell;
+X
+X
+X if (*num_params == 0)
+X    XtError("xmail had no name parameter passed to SetPopup()");
+X
+X p = params[0];
+X
+X if ((shell = XtNameToWidget(w, p)) == NULL)
+X    XtError("xmail shell name passed to SetPopup() not found in list");
+X
+X SetXY(shell, w, XMail.menuX, XMail.menuY);
+X} /* SetPopup */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)SetSelect() - flag the index number of the selected message
+X*/
+XXtActionProc
+XSetSelect(w, event, params, num_params)
+XWidget w;		/* unused */
+XXEvent *event;		/* unused */
+XString *params;		/* unused */
+XCardinal *num_params;	/* unused */
+X{
+X markIndex(">");
+X} /* SetSelect */
+X
+X
+X/*
+X** @(#)ShowHelp() - set named string source as text for and popup help window.
+X*/
+X/* ARGSUSED */
+XXtActionProc
+XShowHelp(w, event, params, num_params)
+XWidget		w;
+XXEvent		*event;
+XString		*params;			/* unused */
+XCardinal	*num_params;			/* unused */
+X{
+X Widget		tbox = XtNameToWidget(toplevel, "topBox");
+X Widget		help = XtNameToWidget(tbox, "help");
+X String		name;
+X helpText	*help_text;
+X
+X
+X name = w->core.name;
+X if (strcmp(name, "text") == 0 && event->type == KeyPress)
+X    name = "text2";
+X
+X for (help_text = HelpList; help_text; help_text = help_text->next)
+X     if (strcmp(name, help_text->name) == 0) {
+X        XawTextSetSource(XtNameToWidget(help, "helpWindow"),
+X                        (AsciiSrcObject) help_text->data, (XawTextPosition) 0);
+X
+X        SetXY(help, XtNameToWidget(tbox, "textWindow.text"), XMail.helpX, XMail.helpY);
+X
+X        XtPopup(help, XtGrabNone);
+X        break;
+X       }
+X} /* ShowHelp */
+END_OF_FILE
+  if test 33275 -ne `wc -c <'actions.c'`; then
+    echo shar: \"'actions.c'\" unpacked with wrong size!
+  fi
+  # end of 'actions.c'
+fi
+if test -f 'xmail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmail.c'\"
+else
+  echo shar: Extracting \"'xmail.c'\" \(20058 characters\)
+  sed "s/^X//" >'xmail.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * The following software modules were created and are Copyrighted by National
+X * Semiconductor Corporation:
+X *
+X * 1. initialize: and
+X * 2. SetHints.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X#include "global.h"
+X#include "Mailwatch.h"			/* use as icon and watch for newmail */
+X#include <X11/Xaw/CommandP.h>
+X#include <X11/Xaw/TextP.h>
+X#include <X11/cursorfont.h>		/* use watch cursor for busy notify */
+X#include <X11/bitmaps/cross_weave>	/* background use in Newmail notify */
+X#include <pwd.h>			/* for getting user's home directory */
+X
+X#ifndef	lint
+Xstatic char what[] =
+X "@(#)xmail.c 1.5 92/01/31 Copyright 1989,1990,1991,1992 National Semiconductor Corp.";
+X#endif
+X
+X#define Offset(field) (XtOffset(XmailResources *, field))
+X
+Xstatic XtResource resrcs[] = {
+X    {"textFont", XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X	Offset(textFont), XtRString, XtDefaultFont},
+X    {"helpFont", XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X	Offset(helpFont), XtRString, XtDefaultFont},
+X    {"buttonFont", XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X	Offset(buttonFont), XtRString, XtDefaultFont},
+X    {"iconGeometry", "IconGeometry", XtRString, sizeof(char *),
+X        Offset(iconGeometry), XtRString, (caddr_t) NULL},
+X    {"mFileName", "MFileName", XtRString, sizeof(char *), 
+X	Offset(MFileName), XtRString, (caddr_t) NULL},
+X    {"editorCommand", "EditorCommand", XtRString, sizeof(char *), 
+X	Offset(editorCommand), XtRString, (caddr_t) NULL},
+X    {"bellRing", "BellRing", XtRBoolean, sizeof(Boolean), 
+X	Offset(bellRing), XtRImmediate, (caddr_t) True},
+X    {"expert", "Expert", XtRBoolean, sizeof(Boolean), 
+X	Offset(expert), XtRImmediate, (caddr_t) False},
+X    {"iconic", "Iconic", XtRBoolean, sizeof(Boolean), 
+X	Offset(iconic), XtRImmediate, (caddr_t) False},
+X    {"mailopt_n", "Mailopt_n", XtRBoolean, sizeof(Boolean), 
+X	Offset(mailopt_n), XtRImmediate, (caddr_t) False},
+X    {"mailopt_U", "Mailopt_U", XtRBoolean, sizeof(Boolean), 
+X	Offset(mailopt_U), XtRImmediate, (caddr_t) False},
+X    {"show_Last", "Show_Last", XtRBoolean, sizeof(Boolean), 
+X	Offset(Show_Last), XtRImmediate, (caddr_t) True},
+X    {"show_Info", "Show_Info", XtRBoolean, sizeof(Boolean), 
+X	Offset(Show_Info), XtRImmediate, (caddr_t) True},
+X    {"no_X_Hdr", "No_X_Hdr", XtRBoolean, sizeof(Boolean), 
+X	Offset(No_X_Hdr), XtRImmediate, (caddr_t) False},
+X    { XtNborderWidth, XtCBorderWidth, XtRInt, sizeof (int),
+X	Offset(borderWidth), XtRString, "1"},
+X};
+X
+X#undef Offset
+X
+Xstatic XrmOptionDescRec Opts[] = {
+X    {"-borderwidth",	".TopLevelShell.borderWidth",	XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-buttonfont",	"*buttonFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-buttonFont",	"*buttonFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-bw",		".TopLevelShell.borderWidth",	XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-editorcommand",	"*editorCommand",		XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-editorCommand",	"*editorCommand",		XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-e",		"*expert",			XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-f",		"*MFileName",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-fn",		"*Font",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-font",		"*Font",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-geometry",	".geometry",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-h",		"*icon*useHost",		XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-helpfont",	"*helpFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-helpFont",	"*helpFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-iconGeometry",	"*iconGeometry",		XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-iconic",		"*iconic",			XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-ls",		"*show_Last",			XrmoptionNoArg,		(caddr_t) "False"},
+X    {"-n",		"*mailopt_n",			XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-nb",		"*bellRing",			XrmoptionNoArg,		(caddr_t) "False"},
+X    {"-noinfo",		"*show_Info",			XrmoptionNoArg,		(caddr_t) "False"},
+X    {"-nx",		"*no_X_Hdr",			XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-rv",		"*icon*reverseVideo",		XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-textfont",	"*textFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-textFont",	"*textFont",			XrmoptionSepArg,	(caddr_t) NULL},
+X    {"-U",		"*mailopt_U",			XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-u",		"*icon*useName",		XrmoptionNoArg,		(caddr_t) "True"},
+X    {"-xrm",		NULL,				XrmoptionResArg,	(caddr_t) NULL},
+X};
+X
+X
+XAtom		wmDeleteWindow;		/* for WM_DELETE_WINDOW property */
+XBoolean		In_Bogus_Mail_File;	/* in bogus folder when we're iconic */
+XBoolean		Waiting;		/* TRUE when we set the busy cursor */
+XPixmap		hatch;			/* cross_weave, to indicate new mail */
+XWidget		toplevel; 		/* top level shell widget */
+XWindow		WaitCursorWindow;
+X
+XAliasRecPtr	*aliases = NULL;	/* array of mail alias strings */
+XhelpText	*HelpList = NULL;	/* list of help text objects */
+XXmailResources 	XMail;			/* application resources of xmail */
+X
+Xint		mailargc;		/* counter passed to mail child	*/
+Xint		RootWidth, RootHeight;
+Xint		Highlighted;		/* state of 'Newmail' highlighting */
+X
+Xchar		HOME[BUFSIZ];		/* home directory of user */
+Xchar		Command[BUFSIZ];	/* xmail command string */
+Xchar	 	InReply[BUFSIZ];	/* reply reference string */
+Xchar	 	tmpName[BUFSIZ];	/* message temporary filename */
+Xchar		otherBuf[BUFSIZ];	/* bucket for non-addressee names */
+Xchar		foldir[BUFSIZ];		/* name of the folder directory */
+Xchar		lastFolder[BUFSIZ];	/* previous folder's title-bar	*/
+Xchar		*mailargv[8];		/* array passed to mail child */
+X
+X/*
+X** @(#)mailoptions() - construct command line arguments for calling mail.
+X**                     Return the argument list for mail and new value of argc.
+X*/
+Xint
+Xmailoptions()
+X{
+X XWMHints	*wm_hints;
+X int		i;
+X char		*cp;
+X
+X
+X if ((cp = (char *)getenv("XMAILER")) == NULL)	/* first looks up env var */
+X      cp = DEFAULT_MAILER;
+X
+X wm_hints = XGetWMHints(XtDisplay(toplevel), XtWindow(toplevel));
+X
+X i = 0;
+X mailargv[i++] = cp;		/* Argv[0] is the name of the program */
+X mailargv[i++] = "-N";		/* no version or header info at start */
+X if (XMail.mailopt_n)
+X    mailargv[i++] = "-n";	/* don't initialize from Mail.rc file */
+X if (XMail.mailopt_U)
+X    mailargv[i++] = "-U";	/* Change uucp to Internet addresses */
+X
+X if (wm_hints->initial_state == IconicState) {	/* start iconic in bogus */
+X    FILE	*fp;
+X
+X    (void) sprintf(InReply, "%s+", tmpName);
+X    if (fp = fopen(InReply, "w")) {	/* create our bogus mail file */
+X       (void) fprintf(fp, "\n");
+X       (void) fclose(fp);
+X       mailargv[i++] = "-f";		/* start in our bogus mail folder */
+X       mailargv[i++] = InReply;
+X       In_Bogus_Mail_File = True;
+X      }
+X   } else if (XMail.MFileName) {
+X	     mailargv[i++] = "-f";	/* start from mail folder MFileName */
+X	     mailargv[i++] = XMail.MFileName;
+X            }
+X mailargv[i] = NULL;
+X XFree((XWMHints *)wm_hints);
+X return (i);
+X} /* mailoptions */
+X
+X
+X/*
+X** @(#)initialize() - establish xmail program defaults and setups
+X*/
+Xvoid
+Xinitialize()
+X{
+X long		buttonSpace, i;
+X String		disp, file, str_type[20];
+X Display	*dpy = XtDisplay(toplevel);
+X XrmValue	value;
+X struct passwd	*pw;
+X
+X
+X if (XrmGetResource(dpy->db, "command.borderWidth", "Command.BorderWidth",
+X    str_type, &value)) {
+X    if ((i = atoi(value.addr)) > XMail.borderWidth)
+X       XMail.borderWidth = i;
+X   }
+X
+X if (XrmGetResource(dpy->db, "send.borderWidth", "Send.BorderWidth",
+X    str_type, &value)) {
+X    if ((i = atoi(value.addr)) > XMail.borderWidth)
+X       XMail.borderWidth = i;
+X   }
+X
+X lastFolder[0] = foldir[0] = '\0';
+X
+X (void) strcpy(Command, "Start");	/* let parser know we've started */
+X
+X (void) sprintf(tmpName, "/tmp/xmail%d", getpid());
+X
+X pw = getpwuid((uid_t) getuid());	/* get the user's home directory */
+X (void) strcpy(HOME, pw->pw_dir);
+X/*
+X** TRAP any stupid attempt to set the border width of this application to less
+X** than the allowed minimum (0) or greater than an acceptable maximum.  This
+X** to prevent a really wierd reaction to a negative number for border width.
+X*/
+X if (XMail.borderWidth < 0)
+X     XMail.borderWidth = 1;
+X if (XMail.borderWidth > 6)
+X     XMail.borderWidth = 6;
+X/*
+X** Compute all window dimensions based on extents of the specified fonts.
+X** Make shell wide enough to hold eight buttons on a row.  Total button width
+X** includes width of text area plus width of separation plus width of border.
+X*/
+X XMail.commandHSpace	= 10;
+X XMail.commandVSpace	= 10;
+X XMail.buttonHeight	= CHARHEIGHT(XMail.buttonFont) + (XMail.buttonFont->ascent / 2);
+X XMail.buttonWidth	= figureWidth(XMail.buttonFont) * 9; /* ' NewMail ' */
+X       buttonSpace	= XMail.borderWidth * 2;
+X       buttonSpace	+= XMail.buttonWidth + XMail.commandHSpace;
+X XMail.shellWidth	= (8 * buttonSpace) + 26;    /*  8 buttons per row */
+X XMail.fileBoxWidth	= (4 * buttonSpace) + XMail.buttonWidth;
+X XMail.helpHeight	= CHARHEIGHT(XMail.helpFont) * 15 + 5;
+X XMail.helpWidth	= figureWidth(XMail.helpFont) * 62 + 5;
+X XMail.helpX		= (XMail.shellWidth - XMail.helpWidth) / 2;
+X XMail.helpY		= 70;
+X       buttonSpace	= CHARHEIGHT(XMail.textFont) + (XMail.textFont->ascent / 2);
+X XMail.indexHeight	= 12 * buttonSpace;
+X XMail.textHeight	= 23 * buttonSpace;
+X XMail.commandHeight	= (XMail.buttonHeight*2) + (XMail.commandVSpace*3) +
+X			  (4 * XMail.borderWidth);
+X XMail.menuX		= 15;
+X XMail.menuY		= 7;
+X       RootWidth	= XDisplayWidth(XtDisplay(toplevel),
+X			  DefaultScreen(XtDisplay(toplevel))) - 1;
+X       RootHeight	= XDisplayHeight(XtDisplay(toplevel),
+X			   DefaultScreen(XtDisplay(toplevel))) - 1;
+X/*
+X** Ensure xmail shell height does not exceed the height of the root window.
+X*/
+X      buttonSpace	= (2 * XMail.buttonHeight) + XMail.indexHeight +
+X			  XMail.commandHeight + XMail.textHeight + 
+X			  (6 * XMail.borderWidth);
+X
+X for (i = 0, buttonSpace -= RootHeight; buttonSpace > 0; i++) {
+X     buttonSpace -= CHARHEIGHT(XMail.textFont);
+X     if (i % 2)
+X        XMail.indexHeight -= CHARHEIGHT(XMail.textFont);
+X     else
+X        XMail.textHeight -= CHARHEIGHT(XMail.textFont);
+X    }
+X/*
+X** If editorCommand resource exists, warn if it doesn't have two %s entries.
+X*/
+X if (XMail.editorCommand)
+X    if (! (disp =  strchr(XMail.editorCommand, '%')) || *(disp + 1) != 's' ||
+X        ! (file = strrchr(XMail.editorCommand, '%')) || *(file + 1) != 's' ||
+X           disp == file) {
+X    XtWarning("xmail editorCommand resource improperly defined... ignoring");
+X    XtFree((String) XMail.editorCommand);
+X    XMail.editorCommand = NULL;
+X   }
+X
+X parser_init();
+X} /* initialize */
+X
+X
+X/*
+X** @(#)SetHints() - Sets hatching, cursor, icon and size hints, and wm protocol
+X*/
+XSetHints()
+X{
+X Cardinal		x, y;
+X unsigned long		valuemask;
+X Window			win = XtWindow(toplevel);
+X CommandWidget		nm = (CommandWidget)XtNameToWidget(toplevel, "topBox.commandPanel.Newmail");
+X Display		*dpy = XtDisplay(toplevel);
+X Screen			*scn = XtScreen(toplevel);
+X XSetWindowAttributes	attributes;
+X XSizeHints		size_hints;
+X XWMHints		wm_hints;
+X/*
+X** Hatch will be used to indicate new mail arrival on command & folder buttons
+X*/
+X hatch	= XCreatePixmapFromBitmapData(dpy, XtScreen(toplevel)->root,
+X			cross_weave_bits, cross_weave_width, cross_weave_height,
+X			nm->label.foreground, nm->core.background_pixel,
+X			DefaultDepth(dpy, DefaultScreen(dpy)));
+X/*
+X** Notify the window manager about our icon window
+X*/
+X wm_hints.input		= True;
+X wm_hints.initial_state	= (XMail.iconic) ? IconicState : NormalState;
+X wm_hints.flags		= InputHint | StateHint;
+X
+X if (XMail.iconGeometry) {
+X    ParseIconGeometry(XMail.iconGeometry, &x, &y);
+X    wm_hints.icon_x	= x;
+X    wm_hints.icon_y	= y;
+X    wm_hints.flags	|= IconPositionHint;
+X   }
+X wm_hints.flags		|= IconWindowHint;
+X wm_hints.icon_window	= XtWindow(XtNameToWidget(toplevel, "icon"));
+X
+X XSetWMHints(dpy, win, &wm_hints);
+X/*
+X** Set starting position and default geometry
+X*/
+X if (! XGetNormalHints(dpy, win, &size_hints)) {
+X    size_hints.x = 56;
+X    size_hints.y = 56;			/* slightly off from top left corner */
+X   }
+X
+X size_hints.width	= XMail.shellWidth;
+X size_hints.height	= (2 * XMail.buttonHeight) + XMail.indexHeight +
+X			  XMail.commandHeight + XMail.textHeight +
+X			  (6 * XMail.borderWidth);
+X
+X size_hints.min_width = size_hints.max_width = size_hints.width;
+X size_hints.min_height = size_hints.max_height = size_hints.height;
+X size_hints.flags = USPosition | USSize | PMinSize;
+X
+X XSetNormalHints(dpy, win, &size_hints);
+X/*
+X** Add a protocol flag indicating we wish to handle WM_DELETE_WINDOW requests
+X*/
+X wmDeleteWindow = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+X XSetWMProtocols(dpy, win, &wmDeleteWindow, 1);
+X/*
+X** Create a WaitCursor window, ala FAQ to Ignore device events while
+X** the busy cursor is displayed.  The window will be as big as the
+X** display screen, and clipped by its own parent window, so we never
+X** have to worry about resizing.
+X*/
+X valuemask = CWDontPropagate | CWCursor;
+X
+X attributes.do_not_propagate_mask =  (KeyPressMask | KeyReleaseMask |
+X                                   ButtonPressMask | ButtonReleaseMask |
+X                                   PointerMotionMask);
+X
+X attributes.cursor = XCreateFontCursor(dpy, XC_watch);
+X
+X WaitCursorWindow = XCreateWindow(dpy, win, 0, 0, WidthOfScreen(scn),
+X                          HeightOfScreen(scn), (unsigned int) 0, CopyFromParent,
+X                          InputOnly, CopyFromParent, valuemask, &attributes);
+X} /* SetHints */
+X
+X
+X/*
+X** @(#)main() - main routine for the x11 interface to the mail utility
+X*/
+Xmain(argc, argv)
+Xint	argc;
+XString	*argv;
+X{
+X int	indx, value, aC;
+X String	cp, *aV;
+X
+X static XtActionsRec actionTable[] = {
+X	{"CheckInsert",		(XtActionProc) CheckInsert},
+X	{"DeleteChar",		(XtActionProc) DeleteChar},
+X	{"DeleteLine",		(XtActionProc) DeleteLine},
+X	{"DeleteWord",		(XtActionProc) DeleteWord},
+X	{"DoCmd",		(XtActionProc) DoCmd},
+X	{"DoDone",		(XtActionProc) DoDone},
+X	{"DoNothing",		(XtActionProc) DoNothing},
+X	{"DoReply",		(XtActionProc) DoReply},
+X	{"DoSave",		(XtActionProc) DoSave},
+X	{"DoSelected",		(XtActionProc) DoSelected},
+X	{"Iconify",		(XtActionProc) Iconify},
+X	{"Folder",		(XtActionProc) Folder},
+X	{"MyNotify",		(XtActionProc) MyNotify},
+X	{"NextField",		(XtActionProc) NextField},
+X	{"PrintMsg",		(XtActionProc) PrintMsg},
+X	{"Quit",		(XtActionProc) Quit},
+X	{"SetAliases",		(XtActionProc) SetAliases},
+X	{"SetDirectory",	(XtActionProc) SetDirectory},
+X	{"SetFolders",		(XtActionProc) SetFolders},
+X	{"SetMenu",		(XtActionProc) SetMenu},
+X	{"SetPopup",		(XtActionProc) SetPopup},
+X	{"SetSelect",		(XtActionProc) SetSelect},
+X	{"ShowHelp",		(XtActionProc) ShowHelp},
+X        {NULL, NULL}
+X      };
+X/*
+X** First, examine our command line arguments and Class resources for bogus
+X** values which would cause the application to operate incorrectly.  Drop
+X** command lines arguments and/or change the resource values before we
+X** initialize our widgets.
+X*/
+X aV = (String *) XtMalloc((unsigned) (argc + 1) * sizeof(String *));
+X aC = 0;
+X
+X for (value = indx = 0; indx < argc; indx++)
+X      value += strlen(argv[indx]) + 1;
+X aV[aC] = (String) XtMalloc((unsigned) value);
+X
+X (void) strcpy(aV[aC++], *argv);
+X aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X for (indx = 1; indx < argc; indx++)
+X     switch (argv[indx][0]) {		/* look for, -xrm *[Bb]orderWidth or */
+X         case '-':			/* -bw, w/ negative valued arguments */
+X              if ((argv[indx][1] != 'b'  || argv[indx][2] != 'w') &&
+X                  (argv[indx][1] != 'x'  || argv[indx][2] != 'r'  ||
+X                   argv[indx][3] != 'm') || (indx + 1) >= argc) {
+X                 (void) strcpy(aV[aC++], argv[indx]);
+X                 aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                }
+X              else if (sscanf(argv[indx+1], "%d", &value) == 1) {
+X                   if (value < 0)
+X                      indx++;		/* skip the value argument too */
+X                   else if (value < 7) {
+X                           (void) strcpy(aV[aC++], argv[indx]);
+X                           aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                          } else {
+X                           (void) strcpy(aV[aC++], argv[indx++]);
+X                           aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                           (void) strcpy(aV[aC++], "6");
+X                           aV[aC] = aV[aC - 1] + 2;
+X                          }
+X                }
+X              else if ((cp = strchr(argv[indx + 1], 'o')) == NULL ||
+X                       strncmp(cp, "orderWidth:", 11)     != 0    ||
+X                       sscanf(cp + 11, "%d", &value)      != 1) {
+X                      (void) strcpy(aV[aC++], argv[indx]);
+X                      aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                     }
+X              else if (value >= 0) {
+X                      if (value < 7) {
+X                         (void) strcpy(aV[aC++], argv[indx]);
+X                         aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                        } else {
+X                         (void) strcpy(aV[aC++], argv[indx++]);
+X                         aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X                         (void) strcpy(aV[aC], argv[indx]);
+X                         cp = strchr(aV[aC], ':');
+X                         *++cp = '\0';
+X                         (void) strcat(aV[aC], " 6");	/* max allowed value */
+X                         aV[aC + 1] = aV[aC] + strlen(aV[aC]) + 1;
+X                         aC++;
+X                        }
+X                }
+X              else indx++;		/* skip the value argument too */
+X              break;			/* if negative, it is not included */
+X         default :
+X              (void) strcpy(aV[aC++], argv[indx]);
+X              aV[aC] = aV[aC - 1] + strlen(aV[aC - 1]) + 1;
+X              break;
+X        }
+X aV[aC] = NULL;				/* array MUST end with a null */
+X/*
+X** Now, initialize our toplevel widget and parse the command line
+X*/
+X toplevel = XtInitialize(*aV, "XMail", Opts, XtNumber(Opts), &aC, aV);
+X if (aC > 1) {
+X    (void) fprintf(stderr,"Usage: %s [-toolkitoptions] [-xmailoptions]\n",*aV);
+X    exit(-1);
+X    /*NOTREACHED*/
+X   }
+X
+X/*
+X** Next, add xmail specific as well as Athena text widget actions
+X*/
+X XtAddActions(actionTable, XtNumber(actionTable));
+X XtAddActions(_XawTextActionsTable, _XawTextActionsTableCount);
+X
+X XtGetApplicationResources(toplevel, &XMail, resrcs, XtNumber(resrcs), NULL, 0);
+X
+X XtOverrideTranslations(toplevel,
+X                     XtParseTranslationTable("<Message>WM_PROTOCOLS: Quit(q)"));
+X
+X initialize();				/* set window sizes based on font */
+X CreateSubWindows(toplevel);		/* and build our widget hierarchy */
+X XSync(XtDisplay(toplevel), False);	/* ensure everyone's on the same page */
+X XtRealizeWidget(toplevel);		/* initialize widgets for our hints */
+X SetHints();				/* tell WM about our icon and size */
+X
+X mailargc = mailoptions();		/* set up the mail pgm argv and argc */
+X
+X callMail(mailargv);			/* attempt to start Mail connection */
+X
+X SetCursor(WATCH);
+X
+X XtMainLoop();
+X /* NOTREACHED */
+X} /* main */
+END_OF_FILE
+  if test 20058 -ne `wc -c <'xmail.c'`; then
+    echo shar: \"'xmail.c'\" unpacked with wrong size!
+  fi
+  # end of 'xmail.c'
+fi
+echo shar: End of archive 4 \(of 10\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

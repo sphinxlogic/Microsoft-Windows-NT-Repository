@@ -1,0 +1,2517 @@
+Newsgroups: comp.sources.misc
+From: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Subject: v35i061:  zsh - The Z Shell, version 2.3.1, Part11/22
+Message-ID: <1993Feb20.212421.28812@sparky.imd.sterling.com>
+X-Md4-Signature: 4295def6480eba2e83756ba2e6fc71cc
+Date: Sat, 20 Feb 1993 21:24:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Posting-number: Volume 35, Issue 61
+Archive-name: zsh/part11
+Environment: UNIX
+Supersedes: zsh2.2: Volume 29, Issue 97-113
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  src/jobs.c src/zsh.h
+# Wrapped by mattson@odin on Sat Feb  6 14:41:53 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 22)."'
+if test -f 'src/jobs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/jobs.c'\"
+else
+  echo shar: Extracting \"'src/jobs.c'\" \(17010 characters\)
+  sed "s/^X//" >'src/jobs.c' <<'END_OF_FILE'
+X/*
+X *
+X * jobs.c - job control
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X#include <sys/errno.h>
+X
+X/* empty job structure for quick clearing of jobtab entries */
+X
+Xstatic struct job zero = {
+X	0L, 0, (char *)NULL, (struct process *) NULL, (Lklist) NULL
+X};
+X
+X#ifdef INTHANDTYPE
+X#define RETURN return 0
+X#else
+X#define RETURN return
+X#endif
+X
+X/* the signal handler */
+X
+XHANDTYPE handler(sig) /**/
+Xint sig;
+X{
+Xlong pid;
+Xint statusp;
+XJob jn;
+Xstruct process *pn;
+X#ifdef HAS_RUSAGE
+Xstruct rusage ru;
+X#else
+Xlong chlds,chldu;
+X#endif
+X
+X#ifdef RESETHANDNEEDED
+X	signal(sig,handler);
+X#endif
+X	if (sig == SIGHUP)
+X		{
+X		if (sigtrapped[SIGHUP])
+X			dotrap(SIGHUP);
+X		else
+X			{
+X			stopmsg = 1;
+X			zexit(SIGHUP);
+X			}
+X		}
+X	if (sig == SIGINT)
+X		{
+X		if (sigtrapped[SIGINT])
+X			dotrap(SIGINT);
+X		else
+X			{
+X			breaks = loops;
+X			errflag = 1;
+X			}
+X		RETURN;
+X		}
+X#ifdef SIGWINCH
+X	if (sig == SIGWINCH)
+X		adjustwinsize();
+X#endif
+X	if (sig != SIGCHLD)
+X		{
+X		dotrap(sig);
+X		if (sig == SIGALRM)
+X			{
+X			if (!sigtrapped[SIGALRM])
+X				{
+X				zerr("timeout",NULL,0);
+X				exit(1);
+X				}
+X			else if (tmout)
+X				{
+X				alarm(tmout);
+X				}
+X			}
+X		RETURN;
+X		}
+X	for (;;)
+X		{
+X#ifdef HAS_RUSAGE
+X		pid = wait3((vptr) &statusp,WNOHANG|WUNTRACED,&ru);
+X#else
+X#ifndef WNOHANG
+X		pid = wait(&statusp);
+X#else
+X#ifdef WAITPID
+X		pid = waitpid(-1,(vptr) &statusp,WNOHANG|WUNTRACED);
+X#else
+X		pid = wait3((vptr) &statusp,WNOHANG|WUNTRACED,NULL);
+X#endif
+X#endif
+X		chlds = shtms.tms_cstime;
+X		chldu = shtms.tms_cutime;
+X		times(&shtms);
+X#endif
+X		if (pid == -1)
+X			{
+X			if (errno != ECHILD)
+X				zerr("wait failed: %e",NULL,errno);
+X			RETURN;
+X			}
+X		if (!pid)
+X			RETURN;
+X		if (pid == cmdoutpid) {
+X			cmdoutpid = 0;
+X			if (WIFSIGNALED(statusp))
+X				{
+X				cmdoutval = (0200 | WTERMSIG(statusp));
+X				if (WTERMSIG(statusp) == SIGINT)
+X					(void) kill(getpid(),SIGINT);
+X				else if (sigtrapped[WTERMSIG(statusp)])
+X					dotrap(WTERMSIG(statusp));
+X				}
+X			else
+X				cmdoutval = WEXITSTATUS(statusp);
+X			RETURN;
+X		}
+X		findproc(pid,&jn,&pn);	/* find the process of this pid */
+X		if (jn)
+X			{
+X			pn->statusp = statusp;
+X#ifdef HAS_RUSAGE
+X			pn->ti.ru = ru;
+X#else
+X			pn->ti.st = shtms.tms_cstime-chlds;
+X			pn->ti.ut = shtms.tms_cutime-chldu;
+X#endif
+X			pn->endtime = time(NULL);
+X			updatestatus(jn);
+X			}
+X#if 0
+X		else if (WIFSTOPPED(statusp))
+X			kill(pid,SIGKILL);	/* kill stopped untraced children */
+X#endif
+X		}
+X}
+X
+X/* change job table entry from stopped to running */
+X
+Xvoid makerunning(jn) /**/
+XJob jn;
+X{
+Xstruct process *pn;
+X
+X	jn->stat &= ~STAT_STOPPED;
+X	for (pn = jn->procs; pn; pn = pn->next)
+X		if (WIFSTOPPED(pn->statusp))
+X			pn->statusp = SP_RUNNING;
+X}
+X
+X/* update status of job, possibly printing it */
+X
+Xvoid updatestatus(jn) /**/
+XJob jn;
+X{
+Xstruct process *pn;
+Xint notrunning = 1,alldone = 1,val = 0,job = jn-jobtab,somestopped = 0;
+X
+X	for (pn = jn->procs; pn; pn = pn->next)
+X		{
+X		if (pn->statusp == SP_RUNNING)
+X			notrunning = 0;
+X		if (pn->statusp == SP_RUNNING || WIFSTOPPED(pn->statusp))
+X			alldone = 0;
+X		if (WIFSTOPPED(pn->statusp))
+X			somestopped = 1;
+X		if (!pn->next && jn)
+X			val = (WIFSIGNALED(pn->statusp)) ?
+X				0200 | WTERMSIG(pn->statusp) : WEXITSTATUS(pn->statusp);
+X		}
+X	if (!notrunning)
+X		return;
+X	if (somestopped && (jn->stat & STAT_STOPPED))
+X		return;
+X	jn->stat |= (alldone) ? STAT_CHANGED|STAT_DONE :
+X		STAT_CHANGED|STAT_STOPPED;
+X	if (alldone && job == thisjob)
+X		{
+X		if (!ttyfrozen && !val) {
+X			gettyinfo(&shttyinfo);
+X			if (interact && isset(SHINSTDIN) && SHTTY != -1 && isset(USEZLE))
+X				sanetty(&shttyinfo);
+X#ifdef TIOCSWINSZ
+X			if (!(columns = shttyinfo.winsize.ws_col))
+X				columns = 80;
+X			lines = shttyinfo.winsize.ws_row;
+X#endif
+X		} else
+X			settyinfo(&shttyinfo);
+X		lastval = val;
+X		}
+X	if ((jn->stat & (STAT_DONE|STAT_STOPPED)) == STAT_STOPPED) {
+X		prevjob = curjob;
+X		curjob = job;
+X	}
+X	if ((isset(NOTIFY) || job == thisjob) && jn->stat & STAT_LOCKED) {
+X		printjob(jn,!!isset(LONGLISTJOBS));
+X		if (zleactive) refresh();
+X	}
+X	if (sigtrapped[SIGCHLD] && job != thisjob)
+X		dotrap(SIGCHLD);
+X}
+X
+X/* find process and job associated with pid */
+X
+Xvoid findproc(pid,jptr,pptr) /**/
+Xint pid;Job *jptr;struct process **pptr;
+X{
+Xstruct process *pn;
+Xint jn;
+X
+X	for (jn = 1; jn != MAXJOB; jn++)
+X		for (pn = jobtab[jn].procs; pn; pn = pn->next)
+X			if (pn->pid == pid)
+X				{
+X				*pptr = pn;
+X				*jptr = jobtab+jn;
+X				return;
+X				}
+X	*pptr = NULL;
+X	*jptr = NULL;
+X}
+X
+X/*
+X	lng = 0 means jobs 
+X	lng = 1 means jobs -l
+X	lng = 2 means jobs -p
+X*/
+X
+Xvoid printjob(jn,lng) /**/
+XJob jn;int lng;
+X{
+Xint job = jn-jobtab,len = 9,sig,sflag = 0,llen;
+Xint conted = 0,lineleng = getlineleng(),skip = 0,doputnl = 0;
+Xstruct process *pn;
+X
+X	if (lng < 0)
+X		{
+X		conted = 1;
+X		lng = 0;
+X		}
+X
+X	/* find length of longest signame, check to see if we
+X		really need to print this job */
+X
+X	for (pn = jn->procs; pn; pn = pn->next)
+X		{
+X		if (pn->statusp != SP_RUNNING)
+X			if (WIFSIGNALED(pn->statusp))
+X				{
+X				sig = WTERMSIG(pn->statusp);
+X				llen = strlen(sigmsg[sig]);
+X				if (WCOREDUMP(pn->statusp))
+X					llen += 14;
+X				if (llen > len)
+X					len = llen;
+X				if (sig != SIGINT && sig != SIGPIPE)
+X					sflag = 1;
+X				else if (sig == SIGINT)
+X					errflag = 1;
+X				if (job == thisjob && sig == SIGINT)
+X					doputnl = 1;
+X				}
+X			else if (WIFSTOPPED(pn->statusp))
+X				{
+X				sig = WSTOPSIG(pn->statusp);
+X				if (strlen(sigmsg[sig]) > len)
+X					len = strlen(sigmsg[sig]);
+X				if (job == thisjob && sig == SIGTSTP)
+X					doputnl = 1;
+X				}
+X			else if (isset(PRINTEXITVALUE) && isset(SHINSTDIN) &&
+X					WEXITSTATUS(pn->statusp))
+X				sflag = 1;
+X		}
+X
+X	/* print if necessary */
+X
+X	if (interact && jobbing && ((jn->stat & STAT_STOPPED) || sflag ||
+X			job != thisjob))
+X		{
+X		int len2,fline = 1;
+X		struct process *qn;
+X
+X		trashzle();
+X		if (doputnl)
+X			putc('\n',stderr);
+X		for (pn = jn->procs; pn;)
+X			{
+X			len2 = ((job == thisjob) ? 5 : 10)+len; /* 2 spaces */
+X			if (lng)
+X				qn = pn->next;
+X			else for (qn = pn->next; qn; qn = qn->next)
+X				{
+X				if (qn->statusp != pn->statusp)
+X					break;
+X				if (strlen(qn->text)+len2+((qn->next) ? 3 : 0) > lineleng)
+X					break;
+X				len2 += strlen(qn->text)+2;
+X				}
+X			if (job != thisjob)
+X				if (fline)
+X					fprintf(stderr,"[%d]  %c ",jn-jobtab,(job == curjob) ? '+' :
+X						(job == prevjob) ? '-' : ' ');
+X				else
+X					fprintf(stderr,(job > 9) ? "        " : "       ");
+X			else
+X				fprintf(stderr,"zsh: ");
+X			if (lng)
+X				if (lng == 1)
+X					fprintf(stderr,"%d ",pn->pid);
+X				else
+X					{
+X					int x = jn->gleader;
+X
+X					fprintf(stderr,"%d ",x);
+X					do skip++; while (x /= 10);
+X					skip++;
+X					lng = 0;
+X					}
+X			else
+X				fprintf(stderr,"%*s",skip,"");
+X			if (pn->statusp == SP_RUNNING)
+X				if (!conted)
+X					fprintf(stderr,"running%*s",len-7+2,"");
+X				else
+X					fprintf(stderr,"continued%*s",len-9+2,"");
+X			else if (WIFEXITED(pn->statusp))
+X				if (WEXITSTATUS(pn->statusp))
+X					fprintf(stderr,"exit %-4d%*s",WEXITSTATUS(pn->statusp),
+X						len-9+2,"");
+X				else
+X					fprintf(stderr,"done%*s",len-4+2,"");
+X			else if (WIFSTOPPED(pn->statusp))
+X				fprintf(stderr,"%-*s",len+2,sigmsg[WSTOPSIG(pn->statusp)]);
+X			else if (WCOREDUMP(pn->statusp))
+X				fprintf(stderr,"%s (core dumped)%*s",
+X					sigmsg[WTERMSIG(pn->statusp)],
+X					len-14+2-strlen(sigmsg[WTERMSIG(pn->statusp)]),"");
+X			else
+X				fprintf(stderr,"%-*s",len+2,sigmsg[WTERMSIG(pn->statusp)]);
+X			for (; pn != qn; pn = pn->next)
+X				fprintf(stderr,(pn->next) ? "%s | " : "%s",pn->text);
+X			putc('\n',stderr);
+X			fline = 0;
+X			}
+X		}
+X	else if (doputnl && interact)
+X		putc('\n',stderr);
+X	fflush(stderr);
+X
+X	/* print "(pwd now: foo)" messages */
+X
+X	if (interact && job==thisjob && strcmp(jn->pwd,pwd))
+X		{
+X		printf("(pwd now: ");
+X		printdir(pwd);
+X		printf(")\n");
+X		fflush(stdout);
+X		}
+X
+X	/* delete job if done */
+X
+X	if (jn->stat & STAT_DONE)
+X		{
+X		struct process *nx;
+X		char *s;
+X
+X		if ((jn->stat & STAT_TIMED) || (reporttime != -1 && report(jn))) {
+X			dumptime(jn);
+X		}
+X		for (pn = jn->procs; pn; pn = nx)
+X			{
+X			nx = pn->next;
+X			free(pn);
+X			}
+X		free(jn->pwd);
+X		if (jn->filelist)
+X			{
+X			while (s = getnode(jn->filelist))
+X				{
+X				unlink(s);
+X				free(s);
+X				}
+X			free(jn->filelist);
+X			}
+X		*jn = zero;
+X		if (job == curjob)
+X			{
+X			curjob = prevjob;
+X			prevjob = job;
+X			}
+X		if (job == prevjob)
+X			setprevjob();
+X		}
+X	else
+X		jn->stat &= ~STAT_CHANGED;
+X}
+X
+X/* set the previous job to something reasonable */
+X
+Xvoid setprevjob() /**/
+X{
+Xint t0;
+X
+X	for (t0 = MAXJOB-1; t0; t0--)
+X		if ((jobtab[t0].stat & STAT_INUSE) && (jobtab[t0].stat & STAT_STOPPED) &&
+X				t0 != curjob && t0 != thisjob)
+X			break;
+X	if (!t0)
+X		for (t0 = MAXJOB-1; t0; t0--)
+X			if ((jobtab[t0].stat & STAT_INUSE) && t0 != curjob && t0 != thisjob)
+X				break;
+X	prevjob = (t0) ? t0 : -1;
+X}
+X
+X/* initialize a job table entry */
+X
+Xvoid initjob() /**/
+X{
+X	jobtab[thisjob].pwd = ztrdup(pwd);
+X	jobtab[thisjob].stat = STAT_INUSE;
+X	jobtab[thisjob].gleader = 0;
+X}
+X
+X/* add a process to the current job */
+X
+Xstruct process *addproc(pid,text) /**/
+Xlong pid;char *text;
+X{
+Xstruct process *process;
+X
+X	if (!jobtab[thisjob].gleader) jobtab[thisjob].gleader = pid;
+X	process = zcalloc(sizeof *process);
+X	process->pid = pid;
+X	if (text) strcpy(process->text,text);
+X	else *process->text = '\0';
+X	process->next = NULL;
+X	process->statusp = SP_RUNNING;
+X	process->bgtime = time(NULL);
+X	if (jobtab[thisjob].procs) {
+X		struct process *n;
+X		for (n = jobtab[thisjob].procs; n->next; n = n->next);
+X		process->next = NULL;
+X		n->next = process;
+X	} else jobtab[thisjob].procs = process;
+X	return process;
+X}
+X
+X/* determine if it's all right to exec a command without
+X	forking in last component of subshells; it's not ok if we have files
+X	to delete */
+X
+Xint execok() /**/
+X{
+XJob jn;
+X
+X	if (!exiting)
+X		return 0;
+X	for (jn = jobtab+1; jn != jobtab+MAXJOB; jn++)
+X		if (jn->stat && jn->filelist)
+X			return 0;
+X	return 1;
+X
+X}
+X
+Xvoid waitforpid(pid) /**/
+Xlong pid;
+X{
+X	while (!errflag && (kill(pid,0) >= 0 || errno != ESRCH)) chldsuspend();
+X}
+X
+X/* wait for a job to finish */
+X
+Xvoid waitjob(job) /**/
+Xint job;
+X{
+XJob jn;
+X
+X	if (jobtab[job].procs)	/* if any forks were done */
+X		{
+X		jobtab[job].stat |= STAT_LOCKED;
+X		if (jobtab[job].stat & STAT_CHANGED)
+X			printjob(jobtab+job,!!isset(LONGLISTJOBS));
+X		while (jobtab[job].stat &&
+X				!(jobtab[job].stat & (STAT_DONE|STAT_STOPPED)))
+X			chldsuspend();
+X		}
+X	else	/* else do what printjob() usually does */
+X		{
+X		char *s;
+X
+X		jn = jobtab+job;
+X		free(jn->pwd);
+X		if (jn->filelist)
+X			{
+X			while (s = getnode(jn->filelist))
+X				{
+X				unlink(s);
+X				free(s);
+X				}
+X			free(jn->filelist);
+X			}
+X		*jn = zero;
+X		}
+X}
+X
+X/* wait for running job to finish */
+X
+Xvoid waitjobs() /**/
+X{
+X	waitjob(thisjob);
+X	thisjob = -1;
+X}
+X
+X/* clear job table when entering subshells */
+X
+Xvoid clearjobtab() /**/
+X{
+Xint t0;
+X
+X	for (t0 = 1; t0 != MAXJOB; t0++) {
+X		if (jobtab[thisjob].pwd)
+X			free(jobtab[thisjob].pwd);
+X		jobtab[thisjob] = zero;
+X	}
+X}
+X
+X/* get a free entry in the job table to use */
+X
+Xint getfreejob() /**/
+X{
+Xint t0;
+X
+X	for (t0 = 1; t0 != MAXJOB; t0++)
+X		if (!jobtab[t0].stat) {
+X			jobtab[t0].stat |= STAT_INUSE;
+X			return t0;
+X		}
+X	zerr("job table full or recursion limit exceeded",NULL,0);
+X	return -1;
+X}
+X
+X/* print pids for & */
+X
+Xvoid spawnjob() /**/
+X{
+Xstruct process *pn;
+X
+X	if (!subsh)
+X		{
+X		if (curjob == -1 || !(jobtab[curjob].stat & STAT_STOPPED))
+X			{
+X			curjob = thisjob;
+X			setprevjob();
+X			}
+X		else if (prevjob == -1 || !(jobtab[prevjob].stat & STAT_STOPPED))
+X			prevjob = thisjob;
+X		if (interact && jobbing && jobtab[thisjob].procs)
+X			{
+X			fprintf(stderr,"[%d]",thisjob);
+X			for (pn = jobtab[thisjob].procs; pn; pn = pn->next)
+X				fprintf(stderr," %d",pn->pid);
+X			fprintf(stderr,"\n");
+X			fflush(stderr);
+X			}
+X		}
+X	if (!jobtab[thisjob].procs)
+X		{
+X		char *s;
+X		struct job *jn;
+X
+X		jn = jobtab+thisjob;
+X		free(jn->pwd);
+X		if (jn->filelist)
+X			{
+X			while (s = getnode(jn->filelist))
+X				{
+X				unlink(s);
+X				free(s);
+X				}
+X			free(jn->filelist);
+X			}
+X		*jn = zero;
+X		}
+X	else
+X		jobtab[thisjob].stat |= STAT_LOCKED;
+X	thisjob = -1;
+X}
+X
+Xvoid fixsigs() /**/
+X{
+X	unblockchld();
+X}
+X
+Xint report(j) /**/
+XJob j;
+X{
+X	if (!j->procs) return 0;
+X#ifdef HAS_RUSAGE
+X	return (j->procs->ti.ru.ru_utime.tv_sec+j->procs->ti.ru.ru_stime.tv_sec)
+X				 >= reporttime;
+X#else
+X	return (j->procs->ti.ut+j->procs->ti.st)/HZ >= reporttime;
+X#endif
+X}
+X
+Xvoid printtime(real,ti,desc) /**/
+Xtime_t real;struct timeinfo *ti;char *desc;
+X{
+Xchar *s;
+X#ifdef HAS_RUSAGE
+X#ifdef sun
+Xlong ticks = 1;
+Xint pk = getpagesize()/1024;
+X#else
+Xlong sec;
+X#endif
+Xstruct rusage *ru = &ti->ru;
+X#endif
+X
+X	if (!desc) desc = "";
+X#ifdef HAS_RUSAGE
+X#ifdef sun
+X	ticks = (ru->ru_utime.tv_sec+ru->ru_stime.tv_sec)*HZ+
+X			  (ru->ru_utime.tv_usec+ru->ru_stime.tv_usec)*HZ/1000000;
+X	if (!ticks) ticks = 1;
+X#else
+X	sec = ru->ru_utime.tv_sec + ru->ru_stime.tv_sec;
+X	if (!sec) sec = 1;
+X#endif
+X#endif
+X	for (s = timefmt; *s; s++)
+X		if (*s == '%')
+X			switch(s++,*s)
+X				{
+X				case 'E': fprintf(stderr,"%lds",real); break;
+X#ifndef HAS_RUSAGE
+X				case 'U': fprintf(stderr,"%ld.%03lds",
+X					ti->ut/HZ,ti->ut*1000/HZ%1000); break;
+X				case 'S': fprintf(stderr,"%ld.%03lds",
+X					ti->st/HZ,ti->st*1000/HZ%1000); break;
+X				case 'P':
+X					if (real)
+X						fprintf(stderr,"%d%%",
+X							(int) (100*((ti->ut+ti->st)/HZ))/real);
+X					break;
+X#else
+X				case 'U': fprintf(stderr,"%ld.%03lds",
+X					ru->ru_utime.tv_sec,ru->ru_utime.tv_usec/1000); break;
+X				case 'S': fprintf(stderr,"%ld.%03lds",
+X					ru->ru_stime.tv_sec,ru->ru_stime.tv_usec/1000); break;
+X				case 'P':
+X					if (real)
+X						fprintf(stderr,"%d%%",
+X							(int) (100*(ru->ru_utime.tv_sec+ru->ru_stime.tv_sec))
+X								/ real);
+X					break;
+X				case 'W': fprintf(stderr,"%ld",ru->ru_nswap); break;
+X#ifdef sun
+X				case 'K': case 'D':
+X					fprintf(stderr,"%ld",ru->ru_idrss/ticks*pk); break;
+X				case 'M': fprintf(stderr,"%ld",ru->ru_maxrss*pk); break;
+X#else
+X				case 'X': fprintf(stderr,"%ld",ru->ru_ixrss/sec); break;
+X				case 'D': fprintf(stderr,"%ld",
+X					(ru->ru_idrss+ru->ru_isrss)/sec); break;
+X				case 'K': fprintf(stderr,"%ld",
+X					(ru->ru_ixrss+ru->ru_idrss+ru->ru_isrss)/sec); break;
+X				case 'M': fprintf(stderr,"%ld",ru->ru_maxrss/1024); break;
+X#endif
+X				case 'F': fprintf(stderr,"%ld",ru->ru_majflt); break;
+X				case 'R': fprintf(stderr,"%ld",ru->ru_minflt); break;
+X				case 'I': fprintf(stderr,"%ld",ru->ru_inblock); break;
+X				case 'O': fprintf(stderr,"%ld",ru->ru_oublock); break;
+X				case 'r': fprintf(stderr,"%ld",ru->ru_msgrcv); break;
+X				case 's': fprintf(stderr,"%ld",ru->ru_msgsnd); break;
+X				case 'k': fprintf(stderr,"%ld",ru->ru_nsignals); break;
+X				case 'w': fprintf(stderr,"%ld",ru->ru_nvcsw); break;
+X				case 'c': fprintf(stderr,"%ld",ru->ru_nivcsw); break;
+X#endif
+X				case 'J': fprintf(stderr,"%s",desc); break;
+X				default: fprintf(stderr,"%%%c",*s); break;
+X				}
+X		else
+X			putc(*s,stderr);
+X	putc('\n',stderr);
+X	fflush(stderr);
+X}
+X
+Xvoid dumptime(jn) /**/
+XJob jn;
+X{
+Xstruct process *pn;
+X
+X	if (!jn->procs)
+X		return;
+X	for (pn = jn->procs; pn; pn = pn->next)
+X		printtime(pn->endtime-pn->bgtime,&pn->ti,pn->text);
+X}
+X
+Xvoid shelltime() /**/
+X{
+Xstruct timeinfo ti;
+X#ifdef HAS_RUSAGE
+Xstruct rusage ru;
+X
+X	getrusage(RUSAGE_SELF,&ru);
+X	memcpy(&ti.ru,&ru,sizeof(ru));
+X	printtime(time(NULL)-shtimer,&ti,"shell");
+X
+X	getrusage(RUSAGE_CHILDREN,&ru);
+X	memcpy(&ti.ru,&ru,sizeof(ru));
+X	printtime(time(NULL)-shtimer,&ti,"children");
+X#else
+Xstruct tms buf;
+X
+X	times(&buf);
+X	ti.ut = buf.tms_utime;
+X	ti.st = buf.tms_stime;
+X	printtime(time(NULL)-shtimer,&ti,"shell");
+X	ti.ut = buf.tms_cutime;
+X	ti.st = buf.tms_cstime;
+X	printtime(time(NULL)-shtimer,&ti,"children");
+X#endif
+X}
+X
+X/* SIGHUP any jobs left running */
+X
+Xvoid killrunjobs() /**/
+X{
+Xint t0,killed = 0;
+X
+X	if (isset(NOHUP)) return;
+X	for (t0 = 1; t0 != MAXJOB; t0++)
+X		if (t0 != thisjob && (jobtab[t0].stat & STAT_LOCKED) &&
+X				!(jobtab[t0].stat & STAT_STOPPED)) {
+X			if (killpg(jobtab[t0].gleader,SIGHUP) != -1) killed++;
+X		}
+X	if (killed) zerr("warning: %d jobs SIGHUPed",NULL,killed);
+X}
+X
+X/* check to see if user has jobs running/stopped */
+X
+Xvoid checkjobs() /**/
+X{
+Xint t0;
+X
+X	scanjobs();
+X	for (t0 = 1; t0 != MAXJOB; t0++)
+X		if (t0 != thisjob && jobtab[t0].stat & STAT_LOCKED)
+X			break;
+X	if (t0 != MAXJOB) {
+X		if (jobtab[t0].stat & STAT_STOPPED) {
+X#ifdef USE_SUSPENDED
+X			zerr("you have suspended jobs.",NULL,0);
+X#else
+X			zerr("you have stopped jobs.",NULL,0);
+X#endif
+X		} else
+X			zerr("you have running jobs.",NULL,0);
+X		stopmsg = 1;
+X	}
+X}
+X
+X/* send a signal to a job (simply involves kill if monitoring is on) */
+X
+Xint killjb(jn,sig) /**/
+XJob jn;int sig;
+X{
+Xstruct process *pn;
+Xint err = 0;
+X
+X	if (jobbing)
+X		return(killpg(jn->gleader,sig));
+X	for (pn = jn->procs; pn; pn = pn->next)
+X		if ((err = kill(pn->pid,sig)) == -1 && errno != ESRCH)
+X			return -1;
+X	return err;
+X}
+END_OF_FILE
+  if test 17010 -ne `wc -c <'src/jobs.c'`; then
+    echo shar: \"'src/jobs.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/jobs.c'
+fi
+if test -f 'src/zsh.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/zsh.h'\"
+else
+  echo shar: Extracting \"'src/zsh.h'\" \(34760 characters\)
+  sed "s/^X//" >'src/zsh.h' <<'END_OF_FILE'
+X/*
+X *
+X * zsh.h - standard header file
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "config.h"
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef HAS_STRING
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#endif
+X
+X#ifdef HAS_MEMORY
+X#include <memory.h>
+X#endif
+X
+X#ifdef HAS_LOCALE
+X#include <locale.h>
+X#endif
+X
+X#ifdef HAS_STDLIB
+X#include <stdlib.h>
+X#endif
+X
+X#ifdef SYSV
+X#ifndef SYSVR4
+X#include <sys/bsdtypes.h>
+X#define _POSIX_SOURCE
+X#include <sys/limits.h>
+X#include <sys/sioctl.h>
+X#define MAXPATHLEN PATH_MAX
+X#define lstat stat
+X#endif
+Xextern int gethostname();
+X#define sigmask(m) m
+X#else
+X#include <sys/types.h>		/* this is the key to the whole thing */
+X#endif
+X
+X#ifdef _IBMR2
+X#undef _BSD   /* union wait SUCKS! */
+X#include <sys/wait.h>
+X#define _BSD
+X#else
+X#ifdef HAS_WAIT
+X#include <wait.h>
+X#else
+X#include <sys/wait.h>
+X#endif
+X#endif
+X
+X#ifdef HAS_TIME
+X#include <time.h>
+X#else
+X#include <sys/time.h>
+X#endif
+X
+X#ifdef SYSV
+X#include <fcntl.h>
+X#else
+X#include <sys/file.h>
+X#endif
+X
+X#if !defined(SYSV) || defined(SYSVR4)
+X#include <sys/resource.h>
+X#endif
+X
+X#include <signal.h>
+X
+X#ifdef TERMIO
+X#define VDISABLEVAL -1
+X#define TIO 1
+X#include <sys/termio.h>
+X#else
+X#ifdef TERMIOS
+X#define VDISABLEVAL 0
+X#define TIO 1
+X#include <termios.h>
+X#else
+X#include <sgtty.h>
+X#endif
+X#endif
+X
+X#if defined(SYSV) && !defined(SYSVR4)
+X#define readlink(s,t,z)	(-1)
+X#undef TIOCGWINSZ
+X#endif
+X
+X#include <sys/param.h>
+X#include <sys/times.h>
+X
+X#ifdef HAS_DIRENT
+X#include <dirent.h>
+X#define direct dirent
+X#else
+X#include <sys/dir.h>
+X#endif
+X
+X#ifdef SYSV
+X#undef _POSIX_SOURCE
+X#endif
+X
+X#ifdef __hp9000s800
+X#include <sys/bsdtty.h>
+X#endif
+X
+X#if !defined(sun) && !defined(SYSVR4)
+X#include <sys/ioctl.h>
+X#else
+X#include <sys/filio.h>
+X#endif
+X
+X#ifdef __STDC__
+X#define DCLPROTO(X) X
+X#ifdef HAS_UNISTD
+X#include <unistd.h>
+X#endif
+X#include <fcntl.h>
+X#include <sys/stat.h>
+X#undef NULL
+X#define NULL ((void *)0)
+X#else /* K&R C */
+X#define DCLPROTO(X) ()
+X#define const
+X#include <sys/stat.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#endif
+X
+X#ifdef HAS_UTMPX
+X#include <utmpx.h>
+X# define utmp utmpx
+X# define ut_time ut_xtime
+X# undef UTMP_FILE
+X# define UTMP_FILE UTMPX_FILE
+X# undef WTMP_FILE
+X# define WTMP_FILE WTMPX_FILE
+X#else
+X#include <utmp.h>
+X#endif
+X
+X#if !defined(UTMP_FILE) && defined(_PATH_UTMP)
+X#define UTMP_FILE _PATH_UTMP
+X#endif
+X#if !defined(WTMP_FILE) && defined(_PATH_WTMP)
+X#define WTMP_FILE _PATH_WTMP
+X#endif
+X
+X#define DEFWORDCHARS "*?_-.[]~=/&;!#$%^(){}<>"
+X#define DEFTIMEFMT "%E real  %U user  %S system  %P %J"
+X#ifdef UTMP_HOST
+X#define DEFWATCHFMT "%n has %a %l from %m."
+X#else
+X#define DEFWATCHFMT "%n has %a %l."
+X#endif
+X
+X#ifdef GLOBALS
+X#define EXTERN
+X#else
+X#define EXTERN extern
+X#endif
+X
+X#ifdef HAS_STRING
+X#define killpg(pgrp,sig) kill(-(pgrp),sig)
+X#endif
+X
+X/* SYSV or POSIX compatible BSD */
+X#if defined(SYSV) || ( defined(BSD) && BSD >= 199103 )
+X#define getpgrp(X)  getpgrp()
+X#endif
+X
+X#ifndef F_OK
+X#define F_OK 00
+X#define R_OK 04
+X#define W_OK 02
+X#define X_OK 01
+X#endif
+X
+X#include "zle.h"
+X
+X/* size of job list */
+X
+X#define MAXJOB 80
+X
+X/* memory allocation routines - changed with permalloc()/heapalloc() */
+X
+Xvptr (*alloc)DCLPROTO((int));
+Xvptr (*ncalloc)DCLPROTO((int));
+X
+X#define addhnode(A,B,C,D) Addhnode(A,B,C,D,1)
+X#define addhperm(A,B,C,D) Addhnode(A,B,C,D,0)
+X
+X/* character tokens */
+X
+X#define ALPOP			((char) 0x81)
+X#define HISTSPACE		((char) 0x83)
+X#define Pound			((char) 0x84)
+X#define String			((char) 0x85)
+X#define Hat				((char) 0x86)
+X#define Star			((char) 0x87)
+X#define Inpar			((char) 0x88)
+X#define Outpar			((char) 0x89)
+X#define Qstring		((char) 0x8a)
+X#define Equals			((char) 0x8b)
+X#define Bar				((char) 0x8c)
+X#define Inbrace		((char) 0x8d)
+X#define Outbrace		((char) 0x8e)
+X#define Inbrack		((char) 0x8f)
+X#define Outbrack		((char) 0x90)
+X#define Tick			((char) 0x91)
+X#define Inang			((char) 0x92)
+X#define Outang			((char) 0x93)
+X#define Quest			((char) 0x94)
+X#define Tilde			((char) 0x95)
+X#define Qtick			((char) 0x96)
+X#define Comma			((char) 0x97)
+X#define Snull			((char) 0x98)
+X#define Dnull			((char) 0x99)
+X#define Bnull			((char) 0x9a)
+X#define Nularg			((char) 0x9b)
+X
+X#define INULL(x)		(((x) & 0x98) == 0x98)
+X
+X/* Character tokens are sometimes casted to (unsigned char)'s. Unfortunately,
+X   SVR4's deceiving compiler botches non-terminal, same size, signed to unsigned
+X	promotions; i.e. (int) (unsigned char) ((char) -1) evaluates to -1,
+X	not 255 as it should!
+X
+X	We circumvent the troubles of such shameful delinquency by casting to a
+X	larger unsigned type then back down to unsigned char.
+X		-- Marc Boucher <marc@cam.org>
+X	<daniel@ug.eds.com> 25-Jan-1993  Dec Alpha OSF compilers have the same property
+X*/
+X
+X#if (defined(SYSVR4) || defined (__osf__)) && !defined(__GNUC__)
+X#define STOUC(X)	((unsigned char)(unsigned short)(X))
+X#else
+X#define STOUC(X)	((unsigned char)(X))
+X#endif
+X
+X/*
+X * The source was full of implicit casts between signed and unsigned
+X * character pointers.  To get a clean compile, I've made these casts
+X * explicit, but the potential for error is still there.  If your machine
+X * needs special treatment, just define your own macros here.
+X * 	--jim <jmattson@ucsd.edu>
+X */
+X 
+X#define STOUCP(X)	((unsigned char *)(X))
+X#define UTOSCP(X)	((char *)(X))
+X
+X/* chars that need to be quoted if meant literally */
+X
+X#define SPECCHARS "#$^*()$=|{}[]`<>?~;&!\n\t \\\'\""
+X
+X/* ALPOP in the form of a string */
+X
+X#define ALPOPS " \201"
+X#define HISTMARK "\201"
+X
+X#define SEPER 1
+X#define NEWLIN 2
+X#define LEXERR 3
+X#define SEMI 4
+X#define DSEMI 5
+X#define AMPER 6
+X#define INPAR 7
+X#define INBRACE 8
+X#define OUTPAR 9
+X#define DBAR 10
+X#define DAMPER 11
+X#define BANG 12
+X#define OUTBRACE 13
+X#define OUTANG 14
+X#define OUTANGBANG 15
+X#define DOUTANG 16
+X#define DOUTANGBANG 17
+X#define INANG 18
+X#define DINANG 19
+X#define DINANGDASH 20
+X#define INANGAMP 21
+X#define OUTANGAMP 22
+X#define OUTANGAMPBANG 23
+X#define DOUTANGAMP 24
+X#define DOUTANGAMPBANG 25
+X#define TRINANG 26
+X#define BAR 27
+X#define BARAMP 28
+X#define DINBRACK 29
+X#define DOUTBRACK 30
+X#define STRING 31
+X#define ENVSTRING 32
+X#define ENVARRAY 33
+X#define ENDINPUT 34
+X#define INOUTPAR 35
+X#define DO 36
+X#define DONE 37
+X#define ESAC 38
+X#define THEN 39
+X#define ELIF 40
+X#define ELSE 41
+X#define FI 42
+X#define FOR 43
+X#define CASE 44
+X#define IF 45
+X#define WHILE 46
+X#define FUNC 47
+X#define REPEAT 48
+X#define TIME 49
+X#define UNTIL 50
+X#define EXEC 51
+X#define COMMAND 52
+X#define SELECT 53
+X#define COPROC 54
+X#define NOGLOB 55
+X#define DASH 56
+X#define NOCORRECT 57
+X#define FOREACH 58
+X#define ZEND 59
+X
+X#define WRITE 0
+X#define WRITENOW 1
+X#define APP 2
+X#define APPNOW 3
+X#define MERGEOUT 4
+X#define MERGEOUTNOW 5
+X#define ERRAPP 6
+X#define ERRAPPNOW 7
+X#define READ 8
+X#define HEREDOC 9
+X#define HEREDOCDASH 10
+X#define HERESTR 11
+X#define MERGE 12
+X#define CLOSE 13
+X#define INPIPE 14
+X#define OUTPIPE 15
+X#define NONE 16
+X
+X#ifdef GLOBALS
+Xint redirtab[TRINANG-OUTANG+1] = {
+X	WRITE,
+X	WRITENOW,
+X	APP,
+X	APPNOW,
+X	READ,
+X	HEREDOC,
+X	HEREDOCDASH,
+X	MERGE,
+X	MERGEOUT,
+X	MERGEOUTNOW,
+X	ERRAPP,
+X	ERRAPPNOW,
+X	HERESTR,
+X};
+X#else
+Xextern int redirtab[TRINANG-OUTANG+1];
+X#endif
+X
+X#ifdef GLOBALS
+Xchar nulstring[] = { Nularg, '\0' };
+Xint nulstrlen = sizeof(nulstring) - 1;
+X#else
+Xextern char nulstring[];
+Xextern int nulstrlen;
+X#endif
+X
+X#define IS_READFD(X) ((X)>=READ && (X)<=MERGE)
+X#define IS_REDIROP(X) ((X)>=OUTANG && (X)<=TRINANG)
+X#define IS_ERROR_REDIR(X) ((X)>=MERGEOUT && (X)<=ERRAPPNOW)
+X#define UN_ERROR_REDIR(X) ((X)-MERGEOUT+WRITE)
+X
+X#define FD_WORD   -1
+X#define FD_COPROC -2
+X#define FD_CLOSE  -3
+X
+Xextern char **environ;
+X
+Xtypedef struct hashtab *Hashtab;
+Xtypedef struct hashnode *Hashnode;
+Xtypedef struct schedcmd *Schedcmd;
+Xtypedef struct alias *Alias;
+Xtypedef struct process *Process;
+Xtypedef struct job *Job;
+Xtypedef struct value *Value;
+Xtypedef struct arrind *Arrind;
+Xtypedef struct varasg *Varasg;
+Xtypedef struct param *Param;
+Xtypedef struct cmdnam *Cmdnam;
+Xtypedef struct cond *Cond;
+Xtypedef struct cmd *Cmd;
+Xtypedef struct pline *Pline;
+Xtypedef struct sublist *Sublist;
+Xtypedef struct list *List;
+Xtypedef struct lklist *Lklist;
+Xtypedef struct lknode *Lknode;
+Xtypedef struct comp *Comp;
+Xtypedef struct redir *Redir;
+Xtypedef struct complist *Complist;
+Xtypedef struct heap *Heap;
+Xtypedef struct histent *Histent;
+Xtypedef struct compctl *Compctl;
+Xtypedef void (*FFunc)DCLPROTO((vptr));
+Xtypedef vptr (*VFunc)DCLPROTO((vptr));
+Xtypedef void (*HFunc)DCLPROTO((char *,char *));
+X
+X/* linked list abstract data type */
+X
+Xstruct lknode;
+Xstruct lklist;
+X
+Xstruct lknode {
+X   Lknode next,last;
+X   vptr dat;
+X   };
+Xstruct lklist {
+X   Lknode first,last;
+X   };
+X
+X#define addnode(X,Y) insnode(X,(X)->last,Y)
+X#define full(X) ((X)->first != NULL)
+X#define empty(X) ((X)->first == NULL)
+X#define firstnode(X) ((X)->first)
+X#define getaddrdata(X) (&((X)->dat))
+X#define getdata(X) ((X)->dat)
+X#define setdata(X,Y) ((X)->dat = (Y))
+X#define lastnode(X) ((X)->last)
+X#define nextnode(X) ((X)->next)
+X#define prevnode(X) ((X)->last)
+X#define peekfirst(X) ((X)->first->dat)
+X#define pushnode(X,Y) insnode(X,(Lknode) X,Y)
+X#define incnode(X) (X = nextnode(X))
+X#define gethistent(X) (histentarr+((X)%histentct))
+X
+X/* node structure for syntax trees */
+X
+X/* struct list, struct sublist, struct pline, etc.  all fit the form
+X	of this structure and are used interchangably
+X*/
+X
+Xstruct node {
+X	int data[4];			/* arbitrary integer data */
+X	vptr ptrs[4];			/* arbitrary pointer data */
+X	int types[4];			/* what ptrs[] are pointing to */
+X	int type;				/* node type */
+X	};
+X
+X#define N_LIST 0
+X#define N_SUBLIST 1
+X#define N_PLINE 2
+X#define N_CMD 3
+X#define N_REDIR 4
+X#define N_COND 5
+X#define N_FOR 6
+X#define N_CASE 7
+X#define N_IF 8
+X#define N_WHILE 9
+X#define N_VARASG 10
+X#define N_COUNT 11
+X
+X/* values for types[4] */
+X
+X#define NT_EMPTY 0
+X#define NT_NODE  1
+X#define NT_STR   2
+X#define NT_LIST  4
+X#define NT_MALLOC 8
+X
+X/* tree element for lists */
+X
+Xstruct list {
+X	int type;
+X	int ifil[3];		/* to fit struct node */
+X   Sublist left;
+X   List right;
+X   };
+X
+X#define SYNC 0		/* ; */
+X#define ASYNC 1	/* & */
+X#define TIMED 2
+X
+X/* tree element for sublists */
+X
+Xstruct sublist {
+X	int type;
+X	int flags;			/* see PFLAGs below */
+X	int ifil[2];
+X	Pline left;
+X	Sublist right;
+X	};
+X
+X#define ORNEXT 10		/* || */
+X#define ANDNEXT 11	/* && */
+X
+X#define PFLAG_NOT 1			/* ! ... */
+X#define PFLAG_COPROC 32		/* coproc ... */
+X
+X/* tree element for pipes */
+X
+Xstruct pline {
+X	int type;
+X	int ifil[3];
+X   Cmd left;
+X   Pline right;
+X   };
+X
+X#define END		0	/* pnode *right is null */
+X#define PIPE	1	/* pnode *right is the rest of the pipeline */
+X
+X/* tree element for commands */
+X
+Xstruct cmd {
+X	int type;
+X	int flags;				/* see CFLAGs below */
+X	int ifil[2];
+X   Lklist args;			/* command & argmument List (char *'s) */
+X	union {
+X   	List list;			/* for SUBSH/CURSH/SHFUNC */
+X		struct forcmd *forcmd;
+X		struct casecmd *casecmd;
+X		struct ifcmd *ifcmd;
+X		struct whilecmd *whilecmd;
+X		Sublist pline;
+X		Cond cond;
+X		} u;
+X   Lklist redir;			/* i/o redirections (struct redir *'s) */
+X	Lklist vars;			/* param assignments (struct varasg *'s) */
+X   };
+X
+X#define SIMPLE 0
+X#define SUBSH 1
+X#define CURSH 2
+X#define ZCTIME 3
+X#define FUNCDEF 4
+X#define CFOR 5
+X#define CWHILE 6
+X#define CREPEAT 7
+X#define CIF 8
+X#define CCASE 9
+X#define CSELECT 10
+X#define COND 11
+X
+X#define CFLAG_EXEC 1			/* exec ... */
+X#define CFLAG_COMMAND 2		/* command ... */
+X#define CFLAG_NOGLOB 4     /* noglob ... */
+X#define CFLAG_DASH 8			/* - ... */
+X
+X/* tree element for redirection lists */
+X
+Xstruct redir {
+X	int type,fd1,fd2,ifil;
+X	char *name;
+X   };
+X
+X/* tree element for conditionals */
+X
+Xstruct cond {
+X	int type;		/* can be cond_type, or a single letter (-a, -b, ...) */
+X	int ifil[3];
+X	vptr left,right,vfil[2];
+X	int types[4],typ;	/* from struct node.  DO NOT REMOVE */
+X	};
+X
+X#define COND_NOT 0
+X#define COND_AND 1
+X#define COND_OR 2
+X#define COND_STREQ 3
+X#define COND_STRNEQ 4
+X#define COND_STRLT 5
+X#define COND_STRGTR 6
+X#define COND_NT 7
+X#define COND_OT 8
+X#define COND_EF 9
+X#define COND_EQ 10
+X#define COND_NE 11
+X#define COND_LT 12
+X#define COND_GT 13
+X#define COND_LE 14
+X#define COND_GE 15
+X
+Xstruct forcmd {		/* for/select */
+X							/* Cmd->args contains list of words to loop thru */
+X	int inflag;			/* if there is an in ... clause */
+X	int ifil[3];
+X	char *name;			/* parameter to assign values to */
+X	List list;			/* list to look through for each name */
+X	};
+Xstruct casecmd {
+X							/* Cmd->args contains word to test */
+X	int ifil[4];
+X	struct casecmd *next;
+X	char *pat;
+X	List list;					/* list to execute */
+X	};
+X
+X/*
+X
+X	a command like "if foo then bar elif baz then fubar else fooble"
+X	generates a tree like:
+X
+X	struct ifcmd a = { next =  &b,  ifl = "foo", thenl = "bar" }
+X	struct ifcmd b = { next =  &c,  ifl = "baz", thenl = "fubar" }
+X	struct ifcmd c = { next = NULL, ifl = NULL, thenl = "fooble" }
+X
+X*/
+X
+Xstruct ifcmd {
+X	int ifil[4];
+X	struct ifcmd *next;
+X	List ifl;
+X	List thenl;
+X	};
+X
+Xstruct whilecmd {
+X	int cond;		/* 0 for while, 1 for until */
+X	int ifil[3];
+X	List cont;		/* condition */
+X	List loop;		/* list to execute until condition met */
+X	};
+X
+X/* structure used for multiple i/o redirection */
+X/* one for each fd open */
+X
+Xstruct multio {
+X	int ct;				/* # of redirections on this fd */
+X	int rflag;			/* 0 if open for reading, 1 if open for writing */
+X	int pipe;			/* fd of pipe if ct > 1 */
+X	int fds[NOFILE];	/* list of src/dests redirected to/from this fd */
+X   }; 
+X
+X/* node used in command path hash table (cmdnamtab) */
+X
+Xstruct cmdnam 
+X{
+X	struct hashnode *next; int canfree; char *nam; /* hash data */
+X	int type,flags;
+X	union {
+X		char *nam;		/* full pathname if type != BUILTIN */
+X		int binnum;		/* func to exec if type == BUILTIN */
+X		List list;		/* list to exec if type == SHFUNC */
+X		} u;
+X	char **pcomp;		/* location in path for EXCMD's */
+X	};
+X
+X#define EXCMD 0
+X#define BUILTIN 2
+X#define SHFUNC 3
+X#define DISABLED 4
+X#define ISEXCMD(X) ((X)==EXCMD)
+X
+X/* node used in parameter hash table (paramtab) */
+X
+Xstruct param {
+X	struct hashnode *next; int canfree; char *nam; /* hash data */
+X	union {
+X		char **arr;		/* value if declared array */
+X		char *str;		/* value if declared string (scalar) */
+X		long val;		/* value if declared integer */
+X		} u;
+X	union {				/* functions to call to set value */
+X		void (*cfn)DCLPROTO((Param,char *));
+X		void (*ifn)DCLPROTO((Param,long));
+X		void (*afn)DCLPROTO((Param,char **));
+X		} sets;
+X	union {				/* functions to call to get value */
+X		char *(*cfn)DCLPROTO((Param));
+X		long (*ifn)DCLPROTO((Param));
+X		char **(*afn)DCLPROTO((Param));
+X		} gets;
+X	int ct;				/* output base or field width */
+X	int flags;
+X	vptr data;			/* used by getfns */
+X	char *env;			/* location in environment, if exported */
+X	char *ename;		/* name of corresponding environment var */
+X	};
+X
+X#define PMFLAG_s 0		/* scalar */
+X#define PMFLAG_L 1		/* left justify and remove leading blanks */
+X#define PMFLAG_R 2		/* right justify and fill with leading blanks */
+X#define PMFLAG_Z 4		/* right justify and fill with leading zeros */
+X#define PMFLAG_i 8		/* integer */
+X#define PMFLAG_l 16		/* all lower case */
+X#define PMFLAG_u 32		/* all upper case */
+X#define PMFLAG_r 64		/* readonly */
+X#define PMFLAG_t 128		/* tagged */
+X#define PMFLAG_x 256		/* exported */
+X#define PMFLAG_A 512		/* array */
+X#define PMFLAG_SPECIAL	1024
+X#define PMTYPE (PMFLAG_i|PMFLAG_A)
+X#define pmtype(X) ((X)->flags & PMTYPE)
+X
+X/* variable assignment tree element */
+X
+Xstruct varasg {
+X	int type;			/* nonzero means array */
+X	int ifil[3];
+X	char *name;
+X	char *str;			/* should've been a union here.  oh well */
+X	Lklist arr;
+X	};
+X
+X/* lvalue for variable assignment/expansion */
+X
+Xstruct value {
+X	int isarr;
+X	struct param *pm;		/* parameter node */
+X	int a;					/* first element of array slice, or -1 */
+X	int b;					/* last element of array slice, or -1 */
+X	};
+X
+Xstruct fdpair {
+X	int fd1,fd2;
+X	};
+X
+X/* tty state structure */
+X
+Xstruct ttyinfo {
+X#ifdef TERMIOS
+X	struct termios tio;
+X#else
+X#ifdef TERMIO
+X	struct termio tio;
+X#else
+X	struct sgttyb sgttyb;
+X	int lmodes;
+X	struct tchars tchars;
+X	struct ltchars ltchars;
+X#endif
+X#endif
+X#ifdef TIOCGWINSZ
+X	struct winsize winsize;
+X#endif
+X	};
+X
+XEXTERN struct ttyinfo savedttyinfo;
+X
+X/* entry in job table */
+X
+Xstruct job {
+X	long gleader;					/* process group leader of this job */
+X	int stat;
+X	char *pwd;						/* current working dir of shell when
+X											this job was spawned */
+X	struct process *procs;		/* list of processes */
+X	Lklist filelist;				/* list of files to delete when done */
+X	};
+X
+X#define STAT_CHANGED 1		/* status changed and not reported */
+X#define STAT_STOPPED 2		/* all procs stopped or exited */
+X#define STAT_TIMED 4			/* job is being timed */
+X#define STAT_DONE 8
+X#define STAT_LOCKED 16		/* shell is finished creating this job,
+X										may be deleted from job table */
+X#define STAT_INUSE 64		/* this job entry is in use */
+X
+X#define SP_RUNNING -1		/* fake statusp for running jobs */
+X
+X#ifndef RUSAGE_CHILDREN
+X#undef HAS_RUSAGE
+X#endif
+X
+Xstruct timeinfo {
+X#ifdef HAS_RUSAGE
+X	struct rusage ru;
+X#else
+X	long ut, st;
+X#endif
+X};
+X
+X/* node in job process lists */
+X
+X#define JOBTEXTSIZE 80
+X
+Xstruct process {
+X	struct process *next;
+X	long pid;
+X	char text[JOBTEXTSIZE];		/* text to print when 'jobs' is run */
+X	int statusp;					/* return code from wait3() */
+X	struct timeinfo ti;
+X	time_t bgtime;					/* time job was spawned */
+X	time_t endtime;				/* time job exited */
+X	};
+X
+X/* node in alias hash table */
+X
+Xstruct alias {
+X	struct hashnode *next; int canfree; char *nam; /* hash data */
+X	char *text;			/* expansion of alias */
+X	int cmd;				/* one for regular aliases,
+X								zero for global aliases,
+X								negative for reserved words */
+X	int inuse;			/* alias is being expanded */
+X	};
+X
+X/* node in sched list */
+X
+Xstruct schedcmd {
+X	struct schedcmd *next;
+X	char *cmd;		/* command to run */
+X	time_t time;	/* when to run it */
+X	};
+X
+X#define MAXAL 20	/* maximum number of aliases expanded at once */
+X
+X/* hash table node */
+X
+Xstruct hashnode {
+X	struct hashnode *next;
+X	int canfree;		/* nam is free()able */
+X	char *nam;
+X	};
+X
+X/* hash table */
+X
+Xstruct hashtab {
+X	int hsize;							/* size of nodes[] */
+X	int ct;								/* # of elements */
+X	struct hashnode **nodes;		/* array of size hsize */
+X	};
+X
+X/* history entry */
+X
+Xstruct histent {
+X	char *lex;			/* lexical history line */
+X	char *lit;			/* literal history line */
+X	time_t stim;		/* command started time (datestamp) */
+X	time_t ftim;		/* command finished time */
+X	int flags;		/* Misc flags */
+X	};
+X
+X#define HIST_OLD	0x00000001	/* Command is already written to disk*/
+X
+X/* completion control */
+X
+Xstruct compctl {
+X	struct hashnode *next; int canfree; char *nam; /* hash data */
+X	int mask;
+X	char *keyvar;
+X	};
+X
+X#define CC_FILES		1
+X#define CC_COMMPATH	2
+X#define CC_HOSTS		4
+X#define CC_OPTIONS	8
+X#define CC_VARS		16
+X#define CC_BINDINGS	32
+X#define CC_USRKEYS   64
+X
+Xextern char *sys_errlist[];
+Xextern int errno;
+X
+X/* values in opts[] array */
+X
+X#define OPT_INVALID 1	/* opt is invalid, like -$ */
+X#define OPT_UNSET 0
+X#define OPT_SET 2
+X
+X/* the options */
+X
+Xstruct option {
+X	char *name;
+X	char id;			/* corresponding letter */
+X	};
+X
+X#define CORRECT '0'
+X#define NOCLOBBER '1'
+X#define NOBADPATTERN '2'
+X#define NONOMATCH '3'
+X#define GLOBDOTS '4'
+X#define NOTIFY '5'
+X#define BGNICE '6'
+X#define IGNOREEOF '7'
+X#define MARKDIRS '8'
+X#define AUTOLIST '9'
+X#define NOBEEP 'B'
+X#define PRINTEXITVALUE 'C'
+X#define PUSHDTOHOME 'D'
+X#define PUSHDSILENT 'E'
+X#define NOGLOBOPT 'F'
+X#define NULLGLOB 'G'
+X#define RMSTARSILENT 'H'
+X#define IGNOREBRACES 'I'
+X#define AUTOCD 'J'
+X#define NOBANGHIST 'K'
+X#define SUNKEYBOARDHACK 'L'
+X#define SINGLELINEZLE 'M'
+X#define AUTOPUSHD 'N'
+X#define CORRECTALL 'O'
+X#define RCEXPANDPARAM 'P'
+X#define PATHDIRS 'Q'
+X#define LONGLISTJOBS 'R'
+X#define RECEXACT 'S'
+X#define CDABLEVARS 'T'
+X#define MAILWARNING 'U'
+X#define NOPROMPTCR 'V'
+X#define AUTORESUME 'W'
+X#define LISTTYPES 'X'
+X#define MENUCOMPLETE 'Y'
+X#define USEZLE 'Z'
+X#define ALLEXPORT 'a'
+X#define ERREXIT 'e'
+X#define NORCS 'f'
+X#define HISTIGNORESPACE 'g'
+X#define HISTIGNOREDUPS 'h'
+X#define INTERACTIVE 'i'
+X#define HISTLIT 'j'
+X#define INTERACTIVECOMMENTS 'k'
+X#define LOGINSHELL 'l'
+X#define MONITOR 'm'
+X#define NOEXEC 'n'
+X#define SHINSTDIN 's'
+X#define NOUNSET 'u'
+X#define VERBOSE 'v'
+X#define CHASELINKS 'w'
+X#define XTRACE 'x'
+X#define SHWORDSPLIT 'y'
+X#define MENUCOMPLETEBEEP '\2'
+X#define HISTNOSTORE '\3'
+X#define EXTENDEDGLOB '\5'
+X#define GLOBCOMPLETE '\6'
+X#define CSHJUNKIEQUOTES '\7'
+X#define PUSHDMINUS '\10'
+X#define CSHJUNKIELOOPS '\11'
+X#define RCQUOTES '\12'
+X#define KSHOPTIONPRINT '\13'
+X#define NOSHORTLOOPS '\14'
+X#define LASTMENU '\15'
+X#define AUTOMENU '\16'
+X#define HISTVERIFY '\17'
+X#define NOLISTBEEP '\20'
+X#define NOHUP '\21'
+X#define NOEQUALS '\22'
+X#define CSHNULLGLOB '\23'
+X#define HASHCMDS '\24'
+X#define HASHDIRS '\25'
+X#define NUMERICGLOBSORT '\26'
+X#define BRACECCL '\27'
+X#define HASHLISTALL '\30'
+X#define OVERSTRIKE '\31'
+X#define NOHISTBEEP '\32'
+X#define PUSHDIGNOREDUPS '\33'
+X#define AUTOREMOVESLASH '\34'
+X#define EXTENDEDHISTORY '\35'
+X#define APPENDHISTORY '\36'
+X
+X#ifndef GLOBALS
+Xextern struct option optns[];
+X#else
+Xstruct option optns[] = {
+X	{"correct",CORRECT},
+X	{"noclobber",NOCLOBBER},
+X	{"nobadpattern",NOBADPATTERN},
+X	{"nonomatch",NONOMATCH},
+X	{"globdots",GLOBDOTS},
+X	{"notify",NOTIFY},
+X	{"bgnice",BGNICE},
+X	{"ignoreeof",IGNOREEOF},
+X	{"markdirs",MARKDIRS},
+X	{"autolist",AUTOLIST},
+X	{"nobeep",NOBEEP},
+X	{"printexitvalue",PRINTEXITVALUE},
+X	{"pushdtohome",PUSHDTOHOME},
+X	{"pushdsilent",PUSHDSILENT},
+X	{"noglob",NOGLOBOPT},
+X	{"nullglob",NULLGLOB},
+X	{"rmstarsilent",RMSTARSILENT},
+X	{"ignorebraces",IGNOREBRACES},
+X	{"braceccl",BRACECCL},
+X	{"autocd",AUTOCD},
+X	{"nobanghist",NOBANGHIST},
+X	{"sunkeyboardhack",SUNKEYBOARDHACK},
+X	{"singlelinezle",SINGLELINEZLE},
+X	{"autopushd",AUTOPUSHD},
+X	{"correctall",CORRECTALL},
+X	{"rcexpandparam",RCEXPANDPARAM},
+X	{"pathdirs",PATHDIRS},
+X	{"longlistjobs",LONGLISTJOBS},
+X	{"recexact",RECEXACT},
+X	{"cdablevars",CDABLEVARS},
+X	{"mailwarning",MAILWARNING},
+X	{"nopromptcr",NOPROMPTCR},
+X	{"autoresume",AUTORESUME},
+X	{"listtypes",LISTTYPES},
+X	{"menucomplete",MENUCOMPLETE},
+X	{"zle",USEZLE},
+X	{"allexport",ALLEXPORT},
+X	{"errexit",ERREXIT},
+X	{"norcs",NORCS},
+X	{"histignorespace",HISTIGNORESPACE},
+X	{"histignoredups",HISTIGNOREDUPS},
+X	{"interactive",INTERACTIVE},
+X	{"histlit",HISTLIT},
+X	{"interactivecomments",INTERACTIVECOMMENTS},
+X	{"login",LOGINSHELL},
+X	{"monitor",MONITOR},
+X	{"noexec",NOEXEC},
+X	{"shinstdin",SHINSTDIN},
+X	{"nounset",NOUNSET},
+X	{"verbose",VERBOSE},
+X	{"chaselinks",CHASELINKS},
+X	{"xtrace",XTRACE},
+X	{"shwordsplit",SHWORDSPLIT},
+X	{"menucompletebeep",MENUCOMPLETEBEEP},
+X	{"histnostore",HISTNOSTORE},
+X	{"extendedglob",EXTENDEDGLOB},
+X	{"globcomplete",GLOBCOMPLETE},
+X	{"cshjunkiequotes",CSHJUNKIEQUOTES},
+X	{"pushdminus",PUSHDMINUS},
+X	{"cshjunkieloops",CSHJUNKIELOOPS},
+X	{"rcquotes",RCQUOTES},
+X	{"noshortloops",NOSHORTLOOPS},
+X	{"lastmenu",LASTMENU},
+X	{"automenu",AUTOMENU},
+X	{"histverify",HISTVERIFY},
+X	{"nolistbeep",NOLISTBEEP},
+X	{"nohup",NOHUP},
+X	{"noequals",NOEQUALS},
+X	{"kshoptionprint",KSHOPTIONPRINT},
+X	{"cshnullglob",CSHNULLGLOB},
+X	{"hashcmds",HASHCMDS},
+X	{"hashdirs",HASHDIRS},
+X	{"numericglobsort",NUMERICGLOBSORT},
+X	{"hashlistall",HASHLISTALL},
+X	{"overstrike",OVERSTRIKE},
+X	{"nohistbeep",NOHISTBEEP},
+X	{"pushdignoredups",PUSHDIGNOREDUPS},
+X	{"autoremoveslash",AUTOREMOVESLASH},
+X	{"extendedhistory",EXTENDEDHISTORY},
+X	{"appendhistory",APPENDHISTORY},
+X	{NULL,0}
+X};
+X#endif
+X
+X#define ALSTAT_MORE 1	/* last alias ended with ' ' */
+X#define ALSTAT_JUNK 2	/* don't put word in history List */
+X
+X#undef isset
+X#define isset(X) (opts[(int)X] == OPT_SET)
+X#define unset(X) (opts[(int)X] == OPT_UNSET)
+X#define interact (isset(INTERACTIVE))
+X#define jobbing (isset(MONITOR))
+X#define jobbingv opts[MONITOR]
+X#define nointr() signal(SIGINT,SIG_IGN)
+X#define islogin (isset(LOGINSHELL))
+X
+X#ifndef SYSVR4
+X#ifndef _IBMR2
+X#undef WIFSTOPPED
+X#undef WIFSIGNALED
+X#undef WIFEXITED
+X#undef WEXITSTATUS
+X#undef WTERMSIG
+X#undef WSTOPSIG
+X#undef WCOREDUMP
+X
+X#define WIFSTOPPED(X) (((X)&0377)==0177)
+X#define WIFSIGNALED(X) (((X)&0377)!=0&&((X)&0377)!=0177)
+X#define WIFEXITED(X) (((X)&0377)==0)
+X#define WEXITSTATUS(X) (((X)>>8)&0377)
+X#define WTERMSIG(X) ((X)&0177)
+X#define WSTOPSIG(X) (((X)>>8)&0377)
+X#endif
+X#define WCOREDUMP(X) ((X)&0200)
+X#endif
+X
+X#ifndef S_ISBLK
+X#define	_IFMT		0170000
+X#define	_IFDIR	0040000
+X#define	_IFCHR	0020000
+X#define	_IFBLK	0060000
+X#define	_IFREG	0100000
+X#define	_IFIFO	0010000
+X#define	S_ISBLK(m)	(((m)&_IFMT) == _IFBLK)
+X#define	S_ISCHR(m)	(((m)&_IFMT) == _IFCHR)
+X#define	S_ISDIR(m)	(((m)&_IFMT) == _IFDIR)
+X#define	S_ISFIFO(m)	(((m)&_IFMT) == _IFIFO)
+X#define	S_ISREG(m)	(((m)&_IFMT) == _IFREG)
+X#endif
+X
+X#ifndef _IFMT
+X#define _IFMT 0170000
+X#endif
+X
+X#ifndef S_ISSOCK
+X#define	_IFSOCK	0140000
+X#define	S_ISSOCK(m)	(((m)&_IFMT) == _IFSOCK)
+X#endif
+X
+X#ifndef S_ISLNK
+X#define	_IFLNK	0120000
+X#define	S_ISLNK(m)	(((m)&_IFMT) == _IFLNK)
+X#endif
+X
+X#if S_IFIFO == S_IFSOCK
+X#undef S_IFIFO
+X#endif
+X
+X#ifndef S_IFIFO
+X#define NO_FIFOS
+X#endif
+X
+X/* buffered shell input for non-interactive shells */
+X
+XEXTERN FILE *bshin;
+X
+X/* NULL-terminated arrays containing path, cdpath, etc. */
+X
+XEXTERN char **path,**cdpath,**fpath,**watch,**mailpath;
+XEXTERN char **manpath,**tildedirs,**fignore;
+XEXTERN char **hosts,**psvar;
+X
+X/* named directories */
+X
+XEXTERN char **userdirs,**usernames;
+X
+X/* size of userdirs[], # of userdirs */
+X
+XEXTERN int userdirsz,userdirct;
+X
+XEXTERN char *mailfile;
+X
+XEXTERN char *yytext;
+X
+X/* error/break flag */
+X
+XEXTERN int errflag;
+X
+XEXTERN char *tokstr;
+XEXTERN int tok, tokfd;
+X
+X/* lexical analyzer error flag */
+X
+XEXTERN int lexstop;
+X
+X/* suppress error messages */
+X
+XEXTERN int noerrs;
+X
+X/* current history event number */
+X
+XEXTERN int curhist;
+X
+X/* if != 0, this is the first line of the command */
+X
+XEXTERN int isfirstln;
+X
+X/* if != 0, this is the first char of the command (not including
+X	white space */
+X
+XEXTERN int isfirstch;
+X
+X/* number of history entries */
+X
+XEXTERN int histentct;
+X
+X/* array of history entries */
+X
+XEXTERN Histent histentarr;
+X
+X/* capacity of history lists */
+X
+XEXTERN int histsiz,lithistsiz;
+X
+X/* if = 1, we have performed history substitution on the current line
+X 	if = 2, we have used the 'p' modifier */
+X
+XEXTERN int histdone;
+X
+X/* default event (usually curhist-1, that is, "!!") */
+X
+XEXTERN int defev;
+X
+X/* != 0 if we are about to read a command word */
+X
+XEXTERN int incmdpos;
+X
+X/* != 0 if we are in the middle of a [[ ... ]] */
+X
+XEXTERN int incond;
+X
+X/* != 0 if we are after a redirection (for ctxtlex only) */
+X
+XEXTERN int inredir;
+X
+X/* != 0 if we are about to read a case pattern */
+X
+XEXTERN int incasepat;
+X
+X/* != 0 if we just read FUNCTION */
+X
+XEXTERN int infunc;
+X
+X/* != 0 if we just read a newline */
+X
+XEXTERN int isnewlin;
+X
+X/* the lists of history events */
+X
+XEXTERN Lklist histlist,lithistlist;
+X
+X/* the directory stack */
+X
+XEXTERN Lklist dirstack;
+X
+X/* the zle buffer stack */
+X
+XEXTERN Lklist bufstack;
+X
+X/* the input queue (stack?)
+X
+X	inbuf    = start of buffer
+X	inbufptr = location in buffer (= inbuf for a FULL buffer)
+X											(= inbuf+inbufsz for an EMPTY buffer)
+X	inbufct  = # of chars in buffer (inbufptr+inbufct == inbuf+inbufsz)
+X	inbufsz  = max size of buffer
+X*/
+X
+XEXTERN char *inbuf,*inbufptr;
+XEXTERN int inbufct,inbufsz;
+X
+XEXTERN char *ifs;		/* $IFS */
+X
+XEXTERN char *oldpwd;	/* $OLDPWD */
+X
+XEXTERN char *underscore; /* $_ */
+X
+X/* != 0 if this is a subshell */
+X
+XEXTERN int subsh;
+X
+X/* # of break levels */
+X
+XEXTERN int breaks;
+X
+X/* != 0 if we have a return pending */
+X
+XEXTERN int retflag;
+X
+X/* how far we've hashed the PATH so far */
+X
+XEXTERN char **pathchecked;
+X
+X/* # of nested loops we are in */
+X
+XEXTERN int loops;
+X
+X/* # of continue levels */
+X
+XEXTERN int contflag;
+X
+X/* the job we are working on */
+X
+XEXTERN int thisjob;
+X
+X/* the current job (+) */
+X
+XEXTERN int curjob;
+X
+X/* the previous job (-) */
+X
+XEXTERN int prevjob;
+X
+X/* hash table containing the aliases and reserved words */
+X
+XEXTERN Hashtab aliastab;
+X
+X/* hash table containing the parameters */
+X
+XEXTERN Hashtab paramtab;
+X
+X/* hash table containing the builtins/shfuncs/hashed commands */
+X
+XEXTERN Hashtab cmdnamtab;
+X
+X/* hash table containing the zle multi-character bindings */
+X
+XEXTERN Hashtab xbindtab;
+X
+X/* hash table for completion info for commands */
+X
+XEXTERN Hashtab compctltab;
+X
+X/* default completion infos */
+X
+XEXTERN struct compctl cc_compos, cc_default;
+X
+X/* the job table */
+X
+XEXTERN struct job jobtab[MAXJOB];
+X
+X/* shell timings */
+X
+X#ifndef HAS_RUSAGE
+XEXTERN struct tms shtms;
+X#endif
+X
+X/* the list of sched jobs pending */
+X
+XEXTERN struct schedcmd *schedcmds;
+X
+X/* the last l for s/l/r/ history substitution */
+X
+XEXTERN char *hsubl;
+X
+X/* the last r for s/l/r/ history substitution */
+X
+XEXTERN char *hsubr;
+X
+XEXTERN char *username;	/* $USERNAME */
+XEXTERN char *logname;	/* $LOGNAME */
+XEXTERN long lastval;		/* $? */
+XEXTERN long baud;			/* $BAUD */
+XEXTERN long columns;		/* $COLUMNS */
+XEXTERN long lines;		/* $LINES */
+XEXTERN long reporttime; /* $REPORTTIME */
+X
+X/* input fd from the coprocess */
+X
+XEXTERN int coprocin;
+X
+X/* output fd from the coprocess */
+X
+XEXTERN int coprocout;
+X
+XEXTERN long mailcheck;	/* $MAILCHECK */
+XEXTERN long logcheck;	/* $LOGCHECK */
+X
+X/* the last time we checked mail */
+X
+XEXTERN time_t lastmailcheck;
+X
+X/* the last time we checked the people in the WATCH variable */
+X
+XEXTERN time_t lastwatch;
+X
+X/* the last time we did the periodic() shell function */
+X
+XEXTERN time_t lastperiod;
+X
+X/* $SECONDS = time(NULL) - shtimer */
+X
+XEXTERN time_t shtimer;
+X
+XEXTERN long mypid;		/* $$ */
+XEXTERN long lastpid;		/* $! */
+XEXTERN long ppid;			/* $PPID */
+X
+X/* the process group of the shell */
+X
+XEXTERN long mypgrp;
+X
+XEXTERN char *pwd;			/* $PWD */
+XEXTERN char *optarg;		/* $OPTARG */
+XEXTERN long zoptind;		/* $OPTIND */
+XEXTERN char *prompt;		/* $PROMPT */
+XEXTERN char *rprompt;	/* $RPROMPT */
+XEXTERN char *prompt2;	/* etc. */
+XEXTERN char *prompt3;
+XEXTERN char *prompt4;
+XEXTERN char *sprompt;
+XEXTERN char *timefmt;
+XEXTERN char *watchfmt;
+XEXTERN char *wordchars;
+XEXTERN char *fceditparam;
+XEXTERN char *tmpprefix;
+XEXTERN char *rstring, *Rstring;
+XEXTERN char *postedit;
+X
+XEXTERN char *argzero;	/* $0 */
+X
+XEXTERN char *hackzero;
+X
+X/* the hostname */
+X
+XEXTERN char *hostnam;
+X
+XEXTERN char *home;		/* $HOME */
+XEXTERN char **pparams;	/* $argv */
+X
+X/* the default command for null commands */
+X
+XEXTERN char *nullcmd;
+XEXTERN char *readnullcmd;
+X
+X/* the List of local variables we have to destroy */
+X
+XEXTERN Lklist locallist;
+X
+X/* the shell input fd */
+X
+XEXTERN int SHIN;
+X
+X/* the shell tty fd */
+X
+XEXTERN int SHTTY;
+X
+X/* the stack of aliases we are expanding */
+X
+XEXTERN struct alias *alstack[MAXAL];
+X
+X/* the alias stack pointer; also, the number of aliases currently
+X 	being expanded */
+X
+XEXTERN int alstackind;
+X
+X/* != 0 means we are reading input from a string */
+X
+XEXTERN int strin;
+X
+X/* period between periodic() commands, in seconds */
+X
+XEXTERN long period;
+X
+X/* != 0 means history substitution is turned off */
+X
+XEXTERN int stophist;
+X
+XEXTERN int lithist;
+X
+X/* this line began with a space, so junk it if HISTIGNORESPACE is on */
+X
+XEXTERN int spaceflag;
+X
+X/* don't do spelling correction */
+X
+XEXTERN int nocorrect;
+X
+X/* != 0 means we have removed the current event from the history List */
+X
+XEXTERN int histremmed;
+X
+X/* the options; e.g. if opts['a'] == OPT_SET, -a is turned on */
+X
+XEXTERN int opts[128];
+X
+XEXTERN long lineno;		/* LINENO */
+XEXTERN long listmax;		/* LISTMAX */
+XEXTERN long savehist;	/* SAVEHIST */
+XEXTERN long shlvl;		/* SHLVL */
+XEXTERN long tmout;		/* TMOUT */
+XEXTERN long dirstacksize;	/* DIRSTACKSIZE */
+X
+X/* != 0 means we have called execlist() and then intend to exit(),
+X 	so don't fork if not necessary */
+X
+XEXTERN int exiting;
+X
+XEXTERN int lastbase;		/* last input base we used */
+X
+X/* the limits for child processes */
+X
+X#ifdef RLIM_INFINITY
+XEXTERN struct rlimit limits[RLIM_NLIMITS];
+X#endif
+X
+X/* the current word in the history List */
+X
+XEXTERN char *hlastw;
+X
+X/* pointer into the history line */
+X
+XEXTERN char *hptr;
+X
+X/* the current history line */
+X
+XEXTERN char *chline;
+X
+X/* the termcap buffer */
+X
+XEXTERN char termbuf[1024];
+X
+X/* $TERM */
+X
+XEXTERN char *term;
+X
+X/* != 0 if this $TERM setup is usable */
+X
+XEXTERN int termok;
+X
+X/* flag for CSHNULLGLOB */
+X
+XEXTERN int badcshglob;
+X
+X/* max size of histline */
+X
+XEXTERN int hlinesz;
+X
+X/* the alias expansion status - if == ALSTAT_MORE, we just finished
+X	expanding an alias ending with a space */
+X
+XEXTERN int alstat;
+X
+X/* we have printed a 'you have stopped (running) jobs.' message */
+X
+XEXTERN int stopmsg;
+X
+X/* the default tty state */
+X
+XEXTERN struct ttyinfo shttyinfo;
+X
+X/* $TTY */
+X
+XEXTERN char *ttystrname;
+X
+X/* 1 if ttyctl -f has been executed */
+X
+XEXTERN int ttyfrozen;
+X
+X/* list of memory heaps */
+X
+XEXTERN Lklist heaplist;
+X
+X/* != 0 if we are allocating in the heaplist */
+X
+XEXTERN int useheap;
+X
+X/* pid of process undergoing 'process substitution' */
+X
+XEXTERN int cmdoutpid;
+X
+X/* exit status of process undergoing 'process substitution' */
+X
+XEXTERN int cmdoutval;
+X
+X#include "signals.h"
+X
+X#ifdef GLOBALS
+X
+X/* signal names */
+Xchar **sigptr = sigs;
+X
+X/* tokens */
+Xchar *ztokens = "#$^*()$=|{}[]`<>?~`,'\"\\";
+X
+X#else
+Xextern char *ztokens,**sigptr;
+X#endif
+X
+X#define SIGERR (SIGCOUNT+1)
+X#define SIGDEBUG (SIGCOUNT+2)
+X#define VSIGCOUNT (SIGCOUNT+3)
+X#define SIGEXIT 0
+X
+X/* signals that are trapped = 1, signals ignored =2 */
+X
+XEXTERN int sigtrapped[VSIGCOUNT];
+X
+X/* trap functions for each signal */
+X
+XEXTERN List sigfuncs[VSIGCOUNT];
+X
+X/* $HISTCHARS */
+X
+XEXTERN unsigned char bangchar,hatchar,hashchar;
+X
+XEXTERN int eofseen;
+X
+X/* we are parsing a line sent to use by the editor */
+X
+XEXTERN int zleparse;
+X
+XEXTERN int wordbeg;
+X
+XEXTERN int parbegin;
+X
+X/* interesting termcap strings */
+X
+X#define TCCLEARSCREEN 0
+X#define TCLEFT 1
+X#define TCMULTLEFT 2
+X#define TCRIGHT 3
+X#define TCMULTRIGHT 4
+X#define TCUP 5
+X#define TCMULTUP 6
+X#define TCDOWN 7
+X#define TCMULTDOWN 8
+X#define TCDEL 9
+X#define TCMULTDEL 10
+X#define TCINS 11
+X#define TCMULTINS 12
+X#define TCCLEAREOD 13
+X#define TCCLEAREOL 14
+X#define TCINSLINE 15
+X#define TCDELLINE 16
+X#define TC_COUNT 17
+X
+X/* lengths of each string */
+X
+XEXTERN int tclen[TC_COUNT];
+X
+XEXTERN char *tcstr[TC_COUNT];
+X
+X#ifdef GLOBALS
+X
+X/* names of the strings we want */
+X
+Xchar *tccapnams[TC_COUNT] = {
+X	"cl","le","LE","nd","RI","up","UP","do",
+X	"DO","dc","DC","ic","IC","cd","ce","al","dl"
+X	};
+X
+X#else
+Xextern char *tccapnams[TC_COUNT];
+X#endif
+X
+X#define tccan(X) (!!tclen[X])
+X
+X#define HISTFLAG_DONE   1
+X#define HISTFLAG_NOEXEC 2
+X#define HISTFLAG_RECALL 4
+X
+X#include "ztype.h"
+X#include "funcs.h"
+X
+X#ifdef HAS_SETPGID
+X#define setpgrp setpgid
+X#endif
+X
+X#define _INCLUDE_POSIX_SOURCE
+X#define _INCLUDE_XOPEN_SOURCE
+X#define _INCLUDE_HPUX_SOURCE
+X
+X#ifdef SV_BSDSIG
+X#define SV_INTERRUPT SV_BSDSIG
+X#endif
+X
+X#ifdef HAS_SIGRELSE
+X#define blockchld() sighold(SIGCHLD)
+X#define unblockchld() sigrelse(SIGCHLD)
+X#define chldsuspend() sigpause(SIGCHLD)
+X#else
+X#define blockchld() sigblock(sigmask(SIGCHLD))
+X#define unblockchld() sigsetmask(0)
+X#define chldsuspend() sigpause(0)
+X#endif
+END_OF_FILE
+  if test 34760 -ne `wc -c <'src/zsh.h'`; then
+    echo shar: \"'src/zsh.h'\" unpacked with wrong size!
+  fi
+  # end of 'src/zsh.h'
+fi
+echo shar: End of archive 11 \(of 22\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2197 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i062: Video Extension for X (v2r2), Part11/29
+Message-ID: <1992Feb6.145603.312@msi.com>
+Date: 6 Feb 92 14:56:03 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2184
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 62
+Archive-name: vex.v2r2/part11
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 11 (of 29)."
+# Contents:  extensions/xv/Imakefile extensions/xv/server/xvmain.c
+#   server/ddx/cfb32/cfbfillsp.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:46 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/Imakefile'\"
+else
+echo shar: Extracting \"'extensions/xv/Imakefile'\" \(301 characters\)
+sed "s/^X//" >'extensions/xv/Imakefile' <<'END_OF_FILE'
+X#define IHaveSubdirs
+X#define PassCDebugFlags
+X
+X  IMAKE_DEFINES = ExtensionDefines
+X
+X#if BuildServer
+X  SERVERSUBDIRS = server
+X#endif
+X
+X        SUBDIRS = include lib test $(SERVERSUBDIRS)
+X
+XMakeSubdirs($(SUBDIRS))
+XDependSubdirs($(SUBDIRS))
+XMakeLintLibSubdirs(lib)
+XMakeLintSubdirs(lib,install.ln,install.ln)
+END_OF_FILE
+if test 301 -ne `wc -c <'extensions/xv/Imakefile'`; then
+    echo shar: \"'extensions/xv/Imakefile'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/Imakefile'
+fi
+if test -f 'extensions/xv/server/xvmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/xvmain.c'\"
+else
+echo shar: Extracting \"'extensions/xv/server/xvmain.c'\" \(25544 characters\)
+sed "s/^X//" >'extensions/xv/server/xvmain.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvmain.c --- Xv server extension main device independent module.
+X**   
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   04.09.91 Carver
+X**     - change: stop video always generates an event even when video
+X**       wasn't active
+X**
+X**   29.08.91 Carver
+X**     - change: unrealizing windows no longer preempts video
+X**
+X**   11.06.91 Carver
+X**     - changed SetPortControl to SetPortAttribute
+X**     - changed GetPortControl to GetPortAttribute
+X**     - changed QueryBestSize
+X**
+X**   28.05.91 Carver
+X**     - fixed Put and Get requests to not preempt operations to same drawable
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   19.03.91 Carver
+X**     - fixed Put and Get requests to honor grabbed ports.
+X**     - fixed Video requests to update di structure with new drawable, and
+X**       client after calling ddx.
+X**
+X**   24.01.91 Carver
+X**     - version 1.4 upgrade
+X**       
+X** Notes:
+X**
+X**   Port structures reference client structures in a two different
+X**   ways: when grabs, or video is active.  Each reference is encoded
+X**   as fake client resources and thus when the client is goes away so
+X**   does the reference (it is zeroed).  No other action is taken, so
+X**   video doesn't necessarily stop.  It probably will as a result of
+X**   other resources going away, but if a client starts video using
+X**   none of its own resources, then the video will continue to play
+X**   after the client disappears.
+X**
+X**
+X*/
+X
+X#include <stdio.h>
+X
+X#include "X.h"
+X#include "Xproto.h"
+X#include "misc.h"
+X#include "os.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "gc.h"
+X#include "extnsionst.h"
+X#include "dixstruct.h"
+X#include "resource.h"
+X#include "opaque.h"
+X#include "input.h"
+X
+X#define GLOBAL
+X
+X#include "Xv.h"
+X#include "Xvproto.h"
+X#include "xvdix.h"
+X
+X/* EXTERNAL */
+X
+Xextern Atom MakeAtom();
+Xextern WindowPtr *WindowTable;
+Xextern XID clientErrorValue;
+Xextern void (* EventSwapVector[128])();
+X
+Xstatic void WriteSwappedVideoNotifyEvent();
+Xstatic void WriteSwappedPortNotifyEvent();
+Xstatic Bool CreateResourceTypes();
+X
+Xstatic Bool XvScreens[MAXSCREENS];
+X
+X
+X/*
+X** XvExtensionInit
+X**
+X**
+X*/
+X
+Xvoid 
+XXvExtensionInit()
+X{
+X  int ii;
+X  register ExtensionEntry *extEntry;
+X
+X  /* LOOK TO SEE IF ANY SCREENS WERE INITIALIZED; IF NOT THEN
+X     INIT GLOBAL VARIABLES SO THE EXTENSION CAN FUNCTION */
+X
+X  if (XvScreenGeneration != serverGeneration)
+X    {
+X      if (!CreateResourceTypes())
+X	{
+X	  ErrorF("XvExtensionInit: Unable to allocate resource types\n");
+X	  return;
+X	}
+X      XvScreenIndex = AllocateScreenPrivateIndex ();
+X      if (XvScreenIndex < 0)
+X	{
+X	  ErrorF("XvExtensionInit: Unable to allocate screen private index\n");
+X	  return;
+X	}
+X
+X      XvScreenGeneration = serverGeneration;
+X    }
+X
+X  for (ii=0; ii<screenInfo.numScreens; ii++)
+X    if (!XvScreens[ii]) 
+X      screenInfo.screens[ii]->devPrivates[XvScreenIndex].ptr = (pointer)NULL;
+X
+X#ifdef nomore
+X
+X  /* ITS A LITTLE HARD TO UNDERSTAND WHAT THIS DOES, BUT ESSENTIALLY I WANT 
+X     ALL SCREEN THAT HAVE ADAPTORS TO HAVE A VALID DEVPRIVATE POINTER AND ANY 
+X     THAT DON'T TO HAVE NULL DEVPRIVATE POINTERS; THIS WAY I DON'T HAVE TO 
+X     CALL A SPECIAL XV SCREEN INITIALIZE FOR SCREENS WITHOUT ADAPTORS; THERE
+X     SHOULD BE AN EASIER WAY TO DO THIS, BUT main.c DOESN'T INITIALIZE THE 
+X     DEVPRIVATE POINTERS FOR A NEWLY CREATED SCREEN, NOR ARE THEY INITIALIZED
+X     WHEN A NEW SCREEN PRIVATE INDEX IS ALLOCATED */
+X
+X  for (ii=lastScreenWithAdaptors; ii<screenInfo.numScreens; ii++)
+X    screenInfo.screens[ii]->devPrivates[XvScreenIndex].ptr = (pointer)NULL;
+X  lastScreenWithAdaptors = screenInfo.numScreens;
+X
+X#endif
+X
+X  if (XvExtensionGeneration != serverGeneration)
+X    {
+X      XvExtensionGeneration = serverGeneration;
+X
+X      extEntry = AddExtension(XvName, XvNumEvents, XvNumErrors, 
+X			      ProcXvDispatch, SProcXvDispatch,
+X			      XvResetProc, StandardMinorOpcode);
+X      if (!extEntry) 
+X	{
+X	  FatalError("XvExtensionInit: AddExtensions failed\n");
+X	}
+X
+X      XvReqCode = extEntry->base;
+X      XvEventBase = extEntry->eventBase;
+X      XvErrorBase = extEntry->errorBase;
+X
+X      EventSwapVector[XvEventBase+XvVideoNotify] = 
+X	WriteSwappedVideoNotifyEvent;
+X      EventSwapVector[XvEventBase+XvPortNotify] = 
+X	WriteSwappedPortNotifyEvent;
+X
+X      (void)MakeAtom(XvName, strlen(XvName), xTrue);
+X
+X    }
+X}
+X
+Xstatic Bool
+XCreateResourceTypes()
+X
+X{
+X  
+X  if (XvResourceGeneration == serverGeneration) return TRUE;
+X
+X  XvResourceGeneration = serverGeneration;
+X
+X  if (!(XvRTPort = CreateNewResourceType(XvdiDestroyPort)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate port resource.\n");
+X      return FALSE;
+X    }
+X  
+X  if (!(XvRTGrab = CreateNewResourceType(XvdiDestroyGrab)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate grab resource.\n");
+X      return FALSE;
+X    }
+X  
+X  if (!(XvRTEncoding = CreateNewResourceType(XvdiDestroyEncoding)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate encoding resource.\n");
+X      return FALSE;
+X    }
+X  
+X  if (!(XvRTVideoNotify = CreateNewResourceType(XvdiDestroyVideoNotify)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate video notify resource.\n");
+X      return FALSE;
+X    }
+X  
+X  if (!(XvRTVideoNotifyList = CreateNewResourceType(XvdiDestroyVideoNotifyList)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate video notify list resource.\n");
+X      return FALSE;
+X    }
+X
+X  if (!(XvRTPortNotify = CreateNewResourceType(XvdiDestroyPortNotify)))
+X    {
+X      ErrorF("CreateResourceTypes: failed to allocate port notify resource.\n");
+X      return FALSE;
+X    }
+X
+X  return TRUE;
+X
+X}
+X
+Xint
+XXvScreenInit(pScreen)
+XScreenPtr pScreen;
+X
+X{
+X
+X  int ii;
+X  XvScreenPtr pxvs;
+X
+X  if (XvScreenGeneration != serverGeneration)
+X    {
+X      if (!CreateResourceTypes())
+X	{
+X	  ErrorF("XvScreenInit: Unable to allocate resource types\n");
+X	  return BadAlloc;
+X	}
+X      XvScreenIndex = AllocateScreenPrivateIndex ();
+X      if (XvScreenIndex < 0)
+X	{
+X	  ErrorF("XvScreenInit: Unable to allocate screen private index\n");
+X	  return BadAlloc;
+X	}
+X      XvScreenGeneration = serverGeneration; 
+X    }
+X
+X  XvScreens[pScreen->myNum] = TRUE;
+X
+X#ifdef nomore
+X
+X  /* ITS A LITTLE HARD TO UNDERSTAND WHAT THIS DOES, BUT ESSENTIALLY I WANT 
+X     ALL SCREEN THAT HAVE ADAPTORS TO HAVE A VALID DEVPRIVATE POINTER AND ANY 
+X     THAT DON'T TO HAVE NULL DEVPRIVATE POINTERS; THIS WAY I DON'T HAVE TO 
+X     CALL A SPECIAL XV SCREEN INITIALIZE FOR SCREENS WITHOUT ADAPTORS; THERE
+X     SHOULD BE AN EASIER WAY TO DO THIS, BUT main.c DOESN'T INITIALIZE THE 
+X     DEVPRIVATE POINTERS FOR A NEWLY CREATED SCREEN, NOR ARE THEY INITIALIZED
+X     WHEN A NEW SCREEN PRIVATE INDEX IS ALLOCATED */
+X
+X  for (ii=lastScreenWithAdaptors; ii<screenInfo.numScreens; ii++)
+X    screenInfo.screens[ii]->devPrivates[XvScreenIndex].ptr = (pointer)NULL;
+X  lastScreenWithAdaptors = screenInfo.numScreens;
+X
+X  if (pScreen->devPrivates[XvScreenIndex].ptr)
+X    {
+X      ErrorF("XvScreenInit: screen devPrivates ptr non-NULL before init\n");
+X    }
+X
+X#endif
+X
+X  /* ALLOCATE SCREEN PRIVATE RECORD */
+X  
+X  pxvs = (XvScreenPtr) xalloc (sizeof (XvScreenRec));
+X  if (!pxvs)
+X    {
+X      ErrorF("XvScreenInit: Unable to allocate screen private structure\n");
+X      return BadAlloc;
+X    }
+X  
+X  pxvs->DestroyPixmap = pScreen->DestroyPixmap;
+X  pxvs->DestroyWindow = pScreen->DestroyWindow;
+X  pxvs->CloseScreen = pScreen->CloseScreen;
+X  
+X  pScreen->DestroyPixmap = XvDestroyPixmap;
+X  pScreen->DestroyWindow = XvDestroyWindow;
+X  pScreen->CloseScreen = XvCloseScreen;
+X
+X  pScreen->devPrivates[XvScreenIndex].ptr = (pointer)pxvs;
+X
+X  return Success;
+X
+X}
+X
+XBool
+XXvCloseScreen(ii, pScreen)
+Xint ii;
+XScreenPtr pScreen;
+X
+X{
+X
+X  XvScreenPtr pxvs;
+X
+X  pxvs = (XvScreenPtr) pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  pScreen->DestroyPixmap = pxvs->DestroyPixmap;
+X  pScreen->DestroyWindow = pxvs->DestroyWindow;
+X  pScreen->CloseScreen = pxvs->CloseScreen;
+X
+X  (* pxvs->ddCloseScreen)(ii, pScreen);
+X
+X  xfree(pxvs);
+X
+X  pScreen->devPrivates[XvScreenIndex].ptr = (pointer)NULL;
+X
+X  return (*pScreen->CloseScreen)(ii, pScreen);
+X
+X}
+X
+Xvoid
+XXvResetProc()
+X{
+X  int ii;
+X
+X  for (ii=0; ii<screenInfo.numScreens; ii++)
+X    XvScreens[ii] = FALSE;
+X
+X}
+X
+XBool
+XXvDestroyPixmap(pPix)
+X
+XPixmapPtr pPix;
+X
+X{
+X  Bool status;
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvAdaptorPtr pa;
+X  int na;
+X  XvPortPtr pp;
+X  int np;
+X
+X  pScreen = pPix->drawable.pScreen;
+X
+X  SCREEN_PROLOGUE(pScreen, DestroyPixmap);
+X
+X  pxvs = (XvScreenPtr)pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  /* CHECK TO SEE IF THIS PORT IS IN USE */
+X
+X  pa = pxvs->pAdaptors;
+X  na = pxvs->nAdaptors;
+X  while (na--)
+X    {
+X      np = pa->nPorts;
+X      pp = pa->pPorts;
+X
+X      while (np--)
+X	{
+X	  if (pp->pDraw == (DrawablePtr)pPix)
+X	    {
+X	      XvdiSendVideoNotify(pp, pp->pDraw, XvPreempted);
+X
+X	      (void)(* pp->pAdaptor->ddStopVideo)((ClientPtr)NULL, pp, 
+X						  pp->pDraw);
+X
+X	      pp->pDraw = (DrawablePtr)NULL;
+X	      pp->client = (ClientPtr)NULL;
+X	      pp->time = currentTime;
+X	    }
+X	  pp++;
+X	}
+X      pa++;
+X    }
+X  
+X  status = (* pScreen->DestroyPixmap)(pPix);
+X
+X  SCREEN_EPILOGUE(pScreen, DestroyPixmap, XvDestroyPixmap);
+X
+X  return status;
+X
+X}
+X
+XBool
+XXvDestroyWindow(pWin)
+X
+XWindowPtr pWin;
+X
+X{
+X  Bool status;
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvAdaptorPtr pa;
+X  int na;
+X  XvPortPtr pp;
+X  int np;
+X
+X  pScreen = pWin->drawable.pScreen;
+X
+X  SCREEN_PROLOGUE(pScreen, DestroyWindow);
+X
+X  pxvs = (XvScreenPtr)pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  /* CHECK TO SEE IF THIS PORT IS IN USE */
+X
+X  pa = pxvs->pAdaptors;
+X  na = pxvs->nAdaptors;
+X  while (na--)
+X    {
+X      np = pa->nPorts;
+X      pp = pa->pPorts;
+X
+X      while (np--)
+X	{
+X	  if (pp->pDraw == (DrawablePtr)pWin)
+X	    {
+X	      XvdiSendVideoNotify(pp, pp->pDraw, XvPreempted);
+X
+X	      (void)(* pp->pAdaptor->ddStopVideo)((ClientPtr)NULL, pp, 
+X						  pp->pDraw);
+X
+X	      pp->pDraw = (DrawablePtr)NULL;
+X	      pp->client = (ClientPtr)NULL;
+X	      pp->time = currentTime;
+X	    }
+X	  pp++;
+X	}
+X      pa++;
+X    }
+X  
+X  status = (* pScreen->DestroyWindow)(pWin);
+X
+X  SCREEN_EPILOGUE(pScreen, DestroyWindow, XvDestroyWindow);
+X
+X  return status;
+X
+X}
+X
+X/* The XvdiVideoStopped procedure is a hook for the device dependent layer.
+X   It provides a way for the dd layer to inform the di layer that video has
+X   stopped in a port for reasons that the di layer had no control over; note
+X   that it doesn't call back into the dd layer */
+X
+Xint
+XXvdiVideoStopped(pPort, reason)
+X
+XXvPortPtr pPort;
+Xint reason;
+X
+X{
+X  
+X  /* IF PORT ISN'T ACTIVE THEN WE'RE DONE */
+X
+X  if (!pPort->pDraw) return Success;
+X
+X  XvdiSendVideoNotify(pPort, pPort->pDraw, reason);
+X
+X  pPort->pDraw = (DrawablePtr)NULL;
+X  pPort->client = (ClientPtr)NULL;
+X  pPort->time = currentTime;
+X
+X  return Success;
+X
+X}
+X
+Xint 
+XXvdiDestroyPort(pPort)
+XXvPortPtr pPort;
+X{
+X  return (* pPort->pAdaptor->ddFreePort)(pPort);
+X}
+X
+Xint
+XXvdiDestroyGrab(pGrab)
+XXvGrabPtr pGrab;
+X{
+X  pGrab->client = (ClientPtr)NULL;
+X}
+X
+Xint
+XXvdiDestroyVideoNotify(pn)
+XXvVideoNotifyPtr pn;
+X
+X{
+X  /* JUST CLEAR OUT THE client POINTER FIELD */
+X
+X  pn->client = (ClientPtr)NULL;
+X}
+X
+Xint
+XXvdiDestroyPortNotify(pn)
+XXvPortNotifyPtr pn;
+X
+X{
+X  /* JUST CLEAR OUT THE client POINTER FIELD */
+X
+X  pn->client = (ClientPtr)NULL;
+X}
+X
+Xint
+XXvdiDestroyVideoNotifyList(pn)
+XXvVideoNotifyPtr pn;
+X
+X{
+X  XvVideoNotifyPtr npn,cpn;
+X
+X  /* ACTUALLY DESTROY THE NOTITY LIST */
+X
+X  cpn = pn;
+X
+X  while (cpn)
+X    {
+X      npn = cpn->next;
+X      if (cpn->client) FreeResource(cpn->id, XvRTVideoNotify);
+X      xfree(cpn);
+X      cpn = npn;
+X    }
+X}
+X
+Xint
+XXvdiDestroyEncoding()
+X{
+X}
+X
+Xint
+XXvdiSendVideoNotify(pPort, pDraw, reason)
+X
+XXvPortPtr pPort;
+XDrawablePtr pDraw;
+Xint reason;
+X
+X{
+X  xvEvent event;
+X  XvVideoNotifyPtr pn;
+X
+X  pn = (XvVideoNotifyPtr)LookupIDByType(pDraw->id, XvRTVideoNotifyList);
+X
+X  while (pn) 
+X    {
+X      if (pn->client)
+X	{
+X	  event.u.u.type = XvEventBase + XvVideoNotify;
+X	  event.u.u.sequenceNumber = pn->client->sequence;
+X	  event.u.videoNotify.time = currentTime.milliseconds;
+X	  event.u.videoNotify.drawable = pDraw->id;
+X	  event.u.videoNotify.port = pPort->id;
+X	  event.u.videoNotify.reason = reason;
+X	  (void) TryClientEvents(pn->client, &event, 1, NoEventMask,
+X				 NoEventMask, NullGrab);
+X	}
+X      pn = pn->next;
+X    }
+X
+X  return Success;
+X
+X}
+X
+X
+Xint
+XXvdiSendPortNotify(pPort, attribute, value)
+X
+XXvPortPtr pPort;
+XAtom attribute;
+XINT32 value;
+X
+X{
+X  xvEvent event;
+X  XvPortNotifyPtr pn;
+X
+X  pn = pPort->pNotify;
+X
+X  while (pn) 
+X    {
+X      if (pn->client)
+X	{
+X	  event.u.u.type = XvEventBase + XvPortNotify;
+X	  event.u.u.sequenceNumber = pn->client->sequence;
+X	  event.u.portNotify.time = currentTime.milliseconds;
+X	  event.u.portNotify.port = pPort->id;
+X	  event.u.portNotify.attribute = attribute;
+X	  event.u.portNotify.value = value;
+X	  (void) TryClientEvents(pn->client, &event, 1, NoEventMask,
+X				 NoEventMask, NullGrab);
+X	}
+X      pn = pn->next;
+X    }
+X
+X  return Success;
+X
+X}
+X
+Xint
+XXvdiPutVideo(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	     drw_x, drw_y, drw_w, drw_h)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  int status, id;
+X  DrawablePtr pOldDraw;
+X
+X  /* UPDATE TIME VARIABLES FOR USE IN EVENTS */
+X
+X  UpdateCurrentTime();
+X
+X  /* CHECK FOR GRAB; IF THIS CLIENT DOESN'T HAVE THE PORT GRABBED THEN
+X     INFORM CLIENT OF ITS FAILURE */
+X
+X  if (pPort->grab.client && (pPort->grab.client != client))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvBusy);
+X      return Success;
+X    }
+X
+X  /* CHECK TO SEE IF PORT IS IN USE; IF SO THEN WE MUST DELIVER INTERRUPTED
+X     EVENTS TO ANY CLIENTS WHO WANT THEM */
+X
+X  pOldDraw = pPort->pDraw;
+X  if ((pOldDraw) && (pOldDraw != pDraw))
+X    {
+X      XvdiSendVideoNotify(pPort, pPort->pDraw, XvPreempted);
+X    }
+X
+X  status = (* pPort->pAdaptor->ddPutVideo)(client, pDraw, pPort, pGC, 
+X					   vid_x, vid_y, vid_w, vid_h, 
+X					   drw_x, drw_y, drw_w, drw_h);
+X
+X  if ((pPort->pDraw) && (pOldDraw != pDraw))
+X    {
+X      pPort->client = client;
+X      XvdiSendVideoNotify(pPort, pPort->pDraw, XvStarted);
+X    }
+X
+X  pPort->time = currentTime;
+X
+X  return (Success);
+X
+X}
+X
+Xint
+XXvdiPutStill(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	     drw_x, drw_y, drw_w, drw_h)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  int status, id;
+X
+X  /* UPDATE TIME VARIABLES FOR USE IN EVENTS */
+X
+X  UpdateCurrentTime();
+X
+X  /* CHECK FOR GRAB; IF THIS CLIENT DOESN'T HAVE THE PORT GRABBED THEN
+X     INFORM CLIENT OF ITS FAILURE */
+X
+X  if (pPort->grab.client && (pPort->grab.client != client))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvBusy);
+X      return Success;
+X    }
+X
+X  pPort->time = currentTime;
+X
+X  status = (* pPort->pAdaptor->ddPutStill)(client, pDraw, pPort, pGC, 
+X					   vid_x, vid_y, vid_w, vid_h, 
+X					   drw_x, drw_y, drw_w, drw_h);
+X
+X  return status;
+X
+X}
+Xint
+XXvdiGetVideo(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	     drw_x, drw_y, drw_w, drw_h)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  int status, id;
+X  DrawablePtr pOldDraw;
+X
+X  /* UPDATE TIME VARIABLES FOR USE IN EVENTS */
+X
+X  UpdateCurrentTime();
+X
+X  /* CHECK FOR GRAB; IF THIS CLIENT DOESN'T HAVE THE PORT GRABBED THEN
+X     INFORM CLIENT OF ITS FAILURE */
+X
+X  if (pPort->grab.client && (pPort->grab.client != client))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvBusy);
+X      return Success;
+X    }
+X
+X  /* CHECK TO SEE IF PORT IS IN USE; IF SO THEN WE MUST DELIVER INTERRUPTED
+X     EVENTS TO ANY CLIENTS WHO WANT THEM */
+X
+X  pOldDraw = pPort->pDraw;
+X  if ((pOldDraw) && (pOldDraw != pDraw))
+X    {
+X      XvdiSendVideoNotify(pPort, pPort->pDraw, XvPreempted);
+X    }
+X
+X  status = (* pPort->pAdaptor->ddGetVideo)(client, pDraw, pPort, pGC,
+X					   vid_x, vid_y, vid_w, vid_h, 
+X					   drw_x, drw_y, drw_w, drw_h);
+X
+X  if ((pPort->pDraw) && (pOldDraw != pDraw))
+X    {
+X      pPort->client = client;
+X      XvdiSendVideoNotify(pPort, pPort->pDraw, XvStarted);
+X    }
+X
+X  pPort->time = currentTime;
+X
+X  return (Success);
+X
+X}
+X
+Xint
+XXvdiGetStill(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	     drw_x, drw_y, drw_w, drw_h)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  int status, id;
+X
+X  /* UPDATE TIME VARIABLES FOR USE IN EVENTS */
+X
+X  UpdateCurrentTime();
+X
+X  /* CHECK FOR GRAB; IF THIS CLIENT DOESN'T HAVE THE PORT GRABBED THEN
+X     INFORM CLIENT OF ITS FAILURE */
+X
+X  if (pPort->grab.client && (pPort->grab.client != client))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvBusy);
+X      return Success;
+X    }
+X
+X  status = (* pPort->pAdaptor->ddGetStill)(client, pDraw, pPort, pGC, 
+X					   vid_x, vid_y, vid_w, vid_h, 
+X					   drw_x, drw_y, drw_w, drw_h);
+X
+X  pPort->time = currentTime;
+X
+X  return status;
+X
+X}
+X
+Xint
+XXvdiGrabPort(client, pPort, ctime, p_result)
+X
+XClientPtr client;
+XXvPortPtr pPort;
+XTime ctime;
+Xint *p_result;
+X
+X{
+X  unsigned long id;
+X  TimeStamp time;
+X
+X  UpdateCurrentTime();
+X  time = ClientTimeToServerTime(ctime);
+X
+X  if (pPort->grab.client && (client != pPort->grab.client))
+X    {
+X      *p_result = XvAlreadyGrabbed;
+X      return Success;
+X    }
+X
+X  if ((CompareTimeStamps(time, currentTime) == LATER) ||
+X      (CompareTimeStamps(time, pPort->time) == EARLIER))
+X    {
+X      *p_result = XvInvalidTime;
+X      return Success;
+X    }
+X
+X  if (client == pPort->grab.client)
+X    {
+X      *p_result = Success;
+X      return Success;
+X    }
+X
+X  id = FakeClientID(client->index);
+X
+X  if (!AddResource(id, XvRTGrab, &pPort->grab))
+X    {
+X      return BadAlloc;
+X    }
+X
+X  /* IF THERE IS ACTIVE VIDEO THEN STOP IT */
+X
+X  if ((pPort->pDraw) && (client != pPort->client))
+X    {
+X      XVCALL(diStopVideo)((ClientPtr)NULL, pPort, pPort->pDraw);
+X    }
+X
+X  pPort->grab.client = client;
+X  pPort->grab.id = id;
+X
+X  pPort->time = currentTime;
+X
+X  *p_result = Success;
+X
+X  return Success;
+X
+X}
+X
+Xint
+XXvdiUngrabPort(client, pPort, ctime)
+X
+XClientPtr client;
+XXvPortPtr pPort;
+XTime ctime;
+X
+X{
+X  TimeStamp time;
+X
+X  UpdateCurrentTime();
+X  time = ClientTimeToServerTime(ctime);
+X
+X  if ((!pPort->grab.client) || (client != pPort->grab.client))
+X    {
+X      return Success;
+X    }
+X
+X  if ((CompareTimeStamps(time, currentTime) == LATER) ||
+X      (CompareTimeStamps(time, pPort->time) == EARLIER))
+X    {
+X      return Success;
+X    }
+X
+X  /* FREE THE GRAB RESOURCE; AND SET THE GRAB CLIENT TO NULL */
+X
+X  FreeResource(pPort->grab.id, XvRTGrab);
+X  pPort->grab.client = (ClientPtr)NULL;
+X
+X  pPort->time = currentTime;
+X
+X  return Success;
+X
+X}
+X
+X
+Xint
+XXvdiSelectVideoNotify(client, pDraw, onoff)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XBOOL onoff;
+X
+X{
+X  register int ii;
+X  int id;
+X  XvVideoNotifyPtr pn,tpn,fpn;
+X
+X  /* FIND VideoNotify LIST */
+X
+X  pn = (XvVideoNotifyPtr)LookupIDByType(pDraw->id, XvRTVideoNotifyList);
+X
+X  /* IF ONE DONES'T EXIST AND NO MASK, THEN JUST RETURN */
+X
+X  if (!onoff && !pn) return Success;
+X
+X  /* IF ONE DOESN'T EXIST CREATE IT AND ADD A RESOURCE SO THAT THE LIST
+X     WILL BE DELETED WHEN THE DRAWABLE IS DESTROYED */
+X
+X  if (!pn) 
+X    {
+X      if (!(tpn = (XvVideoNotifyPtr)xalloc(sizeof(XvVideoNotifyRec))))
+X	return BadAlloc;
+X      tpn->next = (XvVideoNotifyPtr)NULL;
+X      if (!AddResource(pDraw->id, XvRTVideoNotifyList, tpn))
+X	{
+X	  xfree(tpn);
+X	  return BadAlloc;
+X	}
+X    }
+X  else
+X    {
+X      /* LOOK TO SEE IF ENTRY ALREADY EXISTS */
+X
+X      fpn = (XvVideoNotifyPtr)NULL;
+X      tpn = pn;
+X      while (tpn)
+X	{
+X	  if (tpn->client == client) 
+X	    {
+X	      if (!onoff) tpn->client = (ClientPtr)NULL;
+X	      return Success;
+X	    }
+X	  if (!tpn->client) fpn = tpn; /* TAKE NOTE OF FREE ENTRY */
+X	  tpn = tpn->next;
+X	}
+X
+X      /* IF TUNNING OFF, THEN JUST RETURN */
+X
+X      if (!onoff) return Success;
+X
+X      /* IF ONE ISN'T FOUND THEN ALLOCATE ONE AND LINK IT INTO THE LIST */
+X
+X      if (fpn)
+X	{
+X	  tpn = fpn;
+X	}
+X      else
+X	{
+X	  if (!(tpn = (XvVideoNotifyPtr)xalloc(sizeof(XvVideoNotifyRec))))
+X	    return BadAlloc;
+X	  tpn->next = pn->next;
+X	  pn->next = tpn;
+X	}
+X    }
+X
+X  /* INIT CLIENT PTR IN CASE WE CAN'T ADD RESOURCE */
+X  /* ADD RESOURCE SO THAT IF CLIENT EXITS THE CLIENT PTR WILL BE CLEARED */
+X
+X  tpn->client = (ClientPtr)NULL;
+X  tpn->id = FakeClientID(client->index);
+X  AddResource(tpn->id, XvRTVideoNotify, tpn);
+X
+X  tpn->client = client;
+X  return Success;
+X
+X}
+X
+Xint
+XXvdiSelectPortNotify(client, pPort, onoff)
+X
+XClientPtr client;
+XXvPortPtr pPort;
+XBOOL onoff;
+X
+X{
+X  register int ii;
+X  int id;
+X  XvPortNotifyPtr pn,tpn;
+X
+X  /* SEE IF CLIENT IS ALREADY IN LIST */
+X
+X  tpn = (XvPortNotifyPtr)NULL;
+X  pn = pPort->pNotify;
+X  while (pn)
+X    {
+X      if (!pn->client) tpn = pn; /* TAKE NOTE OF FREE ENTRY */
+X      if (pn->client == client) break;
+X      pn = pn->next;
+X    }
+X
+X  /* IS THE CLIENT ALREADY ON THE LIST? */
+X
+X  if (pn)
+X    {
+X      /* REMOVE IT? */
+X
+X      if (!onoff)
+X	{
+X	  pn->client = (ClientPtr)NULL;
+X	  FreeResource(pn->id, XvRTPortNotify);
+X	}
+X
+X      return Success;
+X    }
+X
+X  /* DIDN'T FIND IT; SO REUSE LIST ELEMENT IF ONE IS FREE OTHERWISE 
+X     CREATE A NEW ONE AND ADD IT TO THE BEGINNING OF THE LIST */
+X
+X  if (!tpn)
+X    {
+X      if (!(tpn = (XvPortNotifyPtr)xalloc(sizeof(XvPortNotifyRec))))
+X	return BadAlloc;
+X      tpn->next = pPort->pNotify;
+X      pPort->pNotify = tpn;
+X    }
+X
+X  tpn->client = client;
+X  tpn->id = FakeClientID(client->index);
+X  AddResource(tpn->id, XvRTPortNotify, tpn);
+X
+X  return Success;
+X
+X}
+X
+Xint
+XXvdiStopVideo(client, pPort, pDraw)
+X
+XClientPtr client;
+XXvPortPtr pPort;
+XDrawablePtr pDraw;
+X
+X{
+X  int status;
+X
+X  /* IF PORT ISN'T ACTIVE THEN WE'RE DONE */
+X
+X  if (!pPort->pDraw || (pPort->pDraw != pDraw)) 
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvStopped);
+X      return Success;
+X    }
+X
+X  /* CHECK FOR GRAB; IF THIS CLIENT DOESN'T HAVE THE PORT GRABBED THEN
+X     INFORM CLIENT OF ITS FAILURE */
+X
+X  if ((client) && (pPort->grab.client) && (pPort->grab.client != client))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvBusy);
+X      return Success;
+X    }
+X
+X  XvdiSendVideoNotify(pPort, pDraw, XvStopped);
+X
+X  status = (* pPort->pAdaptor->ddStopVideo)(client, pPort, pDraw);
+X
+X  pPort->pDraw = (DrawablePtr)NULL;
+X  pPort->client = (ClientPtr)client;
+X  pPort->time = currentTime;
+X
+X  return status;
+X
+X}
+X
+Xint
+XXvdiPreemptVideo(client, pPort, pDraw)
+X
+XXvPortPtr pPort;
+XDrawablePtr pDraw;
+X
+X{
+X  int status;
+X
+X  /* IF PORT ISN'T ACTIVE THEN WE'RE DONE */
+X
+X  if (!pPort->pDraw || (pPort->pDraw != pDraw)) return Success;
+X
+X  XvdiSendVideoNotify(pPort, pPort->pDraw, XvPreempted);
+X
+X  status = (* pPort->pAdaptor->ddStopVideo)(client, pPort, pPort->pDraw);
+X
+X  pPort->pDraw = (DrawablePtr)NULL;
+X  pPort->client = (ClientPtr)client;
+X  pPort->time = currentTime;
+X
+X  return status;
+X
+X}
+X
+XXvdiMatchPort(pPort, pDraw)
+XXvPortPtr pPort;
+XDrawablePtr pDraw;
+X
+X{
+X
+X  XvAdaptorPtr pa;
+X  XvFormatPtr pf;
+X  int nf;
+X
+X  pa = pPort->pAdaptor;
+X
+X  if (pa->pScreen != pDraw->pScreen) return BadMatch;
+X
+X  nf = pa->nFormats;
+X  pf = pa->pFormats;
+X
+X  while (nf--)
+X    {
+X      if ((pf->depth == pDraw->depth) &&
+X	  ((pDraw->type == DRAWABLE_PIXMAP) || 
+X	   (wVisual(((WindowPtr)pDraw)) == pf->visual)))
+X	return Success;
+X      pf++;
+X    }
+X
+X  return BadMatch;
+X
+X}
+X
+Xint
+XXvdiSetPortAttribute(client, pPort, attribute, value)
+XClientPtr client;
+XXvPortPtr pPort;
+XAtom attribute;
+XINT32 value;
+X
+X{
+X
+X  return 
+X    (* pPort->pAdaptor->ddSetPortAttribute)(client, pPort, attribute, value);
+X
+X}
+X
+Xint
+XXvdiGetPortAttribute(client, pPort, attribute, p_value)
+XClientPtr client;
+XXvPortPtr pPort;
+XAtom attribute;
+XINT32 *p_value;
+X
+X{
+X
+X  return 
+X    (* pPort->pAdaptor->ddGetPortAttribute)(client, pPort, attribute, p_value);
+X
+X}
+X
+Xstatic void
+XWriteSwappedVideoNotifyEvent(from, to)
+X
+XxvEvent *from, *to;
+X
+X{
+X
+X  to->u.u.type = from->u.u.type;
+X  to->u.u.detail = from->u.u.detail;
+X  cpswaps(from->u.videoNotify.sequenceNumber, 
+X	  to->u.videoNotify.sequenceNumber);
+X  cpswapl(from->u.videoNotify.time, to->u.videoNotify.time);
+X  cpswapl(from->u.videoNotify.drawable, to->u.videoNotify.drawable);
+X  cpswapl(from->u.videoNotify.port, to->u.videoNotify.port);
+X
+X}
+X
+Xstatic void
+XWriteSwappedPortNotifyEvent(from, to)
+X
+XxvEvent *from, *to;
+X
+X{
+X
+X  to->u.u.type = from->u.u.type;
+X  to->u.u.detail = from->u.u.detail;
+X  cpswaps(from->u.portNotify.sequenceNumber, to->u.portNotify.sequenceNumber);
+X  cpswapl(from->u.portNotify.time, to->u.portNotify.time);
+X  cpswapl(from->u.portNotify.port, to->u.portNotify.port);
+X  cpswapl(from->u.portNotify.attribute, to->u.portNotify.attribute);
+X  cpswapl(from->u.portNotify.value, to->u.portNotify.value);
+X
+X}
+END_OF_FILE
+if test 25544 -ne `wc -c <'extensions/xv/server/xvmain.c'`; then
+    echo shar: \"'extensions/xv/server/xvmain.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/xvmain.c'
+fi
+if test -f 'server/ddx/cfb32/cfbfillsp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbfillsp.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbfillsp.c'\" \(25673 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbfillsp.c' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/* $XConsortium: cfbfillsp.c,v 5.17 91/07/18 23:31:04 keith Exp $ */
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X#include "gcstruct.h"
+X#include "window.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X
+X#include "mergerop.h"
+X
+X#if PPW == 4
+X#include "cfb8bit.h"
+X#endif
+X
+Xextern void mfbInvertSolidFS(), mfbBlackSolidFS(), mfbWhiteSolidFS();
+X
+X/* scanline filling for color frame buffer
+X   written by drewry, oct 1986 modified by smarks
+X   changes for compatibility with Little-endian systems Jul 1987; MIT:yba.
+X
+X   these routines all clip.  they assume that anything that has called
+Xthem has already translated the points (i.e. pGC->miTranslate is
+Xnon-zero, which is howit gets set in cfbCreateGC().)
+X
+X   the number of new scnalines created by clipping ==
+XMaxRectsPerBand * nSpans.
+X
+X    FillSolid is overloaded to be used for OpaqueStipple as well,
+Xif fgPixel == bgPixel.  
+XNote that for solids, PrivGC.rop == PrivGC.ropOpStip
+X
+X
+X    FillTiled is overloaded to be used for OpaqueStipple, if
+XfgPixel != bgPixel.  based on the fill style, it uses
+X{RotatedTile, gc.alu} or {RotatedStipple, PrivGC.ropOpStip}
+X*/
+X
+X#ifdef	notdef
+X#include	<stdio.h>
+Xstatic
+Xdumpspans(n, ppt, pwidth)
+X    int	n;
+X    DDXPointPtr ppt;
+X    int *pwidth;
+X{
+X    fprintf(stderr,"%d spans\n", n);
+X    while (n--) {
+X	fprintf(stderr, "[%d,%d] %d\n", ppt->x, ppt->y, *pwidth);
+X	ppt++;
+X	pwidth++;
+X    }
+X    fprintf(stderr, "\n");
+X}
+X#endif
+X
+X/* Fill spans with tiles that aren't 32 bits wide */
+Xvoid
+XcfbUnnaturalTileFS(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+XDrawablePtr pDrawable;
+XGC		*pGC;
+Xint		nInit;		/* number of spans to fill */
+XDDXPointPtr pptInit;		/* pointer to list of start points */
+Xint *pwidthInit;		/* pointer to list of n widths */
+Xint fSorted;
+X{
+X    int n;			/* number of spans to fill */
+X    register DDXPointPtr ppt;	/* pointer to list of start points */
+X    register int *pwidth;	/* pointer to list of n widths */
+X    void    (*fill)();
+X    extern void	cfbFillSpanTileOddCopy ();
+X    extern void	cfbFillSpanTileOddGeneral ();
+X    extern void	cfbFillSpanTile32sCopy ();
+X    extern void cfbFillSpanTile32sGeneral ();
+X    int	xrot, yrot;
+X
+X    if (!(pGC->planemask))
+X	return;
+X
+X    if (pGC->tile.pixmap->drawable.width & PIM)
+X    {
+X    	fill = cfbFillSpanTileOddGeneral;
+X    	if ((pGC->planemask & PMSK) == PMSK)
+X    	{
+X	    if (pGC->alu == GXcopy)
+X	    	fill = cfbFillSpanTileOddCopy;
+X    	}
+X    }
+X    else
+X    {
+X	fill = cfbFillSpanTile32sGeneral;
+X    	if ((pGC->planemask & PMSK) == PMSK)
+X    	{
+X	    if (pGC->alu == GXcopy)
+X		fill = cfbFillSpanTile32sCopy;
+X	}
+X    }
+X    n = nInit * miFindMaxBand(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip);
+X    pwidth = (int *)ALLOCATE_LOCAL(n * sizeof(int));
+X    ppt = (DDXPointRec *)ALLOCATE_LOCAL(n * sizeof(DDXPointRec));
+X    if(!ppt || !pwidth)
+X    {
+X	if (ppt) DEALLOCATE_LOCAL(ppt);
+X	if (pwidth) DEALLOCATE_LOCAL(pwidth);
+X	return;
+X    }
+X    n = miClipSpans(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip,
+X		     pptInit, pwidthInit, nInit, 
+X		     ppt, pwidth, fSorted);
+X
+X    xrot = pDrawable->x + pGC->patOrg.x;
+X    yrot = pDrawable->y + pGC->patOrg.y;
+X
+X    (*fill) (pDrawable, n, ppt, pwidth, pGC->tile.pixmap, xrot, yrot, pGC->alu, pGC->planemask);
+X
+X    DEALLOCATE_LOCAL(ppt);
+X    DEALLOCATE_LOCAL(pwidth);
+X}
+X
+X#if PPW == 4
+X
+Xvoid
+XcfbUnnaturalStippleFS(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+XDrawablePtr pDrawable;
+XGC		*pGC;
+Xint		nInit;		/* number of spans to fill */
+XDDXPointPtr pptInit;		/* pointer to list of start points */
+Xint *pwidthInit;		/* pointer to list of n widths */
+Xint fSorted;
+X{
+X				/* next three parameters are post-clip */
+X    int		    n;		/* number of spans to fill */
+X    DDXPointPtr	    ppt;	/* pointer to list of start points */
+X    int		    *pwidth;	/* pointer to list of n widths */
+X    int		    *pwidthFree;/* copies of the pointers to free */
+X    DDXPointPtr	    pptFree;
+X    unsigned long   *pdstBase;	/* pointer to start of bitmap */
+X    int		    nlwDst;	/* width in longwords of bitmap */
+X    register unsigned long    *pdst;	/* pointer to current word in bitmap */
+X    PixmapPtr	    pStipple;	/* pointer to stipple we want to fill with */
+X    int		    nlw;
+X    int		    x, y, w, xrem, xSrc, ySrc;
+X    int		    stwidth, stippleWidth;
+X    int		    stippleHeight;
+X    register unsigned long  bits, inputBits;
+X    register int    partBitsLeft;
+X    int		    nextPartBits;
+X    int		    bitsLeft, bitsWhole;
+X    unsigned long   *srcTemp, *srcStart;
+X    unsigned long   *psrcBase;
+X    unsigned long   startmask, endmask;
+X
+X    if (pGC->fillStyle == FillStippled)
+X	cfb8CheckStipple (pGC->alu, pGC->fgPixel, pGC->planemask);
+X    else
+X	cfb8CheckOpaqueStipple (pGC->alu, pGC->fgPixel, pGC->bgPixel, pGC->planemask);
+X
+X    if (cfb8StippleRRop == GXnoop)
+X	return;
+X
+X    n = nInit * miFindMaxBand(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip);
+X    pwidthFree = (int *)ALLOCATE_LOCAL(n * sizeof(int));
+X    pptFree = (DDXPointRec *)ALLOCATE_LOCAL(n * sizeof(DDXPointRec));
+X    if(!pptFree || !pwidthFree)
+X    {
+X	if (pptFree) DEALLOCATE_LOCAL(pptFree);
+X	if (pwidthFree) DEALLOCATE_LOCAL(pwidthFree);
+X	return;
+X    }
+X
+X    pwidth = pwidthFree;
+X    ppt = pptFree;
+X    n = miClipSpans(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip,
+X		     pptInit, pwidthInit, nInit, 
+X		     ppt, pwidth, fSorted);
+X
+X    /*
+X     *  OK,  so what's going on here?  We have two Drawables:
+X     *
+X     *  The Stipple:
+X     *		Depth = 1
+X     *		Width = stippleWidth
+X     *		Words per scanline = stwidth
+X     *		Pointer to pixels = pStipple->devPrivate.ptr
+X     */
+X
+X    pStipple = pGC->stipple;
+X
+X    stwidth = pStipple->devKind >> 2;
+X    stippleWidth = pStipple->drawable.width;
+X    stippleHeight = pStipple->drawable.height;
+X    psrcBase = (unsigned long *) pStipple->devPrivate.ptr;
+X
+X    /*
+X     *	The Target:
+X     *		Depth = PSZ
+X     *		Width = determined from *pwidth
+X     *		Words per scanline = nlwDst
+X     *		Pointer to pixels = addrlBase
+X     */
+X
+X    cfbGetLongWidthAndPointer (pDrawable, nlwDst, pdstBase)
+X
+X    /* this replaces rotating the stipple. Instead we just adjust the offset
+X     * at which we start grabbing bits from the stipple.
+X     * Ensure that ppt->x - xSrc >= 0 and ppt->y - ySrc >= 0,
+X     * so that iline and xrem always stay within the stipple bounds.
+X     */
+X
+X    modulus (pGC->patOrg.x, stippleWidth, xSrc);
+X    xSrc += pDrawable->x - stippleWidth;
+X    modulus (pGC->patOrg.y, stippleHeight, ySrc);
+X    ySrc += pDrawable->y - stippleHeight;
+X
+X    bitsWhole = stippleWidth;
+X
+X    while (n--)
+X    {
+X	x = ppt->x;
+X	y = ppt->y;
+X	ppt++;
+X	w = *pwidth++;
+X	pdst = pdstBase + y * nlwDst + (x >> PWSH);
+X	y = (y - ySrc) % stippleHeight;
+X	srcStart = psrcBase + y * stwidth;
+X	xrem = ((x & ~3) - xSrc) % stippleWidth;
+X	srcTemp = srcStart + (xrem >> 5);
+X	bitsLeft = stippleWidth - (xrem & ~0x1f);
+X	xrem &= 0x1f;
+X	NextUnnaturalStippleWord
+X	if (partBitsLeft < xrem)
+X	    FatalError ("cfbUnnaturalStippleFS bad partBitsLeft %d xrem %d",
+X			partBitsLeft, xrem);
+X	NextSomeBits (inputBits, xrem);
+X	partBitsLeft -= xrem;
+X	if (((x & PIM) + w) <= PPW)
+X	{
+X	    maskpartialbits (x, w, startmask)
+X	    NextUnnaturalStippleBits
+X	    *pdst = MaskRRopPixels(*pdst,bits,startmask);
+X	}
+X	else
+X	{
+X	    maskbits (x, w, startmask, endmask, nlw);
+X	    nextPartBits = (x & 0x3) + w;
+X	    if (nextPartBits < partBitsLeft)
+X	    {
+X		if (startmask)
+X		{
+X		    MaskRRopFourBits(pdst,GetFourBits(inputBits),startmask)
+X		    pdst++;
+X		    NextFourBits (inputBits);
+X		}
+X		while (nlw--)
+X		{
+X		    RRopFourBits (pdst, GetFourBits (inputBits));
+X		    pdst++;
+X		    NextFourBits (inputBits);
+X		}
+X		if (endmask)
+X		{
+X		    MaskRRopFourBits(pdst,GetFourBits(inputBits),endmask)
+X		}
+X	    }
+X	    else if (bitsLeft != bitsWhole && nextPartBits < partBitsLeft + bitsLeft)
+X	    {
+X	    	NextUnnaturalStippleBitsFast
+X	    	if (startmask)
+X	    	{
+X		    *pdst = MaskRRopPixels(*pdst,bits,startmask);
+X		    pdst++;
+X	    	    NextUnnaturalStippleBitsFast
+X	    	}
+X	    	while (nlw--)
+X	    	{
+X		    *pdst = RRopPixels(*pdst,bits);
+X		    pdst++;
+X	    	    NextUnnaturalStippleBitsFast
+X	    	}
+X	    	if (endmask)
+X		    *pdst = MaskRRopPixels (*pdst,bits,endmask);
+X	    }
+X	    else
+X	    {
+X	    	NextUnnaturalStippleBits
+X	    	if (startmask)
+X	    	{
+X		    *pdst = MaskRRopPixels(*pdst,bits,startmask);
+X		    pdst++;
+X	    	    NextUnnaturalStippleBits
+X	    	}
+X	    	while (nlw--)
+X	    	{
+X		    *pdst = RRopPixels(*pdst,bits);
+X		    pdst++;
+X	    	    NextUnnaturalStippleBits
+X	    	}
+X	    	if (endmask)
+X		    *pdst = MaskRRopPixels(*pdst,bits,endmask);
+X	    }
+X	}
+X    }
+X    DEALLOCATE_LOCAL(pptFree);
+X    DEALLOCATE_LOCAL(pwidthFree);
+X}
+X
+X#else
+X
+X/* Fill spans with stipples that aren't 32 bits wide */
+Xvoid
+XcfbUnnaturalStippleFS(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+XDrawablePtr pDrawable;
+XGC		*pGC;
+Xint		nInit;		/* number of spans to fill */
+XDDXPointPtr pptInit;		/* pointer to list of start points */
+Xint *pwidthInit;		/* pointer to list of n widths */
+Xint fSorted;
+X{
+X				/* next three parameters are post-clip */
+X    int			    n;		/* number of spans to fill */
+X    register DDXPointPtr    ppt;	/* pointer to list of start points */
+X    register unsigned long  *pwidth;	/* pointer to list of n widths */
+X    int			    iline;	/* first line of tile to use */
+X    unsigned long	    *addrlBase;	/* pointer to start of bitmap */
+X    int			    nlwidth;	/* width in longwords of bitmap */
+X    register unsigned long  *pdst;	/* pointer to current word in bitmap */
+X    PixmapPtr		    pStipple;	/* pointer to stipple we want to fill with */
+X    register int	    w;
+X    int			    width,  x, xrem, xSrc, ySrc;
+X    unsigned long	    tmpSrc, tmpDst1, tmpDst2;
+X    int			    stwidth, stippleWidth;
+X    unsigned long	    *psrcS;
+X    int			    rop, stiprop;
+X    int			    stippleHeight;
+X    int			    *pwidthFree;    /* copies of the pointers to free */
+X    DDXPointPtr		    pptFree;
+X    unsigned long	    fgfill, bgfill;
+X
+X    if (!(pGC->planemask))
+X	return;
+X
+X    n = nInit * miFindMaxBand(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip);
+X    pwidthFree = (int *)ALLOCATE_LOCAL(n * sizeof(int));
+X    pptFree = (DDXPointRec *)ALLOCATE_LOCAL(n * sizeof(DDXPointRec));
+X    if(!pptFree || !pwidthFree)
+X    {
+X	if (pptFree) DEALLOCATE_LOCAL(pptFree);
+X	if (pwidthFree) DEALLOCATE_LOCAL(pwidthFree);
+X	return;
+X    }
+X    pwidth = pwidthFree;
+X    ppt = pptFree;
+X    n = miClipSpans(((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip,
+X		     pptInit, pwidthInit, nInit, 
+X		     ppt, pwidth, fSorted);
+X    rop = pGC->alu;
+X    if (pGC->fillStyle == FillStippled) {
+X	switch (rop) {
+X	    case GXand:
+X	    case GXcopy:
+X	    case GXnoop:
+X	    case GXor:
+X		stiprop = rop;
+X		break;
+X	    default:
+X		stiprop = rop;
+X		rop = GXcopy;
+X	}
+X    }
+X    fgfill = PFILL(pGC->fgPixel);
+X    bgfill = PFILL(pGC->bgPixel);
+X
+X    /*
+X     *  OK,  so what's going on here?  We have two Drawables:
+X     *
+X     *  The Stipple:
+X     *		Depth = 1
+X     *		Width = stippleWidth
+X     *		Words per scanline = stwidth
+X     *		Pointer to pixels = pStipple->devPrivate.ptr
+X     */
+X    pStipple = pGC->stipple;
+X
+X    stwidth = pStipple->devKind >> 2;
+X    stippleWidth = pStipple->drawable.width;
+X    stippleHeight = pStipple->drawable.height;
+X
+X    /*
+X     *	The Target:
+X     *		Depth = PSZ
+X     *		Width = determined from *pwidth
+X     *		Words per scanline = nlwidth
+X     *		Pointer to pixels = addrlBase
+X     */
+X
+X    cfbGetLongWidthAndPointer (pDrawable, nlwidth, addrlBase)
+X
+X    /* this replaces rotating the stipple. Instead we just adjust the offset
+X     * at which we start grabbing bits from the stipple.
+X     * Ensure that ppt->x - xSrc >= 0 and ppt->y - ySrc >= 0,
+X     * so that iline and xrem always stay within the stipple bounds.
+X     */
+X    modulus (pGC->patOrg.x, stippleWidth, xSrc);
+X    xSrc += pDrawable->x - stippleWidth;
+X    modulus (pGC->patOrg.y, stippleHeight, ySrc);
+X    ySrc += pDrawable->y - stippleHeight;
+X
+X    while (n--)
+X    {
+X	iline = (ppt->y - ySrc) % stippleHeight;
+X	x = ppt->x;
+X	pdst = addrlBase + (ppt->y * nlwidth);
+X        psrcS = (int *) pStipple->devPrivate.ptr + (iline * stwidth);
+X
+X	if (*pwidth)
+X	{
+X	    width = *pwidth;
+X	    while(width > 0)
+X	    {
+X	        int xtemp, tmpx;
+X		register unsigned int *ptemp;
+X		register int *pdsttmp;
+X		/*
+X		 *  Do a stripe through the stipple & destination w pixels
+X		 *  wide.  w is not more than:
+X		 *	-	the width of the destination
+X		 *	-	the width of the stipple
+X		 *	-	the distance between x and the next word 
+X		 *		boundary in the destination
+X		 *	-	the distance between x and the next word
+X		 *		boundary in the stipple
+X		 */
+X
+X		/* width of dest/stipple */
+X                xrem = (x - xSrc) % stippleWidth;
+X	        w = min((stippleWidth - xrem), width);
+X		/* dist to word bound in dest */
+X		w = min(w, PPW - (x & PIM));
+X		/* dist to word bound in stip */
+X		w = min(w, 32 - (x & 0x1f));
+X
+X	        xtemp = (xrem & 0x1f);
+X	        ptemp = (unsigned int *)(psrcS + (xrem >> 5));
+X		tmpx = x & PIM;
+X		pdsttmp = pdst + (x>>PWSH);
+X		switch ( pGC->fillStyle ) {
+X		    case FillOpaqueStippled:
+X			getstipplepixels(ptemp, xtemp, w, 0, &bgfill, &tmpDst1);
+X			getstipplepixels(ptemp, xtemp, w, 1, &fgfill, &tmpDst2);
+X			break;
+X		    case FillStippled:
+X			/* Fill tmpSrc with the source pixels */
+X			getbits(pdsttmp, tmpx, w, tmpSrc);
+X			getstipplepixels(ptemp, xtemp, w, 0, &tmpSrc, &tmpDst1);
+X			if (rop != stiprop) {
+X			    putbitsrop(fgfill, 0, w, &tmpSrc, pGC->planemask, stiprop);
+X			} else {
+X			    tmpSrc = fgfill;
+X			}
+X			getstipplepixels(ptemp, xtemp, w, 1, &tmpSrc, &tmpDst2);
+X			break;
+X		}
+X		tmpDst2 |= tmpDst1;
+X		putbitsrop(tmpDst2, tmpx, w, pdsttmp, pGC->planemask, rop);
+X		x += w;
+X		width -= w;
+X	    }
+X	}
+X	ppt++;
+X	pwidth++;
+X    }
+X    DEALLOCATE_LOCAL(pptFree);
+X    DEALLOCATE_LOCAL(pwidthFree);
+X}
+X
+X#endif /* PPW == 4 */
+X
+X#if PPW == 4
+X
+Xvoid
+Xcfb8Stipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		nInit;			/* number of spans to fill */
+X    DDXPointPtr pptInit;		/* pointer to list of start points */
+X    int		*pwidthInit;		/* pointer to list of n widths */
+X    int 	fSorted;
+X{
+X				/* next three parameters are post-clip */
+X    int		    n;			/* number of spans to fill */
+X    DDXPointPtr	    ppt;		/* pointer to list of start points */
+X    int		    *pwidth;		/* pointer to list of n widths */
+X    unsigned long   *src;		/* pointer to bits in stipple, if needed */
+X    int		    stippleHeight;	/* height of the stipple */
+X    PixmapPtr	    stipple;
+X
+X    int		    nlwDst;		/* width in longwords of the dest pixmap */
+X    int		    x,y,w;		/* current span */
+X    unsigned long   startmask;
+X    unsigned long   endmask;
+X    register unsigned long *dst;	/* pointer to bits we're writing */
+X    register int    nlw;
+X    unsigned long   *dstTmp;
+X    int		    nlwTmp;
+X
+X    unsigned long   *pbits;		/* pointer to start of pixmap */
+X    register unsigned long  xor;
+X    register unsigned long  mask;
+X    register unsigned long  bits;	/* bits from stipple */
+X    int		    wEnd;
+X
+X    int		    *pwidthFree;	/* copies of the pointers to free */
+X    DDXPointPtr	    pptFree;
+X    cfbPrivGCPtr    devPriv;
+X
+X    devPriv = (cfbPrivGCPtr) pGC->devPrivates[cfbGCPrivateIndex].ptr;
+X    cfb8CheckStipple (pGC->alu, pGC->fgPixel, pGC->planemask);
+X    n = nInit * miFindMaxBand(devPriv->pCompositeClip);
+X    pwidthFree = (int *)ALLOCATE_LOCAL(n * sizeof(int));
+X    pptFree = (DDXPointRec *)ALLOCATE_LOCAL(n * sizeof(DDXPointRec));
+X    if(!pptFree || !pwidthFree)
+X    {
+X	if (pptFree) DEALLOCATE_LOCAL(pptFree);
+X	if (pwidthFree) DEALLOCATE_LOCAL(pwidthFree);
+X	return;
+X    }
+X    pwidth = pwidthFree;
+X    ppt = pptFree;
+X    n = miClipSpans(devPriv->pCompositeClip,
+X		     pptInit, pwidthInit, nInit,
+X		     ppt, pwidth, fSorted);
+X
+X    stipple = devPriv->pRotatedPixmap;
+X    src = (unsigned long *)stipple->devPrivate.ptr;
+X    stippleHeight = stipple->drawable.height;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, nlwDst, pbits)
+X
+X    while (n--)
+X    {
+X    	w = *pwidth++;
+X	x = ppt->x;
+X    	y = ppt->y;
+X	ppt++;
+X    	dst = pbits + (y * nlwDst) + (x >> PWSH);
+X	if (((x & PIM) + w) <= PPW)
+X	{
+X	    maskpartialbits(x, w, startmask);
+X	    endmask = 0;
+X	    nlw = 0;
+X	}
+X	else
+X	{
+X	    maskbits (x, w, startmask, endmask, nlw);
+X	}
+X	bits = src[y % stippleHeight];
+X	RotBitsLeft (bits, (x & (31 & ~3)));
+X	if (cfb8StippleRRop == GXcopy)
+X	{
+X	    xor = devPriv->xor;
+X	    if (w < 64)
+X	    {
+X		if (startmask)
+X		{
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    *dst = (*dst & ~(mask & startmask)) |
+X			   (xor & (mask & startmask));
+X		    dst++;
+X		    RotBitsLeft (bits, 4);
+X		}
+X		while (nlw--)
+X		{
+X		    WriteFourBits (dst,xor,GetFourBits(bits))
+X		    dst++;
+X		    RotBitsLeft (bits, 4);
+X		}
+X		if (endmask)
+X		{
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    *dst = (*dst & ~(mask & endmask)) |
+X			   (xor & (mask & endmask));
+X		}
+X	    }
+X	    else
+X	    {
+X		wEnd = 7 - (nlw & 7);
+X		nlw = (nlw >> 3) + 1;
+X		dstTmp = dst;
+X		nlwTmp = nlw;
+X		if (startmask)
+X		{
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    *dstTmp = (*dstTmp & ~(mask & startmask)) |
+X			   (xor & (mask & startmask));
+X		    dstTmp++;
+X		    RotBitsLeft (bits, 4);
+X		}
+X		w = 7 - wEnd;
+X		while (w--)
+X		{
+X		    dst = dstTmp;
+X		    dstTmp++;
+X		    nlw = nlwTmp;
+X#if defined(__GNUC__) && defined(mc68020)
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    xor = xor & mask;
+X		    mask = ~mask;
+X		    while (nlw--)
+X		    {
+X			*dst = (*dst & mask) | xor;
+X			dst += 8;
+X		    }
+X		    xor = devPriv->xor;
+X#else
+X#define SwitchBitsLoop(body) \
+X    while (nlw--)	\
+X    {		\
+X	body	\
+X	dst += 8;	\
+X    }
+X		    SwitchFourBits(dst, xor, GetFourBits(bits));
+X#undef SwitchBitsLoop
+X#endif
+X		    NextFourBits (bits);
+X		}
+X		nlwTmp--;
+X		w = wEnd + 1;
+X		if (endmask)
+X		{
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    dst = dstTmp + (nlwTmp << 3);
+X		    *dst = (*dst & ~(mask & endmask)) |
+X			   (xor &  (mask & endmask));
+X		}
+X		while (w--)
+X		{
+X		    nlw = nlwTmp;
+X		    dst = dstTmp;
+X		    dstTmp++;
+X#if defined(__GNUC__) && defined(mc68020)
+X		    mask = cfb8PixelMasks[GetFourBits(bits)];
+X		    xor = xor & mask;
+X		    mask = ~mask;
+X		    while (nlw--)
+X		    {
+X			*dst = (*dst & mask) | xor;
+X			dst += 8;
+X		    }
+X		    xor = devPriv->xor;
+X#else
+X#define SwitchBitsLoop(body) \
+X	while (nlw--)	\
+X	{		\
+X	    body	\
+X	    dst += 8;	\
+X	}
+X		    SwitchFourBits(dst, xor, GetFourBits(bits));
+X#undef SwitchBitsLoop
+X#endif
+X		    NextFourBits (bits);
+X		}
+X	    }
+X	}
+X	else
+X	{
+X	    if (startmask)
+X	    {
+X		xor = GetFourBits(bits);
+X		*dst = MaskRRopPixels(*dst, xor, startmask);
+X		dst++;
+X		RotBitsLeft (bits, 4);
+X	    }
+X	    while (nlw--)
+X	    {
+X		RRopFourBits(dst, GetFourBits(bits));
+X		dst++;
+X		RotBitsLeft (bits, 4);
+X	    }
+X	    if (endmask)
+X	    {
+X		xor = GetFourBits(bits);
+X		*dst = MaskRRopPixels(*dst, xor, endmask);
+X	    }
+X	}
+X    }
+X    DEALLOCATE_LOCAL(pptFree);
+X    DEALLOCATE_LOCAL(pwidthFree);
+X}
+X
+Xvoid
+Xcfb8OpaqueStipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
+X    DrawablePtr pDrawable;
+X    GCPtr	pGC;
+X    int		nInit;			/* number of spans to fill */
+X    DDXPointPtr pptInit;		/* pointer to list of start points */
+X    int		*pwidthInit;		/* pointer to list of n widths */
+X    int 	fSorted;
+X{
+X				/* next three parameters are post-clip */
+X    int		    n;			/* number of spans to fill */
+X    DDXPointPtr	    ppt;		/* pointer to list of start points */
+X    int		    *pwidth;		/* pointer to list of n widths */
+X    unsigned long   *src;		/* pointer to bits in stipple, if needed */
+X    int		    stippleHeight;	/* height of the stipple */
+X    PixmapPtr	    stipple;
+X
+X    int		    nlwDst;		/* width in longwords of the dest pixmap */
+X    int		    x,y,w;		/* current span */
+X    unsigned long   startmask;
+X    unsigned long   endmask;
+X    register unsigned long *dst;	/* pointer to bits we're writing */
+X    register int    nlw;
+X    unsigned long   *dstTmp;
+X    int		    nlwTmp;
+X
+X    unsigned long   *pbits;		/* pointer to start of pixmap */
+X    register unsigned long  xor;
+X    register unsigned long  mask;
+X    register unsigned long  bits;	/* bits from stipple */
+X    int		    wEnd;
+X
+X    int		    *pwidthFree;	/* copies of the pointers to free */
+X    DDXPointPtr	    pptFree;
+X    cfbPrivGCPtr    devPriv;
+X
+X    devPriv = (cfbPrivGCPtr) pGC->devPrivates[cfbGCPrivateIndex].ptr;
+X
+X    cfb8CheckOpaqueStipple(pGC->alu, pGC->fgPixel, pGC->bgPixel, pGC->planemask);
+X
+X    n = nInit * miFindMaxBand(devPriv->pCompositeClip);
+X    pwidthFree = (int *)ALLOCATE_LOCAL(n * sizeof(int));
+X    pptFree = (DDXPointRec *)ALLOCATE_LOCAL(n * sizeof(DDXPointRec));
+X    if(!pptFree || !pwidthFree)
+X    {
+X	if (pptFree) DEALLOCATE_LOCAL(pptFree);
+X	if (pwidthFree) DEALLOCATE_LOCAL(pwidthFree);
+X	return;
+X    }
+X    pwidth = pwidthFree;
+X    ppt = pptFree;
+X    n = miClipSpans(devPriv->pCompositeClip,
+X		     pptInit, pwidthInit, nInit,
+X		     ppt, pwidth, fSorted);
+X
+X    stipple = devPriv->pRotatedPixmap;
+X    src = (unsigned long *)stipple->devPrivate.ptr;
+X    stippleHeight = stipple->drawable.height;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, nlwDst, pbits)
+X
+X    while (n--)
+X    {
+X    	w = *pwidth++;
+X	x = ppt->x;
+X    	y = ppt->y;
+X	ppt++;
+X    	dst = pbits + (y * nlwDst) + (x >> PWSH);
+X	if (((x & PIM) + w) <= PPW)
+X	{
+X	    maskpartialbits(x, w, startmask);
+X	    endmask = 0;
+X	    nlw = 0;
+X	}
+X	else
+X	{
+X	    maskbits (x, w, startmask, endmask, nlw);
+X	}
+X	bits = src[y % stippleHeight];
+X	RotBitsLeft (bits, (x & (31 & ~3)));
+X	if (cfb8StippleRRop == GXcopy)
+X	{
+X	    xor = devPriv->xor;
+X	    if (w < 64)
+X	    {
+X		if (startmask)
+X		{
+X		    *dst = *dst & ~startmask |
+X			    GetFourPixels (bits) & startmask;
+X		    dst++;
+X		    RotBitsLeft (bits, 4);
+X		}
+X		while (nlw--)
+X		{
+X		    *dst++ = GetFourPixels(bits);
+X		    RotBitsLeft (bits, 4);
+X		}
+X		if (endmask)
+X		{
+X		    *dst = *dst & ~endmask |
+X			  GetFourPixels (bits) & endmask;
+X		}
+X	    }
+X	    else
+X	    {
+X		wEnd = 7 - (nlw & 7);
+X		nlw = (nlw >> 3) + 1;
+X		dstTmp = dst;
+X		nlwTmp = nlw;
+X		if (startmask)
+X		{
+X		    *dstTmp = *dstTmp & ~startmask |
+X			   GetFourPixels (bits) & startmask;
+X		    dstTmp++;
+X		    RotBitsLeft (bits, 4);
+X		}
+X		w = 7 - wEnd;
+X		while (w--)
+X		{
+X		    nlw = nlwTmp;
+X		    dst = dstTmp;
+X		    dstTmp++;
+X		    xor = GetFourPixels (bits);
+X		    while (nlw--)
+X		    {
+X			*dst = xor;
+X			dst += 8;
+X		    }
+X		    NextFourBits (bits);
+X		}
+X		nlwTmp--;
+X		w = wEnd + 1;
+X		if (endmask)
+X		{
+X		    dst = dstTmp + (nlwTmp << 3);
+X		    *dst = (*dst & ~endmask) |
+X			   GetFourPixels (bits) & endmask;
+X		}
+X		while (w--)
+X		{
+X		    nlw = nlwTmp;
+X		    dst = dstTmp;
+X		    dstTmp++;
+X		    xor = GetFourPixels (bits);
+X		    while (nlw--)
+X		    {
+X			*dst = xor;
+X			dst += 8;
+X		    }
+X		    NextFourBits (bits);
+X		}
+X	    }
+X	}
+X	else
+X	{
+X	    if (startmask)
+X	    {
+X		xor = GetFourBits(bits);
+X		*dst = MaskRRopPixels(*dst, xor, startmask);
+X		dst++;
+X		RotBitsLeft (bits, 4);
+X	    }
+X	    while (nlw--)
+X	    {
+X		RRopFourBits(dst, GetFourBits(bits));
+X		dst++;
+X		RotBitsLeft (bits, 4);
+X	    }
+X	    if (endmask)
+X	    {
+X		xor = GetFourBits(bits);
+X		*dst = MaskRRopPixels(*dst, xor, endmask);
+X	    }
+X	}
+X    }
+X    DEALLOCATE_LOCAL(pptFree);
+X    DEALLOCATE_LOCAL(pwidthFree);
+X}
+X
+X#endif
+END_OF_FILE
+if test 25673 -ne `wc -c <'server/ddx/cfb32/cfbfillsp.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbfillsp.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbfillsp.c'
+fi
+echo shar: End of archive 11 \(of 29\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

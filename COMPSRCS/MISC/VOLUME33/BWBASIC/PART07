@@ -1,0 +1,2010 @@
+Newsgroups: comp.sources.misc
+From: tcamp@acpub.duke.edu (Ted A. Campbell)
+Subject:  v33i043:  bwbasic - Bywater BASIC interpreter version 1.10, Part07/11
+Message-ID: <1992Nov5.040351.18938@sparky.imd.sterling.com>
+X-Md4-Signature: 382408de53db5a1d20d2b7385154a602
+Date: Thu, 5 Nov 1992 04:03:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tcamp@acpub.duke.edu (Ted A. Campbell)
+Posting-number: Volume 33, Issue 43
+Archive-name: bwbasic/part07
+Environment: ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwb_elx.c bwb_int.c
+# Wrapped by kent@sparky on Wed Nov  4 21:34:26 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 11)."'
+if test -f 'bwb_elx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_elx.c'\"
+else
+  echo shar: Extracting \"'bwb_elx.c'\" \(36646 characters\)
+  sed "s/^X//" >'bwb_elx.c' <<'END_OF_FILE'
+X/****************************************************************
+X
+X        bwb_elx.c       Parse Elements of Expressions
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X****************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <math.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/***************************************************************
+X
+X        FUNCTION:   exp_paren()
+X
+X        DESCRIPTION:  This function interprets a parenthetical
+X        expression, calling bwb_exp() (recursively) to resolve
+X        the internal expression.
+X
+X***************************************************************/
+X
+Xint
+Xexp_paren( char *expression )
+X   {
+X   struct exp_ese *e;
+X   register int c;
+X   int s_pos;                           /* position in build buffer */
+X   int loop;
+X   int paren_level;
+X
+X   /* find a string enclosed by parentheses */
+X
+X   exp_es[ exp_esc ].pos_adv = 1;       /* start beyond open paren */
+X   s_pos = 0;
+X   loop = TRUE;
+X   paren_level = 1;
+X   exp_es[ exp_esc ].string[ 0 ] = '\0';
+X
+X   while( loop == TRUE )
+X      {
+X
+X      /* check the current character */
+X
+X      switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X         {
+X
+X         case '(':
+X            ++paren_level;
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            break;
+X
+X         case ')':
+X
+X            --paren_level;
+X            if ( paren_level == 0 )
+X               {
+X               loop = FALSE;
+X               }
+X            else
+X               {
+X               exp_es[ exp_esc ].string[ s_pos ]
+X                  = expression[ exp_es[ exp_esc ].pos_adv ];
+X               ++s_pos;
+X               exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '\"':                             /* embedded string constant */
+X            ++exp_es[ exp_esc ].pos_adv;
+X            while ( ( expression[ exp_es[ exp_esc ].pos_adv ] != '\"' )
+X               && ( expression[ exp_es[ exp_esc ].pos_adv ] != '\0' ) )
+X               {
+X               exp_es[ exp_esc ].string[ s_pos ]
+X                  = expression[ exp_es[ exp_esc ].pos_adv ];
+X               ++s_pos;
+X               exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X               ++exp_es[ exp_esc ].pos_adv;
+X               }
+X            break;
+X
+X         default:
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            break;
+X         }
+X
+X      /* advance the counter */
+X
+X      ++exp_es[ exp_esc ].pos_adv;
+X
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_paren() found internal string <%s>",
+X      exp_es[ exp_esc ].string );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* call bwb_exp() recursively to interpret this expression */
+X
+X   exp_es[ exp_esc ].rec_pos = 0;
+X   e = bwb_exp( exp_es[ exp_esc ].string, FALSE,
+X          &( exp_es[ exp_esc ].rec_pos ) );
+X
+X   /* assign operation and value at this level */
+X
+X   exp_es[ exp_esc ].type = e->type;
+X
+X   switch ( e->type )
+X      {
+X      case STRING:
+X         exp_es[ exp_esc ].operation = CONST_STRING;
+X         str_btob( exp_getsval( &( exp_es[ exp_esc ] )), exp_getsval( e ) );
+X         break;
+X      case INTEGER:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].ival = exp_getival( e );
+X         break;
+X      case DOUBLE:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].dval = exp_getdval( e );
+X         break;
+X      default:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].fval = exp_getfval( e );
+X         break;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   exp_strconst()
+X
+X        DESCRIPTION:  This function interprets a string
+X        constant.
+X
+X***************************************************************/
+X
+Xint
+Xexp_strconst( char *expression )
+X   {
+X   int e_pos, s_pos;
+X
+X   /* assign values to structure */
+X
+X   exp_es[ exp_esc ].type = STRING;
+X   exp_es[ exp_esc ].operation = CONST_STRING;
+X
+X   /* set counters */
+X
+X   s_pos = 0;
+X   exp_es[ exp_esc ].pos_adv = e_pos = 1;
+X   exp_es[ exp_esc ].string[ 0 ] = '\0';
+X
+X   /* read the string up until the next double quotation mark */
+X
+X   while( expression[ e_pos ] != '\"' )
+X      {
+X      exp_es[ exp_esc ].string[ s_pos ] = expression[ e_pos ];
+X      ++e_pos;
+X      ++s_pos;
+X      ++exp_es[ exp_esc ].pos_adv;
+X      exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X      if ( s_pos >= ( MAXSTRINGSIZE - 1 ) )
+X         {
+X         #if PROG_ERRORS
+X         sprintf( bwb_ebuf, "string <%s> exceeds maximum size (%d) for string constant.",
+X            expression, MAXSTRINGSIZE );
+X         bwb_error( bwb_ebuf );
+X         #else
+X         bwb_error( err_overflow );
+X         #endif
+X         return OP_NULL;
+X         }
+X      }
+X
+X   /* now write string over to bstring */
+X
+X   str_ctob( &( exp_es[ exp_esc ].sval ), exp_es[ exp_esc ].string );
+X
+X   /* advance past last double quotation mark */
+X
+X   ++exp_es[ exp_esc ].pos_adv;
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   exp_numconst()
+X
+X        DESCRIPTION:  This function interprets a numerical
+X        constant.
+X
+X***************************************************************/
+X
+Xint
+Xexp_numconst( char *expression )
+X   {
+X   int base;                            /* numerical base for the constant */
+X   static struct bwb_variable mantissa; /* mantissa of floating-point number */
+X   static int init = FALSE;		/* is mantissa variable initialized? */
+X   int exponent;                        /* exponent for floating point number */
+X   int man_start;                       /* starting point of mantissa */
+X   int s_pos;                           /* position in build string */
+X   int build_loop;
+X   int need_pm;
+X   int i;
+X   double d;
+X   #if CHECK_RECURSION
+X   static int in_use = FALSE;                   /* boolean: is function in use? */
+X
+X   /* check recursion status */
+X
+X   if ( in_use == TRUE )
+X      {
+X      sprintf( bwb_ebuf, "Recursion error in bwb_exp.c:exp_findop(): recursion violation." );
+X      bwb_error( bwb_ebuf );
+X      }
+X
+X   /* reset recursion status indicator */
+X
+X   else
+X      {
+X      in_use = TRUE;
+X      }
+X   #endif
+X
+X   /* initialize the variable if necessary */
+X
+X   #if INTENSIVE_DEBUG
+X   strcpy( mantissa.name, "(mantissa)" );
+X   #endif
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &mantissa, DOUBLE );
+X      }
+X
+X   /* be sure that the array_pos[ 0 ] for mantissa is set to dim_base;
+X      this is necessary because mantissa might be used before dim_base
+X      is set */
+X
+X   mantissa.array_pos[ 0 ] = dim_base;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_numconst(): received <%s>, eval <%c>",
+X      expression, expression[ 0 ] );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   need_pm = FALSE;
+X   exp_es[ exp_esc ].ival = 0;
+X
+X   /* check the first character(s) to determine numerical base
+X      and starting point of the mantissa */
+X
+X   switch( expression[ 0 ] )
+X      {
+X      case '-':
+X      case '+':
+X      case '0':
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '.':
+X         base = 10;                     /* decimal constant */
+X	 man_start = 0;                 /* starts at position 0 */
+X	 need_pm = FALSE;
+X         break;
+X      case '&':                         /* hex or octal constant */
+X         if ( ( expression[ 1 ] == 'H' ) || ( expression[ 1 ] == 'h' ))
+X            {
+X            base = 16;                  /* hexadecimal constant */
+X            man_start = 2;              /* starts at position 2 */
+X            }
+X         else
+X            {
+X            base = 8;                   /* octal constant */
+X            if ( ( expression[ 1 ] == 'O' ) || ( expression[ 1 ] == 'o' ))
+X               {
+X               man_start = 2;           /* starts at position 2 */
+X               }
+X            else
+X               {
+X               man_start = 1;           /* starts at position 1 */
+X               }
+X            }
+X         break;
+X      default:
+X
+X         #if PROG_ERRORS
+X         sprintf( bwb_ebuf, "expression <%s> is not a numerical constant.",
+X            expression );
+X         bwb_error( bwb_ebuf );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         return OP_NULL;
+X      }
+X
+X   /* now build the mantissa according to the numerical base */
+X
+X   switch( base )
+X      {
+X
+X      case 10:                          /* decimal constant */
+X
+X         /* initialize counters */
+X
+X         exp_es[ exp_esc ].pos_adv = man_start;
+X         exp_es[ exp_esc ].type = INTEGER;
+X         exp_es[ exp_esc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X               {
+X               case '-':                        /* prefixed plus or minus */
+X               case '+':
+X
+X                  /* in the first position, a plus or minus sign can
+X                     be added to the beginning of the string to be
+X                     scanned */
+X
+X                  if ( exp_es[ exp_esc ].pos_adv == man_start )
+X                     {
+X                     exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X                     ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                     ++s_pos;
+X                     exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X                     }
+X
+X                  /* but in any other position, the plus or minus sign
+X                     must be taken as an operator and thus as terminating
+X                     the string to be scanned */
+X
+X                  else
+X                     {
+X                     build_loop = FALSE;
+X                     }
+X                  break;
+X               case '.':                        /* note at least single precision */
+X                  if ( exp_es[ exp_esc ].type == INTEGER )
+X                     {
+X                     exp_es[ exp_esc ].type = SINGLE;
+X                     }                          /* fall through (no break) */
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X               case '8':
+X               case '9':
+X                  exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X               case 'E':                        /* exponential, single precision */
+X               case 'e':
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  exp_es[ exp_esc ].type = SINGLE;
+X		  exponent = TRUE;
+X                  build_loop = FALSE;
+X                  break;
+X
+X
+X               case 'D':                        /* exponential, double precision */
+X               case 'd':
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  exp_es[ exp_esc ].type = DOUBLE;
+X		  exponent = TRUE;
+X                  build_loop = FALSE;
+X                  break;
+X
+X               case SINGLE:                     /* single precision termination */
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  exp_es[ exp_esc ].type = SINGLE;
+X                  build_loop = FALSE;
+X                  break;
+X
+X               case DOUBLE:                     /* double precision termination */
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  exp_es[ exp_esc ].type = DOUBLE;
+X                  build_loop = FALSE;
+X                  break;
+X
+X               case INTEGER:                    /* integer precision termination */
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  exp_es[ exp_esc ].type = INTEGER;
+X                  build_loop = FALSE;
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* assign the value to the mantissa variable */
+X         
+X         sscanf( exp_es[ exp_esc ].string, "%lf", 
+X           var_finddval( &mantissa, mantissa.array_pos ));
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_numconst(): read mantissa, string <%s> val <%lf>",
+X            exp_es[ exp_esc ].string, var_getdval( &mantissa ) );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         /* test if integer bounds have been exceeded */
+X
+X         if ( exp_es[ exp_esc ].type == INTEGER )
+X            {
+X            i = (int) var_getdval( &mantissa );
+X            d = (double) i;
+X            if ( d != var_getdval( &mantissa ))
+X               {
+X               exp_es[ exp_esc ].type = DOUBLE;
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in exp_numconst(): integer bounds violated, promote to DOUBLE" );
+X               bwb_debug( bwb_ebuf );
+X               #endif               
+X               }
+X            }
+X
+X         /* read the exponent if there is one */
+X
+X         if ( exponent == TRUE )
+X            {
+X
+X	    /* allow a plus or minus once at the beginning */
+X
+X	    need_pm = TRUE;
+X
+X	    /* initialize counters */
+X
+X            exp_es[ exp_esc ].string[ 0 ] = '\0';
+X            s_pos = 0;
+X            build_loop = TRUE;
+X
+X            /* loop to build the string */
+X
+X            while ( build_loop == TRUE )
+X               {
+X               switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X                  {
+X		  case '-':                        /* prefixed plus or minus */
+X                  case '+':
+X
+X		     if ( need_pm == TRUE )        /* only allow once */
+X			{
+X			exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X			++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X			++s_pos;
+X			exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X			}
+X		     else
+X			{
+X			build_loop = FALSE;
+X			}
+X		     break;
+X
+X		  case '0':                        /* or ordinary digit */
+X                  case '1':
+X                  case '2':
+X                  case '3':
+X                  case '4':
+X                  case '5':
+X                  case '6':
+X                  case '7':
+X                  case '8':
+X                  case '9':
+X
+X                     exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X                     ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                     ++s_pos;
+X		     exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X		     need_pm = FALSE;
+X                     break;
+X
+X                  default:                         /* anything else, terminate */
+X                     build_loop = FALSE;
+X                     break;
+X                  }
+X
+X               }                                /* end of build loop for exponent */
+X
+X            /* assign the value to the user variable */
+X
+X            sscanf( exp_es[ exp_esc ].string, "%d",
+X               &( exp_es[ exp_esc ].ival ) );
+X
+X	    #if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in exp_numconst(): exponent is <%d>",
+X               exp_es[ exp_esc ].ival );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            }                           /* end of exponent search */
+X
+X         if ( exp_es[ exp_esc ].ival == 0 )
+X            {
+X            exp_es[ exp_esc ].dval = var_getdval( &mantissa );
+X            }
+X         else
+X            {
+X            exp_es[ exp_esc ].dval = var_getdval( &mantissa )
+X               * pow( (double) 10.0, (double) exp_es[ exp_esc ].ival );
+X            }
+X
+X         exp_es[ exp_esc ].fval = (float) exp_es[ exp_esc ].dval;
+X         exp_es[ exp_esc ].ival = (int) exp_es[ exp_esc ].dval;
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_numconst(): val double <%lf> single <%f> int <%d>",
+X            exp_es[ exp_esc ].dval, exp_es[ exp_esc ].fval, exp_es[ exp_esc ].ival );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         break;
+X
+X      case 8:                           /* octal constant */
+X
+X         /* initialize counters */
+X
+X         exp_es[ exp_esc ].pos_adv = man_start;
+X         exp_es[ exp_esc ].type = INTEGER;
+X         exp_es[ exp_esc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X               {
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X                  exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* now scan the string to determine the number */
+X
+X         sscanf( exp_es[ exp_esc ].string, "%o",
+X            &( exp_es[ exp_esc ].ival ));
+X
+X         break;
+X
+X      case 16:                          /* hexadecimal constant */
+X
+X         /* initialize counters */
+X
+X         exp_es[ exp_esc ].pos_adv = man_start;
+X         exp_es[ exp_esc ].type = INTEGER;
+X         exp_es[ exp_esc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X               {
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X               case '8':
+X               case '9':
+X               case 'A':
+X               case 'a':
+X               case 'B':
+X               case 'b':
+X               case 'C':
+X               case 'c':
+X               case 'D':
+X               case 'd':
+X               case 'E':
+X               case 'e':
+X                  exp_es[ exp_esc ].string[ s_pos ] = expression[ exp_es[ exp_esc ].pos_adv ];
+X
+X                  ++exp_es[ exp_esc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* now scan the string to determine the number */
+X
+X         sscanf( exp_es[ exp_esc ].string, "%x",
+X            &( exp_es[ exp_esc ].ival ));
+X
+X         break;
+X      }
+X
+X   /* note that the operation at this level is now a determined NUMBER */
+X
+X   exp_es[ exp_esc ].operation = NUMBER;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_numconst(): exit level <%d> precision <%c> value <%lf>",
+X      exp_esc, exp_es[ exp_esc ].type, exp_getdval( &( exp_es[ exp_esc ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   #if CHECK_RECURSION
+X   in_use = FALSE;
+X   #endif
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   exp_function()
+X
+X        DESCRIPTION:  This function interprets a function,
+X        calling bwb_exp() (recursively) to resolve any
+X        arguments to the function.
+X
+X***************************************************************/
+X
+Xint
+Xexp_function( char *expression )
+X   {
+X   struct exp_ese *e;
+X   register int c;
+X   int s_pos;                           /* position in build buffer */
+X   int loop;
+X   int paren_level;
+X   int n_args;
+X   struct bwb_variable *v;
+X   struct bwb_variable argv[ MAX_FARGS ];
+X   bstring *b;
+X   #if INTENSIVE_DEBUG
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   sprintf( bwb_ebuf, "in exp_function(): entered function, expression <%s>",
+X      expression );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* assign pointers to argument stack */
+X
+X   /* get the function name */
+X
+X   exp_getvfname( expression, exp_es[ exp_esc ].string );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): name is <%s>.",
+X      exp_es[ exp_esc ].string );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* now find the function itself */
+X
+X   exp_es[ exp_esc ].function = fnc_find( exp_es[ exp_esc ].string );
+X
+X   /* check to see if it is valid */
+X
+X   if ( exp_es[ exp_esc ].function == NULL )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Failed to find function <%s>.",
+X         exp_es[ exp_esc ].string );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_uf  );
+X      #endif
+X      return OP_ERROR;
+X      }
+X
+X   /* note that this level is a function */
+X
+X   exp_es[ exp_esc ].operation = FUNCTION;
+X   exp_es[ exp_esc ].pos_adv = strlen( exp_es[ exp_esc ].string );
+X
+X   /* check for begin parenthesis */
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X      switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X         {
+X
+X         case ' ':                              /* whitespace */
+X         case '\t':
+X            ++exp_es[ exp_esc ].pos_adv;        /* advance */
+X            break;
+X
+X         case '(':                              /* begin paren */
+X
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_function(): found begin parenthesis." );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            ++exp_es[ exp_esc ].pos_adv;        /* advance beyond it */
+X            paren_level = 1;                    /* set paren_level */
+X            loop = FALSE;                       /* and break out */
+X            break;
+X
+X         default:                               /* anything else */
+X            loop = FALSE;
+X            paren_level = 0;                    /* do not look for arguments */
+X            break;
+X         }
+X      }
+X
+X   /* find arguments within parentheses */
+X   /* for each argument, find a string ending with ',' or with end parenthesis */
+X
+X   n_args = 0;
+X   s_pos = 0;
+X   exp_es[ exp_esc ].string[ 0 ] = '\0';
+X
+X   while( paren_level > 0 )
+X      {
+X
+X      /* check the current character */
+X
+X      switch( expression[ exp_es[ exp_esc ].pos_adv ] )
+X         {
+X
+X         case ',':                      /* end of an argument */
+X
+X            if ( paren_level == 1 )     /* ignore ',' within parentheses */
+X               {
+X
+X               /* call bwb_exp() recursively to resolve the argument */
+X
+X               if ( exp_validarg( exp_es[ exp_esc ].string ) == TRUE )
+X                  {
+X		  #if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): valid argument (not last)." );
+X                  bwb_debug( bwb_ebuf );
+X                  #endif
+X
+X                  exp_es[ exp_esc ].rec_pos = 0;
+X                  e = bwb_exp( exp_es[ exp_esc ].string, FALSE,
+X                     &( exp_es[ exp_esc ].rec_pos ) );
+X
+X                  /* assign operation and value at this level */
+X
+X                  var_make( &( argv[ n_args ] ), e->type );
+X
+X                  switch( argv[ n_args ].type )
+X                     {
+X                     case DOUBLE:
+X                        * var_finddval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getdval( e );
+X                        break;
+X                     case SINGLE:
+X                        * var_findfval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getfval( e );
+X                        break;
+X                     case INTEGER:
+X                        * var_findival( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getival( e );
+X                        break;
+X                     case STRING:
+X                        str_btob( var_findsval( &( argv[ n_args ] ),
+X                           argv[ n_args ].array_pos ), exp_getsval( e ) );
+X                        break;
+X                     }
+X
+X                  ++n_args;                /* increment number of arguments */
+X
+X                  }
+X
+X               s_pos = 0;               /* reset counter */
+X               exp_es[ exp_esc ].string[ 0 ] = '\0';
+X               }
+X
+X            else
+X               {
+X               exp_es[ exp_esc ].string[ s_pos ]
+X                  = expression[ exp_es[ exp_esc ].pos_adv ];
+X               ++s_pos;
+X               exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '(':
+X            ++paren_level;
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            break;
+X
+X         case ')':
+X            --paren_level;
+X
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf,
+X               "in exp_function(): hit close parenthesis." );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            if ( paren_level == 0 )
+X               {
+X
+X               #if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf,
+X                  "in exp_function(): paren level 0." );
+X               bwb_debug( bwb_ebuf );
+X               #endif
+X
+X               /* call bwb_exp() recursively to resolve the argument */
+X
+X               if ( exp_validarg( exp_es[ exp_esc ].string ) == TRUE )
+X                  {
+X		  #if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): valid argument (last)." );
+X		  bwb_debug( bwb_ebuf );
+X		  #endif
+X
+X                  exp_es[ exp_esc ].rec_pos = 0;
+X                  e = bwb_exp( exp_es[ exp_esc ].string, FALSE,
+X                     &( exp_es[ exp_esc ].rec_pos ) );
+X
+X		  #if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): return from bwb_exp(), last arg, type <%c> op <%d>",
+X		     e->type, e->operation );
+X		  bwb_debug( bwb_ebuf );
+X		  #endif
+X
+X                  /* assign operation and value at this level */
+X
+X                  var_make( &( argv[ n_args ] ), e->type );
+X
+X                  switch( argv[ n_args ].type )
+X                     {
+X                     case DOUBLE:
+X                        * var_finddval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getdval( e );
+X                        break;
+X                     case SINGLE:
+X                        * var_findfval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getfval( e );
+X                        break;
+X                     case INTEGER:
+X                        * var_findival( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getival( e );
+X                        break;
+X                     case STRING:
+X                        str_btob( var_findsval( &( argv[ n_args ] ),
+X                           argv[ n_args ].array_pos ), exp_getsval( e ) );
+X                        break;
+X                     }
+X
+X                  ++n_args;                /* increment number of arguments */
+X
+X                  }
+X
+X               s_pos = 0;               /* reset counter */
+X               exp_es[ exp_esc ].string[ 0 ] = '\0';
+X               }
+X
+X            else
+X               {
+X               exp_es[ exp_esc ].string[ s_pos ]
+X                  = expression[ exp_es[ exp_esc ].pos_adv ];
+X               ++s_pos;
+X               exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '\"':                             /* embedded string constant */
+X
+X            /* add the initial quotation mark */
+X
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            ++exp_es[ exp_esc ].pos_adv;
+X
+X            /* add intervening characters */
+X
+X            while ( ( expression[ exp_es[ exp_esc ].pos_adv ] != '\"' )
+X               && ( expression[ exp_es[ exp_esc ].pos_adv ] != '\0' ) )
+X               {
+X               exp_es[ exp_esc ].string[ s_pos ]
+X                  = expression[ exp_es[ exp_esc ].pos_adv ];
+X               ++s_pos;
+X               exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X               ++exp_es[ exp_esc ].pos_adv;
+X               }
+X
+X            /* add the concluding quotation mark */
+X
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            /* the following bracketed out 14 July 1992; since this counter */
+X            /* incremented at the end of the switch statement, this may */
+X            /* increment it past the next character needed */
+X            /* ++exp_es[ exp_esc ].pos_adv; */
+X            break;
+X
+X         default:
+X            exp_es[ exp_esc ].string[ s_pos ]
+X               = expression[ exp_es[ exp_esc ].pos_adv ];
+X            ++s_pos;
+X            exp_es[ exp_esc ].string[ s_pos ] = '\0';
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_function(): new char <%d>=<%c>",
+X               expression[ exp_es[ exp_esc ].pos_adv ],
+X               expression[ exp_es[ exp_esc ].pos_adv ] );
+X            bwb_debug( bwb_ebuf );
+X            sprintf( bwb_ebuf, "in exp_function(): building <%s>.",
+X               exp_es[ exp_esc ].string );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X            break;
+X         }
+X
+X      /* advance the counter */
+X
+X      ++exp_es[ exp_esc ].pos_adv;
+X
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): ready to call function vector" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* call the function vector */
+X
+X   if ( exp_es[ exp_esc ].function->ufnc != NULL )
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_function(): calling fnc_intufnc()" );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      v = fnc_intufnc( n_args, &( argv[ 0 ] ), exp_es[ exp_esc ].function );
+X      }
+X   else
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_function(): calling preset function" );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      v = exp_es[ exp_esc ].function->vector ( n_args, &( argv[ 0 ] ) );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): return from function vector, type <%c>",
+X      v->type );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* assign the value at this level */
+X
+X   exp_es[ exp_esc ].type = (char) v->type;
+X   
+X   switch( v->type )
+X      {
+X      case STRING:
+X         exp_es[ exp_esc ].operation = CONST_STRING;
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_function(): ready to assign STRING" );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         b = var_findsval( v, v->array_pos );
+X         str_btob( exp_getsval( &( exp_es[ exp_esc ] )), b );
+X
+X         #if INTENSIVE_DEBUG
+X         str_btoc( tbuf, b );
+X         sprintf( bwb_ebuf, "in exp_function(): string assigned <%s>", tbuf );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         break;
+X
+X      case DOUBLE:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].dval = var_getdval( v );
+X         break;
+X      case INTEGER:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].ival = var_getival( v );
+X         break;
+X      default:
+X         exp_es[ exp_esc ].operation = NUMBER;
+X         exp_es[ exp_esc ].fval = var_getfval( v );
+X         break;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): end of function" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   exp_variable()
+X
+X        DESCRIPTION:  This function interprets a variable.
+X
+X***************************************************************/
+X
+Xint
+Xexp_variable( char *expression )
+X   {
+X   int pos;
+X   int *pp;
+X   int n_params;
+X   register int n;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   int p;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* get the variable name */
+X
+X   exp_getvfname( expression, exp_es[ exp_esc ].string );
+X
+X   /* now find the variable itself */
+X
+X   v = exp_es[ exp_esc ].xvar = var_find( exp_es[ exp_esc ].string );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): level <%d>, found variable name <%s>",
+X      exp_esc, exp_es[ exp_esc ].xvar->name );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* note that this level is a variable */
+X
+X   exp_es[ exp_esc ].operation = VARIABLE;
+X
+X   /* read subscripts */
+X
+X   pos = strlen( exp_es[ exp_esc ].string );
+X   if ( ( v->dimensions == 1 ) && ( v->array_sizes[ 0 ] == 1 ))
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_variable(): variable <%s> has 1 dimension",
+X         exp_es[ exp_esc ].xvar->name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      pos = strlen( v->name );
+X      n_params = 1;
+X      pp = &p;
+X      pp[ 0 ] = dim_base;
+X      }
+X   else
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_variable(): variable <%s> has > 1 dimensions",
+X         exp_es[ exp_esc ].xvar->name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      dim_getparams( expression, &pos, &n_params, &pp );
+X      }
+X
+X   exp_es[ exp_esc ].pos_adv = pos;
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      exp_es[ exp_esc ].array_pos[ n ] = v->array_pos[ n ] = pp[ n ];
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++ n )
+X      {
+X      sprintf( bwb_ebuf, "in exp_variable(): var <%s> array_pos element <%d> is <%d>.",
+X         v->name, n, v->array_pos[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X
+X   /* assign the type and value at this level */
+X
+X   exp_es[ exp_esc ].type = (char) v->type;
+X   
+X   switch( v->type )
+X      {
+X      case STRING:
+X         b = var_findsval( v, v->array_pos );
+X         #if TEST_BSTRING
+X         sprintf( bwb_ebuf, "in exp_variable(): b string name is <%s>",
+X            b->name );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X         exp_es[ exp_esc ].sval.length = b->length;
+X         exp_es[ exp_esc ].sval.buffer = b->buffer;
+X         break;
+X      case DOUBLE:
+X         exp_es[ exp_esc ].dval = var_getdval( v );
+X         break;
+X      case INTEGER:
+X         exp_es[ exp_esc ].ival = var_getival( v );
+X         break;
+X      default:
+X         exp_es[ exp_esc ].fval = var_getfval( v );
+X         break;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): exit, name <%s>, level <%d>, op <%d>",
+X      v->name, exp_esc, exp_es[ exp_esc ].operation  );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X
+END_OF_FILE
+  if test 36646 -ne `wc -c <'bwb_elx.c'`; then
+    echo shar: \"'bwb_elx.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_elx.c'
+fi
+if test -f 'bwb_int.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_int.c'\"
+else
+  echo shar: Extracting \"'bwb_int.c'\" \(17458 characters\)
+  sed "s/^X//" >'bwb_int.c' <<'END_OF_FILE'
+X/***************************************************************f
+X
+X        bwb_int.c       Line Interpretation Routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/***************************************************************
+X
+X        FUNCTION:       adv_element()
+X
+X        DESCRIPTION:    This function reads characters in <buffer>
+X                        beginning at <pos> and advances past a
+X                        line element, incrementing <pos> appropri-
+X                        ately and returning the line element in
+X                        <element>.
+X
+X***************************************************************/
+X
+Xint
+Xadv_element( char *buffer, int *pos, char *element )
+X   {
+X   int loop;                                    /* control loop */
+X   int e_pos;                                   /* position in element buffer */
+X   int str_const;                               /* boolean: building a string constant */
+X
+X   /* advance beyond any initial whitespace */
+X
+X   adv_ws( buffer, pos );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in adv_element(): receieved <%s>.", &( buffer[ *pos ] ));
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* now loop while building an element and looking for an
+X      element terminator */
+X
+X   loop = TRUE;
+X   e_pos = 0;
+X   element[ e_pos ] = '\0';
+X   str_const = FALSE;
+X
+X   while ( loop == TRUE )
+X      {
+X      switch( buffer[ *pos ] )
+X         {
+X         case ',':                      /* element terminators */
+X         case ';':
+X         case ':':
+X         case '=':
+X         case ' ':
+X         case '\t':
+X         case '\0':
+X         case '\n':
+X         case '\r':
+X            if ( str_const == TRUE )
+X               {
+X               element[ e_pos ] = buffer[ *pos ];
+X               ++e_pos;
+X               ++( *pos );
+X               element[ e_pos ] = '\0';
+X               }
+X            else
+X               {
+X               return TRUE;
+X               }
+X            break;
+X
+X         case '\"':                     /* string constant */
+X            element[ e_pos ] = buffer[ *pos ];
+X            ++e_pos;
+X            ++( *pos );
+X            element[ e_pos ] = '\0';
+X            if ( str_const == TRUE )    /* termination of string constant */
+X               {
+X               return TRUE;
+X               }
+X            else                        /* beginning of string constant */
+X               {
+X               str_const = TRUE;
+X               }
+X            break;
+X
+X         default:
+X            element[ e_pos ] = buffer[ *pos ];
+X            ++e_pos;
+X            ++( *pos );
+X            element[ e_pos ] = '\0';
+X            break;
+X         }
+X      }
+X
+X   /* This should not happen */
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       adv_ws()
+X
+X        DESCRIPTION:    This function reads characters in <buffer>
+X                        beginning at <pos> and advances past any
+X                        whitespace, incrementing <pos> appropri-
+X                        ately.
+X
+X***************************************************************/
+X
+Xint
+Xadv_ws( char *buffer, int *pos )
+X   {
+X   int loop;
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X      switch( buffer[ *pos ] )
+X         {
+X         case ' ':
+X         case '\t':
+X            ++( *pos );
+X            break;
+X         default:
+X            return TRUE;
+X         }
+X      }
+X
+X   /* This should not happen */
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_strtoupper()
+X
+X        DESCRIPTION:    This function converts the string in
+X                        <buffer> to upper-case characters.
+X
+X***************************************************************/
+X
+Xint
+Xbwb_strtoupper( char *buffer )
+X   {
+X   char *p;
+X
+X   p = buffer;
+X   while ( *p != '\0' )
+X      {
+X      if ( islower( *p ) != FALSE )
+X         {
+X         *p = toupper( *p );
+X         }
+X      ++p;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       line_start()
+X
+X        DESCRIPTION:    This function reads a line buffer in
+X                        <buffer> beginning at the position
+X                        <pos> and attempts to determine (a)
+X                        the position of the line number in the
+X                        buffer (returned in <lnpos>), (b) the
+X                        line number at this position (returned
+X                        in <lnum>), (c) the position of the
+X                        BASIC command in the buffer (returned
+X                        in <cmdpos>), (d) the position of this
+X                        BASIC command in the command table
+X                        (returned in <cmdnum>), and (e) the
+X                        position of the beginning of the rest
+X                        of the line (returned in <startpos>).
+X                        Although <startpos> must be returned
+X                        as a positive integer, the other
+X                        searches may fail, in which case FALSE
+X                        will be returned in their positions.
+X                        <pos> is not incremented.
+X
+X***************************************************************/
+X
+Xint
+Xline_start( char *buffer, int *pos, int *lnpos, int *lnum, int *cmdpos,
+X   int *cmdnum, int *startpos )
+X   {
+X   static int position;
+X   register int n;
+X   static char *tbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffer if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( tbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in line_start(): pos <%d> buffer <%s>", *pos,
+X      buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* set initial values */
+X
+X   *startpos = position = *pos;
+X   *cmdpos = *lnpos = *pos;
+X   *cmdnum = *lnum = -1;
+X
+X   /* check for null line */
+X
+X   adv_ws( buffer, &position );
+X   if ( buffer[ position ] == '\0' )
+X      {
+X      #if INTENSIVE_DEBUG
+X      bwb_debug( "in line_start(): found NULL line" );
+X      #endif
+X      *cmdnum = getcmdnum( "REM" );
+X      return TRUE;
+X      }
+X
+X   /* advance beyond the first element */
+X
+X   *lnpos = position;
+X   adv_element( buffer, &position, tbuf );
+X   adv_ws( buffer, &position );
+X
+X   /* test for a line number in the first element */
+X
+X   if ( is_numconst( tbuf ) == TRUE )               /* a line number */
+X      {
+X
+X      *lnum = atoi( tbuf );
+X      *startpos = position;                             /* temp */
+X      *cmdpos = position;
+X
+X      adv_element( buffer, &position, tbuf );       /* advance past next element */
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in line_start(): new element is <%s>", tbuf );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      if ( is_cmd( tbuf, cmdnum ) == TRUE )
+X         {
+X         adv_ws( buffer, &position );
+X         *startpos = position;
+X         }
+X      else if ( is_let( &( buffer[ *cmdpos ] ), cmdnum ) == TRUE )
+X         {
+X         *cmdpos = -1;
+X         }
+X      else
+X         {
+X         *cmdpos = *cmdnum = -1;
+X         }
+X      }
+X
+X   /* not a line number */
+X
+X   else
+X      {
+X      *lnum = -1;
+X      *lnpos = -1;
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in line_start(): no line number, element <%s>.",
+X         tbuf );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      if ( is_cmd( tbuf, cmdnum ) == TRUE )
+X         {
+X         adv_ws( buffer, &position );
+X         *startpos = position;
+X         }
+X      else if ( is_let( &( buffer[ position ] ), cmdnum ) == TRUE )
+X         {
+X         adv_ws( buffer, &position );
+X         *cmdpos = -1;
+X         }
+X      else
+X         {
+X         *cmdpos = *cmdnum = -1;
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in line_start(): lnpos <%d> lnum <%d>",
+X      *lnpos, *lnum );
+X   bwb_debug( bwb_ebuf );
+X   sprintf( bwb_ebuf, "in line_start(): cmdpos <%d> cmdnum <%d> startpos <%d>",
+X      *cmdpos, *cmdnum, *startpos );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       is_cmd()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xint
+Xis_cmd( char *buffer, int *cmdnum )
+X   {
+X   register int n;
+X
+X   /* Convert the command name to upper case */
+X
+X   bwb_strtoupper( buffer );
+X
+X   /* Go through the command table and search for a match. */
+X
+X   for ( n = 0; n < COMMANDS; ++n )
+X      {
+X      if ( strncmp( bwb_cmdtable[ n ].name, buffer,
+X         strlen( bwb_cmdtable[ n ].name )) == 0 )
+X         {
+X         *cmdnum = n;
+X         return TRUE;
+X         }
+X      }
+X
+X   /* No command name was found */
+X
+X   *cmdnum = -1;
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       is_let()
+X
+X        DESCRIPTION:    This function tries to determine if the
+X                        expression in <buffer> is a LET statement
+X                        without the LET command specified.
+X
+X***************************************************************/
+X
+Xint
+Xis_let( char *buffer, int *cmdnum )
+X   {
+X   register int n, i;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in is_let(): buffer <%s>", buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Go through the expression and search for an assignment operator. */
+X
+X   for ( n = 0; buffer[ n ] != '\0'; ++n )
+X      {
+X      switch( buffer[ n ] )
+X         {
+X         case '\"':                     /* string constant */
+X            ++n;
+X            while( buffer[ n ] != '\"' )
+X               {
+X               ++n;
+X               if ( buffer[ n ] == '\0' )
+X                  {
+X                  #if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "Incomplete string constant" );
+X                  bwb_error( bwb_ebuf );
+X                  #else
+X                  bwb_error( err_syntax );
+X                  #endif
+X                  *cmdnum = -1;
+X                  return FALSE;
+X                  }
+X               }
+X            ++n;
+X            break;
+X         case '=':
+X
+X            #if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in is_let(): implied LET found." );
+X            bwb_debug( bwb_ebuf );
+X            #endif
+X
+X            for ( i = 0; i < COMMANDS; ++i )
+X               {
+X               if ( strncmp( bwb_cmdtable[ i ].name, "LET", (size_t) 3 ) == 0 )
+X                  {
+X                  *cmdnum = i;
+X                  }
+X               }
+X            return TRUE;
+X         }
+X      }
+X
+X   /* No command name was found */
+X
+X   *cmdnum = -1;
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_stripcr()
+X
+X        DESCRIPTION:
+X
+X
+X***************************************************************/
+X
+Xint
+Xbwb_stripcr( char *s )
+X   {
+X   char *p;
+X
+X   p = s;
+X   while ( *p != 0 )
+X      {
+X      switch( *p )
+X         {
+X
+X
+X         case 0x0d:
+X         case 0x0a:
+X            *p = 0;
+X            return TRUE;
+X         }
+X      ++p;
+X      }
+X   *p = 0;
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       is_numconst()
+X
+X        DESCRIPTION:    This function reads the string in <buffer>
+X                        and returns TRUE if it is a numerical
+X                        constant and FALSE if it is not. At
+X                        this point, only decimal (base 10)
+X                        constants are detected.
+X
+X***************************************************************/
+X
+Xint
+Xis_numconst( char *buffer )
+X   {
+X   char *p;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in is_numconst(): received string <%s>.", buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* Return FALSE for empty buffer */
+X
+X   if ( buffer[ 0 ] == '\0' )
+X      {
+X      return FALSE;
+X      }
+X
+X   /* else check digits */
+X
+X   p = buffer;
+X   while( *p != '\0' )
+X      {
+X      switch( *p )
+X         {
+X         case '0':
+X         case '1':
+X         case '2':
+X         case '3':
+X         case '4':
+X         case '5':
+X         case '6':
+X         case '7':
+X         case '8':
+X         case '9':
+X            break;
+X         default:
+X            return FALSE;
+X         }
+X      ++p;
+X      }
+X
+X   /* only numerical characters detected */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_numseq()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xint
+Xbwb_numseq( char *buffer, int *start, int *end )
+X   {
+X   register int b, n;
+X   int numbers;
+X   static char *tbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffer if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( tbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   if ( buffer[ 0 ] == 0 )
+X      {
+X      *start = *end = 0;
+X      return FALSE;
+X      }
+X
+X   numbers = n = b = 0;
+X   tbuf[ 0 ] = 0;
+X   while( TRUE )
+X      {
+X      switch( buffer[ b ] )
+X         {
+X         case 0:                           /* end of string */
+X         case '\n':
+X         case '\r':
+X            if ( n > 0 )
+X               {
+X               if ( numbers == 0 )
+X                  {
+X                  *end = 0;
+X                  *start = atoi( tbuf );
+X                  ++numbers;
+X                  }
+X               else
+X                  {
+X
+X                  *end = atoi( tbuf );
+X                  return TRUE;
+X                  }
+X               }
+X            else
+X               {
+X               if ( numbers == 0 )
+X                  {
+X                  *start = *end = 0;
+X                  }
+X               else if ( numbers == 1 )
+X                  {
+X                  *end = 0;
+X                  }
+X               else if ( ( numbers == 2 ) && ( tbuf[ 0 ] == 0 ))
+X                  {
+X                  *end = 0;
+X                  }
+X               }
+X            return TRUE;
+X
+X         #ifdef ALLOWWHITESPACE
+X         case ' ':                         /* whitespace */
+X         case '\t':
+X         #endif
+X
+X         case '-':                         /* or skip to next number */
+X            if ( n > 0 )
+X               {
+X               if ( numbers == 0 )
+X                  {
+X                  *start = atoi( tbuf );
+X                  ++numbers;
+X                  }
+X               else
+X                  {
+X                  *end = atoi( tbuf );
+X                  return TRUE;
+X                  }
+X               }
+X            ++b;
+X            n = 0;
+X            break;
+X         case '0':
+X         case '1':
+X         case '2':
+X         case '3':
+X         case '4':
+X         case '5':
+X         case '6':
+X         case '7':
+X         case '8':
+X         case '9':
+X            tbuf[ n ] = buffer[ b ];
+X            ++n;
+X            tbuf[ n ] = 0;
+X            ++b;
+X            break;
+X         default:
+X            #if PROG_ERRORS
+X            sprintf( bwb_ebuf,
+X               "ERROR: character <%c> unexpected in numerical sequence",
+X               buffer[ b ] );
+X            ++b;
+X            bwb_error( bwb_ebuf );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            break;
+X         }
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_freeline()
+X
+X        DESCRIPTION:
+X
+X***************************************************************/
+X
+Xint
+Xbwb_freeline( struct bwb_line *l )
+X   {
+X   register int n;
+X
+X   /* free arguments if there are any */
+X   
+X   free( l );
+X
+X   return TRUE;
+X   }
+X   
+X/***************************************************************
+X
+X        FUNCTION:       int_qmdstr()
+X
+X        DESCRIPTION:    This function .
+X
+X***************************************************************/
+X
+Xint
+Xint_qmdstr( char *buffer_a, char *buffer_b )
+X   {
+X   char *a, *b;
+X   
+X   a = buffer_a;
+X   ++a;                         /* advance beyond quotation mark */
+X   b = buffer_b;
+X
+X   while( *a != '\"' )
+X      {
+X      *b = *a;
+X      ++a;
+X      ++b;
+X      *b = '\0';
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 17458 -ne `wc -c <'bwb_int.c'`; then
+    echo shar: \"'bwb_int.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_int.c'
+fi
+echo shar: End of archive 7 \(of 11\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

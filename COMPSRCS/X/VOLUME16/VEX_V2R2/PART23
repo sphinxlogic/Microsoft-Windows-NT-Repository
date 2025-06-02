@@ -1,0 +1,2078 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i074: Video Extension for X (v2r2), Part23/29
+Message-ID: <1992Feb6.145926.1022@msi.com>
+Date: 6 Feb 92 14:59:26 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2065
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 74
+Archive-name: vex.v2r2/part23
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 23 (of 29)."
+# Contents:  extensions/xv/clients/vset.c extensions/xv/include/Xvlib.h
+#   extensions/xv/test/xvt8.c server/ddx/cfb32/cfbcmap.c
+#   server/ddx/cfb32/cfbpntwin.c server/ddx/dec/ws/init.c.diff
+#   server/ddx/sun/xfbwindow.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:49 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/clients/vset.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/clients/vset.c'\"
+else
+echo shar: Extracting \"'extensions/xv/clients/vset.c'\" \(8302 characters\)
+sed "s/^X//" >'extensions/xv/clients/vset.c' <<'END_OF_FILE'
+X#ifndef lint	/* BuildSystemHeader added automatically */
+Xstatic char *BuildSystemHeader= "$Header$";	/* BuildSystemHeader */
+X#endif		/* BuildSystemHeader */
+X
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X  
+X                        All Rights Reserved
+X  
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X  
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X  
+X******************************************************************/
+X/*
+X * * File: *
+X *
+X *   vset.c: user preference utility for live video extension to X *
+X *
+X *   
+X *
+X * Author: *
+X *
+X *   Susan Angebranndt *
+X *
+X *       
+X *
+X */
+X
+X#include <stdio.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/extensions/Xvlib.h>
+X
+Xtypedef struct _Options {
+X    Bool            brightness;
+X    Bool            contrast;
+X    Bool            hue;
+X    Bool            saturation;
+X    Bool            query;
+X    Bool            encoding;
+X    int		    b;
+X    int		    c;
+X    int		    h;
+X    int		    s;
+X    char *	    e;
+X    char *	    displayName;
+X} Options;
+X
+Xstatic void Usage()
+X{
+X    printf("vset [-d display] [-b integer] [-c integer] [-h integer]\n");
+X    printf("[-s integer] [-e encoding] [-q]\n");
+X    printf("\nEncoding is one of:\n");
+X    printf("	ntsc-composite\n");
+X    printf("	pal-composite\n");
+X    printf("	secam-composite\n");
+X    printf("	ntsc-svideo\n");
+X    printf("	pal-svideo\n");
+X    printf("	secam-svideo\n");
+X    printf("	ntsc-rgb\n");
+X    printf("	pal-rgb\n");
+X    printf("	secam-rgb\n");
+X
+X    exit(1);
+X}
+X
+XBool InternXvAtoms(dpy, encoding, saturation, hue, contrast, brightness)
+X    Display        *dpy;
+X    Atom           *encoding, *saturation, *hue, *contrast, *brightness;
+X{
+X    *encoding = XInternAtom(dpy, "XV_ENCODING", True);
+X    if (*encoding == None)
+X	return False;
+X    *saturation = XInternAtom(dpy, "XV_SATURATION", True);
+X    if (*saturation == None)
+X	return False;
+X    *hue = XInternAtom(dpy, "XV_HUE", True);
+X    if (*hue == None)
+X	return False;
+X    *contrast = XInternAtom(dpy, "XV_CONTRAST", True);
+X    if (*contrast == None)
+X	return False;
+X    *brightness = XInternAtom(dpy, "XV_BRIGHTNESS", True);
+X    if (*brightness == None)
+X	return False;
+X    return True;
+X}
+X
+X
+Xstatic void CheckEncodingName(str)
+X    char *str;
+X{
+X    if (strcmp("ntsc-composite", str) == 0) {
+X	return ;
+X    } else if (strcmp("pal-composite", str) == 0) {
+X	return ;
+X    } else if (strcmp("secam-composite", str) == 0) {
+X	return ;
+X    } else if (strcmp("ntsc-svideo", str) == 0) {
+X	return ;
+X    } else if (strcmp("pal-svideo", str) == 0) {
+X	return ;
+X    } else if (strcmp("secam-svideo", str) == 0) {
+X	return ;
+X    } else if (strcmp("ntsc-rgb", str) == 0) {
+X	return ;
+X    } else if (strcmp("pal-rgb", str) == 0) {
+X	return ;
+X    } else if (strcmp("secam-rgb", str) == 0) {
+X	return ;
+X    } else {		/* no match */
+X	Usage();
+X    }
+X}
+X
+Xstatic int ConvertToInteger(str)
+X    char *str;
+X{
+X    int i;
+X    int start;
+X    if (str[0] == '-') 
+X        start = 1;
+X    else
+X	start = 0;
+X    for (i=start; i<strlen(str); i++) {
+X	if (! isdigit(str[i])) Usage();
+X    }
+X    return atoi(str);
+X}
+X
+Xstatic void ParseCommandLine(argv, argc, opts)
+X    int	argc;
+X    char *argv[];
+X    Options *opts;
+X{
+X    int i;
+X    int c;
+X    extern char *optarg;
+X    Bool foundOne = False;
+X
+X    opts->brightness = False;
+X    opts->contrast = False;
+X    opts->hue = False;
+X    opts->saturation = False;
+X    opts->query = False;
+X    opts->encoding = False;
+X    opts->displayName = NULL;
+X    
+X    while ((c = getopt(argc, argv, "qd:b:c:h:s:e:")) != EOF) {
+X	foundOne = True;
+X	switch (c) {
+X	    case 'd':
+X    	        opts->displayName = optarg;
+X		break;
+X	    case 'b':
+X	        opts->brightness = True;
+X	        opts->b = ConvertToInteger(optarg);
+X		break;
+X	    case 'c':
+X	        opts->contrast = True;
+X	        opts->c = ConvertToInteger(optarg);
+X		break;
+X	    case 'h':
+X	        opts->hue = True;
+X	        opts->h = ConvertToInteger(optarg);
+X		break;
+X	    case 's':
+X	        opts->saturation = True;
+X	        opts->s = ConvertToInteger(optarg);
+X		break;
+X	    case 'e':
+X	        opts->encoding = True;
+X	        opts->e = optarg;
+X	        CheckEncodingName(opts->e);
+X		break;
+X	    case 'q':
+X	        opts->query = True;
+X		break;
+X	    default:
+X	        Usage();
+X	}
+X    }
+X    if (!foundOne) Usage();
+X}
+X
+Xstatic void QueryAllInformation(dpy, port, 
+X	batom, catom, hatom, satom, eatom, version, revision)
+X    Display	    *dpy;
+X    XvPortID	    port;
+X    Atom            batom, catom, hatom, satom, eatom;    
+X    int		    version, revision;    
+X{    
+X    int value;
+X    int             nEncodings;
+X    XvEncodingInfo *encodingInfo;
+X    XvEncodingInfo *a;
+X    int i;
+X
+X    printf("Xv V%01d.%d\n\n", version, revision);
+X
+X    XvGetPortAttribute(dpy, port, eatom, &value);    
+X    XvQueryEncodings(dpy, port, &nEncodings, &encodingInfo);
+X    for (i = 0; i < nEncodings; i++) {
+X	a = &encodingInfo[i];
+X	if (a->encoding_id == value) {
+X	    printf("Encoding: %s\n", a->name);
+X	}
+X    }
+X    XvGetPortAttribute(dpy, port, catom, &value);    
+X    printf("Contast: %d\n", value);
+X
+X    XvGetPortAttribute(dpy, port, hatom, &value);    
+X    printf("Hue: %d\n", value);
+X
+X    XvGetPortAttribute(dpy, port, satom, &value);    
+X    printf("Saturation: %d\n", value);
+X
+X    XvGetPortAttribute(dpy, port, batom, &value);    
+X    printf("Brightness: %d\n", value);
+X    XvFreeEncodingInfo(encodingInfo);
+X}
+X
+Xint main(argc, argv)
+X    int             argc;
+X    char           *argv[];
+X{
+X    Display        *dpy;
+X    int             version, revision, major_opcode;
+X    int		     event_base, error_base, status;
+X    int             width, height;
+X    XvRational      rate;
+X    unsigned long   nAdaptors;
+X    XvAdaptorInfo  *pAdaptors;
+X    XvPortID        port;
+X    Atom            batom, catom, hatom, satom, eatom;
+X    Options	    opts;
+X    int		    nEncodings;
+X    XvEncodingInfo  *encodingInfo;
+X    XvEncodingInfo  *a;
+X    int		    i;
+X
+X    ParseCommandLine(argv, argc, &opts);
+X
+X    dpy = XOpenDisplay(opts.displayName);
+X    if (!dpy) {
+X	printf("Couldn't open display %s\n", opts.displayName);
+X	exit(-1);
+X    }
+X    status = XvQueryExtension(dpy, &version, &revision,
+X			      &major_opcode, &event_base, &error_base);
+X
+X    if (status != Success) {
+X	printf("Xv video extension not available\n");
+X	exit(-1);
+X    }
+X    if (! InternXvAtoms(dpy, &eatom, &satom, &hatom, &catom, &batom)) {
+X	printf("Encoding atoms not set up properly\n");
+X	exit(-1);
+X    }
+X
+X    XvQueryAdaptors(dpy, XDefaultRootWindow(dpy), &nAdaptors, &pAdaptors);
+X    if (!nAdaptors) {
+X	printf("Your display has no video adaptors\n");
+X	exit(-1);
+X    }
+X    port = pAdaptors->base_id;
+X
+X    if (opts.query) {
+X	QueryAllInformation(dpy, port, 
+X			    batom, catom, hatom, satom, eatom, 
+X			    version, revision);
+X	exit(0);
+X    }
+X    if (opts.brightness) {
+X        XvSetPortAttribute(dpy, port, batom, opts.b);
+X    }
+X    if (opts.contrast) {
+X        XvSetPortAttribute(dpy, port, catom, opts.c);
+X    }
+X    if (opts.hue) {
+X        XvSetPortAttribute(dpy, port, hatom, opts.h);
+X    }
+X    if (opts.saturation) {
+X        XvSetPortAttribute(dpy, port, satom, opts.s);
+X    }
+X    if (opts.encoding) {
+X	XvQueryEncodings(dpy, port, &nEncodings, &encodingInfo);
+X	for (i=0; i<nEncodings; i++) {
+X	    a = &encodingInfo[i];
+X	    if (strcmp(a->name, opts.e) == 0) {
+X	        XvSetPortAttribute(dpy, port, eatom, a->encoding_id);
+X		break;		
+X	    }
+X	}
+X	XvFreeEncodingInfo(encodingInfo);
+X    }
+X    XSync(dpy, 0);
+X}
+END_OF_FILE
+if test 8302 -ne `wc -c <'extensions/xv/clients/vset.c'`; then
+    echo shar: \"'extensions/xv/clients/vset.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/clients/vset.c'
+fi
+if test -f 'extensions/xv/include/Xvlib.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/include/Xvlib.h'\"
+else
+echo shar: Extracting \"'extensions/xv/include/Xvlib.h'\" \(8278 characters\)
+sed "s/^X//" >'extensions/xv/include/Xvlib.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X#ifndef XVLIB_H
+X#define XVLIB_H
+X/*
+X** File: 
+X**
+X**   Xvlib.h --- Xv library public header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   26.06.91 Carver
+X**     - changed XvFreeAdaptors to XvFreeAdaptorInfo
+X**     - changed XvFreeEncodings to XvFreeEncodingInfo
+X**
+X**   11.06.91 Carver
+X**     - changed SetPortControl to SetPortAttribute
+X**     - changed GetPortControl to GetPortAttribute
+X**     - changed QueryBestSize
+X**
+X**   05.15.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   01.24.91 Carver
+X**     - version 1.4 upgrade
+X**
+X*/
+X
+X#include <X11/extensions/Xv.h>
+X
+Xtypedef struct {
+X  int numerator;
+X  int denominator;
+X} XvRational;
+X
+Xtypedef struct {
+X  XvEncodingID encoding_id;
+X  char *name;
+X  unsigned long width;
+X  unsigned long height;
+X  XvRational rate;
+X  unsigned long num_encodings;
+X} XvEncodingInfo;
+X
+Xtypedef struct {
+X  char depth;
+X  unsigned long visual_id;
+X} XvFormat;
+X
+Xtypedef struct {
+X  XvPortID base_id;
+X  unsigned long num_ports;
+X  char type;
+X  char *name;
+X  unsigned long num_formats;
+X  XvFormat *formats;
+X  unsigned long num_adaptors;
+X} XvAdaptorInfo;
+X
+Xtypedef struct {
+X  int type;
+X  unsigned long serial;	   /* # of last request processed by server */
+X  Bool send_event;	   /* true if this came from a SendEvent request */
+X  Display *display;	   /* Display the event was read from */
+X  Drawable drawable;       /* drawable */
+X  unsigned long reason;    /* what generated this event */
+X  XvPortID port_id;        /* what port */
+X  Time time;		   /* milliseconds */
+X} XvVideoNotifyEvent;
+X
+Xtypedef struct {
+X  int type;
+X  unsigned long serial;	   /* # of last request processed by server */
+X  Bool send_event;	   /* true if this came from a SendEvent request */
+X  Display *display;	   /* Display the event was read from */
+X  XvPortID port_id;        /* what port */
+X  Time time;		   /* milliseconds */
+X  Atom attribute;           /* atom that identifies attribute */
+X  long value;              /* value of attribute */
+X} XvPortNotifyEvent;
+X
+Xtypedef union {
+X  int type;
+X  XvVideoNotifyEvent xvvideo;
+X  XvPortNotifyEvent xvport;
+X  long pad[24];
+X} XvEvent;
+X
+Xextern int XvQueryExtension(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  unsigned int*            /* p_version */,
+X  unsigned int*            /* p_revision */,
+X  unsigned int*            /* p_requestBase */,
+X  unsigned int*            /* p_eventBase */, 
+X  unsigned int*            /* p_errorBase */
+X#endif
+X);
+X
+Xextern int XvQueryAdaptors(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  Window                   /* window */,
+X  unsigned int*            /* p_nAdaptors */,
+X  XvAdaptorInfo**          /* p_pAdaptors */
+X#endif
+X);
+X
+Xextern int XvQueryEncodings(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  XvPortID                 /* port */,
+X  unsigned int*            /* p_nEncoding */,
+X  XvEncodingInfo**         /* p_pEncoding */
+X#endif
+X);
+X
+Xextern int XvPutVideo(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  XvPortID                 /* port */,
+X  Drawable                 /* d */,
+X  GC                       /* gc */,
+X  int                      /* vx */, 
+X  int                      /* vy */,
+X  unsigned int             /* vw */, 
+X  unsigned int             /* vh */,
+X  int                      /* dx */, 
+X  int                      /* dy */,
+X  unsigned int             /* dw */,
+X  unsigned int             /* dh */
+X#endif
+X);
+X
+Xextern int XvPutStill(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  XvPortID                 /* port */,
+X  Drawable                 /* d */,
+X  GC                       /* gc */,
+X  int                      /* vx */, 
+X  int                      /* vy */,
+X  unsigned int             /* vw */, 
+X  unsigned int             /* vh */,
+X  int                      /* dx */, 
+X  int                      /* dy */,
+X  unsigned int             /* dw */,
+X  unsigned int             /* dh */
+X#endif
+X);
+X
+Xextern int XvGetVideo(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  XvPortID                 /* port */,
+X  Drawable                 /* d */,
+X  GC                       /* gc */,
+X  int                      /* vx */, 
+X  int                      /* vy */,
+X  unsigned int             /* vw */, 
+X  unsigned int             /* vh */,
+X  int                      /* dx */, 
+X  int                      /* dy */,
+X  unsigned int             /* dw */,
+X  unsigned int             /* dh */
+X#endif
+X);
+X
+Xextern int XvGetStill(
+X#if NeedFunctionPrototypes
+X  Display*                 /* display */,
+X  XvPortID                 /* port */,
+X  Drawable                 /* d */,
+X  GC                       /* gc */,
+X  int                      /* vx */, 
+X  int                      /* vy */,
+X  unsigned int             /* vw */, 
+X  unsigned int             /* vh */,
+X  int                      /* dx */, 
+X  int                      /* dy */,
+X  unsigned int             /* dw */,
+X  unsigned int             /* dh */
+X#endif
+X);
+X
+Xextern int XvStopVideo(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Drawable                /* drawable */
+X#endif
+X);
+X
+Xextern int XvGrabPort(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Time                    /* time */
+X#endif
+X);
+X
+Xextern int XvUngrabPort(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Time                    /* time */
+X#endif
+X);
+X
+Xextern int XvSelectVideoNotify(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  Drawable                /* drawable */,
+X  Bool                    /* onoff */
+X#endif
+X);
+X
+Xextern int XvSelectPortNotify(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Bool                    /* onoff */
+X#endif
+X);
+X
+Xextern int XvSetPortAttribute(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Atom                    /* attribute */,
+X  int                     /* value */
+X#endif
+X);
+X
+Xextern int XvGetPortAttribute(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Atom                    /* attribute */,
+X  int*                    /* p_value */
+X#endif
+X);
+X
+Xextern int XvQueryBestSize(
+X#if NeedFunctionPrototypes
+X  Display*                /* display */,
+X  XvPortID                /* port */,
+X  Bool                    /* motion */,
+X  unsigned int            /* vid_w */, 
+X  unsigned int            /* vid_h */,
+X  unsigned int            /* drw_w */, 
+X  unsigned int            /* drw_h */,
+X  unsigned int*           /* p_actual_width */, 
+X  unsigned int*           /* p_actual_width */
+X#endif
+X);
+X
+Xextern void XvFreeAdaptorInfo(
+X#if NeedFunctionPrototypes
+X  XvAdaptorInfo*          /* adaptors */
+X#endif
+X);
+X
+Xextern void XvFreeEncodingInfo(
+X#if NeedFunctionPrototypes
+X  XvEncodingInfo*         /* encodings */
+X#endif
+X);
+X
+X#endif XVLIB_H
+END_OF_FILE
+if test 8278 -ne `wc -c <'extensions/xv/include/Xvlib.h'`; then
+    echo shar: \"'extensions/xv/include/Xvlib.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/include/Xvlib.h'
+fi
+if test -f 'extensions/xv/test/xvt8.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/test/xvt8.c'\"
+else
+echo shar: Extracting \"'extensions/xv/test/xvt8.c'\" \(8134 characters\)
+sed "s/^X//" >'extensions/xv/test/xvt8.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvt8.c --- Xv test program 8
+X**   
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   26.11.91 Carver
+X**     - origional
+X**       
+X*/
+X#include <stdio.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/extensions/Xvlib.h>
+X
+X
+Xmain(argc, argv)
+X     int         argc;
+X     char        *argv[];
+X{
+X  char chr;
+X  int ii, jj, status, in_motion;
+X  unsigned int mask;
+X  int screen;
+X  int dx, dy, dw, dh, px, py, cx, cy, vx, vy, vw, vh;
+X  int rx,ry,wx,wy;
+X  int delta;
+X
+X  Display *dpy;
+X  Visual *vis,*def_vis;
+X  XVisualInfo *p_vis_info, vis_info_tmpl;
+X  unsigned long vis_id;
+X  unsigned long depth;
+X  XGCValues gc_attr;
+X  GC gc,stillgc;
+X  XSetWindowAttributes win_attr;
+X  Window root,main_win,child;
+X  Pixmap mskpix;
+X  Colormap cmap;
+X  XEvent event;
+X  XColor scolor,ecolor;
+X
+X  unsigned long version, revision;
+X  unsigned int event_base;
+X  unsigned int error_base;
+X  unsigned int major_opcode;
+X  unsigned long nAdaptors;
+X  XvAdaptorInfo *pAdaptors, *pAdaptor;
+X  XvEncodingInfo *pEncoding;
+X  XvFormat *pFormat;
+X  unsigned long port;
+X  unsigned long enc_id;
+X  XvEvent *pe;
+X  float rate;
+X  int video;
+X
+X  printf("\n  Welcome to Xv test program #8\n\n");
+X  printf("  This program is not interactive.  It verifies that iterative\n");
+X  printf("  PutStill requests work properly\n");
+X
+X  printf("\n> Press return to continue...");
+X  chr = getc(stdin);
+X
+X  dpy = XOpenDisplay(0);
+X  if (!dpy)
+X    {
+X      printf("\n  Couldn't open display\n");
+X      printf("\n  Xv test program #8 terminated\n");
+X      exit();
+X    }
+X
+X  root = XDefaultRootWindow(dpy);
+X  screen = XDefaultScreen(dpy);
+X
+X/*  XSynchronize(dpy, True); */
+X
+X  status = XvQueryExtension(dpy, &version, &revision,
+X			    &major_opcode, &event_base, &error_base);
+X
+X  if (status != Success) 
+X    {
+X      printf("\n  Xv video extension not available\n");
+X      printf("\n  Xv test program #8 terminated\n");
+X      exit();
+X    }
+X
+X  XvQueryAdaptors(dpy, root, &nAdaptors, &pAdaptors);
+X
+X  printf("\n  Xv V%01d.%d\n", version, revision);
+X
+X  if (!nAdaptors)
+X    {
+X      printf("\n  Your display has no video adaptors\n");
+X      printf("\n  Xv test program #8 terminated\n");
+X      exit();
+X    }
+X
+X if (!Setup(argc, argv, nAdaptors, pAdaptors, &port, &depth, &vis_id))
+X   {
+X     printf("\n  Setup failed.\n");
+X     printf("\n  Xv test program #8 terminated\n");
+X     exit();
+X   }
+X
+X
+X  vis_info_tmpl.visualid = vis_id;
+X  p_vis_info = XGetVisualInfo(dpy, VisualIDMask, &vis_info_tmpl, &ii);
+X  if (!p_vis_info)
+X    {
+X      printf("      Error: Couldn't find visual ");
+X      printf("#%x listed for adaptor.\n", pFormat->visual_id);
+X      printf("\n  Xv test program #8 terminated\n");
+X      return;
+X    }
+X
+X  vis = p_vis_info->visual;
+X  def_vis = XDefaultVisual(dpy,screen);
+X
+X  if (vis->visualid == def_vis->visualid)
+X    cmap = XDefaultColormap(dpy,screen);
+X  else
+X    cmap = XCreateColormap(dpy, root, vis, AllocNone);
+X  
+X  XAllocNamedColor(dpy, cmap, "midnight blue", &scolor, &ecolor);
+X
+X  win_attr.colormap = cmap;
+X  win_attr.background_pixel = scolor.pixel;
+X  win_attr.event_mask = ExposureMask | VisibilityChangeMask | 
+X    ButtonPressMask | ButtonReleaseMask | KeyPressMask;
+X  win_attr.border_pixel = scolor.pixel;
+X
+X  main_win = XCreateWindow(dpy, root, 0, 0, 672, 512, 0, 
+X			   depth, InputOutput, vis,
+X			   CWColormap | CWBackPixel | CWEventMask |
+X			   CWBorderPixel,
+X			   &win_attr);
+X
+X  XMapWindow(dpy, main_win);
+X
+X  printf("\n  Waiting for window to become visible...\n");
+X  while (1)
+X    {
+X      XNextEvent(dpy, &event);
+X      if (event.type == VisibilityNotify) break;
+X    }
+X
+X  printf("\n  SelectNotify on window\n");
+X  XvSelectVideoNotify(dpy, main_win, True);
+X
+X  gc_attr.foreground = 0xffffff;
+X  gc = XCreateGC(dpy, main_win, 
+X		 GCForeground,
+X		 &gc_attr);
+X
+X  vw = 640;
+X  vh = 480;
+X
+X  while (1)
+X    {
+X
+X      dx = 16;
+X      dy = 16;
+X      dw = vw;
+X      dh = vh;
+X
+X      for (ii=0; ii<30; ii++)
+X	XvPutStill(dpy, port, main_win, gc, 0, 0, 
+X		   vw, vh, dx, dy, dw, dh);
+X
+X      XSync(dpy,1);
+X	  
+X    }
+X
+X  printf("\n  Xv test program #8 finished\n");
+X
+X}
+X
+X
+XSetup(argc, argv, nAdaptors, pAdaptors, p_port, p_depth, p_vis_id)
+X     int         argc;
+X     char        *argv[];
+X     unsigned long nAdaptors;
+X     XvAdaptorInfo *pAdaptors;
+X     unsigned long *p_port;
+X     unsigned long *p_depth;
+X     unsigned long *p_vis_id;
+X{
+X  int ii, jj;
+X  XvAdaptorInfo *pAdaptor;
+X  XvFormat *pFormat;
+X  int adaptor, port, depth, visual_id;
+X
+X  adaptor = port = depth = visual_id = -1;
+X
+X  /* LOOK THROUGH COMMAND LINE ARGUMENTS */
+X
+X  for ( ii = 1; ii < argc; ii++ )
+X    {
+X      if (strcmp( argv[ii], "-adaptor") == 0)
+X	{
+X	    if(++ii < argc)
+X	      adaptor = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-port") == 0)
+X	{
+X	    if(++ii < argc)
+X	      port = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-depth") == 0)
+X	{
+X	    if(++ii < argc)
+X	      depth = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-visual") == 0)
+X	{
+X	    if(++ii < argc)
+X	      visual_id = atoi(argv[ii]);
+X            else
+X	      UseMsg(argv);
+X	}
+X      else if (strcmp( argv[ii], "-help") == 0)
+X	{
+X	  UseMsg(argv);
+X	}
+X    }
+X
+X  if (adaptor < 0)
+X    {
+X      pAdaptor = pAdaptors;
+X    }
+X  else
+X    {
+X      if (adaptor > nAdaptors)
+X	{
+X	  printf("\n  Adaptor #%d doesn't exist.\n", adaptor);
+X	  return False;
+X	}
+X      pAdaptor = pAdaptors+(adaptor-1);
+X    }
+X
+X  if (port < 0)
+X    {
+X      port = pAdaptor->base_id;
+X    }
+X  else
+X    {
+X      if (port > pAdaptor->num_ports)
+X	{
+X	  printf("\n  Port #%d doesn't exist for adaptor #%d.\n", 
+X		 port, adaptor);
+X	  return False;
+X	}
+X    }
+X
+X  pFormat = pAdaptor->formats;
+X
+X  if (depth < 0)
+X    {
+X      depth = pFormat->depth;
+X    }
+X  else
+X    {
+X      for (ii=0; ii<pAdaptor->num_formats; ii++)
+X	{
+X	  if (pFormat->depth == depth) break;
+X	  pFormat++;
+X	}
+X
+X      if (ii >= pAdaptor->num_formats)
+X	{
+X	  printf("\n  Depth %d not supported by adaptor.\n", depth);
+X	  return False;
+X	}
+X    }
+X
+X  if (visual_id < 0)
+X    {
+X      visual_id = pFormat->visual_id;
+X    }
+X  else
+X    {
+X
+X      pFormat = pAdaptor->formats;
+X
+X      for (ii=0; ii<pAdaptor->num_formats; ii++)
+X	{
+X	  if ((pFormat->visual_id == visual_id) && pFormat->depth == depth)
+X	    break;
+X	  pFormat++;
+X	}
+X
+X      if (ii >= pAdaptor->num_formats)
+X	{
+X	  printf("\n  Visual-id %d at depth %d not supported by adaptor.\n", 
+X		 depth, visual_id);
+X	  return False;
+X	}
+X    }
+X
+X  *p_port = port;
+X  *p_depth = depth;
+X  *p_vis_id = visual_id;
+X
+X  return True;
+X}
+X
+XUseMsg(argv)
+X     char        *argv[];
+X{
+X
+X  printf("use: %s [option]\n", argv[0]);
+X  printf("\t-adaptor #                       adaptor number\n");
+X  printf("\t-port #                          port (XID)\n");
+X  printf("\t-depth #                         drawable depth (planes)\n");
+X  printf("\t-visual #                        drawable visual (id)\n");
+X  exit();
+X}
+END_OF_FILE
+if test 8134 -ne `wc -c <'extensions/xv/test/xvt8.c'`; then
+    echo shar: \"'extensions/xv/test/xvt8.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/test/xvt8.c'
+fi
+if test -f 'server/ddx/cfb32/cfbcmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbcmap.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbcmap.c'\" \(9098 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbcmap.c' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X
+X
+X#include "X.h"
+X#include "Xproto.h"
+X#include "scrnintstr.h"
+X#include "colormapst.h"
+X#include "resource.h"
+X
+X#ifdef	STATIC_COLOR
+X
+Xstatic ColormapPtr InstalledMaps[MAXSCREENS];
+X
+Xint
+XcfbListInstalledColormaps(pScreen, pmaps)
+X    ScreenPtr	pScreen;
+X    Colormap	*pmaps;
+X{
+X    /* By the time we are processing requests, we can guarantee that there
+X     * is always a colormap installed */
+X    *pmaps = InstalledMaps[pScreen->myNum]->mid;
+X    return (1);
+X}
+X
+X
+Xvoid
+XcfbInstallColormap(pmap)
+X    ColormapPtr	pmap;
+X{
+X    int index = pmap->pScreen->myNum;
+X    ColormapPtr oldpmap = InstalledMaps[index];
+X
+X    if(pmap != oldpmap)
+X    {
+X	/* Uninstall pInstalledMap. No hardware changes required, just
+X	 * notify all interested parties. */
+X	if(oldpmap != (ColormapPtr)None)
+X	    WalkTree(pmap->pScreen, TellLostMap, (char *)&oldpmap->mid);
+X	/* Install pmap */
+X	InstalledMaps[index] = pmap;
+X	WalkTree(pmap->pScreen, TellGainedMap, (char *)&pmap->mid);
+X
+X    }
+X}
+X
+Xvoid
+XcfbUninstallColormap(pmap)
+X    ColormapPtr	pmap;
+X{
+X    int index = pmap->pScreen->myNum;
+X    ColormapPtr curpmap = InstalledMaps[index];
+X
+X    if(pmap == curpmap)
+X    {
+X	if (pmap->mid != pmap->pScreen->defColormap)
+X	{
+X	    curpmap = (ColormapPtr) LookupIDByType(pmap->pScreen->defColormap,
+X						   RT_COLORMAP);
+X	    (*pmap->pScreen->InstallColormap)(curpmap);
+X	}
+X    }
+X}
+X
+X#endif
+X
+Xvoid
+XcfbResolveColor(pred, pgreen, pblue, pVisual)
+X    unsigned short	*pred, *pgreen, *pblue;
+X    register VisualPtr	pVisual;
+X{
+X    int shift = 16 - pVisual->bitsPerRGBValue;
+X    unsigned lim = (1 << pVisual->bitsPerRGBValue) - 1;
+X
+X    if ((pVisual->class == PseudoColor) || (pVisual->class == DirectColor))
+X    {
+X	/* rescale to rgb bits */
+X	*pred = ((*pred >> shift) * 65535) / lim;
+X	*pgreen = ((*pgreen >> shift) * 65535) / lim;
+X	*pblue = ((*pblue >> shift) * 65535) / lim;
+X    }
+X    else if (pVisual->class == GrayScale)
+X    {
+X	/* rescale to gray then rgb bits */
+X	*pred = (30L * *pred + 59L * *pgreen + 11L * *pblue) / 100;
+X	*pblue = *pgreen = *pred = ((*pred >> shift) * 65535) / lim;
+X    }
+X    else if (pVisual->class == StaticGray)
+X    {
+X	unsigned limg = pVisual->ColormapEntries - 1;
+X	/* rescale to gray then [0..limg] then [0..65535] then rgb bits */
+X	*pred = (30L * *pred + 59L * *pgreen + 11L * *pblue) / 100;
+X	*pred = ((((*pred * (limg + 1))) >> 16) * 65535) / limg;
+X	*pblue = *pgreen = *pred = ((*pred >> shift) * 65535) / lim;
+X    }
+X    else
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	/* rescale to [0..limN] then [0..65535] then rgb bits */
+X	*pred = ((((((*pred * (limr + 1)) >> 16) *
+X		    65535) / limr) >> shift) * 65535) / lim;
+X	*pgreen = ((((((*pgreen * (limg + 1)) >> 16) *
+X		      65535) / limg) >> shift) * 65535) / lim;
+X	*pblue = ((((((*pblue * (limb + 1)) >> 16) *
+X		     65535) / limb) >> shift) * 65535) / lim;
+X    }
+X}
+X
+XBool
+XcfbInitializeColormap(pmap)
+X    register ColormapPtr	pmap;
+X{
+X    register unsigned i;
+X    register VisualPtr pVisual;
+X    unsigned lim, maxent, shift;
+X
+X    pVisual = pmap->pVisual;
+X    lim = (1 << pVisual->bitsPerRGBValue) - 1;
+X    shift = 16 - pVisual->bitsPerRGBValue;
+X    maxent = pVisual->ColormapEntries - 1;
+X    if (pVisual->class == TrueColor)
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red =
+X		((((i * 65535) / limr) >> shift) * 65535) / lim;
+X	    pmap->green[i].co.local.green =
+X		((((i * 65535) / limg) >> shift) * 65535) / lim;
+X	    pmap->blue[i].co.local.blue =
+X		((((i * 65535) / limb) >> shift) * 65535) / lim;
+X	}
+X    }
+X    else if (pVisual->class == StaticColor)
+X    {
+X	unsigned limr, limg, limb;
+X
+X	limr = pVisual->redMask >> pVisual->offsetRed;
+X	limg = pVisual->greenMask >> pVisual->offsetGreen;
+X	limb = pVisual->blueMask >> pVisual->offsetBlue;
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red =
+X		((((((i & pVisual->redMask) >> pVisual->offsetRed)
+X		    * 65535) / limr) >> shift) * 65535) / lim;
+X	    pmap->red[i].co.local.green =
+X		((((((i & pVisual->greenMask) >> pVisual->offsetGreen)
+X		    * 65535) / limg) >> shift) * 65535) / lim;
+X	    pmap->red[i].co.local.blue =
+X		((((((i & pVisual->blueMask) >> pVisual->offsetBlue)
+X		    * 65535) / limb) >> shift) * 65535) / lim;
+X	}
+X    }
+X    else if (pVisual->class == StaticGray)
+X    {
+X	for(i = 0; i <= maxent; i++)
+X	{
+X	    /* rescale to [0..65535] then rgb bits */
+X	    pmap->red[i].co.local.red = ((((i * 65535) / maxent) >> shift)
+X					 * 65535) / lim;
+X	    pmap->red[i].co.local.green = pmap->red[i].co.local.red;
+X	    pmap->red[i].co.local.blue = pmap->red[i].co.local.red;
+X	}
+X    }
+X    return TRUE;
+X}
+X
+X/* When simulating DirectColor on PseudoColor hardware, multiple
+X   entries of the colormap must be updated
+X */
+X
+X#define AddElement(mask) { \
+X    pixel = red | green | blue; \
+X    for (i = 0; i < nresult; i++) \
+X  	if (outdefs[i].pixel == pixel) \
+X    	    break; \
+X    if (i == nresult) \
+X    { \
+X   	nresult++; \
+X	outdefs[i].pixel = pixel; \
+X	outdefs[i].flags = 0; \
+X    } \
+X    outdefs[i].flags |= (mask); \
+X    outdefs[i].red = pmap->red[red >> pVisual->offsetRed].co.local.red; \
+X    outdefs[i].green = pmap->green[green >> pVisual->offsetGreen].co.local.green; \
+X    outdefs[i].blue = pmap->blue[blue >> pVisual->offsetBlue].co.local.blue; \
+X}
+X
+XcfbExpandDirectColors (pmap, ndef, indefs, outdefs)
+X    ColormapPtr	pmap;
+X    int		ndef;
+X    xColorItem	*indefs, *outdefs;
+X{
+X    int		    minred, mingreen, minblue;
+X    register int    red, green, blue;
+X    int		    maxred, maxgreen, maxblue;
+X    int		    stepred, stepgreen, stepblue;
+X    VisualPtr	    pVisual;
+X    register int    pixel;
+X    register int    nresult;
+X    register int    i;
+X
+X    pVisual = pmap->pVisual;
+X
+X    stepred = 1 << pVisual->offsetRed;
+X    stepgreen = 1 << pVisual->offsetGreen;
+X    stepblue = 1 << pVisual->offsetBlue;
+X    maxred = pVisual->redMask;
+X    maxgreen = pVisual->greenMask;
+X    maxblue = pVisual->blueMask;
+X    nresult = 0;
+X    for (;ndef--; indefs++)
+X    {
+X	if (indefs->flags & DoRed)
+X	{
+X	    red = indefs->pixel & pVisual->redMask;
+X    	    for (green = 0; green <= maxgreen; green += stepgreen)
+X    	    {
+X	    	for (blue = 0; blue <= maxblue; blue += stepblue)
+X	    	{
+X		    AddElement (DoRed)
+X	    	}
+X    	    }
+X	}
+X	if (indefs->flags & DoGreen)
+X	{
+X	    green = indefs->pixel & pVisual->greenMask;
+X    	    for (red = 0; red <= maxred; red += stepred)
+X    	    {
+X	    	for (blue = 0; blue <= maxblue; blue += stepblue)
+X	    	{
+X		    AddElement (DoGreen)
+X	    	}
+X    	    }
+X	}
+X	if (indefs->flags & DoBlue)
+X	{
+X	    blue = indefs->pixel & pVisual->blueMask;
+X    	    for (red = 0; red <= maxred; red += stepred)
+X    	    {
+X	    	for (green = 0; green <= maxgreen; green += stepgreen)
+X	    	{
+X		    AddElement (DoBlue)
+X	    	}
+X    	    }
+X	}
+X    }
+X    return nresult;
+X}
+X
+XBool
+XcfbCreateDefColormap(pScreen)
+X    ScreenPtr pScreen;
+X{
+X    unsigned short	zero = 0, ones = 0xFFFF;
+X    VisualPtr	pVisual;
+X    ColormapPtr	cmap;
+X    
+X    for (pVisual = pScreen->visuals;
+X	 pVisual->vid != pScreen->rootVisual;
+X	 pVisual++)
+X	;
+X
+X    if (CreateColormap(pScreen->defColormap, pScreen, pVisual, &cmap,
+X		       (pVisual->class & DynamicClass) ? AllocNone : AllocAll,
+X		       0)
+X	!= Success)
+X	return FALSE;
+X    if ((AllocColor(cmap, &ones, &ones, &ones, &(pScreen->whitePixel), 0) !=
+X       	   Success) ||
+X    	(AllocColor(cmap, &zero, &zero, &zero, &(pScreen->blackPixel), 0) !=
+X       	   Success))
+X    	return FALSE;
+X    (*pScreen->InstallColormap)(cmap);
+X    return TRUE;
+X}
+END_OF_FILE
+if test 9098 -ne `wc -c <'server/ddx/cfb32/cfbcmap.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbcmap.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbcmap.c'
+fi
+if test -f 'server/ddx/cfb32/cfbpntwin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbpntwin.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbpntwin.c'\" \(7718 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbpntwin.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X
+X#include "windowstr.h"
+X#include "regionstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X
+Xstatic void cfbPaintArea32(), cfbPaintAreaSolid();
+X
+Xextern void miPaintWindow();
+X
+Xvoid
+XcfbPaintWindow(pWin, pRegion, what)
+X    WindowPtr	pWin;
+X    RegionPtr	pRegion;
+X    int		what;
+X{
+X    register cfbPrivWin	*pPrivWin;
+X
+X    pPrivWin = (cfbPrivWin *)(pWin->devPrivates[cfbWindowPrivateIndex].ptr);
+X
+X    switch (what) {
+X    case PW_BACKGROUND:
+X	switch (pWin->backgroundState) {
+X	case None:
+X	    return;
+X	case ParentRelative:
+X	    do {
+X		pWin = pWin->parent;
+X	    } while (pWin->backgroundState == ParentRelative);
+X	    (*pWin->drawable.pScreen->PaintWindowBackground)(pWin, pRegion,
+X							     what);
+X	    return;
+X	case BackgroundPixmap:
+X	    if (pPrivWin->fastBackground)
+X	    {
+X		cfbFillBoxTile32 ((DrawablePtr)pWin,
+X				  (int)REGION_NUM_RECTS(pRegion),
+X				  REGION_RECTS(pRegion),
+X				  pPrivWin->pRotatedBackground);
+X		return;
+X	    }
+X	    else
+X	    {
+X		cfbFillBoxTileOdd ((DrawablePtr)pWin,
+X				   (int)REGION_NUM_RECTS(pRegion),
+X				   REGION_RECTS(pRegion),
+X				   pWin->background.pixmap,
+X				   (int) pWin->drawable.x, (int) pWin->drawable.y);
+X		return;
+X	    }
+X	    break;
+X	case BackgroundPixel:
+X	    cfbFillBoxSolid ((DrawablePtr)pWin,
+X			     (int)REGION_NUM_RECTS(pRegion),
+X			     REGION_RECTS(pRegion),
+X			     pWin->background.pixel);
+X	    return;
+X    	}
+X    	break;
+X    case PW_BORDER:
+X	if (pWin->borderIsPixel)
+X	{
+X	    cfbFillBoxSolid ((DrawablePtr)pWin,
+X			     (int)REGION_NUM_RECTS(pRegion),
+X			     REGION_RECTS(pRegion),
+X			     pWin->border.pixel);
+X	    return;
+X	}
+X	else if (pPrivWin->fastBorder)
+X	{
+X	    cfbFillBoxTile32 ((DrawablePtr)pWin,
+X			      (int)REGION_NUM_RECTS(pRegion),
+X			      REGION_RECTS(pRegion),
+X			      pPrivWin->pRotatedBorder);
+X	    return;
+X	}
+X	else if (pWin->border.pixmap->drawable.width >= PPW/2)
+X	{
+X	    cfbFillBoxTileOdd ((DrawablePtr)pWin,
+X			       (int)REGION_NUM_RECTS(pRegion),
+X			       REGION_RECTS(pRegion),
+X			       pWin->border.pixmap,
+X			       (int) pWin->drawable.x, (int) pWin->drawable.y);
+X	    return;
+X	}
+X	break;
+X    }
+X    miPaintWindow (pWin, pRegion, what);
+X}
+X
+X/*
+X * Use the RROP macros in copy mode
+X */
+X
+X#define RROP GXcopy
+X#include "cfbrrop.h"
+X
+X#ifdef RROP_UNROLL
+X# define Expand(left,right,leftAdjust) {\
+X    int part = nmiddle & RROP_UNROLL_MASK; \
+X    int widthStep; \
+X    widthStep = widthDst - nmiddle - leftAdjust; \
+X    nmiddle >>= RROP_UNROLL_SHIFT; \
+X    while (h--) { \
+X	left \
+X	pdst += part; \
+X	switch (part) { \
+X	    RROP_UNROLL_CASE(pdst) \
+X	} \
+X	m = nmiddle; \
+X	while (m) { \
+X	    pdst += RROP_UNROLL; \
+X	    RROP_UNROLL_LOOP(pdst) \
+X	    m--; \
+X	} \
+X	right \
+X	pdst += widthStep; \
+X    } \
+X}
+X
+X#else
+X# define Expand(left, right, leftAdjust) { \
+X    int widthStep; \
+X    widthStep = widthDst - nmiddle - leftAdjust; \
+X    while (h--) { \
+X	left \
+X	m = nmiddle; \
+X	while (m--) {\
+X	    RROP_SOLID(pdst); \
+X	    pdst++; \
+X	} \
+X	right \
+X	pdst += widthStep; \
+X    } \
+X}
+X#endif
+X
+Xvoid
+XcfbFillBoxSolid (pDrawable, nBox, pBox, pixel)
+X    DrawablePtr	    pDrawable;
+X    int		    nBox;
+X    BoxPtr	    pBox;
+X    unsigned long   pixel;
+X{
+X    unsigned long   *pdstBase;
+X    int		    widthDst;
+X    register int    h;
+X    register unsigned long   rrop_xor;
+X    register unsigned long   *pdst;
+X    register unsigned long   leftMask, rightMask;
+X    int		    nmiddle;
+X    register int    m;
+X    int		    w;
+X
+X    cfbGetLongWidthAndPointer(pDrawable, widthDst, pdstBase);
+X
+X    rrop_xor = PFILL(pixel);
+X    for (; nBox; nBox--, pBox++)
+X    {
+X    	pdst = pdstBase + pBox->y1 * widthDst;
+X    	h = pBox->y2 - pBox->y1;
+X	w = pBox->x2 - pBox->x1;
+X#if PPW == 4
+X	if (w == 1)
+X	{
+X	    register char    *pdstb = ((char *) pdst) + pBox->x1;
+X	    int	    incr = widthDst << 2;
+X
+X	    while (h--)
+X	    {
+X		*pdstb = rrop_xor;
+X		pdstb += incr;
+X	    }
+X	}
+X	else
+X	{
+X#endif
+X	pdst += (pBox->x1 >> PWSH);
+X	if ((pBox->x1 & PIM) + w <= PPW)
+X	{
+X	    maskpartialbits(pBox->x1, w, leftMask);
+X	    while (h--) {
+X		*pdst = (*pdst & ~leftMask) | (rrop_xor & leftMask);
+X		pdst += widthDst;
+X	    }
+X	}
+X	else
+X	{
+X	    maskbits (pBox->x1, w, leftMask, rightMask, nmiddle);
+X	    if (leftMask)
+X	    {
+X		if (rightMask)
+X		{
+X		    Expand (RROP_SOLID_MASK (pdst, leftMask); pdst++; ,
+X			    RROP_SOLID_MASK (pdst, rightMask); ,
+X			    1)
+X		}
+X		else
+X		{
+X		    Expand (RROP_SOLID_MASK (pdst, leftMask); pdst++;,
+X			    ;,
+X			    1)
+X		}
+X	    }
+X	    else
+X	    {
+X		if (rightMask)
+X		{
+X		    Expand (;,
+X			    RROP_SOLID_MASK (pdst, rightMask);,
+X			    0)
+X		}
+X		else
+X		{
+X		    Expand (;,
+X			    ;,
+X			    0)
+X		}
+X	    }
+X	}
+X#if PPW == 4
+X	}
+X#endif
+X    }
+X}
+X
+Xvoid
+XcfbFillBoxTile32 (pDrawable, nBox, pBox, tile)
+X    DrawablePtr	    pDrawable;
+X    int		    nBox;	/* number of boxes to fill */
+X    BoxPtr 	    pBox;	/* pointer to list of boxes to fill */
+X    PixmapPtr	    tile;	/* rotated, expanded tile */
+X{
+X    register unsigned long  rrop_xor;	
+X    register unsigned long  *pdst;
+X    register int	    m;
+X    int			    *psrc;
+X    int			    tileHeight;
+X
+X    int			    widthDst;
+X    int			    w;
+X    int			    h;
+X    register unsigned long  leftMask;
+X    register unsigned long  rightMask;
+X    int			    nmiddle;
+X    int			    y;
+X    int			    srcy;
+X
+X    unsigned long	    *pdstBase;
+X
+X    tileHeight = tile->drawable.height;
+X    psrc = (int *)tile->devPrivate.ptr;
+X
+X    cfbGetLongWidthAndPointer (pDrawable, widthDst, pdstBase);
+X
+X    while (nBox--)
+X    {
+X	w = pBox->x2 - pBox->x1;
+X	h = pBox->y2 - pBox->y1;
+X	y = pBox->y1;
+X	pdst = pdstBase + (pBox->y1 * widthDst) + (pBox->x1 >> PWSH);
+X	srcy = y % tileHeight;
+X
+X#define StepTile    rrop_xor = psrc[srcy]; \
+X		    ++srcy; \
+X		    if (srcy == tileHeight) \
+X		        srcy = 0;
+X
+X	if ( ((pBox->x1 & PIM) + w) < PPW)
+X	{
+X	    maskpartialbits(pBox->x1, w, leftMask);
+X	    rightMask = ~leftMask;
+X	    while (h--)
+X	    {
+X		StepTile
+X		*pdst = (*pdst & rightMask) | (rrop_xor & leftMask);
+X		pdst += widthDst;
+X	    }
+X	}
+X	else
+X	{
+X	    maskbits(pBox->x1, w, leftMask, rightMask, nmiddle);
+X
+X	    if (leftMask)
+X	    {
+X		if (rightMask)
+X		{
+X		    Expand (StepTile
+X			    RROP_SOLID_MASK(pdst, leftMask); pdst++;,
+X			    RROP_SOLID_MASK(pdst, rightMask);,
+X			    1)
+X		}
+X		else
+X		{
+X		    Expand (StepTile
+X			    RROP_SOLID_MASK(pdst, leftMask); pdst++;,
+X			    ,
+X			    1)
+X		}
+X	    }
+X	    else
+X	    {
+X		if (rightMask)
+X		{
+X		    Expand (StepTile
+X			    ,
+X			    RROP_SOLID_MASK(pdst, rightMask);,
+X			    0)
+X		}
+X		else
+X		{
+X		    Expand (StepTile
+X			    ,
+X			    ,
+X			    0)
+X		}
+X	    }
+X	}
+X        pBox++;
+X    }
+X}
+END_OF_FILE
+if test 7718 -ne `wc -c <'server/ddx/cfb32/cfbpntwin.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbpntwin.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbpntwin.c'
+fi
+if test -f 'server/ddx/dec/ws/init.c.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/dec/ws/init.c.diff'\"
+else
+echo shar: Extracting \"'server/ddx/dec/ws/init.c.diff'\" \(620 characters\)
+sed "s/^X//" >'server/ddx/dec/ws/init.c.diff' <<'END_OF_FILE'
+X*** /xsrc/server/ddx/dec/ws/init.c	Mon Aug 26 13:49:52 1991
+X--- init.c	Fri Nov 15 12:23:58 1991
+X***************
+X*** 50,56 ****
+X  extern KeybdCtrl defaultKeyboardControl;
+X  ws_event_queue	*queue;
+X  
+X! #define NUMFORMATS 2
+X  static	PixmapFormatRec formats[] = {
+X  	{1, 1, BITMAP_SCANLINE_PAD},     /* 1 bit deep */
+X  	{8, 8, BITMAP_SCANLINE_PAD},     /* 8-bit deep */
+X--- 50,56 ----
+X  extern KeybdCtrl defaultKeyboardControl;
+X  ws_event_queue	*queue;
+X  
+X! #define NUMFORMATS 3
+X  static	PixmapFormatRec formats[] = {
+X  	{1, 1, BITMAP_SCANLINE_PAD},     /* 1 bit deep */
+X  	{8, 8, BITMAP_SCANLINE_PAD},     /* 8-bit deep */
+END_OF_FILE
+if test 620 -ne `wc -c <'server/ddx/dec/ws/init.c.diff'`; then
+    echo shar: \"'server/ddx/dec/ws/init.c.diff'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/dec/ws/init.c.diff'
+fi
+if test -f 'server/ddx/sun/xfbwindow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbwindow.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbwindow.c'\" \(8338 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbwindow.c' <<'END_OF_FILE'
+X/****************************************************************************
+X**                                                                          *
+X**                  COPYRIGHT (c) 1988, 1989, 1990 BY                       *
+X**             DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.                *
+X**			   ALL RIGHTS RESERVED                              *
+X**                                                                          *
+X**  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED  *
+X**  ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE  *
+X**  INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER  *
+X**  COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY  *
+X**  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY  *
+X**  TRANSFERRED.                                                            *
+X**                                                                          *
+X**  THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE  *
+X**  AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT  *
+X**  CORPORATION.                                                            *
+X**                                                                          *
+X**  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS  *
+X**  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.                 *
+X**                                                                          *
+X****************************************************************************/
+X
+X/*
+XUpdated edg 18sep91:
+X    The select plane is painted in three places: CopyWindow, PaintWindow, and
+X    WindowExposures.  (For an analysis showing that this is sufficient ask
+X    Ed Goei.)  This is done by ropSetSelect().  The value written to the
+X    select plane depends on which hardware colormap a window's colormap will
+X    be installed into.  See ropcolor.c for more info.
+X*/
+X
+X#include "X.h"
+X#include "scrnintstr.h"
+X#include "windowstr.h"
+X#include "mistruct.h"
+X#include "regionstr.h"
+X
+X#include "xfbstruct.h"
+X#include "cfb.h"
+X
+X#define xfbGetHardwareCmap(pWin) \
+X    ((wVisual(pWin) == pWin->drawable.pScreen->rootVisual) ? 0 : 1)
+X
+Xextern int xfbScreenPrivateIndex;
+X
+XBool
+XxfbCreateWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbCreateWindow(pWin));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbCreateWindow(pWin));
+X    else
+X	return (cfb32CreateWindow(pWin));
+X}
+X
+XBool
+XxfbDestroyWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbDestroyWindow(pWin));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbDestroyWindow(pWin));
+X    else
+X	return (cfb32DestroyWindow(pWin));
+X}
+X
+XBool
+XxfbMapWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbMapWindow(pWin));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbMapWindow(pWin));
+X    else
+X	return (cfb32MapWindow(pWin));
+X}
+X
+XBool
+XxfbPositionWindow(pWin, x, y)
+X    WindowPtr pWin;
+X    int x, y;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbPositionWindow(pWin, x, y));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbPositionWindow(pWin, x, y));
+X    else
+X	return (cfb32PositionWindow(pWin, x, y));
+X}
+X
+XBool
+XxfbUnmapWindow(pWin)
+X    WindowPtr pWin;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbUnmapWindow(pWin));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbUnmapWindow(pWin));
+X    else
+X	return (cfb32UnmapWindow(pWin));
+X}
+X
+X/*
+XLook at pWin and all viewable children to see if they all have the same
+Xdepth and hardware colormap.
+XOutputs:
+X    pDepth:
+X	8 = all are depth 8
+X	24 = all are depth 24
+X	-1 = windows have different depths
+X    pHwCmap:
+X	if > 0 = hardware colormap number to use
+X	-1 = windows have different hardware colormaps
+X*/
+Xvoid
+XxfbFindDepthAndHwCmap(pWin, pDepth, pHwCmap)
+X    WindowPtr pWin;
+X    int *pDepth;
+X    int *pHwCmap;
+X{
+X    WindowPtr pChild;
+X    int depth = pWin->drawable.depth;
+X    int hwCmap = xfbGetHardwareCmap(pWin);
+X
+X    pChild = pWin;
+X    while (1) {
+X	if (pChild->viewable) {
+X
+X	    if (depth != pChild->drawable.depth) {
+X		depth = -1;  /* windows are different depths */
+X	    }
+X	    if (hwCmap != xfbGetHardwareCmap(pChild)) {
+X		hwCmap = -1;  /* windows have different hardware cmaps */
+X	    }
+X	    if (depth < 0 && hwCmap < 0) {
+X		break;
+X	    }
+X
+X	    if (pChild->firstChild) {
+X		pChild = pChild->firstChild;
+X		continue;
+X	    }
+X	}
+X	while (!pChild->nextSib && (pChild != pWin))
+X	    pChild = pChild->parent;
+X	if (pChild == pWin)
+X	    break;
+X	pChild = pChild->nextSib;
+X    }
+X    *pDepth = depth;
+X    *pHwCmap = hwCmap;
+X    return;
+X}
+X
+X/*
+XPaint the appropriate select plane region corresponding to the window pWin.
+XThe appropriate region is the clipped border plus the clipList region.
+X*/
+Xstatic void
+XxfbCopyWindowSetCmap(pWin)
+X    WindowPtr pWin;
+X{
+X    ScreenPtr pScreen = pWin->drawable.pScreen;
+X    RegionPtr ptmpReg;
+X    xfbScreenPrivPtr pxfbs;
+X
+X    pxfbs = 
+X      (xfbScreenPrivPtr)pScreen->devPrivates[xfbScreenPrivateIndex].ptr;
+X
+X    ptmpReg = NotClippedByChildren(pWin);
+X    (*pScreen->Subtract)(ptmpReg, &pWin->borderClip, ptmpReg);
+X    (*pScreen->Union)(ptmpReg, ptmpReg, &pWin->clipList);
+X    (*pxfbs->SetDepth)(pScreen, ptmpReg, pWin->drawable.depth);
+X    (*pScreen->RegionDestroy)(ptmpReg);
+X}
+X
+Xvoid
+XxfbCopyWindowSetCmaps(pWin)
+X    WindowPtr pWin;
+X{
+X    WindowPtr pChild;
+X
+X    pChild = pWin;
+X    while (1) {
+X	if (pChild->viewable) {
+X
+X	    xfbCopyWindowSetCmap(pChild);
+X
+X	    if (pChild->firstChild) {
+X		pChild = pChild->firstChild;
+X		continue;
+X	    }
+X	}
+X	while (!pChild->nextSib && (pChild != pWin))
+X	    pChild = pChild->parent;
+X	if (pChild == pWin)
+X	    break;
+X	pChild = pChild->nextSib;
+X    }
+X}
+X
+Xvoid 
+XxfbCopyWindow(pWin, ptOldOrg, prgnSrc)
+X    WindowPtr pWin;
+X    DDXPointRec ptOldOrg;
+X    RegionPtr prgnSrc;
+X{
+X    int depth, hwCmap;
+X    ScreenPtr pScreen;
+X    xfbScreenPrivPtr pxfbs;
+X    RegionRec tmpReg;
+X
+X    xfbFindDepthAndHwCmap(pWin, &depth, &hwCmap);
+X
+X      pScreen = pWin->drawable.pScreen;
+X
+X    if (hwCmap != -1) {
+X      
+X      pxfbs = 
+X	(xfbScreenPrivPtr)pScreen->devPrivates[xfbScreenPrivateIndex].ptr;
+X
+X      if (depth == 1)
+X	mfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X      else if (depth == 8)
+X	cfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X      else
+X	cfb32CopyWindow(pWin, ptOldOrg, prgnSrc);
+X
+X      /* easy case: windows all have the same hardware cmap */
+X      
+X      (*pxfbs->SetDepth)(pScreen, pWin->borderClip, pWin->drawable.depth);
+X      
+X    } else {
+X      /* XXX --- DOESN'T WORK FOR DEPTH 8 */
+X
+X      /* MUST MAKE A COPY OF THE SOURCE REGION BECAUSE UNDERLYING COPY WINDOW
+X	 PROCEDURES MODIFY THE REGIONS */
+X
+X      (*pScreen->RegionInit)(&tmpReg, NullBox, 0);
+X      (*pScreen->RegionCopy)(&tmpReg, prgnSrc);
+X      mfbCopyWindow(pWin, ptOldOrg, prgnSrc);
+X      cfb32CopyWindow(pWin, ptOldOrg, &tmpReg);
+X      xfbCopyWindowSetCmaps(pWin,ptOldOrg,prgnSrc);
+X      (*pScreen->RegionUninit)(&tmpReg);
+X    }
+X}
+X
+XBool
+XxfbChangeWindowAttributes(pWin, mask)
+X    WindowPtr pWin;
+X    unsigned long mask;
+X{
+X    if (pWin->drawable.depth == 1)
+X	return (mfbChangeWindowAttributes(pWin, mask));
+X    else if (pWin->drawable.depth == 8)
+X	return (cfbChangeWindowAttributes(pWin, mask));
+X    else
+X	return (cfb32ChangeWindowAttributes(pWin, mask));
+X}
+X
+Xvoid
+XxfbPaintWindow(pWin, pRegion, what)
+X    WindowPtr	pWin;
+X    RegionPtr	pRegion;
+X    int		what;
+X{
+X  ScreenPtr pScreen;
+X  xfbScreenPrivPtr pxfbs;
+X
+X  if (what == PW_BORDER) 
+X    {
+X      pScreen = pWin->drawable.pScreen;
+X
+X      pxfbs = 
+X	(xfbScreenPrivPtr)pScreen->devPrivates[xfbScreenPrivateIndex].ptr;
+X
+X      (*pxfbs->SetDepth)(pWin->drawable.pScreen, pRegion, 
+X			  pWin->drawable.depth);
+X    }
+X
+X  if (pWin->drawable.depth == 1)
+X    mfbPaintWindow(pWin, pRegion, what);
+X  else if (pWin->drawable.depth == 8)
+X    cfbPaintWindow(pWin, pRegion, what);
+X  else
+X    cfb32PaintWindow(pWin, pRegion, what);
+X  return;
+X  
+X}
+X
+Xvoid 
+XxfbWindowExposures(pWin, prgn, other_exposed)
+X    WindowPtr pWin;
+X    RegionPtr prgn, other_exposed;
+X{
+X  ScreenPtr pScreen;
+X  xfbScreenPrivPtr pxfbs;
+X
+X  if ( REGION_NUM_RECTS(prgn) <= 0) return;
+X
+X  pScreen = pWin->drawable.pScreen;
+X
+X  pxfbs = (xfbScreenPrivPtr)pScreen->devPrivates[xfbScreenPrivateIndex].ptr;
+X
+X  (*pxfbs->SetDepth)(pWin->drawable.pScreen, prgn, pWin->drawable.depth);
+X
+X  miWindowExposures(pWin, prgn, other_exposed);
+X
+X}
+END_OF_FILE
+if test 8338 -ne `wc -c <'server/ddx/sun/xfbwindow.c'`; then
+    echo shar: \"'server/ddx/sun/xfbwindow.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbwindow.c'
+fi
+echo shar: End of archive 23 \(of 29\).
+cp /dev/null ark23isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

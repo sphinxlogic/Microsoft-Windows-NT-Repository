@@ -1,0 +1,1893 @@
+Newsgroups: comp.sources.x
+From: bruce@servio.slc.com (Bruce Schuchardt)
+Subject: v20i100:  xgrabsc - Grab and dump X displays, Part01/05
+Message-ID: <csx-v20i100=xgrabsc.121536@sparky.Sterling.COM>
+X-Md4-Signature: 9dfd8693f536238d515968c5c88197a7
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 4 Aug 1993 17:16:37 GMT
+Approved: chris@sterling.com
+
+Submitted-by: bruce@servio.slc.com (Bruce Schuchardt)
+Posting-number: Volume 20, Issue 100
+Archive-name: xgrabsc/part01
+Environment: X11
+Supersedes: xgrabsc: Volume 18, Issue 52-56
+
+
+ Xgrabsc has been posted to comp.sources.x several times.  The most recent
+ was v2.1 in Volume 18 Issue 52.  This posting is version 2.3 and is a full
+ release, not a patch file.
+
+ Version 2.3 fixes many bugs, including these very-often reported bugs:
+
+  * Dumping of subwindows in earlier releases just didn't work at all.  In
+    this release, you can dump any window by ID.
+
+  * Preview images in EPSI files were using 1 for white and 0 for black.
+    This is not correct acording to the EPSF 2.0 spec.
+
+  * dithering operations were failing with displays having Black=1
+  
+  * the program would not remove Motif mwm window dressings from a window
+  
+  * the program did not always grab the correct area when used with
+    virtual window managers like tvtwm
+
+ It also adds these features:
+
+  * faster, more compact color Postscript printing.
+
+  * a Motif version of the user-interface.  See the README.2_3 file for
+    information on building the Motif version.
+  
+  * a "-coords" option to specify a fixed area of the screen to grab
+  
+  * normal xwd output and xwd "-xy" style output, which is more compact.
+    The "-xy" style is what xgrabsc used to only support, but some
+    programs, such as xwdtoppm couldn't handle this xwd variant.
+
+ --
+ Bruce Schuchardt
+ bruce@slc.com
+
+
+
+-----------------------CUT HERE
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 5)."
+# Contents:  xgrabsc.2_3 xgrabsc.2_3/convert.hc xgrabsc.2_3/write.hc
+# Wrapped by bruce@trout on Mon Jun 28 09:14:50 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'xgrabsc.2_3' ; then
+    echo shar: Creating directory \"'xgrabsc.2_3'\"
+    mkdir 'xgrabsc.2_3'
+fi
+if test -f 'xgrabsc.2_3/convert.hc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xgrabsc.2_3/convert.hc'\"
+else
+echo shar: Extracting \"'xgrabsc.2_3/convert.hc'\" \(9414 characters\)
+sed "s/^X//" >'xgrabsc.2_3/convert.hc' <<'END_OF_FILE'
+X/*========================================================================
+X *
+X * Name - convert.hc
+X *
+X * ccs version:	1.6
+X *
+X * ccsid:	@(#)convert.hc	1.6 - 04/22/93 16:27:04
+X * from: 	ccs/s.convert.hc
+X * date: 	06/28/93 09:14:48
+X *
+X * Description:  color->black&white conversions for xgrabsc
+X *
+X *               see cpyright.h for copyright information
+X *
+X *
+X *========================================================================
+X */
+X
+X
+X/*
+X * convert a pixmap image into a bitmap image
+X */
+Xpixmap2bitmap(image)
+X  imageInfo *image;
+X{
+X  XImage *ximage = image->ximage;
+X  int x, y;
+X  word v, black, mid;
+X  dw total, blackrgb, midrgb, lowDelta, l;
+X  XImage *newImage;
+X  byte *newBytes;
+X  int usedCount;
+X  int blackp, whitep;
+X
+X  if (ximage->bits_per_pixel == 1  ||  image->numcells < 1)
+X    return;
+X
+X
+X  blackp = BlackPixel(hDisplay,hScreen);
+X  whitep = WhitePixel(hDisplay,hScreen);
+X
+X  /* get the darkest color */
+X  blackrgb = 0x2FFFD;  /* 3 * 0xFFFF == white */
+X  usedCount = total = 0;
+X  for (x=0; x<image->numcells; x++) {
+X    if (image->used[x]) {
+X      l = (unsigned)image->red[x]
+X          +(unsigned)image->green[x]
+X          +(unsigned)image->blue[x];
+X      if (l <= blackrgb) {
+X        black = x;
+X        blackrgb = l;
+X      }
+X      total += l;
+X      usedCount++;
+X    }
+X  }
+X  /* now find the mid color and use it as the cut-off for black */
+X  midrgb = total / usedCount;
+X  lowDelta = 0x2FFFD;
+X  for (x=0; x<image->numcells; x++) {
+X    if (image->used[x]) {
+X      l = (unsigned)image->red[x]
+X          +(unsigned)image->green[x]
+X          +(unsigned)image->blue[x];
+X      l -= midrgb;
+X      if (l < lowDelta) {
+X        mid = x;
+X        lowDelta = l;
+X      }
+X    }
+X  }
+X  midrgb = (unsigned)image->red[mid]
+X           +(unsigned)image->green[mid]
+X           +(unsigned)image->blue[mid];
+X
+X  /* create a bitmap image */
+X  x = (ximage->width + 7) / 8;
+X  newBytes = (byte *)malloc(x * ximage->height);
+X  memset(newBytes, 0, x * ximage->height);
+X  newImage = XCreateImage(hDisplay, DefaultVisual(hDisplay, hScreen),
+X                1, XYBitmap, 0, newBytes, ximage->width, ximage->height,
+X                8, x);
+X  if (!newImage) {
+X    fprintf(stderr, "%s: unable to create bitmap for conversion\n",
+X      programName);
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X  /* pound the pixels into it */
+X  for (y = 0; y < ximage->height; y++) {
+X    for (x = 0; x < ximage->width; x++) {
+X      v = XGetPixel(ximage, x, y);
+X      l = (dw)image->red[v]+(dw)image->green[v]+(dw)image->blue[v];
+X      XPutPixel(newImage, x, y, l<midrgb? blackp : whitep);
+X    }
+X  }
+X  free(ximage->data);
+X  memcpy((char *)ximage, (char *)newImage, sizeof(XImage));
+X  free(newImage);
+X
+X  memset((char *)image->used, 0, MAX_CELLS);
+X  image->used[whitep] = 1;
+X  image->used[blackp] = 1;
+X  image->numcells = 2;
+X}
+X
+X
+X
+X
+X
+X
+X
+X#define GRAYS    17 /* ((4 * 4) + 1) patterns for a good dither */
+X#define GRAYSTEP ((dw)(65536 / GRAYS))
+X
+Xstatic byte DitherBits[GRAYS][4] = {
+X  0xf, 0xf, 0xf, 0xf,
+X  0xe, 0xf, 0xf, 0xf,
+X  0xe, 0xf, 0xb, 0xf,
+X  0xa, 0xf, 0xb, 0xf,
+X  0xa, 0xf, 0xa, 0xf,
+X  0xa, 0xd, 0xa, 0xf,
+X  0xa, 0xd, 0xa, 0x7,
+X  0xa, 0x5, 0xa, 0x7,
+X  0xa, 0x5, 0xa, 0x5,
+X  0x8, 0x5, 0xa, 0x5,
+X  0x8, 0x5, 0x2, 0x5,
+X  0x0, 0x5, 0x2, 0x5,
+X  0x0, 0x5, 0x0, 0x5,
+X  0x0, 0x4, 0x0, 0x5,
+X  0x0, 0x4, 0x0, 0x1,
+X  0x0, 0x0, 0x0, 0x1,
+X  0x0, 0x0, 0x0, 0x0
+X  };
+X
+X/* halftone or dither a color image, changing it into a monochrome
+X * image
+X */
+Xpixmap2halftone(image, dither)
+X  imageInfo *image;
+X  ditherType dither;    /* type of dithering to perform */
+X{
+X  XImage *ximage = image->ximage;
+X  XImage *newImage;
+X  byte   *newBytes, *ditherBits;
+X  word   dindex;  /* index into dither array */
+X  dw     color;   /* pixel color */
+X  word  *index;   /* index into dither array for a given pixel */
+X  word   x, y;    /* random counters */
+X  word   x4, y4;
+X  register word   w, h;
+X  register byte  bits;
+X  char  *str;
+X  dw    intensity;
+X  int   maxIntensity, threshold;
+X  word  *fsIndex;
+X  int   err, i, ximageW, ximageH, rowL;
+X  int   *row1, *row2;
+X  int blackp = BlackPixel(hDisplay,hScreen);
+X  int whitep = WhitePixel(hDisplay,hScreen);
+X
+X  if (ximage->depth <= 1  ||  dither == NO_DITHER)
+X    return;
+X
+X  ximageW = ximage->width;
+X  rowL    = ximageW - 1;
+X  ximageH = ximage->height;
+X
+X  if (verbose) {
+X    switch (dither) {
+X      case MATRIX_HALFTONE:
+X        str = "Matrix halfton";
+X        break;
+X      case MATRIX_DITHER:
+X        str = "Matrix dither";
+X        break;
+X      case FS_DITHER:
+X        str = "Floyd-Steinberg dither";
+X        break;
+X      default:
+X        fprintf(stderr, "%s: unknown type of dithering requested.  Exiting...\n",
+X            programName);
+X        exit(3);
+X    }
+X    fprintf(stderr, "%s: %sing image...", programName, str);
+X    fflush(stderr);
+X  }
+X
+X  /* create a bitmap image */
+X  x = (dither == MATRIX_HALFTONE)? 4 : 1;
+X  w = ((ximageW + 7) / 8) * x;
+X  h = ximageH * x;
+X  newBytes = (byte *)malloc(w * h);
+X  memset((char *)newBytes, whitep=1?255:0, w * h);
+X  newImage = XCreateImage(hDisplay, DefaultVisual(hDisplay, hScreen),
+X                1, XYBitmap, 0, newBytes,
+X                ximageW * x,
+X                h,
+X                8, w);
+X  if (!newImage) {
+X    fprintf(stderr, "%s: unable to create bitmap for conversion\n",
+X      programName);
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X
+X  /* if the number of possible pixels isn't very large, build an array
+X   * which we index by the pixel value to find the dither array index
+X   * by color brightness.  we do this in advance so we don't have to do
+X   * it for each pixel.  things will break if a pixel value is greater
+X   * than (1 << depth), which is bogus anyway.  this calculation is done
+X   * on a per-pixel basis if the colormap is too big.
+X   */
+X
+X  if (ximage->depth <= 16) {
+X    index= (word *)malloc(sizeof(word) * MAX_CELLS);
+X    fsIndex= (word *)malloc(sizeof(word) * MAX_CELLS);
+X    if (index)
+X      for (x= 0; x < image->numcells; x++) {
+X        fsIndex[x] = (word)(0.30 * image->red[x] +
+X                          0.59 * image->green[x] +
+X                          0.11 * image->blue[x]);
+X        index[x] = fsIndex[x]/GRAYSTEP;
+X        if (index[x] >= GRAYS)
+X          index[x] = GRAYS - 1;
+X      }
+X  }
+X  else
+X    index = fsIndex = NULL;
+X
+X  if (dither == FS_DITHER) {
+X    maxIntensity = 65535;
+X    threshold = maxIntensity/2;
+X    row1 = (int *)malloc(ximageW*sizeof(int));
+X    row2 = (int *)malloc(ximageW*sizeof(int));
+X    /* initialize row2 */
+X    for (x= 0; x < ximageW; x++) {
+X      color = XGetPixel(ximage, x, 0);
+X      row2[x] = fsIndex? fsIndex[color] :
+X                  (dw)(0.30*image->red[color] +
+X                   0.59*image->green[color] +
+X                   0.11*image->blue[color]);
+X    }
+X    for (y= 0; y < ximageH; y++) {
+X      /* row1 := row2 */
+X      memcpy((char *)row1, (char *)row2, ximageW*sizeof(int));
+X      /* Fill in next row */
+X      if (y != ximageH-1)
+X        for (x= 0; x < ximageW; x++) {
+X          color = XGetPixel(ximage, x, y+1);
+X          row2[x] = fsIndex? fsIndex[color] :
+X                      (dw)(0.30*image->red[color] +
+X                       0.59*image->green[color] +
+X                       0.11*image->blue[color]);
+X        }
+X      for (x= 0; x < ximageW; x++) {
+X        color = XGetPixel(ximage, x, y);
+X        if ((i = row1[x]) > threshold)
+X          err = i - maxIntensity;
+X        else {
+X          XPutPixel(newImage, x, y, blackp);
+X          err = i;
+X        }
+X        /* Diagonal gets 1/4 of error. */
+X        if (x < rowL)
+X	  row2[x+1] += err/4;
+X
+X        /* Right and below get 3/8 of error */
+X        err = err*3/8;
+X        row2[x] += err;
+X        if (x < rowL)
+X	  row1[x+1] += err;
+X      }
+X    }
+X    if (row1)  free(row1);
+X    if (row2)  free(row2);
+X  }
+X
+X
+X  else {  /* matrix dither or halftone */
+X
+X    for (y= 0; y < ximageH; y++) {
+X      for (x= 0; x < ximageW; x++) {
+X        color = XGetPixel(ximage, x, y);
+X        dindex = index? index[color] :
+X                    (dw)(0.30*image->red[color] +
+X                     0.59*image->green[color] +
+X                     0.11*image->blue[color])/GRAYSTEP;
+X        if (dindex >= GRAYS)  /* catch rounding errors */
+X          dindex= GRAYS - 1;
+X        if (dither == MATRIX_DITHER) {
+X          if (DitherBits[dindex][y & 3] & (1 << (x & 3)))
+X             XPutPixel(newImage, x, y, blackp);
+X        }
+X        else { /* halftone */
+X          /* loop for the four Y bits in the dither pattern, putting all
+X           * four X bits in at once.  if you think this would be hard to
+X           * change to be an NxN dithering array, you're right, since we're
+X           * banking on the fact that we need only shift the mask based on
+X           * whether x is odd or not.  an 8x8 array wouldn't even need that,
+X           * but blowing an image up by 64x is probably not a feature.
+X           */
+X          ditherBits = &(DitherBits[dindex][0]);
+X          x4 = x * 4;
+X          y4 = y * 4;
+X          for (h= 0; h < 4; h++) {
+X            bits = ditherBits[h];
+X            for (w=0; w < 4; w++) {
+X              XPutPixel(newImage, x4+w, y4+h, bits & 1 ? blackp : whitep);
+X              bits /= 2;
+X            }
+X          }
+X        }
+X      }
+X    }
+X  }
+X
+X  if (verbose)
+X    fputc('\n', stderr);
+X
+X  free(ximage->data);
+X  memcpy((char *)ximage, (char *)newImage, sizeof(XImage));
+X  free(newImage);
+X  if (index) free(index);
+X  if (fsIndex) free(fsIndex);
+X
+X  memset((char *)image->used, 0, MAX_CELLS);
+X  image->used[whitep] = 1;
+X  image->used[blackp] = 1;
+X  image->numcells = 2;
+X}
+X
+END_OF_FILE
+if test 9414 -ne `wc -c <'xgrabsc.2_3/convert.hc'`; then
+    echo shar: \"'xgrabsc.2_3/convert.hc'\" unpacked with wrong size!
+fi
+# end of 'xgrabsc.2_3/convert.hc'
+fi
+if test -f 'xgrabsc.2_3/write.hc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xgrabsc.2_3/write.hc'\"
+else
+echo shar: Extracting \"'xgrabsc.2_3/write.hc'\" \(42884 characters\)
+sed "s/^X//" >'xgrabsc.2_3/write.hc' <<'END_OF_FILE'
+X/*========================================================================
+X *
+X * Name - write.hc
+X *
+X * ccs version:	1.16
+X *
+X * ccsid:	@(#)write.hc	1.16 - 06/28/93 09:13:46
+X * from: 	ccs/s.write.hc
+X * date: 	06/28/93 09:14:49
+X *
+X * Description:  output conversions for xgrabsc
+X *
+X *               see cpyright.h for copyright information
+X *
+X *
+X *========================================================================
+X */
+X
+X
+X/* swap the bits in a byte */
+Xswapbits(b)
+X  byte b;
+X{
+X  byte b2;
+X
+X  b2 = 0;
+X  b2 |= (b & 0x01) << 7;
+X  b2 |= (b & 0x02) << 5;
+X  b2 |= (b & 0x04) << 3;
+X  b2 |= (b & 0x08) << 1;
+X  b2 |= (b & 0x10) >> 1;
+X  b2 |= (b & 0x20) >> 3;
+X  b2 |= (b & 0x40) >> 5;
+X  b2 |= (b & 0x80) >> 7;
+X  return b2;
+X}
+X
+X
+X
+X
+X/* swap the bytes in a long int */
+Xswapbytes(pDblw)
+X  dw *pDblw;
+X  {
+X  union {
+X    dw  dbl;
+X    byte bytes[4];
+X    } cnv;
+X  byte aByte;
+X
+X  cnv.dbl = *pDblw;
+X  aByte = cnv.bytes[0];
+X  cnv.bytes[0] = cnv.bytes[3];
+X  cnv.bytes[3] = aByte;
+X  aByte = cnv.bytes[1];
+X  cnv.bytes[1] = cnv.bytes[2];
+X  cnv.bytes[2] = aByte;
+X  *pDblw = cnv.dbl;
+X  }
+X
+X
+X
+X/* swap some long ints.  (n is number of BYTES, not number of longs) */
+Xswapdws (bp, n)
+X  register char *bp;
+X  register unsigned n;
+X{
+X  register char c;
+X  register char *ep = bp + n;
+X  register char *sp;
+X
+X  while (bp < ep) {
+X    sp = bp + 3;
+X    c = *sp;
+X    *sp = *bp;
+X    *bp++ = c;
+X    sp = bp + 1;
+X    c = *sp;
+X    *sp = *bp;
+X    *bp++ = c;
+X    bp += 2;
+X  }
+X}
+X
+X
+X
+X/* swap some short ints */
+Xswapwords (bp, n)
+X  register char *bp;
+X  register unsigned n;
+X{
+X  register char c;
+X  register char *ep = bp + n;
+X
+X  while (bp < ep) {
+X    c = *bp;
+X    *bp = *(bp + 1);
+X    bp++;
+X    *bp++ = c;
+X  }
+X}
+X
+X
+X
+X
+X
+XwriteSimple(image, outfile)
+X  imageInfo *image;
+X  FILE *outfile;
+X{
+X  dw width, height, hasColormap, colormapSize;
+X  dw swaptest = 1;
+X  int i, w, h;
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: writing in simple output format\n", programName);
+X  if (image->ximage->depth != 8) {
+X    fprintf(stderr, "%s: can't write simple image format if depth is not 8\n",
+X            programName);
+X    return;
+X  }
+X  width        = image->ximage->width;
+X  height       = image->ximage->height;
+X  hasColormap  = 1;
+X  colormapSize = image->numcells;
+X  if (*(char *)&swaptest==0) {
+X    swapdws(&width,        1);
+X    swapdws(&height,       1);
+X    swapdws(&hasColormap,  1);
+X    swapdws(&colormapSize, 1);
+X  }
+X  fwrite(&width, 4, 1, outfile);
+X  fwrite(&height, 4, 1, outfile);
+X  fwrite(&hasColormap, 4, 1, outfile);
+X  fwrite(&colormapSize, 4, 1, outfile);
+X  for (i=0; i<image->numcells; i++)
+X    fputc((byte)(image->red[i]>>8), outfile);
+X  for (i=0; i<image->numcells; i++)
+X    fputc((byte)(image->green[i]>>8), outfile);
+X  for (i=0; i<image->numcells; i++)
+X    fputc((byte)(image->blue[i]>>8), outfile);
+X  for (i=0; i<image->numcells; i++)
+X    fputc((byte)(image->used[i]), outfile);
+X  for (h=0; h<image->ximage->height; h++)
+X    for (w=0; w<image->ximage->width; w++)
+X      fputc(XGetPixel(image->ximage, w, h), outfile);
+X}
+X
+X
+X
+X
+X
+X
+X
+X/*
+X * makePSImage returns an XImage structure that contains the samples
+X * to be written.  If the input image is monochrome, its XImage structure
+X * will be returned.  Otherwise a new structure is allocated and returned.
+X */
+X
+XXImage* makePSImage(image, desiredDepth, depth, bpl, spb)
+X    imageInfo* image;
+X    int desiredDepth;  /* 0 = don't care */
+X    int* depth;
+X    int* bpl;
+X    int* spb;
+X{
+X    register byte* ptr;
+X    int lshift, lmask;
+X    long p;
+X    int x, y, i;
+X    XImage* ximage = image->ximage;
+X    XImage* psimage;
+X
+X  /* use depth as the number of bits in output samples */
+X  *depth = ximage->depth;
+X  /* postscript only supports 1, 2, 4, or 8 */
+X  if (*depth > 8) *depth = 8;     /* max postscript bits/sample */
+X  if (*depth < 8 && *depth > 4) *depth = 8;
+X  if (*depth == 3) *depth = 4;
+X    
+X    if (desiredDepth == 0) {
+X	desiredDepth = *depth;
+X    }
+X
+X
+X  *bpl = ((ximage->width * desiredDepth) + 7) / 8;
+X
+X  if (*depth == 1)
+X	/* Same image */
+X    psimage = ximage;
+X  else {
+X    /* colors have to be changed to luminescence */
+X    ptr = (byte *)malloc(ximage->height * *bpl);
+X    psimage = XCreateImage(hDisplay, DefaultVisual(hDisplay, hScreen),
+X                  desiredDepth, ZPixmap,
+X                  0, ptr,
+X                  ximage->width, ximage->height,
+X                  8, *bpl);
+X    if (!psimage) {
+X      fprintf(stderr, "%s: could not create image for Postscript conversion\n",
+X        programName);
+X      exit(3);
+X    }
+X    /* force the bits_per_pixel to be what is needed */
+X    psimage->bits_per_pixel = desiredDepth;
+X  }
+X
+X  *spb = 8 / psimage->bits_per_pixel;    /* samples per byte */
+X
+X  if (*depth > 1) {
+X    /* translate colors into grays */
+X    lshift = 16 - psimage->bits_per_pixel;
+X    lmask  = (1 << psimage->bits_per_pixel) - 1;
+X    for (y = 0; y < ximage->height; y++) {
+X      for (x = 0; x < ximage->width; x++) {
+X        p = XGetPixel(ximage, x, y);
+X        i = (0.30*(double)image->red[p]) +
+X            (0.59*(double)image->green[p])+
+X            (0.11*(double)image->blue[p]);
+X        i = (i >> lshift) & lmask;
+X        XPutPixel(psimage, x, y, i);
+X      }
+X    }
+X  }
+X  *depth = desiredDepth;  /* The final resolution */
+X  return psimage;
+X}
+X
+X
+X
+X
+X
+X
+X
+XwriteOnlyPreview(image, outfile)
+X  imageInfo *image;
+X  FILE* outfile;
+X{
+X  XImage* psimage = (XImage *) NULL;
+X
+X  if (verbose) fprintf(stderr, "%s: generating only EPSI preview comment\n", programName);
+X
+X  if (image->ximage->depth == 1) {
+X    /* First process the image to make it good */
+X    int depth, bpl, spb;
+X    psimage = makePSImage(image, 1, &depth, &bpl, &spb);
+X  }
+X
+X  writePreview(image, outfile, psimage);
+X
+X  if (psimage && psimage != image->ximage) {
+X    /* Free the allocated PostScript image */
+X    free(psimage->data);
+X    free(psimage);
+X  }
+X}
+X
+X
+X
+XwritePreview(image, outfile, defaultImage)
+X  imageInfo *image;
+X  XImage *defaultImage;
+X  FILE *outfile;
+X{
+X  register byte b, *ptr;
+X  int depth, bpl, spb;
+X  int reverse, x, y;
+X  int widthcount, lines;
+X  XImage* ximage = image->ximage;
+X  XImage* psimage = (XImage *)NULL;
+X  imageInfo newImage;
+X    
+X  newImage.ximage = (XImage*) NULL;
+X      
+X  if (ximage->depth > 1) {
+X    /* Copy the image before doing any changes! */
+X    int i;
+X    for (i = 0; i < image->numcells; ++i) {
+X	newImage.red[i] = image->red[i];
+X        newImage.green[i] = image->green[i];
+X        newImage.blue[i] = image->blue[i];
+X        newImage.used[i] = image->used[i];
+X    }
+X    newImage.numcells = image->numcells;
+X    newImage.ximage = XSubImage(ximage, 0, 0, ximage->width, ximage->height);
+X    if (!newImage.ximage) {
+X      fprintf(stderr, "%s: unable to create copy of color image\n",
+X        programName);
+X      XCloseDisplay(hDisplay);
+X      exit(3);
+X    }
+X
+X    if (ForceBitmap)
+X      pixmap2bitmap(&newImage);
+X    else if (Halftone)
+X      pixmap2halftone(&newImage, DitherKind);
+X    else
+X      pixmap2halftone(&newImage, FS_DITHER);
+X
+X    defaultImage = newImage.ximage;
+X    image = &newImage;
+X    psimage = makePSImage(&newImage, 1, &depth, &bpl, &spb);
+X  }
+X  else {
+X    /* the image is already monochrome, so use the psimage that's already
+X     * been processed */
+X    psimage = defaultImage;
+X    bpl = (psimage->width + 7) / 8;
+X    spb = 8;
+X  }
+X    
+X
+X  /* compute the number of lines in the preview output so
+X   * apps reading the file can easily skip it */
+X  lines = (bpl * psimage->height) / (PREVIEW_CODEWIDTH / 2);
+X  if ((bpl * psimage->height) % (PREVIEW_CODEWIDTH / 2) > 0) lines++;
+X
+X  fprintf(outfile, "%%%%BeginPreview: %d %d %d %d\n%%",
+X	    psimage->width, psimage->height, psimage->depth, lines);
+X
+X    
+X  /* if the bits haven't been swizzled yet, we have to check for color
+X   * reversal */
+X  if (psimage == image->ximage)
+X    reverse = BlackPixel(hDisplay,hScreen)!=EPSF_BLACK;
+X  else
+X    reverse = FALSE;
+X
+X  widthcount = 0;
+X  for (y=0; y<psimage->height; y++) {
+X    /* note that depth 1 images are already padded to even byte boundaries
+X     * under X, so there is no need to shift bits around to do padding of
+X     * the preview image */
+X    for (x=0, ptr=(byte *)(psimage->data+(y * psimage->bytes_per_line));
+X         x<psimage->width;
+X         x+=spb, ptr++) {
+X      b = *ptr;
+X      if (reverse) b = ~b;
+X      if (depth == 1  &&  psimage->bitmap_bit_order == LSBFirst)
+X        b = swapbits(b);
+X      fprintf(outfile, "%02.2x", b);
+X      widthcount += 2;
+X      if (widthcount >= PREVIEW_CODEWIDTH) {
+X	fputs("\n%", outfile);
+X        widthcount = 0;
+X      }
+X    }
+X  }
+X
+X  if (widthcount == 0)
+X    fputs("%EndPreview\n", outfile);
+X  else
+X    fputs("\n%%EndPreview\n", outfile);
+X    
+X  if (psimage && psimage != defaultImage) {
+X    free(psimage->data);
+X    free(psimage);
+X  }
+X  if (newImage.ximage) {
+X    XDestroyImage(newImage.ximage);
+X  }
+X}
+X
+X
+X
+X/*
+X * Write an image in Postscript format
+X */
+XwritePostscript(image, outfile, encode, encapsulate, preview,
+X  landscape, binary, checkLimits)
+X  imageInfo *image;
+X  FILE *outfile;
+X  int encode;       /* TRUE if we're to encode the Postscript output */
+X  int encapsulate;  /* TRUE if encapsulated Postscript output is wanted */
+X  int preview;      /* TRUE if EPSI preview image is to be written with EPS output */
+X  int landscape;    /* TRUE if landscape format is wanted */
+X  int binary;       /* TRUE if binary output is wanted */
+X  int checkLimits;  /* TRUE if PS interpreter memory checks should be made */
+X{
+X  register byte b, *ptr;
+X  register int x, y;
+X  register int i;
+X  XImage *ximage = image->ximage;
+X  XImage *psimage;
+X  double xdpi, ydpi, xscale, yscale, f;
+X  int lshift, lmask;
+X  int depth, bpl, spb;
+X  int reverse;
+X  long p;
+X  /* rle variables */
+X  int rlecount;
+X  byte rlesample;
+X  dw  rletotal;
+X  int widthcount;
+X  int firstSample;
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: formatting Postscript output\n", programName);
+X
+X  if (preview)
+X    encapsulate = TRUE;
+X
+X  if (encapsulate)
+X    landscape = FALSE;  /* landscape uses a transformation matrix */
+X
+X  psimage = makePSImage(image, 0, &depth, &bpl, &spb);
+X
+X#ifndef NO_RLE_CHECKS
+X  if (encode) {
+X    rletotal = 0;
+X    rlecount = 0;
+X    firstSample = TRUE;
+X    for (y=0; y<psimage->height; y++)
+X      for (x=0, ptr=(byte *)(psimage->data + (y * psimage->bytes_per_line));
+X           x<psimage->width; x+=spb, ptr++) {
+X        b = *ptr;
+X	if (firstSample || b != rlesample || rlecount==254) {
+X	  if (!firstSample)
+X	    rletotal += 2;
+X	  else
+X	    firstSample = FALSE;
+X	  rlecount = 0;
+X	  rlesample = b;
+X	}
+X	else
+X	  rlecount++;
+X      }
+X    if (!firstSample)
+X      rletotal += 2;
+X    f = (float)(rletotal) / (float)(psimage->height*bpl);
+X    if (verbose)
+X      fprintf(stderr, "%s: encoding would change to %5.1f%% of orig size\n",
+X            programName, f * 100.0);
+X    encode = f <= 0.95;
+X  }
+X#endif
+X
+X
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: image will %sbe encoded\n", programName,
+X            encode? "" : "not ");
+X
+X  if (encapsulate) {
+X    fprintf(outfile, "%%!PS-Adobe-2.0 EPSF-2.0\n");
+X    fprintf(outfile, "%%%%BoundingBox: %d %d %d %d\n",
+X                0, 0, psimage->width, psimage->height);
+X  }
+X  else
+X    fprintf(outfile, "%%!PS-Adobe-2.0\n");
+X
+X  fprintf(outfile, "%%%%Creator: xgrabsc\n");
+X  fprintf(outfile, "%%%%Title: %s\n", imageName);
+X  if (outfileName)
+X    fprintf(outfile, "%%%%File: %s\n", outfileName);
+X  time(&p);
+X  fprintf(outfile, "%%%%CreationDate: %s", ctime(&p));
+X  fprintf(outfile, "%%%%EndComments\n");
+X  fprintf(outfile, "%%\n");
+X  fprintf(outfile, "%%\n");
+X
+X  /* if the user wants a preview image, EPS 2.0 says it must go here */
+X  if (preview)
+X    writePreview(image, outfile, psimage);
+X
+X
+X  fprintf(outfile, "%%%%EndProlog\n");
+X  if (encapsulate) {
+X    fprintf(outfile, "%%%%Page: 1 1\n");
+X  }
+X
+X  /* standard inch procedure */
+X  fputs("/inch {72 mul} def\n", outfile);
+X
+X
+X  /* define a string to hold image bytes */
+X  if (encode) {
+X    fputs("/rlebuffer 2 string def\n", outfile);
+X    fprintf(outfile, "/samples %d string def\n", 256);  /* max bytes per burst */
+X  }
+X  else
+X    fprintf(outfile, "/picstr %d string def\n", bpl);
+X
+X  if (binary) {
+X    fputs("/endstr 1 string def\n", outfile);
+X    if (encode) fputs("/ccount 0 def\n", outfile);
+X  }
+X
+X  /* define the image plotting procedure */
+X  fputs("/plotimage\n", outfile);
+X
+X  fprintf(outfile, "{%d %d %d ",
+X        psimage->width, psimage->height, psimage->bits_per_pixel);
+X
+X
+X
+X  /* transformation matrix */
+X  if (landscape)
+X    fprintf(outfile, "[0 %d %d 0 0 0]\n", psimage->width, psimage->height);
+X  else
+X    fprintf(outfile, "[%d 0 0 -%d 0 %d]\n",
+X        psimage->width, psimage->height, psimage->height);
+X
+X  /* line reading function  */
+X
+X  if (encode) {
+X    fputs("% run-length decoding block\n",                                       outfile);
+X    if (binary) {
+X      fputs("  { currentfile rlebuffer readstring pop pop\n", outfile);
+X      fputs("    /ccount ccount 2 add def                 %% count binary chars\n",outfile);
+X      fprintf(outfile,
+X            "    ccount %d ge                             %% test for full line\n", IMAGE_CODEWIDTH);
+X      fputs("    { /ccount 0 def                          %% reset character counter\n",outfile);
+X      fputs("      currentfile endstr readline pop pop    %% skip newline\n",outfile);
+X      fputs("    } if                                     %% skip newlines after full line\n",outfile);
+X    }
+X    else
+X      fputs("  { currentfile rlebuffer readhexstring pop pop\n",                 outfile);
+X    fputs("    rlebuffer 0 get 1 add       %% number of copies of the sample\n", outfile);
+X    fputs("    /nsamples exch store        %% save it away\n",                   outfile);
+X    fputs("    /lum rlebuffer 1 get store  %% the sample itself\n",              outfile);
+X    fputs("    0 1 nsamples 1 sub { samples exch lum put } for\n",               outfile);
+X    fputs("    samples 0 nsamples getinterval %% leave the pixels on the stack\n",outfile);
+X    fputs("  }\n", outfile);
+X  }
+X  else {
+X    if (binary) {
+X      /* Do a "readline" after each "readstring" so we can seperate each
+X         scanline of binary data with a "newline" */
+X      fputs("   {currentfile picstr readstring pop\n", outfile);
+X      fputs("    currentfile endstr readline pop pop}\n", outfile);
+X    }
+X    else
+X      fputs("  {currentfile picstr readhexstring pop}\n", outfile);
+X  }
+X
+X  fputs("  image\n} def\n", outfile);
+X
+X
+X  /* emit some code to check for resource availability */
+X  if (!encapsulate  &&  checkLimits) {
+X    for (x=0; CheckVM[x] != NULL; x++) {
+X      fputs(CheckVM[x], outfile);
+X      fputc('\n', outfile);
+X    }
+X    fprintf(outfile, "\n\n");
+X    fprintf(outfile, "%d checkvm\n", psimage->height * bpl);
+X  }
+X
+X  /* save context and move to a nice origin */
+X  fputs("gsave\n", outfile);
+X
+X  if (encapsulate) {
+X    /* for encapsulated postscript, we need a scale factor that is equal
+X     * to the image width/height in samples */
+X    fprintf(outfile, "%d %d scale\n", psimage->width, psimage->height);
+X  }
+X  else {
+X    /* For physical output we need a scale factor that will create
+X      * the same size image, and we need to center it on the page.
+X      *   -Figure out the physical dimensions on the screen
+X      *    and make it come out the same on the printer. */
+X    xdpi = (((double)DisplayWidth(hDisplay,hScreen)) * 25.4) /
+X            ((double)DisplayWidthMM(hDisplay,hScreen));
+X    ydpi = (((double)DisplayHeight(hDisplay,hScreen)) * 25.4) /
+X            ((double)DisplayHeightMM(hDisplay,hScreen));
+X    xscale = ((double)psimage->width) / xdpi;
+X    yscale = ((double)psimage->height) / ydpi;
+X    if (landscape) {
+X      f = xscale; xscale = yscale; yscale = f;
+X    }
+X    if (xscale > horizInset) {
+X      yscale *= horizInset / xscale;
+X      xscale = horizInset;
+X    }
+X    if (yscale > vertInset) {
+X      xscale *= vertInset / yscale;
+X      yscale = vertInset;
+X    }
+X    fprintf(outfile, "%1.2g inch %1.2g inch translate\n",
+X                  (pageWidth - xscale) / 2.0, (pageHeight - yscale) / 2.0);
+X    if (landscape)
+X      fprintf(outfile, "%1.2g inch %1.2g inch scale\n", yscale, xscale);
+X    else
+X      fprintf(outfile, "%1.2g inch %1.2g inch scale\n", xscale, yscale);
+X  }
+X
+X
+X
+X  if (binary)
+X    fprintf(outfile,"%%%%BeginBinary: %d\n",
+X	    encode ? rletotal+11+rletotal/IMAGE_CODEWIDTH
+X	    : ximage->height*(ximage->width+1)+10);
+X
+X  fputs("plotimage\n", outfile);
+X
+X
+X  reverse = depth == 1? BlackPixel(hDisplay,hScreen)==1 : FALSE;
+X  if (encode) {
+X    rletotal = 0;
+X    rlecount = 0;
+X    firstSample = TRUE;
+X  }
+X  widthcount = 0;
+X  for (y=0; y<psimage->height; y++) {
+X    for (x=0, ptr=(byte *)(psimage->data+(y * psimage->bytes_per_line));
+X         x<psimage->width;
+X         x+=spb, ptr++) {
+X      b = *ptr;
+X      if (reverse) b = ~b;
+X      if (depth == 1  &&  psimage->bitmap_bit_order == LSBFirst)
+X        b = swapbits(b);
+X      if (encode) {
+X        if (firstSample || b != rlesample || rlecount==254) {
+X	  if (!firstSample) {
+X	    if (binary) {
+X	      putc((byte)rlecount,outfile);
+X	      putc((byte)rlesample,outfile);
+X	      widthcount += 2;
+X	    }
+X	    else {
+X	      fprintf(outfile, "%02.2x%02.2x", rlecount, rlesample);
+X	      widthcount += 4;
+X	    }
+X	    rletotal += 2;
+X	    if (widthcount >= IMAGE_CODEWIDTH) {
+X	      fputc('\n', outfile);
+X	      widthcount = 0;
+X	    }
+X	  }
+X	  else
+X	    firstSample = FALSE;
+X	  rlecount = 0;
+X	  rlesample = b;
+X	}
+X	else
+X	  rlecount++;
+X      }
+X      else {
+X	if (binary)
+X	  putc((byte)b,outfile);
+X	else {
+X          fprintf(outfile, "%02.2x", b);
+X	  widthcount += 2;
+X	  if (widthcount >= IMAGE_CODEWIDTH) {
+X	    fputc('\n', outfile);
+X            widthcount = 0;
+X          }
+X        }
+X      }
+X    }
+X    if (binary && !encode) putc('\n',outfile);
+X  }
+X
+X  if (encode) {
+X    if (!firstSample) {
+X      if (binary) {
+X	putc((byte)rlecount,outfile);
+X	putc((byte)rlesample,outfile);
+X      }
+X      else
+X        fprintf(outfile, "%02.2x%02.2x\n", rlecount, rlesample);
+X      rletotal += 2;
+X    }
+X    putc('\n',outfile);
+X    if (binary) fputs("%%EndBinary\n",outfile);
+X    fputs("%\n", outfile);
+X    fprintf(outfile, "%% Run-length encoding savings = %5.1f%%\n",
+X          100.0 - ((float)(rletotal) * 100.0 / (float)(psimage->height * bpl)));
+X    fputs("%\n", outfile);
+X  }
+X  else if (binary) fputs("%%EndBinary\n",outfile);
+X
+X  fputs("\n\n\ngrestore\nshowpage\n", outfile);
+X  fputs("\n%%Trailer\n", outfile);
+X
+X
+X  if (psimage != ximage) {
+X    free(psimage->data);
+X    free(psimage);
+X  }
+X}
+X
+X
+X
+X
+X
+X/*
+X * Write an image in Color Postscript format
+X */
+XwriteColorPS(image, outfile, encode, encapsulate, preview,
+X  landscape, binary, checkLimits)
+X  imageInfo *image;
+X  FILE *outfile;
+X  int encode;       /* TRUE if we're to encode the Postscript output    */
+X  int encapsulate;  /* TRUE if encapsulated Postscript output is wanted */
+X  int preview;      /* TRUE if EPSI preview image is to be written with EPS output */
+X  int landscape;    /* TRUE if landscape output is wanted               */
+X  int binary;       /* TRUE if binary Postscript output is wanted */
+X  int checkLimits;  /* TRUE if PS interpreter memory checks should be made */
+X{
+X  register byte *ptr, b;
+X  register int x, y;
+X  XImage *ximage = image->ximage;
+X  double xdpi, ydpi, xscale, yscale, f;
+X  double left, top;
+X  int depth, bpl, spb;
+X  long p;
+X  /* rle variables */
+X  int rlecount;
+X  dw  rletotal;
+X  byte rlesample;
+X  int firstSample;
+X  int widthcount;
+X
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: formatting Color Postscript output\n", programName);
+X
+X  if (preview)
+X    encapsulate = TRUE;  /* should have been enforced before this point */
+X
+X  if (encapsulate)
+X    landscape = FALSE;  /* landscape uses a transformation matrix */
+X
+X  depth = 8;                                  /* bits per sample  */
+X  spb   = 1;                                  /* samples per byte */
+X  bpl = ((ximage->width * depth) + 7) / 8;    /* bytes per line   */
+X
+X
+X#ifndef NO_RLE_CHECKS
+X  if (encode) {
+X    rletotal = 0;
+X    rlecount = 0;
+X    firstSample = TRUE;
+X    for (y=0; y<ximage->height; y++)
+X      for (x=0, ptr=(byte *)(ximage->data + (y * ximage->bytes_per_line));
+X           x<ximage->width; x+=spb, ptr++) {
+X        b = *ptr;
+X	if (firstSample || b != rlesample || rlecount==254) {
+X	  if (!firstSample)
+X	    rletotal += 2;
+X	  else
+X	    firstSample = FALSE;
+X	  rlecount = 0;
+X	  rlesample = b;
+X	}
+X	else
+X	  rlecount++;
+X      }
+X    rletotal += 2;
+X    f = (float)(rletotal) / (float)(ximage->height*bpl);
+X    if (verbose)
+X      fprintf(stderr, "%s: encoding would change to %5.1f%% of orig size\n",
+X            programName, f * 100.0);
+X    encode = f <= 0.95;
+X  }
+X#endif
+X
+X  if (encapsulate) {
+X    fprintf(outfile, "%%!PS-Adobe-2.0 EPSF-2.0\n");
+X  }
+X  else
+X    fprintf(outfile, "%%!PS-Adobe-2.0\n");
+X
+X  fprintf(outfile, "%%%%Creator: xgrabsc\n");
+X  fprintf(outfile, "%%%%Title: %s\n", imageName);
+X  if (outfileName)
+X    fprintf(outfile, "%%%%File: %s\n", outfileName);
+X  if (encapsulate) {
+X    fprintf(outfile, "%%%%Pages: 1\n");
+X    fprintf(outfile, "%%%%BoundingBox: %d %d %d %d\n",
+X                0, 0, ximage->width, ximage->height);
+X  }
+X  time(&p);
+X  fprintf(outfile, "%%%%CreationDate: %s", ctime(&p));
+X  fprintf(outfile, "%%%%EndComments\n");
+X
+X  /* if the user wants a preview image, EPS 2.0 says it must go here */
+X  if (preview)
+X    writePreview(image, outfile, image->ximage);
+X
+X  fprintf(outfile, "%%%%EndProlog\n");
+X  if (encapsulate) {
+X    fprintf(outfile, "%%%%Page: 1 1\n");
+X  }
+X  fprintf(outfile, "\n\ngsave\n\n");
+X
+X
+X  fputs("/inch {72 mul} def\n", outfile);
+X
+X  /* emit some code to check for resource availability */
+X  if (!encapsulate  &&  checkLimits) {
+X    for (x=0; CheckVM[x] != NULL; x++) {
+X      fputs(CheckVM[x], outfile);
+X      fputc('\n', outfile);
+X    }
+X    fprintf(outfile, "\n\n");
+X    fprintf(outfile, "%d checkvm\n\n", ximage->height * bpl);
+X  }
+X
+X  if (encapsulate) {
+X    /* don't translate the image for encapsulated postscript.  The
+X     * scale should match the data dimensions of the image in samples.  */
+X    fprintf(outfile, "%d %d scale\n", ximage->width, ximage->height);
+X  }
+X  else {
+X    /* For physical output we need a scale factor that will create
+X     * the same size image, and we need to center it on the page.
+X     *   -Figure out the physical dimensions on the screen
+X     *    and make it come out the same on the printer.
+X     */
+X    xdpi = (((double)DisplayWidth(hDisplay,hScreen)) * 25.4) /
+X            ((double)DisplayWidthMM(hDisplay,hScreen));
+X    ydpi = (((double)DisplayHeight(hDisplay,hScreen)) * 25.4) /
+X            ((double)DisplayHeightMM(hDisplay,hScreen));
+X    xscale = ((double)ximage->width) / xdpi;
+X    yscale = ((double)ximage->height) / ydpi;
+X    if (landscape) {
+X      f = xscale; xscale = yscale; yscale = f;
+X    }
+X    if (xscale > horizInset) {
+X      yscale *= horizInset / xscale;
+X      xscale = horizInset;
+X    }
+X    if (yscale > vertInset) {
+X      xscale *= vertInset / yscale;
+X      yscale = vertInset;
+X    }
+X     
+X
+X    left = ((pageWidth - xscale) / 2.0);
+X    top  = ((pageHeight - yscale) / 2.0);
+X    fprintf(outfile, "%1.2g inch %1.2g inch translate\n", left, top);
+X    if (landscape)
+X      fprintf(outfile, "%1.2g inch %1.2g inch scale\n", yscale, xscale);
+X    else
+X      fprintf(outfile, "%1.2g inch %1.2g inch scale\n", xscale, yscale);
+X    fprintf(outfile, "\n\n\n");
+X  }
+X
+X  if (binary) {
+X    fputs("/endstr 1 string def\n", outfile);
+X    fputs("/ccount 0 def\n", outfile);
+X  }
+X
+X  if (encode) {
+X    /* encoded output:
+X     * define a drawcolorimage procedure geared to this image
+X     */
+X    fprintf(outfile, "/rgbstr %d string def\n", 256 * 3); /* max pixels per burst */
+X    fprintf(outfile, "/buffer %d string def\n", 2);
+X    fputs("/rgb (000) def\n", outfile);
+X    fprintf(outfile, "/rgbmap %d string def\n", image->numcells * 3);
+X    fputs("/samples 256 string def\n", outfile);
+X    fputs("\n\n", outfile);
+X
+X    fputs("/drawcolormappedimage {\n", outfile);
+X    fputs("  %% for greyscale printers, convert rgb values into grey samples\n", outfile);
+X    fputs("  %% and use these in the 'image' operator\n", outfile);
+X    fputs("  systemdict /colorimage known userdict /colorimage known or not {\n", outfile);
+X    fputs("    %% convert colors to greyscale\n", outfile);
+X    fprintf(outfile,"    /ncolors %d store\n", image->numcells);
+X    fputs("    /ridx 0 store\n", outfile);
+X    fputs("    /greys ncolors string def\n", outfile);
+X    fputs("    0 1 ncolors 1 sub {\n", outfile);
+X    fputs("      /gidx exch store\n", outfile);
+X    fputs("      rgbmap ridx get .3 mul\n", outfile);
+X    fputs("      rgbmap ridx 1 add get .59 mul add\n", outfile);
+X    fputs("      rgbmap ridx 2 add get .11 mul add\n", outfile);
+X    fputs("      cvi\n", outfile);
+X    fputs("      /agrey exch store\n", outfile);
+X    fputs("      greys gidx agrey put\n", outfile);
+X    fputs("      /ridx ridx 3 add store\n", outfile);
+X    fputs("    } for\n", outfile);
+X    fprintf(outfile, "    %d %d %d", ximage->width, ximage->height,depth);
+X    if (landscape)
+X      fprintf(outfile, "  [0 %d %d 0 0 0]\n", ximage->width, ximage->height);
+X    else
+X      fprintf(outfile, "  [%d 0 0 -%d 0 %d]\n", ximage->width, ximage->height,
+X                                                ximage->height);
+X    if (binary) {
+X      fputs("    { currentfile buffer readstring pop pop    %% run length and index\n", outfile);
+X      fputs("      /ccount ccount 2 add def                 %% count binary chars\n",outfile);
+X      fprintf(outfile,
+X            "      ccount %d ge                             %% test for full line\n", IMAGE_CODEWIDTH);
+X      fputs("      { /ccount 0 def                          %% reset character counter\n",outfile);
+X      fputs("        currentfile endstr readline pop pop    %% skip newline\n",outfile);
+X      fputs("      } if                                     %% skip newlines after full line\n",outfile);
+X    }
+X    else
+X      fputs("    { currentfile buffer readhexstring pop pop\n", outfile);
+X    fputs("      buffer 0 get 1 add\n", outfile);
+X    fputs("      /nsamples exch store\n", outfile);
+X    fputs("      /lum greys buffer 1 get get store\n", outfile);
+X    fputs("      0 1 nsamples 1 sub { samples exch lum put } for\n", outfile);
+X    fputs("      samples 0 nsamples getinterval\n", outfile);
+X    fputs("    } image\n\n", outfile);
+X    fputs("  } {  %% ifelse\n", outfile);
+X    fputs("\n", outfile);
+X    fprintf(outfile, "    %d %d %d", ximage->width, ximage->height,depth);
+X    if (landscape)
+X      fprintf(outfile, "  [0 %d %d 0 0 0]\n", ximage->width, ximage->height);
+X    else
+X      fprintf(outfile, "  [%d 0 0 -%d 0 %d]\n", ximage->width, ximage->height,
+X                                                ximage->height);
+X    fputs("    %% define a block of code to read and decode the rle input stream\n", outfile);
+X    if (binary) {
+X      fputs("    { currentfile buffer readstring pop pop    %% run length and index\n", outfile);
+X      fputs("      /ccount ccount 2 add def                 %% count binary chars\n",outfile);
+X      fprintf(outfile,
+X            "      ccount %d ge                             %% test for full line\n", IMAGE_CODEWIDTH);
+X      fputs("      { /ccount 0 def                          %% reset character counter\n",outfile);
+X      fputs("        currentfile endstr readline pop pop    %% skip newline\n",outfile);
+X      fputs("      } if                                     %% skip newlines after full line\n",outfile);
+X    }
+X    else
+X      fputs("    { currentfile buffer readhexstring pop pop %% run length and index\n", outfile);
+X    fputs("      /npixels buffer 0 get 1 add 3 mul store  %% number of bytes\n", outfile);
+X    fputs("      /color buffer 1 get 3 mul store          %% fix index into rgb map\n", outfile);
+X    fputs("      /rgb rgbmap color 3 getinterval store    %% and get the colors\n", outfile);
+X    fputs("\n", outfile);
+X    fputs("      0 3 npixels 1 sub {                      %% loop to store the rgb bytes\n", outfile);
+X    fputs("        rgbstr exch rgb putinterval\n", outfile);
+X    fputs("      } for\n", outfile);
+X    fputs("      rgbstr 0 npixels getinterval\n", outfile);
+X    fputs("    }\n", outfile);
+X    fputs("    false 3 colorimage\n\n", outfile);
+X    fputs("  } ifelse\n\n", outfile);
+X    fputs("} bind def\n", outfile);
+X  }
+X
+X
+X  else {
+X    /* non-encoded output:
+X     * define a drawcolorimage procedure geared to this image
+X     */
+X    fprintf(outfile, "/buffer %d string def\n", 1);
+X    fprintf(outfile, "/line   %d string def\n", ximage->width);
+X    fprintf(outfile, "/rgbmap %d string def\n", image->numcells * 3);
+X    fputs("\n\n", outfile);
+X
+X    fputs("/onepixel 3 string store\n", outfile);
+X
+X    fputs("/drawcolormappedimage {\n", outfile);
+X
+X    fputs("  systemdict /colorimage known userdict /colorimage known or not {\n", outfile);
+X    fputs("    %% convert colors to greyscale\n", outfile);
+X    fprintf(outfile,"    /ncolors %d store\n", image->numcells);
+X    fputs("    /ridx 0 store\n", outfile);
+X    fputs("    /greys ncolors string def\n", outfile);
+X    fputs("    /linecount 0 store\n", outfile);
+X    fputs("    0 1 ncolors 1 sub {\n", outfile);
+X    fputs("      /gidx exch store\n", outfile);
+X    fputs("      rgbmap ridx get .3 mul\n", outfile);
+X    fputs("      rgbmap ridx 1 add get .59 mul add\n", outfile);
+X    fputs("      rgbmap ridx 2 add get .11 mul add\n", outfile);
+X    fputs("      cvi\n", outfile);
+X    fputs("      /agrey exch store\n", outfile);
+X    fputs("      greys gidx agrey put\n", outfile);
+X    fputs("      /ridx ridx 3 add store\n", outfile);
+X    fputs("    } for\n", outfile);
+X
+X
+X    fprintf(outfile, "    %d %d %d", ximage->width, ximage->height,depth);
+X    if (landscape)
+X      fprintf(outfile, "  [0 %d %d 0 0 0]\n", ximage->width, ximage->height);
+X    else
+X      fprintf(outfile, "  [%d 0 0 -%d 0 %d]\n", ximage->width, ximage->height,
+X                                                ximage->height);
+X
+X    fputs("    %% define a block of code to read and decode the input stream\n", outfile);
+X    if (binary) {
+X      fputs("    { currentfile read not { 0 } if\n", outfile);
+X      fputs("      greys exch 1 getinterval ", outfile);
+X    }
+X    else {
+X      fputs("    { currentfile line readhexstring pop pop\n", outfile);
+X      fprintf(outfile, "      0 1 %d { dup\n", ximage->width-1);
+X      fputs("        line exch get greys exch get\n", outfile);
+X      fputs("        line 3 1 roll put\n", outfile);
+X      fputs("      } for\n", outfile);
+X      fputs("      line\n", outfile);
+X    }
+X    fputs("    } image\n\n", outfile);
+X
+X    fputs("  } {  %% ifelse\n", outfile);
+X    fputs("\n", outfile);
+X
+X    fprintf(outfile, "    %d %d %d", ximage->width, ximage->height,depth);
+X    if (landscape)
+X      fprintf(outfile, "  [0 %d %d 0 0 0]\n", ximage->width, ximage->height);
+X    else
+X      fprintf(outfile, "  [%d 0 0 -%d 0 %d]\n", ximage->width, ximage->height,
+X                                                ximage->height);
+X
+X    fputs("    %% define a block of code to read and decode the input stream\n", outfile);
+X    if (binary) {
+X      fputs("    { rgbmap   currentfile read not { 0 } if   3 mul 3 getinterval \n", outfile);
+X    }
+X    else {
+X      fputs("    { currentfile buffer readhexstring pop pop\n", outfile);
+X      fputs("      rgbmap buffer 0 get 3 mul 3 getinterval   %% color bytes\n", outfile);
+X    }
+X    fputs("    }\n", outfile);
+X    fputs("    false 3 colorimage\n", outfile);
+X    fputs("  } ifelse\n", outfile);
+X    fputs("} bind def\n", outfile);
+X    fprintf(outfile, "\n\n\n");
+X
+X  }
+X
+X
+X  /* write the rgb map */
+X  fputs("%% get the rgb map\n", outfile);
+X  fputs("currentfile rgbmap readhexstring\n", outfile);
+X  for (x=0; x<image->numcells; x++)
+X    fprintf(outfile, "%02.2x%02.2x%02.2x\n",
+X                      (byte)((image->red[x]   >> 8) & 0xff),
+X		      (byte)((image->green[x] >> 8) & 0xff),
+X		      (byte)((image->blue[x]  >> 8) & 0xff) );
+X  fputs("pop pop\n\n", outfile);
+X
+X
+X  if (binary)
+X    fprintf(outfile,"%%%%BeginBinary: %d\n",
+X	    encode ? rletotal+22+rletotal/IMAGE_CODEWIDTH
+X	    : ximage->height*ximage->width+22+
+X	      (ximage->height*ximage->width)/IMAGE_CODEWIDTH);
+X
+X  fputs("drawcolormappedimage\n", outfile);
+X
+X  /* write the map indexes */
+X  rletotal = 0;
+X  rlecount = 0;
+X  firstSample = TRUE;
+X  widthcount = 0;
+X  for (y=0; y<ximage->height; y++) {
+X    for (x=0, ptr=(byte *)(ximage->data+(y * ximage->bytes_per_line));
+X        x<ximage->width;
+X        x+=spb, ptr++) {
+X      b = *ptr;
+X      if (encode) {
+X        if (firstSample || b != rlesample || rlecount==254) {
+X	  if (!firstSample) {
+X	    if (binary) {
+X	      putc((byte)rlecount,outfile);
+X	      putc((byte)rlesample,outfile);
+X	      widthcount += 2;
+X	    }
+X	    else {
+X	      fprintf(outfile, "%02.2x%02.2x", rlecount, rlesample);
+X	      widthcount += 4;
+X	    }
+X	    rletotal += 2;
+X	    if (widthcount >= IMAGE_CODEWIDTH) {
+X	      fputc('\n', outfile);
+X	      widthcount = 0;
+X	    }
+X	  }
+X	  else
+X	    firstSample = FALSE;
+X	  rlecount = 0;
+X	  rlesample = b;
+X        }
+X        else
+X	  rlecount++;
+X      }
+X      else {
+X	if (binary) {
+X	  /* no width wrapping for non-encoded binary */
+X	  fputc((byte)b,outfile);
+X	}
+X	else {
+X	  fprintf(outfile, "%02.2x", b & 0xFF);
+X	  widthcount += 2;
+X	  if (widthcount >= IMAGE_CODEWIDTH) {
+X	    fputc('\n', outfile);
+X	    widthcount = 0;
+X	  }
+X	}
+X      }
+X    }
+X  }
+X
+X  if (encode) {
+X    if (!firstSample) {
+X      if (binary) {
+X	fputc((byte)rlecount,outfile);
+X	fputc((byte)rlesample,outfile);
+X      }
+X      else
+X        fprintf(outfile, "%02.2x%02.2x\n", rlecount, rlesample);
+X      rletotal += 2;
+X    }
+X  }
+X  else
+X    fputc('\n', outfile);
+X  if (binary)
+X    fprintf(outfile,"\n%%%%EndBinary\n");
+X
+X  /* print some statistics */
+X  if (encode) {
+X    fputs("\n%\n", outfile);
+X    fprintf(outfile, "%% Run-length encoding savings = %5.1f%%\n",
+X          100.0 - ((float)(rletotal) * 100.0 / (float)(ximage->height * bpl)));
+X  }
+X
+X  fputs("\n%\n", outfile);
+X  fputs("\ngrestore\nshowpage\n%%Trailer\n", outfile);
+X}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X/*
+X * Write an image in 'puzzle' format, suitable for loading with
+X * "puzzle -picture".
+X */
+XwritePuzzle(image, outfile)
+X  imageInfo *image;
+X  FILE *outfile;
+X{
+X  XImage *ximage = image->ximage;
+X  int nc, width, height, w, h, cidx;
+X  dw swaptest = 1;
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: formatting Puzzle output\n", programName);
+X
+X  if (ximage->depth > 8) {
+X    fprintf(stderr, "%s: Puzzle converter can't handle depth > 8 yet\n",
+X            programName);
+X    return;
+X  }
+X
+X  nc     = image->numcells;
+X  width  = ximage->width;
+X  height = ximage->height;
+X  if (*(char *)&swaptest) {
+X    swapbytes(&width);
+X    swapbytes(&height);
+X  }
+X  fwrite(&width, 4, 1, outfile);
+X  fwrite(&height, 4, 1, outfile);
+X  fputc(nc, outfile);
+X  for (cidx=0; cidx<nc; cidx++) {
+X    fputc(image->red[cidx]>>8,   outfile);
+X    fputc(image->green[cidx]>>8, outfile);
+X    fputc(image->blue[cidx]>>8,  outfile);
+X  }
+X  for (h=0; h<ximage->height; h++)
+X    if (ximage->bits_per_pixel == 8)
+X      fwrite(ximage->data+(h*ximage->bytes_per_line),ximage->width,1,outfile);
+X    else
+X      /* this won't work if depth > 8 */
+X      for (w=0; w<ximage->width; w++)
+X        fputc(XGetPixel(ximage, w, h), outfile);
+X}
+X
+X
+X
+X
+X
+X
+X
+XwriteXWD(image, outfile, xyformat)
+X  imageInfo *image;
+X  FILE *outfile;
+X  int xyformat;
+X{
+X  XImage   *ximage = image->ximage;
+X  XWDFileHeader header;
+X  Visual   *visual = DefaultVisual(hDisplay, hScreen);
+X  XColor    color;
+X  dw        visMask = (visual->red_mask
+X                      | visual->green_mask
+X                      | visual->blue_mask);
+X  dw        swaptest = 1;
+X  int       i, x, y, size;
+X  byte      *ptr;
+X  int	    XYtoZ;
+X  byte	    b;
+X  int	    bc;
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: formatting xwd output\n", programName);
+X
+X  header.header_size    = (CARD32)(sizeof(header)+strlen(imageName)+1);
+X  header.file_version   = (CARD32) XWD_FILE_VERSION;
+X  XYtoZ = (ximage->depth==1 && !xyformat);
+X  header.pixmap_format  = (CARD32)(ximage->depth>1? ZPixmap : (xyformat? XYPixmap : ZPixmap));
+X  header.pixmap_depth   = (CARD32) (XYtoZ? 8 : ximage->depth);
+X  header.pixmap_width   = (CARD32) ximage->width;
+X  header.pixmap_height  = (CARD32) ximage->height;
+X  header.xoffset        = (CARD32) ximage->xoffset;
+X  header.byte_order     = (CARD32) ximage->byte_order;
+X  header.bitmap_unit    = (CARD32) (XYtoZ ? 8 : ximage->bitmap_unit);
+X  header.bitmap_bit_order = (CARD32) (XYtoZ ? MSBFirst : ximage->bitmap_bit_order);
+X  size = XYtoZ ? ximage->bitmap_pad * 8 : ximage->bitmap_pad;
+X  header.bitmap_pad     = (CARD32) size;
+X  header.bits_per_pixel = (CARD32) XYtoZ? 8 : ximage->bits_per_pixel;
+X  size = XYtoZ? ximage->width : ximage->bytes_per_line;
+X  header.bytes_per_line = (CARD32)size;
+X  header.visual_class   = (CARD32)visual->class;
+X  header.red_mask       = (CARD32)visual->red_mask;
+X  header.green_mask     = (CARD32)visual->green_mask;
+X  header.blue_mask      = (CARD32)visual->blue_mask;
+X  header.bits_per_rgb   = (CARD32)visual->bits_per_rgb;
+X  header.colormap_entries = (CARD32)visual->map_entries;
+X  /* ncolors should be image->numcells, but some programs seem to expect
+X   * that it is == colormap_entries.  sigh */
+X  header.ncolors        = header.colormap_entries;
+X  header.window_width   = (CARD32)ximage->width;
+X  header.window_height  = (CARD32)ximage->height;
+X  header.window_x       = 0;
+X  header.window_y       = 0;
+X  header.window_bdrwidth = 0;
+X
+X  if (*(char *) &swaptest)
+X    swapdws(&header, sizeof(header));
+X
+X  fwrite(&header, sizeof(header), 1, outfile);
+X  fwrite(imageName, 1, strlen(imageName)+1, outfile);
+X
+X  if (*(char *) &swaptest)
+X    swapdws(&header, sizeof(header));
+X
+X  for (i=0; i<image->numcells; i++) {
+X    color.pixel = i;
+X    color.red   = image->red[i];
+X    color.green = image->green[i];
+X    color.blue  = image->blue[i];
+X    color.flags = visMask;
+X    color.pad   = 0;
+X    if (*(char *) &swaptest) {
+X      swapdws(&color.pixel, sizeof(color.pixel));
+X      swapwords(&color.red, 3 * sizeof(color.red)); /* assume g and b follow r */
+X    }
+X    fwrite(&color, sizeof(XColor), 1, outfile);
+X  }
+X
+X  /* pad out with black entries */
+X  color.red = color.green = color.blue = 0;
+X  color.flags = visMask;
+X  color.pad = 0;
+X  for (i=image->numcells; i<visual->map_entries; i++) {
+X    color.pixel = i;
+X    if (*(char *) &swaptest)
+X      swapdws(&color.pixel, sizeof(color.pixel));
+X    fwrite(&color, sizeof(XColor), 1, outfile);
+X  }
+X
+X  if (XYtoZ) {
+X    for (y = 0; y < ximage->height; y++) {
+X      for (x = 0; x < ximage->width; x++) {
+X        b = XGetPixel(ximage, x, y);
+X	fputc(b, outfile);
+X      }
+X    }
+X  }
+X  else {
+X    if (ximage->depth == 1  &&  BlackPixel(hDisplay,hScreen) == 0) {
+X      size = ximage->height * ximage->bytes_per_line;
+X      for (i=0, ptr=&ximage->data[0]; i<size; i++, ptr++)
+X        fputc(~(*ptr), outfile);
+X    }
+X    else
+X      fwrite(ximage->data, ximage->height * ximage->bytes_per_line, 1, outfile);
+X  }
+X}
+X
+X
+X
+X
+X
+X/*
+X * Write a monochrome image out in Bitmap format.  XWriteBitmapToFile
+X * requires a Pixmap as input & we'd have to invent one before we could
+X * use it.
+X */
+X
+XwriteXYPixmap(image, outfile)
+X  imageInfo *image;
+X  FILE *outfile;
+X{
+X  XImage *ximage = image->ximage;
+X  int w, h;
+X  byte b, *line;
+X  int lcount;
+X  int reverse = BlackPixel(hDisplay, hScreen) == 0;
+X  int swap    = ximage->bitmap_bit_order != LSBFirst;
+X
+X  if (verbose)
+X    fprintf(stderr, "%s: formatting Bitmap output\n", programName);
+X
+X  if (ximage->depth != 1) {
+X    fprintf(stderr, "%s: can't write polychrome images in XY bitmap format\n",
+X      programName);
+X    return;
+X  }
+X
+X  fprintf(outfile, "#define %s_width %d\n",  imageName, ximage->width);
+X  fprintf(outfile, "#define %s_height %d\n", imageName, ximage->height);
+X  fprintf(outfile, "#define %s_x_hot 0\n",   imageName);
+X  fprintf(outfile, "#define %s_y_hot 0\n",   imageName);
+X  fprintf(outfile, "static char %s_bits[] = {\n", imageName);
+X  lcount = 0;
+X  fputs("  ", outfile);
+X  for (h=0; h<ximage->height; h++) {
+X    line = (byte *)(ximage->data + (h * ximage->bytes_per_line));
+X    for (w=0; w<ximage->width; w+=8) {
+X      b = line[w/8];
+X      if (reverse) b = ~b;
+X      if (swap)    b = swapbits(b);
+X      fprintf(outfile, " 0x%02x", b);
+X      if (h<ximage->height || w+8<ximage->width)
+X        fputc(',', outfile);
+X      lcount++;
+X      if (lcount >= 12) {
+X        fputs("\n  ", outfile);
+X        lcount = 0;
+X      }
+X    }
+X  }
+X  fputs("  };\n", outfile);
+X}
+X
+X
+X
+X
+X
+X
+X
+X
+X/*
+X * Write a color image out in Pixmap format.
+X * Supported output formats are xpm1 (original xpm), xpm2  and xpm3
+X */
+XwriteZPixmap(xpmFormat, image, outfile)
+X  imageInfo *image;
+X  FILE *outfile;
+X{
+X  XImage *ximage = image->ximage;
+X  int nc, width, height, w, h, cidx, cpp;
+X  char mne[MAX_CELLS][3];
+X
+X  if (verbose) {
+X    switch (xpmFormat) {
+X    case 3:
+X      fprintf(stderr, "%s: formatting XPM3 Pixmap output\n", programName);
+X      break;
+X    case 2:
+X      fprintf(stderr, "%s: formatting XPM2 Pixmap output\n", programName);
+X      break;
+X    default:
+X    case 1:
+X      fprintf(stderr, "%s: formatting XPM output\n", programName);
+X      break;
+X    }
+X  }
+X
+X  nc  = image->numcells;
+X  cpp = image->numcells <= 26? 1 : 2;
+X  switch (xpmFormat) {
+X  case 3:
+X    fprintf(outfile, "/* XPM */\nstatic char * %s_name [] = {\n\"%d %d %d %d\",\n",
+X      imageName, ximage->width, ximage->height, image->numcells, cpp);
+X    fputs("/* pixels*/\n", outfile);
+X    break;
+X  case 2:
+X    fprintf(outfile, "! XPM2  \n%d %d %d %d\n", ximage->width,
+X      ximage->height, image->numcells, cpp);
+X    fputs("! pixels\n", outfile);
+X    break;
+X  case 1:
+X  default:
+X    fprintf(outfile, "#define %s_format 1\n",   imageName);
+X    fprintf(outfile, "#define %s_width %d\n",   imageName, ximage->width);
+X    fprintf(outfile, "#define %s_height %d\n",  imageName, ximage->height);
+X    fprintf(outfile, "#define %s_ncolors %d\n", imageName, image->numcells);
+X    fprintf(outfile, "#define %s_chars_per_pixel %d\n",     imageName, cpp);
+X    fprintf(outfile, "static char * %s_colors[] = {\n", imageName);
+X    break;
+X  }
+X
+X  for (cidx=0; cidx<image->numcells; cidx++) {
+X    if (cpp > 1) {
+X      mne[cidx][0] = (char)(cidx / 10) + 'a';
+X      mne[cidx][1] = (char)(cidx % 10) + '0';
+X      mne[cidx][2] = '\0';
+X    }
+X    else {
+X      mne[cidx][0] = (char)cidx + (cidx? 'A' : ' ');
+X      mne[cidx][1] = '\0';
+X    }
+X    switch (xpmFormat) {
+X    case 3:
+X      fprintf(outfile, "\"%s\tc #%4.4x%4.4x%4.4x\",\n",mne[cidx],
+X                image->red[cidx], image->green[cidx], image->blue[cidx]);
+X      break;
+X    case 2:
+X      fprintf(outfile, "%s c #%4.4x%4.4x%4.4x\n", mne[cidx],
+X                image->red[cidx], image->green[cidx], image->blue[cidx]);
+X      break;
+X    default:
+X    case 1:
+X      fprintf(outfile, "\"%s\", \"#%4.4x%4.4x%4.4x\"\n", mne[cidx],
+X                image->red[cidx], image->green[cidx], image->blue[cidx]);
+X      break;
+X    }
+X  }
+X  if (xpmFormat == 1) {
+X    fputs("} ;\n", outfile);
+X    fprintf(outfile, "static char * %s_pixels[] = {\n", imageName);
+X  }
+X  for (h=0; h<ximage->height; h++) {
+X    if (xpmFormat != 2)
+X      fputs("\"", outfile);
+X    for (w=0; w<ximage->width; w++)
+X      fputs(mne[XGetPixel(ximage, w, h)], outfile);
+X    if (xpmFormat == 2)
+X      fputs("\n", outfile);
+X    else
+X      fputs("\",\n", outfile);
+X  }
+X  if (xpmFormat == 3)
+X    fputs("};\n", outfile);
+X  else if (xpmFormat != 2)
+X    fputs("} ;\n", outfile);
+X}
+X
+X
+X
+X
+END_OF_FILE
+if test 42884 -ne `wc -c <'xgrabsc.2_3/write.hc'`; then
+    echo shar: \"'xgrabsc.2_3/write.hc'\" unpacked with wrong size!
+fi
+# end of 'xgrabsc.2_3/write.hc'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

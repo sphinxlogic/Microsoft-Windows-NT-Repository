@@ -1,0 +1,631 @@
+Newsgroups: comp.sources.misc
+From: chad@anasazi.com (Chad R. Larson)
+Subject: v35i003:  fill - text formatting for your editor, Part01/01
+Message-ID: <1993Jan21.005126.5264@sparky.imd.sterling.com>
+X-Md4-Signature: 4b1cace15116d65ddc13e5da8accb31f
+Date: Thu, 21 Jan 1993 00:51:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: chad@anasazi.com (Chad R. Larson)
+Posting-number: Volume 35, Issue 3
+Archive-name: fill/part01
+Environment: UNIX
+Supersedes: fill: Volume 4, Issue 91
+
+This is an updated version of "fill", a simple text formatter for your
+editor.  You can set left and right margins, center text between them,
+generate right-justified text and have paragraph indentation (or hanging
+indents).  It deals with text blocks that have a left delimiter such as
+comment blocks in code.  You can box paragraphs in a manner suitable for
+news article followups.
+
+It only requires that you can pipe a text object through a filter from
+within you editor.
+
+It has been tested under SysVr3, SysVr4 and BSD 4.3.  It should compile
+on almost any system including MS-DOS, as it uses no system specific
+features other than I/O redirection.
+
+I have placed it in the Public Domain.
+
+	-crl
+-=-=-=-=-=-=-=-=-=-=-=-=( cut here )-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Makefile fill.c fill.1 test_file
+# Wrapped by chad@anasazi.com on Tue Jan 19 00:04:11 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(646 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for fill, a simple text formatter
+X#
+X#	Last changed 1/19/93
+X#
+X
+XBINDIR = /usr/public/bin
+XMANDIR = /usr/catman/pub_man/man1
+XCOPY = /bin/cp
+X
+XDISTFILES = Makefile fill.c fill.1 test_file
+X
+Xfill:	fill.c
+X	$(CC) $(CFLAGS) -o fill fill.c
+X
+Xfill.man: fill.1
+X	nroff -man fill.1 > fill.man
+X
+X$(BINDIR)/fill: fill
+X	$(COPY) fill $(BINDIR)/fill
+X	strip $(BINDIR)/fill
+X
+X$(MANDIR)/fill.1.z:	fill.man
+X	-rm $@
+X	$(COPY) fill.man $(MANDIR)/fill.1
+X	pack $(MANDIR)/fill.1
+X
+Xinstall:	$(BINDIR)/fill $(MANDIR)/fill.1.z
+X	touch install
+X
+XLint:	fill.c
+X	lint -p fill.c >Lint
+X
+Xtar:
+X	tar cvf Fill.tar $(DISTFILES)
+X	compress -v Fill.tar
+X
+Xshar:
+X	shar -o shar $(DISTFILES)
+END_OF_FILE
+if test 646 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'fill.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fill.c'\"
+else
+echo shar: Extracting \"'fill.c'\" \(11584 characters\)
+sed "s/^X//" >'fill.c' <<'END_OF_FILE'
+X/* fill - Simple text formatter - 2.7 */
+X
+X/*
+X** Fill is a simple text formatter meant to be used from within
+X** your editor to provide the same functionality as the ^B command
+X** in WordStar.  This presumes your editor can pipe an object through
+X** a filter.  In vi, you would do something like "!}fill" to word wrap
+X** a paragraph.  Of course, you may, in the spirit of Unix, find other
+X** uses for it.  For example, fill has the side-effect of de-tabifying
+X** lines passed to it.
+X**	Usage: fill [-b] [-c | -j] [-d] [-l n] [-r n] [-p n]
+X**		-b	box the output (replying to news)
+X**		-c	center the lines
+X**		-d	the block is left delimited ("** comment block")
+X**		-j	justify the right margin
+X**		-l n	set left margin to "n", defaults to 1
+X**		-r n	set right margin to "n", defaults to 72
+X**		-p n    sets a "paragraph" indent.
+X*/
+X
+X/*
+X** Author:
+X**   Chad R. Larson			This program is placed in the
+X**   DCF, Inc.				Public Domain.  You may do with
+X**   14623 North 49th Place		it as you please.
+X**   Scottsdale, AZ 85254
+X*/
+X
+X/* maximum length of a line (for centering only) */
+X#define LINE_MAX	512
+X
+X/* maximum length of a word */
+X#define WORD_MAX	128
+X
+X/* the default right margin */
+X#define DEF_MARGIN	72
+X
+X/* strings used in boxing output */
+X#define BOX_MARGIN "| "
+X#define BOX_STRING "+---------------"
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <memory.h>
+X
+X/* forward references */
+Xvoid	j_line();	/* justify a line */
+Xvoid	exit();
+Xchar	*append();
+Xchar	*malloc();
+X
+X/* global flags */
+X#define FALSE 0
+X#define TRUE  ~FALSE
+Xint	nl_flag;	/* new line has been processed */
+Xint	delimited = FALSE;	/* left delimited block */
+X
+X/* identifier */
+X#ifndef lint
+Xstatic char id[] = "@(#)fill, version 2.7";
+X#endif
+X
+X
+X/* main program */
+Xint
+Xmain(argc, argv)
+Xint	argc;
+Xchar	*argv[];
+X{
+X    int		c;			/* a generic character */
+X    int		center = FALSE;		/* center text flag */
+X    int		box = FALSE;		/* box text flag */
+X    int		justify = FALSE;	/* justify right margin flag */
+X    int		paragraph = 0;		/* paragraph indent value */
+X    int		w_length;		/* length of current word */
+X    int		l_length = 0;		/* length of current line */
+X    int		l_margin = 1;		/* left margin */
+X    int		r_margin = DEF_MARGIN;	/* right margin */
+X    int		wrap_point;		/* max chars allowed on a line */
+X    char	*margin;		/* points to left margin string */
+X    char	*out_line;		/* points to the output line */
+X    char	*delimit;		/* points to the block delimiter */
+X    char	word[WORD_MAX];		/* the current word */
+X    char	*bp;			/* a buffer pointer */
+X    extern char	*optarg;		/* option argument pointer */
+X
+X    /* parse the command line */
+X    while ((c = getopt(argc, argv, "bcdjr:l:p:")) != EOF)
+X	switch (c) {
+X	case 'b':
+X		box = TRUE;
+X		l_margin += strlen(BOX_MARGIN);
+X	    break;
+X	case 'c':
+X		center = TRUE;
+X	    break;
+X	case 'd':
+X		delimited = TRUE;
+X	    break;
+X	case 'j':
+X		justify = TRUE;
+X	    break;
+X	case 'r':
+X	    r_margin = atoi(optarg);
+X	    break;
+X	case 'l':
+X	    l_margin += atoi(optarg) - 1;
+X	    break;
+X	case 'p':
+X	    paragraph = atoi(optarg);
+X	    break;
+X	case '?':
+X	    (void)fprintf(stderr,
+X	      "Usage: %s [-b] [-c | -j] [-d] [-l n] [-r n] [-p n]\n", argv[0]);
+X	    exit(-1);
+X	}
+X
+X    /* validate command line inputs */
+X    if (justify && center) {
+X	(void)fputs("Center and Justify are mutually exclusive.\n", stderr);
+X	exit(1);
+X    }
+X    if (box && center) {
+X	(void)fputs("Center and Box are mutually exclusive.\n", stderr);
+X	exit(1);
+X    }
+X    if (l_margin >= r_margin || l_margin < 1) {
+X	(void)fputs("Illogical margin setting.\n", stderr);
+X	exit(2);
+X    }
+X    if (paragraph < 0)		/* silently adjust */
+X	paragraph = (-paragraph > l_margin ? -l_margin : paragraph);
+X    else
+X	paragraph = (paragraph > r_margin ? r_margin : paragraph);
+X
+X    /* Center the text if requested.  Will exit without filling. */
+X    if (center) {
+X	if ( (out_line = malloc(LINE_MAX)) == NULL ) {
+X	    (void)fputs("Unable to allocate centering buffer.\n", stderr);
+X	    exit(3);
+X	}
+X	while ( fgets(out_line, LINE_MAX, stdin) != NULL ) {
+X	    bp = out_line;
+X	    while (*bp == ' ' || *bp == '\t')	/* strip leading spaces */
+X		bp++;
+X	    l_length = strlen(bp) - 1;
+X	    while (bp[l_length - 1] == ' ' || bp[l_length - 1] == '\t')
+X		l_length--;			/* strip trailing space */
+X	    bp[l_length] = '\0';
+X	    center = (r_margin - l_length) / 2;
+X	    while (center--)
+X		(void)putc(' ', stdout);
+X	    (void)puts(bp);
+X	}
+X	exit(0);
+X    }
+X
+X    /* create the left margin string */
+X    if ( (margin = malloc( (unsigned)l_margin) ) == NULL ) {
+X	(void)fputs("Unable to allocate space for margin.\n", stderr);
+X	exit(4);
+X    }
+X    (void)memset(margin, ' ', l_margin - 1);
+X    margin[l_margin - 1] = '\0';
+X    if (box)
+X	(void)strncpy(margin, BOX_MARGIN, strlen(BOX_MARGIN));
+X
+X    /* create a place for the block delimiter, if needed */
+X    if (delimited && (delimit = malloc(WORD_MAX)) == NULL ) {
+X	(void)fputs("Unable to allocate delimit buffer.\n", stderr);
+X	exit(5);
+X    }
+X
+X    /* create the output line buffer */
+X    wrap_point = r_margin - l_margin + 1;
+X    if ((out_line = malloc( (unsigned)wrap_point + 3) ) == NULL) {
+X	(void)fputs("Unable to allocate space for line buffer.\n", stderr);
+X	exit(6);
+X    }
+X
+X    /* establish the delimiter */
+X    if (delimited) {
+X	if (get_word(delimit) == 0)
+X	    exit(0);
+X	else {
+X	    (void)strcat(delimit, " ");
+X	    wrap_point -= strlen(delimit);
+X	}
+X	/* check for delimiter only thing on line (or in file) */
+X	if (nl_flag)
+X	    if (get_word(word) == 0) {
+X		if (box) {
+X		    (void)puts(BOX_STRING);
+X		    (void)fputs(BOX_MARGIN, stdout);
+X		}
+X		(void)puts(delimit);
+X		if (box)
+X		    (void)puts(BOX_STRING);
+X		exit(0);
+X	    }
+X    }
+X
+X    /* move words from the input to the output */
+X    if (box)
+X	(void)puts(BOX_STRING);
+X    bp = out_line;
+X    wrap_point -= paragraph;	/* one time adjustment */
+X    while ( (w_length = get_word(word)) != 0 ) {
+X	if ( (l_length + w_length) > wrap_point ) {	/* line wrap? */
+X	    while (out_line[l_length - 1] == ' ')   /* trailing space strip */
+X		l_length--;
+X	    out_line[l_length] = '\0';
+X	    if (justify)			/* justify the line? */
+X		j_line(out_line, wrap_point);
+X	    if (paragraph) {
+X		wrap_point += paragraph;	/* restore */
+X		if (paragraph > 0) {
+X		    (void)fputs(margin, stdout);
+X		    while (--paragraph)
+X			(void)putchar(' ');
+X		} else {
+X		    c = 0;
+X		    paragraph--;
+X		    while (++paragraph)
+X			(void)putchar(margin[c++]);
+X		}
+X	    } else	/* not paragraph */
+X		(void)fputs(margin, stdout);	/* set any offset */
+X	    if (delimited)
+X		(void)fputs(delimit, stdout);
+X	    (void)puts(out_line);		/* put the line to stdout */
+X	    *out_line = '\0';			/* reset the output line */
+X	    l_length = 0;
+X	    bp = out_line;
+X	}
+X	bp = append(bp, word);
+X	bp = append(bp, " ");
+X	l_length += w_length + 1;
+X	if ((c = word[w_length - 1]) == '.' || c == '?' || c == '!') {
+X	    bp = append(bp, " ");	/* end-of-sentence handling */
+X	    l_length++;
+X	}
+X	else if (word[w_length - 1] == '"' &&  /* quoted sentence */
+X	  (c = word[w_length - 2]) == '.' || c == '?' || c == '!') {
+X	    bp = append(bp, " ");
+X	    l_length++;
+X	}
+X	if (delimited && nl_flag && get_word(word) == 0)
+X		break;	/* flush next delimiter, or quit if none */
+X    }
+X
+X    /* clean up and exit */
+X    if (l_length) {		/* residual to flush */
+X	while (out_line[l_length - 1] == ' ')
+X	    l_length--;
+X	out_line[l_length] = '\0';
+X	(void)fputs(margin, stdout);
+X	if (delimited)
+X	    (void)fputs(delimit, stdout);
+X	(void)puts(out_line);
+X    }
+X    if (box)
+X	(void)puts(BOX_STRING);
+X    exit(0);
+X}
+X
+X
+X/*
+X** get_word - a routine to return the next word from the standard input.
+X** Copies the next word from the input stream to the location pointed to
+X** by its argument.  The word will be null terminated.  A word is any
+X** string of characters delimited by whitespace.  Returns the length
+X** of the word.
+X*/
+X
+Xint get_word(Word)
+Xchar	*Word;
+X{
+X    register int	c;	/* generic character */
+X    register int	i;	/* a counter */
+X
+X    /* first strip any leading whitespace */
+X    while (TRUE) {
+X	c = getchar();
+X	if (c == ' ' || c == '\t')
+X	    continue;
+X	if (c == '\n' || c == '\f') {
+X	    if (delimited) {	/* the delimiter is considered whitespace */
+X		while ((c = getchar()) == ' ' || c == '\n' ||
+X		  c == '\t' || c == '\f') ;		/* strip more white */
+X		if (c == EOF) {
+X		    *Word = '\0';
+X		    return 0;
+X		}
+X		while ((c = getchar()) != ' ' && c != '\n' &&
+X		  c != '\t' && c != '\f' && c != EOF) ;
+X		if (c == EOF) {
+X		    *Word = '\0';
+X		    return 0;
+X		}
+X	    }
+X	    continue;
+X	}
+X	if (c == EOF) {
+X	    *Word = '\0';
+X	    return 0;
+X	}
+X	break;
+X    }
+X
+X    /* copy the word */
+X    i = 0;
+X    do {
+X	*Word++ = c;
+X	if (++i >= WORD_MAX) {
+X	    (void)fputs("Encountered word too large.\n", stderr);
+X	    exit(7);
+X	}
+X	c = getchar();
+X    } while (c != ' ' && c != '\n' && c != '\t' && c != '\f' && c != EOF);
+X    *Word = '\0';
+X    if (c == '\n' || c == '\f')		/* did we just end an input line? */
+X	nl_flag = TRUE;
+X    else
+X	nl_flag = FALSE;
+X    return i;
+X}
+X
+X
+X/*
+X** Append - like strcpy except returns a pointer to the
+X** ending null.
+X*/
+X
+Xchar *append(s1, s2)
+Xregister char	*s1, *s2;
+X{
+X    while(*s1++ = *s2++);
+X    return --s1;
+X}
+X
+X
+X/*
+X** j_line - A routine to justify a line.  Attempts to scatter
+X** inserted white space between calls to avoid "rivers".
+X*/
+Xvoid j_line(buffer, margin)
+Xchar	*buffer;	/* the buffer to be justified */
+Xint	margin;		/* the margin to which we must stretch */
+X{
+X    static unsigned	direction = 0;	/* which end to we fill from? */
+X    static char		*work = NULL;	/* working storage */
+X    int			insert;		/* count of places to insert */
+X    int			spaces;		/* count of spaces to insert */
+X    int			multi;		/* spaces to insert each chance */
+X    int			extra;		/* count of extra spaces needed */
+X    int			count;		/* loop counter */
+X    int			loop;		/* loop counter */
+X    char		*Ibp;		/* Input buffer pointer */
+X    char		*Obp;		/* Output buffer pointer */
+X
+X    /*
+X    ** Allocate a working storage large enough to hold the line.  We
+X    ** only do this once (and only if we are justifing).
+X    */
+X    if (work == NULL)
+X	if ((work = malloc( (unsigned)margin + 1 )) == NULL) {
+X	    (void)fputs("Unable to allocate work buffer.\n", stderr);
+X	    exit(8);
+X	}
+X
+X    /* how many spaces do we have to insert? */
+X    loop = strlen(buffer);
+X    spaces = margin - loop;
+X    if (spaces == 0)
+X	return;
+X
+X    /* find how many opportunities there are for space stuffing */
+X    Ibp = buffer;
+X    insert = 0;
+X    while (loop--) {
+X	if ( (*Ibp++ == ' ') && (*Ibp != ' ') )	/* edge triggered */
+X	    insert++;
+X    }
+X    if (insert == 0)
+X	return;
+X
+X    /* how many spaces do we need to stuff per chance? */
+X    multi = spaces / insert;		/* spaces per slot to insert */
+X    extra = spaces % insert;		/* extra spaces needed */
+X
+X    /* copy the buffer contents, inserting spaces */
+X    direction = ~direction;		/* flip end to fill from */
+X    (void)strcpy(work, buffer);		/* make a working copy */
+X    if (direction) {	/* spaces go at the left end of the line */
+X	Ibp = work;
+X	Obp = buffer;
+X	loop = strlen(buffer) + 1;
+X	while (loop--) {
+X	    *Obp++ = *Ibp++;		/* move a character */
+X	    if ((*(Ibp - 1) == ' ') && (*(Ibp - 2) != ' ')) {
+X		if (extra) {
+X		    extra--;
+X		    *Obp++ = ' ';
+X		}
+X		count = multi;
+X		while (count--)
+X		    *Obp++ = ' ';
+X	    }
+X	}
+X    } else {		/* spaces go at the right end of the line */
+X	loop = strlen(buffer);
+X	Ibp = work + loop;
+X	Obp = buffer + loop + spaces;
+X	*(Obp + 1) = '\0';
+X	while (loop--) {
+X	    *Obp-- = *Ibp--;
+X	    if ((*(Ibp + 1) == ' ') && (*(Ibp + 2) != ' ')) {
+X		if (extra) {
+X		    extra--;
+X		    *Obp-- = ' ';
+X		}
+X		for (count = multi; count; count--)
+X		    *Obp-- = ' ';
+X	    }
+X	}
+X    }
+X}
+END_OF_FILE
+if test 11584 -ne `wc -c <'fill.c'`; then
+    echo shar: \"'fill.c'\" unpacked with wrong size!
+fi
+# end of 'fill.c'
+fi
+if test -f 'fill.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fill.1'\"
+else
+echo shar: Extracting \"'fill.1'\" \(1868 characters\)
+sed "s/^X//" >'fill.1' <<'END_OF_FILE'
+X.\" @(#)fill.1	2.3
+X.TH FILL 1 local
+X.SH NAME
+Xfill - a simple text formatter
+X.SH SYNOPSIS
+Xfill [[-b] [-j] | [-c]] [-d] [-r n] [-l n] [-p n]
+X.SH DESCRIPTION
+X.I Fill
+Xis a simple text formatter meant to be used from within
+Xyour editor to provide a functionality similar to the ^B command
+Xin WordStar.  This presumes your editor can pipe an object through
+Xa filter.  In vi, you would do something like "!}fill" to word wrap
+Xa paragraph.  Of course, you may, in the spirit of Unix, find other
+Xuses for it.  For example,
+X.I fill
+Xhas the side-effect of de-tabifying
+Xlines passed to it.
+X.PP
+XThe following options pertain:
+X.nf
+X	-b	box the output lines
+X	-c	center the lines
+X	-d	the text block has a delimiter on the left side
+X	-j	justify the right margin
+X	-p n	set paragraph indent value
+X	-r n	set right margin to column "n", defaults to 72
+X	-l n	set left margin to column "n", defaults to 1
+X.fi
+X.sp
+XThe "-d" option is used to preserve a left hand delimiter
+Xon the text, such as might be used on a comment block
+Xin a source file.  It does this by taking the first white-space
+Xdelimited word in the input text and replicating it down the
+Xleft-hand side of the output text block.  It concurrently
+Xdrops the first word on each line in its input.
+X.PP
+XThe "-p" option is used to set a paragraph indent.  The indent
+Xvalue specified is added to the left margin for the first line
+Xof output.  Negative values may be used for hanging indents.
+X.SH FEATURES
+X.I Fill
+Xhas no practical limit on line lengths (except when centering).
+X.SH BUGS
+XThe justification algorithm is a little crude.
+X.br
+XThe delimited text option can be easily confused.
+X.br
+XAbbreviations (eg.  this one) get an extra space after them.
+X.br
+X.I Fill
+Xmakes no attempt to preserve existing indentations or blank
+Xlines (this could be construed as a feature).
+X.SH AUTHOR
+XChad R. Larson
+X.SH "SEE ALSO"
+Xpr(1), nroff(1), troff(1)
+END_OF_FILE
+if test 1868 -ne `wc -c <'fill.1'`; then
+    echo shar: \"'fill.1'\" unpacked with wrong size!
+fi
+# end of 'fill.1'
+fi
+if test -f 'test_file' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test_file'\"
+else
+echo shar: Extracting \"'test_file'\" \(852 characters\)
+sed "s/^X//" >'test_file' <<'END_OF_FILE'
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+XThis is just a silly file of words to see if fill wraps them properly.
+END_OF_FILE
+if test 852 -ne `wc -c <'test_file'`; then
+    echo shar: \"'test_file'\" unpacked with wrong size!
+fi
+# end of 'test_file'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+--
+Chad R. Larson                         chad%anasaz.UUCP@asuvax.eas.asu.edu
+Anasazi, Inc. - 7500 North Dreamy Draw Drive, Suite 120, Phoenix, Az 85020
+(602) 870-3330            "I read the news today, oh boy!"  -- John Lennon
+
+
+exit 0 # Just in case...

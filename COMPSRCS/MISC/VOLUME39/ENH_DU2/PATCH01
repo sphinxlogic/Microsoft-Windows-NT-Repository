@@ -1,0 +1,1683 @@
+Newsgroups: comp.sources.misc
+From: chip@chinacat.unicom.com (Chip Rosenthal)
+Subject: v39i072:  enh-du2 - enhanced du (disk usage) + utilities, Patch01
+Message-ID: <1993Sep7.124535.29713@sparky.sterling.com>
+X-Md4-Signature: ca5bd51e1af0d34705416dda48eec906
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Unicom Systems Development, Austin, TX
+Date: Tue, 7 Sep 1993 12:45:35 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: chip@chinacat.unicom.com (Chip Rosenthal)
+Posting-number: Volume 39, Issue 72
+Archive-name: enh-du2/patch01
+Environment: UNIX
+Patch-To: enh-du2: Volume 39, Issues 35-36
+
+"enh-du2" is a highly-portable, high-performance, POSIX-conformant
+reimplementation of the "du" command.  This package includes, in
+addition to the enhanced "du" command, a couple of handy utilities.
+The package appears in comp.sources.misc volume 39, issues 35 and 36.
+
+>From the Update-Notes file:
+
+Patch:		1
+Version:	from 2.0 to 2.1
+Severity:	critical for SPARC users, moderate for others
+
+Highlights:	Document critical bug on multi-processor SPARC systems.
+		Added option to dereference symlinks.  "dusort" now
+		handles files with embedded spaces.  Several portability
+		improvements.
+
+Index: patchlevel.h
+Prereq: "2.0"
+*** PL0/patchlevel.h	Tue Aug 24 18:00:15 1993
+--- patchlevel.h	Fri Sep  3 18:43:15 1993
+***************
+*** 1,3 ****
+! /* @(#) patchlevel.h 1.13 93/08/18 00:09:11 */
+! #define VERSION "2.0"
+! 
+--- 1,2 ----
+! /* @(#) patchlevel.h 1.16 93/09/03 18:43:08 */
+! #define VERSION "2.1"
+Index: Makefile
+*** PL0/Makefile	Tue Aug 24 18:00:13 1993
+--- Makefile	Wed Aug 25 03:56:59 1993
+***************
+*** 1,4 ****
+! # @(#) Makefile 1.20 93/08/18 00:08:53
+  
+  ##############################################################################
+  #
+--- 1,4 ----
+! # @(#) Makefile 1.22 93/08/25 03:56:46
+  
+  ##############################################################################
+  #
+***************
+*** 83,90 ****
+  LINTFLAGS = $(CDEFS) -DNO_PROTOTYPE -DPTRTYPE=char
+  
+  FILES = README du.c duentry.c fsinfo.c dusort.c \
+! 	patchlevel.h config.h du.h stdlib.h \
+! 	Makefile ngsizes du.1 dusort.1 ngsizes.1
+  
+  all : du dusort ngsizes du.1 dusort.1 ngsizes.1
+  
+--- 83,90 ----
+  LINTFLAGS = $(CDEFS) -DNO_PROTOTYPE -DPTRTYPE=char
+  
+  FILES = README du.c duentry.c fsinfo.c dusort.c \
+! 	patchlevel.h config-dist du.h stdlib.h \
+! 	Makefile ngsizes du.1 dusort.1 ngsizes.1 Update-Notes
+  
+  all : du dusort ngsizes du.1 dusort.1 ngsizes.1
+  
+Index: README
+*** PL0/README	Tue Aug 24 18:00:09 1993
+--- README	Fri Sep  3 18:08:40 1993
+***************
+*** 1,4 ****
+! @(#) README 1.15 93/08/18 00:08:57
+  
+  "enh-du2" is a highly-portable, high-performance, POSIX-conformant
+  reimplementation of the "du" command.  It also adds some helpful
+--- 1,4 ----
+! @(#) README 1.22 93/09/03 18:08:34
+  
+  "enh-du2" is a highly-portable, high-performance, POSIX-conformant
+  reimplementation of the "du" command.  It also adds some helpful
+***************
+*** 10,31 ****
+  couple of handy utilities.  The "dusort" filter formats the output of
+  "du" nicely.  (Even if you aren't interested in the "du" program itself
+  check out this filter.)  The "ngsizes" script produces a summary of
+! disk space used by the usenet news system.  It puts some of the
+  "enh-du2" features to good use.
+  
+  
+  === Contents =================================================================
+  
+  	- Overview
+  	- Installation
+  	- Credits
+  
+  
+- === Overview =================================================================
+  
+! Word to the impatient:  Edit "Makefile" and "config.h", then run "make".
+  
+! This version supercedes the "enh-du" published in comp.sources.misc
+  volume 14.  The update is not intended to provide an explosion of
+  chrome and bloat (aka "gratuitous features").  This release mainly
+  improves portability, especially in heterogeneous networked environments.
+--- 10,41 ----
+  couple of handy utilities.  The "dusort" filter formats the output of
+  "du" nicely.  (Even if you aren't interested in the "du" program itself
+  check out this filter.)  The "ngsizes" script produces a summary of
+! disk space used by the Usenet news system.  It puts some of the
+  "enh-du2" features to good use.
+  
++     *** IMPORTANT NOTE *******************************************
++     *                                                            *
++     * If you are running a multi-processor SPARC system do NOT   *
++     * attempt to install this package until you fully read these *
++     * notes.  Failure to do so could _crash_ your machine!       *
++     *                                                            *
++     **************************************************************
+  
++ 
+  === Contents =================================================================
+  
+  	- Overview
+  	- Installation
++ 	- Urgent Note to SPARC Users
+  	- Credits
+  
++ Word to the impatient:  Copy "config-dist" to "config.h", configure it
++ and and the "Makefile", then run "make".
+  
+  
+! === Overview =================================================================
+  
+! This version supersedes the "enh-du" published in comp.sources.misc
+  volume 14.  The update is not intended to provide an explosion of
+  chrome and bloat (aka "gratuitous features").  This release mainly
+  improves portability, especially in heterogeneous networked environments.
+***************
+*** 58,64 ****
+  been added to display a file count in addition to the disk usage.
+  
+  To give you a feel for what this program can do, here is the output
+! of "du -h".  Portions of this message are site dependant, and so your
+  mileage may vary.
+  
+  du - version 2.0
+--- 68,74 ----
+  been added to display a file count in addition to the disk usage.
+  
+  To give you a feel for what this program can do, here is the output
+! of "du -h".  Portions of this message are site dependent, and so your
+  mileage may vary.
+  
+  du - version 2.0
+***************
+*** 91,96 ****
+--- 101,108 ----
+  are using something else, you've got a bit of work to do.  Here are the
+  steps to bring up the package:
+  
++   - Copy "config-dist" to "config.h".
++ 
+    - Customize the "config.h" file for your system.
+  
+    - Customize the definitions at the top of the "Makefile".
+***************
+*** 105,121 ****
+  
+  	HP/9000 series 400	HP-UX 8.02
+  	HP/9000 series 800	HP-UX 8.02
+! 	IBM RS/6000		AIX3.1
+  	NCR Tower		SysVr3.1 (NCR release 03.00.00)
+! 	Sun SPARC		SunOS 4.1.2, Solaris 2.1
+  	AT&T 3B1		SysVr3.2 (ver 3.51m)
+  	AT&T 3B2		SysVr3.1
+! 	386			AT&T SysV 3.2.2.3
+! 	386			ISC SysVr3.2 versions 2.0.2, 2.2, 3.0.1
+! 	386			MicroPort SysV 3.0U3.0e
+! 	386			SCO Xenix 2.3.X
+! 	386			SCO Unix 3.2v2, 3.2v4
+! 	386			BSDI versions 0.9.2, 1.0
+  
+  If you get stuck configuring "enh-du", some possibly helpful information
+  follows.  I'll show you the settings I used when testing the package on
+--- 117,145 ----
+  
+  	HP/9000 series 400	HP-UX 8.02
+  	HP/9000 series 800	HP-UX 8.02
+! 	IBM PS/2		AIX 1.3
+! 	IBM RS/6000		AIX 3.1
+  	NCR Tower		SysVr3.1 (NCR release 03.00.00)
+! 	Sun SPARC		SunOS 4.1.2, 4.1.3 [see next section!!!]
+! 	Sun SPARC		Solaris 2.1, 2.2
+! 	DEC MIPS		Ultrix 4.3a
+  	AT&T 3B1		SysVr3.2 (ver 3.51m)
+  	AT&T 3B2		SysVr3.1
+! 	Sequent S81		Dynix 3.0.17
+! 	NeXT			NeXTSTEP 3.1
+! 	NCR 3000 series		NCR releases 1.01.00.14, 02.00.02.02
+! 	x86			AT&T SysV 3.2.2.3
+! 	x86			ISC SysVr3.2 versions 2.0.2, 2.2, 3.0.1
+! 	x86			MicroPort SysV 3.0U3.0e
+! 	x86			SCO Xenix 2.3.X
+! 	x86			SCO Unix 3.2v2, 3.2v4
+! 	x86			BSDI versions 0.9.2, 1.0
+! 	x86			Linux 0.99pl12 (gcc 2.4.5/libc 4.4.1)
+! 	x86			Coherent 4.0.1
+! 
+! If you bring up this package up on something other than the above,
+! I'd like to hear about it.  Be sure to let me know the specific
+! machine model number and operating system version/release number.
+  
+  If you get stuck configuring "enh-du", some possibly helpful information
+  follows.  I'll show you the settings I used when testing the package on
+***************
+*** 138,143 ****
+--- 162,168 ----
+  USE_DIR_xxxx	DIRENT	-	-	-	-	-	-	-
+  USE_MOUNT_xxxx	MNTTAB	-	-	-	R4MNTTAB MNTENT	FSTAB	-
+  USE_STATFS_xxxx	SYSV	-	-	-	-	SUN	BSD	-
++ USE_GETCWD_xxxx	GETCWD	-	-	-	-	-	-	-
+  USE_SYMLINKS	disab	enab	-	-	enab	enab	enab	-
+  USE_STBLOCKS	disab	-	-	-	enab	enab	enab	-
+  BROKE_STBLOCKS	disab	-	-	-	-	-	-	-
+***************
+*** 158,163 ****
+--- 183,223 ----
+  SunOS 4.1.2			(empty)		(empty)
+  BSDI 1.0			(empty)		(empty)
+  AT&T 3B2 and NCR Tower		-I.		-lmalloc
++ 
++ 
++ === Urgent Note to SPARC Users ===============================================
++ 
++ If you are running a multi-processor SPARC system do NOT attempt to
++ install this package until you fully read this section.  Failure to
++ do so could _crash_ your machine!
++ 
++ I have three independant reports from people who tried to run enh-du2
++ on their MP SPARC systems and the machine paniced.  Two of these people
++ were using SunOS 4.1.2 and the third was using SunOS 4.1.3.  I have
++ another report that said enh-du2 worked perfectly fine on a 630MP
++ running SunOS 4.1.3 with the jumbo patch 100726-09.  The person who
++ encountered the panic under 4.1.3 confirmed to me that this patch was
++ _not_ installed on his system.
++ 
++ Therefore, based upon these reports, I strongly advise anybody running
++ SunOS on an MP SPARC machine without patch 100726-009 to avoid this
++ package.  Furthermore, it appears that the aforementioned patch resolves
++ the system problem that enh-du2 trips over.
++ 
++ I have a gazillion uneventful reports from users of uniprocessor SPARC
++ systems (as well as first hand experience).  The problems appear to
++ be confined solely to MP SPARC systems.
++ 
++ All users should be assured that enh-du2 does NOT require any special
++ privileges.  It need not (and should not) be run setuid.  It does not
++ do any bizarre system or device operations.  It runs as a plain old,
++ normal user process.  Nothing it does should be capable of jeapordizing
++ a properly functioning system.  While it is almost certain there are
++ bugs lurking somewhere in this program (*sigh* aren't there always),
++ there is no way this program should be able to damage a machine.  The
++ fact that enh-du2 can cause certain machines to panic almost surely
++ indicates some sort of severe bug in the system hardware or operating
++ system.
+  
+  
+  === Credits ==================================================================
+Index: Update-Notes
+*** PL0/Update-Notes	Wed Aug 25 03:57:45 1993
+--- Update-Notes	Fri Sep  3 18:08:41 1993
+***************
+*** 0 ****
+--- 1,70 ----
++ # @(#) Update-Notes 1.3 93/09/03 18:02:09
++ 
++ ------------------------------------------------------------------------------
++ 
++ Patch:		1
++ Version:	from 2.0 to 2.1
++ Severity:	critical for SPARC users, moderate for others
++ 
++ Highlights:	Document critical bug on multi-processor SPARC systems.
++ 		Added option to dereference symlinks.  "dusort" now
++ 		handles files with embedded spaces.  Several portability
++ 		improvements.
++ 
++ Installation:	Apply this patch to the distributed enh-du2 v2.0 sources.
++ 
++ 		NEW INSTALLATION - If this is a new installation, delete
++ 		the "config.h" distributed in the base package.  If there
++ 		are additional updates, apply those patches.  Otherwise,
++ 		read and follow the instructions in the README file.
++ 
++ 		UPDATE INSTALLATION - This patch creates a new file
++ 		called "config-dist" to avoid stepping on changes you
++ 		made to "config.h".  You must recreate your "config.h"
++ 		file from "config-dist".  You should be able to use
++ 		the same exact configuration setup as you did for the
++ 		v2.0 release.
++ 
++ Modified README with notes on *major* problem with multi-processor
++ SPARC.  This patch does NOT fix the problem, it just documents it.
++ Based upon reports from Bob Wakehouse <bob@tv.tv.tek.com>, Keith
++ Thompson <kst@flash.alsys.com>, and Szymon Sokol <szymon@uci.agh.edu.pl>.
++ 
++ Added "-S" option to dereference symlinks.  Thanks to John Henders
++ <jhenders@jonh.wimsey.bc.ca> for the suggestion.
++ 
++ Renamed "config.h" to "config-dist" to avoid stomping on user's changes.
++ 
++ Ported to Ultrix based upon report from John Stoffel <john@wpi.edu>.
++ 
++ Ported to NeXT based upon report from Vince DeMarco <vince@whatnxt.cuc.ab.ca>.
++ 
++ Added USE_GETCWD_xxxx definitions for systems that don't have getcwd().
++ 
++ Fix type of Curr_time from long to time_t.
++ 
++ Removed obsolete "-d" option as threatened.
++ 
++ Display pathconf() failure diagnostic when compiled with DEBUG.
++ 
++ Modified "dusort" to make field delimiter the tab character instead
++ of any set of whitespace characters.  This allows filenames with
++ embedded spaces.  Based upon bug report from Kevin Ruland
++ <kevin@rodin.wustl.edu>.
++ 
++ Added "-f" option to "dusort" to allow specification of field seperator.
++ 
++ Updated list of tested systems in README based upon reports from
++ Shabtai Lerner <slerner@eingedi.newton.ma.us>, Juha Laiho
++ <jlaiho@ichaos.nullnet.fi>, Fred Smith <fcshome!fredex>, Matthew
++ Costello <mattc@ncr-sd.sandiego.ncr.com>, Hans de Graaff
++ <j.j.degraaff@duticai.twi.tudelft.nl>, and <stevenh@sci.kun.nl>.
++ 
++ Fixed some typos in the README file.
++ 
++ Introduced (this) Update-Notes file with information on patch changes.
++ 
++ ------------------------------------------------------------------------------
++ 
++ [end of update information]
++ 
+Index: config-dist
+*** PL0/config-dist	Sat Aug 28 13:09:08 1993
+--- config-dist	Wed Sep  1 04:10:12 1993
+***************
+*** 0 ****
+--- 1,198 ----
++ /* @(#) config-dist 1.17 93/08/29 20:49:32 
++  *
++  * "du" enhanced disk usage summary - version 2.
++  *
++  * Copyright 1990-1993, Unicom Systems Development.  All rights reserved.
++  * See accompanying README file for terms of distribution and use.
++  *
++  * Edit at tabstops=8.
++  *
++  * This file must be configured for the target system.  Warning -- a lot
++  * of this stuff is pretty obscure and esoteric.  That's unavoidable.
++  * After all, we are dealing with some very low-level system facilities.
++  * Moreover, some vendors take it upon themself to "value add" their Unix
++  * to death, which just makes this task more difficult.
++  *
++  * With patience (and a good file pager) you will persevere!  I've tried
++  * to provide hints and assistance wherever possible.  Nonetheless, chances
++  * are very good that you will need to trawl through your /usr/include
++  * directory to determine which selections are correct.
++  *
++  * If you get stuck, consult the README.  You'll find some hints for a
++  * handful of systems that I have personally used.  If you have any
++  * suggestions on how to make this task easier, let me know.
++  */
++ 
++ /*
++  * Select one of the following.  It says how to read directories.
++  */
++ #define USE_DIR_DIRENT		/* use <dirent.h>, struct dirent       common */
++ /*#define USE_DIR_SYSDIR	/* use <sys/dir.h>, struct direct     old BSD */
++ /*#define USE_DIR_SYSNDIR	/* use <sys/ndir.h>, struct direct  old XENIX */
++ 
++ /*
++  * Select one of the following.  It says how to look for mounted filesystems.
++  */
++ #define USE_MOUNT_MNTTAB	/* use <mnttab.h>, use /etc/mnttab       SysV */
++ /*#define USE_MOUNT_R4MNTTAB	/* use <sys/mnttab.h>, /etc/mnttab     SysVr4 */
++ /*#define USE_MOUNT_MNTENT	/* use <mntent.h>, use /etc/mtab   SunOS,HPUX */
++ /*#define USE_MOUNT_FSTAB	/* use <fstab.h>, use /etc/fstab          BSD */
++ /*#define USE_MOUNT_MNTCTL	/* use <sys/mntctl.h>, use mntctl()       AIX */
++ 
++ /*
++  * Select one of the following.  It says where your "struct statfs" is
++  * defined -- or that your system doesn't support the "statfs()" call.
++  */
++ #define USE_STATFS_SYSV		/* include <sys/statfs.h>                     */
++ /*#define USE_STATFS_BSD	/* include <sys/mount.h>		      */
++ /*#define USE_STATFS_SUN	/* include <sys/vfs.h>, SysV-style stafs()    */
++ /*#define USE_STATFS_HPUX	/* include <sys/vfs.h>, BSD-style statfs()    */
++ /*#define USE_STATFS_ULTRIX	/* Ultrix-style statfs()		      */
++ /*#define USE_STATFS_NONE	/* statfs() call not available, e.g. S5R2     */
++ 
++ /*
++  * Selet one of the following.  It says what procedure is available to
++  * get the current working directory.
++  */
++ #define USE_GETCWD_GETCWD	/* use getcwd()			       common */
++ /*#define USE_GETCWD_GETCD	/* use getwd()			old BSD, NeXT */
++ /*#define USE_GETCWD_NONE	/* must run "pwd" command     ancient systems */
++ 
++ /*
++  * Enable USE_SYMLINKS if you have symbolic links, else comment it out.
++  *
++  * It is important you enable this if appropriate.  It prevents "du" from
++  * following symlinks that point to directories, and thus reporting bogus
++  * results or ending up in strange twisted loops.
++  */
++ /*#define USE_SYMLINKS 		/* enable for SysVr4, Sun, etc. */
++ 
++ /*
++  * Enable USE_STBLOCKS if the "stat" structure in your <sys/stat.h> file
++  * has an "st_blocks" member, else comment it out.
++  *
++  * It is important to enable this if appropriate for two reasons.  First,
++  * performance of "du" is *significantly* improved if "st_blocks"
++  * information can be used.  Second, it will avoid reporting errors on
++  * so-called "sparse" files.
++  */
++ /*#define USE_STBLOCKS		/* enable for SysVr4, Sun, etc. */
++ 
++ /*
++  * Leave BROKE_STBLOCKS undefined unless you really need it.
++  *
++  * If you didn't define USE_STBLOCKS above then don't even bother
++  * reading this -- just leave BROKE_STBLOCKS undefined.
++  *
++  * This definition is provided as a workaround for certain vendors who
++  * are a little confused about how Unix is supposed to work.  The
++  * "st_blocks" information returned by stat(2) is supposed to be in
++  * 512-byte blocks.  Some vendors botch this.  AIX, for example, properly
++  * reports local filesystems in 512-byte blocks, but across the network
++  * reports in 1024-byte blocks.  HPUX does the exact opposite.
++  *
++  * If you define BROKE_STBLOCKS, then "du" will try to calculate how
++  * "st_blocks" should be interpreted rather than assuming 512-byte blocks.
++  * This calculation, unfortunately, will fail for filesystems that use
++  * fragments and the "f_bsize" value reported by statfs(2) is the block
++  * size instead of the fragment size (e.g. Solaris, BSDI).
++  *
++  * So, enable BROKE_STBLOCKS only if all the following is true:
++  *
++  *	- You have defined USE_STBLOCKS.  If you haven't, BROKE_STBLOCKS
++  *	  is ignored anyway.
++  *
++  *	- "du" is reporting wrong values, usually either twice or half
++  *	  the correct size.
++  *
++  *	- Either you do not have a fast filesystem with fragments or
++  *	  "f_bsize" indicates the size of the fragment.
++  *
++  * (Please send a note to the author if you wish you could use
++  * BROKE_STBLOCKS but can't because your system uses fragments.)
++  */
++ /*#define BROKE_STBLOCKS	/* enable for HPUX, networked AIX */
++ 
++ /*
++  * If your system has the ANSI <stdarg.h> facility then enable USE_STDARG.
++  * If your system only has the older <varargs.h> then disable it.
++  */
++ #define USE_STDARG		/* enable on ANSI-compliant systems */
++ 
++ /*
++  * Enable USE_UNISTD if your system has a <unistd.h> file.
++  * If you don't have this header file then disable it.
++  */
++ #define USE_UNISTD		/* enable on ANSI-compliant systems */
++ 
++ /*
++  * Enable USE_PATHCONF if your system has the POSIX pathconf() facility,
++  * else comment it out.
++  *
++  * ===>	For some reason, this is the definition people seem to flub up
++  *	most frequently.  If your system is an older, pre-POSIX system
++  *	that lacks pathconf() then do NOT enable this.  If you ain't
++  *	got it, I can't use it!
++  *
++  * If you enable USE_PATHCONF you *must* also have enabled USE_UNISTD.
++  * If you disable USE_PATHCONF then we will make a (usually reasonable)
++  * guess at how much space to reserve to hold pathnames.
++  */
++ #define USE_PATHCONF		/* enable on POSIX-compliant systems */
++ 
++ /*
++  * PTRTYPE indicates what your compiler uses as a generic pointer type.
++  * Most modern compilers will accept "void".  Crufty compilers use "char".
++  */
++ #ifndef PTRTYPE
++ #define PTRTYPE void		/* use (void *) as a generic pointer	*/
++ /*#define PTRTYPE char		/* use (char *) as a generic pointer	*/
++ #endif
++ 
++ /*
++  * ### YOU ARE NOW FINISHED WITH THE ESSENTIAL CONFIGURATIONS ###
++  * 
++  * Congratulations!  You made it.  You are now ready to roll.
++  *
++  * You might, however, want to glance through the following definitions.
++  * These allow you to tailor "du" behavior according to your site-specific
++  * preferences.
++  */
++ 
++ /*
++  * REPORT_BLOCKSIZE specifies default block size to use for reporting
++  * disk usage, usually either "512" or "1024".  Most versions of "du"
++  * (including POSIX conformant versions) use 512.  Others, such as SunOS,
++  * use 1024.  Pick whatever you prefer.  This choice does not effect the
++  * usage calculations or accuracy, only how the results are displayed,
++  * and there are command line switches that will override the default
++  * selected here.
++  */
++ #define REPORT_BLKSIZE		512	/* report in 512-byte blocks    */
++ /*#define REPORT_BLKSIZE	1024	/* report in 1024-byte blocks   */
++ 
++ /*
++  * PRINT_ERRORS controls whether or not error messages (e.g. "permission
++  * denied", etc.) are displayed.  When defined, these error messages are
++  * displayed.  When disabled, the errors are silently ignored -- which
++  * is traditional "du" behavior.  I think it makes more sense to print
++  * the errors (i.e. enable PRINT_ERRORS).  If, however, you disable this
++  * to obtain backward compatibility, you will get a "-r" command line
++  * option that will turn error messages back on.
++  */
++ #define PRINT_ERRORS		/* display errors by default if enabled */
++ 
++ /*
++  * TIMEOUT is a release hatch for hung NFS servers.  If you define
++  * this value, "du" will unceremoniously kill itself after this many
++  * seconds of inactivity.
++  */
++ /*#define TIMEOUT	300	/* timeout value in seconds		*/
++ 
++ /*
++  * MAX_BREAK is maximum number of columns which can be requested by the
++  * "-c" option (breakdown usage by age).  Increasing this value will
++  * increase the memory usage, but not by much.
++  */
++ #define MAX_BREAK	64	/* max columns in breakdown by age	*/
++ 
+Index: du.1
+*** PL0/du.1	Tue Aug 24 18:00:09 1993
+--- du.1	Sun Aug 29 20:39:52 1993
+***************
+*** 1,4 ****
+! .\" @(#) du.1 1.13 93/08/18 00:08:59
+  .TH DU 1
+  .SH NAME
+  du \- Summarizes disk usage.
+--- 1,4 ----
+! .\" @(#) du.1 1.14 93/08/29 20:39:20
+  .TH DU 1
+  .SH NAME
+  du \- Summarizes disk usage.
+***************
+*** 5,11 ****
+  .SH SYNTAX
+  .B du
+  [
+! .B \-abCdfFhiklLstu
+  ] [
+  .B \-B
+  size ] [
+--- 5,11 ----
+  .SH SYNTAX
+  .B du
+  [
+! .B \-abCdfFhiklLsStu
+  ] [
+  .B \-B
+  size ] [
+***************
+*** 220,225 ****
+--- 220,237 ----
+  reports the disk usage for each directory it encounters.  This
+  option suppresses that information and instead reports just a
+  total usage for each of the items specified on the command line.
++ .IP "\-S" 10
++ This option is available only on systems that support symbolic links
++ (symlinks).  Normally,
++ .I du
++ accumulates the usage of the symlink itself and not the entry to which
++ it points.  When this option is specified,
++ .I du
++ will dereference symlinks and will accumulate the usage of the entry
++ to which they point.  Moreover, if a symlink is encountered that points
++ to a directory, then
++ .I du
++ will descend into that directory.
+  .IP "\-t" 10
+  A grand total of all items specified on the command line will be
+  accumulated and displayed.  For example, the command
+***************
+*** 267,272 ****
+--- 279,305 ----
+  .BR \-a ,
+  all files will be displayed, but ones not owned by the specified
+  user will be shown as zero sized.
++ .P
++ The
++ .B \-S
++ option works in strange and mysterious ways; the following apply when
++ it is used.  This option introduces significant amounts of overhead
++ and degrades the performance severely.  You can create loops with
++ symlinks, and
++ .I du
++ will happily spin round and round until it bails out with an error.
++ If the
++ .I name
++ specified on the command line is not a full pathname, then
++ .I du
++ will convert it to one.  The full pathname and not the specified
++ .I name
++ will be displayed in the results.  Note that specifying no name is
++ equivalent to specifying ``.''.  The
++ .B \-L
++ option to average usage across links cannot be used.  The other options
++ that specify link handling should work.  The default behavior, to
++ count a file only once, applies even when symlinks are dereferenced.
+  .P
+  If two or more directory trees specified on the command line are not
+  disjoint, then the usage calculations will be corrupted by the presence
+Index: du.c
+*** PL0/du.c	Tue Aug 24 18:00:14 1993
+--- du.c	Sun Aug 29 20:49:36 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char SCCSID[] = "@(#) du.c 1.16 93/08/18 00:09:01";
+  #endif
+  static char Copyright[] = "@(#) Copyright 1990-1993, Unicom Systems Development, Inc.  All rights reserved.";
+  
+--- 1,5 ----
+  #ifndef lint
+! static char SCCSID[] = "@(#) du.c 1.18 93/08/29 20:49:18";
+  #endif
+  static char Copyright[] = "@(#) Copyright 1990-1993, Unicom Systems Development, Inc.  All rights reserved.";
+  
+***************
+*** 28,35 ****
+  #else
+  # include <varargs.h>
+  #endif
+- #include <sys/types.h>
+- #include <sys/stat.h>
+  #define INTERN
+  #include "du.h"
+  #include "patchlevel.h"
+--- 28,33 ----
+***************
+*** 64,70 ****
+  	/* 
+  	 * Crack command line options.
+  	 */
+! 	while ((i = getopt(argc, argv, "abB:c:CDdfFhiklLrstuU:")) != EOF) {
+  		switch (i) {
+  			case 'a':	Handle_output = PR_EVERYTHING;		break;
+  			case 'b':   Report_blksize = 1;					break;
+--- 62,68 ----
+  	/* 
+  	 * Crack command line options.
+  	 */
+! 	while ((i = getopt(argc, argv, "abB:c:CDfFhiklLrsStuU:")) != EOF) {
+  		switch (i) {
+  			case 'a':	Handle_output = PR_EVERYTHING;		break;
+  			case 'b':   Report_blksize = 1;					break;
+***************
+*** 71,79 ****
+  			case 'B':   Report_blksize = atoi(optarg);		break;
+  			case 'c':	set_breakdown(optarg);				break;
+  			case 'C':	Do_file_counts = TRUE;				break;
+- #ifdef OBSOLETEOPT
+- 			case 'd':	Do_descend_dirs = FALSE;			break;
+- #endif
+  			case 'f':	Handle_filesys = FS_NEVER_CROSS;	break;
+  			case 'F':	Handle_filesys = FS_LOCAL_ONLY;		break;
+  			case 'h':	do_help();							exit(0);
+--- 69,74 ----
+***************
+*** 83,88 ****
+--- 78,86 ----
+  			case 'L':	Handle_links = LK_COUNT_AVERAGE;	break;
+  			case 'r':	Do_print_errors = TRUE;				break;
+  			case 's':	Handle_output = PR_TOTALS_ONLY;		break;
++ #ifdef USE_SYMLINKS
++ 			case 'S':	Follow_symlinks = TRUE;				break;
++ #endif
+  			case 't':	Do_print_grand_total = TRUE;		break;
+  			case 'u':	Handle_links = LK_COUNT_NONE;		break;
+  			case 'U':	Selected_user = get_userid(optarg);	break;
+***************
+*** 94,99 ****
+--- 92,107 ----
+  		}
+  	}
+  
++ 	/*
++ 	 * Sanity checks.
++ 	 */
++ #ifdef USE_SYMLINKS
++ 	if (Follow_symlinks && Handle_links == LK_COUNT_AVERAGE) {
++ 		errmssg(ERR_ABORT, 0,
++ 			"cannot average usage (-L) when dereferencing symlinks (-S)");
++ 	}
++ #endif
++ 
+  #ifdef TIMEOUT
+  	/*
+  	 * Install the handler to trap timeouts.
+***************
+*** 143,151 ****
+  	"                  (Use \"0\" to report in native filesystem blocks.)",
+  	"    -c n,n,...  Breakdown by age, one col for each \"n\" days or older.",
+  	"    -C          Display file counts as well as disk usage.",
+- #ifdef OBSOLETEOPT
+- 	"    -d          Do not descend into directories.",
+- #endif
+  	"    -f          Do not cross any filesystem mount points.",
+  	"    -F          Do not cross remote filesystem mount points.",
+  	"    -h          Display this help message.",
+--- 151,156 ----
+***************
+*** 157,162 ****
+--- 162,170 ----
+  	"    -r          Print (do not suppress) errors which occur during scan.",
+  #endif
+  	"    -s          Only report a total for each argument on command line.",
++ #ifdef USE_SYMLINKS
++ 	"    -S          Dereference and follow symlinks.",
++ #endif
+  	"    -t          Report a grand total of all items.",
+  	"    -u          Skip (do not count) multiply linked files entirely.",
+  	"    -U user     Report only usage by given user (specify name or id num).",
+Index: du.h
+*** PL0/du.h	Tue Aug 24 18:00:14 1993
+--- du.h	Sun Aug 29 23:43:53 1993
+***************
+*** 1,4 ****
+! /* @(#) du.h 1.15 93/08/18 00:09:02 
+   *
+   * "du" enhanced disk usage summary - version 2.
+   *
+--- 1,4 ----
+! /* @(#) du.h 1.20 93/08/29 23:43:15
+   *
+   * "du" enhanced disk usage summary - version 2.
+   *
+***************
+*** 59,80 ****
+  
+  
+  /*
+!  * Structure to accumulate usage statistics.
+   *
+!  * The statistics are accumulated in a chronological breakdown, as
+!  * specified by "Num_break" and the "Breakdown[]" array.  "Num_break"
+!  * indicates the number of columns in the breakdown, and "Breakdown[]"
+!  * specifies the age for each of those columns.
+!  *
+!  * The "Num_break" value will range from 1 to MAX_BREAK.  The "blocks[n]"
+!  * value accumulates the disk usage of all filesystem entries "Breakdown[n]"
+!  * days or older.  The "files[n]" value counts the number of filesystem
+!  * entries that contributed to that total.
+!  *
+!  * By default, "Num_break" will be 1 and "Breakdown[0]" will be 0.  That
+!  * says accumulate a single set of statistics for all filesystem entries
+!  * zero days old or older (i.e. everything).
+!  *
+   */
+  struct dusage {
+  	long blocks[MAX_BREAK];	/* accumulated disk usage					*/
+--- 59,84 ----
+  
+  
+  /*
+!  * (struct dusage) - structure to accumulate usage statistics.
+   *
+!  * The disk usage statistics are maintained in a chronological breakdown
+!  * and stored in a (struct dusage).  The breakdown conditions are specified
+!  * by the "Breakdown[]" array and the "Num_break" value.  The "Num_break"
+!  * value ranges from 1 to MAX_BREAK and specifies how many elements of
+!  * the "Breakdown[]" array are used.
+!  *
+!  * Each element of the "Breakdown[]" array is a number of days.  The
+!  * arrays in the (struct dusage) contain the usage information corresponding
+!  * to this breakdown.  That is, the "blocks[N]" value accumulates the
+!  * number of disk blocks used by filesystem entries that are "Breakdown[N]"
+!  * days or older.  The "files[N]" value accumulates the number of filesystem
+!  * entries encountered that are "Breakdown[N]" days or older.
+!  *
+!  * The default condition is "Num_break" equals one, and "Breakdown[0]"
+!  * equals zero.  That is, there is just a single entry in the chronological
+!  * breakdown, and it corresponds to all filesystem entries zero days or
+!  * older (which means everything).  A different breakdown can be set with
+!  * the "-c" command line option.
+   */
+  struct dusage {
+  	long blocks[MAX_BREAK];	/* accumulated disk usage					*/
+***************
+*** 135,152 ****
+   */
+  EXTERN BOOL Do_file_counts INIT(FALSE);
+  
+! #ifdef OBSOLETEOPT
+  /*
+!  * If true, descend into directories and accumulate usage (subject to
+!  * filesystem handling at mount points).  If false, do not descend into
+!  * directories and simply report the usage of the directory filesystem
+!  * entry (i.e. sans contents) as its usage.
+!  *
+!  * This is a pretty useless option, but was present in the original
+!  * "enh-du".  Unless somebody tells me they really use it, it is
+!  * subject to removal in a future version.
+   */
+! EXTERN BOOL Do_descend_dirs INIT(TRUE);
+  #endif
+  
+  /*
+--- 139,152 ----
+   */
+  EXTERN BOOL Do_file_counts INIT(FALSE);
+  
+! #ifdef USE_SYMLINKS
+  /*
+!  * If true, dereference symlinks.  This means that the disk usage of the
+!  * entry to which the symlink points will be counted, instead of the usage
+!  * of the symlink itself.  Moreover, if the symlink points to a directory
+!  * then we will descend into it.
+   */
+! EXTERN BOOL Follow_symlinks INIT(FALSE);
+  #endif
+  
+  /*
+***************
+*** 186,192 ****
+  
+  /*
+   * Number of columns in the chronological breakdown.
+!  * Specifies number of elements in "Breakdown[]" that are actually used.
+   */
+  EXTERN int Num_break INIT(1);
+  
+--- 186,192 ----
+  
+  /*
+   * Number of columns in the chronological breakdown.
+!  * See comments in the (struct dusage) declaration for more info.
+   */
+  EXTERN int Num_break INIT(1);
+  
+***************
+*** 193,199 ****
+  /*
+   * Current time, used for calculation of the chronological breakdown.
+   */
+! EXTERN long Curr_time;
+  
+  
+  #if defined(__STDC__) && !defined(NO_PROTOTYPE)
+--- 193,199 ----
+  /*
+   * Current time, used for calculation of the chronological breakdown.
+   */
+! EXTERN time_t Curr_time;
+  
+  
+  #if defined(__STDC__) && !defined(NO_PROTOTYPE)
+***************
+*** 212,225 ****
+  void set_usage __ARGS((struct dusage *, time_t, long));
+  void add_usage __ARGS((struct dusage *, struct dusage *));
+  void print_usage __ARGS((char *, struct dusage *));
+- int max_path_len __ARGS((char *));
+  void du_entry __ARGS((char *, struct dusage *));
+! int du_dir __ARGS((char *, struct stat	*, struct fsinfo *, struct dusage *));
+  void fs_initinfo __ARGS((void));
+  struct fsinfo *fs_getinfo __ARGS((struct stat *));
+  int fs_linkdone __ARGS((struct fsinfo *, struct stat *));
+  long fs_numblocks __ARGS((struct fsinfo *, struct stat *));
+- 
+  
+  extern int errno;
+  
+--- 212,225 ----
+  void set_usage __ARGS((struct dusage *, time_t, long));
+  void add_usage __ARGS((struct dusage *, struct dusage *));
+  void print_usage __ARGS((char *, struct dusage *));
+  void du_entry __ARGS((char *, struct dusage *));
+! int du_dir __ARGS((char *, struct stat *, struct fsinfo *, struct dusage *));
+! int max_path_len __ARGS((char *));
+! char *get_curr_dir __ARGS((void));
+  void fs_initinfo __ARGS((void));
+  struct fsinfo *fs_getinfo __ARGS((struct stat *));
+  int fs_linkdone __ARGS((struct fsinfo *, struct stat *));
+  long fs_numblocks __ARGS((struct fsinfo *, struct stat *));
+  
+  extern int errno;
+  
+Index: duentry.c
+*** PL0/duentry.c	Tue Aug 24 18:00:10 1993
+--- duentry.c	Fri Sep  3 17:56:14 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char SCCSID[] = "@(#) duentry.c 1.18 93/08/18 00:09:03";
+  #endif
+  
+  /*
+--- 1,5 ----
+  #ifndef lint
+! static char SCCSID[] = "@(#) duentry.c 1.25 93/09/03 17:56:09";
+  #endif
+  
+  /*
+***************
+*** 34,76 ****
+  #	define dirent direct
+  #endif
+  
+- #ifndef USE_SYMLINKS
+- #	define lstat stat
+- #endif
+- 
+- 
+  /*
+!  * Determine maximum pathlength of an entry on the filesystem containing "file".
+   */
+! int max_path_len(fname)
+! register char *fname;
+! {
+! #ifdef USE_PATHCONF
+! 	register int len;
+! 	if ((len = pathconf(fname, _PC_PATH_MAX)) > 0)
+! 		return len;
+! #ifdef notdef
+! 	errmssg(ERR_WARN, errno, "could not get max pathname for \"%s\"", fname);
+! #endif
+  #endif
+  
+  /*
+!  * If pathconf() is not available or fails, we need to take a stab.  If
+!  * the POSIX PATH_MAX parameter is available we will use that.  If not,
+!  * we will try to use the MAXNAMLEN that should be in whatever header
+!  * file USE_DIR_XXXX pulled in.  If all that fails, we'll just make a
+!  * guess of 1024.  Note that we do NOT want to use _POSIX_PATH_MAX.  That
+!  * specifies the minimum value that a conformant system must support.
+   */
+- #ifndef PATH_MAX
+- # ifdef MAXNAMLEN
+- #  define PATH_MAX MAXNAMLEN
+- # else
+- #  define PATH_MAX 1024
+- # endif
+- #endif
+- 	return PATH_MAX;
+- }
+  
+  
+  /*
+--- 34,86 ----
+  #	define dirent direct
+  #endif
+  
+  /*
+!  * Pointer to the procedure we want to use to retrieve inode status.
+!  * Will point to either stat() or lstat(), depending upon how symlinks
+!  * are being handled.
+   */
+! static int (*stat_proc) __ARGS((const char *, struct stat *));
+! 
+! #ifdef USE_SYMLINKS
+! /* Gee, Sun.  Forget something in your <sys/stat.h> file? */
+! int lstat __ARGS((const char *path, struct stat *));
+  #endif
+  
+  /*
+!  * Symlink handling is messy enough and craps up the logic enough that
+!  * it's worth discussing a little...
+!  *
+!  * This utility obtains the disk usage of a subdirectory by doing a chdir
+!  * into it, scanning it, and then doing a chdir back to the parent
+!  * directory when done.  Normally, that last part is just a simple
+!  * chdir("..").  When symlinks are being dereferenced (-S specified) that
+!  * may not work.
+!  *
+!  * When symlinks are dereferenced, we must use an explicit pathname instead
+!  * of ".." to chdir back to the parent.  Say, for example, "/foo/bar/baz"
+!  * is a symlink to /blurfl/bonk.  To get the usage of subdirectory "baz"
+!  * we do a chdir("baz"), scan it, and then go back to the parent.  A
+!  * chdir(".."), unfortunately, will not put us in "/foo/bar", but instead
+!  * in "/blurfl".  We must specify the full pathname "/foo/bar" instead
+!  * of "..".  We should, however, do this _only_ when symlinks are being
+!  * dereferenced; it incurs a significant performance penalty.
+!  *
+!  * Since we need to use full pathnames when symlinks are dereferenced,
+!  * we cannot accept relative pathnames from the user.  Consider, again
+!  * using the above example, what happens when user runs "cd /foo ; du .".
+!  * When the scan of subdirectory "baz" completes, as already discussed,
+!  * we need to move out of it by saying chdir("/foo/bar").  In order to
+!  * do this, we need to expand the pathname "." given to us by the user
+!  * into the full, rooted pathname "/foo".
+!  *
+!  * There is one last twist.  By default, we try to count files only once.
+!  * To avoid a lot of unnecessary work, we normally do the checks only if
+!  * st_nlink is greater than one (i.e. the file has multiple hard links).
+!  * When dereferencing symlinks, however, we can visit a file multiple
+!  * times even if it does not have multiple hard links.  In this case we
+!  * need to perform those checks for _every_ file, and not just the ones
+!  * where st_nlink > 1.  (Oy! The overhead!)
+   */
+  
+  
+  /*
+***************
+*** 86,92 ****
+  {
+  	struct stat sbuf;
+  	struct fsinfo *fsinfo;
+! 	static char *curr_dir = NULL;
+  
+  #ifdef TIMEOUT
+  	alarm(TIMEOUT);
+--- 96,102 ----
+  {
+  	struct stat sbuf;
+  	struct fsinfo *fsinfo;
+! 	static char *start_dir = NULL;
+  
+  #ifdef TIMEOUT
+  	alarm(TIMEOUT);
+***************
+*** 93,101 ****
+  #endif
+  
+  	/*
+  	 * Get the information on this entry.
+  	 */
+! 	if (lstat(entry, &sbuf) != 0) {
+  		errmssg(ERR_WARN, errno, "could not stat \"%s\"", entry);
+  		return;
+  	}
+--- 103,120 ----
+  #endif
+  
+  	/*
++ 	 * Determine what procedure should be used to retrieve inode status.
++ 	 */
++ #ifdef USE_SYMLINKS
++ 	stat_proc = (Follow_symlinks ? stat : lstat);
++ #else
++ 	stat_proc = stat;
++ #endif
++ 
++ 	/*
+  	 * Get the information on this entry.
+  	 */
+! 	if ((*stat_proc)(entry, &sbuf) != 0) {
+  		errmssg(ERR_WARN, errno, "could not stat \"%s\"", entry);
+  		return;
+  	}
+***************
+*** 107,114 ****
+  
+  	/*
+  	 * If this isn't a directory then simply get its size.  Note that we
+! 	 * won't say what size is unless "-s" or "-a" was specified.  Kind of
+! 	 * silly, but that's documented behaviour.
+  	 */
+  	if (!S_ISDIR(sbuf.st_mode)) {
+  		set_usage(ent_usage, sbuf.st_mtime, fs_numblocks(fsinfo, &sbuf));
+--- 126,133 ----
+  
+  	/*
+  	 * If this isn't a directory then simply get its size.  Note that we
+! 	 * won't say what that size is unless "-s" or "-a" was specified.  Kind
+! 	 * of silly, but du is documented to work that way.
+  	 */
+  	if (!S_ISDIR(sbuf.st_mode)) {
+  		set_usage(ent_usage, sbuf.st_mtime, fs_numblocks(fsinfo, &sbuf));
+***************
+*** 117,153 ****
+  		return;
+  	}
+  
+- #ifdef OBSOLETEOPT
+- 	/*
+- 	 * If we aren't supposed to descend into directories then just get
+- 	 * it's size.
+- 	 */
+- 	if (!Do_descend_dirs) {
+- 		set_usage(ent_usage, sbuf.st_mtime, fs_numblocks(fsinfo, &sbuf));
+- 		print_usage(entry, ent_usage);
+- 		return;
+- 	}
+- #endif
+- 
+  	/*
+  	 * We are about to descend down this directory entry.  We need to
+  	 * know where we started out so that we can return when done.
+  	 */
+! 	if (curr_dir == NULL) {
+! 		int len;
+! 		extern char *getcwd();
+! 		len = max_path_len(".") + 2; /* getcwd() wants two extra bytes */
+! 		curr_dir = (char *) xmalloc((unsigned)len);
+! 		if (errno = 0, getcwd(curr_dir, len) == NULL)
+! 			errmssg(ERR_ABORT, errno,
+! 				"could not get current working directory");
+! 	}
+  
+  	/*
+! 	 * We need to initiate a recursive search through "du_dir()".  Normally
+! 	 * "du_dir()" displays the disk usage of the directory scanned, except
+! 	 * when "PR_TOTALS_ONLY" (-s) mode is set.  In that case it won't
+! 	 * print anything at all, so we need to do it here.
+  	 */
+  	zero_usage(ent_usage);
+  	if (chdir(entry) != 0) {
+--- 136,151 ----
+  		return;
+  	}
+  
+  	/*
+  	 * We are about to descend down this directory entry.  We need to
+  	 * know where we started out so that we can return when done.
+  	 */
+! 	if (start_dir == NULL)
+! 		start_dir = get_curr_dir();
+  
+  	/*
+! 	 * The user specified a directory.  We need to initiate a recursive
+! 	 * scan through "du_dir()".
+  	 */
+  	zero_usage(ent_usage);
+  	if (chdir(entry) != 0) {
+***************
+*** 154,165 ****
+  		errmssg(ERR_WARN, errno, "could not chdir to \"%s\"", entry);
+  		return;
+  	}
+  	if (du_dir(entry, &sbuf, fsinfo, ent_usage) == 0) {
+  		if (Handle_output == PR_TOTALS_ONLY)
+  			print_usage(entry, ent_usage);
+  	}
+! 	if (chdir(curr_dir) != 0)
+! 		errmssg(ERR_ABORT, errno, "could not chdir back to \"%s\"", curr_dir);
+  
+  }
+  
+--- 152,178 ----
+  		errmssg(ERR_WARN, errno, "could not chdir to \"%s\"", entry);
+  		return;
+  	}
++ #ifdef USE_SYMLINKS
++ 	if (Follow_symlinks && entry[0] != '/') {
++ 		/*
++ 	 	 * If we are dereferencing symlinks then, as discussed at the top
++ 		 * of this file, we require a fully rooted pathname.  Note that
++ 		 * this messes up the name that will be printed in the output.
++ 		 * Also note that this is a memory leak.  So sue me.
++ 	 	 */
++ 		entry = get_curr_dir();
++ 	}
++ #endif
+  	if (du_dir(entry, &sbuf, fsinfo, ent_usage) == 0) {
++ 		/*
++ 		 * If the user enabled PR_TOTALS_ONLY (the -s option) then du_dir()
++ 		 * does not print anything.  We need to print that total here.
++ 		 */
+  		if (Handle_output == PR_TOTALS_ONLY)
+  			print_usage(entry, ent_usage);
+  	}
+! 	if (chdir(start_dir) != 0)
+! 		errmssg(ERR_ABORT, errno, "could not chdir back to \"%s\"", start_dir);
+  
+  }
+  
+***************
+*** 245,251 ****
+  		/*
+  		 * Get the information on this entry.
+  		 */
+! 		if (lstat(dp->d_name, &ent_stat) != 0) {
+  			errmssg(ERR_WARN, errno,
+  				"could not stat \"%s/%s\"", dir_name, dp->d_name);
+  			continue;
+--- 258,264 ----
+  		/*
+  		 * Get the information on this entry.
+  		 */
+! 		if ((*stat_proc)(dp->d_name, &ent_stat) != 0) {
+  			errmssg(ERR_WARN, errno,
+  				"could not stat \"%s/%s\"", dir_name, dp->d_name);
+  			continue;
+***************
+*** 283,288 ****
+--- 296,310 ----
+  						"internal error - bad \"Handle_links\" value \"%d\"",
+  						Handle_links);
+  				}
++ #ifdef USE_SYMLINKS
++ 			/*
++ 			 * Make sure that files with a single link aren't duplicated
++ 			 * due to dereferencing of symlinks.
++ 			 */
++ 			} else if (Follow_symlinks && Handle_links == LK_COUNT_FIRST
++ 					&& fs_linkdone(dir_fsinfo, &ent_stat)) {
++ 				continue;
++ #endif
+  			}
+  
+  			/*
+***************
+*** 348,354 ****
+  				if (Do_accum_subdirs)
+  					add_usage(dir_usage, &ent_usage);
+  			}
+! 			if (chdir("..") != 0) {
+  				errmssg(ERR_ABORT, errno,
+  					"could not chdir back to \"%s\"", dir_name);
+  			}
+--- 370,382 ----
+  				if (Do_accum_subdirs)
+  					add_usage(dir_usage, &ent_usage);
+  			}
+! 			if (
+! #ifdef USE_SYMLINKS
+! 				chdir(Follow_symlinks ? dir_name : "..") != 0
+! #else
+! 				chdir("..") != 0
+! #endif
+! 			) {
+  				errmssg(ERR_ABORT, errno,
+  					"could not chdir back to \"%s\"", dir_name);
+  			}
+***************
+*** 365,369 ****
+--- 393,485 ----
+  		print_usage(dir_name, dir_usage);
+  	(void) free((PTRTYPE *)ent_pathname);
+  	return 0;
++ }
++ 
++ 
++ /*
++  * Determine maximum pathlength of an entry on the filesystem containing "file".
++  */
++ int max_path_len(fname)
++ register char *fname;
++ {
++ 
++ #ifdef USE_PATHCONF
++ 	register int len;
++ 	if ((len = pathconf(fname, _PC_PATH_MAX)) > 0)
++ 		return len;
++ #ifdef DEBUG
++ 	/*
++ 	 * I've seen some systems where pathconf() will fail, most notably
++ 	 * on NFS filesystems.  So, the diagnostic is normally suppressed.
++ 	 */
++ 	errmssg(ERR_WARN, errno, "pathconf() could not get path_max for \"%s\"", fname);
++ #endif
++ #endif
++ 
++ /*
++  * If pathconf() is not available or fails, we need to take a stab.  If
++  * the POSIX PATH_MAX parameter is available we will use that.  If not,
++  * we will try to use the MAXNAMLEN that should be in whatever header
++  * file USE_DIR_XXXX pulled in.  If all that fails, we'll just make a
++  * guess of 1024.  Note that we do NOT want to use _POSIX_PATH_MAX.  That
++  * specifies the minimum value that a conformant system must support.
++  */
++ #ifndef PATH_MAX
++ # ifdef MAXNAMLEN
++ #  define PATH_MAX MAXNAMLEN
++ # else
++ #  define PATH_MAX 1024
++ # endif
++ #endif
++ 	return PATH_MAX;
++ 
++ }
++ 
++ 
++ /*
++  * Get the current working directory.
++  */
++ char *get_curr_dir()
++ {
++ 	char *d;
++ 	int maxlen, ok;
++ 
++ 	maxlen = max_path_len(".");
++ 	d = xmalloc(maxlen+2);	/* getcwd() wants two extra bytes */
++ 	errno = 0;
++ 
++ #ifdef USE_GETCWD_GETCWD
++ 	{
++ #ifndef USE_UNISTD
++ 		extern char *getcwd();
++ #endif
++ 		ok = (getcwd(d, maxlen) != NULL);
++ 	}
++ #endif
++ 
++ #ifdef USE_GETCWD_GETWD
++ 	{
++ 		extern char *getwd();
++ 		ok = (getwd(d) != NULL);
++ 	}
++ #endif
++ 
++ #ifdef USE_GETCWD_NONE
++ 	{
++ 		FILE *fp;
++ 		char *s;
++ 		ok = ((fp = popen("pwd", "r")) != NULL
++ 				&& fgets(d, maxlen, fp) != NULL && pclose(fp) == 0);
++ 		if (ok && (s = strchr(d, '\n')) != NULL)
++ 			*s = '\0';
++ 	}
++ #endif
++ 
++ 	if (!ok)
++ 		errmssg(ERR_ABORT, errno, "could not get current working directory");
++ #ifdef DEBUG
++ 	Dprintf(stderr, "*** cwd=\"%s\"\n", d);
++ #endif
++ 	return d;
+  }
+  
+Index: dusort.1
+*** PL0/dusort.1	Tue Aug 24 18:00:14 1993
+--- dusort.1	Tue Aug 24 18:00:35 1993
+***************
+*** 1,4 ****
+! .\" @(#) dusort.1 1.5 93/08/18 00:09:04
+  .TH DUSORT 1
+  .SH NAME
+  dusort \- Sort disk usage summaries.
+--- 1,4 ----
+! .\" @(#) dusort.1 1.6 93/08/24 18:00:31
+  .TH DUSORT 1
+  .SH NAME
+  dusort \- Sort disk usage summaries.
+***************
+*** 5,10 ****
+--- 5,13 ----
+  .SH SYNTAX
+  .B dusort
+  [
++ .B \-f
++ delim
++ ] [
+  .B \-t
+  threshold ] [ file ]
+  .SH DESCRIPTION
+***************
+*** 19,30 ****
+  and produces a listing to the standard output.  The listing will show
+  the contents of the directories sorted in descending order, and indented
+  under their parent directory.  The input data lines must have at least
+! two white-space delimited fields.  The first field is the disk usage
+! and the last field is the pathname.  The
+! .B \-t
+! option suppresses any entries less than
+  .I threshold
+! disk blocks.
+  .SH SEE ALSO
+  du(1L)
+  .SH BUGS
+--- 22,45 ----
+  and produces a listing to the standard output.  The listing will show
+  the contents of the directories sorted in descending order, and indented
+  under their parent directory.  The input data lines must have at least
+! two fields:  the disk usage value in the first field of the line and
+! the pathname in the last field of the line.  There may be additional
+! fields between these two; they will be ignored.  The tab character is
+! the default field delimiter.
+! .P
+! The following options are available.
+! .IP "\-f \fIdelim\fP" 12
+! Changes the field delimiter.  The field delimiter will be a sequence of
+! one or more of the characters specified by the
+! .I delim
+! argument.
+! .IP "\-t \fIthreshold\fP" 12
+! Normally,
+! .I dusort
+! lists all entries given to it.  This option sets a threshold, and any
+! input with a disk usage value less than the
+  .I threshold
+! argument will be discarded.
+  .SH SEE ALSO
+  du(1L)
+  .SH BUGS
+Index: dusort.c
+*** PL0/dusort.c	Tue Aug 24 18:00:15 1993
+--- dusort.c	Fri Aug 27 16:54:37 1993
+***************
+*** 1,4 ****
+! /* @(#) dusort.c 1.7 93/08/18 00:09:05
+   *
+   * disk usage sorter
+   *
+--- 1,4 ----
+! /* @(#) dusort.c 1.9 93/08/27 16:25:24
+   *
+   * disk usage sorter
+   *
+***************
+*** 19,27 ****
+  #include <ctype.h>
+  #include <string.h>
+  
+! #define USAGE		"usage: %s [-t threshold] [file]\n"
+  #define INDENT		4
+  #define LISTINCR	16
+  #define TRUE		1
+  #define FALSE		0
+  
+--- 19,28 ----
+  #include <ctype.h>
+  #include <string.h>
+  
+! #define USAGE		"usage: %s [-t threshold] [-f delim] [file]\n"
+  #define INDENT		4
+  #define LISTINCR	16
++ #define DFLT_DELIM	"\t"
+  #define TRUE		1
+  #define FALSE		0
+  
+***************
+*** 63,69 ****
+  int argc;
+  char *argv[];
+  {
+! 	char buf[1024], *fname, *last_field, *bufp, *s;
+  	int lineno, leading_slash, i;
+  	long size;
+  	struct duentry *du_root, *p, *p1;
+--- 64,70 ----
+  int argc;
+  char *argv[];
+  {
+! 	char buf[1024], *field_delim, *fname, *last_field, *s;
+  	int lineno, leading_slash, i;
+  	long size;
+  	struct duentry *du_root, *p, *p1;
+***************
+*** 74,86 ****
+  	 * Initialize.
+  	 */
+  	Threshold = 0L;
+  	du_root = make_entry("", FALSE);
+  
+  	/*
+  	 * Crack command line.
+  	 */
+! 	while ((i = getopt(argc, argv, "t:")) != EOF) {
+  		switch (i) {
+  		case 't':
+  			if ((Threshold=atol(optarg)) <= 0L && strcmp(optarg, "0") != 0) {
+  				fprintf(stderr, "%s: bad threshold value \"%s\"\n",
+--- 75,91 ----
+  	 * Initialize.
+  	 */
+  	Threshold = 0L;
++ 	field_delim = DFLT_DELIM;
+  	du_root = make_entry("", FALSE);
+  
+  	/*
+  	 * Crack command line.
+  	 */
+! 	while ((i = getopt(argc, argv, "f:t:")) != EOF) {
+  		switch (i) {
++ 		case 'f':
++ 			field_delim = optarg;
++ 			break;
+  		case 't':
+  			if ((Threshold=atol(optarg)) <= 0L && strcmp(optarg, "0") != 0) {
+  				fprintf(stderr, "%s: bad threshold value \"%s\"\n",
+***************
+*** 123,150 ****
+  	while (++lineno, fgets(buf, sizeof(buf), stdin) != NULL) {
+  
+  		/*
+! 		 * Break the line up into fields.  Save the first field as the size.
+  		 */
+! 		s = NULL;
+! 		bufp = buf;
+! 		i = 0;
+! 		while (last_field = s, (s = strtok(bufp, " \t\n")) != NULL) {
+! 			bufp = NULL;
+! 			if (i++ == 0)
+! 				size = atol(s);
+! 		}
+! 		if (i < 2) {
+  			fprintf(stderr, "%s(%d): line ignored\n", fname, lineno);
+  			continue;
+  		}
+  
+  		/*
+! 		 * Ignore this entry if it is smaller than what we want.
+  		 */
+! 		if (size < Threshold)
+  			continue;
+  
+  		/*
+  		 * Break the pathname into components, and descend down
+  		 * into the tree, creating nodes as required.
+  		 */
+--- 128,165 ----
+  	while (++lineno, fgets(buf, sizeof(buf), stdin) != NULL) {
+  
+  		/*
+! 		 * Locate end of the first field.
+  		 */
+! 		for (s = buf ; *s != '\0' && strchr(field_delim, *s) == NULL ; ++s)
+! 			;
+! 		if (*s == '\0') {
+  			fprintf(stderr, "%s(%d): line ignored\n", fname, lineno);
+  			continue;
+  		}
+  
+  		/*
+! 		 * Save the field as the size.  Ignore line if size is below threshold.
+  		 */
+! 		*s = '\0';
+! 		if ((size = atol(buf)) < Threshold)
+  			continue;
+  
+  		/*
++ 		 * Move to the end of the line and trim the trailing newline.
++ 		 */
++ 		++s;
++ 		s += strlen(s)-1;
++ 		if (*s == '\n')
++ 			*s-- = '\0';
++ 
++ 		/*
++ 		 * Locate the start of the last field.
++ 		 */
++ 		while (*s != '\0' && strchr(field_delim, *s) == NULL)
++ 			--s;
++ 		last_field = s+1;
++ 
++ 		/*
+  		 * Break the pathname into components, and descend down
+  		 * into the tree, creating nodes as required.
+  		 */
+***************
+*** 314,320 ****
+  }
+  
+  
+! static char malloc_error[] = "error - out of memory [malloc failed]\n";
+  
+  char *xstrdup(s)
+  register char *s;
+--- 329,335 ----
+  }
+  
+  
+! static char malloc_errmssg[] = "error - out of memory [malloc failed]\n";
+  
+  char *xstrdup(s)
+  register char *s;
+***************
+*** 321,327 ****
+  {
+  	register char *s1;
+  	if ((s1 = (char *) malloc((unsigned)strlen(s)+1)) == NULL) {
+! 		fputs(malloc_error, stderr);
+  		exit(1);
+  	}
+  	return strcpy(s1, s);
+--- 336,342 ----
+  {
+  	register char *s1;
+  	if ((s1 = (char *) malloc((unsigned)strlen(s)+1)) == NULL) {
+! 		fputs(malloc_errmssg, stderr);
+  		exit(1);
+  	}
+  	return strcpy(s1, s);
+***************
+*** 332,338 ****
+  {
+  	register PTRTYPE *s;
+  	if ((s = malloc(n)) == NULL) {
+! 		fputs(malloc_error, stderr);
+  		exit(1);
+  	}
+  	return s;
+--- 347,353 ----
+  {
+  	register PTRTYPE *s;
+  	if ((s = malloc(n)) == NULL) {
+! 		fputs(malloc_errmssg, stderr);
+  		exit(1);
+  	}
+  	return s;
+***************
+*** 343,349 ****
+  register unsigned n;
+  {
+  	if ((s = (s == NULL ? malloc(n) : realloc(s, n))) == NULL) {
+! 		fputs(malloc_error, stderr);
+  		exit(1);
+  	}
+  	return s;
+--- 358,364 ----
+  register unsigned n;
+  {
+  	if ((s = (s == NULL ? malloc(n) : realloc(s, n))) == NULL) {
+! 		fputs(malloc_errmssg, stderr);
+  		exit(1);
+  	}
+  	return s;
+Index: fsinfo.c
+*** PL0/fsinfo.c	Tue Aug 24 18:00:11 1993
+--- fsinfo.c	Thu Aug 26 05:22:46 1993
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char SCCSID[] = "@(#) fsinfo.c 1.25 93/08/18 00:09:06";
+  #endif
+  
+  /*
+--- 1,5 ----
+  #ifndef lint
+! static char SCCSID[] = "@(#) fsinfo.c 1.27 93/08/26 05:22:39";
+  #endif
+  
+  /*
+***************
+*** 116,121 ****
+--- 116,134 ----
+  #	include <sys/vfs.h>
+  #	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+  		statfs(MNT, PTR)
++ #endif
++ #ifdef USE_STATFS_ULTRIX
++ #	include <sys/param.h>
++ #	include <sys/mount.h>
++ 	struct statfs {
++ 		long f_bsize, f_files;
++ 	};
++ 	static struct fs_data fs_data;
++ #	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
++ 		(statfs(MNT, &fs_data) != 1 ? -1 : ( \
++ 			(PTR)->f_bsize = fs_data.fd_bsize, \
++ 			(PTR)->f_files = fs_data.fd_gfree, \
++ 			0))
+  #endif
+  #ifdef USE_STATFS_NONE
+  #	include <sys/param.h>
+
+-- 
+Chip Rosenthal  512-447-0577 | I'm going out where the lights don't shine so
+Unicom Systems Development   | bright.  When I get back you can treat me like
+<chip@chinacat.Unicom.COM>   | a Saturday night.  -Jimmie Dale Gilmore
+
+exit 0 # Just in case...

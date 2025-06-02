@@ -1,0 +1,1376 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i007:  jpeg - JPEG image compression, Part07/18
+Message-ID: <1992Mar24.144451.18309@sparky.imd.sterling.com>
+X-Md4-Signature: 08697a0dc94aa72e6d5f2dd1f63b6927
+Date: Tue, 24 Mar 1992 14:44:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 7
+Archive-name: jpeg/part07
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jrdjfif.c makdjpeg.lnk timg.ppm.u.a
+# Wrapped by kent@sparky on Mon Mar 23 16:02:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 18)."'
+if test -f 'jrdjfif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdjfif.c'\"
+else
+  echo shar: Extracting \"'jrdjfif.c'\" \(18541 characters\)
+  sed "s/^X//" >'jrdjfif.c' <<'END_OF_FILE'
+X/*
+X * jrdjfif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to decode standard JPEG file headers/markers.
+X * This code will handle "raw JPEG" and JFIF-convention JPEG files.
+X *
+X * You can also use this module to decode a raw-JPEG or JFIF-standard data
+X * stream that is embedded within a larger file.  To do that, you must
+X * position the file to the JPEG SOI marker (0xFF/0xD8) that begins the
+X * data sequence to be decoded.  If nothing better is possible, you can scan
+X * the file until you see the SOI marker, then use JUNGETC to push it back.
+X *
+X * This module relies on the JGETC macro and the read_jpeg_data method (which
+X * is provided by the user interface) to read from the JPEG data stream.
+X * Therefore, this module is not dependent on any particular assumption about
+X * the data source; it need not be a stdio stream at all.  (This fact does
+X * NOT carry over to more complex JPEG file formats such as JPEG-in-TIFF;
+X * those format control modules may well need to assume stdio input.)
+X *
+X * These routines are invoked via the methods read_file_header,
+X * read_scan_header, read_jpeg_data, read_scan_trailer, and read_file_trailer.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef JFIF_SUPPORTED
+X
+X
+Xtypedef enum {			/* JPEG marker codes */
+X  M_SOF0  = 0xc0,
+X  M_SOF1  = 0xc1,
+X  M_SOF2  = 0xc2,
+X  M_SOF3  = 0xc3,
+X  
+X  M_SOF5  = 0xc5,
+X  M_SOF6  = 0xc6,
+X  M_SOF7  = 0xc7,
+X  
+X  M_JPG   = 0xc8,
+X  M_SOF9  = 0xc9,
+X  M_SOF10 = 0xca,
+X  M_SOF11 = 0xcb,
+X  
+X  M_SOF13 = 0xcd,
+X  M_SOF14 = 0xce,
+X  M_SOF15 = 0xcf,
+X  
+X  M_DHT   = 0xc4,
+X  
+X  M_DAC   = 0xcc,
+X  
+X  M_RST0  = 0xd0,
+X  M_RST1  = 0xd1,
+X  M_RST2  = 0xd2,
+X  M_RST3  = 0xd3,
+X  M_RST4  = 0xd4,
+X  M_RST5  = 0xd5,
+X  M_RST6  = 0xd6,
+X  M_RST7  = 0xd7,
+X  
+X  M_SOI   = 0xd8,
+X  M_EOI   = 0xd9,
+X  M_SOS   = 0xda,
+X  M_DQT   = 0xdb,
+X  M_DNL   = 0xdc,
+X  M_DRI   = 0xdd,
+X  M_DHP   = 0xde,
+X  M_EXP   = 0xdf,
+X  
+X  M_APP0  = 0xe0,
+X  M_APP15 = 0xef,
+X  
+X  M_JPG0  = 0xf0,
+X  M_JPG13 = 0xfd,
+X  M_COM   = 0xfe,
+X  
+X  M_TEM   = 0x01,
+X  
+X  M_ERROR = 0x100
+X} JPEG_MARKER;
+X
+X
+X/*
+X * Reload the input buffer after it's been emptied, and return the next byte.
+X * This is exported for direct use by the entropy decoder.
+X * See the JGETC macro for calling conditions.
+X *
+X * For this header control module, read_jpeg_data is supplied by the
+X * user interface.  However, header formats that require random access
+X * to the input file would need to supply their own code.  This code is
+X * left here to indicate what is required.
+X */
+X
+X#if 0				/* not needed in this module */
+X
+XMETHODDEF int
+Xread_jpeg_data (decompress_info_ptr cinfo)
+X{
+X  cinfo->next_input_byte = cinfo->input_buffer + MIN_UNGET;
+X
+X  cinfo->bytes_in_buffer = (int) JFREAD(cinfo->input_file,
+X					cinfo->next_input_byte,
+X					JPEG_BUF_SIZE);
+X  
+X  if (cinfo->bytes_in_buffer <= 0)
+X    ERREXIT(cinfo->emethods, "Unexpected EOF in JPEG file");
+X
+X  return JGETC(cinfo);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Routines to parse JPEG markers & save away the useful info.
+X */
+X
+X
+XLOCAL INT32
+Xget_2bytes (decompress_info_ptr cinfo)
+X/* Get a 2-byte unsigned integer (e.g., a marker parameter length field) */
+X{
+X  INT32 a;
+X  
+X  a = JGETC(cinfo);
+X  return (a << 8) + JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xskip_variable (decompress_info_ptr cinfo, int code)
+X/* Skip over an unknown or uninteresting variable-length marker */
+X{
+X  INT32 length;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  TRACEMS2(cinfo->emethods, 1,
+X	   "Skipping marker 0x%02x, length %u", code, (int) length);
+X  
+X  for (length -= 2; length > 0; length--)
+X    (void) JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xget_dht (decompress_info_ptr cinfo)
+X/* Process a DHT marker */
+X{
+X  INT32 length;
+X  UINT8 bits[17];
+X  UINT8 huffval[256];
+X  int i, index, count;
+X  HUFF_TBL **htblptr;
+X  
+X  length = get_2bytes(cinfo)-2;
+X  
+X  while (length > 0) {
+X    index = JGETC(cinfo);
+X
+X    TRACEMS1(cinfo->emethods, 1, "Define Huffman Table 0x%02x", index);
+X      
+X    bits[0] = 0;
+X    count = 0;
+X    for (i = 1; i <= 16; i++) {
+X      bits[i] = (UINT8) JGETC(cinfo);
+X      count += bits[i];
+X    }
+X
+X    TRACEMS8(cinfo->emethods, 2, "        %3d %3d %3d %3d %3d %3d %3d %3d",
+X	     bits[1], bits[2], bits[3], bits[4],
+X	     bits[5], bits[6], bits[7], bits[8]);
+X    TRACEMS8(cinfo->emethods, 2, "        %3d %3d %3d %3d %3d %3d %3d %3d",
+X	     bits[9], bits[10], bits[11], bits[12],
+X	     bits[13], bits[14], bits[15], bits[16]);
+X
+X    if (count > 256)
+X      ERREXIT(cinfo->emethods, "Bogus DHT counts");
+X
+X    for (i = 0; i < count; i++)
+X      huffval[i] = (UINT8) JGETC(cinfo);
+X
+X    length -= 1 + 16 + count;
+X
+X    if (index & 0x10) {		/* AC table definition */
+X      index -= 0x10;
+X      htblptr = &cinfo->ac_huff_tbl_ptrs[index];
+X    } else {			/* DC table definition */
+X      htblptr = &cinfo->dc_huff_tbl_ptrs[index];
+X    }
+X
+X    if (index < 0 || index >= NUM_HUFF_TBLS)
+X      ERREXIT1(cinfo->emethods, "Bogus DHT index %d", index);
+X
+X    if (*htblptr == NULL)
+X      *htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X  
+X    memcpy((void *) (*htblptr)->bits, (void *) bits,
+X	   SIZEOF((*htblptr)->bits));
+X    memcpy((void *) (*htblptr)->huffval, (void *) huffval,
+X	   SIZEOF((*htblptr)->huffval));
+X    }
+X}
+X
+X
+XLOCAL void
+Xget_dac (decompress_info_ptr cinfo)
+X/* Process a DAC marker */
+X{
+X  INT32 length;
+X  int index, val;
+X
+X  length = get_2bytes(cinfo)-2;
+X  
+X  while (length > 0) {
+X    index = JGETC(cinfo);
+X    val = JGETC(cinfo);
+X
+X    TRACEMS2(cinfo->emethods, 1,
+X	     "Define Arithmetic Table 0x%02x: 0x%02x", index, val);
+X
+X    if (index < 0 || index >= (2*NUM_ARITH_TBLS))
+X      ERREXIT1(cinfo->emethods, "Bogus DAC index %d", index);
+X
+X    if (index >= NUM_ARITH_TBLS) { /* define AC table */
+X      cinfo->arith_ac_K[index-NUM_ARITH_TBLS] = (UINT8) val;
+X    } else {			/* define DC table */
+X      cinfo->arith_dc_L[index] = (UINT8) (val & 0x0F);
+X      cinfo->arith_dc_U[index] = (UINT8) (val >> 4);
+X      if (cinfo->arith_dc_L[index] > cinfo->arith_dc_U[index])
+X	ERREXIT1(cinfo->emethods, "Bogus DAC value 0x%x", val);
+X    }
+X
+X    length -= 2;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_dqt (decompress_info_ptr cinfo)
+X/* Process a DQT marker */
+X{
+X  INT32 length;
+X  int n, i, prec;
+X  UINT16 tmp;
+X  QUANT_TBL_PTR quant_ptr;
+X  
+X  length = get_2bytes(cinfo) - 2;
+X  
+X  while (length > 0) {
+X    n = JGETC(cinfo);
+X    prec = n >> 4;
+X    n &= 0x0F;
+X
+X    TRACEMS2(cinfo->emethods, 1,
+X	     "Define Quantization Table %d  precision %d", n, prec);
+X
+X    if (n >= NUM_QUANT_TBLS)
+X      ERREXIT1(cinfo->emethods, "Bogus table number %d", n);
+X      
+X    if (cinfo->quant_tbl_ptrs[n] == NULL)
+X      cinfo->quant_tbl_ptrs[n] = (QUANT_TBL_PTR)
+X	(*cinfo->emethods->alloc_small) (SIZEOF(QUANT_TBL));
+X    quant_ptr = cinfo->quant_tbl_ptrs[n];
+X
+X    for (i = 0; i < DCTSIZE2; i++) {
+X      tmp = JGETC(cinfo);
+X      if (prec)
+X	tmp = (tmp<<8) + JGETC(cinfo);
+X      quant_ptr[i] = tmp;
+X    }
+X
+X    for (i = 0; i < DCTSIZE2; i += 8) {
+X      TRACEMS8(cinfo->emethods, 2, "        %4d %4d %4d %4d %4d %4d %4d %4d",
+X	       quant_ptr[i  ], quant_ptr[i+1], quant_ptr[i+2], quant_ptr[i+3],
+X	       quant_ptr[i+4], quant_ptr[i+5], quant_ptr[i+6], quant_ptr[i+7]);
+X    }
+X
+X    length -= DCTSIZE2+1;
+X    if (prec) length -= DCTSIZE2;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_dri (decompress_info_ptr cinfo)
+X/* Process a DRI marker */
+X{
+X  if (get_2bytes(cinfo) != 4)
+X    ERREXIT(cinfo->emethods, "Bogus length in DRI");
+X
+X  cinfo->restart_interval = (UINT16) get_2bytes(cinfo);
+X
+X  TRACEMS1(cinfo->emethods, 1,
+X	   "Define Restart Interval %d", cinfo->restart_interval);
+X}
+X
+X
+XLOCAL void
+Xget_app0 (decompress_info_ptr cinfo)
+X/* Process an APP0 marker */
+X{
+X#define JFIF_LEN 14
+X  INT32 length;
+X  UINT8 b[JFIF_LEN];
+X  int buffp;
+X
+X  length = get_2bytes(cinfo) - 2;
+X
+X  /* See if a JFIF APP0 marker is present */
+X
+X  if (length >= JFIF_LEN) {
+X    for (buffp = 0; buffp < JFIF_LEN; buffp++)
+X      b[buffp] = (UINT8) JGETC(cinfo);
+X    length -= JFIF_LEN;
+X
+X    if (b[0]=='J' && b[1]=='F' && b[2]=='I' && b[3]=='F' && b[4]==0) {
+X      /* Found JFIF APP0 marker: check version */
+X      /* Major version must be 1 */
+X      if (b[5] != 1)
+X	ERREXIT2(cinfo->emethods, "Unsupported JFIF revision number %d.%02d",
+X		 b[5], b[6]);
+X      /* Minor version should be 0 or 1, but try to process anyway if newer */
+X      if (b[6] != 0 && b[6] != 1)
+X	TRACEMS2(cinfo->emethods, 0, "Warning: unknown JFIF revision number %d.%02d",
+X		 b[5], b[6]);
+X      /* Save info */
+X      cinfo->density_unit = b[7];
+X      cinfo->X_density = (b[8] << 8) + b[9];
+X      cinfo->Y_density = (b[10] << 8) + b[11];
+X      /* Assume colorspace is YCbCr, unless UI has overridden me */
+X      if (cinfo->jpeg_color_space == CS_UNKNOWN)
+X	cinfo->jpeg_color_space = CS_YCbCr;
+X      TRACEMS3(cinfo->emethods, 1, "JFIF APP0 marker, density %dx%d  %d",
+X	       cinfo->X_density, cinfo->Y_density, cinfo->density_unit);
+X    } else {
+X      TRACEMS(cinfo->emethods, 1, "Unknown APP0 marker (not JFIF)");
+X    }
+X  } else {
+X    TRACEMS1(cinfo->emethods, 1,
+X	     "Short APP0 marker, length %d", (int) length);
+X  }
+X
+X  while (length-- > 0)		/* skip any remaining data */
+X    (void) JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xget_sof (decompress_info_ptr cinfo, int code)
+X/* Process a SOFn marker */
+X{
+X  INT32 length;
+X  short ci;
+X  int c;
+X  jpeg_component_info * compptr;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  cinfo->data_precision = JGETC(cinfo);
+X  cinfo->image_height   = get_2bytes(cinfo);
+X  cinfo->image_width    = get_2bytes(cinfo);
+X  cinfo->num_components = JGETC(cinfo);
+X
+X  TRACEMS4(cinfo->emethods, 1,
+X	   "Start Of Frame 0x%02x: width=%u, height=%u, components=%d",
+X	   code, (int) cinfo->image_width, (int) cinfo->image_height,
+X	   cinfo->num_components);
+X
+X  /* We don't support files in which the image height is initially specified */
+X  /* as 0 and is later redefined by DNL.  As long as we have to check that,  */
+X  /* might as well have a general sanity check. */
+X  if (cinfo->image_height <= 0 || cinfo->image_width <= 0
+X      || cinfo->num_components <= 0)
+X    ERREXIT(cinfo->emethods, "Empty JPEG image (DNL not supported)");
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X  if (cinfo->data_precision != 8)
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X#ifdef TWELVE_BIT_SAMPLES
+X  if (cinfo->data_precision != 12) /* this needs more thought?? */
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  if (cinfo->data_precision != 16) /* this needs more thought?? */
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X
+X  if (length != (cinfo->num_components * 3 + 8))
+X    ERREXIT(cinfo->emethods, "Bogus SOF length");
+X
+X  cinfo->comp_info = (jpeg_component_info *) (*cinfo->emethods->alloc_small)
+X			(cinfo->num_components * SIZEOF(jpeg_component_info));
+X  
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    compptr = &cinfo->comp_info[ci];
+X    compptr->component_index = ci;
+X    compptr->component_id = JGETC(cinfo);
+X    c = JGETC(cinfo);
+X    compptr->h_samp_factor = (c >> 4) & 15;
+X    compptr->v_samp_factor = (c     ) & 15;
+X    compptr->quant_tbl_no  = JGETC(cinfo);
+X      
+X    TRACEMS4(cinfo->emethods, 1, "    Component %d: %dhx%dv q=%d",
+X	     compptr->component_id, compptr->h_samp_factor,
+X	     compptr->v_samp_factor, compptr->quant_tbl_no);
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_sos (decompress_info_ptr cinfo)
+X/* Process a SOS marker */
+X{
+X  INT32 length;
+X  int i, ci, n, c, cc;
+X  jpeg_component_info * compptr;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  n = JGETC(cinfo);  /* Number of components */
+X  cinfo->comps_in_scan = n;
+X  length -= 3;
+X  
+X  if (length != (n * 2 + 3) || n < 1 || n > MAX_COMPS_IN_SCAN)
+X    ERREXIT(cinfo->emethods, "Bogus SOS length");
+X
+X  TRACEMS1(cinfo->emethods, 1, "Start Of Scan: %d components", n);
+X  
+X  for (i = 0; i < n; i++) {
+X    cc = JGETC(cinfo);
+X    c = JGETC(cinfo);
+X    length -= 2;
+X    
+X    for (ci = 0; ci < cinfo->num_components; ci++)
+X      if (cc == cinfo->comp_info[ci].component_id)
+X	break;
+X    
+X    if (ci >= cinfo->num_components)
+X      ERREXIT(cinfo->emethods, "Invalid component number in SOS");
+X    
+X    compptr = &cinfo->comp_info[ci];
+X    cinfo->cur_comp_info[i] = compptr;
+X    compptr->dc_tbl_no = (c >> 4) & 15;
+X    compptr->ac_tbl_no = (c     ) & 15;
+X    
+X    TRACEMS3(cinfo->emethods, 1, "    c%d: [dc=%d ac=%d]", cc,
+X	     compptr->dc_tbl_no, compptr->ac_tbl_no);
+X  }
+X  
+X  while (length > 0) {
+X    (void) JGETC(cinfo);
+X    length--;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_soi (decompress_info_ptr cinfo)
+X/* Process an SOI marker */
+X{
+X  int i;
+X  
+X  TRACEMS(cinfo->emethods, 1, "Start of Image");
+X
+X  /* Reset all parameters that are defined to be reset by SOI */
+X
+X  for (i = 0; i < NUM_ARITH_TBLS; i++) {
+X    cinfo->arith_dc_L[i] = 0;
+X    cinfo->arith_dc_U[i] = 1;
+X    cinfo->arith_ac_K[i] = 5;
+X  }
+X  cinfo->restart_interval = 0;
+X
+X  cinfo->density_unit = 0;	/* set default JFIF APP0 values */
+X  cinfo->X_density = 1;
+X  cinfo->Y_density = 1;
+X
+X  cinfo->CCIR601_sampling = FALSE; /* Assume non-CCIR sampling */
+X}
+X
+X
+XLOCAL int
+Xnext_marker (decompress_info_ptr cinfo)
+X/* Find the next JPEG marker */
+X/* Note that the output might not be a valid marker code, */
+X/* but it will never be 0 or FF */
+X{
+X  int c, nbytes;
+X
+X  nbytes = 0;
+X  do {
+X    do {			/* skip any non-FF bytes */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c != 0xFF);
+X    do {			/* skip any duplicate FFs */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c == 0xFF);
+X  } while (c == 0);		/* repeat if it was a stuffed FF/00 */
+X
+X  if (nbytes != 2)
+X    TRACEMS2(cinfo->emethods, 1, "Skipped %d bytes before marker 0x%02x",
+X	     nbytes-2, c);
+X
+X  return c;
+X}
+X
+X
+XLOCAL JPEG_MARKER
+Xprocess_tables (decompress_info_ptr cinfo)
+X/* Scan and process JPEG markers that can appear in any order */
+X/* Return when an SOI, EOI, SOFn, or SOS is found */
+X{
+X  int c;
+X
+X  while (TRUE) {
+X    c = next_marker(cinfo);
+X      
+X    switch (c) {
+X    case M_SOF0:
+X    case M_SOF1:
+X    case M_SOF2:
+X    case M_SOF3:
+X    case M_SOF5:
+X    case M_SOF6:
+X    case M_SOF7:
+X    case M_JPG:
+X    case M_SOF9:
+X    case M_SOF10:
+X    case M_SOF11:
+X    case M_SOF13:
+X    case M_SOF14:
+X    case M_SOF15:
+X    case M_SOI:
+X    case M_EOI:
+X    case M_SOS:
+X      return ((JPEG_MARKER) c);
+X      
+X    case M_DHT:
+X      get_dht(cinfo);
+X      break;
+X      
+X    case M_DAC:
+X      get_dac(cinfo);
+X      break;
+X      
+X    case M_DQT:
+X      get_dqt(cinfo);
+X      break;
+X      
+X    case M_DRI:
+X      get_dri(cinfo);
+X      break;
+X      
+X    case M_APP0:
+X      get_app0(cinfo);
+X      break;
+X
+X    case M_RST0:		/* these are all parameterless */
+X    case M_RST1:
+X    case M_RST2:
+X    case M_RST3:
+X    case M_RST4:
+X    case M_RST5:
+X    case M_RST6:
+X    case M_RST7:
+X    case M_TEM:
+X      TRACEMS1(cinfo->emethods, 1, "Unexpected marker 0x%02x", c);
+X      break;
+X
+X    default:	/* must be DNL, DHP, EXP, APPn, JPGn, COM, or RESn */
+X      skip_variable(cinfo, c);
+X      break;
+X    }
+X  }
+X}
+X
+X
+X
+X/*
+X * Initialize and read the file header (everything through the SOF marker).
+X */
+X
+XMETHODDEF void
+Xread_file_header (decompress_info_ptr cinfo)
+X{
+X  int c;
+X
+X  /* Demand an SOI marker at the start of the file --- otherwise it's
+X   * probably not a JPEG file at all.  If the user interface wants to support
+X   * nonstandard headers in front of the SOI, it must skip over them itself
+X   * before calling jpeg_decompress().
+X   */
+X  if (JGETC(cinfo) != 0xFF  ||  JGETC(cinfo) != M_SOI)
+X    ERREXIT(cinfo->emethods, "Not a JPEG file");
+X
+X  get_soi(cinfo);		/* OK, process SOI */
+X
+X  /* Process markers until SOF */
+X  c = process_tables(cinfo);
+X
+X  switch (c) {
+X  case M_SOF0:
+X  case M_SOF1:
+X    get_sof(cinfo, c);
+X    cinfo->arith_code = FALSE;
+X    break;
+X      
+X  case M_SOF9:
+X    get_sof(cinfo, c);
+X    cinfo->arith_code = TRUE;
+X    break;
+X
+X  default:
+X    ERREXIT1(cinfo->emethods, "Unsupported SOF marker type 0x%02x", c);
+X    break;
+X  }
+X
+X  /* Figure out what colorspace we have */
+X  /* (too bad the JPEG committee didn't provide a real way to specify this) */
+X
+X  switch (cinfo->num_components) {
+X  case 1:
+X    cinfo->jpeg_color_space = CS_GRAYSCALE;
+X    break;
+X
+X  case 3:
+X    /* if we saw a JFIF marker, leave it set to YCbCr; */
+X    /* also leave it alone if UI has provided a value */
+X    if (cinfo->jpeg_color_space == CS_UNKNOWN) {
+X      short cid0 = cinfo->comp_info[0].component_id;
+X      short cid1 = cinfo->comp_info[1].component_id;
+X      short cid2 = cinfo->comp_info[2].component_id;
+X
+X      if (cid0 == 1 && cid1 == 2 && cid2 == 3)
+X	cinfo->jpeg_color_space = CS_YCbCr; /* assume it's JFIF w/out marker */
+X      else if (cid0 == 1 && cid1 == 4 && cid2 == 5)
+X	cinfo->jpeg_color_space = CS_YIQ; /* prototype's YIQ matrix */
+X      else {
+X	TRACEMS3(cinfo->emethods, 0,
+X		 "Unrecognized component IDs %d %d %d, assuming YCbCr",
+X		 cid0, cid1, cid2);
+X	cinfo->jpeg_color_space = CS_YCbCr;
+X      }
+X    }
+X    break;
+X
+X  case 4:
+X    cinfo->jpeg_color_space = CS_CMYK;
+X    break;
+X
+X  default:
+X    cinfo->jpeg_color_space = CS_UNKNOWN;
+X    break;
+X  }
+X}
+X
+X
+X/*
+X * Read the start of a scan (everything through the SOS marker).
+X * Return TRUE if find SOS, FALSE if find EOI.
+X */
+X
+XMETHODDEF boolean
+Xread_scan_header (decompress_info_ptr cinfo)
+X{
+X  int c;
+X  
+X  /* Process markers until SOS or EOI */
+X  c = process_tables(cinfo);
+X  
+X  switch (c) {
+X  case M_SOS:
+X    get_sos(cinfo);
+X    return TRUE;
+X    
+X  case M_EOI:
+X    TRACEMS(cinfo->emethods, 1, "End Of Image");
+X    return FALSE;
+X
+X  default:
+X    ERREXIT1(cinfo->emethods, "Unexpected marker 0x%02x", c);
+X    break;
+X  }
+X  return FALSE;			/* keeps lint happy */
+X}
+X
+X
+X/*
+X * Finish up after a compressed scan (series of read_jpeg_data calls);
+X * prepare for another read_scan_header call.
+X */
+X
+XMETHODDEF void
+Xread_scan_trailer (decompress_info_ptr cinfo)
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xread_file_trailer (decompress_info_ptr cinfo)
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * The method selection routine for standard JPEG header reading.
+X * Note that this must be called by the user interface before calling
+X * jpeg_decompress.  When a non-JFIF file is to be decompressed (TIFF,
+X * perhaps), the user interface must discover the file type and call
+X * the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrjfif (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->read_file_header = read_file_header;
+X  cinfo->methods->read_scan_header = read_scan_header;
+X  /* For JFIF/raw-JPEG format, the user interface supplies read_jpeg_data. */
+X#if 0
+X  cinfo->methods->read_jpeg_data = read_jpeg_data;
+X#endif
+X  cinfo->methods->read_scan_trailer = read_scan_trailer;
+X  cinfo->methods->read_file_trailer = read_file_trailer;
+X}
+X
+X#endif /* JFIF_SUPPORTED */
+END_OF_FILE
+  if test 18541 -ne `wc -c <'jrdjfif.c'`; then
+    echo shar: \"'jrdjfif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdjfif.c'
+fi
+if test -f 'makdjpeg.lnk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makdjpeg.lnk'\"
+else
+  echo shar: Extracting \"'makdjpeg.lnk'\" \(348 characters\)
+  sed "s/^X//" >'makdjpeg.lnk' <<'END_OF_FILE'
+Xjdmain.obj +
+Xjdmaster.obj +
+Xjddeflts.obj +
+Xjbsmooth.obj +
+Xjdarith.obj +
+Xjdcolor.obj +
+Xjdhuff.obj +
+Xjdmcu.obj +
+Xjdpipe.obj +
+Xjdsample.obj +
+Xjquant1.obj +
+Xjquant2.obj +
+Xjrevdct.obj +
+Xjrdjfif.obj +
+Xjwrgif.obj +
+Xjwrppm.obj +
+Xjwrrle.obj +
+Xjwrtarga.obj +
+Xjutils.obj +
+Xjerror.obj +
+Xjmemmgr.obj +
+Xjmemsys.obj +
+Xjmemdosa.obj
+Xdjpeg.exe /NOI
+Xnul.map
+X
+Xnul.def
+END_OF_FILE
+  if test 348 -ne `wc -c <'makdjpeg.lnk'`; then
+    echo shar: \"'makdjpeg.lnk'\" unpacked with wrong size!
+  fi
+  # end of 'makdjpeg.lnk'
+fi
+if test -f 'timg.ppm.u.a' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'timg.ppm.u.a'\"
+else
+  echo shar: Extracting \"'timg.ppm.u.a'\" \(32510 characters\)
+  sed "s/^X//" >'timg.ppm.u.a' <<'END_OF_FILE'
+Xbegin 666 testimg.ppm
+XM4#8*,3(U(#$R-0HR-34*JD=*R&5HW'E\UG-VRVAKS&ELSVQOSFMNUG-VQF-F
+XMLU!3NE=:T&UPU'%TT6YQV'5XVWZ U7AZS7)RS'%QSW5PTWETTWQTTGMSS7=Q
+XMWHB"Y8^+T7MWQ7!OV82#YI"2UX&#VXF$V(:!V8B%X(^,X).0WI&.VI*/W)21
+XMW9*0W)&/W9.-V8^)T81[UXJ!Y)2*XY.)U(Y^UY&!W)>+U9"$RH1]T8N$VY>5
+XMVI:4UY22TY".W)N6WIV8VIV1V)N/TYB)W:*3X::-Y:J1XZ26UYB*UI&2VY:7
+XMXIJAXIJAU8^8V9.<WIV:X:"=T9F)PXM[Q9)VTZ"$[+>HYK&BW*F<UZ27UJ67
+XMW*N=X;2FY[JL\<:W[\2UZ,&SY;ZPW[JNWKFMW+>KW+>KT+NQT+NQU+JRU;NS
+XMW+RVW[^YY;^[Y\&]W[FUY;^[YL*]X[^ZX\"[Z,7 Y<? XL2]\<J^W+6IQY.,
+XMNX> UXZ.YYZ>XY"3RG=ZQ'9SW8^,VIV3Z*NA\,VVR69IU'%TV79YT&UPR&5H
+XMRVAKSVQOT&UPQF-FQ&%DOEM>Q&%DU'%TUG-VT6YQUG-VT'-UTG5WT79VSW1T
+XMS7-NS')MS79NSWAPW8>!T7MUT7MWTGQXS'=VTWY]X8N-YI"2WXV(V8>"U82!
+XMV8B%WY*/XI62V9&.T8F&TXB&SH.!U(J$W)*,V(N"V(N"X)"&W8V#W):&S(9V
+XMRH5YU9"$UY&*V)*+U9&/S8F'V9:4UY22W9R7WYZ9V9R0TY:*S)&"T9:'TYA_
+XMT99]UYB*WI^1X)N<V925V9&8W96<U(Z7THR5SXZ+T(^,RY.#SI:&V*6)Y+&5
+XMW*>8W*>8VJ>:W:J=X*^AZ+>I[+^Q\,.UZK^PZ;ZOY+VOXKNMWKFMWKFMWKFM
+XMWKFMT+NQT;RRU;NSV+ZVWKZXX,"ZYL"\YL"\Y+ZZY+ZZY,"[YL*]Y,&\Y,&\
+XMY<? ZLS%[\B\R*&5NH9_S9F2[:2DWY:6SGM^P6YQUHB%W(Z+X:2:]+>M\,VV
+XMW7I]V'5XTF]RS6IMRVAKRVAKRF=JR69IME-6Q6)ES&ELSVQOV79YV79YTW!S
+XMTW!SRFUOS7!RSW)SSG%RRF]MRF]MSW=RU'QWUX%]QW%MRW1TV8*"V(*&U7^#
+XMU8&'U("&U(&"UX2%U(6'TH.%UHJ-W)"3U8R/RH&$UHV0T(>*VX^2YIJ=XY:5
+XMW9"/V8N(SH!]S8!WPW9MT(1]Y9F2X96.VHZ'X):0ZJ":SH: T8F#UH^,WI>4
+XMWYB5VY21V961VY>3V9F0TY.*TY&,U9..V).4UY*3UI&3U9"2TY"0R8:&O8%Z
+XMQ(B!U:"1YK&BX[.>V:F4TZ*4UZ:8W:R>Y;2FY[NKZ[^O[,&R[<*SW[BJWK>I
+XMW+BIW+BIW+FLW;JMW[ROW[ROW+>NWKFPX+NRX[ZUX\&WY,*XXL.XXL.XXL6Y
+XMW\*VWL.WX<:ZX<B[X,>ZXLN]Z-'#WZBER9*/R8J)V9J9WY>4RH)_RGUZV8R)
+XMV)"+SX>"Y:FB_\6^V*^FTF]RS&ELS&ELT6YQT6YQRF=JP5YAO5I=MU17RVAK
+XMTW!STW!SVG=ZW'E\U7)UT6YQS&]QR&MMQ&=HQ6AIRW!NTWAVV(![VX-^Q6]K
+XMR')NTWQ\VH.#VH2(X(J.W(B.S'A^S7I[W8J+X9*4UXB*SX.&T86(S(.&PWI]
+XMS82'SH6(U8F,U8F,U8B'VXZ-VHR)QWEVV8R#U8A_X)2-Z)R5V8V&SX-\UXV'
+XMX):0V9&+W96/UH^,VI.0V)&.T8J'U)",T(R(T9&(UI:-U)*-RXF$SHF*V).4
+XMU9"2RH6'R8:&T8Z.TI:/UYN4WJF:Z+.DWJZ9T*"+WZZ@XK&CY[:HZ[JLZ+RL
+XMY;FIX+6FW;*CV;*DVK.EV;6FVK:GV[BKW;JMW[ROW[ROWKFPX+NRX[ZUYL&X
+XMYL2ZYL2ZX\2YXL.XXL6YX\:ZX,6YW\2XX\J]Z=##Y,V_V\2VOH>$S)62UI>6
+XMS8Z-RH)_RH)_U8B%VHV*QW]ZRX-^ZJZG_\_(G'-JQ&%EQ6)FRVALT6YRSFMO
+XMPV!DO%E=NE=;QV1HU'%UTW!TSVQPV'5YVWA\TW!TSVQPSFYQQ65HO6!AQ&=H
+XMTW9WW'^ V7Y^TG=WQ&UMS'5UV(*&W(:*U8&*VX>0WHF7U8".S'F$V8:1VXJ7
+XMU(.0S8*0SX22QWV-N&Y^L6IYMW!_M6QYI%MHIUQHRX",WY*;T(.,XY.;V8F1
+XMUXB,UXB,UH>'W8Z.W9&,T86 VXZ+XI62TX>+V(R0VHR9U(:3WY.FUXN>RH.0
+XMS8:3T8N4THR5T8R.SXJ,R(9_QH1]Q8I_WZ29[;BKY*^BT:*5SZ"3UJN>W;*E
+XMZ+RLZ+RLY[RLYKNKX+BHV[.CU*V=T:J:U[.DV+2EV;:GVK>HV[JLW+NMV[VN
+XMV[VNZKBR[+JTZKZV[<&YY\6ZYL2YW\:XWL6WV<6UX<V]X<J[VL.TY<R^\]K,
+XMYLF\R*N>SG^+VXR8V8V1S("$R(![S(1_NWANHV!6M'9NTI2,];R^_\O-:#- 
+XMQ&%ERF=KS6INR&5IP%UAO%E=P%UAQ6)FU7)VV'5YT&UQRVALU'%UU7)VS6IN
+XMRVALQV=JQ&1GPF5FS&]PUWI[V'M\S7)RP69FRG-SRG-SVH2(YY&5U(")OVMT
+XMNV9TNV9TN69QMV1OLV)ON&=TQ'F'T(63Q7N+LFAXMW!_O'6$LVIWE4Q9D492
+XMNW!\W9"9V(N4VXN3VHJ2VXR0UH>+T8*"VHN+WI*-U8F$TH6"X).0S8&%UHJ.
+XMUXF6S7^,V8V@R'R/WYBET8J7SHB1TXV6RH6'NW9XPX%ZW)J3Y*F>YJN@WZJ=
+XMV*.6TZ27VJN>X[BKY[ROZ+RLY[NKY+FIX;:FW;6EV[.CV+&AU["@VK:GV[>H
+XMV[BIW;JKW;RNW;RNV[VNW+ZO[+JT[;NUZ[^W[<&YYL2YYL2YW\:XWL6WV,2T
+XMXLZ^X\R]W<:WY\[ [];(VKVPMIF,XI.?UH>3QWM_O7%UK&1?GE91F%5+G%E/
+XMPH1\[K"H_\O-WZ:H210AQF-GSFMOS&EMO5I>M5)6O%E=R69JT&UQUG-WU7)V
+XMS6INS&EMTF]SRVALPV!DR&5IQ&)FRVEMT7%TTW-VSW)TRVYPR&QNR&QNSG9]
+XMSG9]UG^+U7Z*O&AYK%AIJU9LJ%-IJEAOHE!GFTIBH$]GJ5UXLF:!K&2!IEY[
+XMR8.?S8>CRH2?M&Z)H%ERJF-\OG:-OW>.S82ASX:CVY.JV9&HQ7Z-NW2#P7N"
+XMPGR#RH2-W9>@RH*7THJ?QW^>JV."K&*,BT%KQGJ8S8&?SX>;QW^3O7I[P7Y_
+XMTYB+Z:ZAZ[>AV:6/R)N'TJ61X;BKZ\*UY[^YX;FSXKNKX+FIW+BGVK:EVK:E
+XMVK:EVK>HV[BIVKFKV[JLW;RNW[ZPWK^SW\"TWK^SWK^SZKZTZKZTY<*UY<*U
+XMX,:VW\6UW,BVV\>UX,BWX,BWZ<:Y[<J]]<B^Z[ZTVJ*<PXN%X("3QV=ZL%EA
+XMJ%%9BT,^?C8QDE=,P89[W*6A^\3 _\?1EEUG1PDIP5YBS&EMR69JN%59LD]3
+XMP5YBT&UQU7)VTF]ST6YRS6INSVQPTF]SQ&%EO%E=Q6)FQ6-GTG!TVWM^TW-V
+XMPV9HOV)DS'!RWH*$UGZ%V8&(RG-_J%%=ED)3LEYORW:,Q&^%N6=^LV%XJUIR
+XMH$]GD$1?B3U8C45BF%!MQ'Z:RH2@V9.NUI"KMW")H%ERGE9MH%AOIUY[G51Q
+XMKF9]RH*9T(F8RH.2R(*)R(*)GEAAO'9_M&R!R8&6Q7V<J6& IER&@#9@<B9$
+XMKV.!SX>;P'B,OGM\WYR=[;*EX::9SIJ$T9V'V:R8Z[ZJ[<2WY;ROX;FSYKZX
+XMY+VMXKNKWKJIV[>FVK:EVK:EVK>HV[BIV[JLW+NMW[ZPX<"RX<*VX<*VX<*V
+XMX<*VZ[^UZ[^UY,&TY,&TWL2TW\6UV\>UW,BVY<V\W,2SY\2W]=+%]LF_VJVC
+XMRY.-QX^)OEYQHT-6C#4]D3I"C45 E$Q'K'%FU)F.\;JV_<;"]+O%6!\I1PDI
+XMSVMROEIAL4U4ME)9Q6%HT&QSUG)YV'1[T&QST6UTS6EPQF)IP%QCP%QCQ6%H
+XMQV-JR65LSVMRR&9LV'9\Q65JS6URR&MTV'N$T7B%R7!]NF1VN&)TOFN$Q7*+
+XMP&R,M6&!I5%RN&2%H$]QGDUOC4)IA#E@<2E2E$QUR(2NU)"ZSHJRRH:NL&V2
+XMLF^4J62)J62)I&>9DU:(E%B#>CYIBDUPG%^"L'21K7&.EUMXC%!M@4-I9"9,
+XM<S1B;2Y<@4%UBTM_4 8F@SE9N7.&THR?Z*NIZ*NIQ9%]QI)^SJ*(V*R2V[2>
+XMWK>AX+FMY+VQW[FUV;.OWKRJW[VKW[VKWKRJV[BIVK>HV[JLW+NMVKFKW;RN
+XMX;^TY<.XX\2XX,&UW\"TX,&UWL:UVL*QW,6TX,FXW\>VY<V\Z<R]V[ZO[L6Z
+XM[L6Z_<&\^KZY]*6GU8:(O61IK%-8FC9'E3%"G$1,HTM3CTA%IE]<SY>1[+2N
+XM^L;)_,C+@TA=3A,H7!9#NE9=LT]6M%!7P%QCSFIQT6UTSFIQRV=NSVMRSFIQ
+XMR65LQ&!GP5UDPU]FR&1KRF9MS6EPSFIQPV%GT&YTR&AMU75ZS7!YU7B!VH&.
+XMOV9SK%9HN6-URG>0QW2-L%Q\FT=GKEI[HDYOA316A#-5?#%8<"5,;25.D$AQ
+XMOGJDOWNEU9&YNG:>Q8*GHV"%J&.(E5!UD52&ATI\?T-N<C9ADE5X@41G;3%.
+XM:BY+:R],<#11<C1:7!Y$8R1241) 5A9*6!A,4PDI<2='SHB;]*[!SI&/Q(>%
+XMS)B$U*",X[>=Z+RBYK^IY+VGX[RPY;ZRX;NWW+:RWKRJW[VKW[VKW;NIV[BI
+XMVK>HV[JLW+NMX<"RW[ZPW;NPWKRQW\"TX<*VXL.WX\2XWL:UX,BWY<Z]X,FX
+XMUKZMV\.RZLV^ZLV^]\[#YKVRW:&<R(R'OF]QIE=9G41)ECU"GCI+F#1%DSM#
+XMFT-+I%U:R8)_WZ>AYZ^I_]+5L7V 7R0Y20XC50\\K4E0KTM2NE9=RF9MU'!W
+XMTFYURF9MQF)IS&AOR&1KQ&!GPEYEQ&!GQV-JRV=NS6EPT&IQSFAOP5UFRV=P
+XMS6MSW7N#T72 S&][MUUNLUEJO&5_SG>1R'25L%Q]GDMRGDMRH4UWCSMED$!J
+XMG4UWFU!_@39EA#]OGUJ*H%^0LG&BJ6B9NGFJE52%F%>(=31C<"]>93%J1Q-,
+XM=D!UFV6:@DQ_2A1'8BM;>D-S2A1!5B!-5Q]+1 PX41E%4!A$3A9"0PLW<"L_
+XMKFE]X*&KTI.=P8N$T)J3U*>3YKFEZL"IZ\&JY;^KX+JFW[BJX+FKX+BPWK:N
+XMW;JKWKNLWKNLW;JKV[BIVK>HW+FLWKNNXL"UX+ZSWKNPWKNPX+ZTX\&WX\&W
+XMX+ZTV\>WU\.SX<BZYLV_[LF_\<S"\\&[XK"JUI.3P7Y^L5UCH$Q2H#U(F39!
+XMG#- GC5"ES]$ECY#F4I,M&5GSHN,X9Z?[[6Z_\_4[;;%;C=&6!HX5A@V6 \]
+XMM%!7N%1;Q&!GSVMRU'!WT6UTS6EPS6EPQF)IPEYEP%QCQ6%HRF9MRV=NRV=N
+XMS&AORV5LS&9MQV-LS&AQT6]WVGB RVYZOF%MGT56M%IKR'&+RW2.LEY_GDIK
+XMIU1[O&F0KUN%I5%[O&R6NVN5J5Z-?3)A?SIJAT)RA$-TC$M\GEV.DE&"C4Q]
+XM<S)C;BU<9213625>B%2-A$Z#7RE>=T%T<#IM<#EI9B]?6")/3QE&2! \1@XZ
+XM3!1 2A(^9"Q8BU-_O7B,W)>KU)6?LW1^RY6.\;NTY[JF\<2PYKREY;NDX+JF
+XMW;>CW+6GW;:HW;6MW;6MW+FJW;JKWKNLW+FJV[BIVK>HW+FLWKNNV[FNX+ZS
+XMX\"UXK^TXL"VX;^UW[VSV[FOU\.SU\.SY<R^Z]+$Z<2ZV;2JQ9.-I')LEE-3
+XMC$E)CCI CSM!GCM&H#U(I3Q)ICU*FD)'L%A=N6ILT(&#[:JK]K.TY*JOYZVR
+XMC59E1Q ?6APZ5!8T4 <UOUMDPU]HS&AQU'!YTV]XS6ERRF9OS6ERP5UFO5EB
+XMP%QERF9OSVMTS6ERR65NR65NQ5UES&1LTVQVTVQVTW![S&ETOV%PM%9EN6!U
+XMP6A]O&:$KEAVI5)YK%F MF.0NVB5IU2!G$EVHU2"CC]M@#9H9QU/;BM@:B=<
+XM;"QB?3USEUF1D5.+C4^%>#IP@$-VA$=ZD%N+=D%Q>$%T=3YQ82EA41E1?$)]
+XM:C!K8B9;415*1@PU4!8_3!,O3!,OA4I?VI^TW:.AL7=UO8:"U)V9TZ29YK>L
+XMZ,"OY+RKX;NIX+JHX+JHX;NIX;FIX+BHX;:IXK>JV[BIW+FJW;JKW+FJVK>J
+XMVK>JW;BLW[JNVK6KX[ZTY\*YY+^VXKVTY+^VYL&XY<"WZ,2[[\O"_,S'X[.N
+XMP'Y_H%Y?FDI0C3U#FCU'E3A"E39!G#U(I$50ID=2ID=2ITA3IV!3S89YU9&+
+XMV96/];.X\[&VL7&#=#1&4!$M41(N6Q@\6!4Y7!0]PEYGQV-LT&QUUW-\TV]X
+XMR65NPEYGPU]HP%QEO5EBPEYGS6ERT&QURF9OQ6%JQV-LR&!HS&1LV7)\U&UW
+XMSVQWNE=BMEAGM5=FP6A]R&^$P&J(L%IXJ59]L%V$IU2!ET1QC#EF@2Y;<R12
+XM9!5#:B!2;2-5;2I?:"5:<C)HCT^%DU6-JFRD@4-YB$J @$-VF5R/9S)BFV:6
+XMB%&$72998BIB6"!8>T%\@4>"10D^5AI/1@PU0@@Q7B5!G62 O8*7RY"EJ6]M
+XML'9TUI^;Z[2PY;:KX[2IU*R;VK*AX;NIW[FGW[FGXKRJX;FIW+2DW+&DW;*E
+XMVK>HV[BIW+FJV[BIVK>JVK>JW;BLW[JNW;BNY+^UY+^VWKFPWKFPY\*YZ\:]
+XMZL6\\,S#Y<&XV:FDL8%\CTU.?CP]CCY$CS]%F3Q&E3A"EC="GC]*J$E4L5)=
+XMO%UHQ69QS89YW)6(\:VG_\"Z]+*WM7-X;2T_3 P>4Q0P8R1 4@\S7AL_<2E2
+XMR&1MR65NSFISTFYWSFISQ&!IOEICOEICPU]HP%QEQ6%JSFISS6ERQ&!IPEYG
+XMR&1MU6UUS65MUW!ZSF=QR&5QK$E5M5=HP6-TNF%XPFF O6:(K59XF4=QD3]I
+XMBSAIA3)CCCMHBSAE;A]/:1I*:1]3:B!471E1;2EACU&+C4^)H62>@$-]?T)\
+XM72!:?$!WBT^&F%^%@DEO<C=F?T1S=SEQ5!9.>SIW;BUJ/@ Q5A1)4! S:"A+
+XMGU]NY*2ST9.5K6]QG6A9VJ66\+^QVJF;X;:IYKNNRJ.3UJ^?W;FJV;6FVK.C
+XMW;:FW[2DV:Z>V:V;W+">VK>HVK>HW+FLV[BKV[:JV[:JW;BNW[JPX;FPY+RS
+XMX[NSW[>OXKJRZ,"XX[FRUJRET9F;P8F+N7-ZI5]FG492G492JT97I4!1H3=*
+XMHSE,IT55M%)BN&-OQ&][SX*+VXZ7W:2,V:"(]+FN_\6ZPX.+:BHR4 TH9B,^
+XM610Z7QI 4 @Q7!0]:"%&T&QUS&AQRF9ORF9OQF)KP5UFP%QEPEYGQV-LPU]H
+XMQF)KS&AQR65NP%QEP5UFRF9OX7F!SV=OTVQVQE]IPE]KI4).MUEJS6^ RW*)
+XMN6!WGD=IB3)4=R5/=2--@S!ADC]P@"U:AS1A9QA(:1I*7A1(7Q5)7AI2EE**
+XMFUV7EUF3@D5_<C5O411.5AE3:2UDBT^&8RI0B5!V@49U;C-B9BA@2PU%=C5R
+XM;RYK5A1)1 (W5Q<ZN7F<W)RKQ864GF!BMGAZYK&BW*>8Z;BJW:R>QYR/UJN>
+XMV;*BU*V=W+BIU[.DV+&AW+6EW[2DVJ^?W+">X;6CV;:GVK>HV[BKV[BKVK6I
+XMV[:JW;BNW[JPWK:MXKJQXKJRXKJRZ,"XYKZVT*:?M(J#B%!2E5U?L6MRL6MR
+XMJ5)>H$E5IT)3GSI+LDA;O%)ERFAXVWF)VH61VX:2VXZ7XI6>XJF1Z*^7Z["E
+XMP89[=C8^4A(:5Q0O618Q6Q8\81Q":R-,:"!)8AM S&=HSVIKSVENR&)GP%AB
+XMO%1>PU=HREYOQEQMQUUNQ6)NQF-OP&!EO%QAPV=IT'1VTFYUUG)YQ6-QSFQZ
+XMP&:!DSE4Q'":OFJ4FTY_B3QM="U>7QA);"=7DDU]CDEW<"M93Q,];3%;515 
+XM7AY)9")/40\\A#UNK6:7F5*%IE^2<RUB8!I/5!)'7!I/C4V!A$1X6S->>E)]
+XM>$=U4R)0104X2 @[FE%_@#=E5 <HACE:PWJ%V9";P8%XL7%HR(UV[K.<Z+FL
+XMY;:IX+&DVZR?UZJ<UZJ<VZZ@W;"BW;"BW;"BWK&CWK&CX+&DWJ^BVZR?V*F<
+XMV;6CV[>EW;6DV[.BV[.BW[>FW[RMXK^PX\:ZUKFMZ</'TZVQYJ["S)2H?S=6
+XMCT=FDE=LE%ENNW>'N'2$OW!RK%U?QW!FRW1JUWYIWH5PXX]TYY-XX9AWXIEX
+XMWYM[X)Q\Y:*K^;:_R(24;RL[3@DA6A4M81H]7A<Z81E"9AY'9AY)8QM&81E$
+XMU7!QS6AIPEQAN%)7MT]9O%1>QUMLSF)SR%YOS&)SQ&%MO%EEN5E>OEYCO6%C
+XMN5U?RF9MS6EPT&Y\W7N)T':1HDACL%R&H$QV?S)C;B%2;B=8@#EJAD%Q>#-C
+XM8!M)611"6Q])8"1.41$\7!Q'61=$92-0G5:'EU"!F%&$@CMN6A1)50]$<C!E
+XME5.(E%2(;R]C:T-N<DIU8"]=0 \]41%$6AI-C$-Q>"]=BSY?PW:7VI&<NW)]
+XMJ6E@RHJ!ZJ^8\+6>XK.FX+&DW*V@V:J=UJF;UZJ<VZZ@W;"BV*N=V*N=V:R>
+XMVJV?W:ZAWJ^BWJ^BW:ZAU+">V[>EX[NJX;FHWK:EW+2CUK.DT["ARJVAXL6Y
+XMY\'%L8N/@DI>=S]3A3U<@CI9D%5JD59KIV-SOWN+T(&#UXB*X(E_WXA^ZY)]
+XMYXYYY)!UZ)1YWI5TVY)QWYM[[JJ*_\K3RXB1>#1$30D94@TE7!<O7!4X7Q@[
+XM8AI#9AY'9Q]*8QM&81E$T7!RQ&-EMU-:L4U4N%%>P5IGR%YQRV%TQEQOS&)U
+XMPU]PMU-DNEEDR&=RPV5NLU5>J4=7I$)2N%EPR&F P6N+HTUMD$!L?R];:B!2
+XM=2M==C%C>#-E=3-B9")14Q$^4A ]:RM66!A#3@PX7!I&5Q) ?#=EJV25=2Y?
+XM@#EN719+6A=,:B=<B$A^HF*8CE"&?#YT>TV"21M03AM-6"575QM(5AI'C$EM
+XMFE=[SHF=Q8"4MW5XM7-VPXI_X:B=[[FF[[FFVZZBV:R@UJF=U:B<TZB;UJN>
+XMVJVAW*^CUJF=UJF=U*F<U*F<UJF=V:R@W*^CW;"DV+2EW+BIX;:GWK.DX+&D
+XMYK>JZ[RQZKNP]<;#Q)62AU5?>4=18",[<C5-NW25ED]PD%1OEEIUFUEKP'Z0
+XMT(.$YYJ;X8R XXZ"YY)\ZI5_Z9>"YI1_X)B%ZJ*/^+.E_\&ST(R>@3U/3 <=
+XM40PB7A@V6Q4S7!4Z8QQ!8QM$9Q](9Q]*8QM&81E"P6!BO%M=NE9=O5E@Q5YK
+XMR&%NQEQOPEAKP5=JQEQOP5UNOUMLQV9QTW)]SW%ZPF1MO%IJHD!0L%%HL5)I
+XMIE!PG$9F>BI6<"!,=BQ>B3]Q>C5G;"=98R%06AA'8R%.;RU:;"Q7515 30LW
+XM7QU)9R)0AD%OF%&"7!5&:B-84PQ!9B-8C$E^C4V#A45[ATE_D%*(83-H/A!%
+XM<#UO<T!R20TZ:BY;NG>;QH.GR828IF%UI6-FU)*5\+>L[+.HY:^<\+JGV:R@
+XMUZJ>U:B<U*>;U*F<UJN>V*N?V:R@UZJ>UJF=TZB;T*68T:28TZ::V*N?W*^C
+XMV[>HW+BIWK.DV["AX[2GZ[ROZ+FNW["EJ'EV8S0Q1Q4?AE1>A4A@<#-+LFN,
+XML6J+DU=RG6%\HV%SMW6'R'M\UXJ+VH5YXHV!Y(]YZ)-]Y9-^Y9-^\ZN8_\"M
+XM^K6GW)>)<2T_4@X@4@TC9!\U8APZ7QDW8QQ!7A<\9!Q%:"!):"!+8QM&81E"
+XML5%6ME9;OEUGQ61NR61SQF%PP5EMO%1HOU9LOU9LP5QSR61[S6J S&E_R6M]
+XMR&I\K5%MC#!,D3E:C356A3-<DT%J=BM;>B]?@3QN?#=I:"=8<S)C:BE84A% 
+XM;2U9BDIV8!Q(615!4 HW9B!-A3MMASUO=BQ@60]#91U49!Q38AY6AD)Z@#]Z
+XM=31OC$^)=3AR.PI+>TJ+FF2;6R5<1@TSH&>-TI:GN7V.E%M=KW9XT9N2Y[&H
+XMZ+>JY+.FX;6EY+BHVJZDV*RBU:F?U*B>UJJ@UJJ@UJF?U:B>TZ:<U*>=T:6;
+XMSZ.9SZ.9T:6;UZNAW+"FV+"GV[.JX;*IX[2K\;BPZ[*JTY".LF]M?S<\7!09
+XM9A\PG59GFU5Q?#92CTQPMW28F5Z!G6*%I61YHF%VR'^!S(.%W(U]Y)6%ZIJ&
+XMY)2 XI:(\Z>9_K>X[::GL&MY>31"8AHY4 @G5 PM7Q<X7!,Y81@^9QU'6Q$[
+XM91M':1]+:!Y(9!I$81<_L5%6MU=<P%]IQ&-MQ6!OP5QKP5EMP5EMP%=MP%=M
+XMPUYUS&=^QV1ZO%EOMEAJNEQNESM7?R,_?R=(@"A)<R%*BSEB>"U=A#EI>#-E
+XM=C%C7!M,7QY/61A'8B%0C$QXA45Q3PLW6!1 4PTZ:B11DTE[@3=I71-'81=+
+XM6Q-*=R]F:"1<;2EA7QY9<"]JDU:04A5/0 ]0J'>XB%*)10]&<3A>KW:<I&AY
+XMH&1UKW9XU9R>[[FP[KBOXK&DY+.FXK:FW;&AW+"FV*RBU:F?U:F?UZNAUZNA
+XMU*>=T:2:S)^5SZ*8T*2:T:6;T:6;U*B>VZ^EX+2JV[.JV[.JW:ZEW*VDZK&I
+XMYZZFS(F'IV1BC45*@SM @#E*>#%"B4-?G%9RCDMOGUR IVR/HF>*GUYSD$]D
+XMR'^!S(.%VXQ\WH]_Y96!ZIJ&_;&C_[ZPWYB9ED]081PJ51 >9!P[5 PK5P\P
+XM8QL\7Q8\6A$W81=!:R%+91M':1]+:!Y(8QE#8!8^N%ICO%YGPV%OQ6-QQ&!Q
+XMPU]PPUUTQ%YUNU9QPEUXQF)_QF)_OEY[MU=TK4]NJ4MJJ%-]FD5OD#UJD3YK
+XM<B56?S)C=2]D?3=L9"-6;2Q?4Q-&2 @[1P@X>#EIJVN7;2U93PDV6A1!7A5$
+XM;B54C$%S>S!B60]#9!I.715,;B9=;"A@7QM33@U&<C%JB4R&20Q&9"YUHVVT
+XM=CYV>4%YFV.!D%AV@4Q/J71WX*^BXK&DXK2CYKBGXKJJW[>GV;*FU*VAV*^F
+XMU:RCU*B@U:FAV:NDV*JCU:6?T*":R9F3SIZ8TZ6>UJBAU:FAUZNCVK&HWK6L
+XMW;.LW+*KVZFAU:.;Z*>B\K&L[IN<U8*#D#$^F#E&H41=DS9/BSU>F4ML@D%H
+XM@4!GJFR6KW&;GUUXDU%LNG5WQX*$SX9WWI6&XYB*[Z26]:JJVH^/DTQC6!$H
+XM2P8L7QI 4PDS6A Z8AA":B!*:!Y(7!(\7A1 <BA49!I$:!Y(9QU%81<_7A0\
+XMOV%JPF1MR&9TRFAVS&AYRV=XR&)YQ5]VMU)MQ6![R66"PEY[OEY[P&!]MEAW
+XMI4=FD3QFD#MEA3)?CSQI<215@#-DA3]TD4N 71Q/5!-&1@8Y6QM.7!U-@$%Q
+XMJ&B47Q]+6!(_71=$:!].<"=6?C-E=BM=71-'81=+="QC50U$7!A06Q=/6AE2
+XM@4!Y>SYX2@U'<SV$EF"GD%B0O86]H&B&?D9DGVIMQ9"3WZZAZ;BKZ+JIW[&@
+XMV;&AW[>GV[2HT:J>U:RCTJF@T:6=U*B@V*JCV*JCU:6?SY^9RYN5TJ*<UZFB
+XMV:NDUZNCUJJBUZZEV[*ITJBAVK"IX*ZFW*JB[ZZI][:Q]Z2EX(V.RFMXFSQ)
+XMBRY'HD5>GE!QFTUNE%-ZD5!WF5N%MGBBI&)]HV%\L&MMR82&THEZ]:R=_[:H
+XM]:J<QGM[@C<W6!$H7!4L71@^5A$W6 XX:1])8AA"6Q$[:1]):R%+81=#8QE%
+XM9!I$:!Y(9AQ$81<_71,[P6)MR&ETS6MYQ&)PO%AKN55HNU9MO5AOPU]\PEY[
+XMLU)TKDUON%V N%V FD%H@RI1="-5@S)DA3AK@#-F@SQOD$E\AT1Y<B]D82%5
+XM6QM/6QM.1 0W8R)3C4Q]F%:%7!I)5A ^:")0?S9E7A5$9AM-8A=):R!2;B-5
+XMB#YR?C1HB4-XB4-X:BE<D5"#?#]R:"M>@DB,CE28C5:'LWRMF&1YGFI_Q)2.
+XMT:&;W;&=VZ^;V:^8W;.<W;:FW+6ETJVDS:B?SJ6<U:RCV:NDTJ2=T:&;U:6?
+XMV*2?TIZ9T9V8UZ.>VZNEW:VGV:NDUZFBU*NBU:RCXK*OXK*OY[6M[+JR^KJR
+XM]K:N^J6C\)N9UVY[N$]<H3=2F2]*DS]BKUM^G5V&=C9?@4%LIF:1N':3M7.0
+XMK6=PP'J#ZJ*=XYN6U(R)F%!-:!\L7A4B5Q S5@\R6!-%6Q9(7! _815$9QM*
+XM:AY-:1U(9QM&:!Q':1U(:A]'9QQ$818]7A,Z71(YPV1OPF-NOEQJM5-ALT]B
+XMN55HP%MRPUYUPU]\P%QYPV*$Q62&L%5XE3I=@"=.>!]&>BE;?"M=>BU@?C%D
+XMA#UPBD-V@#UR<S!E7!Q05Q=+6QM.41%$;"M<>3AI@#YM9B139B!.:2-1>3!?
+XM91Q+:R!28!5'9!E+7Q1&71-'>"YB:R5:6!)'82!3A$-V8217:"M>ADR0@4>+
+XMA$U^H&F:HFZ#M("5SIZ8TJ*<U:F5U:F5UJR5V*Z7UJ^?U*V=S*>>R*.:S*.:
+XMSJ6<T**;S9^8SY^9TJ*<U:&<T9V8V*2?U:&<T*":T:&;U:>@VZVFW+.JWK6L
+XMY+2QX[.PYK2LZ;>O][>O]K:N_ZJH^*.A[821QEUJJ#Y9FS%,A#!3CSM>C4UV
+XMA45N>CIE@D)ML6^,KVV*M6]XP7N$THJ%QW]ZKV=D?C8S7!,@7A4B718Y718Y
+XM7!=)7!=)8!1#9!A':!Q+:AY-:1U(9QM&:!Q':1U(:A]'9AM#818]71(Y7!$X
+XMQ%]LPEUJNU9EMU)AO%=HQ6!QRF9ZR65YO%QXHT-?JU!RQ6J,L5Z%E4)IA#1@
+XM>RM7>"M@;2!5:!Y2="I>?3AJ@#MM=C5H;RYA9"-67AU07AU06QI-=3)F9B-7
+XM<2M@A#YS@D!O92-26Q9&40P\5PT_5 H\8QA(8!5%60X]9!E(5PX\40@V7AA#
+XM="Y9:B90BT=Q<CEM:3!D@TQRD%E_IG.#NXB8QY>1R)B2T*22TZ>5U:N8U:N8
+XMTZB;SZ27R:"7QYZ5T:6;S:&7SI^6T:*9V**;UJ"9V)Z9V9^:VZ&<U9N6SYF2
+XMTYV6VZRCY;:MY;FOY+BN[+.QZK&OY;.IY[6K[KFH\+NJ_;*H^J^E_Y>=U&QR
+XMN$EAJ#E1@"5(=1H]=#-:B4AOA4!F;2A.IV%_LFR*O'6&QX"1Q'J$N&YXGU1@
+XM<R@T5P\F6Q,J7!0[6A(Y61)#5Q!!91E&:!Q):1U(:AY):1Y%:!U$:1Y#:A]$
+XM:1Y#91H_8!4Z71(W7!$XM5!=NU9CPEULQF%PS&=XT&M\S&A\Q6%UR6F%H$!<
+XMGD-ELUAZFTAOBSA?A#1@=B92;B%691A-71-'9!I.<2Q>>S9H=#-F:BE<=#-F
+XM;RYA8B%461A+=S1H8!U1<"I?H%J/D$Y]:2=651! 7QI*9QU/7Q5':!U-7A-#
+XM9QQ+6 T\711"711"4PTX>3->F%1^E5%[<CEM=CUQJW2:JG.9P(V=R9:FS)R6
+XMU:6?TZ>5V*R:V[&>UZV:T*68RI^2Q9R3QIV4SJ*8S*"6T:*9V*F@V:.<T)J3
+XMTYF4VZ&<U)J5U)J5UJ"9X*JCY[BO[+VTYKJPX;6K[;2R[+.QYK2JZ+:L[KFH
+XM[[JI_K.I_+&G_Y>=W75[PU1LL$%9A2I-;A,V8!]&<S)9CTIP<BU3C4=EM6^-
+XMMW"!QX"1RH"*O7-]H59B=RPX6Q,J61$H50TT50TT6!%"61)#9QM(:!Q):1U(
+XM:AY):A]&:A]&:R!%;"%&9QQ!8Q@]7Q0Y7!$V7!$XL$12O5%?RF%NT6AUTFMX
+XMT&EVQF)UOUMNLE=OECM3C3M:B3=6:1Y&:R!(>S5B=2]<819(8QA*7!)$6 Y 
+XM92!0?#=G>3AI:BE:?#EK?CMM:B1950]$=R]F9!Q3;B-;F4Z&G6"0>CUM3@T^
+XM5!-$611"51 ^9!I&7A1 7A,Z6@\V71(W60XS:!X^F4]OKF:#@CI7CUEZE%Y_
+XMPHVFO(>@TI^LTZ"MT)^?W:RLVZRCW["GX+&DVJN>T9^5RIB.R):,RIB.R)N/
+XMS)^3V*6;VZB>UYN4RHZ'T8^*W9N6V9>2X)Z9YJJC\+2M[[RR[[RRZ+NOY;BL
+XM\[*Q\[*QZ+JKZ;NLY\"FYK^E]+:B\;.?]YB5X8)_QUINK4!4C3%1>AX^7!D^
+XM71H_ACY=@SM:<2A%N&^,L66"P762TH6@P'..E$=B<B5 71 Q7 \P5PXT6A$W
+XM81E"8QM$:1M#:1M#:AU":QY#;B%";R)#<"1"<"1"9ADZ8Q8W8!,V7A$T7Q$Y
+XMNT]=Q5EGRV)OS&-PRF-PR6)OPU]ROUMNJ$UEBS!(;QT\9!(Q71(Z=2I2?CAE
+XM;2=46@]!91I,81=)5PT_7QI*>31D>SIK;RY?=3)D?CMM;2=<5A!%>#!G91U4
+XM819.="EAH&.3G6"09"-47QY/7AE'5A$_7!(^5@PX6 TT5 DP2P E;B-(K6.#
+XMGE1TD4EFD$AEMH"AK7>8LWZ7N(.<U:*OUZ2QT)^?VZJJW["GX+&HWJ^BU::9
+XMS)J0Q9.)Q9.)QY6+RYZ2T:28W*F?V::<U)B1RX^(TY&,W9N6XZ&<ZJBC[;&J
+XM\;6NZK>MZK>MZKVQ[L&U\[*Q];2S[+ZO[;^PZL.IY\"F]+:B\K2@_9Z;[(V*
+XMRUYRJ#M/D#14@B9&7!D^5!$V;R=&BD)A:2 ]L6B%N6V*PG:3V(NFOW*-@C50
+XM:QXY8!,T8Q8W710Z7!,Y7Q= 7!0]:!I"9QE!:1Q!;!]$<"-$<21%<25#;R-!
+XM9!<X8A4V7Q(U7Q(U8!(ZS5YMSE]NR5QJQ%=EP%=DPUIGO5EJN%1ENV)WDSI/
+XM81,Q6@PJ:R9,?CE?9R=3104Q60X^8A='81M)6A1"71A&;"=5=3-@=3-@<2Q<
+XM>#-C<"E<8!E,?S-K:Q]77Q%,8Q50?$%RL'6FBDM[B4IZA4-P;2M86 XX1@ F
+XM6 LN6 LN:QT\J%IYU(>@ETICGE-IQWR2T9VRPX^DIG.!P8Z<WJRVWZVWV:BJ
+XMX[*TXJ^MX*VKVZ>@TIZ7RY6,QY&(R9*'RY2)U*68V*F<W::;U)V2TY.+UI:.
+XMX)J4Y)Z8[:>A\:NE\K*J\[.KZ[2I[+6J[+VP\<*U][.Q^;6S[<&O[\.QY\FJ
+XMYLBI\\"D\\"D_JB@\9N3TFEWK412ECA7@B1#610Y5Q(W814PA#A3>"I(FDQJ
+XMQWF:RWV>VXRPP'&5>"E-9A<[8A4Z9QH_8!4Z7!$V714V61$R:!L^:!L^:1P]
+XM;!] <25"<25";R,^;" [8A8S8!0Q7Q(S8!,T8A0]SV!OREMJP%-ANDU;N$]<
+XMNU)?LDY?J$15GD5:ARY#8!(P8Q4S>31:@3QB925141$]60X^71)"7AA&7AA&
+XM7!=%7AE':BA5=S5B<2Q<<2Q<<2I=:"%4A#AP;R-;91=2:!I5:S!AK7*C<C-C
+XM71Y.6AA%51- 50LU50LU1P =;!]"KF!_RGR;M6B!F$MDV(VCY9JPPX^DOHJ?
+XMEF-QPH^=UJ2NT)ZHSIV?W:RNXJ^MWJNIV*2=SIJ3RI2+R)*)RY2)S9:+UZB;
+XMUJ>:U)V2QY"%S8V%V9F1Y)Z8XIR6ZZ6?\*JD\K*J];6M[[BM[[BMZ[RO[+VP
+XM^;6S^[>U[L*P\,2RZ,JKZ<NL^,6I^L>K_ZJB]J"8W'.!NU)@G3]>?1\^4@TR
+XM6A4Z6@XI=2E$@C12>BQ*RGR=SX&BV8JNOW"4;R!$8!$U7A$V8Q8[7A,X8!4Z
+XM91T^91T^:1P_:1P_:AT^;2!!<25"<"1!;" [:!PW814R8!0Q7Q(S810U8Q4^
+XMU%AGS5%@MDQ?KT58?RI#F$-<@S9;<"-(?B]@@3)C;!M/7@U!C4)T?3)D611"
+XM3@DW7!0]714^9AY'9Q](6!,[6A4]9B!+:2-.=3!>9!]-8A]1:B=9@3YS;"E>
+XM:B9>7AI292Q>H6B:>41S2!-".@8N4!Q$2PPO/P C7A,KGU1LTX20N&EUGE=4
+XMUH^,\;6FS)"!RHJ2W)RDIG!UPHR1OI62O921QZF@U+:MSZVBRJB=S:"6S)^5
+XMU):0TI2.W9*.XI>3\I2+Y(9]VX!VXXA^YI*)YY.*Z)R5\J:?ZZB@[ZRD[[2I
+XM\K>L[[JM[[JM[;RN[KVOY[^LZ,"M[<*R[\2T]L.W^,6Y_\.R_\2S_K6F\JF:
+XMX(F)OF=GID%<CBE$?@]";P S7!%#7A-%?C1><RE3I5U\U(RKV9*IR8*9<BQ 
+XM8APP:2(]91XY7Q8\:!]%9AQ(:B!,9!L_91Q :B%%;R9*<2E*;B9':B)#91T^
+XM714T7A8U81DX9!P[:" ]VEYMRT]>J3]2H3=*?RI#DCU6>RY3;!]$<R15;!U.
+XM:!=+:1A,F4Z <"575 \]6Q9$:2%*:"!):B)+9AY'6Q8^7AE!9!Y)8AQ'8QY,
+XM;BE7:"577!E+@#URAD-XAD)Z9R-;3Q9(?41V>41S1 \^2A8^0 PT1@<J5A<Z
+XMG%%IOG.+O6YZL6)NRX2!Y)V:V9V.V)R-SHZ6VIJBI&YSP8N0R)^<RJ&>S*ZE
+XMTK2KU[6JS*J?S)^5S)^5VIR6V9N5X)61WY20YXF WH!WW(%WYXR"ZI:-[)B/
+XM[:&:]JJC[:JB\*VE[[2I\;:K[[JM[[JM[KVO\+^QZ,"MZ<&N[<*R\,6U]\2X
+XM^,6Y_\2S_\2S_[NL^*^@YY"0Q6YNK4ACE"]*@A-&<P0W5 D[6@]!;"),=BQ6
+XMC45DTXNJTHNBPGN2>S5)9R$U:B,^9!TX8!<]:!]%91M'9QU)9QY":!]#:B%%
+XM;B5)<"A);B9'9Q] 8AH[6Q,R714T7Q<V8QLZ9AX[V69\TV!VM%-KL$]GCD!?
+XMACA7;2--8AA";2!36 L^81%%:!A,F$U_7A-%30@V7QI(;B91;R=2:R-.8QM&
+XM7AA%8AQ)8AQ)7!9#6Q9&;RI:8!U15A-'AT1YE%&&EU.+>#1L7R-:>3UTH&66
+XM5QQ-5!D\-0 =6Q8ND$MCS7V-QG:&M69JQ79ZYJ2=Y:.<S9B)VZ:7RY>=UJ*H
+XMJWM^OHZ1S**?SZ6BUJZHW+2NXK:NTJ:>S):-S9>.VIB1V9>0UXV'T8>!W()Y
+XMVH!WW8A]Z).(ZYJ0[)N1[:.9]JRB[ZRB\J^E\;2J\K6K[[BL\;JN\+VP\\"S
+XMZ[^M[<&O[L.S\,6U],6X]L>Z_,BT_,BT_\*O^;FFZYN5R7ESLT]CF#1(AQ=!
+XM> @R4P@Z6@]!7A0^?#)<=R].U(RKTXRCP7J1B$)6;"8Z:2(]8QPW81@^:B%'
+XM91M'91M';"1%:B)#:B)#;25&<"A);25&91Q 7A4Y7!,W7A4Y8!<[8QH^91Q 
+XMR%5KRE=MKDUEJ$=?@C13:AP[8QE#:!Y(:1Q/50@[70U!60D]CD-U9AM-7AE'
+XM8AU+91U(;"1/:"!+7Q="7QE&8QU*8!I'7AA%:"-3:"-33PQ 71I.CTR!@3YS
+XMB45]@#QT;C)I>CYUO(&R:S!A0 4H/P0GAD%9P'N3PG*"K5UMQWA\Z9J>WIR5
+XMWIR5X:R=W*>8T)RBW:FONHJ-NHJ-Q)J7R)Z;UZ^IY+RVX+2LT:6=RY6,RI2+
+XMU)*+T8^(SH1^R'YXWX5\XHA_Y9"%[)>,ZIF/Z9B.ZJ"6\ZF?\:ZD\["F\;2J
+XM\K6K[[BL\+FM\;ZQ],&T[,"N[<&O[L.S\<:V]<:Y]L>Z_,BT_,BT_\.P_+RI
+XM\:&;T(!ZN55IG#A,B1E#>0DS5@L]5PP^6Q$[>2]9;R=&R("?VI.JPWR3D4M?
+XM;2<[91XY8!DT81@^:R)(91M'91M';25&:B)#:2%";"1%;R=(;25&9!L_7!,W
+XM7Q8Z81@\9!L_9AU!9AU!MU5WJ4=I@R]2?"A+92!&6A4[>#9C@T%N60]#6 Y"
+XM7A%$3@$T@SII@3AG>#9B7QU)81A&;"-19QY,7Q9$81I+7QA)7!5&9A]0<2M@
+XM:2-82@<\7QQ1A4)W9R19>#1L<BYF6QE281]8J6F5?#QH/P 6=C--MVATR'F%
+XMLEU<O&=FWX^)[IZ8TI>*W:*5X;FHU:V<T*RMTJZOLXR,I7Y^Q9:7T:*CY:ZM
+XM[;:UX:.?V9N7U9&+U)"*V(Z(U(J$T85^T85^WXZ$XY*(YI:,Z)B.Y)>,Y)>,
+XMYZ"5\:J?\;"C\K&D\K6I\K6I\+BJ\;FK]+VQ]K^S\+ZN\;^O[\.S\L:V\,JX
+XM\<NY\\RT\\RT^\BL]\2H\:N;THQ\P%]JH4!+D1]!@0\Q60Y 408X71,]:B!*
+XM<BI)KV>&WI>NQX"7E$YB;"8Z81HU7A<R81@^:R)(9AQ(9QU);"1%:B)#:2%"
+XM:R-$;B5);"-'91Q"7A4[8!8^8QE!91M%91M%8QE%M%)TEC16<1U <Q]"9B%'
+XM8AU#C4MX?CQI5 H^8AA,9!=*4@4X<"=6@3AG<S%=4A \;B53<RI89AU+8!=%
+XM91Y/6Q1%6A-$<2I;:2-8<2M@5Q1)6QA-;"E>7!E.?3EQ7!A02 8_3 I#?S]K
+XMCDYZ:29 KFN%PW2 KE]KO&=FY9"/Y)2.U(1^V9Z1Z*V@UZ^>V[.BVK:WS*BI
+XMK8:&F7)RS)V>X+&RZ+&PX*FHSY&-S(Z*T(R&T8V'U8N%THB"U8F"VHZ'XI&'
+XMY92*YI:,YY>-Y)>,YYJ/ZZ29\ZRA\*^B\K&D\K6I\[:J\+BJ\+BJ\KNO]+VQ
+XM[[VM\;^O[\.S\<6U[\FW\<NY\\RT\\RT_<JN^\BL^;.CW):&RFETJTI5FRE+
+XMBQD[7Q1&4@<Y8AA"81=!?#13F5%PWI>NTXRCEE!D;"8Z8!DT7A<R8AD_:R)(
+XM9AQ(:1]+:R-$:R-$:R-$;"1%:R)&:!]#9!M!7Q8\8!8^8AA 9!I$8AA"7A1 
+XMBS9F<AU-91Q*;B5351E&2P\\@41V7!]16A1)91]48QA*7A-%5Q$^9R%.8B%*
+XM82!)@#=E>"]=7A5$6Q)!9R!36A-&6A-(?C=L7!9,<"I@8A]47QQ171I.7!E-
+XMD$V!6A=+3 0[4PM"8QM"G%1[IEQLPGB(N&9CN6=DVX5W\9N-W8Y^SG]OTYZ/
+XMX:R=SZZ>U[:FTK:RR*RHO).3HGEYV:&CYJZPZZ.FW968U(*%TH"#UX* VH6#
+XMV8>"V(:!VHJ$WX^)X9.-Y):0YIF0YIF0Y)N.Z)^2ZZ:8[ZJ<[ZV>\:^@]+6G
+XM];:H\K>J\K>J\[BM]+FN\[NK]+RL[\&R\L2U[<FW[LJX[LVS[LVS]\NM]\NM
+XM^KFDX)^*TG)WLU-8HS)+DR([819(6 T_8!9 8!9 @#A7BT-BUH^FX)FPFE1H
+XM;RD]8QPW81HU9!M!:R)(9AQ(:B!,;"1#;B9%;R=(;25&:!]#8QH^8!8^7Q4]
+XM81=#8QE%9!E(819%6Q!"?"=7;QI*="M9=BU;2P\\0@8SD%.%;S)D8AQ19!Y3
+XM71)$:1Y030<T61- 9R9/CTYWB4!N=BU;4PHY4PHY9A]26A-&7!5*AT!U5Q%'
+XM9R%78R!5:29;71I.71I.GEN/:"591P V5 Q#2@(ICT=NO'*"KF1TI5-0VHB%
+XM[YF+V()TUXAXX)&!Q9"!TYZ/VKFITK&AR:VISK*NU:RLLHF)V:&CV:&CWI:9
+XMUX^2VXF,UX6(VH6#W8B&WHR'W(J%W(R&X)"*XY6/YYF3Z)N2Z)N2YIV0Z:"3
+XMZ:26Z:26[JR=\:^@\[2F]K>I\K>J\;:I\K>L\K>L\KJJ\[NK[\&R\<.T[,BV
+XM[LJX[<RR[LVS]<FK]LJL^[JEXJ&,U'1YM55:IC5.EB4^7!%#60Y 5@PV71,]
+XM>C)1@#A7R(&8Y)VTG5=K<BQ 9A\Z9!TX91Q":R)(91M':R%-;25$<"A'<BI+
+XM;R=(9AU!8!<[7A0\7A0\9!I&9AQ(9QQ+8A=&7!%#7Q1,<RA@D5&%8"!4.0(S
+XM4AM,?T9X=CUO92)640Y"8QE+7A1&;"A4=C)>BTUU>CQD>#!;715 50P[8AE(
+XM8AM.5Q!#9Q]6A3UT40M!9!Y4FUB-7!E.6A=)>#5G:BA551- 5P<S7P\[=RY*
+XMJV)^G558CT=*T85WZ9V/X)!\XI)^V9%^THIWQI2$U:.3UK.FV+6HPYN5Y;VW
+XMU)^>SIF8YJ&CVI67X8N1VX6+XX**YH6-ZHJ-Z(B+XH>'XXB(Y(V,Z9*1YY:4
+XMZIF7[IZ8[IZ8Z)N0Y9B-Y)Z.ZJ24ZJ65[JF9\;"A]+.D\K:G\K:G\;2J\K6K
+XM\[FG]+JH\KVP]+^R\,6V\\BY]<NV]LRW^,>M^,>M_[JI[*:5VWM^MU=:IS=.
+XMG"Q#7Q1&5PP^6Q$[5PTW<2E(?354O7:-X9JQL&I^;2<[>C-.81HU;"-)="M1
+XM:R%-:R%-:2% ;R=&<BI+;25&91Q 8!<[8QE!:1]'81=#:1]+8A=&6 T\7!%#
+XM:A]7;"%9C$R 515)3QA)1Q!!CE6'?D5W5!%%30H^81=)8AA*=3%=>#1@@4-K
+XM=#9>:"!+715 6 \^7!-"719)6Q1'8QM2;R=>30<]8AQ2A4)W7QQ17AM-?SQN
+XM92-07QU*8A(^8! \NW*.O'./A3U PWM^]ZN=TX=YY96!ZIJ&X9F&U(QYPY&!
+XMTZ&1U+&DUK.FX[NUW;6OTYZ=Z[:U[JFKL6QNL5MAQ6]USVYVU71\WW^"Z(B+
+XMZ8Z.Z8Z.Y8Z-Y(V,YI63ZIF7[9V7[IZ8[)^4[:"5ZJ24ZJ24Z:24[:B8\*^@
+XM\[*C\;6F\+2E\+.I\+.I[[6C\[FG\[ZQ]<"S[L.T[\2U\LBS]<NV^\JP_,NQ
+XM_\*Q^+*AY(2'M558ER<^@1$H7A-%50H\60\Y60\Y;R=&>#!/M6Z%Y)VTN'*&
+XM=S%%=2Y)9!TX;B5+<"=-:R%-:1]+;25$<2E(<BI+;25&9!L_7A4Y81<_91M#
+XM8QE%:B!,8QA'7A-"9AM-=2YK>S1Q?3]W2@Q$4AQ/4AQ/G&.5=SYP4 T_4@]!
+XM7A5$7Q9%;2M79B107R9,7B5+61$X7A8]7A5#6A$_6Q1'91Y1:2%891U44PU#
+XM;RE?AD-U7!E+;"I6>#9B7AU$4A$X;A<PH4ICR7Z*I%EEI61?YJ6@Y*:3S8]\
+XMX)R(YJ*.W9N*S(IYQ(V"V:*7X+2LX;6M[ZVH\:^JY)F9SH.#KEA<BC0XFSI"
+XMJ4A0P%ECPEMER&%KTFMUW'B!YH*+ZXJ2[HV5[Y:;])N@])N<[Y:7[)B1\9V6
+XM[:&2YYN,ZJ*/[J:3[ZV<\[&@\;*D\+&C[;"F[;"F\;6B]+BE];JM]+FL\;BP
+XM\KFQ^+VR_,&V_+>I][*D^:B>[)N1V7:!L4Y9DB,]?@\I7A-%4@<Y5PTW6Q$[
+XM;"1#<2E(IV!WYI^VPGR0AT%5;29!9R [<BE/:R)(;2-/:!Y*<2E*<RM,<BI+
+XM:R-$8AD]710X7Q8\8AD_81<_91M#7A0^7Q4_;2-/?SAUF%&.9REA20M#1Q%$
+XM=3]RH6B:92Q>4Q!"6A=)7!-"7!-"9B106QE%4!<]721*5P\V7Q<^8AE'711"
+XM7A=*:2)5<RMB=2UD61-)>#)HBD=Y5A-%=3-?7QU)5A4\20@OD3I3T7J3FU!<
+XMFD];X)^:XJ&<TY6"X**/[:F5ZZ>3V):%Q8-RQ8Z#WZB=Y;FQXK:N[ZVH\K"K
+XMW)&1J5Y>DCQ HTU1NUIBJTI2M4Y8KD=1I3Y(HCM%J45.NU=@SVYVW7R$ZI&6
+XM]9RA]YZ?[Y:7Z)2-[IJ3Z)R-XY>(YY^,ZZ.0[:N:\:^>[["B[J^AZZZDZZZD
+XM\;6B\+2A\+6H\;:I\[JR]KVU^\"U_,&V_\.U\JV?X(^%R7ANN59AFC="AQ@R
+XM>PPF7A-%4@<Y5@PV7!(\:" _;"1#F%%HZ*&XRH28EE!D:"$\:2(]<RI0:B%'
+XM;R51:B!,<BI+<BI+;B9':"!!81@\7A4Y7Q8\8AD_9!I"8AA 6A Z7Q4_="I6
+XMAC]\D$F&4A1,3 Y&6B-4A$U^H&64:B]>30@X6!-#6Q)!9QY-;"Q792506"-*
+XM;SIA91Y!81H]7A8_7A8_6Q5#7QE'<"E>@SQQ:")7>C1I;2M89B11:2A-2PHO
+XM3P\N<3%0T'1XO&!DGE91SH:!V:27SIF,WK"AVJR=[[ROWZR?S9&(P85\T96.
+XMZJZG[K:RY*RH_Y^=W'MYRF=HS&EJU7)UWGM^V')YRF1KP5ECMDY8HSI(DBDW
+XMBB QD2<XH#9)K4-6RF-PWWB%\(Z4]9.9\I:2])B4[IN,ZI>(Y9J&ZZ",[JB7
+XM\ZV<\*^B[ZZAZJRDZ:NCZ["9[+&:\;&F][>L_[JW_[>T^ZBI\9Z?W86$Q6UL
+XMM%)6JDA,H#M,CRH[A!@X@14U819(50H\5PTW7!(\91T\:R-"BD-:YI^VS(::
+XMH5MO:2(]:"$\<2A.;R9,;R51;B10<BI+;B9':B)#9!P]81DZ8!@Y8AD]8QH^
+XM;"-'9AU!710X9AU!?S9:AT!]:B-@3A!(61M3?TAY;C=HCE."A4IY200T4@T]
+XM711#=BU<;2U89B916"-*;3A?>S1791Y!6! Y61$Z5 X\40LY81I/>3)GA#YS
+XMBD1Y4 X[@D!M4Q(W2@DN61DXIV>&V'R J4U1T8F$[*2?QI&$UJ&4W[&BX;.D
+XMYK.FT)V0Q(A_RHZ%XJ:?\K:OZ;&MVZ.?U71RO5Q:Q6)CUW1UXG^"W'E\TVUT
+XMYH"'WW>!UFYXQ5QJLDE7H#9'DRDZC"(UBB SE2X[K493S&IPYX6+\)20\961
+XMZ9:'Z)6&XI>#Z)V)[*:5\JR;\*^B[ZZAZJRDZJRD[;*;[;*;\+"E\+"E[:6B
+XMV9&.Q7)SL5Y?G$1#D3DXES4YJ$9*L4Q=J415HC96H35591I,7!%#6A Z6Q$[
+XM81DX;B9%?SA/X9JQRX69IV%U<BM&9!TX:B%'>"]5:R%-<BA4<2E*;"1%91T^
+XM81DZ81DZ8AH[9!L_91Q :B%%91Q 7Q8Z;"-'B4!D?C=R71917Q]5>3EOA4U]
+XM5AY.;#!=F5V*5Q) 51 ^8!=%?#-A7B!*5AA"3!@_7BI1C49G;RA)5@XU5 PS
+XM50\\4PTZ6!%$8QQ/>S9HC4AZ5A4^=C5>2@HK514VA49@MG>1P6-:T7-JZJ.6
+XMX)F,R9V-VJZ>S*F<XK^RTZJAOI6,P8F%UIZ:[["OZ*FHSXZ-O'MZQE%0SEE8
+XMW&MLU&-DSV1ER%U>NU-9X7E_YX"*VW1^RV%RP5=HO$YBLT59IS9/G"M$EB@X
+XMGC! M$Q4UFYVY82"YX:$X8M]Y8^!X9. Z)J'ZZ62\JR9\*^B\*^B[*ZFZZVE
+XM[[:<[+.9ZJ>;VYB,SWQ_M6)EJ4=/G#I"NE):L$A0M4I5Q5IEQEUUMTYFICUB
+XMHCE>:1Y09!E+7A0^60\Y7Q<V="Q+>3))VY2KRH28K&9Z?C=28!DT8AD_@3A>
+XM9!I&<BA4<RI.:R)&8QH^7A4Y8!@Y8QL\9!P]9!P]8QLZ81DX81DX=BY-E4UJ
+XM<BMF;29A<C)HE56+;C9F3Q='31$^F5V*9B%/6A5#8!=%?#-A4A0^3Q$[3AI!
+XM82U4F%%R=S!161$X4PLR6Q5"7AA%61)%50Y!3 <Y>#-E:"=020@Q2@HK7Q] 
+XMMWB2IVB"O%Y5]YF0X)F,WI>*UZN;UJJ:XK^RX+VPV*^FQ)N2SI:2Y:VI[["O
+XMSY"/HF%@B$=&P4Q+N41#O$M,OTY/R5Y?L49'B" FJ4%'TVQVOUABK$)3J#Y/
+XMMDA<P%)FODUFMT9?O$Y>KT%1KT=/RF)JVGEWWGU[W(9XY(Z WY%^YYF&ZZ62
+XM\JR9\;"C\;"C[:^G[:^GZK&7YJV3WIN/QH-WN69IJ599L$Y6LU%9M4U5I3U%
+XMHSA#K4)-JD%9G#-+D2A-DRI/:R!2:1Y08!9 5PTW7A8U>#!/=S!'V)&HRH28
+XMKVE]AT!;7A<R7!,YASYD7A1 <2=3=2Q0;"-'8AD]710X7Q<X8QL\8QL\8AH[
+XM81DX8QLZ:2% @CI9HUMX6B):>D)Z92E@FU^6:2E<0P,V5Q9%=C5DB41T3@DY
+XM6AA'A$)Q5!-$3PX_41%$6QM.?#9KEE"%8!U1208Z6AM+4Q1$5!9 5QE#41$T
+XM6AH]7!0Q6A(O6PHAJUIQRW6'IU%CV9.#WIB(WYV,XZ&0Y:V;\;FGZKZLY+BF
+XMU:B<S)^3Z:ZO[K.TR76&ED)3F#%/G394BS-2H$AG?B%$=QH]A"=-?B%'70DL
+XM@2U0B#I;:1L\:QDY:1<WDS%1N5=WNTIMPU)URE1=R5-<O5I=PV!CU&IMWW5X
+XM\79_]'F"X7]]])*0VZ:5X*N:[L&M[<"L\:R>]*^A_JFHZY:5WHN8RWB%M6. 
+XML%Y[<2! B3A8<R$^:QDV;!<P=2 Y@"-&@"-&@"!,@B).=BM09QQ!7!$Y4 4M
+XM7Q0\>S!8=RY+V(^LUX^CGU=KDDI>:B(V9!HZ>"Y.:Q],=2E6="-';!L_8A<^
+XM818]7AA%7AA%71M'81]+81Q"51 V:1TXEDIEOFUZ7R=??D9^<35LH&2;:2E<
+XM104X6!=&=S9E;BE97!='6QE(DE!_3 L\511%3 P_3@Y!9!Y3G%:+AT1X8A]3
+XM41)"3 T]5QE#5AA"5!0W2@HM6! M10 :A31+P7"'M%YPO6=Y\:N;ZJ24X)Z-
+XMX)Z-XJJ8[K:DZKZLY[NIVJVAW*^CX*6FN7Y_DCY/@2T^D2I(B2) ?"1#;Q<V
+XM;Q(U?B%$:@TS<A4[9Q,V8 PO9QDZ60LL8A P91,S<Q$Q@B! L#]BY'.6U%YG
+XMT5MDPE]BQF-FTVELW7-V[W1]\79_Y8.!\8^-W:B7YK&@Z+NGY;BD];"B_KFK
+XM_*>F]Z*AKUQIDC],?"I'<R$^=21$8A$Q9!(O9!(O;ADR=2 Y>AU =QH]>QM'
+XM@2%-;B-(8Q@]7A,[4P@P8!4]>2Y6<BE&THFFW)2HI5UQE$Q@<"@\9QT]>C!0
+XM;"!-="A5<B%%:QH^818]818]7AA%7AA%7!I&8!Y*71@^4PXT;" [G%!KQ'. 
+XM:C)J@4F!?D1[GF2;92A:1@D[61A'=C5D6A5#<BU;7QU*GER)3 L\7QY/4Q)#
+XM3 L\40PZ>C5CD4]^EE2#=31E3@T^3PX]6!=&61@_2PHQ40HE8!DTP'*#OG"!
+XMMF9NYI:>Z)V1XI>+T9^-W*J8W+VDX,&HX;FHW;6D^;*OZJ.@U':%G3].=!@L
+XM=QLO>",[:10L9 XN;!8V80LK:Q4U81 P:!<W6A<R;"E$B4QD>SY6:",Y6A4K
+XM6  860 9D"5 MDMFVV-MV&!JRF-ES&5GTV=KVFYR['!Y[G)[ZH6&[8B)X*F;
+XM[;:HYKFEY[JF_[FN_[RQZYF?JEA>CCQ/;QTP9Q8V9A4U8A0U<R5&>"A$;Q\[
+XM:18O:A<P<A<Y=!D[=QE$>AQ'9!D^7Q0Y8!4]6 TU8A<_=RQ4;"- RX*?WY>K
+XMJF)VD4E==BY":B! >S%1:Q],<252;!U!9A<[7Q0[818]7AA#71="71E%81U)
+XM610Y51 U=2I"J%UURWN%>D)Z@DJ"ATV$E%J17B%32PY 6!=&;RY=5 \]=C%?
+XM6QE&F5>$7!M,7QY/6QI+4 ] 3PHX6!-!>#9EEE2#A$-T9R977AU,511#2PHQ
+XM20@O10 9EU!KRGR-F$I;SW^']*2LWY2(W)&%TZ&/X[&?X<*IX,&HW[>FW+2C
+XM^+&NQG]\H4-2BBP[?" T<Q<K:10L9Q(J:Q4U>B1$:1,S:!(R7PXN:ADY:"5 
+XMD4YIS9"HS9"HGUIP=C%'9@TF7P8?B!TX@A<RU%QFU%QFR6)DS&5GTV=KV&QP
+XMZ&QUZFYWYH&"ZH6&X:J<\+FK[+^K]\JV_\&V[ZB=KEQB8A 6=R4X8Q$D;1P\
+XM?RY.@C15I%9WM66!DD)>;!DR7@LD;!$S>!T_>!I%<1,^8!4Z7A,X8A<_6Q X
+XM8QA =2I2:2 ]R'^<WI:JK&1XBT-7>S-';")"?#)2:Q],;2%.:!D]8Q0X7Q0[
+XM8A<^7QE$7AA#7!A$7QM'6!,X71@]@SA0M&F!T("*BE.-?TB"BE"'A4N"51A*
+XM4!-%5Q9%9"-240PZ8QY,5A$_BD5S?#IG6QE&6QI)3@T\5A,X6Q@]:"1071E%
+XM6!5'>#5G>S5J4@Q!4PTX5 XY9B$YP'N3KF9MJF)I\:FDYIZ9YZ6=Y**:TZ^=
+XMV;6CU,&IUL.KZ+NMZ[ZPX7^'L$Y6FATVF1PUBB$Y=PXF6A,D:B,TC#13=1T\
+XM<B ]?BQ)3PDD9B [<S]2<S]2T*6RZ+W*U9ZJK'6!C3E(<1TLFC!%GC1)RDM5
+XMS4Y8Q5E=S&!DU&1IV6ENZ&=TZFEVY'I][H2'XZN=\+BJ]<2T_]7%_;.KP7=O
+XM;!PL:QLK9!0N5P<A8A,W>2I.MF>+IE=[WI&LLF6 ?RY&8A$I9Q$Q<1L[<AE 
+XM:Q(Y818[7Q0Y8QA 7!$Y9!E!=2I2:B$^R'^<WI:JKV=[A3U1@CI.<"9&@#96
+XM;B)/;2%.91@]810Y7A4[8AD_8QM$8!A!7!<_7AE!718W;29'EDMAO7*(SW^'
+XMEE^9?$5_D5>.?$)Y3Q)$51A*5Q9%7!M*5A$_4PX\6!-!>S9DF5>$8!Y+61A'
+XM3@T\6Q@]5A,X8!Q(3PLW10(T8A]191]44 H_81M&81M&FU9NMW**FU-:Y9VD
+XM^K*MTXN&VYF1XZ&9V;6CX+RJV\BPV\BPX[:HV*N=KTU5I4-+I2A!FATVA!LS
+XM= LC718G="T^FT-BD3E8?"I'A#)/;RE$>#)-9C)%:35(W;*_Y[S)[[C$X*FU
+XMOVMZBC9%HCA-O5-HP$%+Q490P%18R%Q@T6%FUF9KYF5RZFEVXWE\](J-Y:V?
+XM\;FK^\JZ_\Z^WI2,F$Y&>2DY<R,S?"Q&<2$[;1Y">"E-DD-GH5)VWY*MP72/
+XMF$=?<B$Y90\O9Q$Q;!,Z;!,Z8Q@]7Q0Y8QA 71(Z9AM#=RQ4:B$^QGV:XIJN
+XMM6V!@SM/BT-7=BQ,A3M;<B93;B)/9!<\8A4Z8!<]91Q"91U&81E"6Q8^6Q8^
+XM81H[?C=8J%USP7:,RGJ"EV.<>$1]G66;?$1Z3A-$6!U.5A5$6!=&81U)4P\[
+XM6Q=!:"1.FU>#:R=361=#61=#6QDX2@@G7QM#81U%5Q!!40H[2@ T6A!$6Q$[
+XM=2M5HUYRDTYBI&-BXZ*ATI2!QHAUOI>+SZB<V[BIY,&R[\2WZ+VPVY.0MV]L
+XMK4)-ND]:O4-9L#9,FS!'A1HQ;1<K?2<[HS]=OEIXD351A2E%A3U4A3U4:SA&
+XMH&U[],K1Y+K!]K[#[[>\W8:0JU1>J#9&P$Y>PT%,R$91PE)7QU=<SUMAUF)H
+XMYV1R[6IXYWN!^X^5[+"G^[^V_]'$[KVPPWATD49"J5IN>BL_DT-ADD)@B#9=
+XMB#9=<B%%Q'.7W(NEQG6/GTYE=R8]9A N9 XL:1(X:A,Y818[71(W818^7A,[
+XM:1Y&>B]7:!\\P'>4Y9VQNG*&@3E-D4E=>2]/ACQ<<252:Q],8Q@_818]81@^
+XM9QY$9Q]&81E 7!4Z6Q0Y9!PYC$1AMVM^P76(PG1YEV.<>$1]J'"F@4E_3Q1%
+XM6A]05A5$5Q9%:B925Q,_5A(\4P\YAD)N:R=351,_8B!,5Q4T5!(Q9B)*6!0\
+XM4@L\6A-$4PD]7Q5)71,]GE1^HEUQE5!DUY:5S8R+Q8=TXJ21VK.GX[RPX;ZO
+XMW+FJX[BKV:ZAP'AUCT=$Q%EDR5YIS5-IT%9LPE=NG#%(;QDM=R$UJD9DMU-Q
+XMH45AD3519AXU>S-*FF=UVJ>UZ\'(XKB__\?,ZK*WW(6/OVARM$)2Q5-CRDA3
+XMS$I5PU-8Q55:S%A>TU]EYV1R[VQZZ7V#_I*8\+2K_\G _]C+X*^BMVQHGU10
+XMN&E]JUQP@C)0D4%?B3=>B#9=I%-WYI6YXY*LQ72.ET9=<2 W9Q$O:A0R:A,Y
+XM90XT7Q0Y6Q U8!4]7Q0\;"%)?#%99ATZNW*/Y9VQO'2(?C9*DDI>>"Y.A#I:
+XM;2%.9AI'9!E 8A<^8QI :!]%:"!'8AI!7!4Z6A,X9!PYDTMHOG*%P'2'O6]T
+XM@4^'<D!XFF29B%*'6A]0829771U)20DU8Q])6Q=!6!,[7AE!8AU%81Q$81U'
+XM9B),6Q@Z30HL71@^9B%'5@PX5 HV8Q5 7 XYASI;Q'>8CTQ7Q(&,W*.9R9"&
+XMUJ*+VZ>0U,&QT+VMYK"I[[FR]IJ>NEYBKD%+T61NOEICQ&!IR&ETS&UXS65W
+XMO%1FKCM3GRQ$MD=AOD]IQ5]VP5MRM%MPS'.(XI^J]+&\]+S!\+B]];&UXY^C
+XMVGF#S6QVUUYLRU)@XUYHUE%;Q%)8S%I@TUUDTUUDX%UKZ69TYWR#_)&8\[JR
+XM_]#(_]3)UJ><JF%AB#\_L6%SN6E[N&6 H4YIFD9GOFJ+Z9&P\9FXYY&EP&I^
+XME3]1<!HL;A<Q<1HT9@XP=!P^8Q@]7!$V9AM#9!E!=BM3="E1:R(_K&. V9&E
+XMUHZB@CI.A3U1BD!@?#)2;B)/9AI'6A$W8AD_7A4[6Q(X9!U"9A]$7Q<X714V
+XM;R<^H%AOOW2 NF][NFUNFVFA41]7QY'&EV&6>3YO3A-$<#!<71U)6A9 5! Z
+XM5 \W6A4]7QI"7QI"7QM%8Q])618X71H\9R)(5A$W40<S50LW5PDT;1]*OG&2
+XMG$]PJVAS\*VXUIV3PXJ WZN4XZ^8V,6UT\"P\KRUU)Z7LU=;L559T61NPE5?
+XMPU]HQV-LRFMVSW![U&Q^RV-UQ5)JNTA@L$%;N4IDQF!WSFA_QVZ#UWZ3VI>B
+XMVI>BYJZSXZNP[:FMY:&EY82.VGF#WF5SRU)@WUIDUE%;QU5;SEQBTUUDTEQC
+XMWUQJZ69TZ'V$_9*9\KFQ_\O#_L_$W:ZCPWIZL&=GI55GM65WQ7*-PF^*PV^0
+XMVH:GZ)"OV8&@OVE]HDQ@AS%#<QTO>B,]?B=!;14W=!P^8Q@]71(W9QQ$9AM#
+XM=RQ4<RA0:2 ]J%]\VI*FUX^CBT-7A#Q0CD1D>2]/;R-091E&7A4[81@^710Z
+XM7A4[9A]$91Y#8AH[:"!!@CI1K&1[PWB$NF][NVYOJGJS:#AQO(B_?TN"=CYN
+XM?$1T<3%=5!1 5Q,[5! X51 V610Z71@^7!<]7!<]7AD_6AA$8R%-9Q](4 @Q
+XM50@M5 <L6PLGF4EEOW.$D$15TI"1\:^PRY:)U)^2YKNDX;:?XL"U[,J_Z):9
+XMJUE<MS='S$Q<W%MIV5AFR6ELS&QOPW1TR'EYUG-^U'%\Y&-XWUYSQE=FO4Y=
+XMNTU=NTU=MU)CQ6!QQF][P&EUM&IRN&YVS7V#W(R2[8F2\8V6]X"-Y&UZUU5>
+XMU%);RUE?T5]ETEYDSUMAW5QJYV9TXGJ"^9&9\;FS_\O%^\_'XK:NU9"1SHF*
+XMSG>!SG>!T':)QVV PF5^R&N$P6%VI$19GCQ*CBPZAB<T@B,PCS!'D3))>!<[
+XM>!<[8A<\71(W:!U%:!U%>"U5<B=/91PYI%MXVI*FV)"DFE)F@CI.D4=G="I*
+XM;B)/8A9#8AI!7Q<^6Q,Z8QM":B%%8AD]91PY>"],FE!DMVV!PGB N6]WO7!O
+XMF&BAE&2=H6VD<CYUC56%FV.35Q=#2PLW7!A 6Q<_6Q8\71@^71@^6Q8\6A4[
+XM6A4[7QU)7QU)50TV5P\X6 LP3P(G?BY*P'",G%!AK&!QX9^@TY&2V*.6WJF<
+XMW+&:ZK^HX\&VRJB=K5M>D3]"RTM;U55ETU)@YF5STG)UTG)UQWAXR7IZV'6 
+XMUW1_Z6A]YF5Z['V,UF=VQ%9FNTU=LDU>OEEJPFMWOF=SJV%IKV5MQ75[TH*(
+XMXW^(YH*+['6"VF-PU%);UE1=T5]EU6-ITU]ESEI@W%MIY61RVW-[]HZ6\;FS
+XM_\W'_]3,YKJRVI66TXZ/TGN%QW!ZOF1WLUELL%-LMUISM%1IG#Q1D"X\C"HX
+XMD#$^D3(_F#E0DS1+=A4Y=Q8Z7Q0Y6Q U:1Y&:1Y&>2Y6<B=/9!LXH5AUV9&E
+XMV)"DJ&!T@#A,D$9F;R5%:Q],8!1!8QM"714\7!0[:2%(;21(710X9!LX@CE6
+XMJ%YRN6^#O7-[MVUUP'-R>$J"CF"8I'*HE&*8LGJJ<#AH4! [7AY)6Q<_71E!
+XM8!D^7Q@]7Q@]7A<\718[7!4Z6A=,7AM02@$O6 \]504C7P\MLV)OQ'. I%=6
+XMS8!_UY>.T)"'Y;2GT:"3U["@\<JZ[)J?HU%6GC,^N$U8SDU;UU9DY&5OX&%K
+XMVW1TVW1TTGIWU'QYVWI\VGE[WG!XW&YVW7I[T6YOTFMOT6INSF9NTVMSTW)\
+XMSVYXS'A_S7F UX.*V86,V7N$V7N$W75]SV=OU%);VEAAU65JUF9KT5]ES5MA
+XMVEIHXF)PVG9]\(R3Y[.N_LK%_]?/Z<&YW)J=TI"3U'=VS7!OS&MSR6APQ6!M
+XMR&-PR%UHM4I5I#@^I3D_JT-+IS]'I#Q0F#!$>Q,U@1D[7!$V60XS:!U%:1Y&
+XM>B]7<B=/8QHWGU9SUX^CVI*FLFI^?S=+B3]?;")"9AI'8!1!8!M#610\714\
+XM;"1+;25&61$R9!@SBS]:LF9WNV^ N6UQN&QPPG=S<D1\A%:.D%Z4I7.IB%" 
+XM:3%A:"A39B9151$Y614]7A<\7!4Z6Q0Y7A<\8!D^7Q@]4@]$8A]440@V3P8T
+XM504CA#12SGV*JEEFMFEHX).2VIJ1W)R3V*>:XK&D_-7%UJ^?JEA=DT%&HSA#
+XMND]:U51BV%=EWV!JYF=QW'5UW79VUGY[V8%^X8""X8""YGB Y'9^UW1UT&UN
+XMUW!TW'5YUFYVUFYVV'>!UW: U("'U8&(W8F0WHJ1WH")XH2-[(2,XWN#V5=@
+XMWUUFV&AMUV=LTF!FSEQBVEIHWU]MX'R#[XN2X*RG]L*]_=7-[L:^YJ2GW9N>
+XMZ8R+X(."W7R$UG5]RV9SQV)OR5YIOE->MTM1MTM1NE):L4E1JD)6FS-'@!@Z
+XMAQ]!71(W60XS:!U%:1Y&>2Y6<"5-81@UG%-PU(R@WI:JN'"$@CI.?C14;B1$
+XM815"8Q=$71A 610\7A8]:R-*:2%"5@XO:!PWE$ACN6U^O'"!N&QPNFYRQGMW
+XM@5.+?E"(<#YTBEB.<CIJA4U]9RE361M%51 X6Q8^7A<\6A,X6A$U7Q8Z8AL^
+XM81H]6!-271A77!%!3@,S=",[L6!XP&YQHE!3R7YRZZ"4X:*2Z*F9U*68]<:Y
+XM[\O"DV]FGB TP$)6OD53O412U%]HTUYGRUI=Y'-VZ'1VZ'1VYGEYZGU]YX6#
+XMZ8>%X(B%WX>$Z).(WHE^Y82"YX:$XGM_XGM_ZX>0[XN4ZY.:Y8V4XY&7X8^5
+XMVX>-VX>-W8&'S7%WWEYFXV-KV6QPUFEMTF)GSU]DV%MHVUYKW7N![8N1W*RF
+XM\L*\^];-[\K!Z*JLX:.EZXR!WX!UW7AWV'-RTF9MT65LV&AMUF9KR5A9Q%-4
+XMQ55:NTM0M4=;ISE-AQL\B1T^818[71(W:1Y&:1Y&=RQ4;2)*7A4RF$]LTXN?
+END_OF_FILE
+  if test 32510 -ne `wc -c <'timg.ppm.u.a'`; then
+    echo shar: \"'timg.ppm.u.a'\" unpacked with wrong size!
+  elif [ -f timg.ppm.u.b ]; then
+    echo shar: Combining \"'timg.ppm.u.a'\" and \"'timg.ppm.u.b'\" 
+    cat timg.ppm.u.a timg.ppm.u.b > testimg.ppm.u
+    echo shar: Removing \"'timg.ppm.u.a'\" and \"'timg.ppm.u.b'\"   
+    rm timg.ppm.u.a timg.ppm.u.b
+    echo shar: Uudecoding \"'testimg.ppm.u'\" 
+    cat testimg.ppm.u | uudecode
+    if [ -f testimg.ppm ]; then
+       echo shar: Removing \"'testimg.ppm.u'\" 
+       rm testimg.ppm.u
+    fi
+  fi
+  # end of 'timg.ppm.u.a'
+fi
+echo shar: End of archive 7 \(of 18\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2151 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i038:  perl - The perl programming language, Patch27
+Message-ID: <1992Jun11.180557.600@sparky.imd.sterling.com>
+X-Md4-Signature: fae7b51e5429e8b3f976ee9caff0eee3
+Date: Thu, 11 Jun 1992 18:05:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 38
+Archive-name: perl/patch27
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 27
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 26
+1c1
+< #define PATCHLEVEL 26
+---
+> #define PATCHLEVEL 27
+
+Index: dolist.c
+*** dolist.c.old	Mon Jun  8 17:46:54 1992
+--- dolist.c	Mon Jun  8 17:46:55 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: dolist.c,v $$Revision: 4.0.1.4 $$Date: 91/11/11 16:33:19 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: dolist.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 13:13:27 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,22 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	dolist.c,v $
++  * Revision 4.0.1.5  92/06/08  13:13:27  lwall
++  * patch20: g pattern modifer sometimes returned extra values
++  * patch20: m/$pattern/g didn't work
++  * patch20: pattern modifiers i and o didn't interact right
++  * patch20: @ in unpack failed too often
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * patch20: slice on null list in scalar context returned random value
++  * patch20: splice with negative offset didn't work with $[ = 1
++  * patch20: fixed some memory leaks in splice
++  * patch20: scalar keys %array now counts keys for you
++  * 
+   * Revision 4.0.1.4  91/11/11  16:33:19  lwall
+   * patch19: added little-endian pack/unpack options
+   * patch19: sort $subname was busted by changes in 4.018
+***************
+*** 40,45 ****
+--- 51,58 ----
+  #include "EXTERN.h"
+  #include "perl.h"
+  
++ static int sortcmp();
++ static int sortsub();
+  
+  #ifdef BUGGY_MSC
+   #pragma function(memcmp)
+***************
+*** 63,68 ****
+--- 76,83 ----
+      char *myhint = hint;
+      int global;
+      int safebase;
++     char *truebase = s;
++     register REGEXP *rx = spat->spat_regexp;
+  
+      hint = Nullch;
+      if (!spat) {
+***************
+*** 100,115 ****
+  	if (debug & 8)
+  	    deb("2.SPAT /%s/\n",t);
+  #endif
+! 	if (spat->spat_regexp) {
+! 	    regfree(spat->spat_regexp);
+! 	    spat->spat_regexp = Null(REGEXP*);	/* crucial if regcomp aborts */
+! 	}
+  	spat->spat_regexp = regcomp(t,t+tmpstr->str_cur,
+  	    spat->spat_flags & SPAT_FOLD);
+  	if (!spat->spat_regexp->prelen && lastspat)
+  	    spat = lastspat;
+  	if (spat->spat_flags & SPAT_KEEP) {
+! 	    scanconst(spat,spat->spat_regexp->precomp, spat->spat_regexp->prelen);
+  	    if (spat->spat_runtime)
+  		arg_free(spat->spat_runtime);	/* it won't change, so */
+  	    spat->spat_runtime = Nullarg;	/* no point compiling again */
+--- 115,131 ----
+  	if (debug & 8)
+  	    deb("2.SPAT /%s/\n",t);
+  #endif
+! 	if (!global && rx)
+! 	    regfree(rx);
+! 	spat->spat_regexp = Null(REGEXP*);	/* crucial if regcomp aborts */
+  	spat->spat_regexp = regcomp(t,t+tmpstr->str_cur,
+  	    spat->spat_flags & SPAT_FOLD);
+  	if (!spat->spat_regexp->prelen && lastspat)
+  	    spat = lastspat;
+  	if (spat->spat_flags & SPAT_KEEP) {
+! 	    if (!(spat->spat_flags & SPAT_FOLD))
+! 		scanconst(spat,spat->spat_regexp->precomp,
+! 		    spat->spat_regexp->prelen);
+  	    if (spat->spat_runtime)
+  		arg_free(spat->spat_runtime);	/* it won't change, so */
+  	    spat->spat_runtime = Nullarg;	/* no point compiling again */
+***************
+*** 120,135 ****
+  	    }
+  	}
+  	if (global) {
+! 	    if (spat->spat_regexp->startp[0]) {
+! 		s = spat->spat_regexp->endp[0];
+  	    }
+  	}
+  	else if (!spat->spat_regexp->nparens)
+  	    gimme = G_SCALAR;			/* accidental array context? */
+! 	if (regexec(spat->spat_regexp, s, strend, s, 0,
+  	  srchstr->str_pok & SP_STUDIED ? srchstr : Nullstr,
+  	  safebase)) {
+! 	    if (spat->spat_regexp->subbase || global)
+  		curspat = spat;
+  	    lastspat = spat;
+  	    goto gotcha;
+--- 136,162 ----
+  	    }
+  	}
+  	if (global) {
+! 	    if (rx) {
+! 	        if (rx->startp[0]) {
+! 		    s = rx->endp[0];
+! 		    if (s == rx->startp[0])
+! 			s++;
+! 		    if (s > strend) {
+! 			regfree(rx);
+! 			rx = spat->spat_regexp;
+! 			goto nope;
+! 		    }
+! 		}
+! 		regfree(rx);
+  	    }
+  	}
+  	else if (!spat->spat_regexp->nparens)
+  	    gimme = G_SCALAR;			/* accidental array context? */
+! 	rx = spat->spat_regexp;
+! 	if (regexec(rx, s, strend, s, 0,
+  	  srchstr->str_pok & SP_STUDIED ? srchstr : Nullstr,
+  	  safebase)) {
+! 	    if (rx->subbase || global)
+  		curspat = spat;
+  	    lastspat = spat;
+  	    goto gotcha;
+***************
+*** 152,172 ****
+  		ch = '?';
+  	    else
+  		ch = '/';
+! 	    deb("2.SPAT %c%s%c\n",ch,spat->spat_regexp->precomp,ch);
+  	}
+  #endif
+! 	if (!spat->spat_regexp->prelen && lastspat)
+  	    spat = lastspat;
+  	t = s;
+      play_it_again:
+! 	if (global && spat->spat_regexp->startp[0])
+! 	    t = s = spat->spat_regexp->endp[0];
+  	if (myhint) {
+  	    if (myhint < s || myhint > strend)
+  		fatal("panic: hint in do_match");
+  	    s = myhint;
+! 	    if (spat->spat_regexp->regback >= 0) {
+! 		s -= spat->spat_regexp->regback;
+  		if (s < t)
+  		    s = t;
+  	    }
+--- 179,206 ----
+  		ch = '?';
+  	    else
+  		ch = '/';
+! 	    deb("2.SPAT %c%s%c\n",ch,rx->precomp,ch);
+  	}
+  #endif
+! 	if (!rx->prelen && lastspat) {
+  	    spat = lastspat;
++ 	    rx = spat->spat_regexp;
++ 	}
+  	t = s;
+      play_it_again:
+! 	if (global && rx->startp[0]) {
+! 	    t = s = rx->endp[0];
+! 	    if (s == rx->startp[0])
+! 		s++,t++;
+! 	    if (s > strend)
+! 		goto nope;
+! 	}
+  	if (myhint) {
+  	    if (myhint < s || myhint > strend)
+  		fatal("panic: hint in do_match");
+  	    s = myhint;
+! 	    if (rx->regback >= 0) {
+! 		s -= rx->regback;
+  		if (s < t)
+  		    s = t;
+  	    }
+***************
+*** 190,198 ****
+  #endif
+  		else if (spat->spat_flags & SPAT_ALL)
+  		    goto yup;
+! 		if (s && spat->spat_regexp->regback >= 0) {
+  		    ++spat->spat_short->str_u.str_useful;
+! 		    s -= spat->spat_regexp->regback;
+  		    if (s < t)
+  			s = t;
+  		}
+--- 224,232 ----
+  #endif
+  		else if (spat->spat_flags & SPAT_ALL)
+  		    goto yup;
+! 		if (s && rx->regback >= 0) {
+  		    ++spat->spat_short->str_u.str_useful;
+! 		    s -= rx->regback;
+  		    if (s < t)
+  			s = t;
+  		}
+***************
+*** 207,220 ****
+  		spat->spat_short = Nullstr;	/* opt is being useless */
+  	    }
+  	}
+! 	if (!spat->spat_regexp->nparens && !global) {
+  	    gimme = G_SCALAR;			/* accidental array context? */
+  	    safebase = FALSE;
+  	}
+! 	if (regexec(spat->spat_regexp, s, strend, t, 0,
+  	  srchstr->str_pok & SP_STUDIED ? srchstr : Nullstr,
+  	  safebase)) {
+! 	    if (spat->spat_regexp->subbase || global)
+  		curspat = spat;
+  	    lastspat = spat;
+  	    if (spat->spat_flags & SPAT_ONCE)
+--- 241,254 ----
+  		spat->spat_short = Nullstr;	/* opt is being useless */
+  	    }
+  	}
+! 	if (!rx->nparens && !global) {
+  	    gimme = G_SCALAR;			/* accidental array context? */
+  	    safebase = FALSE;
+  	}
+! 	if (regexec(rx, s, strend, truebase, 0,
+  	  srchstr->str_pok & SP_STUDIED ? srchstr : Nullstr,
+  	  safebase)) {
+! 	    if (rx->subbase || global)
+  		curspat = spat;
+  	    lastspat = spat;
+  	    if (spat->spat_flags & SPAT_ONCE)
+***************
+*** 223,229 ****
+  	}
+  	else {
+  	    if (global)
+! 		spat->spat_regexp->startp[0] = Nullch;
+  	    if (gimme == G_ARRAY)
+  		return sp;
+  	    str_sset(str,&str_no);
+--- 257,263 ----
+  	}
+  	else {
+  	    if (global)
+! 		rx->startp[0] = Nullch;
+  	    if (gimme == G_ARRAY)
+  		return sp;
+  	    str_sset(str,&str_no);
+***************
+*** 238,244 ****
+      if (gimme == G_ARRAY) {
+  	int iters, i, len;
+  
+! 	iters = spat->spat_regexp->nparens;
+  	if (global && !iters)
+  	    i = 1;
+  	else
+--- 272,278 ----
+      if (gimme == G_ARRAY) {
+  	int iters, i, len;
+  
+! 	iters = rx->nparens;
+  	if (global && !iters)
+  	    i = 1;
+  	else
+***************
+*** 251,264 ****
+  	for (i = !i; i <= iters; i++) {
+  	    st[++sp] = str_mortal(&str_no);
+  	    /*SUPPRESS 560*/
+! 	    if (s = spat->spat_regexp->startp[i]) {
+! 		len = spat->spat_regexp->endp[i] - s;
+  		if (len > 0)
+  		    str_nset(st[sp],s,len);
+  	    }
+  	}
+! 	if (global)
+  	    goto play_it_again;
+  	return sp;
+      }
+      else {
+--- 285,300 ----
+  	for (i = !i; i <= iters; i++) {
+  	    st[++sp] = str_mortal(&str_no);
+  	    /*SUPPRESS 560*/
+! 	    if (s = rx->startp[i]) {
+! 		len = rx->endp[i] - s;
+  		if (len > 0)
+  		    str_nset(st[sp],s,len);
+  	    }
+  	}
+! 	if (global) {
+! 	    truebase = rx->subbeg;
+  	    goto play_it_again;
++ 	}
+  	return sp;
+      }
+      else {
+***************
+*** 274,283 ****
+      if (spat->spat_flags & SPAT_ONCE)
+  	spat->spat_flags |= SPAT_USED;
+      if (global) {
+! 	spat->spat_regexp->subbeg = t;
+! 	spat->spat_regexp->subend = strend;
+! 	spat->spat_regexp->startp[0] = s;
+! 	spat->spat_regexp->endp[0] = s + spat->spat_short->str_cur;
+  	curspat = spat;
+  	goto gotcha;
+      }
+--- 310,319 ----
+      if (spat->spat_flags & SPAT_ONCE)
+  	spat->spat_flags |= SPAT_USED;
+      if (global) {
+! 	rx->subbeg = t;
+! 	rx->subend = strend;
+! 	rx->startp[0] = s;
+! 	rx->endp[0] = s + spat->spat_short->str_cur;
+  	curspat = spat;
+  	goto gotcha;
+      }
+***************
+*** 284,296 ****
+      if (sawampersand) {
+  	char *tmps;
+  
+! 	if (spat->spat_regexp->subbase)
+! 	    Safefree(spat->spat_regexp->subbase);
+! 	tmps = spat->spat_regexp->subbase = nsavestr(t,strend-t);
+! 	spat->spat_regexp->subbeg = tmps;
+! 	spat->spat_regexp->subend = tmps + (strend-t);
+! 	tmps = spat->spat_regexp->startp[0] = tmps + (s - t);
+! 	spat->spat_regexp->endp[0] = tmps + spat->spat_short->str_cur;
+  	curspat = spat;
+      }
+      str_sset(str,&str_yes);
+--- 320,332 ----
+      if (sawampersand) {
+  	char *tmps;
+  
+! 	if (rx->subbase)
+! 	    Safefree(rx->subbase);
+! 	tmps = rx->subbase = nsavestr(t,strend-t);
+! 	rx->subbeg = tmps;
+! 	rx->subend = tmps + (strend-t);
+! 	tmps = rx->startp[0] = tmps + (s - t);
+! 	rx->endp[0] = tmps + spat->spat_short->str_cur;
+  	curspat = spat;
+      }
+      str_sset(str,&str_yes);
+***************
+*** 299,308 ****
+      return sp;
+  
+  nope:
+!     spat->spat_regexp->startp[0] = Nullch;
+!     ++spat->spat_short->str_u.str_useful;
+!     if (global)
+! 	spat->spat_regexp->startp[0] = Nullch;
+      if (gimme == G_ARRAY)
+  	return sp;
+      str_sset(str,&str_no);
+--- 335,343 ----
+      return sp;
+  
+  nope:
+!     rx->startp[0] = Nullch;
+!     if (spat->spat_short)
+! 	++spat->spat_short->str_u.str_useful;
+      if (gimme == G_ARRAY)
+  	return sp;
+      str_sset(str,&str_no);
+***************
+*** 628,634 ****
+  		goto reparse;
+  	    break;
+  	case '@':
+! 	    if (len > strend - s)
+  		fatal("@ outside of string");
+  	    s = strbeg + len;
+  	    break;
+--- 663,669 ----
+  		goto reparse;
+  	    break;
+  	case '@':
+! 	    if (len > strend - strbeg)
+  		fatal("@ outside of string");
+  	    s = strbeg + len;
+  	    break;
+***************
+*** 775,781 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&ashort,sizeof(short));
+  		    s += sizeof(short);
+  		    culong += ashort;
+  		}
+--- 810,816 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&ashort,1,short);
+  		    s += sizeof(short);
+  		    culong += ashort;
+  		}
+***************
+*** 782,788 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&ashort,sizeof(short));
+  		    s += sizeof(short);
+  		    str = Str_new(38,0);
+  		    str_numset(str,(double)ashort);
+--- 817,823 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&ashort,1,short);
+  		    s += sizeof(short);
+  		    str = Str_new(38,0);
+  		    str_numset(str,(double)ashort);
+***************
+*** 798,804 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aushort,sizeof(unsigned short));
+  		    s += sizeof(unsigned short);
+  #ifdef HAS_NTOHS
+  		    if (datumtype == 'n')
+--- 833,839 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&aushort,1,unsigned short);
+  		    s += sizeof(unsigned short);
+  #ifdef HAS_NTOHS
+  		    if (datumtype == 'n')
+***************
+*** 813,819 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aushort,sizeof(unsigned short));
+  		    s += sizeof(unsigned short);
+  		    str = Str_new(39,0);
+  #ifdef HAS_NTOHS
+--- 848,854 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&aushort,1,unsigned short);
+  		    s += sizeof(unsigned short);
+  		    str = Str_new(39,0);
+  #ifdef HAS_NTOHS
+***************
+*** 835,841 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aint,sizeof(int));
+  		    s += sizeof(int);
+  		    if (checksum > 32)
+  			cdouble += (double)aint;
+--- 870,876 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&aint,1,int);
+  		    s += sizeof(int);
+  		    if (checksum > 32)
+  			cdouble += (double)aint;
+***************
+*** 845,851 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aint,sizeof(int));
+  		    s += sizeof(int);
+  		    str = Str_new(40,0);
+  		    str_numset(str,(double)aint);
+--- 880,886 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&aint,1,int);
+  		    s += sizeof(int);
+  		    str = Str_new(40,0);
+  		    str_numset(str,(double)aint);
+***************
+*** 859,865 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&auint,sizeof(unsigned int));
+  		    s += sizeof(unsigned int);
+  		    if (checksum > 32)
+  			cdouble += (double)auint;
+--- 894,900 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&auint,1,unsigned int);
+  		    s += sizeof(unsigned int);
+  		    if (checksum > 32)
+  			cdouble += (double)auint;
+***************
+*** 869,875 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&auint,sizeof(unsigned int));
+  		    s += sizeof(unsigned int);
+  		    str = Str_new(41,0);
+  		    str_numset(str,(double)auint);
+--- 904,910 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&auint,1,unsigned int);
+  		    s += sizeof(unsigned int);
+  		    str = Str_new(41,0);
+  		    str_numset(str,(double)auint);
+***************
+*** 883,889 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&along,sizeof(long));
+  		    s += sizeof(long);
+  		    if (checksum > 32)
+  			cdouble += (double)along;
+--- 918,924 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&along,1,long);
+  		    s += sizeof(long);
+  		    if (checksum > 32)
+  			cdouble += (double)along;
+***************
+*** 893,899 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&along,sizeof(long));
+  		    s += sizeof(long);
+  		    str = Str_new(42,0);
+  		    str_numset(str,(double)along);
+--- 928,934 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&along,1,long);
+  		    s += sizeof(long);
+  		    str = Str_new(42,0);
+  		    str_numset(str,(double)along);
+***************
+*** 909,915 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aulong,sizeof(unsigned long));
+  		    s += sizeof(unsigned long);
+  #ifdef HAS_NTOHL
+  		    if (datumtype == 'N')
+--- 944,950 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s,&aulong,1,unsigned long);
+  		    s += sizeof(unsigned long);
+  #ifdef HAS_NTOHL
+  		    if (datumtype == 'N')
+***************
+*** 927,933 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s,(char*)&aulong,sizeof(unsigned long));
+  		    s += sizeof(unsigned long);
+  		    str = Str_new(43,0);
+  #ifdef HAS_NTOHL
+--- 962,968 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s,&aulong,1,unsigned long);
+  		    s += sizeof(unsigned long);
+  		    str = Str_new(43,0);
+  #ifdef HAS_NTOHL
+***************
+*** 951,957 ****
+  		if (sizeof(char*) > strend - s)
+  		    break;
+  		else {
+! 		    bcopy(s,(char*)&aptr,sizeof(char*));
+  		    s += sizeof(char*);
+  		}
+  		str = Str_new(44,0);
+--- 986,992 ----
+  		if (sizeof(char*) > strend - s)
+  		    break;
+  		else {
+! 		    Copy(s,&aptr,1,char*);
+  		    s += sizeof(char*);
+  		}
+  		str = Str_new(44,0);
+***************
+*** 966,972 ****
+  		if (s + sizeof(quad) > strend)
+  		    aquad = 0;
+  		else {
+! 		    bcopy(s,(char*)&aquad,sizeof(quad));
+  		    s += sizeof(quad);
+  		}
+  		str = Str_new(42,0);
+--- 1001,1007 ----
+  		if (s + sizeof(quad) > strend)
+  		    aquad = 0;
+  		else {
+! 		    Copy(s,&aquad,1,quad);
+  		    s += sizeof(quad);
+  		}
+  		str = Str_new(42,0);
+***************
+*** 979,985 ****
+  		if (s + sizeof(unsigned quad) > strend)
+  		    auquad = 0;
+  		else {
+! 		    bcopy(s,(char*)&auquad,sizeof(unsigned quad));
+  		    s += sizeof(unsigned quad);
+  		}
+  		str = Str_new(43,0);
+--- 1014,1020 ----
+  		if (s + sizeof(unsigned quad) > strend)
+  		    auquad = 0;
+  		else {
+! 		    Copy(s,&auquad,1,unsigned quad);
+  		    s += sizeof(unsigned quad);
+  		}
+  		str = Str_new(43,0);
+***************
+*** 996,1002 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s, (char *)&afloat, sizeof(float));
+  		    s += sizeof(float);
+  		    cdouble += afloat;
+  		}
+--- 1031,1037 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s, &afloat,1, float);
+  		    s += sizeof(float);
+  		    cdouble += afloat;
+  		}
+***************
+*** 1003,1009 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s, (char *)&afloat, sizeof(float));
+  		    s += sizeof(float);
+  		    str = Str_new(47, 0);
+  		    str_numset(str, (double)afloat);
+--- 1038,1044 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s, &afloat,1, float);
+  		    s += sizeof(float);
+  		    str = Str_new(47, 0);
+  		    str_numset(str, (double)afloat);
+***************
+*** 1018,1024 ****
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    bcopy(s, (char *)&adouble, sizeof(double));
+  		    s += sizeof(double);
+  		    cdouble += adouble;
+  		}
+--- 1053,1059 ----
+  		len = along;
+  	    if (checksum) {
+  		while (len-- > 0) {
+! 		    Copy(s, &adouble,1, double);
+  		    s += sizeof(double);
+  		    cdouble += adouble;
+  		}
+***************
+*** 1025,1031 ****
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    bcopy(s, (char *)&adouble, sizeof(double));
+  		    s += sizeof(double);
+  		    str = Str_new(48, 0);
+  		    str_numset(str, (double)adouble);
+--- 1060,1066 ----
+  	    }
+  	    else {
+  		while (len-- > 0) {
+! 		    Copy(s, &adouble,1, double);
+  		    s += sizeof(double);
+  		    str = Str_new(48, 0);
+  		    str_numset(str, (double)adouble);
+***************
+*** 1182,1188 ****
+  	sp--;
+      }
+      else {
+! 	if (numarray) {
+  	    if (st[max])
+  		st[sp] = afetch(ary,
+  		  ((int)str_gnum(st[max])) - arybase, lval);
+--- 1217,1225 ----
+  	sp--;
+      }
+      else {
+! 	if (sp == max)
+! 	    st[sp] = &str_undef;
+! 	else if (numarray) {
+  	    if (st[max])
+  		st[sp] = afetch(ary,
+  		  ((int)str_gnum(st[max])) - arybase, lval);
+***************
+*** 1225,1233 ****
+      STR **tmparyval;
+  
+      if (++sp < max) {
+! 	offset = ((int)str_gnum(st[sp])) - arybase;
+  	if (offset < 0)
+  	    offset += ary->ary_fill + 1;
+  	if (++sp < max) {
+  	    length = (int)str_gnum(st[sp++]);
+  	    if (length < 0)
+--- 1262,1272 ----
+      STR **tmparyval;
+  
+      if (++sp < max) {
+! 	offset = (int)str_gnum(st[sp]);
+  	if (offset < 0)
+  	    offset += ary->ary_fill + 1;
++ 	else
++ 	    offset -= arybase;
+  	if (++sp < max) {
+  	    length = (int)str_gnum(st[sp++]);
+  	    if (length < 0)
+***************
+*** 1284,1291 ****
+  	}
+  	else {
+  	    st[sp] = ary->ary_array[offset+length-1];
+! 	    if (ary->ary_flags & ARF_REAL)
+  		str_2mortal(st[sp]);
+  	}
+  	ary->ary_fill += diff;
+  
+--- 1323,1333 ----
+  	}
+  	else {
+  	    st[sp] = ary->ary_array[offset+length-1];
+! 	    if (ary->ary_flags & ARF_REAL) {
+  		str_2mortal(st[sp]);
++ 		for (i = length - 1, dst = &ary->ary_array[offset]; i > 0; i--)
++ 		    str_free(*dst++);	/* free them now */
++ 	    }
+  	}
+  	ary->ary_fill += diff;
+  
+***************
+*** 1306,1312 ****
+  	    if (after) {			/* anything to pull down? */
+  		src = ary->ary_array + offset + length;
+  		dst = src + diff;		/* diff is negative */
+! 		Copy(src, dst, after, STR*);
+  	    }
+  	    Zero(&ary->ary_array[ary->ary_fill+1], -diff, STR*);
+  						/* avoid later double free */
+--- 1348,1354 ----
+  	    if (after) {			/* anything to pull down? */
+  		src = ary->ary_array + offset + length;
+  		dst = src + diff;		/* diff is negative */
+! 		Move(src, dst, after, STR*);
+  	    }
+  	    Zero(&ary->ary_array[ary->ary_fill+1], -diff, STR*);
+  						/* avoid later double free */
+***************
+*** 1334,1340 ****
+  		if (offset) {
+  		    src = ary->ary_array;
+  		    dst = src - diff;
+! 		    Copy(src, dst, offset, STR*);
+  		}
+  		ary->ary_array -= diff;		/* diff is positive */
+  		ary->ary_max += diff;
+--- 1376,1382 ----
+  		if (offset) {
+  		    src = ary->ary_array;
+  		    dst = src - diff;
+! 		    Move(src, dst, offset, STR*);
+  		}
+  		ary->ary_array -= diff;		/* diff is positive */
+  		ary->ary_max += diff;
+***************
+*** 1345,1358 ****
+  		    astore(ary, ary->ary_fill + diff, Nullstr);
+  		else
+  		    ary->ary_fill += diff;
+  		if (after) {
+  		    dst = ary->ary_array + ary->ary_fill;
+  		    src = dst - diff;
+  		    for (i = after; i; i--) {
+! 			if (*dst)		/* str was hanging around */
+! 			    str_free(*dst);	/*  after $#foo */
+! 			*dst-- = *src;
+! 			*src-- = Nullstr;
+  		    }
+  		}
+  	    }
+--- 1387,1403 ----
+  		    astore(ary, ary->ary_fill + diff, Nullstr);
+  		else
+  		    ary->ary_fill += diff;
++ 		dst = ary->ary_array + ary->ary_fill;
++ 		for (i = diff; i > 0; i--) {
++ 		    if (*dst)			/* str was hanging around */
++ 			str_free(*dst);		/*  after $#foo */
++ 		    dst--;
++ 		}
+  		if (after) {
+  		    dst = ary->ary_array + ary->ary_fill;
+  		    src = dst - diff;
+  		    for (i = after; i; i--) {
+! 			*dst-- = *src--;
+  		    }
+  		}
+  	    }
+***************
+*** 1374,1383 ****
+  	    }
+  	    sp += length - 1;
+  	}
+! 	else if (length) {
+! 	    st[sp] = tmparyval[length-1];
+! 	    if (ary->ary_flags & ARF_REAL)
+  		str_2mortal(st[sp]);
+  	    Safefree(tmparyval);
+  	}
+  	else
+--- 1419,1431 ----
+  	    }
+  	    sp += length - 1;
+  	}
+! 	else if (length--) {
+! 	    st[sp] = tmparyval[length];
+! 	    if (ary->ary_flags & ARF_REAL) {
+  		str_2mortal(st[sp]);
++ 		while (length-- > 0)
++ 		    str_free(tmparyval[length]);
++ 	    }
+  	    Safefree(tmparyval);
+  	}
+  	else
+***************
+*** 1450,1456 ****
+  	    *down-- = *up;
+      }
+      i = arglast[2] - arglast[1];
+!     Copy(down+1,up,i/2,STR*);
+      return arglast[2] - 1;
+  }
+  
+--- 1498,1504 ----
+  	    *down-- = *up;
+      }
+      i = arglast[2] - arglast[1];
+!     Move(down+1,up,i/2,STR*);
+      return arglast[2] - 1;
+  }
+  
+***************
+*** 1543,1550 ****
+  	    if (stab) {
+  		if (!stab_sub(stab) || !(sortcmd = stab_sub(stab)->cmd))
+  		    fatal("Undefined subroutine \"%s\" in sort", 
+! 			stab_name(stab));
+! 		stash = stab_stash(stab);
+  	    }
+  	    else
+  		sortcmd = Nullcmd;
+--- 1591,1598 ----
+  	    if (stab) {
+  		if (!stab_sub(stab) || !(sortcmd = stab_sub(stab)->cmd))
+  		    fatal("Undefined subroutine \"%s\" in sort", 
+! 			stab_ename(stab));
+! 		stash = stab_estash(stab);
+  	    }
+  	    else
+  		sortcmd = Nullcmd;
+***************
+*** 1587,1593 ****
+      return sp+max;
+  }
+  
+! int
+  sortsub(str1,str2)
+  STR **str1;
+  STR **str2;
+--- 1635,1641 ----
+      return sp+max;
+  }
+  
+! static int
+  sortsub(str1,str2)
+  STR **str1;
+  STR **str2;
+***************
+*** 1598,1603 ****
+--- 1646,1652 ----
+      return (int)str_gnum(*stack->ary_array);
+  }
+  
++ static int
+  sortcmp(strp1,strp2)
+  STR **strp1;
+  STR **strp2;
+***************
+*** 1736,1742 ****
+      if (!maxarg)
+  	return sp;
+      str = Str_new(49,0);
+!     stab_fullname(str, csv->stab);
+      (void)astore(stack,++sp, str_2mortal(str));
+      (void)astore(stack,++sp,
+        str_2mortal(str_nmake((double)csv->hasargs)) );
+--- 1785,1791 ----
+      if (!maxarg)
+  	return sp;
+      str = Str_new(49,0);
+!     stab_efullname(str, csv->stab);
+      (void)astore(stack,++sp, str_2mortal(str));
+      (void)astore(stack,++sp,
+        str_2mortal(str_nmake((double)csv->hasargs)) );
+***************
+*** 1848,1854 ****
+      int dovalues = (kv == O_VALUES || kv == O_HASH);
+  
+      if (gimme != G_ARRAY) {
+! 	str_sset(str,&str_undef);
+  	STABSET(str);
+  	st[++sp] = str;
+  	return sp;
+--- 1897,1909 ----
+      int dovalues = (kv == O_VALUES || kv == O_HASH);
+  
+      if (gimme != G_ARRAY) {
+! 	i = 0;
+! 	(void)hiterinit(hash);
+! 	/*SUPPRESS 560*/
+! 	while (entry = hiternext(hash)) {
+! 	    i++;
+! 	}
+! 	str_numset(str,(double)i);
+  	STABSET(str);
+  	st[++sp] = str;
+  	return sp;
+
+Index: makedepend.SH
+*** makedepend.SH.old	Mon Jun  8 17:49:22 1992
+--- makedepend.SH	Mon Jun  8 17:49:22 1992
+***************
+*** 13,23 ****
+  */*) cd `expr X$0 : 'X\(.*\)/'` ;;
+  esac
+  echo "Extracting makedepend (with variable substitutions)"
+  $spitshell >makedepend <<!GROK!THIS!
+  $startsh
+! # $RCSfile: makedepend.SH,v $$Revision: 4.0.1.3 $$Date: 91/11/05 17:56:33 $
+  #
+  # $Log:	makedepend.SH,v $
+  # Revision 4.0.1.3  91/11/05  17:56:33  lwall
+  # patch11: various portability fixes
+  # 
+--- 13,27 ----
+  */*) cd `expr X$0 : 'X\(.*\)/'` ;;
+  esac
+  echo "Extracting makedepend (with variable substitutions)"
++ rm -f makedepend
+  $spitshell >makedepend <<!GROK!THIS!
+  $startsh
+! # $RCSfile: makedepend.SH,v $$Revision: 4.0.1.4 $$Date: 92/06/08 13:51:24 $
+  #
+  # $Log:	makedepend.SH,v $
++ # Revision 4.0.1.4  92/06/08  13:51:24  lwall
++ # patch20: various and sundry fixes
++ # 
+  # Revision 4.0.1.3  91/11/05  17:56:33  lwall
+  # patch11: various portability fixes
+  # 
+***************
+*** 53,58 ****
+--- 57,65 ----
+  
+  $spitshell >>makedepend <<'!NO!SUBS!'
+  
++ PATH="$PATH:."
++ export PATH
++ 
+  $cat /dev/null >.deptmp
+  $rm -f *.c.c c/*.c.c
+  if test -f Makefile; then
+***************
+*** 83,103 ****
+  # for file in `cat /dev/null`; do
+      case "$file" in
+      *.c) filebase=`basename $file .c` ;;
+!     *.y) filebase=`basename $file .c` ;;
+      esac
+      $echo "Finding dependencies for $filebase.o."
+!     $sed -n <$file >$file.c \
+  	-e "/^${filebase}_init(/q" \
+  	-e '/^#/{' \
+  	-e 's|/\*.*$||' \
+  	-e 's|\\$||' \
+  	-e p \
+! 	-e '}'
+!     $cppstdin -I/usr/local/include -I. $cppflags $cppminus <$file.c | sed -e 's#\.[0-9][0-9]*\.c#'"$file.c#" | \
+      $sed \
+  	-e 's/^[	 ]*#[	 ]*line/#/' \
+! 	-e '/^# *[0-9][0-9]* *"/!d' \
+  	-e 's/^.*"\(.*\)".*$/'$filebase'.o: \1/' \
+  	-e 's|: \./|: |' \
+  	-e 's|\.c\.c|.c|' | \
+      $uniq | $sort | $uniq >> .deptmp
+--- 90,117 ----
+  # for file in `cat /dev/null`; do
+      case "$file" in
+      *.c) filebase=`basename $file .c` ;;
+!     *.y) filebase=`basename $file .y` ;;
+      esac
++     case "$file" in
++     */*) finc="-I`echo $file | sed 's#/[^/]*$##`" ;;
++     *)   finc= ;;
++     esac
+      $echo "Finding dependencies for $filebase.o."
+!     ( $echo "#line 1 \"$file\""; \
+!       $sed -n <$file \
+  	-e "/^${filebase}_init(/q" \
+  	-e '/^#/{' \
+  	-e 's|/\*.*$||' \
+  	-e 's|\\$||' \
+  	-e p \
+! 	-e '}' ) >$file.c
+!     $cppstdin $finc -I/usr/local/include -I. $cppflags $cppminus <$file.c |
+      $sed \
++ 	-e 's#\.[0-9][0-9]*\.c#'"$file.c#" \
+  	-e 's/^[	 ]*#[	 ]*line/#/' \
+! 	-e '/^# *[0-9][0-9]* *[".\/]/!d' \
+  	-e 's/^.*"\(.*\)".*$/'$filebase'.o: \1/' \
++ 	-e 's/^# *[0-9][0-9]* \(.*\)$/'$filebase'.o: \1/' \
+  	-e 's|: \./|: |' \
+  	-e 's|\.c\.c|.c|' | \
+      $uniq | $sort | $uniq >> .deptmp
+
+Index: atarist/makefile.sm
+*** atarist/makefile.sm.old	Mon Jun  8 17:35:16 1992
+--- atarist/makefile.sm	Mon Jun  8 17:35:16 1992
+***************
+*** 0 ****
+--- 1,457 ----
++ # : Makefile.SH,v 9820Revision: 4.0.1.2 9820Date: 91/06/07 10:14:43 $
++ #
++ # $Log:	makefile.sm,v $
++ # Revision 4.0.1.1  92/06/08  11:50:00  lwall
++ # Initial revision
++ # 
++ # Revision 4.0.1.2  91/06/07  10:14:43  lwall
++ # patch4: cflags now emits entire cc command except for the filename
++ # patch4: alternate make programs are now semi-supported
++ # patch4: uperl.o no longer tries to link in libraries prematurely
++ # patch4: installperl now installs x2p stuff too
++ # 
++ # Revision 4.0.1.1  91/04/11  17:30:39  lwall
++ # patch1: C flags are now settable on a per-file basis
++ # 
++ # Revision 4.0  91/03/20  00:58:54  lwall
++ # 4.0 baseline.
++ # 
++ # 
++ 
++ CC = cgcc
++ YACC = bison -y
++ LDFLAGS = 
++ CLDFLAGS = 
++ SMALL = 
++ LARGE =  
++ mallocsrc = malloc.c
++ mallocobj = malloc.o
++ SLN = ln -s
++ 
++ libs = -lgdbm -lpml 
++ 
++ public = perl.ttp
++ 
++ # To use an alternate make, set  in config.sh.
++ MAKE = make
++ 
++ 
++ CCCMD = $(CC) -O2 -fomit-frame-pointer -fstrength-reduce -c -DMYMALLOC
++ 
++ private = 
++ 
++ scripts = 
++ 
++ manpages = perl.man h2ph.man
++ 
++ util = echo.ttp perlglob.ttp
++ 
++ sh = Makefile.SH makedepend.SH h2ph.SH
++ 
++ h1 = EXTERN.h INTERN.h arg.h array.h cmd.h config.h form.h handy.h
++ h2 = hash.h perl.h regcomp.h regexp.h spat.h stab.h str.h util.h
++ 
++ h = $(h1) $(h2)
++ 
++ c1 = array.c cmd.c cons.c consarg.c doarg.c doio.c dolist.c dump.c
++ c2 = eval.c form.c hash.c $(mallocsrc) perl.c regcomp.c regexec.c
++ c3 = stab.c str.c toke.c util.c atarist.c usersub.c
++ 
++ c = $(c1) $(c2) $(c3)
++ 
++ obj1 = array.o cmd.o cons.o consarg.o doarg.o doio.o dolist.o dump.o
++ obj2 = eval.o form.o hash.o $(mallocobj) perl.o regcomp.o regexec.o
++ obj3 = stab.o str.o toke.o util.o atarist.o
++ 
++ obj = $(obj1) $(obj2) $(obj3)
++ 
++ lintflags = -hbvxac
++ 
++ # grrr
++ SHELL = /bin/sh
++ 
++ .c.o:
++ 	$(CCCMD) $*.c
++ 
++ all: $(public)  $(util)
++ 
++ # This is the standard version that contains no "taint" checks and is
++ # used for all scripts that aren't set-id or running under something set-id.
++ # The $& notation is tells Sequent machines that it can do a parallel make,
++ # and is harmless otherwise.
++ 
++ perl.ttp: perly.o $(obj) usersub.o
++ 	$(CC) $(LARGE) $(CLDFLAGS) $(obj) perly.o usersub.o $(libs) -o perl.ttp -v -s
++ 
++ echo.ttp: wildmat.o echo.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -o echo.ttp \
++ 	echo.c wildmat.o -liio16 -s
++ 
++ perlglob.ttp: wildmat.o perlglob.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -o perlglob.ttp \
++ 	perlglob.c wildmat.o -liio16 -s
++ 
++ wildmat.o: wildmat.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -c wildmat.c
++ 
++ perly.h: perly.c
++ 	@ echo Dummy dependency for dumb parallel make
++ 	touch perly.h
++ 
++ perly.c: perly.y perly.fixer
++ 	@ echo 'Expect either' 29 shift/reduce and 59 reduce/reduce conflicts...
++ 	@ echo '           or' 27 shift/reduce and 61 reduce/reduce conflicts...
++ 	$(YACC) -d perly.y
++ 	sh ./perly.fixer y.tab.c perly.c
++ 	mv y.tab.h perly.h
++ 	echo 'extern YYSTYPE yylval;' >>perly.h
++ 
++ perly.o: perly.c perly.h $(h)
++ 	$(CCCMD) perly.c
++ 
++ 
++ clean:
++ 	rm -f *.o 
++ 
++ realclean: clean
++ 	rm -f *.ttp report core
++ 	rm -f perly.c perly.h 
++ 
++ # The following lint has practically everything turned on.  Unfortunately,
++ # you have to wade through a lot of mumbo jumbo that can't be suppressed.
++ # If the source file has a /*NOSTRICT*/ somewhere, ignore the lint message
++ # for that spot.
++ 
++ lint: perly.c $(c)
++ 	lint $(lintflags) $(defs) perly.c $(c) > perl.fuzz
++ 
++ depend: makedepend
++ 	- test -f perly.h || cp /dev/null perly.h
++ 	./makedepend
++ 	- test -s perly.h || /bin/rm -f perly.h
++ 
++ test: perl
++ 	- cd t && chmod +x TEST */*.t
++ 	- cd t && (rm -f perl; $(SLN) ../perl .) && ./perl TEST </dev/tty
++ 
++ clist:
++ 	echo $(c) | tr ' ' '\012' >.clist
++ 
++ hlist:
++ 	echo $(h) | tr ' ' '\012' >.hlist
++ 
++ shlist:
++ 	echo $(sh) | tr ' ' '\012' >.shlist
++ 
++ # AUTOMATICALLY GENERATED MAKE DEPENDENCIES--PUT NOTHING BELOW THIS LINE
++ # If this runs make out of memory, delete /usr/include lines.
++ array.o: EXTERN.h
++ array.o: arg.h
++ array.o: array.c
++ array.o: array.h
++ array.o: cmd.h
++ array.o: config.h
++ array.o: form.h
++ array.o: handy.h
++ array.o: hash.h
++ array.o: perl.h
++ array.o: regexp.h
++ array.o: spat.h
++ array.o: stab.h
++ array.o: str.h
++ array.o: util.h
++ cmd.o: EXTERN.h
++ cmd.o: arg.h
++ cmd.o: array.h
++ cmd.o: cmd.c
++ cmd.o: cmd.h
++ cmd.o: config.h
++ cmd.o: form.h
++ cmd.o: handy.h
++ cmd.o: hash.h
++ cmd.o: perl.h
++ cmd.o: regexp.h
++ cmd.o: spat.h
++ cmd.o: stab.h
++ cmd.o: str.h
++ cmd.o: util.h
++ cons.o: EXTERN.h
++ cons.o: arg.h
++ cons.o: array.h
++ cons.o: cmd.h
++ cons.o: config.h
++ cons.o: cons.c
++ cons.o: form.h
++ cons.o: handy.h
++ cons.o: hash.h
++ cons.o: perl.h
++ cons.o: perly.h
++ cons.o: regexp.h
++ cons.o: spat.h
++ cons.o: stab.h
++ cons.o: str.h
++ cons.o: util.h
++ consarg.o: EXTERN.h
++ consarg.o: arg.h
++ consarg.o: array.h
++ consarg.o: cmd.h
++ consarg.o: config.h
++ consarg.o: consarg.c
++ consarg.o: form.h
++ consarg.o: handy.h
++ consarg.o: hash.h
++ consarg.o: perl.h
++ consarg.o: regexp.h
++ consarg.o: spat.h
++ consarg.o: stab.h
++ consarg.o: str.h
++ consarg.o: util.h
++ doarg.o: EXTERN.h
++ doarg.o: arg.h
++ doarg.o: array.h
++ doarg.o: cmd.h
++ doarg.o: config.h
++ doarg.o: doarg.c
++ doarg.o: form.h
++ doarg.o: handy.h
++ doarg.o: hash.h
++ doarg.o: perl.h
++ doarg.o: regexp.h
++ doarg.o: spat.h
++ doarg.o: stab.h
++ doarg.o: str.h
++ doarg.o: util.h
++ doio.o: EXTERN.h
++ doio.o: arg.h
++ doio.o: array.h
++ doio.o: cmd.h
++ doio.o: config.h
++ doio.o: doio.c
++ doio.o: form.h
++ doio.o: handy.h
++ doio.o: hash.h
++ doio.o: perl.h
++ doio.o: regexp.h
++ doio.o: spat.h
++ doio.o: stab.h
++ doio.o: str.h
++ doio.o: util.h
++ dolist.o: EXTERN.h
++ dolist.o: arg.h
++ dolist.o: array.h
++ dolist.o: cmd.h
++ dolist.o: config.h
++ dolist.o: dolist.c
++ dolist.o: form.h
++ dolist.o: handy.h
++ dolist.o: hash.h
++ dolist.o: perl.h
++ dolist.o: regexp.h
++ dolist.o: spat.h
++ dolist.o: stab.h
++ dolist.o: str.h
++ dolist.o: util.h
++ dump.o: EXTERN.h
++ dump.o: arg.h
++ dump.o: array.h
++ dump.o: cmd.h
++ dump.o: config.h
++ dump.o: dump.c
++ dump.o: form.h
++ dump.o: handy.h
++ dump.o: hash.h
++ dump.o: perl.h
++ dump.o: regexp.h
++ dump.o: spat.h
++ dump.o: stab.h
++ dump.o: str.h
++ dump.o: util.h
++ eval.o: EXTERN.h
++ eval.o: arg.h
++ eval.o: array.h
++ eval.o: cmd.h
++ eval.o: config.h
++ eval.o: eval.c
++ eval.o: form.h
++ eval.o: handy.h
++ eval.o: hash.h
++ eval.o: perl.h
++ eval.o: regexp.h
++ eval.o: spat.h
++ eval.o: stab.h
++ eval.o: str.h
++ eval.o: util.h
++ form.o: EXTERN.h
++ form.o: arg.h
++ form.o: array.h
++ form.o: cmd.h
++ form.o: config.h
++ form.o: form.c
++ form.o: form.h
++ form.o: handy.h
++ form.o: hash.h
++ form.o: perl.h
++ form.o: regexp.h
++ form.o: spat.h
++ form.o: stab.h
++ form.o: str.h
++ form.o: util.h
++ hash.o: EXTERN.h
++ hash.o: arg.h
++ hash.o: array.h
++ hash.o: cmd.h
++ hash.o: config.h
++ hash.o: form.h
++ hash.o: handy.h
++ hash.o: hash.c
++ hash.o: hash.h
++ hash.o: perl.h
++ hash.o: regexp.h
++ hash.o: spat.h
++ hash.o: stab.h
++ hash.o: str.h
++ hash.o: util.h
++ perl.o: EXTERN.h
++ perl.o: arg.h
++ perl.o: array.h
++ perl.o: cmd.h
++ perl.o: config.h
++ perl.o: form.h
++ perl.o: handy.h
++ perl.o: hash.h
++ perl.o: patchlevel.h
++ perl.o: perl.c
++ perl.o: perl.h
++ perl.o: perly.h
++ perl.o: regexp.h
++ perl.o: spat.h
++ perl.o: stab.h
++ perl.o: str.h
++ perl.o: util.h
++ regcomp.o: EXTERN.h
++ regcomp.o: INTERN.h
++ regcomp.o: arg.h
++ regcomp.o: array.h
++ regcomp.o: cmd.h
++ regcomp.o: config.h
++ regcomp.o: form.h
++ regcomp.o: handy.h
++ regcomp.o: hash.h
++ regcomp.o: perl.h
++ regcomp.o: regcomp.c
++ regcomp.o: regcomp.h
++ regcomp.o: regexp.h
++ regcomp.o: spat.h
++ regcomp.o: stab.h
++ regcomp.o: str.h
++ regcomp.o: util.h
++ regexec.o: EXTERN.h
++ regexec.o: arg.h
++ regexec.o: array.h
++ regexec.o: cmd.h
++ regexec.o: config.h
++ regexec.o: form.h
++ regexec.o: handy.h
++ regexec.o: hash.h
++ regexec.o: perl.h
++ regexec.o: regcomp.h
++ regexec.o: regexec.c
++ regexec.o: regexp.h
++ regexec.o: spat.h
++ regexec.o: stab.h
++ regexec.o: str.h
++ regexec.o: util.h
++ stab.o: EXTERN.h
++ stab.o: arg.h
++ stab.o: array.h
++ stab.o: cmd.h
++ stab.o: config.h
++ stab.o: form.h
++ stab.o: handy.h
++ stab.o: hash.h
++ stab.o: perl.h
++ stab.o: regexp.h
++ stab.o: spat.h
++ stab.o: stab.c
++ stab.o: stab.h
++ stab.o: str.h
++ stab.o: util.h
++ str.o: EXTERN.h
++ str.o: arg.h
++ str.o: array.h
++ str.o: cmd.h
++ str.o: config.h
++ str.o: form.h
++ str.o: handy.h
++ str.o: hash.h
++ str.o: perl.h
++ str.o: perly.h
++ str.o: regexp.h
++ str.o: spat.h
++ str.o: stab.h
++ str.o: str.c
++ str.o: str.h
++ str.o: util.h
++ toke.o: EXTERN.h
++ toke.o: arg.h
++ toke.o: array.h
++ toke.o: cmd.h
++ toke.o: config.h
++ toke.o: form.h
++ toke.o: handy.h
++ toke.o: hash.h
++ toke.o: perl.h
++ toke.o: perly.h
++ toke.o: regexp.h
++ toke.o: spat.h
++ toke.o: stab.h
++ toke.o: str.h
++ toke.o: toke.c
++ toke.o: util.h
++ util.o: EXTERN.h
++ util.o: arg.h
++ util.o: array.h
++ util.o: cmd.h
++ util.o: config.h
++ util.o: form.h
++ util.o: handy.h
++ util.o: hash.h
++ util.o: perl.h
++ util.o: regexp.h
++ util.o: spat.h
++ util.o: stab.h
++ util.o: str.h
++ util.o: util.c
++ util.o: util.h
++ atarist.o: EXTERN.h
++ atarist.o: arg.h
++ atarist.o: array.h
++ atarist.o: cmd.h
++ atarist.o: config.h
++ atarist.o: form.h
++ atarist.o: handy.h
++ atarist.o: hash.h
++ atarist.o: perl.h
++ atarist.o: regexp.h
++ atarist.o: spat.h
++ atarist.o: stab.h
++ atarist.o: str.h
++ atarist.o: atarist.c
++ atarist.o: util.h
++ 
++ malloc.o: EXTERN.h
++ malloc.o: arg.h
++ malloc.o: array.h
++ malloc.o: cmd.h
++ malloc.o: config.h
++ malloc.o: form.h
++ malloc.o: handy.h
++ malloc.o: hash.h
++ malloc.o: perl.h
++ malloc.o: regexp.h
++ malloc.o: spat.h
++ malloc.o: stab.h
++ malloc.o: str.h
++ malloc.o: malloc.c
++ malloc.o: util.h
++ 
+
+Index: atarist/makefile.st
+*** atarist/makefile.st.old	Mon Jun  8 17:35:18 1992
+--- atarist/makefile.st	Mon Jun  8 17:35:19 1992
+***************
+*** 0 ****
+--- 1,462 ----
++ # : Makefile.SH,v 9820Revision: 4.0.1.2 9820Date: 91/06/07 10:14:43 $
++ #
++ # $Log:	makefile.st,v $
++ # Revision 4.0.1.1  92/06/08  11:50:13  lwall
++ # Initial revision
++ # 
++ # Revision 4.0.1.2  91/06/07  10:14:43  lwall
++ # patch4: cflags now emits entire cc command except for the filename
++ # patch4: alternate make programs are now semi-supported
++ # patch4: uperl.o no longer tries to link in libraries prematurely
++ # patch4: installperl now installs x2p stuff too
++ # 
++ # Revision 4.0.1.1  91/04/11  17:30:39  lwall
++ # patch1: C flags are now settable on a per-file basis
++ # 
++ # Revision 4.0  91/03/20  00:58:54  lwall
++ # 4.0 baseline.
++ # 
++ # 
++ 
++ CC = cgcc
++ YACC = bison -y
++ LDFLAGS = 
++ CLDFLAGS = 
++ SMALL = 
++ LARGE =  
++ mallocsrc = 
++ mallocobj = 
++ SLN = ln -s
++ 
++ libs = -lgdbm -lpml 
++ 
++ public = perl.ttp
++ 
++ # To use an alternate make, set  in config.sh.
++ MAKE = make
++ 
++ 
++ CCCMD = $(CC) -O2 -fomit-frame-pointer -fstrength-reduce -c
++ 
++ private = 
++ 
++ scripts = 
++ 
++ manpages = perl.man h2ph.man
++ 
++ util = echo.ttp perlglob.ttp
++ 
++ sh = Makefile.SH makedepend.SH h2ph.SH
++ 
++ h1 = EXTERN.h INTERN.h arg.h array.h cmd.h config.h form.h handy.h
++ h2 = hash.h perl.h regcomp.h regexp.h spat.h stab.h str.h util.h
++ 
++ h = $(h1) $(h2)
++ 
++ c1 = array.c cmd.c cons.c consarg.c doarg.c doio.c dolist.c dump.c
++ c2 = eval.c form.c hash.c $(mallocsrc) perl.c regcomp.c regexec.c
++ c3 = stab.c str.c toke.c util.c atarist.c usersub.c
++ 
++ c = $(c1) $(c2) $(c3)
++ 
++ obj1 = array.o cmd.o cons.o consarg.o doarg.o doio.o dolist.o dump.o
++ obj2 = eval.o form.o hash.o $(mallocobj) perl.o regcomp.o regexec.o
++ obj3 = stab.o str.o toke.o util.o atarist.o
++ 
++ obj = $(obj1) $(obj2) $(obj3)
++ 
++ lintflags = -hbvxac
++ 
++ # grrr
++ SHELL = /bin/sh
++ 
++ .c.o:
++ 	$(CCCMD) $*.c
++ 
++ all: $(public)  $(util)
++ 
++ # This is the standard version that contains no "taint" checks and is
++ # used for all scripts that aren't set-id or running under something set-id.
++ # The $& notation is tells Sequent machines that it can do a parallel make,
++ # and is harmless otherwise.
++ 
++ perl.ttp: perly.o $(obj) usersub.o
++ 	$(CC) $(LARGE) $(CLDFLAGS) $(obj) perly.o usersub.o $(libs) -o perl.ttp -v -s
++ 
++ echo.ttp: wildmat.o echo.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -o echo.ttp \
++ 	echo.c wildmat.o -liio16 -s
++ 
++ perlglob.ttp: wildmat.o perlglob.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -o perlglob.ttp \
++ 	perlglob.c wildmat.o -liio16 -s
++ 
++ # we cant do a uperl.o, so we do our best.
++ #
++ uperl.a: perly.o $(obj)
++ 	car rs uperl.a perly.o $(obj)
++ 
++ wildmat.o: wildmat.c
++ 	$(CC) -O -mshort -fomit-frame-pointer -c wildmat.c
++ 
++ perly.h: perly.c
++ 	@ echo Dummy dependency for dumb parallel make
++ 	touch perly.h
++ 
++ perly.c: perly.y perly.fixer
++ 	@ echo 'Expect either' 29 shift/reduce and 59 reduce/reduce conflicts...
++ 	@ echo '           or' 27 shift/reduce and 61 reduce/reduce conflicts...
++ 	$(YACC) -d perly.y
++ 	sh ./perly.fixer y.tab.c perly.c
++ 	mv y.tab.h perly.h
++ 	echo 'extern YYSTYPE yylval;' >>perly.h
++ 
++ perly.o: perly.c perly.h $(h)
++ 	$(CCCMD) perly.c
++ 
++ 
++ clean:
++ 	rm -f *.o 
++ 
++ realclean: clean
++ 	rm -f *.ttp report core
++ 	rm -f perly.c perly.h 
++ 
++ # The following lint has practically everything turned on.  Unfortunately,
++ # you have to wade through a lot of mumbo jumbo that can't be suppressed.
++ # If the source file has a /*NOSTRICT*/ somewhere, ignore the lint message
++ # for that spot.
++ 
++ lint: perly.c $(c)
++ 	lint $(lintflags) $(defs) perly.c $(c) > perl.fuzz
++ 
++ depend: makedepend
++ 	- test -f perly.h || cp /dev/null perly.h
++ 	./makedepend
++ 	- test -s perly.h || /bin/rm -f perly.h
++ 
++ test: perl
++ 	- cd t && chmod +x TEST */*.t
++ 	- cd t && (rm -f perl; $(SLN) ../perl .) && ./perl TEST </dev/tty
++ 
++ clist:
++ 	echo $(c) | tr ' ' '\012' >.clist
++ 
++ hlist:
++ 	echo $(h) | tr ' ' '\012' >.hlist
++ 
++ shlist:
++ 	echo $(sh) | tr ' ' '\012' >.shlist
++ 
++ # AUTOMATICALLY GENERATED MAKE DEPENDENCIES--PUT NOTHING BELOW THIS LINE
++ # If this runs make out of memory, delete /usr/include lines.
++ array.o: EXTERN.h
++ array.o: arg.h
++ array.o: array.c
++ array.o: array.h
++ array.o: cmd.h
++ array.o: config.h
++ array.o: form.h
++ array.o: handy.h
++ array.o: hash.h
++ array.o: perl.h
++ array.o: regexp.h
++ array.o: spat.h
++ array.o: stab.h
++ array.o: str.h
++ array.o: util.h
++ cmd.o: EXTERN.h
++ cmd.o: arg.h
++ cmd.o: array.h
++ cmd.o: cmd.c
++ cmd.o: cmd.h
++ cmd.o: config.h
++ cmd.o: form.h
++ cmd.o: handy.h
++ cmd.o: hash.h
++ cmd.o: perl.h
++ cmd.o: regexp.h
++ cmd.o: spat.h
++ cmd.o: stab.h
++ cmd.o: str.h
++ cmd.o: util.h
++ cons.o: EXTERN.h
++ cons.o: arg.h
++ cons.o: array.h
++ cons.o: cmd.h
++ cons.o: config.h
++ cons.o: cons.c
++ cons.o: form.h
++ cons.o: handy.h
++ cons.o: hash.h
++ cons.o: perl.h
++ cons.o: perly.h
++ cons.o: regexp.h
++ cons.o: spat.h
++ cons.o: stab.h
++ cons.o: str.h
++ cons.o: util.h
++ consarg.o: EXTERN.h
++ consarg.o: arg.h
++ consarg.o: array.h
++ consarg.o: cmd.h
++ consarg.o: config.h
++ consarg.o: consarg.c
++ consarg.o: form.h
++ consarg.o: handy.h
++ consarg.o: hash.h
++ consarg.o: perl.h
++ consarg.o: regexp.h
++ consarg.o: spat.h
++ consarg.o: stab.h
++ consarg.o: str.h
++ consarg.o: util.h
++ doarg.o: EXTERN.h
++ doarg.o: arg.h
++ doarg.o: array.h
++ doarg.o: cmd.h
++ doarg.o: config.h
++ doarg.o: doarg.c
++ doarg.o: form.h
++ doarg.o: handy.h
++ doarg.o: hash.h
++ doarg.o: perl.h
++ doarg.o: regexp.h
++ doarg.o: spat.h
++ doarg.o: stab.h
++ doarg.o: str.h
++ doarg.o: util.h
++ doio.o: EXTERN.h
++ doio.o: arg.h
++ doio.o: array.h
++ doio.o: cmd.h
++ doio.o: config.h
++ doio.o: doio.c
++ doio.o: form.h
++ doio.o: handy.h
++ doio.o: hash.h
++ doio.o: perl.h
++ doio.o: regexp.h
++ doio.o: spat.h
++ doio.o: stab.h
++ doio.o: str.h
++ doio.o: util.h
++ dolist.o: EXTERN.h
++ dolist.o: arg.h
++ dolist.o: array.h
++ dolist.o: cmd.h
++ dolist.o: config.h
++ dolist.o: dolist.c
++ dolist.o: form.h
++ dolist.o: handy.h
++ dolist.o: hash.h
++ dolist.o: perl.h
++ dolist.o: regexp.h
++ dolist.o: spat.h
++ dolist.o: stab.h
++ dolist.o: str.h
++ dolist.o: util.h
++ dump.o: EXTERN.h
++ dump.o: arg.h
++ dump.o: array.h
++ dump.o: cmd.h
++ dump.o: config.h
++ dump.o: dump.c
++ dump.o: form.h
++ dump.o: handy.h
++ dump.o: hash.h
++ dump.o: perl.h
++ dump.o: regexp.h
++ dump.o: spat.h
++ dump.o: stab.h
++ dump.o: str.h
++ dump.o: util.h
++ eval.o: EXTERN.h
++ eval.o: arg.h
++ eval.o: array.h
++ eval.o: cmd.h
++ eval.o: config.h
++ eval.o: eval.c
++ eval.o: form.h
++ eval.o: handy.h
++ eval.o: hash.h
++ eval.o: perl.h
++ eval.o: regexp.h
++ eval.o: spat.h
++ eval.o: stab.h
++ eval.o: str.h
++ eval.o: util.h
++ form.o: EXTERN.h
++ form.o: arg.h
++ form.o: array.h
++ form.o: cmd.h
++ form.o: config.h
++ form.o: form.c
++ form.o: form.h
++ form.o: handy.h
++ form.o: hash.h
++ form.o: perl.h
++ form.o: regexp.h
++ form.o: spat.h
++ form.o: stab.h
++ form.o: str.h
++ form.o: util.h
++ hash.o: EXTERN.h
++ hash.o: arg.h
++ hash.o: array.h
++ hash.o: cmd.h
++ hash.o: config.h
++ hash.o: form.h
++ hash.o: handy.h
++ hash.o: hash.c
++ hash.o: hash.h
++ hash.o: perl.h
++ hash.o: regexp.h
++ hash.o: spat.h
++ hash.o: stab.h
++ hash.o: str.h
++ hash.o: util.h
++ perl.o: EXTERN.h
++ perl.o: arg.h
++ perl.o: array.h
++ perl.o: cmd.h
++ perl.o: config.h
++ perl.o: form.h
++ perl.o: handy.h
++ perl.o: hash.h
++ perl.o: patchlevel.h
++ perl.o: perl.c
++ perl.o: perl.h
++ perl.o: perly.h
++ perl.o: regexp.h
++ perl.o: spat.h
++ perl.o: stab.h
++ perl.o: str.h
++ perl.o: util.h
++ regcomp.o: EXTERN.h
++ regcomp.o: INTERN.h
++ regcomp.o: arg.h
++ regcomp.o: array.h
++ regcomp.o: cmd.h
++ regcomp.o: config.h
++ regcomp.o: form.h
++ regcomp.o: handy.h
++ regcomp.o: hash.h
++ regcomp.o: perl.h
++ regcomp.o: regcomp.c
++ regcomp.o: regcomp.h
++ regcomp.o: regexp.h
++ regcomp.o: spat.h
++ regcomp.o: stab.h
++ regcomp.o: str.h
++ regcomp.o: util.h
++ regexec.o: EXTERN.h
++ regexec.o: arg.h
++ regexec.o: array.h
++ regexec.o: cmd.h
++ regexec.o: config.h
++ regexec.o: form.h
++ regexec.o: handy.h
++ regexec.o: hash.h
++ regexec.o: perl.h
++ regexec.o: regcomp.h
++ regexec.o: regexec.c
++ regexec.o: regexp.h
++ regexec.o: spat.h
++ regexec.o: stab.h
++ regexec.o: str.h
++ regexec.o: util.h
++ stab.o: EXTERN.h
++ stab.o: arg.h
++ stab.o: array.h
++ stab.o: cmd.h
++ stab.o: config.h
++ stab.o: form.h
++ stab.o: handy.h
++ stab.o: hash.h
++ stab.o: perl.h
++ stab.o: regexp.h
++ stab.o: spat.h
++ stab.o: stab.c
++ stab.o: stab.h
++ stab.o: str.h
++ stab.o: util.h
++ str.o: EXTERN.h
++ str.o: arg.h
++ str.o: array.h
++ str.o: cmd.h
++ str.o: config.h
++ str.o: form.h
++ str.o: handy.h
++ str.o: hash.h
++ str.o: perl.h
++ str.o: perly.h
++ str.o: regexp.h
++ str.o: spat.h
++ str.o: stab.h
++ str.o: str.c
++ str.o: str.h
++ str.o: util.h
++ toke.o: EXTERN.h
++ toke.o: arg.h
++ toke.o: array.h
++ toke.o: cmd.h
++ toke.o: config.h
++ toke.o: form.h
++ toke.o: handy.h
++ toke.o: hash.h
++ toke.o: perl.h
++ toke.o: perly.h
++ toke.o: regexp.h
++ toke.o: spat.h
++ toke.o: stab.h
++ toke.o: str.h
++ toke.o: toke.c
++ toke.o: util.h
++ util.o: EXTERN.h
++ util.o: arg.h
++ util.o: array.h
++ util.o: cmd.h
++ util.o: config.h
++ util.o: form.h
++ util.o: handy.h
++ util.o: hash.h
++ util.o: perl.h
++ util.o: regexp.h
++ util.o: spat.h
++ util.o: stab.h
++ util.o: str.h
++ util.o: util.c
++ util.o: util.h
++ atarist.o: EXTERN.h
++ atarist.o: arg.h
++ atarist.o: array.h
++ atarist.o: cmd.h
++ atarist.o: config.h
++ atarist.o: form.h
++ atarist.o: handy.h
++ atarist.o: hash.h
++ atarist.o: perl.h
++ atarist.o: regexp.h
++ atarist.o: spat.h
++ atarist.o: stab.h
++ atarist.o: str.h
++ atarist.o: atarist.c
++ atarist.o: util.h
++ 
++ malloc.o: EXTERN.h
++ malloc.o: arg.h
++ malloc.o: array.h
++ malloc.o: cmd.h
++ malloc.o: config.h
++ malloc.o: form.h
++ malloc.o: handy.h
++ malloc.o: hash.h
++ malloc.o: perl.h
++ malloc.o: regexp.h
++ malloc.o: spat.h
++ malloc.o: stab.h
++ malloc.o: str.h
++ malloc.o: malloc.c
++ malloc.o: util.h
++ 
+
+Index: os2/mktemp.c
+*** os2/mktemp.c.old	Mon Jun  8 17:49:56 1992
+--- os2/mktemp.c	Mon Jun  8 17:49:57 1992
+***************
+*** 1,28 ****
+! /* MKTEMP.C using TMP environment variable */
+! 
+! #include <stdio.h>
+! #include <stdlib.h>
+! #include <string.h>
+! #include <io.h>
+! 
+! void Mktemp(char *file)
+! {
+!   char fname[32], *tmp;
+! 
+!   tmp = getenv("TMP");
+! 
+!   if ( tmp != NULL )
+!   {
+!     strcpy(fname, file);
+!     strcpy(file, tmp);
+! 
+!     if ( file[strlen(file) - 1] != '\\' )
+!       strcat(file, "\\");
+! 
+!     strcat(file, fname);
+!   }
+! 
+!   mktemp(file);
+! }
+! 
+! /* End of MKTEMP.C */
+--- 1 ----
+! (deprecated)
+
+Index: hints/ncr_tower.sh
+*** hints/ncr_tower.sh.old	Mon Jun  8 17:48:06 1992
+--- hints/ncr_tower.sh	Mon Jun  8 17:48:06 1992
+***************
+*** 1,2 ****
+--- 1,8 ----
++ optimize='-O0'
+  ccflags="$ccflags -W2,-Sl,2000"
++ eval_cflags='large="-W0,-XL"'
++ teval_cflags=$eval_cflags
+  d_mkdir=$undef
++ usemymalloc='y'
++ mallocsrc='malloc.c'
++ mallocobj='malloc.o'
+
+Index: hints/next.sh
+*** hints/next.sh.old	Mon Jun  8 17:48:08 1992
+--- hints/next.sh	Mon Jun  8 17:48:09 1992
+***************
+*** 2,4 ****
+--- 2,5 ----
+  nativegcc='define'
+  groupstype="int"
+  usemymalloc="n"
++ libswanted='dbm sys_s'
+
+Index: atarist/test/osexample.pl
+*** atarist/test/osexample.pl.old	Mon Jun  8 17:45:10 1992
+--- atarist/test/osexample.pl	Mon Jun  8 17:45:11 1992
+***************
+*** 0 ****
+--- 1,5 ----
++ require 'osbind.pl';
++ 
++  &Cconws("Hello World\r\n");
++  $str = "This is a string being printed by Fwrite Gemdos trap\r\n";
++  &Fwrite(1, length($str), $str);
+
+*** End of Patch 27 ***
+exit 0 # Just in case...

@@ -1,0 +1,1588 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i011:  mailagent - Flexible mail filtering and processing package, v3.0, Part11/26
+Message-ID: <1993Dec2.133918.18570@sparky.sterling.com>
+X-Md4-Signature: ca55f9db7a7e930cd14e0fd5351ba0ab
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:39:18 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 11
+Archive-name: mailagent/part11
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/filter/io.c agent/filter/parser.c
+#   agent/pl/matching.pl
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:56 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 26)."'
+if test -f 'agent/filter/io.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/io.c'\"
+else
+  echo shar: Extracting \"'agent/filter/io.c'\" \(17850 characters\)
+  sed "s/^X//" >'agent/filter/io.c' <<'END_OF_FILE'
+X/*
+X
+X    #     ####            ####
+X    #    #    #          #    #
+X    #    #    #          #
+X    #    #    #   ###    #
+X    #    #    #   ###    #    #
+X    #     ####    ###     ####
+X
+X	I/O routines.
+X*/
+X
+X/*
+X * $Id: io.c,v 3.0 1993/11/29 13:48:10 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: io.c,v $
+X * Revision 3.0  1993/11/29  13:48:10  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include <sys/types.h>
+X#include "hash.h"
+X#include "parser.h"
+X#include "lock.h"
+X#include "logfile.h"
+X#include "environ.h"
+X#include "sysexits.h"
+X#include <stdio.h>
+X#include <errno.h>
+X#include <sys/stat.h>
+X
+X#ifdef I_SYS_WAIT
+X#include <sys/wait.h>
+X#endif
+X
+X#ifdef I_FCNTL
+X#include <fcntl.h>
+X#else
+X#include <sys/fcntl.h>
+X#endif
+X#ifdef I_SYS_FILE
+X#include <sys/file.h>
+X#endif
+X
+X#ifdef I_STRING
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#endif
+X#include "confmagic.h"
+X
+X#define BUFSIZE		1024			/* Amount of bytes read in a single call */
+X#define CHUNK		(10 * BUFSIZE)	/* Granularity of pool */
+X#define MAX_STRING	2048			/* Maximum string's length */
+X#define AGENT_WAIT	"agent.wait"	/* File listing out-of-the-queue mails */
+X#define AGENT_LOCK	"perl.lock"		/* Lock file used by mailagent */
+X
+Xprivate void pool_realloc();	/* Extend pool zone */
+Xprivate int get_lock();			/* Attempt to get a lockfile */
+Xprivate void release_agent();	/* Remove mailagent's lock if needed */
+Xprivate int process_mail();		/* Process mail by feeding the mailagent */
+Xprivate void queue_mail();		/* Queue mail for delayed processing */
+Xprivate char *write_file();		/* Write mail on disk */
+Xprivate char *save_file();		/* Emergency saving into a file */
+X
+Xprivate char *mail = (char *) 0;	/* Where mail is stored */
+Xprivate int len;					/* Mail length in bytes */
+Xprivate int queued = 0;				/* True when mail queued safely */
+X
+Xextern int errno;				/* System call error status */
+Xextern char *malloc();			/* Memory allocation */
+Xextern char *realloc();			/* Re-allocation of memory pool */
+Xextern char *logname();			/* User's login name */
+Xextern int loglvl;				/* Logging level */
+X
+Xprivate void read_stdin()
+X{
+X	/* Read the whole stdandard input into memory and return a pointer to its
+X	 * location in memory. Any I/O error is fatal. Set the length of the
+X	 * data read into 'len'.
+X	 */
+X
+X	int size;					/* Current size of memory pool */
+X	int amount = 0;				/* Total amount of data read */
+X	int n;						/* Bytes read by last system call */
+X	char *pool;					/* Where input is stored */
+X	char buf[BUFSIZE];
+X
+X	size = CHUNK;
+X	pool = malloc(size);
+X	if (pool == (char *) 0)
+X		fatal("out of memory");
+X
+X	add_log(19, "reading mail");
+X
+X	while (n = read(0, buf, BUFSIZE)) {
+X		if (n == -1) {
+X			add_log(1, "SYSERR read: %m (%e)");
+X			fatal("I/O error");
+X		}
+X		if (size - amount < n)				/* Pool not big enough */
+X			pool_realloc(&pool, &size);		/* Resize it or fail */
+X		bcopy(buf, pool + amount, n);		/* Copy read bytes */
+X		amount += n;						/* Update amount of bytes read */
+X	}
+X
+X	len = amount;				/* Indicate how many bytes where read */
+X
+X	add_log(16, "got mail (%d bytes)", amount);
+X
+X	mail = pool;				/* Where mail is stored */
+X}
+X
+Xpublic void process()
+X{
+X	char *queue;						/* Location of mailagent's queue */
+X
+X	(void) umask(077);					/* Files we create are private ones */
+X
+X	queue = ht_value(&symtab, "queue");	/* Fetch queue location */
+X	if (queue == (char *) 0)
+X		fatal("queue directory not defined");
+X
+X	read_stdin();						/* Read mail */
+X	(void) get_lock();					/* Get a lock file */
+X	queue_mail(queue);					/* Process also it locked */
+X	release_lock();						/* Release lock file if necessary */
+X}
+X
+Xpublic int was_queued()
+X{
+X	return queued;			/* Was mail queued? */
+X}
+X
+Xprivate void pool_realloc(pool, size)
+Xchar **pool;
+Xint *size;
+X{
+X	/* Make more room in pool and update parameters accordingly */
+X
+X	char *cpool = *pool;	/* Current location */
+X	int csize = *size;		/* Current size */
+X
+X	csize += CHUNK;
+X	cpool = realloc(cpool, csize);
+X	if (cpool == (char *) 0)
+X		fatal("out of memory");
+X	*pool = cpool;
+X	*size = csize;
+X}
+X
+Xprivate int get_lock()
+X{
+X	/* Try to get a filter lock in the spool directory. Propagate the return
+X	 * status of filter_lock(): 0 for ok, -1 for failure.
+X	 */
+X
+X	char *spool;						/* Location of spool directory */
+X
+X	spool = ht_value(&symtab, "spool");	/* Fetch spool location */
+X	if (spool == (char *) 0)
+X		fatal("spool directory not defined");
+X
+X	return filter_lock(spool);			/* Get a lock in spool directory */
+X}
+X
+Xprivate void release_agent()
+X{
+X	/* In case of abnormal failure, the mailagent may leave its lock file
+X	 * in the spool directory. Remove it if necessary.
+X	 */
+X
+X	char *spool;					/* Location of spool directory */
+X	char agentlock[MAX_STRING];		/* Where lock file is held */
+X	struct stat buf;				/* Stat buffer */
+X
+X	spool = ht_value(&symtab, "spool");	/* Fetch spool location */
+X	if (spool == (char *) 0)			/* Should not happen */
+X		return;
+X
+X	sprintf(agentlock, "%s/%s", spool, AGENT_LOCK);
+X	if (-1 == stat(agentlock, &buf))
+X		return;						/* Assume no lock file left behind */
+X
+X	if (-1 == unlink(agentlock)) {
+X		add_log(1, "SYSERR unlink: %m (%e)");
+X		add_log(2, "ERROR could not remove mailagent's lock");
+X	} else
+X		add_log(5, "NOTICE removed mailagent's lock");
+X}
+X
+Xprivate void queue_mail(queue)
+Xchar *queue;				/* Location of the queue directory */
+X{
+X	char *where;			/* Where mail is stored */
+X	char real[MAX_STRING];	/* Real queue mail */
+X	char *base;				/* Pointer to base name */
+X	struct stat buf;		/* To make sure queued file remains */
+X
+X	where = write_file(queue, "Tm");
+X	if (where == (char *) 0) {
+X		add_log(1, "ERROR unable to queue mail");
+X		fatal("try again later");
+X	}
+X
+X	/* If we have a lock, create a qm* file suitable for mailagent processing.
+X	 * Otherwise, create a fm* file and the mailagent will process it
+X	 * immediately.
+X	 */
+X	if (is_locked())
+X		sprintf(real, "%s/%s%d", queue, "qm", progpid);
+X	else
+X		sprintf(real, "%s/%s%d", queue, "fm", progpid);
+X
+X	if (-1 == rename(where, real)) {
+X		add_log(1, "SYSERR rename: %m (%e)");
+X		add_log(2, "ERROR could not rename %s into %s", where, real);
+X		fatal("try again later");
+X	}
+X
+X	/* Compute base name of queued mail */
+X	base = rindex(real, '/');
+X	if (base++ == (char *) 0)
+X		base = real;
+X
+X	add_log(4, "QUEUED [%s] %d bytes", base, len);
+X	queued = 1;
+X
+X	/* If we got a lock, then no mailagent is running and we may process the
+X	 * mail. Otherwise, do nothing. The mail will be processed by the currently
+X	 * active mailagent.
+X	 */
+X
+X	if (!is_locked())			/* Another mailagent is running */
+X		return;					/* Leave mail in queue */
+X
+X	if (0 == process_mail(real)) {
+X		/* Mailagent may have simply queued the mail for itself by renaming
+X		 * it, so of course we would not be able to remove it. Hence the
+X		 * test for ENOENT to avoid error messages when the file does not
+X		 * exit any more.
+X		 */
+X		if (-1 == unlink(real) && errno != ENOENT) {
+X			add_log(1, "SYSERR unlink: %m (%e)");
+X			add_log(2, "ERROR could not remove queued mail");
+X		}
+X		return;
+X	}
+X	/* Paranoia: make sure the queued mail is still there */
+X	if (-1 == stat(real, &buf)) {
+X		queued = 0;			/* Or emergency_save() would not do anything */
+X		add_log(1, "SYSERR stat: %m (%e)");
+X		add_log(1, "ERROR queue file [%s] vanished", base);
+X		if (-1 == emergency_save())
+X			add_log(1, "ERROR mail probably lost");
+X	} else {
+X		add_log(4, "WARNING mailagent failed, [%s] left in queue", base);
+X		release_agent();	/* Remove mailagent's lock file if needed */
+X	}
+X}
+X
+Xprivate int process_mail(location)
+Xchar *location;
+X{
+X	/* Process mail held in 'location' by invoking the mailagent on it. If the
+X	 * command fails, return -1. Otherwise, return 0;
+X	 * Note that we will exit if the first fork is not possible, but that is
+X	 * harmless, because we know the mail was safely queued, otherwise we would
+X	 * not be here trying to make the mailagent process it.
+X	 */
+X	
+X	FILE *fp;				/* The file pointer on pipe */
+X	char cmd[MAX_STRING];	/* The built command */
+X	char buf[MAX_STRING];	/* To store output from mailagent */
+X	char **envp;			/* Environment pointer */
+X#ifdef UNION_WAIT
+X	union wait status;		/* Waiting status */
+X#else
+X	int status;				/* Status from command */
+X#endif
+X	int xstat;				/* The exit status value */
+X	int pid;				/* Pid of our children */
+X	int res;				/* Result from wait */
+X
+X	if (loglvl <= 20) {		/* Loggging level higher than 20 is for tests */
+X		pid = fork();
+X		if (pid == -1) {	/* Resources busy, most probably */
+X			release_lock();
+X			add_log(1, "SYSERR fork: %m (%e)");
+X			add_log(6, "NOTICE exiting to save resources");
+X			exit(EX_OK);	/* Exiting will also release sendmail process */
+X		} else if (pid != 0)
+X			exit(EX_OK);	/* Release waiting sendmail */
+X	}
+X
+X	/* Now hopefully we detached ourselves from sendmail, which thinks the mail
+X	 * has been delivered. Not yet, but close. Simply wait a little in case
+X	 * more mail is comming. This process is going to remain alive while the
+X	 * mailagent is running so as to trap any weird exit status. But the size
+X	 * of the perl process (with script compiled) is about 1650K on my MIPS,
+X	 * so the more we delay the invocation, the better.
+X	 */
+X
+X	if (loglvl < 12)		/* Loggging level 12 and higher is for debugging */
+X		sleep(60);			/* Delay invocation of mailagent */
+X	progpid = getpid();		/* This may be the child (if fork succeded) */
+X	envp = make_env();		/* Build new environment */
+X
+X	pid = vfork();			/* Virtual fork this time... */
+X	if (pid == -1) {
+X		add_log(1, "SYSERR vfork: %m (%e)");
+X		add_log(1, "ERROR cannot run mailagent");
+X		return -1;
+X	}
+X
+X	if (pid == 0) {			/* This is the child */
+X		execle(PERLPATH, "perl", "-S", "mailagent", location, (char *) 0, envp);
+X		add_log(1, "SYSERR execle: %m (%e)");
+X		add_log(1, "ERROR cannot run perl to start mailagent");
+X		exit(EX_UNAVAILABLE);
+X	} else {				/* Parent process */
+X		while (pid != (res = wait(&status)))
+X			if (res == -1) {
+X				add_log(1, "SYSERR wait: %m (%e)");
+X				return -1;
+X			}
+X
+X#ifdef WEXITSTATUS
+X		if (WIFEXITED(status)) {			/* Exited normally */
+X			xstat = WEXITSTATUS(status);
+X			if (xstat != 0) {
+X				add_log(3, "ERROR mailagent returned status %d", xstat);
+X				return -1;
+X			}
+X		} else if (WIFSIGNALED(status)) {	/* Signal received */
+X			xstat = WTERMSIG(status);
+X			add_log(3, "ERROR mailagent terminated by signal %d", xstat);
+X			return -1;
+X		} else if (WIFSTOPPED(status)) {	/* Process stopped */
+X			xstat = WSTOPSIG(status);
+X			add_log(3, "WARNING mailagent stopped by signal %d", xstat);
+X			add_log(6, "NOTICE terminating mailagent, pid %d", pid);
+X			if (-1 == kill(pid, 15))
+X				add_log(1, "SYSERR kill: %m (%e)");
+X			return -1;
+X		} else
+X			add_log(1, "BUG please report bug 'posix-wait' to author");
+X#else
+X#ifdef UNION_WAIT
+X		xstat = status.w_status;
+X#else
+X		xstat = status;
+X#endif
+X		if ((xstat & 0xff) == 0177) {		/* Process stopped */
+X			xstat >>= 8;
+X			add_log(3, "WARNING mailagent stopped by signal %d", xstat);
+X			add_log(6, "NOTICE terminating mailagent, pid %d", pid);
+X			if (-1 == kill(pid, 15))
+X				add_log(1, "SYSERR kill: %m (%e)");
+X			return -1;
+X		} else if ((xstat & 0xff) != 0) {	/* Signal received */
+X			xstat &= 0xff;
+X			if (xstat & 0200) {				/* Dumped a core ? */
+X				xstat &= 0177;
+X				add_log(3, "ERROR mailagent dumped core on signal %d", xstat);
+X			} else
+X				add_log(3, "ERROR mailagent terminated by signal %d", xstat);
+X			return -1;
+X		} else {
+X			xstat >>= 8;
+X			if (xstat != 0) {
+X				add_log(3, "ERROR mailagent returned status %d", xstat);
+X				return -1;
+X			}
+X		}
+X#endif
+X	}
+X	
+X	add_log(19, "mailagent ok");
+X
+X	return 0;
+X}
+X
+Xpublic int emergency_save()
+X{
+X	/* Save mail in emeregency files and add the path to the agent.wait file,
+X	 * so that the mailagent knows where to look when processing its queue.
+X	 * Return -1 if the mail was not sucessfully saved, 0 otherwise.
+X	 */
+X
+X	char *where;			/* Where file was stored (static data) */
+X	char *home = homedir();	/* Location of the home directory */
+X	char path[MAX_STRING];	/* Location of the AGENT_WAIT file */
+X	char *queue;			/* Location of the queue directory */
+X	char *emergdir;			/* Emergency directory */
+X	int fd;					/* File descriptor to write in AGENT_WAIT */
+X	int size;				/* Length of 'where' string */
+X
+X	if (mail == (char *) 0)
+X		return -1;			/* Mail not read yet */
+X
+X	if (queued) {
+X		add_log(6, "NOTICE mail was safely queued");
+X		return 0;
+X	}
+X
+X	emergdir = ht_value(&symtab, "emergdir");
+X	if ((emergdir != (char *) 0) && (char *) 0 != (where = save_file(emergdir)))
+X		goto ok;
+X	if ((home != (char *) 0) && (char *) 0 != (where = save_file(home)))
+X		goto ok;
+X	if (where = save_file("/usr/spool/uucppublic"))
+X		goto ok;
+X	if (where = save_file("/var/spool/uucppublic"))
+X		goto ok;
+X	if (where = save_file("/usr/tmp"))
+X		goto ok;
+X	if (where = save_file("/var/tmp"))
+X		goto ok;
+X	if (where = save_file("/tmp"))
+X		goto ok;
+X
+X	return -1;		/* Could not save mail anywhere */
+X
+Xok:
+X	add_log(6, "DUMPED in %s", where);
+X	fprintf(stderr, "%s: DUMPED in %s\n", progname, where);
+X
+X	/* Attempt to write path of saved mail in the AGENT_WAIT file */
+X
+X	queue = ht_value(&symtab, "queue");
+X	if (queue == (char *) 0)
+X		return 0;
+X	sprintf(path, "%s/%s", queue, AGENT_WAIT);
+X	if (-1 == (fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0600))) {
+X		add_log(1, "SYSERR open: %m (%e)");
+X		add_log(6, "WARNING mailagent ignores where mail was left");
+X		return 0;
+X	}
+X	size = strlen(where);
+X	where[size + 1] = '\0';			/* Make room for trailing new-line */
+X	where[size] = '\n';
+X	if (-1 == write(fd, where, size + 1)) {
+X		add_log(1, "SYSERR write: %m (%e)");
+X		add_log(4, "ERROR could not append to %s", path);
+X		add_log(6, "WARNING mailagent ignores where mail was left");
+X	} else {
+X		where[size] = '\0';
+X		add_log(7, "NOTICE memorized %s", where);
+X		queued = 1;
+X	}
+X	close(fd);
+X
+X	return 0;
+X}
+X
+Xprivate char *save_file(dir)
+Xchar *dir;				/* Where saving should be done (directory) */
+X{
+X	/* Attempt to write mail in directory 'dir' and return a pointer to static
+X	 * data holding the path name of the saved file if writing was ok.
+X	 * Otherwise, return a null pointer and unlink any already created file.
+X	 */
+X
+X	struct stat buf;				/* Stat buffer */
+X
+X	/* Make sure 'dir' entry exists, although we do not make sure it is really
+X	 * a directory. If 'dir' is in fact a file, then open() will loudly
+X	 * complain. We only want to avoid spurious log messages.
+X	 */
+X
+X	if (-1 == stat(dir, &buf))		/* No entry in file system, probably */
+X		return (char *) 0;			/* Saving failed */
+X
+X	return write_file(dir, logname());
+X}
+X
+Xprivate char *write_file(dir, template)
+Xchar *dir;				/* Where saving should be done (directory) */
+Xchar *template;			/* First part of the file name */
+X{
+X	/* Attempt to write mail in directory 'dir' and return a pointer to static
+X	 * data holding the path name of the saved file if writing was ok.
+X	 * Otherwise, return a null pointer and unlink any already created file.
+X	 * The file 'dir/template.$$' is created (where '$$' refers to the pid of
+X	 * the current process). As login name <= 8 and pid is <= 5, we are below
+X	 * the fatidic 14 chars limit for filenames.
+X	 */
+X
+X	static char path[MAX_STRING];	/* Path name of created file */
+X	int fd;							/* File descriptor */
+X	register4 int n;				/* Result from the write system call */
+X	register1 char *mailptr;		/* Pointer into mail buffer */
+X	register2 int length;			/* Number of bytes already written */
+X	register3 int amount;			/* Amount of bytes written by last call */
+X	struct stat buf;				/* Stat buffer */
+X
+X	sprintf(path, "%s/%s.%d", dir, template, progpid);
+X
+X	if (-1 == (fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600))) {
+X		add_log(1, "SYSERR open: %m (%e)");
+X		add_log(2, "ERROR cannot create file %s", path);
+X		return (char *) 0;
+X	}
+X
+X	/* Write the mail on disk. We do not call a single write on the mail buffer
+X	 * as in "write(fd, mail, len)" in case the mail length exceeds the maximum
+X	 * amount of bytes the system can atomically write.
+X	 */
+X	
+X	for (
+X		mailptr = mail, length = 0;
+X		length < len;
+X		mailptr += amount, length += amount
+X	) {
+X		amount = len - length;
+X		if (amount > BUFSIZ)		/* Do not write more than BUFSIZ */
+X			amount = BUFSIZ;
+X		n = write(fd, mailptr, amount);
+X		if (n == -1 || n != amount) {
+X			if (n == -1)
+X				add_log(1, "SYSERR write: %m (%e)");
+X			add_log(2, "ERROR cannot write to file %s", path);
+X			close(fd);
+X			goto error;				/* Remove file and report error */
+X		}
+X	}
+X
+X	close(fd);
+X	add_log(19, "mail in %s", path);
+X
+X	/* I don't really trust writes through NFS soft-mounted partitions, and I
+X	 * am also suspicious about hard-mounted ones. I could have opened the file
+X	 * with the O_SYNC flag, but the effect on NFS is not well defined either.
+X	 * So, let's just make sure the mail has been correctly written on the disk
+X	 * by comparing the file size and the orginal message size. If they differ,
+X	 * complain and return an error.
+X	 */
+X
+X	if (-1 == stat(path, &buf))		/* No entry in file system, probably */
+X		return (char *) 0;			/* Saving failed */
+X
+X	if (buf.st_size != len) {		/* Not written entirely */
+X		add_log(2, "ERROR mail truncated to %d bytes (had %d)",
+X			buf.st_size, len);
+X		goto error;					/* Remove file and report error */
+X	}
+X
+X	return path;			/* Where mail was writen (static data) */
+X
+Xerror:		/* Come here when a write error has been detected */
+X
+X	if (-1 == unlink(path)) {
+X		add_log(1, "SYSERR unlink: %m (%e)");
+X		add_log(4, "WARNING leaving %s around", path);
+X	}
+X
+X	return (char *) 0;
+X}
+X
+X#ifndef HAS_RENAME
+Xpublic int rename(from, to)
+Xchar *from;				/* Original name */
+Xchar *to;				/* Target name */
+X{
+X	(void) unlink(to);
+X	if (-1 == link(from, to))
+X		return -1;
+X	if (-1 == unlink(from))
+X		return -1;
+X
+X	return 0;
+X}
+X#endif
+X
+END_OF_FILE
+  if test 17850 -ne `wc -c <'agent/filter/io.c'`; then
+    echo shar: \"'agent/filter/io.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/io.c'
+fi
+if test -f 'agent/filter/parser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/parser.c'\"
+else
+  echo shar: Extracting \"'agent/filter/parser.c'\" \(16535 characters\)
+  sed "s/^X//" >'agent/filter/parser.c' <<'END_OF_FILE'
+X/*
+X
+X #####     ##    #####    ####   ######  #####            ####
+X #    #   #  #   #    #  #       #       #    #          #    #
+X #    #  #    #  #    #   ####   #####   #    #          #
+X #####   ######  #####        #  #       #####    ###    #
+X #       #    #  #   #   #    #  #       #   #    ###    #    #
+X #       #    #  #    #   ####   ######  #    #   ###     ####
+X
+X	Parse a configuration file.
+X*/
+X
+X/*
+X * $Id: parser.c,v 3.0 1993/11/29 13:48:18 ram Exp ram $
+X *
+X *  Copyright (c) 1990-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic License,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic License; a copy of which may be found at the root
+X *  of the source tree for mailagent 3.0.
+X *
+X * $Log: parser.c,v $
+X * Revision 3.0  1993/11/29  13:48:18  ram
+X * Baseline for mailagent 3.0 netwide release.
+X *
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include "hash.h"
+X#include "msg.h"
+X#include <sys/types.h>
+X#include "logfile.h"
+X#include "environ.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X
+X#ifdef I_STRING
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#endif
+X
+X#ifndef HAS_GETHOSTNAME
+X#ifdef HAS_UNAME
+X#include <sys/utsname.h>
+X#endif
+X#endif
+X#include "confmagic.h"
+X
+X#define MAX_STRING	2048			/* Maximum length for strings */
+X#define SYMBOLS		50				/* Expected number of symbols */
+X
+X/* Function declarations */
+Xpublic void read_conf();			/* Read configuration file */
+Xpublic void set_env_vars();			/* Set envrionment variables */
+Xprivate void secure();				/* Perform basic security checks on file */
+Xprivate void check_perm();			/* Check permissions on file */
+Xprivate void get_home();			/* Extract home from /etc/passwd */
+Xprivate void substitute();			/* Variable and ~ substitutions */
+Xprivate void add_home();			/* Replace ~ with home directory */
+Xprivate void add_variable();		/* Replace $var by its value */
+Xprivate void insert_value();		/* Record variable value in H table */
+Xprivate char *machine_name();		/* Return the machine name */
+Xprivate char *strip_down();			/* Strip down domain name from host name */
+Xprivate void strip_comment();		/* Strip trailing comment in config line */
+Xprivate void start_log();			/* Start up logging */
+X
+Xprivate char *home = (char *) 0;	/* Location of the home directory */
+Xpublic struct htable symtab;		/* Symbol table */
+X
+Xextern char *strsave();				/* Save string value in memory */
+Xextern struct passwd *getpwuid();	/* Fetch /etc/passwd entry from uid */
+Xextern char *getenv();				/* Get environment variable */
+X
+Xpublic void read_conf(file)
+Xchar *file;
+X{
+X	/* Read file in the home directory and build a symbol H table on the fly.
+X	 * The ~ substitution and usual $var substitution occur (but not ${var}).
+X	 */
+X	
+X	char path[MAX_STRING];			/* Full path of the config file */
+X	char *rules;					/* Path of the rule file, if any */
+X	char mailagent[MAX_STRING];		/* Path of the configuration file */
+X	FILE *fd;						/* File descriptor used for config file */
+X	int line = 0;					/* Line number */
+X
+X	if (home == (char *) 0)			/* Home not already artificially set */
+X		get_home();					/* Get home directory via /etc/passwd */
+X
+X	/* Build full path for configuration file, based on $HOME */
+X	strcpy(path, home);
+X	strcat(path, "/");
+X	strcat(path, file);
+X	strcpy(mailagent, path);		/* Save configuration path for later */
+X
+X	fd = fopen(path, "r");
+X	if (fd == (FILE *) 0)
+X		fatal("cannot open config file %s", path);
+X
+X	/* Initialize the H table */
+X	if (-1 == ht_create(&symtab, SYMBOLS))
+X		fatal("cannot create symbol table");
+X
+X	while((char *) 0 != fgets(path, MAX_STRING - 1, fd)) {
+X		line ++;					/* One more line */
+X		substitute(path);			/* Standard parameter substitutions */
+X		insert_value(path, line);	/* Record value in hash table */
+X	}
+X	fclose(fd);
+X
+X
+X	/* Some security checks are in order here, or someone could set up a fake
+X	 * a config file for us and then let the mailagent execute arbitrary 
+X	 * commands under our uid. These tests are performed after the parsing of
+X	 * the file, to allow logging of errors.
+X	 */
+X
+X	start_log();					/* Start up loging */
+X	secure(mailagent);				/* Perform basic security checks */
+X
+X	/* Final security check on the rule file, if provided. The constraints are
+X	 * the same as those for the ~/.mailagent configuration file. This is
+X	 * because a rule can specify a RUN command, which will start a process
+X	 * with the user's privileges.
+X	 */
+X
+X	rules = ht_value(&symtab, "rules");	/* Fetch rules location */
+X	if (rules == (char *) 0)			/* No rule file, that's fine */
+X		return;
+X
+X	check_perm(rules);				/* Might not exist, don't use secure() */
+X}
+X
+Xprivate void start_log()
+X{
+X	/* Start up logging, if possible. Note that not defining a logging
+X	 * directory or a logging level is a fatal error.
+X	 */
+X
+X	char logfile[MAX_STRING];		/* Location of logfile */
+X	char *value;					/* Symbol value */
+X	int level = 0;					/* Logging level wanted */
+X
+X	value = ht_value(&symtab, "logdir");	/* Fetch logging directory */
+X	if (value == (char *) 0)
+X		fatal("logging directory not defined");
+X	strcpy(logfile, value);
+X	strcat(logfile, "/");
+X
+X	value = ht_value(&symtab, "log");		/* Basename of the log file */
+X	if (value == (char *) 0)
+X		fatal("logfile not defined");
+X	strcat(logfile, value);
+X
+X	value = ht_value(&symtab, "level");		/* Fetch logging level */
+X	if (value == (char *) 0)
+X		fatal("no logging level defined");
+X	sscanf(value, "%d", &level);
+X
+X	set_loglvl(level);						/* Logging level wanted */
+X	if (-1 == open_log(logfile))
+X		fprintf(stderr, "%s: cannot open logfile %s\n", progname, logfile);
+X}
+X
+Xprivate void secure(file)
+Xchar *file;
+X{
+X	/* Make sure the file is owned by the effective uid, and that it is not
+X	 * world writable. Otherwise, simply abort with a fatal error.
+X	 * Returning from this routine implies that the security checks succeeded.
+X	 */
+X
+X	struct stat buf;		/* Statistics buffer */
+X
+X	if (-1 == stat(file, &buf)) {
+X		add_log(1, "SYSERR stat: %m (%e)");
+X		fatal("cannot stat file %s", file);
+X	}
+X
+X	check_perm(file);		/* Check permissions */
+X}
+X
+Xprivate void check_perm(file)
+Xchar *file;
+X{
+X	/* Check basic permissions on the specified file. If cannot be world
+X	 * writable and must be owned by the user. If the file specified does not
+X	 * exist, no error is reported however.
+X	 */
+X
+X	struct stat buf;		/* Statistics buffer */
+X
+X	if (-1 == stat(file, &buf))
+X		return;
+X
+X#ifndef S_IWOTH
+X#define S_IWOTH 00002		/* Write permissions for other */
+X#endif
+X
+X	if (buf.st_mode & S_IWOTH)
+X		fatal("file %s is world writable!", file);
+X
+X	if (buf.st_uid != geteuid())
+X		fatal("file %s not owned by user!", file);
+X}
+X
+Xpublic char *homedir()
+X{
+X	return home;			/* Location of the home directory */
+X}
+X
+Xpublic void env_home()
+X{
+X	home = getenv("HOME");		/* For tests only -- see main.c */
+X	if (home != (char *) 0)
+X		home = strsave(home);	/* POSIX getenv() returns ptr to static data */
+X}
+X
+Xprivate void get_home()
+X{
+X	/* Get home directory out of /etc/passwd file */
+X
+X	struct passwd *pp;				/* Pointer to passwd entry */
+X
+X	pp = getpwuid(geteuid());
+X	if (pp == (struct passwd *) 0)
+X		fatal("cannot locate home directory");
+X	home = strsave(pp->pw_dir);
+X	if (home == (char *) 0)
+X		fatal("no more memory");
+X}
+X
+Xpublic void set_env_vars(envp)
+Xchar **envp;				/* The environment pointer */
+X{
+X	/* Set the all environment variable correctly. If the configuration file
+X	 * defines a variable of the form 'p_host' where "host" is the lowercase
+X	 * name of the machine (domain name stripped), then that value is prepended
+X	 * to the current value of the PATH variable. We also set HOME and TZ if
+X	 * there is a 'timezone' variable in the config file.
+X	 */
+X
+X	char *machine = machine_name();		/* The machine name */
+X	char *path_val;						/* Path value to append */
+X	char *tz;							/* Time zone value */
+X	char name[MAX_STRING];				/* Built 'p_host' */
+X
+X	init_env(envp);						/* Built the current environment */
+X
+X	/* If there is a path: entry in the ~/.mailagent, it is used to replace
+X	 * then current PATH value. This entry is of course not mandatory. If not
+X	 * present, we'll simply prepend the added path 'p_host' to the existing
+X	 * value provided by sendmail, cron, or whoever invoked us.
+X	 */
+X	path_val = ht_value(&symtab, "path");
+X	if (path_val != (char *) 0) {
+X		if (-1 == set_env("PATH", path_val))
+X			fatal("cannot initialize PATH");
+X	}
+X
+X	sprintf(name, "p_%s", machine);		/* Name of field in ~/.mailagent */
+X	path_val = ht_value(&symtab, name);	/* Exists ? */
+X	if (path_val != (char *) 0) {		/* Yes, prepend its value */
+X		add_log(19, "updating PATH with '%s' from config file", name);
+X		if (-1 == prepend_env("PATH", ":"))
+X			fatal("cannot set PATH variable");
+X		if (-1 == prepend_env("PATH", path_val))
+X			fatal("cannot set PATH variable");
+X	}
+X
+X	/* Also set a correct value for the home directory */
+X	if (-1 == set_env("HOME", home))
+X		fatal("cannot set HOME variable");
+X
+X	/* If there is a 'timezone' variable, set TZ accordingly */
+X	tz = ht_value(&symtab, "timezone");	/* Exists ? */
+X	if (tz != (char *) 0) {
+X		if (-1 == set_env("TZ", tz))
+X			add_log(1, "ERROR cannot set TZ variable");
+X	}
+X}
+X
+Xprivate void substitute(value)
+Xchar *value;
+X{
+X	/* Run parameter and ~ substitution in-place */
+X
+X	char buffer[MAX_STRING];		/* Copy on which we work */
+X	char *ptr = buffer;				/* To iterate over the buffer */
+X	char *origin = value;			/* Save origin pointer */
+X
+X	strcpy(buffer, value);			/* Make a copy of original line */
+X	while (*value++ = *ptr)			/* Line is updated in-place */
+X		switch(*ptr++) {
+X		case '~':					/* Replace by home directory */
+X			add_home(&value);
+X			break;
+X		case '$':					/* Variable substitution */
+X			add_variable(&value, &ptr);
+X			break;
+X		}
+X}
+X
+Xprivate void add_home(to)
+Xchar **to;						/* Pointer to address in substituted text */
+X{
+X	/* Add home directory at the current location. If the 'home' symbol has
+X	 * been found, use that instead.
+X	 */
+X
+X	char *value = *to - 1;		/* Go back to overwrite the '~' */
+X	char *ptr = home;			/* Where home directory string is stored */
+X	char *symbol;				/* Symbol entry for 'home' */
+X
+X	if (strlen(home) == 0)		/* As a special case, this is empty when */
+X		ptr = "/";				/* referring to the root directory */
+X
+X	symbol = ht_value(&symtab, "home");		/* Maybe we saw  'home' already */
+X	if (symbol != (char *) 0)				/* Yes, we did */
+X		ptr = symbol;						/* Use it for ~ substitution */
+X
+X	while (*value++ = *ptr++)	/* Copy string */
+X		;
+X
+X	*to = value - 1;			/* Update position in substituted string */
+X}
+X
+Xprivate void add_variable(to, from)
+Xchar **to;						/* Pointer to address in substituted text */
+Xchar **from;					/* Pointer to address in original text */
+X{
+X	/* Add value of variable at the current location */
+X
+X	char *value = *to - 1;		/* Go back to overwrite the '$' */
+X	char *ptr = *from;			/* Start of variable's name */
+X	char buffer[MAX_STRING];	/* To hold the name of the variable */
+X	char *name = buffer;		/* To advance in buffer */
+X	char *dol_value;			/* $value of variable */
+X
+X	/* Get variable's name */
+X	while (*name++ = *ptr) {
+X		if (isalnum(*ptr))
+X			ptr++;
+X		else
+X			break;
+X	}
+X
+X	*(name - 1) = '\0';			/* Ensure null terminated string */
+X	*from = ptr;				/* Update pointer in original text */
+X
+X	/* Fetch value of variable recorded so far */
+X	dol_value = ht_value(&symtab, buffer);
+X	if (dol_value == (char *) 0)
+X		return;
+X
+X	/* Do the variable substitution */
+X	while (*value++ = *dol_value++)
+X		;
+X	
+X	*to = value - 1;			/* Update pointer to substituted text */
+X}
+X
+Xprivate void insert_value(path, line)
+Xchar *path;						/* The whole line */
+Xint line;						/* The line number, for error reports */
+X{
+X	/* Analyze the line after parameter substitution and record the value of
+X	 * the variable in the hash table. The line has the following format:
+X	 *    name  :  value	# trailing comment
+X	 * If only spaces are encoutered or if the first non blank value is a '#',
+X	 * then the line is ignored. Otherwise, any error in parsing is reported.
+X	 */
+X
+X	char name[MAX_STRING];				/* The name of the variable */
+X	char *nptr = name;					/* To fill in the name buffer */
+X
+X	while (isspace(*path))				/* Skip leading spaces */
+X		path++;
+X
+X	if (*path == '#')					/* A comment */
+X		return;							/* Ignore the whole line */
+X	if (*path == '\0')					/* A line full of spaces */
+X		return;							/* Ignore it */
+X
+X	while (*nptr++ = *path) {			/* Copy everything until non alphanum */
+X		if (*path == '_') {
+X			/* Valid variable character, although not 'isalnum' */
+X			path++;
+X			continue;
+X		} else if (!isalnum(*path++))	/* Reached a non-alphanumeric char */
+X			break;						/* We got variable name */
+X	}
+X	*(nptr - 1) = '\0';					/* Overwrite the ':' with '\0' */
+X	path--;								/* Go back on non-alphanum char */
+X	while (*path)						/* Now go and find the ':' */
+X		if (*path++ == ':')				/* Found it */
+X			break;
+X
+X	/* We reached the end of the string without seeing a ':' */
+X	if (*path == '\0') {
+X		fprintf(stderr, "syntax error in config file, line %d\n", line);
+X		return;
+X	}
+X
+X	while (isspace(*path))					/* Skip leading spaces in value */
+X		path++;
+X	path[strlen(path) - 1] = '\0';			/* Chop final newline */
+X	strip_comment(path);					/* Remove trailing comment */
+X	(void) ht_put(&symtab, name, path);		/* Add value into symbol table */
+X}
+X
+Xprivate void strip_comment(line)
+Xchar *line;
+X{
+X	/* Remove anything after first '#' on line (trailing comment) and also
+X	 * strip any trailing spaces (including those right before the '#'
+X	 * character).
+X	 */
+X
+X	char *first = (char *) 0;		/* First space in sequence */
+X	char c;							/* Character at current position */
+X
+X	while (c = *line++) {
+X		if (isspace(c) && first != (char *) 0)
+X			continue;
+X		if (c == '#') {					/* This has to be a comment */
+X			if (first != (char *) 0)	/* Position of first preceding space */
+X				*first = '\0';			/* String ends at first white space */
+X			*(line - 1) = '\0';			/* Also truncate at '#' position */
+X			return;						/* Done */
+X		}
+X		if (isspace(c))
+X			first = line - 1;			/* Record first space position */
+X		else
+X			first = (char *) 0;			/* Signal: no active first space */
+X	}
+X
+X	/* We have not found any '#' sign, so there is no comment in this line.
+X	 * However, there might be trailing white spaces... Trim them.
+X	 */
+X	
+X	if (first != (char *) 0)
+X		*first = '\0';					/* Get rid of trailing white spaces */
+X}
+X
+Xprivate char *machine_name()
+X{
+X	/* Compute the local machine name, using only lower-cased names and
+X	 * stipping down any domain name. The result points on a freshly allocated
+X	 * string. A null pointer is returned in case of error.
+X	 */
+X	
+X#ifdef HAS_GETHOSTNAME
+X	char name[MAX_STRING + 1];		/* The host name */
+X#else
+X#ifdef HAS_UNAME
+X	struct utsname un;				/* The internal uname structure */
+X#else
+X#ifdef PHOSTNAME
+X	char *command = PHOSTNAME;		/* Shell command to get hostname */
+X	FILE *fd;						/* File descriptor on popen() */
+X	char name[MAX_STRING + 1];		/* The host name read from command */
+X	char buffer[MAX_STRING + 1];	/* Input buffer */
+X#endif
+X#endif
+X#endif
+X
+X#ifdef HAS_GETHOSTNAME
+X	if (-1 != gethostname(name, MAX_STRING))
+X		return strip_down(name);
+X
+X	add_log(1, "SYSERR gethostname: %m (%e)");
+X	return (char *) 0;
+X#else
+X#ifdef HAS_UNAME
+X	if (-1 != uname(&un))
+X		return strip_down(un.nodename);
+X
+X	add_log(1, "SYSERR uname: %m (%e)");
+X	return (char *) 0;
+X#else
+X#ifdef PHOSTNAME
+X	fd = popen(PHOSTNAME, "r");
+X	if (fd != (FILE *) 0) {
+X		fgets(buffer, MAX_STRING, fd);
+X		fclose(fd);
+X		sscanf(buffer, "%s", name);
+X		return strip_down(name);
+X	}
+X
+X	add_log(1, "SYSERR cannot run %s: %m (%e)", PHOSTNAME);
+X#endif
+X	return strip_down(MYHOSTNAME);
+X#endif
+X#endif
+X}
+X
+Xprivate char *strip_down(host)
+Xchar *host;
+X{
+X	/* Return a freshly allocated string containing the host name. The string
+X	 * is lower-cased and the domain part is removed from the name.
+X	 * If any '-' is found in the hostname, it is translated into a '_', since
+X	 * it would not otherwise be a valid variable name for perl.
+X	 */
+X	
+X	char name[MAX_STRING + 1];		/* Constructed name */
+X	char *ptr = name;
+X	char c;
+X
+X	if (host == (char *) 0)
+X		return (char *) 0;
+X
+X	while (c = *host) {				/* Lower-case name */
+X		if (isupper(c))
+X			*ptr = tolower(c);
+X		else {
+X			if (c == '-')			/* Although '-' is a valid hostname char */
+X				c = '_';			/* It's not a valid perl variable char */
+X			*ptr = c;
+X		}
+X		if (c != '.') {				/* Found a domain delimiter? */
+X			host++;					/* No, continue */
+X			ptr++;
+X		} else
+X			break;					/* Yes, we end processing there */
+X	}
+X	*ptr = '\0';					/* Ensure null-terminated string */
+X
+X	add_log(19, "hostname is %s", name);
+X
+X	return strsave(name);			/* Save string in memory */
+X}
+X
+END_OF_FILE
+  if test 16535 -ne `wc -c <'agent/filter/parser.c'`; then
+    echo shar: \"'agent/filter/parser.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/parser.c'
+fi
+if test -f 'agent/pl/matching.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/matching.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/matching.pl'\" \(16083 characters\)
+  sed "s/^X//" >'agent/pl/matching.pl' <<'END_OF_FILE'
+X;# $Id: matching.pl,v 3.0 1993/11/29 13:49:00 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: matching.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:00  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X#
+X# Matching functions
+X#
+X
+X# List of special header selector, for which a pattern without / is to be
+X# taken as an equality with the login name of the address. If there are some
+X# metacharacters, then a match will be attempted on that name. For each of
+X# those special headers, we record the name of the subroutine to be called.
+X# If a matching function is not specified, the default is 'match_var'.
+X# The %Amatcher gives the name of the fields which contains an address.
+Xsub init_matcher {
+X	%Matcher = (
+X		'From',				'match_single',
+X		'To',				'match_list',
+X		'Cc',				'match_list',
+X		'Apparently-To',	'match_list',
+X		'Newsgroups',		'match_list',
+X		'Sender',			'match_single',
+X		'Resent-From',		'match_single',
+X		'Resent-To',		'match_list',
+X		'Resent-Cc',		'match_list',
+X		'Resent-Sender',	'match_single',
+X		'Reply-To',			'match_single',
+X	);
+X	%Amatcher = (
+X		'From',				1,
+X		'To',				1,
+X		'Cc',				1,
+X		'Apparently-To',	1,
+X		'Sender',			1,
+X		'Resent-From',		1,
+X		'Resent-To',		1,
+X		'Resent-Cc',		1,
+X		'Resent-Sender',	1,
+X		'Reply-To',			1,
+X	);
+X}
+X
+X# Transform a shell-style pattern into a perl pattern
+Xsub perl_pattern {
+X	local($_) = @_;		# The shell pattern
+X	s/\./\\./g;			# Escape .
+X	s/\*/.*/g;			# Transform * into .*
+X	s/\?/./g;			# Transform ? into .
+X	$_;					# Perl pattern
+X}
+X
+X# Take a pattern as written in the rule file and make it suitable for
+X# pattern matching as understood by perl. If the pattern starts with a
+X# leading /, nothing is done. Otherwise, a set of / are added.
+X# match (1st case).
+Xsub make_pattern {
+X	local($_) = shift(@_);
+X	unless (m|^/|) {				# Pattern does not start with a /
+X		$_ = &perl_pattern($_);		# Simple words specified via shell patterns
+X		$_ = "/^$_\$/";				# Anchor pattern
+X	}
+X	# The whole pattern is inserted within () to make at least one
+X	# backreference. Otherwise, the following could happen:
+X	#    $_ = '1 for you';
+X	#    @matched = /^\d/;
+X	#    @matched = /^(\d)/;
+X	# In both cases, the @matched array is set to ('1'), with no way to
+X	# determine whether it is due to a backreference (2nd case) or a sucessful
+X	# match. Knowing we have at least one bracketed reference is enough to
+X	# disambiguate.
+X	s|^/(.*)/|/($1)/|;		# Enclose whole pattern within ()
+X	$_;						# Pattern suitable for eval'ed matching
+X}
+X
+X# ### Main matching entry point ###
+X# ### (called from &apply_rules in pl/analyze.pl)
+X# Attempt a match of a set of pattern, for each possible selector. The selector
+X# string given can contain multiple selectors separated by white spaces.
+Xsub match {
+X	local($selector) = shift(@_);	# The selector on which pattern applies
+X	local($pattern) = shift(@_);	# The pattern or script to apply
+X	local($range) = shift(@_);		# The range on which pattern applies
+X	local($matched) = 0;			# Matching status returned
+X	# If the pattern is held within double quotes, it is assumed to be the name
+X	# of a file from which patterns may be found (one per line, shell comments
+X	# being ignored).
+X	if ($pattern !~ /^"/) {
+X		$matched = &apply_match($selector, $pattern, $range);
+X	} else {
+X		# Load patterns from file whose name is given between "quotes"
+X		local(@filepat) = &include_file($pattern, 'pattern');
+X		# Now do the match for all the patterns. Stop as soon as one matches.
+X		foreach (@filepat) {
+X			$matched = &apply_match($selector, $_, $range);
+X			last if $matched;
+X		}
+X	}
+X	$matched ? 1 : 0;		# Return matching status (guaranteed numeric)
+X}
+X
+X# Attempt a pattern match on a set of selectors, and set the special macro %&
+X# to the name of the regexp-specified fields which matched.
+Xsub apply_match {
+X	local($selector) = shift(@_);	# The selector on which pattern applies
+X	local($pattern) = shift(@_);	# The pattern or script to apply
+X	local($range) = shift(@_);		# The range on which pattern applies
+X	local($matched) = 0;			# True when a matching occurred
+X	local($inverted) = 0;			# True whenever all '!' match succeeded
+X	local($invert) = 1;				# Set to false whenever a '!' match fails
+X	local($match);					# Matching status reported
+X	local($not) = '';				# Shall we negate matching status?
+X	if ($selector eq 'script') {	# Pseudo header selector
+X		$matched = &evaluate(*pattern);
+X	} else {						# True header selector
+X
+X		# There can be multiple selectors separated by white spaces. As soon as
+X		# one of them matches, we stop and return true. A selector may contain
+X		# metacharacters, in which case a regular pattern matching is attempted
+X		# on the true *header* fields (i.e. we skip the pseudo keys like Body,
+X		# Head, etc..). For instance, Return.* would attempt a match on the
+X		# field Return-Receipt-To:, if present. The special macro %& is set
+X		# to the list of all the fields on which the match succeeded
+X		# (alphabetically sorted).
+X
+X		foreach $select (split(/ /, $selector)) {
+X			$not = '';
+X			$select =~ s/^!// && ($not = '!');
+X			# Allowed metacharacters are listed here (no braces wanted)
+X			if ($select =~ /\.|\*|\[|\]|\||\\|\^|\?|\+|\(|\)/) {
+X				$match = &expr_selector_match($select, $pattern, $range);
+X			} else {
+X				$match = &selector_match($select, $pattern, $range);
+X			}
+X			if ($not) {								# Negated test
+X				$invert = !$match if $invert;
+X				$inverted = $invert if !$match;		# '!' tests AND'ed
+X			} else {
+X				$matched = $match;					# Normal tests OR'ed
+X			}
+X			last if $matched;		# Stop when matching status known
+X		}
+X	}
+X	$matched || $inverted;			# Return matching status
+X}
+X
+X# Attempt a pattern match on a set of selectors, and set the special macro %&
+X# to the name of the field which matched. If there is more than one such
+X# selector, values are separated using comas. If selector is preceded by a '!',
+X# then the matching status is negated and *all* the tested fields are recorded
+X# within %& when the returned status is 'true'.
+Xsub expr_selector_match {
+X	local($selector) = shift(@_);	# The selector on which pattern applies
+X	local($pattern) = shift(@_);	# The pattern or script to apply
+X	local($range) = shift(@_);		# The range on which pattern applies
+X	local($matched) = 0;			# True when a matching occurred
+X	local(@keys) = sort keys %Header;
+X	local($match);					# Local matching status
+X	local($not) = '';				# Shall boolean value be negated?
+X	local($orig_ampersand) = $macro_ampersand;	# Save %&
+X	$selector =~ s/^!// && ($not = '!');
+X	&add_log("field '$selector' has metacharacters") if $loglvl > 18;
+X	field: foreach $key (@keys) {
+X		next if $Pseudokey{$key};		# Skip Body, All...
+X		&add_log("'$select' tried on '$key'") if $loglvl > 19;
+X		next unless eval '$key =~ /' . $select . '/';
+X		$match = &selector_match($key, $pattern, $range);
+X		$matched = 1 if $match;			# Only one match needed
+X		# Record matching field for futher reference if a match occurred and
+X		# the selector does not start with a '!'. Record all the tested fields
+X		# if's starting with a '!' (because that's what is interesting in that
+X		# case). In that last case, the original macro will be restored if any
+X		# match occurs.
+X		if ($not || $match) {
+X			$macro_ampersand .= ',' if $macro_ampersand;
+X			$macro_ampersand =~ s/;,$/;/;
+X			$macro_ampersand .= $key;
+X		}
+X		if ($match) {
+X			&add_log("obtained match with '$key' field")
+X				if $loglvl > 18;
+X			next field;				# Try all the matching selectors
+X		}
+X		&add_log("no match with '$key' field") if $loglvl > 18;
+X	}
+X	$macro_ampersand .= ';';		# Set terminated with a ';'
+X	# No need to negate status if selector was preceded by a '!': this will
+X	# be done by apply match.
+X	$macro_ampersand = $orig_ampersand if $not && $matched;	# Restore %&
+X	&add_log("matching status for '$selector' ($range) is '$matched'")
+X		if $loglvl > 18;
+X	$matched;						# Return matching status
+X}
+X
+X# Attempt a match of a pattern against a selector, return boolean status.
+X# If pattern is preceded by a '!', the boolean status is negated.
+Xsub selector_match {
+X	local($selector) = shift(@_);	# The selector on which pattern applies
+X	local($pattern) = shift(@_);	# The pattern to apply
+X	local($range) = shift(@_);		# The range on which pattern applies
+X	local($matcher);				# Subroutine used to do the match
+X	local($matched);				# Record matching status
+X	local($not) = '';				# Shall we apply NOT on matching result?
+X	$selector = &header'normalize($selector);	# Normalize case
+X	$matcher = $Matcher{$selector};
+X	$matcher = 'match_var' unless $matcher;
+X	$pattern =~ s/^!// && ($not = '!');
+X	$matched = &$matcher($selector, $pattern, $range);
+X	$matched = !$matched if $not;	# Revert matching status if ! pattern
+X	if ($loglvl > 19) {
+X		local($logmsg) = "matching '$not$pattern' on '$selector' ($range) was ";
+X		$logmsg .= $matched ? "true" : "false";
+X		&add_log($logmsg);
+X	}
+X	$matched;				# Return matching status
+X}
+X
+X# Pattern matching functions:
+X#	They are invoked as function($selector, $pattern, $range) and return true
+X#	if the pattern is found in the variable, according to some internal rules
+X#	which are different among the functions. For instance, match_single will
+X#	attempt a match with a login name or a regular pattern matching on the
+X#	whole variable if the pattern was not a single word.
+X
+X# Matching is done in a header which only contains an internet address. The
+X# $range parameter is ignored (does not make any sense here). An optional 4th
+X# parameter may be supplied to specify the matching buffer. If absent, the
+X# corresponding header line is used -- this feature is used by &match_list.
+Xsub match_single {
+X	local($selector, $pattern, $range, $buffer) = @_;
+X	local($login) = 0;				# Set to true when attempting login match
+X	local(@matched);
+X	unless (defined $buffer) {		# No buffer for matching was supplied
+X		$buffer = $Header{$selector};
+X	}
+X	# If we attempt a match on a field holding e-mail addresses and the pattern
+X	# is anchored at the beginning with a /^, then we only keep the address
+X	# part and remove the comment if any. Otherwise, the field is left alone.
+X	# Of course, if the pattern is only a single name, we extract the login
+X	# name for matching purposes...
+X	if ($Amatcher{$selector}) {					# Field holds an e-mail address
+X		$buffer = (&parse_address($buffer))[0] if $pattern =~ m|^/\^|;
+X		if ($pattern =~ m|^[-\w.*?]+\s*$|) {	# Single name may have - or .
+X			$buffer = (&parse_address($buffer))[0];
+X			$buffer = &login_name($buffer);		# Match done only on login name
+X			$pattern =~ tr/A-Z/a-z/;	# Cannonicalize name to lower case
+X		}
+X		$login = 1 unless $pattern =~ m|^/|;	# Ask for case-insensitive match
+X	}
+X	$buffer =~ s/^\s+//;				# Remove leading spaces
+X	$buffer =~ s/\s+$//;				# And trailing ones
+X	$pattern = &make_pattern($pattern);
+X	$pattern .= "i" if $login;			# Login matches are case-insensitive
+X	@matched = eval '($buffer =~ ' . $pattern . ');';
+X	# If buffer is empty, we have to recheck the pattern in a non array context
+X	# to see if there is a match. Otherwise, /(.*)/ does not seem to match an
+X	# empty string as it returns an empty string in $matched[0]...
+X	$matched[0] = eval '$buffer =~ ' . $pattern if $buffer eq '';
+X	&eval_error;						# Make sure eval worked
+X	&update_backref(*matched);			# Record non-null backreferences
+X	$matched[0];						# Return matching status
+X}
+X
+X# Matching is done on a header field which may contains multiple addresses
+X# This will not work if there is a ',' in the comment part of the addresses,
+X# but I never saw that and I don't want to write complex code for that--RAM.
+X# If a range is specified, then only the items specified by the range are
+X# actually used.
+Xsub match_list {
+X	local($selector, $pattern, $range) = @_;
+X	local($_) = $Header{$selector};	# Work on a copy of the line
+X	tr/\n/ /;						# Make one big happy line
+X	local(@list) = split(/,/);		# List of addresses
+X	local($min, $max) = &mrange($range, scalar(@list));
+X	return 0 unless $min;			# No matching possible if null range
+X	local($buffer);					# Buffer on which pattern matching is done
+X	local($matched) = 0;			# Set to true when matching has occurred
+X	@list = @list[$min - 1 .. ($max > $#list ? $#list : $max - 1)]
+X		if $min != 1 || $max != 9_999_999;
+X	foreach $buffer (@list) {
+X		# Call match_single to perform the actual match and supply the matching
+X		# buffer as the last argument. Note that since range does not make
+X		# any sense for single matches, undef is passed on instead.
+X		$matched = &match_single($selector, $pattern, undef, $buffer);
+X		last if $matched;
+X	}
+X	$matched;
+X}
+X
+X# Look for a pattern in a multi-line context
+Xsub match_var {
+X	local($selector, $pattern, $range) = @_;
+X	local($lines) = 0;					# Number of lines in matching buffer
+X	if ($range ne '<1,->') {			# Optimize: count lines only if needed
+X		$lines = $Header{$selector} =~ tr/\n/\n/;
+X	}
+X	local($min, $max) = &mrange($range, $lines);
+X	return 0 unless $min;				# No matching possible if null range
+X	local($buffer);						# Buffer on which matching is attempted
+X	local(@buffer);						# Same, whith range line selected
+X	local(@matched);
+X	$pattern = &make_pattern($pattern);
+X	# Optimize, since range selection is the exception and not the rule.
+X	# Most likely, we use the default selection, i.e. we take everything...
+X	if ($min != 1 || $max != 9_999_999) {
+X		@buffer = split(/\n/, $Header{$selector});
+X		@buffer = @buffer[$min - 1 .. ($max > $#buffer ? $#buffer : $max - 1)];
+X		$buffer = join("\n", @buffer);		# Keep only selected lines
+X		undef @buffer;						# May be big, so free ASAP
+X	} else {
+X		$buffer = $Header{$selector};
+X	}
+X	$* = 1;								# Multi-line matching is attempted
+X	@matched = eval '($buffer =~ ' . $pattern . ');';
+X	# If buffer is empty, we have to recheck the pattern in a non array context
+X	# to see if there is a match. Otherwise, /(.*)/ does not seem to match an
+X	# empty string as it returns an empty string in $matched[0]...
+X	$matched[0] = eval '$buffer =~ ' . $pattern if $buffer eq '';
+X	&eval_error;						# Make sure eval worked
+X	&update_backref(*matched);			# Record non-null backreferences
+X	$* = 0;
+X	$matched[0];						# Return matching status
+X}
+X
+X#
+X# Backreference handling
+X#
+X
+X# Reseet the backreferences at the beginning of each rule match attempt
+X# The backreferences include %& and %1 .. %99.
+Xsub reset_backref {
+X	$macro_ampersand = '';			# List of matched generic selector
+X	@Backref = ();					# Stores backreferences provided by perl
+X}
+X
+X# Update the backward reference array. There is a maximum of 99 backreferences
+X# per filter rule. The argument list is an array of all the backreferences
+X# found in the pattern matching, but the first item has to be skipped: it is
+X# the whole matching string -- see comment on make_pattern().
+Xsub update_backref {
+X	local(*array) = @_;				# Array holding $1 .. $9, $10 ..
+X	local($i, $val);
+X	for ($i = 1; $i < @array; $i++) {
+X		$val = $array[$i];
+X		push(@Backref, $val);		# Stack backreference for later perusal
+X		&add_log("stacked '$val' as backreference") if $loglvl > 18;
+X	}
+X}
+X
+X#
+X# Range interpolation
+X#
+X
+X# Return minimum and maximum for range value. A range is specified as <min,max>
+X# but '-' may be used as min for 1 and max as a symbolic constant for the
+X# maximum value. An arbitrarily large number is returned in that case. If a
+X# negative value is used, it is added to the number of items and rounded towards
+X# 1 if still negative. That way, it is possible to request the last 10 items.
+Xsub mrange {
+X	local($range, $items) = @_;
+X	local($min, $max) = (1, 9_999_999);
+X	local($rmin, $rmax) = $range =~ /<\s*([\d-]*)\s*,\s*([\d-]*)\s*>/;
+X	$rmin = $min if $rmin eq '' || $rmin eq '-';
+X	$rmax = $max if $rmax eq '' || $rmax eq '-';
+X	$rmin = $rmin + $items + 1 if $rmin < 0;
+X	$rmax = $rmax + $items + 1 if $rmax < 0;
+X	$rmin = 1 if $rmin < 0;
+X	$rmax = 1 if $rmax < 0;
+X	($rmin, $rmax) = (0, 0) if $rmin > $rmax;	# Null range if min > max
+X	return ($rmin, $rmax);
+X}
+X
+END_OF_FILE
+  if test 16083 -ne `wc -c <'agent/pl/matching.pl'`; then
+    echo shar: \"'agent/pl/matching.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/matching.pl'
+fi
+echo shar: End of archive 11 \(of 26\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2176 @@
+Newsgroups: comp.sources.misc
+From: fitz@rpi.edu (Brian P. Fitzgerald)
+Subject: v39i069:  rperf - performance monitoring of network hosts, v2.1, Part01/03
+Message-ID: <csm-v39i069=rperf.161619@sparky.Sterling.COM>
+X-Md4-Signature: 07434db7da1ed7a35bd1b3e8f403bc1a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Rensselaer Polytechnic Institute, Troy NY
+Date: Mon, 30 Aug 1993 21:16:46 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: fitz@rpi.edu (Brian P. Fitzgerald)
+Posting-number: Volume 39, Issue 69
+Archive-name: rperf/part01
+Environment: UNIX
+
+rperf is similar to xmeter, or SunView perfmeter, but is intended for
+use on ascii terminals or for logging.  rperf obtains system statistics
+from one or more network hosts and prints them to the standard output
+at periodic intervals, in a format similar to rup, vmstat, and
+netstat.  rperf reports on cpu load, disk activity, network interace
+activity, and virtual memory activity.
+
+If invoked as "rup", it prints the uptime and system load.
+
+Building:
+
+Type "./configure", then "make".
+
+Running:
+
+Try "rperf" or "rperf <host>"
+Every monitored host must run rstatd.  Check with:
+rpcinfo -u <host> rstatd
+
+Send bug reports and fixes to fitz@rpi.edu.
+
+Runs on Sun, IBM, NeXT, HP, Alliant, IRIS, SCO.  If it runs on your
+machine, please tell me!
+
+Brian
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  The tool that generated this
+# shell archive is called "shar", and is available by anonymous ftp
+# from ftp.uu.net in subdirectory /usenet/comp.sources.unix, and from many
+# other places. Check 'archie' for the latest locations.  If this archive
+# is complete, you will see the following message at the end:
+#		"End of archive 1 (of 3)."
+# Contents:  README FAQ configure.in configure MANIFEST Makefile.in
+#   rstat.x rstat.h rstat_xdr.ed rstat_xdr.c rperf.8 strdup.c
+#   pathnames.h autoconf.1.3.patch PORTING
+# Wrapped by fitzgb@mml0.meche.rpi.edu on Mon Aug 30 15:01:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2959 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+Xrperf README file
+X----- ------ ----
+X
+Xrperf is similar to xmeter, or SunView perfmeter, but is intended for
+Xuse on ascii terminals or for logging.  rperf obtains system statistics
+Xfrom one or more network hosts and prints them to the standard output
+Xat periodic intervals, in a format similar to rup, vmstat, and
+Xnetstat.  rperf reports on cpu load, disk activity, network interface
+Xactivity, and virtual memory activity.
+X
+XIf installed as rup, the program prints the hostname, uptime, and load
+Xaverage once, then exits.  A hard or symbolic link to rperf may be used
+Xfor the installation.
+X
+XBUILDING:
+X--------
+XType "./configure", then type "make".
+X
+XHINTS:
+X-----
+X-  Copious syntax errors:  you may need to force K&R style
+Xcompilation.  In the Makefile, try modifying CFLAGS appropriately for
+Xyour compiler.
+X
+X-  on many systems, the symbols _xdr_* and _clnt_* are defined in
+Xthe C library.  On other systems, the needed objects are in other
+Xlibraries, and must be specified on the link command line.
+X
+X-  If the symbols are not defined in any library on your system, you
+Xcan obtain the RPC library by anonymous ftp from wuarchive.wustl.edu in
+X/systems/sun/sun-exchange/rpc4.0
+X
+X-  if the client stubs provided do not compile on your machine, but you
+Xhave rpcgen (usually /bin/rpcgen), type "make gen" first.
+X
+X-  if your system needs rpc.rstatd, you may obtain it from wuarchive in
+Xthe rpcsvc subdirectory of the rpc4.0 package listed above.  You will
+Xneed rstat_proc.c, rstat.x, and Makefile.
+X
+XI would appreciate receiving patches from anyone who needed to modify
+Xthe sources or the Makefile to make the program compile on their
+Xmachine.  Patches should be sent to fitz@rpi.edu.
+X
+XRUNNING:
+X-------
+X
+Xtype "rperf" to monitor all hosts on the local net, or "rperf host ..."
+Xto monitor a particular list of hosts.
+X
+XEvery monitored host must run rstatd.  Check with:
+X
+Xrpcinfo -u <host> rstatd
+X
+XIf rstatd is not registered, uncomment rstatd from /etc/inetd.conf on
+Xthe host to be monitored, and send the inetd process a SIGHUP, as
+Xfollows:
+X
+Xps axc | grep inetd (note pid of inetd)
+Xkill -HUP <pid>
+X
+Xrs6000 users check your manual for the appropriate smit command.
+X
+XKNOWN PROBLEMS:
+X----- ---------
+X
+XThe first rstat reply from a newly started rpc.rstatd daemon on aix3.1
+Xis often incorrect.  As a result, the first cpu states display will be
+Xincorrect.
+X
+XBus Error.  On some systems, object code generated by gcc version 1.xx
+Xmay be incompatible with system libraries.  In particular, the use of
+Xgcc version 1 on sparc stations will result in a bus error in
+Xclntudp_create().  For sparcstations, use to cc to compile, or a more
+Xrecent version of gcc.
+X
+XBUG REPORTS:
+X-----------
+X
+XSend bug reports, fixes, comments, and suggestions to fitz@rpi.edu.
+X
+XPLATFORMS:
+X---------
+X
+XAlliant
+XAmiga
+XESIX
+XHP
+XIBM
+XIRIS
+XMIPS
+XNeXT
+XSCO
+XSun
+XUltrix ...
+X
+XIf it runs on your machine, please tell me!
+X
+XBrian P. Fitzgerald
+XMechanics of Materials Laboratory
+XRensselaer Polytechnic Institute
+XTroy, New York
+END_OF_FILE
+if test 2959 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'FAQ' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FAQ'\"
+else
+echo shar: Extracting \"'FAQ'\" \(630 characters\)
+sed "s/^X//" >'FAQ' <<'END_OF_FILE'
+XAnswers to frequently asked questions about rperf
+X
+X1)  Could rperf report additional kernel statistics?
+X
+XIt could be done.  rperf queries rpc.rstatd, the network kernel
+Xstatistics daemon.  Currently, rpc.rstatd reports the statistics listed
+Xin /usr/rpcsvc/rstat.x.  You could extend rstat.x and then modify
+Xrpc.rstatd and rperf
+X
+X2)  Can rperf broadcast on just one network interface?
+X
+XNot easily.  The rperf broadcast mode uses the clnt_broadcast() routine
+Xin the RPC library.  clnt_broadcast() does not broadcast on a single
+Xinterface.  To confine the broadcast to a single network, run rperf
+Xfrom a host other than the gateway.
+END_OF_FILE
+if test 630 -ne `wc -c <'FAQ'`; then
+    echo shar: \"'FAQ'\" unpacked with wrong size!
+fi
+# end of 'FAQ'
+fi
+if test -f 'configure.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'configure.in'\"
+else
+echo shar: Extracting \"'configure.in'\" \(1331 characters\)
+sed "s/^X//" >'configure.in' <<'END_OF_FILE'
+Xdnl Process this file with autoconf to produce a configure script.
+XAC_INIT(configure.in)
+X
+X# configure.in for rperf
+X#
+X# This program may be copied, redistributed in any form, source or 
+X# binary, and used for any purpose, provided this copyright notice is 
+X# retained. 
+X# 
+X#    @(#)configure.in	2.1 8/30/93 (c) Copyright Brian P. Fitzgerald 
+X#    Rensselaer Polytechnic Institute 
+X
+XAC_SUBST(PROGS)
+XAC_SUBST(LIBPROGS)
+XAC_SUBST(LIBC)
+XAC_SUBST(CLNT_LIBS)
+XAC_SUBST(CFLAGS)
+X
+XAC_PROG_CC
+Xgccv1=`${CC-cc} -v  2>&1 | grep 'gcc version 1'`
+Xif test -n "$gccv1" ; then
+X    echo "Caution:  $gccv1 detected."
+X    echo "Some system library objects may be incompatible."
+X    echo "Using cc"
+X    CC=cc
+Xfi
+XAC_PROG_CPP
+XAC_PROG_RANLIB
+Xdnl AC_GCC_TRADITIONAL
+XAC_AIX
+XAC_MINIX
+XAC_SCO_INTL
+XAC_ISC_POSIX
+XAC_STDC_HEADERS
+X
+XAC_RETSIGTYPE
+XAC_UNISTD_H
+XAC_TIMEZONE
+X
+XAC_HAVE_HEADERS(sys/termio.h sys/bsd_tty.h)
+X
+XAC_HAVE_LIBRARY(rpc)
+XAC_HAVE_LIBRARY(inet)
+XAC_HAVE_LIBRARY(socket)
+XAC_HAVE_LIBRARY(c_s)
+XAC_HAVE_LIBRARY(termcap,
+X[   DEFS="$DEFS -DHAVE_LIBTERMCAP=1"
+X   LIBS="${LIBS} -ltermcap"],
+X[LIBOBJS="$LIBOBJS termcap.o"])
+X
+XAC_REPLACE_FUNCS(strftime strdup)
+Xif test -n "$LIBOBJS" ; then
+X    LIBC="libc.a"
+Xfi
+XAC_HAVE_FUNCS(setlinebuf)
+X
+XAC_IRIX_SUN	dnl -lsun
+XAC_OUTPUT(Makefile)
+Xecho ""
+Xecho "Configuration complete."
+Xecho ""
+Xecho "Now type 'make' to build rperf."
+END_OF_FILE
+if test 1331 -ne `wc -c <'configure.in'`; then
+    echo shar: \"'configure.in'\" unpacked with wrong size!
+fi
+# end of 'configure.in'
+fi
+if test -f 'configure' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'configure'\"
+else
+echo shar: Extracting \"'configure'\" \(15061 characters\)
+sed "s/^X//" >'configure' <<'END_OF_FILE'
+X#!/bin/sh
+X# Guess values for system-dependent variables and create Makefiles.
+X# Generated automatically using autoconf.
+X# Copyright (C) 1991, 1992, 1993 Free Software Foundation, Inc.
+X
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 2, or (at your option)
+X# any later version.
+X
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X# Usage: configure [--srcdir=DIR] [--host=HOST] [--gas] [--nfp] [--no-create]
+X#        [--prefix=PREFIX] [--exec-prefix=PREFIX] [--with-PACKAGE] [TARGET]
+X# Ignores all args except --srcdir, --prefix, --exec-prefix, --no-create, and
+X# --with-PACKAGE unless this script has special code to handle it.
+X
+X
+Xfor arg
+Xdo
+X  # Handle --exec-prefix with a space before the argument.
+X  if test x$next_exec_prefix = xyes; then exec_prefix=$arg; next_exec_prefix=
+X  # Handle --host with a space before the argument.
+X  elif test x$next_host = xyes; then next_host=
+X  # Handle --prefix with a space before the argument.
+X  elif test x$next_prefix = xyes; then prefix=$arg; next_prefix=
+X  # Handle --srcdir with a space before the argument.
+X  elif test x$next_srcdir = xyes; then srcdir=$arg; next_srcdir=
+X  else
+X    case $arg in
+X     # For backward compatibility, also recognize exact --exec_prefix.
+X     -exec-prefix=* | --exec_prefix=* | --exec-prefix=* | --exec-prefi=* | --exec-pref=* | --exec-pre=* | --exec-pr=* | --exec-p=* | --exec-=* | --exec=* | --exe=* | --ex=* | --e=*)
+X	exec_prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -exec-prefix | --exec_prefix | --exec-prefix | --exec-prefi | --exec-pref | --exec-pre | --exec-pr | --exec-p | --exec- | --exec | --exe | --ex | --e)
+X	next_exec_prefix=yes ;;
+X
+X     -gas | --gas | --ga | --g) ;;
+X
+X     -host=* | --host=* | --hos=* | --ho=* | --h=*) ;;
+X     -host | --host | --hos | --ho | --h)
+X	next_host=yes ;;
+X
+X     -nfp | --nfp | --nf) ;;
+X
+X     -no-create | --no-create | --no-creat | --no-crea | --no-cre | --no-cr | --no-c | --no- | --no)
+X        no_create=1 ;;
+X
+X     -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+X	prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+X	next_prefix=yes ;;
+X
+X     -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=* | --s=*)
+X	srcdir=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -srcdir | --srcdir | --srcdi | --srcd | --src | --sr | --s)
+X	next_srcdir=yes ;;
+X
+X     -with-* | --with-*)
+X       package=`echo $arg|sed 's/-*with-//'`
+X       # Delete all the valid chars; see if any are left.
+X       if test -n "`echo $package|sed 's/[-a-zA-Z0-9_]*//g'`"; then
+X         echo "configure: $package: invalid package name" >&2; exit 1
+X       fi
+X       eval "with_`echo $package|sed s/-/_/g`=1" ;;
+X
+X     *) ;;
+X    esac
+X  fi
+Xdone
+X
+Xtrap 'rm -f conftest* core; exit 1' 1 3 15
+X
+Xrm -f conftest*
+Xcompile='${CC-cc} $DEFS conftest.c -o conftest $LIBS >/dev/null 2>&1'
+X
+X# A filename unique to this package, relative to the directory that
+X# configure is in, which we can look for to find out if srcdir is correct.
+Xunique_file=configure.in
+X
+X# Find the source files, if location was not specified.
+Xif test -z "$srcdir"; then
+X  srcdirdefaulted=yes
+X  # Try the directory containing this script, then `..'.
+X  prog=$0
+X  confdir=`echo $prog|sed 's%/[^/][^/]*$%%'`
+X  test "X$confdir" = "X$prog" && confdir=.
+X  srcdir=$confdir
+X  if test ! -r $srcdir/$unique_file; then
+X    srcdir=..
+X  fi
+Xfi
+Xif test ! -r $srcdir/$unique_file; then
+X  if test x$srcdirdefaulted = xyes; then
+X    echo "configure: Can not find sources in \`${confdir}' or \`..'." 1>&2
+X  else
+X    echo "configure: Can not find sources in \`${srcdir}'." 1>&2
+X  fi
+X  exit 1
+Xfi
+X# Preserve a srcdir of `.' to avoid automounter screwups with pwd.
+X# But we can't avoid them for `..', to make subdirectories work.
+Xcase $srcdir in
+X  .|/*|~*) ;;
+X  *) srcdir=`cd $srcdir; pwd` ;; # Make relative path absolute.
+Xesac
+X
+X
+X# configure.in for rperf
+X#
+X# This program may be copied, redistributed in any form, source or 
+X# binary, and used for any purpose, provided this copyright notice is 
+X# retained. 
+X# 
+X#    @(#)configure.in	2.1 8/30/93 (c) Copyright Brian P. Fitzgerald 
+X#    Rensselaer Polytechnic Institute 
+X
+X
+X
+X
+X
+X
+X
+Xif test -z "$CC"; then
+X  echo checking for gcc
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/gcc; then
+X      CC="gcc"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$CC" && CC="cc"
+X
+X# Find out if we are using GNU C, under whatever name.
+Xcat > conftest.c <<EOF
+X#ifdef __GNUC__
+X  yes
+X#endif
+XEOF
+X${CC-cc} -E conftest.c > conftest.out 2>&1
+Xif egrep yes conftest.out >/dev/null 2>&1; then
+X  GCC=1 # For later tests.
+Xfi
+Xrm -f conftest*
+X
+Xgccv1=`${CC-cc} -v  2>&1 | grep 'gcc version 1'`
+Xif test -n "$gccv1" ; then
+X    echo "Caution:  $gccv1 detected."
+X    echo "Some system library objects may be incompatible."
+X    echo "Using cc"
+X    CC=cc
+Xfi
+Xecho checking how to run the C preprocessor
+Xif test -z "$CPP"; then
+X  CPP='${CC-cc} -E'
+X  cat > conftest.c <<EOF
+X#include <stdio.h>
+XEOF
+Xerr=`eval "$CPP $DEFS conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  :
+Xelse
+X  CPP=/lib/cpp
+Xfi
+Xrm -f conftest*
+Xfi
+X
+Xif test -z "$RANLIB"; then
+X  echo checking for ranlib
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/ranlib; then
+X      RANLIB="ranlib"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$RANLIB" && RANLIB="@:"
+X
+Xecho checking for AIX
+Xcat > conftest.c <<EOF
+X#ifdef _AIX
+X  yes
+X#endif
+X
+XEOF
+Xeval "$CPP $DEFS conftest.c > conftest.out 2>&1"
+Xif egrep "yes" conftest.out >/dev/null 2>&1; then
+X  DEFS="$DEFS -D_ALL_SOURCE=1"
+Xfi
+Xrm -f conftest*
+X
+X
+Xecho checking for minix/config.h
+Xcat > conftest.c <<EOF
+X#include <minix/config.h>
+XEOF
+Xerr=`eval "$CPP $DEFS conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  MINIX=1
+Xfi
+Xrm -f conftest*
+X
+X# The Minix shell can't assign to the same variable on the same line!
+Xif test -n "$MINIX"; then
+X  DEFS="$DEFS -D_POSIX_SOURCE=1"
+X  DEFS="$DEFS -D_POSIX_1_SOURCE=2"
+X  DEFS="$DEFS -D_MINIX=1"
+Xfi
+X
+Xecho checking for SCO UNIX libintl
+Xcat > conftest.c <<EOF
+X#if defined(M_UNIX)
+X  yes
+X#endif
+X
+XEOF
+Xeval "$CPP $DEFS conftest.c > conftest.out 2>&1"
+Xif egrep "yes" conftest.out >/dev/null 2>&1; then
+X  SCO_UNIX=1
+Xfi
+Xrm -f conftest*
+X
+Xtest -n "$SCO_UNIX" && test -f /lib/libintl.a &&
+X  LIBS="$LIBS -lintl" # For strftime.
+X
+Xecho checking for POSIXized ISC
+Xif test -d /etc/conf/kconfig.d &&
+X  grep _POSIX_VERSION /usr/include/sys/unistd.h >/dev/null 2>&1
+Xthen
+X  ISC=1 # If later tests want to check for ISC.
+X  DEFS="$DEFS -D_POSIX_SOURCE=1"
+X  if test -n "$GCC"; then
+X    CC="$CC -posix"
+X  else
+X    CC="$CC -Xp"
+X  fi
+Xfi
+X
+Xecho checking for ANSI C header files
+Xcat > conftest.c <<EOF
+X#include <stdlib.h>
+X#include <stdarg.h>
+X#include <string.h>
+X#include <float.h>
+XEOF
+Xerr=`eval "$CPP $DEFS conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  # SunOS string.h does not declare mem*, contrary to ANSI.
+Xecho '#include <string.h>' > conftest.c
+Xeval "$CPP $DEFS conftest.c > conftest.out 2>&1"
+Xif egrep "memchr" conftest.out >/dev/null 2>&1; then
+X  # SGI's /bin/cc from Irix-4.0.5 gets non-ANSI ctype macros unless using -ansi.
+Xcat > conftest.c <<EOF
+X#include <ctype.h>
+X#define ISLOWER(c) ('a' <= (c) && (c) <= 'z')
+X#define TOUPPER(c) (ISLOWER(c) ? 'A' + ((c) - 'a') : (c))
+X#define XOR(e,f) (((e) && !(f)) || (!(e) && (f)))
+Xint main () { int i; for (i = 0; i < 256; i++)
+Xif (XOR (islower (i), ISLOWER (i)) || toupper (i) != TOUPPER (i)) exit(2);
+Xexit (0); }
+X
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest; exit) 2>/dev/null; then
+X  DEFS="$DEFS -DSTDC_HEADERS=1"
+Xfi
+Xrm -f conftest*
+Xfi
+Xrm -f conftest*
+X
+Xfi
+Xrm -f conftest*
+X
+X
+Xecho checking for return type of signal handlers
+Xcat > conftest.c <<EOF
+X#include <sys/types.h>
+X#include <signal.h>
+X#ifdef signal
+X#undef signal
+X#endif
+Xextern void (*signal ()) ();
+Xmain() { exit(0); } 
+Xt() { int i; }
+XEOF
+Xif eval $compile; then
+X  DEFS="$DEFS -DRETSIGTYPE=void"
+Xelse
+X  DEFS="$DEFS -DRETSIGTYPE=int"
+Xfi
+Xrm -f conftest*
+X
+X
+Xecho checking for unistd.h
+Xcat > conftest.c <<EOF
+X#include <unistd.h>
+XEOF
+Xerr=`eval "$CPP $DEFS conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="$DEFS -DHAVE_UNISTD_H=1"
+Xfi
+Xrm -f conftest*
+X
+Xecho checking for struct tm in time.h
+Xcat > conftest.c <<EOF
+X#include <sys/types.h>
+X#include <time.h>
+Xmain() { exit(0); } 
+Xt() { struct tm *tp; }
+XEOF
+Xif eval $compile; then
+X  :
+Xelse
+X  DEFS="$DEFS -DTM_IN_SYS_TIME=1"
+Xfi
+Xrm -f conftest*
+X
+Xdecl='#include <sys/types.h>
+X'
+Xcase "$DEFS" in
+X  *TM_IN_SYS_TIME*) decl="$decl#include <sys/time.h>
+X" ;;
+X  *) decl="$decl#include <time.h>
+X" ;;
+Xesac
+Xecho checking for tm_zone in struct tm
+Xcat > conftest.c <<EOF
+X$decl
+Xmain() { exit(0); } 
+Xt() { struct tm tm; tm.tm_zone; }
+XEOF
+Xif eval $compile; then
+X  DEFS="$DEFS -DHAVE_TM_ZONE=1"
+Xelse
+X  no_tm_zone=1
+Xfi
+Xrm -f conftest*
+X
+Xif test -n "$no_tm_zone"; then
+Xecho checking for tzname
+Xcat > conftest.c <<EOF
+X#include <time.h>
+X#ifndef tzname /* For SGI.  */
+Xchangequote(,)dnl
+Xextern char *tzname[]; /* RS6000 and others want it this way.  */
+Xchangequote([,])dnl
+X#endif
+Xmain() { exit(0); } 
+Xt() { atoi(*tzname); }
+XEOF
+Xif eval $compile; then
+X  DEFS="$DEFS -DHAVE_TZNAME=1"
+Xfi
+Xrm -f conftest*
+X
+Xfi
+X
+X
+Xfor hdr in sys/termio.h sys/bsd_tty.h
+Xdo
+Xtrhdr=HAVE_`echo $hdr | tr '[a-z]./' '[A-Z]__'`
+Xecho checking for ${hdr}
+Xcat > conftest.c <<EOF
+X#include <${hdr}>
+XEOF
+Xerr=`eval "$CPP $DEFS conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="$DEFS -D${trhdr}=1"
+Xfi
+Xrm -f conftest*
+Xdone
+X
+X
+Xlibname=`echo "rpc" | sed 's/lib\([^\.]*\)\.a/\1/;s/-l//'`
+XLIBS_save="${LIBS}"
+XLIBS="${LIBS} -l${libname}"
+Xhave_lib=""
+Xecho checking for -lrpc
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { main(); }
+XEOF
+Xif eval $compile; then
+X  have_lib="1"
+Xfi
+Xrm -f conftest*
+XLIBS="${LIBS_save}"
+Xif test -n "${have_lib}"; then
+X      deflibname=`echo "${libname}" | tr '[a-z]' '[A-Z]'`
+X      DEFS="$DEFS -DHAVE_LIB${deflibname}=1"
+X   LIBS="${LIBS} -l${libname}"
+Xfi
+X
+Xlibname=`echo "inet" | sed 's/lib\([^\.]*\)\.a/\1/;s/-l//'`
+XLIBS_save="${LIBS}"
+XLIBS="${LIBS} -l${libname}"
+Xhave_lib=""
+Xecho checking for -linet
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { main(); }
+XEOF
+Xif eval $compile; then
+X  have_lib="1"
+Xfi
+Xrm -f conftest*
+XLIBS="${LIBS_save}"
+Xif test -n "${have_lib}"; then
+X      deflibname=`echo "${libname}" | tr '[a-z]' '[A-Z]'`
+X      DEFS="$DEFS -DHAVE_LIB${deflibname}=1"
+X   LIBS="${LIBS} -l${libname}"
+Xfi
+X
+Xlibname=`echo "socket" | sed 's/lib\([^\.]*\)\.a/\1/;s/-l//'`
+XLIBS_save="${LIBS}"
+XLIBS="${LIBS} -l${libname}"
+Xhave_lib=""
+Xecho checking for -lsocket
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { main(); }
+XEOF
+Xif eval $compile; then
+X  have_lib="1"
+Xfi
+Xrm -f conftest*
+XLIBS="${LIBS_save}"
+Xif test -n "${have_lib}"; then
+X      deflibname=`echo "${libname}" | tr '[a-z]' '[A-Z]'`
+X      DEFS="$DEFS -DHAVE_LIB${deflibname}=1"
+X   LIBS="${LIBS} -l${libname}"
+Xfi
+X
+Xlibname=`echo "c_s" | sed 's/lib\([^\.]*\)\.a/\1/;s/-l//'`
+XLIBS_save="${LIBS}"
+XLIBS="${LIBS} -l${libname}"
+Xhave_lib=""
+Xecho checking for -lc_s
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { main(); }
+XEOF
+Xif eval $compile; then
+X  have_lib="1"
+Xfi
+Xrm -f conftest*
+XLIBS="${LIBS_save}"
+Xif test -n "${have_lib}"; then
+X      deflibname=`echo "${libname}" | tr '[a-z]' '[A-Z]'`
+X      DEFS="$DEFS -DHAVE_LIB${deflibname}=1"
+X   LIBS="${LIBS} -l${libname}"
+Xfi
+X
+Xlibname=`echo "termcap" | sed 's/lib\([^\.]*\)\.a/\1/;s/-l//'`
+XLIBS_save="${LIBS}"
+XLIBS="${LIBS} -l${libname}"
+Xhave_lib=""
+Xecho checking for -ltermcap
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { main(); }
+XEOF
+Xif eval $compile; then
+X  have_lib="1"
+Xfi
+Xrm -f conftest*
+XLIBS="${LIBS_save}"
+Xif test -n "${have_lib}"; then
+X   :;    DEFS="$DEFS -DHAVE_LIBTERMCAP=1"
+X   LIBS="${LIBS} -ltermcap"
+Xelse
+X   :; LIBOBJS="$LIBOBJS termcap.o"
+Xfi
+X
+X
+Xfor func in strftime strdup
+Xdo
+Xecho checking for ${func}
+Xcat > conftest.c <<EOF
+X
+Xmain() { exit(0); } 
+Xt() { 
+X/* Override any gcc2 internal prototype to avoid an error.  */
+Xextern char ${func}(); ${func}(); }
+XEOF
+Xif eval $compile; then
+X  :
+Xelse
+X  LIBOBJS="$LIBOBJS ${func}.o"
+Xfi
+Xrm -f conftest*
+X
+Xdone
+X
+Xif test -n "$LIBOBJS" ; then
+X    LIBC="libc.a"
+Xfi
+Xfor func in setlinebuf
+Xdo
+Xtrfunc=HAVE_`echo $func | tr '[a-z]' '[A-Z]'`
+Xecho checking for ${func}
+Xcat > conftest.c <<EOF
+X#include <stdio.h>
+Xmain() { exit(0); } 
+Xt() { 
+X#ifdef __stub_${func}
+Xchoke me
+X#else
+X/* Override any gcc2 internal prototype to avoid an error.  */
+Xextern char ${func}(); ${func}();
+X#endif
+X }
+XEOF
+Xif eval $compile; then
+X  DEFS="$DEFS -D${trfunc}=1"
+Xfi
+Xrm -f conftest*
+X#endif
+Xdone
+X
+X
+Xecho checking for IRIX libsun
+Xif test -f /usr/lib/libsun.a; then
+X  LIBS="$LIBS -lsun"
+Xfi
+X	if test -n "$prefix"; then
+X  test -z "$exec_prefix" && exec_prefix='${prefix}'
+X  prsub="s%^prefix\\([ 	]*\\)=\\([ 	]*\\).*$%prefix\\1=\\2$prefix%"
+Xfi
+Xif test -n "$exec_prefix"; then
+X  prsub="$prsub
+Xs%^exec_prefix\\([ 	]*\\)=\\([ 	]*\\).*$%\
+Xexec_prefix\\1=\\2$exec_prefix%"
+Xfi
+X
+Xtrap 'rm -f config.status; exit 1' 1 3 15
+Xecho creating config.status
+Xrm -f config.status
+Xcat > config.status <<EOF
+X#!/bin/sh
+X# Generated automatically by configure.
+X# Run this file to recreate the current configuration.
+X# This directory was configured as follows,
+X# on host `(hostname || uname -n) 2>/dev/null`:
+X#
+X# $0 $*
+X
+Xfor arg
+Xdo
+X  case "\$arg" in
+X    -recheck | --recheck | --rechec | --reche | --rech | --rec | --re | --r)
+X    exec /bin/sh $0 $* ;;
+X    *) echo "Usage: config.status --recheck" 2>&1; exit 1 ;;
+X  esac
+Xdone
+X
+Xtrap 'rm -f Makefile; exit 1' 1 3 15
+XPROGS='$PROGS'
+XLIBPROGS='$LIBPROGS'
+XLIBC='$LIBC'
+XCLNT_LIBS='$CLNT_LIBS'
+XCFLAGS='$CFLAGS'
+XCC='$CC'
+XCPP='$CPP'
+XRANLIB='$RANLIB'
+XLIBOBJS='$LIBOBJS'
+XLIBS='$LIBS'
+Xsrcdir='$srcdir'
+XDEFS='$DEFS'
+Xprefix='$prefix'
+Xexec_prefix='$exec_prefix'
+Xprsub='$prsub'
+XEOF
+Xcat >> config.status <<\EOF
+X
+Xtop_srcdir=$srcdir
+Xfor file in .. Makefile; do if [ "x$file" != "x.." ]; then
+X  srcdir=$top_srcdir
+X  # Remove last slash and all that follows it.  Not all systems have dirname.
+X  dir=`echo $file|sed 's%/[^/][^/]*$%%'`
+X  if test "$dir" != "$file"; then
+X    test "$top_srcdir" != . && srcdir=$top_srcdir/$dir
+X    test ! -d $dir && mkdir $dir
+X  fi
+X  echo creating $file
+X  rm -f $file
+X  echo "# Generated automatically from `echo $file|sed 's|.*/||'`.in by configure." > $file
+X  sed -e "
+X$prsub
+Xs%@PROGS@%$PROGS%g
+Xs%@LIBPROGS@%$LIBPROGS%g
+Xs%@LIBC@%$LIBC%g
+Xs%@CLNT_LIBS@%$CLNT_LIBS%g
+Xs%@CFLAGS@%$CFLAGS%g
+Xs%@CC@%$CC%g
+Xs%@CPP@%$CPP%g
+Xs%@RANLIB@%$RANLIB%g
+Xs%@LIBOBJS@%$LIBOBJS%g
+Xs%@LIBS@%$LIBS%g
+Xs%@srcdir@%$srcdir%g
+Xs%@DEFS@%$DEFS%
+X" $top_srcdir/${file}.in >> $file
+Xfi; done
+X
+XEOF
+Xchmod +x config.status
+Xtest -n "$no_create" || ./config.status
+X
+Xecho ""
+Xecho "Configuration complete."
+Xecho ""
+Xecho "Now type 'make' to build rperf."
+END_OF_FILE
+if test 15061 -ne `wc -c <'configure'`; then
+    echo shar: \"'configure'\" unpacked with wrong size!
+fi
+chmod +x 'configure'
+# end of 'configure'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(803 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X README                     1	
+X FAQ                        1	
+X configure.in               1	
+X configure                  1	Type "sh ./configure".  Then "make"
+X MANIFEST                   1	This shipping list
+X Makefile.in                1	
+X rstat.x                    1	
+X rstat.h                    1	
+X rstat_xdr.ed               1	
+X rstat_xdr.c                1	
+X rperf.8                    1	
+X rperf.c                    2	
+X strdup.c                   1	Not found on all systems
+X strftime.c                 3	Not found on all systems
+X termcap.c                  2	Not found on all systems
+X pathnames.h                1	Not found on all systems
+X autoconf.1.3.patch         1	
+X PORTING                    1	
+END_OF_FILE
+if test 803 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.in'\"
+else
+echo shar: Extracting \"'Makefile.in'\" \(2991 characters\)
+sed "s/^X//" >'Makefile.in' <<'END_OF_FILE'
+X# Makefile for rperf
+X#
+X# This program may be copied, redistributed in any form, source or 
+X# binary, and used for any purpose, provided this copyright notice is 
+X# retained. 
+X# 
+X#    @(#)Makefile.in	2.1 8/30/93 (c) Copyright Brian P. Fitzgerald 
+X#    Rensselaer Polytechnic Institute 
+X
+XCLNT_PROG	= rperf
+XCLNT_SRCS	= rperf.c rstat_xdr.c
+XCLNT_OBJS	= rperf.o rstat_xdr.o
+XCLNT_LIBS	= @CLNT_LIBS@
+X
+XLIBS		= @LIBC@ @LIBS@
+X
+XGEN_SRCS	= rstat_clnt.c rstat_svc.c rstat_xdr.c rstat.h
+XGEN_OBJS	= rstat_xdr.o
+X
+XDBG_OBJS	= /usr/lib/debug/malloc.o /usr/lib/debug/mallocmap.o
+X
+XDEFS		= @DEFS@
+X
+XCFLAGS		= -g $(DEFS) @CFLAGS@
+XCFLAGS		= -O $(DEFS) @CFLAGS@
+X
+X# Caution:  On some systems, object code generated by gcc version 1.xx
+X# may be incompatible with system libraries.  In particular, the use
+X# of gcc version 1 on sparc stastions will result in a bus error in
+X# clntudp_create().
+X
+XCC		= @CC@
+XCOMPILE.c	= $(CC) $(CFLAGS) $(CPPFLAGS) -c
+XLINK.c		= $(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS)
+XRM		= rm -f
+XMAKE		= make
+X
+Xprefix		= /depot/rperf
+Xexec_prefix	= $(prefix)
+X
+XBIN		= $(exec_prefix)/arch/bin
+XMAN		= $(prefix)/man
+X
+X$(CLNT_PROG): $(CLNT_OBJS) @LIBC@
+X	$(LINK.c) -o $@ $(CLNT_OBJS) $(LIBS) $(CLNT_LIBS)
+X
+Xall: $(CLNT_PROG)
+X
+X
+Xlibc.a:	@LIBOBJS@
+X	ar rv libc.a @LIBOBJS@
+X	@RANLIB@ libc.a
+X
+X# usage: make dbg
+X#	 make TARGET=all dbg
+X# etc..
+Xdbg: 
+X	$(MAKE) $(TARGET) "DEFS=$(DEFS) -DDEBUG" "CLNT_OBJS=$(CLNT_OBJS) $(DBG_OBJS)" "LIBS=$(LIBS) /depot/rpc/arch/lib/librpclib.a"
+X
+X# force K&R compilation
+Xiris: 
+X	$(MAKE) $(TARGET) "CFLAGS=$(CFLAGS) -cckr"
+X
+Xamiga:
+X	$(MAKE) $(TARGET) "LIBS=$(LIBS) -ltermcap -lnsl -lsocket -lc -lucb"
+X
+Xesix:
+X	$(MAKE) $(TARGET) "CC=PATH=/usr/ucb:${PATH} cc"
+X
+X# compile with the AIX stdc compiler
+Xstdc: 
+X	$(MAKE) $(TARGET) "CFLAGS=$(CFLAGS) -qlanglvl=ansi"
+X
+Xinstall:
+X	cp $(CLNT_PROG) $(BIN)
+X	cp rperf.8 $(MAN)/man8
+X	tbl $(MAN)/man8/rperf.8 | nroff -man > $(MAN)/cat8/rperf.8
+X
+X# this will fail if rpcgen does not exist, or if -I is not supported
+XRPCGEN_OK= @echo Checking that you can replace rpcgen output ; \
+X	rpcgen -I -s udp rstat.x > /dev/null 2>&1
+X
+Xgen: rstat.x
+X	$(RPCGEN_OK)
+X	rpcgen -I rstat.x
+X	ed < rstat_xdr.ed rstat_xdr.c
+X
+XMakefile: Makefile.in config.status
+X	sh ./config.status
+X
+Xconfigure: configure.in
+X	autoconf
+X
+Xconfig.status: configure
+X	sh ./configure
+X
+Xshar: configure rstat_xdr.c rstat.h
+X	makekit -p -npart -m -t "Now do 'sh ./configure'"
+X
+Xmc:	mostlyclean
+Xmostlyclean:
+X	$(RM) a.out $(CLNT_PROG) *.BAK typescript
+X
+Xclean: mostlyclean
+X	$(RM) *.ln *.o core libc.a
+X
+Xdistclean: clean
+X	$(RM) Makefile config.status *part* tags
+X
+Xwayclean: distclean
+X	$(RM) configure
+X	$(RPCGEN_OK)
+X	$(RM) $(GEN_SRCS)
+X
+X# development
+X
+XLINTFLAGS	= $(DEFS)
+XLINT		= lint
+XLINT.c		= $(LINT) $(LINTFLAGS) $(CPPFLAGS)
+XCLNT_LNS	= rperf.ln strftime.ln strdup.ln rstat_xdr.ln termcap.ln
+XGEN_LNS		= rstat_xdr.ln
+X
+Xlint: $(CLNT_LNS)
+X	$(LINT.c) $(CLNT_LNS) $(CLNT_LIBS)
+X
+X# deps
+Xrperf.o:	rstat.h
+Xrperf.ln:	rstat.h
+Xrstat_xdr.o:	rstat_xdr.ed
+X$(GEN_OBJS):	rstat.h
+X$(GEN_LNS):	rstat.h
+Xtermcap.o:	pathnames.h
+Xtermcap.ln:	pathnames.h
+END_OF_FILE
+if test 2991 -ne `wc -c <'Makefile.in'`; then
+    echo shar: \"'Makefile.in'\" unpacked with wrong size!
+fi
+# end of 'Makefile.in'
+fi
+if test -f 'rstat.x' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rstat.x'\"
+else
+echo shar: Extracting \"'rstat.x'\" \(4394 characters\)
+sed "s/^X//" >'rstat.x' <<'END_OF_FILE'
+X/* @(#)rstat.x	2.2 88/08/01 4.0 RPCSRC */
+X/* @(#)rstat.x 1.2 87/09/18 Copyr 1987 Sun Micro */
+X
+X/*
+X * Sun RPC is a product of Sun Microsystems, Inc. and is provided for
+X * unrestricted use provided that this legend is included on all tape
+X * media and as a part of the software program in whole or part.  Users
+X * may copy or modify Sun RPC without charge, but are not authorized
+X * to license or distribute it to anyone else except as part of a product or
+X * program developed by the user.
+X * 
+X * SUN RPC IS PROVIDED AS IS WITH NO WARRANTIES OF ANY KIND INCLUDING THE
+X * WARRANTIES OF DESIGN, MERCHANTIBILITY AND FITNESS FOR A PARTICULAR
+X * PURPOSE, OR ARISING FROM A COURSE OF DEALING, USAGE OR TRADE PRACTICE.
+X * 
+X * Sun RPC is provided with no support and without any obligation on the
+X * part of Sun Microsystems, Inc. to assist in its use, correction,
+X * modification or enhancement.
+X * 
+X * SUN MICROSYSTEMS, INC. SHALL HAVE NO LIABILITY WITH RESPECT TO THE
+X * INFRINGEMENT OF COPYRIGHTS, TRADE SECRETS OR ANY PATENTS BY SUN RPC
+X * OR ANY PART THEREOF.
+X * 
+X * In no event will Sun Microsystems, Inc. be liable for any lost revenue
+X * or profits or other special, indirect and consequential damages, even if
+X * Sun has been advised of the possibility of such damages.
+X * 
+X * Sun Microsystems, Inc.
+X * 2550 Garcia Avenue
+X * Mountain View, California  94043
+X */
+X
+X/*
+X * Gather statistics on remote machines
+X */
+X
+X#ifdef RPC_HDR
+X
+X%#ifndef FSCALE
+X%/*
+X% * Scale factor for scaled integers used to count load averages.
+X% */
+X%#define FSHIFT  8               /* bits to right of fixed binary point */
+X%#define FSCALE  (1<<FSHIFT)
+X%
+X%#endif /* ndef FSCALE */
+X
+X#endif /* def RPC_HDR */
+X
+Xconst CPUSTATES_ORIG = 4;
+Xconst CPUSTATES_VAR = 4;
+Xconst DK_NDRIVE_ORIG = 4;	/* max drives for rstatprog versions 1-3 */
+Xconst DK_NDRIVE_VAR = 32;	/* max drives for rstatprog version 4 */
+X
+X/*
+X * GMT since 0:00, January 1, 1970
+X */
+Xstruct rstat_timeval {
+X	unsigned int tv_sec;	/* seconds */
+X	unsigned int tv_usec;	/* and microseconds */
+X};
+X
+Xstruct statsvar {				/* version 4 */
+X	int cp_time<CPUSTATES_VAR>;
+X	int dk_xfer<DK_NDRIVE_VAR>;
+X	u_int v_pgpgin;
+X	u_int v_pgpgout;
+X	u_int v_pswpin;
+X	u_int v_pswpout;
+X	u_int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_opackets;
+X	int if_oerrors;
+X	int if_collisions;
+X	u_int v_swtch;
+X	long avenrun[3];
+X	rstat_timeval boottime;
+X	rstat_timeval curtime;
+X};
+X
+Xstruct statstime {				/* RSTATVERS_TIME */
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	unsigned int v_pgpgin;	/* these are cumulative sum */
+X	unsigned int v_pgpgout;
+X	unsigned int v_pswpin;
+X	unsigned int v_pswpout;
+X	unsigned int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	unsigned int v_swtch;
+X	int avenrun[3];         /* scaled by FSCALE */
+X	rstat_timeval boottime;
+X	rstat_timeval curtime;
+X	int if_opackets;
+X};
+X
+Xstruct statsswtch {			/* RSTATVERS_SWTCH */
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	unsigned int v_pgpgin;	/* these are cumulative sum */
+X	unsigned int v_pgpgout;
+X	unsigned int v_pswpin;
+X	unsigned int v_pswpout;
+X	unsigned int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	unsigned int v_swtch;
+X	unsigned int avenrun[3];/* scaled by FSCALE */
+X	rstat_timeval boottime;
+X	int if_opackets;
+X};
+X
+Xstruct stats {				/* RSTATVERS_ORIG */
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	unsigned int v_pgpgin;	/* these are cumulative sum */
+X	unsigned int v_pgpgout;
+X	unsigned int v_pswpin;
+X	unsigned int v_pswpout;
+X	unsigned int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	int if_opackets;
+X};
+X
+X
+Xprogram RSTATPROG {
+X	/*
+X	 * variable number of disks and cpu states
+X	 */
+X	version RSTATVERS_VAR {
+X		statsvar
+X		RSTATPROC_STATS(void) = 1;
+X
+X		unsigned int
+X		RSTATPROC_HAVEDISK(void) = 2;
+X	} = 4;
+X	/*
+X	 * version includes current time and context switching info
+X	 */
+X	version RSTATVERS_TIME {
+X		statstime
+X		RSTATPROC_STATS(void) = 1;
+X
+X		unsigned int
+X		RSTATPROC_HAVEDISK(void) = 2;
+X	} = 3;
+X	/*
+X	 * Does not have current time
+X	 */
+X	version RSTATVERS_SWTCH {
+X		statsswtch
+X		RSTATPROC_STATS(void) = 1;
+X
+X		unsigned int
+X		RSTATPROC_HAVEDISK(void) = 2;
+X	} = 2;
+X	/*
+X	 * Old version has no info about current time or context switching
+X	 */
+X	version RSTATVERS_ORIG {
+X		stats
+X		RSTATPROC_STATS(void) = 1;
+X
+X		unsigned int
+X		RSTATPROC_HAVEDISK(void) = 2;
+X	} = 1;
+X} = 100001;
+END_OF_FILE
+if test 4394 -ne `wc -c <'rstat.x'`; then
+    echo shar: \"'rstat.x'\" unpacked with wrong size!
+fi
+# end of 'rstat.x'
+fi
+if test -f 'rstat.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rstat.h'\"
+else
+echo shar: Extracting \"'rstat.h'\" \(2645 characters\)
+sed "s/^X//" >'rstat.h' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/types.h>
+X
+X#ifndef FSCALE
+X/*
+X * Scale factor for scaled integers used to count load averages.
+X */
+X#define FSHIFT  8               /* bits to right of fixed binary point */
+X#define FSCALE  (1<<FSHIFT)
+X
+X#endif /* ndef FSCALE */
+X#define CPUSTATES_ORIG 4
+X#define CPUSTATES_VAR 4
+X#define DK_NDRIVE_ORIG 4
+X#define DK_NDRIVE_VAR 32
+X
+Xstruct rstat_timeval {
+X	u_int tv_sec;
+X	u_int tv_usec;
+X};
+Xtypedef struct rstat_timeval rstat_timeval;
+Xbool_t xdr_rstat_timeval();
+X
+Xstruct statsvar {
+X	struct {
+X		u_int cp_time_len;
+X		int *cp_time_val;
+X	} cp_time;
+X	struct {
+X		u_int dk_xfer_len;
+X		int *dk_xfer_val;
+X	} dk_xfer;
+X	u_int v_pgpgin;
+X	u_int v_pgpgout;
+X	u_int v_pswpin;
+X	u_int v_pswpout;
+X	u_int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_opackets;
+X	int if_oerrors;
+X	int if_collisions;
+X	u_int v_swtch;
+X	long avenrun[3];
+X	rstat_timeval boottime;
+X	rstat_timeval curtime;
+X};
+Xtypedef struct statsvar statsvar;
+Xbool_t xdr_statsvar();
+X
+Xstruct statstime {
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	u_int v_pgpgin;
+X	u_int v_pgpgout;
+X	u_int v_pswpin;
+X	u_int v_pswpout;
+X	u_int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	u_int v_swtch;
+X	int avenrun[3];
+X	rstat_timeval boottime;
+X	rstat_timeval curtime;
+X	int if_opackets;
+X};
+Xtypedef struct statstime statstime;
+Xbool_t xdr_statstime();
+X
+Xstruct statsswtch {
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	u_int v_pgpgin;
+X	u_int v_pgpgout;
+X	u_int v_pswpin;
+X	u_int v_pswpout;
+X	u_int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	u_int v_swtch;
+X	u_int avenrun[3];
+X	rstat_timeval boottime;
+X	int if_opackets;
+X};
+Xtypedef struct statsswtch statsswtch;
+Xbool_t xdr_statsswtch();
+X
+Xstruct stats {
+X	int cp_time[CPUSTATES_ORIG];
+X	int dk_xfer[DK_NDRIVE_ORIG];
+X	u_int v_pgpgin;
+X	u_int v_pgpgout;
+X	u_int v_pswpin;
+X	u_int v_pswpout;
+X	u_int v_intr;
+X	int if_ipackets;
+X	int if_ierrors;
+X	int if_oerrors;
+X	int if_collisions;
+X	int if_opackets;
+X};
+Xtypedef struct stats stats;
+Xbool_t xdr_stats();
+X
+X#define RSTATPROG ((u_long)100001)
+X#define RSTATVERS_VAR ((u_long)4)
+X#define RSTATPROC_STATS ((u_long)1)
+Xextern statsvar *rstatproc_stats_4();
+X#define RSTATPROC_HAVEDISK ((u_long)2)
+Xextern u_int *rstatproc_havedisk_4();
+X#define RSTATVERS_TIME ((u_long)3)
+Xextern statstime *rstatproc_stats_3();
+Xextern u_int *rstatproc_havedisk_3();
+X#define RSTATVERS_SWTCH ((u_long)2)
+Xextern statsswtch *rstatproc_stats_2();
+Xextern u_int *rstatproc_havedisk_2();
+X#define RSTATVERS_ORIG ((u_long)1)
+Xextern stats *rstatproc_stats_1();
+Xextern u_int *rstatproc_havedisk_1();
+END_OF_FILE
+if test 2645 -ne `wc -c <'rstat.h'`; then
+    echo shar: \"'rstat.h'\" unpacked with wrong size!
+fi
+# end of 'rstat.h'
+fi
+if test -f 'rstat_xdr.ed' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rstat_xdr.ed'\"
+else
+echo shar: Extracting \"'rstat_xdr.ed'\" \(493 characters\)
+sed "s/^X//" >'rstat_xdr.ed' <<'END_OF_FILE'
+X/^xdr_statstime(/g\
+X/if_opackets/+1c
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X.
+X/^xdr_statsswtch(/g\
+X/if_opackets/+1c
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X.
+X/^xdr_stats(/g\
+X/if_opackets/+1c
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X.
+Xw
+Xq
+END_OF_FILE
+if test 493 -ne `wc -c <'rstat_xdr.ed'`; then
+    echo shar: \"'rstat_xdr.ed'\" unpacked with wrong size!
+fi
+# end of 'rstat_xdr.ed'
+fi
+if test -f 'rstat_xdr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rstat_xdr.c'\"
+else
+echo shar: Extracting \"'rstat_xdr.c'\" \(5311 characters\)
+sed "s/^X//" >'rstat_xdr.c' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/rpc.h>
+X#include "rstat.h"
+X
+Xbool_t
+Xxdr_rstat_timeval(xdrs, objp)
+X	XDR *xdrs;
+X	rstat_timeval *objp;
+X{
+X	if (!xdr_u_int(xdrs, &objp->tv_sec)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->tv_usec)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_statsvar(xdrs, objp)
+X	XDR *xdrs;
+X	statsvar *objp;
+X{
+X	if (!xdr_array(xdrs, (char **)&objp->cp_time.cp_time_val, (u_int *)&objp->cp_time.cp_time_len, CPUSTATES_VAR, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_array(xdrs, (char **)&objp->dk_xfer.dk_xfer_val, (u_int *)&objp->dk_xfer.dk_xfer_len, DK_NDRIVE_VAR, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_intr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ipackets)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ierrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_opackets)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_oerrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_collisions)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_swtch)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->avenrun, 3, sizeof(long), xdr_long)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_rstat_timeval(xdrs, &objp->boottime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_rstat_timeval(xdrs, &objp->curtime)) {
+X		return (FALSE);
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_statstime(xdrs, objp)
+X	XDR *xdrs;
+X	statstime *objp;
+X{
+X	if (!xdr_vector(xdrs, (char *)objp->cp_time, CPUSTATES_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->dk_xfer, DK_NDRIVE_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_intr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ipackets)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ierrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_oerrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_collisions)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_swtch)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->avenrun, 3, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_rstat_timeval(xdrs, &objp->boottime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_rstat_timeval(xdrs, &objp->curtime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_opackets)) {
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_statsswtch(xdrs, objp)
+X	XDR *xdrs;
+X	statsswtch *objp;
+X{
+X	if (!xdr_vector(xdrs, (char *)objp->cp_time, CPUSTATES_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->dk_xfer, DK_NDRIVE_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_intr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ipackets)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ierrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_oerrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_collisions)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_swtch)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->avenrun, 3, sizeof(u_int), xdr_u_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_rstat_timeval(xdrs, &objp->boottime)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_opackets)) {
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X	}
+X	return (TRUE);
+X}
+X
+Xbool_t
+Xxdr_stats(xdrs, objp)
+X	XDR *xdrs;
+X	stats *objp;
+X{
+X	if (!xdr_vector(xdrs, (char *)objp->cp_time, CPUSTATES_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_vector(xdrs, (char *)objp->dk_xfer, DK_NDRIVE_ORIG, sizeof(int), xdr_int)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pgpgout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpin)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_pswpout)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_u_int(xdrs, &objp->v_intr)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ipackets)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_ierrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_oerrors)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_collisions)) {
+X		return (FALSE);
+X	}
+X	if (!xdr_int(xdrs, &objp->if_opackets)) {
+X		/**
+X		 * workaround for servers that
+X		 * do not report if_opackets
+X		**/
+X		objp->if_opackets = 0;
+X		/* return (FALSE); */
+X	}
+X	return (TRUE);
+X}
+END_OF_FILE
+if test 5311 -ne `wc -c <'rstat_xdr.c'`; then
+    echo shar: \"'rstat_xdr.c'\" unpacked with wrong size!
+fi
+# end of 'rstat_xdr.c'
+fi
+if test -f 'rperf.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rperf.8'\"
+else
+echo shar: Extracting \"'rperf.8'\" \(5427 characters\)
+sed "s/^X//" >'rperf.8' <<'END_OF_FILE'
+X.\" t
+X.\" This program may be copied, redistributed in any form, source or
+X.\" binary, and used for any purpose, provided this copyright notice is
+X.\" retained.
+X.\"
+X.\"    "@(#)rperf.8	2.1 8/30/93 (c) Copyright Brian P. Fitzgerald",
+X.\"    "Rensselaer Polytechnic Institute"
+X.\"
+X.TH RPERF 8 "8 May 1992"
+X.SH NAME
+Xrperf \- report statistics from network hosts
+X.SH SYNOPSIS
+X.B rperf
+X[
+X.B \-acdivhnSTsbBDr
+X] [
+X.I interval
+X[
+X.I count
+X] ] [
+X.I +sortkey
+X] [
+X.I host ...
+X]
+X
+X.B rup
+X[
+X.B \-hltn
+X] [
+X.I interval
+X] [
+X.I host ...
+X]
+X.SH DESCRIPTION
+X.IX  "rperf command"  ""  "\fLrperf\fP \(em report statistics from network hosts"
+X.B rperf
+Xobtains system statistics from network hosts and prints them to the
+Xstandard output at regular intervals.
+X.B rperf
+Xis similar to xmeter, or SunView perfmeter, but is intended for use on
+Xascii terminals, or for logging.
+X.LP
+XWithout options,
+X.B rperf
+Xbroadcasts to the local network,
+Xprints the uptime for each host that responds, then displays kernel statistics 
+Xfor these hosts at 10 second intervals until the program is terminated.  If
+X.I interval
+Xis specified,
+X.B rperf
+Xsummarizes activity every
+X.I interval
+Xseconds.  If a
+X.I count
+Xis given, the statistics are repeated
+X.I count
+Xtimes.  If one or more
+X.I hosts
+Xare specified,
+X.B rperf
+Xqueries those hosts.
+X
+XIf invoked as
+X.B rup,
+Xthe program prints the hostname, uptime, and the load average once, and exits.
+X.SH OPTIONS
+X.TP
+X.B \-c
+X.SM CPU.
+XReport relative cpu utilization (user, nice, system, and idle),
+Xsimilar to 
+X.B vmstat.
+XAlso, the average number of jobs in the run queue (load average) over
+Xthe past 1, 5, and 15 minutes is displayed, a` la
+X.B rup.
+X.TP
+X.B \-d
+XDisk activity, in events per second.  Report operations on disks sd0
+Xthrough sd3, similar to
+X.B vmstat.
+X.TP
+X.B \-i
+XNetwork interface activity, in events per second.  Report incoming and
+Xoutgoing packets transferred, errors, and collisions; similar to
+X.B netstat.
+X.TP
+X.B \-v
+XVirtual memory activity, in events per second.  Report pages paged
+Xin/out, pages swapped in/out, context switches, and interrupts; similar
+Xto
+X.B vmstat.
+X.TP
+X.B \-a
+XAll.  Report all of the above.  (The default if only one host is being
+Xmonitored.)
+X.TP
+X.B \-n
+XDo not resolve host names.  Print the internet address instead.
+X.TP
+X.B \-h
+XSort by hostname.  By default, rperf sorts by address.
+X.TP
+X.B +sortkey
+XSort the output by this field, highest value first.
+XAbbreviations are acceptable.
+XThe sort keys are:
+X
+X.TS
+Xl l l l l l.
+Xloadavg	user	pgpgin	disk0	boottime	ipackets
+Xav1	nice	pgpgout	disk1	uptime	ierrors
+Xav5	sys	pswpin	disk2		oerrors
+Xav15	idle	pswpout	disk3		opackets
+X		intr			collisions
+X		swtch
+X.TE
+X.TP
+X.B \-r
+XSort in ascending order, lowest value first.
+X.LP
+XIf more than one host is monitored, but no option flags are specified,
+Xeach hostname is printed at left, and the disk activity report is
+Xomitted, but this can be overridden by specifying options on the
+Xcommand line.
+X.SS Time Format Options
+X.LP
+XThe following options are useful for time stamping the output data.
+X.TP
+X.B \-S
+XSeconds since 00:00 Jan 1, 1970, GMT (Unix time).  This format is
+Xappropriate if the time value is to be used for further analysis or
+Xdisplay plotting.
+X.TP
+X.B \-T
+XDate and local time, in standard format.
+X.TP
+X.B \-s
+XElapsed time, in seconds.
+X.SS Miscellaneous Options
+X.TP
+X.B \-B
+XBare.  Do not print headers or uptime data.
+X.TP
+X.B \-b
+XBroadcast continuously.  In broadcast mode without this option, rperf
+Xbroadcasts to the local network once, and from then on calls the hosts
+Xthat responded.  With the -b option, rperf broadcasts continuously.
+XContinuous broadcasting is preferable to calling individual hosts
+Xbecause network and system load are lower.  AIX 3.1 users may find that
+Xcontinuous broadcasting will hang the machine.
+X.TP
+X.B \-D
+XDebug.
+X.SS Rup Options
+X.TP
+X.B \-t
+Xsort by uptime.
+X.TP
+X.B \-l
+Xsort my (one minute) load average.
+X.TP
+XSee also -h and -n, above.
+X.SH EXAMPLES
+X.LP
+XUsually just:
+X.LP
+X.B rperf
+X.I host1 host2 ...
+X.LP
+Xor
+X.LP
+X.B rperf -b
+X(continuous broadcast mode)
+X.LP
+X.LP
+XYou can use rperf to log data for later analysis or plotting.
+XFor example, 
+X.LP
+X.B rperf -sBd 900
+X.I host > file1
+X.LP
+Xstores disk activity statistics on
+X.I host
+Xin a "bare" file (no header) every 15 minutes along with time, in
+Xseconds since rperf was started.  The activity on disk 0 may then be
+Xplotted
+X.I vs.
+Xhours with:
+X.LP
+X.B awk
+X'{print $1/3600, $2}'
+X.I file1 > file2
+X.LP
+Xgnuplot> plot
+X.I 'file2'
+X.LP
+XThe command
+X.LP
+X.B rperf
+X-a +system
+X.LP
+Xgives all available statistics for all hosts on the local broadcast
+Xnetwork, sorted by system load, and repeats evert 10 seconds.
+X.SH NOTES
+X.LP
+XIf the output alternates between nonzero numbers and zeros, it is
+Xpossible that rstatd on the remote host samples the kernel over a
+Xlonger interval than you have chosen.  Try running
+X.B rperf
+Xwith a longer
+X.I interval.
+X.SH DIAGNOSTICS
+X.LP
+X.B RPC: Program not registered.
+XThe remote host is not running rstatd.  On some systems, rstatd is 
+Xstarted by uncommenting it in /etc/inetd.conf, and sending the inetd
+Xprocess a SIGHUP.
+X.LP
+X.B RPC: Remote system error - Too many open files.
+XMisleading.  In practice, it may be that the local rperf process has
+Xtoo many open files because too many hosts were specified.  To find out
+Xyour limit, type
+X.B % limit descriptors
+Xor
+X.B bash$ ulimit -n
+X.SH AUTHOR
+XBrian P. Fitzgerald, Mechanics of Materials Laboratory, Rensselaer
+XPolytechnic Institute, Troy, New York.  Send bug reports and fixes to
+Xfitz@rpi.edu.
+END_OF_FILE
+if test 5427 -ne `wc -c <'rperf.8'`; then
+    echo shar: \"'rperf.8'\" unpacked with wrong size!
+fi
+# end of 'rperf.8'
+fi
+if test -f 'strdup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strdup.c'\"
+else
+echo shar: Extracting \"'strdup.c'\" \(707 characters\)
+sed "s/^X//" >'strdup.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char    *RCSid = "$Header: /src/common/usc/lib/libgen/RCS/strdup.c,v 1.2 1992/04/16 01:28:02 mcooper Exp $";
+X#endif
+X
+X/*
+X * $Log: strdup.c,v $ Revision 1.2  1992/04/16  01:28:02  mcooper Some
+X * de-linting.
+X * 
+X * Revision 1.2  1992/04/16  01:28:02  mcooper Some de-linting.
+X * 
+X * Revision 1.1  1992/03/21  02:48:11  mcooper Initial revision
+X * 
+X */
+X
+X
+X#include <stdio.h>
+X
+X/*
+X * Most systems don't have this (yet)
+X */
+Xchar           *
+Xstrdup(str)
+X    char           *str;
+X{
+X    char           *p;
+X    extern char    *malloc();
+X    extern char    *strcpy();
+X
+X    if ((p = malloc((unsigned) strlen(str) + 1)) == NULL)
+X	return ((char *) NULL);
+X
+X    (void) strcpy(p, str);
+X
+X    return (p);
+X}
+END_OF_FILE
+if test 707 -ne `wc -c <'strdup.c'`; then
+    echo shar: \"'strdup.c'\" unpacked with wrong size!
+fi
+# end of 'strdup.c'
+fi
+if test -f 'pathnames.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pathnames.h'\"
+else
+echo shar: Extracting \"'pathnames.h'\" \(1911 characters\)
+sed "s/^X//" >'pathnames.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	@(#)pathnames.h	5.2 (Berkeley) 6/1/90
+X */
+X
+X#define	_PATH_DEF	".termcap /etc/termcap"
+END_OF_FILE
+if test 1911 -ne `wc -c <'pathnames.h'`; then
+    echo shar: \"'pathnames.h'\" unpacked with wrong size!
+fi
+# end of 'pathnames.h'
+fi
+if test -f 'autoconf.1.3.patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'autoconf.1.3.patch'\"
+else
+echo shar: Extracting \"'autoconf.1.3.patch'\" \(626 characters\)
+sed "s/^X//" >'autoconf.1.3.patch' <<'END_OF_FILE'
+X*** acspecific.m4.old	Thu Jan 14 16:59:13 1993
+X--- acspecific.m4	Sun Jan 31 13:49:48 1993
+X***************
+X*** 521,529 ****
+X  [AC_REQUIRE([AC_STRUCT_TM])decl='#include <sys/types.h>
+X  '
+X  case "$DEFS" in
+X!   *TM_IN_SYS_TIME*) decl="$decl #include <sys/time.h>
+X  " ;;
+X!   *) decl="$decl #include <time.h>
+X  " ;;
+X  esac
+X  AC_COMPILE_CHECK([tm_zone in struct tm], $decl,
+X--- 521,529 ----
+X  [AC_REQUIRE([AC_STRUCT_TM])decl='#include <sys/types.h>
+X  '
+X  case "$DEFS" in
+X!   *TM_IN_SYS_TIME*) decl="$decl#include <sys/time.h>
+X  " ;;
+X!   *) decl="$decl#include <time.h>
+X  " ;;
+X  esac
+X  AC_COMPILE_CHECK([tm_zone in struct tm], $decl,
+END_OF_FILE
+if test 626 -ne `wc -c <'autoconf.1.3.patch'`; then
+    echo shar: \"'autoconf.1.3.patch'\" unpacked with wrong size!
+fi
+# end of 'autoconf.1.3.patch'
+fi
+if test -f 'PORTING' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PORTING'\"
+else
+echo shar: Extracting \"'PORTING'\" \(2295 characters\)
+sed "s/^X//" >'PORTING' <<'END_OF_FILE'
+XPORTING for rperf
+X------- --- -----
+X
+XAll ports for rperf will be greatly appreciated.
+X
+Xautoconf
+X--------
+X
+XConfiguration is handled with gnu autoconf.  If you would like to help
+Xport the configuration script, you will need gnu autoconf.
+X
+XOn the other hand, if you just want to send me ported C code, and leave
+Xthe "configure" script up to others, that's fine, too.
+X
+X"autoconf" requires gnu m4.  The standard m4 will not work with
+Xautoconf.  I found out the hard way. :-( autoconf and m4 are available
+Xfrom the places listed at the end.
+X
+Xautoconf 1.3 has a bug which requires a patch, which I have provided.
+X
+X"It would be nice if" the code itself had very few #ifdefs for specific
+Xarchitectures, and instead, everything could be determined by "generic"
+Xdefined discovered by the configuration script.
+X
+XSGI IRIX:
+X
+XI am told that -cckr flag must be used to compile my code, to permit
+Xcertain K&R-ism's.  Can someone out there provide me of a minimal
+Xprogram that fails to compile on SGI machines unless the -cckr flag is
+Xused?  The test code will be added to configure.in.
+X
+XBrian
+X
+XAUTOCONF SITES:
+X-------- -----
+X
+XHost quepasa.cs.tu-berlin.de
+X
+X    Location: /.3/pub/gnu
+X      DIRECTORY drwxrwxr-x        512  Jan 22 03:45  autoconf
+X      DIRECTORY drwxrwxr-x        512  Dec 22 03:42  m4
+X
+XHost reseq.regent.e-technik.tu-muenchen.de
+X
+X    Location: /informatik.public/comp/gnu
+X      DIRECTORY drwxrwxr-x        512  Jan  5 20:08  autoconf
+X      DIRECTORY drwxrwxr-x        512  Dec 20 06:06  m4
+X
+XHost ftp.uni-kl.de
+X
+X    Location: /pub1/packages/gnu
+X      DIRECTORY drwxrwxr-x        512  Oct 28 07:50  autoconf
+X    Location: /pub2/packages/gnu
+X      DIRECTORY drwxr-xr-x        512  Oct 16 11:48  autoconf
+X      DIRECTORY drwxr-xr-x        512  Apr 10 1992  m4
+X
+XHost minnie.zdv.uni-mainz.de
+X
+X    Location: /pub0/pub/gnu
+X      DIRECTORY drwxr-xr-x        512  Oct 15 09:46  autoconf
+X      DIRECTORY drwxr-xr-x        512  Dec 21 07:37  m4
+X
+XHost archive.cis.ohio-state.edu
+X
+X    Location: /n/archive/0/extra-ftp/gnu
+X      DIRECTORY drwxrwxr-x        512  Oct 16 05:45  autoconf
+X      DIRECTORY drwxrwxr-x        512  Jun 12 00:00  m4
+X
+XHost saqqara.cis.ohio-state.edu
+X
+X    Location: /gnu
+X      DIRECTORY drwxrwxr-x        512  Oct 16 01:45  autoconf
+X      DIRECTORY drwxrwxr-x        512  Jun 12 00:00  m4
+END_OF_FILE
+if test 2295 -ne `wc -c <'PORTING'`; then
+    echo shar: \"'PORTING'\" unpacked with wrong size!
+fi
+# end of 'PORTING'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    echo "Now do 'sh ./configure'"
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

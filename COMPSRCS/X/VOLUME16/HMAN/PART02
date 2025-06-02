@@ -1,0 +1,772 @@
+Newsgroups: comp.sources.x
+Path: uunet!munnari.oz.au!mips!mips!msi!dcmartin
+From: mab@ecmwf.co.uk (Baudouin Raoult)
+Subject: v16i144: hyperwidget & manual browser, Part02/06
+Message-ID: <1992Mar6.204813.8655@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i143-hman@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 20:48:13 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: mab@ecmwf.co.uk (Baudouin Raoult)
+Posting-number: Volume 16, Issue 144
+Archive-name: hman/part02
+
+#!/bin/sh
+# this is part 2 of a multipart archive
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file cbacks.c continued
+#
+CurArch=2
+if test ! -r s2_seq_.tmp
+then echo "Please unpack part 1 first!"
+     exit 1; fi
+( read Scheck
+  if test "$Scheck" != $CurArch
+  then echo "Please unpack part $Scheck next!"
+       exit 1;
+  else exit 0; fi
+) < s2_seq_.tmp || exit 1
+echo "x - Continuing file cbacks.c"
+sed 's/^X//' << 'SHAR_EOF' >> cbacks.c
+Xstatic char *history[MAX_HISTORY];
+Xstatic int  history_count   = 0;
+Xstatic int  history_current = 0;
+X
+X/*----------------
+X  
+X  add the last call to man in the history list 
+X
+X---------------*/
+X
+Xvoid add_to_history(cmd)
+Xchar *cmd;
+X{
+X    int i;
+X
+X    if(history_count < MAX_HISTORY)
+X        history[history_count++] = XtNewString(cmd);
+X    else
+X    {
+X        XtFree(history[0]);
+X        for(i=1;i<MAX_HISTORY;i++)
+X            history[i+1] = history[i];
+X        history[history_count-1] =  XtNewString(cmd);
+X    }
+X    history_current = history_count-1;
+X    XtSetSensitive(previous,history_current>0);
+X    XtSetSensitive(next,FALSE);
+X}
+X
+X
+X/*-------------
+X
+X    When selecting a word on the HyperWidget,
+X    open a new page.
+X
+X-------------*/
+X
+Xvoid hyper_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XhyperCallbackStruct *cb;
+X{
+X    char buf[256];
+X    char *word,*sec;
+X    int i;
+X
+X    strcpy(buf,cb->text);
+X
+X    word = strtok(buf,"(");
+X    sec  = strtok(NULL,")");
+X
+X    /* man wants lower case */
+X    i=0;
+X    while(sec[i])
+X    {
+X        if(isupper(sec[i])) sec[i]+=32;
+X        i++;
+X    }
+X    sec[2]=0; /* man does not want section > 3 chars */
+X
+X    sprintf(cmd,"%s %s %s",MAN,sec,word);
+X    do_man(cmd);
+X    add_to_history(cmd);
+X}
+X
+X/*-------------
+X
+X    Set the application icon.
+X
+X-------------*/
+X
+X#include "hman.xbm"
+Xvoid init_icon()
+X{
+X    Arg al[1];
+X    Pixmap icon_pixmap = NULL;
+X
+X
+X    XtSetArg(al[0],XtNiconPixmap, &icon_pixmap);
+X    XtGetValues(top,al,1);
+X
+X    /* if the icon is not user defined */
+X
+X    if (icon_pixmap == NULL)
+X    {
+X        XtSetArg(al[0],XmNiconPixmap,
+X            XCreateBitmapFromData(XtDisplay(top),
+X            XtScreen(top)->root,
+X            hman_bits, hman_width, hman_height)
+X            );
+X        XtSetValues(top, al,1);
+X    }
+X}
+X
+X/*-------------
+X    
+X    Create the HyperWidget.
+X    Open new page with the command arguments
+X
+X-------------*/
+X
+Xinit_manual(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X    init_icon();
+X
+X    hyper = CreateHyper(scrollw,"hyper",NULL,0);
+X    XtAddCallback(hyper,XtNactivateCallback,hyper_callback,NULL);
+X    XtManageChild(hyper);
+X
+X    /* Set start and end of highlight tags */
+X
+X    HyperSetTags(hyper,START_OF_HIGHLIGHT,END_OF_HIGHLIGHT);
+X
+X    progname = argv[0];
+X
+X    if(argc>1)
+X    {
+X        ++argv;
+X        if(strcmp(argv[0],"-file")==0)
+X        {
+X            /* use file */
+X            if(argc != 3)
+X            {
+X                HyperSetText(hyper,"missing file name");
+X                return;
+X            }
+X            else
+X                sprintf(cmd,"%s %s",NROFF,argv[1]);
+X        }
+X        else
+X        {
+X            /* pass options to man command */
+X
+X            strcpy(cmd,MAN);
+X            while(--argc)
+X            {
+X                strcat(cmd," ");
+X                strcat(cmd,argv[0]);
+X                argv++;
+X            }
+X        }
+X
+X        do_man(cmd);
+X        add_to_history(cmd);
+X    }
+X}
+X
+X/*-------------
+X
+X    Set cursor to watch
+X
+X-------------*/
+X
+Xwatch_on()
+X{
+X    static Cursor watch = NULL;
+X    if(XtIsRealized(top))
+X    {
+X        if(!watch) watch = XCreateFontCursor(XtDisplay(top),XC_watch);
+X
+X        XDefineCursor(XtDisplay(top),XtWindow(top),watch);
+X        XDefineCursor(XtDisplay(hyper),XtWindow(hyper),watch);
+X        XDefineCursor(XtDisplay(find),XtWindow(find),watch);
+X        XmUpdateDisplay(top);
+X    }
+X}
+X
+X/*-------------
+X
+X    Reset cursor to default
+X
+X-------------*/
+X
+Xwatch_off()
+X{
+X    if(XtIsRealized(top))
+X    {
+X        XUndefineCursor(XtDisplay(top),XtWindow(top));
+X        XUndefineCursor(XtDisplay(hyper),XtWindow(hyper));
+X        XUndefineCursor(XtDisplay(find),XtWindow(find));
+X        XmUpdateDisplay(top);
+X    }
+X}
+X
+X
+X/*-------------
+X
+X    Call the man command. 
+X    Set the HyperWidget with the text 
+X    processed by lex.
+X
+X-------------*/
+X
+Xdo_man(cmd)
+Xchar *cmd;
+X{
+X    extern FILE *yyin,*yyout;
+X    FILE *f;
+X    char *tmp = tmpnam(NULL);
+X    char buf[1204];
+X
+X    watch_on();
+X
+X/* ----- 
+X
+X	This is what I use on the Sun.
+X
+X    sprintf(buf,"%s 2>&1 %s",cmd,FILTER);
+X
+X	The 2>&1 sends errors to standard output
+X	so errors are visible in the HyperWidget.
+X
+X	Some systems don't like it. 
+X
+X-----*/
+X
+X
+X    sprintf(buf,"%s %s",cmd,FILTER);
+X
+X    yyin = popen(buf,"r");
+X    yyout = fopen(tmp,"w");
+X    yylex();
+X    pclose(yyin);
+X    fclose(yyout);
+X
+X    HyperLoadFile(hyper,tmp);
+X    unlink(tmp);
+X
+X    watch_off();
+X}
+X
+X/*-------------
+X
+X    Byebye ..
+X
+X-------------*/
+X
+Xvoid quit_callback()
+X{
+X    exit(0);
+X}
+X
+X/*-------------
+X
+X    Move to previous page in history.
+X
+X-------------*/
+X
+Xvoid previous_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXmAnyCallbackStruct *cb;
+X{
+X    do_man(history[--history_current]);
+X    XtSetSensitive(next,TRUE);
+X    if(history_current==0)
+X        XtSetSensitive(previous,FALSE);
+X}
+X
+X/*-------------
+X
+X    Move to next page in history.
+X
+X-------------*/
+X
+Xvoid next_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXmAnyCallbackStruct *cb;
+X{
+X    do_man(history[++history_current]);
+X    XtSetSensitive(previous,TRUE);
+X    if(history_current==history_count-1)
+X        XtSetSensitive(next,FALSE);
+X}
+X
+X
+X/*-------------
+X
+X    Open new page using the text fields.
+X
+X-------------*/
+X
+Xvoid text_activate_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXmAnyCallbackStruct *cb;
+X{
+X    char *word = XmTextFieldGetString(keyword_text);
+X    char *sec  = XmTextFieldGetString(section_text);
+X
+X    sprintf(cmd,"%s %s %s %s",
+X        MAN,
+X        XmToggleButtonGetState(in_index)?"-k":"",
+X        sec,word);
+X    XtFree(word);
+X    XtFree(sec);
+X    do_man(cmd);
+X    add_to_history(cmd);
+X}
+X
+X/*-------------
+X
+X    Start a new copy of hman with the same manual page
+X
+X-------------*/
+X
+Xvoid clone_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXmAnyCallbackStruct *cb;
+X{
+X    char *h = history[history_current];
+X
+X    if(strncmp(h,MAN,strlen(MAN))==0)
+X        sprintf(cmd,"%s %s&",progname,h+strlen(MAN));
+X    else
+X        sprintf(cmd,"%s -file %s&",progname,h+strlen(NROFF));
+X
+X    system(cmd);
+X}
+X
+X/*---------
+X
+X Open a manual file
+X
+X----------*/
+X
+Xvoid fsb_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXmFileSelectionBoxCallbackStruct *cb;
+X{
+X    char *fname;
+X    XmStringGetLtoR(cb->value,XmSTRING_DEFAULT_CHARSET,&fname);
+X
+X
+X    sprintf(cmd,"%s %s",NROFF,fname);
+X    do_man(cmd);
+X    add_to_history(cmd);
+X
+X    XtFree(fname);
+X}
+X
+X/*---------
+X
+X  Search a string in the text
+X
+X----------*/
+X
+Xvoid find_callback(w,cd,cb)
+XWidget w;
+XXtPointer cd;
+XXtPointer cb;
+X{
+X    char *p = XmTextFieldGetString(find_text);
+X
+X    watch_on();
+X    if(!HyperGrep(hyper,p,TRUE,FALSE,TRUE))
+X        XBell(XtDisplay(w),0);
+X    watch_off();
+X
+X    XtFree(p);
+X}
+SHAR_EOF
+echo "File cbacks.c is complete"
+chmod 0644 cbacks.c || echo "restore of cbacks.c fails"
+set `wc -c cbacks.c`;Sum=$1
+if test "$Sum" != "7437"
+then echo original size 7437, current size $Sum;fi
+echo "x - extracting Hyper.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Hyper.c &&
+X/*==================================================================*/
+X/*                                                                  */
+X/* HyperWidget                                                      */
+X/*                                                                  */
+X/* B.Raoult (mab@ecmwf.co.uk)                              Oct.91   */
+X/*                                                                  */
+X/*                                                                  */
+X/* Hyper text like widget.                                          */
+X/*                                                                  */
+X/* (c)  B.Raoult 91                                                 */
+X/*==================================================================*/
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <ctype.h>
+X#include <X11/IntrinsicP.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/CoreP.h>
+X#include <X11/cursorfont.h>
+X#include "Hyper.h"
+X#include "HyperP.h"
+X
+X
+X#define ABS(a)           ((a)>=0?(a):-(a))
+X#define MIN(a,b)         ((a)>(b)?(b):(a))
+X
+X
+X#define NORMAL           0
+X#define HIGHLIGHT        1
+X#define NEWLINE          2
+X
+X#define MAX_LINE_SIZE    1024
+X
+X/* 
+X  Private functions 
+X*/
+X
+Xstatic void    free_text();
+Xstatic void    create_gcs();
+Xstatic void    create_new_text();
+Xstatic void    select();
+Xstatic void    cursor();
+Xstatic void    activate();
+Xstatic void    add_to_text ();
+Xstatic void    calc_new_size ();
+Xstatic void    zoom_open ();
+Xstatic void    show_selection();
+X
+X/*
+X  Widget class methods
+X*/
+X
+Xstatic void    Initialize();
+Xstatic void    Redisplay();
+Xstatic void    Resize();
+Xstatic void    Destroy();
+Xstatic Boolean SetValues();
+X
+Xstatic char defaultTranslations[] = 
+X"<Btn1Down>:select()\n<Btn1Up>: activate()\n<Motion>:cursor()";
+X
+Xstatic XtActionsRec actionsList[] = {
+X    { "select",   (XtActionProc) select},
+X    { "activate", (XtActionProc) activate},
+X    { "cursor",   (XtActionProc) cursor},
+X};
+X
+Xstatic XtResource resources[] = {
+X
+X    {XtNhighlightFont, XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X    XtOffset(HyperWidget, hyper.highlight_font), XtRString, "Fixed"},
+X
+X    {XtNnormalFont, XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X    XtOffset(HyperWidget, hyper.normal_font), XtRString, "Fixed"},
+X
+X    {XtNhighlightColor, XtCColor, XtRPixel, sizeof (Pixel),
+X    XtOffset(HyperWidget, hyper.highlight_color),XtRString, "Red"},
+X
+X    {XtNselectColor, XtCColor, XtRPixel, sizeof (Pixel),
+X    XtOffset(HyperWidget, hyper.select_color),XtRString, "Blue"},
+X
+X    {XtNnormalColor, XtCColor, XtRPixel, sizeof (Pixel),
+X    XtOffset(HyperWidget, hyper.normal_color),XtRString,"Black"},
+X
+X    {XtNactivateCallback,XtCCallback,XtRCallback,sizeof(caddr_t),
+X    XtOffset (HyperWidget, hyper.activate),XtRCallback,NULL},
+X
+X    {XtNzoomEffect,XtCZoom,XtRBoolean,sizeof(Boolean),
+X    XtOffset (HyperWidget, hyper.zoom),XtRImmediate,(XtPointer)TRUE},
+X
+X#ifndef XDESIGNER
+X    {XtNstartHighlight,XtCTagChar,XtRUnsignedChar,sizeof(unsigned char),
+X    XtOffset(HyperWidget,hyper.start_of_highlight),XtRImmediate,
+X    (XtPointer)'{'},
+X
+X    {XtNendHighlight,XtCTagChar,XtRUnsignedChar,sizeof(unsigned char),
+X    XtOffset (HyperWidget, hyper.end_of_highlight),XtRImmediate,
+X    (XtPointer)'}'},
+X#endif
+X
+X    {XtNzoomSpeed,XtCZoomSpeed,XtRInt,sizeof(int),
+X    XtOffset (HyperWidget, hyper.speed),XtRImmediate,(XtPointer)4},
+X
+X    {XtNmargin,XtCMargin,XtRInt,sizeof(int),
+X    XtOffset (HyperWidget, hyper.margin),XtRImmediate,(XtPointer)10},
+X};
+X
+X/*---------------------------------------------------------------*/
+X/* Static initialisation of the class record                     */
+X/*---------------------------------------------------------------*/
+X
+XHyperClassRec  hyperClassRec = {
+X    {
+X#ifdef MOTIF
+X    (WidgetClass) &xmPrimitiveClassRec,  /* superclass            */
+X#else
+X    (WidgetClass) &widgetClassRec,       /* superclass            */
+X#endif
+X    "Hyper",                             /* class_name            */
+X    sizeof(HyperRec),                    /* widget_size           */
+X    NULL,                                /* class_initialize      */
+X    NULL,                                /* class_part_initialize */
+X    FALSE,                               /* class_inited          */
+X    Initialize,                          /* initialize            */
+X    NULL,                                /* initialize_hook       */
+X    XtInheritRealize,                    /* realize               */
+X    actionsList,                         /* actions               */
+X    XtNumber(actionsList),               /* num_actions           */
+X    resources,                           /* resources             */
+X    XtNumber(resources),                 /* num_resources         */
+X    NULLQUARK,                           /* xrm_class             */
+X    TRUE,                                /* compress_motion       */
+X    TRUE,                                /* compress_exposure     */
+X    TRUE,                                /* compress_enterleave   */
+X    TRUE,                                /* visible_interest      */
+X    Destroy,                             /* destroy               */
+X    Resize,                              /* resize                */
+X    Redisplay,                           /* expose                */
+X    SetValues,                           /* set_values            */
+X    NULL,                                /* set_values_hook       */
+X    XtInheritSetValuesAlmost,            /* set_values_almost     */
+X    NULL,                                /* get_values_hook       */
+X    NULL,                                /* accept_focus          */
+X    XtVersion,                           /* version               */
+X    NULL,                                /* callback private      */
+X    defaultTranslations,                 /* tm_table              */
+X    NULL,                                /* query_geometry        */
+X    NULL,                                /* display_accelerator   */
+X    NULL,                                /* extension             */
+X    },
+X#ifdef MOTIF
+X    {
+X    (XtWidgetProc)_XtInherit,             /* border_highlight      */
+X    (XtWidgetProc)_XtInherit,             /* border_unhighligh     */
+X    XtInheritTranslations,                /* translations          */
+X    (XtActionProc)_XtInherit,             /* arm_and_activate      */
+X    NULL,                                 /* syn_resources         */
+X    0,                                    /* num_syn_resources     */
+X    NULL,                                 /* extension             */
+X    },
+X#endif
+X    {
+X    0,                                    /* ignore                */
+X    }
+X};
+X
+X
+X
+X
+X
+X
+X
+X
+X
+XWidgetClass hyperWidgetClass = (WidgetClass) &hyperClassRec;
+X
+X/*---------------------------------------------------------------*/
+X/* Create the two GCs needed                                     */
+X/*---------------------------------------------------------------*/
+X
+Xstatic void create_gcs(w)
+XHyperWidget w;
+X{
+X    XGCValues values;
+X    XtGCMask  valueMask;
+X
+X    valueMask = GCForeground | GCBackground | GCFont;
+X
+X    values.background = w->core.background_pixel;
+X
+X    values.foreground = w->hyper.highlight_color;
+X    values.font       = w->hyper.highlight_font->fid;
+X    w->hyper.highlight_gc = XtGetGC (w, valueMask, &values);
+X
+X    values.foreground = w->hyper.select_color;
+X    w->hyper.select_gc = XtGetGC (w, valueMask, &values);
+X
+X    values.foreground = w->hyper.normal_color;
+X    values.font       = w->hyper.normal_font->fid;
+X    w->hyper.normal_gc = XtGetGC (w, valueMask, &values);
+X
+X
+X
+X    valueMask = GCBackground | GCForeground | GCFunction;
+X
+X    values.background = w->core.background_pixel;
+X    values.foreground = w->hyper.normal_color;
+X
+X    values.function   = GXxor;
+X    w->hyper.xor_gc = XtGetGC (w, valueMask, &values);
+X
+X
+X}
+X
+X/*--------------------------------------------------------------*/
+X/* Initialize: Create the GCs                                   */
+X/*--------------------------------------------------------------*/
+X
+Xstatic void Initialize (request, new)
+XHyperWidget request, new;
+X{
+X    /* Check the size of the widget */
+X
+X    if (request->core.width == 0)
+X        new->core.width = 100;
+X    if (request->core.height == 0)
+X        new->core.height = 100;
+X
+X
+X    /* Create the GCs */
+X
+X    create_gcs(new);
+X
+X    /* No text yet */
+X
+X    new->hyper.first_seg     = new->hyper.last_selected 
+X        = new->hyper.last_cursor =  NULL;
+X    new->hyper.hand     = XCreateFontCursor(XtDisplay(new),XC_hand2);
+X
+X    /* Nothing found */
+X
+X    new->hyper.grep_seg = NULL;
+X    new->hyper.grep_txt = NULL;
+X    new->hyper.grep_len = 0;
+X    new->hyper.grep_off = 0;
+X
+X}
+X
+X/*--------------------------------------------------------------*/
+X/* Free all memory allocated for the text segments              */
+X/*--------------------------------------------------------------*/
+X
+Xstatic void free_text(s)
+Xtext_segment *s;
+X{
+X
+X    while(s)
+X    {
+X        text_segment *p=s->next;
+X        if(s->text) XtFree(s->text);
+X        XtFree(s);
+X        s = p;
+X    }
+X
+X}
+X
+X/*--------------------------------------------------------------*/
+X/* Destroy the widget: release all memory alocated              */
+X/*--------------------------------------------------------------*/
+X
+Xstatic void Destroy (w)
+XHyperWidget w;
+X{
+X    free_text(w->hyper.first_seg);
+X    XtReleaseGC (w, w->hyper.normal_gc);
+X    XtReleaseGC (w, w->hyper.highlight_gc);
+X    XtReleaseGC (w, w->hyper.xor_gc);
+X    XtReleaseGC (w, w->hyper.select_gc);
+X    XtRemoveAllCallbacks (w,XtNactivateCallback,w->hyper.activate);
+X}
+X
+X/*--------------------------------------------------------------*/
+X/* Resize : not implemented                                     */
+X/*--------------------------------------------------------------*/
+X
+X
+Xstatic void Resize (w)
+XHyperWidget w;
+X{
+X    /* 
+X       For futur implementation
+X       May be for text warp ...
+X    */
+X}
+X
+X/*--------------------------------------------------------------*/
+X/* Redisplay : redraw the text                                  */
+X/*--------------------------------------------------------------*/
+X
+X
+Xstatic void Redisplay (w, event, region)
+XHyperWidget  w;
+XXEvent       *event;
+XRegion        region;
+X{
+X
+X    if(w->core.visible)
+X    {
+X        text_segment *s = w->hyper.first_seg;
+X        int x = w->hyper.margin;
+X        int y = 0;
+X        Boolean newline = TRUE;
+X
+X        while(s)
+X        {
+X
+X            /* change line on new lines */
+X
+X            if(newline)
+X            {
+X                x = w->hyper.margin;
+X                y += s->height;
+X            }
+X
+X            /* redraw only what is needed */
+X
+X            if(XRectInRegion(region,x,y-s->height+s->desc,s->width,s->height)
+X                != RectangleOut)
+X            {
+X
+X                XDrawImageString(XtDisplay (w), XtWindow (w), 
+X                    s->gc,
+X                    x,
+X                    y,
+X                    s->text,
+X                    s->length);
+X            }
+X
+X            x += s->width;
+X
+X            newline = (s->type == NEWLINE);
+X
+X            s = s->next;
+X        }
+X
+X
+X        if(w->hyper.grep_seg)
+X        {
+X            if(XRectInRegion(region,
+X                w->hyper.grep_x,
+X                w->hyper.grep_y,
+X                w->hyper.grep_width,
+X                w->hyper.grep_height) != RectangleOut)
+X
+SHAR_EOF
+echo "End of part 2"
+echo "File Hyper.c is continued in part 3"
+echo "3" > s2_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

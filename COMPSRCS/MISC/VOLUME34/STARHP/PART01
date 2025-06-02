@@ -1,0 +1,1544 @@
+Newsgroups: comp.sources.misc
+From: kirk@sdd.hp.com (Kirk Norton)
+Subject:  v34i018:  starhp - HP-GL/2 StarChart driver, Part01/02
+Message-ID: <csm-v34i018=starhp.194428@sparky.IMD.Sterling.COM>
+X-Md4-Signature: f681e6aa2cb8206db1d358d56dac1766
+Date: Tue, 8 Dec 1992 01:45:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kirk@sdd.hp.com (Kirk Norton)
+Posting-number: Volume 34, Issue 18
+Archive-name: starhp/part01
+Environment: HP-GL/2, Starchart
+
+This shar file contains the C source, makefile, man page, and README file 
+for an HP-GL/2 driver for the StarChart software.  It allows StarChart to 
+produce Postscript quality output on HP Laserjets, compatibles, and other 
+HP-GL/2 or PCL5 printers and plotters.  The set of StarChart codes may be 
+found on several Internet hosts:
+
+     gatekeeper.dec.com 		ftp.uu.net
+     wuarchive.wustl.edu 		ames.arc.nasa.gov
+     uxc.cso.uiuc.edu 			irisa.irisa.fr
+     nic.funet.fi
+
+to name but a few.  Other sites may be found using Archie and searching
+for "starchart".
+
+I have only compiled and tested this driver under HP-UX on an HP series 300.
+However, running on other systems should not be a problem, since this driver
+is "environmentally identical" to the existing Postscript driver.  But if
+you do find problems, please let me know.
+
+Thanks!
+
+-Kirk
+kirk@sdd.hp.com
+---------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile starhp.c.B
+# Wrapped by kent@sparky on Mon Dec  7 19:27:02 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(2829 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XSTARHP.C is to be used with the StarChart software suite.  It is used to 
+Xtranslate StarChart output into Hewlett-Packard's Graphics Language 2
+X(HP-GL/2).  The set of StarChart codes may be found on several Internet hosts:
+X
+X     gatekeeper.dec.com
+X     ftp.uu.net
+X     wuarchive.wustl.edu
+X     ames.arc.nasa.gov
+X     uxc.cso.uiuc.edu
+X     irisa.irisa.fr
+X     nic.funet.fi
+X
+Xto name but a few.  Other sites may be found using Archie and searching
+Xfor "starchart".
+X
+XThe makefile should be okay for most systems.  It should only be necessary to
+Xmodify the file to compile the desired drivers in the set.  However, the 
+XFILEROOT variable will need to be set to the desired directory (i.e. the top 
+XStarChart directory) before compiling.  
+X
+XI have only compiled and tested this driver under HP-UX on an HP series 300.
+XHowever, running on other systems should not be a problem, since this driver
+Xis "environmentally identical" to the existing Postscript driver.  But if
+Xyou do find problems, please let me know.
+X
+XSend remarks to Kirk Norton (kirk@sdd.hp.com).
+X
+X
+XThe remaining text in this file is taken directly from the comments at 
+Xthe beginning of the C source code "starhp.c": 
+X
+XThis driver should support all HP Laserjet IIP's, III's (or higher), and any 
+Xother HP-GL/2 (or PCL-5) printers and plotters (pen, electrostatic, etc.).  
+XHP-GL devices (usually the older ones) may have some problems, but
+XI've tried to keep the driver as general as possible.
+X
+XThis driver WILL NOT support DeskJet, PaintJet (without the HP-GL/2 option),
+X or early LaserJets (those before IIP's), since these are PCL-only devices
+X -- so don't try it (because you will get many, many pages of garbage).
+X
+XSome HP-GL/2 LaserJets and compatibles will not be able to print high density
+Xcharts (ones with lots of stars) due to insufficient memory, and the page
+Xmay be only partially printed.  To avoid this, either reduce the scale
+Xparameter on the starhp command line or reduce the magnitude limits, thereby
+Xreducing the number of objects appearing on the page.
+X
+XHP-GL/2 plotters shouldn't have these problems since they print "on the fly".
+XOf course, "haloing" of objects is not supported on pen plotters, and the 
+Xnice looking fonts will probably not be available on most large format 
+Xdevices or on some HP-GL/2 ink jet printers.
+X
+X
+XProduced by Kirk Norton (kirk@sdd.hp.com) July, 1991 for StarChart 3.2
+Xby Alan Paeth and Craig Counterman.  Leveraged (heavily) from starpost.c.
+X
+XSupports the following enhancements:
+X  1> "bigmaster" chart layout now added
+X  2> extensive rework and subclassing of non-stellar objects, e.g.
+X     galaxies, now have both spiral and irregular variants.
+X  3> star sizes now extended to magnitude 10
+X  4> supports large format devices (up to 44x34 inches) 
+X
+XDefault size changed from 8x11 to 8x10 inches to accomodate Laserjets
+X
+END_OF_FILE
+  if test 2829 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(10346 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#	Makefile for starchart programs
+X#
+X#	$Header: Makefile,v 2.19 90/04/03 01:54:15 ccount Exp $
+X#
+X# Read the makefile before making.  There are many things you may wish
+X# to customize.
+X#
+X#
+X# StarChart Version 3.2.1 copyright (c) March 1990 by Craig Counterman 
+X# original StarChart Software Suite copyright (c) 1987 by Alan Paeth
+X#
+X# All rights reserved. Redistribution granted for non-commercial
+X# non-profit use only. Disclaimer: users of this work understand that
+X# (a) the authors' cannot undertake to support this software (b) users
+X# agree to acknowledge the use of the software in any published work
+X# arising from its application and (c) any subsequent redistribution of
+X# this work retains this warranty placard. 
+X#
+X#
+X# No representation is made about the suitability of this
+X# software for any purpose.  It is provided "as is" without express or
+X# implied warranty, to the extent permitted by applicable law.
+X#
+X# DISCLAIMER OF WARRANTY
+X# ----------------------
+X# The authors  disclaim all warranties  with regard to  this software to
+X# the   extent  permitted  by applicable   law,  including all   implied
+X# warranties  of merchantability  and  fitness. In  no event shall   the
+X# author be liable for any special, indirect or consequential damages or
+X# any  damages whatsoever resulting from  loss of use, data or  profits,
+X# whether in an action of contract, negligence or other tortious action,
+X# arising  out of  or in connection with the  use or performance of this
+X# software.
+X#
+X#
+X#list ONLY the programs you want to use at your site
+XTARGS= \
+X        starX11 \
+X        starhp
+X
+X#	starX11 \
+X#	starpost
+X#       starXaw \
+X#	stardsp \
+X#	startek \
+X#	staruplot \
+X#	starsunv \
+X#	starlaser 
+X#	starX10 
+X
+X# startool must be made specially, see below.
+X# Also consider "postconv.awk"
+X
+X#SITE DEPENDENCIES
+X#
+X# Uncomment out the version appropriate for your site.
+X# At present dependencies for sysV UNIX
+X#
+XLOCAL=-DSYSV -Dindex=strchr
+X
+X
+X# FOR ALL
+X# define OLD_GREEK if you have the v2.1 yale.star file, with a
+X#                slightly different greek encoding
+X# To produce programs which allow keyboard user interaction with the -u flag, 
+X#    see COBJ and starmain.o below.
+X# If you don't want to use the Guide Star Catalog, you can produce
+X#    slightly smaller executable by defining NO_GSC
+X# Define NO_BUF_READSTAR to avoid the buffering file read function,
+X#    to reduce runtime memory usage.
+X# Define USE_ENV_RC to use a STARRC environment variable for the file name
+X#    if the STARRC file named below is not found.
+X# 
+X# FOR X11
+X# define USE_X_DASHES if your server can draw dashed lines
+X# define RELEASE3_FONTS if you want to use the X11R3 font names
+X# define X11R4 if you are using Release 4  (for the athena widgets).
+X#
+X# FOR POSTSCRIPT
+X# define USE_FINE_MACROS if you want to use finer macros than usual:
+X#	 star size varies with 1/10th magnitude increments
+X#        Needs printer with lots of available memory, but produces
+X#        smaller postscript files than using the "-a m" option to
+X#        postscript.
+X#
+X#DEFINES= -DRELEASE3_FONTS -DUSE_X_DASHES -DUSE_FINE_MACROS
+XDEFINES= -DRELEASE3_FONTS -DUSE_X_DASHES -DUSE_ENV_RC -DX11R4
+X
+X#destination for 'make install', otherwise not important
+XBINDIR = "/usr/local"
+X
+X#XINCLUDES is for DECwindows UWS 2.0
+XXINCLUDES = -I/usr/include/mit -I/usr/include/X11R4
+X#XINCLUDES =
+X
+X#list ALL header files
+XHDRS=icon.h parse_input.h star3.h starXaw.h starXawDlog.h patchlevel.h
+X#list ALL source files, whether or not you use them
+XSRCS= interact.c parse_input.c readfile.c starX10.c starX11.c starXaw.c \
+X	starXawDlog.c starXawHelp.c starXawMwin.c starcust.c \
+X	stardsp.c starimages.c starhp.c starlaser.c starm2.c starmain.c \
+X	starpost.c starsample.c starsunv.c starsupp.c startek.c staruplot.c
+X
+X#list ALL object files which could be produced
+XOBJS= interact.o parse_input.o readfile.o starX10.o \
+X	starX11.o starX11_aw.o starXaw.o starXawDlog.o \
+X	starXawHelp.o starXawMwin.o starcust.o stardsp.o \
+X	starimages.o starimages_a.o starlaser.o starm2.o starm2_i.o \
+X	starmain.o starmain_i.o starpost.o starsunv.o starsupp.o \
+X	startek.o staruplot.o starhp.o
+X
+XSTARTOOL=startool.tt startool.icon startool.sh
+XSUPP=postconv.awk
+XVMSFILES=decwxtk.opt descrip.mms starchart_init.com vaxcrtl.opt
+XIBMFILES=pcstar.h Starchar.MSC staribm.c staribmv.c svgagraf.asm
+XATARIFILES=README.st makefile.st starst.c vqgdos.txt vqgdos.s
+XMACFILES=README.mac
+XFILES=Makefile README ${SRCS} ${HDRS} ${STARTOOL} ${SUPP} ${VMSFILES} \
+X	${IBMFILES} ${ATARIFILES} ${MACFILES}
+X
+XDISTDIR=../../dist/starchart
+X
+X#The following may be defined here to set default data file locations
+X# filename	filetype	description
+X# STARFILE	STARFTYPE	bright star data (yale)
+X# INDEXFILE	INDEXFTYPE	index to fainter stars (SAO)
+X# NEBFILE	NEBFTYPE	nebulae
+X# BOUNDFILE	BOUNDFTYPE	constellation boundaries
+X# PATTERNFILE	PATTFTYPE	constellation patterns
+X# CNAMEFILE	CNAMEFTYPE	constellation names
+X# PLANETFILE	PLANETFTYPE	planet positions
+X
+X# other files
+X# CONSTFILE	constellation locations
+X# RCFILE	resource file
+X
+X# Define as needed only
+X# Remember, there are defaults in the code
+X
+X# Example
+XFILEROOT=/local/astro/starchart3.2.1/data
+XSTAR="${FILEROOT}/yale.star"
+XSTART=LINEREAD
+XINDEX="${FILEROOT}/index.indx"
+XINDEXT=INDEXTYPE
+X# only currently valid index file type
+XNEB="${FILEROOT}/neb.star"
+XNEBT=LINEREAD
+XBOUND="${FILEROOT}/boundaries.star"
+XBOUNDT=LINEREAD
+XPATT="${FILEROOT}/pattern.star"
+XPATTTY=LINEREAD
+XCNAME="${FILEROOT}/cnames.star"
+XCNAMET=LINEREAD
+XPLANET="./planet.star"
+X# Planets move, so make it local
+XPLANETTY=LINEREAD
+XCONS="${FILEROOT}/con.locs"
+XRC="./.starrc"
+X
+XFILEFLAGS= \
+X        -DSTARFILE='$(STAR)' \
+X        -DSTARFTYPE='$(START)' \
+X        -DINDEXFILE='$(INDEX)' \
+X        -DINDEXFTYPE='$(INDEXT)' \
+X        -DNEBFILE='$(NEB)' \
+X        -DNEBFTYPE='$(NEBT)' \
+X        -DBOUNDFILE='$(BOUND)' \
+X        -DBOUNDFTYPE='$(BOUNDT)' \
+X        -DPATTERNFILE='$(PATT)' \
+X        -DPATTFTYPE='$(PATTTY)' \
+X        -DCNAMEFILE='$(CNAME)' \
+X        -DCNAMEFTYPE='$(CNAMET)' \
+X        -DPLANETFILE='$(PLANET)' \
+X        -DPLANETFTYPE='$(PLANETTY)' \
+X        -DCONSTFILE='$(CONS)' \
+X        -DRCFILE='$(RC)'
+X
+X
+Xall: ${TARGS}
+X
+XCFLAGS= ${FILEFLAGS} ${LOCAL} ${DEFINES} -g
+XLDFLAGS = -g
+X
+X
+X#Include interact.o in COBJ to support keyboard user interaction
+X#COBJ=starmain.o starm2.o starsupp.o readfile.o parse_input.o
+XCOBJ=starmain.o starm2.o starsupp.o readfile.o parse_input.o interact.o 
+XCOBJIM=${COBJ} starimages.o
+XCOBJIMA=${COBJ} starimages_a.o
+X
+Xstardsp: ${COBJ} stardsp.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJ} stardsp.o starcust.o -lm -o $@
+X
+Xstarlaser: ${COBJIMA} starlaser.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJIMA} starlaser.o starcust.o -lm -o $@
+X
+Xstarpost: $(COBJ) starpost.o starcust.o
+X	$(CC) $(LDFLAGS) $(COBJ) starpost.o starcust.o -lm -o $@
+X
+Xstarhp: $(COBJ) starhp.o starcust.o
+X	$(CC) $(LDFLAGS) $(COBJ) starhp.o starcust.o -lm -o $@
+X
+Xstartek:  ${COBJIMA} startek.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJIMA} startek.o starcust.o -lm -o $@
+X
+Xstaruplot: ${COBJIMA} staruplot.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJIMA} staruplot.o starcust.o -lm -lplot -o $@
+X
+XstarX10: ${COBJIMA} starX10.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJIMA} starX10.o starcust.o -lm -lX -o $@
+X
+XstarX11: ${COBJIM} starX11.o starcust.o
+X	$(CC) $(LDFLAGS) ${COBJIM} starX11.o starcust.o -lm -lX11 -L/usr/lib/X11R4 -o $@
+X
+XstarXaw: starmain_i.o starm2_i.o starsupp.o readfile.o starX11_aw.o \
+X		starXaw.o starXawDlog.o starXawHelp.o starXawMwin.o\
+X		starcust.o starimages.o parse_input.o
+X	$(CC) $(LDFLAGS) starmain_i.o starm2_i.o starsupp.o readfile.o \
+X		starXaw.o starXawDlog.o starXawHelp.o starXawMwin.o \
+X		 starX11_aw.o starcust.o starimages.o parse_input.o\
+X		-lm -lXaw -lXmu -lXt -lX11 -L/usr/lib/X11R4 -o $@
+X
+Xstarsunv: starmain_i.o starm2_i.o starsupp.o readfile.o starsunv.o \
+X		starcust.o starimages.o parse_input.o interact.o
+X	$(CC) $(LDFLAGS) starmain_i.o starm2_i.o starsupp.o readfile.o \
+X		starsunv.o starcust.o starimages.o parse_input.o interact.o \
+X	        -lm -lsuntool -lsunwindow -lpixrect -o $@
+X
+Xstartool: starsunv
+X	echo "You must edit startool, startool.tt and startool.sh,"
+X	echo "    and install them"
+X	echo "You must have the program tooltool,"
+X	echo "    which is available from sun PD archives"
+X	echo "tooltool -f startool.tt" > startool
+X
+X# use -DINTERACTIVE_CONTROL in starmain.o and starm2.o
+X#     to allow keyboard user interaction
+Xstarmain.o: starmain.c Makefile star3.h parse_input.h
+X	$(CC) $(CFLAGS) -DINTERACTIVE_CONTROL -c starmain.c
+X
+Xstarm2.o: starm2.c Makefile star3.h
+X	$(CC) $(CFLAGS) -DINTERACTIVE_CONTROL -c starm2.c
+X
+X
+X
+Xstarmain_i.o: starmain.c Makefile star3.h parse_input.h
+X	-mv starmain.o starmain_n.o
+X	$(CC) $(CFLAGS) -DINTERACTIVE_CONTROL -c starmain.c
+X	mv starmain.o starmain_i.o
+X	-mv starmain_n.o starmain.o
+X
+Xstarm2_i.o: starm2.c Makefile star3.h
+X	-mv starm2.o starm2_n.o
+X	$(CC) $(CFLAGS) -DINTERACTIVE_CONTROL -c starm2.c
+X	mv starm2.o starm2_i.o
+X	-mv starm2_n.o starm2.o
+X
+Xreadfile.o: readfile.c star3.h
+X
+Xstarimages.o: starimages.c star3.h
+X	$(CC) $(CFLAGS) -c starimages.c
+X
+X#starimages_a.o defines area operations for drivers which otherwise don't
+X#  support them
+Xstarimages_a.o: Makefile starimages.c star3.h
+X	-mv starimages.o starimages_n.o
+X	$(CC) $(CFLAGS) -DAREAS -c starimages.c
+X	mv starimages.o starimages_a.o
+X	-mv starimages_n.o starimages.o
+X
+XstarX11.o: starX11.c Makefile icon.h star3.h
+X	$(CC) $(CFLAGS) $(XINCLUDES) -DSTARX11 -c starX11.c
+X
+XstarX11_aw.o: starX11.c Makefile icon.h star3.h
+X	-mv starX11.o starX11_n.o
+X	$(CC) $(CFLAGS) $(XINCLUDES) -DSTARXAW -c starX11.c
+X	mv starX11.o starX11_aw.o
+X	-mv starX11_n.o starX11.o
+X
+XstarXaw.o: starXaw.c star3.h starXaw.h icon.h
+X	$(CC) $(CFLAGS) $(XINCLUDES) -c starXaw.c
+X
+XstarXawDlog.o: starXawDlog.c star3.h starXaw.h starXawDlog.h
+X	$(CC) $(CFLAGS) $(XINCLUDES) -c starXawDlog.c
+X
+XstarXawHelp.o: starXawHelp.c star3.h starXaw.h
+X	$(CC) $(CFLAGS) $(XINCLUDES) -c starXawHelp.c
+X
+XstarXawMwin.o: starXawMwin.c star3.h starXaw.h
+X	$(CC) $(CFLAGS) $(XINCLUDES) -c starXawMwin.c
+X
+Xstarsunv.o: star3.h
+Xinteract.o: star3.h parse_input.h patchlevel.h
+Xparse_input.o: star3.h parse_input.h
+Xstarcust.o: star3.h 
+Xstardsp.o: star3.h 
+Xstarlaser.o: star3.h 
+Xstarpost.o: star3.h 
+Xstarhp.o : star3.h
+Xstarsample.o: star3.h 
+Xstarsupp.o: star3.h 
+Xstartek.o: star3.h 
+Xstaruplot.o: star3.h 
+X
+Xinstall: all
+X	strip $(TARGS)
+X	mv $(TARGS) $(BINDIR)
+X
+Xdist:
+X	cp ${FILES} ${DISTDIR}
+X
+Xclean:
+X	rm -f ${OBJS} ${TARGS} a.out core
+END_OF_FILE
+  if test 10346 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'starhp.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'starhp.c.B'\"
+else
+  echo shar: Extracting \"'starhp.c.B'\" \(36790 characters\)
+  sed "s/^X//" >'starhp.c.B' <<'END_OF_FILE'
+X     class = 0;
+X     while (table[class] && (table[class] != color_str[0])) class++;
+X     subclass = isdigit(color_str[1]) ? color_str[1] - '0' : 0;
+X     colr = table[class] ? 10 + super_spectra[class][subclass] : WHITE;
+X
+X     if( colr != cur_colr )
+X          {
+X          fprintf( outf, "SP%d", colr );
+X          pen_up = UNKNOWN;
+X          cur_colr = colr;
+X         }
+X     }
+X
+X
+X/* Set the font and font size to be used for text. */
+X/* Note order of args */
+XD_fontsize(fsize, font)
+X     int fsize;	/* Size of font */
+X     int font;	/* e.g. TIMES, HELV, TIMES+ITALIC */
+X{
+X
+X  /* override some requests */
+X  switch(cur_function) {
+X  case CHRTOUTLN:
+X    break;
+X  case CHRTHTICK:
+X  case CHRTVTICK:
+X    font = TIMESBOLD;
+X    break;
+X  case GRID_RA:
+X  case GRID_DEC:
+X  case ECLIPT:
+X    break;
+X  case CONSTBOUND:
+X  case CONSTPATTRN:
+X    break;
+X  case CONSTNAME:
+X    font = HELVITAL;
+X    break;
+X  case CHARTFILE:
+X    break;
+X  }
+X                        /* Set font attribute variables */
+X  switch(font) {
+X  default:
+X  case TIMESROMAN:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_TMSRMN;
+X    break;
+X  case TIMESBOLD:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_TMSRMN;
+X    break;
+X  case TIMESITAL:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_TMSRMN;
+X    break;
+X  case TIMESBOLDITAL:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_TMSRMN;
+X    break;
+X  case HELV:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_UNIVERS;
+X    break;
+X  case HELVBOLD:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_UNIVERS;
+X    break;
+X  case HELVITAL:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_UNIVERS;
+X    break;
+X  case HELVBOLDITAL:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_UNIVERS;
+X    break;
+X  case COURIER:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_COURIER;
+X    break;
+X  case COURBOLD:
+X    f_posture = FP_UPRIGHT;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_COURIER;
+X    break;
+X  case COURITAL:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_MEDIUM;
+X    f_typeface = TF_COURIER;
+X    break;
+X  case COURITALBOLD:
+X    f_posture = FP_ITALIC;
+X    f_sweight = SW_BOLD;
+X    f_typeface = TF_COURIER;
+X    break; 
+X  };
+X  f_size = fsize;
+X
+X}
+X/* This routine is encouraged to look at the extern cur_funtion
+X   and change the font used as desired */
+X
+X
+X/* Display text string str at x,y, in current font and font size.
+X   if star_lbl is TRUE, string is a star label, use
+X     greek characters (if possible) */
+XD_text(x, y, str, star_lbl)
+X     int x, y;
+X     char *str;
+X     int star_lbl;
+X     {
+X     int changed = FALSE;
+X
+X     if (star_lbl)  /* Specify math character set for Greek letters */
+X          {
+X          while (*str == ' ') str++;    /* remove leading spaces */
+X          f_typeface = CS_MATH8;
+X          }
+X     else
+X          f_typeface = CS_STANDARD;
+X
+X         /* Specify only as much about the font that has changed */
+X
+X     if( c_f_charset != f_charset )    /* Set character set */
+X          {
+X          fprintf( outf, "SD1,%d", f_charset );
+X          c_f_charset = f_charset;
+X          changed = TRUE;
+X          }
+X     if( c_f_size != f_size )          /* Set point size */
+X          {
+X          if( changed == TRUE )
+X               fprintf( outf, ",4,%d", f_size );
+X          else
+X               {
+X               fprintf( outf, "SD4,%d", f_size );
+X               changed = TRUE;
+X               }
+X          c_f_size = f_size;
+X          }
+X     if( c_f_posture != f_posture )    /* Set posture */
+X          {
+X          if( changed == TRUE )
+X               fprintf( outf, ",5,%d", f_posture );
+X          else
+X               {
+X               fprintf( outf, "SD5,%d", f_posture );
+X               changed = TRUE;
+X               }
+X          c_f_posture = f_posture;
+X          }
+X     if( c_f_sweight != f_sweight )    /* Set stroke weight */
+X          {
+X          if( changed == TRUE )
+X               fprintf( outf, ",6,%d", f_sweight );
+X          else
+X               {
+X               fprintf( outf, "SD6,%d", f_sweight );
+X               changed = TRUE;
+X               }
+X          c_f_posture = f_posture;
+X          }
+X     if( c_f_typeface != f_typeface )  /* Set typeface */
+X          {
+X          if( changed == TRUE )
+X               fprintf( outf, ",7,%d", f_typeface );
+X          else
+X               {
+X               fprintf( outf, "SD7,%d", f_typeface );
+X               changed = TRUE;
+X               }
+X          c_f_typeface = f_typeface;
+X          }
+X     out( ";" );
+X
+X     D_move( x, y );
+X     fprintf( outf, "SD6,%dSP1LB%s@", f_sweight, str );
+X     lost = TRUE;
+X     cur_colr = UNKNOWN;
+X     }
+X
+X
+X/* Return input coordinate in device coords where there are pointing devices */
+XD_inxy(x, y)
+X     int *x, *y;
+X{
+X}
+X
+X
+X/* Put non-displayed comment in output file */
+XD_comment(str)
+X     char *str;
+X{
+X  int i = 0;
+X
+X  out( ";\n\nCO \"" );
+X  while( str[i] != '\0' )  /* Any double quotes in a comment must be doubled */
+X    {
+X    if( str[i] == '\"' )
+X      fprintf( outf, "\"%c", str[ i++ ] );
+X    else
+X      fprintf( outf, "%c", str[ i++ ] );
+X    }
+X  out( "\";\n\n" );
+X}
+X
+X
+X/**
+XHigher level functions
+X**/
+X
+X/* Point sizes for font calls */
+X#define TITLESIZE 16
+X#define SUBTLSIZE 12
+X#define NAMESIZE 10
+X#define LBLSIZE 8
+X#define MAGSIZE 8
+X
+X/* Fonts for font calls */
+X#define NAMEFNT TIMESROMAN
+X#define LBLFNT HELV
+X#define MAGFNT COURIER
+X#define TITLEFNT TIMESBOLD
+X#define SUBTLFNT TIMESROMAN
+X
+X
+X/* Interface Function */
+X/* Draw object at x, y.  properties set by other parameters */
+Xdrawobj(x, y, mag, type, color_str, label_field, con_str, obj_name,
+X	comment_str, file_line,
+X	draw_glyph, draw_text, use_lbl, use_name, use_mag)
+X
+X     int x, y;
+X     double mag;	/* Magnitude of object */
+X     char *type;	/* 2 chars, object code and subcode */
+X     char *color_str;	/* 2 chars, spectral type for stars, 
+X			   color code otherwise */
+X     char *label_field;	/* 2 chars, Bayer or flamsteed for stars,
+X			   size in seconds for nebulae and
+X			   planets */
+X     char *con_str;	/* 3 chars, the constellation the object is in */
+X     char *obj_name;	/* Name of object */
+X     char *comment_str;	/* Comment field */
+X     char *file_line;	/* The full line from the file,
+X			   containing the above if it is in
+X			   standard format */
+X     int draw_glyph;	/* Draw object symbol */
+X     int draw_text;	/* Draw text */
+X     int use_lbl;	/* Label object with the label_field string */
+X     int use_name;	/* Label object with the obj_name string */
+X     int use_mag;	/* Label object with a 2 or 3 character string
+X			   containing the magnitude * 10 without
+X			   decimal point */
+X     {
+X     char magstr[10];
+X
+X     if (draw_glyph) switch(type[0])
+X          {
+X          case 'S':	drawStar(x,y,mag,type[1],color_str);
+X               break;
+X          case 'P':	drawPlan(x,y,mag,type[1],color_str, size_obj(label_field), comment_str);
+X               break;
+X          case 'N':	drawNebu(x,y,mag,type[1],color_str, size_obj(label_field));
+X               break;
+X          case 'G':	drawGalx(x,y,mag,type[1],color_str, size_obj(label_field));
+X               break;
+X          case 'C':	drawClus(x,y,mag,type[1],color_str, size_obj(label_field));
+X               break;
+X          case 'U': 	drawUnknown(x,y,mag,type[1],color_str, size_obj(label_field));
+X               break;
+X          case 'O': 	drawOther(x,y,mag,type[1],color_str, size_obj(label_field));
+X               break;
+X          case 'V':
+X          default:
+X               break;
+X          }
+X/*
+X * use name or label
+X */
+X     if (draw_text) {
+X          if (use_name && obj_name[0])   
+X                {
+X                D_fontsize(NAMESIZE, NAMEFNT);
+X                D_text(x+x_nameoffset, y+y_nameoffset, obj_name, FALSE);
+X                } 
+X          else if (use_lbl && ((label_field[0] != ' ') || (label_field[1] != ' ')))
+X                {
+X                D_fontsize(LBLSIZE, LBLFNT);
+X                D_text(x+x_lbloffset, y+y_lbloffset, label_field, TRUE);
+X                }
+X/* If you want to magnitude label other objects, change this */
+X          if (use_mag && (type[0] == 'S')) 
+X               {
+X               sprintf(magstr, "%02d", (int)(mag*10.0+0.5));
+X               D_fontsize(MAGSIZE, MAGFNT);
+X               D_text(x+x_magoffset, y+y_magoffset, magstr, FALSE);
+X               }
+X          }
+X     }
+X
+X
+Xint findrad( mag )
+Xdouble mag;
+X     {
+X     int rad, hirad, lorad, delrad, whole;
+X     double remainder;
+X
+X     if( cur_map_type == THUMBNAIL )
+X          mag += thumbshift;    /* Reduce radius for thumbnail map stars */
+X     else 
+X          {
+X          if (mag < brightest_used) brightest_used = mag;
+X          if (mag > faintest_used) faintest_used = mag;
+X          }
+X     if (mag<MAG_BRIGHT) mag = MAG_BRIGHT;
+X     if (mag>MAG_DIM) mag = MAG_DIM;
+X
+X     whole = (int) (mag + 1.0);
+X     remainder = 1.0 + mag - (double) whole;
+X     hirad = magsizes[ whole ];
+X     lorad = magsizes[ whole + 1 ];
+X     delrad = hirad - lorad;
+X     if( use_fine_mag == TRUE )
+X          rad = lorad + (int) ( (1.0 - remainder) * (double) delrad );
+X     else if( remainder < 0.5 )
+X          rad = hirad;
+X     else
+X          rad = lorad;
+X     return( rad );
+X     }
+X
+X
+XdrawStar(x, y, mag, type, color)
+Xint x, y;
+Xdouble mag;
+Xchar type, *color;
+X     {
+X     int starrad;
+X
+X                   /* Note: this ends current line */
+X     D_move(x,y);
+X     if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X          starrad = (int) ( (double) findrad( mag ) * scaling_factor);
+X     else
+X          starrad = findrad( mag );
+X
+X     switch( type )
+X          {
+X          default:
+X          case 'S':                   /* Draw solid color star with halo */
+X               cur_colr = BLACK;
+X               set_line_type( SOLID );
+X               fprintf( outf, "PW.35PM0CI%d,%dPM2SP0EP", starrad, curve_val );
+X               D_color(color);
+X               out( "PW.13FP" );
+X               break;
+X          case 'D':                   /* Draw solid star with bar (both haloed) */
+X               out( "SP0PW.35" );
+X               cur_colr = BLACK;  
+X               D_draw( x - (int) (1.6 * (double) starrad+ResPT/2), y, SOLID );
+X               D_draw( x + (int) (1.6 * (double) starrad+ResPT/2), y, SOLID );
+X               D_draw( x, y, SOLID );
+X               fprintf( outf, "PM0CI%d,%dPM2EP", starrad, curve_val );
+X               D_color(color);
+X               out( "FPPW.13" );
+X               D_draw( x - (int) (1.6 * (double) starrad), y, SOLID );
+X               D_draw( x + (int) (1.6 * (double) starrad), y, SOLID );
+X               break;
+X          case 'V':                   /* Draw hollow colored star with halo */
+X               cur_colr = BLACK;
+X               set_line_type( SOLID );
+X               fprintf( outf, "SP0PW0.35PM0CI%d,%dPM2EPFP", starrad, curve_val );
+X               D_color(color);
+X               out( "PW.13EP" );
+X               break;
+X          }
+X     pen_up = UNKNOWN;
+X     cur_colr = UNKNOWN;
+X     }
+X
+XdrawPlan(x, y, mag, type, color, plansize, comment_str)
+Xint x,y;
+Xdouble mag;
+Xchar type, *color;
+Xlong plansize;		/* -1 should give default size */
+Xchar *comment_str;
+X     {
+X     int rad, s, xm, ym, xp, yp;
+X     int n;
+X     double phase, chi;
+X
+X     rad = (int) (plansize/(3600.*xf_c_scale)+.5)/2;
+X     if (rad < 6*ResPT)
+X          rad = 6*ResPT;
+X     if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X          rad = (int) ((double) rad * scaling_factor);
+X     s = rad/2;
+X
+X     D_color(color);
+X     D_move(x,y);
+X
+X  switch(type)
+X    {
+X    case 'A':                                        /* Draw symbol for an asteroid */ 
+X         fprintf(outf, "PM0CI%d,%dPM2FP", (int) (s*0.35), curve_val );
+X         fprintf(outf, "PR%d,%dPD%d,%dPU0,%dPD%d,%dPU", (int) s, (int) s, (int) (-s*2),
+X                                         (int) (-s*2), (int) (s*2), (int) (s*2), (int) (-s*2) );
+X         lost = TRUE;
+X         break;
+X    case 'C':                                        /* Draw symbol for a comet */
+X         phase = 135.0;
+X         n = sscanf(comment_str, "%lf", &phase);
+X         if (cur_win->invert) phase = 180 - phase;
+X         fprintf( outf, "SP0PW0.35PM0CI%d,%dPM2PREP", s/2, curve_val );
+X         draw_rot( 0, -2*s, phase, PEN_DOWN );
+X         draw_rot( 0, 2*s, phase, PEN_DOWN );
+X         draw_rot( -s/2, 0, phase, PEN_UP );
+X         draw_rot( -s/2, -(3*s)/2, phase, PEN_DOWN );
+X         draw_rot( s/2, (3*s)/2, phase, PEN_DOWN );
+X         draw_rot( s, 0, phase, PEN_UP );
+X         draw_rot( s/2, -(3*s)/2, phase, PEN_DOWN );
+X         draw_rot( -s/2, (3*s)/2, phase, PEN_DOWN );
+X         draw_rot( -s/2, 0, phase, PEN_UP );
+X         cur_colr = UNKNOWN;
+X         D_color(color);
+X         out( "PW0.13" );
+X         draw_rot( 0, -2*s, phase, PEN_DOWN );
+X         draw_rot( 0, 2*s, phase, PEN_DOWN );
+X         draw_rot( -s/2, 0, phase, PEN_UP );
+X         draw_rot( -s/2, -(3*s)/2, phase, PEN_DOWN );
+X         draw_rot( s/2, (3*s/2), phase, PEN_DOWN );
+X         draw_rot( s, 0, phase, PEN_UP );
+X         draw_rot( s/2, -(3*s/2), phase, PEN_DOWN );
+X         draw_rot( -s/2, (3*s/2), phase, PEN_DOWN );
+X         draw_rot( -s/2, 0, phase, PEN_UP );
+X         out( "SP0FPPU" );
+X         lost = TRUE;
+X         cur_colr = UNKNOWN;
+X         D_color(color);
+X         out( "EP" );
+X         break;
+X    case 'S':                                        /* Draw symbol for the sun */
+X         fprintf(outf, "PW.35CI%d,%dPW.13", rad, curve_val/2); 
+X         fprintf(outf, "PM0CI%d,%dPM2FP", (int) (s*0.4), curve_val ); 
+X         lost = TRUE;
+X         break;
+X    case 'L':                                        /* Draw symbol for the moon */
+X         phase = 0.0;
+X         chi = 90.0;
+X         n = sscanf(comment_str, "%lf %lf", &phase, &chi);
+X         if (cur_win->invert) chi = 180 - chi;
+X         set_line_type( VECDOT );
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         xm = rad;  
+X         ym = 0;
+X         rotate( &xm, &ym, chi ); 
+X         xp = 0;    
+X         yp = -(int) (cos(phase*0.0174532925199) * (double) rad); 
+X         rotate( &xp, &yp, chi ); 
+X         fprintf( outf, "PU%d,%dPM0PDRT%d,%d,%d,%d,%d", -xm, -ym, ym+xm, -xm+ym,
+X                                                          2*xm, 2*ym, curve_val/2 ); 
+X         fprintf( outf, "RT%d,%d,%d,%d,%dPM2PUFP", xp-xm, yp-ym, -2*xm, -2*ym, curve_val/2  ); 
+X         set_line_type( SOLID ); 
+X         lost = TRUE;
+X         break;
+X    case 'M':                                        /* Draw symbol for Mercury */ 
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2); 
+X         fprintf(outf, "PR%d,%dPDAR%d,0,180,10", (int) (-s*0.4), (int) s, (int) (s*0.4) );
+X         fprintf(outf, "PU%d,%dPDAR%d,0,360,10", (int) (s*0.1), (int) (-s*0.9), (int) (-s*0.5) );
+X         fprintf(outf, "PU%d,%dPD0,%d", (int) (-s*0.5), (int) (-s*0.5), (int) (-s*0.6) );
+X         fprintf(outf, "PU%d,%dPD%d,0PU", (int) (-s*0.3), (int) (s*0.3), (int) (s*0.6) );
+X         lost = TRUE;
+X         break;
+X    case 'V':                                        /* Draw symbol for Venus */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         fprintf(outf, "PR%d,%dPDAR%d,0,360,10", (int) (s*0.5), (int) (s*0.4), (int) (-s*0.5) );
+X         fprintf(outf, "PU%d,%dPD0,%d", (int) (-s*0.5), (int) (-s*0.3), (int) -s );
+X         fprintf(outf, "PU%d,%dPD%d,0PU", (int) (-s*0.4), (int) (s*0.35), (int) (s*0.8) );
+X         lost = TRUE;
+X         break;
+X    case 'm':                                        /* Draw symbol for Mars */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         fprintf(outf, "PR%d,%dPDAR%d,%d,360,10", (int) (s*0.224), (int) (s*0.224), 
+X                                                           (int) (-s*0.424), (int) (-s*0.424) );
+X         fprintf(outf, "PD%d,%dPU0,%d", (int) (s*0.476), (int) (s*0.476), (int) (-s*0.5) );
+X         fprintf(outf, "PD0,%d,%d,0PU", (int) (s*0.5), (int) (-s*0.5) );
+X         lost = TRUE;
+X         break;
+X    case 'J':                                        /* Draw symbol for Jupiter */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2); 
+X         fprintf(outf, "PR%d,%dPD0,%dPU%d,%dPD%d,0", (int) (s*0.5), (int) (-s*0.9),
+X                                 (int) (s*1.8), (int) (s*0.4), (int) (-s*1.4), (int) (-s*1.6) );
+X         fprintf(outf, "AR0,%d,90,5", (int) (s*0.9));
+X         fprintf(outf, "AR%d,0,200,10PU", (int) (-s*0.3));
+X         lost = TRUE;
+X         break;
+X    case 's':                                        /* Draw symbol for Saturn */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2); 
+X         fprintf(outf, "PR%d,%dPD0,%dPU%d,0PD%d,0PU%d,%d", (int) (-s*0.5), (int) (-s*0.7),
+X                       (int) (s*1.7), (int) (-s*0.3), (int) (s*0.6), (int) (-s*0.3), (int) -s );
+X         fprintf(outf, "PDRT%d,%d,%d,%d,10", (int) (s*0.209), (int) (s*.219), 
+X                                                                 (int) (s*0.5), (int) (s*0.3) );
+X         fprintf(outf, "AR0,%d,-90,10PD%d,%d", (int) (-s*0.4), (int) (-s*0.1), (int) (-s*0.5) );
+X         fprintf(outf, "RT%d,%d,%d,%d,10PU", (int) (s*0.1), (int) (-s*0.24), 
+X                                                                (int) (s*0.4), (int) (-s*0.2) );
+X         lost = TRUE;
+X         break;
+X    case 'U':                                        /* Draw symbol for Uranus */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         fprintf(outf, "PR%d,%dPD0,%dPU%d,%d,PD0,%d", (int) -s, (int) s, 
+X                                          (int) (-s*2),(int) (s*2), (int) (s*2), (int) (-s*2) );
+X         fprintf(outf, "PU%d,%dPD%d,0", (int) (-s*2), (int) s, (int) (s*2) );
+X         fprintf(outf, "PU%d,%dPD0,%d", (int) -s, (int) s, (int) (-s*2) );
+X         fprintf(outf, "AR0,%d,360,10PU", (int) (-s*0.3) );
+X         lost = TRUE;
+X         break;
+X    case 'N':                                        /* Draw symbol for Neptune */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         fprintf(outf, "PR0,%dPD0,%dPU%d,0", (int) (-s*0.9), (int) (s*1.7), (int) (-s*0.8) );
+X         fprintf(outf, "PD%d,%d,0,%d,%d,0,0,%d,%d,%d", (int) (s*0.1), (int) (-s*0.3), 
+X                   (int) (-s*0.5), (int) (s*1.4), (int) (s*0.5), (int) (s*0.1), (int) (s*0.3) );
+X         fprintf(outf, "PU%d,%dPD%d,0PU", (int) (-s*1.3), (int) (-s*1.3), (int) s );
+X         lost = TRUE;
+X         break;
+X    case 'P':                                        /* Draw symbol for Pluto */
+X         fprintf(outf, "CI%d,%d", rad, curve_val/2);
+X         fprintf(outf, "PR%d,%dPD0,%d,%d,0", (int) -s, (int) s, (int) (-s*2), (int) (s*1.5) );
+X         fprintf(outf, "PU%d,%dPD%d,0PU%d,%dPD%d,0", (int) (-s*1.5), (int) (s*2),
+X                                                         (int) s, (int) -s, (int) -s, (int) s );
+X         fprintf(outf, "AR0,%d,180,10PU", (int) (s*0.5) );
+X         lost = TRUE;
+X         break;
+X    default:                                         /* Draw symbol for other */
+X         fprintf(outf, "CI%d,%d", (int) (rad*0.8), curve_val/2);
+X         fprintf(outf, "PR%d,0PD%d,0,%d,0", (int) (-s*2), (int) (s*4), (int) (-s*2) );
+X         fprintf(outf, "PD0,%d,0,%dPU", (int) (-s*2), (int) (s*4) );
+X         lost = TRUE;
+X         break;
+X    }
+X}
+X
+XdrawGalx(x, y, mag, type, color, nebsize)
+X     int x, y;
+X     double mag;
+X     char type, *color;
+X     long nebsize;		/* -1 should give default size */
+X{
+X  int rad, s;
+X
+X  rad = (int) (nebsize/(3600.*xf_c_scale)+.5)/2;
+X  if (rad < 6*ResPT) /* size of object in device coords */
+X    rad = 6*ResPT;
+X  if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X    rad = (int) ((double) rad * scaling_factor);
+X  s = rad/2;
+X
+X  D_move( x, y );
+X
+X  switch(type)
+X     {
+X     case 'a':
+X     case 'b':
+X     case 'c':
+X     case 'd':
+X     case 'B':
+X     case 'S':             /* Draw Spiral Galaxy */
+X     case 'O':    
+X          fprintf( outf, "SP0PW0.35PR%d,%dPDPM0", (int) (-s*0.9), (int) (s*0.5));
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.1), 
+X                       (int) (s*0.3), (int) (s*0.4), (int) (s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.9), 
+X                     (int) (-s*0.5), (int) (s*1.4), (int) (-s*1.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.1), 
+X                    (int) (-s*0.3), (int) (-s*0.4), (int) (-s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.9), (int) (s*0.5), 
+X                                     (int) (-s*1.4), (int) (s*1.4), curve_val );
+X          out( "PM2EP" );
+X          fprintf( outf, "PU%d,%d", (int) (s*0.9), (int) (-s*0.5));
+X          fprintf( outf, "PU%d,%dPD%d,%dPU%d,%d", (int) (-s*0.8), (int) (s*0.8),
+X                 (int) (-s*0.5), (int) (-s*0.4), (int) (s*2.1), (int) (-s*1.2) );
+X          fprintf( outf, "PD%d,%dPU%d,%d", (int) (s*0.5), (int) (s*0.4),
+X                                               (int) (-s*1.3), (int) (s*0.4) );
+X          cur_colr = BLACK;
+X          D_color( color );
+X          out( "PW0.13FP" );
+X          fprintf( outf, "PU%d,%dPD%d,%dPU%d,%d", (int) (-s*0.8), (int) (s*0.8),
+X                 (int) (-s*0.5), (int) (-s*0.4), (int) (s*2.1), (int) (-s*1.2) );
+X          fprintf( outf, "PD%d,%dPU%d,%d", (int) (s*0.5), (int) (s*0.4),
+X                                               (int) (-s*1.3), (int) (s*0.4) );
+X          break;
+X     case 'Q':            /* Draw Quasar */
+X
+X          fprintf( outf, "SP0PW0.35PR%d,%dPDPM0", (int) (-s*0.9), (int) (s*0.5));
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.1), 
+X                       (int) (s*0.3), (int) (s*0.4), (int) (s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.9), 
+X                     (int) (-s*0.5), (int) (s*1.4), (int) (-s*1.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.1), 
+X                    (int) (-s*0.3), (int) (-s*0.4), (int) (-s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.9), (int) (s*0.5), 
+X                                     (int) (-s*1.4), (int) (s*1.4), curve_val );
+X          out( "PM2EP" );
+X          fprintf( outf, "PU%d,%d", (int) (s*0.9), (int) (-s*0.5));
+X          fprintf( outf, "PD%d,0,%d,0,%d,0", (int) (-s*1.2), (int) (s*2.4), (int) (-s*1.2) );
+X          fprintf( outf, "PD0,%d,0,%d,0,%dPW0.13", (int) (-s*1.2), (int) (s*2.4), (int) (-s*1.2) );
+X          cur_colr = BLACK;
+X          D_color( color );
+X          fprintf( outf, "FPPD%d,0,%d,0,%d,0", (int) (-s*1.2), (int) (s*2.4), (int) (-s*1.2) );
+X          fprintf( outf, "PD0,%d,0,%d,0,%d", (int) (-s*1.2), (int) (s*2.4), (int) (-s*1.2) );
+X          break;
+X     case 'E':
+X     case 'I':            /* Draw Elliptical Galaxy */
+X     case 'G':
+X     default:
+X          fprintf( outf, "SP0PW0.35PR%d,%dPDPM0", (int) (-s*0.9), (int) (s*0.5));
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.1), 
+X                       (int) (s*0.3), (int) (s*0.4), (int) (s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (s*0.9), 
+X                     (int) (-s*0.5), (int) (s*1.4), (int) (-s*1.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.1), 
+X                    (int) (-s*0.3), (int) (-s*0.4), (int) (-s*0.4), curve_val );
+X          fprintf( outf, "RT%d,%d,%d,%d,%d", (int) (-s*0.9), (int) (s*0.5), 
+X                                     (int) (-s*1.4), (int) (s*1.4), curve_val );
+X          out( "PM2EPPW0.13" );
+X          cur_colr = BLACK;
+X          D_color( color );
+X          out( "FP" );
+X          break;
+X     }
+X
+X  out( "PU" );
+X  pen_up = UNKNOWN;
+X  lost = TRUE;
+X}
+X
+X
+XdrawClus(x, y, mag, type, color, nebsize)
+X     int x, y;
+X     double mag;
+X     char type, *color;
+X     long nebsize;		/* -1 should give default size */
+X{
+X  int rad, s;
+X
+X  rad = (int) (nebsize/(3600.*xf_c_scale)+.5)/2;
+X  if (rad < 6*ResPT) /* size of object in device coords */
+X    rad = 6*ResPT;
+X  if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X    rad = (int) ((double) rad * scaling_factor);
+X  s = rad/2;
+X
+X  D_move( x, y );
+X
+X  switch(type)
+X    {
+X    case 'G': 
+X         fprintf( outf, "SP0PW0.35PM0CI%d,%dPM2FPEPPW0.13", s, curve_val/2 );
+X         cur_colr = BLACK;
+X         D_color( color );
+X         out( "LT1,1.08,1EP" );    
+X         cur_sty = UNKNOWN;
+X         set_line_type( SOLID );
+X         fprintf( outf, "PM0CI%d,%dPM2FPPU", s/4, curve_val );
+X         break;
+X    case 'O': 
+X    default:
+X         fprintf( outf, "SP0PW0.35PM0CI%d,%dPM2FPEPPW0.13", s, curve_val/2 );
+X         cur_colr = BLACK;
+X         D_color( color );
+X         out( "LT1,1.08,1EP" );    
+X         cur_sty = UNKNOWN;
+X         set_line_type( SOLID );
+X         out( "PU" );
+X    }
+X  pen_up = UNKNOWN;
+X  lost = TRUE;
+X}
+X
+XdrawNebu(x, y, mag, type, color, nebsize)
+X     int x, y;
+X     double mag;
+X     char type, *color;
+X     long nebsize;		/* -1 should give default size */
+X{
+X  int rad, s;
+X
+X  rad = (int) (nebsize/(3600.*xf_c_scale)+.5)/2;
+X  if (rad < 6*ResPT) /* size of object in device coords */
+X    rad = 6*ResPT;
+X  if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X    rad = (int) ((double) rad * scaling_factor);
+X  s = rad/2;
+X
+X  D_move( x, y );
+X
+X  switch(type)
+X    {
+X    case 'P':
+X         fprintf( outf, "SP0PW0.35PRPD%d,0,%d,0,%d,0,0,%d,0,%d,0,%d", -s, s*2, -s, -s, s*2, -s );
+X         fprintf( outf, "PM0CI%d,%dPM2EP", s/2, curve_val );
+X         cur_colr = UNKNOWN;
+X         D_color( color );
+X         fprintf( outf, "PW0.13PD%d,0,%d,0,%d,0,0,%d,0,%d,0,%d", -s, s*2, -s, -s, s*2, -s );
+X         out( "SP0FP" );
+X         cur_colr = BLACK;
+X         D_color( color );
+X         out( "EPPU" );
+X         break;
+X    case 'D': 
+X    default:
+X         fprintf( outf, "SP0PW0.35PR0,%d", s );
+X         fprintf( outf, "PM0PD%d,%d,%d,%d,%d,%d,%d,%d", -s, -s, s, -s, s, s, -s, s );
+X         out( "PM2FPEPPW0.13" );
+X         fprintf( outf, "PU0,%d", -s );
+X         cur_colr = BLACK;
+X         D_color( color );
+X         fprintf( outf, "EPPU0,%d", -s );
+X         out( "PU" );
+X    }
+X  lost = TRUE;
+X  pen_up = UNKNOWN;
+X}
+X
+XdrawUnknown(x, y, mag, type, color, nebsize)
+Xint x, y;
+Xdouble mag;
+Xchar type, *color;
+Xlong nebsize;		/* -1 should give default size */
+X     {
+X     int rad, s;
+X
+X     rad = (int) (nebsize/(3600.*xf_c_scale)+.5)/2;
+X     if (rad < 6*ResPT) /* size of object in device coords */
+X          rad = 6*ResPT;
+X     if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X          rad = (int) ((double) rad * scaling_factor);
+X     s = rad/2;
+X
+X     D_move( x, y );
+X
+X     fprintf( outf, "SP0PW0.35PDRT%d,%d,%d,%d,%d", s/2, s/2, -s/2, s/2, curve_val );
+X     fprintf( outf, "PU%d, %dPD0,%dPU0,%d", s/2, -s/2, -s, s );
+X     cur_colr = BLACK;
+X     D_color( color );
+X     fprintf( outf, "PW0.13PDRT%d,%d,%d,%d,%d", s/2, s/2, -s/2, s/2, curve_val );
+X     fprintf( outf, "PU%d, %dPD0,%dPU0,%d", s/2, -s/2, -s, s );
+X     }
+X
+XdrawOther(x, y, mag, type, color, nebsize)
+Xint x, y;
+Xdouble mag;
+Xchar type, *color;
+Xlong nebsize;		/* -1 should give default size */
+X     {
+X     int rad, s;
+X
+X     rad = (int) (nebsize/(3600.*xf_c_scale)+.5)/2;
+X     if (rad < 6*ResPT) /* size of object in device coords */
+X          rad = 6*ResPT;
+X     if( A_SIZE <= plot_size && plot_size <= E_SIZE )
+X          rad = (int) ((double) rad * scaling_factor);
+X     s = rad/2;
+X
+X     D_move( x, y );
+X
+X     fprintf( outf, "SP0PW0.35PR0,%d", s );
+X     fprintf( outf, "PM0PD%d,%d,%d,%d,%d,%d,%d,%d", -s, -s, s, -s, s, s, -s, s );
+X     out( "PM2FPEP" );
+X     fprintf( outf, "PU0,%d", -s );
+X     fprintf(outf, "PD%d,%dPD%d,%dPU0,%dPD%d,%d,%d,%d", s, s, -s*2, -s*2, s*2, s*2, -s*2, -s, s );
+X     cur_colr = BLACK;
+X     D_color( color );
+X     out( "PW0.13EP" );
+X     fprintf(outf, "PD%d,%dPD%d,%dPU0,%dPD%d,%d,%d,%d", s, s, -s*2, -s*2, s*2, s*2, -s*2, -s, s );
+X     out( "PU" );
+X     lost = TRUE;
+X     }
+X
+X
+X/* Want three legend columns, in 10 rows, with a title and subtitle above:
+Xtitle
+Xsubtitle (ra, dec, lim)
+X
+X    -1                0                1
+X     2                3                4
+X     5                6                7
+X     8                9               10
+X     double           variable
+X     planet           asteroid        comet
+X     cluster          globular        open
+X     nebula           planetary       diffuse
+X     galaxy           elliptical      spiral
+X     unknown          other           quasar
+X
+Xstar columns x coordinates are at star_x_col[];
+Xstar row y coordinates are star_y_row[];
+Xother at oth_x_col[] and oth_y_row[];
+X
+Xtitle and subtitle coordinates are defined by L_TIL_{X,Y} and L_STIL_{X,Y}
+XLabels are placed as in drawobj().
+X
+Xfor fullpage map, only the title and subtitle are displayed, on one line. */
+X
+Xstatic int star_x_col[] = {
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT};
+X
+Xstatic int oth_x_col[] = {
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT,
+X  36*ResPT,
+X  108*ResPT,
+X  180*ResPT};
+X
+X
+X#define L_TIL_X   ((int) (0.5*InchPT))
+X#define L_TIL_Y   ((int) (2.25*InchPT))
+X#define L_STIL_X  ((int) (0.5*InchPT))
+X#define L_STIL_Y  (L_TIL_Y - (int) (0.25*InchPT))
+X
+Xstatic int star_y_row[] = {
+X  126*ResPT,
+X  126*ResPT,
+X  126*ResPT,
+X  114*ResPT,
+X  114*ResPT,
+X  114*ResPT,
+X  102*ResPT,
+X  102*ResPT,
+X  102*ResPT,
+X  90*ResPT,
+X  90*ResPT,
+X  90*ResPT,
+X  78*ResPT,
+X  78*ResPT,
+X  78*ResPT
+X};
+X
+Xstatic int oth_y_row[] = {
+X  66*ResPT,
+X  66*ResPT,
+X  66*ResPT,
+X  54*ResPT,
+X  54*ResPT,
+X  54*ResPT,
+X  42*ResPT,
+X  42*ResPT,
+X  42*ResPT,
+X  30*ResPT,
+X  30*ResPT,
+X  30*ResPT,
+X  18*ResPT,
+X  18*ResPT,
+X  18*ResPT};
+X
+Xstatic int starmags[12];
+Xstatic int magbright, magfaint;
+X#define L_X_FULLPAGE_CAPT 18*ResPT
+X#define L_Y_FULLPAGE_CAPT 12*ResPT
+X
+X
+Xchartlegend(win)
+Xmapwindow *win;
+X     {
+X     char ras[20], dls[20], outstr[40], magstr[20];
+X     int i, nummags;
+X 
+X     legend_window.width = win->width;        /* Remember these for notebook mode */
+X     legend_window.height = win->height;
+X     legend_window.x_offset = win->x_offset;
+X     legend_window.y_offset = win->y_offset;
+X     legend_window.c_scale = win->c_scale;
+X
+X     if (!title[0]) title = "LEGEND";
+X     rastr(ras, win->racen);
+X     declstr(dls, win->dlcen);
+X
+X     if (win->map_type != FULLPAGEMAP) {
+X          sprintf(outstr, "(%s,%s lim: %2.1f)", ras, dls, win->maglim);
+X          D_fontsize(TITLESIZE, TITLEFNT); D_text(L_TIL_X, L_TIL_Y, title, FALSE);
+X          D_fontsize(SUBTLSIZE, SUBTLFNT); D_text(L_STIL_X, L_STIL_Y, outstr, FALSE);
+X
+X          D_fontsize(10, NAMEFNT);
+X     
+X     /* set magnitudes in legend */
+X
+X          if (brightest_used > faintest_used) {
+X               brightest_used = 0.0;
+X               faintest_used = 10.0;
+X               }
+X
+X          magbright = brightest_used - 0.5;
+X          magfaint = faintest_used + 0.5;
+X          if (magfaint > MAG_DIM) magfaint = MAG_DIM;
+X          if (magbright < MAG_BRIGHT) magbright = MAG_BRIGHT;
+X          if (magbright < (magfaint - 11)) magbright = (magfaint - 11);
+X          nummags = magfaint - magbright + 1;
+X          for (i = magbright; i <= magfaint; i++) {
+X               starmags[i-magbright] = i;
+X               }
+X
+X          for (i = 0; i < nummags; i++) {
+X               drawStar(star_x_col[i], star_y_row[i], (double) starmags[i], 'S', "  ");
+X               sprintf(magstr, " %d", starmags[i]);
+X               D_text(star_x_col[i]+x_nameoffset, star_y_row[i]+y_nameoffset, magstr, FALSE);
+X               }
+X 
+X          drawStar(star_x_col[13], star_y_row[13], ((magbright+magfaint)/2.0), 'D', "  ");
+X          D_text(star_x_col[13]+x_nameoffset, star_y_row[13]+y_nameoffset, "double", FALSE);
+X
+X          drawStar(star_x_col[14], star_y_row[14], ((magbright+magfaint)/2.0), 'V', "  ");
+X          D_text(star_x_col[14]+x_nameoffset, star_y_row[14]+y_nameoffset, "variable", FALSE);
+X
+X          i = 0;
+X          drawPlan(oth_x_col[i], oth_y_row[i], 1.0, 'u', "  ", (long) -1, "");
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Planet", FALSE);
+X          i++;
+X
+X          drawPlan(oth_x_col[i], oth_y_row[i], 1.0, 'A', "  ", (long) -1, "");
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Asteroid", FALSE);
+X          i++;
+X
+X          drawPlan(oth_x_col[i], oth_y_row[i], 1.0, 'C', "  ", (long) -1, "");
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Comet", FALSE);
+X          i++;
+X
+X          drawClus(oth_x_col[i], oth_y_row[i], 1.0, 'u', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Cluster", FALSE);
+X          i++;
+X
+X          drawClus(oth_x_col[i], oth_y_row[i], 1.0, 'G', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Globular", FALSE);
+X          i++;
+X
+X          drawClus(oth_x_col[i], oth_y_row[i], 1.0, 'O', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Open", FALSE);
+X          i++;
+X
+X          drawNebu(oth_x_col[i], oth_y_row[i], 1.0, 'u', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Nebula", FALSE);
+X          i++;
+X
+X          drawNebu(oth_x_col[i], oth_y_row[i], 1.0, 'P', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Planetary", FALSE);
+X          i++;
+X
+X          drawNebu(oth_x_col[i], oth_y_row[i], 1.0, 'D', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Diffuse", FALSE);
+X          i++;
+X
+X          drawGalx(oth_x_col[i], oth_y_row[i], 1.0, 'u', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Galaxy", FALSE);
+X          i++;
+X
+X          drawGalx(oth_x_col[i], oth_y_row[i], 1.0, 'E', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Elliptical", FALSE);
+X          i++;
+X
+X          drawGalx(oth_x_col[i], oth_y_row[i], 1.0, 'S', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Spiral", FALSE);
+X          i++;
+X
+X          drawUnknown(oth_x_col[i], oth_y_row[i], 1.0, 'u', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Unknown", FALSE);
+X          i++;
+X
+X          drawOther(oth_x_col[i], oth_y_row[i], 1.0, 'o', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Other", FALSE);
+X          i++;
+X
+X          drawGalx(oth_x_col[i], oth_y_row[i], 1.0, 'Q', "  ", (long) -1);
+X          D_text(oth_x_col[i]+x_nameoffset, oth_y_row[i]+y_nameoffset, "Quasar", FALSE);
+X          i++;
+X          }
+X     }
+X                             /* Notebook mode */
+X#define NOTE_LEFT_COL ((int) (4.5*InchPT))
+X#define NOTE_RIGHT_COL ((int) (7.0*InchPT))
+X#define NOTE_TOP_ROW ((int) (2.00*InchPT))
+X#define NOTE_ROW_SPACE ((int) (0.219*InchPT))
+Xint add_notes()
+X     {
+X     int j, xcen, ycen, i = 0; 
+X
+X                      /* Erase Thumbnail Map */
+X     D_move( (int) (3.375*InchPT), 0 );
+X     fprintf( outf, "SP0RA%d,%d;", (int) (9*InchPT), (int) (2.5*InchPT) );
+X     lost = TRUE;
+X     cur_colr = UNKNOWN;
+X     D_color( "BLACK" );
+X
+X                      /* Draw viewing circles */
+X     xcen = legend_window.width/2 + legend_window.x_offset;
+X     ycen = legend_window.height/2 + legend_window.y_offset;
+X     D_move( xcen, ycen );
+X     for (j = 0; j< numviews; j++) 
+X          fprintf(outf, "CI%d,%d", (int) (viewrad[j]/legend_window.c_scale), (int) (curve_val/4));
+X
+X     out( "LO7" );     /* Right-justify text */
+X     lost = TRUE;
+X     D_fontsize( 12, HELV );
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW, "Date:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW, "Time:", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Object Altitude:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Instrument:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Eyepiece:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Filter:", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Site:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Seeing:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Transparency:", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Darkness:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Magnitude Limit:", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Wind:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "", FALSE );
+X     i++;
+X     D_text( NOTE_LEFT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Temperature:", FALSE );
+X     D_text( NOTE_RIGHT_COL, NOTE_TOP_ROW-i*NOTE_ROW_SPACE, "Dew:", FALSE );
+X     }
+X
+END_OF_FILE
+  if test 36790 -ne `wc -c <'starhp.c.B'`; then
+    echo shar: \"'starhp.c.B'\" unpacked with wrong size!
+  elif test -f 'starhp.c.A'; then
+    echo shar: Combining  \"'starhp.c'\" \(67818 characters\)
+    cat 'starhp.c.A' 'starhp.c.B' > 'starhp.c'
+    if test 67818 -ne `wc -c <'starhp.c'`; then
+      echo shar: \"'starhp.c'\" combined with wrong size!
+    else
+      rm starhp.c.A starhp.c.B
+    fi
+  fi
+  # end of 'starhp.c.B'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

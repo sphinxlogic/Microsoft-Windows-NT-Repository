@@ -1,0 +1,1078 @@
+Path: uunet!think.com!yale.edu!heifetz!emory!dragon.com!cts
+From: cts@dragon.com
+Newsgroups: vmsnet.sources.games
+Subject: funadv Part 01/08
+Message-ID: <1992Mar7.221904.824@dragon.com>
+Date: 8 Mar 92 03:19:04 GMT
+Organization: Computer Projects Unlimited
+Lines: 1069
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On  7-MAR-1992 22:04:12.27   By user CTS 
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 8 PARTS, TO KEEP EACH PART
+$!  BELOW 100 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. AAAREADME.TXT;5
+$!       2. FUNADV.DAT;6
+$!       3. FUNADV.HEX;1
+$!       4. VMSDEH.MAR;1
+$!       5. [.SRC]$BUILD.COM;1
+$!       6. [.SRC]BUG.FOR;2
+$!       7. [.SRC]CARRY.FOR;1
+$!       8. [.SRC]DROP.FOR;1
+$!       9. [.SRC]FUNADV.FOR;7
+$!      10. [.SRC]GETIN.FOR;1
+$!      11. [.SRC]IMAGE_DIR.FOR;1
+$!      12. [.SRC]JUGGLE.FOR;1
+$!      13. [.SRC]LDCOMN.FOR;2
+$!      14. [.SRC]MINPMID.FOR;1
+$!      15. [.SRC]MOVE.FOR;1
+$!      16. [.SRC]PSPEAK.FOR;1
+$!      17. [.SRC]PUT.FOR;1
+$!      18. [.SRC]RANDOM.FOR;1
+$!      19. [.SRC]RSPEAK.FOR;1
+$!      20. [.SRC]SCRMBL.OLD;1
+$!      21. [.SRC]SHIFT.PAS;21
+$!      22. [.SRC]SPEAK.FOR;1
+$!      23. [.SRC]SVCOMN.FOR;2
+$!      24. [.SRC]USER.PAS;3
+$!      25. [.SRC]VOCAB.FOR;2
+$!      26. [.SRC]WIZARD.FOR;4
+$!      27. [.SRC]YES.FOR;2
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+XThis is a source file distribution for the game FUNADV as implemented
+Xin VAX Fortan.  (Well, ok, there are two pascal subroutines, which are
+Xthere mainly because they had already been written to support other
+Xcode, and I didn't bother to redo them in fortran.  Maybe for the
+Xnext version.)  The game is a direct decendant from Adventure, and
+Xcontains many of the same places...or anyway, so they might appear.
+XThe game should prove refreshing to those who enjoy the traditional
+Xadventure.`20
+X
+XThis game came from Georgia Tech, and does contain a few references
+Xthat are based on the Tech computing environment in the late 1970's and
+Xearly 1980's.  These include references to the "PSGAMES FORUM" program,
+Xwhich was a primative conferencing system.  One notable feature of this
+Xprogram was that it held three days worth of messages.  The process of
+Xsetting up for the new day was the "Update", which was started by`20
+Xbeing the first user to send a message on a new day.  Users would compete
+Xfor this "honor";  getting the update, especally when many users were
+Xtrying for it, was called "snarfing" the update.
+X
+X"Pete Bogman" (a handle) was a frequent user of this system who could`20
+Xhave easily taught creative grammar and spelling to Biff.  Pete was also
+Xnot noted for his domestic skills.  His sister was known as "Sweat Peat".
+X
+XDwight Rudolph was a systems programmer who was somewhat of a cult figure
+Xto the admiring undergraduates.  Besides being a Cyber Wizard in every
+Xsense of the word, he possessed a certian "savior faire" and dry wit
+Xthat made him a defacto role model for the many system programmer
+Xwantabes, of which I was one at the time. `20
+X
+XAn example of Dwight's comments, from the forum code, follow:
+X
+X***       THIS CODE WAS WRITTEN FOR USE WITH THE FORUM PROGRAM SUPPORTED
+X*         BY THE SCHOOL OF PSYCHOLOGY, GEORGIA INSTITUTE OF TECHNOLOGY.`20
+X*         IT IS NOT COPYRIGHTED, POLYUNSATURATED, OR GUARANTEED IN ANY WAY.`
+V20
+X*         USE IT AT YOUR OWN RISK.  IF IT DESTROYS YOUR CRITICAL DATA BASE,`
+V20
+X*         THAT IS YOUR PROBLEM.  THE AUTHOR ASSUMES NO RESPONSIBILITY FOR`20
+X*         ITS USE OR MISUSE AND WILL NOT FIX IT AT A LATER TIME TO MEET`20
+X*         YOUR NEEDS.  THE DOCUMENTATION IS SKETCHY AND OFTEN MISLEADING.`20
+X*         YOU HAVE BEEN WARNED.  TURN THE PAGE IF YOU DARE.`20
+X          EJECT`20
+X
+XAnyway, Funadv was written by Neal White III, using the source of adventure
+Xas a starting point.  While there are many locations in FUNADV that will
+Xseem familiar from Adventure, don't bet on it.  There are new paths in
+Xnew directions, and things sometimes work the same.  Sometimes not.
+XFor example, in Funadv, it is possible to carry enough water to the`20
+Xplant without having to go back.
+X
+XAll files in the distribution are Ascii, except for FUNADV.EXE. which is
+Xin Hexify format.  The dehex program source, in Macro, is included.
+X `20
+XThe data file FUNADV.DAT should be placed in the same directory as`20
+XFUNADV.EXE.  No logicals, set def, etc, are required.
+X
+XThe local maintainer should create a binary database after setting
+Xthe program up.  This allows for a somewhat faster startup.  This can
+Xbe accomplished by entering "SAVE" to the "Are you a Wizard" question
+Xat the beginning of the game.  This requires write access to the`20
+Xdirectory where the game is stored.
+X
+X  Charles Smith
+X  7 March 1992`20
+$ CALL UNPACK AAAREADME.TXT;5 772409042
+$ create 'f'
+X       1
+X       1You are standing at the end of a road before a small brick building.
+X       1Around you is a forest.  A small stream flows out of the building an
+Vd`20
+X       1down a gully.`20
+X       2You have walked up a hill, still in the forest.  The road slopes bac
+Vk`20
+X       2down the other side of the hill.  There is a building in the distanc
+Ve.
+X       3You are inside a building, a well house for a large spring.`20
+X       4The stream flows out through a pair of 1 foot diameter sewer pipes.`
+V20
+X       4It would be advisable to use the exit.
+X       5You are in open forest, with a deep valley to one side.`20
+X       6You are in open forest near both a valley and a road.`20
+X       7You are in a valley in the forest beside a stream tumbling along a
+X       7rocky bed.
+X       8At your feet all the water of the stream splashes into a 2-inch slit
+X       8in the rock.  Downstream the streambed is bare rock.
+X       9You are in a 20-foot depression floored with bare dirt.  Set into th
+Ve`20
+X       9dirt is a strong steel grate mounted in concrete.  A dry streambed
+X       9leads into the depression.  A narrow trail heads south.`20
+X      10You are standing at the base of an enormous cliff.  A huge river is`
+V20
+X      10flowing over the cliff, forming a waterfall.  A rainbow can be seen`
+V20
+X      10above the mist and spray.  The river continues west, and a forest is
+X      10to the north.  A dark hole can be seen in the cliff.
+X      11You are on the north side of a wide river.  The river flows from eas
+Vt`20
+X      11to west.  A depression is to the north.`20
+X      12You are at a narrow beach of brilliant white sand.  the river turns`
+V20
+X      12north into a forest.
+X      13You have been pulled into a giant whirlpool --you are spinning--
+X      13--spinning--  `0A  --spinning--
+X      13You have been sucked under!`20
+X      14You are on a wide curving beach.  The sand appears green due to the`
+V20
+X      14greenish light which is filtering up from the depths of the river.
+X      14There is a large roman numeral three chiseled deep into the rock wal
+Vl.
+X      14Perhaps you have found the lost third enterance to the cave!
+X      14There is a dark corridor leading to the east.`20
+X      15You are in a small chamber beneath a 3x3 steel grate to the surface.
+X      15A low crawl over cobbles leads inward to the west.
+X      16You are in a very small circular room.
+X      17You are in the main power chamber for the entire cave.
+X      17There is a passage to the north whose walls are covered with lichen.
+X      18You are crawling over cobbles in a low passage.  There is a dim ligh
+Vt`20
+X      18at the east end of the passage.`20
+X      19You are in a debris room filled with stuff washed in from the surfac
+Ve.
+X      19A low wide passage with cobbles becomes plugged with mud and debris`
+V20
+X      19here, but an awkward canyon leads upward and west.  A note on the wa
+Vll
+X      19says "Magic Word ZZZZADV".
+X      20You are in an awkward sloping east/west canyon.`20
+X      21You are in a splendid chamber thirty feet high.  The walls are froze
+Vn`20
+X      21rivers of orange stone.  An awkward canyon and a good passage exit
+X      21from east and west sides of the chamber.
+X      22At your feet is a small pit breathing traces of white mist.  An east
+X      22passage ends here except for a small crack leading on.
+X      23The crack is far too small for you to follow.`20
+X      24You are at one end of a vast hall stretching forward out of sight to
+X      24the west.  There are openings to either side.  Nearby, a wide stone`
+V20
+X      24staircase leads downward.  The hall is filled with wisps of white mi
+Vst
+X      24swaying to and fro almost as if alive.  A cold wind blows up the
+X      24staircase.  There is a passage at the top of a dome behind you.`20
+X      25You are on the east bank of a fissure slicing clear across the hall.
+X      25The mist is quite thick here, and the fissure is too wide to jump.
+X      26You are on the west side of the fissure in the hall of mists.`20
+X      27You are in  a very low wide passage parallel to and north of the
+X      27 hall of mists.`20
+X      28You are at the west end of hall of mists.  A low wide crawl continue
+Vs`20
+X      28west and another goes north.  To the south is a little passage 6 fee
+Vt`20
+X      28off the floor.
+X      29You are at the east end of a very long hall apparently without side`
+V20
+X      29chambers.  To the east a low wide crawl slants up.  To the north a
+X      29round two foot hole slants down.
+X      30You are at the west end of a very long featureless hall.  The hall
+X      30joins up with a narrow north/south passage.`20
+X      31You are at a crossover of a high N/S passage and a low E/W one.`20
+X      33this is a low room with a crude note on the wall.  the note says,`20
+X      33"You won't get it up the steps".
+X      34You are falling...`0Afalling...`0Afalling...`0A..`0A.`0A.`5E/`0A.`5E
+V/`0A.`5E/`0A`0A.`5E/`0A`0A`0A.
+X      34`0A`0A`0A`0A`0A`0A                                    --=splat=--`20
+X      36The dome is unclimbable.
+X      37You are in the Hall of the Mountain King, with passages off in all
+X      37directions.`20
+X      38You can't get by the snake.`20
+X      39You are in the south side chamber.
+X      40You are in the west side chamber of the Hall of the Mountain King.
+X      40A passage continues west and up here.`20
+X      41You are in a low N/S passage at a hole in the floor.  the hole goes`
+V20
+X      41down to an E/W passage.`20
+X      42You are in a large room, with a passage to the south, a passage to t
+Vhe
+X      42west, and a wall of broken rock to the east.  There is a large "Y2"
+V on
+X      42a rock in the room's center.
+X      43You are in a jumble of rock, with cracks everywhere.
+X      44You're at a low window overlooking a huge pit, which extends up out
+V of
+X      44sight.  A floor is indistinctly visible over 50 feet below.  Traces
+V of
+X      44white mist cover the floor of the pit, becoming thicker to the right
+V.`20
+X      44Marks in the dust around the window would seem to indicate that`20
+X      44someone has been here recently.  Directly across the pit from you an
+Vd`20
+X      4425 feet away there is a similar window looking into a lighted room.
+V  A
+X      44shadowy figure can be seen there peering back at you.`20
+X      45You are in a dirty broken passage.  To the east is a crawl.  To the`
+V20
+X      45west is a large passage.  Above you is a hole to another passage.`20
+X      46You are on the brink of a small clean climbable pit.  A crawl leads`
+V20
+X      46west.`20
+X      47You are in the bottom of a small pit with a little stream, which
+X      47enters and exits through tiny slits.
+X      48You are in a large room full of dusty rocks.  There is a big hole in
+X      48the floor.  There are cracks everywhere, and a passage leading east.
+X      49You are at a complex junction.  A low hands and knees passage from t
+Vhe
+X      49north joins a higher crawl from the east to make a walking passage
+X      49going west.  There is also a large room above.  The air is damp here
+V.`20
+X      50You are in Bedquilt, a long east/west passage with holes everywhere.
+X      50To explore at random select north, south, up, or down.
+X      51You are in an anteroom leading to a large passage to the east.  Smal
+Vl`20
+X      51passages go west and up.  The remnants of recent digging are evident
+V.`20
+X      51A sign hanging in midair says "Cave under construction beyond this p
+Voint.`20
+X      51PROCEED AT OWN RISK.   Witt Construction Company "
+X      51A large pile of rocks can be seen to the south.`20
+X      52You are in the south side of an anteroom leading to a large passage`
+V20
+X      52to the east.  A small passage leads west.  The remnants of recent di
+Vgging`20
+X      52are evident.  A large pile of rocks can be seen to the north.`20
+X      52There is a large room to the south.`20
+X      53You are at Witt's end.  Passages lead off in *all* directions.
+X      54You are in a large, square room. The floor is composed of huge slabs
+X      54of mica.  In the center of the room there is an enormous fountain.
+X      54it is spraying thin jets of liquid which sparkle all the colors of
+X      54the rainbow.  They cascade down into a wide pool at the base.`20
+X      54You can see what appears to be an anteroom to the north.
+X      55You are in a secret canyon which here runs E/W.  It crosses over a
+X      55very tight canyon 15 feet below.  If you go down you may not be able
+X      55to get back up.`20
+X      56You are at a wide place in a very tight N/S canyon.`20
+X      57The canyon here becomes very tight, but you might be able to squeeze
+V past.
+X      58You are in a tall E/W canyon.  A low tight crawl goes 3 feet north a
+Vnd
+X      58seems to open up.`20
+X      59The canyon runs into a mass of boulders -- dead end.
+X      60You are in a secret canyon which exits to the north and east.`20
+X      61You are in a secret canyon which exits to the north and east.`20
+X      62You are in a secret canyon which exits to the north and east.`20
+X      63You are in a secret n/s canyon above a large room.
+X      64You are in a north/south canyon about 25 feet across.  The floor is`
+V20
+X      64covered by white mist seeping in from the north.  The walls extend
+X      64upward for well over 100 feet.  Suspended from some unseen point far
+X      64above you, an enormous two-sided mirror is hanging parallel to and
+X      64midway between the canyon walls.  (The mirror is obviously provided`
+V20
+X      64for the use of the Dwarves, who as you know, are extremely vain.)  A
+X      64small window can be seen in either wall, some fifty feet up.
+X      65You are at the edge of a large underground reservoir.  An opaque clo
+Vud
+X      65of white mist fills the room and rises rapidly upward.  The lake is`
+V20
+X      65fed by a river which gurgles quietly somewhere within the dense mist
+V.`20
+X      65The only apparent passage goes back toward the south.`20
+X      65Faint silvery lines are seen on the east wall, which upon closer
+X      65examination, seem to be the outlines of a door set into the wall.`20
+X      65The door seems to be surrounded by silvery scrollwork and runes.
+X      65`0AA rancid stench exudes from a gloomy area to the west.
+X      66With a resounding crack, the doors swing open.  You step through
+X      66and enter the great Dwarf works of Khazad-dum.
+X      66The great doors swing shut behind you.
+X      67The doors open before you and you step through.  The great doors swi
+Vng
+X      67shut behind you and once more seem to blend into the rock face.`20
+X      68You are in a dark winding passage leading upward to the southeast.
+X      68Mysterious passages and fissures lead off in all directions.
+X      69You are stumbling around in an enourmously complicated network of`20
+X      69tunnels.
+X      70You have stumbled around in many dark passages, and have finally fou
+Vnd
+X      70your way back to the winding passage.`20
+X      71You are in the Chamber of Marzabul.  The tomb of Balin, Lord of Mori
+Va`20
+X      71occupies the center of the room.  Strewn about the room are the bone
+Vs`20
+X      71and weapons of many Dwarves, apparently massacred in a great battle.
+X      71A small door opens to the west, and a low passage to the northeast.`
+V20
+X      72You are in the second hall of Moria.  A slender bridge spans a
+X      72north-south chasm so deep the bottom cannot be seen.
+X      74You are in the first hall of Moria.  A slender bridge spans a`20
+X      74north-south chasm so deep the bottom cannot be seen.
+X      75You are in a room whose walls resemble swiss cheese.  Obvious passag
+Ves
+X      75go west, east, NE, and NW.  Part of the room is occupied by a large`
+V20
+X      75bedrock block.
+X      76You are in the Soft room.  The walls are covered with heavy curtains
+V,`20
+X      76the floor with a thick pile carpet.  Moss covers the ceiling.`20
+X      77You are at the east end of the Twopit room.  The floor here is
+X      77littered with thin rock slabs, which make it easy to descend the pit
+Vs.
+X      77There is a path here bypassing the pits to connect passages from eas
+Vt`20
+X      77and west.  There are holes all over, but the only big one is on the`
+V20
+X      77wall directly over the west pit where you can't get to it.
+X      78You are at the bottom of the eastern pit in the twopit room.  There
+V is
+X      78a small pool of oil in one corner of the pit.`20
+X      79You are at the west end of the twopit room.  There is a large hole i
+Vn`20
+X      79the wall above the pit at this end of the room.`20
+X      80You are at the bottom of the western pit in the twopit room.  There
+V is
+X      80a large hole in the wall about 25 feet above you.`20
+X      81You are in a large low circular chamber whose floor is an immense sl
+Vab
+X      81fallen from the ceiling (Slab room).  East and west there once were`
+V20
+X      81large passages, but they are now filled with boulders.  Low small`20
+X      81passages go north and south, and the south one quickly bends west`20
+X      81around the boulders.
+X      82>$<`20
+X      83You clamber up the plant and scurry through the hole at the top.
+X      84You are in a long, narrow corridor stretching out of sight to the`20
+X      84west.  At the eastern end is a hole through which you can see a`20
+X      84profusion of leaves.
+X      85You are in the giant room.  The ceiling here is too high up for your
+X      85lamp to show it.  Cavernous passages lead east, north, and south.  O
+Vn`20
+X      85the west wall is scrawled the inscription, "Fee Fie Foe Foo"  sic .`
+V20
+X      86The passage here is blocked by a recent cave-in.
+X      87You are at one end of an immense north/south passage.`20
+X      88You are in a magnificent cavern with a rushing stream, which cascade
+Vs`20
+X      88over a sparkling waterfall into a roaring whirlpool which disappears
+X      88through a hole in the floor.  Passages exit to the south and west.
+X      89You are at the top of a steep incline above a large room.  You could
+X      89climb down here, but you would not be able to climb up.  There is a`
+V20
+X      89passage leading back to the north.
+X      90You are in a very long narrow tunnel which runs northwest and southe
+Vast.
+X      91This is the Oriental room.  Ancient oriental cave drawings cover the
+X      91walls.  A gently sloping passage leads upward to the north, another`
+V20
+X      91passage leads SE, and a hands and knees crawl leads west.`20
+X      92You are following a wide path around the outer edge of a large caver
+Vn.
+X      92Far below, through a heavy white mist, strange splashing noises can
+V be
+X      92heard.  The mist rises up through a fissure in the ceiling.  The pat
+Vh`20
+X      92exits to the south and west.
+X      93You are on a narrow ledge in a mist filled cavern.
+X      94You are in an alcove.  A small nw path seems to widen after a short`
+V20
+X      94distance.  An extremely tight tunnel leads east.  It looks like a ve
+Vry
+X      94tight squeeze.  An eerie light can be seen at the other end.
+X      95You're in a small chamber lit by an eerie blue light.  An extremely`
+V20
+X      95narrow tunnel exits to the west.  A dark corridor leads NE.`20
+X      96You're in the Dark-room.  A corridor leading south is the only exit.
+X      97You are in a large low room.  Crawls lead north, SE, and SW.
+X      99You are in a long winding corridor sloping out of sight in both`20
+X      99directions.`20
+X     100You are on one side of a large, deep chasm.  A heavy white mist risi
+Vng
+X     100up from below obscures all view of the far side.  A sw path leads aw
+Vay
+X     100from the chasm into a winding corridor.`20
+X     101You are on the far side of the chasm.  A NE path leads away from the
+X     101chasm on this side.`20
+X     102You're in a long east/west corridor.  A faint rumbling noise can be`
+V20
+X     102heard in the distance.
+X     103The path forks here.  The left fork leads northeast.  A dull rumblin
+Vg`20
+X     103seems to get louder in that direction.  The right fork leads southea
+Vst
+X     103down a gentle slope.  The main corridor enters from the west.`20
+X     104The walls are quite warm here.  From the north can be heard a steady
+X     104roar, so loud that the entire cave seems to be trembling.  Another
+X     104passage leads south, and a low crawl goes east.`20
+X     105You are in a small chamber filled with large boulders.  The walls ar
+Ve`20
+X     105very warm, causing the air in the room to be almost stifling from th
+Ve`20
+X     105heat.  The only exit is a crawl heading west, through which is comin
+Vg`20
+X     105a low rumbling.`20
+X     106You are on the edge of a breath-taking view.  Far below you is an`20
+X     106active volcano, from which great gouts of molten lava come surging
+X     106out, cascading back down into the depths.  The glowing rock fills th
+Ve`20
+X     106farthest reaches of the cavern with a blood-red glare, giving every-
+X     106thing an eerie, macabre appearance.  The air is filled with flickeri
+Vng
+X     106sparks of ash and a heavy smell of brimstone.  The walls are hot to`
+V20
+X     106the touch, and the thundering of the volcano drowns out all other`20
+X     106sounds.  Embedded in the jagged roof far overhead are myriad twisted
+X     106formations composed of pure white alabaster, which scatter the murky
+X     106light into sinister apparitions upon the walls.  To one side is a de
+Vep
+X     106gorge, filled with a bizarre chaos of tortured rock which seems to
+X     106have been crafted by the devil himself.  An immense river of fire`20
+X     106crashes out from the depths of the volcano, burns its way through th
+Ve`20
+X     106gorge, and plummets into a bottomless pit far off to your left.  To`
+V20
+X     106the right, an immense geyser of blistering steam erupts continuously
+X     106from a barren island in the center of a sulfurous lake, which bubble
+Vs`20
+X     106ominously.  The far right wall is aflame with an incandescence of it
+Vs`20
+X     106own, which lends an additional infernal splendor to the already`20
+X     106hellish scene.  A dark, foreboding passage exits to the south.
+X     108You are walking along a gently sloping north/south passage lined wit
+Vh`20
+X     108oddly shaped limestone formations.
+X     109You are standing at the entrance to a large, barren room.  A sign`20
+X     109posted above the entrance reads:  "Caution!  Bear in room!"`20
+X     110You are inside a barren room.  The center of the room is completely`
+V20
+X     110empty except for some dust.  Marks in the dust lead away toward the`
+V20
+X     110far end of the room.  The only exit is the way you came in.`20
+X     111You are at a sharp bend in the tunnel.  The tunnel slopes`20
+X     111downward to the west, and also runs back to the north.
+X     112You are on a narrow ledge on the eastern side of the fissure.`20
+X     113You are on an uneven ledge on the western side of the fissure.
+X     114Dead end
+X     115You are at the northeast end of an immense room, even larger than th
+Ve`20
+X     115giant room.  It appears to be a repository for the "FunAdv"
+X     115program.  Massive torches far overhead bathe the room with smoky
+X     115yellow light.  Scattered about you can be seen a pile of bottles (al
+Vl`20
+X     115of them empty), a nursery of young beanstalks murmuring quietly, a b
+Ved
+X     115of oysters, a bundle of black rods with rusty stars on their ends, a
+Vnd
+X     115a collection of brass lanterns.  Off to one side a great many dwarve
+Vs`20
+X     115are sleeping on the floor, snoring loudly.  A sign nearby reads: "Do
+X     115NOT disturb the Dwarves!"  An immense mirror is hanging against one`
+V20
+X     115wall, and stretches to the other end of the room, where various othe
+Vr`20
+X     115sundry objects can be glimpsed dimly in the distance.`20
+X     116You are at the southwest end of the repository.  To one side is a pi
+Vt`20
+X     116full of fierce green snakes.  On the other side is a row of small`20
+X     116leather sacks, each of which contains a vicious mongoose.  In one`20
+X     116corner is a bundle of black rods with rusty marks on their ends.  A`
+V20
+X     116large number of velvet pillows are scattered about on the floor.  A`
+V20
+X     116vast mirror stretches off to the northeast.  At your feet is a large
+X     116steel grate, next to which is a sign which reads, "Treasure Vault.
+X     116Keys in Main Office."`20
+X     117You are deep within the dark mine.
+X     118You are deep within the dark mine.
+X     119Dead end.`20
+X     120You are deep within the dark mine.
+X     121You are deep within the dark mine.
+X     122You are deep within the dark mine.
+X     123Dead end.`20
+X     124The dead end.`20
+X     125Dead end.`20
+X     126Dead end crawl.`20
+X     127You are in a secret N/S canyon above a sizable passage.`20
+X     128You are in a secret canyon at a junction of three canyons, bearing
+X     128north, south, and SE.  The north one is as tall as the other two
+X     128combined.`20
+X     129You're at a low window overlooking a huge pit, which extends up out
+V of
+X     129sight.  A floor is indistinctly visible over 50 feet below.  Traces
+V of
+X     129white mist cover the floor of the pit, becoming thicker to the left.
+X     129Marks in the dust around the window would seem to indicate that`20
+X     129someone has been here recently.  Directly across the pit from you an
+Vd`20
+X     12925 feet away there is a similar window looking into a lighted room.
+V  A
+X     129shadowy figure can be seen there peering back at you.`20
+X     130You are in a wide passage.  The floor is covered with a fine layer
+X     130of soft clay.  As you walk, your shoes stick as if to bubble gum.`20
+X     131A large stalactite extends from the roof and almost reaches the floo
+Vr`20
+X     131below.  You could climb down it, and jump from it to the floor, but`
+V20
+X     131having done so you would be unable to reach it to climb back up.
+X     133You're in a large room carved out of sedimentary rock.  The floor an
+Vd`20
+X     133walls are littered with bits of shells imbedded in the stone.  A
+X     133shallow passage proceeds downward, and a somewhat steeper one leads`
+V20
+X     133up.  A low hands and knees passage enters from the south.`20
+X     134You are in a long sloping corridor with ragged sharp walls.`20
+X     135You are in a cul-de-sac about eight feet across.
+X     136You are in an arched hall.  A coral passage once continued up and ea
+Vst
+X     136from here, but is now blocked by debris.  The air smells of salt spr
+Vay.`20
+X     137With some difficulty, you manage to squeeze past the debris.
+X     138You are in an ancient and beautiful coral passage, which has been`20
+X     138built up over the years by millions of tiny sea creatures.
+X     138To the north lies a drab passage, to the west the passage is partial
+Vly
+X     138blocked by debris.  The air smells strongly of salt spray.
+X     139You are in a dingy, dark, dank room with a small drab passage to the
+X     139south, and a dark corridor to the west.`20
+X     140You are walking along a drab passage, when without warning you
+X     140turn a corner, and are confronted by unimaginable beauty.`20
+X     141You are at a sudden bend in a tunnel upon whose every surface there`
+V20
+X     141grows a thick coating of lichen.  There is a vast torchlit hall to
+X     141the east, and a dim tunnel to the south.
+X     142You are in a vast hall whose ceiling is supported by immense wooden`
+V20
+X     142posts which recede to the limits of your vision.  Massive torches`20
+X     142far overhead bathe the room with smoky yellow light.  You stare in
+X     142awe, incapable of conceiving the forces which must have created this
+X     142ancient hall.  There is a tunnel lined with lichen to the west.`20
+X     142The hall continues out of sight to the east, and grows brighter.
+X     143You are in a vast hall whose ceiling is supported by immense crystal
+Vline
+X     143trusses which recede to the limits of your vision.  The room is lit`
+V20
+X     143by bolts of lightening which shimmer through all the colors of the
+X     143spectrum as the emanate from the east and ricochet toward the west
+X     143an immense sapphire portal set into the center of the wall marks the
+X     143eastern end of the ancient hall.  The hall continues out of sight to
+X     143the west, where the lighting grows dimmer.
+X     144You are in a large room with walls of solid oak.  There is a huge st
+Vone`20
+X     144block in the center of the room, upon which rests an open book.`20
+X     144The north and south walls are lined with bookshelves which stretch
+X     144the thirty feet from floor to ceiling.  There is a large mahogany ch
+Vair`20
+X     144facing the block with the open book.  The east wall is covered floor
+X     144to ceiling with a tapestry of finest silk, which depicts some great`
+V20
+X     144battle between the forces of good and evil.  There is an immense
+X     144sapphire portal set into the west wall.`20
+X     145You are vacuumed into an immense whirlpool so tremendous that you`20
+X     145cannot see the other side.  Water streams from the walls amd roof as
+X     145it feeds into the cascade of angry water which rips turbidly down`20
+X     145and out of sight.  As you are drawn further and further toward the
+X     145madly racing center, your speed builds into a frenzied rush, and you
+X     145become dizzy from the speed.  Just before you black out, you feel th
+Ve`20
+X     145mad water closing over you.`20
+X     147You are in a gloomy stairway which slopes downward to the west.`20
+X     147There is a doorway to the east, through which quiet gurgling can be
+V heard.
+X     147The rancid stench grows stronger.`20
+X     148You are in a gloomy stairway which slopes upward to the east.`20
+X     148The stench drifting from the southward doorway into the kitchen`20
+X     148has grown slightly more tolerable.
+X     149You enter the door and are almost overpowered by a rancid stench
+X     149which hangs heavy in the air.  Several pots and pans of glop sit
+X     149decomposing on the stove, while rats run rampant through the cabinet
+Vs.
+X     149Typical signs of Bogman cooking.
+X     150You are in the Bogman room.  Papers and clothes are everywhere.  In
+V the`20
+X     150corner a confused gerbil imitates a fountain.  In another corner sta
+Vnds`20
+X     150an empty garbage can.  On the south wall is a badly abused dartboard
+X     150the bullseye is replaced by a picture of a teenage girl, labeled
+X     150"Sweetpeat".  A narrow passageway to the north leads to the kitchen.
+X     151Dead end.
+X     157You are on the south side of an enormous pool of quicksand.  There i
+Vs a`20
+X     157sign here which reads, "Enter at your own risk!"  There is a passage
+V to`20
+X     157the west.  There is a small patch of grass in the quicksand to the n
+Vorth.`20
+X     157There is a big rock to the northwest and a tiny patch of grass to th
+Ve`20
+X     157northeast.
+X     158You are in an east/west passage; the walls are throbbing in silent t
+Vhunder.`20
+X     158A dim light can be seen to the west.
+X     159As you go west, you must squeeze past something which brushes past y
+Vour`20
+X     159face.  Suddenly you find...`20
+X     160You are on the north side of an enormous pool of quicksand.  There i
+Vs a`20
+X     160sign here which reads, "There is an easier way!"  There is a passage
+V to`20
+X     160the west.  There is a small patch of grass in the quicksand to the e
+Vast.
+X     160There is a large rock in the quicksand to the south.
+X     161You are on a small patch of grass in the quicksand.  There is a patc
+Vh of
+X     161grass to the east, south, and to the se.  A firm bank is to the west
+V.`20
+X     162You are on a large rock in the quicksand.  There is a firm bank to t
+Vhe`20
+X     162north and a patch of grass to the west and to the southeast.
+X     163You are on a patch of grass.  There is a patch of grass to the north
+V, to
+X     163the east, to the west, and to the southwest is a large clump of gras
+Vs.
+X     164You are on a large clump of grass.  Patches of grass are to the N, E
+V,`20
+X     164W, NE, SE.  To the south is a mound of gravel.
+X     165You are on a small dirty island.  There is a sign here which reads,`
+V20
+X     165"Turn back or you will surely DIE!"  There are patches of grass in
+X     165*all* directions.`20
+X     166You are standing on a patch of grass.  There is a dirty island to th
+Ve`20
+X     166north and a patch of grass to the east.  To the northeast and the`20
+X     166southeast are a piles of damp grass.
+X     167You have made it to a pile of damp grass.  There is a large rock to
+V the`20
+X     167northeast.  There are patches of grass to the north, south, east, an
+Vd sw.`20
+X     168You have made it to a pile of damp grass.  There is a big rock to th
+Ve`20
+X     168southeast and a mound of gravel to the northeast. There are patches
+V of
+X     168grass to the north, south, and northwest.`20
+X     169You are on a mound of gravel.  There are patches of grass to the nor
+Vth,`20
+X     169east, SW, and SE.`20
+X     170You are standing on a big rock in a pool of quicksand.  There are pa
+Vtches`20
+X     170of grass to the west and southeast.  There is a firm bank to the nor
+Vthwest.`20
+X     171You are on a patch of grass in a pool of quicksand.  There are patch
+Ves of`20
+X     171grass to the north and northwest.  There is a firm bank to the south
+V.`20
+X     172You are on a patch of grass.  There is a tiny patch of grass to the
+V south.
+X     172There are patches of grass to the east, west, SE, NE, and NW.`20
+X     173You are on a small patch of grass.  To the north, south, east, and w
+Vest`20
+X     173are patches of grass.`20
+X     174You are on a patch of grass.  To the east, west, SW, and NW are smal
+Vl`20
+X     174patches of grass.`20
+X     175You are standing on a tiny patch of grass in a pool of quicksand.`20
+X     175To the southwest is a firm bank, to the north and northeast are smal
+Vl`20
+X     175patches of grass.`20
+X     176The grass cannot suport your weight...
+X     176you are sinking`0Asinking`0A`0Asinking`0A`0A`0A   Into the ooze.
+X     176You have drowned in the quicksand!
+X     177You have stepped off into the quicksand.  You are quickly swallowed`
+V20
+X     177by the ooze.
+X     179You are in a maze of twisty little passages, all different.`20
+X     180You are in a little maze of twisting passages, all different.`20
+X     181You are in a maze of twisting little passages, all different.`20
+X     182You are in a little maze of twisty passages, all different.`20
+X     183You are in a twisting maze of little passages, all different.`20
+X     184You are in a twisting little maze of passages, all different.`20
+X     185You are in a twisty little maze of passages, all different.`20
+X     186You are in a twisty maze of little passages, all different.`20
+X     187You are in a little twisty maze of passages, all different.`20
+X     188You are in a maze of little twisting passages, all different.`20
+X     189You are in a maze of little twisty passages, all different.`20
+X     190Dead end.
+X     192You are in a maze of twisty little passages, all alike.`20
+X     193You are in a maze of twisty little passages, all alike.`20
+X     194You are in a maze of twisty little passages, all alike.`20
+X     195You are in a maze of twisty little passages, all alike.`20
+X     196Dead end.
+X     197Dead end.
+X     198Dead end.
+X     199You are in a maze of twisty little passages, all alike.`20
+X     200You are in a maze of twisty little passages, all alike.`20
+X     201You are in a maze of twisty little passages, all alike.`20
+X     202You are in a maze of twisty little passages, all alike.`20
+X     203You are in a maze of twisty little passages, all alike.`20
+X     204Dead end.
+X     205You are in a maze of twisty little passages, all alike.`20
+X     206Dead end.
+X     207You are on the brink of a thirty foot pit with a massive orange colu
+Vmn
+X     207down one wall.  You could climb down here but you could not get back
+X     207up.  The maze continues at this level.
+X     208Dead end.
+X     209You are in a maze of twisty little passages, all alike.`20
+X     149There are doorways to the north and south.
+X     210Dead end.
+X     211Dead end.
+X     212You are in a maze of twisty little passages, all alike.`20
+X     213You are in a maze of twisty little passages, all alike.`20
+X     214Dead end.
+X     215Dead end.
+X     216You are in a maze of twisty little passages, all alike.`20
+X     217There is nothing here to climb.  Use "UP" or "OUT" to leave the pit.
+X     218You have climbed up the plant and out of the pit.`20
+X     219You are at the entrance to a deep, dark coal mine.
+X     219To the north there is a narrow ledge, to the south a dark tunnel.`20
+X      -1
+X       2
+X       1You're at end of road again.
+X       2You're at hill in road.`20
+X       3You're inside building.`20
+X       5You're in forest.`20
+X       6You're in forest.`20
+X       7You're in valley.`20
+X       8You're at slit in streambed.
+X       9You're outside grate.`20
+X      10You're at rainbow falls.
+X      14You're on a curving beach of green sand.
+X      14A large 'III' has been chiseled into the wall.
+X      15You're below the grate.`20
+X      18You're in cobble crawl.`20
+X      19You're in debris room.
+X      21You're in orange chamber.`20
+X      22You're at top of small pit.`20
+X      24You're in Hall of Mists.
+X      25You're on east bank of fissure.`20
+X      28You're at west end of Hall of Mists.
+X      29You're at east end of Long Hall.
+X      30You're at west end of Long Hall.
+X      33You're in Gold room.
+X      37You're in Hall of Mt King.
+X      42You're at Y2.`20
+X      44You're at window on pit.
+X      45You're in dirty passage.
+X      48You're in dusty rock room.
+X      49You're at complex junction.`20
+X      51You're in anteroom.`20
+X      53You're at Witt's end.`20
+X      54You are in the fountain room.`20
+X      55You're in secret E/W canyon above tight canyon.`20
+X      64You're in mirror canyon.
+X      65You're at reservoir.
+X      68You're in dark winding dwarf passage.`20
+X      71You're in the Chamber of Marzabul.
+X      72You're in the Second Hall of Moria.`20
+X      74You're in the First Hall of Moria.
+X      75You're in Swiss Cheese room.
+X      76You're in Soft room.
+X      77You're at east end of Twopit room.
+X      78You're in east pit.`20
+X      79You're at west end of Twopit room.
+X      80You're in west pit.`20
+X      81You're in Slab room.
+X      84You're in narrow corridor.
+X      85You're in Giant room.`20
+X      88You're in cavern with waterfall.
+X      89You're at steep incline above large room.`20
+X      91You're in Oriental room.
+X      92You're in misty cavern.`20
+X      94You're in alcove.`20
+X      95You're in Plover room.
+X      96You're in Dark-room.
+X      99You're in sloping corridor.`20
+X     100You're on sw side of chasm.`20
+X     101You're on ne side of chasm.`20
+X     102You're in corridor.`20
+X     103You're at fork in path.`20
+X     104You're at junction with warm walls.`20
+X     105You're in chamber of boulders.
+X     106You're at breath-taking view.`20
+X     108You're in limestone passage.
+X     109You're in front of barren room.`20
+X     110You're in barren room.
+X     115You're at NE end.`20
+X     116You're at SW end.`20
+X     128You're at junction of three secret canyons.`20
+X     129You're at window on pit.
+X     131You're at top of stalactite.
+X     133You're in Shell room.`20
+X     136You're in arched hall.
+X     142you are at the west end of a vast hall.`20
+X     143you are at the east end of a vast hall.`20
+X     144you are in the Wizard's library.
+X     149You're in the kitchen.
+X     150You're in the Bogman room.
+X     207You're at brink of pit.`20
+X      -1
+X       3
+X       1       2       2      44      29
+X       1       3       3      12      19      43
+X       1       7       5      13      14      46      30
+X       1       5       6      45      43
+X       1       9      63
+X       1      11      82
+X       2       1       2      12       7      43      45      30
+X       2       5       6      45      46
+X       3       1       3      11      32      44
+X       3      19      62
+X       3      42      65
+X       3       4       5      14
+X       3     704      78
+X       3      14      79
+X       4       3       1
+X       5       7       9      43      30
+X       5   50005       6       7      45
+X       5       6       6
+X       5       5      44      46
+X       6       1       2      45
+X       6       7       9      43      44      30
+X       6       5       6      46
+X       7       1       4      12      45
+X       7       5       6      43      44      29
+X       7       8       5      46      30
+X       7       9      63
+X       8       1      12
+X       8       7       4      45
+X       8       5       6      43      44
+X       8       9       5      15      16      46
+X       8     595      60      14      30
+X       9       5       6      43      44
+X       9       1      12
+X       9       8       4      13      45
+X       9  303015       3      19      30
+X       9     593       3
+X       9      11      46
+X      10      11      44       5
+X      10       5      45
+X      10     157      42
+X      10     158      43
+X      11      10      43       4
+X      11      12      44       5
+X      11       9      45
+X      11  246304      80
+X      11  246012      80
+X      11     513      80
+X      12      11      43       4
+X      12       5      45
+X      12  246304      80
+X      12  246013      80
+X      12     513      80
+X      13  246304       1
+X      13  246014       1
+X      13       0       1
+X      14       3      79
+X      14  246304      80
+X      14  246065      80
+X      14     513      80
+X      14     139      43
+X      15      16      43
+X      15      17      50
+X      15  303009      11      29
+X      15     593      11
+X      15      18      17      18      19      44
+X      15      22      31
+X      15      19      51
+X      16      15      44      11
+X      17      15      48      11
+X      17     141      45
+X      18      15      11      20      21      43
+X      18      19      19      22      44      51
+X      18      22      31
+X      19  303009      63
+X      19      15      64
+X      19      18      17      18      23      24      43
+X      19      20      25      19      29      44
+X      19       3      62
+X      19      22      31
+X      19     704      78
+X      20  303009      63
+X      20      15      64
+X      20      19      30      43      51
+X      20      21      19      29      44
+X      20      22      31
+X      21  303009      63
+X      21      15      64
+X      21      19      51
+X      21      20      25      43
+X      21      22      23      31      44
+X      22  303009      63
+X      22      15      64
+X      22      19      51
+X      22      21      23      43
+X      22  150034      30      31      34
+X      22      24      30
+X      22      23      33      44
+X      23      22       1
+X      24      33      36      46
+X      24      25       7      38      44
+X      24      37      10      30      45
+X      24  150036      29      31      34      35      23      43
+X      24      22      29
+X      24      43      55
+X      25      24      38      43
+X      25     111      46
+X      25  312596      39
+X      25  412034       7
+X      25  412597      41      44
+X      25      26      41
+X      26  312596      39
+X      26  412034       7
+X      26  412597      41      43
+X      26      25      41
+X      26      27      45
+X      26      28      44
+X      27      28       1
+X      28     192      46      29      23      56
+X      28      26      43
+X      28      27      45
+X      28      29      44      17
+X      29      28      43      29      17
+X      29      30      44
+X      29      31      45      30      52
+X      30      29      43
+X      30      31      45
+X      30  100179      46
+X      31      29      44
+X      31     151      45
+X      31      40      43
+X      31      30      46
+X      33      24      38      11      45
+X      34       0       1
+X      36      24       1
+X      37      24      10      29      43
+X      37  311041      45      36
+X      37  311039      46      37
+X      37  311040      44       7
+X      37      38      45
+X      37   35055      49
+X      37  211038      49
+X      37      55      66
+X      38      37       1
+X      39      37      38      11      45
+X      40      37      38      11      43
+X      40      31      44      29
+X      41      37      38      11      46
+X      41      42      45      55
+X      41      45      30      52
+X      42       3      65
+X      42      41      46
+X      42      43      43      53      54
+X      42      44      44
+X      42  159302      71
+X      42      95      71
+X      42     704      78
+X      43      42      30      55
+X      43      24      29
+X      44      42      43      55
+X      44      34      39
+X      45      46      43      17
+X      45      41      29      52
+X      45      48      44
+X      45      50      70
+X      46      45      44      17
+X      46      47      30      31      56
+X      47      46      56      29      11
+X      47     595      60      14      30       4       5
+X      48      45      43      23
+X      48      49      30      52      58
+X      48      50      70
+X      49      48      29      56      59
+X      49      50      44      70
+X      49     133      45      74
+X      49      51      43
+X      50      49      43
+X      50      75      44
+X      50   80556      46
+X      50      81      61
+X      50   80556      29
+X      50   50127      29
+X      50      48      29
+X      50   60556      45
+X      50   75097      45
+X      50     128      45
+X      50   80556      30
+X      50      51      30
+X      51      49      29
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-

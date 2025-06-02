@@ -1,0 +1,1777 @@
+Newsgroups: comp.sources.misc
+From: jv@squirrel.mh.nl (Johan Vromans)
+Subject: v34i093:  mserv - Squirrel Mail Server Software, version 3.1, Part02/06
+Message-ID: <1993Jan7.034749.11553@sparky.imd.sterling.com>
+X-Md4-Signature: 283b7d93bee784d971a0bc194f7430bc
+Date: Thu, 7 Jan 1993 03:47:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@squirrel.mh.nl (Johan Vromans)
+Posting-number: Volume 34, Issue 93
+Archive-name: mserv/part02
+Environment: Perl
+Supersedes: mserv-3.0: Volume 30, Issue 46-49
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  mserv-3.1/HELP mserv-3.1/MANIFEST mserv-3.1/pr_dowork.pl
+# Wrapped by kent@sparky on Wed Jan  6 21:39:45 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 6)."'
+if test -f 'mserv-3.1/HELP' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/HELP'\"
+else
+  echo shar: Extracting \"'mserv-3.1/HELP'\" \(40399 characters\)
+  sed "s/^X//" >'mserv-3.1/HELP' <<'END_OF_FILE'
+XAuthor:     Johan Vromans 
+XCmpny:      SQS 
+XCompany:    Squirrel Software 
+XDept.:      Public Domain 
+XProject:    Squirrel Mail Server 
+XTitle:      Squirrel Mail Server
+X            User Guide 
+XVersion:    V3.01 
+X----------------------------------------
+X
+X1.    INTRODUCTION: THE MAIL SERVER 
+X
+X      The mail server is a mail response program. This means that you 
+X      can send it an email message, and the program will read this 
+X      message, extracts commands from it, and execute these commands if 
+X      no errors were encountered. 
+X
+X      The main purpose of the mail server is to handle requests for 
+X      files in archives. By sending a request for a file, the mail 
+X      server will look it up and send the requested file to the 
+X      originator of the request, either via email or via UUCP. 
+X
+X      When files are transferred via email, binary files (e.g. 
+X      compressed archives) are encoded using one of several popular 
+X      encoding schemes. Big files are split into pieces to avoid mailer 
+X      limits. 
+X
+X      The algoritms of the mail server are designed to satisfy user 
+X      requests as much as possible, without taking the risk that 
+X      unwanted information is sent. 
+X
+X      IMPORTANT:   This document describes the mail server software in
+X                   its generic form. Every site that implements the
+X                   mail server software can add or disable
+X                   functionalities, change defaults etc.. Consult the
+X                   information provided by the mail server HELP command
+X                   for an actual list of commands and options.
+X
+X2.    BASIC USE 
+X
+X      To request a file from the server send an email message with the 
+X      following contents: 
+X
+X            SEND filename
+X
+X      This will have the requested file sent via email to the originator 
+X      of the mail message. Encoding, if needed, will be performed to 
+X      protect binary contents of the file from ASCII-based email 
+X      systems. BEGIN and END can be used to protect the request from 
+X      anything else in the mail message, e.g. a signature: 
+X
+X            BEGIN
+X            SEND filename
+X            END
+X            .signature follows.....
+X
+X      If your system has a direct UUCP connection to the server system, 
+X      you can transfer requests via UUCP. Using UUCP to transfer 
+X      requests has a number of advantages: it eliminates the overhead 
+X      (and limits) of email systems, and the information need not be 
+X      encoded. In general, this will cut down the transfer time 
+X      (connection) with 30-50%. If your UUCP supports grades, UUCP 
+X      transfers can be postponed to cheap hours. 
+X
+X      To receive a file via UUCP, use the following commands: 
+X
+X            UUCP host!path user
+X            SEND filename
+X
+X      This will have all requested files transferred via UUCP to the 
+X      designated host!path. It is equivalent to the Unix command: 
+X
+X            uucp -d -r -nuser host!path/filename
+X
+X      NOTE:  It is your own responsibility that the supplied path is
+X             accessible for UUCP transfers to your system!
+X
+X      If you issue the UUCP command without arguments, the program will 
+X      try to intuit some defaults from the message headers. 
+X
+X      If the mail server has been configured with support for FTP, you 
+X      can issue commands like: 
+X
+X            SEND host:filename
+X
+X      The mail server will attempt to retrieve the file using anonymous 
+X      FTP, and send it to you. 
+X
+X3.    THE SERVER'S ARCHIVES 
+X
+X      Files are stored in the archives in one of the following formats: 
+X
+X      Plain          Normal ASCII text.
+X
+X      Shell Archive  ASCII files which can be unloaded using the
+X                     Unix sh(1) program.
+X                     Shell Archives have names ending in ".shar".
+X
+X      Compressed     16-bit compression using the compress(1) utility.
+X                     Compressed files have names ending in ".Z".
+X
+X      Tar            Standard Unix tar(1) format.
+X                     Tar archives have names ending in ".tar".
+X
+X      Compressed Tar Compressed tar archive.
+X                     Compressed tar archives have names ending in
+X                     ".tar.Z" or ".TZ".
+X
+X      Zoo            Standard 'zoo' format.
+X                     These files have names ending in ".zoo".
+X
+X      Zip            Standard 'zip' format.
+X                     These files have names ending in ".zip".
+X
+X      When requesting a file you do not have to specify the 
+X      format-specific extension. A request for a file 'foo' will 
+X      automatically be changed to 'foo', 'foo.tar', 'foo.shar', etc, 
+X      whichever is available. 
+X
+X      Additional formats may be added. 
+X
+X4.    MAIL SERVER COMMANDS 
+X
+X4.1   Command syntax 
+X
+X      A command consists of a keyword (verb), followed by zero or more 
+X      arguments, depending on the command. Command verbs may be 
+X      specified in all uppercase letters, lowercase or whatever mixed 
+X      case. In other words: case is not significant in command verbs. 
+X      Case *IS* significant in command arguments, e.g. file names. Empty 
+X      lines are ignored. 
+X
+X      Multiple commands can be specified on a line by separating them 
+X      with semi-colons. Commands can be continued over multiple lines by 
+X      adding a backslash in the last position of the line. This causes 
+X      the next line of input to be glued to the end of the current line. 
+X      The backslash and all leading space of the next line are removed. 
+X
+X      Some commands have aliases, others allow for noise words (e.g. 
+X      "MAIL TO <user>"). 
+X
+X4.2   Command classes 
+X
+X      Commands are divided into the following classes: 
+X
+X      *  Commands that select the destination, e.g. where replies should 
+X         be sent to, and how the requested files should be delivered. 
+X
+X      *  Commands that specify transfer parameters, e.g. the maximum 
+X         amount of data to transfer, and what encoding to use. 
+X
+X      *  Commands that request for files, directory information, and 
+X         index lookups. 
+X
+X      *  Commands that deal with FTP. 
+X
+X4.3   Command processing 
+X
+X      When processing an input message, the mail server performs the 
+X      following actions: 
+X
+X      1. Parse the headers of the incoming message, and extract 
+X         information about the sender. 
+X
+X      2. Parse the commands in the message. If errors are found, supply 
+X         a short help message and quit. 
+X
+X      3. Execute the commands. Files are looked up in the archives, or 
+X         retrieved via FTP. 
+X
+X      4. Enqueue the requested files for delivery, and send a feedback 
+X         message to notify the user. This feedback message will show the 
+X         results of FTP commands, directory information, index lookups, 
+X         and a list of files to be delivered. 
+X
+X      5. Perform the actual delivery. Execution of this phase can be at 
+X         a later time, e.g. when the system load is acceptable. 
+X
+X4.4   Destination selection 
+X
+X      One or more of the following commands must be issued before any 
+X      request command. 
+X
+X4.4.1 REPLY <address> 
+X
+X      The return address used by the server is set to the indicated 
+X      <address>. This must be a valid address by which you can be 
+X      reached. It should contain a domain-based address. Use this 
+X      command if you are not sure that the return addresses generated by 
+X      your mail system are reliable. The address specified with this 
+X      command will be used by the server to confirm receipt. 
+X
+X      The REPLY command is ignored in interactive mode. 
+X
+X      Alias for REPLY is PATH. It is allowed (but not encouraged) to 
+X      insert the word "to" after REPLY or PATH. 
+X
+X4.4.2 UUCP [ [<host>!]<path> ] [ <user> ] 
+X
+X      The mail server will transfer requests to the indicated host using 
+X      UUCP. The host must be known to the server system. Requests will 
+X      be transferred to the indicated <path>. UUCP notification messages 
+X      will be send to <user>. If missing, the <host> and <user> 
+X      information is extracted from the UUCP 'From' header. <path> 
+X      defaults to ~uucp/receive/<user> . 
+X
+X      It is allowed (but not encouraged) to insert the word "to" after 
+X      UUCP. 
+X
+X      The UUCP command is only available if the mail server software has 
+X      been installed with UUCP support. 
+X
+X      NOTE:  If not in interactive mode, only one UUCP or MAIL
+X             command may be issued.
+X
+X4.4.3 MAIL <address> 
+X
+X      The mail server will transfer requests to the indicated address 
+X      using e-mail. This is the default transfer method for the server. 
+X      You must specify a valid (preferable domain-based) address by 
+X      which you can be reached. 
+X
+X      If no UUCP or MAIL command has been issued, requests will be sent 
+X      to the recipient as specified by a REPLY command, or dereived from 
+X      the mail headers. 
+X
+X      It is allowed (but not encouraged) to insert the word "to" after 
+X      MAIL. 
+X
+X      The MAIL command is only available if the mail server software has 
+X      been installed to support it. 
+X
+X      NOTE:  If not in interactive mode, only one UUCP or MAIL
+X             command may be issued.
+X
+X4.5   Transfer parameters 
+X
+X      These parameters may be set as often as needed. Setting transfers 
+X      parameters affects only requests that follow these commands. 
+X
+X4.5.1 LIMIT [<number>] 
+X
+X      Specify the maximum number of Kbytes which may be sent in a single 
+X      transfer. Requests that exceed this amount will be split before 
+X      sending. The amount may be specified with a trailing K, e.g. 
+X      "30K", but this is not needed. "30" is equivalent to "30K". 
+X
+X      If <number> is omitted, the limit is set to its default value. The 
+X      default value is 64K for email and 256K for UUCP, however, these 
+X      values may be changed upon installation. 
+X
+X      NOTE:  Due to overhead, it is possible that the size of the
+X             mail which reaches you will (slightly) exceed this limit.
+X
+X4.5.2 ENCODING, UUENCODE, XXENCODE, UUE, BTOA 
+X
+X      The requested files will be encoded using the indicated encoding 
+X      method. You can preceede the encoding verb with ENCODING if you 
+X      like. 
+X
+X      The following encoding verbs are understood. 
+X
+X      UUENCODE     Basic Unix uuencode. Decode with 'uudecode'.
+X
+X      XXENCODE     Enhanced version of uuencode. Decode with 'xxdecode'.
+X
+X      UUE          Dumas' enhanced uuencoding.
+X                   Multiple parts can be automatically joined when
+X                   decoding with 'uud'.
+X
+X      BTOA         Binary to Ascii encoding. Uses checksums to verify
+X                   integrity of the data. Decode with 'atob'.
+X
+X      Each of these commands is only available if the mail server 
+X      software has been configured to support it. 
+X
+X      The BTOA encoding is most efficient and reliable. 
+X
+X      Usually, for all supported encoding methods the associated tools 
+X      can be retrieved from the mail server. 
+X
+X      UUDECODE can be used as an alias for UUENCODE, UUD for UUE etc. 
+X      The following commands all set the encoding to binary to ascii: 
+X
+X            BTOA
+X            ATOB
+X            ENCODING BTOA
+X            ENCODE ATOB
+X
+X4.5.3 CWD [<path>] 
+X
+X      Sets (or cancels) the current working directory for subsequent 
+X      commands. The current working directory is prepended to the 
+X      arguments of SEND, RESEND and DIR commands, e.g. the following two 
+X      commands are equivalent: 
+X
+X            CWD foo; SEND bar
+X            SEND foo/bar
+X
+X      For compatibility with another brand of info server software, 
+X      REQUEST is accepted as an alias for CWD. For example, the 
+X      following three commands are all equivalent: 
+X
+X            REQUEST foo; TOPIC bar
+X            CWD foo; SEND bar
+X            SEND foo/bar
+X
+X      NOTE:  CWD commands do not nest, e.g. after "CWD foo; CWD bar"
+X             the current directory will be "bar", not "foo/bar".
+X
+X4.6   Request commands 
+X
+X      The following commands request for information. This can be a file 
+X      to be retrieved, or the contents of a specific directory. Other 
+X      commands return more general information about the files in the 
+X      server's archives. 
+X
+X4.6.1 INDEX [<item>] 
+X
+X      The specified <item> is looked up in the server archives. If 
+X      found, a list of all items that match the request is returned. For 
+X      example, "INDEX gcc" will return a list of every item in the 
+X      server archives that has "gcc" in its name or path. The INDEX 
+X      command is like a Unix grep(1) on a list of files, but it does not 
+X      support regular expressions patterns. 
+X
+X      INDEX without arguments will request for a file INDEX in the 
+X      archives, if present. 
+X
+X      Since index requests can return a huge amount of information, the 
+X      number of lines returned is limited to (usually) a few houndred 
+X      lines. 
+X
+X      Index lookup is only available if the mail server software has 
+X      been configured to support it. 
+X
+X4.6.2 SEARCH <item> 
+X
+X      The specified <item> is looked up in the server archives. If 
+X      found, a list of all items that match the request is returned. 
+X      SEARCH is more limited than INDEX. It returns only archive entries 
+X      that are eligible to be found by a SEND command. This can be used 
+X      to find out which versions of a specific package can be found on 
+X      the server, and where. 
+X
+X      For example, "SEARCH gcc" will return a list of every item in the 
+X      server archives that has a name that starts with "gcc", followed 
+X      by something that looks like a version number, and ends with 
+X      ".tar.Z" or some other predefined extension. 
+X
+X4.6.3 DIR [<path>] 
+X
+X      Returns the list of files in <path>. The current directory will 
+X      the prepended to <path>. 
+X
+X      If the amount of information does not exceed a specific limit, the 
+X      information is included in the feedback message. Otherwise it is 
+X      send as a separate file. 
+X
+X      Aliases for DIR are LIST and LS. 
+X
+X4.6.4 SEND <item> [<item>...] 
+X
+X      The specified <item>s are looked up in the server archives. If 
+X      found, they will be sent to you. Multiple items may be specified 
+X      with one SEND command. 
+X
+X      If looking up the named item returns multiple possibilities, the 
+X      SEND request will be treated as a SEARCH, i.e. a list of 
+X      possibilities is returned instead. 
+X
+X      For compatibility with another brand of info server software, 
+X      TOPIC is accepted as an alias for SEND. For example, the following 
+X      two commands are equivalent: 
+X
+X            REQUEST foo; TOPIC bar
+X            SEND foo/bar
+X
+X      NOTE:  The names of the <item>s are case sentive!
+X
+X      If the mail server has been configured to support it, it is 
+X      possible to request for a compressed file (file.Z), even if the 
+X      file exists in the archives in uncompressed form. The mail server 
+X      will compress the file automatically before transfer. 
+X
+X      Another configuration option is automatic packing of directories. 
+X      If you want the contents of a directory (and all its 
+X      subdirectories), request the directory name suffixed by '.zip', 
+X      '.zoo' or '.tar.Z'. See also the PACK command described below. The 
+X      restrictions for the PACK command also apply to the automatic 
+X      packing feature. 
+X
+X4.6.5 RESEND <item> <part> [<part>...] 
+X
+X      Re-send the indicated <part>s of this item. This is useful if not 
+X      all parts of a multi-part transmission did arrive correctly. When 
+X      re-transmitting, the encoding and limit used must be identical to 
+X      those of the original transmission. 
+X
+X4.6.6 PACK <method> 
+X
+X      Subsequent SEND requests must select directories. 
+X
+X      This directory will be packed into a file using the indicated 
+X      method, and transferred. <method> may be "tar", "zoo" or "zip". If 
+X      <method> is "off", subsequent request are treated normally. 
+X      <method> "tar" means "compressed tar". 
+X
+X      The PACK command is only available if the mail server software has 
+X      been configured to support it. The same restriction applies to the 
+X      packing methods. 
+X
+X      NOTE:  A limit (usually 2Mb) is imposed on the total size of the
+X             files in the directories.
+X
+X4.7   Implicit FTP commands 
+X
+X      If the mail server has been configured to support FTP, the 
+X      following extensions to the standard commands are available. 
+X
+X      Note that intelligent lookup of archive entries, using directory 
+X      search and index files, are *NOT* available when accessing 
+X      archives via FTP. 
+X
+X      As an configuration option, the mail server can restrict FTP 
+X      commands to requests that are going to be delivered via UUCP only. 
+X
+X4.7.1 SEND <host>:<file> [<file>...] 
+X
+X      A connection to the indicated <host> is established, the named 
+X      <file>s are retrieved and queued for transfer. 
+X
+X4.7.2 RESEND <host>:<file> <parts> 
+X
+X      A connection to the indicated <host> is established, the named 
+X      <file> is retrieved, and the selected parts are queued for 
+X      transfer. 
+X
+X4.7.3 DIR <host>:<dir> 
+X
+X      A list of files in the named <dir> is retrieved from <host>. 
+X      Depending on the amount of information, the list is shown or 
+X      queued for transfer. 
+X
+X4.8   Explicit FTP commands 
+X
+X      If the mail server has been configured to support FTP, the 
+X      following additional commands are available. 
+X
+X      As an configuration option, the mail server can restrict FTP 
+X      commands to requests that are going to be delivered via UUCP only. 
+X
+X4.8.1 FTP OPEN <host> 
+X
+X      Subsequent requests will be executed on the named <host>. If 
+X      already connected to a system, this connection will be closed, 
+X      unless it is the same system, in which case nothing will be done. 
+X
+X      If no login information has been supplied, the mail server will 
+X      attempt anonymous FTP. 
+X
+X      If an FTP connection is active, all subsequent SEND, RESEND, CWD 
+X      and DIR commands apply to this system. 
+X
+X      NOTE:  Some FTP servers enforce additional restrictions if the
+X             password supplied is not a recognized email address. In
+X             case of doubt, specify your correct address in a REPLY
+X             command first.
+X
+X4.8.2 FTP CLOSE 
+X
+X      Close the current connection. 
+X
+X4.8.3 FTP USER <user> <password> 
+X
+X      Supply FTP login information. This command must be executed before 
+X      opening the connection to the desired system. 
+X
+X      If it is needed to change login information for the current host, 
+X      issue an explicit "FTP CLOSE" before re-opening the connection. 
+X
+X4.9   Mixing FTP and non-FTP commands 
+X
+X      It is allowed to mix implicit FTP, explicit FTP and non-FTP 
+X      commands, e.g.: 
+X
+X            [1]  FTP USER anonymous me@somewhere.com
+X            [2]  SEND foo
+X            [3]  SEND bar:blech
+X            [4]  FTP export.lcs.mit.edu
+X            [5]  SEND zup
+X
+X      This will [1] set FTP login information, [2] transfer file 'foo' 
+X      from the local archives, [3] open an FTP connection to system 
+X      'bar' using the login information from [1] and transfer file 
+X      'blech', [4] open a connection to system 'export.lcs.mit.edu' 
+X      using the login information from [1], and finally [5] retrieve 
+X      file 'zup' from 'export.lcs.mit.edu'. 
+X
+X4.10  ARCHIE commands 
+X
+X      If the mail server has been configured to support access to the 
+X      popular 'archie' service, the following command is available. 
+X
+X4.10.1 ARCHIE PROG <request> 
+X
+X      This will connect to the archie server, and lookup <request>. 
+X      <request> must be a valid (Unix) regular expression pattern. 
+X
+X4.11  Miscellaneous commands 
+X
+X4.11.1 HELP 
+X
+X      This command gives a brief list of server commands. The 
+X      information will reflect the actual functionality of the mail 
+X      server. E.g. FTP commands will only be included if the server 
+X      supports it, defaults shown will be the actual defaults used, etc. 
+X
+X      A HELP command will be implied if errors are detected while 
+X      parsing the commands. 
+X
+X      Note that this is NOT the same as the "SEND HELP" command. The 
+X      latter command will send this document. 
+X
+X4.11.2 COMPRESS 
+X
+X      This command is only included for compatibility with some other 
+X      mail servers. It is ignored. 
+X
+X      If you request 'file.Z' the mail server will automatically 
+X      compress an uncompressed version of this file. 
+X
+X4.11.3 TEST 
+X
+X      This command is for testing. No files will be sent if you use 
+X      this, but a confirmation message will be sent to the return path 
+X      as determined from the mail headers or the REPLY command. You may 
+X      use this to find out if your address is valid, and to check the 
+X      status of your request. 
+X
+X4.11.4 BEGIN 
+X
+X      Ignore anything above this line, and start looking for commands. 
+X      This command can be used to discard incorrect responses, errors 
+X      etc. that may result from input that was not directed to the mail 
+X      server itself. 
+X
+X      Alias for BEGIN is RESET. 
+X
+X      The BEGIN command is ignored in interactive mode. 
+X
+X4.11.5 END 
+X
+X      The remainder of the message is ignored. This can be useful if a 
+X      .signature is appended to the message. 
+X
+X      For best results: always embody your commands between BEGIN and 
+X      END. 
+X
+X      Aliases for END are EXIT and QUIT. 
+X
+X5.    SAMPLE MAIL SERVER REPORT (EMAIL TRANSFER) 
+X
+X      Assume the following message is sent to the mail server: 
+X
+X            mail jv@mh.nl
+X            btoa
+X            index bio
+X            search bio
+X            send bio HELP
+X            resend zoo 2 3 4
+X            send foo
+X            dir gnu
+X            end
+X
+X      This will generate the following report: 
+X
+X                 From: mserv (Mail Server)
+X            [1]  To: jv@pasta.mh.nl
+X                 Subject: Request by jv
+X                 Date: Sun, 6 Dec 92 16:05 MET
+X            
+X                 Processing UUCP header ...
+X            [2a] => Default return address (UUCP): "pasta!jv"
+X            
+X                 Processing mail headers ...
+X            [2b] => Default return address: "jv@pasta.mh.nl"
+X            
+X                 Processing message contents...
+X            
+X                 Command: mail jv@mh.nl
+X            [3]  => Transfer via email to "jv@mh.nl"
+X            
+X                 Command: btoa
+X                 => Encoding = B (btoa)
+X            
+X                 Command: index bio
+X                 => Index: bio
+X            
+X                 Command: search bio
+X                 => Search: bio
+X            
+X                 Command: send bio HELP
+X                 => Send: bio
+X                 => Send: HELP
+X            
+X                 Command: resend zoo 2 3 4
+X                 => Resend: zoo, part 2,3,4
+X            
+X                 Command: send foo
+X                 => Send: foo
+X            
+X                 Command: dir gnu
+X                 => Dir: gnu
+X            
+X                 Command: end
+X                 => Okay
+X            
+X                 Your message has been processed.
+X            
+X            [4]  Index results:
+X            
+X                    Date     Size   Index: bio
+X                  --------  -----   ---------------------------------
+X                  91/07/10     2K   bio-2.4/Makefile
+X                  91/07/06     3K   bio-2.4/README
+X                  91/07/09    14K   bio-2.4/bio.diffs
+X                  91/07/09    36K   bio-2.4/bio.tar.Z
+X                  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X                  89/12/16     4K   fastio/stubio.c
+X            
+X            [5]  Search results:
+X            
+X                    Date     Size   Search: bio
+X                  --------  -----   ---------------------------------
+X                  91/07/09    36K   bio-2.4/bio.tar.Z
+X                  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X            
+X            [6]  Request "bio" is ambiguous:
+X            
+X                    Date     Size   Search: bio
+X                  --------  -----   ---------------------------------
+X                  91/07/09    36K   bio-2.4/bio.tar.Z
+X                  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X            
+X            [7]  Result from Dir gnu:
+X                  -rw-r--r--  1 jv  935533 Feb 13  1992 bash-1.12.tar.Z
+X                  drwxr-xr-x  2 jv    1024 Nov  8 14:40 emacs
+X                  -rw-r--r--  1 jv  229551 Aug 17 15:45 find-3.7.tar.Z
+X                  drwxr-xr-x  3 jv     512 Dec  5 16:55 gcc
+X                  drwxr-xr-x  2 jv     512 Oct 28 23:49 gdb
+X                  drwxr-xr-x  3 jv     512 May 28  1992 uucp
+X            
+X            [8]  Request results:
+X            
+X                  Request           Size  Enc  Limit Status
+X                  ---------------- -----  ---  ----- -------
+X                  bio                                Ambiguous
+X                  HELP                11K  B     64K Queued
+X                  zoo-2.1/zoo.TZ     171K  B     64K Queued (parts 2 3 4 only)
+X                  foo                                Unknown
+X            
+X                 Encoding B means: encoded with btoa.
+X            
+X                 The requests with status "Queued" will be sent as soon as
+X                 the load of the server system permits, usually within 24 hours.
+X            
+X                 Mail Server finished.
+X
+X      As you can see, the return mail is sent to the address [1] 
+X      extracted from the UUCP [2a] and mail headers [2b]. A return 
+X      address found in the mail headers overrides the address dereived 
+X      from the UUCP header. A REPLY command could have been used to 
+X      supply a different address. 
+X
+X      The MAIL command [3] instructs the server to send the requests via 
+X      email to the given address. If the MAIL command had not been 
+X      issued, the address from the message header [2] would have been 
+X      used. 
+X
+X      The result from the INDEX command [4] returns info for every file 
+X      in the archives that have "bio" in its name or path. 
+X
+X      The result from the SEARCH command [5] returns info for every file 
+X      in the archives that that is likely to be a selectable archive 
+X      item. 
+X
+X      Since more than one file matches the request for "bio", it is 
+X      turned into a SEARCH command [6]. 
+X
+X      The output of the DIR commands is shown here [7]. 
+X
+X      In the list of requests [8] the size and encoding of the files are 
+X      shown. Note that the size is the size *before* encoding! Request 
+X      "foo" could not be found and is skipped. 
+X
+X      Some time later the following mails will arrive: 
+X
+X            From               Size      Subject
+X            --------------   ---------   ----------------------------------
+X            Mail Server      298/10175   "HELP (complete) ascii"
+X            Mail Server      829/65453   "zoo.TZ (part 2 of 4) btoa encoded"
+X            Mail Server      829/65453   "zoo.TZ (part 3 of 4) btoa encoded"
+X            Mail Server      325/25578   "zoo.TZ (part 4 of 4) btoa encoded"
+X
+X      Files which are sent in parts have all pieces clearly marked as 
+X      such: 
+X
+X            ------ begin of zoo.TZ -- btoa encoded -- part 2 of 4 ------
+X            #(_0M#C)R-&3BEIu9#I[oEFn;50r5kb6%CJq%=NMgE3in`tMpnX0rOEYPWNM...
+X            =69S\PiSodA"*lArTZ.-(g6DL2A6_5>DMuFV/&S7H/]XEgLe(l@e;-Rqr:iZ...
+X            ...
+X            ...
+X            $`eP&iGea"a#e[F!oeo1r@U/FP;::i"V)j_EW+.(U*&IrTJ+u'9=$MY7s*CC...
+X            uI=a5*Wj^#1LD,&>MZKY@H1_a9QE$$4[+?[ePhh"h2Ub"/a,(ES*ZH"nK"6d...
+X            ------ end of zoo.TZ -- btoa encoded -- part 2 of 4 ------
+X
+X      You have to cut the information between the 'begin' and 'end' 
+X      lines, glue them together in the right order, and feed it to the 
+X      appropriate decoding program. 
+X
+X      The program 'unpack.pl', available from the mail server, can be 
+X      used to unpack multi-part transfers. 
+X
+X6.    SAMPLE MAIL SERVER REPORT (UUCP TRANSFER) 
+X
+X      Assume the following message is sent to the mail server: 
+X
+X            uucp pasta!~uucp/receive/jv jv
+X            limit 64K
+X            send bio-2.4
+X            resend zoo 2 3 4
+X            end
+X
+X      This will generate the following report: 
+X
+X                 From: mserv (Mail Server)
+X            [1]  To: jv@pasta.mh.nl
+X                 Subject: Request by jv
+X                 Date: Sun, 6 Dec 92 16:15 MET
+X            
+X                 Processing UUCP header ...
+X            [2a] => Default return address (UUCP): "pasta!jv"
+X            
+X                 Processing mail headers ...
+X            [2b] => Default return address: "jv@pasta.mh.nl"
+X            
+X                 Processing message contents...
+X            
+X                 Command: uucp pasta!~uucp/receive/jv jv
+X            [3]  => Transfer via UUCP to "pasta!~uucp/receive/jv"
+X                 => (UUCP notification to: "jv")
+X            
+X                 Command: limit 64K
+X                 => Limit = 64K
+X            
+X                 Command: send bio-2.4
+X                 => Send: bio-2.4
+X            
+X                 Command: resend zoo 2 3 4
+X                 => Resend: zoo, part 2,3,4
+X            
+X                 Command: end
+X                 => Okay
+X            
+X                 Your message has been processed.
+X            
+X            [4]  Request results:
+X            
+X                  Request                 Size Enc Limit Remarks
+X                  ---------------------- ----- --- ----- -------
+X                  bio-2.4/bio-2.4.tar.Z    36K       64K Queued
+X                  zoo-2.1/zoo.TZ          171K       64K Queued (parts 2 3 4 only)
+X            
+X                 The requests with status "Queued" will be sent as soon as
+X                 the load of the server system permits, usually within 24 hours.
+X            
+X                 Mail Server finished.
+X
+X      As you can see, the return mail is sent to the address [1] 
+X      extracted from the mail headers [2b], overriding the address found 
+X      in the UUCP header [2a]. A REPLY command could have been used to 
+X      supply a different address. 
+X
+X      The UUCP command [3] instructs the server to send the requests via 
+X      UUCP to the given system. 
+X
+X      In the list of requests [4] the size of the files is shown. 
+X
+X      Some time later the following files will be copied to the system: 
+X
+X            /usr/spool/uucppublic/receive/jv/bio-2.4/bio-2.4.tar.Z
+X            /usr/spool/uucppublic/receive/jv/zoo-2.1/zoo.TZ/part2of4
+X            /usr/spool/uucppublic/receive/jv/zoo-2.1/zoo.TZ/part3of4
+X            /usr/spool/uucppublic/receive/jv/zoo-2.1/zoo.TZ/part4of4
+X
+X      Multi-part transfers must be concatenated to yield the requested 
+X      files. 
+X
+X      NOTE:  Information that results from other sources than files
+X             (e.g. DIR commands) will be sent using temporary
+X             filenames like "ft2351.ab". Usually, this information is
+X             compressed before being transferred.
+X
+X7.    SAMPLE MAIL SERVER REPORT (WITH ANONYMOUS FTP) 
+X
+X      Assume the following message is sent to the mail server: 
+X
+X            uucp pasta!~uucp/receive/jv jv
+X            dir ftp.foo.org:pub
+X            send ftp.foo.org:pub/mail-server.tar.Z
+X            end
+X
+X      This will generate the following report: 
+X
+X                 From: mserv (Mail Server)
+X            [1]  To: jv@pasta.mh.nl
+X                 Subject: Request by jv
+X                 Date: Sun, 6 Dec 92 16:25 MET
+X            
+X                 Processing UUCP header ...
+X            [2a] => Default return address (UUCP): "pasta!jv"
+X            
+X                 Processing mail headers ...
+X            [2b] => Default return address: "jv@pasta.mh.nl"
+X            
+X                 Processing message contents...
+X            
+X            [3]  Command: uucp pasta!~uucp/receive/jv jv
+X                 => Transfer via UUCP to "pasta!~uucp/receive/jv"
+X                 => (UUCP notification to "jv")
+X            
+X            [4]  Command: dir ftp.foo.org:pub
+X                 => FTP Connect to "ftp.foo.org"
+X                 => Dir: pub
+X            
+X            [5]  Command: send ftp.foo.org:pub/mail-server.tar.Z
+X                 => FTP Connect to "ftp.foo.org"
+X                 => Send: pub/mail-server.tar.Z
+X            
+X                 Command:  end
+X                 => Okay
+X                 Your message has been processed.
+X            
+X            [6]  FTP Command execution:
+X                     OPEN ftp.foo.org
+X                     Connecting to ftp.foo.org
+X                     220 Squirrel.foo.org FTP server (Version 4.1) ready.
+X                     ---> USER anonymous
+X                     331 Guest login ok, send ident as password.
+X                     ---> PASS jv@pasta.mh.nl
+X                     230 Guest login ok, access restrictions apply.
+X            
+X            [7]  FTP Command execution:
+X                     DIR pub
+X                     ---> TYPE A
+X                     200 Type set to A.
+X                     ---> PORT 127,0,0,1,4,1
+X                     200 PORT command successful.
+X                     ---> LIST pub
+X                     150 Opening data connection.
+X                     226 Transfer complete.
+X                     -r--r--r--  2 mserv   18640 Dec  6 15:49 HELP
+X                     -r--r--r--  2 mserv   18640 Dec  6 15:49 help
+X                     -rw-r--r--  1 mserv   64051 May 31  1992 mail-server.tar.Z
+X                     -r--r--r--  1 mserv    4170 Dec  6 15:49 unpack.pl
+X            
+X            [8]  FTP Command execution:
+X                     GET pub/mail-server.tar.Z
+X                     ---> PORT 127,0,0,1,4,3
+X                     200 PORT command successful.
+X                     ---> LIST pub/mail-server.tar.Z
+X                     150 Opening data connection.
+X                     226 Transfer complete.
+X                     -rw-r--r--  1 mserv   64051 May 31  1992 pub/mail-server.tar.Z
+X            
+X            [8b]     ---> TYPE I
+X                     200 Type set to I.
+X                     ---> PORT 127,0,0,1,4,4
+X                     200 PORT command successful.
+X                     ---> RETR pub/mail-server.tar.Z
+X                     150 Opening data connection.
+X                     Got 64051 bytes (64051 bytes/sec)
+X                     226 Transfer complete.
+X            
+X            [9]  FTP Command execution:
+X                     CLOSE ftp.foo.org
+X                     ---> QUIT
+X                     221 Goodbye.
+X            
+X            [10] Request results:
+X            
+X                  Request                            Size Enc Limit Status
+X                  --------------------------------- ----- --- ----- ------
+X                  ftp.foo.org:pub/mail-server.tar.Z   63K      256K Queued
+X            
+X                 The requests with status "Queued" will be sent as soon as
+X                 the load of the server system permits, usually within 24 hours.
+X            
+X                 Mail Server finished.
+X
+X      The return mail is sent to the address [1] extracted from the 
+X      message headers [2a and 2b]. A REPLY command could have been used 
+X      to supply a different address. 
+X
+X      The UUCP command [3] instructs the server to send the requests via 
+X      UUCP to the given system. 
+X
+X      The DIR command [4] is used to get a directory listing from the 
+X      FTP server. 
+X
+X      The SEND command [5] requests a file from the FTP server. 
+X
+X      [6] through [9] show the execution of the FTP commands. First, the 
+X      connection with the FTP server is established [6]. Then the output 
+X      of the DIR command follows [7]. 
+X
+X      Step [8] deserves detailed explanation. Before retrieving a file 
+X      from the FTP server, the mail server requests directory info for 
+X      the desired file. Using this info, the mail server tries to find 
+X      the file in a special local archive, the ftp cache. If the file is 
+X      found locally, the local file is queued for transfer. If not 
+X      found, it is retrieved from the FTP server [8b], stored in the ftp 
+X      cache, and queued for transfer. 
+X
+X      Finally the connection with the FTP server is closed [9], and the 
+X      list of requests is shown [10]. 
+X
+X      Some time later the requested file will be copied to the system: 
+X
+X            org/foo/ftp/mail-server.tar.Z
+X
+X      Note that the FTP host name has been transformed into a directory 
+X      name by reversing the elements of the host name. The (usually 
+X      dummy) directory "pub" has been stripped. 
+X
+X8.    SAMPLE INTERACTIVE MAIL SERVER USE 
+X
+X      The Mail Server software can also be used interactively, e.g. from 
+X      a terminal, or via TELNET. 
+X
+X      When the mail server is started interactively, it reads its 
+X      commands from standard input and processes them immediately. 
+X      Errors are not fatal. Moreover, multiple MAIL and UUCP commands 
+X      can be entered. 
+X
+X            % telnet squirrel 2000
+X            Connected to squirrel.
+X            Escape character is '^]'.
+X            Multihouse Mail Server (Squirrel Mail Server Software V3.1) ready.
+X            Local time is Wed Dec 23 23:40:55 1992.
+X            Enter HELP for a list of commands.
+X            
+X            Command> mail jv
+X            Command: mail jv
+X            => Transfer via email to "jv"
+X            
+X            Command> send HELP.Z
+X            Command: send HELP.Z
+X            => Send: HELP.Z
+X            Request results:
+X            
+X              Request        Size  Enc  Limit  Status
+X              ------------  -----  ---  -----  ------
+X              HELP            36K   BZ    64K  Queued
+X            
+X            Encoding BZ means: compressed first, then encoded with btoa.
+X            
+X            The requests with status "Queued" will be sent as soon as the load of
+X            the server system permits, usually within 24 hours.
+X            
+X            Command> end
+X            Command: end
+X            => Okay
+X            
+X            Mail Server finished.
+X            Connection closed by foreign host.
+X
+X9.    HISTORY 
+X
+X      The Squirrel Mail Server has been developed by Johan Vromans. It 
+X      is all written in Perl, except for one small C (wrapper) program. 
+X
+X      This software is Copyright 1988, 1992, 1993 by Johan Vromans, and 
+X      may be distributed according to the GNU Public Licence. 
+X
+X      Version 1 was released in 1988 and has helped to develop Perl-2. 
+X      It has been in full production at a number of sites ever since. 
+X      Version 2 has never been released to the public. 
+X
+X      This is version 3, completely reworked, and requires Perl 4.035 or 
+X      later. 
+X
+X      Parts of the mail server software are derieved from the works of 
+X      others: the FTP core services and date conversions are from Lee 
+X      McLoughlin's 'mirror' package. The low level 'chat' package is 
+X      written by Randal Schwartz (just another perl hacker). Directory 
+X      packing (the PACK command) is based on an implementation by Piet 
+X      van Oostrum. 
+X
+X      For questions, information and remarks: 
+X
+X                    Johan Vromans
+X            --
+X            Johan Vromans                                  jv@mh.nl via internet backbones
+X            Multihouse Automatisering bv                   uucp:..!{uunet,sun4nl}!mh.nl!jv
+X            Doesburgweg 7, 2803 PL Gouda, The Netherlands  phone/fax: +31 1820 62944/62500
+X            ------------------------ "Arms are made for hugging" -------------------------
+X
+X10.   HINTS ON USING THE SQUIRREL MAIL SERVER 
+X
+X      Although the mail server tries its best to satisfy every request, 
+X      sometimes it is not possible to honour a request due to system 
+X      limits, archive structure etc.. 
+X
+X      *  Do not send messages from system accounts (e.g. 'root', 'news', 
+X         'daemon' etc). These messages are usually rejected. 
+X
+X      *  Always embed your requests between a BEGIN / END pair. 
+X
+X      *  Keep in mind that filenames are case sensitive! "SEND index" 
+X         and "send INDEX" are not identical. 
+X
+X      *  Do not reply to the messages the mail server sends. This is 
+X         usually a dummy address and mail directed to this address will 
+X         be discarded. 
+X
+X10.1  Frequently Asked Questions ... or frequently made mistakes. 
+X
+X      Q: What does this warning mean:
+X
+X            Warning: Unusable UUCP header:
+X            From anywhere.com!me ...
+X
+X         This means that "anywhere.com" is not a known UUCP host to
+X         the mail server system. Email sent to this address will
+X         generally get through, but it is not possible to deliver
+X         files via UUCP.
+END_OF_FILE
+  if test 40399 -ne `wc -c <'mserv-3.1/HELP'`; then
+    echo shar: \"'mserv-3.1/HELP'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/HELP'
+fi
+if test -f 'mserv-3.1/MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/MANIFEST'\"
+else
+  echo shar: Extracting \"'mserv-3.1/MANIFEST'\" \(471 characters\)
+  sed "s/^X//" >'mserv-3.1/MANIFEST' <<'END_OF_FILE'
+XREADME
+XINSTALL
+XMANIFEST
+XCRONTAB.sample
+XChangeLog
+XHELP
+XMakefile
+Xchat2.pl
+Xchkconfig.pl
+Xdateconv.pl
+Xdo_report.pl
+Xdo_runq.sh
+Xdorequest.pl
+Xdr_mail.pl
+Xdr_pack.pl
+Xdr_uucp.pl
+Xftp.pl
+Xixlookup.patch
+Xmakeindex.pl
+Xmlistener.pl
+Xms_common.pl
+Xms_config.pl
+Xms_lock.pl
+Xmserv.hints
+Xmserv.notes
+Xmserv.notesi
+Xpatchlevel.h
+Xpr_doindex.pl
+Xpr_dowork.pl
+Xpr_dsearch.pl
+Xpr_ftp.pl
+Xpr_help.pl
+Xpr_isearch.pl
+Xpr_parse.pl
+Xprocess.pl
+Xreport.pl
+Xrfc822.pl
+Xtestlock.pl
+Xunpack.pl
+Xud_sample1.pl
+Xud_sample2.pl
+END_OF_FILE
+  if test 471 -ne `wc -c <'mserv-3.1/MANIFEST'`; then
+    echo shar: \"'mserv-3.1/MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/MANIFEST'
+fi
+if test -f 'mserv-3.1/pr_dowork.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_dowork.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_dowork.pl'\" \(15153 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_dowork.pl' <<'END_OF_FILE'
+X# pr_dowork.pl -- execute work loop
+X# SCCS Status     : @(#)@ pr_dowork.pl	3.24
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:14:50 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Jan  2 15:11:05 1993
+X# Update Count    : 221
+X# Status          : OK
+X
+X# Format of work queue entries.
+X# Fields are separated by \0 characters.
+X# Field 1 is the command, fields 2 .. are arguments.
+X# 
+X# Command  Arguments (* denotes optional arguments)
+X#  ---  -------------------------------------------
+X#   M   1: Recipient for feedback messages.
+X#   U   1: hostname!pathname for UUCP transfers.
+X#       2: Notify user on target host.
+X#   L   1: Limit for transfers, in Kbytes.
+X#   S   1: Filename to send.
+X#       2* List of comma-separated parts to (re)send.
+X#   P   1* Packing code for subsequent directories
+X#          Values: "zoo", "zip", "tar".
+X#          If omitted: no more packing.
+X#   E   1: Encoding to use:
+X#	   A: none
+X#          B: btoa
+X#          D: Dumas uuencode
+X#          X: xxencode
+X#          U: uuencode
+X#   D   1: directory
+X#   G   1: FTP subcommand
+X#	   O: open connection
+X#	      2: system name
+X#	   T: transfer type (not implemented)
+X#	      2: A: ascii, I: image
+X#	   G: get file
+X#	      2: file name
+X#	   C: close
+X#	   D: directory
+X#	      2: directory
+X#	   U: login info
+X#	      2: user name
+X#	      3: password
+X#   A   1: Archie request
+X#	   P: prog
+X#	      2: search arch (regexp)
+X
+X# These are the standards commands.
+X# See 'userdefs.pl' how to add your own commands here.
+X$exe_tbl{'L'} = 'exe_setlimit';
+X$exe_tbl{'E'} = 'exe_setencoding';
+X$exe_tbl{'M'} = 'exe_setdestination';
+X$exe_tbl{'P'} = 'exe_setpacking';
+X$exe_tbl{'U'} = 'exe_setuucpdest';
+X$exe_tbl{'S'} = 'exe_send';
+X$exe_tbl{'D'} = 'exe_dir';
+X$exe_tbl{'G'} = 'exe_ftp';
+X$exe_tbl{'A'} = 'exe_archie';
+X
+Xsub work_loop {
+X
+X    local ($entries);
+X    local (@work);
+X    local ($type);
+X    local (@queueq) = ();
+X    local ($proc);
+X    local ($result);
+X
+X    # Local variables that retain their values between calls.
+X    local (*encoding) = *work_loop'encoding;	#';
+X    local (*packing)  = *work_loop'packing;	#';
+X    local (*limit)    = *work_loop'limit;	#';
+X    local (*uupath)   = *work_loop'uupath;	#';
+X    local (*uunote)   = *work_loop'uunote;	#';
+X    local (*ftphost)  = *work_loop'ftphost;	#';
+X
+X    $encoding = $default_encoding unless defined $encoding;
+X    $limit = $limits[1] .'K' unless defined $limit;
+X    $ftpuser = "anonymous" unless defined $ftpuser;
+X
+X    if ( $opt_debug || $opt_trace ) {
+X	print STDOUT ("=> Work queue:\n");
+X	local ($tally) = 0;
+X	foreach $i ( @workq ) {
+X	    $tally++;
+X	    printf STDOUT ("  %3d: %s\n", $tally, join(" ", &zu ($i)));
+X	}
+X	print STDOUT ("\n");
+X    }
+X
+X    $entries = 0;
+X
+X    # Process the work queue.
+X    # This will probably result in some files to be transferred. 
+X
+X    foreach $work ( @workq ) {
+X
+X	($type, @work) = &zu ($work);
+X	last unless defined $type;
+X
+X	if ( defined ( $proc = $exe_tbl{$type} ) &&
+X	    ( $result = &$proc ) != 0 ) {
+X	    last if $result < 0;
+X	}
+X	else {
+X	    # Should not happen.
+X	    print STDOUT ("*** Mail Server internal error: ",
+X			  "Request type \"$type\" in work queue ***\n");
+X	}
+X    }
+X    @workq = ();
+X
+X    # Close any pending FTP connection.
+X    if ( $ftphost && !$interactive ) {
+X	print STDOUT ("FTP Command execution:\n    CLOSE $ftphost\n");
+X	&ftp'close;		#';
+X	$ftphost = '';
+X	print STDOUT ("\n");
+X    }
+X
+X    # Okay, let's see if we have something to transfer.
+X
+X    if ( @queueq > 0 ) {
+X	print STDOUT ("Request results:\n");
+X	select (STDOUT);
+X	$~ = "request_header";
+X	write;
+X	$~ = "request_list";
+X	$: = " /.]";
+X	$= = 99999;
+X	local (%enc);
+X
+X	foreach $entry ( @queueq ) {
+X	    local ($name, $size, $coding, $limit, $remarks) = &zu ($entry);
+X	    if ( $method eq 'U' ) {
+X		if ( $coding =~ /Z$/ ) {
+X		    $coding = 'Z';
+X		    $enc{'Z'} = 1;
+X		}
+X		else {
+X		    $coding = '';
+X		}
+X	    }
+X	    else {
+X		$enc{$coding} = 1 if $coding;
+X	    }
+X	    write;
+X	}
+X
+X	print STDOUT ("\n") if %enc;
+X	foreach $enc ( sort keys (%enc) ) {
+X	    print STDOUT ("Encoding $enc means: ");
+X	    if ( $enc =~ /^[AP]/ ) {
+X		print STDOUT ("not encoded (plain file).\n");
+X		next;
+X	    }
+X	    print STDOUT ("data will be compressed before transfer.\n")
+X		if $enc eq 'Z';
+X	    print STDOUT ("compressed first, then ") if $enc =~ /.Z$/;
+X	    print STDOUT ("encoded with ") if $enc ne 'Z';
+X	    print STDOUT ("uuencode.\n") if $enc =~ /^U/;
+X	    print STDOUT ("btoa.\n") if $enc =~ /^B/;
+X	    print STDOUT ("xxencode.\n") if $enc =~ /^X/;
+X	    print STDOUT ("Dumas' uue.\n") if $enc =~ /^D/;
+X	}
+X
+X	if ( $entries > 0 ) {
+X	    print STDOUT ("\nThe requests with status \"Queued\"",
+X			  " will be sent as soon as the load of\n",
+X			  "the server system permits, ",
+X			  "usually within 24 hours.\n");
+X	}
+X	else {
+X	    print STDOUT ("\nNo requests remain to be sent.\n")
+X		unless $interactive;
+X	}
+X    }
+X    else {
+X	print STDOUT ("\nNo requests remain to be sent.\n")
+X	    unless $interactive;
+X    }
+X}
+X
+X################ Execute routines ################
+X
+Xsub exe_setlimit {
+X    $limit = $work[0] . 'K';
+X    1;
+X}
+X
+Xsub exe_setencoding {
+X    $encoding = $work[0];
+X    1;
+X}
+X
+Xsub exe_setdestination {
+X    $destination = $work[0];
+X    1;
+X}
+X
+Xsub exe_setpacking {
+X    $packing = $work[0];
+X    1;
+X}
+X
+Xsub exe_setuucpdest {
+X    ($uupath, $uunote) = @work;
+X    1;
+X}
+X
+Xsub exe_send {
+X
+X    local (@found);		# return from search
+X    local ($name, $size, $date, $lib, $subdir); # elements of @found
+X    local ($request, $plist) = @work;
+X    local ($remarks) = "";
+X    local ($coding) = $encoding;
+X    local ($docompress) = 0;
+X
+X    if ( $packing ) {
+X	@found = ();
+X	foreach $lib ( @libdirs ) {
+X	    print STDOUT ("Trying dir $lib/$request...\n")
+X		if $opt_debug;
+X	    push (@found, $lib)
+X		if -d "$lib/$request" && -r _;
+X	}
+X	if ( @found == 1 ) {
+X	    local ($lib) = $found[0];
+X	    print STDOUT ("Sizing dir $lib/$request... ")
+X		if $opt_debug;
+X	    $size = `$du -s $lib/$request` + 0;
+X	    print STDOUT ($size, " blocks.\n")
+X		if $opt_debug;
+X	    if ($size > $packing_limit) {
+X		push (@queueq, 
+X		      &zp ($request . "/ (" . $packing . ")",
+X			   "", "", "", "Request too big"));
+X	    }
+X	    else {
+X
+X		# Put the request in the batch queue.
+X		if ( $opt_noqueue ) {
+X		    $remarks = "Tested OK";
+X		    $entries++;
+X		}
+X		elsif ( $method eq "M" ) {
+X		    $remarks =
+X			&enqueue ("MP", $recipient, $destination, '',
+X				  $request, "$lib/$request",
+X				  $coding, $limit, $packing,
+X				  $plist);
+X		}
+X		elsif ( $method eq "U" ) {
+X		    $remarks =
+X			&enqueue ("UP", $recipient, $uupath, $uunote, 
+X				  $request, "$lib/$request",
+X				  $coding, $limit, $packing,
+X				  $plist);
+X		}
+X		push (@queueq,
+X		      &zp ($request . "/ (" . $packing . ")",
+X			   int(($size+1) / 2) . "K",
+X			   $coding, $limit, $remarks));
+X	    }
+X	}
+X	elsif ( $icall_packing ) {
+X	    # Internal call.
+X	    return 0;
+X	}
+X	elsif ( @found == 0 ) {
+X	    push (@queueq, 
+X		  &zp ($request . "/ (" . $packing . ")",
+X		       "", "", "", "Not found"));
+X	}
+X	else {
+X	    # Ambiguous.
+X	    print STDOUT ("Directory \"$request\" is not unique in the archives.\n",
+X			  "This request has been skipped.\n\n");
+X	    push (@queueq, 
+X		  &zp ($request . "/ (" . $packing . ")",
+X		       "", "", "", "Ambiguous"));
+X	}
+X	return 1;
+X    }
+X
+X    # Locate them.
+X    @found = &search ($request, 0);
+X
+X    # If we are not successfull, try automatic packing.
+X    if ( @found != 1 && $auto_packing && $request =~ /\.(zoo|zip|tar|tar\.Z)$/ ) {
+X	local ($request) = $`;
+X	local ($packing) = $1;
+X	$packing = "tar" if $packing eq 'tar.Z';
+X	if ( ($packing eq "tar" && (-x $tar || -x $pdtar)) ||
+X	     ($packing eq "zip" && -x $zip) ||
+X	     ($packing eq "zoo" && -x $zoo) ) {
+X
+X	    # Build @work, retain $work[1]
+X	    local (@work) = @work;
+X	    $work[0] = $request;
+X
+X	    # Recursive call...
+X	    local ($icall_packing) = 1;
+X	    return 1 if &exe_send;
+X	}
+X    }
+X
+X    # If we are not successfull, try $request w/o .Z extension.
+X    if ( @found != 1 && $auto_compress && $request =~ /\.Z$/ ) {
+X	local ($req) = substr ($request, 0, length ($request)-2);
+X
+X	# Maybe 'foo.Z' may result in 'foo.shar.Z'...
+X	local ($extpat, @exts) if $auto_compress > 1;
+X
+X	local (@cfound) = &search ($req, 0);
+X	if ( @cfound == 1 ) {
+X	    # We found a unique hit -- override earlier results.
+X	    @found = @cfound;
+X	    $docompress = 1;
+X	}
+X	else {
+X	    # Failed. Add to the list of possibilities.
+X	    push (@found, @cfound);
+X	}
+X    }
+X
+X
+X    if ( @found > 1 ) {
+X	print STDOUT ("Request \"$request\" is ambiguous:\n");
+X	&dolist ("Search", $request, *found);
+X	print STDOUT ("\n");
+X	push (@queueq, 
+X	      &zp ($request, "", "", "", "Ambiguous"));
+X	return 1;
+X    }
+X
+X    ($name, $size, $date, $lib, $subdir) = &zu ($found[0]);
+X
+X    # Make sure that we have one single file.
+X    if ( @found == 0 || ! -f $lib.$subdir.$name ) {
+X	push (@queueq,
+X	      &zp ($request, "", "", "", "Not found"));
+X	return 1;
+X    }
+X
+X    if ( $docompress ) {
+X	$coding .= 'Z';
+X    }
+X    else {
+X	# Send some files in plain (ascii) format.
+X	$coding = "A" if ($name !~ /$extpat$/ || $+ eq ".shar")
+X	    && -T $lib.$subdir.$name ;
+X    }
+X
+X    $size = int(($size+1023)/1024) . "K" unless $size =~ /K$/;
+X
+X    # Put the request in the batch queue.
+X    if ( $opt_noqueue ) {
+X	$remarks = "Tested OK";
+X	$entries++;
+X    }
+X    elsif ( $method eq "M" ) {
+X	$remarks =
+X	    &enqueue ("M", $recipient, $destination, '',
+X		      $subdir.$name, $lib.$subdir.$name,
+X		      $coding, $limit, $plist);
+X    }
+X    elsif ( $method eq "U" ) {
+X	$remarks =
+X	    &enqueue ("U", $recipient, $uupath, $uunote, 
+X		      $subdir.$name, $lib.$subdir.$name,
+X		      $coding, $limit, $plist);
+X    }
+X
+X    push (@queueq,
+X	  &zp ($subdir.$name, $size, $coding, $limit, $remarks));
+X    1;
+X}
+X
+Xsub exe_dir {
+X
+X    local ($thefile) = &fttemp;
+X    local ($dir) = shift (@work);
+X
+X    open (DIR, '>' . $thefile) && close (DIR);
+X    foreach $lib ( @libdirs ) {
+X	local ($here) = $lib . '/' . $dir;
+X	next unless -d $here;
+X	&do_system ("$dircmd '$here' >> $thefile 2>&1");
+X    }
+X
+X    $size = -s $thefile;
+X
+X    if ( $fb_limit == 0 || $size < ($fb_limit * 1024)) {
+X	print STDOUT ("Result from Dir $dir:\n");
+X	open (DIR, $thefile);
+X	while ( <DIR> ) {
+X	    next if /^total/i;
+X	    print STDOUT ("    $_");
+X	}
+X	close (DIR);
+X	unlink ($thefile);
+X	print STDOUT ("\n");
+X    }
+X    else {
+X	# Put the request in the batch queue.
+X	&ftqueue ("dir $dir", $thefile, 
+X		  'A', $limit, '', "dir $dir", 1);
+X    }
+X    1;
+X}
+X
+Xsub exe_ftp {
+X
+X    require 'pr_ftp.pl';
+X
+X    $type = shift (@work);
+X    if ( $type eq 'O' ) {
+X	return 1 if $ftphost eq $work[0];
+X	$ftppass = $recipient if $ftppass eq '';
+X	$ftppass = $uunote if $ftppass eq '?';
+X	&ftp_connect (shift (@work), $ftpuser, $ftppass);
+X	print STDOUT ("\n");
+X	return 1;
+X    }
+X    if ( $type eq 'C' ) {
+X	return 1 unless $ftphost;
+X	print STDOUT ("FTP Command execution:\n",
+X		      "    CLOSE $work[0]\n");
+X	&ftp'close;				#';
+X	$ftphost = '';
+X	print STDOUT ("\n");
+X	return 1;
+X    }
+X    if ( $type eq 'U' ) {
+X	($ftpuser, $ftppass) = @work;
+X	return 1;
+X    }
+X    if ( $ftphost eq '' ) {
+X	print STDOUT ('*** Mail Server internal error: ',
+X		      'No FTP host specified for ',
+X		      $type, " command\n");
+X	return 1;
+X    }
+X
+X    if ( $type eq 'D' ) {
+X	local ($thefile) = &fttemp;
+X	local ($dir) = shift (@work);
+X	&ftp_dir ($dir, $thefile);
+X	local ($size) = -s $thefile;
+X	if ( $fb_limit == 0 || $size < ($fb_limit * 1024)) {
+X	    open (DIR, $thefile);
+X	    while ( <DIR> ) {
+X		next if /^total/i;
+X		print STDOUT ("    $_");
+X	    }
+X	    close (DIR);
+X	    unlink ($thefile);
+X	}
+X	else {
+X	    # Put the request in the batch queue.
+X	    &ftqueue ("dir $ftphost:$dir", $thefile, 'A',
+X		      $limit, '', "dir $ftphost:$dir", 1);
+X	}
+X	print STDOUT ("\n");
+X	return 1;
+X    }
+X    if ( $type eq 'G' ) {
+X	local ($thefile) = &ftp_get ($work[0]);
+X	&ftqueue ($ftphost . ':' .$work[0],
+X		  $thefile, $encoding, 
+X		  $limit, $work[1],
+X		  $ftphost . ':' .$work[0]);
+X	print STDOUT ("\n");
+X	return 1;
+X    }
+X
+X    print STDOUT ('*** Mail Server internal error: FTP command ',
+X		  $type, " not yet implemented\n");
+X    1;
+X}
+X
+X
+Xsub exe_archie {
+X
+X    $type = shift (@work);
+X    if ( $type eq 'P' ) {
+X	local ($arg) = @work;
+X	&do_unix ("$archie -r '$arg'", "$archie -r '$arg'");
+X	return 1;
+X    }
+X
+X    print STDOUT ('*** Mail Server internal error: Archie command ',
+X		  $type, " not yet implemented\n");
+X    1;
+X}
+X
+X################ Support Routines ################
+X
+X# Perform a command, and show the result.
+Xsub do_unix {
+X    local ($cmd, $desc) = @_;
+X    local ($thefile) = &fttemp;
+X
+X    &do_system ("$cmd > $thefile 2>&1");
+X    local ($size) = -s $thefile;
+X    if ( $fb_limit == 0 || $size < ($fb_limit * 1024)) {
+X	print STDOUT ("Local command execution:\n    ", $cmd, "\n");
+X	local (*F);
+X	open (F, $thefile);
+X	while ( <F> ) {
+X	    print STDOUT ("    ", $_);
+X	}
+X	close (F);
+X	unlink ($thefile);
+X    }
+X    else {
+X	# Put the request in the batch queue.
+X	$desc = "$cmd (cmd)" unless $desc;
+X	&ftqueue ($cmd, $thefile, $default_encoding,
+X		  $limit, '', $desc, 1);
+X    }
+X    print STDOUT ("\n");
+X
+X}
+X
+Xsub do_system {
+X    local ($cmd) = @_;
+X    print STDOUT ("+ $cmd\n") if $opt_trace;
+X    system ($cmd);
+X}
+X
+X# Enter a file to be sent into the queue, if it exists.
+Xsub ftqueue {
+X    local ($get, $got, $coding, $limit, $plist, $desc, $try_compress) = (@_);
+X#   global ($remarks);
+X
+X    local ($temp) = (index ($got, $tmpdir) == $[);
+X    local ($size) = -s $got;
+X
+X    $desc = $got unless $desc;
+X
+X    if ( $size <= 0 ) {
+X	push (@queueq, 
+X	      &zp ($desc, "", "", "", "Not found"));
+X	unlink $got if $temp;
+X	return;
+X    }
+X
+X    if ( $try_compress ) {
+X	$coding = $default_encoding . 'Z';
+X    }
+X
+X    # Put the request in the batch queue.
+X    if ( $opt_noqueue ) {
+X	$remarks = "Tested " . ($temp ? "Ok" : "OK");
+X	$entries++;
+X    }
+X    elsif ( $method eq "M" ) {
+X	$remarks =
+X	    &enqueue ($temp ? "m" : "M", 
+X		      $recipient, $destination, '', $get, $got,
+X		      $coding, $limit, $plist);
+X    }
+X    elsif ( $method eq "U" ) {
+X	$remarks =
+X	    &enqueue ($temp ? "u" : "U",
+X		      $recipient, $uupath, $uunote, $get, $got,
+X		      $coding, $limit, $plist);
+X    }
+X    $size = int (($size + 1023) / 1024) . 'K' unless $size =~ /K$/;
+X    push (@queueq, &zp ($desc, $size, $coding, $limit, $remarks));
+X}
+X
+Xsub enqueue {
+X
+X    # Add a request to the queue.
+X
+X    local (@work) = @_;
+X
+X    if ( grep (/\t/, @work) ) {
+X	return "Refused";
+X    }
+X
+X    if (open (BATCH, ">>$queue")) {
+X	if ( &locking (*BATCH, 1) == 1 ) {
+X	    seek (BATCH, 0, 2);
+X	    print BATCH (join ("\t", @work), "\n");
+X	    close (BATCH);
+X	    $entries++;
+X	    if ( defined $plist && $plist =~ /\S/ ) {
+X		local ($remarks) = "Queued (part";
+X		$remarks .= "s" if $plist =~ /,/;
+X		$remarks .= " ${plist} only)";
+X		return $remarks;
+X	    }
+X	    else {
+X		"Queued";
+X	    }
+X
+X	}
+X	else {
+X	    "Queue error";
+X	}
+X    }
+X    else {
+X	"Cannot queue";
+X    }
+X}
+X
+Xformat request_header =
+X
+X  Request                                        Size  Enc  Limit  Status
+X  --------------------------------------------  -----  ---  -----  ------
+X.
+Xformat request_list =
+X  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@>>>>>>  @||  @>>>>  @<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name, $size, $coding, $limit, $remarks
+X~~  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name
+X.
+X
+X1;
+END_OF_FILE
+  if test 15153 -ne `wc -c <'mserv-3.1/pr_dowork.pl'`; then
+    echo shar: \"'mserv-3.1/pr_dowork.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_dowork.pl'
+fi
+echo shar: End of archive 2 \(of 6\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

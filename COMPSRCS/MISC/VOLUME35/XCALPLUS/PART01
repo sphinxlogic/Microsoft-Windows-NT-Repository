@@ -1,0 +1,742 @@
+Newsgroups: comp.sources.misc
+From: ekatz@rels.ncsa.uiuc.edu (Eric Katz)
+Subject: v35i108:  xcalendar+ - XCalendar tool, Part01/01
+Message-ID: <1993Mar3.155948.14936@sparky.imd.sterling.com>
+X-Md4-Signature: a37ec179aa51233772dc0711b54a2649
+Date: Wed, 3 Mar 1993 15:59:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ekatz@rels.ncsa.uiuc.edu (Eric Katz)
+Posting-number: Volume 35, Issue 108
+Archive-name: xcalendar+/part01
+Environment: Perl, X11
+
+This is a program that I wrote and have been using for about 1 year.  I have
+had several people test it and they seem happy with it.  I am very interested
+in getting feedback from any body who chooses to use it.  
+
+The alarm feature requires that the user have 'at' priveleges.
+
+To install it:
+1) Change the first line to reflect your perl path
+2) Change any of the configuration variables located in the top section.
+   Please do not make any changes below the warning line.
+3) To install the man page simply make a link from your man directory to this
+   program.  The man page is included in the program.
+   ie.  ln -s /usr/man/manl/xcalendar+.1 /usr/bin/X11/xcalendar+
+   To read the man page without actually installing it try:
+   troff -man xcalendar+ in the same directory as the program
+
+To automate the alarm feature I suggest making a cron entry similar to the
+following, although it isn't necessary.
+
+0 1 * * 1,2,3,4,5 /usr/bin/X11/xcalendar+ -A -w > /dev/null 2>&1
+0 8,9,19,11,12,13,14,15,16 * * 1,2,3,4,5 /usr/bin/X11/xcalendar+ -a -w >
+/dev/null 2>&1
+
+email: ekatz@ncsa.uiuc.edu
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README xcalendar+
+# Wrapped by kent@sparky on Wed Mar  3 09:54:52 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1143 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is a program that I wrote and have been using for about 1 year.  I have
+Xhad several people test it and they seem happy with it.  I am very interested
+Xin getting feedback from any body who chooses to use it.  
+X
+XThe alarm feature requires that the user have 'at' priveleges.
+X
+XTo install it:
+X1) Change the first line to reflect your perl path
+X2) Change any of the configuration variables located in the top section.
+X   Please do not make any changes below the warning line.
+X3) To install the man page simply make a link from your man directory to this
+X   program.  The man page is included in the program.
+X   ie.  ln -s /usr/man/manl/xcalendar+.1 /usr/bin/X11/xcalendar+
+X   To read the man page without actually installing it try:
+X   troff -man xcalendar+ in the same directory as the program
+X
+XTo automate the alarm feature I suggest making a cron entry similar to the
+Xfollowing, although it isn't necessary.
+X
+X0 1 * * 1,2,3,4,5 /usr/bin/X11/xcalendar+ -A -w > /dev/null 2>&1
+X0 8,9,19,11,12,13,14,15,16 * * 1,2,3,4,5 /usr/bin/X11/xcalendar+ -a -w >
+X/dev/null 2>&1
+X
+Xnroff -man xcalendar+ will produce the man page.
+X
+Xemail: ekatz@ncsa.uiuc.edu
+END_OF_FILE
+  if test 1143 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'xcalendar+' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xcalendar+'\"
+else
+  echo shar: Extracting \"'xcalendar+'\" \(17940 characters\)
+  sed "s/^X//" >'xcalendar+' <<'END_OF_FILE'
+X#!/ncsa/bin/perl
+X'di';
+X'ig00';
+X#
+X# $Header$
+X#
+X# $Log$
+X# xcalendar+ v1.0
+X# Eric Dean Katz
+X# ekatz@ncsa.uiuc.edu
+X# Last Revised: 09 February 1993
+X#
+X# The purpose of this perl program is to interface with Xcalendar v.3.0
+X# and provide the user with an 'alarm' to remind them of appointments 
+X# via email either at run time or a predetermined number of minutes
+X# prior to the appointment.
+X#
+X# It is best run either via cron or possibly in a .login file.
+X# In order to utilize the '-t, -a, or -A' options the user must have 
+X# cron.allow and at.allow priveleges.
+X#
+X# NOTE: The man page resides in this file.  Simply make a link from
+X# your man directory to this program and it can be used both as the 
+X# executable and the man page.
+X# DO NOT REMOVE ANY OF THE FORMATTING SYMBOLS THAT YOU DO NOT RECOGNIZE 
+X# OR THE MAN FORMATTING WILL NOT WORK!  THEY LOOK LIKE COMMENTS BUT THEY
+X# MEAN SOMETHING TO NROFF (TROFF) 
+X#==================================================================== 
+X#
+X# Configuration variables ...
+X#
+X# Where is this program installed:
+X$PROGRAM_PATH = "/usr/bin/X11/xcalendar+";
+X#
+X# What is the default lead time in minutes (time prior to an appointment
+X# that the user is notified)
+X$LEAD_TIME = 10;
+X#
+X# What is the default number of day to list with -l option?
+X$DEF_DAYS2LIST = 7;
+X#
+Xrequire 'ctime.pl';
+Xrequire 'getopts.pl';
+X
+Xif (-e "/vmunix") {
+X	$BSD = "true";
+X# You may need to change the following if they are not
+X# installed in the 'standard' place
+X	$mailpath = "/usr/ucb/mail";
+X	$atpath = "/var/spool/cron";
+X	}
+Xelse {
+X	$BSD = "false";
+X	$mailpath = "/usr/sbin/Mail";
+X	$atpath = "/usr/lib/cron";
+X}
+X
+X# DO NOT CHANGE ANYTHING BELOW THIS LINE
+X#==================================================================== 
+X
+X# Get the current time and format it:
+X$DATE=&ctime(time),"\n";
+Xif ($BSD eq "true") {
+X	($day, $month, $date, $time, $year) = split (" ",$DATE);
+X}
+Xelse {
+X	($day, $month, $date, $time, $TZ, $year) = split (" ",$DATE);
+X}
+X($current_hour,$current_minute) = split (":",$time);
+X
+X#
+X# Get the username for purposes of receiving mail. If the user
+X# is not logged on and getpwuid is used and returns an NIS entry
+X# (ie. with a leading '+') then strip off the '+'
+X#
+X$WHO = (getpwuid($<))[0] || getlogin || "Not a valid User!";
+Xif ($WHO =~ /\+.*/) {
+X	$WHO = substr($WHO,1);
+X}
+X
+X# Set defaults:
+X$WORKDAY = "false";
+X
+X# Does the user have 'at priveledges?
+Xif (-e "$atpath/at.allow") {
+X	$AT = "false";
+X	open(ATALLOW,"$atpath/at.allow")||die "Problem determining at priveledges\n";
+X	while (<ATALLOW>){
+X		if (/$WHO/) {
+X			$AT = "true";
+X		}
+X	}
+X	close ATALLOW;
+X}
+X
+Xelsif (-e "$atpath/at.deny") {
+X	$AT = "true";
+X	open(ATDENY,"$atpath/at.deny")||die "Problem determining at priveledges\n";
+X	while (<ATDENY>){
+X		if (/$WHO/) {
+X			$AT = "false";
+X		}
+X		
+X	}
+X	close ATDENY;
+X}
+X
+Xelse {
+X	$AT = "false";
+X}
+X
+X
+X
+X
+X&Getopts('Aat:wlL:r:m:xo:');
+X#  A  - Full alarm, will mail all memos and schedule appointment mailings.
+X#  a  - Will only schedule appointment mailings (will not mail memos.)
+X#  t: - Will reset the advance time on appointment mailings.
+X#  w  - To set the workday option, ie. times between 7:00 and 11:59 default
+X#	to AM, while times between 12:00 and 5:00 default to PM.
+X#  l  - To list the appointments for the default number of days from today.
+X#  L: - To list the appointments for a specified number of days from (or
+X#	before if the number is negative) the specified day.  Specified 
+X#	day is optional and defaults to today.
+X#  r  - To remove ALL files for the specified month.
+X#  m: - To specify a month other than the current month.
+X#  x  - To send all output to an xedit window.
+X#  o: - Output filename.
+X
+X# If the user wants time entries to default to 
+X# workday times (8:00AM <-> 5:00PM)
+Xif ($opt_w) {
+X	$WORKDAY = "true";
+X}
+X
+Xif (defined $opt_o) {
+X	$OUTFILE = $opt_o;	
+X}
+Xelse {
+X	$OUTFILE = "Appt_file";	
+X}
+X#
+X# Change to the ~/Calendar directory:
+X#
+Xchdir;
+Xchdir "Calendar";
+Xopen (OUTPUT,"> $OUTFILE");
+X
+X# If the user has opted for a different 'lead time':
+Xif (defined $opt_t) {
+X	if ($AT eq "true"){
+X		$LEAD_TIME = $opt_t;
+X		if ($LEAD_TIME == 0) {
+X			$AT = "false";
+X		}
+X	}
+X	else {
+X		print OUTPUT "Message from xcalendar+:\n** You don't have permission to schedule the mailing.\n** It will be sent immediately\n";
+X	}
+X}
+X#
+X#		If xcalendar+ were just run once a day the 
+X#		following routine wouldn't be necessary.  I wanted 
+X#		to account for those last minute changes and updates 
+X#		that so often occur during a normal workday so the 
+X#		user can run this program any time and any number
+X# 		of times during the day without duplicating 'at' jobs.  
+X#		This routine will remove ANY existing at jobs for the 
+X#		current day. 
+X#
+Xif ($opt_a || $opt_A) {
+X$limit = 1;
+X	if ($AT eq "true"){
+X		open (AT,"at -l |");
+X		while ($job = <AT>){
+X			($jobid) = split (" ",$job);
+X			system "at -r $jobid";
+X		}
+X	close AT;
+X	}
+X}
+X
+X#
+X#
+X# Do a find for filenames matching today's date:
+X#
+X
+Xif ($opt_l) {
+X	$limit = $DEF_DAYS2LIST;
+X}
+X
+Xif (defined $opt_m) {
+X	$month = $opt_m;
+X	$date = 1;
+X	$limit = 31; 
+X}
+X
+Xif (defined $opt_L){
+X	if ($opt_L =~ /.*\d,\d+/) {
+X		($limit,$date) = split (/,/,$opt_L);
+X		if ($limit < 0) {
+X			$date = $date + $limit + 1;
+X			$limit = $limit * (-1);
+X		}
+X	}
+X	else {
+X		if (defined $opt_m) {
+X		die "These options don't make sense together.\nUsage: xcalendar+ -mMon [-L#days,start_date]\n";
+X		}
+X		$limit = $opt_L;
+X		if ($limit < 0) {
+X			$date = $date + $limit;
+X			$limit = $limit * (-1);
+X		}
+X	}
+X
+X	die "Usage: xcalendar+ -L #days[,start_date]\n" if ($limit eq 0);
+X	if ($date < 1) {
+X		print OUTPUT "\n** Please use -m option for information about the previous month **\n";
+X		$limit = $date + $limit;
+X		$date = 1;
+X	}
+X}
+Xif (!($opt_a) && !($opt_r) && !($opt_A)) {
+X	$TITLE = "\n\n\tAppointment Calendar for $WHO: $month";
+X	$ICON_TITLE = "$month ";
+X	if ($limit > 1) {
+X		$TITLE_LIMIT = $date+$limit-1;
+X		$TITLE = "$TITLE $date - $TITLE_LIMIT";
+X		$ICON_TITLE = "$ICON_TITLE $date - $TITLE_LIMIT";
+X	}
+X	else {
+X		$TITLE = "$TITLE $date";
+X		$ICON_TITLE = "$ICON_TITLE $date";
+X	}
+X	if (!($opt_x)) {
+X		print OUTPUT "$TITLE\n\n";	
+X	}
+X}
+X
+Xfor ($search_date=$date;$search_date < $date+$limit;$search_date++) {
+Xlocal (@memo);
+Xlocal (@apts);
+X#open (FIND, "find . -name xc$search_date$month$year -print |");
+Xopen (FIND, "find . -name xc$search_date$month* -print |");
+X#
+X#
+X#
+Xwhile ($todays_file = <FIND>) {
+X	chop $todays_file;
+X	open (appts,$todays_file);
+XENTRY: while (<appts>) {
+X#
+X#		Parse the entry into time and message:
+X#
+X		($time, $message) = split(/\t|\s+/,$_,2);
+X#
+X#		If the time variable matches that of an appointment entry and
+X#		the user has opted to be notified then calculate the
+X#		time ($LEAD_TIME before $time) to mail to the
+X#		user.  Otherwise, assume it is just a reminder
+X#		and send mail at runtime.
+X#
+X		if ($time =~ /\d+:\d+a?A?p?P?m?M?\b/) {
+X		local ($modifier);
+X#
+X#	 	Account for and strip off am, pm suffixes
+X#
+X			if ($time =~ /[aApP]m?M?/) {
+X				if ($time =~ /[pP]m?M?/) {
+X					$modifier = "pm";
+X				}
+X				else {
+X				$modifier = "am";
+X				}
+X			($time) = split (/[aApP]/);
+X			}
+X
+X#
+X#		Parse out the 'time' variable:
+X#
+X		($hour, $minute) = split (/:/,$time);
+X
+X#
+X#		If 'pm' was specified then convert it to 24 hour clock:
+X#
+X		if ($modifier =~ /pm/) {
+X			$hour = $hour + 12;
+X		}
+X
+X#
+X#		if the user chose the workday option then convert all
+X#		times during the afternoon to 24 hour clocks even if 
+X#		'pm' is not specified.  This can be overridden by 
+X#		specifying 'am'. (ie. 4:00am would not be converted.)
+X#
+X		if ($WORKDAY =~ /true/ && ($hour > 0 && $hour < 6) && !($modifier =~ /am/)) {
+X			$hour = $hour + 12;
+X		}
+X}
+X		else {
+X			push(@memo,$_);
+X			next ENTRY;
+X		} 
+X
+X# 		Calculate advance time
+X#			If setting the advance time will move the notification
+X#			into the previous hour then you have to add 60 to
+X#			the difference and adjust the hour.
+X#			Ie. meeting at 12:10, advance time of 20 minutes,
+X#			(10 minutes - 20 minutes = -10) + 60 = 50 minutes,
+X#			hour - 1 = 11, thusly: notify at 11:50.
+X#
+X	if ($opt_a || $opt_A) {
+X		if ($AT ne "false") {
+X			if ($minute < $LEAD_TIME) {
+X				$notify_minute = ($minute - $LEAD_TIME) + 60;
+X				if ($hour > 0) {
+X					$notify_hour = $hour - 1;
+X				}
+X				else {
+X					$notify_hour = 23;
+X				}
+X			}
+X#
+X#			Otherwise, just subtract the amount of advance
+X#			notice from the time of the appointment.
+X#
+X			else {
+X				$notify_minute = ($minute - $LEAD_TIME);
+X				$notify_hour = $hour;
+X			}
+X#
+X#		Assign this new time to a variable (for readability)
+X#
+X		$when = "$notify_hour:$notify_minute";
+X#
+X#		Some entries may have a newline others won't.
+X#
+X		if ($_ =~ /.*\n/) {
+X			chop $_;
+X		}
+X
+X#
+X#		If the at job is scheduled to run later than now, then
+X#		schedule it, otherwise don't.
+X#
+X		if (($notify_hour > $current_hour) || ($notify_hour == $current_hour && ($notify_minute > $current_minute))) {
+X#
+X#		     The format of these lines is critical to properly
+X#		     schedule the 'at' job.  Remember $_ refers to the
+X#		     complete message line.
+X#
+X		     system "at $when today<<!\
+X
+X		     $mailpath -s \"Appt: $time ...\" $WHO <<EOM\
+XDon't Forget ...\n\n\
+X$_\
+XEOM\
+X	 	     !";
+X		}
+X	}
+X	else {
+X		push (@memo,$_);
+X	}
+X}
+Xelsif (!($opt_a) && !($opt_A) && !($opt_r)) {
+X	$new_line = "$hour:$minute:$message";
+X	push (@apts,$new_line);
+X}
+X}
+Xclose appts;
+X}
+Xclose FIND;
+Xif (($opt_A) && ($#memo > 0)) {
+Xsystem "mail -s \"Memos for $month $date\" $WHO <<!\
+X @memo\
+X!";
+X}
+X
+Xelsif (!($opt_a) && !($opt_A) && !($opt_r)) {
+X
+Xprint OUTPUT "-------------------------------------------------------------------------\n";
+Xprint OUTPUT "$month $search_date";
+X
+Xif ($#apts >= 0 || $#memo >= 0) {
+X#print "-----------------------------------------------------------------\n";
+X}
+Xelse {
+Xprint OUTPUT "\tNo Appointments\n";
+X}
+X
+X 
+Xif ($#apts >= 0) {
+Xprintf OUTPUT ("\t%-10s%-25s\n","Time","Description");
+Xprint OUTPUT "\t-----------------------------------------------------------------\n";
+X	sub numeric { $a <=> $b; }
+X	@sort_apts = sort numeric (@apts);
+X		foreach $i (0 .. $#sort_apts) {
+X			($hour,$minute,$message) = split(/:/,$sort_apts[$i],3);
+X			if ($message =~ /\n/) {
+X			chop $message;
+X			}
+X			$qualifier = "am";
+X			if ($hour > 12 ) {
+X			$hour = $hour - 12;
+X			$qualifier = "pm";
+X			}
+X(@words) = split (/\s+/,$message);
+X$letter_count = 0;
+Xprintf OUTPUT ("\t%2s:%-3s%-4s",$hour,$minute,$qualifier);
+Xforeach $word (@words) {
+X	if (($letter_count + length($word)) <= 46 ){
+X		print OUTPUT "$word ";
+X		$letter_count = $letter_count + length($word);
+X	}
+X	else {
+X	print OUTPUT "\n\t\t  ";
+X	$letter_count = 0;
+X	print OUTPUT "$word "; 
+X	$letter_count = $letter_count + length($word);
+X	}
+X}
+Xprint OUTPUT "\n";
+X			}
+Xprint OUTPUT "\n";
+X}
+X	if ($#memo >= 0) {
+X	print OUTPUT "\tMemo:";
+X#print "\t-----------------------------------------------------------------\n";
+X	foreach $i (0 .. $#memo) {
+X        print OUTPUT "\n\t\t  ";
+X#	print "\n\tMemo #",($i + 1),":  ";
+X		if ($memo[$i] =~ /\n/) {
+X		chop $memo[$i];
+X		}
+X		(@words) = split (/\s+/,$memo[$i]);
+X		$letter_count = 0;
+X		foreach $word (@words) {
+X       		if (($letter_count + length($word)) <= 46 ){
+X                	print OUTPUT "$word ";
+X                	$letter_count = $letter_count + length($word);
+X        	}
+X        	else {
+X        		print OUTPUT "\n\t\t  ";
+X        		$letter_count = 0;
+X        		print OUTPUT "$word ";
+X        		$letter_count = $letter_count + length($word);
+X        	}
+X		}
+X
+X	}
+X	}
+Xif ($#apts >= 0 || $#memo >= 0) {
+X#print "\t-----------------------------------------------------------------\n";
+Xprint OUTPUT "\n";
+X}
+X}
+X}
+Xif (defined $opt_r) {
+X	$month = $opt_r;
+X	print  "Are you sure you want to delete all xcalendar files for $month? ";
+X	chop($answer = <STDIN>); 
+X	if ($answer =~ /[y|Y]+/) {
+X		opendir (DIR, ".");
+X		@to_remove = grep (/xc..?$month..../,readdir(DIR));
+X		close DIR;
+X		if ($#to_remove > 0) {
+X		print "** Found $#to_remove XCalendar Files ...\n";
+X		print "Do you want to compile a report file for $month first? ";
+X		chop($answer = <STDIN>); 
+X		if ($answer =~ /[y|Y]+/) {
+X			system "$PROGRAM_PATH -m$month -o$month.Summary > /dev/null";
+X		}
+X			if ($? == 0) {
+X			print "** Removing All XCalendar Files for $month ...\n";
+X				foreach (@to_remove) {
+X				system "/bin/rm $_";
+X				}
+X			}
+X			else {
+X			print "Error compiling report.  No files removed.\n";
+X			}
+X		}
+X		else {
+X		print "** No calendar files for $month were found.\n";
+X		}
+X	}
+X}
+Xclose OUTPUT;
+Xif ($opt_x){
+X	if ($BSD eq "true") {
+X	exec ("/usr/bin/X11/xedit -fn -Schumacher-Clean-Medium-R-Normal--10-100-75-75-C-60-ISO8859-1 -title '$TITLE' $OUTFILE &");
+X	}
+X	else {
+X	exec ("xwsh -hold -fn -Schumacher-Clean-Medium-R-Normal--10-100-75-75-C-60-ISO8859-1 -title '$TITLE' -icontitle '$ICON_TITLE' -e cat $OUTFILE ");
+X	}
+X}
+Xelse {
+Xsystem "cat $OUTFILE";
+X}
+X#
+X# THE FOLLOWING LINES ARE ESSENTIAL IN ORDER TO USE THIS FILE AS 
+X# THE MAN PAGE ALSO. 
+X#################################################################
+X
+X.00;
+X
+X'di		/"finish diversion--previous line must be blank
+X.nr nl 0-1	/"fake up transition to first page again
+X.nr % 0		/"start at page 1
+X';__END__
+X.TH XCALENDAR+ 1 "Aug 11, 1992"
+X.AT 3
+X.SH NAME
+XXcalendar+ \- Provides reminders from xcalendar files
+X.SH SYNOPSIS
+X.B Xcalendar+ [-A] [-a] [-t x] [-w]
+X
+X.B Xcalendar+ [-l] [-L lim,date] [-r mon]
+X.RS 11
+X[-m mon] [-x] [-o file]
+X.SH DESCRIPTION
+X.I Xcalendar+
+X
+Xxcalendar+ is intended to provide a mechanism for the user to be reminded of daily appointments, memos, etc.  In much the same way that the unix command 'calendar (1)' will send mail to the user based on information in their .calendar file xcalendar+ will look in the files generated by 'xcalendar v3.0' and will send mail to the user.  However, instead of the mail being sent to the user when the command is run, when possible it is sent a pre-determined number of minutes prior to the appointment.  This is u
+Xnlike 'calendar' which only sends one message containing all the appointments for the day at one time.  Used in conjuction with 'xmail' which rings the terminal bell and signifies newly received mail (or an equivalent mail package that supports 'biffing') xcalendar+ acts as an alarm to notify the user of an impending appointment.  
+X
+Xxcalendar+ only schedules mailings for the current day.  Any changes made to future dates will not require rerunning xcalendar+.  However, any changes made to the current date on the xcalendar will require that you rerun xcalendar+ in order to adjust for the changes to the day's activities (it is suggested that updates be done with the -a flag.  See below.) 
+X
+Xxcalendar+ is most useful when put in a crontab file to run
+Xearly in the day or when put in a user's .login file.
+X.TP 10
+X-A
+XFull alarm.  This will mail all memos and schedule appointment mailings according to the Calendar file.  It is suggested that this be utilized in a crontab file to run once before the workday begins.
+X
+X.TP
+X-a
+XThis will only schedule appointment mailings and will NOT mail memos.  This is best used after a change has been made to the current day's schedule.  There is no need to re-mail memos.  It is suggested also that this be utilized in a crontab file to run at regular intervals during the day (ie. every hour) if you make frequent changes to your calendar during the day.
+X
+X.TP
+X-t x
+XWill mail the user 'x' minutes before the appointment.  If the user does not wish to schedule a mailing for each appointment but rather wants one mailing at run time then this value should be set to 0 (zero).  Valid entries for scheduled mailings must be in the form 
+X
+X.RS 10
+XHH:MM[aApP[mM]] MESSAGE 
+X.LP
+XThe am/pm qualifier is optional but will be affected by the -w option described below.  No white space can appear between the HH:MM and the qualifier however any number of white spaces/tabs can be inserted between the time and the message.  If the first field of a line does not begin in the HH:MM format it will be assumed to be a general memo and will be mailed to the user at run time.  
+X
+X.LP
+XScheduled mailing entries would be:
+X
+X.RS 5
+X.PD 0
+X.LP
+X10:00 Meeting, 100 Office Building
+X.LP
+X10:00a Meeting - 100 Office Building
+X.LP
+X10:00PM Meeting at 100 Office Building
+X
+X.RE
+X.LP
+XMemo entries would be:
+X
+X.RS 5
+X.LP
+X100 Office Building - Meeting
+X.LP
+X1000A Office Building, Meeting
+X.LP
+X.RS 3 
+X(Meaning Room #1000A, NOT the time 10:00A.)
+X.RE
+X.LP
+X1000A Office Building, Meeting @ 10:00.
+X.RS 3
+X(Would NOT be mailed x minutes before 10:00.)
+X.RE
+X.RE
+X
+XREMEMBER:
+X.LP
+XTime entries must be the first field in each line and must contain a colon (:)  If the line does not begin in the format 'HH:MM' it is assumed to be a general memo and will not be mailed x minutes prior to the appointment, but rather at runtime.
+X
+X.RE
+X.PD
+X.TP
+X-w
+XAssumes an 8:00am to 5:00pm workday.  In other words, if the user makes a calendar entry for 3:00 with no qualifier (ie. am or pm) 3:00pm or 15:00 is assumed.  This is intended to make calendar entries less cumbersome.
+X
+X.TP
+X-l
+XTo list the appointments for the default number of days from today.
+X
+X.TP
+X-L [lim,[start]]
+XTo list the appointments for a specified number of days from the specified start date.  If start date is omitted the default is today.  If the value of lim is negative than this is taken to mean the number of days prior to start date.
+X
+X.TP
+X-m mon
+XTo specify a month other that the current.  This is to be used in conjuction with the -L option where a start date is specified.  Using the -m flag without the -L flag defaults to the entire month.
+X
+X.TP
+X-o file name
+XTo specify an output file other than the default (HOME/Calendar/Appt_file)  Unless a fully qualified path is specified all filenames will be in reference to HOME/Calendar.
+X
+X.TP
+X-x
+XTo send all output to an XEDIT window.  NOTE: Changes made in this window will NOT affect the daily xcalendar files.
+X
+X.TP
+X-r mon
+XTo remove ALL files for the specified month.  You will first be promted as to whether you want to compile a summary report for that month before removing the files.
+X.SH ENVIRONMENT
+XNo environment variables are used.
+X.SH FILES
+X~/Calendar/xcDDMMYY
+X.SH AUTHOR
+XEric Katz
+X.SH "SEE ALSO"
+XXcalendar (1)
+X.SH DIAGNOSTICS
+XWill complain if user does not have 'at' priveledges.
+X
+X.SH BUGS
+XNone.
+X
+X
+X
+END_OF_FILE
+  if test 17940 -ne `wc -c <'xcalendar+'`; then
+    echo shar: \"'xcalendar+'\" unpacked with wrong size!
+  fi
+  # end of 'xcalendar+'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

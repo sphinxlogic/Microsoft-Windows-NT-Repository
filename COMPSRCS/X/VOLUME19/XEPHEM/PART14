@@ -1,0 +1,2090 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i102:  xephem - astronomical ephemeris program, Part14/21
+Message-ID: <1993May10.221148.9153@sparky.imd.sterling.com>
+X-Md4-Signature: 49d78b23303a19a5ac631e97fb2202df
+Date: Mon, 10 May 1993 22:11:48 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 102
+Archive-name: xephem/part14
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  comet.c ephem.db.Z.uu.8 map.h objmenu.c
+# Wrapped by chris@nova on Mon May 10 16:41:50 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 21)."'
+if test -f 'comet.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'comet.c'\"
+else
+  echo shar: Extracting \"'comet.c'\" \(2771 characters\)
+  sed "s/^X//" >'comet.c' <<'END_OF_FILE'
+X#include <math.h>
+X#include "astro.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void range P_((double *v, double r));
+Xextern void sunpos P_((double Mjd, double *lsn, double *rsn));
+X
+Xvoid comet P_((double mjd, double ep, double inc, double ap, double qp, double om, double *lpd, double *psi, double *rp, double *rho, double *lam, double *bet));
+X
+X#undef P_
+X
+X
+X/* given a modified Julian date, mjd, and a set of heliocentric parabolic
+X * orbital elements referred to the epoch of date (mjd):
+X *   ep:   epoch of perihelion,
+X *   inc:  inclination,
+X *   ap:   argument of perihelion (equals the longitude of perihelion minus the
+X *	   longitude of ascending node)
+X *   qp:   perihelion distance,
+X *   om:   longitude of ascending node;
+X * find:
+X *   lpd:  heliocentric longitude, 
+X *   psi:  heliocentric latitude,
+X *   rp:   distance from the sun to the planet, 
+X *   rho:  distance from the Earth to the planet,
+X *   lam:  geocentric ecliptic longitude, 
+X *   bet:  geocentric ecliptic latitude,
+X *         none are corrected for light time, ie, they are the true values for
+X *	   the given instant.
+X *
+X * all angles are in radians, all distances in AU.
+X * mutual perturbation corrections with other solar system objects are not
+X * applied. corrections for nutation and abberation must be made by the caller.
+X * The RA and DEC calculated from the fully-corrected ecliptic coordinates are
+X * then the apparent geocentric coordinates. Further corrections can be made,
+X * if required, for atmospheric refraction and geocentric parallax.
+X */
+Xvoid
+Xcomet (mjd, ep, inc, ap, qp, om, lpd, psi, rp, rho, lam, bet)
+Xdouble mjd;
+Xdouble ep, inc, ap, qp, om;
+Xdouble *lpd, *psi, *rp, *rho, *lam, *bet;
+X{
+X	double w, s, s2;
+X	double l, sl, cl, y;
+X	double spsi, cpsi;
+X	double rd, lsn, rsn;
+X	double lg, re, ll;
+X	double cll, sll;
+X	double nu;
+X
+X#define	ERRLMT	0.0001
+X        w = ((mjd-ep)*3.649116e-02)/(qp*sqrt(qp));
+X        s = w/3;
+X	for (;;) {
+X	    double d;
+X	    s2 = s*s;
+X	    d = (s2+3)*s-w;
+X	    if (fabs(d) <= ERRLMT)
+X		break;
+X	    s = ((2*s*s2)+w)/(3*(s2+1));
+X	}
+X
+X        nu = 2*atan(s);
+X	*rp = qp*(1+s2);
+X	l = nu+ap;
+X        sl = sin(l);
+X	cl = cos(l);
+X	spsi = sl*sin(inc);
+X        *psi = asin(spsi);
+X	y = sl*cos(inc);
+X        *lpd = atan(y/cl)+om;
+X	cpsi = cos(*psi);
+X        if (cl<0) *lpd += PI;
+X	range (lpd, 2*PI);
+X        rd = *rp * cpsi;
+X	sunpos (mjd, &lsn, &rsn);
+X	lg = lsn+PI;
+X        re = rsn;
+X	ll = *lpd - lg;
+X        cll = cos(ll);
+X	sll = sin(ll);
+X        *rho = sqrt((re * re)+(*rp * *rp)-(2*re*rd*cll));
+X        if (rd<re) 
+X            *lam = atan((-1*rd*sll)/(re-(rd*cll)))+lg+PI;
+X	else
+X	    *lam = atan((re*sll)/(rd-(re*cll)))+*lpd;
+X	range (lam, 2*PI);
+X        *bet = atan((rd*spsi*sin(*lam-*lpd))/(cpsi*re*sll));
+X}
+END_OF_FILE
+  if test 2771 -ne `wc -c <'comet.c'`; then
+    echo shar: \"'comet.c'\" unpacked with wrong size!
+  fi
+  # end of 'comet.c'
+fi
+if test -f 'ephem.db.Z.uu.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ephem.db.Z.uu.8'\"
+else
+  echo shar: Extracting \"'ephem.db.Z.uu.8'\" \(34926 characters\)
+  sed "s/^X//" >'ephem.db.Z.uu.8' <<'END_OF_FILE'
+XM;:=* R2G($]_M.+7QKM* [J@%6FKQY'A/K-* V>@%6FXR'3;4:-* V>?XL/\
+XMC6&M?./].EW)$;PXJR3\2@/ML>+#_(UQF*NGBTN?FV5F!817Z!J\OSE=R39F
+XM*K]?T-^L2@/4G<F@DJ)^_(6C[!E=R8/E[K*BO'')#=C@M"3.4:,-_M*:7M2U
+XMA7NFAB$DI\F@RY]CV!6E'SY=R>.@/X1#LPBCT2-=R:#XG&0)MH8A9Y_)H)X/
+XM@W_HZ%&CAB$=G"!/LJ;9GZ/KAB%FG2!/LJ:XL"W)AB$LG"!/I]2.UES(AB'B
+XMG\F@OE9UO86CAB&1I\F@%M]9Q*NGAB&SH(6LL,^:[E&C>.:V5$'1/&H.I-4-
+XM)*<@3[^5Q>Z+H]4-NJ"%K*HE:?\5I-4-9Z"%K)>UZ],(H]4-9Y\5>!5_K?5H
+XMZ]4-,P#_I"!/NJ4A3QJKU0T=G!5X/-:.LGZUU0UFG15X!;OWH-^L)A)=R;*8
+XM-[W9Z-:BU0WBGR!/)]58MTJFU0W4G2!/ ^PZU>7\U0VSH*1<#-EYM]^L>A5#
+XM]:E>*F8PKWNP>A4DIR!/Q+=@Y!KR>A6ZH*1<^YYOD'JQ>A5GH*1<DX[5B$3R
+XM>A5GGR!/M<J!TCZS>A4=G"Q<(-)#P@BCZD)=R;OY<G+]V(6C>A4LG"!/I>16
+XMQA6E>A7BGRQ<,J<L^A6EIS)=R;S; 8WP\!6D>A6SH*%[3?,?SM*]T!5#]9Z1
+XMF-Q9\QE@T!7%OQ)/-]1-9@ZDT!6ZH/19NOH5_TJFT!5GH/19,M?>]Q6ET!7A
+XMJ(25>I0NF>&KT!5YKH25#)<NF>&KT!5FG825A.F$HPBCT!4LG(25;%C3LE>E
+XMT!7BGX25FI #TJ/K%AQ=R5[[WZVD^5&CT!5?K".=9I8EMPZDFP_2FJE>XE#_
+XM[(6CB $DIPB6=_VGM5S(B &ZH.:MO0F1\SSECRU=R8O385F'\Q6DB %GGR.=
+XM H 6[^&KB $=G,5\*9/:J%+HB %FG2.=FI!WK*NGY"1=R;_H<7;[R16EB 'B
+XMG\5\ZFU-;-C.B &1I\5\MYY_O>&KD$%=R5*S/'_U_R>A*^[.6<QR%N (HV<"
+XM)*>'=C+7A_VNRV<"NJ#/:26D8_X:\F<"9Z#/:1>.T[*PWE(\7<DHZ5R!"O%1
+XMHV<"'9R H<^/H>.%H\I%7<GV:K"\-<,\Y3D@7<E4_)NH^LUI2EW).M-%L.>\
+XM9P+4G8RQBI-?Q.&K9P*SH N7?M9[[@BC*\Z3;S-N($]NS5&C&B==R=:E>XY8
+XMW0BCG!ZZH-UJ)\2VW0BCG!YBH7Y6@5Q@A&/VX%??M8F/9E^DW5!Y#J2<'AV<
+XM9E],@0;Z";:<'NSKB8^+DSB:G[>KIYP>9IUF7Q5NQH3#ZU&CG!XLG&9?O5GD
+XM>#K+_;:<'N*?9E^]6=N+&?>)I)P>U)UF7[U9QH1[IIP>LZ#=:C#H>D3AJX$W
+XMZYM^>T5^";88,"2G9E_.9SR/V,X8,+J@W6K7[(7G?K48,&*A*.I]=URF&#!G
+XMGV9?<.D?M\.D&# =G&9?G_>%Z%S(&#!FG69?9:>!D!KR&##+IF9?^MH(S:NG
+XM&##BGXN3W_\ \H6C&##4G8N3"6#FM%CO&#"SH&.A7ACFM,SS-<[MHI1/8PQJ
+XMR0BCN!,DIXN39)3GHZ/KN!.ZH&.AK/5>QSZSN!-GH&.A,+F1]SZSN!,S /^D
+XMVX2XIOOQ=[^X$PC<7<EME@6D3[*X$RB07<EMEH=/Y/T5I+@3'9QF7[%FA&^K
+XMKAP[7<E_^']5N<M1H[@3+)QF7^+^!+[AJ[@3XI]F7W#*Y^VF[A6DN!.SE&9?
+XM8V V@0":4:.X$Y67X7R^QIH@QKN CBON'-5#>@'Z4:,9%\FB,M7NN#H#&\ 9
+XM%W2YF7A5G[^(#J09%V>@'VI+;<;\UJ(9%V>?QGD8J_F<8_;@5_\0GYN&QY)9
+XM0?>)I!D7[;&9>!>8\&H.I,1%GYM]WR"R5#ZKUAD7XI_X?X;[J<ZNRQD7U)WX
+XM?]?L&L+]MAD7LZ 39NU6GYD.I$FVZYMLBU9J+OVDI;0#)*?X?^&T.?97I: :
+XM%JN5<=?M6MI1H\!'#ZKLFVB<9_D(H[0#H,)I_ :TKLNT S[U#V->&+V%#J1"
+XM,0^JK+_2:R/5J]:T P:RZ,N&R)_IM /BG_A_*%TIN*NGM .<I]&OAISOS16D
+XMM /FK&KX.I7,Y!6DK>;KFRB8BOE[I@TT9K2L:>5AX=4(HPTTGZ4&PW7X3[(-
+XM-!BHN-Z?;PZD#32@PDOPS]8(HPTTQ>L$;$VL?/GSH@TTT+/KU;;#=?*+I0TT
+XM!K(RCI;T>Z8--%ZG:GE(7,OJ4:,--)RG'*$\:^'X"*,--.:L]X72:X[=J]8-
+XM"D/U1MT89(?]"*,-"F:TW]4V56_G4:/:*P^J-E78UE_5I*4-"E&BS6B"CW:!
+XM#J0-"O78K.T&B$_0BZ4O,P^JE[?:7D+PBZ5P&@^JE[=2N._E#0KE^9>W;U\.
+XMPPBC#0I>I^2V9;@C_J2E#0J<IZC@QY5[I@T*YJRHX,>5>Z:WYJV<U*'PY@FV
+XMB QQ>-59<,IWP0ZDB R?I=OFIOI[IH@,&*C:P&[QA:,[(1:K6I31H%ZXJZ>(
+XM#,7K7MGROM[C%:2(#(.ODO5DBKFIB P&LH_YF/KAJX@,7J=XMCYBVO*DI1H?
+XM#ZI9R#YB[^6(#/#8&[UT_&_U%:2\YJV<U*$,@>>\0#"MP;90@>R!T BC9+;M
+XMHDVGTFLQWPBC:K;MHIS5]W+8SG@,ZYMAI 7%2J9J_NVBR&XLU#WL%:2$SNVB
+XM!L-=9'NF(P+"U7CR#JG#I",""=QX\@ZIPZ32TO>8IE(>](FDU@0PI9S5ZWHH
+XM]/.B72GKFY^7,;-/LOI!ZYOQ^@K;A:.6MM%_&F7/EZNG_Q#KFQZA=\'<H\X7
+XMH:-[[-ZP:+OAJY$67YER8P61Z-:SOY_^[:+9IR-4\N<98!'GZYN9E5UDV,ZH
+XM_NVBCE04W)KE"*,G?-59Q.":Q(NCQ,[.\MG@)?:DI;?^T7^]LS;0%:4KYZV<
+XM@<YX8AW:%:3<MI-O;+;AF*NGQ_ZV5!F/,_(5I3SGK9QJ>=&'@.>%H]'^'?2*
+XMEQ?:%:76_NY2(JS6G%>E[\ZMG*SMX%B-\AE@Y?ZMG/C5OVZV_!E@ZOX=](*1
+XM3>E7I1>OM%UF>M"'#J2 #S"E-E45IO^_A:-FY^VBI^WT@NK;&6!KY[944705
+XM=KG+4:,AM[948I&[MURF(<^MG.S?TUQTV16D)\^MG.S?/G/?ZE&C$O^V5.+K
+XM&M"YJ3+/K9SLMU^3)/P;'>N;O9D]U[KX.:'MHN7)&M35]DFWR?*:4_K-*O_M
+XMHGJ_G_D5I2__ME0G_%!Q>K%=S^N;_]R%<0ZD./^V5&[;'JU7I4 4,*61E?^J
+XMSM\5I$'_[:+ER6B<T/7SHD?_ME0=9CRAJZY-_^VB&:C<I=RC4O^MG/*_M,4#
+XMWM:B5_^MG*]V_'K0JPBCA,]WR9I34*%*IID"8JG_[D%ID>-7I6;_K9S2O^!F
+XM3[)K_^VB\K^890'^I*7DY^N;+JUCQ%>E-1YTF1VIII'\I'K_[:(?V#RS";;Y
+XMYZV<R-6GW'NFB/\Z;\J9%U.:\/.B#AHPI7N7](+J_(NER#GKF]BK^I/\I"NJ
+XMU=B ?UD/"*-E!S"E^I/9]MC.,BMTF2KOR&2*G@BCJO^MG*!C_'H&YU&CK_\Z
+XM;\VHW)BKI]^W[:+ZD^"^3[(NZ.VB-/;N5M#U\Z(SZ*V<8;@5=KG+4:.4-SNF
+XMR>\W8#JZQ?^MG*[N7-@)MLK_[:+ZD[NEK+SQ2S"E\M:<U=RCW?^MG-.HG&_8
+XMSFX4ZYO[J[%>HKQDZ*V<NYO668_@&6!IZ'299ES]V;7AI*5P0'29'/2$Z_RD
+XM]_^MG%?.XK+>]Q6E-RYTF?#NQZ$)MK4D=)GP[A9R\N<98(+HBM"V];OBI*4Q
+XM!<+5=\EB:^_EN]H/JG?)8FOOY="LU=B ?[#^UJ+Y!#"E#<@IK4^R'!=TF36/
+XM6&KP_!E@*2YTF6Z>(X6BO  3,*406Y&18,P(HR46,*4RF*"*Y[PK$G29@%(:
+XMY>K;&6!>C#IOOY7NH%RFZB8[IOWPU:.SOU?0[:+"J5M:_[^%HUS0-93Y\>[>
+XM<%^KUC>OM%T,4];*B+C+Z'29EIVR5OPR"*,/G.VB_5@8A![]A:,\G>VB,I@B
+XM7]"K"*/*/W293F3/WH;V&6!J&3NFUN)\E\[X%:1%H>VB_,A]^'NF@]#MHK'7
+XMHJ;8S@0V,*5PN;)6FK<5I,<>=)F*V/F?/_ZDI?GH[:+\YTZHB+@8M+1=5ZJV
+XMF:NGGM!TF7"Y=7@M_@BCH)[MHD5U.)$O316E#NGMHAWR9F1/LH\6=)DOH91_
+XMD:D(HVPW1IB.4+'OO5I7I?$0.Z:*S_NG&O_AJ]PW.Z:EX_.4+=/AJ[9+=)FN
+XMN.3>N<M1HQH=%JOTAQJTM>&DI?*A[:*;N0#_.[[GN+1=5ZHNEJNG.>GMHEW_
+XMFLQ*IOT-,*5FL51;^.*%HRXA=)F+\EIN&JOR#729;:ICJERFP#4[ID'CG<,Z
+XMNE7I[:+<N9W#)?:DI5KI!(Z@]!W9K/=1HX0V=)E&L7[+&<.V-729CVR\C [K
+XM"*,BN>VB.Y*FY/RDYJRC>HRQV,[=Q+1=0Y^!T BC=^FMG"W"U^<<TAG1@V\D
+XM;H9LHKR"Z:V<BN.AE6OR4:.'Z8-O,HY;BAG#C.D:;O?']*Q1HY'IK9QFL85N
+XML[\UT8-OL68#9G2Q.M'MHEIN;U^:[E&C/]'MHM7SOH41O0BC1=%TF1%\M\Z[
+XM\X6C9*6T76K9O.B%H[3IK9S\A+R,D>&%H[KI[:(CV01N>Z; Z:V<(]F??([F
+XM8=&MG"/9!,8.I,OIK9PK]?RA'*91H]'I[:)SQ/5V'O2)I-;IK9PCV?5V\/P9
+XM8-OI@V\[H=)P7*;GZ>VB9<'0C]C.[>ETF:V/R=XG^8NEI+E!XZE30+^KIXO1
+XM=)FY@=E51_NDI9#1[:(#P1^U>Z8Q.729MO3)S&#M4:.[N>VB"?8$;MC."^KM
+XMHB%9#%FTWQ6D$>I0=FAS#L1\^?.B> YTF8*QXK**YPBC<CHPI5C8HJO8SK71
+XM[:)IY/5V0O"+I2SJ=)E2V7=I\/P98%JO"%@7CN6:PZ3$T>VB>5_3A%/)%:7K
+XMN729KM3YU8WR&6#RN8-O*,?PD*NG%9SMHM:IFVSOY3@E=)D)]GBE0O"+I0"B
+XMK9R'Y*ZX>Z98ZJV<:>3*7#Z?%:1=ZH-O[*F+GX6CH!%TF4?V\65[IF(V=)FQ
+XMGL);R?A1HV"O"%B%KDCJA:/, 6*I3&1KTESP"*, TNVB1_8CGX_@&6"(#G29
+XMMN2&G(WR&6# /'29MN2&G(WR&6!*G7296-C37-7R5R%TF<W(F'DE]J2EC^KM
+XMHIZ[YH;8SOPC,*7-R#J-0>^)I%&=[:(NX9AYU?+O)@2C08JXJPFV+=*.4&[M
+XM(^>%HZGJK9S6J2ND=B@(HV"Z[:)0_19RK=*@(3NF2Y=B90SZ4:/X0@2C9<BD
+XMZ!6E4: PI5#]^W6SOZ(V!*,LX[KC6M%'0$:8N?>_5;T#YO\98( >1I@>RG.;
+XM;8S2O5L',*6CN^ZRHM$5I.]+!*,]SC7#>K%ITHY0#C#3@PBC;M+MHAFRYN3<
+XMHYJZ"ETL_5%T#J1YTO:B+,)9]]RC,"D$HRSCJ5*SOT &!*-=VDJ\JZ?[Z@2C
+XM3H2[6(WR&6 G!#"EY]FSBWNF!NOMHB71KJ53K%&C*T@$HRZ<>-'<HX--!*,N
+XMG!YS;LU1HW*O"%CI[^G(A:,:ZP2CE5_^8*NNND $HY5?M,E<IDNA!*-6@ER!
+XMW^E1HY,5!*,FT*'S;:>XT@2C7MQMW5>E-.OVHAKPKO%7I<+2[:)1K .%6M%$
+XMZP2C#NW(^TJFS ..I=5A8PM4U0BCS ,$J]5A8PLR_0BCKP0$HRKE%7:;O[RV
+XM+X2*?M9S#J3;T@2CQZ>2NDJFX-+MHF+:1NGZS16[[:(DRBC_=+$O!A:KM/>4
+XM[,V>X:MI1@2CX(5$O,.DQP@$HS"S'N$(HRR[!*,8@M%5KOF)I%<*CJ4#G#9B
+XMKO3AJ[(6,*5!=-1?/>P5I/\;!*,?I?^H?K67)@2C4,J*Q86C[LG[V%ETD<\(
+XMH] ,,*6Y6\KRC?(98 <0!*-EJP&-B*T" DVCBI?CTFVG"@DPI8^L[E*P_M:B
+XMQ1X[IF>TME2SORG3!*,(G^VI3[(C.02CO9E.]]C.M.OVHF?Q ?8(H\8'3:,O
+XM\W[-%:6V!02C1WY2Q<ZI4  D3BL * Y,H9F8I+2KY:-[)$XK ,L'K9_MDC/5
+XM)N;.?"1.*P!U'ZV?M_8FR6B[NHY0 "1.*P"O!ZV?M_8SU<GX-7LD3H]68O2P
+XM46C;@9!_W%  )$Z/5BJ@L%&ZI1!:GYU.>R1.QU)5 JV?^/QW@>3])GLD3L=2
+XM=@6MG[)2&5G1:T\'/7LD3L=2*P.MG^2N=+0PK]-[)$['4H8&K9]O41FO4.ZZ
+XMCE  )$['4B\$K9_DKG2TL^0]>R1.QU(>#*V?H=0\?T"E-7LD3C]#50*MG[-D
+XM&X$$ZRU\)$X_0W8%K9\&WUK(XSHM?"1./T,K ZV?R=16M7^HLH=0 "1./T.&
+XM!JV?P%L961"BP^U6!"1./T,O!*V?<.LYQX6=/7LD3C]#'@RMGT[?')]CG;*'
+XM4  D3L<$50(=H(Y4LJL0U):,4  D3L<$50(=H*3-ZW6JUA1[)$['!%4"':"D
+XMS>MUQM:6C%  )$ZI4W8%':"^Y1R? JH]>R1.S%-5 AV@FJA#4-SD-7LD3FE0
+XM50(=H*'Q7U=?]SU[)$YI4'8%':#J\6%J[L@]>^$3*P!#2JV?/[TSU6_<NHY0
+XM .$3*P!O-:V?4,59DY_V7WOA$RL -1"MGQCG^N&C\E  X1,K +.-K9^RL=[0
+XMB 33>^$3*P"W&:V?_;'>T"JQ/7OA$X]6*J"O5&C_(]\M?.$3CU8N4M:?*]13
+XM?Y3K-7OA$\=250*MG^2NW%[-J=-[X1/'4G8%K9_8ZE9J_#(]>^$3QU(K ZV?
+XMLV3[DUZP4 #A$S]#50*MG_?4U8(\]29[X1/'!%4"': XBW>![;50 .$3QP1V
+XM!1V@G-4 :^;[5GOA$ZE350(=H+/Q&X%:VC5[X1.I4W8%': MA%:U%?^ >^$3
+XM\%!5 AV@,ICK=<[+/7OA$_!0=@4=H'V(ZW7*'^^;4 #A$S  *P!E!6+T-YH_
+XMT @[%,=?>^$3,  K &4%*J WFC?C^>^"C%  X1,P "L RP>MGP?'1(W-X[*'
+XM4 #A$S  *P!U'ZV?&=1LJU>Y4 #A$S  QP15 AV@%7@CKG*\4 #A$S  \%!V
+XM!1V@-F8[9$RW=:90 .$39 &>4%4"8*#(<$*I"I"ZCE  X1-3 2L G -@H"'D
+XM9P5QX;;S4 #A$P.2-1!@H/N;9\? P;K()GOA$P.2LXU@H-5A\2<8WL#F4 #A
+XM$\4!*P!#2F"@;6D+B;FY5GOA$\4!*P <0F"@F_+NWG3;-7OA$^X!*P!#2F"@
+XM2HK@5**U3GOA$^X!QU)5 F"@38B/\*[?NHY0 .$3[@'5:E4"8*"%K$?7?]M.
+XM>^$3[@'P4%4"8* *G"55%(DLE5  X1.U RL =2:)CFW@J550OX_K4 #A$[4#
+XM5U-5 F"@'8E?WP+$NHY0 .$3M0,_0U4"8*"S>&?'>/Z >^$33@+,4U4"8*!B
+XM;U>,K>]6>^$3,0 K ,:4K9\C7%:08L*C>^$3,0 K #40':"43U#>(M>@A%  
+XMX1,Q "L =1^MG\[4V-:3H#U[X1,Q "L <)>MGS#&H94 \M-[X1,Q (]68O0H
+XMU>V,@9 4>^$3,0#,4U4"':#6J:%X]\%0 .$3,0#P4%4"': U^4A8,<U0 .$3
+XM,0"QD54"-Z!\JVQP+)50 .$3V ,/654"8*#(?][T'0K3>^$3; (_0U4"8*#&
+XM55I>G[8]>^$3# $#754"8*#/:6U]:?QDV%  X1,: ?!050)@H ">TG7[I&;9
+XM4 #A$S("*P#+!V"@A:R,G*S8NHY0 .$31)%U'V"@H7W2=?3>3])0 .$35 $K
+XM )P#8*!LBC&3R^Z@A%  X1.V 2L -1 EG+90P>UOW+J.4 #A$[8!*P"< V"@
+XM466DY1CZNHY0 .$3M@$K #J4)9SDU-?*0J&MVU8$X1.V 9Y050(EG '8\2?<
+XMO8BD4 #A$Q$!*P!#2B6<+]@I!K%V+)50 .$3$0$K '"7)9R,;8*/"=ZIT5  
+XMX1,1 ?!050(EG+V2X3;5B'_<4 #A$S( /T-5 AV@UYN(RW>84 #A$S( :5!5
+XM C>@A),:9H&I-7OA$S( L9%5 AV@O_S78:+1)GOA$RH!*P!#2B6<!%E[&PB8
+XM+)50 .$3*@$_0U4"#I9*MWH<&*Q:D5  X1-' :E350(EG-.4)54'Z&384 #A
+XM$S, *P#=-4RAJL"FF OV[YM0 .$3,P K '4?K9]]WURL9/]6!.$3,P#'!%4"
+XM':#+JE/24:U0 .$3,P"I4U4"':!8VA)2[^\]>^$3,P!I4%4"-Z#[FK2&INXF
+XM>^$3;Y+&E"6<3I#9R(7HLH=0 .$3%P(K #40)9S.[W.A  \[SU  X1,7 LQ3
+XM50(EG$2)SO<CU:"$4 #A$X$!GE!5 B6<<F_2=4-M+)50 .$3&P,K '4?)9SY
+XM;: GS:R8V%  X1,T "L <)>MG\C>F=W8ZSU[X1,3DW4?': 1O >4&;=0 .$3
+XM$Y->+#>@2_ !Z*"$4 #A$Y$!:5!5 B6</*;9R'?2/7OA$XT!YW)5 B6<@V!R
+XM=H>MK=M6!.$3[P$K %XL)9P(A@&>^VL4*3U[X1,Q 2L =1\EG$5S9\?GU^7O
+XM4 #A$S$!/T-5 D2="LN8B CFTWOA$S8!QU)5 A"<SU48:+FY5GOA$S4 *P#+
+XM!QV@<\>PBE*N4 #A$S^3RP<=H"S18Z!-MU  X1,_DW4?':#*M6RKW/,U>^$3
+XM'@(K #409IZ*S^3%:\Q6>^$3O ,K '4UUY[JP>ZXJ*:ZCE  X1-, 2L * [7
+XMGDMW]>96WJ"$4 #A$TP!*P!@/D/*\KT$S.3OP(50 .$3-@ K $^;K9_T8-ZD
+XMLNO3>^$319)O-1V@6[E<K"VETWOA$T62=1\=H /YKJ4CZSU[X1-%DJ\'':!@
+XM^:ZE2,P4>^$350$K !E(UYZLQN3%&^DU>^$3)@+P4%4")9RX5[[_:NH]>^$3
+XM3@&/5F+T4+8SZ@O,@HQ0 .$3-P #754"1* /8X"NX\L4>^$3-P _0U4"':!1
+XMK/18[JG'?.$3-P!74E4"1* ADCWB"J'.?.$3-P"I4U4"-Z#W@9UB7!*C>^$3
+XM=@+Q<E4"1)U,K^N$XSI6>^$3BP$K $-*%KRVY _A6I%0 .$3.@$K ,L')9RM
+XM@Q7FIO-6>^$3^9&SC1:\.+;1AVA+/7OA$_8#U5)5 B6<I[)KR!WD@HQ0 .$3
+XM.  K &@C3*%;@MZ_X_>HE%  X1,X "L RP<=H&&XAIQRO%  X1,X "L =1\=
+XMH,C5/81WF%  X1.PD6\U': LT8^IJ!X]>^$3L)$U$!V@MI.=6 SZ-7OA$[ !
+XM/T-5 A:\/K[SE>'4TWOA$^4!*P!>+"6<EGF\Z;C./7OA$SD *P!#2AV@)O0K
+XMI&(-=:90 .$3.0 K ,L'':#.^:B*W^DU>^$3\9%/FT2@_KA$C4S*TWOA$_&1
+XM<A5B]-]H$X&CLI[O4 #A$_&1-1 =H)W:]/]WF%  X1/QD? +8O3&4=B,"UQ]
+XM^\ 7X1/QD74?-Z!OY3[4LH=0 .$3\9&SC3>@"NZ8PXBD4 #A$S8%%UU5 A:\
+XMD7J26:WK7WOA$QL"L9%5 A:\Y[*D6V.W4 #A$\P!*P U$"6<+8)5G_>F'_%0
+XM .$3P@&/5LB95G(IH=9S+)50 .$3?P''4E4"(\$UC]E1Z+Y0 .$3?P$/654"
+XM%KM$TUK<1LA0 .$3>@'54E4"%KP.KP%?:M@]>^$3>@$_0U4")9RF58/+==P]
+XM>^$3>@''!%4")9QEOPG@!N<U>^$3 0'P4%4")9RM@SK>9<RZCE  "@HK &\U
+XMK9\=TY"!FMU6>PH**P!U'ZV?K-K>T'S0@'L*"BL G .MG\[RQJVRZTY["@K'
+XM4E4"K9_WU)5NIDFRAU  "@H_0U4"K9\RU?N33[I0  H*/T-V!:V?9%&IDT#@
+XMLH=0  H*/T,K QV@U*%>JO*S4  *"C]#A@8=H Q^?M_H^C5["@K'!%4"':!6
+XMD7[?[;50  H*QP1V!1V@5I'5@@5&P(50  H*QP0K QV@<K=J:G7</7L*"L<$
+XMA@8=H$11*9)\S%9["@K'!"\$':!$42F2X\^ZCE  "@K'!!X,': XMG[?7K!0
+XM  H*J5-5 AV@ON4;@>G6@'L*"JE3=@4=H,A2*9(FJ+*'4  *"LQ350(=H!!;
+XM&5D^]L"%4  *"O!050(=H W(I>97N5  "@KP4'8%':#PI!R?1/8]>PH*:5!5
+XM AV@9K'K=6_/QWP*"K&150(=H-:I0U#RZ%9["@HP (]68O2[6*3=*[3*VU  
+XM"@ID 2L G ,EG"]I/=9E44Y["@KN 2L =1\EG.AKR/#$MCU["@KN 9Y050(E
+XMG(.^8_Q4)+*'4  *"OH"*P#8G26<U<0)IE"ASGP*"DX"*P"H V+TK6ZR4'[/
+XMTWL*"C$ CU9B] 21-^/'K>^;4  *"C$ CU8JH(EBCYD5K[J.4  *"C$ QU)5
+XM AV@FW,4T$CB/7L*"C$ S%-5 AV@Z/R8LK;S4  *"M@#*P!O-26<Q5YFEL?1
+XMP(50  H*; +'!%4")9S3@LRQW8Y:D5  "@H, 2L =1\EG#*6C*J'_<"%4  *
+XM"C("*P!>+"6<)9KF;P7M-7L*"LH!*P#&E"6<3W5+EA2>;OY6! H*R@'_3U4"
+XM%KPYPURL(!* >PH*5 &/5F+T 5\ >L7NF 04>PH*E@(K -B=)9P%:3+7(^N"
+XMC%  "@H1 2L ;S4EG'##[[HTVR9["@H1 2L &4A#RJ=HIH8AG(!["@HR #]#
+XM50(WH,J98I5/U5  "@HR ,<$50(WH [M$\D?\5  "@HJ 2L =#C7GA_4":9+
+XMI%  "@HJ 2L LXTEG(G$ HN5YS5["@HJ :E350(EG(O"BJB)Y<=\"@I( 3]#
+XM50(.EM?#D-,.PLY\"@I! 2L BN EG#M4YJ7*>BWK7WL*"CX!*P"SC26<UXP 
+XM_GO8/7L*"CX!QP15 B6<1,/VS[OB7WL*"EX!*P"H V+TV\Y;XZS8NHY0  H*
+XM!@$K +.-)9SHQ;70J^Y6>PH*7I$U$"6<P,-6D%2X6I%0  H*,P#'4E4"-Z#*
+XMF;7!=YA0  H*,P#'4G8%-Z"=PBME+)50  H*,P _0U4"-Z"UP'FJ'_%0  H*
+XM%P(K '4?)9R"9^JFW>QDV%  "@JR <=250(EG /%6,"W[SU["@JR :E350(E
+XMG)]VD^!IM!1["@J! 5A850(EG'><_</F-;*'4  *"CL!CU9B]$7%(([3LJ-[
+XM"@H[ ?!050(EG)]9BI,H[L"%4  *"CL!\%!5 AV@+U=Q=GMZP(50  H*.P'P
+XM4%4"': O5W%V>WKOFU  "@J& 2L ;S4EG(YV6,"5OU9["@J& <=250(EG.[$
+XMRI-RO%  "@J& <<$50(EG,Z/,;!A^E9["@H; RL RP<EG&S&C-7V^J-["@J_
+XM 2L &!77GAK2\>X+YSU["@HT "L RP<=H'?)C^<YU%  "@HT "L LXT=H/S#
+XM^\_5VU  "@H3DS40K9\*Z8)Y\K-0  H*$Y/+!S>@,ZII]Y:,4  *"A.3LXT=
+XMH'6UAL,/;%  "@HH 6E050(EG'.6,L)!R&V&4  *"I$!*P U$"6<@<8+@?_5
+XMHWL*"I$!:5!5 JO"/X:\@E*N4  *"I21QI0EG$3#1,$O3:"$4  *"HT!*P"@
+XM,26<,8K'7L#JLH=0  H*0@$K &\U)9S\Q^_;[JF >PH*DP4K -4'8O0"7)RR
+XM,OJZCE  "@J3!2L G /VT&R3'7(LE5  "@J3!9Y050(EG$#$QFSDK#U["@HV
+XM <Q350(EG+W%3)=#\I:,4  *"C^30THWH+6DA6$(##U["@H_D\:41*#@J9;(
+XM1^BHE%  "@H_DS40-Z ^U1/>K]]0  H*/Y-U'QV@=;6 IG>84  *"A8!*P!#
+XM2B6<>Y(67X9NM[@F>PH*PP$K '4?)9SK8!BKTH$LE5  "@J\ RL NY=#RG#K
+XM:FI4)+*'4  *"C !*P"SC26<!<N?83F=SGP*"DP!CU9B]"!2]LH0_*B44  *
+XM"C,!*P!#2B6<Q\EHVFW"%'L*"C8 *P!O-0J@8K+IS(+W6I%0  H*19)O-3>@
+XM9:N=?BR54  *"D6222PWH$VRZ%\LE5  "@I%DL:41* NE(I=QZVRAU  "@I%
+XMDC40-Z#3H;_>HWL*"D62.0PWH-NE+_%:D5  "@I%DNL%-Z!8NEY:+)50  H*
+XM$@(K #40)9SMRZ699'!_<%  "@I\ LQ350(EG -H<5O09(6=/7L*"E4!#UE5
+XM B6<OVNUFHM=+)50  H*50&>4%4")9PTAZS+"N&C>PH*59,U$"6</<MYW\WC
+XM/7L*"B8"*P!#2B6<K)D4L?[9/7L*"B8"*P!O->&<'*$,VJON5GL*"B8"*P U
+XM$.&<KNYX:UZP4  *"B8"*P Y#.&<-VD,VD;U/7L*"B8"QU)5 B6<V:&*ED;U
+XM/7L*"N0!*P U$.&<?8@X=+FY5GL*"H0$QP15 B6<-9N[NV+YTWL*"C< *P!#
+XM2AV@-*UR<AOVSGP*"C< *P!U'QV@6-@XJW*\4  *"C< /T-5 C>@GK2^735M
+XM4  *"C< QP15 AV@N-10^+P7/7L*"C< QP1V!1V@,/Y7[ZB44  *"OF1RP?A
+XMG!FHW7ZRZRU\"@KV RL -1#AG&3Z_) 1^, 7"@KV RL .0SAG'^__)"5OU9[
+XM"@KV RL RP?AG.3[J5/=SCU["@HR 2L D"),H?R'KD9@A(!["@HR <=250+A
+XMG*>5W7X<IC5["@HR 3]#50+AG C/2G#WH*-["@HR 3]#=@7AG-/(2G +W2U\
+XM"@HR <<$50+AG'"Y+-.:W59["@HR :E350+AG)WVSZ.UG59["@HR :E3=@7A
+XMG/2XOI_RLU  "@HC BL LXTZGSQ\L=+_\R9["@HC JE350+AG*>5R=4TCQ_Q
+XM4  *"B,"\%!5 N&<KKAI6_;A5@0*"I,"QP15 N&<*=S)U8FEA_=0  H*.  K
+XM &\U':#AGMF,S>/ A5  "@HX "L -1 =H)W:#7'RLU  "@HX "L LXT=H"]7
+XM<79[>L"%4  *"K"1RP<=H+#K HL'!]-["@JPD74?':!^ZY1_P.X]>PH*L)&O
+XM!QV@NK0LLL*J4  *"IP%/T-5 N&<@/Z58%*N4  *"D8!*P#+!SJ?*ZQ=;)VR
+XMZ.@U>PH*F0(K #40.I]GVKQF L.RAU  "@J9 BL U1%,H2'D2:0^J"+O4  *
+XM"ID"*P#+!SJ?B:\RBK)MR?M?>PH*F0+'4E4".I_"B\ZPPN?$R%  "@J9 JE3
+XM50(ZG^O5PYD:J:G74  *"C$%*P!O-3J?2K?.L,689<M0  H*,04K $DL.I^E
+XMN<ZP[]XQWE  "@HQ!2L -1 ZG\"_,HJ2EH#I/7L*"C$%QU)5 CJ?O9*?Q)>C
+XM+)50  H*,04_0U4".I^=E^B68,!6>PH*30&I4U4".I\U6KV?[]Q/TE  "@I-
+XM ?!050(ZG[90<Y7/\"R54  *"I $*P!#2CJ?W=X/9->&'_%0  H*D 0K +.-
+XMZ.D\5#EN][JZCE  "@KEDT-*.I\4<+'9?^ U>PH*Y9,U$#J?25IYFE+%@.D]
+XM>PH*Y9.SC3J?)UYTO;;/@'L*"N4!*P!>+.CIT[-5A^VU4  *"N4!CU;(F4YC
+XM 'KT8V7J-7L*"N4!QU)5 CJ?[=[AEJI0+)50  H*.0 K $-*-Z#-I 'ES\E0
+XM  H*\9$U$!V@;99U>%,\TWL*"C8%*P!>+.CIS<A5AW2DHWL*"C8%CU9B].^(
+XM&>(TC\SB4  *"A,!*P#+!^CI!9WS:'R>SGP*"G@!*P!)+.CI4/T%ET'W5@0*
+XM"G@!*P!U'^CI$;S)U<S*[YM0  H*&P(K &\UZ.D0NRQ;"_8]>PH*S &/5F+T
+XM^&YKOA/;6I%0  H*S &I4U4"Z.G^NZZSE;]6>PH*P@&QD54"Z.F*V,F'0/P 
+XM <(!L9%5 NCI, (J@+)$1@X;+6:XB,'"#!\H+&+$T$$#AXX9-EBTL%%#!PP<
+XM+'+D<)&#A8R , 86/+AQ8<.'$2?.R*$CA@R--BS6N"F2I$F4*@W>6*&0H4.(
+XM-CW2M*FQAD4:,T*.+'E2($&#.%K <.G024092CWBG%$SH\2?5E=FC<$59M(8
+XM'6. W$AVIE2?55->S;'6Q<VC7SU:E$$#)XV:-VVZ*)PWJ,@5,MHB!2N#;$6<
+XM,&H65GP#K=Z5.;1*#BP#[ P88VN"[$D5Z-[0;(VZI4P6]<;#,!(KS-B8X S(
+XMHV/<H#BQ1N$6A"GJ]JSR=]&72(?3R)P1^6$99AF[7N+<+_2(THL?3WZ6-7/?
+XM*VH$'S[C^GBP-:+"/<]]Q8WU.I)?1BZSL/G>W+40VW=R>311==CEQ]-4],T@
+XM( W!Z=011AK- %8,9FW56EH."A<<33!,6-T,9#&EV(:?.1B9;$A9!(-E-R%G
+XM T6;0<C;=BIZ!UB!+R*F48).1:002  Z""&+$5D40V;[R3!<D$P5V0*$?[FE
+XM9&:G_>CB:@Q*"6%4.RHIDVU.4I2="U%YN1B!2E(VWI.)05A#@U.ZD%&8-4U$
+XMID4D?D4GA)WA*=%%" Z6&$-J@B2H:0@^"5(,SZE9TJ(4S27#8*A%B6-+2!8H
+XMG'(_@OAHFCC"0%2$%W5$& L!U135?Z6N<"2;%Y4(4JM,P<JAJ3B@BN%%J,%0
+XMW*M=EFKJ5IU2]E2,-H %@UF1H=A<0*(EF]]3<]E@V69L=58DM0/N:%IF3-&E
+XM0WQ"ND"DL<@%-VY^Q]EPV$YW2>M;;M42"!8-'1F7FK#U-OBBK,CJ>VY=",*7
+XMV$W?TI!><+5U1$.,-;!7DJXIAKA"N&[51A.%&TUT4L#?UI#OCB52EUIYQ>Z*
+XM4,$H*PAL:C(P!.F:W]X@(,37$II:#9E"N.ZN.L\:\TPS;S1<95_A5:K.(W5J
+XMF:K'W2#RQ2UGO-:*!!X&5](W>"T?PZ7FL +,'2OG<\CY$>OTKJ$9G?9.\.(T
+XM(],8NE1D#!NC"I4.U>':&<;-\:U>IX,-EY&P-<T9@XT-QB @VDC15&;@,\[@
+XM>&3:<;ADNYWB-J%M\A*7KKW<202<U.>VV92$$5$9.=_/Q5Q#1[8YE5]&A/MF
+XMT\ZAJP:JN3!TAF'D,H#>M68^FHL=R3C"]7#P)U7:E*JCVAEY#2M$O?R@_K90
+XM@\B\9UVXR93'7JMJF)V;*:F>FWQSIQ,.5Z[5Y\[9>^HVK-!K\)ZBV(5L5K"]
+XMX4!6'$.*9;!4G1C0!%V0BEQ6N+8CW!VF.C;(# 0'9,!V50DIN)L1Z426F*W<
+XMR'-FLT%P#C.=I-%-<[%S@;>B%QKO59 B]F/6W4HRGR+)8'JTFH&>6$49QT'.
+XMA_9!567JUJ,9#,Y\OOGA?3Z8)'B!*C<SVY^%E(<GW:U**WK:#/Q2E+S(4-&!
+XM!EH;XQP(/0XEKW9N 1$#-8+%7$&1.V_441P]<J$8,8X&6'L;&3E%H*74AHYU
+XM24RO9NC&%OROD/D1#QW%UD8RP@ YC]S1QRPSE[#5JFED<^,E;<B'(T2D7R*T
+XM6TW>AZ8&U:QO]$.,6,0GL:!YQX=\,R.!0CC+&H@0-5JLF8!4V*GAK+&3F2E>
+XM)9M3FI.Y154P:HHQ XDZ"Y4Q.!/R&L5 Q,/(S,F'R2/F+L]UH6R9QF;>=.5O
+XM*/A,F<FE*;CAX>'4R<5VSL!%KZ.($;7G0X>Q$X1M6UM\R+G,*-( >..D@23%
+XMESGCJ;!S9.0>' $J Q$U!3X,"2;WY$;1CE1G?/D!YATMM%$]4I2%<P$IT J*
+XM1_G],R(S,L[:2O<XEI*T3K&L 4T^.IC-<,Z5"$G@*<^%TNME<:38F5QP9D2#
+XMPX"L61=YHB"9B1!Q[FA&7YM84Q[H'Z0.97[C?%;S_@:P8.I,J+]BW$=#>$J<
+XMX<A).SMCORRR5E"9M9Y(^64O46E3N'(4ILS+G3%%.M4HZLRJ;KE;77*G)&JZ
+XM4F?WZ=0.!<K-T[ER+9%]B2D_10/%&>8B7"HL'B>XU%4.3Z85BV$HR6BVEWX-
+XMI%H5GTQLMAM7AL:U6-4F/*T7S-N:%+"/<^&\C,>6:AKI0V'Y(N-@X-@B.6B>
+XMFC1MEK1"&9NI!Z+-.8VLL'FNB;QS2D_1WTA/@U?@YK IB8PAHG!$WHD"ECPI
+XM=:I9%&)<OJ4OK2!JBIX6)%H220ZM6#VO;,_%PR$U2(CE_55IFC=0A=H4P;J\
+XMJA5!-E"\*821*4*P>Q7\I./(-#</EIQ"SIBY9.YV2>G"<'8E!]W$@G:O^GQP
+XM\O)6S.Y:;R.9P=LWV9M'R>:'J^AM6XH/G+R__DIS=1,?65:J11+!DD!8C<M<
+XM *F9(3O78?>]V[R.4Q$:/5A^I6T/^Z9D.9O=![N^P<B3);S$\-& J8D1IW,1
+XMTN*\$EB@$]'JS<:8W:KB1ZS?I9N3FG;"#'\US%BRS9L]XC;CGC635A)>N2KF
+XMHR;KK,[@26-L@5:W)A\0P"_^(K^$[.F'D3B28Z7-@\V69>(D;=0U;3*K?_NK
+XMOY5KT0&QJ</0BBWV_;'1#?*GWZA&1 /I>@6(;=%%\GPKT9TRV D&T999E>.,
+XMCG0Z&\,MHY.,$6,?KT@*=::=*\SE>0$;W)(S"'ZZ?6O+E:^_$SM;:0<ZW8E=
+XMI,#P_J&'8KG@[R[QGGX"]P^=Q-U^6ZHNCV)+H9L3;TP?6<L5>B!_JSFQ!Z&J
+XM>$D&Z8MBDN\$&Q/B4Z)D! 6.4P+9[V.*[M?8@AU._)3)S3%]-\5_(Y'20BII
+XM8J903<'=H3];=$I+EGFP'939';%'8E,>K'J#C>5Y+XW+,GF4>OCLFZ:N#LKN
+XM&UX+-_XX=3']5#ZF\G21-K*NJ[CJ#C,RG-=VS_P%'$=-1:C1/6),C=C;P5W?
+XM,8?B#NGHN+HZG66TKKD'E](R]\:G(>JSP2W1>>?X.$C[2 P77O7&GUJFY6H[
+XMOP:_W;##N4)\RA[EN<,O9(<9Y17*G./TGB)^.=,KGSI\O64B=,;+W2WV2[3=
+XMAS7XDL\]0=]M:J6OW3_%^'B)WQ5BC'L(]_[U';!B'A'NQ MO/]<8:<'W&F$I
+XM?N@:AZAY3CQ8#(?6^J%L.*;LL4WXE?EMN _%X4S5">0E)E6*9P5ML+=?3R->
+XMD^;"/2M&QA[[,F4:%%KVUP*DY'>^M#9D17T49S8!F$8CPD+;%VRAL6$"J'@)
+XM(7&Z%C?K)C$QTD(F0G7<P3T.QR?3]GTPT%7]A3YM 7LZ05>L(A,.)4,-8C*N
+XM)6T^PSA,HT4FXW!+P4(W@2OGAB- TWDFYQ'R52%+QD-H5H*7Y%H9F'Q/4G\W
+XM>$D82"@X9SEQ<H7B@Q_V%CY(HW,C=H.T\V=/5R'.YH-\$X$]LA\D,C,WLUK-
+XM,3Y -'=U-!=QB&(C9X1\4W0N1F\CDF?6UH)\DX" Q6G)1RX&:(:^AWOZ!'Y*
+XMTHA%,CY?6&.C!C)M9Q=L2$ASQVFQA7U2=X,_=%]+ W)(!F+,QR$[L3&@IE"@
+XM4B:=95.MF(5O$2,6 EJT^$-E.'?!%8ID45$Q1(*:\T,.9TRC4R&F$2<V6(G)
+XM8XH],W:X,XK.^(A^-VHCXB+X1H>^L1,M (C*ABNXJ!.9PA9/J#F_D6R9]GV9
+XMAR7,>([Q87IG9$Q>HX<:)!^ <H._\7R_<CL::! $U8>L>%R82!-P:$P3IX^7
+XMF(2@J(=IN(HI8AQ7]WOP 7D7(D;-:(0.8XO84B$RX81ZHY%(Z(L7Y)$AM7@B
+XM*3N^*&4FV1ZT>%#@6$4KJ('A!W!Y=X/<(X56I'[[E2[<6((Y26M/-SR)1R]=
+XMMUZL&)1@ HG)\47*UU3IPGIUV'@UAD;JIT$L6$VW<RKSB&IC5VT1@1J5V'A+
+XMZ7=HE'S>15NM-)8>1R-C)F;L)Y7=B(-"Z9:9YS56R):149:9MF@3J(2T2)>%
+XM,7>C%HI.58A::3)9&'APB!N4:(2*69==)H;7D9!LJ1!\R5E+@8O7481):8V9
+XM!E)WZ78[!YEUTI4#I7Y.Y7^?J8X\,BZI=V^T6'SK9F()@27& X^TV97*QY/&
+XMYH/]HY,5]99,8C.Z"79).)P(8I#SE9&LV#\16#T@ Y  LV<W")UU63. $RJ"
+XM!YS;E9E+<R#<61JQ<YUW"(F?XF\Z@6]R68(OLV[2H8<74GM&&%2\EA_Q62'V
+XM8Q;MJ3D(H9.!YY3P48&5^)^2&7],*!BSF1!@:)!ZB!O&R4_UR:"HR6P)>AG 
+XMR:#@>3!O&70+&H$RI8F="4K7>9H,J7]JN$I+5Z +B2>X\J#7$D-GYYY?>$8N
+XMXBPI>BDR6J*N>:,X%Q?XV()^9J-*B'/S(G5K.:$QR2/2@8LB1)_/^8VTIHV(
+XM)S$U<H/=EX2Y"(?)1*!&.!3"*7_<J4P^"*;9N5/<&6LC53' L:$ N9Q>=C/]
+XMR:8_]7L&&2, V2=E"AQS\GL=>9L**AQ8"AQW HG*-R+D@IB#&AF!8JA,8H\U
+XMD9N#FH7),9V6LQGJ\9.:8W[9F4K(P86TR*ENFGYC>J65R*F#R91U]ZEE$:JG
+XMTJ>JFF0 29ZER8I#$9W!.![K&1$C 8]#L:2Y-SQEPEQ-HY4ZDX6P)9]N5Z84
+XMRI",HHQF4IZGJJ$,:2O0BG>^RJ"IJH ( ZTZ%:J@^2F4YI3=VG7$6#$F^HE\
+XMHG[!N(U86B<;JCN9QTG@>H)I1*[L(Z?OVJ-%^I<&T59:^6D?V#S4Z9D1*;"\
+XM68_CB6^CISD"NZ%(]D4 N7GMQXH"NZV9MG[<.1TP=8,'I)/*IYZ=MJ8?6Y>)
+XM)[%+$30>VZ9:"INL&B+I H\'1*G+HB7XF2X-ZQ1<J:7L42@789E&.+.MY*?"
+XMFCC2&K2G@K&?DGAD\B2L>;"OFISK:K-VH1@Y*[2%ZG>)%UN7 IA=1WYU*+2-
+XMZG<3BZ=/X:46>RJ*8JC>9;:-8V5(&YW3ADD>D1TKJY),&5-O$J>R4XD'=(RH
+XM5BYE8B+W<:Y_FYUN\B/31(L'!*RR-)U6BI)IBXBQAW0_0FP^>']@6$X5DF/9
+XM8[BBT96XUKD^<C-@VXU]@8F>VIN;<;5M"5NX2'LPY0)S2EJH69$F67:,ZK$,
+XM6F/R&KL48;!AVZR?B%7*:I.U&ZY.NYT)01E :[$M&FE_A(LEXCB@FZFTTB,"
+XM:E<D^X69Z2)+9I&@<I-^^X5*ZR)SFXO^ I'#RZ^')X8ETDTW:#9HQ1XU2[=0
+XM<;2L2+\F>ZDV>QDW,Z.:0[_P5REKHYW5J4*G6X*MM6[T2K?L%RE&V,"\62)N
+XM6S.TV, 0:[G((1WR05_S"QQ*>W1CUK41['65:#996)3C$5/XII4J;+*/JKAU
+XM"[?[>RH0"Q:-XA$.&,+1"8(_$E/9 X]F [C)02:_E,&FEIQ +".E.Z<IA!]G
+XMB:=Q83SWL< #+&Y]V6&DFVLUA\4Z=7L*R(BD"T/ZFL)QQ9#>!:FK4K$1"1M#
+XM"XET@Z@\W+%HK),#U8[YFK.^=;N(IT&9HAY0W"[Q^G.)YY*F.[_M,L+YP[PA
+XM^[QOW+L,B8IZTL-HW(MR[#H)H2>/ B%$K+QW)H:25'B?C+?A&+XF^4Y=IZEA
+XM_"79.X#0RH>>K,BS[*(EN<D4@;:1S*\WEWR4H<MU&!I+JB3I:QJ26B3%Y[B"
+XM&)91-7D-TC_\&H?^\GWHHD5!A5Q8%"S.XJ[([(E[M&!90H0V=:M^(X2L(D)Y
+XMB2._BBJYR!08IZ;]I3,Y*%V+,Z#C+,G1E13UK(M:=*RT9DC;B440]%-%XL^9
+XM"=#AS+G]'*Y+P9)8I*<C=6G(Y2FWDF>YZ9PI<EC_'% 4TBH IT6?YEI*TK/,
+XM3*QGC",EBSA$93UBI8I]B](C&6G"Y\Y,E<X<,D&8)IVRJQ7(.(P-DA4;!M"K
+XMHKV6C-+$NT<W-\T(I[\I M1Q7#G,\TY-9+T2>M,,':DLO2]/VQP-K-(+*-7&
+XMU,DHC".^U2D(O3A.-2KTL6M@R"<(@I=M-7K"5I"SM$3YR[X$D7;K-K7(L<WI
+XM0H(.XYKI=\ B\YAI$=@FVZW\$:UXO00'57,J/897:3I@!2"/S19$.M.0RD:U
+XM^AD')=)U6]<EQE*?/<^YZ*]9N=;X++V?Y\2WX\R6':YM(JM+(T^J;<I5]"O^
+XMUM,!K-KVJMMX:C]&Y-M36A9US<5G$=M31RN<Y;:"NC\'=5W,_:<F;#P+'-VT
+XM.]T'O"5,K1+3H<56B:!BU<8JA#K?'=3&'<Y 2MIMB"JPRRH/5-2'K6_8W*T?
+XMX670;8Q^X];,#$/Y+<:\ZBHS@W&#!MTTA\VZM20J:N"NJ$3Y&5S_>C/FW1U>
+XMG3D9$I"S8MD=@MY>5!@]PG7+K>&K#=4(S"KL83SM:75HQ4W6,R@P"]T.8Z^I
+XM&1C' ^/^XS<J$UQV)%IQMR3()7:+$Q=;G=?8;=8_NX-+8].>?5"4:Y _]WUF
+XM'.+;47HKGEP^]9MW5'J$L;DSHYV#5GA(Z=DN:.3!E24*/CZD#69&#LZ9PB20
+XM[-UTN>;N =^*QQEKC1#H+8N/\GBD3<Y&CD5Z=AV&[=FWJFUEDB4OYU,\[L]&
+XM?K+<0FI97C3(M8=[WLP"Z=D"2^;E.B\@"=@("TE?8^:XD=J6G=*@KL-#1:S0
+XM?4!&!B+TJF!0BNG;=48ZN+Z6N^K@76:EBQM*[MVDM>:N\Q8@F>*S1N;\_36Y
+XM!MU=#>IDP9\X!!YK;38XP(_PX;^'_BBC%Y28*(-]_>S[0Y5)F(D(4AN*1!\E
+XMA8EDW.V<+<CF/NOAOM/]1NK;88+K!G+:*40L1>^\"62+#<^HPSV"G2JRJD''
+XM/.\)YB)<C!S$=NDJ$9DJ?7B"*T+"2Q"12:1)(;&9,_%+8#)&IB31Y,0FG>$&
+XM_]O^Z\11;NXU2BLE[L2 E.^.Q,XNV[5W_81'B-Z#8N8QE1CL#B!'"(1%:N:.
+XM,KOM"30 CD:)I\HLU.L4CX63[EDWYV#?CH6(94KWKC+4U>+JD>VY!+BC)I8G
+XM)[F?88<VCQL9:UWFSC>NZ>H^@T88[,8-?XA^XZ _X3X<I_4C'N"P:"+#9<-A
+XM+SFMKC;OTUWY/G 3G5]6J?&M.,QW=B.6+C3F?DV-OA38'DF#[T&0A#3.[DL<
+XMM\#>^/?VILJXTTVB%8];[KMS;L*9\I/Q:/,U:_2;,47FWG.-SI+IB?@.@MZ?
+XMGQB\3?.WO]&PN+Y,)=]A_]D_/B9]*?P-?U"X/]JQIZ@\3WC1O,8F$7-Q;>[:
+XM#DG_)I:<W%9#'Y2T'E"7@<!*O_%*B?V?A\!#3OZF]^<UNV#?NF_6G^M::.9W
+XM:EG/7_0&R><%TO+?#F;?WT+K*[SDN^+3\?[.]"--(B\M^)*)],WR4]4;@#$-
+XMJAD]WF :D!_%>T^1SV=4#S;R[:S/=Z@>#\TLD+1OEZ6B2QRB@ 0FWYFI1C='
+XMEL@*4H'X+Q*M"B\'S"B>//MQ8@H$#KJ&Q^@@B6AZ% ]D!U*\3'?YC)=)6"#Y
+XM+J2YMVC2M2Q$$EQ_H,ZS#"<G,KNRW;(S@?2J4B$^"G;Y^@5CF!<6<.-!(.22
+XM''B#D)M=,RJ,W1>#5)*62(&[(V&LRG491.?7OAUL>#[5@]/,EXN D198<&IK
+XM!^Q"7+2?] <K5%W[92SE#\:KQ+78C%(^ A!_D)$MLT:8_OX@K%) ^P)/.2\A
+XM01_ZQV(B:8MM%C4V3RB90.&">1;0#A)&P+ZT6'Z$=ZF!2P [B:YDA!P*4 QI
+XM3_W#<8F9<F&5*N&-JS'422.<);L%"0]>6)@NY"'.=,*[%T .V+R A7BNN)4Y
+XM,L%":D1V*X:8B;E9*X4GA\I0,2R  >1RZ:)1^/(BV]P:5@ZE$QZ+'X?J*A4T
+XM-!55KNU$B;@0ZU1"!I%_BR9*> WGMQWNX3P;*+RA1,B[M' /_PH()!<,(\_(
+XM!Q4R>NYA3-J DF0#\I"&F$LF7?U+$/AN?]B ,]3H<!>06(A5[3-LQ%\(ZIR*
+XM6'H*$8H$-0OYQVD07;_8)X1PQB 7S,,PCE0B_ UKD)SXB,%5"3O$2Y%.,X+Q
+XMH1B-V/N0! C$'29!5=1#@J MCAI$ ('G#W?P0X+8=(P<IYF!KD,C[AH99V+V
+XM$%53B7,-DA0FAA%Z$F&,FW1%Y9!EE)!H#XF?44PFN<HD*!VWQQ29W&BH'ETK
+XM2F"41(B#'N*8$ MOP;I<PW[X@^XBN4!1PXE6/2$;\ >MXA#I31J/,4:OIT@N
+XM/@9OF(NU!1+JC/2Q 2T8"SAD;XXI$L'HLH"R1"XB3QKQTY%&R?<9B\-7[(1"
+XMRS$JGCB4[.Y(3M!B(# M%C8[U@]_W0<D%Z@L3PU$D5CL?B/=$0OM;/S9@"NX
+XM1S[,9PQ&H3$6QC"KV!4MPYE0B1?(,*(:?\&T;,GH*8%RS*.XPN43YE3"H4%-
+XM*"H41L<5Z*R$E7<)@WXNW!G!6N@J=A2 & H!+_Q\D?UWT=H3?C19FLSH98\%
+XMMLZN3UR($04"D3VA'B@HTF.;<4+T0=*IM.KQUM[6_M!H$Q(I<D,]HQ#\8TL@
+XM4B8LB-&==%$>"<(-@(<O:.Y-K^?XLUB*U2@O>%$\G<9A%R%+D79,"I=!S(R,
+XM"SEC_*)Q"W_:AT3=1[;V%M,;:E@_2W$)W ") KB>'DB@,L>#?&V');D*<V/=
+XM&$..XSY\1WIG%3T+TF R=V1)@J;J 8M6A9B!2A>2-A5)-,(=]T_>\(]?Y>]-
+XM,1:0#ZU7A)1H15+C?,8) 1^+F'8\/*CA;T EQ4"";D 4*Y)BQ5_,M# HM%"3
+XM[A$0#^2#8325<+A45_/8?^^#/AR0_"BF!,0DB@F:LNAM"5DE".W?=G!J*JU 
+XM2*Q@--P ! !2(CC*.N0)EO(J0>2SDI5\*!NZ2F^F;&2>I7 JT3$K*#[E$S[T
+XMPR#4E)=$'2$PSM5M..1@3 LX@",:Q^'$%/Y&-;LCT=+B&$69D(R>$C,B03C 
+XM0>!!$L(^VDY<FI0$ 0<X#$0$ E$9E)0GZ'()X(!S9QQ/8V$(4(+Q)^$ A# N
+XMUT=&&$./8G>YRDVI'9$,A0 I?2)O+# <$!HXHW<A>XQIGRS,LO8!O0N:RH<\
+XM9('1+V@4# 7$>I-P]($Y*B!/Q?9 DL9<A>**ST%*P7/2TL(8-(3?A3_&D"<$
+XM&^Y+KQ%<J@)" @B**2AHX;T+@[>%8VR6C\$(9Q5&:D\>*$,R+W"V>D(F BIG
+XMPDI5J*R=Z??N8M2Q'K@FD-V2[9 #?D-.TQ.Z)T1IO*Z)&V?+=N(T7@Q"H ZR
+XM^1-ID%B83,WI)^4 ?Z+XM)._*!V*<6NZ3.[A,(\<:G@AF&JL[<TDDB='V[@R
+XM"RH$:<:YBAF\V,=5!)IJDG%&K,+08,;?06" 3_$O_LWK8#DYU;8\<DS!'T$0
+XM[+4S;^#GI#1:Y;V9G9!IZ@##O=M,+, ?O1F Q3JKI,@@592F:LFE,, &0(!L
+XM& *LHBYX1D.9*G#6>>"=OA,U. 3@>9:"'0KR2<>S=YZ%Y8GW6))6N%$<QUX@
+XM3Z9 /;73HD&&#[-814_?N92 IPO\/#BR.9VN[9FJF"=6$4_!);5\K?$Y'ZAG
+XM/^)W'HT9<2/D626 YTSR2ZU1R# \*( \RV=)2T:MX@6NSMZ /-MG3/@Q[*-K
+XM08F79A60)ZQBGO20>250XB(X]0+R+%3,TX,)*ZPB*2D/\EQ;S!,E)@TTTO)J
+XMSO[LG9."#Z301I8P[(K>U MI8 ZT@1SJ.U_"$V 5(PWQ\+:M<'9RZ Z= \G3
+XMA]*Y$&AWEEKO,*(\E'OR@1\*\?A=UUL-Z!**(M$(XA"H*!<:,QIGS]W0@:!%
+XM?6>A\J(VYJ.4"(9PNLJHH.JB#U2M;!6*<#'<BE5PHVOKA]Z<;O-4ZF 6U:%1
+XM-(;J49,X/#)("GRB@!2)C@PX^C6^QA?1*8#IBIV',KHJ&.G2L)XZ<BU2GC*:
+XMJJ@H"GHU7B,CJ =[449AE2>-*ELHEX6$PE)&SR@0O3=C)A]&!=C7&\IH'GVE
+XML*C>!)A5*I6DP!"X LFS2L"> '-C5 KR\Z7 =$DLI6&*U3Z*GNAUR#1YIBIF
+XM>L3TR[)9)M%T210J:CK#Q(<&.::_U'<^CZZ0:?H1Y+D;4S$E1--91$X5'#NB
+XM&#H!FH;3E=).<PS(H32JSGQ$TR#13O7$?.0(?!";SM,8"GO<IF#Q",!,"KR!
+XM.< &ZH ;( ,@H).JR&D#D"((BFD,"I6A.E2(:DKGGCMED;.3<$B!.M!#X:A8
+XMZ3;[<1]B4Y*Z)#IJ4H@^.*$_K-3DV:CT:#":([?A7 R.23E2D^<MW:-]))_\
+XMJ_O02UFJ;*"BQB0-T4<,I4^-JO*<HNICO,4+]C <%4!/E0A+28_V"P$#2764
+XM2#6JKE3!*#:Z41NGRE5])XQ4R^"9UK%*P=99%:3OY5,.&'S7*]PJ2V4:EC2@
+XM.*4G40^OJC#*JV7+[NB>KRI.:VK&:E*QZ7C45>9P5?%=7J4R9,*0S%1(X5(=
+XMQ:4D1).58S'2P6"A$D+URJQ'M8J$K+D@[#*K2R5'*]1%'%.6RDZAZC <'KH-
+XMFK+66_H_1YOP09//4IVR5#1G4L/#F-%MJ]5WIA:3.ACDWLI$A83U>/36@,(+
+XM+8=L-:.AU9WB$[:QXZ3%5>4(2O3BW:\%Y%6;JAD-J\$H*-(,Q[$5[*H9-:PZ
+XM3I/ICB"17&] 5IU[L"A'3@CA=567I!(EDP=R3QX5L\I2:>M0:A(D=)5BEYY:
+XM):@H4QDBK JB\5<0L$BA*H%K;1+T5>16JTI2,=ARO1RI+)U26 8K43$.L3P.
+XM.#*X#IKE6I.0F,\@K.]5K-@;./4&%VR66*ZY+W?MP)[J6!ULDR)*?'*F.D$8
+XMJR&G(!NUH[H5!+@D'ON/<HR$+:I"UI5BG#EH8M_)2%@X/35_+5?=P;5@!V&%
+XM2E,VO] M&$)+@4*4[:@8!Y*"#-TV8TGJ["2N?(1YL3TL6AZCK&&];WG()"%7
+XMMAAEX2J<;78B<A8]6<9*4M$%FE5P3<*8:-B>^MK^+.=J7CY#DF+4/JMD9QO(
+XM:"'==<%^JS^+IA("YPP)?!8$- LE>M]RT70Q>ENMI\H+3LLGE.K6Z:LD%;NB
+XM6<QG=W##FQ.U;U:%[H>_T8-"DD#HJ5:#U-+15X.@".L-4+*7BL'DF<U07C/M
+XM#7BSSI5Y^2/VLQ4&+$DUE)S6("'8@<)DQFA/Q0%/%8U^OBGC:F<J#BBP=$[<
+XM!9EO]4@6+0@(E]%VU^8.I^(?.NB&59?I%DHR"WKH;<-J,MEI7;7,GEOT2BYH
+XM(2BBKR0U!V3;_C9MB=E,S0'1E4D@5O%1VPXNN#USJ(QM0*5> 64#[GMU<7..
+XM;9"G^Z!B>NK<S*Y_\8MHBYM%6', >BT.Z1&J<");&V3Y LAM';,$;Y8$%3,%
+XMF(#OE U+8*C@4_UD/0SE5*FYOK-1Y=Q^=$B 3O'TN=("Z(Y3/C!TJ>I8R3%S
+XM NDR!Z6[MIJNP$L^08@%2-W& '135<Z];Y/P\\U2\]%UJ\3035EO*:QI7;)K
+XM<X4N8/DC4Z8XW(2M"Q2 ;M4%+KHEY$12LAL&A&NA&KK5CGD=6Q5%=P7"%.B[
+XMPL'L#I5>QBSV!4,HO"EA"HR!.L &X  => -R  00@3L0!N2 &= LU":409YH
+XMXN.DTA1  S/F)<">N?*/1,A6.[TS!F"0TX.('*O8,H&]DV.:>M3\U"RK*NZ5
+XM",)T[DFS>SDA7B_J%1#UDP]X!>ED$NEDSKN]Q]<F$%23D):L!R1-+83C]R[3
+XM3/.F6I+PTK[!U^" B@4D>;)O]"VTRM<DP <$I7)[W>\=KND7^8A70PIBS.^,
+XMV:9]R<*EJ1WX>Z>=ZIU!P,)G>)$WAWM/ JSR"CUB 8E2SVA_^]KV94?G)<8V
+XMX-*@>[_/X'J2U0[ZEI$:BX"+[Y7D*Q,8AI#3[P.+_F6_(,#'ES \U0X,2WF#
+XMBP!F!=C!C& 14I*.'O*+P8T* 8N0J77OW&\*WHC_MZ6)J:QB?,N(M@C"4I.)
+XM[)\)/&I',)\$C%U* W<P_$N"\<ER@<$I^-L&X<QAA6>+%#8(%7@_J1%W(X6W
+XM;WHZM&WG7S7@TR ;$/ TN3&JL@C?IN#K87=:/^*_Q_<TY& 3)_ ^[5.HA[A7
+XMB-!A.2+:$&H9/L"YS0O^B'XKA<]L^N41XO5!+#BR>WP1<7KB;PEA,-S@2FR&
+XM-?&E+!'?MQ);8CX15)%OM&K 3?@1\XF=QCA>6P.^ <'W\&6U_B.%M7 [13GY
+XM2DD XN,+;V^QNJTBJZ(!^U]?/+H2(Q9.'M-7P8@G;NC?*#$R7L%XCS4""12,
+XMC-MP@#.8O.%C^. RD'FC*]B,N3GF)BQ6KDL'R@ <0 ,EU;7JA%;8;5Z;@2''
+XM;V ,K(%TK$<_AN6BEE%!RAG>RRN/DZA)]<!'DJ_>7GX\CZ<G5/TWN,L?J6&R
+XM2Y#%Z7VM"^=%T #BALQ%7:MWP;/B W;07(HL40>%\"$=L$F%\)DI0)%=JK/0
+XM6W,T2V1?B@Q>^P_S4KF^ER+;V60RY\@O 6[(X+:.($5(>CQF&3SNQWC5P98(
+XM(TA_;W(\GL>5U,%BB?JW$74J"QC'=;<AI]BVQ3Z@RHYDR$<YHG):N6M]Z=% 
+XMSLI@UEDT7[PYD;.RDJ4-H&+DTHN5G)5IJZH@:3H2^5$!;IR.0ZC XU(QBG#,
+XMY6[\5&=H$T$0(D0NTV6#/$-?:@W=/'J9+O=/[DNJ !53G2I[6<B^!/?9,T*1
+XMJGASD=F!+BV<2BP%<^:]H'V)VQG+J,0<(C,(#4UN+I7UNLC<J)CG4EBX9Q*8
+XM1684BO?R#&<RQ(DY\\90O]Q9I_$RH0)OH V(@3!0!\X .@:SEB$_0=*-TRNP
+XM"W!V PQV,F<L_;N! )->[L9;^2[?A*8LJ,HM4* "?%G7,J8I0QE*PA'YSMTX
+XMX?*PF$N#PI*[!<\.F9$F$Y!C2#G;5I!*\+DBZU$C>V/HK^-@"WPF/W=D)A%Q
+XMQ2SEG+#YV:4RB:(B/D"5BLG/]C82?12#E(]+<S?FM^<"JVR3^MB<+;3O_*G5
+XM5^0R"=10WCPT&V&D#Q.,'IU5NG#@<TXV9HZS7Y2$4>JA&ZP>-0WU#\>LO0*"
+XMGAEL=$TDS0.JS"*.6Z,?[F$*TJ]0ZT+FS!N4]:A>F2[TQF9@MAK=D='/+&DA
+XM'(OBUNBPNC3XVJRJH_B92:/7G@5^VA4+4"$/FDG_5#(-AW"TDD[3#!:N<I:=
+XM=FJ5=)B6S"9UC5J/D3L?X/2+=:U\]4?18J@L$.!SC=6CRZM8BHFVZJ'[Q&:U
+XM(ON!A?Y8L&6H.S*?,*[W30T#605@J$^KV@@?,ZG\CE%#;5A?IUC(G7^3Y7+J
+XMS\QI+=P5(<,^3EK 9R5[BI:FPKJH/?K-)KD2UFWO@ZS6S9SV25C/X:3Y%@ES
+XMJ )'8 @DS]SP5#>+Q+C'6(*J225DK:R7Q J2#<[Z%[,CM20MJ/6R]A<.(5M_
+XMY*=<'%@)V/+6UGI?@M[7LH0>CD]K#.B:63?KMPO$RJ1:6CCQ^E*LK<V26Y*,
+XM..MM\#I9!U.!NZ[[=3AC$B_L6 ML98IBPC5P,8*!A^M(,($0KP$)MH8^G_+W
+XM-2<5$Z]A,>CE09CZ/7:WCDTA'';LD4'+,4:!S(!=K3\"S#+9)Z?.S3ESI;!;
+XM-K8M5)M%_R@>*F.4.F3-]JF;%F;W#'=VBDCDSY8(*&%=2P?_U6TDS\H&"NAZ
+XM250)4\(X/"U:*YY/FV(O["41-I3VXN/#(2]):>UJO22ZYKIV$9(D46:/;KVU
+XM6^K9_GG:;QRZ,I9]<['JVX9R8FDHPS:HW;:3\F9!>#/#8$I*.A2U'\?%]A06
+XM*BG K*-TM"4"O3#9CC93'+L$F!*B]IN!54/3U:1.+!$PITK4OAV-BNH]'K%0
+XMGW7#A(W:'.%BYT'$.%=6%-\FVR<R=%-?YH'HF(HU)-Q;^P;8XE(RN^7A$-I5
+XMG4T!1.U]J;J+ \1QKV]K#C5NAJFZG44K%)2OD6Y+!($;0ZG>268?@6<^5+;7
+XM?7-S .8&P/:FC2V9[(&[R;;)_=BV60Y]2O:%KD]"!@&];"YP6P:05+[%Z;-(
+XM5=9[V91+4*6\I;?[KM[J-P!?AE\KA\[SV+;?7=MA@S,\"V?W27ELWQ]A:@?P
+XM70@2U)>DQ"[M6SCLZP".C<[9[HA91YL\.6PBE*\04@QAV]6Z-%A8WKU@>'9A
+XM^+8R6U6W[TO1O._,",+::C.$:XYY[0)I7TR)4/7;)DR,I43U0'% @SC!NWU7
+XMC WN!C/N!AT_(=PI,/%<!2K*)"L)XMBA(A?Q:)0=E@\6UQ82//N]3; )POUW
+XM3@CC=6':> I3Q;UMPHD$X/^&5+4*8=1U,/C"=A(-FX5#9/5MB*7D 7?C6OP(
+XMOABFL+6"%)]IW^X5C><R#9A;Q*?_-I2JFY-8#^!C#5&X.(V6Z'O74@A/NSG8
+XM8OM6ET1<D/LCG2.06V;EON/S$F>+<@35CUB))8<4\S*3HY;"T(ZIFAVOUL9!
+XME6>SN)@@Q=JT7MC&07;O\KIQ"O7GT;X=%WN84X@CAI$..3#7Y>2"E5>7D?W,
+XMD[E8WD[)\!8>;83[L7,,0F1F$.26,]C<$,H?FK6*0V9N8I]R97T2ABSO-N=5
+XMW!T9;;IM@,NY:6B^$VN?X&N!?1)V-]5F%!%4*1*:GUTS7O8[A]%:14<VIU_.
+XMSJ?WQX;1H+HXJ"6&SF K"@ '=%RL)IEN<5X:[.L('T!B(0%?<()^&B0XH(.=
+XMV8Q\$_0W4\YKPQP1053-DF.'!DNU;VK=P+;)FX*N<P8;-C:X]N)B#PTC[7-V
+XM/B^_]QO:/R<R4$6+GWT:<( P=RJ>T0*K)8XML 6Q3Z= .RC!@3"Z+42HX AG
+XM(4:0@#^/5<;4'P?^9A5)K^>"P;U]P"V$>_W856S\"D]JKJS;@T=_YR4F<%L.
+XM^LW4@<995[$J@_XJ.F=>UW>"28\IBEA=(D!/7M4KQE^/*7B6TIP%J]77L>W'
+XM1NPS(V6;,:[!U9V",(?L+8XUW@QQ/L!\>LS)[$M9FW-U>2',Z9'B*8W,:*@G
+XMV5@^PM\PB99=BJ%^8P1N7ML% V","U><J2_'UIXGZ@;^6"G;NZV[UWG]SA06
+XM\HYPNI)[WQ/)T]NUDQE4"JI=NG];73Z4LD13=I8/O*HC7)/N=-T9L#25;7UN
+XM<O<7$RRL%5GGZ@?AKTN'=%>U]PE%GPEOO;?;FRQ!95HH81>R)E>^NQK@U^*B
+XM>WJ_ZU1;.A056%S@/;? G@Z!?,F2*D.J^1B>MU8HR3?!ZU3 .*)H-MU6*/G]
+XMG;N(SX/3V8\!W^E#W*>+B9DAUJ&%@U?6$^-]C_ 57RWO1O:@ZC#^-!CU2:1X
+XMDOI=*[8?WBZ,\.+DKQ4B] SR!'O&XZ>>6Q> ^,^&"F9;R2>(C#!JH,1_;RJ3
+XM5L3SP>W$&%54'7_R@.2BEUH!_)&.//?F%]1=RX<?4*TLWO69'Q]__5(+X&!D
+XM/#+CFY>R6M[6/,G(E;51_.T0\W;I)C"MBW;E<X(PCT&*I\OK*%,NO!_\B8SS
+XM=^9(PDX_CN+#QD7705D"8=9YL5WIA3F3T- !+L+YY#-_;(4YB/@\.>>B6?+.
+XMXM0_-H@@57OH3(1W&&\H3;UO#W(9VLT?\(K@U=_Y9MI.!C-"B?.*((-]/?,8
+XMX%X#(\WZB)H#1+BQ3Y!4'DZ8^0,.-'34"$^VER$GY >J=JX%]O@0\L:^A60)
+XM_#'9ESK=AO.ZW#)>2;&LZW?Z^."MX5[W=)FRX[//?>)U]0/^7IXMU?*S#?M?
+XM=W**1Z")-4N^$P#.M3<3 5_W>'CNO1-:WL$?S\6&"B:R<^\D3/H#(6/*1]2?
+XM;F_?'IC[ SE_Y*C=-WIE'1\<OK'7'?\21?7YD0\"XD,JIMH/A&DSB4XNV^-#
+XMB-\L72JD2TV.(\[C V_GW>[4-G_&_>2ZJ?U,".5!'U301K&V[(U#FL?YV\9?
+XM=%59W^^'^+I.)LDHJ>=-@C\QOK<[G=D0V7B>>WX!P*7KV8P899SAOYEY;?9%
+XM:;F>]NZ^L[#]9.(F.5?-^>_!?(.[4]3#M&CDN3?L5U_ 33-!2YK_/KB'^NRZ
+XMV& K3L_R;\<P!OK>7/$D1M--\#>B!%=PU32I0Q"\KRV0_N@.=,N'<C?^G*#W
+XM$XUQI\F.G.''[L _6NED;;CQ_?Y$EG[];=Y_#'IW][!X[A^Y3 _VQZBW=NRZ
+XM_TR"!%"DSV/_R^]OJ%XF!"F*7C%^+>O')S2%ZI_[;UOVW9S/T)&;OGX[!4<-
+XM^1LGXZ/CCF_Z.V*H+WQ6A2'-FTU?7<[^\D\Y[\8^P?MS4W:?.87_,4 2CF_Y
+XMWMOSVYAW(GP0F;EG^"97]:<340@V@-.2W5%[(L'LE\?<!(H(H?>S91#_BLGV
+XM3;U-;-#MQ_)E$")8]S?*90IJ5]=AR6U$4M1FL5_((;9;NM#M*6L;$?PE H8V
+XMJ@RI\MYQ;QL1$&:R^5-8T[90^,& &,+E1P->!J*)Z7;_;42YU@QX')D(S]/\
+XM1+<U"_#>"GASK K+3-<AVR&!2-]%UN5<".7(QH<"6@ALWQI3NN@$]]H#Z,Y1
+XM;7J"R.#AG#ALW4ZG+6P>0N &-(0L(S?@ :<MB 3KFL@0%W$:KPWC=@0V%:K<
+XMH( 1+6!QRO_G!C85>A_YL*<Y)D6?&<@OY(&%C5B@NZ5 E-X%:+'%@1"4F30O
+XM1"@4'4= TSU0GA:)!IM8)T=@?'"XR02P3.1A#?UW',$7B EZ1GS:IK?L<03%
+XMW@J(S@5*6=?$!P/&@) @V4$YZ6)IGQO8+ 2"BQR5]Q*E?KI@K[<"0EJ,P6!@
+XMR#V '('71XA@/6S5PJ<+%H"08/A&.>%VXAQC=")%@XF+IX!OG(":5DZ0!39.
+XMF4+]Q_T@@^>;$"@H 4%.F3-H!EH-GZ!;XMU5@  ;#&@U1('N8* 4\KV ;J#5
+XM4/8-6[%(,G'1/(&PF#(HH<T]8YV<\ #J;O.:#C!+9#,^X ,8+2&"64?J=#<<
+XM2T=@M"3_E6O60]O1L_E^ EM.@%8!?1CA95"8K&T.H68%$NI$HM1)E@N:@0+7
+XM-SC*_4N@8!EX 0I<]*#L-(2(;)P@##C>08)?S?"WJ.&#+.$;=1*61G\3U#70
+XM'8%=DTN(HD!)+MX/Z+T)A!W.9X2^P'TS(;HE!/)D#& F! SN="<2L6*R.0L6
+XMBE5F2_QW)](EJ+@]*W@3,[+LR7YEG[.@B)$5 ]+/Q@YF<O>-5E&UZ4S<F]7P
+XM5P%]SD+-TBS!?G2;U7 -?H7T3!710N5P@:%PX/51@;.1DW/"R84U@][71[QV
+XM\XE]E!=6!FUA5#.$2 ?-B24'BYE\F\5%LO; ,AX@9*@"TCA($9(A/XE^WAHL
+XM!@T2AH[4-*@@S$R081#(%S8.,P.MM4^(<XG<X28(38$MTLK7&I((EU\Y$=+9
+XM4X4@R^=>H8&WX9R4@*5$<N%T(!D&+GL>'<7W*(> !-OG)K /6E_J\^*! $N2
+XM*7CQ@'KR2B<C%X)NZQIE<%Z\,U1-_;8D97FAX9*7\@4J"@%OV/REATL>A4!K
+XM%1CG(1Q(&#9! 5E]U BVAAG$8EB9"7H20Y#B&680TZ',<Q/8&I+26FCYX8?=
+XM%Z 3I$B(AQ]I &0$'OB.+'C _5I)WFUH+]%)6F%RQQ4N1].A^D++Q82CG5RX
+XM'&6&6TH%1P:>"'*A>P4CFC. AECC'AY;9YUAAKU%8>J@<HAP^8;U8.@%W;E;
+XMK>'<1"0"4*4#(K/5Y85S$]*W+WP>U Q@R+UA6ZU@8."/N#/^8-,@SF%;?M9M
+XM*#LU&]X&:RBP@8G3X5?# #Y?-X-LAVW=?%HBJ=*U1#AL 47W)O:(\ %B!>B\
+XM(S\;MM6+B8F?$J!C'M)MV-;/%Q]267&"@&@0$HJ/0QY([IQ-K<^3>,!%2V'B
+XM9E$;,'"XP=1T)9X$AUMM0)0A5G8.H4@8.(JFQ9&D4@&%+-^W1=L!?1;,@&,_
+XM1"B6'/7']K6*RYP],R">B:<!TF?$O1/LQN#6)W9UZYH1)Q(&54[@KV@6"D1U
+XM0Y5'\QF+NN*Q1R28&S*AMQ8NU5B6(F[(W[F B^*5B!%X?;9"%6>\\7N$XCW!
+XM+884K]JS(QR>B=-!V1>,'!+(AUCS)385G>*V5S>@3OC&N\@P!8L0E%8Q:K0Q
+XMB.&5"#3(?TT>8.1<68#2(M"@]RT6UM=:=RLJ:_/2XU<M(ADB(5\1)!:,Y2"K
+XMJ(7P?P'6Q'@F@H#X8CMV+ZEQV>*DN!'UB'O<4&,Q_#5]XAO8,>87($5!: 6>
+XM6ZD;OKAUT$DS7W(H+7($!^,BESI=!ZS$EY@3-(O[W;^4_XA\-^-!(#.:,Z*3
+XMI!0KNE= (W]#:PEU?6*X!#"N-#P@*F,BIHKADKK8R+0QTL&F]R4R3)??DH%8
+XMX5.V1/W&O&5RVHF)4$00C6>B2.#UC3H!WU, DBQ[ M=IJ.-\<U>/DX@D"FP"
+XMEU4(].U#\R)P!,71;>.=WN<U*&(NT#%(.&((99_7(/<<'K3*A?&S-7L&V691
+XMF>2&EQG;J*PU>R:AY0BI/8C-5__&O7&.E]]UP)*,(5T(X4@8-(Y+7K" $@V.
+XMHZ-!<+@).M>?'$$5>FM=4Q[G.3(MP9.B^!UV37Z;^@"0*$J7EL:X.4YWZQJ[
+XME=6U*L8C"- U&8KJ0\XA2I49M"'A"!64CBU8L;$:;FJXHR_!]CU#LU&.M3 Z
+XMC[X$]M@#ZE<)DZ2XTQT$!M_?"'.%3CH!,T+1'01'F,DF%?D(+\1U-#G^6FS?
+XM@13285;%(N'X:_6(P)W/4#JL+W/;Z&@HE7T9E%U(^-&(A*/4N*Y!$]87^"+V
+XMC8X-XP2Y._@,XAY&4K_Q!5$>T#<AX"Z+QI?3+QYP(D$(.%0@&8C3)X$JXHY*
+XMH@:9AETYVZ-L)Q(<6QJDO1$LI&9)'-\H$EQ^$D-82/0%D%#;$C %,!>5@?C 
+XM'/I/P1:%P4((+U6 $:D8IAO%GET6HE!#V!WA4 6X 6- &$ '\$YOP!E0!I !
+XM+\'05=/ 86[AVN6YP0%G@!Q0!D!GT54%A!P905JD'# ']%U-0!K@!F!>FA?G
+XMY7EID'4A2%  EB[I1&-@!60!(, 0T 0$ 4'8TE!T#2>/F;1P!7B1W!@;\ :\
+XM 9J6>*8RX1HE08?6&%P!9< <0 <P:=D5?Q8^H$[DU81U!:0!;  9< (@4:-D
+XM&@ 'L %E !T0#>9='XZDQ&>LDFZ &U &R&-E@%;F$! !I($DH3L@5\R!%G '
+XMI 'R6![P2H( L>0L64L6; 9,H&1!5(] @1U !@@!Z1@"EJB<:G_8,J%-<I-<
+XMV_^E8,!.3DR+)2V,DW6;.1FS!0N!F3BY38I3G5@ %LZD)?(D.;ETP1[)%@J4
+XMOQ .[*1-L+8L7S39]7<A(#\!Y9_V0VU B!7V44?Q&0GE]B6=I&;M6#T44%9@
+XM[0K^^$#T.A<E-)8VXD[\#4 Y3SX.X9?;)$HU7"(E.8GG+5\FY9F6%9D/%R4B
+XMYCU%$Y,)0CE2(F)-A,JP7E55 24]%7\M&>(1 4<%I93"5?AU(70K29V3!5..
+XME%18,/(I32S""SO98"%@VX+DQ^O4/<R!5/F )6==#FY@%A076>4\F911E9K<
+XMO[2K$)7[)%HGX.@<@B-:.7W]3_O'Q,)1SI,<F%II$WY&6$)425?N8>Q(L!,7
+XM$97M(POF/?UN)-=2R4V:?"P8]C&$!$E$Y4"I/<HN@^1:9E@ZCU18S#:=C&_Y
+XMI//(5V8@8Q9*1E2Z7",8F2:Q['PI90N !"!>&X=\9I=D"SQC/FE:(E[HETVU
+XMX4%I]IAK>5J:41U9-?2201REY6W9I+U2$,XY-;),%>/D:RED=5BK6"QU'6PU
+XMQ>5MV5J=4D&CW8'PV)9]E^:#9DEV4P8H1ETZCP.7@@,^>!BJE7L&46Z3QJ5_
+XMZ%KA)AH(5IA/(@&:EAG&0I0\ )6_$U8* >PE1Q &F)/W(P91(LR5].6Y98W%
+X('F3/@/'BF ]/
+X 
+Xend
+END_OF_FILE
+  if test 34926 -ne `wc -c <'ephem.db.Z.uu.8'`; then
+    echo shar: \"'ephem.db.Z.uu.8'\" unpacked with wrong size!
+  fi
+  # end of 'ephem.db.Z.uu.8'
+fi
+if test -f 'map.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'map.h'\"
+else
+  echo shar: Extracting \"'map.h'\" \(352 characters\)
+  sed "s/^X//" >'map.h' <<'END_OF_FILE'
+X/* these two structs are used to form lists of polygon vertices and lists
+X *   of such lists. they are used to form maps.
+X */
+X
+Xtypedef struct {
+X    short lg, lt;	/* longitude and latitude */
+X} MCoord;
+X
+Xtypedef struct {
+X    char *rname;	/* region name */
+X    MCoord *mcp;	/* list of MCoords */
+X    int nmcp;		/* number of entries in mcp[] */
+X} MRegion;
+END_OF_FILE
+  if test 352 -ne `wc -c <'map.h'`; then
+    echo shar: \"'map.h'\" unpacked with wrong size!
+  fi
+  # end of 'map.h'
+fi
+if test -f 'objmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'objmenu.c'\"
+else
+  echo shar: Extracting \"'objmenu.c'\" \(35048 characters\)
+  sed "s/^X//" >'objmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "objx/y" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ScrollBar.h>
+X#include <Xm/SelectioB.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+Xextern Widget toplevel_w;
+X
+X/* info about each field for a given type of object.
+X * N.B. the prompt field is used to decide whether a button should be created
+X *   to let this field be changed. Some prompts are determined at runtime
+X *   though based on preference. For these, we need at least a dummy.
+X *   the runtime setting is done in obj_change_cb().
+X * N.B. the altp entries must match the values of the PREF_XX enums.
+X */
+Xtypedef struct {
+X    int id;		/* field id */
+X    char *label;	/* label */
+X    char *prompt;	/* prompt if changeable, or 0 if it can't be */
+X    char *altp[3];	/* alternate prompts for fields effected by prefs */
+X    Widget pb_w;	/* PushButton if it can be changed, else Label */
+X} Field;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#define	Const const
+X#else
+X#define P_(s) ()
+X#define	Const
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern Obj *db_basic P_((int id));
+Xextern Obj *db_next P_((Obj *op, HowNext how));
+Xextern char *obj_description P_((Obj *op));
+Xextern int db_n P_((void));
+Xextern int db_set_field P_((char bp[], int id, PrefDateFormat pref, Obj *op));
+Xextern int obj_cir P_((Now *np, Obj *op));
+Xextern int sv_id P_((Obj *op));
+Xextern void all_newobj P_((int dbidx));
+Xextern void db_setuserobj P_((int id, Obj *op));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void f_gangle P_((Widget w, double a));
+Xextern void f_ra P_((Widget w, double ra));
+Xextern void f_string P_((Widget w, char *s));
+Xextern void fs_date P_((char out[], double jd));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void get_xmstring P_((Widget w, char *resource, char **txtp));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void mjd_year P_((double Mjd, double *yr));
+Xextern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xextern void sv_point P_((Obj *op));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+Xextern void zero_mem P_((char *loc, unsigned len));
+X
+Xvoid obj_manage P_((void));
+Xvoid obj_update P_((Now *np, int howmuch));
+Xvoid obj_set P_((Obj *op));
+Xvoid obj_newdb P_((int appended));
+Xvoid obj_cursor P_((Cursor c));
+Xstatic void init_working_obj P_((void));
+Xstatic void obj_unsetmenu P_((void));
+Xstatic void obj_set_from_db P_((Obj *op));
+Xstatic void obj_set_db P_((void));
+Xstatic void obj_setmenu P_((void));
+Xstatic void obj_setobjinfo P_((Field *fp, int nf));
+Xstatic void obj_create_form P_((void));
+Xstatic void obj_create_type_rc_form P_((Widget fw, Field *fp));
+Xstatic void obj_change_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void obj_ctl_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void do_help P_((void));
+Xstatic void obj_xy_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void obj_type_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void obj_select_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void obj_scroll_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic int nl_cmp P_((Const void *nl1, Const void *nl2));
+Xstatic void new_namelist P_((void));
+Xstatic void load_namelist P_((void));
+Xstatic void obj_setnames P_((int nli));
+Xstatic void obj_set_a_button P_((Widget pbw, int whether));
+Xstatic void prompt_ok_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void prompt P_((Field *fp));
+Xstatic void obj_set_button P_((Widget w, int id));
+Xstatic void epoch_as_decimal P_((Widget w, double e));
+Xstatic void epoch_as_mdy P_((Widget w, double e));
+X
+X#undef P_
+X
+Xstatic Widget objform_w;	/* overall form Dialog */
+Xstatic Widget fldrc_w;		/* overall field info rc */
+Xstatic Widget scroll_w;		/* name scroll widget */
+X
+Xstatic Field fixed_fields[] = {
+X    {O_NAME,  "Name:",  "Object name:"},
+X    {F_CLASS, "Class:",	NULL},
+X    {F_RA,    "RA:",	"RA (h:m:s):"},
+X    {F_DEC,   "Dec:",	"Dec (d:m:s):"},
+X    {F_MAG,   "Mag:",	"Magnitude:"},
+X    {F_EPOCH, "Epoch:", "dummy", {
+X	"Reference epoch (UT Date as m/d.d/y or year.d):",
+X	"Reference epoch (UT Date as y/m/d.d or year.d):",
+X	"Reference epoch (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {F_SIZE,  "Size:",  "Angular Size (arc secs):"},
+X};
+X
+Xstatic Field ellip_fields[] = {
+X    {O_NAME, "Name:", "Object name:"},
+X    {E_INC, "Inclination:", "Inclination (degs):"},
+X    {E_LAN, "Long of Asc Nod:", "Longitude of ascending node (degs):"},
+X    {E_AOP, "Arg of Peri:", "Argument of Perihelion (degs):"},
+X    {E_A, "Mean Dist:", "Mean distance (AU):"},
+X    {E_N, "Daily Motion:", "Daily motion (degs/day):"},
+X    {E_E, "Eccentricity:", "Eccentricty (<1):"},
+X    {E_M, "Mean Anomaly:", "Mean Anomaly (degs):"},
+X    {E_CEPOCH, "C Epoch:", "dummy", {
+X	"Epoch date (UT Date as m/d.d/y or year.d):",
+X	"Epoch date (UT Date as y/m/d.d or year.d):",
+X	"Epoch date (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {E_EPOCH, "Epoch:", "dummy", {
+X	"Equinox year (UT Date as m/d.d/y or year.d):",
+X	"Equinox year (UT Date as y/m/d.d or year.d):",
+X	"Equinox year (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {E_M1, "Mag coeff 1:", "Magnitude coefficient 1 (g#, H# or just #):"},
+X    {E_M2, "Mag coeff 2:", "Magnitude coefficient 2 (k#, G# or just #):"},
+X    {E_SIZE, "Size:", "Angular Size @ 1 AU (arc secs):"},
+X};
+X
+Xstatic Field hyper_fields[] = {
+X    {O_NAME, "Name:", "Object name:"},
+X    {H_EP, "Ep of Peri:", "dummy", {
+X	"Epoch of perihelion (UT Date as m/d.d/y or year.d):",
+X	"Epoch of perihelion (UT Date as y/m/d.d or year.d):",
+X	"Epoch of perihelion (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {H_INC, "Inclination:", "Inclination (degs):"},
+X    {H_LAN, "Long of Asc Nod:", "Longitude of ascending node (degs):"},
+X    {H_AOP, "Arg of Peri:", "Argument of perihelion (degs):"},
+X    {H_E, "Eccentricity:", "Eccentricity (>1):"},
+X    {H_QP, "Peri Dist:", "Perihelion distance (AU):"},
+X    {H_EPOCH, "Epoch:", "dummy", {
+X	"Reference epoch (UT Date as m/d.d/y or year.d):",
+X	"Reference epoch (UT Date as y/m/d.d or year.d):",
+X	"Reference epoch (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {H_G, "g:", "g, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {H_K, "k:", "k, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {H_SIZE, "Size:", "Angular Size @ 1 AU (arc secs):"},
+X};
+X
+Xstatic Field para_fields[] = {
+X    {O_NAME, "Name:", "Object name:"},
+X    {P_EP, "Ep of Peri:", "dummy", {
+X	"Epoch of perihelion (UT Date as m/d.d/y or year.d):",
+X	"Epoch of perihelion (UT Date as y/m/d.d or year.d):",
+X	"Epoch of perihelion (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {P_INC, "Inclination:", "Inclination (degs):"},
+X    {P_AOP, "Arg of Peri:", "Argument of perihelion (degs):"},
+X    {P_QP, "Peri Dist:", "Perihelion distance (AU):"},
+X    {P_LAN, "Long of Asc Nod:", "Longitude of ascending node (degs):"},
+X    {P_EPOCH, "Epoch:", "dummy", {
+X	"Reference epoch (UT Date as m/d.d/y or year.d):",
+X	"Reference epoch (UT Date as y/m/d.d or year.d):",
+X	"Reference epoch (UT Date as d.d/m/y or year.d):"
+X	}
+X    },
+X    {P_G, "g:", "g, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {P_K, "k:", "k, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {P_SIZE, "Size:", "Angular Size @ 1 AU (arc secs):"},
+X};
+X
+Xtypedef struct {
+X    char *name;		/* name of type toggle button */
+X    Field *fp;		/* ptr to Fields array defining the info, if any */
+X    int nfields;	/* number of Fields in fp[] */
+X    Widget tb_w;	/* type toggle button widget */
+X    Widget frc_w;	/* Field rc widget */
+X} TypeInfo;
+X/* names of each type.
+X * N.B. must match order of enum in circum.h.
+X */
+Xstatic TypeInfo typeinfo[NOBJTYPES-1 /*No PLANET*/] = {
+X    {"Undefined",  NULL, 	  0},
+X    {"Fixed",	   fixed_fields,  XtNumber(fixed_fields)},
+X    {"Elliptical", ellip_fields,  XtNumber(ellip_fields)},
+X    {"Hyperbolic", hyper_fields,  XtNumber(hyper_fields)},
+X    {"Parabolic",  para_fields,   XtNumber(para_fields)},
+X};
+X
+X/* working storage - set when Reset, made permanent in database with Apply
+X */
+Xstatic Obj objx;
+Xstatic Obj objy;
+Xstatic int objidx = OBJX;		/* which one is on-screen now */
+X#define	objp	(objidx == OBJY ? &objy : &objx)
+X
+X/* used to maintain mapping between object selection buttons and database
+X * objects. the userData of each object selection button is set to the index of
+X * a namelist[].
+X */
+Xtypedef struct {
+X	char *name;
+X	Obj *op;
+X} NameList;
+X
+X#define	NBTNS	20		/* number of buttons in name list */
+Xstatic NameList *namelist;	/* malloced array of (db_n()-NOBJ) NameLists*/
+Xstatic int nnamelist;		/* number of entries in namelist actually used*/
+Xstatic Widget namepb_w[NBTNS];	/* each name selection button */
+X
+X#define	SCROLLBAR_WIDTH		20
+X
+X/* bottom control panel buttons */
+Xenum {
+X    OK, APPLY, RESET, POINT, IDENT, CANCEL, HELP
+X};
+X
+X/* called by the main menu pick.
+X * create the main form, if this is the first time we've been called.
+X * then we toggle each time.
+X */
+Xvoid
+Xobj_manage()
+X{
+X	if (!objform_w) {
+X	    obj_create_form();
+X	    init_working_obj();
+X	    new_namelist();
+X	    obj_setmenu();
+X	}
+X	
+X	if (XtIsManaged(objform_w))
+X	    XtUnmanageChild (objform_w);
+X	else
+X	    XtManageChild (objform_w);
+X}
+X
+X/* all this is really good for is if the date format changes.
+X */
+X/* ARGSUSED */
+Xvoid
+Xobj_update (np, howmuch)
+XNow *np;
+Xint howmuch;
+X{
+X	obj_setmenu();
+X}
+X
+X/* make the given arbitrary db object the current objectX/Y:
+X * update our working copy, the real db object, all the stuff in the menu (if
+X * we've been managed!) and inform all others.
+X */
+Xvoid
+Xobj_set (op)
+XObj *op;
+X{
+X	static char me[] = "obj_set()";
+X
+X	/* TODO: we don't support planets */
+X	if (op->type == PLANET) {
+X	    printf ("%s: planets not supported\n", me);
+X	    exit (1);
+X	}
+X
+X	obj_unsetmenu();
+X	obj_set_from_db(op);	/* *objp <- *op */
+X	obj_setmenu();
+X	obj_set_db();		/* db_setuserobj(objp) */
+X	all_newobj (objidx);
+X}
+X
+X/* called when the db has changed (beyond NOBJ that is).
+X * we don't care if it was appended or replaced because we need to resort and
+X * rebuild the whole list either way.
+X */
+X/* ARGSUSED */
+Xvoid
+Xobj_newdb(appended)
+Xint appended;
+X{
+X	if (!objform_w)
+X	    return;
+X	new_namelist();
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xobj_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (objform_w && (win = XtWindow(objform_w))) {
+X	    Display *dsp = XtDisplay(objform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* this was added to support backward compatability with the ability to
+X * set OBJX and OBJY from the ephem.cfg file.
+X */
+Xstatic void
+Xinit_working_obj()
+X{
+X	Obj *op;
+X
+X	op = db_basic(OBJX);
+X	objx = *op;
+X	op = db_basic(OBJY);
+X	objy = *op;
+X}
+X
+X/* turn off menu info about the current object.
+X */
+Xstatic void
+Xobj_unsetmenu()
+X{
+X	if (!objform_w)
+X	    return;
+X
+X	XtUnmanageChild (typeinfo[objp->type].frc_w);
+X	XmToggleButtonSetState (typeinfo[objp->type].tb_w, False, False);
+X}
+X
+X/* copy the arbitrary database object, op, into the working copy of the
+X * current object.
+X * TODO: N.B. don't allow planets -- YET!
+X */
+Xstatic void
+Xobj_set_from_db (op)
+XObj *op;
+X{
+X	static char me[] = "obj_set_from_db()";
+X
+X	if (op->type == PLANET) {
+X	    printf ("%s: PLANET not supported\n", me);
+X	    exit (1);
+X	}
+X
+X	/* *objp = *op; */
+X	(void) memcpy ((char *)objp, (char *)op, sizeof(Obj));
+X}
+X
+X/* make the current working object officially in the database.
+X */
+Xstatic void
+Xobj_set_db ()
+X{
+X	db_setuserobj(objidx, objp);
+X}
+X
+X/* set up the menu according to the current working object
+X */
+Xstatic void
+Xobj_setmenu()
+X{
+X	TypeInfo *tp;
+X	int type;
+X
+X	if (!objform_w)
+X	    return;
+X
+X	type = objp->type;
+X	tp = &typeinfo[type];
+X	XmToggleButtonSetState (tp->tb_w, True, False);
+X	obj_setobjinfo(tp->fp, tp->nfields);
+X	XtManageChild (tp->frc_w);
+X}
+X
+X/* set each field in the rc for the current object.
+X */
+Xstatic void
+Xobj_setobjinfo(fp, nf)
+XField *fp;
+Xint nf;
+X{
+X	while (--nf >= 0) {
+X	    obj_set_button (fp->pb_w, fp->id);
+X	    fp++;
+X	}
+X}
+X
+X/* called once to build the basic form.
+X * N.B. we could not manage to connect the right side of NameF to the left
+X * side of ScrollB without complaints from the Obj form. So, to make it look
+X * attached, both NameF and ScrollB are attach to the right side of the form
+X * but the NameF has an offset equal to the width of ScrollB. hey -- it works!
+X */
+Xstatic void
+Xobj_create_form ()
+X{
+X	struct Btns {	/* to streamline creation of control buttons */
+X	    int id;
+X	    char *name;
+X	};
+X	static struct Btns ctlbtns[] = {
+X	    {OK, "Ok"},
+X	    {APPLY, "Apply"},
+X	    {RESET, "Reset"},
+X	    {CANCEL, "Close"},
+X	    {HELP, "Help"}
+X	};
+X	static struct Btns skybtns[] = {
+X	    {POINT, "Sky Point"},
+X	    {IDENT, "Sky Mark"},
+X	};
+X	Widget typrbf_w, typrb_w;
+X	Widget fldrcf_w;
+X	Widget xyrbf_w, xyrb_w;
+X	Widget namerc_w, namercf_w;
+X	Widget ctlfr_w, ctlf_w;
+X	Widget skyfr_w, skyf_w;
+X	Widget w;
+X	Arg args[20];
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	objform_w = XmCreateFormDialog (toplevel_w, "Obj", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem ObjX/Y Menu"); n++;
+X	XtSetValues (XtParent(objform_w), args, n);
+X
+X	/* make the type control radio box in a frame.
+X	 * we save the widget ids so we can force the type to be what
+X	 * was selected from the database.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	typrbf_w = XmCreateFrame (objform_w, "TypeRBFrame", args, n);
+X	XtManageChild (typrbf_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNnumColumns, 2); n++;
+X	typrb_w = XmCreateRadioBox (typrbf_w, "TypeRB", args, n);
+X	XtManageChild (typrb_w);
+X
+X	    /* N.B. we assume the enum ObjType form indeces into typeinfo[] */
+X	    for (i = UNDEFOBJ; i < PLANET; i++) {
+X		TypeInfo *tp = &typeinfo[i];
+X		n = 0;
+X		w= tp->tb_w = XmCreateToggleButton (typrb_w, tp->name, args, n);
+X		XtAddCallback (w, XmNvalueChangedCallback, obj_type_cb,
+X								(XtPointer)i);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make the overall field id rc in a frame.
+X	 * the field id rc is just used as a manager to hold the several
+X	 *   various type rcs; only one is ever on at once.
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, typrbf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	fldrcf_w = XmCreateFrame (objform_w, "FldFrame", args, n);
+X	XtManageChild (fldrcf_w);
+X
+X	n = 0;
+X	fldrc_w = XmCreateRowColumn (fldrcf_w, "FldInfoRC", args, n);
+X	XtManageChild (fldrc_w);
+X
+X	    /* make one row/col for each possible Obj type.
+X	     * they are managed later according to which type is displayed.
+X	     * N.B. we assume the enum ObjType form indeces into typeinfo[]
+X	     */
+X	    for (i = UNDEFOBJ; i < PLANET; i++) {
+X		TypeInfo *tp = &typeinfo[i];
+X		Field *fp;
+X
+X		n = 0;
+X		tp->frc_w = XmCreateRowColumn (fldrc_w, "TypeRC", args, n);
+X
+X		for (fp = tp->fp; fp < tp->fp + tp->nfields; fp++) {
+X		    Widget fw;
+X		    n = 0;
+X		    fw = XmCreateForm (tp->frc_w, "ObjFldForm", args, n);
+X		    obj_create_type_rc_form (fw, fp);
+X		    XtManageChild (fw);
+X		}
+X	    }
+X
+X	/* make the x/y selection radio box in a frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, typrbf_w); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	xyrbf_w = XmCreateFrame (objform_w, "XYRBF", args, n);
+X	XtManageChild (xyrbf_w);
+X
+X	n = 0;
+X	xyrb_w = XmCreateRadioBox (xyrbf_w, "XYRBox", args, n);
+X	XtManageChild (xyrb_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, True); n++; /* must match objidx init */
+X	    w = XmCreateToggleButton (xyrb_w, "ObjX", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, obj_xy_cb,
+X							    (XtPointer)OBJX);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    w = XmCreateToggleButton (xyrb_w, "ObjY", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, obj_xy_cb,
+X							    (XtPointer)OBJY);
+X	    XtManageChild (w);
+X
+X	/* make a rc in a frame to hold the name buttons */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, xyrbf_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightOffset, SCROLLBAR_WIDTH); n++;
+X	namercf_w = XmCreateFrame (objform_w, "NameF", args, n);
+X	XtManageChild (namercf_w);
+X
+X	n = 0;
+X	namerc_w = XmCreateRowColumn (namercf_w, "NameRC", args, n);
+X	XtManageChild (namerc_w);
+X
+X	    for (i = 0; i < NBTNS; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (namerc_w, "NamePB", args, n);
+X		XtAddCallback (w, XmNactivateCallback, obj_select_cb,
+X								(XtPointer)i);
+X		XtManageChild (w);
+X		namepb_w[i] = w;
+X	    }
+X
+X	/* make the scrollbar attached to the right edge */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_OPPOSITE_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, namercf_w); n++;
+X	XtSetArg (args[n], XmNpageIncrement, NBTNS-1); n++;
+X	XtSetArg (args[n], XmNwidth, SCROLLBAR_WIDTH); n++;
+X	scroll_w = XmCreateScrollBar (objform_w, "ScrollB", args, n);
+X	XtAddCallback (scroll_w, XmNdragCallback, obj_scroll_cb, 0);
+X	XtAddCallback (scroll_w, XmNvalueChangedCallback, obj_scroll_cb, 0);
+X	XtManageChild (scroll_w);
+X
+X	/* make a form in a frame to hold the bottom control buttons */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, namercf_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	ctlfr_w = XmCreateFrame (objform_w, "CtlFrame", args, n);
+X	XtManageChild (ctlfr_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 21); n++;
+X	ctlf_w = XmCreateForm (ctlfr_w, "CtlForm", args, n);
+X	XtManageChild (ctlf_w);
+X
+X	    /* make the control buttons */
+X
+X	    for (i = 0; i < XtNumber(ctlbtns); i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNtopOffset, 10); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomOffset, 10); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, 1 + i*4); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, 4 + i*4); n++;
+X		w = XmCreatePushButton (ctlf_w, ctlbtns[i].name, args, n);
+X		XtAddCallback (w, XmNactivateCallback, obj_ctl_cb,
+X						    (XtPointer)ctlbtns[i].id);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make a form in a frame for the sky point/id buttons */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_OPPOSITE_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, namercf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_OPPOSITE_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, xyrbf_w); n++;
+X	skyfr_w = XmCreateFrame (objform_w, "SkyFr", args, n);
+X	XtManageChild (skyfr_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 14); n++;
+X	skyf_w = XmCreateForm (skyfr_w, "SkyF", args, n);
+X	XtManageChild (skyf_w);
+X
+X	    for (i = 0; i < XtNumber(skybtns); i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNtopOffset, 10); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomOffset, 10); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, 2 + i*6); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, 6 + i*6); n++;
+X		w = XmCreatePushButton (skyf_w, skybtns[i].name, args, n);
+X		XtAddCallback (w, XmNactivateCallback, obj_ctl_cb,
+X						    (XtPointer)skybtns[i].id);
+X		XtManageChild (w);
+X	    }
+X}
+X
+X/* given a Form widget and a Field, fill in the widgets in the Form.
+X */
+Xstatic void
+Xobj_create_type_rc_form (fw, fp)
+XWidget fw;
+XField *fp;
+X{
+X	XmString str;
+X	Widget w;
+X	Arg args[20];
+X	int n;
+X
+X	/* create a pushbutton if this field can be changed, else a label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	if (fp->prompt) {
+X	    w = XmCreatePushButton (fw, "ObjFldPB", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, obj_change_cb,
+X								(XtPointer)fp);
+X	} else
+X	    w = XmCreateLabel (fw, "ObjFldInfo", args, n);
+X	XtManageChild (w);
+X	fp->pb_w = w;
+X
+X	/* make the label to the left of w */
+X
+X	str = XmStringCreate (fp->label, XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, w); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (fw, "ObjFldLabel", args, n);
+X	XtManageChild (w);
+X	XmStringFree(str);
+X}
+X
+X/* callback from any of the obj field info buttons being activated.
+X * client is the Field pointer for this item.
+X * N.B. some fields' prompts are set from preferences.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_change_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Field *fp = (Field *)client;
+X
+X	switch (fp->id) {
+X	case F_EPOCH: 
+X	case E_CEPOCH:
+X	case E_EPOCH:
+X	case H_EP:
+X	case H_EPOCH:
+X	case P_EP:
+X	case P_EPOCH:
+X	    fp->prompt = fp->altp[pref_get(PREF_DATE_FORMAT)];
+X	    break;
+X	}
+X
+X	prompt (fp);
+X}
+X
+X/* callback from any of the botton control buttons.
+X * id is in client.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_ctl_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int id = (int) client;
+X
+X	switch (id) {
+X	case OK:
+X	    obj_set_db();
+X	    all_newobj(objidx);
+X	    XtUnmanageChild (objform_w);
+X	    break;
+X	case APPLY:
+X	    obj_set_db();
+X	    all_newobj(objidx);
+X	    break;
+X	case RESET:
+X	    obj_unsetmenu();
+X	    obj_set_from_db(db_basic(objidx));
+X	    obj_setmenu();
+X	    break;
+X	case POINT:
+X	    if (objp->type != UNDEFOBJ) {
+X		if (obj_cir (mm_get_now(), objp) < 0) {
+X		    printf ("obj_ctl_cb: can't get obj_cir for POINT\n");
+X		    exit (1);
+X		}
+X		sv_point (objp);
+X	    }
+X	    break;
+X	case IDENT:
+X	    if (objp->type != UNDEFOBJ) {
+X		if (obj_cir (mm_get_now(), objp) < 0) {
+X		    printf ("obj_ctl_cb: can't get obj_cir for IDENT\n");
+X		    exit (1);
+X		}
+X		switch (sv_id (objp)) {
+X		case 0:
+X		    break;
+X		case -1: xe_msg ("Object is below the horizon", 1);
+X		    break;
+X		case -2: xe_msg ("Object is outside the fiew of view", 1);
+X		    break;
+X		default:
+X		    printf ("bogus return from sv_id\n");
+X		    exit(1);
+X		}
+X	    }
+X	    break;
+X	case CANCEL:
+X	    XtUnmanageChild (objform_w);
+X	    break;
+X	case HELP:
+X	    do_help();
+X	    break;
+X	}
+X}
+X
+Xstatic void
+Xdo_help()
+X{
+X	static char *msg[] = {
+X"Object X and Object Y may be set to any of four types of objects: fixed or in",
+X"heliocentric elliptical, hyperbolic or parabolic orbits. Give the location or",
+X"orbital elements as necessary.",
+X"",
+X"The object may also be loaded from the in-memory database. This database may",
+X"be loaded from a file using the Database pulldown on the main menu.",
+X};
+X
+X	switch (objp->type) {
+X	case FIXED:
+X	    hlp_dialog ("Fixed Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case ELLIPTICAL:
+X	    hlp_dialog ("Elliptical Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case HYPERBOLIC:
+X	    hlp_dialog ("Hyperbolic Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case PARABOLIC:
+X	    hlp_dialog ("Parabolic Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	default:
+X	    hlp_dialog ("Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	}
+X}
+X
+X/* callback for which object (x or y) toggle.
+X * client is either OBJX or OBJY.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_xy_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int xy = (int)client;
+X
+X	if (t->set && xy != objidx) {
+X	    obj_unsetmenu();
+X	    objidx = xy;
+X	    obj_setmenu();
+X	}
+X}
+X
+X/* callback for what type of object toggles.
+X * client data is the Obj.type code.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_type_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int type = (int)client;
+X
+X	if (t->set && objp->type != type) {
+X	    obj_unsetmenu();
+X	    zero_mem ((char *)objp, sizeof(Obj));
+X	    objp->type = (Objtype_t) type;
+X	    obj_setmenu();
+X	}
+X}
+X
+X/* callback when an item is selected from the list.
+X * client is the button number, userData is the namelist index.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_select_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char me[] = "obj_select_cb()";
+X	int nameidx;
+X	Obj *op;
+X
+X	get_something (w, XmNuserData, (char *)&nameidx);
+X	if (nameidx < 0)
+X	    return;	/* marked as unused */
+X	if (nameidx >= nnamelist) {
+X	    printf ("%s: nameidx=%d but nnamelist=%d\n", me, nameidx,
+X								nnamelist);
+X	    exit (1);
+X	}
+X
+X	op = namelist[nameidx].op;
+X	obj_unsetmenu();
+X	obj_set_from_db(op);
+X	obj_setmenu();
+X}
+X
+X/* callback when the scroll bar is moved.
+X * fill name buttons with next NB names starting with namelist[sp->value].
+X */
+X/* ARGSUSED */
+Xstatic void
+Xobj_scroll_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmScrollBarCallbackStruct *sp = (XmScrollBarCallbackStruct *)call;
+X	obj_setnames (sp->value);
+X}
+X
+X/* compare two NameList entries as required qsort(3).
+X * take care to sort numerics by value.
+X */
+Xstatic int
+Xnl_cmp (nl1, nl2)
+XConst void *nl1, *nl2;
+X{
+X	char *s1 = ((NameList *)nl1)->name;
+X	char *s2 = ((NameList *)nl2)->name;
+X	int p;
+X	int q;
+X
+X	for (;;) {
+X	    p = *s1++;
+X	    q = *s2++;
+X	    if (isdigit(p) && isdigit(q)) {
+X		int np = 0, nq = 0;
+X		do {
+X		    np = np*10 + p - '0';
+X		    p = *s1;
+X		} while (isdigit(p) && s1++);
+X		do {
+X		    nq = nq*10 + q - '0';
+X		    q = *s2;
+X		} while (isdigit(q) && s2++);
+X		if (np != nq)
+X		    return (np - nq);
+X	    }
+X	    if (!p || !q || p != q)
+X		return (p - q);
+X	}
+X}
+X
+X/* set up namelist for a new list of db objects.
+X */
+Xstatic void
+Xnew_namelist()
+X{
+X	Arg args[20];
+X	int n;
+X
+X	watch_cursor(1);
+X
+X	load_namelist();
+X
+X	if (nnamelist > 0) {
+X	    int slider = nnamelist < NBTNS ? nnamelist : NBTNS;
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmaximum, nnamelist); n++;
+X	    XtSetArg (args[n], XmNsliderSize, slider); n++;
+X	    XtSetArg (args[n], XmNvalue, 0); n++;
+X	    XtSetValues (scroll_w, args, n);
+X	    XtManageChild(scroll_w);
+X	} else
+X	    XtUnmanageChild(scroll_w);
+X
+X	obj_setnames(0);
+X
+X	watch_cursor(0);
+X}
+X
+X/* make the master list of db name objects in sorted order.
+X */
+Xstatic void
+Xload_namelist ()
+X{
+X	NameList *nlp;
+X	Obj *op;
+X	int nobj;
+X
+X	if (namelist) {
+X	    XtFree ((char *)namelist);
+X	    namelist = NULL;
+X	    nnamelist = 0;
+X	}
+X
+X	nobj = db_n() - NOBJ;
+X	if (nobj <= 0)
+X	    return;
+X
+X	nlp = namelist = (NameList *) XtMalloc (nobj*sizeof(NameList));
+X
+X	/* don't put any of the basic objects on the list */
+X	for (op= db_next(NULL, OBJS_ALLBUT_BASIC); op;
+X					op= db_next(op, OBJS_ALLBUT_BASIC)) {
+X	    nlp->name = op->o_name;
+X	    nlp->op = op;
+X	    nlp++;
+X	}
+X
+X	nnamelist = nlp - namelist;
+X
+X	qsort ((char *)namelist, nnamelist, sizeof(NameList), nl_cmp);
+X}
+X
+X/* fill the name buttons with the next NBTNS names starting at index nli 
+X * within namelist[];
+X */
+Xstatic void
+Xobj_setnames(nli)
+Xint nli;
+X{
+X	XmString str;
+X	Arg args[20];
+X	char *namep;
+X	int bi;		/* namepb_w[] index */
+X	int nb;		/* number of good buttons to set */
+X
+X	nb = (nnamelist - nli < NBTNS) ? nnamelist - nli : NBTNS;
+X	for (bi = 0; bi < NBTNS; bi++) {
+X	    int n = 0;
+X	    if (bi < nb) {
+X		namep = namelist[nli].name;
+X		XtSetArg (args[n], XmNuserData, nli); n++;
+X		obj_set_a_button(namepb_w[bi], 1);
+X		nli++;
+X	    } else {
+X		namep = " ";
+X		XtSetArg (args[n], XmNuserData, -1); n++;
+X		obj_set_a_button(namepb_w[bi], 0);
+X	    }
+X	    str = XmStringCreate (namep, XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetValues (namepb_w[bi], args, n);
+X	    XmStringFree (str);
+X	}
+X}
+X
+X/* set whether the given button looks like a label.
+X */
+Xstatic void
+Xobj_set_a_button(pbw, whether)
+XWidget pbw;
+Xint whether;
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	Arg *ap;
+X	int na;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    Widget tmpw;
+X	    int n;
+X
+X	    n = 0;
+X	    tmpw = XmCreatePushButton (objform_w, "tmp", args, n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (tmpw, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    XtDestroyWidget (tmpw);
+X	     
+X	    called = 1;
+X	}
+X
+X	if (whether) {
+X	    ap = look_like_button;
+X	    na = XtNumber(look_like_button);
+X	} else {
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	}
+X
+X	XtSetValues (pbw, ap, na);
+X}
+X
+X/* user typed OK to a prompt for fp. get his new value and use it */
+X/* ARGSUSED */
+Xstatic void
+Xprompt_ok_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Field *fp = (Field *)client;
+X	char *text;
+X	
+X	get_xmstring(w, XmNtextString, &text);
+X	(void) db_set_field (text, fp->id,
+X			    (PrefDateFormat) pref_get(PREF_DATE_FORMAT), objp);
+X	obj_set_button (fp->pb_w, fp->id);
+X	XtDestroyWidget (w);
+X	XtFree (text);
+X}
+X
+X/* put up a prompt dialog near the cursor to ask about fp.
+X * make it app modal since we don't want the object type to change under us.
+X */
+Xstatic void
+Xprompt (fp)
+XField *fp;
+X{
+X	Widget w, dw;
+X	XmString str, title;
+X	Arg args[20];
+X	int n;
+X	
+X	str = XmStringCreate (fp->prompt, XmSTRING_DEFAULT_CHARSET);
+X	title = XmStringCreate("xephem Object Prompt",XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg(args[n], XmNselectionLabelString, str);  n++;
+X	XtSetArg(args[n], XmNdefaultPosition, False);  n++;
+X	XtSetArg(args[n], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL);  n++;
+X	XtSetArg(args[n], XmNdialogTitle, title);  n++;
+X	dw = XmCreatePromptDialog(toplevel_w, "ObjPrompt", args, n);
+X	XtAddCallback (dw, XmNmapCallback, prompt_map_cb, NULL);
+X	XmStringFree (str);
+X	XmStringFree (title);
+X
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_HELP_BUTTON);
+X	XtUnmanageChild (w);
+X
+X	XtAddCallback (dw, XmNokCallback, prompt_ok_cb, (XtPointer)fp);
+X	XtManageChild (dw);
+X
+X#if XmVersion >= 1001
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+X#endif
+X}
+X
+X/* set the label for the given label widget according to the info in the
+X * given field of the current working object.
+X */
+Xstatic void
+Xobj_set_button (w, id)
+XWidget w;
+Xint id;
+X{
+X	static char me[] = "obj_set_button";
+X
+X	switch (id) {
+X	case O_NAME:
+X	    f_string (w, objp->o_name);
+X	    break;
+X	case F_CLASS:
+X	    f_string (w, obj_description(objp));
+X	    break;
+X	case F_RA:
+X	    f_ra (w, objp->f_RA);
+X	    break;
+X	case F_DEC:
+X	    f_gangle (w, objp->f_dec);
+X	    break;
+X	case F_MAG:
+X	    f_double (w, "%g", objp->f_mag/MAGSCALE);
+X	    break;
+X	case F_EPOCH:
+X	    epoch_as_decimal (w, objp->f_epoch);
+X	    break;
+X	case F_SIZE:
+X	    f_double (w, "%g", (double)objp->f_size);
+X	    break;
+X
+X	case E_INC:
+X	    f_double (w, "%g", objp->e_inc);
+X	    break;
+X	case E_LAN:
+X	    f_double (w, "%g", objp->e_Om);
+X	    break;
+X	case E_AOP:
+X	    f_double (w, "%g", objp->e_om);
+X	    break;
+X	case E_A:
+X	    f_double (w, "%g", objp->e_a);
+X	    break;
+X	case E_N:
+X	    f_double (w, "%g", objp->e_n);
+X	    break;
+X	case E_E:
+X	    f_double (w, "%g", objp->e_e);
+X	    break;
+X	case E_M:
+X	    f_double (w, "%g", objp->e_M);
+X	    break;
+X	case E_CEPOCH:
+X	    epoch_as_mdy (w, objp->e_cepoch);
+X	    break;
+X	case E_EPOCH:
+X	    epoch_as_decimal (w, objp->e_epoch);
+X	    break;
+X	case E_M1: {
+X	    char buf[64];
+X	    (void) sprintf (buf, "%c%g",
+X			    objp->e_mag.whichm == MAG_HG ? 'H' : 'g',
+X			    objp->e_mag.m1);
+X	    f_string (w, buf);
+X	    break;
+X	}
+X	case E_M2: {
+X	    char buf[64];
+X	    (void) sprintf (buf, "%c%g",
+X			    objp->e_mag.whichm == MAG_HG ? 'G' : 'k',
+X			    objp->e_mag.m2);
+X	    f_string (w, buf);
+X	    break;
+X	}
+X	case E_SIZE:
+X	    f_double (w, "%g", objp->e_size);
+X	    break;
+X
+X	case H_EP:
+X	    epoch_as_mdy (w, objp->h_ep);
+X	    break;
+X	case H_INC:
+X	    f_double (w, "%g", objp->h_inc);
+X	    break;
+X	case H_LAN:
+X	    f_double (w, "%g", objp->h_Om);
+X	    break;
+X	case H_AOP:
+X	    f_double (w, "%g", objp->h_om);
+X	    break;
+X	case H_E:
+X	    f_double (w, "%g", objp->h_e);
+X	    break;
+X	case H_QP:
+X	    f_double (w, "%g", objp->h_qp);
+X	    break;
+X	case H_EPOCH:
+X	    epoch_as_decimal (w, objp->h_epoch);
+X	    break;
+X	case H_G:
+X	    f_double (w, "%g", objp->h_g);
+X	    break;
+X	case H_K:
+X	    f_double (w, "%g", objp->h_k);
+X	    break;
+X	case H_SIZE:
+X	    f_double (w, "%g", objp->h_size);
+X	    break;
+X
+X	case P_EP:
+X	    epoch_as_mdy (w, objp->p_ep);
+X	    break;
+X	case P_INC:
+X	    f_double (w, "%g", objp->p_inc);
+X	    break;
+X	case P_AOP:
+X	    f_double (w, "%g", objp->p_om);
+X	    break;
+X	case P_QP:
+X	    f_double (w, "%g", objp->p_qp);
+X	    break;
+X	case P_LAN:
+X	    f_double (w, "%g", objp->p_Om);
+X	    break;
+X	case P_EPOCH:
+X	    epoch_as_decimal (w, objp->p_epoch);
+X	    break;
+X	case P_G:
+X	    f_double (w, "%g", objp->p_g);
+X	    break;
+X	case P_K:
+X	    f_double (w, "%g", objp->p_k);
+X	    break;
+X	case P_SIZE:
+X	    f_double (w, "%g", objp->p_size);
+X	    break;
+X	default:
+X	    printf ("%s: bad parabolic id: %d\n", me, id);
+X	    exit (1);
+X	}
+X}
+X
+Xstatic void
+Xepoch_as_decimal (w, e)
+XWidget w;
+Xdouble e;
+X{
+X	double y;
+X	mjd_year (e, &y);
+X	f_double (w, "%g", y);
+X}
+X
+Xstatic void
+Xepoch_as_mdy (w, e)
+XWidget w;
+Xdouble e;
+X{
+X	char buf[100];
+X
+X	fs_date (buf, e);
+X	f_string (w, buf);
+X}
+END_OF_FILE
+  if test 35048 -ne `wc -c <'objmenu.c'`; then
+    echo shar: \"'objmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'objmenu.c'
+fi
+echo shar: End of archive 14 \(of 21\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

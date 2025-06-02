@@ -1,0 +1,2584 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i079:  ecuman - Manual for ECU comm package rev 3.20, Part03/05
+Message-ID: <1992Sep15.165709.7572@sparky.imd.sterling.com>
+X-Md4-Signature: 217c08967b574e4a5b2428c3afe30db1
+Date: Tue, 15 Sep 1992 16:57:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 79
+Archive-name: ecuman/part03
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecuman: Volume 21, Issue 90-93
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecuman320.03 (part 3 of ecuman320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file doc/ecu.man continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping doc/ecu.man'
+else
+echo 'x - continuing file doc/ecu.man'
+sed 's/^X//' << 'SHAR_EOF' >> 'doc/ecu.man' &&
+X    attempt fails.
+X
+X    If "Any" is	found in the dialing directory entry tty field,	then ECU
+X    finds an available Devices line which matches the baud rate	specified in
+X    the	entry.
+X
+X    Other special tty field entries allow regular expression or	literal
+X    matching of	Devices	types.	See the	description of the  dialing
+X    directory for more details.
+X
+X    A line is selected only if its class begins	with the three characters
+X    "ACU."  UUCP will only select a line whose Devices entry class matches
+X    the	active Systems entry class (usually "ACU"), so usually you may make
+X    a modem accessible to ECU, but not to UUCP,	by setting it's	class to
+X    ACUECU.
+X
+X    On systems employing ecuungetty, if	a line being considered	for
+X    selectionis	found to be a line enabled for login, but currently idle,
+X    the	ecuungetty interface, described	below, is used to acquire the line
+X    for	outgoing use.
+X
+X    The	DCD watcher (see the interactive and procedure commands	dcdwatch)
+X    depends upon the tty driver	to return zero on a read when DCD is low
+X    when the termio flag CLOCAL	is reset.  The tty driver must ignore DCD if
+X    CLOCAL is set.  If your system offers a "modem" and	"direct" choice	(by
+X    choice of filename), you probably need to use the "modem" choice for
+X    this to work properly.  However, the choice	depends	upon the needs of
+X    the	underlying driver you are using.  For instance,	if you are using FAS
+X    in a shared	modem application, your	getty should use the "modem" choice
+X    and	ECU should use the "direct" choice.  Some experimentation may be
+X    required.
+X
+X    One	of the symptoms	of an incorrect	line choice is ECU hangs, line
+X    errors such	as EIO and EBUSY.  These problems may be caused	by other
+X    problems, but incorrect line choice	is the most frequent cause.
+X
+X
+X
+X    6.3	 SCO Tty Naming
+X
+X
+X    On SCO, TTY	devices	must be	named in the style of:
+X
+X	 /dev/tty#N
+X		 ^^
+X		 ||
+X		 |`------ uppercase letter for modem control
+X		 |	  lowercase for	non-modem control
+X		 `--------digit	(1-4)
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				  9/7/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Technical Description				      60
+X
+X
+X
+X    If you are using FAS or other third-party driver, you may use ECU with
+X    ports not normally named in	the /dev/tty#N style in	one of two ways
+X    under UNIX and one way under XENIX:
+X
+X
+X	 1.  Under XENIX or UNIX, create a link	to the port
+X	     with a compatible name:
+X
+X		   ln /dev/ttyF00 /dev/tty1a
+X		   ln /dev/ttyFM00 /dev/tty1A
+X
+X	 2.  Under UNIX, add additional	lines to the
+X	     /etc/conf/node.d file and rebuild the kernel
+X	     environment (this is the recommended approach
+X	     for UNIX):
+X
+X	 fas ttyF00  c	 48
+X	 fas tty1a   c	 48
+X	 fas ttyF01  c	 49
+X	 fas tty1b   c	 49
+X	 fas ttyFM00 c	 208
+X	 fas tty1A   c	 208
+X	 fas ttyFM01 c	 209
+X	 fas tty1B   c	 209
+X
+X
+X    Note the device numbers are	examples only.	Consult	the driver
+X    documentation for proper choices.
+X
+X    If you cannot live within this restriction,	search for the #define
+X    SCO_TTY_NAMING in ecu.h (that depends on SCO's M_SYSV) and disable it.
+X
+X
+X    6.4	 Ecuungetty (Getty Interface)
+X
+X
+X    This section applies to the	SCO version of the program.  It	may also
+X    apply to others in part.  Specifically, as of this writing,	this section
+X    does not apply to the SunOS	version	due to the differences in utmp
+X    arrangement.  In some versions, the	mechanism may execute and do no
+X    harm, yet essentially be a no-op.
+X
+X    When an idle dialin	(enabled) line is chosen for dialout, ECU makes	use
+X    of ecuungetty (in the ecu library directory, normally
+X    /usr/local/lib/ecu)	to signal the line's getty to release the line (via
+X    SIGUSR1).  Ecuungetty is again employed to signal the getty	to reacquire
+X    the	line when outgoing communication is complete (via SIGUSR2).
+X
+X    Ecuungetty is a privileged program,	which must be owned by root and	have
+X    the	setuid-on-execute bit set.  An encrypted id is passed by ecu to
+X    ecuungetty to validate requests and	to prevent abuse of ecuungetty by
+X
+X
+X
+X    Public Domain by wht@n4hgf				  9/7/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Technical Description				      61
+X
+X
+X
+X    crackers, malcontents and other twentieth-century phenomena.
+X
+X
+X    6.5	 SCO Dialer Programs
+X
+X
+X    The	concept	of a dialer program (an	executable binary as opposed to	a
+X    Dialers entry) is an SCO enhancement and is	unlikely to be of benefit to
+X    users of other versions (too bad!).	 ECU will support dialer programs
+X    under any version, but other users of the Devices file (read "your
+X    vendor-supplied uucico") will most likely barf on non-SCO systems.
+X
+X    If the Devices file	can be found in	/usr/lib/uucp, and a valid entry for
+X    the	attached line can be found, ECU	will use the Dialers script or
+X    dialer program specified in	the Devices entry.
+X
+X
+X    6.6	 Gendial Dialer	Package
+X
+X
+X    Sample SCO-style modem dialer program sources may be found in the
+X    gendial/ subdirectory of the distribution.	Some of	them, particularly
+X    dialgHA24 and dialgT2500, are very robust and succeed where	other
+X    programs may fail.	They retry modem initialization	and reset/hangup
+X    commands .
+X
+X    The	code is	divided	into one general module	and several modem- and DCE-
+X    specific modules.  A program is built by combining the gendial.o with
+X    the	appropriate dceFOO.o module to produce a dialgFOO executable.
+X
+X    To write a dialer for a modem not already in the gendial package, copy
+X    template.c to dceMYMODEM.c and edit	it to contain the necessary variable
+X    assignments	and initialization, dialing and	hangup code.  The existing
+X    dce*.c modules provide examples.  Edit the gendial/Make.src	file to	add
+X    rule lines for your	program.  (Do not modify Makefile alone	since a
+X    "Configure"	will overwrite Makefile.)
+X
+X
+X    dialgMYMODEM: gendial.o dceMYMODEM.o
+X	$(CC) $(LDFLAGS) gendial.o dceMYMODEM.o	$(LIBS)	-o $@
+X
+X
+X    To be "correct," you should	run the	Configure procedure in the main	ecu
+X    directory to make a	new Makefile, but this has the unfortunate side
+X    effect of rebuilding all of	the Makefiles which are	built from Make.src
+X    files.  If this happens, the next make will	rebuild	all of the objects.
+X
+X    In this case, it is	"OK" to	cheat and copy the new Make.src	lines to
+X    Makefile.  A later Configure will not cause	loss of	the new	lines.
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				  9/7/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Technical Description				      62
+X
+X
+X
+X    7.	Exit Codes
+X
+X
+X    When ECU exits (terminates execution), it uses a code from the following
+X    table:
+X
+X    OK			 0    no error
+X    SIG1		 1    SIGHUP (signal 1)
+X    SIGN		 64   signal 64	- see below
+X    LINE_READ_ERROR	 129  could not	read from attached line
+X    XMTR_WRITE_ERROR	 130  could not	write to attached line
+X    XMTR_LOGIC_ERROR	 131  software logic error
+X    BSD4_IOCTL		 132  not currently used
+X    SHM_ABL		 133  not currently used
+X    SHM_RTL		 134  not currently used
+X    NO_FORK_FOR_RCVR	 135  could not	fork receiver process
+X    TTYIN_READ_ERROR	 136  could not	read from console
+X    LINE_OPEN_ERROR	 137  could not	attach (open) requested	line
+X    PWENT_ERROR		 138  error in /etc/passwd processing
+X    USAGE		 139  command line syntax error
+X    CONFIG_ERROR	 140  missing or erroroenous configuration file
+X    CURSES_ERROR	 141  error in curses use
+X    RCVR_FATAL_ERROR	 142  receiver died unexpectedly
+X    MALLOC		 143  critical memory allocation failure
+X    LOGIC_ERROR		 144  internal logic error
+X    GEOMETRY		 145  unsupported screen geometry
+X    INIT_PROC_ERROR	 192  initial procedure	terminated in error
+X    USER1		 193  exit procedure command called with 1
+X    USERN		 223  exit procedure command called with 31
+X
+X
+X    The	logical	names 'SIG1' and 'SIGN'	refer to a range of error codes
+X    signifying ecu termination due to a	signal.	 A larger range	(64) is
+X    reserved than is necessary to handle reasonable expansion of SIG values
+X    in the OS. Not all signals will be reported	in this	manner.	ECU will
+X    never report status	9 (signal 9, SIGKILL), for instance.
+X
+X    The	logical	names 'USER1' and 'USERN' refer	to a range of error exits
+X    codes reserved for use by the 'exit' procedure command.  See the
+X    description	of this	command	for more information.
+X
+X    For	ecu friend code, formal	C #define identifiers for exit codes may be
+X    found in termecu.h and consist of the above	logical	names prefixed with
+X    'TERMECU_'.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				  9/7/92
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X				    CONTENTS
+X
+X
+X    1.	Introduction........................................   2
+X
+X    2.	Basic Organization..................................   3
+X	2.1   Transmitter Process (XMTR)....................   3
+X	      2.1.1   Keyboard Interface....................   3
+X	      2.1.2   ECU Command Assembly..................   3
+X	      2.1.3   Function Key Mapping..................   4
+X	      2.1.4   Auxiliary	Operation Control...........   4
+X	2.2   Receiver Process (RCVR).......................   5
+X	      2.2.1   ANSI Filter...........................   5
+X	      2.2.2   Session Logging.......................   5
+X
+X    3.	Features............................................   6
+X	3.1   Supported	Terminals...........................   6
+X	3.2   Host Video Control Sequences..................   7
+X	      3.2.1   All Local	Consoles (Terminals)........   7
+X	      3.2.2   Multiscreen Local	Terminals...........   8
+X	      3.2.3   Character	Mapping.....................   9
+X	3.3   Function Key Mapping (Recognition)............  10
+X	3.4   Function Key Actions..........................  13
+X	      3.4.1   Standard Function	Keys................  13
+X	      3.4.2   SCO ALT-[a-z] Function Keys...........  15
+X	3.5   Line Editing..................................  16
+X	3.6   Screen Dump...................................  17
+X	      3.6.1   Multiscreen and Non-Multiscreen.......  17
+X	      3.6.2   Multiscreen Bug.......................  17
+X	3.7   Interactive Command History...................  18
+X	3.8   Dialing Directory.............................  18
+X	3.9   Online Interactive Command Help...............  20
+X	3.10  Multiscreen Event	Alarm.......................  20
+X	3.11  Built-in Modem Dialer.........................  21
+X	3.12  File Transfer.................................  22
+X	3.13  Automatic	ZMODEM Receive......................  23
+X	3.14  Procedures (Scripts)..........................  23
+X	      3.14.1  Initial (Startup)	Procedure...........  23
+X	      3.14.2  Dialing Procedure.....................  23
+X	      3.14.3  Other Special Procedures..............  24
+X	3.15  DCD (Carrier) Watcher.........................  24
+X	3.16  Home Directory Files..........................  24
+X	3.17  Lock Files....................................  25
+X	3.18  Dial-In/Dial-Out Line Support.................  25
+X	3.19  Tools.........................................  25
+X	3.20  Shared Memory 'Friend' Interface..............  26
+X
+X    4.	Starting the Program................................  27
+X	4.1   Simple Startup - Initial Setup Menu...........  27
+X	      4.1.1   Destination...........................  27
+X	      4.1.2   Other Fields..........................  28
+X
+X
+X
+X			       - i -
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X	      4.1.3   Keyboard Functions....................  28
+X	4.2   Command Line Switches and	Arguments...........  29
+X	      4.2.1   Usage Summary.........................  30
+X	      4.2.2   Switches..............................  30
+X		      4.2.2.1	-b <baud>  31
+X		      4.2.2.2	-d  31
+X		      4.2.2.3	-e, -o,	-n  31
+X		      4.2.2.4	-h  31
+X		      4.2.2.5	-l ttyspec  31
+X		      4.2.2.6	-p <proc>  32
+X		      4.2.2.7	-t  32
+X		      4.2.2.8	-D  32
+X		      4.2.2.9	-F name	 32
+X		      4.2.2.10	-P phonedir  33
+X		      4.2.2.11	-T level  33
+X	      4.2.3   Non-Switch Arguments..................  33
+X		      4.2.3.1	<tel-number>  33
+X		      4.2.3.2	<logical>  33
+X		      4.2.3.3	<arg>  34
+X	4.3   Environment Variables.........................  34
+X	      4.3.1   ECUPROMPT.............................  34
+X	      4.3.2   ECUHELP...............................  34
+X	      4.3.3   ECUFUNCKEY............................  34
+X
+X    5.	Interactive Mode Commands...........................  35
+X	5.1   AUTORZ : Automatic ZMODEM	Receive.............  35
+X	5.2   AX : ascii char to hex/oct/dec................  35
+X	5.3   BAud : set/display line baud rate.............  35
+X	5.4   BN : all console event alarm..................  36
+X	5.5   BReak : send break to remote..................  36
+X	5.6   CD : change current directory.................  36
+X	5.7   DA : decimal to ascii char....................  37
+X	5.8   DCDwatch......................................  37
+X	5.9   Dial : dial remote destination................  38
+X	      5.9.1   Alternate	Dialing	Directory...........  38
+X	      5.9.2   Multi-Number Redial Cycle.............  39
+X	      5.9.3   Automatic	Dialing/Login Procedure.....  39
+X	5.10  DO : perform procedure........................  40
+X	5.11  DUplex : set/display duplex...................  40
+X	5.12  EXit : drop carrier, exit	program.............  41
+X	5.13  FI : send	text file to line...................  41
+X	5.14  FKEy : function key definition................  42
+X	5.15  FKMap : funckeymap (function key recognition)
+X	      management....................................  43
+X	5.16  HAngup : hang up modem........................  44
+X	5.17  HElp : invoke help............................  44
+X	5.18  KBDTest :	test keyboard mapping...............  44
+X	5.19  LLp : set	session	log to /dev/lp..............  45
+X	5.20  LOFf : turn off session logging...............  45
+X	5.21  LOG : session logging control.................  45
+X	5.22  NL : display CR/LF mapping....................  45
+X
+X
+X
+X			       - ii -
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X	5.23  NLIn : set receive CR/LF mapping..............  46
+X	5.24  NLOut : set transmit CR/LF mapping............  46
+X	5.25  OA : octal to ascii char......................  46
+X	5.26  PARity : set/display line	parity..............  47
+X	5.27  PId : display process ids.....................  47
+X	5.28  PLog : procedure logging......................  47
+X	5.29  POpd : pop to previous directory..............  47
+X	5.30  PTrace : control procedure trace..............  48
+X	5.31  PUshd : push to new directory.................  48
+X	5.32  PWd : print working directory.................  49
+X	5.33  REDial : redial last number...................  49
+X	5.34  REV : ECU	revision/make date..................  49
+X	5.35  RK : receive via C-Kermit.....................  49
+X	5.36  RS : receive via SEAlink......................  50
+X	5.37  RTScts : control RTS/CTS flow control.........  50
+X	5.38  RX : receive via XMODEM/CRC...................  51
+X	5.39  RY : receive via YMODEM Batch.................  51
+X	5.40  RZ : receive via ZMODEM/CRC32.................  52
+X	5.41  SDNAME : select screen dump file name.........  52
+X	5.42  SK : send	via C-Kermit........................  52
+X	5.43  SS : send	via SEAlink.........................  53
+X	5.44  STat : verbose status summary.................  53
+X	5.45  SX : send	via XMODEM/CRC......................  54
+X	5.46  SY : send	via YMODEM Batch....................  55
+X	5.47  SZ : send	via ZMODEM/CRC32....................  55
+X	5.48  TIme : time of day............................  56
+X	5.49  TTy : console tty	name........................  56
+X	5.50  XA : hex to ascii	char........................  56
+X	5.51  XON : xon/xoff flow control...................  57
+X	5.52  !	: execute shell.............................  57
+X
+X    6.	HoneyDanBer UUCP Interface..........................  58
+X	6.1   Control Files.................................  58
+X	      6.1.1   Devices...............................  58
+X	      6.1.2   Dialers...............................  58
+X	      6.1.3   Sysfiles..............................  58
+X	      6.1.4   Systems...............................  58
+X	6.2   Choosing a Dialout Line.......................  58
+X	6.3   SCO Tty Naming................................  59
+X	6.4   Ecuungetty (Getty	Interface)..................  60
+X	6.5   SCO Dialer Programs...........................  61
+X	6.6   Gendial Dialer Package........................  61
+X
+X    7.	Exit Codes..........................................  62
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X			      -	iii -
+X
+X
+X
+X
+SHAR_EOF
+echo 'File doc/ecu.man is complete' &&
+chmod 0644 doc/ecu.man ||
+echo 'restore of doc/ecu.man failed'
+Wc_c="`wc -c < 'doc/ecu.man'`"
+test 126187 -eq "$Wc_c" ||
+	echo 'doc/ecu.man: original size 126187, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= doc/proc.man ==============
+if test -f 'doc/proc.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping doc/proc.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting doc/proc.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'doc/proc.man' &&
+X
+X
+X
+X
+X
+X
+X
+X				      ECU
+X
+X			    (Extended Call Utility)
+X
+X
+X
+X
+X
+X
+X			    Research and Engineering
+X		      Asynchronous Communications Package
+X		      for SCO UNIX 3.2 and XENIX System	V,
+X			   ISC 386/ix 2.2 (or later),
+X		       SunOS 4.1, ISC System V Release 4
+X			  and ESIX System V Release 4
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X		Warren H. Tucker, III <wht@n4hgf.Mt-Park.GA.US>
+X
+X
+X
+X
+X
+X
+X			       Procedure Language
+X				 Revision 3.20
+X				    9/10/92
+X
+X
+X
+X
+X
+X
+X    NOTE: Many sections	of the manual are likely to be obsolete	at any given
+X    time until the writer get lots of free time.  Much of it was written
+X    when the program was supported only	on SCO XENIX and UNIX.
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       2
+X
+X
+X
+X    1.	Introduction
+X
+X
+X    Procedures are "programs" or "scripts" written in an addled	but adequate
+X    language which ECU executes	upon demand.  The documentation	refers to
+X    procedures as files	on the disk or as in-memory copies under execution.
+X
+X    An "initial	procedure" may be executed when	ECU starts up (see the
+X    description	of the -p command line switch).	 Certain special procedures
+X    are	executed automatically as described below in the section "Special
+X    Procedures."
+X
+X    The	procedures themselves are source files consisting of the procedure
+X    "name" with	an extension of	".ep".	When executing a procedure by name,
+X
+X	 do name       interactive
+X	 -or-
+X	 do 'name'     from inside a procedure
+X
+X    is sufficient if the procedure is in the current directory,	the user's
+X    ~/.ecu directory or	in the ECU library subdirectory	"ep" (normally
+X    /usr/local/lib/ecu/ep).  Procedure files are searched for in the above
+X    order, so you may have a system default in the lib directory, a user
+X    default in the ~/.ecu directory and	a specific version in the current
+X    directory all by the same name.
+X
+X    You	may execute a procedure	by specifying it's full	pathname (minus	the
+X    .ep	extension).  For example:
+X
+X	 do /tmp/doit	    interactive	invocation of /tmp/doit.ep
+X	 -or-
+X	 do '/tmp/doit'	    from inside	a procedure
+X
+X
+X    Many example procedures, some quite	useful,	some not so, are found in
+X    the	models subdirectory of the release.  There are also many fragments
+X    used as examples throughout	the following sections.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       3
+X
+X
+X
+X    2.	Line Syntax (Labels, Commands and Comments)
+X
+X    Lines in a procedure consist of an optional	label, followed	by optional
+X    commands and arguments.  Anything on a line	after an octothorpe (#)
+X    outside of quote marks is ignored (read "# is the comment character").
+X
+X
+X    Example:
+X    ----------------------------------------------------------------------
+X    # example procedure
+X	echo 'Hello.  Please tell me your name.'
+X	$s0 = %cgets  #	read string from console into string variable $s0
+X	ifs $s0	== 'foo' goto label
+X	echo 'Hello there, '+$s0
+X	return
+X
+X    label echo 'You must be kidding.'
+X    ----------------------------------------------------------------------
+X
+X
+X    Labels must	begin in column	one.  A	label may appear on a line by itself
+X    or with a comment appended.	 A common mistake I make (from writing too
+X    much C) is to append a colon to a label declaration; this does not work
+X    unless you also "goto label:". Labels are not allowed inside braces
+X    (inside of compound	statements); you may get away with it sometimes
+X    because the	procedure language processor is	written	for speed, not
+X    political correctness.
+X
+X    Commands must have white space before them and white space before each
+X    argument.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       4
+X
+X
+X
+X    3.	Arguments
+X
+X
+X    There are five types of arguments to procedure commands:
+X
+X	 Switch
+X	 Alphabetic Token
+X	 Integer
+X	 String
+X	 Relational Operators
+X
+X    This section describes the syntax and construction of each type in turn.
+X    There are separate groups of valid of relational operators for integers
+X    and	strings; thus, they are	described under	the appropriate	sections.
+X
+X
+X    3.1	 Switches
+X
+X
+X    Switch arguments begin with	a hyphen (minus, '-').	The switch argument
+X    must be the	first argument after the command.  Only	one switch argument
+X    is allowed on the command line.  If	switches '-a', '-b' and	'-c', are
+X    available and '-a' and '-b'	are desired, '-ab' or '-ba' is entered.
+X
+X
+X    3.2	 Alphabetic Tokens
+X
+X
+X    Alphabetic tokens, for lack	of a better term, are non-integer, non-
+X    quoted terms used as arguments for certain commands, such as:
+X
+X	 plog off
+X
+X    Such argument types	are fairly simple to understand	and use; they are
+X    described here for completeness.
+X
+X
+X    3.3	 Integers
+X
+X
+X    Integer values are 32-bit quantities ranging between -2147483647 and
+X    2147483647.
+X
+X    In one case, an integer is used to store a 32-bit color mask as
+X    described by the color command and the %colors integer function.
+X
+X
+X    3.3.1  Constants
+X
+X    Integer constants are numeric strings, optionally with an initial minus
+X    sign, the absolute value of	which must be less than	2147483648.  If	the
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       5
+X
+X
+X
+X    constant begins with the string "0x", it is	interpreted as hexadecimal.
+X    Octal, like	FORTRAN	and COBOL will be dead soon (heh heh); until then,
+X    however, octal constants may be denoted by a leading "0o".	This differs
+X    from the usual convention so as to allow decimal strings with leading
+X    zeroes to be correctly interpreted.
+X
+X
+X    Examples:
+X	    123	  --> 123(10)
+X	    0123  --> 123(10)
+X	    0x123 --> 291(10)
+X	    0o123 -->  83(10)
+X
+X
+X
+X    3.3.2  Variables
+X
+X    There are 50 numbered, permanent integer variables referenced by the
+X    terms '$i0'	through	'$i49'.	 When ECU is started, the value	of each
+X    variable is	zero.  Variables retain	their value until changed, even
+X    between procedure executions.  The integer variable	number may be
+X    expressed as an expression by enclosing an integer expression in
+X    brackets.  For instance:
+X
+X	 $i[4+5]      refers to	$i9
+X
+X	 $i2=5
+X	 $i[20+$i2]   refers to	$i25
+X
+X
+X    Integer variables may be created for use as	"local"	variables or to
+X    promote code readability.  Refer to	the mkvar command.
+X
+X
+X    3.3.3  Functions
+X
+X    ECU	has many built-in functions which return the value of ecu- or
+X    system-related information.	 A list	of the functions appears in a later
+X    section.
+X
+X
+X    3.3.4  Expressions
+X
+X    In almost any place	an integer argument is allowed,	an expression may be
+X    supplied.  Expressions are composed	of two or more integer constants or
+X    variables separated	by operators from the group:
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       6
+X
+X
+X
+X	+     addition
+X	-     subtraction
+X	*     multiplication
+X	/     division
+X	|     OR
+X	@     MOD
+X	^     XOR
+X	&     AND
+X
+X    Evaluation of expressions is left-to-right.	 Parentheses are not
+X    allowed.
+X
+X
+X    3.3.5  Relational Operators
+X
+X    Integer relational operators are chosen from the following group:
+X
+X	 =	 "is equal to"
+X	 ==	 "is equal to"
+X	 !=	 "is not equal to"
+X	 <>	 "is not equal to"
+X	 >	 "is greater than"
+X	 <	 "is greater than"
+X	 >=	 "is greater than or equal to"
+X	 <=	 "is less than or equal	to"
+X
+X
+X
+X    3.4	 Strings
+X
+X
+X    Strings are	classic	concatenations of zero or more eight-bit characters.
+X    In general,	the maximum size of a string used by ECU is 256	characters.
+X    The	absolute maximum size is 16384 characters.
+X
+X    Null in strings are	poorly handled.	 You may be able to get	away with
+X    using them,	but it is not recommended.
+X
+X
+X    3.4.1  Constants
+X
+X    String constants are formed	by placing alphanumeric	characters between
+X    single quote characters (apostrophes).  The	backslash ('\')	character is
+X    used to "escape" certains characters:
+X
+X	\\	       one backslash
+X	\n	       newline
+X	\t	       tab
+X	\'	       apostrophe
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       7
+X
+X
+X
+X    NOTE: ecu converts every tab in a procedure	line to	one space when the
+X    procedure file is read in.	Therefore, IF YOU WISH TO PLACE	A TAB IN A
+X    STRING CONSTANT, you must place it there with the \t escape	sequence.
+X
+X
+X    3.4.2  Variables
+X
+X    There are 50 numbered, permanent string variables referenced by the
+X    terms '$s0'	through	'$s49',	each possessing	a maximum length of 256
+X    characters When ECU	is started, the	value of each variable is null (zero
+X    length).  Variables	retain their value until changed, even between
+X    procedure executions.  The string variable number may be expressed as an
+X    expression by enclosing an string expression in brackets.  For instance:
+X
+X	 $s[4+5]      refers to	$s9
+X
+X	 $s2=5
+X	 $s[20+$s2]   refers to	$s25
+X
+X
+X    String variables may be created for	use as "local" variables or to
+X    promote code readability.  Refer to	the mkvar command. Created variables
+X    have a life	equal to the duration of the procedure which created them.
+X    Regardless of the declared size of a created string	variable, ECU will
+X    automatically grow it to a maximum of 16384	characters as necessary.
+X    Numbered (permanent) string	variables have a maximum size of 256 bytes.
+X
+X
+X    3.4.3  Functions
+X
+X    ECU	has many built-in functions which return the value of ecu- or
+X    system-related information.	 A list	of the functions appears in a later
+X    section.
+X
+X
+X    3.4.4  Expressions
+X
+X    String expressions are formed by the concatenation of string constants,
+X    variables and function return values using the '+' operator:
+X
+X    Example:
+X       'The quick brown	fox jumped over	the '+$s0'+' dog at '+%time
+X
+X
+X
+X    3.4.5  Relational Operators
+X
+X    String relational operators	are chosen from	the following group:
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       8
+X
+X
+X
+X	 =	 "is equal to"
+X	 ==	 "is equal to"
+X	 !=	 "is not equal to"
+X	 <>	 "is not equal to"
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				       9
+X
+X
+X
+X    4.	Integer	Functions
+X
+X
+X
+X    4.1	 %argc
+X
+X
+X    This function returns the number of	arguments passes to the	current
+X    procedure.
+X
+X
+X    4.2	 %baud
+X
+X
+X    This function returns the baud rate	of the communications line.  If	no
+X    line is currently attached,	the baud rate returned is the value of the
+X    last line attached.	 If no line has	been attached during the current
+X    session, the default baud rate is returned.
+X
+X
+X    4.3	 %colors
+X
+X
+X    This function returns the state of the normal and reverse video
+X    foreground and background colors in	the 32-bit value:
+X
+X	 00000000001111111111222222222233
+X	 01234567890123456789012345678901
+X	 0000|--|0000|--|0000|--|0000|--|
+X	      fg      bk      fg      bk
+X	       reverse		normal
+X
+X
+X    The	color values are obtained from the following lists:
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      10
+X
+X
+X
+X	Alphabetic Order
+X	black	     0
+X	blue	     1
+X	brown	     6
+X	cyan	     3
+X	gray	     8
+X	green	     2
+X	hi_white    15
+X	lt_blue	     9
+X	lt_cyan	    11
+X	lt_green    10
+X	lt_magenta  13
+X	lt_red	    12
+X	magenta	     5
+X	red	     4
+X	white	     7
+X	yellow	    14
+X
+X
+X
+X	Numeric	Order
+X	black	     0
+X	blue	     1
+X	green	     2
+X	cyan	     3
+X	red	     4
+X	magenta	     5
+X	brown	     6
+X	white	     7
+X	gray	     8
+X	lt_blue	     9
+X	lt_green    10
+X	lt_cyan	    11
+X	lt_red	    12
+X	lt_magenta  13
+X	yellow	    14
+X	hi_white    15
+X
+X
+X
+X    4.4	 %cols
+X
+X
+X    This function returns the screen width in columns.	If running non-
+X    interactively, the value will always be 80.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      11
+X
+X
+X
+X    4.5	 %conn
+X
+X
+X    This function returns the (positive) communications	line file descriptor
+X    if a connection is in effect.  If there is no connection, but there	is a
+X    line opened, 0 is returned.	 If no line is open (as	may be the case	in
+X    an _rc.ep procedure), -1 is	returned.  NOTE:  if carrier is	lost
+X    abnormally,	%conn will return a positive number incorrectly	if the DCD
+X    watcher is disabled	or if a	procedure was being executed at	the time of
+X    carrier loss. (See the sections on the dcdwatch interactive	and
+X    procedure commands).
+X
+X
+X    4.6	 %curx
+X
+X
+X    This function returns the display cursor column position last set by the
+X    remote system.  This value does not	reflect	the actual hardware cursor.
+X
+X
+X    4.7	 %cury
+X
+X
+X    This function returns the display cursor row position last set by the
+X    remote system.  This value does not	reflect	the actual hardware cursor.
+X
+X
+X    4.8	 %csec
+X
+X
+X    This function returns the number of	seconds	ECU has	been connected to a
+X    remote system.  If ECU is not connected, zero is returned.
+X
+X
+X    4.9	 %ctoi
+X
+X
+X    usage: %ctoi(str0)
+X
+X    This function returns the integer value of the first character in string
+X    str0.  If str0 is non-empty, the return value will be between 0 and	255,
+X    inclusive.	if str0	is empty, then -1 is returned.
+X
+X
+X    4.10  %esecs
+X
+X
+X    usage: %esecs
+X
+X    This function, "Epoch SECondS," returns the	number of seconds since
+X    January 1, 1970 00:00 UTC (GMT).
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      12
+X
+X
+X
+X    4.11  %fatime
+X
+X    usage: %fatime(int0)
+X	   %fatime(str0)
+X
+X
+X    This function returns the time of last access of the file referenced by
+X    the	argument.  If the argument is an integer, the file referenced is the
+X    file opened	by that	number with the	fopen command.	If the argument	is a
+X    string, it is the literal filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X    The	return value is	the number of seconds since January 1, 1970 at 0000
+X    UTC.  The %edate string function may be used to convert the	integer
+X    value to a string representation of	the date and time expressed relative
+X    to the current time	zone.
+X
+X
+X    4.12  %fmode
+X
+X    usage: %fmode(int0)
+X	   %fmode(str0)
+X
+X
+X    This function returns the file mode	value ("rwxrwx---" == 077) of the
+X    file referenced by the argument.  If the argument is an integer, the
+X    file referenced is the file	opened by that number with the fopen
+X    command.  If the argument is a string, it is the literal filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X
+X    4.13  %fmtime
+X
+X    usage: %fmtime(int0)
+X	   %fmtime(str0)
+X
+X
+X    This function returns the time of last modified of the file	referenced
+X    by the argument.  If the argument is an integer, the file referenced is
+X    the	file opened by that number with	the fopen command.  If the argument
+X    is a string, it is the literal filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X    The	return value is	the number of seconds since January 1, 1970 at 0000
+X    UTC.  The %edate string function may be used to convert the	integer
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      13
+X
+X
+X
+X    value to a string representation of	the date and time expressed relative
+X    to the current time	zone.
+X
+X
+X    4.14  %fmode
+X
+X    usage: %fmode(int0)
+X	   %fmode(str0)
+X
+X
+X    This function returns the size of the file referenced by the argument.
+X    If the argument is an integer, the file referenced is the file opened by
+X    that number	with the fopen command.	 If the	argument is a string, it is
+X    the	literal	filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X
+X    4.15  %ftell
+X
+X
+X    usage: ftell(int0)
+X
+X    This function returns the current file position of the the file opened
+X    by int0 with the fopen command.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.
+X
+X
+X    4.16  %instr
+X
+X
+X    usage: %instr(str0,str1)
+X
+X    This function returns the leftmost column position withing str0 that
+X    str1 is found (zero	relative).  If str1 cannot be found in string str0,
+X    -1 is returned.  However, if str1 is null and str0 is not, zero will be
+X    returned (i.e., the	null string matches at the left).
+X
+X    The	comparison is made without regard to case. See also %instr.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      14
+X
+X
+X
+X	 Examples:
+X
+X		     00000000001111111
+X		     01234567890123456
+X	 Assume	$s0='abcdefghijklmnabc'
+X		$s1='abc'
+X		$s2='gHi'
+X		$s3='cat'
+X
+X		%instr($s0,$s1)	       returns 0
+X		%instr($s0,$s2)	       returns 6
+X		%instr($s0,$s3)	       returns -1
+X		%instr($s0,'bcd')      returns 2
+X		%instr($s0,'bad')      returns -1
+X
+X
+X
+X    4.17  %ischr
+X
+X    usage: %ischr(int0)
+X	   %ischr(str0)
+X
+X
+X    This function returns 1 if the file	referenced by the argument is a
+X    character special file, else 0.  If	the argument is	an integer, the	file
+X    referenced is the file opened by that number with the fopen	command.  If
+X    the	argument is a string, it is the	literal	filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X    Examples:
+X
+X
+X	 %ischr('/dev/tty')    returns 1
+X	 %ischr('/usr/bin')    returns 0
+X	 %ischr('/xenix')      returns 0
+X
+X
+X
+X    4.18  %isdir
+X
+X    usage: %isdir(int0)
+X	   %isdir(str0)
+X
+X
+X    This function returns 1 if the file	referenced by the argument is a
+X    directory file, else 0.  If	the argument is	an integer, the	file
+X    referenced is the file opened by that number with the fopen	command.  If
+X    the	argument is a string, it is the	literal	filename.
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      15
+X
+X
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X    Examples:
+X
+X
+X	 %isdir('/dev/tty')    returns 0
+X	 %isdir('/usr/bin')    returns 1
+X	 %isdir('/xenix')      returns 0
+X
+X
+X
+X    4.19  %isreg
+X
+X    usage: %isreg(int0)
+X	   %isreg(str0)
+X
+X
+X    This function returns 1 if the file	referenced by the argument is a
+X    regular file, else 0.  If the argument is an integer, the file
+X    referenced is the file opened by that number with the fopen	command.  If
+X    the	argument is a string, it is the	literal	filename.
+X
+X    If int0 does not refer to an open file, the	procedure terminates with an
+X    error.  If the file	specified by str0 does not exist, -1 is	returned.
+X
+X    Examples:
+X
+X
+X	 %isreg('/dev/tty')    returns 0
+X	 %isreg('/usr/bin')    returns 0
+X	 %isreg('/xenix')      returns 1
+X
+X
+X
+X    4.20  %len
+X
+X
+X    usage: %len(str0)
+X
+X    This function returns the length of	str0.
+X
+X	 Example:
+X
+X	 set str0='abcdef',i0=%len(str0),i1=%len('1234')
+X	 str00 = 'abcdef'
+X	 int00 = 6
+X	 int01 = 4
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      16
+X
+X
+X
+X    4.21  %lgetc
+X
+X
+X    usage: %lgetc(int0)
+X
+X    Reads a character from the line and	returns	it.  Argument int0 is the
+X    number of milliseconds to wait for a character.  Use a large positive
+X    number if you want to wait "forever."  The function	returns	the
+X    character value between 0 and 255 or -1 if the timeout period is
+X    exceeded.
+X
+X
+X    4.22  %lines
+X
+X
+X    This function returns the screen height in lines.  If running non-
+X    interactively, the value will always be 25.
+X
+X
+X    4.23  %nice
+X
+X
+X    usage: %nice
+X
+X    This function returns the nice value of the	ECU process.
+X
+X
+X    4.24  %pid
+X
+X
+X    This function returns the process id (pid) of ECU.
+X
+X
+X    4.25  %match
+X
+X
+X    usage: %match(str0,str1)
+X
+X    This function searches string str0 for a match with	the regular
+X    expression in str1 (for information	on regular expressions,	refer to the
+X    ed(C) manual pages).  The function returns the index into str0 where the
+X    match is found or -1 if no match can be found.  The	matching process is
+X    case sensitive.
+X
+X    The	variable $i0 receives the length of the	matching string	in str0	if a
+X    match is found.  For this reason, it is not	advisable that $i0 otherwise
+X    be involved	in the operation.  Specifically	to be avoided is:
+X
+X	 set $i0=%instr(...)
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      17
+X
+X
+X
+X    Examples:
+X
+X		00000000001111111
+X		01234567890123456
+X    Assume $s0='abcdefghijklmnabc'
+X	   $s1='abc'
+X	   $s2='n.*'
+X
+X	   %match($s0,$s1)	  returns 0   $i0=3
+X	   %match($s0,$s2)	  returns 16  $i0=4
+X	   %match($s0,$s3)	  returns -1  $i0 unchanged
+X	   %match($s0,'de..h')	  returns 3   $i0=5
+X	   %match($s0,'de..H')	  returns -1  $i0 unchanged
+X
+X
+X
+X    4.26  %mhack
+X
+X
+X    usage: %mhack
+X
+X    This function ("Millisecond	time HACK") returns the	number of
+X    milliseconds since ecu was started.	 It isn't a very useful	value by
+X    itself, but	differences between the	values returned	by two calls to	the
+X    function may be used to determine the time between two events with the
+X    maximum accuracy the operating system can deliver (1/HZ resolution with
+X    a bit of latency).
+X
+X
+X    Examples:
+X	$i10 = %mhack
+X	send 'test'
+X	lookfor	-e %chr(0x0A) 100
+X	ifi $i0	== 0 echo 'no response in 10 seconds'
+X	else echo 'response time '+%itos(%mhack	- $i10)+' msec'
+X
+X
+X
+X    4.27  %rchr
+X
+X
+X    This function returns the number of	characters received by ECU since the
+X    program starrted.
+X
+X
+X    4.28  %rchrc
+X
+X
+X    This function returns the number of	characters received by ECU during
+X    the	current	connection.
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      18
+X
+X
+X
+X    4.29  %rinstr
+X
+X
+X    usage: %rinstr(str0,str1)
+X
+X    This function returns the rightmost	column position	withing	str0 that
+X    str1 is found (zero	relative).  If str1 cannot be found in string str0,
+X    -1 is returned.  However, if str1 is null and str0 is not, zero will be
+X    returned (i.e., the	null string matches at the left).
+X
+X    The	comparison is made without regard to case. See also %instr.
+X
+X
+X	 Examples:
+X
+X		     00000000001111111
+X		     01234567890123456
+X	 Assume	$s0='abcdefghijklmnabc'
+X		$s1='abc'
+X		$s2='gHi'
+X		$s3='cat'
+X
+X		%instr($s0,$s1)	       returns 14
+X		%instr($s0,$s2)	       returns 6
+X		%instr($s0,$s3)	       returns -1
+X
+X
+X
+X    4.30  %shmid
+X
+X
+X    This function returns the integer shared memory segment id for the
+X    current ECU	process.  It may be used to pass the id	to a "friend"
+X    process so that it may access the shared memory segment (described in
+X    header file	ecushm.h).  For	more details, refer to an earlier section
+X    entitled "Shared Memory 'Friend' Interface."
+X
+X
+X    Example:
+X
+X	 system	'ecufriend '+%itos(%shmid)
+X
+X
+X
+X    4.31  %stoi
+X
+X
+X    usage: %stoi(str0)
+X
+X    This function converts the contents	of str0	to an integer and returns
+X    the	value.
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      19
+X
+X
+X
+X    4.32  %uid
+X
+X
+X    usage: %uid
+X
+X    This function returns the uid of the user.
+X
+X
+X    4.33  %xchr
+X
+X
+X    This function returns the number of	characters transmitted by ECU since
+X    the	program	starrted.
+X
+X
+X    4.34  %xchrc
+X
+X
+X    This function returns the number of	characters transmitted by ECU during
+X    the	current	connection.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      20
+X
+X
+X
+X    5.	String Functions
+X
+X
+X
+X    5.1	 %argv
+X
+X
+X    usage: %argv(int0)
+X
+X    This function returns the string value of an argument passed to the
+X    procedure by the 'do' command.  Argument 0 is the name of the procedure
+X    itself.  The integer function %argc	may be used to determine the number
+X    of arguments passed	to the procedure.  Specifying an argument number
+X    greater than the number of arguments passed	returns	a null string (if
+X    procedure tracing is enabled with the 'ptrace' comand, a warning will be
+X    displayed in this case).
+X
+X	 Example:
+X	     invocation	from shell:
+X	     ecu -p test Quick Brown Fox
+X
+X	     invocation	from interactive command line:
+X	     do	test Quick Brown Fox
+X
+X	     invocation	from procedure:
+X	     do	'test' 'Quick' 'Brown' 'Fox'
+X
+X	     results in:
+X	     %argv(0) =	'test'
+X	     %argv(1) =	'Quick'
+X	     %argv(2) =	'Brown'
+X	     %argv(3) =	'Fox'
+X	     %argv(4) =	''
+X
+X
+X    NOTE: the interactive dial command,	the dialing directory menu and the
+X    initial setup menu all can automatically execute a procedure which
+X    matches a dialed logical telephone number.	There two arguments passed
+X    to these procedures, %argv(0) being	the procedure name as always.
+X    %argv(1) is	set according to the following table:
+X
+X	  invoker	       %argv(1)
+X	 -------------------  -------------
+X	 initial setup menu   !INITIAL
+X	 interactive dial     !INTERACTIVE
+X	 dialing menu	      !MENU
+X
+X    Thus it is possible	for the	invoked	procedure to determine that it has
+X    been automatically executed	by testing %argv(1) for	an exclamation
+X    point, or possibly the entire argument.
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      21
+X
+X
+X
+X    5.2	 %basename
+X
+X
+X    Usage: %basename(str0,str1)
+X
+X    This function is similar to	the UNIX basename(1) utility in	that it
+X    returns a filename minus a supplied	suffix,	if it is present.  Unlike
+X    the	UNIX basename(C) program, %basename does not remove the	directory
+X    part of the	filename.  See also %dirpart and %filepart.
+X
+X
+X    Examples:
+X
+X	%basename('/u1/src/ecu/ecu.c','.c') = /u1/src/ecu/ecu
+X	%basename('ecu.c','.c')	= ecu
+X	%basename('ecu.c','.x')	= ecu.c
+X
+X
+X
+X    5.3	 %cgetc
+X
+X
+X    usage: %cgetc
+X
+X    This  function reads one character from the	console	keyboard and returns
+X    it.	 The character is not echoed.
+X
+X
+X    5.4	 %cgets
+X
+X
+X    usage: %cgets
+X
+X    This function reads	a string from the console keyboard and returns it.
+X    Each character is echoed as	it is typed and	the user's normal erase	and
+X    kill character is available	to edit	the input before terminating the
+X    read with ENTER.
+X
+X
+X    5.5	 %chr
+X
+X
+X    usage: %chr(int0)
+X
+X    This function returns the character	value whose ASCII value	is supplied
+X    in int0.
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      22
+X
+X
+X
+X    Example:
+X
+X	set $s0	= %chr(4)  places a ^D (EOT) character into $s0
+X
+X
+X
+X    5.6	 %date
+X
+X
+X    usage: %date
+X
+X    This function returns the current date in the form 'mm-dd-yyyy' in the
+X    local time zone (daylight time if it applies).
+X
+X
+X    5.7	 %datez
+X
+X
+X    usage: %datez
+X
+X    This function returns the current date in the form 'mm-dd-yyyy' in the
+X    UTC	(Z) time zone.
+X
+X
+X    5.8	 %day
+X
+X
+X    usage: %day
+X
+X    This function returns the current day of the week as a three character
+X    abbreviation: 'Sun', 'Mon',	'Tue', 'Wed', 'Thu', 'Fri', 'Sat' in the
+X    local time zone (daylight time if it applies).
+X
+X
+X    5.9	 %dayz
+X
+X
+X    usage: %dayz
+X
+X    This function returns the current day of the week as a three character
+X    abbreviation: 'Sun', 'Mon',	'Tue', 'Wed', 'Thu', 'Fri', 'Sat' in the UTC
+X    (Z)	time zone.
+X
+X
+X    5.10  %dir
+X
+X
+X    usage: %dir
+X
+X    This function returns the full pathname of the current working
+X    directory.
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      23
+X
+X
+X
+X    5.11  %dirpart
+X
+X
+X    usage: %dirpart(str0)
+X
+X    This function returns the directory	portion	of the pathname	supplied in
+X    str0.  See also %basename and %filepart.
+X
+X
+X
+X    Examples:
+X
+X    %dirpart('/u1/src/src/foo.c') = "/u1/src/src"
+X    %dirpart('foo.c') =	"foo.c"
+X    %dirpart('/usr') = ""
+X
+X
+X
+X    5.12  %edate
+X
+X
+X    usage: %edate(int0)
+X
+X    The	value in int0 is expected to be	a number of seconds since January 1,
+X    1970 00:00 UTC (Universal Coordinated Time)	as returned by the integer
+X    functions %fatime and %fmtime.  This function converts the value into a
+X    string representing	the equivalent local time in the form 'mm-dd-yyyy
+X    hh:mm:ss'.
+X
+X    Example:
+X
+X    set	$i0=%fmtime('/xenix')
+X    $i00 = 601178971 (0x23d5435b,04365241533)
+X
+X    set	$s0=%edate($i0)
+X    $s00 = '01-18-1989 21:09:31'
+X
+X
+X
+X    5.13  %envvar
+X
+X
+X    usage: %envvar()
+X
+X    This function returns the string value of an environment variable.
+X
+X
+X    Example:
+X
+X	set $s0=%envvar('HOME')	might set $s0 '/usr/user'
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      24
+X
+X
+X
+X    Typical Environment	Variables:
+X
+X	HOME	      pathname of home directory
+X	EDITOR	      user's preferred editor
+X	PATH	      program execution	searchlist
+X	TERM	      terminal type
+X	SHELL	      user's preferred shell
+X	MAIL	      user's mail box file
+X	ECUPROMPT     ECU interactive command prompt
+X		      at beginning of execution
+X
+X
+X
+X    5.14  %errstr
+X
+X
+X    usage: %errstr(int0)
+X
+X    This function returns the system error message, given int0 as an errno
+X    as returned	by a file-related command.  fopen.
+X
+X
+X    Example:
+X
+X	echo %errstr(1)
+X	Not owner
+X
+X
+X
+X    5.15  %etime
+X
+X
+X    usage: %etime(int0)
+X
+X    This function returns a string representation of elapsed time in the
+X    format 'hh:mm:ss' for the integer parameter	int0, a	number of seconds.
+X
+X
+X    Example:
+X
+X	echo %etime(62)
+X	00:01:02
+X
+X
+X
+X    5.16  %filepart
+X
+X
+X    usage: %filepart(str0)
+X
+X    This function returns the filename portion of the pathname supplied	in
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      25
+X
+X
+X
+X    str0.  See also %basename and %dirpart.
+X
+X
+X    Examples:
+X
+X    %filepart('/u1/src/src/foo.c') = "foo.c"
+X    %filepart('foo.c') = "foo.c"
+X
+X
+X
+X    5.17  %fmodestr
+X
+X
+X    usage: %fmodestr(int0)
+X
+X    This function returns a string representation of the familiar file mode
+X    string given the file mode integer int0.
+X
+X
+X    Example:
+X
+X	echo %fmodestr(0100755)
+X	-rwxr-xr-x
+X
+X	echo %fmodestr(%fmode('/usr/lib'))
+X	drwxr-xr-x
+X
+X
+X
+X    5.18  %itos
+X
+X
+X    usage: %itos(int0[,format])
+X
+X    This function converts integer int0	to a string, optionally	controlling
+X    the	format of the conversion.
+X
+X    If the format parameter is missing,	the conversion is to a minimum
+X    number of decimal characters necessary to hold the result.
+X
+X    If the format parameter is present,	it must	of consist of a	non-null
+X    string made	of one or both optional	parts:
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      26
+X
+X
+X
+X	decimal	number of digits to be part of result string
+X	(a leading zero	indicates leading zeroes are to
+X	appear in the string; no leading zero pads with
+X	leading	spaces
+X
+X	a lower	case letter from the following list:
+X	    d -	decimal	conversion
+X	    x -	hexadecimal conversion
+X	    o -	octal conversion
+X
+X    Example:
+X
+X	%itos(33)	    '33'
+X	%itos(33,d)	    '33'
+X	%itos(33,x)	    '21'
+X	%itos(33,5d)	    '	33'
+X	%itos(33,010d)	    '0000000033'
+X	%itos(33,10d)	    '	     33'
+X	%itos(33,x)	    '21'
+X	%itos(33,04x)	    '0021'
+X	%itos(33,4x)	    '  21'
+X	%itos(33,o)	    '41'
+X	%itos(33,4o)	    '	 41'
+X
+X
+X
+X    5.19  %left
+X
+X
+X    usage: %left(str0,int0)
+X
+X    This function returns the leftmost int0 characters of str0.	 If the
+X    length of the string is less than int0, the	entire str0 is returned.
+X
+X    Example:
+X
+X	if $s0 == 'abcdefg'
+X	%left($s0,3) returns 'abc'
+X
+X
+X
+X    5.20  %line
+X
+X
+X    usage: %line
+X
+X    This function returns the name of the attached communications line in
+X    the	form "/dev/ttyxx".  If no line is currently attached, the function
+X    returns null.
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      27
+X
+X
+X
+X    5.21  %logname
+X
+X
+X    usage: %logname
+X
+X    This function returns the login name of the	user executing ECU.  Note:
+X    the	name returned is the name supplied to a	login prompt, not any
+X    current su(C) username that	may be in effect.
+X
+X
+X    5.22  %mid
+X
+X
+X    usage: %mid(str0,int0[,int1])
+X
+X    This function returns the middle portion of	a string str0 beginning	with
+X    the	character at position int0 and for a length of int1 characters.	 If
+X    int0 is greater than or equal to the length	of stro, a null	string is
+X    returned.  If the optional argument	int1 is	not supplied, or if the
+X    length of the string is less than int1, the	entire str0 is returned.
+X
+X    Example:
+X
+X	if $s0 == '0123456789abc'
+X	%mid($s0,3,4)  returns '3456'
+X	%mid($s0,3)    returns '3456789abc'
+X	%mid($s0,10,2) returns 'ab'
+X	%mid($s0,10,5) returns 'abc'
+X
+X
+X
+X    5.23  %month
+X
+X
+X    usage: %month
+X
+X    This function returns the current month as a three character
+X    abbreviation: 'Jan', 'Feb',	'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+X    'Sep', 'Oct', 'Nov', 'Dec'.
+X
+X
+X    5.24  %rdesc
+X
+X
+X    usage: %rdesc
+X
+X    This function returns the description portion of the dialing directory
+X    entry for the currently connected remote.  If no connection	exists,	the
+X    function returns null.
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      28
+X
+X
+X
+X    5.25  %right
+X
+X
+X    usage: %right(str0,int0)
+X
+X    This function returns the rightmost	int0 characters	of str0.  If the
+X    length of the string is less than int0, the	entire str0 is returned.
+X
+X    Example:
+X
+X	if $s0 == 'abcdefg'
+X	%right($s0,3) returns 'efg'
+X
+X
+X
+X    5.26  %rname
+X
+X
+X    usage: %rname
+X
+X    This function returns the logical name portion of the dialing directory
+X    entry for the currently connected remote.  If the remote was dialed
+X    directly, as in dial 5551212, the returned value is	the phone number.
+X    If no connection exists, the function returns null.
+X
+X    The	value returned by this command may be overridden by use	of the rname
+X    procedure command.
+X
+X
+X    5.27  %rtelno
+X
+X    usage: %rtelno
+X
+X    This function returns the telephone	number portion of the dialing
+X    directory entry for	the currently connected	remote.	 If no connection
+X    exists, the	function returns null.
+X
+X
+X    5.28  %time
+X
+X
+X    usage: %time
+X
+X    This function returns the current time in the form 'hh:mm' in the local
+X    time zone (daylight	time if	it applies).
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      29
+X
+X
+X
+X    5.29  %times
+X
+X
+X    usage: %times
+X
+X    This function returns the current time in the form 'hh:mm:ss' in the
+X    local time zone (daylight time if it applies).
+X
+X
+X    5.30  %timez
+X
+X
+X    usage: %timez
+X
+X    This function returns the current time in the form 'hh:mm' in the UTC
+X    (Z)	time zone.
+X
+X
+X    5.31  %timezs
+X
+X
+X    usage: %timezs
+X
+X    This function returns the current time in the form 'hh:mm:ss' in the UTC
+X    (Z)	time zone.
+X
+X
+X    5.32  %tty
+X
+X
+X    usage: %tty
+X
+X    This function returns the console tty name in the form "/dev/ttynn".
+X
+X
+X    5.33  %uname
+X
+X
+X    usage: %uname
+X
+X    This function returns the system name you are executing ECU	on as
+X    reported by	uname(2)/uname(S).  On SCO systems, if /etc/systemid exists
+X    and	is readable, the name in that file isused in place of the name from
+X    uname.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      30
+X
+X
+X
+X    6.	Commands
+X
+X
+X
+X    6.1	 autorz
+X
+X
+X    usage: autorz [off | on]
+X
+X    ECU	in the interactive mode	(no procedure executing) can interpret a
+X    SUB, 'B', '0', '0' receive data sequence as	a ZMODEM ZRQINIT frame and
+X    automatically begin	a ZMODEM receive operation.  This command controls
+X    this feature.  By default, this feature is turned on.
+X
+X
+X    6.2	 baud
+X
+X
+X    usage: baud	<baud-int>
+X
+X    This command sets the baud rate for	the attached line.  The	integer
+X    argument <baud-int>	must be	one of 110, 300, 600, 1200, 2400, 4800,
+X    9600, 19200	and 38400.
+X
+X    Using the 'baud' procedure command in the ECU initialization procedure
+X    "_rc.ep" serves as an exact	analog of the -b command.  The baud command
+X    with the setline command gives you programatic control over	the actual
+X    choice of the line and rate	or the defaults	for the	setup screen,
+X    depending upon other options.  NOTE: using the baud	command	in _rc.ep
+X    will override any command line -b specification.
+X
+X
+X    Example:
+X	baud 9600
+X	set $i0=2400; baud $i0
+X
+X
+X
+X    6.3	 break
+X
+X
+X    usage: break
+X
+X    This command is used inside	a whilei or whiles compound statement to
+X    exit the loop.
+X
+X    This is not	to be confused with the	interactive command "break" when
+X    sends an asynchronous BREAK	signal.	 Use the procedure command lbreak
+X    for	this purpose.
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      31
+X
+X
+X
+X    Example:
+X
+X	whilei 1=1 #forever unless break command executed
+X	{
+X	    echo -n 'Answer yes	or no: '
+X	    set	$s0=%cgets # get answer
+X	    ifi	%instr($s0,'y')	== 0 set $i0 = 1; break
+X	    ifi	%instr($s0,'n')	== 0 set $i0 = 0; break
+X	    # got neither 'y' nor 'n' ... keep trying
+X	}
+X	# now $i0 = 1 if yes, 0	if no
+X
+X
+X    NOTE: further examples of break usage may be found in the example for
+X    the	else command.
+X
+X
+X    6.4	 cd
+X
+X
+X    usage: cd <directory-path>
+X
+X    This command changes ECU's current working directory.  The string
+X    argument <directory-path> may contain any directory	pathname
+X    specification legal	to be submitted	to the shell csh.  Wild	card
+X    characters may be used, provided the expansion produces only one
+X    pathname.
+X
+X
+X    Example:
+X
+X	cd '~user/bin'
+X	cd %envvar('HOME')+'/bin'
+X
+X
+X
+X    6.5	 clrx
+X
+X
+X    usage: clrx
+X
+X    This command clears	 the attached line's transmitter XOFF state.
+X    Issuing the	command	is the equivalent to receiving an XON from the
+X    remote system.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X    Public Domain by wht@n4hgf				 9/10/92
+X
+X
+X
+X
+X
+X
+X
+X    ECU	Procedure Language				      32
+X
+X
+X
+X    6.6	 cls
+X
+X
+X    usage: cls
+X
+X    This command clears	the screen.
+X
+X
+X    6.7	 color
+X
+X
+X
+X    usage: color <normal-foreground> [<normal-background>]
+X    usage: color -r <reverse-foreground> [<reverse-background>]
+SHAR_EOF
+true || echo 'restore of doc/proc.man failed'
+fi
+echo 'End of ecuman320 part 3'
+echo 'File doc/proc.man is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

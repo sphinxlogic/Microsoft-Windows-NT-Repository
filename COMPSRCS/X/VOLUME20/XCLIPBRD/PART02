@@ -1,0 +1,560 @@
+Newsgroups: comp.sources.x
+From: vafaeia@anubis.network.com (Amir Vafaei)
+Subject: v20i106:  xclipboard - Load, save and print the X clipboard, Part02/02
+Message-ID: <1993Aug5.182601.28954@sparky.sterling.com>
+X-Md4-Signature: b3a7e332e263408ba988a5a6cb5d2f11
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 5 Aug 1993 18:26:01 GMT
+Approved: chris@sterling.com
+
+Submitted-by: vafaeia@anubis.network.com (Amir Vafaei)
+Posting-number: Volume 20, Issue 106
+Archive-name: xclipboard/part02
+Environment: X11
+Supersedes: xclipboard: Volume 20, Issue 56
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is clip.02 (part 2 of xclipboard)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xclipboard/xclipboard.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xclipboard/xclipboard.c'
+else
+echo 'x - continuing file xclipboard/xclipboard.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xclipboard/xclipboard.c' &&
+X    system(buf);
+X    unlink(tmp);
+X
+}
+X
+static void
+Save()
+{
+X    ClipPtr	tempClip, headClip, saveClip;
+X    FILE	*fp;
+X    long	size;
+X    long	count = 0;
+X
+X    if (!(fp = fopen(saveFile, "w")))
+X	return;
+X
+X    tempClip = currentClip;
+X    saveClip = (ClipPtr)0;
+X
+X    if (!tempClip && TextLength(text))
+X	saveClip = tempClip = NewClip(text, (ClipPtr)0);
+X	
+X    if (tempClip){
+X	if (TextLength(text))
+X	    SaveClip (text, tempClip);
+X	while (tempClip){
+X	    count++;
+X	    headClip = tempClip;
+X	    tempClip = tempClip->prev;
+X	}
+X
+X	fwrite(&count, sizeof(long), 1, fp);
+X
+X	while (headClip){
+X	    if (headClip->clip){
+X		size = strlen(headClip->clip) + 1;
+X		fwrite(&size, sizeof(long), 1, fp); 
+X		fwrite(headClip->clip, 1, size, fp);
+X	    }
+X	    else{
+X		size = 0L;
+X		fwrite(&size, sizeof(long), 1, fp);
+X	    }
+X	    headClip = headClip->next;
+X	}
+X	fclose(fp);
+X	if (saveClip)
+X	    DeleteClip(text, saveClip);
+X    }
+X    else{
+X	fclose(fp);
+X	unlink(saveFile);
+X    }
+}
+X
+static void
+Load()
+{
+X    FILE	*fp;
+X    ClipPtr	tempClip, oldClip;
+X    long	size, count;
+X
+X    if (!(fp = fopen(saveFile, "r")))
+X	return;
+X
+X    if (currentClip)
+X	erase_all();
+X
+X
+X    if (fread(&count, sizeof(long), 1, fp) <= 0)
+X	return;
+X    
+X    oldClip = (ClipPtr)0;
+X    currentClip = (ClipPtr)0;
+X
+X    while (fread(&size, sizeof(long), 1, fp)){
+X	tempClip = NewClip(text, oldClip);
+X
+X	if (tempClip){
+X	    oldClip = tempClip;
+X	    if (!currentClip)
+X		currentClip = tempClip;
+X
+X	    if (!(--count))
+X		currentClip = tempClip;
+X
+X	    tempClip->clip = malloc(size);
+X	    if (tempClip->clip){
+X		tempClip->avail = size;
+X		fread(tempClip->clip, 1, size, fp);
+X	    }
+X	    else{
+X		fseek(fp, size, SEEK_CUR);
+X		count--;
+X	    }
+X	}
+X	else{
+X	    fseek(fp, size, 1);
+X	    count--;
+X	}
+X    }
+X
+X    fclose(fp);
+X    RestoreClip (text, currentClip);
+X    set_button_state();
+}
+X
+static void
+NewCurrentClip ()
+{
+X    NewCurrentClipContents ("", 0);
+}
+X
+NewCurrentClipContents (data, len)
+X    char    *data;
+X    int	    len;
+{
+X    XawTextBlock textBlock;
+X    ClipPtr newCurrent;
+X
+X    if (!currentClip && TextLength (text))
+X	currentClip = NewClip (text, (ClipPtr) 0);
+X    if (currentClip)
+X	SaveClip (text, currentClip);
+X    /* append new clips at the end */
+X    while (currentClip && currentClip->next)
+X	currentClip = currentClip->next;
+X    newCurrent = NewClip (text, currentClip);
+X    
+X    currentClip = newCurrent;
+X
+X    textBlock.ptr = data;
+X    textBlock.firstPos = 0;
+X    textBlock.length = len;
+X    textBlock.format = FMT8BIT;
+X    if (XawTextReplace(text, 0, TextLength (text), &textBlock))
+X	XBell( XtDisplay(text), 0);
+X    set_button_state ();
+}
+X
+EraseTextWidget ()
+{
+X    XawTextBlock block;
+X
+X    block.ptr = "";
+X    block.length = 0;
+X    block.firstPos = 0;
+X    block.format = FMT8BIT;
+X
+X    XawTextReplace(text, 0, INFINITY, &block);
+X    /* If this fails, too bad. */
+}
+X
+X
+XXtActionsRec xclipboard_actions[] = {
+X    "NewClip", NewCurrentClip,
+X    "NextClip",	NextCurrentClip,
+X    "PrevClip", PrevCurrentClip,
+X    "DeleteClip", DeleteCurrentClip,
+X    "Load", Load,
+X    "Save", Save,
+X    "PrntClip", PrntClip,
+X    "Quit", Quit,
+};
+X
+static XtResource	resources[] = {
+{"printer_name", "Printer_name", XtRString, sizeof(char *), XtOffset(TEXT_DATA_PTR, pn_name), XtRString, ""},
+};
+X
+static XrmOptionDescRec table[] = {
+X    {"-w",	    "*text*wrap",		XrmoptionNoArg,  "Word"},
+X    {"-nw",	    "*text*wrap",		XrmoptionNoArg,  "Never"},
+X    {"-P",    "printer_name",			XrmoptionStickyArg, NULL},
+};
+X
+static void	LoseSelection ();
+static void	InsertClipboard ();
+static Boolean	ConvertSelection();
+X
+static void 
+InsertClipboard(w, client_data, selection, type, value, length, format)
+Widget w;
+caddr_t client_data;
+Atom *selection, *type;
+caddr_t value;
+unsigned long *length;
+int *format;
+{
+X    if (*type == 0 /*XT_CONVERT_FAIL*/ || *length == 0) {
+X	XBell( XtDisplay(w), 0 );
+X	return;
+X    }
+X    
+X    NewCurrentClipContents ((char *) value, *length);
+X
+X    XtOwnSelection(w, XA_CLIPBOARD(XtDisplay(w)), CurrentTime,
+X		   ConvertSelection, LoseSelection, NULL);
+X
+X    XtFree(value);
+}
+X
+static Boolean ConvertSelection(w, selection, target,
+X				type, value, length, format)
+X    Widget w;
+X    Atom *selection, *target, *type;
+X    caddr_t *value;
+X    unsigned long *length;
+X    int *format;
+{
+X    Display* d = XtDisplay(w);
+X    XSelectionRequestEvent* req =
+X	XtGetSelectionRequest(w, *selection, (XtRequestId)NULL);
+X
+X    if (*target == XA_TARGETS(d)) {
+X	Atom* targetP;
+X	Atom* std_targets;
+X	unsigned long std_length;
+X	XmuConvertStandardSelection(w, req->time, selection, target, type,
+X				  (caddr_t*)&std_targets, &std_length, format);
+X	*value = XtMalloc(sizeof(Atom)*(std_length + 5));
+X	targetP = *(Atom**)value;
+X	*targetP++ = XA_STRING;
+X	*targetP++ = XA_TEXT(d);
+X	*targetP++ = XA_LENGTH(d);
+X	*targetP++ = XA_LIST_LENGTH(d);
+X	*targetP++ = XA_CHARACTER_POSITION(d);
+X	*length = std_length + (targetP - (*(Atom **) value));
+X	bcopy((char*)std_targets, (char*)targetP, sizeof(Atom)*std_length);
+X	XtFree((char*)std_targets);
+X	*type = XA_ATOM;
+X	*format = 32;
+X	return True;
+X    }
+X
+X    if (*target == XA_LIST_LENGTH(d) ||
+X	*target == XA_LENGTH(d))
+X    {
+X    	long * temp;
+X    	
+X    	temp = (long *) XtMalloc(sizeof(long));
+X    	if (*target == XA_LIST_LENGTH(d))
+X      	  *temp = 1L;
+X    	else			/* *target == XA_LENGTH(d) */
+X      	  *temp = (long) TextLength (w);
+X    	
+X    	*value = (caddr_t) temp;
+X    	*type = XA_INTEGER;
+X    	*length = 1L;
+X    	*format = 32;
+X    	return True;
+X    }
+X    
+X    if (*target == XA_CHARACTER_POSITION(d))
+X    {
+X    	long * temp;
+X    	
+X    	temp = (long *) XtMalloc(2 * sizeof(long));
+X    	temp[0] = (long) 0;
+X    	temp[1] = TextLength (w);
+X    	*value = (caddr_t) temp;
+X    	*type = XA_SPAN(d);
+X    	*length = 2L;
+X    	*format = 32;
+X    	return True;
+X    }
+X    
+X    if (*target == XA_STRING ||
+X      *target == XA_TEXT(d) ||
+X      *target == XA_COMPOUND_TEXT(d))
+X    {
+X	extern char *_XawTextGetSTRING();
+X    	if (*target == XA_COMPOUND_TEXT(d))
+X	    *type = *target;
+X    	else
+X	    *type = XA_STRING;
+X	*length = TextLength (w);
+X    	*value = _XawTextGetSTRING((TextWidget) w, 0, *length);
+X    	*format = 8;
+X    	return True;
+X    }
+X    
+X    if (XmuConvertStandardSelection(w, req->time, selection, target, type,
+X				    value, length, format))
+X	return True;
+X
+X    return False;
+}
+X
+static void LoseSelection(w, selection)
+X    Widget w;
+X    Atom *selection;
+{
+X    XtGetSelectionValue(w, *selection, XA_STRING, InsertClipboard,
+X			NULL, CurrentTime);
+}
+X
+/*ARGSUSED*/
+static Boolean RefuseSelection(w, selection, target,
+X			       type, value, length, format)
+X    Widget w;
+X    Atom *selection, *target, *type;
+X    caddr_t *value;
+X    unsigned long *length;
+X    int *format;
+{
+X    return False;
+}
+X
+/*ARGSUSED*/
+static void LoseManager(w, selection)
+X    Widget w;
+X    Atom *selection;
+{
+X    XtError("another clipboard has taken over control\n");
+}
+X
+static void
+get_savefile(s)
+char	*s;
+{
+X    struct passwd *pw;
+X
+X    if (!(pw = getpwuid(getuid())))
+X	return;
+X
+X    sprintf(s, "%s/.clipper", pw->pw_dir);
+}
+X
+X
+void
+main(argc, argv)
+int argc;
+char **argv;
+{
+X    Arg args[2];
+X    Widget top, parent, quit, delete, new, save, prnt;
+X    Atom manager;
+X
+X    top = XtInitialize( "xclipboard", "XClipboard", table, XtNumber(table),
+X			  &argc, argv);
+X
+X    XtGetApplicationResources(top, &text_data, resources, XtNumber(resources), NULL, 0);
+X
+X    get_savefile(saveFile);
+X
+X    XtAddActions (xclipboard_actions, XtNumber (xclipboard_actions));
+X    /* CLIPBOARD_MANAGER is a non-standard mechanism */
+X    manager = XInternAtom(XtDisplay(top), "CLIPBOARD_MANAGER", False);
+X    if (XGetSelectionOwner(XtDisplay(top), manager))
+X	XtError("another clipboard is already running\n");
+X
+X    parent = XtCreateManagedWidget("form", formWidgetClass, top, NULL, ZERO);
+X    quit = XtCreateManagedWidget("quit", Command, parent, NULL, ZERO);
+X    delete = XtCreateManagedWidget("delete", Command, parent, NULL, ZERO);
+X    new = XtCreateManagedWidget("new", Command, parent, NULL, ZERO);
+X    loadButton = XtCreateManagedWidget("load", Command, parent, NULL, ZERO);
+X    save = XtCreateManagedWidget("save", Command, parent, NULL, ZERO);
+X    prnt = XtCreateManagedWidget("prnt", Command, parent, NULL, ZERO);
+X    nextButton = XtCreateManagedWidget("next", Command, parent, NULL, ZERO);
+X    prevButton = XtCreateManagedWidget("prev", Command, parent, NULL, ZERO);
+X
+X    XtSetArg(args[0], XtNtype, XawAsciiString);
+X    XtSetArg(args[1], XtNeditType, XawtextEdit);
+X    text = XtCreateManagedWidget( "text", Text, parent, args, TWO);
+X
+X    set_button_state ();
+X
+X    XtRealizeWidget(top);
+X
+X    XtOwnSelection(text, manager, CurrentTime,
+X		   RefuseSelection, LoseManager, NULL);
+X    XtOwnSelection(text, XA_CLIPBOARD(XtDisplay(text)), CurrentTime,
+X		   ConvertSelection, LoseSelection, NULL);
+X
+X    XtMainLoop();
+}
+SHAR_EOF
+echo 'File xclipboard/xclipboard.c is complete' &&
+chmod 0600 xclipboard/xclipboard.c ||
+echo 'restore of xclipboard/xclipboard.c failed'
+Wc_c="`wc -c < 'xclipboard/xclipboard.c'`"
+test 15078 -eq "$Wc_c" ||
+	echo 'xclipboard/xclipboard.c: original size 15078, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xclipboard/XClipboard.ad ==============
+if test -f 'xclipboard/XClipboard.ad' -a X"$1" != X"-c"; then
+	echo 'x - skipping xclipboard/XClipboard.ad (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xclipboard/XClipboard.ad (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xclipboard/XClipboard.ad' &&
+XXClipboard*quit.label: 			Quit
+XXClipboard*quit.top: 			ChainTop
+XXClipboard*quit.bottom: 		ChainTop
+XXClipboard*quit.left: 			ChainLeft
+XXClipboard*quit.right: 			ChainLeft
+XXClipboard*quit.translations:		#override<BtnUp>:Quit() unset()
+X
+XXClipboard*delete.label: 		Delete
+XXClipboard*delete.fromHoriz: 		quit
+XXClipboard*delete.top: 			ChainTop
+XXClipboard*delete.bottom:		ChainTop
+XXClipboard*delete.left:			ChainLeft
+XXClipboard*delete.right:		ChainLeft
+XXClipboard*delete.translations:		#override<BtnUp>:DeleteClip() unset()
+X
+XXClipboard*new.label: 			New
+XXClipboard*new.fromHoriz: 		delete
+XXClipboard*new.top: 			ChainTop
+XXClipboard*new.bottom:			ChainTop
+XXClipboard*new.left:			ChainLeft
+XXClipboard*new.right:			ChainLeft
+XXClipboard*new.translations:		#override<BtnUp>:NewClip() unset()
+X
+XXClipboard*load.label:               	Load
+XXClipboard*load.fromHoriz:           	new
+XXClipboard*load.top:                 	ChainTop
+XXClipboard*load.bottom:              	ChainTop
+XXClipboard*load.left:                	ChainLeft
+XXClipboard*load.right:               	ChainLeft
+XXClipboard*load.translations:        	#override<BtnUp>:Load() unset()
+X
+XXClipboard*save.label:               	Save
+XXClipboard*save.fromHoriz:           	load
+XXClipboard*save.top:                 	ChainTop
+XXClipboard*save.bottom:              	ChainTop
+XXClipboard*save.left:                	ChainLeft
+XXClipboard*save.right:               	ChainLeft
+XXClipboard*save.translations:        	#override<BtnUp>:Save() unset()
+X
+XXClipboard*prnt.label: 			Print
+XXClipboard*prnt.fromHoriz: 		save
+XXClipboard*prnt.top: 			ChainTop
+XXClipboard*prnt.bottom:			ChainTop
+XXClipboard*prnt.left:			ChainLeft
+XXClipboard*prnt.right:			ChainLeft
+XXClipboard*prnt.translations:		#override<BtnUp>:PrntClip() unset()
+X
+XXClipboard*next.label: 			Next
+XXClipboard*next.fromHoriz: 		prnt
+XXClipboard*next.top: 			ChainTop
+XXClipboard*next.bottom:			ChainTop
+XXClipboard*next.left:			ChainLeft
+XXClipboard*next.right:			ChainLeft
+XXClipboard*next.translations:		#override<BtnUp>:NextClip() unset()
+X
+XXClipboard*prev.label: 			Previous
+XXClipboard*prev.fromHoriz: 		next
+XXClipboard*prev.top: 			ChainTop
+XXClipboard*prev.bottom:			ChainTop
+XXClipboard*prev.left:			ChainLeft
+XXClipboard*prev.right:			ChainLeft
+XXClipboard*prev.translations:		#override<BtnUp>:PrevClip() unset()
+X
+XXClipboard*text.scrollVertical:  	WhenNeeded
+XXClipboard*text.scrollHorizontal:  	WhenNeeded
+XXClipboard*text.autoFill: 		on
+X
+XXClipboard*text.fromVert: 		quit
+XXClipboard*text.top: 			ChainTop
+XXClipboard*text.bottom: 		ChainBottom
+XXClipboard*text.left: 			ChainLeft
+XXClipboard*text.right: 			ChainRight
+XXClipboard*text.width:			600
+X
+XXClipboard.geometry:			600x200
+XXClipboard*ShapeStyle:			oval
+XXClipboard*printer_name:		ps
+SHAR_EOF
+chmod 0600 xclipboard/XClipboard.ad ||
+echo 'restore of xclipboard/XClipboard.ad failed'
+Wc_c="`wc -c < 'xclipboard/XClipboard.ad'`"
+test 2710 -eq "$Wc_c" ||
+	echo 'xclipboard/XClipboard.ad: original size 2710, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xclipboard/Makefile.unx ==============
+if test -f 'xclipboard/Makefile.unx' -a X"$1" != X"-c"; then
+	echo 'x - skipping xclipboard/Makefile.unx (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xclipboard/Makefile.unx (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xclipboard/Makefile.unx' &&
+X
+INCLUDES = /usr/local/X11/include
+X
+LIBS = -L/usr/local/X11/lib -lXaw -lXmu -lXt -lXext -lX11     
+X
+X
+all:
+X	cc -O -I$(INCLUDES) -o xclipboard xclipboard.c $(LIBS)
+SHAR_EOF
+chmod 0600 xclipboard/Makefile.unx ||
+echo 'restore of xclipboard/Makefile.unx failed'
+Wc_c="`wc -c < 'xclipboard/Makefile.unx'`"
+test 162 -eq "$Wc_c" ||
+	echo 'xclipboard/Makefile.unx: original size 162, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+
+-Never mistake motion for action.
+
+-Ernest Hemingway
+-------------------------------------------------------------------------
+vafaeia@anubis.network.com		Network Systems Corp.
+					7600 Boone Ave N.
+					Mpls, MN.	55428
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

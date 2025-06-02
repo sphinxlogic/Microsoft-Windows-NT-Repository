@@ -1,0 +1,1770 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  REPOST: v29i011:  jpeg - JPEG image compression, Part11/18
+Message-ID: <1992Mar28.211945.29008@sparky.imd.sterling.com>
+X-Md4-Signature: 66459c7452d01d21bea1bd244039f9d4
+Date: Sat, 28 Mar 1992 21:19:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 11
+Archive-name: jpeg/part11
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+[ Reposted due to a propagation problem.  -Kent+ ]
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jchuff.c jcmain.c jrdgif.c makljpeg.cf
+# Wrapped by kent@sparky on Mon Mar 23 16:02:49 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 18)."'
+if test -f 'jchuff.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jchuff.c'\"
+else
+  echo shar: Extracting \"'jchuff.c'\" \(20071 characters\)
+  sed "s/^X//" >'jchuff.c' <<'END_OF_FILE'
+X/*
+X * jchuff.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains Huffman entropy encoding routines.
+X * These routines are invoked via the methods entropy_encode,
+X * entropy_encoder_init/term, and entropy_optimize.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/* Static variables to avoid passing 'round extra parameters */
+X
+Xstatic compress_info_ptr cinfo;
+X
+Xstatic INT32 huff_put_buffer;	/* current bit-accumulation buffer */
+Xstatic int huff_put_bits;	/* # of bits now in it */
+X
+Xstatic char * output_buffer;	/* output buffer */
+Xstatic int bytes_in_buffer;
+X
+X
+X
+XLOCAL void
+Xfix_huff_tbl (HUFF_TBL * htbl)
+X/* Compute derived values for a Huffman table */
+X{
+X  int p, i, l, lastp, si;
+X  char huffsize[257];
+X  UINT16 huffcode[257];
+X  UINT16 code;
+X  
+X  /* Figure C.1: make table of Huffman code length for each symbol */
+X  /* Note that this is in code-length order. */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    for (i = 1; i <= (int) htbl->bits[l]; i++)
+X      huffsize[p++] = (char) l;
+X  }
+X  huffsize[p] = 0;
+X  lastp = p;
+X  
+X  /* Figure C.2: generate the codes themselves */
+X  /* Note that this is in code-length order. */
+X  
+X  code = 0;
+X  si = huffsize[0];
+X  p = 0;
+X  while (huffsize[p]) {
+X    while (((int) huffsize[p]) == si) {
+X      huffcode[p++] = code;
+X      code++;
+X    }
+X    code <<= 1;
+X    si++;
+X  }
+X  
+X  /* Figure C.3: generate encoding tables */
+X  /* These are code and size indexed by symbol value */
+X
+X  /* Set any codeless symbols to have code length 0;
+X   * this allows emit_bits to detect any attempt to emit such symbols.
+X   */
+X  MEMZERO((void *) htbl->ehufsi, SIZEOF(htbl->ehufsi));
+X
+X  for (p = 0; p < lastp; p++) {
+X    htbl->ehufco[htbl->huffval[p]] = huffcode[p];
+X    htbl->ehufsi[htbl->huffval[p]] = huffsize[p];
+X  }
+X  
+X  /* We don't bother to fill in the decoding tables mincode[], maxcode[], */
+X  /* and valptr[], since they are not used for encoding. */
+X}
+X
+X
+X/* Outputting bytes to the file */
+X
+XLOCAL void
+Xflush_bytes (void)
+X{
+X  if (bytes_in_buffer)
+X    (*cinfo->methods->entropy_output) (cinfo, output_buffer, bytes_in_buffer);
+X  bytes_in_buffer = 0;
+X}
+X
+X
+X#define emit_byte(val)  \
+X  MAKESTMT( if (bytes_in_buffer >= JPEG_BUF_SIZE) \
+X	      flush_bytes(); \
+X	    output_buffer[bytes_in_buffer++] = (char) (val); )
+X
+X
+X
+X/* Outputting bits to the file */
+X
+X/* Only the right 24 bits of huff_put_buffer are used; the valid bits are
+X * left-justified in this part.  At most 16 bits can be passed to emit_bits
+X * in one call, and we never retain more than 7 bits in huff_put_buffer
+X * between calls, so 24 bits are sufficient.
+X */
+X
+XLOCAL void
+Xemit_bits (UINT16 code, int size)
+X{
+X  /* This routine is heavily used, so it's worth coding tightly. */
+X  register INT32 put_buffer = code;
+X  register int put_bits = huff_put_bits;
+X
+X  /* if size is 0, caller used an invalid Huffman table entry */
+X  if (size == 0)
+X    ERREXIT(cinfo->emethods, "Missing Huffman code table entry");
+X
+X  put_buffer &= (((INT32) 1) << size) - 1; /* Mask off any excess bits in code */
+X  
+X  put_bits += size;		/* new number of bits in buffer */
+X  
+X  put_buffer <<= 24 - put_bits; /* align incoming bits */
+X
+X  put_buffer |= huff_put_buffer; /* and merge with old buffer contents */
+X  
+X  while (put_bits >= 8) {
+X    int c = (int) ((put_buffer >> 16) & 0xFF);
+X    
+X    emit_byte(c);
+X    if (c == 0xFF) {		/* need to stuff a zero byte? */
+X      emit_byte(0);
+X    }
+X    put_buffer <<= 8;
+X    put_bits -= 8;
+X  }
+X
+X  huff_put_buffer = put_buffer;	/* Update global variables */
+X  huff_put_bits = put_bits;
+X}
+X
+X
+XLOCAL void
+Xflush_bits (void)
+X{
+X  emit_bits((UINT16) 0x7F, 7);	/* fill any partial byte with ones */
+X  huff_put_buffer = 0;		/* and reset bit-buffer to empty */
+X  huff_put_bits = 0;
+X}
+X
+X
+X
+X/* Encode a single block's worth of coefficients */
+X/* Note that the DC coefficient has already been converted to a difference */
+X
+XLOCAL void
+Xencode_one_block (JBLOCK block, HUFF_TBL *dctbl, HUFF_TBL *actbl)
+X{
+X  register int temp, temp2;
+X  register int nbits;
+X  register int k, r, i;
+X  
+X  /* Encode the DC coefficient difference per section F.1.2.1 */
+X  
+X  temp = temp2 = block[0];
+X
+X  if (temp < 0) {
+X    temp = -temp;		/* temp is abs value of input */
+X    /* For a negative input, want temp2 = bitwise complement of abs(input) */
+X    /* This code assumes we are on a two's complement machine */
+X    temp2--;
+X  }
+X  
+X  /* Find the number of bits needed for the magnitude of the coefficient */
+X  nbits = 0;
+X  while (temp) {
+X    nbits++;
+X    temp >>= 1;
+X  }
+X  
+X  /* Emit the Huffman-coded symbol for the number of bits */
+X  emit_bits(dctbl->ehufco[nbits], dctbl->ehufsi[nbits]);
+X
+X  /* Emit that number of bits of the value, if positive, */
+X  /* or the complement of its magnitude, if negative. */
+X  if (nbits)			/* emit_bits rejects calls with size 0 */
+X    emit_bits((UINT16) temp2, nbits);
+X  
+X  /* Encode the AC coefficients per section F.1.2.2 */
+X  
+X  r = 0;			/* r = run length of zeros */
+X  
+X  for (k = 1; k < DCTSIZE2; k++) {
+X    if ((temp = block[k]) == 0) {
+X      r++;
+X    } else {
+X      /* if run length > 15, must emit special run-length-16 codes (0xF0) */
+X      while (r > 15) {
+X	emit_bits(actbl->ehufco[0xF0], actbl->ehufsi[0xF0]);
+X	r -= 16;
+X      }
+X
+X      temp2 = temp;
+X      if (temp < 0) {
+X	temp = -temp;		/* temp is abs value of input */
+X	/* This code assumes we are on a two's complement machine */
+X	temp2--;
+X      }
+X      
+X      /* Find the number of bits needed for the magnitude of the coefficient */
+X      nbits = 1;		/* there must be at least one 1 bit */
+X      while (temp >>= 1)
+X	nbits++;
+X      
+X      /* Emit Huffman symbol for run length / number of bits */
+X      i = (r << 4) + nbits;
+X      emit_bits(actbl->ehufco[i], actbl->ehufsi[i]);
+X      
+X      /* Emit that number of bits of the value, if positive, */
+X      /* or the complement of its magnitude, if negative. */
+X      emit_bits((UINT16) temp2, nbits);
+X      
+X      r = 0;
+X    }
+X  }
+X
+X  /* If the last coef(s) were zero, emit an end-of-block code */
+X  if (r > 0)
+X    emit_bits(actbl->ehufco[0], actbl->ehufsi[0]);
+X}
+X
+X
+X
+X/*
+X * Initialize for a Huffman-compressed scan.
+X * This is invoked after writing the SOS marker.
+X * The pipeline controller must establish the entropy_output method pointer
+X * before calling this routine.
+X */
+X
+XMETHODDEF void
+Xhuff_init (compress_info_ptr xinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Initialize static variables */
+X  cinfo = xinfo;
+X  huff_put_buffer = 0;
+X  huff_put_bits = 0;
+X
+X  /* Initialize the output buffer */
+X  output_buffer = (char *) (*cinfo->emethods->alloc_small)
+X				((size_t) JPEG_BUF_SIZE);
+X  bytes_in_buffer = 0;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Make sure requested tables are present */
+X    if (cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no] == NULL ||
+X	cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no] == NULL)
+X      ERREXIT(cinfo->emethods, "Use of undefined Huffman table");
+X    /* Compute derived values for Huffman tables */
+X    /* We may do this more than once for same table, but it's not a big deal */
+X    fix_huff_tbl(cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no]);
+X    fix_huff_tbl(cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X    /* Initialize DC predictions to 0 */
+X    cinfo->last_dc_val[ci] = 0;
+X  }
+X
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num = 0;
+X}
+X
+X
+X/*
+X * Emit a restart marker & resynchronize predictions.
+X */
+X
+XLOCAL void
+Xemit_restart (compress_info_ptr cinfo)
+X{
+X  short ci;
+X
+X  flush_bits();
+X
+X  emit_byte(0xFF);
+X  emit_byte(RST0 + cinfo->next_restart_num);
+X
+X  /* Re-initialize DC predictions to 0 */
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X    cinfo->last_dc_val[ci] = 0;
+X
+X  /* Update restart state */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num++;
+X  cinfo->next_restart_num &= 7;
+X}
+X
+X
+X/*
+X * Encode and output one MCU's worth of Huffman-compressed coefficients.
+X */
+X
+XMETHODDEF void
+Xhuff_encode (compress_info_ptr cinfo, JBLOCK *MCU_data)
+X{
+X  short blkn, ci;
+X  jpeg_component_info * compptr;
+X  JCOEF temp;
+X
+X  /* Account for restart interval, emit restart marker if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0)
+X      emit_restart(cinfo);
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Convert DC value to difference, update last_dc_val */
+X    temp = MCU_data[blkn][0];
+X    MCU_data[blkn][0] -= cinfo->last_dc_val[ci];
+X    cinfo->last_dc_val[ci] = temp;
+X    encode_one_block(MCU_data[blkn],
+X		     cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no],
+X		     cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of a Huffman-compressed scan.
+X */
+X
+XMETHODDEF void
+Xhuff_term (compress_info_ptr cinfo)
+X{
+X  /* Flush out the last data */
+X  flush_bits();
+X  flush_bytes();
+X  /* Release the I/O buffer */
+X  (*cinfo->emethods->free_small) ((void *) output_buffer);
+X}
+X
+X
+X
+X
+X/*
+X * Huffman coding optimization.
+X *
+X * This actually is optimization, in the sense that we find the best possible
+X * Huffman table(s) for the given data.  We first scan the supplied data and
+X * count the number of uses of each symbol that is to be Huffman-coded.
+X * (This process must agree with the code above.)  Then we build an
+X * optimal Huffman coding tree for the observed counts.
+X */
+X
+X#ifdef ENTROPY_OPT_SUPPORTED
+X
+X
+X/* These are static so htest_one_block can find 'em */
+Xstatic long * dc_count_ptrs[NUM_HUFF_TBLS];
+Xstatic long * ac_count_ptrs[NUM_HUFF_TBLS];
+X
+X
+XLOCAL void
+Xgen_huff_coding (compress_info_ptr cinfo, HUFF_TBL *htbl, long freq[])
+X/* Generate the optimal coding for the given counts */
+X{
+X#define MAX_CLEN 32		/* assumed maximum initial code length */
+X  UINT8 bits[MAX_CLEN+1];	/* bits[k] = # of symbols with code length k */
+X  short codesize[257];		/* codesize[k] = code length of symbol k */
+X  short others[257];		/* next symbol in current branch of tree */
+X  int c1, c2;
+X  int p, i, j;
+X  long v;
+X
+X  /* This algorithm is explained in section K.2 of the JPEG standard */
+X
+X  MEMZERO((void *) bits, SIZEOF(bits));
+X  MEMZERO((void *) codesize, SIZEOF(codesize));
+X  for (i = 0; i < 257; i++)
+X    others[i] = -1;		/* init links to empty */
+X  
+X  freq[256] = 1;		/* make sure there is a nonzero count */
+X  /* including the pseudo-symbol 256 in the Huffman procedure guarantees
+X   * that no real symbol is given code-value of all ones, because 256
+X   * will be placed in the largest codeword category.
+X   */
+X
+X  /* Huffman's basic algorithm to assign optimal code lengths to symbols */
+X
+X  for (;;) {
+X    /* Find the smallest nonzero frequency, set c1 = its symbol */
+X    /* In case of ties, take the larger symbol number */
+X    c1 = -1;
+X    v = 1000000000L;
+X    for (i = 0; i <= 256; i++) {
+X      if (freq[i] && freq[i] <= v) {
+X	v = freq[i];
+X	c1 = i;
+X      }
+X    }
+X
+X    /* Find the next smallest nonzero frequency, set c2 = its symbol */
+X    /* In case of ties, take the larger symbol number */
+X    c2 = -1;
+X    v = 1000000000L;
+X    for (i = 0; i <= 256; i++) {
+X      if (freq[i] && freq[i] <= v && i != c1) {
+X	v = freq[i];
+X	c2 = i;
+X      }
+X    }
+X
+X    /* Done if we've merged everything into one frequency */
+X    if (c2 < 0)
+X      break;
+X    
+X    /* Else merge the two counts/trees */
+X    freq[c1] += freq[c2];
+X    freq[c2] = 0;
+X
+X    /* Increment the codesize of everything in c1's tree branch */
+X    codesize[c1]++;
+X    while (others[c1] >= 0) {
+X      c1 = others[c1];
+X      codesize[c1]++;
+X    }
+X    
+X    others[c1] = c2;		/* chain c2 onto c1's tree branch */
+X    
+X    /* Increment the codesize of everything in c2's tree branch */
+X    codesize[c2]++;
+X    while (others[c2] >= 0) {
+X      c2 = others[c2];
+X      codesize[c2]++;
+X    }
+X  }
+X
+X  /* Now count the number of symbols of each code length */
+X  for (i = 0; i <= 256; i++) {
+X    if (codesize[i]) {
+X      /* The JPEG standard seems to think that this can't happen, */
+X      /* but I'm paranoid... */
+X      if (codesize[i] > MAX_CLEN)
+X	ERREXIT(cinfo->emethods, "Huffman code size table overflow");
+X
+X      bits[codesize[i]]++;
+X    }
+X  }
+X
+X  /* JPEG doesn't allow symbols with code lengths over 16 bits, so if the pure
+X   * Huffman procedure assigned any such lengths, we must adjust the coding.
+X   * Here is what the JPEG spec says about how this next bit works:
+X   * Since symbols are paired for the longest Huffman code, the symbols are
+X   * removed from this length category two at a time.  The prefix for the pair
+X   * (which is one bit shorter) is allocated to one of the pair; then,
+X   * skipping the BITS entry for that prefix length, a code word from the next
+X   * shortest nonzero BITS entry is converted into a prefix for two code words
+X   * one bit longer.
+X   */
+X  
+X  for (i = MAX_CLEN; i > 16; i--) {
+X    while (bits[i] > 0) {
+X      j = i - 2;		/* find length of new prefix to be used */
+X      while (bits[j] == 0)
+X	j--;
+X      
+X      bits[i] -= 2;		/* remove two symbols */
+X      bits[i-1]++;		/* one goes in this length */
+X      bits[j+1] += 2;		/* two new symbols in this length */
+X      bits[j]--;		/* symbol of this length is now a prefix */
+X    }
+X  }
+X
+X  /* Remove the count for the pseudo-symbol 256 from the largest codelength */
+X  while (bits[i] == 0)		/* find largest codelength still in use */
+X    i--;
+X  bits[i]--;
+X  
+X  /* Return final symbol counts (only for lengths 0..16) */
+X  memcpy((void *) htbl->bits, (void *) bits, SIZEOF(htbl->bits));
+X  
+X  /* Return a list of the symbols sorted by code length */
+X  /* It's not real clear to me why we don't need to consider the codelength
+X   * changes made above, but the JPEG spec seems to think this works.
+X   */
+X  p = 0;
+X  for (i = 1; i <= MAX_CLEN; i++) {
+X    for (j = 0; j <= 255; j++) {
+X      if (codesize[j] == i) {
+X	htbl->huffval[p] = (UINT8) j;
+X	p++;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Process a single block's worth of coefficients */
+X/* Note that the DC coefficient has already been converted to a difference */
+X
+XLOCAL void
+Xhtest_one_block (JBLOCK block, JCOEF block0,
+X		 long dc_counts[], long ac_counts[])
+X{
+X  register INT32 temp;
+X  register int nbits;
+X  register int k, r;
+X  
+X  /* Encode the DC coefficient difference per section F.1.2.1 */
+X  
+X  /* Find the number of bits needed for the magnitude of the coefficient */
+X  temp = block0;
+X  if (temp < 0) temp = -temp;
+X  
+X  for (nbits = 0; temp; nbits++)
+X    temp >>= 1;
+X  
+X  /* Count the Huffman symbol for the number of bits */
+X  dc_counts[nbits]++;
+X  
+X  /* Encode the AC coefficients per section F.1.2.2 */
+X  
+X  r = 0;			/* r = run length of zeros */
+X  
+X  for (k = 1; k < DCTSIZE2; k++) {
+X    if ((temp = block[k]) == 0) {
+X      r++;
+X    } else {
+X      /* if run length > 15, must emit special run-length-16 codes (0xF0) */
+X      while (r > 15) {
+X	ac_counts[0xF0]++;
+X	r -= 16;
+X      }
+X      
+X      /* Find the number of bits needed for the magnitude of the coefficient */
+X      if (temp < 0) temp = -temp;
+X      
+X      for (nbits = 0; temp; nbits++)
+X	temp >>= 1;
+X      
+X      /* Count Huffman symbol for run length / number of bits */
+X      ac_counts[(r << 4) + nbits]++;
+X      
+X      r = 0;
+X    }
+X  }
+X
+X  /* If the last coef(s) were zero, emit an end-of-block code */
+X  if (r > 0)
+X    ac_counts[0]++;
+X}
+X
+X
+X
+X/*
+X * Trial-encode one MCU's worth of Huffman-compressed coefficients.
+X */
+X
+XLOCAL void
+Xhtest_encode (compress_info_ptr cinfo, JBLOCK *MCU_data)
+X{
+X  short blkn, ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Take care of restart intervals if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0) {
+X      /* Re-initialize DC predictions to 0 */
+X      for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X	cinfo->last_dc_val[ci] = 0;
+X      /* Update restart state */
+X      cinfo->restarts_to_go = cinfo->restart_interval;
+X    }
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* NB: unlike the real entropy encoder, we may not change the input data */
+X    htest_one_block(MCU_data[blkn],
+X		    (JCOEF) (MCU_data[blkn][0] - cinfo->last_dc_val[ci]),
+X		    dc_count_ptrs[compptr->dc_tbl_no],
+X		    ac_count_ptrs[compptr->ac_tbl_no]);
+X    cinfo->last_dc_val[ci] = MCU_data[blkn][0];
+X  }
+X}
+X
+X
+X
+X/*
+X * Find the best coding parameters for a Huffman-coded scan.
+X * When called, the scan data has already been converted to a sequence of
+X * MCU groups of quantized coefficients, which are stored in a "big" array.
+X * The source_method knows how to iterate through that array.
+X * On return, the MCU data is unmodified, but the Huffman tables referenced
+X * by the scan components may have been altered.
+X */
+X
+XMETHODDEF void
+Xhuff_optimize (compress_info_ptr cinfo, MCU_output_caller_ptr source_method)
+X/* Optimize Huffman-coding parameters (Huffman symbol table) */
+X{
+X  int i, tbl;
+X  HUFF_TBL **htblptr;
+X
+X  /* Allocate and zero the count tables */
+X  /* Note that gen_huff_coding expects 257 entries in each table! */
+X
+X  for (i = 0; i < NUM_HUFF_TBLS; i++) {
+X    dc_count_ptrs[i] = NULL;
+X    ac_count_ptrs[i] = NULL;
+X  }
+X
+X  for (i = 0; i < cinfo->comps_in_scan; i++) {
+X    /* Create DC table */
+X    tbl = cinfo->cur_comp_info[i]->dc_tbl_no;
+X    if (dc_count_ptrs[tbl] == NULL) {
+X      dc_count_ptrs[tbl] = (long *) (*cinfo->emethods->alloc_small)
+X					(257 * SIZEOF(long));
+X      MEMZERO((void *) dc_count_ptrs[tbl], 257 * SIZEOF(long));
+X    }
+X    /* Create AC table */
+X    tbl = cinfo->cur_comp_info[i]->ac_tbl_no;
+X    if (ac_count_ptrs[tbl] == NULL) {
+X      ac_count_ptrs[tbl] = (long *) (*cinfo->emethods->alloc_small)
+X					(257 * SIZEOF(long));
+X      MEMZERO((void *) ac_count_ptrs[tbl], 257 * SIZEOF(long));
+X    }
+X  }
+X
+X  /* Initialize DC predictions to 0 */
+X  for (i = 0; i < cinfo->comps_in_scan; i++) {
+X    cinfo->last_dc_val[i] = 0;
+X  }
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X
+X  /* Scan the MCU data, count symbol uses */
+X  (*source_method) (cinfo, htest_encode);
+X
+X  /* Now generate optimal Huffman tables */
+X  for (tbl = 0; tbl < NUM_HUFF_TBLS; tbl++) {
+X    if (dc_count_ptrs[tbl] != NULL) {
+X      htblptr = & cinfo->dc_huff_tbl_ptrs[tbl];
+X      if (*htblptr == NULL)
+X	*htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X      /* Set sent_table FALSE so updated table will be written to JPEG file. */
+X      (*htblptr)->sent_table = FALSE;
+X      /* Compute the optimal Huffman encoding */
+X      gen_huff_coding(cinfo, *htblptr, dc_count_ptrs[tbl]);
+X      /* Release the count table */
+X      (*cinfo->emethods->free_small) ((void *) dc_count_ptrs[tbl]);
+X    }
+X    if (ac_count_ptrs[tbl] != NULL) {
+X      htblptr = & cinfo->ac_huff_tbl_ptrs[tbl];
+X      if (*htblptr == NULL)
+X	*htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X      /* Set sent_table FALSE so updated table will be written to JPEG file. */
+X      (*htblptr)->sent_table = FALSE;
+X      /* Compute the optimal Huffman encoding */
+X      gen_huff_coding(cinfo, *htblptr, ac_count_ptrs[tbl]);
+X      /* Release the count table */
+X      (*cinfo->emethods->free_small) ((void *) ac_count_ptrs[tbl]);
+X    }
+X  }
+X}
+X
+X
+X#endif /* ENTROPY_OPT_SUPPORTED */
+X
+X
+X/*
+X * The method selection routine for Huffman entropy encoding.
+X */
+X
+XGLOBAL void
+Xjselchuffman (compress_info_ptr cinfo)
+X{
+X  if (! cinfo->arith_code) {
+X    cinfo->methods->entropy_encoder_init = huff_init;
+X    cinfo->methods->entropy_encode = huff_encode;
+X    cinfo->methods->entropy_encoder_term = huff_term;
+X#ifdef ENTROPY_OPT_SUPPORTED
+X    cinfo->methods->entropy_optimize = huff_optimize;
+X    /* The standard Huffman tables are only valid for 8-bit data precision.
+X     * If the precision is higher, force optimization on so that usable
+X     * tables will be computed.  This test can be removed if default tables
+X     * are supplied that are valid for the desired precision.
+X     */
+X    if (cinfo->data_precision > 8)
+X      cinfo->optimize_coding = TRUE;
+X    if (cinfo->optimize_coding)
+X      cinfo->total_passes++;	/* one pass needed for entropy optimization */
+X#endif
+X  }
+X}
+END_OF_FILE
+  if test 20071 -ne `wc -c <'jchuff.c'`; then
+    echo shar: \"'jchuff.c'\" unpacked with wrong size!
+  fi
+  # end of 'jchuff.c'
+fi
+if test -f 'jcmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcmain.c'\"
+else
+  echo shar: Extracting \"'jcmain.c'\" \(9991 characters\)
+  sed "s/^X//" >'jcmain.c' <<'END_OF_FILE'
+X/*
+X * jcmain.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains a trivial test user interface for the JPEG compressor.
+X * It should work on any system with Unix- or MS-DOS-style command lines.
+X *
+X * Two different command line styles are permitted, depending on the
+X * compile-time switch TWO_FILE_COMMANDLINE:
+X *	cjpeg [options]  inputfile outputfile
+X *	cjpeg [options]  [inputfile]
+X * In the second style, output is always to standard output, which you'd
+X * normally redirect to a file or pipe to some other program.  Input is
+X * either from a named file or from standard input (typically redirected).
+X * The second style is convenient on Unix but is unhelpful on systems that
+X * don't support pipes.  Also, you MUST use the first style if your system
+X * doesn't do binary I/O to stdin/stdout.
+X */
+X
+X#include "jinclude.h"
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare exit() */
+X#endif
+X#ifdef NEED_SIGNAL_CATCHER
+X#include <signal.h>		/* to declare signal() */
+X#endif
+X
+X#ifdef THINK_C
+X#include <console.h>		/* command-line reader for Macintosh */
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#define WRITE_BINARY	"w"
+X#else
+X#define READ_BINARY	"rb"
+X#define WRITE_BINARY	"wb"
+X#endif
+X
+X#ifndef EXIT_FAILURE		/* define exit() codes if not provided */
+X#define EXIT_FAILURE  1
+X#endif
+X#ifndef EXIT_SUCCESS
+X#ifdef VMS
+X#define EXIT_SUCCESS  1		/* VMS is very nonstandard */
+X#else
+X#define EXIT_SUCCESS  0
+X#endif
+X#endif
+X
+X
+X#include "jversion.h"		/* for version message */
+X
+X
+X/*
+X * PD version of getopt(3).
+X */
+X
+X#include "egetopt.c"
+X
+X
+X/*
+X * This routine determines what format the input file is,
+X * and selects the appropriate input-reading module.
+X *
+X * To determine which family of input formats the file belongs to,
+X * we may look only at the first byte of the file, since C does not
+X * guarantee that more than one character can be pushed back with ungetc.
+X * Looking at additional bytes would require one of these approaches:
+X *     1) assume we can fseek() the input file (fails for piped input);
+X *     2) assume we can push back more than one character (works in
+X *        some C implementations, but unportable);
+X *     3) provide our own buffering as is done in djpeg (breaks input readers
+X *        that want to use stdio directly, such as the RLE library);
+X * or  4) don't put back the data, and modify the input_init methods to assume
+X *        they start reading after the start of file (also breaks RLE library).
+X * #1 is attractive for MS-DOS but is untenable on Unix.
+X *
+X * The most portable solution for file types that can't be identified by their
+X * first byte is to make the user tell us what they are.  This is also the
+X * only approach for "raw" file types that contain only arbitrary values.
+X * We presently apply this method for Targa files.  Most of the time Targa
+X * files start with 0x00, so we recognize that case.  Potentially, however,
+X * a Targa file could start with any byte value (byte 0 is the length of the
+X * seldom-used ID field), so we accept a -T switch to force Targa input mode.
+X */
+X
+Xstatic boolean is_targa;	/* records user -T switch */
+X
+X
+XLOCAL void
+Xselect_file_type (compress_info_ptr cinfo)
+X{
+X  int c;
+X
+X  if (is_targa) {
+X#ifdef TARGA_SUPPORTED
+X    jselrtarga(cinfo);
+X#else
+X    ERREXIT(cinfo->emethods, "Targa support was not compiled");
+X#endif
+X    return;
+X  }
+X
+X  if ((c = getc(cinfo->input_file)) == EOF)
+X    ERREXIT(cinfo->emethods, "Empty input file");
+X
+X  switch (c) {
+X#ifdef GIF_SUPPORTED
+X  case 'G':
+X    jselrgif(cinfo);
+X    break;
+X#endif
+X#ifdef PPM_SUPPORTED
+X  case 'P':
+X    jselrppm(cinfo);
+X    break;
+X#endif
+X#ifdef RLE_SUPPORTED
+X  case 'R':
+X    jselrrle(cinfo);
+X    break;
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  case 0x00:
+X    jselrtarga(cinfo);
+X    break;
+X#endif
+X  default:
+X#ifdef TARGA_SUPPORTED
+X    ERREXIT(cinfo->emethods, "Unrecognized input file format --- did you forget -T ?");
+X#else
+X    ERREXIT(cinfo->emethods, "Unrecognized input file format");
+X#endif
+X    break;
+X  }
+X
+X  if (ungetc(c, cinfo->input_file) == EOF)
+X    ERREXIT(cinfo->emethods, "ungetc failed");
+X}
+X
+X
+X/*
+X * This routine gets control after the input file header has been read.
+X * It must determine what output JPEG file format is to be written,
+X * and make any other compression parameter changes that are desirable.
+X */
+X
+XMETHODDEF void
+Xc_ui_method_selection (compress_info_ptr cinfo)
+X{
+X  /* If the input is gray scale, generate a monochrome JPEG file. */
+X  if (cinfo->in_color_space == CS_GRAYSCALE)
+X    j_monochrome_default(cinfo);
+X  /* For now, always select JFIF output format. */
+X#ifdef JFIF_SUPPORTED
+X  jselwjfif(cinfo);
+X#else
+X  You shoulda defined JFIF_SUPPORTED.   /* deliberate syntax error */
+X#endif
+X}
+X
+X
+X/*
+X * Signal catcher to ensure that temporary files are removed before aborting.
+X * NB: for Amiga Manx C this is actually a global routine named _abort();
+X * see -Dsignal_catcher=_abort in CFLAGS.  Talk about bogus...
+X */
+X
+X#ifdef NEED_SIGNAL_CATCHER
+X
+Xstatic external_methods_ptr emethods; /* for access to free_all */
+X
+XGLOBAL void
+Xsignal_catcher (int signum)
+X{
+X  emethods->trace_level = 0;	/* turn off trace output */
+X  (*emethods->free_all) ();	/* clean up memory allocation & temp files */
+X  exit(EXIT_FAILURE);
+X}
+X
+X#endif
+X
+X
+XLOCAL void
+Xusage (char * progname)
+X/* complain about bad command line */
+X{
+X  fprintf(stderr, "usage: %s ", progname);
+X  fprintf(stderr, "[-Q quality 0..100] [-o] [-T] [-I] [-a] [-d] [-m mem]");
+X#ifdef TWO_FILE_COMMANDLINE
+X  fprintf(stderr, " inputfile outputfile\n");
+X#else
+X  fprintf(stderr, " [inputfile]\n");
+X#endif
+X  exit(EXIT_FAILURE);
+X}
+X
+X
+X/*
+X * The main program.
+X */
+X
+XGLOBAL int
+Xmain (int argc, char **argv)
+X{
+X  struct compress_info_struct cinfo;
+X  struct compress_methods_struct c_methods;
+X  struct external_methods_struct e_methods;
+X  int c;
+X
+X  /* On Mac, fetch a command line. */
+X#ifdef THINK_C
+X  argc = ccommand(&argv);
+X#endif
+X
+X  /* Initialize the system-dependent method pointers. */
+X  cinfo.methods = &c_methods;
+X  cinfo.emethods = &e_methods;
+X  jselerror(&e_methods);	/* error/trace message routines */
+X  jselmemmgr(&e_methods);	/* memory allocation routines */
+X  c_methods.c_ui_method_selection = c_ui_method_selection;
+X
+X  /* Now OK to enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = &e_methods;
+X  signal(SIGINT, signal_catcher);
+X#ifdef SIGTERM			/* not all systems have SIGTERM */
+X  signal(SIGTERM, signal_catcher);
+X#endif
+X#endif
+X
+X  /* Set up default JPEG parameters. */
+X  j_c_defaults(&cinfo, 75, FALSE); /* default quality level = 75 */
+X  is_targa = FALSE;
+X
+X  /* Scan command line options, adjust parameters */
+X  
+X  while ((c = egetopt(argc, argv, "IQ:Taom:d")) != EOF)
+X    switch (c) {
+X    case 'I':			/* Create noninterleaved file. */
+X#ifdef MULTISCAN_FILES_SUPPORTED
+X      cinfo.interleave = FALSE;
+X#else
+X      fprintf(stderr, "%s: sorry, multiple-scan support was not compiled\n",
+X	      argv[0]);
+X      exit(EXIT_FAILURE);
+X#endif
+X      break;
+X    case 'Q':			/* Quality factor. */
+X      { int val;
+X	if (optarg == NULL)
+X	  usage(argv[0]);
+X	if (sscanf(optarg, "%d", &val) != 1)
+X	  usage(argv[0]);
+X	/* Note: for now, we make force_baseline FALSE.
+X	 * This means non-baseline JPEG files can be created with low Q values.
+X	 * To ensure only baseline files are generated, pass TRUE instead.
+X	 */
+X	j_set_quality(&cinfo, val, FALSE);
+X      }
+X      break;
+X    case 'T':			/* Input file is Targa format. */
+X      is_targa = TRUE;
+X      break;
+X    case 'a':			/* Use arithmetic coding. */
+X#ifdef ARITH_CODING_SUPPORTED
+X      cinfo.arith_code = TRUE;
+X#else
+X      fprintf(stderr, "%s: sorry, arithmetic coding not supported\n",
+X	      argv[0]);
+X      exit(EXIT_FAILURE);
+X#endif
+X      break;
+X    case 'o':			/* Enable entropy parm optimization. */
+X#ifdef ENTROPY_OPT_SUPPORTED
+X      cinfo.optimize_coding = TRUE;
+X#else
+X      fprintf(stderr, "%s: sorry, entropy optimization was not compiled\n",
+X	      argv[0]);
+X      exit(EXIT_FAILURE);
+X#endif
+X      break;
+X    case 'm':			/* Maximum memory in Kb (or Mb with 'm'). */
+X      { long lval;
+X	char ch = 'x';
+X
+X	if (optarg == NULL)
+X	  usage(argv[0]);
+X	if (sscanf(optarg, "%ld%c", &lval, &ch) < 1)
+X	  usage(argv[0]);
+X	if (ch == 'm' || ch == 'M')
+X	  lval *= 1000L;
+X	e_methods.max_memory_to_use = lval * 1000L;
+X      }
+X      break;
+X    case 'd':			/* Debugging. */
+X      e_methods.trace_level++;
+X      break;
+X    case '?':
+X    default:
+X      usage(argv[0]);
+X      break;
+X    }
+X
+X  /* If -d appeared, print version identification */
+X  if (e_methods.trace_level > 0)
+X    fprintf(stderr, "Independent JPEG Group's CJPEG, version %s\n%s\n",
+X	    JVERSION, JCOPYRIGHT);
+X
+X  /* Select the input and output files */
+X
+X#ifdef TWO_FILE_COMMANDLINE
+X
+X  if (optind != argc-2) {
+X    fprintf(stderr, "%s: must name one input and one output file\n", argv[0]);
+X    usage(argv[0]);
+X  }
+X  if ((cinfo.input_file = fopen(argv[optind], READ_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind]);
+X    exit(EXIT_FAILURE);
+X  }
+X  if ((cinfo.output_file = fopen(argv[optind+1], WRITE_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind+1]);
+X    exit(EXIT_FAILURE);
+X  }
+X
+X#else /* not TWO_FILE_COMMANDLINE -- use Unix style */
+X
+X  cinfo.input_file = stdin;	/* default input file */
+X  cinfo.output_file = stdout;	/* always the output file */
+X
+X  if (optind < argc-1) {
+X    fprintf(stderr, "%s: only one input file\n", argv[0]);
+X    usage(argv[0]);
+X  }
+X  if (optind < argc) {
+X    if ((cinfo.input_file = fopen(argv[optind], READ_BINARY)) == NULL) {
+X      fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind]);
+X      exit(EXIT_FAILURE);
+X    }
+X  }
+X
+X#endif /* TWO_FILE_COMMANDLINE */
+X
+X  /* Figure out the input file format, and set up to read it. */
+X  select_file_type(&cinfo);
+X
+X  /* Do it to it! */
+X  jpeg_compress(&cinfo);
+X
+X  /* All done. */
+X  exit(EXIT_SUCCESS);
+X  return 0;			/* suppress no-return-value warnings */
+X}
+END_OF_FILE
+  if test 9991 -ne `wc -c <'jcmain.c'`; then
+    echo shar: \"'jcmain.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcmain.c'
+fi
+if test -f 'jrdgif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdgif.c'\"
+else
+  echo shar: Extracting \"'jrdgif.c'\" \(19830 characters\)
+  sed "s/^X//" >'jrdgif.c' <<'END_OF_FILE'
+X/*
+X * jrdgif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in GIF format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed GIF format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X */
+X
+X/*
+X * This code is loosely based on giftoppm from the PBMPLUS distribution
+X * of Feb. 1991.  That file contains the following copyright notice:
+X * +-------------------------------------------------------------------+
+X * | Copyright 1990, David Koblas.                                     |
+X * |   Permission to use, copy, modify, and distribute this software   |
+X * |   and its documentation for any purpose and without fee is hereby |
+X * |   granted, provided that the above copyright notice appear in all |
+X * |   copies and that both that copyright notice and this permission  |
+X * |   notice appear in supporting documentation.  This software is    |
+X * |   provided "as is" without express or implied warranty.           |
+X * +-------------------------------------------------------------------+
+X *
+X * We are also required to state that
+X *    "The Graphics Interchange Format(c) is the Copyright property of
+X *    CompuServe Incorporated. GIF(sm) is a Service Mark property of
+X *    CompuServe Incorporated."
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef GIF_SUPPORTED
+X
+X
+X#define	MAXCOLORMAPSIZE	256	/* max # of colors in a GIF colormap */
+X#define NUMCOLORS	3	/* # of colors */
+X#define CM_RED		0	/* color component numbers */
+X#define CM_GREEN	1
+X#define CM_BLUE		2
+X
+Xstatic JSAMPARRAY colormap;	/* the colormap to use */
+X/* colormap[i][j] = value of i'th color component for pixel value j */
+X
+X#define	MAX_LZW_BITS	12	/* maximum LZW code size */
+X#define LZW_TABLE_SIZE	(1<<MAX_LZW_BITS) /* # of possible LZW symbols */
+X
+X/* Macros for extracting header data --- note we assume chars may be signed */
+X
+X#define LM_to_uint(a,b)		((((b)&0xFF) << 8) | ((a)&0xFF))
+X
+X#define BitSet(byte, bit)	((byte) & (bit))
+X#define INTERLACE	0x40	/* mask for bit signifying interlaced image */
+X#define COLORMAPFLAG	0x80	/* mask for bit signifying colormap presence */
+X
+X#define	ReadOK(file,buffer,len)	(JFREAD(file,buffer,len) == ((size_t) (len)))
+X
+X/* Static vars for GetCode and LZWReadByte */
+X
+Xstatic char code_buf[256+4];	/* current input data block */
+Xstatic int last_byte;		/* # of bytes in code_buf */
+Xstatic int last_bit;		/* # of bits in code_buf */
+Xstatic int cur_bit;		/* next bit index to read */
+Xstatic boolean out_of_blocks;	/* TRUE if hit terminator data block */
+X
+Xstatic int input_code_size;	/* codesize given in GIF file */
+Xstatic int clear_code,end_code; /* values for Clear and End codes */
+X
+Xstatic int code_size;		/* current actual code size */
+Xstatic int limit_code;		/* 2^code_size */
+Xstatic int max_code;		/* first unused code value */
+Xstatic boolean first_time;	/* flags first call to LZWReadByte */
+X
+X/* LZW decompression tables:
+X *   symbol_head[K] = prefix symbol of any LZW symbol K (0..LZW_TABLE_SIZE-1)
+X *   symbol_tail[K] = suffix byte   of any LZW symbol K (0..LZW_TABLE_SIZE-1)
+X * Note that entries 0..end_code of the above tables are not used,
+X * since those symbols represent raw bytes or special codes.
+X *
+X * The stack represents the not-yet-used expansion of the last LZW symbol.
+X * In the worst case, a symbol could expand to as many bytes as there are
+X * LZW symbols, so we allocate LZW_TABLE_SIZE bytes for the stack.
+X * (This is conservative since that number includes the raw-byte symbols.)
+X *
+X * The tables are allocated from FAR heap space since they would use up
+X * rather a lot of the near data space in a PC.
+X */
+X
+Xstatic UINT16 FAR *symbol_head; /* => table of prefix symbols */
+Xstatic UINT8  FAR *symbol_tail; /* => table of suffix bytes */
+Xstatic UINT8  FAR *symbol_stack; /* stack for symbol expansions */
+Xstatic UINT8  FAR *sp;		/* stack pointer */
+X
+X/* Static state for interlaced image processing */
+X
+Xstatic boolean is_interlaced;	/* TRUE if have interlaced image */
+Xstatic big_sarray_ptr interlaced_image;	/* full image in interlaced order */
+Xstatic long cur_row_number;	/* need to know actual row number */
+Xstatic long pass2_offset;	/* # of pixel rows in pass 1 */
+Xstatic long pass3_offset;	/* # of pixel rows in passes 1&2 */
+Xstatic long pass4_offset;	/* # of pixel rows in passes 1,2,3 */
+X
+X
+X/* Forward declarations */
+XMETHODDEF void load_interlaced_image PP((compress_info_ptr cinfo, JSAMPARRAY pixel_row));
+XMETHODDEF void get_interlaced_row PP((compress_info_ptr cinfo, JSAMPARRAY pixel_row));
+X
+X
+X
+XLOCAL int
+XReadByte (compress_info_ptr cinfo)
+X/* Read next byte from GIF file */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  int c;
+X
+X  if ((c = getc(infile)) == EOF)
+X    ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  return c;
+X}
+X
+X
+XLOCAL int
+XGetDataBlock (compress_info_ptr cinfo, char *buf)
+X/* Read a GIF data block, which has a leading count byte */
+X/* A zero-length block marks the end of a data block sequence */
+X{
+X  int count;
+X
+X  count = ReadByte(cinfo);
+X  if (count > 0) {
+X    if (! ReadOK(cinfo->input_file, buf, count))
+X      ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  }
+X  return count;
+X}
+X
+X
+XLOCAL void
+XSkipDataBlocks (compress_info_ptr cinfo)
+X/* Skip a series of data blocks, until a block terminator is found */
+X{
+X  char buf[256];
+X
+X  while (GetDataBlock(cinfo, buf) > 0)
+X    /* skip */;
+X}
+X
+X
+XLOCAL void
+XReInitLZW (void)
+X/* (Re)initialize LZW state; shared code for startup and Clear processing */
+X{
+X  code_size = input_code_size+1;
+X  limit_code = clear_code << 1;	/* 2^code_size */
+X  max_code = clear_code + 2;	/* first unused code value */
+X  sp = symbol_stack;		/* init stack to empty */
+X}
+X
+X
+XLOCAL void
+XInitLZWCode (void)
+X/* Initialize for a series of LZWReadByte (and hence GetCode) calls */
+X{
+X  /* GetCode initialization */
+X  last_byte = 2;		/* make safe to "recopy last two bytes" */
+X  last_bit = 0;			/* nothing in the buffer */
+X  cur_bit = 0;			/* force buffer load on first call */
+X  out_of_blocks = FALSE;
+X
+X  /* LZWReadByte initialization */
+X  clear_code = 1 << input_code_size; /* compute special code values */
+X  end_code = clear_code + 1;	/* note that these do not change */
+X  first_time = TRUE;
+X  ReInitLZW();
+X}
+X
+X
+XLOCAL int
+XGetCode (compress_info_ptr cinfo)
+X/* Fetch the next code_size bits from the GIF data */
+X/* We assume code_size is less than 16 */
+X{
+X  register INT32 accum;
+X  int offs, ret, count;
+X
+X  if ( (cur_bit+code_size) > last_bit) {
+X    /* Time to reload the buffer */
+X    if (out_of_blocks) {
+X      TRACEMS(cinfo->emethods, 1, "Ran out of GIF bits");
+X      return end_code;		/* fake something useful */
+X    }
+X    /* preserve last two bytes of what we have -- assume code_size <= 16 */
+X    code_buf[0] = code_buf[last_byte-2];
+X    code_buf[1] = code_buf[last_byte-1];
+X    /* Load more bytes; set flag if we reach the terminator block */
+X    if ((count = GetDataBlock(cinfo, &code_buf[2])) == 0) {
+X      out_of_blocks = TRUE;
+X      TRACEMS(cinfo->emethods, 1, "Ran out of GIF bits");
+X      return end_code;		/* fake something useful */
+X    }
+X    /* Reset counters */
+X    cur_bit = (cur_bit - last_bit) + 16;
+X    last_byte = 2 + count;
+X    last_bit = last_byte * 8;
+X  }
+X
+X  /* Form up next 24 bits in accum */
+X  offs = cur_bit >> 3;		/* byte containing cur_bit */
+X#ifdef CHAR_IS_UNSIGNED
+X  accum = code_buf[offs+2];
+X  accum <<= 8;
+X  accum |= code_buf[offs+1];
+X  accum <<= 8;
+X  accum |= code_buf[offs];
+X#else
+X  accum = code_buf[offs+2] & 0xFF;
+X  accum <<= 8;
+X  accum |= code_buf[offs+1] & 0xFF;
+X  accum <<= 8;
+X  accum |= code_buf[offs] & 0xFF;
+X#endif
+X
+X  /* Right-align cur_bit in accum, then mask off desired number of bits */
+X  accum >>= (cur_bit & 7);
+X  ret = ((int) accum) & ((1 << code_size) - 1);
+X  
+X  cur_bit += code_size;
+X  return ret;
+X}
+X
+X
+XLOCAL int
+XLZWReadByte (compress_info_ptr cinfo)
+X/* Read an LZW-compressed byte */
+X{
+X  static int oldcode;		/* previous LZW symbol */
+X  static int firstcode;		/* first byte of oldcode's expansion */
+X  register int code;		/* current working code */
+X  int incode;			/* saves actual input code */
+X
+X  /* First time, just eat the expected Clear code(s) and return next code, */
+X  /* which is assumed to be a raw byte. */
+X  if (first_time) {
+X    first_time = FALSE;
+X    do {
+X      code = GetCode(cinfo);
+X    } while (code == clear_code);
+X    firstcode = oldcode = code;	/* make firstcode, oldcode valid! */
+X    return code;
+X  }
+X
+X  /* If any codes are stacked from a previously read symbol, return them */
+X  if (sp > symbol_stack)
+X    return (int) *(--sp);
+X
+X  code = GetCode(cinfo);
+X
+X  if (code == clear_code) {
+X    /* Reinit static state, swallow any extra Clear codes, and return */
+X    ReInitLZW();
+X    do {
+X      code = GetCode(cinfo);
+X    } while (code == clear_code);
+X    firstcode = oldcode = code; /* gotta reinit these too */
+X    return code;
+X  }
+X
+X  if (code == end_code) {
+X    /* Skip the rest of the image, unless GetCode already read terminator */
+X    if (! out_of_blocks)
+X      SkipDataBlocks(cinfo);
+X    return -1;
+X  }
+X
+X  /* Normal raw byte or LZW symbol */
+X  incode = code;		/* save for a moment */
+X  
+X  if (code >= max_code) {	/* special case for not-yet-defined symbol */
+X    *sp++ = (UINT8) firstcode;	/* it will be defined as oldcode/firstcode */
+X    code = oldcode;
+X  }
+X
+X  /* If it's a symbol, expand it into the stack */
+X  while (code >= clear_code) {
+X    *sp++ = symbol_tail[code];	/* tail of symbol: a simple byte value */
+X    code = symbol_head[code];	/* head of symbol: another LZW symbol */
+X  }
+X  /* At this point code just represents a raw byte */
+X  firstcode = code;		/* save for possible future use */
+X
+X  /* If there's room in table, */
+X  if ((code = max_code) < LZW_TABLE_SIZE) {
+X    /* Define a new symbol = prev sym + head of this sym's expansion */
+X    symbol_head[code] = oldcode;
+X    symbol_tail[code] = (UINT8) firstcode;
+X    max_code++;
+X    /* Is it time to increase code_size? */
+X    if ((max_code >= limit_code) && (code_size < MAX_LZW_BITS)) {
+X      code_size++;
+X      limit_code <<= 1;		/* keep equal to 2^code_size */
+X    }
+X  }
+X  
+X  oldcode = incode;		/* save last input symbol for future use */
+X  return firstcode;		/* return first byte of symbol's expansion */
+X}
+X
+X
+XLOCAL void
+XReadColorMap (compress_info_ptr cinfo, int cmaplen, JSAMPARRAY cmap)
+X/* Read a GIF colormap */
+X{
+X  int i;
+X
+X  for (i = 0; i < cmaplen; i++) {
+X    cmap[CM_RED][i]   = (JSAMPLE) ReadByte(cinfo);
+X    cmap[CM_GREEN][i] = (JSAMPLE) ReadByte(cinfo);
+X    cmap[CM_BLUE][i]  = (JSAMPLE) ReadByte(cinfo);
+X  }
+X}
+X
+X
+XLOCAL void
+XDoExtension (compress_info_ptr cinfo)
+X/* Process an extension block */
+X/* Currently we ignore 'em all */
+X{
+X  int extlabel;
+X
+X  /* Read extension label byte */
+X  extlabel = ReadByte(cinfo);
+X  TRACEMS1(cinfo->emethods, 1, "Ignoring GIF extension block of type 0x%02x",
+X	   extlabel);
+X  /* Skip the data block(s) associated with the extension */
+X  SkipDataBlocks(cinfo);
+X}
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  char hdrbuf[10];		/* workspace for reading control blocks */
+X  UINT16 width, height;		/* image dimensions */
+X  int colormaplen, aspectRatio;
+X  int c;
+X
+X  /* Allocate space to store the colormap */
+X  colormap = (*cinfo->emethods->alloc_small_sarray)
+X		((long) MAXCOLORMAPSIZE, (long) NUMCOLORS);
+X
+X  /* Read and verify GIF Header */
+X  if (! ReadOK(cinfo->input_file, hdrbuf, 6))
+X    ERREXIT(cinfo->emethods, "Not a GIF file");
+X  if (strncmp(hdrbuf, "GIF", 3) != 0)
+X    ERREXIT(cinfo->emethods, "Not a GIF file");
+X  /* Check for expected version numbers.
+X   * If unknown version, give warning and try to process anyway;
+X   * this is per recommendation in GIF89a standard.
+X   */
+X  if ((strncmp(hdrbuf+3, "87a", 3) != 0) &&
+X      (strncmp(hdrbuf+3, "89a", 3) != 0))
+X    TRACEMS3(cinfo->emethods, 1,
+X	     "Warning: unexpected GIF version number '%c%c%c'",
+X	     hdrbuf[3], hdrbuf[4], hdrbuf[5]);
+X
+X  /* Read and decipher Logical Screen Descriptor */
+X  if (! ReadOK(cinfo->input_file, hdrbuf, 7))
+X    ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X  width = LM_to_uint(hdrbuf[0],hdrbuf[1]);
+X  height = LM_to_uint(hdrbuf[2],hdrbuf[3]);
+X  colormaplen = 2 << (hdrbuf[4] & 0x07);
+X  /* we ignore the color resolution, sort flag, and background color index */
+X  aspectRatio = hdrbuf[6] & 0xFF;
+X  if (aspectRatio != 0 && aspectRatio != 49)
+X    TRACEMS(cinfo->emethods, 1, "Warning: nonsquare pixels in input");
+X
+X  /* Read global colormap if header indicates it is present */
+X  if (BitSet(hdrbuf[4], COLORMAPFLAG))
+X    ReadColorMap(cinfo, colormaplen, colormap);
+X
+X  /* Scan until we reach start of desired image.
+X   * We don't currently support skipping images, but could add it easily.
+X   */
+X  for (;;) {
+X    c = ReadByte(cinfo);
+X
+X    if (c == ';')		/* GIF terminator?? */
+X      ERREXIT(cinfo->emethods, "Too few images in GIF file");
+X
+X    if (c == '!') {		/* Extension */
+X      DoExtension(cinfo);
+X      continue;
+X    }
+X    
+X    if (c != ',') {		/* Not an image separator? */
+X      TRACEMS1(cinfo->emethods, 1, "Bogus input char 0x%02x, ignoring", c);
+X      continue;
+X    }
+X
+X    /* Read and decipher Local Image Descriptor */
+X    if (! ReadOK(cinfo->input_file, hdrbuf, 9))
+X      ERREXIT(cinfo->emethods, "Premature EOF in GIF file");
+X    /* we ignore top/left position info, also sort flag */
+X    width = LM_to_uint(hdrbuf[4],hdrbuf[5]);
+X    height = LM_to_uint(hdrbuf[6],hdrbuf[7]);
+X    is_interlaced = BitSet(hdrbuf[8], INTERLACE);
+X    colormaplen = 2 << (hdrbuf[8] & 0x07);
+X
+X    /* Read local colormap if header indicates it is present */
+X    /* Note: if we wanted to support skipping images, */
+X    /* we'd need to skip rather than read colormap for ignored images */
+X    if (BitSet(hdrbuf[8], COLORMAPFLAG))
+X      ReadColorMap(cinfo, colormaplen, colormap);
+X
+X    input_code_size = ReadByte(cinfo); /* get minimum-code-size byte */
+X    if (input_code_size < 2 || input_code_size >= MAX_LZW_BITS)
+X      ERREXIT1(cinfo->emethods, "Bogus codesize %d", input_code_size);
+X
+X    /* Reached desired image, so break out of loop */
+X    /* If we wanted to skip this image, */
+X    /* we'd call SkipDataBlocks and then continue the loop */
+X    break;
+X  }
+X
+X  /* Prepare to read selected image: first initialize LZW decompressor */
+X  symbol_head = (UINT16 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT16));
+X  symbol_tail = (UINT8 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT8));
+X  symbol_stack = (UINT8 FAR *) (*cinfo->emethods->alloc_medium)
+X				(LZW_TABLE_SIZE * SIZEOF(UINT8));
+X  InitLZWCode();
+X
+X  /*
+X   * If image is interlaced, we read it into a full-size sample array,
+X   * decompressing as we go; then get_input_row selects rows from the
+X   * sample array in the proper order.
+X   */
+X  if (is_interlaced) {
+X    /* We request the big array now, but can't access it until the pipeline
+X     * controller causes all the big arrays to be allocated.  Hence, the
+X     * actual work of reading the image is postponed until the first call
+X     * of get_input_row.
+X     */
+X    interlaced_image = (*cinfo->emethods->request_big_sarray)
+X		((long) width, (long) height, 1L);
+X    cinfo->methods->get_input_row = load_interlaced_image;
+X    cinfo->total_passes++;	/* count file reading as separate pass */
+X  }
+X
+X  /* Return info about the image. */
+X  cinfo->input_components = NUMCOLORS;
+X  cinfo->in_color_space = CS_RGB;
+X  cinfo->image_width = width;
+X  cinfo->image_height = height;
+X  cinfo->data_precision = 8;	/* always, even if 12-bit JSAMPLEs */
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for noninterlaced GIF images:
+X * we read directly from the GIF file.
+X */
+X
+XMETHODDEF void
+Xget_input_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  register int c;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    if ((c = LZWReadByte(cinfo)) < 0)
+X      ERREXIT(cinfo->emethods, "Premature end of GIF image");
+X    *ptr0++ = colormap[CM_RED][c];
+X    *ptr1++ = colormap[CM_GREEN][c];
+X    *ptr2++ = colormap[CM_BLUE][c];
+X  }
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for the first call on get_input_row when
+X * reading an interlaced GIF file: we read the whole image into memory.
+X */
+X
+XMETHODDEF void
+Xload_interlaced_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  register JSAMPROW sptr;
+X  register long col;
+X  register int c;
+X  long row;
+X
+X  /* Read the interlaced image into the big array we've created. */
+X  for (row = 0; row < cinfo->image_height; row++) {
+X    (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X    image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(interlaced_image, row, TRUE);
+X    sptr = image_ptr[0];
+X    for (col = cinfo->image_width; col > 0; col--) {
+X      if ((c = LZWReadByte(cinfo)) < 0)
+X	ERREXIT(cinfo->emethods, "Premature end of GIF image");
+X      *sptr++ = (JSAMPLE) c;
+X    }
+X  }
+X  cinfo->completed_passes++;
+X
+X  /* Replace method pointer so subsequent calls don't come here. */
+X  cinfo->methods->get_input_row = get_interlaced_row;
+X  /* Initialize for get_interlaced_row, and perform first call on it. */
+X  cur_row_number = 0;
+X  pass2_offset = (cinfo->image_height + 7L) / 8L;
+X  pass3_offset = pass2_offset + (cinfo->image_height + 3L) / 8L;
+X  pass4_offset = pass3_offset + (cinfo->image_height + 1L) / 4L;
+X
+X  get_interlaced_row(cinfo, pixel_row);
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * This version is used for interlaced GIF images:
+X * we read from the big in-memory image.
+X */
+X
+XMETHODDEF void
+Xget_interlaced_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  register JSAMPROW sptr, ptr0, ptr1, ptr2;
+X  register long col;
+X  register int c;
+X  long irow;
+X
+X  /* Figure out which row of interlaced image is needed, and access it. */
+X  switch ((int) (cur_row_number & 7L)) {
+X  case 0:			/* first-pass row */
+X    irow = cur_row_number >> 3;
+X    break;
+X  case 4:			/* second-pass row */
+X    irow = (cur_row_number >> 3) + pass2_offset;
+X    break;
+X  case 2:			/* third-pass row */
+X  case 6:
+X    irow = (cur_row_number >> 2) + pass3_offset;
+X    break;
+X  default:			/* fourth-pass row */
+X    irow = (cur_row_number >> 1) + pass4_offset;
+X    break;
+X  }
+X  image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(interlaced_image, irow, FALSE);
+X  /* Scan the row, expand colormap, and output */
+X  sptr = image_ptr[0];
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    c = GETJSAMPLE(*sptr++);
+X    *ptr0++ = colormap[CM_RED][c];
+X    *ptr1++ = colormap[CM_GREEN][c];
+X    *ptr2++ = colormap[CM_BLUE][c];
+X  }
+X  cur_row_number++;		/* for next time */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for GIF format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrgif (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init = input_init;
+X  cinfo->methods->get_input_row = get_input_row; /* assume uninterlaced */
+X  cinfo->methods->input_term = input_term;
+X}
+X
+X#endif /* GIF_SUPPORTED */
+END_OF_FILE
+  if test 19830 -ne `wc -c <'jrdgif.c'`; then
+    echo shar: \"'jrdgif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdgif.c'
+fi
+if test -f 'makljpeg.cf' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makljpeg.cf'\"
+else
+  echo shar: Extracting \"'makljpeg.cf'\" \(439 characters\)
+  sed "s/^X//" >'makljpeg.cf' <<'END_OF_FILE'
+Xjcmaster.mix,jcdeflts.mix,jcarith.mix,jccolor.mix,jcexpand.mix,jchuff.mix
+Xjcmcu.mix,jcpipe.mix,jcsample.mix,jfwddct.mix,jwrjfif.mix,jrdgif.mix
+Xjrdppm.mix,jrdrle.mix,jrdtarga.mix,jdmaster.mix,jddeflts.mix,jbsmooth.mix
+Xjdarith.mix,jdcolor.mix,jdhuff.mix,jdmcu.mix,jdpipe.mix,jdsample.mix
+Xjquant1.mix,jquant2.mix,jrevdct.mix,jrdjfif.mix,jwrgif.mix,jwrppm.mix
+Xjwrrle.mix,jwrtarga.mix,jutils.mix,jerror.mix,jmemmgr.mix,jmemsys.mix
+Xjmemdosa.mix
+END_OF_FILE
+  if test 439 -ne `wc -c <'makljpeg.cf'`; then
+    echo shar: \"'makljpeg.cf'\" unpacked with wrong size!
+  fi
+  # end of 'makljpeg.cf'
+fi
+echo shar: End of archive 11 \(of 18\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+exit 0 # Just in case...

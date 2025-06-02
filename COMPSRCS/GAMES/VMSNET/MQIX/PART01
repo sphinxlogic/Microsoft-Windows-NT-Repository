@@ -1,0 +1,1583 @@
+Path: uunet!wupost!waikato.ac.nz!ccc_rex
+From: ccc_rex@waikato.ac.nz
+Newsgroups: vmsnet.sources.games
+Subject: MQIX 1/2 (mulit-user QIX)
+Message-ID: <1992Apr9.151506.7336@waikato.ac.nz>
+Date: 9 Apr 92 15:15:06 +1200
+Organization: University of Waikato, Hamilton, New Zealand
+Lines: 1574
+
+This is part 1 of 2 of MQIX - multi-user QIX.
+
+All players have to be in the same UIC group to play this game.
+An easy way to achieve this is to all log into the same username.
+
+You move arround using the keypad keys 2,4,6,8.
+Remember to type SPACE before you can leave the walls.
+
+You need the UTIL.OLB that is separately posted.
+
+				- Rex Croft    ccc_rex@waikato.ac.nz
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On  9-APR-1992 09:58:36.76   By user CCC_REX 
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 2 PARTS, TO KEEP EACH PART
+$!  BELOW 100 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. MQIX.COM;2
+$!       2. MQIX.PAS;131
+$!       3. MQIXH.FOR;7
+$!       4. MQIXH.SCN;6
+$!       5. MQIXM.MAR;13
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+X$ PASCAL MQIX`09`09! ignore warnings
+X$ FORTRAN MQIXH
+X$ MACRO MQIXM
+X$!
+X$ LINK /NODEBUG /NOTRACE  MQIX, MQIXM, MQIXH, UTIL/LIB
+$ CALL UNPACK MQIX.COM;2 1980044860
+$ create 'f'
+X`7B$S-`7D
+X`7B
+X
+X`09`09Program`09: Multi USer Qix`20
+X
+X`09`09Authors`09: Rex Croft       - Macro
+X
+X                          Murray Speight - Pascal`20
+X
+X`09`09Place`09: University Of Waikato`20
+X
+X`09`09Date `09: Jan 1983
+X
+X`09Software Is Subject To Change Without Notification
+X        The Author And His Family assume No Rsponsability For
+X`09Its Reliabliity Or Use.`20
+X
+X         `7D
+X
+XProgram MQix(Input,Output);
+X
+XLabel`099999;  `7B For Abortive exit Of Pgm `7D
+X
+X
+XConst `09Max_Num_Players`09= 8;             `7B Up To 8 Players `7D
+X`09Screen_Dim_R `09= 24;            `7B PLaying Board 40 * 23 `7D
+X`09Screen_Dim_C`09= 40;
+X`09Len_Of_Buff`09= 1920;          `7B Buffer to Write Chars `7D
+X        Max_Name_Length = 32;            `7B Lenngth of a players name `7D
+X
+XType `09Player_Responce = Packed Array `5B1..Max_Num_Players`5D Of Char;
+X`09Buffer`09`09= Packed Array `5B1..Len_Of_Buff`5D Of Char;`09
+X`09Positions`09= Array `5B1..Max_Num_Players`5D Of INteger;
+X`09Players_Screen`09= Array `5B1..Screen_Dim_R,1..Screen_Dim_C`5D Of Char;
+X`09Died_Type`09= Array `5B1..Max_NUm_Players`5D Of Boolean;
+X`09Name_Line`09= Packed array `5B1..max_Name_Length`5D of Char;
+X        Name_Table`09= Array `5B1..Max_Num_Players`5D of name_LIne;
+X
+XVar `09Responce `09,`09`09`09`7B What Players Have Typed `7D
+X   `09Ch_on`09`09,
+X`09Head_Sym`09: Player_Responce;      `7B What Symbol is THe Head `7D
+X   `09Cal`09`09,
+X`09Screen`09`09: Players_Screen;       `7B 23 * 40 Array For Screen`7D
+X`09Name`09`09: Name_Table;           `7B Names Of Each Player `7D
+X        Init_pos_R`09,                       `7B Where initaially Players St
+Vart `7D
+X        Init_pos_C      ,                       `7B  "" "" For Y Coord `7D
+X`09Score`09`09,                       `7B Score Of Each PLayer `7D
+X        Game`09`09,                       `7B Num Games Each PLayer Played `
+V7D
+X`09Games_Won `09,                       `7B Games Won By Each PLayer `7D
+X`09Move_R`09`09,                       `7B What Dir Each Playe Is Moving X C
+Voord `7D
+X`09Move_C`09`09,                       `7B "" "" Y Coord `7D
+X`09Head_R`09`09,                       `7B Where The Head Is For Each Player
+V X Coord `7D
+X`09Head_C`09 `09,                       `7B "" "" Y Coord `7D
+X        Rand`09`09: Positions;
+X`09TT_Buff`09`09: Buffer;               `7B Lenght Of Buffer To Hold Screen
+V Output `7D
+X`09TT_Len`09`09,                       `7B String To Hold Screen Output `7D
+X        Cursor_R`09,
+X        Cursor_C`09,
+X        Who_Is_PLaying  ,                       `7B Word With Bits Set As To
+V Who is Playing `7D
+X`09You`09`09,                       `7B Which Number You are `7D`20
+X`09Dummy `09`09,                       `7B Dummy argument `7D
+X        Area_75_Per`09,
+X   `09Area_Filled`09,
+X`09Num_players     ,                       `7B How Many people are Playing `
+V7D
+X`09Max_Player_Number : integer;                     `7B The Highest PLayers
+V Number who is Playing `7D
+X`09Quit`09`09,                       `7B Has The PLayer Quit (not playing )
+V or is He Playing `7D
+X   `09Can_Create`09,
+X`09Creating`09: Died_Type;            `7B Has The PLayer Died ( Died If He h
+Vas Quit ) `7D
+X`09Back_space`09,
+X`09Line_Feed`09,
+X`09Up_Line`09`09,
+X`09Esc`09`09: Char;                 `7B esc For escape sequences `7D
+X`09Seed`09`09: Real;                 `7B Seed for random number generaotor `
+V7D
+X        Time_Now`09: Packed array `5B1..11`5D Of Char;
+X
+XProcedure Break_Buff;
+X
+X   Procedure Snake_Screen( Var Line : Buffer ; Var Lenght : Integer );extern
+V;`20
+X
+X`7B Only Call This Once From The Add_head Function`20
+X
+X   Does not write array to screen `7D
+X
+XBegin
+X   Snake_Screen(TT_Buff,TT_Len);`20
+X   TT_Len := 0;
+Xend;
+X
+X
+X   procedure Write_5( ch1,ch2,ch3,ch4,ch5 : CHar);
+X  `20
+X   Begin
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch1;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch2;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch3;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch4;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch5;
+X   end;
+X  `20
+X
+X
+X   procedure Write_4( ch1,ch2,ch3,ch4 : CHar);
+X  `20
+X   Begin
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch1;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch2;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch3;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch4;
+X   end;
+X  `20
+X
+X
+X   procedure Write_3( ch1,ch2,ch3 : CHar);
+X  `20
+X   Begin
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch1;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch2;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch3;
+X   end;
+X  `20
+X
+X
+X   procedure Write_2( ch1,ch2 : CHar);
+X  `20
+X   Begin
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch1;
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch2;
+X   end;
+X  `20
+X
+X
+X   procedure Write_1( ch1 : CHar);
+X  `20
+X   Begin
+X    TT_len := TT_len + 1;
+X    TT_Buff`5BTT_len`5D := Ch1;
+X   end;
+X  `20
+X
+X
+X   procedure at(R,C:Integer;ch : char );
+X  `20
+X   Begin`20
+X      If ( Abs(R-Cursor_R) <= 2 ) and ( Abs(C-Cursor_C) <= 2 ) Then Begin`20
+X`09 Case ( R - Cursor_R  )*5 + ( C - Cursor_C )  of`20
+X`09  `7B Up  ,       -2, 0  `7D -10 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,LEft   -2,-1  `7D -11 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,LEft   -2,-2  `7D -12 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,Right  -2, 1  `7D  -9 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,Right  -2, 2  `7D  -8 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,LEft   -1,-2  `7D  -7 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,LEft   -1,-1  `7D  -6 : write_4(Esc,'A',chr(8),Ch);
+X`09  `7B Up  ,       -1, 0  `7D  -5 : write_3(Esc,'A',ch);
+X`09  `7B Up  ,Right  -1, 1  `7D  -4 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Up  ,Right  -1, 2  `7D  -3 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B     ,Left    0,-2  `7D  -2 : write_3(chr(8),chr(8),ch);
+X`09  `7B     ,Left    0,-1  `7D  -1 : write_2(chr(8),ch);
+X`09  `7B     ,        0, 0  `7D   0 : write_1(ch);`20
+X`09  `7B     ,Right   0, 1  `7D   1 : write_3(Esc,'C',ch);
+X`09  `7B     ,Right   0, 2  `7D   2 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Down,Left    1,-2  `7D   3 : write_4(Chr(10),Chr(8),chr(8),ch);
+X`09  `7B Down,Left    1,-1  `7D   4 : write_3(Chr(10),Chr(8),ch);
+X`09  `7B Down         1, 0  `7D   5 : Write_2(Chr(10),ch);
+X`09  `7B Down,Right   1, 1  `7D   6 : Write_4(Chr(10),Esc,'C',ch);
+X`09  `7B Down,Right   1, 2  `7D   7 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Down,Left    2,-2  `7D   8 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Down,Left    2,-1  `7D   9 : write_4(Chr(10),chr(10),Chr(8),ch);
+X`09  `7B Down         2, 0  `7D  10 : Write_3(Chr(10),chr(10),ch);
+X`09  `7B Down,Right   2, 1  `7D  11 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09  `7B Down,Right   2, 2  `7D  12 : Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch
+V);
+X`09 end;
+X      end else  Begin
+X`09 Write_5(Esc,'Y',Chr(31+R),Chr(31+C),ch);
+X      end;
+X      Cursor_R := R;
+X      Cursor_C := C + 1;
+X      If C >= 40 Then`20
+X`09 Cursor_C := 999;
+X   end;
+X
+X
+X   Procedure new_Screen_Char( R,C : Integer );  `20
+X
+X   var Count : Integer;
+X
+X   Begin
+X`09 Count := 0;  `20
+X`09 If r-1 > 0 then`20
+X`09    If Screen`5Br-1,c`5D in `5B'$','l','w','k','t','n','u','x'`5D Then`20
+X`09       Count := Count + 1;
+X`09 If c - 1 > 0 then`20
+X`09    If screen`5Br,c-1`5D in `5B'$','l','w','t','n','m','v','q'`5D  Then
+X`09       Count := Count + 2;
+X`09 If c + 1 <= screen_Dim_C  then`20
+X`09    If Screen`5Br,c+1`5D in `5B'$','w','k','n','u','v','j','q'`5D  Then`2
+V0
+X`09       Count := Count + 4;
+X`09 If r +1 <= Screen_Dim_R then`20
+X`09    If Screen`5Br+1,c`5D in `5B'$','t','n','u','m','v','j','x'`5D Then`20
+X`09       Count := Count + 8;
+X`09 Case Count Of`20
+X`09    0`09: Screen`5BR,C`5D := ' ';`20
+X`09    1,8,9 : Screen`5BR,C`5D := 'x';
+X`09    2,4,6 : Screen`5BR,C`5D := 'q';
+X`09    3`09: Screen`5BR,C`5D := 'j';
+X`09    5`09: Screen`5BR,C`5D := 'm';
+X`09    7`09: Screen`5BR,C`5D := 'v';
+X`09    10`09: Screen`5BR,C`5D := 'k';
+X`09    11`09: Screen`5BR,C`5D := 'u';
+X`09    12`09: Screen`5BR,C`5D := 'l';
+X`09    13`09: Screen`5BR,C`5D := 't';
+X`09    14`09: Screen`5BR,C`5D := 'w';
+X`09    15`09: Screen`5BR,C`5D := 'n'
+X`09 end `7B case `7D;
+X   end;
+X
+X
+X
+XProcedure Help_Screen;extern;
+X
+XFunction pos( R,C : Integer ): CHar;
+X
+X`7B Write Char at Pos X,Y in Buffer `7D
+X
+XBegin
+X   Write(Esc,'Y',Chr(31+R),Chr(31+C));
+X   pos := Chr(0);
+Xend;
+X
+XFunction Snake_Init(Var You :  INteger ; Var Game_going : Integer):Integer;e
+Vxtern;
+X
+XProcedure Name_Set(Var Name : Name_Line );extern;
+X
+XProcedure Name_Get(Var Name : Name_Line ; var Play : `5BREADONLY`5D Integer
+V );
+X`09`09`09`09`09`09`09`09`09extern;
+XProcedure Score_Set( VAR Player: `5BREADONLY`5D INTEGER;
+X`09`09`09`09VAR Score,Games_PLayed,wins : INTEGER); extern;
+XProcedure Score_Get( Var Player : `5BREADONLY`5D INTEGER;
+X`09`09`09`09VAR Score,Games_Played,wins : Integer );extern;
+X
+XProcedure Snake_Start(var Whos_PLaying : Integer ; var Rand : Positions );Ex
+Vtern;
+X
+XProcedure Snake_Read(Var Directions : Player_Responce );Extern;
+X
+XProcedure Snake_Game_End;extern;
+X
+XProcedure Snake_Wait;Extern;
+X
+XProcedure Snake_Game_count( Var Num : Integer);extern;
+X
+XProcedure Snake_Dead(Var PLayer : Integer );extern;
+X
+XProcedure Sleep( Num_Sec : Integer);extern;
+X
+XFunction Mth$Random(var Seed : real):Real;extern;
+X
+XProcedure Draw_Scores;
+X
+XConst Len_Scale = 50;
+X
+XVar I,num_on_table,play,Top_play,Total_Num_Games: Integer;
+X    This_Score,`09Max_score , Score_Ratio : Real;
+X
+X
+XBegin
+X   Time(Time_Now);
+X   Num_on_Table := 0;
+X   Writeln(Esc,'<',Esc,'`5B0m',Esc,'`5B?2l');
+X   Write(esc,'H',Esc,'J',Esc,'G');
+X   Write(' Player   User         Name               Score  Game    ');
+X   If ( Time_Now`5B1`5D = '2' ) Then Begin
+X      If ( Time_Now`5B2`5D >= '2' ) Then Begin
+X         Time_Now`5B1`5D := '1';
+X         Time_Now`5B2`5D := chr( Ord(Time_Now`5B2`5D) - 2);
+X      end Else begin
+X         Time_Now`5B1`5D := ' ';
+X         Time_Now`5B2`5D := chr( Ord(Time_Now`5B2`5D) + 8);
+X      end;
+X      Write(Time_Now:5);
+X      Writeln(' pm');
+X   End Else Begin
+X      If (( Time_Now`5B1`5D = '1' ) and ( Time_Now`5B2`5D > '2' )) THen Begi
+Vn
+X         Time_Now`5B1`5D := ' ';
+X         Time_Now`5B2`5D := chr( Ord(Time_Now`5B2`5D) - 2);
+X         Write(Time_Now:5);
+X         Writeln(' pm');
+X      end Else Begin
+X         If Time_Now`5B1`5D = '0' Then`20
+X            Time_Now`5B1`5D := ' ';
+X         Write(Time_Now:5);
+X         If Time_Now`5B2`5D = '2' Then`20
+X            Writeln(' pm')
+X         else
+X            Writeln(' am');
+X      end;
+X   end;
+X   writeln;
+X   Max_score := -99999.0;
+X
+X   `7B Find The Top Player  goes By The his Score And Num Of Games Played `7
+VD
+X   For PLay := 1 to Max_Num_PLayers do  begin
+X      Score_get(Play,Score`5BPLay`5D,Game`5BPLay`5D,Games_won`5Bplay`5D);
+X      If Game`5BPlay`5D > 0 Then Begin
+X         This_score := (Score`5Bplay`5D+ Games_won`5Bplay`5D*10) / (Game`5Bp
+Vlay`5D)**(0.9);
+X         If This_score > Max_score Then Begin
+X            Top_Play := Play;
+X            Max_score := This_score + 1.0;
+X         end;
+X      end;
+X   end;
+X   For Play := 1 to Max_Num_PLayers do Begin
+X      If Game`5BPLay`5D > 0  Then Begin   `7B IF Games PLayed > 0 Then You A
+Vre PLaying  `7D
+X         Num_On_Table := Num_On_Table + 1;
+X         Name_Get(Name`5BPlay`5D,Play);
+X         Write(Play:4);
+X         Write('    ',Name`5BPlay`5D:32);
+X         write(Score`5BPLay`5D:7);         `7B Print Info `7D
+X         Writeln(Game`5BPlay`5D:6);
+X      End;
+X   End;
+X   writeln;`20
+X   Writeln(' Player  Score Indicator ');
+X   Writeln;
+X   For Play := 1 to Max_Num_PLayers do Begin
+X      If Game`5BPLay`5D > 0  Then Begin   `7B IF Games PLayed > 0 Then You A
+Vre PLaying  `7D
+X         Write(Play:4);
+X         Write('     ',Esc,'F'); `7B Graphics `7D
+X         Score_Ratio := (Score`5Bplay`5D+Games_won`5BPLay`5D*10)*Len_Scale
+X                            / ((Game`5Bplay`5D)**(0.9)*Round(max_score));
+X         For I := 1 to Round(Score_Ratio) do`20
+X            Write('a');
+X         If PLay = Top_PLay Then`20
+X             Write(Esc,'G  ** Champ ** ');
+X         Writeln; `7B Normal Video `7D
+X      end;
+X    End;
+X
+X`7B Print The Games You Have Played With The Totak Num of Games Played so Fa
+Vr `7D
+X   Snake_Game_Count( Total_Num_games );
+X   writeln(Esc,'G');
+X   Writeln(' Game # ',Game`5BYou`5D:1,'    Total # ',Total_Num_Games:1,
+X           '`09`09Please Wait For Next Game ... ',Esc,'F');
+X`7B   If Num_on_Table <= 1 Then`20
+X      Goto 9999;  `7D
+Xend;
+X
+XProcedure Draw_screen;
+X
+XVar play,I,R,C,Line_at : Integer;
+X
+X   Function Min(A,B:Integer):Integer;
+X
+X   Begin
+X      If A < B Then`20
+X         Min := A`20
+X      Else
+X         Min := B
+X   end;
+X
+XBegin `7B Draw Screen `7D
+X   Write(esc,'H',esc,'J',Esc,'F'); `7B Clear Home `7D
+X   Write('l',Esc,'<',Esc,'#6',Esc,'`5B?2l',Esc,'F');
+X   For C := 1 To (Screen_Dim_C-2) Do`20
+X      Write('q');
+X   Writeln('k');
+X   For R := 2 To ( Screen_dim_R - 1 )  Do begin
+X      Write('x',Esc,'<',Esc,'#6',Esc,'`5B?2l',Esc,'F');
+X      Writeln(Pos(R,Screen_dim_C),'x');
+X   end;
+X   Write('m',Esc,'<',Esc,'#6',Esc,'`5B?2l',Esc,'F');
+X   For C := 2 to (Screen_Dim_C-1) Do`20
+X      Write('q');
+X   Writeln('j',Esc,'H');
+Xend;
+X
+X  `20
+XProcedure initalise_Positions;
+X
+X
+X
+XVar Mult,Play,R,C : Integer;
+X
+X
+XBegin
+X
+XArea_Filled := Screen_Dim_R*2 + Screen_Dim_C*2 - 4;
+X
+XCursor_C := 9999;
+X
+XSnake_Start(Who_Is_Playing,Rand);
+X
+X`7B Randomly Position The Starting Pos Of The PLayers `7D
+XFor play := 1 to Max_num_players do  Begin
+X   Head_R`5BPlay`5D := Init_pos_R`5BRand`5BPlay`5D`5D;
+X   Head_C`5Bplay`5D := Init_pos_C`5BRand`5BPLay`5D`5D;
+X   Can_Create`5Bplay`5D := False;
+X   Creating`5Bplay`5D := False;
+X   Move_R`5BPlay`5D := 1;
+X   Move_C`5BPLay`5D := 0;
+Xend;
+X
+XMult := 2**(Max_num_Players - 1 );  `7B 2 ** Number of PLayers - 1`7D
+XNum_Players := 0;
+X
+X`7B Examine Each Bit In Mult To See If You Are Playing `7D
+XMax_player_number := 0;
+XFor Play := Max_Num_PLayers downto 1 do begin
+X   If ( Who_Is_PLaying div Mult ) = 1 Then begin
+X      Num_Players := Num_PLayers + 1;
+X      Quit`5Bplay`5D := False;   `7B Bit Set You Are Playing `7D
+X      Who_is_Playing := Who_is_Playing - Mult;
+X      If Max_player_number = 0 Then`20
+X         Max_player_number := play ;`7B The Highest Numbered Player `7D
+X   end else begin
+X      Quit`5BPlay`5D := True;   `7B Bit Not Set Not Playing ie Quit `7D
+X   end;
+X   Mult := Mult div 2;
+Xend;
+X
+X`7B If You are PLaying Then You Havnt Died `7D
+XFor R := 1 To Screen_Dim_R do`20
+X   For C := 1 to Screen_Dim_C do
+X      Screen`5BR,C`5D := ' ';
+XFor C := 1 To Screen_Dim_C do Begin
+X   Screen`5B1,C`5D := 'q';
+X   Screen`5BScreen_Dim_R,C`5D := 'q';
+Xend;
+XFor R := 1 To Screen_Dim_R Do Begin
+X   Screen`5BR,1`5D := 'x';
+X   Screen`5BR,Screen_Dim_C`5D := 'x';`20
+Xend;
+XScreen`5B1,1`5D := 'l';
+XScreen`5B1,Screen_Dim_C`5D := 'k';
+XScreen`5BScreen_Dim_R,1`5D := 'm';
+XScreen`5BScreen_Dim_R,Screen_Dim_C`5D := 'j';
+XHead_Sym`5B1`5D := chr(128+ord('1'));  `7B Set The Bits In The Chars `7D
+XHead_Sym`5B2`5D := chr(128+ord('2'));
+XHead_Sym`5B3`5D := chr(128+ord('3'));
+XHead_Sym`5B4`5D := chr(128+ord('4'));
+XHead_Sym`5B5`5D := chr(128+ord('5'));
+XHead_Sym`5B6`5D := chr(128+ord('6'));
+XHead_Sym`5B7`5D := chr(128+ord('7'));
+XHead_Sym`5B8`5D := chr(128+ord('8'));
+X
+X`7B Note If This Procedure Is Only Called When You Are Master Snake`20
+X  Draw Screen Should Be In The Mainlkine Before Init_Pos
+X  And The Writing Of The PLayers Pos Should Be To The Buffer`20
+X  And Then Written To All Who Are PLaying `7D
+X
+XDraw_screen;  `20
+X
+X`7B Pos Inital Player Positions `7D
+XFor Play := 1 to Max_Num_Players Do  Begin
+X   responce`5BPlay`5D := ' ';   `7B Initalise First Responce Should Not BE N
+Veeded `7D
+X   Game`5BPLay`5D := Game`5BPLay`5D;
+Xend;
+XFor Play := 1 to Max_Num_PLayers do `20
+X   If Not Quit`5BPlay`5D  Then  begin
+X     Ch_On`5Bplay`5D := Screen`5BHead_R`5BPlay`5D,Head_C`5BPlay`5D`5D;
+X     Screen`5BHead_R`5BPlay`5D,Head_C`5BPlay`5D`5D := '*';
+X     If ( Play <> You ) Then `20
+X      Writeln(pos(Head_R`5BPlay`5D,Head_C`5BPlay`5D),Head_sym`5BPlay`5D,Esc,
+V'H')
+X     Else  Begin`20
+X      Writeln(pos(Head_R`5BYou`5D,Head_C`5BYou`5D),'`60',Esc,'H');
+X     end;
+X   end;
+XSleep(1);
+Xend;
+X
+XProcedure Initalise_Mainline;
+X
+XVar Zero,Init_Rep,PLay,Name_Pos,Game_Going : Integer;
+X
+XProcedure Verify_name(VAr Name : Name_Line );
+X
+XVar I : INteger;
+X
+X
+XBegin
+X   For I := 1 to Max_Name_length do   `7B Remove All Invalid Chars From The
+V Name`7D
+X      If ( Name`5Bi`5D < ' ' ) Then Begin
+X            Write(chr(7));
+X            Name`5Bi`5D := ' ';
+X      end;
+Xend;
+X
+X
+XBegin
+X   Esc := Chr(27);
+X   Back_Space := CHr(8);
+X   Line_Feed  := Chr(10);
+X   Up_Line    := 'A'   `7B Used With <ESC>A For Move up One Line `7D;
+X   Area_75_Per := Trunc ( Screen_Dim_R * Screen_Dim_C * (0.90 ));
+X   Seed := Clock;
+X   TT_Len := 0;
+X  `20
+X
+X   `7B set where Each Player Starts `7D
+X
+X   Init_pos_R`5B1`5D := 1;
+X   Init_pos_C`5B1`5D := 1;
+X  `20
+X   Init_pos_R`5B2`5D := Screen_dim_R ;
+X   Init_pos_C`5B2`5D := Screen_dim_C ;
+X  `20
+X   Init_pos_R`5B3`5D := 1;
+X   Init_pos_C`5B3`5D := Screen_dim_C;
+X  `20
+X   Init_pos_R`5B4`5D := Screen_dim_R;
+X   Init_pos_C`5B4`5D := 1;
+X  `20
+X   Init_pos_R`5B5`5D := 1;
+X   Init_pos_C`5B5`5D := Screen_dim_C div 2;
+X  `20
+X   Init_pos_R`5B6`5D := Screen_dim_R;
+X   Init_pos_C`5B6`5D := Screen_dim_C div 2;
+X  `20
+X   Init_pos_R`5B7`5D := Screen_dim_R div 2;
+X   Init_pos_C`5B7`5D := 1;
+X  `20
+X   Init_pos_R`5B8`5D := Screen_dim_R div 2;
+X   Init_pos_C`5B8`5D := Screen_dim_C;
+X
+X   Writeln(Esc,'<',Esc,'`5B?2l'); `7B Vt52 Mode `7D
+X   Writeln(Esc,'H',Esc,'J');    `7B Clear Screen `7D
+X   Init_rep := Snake_Init(You,Game_going);
+X   You := You + 1;  `20
+X   If Init_rep = 1 Then Begin
+X      `7B you are the First Person to play zero all the scores `7D
+X      For Play := 1 to Max_Num_PLayers do begin
+X         Zero := 0;
+X         Score_Set(Play,Zero,zero,zero);
+X      end;
+X      Help_Screen;
+X      Writeln(Esc,'`5B?2l',Esc,'H');
+X      Writeln(pos(22,3),' Please Enter Your Name Player #',You:1);
+X      Write(pos(22,51));
+X      Readln(Name`5BYou`5D);
+X      Verify_Name(Name`5BYou`5D);
+X      Name_set(Name`5BYou`5D);
+X      Write(pos(22,3), ' Hit < Return > When Others Ready   ');
+X      Readln;
+X      Writeln;
+X      Write(pos(22,3), ' Please Wait For Game To Start      ');
+X      Writeln;
+X   end Else Begin
+X      If You = 0 Then Begin
+X         Writeln(pos(1,33),'Multi User Qix');
+X         Writeln;
+X         Writeln(pos(4,10),' Sorry No Qix''s Available');
+X`09 Sleep(3);
+X         goto 9999;
+X      end else begin `7B Init_rep = 0 `7D`20
+X         Help_Screen;
+X         Writeln(Esc,'`5B?2l',esc,'H');
+X         Writeln(pos(22,3),' Please Enter Your Name Player # ',You:1);
+X         Write(pos(22,51));
+X         Readln(Name`5BYou`5D);
+X         Verify_name(Name`5BYou`5D);
+X         Name_set(Name`5BYou`5D);
+X         Writeln;
+X         Write(pos(22,3), ' Please Wait For Game To Start     ');
+X         Writeln;
+X         If Game_Going = 1 Then`20
+X            Snake_Game_End;
+X      end;
+X   end;
+X   Game`5BYou`5D := 0;
+Xend `7B Initalise Mainline `7D;
+X
+X`5BGLOBAL`5D Function Add_head( Var Responce : Player_responce ):Integer;
+X
+XVar Play : Integer;
+X
+XProcedure Add_this_players_Head;
+X
+Xvar P,pos_R,Pos_c,dir_R,dir_C : Integer;
+X
+X   Procedure New_join_Char( Into_wall : Boolean) ;
+X
+X   var count : Integer;
+X
+X   Begin
+X         Case Screen`5Bpos_r,pos_C`5D of`20
+X`09    'k' : Count := 10;
+X`09    'u' : Count := 11;
+X`09    'l' : Count := 12;
+X`09    't' : Count := 13;
+X`09    'w' : Count := 14;
+X`09    'n' : Count := 15;
+X`09    'j' : Count := 3;
+X`09    'm' : Count := 5;
+X`09    'q' : Count := 6;
+X`09    'v' : Count := 7;
+X`09    'x' : Count := 9;
+X`09 end;`09       `09
+X         If into_Wall Then`20
+X`09    Case ( Dir_R + 1 ) + ( Dir_C + 1 ) * 2 of`20
+X`09       2 : Count := Count + 8;
+X`09       4 : Count := Count + 1;
+X`09       1 : Count := Count + 4;
+X`09       5 : Count := Count + 2;
+X`09    end
+X   `09 else
+X`09    Case ( Dir_R + 1 ) + ( Dir_C + 1 ) * 2 of`20
+X`09       2 : Count := Count + 1;
+X`09       4 : Count := Count + 8;
+X`09       1 : Count := Count + 2;
+X`09       5 : Count := Count + 4;
+X`09    end;
+X`09 Case Count Of`20
+X`09    0`09: Screen`5Bpos_r,Pos_C`5D := ' ';`20
+X`09    1,8,9 : Screen`5Bpos_r,Pos_C`5D := 'x';
+X`09    2,4,6 : Screen`5Bpos_r,Pos_C`5D := 'q';
+X`09    3`09: Screen`5Bpos_r,Pos_C`5D := 'j';
+X`09    5`09: Screen`5Bpos_r,Pos_C`5D := 'm';
+X`09    7`09: Screen`5Bpos_r,Pos_C`5D := 'v';
+X`09    10`09: Screen`5Bpos_r,Pos_C`5D := 'k';
+X`09    11`09: Screen`5Bpos_r,Pos_C`5D := 'u';
+X`09    12`09: Screen`5Bpos_r,Pos_C`5D := 'l';
+X`09    13`09: Screen`5Bpos_r,Pos_C`5D := 't';
+X`09    14`09: Screen`5Bpos_r,Pos_C`5D := 'w';
+X`09    15`09: Screen`5Bpos_r,Pos_C`5D := 'n'
+X`09 end `7B case `7D;
+X   end;
+X
+X
+X   procedure new_tail_CHar;
+X
+X   begin
+X    Case (move_R`5Bplay`5D+1) + (Move_C`5Bplay`5D+1)*4 of`20
+X      6 : `7B Down `7D
+X             Case (Dir_R+1) + (Dir_C+1)*4 Of`20
+X               6 : `7B Down `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'x';
+X               9 : `7B Right `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'm';
+X               1 : `7B Left `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'j';
+X               4 : `7B Up Note : This Is Poss On First Move `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'x';
+X               end `7B Case `7D;
+X      4 : `7B Up `7D
+X             Case (Dir_R+1) + (Dir_C+1)*4 Of`20
+X               6 : `7B Down `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'x';
+X               4 : `7B Up `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'x';              `20
+X               9 : `7B Right `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'l';
+X               1 : `7B Left `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'k';  `20
+X               end `7B Case `7D;
+X     `20
+X      9 : `7B Right `7D
+X             Case (Dir_R+1) + (Dir_C+1)*4 Of`20
+X               6 : `7B Down `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'k';              `20
+X               4 : `7B Up `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'j';              `20
+X               9 : `7B Right `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'q';
+X               1 : `7B Left `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'q';  `20
+X               end `7B Case `7D;
+X
+X      1 : `7B Left `7D
+X             Case (Dir_R+1) + (Dir_C+1)*4 Of`20
+X               9 : `7B Right `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'q';
+X               6 : `7B Down `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'l';              `20
+X               4 : `7B Up `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'm';              `20
+X               1 : `7B Left `7D
+X                   Screen`5BPos_R,Pos_C`5D  := 'q';  `20
+X               end `7B Case `7D;
+X
+X      end `7B Case `7D;
+X   end;`09`20
+X
+X   Function move_Anti_Clock( var R,C,Prev_R,Prev_C : integer):Boolean;
+X
+X   var`20
+X     Save_R,Save_C : Integer;
+X
+X   Begin
+X     Save_R := R;
+X     Save_C := C;
+X     Case ( Prev_C - C ) of`20
+X      1 :`20
+X`09 Case Screen`5BR,C`5D of`20
+X`09    'l' : R := R + 1;
+X      `09    'w' : R := R + 1;
+X      `09    't' : R := R + 1;
+X      `09    'n' : R := R + 1;
+X`09    'm' : R := R - 1;
+X`09    'v' : C := C - 1;
+X`09    'q' : C := C - 1;
+X`09 end;
+X      0 :
+X`09 Case ( prev_R - R ) Of`20
+X`09    1 :
+X`09       Case Screen`5BR,c`5D of
+X`09`09  'l' : C := C + 1;
+X`09`09  'w' : C := C - 1;
+X`09`09  'k' : C := C - 1;
+X`09`09  't' : R := R - 1;
+X`09`09  'n' : C := C - 1;
+X`09`09  'u' : C := C - 1;
+X`09`09  'x' : R := R - 1;
+X`09       end;
+X`09    0 : ;
+X`09    -1:
+X`09       Case Screen`5BR,c`5D of`20
+X`09`09  't' : C := C + 1;
+X`09`09  'n' : C := C + 1;`20
+X`09`09  'u' : R := R + 1;
+X`09`09  'm' : C := C + 1;
+X`09`09  'v' : C := C + 1;
+X`09`09  'j' : C := C - 1;
+X`09`09  'x' : R := R + 1;
+X`09       end;
+X`09 end;
+X      -1:
+X`09 Case Screen`5BR,c`5D of`20
+X`09    'w' : C := C + 1;
+X`09    'k' : R := R + 1;
+X`09    'n' : R := R - 1;
+X`09    'u' : R := R - 1;
+X`09    'v' : R := R - 1;
+X`09    'j' : R := R - 1;
+X`09    'q' : C := C + 1;
+X`09 end;
+X   end;
+X   move_Anti_Clock := true;
+X   Prev_R := Save_R;
+X   Prev_C := Save_C;
+X   If Screen`5BR,C`5D = 'a' Then begin `7B reverse `7D
+X     prev_R := R;
+X     prev_C := C;
+X     R := Save_R;
+X     C := Save_C;
+X   end else    `20
+X    If Screen`5BR,c`5D = '*' Then`20
+X   `09move_Anti_Clock := False
+X    Else
+X      IF Screen`5BR,C`5D = ' ' Then`20
+X   `09 Writeln(' **** INTERNAL ERROR **** MOVE_ANTI_CLOCK ');
+Xend;   `09   `20
+X
+X
+X   Function Move_Clock( var R,C,Prev_R,Prev_C : Integer):Boolean;
+X
+X   var`20
+X     Save_R,Save_C : Integer;
+X
+X   Begin
+X     Save_R := R;
+X     Save_C := C;
+X     Case ( Prev_C - C ) of`20
+X      1 :`20
+X`09 Case Screen`5BR,C`5D of`20
+X`09    'l' : R := R + 1;
+X      `09    'w' : C := C - 1;
+X      `09    't' : R := R - 1;
+X      `09    'n' : R := R - 1;
+X`09    'm' : R := R - 1;
+X`09    'v' : R := R - 1;
+X`09    'q' : C := C - 1;
+X`09 end;
+X      0 :
+X`09 Case ( prev_R - R ) Of`20
+X`09    1 :
+X`09       Case Screen`5BR,c`5D of
+X`09`09  'l' : C := C + 1;
+X`09`09  'w' : C := C + 1;
+X`09`09  'k' : C := C - 1;
+X`09`09  't' : C := C + 1;
+X`09`09  'n' : C := C + 1;
+X`09`09  'u' : R := R - 1;
+X`09`09  'x' : R := R - 1;
+X`09       end;
+X`09    0 : ;
+X`09    -1:
+X`09       Case Screen`5BR,c`5D of`20
+X`09`09  't' : R := R + 1;
+X`09`09  'n' : C := C - 1;`20
+X`09`09  'u' : C := C - 1;
+X`09`09  'm' : C := C + 1;
+X`09`09  'v' : C := C - 1;
+X`09`09  'j' : C := C - 1;
+X`09`09  'x' : R := R + 1;
+X`09       end;
+X`09 end;
+X      -1:
+X`09 Case Screen`5BR,c`5D of`20
+X`09    'w' : R := R + 1;
+X`09    'k' : R := R + 1;
+X`09    'n' : R := R + 1;
+X`09    'u' : R := R + 1;
+X`09    'v' : C := C + 1;
+X`09    'j' : R := R - 1;
+X`09    'q' : C := C + 1;
+X`09 end;
+X   end;
+X   move_Clock := true;
+X   Prev_R := Save_R;
+X   Prev_C := Save_C;
+X   If Screen`5BR,C`5D = 'a' Then begin `7B reverse `7D
+X     prev_R := R;
+X     prev_C := C;
+X     R := Save_R;
+X     C := Save_C;
+X   end else    `20
+X    If Screen`5BR,c`5D = '*' Then`20
+X   `09move_Clock := False
+X    Else
+X      IF Screen`5BR,C`5D = ' ' Then`20
+X   `09 Writeln(' **** INTERNAL ERROR **** MOVE_CLOCK ');
+Xend;   `09   `20
+X
+X
+XProcedure fill_area;
+X
+Xvar Sr,Sc,R,C,Prev_R,Prev_C,area_C,Area_A: Integer;
+X    some_one_there : Boolean;
+X
+X   procedure Bfill_C(Fr,Fc: Integer);
+X
+X   Begin
+X     If Cal`5BFr,Fc`5D = ' ' Then Begin
+X   `09Cal`5BFR,FC`5D := 'C';
+X        BFill_C(FR-1,FC);
+X   `09BFill_C(FR,FC+1);
+X        BFill_C(FR+1,FC);
+X        BFill_C(FR,FC-1);
+X   `09Bfill_C(FR+1,Fc+1);
+X   `09Bfill_C(FR+1,Fc-1);
+X   `09Bfill_C(FR-1,Fc+1);
+X   `09Bfill_C(FR-1,Fc-1);
+X     end else`20
+X      If Cal`5BFR,FC`5D in `5B'A','*'`5D Then`20
+X   `09Some_one_there := true;
+X   end;
+X
+X   procedure Bfill_A(FR,FC: Integer);
+X
+X   Begin
+X     If Cal`5BFR,FC`5D = ' ' Then Begin
+X   `09Cal`5BFR,FC`5D := 'A';
+X        BFill_A(FR-1,FC);
+X   `09BFill_A(FR,FC+1);
+X        BFill_A(FR+1,FC);
+X        BFill_A(FR,FC-1);
+X
+X        BFill_A(FR+1,FC+1);
+X   `09BFill_A(FR+1,FC-1);
+X        BFill_A(FR-1,FC+1);
+X        BFill_A(FR-1,FC-1);
+X     end else`20
+X      If Cal`5BFR,FC`5D in `5B'C','*'`5D Then`20
+X   `09Some_one_there := true;
+X   end;
+X
+X   Procedure Display_Fill( Ch : Char );
+X
+X   var S,R,C : Integer;
+X       H   : Char;
+X
+X   begin
+X     H := Chr( Ord('a') + Ord(Head_sym`5Bplay`5D) - Ord('1') );
+X     R := 1 ;
+X     S := 0 ;`20
+X     Write_5(Esc,'<',Esc,'`5B','7');
+X     write_5('m',Esc,'`5B','?','2');
+X     Write_3('l',Esc,'F');
+X     While R <= Screen_Dim_R do begin
+X   `09C := 1;
+X   `09While ( C < Screen_Dim_C ) do  begin
+X   `09  While ( C < screen_Dim_C ) and ( Cal`5BR,C`5D<>ch ) do`20
+X   `09   C := C + 1;
+X   `09  If Cal`5BR,C`5D = Ch then `20
+X`09    Write_4(Esc,'Y',Chr(31+R),Chr(31+C));
+X   `09  While ( C < screen_Dim_C) and ( Cal`5BR,C`5D = ch ) do  begin
+X   `09   write_1(H);
+X   `09   Screen`5BR,C`5D := '*';
+X   `09   S := S + 1;
+X   `09   C := C + 1;
+X   `09  end;
+X        end;
+X   `09r := R + 1;
+X     end;   `09 `20
+X     Score`5Bplay`5D := S + Score`5Bplay`5D;
+X     Area_Filled := Area_Filled + S;
+X     Write_5(Esc,'<',Esc,'`5B','0');
+X     write_5('m',Esc,'`5B','?','2');
+X     Write_3('l',Esc,'F');
+X     Cursor_R := 9999;
+X   end;
+X
+X     `20
+XBegin
+X  `7B First Move Around Clock, to check no one on walls for building from wa
+Vlls`7D
+X  Cal := Screen; `7B Uses A Lot Of Processing `7D
+X  R := Pos_R;
+X  C := Pos_C;
+X  Prev_R := pos_R - Dir_R;
+X  prev_C := Pos_C - Dir_C;
+X  Area_C := 0;
+X  Some_one_there := False;
+X  repeat`20
+X    Some_one_there := Not move_Clock(R,C,Prev_r,Prev_C);
+X  Until (Some_one_There or (( R = Pos_R ) and ( C = pos_C ))) ;
+X  If not Some_one_there Then Begin
+X    R := Pos_R;
+X    C := Pos_C;
+X    Prev_R := pos_R - Dir_R;
+X    prev_C := Pos_C - Dir_C;
+X    repeat
+X      If move_Clock(R,C,Prev_r,Prev_C) Then  begin
+X        If Screen`5BR,C`5D In `5B'q','x'`5D Then  begin
+X          Sr := R + ( C - Prev_C );
+X          Sc := C - ( R - Prev_R );
+X          Bfill_C(Sr,Sc)
+X        end;
+X       end Else
+X         Some_one_there := true;
+X     Until (Some_one_There or (( R = Pos_R ) and ( C = pos_C ))) ;
+X  end;
+X  If Not Some_one_There Then`20
+X    Display_Fill('C');
+X  R := Pos_R;
+X  C := Pos_C;
+X  Prev_R := pos_R - Dir_R;
+X  Prev_C := Pos_C - Dir_C;
+X  repeat`20
+X     Some_one_there := Not move_Anti_Clock(R,C,Prev_r,Prev_C)`20
+X  until ( Some_one_There or (( R = Pos_R ) and ( C = pos_C ))) ;
+X  If not some_one_there  Then begin
+X     R := Pos_R;
+X     C := Pos_C;
+X     Prev_R := pos_R - Dir_R;
+X     prev_C := Pos_C - Dir_C;
+X     Some_one_there := False;
+X     repeat
+X       If move_Anti_Clock(R,C,Prev_r,Prev_C) Then  begin
+X`09If Screen`5BR,C`5D In `5B'q','x'`5D Then  begin
+X`09  Sr := R - ( C - Prev_C );
+X`09  Sc := C + ( R - Prev_R );
+X`09  Bfill_A(Sr,Sc)
+X`09end;
+X       end Else
+X      Some_one_there := true;
+X     until ( Some_one_There or (( R = Pos_R ) and ( C = pos_C ))) ;
+X  end;
+X  If Not Some_one_there Then`20
+X     Display_Fill('A');
+Xend;
+X
+XFunction Valid_move : Boolean;
+X
+XBegin`20
+X    Valid_move := False;
+X    Case (Dir_R+1) + (Dir_C+1)*4 Of`20
+X      9 : `7B Right `7D
+X   `09  If Ch_on`5BPlay`5D in `5B'l','w','t','n','m','v','q'`5D Then`20
+X   `09      Valid_move := True;
+X
+X      6 : `7B Down `7D
+X   `09  If Ch_on`5BPlay`5D in `5B'l','w','k','t','n','u','x'`5D Then`20
+X   `09      Valid_move := True;
+X
+X      4 : `7B Up `7D
+X   `09  If Ch_on`5BPlay`5D in `5B't','n','u','m','v','j','x'`5D Then
+X   `09      Valid_move := True;
+X
+X      1 : `7B Left `7D
+X   `09  If Ch_on`5BPlay`5D in `5B'w','k','n','u','v','j','q'`5D Then`20
+X   `09      Valid_move := True;
+X
+X      end `7B Case `7D;
+Xend;
+X
+Xbegin
+X   If Not Quit`5BPlay`5D And (Ord(Responce`5BPLay`5D) = 0 )  Then begin
+X      Quit`5BPLay`5D := True;         `7BInitalise all Variables `7D
+X      Game`5BPlay`5D := 0;
+X      Score`5BPlay`5D := 0;
+X      Games_Won`5BPLay`5D := 0;
+X      Score_Set(Play,Score`5BPlay`5D,Game`5BPLay`5D,Games_Won`5BPLay`5D);
+X   end else`20
+X      If Not Quit`5BPlay`5D  Then Begin
+X         Dir_R := Move_R`5BPlay`5D;
+X         Dir_C := Move_C`5BPLay`5D;
+X`09 pos_R := Head_R`5BPlay`5D;
+X         pos_C := Head_C`5BPlay`5D;
+X         `7B Change Direction Of The Position You Move To is Not A Wall ie =
+V '.' `7D
+X   `09 IF ( Ord(responce`5Bplay`5D) > 128 ) Then`20
+X   `09    Can_create`5Bplay`5D := true;
+X`09 Responce`5Bplay`5D := Chr(Ord(Responce`5Bplay`5D) mod 16 );
+X         Case Ord(responce`5BPlay`5D) Of`20
+X            8 :   Begin
+X                     Dir_R := -1 ;
+X                     Dir_C := 0 ;      `7B Moving Up `7D
+X                  end;
+X            2 :   Begin
+X                     Dir_R := 1;
+X                     Dir_C := 0;         `7B Moving Down `7D
+X                  end;
+X            4 :   Begin
+X                     Dir_R := 0;          `7B Moving Left `7D
+X                     Dir_C := -1;
+X                  end;
+X            6 :   Begin
+X                     Dir_R := 0;            `7B Moving Right `7D
+X                     Dir_C := 1;
+X                  end;
+X            otherwise `7B Do Nothing Same Dir As Before `7D
+X         end `7B Case `7D;
+X   `09 If ((  pos_r + dir_r ) > 0 ) and`20
+X   `09    ((  pos_r + dir_r ) <= Screen_Dim_R ) and`20
+X   `09    ((  pos_c + dir_c ) > 0 ) and`20
+X   `09    ((  pos_c + dir_c ) <= Screen_Dim_C ) Then`20
+X`09    If Creating`5Bplay`5D Then begin
+X               If ( Dir_R = -1*Move_R`5Bplay`5D) and ( Dir_C = -1*Move_C`5Bp
+Vlay`5D) Then Begin
+X                    Dir_R := Move_R`5BPlay`5D; `7B Can't Reverse Your Direct
+Vion `7D
+X                    Dir_C := Move_C`5BPlay`5D;
+X               end;
+X`09       If Screen`5Bpos_r + Dir_r, Pos_c + Dir_C`5D = ' ' THen Begin
+X   `09`09  Area_Filled := Area_Filled + 1;
+X   `09`09  New_Tail_Char;
+X`09    `09  At(pos_r,Pos_C,Screen`5BPos_r,Pos_C`5D);
+X                  pos_r := Pos_R + Dir_R; Pos_C := Pos_C + Dir_C;
+X`09    `09  at(pos_R,pos_C,Head_sym`5Bplay`5D);
+X`09       end else begin `7B v Must Be a Wall `7D
+X`09    `09  If not ( Screen`5Bpos_r + Dir_r, Pos_c + Dir_C`5D = '*') Then be
+Vgin
+X   `09`09     new_tail_Char;
+X`09    `09     At(pos_r,Pos_C,Screen`5BPos_r,Pos_C`5D);
+X   `09`09     write_1(Chr(7));
+X                     pos_r := Pos_R + Dir_R; Pos_C := Pos_C + Dir_C;
+X   `09`09     New_Join_Char(True); `7B Going into the wall `7D
+X`09`09     If ( Screen`5BPos_r,POs_C`5D = ' ') then`20
+X`09`09`09 Writeln('ERROR NEW JOIN CHAR IS BLANK ');
+X`09       `09     Creating`5Bplay`5D := False;
+X`09       `09     Can_create`5Bplay`5D := False;
+X`09    `09     at(pos_R,pos_C,Head_sym`5Bplay`5D);
+X`09`09     Fill_area;
+X`09`09  end`20
+X`09       end;`09`09  `09`09`20
+X`09    End Else `7B Not Creating `7D
+X`09       If Not Valid_Move Then`20
+X`09`09  If ( Screen`5Bpos_r + Dir_r, Pos_c + Dir_C`5D = ' ' ) Then`20
+X`09`09     If Can_Create`5Bplay`5D Then Begin
+X`09`09`09Creating`5Bplay`5D := true;
+X`09`09`09Screen`5BPos_R,Pos_C`5D := Ch_on`5Bplay`5D; `7B For New_join_Char `
+V7D
+X`09`09`09New_join_Char(false); `7B Going Out Form Wall `7D
+X`09`09`09At(pos_r,Pos_C,Screen`5BPos_r,Pos_C`5D);
+X`09`09`09Pos_r := Pos_R + Dir_R; Pos_C := Pos_C + Dir_C;
+X`09    `09`09At(pos_R,pos_C,Head_sym`5Bplay`5D);
+X`09`09     end else`20
+X   `09`09  else`20
+X   `09       else begin
+X`09`09  If ( Screen`5Bpos_r + Dir_r, Pos_c + Dir_C`5D <> '*' ) Then Begin
+X`09`09     Screen`5BPos_r,Pos_C`5D := Ch_on`5Bplay`5D;
+X`09`09     At(pos_r,Pos_C,Screen`5BPos_r,Pos_C`5D);
+X`09`09     pos_r := Pos_R + Dir_R; Pos_C := Pos_C + Dir_C;
+X`09`09     At(pos_R,pos_C,Head_sym`5Bplay`5D);
+X   `09`09  end`20
+X`09       end
+X   `09    `7Bend`7D;
+X   `09 If Not (( Pos_R = Head_R`5Bplay`5D ) and ( Pos_C = Head_C`5Bplay`5D))
+V Then Begin
+X            Move_R`5BPlay`5D := Dir_r;
+X            Move_C`5BPLay`5D := Dir_c;
+X`09    Head_R`5BPlay`5D := pos_r;
+X            Head_C`5BPlay`5D := pos_c;
+X   `09    Ch_on`5Bplay`5D  := Screen`5Bpos_r,Pos_C`5D;
+X   `09end;
+X   `09Screen`5BPos_r,Pos_C`5D := '*';
+X      end;
+Xend;`09`09    `20
+X`09`09    `20
+X
+X begin
+X   If ( Game`5BYou`5D Mod 2 ) = 1 Then Begin      `7B If 1 Then Loop Clockwi
+Vse `7D
+X      For Play := 1 to Max_Player_number do`20
+X         add_This_Players_head;
+X   end else`20
+X      Begin
+X         For Play := Max_Player_Number downto 1 do`20
+X            add_This_Players_head;               `7B Go Clockwise In Updatin
+Vg `7D
+X      end;
+X   If Area_Filled > Area_75_per Then  begin
+X      For Play := 1 to max_player_number do begin
+X   `09game`5Bplay`5D := game`5Bplay`5D + 1;
+X        Score_Set(Play,Score`5BPlay`5D,Game`5BPLay`5D,Games_Won`5BPLay`5D);
+X     end;
+X     Add_head := 0
+X   end else
+X     Add_Head := 1;            `7B 1 To Continue `7D
+X   at(24,80,chr(0));
+X   Break_Buff;    `7B does not write the buffer just says To`20
+X                   Write this buffer to all the players when add_head exits
+V `7D
+Xend `7B add_Head`7D;
+X
+X
+XProcedure Snake_PLay;extern;
+X
+X
+XBegin `7B Mainline `7D
+X   LineLimit(Output,MaxInt);
+X   Initalise_Mainline;
+X   While True Do Begin
+X      Initalise_Positions;      `7B initalises Pos Only relavent for master
+V snake `7D
+X      Snake_Play;               `7B Calls Add_head with the Moves of the pla
+Vyers  until add_head returns 1 ( end of game ) `7D
+X      Draw_Scores;
+X      Snake_Game_End;           `7B Syncs all players Together `7D
+X   end;
+X9999 :`20
+X  Writeln(esc,'<');
+Xend.
+X
+$ CALL UNPACK MQIX.PAS;131 1594095908
+$ create 'f'
+X`09`09`09SUBROUTINE`09Help_Screen
+XC
+X`09PARAMETER ESC = 27
+X`09CHARACTER Line*256
+X`09BYTE LINEL(256)
+X`09EQUIVALENCE (LINE, LINEL)
+X        BYte REP
+X`09INTEGER Len_Line,ErrNum
+XC
+X        type 111, esc
+X111     Format(X,A1,'<')
+X1`09OPEN( UNIT=4, FILE='Games:MQixH.Scn', ReadOnly,
+X`091 STATUS='OLD',IoStat=ErrNum)
+X        If (ERRNUM.EQ.30) Goto 50
+X        If (ERRNUM.NE.0 ) Goto 999
+X100     READ(4,110,END=200) LEN_LINE, LINE(:LEN_LINE)
+X110     FORMAT(Q,A)
+X`09Call Snake_write(%ref(LIne(:len_line)),Len_line)
+X        GOTO 100
+X200`09close (unit = 4)
+X999`09RETURN
+XC
+X50`09write(Line,51),Esc,Esc
+X51      FORMAT(X,A1,'`5B2J',A1,'`5B1;1HPlease wait...')
+X        Call Snake_Write(%ref(Line(1:25)),25)
+X`09Call Sleep(4)
+X        Goto 1
+X        END
+$ CALL UNPACK MQIXH.FOR;7 457915174
+$ create 'f'
+X`1B`5BH`1B`5BJ`1B(B`1B`5B0m
+X`1B`5B1;1H`1B(0lqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+Vqqqqqqqqqqqqqqqqqqk
+X`1B`5B2;1Hx   lk lk  lqqk  qwq  qk lq                      `1B`5B2;80Hx`1B`5
+VB3;1Hx   xmwjx lj  x   x    mwj
+X`1B`5B3;27H                              `1B`5B3;66H              x`1B`5B4;1
+VHx   x x x x  kx   x    lvk    `20
+X`1B`5B4;32H                 `1B`5B4;80Hx`1B`5B5;1Hx   x   x mqqvvk qvq  qj m
+Vq                      `1B`5B5;80Hx
+X`1B`5B6;1Hx`1B`5B6;16Hm                      `1B`5B6;80Hx`1B`5B7;1Hx`1B`5B7;
+V80Hx`1B`5B8;1Hx    Y`1B(Bou are the qix.`1B`5B8;47H
+X`1B`5B8;47HMovement :`1B`5B8;80H`1B(0x`1B`5B9;1Hx`1B`5B9;80Hx`1B`5B10;1Hx
+V    F`1B(Bence off as much of the  screen`1B`5B10;47H
+X`1B`5B10;47H8  - Up`1B`5B10;63H6 - Right        `1B(0x`1B`5B11;1Hx
+V                                    `1B`5B11;47H  `20
+X`1B`5B11;50H    `1B`5B11;63H                 x`1B`5B12;1Hx    `1B(Bas possib
+Vle before some one else`1B`5B12;47H2  - D
+X`1B`5B12;53Hown       4 - Left`1B`5B12;80H`1B(0x`1B`5B13;1Hx
+V                                    `1B`5B13;47H        `20
+X`1B`5B13;56H               `1B`5B13;80Hx`1B`5B14;1Hx    `1B`5B14;47H`1B(B< S
+Vpace Bar > - Draw Fence       `1B(0x
+X`1B`5B15;1Hx         `1B`5B15;47H                                 x`1B`5B16;
+V1Hx    A`1B(Breas only score if no o
+X`1B`5B16;30Hne else`1B`5B16;80H`1B(0x`1B`5B17;1Hx
+V                                    `1B`5B17;80Hx
+X`1B`5B18;1Hx    `1B(Bis inside.`1B`5B18;80H`1B(0x`1B`5B19;1Hx`1B`5B19;80Hx`1
+VB`5B20;1Hmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+X`1B`5B20;37Hqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj`1B`5B21;1Hlqqqqqqqq
+Vqqqq M`1B(Bessages `1B(0qqqqqqqqqqq
+X`1B`5B21;35Hqqqqk   lqqqqqqqqqqqq N`1B(Bame `1B(0qqqqqqqqqqqqqqqqqqk`1B`5B22
+V;1Hx `1B`5B22;39Hx   x     `1B(B*`1B(0`7E`1B`5B22;70H
+X`1B`5B22;70H`7E`1B(B*        `1B(0x`1B`5B23;1Hmqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+Vqqqqqqqqj   mqqqqqqqqqqqqqqqqqqqqqqqq`1B`5B1;1H
+X`1B`5B23;68Hqqqqqqqqqqqqj`1B`5B1;1H
+X
+X
+X
+X`1B`5B6;17H`7Eqq`60
+X`1B`5B6;20Hqq`60
+X`1B`5B6;22Hqq`60
+X`1B`5B6;24Hqq`60
+X`1B`5B6;26Hqq`60
+X`1B`5B6;28Hqq`60
+X`1B`5B4;30H`60`1B`5B5;30Hx`1B`5B6;30Hj
+X`1B`5B2;30H`60`1B`5B3;30Hx`1B`5B4;30Hx
+X`1B`5B2;30Hlqq`60
+X`1B`5B2;33Hqq`60
+X`1B`5B2;35Hqq`60
+X`1B`5B2;37Hqq`60
+X`1B`5B2;39Hqq`60
+X`1B`5B2;41Hqq`60
+X`1B`5B2;43Hqq`60
+X`1B`5B2;45Hqq`60
+X`1B`5B2;47Hqq`60
+X`1B`5B2;49Hqq`60
+X`1B`5B2;51Hqq`60
+X`1B`5B2;53Hqq`60
+X`1B`5B2;55Hqq`60
+X`1B`5B2;57Hqq`60
+X`1B`5B2;59Hk`1B`5B3;58H`60j
+X`1B`5B3;56H`60qq
+X`1B`5B3;54H`60qq
+X`1B`5B3;52H`60qq
+X`1B`5B3;50H`60qq
+X`1B`5B3;48H`60qq
+X`1B`5B3;46H`60qq
+X`1B`5B3;44H`60qq
+X`1B`5B3;42H`60qq
+X`1B`5B3;40H`60qq
+X`1B`5B3;40Hl`1B`5B4;40Hx`1B`5B5;40H`60
+X`1B`5B5;40Hx`1B`5B6;40Hx`1B`5B7;40H`60
+X`1B`5B7;40Hx`1B`5B8;40Hx`1B`5B9;40H`60
+X`1B`5B9;40Hx`1B`5B10;40Hx`1B`5B11;40H`60
+X`1B`5B11;40Hx`1B`5B12;40Hx`1B`5B13;40H`60
+X`1B`5B13;40Hx`1B`5B14;40Hx`1B`5B15;40H`60
+X`1B`5B15;40Hx`1B`5B16;40Hx`1B`5B17;40H`60
+X`1B`5B17;40Hx`1B`5B18;40Hx`1B`5B19;40H`60
+X`1B`5B19;40Hmq`60
+X`1B`5B19;42Hqq`60
+X`1B`5B19;44Hqq`60
+X`1B`5B19;46Hqq`60
+X`1B`5B19;48Hqq`60
+X`1B`5B19;50Hqq`60
+X`1B`5B19;52Hqq`60
+X`1B`5B19;54Hqq`60
+X`1B`5B19;56Hqq`60
+X`1B`5B19;58Hqq`60
+X`1B`5B19;60Hqq`60
+X`1B`5B19;62Hqq`60
+X`1B`5B19;64Hqq`60
+X`1B`5B19;66Hqq`60
+X`1B`5B19;68Hqq`60
+X`1B`5B19;70Hqq`60
+X`1B`5B19;72Hqq`60
+X`1B`5B19;74Hqq`60
+X`1B`5B17;76H`60`1B`5B18;76Hx`1B`5B19;76Hj
+X`1B`5B17;74H`60qk
+X`1B`5B17;72H`60qq
+X`1B`5B17;70H`60qq
+X`1B`5B17;68H`60qq
+X`1B`5B15;68H`60`1B`5B16;68Hx`1B`5B17;68Hm
+X`1B`5B15;66H`60qk
+X`1B`5B15;64H`60qq
+X`1B`5B15;62H`60qq
+X`1B`5B15;60H`60qq
+X`1B`5B15;58H`60qq
+X`1B`5B15;56H`60qq
+X`1B`5B15;54H`60qq
+X`1B`5B15;52H`60qq
+X`1B`5B15;50H`60qq
+X`1B`5B15;48H`60qq
+X`1B`5B15;46H`60qq
+X`1B`5B13;44H`60`1B`5B14;44Hx`1B`5B15;44Hmqq
+X`1B`5B11;44H`60`1B`5B12;44Hx`1B`5B13;44Hx
+X`1B`5B10;43H`60`1B`5B11;43Hmk
+X`1B`5B8;43H`60`1B`5B9;43Hx`1B`5B10;43Hx
+X`1B`5B6;43H`60`1B`5B7;43Hx`1B`5B8;43Hx
+X`1B`5B6;43Hlq`60
+X`1B`5B6;45Hqq`60
+X`1B`5B6;47Hqq`60
+X`1B`5B6;49Hqq`60
+X`1B`5B6;51Hqq`60
+X`1B`5B6;53Hqq`60
+X`1B`5B6;55Hqq`60
+X`1B`5B6;57Hqq`60
+X`1B`5B6;59Hqq`60
+X`1B`5B6;61Hk`1B`5B7;61Hx`1B`5B8;61H`60
+X`1B`5B8;61Hmqq`60
+X`1B`5B8;64Hqq`60
+X`1B`5B8;66Hqq`60
+X`1B`5B8;68Hqq`60
+X`1B`5B8;70Hqq`60
+X`1B`5B8;72Hqq`60
+X`1B`5B6;74H`60`1B`5B7;74Hx`1B`5B8;74Hj
+X`1B`5B4;74H`60`1B`5B5;74Hx`1B`5B6;74Hx
+X`1B`5B2;74H`60`1B`5B3;74Hx`1B`5B4;74Hx
+X`1B`5B2;72H`60qk
+X`1B`5B2;70H`60qq
+X`1B`5B2;68H`60qq
+X`1B`5B2;66H`60qq
+X`1B`5B2;64H`60qq
+X`1B`5B2;62H`60qq
+X`1B`5B2;60H`60qq
+X`1B`5B2;59H`60q
+X`1B`5B3;60H`1B`5B7m              `1B`5B4;41H
+V                                 `1B`5B5;41H                         `20
+X`1B`5B5;67H       `1B`5B6;41H  `1B`5B6;62H            `1B`5B7;41H  `1B`5B7;6
+V2H            `1B`5B8;41H `20
+X`1B`5B9;41H  `1B`5B10;41H  `1B`5B11;41H  `1B`5B12;41H   `1B`5B13;41H   `1B`5
+VB14;41H   `1B`5B15;41H   `1B`5B16;41H                 `20
+X`1B`5B16;59H         `1B`5B17;41H                           `1B`5B18;41H
+V                                  `20
+X`1B`5B0m
+X`1B`5B2;59Hw`60
+X`1B`5B2;60Hq`60
+X`1B`5B2;61Hq`60
+X`1B`5B2;62Hq`60
+X`1B`5B2;63Hq`60
+X`1B`5B2;64Hq`60
+X`1B`5B2;65Hq`60
+X`1B`5B2;66Hq`60
+X`1B`5B2;67Hq`60
+X`1B`5B2;68Hq`60
+X`1B`5B2;69Hqq`60
+X`1B`5B2;71Hq`60
+X`1B`5B2;72Hq`60
+X`1B`5B2;73Hq`60
+X`1B`5B2;74Hk`1B`5B3;74H`60
+X`1B`5B3;74Hx`1B`5B4;74H`60
+X`1B`5B4;74Hx`1B`5B5;74H`60
+X`1B`5B5;74Hx`1B`5B6;74H`60
+X`1B`5B6;74Hx`1B`5B7;74H`60
+X`1B`5B7;74Hx`1B`5B8;74H`60
+X`1B`5B8;74Hu`1B`5B9;74H`60
+X`1B`5B9;74Hx`1B`5B10;74H`60
+X`1B`5B10;74Hx`1B`5B11;74H`60
+X`1B`5B11;74Hx`1B`5B12;74H`60
+X`1B`5B12;74Hx`1B`5B13;74H`60
+X`1B`5B13;74Hx`1B`5B14;74H`60
+X`1B`5B14;74Hx`1B`5B15;74H`60
+X`1B`5B15;74Hx`1B`5B16;74H`60
+X`1B`5B16;74Hx`1B`5B17;74H`60
+$ CALL UNPACK MQIXH.SCN;6 1797764174
+$ create 'f'
+X`09.title`09MULTIM`09Multi user game control
+X;+
+X;`09if $$MQIX is non zero
+X;
+X;`09if $$SOCCER is non zero
+X;-
+X
+X`09$$SOCCER= 0
+X`09$$MQIX  = 1
+X
+X.if ndf $$MQIX
+X`09$$SOCCER= 1
+X`09$$MQIX  = 0
+X.endc
+X
+X
+X`09$dibdef
+X`09$iodef
+X`09$qiodef
+X`09$secdef
+X`09$jpidef
+X
+X`09.default displacement word
+X
+Xesc`09`09= 27
+X
+Xsnake`09`09= 8`09`09; number of snakes
+X
+X;`09meaning of event flags in cluster 2
+X
+Xflag$v_master`09= 0`09`09; set if a master snake exists
+Xflag$v_read`09= 1`09`09; set if all snakes should read command
+Xflag$v_update`09= 2`09`09; set if all snakes should update screen
+Xflag$v_game`09= 3`09`09; set if game is in progress
+Xflag$v_endofgame= 4`09`09; set if we have reached the end of the game
+Xflag$v_synch`09= 5
+Xflag$v_done`09= 8`09`09; set if operation (read,update) is complete
+X
+Xcheck_timer`09= 13`09`09; check timer id
+X
+Xflag$v_io`09= 9`09`09; event flag in cluster 0 (set on read completion)
+X
+X
+X`09.psect`09$rodata`09nowrt, noexe, shr, pic, long
+X
+Xttname_descr:
+X`09.ascid`09/TT/
+X
+Xmbxcnv:
+X`09.ascid`09/_MBA!UW:/`09; convert mbx unit number to physical name
+X
+Xmbxbuf_descr:
+X`09.word`09mbxbuf_siz, 0
+X`09.long`09mbxbuf
+X
+Xdibbuf_descr:
+X`09.word`09dib$k_length, 0
+X`09.long`09dibbuf
+X
+X`09.align long
+Xsnake_desc_2:
+X.if ne $$SOCCER
+X`09.ascid`09/SOCCER_1/`09`09; name of snake event flags
+X.endc
+X.if ne $$MQIX
+X`09.ascid`09/MQIX_1/
+X.endc
+X
+X`09.align`09long
+Xsnake_map_name:
+X.if ne $$SOCCER
+X`09.ascid`09/SOCCER_DATA/
+X.endc
+X.if ne $$MQIX
+X`09.ascid`09/MQIX_DATA/
+X.endc
+X
+Xtext = .
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-

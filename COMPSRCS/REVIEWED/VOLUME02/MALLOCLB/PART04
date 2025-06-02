@@ -1,0 +1,1986 @@
+From: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Subject: v02i005: malloclib - Malloc Debugging Library, Part04/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Posting-number: Volume 2, Issue 5
+Archive-name: malloclib/part04
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 5)."
+# Contents:  malloc.man memory.c prototypes.h realloc.c
+# Wrapped by cpcahil@virtech on Tue Jan 28 16:46:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'malloc.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'malloc.man'\"
+else
+echo shar: Extracting \"'malloc.man'\" \(28631 characters\)
+sed "s/^X//" >'malloc.man' <<'END_OF_FILE'
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     NAME
+X	  malloc - debugging malloc library
+X
+X     SYNOPSIS
+X	  #include <malloc.h>
+X
+X	  char * calloc(nelem,elsize);
+X	  unsigned nelem, elsize;
+X
+X	  void cfree(ptr)
+X	  char * ptr;
+X
+X	  void free(ptr);
+X	  char * ptr;
+X
+X	  char * malloc(size);
+X	  unsigned size;
+X
+X	  int malloc_chain_check(flag);
+X	  int flag;
+X
+X	  void malloc_dump(fd);
+X	  int fd;
+X
+X	  void malloc_list(fd,histid1,histid2);
+X	  int fd;
+X	  unsigned long	histid1, histid2;
+X
+X	  unsigned long	malloc_size(histidptr);
+X	  unsigned long	* histidptr;
+X
+X	  int mallopt(cmd,val);
+X	  int cmd;
+X	  union	malloptarg val;
+X
+X	  char * realloc(ptr,size);
+X	  char * ptr;
+X	  unsigned size;
+X
+X     DESCRIPTION
+X	  This malloc library is a replacement for the standard
+X	  library to be	used during software development/debugging.
+X	  See the standard malloc(3) pages for more information	on the
+X	  use of the following functions:
+X
+X	       calloc(), cfree(), free(), malloc(), realloc()
+X
+X	  This library differs from the	standard malloc	library	in the
+X	  following ways:
+X
+X	  1. Each malloc segment contains a magic number so that free
+X	  can verify that the pointer passed points to a valid malloc
+X
+X
+X
+X     Page 1			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  segment.
+X
+X	  2. Each malloc segment is filled with	a non-zero pattern so
+X	  that code that depends upon malloc segments being null will
+X	  fail.
+X
+X	  3. The size of each segment will be at least 1 byte larger
+X	  than requested and the extra bytes will be filled with a
+X	  non-zero pattern.  When free is called, it will verify that
+X	  you did not go beyond	the number of bytes you	asked for.
+X
+X	  4. When a segment is freed, it will be filled	with a
+X	  different non-zero pattern to	ensure that the	program
+X	  doesn't depend upon the use of already freed data.
+X
+X	  5. Whenever any of the string	or memory functions (str*, b*,
+X	  mem*)	are called with	a pointer that is within the malloc
+X	  arena,  the operation	is checked to verify that it does not
+X	  overrun the malloced segment.	 A failure of this check is
+X	  considered a "warning	level error" (described	later) and is
+X	  handled accordingly.
+X
+X	  6. Run time checking can include verification	of the malloc
+X	  chain	at each	and every call to one of the malloc functions
+X	  or manually by calling the malloc_chain_check	function.
+X
+X	  When a problem is found, the following error message is
+X	  displayed:
+X
+X	       MALLOC Warning from funcname() (called from filename.c line ###):
+X	       Warning message goes here
+X
+X	  funcname is the name of the function that has	found the
+X	  problem and will usually be an entry point into the library.
+X	  The information that identifies where	the function is	called
+X	  from will only be available if the source module was
+X	  compiled with	the malloc.h file included.
+X
+X	  If the error is caused by a problem in the malloc chain and
+X	  the offending	chain element can be identified, the following
+X	  information is also displayed	(NOTE: this is just a guess by
+X	  the software,	it may not be the actual culprit):
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		  A call to malloc for 33 bytes	in program.c on	line 834.
+X		  This was the 172nd call to malloc.
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 2			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  This example assumes that program.c included the debugging
+X	  library malloc.h file.  If not, the identification
+X	  information will be as follows:
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		  A call to malloc for 33 bytes	in an unknown file.
+X		  This was the 172nd call to malloc.
+X
+X	  The identification of	which call to malloc is	associated
+X	  with the problem is helpful in that it gives you the
+X	  information necessary	to set the breakpoint on the
+X	  allocation function for that particular invocation
+X	  (breakpoints usually can have	counters associated with
+X	  them).  The counters for the three primary allocation	entry
+X	  points (malloc, calloc, and realloc) are managed separately.
+X
+X	  NOTE 1: if you want to set a breakpoint to capture this
+X	  invocation of	malloc,	the actual function that is being
+X	  called is debug_malloc (or debug_realloc for realloc and
+X	  debug_calloc for calloc) and that is where the breakpoint
+X	  should be set.
+X
+X	  NOTE 2: Since	the software is	guessing at the	offending
+X	  malloc chain segment,	it is possible that one	of the nearby
+X	  segments is actually the culprit.  If	the environment
+X	  variable MALLOC_SHOW_LINKS is	set, both the segment
+X	  preceding and	the segment following the accused segment will
+X	  also be identified.  The following is	a sample output:
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		   A call to malloc for	33 bytes in an unknown file.
+X		   This	was the	172nd call to malloc.
+X
+X		   The malloc chain element prior to the suspect allocation is from:
+X
+X		   A call to calloc for	512 bytes in main.c line 16.
+X		   This	was the	4th call to calloc.  This block	has been freed.
+X
+X		   The malloc chain element following the suspect allocation is	from:
+X
+X		   A call to realloc for 4096 bytes in func.c line 376.
+X		   This	was the	1st call to realloc.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 3			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  Once the error message has been displayed, the software will
+X	  then determine how to	handle the error.  This	handling will
+X	  be based upon	the type of error level	(warning or fatal) and
+X	  the error handling in	effect for that	error level (as
+X	  specified by calls to	mallopt	or via environment variables).
+X	  The coding for the error handling is as follows:
+X
+X	    0	continue operations
+X	    1	drop core and exit
+X	    2	just exit
+X	    3	drop core, but continue	executing.  Core files will be
+X		placed into core.[PID].[counter] i.e: core.00123.001
+X	  128	dump malloc chain and continue
+X	  129	dump malloc chain, dump	core, and exit
+X	  130	dump malloc chain, exit
+X	  131	dump malloc chain, dump	core, continue processing
+X
+X	  mallopt() is used to set the malloc debugging	options. The
+X	  following options can	be set:
+X
+X	  MALLOC_WARN(100)    set the error handling for warning level
+X			      errors.  val.i is	an integer that	can
+X			      contain any one of the following values:
+X
+X			      M_HANDLE_IGNORE(0)  ignore error
+X			      M_HANDLE_ABORT(1)	  drop core and	exit
+X			      M_HANDLE_EXIT(2)	  just exit (no	core
+X						  drop)
+X			      M_HANDLE_CORE(3)	  drop core, but keep
+X						  on going
+X
+X			      In addition, M_HANDLE_DUMP(128) may be
+X			      or'd in to cause a dump of the current
+X			      malloc chain.
+X
+X	  MALLOC_FATAL(101)   set the error handling for fatal level
+X			      errors.  val.i is	equivalent to val.i
+X			      for MALLOC_WARN.
+X
+X	  MALLOC_ERRFILE(102) set the destination for malloc error
+X			      messages.	 val.str is a pointer to a
+X			      character	string containing the name of
+X			      the file to be used for error messages.
+X
+X	  MALLOC_CKCHAIN(103) set the malloc chain checking flag.  If
+X			      val.i is non-zero, chain checking	at
+X			      every call to malloc is turned on.
+X
+X	  MALLOC_FILLAREA(104)set the malloc fill area flag.  If val.i
+X			      is zero, malloc and free will not	fill
+X			      allocated/freed memory regions with
+X			      special fill patterns.  Utilizing	this
+X
+X
+X
+X     Page 4			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      feature increases	the performance	of the
+X			      library while decreasing the
+X			      effectiveness of tracking	down overrun
+X			      problems.	 It is strongly	recommended
+X			      that this	option not be used.
+X
+X	  MALLOC_LOWFRAG(105) set the malloc allocation	fragmentation
+X			      handling level.  By default, malloc uses
+X			      a	first fit algorithm for	new
+X			      allocations.  Under certain allocation
+X			      scenarios, this can lead to significant
+X			      memory fragmentation because of the fact
+X			      that little allocations can break	big
+X			      blocks up.
+X
+X			      If val.i is non-zero, malloc uses	a best
+X			      fit algorithm which will reduce
+X			      fragmentation.  This mechanism, while
+X			      using less memory, is slower because the
+X			      entire free list is checked instead of
+X			      just checking until we find a segment
+X			      that is at least big enough.  Normally
+X			      you will not need	to set this variable.
+X
+X	  For example, to set up the session to	generate a core	file
+X	  for every malloc warning, to drop core and exit on a malloc
+X	  fatal, and to	log all	messages to the	file "malloc_log" do
+X	  the following:
+X
+X	       #include	<malloc.h>
+X	       union malloptarg	 m;
+X
+X	       m.i = 131;
+X	       mallopt(MALLOC_WARN,m);
+X
+X	       m.i = 1;
+X	       mallopt(MALLOC_FATAL,m);
+X
+X	       m.str = "malloc_log";
+X	       mallopt(MALLOC_ERRFILE,m);
+X
+X	  mallopt() can	be used	to set/alter the debugging options at
+X	  any time (i.e. you may want to turn on chain-checking	after
+X	  the program startup if the program startup does a lot	of
+X	  allocations which are	known to be OK).
+X
+X	  malloc_chain_check() will check the status of	the malloc
+X	  arena.  If flag is non-zero, an error	found in the chain
+X	  will cause a fatal error.  malloc_chain_check() returns zero
+X	  when there are no problems found in the malloc chain,	non-
+X	  zero otherwise.
+X
+X
+X
+X
+X     Page 5			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  malloc_dump()	will dump a list of all	in-use malloc segments
+X	  and the first	few bytes of each segment.  If the environment
+X	  variable MALLOC_DETAIL is set, all segments (including those
+X	  that have been freed)	are listed and additional internal
+X	  information is displayed.  fd	is the file descriptor to
+X	  write	the data to.
+X
+X	  malloc_list()	will dump a list in the	same format as
+X	  malloc_dump but only the items that are still	in use and
+X	  which	have been allocated within the malloc history id range
+X	  specified by histid1 and histid2, inclusive.	The histids
+X	  are obtained from calls to malloc_size(). This is especially
+X	  useful in tracking down memory leaks.	 fd is the file
+X	  descriptor to	write the data to.
+X
+X	  malloc_size()	returns	the amount of malloc data that is
+X	  currently in use (in bytes).	If histidptr is	not NULL, it
+X	  is taken to be a pointer to a	place to store the current
+X	  malloc history id which can be used later when malloc_list
+X	  is called to list items that are still in use.
+X
+X	  The following	example	shows the typical use of the
+X	  malloc_size and malloc_list functions	in tracking down
+X	  memory leaks:
+X
+X	       unsigned	long  histid1, histid2,	orig_size, current_size;
+X
+X	       orig_size = malloc_size(&histid1);
+X
+X	       /* .....	go do lots of stuff ...... */
+X
+X	       current_size = malloc_size(&histid2);
+X
+X	       if( current_size	!= orig_size )
+X	       {
+X		    malloc_list(2,histid1,histid2);
+X	       }
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 6			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     USAGE
+X	  The library can be used in several modes, each increasingly
+X	  intrusive (i.e. requiring changes to be made to the build
+X	  process and/or source	code).	However, the extra cost	of a
+X	  little intrusiveness is repaid in much better	problem
+X	  identification.  Each	mode is	built upon the previous	modes
+X	  and therefore	requires the changes and/or commands specified
+X	  in the lower modes.
+X
+X	  MODE 1 - library substitution
+X
+X	  The simplest use is to just link the object module with the
+X	  libdbmalloc.a.  Be sure to have this library before the C
+X	  library (libc.a) on the link command (this is	automatic if
+X	  you use cc to	link and specify the debug library without
+X	  specifying the C library).
+X
+X	  This mode links in all of the	debug versions of the library
+X	  modules and will trap	as many	errors as it can (yes, there
+X	  are errors that the malloc library cannot catch).
+X	  Environment variables	can be used to control the behavior of
+X	  the library.
+X
+X	  MODE 2 - malloc.h inclusion
+X
+X	  This mode involves including the malloc.h file included with
+X	  the debugging	library.  The malloc.h file includes macros
+X	  that will identify the source	line and file name for each
+X	  debugging function called.  This is how the library is able
+X	  to tell you that it was the call to malloc on	line 55	in
+X	  file junk.c.
+X
+X	  Typically you	should always include malloc.h in your source
+X	  files	and just use the -I INCLUDEDIR directive for the
+X	  compiler to point the	compiler to the	debugging version of
+X	  the header file instead of the normal	file.  That way	you
+X	  don't	have to	change the source files	when you want to turn
+X	  off the debugging library.
+X
+X	  NOTE:	Once you compile code in this mode, you	must recompile
+X	  the code without the debugging malloc.h include file in
+X	  order	to get the software to use the non-debugging
+X	  functions.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 7			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  MODE 3 - run-time specification of options
+X
+X	  Environment variables	can be used to control the behavior of
+X	  the debugging	library	to some	extent.	 However, this control
+X	  is very coarse in that you only have one setting available
+X	  for the entire running of the	program.
+X
+X	  This can be a	problem	if you want to turn on malloc chain
+X	  checking, but	know that the problem occurs between a
+X	  relatively narrow portion of the code	and don't want to take
+X	  the hit of having chain checking on for the entire program
+X	  execution.
+X
+X	  The solution to this problem is to include calls to
+X	  mallopt() with the debugging options which set the
+X	  appropriate modes when you want them set.  Since you don't
+X	  want to have to change the code to remove and	add these
+X	  functions every time you decide to include malloc debugging
+X	  or not, the malloc.h file defines the	preprocessor symbol
+X	  _DEBUG_MALLOC_INC which can be used in your code as follows:
+X
+X	       #ifdef _DEBUG_MALLOC_INC
+X		    mallopt(.... );
+X	       #endif
+X
+X	  In addition to setting behavior options, you might want to
+X	  make use of the memory leak detection	routines in this mode.
+X	  These	calls should also be surrounded	by #ifdefs for the
+X	  debug	malloc symbol so that you can leave them in the	code
+X	  and automatically get	the increased functionality whenever
+X	  you compile with the debugging library.
+X
+X     ENVIRONMENT VARIABLES
+X	  Environment variables	can be used to control error handling,
+X	  error	logging	and malloc chain checking at run time.	The
+X	  following environment	variables are used:
+X
+X	  MALLOC_CKCHAIN      if 1, turns on malloc chain checking at
+X			      every call to any	of the malloc
+X			      functions.
+X	  MALLOC_DETAIL	      if set, malloc_dump shows	some internal
+X			      detail for each entry in the chain.
+X			      This info	is probably only of use	if you
+X			      are debugging the	malloc library itself.
+X	  MALLOC_ERRFILE      specifies	the error log file for error
+X			      messages.
+X	  MALLOC_FATAL	      specifies	the error handling for fatal
+X			      errors
+X	  MALLOC_FILLAREA     specifies	the fill area flag setting.
+X			      If zero, malloc/free area	filling	and
+X			      checking is disabled (thereby increasing
+X			      performance, while decreasing
+X
+X
+X
+X     Page 8			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      effectiveness of the library).
+X	  MALLOC_LOWFRAG      if 1, turns on best fit allocation
+X			      algorithm.  Otherwise, first fit
+X			      algorithm	is used	for finding allocation
+X			      segments (which can cause	memory
+X			      fragmentation).
+X	  MALLOC_SHOW_LINKS   when an error is found, the suspected
+X			      allocation is displayed.	However, since
+X			      it is possible that the next or previous
+X			      allocation in the	malloc chain was the
+X			      actual culprit these links may be	of
+X			      interest.	 If this variable is set to
+X			      non-zero (i.e. 1)	the links will also be
+X			      shown.
+X	  MALLOC_WARN	      specifies	the error handling for warning
+X			      errors
+X
+X	  As an	example, to set	up the session to generate a core file
+X	  for every malloc warning, to drop core and exit on a malloc
+X	  fatal, and to	log all	messages to the	file "malloc_log" do
+X	  the following:
+X
+X	       MALLOC_WARN=131
+X	       MALLOC_FATAL=1
+X	       MALLOC_ERRFILE=malloc_log
+X
+X	       export MALLOC_WARN MALLOC_FATAL MALLOC_ERRFILE
+X
+X
+X     ERROR MESSAGES
+X	  The following	error messages are reported by the library:
+X
+X	  M_CODE_BAD_CONNECT(5)		Pointers between this segment
+X					and adjoining segments are
+X					invalid.
+X
+X					This error indicates that the
+X					malloc chain has been
+X					corrupted.  This is most often
+X					caused by an overwrite of the
+X					malloc header by an access via
+X					the previous malloc segment.
+X
+X	  M_CODE_BAD_MAGIC(4)		Malloc region does not have a
+X					valid magic number in header.
+X
+X					This error is caused by
+X					several	mechanisms including
+X					free()ing the same pointer
+X					twice or a pointer that	was
+X					not returned by	malloc(), or
+X					writing	beyond the end of a
+X
+X
+X
+X     Page 9			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X					segment.
+X
+X	  M_CODE_BAD_PTR(3)		Pointer	is not within malloc
+X					region.
+X
+X					The pointer passed to free
+X					orrealloc is not pointer
+X					returned by malloc.  Another
+X					cause is corruption of the
+X					malloc chain by	writing	beyond
+X					the end	of a segment.
+X
+X	  M_CODE_CHAIN_BROKE(1)		Malloc chain is	corrupted,
+X					pointers out of	order.
+X
+X					Corruption has been detected
+X					in the malloc chain that is
+X					related	to the relative
+X					positions of the malloc	chain
+X					segments in memory.  This is
+X					an indication that someone has
+X					overwritten beyond the amount
+X					they allocated.
+X
+X	  M_CODE_FREELIST_BAD(11)	Malloc segment in free list is
+X					in-use.
+X
+X					A segment that is in the
+X					free-list is flagged as	in-
+X					use.  This is usually caused
+X					by overwriting from the
+X					previous segment in the	malloc
+X					chain.
+X
+X	  M_CODE_NOMORE_MEM(9)		Unable to get additional
+X					memory from the	system.
+X
+X					The system call	sbrk failed to
+X					obtain more memory for the
+X					program.
+X
+X	  M_CODE_NOT_INUSE(8)		Data is	not in use (can't be
+X					freed or reallocated).
+X
+X					A pointer to a malloc segment
+X					has been passed	to free() or
+X					realloc(), but this segment
+X					has already been freed.
+X
+X
+X
+X
+X
+X
+X
+X     Page 10			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  M_CODE_NO_END(2)		Malloc chain is	corrupted, end
+X					before end pointer.
+X
+X					Yet another overwrite problem.
+X					This error means that we got
+X					to what	we believe is the end
+X					of the chain, but it does not
+X					match the recorded end of the
+X					chain.
+X
+X	  M_CODE_OUTOF_BOUNDS(10)	Pointer	within malloc region,
+X					but outside of malloc data
+X					bounds.
+X
+X					This is	caused by a call to
+X					one of the string/memory
+X					functions that attempt to
+X					read/write bytes that are not
+X					included in the	allocation
+X					associated with	that memory.
+X					This is	the most typical error
+X					that you will see from the
+X					malloc library.
+X
+X	  M_CODE_OVERRUN(6)		Data has overrun beyond
+X					requested number of bytes.
+X
+X					This error is detected by
+X					free() and indicates that the
+X					current	segment	has written
+X					data beyond the	number of
+X					bytes that it requested.  This
+X					only catches overwrites	when
+X					they are within	the extra
+X					space allocated	with each
+X					segment	(this can range	from
+X					one to eight bytes).  If the
+X					overwrite occurs further along
+X					it will	usually	cause some
+X					corruption in the malloc
+X					chain.
+X
+X	  M_CODE_REUSE(7)		Data in	free'd area has	been
+X					modified.
+X
+X					Data in	a freed	segment	has
+X					been modified.	This usually
+X					indicates that the program is
+X					using a	pointer	after it
+X					called free, but it may	also
+X					be caused by an	overwrite from
+X					a previous segment in the
+X
+X
+X
+X     Page 11			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X					chain.
+X
+X     DUMP OUTPUT
+X	  Sample dump/list output:
+X
+X	       ************************** Dump of Malloc Chain ****************************
+X	       POINTER	   FILE	 WHERE	       LINE	 ALLOC	      DATA     HEX DUMP
+X	       TO DATA	    ALLOCATED	      NUMBER	 FUNCT	     LENGTH  OF	BYTES 1-7
+X	       --------	-------------------- ------- -------------- ------- --------------
+X	       0x403DB4	testerr.c		  15 malloc(1)		 40 01010101010101
+X	       0x403E0C	testerr.c		  16 realloc(1)		 20 01010101010101
+X
+X	  The info in each column is as	follows:
+X
+X	  POINTER	      the pointer returned by the allocation
+X			      function (the pointer the	the allocated
+X			      data area).
+X
+X	  FILE		      the name of the file where the
+X			      allocation function was called.  This
+X			      information is only available if the
+X			      source file includes the malloc.h	file
+X			      from this	library	(as opposed to the
+X			      system include file).  If	the source
+X			      file did not include this	file, the file
+X			      will be listed as	unknown	and the	line
+X			      number will be blank.  Note that any
+X			      malloc calls from	system libraries will
+X			      probably not have	been compiled with the
+X			      malloc.h file included and will
+X			      therefore	appear as unknown.
+X
+X	  LINE NUM	      The line number of the line that called
+X			      the allocation function.	This field
+X			      will be left blank if the	malloc.h from
+X			      this library was not included in the
+X			      source file when it was compiled.
+X
+X	  ALLOC	FUNC	      The allocation function called: malloc,
+X			      realloc, or calloc.  The number in
+X			      parenthesis following the	function name
+X			      is the call number for that particular
+X			      function.	 For example: malloc(1)	means
+X			      that this	allocation was the 1st call to
+X			      malloc.
+X
+X	  DATA LEN	      The number of bytes allocated.
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 12			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  HEX DUMP	      A	hexidecimal dump of the	first seven
+X			      bytes in the allocated data.  This
+X			      example shows the	bytes filled with
+X			      0x01s which happen to be the fill
+X			      pattern used by the malloc library (to
+X			      make sure	that one doesn't depend	upon
+X			      the fact that some calls to malloc
+X			      result in	NULL bytes).  So the
+X			      allocations that are shown haven't
+X			      stored any data in the area yet.
+X
+X	  If the environment variable MALLOC_DETAIL is defined,	the
+X	  following additional information will	be included:
+X
+X	       ************************************************************** Du...
+X					    FREE     FREE		   ACTUAL SIZE	  ...
+X		 PTR	  NEXT	   PREV	    NEXT     PREV      FLAGS	   INT	  HEX	  ...
+X	       --------	-------- -------- -------- -------- ---------- --------	--------- ...
+X	       0x403C94	0x403CEC 0x40326C 0x000000 0x000000 0x03156111	     48(0x000030) ...
+X	       0x403CEC	0x403D2C 0x403C94 0x000000 0x000000 0x03156121	     24(0x000018) ...
+X	       0x403D2C	0x403D6C 0x403CEC 0x000000 0x403D6C 0x03156120	     24(0x000018) ...
+X	       0x403D6C	0x000000 0x403D2C 0x403D2C 0x000000 0x03156120	     24(0x000018) ...
+X
+X	       Malloc start:	  0x40326C
+X	       Malloc end:	  0x403D2C
+X	       Malloc data start: 0x403C94
+X	       Malloc data end:	  0x405C94
+X	       Malloc free list:  0x403D6C
+X			       -> 0x403D2C
+X
+X	  NOTE that I cut off the example at the point where the
+X	  normal output	would begin (hence the ...).
+X
+X	  The info in each column is as	follows:
+X
+X	  PTR		  The malloc chain pointer for the segment
+X			  (the address of the segment).
+X
+X	  NEXT		  The pointer to the next segment in the
+X			  chain.
+X
+X	  PREV		  The pointer to the previous segment in the
+X			  chain.
+X
+X	  FREE NEXT	  The pointer to the next segment in the free
+X			  list.
+X
+X	  FREE PREV	  The pointer to the previous segment in the
+X			  free list.
+X
+X
+X
+X
+X
+X
+X     Page 13			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  FLAGS		  The flags associated with this segment.
+X			  This is a long integer which contains	the
+X			  following fields
+X
+X			  0xFFFFFF00  the magic	number.	 This should
+X				      be 0x03156100 (probably
+X				      someone's	birthday).
+X
+X			  0x00000070  the type of allocation function.
+X				      Malloc (x010), realloc (0x20),
+X				      or calloc	(0x30) are the only
+X				      valid values for this field).
+X
+X			  0x00000001  the in-use flag.	if this	value
+X				      is non-zero, the indicated
+X				      segment is currently in use (not
+X				      freed).
+X
+X	  ACTUAL SIZE	  The actual size reserved for the allocation
+X			  in both decimal and hex.  This will be at
+X			  least	one byte more than the requested size,
+X			  and as much as 8, so that we can check to
+X			  see if the allocation	has been overrun.
+X
+X	  Malloc start and end are pointers to the first and last
+X	  malloc chain segment,	respectively.
+X
+X	  Malloc data start and	data end are the lowest	and highest
+X	  data bytes managed my	the malloc sub-system.	These are only
+X	  used as a quick check	to see if a pointer is in the malloc
+X	  region before	we go hunting down the chain trying to
+X	  identify the segment it belongs to.
+X
+X	  Malloc free list is a	chain of the elements in the free list
+X	  (so it is easier for the programmer to follow	the free list
+X	  if they choose to).  The address of each element in the list
+X	  follows below	the list head.
+X
+X     PERFORMANCE
+X	  This malloc library and its associated string	and memory
+X	  functions are	much less efficient than the standard
+X	  functions due	in part	to the extra error checking.  You do
+X	  not want to use this library when generating a production
+X	  (i.e.	releasable) version of your software.  It should only
+X	  be used during development and testing.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 14			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  The following	environment variable settings will give	you
+X	  the best performance (at the expense of some additional
+X	  error	checking):
+X
+X	       MALLOC_CKCHAIN=0
+X	       MALLOC_FILLAREA=0
+X	       MALLOC_LOWFRAG=0
+X
+X	  We strongly recommend	against	setting	MALLOC_FILLAREA	to
+X	  zero because,	while it will increase the performance
+X	  considerably,	it takes away the capability to	uncover	small
+X	  malloc overruns which	don't overrite the pointers
+X	  surrounding the malloc regions.
+X
+X	  Anyway, with these settings, the malloc library runs at
+X	  about	1/2 the	speed (things only take	twice as long) as the
+X	  standard library.  If	you program spends most	of its time in
+X	  malloc, it will still	be slow	(but perhaps this is an
+X	  indication that you need to consider changing	the way	you
+X	  are using malloc).
+X
+X     WARNINGS
+X	  The include file for this library "malloc.h" should be
+X	  included after the includes for any system related
+X	  information.	This is	because	"malloc.h" redefines several
+X	  system functions including string and	memory routines	and
+X	  this will usually cause compilation errors if	malloc.h is
+X	  processed first (of course, the compile errors will talk
+X	  about	errors in the other system include files like
+X	  string.h).
+X
+X	  There	is a possibility that the use of sbrk()	by other
+X	  modules will cause this library to get confused and possibly
+X	  report some pointers as bad when the really aren't part of
+X	  the malloc chain itself.  Therefore the direct use of	sbrk()
+X	  is strongly discouraged.
+X
+X	  This library attempts	to trap	errors and exit/handle them
+X	  gracefully. However, the nature of the problems may be such
+X	  that it causes the code in the library itself	to crash.
+X	  There	is no way to avoid this, but if	it does	occur,	turn
+X	  on chain checking to narrow the place	where it will occur.
+X
+X	  The functions	in this	library	will often conflict with
+X	  duplicate functions in shared	library	versions of libc.a.
+X	  This is usually due to the fact that some shared library
+X	  modules have explicit	references to shared library versions
+X	  of the debug functions.  The only way	around this is to not
+X	  use the shared library when linking.
+X
+X	  This malloc library, like most malloc	libraries, is not re-
+X	  entrant and therefore	should not be called from interrupt
+X
+X
+X
+X     Page 15			    1.4
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  handlers because of the potential for	receiving an interrupt
+X	  in the middle	of a call to malloc which would	really mess
+X	  things up.
+X
+X     SEE ALSO
+X	  malloc(3)
+X
+X     AUTHOR
+X	  Conor	P. Cahill
+X	  Virtual Technologies Incorporated
+X	  46030	Manekin	Plaza, Suite 160
+X	  Sterling VA 22170
+X	  703-430-9247
+X
+X	  uunet!virtech!cpcahil
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 16			    1.4
+X
+X
+X
+END_OF_FILE
+if test 28631 -ne `wc -c <'malloc.man'`; then
+    echo shar: \"'malloc.man'\" unpacked with wrong size!
+fi
+# end of 'malloc.man'
+fi
+if test -f 'memory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'memory.c'\"
+else
+echo shar: Extracting \"'memory.c'\" \(8088 characters\)
+sed "s/^X//" >'memory.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: memory.c,v 1.13 1992/01/24 04:49:05 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include "mallocint.h"
+X
+X/*
+X * memccpy - copy memory region up to specified byte or length
+X */
+XDATATYPE *
+Xmemccpy(ptr1, ptr2, ch, len)
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	int			  ch;
+X	SIZETYPE		  len;
+X{
+X	return( DBmemccpy( (char *) NULL, 0, ptr1, ptr2, ch, len) );
+X}
+X
+XDATATYPE *
+XDBmemccpy(file,line,ptr1, ptr2, ch, len)
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	int			  ch;
+X	SIZETYPE		  len;
+X{
+X	register char		* myptr1;
+X	register const char	* myptr2;
+X	register SIZETYPE	  i;
+X	DATATYPE		* rtn;
+X
+X
+X	myptr1 = (char *) ptr1;
+X	myptr2 = (char *) ptr2;
+X
+X	/*
+X	 * I know that the assignment could be done in the following, but
+X	 * I wanted to perform a check before any assignment, so first I 
+X	 * determine the length, check the pointers and then do the assignment.
+X	 */
+X	for( i=0; (i < len) && (myptr2[i] != ch); i++)
+X	{
+X	}
+X
+X	/*
+X	 * if we found the character...
+X 	 */
+X	if( i < len )
+X	{
+X		rtn = myptr1+i+1;
+X		i++;
+X	}
+X	else
+X	{
+X		rtn = (char *) 0;
+X	}
+X
+X	/*
+X	 * make sure we have enough room in both ptr1 and ptr2
+X	 */
+X	malloc_check_data("memccpy", file, line, ptr1, i);
+X	malloc_check_data("memccpy", file, line, ptr2, i);
+X
+X 	while( i-- > 0 )
+X	{
+X		*(myptr1++) = *(myptr2++);
+X	}
+X	
+X	return( rtn );
+X}
+X
+X/*
+X * memchr - find a byte in a memory region
+X */
+XDATATYPE *
+Xmemchr(ptr1,ch,len)
+X	const DATATYPE		* ptr1;
+X	register int		  ch;
+X	SIZETYPE		  len;
+X{
+X	return( DBmemchr( (char *)NULL, 0, ptr1, ch, len) );
+X}
+X
+XDATATYPE *
+XDBmemchr(file,line,ptr1,ch,len)
+X	const char		* file;
+X	int			  line;
+X	const DATATYPE		* ptr1;
+X	register int		  ch;
+X	SIZETYPE		  len;
+X{
+X	register const char	* myptr1;
+X	SIZETYPE		  i;
+X
+X	malloc_check_data("memchr", file, line, ptr1, len);
+X
+X	myptr1 = (char *) ptr1;
+X
+X	for( i=0; (i < len) && (myptr1[i] != (char) ch); i++)
+X	{
+X	}
+X
+X	if( i < len )
+X	{
+X		return( (DATATYPE *) (myptr1+i) );
+X	}
+X	else
+X	{
+X		return( (DATATYPE *) 0);	
+X	}
+X}
+X
+X/*
+X * memcpy  - copy one memory area to another
+X * memmove - copy one memory area to another
+X */
+XDATATYPE * 
+Xmemmove(ptr1, ptr2, len)
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBmemmove( (char *) NULL, 0,ptr1, ptr2, len) );
+X}
+X
+XDATATYPE * 
+XDBmemmove(file,line,ptr1, ptr2, len)
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBFmemcpy( "memmove", file, line, ptr1, ptr2, len) );
+X}
+X
+X
+XDATATYPE *
+Xmemcpy(ptr1, ptr2, len)
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBmemcpy( (char *) NULL, 0, ptr1, ptr2, len) );
+X}
+X
+XDATATYPE *
+XDBmemcpy(file, line, ptr1, ptr2, len)
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBFmemcpy( "memcpy", file, line ,ptr1, ptr2, len) );
+X}
+X
+XDATATYPE *
+XDBFmemcpy(func, file, line,ptr1, ptr2, len)
+X	const char		* func;
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	register char		* myptr1;
+X	register const char	* myptr2;
+X	DATATYPE		* rtn = ptr1;
+X
+X	malloc_check_data(func, file, line, ptr1, len);
+X	malloc_check_data(func, file, line, ptr2, len);
+X
+X	myptr1 = ptr1;
+X	myptr2 = ptr2;
+X
+X	/*
+X	 * while the normal memcpy does not guarrantee that it will 
+X	 * handle overlapping memory correctly, we will try...
+X	 */
+X	if( myptr1 > myptr2  && myptr1 < (myptr2+len))
+X	{
+X		myptr1 += (len-1);
+X		myptr2 += (len-1);
+X		while( len-- > 0 )
+X		{
+X			*(myptr1--) = *(myptr2--);
+X		}
+X	}
+X	else
+X	{
+X		while( len-- > 0 )
+X		{
+X			*(myptr1++) = *(myptr2++);
+X		}
+X	}
+X	
+X	return(rtn);
+X}
+X
+X/*
+X * memcmp - compare two memory regions
+X */
+Xint
+Xmemcmp(ptr1, ptr2, len)
+X	const DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBmemcmp((char *)NULL,0,ptr1,ptr2,len) );
+X}
+X
+Xint
+XDBmemcmp(file,line,ptr1, ptr2, len)
+X	const char		* file;
+X	int			  line;
+X	const DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	return( DBFmemcmp("memcmp",file,line,ptr1,ptr2,len) );
+X}
+X
+Xint
+XDBFmemcmp(func,file,line,ptr1, ptr2, len)
+X	const char		* func;
+X	const char		* file;
+X	int			  line;
+X	const DATATYPE		* ptr1;
+X	const DATATYPE		* ptr2;
+X	register SIZETYPE	  len;
+X{
+X	register const char	* myptr1;
+X	register const char	* myptr2;
+X	
+X	malloc_check_data(func,file,line, ptr1, len);
+X	malloc_check_data(func,file,line, ptr2, len);
+X
+X	myptr1 = ptr1;
+X	myptr2 = ptr2;
+X
+X	while( len > 0  && (*myptr1 == *myptr2) )
+X	{
+X		len--;
+X		myptr1++;
+X		myptr2++;
+X	}
+X
+X	/* 
+X	 * If stopped by len, return zero
+X	 */
+X	if( len == 0 )
+X	{
+X		return(0);
+X	}
+X
+X	return( *myptr1 - *myptr2 );
+X}
+X
+X/*
+X * memset - set all bytes of a memory block to a specified value
+X */
+XDATATYPE * 
+Xmemset(ptr1, ch, len)
+X	DATATYPE		* ptr1;
+X	register int		  ch;
+X	register SIZETYPE	  len;
+X{
+X	return( DBmemset((char *)NULL,0,ptr1,ch,len) );
+X}
+X
+XDATATYPE * 
+XDBmemset(file,line,ptr1, ch, len)
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	register int		  ch;
+X	register SIZETYPE	  len;
+X{
+X	return( DBFmemset("memset",file,line,ptr1,ch,len) );
+X}
+X
+XDATATYPE * 
+XDBFmemset(func,file,line,ptr1, ch, len)
+X	const char		* func;
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* ptr1;
+X	register int		  ch;
+X	register SIZETYPE	  len;
+X{
+X	register char		* myptr1;
+X	char			* rtn = ptr1;
+X
+X	malloc_check_data(func, file, line, ptr1, len);
+X
+X	myptr1 = ptr1;
+X
+X	while( len-- )
+X	{
+X		*(myptr1++) = ch;
+X	}
+X
+X	return(rtn);
+X}
+X
+X/*
+X * bcopy - copy memory block to another area
+X */
+XDATATYPE *
+Xbcopy(ptr2,ptr1,len)
+X	const DATATYPE	* ptr2;
+X	DATATYPE	* ptr1;
+X	SIZETYPE	  len;
+X{
+X	return( DBbcopy((char *)NULL,0,ptr2,ptr1,len) );
+X}
+X
+XDATATYPE *
+XDBbcopy(file,line,ptr2,ptr1,len)
+X	const char	* file;
+X	int		  line;
+X	const DATATYPE	* ptr2;
+X	DATATYPE	* ptr1;
+X	SIZETYPE	  len;
+X{
+X	return( DBFmemcpy("bcopy",file,line,ptr1,ptr2,len));
+X}
+X
+X/*
+X * bzero - clear block of memory to zeros
+X */
+XDATATYPE *
+Xbzero(ptr1,len)
+X	DATATYPE	* ptr1;
+X	SIZETYPE	  len;
+X{
+X	return( DBbzero((char *)NULL,0,ptr1,len) );
+X}
+X
+XDATATYPE *
+XDBbzero(file,line,ptr1,len)
+X	const char	* file;
+X	int		  line;
+X	DATATYPE	* ptr1;
+X	SIZETYPE	  len;
+X{
+X	return( DBFmemset("bzero",file,line,ptr1,'\0',len) );
+X}
+X
+X/*
+X * bcmp - compary memory blocks
+X */
+Xint
+Xbcmp(ptr2, ptr1, len)
+X	const DATATYPE	* ptr1;
+X	const DATATYPE	* ptr2;
+X	SIZETYPE	  len;
+X{
+X	return( DBbcmp((char *)NULL,0,ptr2, ptr1, len) );
+X}
+X
+Xint
+XDBbcmp(file, line, ptr2, ptr1, len)
+X	const char	* file;
+X	int		  line;
+X	const DATATYPE	* ptr1;
+X	const DATATYPE	* ptr2;
+X	SIZETYPE	  len;
+X{
+X	return( DBFmemcmp("bcmp",file,line,ptr1,ptr2,len) );
+X}
+X
+X/*
+X * $Log: memory.c,v $
+X * Revision 1.13  1992/01/24  04:49:05  cpcahil
+X * changed memccpy to only check number of chars it will copy.
+X *
+X * Revision 1.12  1991/12/31  21:31:26  cpcahil
+X * changes for patch 6.  See CHANGES file for more info
+X *
+X * Revision 1.11  1991/12/02  19:10:13  cpcahil
+X * changes for patch release 5
+X *
+X * Revision 1.10  91/11/25  14:42:03  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.9  91/11/24  00:49:31  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.8  91/05/21  18:33:47  cpcahil
+X * fixed bug in memccpy() which checked an extra byte if the first character
+X * after the specified length matched the search character.
+X * 
+X * Revision 1.7  90/08/29  21:27:58  cpcahil
+X * fixed value of check in memccpy when character was not found.
+X * 
+X * Revision 1.6  90/07/16  20:06:26  cpcahil
+X * fixed several minor bugs found with Henry Spencer's string/mem tester 
+X * program.
+X * 
+X * 
+X * Revision 1.5  90/05/11  15:39:36  cpcahil
+X * fixed bug in memccpy().
+X * 
+X * Revision 1.4  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:29  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:41  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 8088 -ne `wc -c <'memory.c'`; then
+    echo shar: \"'memory.c'\" unpacked with wrong size!
+fi
+# end of 'memory.c'
+fi
+if test -f 'prototypes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prototypes.h'\"
+else
+echo shar: Extracting \"'prototypes.h'\" \(8674 characters\)
+sed "s/^X//" >'prototypes.h' <<'END_OF_FILE'
+X#if defined(__STDC__) || defined(__cplusplus)
+X# define __stdcargs(s) s
+X#else
+X# define __stdcargs(s) ()
+X#endif
+X
+X/* malloc.c */
+XDATATYPE *malloc __stdcargs((SIZETYPE size));
+XDATATYPE *debug_malloc __stdcargs((const char *file, int line, SIZETYPE size));
+XVOIDTYPE malloc_split __stdcargs((struct mlist *ptr));
+XVOIDTYPE malloc_join __stdcargs((struct mlist *ptr, struct mlist *nextptr, int inuse_override, int fill_flag));
+XVOIDTYPE malloc_aligned_memset __stdcargs((DATATYPE *ptr, int byte, register int len));
+XVOIDTYPE malloc_safe_memset __stdcargs((DATATYPE *ptr, int byte, register int len));
+XVOIDTYPE malloc_fatal __stdcargs((const char *funcname, const char *file, int line, const struct mlist *mptr));
+XVOIDTYPE malloc_warning __stdcargs((const char *funcname, const char *file, int line, const struct mlist *mptr));
+XVOIDTYPE malloc_dump_info_block __stdcargs((const struct mlist *mptr, int id));
+XVOIDTYPE malloc_err_handler __stdcargs((int level));
+Xchar *malloc_int_suffix __stdcargs((long i));
+XVOIDTYPE malloc_freeseg __stdcargs((int op, struct mlist *ptr));
+X/* free.c */
+XVOIDTYPE free __stdcargs((DATATYPE *cptr));
+XVOIDTYPE debug_free __stdcargs((const char *file, int line, DATATYPE *cptr));
+XVOIDTYPE DBFfree __stdcargs((const char *func, const char *file, int line, DATATYPE *cptr));
+X/* realloc.c */
+XDATATYPE *realloc __stdcargs((DATATYPE *cptr, SIZETYPE size));
+XDATATYPE *debug_realloc __stdcargs((const char *file, int line, DATATYPE *cptr, SIZETYPE size));
+X/* calloc.c */
+XDATATYPE *calloc __stdcargs((SIZETYPE nelem, SIZETYPE elsize));
+XDATATYPE *debug_calloc __stdcargs((const char *file, int line, SIZETYPE nelem, SIZETYPE elsize));
+XVOIDTYPE cfree __stdcargs((DATATYPE *cptr));
+XVOIDTYPE debug_cfree __stdcargs((const char *file, int line, DATATYPE *cptr));
+X/* string.c */
+Xchar *strcat __stdcargs((char *str1, const char *str2));
+Xchar *DBstrcat __stdcargs((const char *file, int line, register char *str1, register const char *str2));
+Xchar *strdup __stdcargs((const char *str1));
+Xchar *DBstrdup __stdcargs((const char *file, int line, register const char *str1));
+Xchar *strncat __stdcargs((char *str1, const char *str2, SIZETYPE len));
+Xchar *DBstrncat __stdcargs((const char *file, int line, register char *str1, register const char *str2, register SIZETYPE len));
+Xint strcmp __stdcargs((register const char *str1, register const char *str2));
+Xint DBstrcmp __stdcargs((const char *file, int line, register const char *str1, register const char *str2));
+Xint strncmp __stdcargs((register const char *str1, register const char *str2, register SIZETYPE len));
+Xint DBstrncmp __stdcargs((const char *file, int line, register const char *str1, register const char *str2, register SIZETYPE len));
+Xchar *strcpy __stdcargs((register char *str1, register const char *str2));
+Xchar *DBstrcpy __stdcargs((const char *file, int line, register char *str1, register const char *str2));
+Xchar *strncpy __stdcargs((register char *str1, register const char *str2, register SIZETYPE len));
+Xchar *DBstrncpy __stdcargs((const char *file, int line, register char *str1, register const char *str2, register SIZETYPE len));
+XSIZETYPE strlen __stdcargs((const char *str1));
+XSIZETYPE DBstrlen __stdcargs((const char *file, int line, register const char *str1));
+Xchar *strchr __stdcargs((const char *str1, int c));
+Xchar *DBstrchr __stdcargs((const char *file, int line, const char *str1, int c));
+Xchar *DBFstrchr __stdcargs((const char *func, const char *file, int line, register const char *str1, register int c));
+Xchar *strrchr __stdcargs((const char *str1, int c));
+Xchar *DBstrrchr __stdcargs((const char *file, int line, const char *str1, int c));
+Xchar *DBFstrrchr __stdcargs((const char *func, const char *file, int line, register const char *str1, register int c));
+Xchar *index __stdcargs((const char *str1, int c));
+Xchar *DBindex __stdcargs((const char *file, int line, const char *str1, int c));
+Xchar *rindex __stdcargs((const char *str1, int c));
+Xchar *DBrindex __stdcargs((const char *file, int line, const char *str1, int c));
+Xchar *strpbrk __stdcargs((const char *str1, const char *str2));
+Xchar *DBstrpbrk __stdcargs((const char *file, int line, register const char *str1, register const char *str2));
+XSIZETYPE strspn __stdcargs((const char *str1, const char *str2));
+XSIZETYPE DBstrspn __stdcargs((const char *file, int line, register const char *str1, register const char *str2));
+XSIZETYPE strcspn __stdcargs((const char *str1, const char *str2));
+XSIZETYPE DBstrcspn __stdcargs((const char *file, int line, register const char *str1, register const char *str2));
+Xchar *strstr __stdcargs((const char *str1, const char *str2));
+Xchar *DBstrstr __stdcargs((const char *file, int line, const char *str1, const char *str2));
+Xchar *strtok __stdcargs((char *str1, const char *str2));
+Xchar *DBstrtok __stdcargs((const char *file, int line, char *str1, const char *str2));
+Xchar *strtoken __stdcargs((register char **stringp, register const char *delim, int skip));
+X/* malloc_chk.c */
+Xint malloc_in_arena __stdcargs((const DATATYPE *ptr));
+XVOIDTYPE malloc_check_str __stdcargs((const char *func, const char *file, int line, const char *str));
+XVOIDTYPE malloc_check_strn __stdcargs((const char *func, const char *file, int line, const char *str, int len));
+XVOIDTYPE malloc_check_data __stdcargs((const char *func, const char *file, int line, const DATATYPE *ptr, SIZETYPE len));
+XVOIDTYPE malloc_verify __stdcargs((const char *func, const char *file, int line, const DATATYPE *ptr, int len));
+X/* malloc_chn.c */
+Xint malloc_chain_check __stdcargs((int todo));
+Xint DBmalloc_chain_check __stdcargs((const char *file, int line, int todo));
+Xint DBFmalloc_chain_check __stdcargs((const char *func, const char *file, int line, int todo));
+X/* memory.c */
+XDATATYPE *memccpy __stdcargs((DATATYPE *ptr1, const DATATYPE *ptr2, int ch, SIZETYPE len));
+XDATATYPE *DBmemccpy __stdcargs((const char *file, int line, DATATYPE *ptr1, const DATATYPE *ptr2, int ch, SIZETYPE len));
+XDATATYPE *memchr __stdcargs((const DATATYPE *ptr1, register int ch, SIZETYPE len));
+XDATATYPE *DBmemchr __stdcargs((const char *file, int line, const DATATYPE *ptr1, register int ch, SIZETYPE len));
+XDATATYPE *memmove __stdcargs((DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+XDATATYPE *DBmemmove __stdcargs((const char *file, int line, DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+XDATATYPE *memcpy __stdcargs((DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+XDATATYPE *DBmemcpy __stdcargs((const char *file, int line, DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+XDATATYPE *DBFmemcpy __stdcargs((const char *func, const char *file, int line, DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+Xint memcmp __stdcargs((const DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+Xint DBmemcmp __stdcargs((const char *file, int line, const DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+Xint DBFmemcmp __stdcargs((const char *func, const char *file, int line, const DATATYPE *ptr1, const DATATYPE *ptr2, register SIZETYPE len));
+XDATATYPE *memset __stdcargs((DATATYPE *ptr1, register int ch, register SIZETYPE len));
+XDATATYPE *DBmemset __stdcargs((const char *file, int line, DATATYPE *ptr1, register int ch, register SIZETYPE len));
+XDATATYPE *DBFmemset __stdcargs((const char *func, const char *file, int line, DATATYPE *ptr1, register int ch, register SIZETYPE len));
+XDATATYPE *bcopy __stdcargs((const DATATYPE *ptr2, DATATYPE *ptr1, SIZETYPE len));
+XDATATYPE *DBbcopy __stdcargs((const char *file, int line, const DATATYPE *ptr2, DATATYPE *ptr1, SIZETYPE len));
+XDATATYPE *bzero __stdcargs((DATATYPE *ptr1, SIZETYPE len));
+XDATATYPE *DBbzero __stdcargs((const char *file, int line, DATATYPE *ptr1, SIZETYPE len));
+Xint bcmp __stdcargs((const DATATYPE *ptr2, const DATATYPE *ptr1, SIZETYPE len));
+Xint DBbcmp __stdcargs((const char *file, int line, const DATATYPE *ptr2, const DATATYPE *ptr1, SIZETYPE len));
+X/* tostring.c */
+Xint tostring __stdcargs((char *buf, long val, int len, int base, int fill));
+X/* m_perror.c */
+XVOIDTYPE malloc_perror __stdcargs((char *str));
+X/* m_init.c */
+XVOIDTYPE malloc_init __stdcargs((void));
+X/* mallopt.c */
+Xint mallopt __stdcargs((int cmd, union malloptarg value));
+X/* dump.c */
+XVOIDTYPE malloc_dump __stdcargs((int fd));
+XVOIDTYPE malloc_list __stdcargs((int fd, unsigned long histid1, unsigned long histid2));
+XVOIDTYPE malloc_list_items __stdcargs((int fd, int list_type, unsigned long histid1, unsigned long histid2));
+X/* leak.c */
+Xunsigned long malloc_size __stdcargs((unsigned long *histptr));
+Xunsigned long DBmalloc_size __stdcargs((const char *file, int line, unsigned long *histptr));
+X
+X#undef __stdcargs
+END_OF_FILE
+if test 8674 -ne `wc -c <'prototypes.h'`; then
+    echo shar: \"'prototypes.h'\" unpacked with wrong size!
+fi
+# end of 'prototypes.h'
+fi
+if test -f 'realloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'realloc.c'\"
+else
+echo shar: Extracting \"'realloc.c'\" \(6787 characters\)
+sed "s/^X//" >'realloc.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: realloc.c,v 1.15 1992/01/10 17:28:03 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X
+X#include "mallocint.h"
+X
+XDATATYPE *
+Xrealloc(cptr,size)
+X	DATATYPE		* cptr;
+X	SIZETYPE		  size;
+X{
+X	return( debug_realloc(NULL,-1,cptr,size) );
+X}
+X
+X/*
+X * Function:	debug_realloc()
+X *
+X * Purpose:	to re-allocate a data area.
+X *
+X * Arguments:	cptr	- pointer to area to reallocate
+X *		size	- size to change area to
+X *
+X * Returns:	pointer to new area (may be same area)
+X *
+X * Narrative:	verify pointer is within malloc region
+X *		obtain mlist pointer from cptr
+X *		verify magic number is correct
+X *		verify inuse flag is set
+X *		verify connection to adjoining segments is correct
+X *		save requested size
+X *		round-up size to appropriate boundry
+X *		IF size is bigger than what is in this segment
+X *		    try to join next segment to this segment
+X *		IF size is less than what is is this segment
+X *		    determine leftover amount of space
+X *		ELSE
+X *		    allocate new segment of size bites
+X *		    IF allocation failed
+X *		        return NULL
+X *		    copy previous data to new segment
+X *		    free previous segment
+X *		    return new pointer
+X *		split of extra space in this segment (if any)
+X *		clear bytes beyound what they had before
+X *		return pointer to data 
+X */
+X
+XDATATYPE *
+Xdebug_realloc(file,line,cptr,size)
+X	const char		* file;
+X	int			  line;
+X	DATATYPE		* cptr;
+X	SIZETYPE		  size;
+X{
+X	static int		  call_counter;
+X	char			* func = "realloc";
+X	int			  i;
+X	char			* new_cptr;
+X	struct mlist		* ptr;
+X	int			  r_size;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * increment the call counter
+X	 */
+X	call_counter++;
+X
+X	/*
+X	 * IF malloc chain checking is on, go do it.
+X	 */
+X	if( malloc_checking )
+X	{
+X		VOIDCAST DBFmalloc_chain_check(func,file,line,1);
+X	}
+X
+X#if __STDC__ && ! defined(NO_ANSI_NULLS)
+X	if( cptr == NULL )
+X	{
+X		/*
+X		 * else we can't combine it, so lets allocate a new chunk,
+X		 * copy the data and free the old chunk...
+X		 */
+X		new_cptr = (char *) debug_malloc(file,line,size);
+X
+X		if( new_cptr == (char *) 0)
+X		{
+X			return(new_cptr);
+X		}
+X
+X		/*
+X		 * get the malloc internal struct for the new area.  This
+X		 * is needed because malloc has identifed the record as a
+X		 * malloc call when it is actually a realloc call.  Therefore
+X		 * we have to change the identification info.
+X		 */
+X		ptr = (struct mlist *) (new_cptr - M_SIZE);
+X		ptr->id = call_counter;
+X		SETTYPE(ptr,M_T_REALLOC);
+X
+X		return(new_cptr);
+X	}
+X
+X#endif /* __STDC__ */
+X
+X	/*
+X	 * verify that cptr is within the malloc region...
+X	 */
+X	if( cptr < malloc_data_start || cptr > malloc_data_end )
+X	{
+X		malloc_errno = M_CODE_BAD_PTR;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return (NULL);
+X	}
+X
+X	/* 
+X	 * convert pointer to mlist struct pointer.  To do this we must 
+X	 * move the pointer backwards the correct number of bytes...
+X	 */
+X	
+X	ptr = (struct mlist *) (((char *)cptr) - M_SIZE);
+X	
+X	if( (ptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X	{
+X		malloc_errno = M_CODE_BAD_MAGIC;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return(NULL);
+X	}
+X
+X	if( ! (ptr->flag & M_INUSE) )
+X	{
+X		malloc_errno = M_CODE_NOT_INUSE ;
+X		malloc_warning(func,file,line,ptr);
+X		return(NULL);
+X	}
+X
+X 	if( (ptr->prev && (ptr->prev->next != ptr) ) ||
+X	    (ptr->next && (ptr->next->prev != ptr) ) ||
+X	    ((ptr->next == NULL) && (ptr->prev == NULL)) )
+X	{
+X		malloc_errno = M_CODE_BAD_CONNECT;
+X		malloc_warning(func,file,line,ptr);
+X		return(NULL);
+X	}
+X
+X	r_size = ++size;
+X
+X	M_ROUNDUP(size);
+X
+X	if( size > ptr->s.size )
+X	{
+X		malloc_join(ptr,ptr->next,1,1);
+X	}
+X
+X	if( size > ptr->s.size )
+X	{
+X		/*
+X		 * else we can't combine it, so lets allocate a new chunk,
+X		 * copy the data and free the old chunk...
+X		 */
+X		new_cptr = debug_malloc(file,line,size);
+X
+X		if( new_cptr == (char *) 0)
+X		{
+X			return(new_cptr);
+X		}
+X
+X		if( r_size < ptr->r_size )
+X		{
+X			i = r_size;
+X		}
+X		else
+X		{
+X			i = ptr->r_size;
+X		}
+X		in_malloc_code++;
+X		VOIDCAST memcpy(new_cptr,ptr->data,i);
+X		in_malloc_code--;
+X
+X		free(cptr);
+X
+X		/*
+X		 * get the malloc internal struct for the new area.  This
+X		 * is needed because malloc has identifed the record as a
+X		 * malloc call when it is actually a realloc call.  Therefore
+X		 * we have to change the identification info.
+X		 */
+X		ptr = (struct mlist *) (new_cptr - M_SIZE);
+X		ptr->id = call_counter;
+X		SETTYPE(ptr,M_T_REALLOC);
+X
+X		return(new_cptr);
+X
+X	} /* else... */
+X
+X	/*
+X	 * save amount of real data in new segment (this will be used in the
+X	 * memset later) and then save requested size of this segment.
+X	 */
+X
+X	if( ptr->r_size < r_size )
+X	{
+X		i = ptr->r_size;
+X	}
+X	else
+X	{
+X		i = r_size;
+X	}
+X
+X	ptr->r_size = r_size;
+X
+X	/*
+X	 * split off extra free space at end of this segment, if possible...
+X	 */
+X
+X	malloc_split(ptr);
+X
+X	/*
+X	 * save the id info.
+X	 */	
+X	ptr->file = file;
+X	ptr->line = line;
+X	ptr->id = call_counter;
+X	ptr->hist_id = malloc_hist_id++;
+X	SETTYPE(ptr,M_T_REALLOC);
+X
+X	/*
+X	 * if necessary, fill in the last few bytes with the fill character
+X	 */
+X	if( malloc_fill_area )
+X	{
+X		malloc_safe_memset( ptr->data+i, M_FILL, (int)(ptr->s.size-i));
+X	}
+X	
+X	return(ptr->data);
+X
+X} /* realloc(... */
+X
+X
+X/*
+X * $Log: realloc.c,v $
+X * Revision 1.15  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.14  1991/12/06  08:54:19  cpcahil
+X * cleanup of __STDC__ usage and addition of CHANGES file
+X *
+X * Revision 1.13  91/12/04  09:23:44  cpcahil
+X * several performance enhancements including addition of free list
+X * 
+X * Revision 1.12  91/12/02  19:10:14  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.11  91/11/25  14:42:05  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.10  91/11/24  00:49:32  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.9  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.8  90/08/29  21:22:52  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.7  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.6  90/02/25  11:01:20  cpcahil
+X * added support for malloc chain checking.
+X * 
+X * Revision 1.5  90/02/24  21:50:31  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.4  90/02/24  17:29:39  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.3  90/02/24  17:20:00  cpcahil
+X * attempt to get rid of full path in rcs header.
+X * 
+X * Revision 1.2  90/02/24  15:14:20  cpcahil
+X * 1. added function header 
+X * 2. changed calls to malloc_warning to conform to new usage
+X * 3. added setting of malloc_errno
+X *  4. broke up bad pointer determination so that errno's would be more
+X *    descriptive
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 6787 -ne `wc -c <'realloc.c'`; then
+    echo shar: \"'realloc.c'\" unpacked with wrong size!
+fi
+# end of 'realloc.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

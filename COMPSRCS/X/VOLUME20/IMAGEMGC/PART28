@@ -1,0 +1,1911 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i084:  imagemagic - X11 image processing and display, Part28/38
+Message-ID: <1993Jul14.232053.22711@sparky.sterling.com>
+X-Md4-Signature: 746ea467a6e42a8730ec2c56b1a693aa
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:20:53 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 84
+Archive-name: imagemagic/part28
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.28 (part 28 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/image.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 28; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/image.c'
+else
+echo 'x - continuing file ImageMagick/image.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/image.c' &&
+X  {
+X    *q=(*s);
+X    q->length=0;
+X    q++;
+X    s++;
+X  }
+X  (void) free((char *) scanline);
+X  return(enhanced_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   F r a m e I m a g e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function FrameImage takes an image and puts a frame around it of a
+%  particular color.  It allocates the memory necessary for the new Image
+%  structure and returns a pointer to the new image.  Set the border and
+%  highlight to the same color to get a solid frame.
+%
+%  The format of the FrameImage routine is:
+%
+%      framed_image=FrameImage(image,frame_info,border_width,border_color,
+%        highlight_color)
+%
+%  A description of each parameter follows:
+%
+%    o framed_image: Function FrameImage returns a pointer to the framed
+%      image.  A null image is returned if there is a a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o frame_info: Specifies a pointer to a XRectangle which defines the
+%      framed region.
+%
+%    o border_width: An unsigned integer that is the width of the border of
+%      the frame.
+%
+%    o border_color: A pointer to a ColorPacket which contains the red,
+%      green, and blue components of the border color.
+%
+%    o highlight_color: A pointer to a ColorPacket which contains the red,
+%      green, and blue components of the highlight color.
+%
+%
+*/
+Image *FrameImage(image,frame_info,border_width,border_color,highlight_color)
+Image
+X  *image;
+X
+RectangleInfo
+X  *frame_info;
+X
+unsigned int
+X  border_width;
+X
+ColorPacket
+X  *border_color,
+X  *highlight_color;
+{
+X  Image
+X    *framed_image;
+X
+X  int
+X    height,
+X    width;
+X
+X  register int
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  RunlengthPacket
+X    black,
+X    border,
+X    highlight,
+X    lowlight;
+X
+X  /*
+X    Check frame geometry.
+X  */
+X  width=(int) frame_info->width-frame_info->x-4*border_width;
+X  height=(int) frame_info->height-frame_info->y-4*border_width;
+X  if ((width < image->columns) || (height < image->rows))
+X    {
+X      Warning("unable to frame image","frame is less than image size");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize framed image attributes.
+X  */
+X  framed_image=CopyImage(image,frame_info->width,frame_info->height,False);
+X  if (framed_image == (Image *) NULL)
+X    {
+X      Warning("unable to border image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  image->class=DirectClass;
+X  /*
+X    Initialize frame colors.
+X  */
+X  black.red=0;
+X  black.green=0;
+X  black.blue=0;
+X  black.index=0;
+X  black.length=0;
+X  border.red=border_color->red;
+X  border.green=border_color->green;
+X  border.blue=border_color->blue;
+X  border.index=0;
+X  border.length=0;
+X  lowlight.red=highlight_color->red ^ 0x45;
+X  lowlight.green=highlight_color->green ^ 0x45;
+X  lowlight.blue=highlight_color->blue ^ 0x45;
+X  lowlight.index=0;
+X  lowlight.length=0;
+X  highlight.red=highlight_color->red;
+X  highlight.green=highlight_color->green;
+X  highlight.blue=highlight_color->blue;
+X  highlight.index=0;
+X  highlight.length=0;
+X  /*
+X    Copy image and put an ornamental border around it.
+X  */
+X  q=framed_image->pixels;
+X  for (x=0; x < framed_image->columns; x++)
+X    *q++=black;
+X  for (y=0; y < (border_width-1); y++)
+X  {
+X    *q++=black;
+X    for (x=0; x < (framed_image->columns-y-2); x++)
+X      *q++=highlight;
+X    for ( ; x < (framed_image->columns-2); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  for (y=0; y < (frame_info->y-2*border_width); y++)
+X  {
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    for (x=0; x < (framed_image->columns-2*border_width); x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  for (y=0; y < (border_width-1); y++)
+X  {
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    for (x=0; x < (frame_info->x-2*border_width); x++)
+X      *q++=border;
+X    for (x=0; x < (image->columns+2*border_width-y); x++)
+X      *q++=lowlight;
+X    for ( ; x < (image->columns+2*border_width); x++)
+X      *q++=highlight;
+X    width=frame_info->width-frame_info->x-image->columns-2*border_width;
+X    for (x=0; x < width; x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  *q++=black;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=highlight;
+X  for (x=0; x < (frame_info->x-2*border_width); x++)
+X    *q++=border;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=lowlight;
+X  for (x=0; x < (image->columns+2); x++)
+X    *q++=black;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=highlight;
+X  width=frame_info->width-frame_info->x-image->columns-2*border_width;
+X  for (x=0; x < width; x++)
+X    *q++=border;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=lowlight;
+X  *q++=black;
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    /*
+X      Initialize scanline with border color.
+X    */
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    for (x=0; x < (frame_info->x-2*border_width); x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X    /*
+X      Transfer scanline.
+X    */
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      *q=(*p);
+X      q->length=0;
+X      q++;
+X    }
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    width=frame_info->width-frame_info->x-image->columns-2*border_width;
+X    for (x=0; x < width; x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  *q++=black;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=highlight;
+X  for (x=0; x < (frame_info->x-2*border_width); x++)
+X    *q++=border;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=lowlight;
+X  for (x=0; x < (image->columns+2); x++)
+X    *q++=black;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=highlight;
+X  width=frame_info->width-frame_info->x-image->columns-2*border_width;
+X  for (x=0; x < width; x++)
+X    *q++=border;
+X  for (x=0; x < (border_width-1); x++)
+X    *q++=lowlight;
+X  *q++=black;
+X  for (y=border_width-2; y >= 0; y--)
+X  {
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    for (x=0; x < (frame_info->x-2*border_width); x++)
+X      *q++=border;
+X    for (x=0; x < y; x++)
+X      *q++=lowlight;
+X    for ( ; x < (image->columns+2*border_width); x++)
+X      *q++=highlight;
+X    width=frame_info->width-frame_info->x-image->columns-2*border_width;
+X    for (x=0; x < width; x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  height=frame_info->height-frame_info->y-image->rows-2*border_width;
+X  for (y=0; y < height; y++)
+X  {
+X    *q++=black;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=highlight;
+X    for (x=0; x < (framed_image->columns-2*border_width); x++)
+X      *q++=border;
+X    for (x=0; x < (border_width-1); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  for (y=border_width-2; y >= 0; y--)
+X  {
+X    *q++=black;
+X    for (x=0; x < y; x++)
+X      *q++=highlight;
+X    for ( ; x < (framed_image->columns-2); x++)
+X      *q++=lowlight;
+X    *q++=black;
+X  }
+X  for (x=0; x < framed_image->columns; x++)
+X    *q++=black;
+X  return(framed_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     G a m m a I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure GammaImage converts the reference image to gamma corrected colors.
+%
+%  The format of the GammaImage routine is:
+%
+%      GammaImage(image,gamma)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o gamma: A double precision value indicating the level of gamma
+%      correction.
+%
+%
+*/
+void GammaImage(image,gamma)
+Image
+X  *image;
+X
+double
+X  gamma;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  unsigned char
+X    gamma_map[MaxRGB+1];
+X
+X  /*
+X    Initialize gamma table.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X    gamma_map[i]=(unsigned char)
+X      ((pow((double) i/MaxRGB,1.0/gamma)*MaxRGB)+0.5);
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Gamma-correct DirectClass image.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        p->red=gamma_map[p->red];
+X        p->green=gamma_map[p->green];
+X        p->blue=gamma_map[p->blue];
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Gamma-correct PseudoClass image.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[i].red=gamma_map[image->colormap[i].red];
+X        image->colormap[i].green=gamma_map[image->colormap[i].green];
+X        image->colormap[i].blue=gamma_map[image->colormap[i].blue];
+X      }
+X      SyncImage(image);
+X      break;
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   G e t A l i e n I n f o                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function GetImageInfo initializes the ImageInfo structure.
+%
+%  The format of the GetImageInfo routine is:
+%
+%      GetImageInfo(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image_info: Specifies a pointer to a ImageInfo structure.
+%
+%
+*/
+void GetImageInfo(image_info)
+ImageInfo
+X  *image_info;
+{
+X  image_info->server_name=(char *) NULL;
+X  image_info->font=(char *) NULL;
+X  image_info->geometry=(char *) NULL;
+X  image_info->density=(char *) NULL;
+X  image_info->page=(char *) NULL;
+X  image_info->border_color=(char *) NULL;
+X  image_info->interlace=NoneInterlace;
+X  image_info->monochrome=False;
+X  image_info->quality=75;
+X  image_info->verbose=False;
+X  image_info->undercolor=(char *) NULL;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     I n v e r s e I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure InverseImage inverses the colors in the reference image.
+%
+%  The format of the InverseImage routine is:
+%
+%      InverseImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%
+*/
+void InverseImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Inverse DirectClass packets.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        p->red=(~p->red);
+X        p->green=(~p->green);
+X        p->blue=(~p->blue);
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Inverse PseudoClass packets.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[i].red=(~image->colormap[i].red);
+X        image->colormap[i].green=(~image->colormap[i].green);
+X        image->colormap[i].blue=(~image->colormap[i].blue);
+X      }
+X      SyncImage(image);
+X      break;
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     N o i s y I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function NoisyImage creates a new image that is a copy of an existing
+%  one with the noise reduced with a noise peak elimination filter.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The principal function of noise peak elimination filter is to smooth the
+%  objects within an image without losing edge information and without
+%  creating undesired structures.  The central idea of the algorithm is to
+%  replace a pixel with its next neighbor in value within a 3 x 3 window,
+%  if this pixel has been found to be noise.  A pixel is defined as noise
+%  if and only if this pixel is a maximum or minimum within the 3 x 3
+%  window.
+%
+%  The format of the NoisyImage routine is:
+%
+%      noisy_image=NoisyImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o noisy_image: Function NoisyImage returns a pointer to the image after
+%      the noise is reduced.  A null image is returned if there is a memory
+%      shortage.
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%
+*/
+static int NoisyCompare(x,y)
+const void
+X  *x,
+X  *y;
+{
+X  ColorPacket
+X    *color_1,
+X    *color_2;
+X
+X  color_1=(ColorPacket *) x;
+X  color_2=(ColorPacket *) y;
+X  return((int) Intensity(*color_1)-(int) Intensity(*color_2));
+}
+X
+Image *NoisyImage(image)
+Image
+X  *image;
+{
+X  Image
+X    *noisy_image;
+X
+X  int
+X    i;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q,
+X    *s,
+X    *s0,
+X    *s1,
+X    *s2;
+X
+X  register unsigned int
+X    x;
+X
+X  RunlengthPacket
+X    pixel,
+X    *scanline,
+X    window[9];
+X
+X  unsigned int
+X    y;
+X
+X  if ((image->columns < 3) || (image->rows < 3))
+X    {
+X      Warning("unable to reduce noise","the image size must exceed 2x2");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize noisy image attributes.
+X  */
+X  noisy_image=CopyImage(image,image->columns,image->rows,False);
+X  if (noisy_image == (Image *) NULL)
+X    {
+X      Warning("unable to reduce noise","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Allocate scanline buffer for 3 rows of the image.
+X  */
+X  scanline=(RunlengthPacket *) malloc(3*image->columns*sizeof(RunlengthPacket));
+X  if (scanline == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to reduce noise","memory allocation failed");
+X      DestroyImage(noisy_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Preload the first 2 rows of the image.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  s=scanline;
+X  for (x=0; x < (2*image->columns); x++)
+X  {
+X    if (image->runlength != 0)
+X      image->runlength--;
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X      }
+X    *s=(*p);
+X    s++;
+X  }
+X  /*
+X    Dump first scanline of image.
+X  */
+X  q=noisy_image->pixels;
+X  s=scanline;
+X  for (x=0; x < image->columns; x++)
+X  {
+X    *q=(*s);
+X    q->length=0;
+X    q++;
+X    s++;
+X  }
+X  /*
+X    Reduce noise in each row.
+X  */
+X  for (y=1; y < (image->rows-1); y++)
+X  {
+X    /*
+X      Initialize sliding window pointers.
+X    */
+X    s0=scanline+image->columns*((y-1) % 3);
+X    s1=scanline+image->columns*(y % 3);
+X    s2=scanline+image->columns*((y+1) % 3);
+X    /*
+X      Read another scan line.
+X    */
+X    s=s2;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      *s=(*p);
+X      s++;
+X    }
+X    /*
+X      Transfer first pixel of the scanline.
+X    */
+X    s=s1;
+X    *q=(*s);
+X    q->length=0;
+X    q++;
+X    for (x=1; x < (image->columns-1); x++)
+X    {
+X      /*
+X        Sort window pixels by increasing intensity.
+X      */
+X      s=s0;
+X      window[0]=(*s++);
+X      window[1]=(*s++);
+X      window[2]=(*s++);
+X      s=s1;
+X      window[3]=(*s++);
+X      window[4]=(*s++);
+X      window[5]=(*s++);
+X      s=s2;
+X      window[6]=(*s++);
+X      window[7]=(*s++);
+X      window[8]=(*s++);
+X      pixel=window[4];
+X      (void) qsort((void *) window,9,sizeof(RunlengthPacket),NoisyCompare);
+X      if (Intensity(pixel) == Intensity(window[0]))
+X        {
+X          /*
+X            Pixel is minimum noise; replace with next neighbor in value.
+X          */
+X          for (i=1; i < 8; i++)
+X            if (Intensity(window[i]) != Intensity(window[0]))
+X              break;
+X          pixel=window[i];
+X        }
+X      else
+X        if (Intensity(pixel) == Intensity(window[8]))
+X          {
+X            /*
+X              Pixel is maximum noise; replace with next neighbor in value.
+X            */
+X            for (i=7; i > 0; i--)
+X              if (Intensity(window[i]) != Intensity(window[8]))
+X                break;
+X            pixel=window[i];
+X          }
+X      *q=pixel;
+X      q->length=0;
+X      q++;
+X      s0++;
+X      s1++;
+X      s2++;
+X    }
+X    /*
+X      Transfer last pixel of the scanline.
+X    */
+X    s=s1;
+X    *q=(*s);
+X    q->length=0;
+X    q++;
+X  }
+X  /*
+X    Dump last scanline of pixels.
+X  */
+X  s=scanline+image->columns*(y % 3);
+X  for (x=0; x < image->columns; x++)
+X  {
+X    *q=(*s);
+X    q->length=0;
+X    q++;
+X    s++;
+X  }
+X  (void) free((char *) scanline);
+X  return(noisy_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     N o r m a l i z e I m a g e                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure NormalizeImage normalizes the pixel values to span the full
+%  range of color values.  This is a contrast enhancement technique.
+%
+%  The format of the NormalizeImage routine is:
+%
+%      NormalizeImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%
+*/
+void NormalizeImage(image)
+Image
+X  *image;
+{
+X  int
+X    histogram[MaxRGB+1],
+X    threshold_intensity;
+X
+X  register int
+X    i,
+X    intensity;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  unsigned char
+X    gray_value,
+X    high,
+X    low,
+X    normalize_map[MaxRGB+1];
+X
+X  /*
+X    Form histogram.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X    histogram[i]=0;
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    gray_value=Intensity(*p);
+X    histogram[gray_value]+=p->length+1;
+X    p++;
+X  }
+X  /*
+X    Find the histogram boundaries by locating the 1 percent levels.
+X  */
+X  threshold_intensity=(image->columns*image->rows)/100;
+X  intensity=0;
+X  for (low=0; low < MaxRGB; low++)
+X  {
+X    intensity+=histogram[low];
+X    if (intensity > threshold_intensity)
+X      break;
+X  }
+X  intensity=0;
+X  for (high=MaxRGB; high != 0; high--)
+X  {
+X    intensity+=histogram[high];
+X    if (intensity > threshold_intensity)
+X      break;
+X  }
+X  if (low == high)
+X    {
+X      /*
+X        Unreasonable contrast;  use zero threshold to determine boundaries.
+X      */
+X      threshold_intensity=0;
+X      intensity=0;
+X      for (low=0; low < MaxRGB; low++)
+X      {
+X        intensity+=histogram[low];
+X        if (intensity > threshold_intensity)
+X          break;
+X      }
+X      intensity=0;
+X      for (high=MaxRGB; high != 0; high--)
+X      {
+X        intensity+=histogram[high];
+X        if (intensity > threshold_intensity)
+X          break;
+X      }
+X      if (low == high)
+X        return;  /* zero span bound */
+X    }
+X  /*
+X    Stretch the histogram to create the normalized image mapping.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X    if (i < (int) low)
+X      normalize_map[i]=0;
+X    else
+X      if (i > (int) high)
+X        normalize_map[i]=MaxRGB-1;
+X      else
+X        normalize_map[i]=(MaxRGB-1)*(i-(int) low)/(int) (high-low);
+X  /*
+X    Normalize the image.
+X  */
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Normalize DirectClass image.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        p->red=normalize_map[p->red];
+X        p->green=normalize_map[p->green];
+X        p->blue=normalize_map[p->blue];
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Normalize PseudoClass image.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[i].red=normalize_map[image->colormap[i].red];
+X        image->colormap[i].green=normalize_map[image->colormap[i].green];
+X        image->colormap[i].blue=normalize_map[image->colormap[i].blue];
+X      }
+X      SyncImage(image);
+X      break;
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   O p e n I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function OpenImage open a file associated with the image.
+%
+%  The format of the OpenImage routine is:
+%
+%      OpenImage(image,type)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image.
+%
+%    o type: 'r' for reading; 'w' for writing.
+%
+*/
+void OpenImage(image,type)
+Image
+X  *image;
+X
+char
+X  *type;
+{
+X  /*
+X    Open image file.
+X  */
+X  if (*image->filename == '-')
+X    image->file=(*type == 'r') ? stdin : stdout;
+X  else
+X    if (((int) strlen(image->filename) < 3) ||
+X        ((strcmp(image->filename+strlen(image->filename)-2,".gz") != 0) &&
+X         (strcmp(image->filename+strlen(image->filename)-2,".Z") != 0)))
+X      image->file=fopen(image->filename,type);
+X    else
+X      {
+X        char
+X          command[2048];
+X
+X        /*
+X          Image file is compressed-- uncompress it.
+X        */
+X        if (strcmp(image->filename+strlen(image->filename)-2,".Z") == 0)
+X          {
+X            if (*type == 'r')
+X              (void) sprintf(command,"uncompress -c %s",image->filename);
+X            else
+X              (void) sprintf(command,"compress -c > %s",image->filename);
+X          }
+X        else
+X          if (*type == 'r')
+X            (void) sprintf(command,"gunzip -c %s",image->filename);
+X          else
+X            (void) sprintf(command,"gzip -c > %s",image->filename);
+X        image->file=(FILE *) popen(command,type);
+X      }
+X  image->status=False;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e d u c e I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReduceImage creates a new image that is a integral size less than
+%  an existing one.  It allocates the memory necessary for the new Image
+%  structure and returns a pointer to the new image.
+%
+%  ReduceImage scans the reference image to create a reduced image by computing
+%  the weighted average of a 4x4 cell centered at each reference pixel.  The
+%  target pixel requires two columns and two rows of the reference pixels.
+%  Therefore the reduced image columns and rows become:
+%
+%    number_columns/2
+%    number_rows/2
+%
+%  Weights assume that the importance of neighboring pixels is inversely
+%  proportional to the square of their distance from the target pixel.
+%
+%  The scan only processes pixels that have a full set of neighbors.  Pixels
+%  in the top, bottom, left, and right pairs of rows and columns are omitted
+%  from the scan.
+%
+%  The format of the ReduceImage routine is:
+%
+%      reduced_image=ReduceImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o reduced_image: Function ReduceImage returns a pointer to the image
+%      after reducing.  A null image is returned if there is a a memory
+%      shortage or if the image size is less than IconSize*2.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+static Image *ReduceImage(image)
+Image
+X  *image;
+{
+#define Rsum(weight) \
+X  total_red+=weight*(s->red); \
+X  total_green+=weight*(s->green); \
+X  total_blue+=weight*(s->blue); \
+X  total_alpha+=weight*(s->index); \
+X  s++;
+X
+X  Image
+X    *reduced_image;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q,
+X    *s,
+X    *s0,
+X    *s1,
+X    *s2,
+X    *s3;
+X
+X  register unsigned int
+X    x;
+X
+X  RunlengthPacket
+X    *scanline;
+X
+X  unsigned int
+X    y;
+X
+X  unsigned long
+X    total_alpha,
+X    total_blue,
+X    total_green,
+X    total_red;
+X
+X  if ((image->columns < 4) || (image->rows < 4))
+X    {
+X      Warning("unable to reduce image","image size must exceed 3x3");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize reduced image attributes.
+X  */
+X  reduced_image=CopyImage(image,image->columns >> 1,image->rows >> 1,False);
+X  if (reduced_image == (Image *) NULL)
+X    {
+X      Warning("unable to reduce image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  reduced_image->class=DirectClass;
+X  /*
+X    Allocate image buffer and scanline buffer for 4 rows of the image.
+X  */
+X  scanline=(RunlengthPacket *) malloc(4*image->columns*sizeof(RunlengthPacket));
+X  if (scanline == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to reduce image","memory allocation failed");
+X      DestroyImage(reduced_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Preload the first 2 rows of the image.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  s=scanline;
+X  for (x=0; x < (2*image->columns); x++)
+X  {
+X    if (image->runlength != 0)
+X      image->runlength--;
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X      }
+X    *s=(*p);
+X    s++;
+X  }
+X  /*
+X    Reduce each row.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  q=reduced_image->pixels;
+X  for (y=0; y < (image->rows-1); y+=2)
+X  {
+X    /*
+X      Initialize sliding window pointers.
+X    */
+X    s0=scanline+image->columns*((y+0) % 4);
+X    s1=scanline+image->columns*((y+1) % 4);
+X    s2=scanline+image->columns*((y+2) % 4);
+X    s3=scanline+image->columns*((y+3) % 4);
+X    /*
+X      Read another scan line.
+X    */
+X    s=s2;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      *s=(*p);
+X      s++;
+X    }
+X    /*
+X      Read another scan line.
+X    */
+X    s=s3;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      *s=(*p);
+X      s++;
+X    }
+X    for (x=0; x < (image->columns-1); x+=2)
+X    {
+X      /*
+X        Compute weighted average of target pixel color components.
+X
+X        These particular coefficients total to 128.  Use 128/2-1 or 63 to
+X        insure correct round off.
+X      */
+X      total_red=0;
+X      total_green=0;
+X      total_blue=0;
+X      total_alpha=0;
+X      s=s0;
+X      Rsum(3); Rsum(7);  Rsum(7);  Rsum(3);
+X      s=s1;
+X      Rsum(7); Rsum(15); Rsum(15); Rsum(7);
+X      s=s2;
+X      Rsum(7); Rsum(15); Rsum(15); Rsum(7);
+X      s=s3;
+X      Rsum(3); Rsum(7);  Rsum(7);  Rsum(3);
+X      s0+=2;
+X      s1+=2;
+X      s2+=2;
+X      s3+=2;
+X      q->red=(unsigned char) ((total_red+63) >> 7);
+X      q->green=(unsigned char) ((total_green+63) >> 7);
+X      q->blue=(unsigned char) ((total_blue+63) >> 7);
+X      q->index=(unsigned char) ((total_alpha+63) >> 7);
+X      q->length=0;
+X      q++;
+X    }
+X  }
+X  (void) free((char *) scanline);
+X  return(reduced_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e f l e c t I m a g e                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReflectImage creates a new image that refelects each scanline of an
+%  existing one.  It allocates the memory necessary for the new Image structure
+%  and returns a pointer to the new image.
+%
+%  The format of the ReflectImage routine is:
+%
+%      reflected_image=ReflectImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o reflected_image: Function ReflectImage returns a pointer to the image
+%      after reflecting.  A null image is returned if there is a memory
+%      shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+Image *ReflectImage(image)
+Image
+X  *image;
+{
+X  Image
+X    *reflected_image;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q,
+X    *s;
+X
+X  register unsigned int
+X    x,
+X    y;
+X
+X  RunlengthPacket
+X    *scanline;
+X
+X  /*
+X    Initialize reflected image attributes.
+X  */
+X  reflected_image=CopyImage(image,image->columns,image->rows,False);
+X  if (reflected_image == (Image *) NULL)
+X    {
+X      Warning("unable to reflect image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Allocate scan line buffer and column offset buffers.
+X  */
+X  scanline=(RunlengthPacket *) malloc(image->columns*sizeof(RunlengthPacket));
+X  if (scanline == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to reflect image","memory allocation failed");
+X      DestroyImage(reflected_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Reflect each row.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  q=reflected_image->pixels;
+X  for (y=0; y < reflected_image->rows; y++)
+X  {
+X    /*
+X      Read a scan line.
+X    */
+X    s=scanline;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      *s=(*p);
+X      s++;
+X    }
+X    /*
+X      Reflect each column.
+X    */
+X    s=scanline+image->columns;
+X    for (x=0; x < reflected_image->columns; x++)
+X    {
+X      s--;
+X      *q=(*s);
+X      q->length=0;
+X      q++;
+X    }
+X  }
+X  (void) free((char *) scanline);
+X  return(reflected_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     R G B T r a n s f o r m I m a g e                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure RGBTransformImage converts the reference image from RGB to
+%  an alternate colorspace.
+%
+%  The format of the RGBTransformImage routine is:
+%
+%      RGBTransformImage(image,colorspace)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o colorspace: An unsigned integer value that indicates which colorspace
+%      to transform the image.
+%
+%
+*/
+void RGBTransformImage(image,colorspace)
+Image
+X  *image;
+X
+unsigned int
+X  colorspace;
+{
+#define X 0
+#define Y (MaxRGB+1)
+#define Z (MaxRGB+1)*2
+X
+X  long
+X    tx,
+X    ty,
+X    tz,
+X    *x,
+X    *y,
+X    *z;
+X
+X  register int
+X    blue,
+X    green,
+X    i,
+X    red;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *range_limit;
+X
+X  unsigned char
+X    *range_table;
+X
+X  if (colorspace == RGBColorspace)
+X    return;
+X  /*
+X    Allocate the tables.
+X  */
+X  x=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  y=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  z=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  if ((x == (long *) NULL) || (y == (long *) NULL) ||
+X      (z == (long *) NULL) || (range_table == (unsigned char *) NULL))
+X    {
+X      Warning("unable to transform color space","memory allocation failed");
+X      return;
+X    }
+X  /*
+X    Pre-compute conversion tables.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  tx=0;
+X  ty=0;
+X  tz=0;
+X  switch (colorspace)
+X  {
+X    case GRAYColorspace:
+X    {
+X      /*
+X        Initialize GRAY tables:
+X
+X          G = 0.29900*R+0.58700*G+0.11400*B
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        x[i+X]=UpShifted(0.29900)*i;
+X        y[i+X]=UpShifted(0.58700)*i;
+X        z[i+X]=UpShifted(0.11400)*i;
+X        x[i+Y]=UpShifted(0.29900)*i;
+X        y[i+Y]=UpShifted(0.58700)*i;
+X        z[i+Y]=UpShifted(0.11400)*i;
+X        x[i+Z]=UpShifted(0.29900)*i;
+X        y[i+Z]=UpShifted(0.58700)*i;
+X        z[i+Z]=UpShifted(0.11400)*i;
+X      }
+X      break;
+X    }
+X    case YCbCrColorspace:
+X    {
+X      /*
+X        Initialize YCbCr tables:
+X
+X          Y =  0.29900*R+0.58700*G+0.11400*B
+X          Cb= -0.16864*R-0.33126*G+0.50000*B
+X          Cr=  0.50000*R-0.41869*G-0.08131*B
+X
+X        Cb and Cr, normally -0.5 through 0.5, are normalized to the range 0
+X        through MaxRGB.
+X      */
+X      ty=UpShifted((MaxRGB+1)/2);
+X      tz=UpShifted((MaxRGB+1)/2);
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        x[i+X]=UpShifted(0.29900)*i;
+X        y[i+X]=UpShifted(0.58700)*i;
+X        z[i+X]=UpShifted(0.11400)*i;
+X        x[i+Y]=(-UpShifted(0.16874))*i;
+X        y[i+Y]=(-UpShifted(0.33126))*i;
+X        z[i+Y]=UpShifted(0.50000)*i;
+X        x[i+Z]=UpShifted(0.50000)*i;
+X        y[i+Z]=(-UpShifted(0.41869))*i;
+X        z[i+Z]=(-UpShifted(0.08131))*i;
+X      }
+X      break;
+X    }
+X    case YIQColorspace:
+X    {
+X      /*
+X        Initialize YIQ tables:
+X
+X          Y = 0.29900*R+0.58700*G+0.11400*B
+X          I = 0.59600*R-0.27400*G-0.32200*B
+X          Q = 0.21100*R-0.52300*G+0.31200*B
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        x[i+X]=UpShifted(0.29900)*i;
+X        y[i+X]=UpShifted(0.58700)*i;
+X        z[i+X]=UpShifted(0.11400)*i;
+X        x[i+Y]=UpShifted(0.59600)*i;
+X        y[i+Y]=(-UpShifted(0.27400))*i;
+X        z[i+Y]=(-UpShifted(0.32200))*i;
+X        x[i+Z]=UpShifted(0.21100)*i;
+X        y[i+Z]=(-UpShifted(0.52300))*i;
+X        z[i+Z]=UpShifted(0.31200)*i;
+X      }
+X      break;
+X    }
+X    case YUVColorspace:
+X    default:
+X    {
+X      /*
+X        Initialize YUV tables:
+X
+X          Y =  0.29900*R+0.58700*G+0.11400*B
+X          U = -0.14740*R-0.28950*G+0.43690*B
+X          V =  0.61500*R-0.51500*G-0.10000*B
+X
+X        U and V, normally -0.5 through 0.5, are normalized to the range 0
+X        through MaxRGB.
+X      */
+X      ty=UpShifted((MaxRGB+1)/2);
+X      tz=UpShifted((MaxRGB+1)/2);
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        x[i+X]=UpShifted(0.29900)*i;
+X        y[i+X]=UpShifted(0.58700)*i;
+X        z[i+X]=UpShifted(0.11400)*i;
+X        x[i+Y]=(-UpShifted(0.14740))*i;
+X        y[i+Y]=(-UpShifted(0.28950))*i;
+X        z[i+Y]=UpShifted(0.43690)*i;
+X        x[i+Z]=UpShifted(0.61500)*i;
+X        y[i+Z]=(-UpShifted(0.51500))*i;
+X        z[i+Z]=(-UpShifted(0.10000))*i;
+X      }
+X      break;
+X    }
+X    case XYZColorspace:
+X    {
+X      /*
+X        Initialize XYZ tables:
+X
+X          X = 0.49000*R+0.31000*G+0.20000*B
+X          Y = 0.17700*R+0.81300*G+0.01100*B
+X          Z = 0.00000*R+0.01000*G+0.99000*B
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        x[i+X]=UpShifted(0.49000)*i;
+X        y[i+X]=UpShifted(0.31000)*i;
+X        z[i+X]=UpShifted(0.20000)*i;
+X        x[i+Y]=UpShifted(0.17700)*i;
+X        y[i+Y]=UpShifted(0.81300)*i;
+X        z[i+Y]=UpShifted(0.01100)*i;
+X        x[i+Z]=0;
+X        y[i+Z]=UpShifted(0.01000)*i;
+X        z[i+Z]=UpShifted(0.99000)*i;
+X      }
+X      break;
+X    }
+X  }
+X  /*
+X    Convert from RGB.
+X  */
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Convert DirectClass image.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        red=p->red;
+X        green=p->green;
+X        blue=p->blue;
+X        p->red=range_limit[DownShift(x[red+X]+y[green+X]+z[blue+X]+tx)];
+X        p->green=range_limit[DownShift(x[red+Y]+y[green+Y]+z[blue+Y]+ty)];
+X        p->blue=range_limit[DownShift(x[red+Z]+y[green+Z]+z[blue+Z]+tz)];
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Convert PseudoClass image.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        red=image->colormap[i].red;
+X        green=image->colormap[i].green;
+X        blue=image->colormap[i].blue;
+X        image->colormap[i].red=
+X          range_limit[DownShift(x[red+X]+y[green+X]+z[blue+X]+tx)];
+X        image->colormap[i].green=
+X          range_limit[DownShift(x[red+Y]+y[green+Y]+z[blue+Y]+ty)];
+X        image->colormap[i].blue=
+X          range_limit[DownShift(x[red+Z]+y[green+Z]+z[blue+Z]+tz)];
+X      }
+X      SyncImage(image);
+X      break;
+X    }
+X  }
+X  /*
+X    Free allocated memory.
+X  */
+X  (void) free((char *) range_table);
+X  (void) free((char *) z);
+X  (void) free((char *) y);
+X  (void) free((char *) x);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R o l l I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RollImage rolls an image vertically and horizontally.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the RollImage routine is:
+%
+%      rolled_image=RollImage(image,columns,rows)
+%
+%  A description of each parameter follows:
+%
+%    o rolled_image: Function RollImage returns a pointer to the image after
+%      rolling.  A null image is returned if there is a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o x_offset: An integer that specifies the number of columns to roll
+%      in the horizonal direction.
+%
+%    o y_offset: An integer that specifies the number of rows to roll in the
+%      veritical direction.
+%
+%
+*/
+Image *RollImage(image,x_offset,y_offset)
+Image
+X  *image;
+X
+int
+X  x_offset,
+X  y_offset;
+{
+X  Image
+X    *rolled_image;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register unsigned int
+X    packets,
+X    x;
+X
+X  unsigned int
+X    y;
+X
+X  /*
+X    Initialize rolled image attributes.
+X  */
+X  rolled_image=CopyImage(image,image->columns,image->rows,False);
+X  if (rolled_image == (Image *) NULL)
+X    {
+X      Warning("unable to roll image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Roll image.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  packets=image->columns*image->rows;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    /*
+X      Transfer scanline.
+X    */
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (image->runlength != 0)
+X        image->runlength--;
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X        }
+X      q=rolled_image->pixels+(y_offset+y)*image->columns+x+x_offset;
+X      if (q < rolled_image->pixels)
+X        q+=packets;
+X      else
+X        if (q >= (rolled_image->pixels+packets))
+X          q-=packets;
+X      *q=(*p);
+X      q->length=0;
+X    }
+X  }
+X  return(rolled_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S c a l e I m a g e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ScaleImage creates a new image that is a scaled size of an
+%  existing one using pixel replication.  It allocates the memory necessary
+%  for the new Image structure and returns a pointer to the new image.
+%
+%  The format of the ScaleImage routine is:
+%
+%      scaled_image=ScaleImage(image,columns,rows)
+%
+%  A description of each parameter follows:
+%
+%    o scaled_image: Function ScaleImage returns a pointer to the image after
+%      scaling.  A null image is returned if there is a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o columns: An integer that specifies the number of columns in the scaled
+%      image.
+%
+%    o rows: An integer that specifies the number of rows in the scaled
+%      image.
+%
+%
+*/
+Image *ScaleImage(image,columns,rows)
+Image
+X  *image;
+X
+unsigned int
+X  columns,
+X  rows;
+{
+X  Image
+X    *scaled_image;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q,
+X    *s;
+X
+X  register unsigned int
+X    x;
+X
+X  RunlengthPacket
+X    *scanline;
+X
+X  unsigned int
+X    *x_offset,
+X    y,
+X    *y_offset;
+X
+X  unsigned long
+X    scale_factor;
+X
+X  if ((columns == 0) || (rows == 0))
+X    {
+X      Warning("unable to scale image","image dimensions are zero");
+X      return((Image *) NULL);
+X    }
+X  if ((columns > MaxImageSize) || (rows > MaxImageSize))
+X    {
+X      Warning("unable to scale image","image too large");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize scaled image attributes.
+X  */
+X  scaled_image=CopyImage(image,columns,rows,False);
+X  if (scaled_image == (Image *) NULL)
+X    {
+X      Warning("unable to scale image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Allocate scan line buffer and column offset buffers.
+X  */
+X  scanline=(RunlengthPacket *) malloc(image->columns*sizeof(RunlengthPacket));
+X  x_offset=(unsigned int *) malloc(scaled_image->columns*sizeof(unsigned int));
+X  y_offset=(unsigned int *) malloc(scaled_image->rows*sizeof(unsigned int));
+X  if ((scanline == (RunlengthPacket *) NULL) ||
+X      (x_offset == (unsigned int *) NULL) ||
+X      (y_offset == (unsigned int *) NULL))
+X    {
+X      Warning("unable to scale image","memory allocation failed");
+X      DestroyImage(scaled_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize column pixel offsets.
+X  */
+X  scale_factor=UpShift(image->columns-1)/scaled_image->columns;
+X  columns=0;
+X  for (x=0; x < scaled_image->columns; x++)
+X  {
+X    x_offset[x]=DownShift((x+1)*scale_factor)-columns;
+X    columns+=x_offset[x];
+X  }
+X  /*
+X    Initialize row pixel offsets.
+X  */
+X  scale_factor=UpShift(image->rows-1)/scaled_image->rows;
+X  rows=0;
+X  for (y=0; y < scaled_image->rows; y++)
+X  {
+X    y_offset[y]=DownShift((y+1)*scale_factor)-rows;
+X    rows+=y_offset[y];
+X  }
+X  /*
+X    Preload first scanline.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  s=scanline;
+X  for (x=0; x < image->columns; x++)
+X  {
+X    if (image->runlength != 0)
+X      image->runlength--;
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X      }
+X    *s=(*p);
+X    s++;
+X  }
+X  /*
+X    Scale each row.
+X  */
+X  q=scaled_image->pixels;
+X  for (y=0; y < scaled_image->rows; y++)
+X  {
+X    /*
+X      Scale each column.
+X    */
+X    s=scanline;
+X    for (x=0; x < scaled_image->columns; x++)
+X    {
+X      *q=(*s);
+X      q->length=0;
+X      q++;
+X      s+=x_offset[x];
+X    }
+X    if (y_offset[y] != 0)
+X      {
+X        /*
+X          Skip a scan line.
+X        */
+X        for (x=0; x < (image->columns*(y_offset[y]-1)); x++)
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X        /*
+X          Read a scan line.
+X        */
+X        s=scanline;
+X        for (x=0; x < image->columns; x++)
+X        {
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          *s=(*p);
+X          s++;
+X        }
+X      }
+X  }
+X  (void) free((char *) scanline);
+X  (void) free((char *) x_offset);
+X  (void) free((char *) y_offset);
+X  return(scaled_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S o r t C o l o r m a p B y I n t e n t s i t y                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function SortColormapByIntensity sorts the colormap of a PseudoClass image
+%  by decreasing color intensity.
+%
+%  The format of the SortColormapByIntensity routine is:
+%
+%      SortColormapByIntensity(image)
+%
+%  A description of each parameter follows:
+%
+%    o image: A pointer to a Image structure.
+%
+%
+*/
+static int IntensityCompare(x,y)
+const void
+X  *x,
+X  *y;
+{
+X  ColorPacket
+X    *color_1,
+X    *color_2;
+X
+X  color_1=(ColorPacket *) x;
+X  color_2=(ColorPacket *) y;
+X  return((int) Intensity(*color_2)-(int) Intensity(*color_1));
+}
+X
+void SortColormapByIntensity(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned short
+X    index;
+X
+X  unsigned short
+X    *pixels;
+X
+X  if (image->class != PseudoClass)
+SHAR_EOF
+true || echo 'restore of ImageMagick/image.c failed'
+fi
+echo 'End of ImageMagick part 28'
+echo 'File ImageMagick/image.c is continued in part 29'
+echo 29 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

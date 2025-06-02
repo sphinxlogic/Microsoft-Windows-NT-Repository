@@ -1,0 +1,535 @@
+Path: uunet!usc!sol.ctr.columbia.edu!destroyer!cs.ubc.ca!bcsystems!spruce.pfc.forestry.ca!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+Newsgroups: vmsnet.sources.games
+Subject: Vmsnetrek 32/47
+Message-ID: <1992Nov20.200550.1@acad2.alaska.edu>
+From: asdmf@acad2.alaska.edu
+Date: Sat, 21 Nov 1992 00:05:50 GMT
+Sender: news@raven.alaska.edu (USENET News System)
+Organization: University of Alaska
+Nntp-Posting-Host: acad2.alaska.edu
+Lines: 523
+Xref: uunet vmsnet.sources.games:531
+
+-+-+-+-+-+-+-+-+ START OF PART 32 -+-+-+-+-+-+-+-+
+X    `125 else if (players`091base_id`093.p_port`0910`093 == VACANT) `123
+X`009port_id = 0;
+X    `125 else if (players`091base_id`093.p_port`0911`093 == VACANT) `123
+X`009port_id = 1;
+X    `125 else if (players`091base_id`093.p_port`0912`093 == VACANT) `123
+X`009port_id = 2;
+X    `125 else  if (players`091base_id`093.p_port`0913`093 == VACANT) `123
+X`009port_id = 3;
+X    `125
+X
+X    if (port_id < NUMPORTS) `123
+X`009me->p_x = players`091base_id`093.p_x + DOCKDIST * Costab`091(port_id*90+
+V45)*255/360`093;
+X`009me->p_y = players`091base_id`093.p_y + DOCKDIST * Sintab`091(port_id*90+
+V45)*255/360`093;
+X`009me->p_speed = 0;
+X`009me->p_desspeed = 0;
+X`009me->p_dir = (90 + port_id*90 + 45) * 255 / 360;
+X`009me->p_desdir = me->p_dir;
+X
+X`009me->p_flags `124= PFDOCK;
+X`009players`091base_id`093.p_docked++;
+X`009players`091base_id`093.p_port`091port_id`093 = me->p_no;
+X`009me->p_docked = base_id;
+X`009me->p_port`0910`093 = port_id;
+X
+X`009sprintf(buf, "Helmsman:  Docking manuever completed Captain.  All moorin
+Vgs secured at port %d.", port_id);
+X`009warning(buf);
+X    `125 else `123
+X`009sprintf(buf, "Starbase %s: Permission to dock denied, all ports currentl
+Vy occupied.", players`091base_id`093.p_name);
+X`009warning(buf);
+X    `125
+X`125  /* dock() */
+$ CALL UNPACK ORBIT.C;1 1345980700
+$ create/nolog 'f'
+X/*`032
+X * packets.h
+X *
+X * Kevin P. Smith 1/29/89
+X */
+X#include "copyright2.h"
+X
+X#define STATUS_TOKEN`009"\t@@@"`009`009/* ATM */
+X
+Xtypedef unsigned char uchar;
+X
+X/*
+X * TCP and UDP use identical packet formats; the only difference is that,
+X * when in UDP mode, all packets sent from server to client have a sequence
+X * number appended to them.
+X *
+X * (note: ALL packets, whether sent on the TCP or UDP channel, will have
+X * the sequence number.  Thus it's important that client & server agree on
+X * when to switch.  This was done to keep critical and non-critical data
+X * in sync.)
+X */
+X
+X/* packets sent from xtrek server to remote client */
+X#define SP_MESSAGE `0091
+X#define SP_PLAYER_INFO `0092`009`009/* general player info not elsewhere */
+X#define SP_KILLS`0093 `009`009/* # kills a player has */
+X#define SP_PLAYER`0094`009`009/* x,y for player */
+X#define SP_TORP_INFO`0095`009`009/* torp status */
+X#define SP_TORP`009`0096`009`009/* torp location */
+X#define SP_PHASER`0097`009`009/* phaser status and direction */
+X#define SP_PLASMA_INFO`0098`009`009/* player login information */
+X#define SP_PLASMA`0099`009`009/* like SP_TORP */
+X#define SP_WARNING`00910`009`009/* like SP_MESG */
+X#define SP_MOTD`009`00911`009`009/* line from .motd screen */
+X#define SP_YOU`009`00912`009`009/* info on you? */
+X#define SP_QUEUE`00913`009`009/* estimated loc in queue? */
+X#define SP_STATUS`00914`009`009/* galaxy status numbers */
+X#define SP_PLANET `00915`009`009/* planet armies & facilities */
+X#define SP_PICKOK`00916`009`009/* your team & ship was accepted */
+X#define SP_LOGIN`00917`009`009/* login response */
+X#define SP_FLAGS`00918`009`009/* give flags for a player */
+X#define SP_MASK`009`00919`009`009/* tournament mode mask */
+X#define SP_PSTATUS`00920`009`009/* give status for a player */
+X#define SP_BADVERSION   21`009`009/* invalid version number */
+X#define SP_HOSTILE`00922`009`009/* hostility settings for a player */
+X#define SP_STATS`00923`009`009/* a player's statistics */
+X#define SP_PL_LOGIN`00924`009`009/* new player logs in */
+X#define SP_RESERVED`00925`009`009/* for future use */
+X#define SP_PLANET_LOC`00926`009`009/* planet name, x, y */
+X#define SP_SCAN`009`00927`009`009/* ATM: results of player scan */
+X
+X#define SP_UDP_REPLY`00928`009`009/* notify client of UDP status */
+X#define SP_SEQUENCE`00929`009`009/* sequence # packet */
+X#define SP_SC_SEQUENCE`00930`009`009/* this trans is semi-critical info */
+X
+X/* packets sent from remote client to xtrek server */
+X#define CP_MESSAGE      1`009`009/* send a message */
+X#define CP_SPEED`0092`009`009/* set speed */
+X#define CP_DIRECTION`0093`009`009/* change direction */
+X#define CP_PHASER`0094`009`009/* phaser in a direction */
+X#define CP_PLASMA`0095`009`009/* plasma (in a direction) */
+X#define CP_TORP`009`0096`009`009/* fire torp in a direction */
+X#define CP_QUIT`009`0097`009`009/* self destruct */
+X#define CP_LOGIN`0098`009`009/* log in (name, password) */
+X#define CP_OUTFIT`0099`009`009/* outfit to new ship */
+X#define CP_WAR`009`00910`009`009/* change war status */
+X#define CP_PRACTR`00911`009`009/* create practice robot? */
+X#define CP_SHIELD`00912`009`009/* raise/lower sheilds */
+X#define CP_REPAIR`00913`009`009/* enter repair mode */
+X#define CP_ORBIT`00914`009`009/* orbit planet/starbase */
+X#define CP_PLANLOCK`00915`009`009/* lock on planet */
+X#define CP_PLAYLOCK`00916`009`009/* lock on player */
+X#define CP_BOMB`009`00917`009`009/* bomb a planet */
+X#define CP_BEAM`009`00918`009`009/* beam armies up/down */
+X#define CP_CLOAK`00919`009`009/* cloak on/off */
+X#define CP_DET_TORPS`00920`009`009/* detonate enemy torps */
+X#define CP_DET_MYTORP`00921`009`009/* detonate one of my torps */
+X#define CP_COPILOT`00922`009`009/* toggle copilot mode */
+X#define CP_REFIT`00923`009`009/* refit to different ship type */
+X#define CP_TRACTOR`00924`009`009/* tractor on/off */
+X#define CP_REPRESS`00925`009`009/* pressor on/off */
+X#define CP_COUP`009`00926`009`009/* coup home planet */
+X#define CP_SOCKET`00927`009`009/* new socket for reconnection */
+X#define CP_OPTIONS`00928`009`009/* send my options to be saved */
+X#define CP_BYE`009`00929`009`009/* I'm done! */
+X#define CP_DOCKPERM`00930`009`009/* set docking permissions */
+X#define CP_UPDATES`00931`009`009/* set number of usecs per update */
+X#define CP_RESETSTATS`00932`009`009/* reset my stats packet */
+X#define CP_RESERVED`00933`009`009/* for future use */
+X#define CP_SCAN`009`00934`009`009/* ATM: request for player scan */
+X
+X#define CP_UDP_REQ`00935`009`009/* request UDP on/off */
+X#define CP_SEQUENCE`00936`009`009/* sequence # packet */
+X
+X#define SOCKVERSION `0094
+X#define UDPVERSION`00910`009`009/* changing this blocks other versions*/
+Xstruct packet_handler `123
+X    int size;
+X    int (*handler)();
+X`125;
+X
+X
+X/*
+X * These are server --> client packets
+X */
+X
+Xstruct mesg_spacket `123
+X    char type;`009`009/* SP_MESSAGE */
+X    uchar m_flags;
+X    uchar m_recpt;
+X    uchar m_from;
+X    char mesg`09180`093;
+X`125;
+X
+Xstruct plyr_info_spacket `123
+X    char type;`009`009/* SP_PLAYER_INFO */
+X    char pnum;
+X    char shiptype;`009
+X    char team;
+X`125;
+X
+Xstruct kills_spacket `123
+X    char type;`009`009/* SP_KILLS */
+X    char pnum;
+X    char pad1;
+X    char pad2;
+X    unsigned kills;`009/* where 1234=12.34 kills and 0=0.00 kills */
+X`125;
+X
+Xstruct player_spacket `123
+X    char type;`009`009/* SP_PLAYER */
+X    char pnum;`009`009
+X    uchar dir;
+X    char speed;
+X    long x,y;
+X`125;
+X
+Xstruct torp_info_spacket `123
+X    char  type;`009`009/* SP_TORP_INFO */
+X    char  war;`009`009
+X    char  status;`009/* TFREE, TDET, etc... */
+X    char  pad1;`009`009/* pad needed for cross cpu compatibility */
+X    short tnum;`009`009
+X    short pad2;
+X`125;
+X
+Xstruct torp_spacket `123
+X    char  type;`009`009/* SP_TORP */
+X    uchar dir;
+X    short tnum;
+X    long  x,y;
+X`125;
+X
+Xstruct phaser_spacket `123
+X    char type;`009`009/* SP_PHASER */
+X    char pnum;
+X    char status;`009/* PH_HIT, etc... */
+X    uchar dir;
+X    long x,y;
+X    long target;
+X`125;
+X
+Xstruct plasma_info_spacket `123
+X    char  type;`009`009/* SP_PLASMA_INFO */
+X    char  war;`009`009
+X    char  status;`009/* TFREE, TDET, etc... */
+X    char  pad1;`009`009/* pad needed for cross cpu compatibility */
+X    short pnum;`009`009
+X    short pad2;
+X`125;
+X
+Xstruct plasma_spacket `123
+X    char  type;`009`009/* SP_PLASMA */
+X    char  pad1;
+X    short pnum;
+X    long  x,y;
+X`125;
+X
+Xstruct warning_spacket `123
+X    char type;`009`009/* SP_WARNING */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    char mesg`09180`093;
+X`125;
+X
+Xstruct motd_spacket `123
+X    char type;`009`009/* SP_MOTD */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    char line`09180`093;
+X`125;
+X
+Xstruct you_spacket `123
+X    char type;`009`009/* SP_YOU */
+X    char pnum;`009`009/* Guy needs to know this... */
+X    char hostile;
+X    char swar;
+X    char armies;
+X    char tractor;`009/* ATM - visible tractor (was pad1) */
+X    char pad2;
+X    char pad3;
+X    unsigned flags;
+X    long damage;
+X    long shield;
+X    long fuel;
+X    short etemp;
+X    short wtemp;
+X    short whydead;
+X    short whodead;
+X`125;
+X
+Xstruct queue_spacket `123
+X    char type;`009`009/* SP_QUEUE */
+X    char pad1;
+X    short pos;
+X`125;
+X
+Xstruct status_spacket `123
+X    char type;`009`009/* SP_STATUS */
+X    char tourn;
+X    char pad1;
+X    char pad2;
+X    unsigned armsbomb;
+X    unsigned planets;
+X    unsigned kills;
+X    unsigned losses;
+X    unsigned time;
+X    unsigned long timeprod;
+X`125;
+X
+Xstruct planet_spacket `123
+X    char  type;`009`009/* SP_PLANET */
+X    char  pnum;
+X    char  owner;
+X    char  info;`009`009
+X    short flags;
+X    short pad2;
+X    long  armies;
+X`125;
+X
+Xstruct pickok_spacket `123
+X    char type;`009`009/* SP_PICKOK */
+X    char state;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct login_spacket `123
+X    char type;`009`009/* SP_LOGIN */
+X    char accept;`009/* 1/0 */
+X    char pad2;
+X    char pad3;
+X    long flags;
+X    char keymap`09196`093;
+X`125;
+X
+Xstruct flags_spacket `123
+X    char type;`009`009/* SP_FLAGS */
+X    char pnum;`009`009/* whose flags are they? */
+X    char tractor;`009/* ATM - visible tractors */
+X    char pad2;
+X    unsigned flags;
+X`125;
+X
+Xstruct mask_spacket `123
+X    char type;`009`009/* SP_MASK */
+X    char mask;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct pstatus_spacket `123
+X    char type;`009`009/* SP_PSTATUS */
+X    char pnum;
+X    char status;
+X    char pad1;
+X`125;
+X
+Xstruct badversion_spacket `123
+X    char type;`009`009/* SP_BADVERSION */
+X    char why;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct hostile_spacket `123
+X    char type;`009`009/* SP_HOSTILE */
+X    char pnum;
+X    char war;
+X    char hostile;
+X`125;
+X
+Xstruct stats_spacket `123
+X    char type;`009`009/* SP_STATS */
+X    char pnum;
+X    char pad1;
+X    char pad2;
+X    long tkills;`009/* Tournament kills */
+X    long tlosses;`009/* Tournament losses */
+X    long kills;`009`009/* overall */
+X    long losses;`009/* overall */
+X    long tticks;`009/* ticks of tournament play time */
+X    long tplanets;`009/* Tournament planets */
+X    long tarmies;`009/* Tournament armies */
+X    long sbkills;`009/* Starbase kills */
+X    long sblosses;`009/* Starbase losses */
+X    long armies;`009/* non-tourn armies */
+X    long planets;`009/* non-tourn planets */
+X    long maxkills;`009/* max kills as player * 100 */
+X    long sbmaxkills;`009/* max kills as sb * 100 */
+X`125;
+X
+Xstruct plyr_login_spacket `123
+X    char type;`009`009/* SP_PL_LOGIN */
+X    char pnum;
+X    char rank;
+X    char pad1;
+X    char name`09116`093;
+X    char monitor`09116`093;
+X    char login`09116`093;
+X`125;
+X
+Xstruct reserved_spacket `123
+X    char type;`009`009/* SP_RESERVED */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X    char data`09116`093;
+X`125;
+X
+Xstruct planet_loc_spacket `123
+X    char type;`009`009/* SP_PLANET_LOC */
+X    char pnum;
+X    char pad2;
+X    char pad3;
+X    long x;
+X    long y;
+X    char name`09116`093;
+X`125;
+X
+Xstruct scan_spacket `123`009`009/* ATM */
+X    char type;`009`009/* SP_SCAN */
+X    char pnum;
+X    char success;
+X    char pad1;
+X    long p_fuel;
+X    long p_armies;
+X    long p_shield;
+X    long p_damage;
+X    long p_etemp;
+X    long p_wtemp;
+X`125;
+X
+Xstruct udp_reply_spacket `123`009/* UDP */
+X    char type;`009`009/* SP_UDP_REPLY */
+X    char reply;
+X    char pad1;
+X    char pad2;
+X    int  port;
+X`125;
+X
+Xstruct sequence_spacket `123`009/* UDP */
+X    char type;`009`009/* SP_SEQUENCE */
+X    char pad1;
+X    unsigned short sequence;
+X`125;
+Xstruct sc_sequence_spacket `123`009/* UDP */
+X    char type;`009`009/* SP_CP_SEQUENCE */
+X    char pad1;
+X    unsigned short sequence;
+X`125;
+X
+X
+X/*
+X * These are the client --> server packets
+X */
+X
+Xstruct mesg_cpacket `123
+X    char type;`009`009/* CP_MESSAGE */
+X    char group;
+X    char indiv;
+X    char pad1;
+X    char mesg`09180`093;
+X`125;
+X
+Xstruct speed_cpacket `123
+X    char type;`009`009/* CP_SPEED */
+X    char speed;`009`009
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct dir_cpacket `123
+X    char type;`009`009/* CP_DIRECTION */
+X    uchar dir;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct phaser_cpacket `123
+X    char type;`009`009/* CP_PHASER */
+X    uchar dir;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct plasma_cpacket `123
+X    char type;`009`009/* CP_PLASMA */
+X    uchar dir;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct torp_cpacket `123
+X    char type;`009`009/* CP_TORP */
+X    uchar dir;`009`009/* direction to fire torp */
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct quit_cpacket `123
+X    char type;`009`009/* CP_QUIT */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct login_cpacket `123
+X    char type;`009`009/* CP_LOGIN */
+X    char query;
+X    char pad2;
+X    char pad3;
+X    char name`09116`093;
+X    char password`09116`093;
+X    char login`09116`093;
+X`125;
+X
+Xstruct outfit_cpacket `123
+X    char type;`009`009/* CP_OUTFIT */
+X    char team;
+X    char ship;
+X    char pad1;
+X`125;
+X
+Xstruct war_cpacket `123
+X    char type;`009`009/* CP_WAR */
+X    char newmask;
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct practr_cpacket `123
+X    char type;`009`009/* CP_PRACTR */
+X    char pad1;
+X    char pad2;
+X    char pad3;
+X`125;
+X
+Xstruct shield_cpacket `123
+X    char type;`009`009/* CP_SHIELD */
+X    char state;`009`009/* up/down */
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct repair_cpacket `123
+X    char type;`009`009/* CP_REPAIR */
+X    char state;`009`009/* on/off */
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct orbit_cpacket `123
+X    char type;`009`009/* CP_ORBIT */
+X    char state;`009`009/* on/off */
+X    char pad1;
+X    char pad2;
+X`125;
+X
+Xstruct planlock_cpacket `123
+X    char type;`009`009/* CP_PLANLOCK */
+X    char pnum;
++-+-+-+-+-+-+-+-  END  OF PART 32 +-+-+-+-+-+-+-+-

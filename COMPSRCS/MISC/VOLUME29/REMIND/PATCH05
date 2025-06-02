@@ -1,0 +1,413 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v29i073:  remind - A replacement for calendar, Patch05
+Message-ID: <1992Apr11.195315.7446@sparky.imd.sterling.com>
+X-Md4-Signature: c6731dece7d20ecec0a4012da90f9694
+Date: Sat, 11 Apr 1992 19:53:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 29, Issue 73
+Archive-name: remind/patch05
+Environment: UNIX, MS-DOS
+Patch-To: remind: Volume 17, Issue 3-6
+
+This is Patch 5 for Remind version 2.3, a replacement for calendar(1).
+
+This is not the major update to Remind I've been promising :-), it's just
+a useful little feature added to the calendar printing routine.
+
+Before applying this patch, make sure you have Remind 2.3.4 source code.
+Check the file patchlevel.h to ensure this.
+
+Change to the Remind source directory, unshar the patch file, and type:
+
+	patch < patch.05
+
+Re-make and re-install Remind.  To make sure that everything worked, type:
+
+	make test
+
+This patch adds a feature to Remind which allows you to create a calendar
+for a given number of weeks as well as a given number of months.  This
+is useful for popping up a calendar in a window.  In addition, the current
+date is highlighted when the "calendar by weeks" option is used.
+
+The modifications to Remind were done by Dennis Cottel
+<dennis@peanuts.nosc.mil>.  Thanks, Dennis!
+
+You can FTP a copy of Remind 2.3.5 from data.doe.carleton.ca
+(134.117.9.15) in the directory /pub.  The patch is there also, if
+you already have Remind 2.3.4.
+
+--
+David F. Skoll
+
+-------------- Cut Here ---------- Cut Here ---------- Cut Here -------------
+#!/bin/sh
+# This is Remind 2.3 Official Patch #5, a shell archive (shar 3.32)
+# made 03/31/1992 16:46 UTC by dfs@pulaski
+# Source directory /enterprise/turbolift/dfs/work/.rem/patch5-work
+#
+# existing files will NOT be overwritten
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  10390 -rw------- patch.05
+#
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= patch.05 ==============
+if test X"$1" != X"-c" -a -f 'patch.05'; then
+	echo "File already exists: skipping 'patch.05'"
+else
+echo "x - extracting patch.05 (Text)"
+sed 's/^X//' << 'SHAR_EOF' > patch.05 &&
+XThis set of patches adds support for the "calendar by weeks" option,
+Xprovided by Dennis Cottel.
+X*** ../patch4-work/COPYRIGHT	Wed Jul 17 13:18:07 1991
+X--- ./COPYRIGHT	Tue Mar 31 11:43:14 1992
+X***************
+X*** 42,47 ****
+X--- 42,50 ----
+X  <rhys@batserver.cs.uq.OZ.AU> and Anthony Cheng for providing the Turbo
+X  C compiler support
+X  
+X+ Dennis Cottel <dennis@peanuts.nosc.mil> for providing the patch to produce
+X+ calendars by weeks as well as by months.
+X+ 
+X  Bill Silvert <bill%biomel@cs.dal.ca> and Dennis Cottel
+X  <dennis@peanuts.nosc.mil> for suggesting many of the new features in
+X  REMIND.
+X*** ../patch4-work/WHATSNEW.23	Thu Oct  3 12:16:38 1991
+X--- ./WHATSNEW.23	Tue Mar 31 11:43:39 1992
+X***************
+X*** 71,73 ****
+X--- 71,76 ----
+X  
+X  * Version 2.3 Patch 4 - Made the init.c file nicer.  Made the Makefile
+X  prettier.  Added "make test", "make tar" and "make shar" Makefile targets.
+X+ 
+X+ * Version 2.4 Patch 5 - Added the "c+n" option for printing a calendar by
+X+ weeks instead of months, courtesy Dennis Cottel (dennis@peanuts.nosc.mil).
+X*** ../patch4-work/calendar.c	Mon Feb 18 13:05:17 1991
+X--- ./calendar.c	Tue Mar 31 11:40:42 1992
+X***************
+X*** 42,47 ****
+X--- 42,48 ----
+X  CalEntry entry[7];
+X  int used[7];  /* These hold the day of the month for corresponding
+X                   entry - 0 if not used */
+X+ int todayflag[7]; /* set to 1 for today when doing CalendarByWeeks */
+X  
+X  /* Static integers for various stuff */
+X  static int TotalWidth;
+X***************
+X*** 78,101 ****
+X  
+X     TotalWidth = 7*CalWidth + 8;
+X  
+X!    /* Move back until beginning of month */
+X!    FromJulian(JulianToday, &d, &m, &y);
+X!    JulianToday -= (d-1);
+X  
+X     init = 0;
+X     InitCache();
+X     while (Calendar) {
+X        FromJulian(JulianToday, &d, &m, &y);
+X        CurDay = d;
+X        CurMon = m;
+X        CurYear = y;
+X!       if (init == 0 || CurDay == 1) { InitCalendar(m, y); init = 1; }
+X        DoEntries();
+X!       if (d == DaysInMonth(m, y)) Calendar--;
+X        JulianToday++;
+X        if (Calendar) ResetCache();
+X     }
+X!    if (CurDay != DaysInMonth(CurMon, CurYear)) FinishCalendar();
+X     DestroyCache();
+X     FreeStackedOmits();
+X  }
+X--- 79,114 ----
+X  
+X     TotalWidth = 7*CalWidth + 8;
+X  
+X!    if (!CalendarByWeeks) {
+X!       /* Move back until beginning of month */
+X!       FromJulian(JulianToday, &d, &m, &y);
+X!       JulianToday -= (d-1);
+X!    } else {
+X!       /* Move back to the beginning of the week */
+X!       while (DayOfWeek(JulianToday) != 0) JulianToday--;
+X!    }
+X  
+X     init = 0;
+X     InitCache();
+X+    if (CalendarByWeeks) Calendar = CalendarByWeeks;
+X     while (Calendar) {
+X        FromJulian(JulianToday, &d, &m, &y);
+X        CurDay = d;
+X        CurMon = m;
+X        CurYear = y;
+X!       if (init == 0 || (!CalendarByWeeks && (CurDay == 1)))
+X!          { InitCalendar(m, y); init = 1; }
+X        DoEntries();
+X!       if (CalendarByWeeks) {
+X!          if (DayOfWeek(JulianToday) == 6) Calendar--;
+X!       } else {
+X!          if (d == DaysInMonth(m, y)) Calendar--;
+X!       }
+X        JulianToday++;
+X        if (Calendar) ResetCache();
+X     }
+X!    if (CurDay != DaysInMonth(CurMon, CurYear) || CalendarByWeeks)
+X!       FinishCalendar();
+X     DestroyCache();
+X     FreeStackedOmits();
+X  }
+X***************
+X*** 206,211 ****
+X--- 219,225 ----
+X  #endif
+X  {
+X     if (SimpleCalendar) return;
+X+    if (CalendarByWeeks) return;
+X     putchar('\f');
+X  }
+X  
+X***************
+X*** 221,231 ****
+X  void DoEntries()
+X  #endif
+X  {
+X!    int i;
+X     CalEntry *e;
+X  
+X     while (1) {
+X!       used[DayOfWeek(JulianToday)] = CurDay;
+X        if (GetLine()) break;
+X        i = ProcessLine();
+X        if (i>0) if (e = CreateCalEntry(i)) AddCalEntry(e);
+X--- 235,247 ----
+X  void DoEntries()
+X  #endif
+X  {
+X!    int i, whichday;
+X     CalEntry *e;
+X  
+X+    whichday = DayOfWeek(JulianToday);
+X     while (1) {
+X!       used[whichday] = CurDay;
+X!       todayflag[whichday] = (JulianToday == RealToday) ? 1 : 0;
+X        if (GetLine()) break;
+X        i = ProcessLine();
+X        if (i>0) if (e = CreateCalEntry(i)) AddCalEntry(e);
+X***************
+X*** 232,240 ****
+X     }
+X  
+X     /* Now figure out if we should print the calendar */
+X!    if ((DayOfWeek(JulianToday) == 6 ) || CurDay == DaysInMonth(CurMon, CurYear))
+X!       EmitOneCalendarLine();
+X!    if (CurDay == DaysInMonth(CurMon, CurYear)) FinishCalendar();
+X  }
+X  
+X  /***************************************************************/
+X--- 248,260 ----
+X     }
+X  
+X     /* Now figure out if we should print the calendar */
+X!    if (CalendarByWeeks) {
+X!       if (whichday == 6) EmitOneCalendarLine();
+X!    } else {
+X!       if ((whichday == 6) || (CurDay == DaysInMonth(CurMon, CurYear)))
+X!          EmitOneCalendarLine();
+X!       if (CurDay == DaysInMonth(CurMon, CurYear)) FinishCalendar();
+X!    }
+X  }
+X  
+X  /***************************************************************/
+X***************
+X*** 412,417 ****
+X--- 432,438 ----
+X  #endif
+X  {
+X     int i, nlines, emit, j;
+X+    char c;
+X     char *s, *dst;
+X     CalEntry *e;
+X     char pend[7];  /* Reminders with following blanks pending */
+X***************
+X*** 427,433 ****
+X        else {
+X           sprintf(TmpBuf, "%d", used[i]);
+X           printf(TmpBuf);
+X!          PrintChars(CalWidth-strlen(TmpBuf), ' ');
+X        }
+X        putchar('|');
+X     }
+X--- 448,455 ----
+X        else {
+X           sprintf(TmpBuf, "%d", used[i]);
+X           printf(TmpBuf);
+X!          c = (CalendarByWeeks && todayflag[i]) ? '*' : ' ';
+X!          PrintChars(CalWidth-strlen(TmpBuf), c);
+X        }
+X        putchar('|');
+X     }
+X*** ../patch4-work/globals.h	Tue Sep 10 10:14:41 1991
+X--- ./globals.h	Tue Mar 31 11:40:43 1992
+X***************
+X*** 43,48 ****
+X--- 43,49 ----
+X  extern char  QueueAts;
+X  extern char  PrintAts;
+X  extern int   Calendar;
+X+ extern int   CalendarByWeeks;
+X  extern int   CalTime;
+X  extern int   CalWidth;
+X  extern int   SimpleCalendar;
+X*** ../patch4-work/init.c	Mon Sep 30 16:40:04 1991
+X--- ./init.c	Tue Mar 31 11:40:45 1992
+X***************
+X*** 46,51 ****
+X--- 46,52 ----
+X     IgOnce   = 0;
+X     IgRun    = 0;
+X     Calendar = 0;
+X+    CalendarByWeeks = 0;
+X     Next     = 0;
+X     PrintAts = 1;
+X     QueueAts = 1;
+X***************
+X*** 114,121 ****
+X  		        Debug = Purge = 0;
+X  			fprintf(stderr, DPCMsg);
+X  	             }
+X!                      t = atoi(s + 1);
+X! 		     if (t > 0 && t <= 12) Calendar = t;
+X                       /* Skip remaining chars on this option */
+X  	             while (*++s) ;
+X  	             s--;
+X--- 115,127 ----
+X  		        Debug = Purge = 0;
+X  			fprintf(stderr, DPCMsg);
+X  	             }
+X!                      if (*(s+1) == '+') {
+X!                         s++;
+X!                         CalendarByWeeks = atoi(s + 1);
+X!                      } else {
+X!                         t = atoi(s + 1);
+X!                         if (t > 0 && t <= 12) Calendar = t;
+X!                      }
+X                       /* Skip remaining chars on this option */
+X  	             while (*++s) ;
+X  	             s--;
+X***************
+X*** 251,263 ****
+X       "\nREMIND %d.%d Patch Level %d Copyright 1990, 1991 by David Skoll.\n\n", 
+X          VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+X  #ifdef UNIX
+X!   fprintf(stderr, "Usage: remind [-n | -d | -p | -c# [-w# | -s]] [-voraqthf] filename [date]\n\n");
+X  #else
+X!   fprintf(stderr, "Usage: remind [-n | -d | -p | -c# [-w# | -s]] [-vorth] filename [date]\n\n");
+X  #endif
+X    fprintf(stderr, "-n   Output next occurrence of reminders in simple format\n");
+X    fprintf(stderr, "-d   Debug reminder file\n-p   Purge reminder file\n");
+X    fprintf(stderr, "-c#  Produce calendar for # months\n");
+X    fprintf(stderr, "-w#  Make calendar # columns wide\n");
+X    fprintf(stderr, "-s   Produce simple calendar listing (used with -c)\n");
+X    fprintf(stderr, "-v   Verbose messages\n-o   Ignore ONCE directives\n");
+X--- 257,270 ----
+X       "\nREMIND %d.%d Patch Level %d Copyright 1990, 1991 by David Skoll.\n\n", 
+X          VERSION_MAJOR, VERSION_MINOR, PATCHLEVEL);
+X  #ifdef UNIX
+X!   fprintf(stderr, "Usage: remind [-n | -d | -p | -c[+]# [-w# | -s]] [-voraqthf] filename [date]\n\n");
+X  #else
+X!   fprintf(stderr, "Usage: remind [-n | -d | -p | -c[+]# [-w# | -s]] [-vorth] filename [date]\n\n");
+X  #endif
+X    fprintf(stderr, "-n   Output next occurrence of reminders in simple format\n");
+X    fprintf(stderr, "-d   Debug reminder file\n-p   Purge reminder file\n");
+X    fprintf(stderr, "-c#  Produce calendar for # months\n");
+X+   fprintf(stderr, "-c+# Produce calendar for # contiguous weeks\n");
+X    fprintf(stderr, "-w#  Make calendar # columns wide\n");
+X    fprintf(stderr, "-s   Produce simple calendar listing (used with -c)\n");
+X    fprintf(stderr, "-v   Verbose messages\n-o   Ignore ONCE directives\n");
+X*** ../patch4-work/main.c	Tue Sep 10 10:11:40 1991
+X--- ./main.c	Tue Mar 31 11:40:45 1992
+X***************
+X*** 119,124 ****
+X--- 119,125 ----
+X  char QueueAts, PrintAts;
+X  int  NumAtsQueued;
+X  int Calendar, CalTime, CalWidth, SimpleCalendar;
+X+ int CalendarByWeeks;
+X  int Foreground;
+X  
+X  static int JulFirst; /* Julian date of 1 Jan Current_year */
+X*** ../patch4-work/patchlevel.h	Fri Sep 13 15:25:40 1991
+X--- ./patchlevel.h	Tue Mar 31 11:41:01 1992
+X***************
+X*** 3,6 ****
+X  #define VERSION_MAJOR 2
+X  #define VERSION_MINOR 3
+X  
+X! #define PATCHLEVEL 4
+X--- 3,6 ----
+X  #define VERSION_MAJOR 2
+X  #define VERSION_MINOR 3
+X  
+X! #define PATCHLEVEL 5
+X*** ../patch4-work/remind.1	Fri Sep 13 15:25:35 1991
+X--- ./remind.1	Tue Mar 31 11:40:48 1992
+X***************
+X*** 4,10 ****
+X  remind \- a sophisticated reminder service
+X  .SH SYNOPSIS
+X  .B remind
+X! [\fB\-n | \fB\-d\fR | \fB\-p\fR | \fB\-c\fR\fIn\fR [\fB\-w\fR\fIn\fR | \fB\-s\fR]]
+X  [\fB\-voraqthf\fR]
+X  .I filename
+X  [\fIdate\fR]
+X--- 4,11 ----
+X  remind \- a sophisticated reminder service
+X  .SH SYNOPSIS
+X  .B remind
+X! [\fB\-n | \fB\-d\fR | \fB\-p\fR |
+X! \fB\-c\fR[\fB+\fR]\fIn\fR [\fB\-w\fR\fIn\fR | \fB\-s\fR]]
+X  [\fB\-voraqthf\fR]
+X  .I filename
+X  [\fIdate\fR]
+X***************
+X*** 60,65 ****
+X--- 61,74 ----
+X  produce a calendar for one month only.  The
+X  .B \-c
+X  option is not compatible with the \fB\-p\fR or \fB\-d\fR options.
+X+ .PP
+X+ .RS
+X+ If the number starts with a ``+'' (e.g., ``\-c+4''), then the value given is
+X+ interpreted as the number of contiguous weeks to print starting with the
+X+ current week.
+X+ In this mode, there are no line or page breaks between months
+X+ and the current date is highlighted.
+X+ .RE
+X  .TP
+X  .B \-w\fR\fIn\fR
+X  The \fB\-w\fR flag, when used in conjunction with \fB\-c\fR,
+SHAR_EOF
+$TOUCH -am 0331114692 patch.05 &&
+chmod 0600 patch.05 ||
+echo "restore of patch.05 failed"
+set `wc -c patch.05`;Wc_c=$1
+if test "$Wc_c" != "10390"; then
+	echo original size 10390, current size $Wc_c
+fi
+fi
+exit 0
+
+
+exit 0 # Just in case...

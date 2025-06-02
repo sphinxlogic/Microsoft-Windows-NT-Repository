@@ -1,0 +1,1568 @@
+Path: uunet!dtix!darwin.sura.net!jvnc.net!yale.edu!yale!gumby!destroyer!sol.ctr.columbia.edu!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: liebla@informatik.tu-muenchen.de (Armin Liebl)
+Newsgroups: comp.sources.x
+Subject: v18i115: bibview - BibTeX GUI, Part17/20
+Message-ID: <1992Aug27.161815.26083@msi.com>
+Date: 27 Aug 92 16:18:15 GMT
+References: <csx-18i099-bibview@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1555
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 115
+Archive-name: bibview/part17
+
+#!/bin/sh
+# this is part.17 (part 17 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file gui_card.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 17; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping gui_card.c'
+else
+echo 'x - continuing file gui_card.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'gui_card.c' &&
+X   if ((cdp->year = glbNewString(str)) == NULL)
+X      return(ERR_NOMALLOC);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* SaveUnpublishedWidgets:                                           */
+/*    Saves data from widget to new card                             */
+/*********************************************************************/
+static Errcode
+SaveUnpublishedWidgets (CardPtr cp)
+{
+CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+Widget card = cp->cw->cardFlds;		/* parent widget */
+String str;
+X
+X   XtVaGetValues(cwp->title, XtNstring, &str, NULL);
+X   if ((cdp->title = glbNewString(str)) == NULL)
+X      return(ERR_NOMALLOC);
+X   XtVaGetValues(cwp->author, XtNstring, &str, NULL);
+X   if ((cdp->author = glbNewString(str)) == NULL)
+X      return(ERR_NOMALLOC);
+X   XtVaGetValues(cwp->month, XtNstring, &str, NULL);
+X   if ((cdp->month = glbNewString(str)) == NULL)
+X      return(ERR_NOMALLOC);
+X   XtVaGetValues(cwp->year, XtNstring, &str, NULL);
+X   if ((cdp->year = glbNewString(str)) == NULL)
+X      return(ERR_NOMALLOC);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* createMenu:                                                       */
+/*    Build pulldown menus in a bibliography window                  */
+/*********************************************************************/
+static void
+createMenu (String menuName, MenuEntry item[], Widget parent, Widget *menu)
+{
+static Widget w;
+int i = 0;
+String iname;
+X
+X   *menu = XtVaCreatePopupShell(menuName, 
+X             simpleMenuWidgetClass, parent, NULL);
+X   i = 0;
+X   while ((iname = item[i].name) != NULL) { 
+X      if (strncmp("line", iname, 4) == 0)   /* use a line pane */
+X         w = XtVaCreateManagedWidget(iname,
+X               smeLineObjectClass, *menu, NULL);
+X      else {
+X         w = XtVaCreateManagedWidget(iname, 
+X	       smeBSBObjectClass, *menu, NULL);
+X         XtAddCallback(w, XtNcallback, item[i].cb, (XtPointer) i);
+X      }
+X      i++;
+X   }
+}
+SHAR_EOF
+echo 'File gui_card.c is complete' &&
+chmod 0644 gui_card.c ||
+echo 'restore of gui_card.c failed'
+Wc_c="`wc -c < 'gui_card.c'`"
+test 111282 -eq "$Wc_c" ||
+	echo 'gui_card.c: original size 111282, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gui_edit.c ==============
+if test -f 'gui_edit.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gui_edit.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gui_edit.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gui_edit.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  gui_edit.c                                              */
+/*                                                                   */
+/*             GUI Edit Window                                       */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    05.03.92  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/List.h>
+#include <X11/Xaw/Text.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Viewport.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/SmeLine.h>
+#include "bibview.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel, desktop;
+extern Pixmap macIconPixmap;
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+X
+X
+/* exported variables */
+/* ------------------ */
+X
+X
+/* local global variables */
+/* ---------------------- */
+void gueSetEditChangeFlag (Widget w, XtPointer clientData, XtPointer callData);
+void gueSaveBibErrWinCmd (Widget w, XtPointer clientData, XtPointer callData);
+X
+X
+X
+/*********************************************************************/
+/* gueOpenMacroWin:                                                  */
+/*    Opens shell for editing macros of a bibliography               */
+/*********************************************************************/
+Errcode
+gueOpenMacroWin (BibPtr bp)
+{
+Position x, y;
+Dimension dwidth, dheight;
+MacroWinPtr mw;
+Errcode status;
+X
+X   /* allocate memory for new element of window list */
+X   if ((mw = (MacroWinPtr) malloc(sizeof(MacroWin))) == NULL) {
+X      /* error-handling is done in control modules */
+X      return(ERR_NOMALLOC);
+X   }
+X
+X   /* allocate memory for label of new shell */
+X   if ((mw->shellName = 
+X      (String) calloc(strlen(PROGNAME)+strlen(bp->filename)+12, 
+X		      sizeof(char))) == NULL) {
+X      return(ERR_NOMALLOC);
+X   }
+X
+X   bp->mw = mw;
+X   sprintf(mw->shellName, "%s: Macros %s", PROGNAME, bp->filename);
+X   mw->changed = FALSE;
+X
+X   /* position window and icon */
+X   gueSetWindowCoords(bp, TRUE);
+X   if (cotIconizeOnDesktop())
+X      gueSetIconCoords(bp, TRUE);
+X
+X   /* create popup shell for new file */
+X   mw->macShell = XtVaCreatePopupShell("macShell",
+X		  topLevelShellWidgetClass, topLevel, 
+/*  		  XtNtransient, TRUE,
+X		  XtNwindowGroup, XtWindow(topLevel), */
+X                  XtNx, mw->winX,
+X		  XtNy, mw->winY, 
+X                  XtNiconX, mw->iconX,
+X		  XtNiconY, mw->iconY, 
+X		  XtNtitle, mw->shellName, 
+X		  XtNiconPixmap, macIconPixmap,
+X		  XtNiconName, bp->filename, NULL);
+X   mw->macWin = XtVaCreateManagedWidget("macWin",
+X		  panedWidgetClass, mw->macShell, NULL);
+X
+X   /* create command buttons */
+X   mw->cmdBox = XtVaCreateManagedWidget("commandBox", 
+X		  boxWidgetClass, mw->macWin, NULL);
+X   mw->save   = XtVaCreateManagedWidget("save", 
+X	          commandWidgetClass, mw->cmdBox, NULL);
+X   mw->close  = XtVaCreateManagedWidget("close", 
+X	          commandWidgetClass, mw->cmdBox, NULL);
+X   mw->file   = XtVaCreateManagedWidget("macText", 
+X	          asciiTextWidgetClass, mw->macWin, 
+X		  XtNtype, XawAsciiFile,
+X		  XtNeditType, XawtextEdit,
+X		  XtNstring, bp->macrofile,
+X		  XtNscrollHorizontal, XawtextScrollWhenNeeded,
+X		  XtNscrollVertical, XawtextScrollWhenNeeded, NULL);
+X
+X   XtAddCallback(mw->close, XtNcallback, cseQuitMacrosCmd, (XtPointer)bp);
+X   XtAddCallback(mw->save, XtNcallback, cseSaveMacrosCmd, (XtPointer)bp);
+X   XtAddCallback(XawTextGetSource(mw->file), 
+X		 XtNcallback, cseSetMacroChangeFlag, (XtPointer)bp);
+X   XtPopup(mw->macShell, XtGrabNone);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueMacroWinExists:                                                */
+/*    TRUE, if macro window exists, else FALSE                       */
+/*********************************************************************/
+Boolean
+gueMacroWinExists (BibPtr bp)
+{
+X   return(bp->mw != NULL);
+}
+X
+X
+/*********************************************************************/
+/* gueCloseMacroWinCmd:                                              */
+/*    Callback function for macro window button close                */
+/*********************************************************************/
+void
+gueCloseMacroWinCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr) clientData;
+Errcode status;
+X
+X   if ((status = gueCloseMacroWin(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* gueCloseMacroWin:                                                 */
+/*    Close macro window                                             */
+/*********************************************************************/
+Errcode
+gueCloseMacroWin (BibPtr bp)
+{
+X   if (bp->mw != NULL) {
+X      XtPopdown(bp->mw->macShell);
+X      free(bp->mw->shellName);
+X      free(bp->mw);
+X      bp->mw = NULL; 
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueSaveMacrosToFile:                                              */
+/*    Save macros to file                                            */
+/*********************************************************************/
+Errcode
+gueSaveMacrosToFile (BibPtr bp)
+{
+X   if (bp->mw != NULL) {
+X      if (!XawAsciiSave(XawTextGetSource(bp->mw->file)))
+X	 return(ERR_SAVING_TMP);
+X      bp->mw->changed = FALSE;
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueCascade:                                                       */
+/*    Reposition macro window                                        */
+/*********************************************************************/
+Errcode
+gueCascade (BibPtr bp)
+{
+X   if (bp->mw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   gueSetWindowCoords(bp, FALSE);
+X   if (cotIconizeOnDesktop())
+X      gueSetIconCoords(bp, FALSE);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueSetWindowCoords:                                               */
+/*    Set position of macro window                                   */
+/*********************************************************************/
+Errcode
+gueSetWindowCoords (BibPtr bp, Boolean calcOnly)
+{
+Dimension dwidth, dheight;
+Position x, y;
+MacroWinPtr mw = bp->mw;
+X
+X   if (mw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   /* calculate position of window */
+X   XtVaGetValues(bp->bw->bibdesk,
+X		 XtNwidth, &dwidth,
+X		 XtNheight, &dheight, NULL);
+X   x = dwidth - SUBWIN_MARGIN;
+X   y = SUBWIN_MARGIN;
+X   XtTranslateCoords(bp->bw->bibdesk,
+X		     x, y,
+X		     &mw->winX, &mw->winY);
+X
+X   /* set values */
+X   if (!calcOnly) {
+X      XtVaSetValues(mw->macShell,
+X                    XtNx, mw->winX,
+X		    XtNy, mw->winY, NULL);
+X      if (XtIsRealized(mw->macShell)) {
+X         XRaiseWindow(XtDisplay(mw->macShell),
+X		      XtWindow(mw->macShell));
+X      }
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueSetIconCoords:                                                 */
+/*    Set position of macro window icon                              */
+/*********************************************************************/
+Errcode
+gueSetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+Dimension dwidth, dheight;
+Position x, y;
+MacroWinPtr mw = bp->mw;
+X
+X   if (mw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   /* calculate position of icon */
+X   XtVaGetValues(bp->bw->bibdesk,
+X		 XtNwidth, &dwidth,
+X		 XtNheight, &dheight, NULL);
+X   x = dwidth - (2 * (LST_ICON_WIDTH + LST_ICON_MARGIN));
+X   y = LST_ICON_MARGIN;
+X   XtTranslateCoords(bp->bw->bibdesk,
+X	             x, y, 
+X		     &mw->iconX, &mw->iconY);
+X
+X   /* set values */
+X   if (!calcOnly) {
+X      XtVaSetValues(mw->macShell,
+X		    XtNiconX, mw->iconX,
+X		    XtNiconY, mw->iconY, NULL);
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueUnsetIconCoords:                                               */
+/*    Delete position of macro window icon                           */
+/*********************************************************************/
+Errcode
+gueUnsetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+MacroWinPtr mw = bp->mw;
+X
+X   if (mw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   mw->iconX = mw->iconY = -1;
+X   if (!calcOnly) {
+X      XtVaSetValues(mw->macShell,
+X		    XtNiconX, mw->iconX,
+X		    XtNiconY, mw->iconY, NULL);
+X   }
+X   return(OK);
+}
+X
+/*********************************************************************/
+/* gueErrorWinExists:                                                */
+/*    TRUE, if error window exists, else FALSE                       */
+/*********************************************************************/
+Boolean
+gueErrorWinExists (BibPtr bp)
+{
+X   return(bp->ew != NULL);
+}
+X
+X
+/*********************************************************************/
+/* gueOpenBibErrWin:                                                 */
+/*    Opens shell for editing  errors of a bibliography              */
+/*********************************************************************/
+Errcode
+gueOpenBibErrWin (BibPtr bp, int line)
+{
+Position x, y;
+Dimension dwidth, dheight;
+MacroWinPtr mw;
+Errcode status;
+FILE *countFile;
+int nbOfChar, i;
+char inh;
+X	
+X   if (gueErrorWinExists(bp)) {
+X      if (XtIsRealized(bp->ew->macShell)) {
+X	 XRaiseWindow(XtDisplay(bp->ew->macShell),
+X		      XtWindow(bp->ew->macShell));
+X      }
+X      return(OK);
+X   }
+X
+X   if (line == ERR_NOBIB) {
+X     guwError(ERR_NOBIB);
+X     return ERR_NOBIB;
+X   }
+X   countFile = fopen(bp->filepath, "r");
+X   nbOfChar = 0;
+X   i = 1;
+X   while (i < -line) {
+X     while((inh = (char)getc(countFile)) != '\n') nbOfChar++;
+X     i++;
+X     nbOfChar++;
+X   }
+X   fclose(countFile);
+X  
+X
+X   /* allocate memory for new element of window list */
+X   if ((mw = (MacroWinPtr) malloc(sizeof(MacroWin))) == NULL) {
+X      /* error-handling is done in control modules */
+X      return(ERR_NOMALLOC);
+X   }
+X
+X   /* allocate memory for label of new shell */
+X   if ((mw->shellName = 
+X      (String) calloc(strlen(PROGNAME)+strlen(bp->filename)+12, 
+X		      sizeof(char))) == NULL) {
+X      return(ERR_NOMALLOC);
+X   }
+X
+X   bp->ew = mw;
+X   bp->ew->changed = FALSE;
+X   sprintf(mw->shellName, "%s: Errors %s", PROGNAME, bp->filename);
+X   gueSetWindowCoords(bp, TRUE);
+X   if (cotIconizeOnDesktop())
+X      gueSetIconCoords(bp, TRUE);
+X
+X   mw->macShell = XtVaCreatePopupShell("macShell",
+X		  topLevelShellWidgetClass, topLevel, 
+/*  		  XtNtransient, TRUE,
+X		  XtNwindowGroup, XtWindow(topLevel), */
+X                  XtNwidth, 400,
+X		  XtNheight, 500, 
+X		  XtNtitle, mw->shellName, 
+X		  XtNiconPixmap, macIconPixmap,
+X		  XtNiconName, bp->filename, NULL);
+X   mw->macWin = XtVaCreateManagedWidget("macWin",
+X		  panedWidgetClass, mw->macShell, NULL);
+X   mw->cmdBox = XtVaCreateManagedWidget("commandBox", 
+X		  boxWidgetClass, mw->macWin, NULL);
+X   mw->save   = XtVaCreateManagedWidget("save", 
+X	          commandWidgetClass, mw->cmdBox, NULL);
+X   mw->close  = XtVaCreateManagedWidget("close", 
+X	          commandWidgetClass, mw->cmdBox, NULL);
+X   mw->file   = XtVaCreateManagedWidget("macText", 
+X	          asciiTextWidgetClass, mw->macWin, 
+X		  XtNtype, XawAsciiFile,
+X		  XtNstring, bp->filepath, 
+X		  XtNdataCompression, False,
+X		  XtNeditType, XawtextEdit, 
+X		  XtNscrollHorizontal, XawtextScrollWhenNeeded,
+X		  XtNscrollVertical, XawtextScrollWhenNeeded, NULL);
+X
+X   XtAddCallback(mw->close, XtNcallback, gueCloseBibErrWinCmd, (XtPointer)bp);
+X   XtAddCallback(mw->save, XtNcallback, gueSaveBibErrWinCmd, (XtPointer)bp);
+X   XtAddCallback(XawTextGetSource(mw->file), 
+X		 XtNcallback, gueSetEditChangeFlag, (XtPointer)bp);
+X   XtPopup(mw->macShell, XtGrabNone); 
+X   guwError(ERR_ERROR_IN_FILE);
+X   XawTextSetInsertionPoint(mw->file, nbOfChar);
+X   XawTextSetSelection(mw->file, nbOfChar, nbOfChar + 10);
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* gueCloseBibErrWinCmd:                                             */
+/*    Callback function for error window button close                */
+/*********************************************************************/
+void
+gueCloseBibErrWinCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr) clientData;
+Errcode status;
+X
+X   if ((status = gueCloseBibErrWin(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* gueCloseBibErrWin:                                                */
+/*    Close error window                                             */
+/*********************************************************************/
+Errcode
+gueCloseBibErrWin (BibPtr bp)
+{  
+X   if (bp->ew != NULL) {
+X      XtPopdown(bp->ew->macShell);
+X      XtDestroyWidget(bp->ew->macShell);
+X      XtDestroyWidget(bp->ew->macWin);
+X      XtDestroyWidget(bp->ew->cmdBox);
+X      XtDestroyWidget(bp->ew->save);
+X      XtDestroyWidget(bp->ew->close);
+X      XtDestroyWidget(bp->ew->file);
+X      free(bp->ew->shellName);
+X      free(bp->ew); 
+X      bp->ew = NULL; 
+X   }
+X   glbDelBibListEl(bp);  
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueSaveBibErrWinCmd:                                              */
+/*    Callback function for error window button save                 */
+/*********************************************************************/
+void
+gueSaveBibErrWinCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr) clientData;
+Errcode status;
+X
+X   if ((status = gueSaveBibErrWin(bp)) != OK)
+X     {guwError(status);
+X      return;
+X      }
+X   if (bp->ew != NULL) {
+X      XtPopdown(bp->ew->macShell);
+X      free(bp->ew->shellName);
+X      free(bp->ew); 
+X      bp->ew = NULL; 
+X   }
+X   glbDelBibListEl(bp);  
+X   return;
+}
+X
+X
+/*********************************************************************/
+/* gueSaveBibErrWin:                                                 */
+/*    Save  error window                                             */
+/*********************************************************************/
+Errcode
+gueSaveBibErrWin (BibPtr bp)
+{
+X   if (bp->ew != NULL) {
+X      if (XawAsciiSave(XawTextGetSource(bp->ew->file)) == FALSE) 
+X	 return(ERR_SAVING_TMP); 
+X      bp->ew->changed = FALSE; 
+X   }
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gueSetEditChangeFlag:                                             */
+/*    Callback of text widget, sets flags when buffer changes        */
+/*********************************************************************/
+void
+gueSetEditChangeFlag (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+X
+X   bp->ew->changed = TRUE;
+}
+X
+X
+X
+X
+/*********************************************************************/
+/* LOCAL FUNCTIONS                                                   */
+/*********************************************************************/
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 gui_edit.c ||
+echo 'restore of gui_edit.c failed'
+Wc_c="`wc -c < 'gui_edit.c'`"
+test 16232 -eq "$Wc_c" ||
+	echo 'gui_edit.c: original size 16232, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gui_list.c ==============
+if test -f 'gui_list.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gui_list.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gui_list.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gui_list.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  gui_list.c                                              */
+/*                                                                   */
+/*             GUI List Window                                       */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    01.25.91  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN					     */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/List.h>
+#include <X11/Xaw/Viewport.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/SmeLine.h>
+#include "bibview.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel, desktop;
+extern Pixmap lstIconPixmap;
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static Errcode MakeListStrings (LstWinPtr lw);
+X
+X
+/* exported variables */
+/* ------------------ */
+X
+X
+/* local global variables */
+/* ---------------------- */
+X
+X
+/*********************************************************************/
+/* gulOpenListWin:                                                   */
+/*    Create list window                                             */
+/*********************************************************************/
+Errcode
+gulOpenListWin (BibPtr bp, CardDataList cl) 
+{
+LstWinPtr lw;
+Errcode status;
+X
+X   /* if opened already, just replace data and raise window */
+X   if (bp->lw) {
+X      if ((status = gulReplaceListData(bp, cl)) != OK)
+X	 return(status);
+X      if (XtIsRealized(bp->lw->lstShell)) {
+X	 XRaiseWindow(XtDisplay(bp->lw->lstShell),
+X		      XtWindow(bp->lw->lstShell));
+X      }
+X      return(OK);
+X   }
+X
+X   if ((lw = (LstWinPtr)malloc(sizeof(LstWin))) == NULL)
+X      return(ERR_NOMALLOC); 
+X
+X   /* build label of new shell */
+X   if ((lw->shellName = (String)calloc(strlen(PROGNAME) +
+X			               strlen(bp->filename)+10, 
+X			               sizeof(char))) == NULL) {
+X      return(ERR_NOMALLOC); 
+X   }
+X   sprintf(lw->shellName, "%s: List %s", PROGNAME, bp->filename);
+X
+X   /* create argc and argv for list window */
+X   lw->cardLst = cl;
+X   if ((status = MakeListStrings(lw)) != OK) {
+X      free(lw->shellName);
+X      free(lw);
+X      return(status); 
+X   }
+X
+X   /* register window in bib struct */
+X   bp->lw = lw;
+X
+X
+X   /* position window and icon */
+X   gulSetWindowCoords(bp, TRUE);
+X   if (cotIconizeOnDesktop())
+X      gulSetIconCoords(bp, TRUE);
+X
+X   /* create popup shell for new file */
+X   lw->lstShell = XtVaCreatePopupShell("listShell",
+X	            topLevelShellWidgetClass, topLevel,
+X                    XtNx, lw->winX,
+X		    XtNy, lw->winY, 
+X                    XtNiconX, lw->iconX,
+X		    XtNiconY, lw->iconY, 
+X                    XtNtitle, lw->shellName,
+X                    XtNiconPixmap, lstIconPixmap,
+X                    XtNiconName, bp->filename, NULL);
+X   /* create windows of popup shell */
+X   lw->lstWin = XtVaCreateManagedWidget("listWin",
+X	             panedWidgetClass, lw->lstShell, NULL);
+X   lw->cmdBox = XtVaCreateManagedWidget("commandBox", 
+X		     boxWidgetClass, lw->lstWin, NULL);
+X   lw->save = XtVaCreateManagedWidget("save", 
+X		    commandWidgetClass, lw->cmdBox, NULL);
+X   lw->print = XtVaCreateManagedWidget("print", 
+X		    commandWidgetClass, lw->cmdBox, NULL);
+X   lw->quit = XtVaCreateManagedWidget("quit", 
+X		   commandWidgetClass, lw->cmdBox, NULL);
+X   lw->lstVp = XtVaCreateManagedWidget("listVport",
+X		   viewportWidgetClass, lw->lstWin, 
+X		   XtNallowVert, True, 
+X		   XtNallowHoriz, True, 
+X		   XtNuseBottom, TRUE, NULL);
+X   lw->vpWin = XtVaCreateManagedWidget("vportWin",
+X	             panedWidgetClass, lw->lstVp, NULL);
+X   lw->headBox = XtVaCreateManagedWidget("headBox", 
+X		     boxWidgetClass, lw->vpWin, 
+X		     XtNvSpace, 0, 
+X		     XtNborderWidth, 0, NULL);
+X                 XtVaCreateManagedWidget("head1", 
+X		      labelWidgetClass, lw->headBox, 
+X		      XtNborderWidth, 0, NULL);
+X                 XtVaCreateManagedWidget("head2", 
+X		      labelWidgetClass, lw->headBox, 
+X		      XtNborderWidth, 0, NULL);
+X                 XtVaCreateManagedWidget("head3", 
+X		      labelWidgetClass, lw->headBox, 
+X		      XtNborderWidth, 0, NULL);
+X                 XtVaCreateManagedWidget("head4", 
+X		      labelWidgetClass, lw->headBox, 
+X		      XtNborderWidth, 0, NULL);
+X
+X   lw->list = XtVaCreateManagedWidget("mylist", 
+X		   listWidgetClass, lw->vpWin,  
+/*		   XtNnumberStrings, lw->listArgc,  */
+X		   XtNdefaultColumns, 1,  
+X		   XtNforceColumns, True,  
+X		   XtNlist, lw->listArgv, NULL);
+X   XtAddCallback(lw->quit, XtNcallback, gulCloseListWinCmd, (XtPointer)bp);
+X   XtAddCallback(lw->list, XtNcallback, csrDisplayCardCmd, (XtPointer)bp);
+X   XtAddCallback(lw->print, XtNcallback, cprPrintListCmd, (XtPointer)lw->cardLst);
+X   XtAddCallback(lw->save, XtNcallback, cprSaveListCmd, (XtPointer)bp);
+X
+X   XtPopup(lw->lstShell, XtGrabNone);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulListWinExists:                                                 */
+/*    TRUE, if list window exists, else FALSE                        */
+/*********************************************************************/
+Boolean
+gulListWinExists (BibPtr bp)
+{
+X   return(bp->lw != NULL);
+}
+X
+X
+/*********************************************************************/
+/* gulReplaceListData:                                               */
+/*    Replace cards to display in list                               */
+/*********************************************************************/
+Errcode
+gulReplaceListData (BibPtr bp, CardDataList cl)
+{
+LstWinPtr lw = bp->lw;
+Widget vsb;
+Errcode status;
+X
+X   if (lw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   /* free old stuff */
+X   if (lw->listArgv)
+X      free(lw->listArgv);
+X   if (lw->strs)
+X      free(lw->strs);
+X
+/*   dbtCardListDelete(&lw->cardLst); */
+X     XtRemoveAllCallbacks(lw->print, XtNcallback); 
+X
+X   /* create argc and argv for list window */
+X   lw->cardLst = cl;
+X   if ((status = MakeListStrings(lw)) != OK) {
+X      lw->listArgv = NULL;
+X      lw->strs = NULL;
+X      return(status); 
+X   }
+X
+X   /* change list */
+X   XawPanedSetRefigureMode(lw->vpWin, False); 
+X   XawListChange(lw->list, lw->listArgv, lw->listArgc, 0, True);
+X
+X   /* scroll to beginning of list */
+X   XawListHighlight(lw->list, 0);
+X   XawListUnhighlight(lw->list);
+X   XawPanedSetRefigureMode(lw->vpWin, True);
+X
+X   /* set new client data for callbacks */
+X   XtAddCallback(lw->print, XtNcallback, cprPrintListCmd, (XtPointer)lw->cardLst);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulCloseListWinCmd:                                               */
+/*    Callback function for list menu entry quit                     */
+/*********************************************************************/
+void
+gulCloseListWinCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr) clientData;
+Errcode status;
+X
+X   if ((status = gulCloseListWin(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* gulCloseListWin:                                                  */
+/*    Close list window                                              */
+/*********************************************************************/
+Errcode
+gulCloseListWin (BibPtr bp)
+{
+X   if (bp->lw != NULL) {
+X      XtPopdown(bp->lw->lstShell);
+X      if (bp->lw->listArgv)
+X         free(bp->lw->listArgv);
+X      if (bp->lw->strs)
+X         free(bp->lw->strs);
+/*    free(bp->lw->cardLst); HOLGER  */
+X      bp->lw->cardLst = NULL;
+X      free(bp->lw->shellName);
+X      free(bp->lw); 
+X      bp->lw = NULL;
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulCascade:                                                       */
+/*    Reposition list window                                         */
+/*********************************************************************/
+Errcode
+gulCascade (BibPtr bp)
+{
+X   if (bp->lw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   gulSetWindowCoords(bp, FALSE);
+X   if (cotIconizeOnDesktop())
+X      gulSetIconCoords(bp, FALSE);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulSetWindowCoords:                                               */
+/*    Set position of list window                                    */
+/*********************************************************************/
+Errcode
+gulSetWindowCoords (BibPtr bp, Boolean calcOnly)
+{
+Dimension dwidth, dheight;
+Position x, y;
+LstWinPtr lw = bp->lw;
+X
+X   if (lw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   /* calculate position of window */
+X   XtVaGetValues(bp->bw->bibdesk,
+X		 XtNwidth, &dwidth,
+X		 XtNheight, &dheight, NULL);
+X   x = dwidth - SUBWIN_MARGIN;
+X   y = SUBWIN_MARGIN;
+X   XtTranslateCoords(bp->bw->bibdesk,
+X		     x, y,
+X		     &lw->winX, &lw->winY);
+X
+X   /* set values */
+X   if (!calcOnly) {
+X      XtVaSetValues(lw->lstShell,
+X                    XtNx, lw->winX,
+X		    XtNy, lw->winY, NULL);
+X      if (XtIsRealized(lw->lstShell)) {
+X         XRaiseWindow(XtDisplay(lw->lstShell),
+X		      XtWindow(lw->lstShell));
+X      }
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulSetIconCoords:                                                 */
+/*    Set position of list window icon                               */
+/*********************************************************************/
+Errcode
+gulSetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+Dimension dwidth, dheight;
+Position x, y;
+LstWinPtr lw = bp->lw;
+X
+X   if (lw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   /* calculate position of icon */
+X   XtVaGetValues(bp->bw->bibdesk,
+X		 XtNwidth, &dwidth,
+X		 XtNheight, &dheight, NULL);
+X   x = dwidth - LST_ICON_WIDTH - LST_ICON_MARGIN;
+X   y = LST_ICON_MARGIN;
+X   XtTranslateCoords(bp->bw->bibdesk,
+X	             x, y, 
+X		     &lw->iconX, &lw->iconY);
+X
+X   /* set values */
+X   if (!calcOnly) {
+X      XtVaSetValues(lw->lstShell,
+X		    XtNiconX, lw->iconX,
+X		    XtNiconY, lw->iconY, NULL);
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gulUnsetIconCoords:                                               */
+/*    Delete position of list window icon                            */
+/*********************************************************************/
+Errcode
+gulUnsetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+LstWinPtr lw = bp->lw;
+X
+X   if (lw == NULL) /* is list window open? */
+X      return(OK);
+X
+X   lw->iconX = lw->iconY = -1;
+X   if (!calcOnly) {
+X      XtVaSetValues(lw->lstShell,
+X		    XtNiconX, lw->iconX,
+X		    XtNiconY, lw->iconY, NULL);
+X   }
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* LOCAL FUNCTIONS                                                   */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* MakeListStrings:                                                  */
+/*    Build entries for list from argv of cards                      */
+/*********************************************************************/
+static Errcode
+MakeListStrings (LstWinPtr lw)
+{
+CardDataList cl;
+String p, *sp, help, spp;
+int i, noOfCards = 0; 
+X
+X   /* find out how many cards there are */
+X   for (cl=lw->cardLst; cl != NULL; cl=cl->next, noOfCards++)  ;
+X   lw->listArgc = noOfCards;  
+X
+X   if (noOfCards == 0) {
+X      lw->listArgv = NULL;
+X      lw->strs = NULL;
+X      return(OK);
+X   }
+X
+X   /* alloc new argv for Strings */
+X   if ((help = (String)calloc(1,LST_ENTRY_LEN+1)) == NULL)
+X      return(ERR_NOMALLOC);
+X   if ((lw->listArgv=(String *)calloc(noOfCards+1, sizeof(String))) == NULL)
+X      return(ERR_NOMALLOC);
+X   if ((lw->strs = (String)calloc(noOfCards,(size_t)(LST_ENTRY_LEN+1))) == NULL)
+X      return(ERR_NOMALLOC); 
+X   for (i=0, p=lw->strs; i < noOfCards; i++) {
+X      (lw->listArgv)[i] = p;
+X      p += LST_ENTRY_LEN+1; 
+X   }
+X   lw->listArgv[noOfCards] = NULL; /* NULL terminated list */
+X   i=0; 
+X   for (cl=lw->cardLst, sp=lw->listArgv; cl != NULL; cl=cl->next, sp++) {
+X     sprintf(*sp, "%-*.*s",
+X        LST_AUTHOR_WIDTH, LST_AUTHOR_WIDTH, 
+X	((glbIsStringEmpty(cl->data->author))? "" : cl->data->author));
+X
+X     sprintf(help, "%-*.*s",
+X	LST_WHITESPACE, LST_WHITESPACE, "");
+X
+X     *sp = strcat(*sp,help);
+X
+X     sprintf(help, "%-*.*s",
+X	LST_TITLE_WIDTH, LST_TITLE_WIDTH, 
+X	((glbIsStringEmpty(cl->data->title))? "" : cl->data->title));
+X
+X     *sp = strcat(*sp,help);
+X
+X     sprintf(help, "%-*.*s",
+X	LST_WHITESPACE, LST_WHITESPACE, "");
+X
+X     *sp = strcat(*sp,help);
+X
+X     sprintf(help, "%-*.*s",
+X	LST_TYPE_WIDTH, LST_TYPE_WIDTH, glbTypeToName(cl->data->cardtype));
+X
+X     *sp = strcat(*sp,help);
+X
+X     sprintf(help, "%-*.*s",
+X	LST_WHITESPACE, LST_WHITESPACE, "");
+X
+X     *sp = strcat(*sp,help);
+X
+X     sprintf(help, "%-*.*s",
+X	LST_YEAR_WIDTH, LST_YEAR_WIDTH, 
+X	((glbIsStringEmpty(cl->data->year)) ? ""  : cl->data->year));
+X
+X     *sp = strcat(*sp,help); 
+X     for (spp=*sp;*spp!='\0';spp++)
+X       if ((*spp=='\t')||(*spp=='\n'))
+X	 *spp=' ';
+X   }
+X   free(help);
+X   return(OK);
+}
+SHAR_EOF
+chmod 0644 gui_list.c ||
+echo 'restore of gui_list.c failed'
+Wc_c="`wc -c < 'gui_list.c'`"
+test 14331 -eq "$Wc_c" ||
+	echo 'gui_list.c: original size 14331, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gui_main.c ==============
+if test -f 'gui_main.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gui_main.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gui_main.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gui_main.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  gui_main.c                                              */
+/*                                                                   */
+/*             - Realize main application window                     */
+/*             -                                                     */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    11.22.91  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/SmeLine.h>
+#include <X11/bitmaps/xlogo16>
+#include <X11/bitmaps/gray>
+#include "bibview.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel;
+extern Pixmap chkmarkPixmap;
+extern Pixmap bvIconPixmap;
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+/* structure hold a menu entry */
+typedef struct {
+X   String name;
+X   XtCallbackProc cb;
+X   Boolean *bool;
+} menuEntry;
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static void OptionsSelect(Widget w, XtPointer client_data, XtPointer garbage);
+static void createMenu(String name, menuEntry item[], Widget *menu, Widget parent, Boolean isBool);
+X
+/* exported variables */
+/* ------------------ */
+Widget mainMenu, desktop;
+X
+X
+/* local global variables */
+/* ---------------------- */
+X
+/* Widgets for main window */
+static Widget mwShell,
+X	      mwWin,
+X	      mwCommandBox,
+X	      mwFile,       mwFileMenu,
+X	      mwServices,   mwServicesMenu,
+X	      mwOptions,    mwOptionsMenu,
+X	      mwWindow,     mwWindowMenu,
+X	      mwHelp,       mwHelpMenu,
+X	      mwDesktop;
+X
+X
+static menuEntry fileEntry[] = {
+X   { "line1", NULL,              NULL },
+X   { "item1", copNewCmd,         NULL },
+X   { "item2", copOpenCmd,        NULL },
+X   { "item3", csaCloseBibCmd,    NULL },
+X   { "item4", csaSaveBibCmd,     NULL },
+X   { "item5", csaSaveAsBibCmd,   NULL },
+X   { "line2", NULL,              NULL },
+X   { "quit",  csaQuitBibviewCmd, NULL },
+X   { NULL,    NULL,              NULL }
+};
+X
+static menuEntry servicesEntry[] = {
+X   { "line1", NULL,             NULL },
+X   { "item1", cseCheckBibCmd,   NULL },
+X   { "item2", cseCollateBibCmd, NULL },
+X   { "item3", cprPrintBibCmd,   NULL },
+X   { "item4", cseEditMacrosCmd, NULL },
+X   { "item5", cseLoadConfigCmd, NULL },
+X   { NULL,    NULL,             NULL }
+};
+X
+static menuEntry optionsEntry[] = {
+X   { "line1", NULL, NULL },
+X   { "item1", cotOptionsControl,
+X	      &optionsStatus[OPT_BEEP_ON_ERROR] },
+X   { "item2", cotOptionsControl,
+X	      &optionsStatus[OPT_BACKUP_ON_SAVE] },
+X   { "item3", cotOptionIconOnDeskCmd, 
+X	      &optionsStatus[OPT_ICON_ON_DESKTOP] },
+X   { "item4", cotOptionsControl,
+X	      &optionsStatus[OPT_AUTO_CHECK_BIB] },
+X   { "item5", cotOptionsControl,
+X	      &optionsStatus[OPT_REQUIRED_FIELDS] },
+X   { NULL, NULL, NULL }
+};
+X
+static menuEntry windowEntry[] = {
+X   { "line1", NULL, NULL },
+X   { "item1", gubCascadeCmd, NULL },
+X   { NULL, NULL, NULL }
+};
+X
+static menuEntry helpEntry[] = {
+X   { "line1", NULL, NULL },
+X   { "item1", hlpOpenHelpWinCmd, NULL },
+X   { "item2", hlpOpenHelpWinCmd, NULL },
+X   { "item3", hlpOpenHelpWinCmd, NULL },
+X   { "item4", hlpOpenHelpWinCmd, NULL },
+X   { "item5", hlpOpenHelpWinCmd, NULL },
+X   { "item6", hlpOpenHelpWinCmd, NULL },
+X   { "line2", NULL, NULL },
+X   { "info",  guwProgInfo, NULL },
+X   { NULL, NULL, NULL }
+};
+X
+X
+X
+/*********************************************************************/
+/* gwmMainWin:                                                       */
+/*    Realize main application window                                */
+/*********************************************************************/
+int
+gwmMainWin (void)
+{
+/* mwShell      = XtVaCreatePopupShell("mainShell",
+X		    topLevelShellWidgetClass, topLevel, 
+X		    XtNiconPixmap, bvIconPixmap, NULL);
+*/
+X   mwWin        = XtVaCreateManagedWidget("mainwin", 
+X		    panedWidgetClass, topLevel, NULL);
+X
+X   /* create command buttons */
+X   mainMenu =
+X   mwCommandBox = XtVaCreateManagedWidget("commandBox", 
+X		    boxWidgetClass, mwWin, NULL);
+X   mwFile       = XtVaCreateManagedWidget("file", 
+X		    menuButtonWidgetClass, mwCommandBox, NULL);
+X   mwServices   = XtVaCreateManagedWidget("services", 
+X		    menuButtonWidgetClass, mwCommandBox, NULL);
+X   mwOptions    = XtVaCreateManagedWidget("options", 
+X		    menuButtonWidgetClass, mwCommandBox, NULL);
+X   mwWindow     = XtVaCreateManagedWidget("window", 
+X		    menuButtonWidgetClass, mwCommandBox, NULL);
+X   mwHelp       = XtVaCreateManagedWidget("help", 
+X		    menuButtonWidgetClass, mwCommandBox, NULL);
+X
+X   /* make pulldownmenus for command boxes */
+X   createMenu("fileMenu", fileEntry, &mwFileMenu, mwFile, FALSE);
+X   createMenu("servicesMenu", servicesEntry, &mwServicesMenu, mwServices, FALSE);
+X   createMenu("optionsMenu", optionsEntry, &mwOptionsMenu, mwOptions, TRUE);
+X   createMenu("windowMenu", windowEntry, &mwWindowMenu, mwWindow, FALSE);
+X   createMenu("helpMenu", helpEntry, &mwHelpMenu, mwHelp, FALSE);
+X
+X   desktop = 
+X   mwDesktop    = XtVaCreateManagedWidget("desktop", 
+X                    formWidgetClass, mwWin,
+X		    XtNresizable, TRUE, NULL);
+X
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* createMenu:                                                       */
+/*    Build a main application window pulldown menu                  */
+/*********************************************************************/
+static void
+createMenu (String menuName, menuEntry item[], Widget *menu, Widget parent, Boolean isBool)
+{
+static Widget w;
+int i = 0;
+String iname;
+X
+X   *menu = XtVaCreatePopupShell(menuName, 
+X                               simpleMenuWidgetClass, 
+X			       parent, NULL);
+X   i = 0;
+X   while ((iname = item[i].name) != NULL) { 
+X      if (strncmp("line", iname, 4) == 0)   /* use a line pane */
+X         w = XtVaCreateManagedWidget(iname,
+X               smeLineObjectClass, *menu, NULL);
+X      else {
+X         w = XtVaCreateManagedWidget(iname, 
+X	       smeBSBObjectClass, *menu, NULL);
+X	 if (isBool) {
+X	    if (*item[i].bool)
+X	       XtVaSetValues(w, XtNleftBitmap, chkmarkPixmap, NULL);
+X	 }
+X         XtAddCallback(w, XtNcallback, item[i].cb, (XtPointer) i);
+X      }
+X      i++;
+X   } /* endwhile */
+}
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 gui_main.c ||
+echo 'restore of gui_main.c failed'
+Wc_c="`wc -c < 'gui_main.c'`"
+test 7429 -eq "$Wc_c" ||
+	echo 'gui_main.c: original size 7429, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gui_widg.c ==============
+if test -f 'gui_widg.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gui_widg.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gui_widg.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gui_widg.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  gui_widg.c                                              */
+/*                                                                   */
+/*             GUI: Widgets and misc functions                       */
+/*             - Notice/Warning/Error windows                        */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    12.05.91  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Dialog.h>
+#include <X11/Xaw/Viewport.h>
+#include <X11/Xaw/List.h>
+#include "bibview.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel, desktop, mainMenu;
+extern Pixmap errorPixmap;
+extern Pixmap warnPixmap;
+extern Pixmap noticePixmap;
+extern Pixmap confirmPixmap;
+extern Pixmap progInfoPixmap;
+X
+X
+/* exported global variables */
+/* ------------------------- */
+X
+X
+/* local global variables */
+/* ---------------------- */
+static Widget selShell;
+static BibPtr *bibptrArgv;
+static String *bibselArgv;
+static int    bibselArgc;
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static void selectBibOK (Widget w, XtPointer ClientData, XtPointer CallData);
+static void selectBibCancel (Widget w, XtPointer ClientData, XtPointer CallData);
+static void closeMsgWin (Widget w, XtPointer clientData, XtPointer callData);
+static void closeProgInfoWin (Widget w, XtPointer clientData, XtPointer callData);
+X
+X
+/*********************************************************************/
+/* guwSelectBib:                                                     */
+/*    Display List of opened bibs to select one                      */
+/*********************************************************************/
+Errcode
+guwSelectBib(String head, CtlFuncPtr ctlFunc)
+{
+static Widget selForm, selLabel, selVport, selList, selQuit;
+BibPtr bp;
+Position dx, dy, x, y;
+int i = 0;
+X
+X   /* check number of opened bibs */
+X   if ((bibselArgc = gubNoOfOpenBibs()) == 0)
+X      return(ERR_NOBIBOPEN);
+X
+X   /* create argv for list */
+X   if ((bibselArgv = (String *)calloc(bibselArgc, sizeof(String))) == NULL) 
+X      return(ERR_NOMALLOC);
+X   if ((bibptrArgv = (BibPtr *)calloc(bibselArgc, sizeof(BibPtr))) == NULL) {
+X      free(bibselArgv);
+X      return(ERR_NOMALLOC);
+X   }
+X   bp = glbFirstBibListEl();
+X   i = 0;
+X   while (bp != NULL) {
+X      bibptrArgv[i] = bp;
+X      bibselArgv[i] = bp->filepath;
+X      bp = glbNextBibListEl(bp);
+X      i++;
+X   }
+X
+X   /* display window */
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X   selShell = XtVaCreatePopupShell("bibselShell",
+X	        transientShellWidgetClass, topLevel, 
+X		XtNx, x, XtNy, y, NULL);
+X   selForm  = XtVaCreateManagedWidget("bibselWin",
+X	        formWidgetClass, selShell, NULL);
+X   selLabel = XtVaCreateManagedWidget(head,
+X	        labelWidgetClass, selForm,
+X		XtNborderWidth, 0,
+X	        XtNleft, XtChainLeft,
+X	        XtNtop, XtChainTop, NULL);
+X   selVport = XtVaCreateManagedWidget("bibselVport",
+X		viewportWidgetClass, selForm,
+X		XtNallowVert, True,
+X		XtNfromVert, selLabel, NULL);
+X   selList  = XtVaCreateManagedWidget("bibselLst",
+X		listWidgetClass, selVport,
+X		XtNnumberStrings, bibselArgc,
+X		XtNlist, bibselArgv, 
+X		XtNforceColumns, True,
+X		XtNdefaultColumns, 1, NULL);
+X   selQuit  = XtVaCreateManagedWidget("cancel",
+X	        commandWidgetClass, selForm, 
+X		XtNfromVert, selVport,
+X		XtNleft, XtChainLeft, NULL);
+X
+X   XtAddCallback(selList, XtNcallback, selectBibOK, (XtPointer)ctlFunc);
+X   XtAddCallback(selQuit, XtNcallback, selectBibCancel, NULL);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   XtPopup(selShell, XtGrabNonexclusive);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* selectBibOK:                                                      */
+/*    Callback for select bib list entries                           */
+/*********************************************************************/
+static void
+selectBibOK (Widget w, XtPointer clientData, XtPointer callData)
+{
+XXawListReturnStruct *item = (XawListReturnStruct*)callData;
+CtlFuncPtr ctlFunc = (CtlFuncPtr)clientData;
+BibPtr bp;
+X
+X   XtPopdown(selShell);
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   bp = bibptrArgv[item->list_index];
+X   free(bibptrArgv);
+X   free(bibselArgv);
+X   (ctlFunc) (bp);
+}
+X
+X
+/*********************************************************************/
+/* selectBibCancel:                                                  */
+/*    Callback for Cancel button of select bib shell                 */
+/*********************************************************************/
+static void
+selectBibCancel (Widget w, XtPointer ClientData, XtPointer CallData)
+{
+X
+X   XtPopdown(selShell);
+X   free(bibptrArgv);
+X   free(bibselArgv);
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+}
+X
+X
+/*********************************************************************/
+/* guwNotImpl:                                                       */
+/*    Display 'not implemented' message (dummy function)             */
+/*********************************************************************/
+void
+guwNotImpl (Widget w, XtPointer clientData, XtPointer callData)
+{
+X   guwNotice(ERR_NOT_IMPLEMENTED);
+}
+X
+X
+/*********************************************************************/
+/* guwError:                                                         */
+/*    Display error message in a popup shell on desktop              */
+/*********************************************************************/
+void
+guwError (Errcode errcode)
+SHAR_EOF
+true || echo 'restore of gui_widg.c failed'
+fi
+echo 'End of  part 17'
+echo 'File gui_widg.c is continued in part 18'
+echo 18 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

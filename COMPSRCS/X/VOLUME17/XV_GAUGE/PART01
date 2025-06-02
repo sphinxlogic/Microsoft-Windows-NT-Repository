@@ -1,0 +1,473 @@
+Newsgroups: comp.sources.x
+Path: uunet!haven.umd.edu!darwin.sura.net!mips!msi!dcmartin
+From: gnn@minestrone.Berkeley.EDU (George Neville-Neil)
+Subject: v17i054: xv-gauge (XVIEW) sampling demo, Part01/01
+Message-ID: <1992Apr8.163754.16420@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+Date: Wed, 8 Apr 1992 16:37:54 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: gnn@minestrone.Berkeley.EDU (George Neville-Neil)
+Posting-number: Volume 17, Issue 54
+Archive-name: xv-gauge/part01
+
+Hi Folks,
+
+	XV_GAUGE is an XView client that samples stdin at intervals
+specified in seconds.  It then modifies an XView gauge object
+accordingly.  The code could easily be modified to handle timings of
+less than a second.  The shar file at the end of this message contains
+source, docs, and an icon for xv_gauge-1.0.
+
+Enjoy,
+George
+
+--- Begin Included Text ---
+#!/bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #!/bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	README
+#	Imakefile
+#	Makefile
+#	xv_gauge.c
+#	xv_gauge.man
+#	xv_gauge.icon
+#	fakedata
+# This archive created: Wed Apr  1 16:57:28 1992
+export PATH; PATH=/bin:$PATH
+if test -f 'README'
+then
+	echo shar: over-writing existing file "'README'"
+fi
+cat << \SHAR_EOF > 'README'
+This is the README file for xv_guage version 1.0.
+
+Xv_guage is an XView client that allows a user to pipe data to a gauge
+in a window under the X Window System.
+
+To compile xv_gauge: 
+
+1) Modify the X11INCLUDE, and X11LIB, variables in the Makefile to
+point at your X11 include and library directories.  These are usually
+/usr/include/X11 and /usr/lib/X11 respectively.
+
+2) Type     make xv_gauge <rtn>
+
+3) Install the binary and the man page in an appropriate place.
+
+Please report all bugs to gnn@cs.berkeley.edu
+
+This work was done under National Science Foundation Infrastructure
+Grant number CDA-8722788.
+
+SHAR_EOF
+if test -f 'Imakefile'
+then
+	echo shar: over-writing existing file "'Imakefile'"
+fi
+cat << \SHAR_EOF > 'Imakefile'
+#include <XView.tmpl>
+
+DEFINES = 
+INCLUDES = -I$(OPENWINHOME)/include
+SYS_LIBRARIES = -L$(OPENWINHOME)/lib -lm
+DEPLIBS = XViewClientDepLibs
+LOCAL_LIBRARIES = XViewClientLibs
+
+SRCS = xv_gauge.c
+
+OBJS = xv_gauge.o
+
+ALLFILES = ${SRCS}
+
+SimpleProgramTarget(xv_gauge)
+
+#include <XView.prog>
+SHAR_EOF
+if test -f 'Makefile'
+then
+	echo shar: over-writing existing file "'Makefile'"
+fi
+cat << \SHAR_EOF > 'Makefile'
+#
+# Makefile for xv_guage version 1.0 
+#
+#
+
+#These should point to where your X11 include files and libraries reside.
+
+X11INCLUDE= /usr/sww/X11/include
+X11LIB= /usr/sww/X11/lib
+
+CFLAGS= -I$(X11INCLUDE) -g
+LDFLAGS= -L$(X11LIB)
+CC= cc
+
+SRCS= xv_gauge.c
+
+OBJS= xv_gauge.o
+
+BINS= xv_gauge
+
+LIBS= -lxview -lolgx -lX11
+
+DOCS= xv_gauge.man
+
+ICONS=xv_gauge.icon
+
+all: ${BINS}
+
+.c:
+	$(CC) -o $@ $< $(CFLAGS) $(LDFLAGS) $(LIBS)
+
+tar:
+	tar cvf xv_gauge.tar $(SRCS) $(DOCS) $(ICONS) Makefile README
+	compress xv_gauge.tar
+
+clean:
+	- rm *.o *~ *.BAK
+
+realclean:
+	- rm *.o *~ *.BAK $(BINS) 
+SHAR_EOF
+if test -f 'xv_gauge.c'
+then
+	echo shar: over-writing existing file "'xv_gauge.c'"
+fi
+cat << \SHAR_EOF > 'xv_gauge.c'
+/*
+ *
+ * Program: xv_gauge
+ * 
+ * Author: George Neville-Neil 
+ *
+ * Function: This program will read data from stdin and display values using
+ * a gauge.  The user can set a time interval when samples will be read.
+ *
+ */
+
+#include <sys/fcntl.h>
+
+#include <xview/xview.h>
+#include <xview/frame.h>
+#include <xview/panel.h>
+#include <xview/notice.h>
+#include <xview/icon.h>
+
+#define BUF_LEN 1024
+
+short icon_bits[] =
+{
+#include "xv_gauge.icon"
+};
+
+
+Frame base_frame;
+Panel base_panel;
+Panel_item gauge_item;
+struct itimerval timer;
+Server_image icon_image;
+Icon icon;
+Rect image_rect, label_rect;
+
+void
+main(argc, argv)
+int argc;
+char **argv;
+{
+
+	extern Notify_value get_value();
+
+	int local_error, max, min, temp, interval;
+
+	struct stat *statbuf;
+
+	extern char *optarg;
+
+	void quit();
+
+	if(fcntl(fileno(stdin), F_SETFL, FNDELAY) == -1)
+	{
+		perror();
+		exit(2);
+	}
+
+
+	/* xv_init will parse out all of the X specific arguments on */
+	/* the command line so that we only have to deal with our */
+	/* own arguments. */
+
+	local_error = xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, NULL);
+
+
+	if(argc < 7)
+	{
+		fprintf(stderr, "Usage: xv_gauge -M max -m min -i interval\n");
+		exit(2);
+	}
+
+
+	while((temp = getopt(argc, argv, "M:m:i:")) !=EOF)
+		switch(temp)
+		{
+		case 'M':
+			max = atoi(optarg);
+			break;
+		case 'm':
+			min = atoi(optarg);
+			break;
+		case 'i':
+			interval = atoi(optarg);
+			break;
+		default:
+			fprintf(stderr, "Usage: xv_gauge -M max -m min -i interval\n");
+			exit(2);
+		}
+
+	base_frame = (Frame) xv_create(NULL, FRAME,
+				FRAME_LABEL, argv[0],
+				NULL);
+
+	base_panel = (Panel) xv_create(base_frame, PANEL, NULL);
+
+	/* Note: Items are laid out in a panel in the order that */
+	/* they are created in from left to right and then down */
+	/* just like Indo-European text.  The following objects */
+	/* are placed in a specific order.  Some objects have their */
+	/* X and Y coordinates specifically set to give the "look" */
+	/* asked for in the program specification. */
+
+	local_error = xv_create(base_panel, PANEL_BUTTON,
+			XV_HELP_DATA, "xvdisplay:quit",
+			PANEL_LABEL_STRING, "Quit",
+			PANEL_NOTIFY_PROC, quit,
+			NULL);
+
+	gauge_item = (Panel_item)xv_create(base_panel, PANEL_GAUGE,
+			XV_HELP_DATA, "xvgauge:gauge",
+			PANEL_MIN_VALUE, min,
+			PANEL_MAX_VALUE, max,
+			PANEL_DIRECTION, PANEL_VERTICAL,
+			NULL);
+
+	icon_image = (Server_image)xv_create(NULL, SERVER_IMAGE,
+					XV_WIDTH, 64,
+					XV_HEIGHT, 64,
+					SERVER_IMAGE_BITS, icon_bits,
+					NULL);
+
+	rect_construct(&image_rect, 0, 0, 64, 64);
+	rect_construct(&label_rect, 0, 69, 64, 20);
+
+	icon = (Icon)xv_create(base_frame, ICON,
+			XV_WIDTH, 64,
+			XV_HEIGHT, 64 + 25,
+			ICON_IMAGE, icon_image,
+			XV_LABEL, "xv_gauge",
+			ICON_LABEL_RECT, &label_rect,
+			ICON_IMAGE_RECT, &image_rect,
+			NULL);
+
+	xv_set(base_frame, FRAME_ICON, icon, NULL);
+
+	window_fit(base_panel);	
+	window_fit(base_frame);
+
+	timer.it_value.tv_sec = interval;
+	timer.it_interval.tv_sec = interval;
+	notify_set_itimer_func(base_frame, get_value, ITIMER_REAL, 
+				&timer, NULL);
+
+	xv_main_loop(base_frame);
+
+	exit(0);
+
+}
+
+
+void
+quit(item, event)
+Panel_item item;
+Event *event;
+{
+	int result;
+
+	result = notice_prompt(base_panel, NULL,
+		NOTICE_FOCUS_XY, event_x(event), event_y(event),
+		NOTICE_MESSAGE_STRINGS, "Are you sure you want to quit ?", 
+			NULL,
+		NOTICE_BUTTON_YES, "Jah",
+		NOTICE_BUTTON_NO, "No Mon",
+		NULL);
+
+	if(result == NOTICE_YES)
+	{
+		if(fcntl(fileno(stdin), F_SETFL, 0) == -1)
+		{
+			perror();
+			exit(2);
+		}
+		xv_destroy_safe(base_frame);
+		exit(0);
+	}
+
+}
+
+Notify_value
+get_value()
+{
+
+	char in_buf[BUF_LEN];
+
+	if(fgets(in_buf, BUF_LEN, stdin) == NULL)
+		return NOTIFY_DONE;
+
+	xv_set(gauge_item, PANEL_VALUE, atoi(in_buf), NULL);
+
+	return NOTIFY_DONE;
+
+
+}
+
+SHAR_EOF
+if test -f 'xv_gauge.man'
+then
+	echo shar: over-writing existing file "'xv_gauge.man'"
+fi
+cat << \SHAR_EOF > 'xv_gauge.man'
+.TH xv_display 1 "January 31, 1992"
+.SH NAME
+xv_gauge - Take data from stdin and display it in an X-Window as it
+varies with time.
+.SH SYNOPSIS
+xv_gauge -M<max> -m<min> -i<interval>
+.SH DESCRIPTION
+The program xv_gauge will set up a vertical gauge in an X-Window and
+set its maximum value to
+.B max
+and its minimum value to
+.B min.
+Every 
+.B interval
+seconds xv_gauge will read another value from stdin and change the
+gauge accordingly.
+
+.SH EXAMPLE
+
+A simple use would be to monitor a process visually while it is
+running.  If you had a process that wrote its data periodically you
+could do:
+
+minestrone> writestuff | xv_gauge -M1000 -m0 -i1
+
+This would bring up a gauge with a maximum value of 1000 and a minimum
+value of zero and read from stdin once per second.
+
+.SH AUTHOR
+George Neville-Neil, The Mammoth Project at UC Berkeley.
+
+.PP
+SHAR_EOF
+if test -f 'xv_gauge.icon'
+then
+	echo shar: over-writing existing file "'xv_gauge.icon'"
+fi
+cat << \SHAR_EOF > 'xv_gauge.icon'
+/* Format_version=1, Width=64, Height=64, Depth=1, Valid_bits_per_item=16
+ */
+	0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,
+	0x1fff,0xffff,0xffff,0xfffc,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x13fc,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x13fc,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x13fc,0x0000,0x0003,0xff04,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x13ff,0x8000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x103f,0xffff,0xffff,0xff04,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x13ff,0xffff,0xffff,0xff04,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x13ff,0xffff,0xffff,0xff04,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x13ff,0xffff,0xffff,0xff04,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x13ff,0xffff,0xffff,0xff04,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x1fff,0x8004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x1fff,0x8004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1000,0x0000,0x0000,0x0004,
+	0x1000,0x0000,0x0000,0x0004,0x1fff,0xffff,0xffff,0xfffc,
+	0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000
+SHAR_EOF
+if test -f 'fakedata'
+then
+	echo shar: over-writing existing file "'fakedata'"
+fi
+cat << \SHAR_EOF > 'fakedata'
+10
+20
+30
+20
+50
+30
+90
+10
+10
+10
+0
+0
+4
+4
+4
+4
+4
+4
+66
+6
+6
+6
+6
+6
+6
+6
+6
+6
+66
+66
+66
+66
+66
+66
+66
+66
+66
+6
+SHAR_EOF
+#	End of shell archive
+exit 0
+
+--- End Included Text ---
+-- 
+Why don't they just hire taller ballet dancers instead of making
+them dance on their tip toes ??		M. Rochlin
+
+
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

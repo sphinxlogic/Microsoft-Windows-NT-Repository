@@ -1,0 +1,2826 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i090:  wwfs - WorldWide File System, Part05/22
+Message-ID: <1994Jan17.021140.8734@sparky.sterling.com>
+X-Md4-Signature: aaf39cecf3fac3532fc185c83959d22d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 17 Jan 1994 02:11:40 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 90
+Archive-name: wwfs/part05
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  csd/ftp.c doc/panel.ps.C saps/kill-csd.sh
+# Wrapped by kent@sparky on Sun Jan 16 17:48:22 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 22)."'
+if test -f 'csd/ftp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/ftp.c'\"
+else
+  echo shar: Extracting \"'csd/ftp.c'\" \(9948 characters\)
+  sed "s/^X//" >'csd/ftp.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* NFS over FTP */
+Xstatic char *AtFSid = "$Header: ftp.c[109.0] Wed Nov 24 03:47:09 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/ioctl.h>		/* for FIONBIO */
+X#include <ctype.h>		/* for isdigit */
+X#include <string.h>		/* for strchr */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X/* public functions  */
+Xvoid ftp_getuda(), ftp_keepalive(), ftp_close(), ftp_shutdown();
+X
+Xwf_proto proto_ftp = {
+X	"FTP", cmfs_getattr, err_getattr_miss,
+X	cmfs_lookup, err_lookup_miss, cmfs_readlink,
+X	cmfs_read, ftp_read_miss, cmfs_readdir, ftp_readdir_miss,
+X	ftp_getuda, ftp_keepalive, ftp_close, ftp_shutdown, 0
+X};
+X
+X/* debug */
+Xwf_req *cs_ftp_debug;
+X
+Xvoid
+Xftp_getuda()
+X{
+X	/* XXX: not used? */
+X}
+X
+Xvoid
+Xftp_keepalive()
+X{
+X	/* XXX: TCP keepalive could be used */
+X}
+X
+Xvoid
+Xftp_close(cp)
+Xwf_conn *cp;
+X{
+X#ifdef VERBOSE
+X	dlog("closing FTP connection to %s", cp->srv->name);
+X#endif
+X	if (cp->thrdp && cs_state < Finishing) {
+X		dlog("transfer aborted");
+X	}
+X	send(cp->id, "QUIT\r\n", 6, 0);
+X	so_clear(cp->id);
+X	so_unregister(cp->id, WF_SO_ALL);
+X	close(cp->id);
+X	cp->thrdp = (wf_thrd *)0;
+X}
+X
+Xvoid
+Xftp_shutdown(cp, howto)
+Xwf_conn *cp;
+Xint howto;
+X{
+X	so_clear(cp->id);
+X	so_unregister(cp->id, WF_SO_ALL);
+X	shutdown(cp->id, howto);
+X}
+X
+X/* connection */
+Xint
+Xftp_conn_open(c)
+Xwf_thrd *c;	/* cp */
+X{
+X	int so, opt;
+X	static void ftp_conn_nbio();
+X
+X	so = c->cp->id = socket(AF_INET, SOCK_STREAM, 0);
+X	if (so < 0) {
+X		errno_diag();
+X		return -1;
+X	}
+X#ifdef VERBOSE
+X	talk(c->client, "opening FTP connection to %s", c->cp->srv->name);
+X	dlog("opening FTP connection to %s", c->cp->srv->name);
+X#endif
+X
+X	opt = 1;
+X	ioctl(so, FIONBIO, &opt);
+X#ifdef HZ
+X	opt = 3 * HZ;				/* 3sec */
+X	setsockopt(so, SOL_SOCKET, SO_SNDTIMEO, (char *)&opt, sizeof(int));
+X	setsockopt(so, SOL_SOCKET, SO_RCVTIMEO, (char *)&opt, sizeof(int));
+X#endif
+X	c->step = FTPS_CONN_INIT;
+X	ftp_conn_nbio(c);
+X	return so;
+X}
+X
+Xstatic void
+Xftp_conn_fail(c)
+Xwf_thrd *c;
+X{
+X	c->flag |= WF_THREAD_ERROR;
+X	c->step = FTPS_CONN_FAIL;
+X	wakeup(&c->cp);
+X}
+X
+Xstatic void
+Xftp_conn_nbio(c)
+Xwf_thrd *c;
+X{
+X	int so = c->cp->id;
+X	int ret;
+X	static wf_thrd x;
+X
+X	switch (c->step) {
+X	case FTPS_CONN_INIT:
+X		c->give_up = ftp_conn_fail;
+X		c->closure = (void *)c;
+X		c->cp->thrdp = &x;	/* fake */
+X		connect(so, (struct sockaddr *)&c->cp->srv->sin,
+X			sizeof (sockaddr_in));
+X		so_register(so, WF_SO_READ|WF_SO_WRITE);
+X		so_callback(so, ftp_conn_nbio, c);
+X		c->step = FTPS_CONN_USER;
+X		return;
+X	case FTPS_CONN_USER:
+X		so_unregister(so, WF_SO_WRITE);
+X		ret = tcp_send(so, "USER anonymous\r\n");
+X		if (cs_ftp_debug) {
+X			req_send(cs_ftp_debug, "USER anonymous\r\n");
+X		}
+X		if (ret < 0) {
+X			c->flag |= WF_THREAD_ERROR;
+X			srv_flag(c->cp->srv, WF_SRV_REFUSED);
+X			break;
+X		}
+X		c->step = FTPS_CONN_PASS;
+X		return;
+X	case FTPS_CONN_PASS:
+X		ret = ftp_recv_status(c->cp);
+X		if (ret == 331) {
+X			tcp_send(so, "PASS wwfs@%s.%s\r\n",
+X				 cs_hostname, cs_domain);
+X			if (cs_ftp_debug) {
+X				req_send(cs_ftp_debug, "PASS wwfs@%s.%s\r\n",
+X					 cs_hostname, cs_domain);
+X			}
+X			c->step = FTPS_CONN_TYPE;
+X		} else if (ret == 230) {
+X			/* "230 User logged in, proceed." */
+X			goto bypass_pass;
+X		} else if (ret == 0 || ret < 400) {
+X			/* expect more replies */
+X			c->step = FTPS_CONN_PASS;
+X		} else {
+X			/* "530 User anonymous unknown" or somesuch */
+X			ftp_reply_diag(ret);
+X			c->flag |= WF_THREAD_ERROR;
+X			srv_flag(c->cp->srv, WF_SRV_REFUSED);
+X			break;
+X		}
+X		return;
+X	case FTPS_CONN_TYPE:
+X		ret = ftp_recv_status(c->cp);
+X		if (ret == 230) {
+X		bypass_pass:
+X			tcp_send(so, "TYPE I\r\n");
+X			if (cs_ftp_debug) {
+X				req_send(cs_ftp_debug, "TYPE I\r\n");
+X			}
+X			c->step = FTPS_CONN_FIN;
+X		} else if (ret == 0 || ret < 400) {
+X			/* expect more replies */
+X			c->step = FTPS_CONN_TYPE;
+X		} else {
+X			/* e.g., "530 Too many users connected currently" */
+X			ftp_reply_diag(ret);
+X			c->flag |= WF_THREAD_ERROR;
+X			srv_flag(c->cp->srv, WF_SRV_REFUSED);
+X			break;
+X		}
+X		return;
+X	case FTPS_CONN_FIN:
+X		ret = ftp_recv_status(c->cp);
+X		if (ret == 200) {
+X			so_clear(so);
+X			c->cp->thrdp = (wf_thrd *)0;
+X			so_callback(so, ftp_recv_junk, (void *)so);
+X			break;
+X		} else if (ret == 0 || ret < 400) {
+X			/* expect more replies */
+X			c->step = FTPS_CONN_FIN;
+X		} else {
+X			ftp_reply_diag(ret);
+X		}
+X		return;
+X	}
+X	c->step = FTPS_PROMPT;
+X	wakeup(&c->cp);
+X}
+X
+Xint
+Xftp_recv_status(cp)
+Xwf_conn *cp;
+X{
+X	long navail;
+X	int nread;
+X	int ret, so, status = 0;
+X	char *bufp, *p, *q;
+X
+X	so = cp->id;
+X	bufp = so_getbuf(so);
+X	ioctl(so, FIONREAD, &navail);
+X	nread = MIN(navail, NFS_MAXDATA);
+X	if (nread == 0) {
+X		if (cp->thrdp) cp->thrdp->flag |= WF_THREAD_ERROR;
+X		srv_flag(cp->srv, WF_SRV_XABORT);
+X		return 426;	/* connection closed */
+X	}
+X	ret = recv(so, bufp, nread, MSG_PEEK);
+X	if (ret < 0) {
+X		errno_diag();
+X		if (cp->thrdp) cp->thrdp->flag |= WF_THREAD_ERROR;
+X		return 451;	/* local error */
+X	}
+X	bufp[nread] = '\0';
+X	if ((q = strrchr(bufp, '\n')) == NULL)
+X		return 0;	/* too fast? */
+X	recv(so, bufp, q-bufp+1, 0);
+X	q[1] = '\0';
+X	p = bufp;
+X	while (*p) {
+X		q = strchr(p, '\n');
+X		if (isdigit(*p) && isspace(p[3])) {
+X			status = atoi(p);
+X			if (status > 400 && cp->thrdp)
+X				cp->thrdp->flag |= WF_THREAD_ERROR;
+X		}
+X		p = q+1;
+X	}
+X	return status;
+X}
+X
+Xvoid
+Xftp_recv_junk(so)	/* firewall */
+Xint so;
+X{
+X	long navail;
+X	int nread, ret, optlen;
+X	char *bufp;
+X
+X	bufp = so_getbuf(so);
+X	ioctl(so, FIONREAD, &navail);
+X	nread = MIN(navail, NFS_MAXDATA-64);
+X	if (nread == 0) {
+X		optlen = sizeof(int);
+X		getsockopt(so, SOL_SOCKET, SO_ERROR, &ret, &optlen);
+X		if (ret && ret < sys_nerr)
+X			dlog("ftp_recv_junk: %s", sys_errlist[ret]);
+X		conn_dropped(so);
+X		return;
+X	}
+X	ret = recv(so, bufp, nread, 0);
+X	if (ret < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	bufp[nread] = '\0';
+X	dlog("ftp_recv_junk(%d): %s", so, bufp);
+X}
+X
+Xvoid
+Xftp_reply_diag(ret)
+Xint ret;
+X{
+X	/* See RFC959 for details */
+X	char *p;
+X
+X	switch (ret) {
+X	case 110:
+X		p = "110 Restart marker reply.";
+X		break;
+X	case 120:
+X		p = "120 Service ready in nnn minutes.";
+X		break;
+X	case 125:
+X		p = "125 Data connection already open; transfer starting.";
+X		break;
+X	case 150:
+X		p = "150 File status okay; about to open data connection.";
+X		break;
+X	case 200:
+X		p = "200 Command okay.";
+X		break;
+X	case 202:
+X		p = "202 Command not implemented, superflous at this state.";
+X		break;
+X	case 211:
+X		p = "211 System status, or system help reply.";
+X		break;
+X	case 212:
+X		p = "212 Directory status.";
+X		break;
+X	case 213:
+X		p = "213 File status.";
+X		break;
+X	case 214:
+X		p = "214 Help message.";
+X		break;
+X	case 215:
+X		p = "215 NAME system type.";
+X		break;
+X	case 220:
+X		p = "220 Service ready for new user.";
+X		break;
+X	case 221:
+X		p = "221 Service closing control connection.";
+X		break;
+X	case 225:
+X		p = "225 Data connection open; no transfer in progress.";
+X		break;
+X	case 226:
+X		p = "226 Closing data connection.";
+X		break;
+X	case 227:
+X		p = "227 Entering passive mode.";
+X		break;
+X	case 230:
+X		p = "230 User logged in, proceed.";
+X		break;
+X	case 250:
+X		p = "250 Requested file action okay, completed.";
+X		break;
+X	case 257:
+X		p = "257 PATHNAME created.";
+X		break;
+X	case 331:
+X		p = "331 User name okay, need password.";
+X		break;
+X	case 332:
+X		p = "332 Need account for login.";
+X		break;
+X	case 350:
+X		p = "350 Requested file action pending further information.";
+X		break;
+X	case 421:
+X		p = "421 Service not available, closing control connection.";
+X		break;
+X	case 425:
+X		p = "425 Can't open data connection.";
+X		break;
+X	case 426:
+X		p = "426 Connection closed; transfer aborted.";
+X		break;
+X	case 450:
+X		p = "450 Requested file action not taken.";
+X		break;
+X	case 451:
+X		p = "451 Requested action aborted: local error in processing.";
+X		break;
+X	case 452:
+X		p = "452 Requested action not taken. Insufficient storage space in system.";
+X		break;
+X	case 500:
+X		p = "500 Syntax error, command unrecognized.";
+X		break;
+X	case 501:
+X		p = "501 Syntax error in parameters or arguments.";
+X		break;
+X	case 502:
+X		p = "502 Command not implemented.";
+X		break;
+X	case 503:
+X		p = "503 Bad sequence of commands.";
+X		break;
+X	case 504:
+X		p = "504 Command not implemented for that parameter.";
+X		break;
+X	case 530:
+X		p = "530 Not logged in.";
+X		break;
+X	case 532:
+X		p = "532 Need account for storing files.";
+X		break;
+X	case 550:
+X		p = "550 Requested action not taken. File unavailable.";
+X		break;
+X	case 551:
+X		p = "551 Requested action aborted: page type unknown.";
+X		break;
+X	case 552:
+X		p = "552 Requested file action aborted. Exceeded storage allocation.";
+X		break;
+X	case 553:
+X		p = "553 Requested action not taken. File name not allowed.";
+X		break;
+X	default:
+X		dlog("ftp_reply_diag: unknown reply code %d", ret);
+X		return;
+X	}
+X	dlog(p);
+X}
+X
+END_OF_FILE
+  if test 9948 -ne `wc -c <'csd/ftp.c'`; then
+    echo shar: \"'csd/ftp.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/ftp.c'
+fi
+if test -f 'doc/panel.ps.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/panel.ps.C'\"
+else
+  echo shar: Extracting \"'doc/panel.ps.C'\" \(76144 characters\)
+  sed "s/^X//" >'doc/panel.ps.C' <<'END_OF_FILE'
+X13.039368 0 286.702942 249.631958 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X34.771667 0 286.702942 245.285492 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.86615 0 286.702942 240.939041 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X21.732269 0 286.702942 236.59259 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X13.039368 0 286.702942 232.24614 line
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.897638 setup
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 setgray
+X355.798248 209.867111 419.546265 291.000977 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X23.181152 11.590546 355.798248 291.001007 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X23.181091 11.590546 419.546295 291.001007 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X23.181091 11.590576 419.546295 209.867111 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X63.747986 0 378.979401 302.591553 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -81.133865 442.727386 302.591553 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X344.207703 195.378937 422.443909 206.969482 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X11.88031 5.795273 344.207703 206.969482 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X34.916565 17.385849 422.443909 206.969482 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X34.771698 17.385818 422.443909 195.378937 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X14.48822 0 442.727386 224.355331 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -11.590576 457.215607 224.355331 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X0.333293 nxsetgray
+X364.49118 218.560028 410.853394 221.457657 0 ArcRect fill
+Xgrestore
+X0 setgray
+X364.49118 218.560028 410.853394 221.457657 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X0.333293 nxsetgray
+X364.49118 227.25296 410.853394 230.150589 0 ArcRect fill
+Xgrestore
+X0 setgray
+X364.49118 227.25296 410.853394 230.150589 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X0.333293 nxsetgray
+X364.49118 235.945862 410.853394 238.843506 0 ArcRect fill
+Xgrestore
+X0 setgray
+X364.49118 235.945862 410.853394 238.843506 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X0.333293 nxsetgray
+X364.49118 244.638779 410.853394 247.536407 0 ArcRect fill
+Xgrestore
+X0 setgray
+X364.49118 244.638779 410.853394 247.536407 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X0.333293 nxsetgray
+X364.49118 253.331711 410.853394 256.22934 0 ArcRect fill
+Xgrestore
+X0 setgray
+X364.49118 253.331711 410.853394 256.22934 0 ArcRect stroke
+Xgrestore
+Xgrestore
+Xgrestore
+X1 setgray
+X0 setgray
+X0.333333 setgray
+Xgsave
+X0 0 792 1008 rectclip
+X[1 0 0 -1 0 1008] concat
+Xgrestore
+X%%Trailer
+X
+X%%EndDocument
+Xcount __NXEPSOpCount sub {pop} repeat countdictstack __NXEPSDictCount sub {end} repeat __NXEPSSave restore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 3.622047 setup
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X56.503944 27.817322 50.108124 596.158508 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X13.039364 6.258911 63.079456 585.621094 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X6.780472 3.303284 58.732994 578.319031 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 1222] concat
+X75 execuserobject setfont
+X0 nxsetgray
+X62 614 moveto (") show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+Xgsave
+X75 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 1224] concat
+X75 execuserobject setfont
+X0 nxsetgray
+X88 615 moveto (") show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 0 translate
+X1 1 scale
+X0 nxsetgray
+Xgsave
+Xnewpath
+Xsystemdict
+Xbegin
+X65 600 91 621 setbbox
+X79.529388 618.17749 moveto
+X67.011597 602.877991 lineto
+X88.222321 602.877991 lineto
+X79.529396 618.177429 lineto
+Xend
+Xstroke
+Xgrestore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+X31.761808 522.451843 transform
+Xgsave __NXbasematrix setmatrix itransform translate
+X0 0 82.346588 82.346588 rectclip
+X0 0 translate
+X0 rotate
+X0.6 0.6 scale
+X-130 -179 translate
+X
+X/__NXEPSSave save def /showpage {} def
+X_NXLevel2{/_NXsethsb where{pop}{/_NXsethsb /sethsbcolor load def}ifelse /sethsbcolor{_NXsethsb currentrgbcolor nxsetrgbcolor}def /setrgbcolor{nxsetrgbcolor}bind def /setgray{nxsetgray}bind def
+X/_NXcimage where{pop}{/_NXcimage /colorimage load def}ifelse /colorimage{dup 3 eq{true 2 index{1 index}{1}ifelse 7 add 1 roll _NXCalibratedImage}{_NXcimage}ifelse}def}if
+X0 setgray 0 setlinecap 1 setlinewidth
+X0 setlinejoin 10 setmiterlimit [] 0 setdash newpath count /__NXEPSOpCount exch def /__NXEPSDictCount countdictstack def
+X%%BeginDocument: 
+X%!PS-Adobe-2.0 EPSF-2.0
+X%%Title: 
+X%%Creator: DrawPlus
+X%%CreationDate: Mon Dec 14 13:45:43 1992
+X%%For: youki
+X%%DocumentFonts: (atend)
+X%%Pages: 0 0
+X%%BoundingBox: 130 179 230 273
+X%%NXNextStepVersion: 3.0
+X%%EndComments
+X
+X%%BeginProcSet: /usr/lib/NextStep/printPackage.ps 3.0
+X%!
+X% NeXT Printing Package
+X% Version: 3.0J
+X% Modified by Canon based on Version 3.0 , 1992.01.07
+X% Copyright: 1988, NeXT, Inc.
+X
+X/__NXdef{1 index where{pop pop pop}{def}ifelse}bind def
+X/__NXbdef{1 index where{pop pop pop}{bind def}ifelse}bind def
+X/UserObjects 10 array __NXdef
+X/defineuserobject{
+X	exch dup 1 add dup UserObjects length gt{
+X		array dup 0 UserObjects putinterval
+X		/UserObjects exch def
+X	}{pop}ifelse UserObjects exch 3 -1 roll put
+X}__NXbdef
+X/undefineuserobject{UserObjects exch null put}__NXbdef
+X/execuserobject{UserObjects exch get exec}__NXbdef
+X/__NXRectPath{4 2 roll moveto 1 index 0 rlineto
+X0 exch rlineto neg 0 rlineto closepath}__NXbdef
+X/__NXProcessRectArgs{
+X	1 index type /arraytype eq{
+X		exch 0 4 2 index length 1 sub{
+X			dup 3 add 1 exch{1 index exch get exch}for
+X			5 1 roll 5 index exec
+X		}for pop pop
+X	}{exec}ifelse
+X}__NXbdef
+X/rectfill{gsave newpath {__NXRectPath fill} __NXProcessRectArgs grestore}__NXbdef
+X/rectclip{newpath {__NXRectPath} __NXProcessRectArgs clip newpath}__NXbdef
+X/rectstroke{
+X	gsave newpath dup type /arraytype eq{dup length 6 eq}{false}ifelse{
+X		{gsave __NXRectPath null concat stroke grestore}
+X		dup length array cvx copy dup 2 4 -1 roll put __NXProcessRectArgs
+X	}{{__NXRectPath stroke} __NXProcessRectArgs}ifelse grestore
+X}__NXbdef
+X/_NXLevel2 systemdict /languagelevel known {languagelevel 2 ge}{false}ifelse __NXdef
+X/xyshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		3 index 3 index 2 mul 1 add get add exch
+X		3 index	3 index 2 mul get add exch moveto pop
+X	}for pop pop
+X}__NXbdef
+X/xshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		exch 3 index 3 index get add exch moveto pop
+X	}for pop pop
+X}__NXbdef
+X/yshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		3 index 3 index get add moveto pop
+X	}for pop pop
+X}__NXbdef
+X/arct{arcto pop pop pop pop}__NXbdef
+X/setbbox{pop pop pop pop}__NXbdef
+X/ucache{}__NXbdef
+X/ucachestatus{mark 0 0 0 0 0}__NXbdef
+X/setucacheparams{cleartomark}__NXbdef
+X/uappend{systemdict begin cvx exec end}__NXbdef
+X/ueofill{gsave newpath uappend eofill grestore}__NXbdef
+X/ufill{gsave newpath uappend fill grestore}__NXbdef
+X/ustroke{
+X	gsave newpath dup length 6 eq
+X	{exch uappend concat}{uappend}ifelse
+X	stroke grestore
+X}__NXbdef
+X/__NXustrokepathMatrix dup where {pop pop}{matrix def}ifelse
+X/ustrokepath{
+X	newpath dup length 6 eq{
+X		exch uappend __NXustrokepathMatrix currentmatrix exch concat
+X		strokepath setmatrix
+X	}{uappend strokepath}ifelse
+X} __NXbdef
+X/upath{
+X	[exch {/ucache cvx}if pathbbox /setbbox cvx
+X	 {/moveto cvx}{/lineto cvx}{/curveto cvx}{/closepath cvx}pathforall]cvx
+X} __NXbdef
+X/setstrokeadjust{pop}__NXbdef
+X/currentstrokeadjust{false}__NXbdef
+X/selectfont{exch findfont exch
+Xdup type /arraytype eq {makefont}{scalefont}ifelse setfont}__NXbdef
+X/_NXCombineArrays{
+X	counttomark dup 2 add index dup length 3 -1 roll {
+X		2 index length sub dup 4 1 roll 1 index exch 4 -1 roll putinterval exch
+X	}repeat pop pop pop
+X}__NXbdef
+X/flushgraphics{}def
+X/setwindowtype{pop pop}def
+X/currentwindowtype{pop 0}def
+X/setalpha{pop}def
+X/currentalpha{1.0}def
+X/hidecursor{}def
+X/obscurecursor{}def
+X/revealcursor{}def
+X/setcursor{4 {pop}repeat}bind def
+X/showcursor{}def
+X
+X/SharedFontDirectory FontDirectory __NXdef
+X/_JPN /GothicBBB-Medium-EUC-H dup findfont /FontName get eq def
+X
+X_JPN {
+X  mark { /NJ12-88-CFEncoding findencoding } stopped {
+X    /defineresource {
+X      pop dup 3 1 roll userdict /EncodingDirectory get 3 1 roll readonly put
+X    } __NXbdef
+X    /GothicBBB-Medium-EUC-H findfont begin
+X	Encoding dup length array copy dup dup dup length 2 idiv dup getinterval
+X	0 exch putinterval
+X	FMapType 2 eq {
+X	    dup 16#0E 78 put dup 16#20 89 put
+X	    0 1 9 {dup 16#75 add exch 79 add 2 index 3 1 roll put} for
+X	}{
+X	    dup 16#1D 78 put dup 16#41 89 put
+X	    0 1 9 {dup dup add 16#EB add exch 79 add 2 index 3 1 roll put} for
+X	} ifelse
+X    /NJ12-88-CFEncoding exch /Encoding defineresource pop
+X    /EUCEncoding FDepVector 10 get /Encoding get /Encoding defineresource pop
+X    end
+X  } if cleartomark
+X} if
+X
+X/_@Private dup where {pop pop}{50 dict def}ifelse
+X/__NJdef _JPN {{//_@Private 3 1 roll put}}{{pop pop}} ifelse bind def
+X/__NJbdef _JPN {{//_@Private 2 index known {pop pop}{bind //_@Private 3 1 roll put}ifelse}}{{pop pop}} ifelse bind def
+X/_str 128 string __NJdef
+X/_find { % /FName _find FontOrFName bool
+X    false 0 {dup 3 index known {3 -1 roll get exch pop true exit}{pop}ifelse} forall
+X} bind dup 1
+X[/SharedFontDirectory dup where {exch get}{pop}ifelse //FontDirectory] put //_@Private 3 1 roll put
+X/_copyfont@ { % -font- extension _copyfont@ -dict-
+X    1 index maxlength add dict begin {
+X	1 index /FID ne 2 index /UniqueID ne and {def}{pop pop}ifelse
+X    } forall currentdict end
+X} __NJbdef
+X/_bind { % /n1 /n2 _bind /n1+2
+X    exch dup length 2 index length add _str 4 2 roll
+X    _str cvs length exch dup length string cvs putinterval
+X    _str exch 0 exch getinterval cvn
+X} __NJbdef
+X/NDEncoding 256 array dup 0 1 255 {/.notdef put dup} for pop __NJdef
+X/_shiftE { % /Fname start length target -font- _shiftE -dict-
+X    0 _copyfont@ begin Encoding 4 2 roll getinterval NDEncoding 256 array
+X    copy dup 4 -2 roll putinterval Encoding length 256 eq {
+X    dup dup 0 128 getinterval 128 exch putinterval } if
+X    /Encoding exch def /FontName exch def currentdict end
+X} __NJbdef
+X/_makeSGFDV { % - _makeSGFDV [FDV]
+X    [ _FN /.WP-Symbol _bind findfont
+X    _SGFN /.rFC _bind dup 0 96 32 5 index _shiftE definefont
+X    _SGFN /.rFD _bind dup 96 32 32 6 index _shiftE definefont
+X    _SGFN /.rFE _bind dup 0 128 0 _FN /-Ext-H _bind findfont dup /Encoding get
+X    16#2d get exch /FDepVector get exch get _shiftE dup /Encoding 2 copy get
+X    [16#f0 16#f1 16#f2 16#f5 16#f6 16#f7 16#fa 16#fb 16#fc] {
+X	dup 2 index exch /.notdef put 128 sub 1 index exch /.notdef put
+X    } forall put definefont
+X    ] dup 0 /NotDefFont findfont put
+X} __NJbdef
+X/_defSGaiji { % /fullname /basename _defSGaiji -sysGaiji-
+X    /_FN exch __NJdef /_SGFN exch __NJdef 15 dict
+X    dup /FontName _SGFN put	dup /FontType 0 put
+X    dup /FMapType 2 put		dup /FontMatrix matrix put
+X    dup /FontBBox {0 -140 1000 880} put
+X    dup /Encoding 256 array 0 1 255 {1 index exch 0 put}for
+X	dup 16#FC 1 put    dup 16#FD 2 put    dup 16#FE 3 put put
+X    dup /FDepVector _makeSGFDV put    dup /isNeXTGaiji true put
+X    _SGFN exch definefont
+X} __NJbdef
+X/_defNeXTF { % /fullname /basename Hflag _defNeXTF
+X2 index _find { 4 1 roll pop pop pop}{pop
+X    /_FN 2 index __NJdef {/-EUC-H}{/-EUC-V}ifelse _bind findfont
+X    1 _copyfont@ begin
+X    /FontName 1 index def
+X    /UserGaijiName _FN /-NeXT-UserGaiji _bind def
+X    /Encoding Encoding dup length array copy FMapType 2 eq {dup 16#8E 78 put
+X	0 1 9 {dup 16#F5 add exch 79 add 2 index 3 1 roll put} for
+X    }{  dup 16#11D 78 put
+X	0 1 9 {dup dup add 16#1EB add exch 79 add 2 index 3 1 roll put} for
+X    } ifelse def
+X    /FDepVector [FDepVector aload pop _FN /.Hankaku _bind
+X	dup /_ _bind exch 128 128 0 3 index findfont _shiftE definefont
+X	UserGaijiName findfont dup /isNeXTGaiji 2 copy known {
+X	    get {/FDepVector get 1 7 getinterval aload pop
+X	    }{pop /NotDefFont findfont 6 {dup} repeat}ifelse
+X	}{pop pop pop /NotDefFont findfont 6 {dup} repeat}ifelse
+X	_FN /-NeXT-SystemGaiji _bind findfont /FDepVector get 1 3 getinterval
+X	aload pop] def
+X    currentdict end definefont
+X}ifelse
+X} __NJbdef
+X/_findNarrow { % /FName _findNarrow -font-
+X    dup _str cvs (Narrow) anchorsearch {pop cvn exch _find {exch pop}{
+X	exch findfont 0 _copyfont@ dup /FontName 3 index put
+X	dup /FontMatrix 2 copy get [5 6 div 0 0 1 0 0] matrix concatmatrix put
+X	definefont}ifelse
+X    }{pop findfont}ifelse
+X} __NJbdef
+X/_defmixfont@ { % /FName [/ASCII /KANJI shiftmtx] _defmixfont@ -font-
+X    aload pop /_@shiftmatrix exch __NJdef (-NeXT-H) _bind findfont
+X    /_EUC exch __NJdef _findNarrow /_@ASCII exch __NJdef
+X    dup /_ exch _bind dup _EUC /Encoding get length 2 idiv dup 0 _EUC _shiftE
+X    dup /Encoding 2 copy get dup
+X	3 index /FMapType get 5 eq {16#41}{16#20}ifelse 89 put  put
+X    dup /FontMatrix _@shiftmatrix put
+X    dup /FDepVector [ _EUC /FDepVector get aload pop _EUC /FMapType get 5 eq {
+X	/_S_ _@ASCII /FontName get _bind _@ASCII 0 _copyfont@
+X	dup /Encoding 2 copy get 256 array copy dup dup dup 0 128 getinterval
+X	128 exch putinterval 0 _@ASCII /Encoding get 128 128 getinterval
+X	putinterval put dup /FontName 3 index put definefont
+X	}{_@ASCII}ifelse
+X	 _@shiftmatrix matrix invertmatrix makefont] put definefont
+X    15 dict begin
+X	/FontName 2 index def
+X	/FontType 0 def     /PaintType 0 def
+X	/FMapType 4 def     /FontMatrix matrix def
+X	/Encoding [0 1] def /PrefEnc 1 index /Encoding get def
+X	/FontBBox _@ASCII /FontBBox get 4 array copy cvx
+X	    dup 2 get 1000 lt {dup 2 1000 put}if
+X	    dup 3 get 880 lt {dup 3 880 put}if def
+X	/FontInfo _@ASCII /FontInfo get def
+X	/FDepVector [_@ASCII 4 -1 roll] def
+X	currentdict end definefont
+X} __NJbdef
+X/Ryumin-Light-NeXT-H {/Ryumin-Light true _defNeXTF} __NJbdef
+X/Ryumin-Light-NeXT-V {/Ryumin-Light false _defNeXTF} __NJbdef
+X/GothicBBB-Medium-NeXT-H {/GothicBBB-Medium true _defNeXTF} __NJbdef
+X/GothicBBB-Medium-NeXT-V {/GothicBBB-Medium false _defNeXTF} __NJbdef
+X/Ryumin-Light-NeXT-SystemGaiji {/Ryumin-Light _defSGaiji} __NJbdef
+X/GothicBBB-Medium-NeXT-SystemGaiji {/GothicBBB-Medium _defSGaiji} __NJbdef
+X/FixedRyuminCourier-Light {
+X	[/NarrowCourier /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-LightOblique {
+X	[/NarrowCourier-Oblique /Ryumin-Light [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-Bold {
+X	[/NarrowCourier-Bold /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-BoldOblique {
+X	[/NarrowCourier-BoldOblique /Ryumin-Light [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/RyuminTimes-Light {
+X	[/Times-Roman /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/RyuminTimes-LightOblique {
+X	[/Times-Italic /Ryumin-Light [1 0 .277325 1 0 0]] _defmixfont@} __NJbdef
+X/RyuminTimes-Bold {
+X	[/Times-Bold /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/RyuminTimes-BoldOblique {
+X	[/Times-BoldItalic /Ryumin-Light [1 0 .277325 1 0 0]] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier {
+X	[/NarrowCourier /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-Oblique {
+X	[/NarrowCourier-Oblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-Bold {
+X	[/NarrowCourier-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-BoldOblique {
+X	[/NarrowCourier-BoldOblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica {
+X	[/Helvetica /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-Oblique {
+X	[/Helvetica-Oblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-Bold {
+X	[/Helvetica-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-BoldOblique {
+X	[/Helvetica-BoldOblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/TitleGothicBBBHelvetica {
+X	[/Helvetica /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/TitleGothicBBBHelvetica-Bold {
+X	[/Helvetica-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X
+X/NextStepEncoding where not{
+X/NextStepEncoding StandardEncoding 256 array copy def
+X0 [129/Agrave/Aacute/Acircumflex/Atilde/Adieresis/Aring/Ccedilla/Egrave
+X/Eacute/Ecircumflex/Edieresis/Igrave/Iacute/Icircumflex/Idieresis
+X/Eth/Ntilde/Ograve/Oacute/Ocircumflex/Otilde/Odieresis/Ugrave/Uacute
+X/Ucircumflex/Udieresis/Yacute/Thorn/mu/multiply/divide/copyright
+X176/registered 181/brokenbar 190/logicalnot 192/onesuperior 201/twosuperior
+X204/threesuperior 209/plusminus/onequarter/onehalf/threequarters/agrave
+X/aacute/acircumflex/atilde/adieresis/aring/ccedilla/egrave/eacute
+X/ecircumflex/edieresis/igrave 226/iacute 228/icircumflex/idieresis/eth
+X/ntilde 236/ograve/oacute/ocircumflex/otilde/odieresis 242/ugrave/uacute
+X/ucircumflex 246/udieresis/yacute 252/thorn/ydieresis]
+X{dup type /nametype eq
+X {NextStepEncoding 2 index 2 index put pop 1 add}{exch pop}ifelse
+X}forall pop
+X/NextStepEncoding NextStepEncoding readonly def
+X/_NXfstr 128 string dup 0 (_NX) putinterval def
+X/_NXfindfont /findfont load def
+X
+X/NJEncoding NextStepEncoding /Encoding defineresource pop
+X
+X/findfont{
+X % Because we can never let NextStepEncoding get into
+X % SharedFontDirectory, we cannot reencode a font to NextStepEncoding
+X % if we are in shared mode.  So if currentshared is true,
+X % we call the normal findfont and return that
+X /currentshared where {pop currentshared} {false} ifelse
+X {_NXfindfont}{dup //_@Private exch known {
+X   //_@Private begin dup load exec end
+X }{dup _NXfstr 3 125 getinterval cvs length 3 add _NXfstr 0 3 -1 roll
+X  getinterval cvn exch FontDirectory 2 index known 
+X  {pop FontDirectory exch get}
+X  {_NXfindfont dup /Encoding get StandardEncoding eq
+X   {	dup length dict exch
+X	{1 index /FID ne {2 index 3 1 roll put}{pop pop}ifelse}forall
+X	 dup /Encoding NextStepEncoding put definefont
+X	}{exch pop} ifelse
+X    }ifelse
+X   }ifelse
+X  }ifelse
+X}bind def
+X}{pop}ifelse
+X/_NXImageString {/__NXImageString where{pop}{/__NXImageString 4000 string __NXdef}ifelse __NXImageString}__NXbdef
+X/_NXDoImageOp{
+X	3 dict begin /parr 5 array def 1 index{dup}{1}ifelse /chans exch def
+X	chans 2 add 2 roll parr 0 chans getinterval astore pop
+X	5 index 4 index mul 2 index{1 sub 8 idiv 1 add mul}{mul 1 sub 8 idiv 1 add}ifelse
+X	4 index mul /totbytes exch def pop exch pop
+X	gsave matrix invertmatrix concat 0.5 setgray 0 0 4 2 roll rectfill grestore
+X	{0 1 chans 1 sub{parr exch get exec length totbytes exch sub /totbytes exch def}for totbytes 0 le{exit}if}loop end
+X}__NXbdef
+X/alphaimage{1 add _NXDoImageOp}def
+X_NXLevel2{ 
+X	/NXCalibratedRGBColorSpace where{pop}{
+X		/NXCalibratedRGBColorSpace
+X		{mark /NXCalibratedRGB /ColorSpace findresource exch pop}stopped
+X		{cleartomark /NXCalibratedRGB[/CIEBasedABC 2 dict dup begin 
+X		/MatrixLMN[.4124 .2126 .0193 .3576 .7152 .1192 .1805 .0722 .9505]def
+X		/WhitePoint[.9505 1 1.089] def end] /ColorSpace defineresource}if def}ifelse
+X	/nxsetrgbcolor{NXCalibratedRGBColorSpace setcolorspace setcolor}__NXbdef
+X	/nxsetgray{dup dup nxsetrgbcolor}__NXbdef
+X	/_NXSetCMYKOrRGB{nxsetrgbcolor pop pop pop pop}__NXbdef 
+X	/_NXCalibratedImage{exch{array astore dup length true}{false}ifelse
+X		8 -1 roll{NXCalibratedRGBColorSpace setcolorspace}if
+X		8 dict dup 9 1 roll begin /ImageType 1 def /MultipleDataSources exch def
+X		currentcolorspace 0 get /Indexed eq{pop /Decode[0 2 6 index exp 1 sub]def}
+X		{2 mul dup array /Decode exch def 1 sub 0 1 3 -1 roll{Decode exch dup 2 mod put}for}ifelse
+X		/DataSource exch def /ImageMatrix exch def 
+X		/BitsPerComponent exch def /Height exch def /Width exch def end image}__NXbdef
+X} {
+X	/setcmykcolor{
+X		1.0 exch sub dup dup 6 -1 roll sub dup 0 lt{pop 0}if 5 1 roll
+X		4 -1 roll sub dup 0 lt{pop 0}if 3 1 roll exch sub dup 0 lt{pop 0}if setrgbcolor}__NXbdef
+X	/currentcmykcolor{currentrgbcolor 3{1.0 exch sub 3 1 roll}repeat 0}__NXbdef
+X	/colorimage{_NXDoImageOp}__NXbdef
+X	/nxsetrgbcolor{setrgbcolor}__NXbdef /nxsetgray{setgray}__NXbdef
+X	/setpattern{pop .5 setgray}__NXbdef
+X	/_NXSetCMYKOrRGB{pop pop pop setcmykcolor}__NXbdef 
+X	/_NXCalibratedImage{dup 1 eq {pop pop image}{colorimage}ifelse pop}__NXbdef
+X} ifelse
+X%%EndProcSet
+X
+X_NXLevel2{/_NXsethsb where{pop}{/_NXsethsb /sethsbcolor load def}ifelse /sethsbcolor{_NXsethsb currentrgbcolor nxsetrgbcolor}def /setrgbcolor{nxsetrgbcolor}bind def /setgray{nxsetgray}bind def
+X}if
+Xgsave
+X /__NXbasematrix matrix currentmatrix def
+Xgrestore
+X%%EndProlog
+X%%BeginSetup
+X/PatternDict 25 dict def PatternDict begin /1 /verticals1 def /2 /verticals2 def /3 /holizontal1 def /4 /holizontal2 def /5 /lattice1 def /6 /lattice2 def /7 /point1 def /8 /point2 def /9 /oblique1 def /10 /oblique2 def /11 /oblique3 def /12 /oblique4 def /13 /oblique5 def /14 /oblique6 def /15 /block def /16 /zetsuen1 def /17 /zetsuen2 def /18 /batsu def /19 /glass1 def /20 /glass2 def /21 /circle3 def /22 /tanten1 def /23 /tanten2 def /24 /tanten3 def /25 /tanten4 def end /space {
+X    newpath
+X} def /verticals1 {
+X    5 0 moveto 5 20 lineto 10 0 moveto 10 20 lineto 15 0 moveto 15 20 lineto 20 0 moveto 20 20 lineto stroke
+X} def /verticals2 {
+X    8 0 moveto 8 20 lineto 18 0 moveto 18 20 lineto stroke
+X} def /holizontal1 {
+X    0 5 moveto 20 5 lineto 0 10 moveto 20 10 lineto 0 15 moveto 20 15 lineto 0 20 moveto 20 20 lineto stroke
+X} def /holizontal2 {
+X    0 10 moveto 20 10 lineto 0 20 moveto 20 20 lineto stroke
+X} def /lattice1 {
+X    5 0 moveto 5 20 lineto 10 0 moveto 10 20 lineto 15 0 moveto 15 20 lineto 20 0 moveto 20 20 lineto 0 5 moveto 20 5 lineto 0 10 moveto 20 10 lineto 0 15 moveto 20 15 lineto 0 20 moveto 20 20 lineto stroke
+X} def /lattice2 {
+X    5 0 moveto 5 20 lineto 15 0 moveto 15 20 lineto 0 5 moveto 20 5 lineto 0 15 moveto 20 15 lineto stroke
+X} def /point1 {
+X    5 5 moveto 5 5 1 0 360 arc 5 15 moveto 5 15 1 0 360 arc 15 5 moveto 15 5 1 0 360 arc 15 15 moveto 15 15 1 0 360 arc fill
+X} def /point2 {
+X    10 10 moveto 10 10 1 0 360 arc 1 0 moveto 0 0 1 0 90 arc 0 19 moveto 0 20 1 270 360 arc 20 1 moveto 20 0 1 90 180 arc 19 20 moveto 20 20 1 180 270 arc fill
+X} def /oblique1 {
+X    5 0 moveto 0 5 lineto 10 0 moveto 0 10 lineto 15 0 moveto 0 15 lineto 20 0 moveto 0 20 lineto 20 5 moveto 5 20 lineto 20 10 moveto 10 20 lineto 20 15 moveto 15 20 lineto stroke
+X} def /oblique2 {
+X    5 0 moveto 0 5 lineto 15 0 moveto 0 15 lineto 20 5 moveto 5 20 lineto 20 15 moveto 15 20 lineto stroke
+X} def /oblique3 {
+X    15 0 moveto 20 5 lineto 10 0 moveto 20 10 lineto 5 0 moveto 20 15 lineto 0 0 moveto 20 20 lineto 0 5 moveto 15 20 lineto 0 10 moveto 10 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /oblique4 {
+X    15 0 moveto 20 5 lineto 5 0 moveto 20 15 lineto 0 5 moveto 15 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /oblique5 {
+X    10 0 moveto 0 10 lineto 20 0 moveto 0 20 lineto 20 10 moveto 10 20 lineto 10 0 moveto 20 10 lineto 0 0 moveto 20 20 lineto 0 10 moveto 10 20 lineto stroke
+X} def /oblique6 {
+X    5 0 moveto 0 5 lineto 10 0 moveto 0 10 lineto 15 0 moveto 0 15 lineto 20 0 moveto 0 20 lineto 20 5 moveto 5 20 lineto 20 10 moveto 10 20 lineto 20 15 moveto 15 20 lineto 10 0 moveto 20 10 lineto 15 0 moveto 20 5 lineto 5 0 moveto 20 15 lineto 0 0 moveto 20 20 lineto 0 5 moveto 15 20 lineto 0 10 moveto 10 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /heart {
+X    10 0 moveto 2 2 2 15 10 7 curveto 18 15 18 2 10 0 curveto closepath fill
+X} def /block {
+X    0 10 moveto 20 10 lineto 0 20 moveto 20 20 lineto 10 10 moveto 10 20 lineto 20 0 moveto 20 10 lineto stroke
+X} def /wave {
+X    0 10 moveto 5 10 5 180 360 arc 20 10 moveto 15 10 5 0 180 arc stroke
+X} def /batsu {
+X    0 0 moveto 2 2 lineto 0 20 moveto 2 18 lineto 8 8 moveto 12 12 lineto 8 12 moveto 12 8 lineto 18 18 moveto 20 20 lineto 18 2 moveto 20 0 lineto stroke
+X} def /zetsuen1 {
+X    0 20 moveto 10 0 lineto 10 20 moveto 20 0 lineto 0 0 moveto 20 0 lineto 0 10 moveto 20 10 lineto stroke
+X} def /zetsuen2 {
+X    0 0 moveto 10 20 lineto 10 0 moveto 20 20 lineto 0 0 moveto 20 0 lineto 0 10 moveto 20 10 lineto stroke
+X} def /glass1 {
+X    0 18 moveto 2 20 lineto 0 2 moveto 18 20 lineto 2 0 moveto 20 18 lineto 18 0 moveto 20 2 lineto stroke
+X} def /glass2 {
+X    0 2 moveto 2 0 lineto 0 18 moveto 18 0 lineto 2 20 moveto 20 2 lineto 18 20 moveto 20 18 lineto stroke
+X} def /circle3 {
+X    20 13.75 moveto 20 10 3.75 90 180 arc 17.5 10 1.25 180 360 arc 15 10 3.75 0 180 arc 12.5 10 1.25 180 360 arc 10 10 3.75 0 180 arc 7.5 10 1.25 180 360 arc 5 10 3.75 0 180 arc 2.5 10 1.25 180 360 arc 0 10 3.75 0 90 arc 20 3.75 moveto 20 0 3.75 90 180 arc 17.5 0 1.25 180 360 arc 15 0 3.75 0 180 arc 12.5 0 1.25 180 360 arc 10 0 3.75 0 180 arc 7.5 0 1.25 180 360 arc 5 0 3.75 0 180 arc 2.5 0 1.25 180 360 arc 0 0 3.75 0 90 arc stroke
+X} def /circle2 {
+X    20 10 moveto 20 2.5 7.5 90 180 arc 15 2.5 2.5 180 360 arc 10 2.5 7.5 0 180 arc 5 2.5 2.5 180 360 arc 0 2.5 7.5 0 90 arc stroke
+X} def /circle1 {
+X    20 20 moveto 20 5 15 90 180 arc 10 5 5 180 360 arc 0 5 15 0 90 arc stroke
+X} def /tanten1 {
+X    5 0 moveto 5 2 lineto 15 0 moveto 15 2 lineto 0 5 moveto 0 7 lineto 10 5 moveto 10 7 lineto 20 5 moveto 20 7 lineto 5 10 moveto 5 12 lineto 15 10 moveto 15 12 lineto 0 15 moveto 0 17 lineto 10 15 moveto 10 17 lineto 20 15 moveto 20 17 lineto stroke
+X} def /tanten2 {
+X    5 0 moveto 7 0 lineto 15 0 moveto 17 0 lineto 0 5 moveto 2 5 lineto 10 5 moveto 12 5 lineto 0 5 moveto 2 5 lineto 5 10 moveto 7 10 lineto 15 10 moveto 17 10 lineto 0 15 moveto 2 15 lineto 10 15 moveto 12 15 lineto 0 15 moveto 2 15 lineto stroke
+X} def /tanten3 {
+X    5 20 moveto 7 18 lineto 15 20 moveto 17 18 lineto 0 5 moveto 2 3 lineto 10 5 moveto 12 3 lineto 5 10 moveto 7 8 lineto 15 10 moveto 17 8 lineto 0 15 moveto 2 13 lineto 10 15 moveto 12 13 lineto stroke
+X} def /tanten4 {
+X    5 0 moveto 7 2 lineto 15 0 moveto 17 2 lineto 10 5 moveto 12 7 lineto 0 5 moveto 2 7 lineto 5 10 moveto 7 12 lineto 15 10 moveto 17 12 lineto 10 15 moveto 12 17 lineto 0 15 moveto 2 17 lineto stroke
+X} def /tpatstr 10 string def /setdrawpat {
+X    tpatstr cvs cvn PatternDict exch get cvx /hatchingpattern exch def
+X} def /showHorizon {
+X    gsave stx ptnwidth enx {
+X        pop hatchingpattern ptnwidth 0 translate
+X    } for grestore
+X} def /showPattern {
+X    gsave 1 setgray fill grestore stx sty translate newpath [] 0 setdash 1 setlinewidth sty ptnwidth eny {
+X        pop showHorizon 0 ptnwidth translate
+X    } for
+X} def /fillpattern {
+X    /ptnno exch def /eny exch def /enx exch def /drwsty exch def /drwstx exch def /ptnwidth 20 def /stx ptnwidth drwstx ptnwidth div truncate mul def /sty ptnwidth drwsty ptnwidth div truncate mul def gsave clip ptnno setdrawpat showPattern grestore
+X} def /fillpatterneo {
+X    /ptnno exch def /eny exch def /enx exch def /drwsty exch def /drwstx exch def /ptnwidth 20 def /stx ptnwidth drwstx ptnwidth div truncate mul def /sty ptnwidth drwsty ptnwidth div truncate mul def gsave eoclip ptnno setdrawpat showPattern grestore
+X} def /ArcRect {
+X    /r exch def /ey exch def /ex exch def /sy exch def /sx exch def newpath sx ex le {
+X        sx r add
+X    } {
+X        sx r sub
+X    } ifelse sy moveto ex sy ex ey r arcto 4 {
+X        pop
+X    } repeat ex ey sx ey r arcto 4 {
+X        pop
+X    } repeat sx ey sx sy r arcto 4 {
+X        pop
+X    } repeat sx sy ex sy r arcto 4 {
+X        pop
+X    } repeat closepath
+X} def /oval {
+X    /y exch def /x exch def /h exch def /w exch def matrix currentmatrix w h x y translate scale newpath 0.5 0.5 0.5 0 360 arc setmatrix
+X} def /line {
+X    moveto rlineto stroke
+X} def /setup {
+X    setlinewidth setlinecap setlinejoin gsave
+X} def /arrow0 {
+X    newpath moveto dup rotate [] 0 setdash ah neg aw rlineto a0h aw neg rlineto a0h neg aw neg rlineto closepath gsave 0 setlinejoin stroke grestore fill neg rotate
+X} def /arrow1 {
+X    newpath moveto dup rotate [] 0 setdash a1h neg a1w rmoveto a1h a1w neg rlineto a1h neg a1w neg rlineto a1h a1w rmoveto closepath gsave 0 setlinejoin stroke grestore neg rotate
+X} def /arrow2 {
+X    newpath [] 0 setdash ac 0 360 arc pop closepath gsave 0 setlinejoin stroke grestore fill
+X} def
+X%%EndSetup
+X0 0 792 1008 rectclip
+X130 179 100 94 rectclip
+X130 179 100 94 rectclip
+X[] 0 setdash
+X0 0 0.2 setup
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X155.473022 241.883942 moveto 155.473022 215.805191 155.473022 215.805191 181.4431 215.805191 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X155.473022 233.190994 moveto 155.473022 259.269745 155.473022 259.269745 181.4431 259.269745 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X207.630508 241.883942 moveto 207.630508 215.805191 207.630508 215.805191 181.4431 215.805191 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X207.630493 233.191025 moveto 207.630493 259.269745 207.630493 259.269745 181.4431 259.269745 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X153.191116 213.631958 209.695053 261.442993 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X8.692932 -8.692902 209.695053 261.442993 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -28.251999 218.387985 252.750092 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-8.692932 -10.866135 218.387985 224.498093 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X56.503937 0 153.191116 211.458725 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -8.692917 209.695053 211.458725 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-10.866119 -10.866135 209.695053 202.765808 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 6.519684 198.828934 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.866119 13.039368 198.828934 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 6.519684 142.324997 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.974792 13.365356 142.324997 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X56.503937 0 142.324997 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-56.503937 0 198.828934 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X26.078735 0 159.710815 252.750092 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X13.039368 0 159.710815 248.40361 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X34.771637 0 159.710815 244.057144 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.866135 0 159.710815 239.710693 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X21.732285 0 159.710815 235.364243 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X13.039368 0 159.710815 231.017792 line
+Xgrestore
+Xgrestore
+X1 setgray
+X0 setgray
+X0.333333 setgray
+Xgsave
+X0 0 792 1008 rectclip
+X[1 0 0 -1 0 1008] concat
+Xgrestore
+X%%Trailer
+X
+X%%EndDocument
+Xcount __NXEPSOpCount sub {pop} repeat countdictstack __NXEPSDictCount sub {end} repeat __NXEPSSave restore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 3.622047 setup
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X56.503944 27.817352 50.108116 482.800964 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X13.039368 6.258881 63.079445 472.26358 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 setgray
+X6.780472 3.303314 58.732986 464.961548 oval stroke
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+Xgsave
+X75 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 995] concat
+X75 execuserobject setfont
+X0 nxsetgray
+X62 501 moveto (") show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+Xgsave
+X75 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 996] concat
+X75 execuserobject setfont
+X0 nxsetgray
+X88 501 moveto (") show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.173229 setup
+X0 0 translate
+X1 1 scale
+X0 nxsetgray
+Xgsave
+Xnewpath
+Xsystemdict
+Xbegin
+X65 487 91 507 setbbox
+X79.529381 504.819946 moveto
+X67.011597 489.520508 lineto
+X88.222313 489.520508 lineto
+X79.529396 504.819946 lineto
+Xend
+Xstroke
+Xgrestore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+X31.761808 409.094360 transform
+Xgsave __NXbasematrix setmatrix itransform translate
+X0 0 82.346588 82.346588 rectclip
+X0 0 translate
+X0 rotate
+X0.6 0.6 scale
+X-130 -179 translate
+X
+X/__NXEPSSave save def /showpage {} def
+X_NXLevel2{/_NXsethsb where{pop}{/_NXsethsb /sethsbcolor load def}ifelse /sethsbcolor{_NXsethsb currentrgbcolor nxsetrgbcolor}def /setrgbcolor{nxsetrgbcolor}bind def /setgray{nxsetgray}bind def
+X/_NXcimage where{pop}{/_NXcimage /colorimage load def}ifelse /colorimage{dup 3 eq{true 2 index{1 index}{1}ifelse 7 add 1 roll _NXCalibratedImage}{_NXcimage}ifelse}def}if
+X0 setgray 0 setlinecap 1 setlinewidth
+X0 setlinejoin 10 setmiterlimit [] 0 setdash newpath count /__NXEPSOpCount exch def /__NXEPSDictCount countdictstack def
+X%%BeginDocument: 
+X%!PS-Adobe-2.0 EPSF-2.0
+X%%Title: 
+X%%Creator: DrawPlus
+X%%CreationDate: Mon Dec 14 13:45:43 1992
+X%%For: youki
+X%%DocumentFonts: (atend)
+X%%Pages: 0 0
+X%%BoundingBox: 130 179 230 273
+X%%NXNextStepVersion: 3.0
+X%%EndComments
+X
+X%%BeginProcSet: /usr/lib/NextStep/printPackage.ps 3.0
+X%!
+X% NeXT Printing Package
+X% Version: 3.0J
+X% Modified by Canon based on Version 3.0 , 1992.01.07
+X% Copyright: 1988, NeXT, Inc.
+X
+X/__NXdef{1 index where{pop pop pop}{def}ifelse}bind def
+X/__NXbdef{1 index where{pop pop pop}{bind def}ifelse}bind def
+X/UserObjects 10 array __NXdef
+X/defineuserobject{
+X	exch dup 1 add dup UserObjects length gt{
+X		array dup 0 UserObjects putinterval
+X		/UserObjects exch def
+X	}{pop}ifelse UserObjects exch 3 -1 roll put
+X}__NXbdef
+X/undefineuserobject{UserObjects exch null put}__NXbdef
+X/execuserobject{UserObjects exch get exec}__NXbdef
+X/__NXRectPath{4 2 roll moveto 1 index 0 rlineto
+X0 exch rlineto neg 0 rlineto closepath}__NXbdef
+X/__NXProcessRectArgs{
+X	1 index type /arraytype eq{
+X		exch 0 4 2 index length 1 sub{
+X			dup 3 add 1 exch{1 index exch get exch}for
+X			5 1 roll 5 index exec
+X		}for pop pop
+X	}{exec}ifelse
+X}__NXbdef
+X/rectfill{gsave newpath {__NXRectPath fill} __NXProcessRectArgs grestore}__NXbdef
+X/rectclip{newpath {__NXRectPath} __NXProcessRectArgs clip newpath}__NXbdef
+X/rectstroke{
+X	gsave newpath dup type /arraytype eq{dup length 6 eq}{false}ifelse{
+X		{gsave __NXRectPath null concat stroke grestore}
+X		dup length array cvx copy dup 2 4 -1 roll put __NXProcessRectArgs
+X	}{{__NXRectPath stroke} __NXProcessRectArgs}ifelse grestore
+X}__NXbdef
+X/_NXLevel2 systemdict /languagelevel known {languagelevel 2 ge}{false}ifelse __NXdef
+X/xyshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		3 index 3 index 2 mul 1 add get add exch
+X		3 index	3 index 2 mul get add exch moveto pop
+X	}for pop pop
+X}__NXbdef
+X/xshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		exch 3 index 3 index get add exch moveto pop
+X	}for pop pop
+X}__NXbdef
+X/yshow{
+X	0 1 3 index length 1 sub{
+X		currentpoint 4 index 3 index 1 getinterval show
+X		3 index 3 index get add moveto pop
+X	}for pop pop
+X}__NXbdef
+X/arct{arcto pop pop pop pop}__NXbdef
+X/setbbox{pop pop pop pop}__NXbdef
+X/ucache{}__NXbdef
+X/ucachestatus{mark 0 0 0 0 0}__NXbdef
+X/setucacheparams{cleartomark}__NXbdef
+X/uappend{systemdict begin cvx exec end}__NXbdef
+X/ueofill{gsave newpath uappend eofill grestore}__NXbdef
+X/ufill{gsave newpath uappend fill grestore}__NXbdef
+X/ustroke{
+X	gsave newpath dup length 6 eq
+X	{exch uappend concat}{uappend}ifelse
+X	stroke grestore
+X}__NXbdef
+X/__NXustrokepathMatrix dup where {pop pop}{matrix def}ifelse
+X/ustrokepath{
+X	newpath dup length 6 eq{
+X		exch uappend __NXustrokepathMatrix currentmatrix exch concat
+X		strokepath setmatrix
+X	}{uappend strokepath}ifelse
+X} __NXbdef
+X/upath{
+X	[exch {/ucache cvx}if pathbbox /setbbox cvx
+X	 {/moveto cvx}{/lineto cvx}{/curveto cvx}{/closepath cvx}pathforall]cvx
+X} __NXbdef
+X/setstrokeadjust{pop}__NXbdef
+X/currentstrokeadjust{false}__NXbdef
+X/selectfont{exch findfont exch
+Xdup type /arraytype eq {makefont}{scalefont}ifelse setfont}__NXbdef
+X/_NXCombineArrays{
+X	counttomark dup 2 add index dup length 3 -1 roll {
+X		2 index length sub dup 4 1 roll 1 index exch 4 -1 roll putinterval exch
+X	}repeat pop pop pop
+X}__NXbdef
+X/flushgraphics{}def
+X/setwindowtype{pop pop}def
+X/currentwindowtype{pop 0}def
+X/setalpha{pop}def
+X/currentalpha{1.0}def
+X/hidecursor{}def
+X/obscurecursor{}def
+X/revealcursor{}def
+X/setcursor{4 {pop}repeat}bind def
+X/showcursor{}def
+X
+X/SharedFontDirectory FontDirectory __NXdef
+X/_JPN /GothicBBB-Medium-EUC-H dup findfont /FontName get eq def
+X
+X_JPN {
+X  mark { /NJ12-88-CFEncoding findencoding } stopped {
+X    /defineresource {
+X      pop dup 3 1 roll userdict /EncodingDirectory get 3 1 roll readonly put
+X    } __NXbdef
+X    /GothicBBB-Medium-EUC-H findfont begin
+X	Encoding dup length array copy dup dup dup length 2 idiv dup getinterval
+X	0 exch putinterval
+X	FMapType 2 eq {
+X	    dup 16#0E 78 put dup 16#20 89 put
+X	    0 1 9 {dup 16#75 add exch 79 add 2 index 3 1 roll put} for
+X	}{
+X	    dup 16#1D 78 put dup 16#41 89 put
+X	    0 1 9 {dup dup add 16#EB add exch 79 add 2 index 3 1 roll put} for
+X	} ifelse
+X    /NJ12-88-CFEncoding exch /Encoding defineresource pop
+X    /EUCEncoding FDepVector 10 get /Encoding get /Encoding defineresource pop
+X    end
+X  } if cleartomark
+X} if
+X
+X/_@Private dup where {pop pop}{50 dict def}ifelse
+X/__NJdef _JPN {{//_@Private 3 1 roll put}}{{pop pop}} ifelse bind def
+X/__NJbdef _JPN {{//_@Private 2 index known {pop pop}{bind //_@Private 3 1 roll put}ifelse}}{{pop pop}} ifelse bind def
+X/_str 128 string __NJdef
+X/_find { % /FName _find FontOrFName bool
+X    false 0 {dup 3 index known {3 -1 roll get exch pop true exit}{pop}ifelse} forall
+X} bind dup 1
+X[/SharedFontDirectory dup where {exch get}{pop}ifelse //FontDirectory] put //_@Private 3 1 roll put
+X/_copyfont@ { % -font- extension _copyfont@ -dict-
+X    1 index maxlength add dict begin {
+X	1 index /FID ne 2 index /UniqueID ne and {def}{pop pop}ifelse
+X    } forall currentdict end
+X} __NJbdef
+X/_bind { % /n1 /n2 _bind /n1+2
+X    exch dup length 2 index length add _str 4 2 roll
+X    _str cvs length exch dup length string cvs putinterval
+X    _str exch 0 exch getinterval cvn
+X} __NJbdef
+X/NDEncoding 256 array dup 0 1 255 {/.notdef put dup} for pop __NJdef
+X/_shiftE { % /Fname start length target -font- _shiftE -dict-
+X    0 _copyfont@ begin Encoding 4 2 roll getinterval NDEncoding 256 array
+X    copy dup 4 -2 roll putinterval Encoding length 256 eq {
+X    dup dup 0 128 getinterval 128 exch putinterval } if
+X    /Encoding exch def /FontName exch def currentdict end
+X} __NJbdef
+X/_makeSGFDV { % - _makeSGFDV [FDV]
+X    [ _FN /.WP-Symbol _bind findfont
+X    _SGFN /.rFC _bind dup 0 96 32 5 index _shiftE definefont
+X    _SGFN /.rFD _bind dup 96 32 32 6 index _shiftE definefont
+X    _SGFN /.rFE _bind dup 0 128 0 _FN /-Ext-H _bind findfont dup /Encoding get
+X    16#2d get exch /FDepVector get exch get _shiftE dup /Encoding 2 copy get
+X    [16#f0 16#f1 16#f2 16#f5 16#f6 16#f7 16#fa 16#fb 16#fc] {
+X	dup 2 index exch /.notdef put 128 sub 1 index exch /.notdef put
+X    } forall put definefont
+X    ] dup 0 /NotDefFont findfont put
+X} __NJbdef
+X/_defSGaiji { % /fullname /basename _defSGaiji -sysGaiji-
+X    /_FN exch __NJdef /_SGFN exch __NJdef 15 dict
+X    dup /FontName _SGFN put	dup /FontType 0 put
+X    dup /FMapType 2 put		dup /FontMatrix matrix put
+X    dup /FontBBox {0 -140 1000 880} put
+X    dup /Encoding 256 array 0 1 255 {1 index exch 0 put}for
+X	dup 16#FC 1 put    dup 16#FD 2 put    dup 16#FE 3 put put
+X    dup /FDepVector _makeSGFDV put    dup /isNeXTGaiji true put
+X    _SGFN exch definefont
+X} __NJbdef
+X/_defNeXTF { % /fullname /basename Hflag _defNeXTF
+X2 index _find { 4 1 roll pop pop pop}{pop
+X    /_FN 2 index __NJdef {/-EUC-H}{/-EUC-V}ifelse _bind findfont
+X    1 _copyfont@ begin
+X    /FontName 1 index def
+X    /UserGaijiName _FN /-NeXT-UserGaiji _bind def
+X    /Encoding Encoding dup length array copy FMapType 2 eq {dup 16#8E 78 put
+X	0 1 9 {dup 16#F5 add exch 79 add 2 index 3 1 roll put} for
+X    }{  dup 16#11D 78 put
+X	0 1 9 {dup dup add 16#1EB add exch 79 add 2 index 3 1 roll put} for
+X    } ifelse def
+X    /FDepVector [FDepVector aload pop _FN /.Hankaku _bind
+X	dup /_ _bind exch 128 128 0 3 index findfont _shiftE definefont
+X	UserGaijiName findfont dup /isNeXTGaiji 2 copy known {
+X	    get {/FDepVector get 1 7 getinterval aload pop
+X	    }{pop /NotDefFont findfont 6 {dup} repeat}ifelse
+X	}{pop pop pop /NotDefFont findfont 6 {dup} repeat}ifelse
+X	_FN /-NeXT-SystemGaiji _bind findfont /FDepVector get 1 3 getinterval
+X	aload pop] def
+X    currentdict end definefont
+X}ifelse
+X} __NJbdef
+X/_findNarrow { % /FName _findNarrow -font-
+X    dup _str cvs (Narrow) anchorsearch {pop cvn exch _find {exch pop}{
+X	exch findfont 0 _copyfont@ dup /FontName 3 index put
+X	dup /FontMatrix 2 copy get [5 6 div 0 0 1 0 0] matrix concatmatrix put
+X	definefont}ifelse
+X    }{pop findfont}ifelse
+X} __NJbdef
+X/_defmixfont@ { % /FName [/ASCII /KANJI shiftmtx] _defmixfont@ -font-
+X    aload pop /_@shiftmatrix exch __NJdef (-NeXT-H) _bind findfont
+X    /_EUC exch __NJdef _findNarrow /_@ASCII exch __NJdef
+X    dup /_ exch _bind dup _EUC /Encoding get length 2 idiv dup 0 _EUC _shiftE
+X    dup /Encoding 2 copy get dup
+X	3 index /FMapType get 5 eq {16#41}{16#20}ifelse 89 put  put
+X    dup /FontMatrix _@shiftmatrix put
+X    dup /FDepVector [ _EUC /FDepVector get aload pop _EUC /FMapType get 5 eq {
+X	/_S_ _@ASCII /FontName get _bind _@ASCII 0 _copyfont@
+X	dup /Encoding 2 copy get 256 array copy dup dup dup 0 128 getinterval
+X	128 exch putinterval 0 _@ASCII /Encoding get 128 128 getinterval
+X	putinterval put dup /FontName 3 index put definefont
+X	}{_@ASCII}ifelse
+X	 _@shiftmatrix matrix invertmatrix makefont] put definefont
+X    15 dict begin
+X	/FontName 2 index def
+X	/FontType 0 def     /PaintType 0 def
+X	/FMapType 4 def     /FontMatrix matrix def
+X	/Encoding [0 1] def /PrefEnc 1 index /Encoding get def
+X	/FontBBox _@ASCII /FontBBox get 4 array copy cvx
+X	    dup 2 get 1000 lt {dup 2 1000 put}if
+X	    dup 3 get 880 lt {dup 3 880 put}if def
+X	/FontInfo _@ASCII /FontInfo get def
+X	/FDepVector [_@ASCII 4 -1 roll] def
+X	currentdict end definefont
+X} __NJbdef
+X/Ryumin-Light-NeXT-H {/Ryumin-Light true _defNeXTF} __NJbdef
+X/Ryumin-Light-NeXT-V {/Ryumin-Light false _defNeXTF} __NJbdef
+X/GothicBBB-Medium-NeXT-H {/GothicBBB-Medium true _defNeXTF} __NJbdef
+X/GothicBBB-Medium-NeXT-V {/GothicBBB-Medium false _defNeXTF} __NJbdef
+X/Ryumin-Light-NeXT-SystemGaiji {/Ryumin-Light _defSGaiji} __NJbdef
+X/GothicBBB-Medium-NeXT-SystemGaiji {/GothicBBB-Medium _defSGaiji} __NJbdef
+X/FixedRyuminCourier-Light {
+X	[/NarrowCourier /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-LightOblique {
+X	[/NarrowCourier-Oblique /Ryumin-Light [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-Bold {
+X	[/NarrowCourier-Bold /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/FixedRyuminCourier-BoldOblique {
+X	[/NarrowCourier-BoldOblique /Ryumin-Light [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/RyuminTimes-Light {
+X	[/Times-Roman /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/RyuminTimes-LightOblique {
+X	[/Times-Italic /Ryumin-Light [1 0 .277325 1 0 0]] _defmixfont@} __NJbdef
+X/RyuminTimes-Bold {
+X	[/Times-Bold /Ryumin-Light matrix] _defmixfont@} __NJbdef
+X/RyuminTimes-BoldOblique {
+X	[/Times-BoldItalic /Ryumin-Light [1 0 .277325 1 0 0]] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier {
+X	[/NarrowCourier /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-Oblique {
+X	[/NarrowCourier-Oblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-Bold {
+X	[/NarrowCourier-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/FixedGothicBBBCourier-BoldOblique {
+X	[/NarrowCourier-BoldOblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica {
+X	[/Helvetica /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-Oblique {
+X	[/Helvetica-Oblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-Bold {
+X	[/Helvetica-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/GothicBBBHelvetica-BoldOblique {
+X	[/Helvetica-BoldOblique /GothicBBB-Medium [1 0 .212557 1 0 0]] _defmixfont@} __NJbdef
+X/TitleGothicBBBHelvetica {
+X	[/Helvetica /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X/TitleGothicBBBHelvetica-Bold {
+X	[/Helvetica-Bold /GothicBBB-Medium matrix] _defmixfont@} __NJbdef
+X
+X/NextStepEncoding where not{
+X/NextStepEncoding StandardEncoding 256 array copy def
+X0 [129/Agrave/Aacute/Acircumflex/Atilde/Adieresis/Aring/Ccedilla/Egrave
+X/Eacute/Ecircumflex/Edieresis/Igrave/Iacute/Icircumflex/Idieresis
+X/Eth/Ntilde/Ograve/Oacute/Ocircumflex/Otilde/Odieresis/Ugrave/Uacute
+X/Ucircumflex/Udieresis/Yacute/Thorn/mu/multiply/divide/copyright
+X176/registered 181/brokenbar 190/logicalnot 192/onesuperior 201/twosuperior
+X204/threesuperior 209/plusminus/onequarter/onehalf/threequarters/agrave
+X/aacute/acircumflex/atilde/adieresis/aring/ccedilla/egrave/eacute
+X/ecircumflex/edieresis/igrave 226/iacute 228/icircumflex/idieresis/eth
+X/ntilde 236/ograve/oacute/ocircumflex/otilde/odieresis 242/ugrave/uacute
+X/ucircumflex 246/udieresis/yacute 252/thorn/ydieresis]
+X{dup type /nametype eq
+X {NextStepEncoding 2 index 2 index put pop 1 add}{exch pop}ifelse
+X}forall pop
+X/NextStepEncoding NextStepEncoding readonly def
+X/_NXfstr 128 string dup 0 (_NX) putinterval def
+X/_NXfindfont /findfont load def
+X
+X/NJEncoding NextStepEncoding /Encoding defineresource pop
+X
+X/findfont{
+X % Because we can never let NextStepEncoding get into
+X % SharedFontDirectory, we cannot reencode a font to NextStepEncoding
+X % if we are in shared mode.  So if currentshared is true,
+X % we call the normal findfont and return that
+X /currentshared where {pop currentshared} {false} ifelse
+X {_NXfindfont}{dup //_@Private exch known {
+X   //_@Private begin dup load exec end
+X }{dup _NXfstr 3 125 getinterval cvs length 3 add _NXfstr 0 3 -1 roll
+X  getinterval cvn exch FontDirectory 2 index known 
+X  {pop FontDirectory exch get}
+X  {_NXfindfont dup /Encoding get StandardEncoding eq
+X   {	dup length dict exch
+X	{1 index /FID ne {2 index 3 1 roll put}{pop pop}ifelse}forall
+X	 dup /Encoding NextStepEncoding put definefont
+X	}{exch pop} ifelse
+X    }ifelse
+X   }ifelse
+X  }ifelse
+X}bind def
+X}{pop}ifelse
+X/_NXImageString {/__NXImageString where{pop}{/__NXImageString 4000 string __NXdef}ifelse __NXImageString}__NXbdef
+X/_NXDoImageOp{
+X	3 dict begin /parr 5 array def 1 index{dup}{1}ifelse /chans exch def
+X	chans 2 add 2 roll parr 0 chans getinterval astore pop
+X	5 index 4 index mul 2 index{1 sub 8 idiv 1 add mul}{mul 1 sub 8 idiv 1 add}ifelse
+X	4 index mul /totbytes exch def pop exch pop
+X	gsave matrix invertmatrix concat 0.5 setgray 0 0 4 2 roll rectfill grestore
+X	{0 1 chans 1 sub{parr exch get exec length totbytes exch sub /totbytes exch def}for totbytes 0 le{exit}if}loop end
+X}__NXbdef
+X/alphaimage{1 add _NXDoImageOp}def
+X_NXLevel2{ 
+X	/NXCalibratedRGBColorSpace where{pop}{
+X		/NXCalibratedRGBColorSpace
+X		{mark /NXCalibratedRGB /ColorSpace findresource exch pop}stopped
+X		{cleartomark /NXCalibratedRGB[/CIEBasedABC 2 dict dup begin 
+X		/MatrixLMN[.4124 .2126 .0193 .3576 .7152 .1192 .1805 .0722 .9505]def
+X		/WhitePoint[.9505 1 1.089] def end] /ColorSpace defineresource}if def}ifelse
+X	/nxsetrgbcolor{NXCalibratedRGBColorSpace setcolorspace setcolor}__NXbdef
+X	/nxsetgray{dup dup nxsetrgbcolor}__NXbdef
+X	/_NXSetCMYKOrRGB{nxsetrgbcolor pop pop pop pop}__NXbdef 
+X	/_NXCalibratedImage{exch{array astore dup length true}{false}ifelse
+X		8 -1 roll{NXCalibratedRGBColorSpace setcolorspace}if
+X		8 dict dup 9 1 roll begin /ImageType 1 def /MultipleDataSources exch def
+X		currentcolorspace 0 get /Indexed eq{pop /Decode[0 2 6 index exp 1 sub]def}
+X		{2 mul dup array /Decode exch def 1 sub 0 1 3 -1 roll{Decode exch dup 2 mod put}for}ifelse
+X		/DataSource exch def /ImageMatrix exch def 
+X		/BitsPerComponent exch def /Height exch def /Width exch def end image}__NXbdef
+X} {
+X	/setcmykcolor{
+X		1.0 exch sub dup dup 6 -1 roll sub dup 0 lt{pop 0}if 5 1 roll
+X		4 -1 roll sub dup 0 lt{pop 0}if 3 1 roll exch sub dup 0 lt{pop 0}if setrgbcolor}__NXbdef
+X	/currentcmykcolor{currentrgbcolor 3{1.0 exch sub 3 1 roll}repeat 0}__NXbdef
+X	/colorimage{_NXDoImageOp}__NXbdef
+X	/nxsetrgbcolor{setrgbcolor}__NXbdef /nxsetgray{setgray}__NXbdef
+X	/setpattern{pop .5 setgray}__NXbdef
+X	/_NXSetCMYKOrRGB{pop pop pop setcmykcolor}__NXbdef 
+X	/_NXCalibratedImage{dup 1 eq {pop pop image}{colorimage}ifelse pop}__NXbdef
+X} ifelse
+X%%EndProcSet
+X
+X_NXLevel2{/_NXsethsb where{pop}{/_NXsethsb /sethsbcolor load def}ifelse /sethsbcolor{_NXsethsb currentrgbcolor nxsetrgbcolor}def /setrgbcolor{nxsetrgbcolor}bind def /setgray{nxsetgray}bind def
+X}if
+Xgsave
+X /__NXbasematrix matrix currentmatrix def
+Xgrestore
+X%%EndProlog
+X%%BeginSetup
+X/PatternDict 25 dict def PatternDict begin /1 /verticals1 def /2 /verticals2 def /3 /holizontal1 def /4 /holizontal2 def /5 /lattice1 def /6 /lattice2 def /7 /point1 def /8 /point2 def /9 /oblique1 def /10 /oblique2 def /11 /oblique3 def /12 /oblique4 def /13 /oblique5 def /14 /oblique6 def /15 /block def /16 /zetsuen1 def /17 /zetsuen2 def /18 /batsu def /19 /glass1 def /20 /glass2 def /21 /circle3 def /22 /tanten1 def /23 /tanten2 def /24 /tanten3 def /25 /tanten4 def end /space {
+X    newpath
+X} def /verticals1 {
+X    5 0 moveto 5 20 lineto 10 0 moveto 10 20 lineto 15 0 moveto 15 20 lineto 20 0 moveto 20 20 lineto stroke
+X} def /verticals2 {
+X    8 0 moveto 8 20 lineto 18 0 moveto 18 20 lineto stroke
+X} def /holizontal1 {
+X    0 5 moveto 20 5 lineto 0 10 moveto 20 10 lineto 0 15 moveto 20 15 lineto 0 20 moveto 20 20 lineto stroke
+X} def /holizontal2 {
+X    0 10 moveto 20 10 lineto 0 20 moveto 20 20 lineto stroke
+X} def /lattice1 {
+X    5 0 moveto 5 20 lineto 10 0 moveto 10 20 lineto 15 0 moveto 15 20 lineto 20 0 moveto 20 20 lineto 0 5 moveto 20 5 lineto 0 10 moveto 20 10 lineto 0 15 moveto 20 15 lineto 0 20 moveto 20 20 lineto stroke
+X} def /lattice2 {
+X    5 0 moveto 5 20 lineto 15 0 moveto 15 20 lineto 0 5 moveto 20 5 lineto 0 15 moveto 20 15 lineto stroke
+X} def /point1 {
+X    5 5 moveto 5 5 1 0 360 arc 5 15 moveto 5 15 1 0 360 arc 15 5 moveto 15 5 1 0 360 arc 15 15 moveto 15 15 1 0 360 arc fill
+X} def /point2 {
+X    10 10 moveto 10 10 1 0 360 arc 1 0 moveto 0 0 1 0 90 arc 0 19 moveto 0 20 1 270 360 arc 20 1 moveto 20 0 1 90 180 arc 19 20 moveto 20 20 1 180 270 arc fill
+X} def /oblique1 {
+X    5 0 moveto 0 5 lineto 10 0 moveto 0 10 lineto 15 0 moveto 0 15 lineto 20 0 moveto 0 20 lineto 20 5 moveto 5 20 lineto 20 10 moveto 10 20 lineto 20 15 moveto 15 20 lineto stroke
+X} def /oblique2 {
+X    5 0 moveto 0 5 lineto 15 0 moveto 0 15 lineto 20 5 moveto 5 20 lineto 20 15 moveto 15 20 lineto stroke
+X} def /oblique3 {
+X    15 0 moveto 20 5 lineto 10 0 moveto 20 10 lineto 5 0 moveto 20 15 lineto 0 0 moveto 20 20 lineto 0 5 moveto 15 20 lineto 0 10 moveto 10 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /oblique4 {
+X    15 0 moveto 20 5 lineto 5 0 moveto 20 15 lineto 0 5 moveto 15 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /oblique5 {
+X    10 0 moveto 0 10 lineto 20 0 moveto 0 20 lineto 20 10 moveto 10 20 lineto 10 0 moveto 20 10 lineto 0 0 moveto 20 20 lineto 0 10 moveto 10 20 lineto stroke
+X} def /oblique6 {
+X    5 0 moveto 0 5 lineto 10 0 moveto 0 10 lineto 15 0 moveto 0 15 lineto 20 0 moveto 0 20 lineto 20 5 moveto 5 20 lineto 20 10 moveto 10 20 lineto 20 15 moveto 15 20 lineto 10 0 moveto 20 10 lineto 15 0 moveto 20 5 lineto 5 0 moveto 20 15 lineto 0 0 moveto 20 20 lineto 0 5 moveto 15 20 lineto 0 10 moveto 10 20 lineto 0 15 moveto 5 20 lineto stroke
+X} def /heart {
+X    10 0 moveto 2 2 2 15 10 7 curveto 18 15 18 2 10 0 curveto closepath fill
+X} def /block {
+X    0 10 moveto 20 10 lineto 0 20 moveto 20 20 lineto 10 10 moveto 10 20 lineto 20 0 moveto 20 10 lineto stroke
+X} def /wave {
+X    0 10 moveto 5 10 5 180 360 arc 20 10 moveto 15 10 5 0 180 arc stroke
+X} def /batsu {
+X    0 0 moveto 2 2 lineto 0 20 moveto 2 18 lineto 8 8 moveto 12 12 lineto 8 12 moveto 12 8 lineto 18 18 moveto 20 20 lineto 18 2 moveto 20 0 lineto stroke
+X} def /zetsuen1 {
+X    0 20 moveto 10 0 lineto 10 20 moveto 20 0 lineto 0 0 moveto 20 0 lineto 0 10 moveto 20 10 lineto stroke
+X} def /zetsuen2 {
+X    0 0 moveto 10 20 lineto 10 0 moveto 20 20 lineto 0 0 moveto 20 0 lineto 0 10 moveto 20 10 lineto stroke
+X} def /glass1 {
+X    0 18 moveto 2 20 lineto 0 2 moveto 18 20 lineto 2 0 moveto 20 18 lineto 18 0 moveto 20 2 lineto stroke
+X} def /glass2 {
+X    0 2 moveto 2 0 lineto 0 18 moveto 18 0 lineto 2 20 moveto 20 2 lineto 18 20 moveto 20 18 lineto stroke
+X} def /circle3 {
+X    20 13.75 moveto 20 10 3.75 90 180 arc 17.5 10 1.25 180 360 arc 15 10 3.75 0 180 arc 12.5 10 1.25 180 360 arc 10 10 3.75 0 180 arc 7.5 10 1.25 180 360 arc 5 10 3.75 0 180 arc 2.5 10 1.25 180 360 arc 0 10 3.75 0 90 arc 20 3.75 moveto 20 0 3.75 90 180 arc 17.5 0 1.25 180 360 arc 15 0 3.75 0 180 arc 12.5 0 1.25 180 360 arc 10 0 3.75 0 180 arc 7.5 0 1.25 180 360 arc 5 0 3.75 0 180 arc 2.5 0 1.25 180 360 arc 0 0 3.75 0 90 arc stroke
+X} def /circle2 {
+X    20 10 moveto 20 2.5 7.5 90 180 arc 15 2.5 2.5 180 360 arc 10 2.5 7.5 0 180 arc 5 2.5 2.5 180 360 arc 0 2.5 7.5 0 90 arc stroke
+X} def /circle1 {
+X    20 20 moveto 20 5 15 90 180 arc 10 5 5 180 360 arc 0 5 15 0 90 arc stroke
+X} def /tanten1 {
+X    5 0 moveto 5 2 lineto 15 0 moveto 15 2 lineto 0 5 moveto 0 7 lineto 10 5 moveto 10 7 lineto 20 5 moveto 20 7 lineto 5 10 moveto 5 12 lineto 15 10 moveto 15 12 lineto 0 15 moveto 0 17 lineto 10 15 moveto 10 17 lineto 20 15 moveto 20 17 lineto stroke
+X} def /tanten2 {
+X    5 0 moveto 7 0 lineto 15 0 moveto 17 0 lineto 0 5 moveto 2 5 lineto 10 5 moveto 12 5 lineto 0 5 moveto 2 5 lineto 5 10 moveto 7 10 lineto 15 10 moveto 17 10 lineto 0 15 moveto 2 15 lineto 10 15 moveto 12 15 lineto 0 15 moveto 2 15 lineto stroke
+X} def /tanten3 {
+X    5 20 moveto 7 18 lineto 15 20 moveto 17 18 lineto 0 5 moveto 2 3 lineto 10 5 moveto 12 3 lineto 5 10 moveto 7 8 lineto 15 10 moveto 17 8 lineto 0 15 moveto 2 13 lineto 10 15 moveto 12 13 lineto stroke
+X} def /tanten4 {
+X    5 0 moveto 7 2 lineto 15 0 moveto 17 2 lineto 10 5 moveto 12 7 lineto 0 5 moveto 2 7 lineto 5 10 moveto 7 12 lineto 15 10 moveto 17 12 lineto 10 15 moveto 12 17 lineto 0 15 moveto 2 17 lineto stroke
+X} def /tpatstr 10 string def /setdrawpat {
+X    tpatstr cvs cvn PatternDict exch get cvx /hatchingpattern exch def
+X} def /showHorizon {
+X    gsave stx ptnwidth enx {
+X        pop hatchingpattern ptnwidth 0 translate
+X    } for grestore
+X} def /showPattern {
+X    gsave 1 setgray fill grestore stx sty translate newpath [] 0 setdash 1 setlinewidth sty ptnwidth eny {
+X        pop showHorizon 0 ptnwidth translate
+X    } for
+X} def /fillpattern {
+X    /ptnno exch def /eny exch def /enx exch def /drwsty exch def /drwstx exch def /ptnwidth 20 def /stx ptnwidth drwstx ptnwidth div truncate mul def /sty ptnwidth drwsty ptnwidth div truncate mul def gsave clip ptnno setdrawpat showPattern grestore
+X} def /fillpatterneo {
+X    /ptnno exch def /eny exch def /enx exch def /drwsty exch def /drwstx exch def /ptnwidth 20 def /stx ptnwidth drwstx ptnwidth div truncate mul def /sty ptnwidth drwsty ptnwidth div truncate mul def gsave eoclip ptnno setdrawpat showPattern grestore
+X} def /ArcRect {
+X    /r exch def /ey exch def /ex exch def /sy exch def /sx exch def newpath sx ex le {
+X        sx r add
+X    } {
+X        sx r sub
+X    } ifelse sy moveto ex sy ex ey r arcto 4 {
+X        pop
+X    } repeat ex ey sx ey r arcto 4 {
+X        pop
+X    } repeat sx ey sx sy r arcto 4 {
+X        pop
+X    } repeat sx sy ex sy r arcto 4 {
+X        pop
+X    } repeat closepath
+X} def /oval {
+X    /y exch def /x exch def /h exch def /w exch def matrix currentmatrix w h x y translate scale newpath 0.5 0.5 0.5 0 360 arc setmatrix
+X} def /line {
+X    moveto rlineto stroke
+X} def /setup {
+X    setlinewidth setlinecap setlinejoin gsave
+X} def /arrow0 {
+X    newpath moveto dup rotate [] 0 setdash ah neg aw rlineto a0h aw neg rlineto a0h neg aw neg rlineto closepath gsave 0 setlinejoin stroke grestore fill neg rotate
+X} def /arrow1 {
+X    newpath moveto dup rotate [] 0 setdash a1h neg a1w rmoveto a1h a1w neg rlineto a1h neg a1w neg rlineto a1h a1w rmoveto closepath gsave 0 setlinejoin stroke grestore neg rotate
+X} def /arrow2 {
+X    newpath [] 0 setdash ac 0 360 arc pop closepath gsave 0 setlinejoin stroke grestore fill
+X} def
+X%%EndSetup
+X0 0 792 1008 rectclip
+X130 179 100 94 rectclip
+X130 179 100 94 rectclip
+X[] 0 setdash
+X0 0 0.2 setup
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X155.473022 241.883942 moveto 155.473022 215.805191 155.473022 215.805191 181.4431 215.805191 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X155.473022 233.190994 moveto 155.473022 259.269745 155.473022 259.269745 181.4431 259.269745 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X207.630508 241.883942 moveto 207.630508 215.805191 207.630508 215.805191 181.4431 215.805191 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X207.630493 233.191025 moveto 207.630493 259.269745 207.630493 259.269745 181.4431 259.269745 curveto stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X153.191116 213.631958 209.695053 261.442993 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X8.692932 -8.692902 209.695053 261.442993 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -28.251999 218.387985 252.750092 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-8.692932 -10.866135 218.387985 224.498093 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X56.503937 0 153.191116 211.458725 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 -8.692917 209.695053 211.458725 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-10.866119 -10.866135 209.695053 202.765808 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 6.519684 198.828934 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.866119 13.039368 198.828934 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 6.519684 142.324997 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.974792 13.365356 142.324997 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X56.503937 0 142.324997 198.419357 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-56.503937 0 198.828934 191.899673 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X26.078735 0 159.710815 252.750092 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X13.039368 0 159.710815 248.40361 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X34.771637 0 159.710815 244.057144 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X10.866135 0 159.710815 239.710693 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X21.732285 0 159.710815 235.364243 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X13.039368 0 159.710815 231.017792 line
+Xgrestore
+Xgrestore
+X1 setgray
+X0 setgray
+X0.333333 setgray
+Xgsave
+X0 0 792 1008 rectclip
+X[1 0 0 -1 0 1008] concat
+Xgrestore
+X%%Trailer
+X
+X%%EndDocument
+Xcount __NXEPSOpCount sub {pop} repeat countdictstack __NXEPSDictCount sub {end} repeat __NXEPSSave restore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 2.897638 setup
+Xgsave
+X75 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 1137] concat
+X/Times-Bold findfont 24 scalefont [1 0 0 -1 0 0] makefont
+X31
+Xexch
+Xdefineuserobject
+X31 execuserobject setfont
+X0 nxsetgray
+X418 529 moveto (With WWFS, you can be) show
+X418 558 moveto (polite network citizen) show
+X418 587 moveto (without any expert) show
+X418 616 moveto (knowledge.) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 nxsetgray
+X694.708679 0 11.862212 669.496033 line
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 nxsetgray
+X694.708679 0 11.862212 375.165405 line
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X31 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 911] concat
+X73 execuserobject setfont
+X0 nxsetgray
+X418 421 moveto (An application-level gateway named Cluster Server is) show
+X418 435 moveto (currently under active development. Cluster Server) show
+X418 449 moveto (enable users to access existing anonymous ftp servers) show
+X418 463 moveto (just as ordinary NFS servers. Cluster Server relieve) show
+X418 477 moveto (the burden of archive administration, and drastically) show
+X418 491 moveto (reduce the amount of duplicate file transfer.) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X73 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 1557] concat
+X73 execuserobject setfont
+X0 nxsetgray
+X418 753 moveto (In today's Internet, anonymous ftp have been widely) show
+X418 767 moveto (used for long-haul file transfer. As the scale of the) show
+X418 781 moveto (Internet grows beyond human's comprehension,) show
+X418 795 moveto (duplicate file transfer have been occupying significant) show
+X418 809 moveto (portion of nationwide backbone networks.) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X33.685062 258.251984 84.39373 287.228363 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X73 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 539] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X44 272 moveto (NFS) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X33.685062 229.275604 84.39373 258.251984 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 489] concat
+Xgsave
+X43 236 41 17 rectclip
+X74 execuserobject setfont
+X0 nxsetgray
+X43 250 moveto (RPC) show
+Xgrestore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X33.685062 200.29921 84.39373 229.275604 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 430] concat
+Xgsave
+X44 207 39 16 rectclip
+X74 execuserobject setfont
+X0 nxsetgray
+X44 221 moveto (XDR) show
+Xgrestore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X33.685062 171.322861 84.39373 200.29921 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 371] concat
+Xgsave
+X44 178 39 15 rectclip
+X74 execuserobject setfont
+X0 nxsetgray
+X44 192 moveto (UDP) show
+Xgrestore
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X33.685062 142.346481 84.39373 171.322861 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 307] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X44 156 moveto (IP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X135.102386 258.251984 185.81105 287.228363 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 539] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X145 272 moveto (NFS) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X135.102386 229.275604 185.81105 258.251984 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 481] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X145 243 moveto (RPC) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X135.102386 200.29921 185.81105 229.275604 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 424] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X145 214 moveto (XDR) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X135.102386 171.322861 185.81105 200.29921 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 364] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X145 185 moveto (UDP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X135.102386 142.346481 185.81105 171.322861 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 307] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X145 156 moveto (IP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X200.29924 200.29921 251.007904 229.275604 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 424] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X209 214 moveto (FTP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X200.29924 171.322861 251.007904 200.29924 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 365] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X210 185 moveto (TCP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X200.29924 142.346481 251.007904 171.322861 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.2 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 307] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X210 156 moveto (IP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X301.716614 200.29921 352.425262 229.275604 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 424] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X310 214 moveto (FTP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X301.716614 171.322861 352.425262 200.29921 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 364] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X310 185 moveto (TCP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X301.716614 142.346481 352.425262 171.322861 0 ArcRect stroke
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 307] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X310 156 moveto (IP) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X230.000031 229.275635 moveto 230.000031 308.960663 230.000031 308.960663 193.055145 308.960663 curveto stroke
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 270.002655 230.000031 229.275635 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X157.196884 287.228455 moveto 157.196884 308.960663 157.196884 308.960663 193.055145 308.960663 curveto stroke
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 270.002655 157.196884 287.228455 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X0 21.7323 55.417343 287.228363 line
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def -87.400017 55.417343 287.228363 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 92.599983 55.417343 308.960663 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+X0 setgray
+X0 79.685059 323.448853 229.275604 line
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def -89.286469 323.448853 229.275604 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+X/ah {
+X    5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.591549 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.591549 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 90.713531 323.448853 308.960663 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 643] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X146 325 moveto (Cluster server) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 640] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X286 322 moveto (File server) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 0.724409 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 640] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X42 322 moveto (Client) show
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 setgray
+X94.173233 0 62.661438 127.858261 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 setgray
+X0 14.48822 62.661438 127.858261 line
+X/ah {
+X    5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 93.573784 62.661438 142.346481 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 nxsetgray
+X0 14.48822 156.834671 127.858261 line
+X/ah {
+X    5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 93.573784 156.834671 142.346481 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 setgray
+X94.173279 0 229.275635 127.858299 line
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 setgray
+X0 15.936989 229.275635 127.858299 line
+X/ah {
+X    5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 93.363907 229.275635 143.795288 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+X[] 0 setdash
+X0 0 1.811024 setup
+X0 nxsetgray
+X-1.086578 15.936989 324.535492 127.858299 line
+X/ah {
+X    5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /aw {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a0h {
+X    1.5 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def /a1h {
+X    5 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /a1w {
+X    2 1.394366 mul currentlinewidth 1 sub 3 div 1 add mul
+X} def /ac {
+X    2 1.394366 mul currentlinewidth 1 sub 5 div 1 add mul
+X} def 96.707382 323.448914 143.795288 0 0 eq {
+X    arrow0
+X} {
+X    0 1 eq {
+X        arrow1
+X    } {
+X        arrow2
+X    } ifelse
+X} ifelse
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-279.984283 0 375.244141 201.385849 line
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X0 93.81102 96.346474 202.472458 line
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+X0 nxsetgray
+X-73.165359 0 96.346474 296.283478 line
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 232] concat
+X/Helvetica-Bold findfont 10 scalefont [1 0 0 -1 0 0] makefont
+X76
+Xexch
+Xdefineuserobject
+X76 execuserobject setfont
+X0 nxsetgray
+X54 118 moveto (communication channel) show
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X76 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 232] concat
+X76 execuserobject setfont
+X0 nxsetgray
+X222 118 moveto (communication channel) show
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X76 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 423] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X362 216 moveto (User) show
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 377] concat
+X74 execuserobject setfont
+X0 nxsetgray
+X363 193 moveto (Kernel) show
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X74 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 603] concat
+X31 execuserobject setfont
+X0 nxsetgray
+X418 279 moveto (Combination of LAN- and) show
+X418 308 moveto (WAN-standard protocols) show
+X418 337 moveto (open new possibilities.) show
+Xgrestore
+Xgrestore
+X/k {
+X    1 1 gt {
+X        1 1 sub 2 div 1 add
+X    } {
+X        1
+X    } ifelse
+X} def [ 2 k mul 2 k mul ] 0 setdash
+X0 0 1.448819 setup
+Xgsave
+X31 execuserobject setfont
+X0 nxsetgray
+X[1 0 0 -1 0 287] concat
+X73 execuserobject setfont
+X0 nxsetgray
+X418 56 moveto (Our novel implementation technology made it the) show
+X418 70 moveto (practical solution; the combination of NFS, the) show
+X418 84 moveto (industrial standard distributed file system and FTP,) show
+X418 98 moveto (the Internet standard file transfer protocol. We made) show
+X418 112 moveto (it possible to access existing public Internet archives) show
+X418 126 moveto (without modifying client's operating system.) show
+X418 140 moveto (Combination of other protocols are also possible; we) show
+X418 154 moveto (provide the framework for multi-protocol software.) show
+X418 182 moveto (WWFS will rescue the Internet from backward) show
+X418 196 moveto (compatibility issues, and accelerate the evolution of) show
+X418 210 moveto (the Internet. With the advent of innovative network) show
+X418 224 moveto (services, it will eventually open up new application) show
+X418 238 moveto (areas.) show
+Xgrestore
+Xgrestore
+X1 setgray
+X0 setgray
+X0.333333 setgray
+Xgsave
+X0 0 717.165344 1032.283447 rectclip
+X[1 0 0 -1 0 1032.283447] concat
+Xgsave
+X1 nxsetgray
+X416 111.283447 284 94 rectfill
+X31 execuserobject setfont
+X0 nxsetgray
+X418 134.283447 moveto (Traditional file transfer) show
+X418 163.283447 moveto (service results in) show
+X418 192.283447 moveto (waste of bandwidth.) show
+Xgrestore
+Xgrestore
+Xgrestore
+Xshowpage
+X__NXsheetsavetoken restore
+X%%PageTrailer
+X%%DocumentFonts: Helvetica-Bold
+X%%+ Times-Bold
+X%%+ Times-Roman
+X%%Trailer
+X%%DocumentFonts: Helvetica-Bold
+X%%+ Times-Bold
+X%%+ Times-Roman
+X%%Pages: 1 1
+X%%BoundingBox:16 17 579 825
+X
+END_OF_FILE
+  if test 76144 -ne `wc -c <'doc/panel.ps.C'`; then
+    echo shar: \"'doc/panel.ps.C'\" unpacked with wrong size!
+  elif test -f 'doc/panel.ps.A' && test -f 'doc/panel.ps.B'; then
+    echo shar: Combining  \"'doc/panel.ps'\" \(235281 characters\)
+    cat 'doc/panel.ps.A' 'doc/panel.ps.B' 'doc/panel.ps.C' > 'doc/panel.ps'
+    if test 235281 -ne `wc -c <'doc/panel.ps'`; then
+      echo shar: \"'doc/panel.ps'\" combined with wrong size!
+    else
+      rm doc/panel.ps.A doc/panel.ps.B doc/panel.ps.C
+    fi
+  fi
+  # end of 'doc/panel.ps.C'
+fi
+if test -f 'saps/kill-csd.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'saps/kill-csd.sh'\"
+else
+  echo shar: Extracting \"'saps/kill-csd.sh'\" \(63 characters\)
+  sed "s/^X//" >'saps/kill-csd.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X. /etc/csd.conf
+Xkill $* `cat $WWFSDIR/log/csd.pid`
+END_OF_FILE
+  if test 63 -ne `wc -c <'saps/kill-csd.sh'`; then
+    echo shar: \"'saps/kill-csd.sh'\" unpacked with wrong size!
+  fi
+  chmod +x 'saps/kill-csd.sh'
+  # end of 'saps/kill-csd.sh'
+fi
+echo shar: End of archive 5 \(of 22\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

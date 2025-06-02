@@ -1,0 +1,1752 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject: v40i006:  pdksh -  Public Domain Korn Shell, v4, Patch09a/2
+Message-ID: <csm-v40i006=pdksh.224357@sparky.Sterling.COM>
+X-Md4-Signature: f01a0b95a988906205fa72af8c60037c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 11 Oct 1993 03:45:06 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 40, Issue 6
+Archive-name: pdksh/patch09a
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+This is patch09 to pd-ksh version 4.  It is in two parts, so
+be sure to apply both before attempting to re-build.
+
+I appologize for the time taken to get this out, pressures of work
+and having a dead computer for a few months are my excuse :-)
+
+This patch fixes problems with job-control on 386bsd and similar
+platforms as well as re-directed loops and a few core dumps.
+See sh/ChangeLog for the contributors of various fixes.
+
+This is the last patch to version 4 of pd-ksh.  I hope to release
+version 5 "real soon now". Version 5 was to include these patches as
+well as a metaconfig generated configure script.  Delays in starting
+on version 5 have prompted the release of this patch for version 4.
+
+--sjg
+start of patch 29-Sep-1993
+(suggested archive name: pch29Sep93.Z)
+It should be applied by changing directory to the root
+of the source tree and using the command:
+	patch -p0 < patch09a
+	patch -p0 < patch09b
+
+The following is a complete list of patches to date.
+
+# PD ksh Version 4
+Prereq: 09-Nov-91
+Prereq: 10-Nov-91
+Prereq: 25-Nov-91
+Prereq: 25-Apr-92
+Prereq: 26-Apr-92
+Prereq: 27-Apr-92
+Prereq: 12-May-92
+Prereq: 02-Aug-92
+Prereq: 12-Aug-92
+Prereq: 05-Dec-92
+*** PATCHDATES.old	Wed Sep 29 08:42:18 1993
+--- PATCHDATES	Wed Sep 29 08:59:56 1993
+***************
+*** 9,11 ****
+--- 9,12 ----
+  02-Aug-92
+  12-Aug-92
+  05-Dec-92
++ 29-Sep-1993
+*** ChangeLog.old	Mon Aug 10 21:58:49 1992
+--- ChangeLog	Sun May  9 01:59:09 1993
+***************
+*** 1,3 ****
+--- 1,7 ----
++ Sat May  8 15:55:24 1993  Simon J. Gerraty  (sjg@zen.void.oz.au)
++ 
++ 	* Ported to 386bsd - sh directory only, stc/* not needed.
++ 
+  Sat Aug  1 17:11:24 1992  Simon J. Gerraty  (sjg@zen)
+  
+  	* Incorporated massive contribution from Peter Collinson
+*** INSTALL.old	Sat May  2 23:25:25 1992
+--- INSTALL	Wed Sep 29 18:57:08 1993
+***************
+*** 21,26 ****
+--- 21,29 ----
+  avoids problems like BSD times() calls that do not return an
+  indication of elapsed time and so on.
+  
++ For current *BSD (386bsd,NetBSD,FreeBSD and I assume BSD/386) it is
++ best to build without the ./std tree.
++ 
+  Using ./std:
+  ------------
+  
+*** MACHINES.old	Mon Aug 10 21:58:54 1992
+--- MACHINES	Sun May  9 01:59:12 1993
+***************
+*** 14,19 ****
+--- 14,20 ----
+  
+  System, OS			Notes	Compiler/Flags
+  --------------------------	-----	--------------
++ 386bsd	386bsd-0.1 (pk0.2.3)	1,5	{cc,gcc} -D_BSD -D_POSIX_TERM
+  sun386, SunOS 4.0.2		1,4	{cc,gcc} -D_BSD
+  sun4c,	SunOS 4.1.1		1,4	{cc,gcc-2.1} -ansi -D_BSD -DHAVE_SYS_STDTYPES
+  sun3,	SunOS 4.0.3		1,4	{cc,gcc} -D_BSD
+*** Makefile.old	Mon Aug 10 21:58:56 1992
+--- Makefile	Sun May  9 01:59:14 1993
+***************
+*** 1,5 ****
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.3 1992/08/10 11:59:10 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+--- 1,5 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.5 93/05/08 15:59:28 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+***************
+*** 7,17 ****
+  LN=ln -s
+  #LN=ln
+  #CONFIG= -D_SYSV
+! CONFIG= -D_BSD 
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  #CONFIG= -D_V7
+  #CONFIG= -D_ST				# Atari ST
+  #CONFIG= -D_BSDI -D_POSIX_TERM		# BSD/386
+  MANPAGES = ksh.1
+  #MANDIR=/usr/catman/u_man/man1
+  #MANDIR=/usr/man/man1
+--- 7,18 ----
+  LN=ln -s
+  #LN=ln
+  #CONFIG= -D_SYSV
+! #CONFIG= -D_BSD 
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  #CONFIG= -D_V7
+  #CONFIG= -D_ST				# Atari ST
+  #CONFIG= -D_BSDI -D_POSIX_TERM		# BSD/386
++ CONFIG= -D_BSD -D_POSIX_TERM		# 386bsd
+  MANPAGES = ksh.1
+  #MANDIR=/usr/catman/u_man/man1
+  #MANDIR=/usr/man/man1
+*** README.old	Sun Dec  6 00:14:16 1992
+--- README	Wed Sep 29 18:57:11 1993
+***************
+*** 1,27 ****
+  		Public Domain Korn Shell
+! 		      Version 4.8
+  
+  PD KSH:
+  
+! This is the latest version of the PD ksh (pdksh).  It is not
+! intended to be the ultimate shell but rather a usable ksh work
+! alike.  For those of us who have to work on multiple systems it
+! is nice to have the same user interface on all.  I resisted
+! moving to the ksh on a System V machine where I worked, for
+! nearly a year due to the lack of a ksh on my Sun systems.  When
+! I first picked up the 3.2 PD KSH a couple of years ago, it took
+! only a few minutes to convert a C-shell fan to a ksh fan :-)
+! Pdksh is not 100% compatible with the ksh.  Having said that, I
+! use it daily beside a real ksh88 and find them virtually
+! indistinguishable.  With one exception - arrays!  If some one
+! feels like adding arrays, I for one would appreciate it :-)
+  
+! I only run this shell on sun's and only for interactive use.  I
+! use it on sun4c, sun3 and sun386 systems.  The shell itself has
+! been compiled on each of these both with and without the
+! POSIX/ANSI compatability libraries in ./std.  See the file
+! MACHINES for details of systems that the shell has been built
+! on.
+  
+  I released version 4.0 of the shell (with the kind permission of
+  the previous maintainers and major contributors) to ensure that
+--- 1,26 ----
+  		Public Domain Korn Shell
+! 		      Version 4.9
+  
+  PD KSH:
+  
+! This is the latest version of the PD ksh (pdksh).  It is not intended
+! to be the ultimate shell but rather a usable ksh work alike.  For
+! those of us who have to work on multiple systems it is nice to have
+! the same user interface on all.  I resisted moving to the ksh on a
+! System V machine where I worked, for nearly a year due to the lack of
+! a ksh on my Sun systems.  When I first picked up the 3.2 PD KSH a
+! couple of years ago, it took only a few minutes to convert a C-shell
+! fan to a ksh fan :-) Pdksh is not 100% compatible with the ksh.
+! Having said that, I use it daily beside a real ksh88 and find them
+! virtually indistinguishable.  With one exception - arrays!  If some
+! one feels like adding arrays, I for one would appreciate it :-)
+  
+! I only run this shell on sun's and BSD systems and only for
+! interactive use.  I use it on sun4c, sun3, sun386 and 386bsd systems.
+! The shell itself has been compiled on the sun's both with and without
+! the POSIX/ANSI compatability libraries in ./std. I do not use ./std
+! for 386bsd and friends.  See the file MACHINES for details of systems
+! that the shell has been built on.
+  
+  I released version 4.0 of the shell (with the kind permission of
+  the previous maintainers and major contributors) to ensure that
+*** bug-report.old	Sun Dec  6 00:14:20 1992
+--- bug-report	Wed Sep 29 18:57:12 1993
+***************
+*** 2,12 ****
+  Subject: [area]: [synopsis]   [replace with actual area and short description]
+  
+  VERSION:
+!     PD KSH: 4.8 05-Dec-92
+      [Official patches will edit this line to indicate the patch level]
+  
+  MACHINE and OPERATING SYSTEM:
+!     [e.g. Sparc/SunOS 4.1.1, DECstation 3100/Ultrix 4.2, ...]
+  
+  COMPILER:
+      [e.g. native cc, native ANSI cc, gcc 1.40, ...]
+--- 2,12 ----
+  Subject: [area]: [synopsis]   [replace with actual area and short description]
+  
+  VERSION:
+!     PD KSH: 4.9 29-Sep-1993
+      [Official patches will edit this line to indicate the patch level]
+  
+  MACHINE and OPERATING SYSTEM:
+!     [e.g. 386bsd-0.1+0.2.4, Sparc/SunOS 4.1.1, DECstation 3100/Ultrix 4.2, ...]
+  
+  COMPILER:
+      [e.g. native cc, native ANSI cc, gcc 1.40, ...]
+*** etc/ksh.kshrc.old	Sun Dec  6 00:14:34 1992
+--- etc/ksh.kshrc	Wed Sep 29 18:57:36 1993
+***************
+*** 17,23 ****
+  #
+  
+  # RCSid:
+! #	$Id: ksh.kshrc,v 1.4 1992/12/05 13:14:48 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+--- 17,23 ----
+  #
+  
+  # RCSid:
+! #	$Id: ksh.kshrc,v 1.6 93/09/29 08:57:50 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+***************
+*** 81,96 ****
+  	esac
+  	# do we want window decorations?
+  	if [ "$ILS" ]; then
+- 		wftp () { ilabel "ftp $*"; "ftp" $*; 
+- 			ilabel "$USER@$HOSTNAME"; }
+- 		wcd () { "cd" $*; eval stripe; }
+  		ilabel () { print -n "${ILS}$*${ILE}"; }
+  		label () { print -n "${WLS}$*${WLE}"; }
+! 		alias stripe='label $USER @ $HOSTNAME \($tty\) - $PWD'
+  		alias cd=wcd
+  		alias ftp=wftp
+  		eval stripe
+! 		eval ilabel "$USER@$HOSTNAME"
+  		PS1=$PROMPT
+  	fi
+  	alias quit=exit
+--- 81,112 ----
+  	esac
+  	# do we want window decorations?
+  	if [ "$ILS" ]; then
+  		ilabel () { print -n "${ILS}$*${ILE}"; }
+  		label () { print -n "${WLS}$*${WLE}"; }
+! 
+! 		alias stripe='label "$USER@$HOST ($tty) - $PWD"'
+! 		alias istripe='ilabel "$USER@$HOST ($tty)"'
+! 
+! 		wftp () { ilabel "ftp $*"; "ftp" $*; eval istripe; }
+! 		wcd () { "cd" $*; eval stripe; }
+! 		wtelnet ()
+! 		{
+! 			"telnet" "$@"
+! 			eval istripe
+! 			eval stripe
+! 		}
+! 		wsu ()
+! 		{
+! 			"su" "$@"
+! 			eval istripe
+! 			eval stripe
+! 		}
+! 		alias su=wsu
+  		alias cd=wcd
+  		alias ftp=wftp
++ 		alias telnet=wtelnet
+  		eval stripe
+! 		eval istripe
+  		PS1=$PROMPT
+  	fi
+  	alias quit=exit
+*** etc/profile.old	Mon Aug 10 21:59:57 1992
+--- etc/profile	Wed Sep 29 18:57:38 1993
+***************
+*** 12,18 ****
+  #	/etc/ksh.kshrc
+  
+  # RCSid:
+! #	$Id: profile,v 1.4 1992/08/10 12:00:11 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+--- 12,18 ----
+  #	/etc/ksh.kshrc
+  
+  # RCSid:
+! #	$Id: profile,v 1.6 93/09/29 08:57:52 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+***************
+*** 23,28 ****
+--- 23,36 ----
+  #	the above copyright notice and this notice are
+  #	left intact. 
+  
++ sigs="2 3"
++ trap "" $sigs	# don't interrupt us
++ 
++ add_path () { [ -d $1 ] && eval ${2:-PATH}="\$${2:-PATH}:$1"; }
++ pre_path () { [ -d $1 ] && eval ${2:-PATH}="$1:\$${2:-PATH}"; }
++ del_path () { eval ${2:-PATH}=`eval echo :'$'${2:-PATH}: | 
++ 	sed -e "s;:$1:;:;g" -e "s;^:;;" -e "s;:\$;;"`; }
++ 
+  case "$_INIT_" in
+  *env*) ;;
+  *)	# do these once
+***************
+*** 52,59 ****
+            SINGLE=n		# doesn't matter so much
+  	fi
+  	# pick one of the following for the default umask
+! 	# umask 002	# relaxed	-rwxrwxr-x
+! 	umask 022	# cautious	-rwxr-xr-x
+  	# umask 027	# uptight	-rwxr-x---
+  	# umask 077	# paranoid	-rwx------
+  	# you can override the default umask
+--- 60,67 ----
+            SINGLE=n		# doesn't matter so much
+  	fi
+  	# pick one of the following for the default umask
+! 	umask 002	# relaxed	-rwxrwxr-x
+! 	# umask 022	# cautious	-rwxr-xr-x
+  	# umask 027	# uptight	-rwxr-x---
+  	# umask 077	# paranoid	-rwx------
+  	# you can override the default umask
+***************
+*** 65,70 ****
+--- 73,84 ----
+  		LOCAL=/usr/local
+  	fi
+  
++ 	# defaults (might be reset below)
++ 	PATH=/bin:/usr/bin
++ 	MANPATH=/usr/man
++ 	SPOOL=/usr/spool
++ 	defterm=vt220
++ 
+  	# set system specific things,
+  	# eg. set PATH,MANPATH 
+  	# override default ulimit if desired.
+***************
+*** 74,109 ****
+  	SunOS)
+  		# On sun's /bin -> /usr/bin so leave it out!
+  		PATH=/usr/bin:/usr/ucb:/usr/5bin:.
+- 		MANPATH=/usr/man
+- 		defterm=vt220
+  		;;
+  	SCO-UNIX)
+- 		PATH=/bin:/usr/bin:/usr/lbin:/usr/dbin:/usr/ldbin:.
+- 		MANPATH=/usr/man
+  		defterm=ansi
+  		;;
+  	B.O.S.)
+- 		PATH=/bin:/usr/bin:.
+- 		if [ -d /usr/ucb ]; then
+- 			PATH=$PATH:/usr/ucb
+- 		fi
+  		MANPATH=/usr/catman
+- 		defterm=vt220
+  		SRC_COMPAT=_SYSV
+  		export SRC_COMPAT
+  		;;
+! 	*)
+! 		PATH=/bin:/usr/bin:.
+! 		if [ -d /usr/ucb ]; then
+! 			PATH=$PATH:/usr/ucb
+! 		fi
+! 		MANPATH=/usr/catman
+! 		defterm=vt220
+  		;;
+  	esac
+! 	if [ -d ${LOCAL}/bin ]; then
+! 		PATH=$PATH:${LOCAL}/bin
+! 	fi
+  	case "$HOME" in
+  	/)	;;
+  	""|/tmp)
+--- 88,122 ----
+  	SunOS)
+  		# On sun's /bin -> /usr/bin so leave it out!
+  		PATH=/usr/bin:/usr/ucb:/usr/5bin:.
+  		;;
+  	SCO-UNIX)
+  		defterm=ansi
+  		;;
+  	B.O.S.)
+  		MANPATH=/usr/catman
+  		SRC_COMPAT=_SYSV
+  		export SRC_COMPAT
+  		;;
+! 	386bsd)
+! 		MANPATH=/usr/share/man
+! 		add_path /usr/X386/man MANPATH
+! 		MAILDIR=/var/mail
+! 		SPOOL=/var/spool
+  		;;
+  	esac
+! 	# add_path only adds them if they exist
+! 	add_path /sbin
+! 	add_path /usr/sbin
+! 	add_path /usr/distbin
+! 	add_path /usr/ucb
+! 	add_path /usr/lbin
+! 	add_path /usr/dbin
+! 	add_path /usr/ldbin
+! 	add_path ${LOCAL}/bin
+! 	add_path /usr/bin/X11
+! 	# ensure . is at end
+! 	PATH=$PATH:.
+! 
+  	case "$HOME" in
+  	/)	;;
+  	""|/tmp)
+***************
+*** 111,124 ****
+  		HOME=/tmp; export HOME
+  		;;
+  	*)
+! 		if [ -d $HOME/bin ]; then
+! 			PATH=$PATH:$HOME/bin
+! 		fi
+  		;;
+  	esac
+! 	if [ -d ${LOCAL}/man ]; then
+! 		MANPATH=$MANPATH:${LOCAL}/man
+! 	fi
+  	# make sure these are set at least once
+  	LOGNAME=${LOGNAME:-`logname`}
+  	USER=${USER:-$LOGNAME}
+--- 124,134 ----
+  		HOME=/tmp; export HOME
+  		;;
+  	*)
+! 		pre_path $HOME/bin
+  		;;
+  	esac
+! 	add_path ${LOCAL}/man MANPATH
+! 
+  	# make sure these are set at least once
+  	LOGNAME=${LOGNAME:-`logname`}
+  	USER=${USER:-$LOGNAME}
+***************
+*** 152,164 ****
+  		# we are interactive
+  		TTY=`tty`
+  		TTY=`basename $TTY`
+! 		ORGANIZATION=""
+! 		COPYRIGHT="Copyright (c) `date +19%y` $ORGANIZATION"
+! 		export ORGANIZATION COPYRIGHT
+! 
+  		# set up some env variables
+! 		MAIL=/usr/spool/mail/$USER
+! 		MAILPATH=/usr/spool/mail/$USER:/etc/motd
+  		EMACSDIR=${LOCAL}/lib/emacs
+  		PAGER=${PAGER:-more}
+  		export MAIL EMACSDIR MANPATH MAILPATH PAGER
+--- 162,175 ----
+  		# we are interactive
+  		TTY=`tty`
+  		TTY=`basename $TTY`
+! 		if [ -f /etc/organization ]; then
+! 			ORGANIZATION="`cat /etc/organization`"
+! 			COPYRIGHT="Copyright (c) `date +19%y` $ORGANIZATION"
+! 			export ORGANIZATION COPYRIGHT
+! 		fi
+  		# set up some env variables
+! 		MAIL=${MAILDIR:-$SPOOL/mail}/$USER
+! 		MAILPATH=$MAIL:/etc/motd
+  		EMACSDIR=${LOCAL}/lib/emacs
+  		PAGER=${PAGER:-more}
+  		export MAIL EMACSDIR MANPATH MAILPATH PAGER
+***************
+*** 167,181 ****
+  		EDITOR=emacs
+  		FCEDIT=$EDITOR
+  		export CVSROOT FCEDIT EDITOR
+- #		EMACSLOADPATH=$EMACSDIR/lisp
+- #		[ -d $LOCAL/lib/lisp ] && EMACSLOADPATH=$LOCAL/lib/lisp:$EMACSLOADPATH
+- #		[ -d $HOME/lisp ] && EMACSLOADPATH=$HOME/lisp:$EMACSLOADPATH
+  		case $UID in 
+  		0)	PROMPT="<$LOGNAME@$HOSTNAME># ";;
+  		*)	PROMPT="<$LOGNAME@$HOSTNAME>$ ";;
+  		esac
+- #		PUBDIR=/usr/spool/uucppublic
+- #		export PUBDIR EMACSLOADPATH
+  		[ -f /etc/profile.TeX ] && . /etc/profile.TeX
+  	else
+  		TTY=none
+--- 178,187 ----
+***************
+*** 186,191 ****
+--- 192,200 ----
+  		# we are Korn shell
+  		SHELL=/bin/ksh
+  		ENV=${HOME%/}/.kshrc
++ 		if [ ! -f $ENV ]; then
++ 			ENV=/etc/ksh.kshrc
++ 		fi
+  		HISTFILE=${HOME%/}/.ksh_hist
+  		case $UID in
+  		0)
+***************
+*** 225,230 ****
+--- 234,240 ----
+  		# ensure known state
+  		stty isig icanon intr '^c' erase '^h' kill '^u' eof '^d' 
+  		mesg y
++ 
+  		case $TERM in
+  		network|unknown|dialup|"") 
+  		  echo ${_N_} "Enter terminal type [$defterm]: ${_C_}" 1>&2
+***************
+*** 232,237 ****
+--- 242,252 ----
+  		  TERM=${tmpterm:-$defterm}
+  		  ;;
+  		esac
++ 		case "$TERM" in
++ 		pc3)
++ 			stty erase ^?
++ 			;;
++ 		esac
+  		# not all of the following are appropriate at all sites
+  		# Sun's don't need to cat /etc/motd for instance
+  		case "$OS" in
+***************
+*** 242,247 ****
+--- 257,271 ----
+  				echo "You have mail."
+  			[ -x /usr/bin/news ] && /usr/bin/news -n
+  			;;
++ 		386bsd)
++ 			# hardware flow control works so use it
++ 			case $TTY in
++ 			ttyd*)	# dialups
++ 				stty  -ixon -ixany
++ 				stty crtscts
++ 				;;
++ 			esac
++ 			;;
+  		*)
+  			[ -s /etc/motd ] && cat /etc/motd
+  			if [ -x /usr/bin/mailx ]; then
+***************
+*** 256,261 ****
+--- 280,288 ----
+  			[ -x /usr/bin/news ] && /usr/bin/news -n
+  			;;
+  		esac
++ 		if [ -f $LOCAL/etc/1stlogin.ann ]; then
++ 			[ -f $HOME/... ] || sh $LOCAL/etc/1stlogin.ann
++ 		fi
+  #		[ -x /usr/games/fortune ] && /usr/games/fortune -a
+  		# remind folk who turned on reply.pl to turn it off.
+  		if [ -f $HOME/.forward ]; then
+***************
+*** 276,278 ****
+--- 303,309 ----
+  esac
+  # Handle X-terminals if necessary
+  [ "$SINGLE" = n -a -f /etc/profile.X11 ] && . /etc/profile.X11
++ 
++ # make sure you have this bit last
++ trap $sigs	# restore signals
++ unset sigs
+*** etc/sys_config.sh.old	Mon Aug 10 22:00:00 1992
+--- etc/sys_config.sh	Wed Sep 29 18:59:22 1993
+***************
+*** 16,22 ****
+  #	/etc/profile
+  
+  # RCSid:
+! #	$Id: sys_config.sh,v 1.2 1992/08/10 12:00:14 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+--- 16,22 ----
+  #	/etc/profile
+  
+  # RCSid:
+! #	$Id: sys_config.sh,v 1.5 93/09/29 08:59:36 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+***************
+*** 29,35 ****
+  #
+  
+  # determin machine type
+! if [ -f /usr/bin/arch ]; then
+  	ARCH=`arch`
+  elif [ -f /usr/bin/uname -o -f /bin/uname ]; then
+  	ARCH=`uname -m`
+--- 29,39 ----
+  #
+  
+  # determin machine type
+! if [ -f /386bsd ]; then		# doesn't have uname or arch
+! 	ARCH=i386
+! 	OS=386bsd
+! 	HOSTNAME=`hostname`
+! elif [ -f /usr/bin/arch ]; then
+  	ARCH=`arch`
+  elif [ -f /usr/bin/uname -o -f /bin/uname ]; then
+  	ARCH=`uname -m`
+*** ksh.1.old	Sun Dec  6 00:14:23 1992
+--- ksh.1	Thu May  6 06:42:57 1993
+***************
+*** 1,4 ****
+! .\" $Id: ksh.1,v 1.3 1992/12/05 13:14:37 sjg Exp $
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+--- 1,4 ----
+! .\" $Id: ksh.1,v 1.4 93/05/05 20:43:11 sjg Exp $
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+*** sh/ChangeLog.old	Sun Dec  6 00:14:47 1992
+--- sh/ChangeLog	Wed Sep 29 09:58:39 1993
+***************
+*** 1,3 ****
+--- 1,57 ----
++ Tue Aug 31 20:32:54 1993  Simon J. Gerraty  (sjg@zen.void.oz.au)
++ 
++ 	* patch from meulenbr@prl.phil to avoid problem in findcom().
++ 
++ Tue Jun  1 23:36:36 1993  Simon J. Gerraty  (sjg@zen.void.oz.au)
++ 
++ 	* Quick hack to "handle" multi-line prompts better.
++ 	While in x_vi or x_emacs we use only the last line of the prompt.
++ 
++ Tue Jun  1 20:52:04 1993  Devetir Unix section <sgccdux@citecuc.citec.oz.au>
++ 
++ 	* Serveral bug fixes from: Devetir Unix section 
++ 	<sgccdux@citecuc.citec.oz.au>
++ 
++ 	Sorry for the delay in these, but they were stuck in transit
++ 	because zen was dead for nearly 3 months!  --sjg
++ 
++ 	1) In history.c:hist_init(), an extra file descriptor to the
++ 	history file is created which can remain open to the old history
++ 	file when the history needs shrinking.  Thus, the old history file
++ 	survives with no name, and caused me trouble under 386BSD when
++ 	shutting down suddenly (fsck had to clean it up and have another
++ 	re-boot). 
++ 
++ 	2) In jobs.c:exchild() changed order of setpgid() and tcsetpgrp()
++ 	as 386bsd at least does not allow tcsetpgrp() to an unused
++ 	process group.
++ 
++ 	3) bug in jobs.c:j_reapchld(), waitpid() can return 0 if there
++ 	are no children, and even though there was code there to exit the
++ 	loop on pid == 0, the variable sigchld_caught was not being set to
++ 	0, so j_reapchld() would be continually called from j_waitj()
++ 	wasting considerable cpu time. 
++ 
++ 	4) In jobs.c:j_resume(), fg of a job that has exited, but not yet
++ 	been flushed from pdksh's list of jobs caused the controlling
++ 	terminal's process group to be stuffed up, and pdksh to exit, on
++ 	some machines. 
++ 
++ 
++ Sat May 22 21:58:49 1993  Simon J. Gerraty  (sjg@zen.void.oz.au)
++ 
++ 	* mail.c, expr.c: bug fixes from: Carsten Heyl
++ 	<ch@jenny.informatik.uni-dortmund.de> 
++ 
++ 	* eval.c: bug fix from: Peter Collinson <pc@hillside.co.uk>
++ 
++ 
++ Sat May  8 15:48:16 1993  Simon J. Gerraty  (sjg@zen.void.oz.au)
++ 
++ 	* Ported to 386bsd (new base system :-), only sh directory
++ 	involved though.  This mainly involved re-arranging some #if's so
++ 	that if _POSIX_TERM is defined it will take precedence over _BSD
++ 
+  Sat Dec  5 23:54:40 1992  Simon J. Gerraty  (sjg@zen)
+  
+  	* finally fixed the fd leakage that caused pipes to not terminate
+*** sh/Makefile.old	Sun Dec  6 00:14:52 1992
+--- sh/Makefile	Sun May  9 01:59:42 1993
+***************
+*** 1,6 ****
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.4 1992/12/05 13:15:06 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+  
+--- 1,8 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.6 93/05/08 15:59:56 sjg Exp $
+  
++ # Makefile is setup for 386bsd
++ 
+  SHELL = /bin/sh
+  MAKE  = make
+  
+***************
+*** 25,37 ****
+  # to build ksh without ../std
+  #
+  # sun386 SunOS 4.0.2, sun3 SunOS 4.0.3
+! # CONFIG=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o strstr.o 
+  #
+  # sun3  SunOS 4.1.1
+! # CONFIG=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+--- 27,39 ----
+  # to build ksh without ../std
+  #
+  # sun386 SunOS 4.0.2, sun3 SunOS 4.0.3
+! # SYSFLAGS=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o strstr.o 
+  #
+  # sun3  SunOS 4.1.1
+! # SYSFLAGS=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+***************
+*** 38,44 ****
+  #
+  # sun4c (sparc) SunOS 4.1.1
+  # CC=cc -pipe	# don't use gcc
+! # CONFIG=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+--- 40,46 ----
+  #
+  # sun4c (sparc) SunOS 4.1.1
+  # CC=cc -pipe	# don't use gcc
+! # SYSFLAGS=-D_BSD
+  # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+***************
+*** 45,72 ****
+  #
+  # Bull DPX/2 B.O.S. 2.00.45
+  # CC=gcc -ansi
+! # CONFIG=-D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  #
+  # Minix-386 1.5.10 with estdio
+! # CONFIG= -D_BSD -D_MINIX -D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  #
+  # BSD/386
+! # CONFIG= -D_BSDI -D_POSIX_TERM -D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  
+! #CONFIG= -D_SYSV
+! #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+! CONFIG= -D_BSD -DCOMPLEX_HISTORY
+  
+  
+  STD=../std
+  INCL=$(STD)/h
+! XINCL=-I$(INCL)
+  LDOPTS=-L$(STD)
+  XOBJS=
+  
+--- 47,84 ----
+  #
+  # Bull DPX/2 B.O.S. 2.00.45
+  # CC=gcc -ansi
+! # SYSFLAGS=-D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  #
+  # Minix-386 1.5.10 with estdio
+! # SYSFLAGS= -D_BSD -D_MINIX -D_POSIX_SOURCE
+! # XOPTS=
+! # XOBJS=
+! #
+! # 386bsd-0.1 pk 0.2.3
+! # SYSFLAGS= -D_BSD -D_POSIX_TERM
+  # XOPTS=
+  # XOBJS=
+  #
+  # BSD/386
+! # SYSFLAGS= -D_BSDI -D_POSIX_TERM -D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  
+! #SYSFLAGS= -D_SYSV
+! #SYSFLAGS= -D_BSD -DHAVE_SYS_STDTYPES
+! #SYSFLAGS= -D_BSD 
+! 
+! SYSFLAGS= -D_BSD -D_POSIX_TERM
+! 
+! CONFLAGS=-DCOMPLEX_HISTORY
+  
++ CONFIG=$(SYSFLAGS) $(CONFLAGS)
+  
+  STD=../std
+  INCL=$(STD)/h
+! #XINCL=-I$(INCL)
+  LDOPTS=-L$(STD)
+  XOBJS=
+  
+***************
+*** 74,82 ****
+  DBG=-g -O
+  CFLAGS = $(DBG) $(CONFIG) $(XINCL) $(XOPTS)
+  
+! LDFLAGS = $(DBG) $(LDOPTS)
+  
+! COMPATLIBS = -lstdc -lposix
+  #XLIBS = -lc_s
+  #XLIBS = -ldirent
+  LDLIBS = $(COMPATLIBS) $(XLIBS)
+--- 86,94 ----
+  DBG=-g -O
+  CFLAGS = $(DBG) $(CONFIG) $(XINCL) $(XOPTS)
+  
+! LDFLAGS = $(DBG) 
+  
+! COMPATLIBS = #$(LDOPTS) -lstdc -lposix
+  #XLIBS = -lc_s
+  #XLIBS = -ldirent
+  LDLIBS = $(COMPATLIBS) $(XLIBS)
+*** sh/alloc.c.old	Sat Apr 25 18:33:14 1992
+--- sh/alloc.c	Thu May  6 07:15:58 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: alloc.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: alloc.c,v 1.3 93/05/05 21:16:12 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/c_ksh.c.old	Sun Dec  6 00:14:57 1992
+--- sh/c_ksh.c	Thu May  6 07:16:00 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_ksh.c,v 1.3 1992/12/05 13:15:11 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_ksh.c,v 1.4 93/05/05 21:16:14 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/c_sh.c.old	Sat Apr 25 18:29:38 1992
+--- sh/c_sh.c	Thu May  6 07:16:02 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_sh.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_sh.c,v 1.4 93/05/05 21:16:16 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/c_test.c.old	Sat Apr 25 18:33:14 1992
+--- sh/c_test.c	Thu May  6 07:16:04 1993
+***************
+*** 6,12 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_test.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 6,12 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_test.c,v 1.3 93/05/05 21:16:18 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/config.h.old	Sun Dec  6 00:15:01 1992
+--- sh/config.h	Thu May  6 07:16:06 1993
+***************
+*** 1,7 ****
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * RCSid: $Id: config.h,v 1.6 1992/12/05 13:15:15 sjg Exp $
+   */
+  
+  #ifndef	_CONFIG_H
+--- 1,7 ----
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * RCSid: $Id: config.h,v 1.7 93/05/05 21:16:20 sjg Exp $
+   */
+  
+  #ifndef	_CONFIG_H
+*** sh/edit.c.old	Mon Aug 10 22:02:11 1992
+--- sh/edit.c	Wed Jun  2 09:40:16 1993
+***************
+*** 7,13 ****
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.5 1992/08/10 12:02:25 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.8 93/06/01 23:40:30 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 41,58 ****
+  	char *buf;
+  	size_t len;
+  {
+!   static int setup_done = 0;
+  	int	i;
+! 
+!   if (setup_done != 42)
+!   {
+!     setup_done = 42;		/* these get done once only */
+!     x_do_init = 1;
+!     x_col = 0;
+!     ed_erase = -1, ed_kill = -1, ed_werase = -1, ed_intr = -1, ed_quit = -1;
+!     x_adj_ok = 1;
+!     x_adj_done = 0;
+!   }
+  	if (x_do_init)
+  		x_init();
+  
+--- 41,60 ----
+  	char *buf;
+  	size_t len;
+  {
+! 	static int setup_done = 0;
+  	int	i;
+! 	char *ps1 = prompt;			/* current prompt */
+! 	register char *rcp;
+! 	
+! 	if (setup_done != 42)
+! 	{
+! 		setup_done = 42;		/* these get done once only */
+! 		x_do_init = 1;
+! 		x_col = 0;
+! 		ed_erase = -1, ed_kill = -1, ed_werase = -1, ed_intr = -1, ed_quit = -1;
+! 		x_adj_ok = 1;
+! 		x_adj_done = 0;
+! 	}
+  	if (x_do_init)
+  		x_init();
+  
+***************
+*** 60,65 ****
+--- 62,69 ----
+  		return(read(ttyfd, buf, len));
+  
+  	(void)x_mode(TRUE);
++ 	if (rcp = strrchr(ps1, '\n'))
++ 		prompt = ++rcp;			/* fake 1 line prompt */
+  #ifdef EMACS
+  	if (flag[FEMACS])
+  		i = x_emacs(buf, len);
+***************
+*** 70,76 ****
+  		i = x_vi(buf, len);
+  	else
+  #endif
+! 		i = -1;		/* internal error */
+  	(void) x_mode(FALSE);
+  	if (i > 4 && strstr(buf, "stty"))
+  		x_do_init = 1;
+--- 74,81 ----
+  		i = x_vi(buf, len);
+  	else
+  #endif
+! 		i = -1;				/* internal error */
+! 	prompt = ps1;				/* restore it */
+  	(void) x_mode(FALSE);
+  	if (i > 4 && strstr(buf, "stty"))
+  		x_do_init = 1;
+***************
+*** 200,206 ****
+      x_putc(*s++);
+  }
+  
+! #ifdef _BSD
+  static	struct sgttyb cb, cborig;
+  #ifdef TIOCGATC
+  static struct ttychars lchars, lcharsorig;
+--- 205,211 ----
+      x_putc(*s++);
+  }
+  
+! #if defined(_BSD) && !defined(_POSIX_TERM)
+  static	struct sgttyb cb, cborig;
+  #ifdef TIOCGATC
+  static struct ttychars lchars, lcharsorig;
+***************
+*** 223,229 ****
+  x_init()
+  {
+  	x_do_init = 0;
+! #ifdef _BSD
+  	(void)ioctl(ttyfd, TIOCGETP, &cborig);
+  	if ((cborig.sg_flags & ECHO) == 0)
+  		x_noecho = 1;
+--- 228,234 ----
+  x_init()
+  {
+  	x_do_init = 0;
+! #if defined(_BSD) && !defined(_POSIX_TERM)
+  	(void)ioctl(ttyfd, TIOCGETP, &cborig);
+  	if ((cborig.sg_flags & ECHO) == 0)
+  		x_noecho = 1;
+***************
+*** 306,312 ****
+  
+  /* set/clear tty cbreak mode */
+  
+! #ifdef _BSD
+  bool_t
+  x_mode(onoff)
+  	bool_t	onoff;
+--- 311,317 ----
+  
+  /* set/clear tty cbreak mode */
+  
+! #if defined(_BSD) && !defined(_POSIX_TERM)
+  bool_t
+  x_mode(onoff)
+  	bool_t	onoff;
+*** sh/edit.h.old	Thu Aug 13 00:15:11 1992
+--- sh/edit.h	Thu May  6 07:16:11 1993
+***************
+*** 8,14 ****
+   *      
+   *
+   * RCSid:
+!  *      $Id: edit.h,v 1.4 1992/08/12 14:15:25 sjg Exp $
+   *
+   */
+  
+--- 8,14 ----
+   *      
+   *
+   * RCSid:
+!  *      $Id: edit.h,v 1.5 93/05/05 21:16:25 sjg Exp $
+   *
+   */
+  
+*** sh/emacs.c.old	Sun Dec  6 00:15:06 1992
+--- sh/emacs.c	Tue Jun  1 22:05:11 1993
+***************
+*** 10,16 ****
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 1.4 1992/12/05 13:15:20 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 10,16 ----
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 1.5 93/05/05 21:16:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/eval.c.old	Sun Dec  6 00:15:11 1992
+--- sh/eval.c	Sun May 23 08:46:57 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 1.5 1992/12/05 13:15:25 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 1.7 93/05/22 22:47:11 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 718,723 ****
+--- 718,724 ----
+  			}
+  		  case QCHAR:
+  			*dp++ = *cp++;
++ 		  case CSUBST:
+  		  copy:
+  			*dp++ = *cp++;
+  			break;
+*** sh/exec.c.old	Sun Dec  6 00:15:15 1992
+--- sh/exec.c	Wed Sep 29 09:58:42 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 1.5 1992/12/05 13:15:29 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 1.9 93/09/28 23:58:56 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 144,154 ****
+  			t = t->right;
+  		}
+  		flags &= ~ XPIPEO;
+  		(void) dup2(e.savefd[1], 1); /* stdout of last */
+  		(void) fd_clexec(e.savefd[0]);
+! 		(void) fd_clexec(e.savefd[1]);
+! 		exchild(t, flags);
+  		(void) dup2(e.savefd[0], 0); /* close pipe in */
+  		if (!(flags&XBGND))
+  			exstat = rv = waitlast();
+  		break;
+--- 144,161 ----
+  			t = t->right;
+  		}
+  		flags &= ~ XPIPEO;
++ #if 0
++ 		/* 
++ 		 * this patch broke more things than it fixed
++ 		 */
++ 		flags |= XEXEC;
++ #endif
+  		(void) dup2(e.savefd[1], 1); /* stdout of last */
+  		(void) fd_clexec(e.savefd[0]);
+! 		(void) fd_clexec(e.savefd[1]); 
+! 		execute(t, flags);
+  		(void) dup2(e.savefd[0], 0); /* close pipe in */
++ 		flags &= ~XEXEC;
+  		if (!(flags&XBGND))
+  			exstat = rv = waitlast();
+  		break;
+***************
+*** 284,290 ****
+  		fflush(shf[1]);
+  		fflush(shf[2]);
+  	}
+! 	if ((flags&XEXEC))
+  		exit(rv);	/* exit child */
+  	return rv;
+  }
+--- 291,297 ----
+  		fflush(shf[1]);
+  		fflush(shf[2]);
+  	}
+! 	if ((flags&XEXEC) && !(flags&XPIPEI))  
+  		exit(rv);	/* exit child */
+  	return rv;
+  }
+***************
+*** 586,592 ****
+  	}
+  	if (tp == NULL) {
+  		tp = tsearch(&commands, name, h);
+! 		if (tp != NULL && eaccess(tp->val.s,1) != 0) {
+  			if (tp->flag&ALLOC)
+  				afree(tp->val.s, commands.areap);
+  			tp->type = CEXEC;
+--- 593,601 ----
+  	}
+  	if (tp == NULL) {
+  		tp = tsearch(&commands, name, h);
+! 		if (tp != NULL &&
+! 		    (tp->flag&ALLOC) &&
+! 		    eaccess(tp->val.s,1) != 0) {
+  			if (tp->flag&ALLOC)
+  				afree(tp->val.s, commands.areap);
+  			tp->type = CEXEC;
+*** sh/expr.c.old	Sat Apr 25 18:33:14 1992
+--- sh/expr.c	Sun May 23 08:47:00 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: expr.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: expr.c,v 1.4 93/05/22 22:47:14 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 200,206 ****
+  	/* skip white space */
+  	do c = *cp++;	while (c != '\0' && (c == ' ' || c == '\t'));
+  	tokp = cp-1;
+! 
+  	if (letter(c)) {
+  		for (; letnum(c); c = *cp++)
+  			;
+--- 200,206 ----
+  	/* skip white space */
+  	do c = *cp++;	while (c != '\0' && (c == ' ' || c == '\t'));
+  	tokp = cp-1;
+!  
+  	if (letter(c)) {
+  		for (; letnum(c); c = *cp++)
+  			;
+***************
+*** 221,227 ****
+  		*cp = c;
+  		tok = LIT;
+  	} else {
+! 		c2 = *cp++;
+  		if (c == '=' && c2 == '=')
+  			c = LEQ;
+  		ef (c == '!' && c2 == '=')
+--- 221,230 ----
+  		*cp = c;
+  		tok = LIT;
+  	} else {
+! 		if (c)
+! 			c2 = *cp++;
+! 		else
+! 			c2 = 0;
+  		if (c == '=' && c2 == '=')
+  			c = LEQ;
+  		ef (c == '!' && c2 == '=')
+*** sh/getopts.c.old	Mon Aug 10 22:02:27 1992
+--- sh/getopts.c	Sun May  9 01:59:46 1993
+***************
+*** 7,13 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 1.3 1992/08/10 12:02:41 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 1.5 93/05/08 16:00:00 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 40,46 ****
+  static int
+  getopt(argc, argv, opts)
+  	int argc;
+! 	register char **argv, *opts;
+  {
+  	register int c;
+  	register char *cp;
+--- 40,47 ----
+  static int
+  getopt(argc, argv, opts)
+  	int argc;
+! 	char * const *argv;
+! 	const char *opts;
+  {
+  	register int c;
+  	register char *cp;
+*** sh/history.c.old	Sun Dec  6 00:15:20 1992
+--- sh/history.c	Wed Jun  2 09:40:22 1993
+***************
+*** 5,11 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 1.5 1992/12/05 13:15:34 sjg Exp $";
+  #endif
+  /*
+   *	This file contains
+--- 5,11 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 1.7 93/06/01 23:40:36 sjg Exp $";
+  #endif
+  /*
+   *	This file contains
+***************
+*** 625,630 ****
+--- 625,631 ----
+  	unsigned char	*base;
+  	int	lines;
+  	int	bytes;
++ 	int	fd;
+  	
+  	hstarted = 1;
+  	
+***************
+*** 638,647 ****
+  
+    retry:
+  	/* we have a file and are interactive */
+! 	if ((histfd = open(hname, O_RDWR|O_CREAT|O_APPEND, 0600)) < 0)
+  		return;
+  
+! 	histfd = fcntl(histfd, F_DUPFD, FDBASE);
+  	
+  	(void) fd_clexec(histfd);
+  
+--- 639,649 ----
+  
+    retry:
+  	/* we have a file and are interactive */
+! 	if ((fd = open(hname, O_RDWR|O_CREAT|O_APPEND, 0600)) < 0)
+  		return;
+  
+! 	histfd = fcntl(fd, F_DUPFD, FDBASE);
+! 	close(fd);
+  	
+  	(void) fd_clexec(histfd);
+  
+*** sh/io.c.old	Sun Dec  6 00:15:25 1992
+--- sh/io.c	Sun May  9 01:59:48 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 1.4 1992/12/05 13:15:39 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 1.6 93/05/08 16:00:02 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 99,113 ****
+  	if (shf[fd] != NULL)
+  		return;
+  	if (fd <= 2)
+! #ifndef _BSDI
+  #ifdef _MINIX
+  		/* ? */;
+  #else
+  		_iob[fd]._flag = 0; /* re-use stdin, stdout, stderr */
+  #endif
+- #else
+- 		/* Chris Torek's stdio replacement */
+- 		__sF[fd]._flags = 0;
+  #endif
+  	shf[fd] = fdopen(fd, "r+");
+  	if (shf[fd] == NULL)
+--- 99,113 ----
+  	if (shf[fd] != NULL)
+  		return;
+  	if (fd <= 2)
+! #if defined(__386BSD__) || defined(_BSDI)
+! 		/* Chris Torek's stdio replacement */
+! 		__sF[fd]._flags = 0;
+! #else
+  #ifdef _MINIX
+  		/* ? */;
+  #else
+  		_iob[fd]._flag = 0; /* re-use stdin, stdout, stderr */
+  #endif
+  #endif
+  	shf[fd] = fdopen(fd, "r+");
+  	if (shf[fd] == NULL)
+***************
+*** 122,128 ****
+  	int fd;
+  {
+  	if (shf[fd] != NULL) {
+! #ifndef _BSDI
+  		/* Chris Torek's stdio replacement */
+  		fseek(shf[fd], 0L, 1); /* V7 derived */
+  #endif
+--- 122,128 ----
+  	int fd;
+  {
+  	if (shf[fd] != NULL) {
+! #if !defined(__386BSD__) && !defined(_BSDI)
+  		/* Chris Torek's stdio replacement */
+  		fseek(shf[fd], 0L, 1); /* V7 derived */
+  #endif
+*** sh/jobs.c.old	Sun Dec  6 00:15:29 1992
+--- sh/jobs.c	Wed Jun  2 09:40:25 1993
+***************
+*** 2,8 ****
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 1.6 1992/12/05 13:15:43 sjg Exp $";
+  #endif
+  
+  /*
+--- 2,8 ----
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 1.9 93/06/01 23:40:39 sjg Exp $";
+  #endif
+  
+  /*
+***************
+*** 25,35 ****
+  #include <sys/wait.h>
+  #include "sh.h"
+  #ifdef JOBS
+! #ifdef _BSDI
+! #define _BSD
+! #define WIFCORED(x) WCOREDUMP(x)
+  #endif
+! #ifdef _BSD
+  #include <sys/ioctl.h>
+  #else
+  #include "termios.h"
+--- 25,37 ----
+  #include <sys/wait.h>
+  #include "sh.h"
+  #ifdef JOBS
+! #if defined(__386BSD__) || defined(_BSDI)
+! # ifndef _BSD
+! #   define _BSD
+! # endif
+! # define WIFCORED(x) WCOREDUMP(x)
+  #endif
+! #if defined(_BSD) && !defined(_POSIX_TERM)
+  #include <sys/ioctl.h>
+  #else
+  #include "termios.h"
+***************
+*** 83,90 ****
+--- 85,96 ----
+  #ifdef JOBS
+  #ifdef _BSD			/* _BSD 4.* */
+  #define	setpgid(p, pg)	setpgrp(p, pg)
++ #if defined(_POSIX_SOURCE) || defined(__386BSD__) || defined(_BSDI)
++ #define	getpgid(p)	getpgrp()
++ #else
+  #define	getpgid(p)	getpgrp(p)
+  #define	tcsetpgrp(fd,p)	ioctl(fd, TIOCSPGRP, &(p))
++ #endif
+  #else				/* POSIX-compatible */
+  #define	getpgid(p)	getpgrp() /* 1003.1 stupidity */
+  #define	killpg(p, s)	kill(-(p), s)
+***************
+*** 101,107 ****
+  #else
+  #define WAIT_T int
+  #endif
+! #ifdef _BSDI
+  #undef WAIT_T
+  #define WAIT_T int
+  #endif
+--- 107,113 ----
+  #else
+  #define WAIT_T int
+  #endif
+! #if defined(__386BSD__) || defined(_BSDI)
+  #undef WAIT_T
+  #define WAIT_T int
+  #endif
+***************
+*** 350,358 ****
+  	{
+  	  j->pgrp = !(flags&XPIPEI) ? j->proc : j_lastj->pgrp;
+  	  /* do in both parent and child to avoid fork race condition */
+  	  if (!(flags&XBGND))
+  	    tcsetpgrp(ttyfd, j->pgrp); /* could be trouble */
+- 	  setpgid(j->proc, j->pgrp);
+  	}
+  #endif
+  	j_lastj = j;
+--- 356,364 ----
+  	{
+  	  j->pgrp = !(flags&XPIPEI) ? j->proc : j_lastj->pgrp;
+  	  /* do in both parent and child to avoid fork race condition */
++ 	  setpgid(j->proc, j->pgrp);   /* Can't set tpgrp until pgrp exists. */
+  	  if (!(flags&XBGND))
+  	    tcsetpgrp(ttyfd, j->pgrp); /* could be trouble */
+  	}
+  #endif
+  	j_lastj = j;
+***************
+*** 602,608 ****
+  		else
+  #endif
+  			pid = wait(&status);
+! 		if (pid < 0 && errno == ECHILD)
+  		{
+  		  /* no children - what are we doing here? */
+  		  _TRACE(5, ("j_reapchld: no children"));
+--- 608,614 ----
+  		else
+  #endif
+  			pid = wait(&status);
+! 		if (pid == 0 || pid < 0 && errno == ECHILD)
+  		{
+  		  /* no children - what are we doing here? */
+  		  _TRACE(5, ("j_reapchld: no children"));
+***************
+*** 753,769 ****
+  	if (j->pgrp == 0)
+  		errorf("job not job-controlled\n");
+  
+! 	j->state = JRUN;
+  	j_print(j);
+  	flushshf(2);
+  
+! 	if (!bg)
+!   		tcsetpgrp(ttyfd, j->pgrp); /* attach shell to job */
+! 	if (killpg(j->pgrp, SIGCONT) < 0)
+  		errorf("cannot continue job %%%d\n", job);
+! 	if (!bg)
+! 		return j_waitj(j, 0);
+! 	return 0;
+  }
+  
+  #endif
+--- 759,783 ----
+  	if (j->pgrp == 0)
+  		errorf("job not job-controlled\n");
+  
+! 	if (j->state == JSTOP)
+! 		j->state = JRUN;
+  	j_print(j);
+  	flushshf(2);
++ 	if (j->state == JFREE)
++ 		return 0;
++ 
++ 	if (bg) {
++ 		if (killpg(j->pgrp, SIGCONT) < 0)
++ 			errorf("cannot continue job %%%d\n", job);
++ 		return 0;
++ 	}
+  
+! 	tcsetpgrp(ttyfd, j->pgrp);		/* attach tty to job */
+! 	if (killpg(j->pgrp, SIGCONT) < 0) {
+! 		tcsetpgrp(ttyfd, our_pgrp);	/* attach tty to shell */
+  		errorf("cannot continue job %%%d\n", job);
+! 	}
+! 	return j_waitj(j, 0);
+  }
+  
+  #endif
+*** sh/lex.c.old	Mon Aug 10 22:02:41 1992
+--- sh/lex.c	Tue Jun  1 23:39:39 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 1.3 1992/08/10 12:02:55 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 1.4 93/05/05 21:16:46 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/lex.h.old	Sun Dec  6 00:15:32 1992
+--- sh/lex.h	Thu May  6 07:16:34 1993
+***************
+*** 2,8 ****
+   * Source input, lexer and parser
+   */
+  
+! /* $Id: lex.h,v 1.4 1992/08/12 14:15:37 sjg Exp $ */
+  
+  #define	IDENT	64
+  
+--- 2,8 ----
+   * Source input, lexer and parser
+   */
+  
+! /* $Id: lex.h,v 1.6 93/05/05 21:16:48 sjg Exp $ */
+  
+  #define	IDENT	64
+  
+*** sh/mail.c.old	Sat Apr 25 18:33:14 1992
+--- sh/mail.c	Sun May 23 08:47:03 1993
+***************
+*** 3,9 ****
+   * John R. MacMillan
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: mail.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   * John R. MacMillan
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: mail.c,v 1.4 93/05/22 22:47:17 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 55,60 ****
+--- 55,63 ----
+  	struct stat	 stbuf;
+  
+  	vp = global("MAILCHECK");
++ 
++ 	mailcheck.type = 0;
++ 
+  	if (!(vp->flag & ISSET) || strint(&mailcheck, vp) == NULL)
+  		return;
+  
+*** sh/main.c.old	Sun Dec  6 00:15:35 1992
+--- sh/main.c	Thu May  6 07:16:38 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 1.7 1992/12/05 13:15:49 sjg Exp $";
+  #endif
+  
+  #define	EXTERN				/* define EXTERNs in sh.h */
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 1.8 93/05/05 21:16:52 sjg Exp $";
+  #endif
+  
+  #define	EXTERN				/* define EXTERNs in sh.h */
+*** sh/misc.c.old	Thu Aug 13 00:15:28 1992
+--- sh/misc.c	Thu May  6 07:16:40 1993
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: misc.c,v 1.3 1992/08/12 14:15:42 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: misc.c,v 1.4 93/05/05 21:16:54 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/patchlevel.h.old	Sun Dec  6 00:15:38 1992
+--- sh/patchlevel.h	Thu May  6 07:16:42 1993
+***************
+*** 1,6 ****
+  /*
+   * PD KSH
+!  * $Id: patchlevel.h,v 4.8 1992/12/05 13:15:52 sjg Exp $
+   */
+  #define VERSION		4
+  #define PATCHLEVEL	8
+--- 1,6 ----
+  /*
+   * PD KSH
+!  * $Id: patchlevel.h,v 4.9 93/05/05 21:16:56 sjg Exp $
+   */
+  #define VERSION		4
+  #define PATCHLEVEL	8
+
+exit 0 # Just in case...

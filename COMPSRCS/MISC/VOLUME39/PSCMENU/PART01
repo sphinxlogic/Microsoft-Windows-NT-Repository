@@ -1,0 +1,2357 @@
+Newsgroups: comp.sources.misc
+From: Ted Wisniewski <ted@oz.plymouth.edu>
+Subject: v39i060:  pscmenu - tty based menu system v2.3, Part01/02
+Message-ID: <csm-v39i060=pscmenu.115434@sparky.Sterling.COM>
+X-Md4-Signature: c1c3b8dd963d027ef1ef5b7df5c1a04e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: ted@oz.plymouth.edu (The Wizard of Oz)
+Organization: Plymouth State College - Plymouth, N.H.
+Date: Sun, 29 Aug 1993 16:55:00 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Ted Wisniewski <ted@oz.plymouth.edu>
+Posting-number: Volume 39, Issue 60
+Archive-name: pscmenu/part01
+Environment: UNIX, curses
+Supersedes: pscmenu: Volume 22, Issue 98-99
+
+PSCMenu is a menu system that is capable of doing any unix command 
+from the "menu".  The individual menus are read from menu files that
+are located in a "menu" directory.  The menu files are simple text files
+that may be edited with any editor.  The "menu" is flexible, the only
+command line argument that is accepted is the name of a directory in which
+the menu files are located.  A default directory is specified in the
+menu header file. 
+
+This Menu system should compile on just about any machine.  I 
+have it working under Ultrix, AIX (IBM system V), SUN and HP-UX.  
+These are the only variations of UNIX that I know it has worked on.  
+If you have problems just ask.  
+
+Ted
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  MENU MENU/appl.c MENU/demos MENU/demos/HELP
+#   MENU/demos/sub_menu.menu MENU/dir.c MENU/files.c MENU/menu.c
+#   MENU/menu.h MENU/menu.man MENU/terminal.c
+# Wrapped by kent@sparky on Sun Aug 29 11:50:48 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test ! -d 'MENU' ; then
+    echo shar: Creating directory \"'MENU'\"
+    mkdir 'MENU'
+fi
+if test -f 'MENU/appl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/appl.c'\"
+else
+  echo shar: Extracting \"'MENU/appl.c'\" \(12748 characters\)
+  sed "s/^X//" >'MENU/appl.c' <<'END_OF_FILE'
+X# define	__APPL_C
+X
+X# include "config.h"
+X# include "proto.h"
+X# include "utils.h"
+X# include "menu.h"
+X
+X/*	PSC MENU COPYRIGHT NOTICE
+X
+X	Part of PSCMenu
+X
+X	This software is to be considered to be public domain, it
+Xmay be copied, modified and parts of it may be used in other programs
+Xas long as this copyright notice remains intact.
+X
+X	Copyright()   PSC - Plymouth State College
+X	Written by:   Ted Wisniewski 12-9-1990
+X 
+X*/
+X
+X/*
+X *	static disp_help():
+X *
+X *	Parameters: 	None
+X *	
+X *	Purpose:	Display the Help Window.
+X *
+X *	Returns:	None
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic int disp_help()
+X{
+X	char Key;
+X	
+X	clear_window(inside_window);
+X	box_window(help_window);
+X	my_print(help_window,"Command Summary:",2,1);
+X	my_print(help_window,"(q)       Quit Menu",2,3);
+X	my_print(help_window,"(x)       Execute Command",2,4);
+X	my_print(help_window,"(C)       Change Directory",2,5);
+X	my_print(help_window,"(D)       Show Directory",2,6);
+X	my_print(help_window,"(l)       Long Directory",2,7);
+X	my_print(help_window,"(?)       Get Help on Item",2,8);
+X	my_print(help_window,"(m)       Go to Main Menu",2,9);
+X	my_print(help_window,"(p)       Go to Prev Menu",2,10);
+X	my_print(help_window,"(L)       Log off!",2,11);
+X# ifdef ENABLE_PRINT
+X	my_print(help_window,"(P)       Print a file.",2,12);
+X# else
+X	my_print(help_window,"(P)       Disabled, sorry.",2,12);
+X# endif
+X	my_print(help_window,"(ctrl-R)  Redraw Screen.",2,13);
+X	hi_lite(help_window,"Space Bar to exit.",5,16);
+X	move_csr(help_window,2,15);
+X	Key = my_getchar(help_window);
+X	clear_window(help_window);
+X	return(Key);
+X}
+X
+X/*
+X *	static do_help():
+X *
+X *	Parameters:	name - String containing a file name.
+X *			y    - Number of lines from top of screen.
+X *	
+X *	Purpose:	read a file name into the string.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void One_fname(name,y)
+Xchar *name;
+Xint y;
+X{
+X	clear_array(name);
+X	my_print(inside_window,"Filename: ",2,y);
+X	read_str(inside_window,name,30);
+X}
+X
+X/*
+X *	static Two_fname():
+X *
+X *	Parameters:	name - String containing a file name.
+X *			y    - Number of lines from top of screen.
+X *	
+X *	Purpose:
+X *
+X *	Returns:
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void Two_fname(name,y)
+Xchar *name;
+Xint y;
+X{
+X	clear_array(name);
+X	my_print(inside_window,"New File: ",2,y);
+X	read_str(inside_window,name,30);
+X}
+X
+X/*
+X *	static change():
+X *
+X *	Parameters:	None.
+X *	
+X *	Purpose:	Change to a new working directory.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void change()
+X{
+X	clear_array(buffer);
+X	my_print(inside_window,"Directory: ",2,2);
+X	read_str(inside_window,buffer,30);
+X	(void) chdir(buffer);
+X	erase_line(inside_window,2,2,60);
+X	prt_curdir();
+X	clear_array(buffer);
+X}
+X
+X/*
+X *	static exec_it():
+X *
+X * 	Parameters:	None.
+X *	
+X *	Purpose:	Execute A shell commenad.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void exec_it()
+X{
+X	my_print(inside_window,"Command: ",2,2);
+X	clear_array(buffer);
+X	read_str(inside_window,buffer,30);
+X	exec_cshell(buffer,CONTINUE);
+X}
+X
+X/*
+X *	static ask_who():
+X *
+X *	Parameters:	None.
+X *	
+X *	Purpose:	Ask for a login name.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void ask_who(name,y)
+Xchar *name;
+Xint y;
+X{
+X	clear_array(name);
+X	my_print(inside_window,"To Whom: ",2,y);
+X	read_str(inside_window,name,30);
+X	move_csr(inside_window,2,3);
+X}
+X
+X/*
+X *	static ask_what():
+X *
+X *	Parameters:	name - Name of what you are asking.
+X *			y    - number of rows down from top of screen.
+X *	
+X *	Purpose:	Ask for a topic.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void ask_what(name,y)
+Xchar *name;
+Xint y;
+X{
+X	clear_array(name);
+X	my_print(inside_window,"Topic: ",2,y);
+X	read_str(inside_window,name,30);
+X}
+X
+X/*
+X *	void check_dirname():
+X *
+X *	Parameters:	string - Name of directory.
+X *	
+X *	Purpose:	Expand '~' to users Home Directory.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xvoid check_dirname(string)
+Xchar *string;
+X{
+X	char *tmp_str;
+X
+X	tmp_str = (char *) malloc(80);;
+X	if(*string == TILD){
+X	  Strcpy(tmp_str,getenv("HOME"));
+X	  Strcat(tmp_str,string+1);
+X	  Strcat(tmp_str,"/");
+X	  string = tmp_str;
+X	}
+X}
+X
+Xvoid do_padding(string,width)
+Xchar string[];
+Xint width;
+X{
+X	int ct;
+X
+X	if(strlen(string) > width)
+X	   string[strlen(string)] = NULL;
+X	else
+X	   for(ct=0;ct<=width+1;ct++){
+X	      if(string[ct] == NULL){
+X	         string[ct] = SPACE;
+X	         string[ct+1] = NULL;
+X	      }
+X	   }
+X}
+X
+X/*
+X *	void disp_menu():
+X *
+X *	Parameters:	menu -  a pointer to the menu information
+X *			n_ent - The number of entries in the menu.
+X *
+X *	Purpose:	Display the Menu on the screen.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *			07-06-93 (TW)
+X *
+X */
+X
+Xvoid disp_menu(menu,n_ent)
+Xmenu_ent *menu;
+Xint n_ent;
+X{
+X	int ind = 0;
+X	char tmp[5];
+X	
+X	while(ind < n_ent){
+X	   if(ind == 0){
+X	     center_line(inside_window,menu[0].desc,2,78,1);
+X	   }else
+X	     if(ind > 0){
+X	       if(menu[0].cflag == FALSE){
+X	         Sprintf(tmp,"%d)",ind);
+X	         my_print(inside_window,tmp,NUMCOL,(ind*2) + 3);
+X	         hi_lite(inside_window,menu[ind].desc,DESCOL,(ind*2) + 3);
+X	       }else{
+X		 if(ind < 10)
+X	           Sprintf(tmp,"%d)",ind);
+X		 else
+X	           Sprintf(tmp,"%c)",(ind - 10) + 'a');
+X	         my_print(inside_window,tmp,NUMCOL,(ind) + 3);
+X	         my_print(inside_window,menu[ind].desc,DESCOL,(ind) + 3);
+X	       }
+X	     }
+X	   ind++;
+X	}
+X}
+X
+X/*
+X *	static do_help():
+X *
+X *	Parameters:	menu - pointer to menu information.
+X *			num  - the number of entries in the menu.
+X *	
+X *	Purpose:	Show help on a menu option.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *
+X */
+X
+Xstatic void do_help(menu,num)
+Xmenu_ent *menu;
+Xint num;
+X{
+X	char buff[256];
+X
+X	 Sprintf(buff,"cat %s",menu[num].help_fil);
+X	 exec_pipe(buff);
+X}
+X
+Xvoid strc_cpy(destin, source, character)
+Xchar *destin, *source, character;
+X{
+X	for(;*source != NULL, *source != character; *source++,*destin++)
+X	   *destin = *source;
+X	*destin = NULL;
+X}
+X
+Xchar *get_arg(string)
+Xchar *string;
+X{
+X	return(NULL);
+X}
+X
+Xvoid choose_option(string)
+Xchar *string;
+X{
+X	char cmd[80], option_file[80], command[256];
+X	char *ptr;
+X
+X	if((ptr = index(string,COLON)) != NULL){
+X	  strcpy(option_file,ptr+2);
+X	  strc_cpy(cmd,string,COLON);
+X	  ptr = get_arg(option_file);
+X	fprintf(stderr,"OPTION = %s",ptr);
+X	  (void) sprintf(command,"%s %s",cmd, ptr);
+X	}else
+X	  return;
+X	fprintf(stderr,"Command = %s",cmd);
+X}
+X
+X/*
+X *	void do_menu():
+X *
+X *	Parameters: 	menu  - pointer to menu information.
+X *			n_ent - number of menu entries.
+X *	
+X *	Purpose:	Main work loop, keystrokes interpreted.
+X *
+X *	Returns:	None
+X *
+X *	Last Modify:	01-12-91 (TW)
+X *			07-06-93 (TW)
+X *
+X */
+X
+Xvoid do_menu(menu,n_ent)
+Xmenu_ent *menu;
+Xint n_ent;
+X{
+X	char buff[LINESZ], inp = NULL, *ptr;
+X	int tmp, num;
+X
+X	move_csr(inside_window,4,20);
+X	while(inp != QUIT_KEY) {
+X	   switch (inp) {
+X	        case CHANGE_DIR:
+X		  clear_window(inside_window);
+X	          change();
+X	          disp_menu(menu,n_ent);
+X	    	break;
+X		case EXEC_COMM:
+X		  clear_window(inside_window);
+X		  exec_it();
+X	          disp_menu(menu,n_ent);
+X		break;
+X		case SHORT_DIR:
+X		  clear_window(inside_window);
+X	          exec_cshell("ls",CONTINUE);
+X	          disp_menu(menu,n_ent);
+X	        break;
+X		case DO_PRINT:
+X# ifdef ENABLE_PRINT
+X		  clear_window(inside_window);
+X		  do_printers();
+X		  disp_menu(menu,n_ent);
+X# endif
+X		break;
+X		case '?':
+X		  Sprintf(buff,"Get help on item %d..%d? ",1,n_ent-1);
+X		  hi_lite(inside_window,buff,23,19);
+X		  num = (my_getchar(inside_window) - '0');
+X	   	  erase_line(inside_window,23,19,30);
+X		  if((num > 0) && (num < n_ent)){
+X		     if((check_file(menu[num].help_fil)) == -1){
+X	   	        hi_lite(inside_window,"Sorry, There is no help file for this.",21,20);
+X	  	        continue_it(20);
+X	   	        erase_line(inside_window,21,20,40);
+X		     }else{
+X		        clear_window(inside_window);
+X		        do_help(menu,num);
+X	                disp_menu(menu,n_ent);
+X		     }
+X		  }
+X		break;
+X		case LONG_DIR:
+X		  clear_window(inside_window);
+X	          exec_pipe("ls -l");
+X	          disp_menu(menu,n_ent);
+X		break;
+X		case RE_DRAW:
+X	  	  clear_window(stdscr);
+X		  setup_screen();
+X		  disp_menu(menu,n_ent);
+X		break;
+X	        case TO_MAIN:
+X		  if(m_flag != TRUE){
+X		    clear_window(inside_window);
+X	  	    (void) read_menu(menu,MAIN_MENU,&n_ent);
+X	  	    disp_menu(menu,n_ent);
+X		    m_flag = TRUE;
+X		  }
+X	        break;
+X		case LOGOUT:
+X		  clear_window(stdscr);
+X		  move_csr(stdscr,0,LAST_LINE);
+X		  unset_modes();
+X		  log_out();
+X		break;
+X	        case PREV_MENU:
+X		case LF:
+X		case RETURN:
+X		   if(m_flag != TRUE)
+X		      inp = n_ent-1 + '0';
+X		default:
+X	          tmp = inp - '0';
+X		  if(inp >= 'a')
+X		    tmp = (inp - 'a') + 10;
+X	          if((tmp >= 1) && (tmp < n_ent)){
+X	            switch(menu[tmp].key){
+X	               case EXEC_PIPE:
+X		          clear_window(inside_window);
+X	  		  exec_pipe(menu[tmp].cmd);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case EXEC_NCNT:
+X			  exec_cshell(menu[tmp].cmd,NO_CONTINUE);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case EXEC_CONT:
+X			  exec_cshell(menu[tmp].cmd,CONTINUE);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X		       case OPTN_CHSE:
+X/*
+X			  choose_option(menu[tmp].cmd);
+X	  		  disp_menu(menu,n_ent);
+X*/
+X	 	       break;
+X		       case LOAD_MAIN: menu->key = LOAD_MAIN;
+X	               case LOAD_MENU:
+X		          clear_window(inside_window);
+X	  		  (void) read_menu(menu,menu[tmp].cmd,&n_ent);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case FILE_ASK1:
+X		          clear_window(inside_window);
+X			  One_fname(buffer,2);
+X			  if((strlen(buffer)) != 0){
+X			    Sprintf(string,"%s %s",menu[tmp].cmd,buffer);
+X			    exec_cshell(string,CONTINUE);
+X			    clear_array(string);
+X			  }else
+X			    erase_line(inside_window,2,2,40);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case FILE_ASK2:
+X		          clear_window(inside_window);
+X			  One_fname(buffer,2);
+X			  if((strlen(buffer)) != 0){
+X			    Sprintf(string,"%s %s ",menu[tmp].cmd,buffer);
+X			    Two_fname(buffer,3);
+X			    if((strlen(buffer)) != 0){
+X			      if(!isprint(buffer[strlen(buffer)]))
+X			         rm_lf(buffer);
+X			      Strcat(string,buffer);
+X			      exec_cshell(string,CONTINUE);
+X			      clear_array(string);
+X			    }else{
+X			      erase_line(inside_window,2,2,40);
+X			      erase_line(inside_window,2,3,40);
+X			    }
+X			  }else
+X			    erase_line(inside_window,2,2,40);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case ASKS_USER:
+X		          clear_window(inside_window);
+X			  ask_who(buffer,2);
+X			  if((strlen(buffer)) != 0){
+X			    Sprintf(string,"%s %s",menu[tmp].cmd,buffer);
+X			    exec_cshell(string,CONTINUE);
+X			    clear_array(buffer);
+X			    clear_array(string);
+X			  }else
+X			    erase_line(inside_window,2,2,40);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X	               case ASKS_WHAT:
+X		          clear_window(inside_window);
+X			  ask_what(buffer,2);
+X			  if((strlen(buffer)) != 0){
+X			    Sprintf(string,"%s %s",menu[tmp].cmd,buffer);
+X			    exec_cshell(string,CONTINUE);
+X			    clear_array(buffer);
+X			    clear_array(string);
+X			  }else
+X			    erase_line(inside_window,2,2,40);
+X	  		  disp_menu(menu,n_ent);
+X	               break;
+X		       case VISL_SHLL:
+X		          clear_window(inside_window);
+X			  ptr = do_selection();
+X			  if(ptr != NULL){
+X			    Sprintf(string,"%s %s",menu[tmp].cmd,ptr);
+X			    exec_cshell(string,CONTINUE);
+X			    clear_array(buffer);
+X			    clear_array(string);
+X			  }
+X			  disp_menu(menu,n_ent);
+X		       break;
+X		       case VISL_PIPE:
+X		          clear_window(inside_window);
+X			  ptr = do_selection();
+X			  if(ptr != NULL){
+X			    Sprintf(string,"%s %s",menu[tmp].cmd,ptr);
+X			    exec_pipe(string);
+X			    clear_array(buffer);
+X			    clear_array(string);
+X			  }
+X			  disp_menu(menu,n_ent);
+X		       break;
+X	               default:
+X		       break;
+X	     }
+X	   }
+X	  }
+X	  move_csr(stdscr,0,23);
+X	  inp = my_getchar(inside_window);
+X	  if(inp == HELP_KEY){
+X	     inp = disp_help();
+X	     if(inp != EXEC_COMM && inp!= SHORT_DIR && 
+X		inp != CHANGE_DIR && inp != RE_DRAW)
+X	       disp_menu(menu,n_ent);
+X	  }
+X	}
+X	quit();
+X}
+X
+X/*
+X *	void chop_str():
+X *
+X *	Parameters:	instring   - A string to chop to 70 columns
+X *		        max_length - max length for string.
+X *	
+X *	Purpose:	Strip anything after the 70th column off.
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	06-10-91 (TW)
+X *
+X */
+X
+Xvoid chop_str(instring,max_length)
+Xchar *instring;
+Xint max_length;
+X{
+X	int length,i;
+X	
+X	length = strlen(instring);
+X	while(*instring != NULL)
+X	   *instring++;
+X	for(i=length;i>max_length;i--,*instring--)
+X	  *instring = NULL;
+X}
+X
+Xvoid pad_str(instring)
+Xchar *instring;
+X{
+X	int length,i;
+X	
+X	length = strlen(instring);
+X	for(i=length;i<=70;i++)
+X	   instring[i] = SPACE;
+X	instring[70] = NULL;
+X}
+END_OF_FILE
+  if test 12748 -ne `wc -c <'MENU/appl.c'`; then
+    echo shar: \"'MENU/appl.c'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/appl.c'
+fi
+if test ! -d 'MENU/demos' ; then
+    echo shar: Creating directory \"'MENU/demos'\"
+    mkdir 'MENU/demos'
+fi
+if test ! -d 'MENU/demos/HELP' ; then
+    echo shar: Creating directory \"'MENU/demos/HELP'\"
+    mkdir 'MENU/demos/HELP'
+fi
+if test -f 'MENU/demos/sub_menu.menu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/demos/sub_menu.menu'\"
+else
+  echo shar: Extracting \"'MENU/demos/sub_menu.menu'\" \(991 characters\)
+  sed "s/^X//" >'MENU/demos/sub_menu.menu' <<'END_OF_FILE'
+X! Example Sub-menu (7-option)
+X................................
+X* /usr/local/bin/elm
+X? Use ELM (Exec C-Shell)
+X#
+X................................
+X% /usr/local/bin/elm
+X? Use ELM (Exec C-Shell)
+X#
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X#
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X+ /bin/cat main.menu
+X? View "main.menu" (In Pipe).
+X# 
+X................................
+X& main.menu
+X? Return to Main Menu.
+X# 
+X................................
+END_OF_FILE
+  if test 991 -ne `wc -c <'MENU/demos/sub_menu.menu'`; then
+    echo shar: \"'MENU/demos/sub_menu.menu'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/demos/sub_menu.menu'
+fi
+if test -f 'MENU/dir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/dir.c'\"
+else
+  echo shar: Extracting \"'MENU/dir.c'\" \(13211 characters\)
+  sed "s/^X//" >'MENU/dir.c' <<'END_OF_FILE'
+X# define	__DIR_C
+X
+X# include "config.h"
+X# include "proto.h"
+X# include "menu.h"
+X# include <sys/types.h>
+X# include <stdlib.h>
+X# include <memory.h>
+X
+X# ifndef HPUX
+X# include <sys/dir.h>
+X# else
+X# include <sys/dirent.h>
+X# endif HPUX
+X
+X# include <sys/stat.h>
+X# include <signal.h>
+X# include "dir.h"
+X
+X/*
+X *	is_directory(directory,file):  
+X *			The first parameter is the name
+X *			directory and the second is the
+X *			name of the file in the directory.
+X *
+X *	Purpose:	Determine if a file is a directory file.
+X *
+X *	Return:		-1 = Failure to stat file, (file may not exist)
+X *		        1  = Is a directory file.
+X *			0  = Is a regular file.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xint is_directory(file_name)
+Xchar *file_name;
+X{
+X	struct stat st_buf;
+X
+X	if(stat(file_name,&st_buf) < 0)
+X	  return(-1);
+X	else
+X	  if(st_buf.st_mode & S_IFDIR)
+X	    return(1);
+X	return(0);
+X}
+X
+X/*
+X *	void replace_spaces(string):
+X *			The Parameter "string" is a file name that may
+X *			contain spaces.  Replace all spaces with the
+X *			'*' character.
+X *
+X *	Purpose:	Make it so a file with spaces in the name may
+X *			be accessed.
+X *
+X *	Returns:	None
+X *
+X *	Last Modify:	11-22-91 (TW)
+X *
+X */
+X
+Xvoid replace_spaces(string)
+Xchar *string;
+X{
+X	for(;*string != NULL;*string++)
+X	  if(isspace(*string) || iscntrl(*string))
+X	    *string = ASTER;
+X}
+X
+X/*
+X *	int get_dir(dir_entries,name):
+X *			The parameter "dir_entries" an character array of
+X *			MAX_ENT entries, with each entry being ENT_LEN in
+X * 			length.
+X *
+X *	Purpose:	Read the current directory file and extract the
+X *			file names and sort the list.
+X *
+X *	Return Values:	-1  = Failed to read the directory file.
+X *			ct  = The number of files in the directory, the count
+X *			excludes (dot) files and Directory Files.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X *			5-01-91 (TW)
+X */
+X
+Xint get_dir(dir_entries,name)
+Xchar dir_entries[MAX_ENT][ENT_LEN];
+Xchar *name;
+X{
+X	DIR *dirp;
+X# if defined (SUN) || defined (BSD43)
+X	struct direct *dp;
+X# else
+X	struct dirent *dp;
+X# endif SUN
+X	int i = 0,ct;
+X	
+X	if((dirp = opendir(name)) == (DIR *)NULL)    /* Open the directory */
+X	  return(-1);				     /* Return with error  */
+X	for(dp = readdir(dirp);dp != NULL; dp = readdir(dirp)){
+X	   if(dp->d_name[0] != DOT && !is_directory(dp->d_name)){
+X	      replace_spaces(dp->d_name);
+X	      memccpy(dir_entries[i],dp->d_name,NULL,18);
+X	      dir_entries[i][18] = ASTER;	     /* Just in case long name*/
+X	      i++;
+X	      ct = i;
+X	   }
+X	}
+X	closedir(dirp);				    /* Close the Directory */
+X	qsort(dir_entries,ct,20,strcmp);	    /* Sort the List       */
+X	return(ct);
+X}
+X
+X/*
+X *	print_other()
+X *	
+X *	Parameters:	None
+X *
+X * 	Purpose:	Print Some Instructions.
+X *	
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xvoid print_other()
+X{
+X
+X	hi_lite(stdscr,"Select a file?   Use: Arrow Keys to move, Return to select, 'q' to abort",2,2); 
+X	hi_lite(stdscr,"n - next page, p - previous page",24,3);
+X	hi_lite(stdscr,"h,j,k,l keys also move selection bar.",38,20);
+X}
+X
+X/*
+X *	int print_dir(dir_entries,start_ent,n_entries,end,dptr)
+X *
+X *	Parameters:	dir_entries - The list of files.
+X *			start_ent   - Start printing with entry #.
+X *			n_entries   - How many entries are there.
+X *			end         - What # do we stop printing at.
+X *			dptr	    - Special info.
+X *	Purpose:	Print a select group of file names ont the screen.
+X *
+X *	Returns:	The Number of the last entry printed.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xint print_dir(dir_entries,start_ent,n_entries,end,dptr)
+Xchar dir_entries[MAX_ENT][ENT_LEN];
+Xint start_ent,n_entries,end;
+Xdir_info *dptr;
+X{
+X	int i, row = 5, col = 0;
+X	int this_scr;
+X
+X	print_other();			/* Print Directions on the top of the*/
+X					/* Screen.			     */
+X	dptr->max_row = dptr->max_col = 0;
+X	this_scr = start_ent + 45;
+X	if(n_entries > end){
+X	  if(this_scr > n_entries)
+X	     this_scr = n_entries;
+X	}else{
+X	  this_scr = n_entries;
+X	}
+X	/*
+X	 * Print all for this screen.
+X         */
+X	for(i=start_ent;i<this_scr;i++){
+X	  if((i != 0) && ((i % 15) == 0) && ((i % 45) != 0)){
+X	     col++;
+X	     row = 5;
+X	  }
+X	  my_print(stdscr,dir_entries[i],(col*20)+10,row);
+X	  row++;
+X	  if(dptr->max_row < row-2)
+X	     dptr->max_row = row-2;
+X	  if(dptr->max_col < ((col)+1)*20)
+X	     dptr->max_col = ((col+1)*20);
+X	  
+X	}
+X	return(this_scr);
+X}
+X
+X/*
+X *	move_entry(dir_entries,row,col,row_off,start,flag)
+X *
+X *	Parameters:	dir_entries - The list of file Names.
+X *			row 	    - Which row we are on.
+X *			row_off	    - Row offset from top of screen.
+X *			start	    - The array index number of the
+X *				      first file name.
+X *			flag	    - Boolean: True == Highlight
+X *				      False == No Highlight
+X *
+X *	Purpose:	Allow user to move a high-lite bar to select a
+X *			file.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xvoid move_entry(dir_entries,row,col,row_off,start,flag)
+Xchar dir_entries[MAX_ENT][ENT_LEN];
+Xint row,col,row_off,start,flag;
+X{
+X	int index;
+X
+X	if(col == 0)
+X	  index = ((col%13))+row+start;
+X	else
+X	  index = (((col/15)*15))+row+start;
+X	if(!flag)
+X	  my_print(stdscr,dir_entries[index],col+10,row+row_off);
+X	else
+X	  hi_lite(stdscr,dir_entries[index],col+10,row+row_off);
+X}
+X
+X/*
+X *	char *select_item(dir_ent,number,start,end,dp)
+X *
+X *	parameters:	dir_ent - The list of file Names.
+X *			number  - 
+X *			start   - The Starting Number for the current screen.
+X *			end     - The number of the last one on this screen.
+X *			dp      - Special Info.
+X *
+X *	Purpose:	Loop to get selections. Ultimately returns a file name.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X *			5-01-91 (TW)
+X */
+X
+Xchar *select_item(dir_ent,number,start,end,dp)
+Xchar dir_ent[MAX_ENT][ENT_LEN];
+Xint number,start,end;
+Xdir_info *dp;
+X{
+X	int row = 0, col = 0, row_off = 5, x;
+X	int inp;
+X
+X	hi_lite(stdscr,dir_ent[0],col+10,row+row_off);
+X	for(;;){
+X	switch(inp = get_input()){
+X	   case 'n':			/* Go to next page		*/
+X	   case 'N':
+X		   if(number > end){
+X		     start += 45;
+X		     clr_area(stdscr,2,2,2,76);
+X		     clr_area(stdscr,3,2,dp->max_row,dp->max_col+5);
+X		     end = print_dir(dir_ent,start,number,end,dp);
+X		     row = col = 0;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		   }
+X	   break;
+X	   case 'p':			/* Go to the previous page	*/
+X   	   case 'P':
+X		   if(start >= 45){
+X	     	     start -= 45;
+X		     clr_area(stdscr,2,2,2,76);
+X		     clr_area(stdscr,3,2,dp->max_row,dp->max_col+5);
+X		     end = print_dir(dir_ent,start,number,end-45,dp);
+X		     row = col = 0;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		   }
+X	   break;
+X	   case 'j':			/* Move the hi-lite bar down 	*/
+X	   case 'J':
+X	   case DOWN:
+X		   if(row != 14){
+X		     move_entry(dir_ent,row,col,row_off,start,0);
+X		     row++;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		   }
+X	   break;
+X	   case 'k':			/* Move The hi-lite bar up	*/
+X	   case 'K':
+X	   case UP:
+X		   if(row != 0){
+X		     move_entry(dir_ent,row,col,row_off,start,0);
+X		     row--;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		}
+X	   break;
+X	   case 'l':			/* Move The hi-lite bar Right	*/
+X	   case 'L':
+X	   case RIGHT:
+X		   if(col < 40){
+X		     move_entry(dir_ent,row,col,row_off,start,0);
+X		     col += 20;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		}
+X	   break;
+X	   case 'h':			/* Move The hi-lite bar Left	*/
+X	   case 'H':
+X	   case LEFT:
+X		   if(col != 0){
+X		     move_entry(dir_ent,row,col,row_off,start,0);
+X		     col -= 20;
+X		     move_entry(dir_ent,row,col,row_off,start,1);
+X		}
+X	   break;
+X	   case LF:			/* Make a selection		*/
+X	   case RETURN:
+X		   if(col == 0)
+X		     x = ((col%14))+row+start;
+X		   else
+X		     x = (((col/15)*15))+row+start;
+X		   if(strlen(dir_ent[x]) >= 1){
+X		     clr_area(stdscr,2,2,2,76);
+X		     clr_area(stdscr,3,2,dp->max_row,dp->max_col+5);
+X		     clr_area(stdscr,20,38,1,38);
+X		     return(dir_ent[x]);
+X	 	   }else{
+X		     clr_area(stdscr,2,2,2,76);
+X		     clr_area(stdscr,3,2,dp->max_row,dp->max_col+5);
+X		     clr_area(stdscr,20,38,1,38);
+X		     return(NULL);
+X		   }
+X	   break;
+X	   case QUIT_KEY:		/* Do Not make a selection	*/
+X		    clr_area(stdscr,2,2,2,76);
+X		    clr_area(stdscr,3,2,dp->max_row,dp->max_col+5);
+X		    clr_area(stdscr,20,38,1,38);
+X		    return(NULL);
+X	   break;
+X	   default:
+X	   break;
+X	}
+X     }
+X}
+X
+X/*	
+X *	int read_printers(printers)
+X *	
+X *	Parameters:	printers - A list of printers read from file.
+X *	
+X *	Purpose:	Read printer info. from a file (PRINT_PATH).
+X *
+X *	Returns:	-1    = Failure.
+X *			index = The number of printers defined.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xint read_printers(printers)
+Xprinter printers[MAX_PRINTERS];
+X{
+X	FILE *fp;
+X	int index = 0;
+X	char buff[256];
+X	
+X	if((fp = fopen(PRINT_PATH,"r")) == (FILE *)NULL){
+X	   return(-1);
+X	}else{
+X	   while(!feof(fp)){
+X	     Fgets(buff,256,fp);
+X	     if(buff[strlen(buff)-1] == LF)
+X	       buff[strlen(buff)-1] = NULL;
+X	     if(strlen(buff) > 31)
+X	       buff[31] = NULL;
+X	     if(!feof(fp) && (index < MAX_PRINTERS)){
+X	        switch(buff[0]){
+X		   case '?':		/* Text comment user sees */
+X			memccpy(printers[index].comment,buff+2,NULL,30);
+X		   break;
+X		   case '*':		/* Printing Commmand	  */
+X			memccpy(printers[index].command,buff+2,NULL,30);
+X			index++;
+X		   break;
+X		   default:
+X		   break;
+X		}
+X	     }
+X	}
+X	fclose(fp);
+X    }
+X    return(index);	/* Return Count */
+X}
+X
+X/*
+X *	show_printers(printers,num)
+X *
+X *	Parameters:	printers - A list of printers read from file.
+X *			num      - The Number of printers read.
+X *
+X *	Purpose:	Print The Printer selections on the screen.
+X *
+X *	Returns:	None
+X *
+X *	Last Modify:	3-31-91 (TW);
+X */
+X
+Xvoid show_printers(printers,num)
+Xprinter printers[MAX_PRINTERS];
+Xint num;
+X{
+X	int i, row = 6;
+X
+X	for(i=0;i<num;i++){
+X	  if(!isposodd(i))
+X	    my_print(stdscr,printers[i].comment,5,row);
+X	  else{
+X	    my_print(stdscr,printers[i].comment,45,row);
+X	    row++;
+X	  }
+X	}
+X}
+X
+X/*
+X *	char *choose_print(string)
+X *
+X *	Parameters:	string - The file to be printed.
+X *	
+X *	Purpose:	Allow User to choose a printer.
+X *
+X *	Returns:	A pointer to the printer string.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xchar *choose_print(string)
+Xchar *string;
+X{
+X	printer printers[MAX_PRINTERS];
+X	int i = 0, row = 0, col = 1, num,ans,max;
+X	char buffer[256];
+X
+X	if((num = read_printers(printers)) == -1){
+X	  hi_lite(stdscr,"Error reading printer file, Press a key.",5,2);
+X	  my_getchar();
+X	  return(NULL);
+X	}
+X	show_printers(printers,num);
+X	hi_lite(stdscr,PRT_MENU,5,2);
+X	(void) sprintf(buffer,"Filename: %s",string);
+X	hi_lite(stdscr,buffer,5,4);
+X	hi_lite(stdscr,printers[i].comment,5,6);
+X	do{
+X	  switch(ans = get_input()){
+X	     case 'j':			/* Move Hi-Lite Bar down	*/
+X	     case 'J':
+X	     case DOWN:
+X		  if(col == 1)
+X		    max = in_col_one(num);
+X		  else
+X		    max = in_col_two(num);
+X		  if(row+1 < max){
+X		    if(col == 1)
+X		      my_print(stdscr,printers[i].comment,5,row+6);
+X	  	    else
+X		      my_print(stdscr,printers[i].comment,45,row+6);
+X		    i+=2;
+X	            row++;
+X		    if(col == 1)
+X		      hi_lite(stdscr,printers[i].comment,5,row+6);
+X		    else
+X		      hi_lite(stdscr,printers[i].comment,45,row+6);
+X		  }
+X	     break;
+X	     case 'k':			/* Move Hi-Lite Bar up  	*/
+X	     case 'K':
+X	     case UP:
+X		  if(row >= 1){
+X		    if(col == 1)
+X		      my_print(stdscr,printers[i].comment,5,row+6);
+X	  	    else
+X		      my_print(stdscr,printers[i].comment,45,row+6);
+X		    i-=2;
+X	  	    row--;
+X		    if(col == 1)
+X		      hi_lite(stdscr,printers[i].comment,5,row+6);
+X		    else
+X		      hi_lite(stdscr,printers[i].comment,45,row+6);
+X		  }
+X	     break;
+X	     case 'l':			/* Move Hi-Lite Bar right	*/
+X	     case 'L':
+X	     case RIGHT:
+X	   	  if(col == 1 && ((i + 1) < num)){
+X		    my_print(stdscr,printers[i].comment,5,row+6);
+X		    col++;
+X		    i++;
+X		    hi_lite(stdscr,printers[i].comment,45,row+6);
+X	          }
+X	     break;
+X	     case 'h':			/* Move Hi-Lite Bar left	*/
+X	     case 'H':
+X	     case LEFT:
+X	   	  if(col > 1){
+X		    my_print(stdscr,printers[i].comment,45,row+6);
+X		    col--;
+X		    i--;
+X		    hi_lite(stdscr,printers[i].comment,5,row+6);
+X		  }
+X	     break;
+X	     case RETURN:
+X	     case LF:
+X	          return(printers[i].command);
+X	     break;
+X	     case QUIT_KEY:
+X	          return(NULL);
+X	     break;
+X	  }
+X	}while(ans != QUIT_KEY);
+X	return(NULL);
+X}
+X
+X/*
+X *	char *do_selection()
+X *	
+X *	Parameters:	None
+X *	
+X *	Purpose:	Control module for selecting a file.
+X *
+X *	Returns:	The Selected File Name.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xchar *do_selection()
+X{
+X	extern WINDOW *inside_window;
+X	char dir_entries[MAX_ENT][ENT_LEN];
+X	int start_ent = 0, num = 0, end = 0;
+X	char *strng, buff[256];
+X	dir_info *dp;
+X
+X	dp = (dir_info *) malloc(sizeof(dir_info));
+X# if !defined (HPUX) && !defined (USE_CWD)
+X	(void) getwd(buff);
+X# else
+X	(void) getcwd(buff,BUF_SIZ);
+X# endif HPUX && USE_CWD
+X	if((num = get_dir(dir_entries,buff)) == -1 || num == 0)
+X          return(NULL);
+X	end = print_dir(dir_entries,start_ent,num,45,dp);
+X	strng = select_item(dir_entries,num,start_ent,end,dp);
+X	return(strng);
+X}
+X
+X/*
+X *	do_printers()
+X *	
+X *	Parameters:	None
+X *	
+X *	Purpose:	Control module for  printing a file
+X *
+X *	Returns:	None.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xvoid do_printers()
+X{
+X	char *strng1, *strng2;
+X	char buff[256];
+X
+X	hi_lite(stdscr,"           ",68,STATUS_LINE);
+X	strng1 = do_selection();
+X	if(strng1 != NULL){
+X	  strng2 = choose_print(strng1);
+X	  if(strng2 != NULL){
+X	     Sprintf(buff,"%s %s",strng2,strng1);
+X	     exec_cshell(buff,CONTINUE);	
+X	  }else{
+X	     clr_area(stdscr,3,2,19,73);
+X	  }
+X	}
+X	hi_lite(stdscr,CMD_LIN,68,STATUS_LINE);
+X}
+END_OF_FILE
+  if test 13211 -ne `wc -c <'MENU/dir.c'`; then
+    echo shar: \"'MENU/dir.c'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/dir.c'
+fi
+if test -f 'MENU/files.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/files.c'\"
+else
+  echo shar: Extracting \"'MENU/files.c'\" \(4026 characters\)
+  sed "s/^X//" >'MENU/files.c' <<'END_OF_FILE'
+X# define	__FILES_C
+X
+X# include "config.h"
+X# include "proto.h"
+X# include <stdio.h>
+X# include <sys/file.h>
+X# include <curses.h>
+X# include "menu.h"
+X
+X/*	PSC MENU COPYRIGHT NOTICE
+X
+X	Part of PSCMenu
+X
+X	This software is to be considered to be public domain, it
+Xmay be copied, modified and parts of it may be used in other programs
+Xas long as this copyright notice remains intact.
+X
+X	Copyright()   PSC - Plymouth State College
+X	Written by:   Ted Wisniewski 12-9-1990
+X 
+X*/
+X
+X/*
+X *	int check_file(instring)
+X *
+X *	Parameters:	instring - The Name of the file to be accessed.
+X *
+X *	Returns:	-1  = Failure, file may not exist.
+X *			1   = File is Readable.
+X *
+X * 	Purpose:	Determine if a file is readable.
+X *
+X *	Last Modify:	3-31-91 (TW)
+X */
+Xint check_file(instring)
+Xchar *instring;
+X{
+X	if(strlen(instring) > 0){
+X	  if((access(instring,R_OK)) == -1)
+X	    return(-1);
+X	  else
+X	    return(1);
+X	}else
+X	  return(-1);
+X}
+X
+X/*
+X *	read_menu(menu,file_name,num)
+X *
+X *	Parameters:	menu 		- Pointer to the menu to be loaded.
+X *			file_name	- Name of the menu file.
+X *			num 		- The number of menu entries read.
+X *
+X *	Returns:	None.
+X *
+X *	Purpose:	Read a menu from file information.
+X *	
+X *	Last Modify:	3-31-91 (TW)
+X */
+X
+Xvoid read_menu(menu,file_name,num)
+Xmenu_ent *menu;
+Xchar *file_name;
+Xint *num;
+X{
+X	FILE *fp;
+X	int index = 0, max_item = 7;
+X	int flag = FALSE;
+X	char buff[256];
+X	
+X	if(menu->key == LOAD_MAIN)
+X	   m_flag = TRUE;
+X	else
+X	   m_flag = FALSE;
+X	Sprintf(buff,"%s%s",menu_dir,file_name);
+X	if((access(buff,R_OK|F_OK)) == -1){
+X	   hi_lite(stdscr,"Menu file cannot be accessed.",26,11);
+X	   continue_it(20);
+X	   erase_line(stdscr,26,11,30);
+X	}else{
+X	   fp = fopen(buff,"r");
+X	   while(!feof(fp)){
+X	      Fgets(buff,256,fp);
+X	      rm_lf(buff);
+X	      if(!feof(fp) && (index <= max_item)){
+X		switch (buff[0]){
+X		  case HEAD_COMP:	/* Compressed Header */
+X			max_item = 14;
+X			menu[index].cflag = TRUE;
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].desc,buff+2);
+X			index++;
+X		  break;
+X		  case HEAD_SCRN:	/* Menu Header */
+X			menu[index].cflag = FALSE;
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].desc,buff+2);
+X			index++;
+X		  break;
+X		  case ITEM_CMNT: 	/* Menu Comment (User sees)     */
+X			Strcpy(menu[index].desc,buff+2);
+X			chop_str(menu[index].desc,36);
+X			if(flag == TRUE){
+X			  index++;
+X			  flag = FALSE;
+X			}
+X		  break;
+X		  case HELP_FILE:	/* Help file name 		*/
+X			Strcpy(menu[index].help_fil,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case EXEC_PIPE:	/* Exec in pipe			*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case OPTN_CHSE:
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case EXEC_NCNT:	/* '%' Do not use continue line  */
+X		  case EXEC_CONT:	/* This command to be executed   */
+X					/* in a sub-shell. Use Continue  */
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case LOAD_MAIN:	/* This Menu is a main Menu      */
+X		  case LOAD_MENU:	/* This Menu is a regular Menu.  */
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case FILE_ASK1:	/* Ask for a file name		*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case FILE_ASK2:	/* Ask for two file Names	*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case ASKS_USER:	/* Ask Whom			*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case ASKS_WHAT:	/* Ask what?			*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case VISL_SHLL:	/* Use visual directory in shell */
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  case VISL_PIPE:	/* Use visual in pipe		*/
+X			menu[index].key = buff[0];
+X			Strcpy(menu[index].cmd,buff+2);
+X			flag = TRUE;
+X		  break;
+X		  default:
+X		  break;
+X		}
+X	      }
+X	    }
+X	(void) fclose(fp);
+X	*num = index;
+X	}
+X}
+END_OF_FILE
+  if test 4026 -ne `wc -c <'MENU/files.c'`; then
+    echo shar: \"'MENU/files.c'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/files.c'
+fi
+if test -f 'MENU/menu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/menu.c'\"
+else
+  echo shar: Extracting \"'MENU/menu.c'\" \(8561 characters\)
+  sed "s/^X//" >'MENU/menu.c' <<'END_OF_FILE'
+X# define	__MENU_C
+X
+X# include "config.h"
+X# include "proto.h"
+X# include "menu.h"
+X
+X# include <sys/file.h>
+X# include <sys/ioctl.h>
+X# include <sys/wait.h>
+X
+X# ifdef HPUX
+X# include <sys/bsdtty.h>
+X# endif HPUX
+X
+X/*	PSC MENU COPYRIGHT NOTICE
+X
+X	Part of PSCMenu
+X
+X	This software is to be considered to be public domain, it
+Xmay be copied, modified and parts of it may be used in other programs
+Xas long as this copyright notice remains intact.
+X
+X	Copyright()   PSC - Plymouth State College
+X	Written by:   Ted Wisniewski 12-9-1990
+X 
+X*/
+X
+X/*****************************************************************************
+X Erase a line within the Menu Window.
+X *****************************************************************************/
+X
+Xvoid erase_line(window_name,x,y,length)
+XWINDOW *window_name;
+Xint x,y,length;
+X{
+X	int i;
+X
+X	for(i=0;i<=length;i++)
+X	    line[i] = SPACE;
+X	line[i+1] = NULL;
+X	my_print(window_name,line,x,y);
+X}
+X
+X/**************************************************************************
+X Request input from the user as to whether he/she wishes to continue.
+X This routine gives the option to stop seeing output.
+X **************************************************************************/
+X
+Xint cont_it()
+X{
+X	char c;
+X
+X	hi_lite(stdscr,"Press space to continue or \'q\' to stop.",20,CONT_LINE);
+X	c = my_getchar(stdscr);
+X	while(c != QUIT_KEY && c != SPACE)
+X	   c = my_getchar(stdscr);
+X	erase_line(stdscr,20,CONT_LINE,45);
+X	if(c == QUIT_KEY)
+X	   return 1;
+X	else
+X	   return 0;
+X}
+X
+X/**************************************************************************
+X Request input from the user as to whether he/she wishes to continue.
+X **************************************************************************/
+X
+Xvoid continue_it(line_num)
+Xint line_num;
+X{
+X	hi_lite(stdscr,"Press a space to Continue.",27,line_num);
+X	while(my_getchar(stdscr) != SPACE);
+X	erase_line(stdscr,27,line_num,45);
+X}
+X
+X/*****************************************************************************
+X Clear an Area in the Menu Window.
+X *****************************************************************************/
+X
+Xvoid clr_area(window,st_y,st_x,n_line,length)
+XWINDOW *window;
+Xint st_y,st_x,n_line,length;
+X{
+X	int i;
+X
+X	for(i=0;i<=length;i++)
+X	  line[i] = SPACE;
+X	line[i+1] = NULL;
+X	for(i=(st_y-1);i<(n_line+st_y);i++)
+X	   my_print(stdscr,line,st_x,i);
+X}
+X
+X/**************************************************************************
+X Print output to the Menu Window,  when done clear the Window.
+X **************************************************************************/
+X
+Xvoid print_output(output,number,length)
+Xchar output[FOURK][80];
+Xint number, length;
+X{
+X	int i, k = 4, left;
+X
+X	left = number;
+X	for(i=1;i<number;++i){
+X	   my_print(inside_window,output[i],5,k);
+X	   k++;
+X	   if(i%15 == 14){
+X	     left -= 15;
+X	     if(cont_it() == 1){
+X	        clr_area(stdscr,5,4,(k-4),length+2);
+X	        return;
+X	     }
+X	     move_csr(inside_window,5,4);
+X	     k = 4;
+X	   }
+X	}
+X	clear_to_bot(inside_window);
+X
+X	if(left < 15)
+X	  clr_area(stdscr,5+left,5,(15-left),length+2);
+X
+X	continue_it(CONT_LINE);
+X	clr_area(stdscr,5,4,(k-4),length+2);
+X}
+X
+X/*****************************************************************************
+X	Execute a process and have the output read into a buffer and then
+X	print it to the screen.
+X *****************************************************************************/
+X
+Xvoid exec_pipe(comline)
+Xchar *comline;
+X{
+X	char inbuf[LINESZ], list[FOURK][80];
+X	FILE *f, *popen();
+X	int num = 1, length = 0;
+X
+X	my_print(inside_window,"Working...",5,1);
+X	if((f = popen(comline,"r")) == NULL){
+X	   Strcpy(list[0],"Command not found");
+X	}else
+X	   while(fgets(inbuf,LINESZ,f) != NULL){
+X	      rm_lf(inbuf);
+X	      if(strlen(inbuf) > MAXCOLINWIN)
+X	        chop_str(inbuf,MAXCOLINWIN);
+X	      else
+X	        pad_str(inbuf);
+X	      Strcpy(list[num],inbuf);
+X	      if(strlen(inbuf) > length)
+X		length = strlen(inbuf);
+X	      num++;
+X	   }
+X	   clr_area(stdscr,2,5,1,15);
+X	   print_output(list,num,length);
+X	Pclose(f);
+X	clear_window(inside_window);
+X}
+X
+X/*****************************************************************************
+X Print The current working directory at the bottom of the screen.
+X *****************************************************************************/
+X
+Xvoid prt_curdir()
+X{
+X# if !defined (HPUX) && !defined (USE_CWD)
+X	char direct[BUF_SIZ], *getwd();
+X# else
+X      char direct[BUF_SIZ], *getcwd();
+X# endif HPUX && USE_CWD
+X	int i;
+X
+X	hi_lite(stdscr,"Directory:",0,STATUS_LINE);
+X# if !defined (HPUX) && !defined (USE_CWD)
+X	Getwd(direct);
+X# else
+X      Getwd(direct,BUF_SIZ);
+X# endif HPUX && USE_CWD
+X	if(strlen(direct) < 40)
+X	   for(i=strlen(direct);i<=40;i++)
+X	      Strcat(direct," ");
+X	else
+X	   for(i=40;i<=80;i++)
+X   	      direct[i] = NULL;
+X	hi_lite(stdscr,direct,12,STATUS_LINE);
+X}
+X
+X/*****************************************************************************
+X Draw borders and print Header on the screen.
+X *****************************************************************************/
+X
+Xvoid setup_screen()
+X{
+X	inside_window = newwin(21,78,1,1);
+X	help_window = newwin(17,30,3,25);
+X	clear_window(stdscr);		/* Clear screen routine		     */
+X	box_screen(HEADER);
+X	hi_lite(stdscr,CMD_LIN,68,STATUS_LINE);
+X	prt_curdir();
+X# ifdef PRINT_TIME
+X	print_time();
+X# endif
+X}
+X
+X/*****************************************************************************
+X Execute a shell command.  Output does not come to back to the window.
+X *****************************************************************************/
+X
+Xvoid exec_cshell(command,flag)
+Xchar *command;
+Xint flag;
+X{
+X# ifdef PRINT_TIME
+X	unset_alarm();
+X# endif
+X	clear_window(stdscr);
+X	unset_modes(); 
+X	if(fork() == 0){
+X	  Execl("/bin/csh","csh","-c",command,0);
+X	}else
+X	  Wait((int *)0);
+X	setup_modes();
+X	if(flag)
+X	  continue_it(LAST_LINE);
+X	setup_screen();
+X# ifdef PRINT_TIME
+X	set_alarm();
+X# endif
+X}
+X
+X/*****************************************************************************
+X Make sure Output goes to the screen and terminal is capable of running
+X menu.
+X *****************************************************************************/
+X
+Xvoid initialize()
+X{
+X	int term;
+X
+X	if(!isatty(1)){
+X	   Fprintf(stderr,"Sorry, Cannot output to the screen (exiting).\n");
+X	   exit(4);
+X	}
+X	if((term = get_term()) == -1){
+X	   Fprintf(stderr,"Sorry, Bad termcap entry (exiting).\n");
+X	   exit(4);
+X	}
+X	setup_modes();
+X}
+X
+Xint main(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int *num;
+X
+X	    /************************************************************
+X		If More than two arguments are supplied print the
+X		Usage statement.
+X	     ************************************************************/
+X	if(argc > 2){
+X	  Fprintf(stderr,"Usage: menu\n");
+X	  Fprintf(stderr,"Usage: menu [menu_directory]\n");
+X	  exit(0);
+X	}else{
+X	    /************************************************************
+X		If there are no additional arguments Use the default
+X		Menu directory.
+X	     ************************************************************/
+X	  if(argc == 1)
+X	     Strcpy(menu_dir,MENU_DIR);
+X	  else
+X	    /************************************************************
+X		See if the directory name ends in a '/' if not add
+X		one.
+X	     ************************************************************/
+X	    if(argc == 2){
+X	       Strcpy(menu_dir,argv[1]);
+X	       check_dirname(menu_dir);
+X	       if(menu_dir[strlen(menu_dir)-1] != SLASH)
+X	          Strcat(menu_dir,"/");
+X	    }
+X	    Sprintf(buffer,"%s%s",menu_dir,MAIN_MENU);
+X	    /************************************************************
+X	        Check to make sure the menu directory is Read-able and
+X		executeable
+X	     ************************************************************/
+X	    if(access(menu_dir,R_OK|X_OK)){
+X	       Fprintf(stderr,"Directory :%s: is not accessable ",menu_dir);
+X	       Fprintf(stderr,"or does not exist.\n");
+X	       exit(1);
+X	    }
+X	    /************************************************************
+X	        Check to see if the main menu file exists, if it does 
+X	        not exist, exit the program.
+X	     ************************************************************/
+X	    if(access(buffer,F_OK)){
+X	       Fprintf(stderr,"Menu files do not exist in %s.\n",menu_dir);
+X	       (void) exit(2);
+X	    }
+X	}
+X	if(getuid() != 0)
+X# ifndef SYSTEM_FIVE			/* Need to prevent ctrl-z in apps */
+X	  (void) setpgrp(getpid(),0);
+X# else
+X	  (void) setpgrp();
+X# endif SYSTEM_FIVE
+X
+X	initialize();		
+X# ifdef PRINT_TIME
+X	set_alarm();
+X# endif
+X	setup_screen();
+X	setup_sigs();
+X	main_menu->key = LOAD_MAIN;		/* We start in main menu */
+X	(void) read_menu(main_menu,MAIN_MENU,&num);
+X	disp_menu(main_menu,num);
+X	Fflush(stdin);
+X	do_menu(main_menu,num);
+X	return(0);
+X}
+END_OF_FILE
+  if test 8561 -ne `wc -c <'MENU/menu.c'`; then
+    echo shar: \"'MENU/menu.c'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/menu.c'
+fi
+if test -f 'MENU/menu.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/menu.h'\"
+else
+  echo shar: Extracting \"'MENU/menu.h'\" \(3520 characters\)
+  sed "s/^X//" >'MENU/menu.h' <<'END_OF_FILE'
+X/*	PSC MENU COPYRIGHT NOTICE
+X
+X	Part of PSCMenu
+X
+X	This software is to be considered to be public domain, it
+Xmay be copied, modified and parts of it may be used in other programs
+Xas long as this copyright notice remains intact.
+X
+X	Copyright()   PSC - Plymouth State College
+X	Written by:   Ted Wisniewski 12-9-1990
+X 
+X*/
+X
+X# ifndef __MENU_H
+X# define __MENU_H
+X
+X# include <stdio.h>
+X# include <stdlib.h>
+X# include <strings.h>
+X# include <ctype.h>
+X# include <sys/types.h>
+X# include <sys/ioctl.h>
+X# include <unistd.h>
+X# include <curses.h>
+X
+X# define 	FOURK		4096
+X# define 	ONEK		1024
+X# define	BUF_SIZ		256
+X# define	LINESZ		90
+X# define	MAXCOLINWIN	70
+X# define 	FIRST_LINE	0
+X# define	STATUS_LINE	22
+X# define	NUMCOL		22
+X# define	DESCOL		25
+X# define 	LAST_LINE	23
+X# define 	CONT_LINE	21
+X# define 	N_ENTRIES	16
+X# define	COLON		':'
+X# define	DOT		'.'
+X# define	TILD		'~'
+X# define	SLASH		'/'
+X# define	ASTER		'*'
+X# define 	MAIN_MENU	"main.menu"
+X
+X/*
+X	User typed keystrokes.
+X*/
+X
+X# define 	RE_DRAW		('r' & 037)
+X# define	RETURN		'\r'
+X# define	LF		'\n'
+X# define	SPACE		' '
+X# define	CHANGE_DIR	'C'
+X# define	SHORT_DIR	'D'
+X# define	HELP		'h'
+X# define	HELP_KEY	'h'
+X# define	LONG_DIR	'l'
+X# define	LOGOUT		'L'
+X# define	TO_MAIN		'm'
+X# define	PREV_MENU	'p'
+X# define	DO_PRINT	'P'
+X# define	QUIT_KEY	'q'
+X# define	EXEC_COMM	'x'
+X
+X/*
+X	MENU file keys + meanings.
+X*/
+X
+X# define	HEAD_COMP	'!'	/* Screen header (Compressed)	*/
+X# define	HEAD_SCRN	'$'	/* Menu screen header 		*/
+X# define	ITEM_CMNT	'?'	/* Item Comment			*/
+X# define	HELP_FILE	'#'	/* Item Help file		*/
+X# define	EXEC_PIPE	'+'	/* Exec in pipe           	*/
+X# define	OPTN_CHSE	'-'	/* Choose Option?		*/
+X# define	EXEC_NCNT	'%'	/* Exec in subshell, no cont.	*/
+X# define	EXEC_CONT	'*'	/* Exec in subshell, continue? 	*/
+X# define	LOAD_MAIN	'@'	/* Load a top level menu	*/
+X# define	LOAD_MENU	'&'	/* Load specified menu file 	*/
+X# define	FILE_ASK1	'1'	/* Ask for filename, subshell	*/
+X# define	FILE_ASK2	'2'	/* Ask for two files, subshell	*/
+X# define	ASKS_USER	'3'	/* Ask for a username, subshell */
+X# define	ASKS_WHAT	'4'	/* Ask for a topic, subshell	*/
+X# define	VISL_SHLL	'5'	/* Use visual directory, subshll*/
+X# define	VISL_PIPE	'6'	/* Use visual directory, pipe	*/
+X
+X#ifndef TRUE
+X# define	TRUE		1
+X# define	FALSE		0
+X#endif TRUE
+X
+X# define 	CENTER		40
+X/*# define 	HEADER		"Plymouth State College Menu System"*/
+X# define 	HEADER		"PSC Menu System"
+X# define	CMD_LIN		"h)elp q)uit"
+X# define	CONTINUE	1
+X# define	NO_CONTINUE	0
+X# define	TIME_OUT	60
+X# define	OFF		0
+X
+X# define 	Sprintf		(void) sprintf
+X# define	Strcpy		(void) strcpy
+X# define	Strcat		(void) strcat
+X# define	Fprintf		(void) fprintf
+X# define	Fflush		(void) fflush
+X# define	Fputc		(void) fputc
+X# define	Fputs		(void) fputs
+X# define	Fgets		(void) fgets
+X# define	Pclose		(void) pclose
+X
+X# if !defined (HPUX) && ! defined (USE_CWD)
+X#   define	Getwd		(void) getwd
+X# else
+X#   define	Getwd		(void) getcwd
+X# endif HPUX && USE_CWD
+X
+X# define	Wait		(void) wait
+X# define	Execl		(void) execl
+X
+Xvoid catch();
+X
+XWINDOW *inside_window, *help_window;
+X
+Xtypedef struct
+X{
+X	char key;		/* Key character for command types.  */
+X	int cflag;		/* Compressed Menu flag.	     */
+X	char desc[LINESZ];	/* Description of command.	     */
+X	char cmd[LINESZ];  	/* The Command.                      */
+X        char help_fil[LINESZ];  /* Name of the Help file for option. */
+X}menu_ent;
+X
+Xmenu_ent main_menu[N_ENTRIES];
+X
+Xtypedef int FLAG;
+X
+XFLAG m_flag;
+X
+X
+Xchar line[BUF_SIZ], buffer[BUF_SIZ], string[BUF_SIZ];
+Xchar menu_dir[BUF_SIZ];
+X
+Xstatic int alarm_on = FALSE;
+X
+Xint get_term();
+X
+X# endif __MENU_H
+END_OF_FILE
+  if test 3520 -ne `wc -c <'MENU/menu.h'`; then
+    echo shar: \"'MENU/menu.h'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/menu.h'
+fi
+if test -f 'MENU/menu.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/menu.man'\"
+else
+  echo shar: Extracting \"'MENU/menu.man'\" \(6667 characters\)
+  sed "s/^X//" >'MENU/menu.man' <<'END_OF_FILE'
+X.TH MENU 1 "July 1993" "PSCmenu"
+X\.@(#)pscmenu2.3 93/07/11 TTW;
+X.SH NAME
+Xmenu \- Runs the PSC Menu System.
+X.SH SYNOPSIS
+Xmenu [ menu_directory ]
+X.SH DESCRIPTION
+X
+XMenu is a menu system that is capable of doing any unix command 
+Xfrom the "menu".  The individual menus are read from menu files that
+Xare located in a "menu" directory.  The menu files are simple text files
+Xthat may be edited with any editor.  The "menu" is flexable, the only
+Xcommand line argument that is accepted is the name of a directory in which
+Xthe menu files are located.  The menu will accept the "~" in the directory
+Xargument to specify a users home directory.  A default directory is 
+Xspecified in the menu header file.
+X.SH SELECTING ITEMS & USING BUILTIN COMMANDS
+X
+XAn item is selected from the menu simply by entering the corresponding 
+Xnumber/letter that is displayed for the item.  It is important to know 
+Xthat you should not enter the selection and then press return.  The return
+Xkey has a special function.  The return key tells the menu to back up one
+Xmenu unless you are in the main menu (this assumes that the menu item is
+Xdesignated to return to the previous menu), where it has no effect.  The PSC
+Xmenu system contains built in commands that allow you to: change directory,
+Xexecute a shell command, do directory listings, quit menu, help and re-draw
+Xthe screen. See the section on the "Built in Menu" for more details.
+X
+X.SH BUILT IN MENU
+X
+XThe Built in menu is a pop-up window that displays a list of builtin commands
+Xaccessable.  This menu is accessed by entering the letter 'h' from any
+Xmenu accept the builtin menu.  Options in this menu are: C, D, h, l, m, p,
+Xq, x, ?, L, P and <ctrl-R>.  These characters cause 
+Xthe following affects:
+X.nf
+X
+X	'C' - Change to a new working directory.
+X
+X	'D' - Get a short directory listing of the current directory.
+X
+X	'h' - Use the builtin help menu.
+X
+X	'l' - Get a long directory listing of the current directory.
+X
+X	'm' - Return to the "main" menu.  (main.menu)
+X
+X	'p' - Go to the previous menu.  This assumes that the last
+X 	      entry in the menu is a return to previous menu.  If it
+X 	      is not, it will do the last entry, in that menu.
+X
+X	'q' - Quit the Menu.
+X
+X	'x' - Execute a shell command.
+X
+X	'?' - Get help on a specified menu entry.  The help file for 
+X	      that entry must exist for help to be given.
+X
+X	'L' - Log off the system.  This assumes that you ran the menu
+X 	      from your login shell.  If you did not do this it will 
+X              kill the shell it was run from.
+X
+X	'P' - Print a file using the visual directory to select the
+X 	      file to be printed.
+X
+X	<ctrl-R> Re-draw the screen in cases where you get garbled. 
+X                 (control key and 'R' are pressed at the same time).
+X.fi
+X
+X.SH MENU FILES
+XThe Menu files have a specific format that must be followed.  The first
+Xcharacter in each line must be $, !, ?, #, %, +, *, @, &, 1, 2, 3, 4, 5, 6.
+XThese are "key" characters that tell "menu" what kind of operation is to
+Xbe performed.
+X.PP
+X\'$'     This character means that this line is the menu header for this
+Xmenu, this must be the first character in the line.
+XThis must always be the first line in the "menu" file.  The second
+Xcharacter in this line is skipped anything after the second column is
+Xinterpreted as the menu heading.  This option allows you to have up
+Xto 7 menu entries.
+X.PP
+X\'!'	This does the same as the '$' option with the exception that
+Xit specifies the the menu can have up to 14 entries.
+X.PP
+X\'?'	This character means that this line is a comment to be displayed to
+Xthe user when they use the menu.  
+X.PP
+X\'#'	This character means that this line is a the name or path to 
+Xthe help file on a menu selection.
+X.PP
+X\'%'	 Execute in a sub-shell but do not use the continue line
+Xupon completion of command.  Similar to the '*' option.
+X.PP
+X\'+'     This character means that output from the name program be 
+Xoutput to the "menu" window.  It is best if the output is 70 columns
+Xwide or less, anything after 70 columns is chopped off. Some good examples
+Xare ls and ls -l.  Any program which actually does screen manipulation cannot
+Xuse the '+' option (It Will really get messed up).
+X.PP
+X\'@'	 This character specifies that the menu to be loaded is to
+Xbe considered the main menu so that pressing return will not do anything.
+X.PP
+X\'&'	 This character specifies a menu to be loaded.  The path to the menu
+Xfile is the default or the specified one given in the command argument.
+X.PP
+X\'*'	 This character means that the invoked program will interfere with
+Xthe "menu" window.  Such programs include more, less and any games.
+X.PP
+X\'1'	 This character specifies that one file name is expected as an argument
+Xfor the program to be run.  A good example would be: vi <filename>.
+X.PP
+X\'2'	 This character specifies that two file names are expected as
+Xarguments for the program to be run.  A good exmample would be:       
+Xcp <file1> <file2>.
+X.PP
+X\'3'	 This character specifies that a user name is expected as an argument
+Xfor the program to be run.  A good exapmple would be:	mail <user>.
+X.PP
+X\'4'	 This character specifies a topic to be used as an argument to the 
+Xprogram to be run.  A good example would be:	man <topic>.
+X.PP
+X\'5'     Execute a C-Shell command with a file name as an argument.
+XUses visual directory listing and a file is selected by using the arrow
+Xkeys.  Useful when you know the file must exist.
+X.PP
+X\'6'	Execute a command in a pipe with a file name as an argument.
+XUses visual directory listing and a file is selected by using the arrow 
+Xkeys.  Useful when you know the file must exist.
+X
+X.SH DEFAULTS
+X	The menu program looks for a file called "main.menu" in the default
+Xor specified directory.  If the Directory does not exist or is not accessable
+Xthe program will tell you of the condition and quietly exit.  If the file
+X"main.menu" does not exist in the named directory the program will notify you
+Xthat it could not find any menu files and quietly exits.  The return key
+Xif pressed will do the last thing in the menu, unless that menu is defined
+Xto be the main menu (this is done to make it easy to back out of menus
+Xassuming of course that return to previous menu is that last option in that
+Xmenu).
+X.SH EXAMPLE MENU FILE
+X.nf
+X$ File Management Menu
+X5 /bin/rm -i
+X# /usr/local/lib/menu_help/remove.hlp
+X? Remove a file.
+X2 /bin/cp -i
+X? Copy a file.
+X5 rm -i
+X? Remove a single file.
+X* rm -i *
+X? Cleanup your files.
+X+ /bin/ls -l
+X? List your Files.
+X& menu.1
+X? Return to main Menu.
+X.fi
+X
+X.SH CAUTIONS
+XIf you use the '+' menu command that tells the menu program to send
+Xoutput to the menu window with a command that uses cursor addressing
+Xor requires user input you may get some rather interesting results.
+END_OF_FILE
+  if test 6667 -ne `wc -c <'MENU/menu.man'`; then
+    echo shar: \"'MENU/menu.man'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/menu.man'
+fi
+if test -f 'MENU/terminal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MENU/terminal.c'\"
+else
+  echo shar: Extracting \"'MENU/terminal.c'\" \(2983 characters\)
+  sed "s/^X//" >'MENU/terminal.c' <<'END_OF_FILE'
+X# define	__TERMINAL_C
+X
+X# include "config.h"
+X# include "proto.h"
+X# include <stdio.h>
+X# include <curses.h>
+X
+X# if defined (AIX) || defined (HPUX)
+X# include <sgtty.h>
+X# include <sys/ioctl.h>
+X
+Xvoid aix_echo_on() 
+X{
+X	struct sgttyb terminal;
+X
+X	(void) ioctl(0, TIOCGETP, &terminal);
+X	terminal.sg_flags &= ~(ECHO);
+X	(void) ioctl(0, TIOCSETP, &terminal);
+X}
+X
+Xvoid aix_echo_off() 
+X{
+X	struct sgttyb terminal;
+X
+X  	(void) ioctl(0, TIOCGETP, &terminal);
+X	terminal.sg_flags |= ~(ECHO);
+X  	(void) ioctl(0, TIOCSETP, &terminal) ;
+X}
+X# endif
+X
+Xvoid setup_modes()
+X{
+X 	noecho();
+X	crmode();
+X}
+X
+Xvoid unset_modes()
+X{
+X# if defined (AIX) || defined (HPUX)
+X	aix_echo_on();
+X# else
+X 	echo();
+X# endif
+X	nocrmode();
+X}
+X
+Xvoid start_up()
+X{
+X  	savetty();
+X	initscr();
+X	setup_modes();
+X}
+X
+Xvoid end_up()
+X{
+X  	resetty();
+X	endwin();
+X	unset_modes();
+X}
+X
+Xvoid move_csr(window_name,x,y)
+XWINDOW *window_name;
+Xunsigned short x,y;
+X{
+X	wmove(window_name,y,x);
+X	wrefresh(window_name);
+X}
+X
+Xstatic void window_print(window_name,string)
+XWINDOW *window_name;
+Xchar *string;
+X{
+X	wprintw(window_name,string);
+X	wrefresh(window_name);
+X}
+X
+Xvoid my_print(window_name,string,x,y)
+XWINDOW *window_name;
+Xchar *string;
+Xunsigned short x,y;
+X{
+X	move_csr(window_name,x,y);
+X	window_print(window_name,string);
+X}
+X
+Xstatic void reverse(window_name)
+XWINDOW *window_name;
+X{
+X	wstandout(window_name);
+X	wrefresh(window_name);
+X}
+X
+Xstatic void unreverse(window_name)
+XWINDOW *window_name;
+X{
+X	wstandend(window_name);
+X	wrefresh(window_name);
+X}
+X
+Xstatic void hi_lite_string(window_name,string)
+XWINDOW *window_name;
+Xchar *string;
+X{
+X	reverse(window_name);
+X	window_print(window_name,string);
+X	unreverse(window_name);
+X}
+X
+Xvoid hi_lite(window_name,string,x,y)
+XWINDOW *window_name;
+Xchar *string;
+Xunsigned short x,y;
+X{
+X	move_csr(window_name,x,y);
+X	hi_lite_string(window_name,string);
+X}
+X
+Xstatic void wind_print_char(window_name,character)
+XWINDOW *window_name;
+Xunsigned char character;
+X{
+X	waddch(window_name,character);
+X	wrefresh(window_name);
+X}
+X
+Xvoid print_char(window_name,character,x,y)
+XWINDOW *window_name;
+Xunsigned char character;
+Xunsigned short x,y;
+X{
+X	move_csr(window_name,x,y);
+X	wind_print_char(window_name,character);
+X}
+X
+Xstatic void wind_hi_lite_char(window_name,character)
+XWINDOW *window_name;
+Xunsigned char character;
+X{
+X	reverse(window_name);
+X	wind_print_char(window_name,character);
+X	unreverse(window_name);
+X}
+X
+Xvoid hi_lite_char(window_name,character,x,y)
+XWINDOW *window_name;
+Xunsigned char character;
+Xunsigned short x,y;
+X{
+X	move_csr(window_name,x,y);
+X	wind_hi_lite_char(window_name,character);
+X}
+X
+Xvoid clear_to_bot(window_name)
+XWINDOW *window_name;
+X{
+X	wclrtobot(window_name);
+X	wrefresh(window_name);
+X}
+X
+Xvoid clear_window(window_name)
+XWINDOW *window_name;
+X{
+X	wclear(window_name);
+X	wrefresh(window_name);
+X}
+X
+Xunsigned short my_getchar(window_name)
+XWINDOW *window_name;
+X{
+X	unsigned short in_char;
+X
+X	in_char = wgetch(window_name);
+X	wrefresh(window_name);
+X	return(in_char);
+X}
+X
+Xvoid clear_to_eol(window_name)
+XWINDOW *window_name;
+X{
+X	wclrtoeol(window_name);
+X	wrefresh(window_name);
+X}
+END_OF_FILE
+  if test 2983 -ne `wc -c <'MENU/terminal.c'`; then
+    echo shar: \"'MENU/terminal.c'\" unpacked with wrong size!
+  fi
+  # end of 'MENU/terminal.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

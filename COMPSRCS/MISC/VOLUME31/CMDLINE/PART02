@@ -1,0 +1,2221 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i049:  cmdline - C++ Library for parsing command-line arguments, Part02/07
+Message-ID: <1992Jul27.020449.29205@sparky.imd.sterling.com>
+X-Md4-Signature: e9bf53b499e5f1510c09ca67ca0dae2c
+Date: Mon, 27 Jul 1992 02:04:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 49
+Archive-name: cmdline/part02
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 7)."
+# Contents:  Config.mk doc/cmdargs.man3 doc/cmdline.man3
+#   doc/parsing.man src/cmd/argtypes.c src/cmd/argtypes.h
+#   src/cmd/cmdparse.pl src/cmd/fsm.c src/cmd/quoted.c
+#   src/lib/argiter.c src/lib/fifolist.h src/lib/parse.c
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:27 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Config.mk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Config.mk'\"
+else
+echo shar: Extracting \"'Config.mk'\" \(4632 characters\)
+sed "s/^X//" >'Config.mk' <<'END_OF_FILE'
+X##########################################################################
+X## ^FILE: Config.mk - configuration flags for the CmdLine product
+X##
+X## ^DESCRIPTION:
+X##    This file is included in each makefile in the directory hierarchy.
+X##    It defines the Make macros used throughout the product build process.
+X##    These values represent the global defaults. At any level you run make,
+X##    you may override any of these by specifying a new value on the command
+X##    line.
+X##
+X## ^HISTORY:
+X##    04/28/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X###^^#####################################################################
+X
+X   ## Universe to compile in (use "att" for SYSV Unix and "ucb" for BSD Unix).
+X.UNIVERSE=att
+X
+X   ## Host operating system
+XOS=unix
+X
+X#------------------------------------------------------------------------------
+X# Define some OS dependent stuff for file extensions
+X#
+X   ## C++ file extension
+XCEXT=.c
+X
+X   ## object file extension
+XOBJEXT=.o
+X
+X   ## library file extension
+XLIBEXT=.a
+X
+X   ## executable file extension
+XEXECEXT=
+X
+X#------------------------------------------------------------------------------
+X# Define some OS dependent stuff for directory names
+X#
+X   ## current working directory
+XCURDIR=./
+X
+X   ## parent of current working directory
+XPARENTDIR=../
+X
+X#------------------------------------------------------------------------------
+X# Define some common commands
+X#
+X   ## remove files
+XRM=rm -f
+X
+X   ## remove directories
+XRMDIR=rm -rf
+X
+X   ## create directories
+XMKDIR=mkdir -p
+X
+X   ## change directories
+XCHDIR=cd
+X
+X   ## echo current directory
+XPWD=pwd
+X
+X   ## print to standard output
+XECHO=echo
+X
+X   ## copy files
+XCP=cp
+X
+X   ## move/rename files
+XMV=mv
+X
+X   ## print file on standard output
+XCAT=cat
+X
+X   ## maintain archives
+XAR=ar -r
+X
+X   ## maintain library archives
+XRANLIB=ranlib
+X
+X   ## remove symbol table info
+XSTRIP=strip
+X
+X   ## filter to remove non-ascii characters
+XCOL=col -xb
+X
+X   ## eliminate includes from a manpage
+XSOELIM=soelim
+X
+X   ## compress a manpage
+XMANTOCATMAN=mantocatman
+X
+X   ## print docs on printer
+XTROFF=roff -man
+X
+X   ## print docs to screen
+XNROFF=nroff -man
+X
+X   ## spell-checker
+XSPELL=spell
+X
+X#------------------------------------------------------------------------------
+X# Define some target directories (where things are installed)
+X#
+X#    NOTE: if you change BINDIR, INCDIR, or LIBDIR then dont forget to change
+X#          their corresponding strings at the end of doc/macros.man!
+X#
+X   ## common local directory
+XLOCAL=/usr/local/
+X
+X   ## where to install executables
+XBINDIR=$(LOCAL)bin/
+X
+X   ## where to install object libraries
+XLIBDIR=$(LOCAL)lib/
+X
+X   ## where to install object include files
+XINCDIR=$(LOCAL)include/
+X
+X   ## where to install perl libraries
+XPERLLIB=$(LIBDIR)perl/
+X
+X   ## where to install tcl libraries
+XTCLLIB=$(LIBDIR)tcl/
+X
+X   ## subdirectory where local man-pages are installed
+XLOCALMAN=local_man/
+X
+X   ## where to install man-pages
+XMANDIR=/usr/man/$(LOCALMAN)
+X
+X   ## where to install catman-pages (preformatted manual pages)
+XCATMANDIR=/usr/catman/$(LOCALMAN)
+X
+X   ## subdirectory of MANDIR and CATMANDIR for section 1 of man-pages
+XMAN1DIR=man1/
+X
+X   ## subdirectory of MANDIR and CATMANDIR for section 3 of man-pages
+XMAN3DIR=man3/
+X
+X#------------------------------------------------------------------------------
+X# Define some product specific stuff
+X#
+XPROGLIBDIR=$(PARENTDIR)lib/
+XPROGNAME=cmdparse
+XLIBNAME=cmdline
+X
+X#------------------------------------------------------------------------------
+X# Define C++ compilation stuff
+X#
+X   ## name of C++ compiler
+XCC=CC
+X
+X   ## option to specify other include directories to search
+XINC=-I
+X
+X   ## option to specify constants to #define
+XDEF=-D
+X
+X   ## option to produce optimized code
+XOPT=-O
+X
+X   ## option to produce debugging information
+XDBG=-g
+X
+X   ## option to indicate the name of the executable file
+XEXE=-o
+X
+X   ## option to suppress the loading phase
+XNOLD=-c
+X
+X#------------------------------------------------------------------------------
+X# Define rules for C++ files
+X#
+X.SUFFIXES : $(CEXT) $(OBJEXT)
+X
+X$(CEXT)$(OBJEXT):
+X	$(CC) $(CFLAGS) $(NOLD) $<
+X
+X#------------------------------------------------------------------------------
+X# Define some configurable compilation flags
+X#
+XFLAG=$(OPT)
+X# FLAG=$(DBG)
+XTESTDEFS=
+X# USRDEFS=$(DEF)DEBUG_CMDLINE
+XOPTIONS=
+X
+X#------------------------------------------------------------------------------
+X# Define the macro to pass to recursive makes
+X#
+XRECUR= FLAG=$(FLAG) \
+X   TESTDEFS=$(TESTDEFS) \
+X   USRDEFS=$(USRDEFS) \
+X   OPTIONS=$(OPTIONS)
+X
+X#------------------------------------------------------------------------------
+X# Define the command for recursive makes
+X#
+XBUILD=$(MAKE) -$(MAKEFLAGS) $(RECUR)
+X
+END_OF_FILE
+if test 4632 -ne `wc -c <'Config.mk'`; then
+    echo shar: \"'Config.mk'\" unpacked with wrong size!
+fi
+# end of 'Config.mk'
+fi
+if test -f 'doc/cmdargs.man3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/cmdargs.man3'\"
+else
+echo shar: Extracting \"'doc/cmdargs.man3'\" \(4505 characters\)
+sed "s/^X//" >'doc/cmdargs.man3' <<'END_OF_FILE'
+X.\"========== TO PRINT, USE: {n,t}roff -man file ==========
+X.if n .po 1
+X.if n .ll 78
+X.ds NM \f4CmdLine\fP
+X.so macros.man
+X.\"===================================
+X.TH cmdargs 3\*(C+
+X.\"===================================
+X.SH NAME
+Xcmdargs \- predefined command argument types for \*(NM(3\*(C+)
+X.\"===================================
+X.SH SYNOPSIS
+X.nf
+X.ft 4
+X#include <cmdargs.h>
+X
+Xclass  CmdArgDummy : public CmdArg ;
+Xclass  CmdArgUsage : public CmdArg ;
+X
+Xclass  CmdArgIntCompiler : public CmdArg ;
+Xclass  CmdArgInt     : public CmdArgIntCompiler ;
+Xclass  CmdArgIntList : public CmdArgIntCompiler ;
+X
+Xclass  CmdArgFloatCompiler : public CmdArg ;
+Xclass  CmdArgFloat     : public CmdArgFloatCompiler ;
+Xclass  CmdArgFloatList : public CmdArgFloatCompiler ;
+X
+Xclass  CmdArgCharCompiler : public CmdArg ;
+Xclass  CmdArgChar : public CmdArgCharCompiler ;
+X
+Xclass  CmdArgStrCompiler : public CmdArg ;
+Xclass  CmdArgStr     : public CmdArgStrCompiler ;
+Xclass  CmdArgStrList : public CmdArgStrCompiler ;
+X
+Xclass  CmdArgBoolCompiler : public CmdArg ;
+Xclass  CmdArgBool : public CmdArgBoolCompiler ;
+Xclass  CmdArgClear  : public CmdArgBool ;
+Xclass  CmdArgToggle : public CmdArgBool ;
+X
+Xclass  CmdArgBoolRef   : public CmdArg ;
+Xclass  CmdArgClearRef  : public CmdArg ;
+Xclass  CmdArgToggleRef : public CmdArg ;
+X
+X.ft R
+X.fi
+X.\"===================================
+X.SH DESCRIPTION
+X.PP
+X\f4cmdargs\fP(3\*(C+) is the portion of the \*(NM(3\*(C+) library
+Xthat contains the predefined argument types to use in conjunction
+Xwith one or more \*(NM objects.
+XThe include file \f4<cmdargs.h>\fP defines classes derived from class
+X\f4CmdArg\fP (which is defined in \f4<cmdline.h>\fP) for the most
+Xcommonly used types of command-line arguments.  Most command-line
+Xarguments are either boolean-flags, a number, a character, or a string
+X(or a list of numbers or strings).  In each of these cases, the call
+Xoperator (\f4operator()\fP) of the argument just compiles the value
+Xgiven into some internal value and waits for the programmer to query
+Xthe value at some later time.
+X
+XThese types of arguments are referred to as "\fIArgCompilers\fP".
+XFor each of the most common argument types, a corresponding abstract
+XArgCompiler class is declared.  All that this class does is to add a member
+Xfunction named "\f4compile\fP" to the class.  The \f4compile()\fP function
+Xlooks exactly like the call operator but it takes an additional
+Xparameter: a reference to the value to be modified by compiling
+Xthe argument value.  In all other respects, the \f4compile()\fP member
+Xfunction behaves exactly like the call operator.  In fact, most
+Xof the call operator member functions simply call the ArgCompiler's
+X\f4compile()\fP member function with the appropriate value and return
+Xwhatever the compile function returned.
+X
+XOnce all of these ArgCompilers are declared, it is a simple matter
+Xto declare a class that holds a single item, or a list of items,
+Xby deriving it from the corresponding ArgCompiler type.
+X
+XFor derived classes of these ArgCompilers that hold a single item,
+XThe derived class implements some operators (such as \f4operator=\fP
+Xand an appropriate cast operator) to treat the argument as if it
+Xwere simply an item (instead of an argument that contains an item).
+XThe output operator (\f4ostream & operator<<\fP) is also defined.
+X
+XFor derived classes of ArgCompilers that hold a list of items,
+Xthe subscript operator (\f4operator[]\fP) is defined in order to
+Xtreat the argument as if it were simply an array of items and not
+Xan argument that contains a list of items.
+X
+X.IP "\fBNote:\fP" 3
+XIt is important to remember that each subclass of \f4CmdArg\fP \s-1MUST\s+1
+Xbe able to handle \f4NULL\fP as the first argument to the call-operator
+X(and it should \s-1NOT\s+1 be considered an error).  This is because
+X\f4NULL\fP will be passed if the argument takes no value, or if it takes
+Xan optional value that was \s-1NOT\s+1 provided on the command-line.
+XWhenever an argument is correctly specified on the command-line, its call
+Xoperator is always invoked (regardless of whether or not there
+Xis a corresponding value from the command-line).
+X
+X.\"===================================
+X.so example.man
+X.\"===================================
+X.so classes.man
+X.\"===================================
+X.so files.man
+X.\"===================================
+X.SH SEE ALSO
+X\f4CmdLine\fP(3\*(C+), \f4cmdparse\fP(1)
+X.br
+X\f4<cmdline.h>\fP, \f4<cmdargs.h>\fP
+X.\"===================================
+X.SH AUTHOR
+XBrad Appleton, Harris Computer Systems, <\f4brad@ssd.csd.harris.com\fP>.
+END_OF_FILE
+if test 4505 -ne `wc -c <'doc/cmdargs.man3'`; then
+    echo shar: \"'doc/cmdargs.man3'\" unpacked with wrong size!
+fi
+# end of 'doc/cmdargs.man3'
+fi
+if test -f 'doc/cmdline.man3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/cmdline.man3'\"
+else
+echo shar: Extracting \"'doc/cmdline.man3'\" \(4365 characters\)
+sed "s/^X//" >'doc/cmdline.man3' <<'END_OF_FILE'
+X.\"========== TO PRINT, USE: {n,t}roff -man file ==========
+X.if n .po 1
+X.if n .ll 78
+X.ds NM \f4CmdLine\fP
+X.so macros.man
+X.\"===================================
+X.TH CmdLine 3\*(C+
+X.\"===================================
+X.SH NAME
+XCmdLine \- A \*(C+ class library for parsing command-line arguments
+X.\"===================================
+X.SH SYNOPSIS
+X.ft 4
+X.nf
+X#include <cmdline.h>
+X
+Xclass  CmdArg ;  // An abstract command-argument
+X
+Xclass  CmdLineArgIter ;  // abstract iterator for command-line-arguments
+Xclass  CmdArgvIter    : public CmdLineArgIter ;
+Xclass  CmdStrTokIter  : public CmdLineArgIter ;
+Xclass  CmdIstreamIter : public CmdLineArgIter ;
+X
+Xclass  CmdLine ;  // A command-line object
+Xclass  CmdLineCmdArgIter ;  // iterator for a CmdLine's CmdArgs
+X
+X.fi
+X.ft R
+X.\"===================================
+X.SH DESCRIPTION
+X.PP
+X\*(NM is a set of classes to parse command-line arguments.  Unlike
+X\f4getopt(3C)\fP and its variants, \*(NM does more than just split up the
+Xcommand-line into some canonical form.  \*(NM will actually parse
+Xthe command-line, assigning the appropriate command-line values to
+Xthe corresponding variables, and will verify the command-line syntax
+X(and print a usage message if necessary) all in one member function
+Xcall.  Furthermore, many features of \*(NM's parsing behavior are
+Xconfigurable at run-time.  These features include the following:
+X
+X.RS
+X.IP "\(bu" 3
+XPrompting the user for missing arguments.
+X.IP "\(bu" 3
+XAllowing keywords (\fB\-count\fP=4) and/or options (\fB\-c\fP4).
+X.IP "\(bu" 3
+XIgnoring bad syntax instead of terminating.
+X.IP "\(bu" 3
+XIgnoring upper/lower case on the command-line.
+X.IP "\(bu" 3
+XSuppressing the printing of syntax error messages.
+X.IP "\(bu" 3
+XControlling the verboseness of usage messages.
+X.IP "\(bu" 3
+XControlling whether or not options may be processed
+Xafter positional parameters have been seen.
+X.RE
+X
+X.PP
+X\*(NM also allows for options that take an optional argument, options
+Xthat take a (possibly optional) list of one or more arguments, options
+Xwhose argument must reside in the same token as the option itself, and
+Xoptions whose argument must reside in a separate token from the option
+Xitself.
+X
+X.PP
+X\*(NM consists of a set of \*(C+ classes to parse arguments from an
+Xinput source called a \f4CmdLineArgIter\fP (which is a base class for
+Xiterating over arguments from an arbitrary input source).  Argument
+Xiterators are defined for an \f4argv[]\fP array (with or without a
+Xcorresponding \f4argc\fP), for a string of tokens that are separated
+Xby a given set of delimiters, and for an input-stream.  Users can easily
+Xextend \*(NM to parse arguments from other input sources simply by creating
+Xtheir own argument iterator classes derived from the \f4CmdLineArgIter\fP
+Xclass defined in \f4<cmdline.h>\fP.
+X
+XCommand-line arguments are themselves objects that contain a specific
+Xcommand-line interface, and a function that performs the desired actions
+Xwhen its corresponding argument is seen on the command line.  Predefined
+Xcommand-line argument types (derived from the abstract class \f4CmdArg\fP
+Xin \f4<cmdline.h>\fP) exist for boolean, integer, floating-point, character,
+Xand string arguments, and for lists of integers, floats, and strings.  These
+Xpredefined subclasses of \f4CmdArg\fP may be found in \f4<cmdargs.h>\fP.
+XUsers can also create their own command-argument types on the fly by defining
+Xand implementing an appropriate subclass of the \f4CmdArg\fP class.
+X
+X.IP "\fBNote:\fP" 3
+XThe \*(NM library does not check for any freestore allocation errors.
+XIt is assumed that any desired freestore allocation checking will be
+Xperformed by the user by including the file \f4<new.h>\fP and using
+Xthe \f4set_new_handler\fP function to set up a freestore exception
+Xhandler.
+X.\"===================================
+X.so example.man
+X.\"===================================
+X.so parsing.man
+X.\"===================================
+X.so environ.man
+X.\"===================================
+X.so classes.man
+X.\"===================================
+X.so files.man
+X.\"===================================
+X.SH SEE ALSO
+X\f4cmdargs\fP(3\*(C+), \f4cmdparse\fP(1)
+X.br
+X\f4<cmdline.h>\fP, \f4<cmdargs.h>\fP
+X.\"===================================
+X.so caveats.man
+X.\"===================================
+X.so bugs.man
+X.\"===================================
+X.SH AUTHOR
+XBrad Appleton, Harris Computer Systems, <\f4brad@ssd.csd.harris.com\fP>.
+END_OF_FILE
+if test 4365 -ne `wc -c <'doc/cmdline.man3'`; then
+    echo shar: \"'doc/cmdline.man3'\" unpacked with wrong size!
+fi
+# end of 'doc/cmdline.man3'
+fi
+if test -f 'doc/parsing.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/parsing.man'\"
+else
+echo shar: Extracting \"'doc/parsing.man'\" \(4557 characters\)
+sed "s/^X//" >'doc/parsing.man' <<'END_OF_FILE'
+X.SH PARSING
+XAlthough, much of the parsing behavior of \*(NM can be configured at run-time
+Xthere are some \fIcommon rules\fP that are used when parsing command-line
+Xarguments.  Many of these so called \fIrules\fP are just a formalization
+Xof things that have become an informal standard over the years.
+X
+X.SS "LONG AND SHORT OPTIONS"
+X.RS
+XBy default, \*(NM will allow both single-character options \fIand\fP
+Xkeywords (long-options) to be matched on the command-line.
+XUnder Unix, a single character option is prefixed by the string ``\-''.
+Xand a long-option is prefixed by the string ``\*(--''.  If a token
+Xon the command-line exactly matches the string ``\*(--'', then all
+Xfurther matching of options (both long and short) are disabled and
+Xany remaining arguments are considered to be positional parameters
+X(even if they look like options).
+X
+XIf short-option processing is disabled, then the prefix ``\-'' may be used
+Xto indicate a long-option (the ``\*(--'' prefix will still be accepted).
+X
+XIf desired, the string ``+'' may be used as the long-option prefix
+Xinstead of ``\*(--'' by defining the constant \s-1USE_PLUS\s+1 when
+Xbuilding \f4CmdLine\fP.
+X.RE
+X
+X.SS "OPTION MATCHING"
+X.RS
+XBy default, short-option matching is case-sensitive (but case-insensitive
+Xmatching may be used if desired). Long-options are always matched 
+Xcase-insensitive and only a unique prefix of the long-option name needs
+Xto be given in order for it to be matched successfully.
+X.RE
+X
+X.SS "SPECIFYING VALUES TO OPTIONS"
+X.RS
+XBy default, \*(NM will allow the value for an option to be in the
+Xsame command-line token as the option itself, or in a separate
+Xcommand-line token.  For short-options, specifying the value in
+Xthe same token simply means immediately following the option
+Xcharacter with the intended value as in "\fB\-c\fIvalue\fR".
+XFor long-options, specifying the value in the same token requires
+Xthat the value be separated from the keyword name by an equal-sign
+X(`=') or by a colon (`:') as in ``\fB\*(--keyword\fP=\fIvalue\fP''
+Xor ``\fB\*(--keyword\fP:\fIvalue\fP''.
+X
+XWhen specifying values to short-options in the same token as the option
+Xitself, the "portion" of the value that is consumed depends upon
+Xthe option type. For options that represent a character value, only
+Xthe character immediately following the option-character is consumed
+Xand the remaining characters in the token may match other options.
+XFor options that represent a numeric value, only the portion of the
+Xtoken that "looks" like a number will be consumed and the remaining
+Xcharacters in the token may match other options. For options that
+Xrepresent a string value, all remaining characters in the token
+Xare consumed. What this means is that if I have an integer option
+X\fB\-i\fP, a character option \fB\-c\fP and a string option \fB\-s\fP,
+Xthen they may all be specified on the command-line using the single token
+X``\fB\-i\fI100\fBc\fIc\fBs\fIstring\fR''.
+X
+XIt should be noted that integer valued options may be specified on the
+Xcommand-line in decimal, hexadecimal, or octal notation.
+XHexadecimal notation is assumed if the first two characters of the
+Xinteger are ``\f40x\fP'' or ``\f40X\fP'';
+Xoctal notation is assumed if the first digit of the integer is `0';
+Xdecimal notation is assumed for all other cases.
+X.RE
+X
+X.SS "VALUES FOR BOOLEAN OPTIONS"
+X.RS
+X\*(NM allows boolean options to take optional values. If a boolean option
+Xappears by itself without a value then the default action (which is
+Xusually to turn itself \fIon\fP) is used.  One may also explicitly specify
+Xthe boolean value to use by supplying a value \fIin the same token as the
+Xoption\fP.
+X
+XFor short options, a single character is used as the boolean value.
+XOther short-option characters may immediately follow the boolean
+Xvalue (in the same token as the boolean option) because only one
+Xcharacter is consumed for the boolean value. 
+XThe following strings may be used to indicate a value to a boolean option
+X(those strings that contain more than 1 character may only be used in
+Xconjunction with long-options):
+X.RS
+X.TP
+X"\f40\fP", "\f4\-\fP", "\f4OFF\fP", "\f4NO\fP", "\f4FALSE\fP"
+XEach of these indicates that the option should be turned \fIoff\fP.
+X
+X.TP
+X"\f41\fP", "\f4+\fP", "\f4ON\fP", "\f4YES\fP", "\f4TRUE\fP"
+XEach of these indicates that the option should be turned \fIon\fP.
+X
+X.TP
+X"\f4^\fP", "\f4~\fP", "\f4!\fP"
+XEach of these indicates that the option should be \fItoggled\fP.
+XIn the case of a long-option, any of the above characters may also be followed
+Xby the keyword-name of the option (as in ``\fB\*(--mode\f4=!mode\fR'').
+X.RE
+X
+X.RE
+END_OF_FILE
+if test 4557 -ne `wc -c <'doc/parsing.man'`; then
+    echo shar: \"'doc/parsing.man'\" unpacked with wrong size!
+fi
+# end of 'doc/parsing.man'
+fi
+if test -f 'src/cmd/argtypes.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/argtypes.c'\"
+else
+echo shar: Extracting \"'src/cmd/argtypes.c'\" \(5191 characters\)
+sed "s/^X//" >'src/cmd/argtypes.c' <<'END_OF_FILE'
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "argtypes.h"
+X
+X
+X//-----------------------------------------------------------------------------
+X// ^FUNCTION: operator() - handle an argument from the command-line
+X//
+X// ^SYNOPSIS:
+X//    int  operator()(arg, cmd);
+X//
+X// ^PARAMETERS:
+X//    const char * & arg;
+X//    -- the prospective value for this command argument.
+X//       upon returning this value should be updated to point to the first
+X//       character of "arg" that was NOT used as part of the value for this
+X//       argument (set "arg" to NULL if all of it was used).
+X//
+X//    CmdLine & cmd;
+X//    -- the command that matched this argument on its command-line
+X//
+X// ^DESCRIPTION:
+X//    These member functions are responsible for taking whatever action
+X//    is appropriate when its corresponding command argument is matched
+X//    on the command-line.
+X//
+X//    All the argument-types in this file correspond to argument of some
+X//    kind of shell script, hence all of the command-argument objects are
+X//    not just derived from CmdArg but from ShellCmdArg as well.  All we
+X//    need to do is check the syntax of the argument (without compiling it)
+X//    and if it is valid then use the argument as the value for the 
+X//    corresponding shell variable.
+X//
+X// ^REQUIREMENTS:
+X//    The "arg_flags" data member of this command-argument must have been
+X//    set appropriately (by "cmd") to indicate to us exactly how "arg" was
+X//    specified on the command-line for this (and only this) occurrence of
+X//    "arg".
+X//
+X// ^SIDE-EFFECTS:
+X//    - If (cmd.flags() & QUIET) is NOT TRUE and FAILURE is to be returned,
+X//      then error messages should be printed using cmd.error().
+X//
+X//    - arg is modified to be NULL of to point to the unused portion of itself.
+X//      
+X//    - If (cmd.flags() & TEMP) is TRUE and we need the value of "arg"
+X//      to stick around, then storage is allocated in order to make
+X//      a copy of "arg" (and the command-argument is responsible for
+X//      de-allocating this storage).
+X//
+X// ^RETURN-VALUE:
+X//    FAILURE (non-zero)  If something went wrong when performing the
+X//                        desired actions for this command-argument.
+X//                        A common problem would be that "arg" is
+X//                        syntactically incorrect.
+X//
+X//    SUCCESS (zero)  If "arg" is NULL and/or we were able to succesfully
+X//                    perform all desired actions for this command argument.
+X//-^^--------------------------------------------------------------------------
+X
+X
+X//-------------------------------------------------------------- ShellCmdArgInt
+X
+XShellCmdArgInt::~ShellCmdArgInt(void)
+X{
+X}
+X
+Xint
+XShellCmdArgInt::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgInt  int_arg(*this);
+X   const char * save_arg = arg;
+X   int  badval = int_arg(arg, cmd);
+X   if (save_arg && !badval)  set(save_arg);
+X   return  badval;
+X}
+X
+X//------------------------------------------------------------ ShellCmdArgFloat
+X
+XShellCmdArgFloat::~ShellCmdArgFloat(void)
+X{
+X}
+X
+Xint
+XShellCmdArgFloat::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgFloat  float_arg(*this);
+X   const char * save_arg = arg;
+X   int  badval = float_arg(arg, cmd);
+X   if (save_arg && !badval)  set(save_arg);
+X   return  badval;
+X}
+X
+X//------------------------------------------------------------- ShellCmdArgChar
+X
+XShellCmdArgChar::~ShellCmdArgChar(void)
+X{
+X}
+X
+Xint
+XShellCmdArgChar::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgChar  char_arg(*this);
+X   const char * save_arg = arg;
+X   int  badval = char_arg(arg, cmd);
+X   if (save_arg && !badval)  set(save_arg);
+X   return  badval;
+X}
+X
+X//-------------------------------------------------------------- ShellCmdArgStr
+X
+XShellCmdArgStr::~ShellCmdArgStr(void)
+X{
+X}
+X
+Xint
+XShellCmdArgStr::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgStr  str_arg(*this);
+X   const char * save_arg = arg;
+X   int  badval = str_arg(arg, cmd);
+X   if (save_arg && !badval)  set(save_arg);
+X   return  badval;
+X}
+X
+X//------------------------------------------------------------- ShellCmdArgBool
+X
+Xconst char * ShellCmdArgBool::true_string  = "TRUE" ;
+Xconst char * ShellCmdArgBool::false_string = "" ;
+X
+XShellCmdArgBool::~ShellCmdArgBool(void)
+X{
+X}
+X
+Xint
+XShellCmdArgBool::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgBool  bool_arg(*this);
+X   int  badval = bool_arg(arg, cmd);
+X   if (! badval) {
+X      set((bool_arg) ? True() : False());
+X   }
+X   return  badval;
+X}
+X
+X//------------------------------------------------------------ ShellCmdArgClear
+X
+XShellCmdArgClear::~ShellCmdArgClear(void)
+X{
+X}
+X
+Xint
+XShellCmdArgClear::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgClear  bool_arg(*this);
+X   int  badval = bool_arg(arg, cmd);
+X   if (! badval) {
+X      set((bool_arg) ? True() : False());
+X   }
+X   return  badval;
+X}
+X
+X//----------------------------------------------------------- ShellCmdArgToggle
+X
+XShellCmdArgToggle::~ShellCmdArgToggle(void)
+X{
+X}
+X
+Xint
+XShellCmdArgToggle::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgToggle  bool_arg(*this);
+X   int  badval = bool_arg(arg, cmd);
+X   if (! badval) {
+X      set((bool_arg) ? True() : False());
+X   }
+X   return  badval;
+X}
+X
+END_OF_FILE
+if test 5191 -ne `wc -c <'src/cmd/argtypes.c'`; then
+    echo shar: \"'src/cmd/argtypes.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/argtypes.c'
+fi
+if test -f 'src/cmd/argtypes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/argtypes.h'\"
+else
+echo shar: Extracting \"'src/cmd/argtypes.h'\" \(6706 characters\)
+sed "s/^X//" >'src/cmd/argtypes.h' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: argtypes.h - argument types for use by shell-scripts
+X//
+X// ^DESCRIPTION:
+X//   This file defines the specific types of shell-script command-line
+X//   arguments.  All such argument types are derived from the class
+X//   ShellCmdArg.
+X//
+X// ^HISTORY:
+X//    04/26/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#ifndef _argtypes_h
+X#define _argtypes_h
+X
+X#include "shell_arg.h"
+X
+X//-------------------------------------------------------------- ShellCmdArgInt
+X
+X   // A ShellCmdArgInt is a CmdArg object that maintains an integer
+X   // valued shell-variable.
+X
+Xclass ShellCmdArgInt : public ShellCmdArg {
+Xpublic:
+X   ShellCmdArgInt(char *       name,
+X                  char         optchar,
+X                  char *       keyword,
+X                  char *       value,
+X                  char *       description,
+X                  unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : ShellCmdArg(name, optchar, keyword, value, description, syntax_flags)
+X      {}
+X
+X   ShellCmdArgInt(char *       name,
+X                  char *       value,
+X                  char *       description,
+X                  unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : ShellCmdArg(name, value, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgInt(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//------------------------------------------------------------ ShellCmdArgFloat
+X
+X   // A ShellCmdArgFloat is a CmdArg object that maintains a floating-point
+X   // valued shell-variable.
+X
+Xclass ShellCmdArgFloat : public ShellCmdArg {
+Xpublic:
+X   ShellCmdArgFloat(char *       name,
+X                    char         optchar,
+X                    char *       keyword,
+X                    char *       value,
+X                    char *       description,
+X                    unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : ShellCmdArg(name, optchar, keyword, value, description, syntax_flags)
+X      {}
+X
+X   ShellCmdArgFloat(char *       name,
+X                    char *       value,
+X                    char *       description,
+X                    unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : ShellCmdArg(name, value, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgFloat(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//------------------------------------------------------------- ShellCmdArgChar
+X
+X   // A ShellCmdArgChar is a CmdArg object that maintains a character
+X   // valued shell-variable.
+X
+Xclass ShellCmdArgChar : public ShellCmdArg {
+Xpublic:
+X   ShellCmdArgChar(char *       name,
+X                   char         optchar,
+X                   char *       keyword,
+X                   char *       value,
+X                   char *       description,
+X                   unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : ShellCmdArg(name, optchar, keyword, value, description, syntax_flags)
+X      {}
+X
+X   ShellCmdArgChar(char *       name,
+X                   char *       value,
+X                   char *       description,
+X                   unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : ShellCmdArg(name, value, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgChar(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//-------------------------------------------------------------- ShellCmdArgStr
+X
+X   // A ShellCmdArgStr is a CmdArg object that maintains a string
+X   // valued shell-variable.
+X
+Xclass ShellCmdArgStr : public ShellCmdArg {
+Xpublic:
+X   ShellCmdArgStr(char *       name,
+X                  char         optchar,
+X                  char *       keyword,
+X                  char *       value,
+X                  char *       description,
+X                  unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : ShellCmdArg(name, optchar, keyword, value, description, syntax_flags)
+X      {}
+X
+X   ShellCmdArgStr(char *       name,
+X                  char *       value,
+X                  char *       description,
+X                  unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : ShellCmdArg(name, value, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgStr(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//------------------------------------------------------------- ShellCmdArgBool
+X
+X   // A ShellCmdArgBool is a CmdArg object that maintains a boolean valued
+X   // shell variable.
+X
+Xclass ShellCmdArgBool : public ShellCmdArg {
+Xpublic:
+X   ShellCmdArgBool(char *       name,
+X                   char         optchar,
+X                   char *       keyword,
+X                   char *       description,
+X                   unsigned     syntax_flags =CmdArg::isOPT)
+X      : ShellCmdArg(name, optchar, keyword, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgBool(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   // Need to know what the values to use for TRUE and FALSE are
+X   //
+X
+X   static const char *
+X   True(void) { return  true_string ; }
+X
+X   static const char *
+X   False(void) { return  false_string ; }
+X
+X   // Need to be able to set the values to use for TRUE and FALSE
+X
+X   static void
+X   True(const char * t_str) { true_string = t_str; }
+X
+X   static void
+X   False(const char * f_str) { false_string = f_str; }
+X
+Xprivate:
+X   static  const char * true_string ;
+X   static  const char * false_string ;
+X
+X} ;
+X
+Xtypedef  ShellCmdArgBool  ShellCmdArgSet ;
+X
+X//------------------------------------------------------------ ShellCmdArgClear
+X
+Xclass ShellCmdArgClear : public ShellCmdArgBool {
+Xpublic:
+X   ShellCmdArgClear(char *       name,
+X                    char         optchar,
+X                    char *       keyword,
+X                    char *       description,
+X                    unsigned     syntax_flags =CmdArg::isOPT)
+X      : ShellCmdArgBool(name, optchar, keyword, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgClear(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//----------------------------------------------------------- ShellCmdArgToggle
+X
+Xclass ShellCmdArgToggle : public ShellCmdArgBool {
+Xpublic:
+X   ShellCmdArgToggle(char *       name,
+X                     char         optchar,
+X                     char *       keyword,
+X                     char *       description,
+X                     unsigned     syntax_flags =CmdArg::isOPT)
+X      : ShellCmdArgBool(name, optchar, keyword, description, syntax_flags)
+X      {}
+X
+X   virtual ~ShellCmdArgToggle(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X#endif  /* _argtypes_h */
+X
+END_OF_FILE
+if test 6706 -ne `wc -c <'src/cmd/argtypes.h'`; then
+    echo shar: \"'src/cmd/argtypes.h'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/argtypes.h'
+fi
+if test -f 'src/cmd/cmdparse.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/cmdparse.pl'\"
+else
+echo shar: Extracting \"'src/cmd/cmdparse.pl'\" \(3824 characters\)
+sed "s/^X//" >'src/cmd/cmdparse.pl' <<'END_OF_FILE'
+X#########################################################################
+X# ^FILE: cmdparse.pl - cmdparse for perl programs
+X#
+X# ^DESCRIPTION:
+X#    This file defines a perl function named cmdparse to parse
+X#    command-line arguments for perl scripts.
+X#
+X# ^HISTORY:
+X#    05/14/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X##^^#####################################################################
+X
+X
+X########
+X# ^FUNCTION: cmdparse - parse command-line argument vectors
+X#
+X# ^SYNOPSIS:
+X#    eval  &cmdparse(@args);
+X#
+X# ^PARAMETERS:
+X#    args -- The vector of arguments to pass to cmdparse(1);
+X#            This will usually be the list ("-decls=$ARGS", "--", $0, @ARGV)
+X#            where $ARGS is the variable containing all the argument
+X#            declaration strings.
+X#
+X# ^DESCRIPTION:
+X#    Cmdparse will invoke cmdparse(1) to parse the command-line.
+X#
+X# ^REQUIREMENTS:
+X#    Any desired initial values for variables from the argument-description
+X#    string should be assigned BEFORE calling this function.
+X#
+X# ^SIDE-EFFECTS:
+X#    Terminates perl-script execution if command-line syntax errors are found
+X#
+X# ^RETURN-VALUE:
+X#    A string of perl-variable settings to be evaluated.
+X#
+X# ^EXAMPLE:
+X#     #!/usr/bin/perl
+X#
+X#     require  'cmdparse.pl';
+X#
+X#     $ARGS = '
+X#       ArgStr   string  "[S|Str string]" : STICKY    "optional string argument"
+X#       ArgStr   groups  "[g|groups newsgroups ...]"  "groups to test"
+X#       ArgInt   count   "[c|count number]"           "group repeat count"
+X#       ArgStr   dirname "[d|directory pathname]"     "directory to use"
+X#       ArgBool  xflag   "[x|xmode]"                  "turn on X-mode"
+X#       ArgClear yflag   "[y|ymode]"                  "turn off Y-mode"
+X#       ArgChar  sepch   "[s|separator char]"         "field separator"
+X#       ArgStr   files   "[f|files filenames ...]"    "files to process"
+X#       ArgStr   name    "[n|name] name"              "name to use"
+X#       ArgStr   ARGV    "[args ...]"                 "any remaining arguments"
+X#     ';
+X#
+X#     $count = 1;
+X#     $dirname = '.';
+X#     $sepch = ',';
+X#     $yflag = 'TRUE';
+X#
+X#     eval &cmdparse("-decls=$ARGS", "--", $0, @ARGV);
+X#
+X##^^####
+X
+Xsub cmdparse {
+X   local(@args) = @_ ;
+X   local($output) = ("");
+X   local($nforks, $tmpfile, $tmpdir, $exitrc, $_) = (0, "tmp$$");
+X
+X   $tmpdir = $ENV{'TMP'};  ## use ${TMP:-/tmp}/tmp$$ as the temporary file
+X   if (! $tmpdir) {
+X      $tmpdir = '/tmp';
+X   }
+X   $tmpfile = $tmpdir . '/' . $tmpfile;
+X
+X   ## I could just call cmdparse(1) using `cmdparse <options> <args>`
+X   ## but then I would need to escape all shell meta-characters in each
+X   ## argument. By using exec(), the arguments are passed directly to
+X   ## the system and are not "globbed" or expanded by the shell.
+X   ##
+X   ## Hence I will need to fork off a child, redirect its standard output
+X   ## to a temporary file, and then exec cmdparse(1).
+X
+XFORK: {
+X      ++$nforks;
+X      if ($pid = fork) {
+X            # parent here
+X         waitpid($pid, 0);  ## wait for child to die
+X         $exitrc = $?;
+X         $output = `cat $tmpfile` unless $exitrc;   ## save the output-script
+X         unlink($tmpfile);  ## remove the temporary file
+X         if ($exitrc) {
+X            $! = 0;
+X            die "\n";
+X         }
+X      } elsif (defined $pid) { ## pid is zero here if defined
+X            # child here
+X         open(STDOUT, "> $tmpfile") || die "Can't redirect stdout";
+X         exec("cmdparse", "-shell=perl", @args);
+X      } elsif ($! =~ /No more process/ ) {
+X            # EAGAIN, supposedly recoverable fork error
+X         if ($nforks > 10) {
+X            die "$0: Can't fork cmdparse(1) after 10 tries.\n" ;
+X         } else {
+X            sleep 1;
+X            redo FORK;
+X         }
+X      } else {
+X         die "$0: Can't fork cmdparse(1): $!\n" ;
+X      }
+X   } ##FORK
+X
+X   return $output;
+X}
+X
+X1;
+END_OF_FILE
+if test 3824 -ne `wc -c <'src/cmd/cmdparse.pl'`; then
+    echo shar: \"'src/cmd/cmdparse.pl'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/cmdparse.pl'
+fi
+if test -f 'src/cmd/fsm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/fsm.c'\"
+else
+echo shar: Extracting \"'src/cmd/fsm.c'\" \(6273 characters\)
+sed "s/^X//" >'src/cmd/fsm.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: fsm.c - implement a finite staet machine
+X//
+X// ^DESCRIPTION:
+X//     This file implements a finite state machine tailored to the task of
+X//     parsing syntax strings for command-line arguments.
+X//
+X// ^HISTORY:
+X//    03/27/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+X#include "fsm.h"
+X
+X   // define the characters that have a "special" meaning
+Xenum {
+X  c_LBRACE = '[',
+X  c_RBRACE = ']',
+X  c_ALT    = '|',
+X  c_LIST   = '.',
+X} ;
+X
+X
+X//-------------------
+X// ^FUNCTION: SyntaxFSM::skip - skip to the next token
+X//
+X// ^SYNOPSIS:
+X//    SyntaxFSM::skip(input)
+X//
+X// ^PARAMETERS:
+X//    const char * & input;
+X//    -- the current "read" position in the syntax string.
+X//
+X// ^DESCRIPTION:
+X//    Skip past all whitespace and past square braced (recording the
+X//    current brace-nesting level and the number of balanced braces
+X//    parsed).
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    Updates "input" to point to the next token (or eos)
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xvoid
+XSyntaxFSM::skip(const char * & input) {
+X   if ((! input) || (! *input))  return;
+X
+X   while (isspace(*input))  ++input;
+X   while ((*input == c_LBRACE) || (*input == c_RBRACE)) {
+X      if (*input == c_LBRACE) {
+X         ++lev;
+X      } else {
+X         if (lev > 0) {
+X            ++nbpairs;
+X         } else {
+X            fsm_state = ERROR;
+X            cerr << "too many '" << char(c_RBRACE) << "' characters." << endl;
+X         }
+X         --lev;
+X      }
+X      ++input;
+X      while (isspace(*input))  ++input;
+X   }//while
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: SyntaxFSM::parse_token - parse a token
+X//
+X// ^SYNOPSIS:
+X//    SyntaxFSM::parse_token(input)
+X//
+X// ^PARAMETERS:
+X//    const char * & input;
+X//    -- the current "read" position in the syntax string.
+X//
+X// ^DESCRIPTION:
+X//    Get the next token from the input string.
+X//
+X// ^REQUIREMENTS:
+X//    input should be non-NULL.
+X//
+X// ^SIDE-EFFECTS:
+X//    Updates "input" to point to the next token (or eos)
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xvoid
+XSyntaxFSM::parse_token(const char * & input)
+X{
+X   while (*input && (! isspace(*input)) &&
+X          (*input != c_LBRACE) && (*input != c_RBRACE) &&
+X          ((*input != c_LIST) || (fsm_state == OPTION)))
+X   {
+X      ++input;
+X   }
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: SyntaxFSM::operator() - get a token
+X//
+X// ^SYNOPSIS:
+X//    SyntaxFSM::operator()(input, token)
+X//
+X// ^PARAMETERS:
+X//    const char * & input;
+X//    -- the current "read" position in the syntax string.
+X//
+X//    token_t & token;
+X//    -- where to place the token that we will find.
+X//
+X// ^DESCRIPTION:
+X//    Get the next token from the input string.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    - updates "input" to point to the next token (or eos)
+X//    - updates "token" to be the token that we found
+X//
+X// ^RETURN-VALUE:
+X//    0 if we are in a non-FINAL state; non-zero otherwise..
+X//
+X// ^ALGORITHM:
+X//    It gets complicated so follow along.
+X//-^^----------------
+Xint
+XSyntaxFSM::operator()(const char * & input, token_t & token)
+X{
+X   token.set(NULL, 0);
+X
+X      // if inout is NULL or empty - then we are finished
+X   if ((! input) || (! *input)) {
+X      if (lev) {
+X         cerr << "not enough '" << char(c_RBRACE) << "' characters." << endl ;
+X         fsm_state = ERROR;
+X         return  (fsm_state != FINAL);
+X      } else {
+X         fsm_state = FINAL;
+X         return  (fsm_state != FINAL);
+X      }
+X   }
+X
+X   skip(input);  // skip whitespace
+X
+X   const char * start = input;
+X
+X      // the token we are to parse depends on what state we are in
+X   switch(fsm_state) {
+X   case  START :
+X      // We are parsing either an option-character name or a value.
+X      // If it is an option-character name, the character that stops
+X      // the input scan will be c_ALT.
+X      //
+X      if (*input != c_ALT)  ++input;
+X      if (*input == c_ALT) {
+X         fsm_state = OPTION;
+X         if (start != input)  token.set(start, 1);
+X      } else {
+X         parse_token(input);
+X         fsm_state = VALUE;
+X         token.set(start, (input - start));
+X      }
+X      ++ntoks;
+X      break;
+X
+X   case  OPTION :
+X      // We parsed an option-character already so we had better see a keyword
+X      // name this time around.
+X      //
+X      start = ++input;  // skip past the '|' character
+X      if (! isspace(*input)) {
+X         parse_token(input);
+X         token.set(start, (input - start));
+X      }
+X      fsm_state = KEYWORD;
+X      ++ntoks;
+X      break;
+X
+X   case  KEYWORD :
+X      // We parsed a keyword already - if anything is here then it better be a
+X      // value name.
+X      //
+X      if (*input) {
+X         parse_token(input);
+X         fsm_state = VALUE;
+X         token.set(start, (input - start));
+X         ++ntoks;
+X      } else {
+X         fsm_state = FINAL;
+X      } 
+X      break;
+X
+X   case  VALUE :
+X      // We already parsed a value name - all that could possibly be left
+X      // (that we be valid) is an ellipsis ("...") indicating a list.
+X      //
+X      if (! *input) {
+X         fsm_state = FINAL;
+X      } else if (::strncmp(input, "...", 3) == 0) {
+X         fsm_state = LIST;
+X         token.set(input, 3);
+X         input += 3;
+X         ++ntoks;
+X      } else {
+X         fsm_state = ERROR;
+X         cerr << "unexpected token \"" << input << "\"." << endl ;
+X      }
+X      break;
+X
+X   case  LIST :
+X      // We already parsed an ellipsis, there better not be anything left
+X      if (! *input) {
+X         fsm_state = FINAL;
+X      } else {
+X         fsm_state = ERROR;
+X         cerr << "unexpected token \"" << input << "\"." << endl ;
+X      }
+X      break;
+X
+X   case  ERROR :
+X   case  FINAL :
+X   default :
+X      break;
+X   }
+X
+X   if (fsm_state == FINAL) {
+X      skip(input);
+X      if ((! *input) && lev) {
+X         cerr << "not enough '" << char(c_RBRACE) << "' characters." << endl ;
+X         fsm_state = ERROR;
+X      } else if (*input) {
+X         cerr << "unexpected token \"" << input << "\"." << endl ;
+X         fsm_state = ERROR;
+X      }
+X   }
+X
+X   return  (fsm_state != FINAL);
+X}
+X
+END_OF_FILE
+if test 6273 -ne `wc -c <'src/cmd/fsm.c'`; then
+    echo shar: \"'src/cmd/fsm.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/fsm.c'
+fi
+if test -f 'src/cmd/quoted.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/quoted.c'\"
+else
+echo shar: Extracting \"'src/cmd/quoted.c'\" \(3984 characters\)
+sed "s/^X//" >'src/cmd/quoted.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: quoted.c - implement quoted strings
+X//
+X// ^DESCRIPTION:
+X//     This file implements that class defined in "quoted.h"
+X//
+X// ^HISTORY:
+X//    05/01/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "quoted.h"
+X
+X//--------------------------------------------------------------- Constructors
+X
+XQuotedString::QuotedString(unsigned  max_size)
+X   : size(max_size)
+X{
+X   buffer = new char[size] ;
+X}
+X   
+X
+XQuotedString::QuotedString(const char * str)
+X{
+X   size = ::strlen(str + 1);
+X   buffer = new char[size];
+X   if (buffer)  ::strcpy(buffer, str);
+X}
+X
+XQuotedString::QuotedString(const char * str, unsigned  max_size)
+X   : size(max_size)
+X{
+X   buffer = new char[size];
+X   if (buffer)  ::strcpy(buffer, str);
+X}
+X
+XQuotedString::QuotedString(const QuotedString & qstr)
+X   : size(qstr.size)
+X{
+X   buffer = new char[size];
+X   if (buffer)  ::strcpy(buffer, qstr.buffer);
+X}
+X
+X//--------------------------------------------------------------- Destructor
+X
+XQuotedString::~QuotedString(void)
+X{
+X   delete [] buffer ;
+X}
+X
+X//--------------------------------------------------------------- Assignment
+X
+XQuotedString &
+XQuotedString::operator=(const QuotedString & qstr)
+X{
+X   delete [] buffer ;
+X   size = qstr.size;
+X   buffer = new char[size];
+X   if (buffer)  ::strcpy(buffer, qstr.buffer);
+X   return  *this ;
+X}
+X
+XQuotedString &
+XQuotedString::operator=(const char * str)
+X{
+X   delete [] buffer ;
+X   size = ::strlen(str) + 1;
+X   buffer = new char[size];
+X   if (buffer)  ::strcpy(buffer, str);
+X   return  *this ;
+X}
+X
+X//--------------------------------------------------------------- operator>>
+X
+Xistream &
+Xoperator>>(istream & is, QuotedString & qstr)
+X{
+X      // get the first non-white character
+X   char  ch;
+X   is >> ch;
+X   if (! is) {
+X      if (is.eof()) {
+X         cerr << "Premature end of input.\n"
+X              << "\texpecting a single or a double quote." << endl ;
+X      } else {
+X         cerr << "Unable to extract quoted string from input." << endl ;
+X      }
+X      return  is;
+X   }
+X
+X   int  single_quote = 0, double_quote = 0;
+X
+X   switch (ch) {
+X   case '\'' :
+X      single_quote = 1;  break;
+X   case '"'  :
+X      double_quote = 1;  break;
+X   default :
+X      cerr << "Unexpected character '" << ch << "'.\n" 
+X           << "\texpecting a single or a double quotation mark." << endl ;
+X      is.clear(ios::failbit);
+X      return  is;
+X   } //switch
+X
+X
+X   // Now fetch into "dest" until we see the ending quote.
+X   char    * dest = qstr.buffer;
+X   unsigned  end_quote = 0;
+X   unsigned  len = 0;
+X   int  c;
+X   while (! end_quote) {
+X      int  escape = 0;
+X      c = is.get();
+X      if (! is) {
+X         if (is.eof()) {
+X            cerr << "Unmatched " << (single_quote ? "\"'\"" : "'\"'")
+X                 << "quote." << endl ;
+X         } else {
+X            cerr << "Unable to extract quoted string from input." << endl ;
+X         }
+X         return  is;
+X      }
+X      if (c == '\\') {
+X         escape = 1;
+X         c = is.get();
+X         if (! is) {
+X            if (is.eof()) {
+X               cerr << "Unmatched " << (single_quote ? "\"'\"" : "'\"'")
+X                    << " quote." << endl ;
+X            } else {
+X               cerr << "Unable to extract quoted string from input." << endl ;
+X            }
+X            return  is;
+X         }
+X      }
+X      if ((c == '\'') && single_quote && !escape) {
+X         end_quote = 1;
+X      } else if ((c == '"') && double_quote && !escape) {
+X         end_quote = 1;
+X      } else if (len < qstr.size) {
+X         dest[len++] = c;
+X      } else {
+X         cerr << "Error - quoted string is too long.\n\tmust be less than "
+X              << qstr.size << " characters." << endl ;
+X         is.clear(ios::failbit);
+X         return  is;
+X      }
+X   } //while
+X   
+X   dest[len++] = '\0' ;   // dont forget to NUL-terminate
+X   return  is;
+X}
+X
+END_OF_FILE
+if test 3984 -ne `wc -c <'src/cmd/quoted.c'`; then
+    echo shar: \"'src/cmd/quoted.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/quoted.c'
+fi
+if test -f 'src/lib/argiter.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/argiter.c'\"
+else
+echo shar: Extracting \"'src/lib/argiter.c'\" \(3891 characters\)
+sed "s/^X//" >'src/lib/argiter.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: argiter.c - implementation of CmdLineArgIter subclasses
+X//
+X// ^DESCRIPTION:
+X//    This file implements the derived classes of a CmdLineArgIter that
+X//    are declazred in <cmdline.h>.
+X//
+X// ^HISTORY:
+X//    04/03/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "cmdline.h"
+X
+X//-------------------------------------------------------- class CmdLineArgIter
+X
+XCmdLineArgIter::CmdLineArgIter(void) {}
+X
+XCmdLineArgIter::~CmdLineArgIter(void) {}
+X
+X//----------------------------------------------------------- class CmdArgvIter
+X
+XCmdArgvIter::~CmdArgvIter(void) {}
+X
+Xconst char *
+XCmdArgvIter::operator()(void) {
+X   return  ((index != count) && (array[index])) ? array[index++] : 0 ;
+X}
+X
+Xint
+XCmdArgvIter::is_temporary(void) const { return  0; }
+X
+X//--------------------------------------------------------- class CmdStrTokIter
+X
+Xstatic const char WHITESPACE[] = " \t\n\r\v\f" ;
+X
+X   // Constructor
+XCmdStrTokIter::CmdStrTokIter(const char * tokens, const char * delimiters)
+X   : tokstr(NULL), seps(NULL), token(NULL)
+X{
+X   reset(tokens, delimiters);
+X}
+X
+X   // Destructor
+XCmdStrTokIter::~CmdStrTokIter(void)
+X{
+X   delete  tokstr;
+X}
+X
+X   // Use a new string and a new set of delimiters
+Xvoid
+XCmdStrTokIter::reset(const char * tokens, const char * delimiters)
+X{
+X   seps = delimiters;
+X   if (seps == NULL)  seps = WHITESPACE ;  // use default delimiters
+X
+X   delete  tokstr;
+X   tokstr = NULL;
+X   token = NULL;
+X   if (tokens) {
+X      // Make a copy of the token-string (because ::strtok() modifies it)
+X      // and get the first token from the string
+X      //
+X      tokstr = new char[::strlen(tokens) + 1] ;
+X      (void) ::strcpy(tokstr, tokens);
+X      token = ::strtok(tokstr, seps);
+X   }
+X}
+X
+X   // Iterator function -- operator()
+X   //   Just use ::strtok to get the next token from the string
+X   //
+Xconst char *
+XCmdStrTokIter::operator()(void)
+X{
+X   if (seps == NULL)  seps = WHITESPACE ;
+X   const char * result = token;
+X   if (token) token = ::strtok(NULL, seps);
+X   return  result;
+X}
+X
+X   // The storage that we return pointers to (in operator())
+X   // always points to temporary space.
+X   //
+Xint
+XCmdStrTokIter::is_temporary(void) const
+X{
+X   return  1;
+X}
+X
+X//-------------------------------------------------------- class CmdIstreamIter
+X
+Xstatic const unsigned  MAX_LINE_LEN = 1024 ;
+X
+X#ifdef vms
+X   enum { c_COMMENT = '!' } ;
+X#else
+X   enum { c_COMMENT = '#' } ;
+X#endif
+X
+X   // Constructor
+XCmdIstreamIter::CmdIstreamIter(istream & input) : is(input), tok_iter(NULL)
+X{
+X}
+X
+X   // Destructor
+XCmdIstreamIter::~CmdIstreamIter(void)
+X{
+X   delete  tok_iter;
+X}
+X
+X   // Iterator function -- operator()
+X   //
+X   // What we do is this: for each line of text in the istream, we use
+X   // a CmdStrTokIter to iterate over each token on the line.
+X   //
+X   // If the first non-white character on a line is c_COMMENT, then we
+X   // consider the line to be a comment and we ignore it.
+X   //
+Xconst char *
+XCmdIstreamIter::operator()(void)
+X{
+X   const char * result = NULL;
+X   if (tok_iter)  result = tok_iter->operator()();
+X   if (result)  return  result;
+X   if (! is)  return  NULL;
+X
+X   char buf[MAX_LINE_LEN];
+X   do {
+X      *buf = '\0';
+X      is.getline(buf, sizeof(buf));
+X      char * ptr = buf;
+X      while (isspace(*ptr)) ++ptr;
+X      if (*ptr && (*ptr != c_COMMENT)) {
+X         if (tok_iter) {
+X            tok_iter->reset(ptr);
+X         } else {
+X            tok_iter = new CmdStrTokIter(ptr);
+X         }
+X         return  tok_iter->operator()();
+X      }
+X   } while (is);
+X   return  NULL;
+X}
+X
+X   // We use a CmdStrTokIterator that is always temporary, thus the
+X   // the tokens we return are always in temporary storage
+X   //
+Xint
+XCmdIstreamIter::is_temporary(void) const
+X{
+X   return  1;
+X}
+END_OF_FILE
+if test 3891 -ne `wc -c <'src/lib/argiter.c'`; then
+    echo shar: \"'src/lib/argiter.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/argiter.c'
+fi
+if test -f 'src/lib/fifolist.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/fifolist.h'\"
+else
+echo shar: Extracting \"'src/lib/fifolist.h'\" \(7182 characters\)
+sed "s/^X//" >'src/lib/fifolist.h' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: fifolist.h - generic FIFO list classes
+X//
+X// ^DESCRIPTION:
+X//    This file defines a generic FIFO linked list class and two types
+X//    of iterators for the list.  The first iterator is just your basic
+X//    run-of-the-mill iterator.  The second iterator treats the list
+X//    as if it were an array and allows you to index into the list.
+X//
+X//    Once these generic classes are declared, macros are defined to allow
+X//    the programmer to declare lists (and iterators) that contain a
+X//    particular type of item.  On systems where your C++ compiler supports
+X//    templates, templates are used, otherwise we "fake it".
+X//
+X//    The macro defined is named DECLARE_FIFO_LIST and is used as follows:
+X//
+X//       DECLARE_FIFO_LIST(Name, Type);
+X//
+X//    This declares a type named "Name" that is a list of pointers to
+X//    items of type "Type".  Also, the types "NameIter" and "NameArray"
+X//    are declared as the iterators for this type of list.
+X//
+X// ^HISTORY:
+X//    03/21/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#ifndef _fifolist_h
+X#define _fifolist_h
+X
+X#ifndef  name2
+X# if defined(__STDC__) || defined(__ANSI_CPP__)
+X#  define  name2(x,y) x##y
+X# else
+X#  define  name2(x,y) x/**/y
+X# endif
+X#endif
+X
+X
+X   // GenericFifoList - a FIFO linked list of void * pointers
+X   //
+Xclass  GenericFifoList {
+Xprivate:
+X
+Xprotected:
+X   // Need to define what a "node" in the list looks like
+X   struct GenericFifoListNode {
+X      GenericFifoListNode * next;
+X      void * contents;
+X
+X      GenericFifoListNode(GenericFifoListNode * nd =0, void * val =0)
+X         : next(nd), contents(val) {}
+X   } ;
+X
+X   unsigned  mod : 1;
+X   unsigned  del_items : 1;
+X   unsigned  num_items ;
+X   GenericFifoListNode * head;
+X   GenericFifoListNode * tail;
+X
+Xpublic:
+X   GenericFifoList(void)
+X      : head(0), tail(0), num_items(0), del_items(0), mod(0) {}
+X
+X   virtual  ~GenericFifoList(void);
+X
+X   // Remove the first item from the list
+X   void *
+X   remove(void);
+X
+X   // Add an item to the end of the list
+X   void
+X   add(void * item);
+X
+X   // Was the list modified since the last time we checked?
+X   int
+X   modified(void) { return (mod) ? (mod = 0, 1) : 0 ; }
+X
+X   // Is the list empty?
+X   int
+X   is_empty(void) const { return  (num_items == 0); }
+X
+X   // How many items are in the list?
+X   unsigned
+X   count(void) const { return  num_items; }
+X
+X   // Is the list responsible for deleting the items it contains?
+X   int
+X   self_cleaning(void) const { return  int(del_items); }
+X
+X   // Tell the list who is responsible for deleting the items it contains?
+X   void
+X   self_cleaning(int  bool_val)  { del_items = (bool_val) ? 1 : 0; }
+X
+X   friend class GenericFifoListIter;
+X   friend class GenericFifoListArray;
+X} ;
+X
+X
+X   // GenericFifoListIter -- an iterator for a GenericFifoList
+Xclass  GenericFifoListIter {
+Xprivate:
+X   GenericFifoList::GenericFifoListNode * current;
+X
+Xpublic:
+X   GenericFifoListIter(GenericFifoList & fifo_list)
+X      : current(fifo_list.head) {}
+X
+X   GenericFifoListIter(GenericFifoList * fifo_list)
+X      : current(fifo_list->head) {}
+X
+X   virtual  ~GenericFifoListIter(void);
+X
+X   // Return the current item in the list and advance to the next item.
+X   // returns NULL if at end-of-list
+X   //
+X   void *
+X   operator()(void);
+X} ;
+X
+X
+X   // GenericFifoListArray -- an array-style iterator for a GenericFifoList
+Xclass  GenericFifoListArray {
+Xprivate:
+X   GenericFifoList &  list;
+X   unsigned           index;
+X   GenericFifoList::GenericFifoListNode * current;
+X
+Xpublic:
+X   GenericFifoListArray(GenericFifoList & fifo_list)
+X      : list(fifo_list), index(0), current(fifo_list.head) {}
+X
+X   GenericFifoListArray(GenericFifoList * fifo_list)
+X      : list(*fifo_list), index(0), current(fifo_list->head) {}
+X
+X   virtual  ~GenericFifoListArray(void);
+X
+X   // How many items are in the array?
+X   unsigned  count(void) const  { return  list.count(); }
+X
+X   // Return a specified item in the array.
+X   //   NOTE: the programmer is responsible for making sure the given index
+X   //         is not out of range. For this base class, NULL is returned
+X   //         when the index is out of range. Derived classes however
+X   //         dereference the value returned by this function so using
+X   //         an out-of-range index in one of the derived classes will
+X   //         cause a NULL pointer dereferencing error!
+X   //
+X   void *
+X   operator[](unsigned  ndx);
+X} ;
+X
+X#ifdef TEMPLATES
+X
+Xtemplate <class Type>
+Xclass FifoList : public GenericFifoList {
+Xpublic:
+X   FifoList(void) {}
+X
+X   virtual ~FifoList(void);
+X
+X   void
+X   add(Type * item)  { GenericFifoList::add((void *)item); }
+X
+X   Type *
+X   remove(void)  { return  (Type *) GenericFifoList::remove(); }
+X} ;
+X
+Xtemplate <class Type>
+Xclass FifoListIter : public GenericFifoListIter {
+Xpublic:
+X   FifoListIter(FifoList<Type> & list) : GenericFifoListIter(list) {}
+X   FifoListIter(FifoList<Type> * list) : GenericFifoListIter(list) {}
+X
+X   virtual  ~FifoListIter(void);
+X
+X   Type *
+X   operator()(void)  {  return  (Type *) GenericFifoListIter::operator()(); }
+X} ;
+X
+Xtemplate <class Type>
+Xclass FifoListArray : public GenericFifoListArray {
+Xpublic:
+X   FifoListArray(FifoList<Type> & list) : GenericFifoListArray(list) {}
+X   FifoListArray(FifoList<Type> * list) : GenericFifoListArray(list) {}
+X
+X   virtual  ~FifoListArray(void);
+X
+X   Type &
+X   operator[](unsigned  ndx)
+X      { return  *((Type *) GenericFifoListArray::operator[](ndx)) }
+X} ;
+X
+X#define  DECLARE_FIFO_LIST(Name,Type) \
+X   typedef  FifoList<Type> Name; \
+X   typedef  FifoListIter<Type>  name2(Name,Iter) \
+X   typedef  FifoListArray<Type> name2(Name,Array)
+X
+X#else  /* dont have templates -- have to fake it */
+X
+X#define  DECLARE_FIFO_LIST(Name,Type) \
+X   class Name : public GenericFifoList {  \
+X   public:  \
+X      Name(void) {}  \
+X\
+X      virtual ~Name(void) {  \
+X         GenericFifoListNode * nd = head;  \
+X         head = 0; \
+X         while (nd) {  \
+X            GenericFifoListNode * to_delete = nd;  \
+X            nd = nd->next;  \
+X            if (del_items)  delete (Type *)to_delete->contents;  \
+X            delete  to_delete;  \
+X         }  \
+X      }  \
+X\
+X      void  \
+X      add(Type * item)  { GenericFifoList::add((void *)item); }  \
+X\
+X      Type *  \
+X      remove(void)  { return  (Type *) GenericFifoList::remove(); }  \
+X\
+X      friend  class name2(Name,Iter);  \
+X   } ;  \
+X\
+Xclass name2(Name,Iter) : public GenericFifoListIter {  \
+Xpublic:  \
+X   name2(Name,Iter)(Name & list) : GenericFifoListIter(list) {}  \
+X   name2(Name,Iter)(Name * list) : GenericFifoListIter(list) {}  \
+X\
+X   virtual ~ name2(Name,Iter)(void) {} \
+X\
+X   Type *  \
+X   operator()(void)  {  return  (Type *) GenericFifoListIter::operator()(); } \
+X} ; \
+X\
+Xclass name2(Name,Array) : public GenericFifoListArray {  \
+Xpublic:  \
+X   name2(Name,Array)(Name & list) : GenericFifoListArray(list) {}  \
+X   name2(Name,Array)(Name * list) : GenericFifoListArray(list) {}  \
+X\
+X   virtual ~ name2(Name,Array)(void) {} \
+X\
+X   Type &  \
+X   operator[](unsigned  ndx)  \
+X      { return  *((Type *) GenericFifoListArray::operator[](ndx)); }  \
+X}
+X
+X#endif  /* TEMPLATES */
+X
+X
+X#endif /* _fifolist_h */
+X
+END_OF_FILE
+if test 7182 -ne `wc -c <'src/lib/fifolist.h'`; then
+    echo shar: \"'src/lib/fifolist.h'\" unpacked with wrong size!
+fi
+# end of 'src/lib/fifolist.h'
+fi
+if test -f 'src/lib/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/parse.c'\"
+else
+echo shar: Extracting \"'src/lib/parse.c'\" \(5024 characters\)
+sed "s/^X//" >'src/lib/parse.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: parse.c - parsing portion of the CmdLine library
+X//
+X// ^DESCRIPTION:
+X//     The following functions defined in <cmdline.h> are implemented:
+X//
+X//        CmdLine::prologue() -- initialize stuff for parsing
+X//        CmdLine::epilogue() -- finish up stuff for parsing
+X//        CmdLine::parse()     -- parse arguments from an iterator
+X//
+X// ^HISTORY:
+X//    12/05/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+X#include "exits.h"
+X#include "states.h"
+X#include "arglist.h"
+X#include "cmdline.h"
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::prologue - initialize before parsing
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::prologue(void)
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//    Before we can begin parsing argument from the command-line, we need
+X//    to set (or reset) certain attributes of the CmdLine object. Among
+X//    other things, we need to reset its state and status, and we need to
+X//    reset the state of each of its arguments.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies all parts of the CmdLine object and its arguments.
+X//
+X// ^RETURN-VALUE:
+X//    A combination of bitmasks of type CmdLine::CmdStatus corresponding to
+X//    what (if anything) went wrong.
+X//
+X// ^ALGORITHM:
+X//    Follow along - its not too complicated.
+X//-^^----
+Xunsigned
+XCmdLine::prologue(void)
+X{
+X   // reset parse-specific attributes
+X   cmd_parse_state = cmd_START_STATE ;
+X   cmd_state = 0 ;
+X   cmd_status = NO_ERROR ;
+X
+X   // reset parse-specific attributes for each argument
+X   CmdArgListListIter  list_iter(cmd_args);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter  iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         cmdarg->clear();
+X      }
+X   }
+X
+X   return  cmd_status ;
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::epilogue - clean up after parsing
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::epilogue(void)
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    Modifies the command-line obejct.
+X//
+X//    Prints messages on cerr (if QUIET is not set) if there are
+X//    missing required arguments or values (and prompts for them if
+X//    PROMPT_USER is set of $PROMPT_USER is exists and is non-empty).
+X//
+X//    Prints a usage message if there were syntax error.
+X//
+X//    Terminates program execution by calling ::exit(e_SYNTAX) if
+X//    (NO_ABORT is NOT set and the command-status is NOT NO_ERROR).
+X//
+X// ^RETURN-VALUE:
+X//    A combination of bitmasks of type CmdLine::CmdStatus corresponding to
+X//    what (if anything) went wrong.
+X//
+X// ^ALGORITHM:
+X//    - See if we left an argument dangling without a required value,
+X//    - Check for missing required arguments
+X//    - Print usage if required
+X//    - Exit if required
+X//-^^----
+Xunsigned
+XCmdLine::epilogue(void)
+X{
+X   if (cmd_err == NULL)  cmd_err = &cerr;
+X
+X   // see if we left an argument dangling without a value
+X   ck_need_val() ;
+X
+X   // check for any missing required arguments
+X   cmd_status |= missing_args();
+X
+X   // print usage if necessary
+X   if (cmd_status & ARG_MISSING) {
+X      usage();
+X      ::exit(e_SYNTAX);
+X   } else if (cmd_status && (! (cmd_flags & NO_ABORT))) {
+X      usage();
+X      ::exit(e_SYNTAX);
+X   }
+X
+X   return  cmd_status ;
+X}
+X
+X//-------------------
+X// ^FUNCTION: parse - parse arguments from an iterator
+X//
+X// ^SYNOPSIS:
+X//    parse(arg_iter, auto_processing)
+X//
+X// ^PARAMETERS:
+X//    CmdLineArgIter & arg_iter;
+X//    -- collection of string arguments from the command-line
+X//
+X//    int  auto_processing;
+X//    -- if this is NON-zero, then automatically call prologue() and
+X//       epilogue() to do pre- and post- processing.
+X//
+X// ^DESCRIPTION:
+X//    Parse all the argument in a given argument iterator.
+X//    If auto_processing is NON-zero then the programmer is
+X//    directly responsible for calling prologue() and epilogue().
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    - Uses up all remaining arguments in arg_iter
+X//    - Modifies the CmdLine
+X//
+X// ^RETURN-VALUE:
+X//    The resultant status of the CmdLine:
+X//
+X// ^ALGORITHM:
+X//    Trivial - just iterate through calling parse_arg.
+X//-^^----------------
+Xunsigned
+XCmdLine::parse(CmdLineArgIter & arg_iter, int  auto_processing)
+X{
+X   // NOTE: If arg_iter.is_temporary() is TRUE then we MUST remember
+X   //       to set the CmdLine::TEMP flags before parsing (and put it
+X   //       back the way it was when we are finished.
+X   //
+X   if (auto_processing)  (void) prologue();
+X   unsigned  save_flags = cmd_flags;
+X   if (arg_iter.is_temporary())  cmd_flags |= TEMP;
+X   for (const char * arg = arg_iter() ; arg ; arg = arg_iter()) {
+X      (void) parse_arg(arg);
+X   }
+X   if (arg_iter.is_temporary())  cmd_flags = save_flags;
+X   if (auto_processing)  (void) epilogue();
+X   return  cmd_status ;
+X}
+X
+END_OF_FILE
+if test 5024 -ne `wc -c <'src/lib/parse.c'`; then
+    echo shar: \"'src/lib/parse.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/parse.c'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1263 @@
+Newsgroups: comp.sources.misc
+From: berg@messua.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject:  v28i004:  procmail - mail processing program v2.61, Part04/05
+Message-ID: <1992Feb2.030831.24233@sparky.imd.sterling.com>
+X-Md4-Signature: 5f7478dfdf143296dc69f2c7eb420e9e
+Date: Sun, 2 Feb 1992 03:08:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@messua.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 28, Issue 4
+Archive-name: procmail/part04
+Environment: UNIX, sendmail, smail, MMDF
+Supersedes: procmail: Volume 25, Issue 01-04
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 5)."
+# Contents:  procmail/examples/mailinglist procmail/formail.c
+#   procmail/retint.c
+# Wrapped by berg@tabaqui on Fri Jan 31 14:16:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/examples/mailinglist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/examples/mailinglist'\"
+else
+echo shar: Extracting \"'procmail/examples/mailinglist'\" \(11167 characters\)
+sed "s/^X//" >'procmail/examples/mailinglist' <<'END_OF_FILE'
+X$Id: mailinglist,v 2.4 1992/01/31 12:03:04 berg Rel $
+X
+X			How to set up mailing lists
+X			---------------------------
+X
+X		Written by Stephen R. van den Berg.
+X					berg@messua.informatik.rwth-aachen.de
+X					berg@physik.tu-muenchen.de
+X
+XThis document mainly describes a sendmail environment, much of it applies
+Xto non-sendmail mail agents as well.
+X
+X
+XContents:
+X---------	1. Intro
+X		2. Bouncing mail
+X		3. The disadvantages
+X		4. How to circumvent these disadvantages
+X		5. Why use procmail to filter the mailinglist mail?
+X		6. How do I use procmail to filter the mailinglist mail?
+X		7. Now, what does the above all do?
+X		8. The result of this exercise
+X
+X1. Intro
+X   -----
+X
+XThe simplest and most direct way to do it is by insert a line in
+Xthe /usr/lib/aliases file looking like:
+X
+Xmylist: fred,john, wilma, barney@bedrock, pebbles
+X
+XNow all the mail arriving at your machine for "mylist" (either local or
+Xmylist@your.domain) will be automatically forwarded to all the mentioned
+Xaddresses (fred, john, etc.).
+X
+XThe address mylist@your.domain is intended for submissions to the list that
+Xare supposed to be forwarded to all the subscribers.  For the administrative
+Xtasks like removals from the list, new subscribtions to the list, or address
+Xchanges of subscribers one should create a second entry in the /usr/lib/aliases
+Xfile:
+X
+Xmylist-request: your_login_name@your.domain
+X
+X
+X2. Bouncing mail
+X   -------------
+X
+XIn order to deal with bouncing mail gracefully, an extra precaution should
+Xbe taken.  If for example mail to wilma bounces (user non-existent, mail
+Xfilesystem full, etc.), it will bounce back to the original sender.
+XNow, the only person that should be concerned with distribution failures
+Xshould be the mylist-request holder.  Therefore you should be using a
+Xsendmail special alias like:
+X
+Xowner-mylist: mylist-request@your.domain
+X
+XThis way local mail will bounce back to mylist-request@your.domain.
+X
+X
+X3. The disadvantages
+X   -----------------
+X
+XIf you are using the above methods, some obvious disadvantages come to mind
+Xhowever:
+X
+Xa. The subscriber list cannot exceed 1000 bytes (on most sendmails).
+Xb. The subscriber list cannot be changed on-the-fly (/usr/lib/aliases needs
+X   to be edited, and newaliases has to be run).
+Xc. People cannot be prevented from submitting messages like "Please remove
+X   me from this mailinglist" to mylist (and thereby annoying all subscribers).
+Xd. People cannot be guarded from themselves in case they insert
+X   "Return-Receipt-To:" fields in their headers (if they are particularly
+X   unlucky, they will receive an acknowledge mail from *every* subscriber's
+X   sendmail).
+Xe. People including "Errors-To:" or "Sender:" fields can cause the bounce
+X   messages to bypass owner-mylist anyway.
+Xf. There is no way of limiting the number of submitters, i.e. every person
+X   who knows the name of the mailing list and who can send mail to your.domain
+X   is able to submit messages to the list.  This means, for example, that you
+X   cannot limit a mailing list to local users (i.e. only local users can
+X   submit).
+Xg. You are unable to insert a "Reply-To: mylist@your.domain" in case you
+X   would want to (this makes replying to the list easier).
+X
+X
+X4. How to circumvent these disadvantages
+X  -------------------------------------
+X
+Xa. Can be circumvented by using nested aliases like:
+X	mylist: mylist1, mylist2
+X	mylist1: fred,john
+X	mylist2: wilma,barney@bedrock,pebbles
+X   This can however, become extremely messy to maintain.
+X
+Xb. This can partly be avoided if you use aliases like:
+X	mylist: :input:/path/to/the/memberfile
+X   The memberfile should contain:
+X	fred,john,wilma,barney@bedrock,pebbles
+X   You cannot avoid using newaliases however, and *will* get extremely messy
+X   if you have to start using nested aliases.
+X
+Xc. Can only be taken care of by using a mailfilter like procmail.
+X
+Xd. Can only be taken care of by using a mailfilter like procmail.
+X
+Xe. Can only be taken care of by using a mailfilter like procmail.
+X
+Xf. Can only be taken care of by using a mailfilter like procmail.
+X
+Xh. Can only be taken care of by using a mailfilter like procmail.
+X
+X
+X5. Why use procmail to filter the mailinglist mail?
+X   ------------------------------------------------
+X
+XInstead of using a mailfilter you could also take care of most of the problems
+Xthree till seven by editing the sendmail.cf file.  I strongly would recommend
+Xagainst this approach however, since this will be too much of a customizing
+Xoperation and surely will not be a trivial task (in all cases).	 As a general
+Xrule: don't mess with a sendmail.cf file once it is working :-).
+X
+XNow, you could, instead of procmail, simply use immediate VNIX commands
+Xlike grep, sed, awk to do the mail filtering.  Again, there are some obvious
+Xdisadvantages with this approach:
+X
+XA. In case any system resources go out (no more file descriptors, no more
+X   swap space, process table full, file system full (for temporary files))
+X   your awk or shell script will fail generously (i.e. several bad things
+X   could happen: mail munged, truncated, lost, hanging awk or sh programs,
+X   etc., you get the picture).
+X
+XB. All mail headers (including From: and Reply-To:) could very well be
+X   multi-line headers; it will be very difficult to make it understandable
+X   to awk that somehow the header line could continue on the next line
+X   (in case you want to remove a header, or do some complicated substitution).
+X
+XC. Another hairy problem will be determining the end of the header, of course
+X   that is solvable, but you have to make some extra precautions in your
+X   awk script to ensure that any substitutions/changes will not occur in
+X   the body of the message.
+X
+XProcmail does not *directly* allow you to change any headers, but that
+Xfeature is not really necessary since you can tell procmail to send ONLY the
+Xheader through some filter of your choice.
+X
+XTo comment on the previously mentioned three disadvantages:
+X
+XA. procmail takes care of that.	 Should the filter have problems anyway,
+X   procmail will graciously notice that the filter was in some kind of
+X   trouble, and will try something else with the original unmunged mail
+X   (you can specify what it should do of course, obvious choices: try
+X   the same filter again, drop the mail in a file and send you a notice,
+X   forward the mail to you instead (unfiltered), etc.)
+X
+XB. procmail will concatenate any headers that were continued according to
+X   the RCF 822 recommendations, i.e. your filters will see one line per header.
+X
+XC. procmail can be told to send the header, the body or both through the
+X   filter, hence your filter need not watch out to avoid doing any
+X   substitutions in the body, and the filter can therefore be a lot simpler.
+X
+XProcmail has some additional advantages too:
+X
+X -- It will probably all go a bit faster, since only the header of the mail
+X    is being piped through the filter.	Also, procmail reads in the mail in
+X    16KB chunks, not line by line as sed does.
+X
+X -- You could use procmail to filter out any messages to the normal mailing
+X    list that should have gone to the mylist-request and remail them to
+X    mylist-request.
+X
+XWell, anyway, as you see, procmail does not give you everything you would want,
+Xbut this was intentional in accordance to the true VNIX spirit (modularity).
+XWhat procmail does provide is a *very* reliable hook (you might say it
+Xprovides an anchor :-) for any mail processing you might do.  For the more
+Xcomplex things you still have to use shell scripts or call other programs
+Xfrom within procmail, but then again, that saves you from learning any
+Xparticular syntax procmail would have had to do the same.
+X
+XAs it happens, the accompanying formail program is able to cater to most
+X(if not all) of your needs regarding mail munging.
+X
+XIf, on the other hand, you want to do more complex things like moderated
+Xmailing lists with several moderators, etc., if would suggest you take
+Xa look at the more complex/specialised mail-server packages like:
+Xlistserv available on cs.bu.edu, author: tasos@cs.bu.edu
+XOf course, most of what these packages can do, can be done with procmail as
+Xwell; it is just that you might be forced to write some additional shell
+Xscripts/programs to accomplish the same.
+X
+X
+X6. How do I use procmail to filter the mailinglist mail?
+X   -----------------------------------------------------
+X
+XFirst you have to create these two entries in your /usr/lib/aliases file of
+Xmachine "your.domain" (the mylist: line should be typed in as one long line):
+X
+Xmylist: "|IFS=' ';exec /usr/local/bin/procmail /some/path/listrc subscribers=/some/path/memberlist list=mylist@your.domain listreq=mylist-request@your.domain"
+Xmylist-request: your_login_name@your.domain
+Xowner-mylist: mylist-request
+X
+XCreate a file named /some/path/memberlist which contains the names of the
+Xsubscribers separated by whitespace (blanks, tabs or newlines) like:
+X
+X fred john  wilma  barney@bedrock  pebbles
+X
+XThe /some/path/listrc file you should look like the sample listrc file
+Xsupplied in this directory.  This listrc file need only be present once,
+Xit will cater for all the mailinglists you like to create.
+X
+X
+X7. Now, what does the above all do?
+X   --------------------------------
+X
+XIf mail arrives at mylist, first of all procmail will be started using
+X/some/path/listrc as the rcfile.  Then it will grep the header to check if
+Xit could be a bounced message after all (from postmaster or mailer-daemon),
+Xor if it probably is a request message.	 If neither applies, procmail will
+Xfilter just the header of the message through formail.
+X
+Xformail will remove any "Return-Receipt-To:" fields, and will provide plain
+Xsubstitutes for "Errors-To:" and "Sender:".  Then it will look for
+Xany "Reply-To:" fields which are already in the header and rewrite them
+Xas "Old-Reply-To:";  after having done this it will add your "Reply-To:"
+Xfield.	BTW, the "Return-Receipt-To:" and "Errors-To:" fields are not
+Xrecommended by the RFC-822, they are however commonly supported by most
+Xsendmails;  if they are not supported however, they won't hurt, they will
+Xsimply be ignored.
+X
+XThen, the mail is piped into $SENDMAIL which receives, as command line
+Xarguments, the addresses of all subscribers.  The option -f will only
+Xtake effect if sendmail is running under daemon privileges; this only
+Xoccurs if the sender of the mail is *not* a local user; if the sender
+Xis a local user, then sendmail (and procmail) runs as the local user.
+X
+X*********************************** WARNING **********************************
+X*									     *
+X* For this reason it might be wise to allow writing of the memberlist file   *
+X* only (to a list maintainer), keep the listrc file under *root supervision* *
+X* (i.e. owned by a very reliable person (e.g. root), world readable, but NOT *
+X* world writeable).							     *
+X*									     *
+X******************************************************************************
+X
+X
+X8. The result of this exercise
+X   ---------------------------
+X
+XAs you can see, we have addressed and solved every single one of the original
+Xseven problems (well, ok, except problem f, that one is left as an excercise
+Xto the reader; shouldn't be too difficult).
+X
+X
+XP.S. Any suggestions/corrections/improvements on this document are welcome.
+END_OF_FILE
+if test 11167 -ne `wc -c <'procmail/examples/mailinglist'`; then
+    echo shar: \"'procmail/examples/mailinglist'\" unpacked with wrong size!
+fi
+# end of 'procmail/examples/mailinglist'
+fi
+if test -f 'procmail/formail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/formail.c'\"
+else
+echo shar: Extracting \"'procmail/formail.c'\" \(12963 characters\)
+sed "s/^X//" >'procmail/formail.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	formail.c	a mail (re)formatter				*
+X *									*
+X *	Seems to be relatively bug free.				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	The sources can be freely copied for non-commercial use.	*
+X *	#include "README"						*
+X *									*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic char rcsid[]="$Id: formail.c,v 2.16 1992/01/09 17:23:14 berg Rel $";
+X#endif
+Xstatic char rcsdate[]="$Date: 1992/01/09 17:23:14 $";
+X#include "config.h"					  /* slight overkill */
+X#include "includes.h"
+X
+Xchar*pstrspn();
+X
+X#define BSIZE		4096
+X
+X#define NAMEPREFIX	"formail: "
+X#define HEAD_DELIMITER	':'
+X
+X#define Re		(re+1)
+X#define Nextchar(x)	do{if((x=getchar())==EOF)goto foundeof;}while(0)
+X#define putssn(a,l)	tputssn(a,(size_t)(l))
+X#define putcs(a)	(errout=putc(a,mystdout))
+X#define PRDO		poutfd[0]
+X#define PWRO		poutfd[1]
+X
+Xstatic const char From[]=FROM,replyto[]="Reply-To:",Fromm[]="From:",
+X returnpath[]="Return-Path",sender[]="Sender:",outofmem[]="Out of memory\n",
+X subject[]="Subject:",re[]=" Re:",couldntw[]="Couldn't write to stdout",
+X references[]="References:",messageid[]="Message-ID:",Date[]="Date:",
+X article[]="Article ",Path[]="Path:",Received[]="Received:",To[]="To: ",
+X OldP[]=OLD_PREFIX,inreplyto[]="In-Reply-To:",errorsto[]="Errors-To",
+X retreceiptto[]="Return-Receipt-To";
+Xconst char binsh[]=BinSh;
+X/*
+X *	sender determination fields in order of importance reliability
+X *	reply-address determination fields (wrepl specifies the weight)
+X */
+Xstatic const struct {const char*head;int len,wrepl;}sest[]=
+X{ {errorsto,STRLEN(errorsto),5},{retreceiptto,STRLEN(retreceiptto),6},
+X  {sender,STRLEN(sender),0},{replyto,STRLEN(replyto),4},
+X  {Fromm,STRLEN(Fromm),2},{returnpath,STRLEN(returnpath),1}
+X};
+X/*
+X *	digest splitting fields
+X */
+Xstatic const struct {const char*hedr;int lnr;}cdigest[]=
+X{ {Fromm,STRLEN(Fromm)},{Date,STRLEN(Date)},{subject,STRLEN(subject)},
+X  {article,STRLEN(article)},{Path,STRLEN(Path)},{Received,STRLEN(Received)}
+X};
+X
+Xstatic struct {const char*const headr;const int lenr;char*rexp;}rex[]=
+X{ {subject,STRLEN(subject)},{references,STRLEN(references)},
+X  {messageid,STRLEN(messageid)}
+X};
+X#define subj	rex[0]
+X#define refr	rex[1]
+X#define msid	rex[2]
+X#define mxl(a,b)	mx(STRLEN(a),STRLEN(b))
+X#ifndef MAILBOX_SEPARATOR
+X#define dig_HDR_LEN	mx(mxl(From,Fromm),mxl(Date,subject))
+X#define mboxseparator	From
+X#define flushseparator(i,p)
+X#else
+Xstatic const char mboxseparator[]=MAILBOX_SEPARATOR;
+X#define flushseparator(i,p)	\
+X do{i=p;p=0;do{int x;Nextchar(x);}while(--i);}while(0)
+X#define dig_HDR_LEN	\
+X mx(mx(mxl(From,Fromm),mxl(Date,subject)),STRLEN(mboxseparator))
+X#endif
+Xstatic struct hedit{char*hline;size_t hlen;
+X enum{h_ren,h_del,h_add,h_was,h_extract}htype;struct hedit*next;}*hlist;
+Xstatic errout,oldstdout,quiet;
+Xstatic pid_t child= -1;
+Xstatic FILE*mystdout;
+Xstatic size_t nrskip,nrtotal= -1;
+X
+X#ifdef	NOstrstr
+Xchar*strstr(whole,part)const char*whole,*const part;
+X{ register const char*w,*p;
+X  do
+X   { w=whole;p=part;
+X     do
+X	if(!*p)
+X	   return(char*)whole;
+X     while(*w++==*p++);
+X   }
+X  while(*whole++);
+X  return(char*)0;
+X}
+X#endif
+X
+Xvoid*tmalloc(len)const size_t len;
+X{ void*p;
+X  if(p=malloc(len))
+X     return p;
+X  nlog(outofmem);exit(EX_OSERR);
+X}
+X
+Xvoid*trealloc(old,len)void*old;const size_t len;
+X{ if(old=realloc(old,len))
+X     return old;
+X  nlog(outofmem);exit(EX_OSERR);
+X}
+X
+X#include "shell.h"
+X
+Xstruct hedit*overrideh(target,keep)const char*const target;const int keep;
+X{ struct hedit*hlp;
+X  for(hlp=hlist;hlp;hlp=hlp->next)
+X     if(hlp->htype!=h_was&&!strnicmp(hlp->hline,target,hlp->hlen))
+X      { if(keep>0||hlp->htype!=h_add)			  /* found field ok? */
+X	   return (struct hedit*)hlp;
+X	hlp->htype=h_was;			/* temporarily disable field */
+X	if(keep)					/* smaller than zero */
+X	   break;
+X      }
+X  return(struct hedit*)0;				   /* no field found */
+X}
+X
+Xmain(lastm,argv)const char*const argv[];
+X{ int i,ch,nowm,split=0,force=0,bogus=1,every=0,areply=0,trust=0,digest=0,
+X   nowait=0,keepb=0,extract=0;
+X  size_t buflen,p=0,lnl=0,ll;time_t t;char*buf,*chp,*namep;struct hedit*hlp;
+X  while(chp=(char*)*++argv)
+X   { if((lastm= *chp++)==FM_SKIP)
+X	goto number;
+X     else if(lastm!=FM_TOTAL)
+X	goto usg;
+X     for(;;)
+X      { switch(lastm= *chp++)
+X	 { case FM_TRUST:trust=1;continue;
+X	   case FM_REPLY:areply=1;continue;
+X	   case FM_FORCE:force=1;continue;
+X	   case FM_EVERY:every=1;bogus=0;continue;
+X	   case FM_DIGEST:digest=1;continue;
+X	   case FM_NOWAIT:nowait=1;continue;
+X	   case FM_KEEPB:keepb=1;continue;
+X	   case FM_QUIET:quiet=1;continue;
+X	   case FM_SPLIT:split=1;
+X	      if(!*chp&&*++argv)
+X		 goto parsedoptions;
+X	      goto usg;
+Xnumber:	   default:
+X	      if(*chp-'0'>(unsigned)9)
+X	       {
+Xusg:		 log(FM_USAGE);return EX_USAGE;
+X	       }
+X	      ll=strtol(chp,(char**)0,10);
+X	      if(lastm==FM_SKIP)
+X		 nrskip=ll;
+X	      else
+X		 nrtotal=ll;
+X	      break;
+X	   case FM_BOGUS:bogus=0;continue;
+X	   case FM_EXTRACT:extract=1;
+X	   case FM_ADD_IFNOT:case FM_REN_INSERT:case FM_DEL_INSERT:hlp=hlist;
+X	      (hlist=malloc(sizeof*hlist))->next=hlp;
+X	      if(!*chp&&!(chp=(char*)*++argv))	/* concatenated or seperate? */
+X		 goto usg;
+X	      hlist->hline=chp;				 /* add field string */
+X	      if(!(buf=strchr(chp,HEAD_DELIMITER)))
+X	       { nlog("Invalid field-name:");logqnl(chp);goto usg;
+X	       }
+X	      hlist->hlen=buf-chp+1;
+X	      hlist->htype=lastm==FM_REN_INSERT?h_ren:
+X	       lastm==FM_DEL_INSERT?h_del:lastm==FM_ADD_IFNOT?h_add:h_extract;
+X	   case '\0':;
+X	 }
+X	break;
+X      }
+X   }
+Xparsedoptions:
+X#ifdef MAILBOX_SEPARATOR
+X  if(split)
+X   { every=1;
+X     if(!areply)
+X	bogus=0;
+X   }
+X#endif
+X  mystdout=stdout;signal(SIGPIPE,SIG_IGN);
+X  if(split)
+X   { oldstdout=dup(STDOUT);fclose(stdout);startprog(argv);
+X   }
+X  else if(every)
+X     goto usg;
+X  namep=malloc(1);buf=malloc(buflen=BSIZE);t=time((time_t*)0);
+X  i=maxindex(rex);
+X  do rex[i].rexp=malloc(1);
+X  while(i--);
+X  while('\n'==(ch=getchar()));
+Xstartover:
+X  *namep='\0';i=maxindex(rex);
+X  do *rex[i].rexp='\0';
+X  while(i--);
+X  for(;;)					 /* start parsing the header */
+X   { if((buf[p++]=ch)=='\n')
+X      { if(lnl==p-1)				    /* end of header reached */
+X	   break;
+X	switch(ch=getchar())		      /* concatenate continued lines */
+X	 { case ' ':case '\t':p--;continue;
+X	   case EOF:ch='\n';
+X	 }
+X	chp=buf+lnl;
+X#ifdef MAILBOX_SEPARATOR
+X	if(!strncmp(mboxseparator,chp,STRLEN(mboxseparator)))
+X	 { if(!lnl)
+X	    { if(split)
+X	       { p=0;goto redigest;
+X	       }
+X	      force=1;	     /* separator up front, don't add a 'From ' line */
+X	    }
+X	   else if(bogus)
+X	      *chp=' ';
+X	 }
+X#endif
+X	i=maxindex(rex);
+X	while(strnicmp(rex[i].headr,chp,ll=rex[i].lenr)&&i--);
+X	if(i>=0)				  /* found anything already? */
+X	 { ll=p-lnl-ll;
+X	   ((char*)tmemmove(rex[i].rexp=realloc(rex[i].rexp,ll),
+X	    buf+lnl+rex[i].lenr,ll))[ll-1]='\0';
+X	 }
+X	else if(!strncmp(From,chp,STRLEN(From)))
+X	 { if(!lnl)				/* was the real "From " line */
+X	    { nowm=trust?1:3/*wreply*/;ll=lnl+STRLEN(From);goto foundfrom;
+X	    }
+X#ifndef MAILBOX_SEPARATOR
+X	   if(bogus)
+X	    { tmemmove(chp+1,chp,p++-lnl);*chp=ESCAP;		   /* disarm */
+X	    }
+X#endif
+X	 }
+X	else
+X	 { i=maxindex(sest);
+X	   do
+X	      if(!strnicmp(sest[i].head,chp,sest[i].len))
+X	       { nowm=areply?keepb&&sest[i].head==replyto?
+X		  maxindex(sest)+1:sest[i].wrepl:i;
+X		 ll=lnl+sest[i].len;
+Xfoundfrom:	 buf[p]='\0';
+X		 if(chp=strchr(buf+ll,'<'))	      /* extract the address */
+X		    ll=chp-buf+1;
+X		 if((i=strcspn(chp=pstrspn(buf+ll," \t"),">(\n \t"))&&
+X		  (!*namep||nowm>lastm))
+X		  { ((char*)tmemmove(namep=realloc(namep,i+1),chp,i))[i]='\0';
+X		    lastm=strstr(chp,".UUCP")?nowm-maxindex(sest)-1:nowm;
+X		  }
+X		 break;
+X		}
+X	   while(i--);
+X	 }
+X	if(hlp=overrideh(buf+lnl,areply))	 /* replace or delete field? */
+X	   switch(hlp->htype)
+X	    { case h_extract:putssn(buf+lnl+hlp->hlen,p-lnl-hlp->hlen);
+X	      case h_del:p=lnl;continue;		   /* just delete it */
+X	      case h_ren:
+X		 if(p+2>=buflen)	    /* trouble if BSIZE<STRLEN(OldP) */
+X		    buf=realloc(buf,buflen+=BSIZE);
+X		 tmemmove(buf+lnl+STRLEN(OldP),buf+lnl,p-lnl);
+X		 tmemmove(buf+lnl,OldP,STRLEN(OldP));p+=STRLEN(OldP);
+X	    }
+X	lnl=p;continue;
+X      }
+X     if(p>=buflen-2)
+X	buf=realloc(buf,buflen+=BSIZE);
+Xredigest:
+X     if((ch=getchar())==EOF)
+X	ch='\n';		/* make sure the header ends with 2 newlines */
+X   }
+X  if(!extract)
+X   { if(areply||!force&&strncmp(buf,From,STRLEN(From)))
+X      { if(!areply||!overrideh(To,!*namep))
+X	 { putss(areply?(areply=2),To:From);
+X	   if(*namep)				/* found any sender address? */
+X	      putss(namep);
+X	   else
+X	      putss(UNKNOWN);
+X	 }
+X	if(areply)
+X	 { if(areply==2)
+X	      putnl();
+X	   if(*subj.rexp&&!overrideh(subject,-1))	   /* any Subject: ? */
+X	    { putss(subject);chp=subj.rexp;
+X	      if(strnicmp(pstrspn(chp," "),Re,STRLEN(Re)))
+X		 putss(re);		       /* no Re: , add one ourselves */
+X	      putss(chp);putnl();
+X	    }
+X	   if(*refr.rexp||*msid.rexp)	 /* any Message-ID: or References: ? */
+X	    { if(!overrideh(references,-1))
+X	       { putss(references);
+X		 if(*refr.rexp)
+X		  { putss(refr.rexp);
+X		    if(*msid.rexp)
+X		       putnl();
+X		  }
+X		 if(*msid.rexp)
+X		  { putss(msid.rexp);putnl();
+X		  }
+X	       }
+X	      if(*msid.rexp&&!overrideh(inreplyto,-1))
+X	       { putss(inreplyto);putss(msid.rexp);putnl();
+X	       }
+X	    }
+X	 }
+X	else
+X	 { putcs(' ');putss(ctime(&t));
+X	 }
+X      }
+X     if(!areply)
+X	putssn(buf,p-1);
+X     for(hlp=hlist;hlp;hlp=hlp->next)
+X	if(hlp->htype==h_was)
+X	   hlp->htype=h_add;		      /* enable disabled field again */
+X	else if(hlp->hline[hlp->hlen])
+X	 { putss(hlp->hline);putnl();		    /* inject our new fields */
+X	 }
+X     putnl();
+X   }
+X  if(areply&&!keepb||extract)
+X   { if(split)
+X	closemine();
+X     opensink();					 /* discard the body */
+X   }
+X  p=0;lnl=1;					 /* clear buffer, important! */
+X  if(!bogus&&!split)
+X     for(;;putcs(i))
+X	Nextchar(i);
+X  for(;;)					       /* continue the quest */
+X   { do						 /* read line until not From */
+X      { if(p==buflen-1)
+X	   buf=realloc(buf,++buflen);
+X	Nextchar(i=buf[p]);
+X	if(++p==STRLEN(mboxseparator))
+X	   if(!strncmp(mboxseparator,buf,STRLEN(mboxseparator)))
+X	    { if(every)
+X	       { flushseparator(i,p);goto splitit;	 /* optionally flush */
+X	       }
+X	      else if(split&&lnl)
+X		 lnl=2;			   /* mark line as possible postmark */
+X	      else if(bogus)					   /* disarm */
+X	       {
+X#ifndef MAILBOX_SEPARATOR
+X		 putcs(ESCAP);break;
+X#else
+X		 Nextchar(i);*buf=' ';putssn(buf,p);*buf=i;p=1;continue;
+X#endif
+X	       }
+X	    }
+X	if(lnl==1&&digest)
+X	 { ll=maxindex(cdigest);
+X	   do				      /* check for new digest header */
+X	      if(p==cdigest[ll].lnr&&!strncmp(buf,cdigest[ll].hedr,p))
+X		 goto splitit;
+X	   while(ll--);
+X	 }
+X      }
+X     while(i!='\n'&&(lnl==2||p<dig_HDR_LEN));
+X     if(lnl==2)
+X      { buf[p]='\0';		 /* perform more thorough check for postmark */
+X	if((ll=strcspn(chp=pstrspn(buf+STRLEN(From)," ")," \t\n"))&&
+X	 *(chp+=ll)==' '&&(ll= *(chp=pstrspn(chp," ")))!='\t'&&ll!='\n')
+X	 {
+Xsplitit:   if((fclose(mystdout)==EOF||errout==EOF)&&!quiet)
+X	    { nlog(couldntw);log(", continuing...\n");split= -1;
+X	    }
+X	   if(!nowait)
+X	      waitforit();
+X	   startprog(argv);ch=i;--p;lnl=0;goto startover;
+X	 }
+X      }
+X     if(areply&&bogus&&*buf!='\n')
+X	putcs(ESCAP);					  /* escape the body */
+X     lnl=p==1;putssn(buf,p);p=0;
+X     if(i!='\n')
+X	do Nextchar(i);
+X	while(putcs(i),i!='\n');
+X   }
+Xfoundeof:
+X  putssn(buf,p);closemine();child= -1;waitforit();	/* wait for everyone */
+X  return split<0?EX_IOERR:EX_OK;
+X}
+X
+Xlog(a)const char*const a;
+X{ fputs(a,stderr);
+X}
+X
+Xlogqnl(a)const char*a;
+X{ log(" \"");log(a);log("\"\n");
+X}
+X
+Xputss(a)const char*a;
+X{ while(*a)
+X     putcs(*a++);
+X}
+X
+Xtputssn(a,l)const char*a;size_t l;
+X{ while(l--)
+X     putcs(*a++);
+X}
+X
+Xstartprog(argv)const char*const*const argv;
+X{ int poutfd[2];
+X  if(!nrtotal)
+X     goto squelch;
+X  if(nrskip)
+X   { --nrskip;
+Xsquelch:
+X     opensink();return;
+X   }
+X  if(nrtotal>0)
+X     --nrtotal;
+X  dup(oldstdout);pipe(poutfd);
+X  if(!(child=fork()))
+X   { close(oldstdout);close(PWRO);fclose(stdin);dup(PRDO);close(PRDO);
+X     shexec(argv);
+X   }
+X  close(STDOUT);close(PRDO);
+X  if(STDOUT!=dup(PWRO)||!(mystdout=fdopen(STDOUT,"a")))
+X     nofild();
+X  close(PWRO);
+X  if(-1==child)
+X   { nlog("Can't fork\n");exit(EX_OSERR);
+X   }
+X}
+X
+Xnofild()
+X{ nlog("File table full\n");exit(EX_OSERR);
+X}
+X
+Xwaitforit()
+X{ int i;pid_t j;
+X  while(child!=(j=wait(&i))||(i&127)==127)
+X    if(-1==j)
+X       return;
+X}
+X
+Xnlog(a)const char*const a;
+X{ log(NAMEPREFIX);log(a);
+X}
+X
+Xclosemine()
+X{ if((fclose(mystdout)==EOF||errout==EOF)&&!quiet)
+X   { nlog(couldntw);log("\n");;exit(EX_IOERR);
+X   }
+X}
+X
+Xopensink()
+X{ if(!(mystdout=fopen(DevNull,"a")))
+X     nofild();
+X}
+X
+Xputnl()
+X{ putcs('\n');
+X}
+X
+Xstrnicmp(a,b,l)register const char*a,*b;register unsigned l;
+X{ int i,j;
+X  if(l)						 /* case insensitive strncmp */
+X     do
+X      { while(*a&&*a==*b&&--l)
+X	   ++a,++b;
+X	if(!l)
+X	   break;
+X	if((i= *a++)>='A'&&i<='Z')
+X	   i+='a'-'A';
+X	if((j= *b++)>='A'&&j<='Z')
+X	   j+='a'-'A';
+X	if(j!=i)
+X	   return i>j?1:-1;
+X      }
+X     while(i&&j&&--l);
+X  return 0;
+X}
+END_OF_FILE
+if test 12963 -ne `wc -c <'procmail/formail.c'`; then
+    echo shar: \"'procmail/formail.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/formail.c'
+fi
+if test -f 'procmail/retint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/retint.c'\"
+else
+echo shar: Extracting \"'procmail/retint.c'\" \(12095 characters\)
+sed "s/^X//" >'procmail/retint.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	Collection of routines that return an int (sort of anyway :-)	*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	The sources can be freely copied for non-commercial use.	*
+X *	#include "README"						*
+X *									*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic char rcsid[]="$Id: retint.c,v 2.23 1992/01/31 12:28:53 berg Rel $";
+X#endif
+X#include "config.h"
+X#include "procmail.h"
+X#include "shell.h"
+X
+Xsetdef(name,contents)const char*const name,*const contents;
+X{ strcat(strcat(strcpy(sgetcp=buf2,name),"="),contents);
+X  readparse(buf,sgetc,0);sputenv(buf);
+X}
+X
+Xchar*lastexec,*backblock;
+Xlong backlen;		       /* length of backblock, filter recovery block */
+Xpid_t pidfilt,pidchild;
+Xint pbackfd[2];				       /* the emergency backpipe :-) */
+X
+Xpipthrough(line,source,len)char*line,*source;const long len;
+X{ int pinfd[2],poutfd[2];
+X  rpipe(pbackfd);rpipe(pinfd);				 /* main pipes setup */
+X  if(!(pidchild=sfork()))			/* create a sending procmail */
+X   { backblock=source;backlen=len;signal(SIGTERM,stermchild);
+X     signal(SIGINT,stermchild);signal(SIGHUP,stermchild);
+X     signal(SIGQUIT,stermchild);rclose(rc);rclose(PRDI);rclose(PRDB);
+X     rpipe(poutfd);rclose(STDOUT);
+X     if(!(pidfilt=sfork()))				/* create the filter */
+X      { rclose(PWRO);rclose(PWRB);rdup(PWRI);rclose(PWRI);getstdin(PRDO);
+X	callnewprog(line);
+X      }
+X     rclose(PWRI);rclose(PRDO);
+X     if(forkerr(pidfilt,line))
+X      { rclose(PWRO);stermchild();
+X      }
+X     if(dump(PWRO,source,len))		  /* send in the text to be filtered */
+X      { writeerr(line);stermchild();
+X      }
+X     if(pwait&&waitfor(pidfilt)!=EX_OK)	 /* check the exitcode of the filter */
+X      { progerr(line);stermchild();
+X      }
+X     rclose(PWRB);exit(EX_OK);			  /* allow parent to proceed */
+X   }
+X  rclose(PWRI);rclose(PWRB);getstdin(PRDI);
+X  if(forkerr(pidchild,procmailn))
+X     return 1;
+X  return 0;		    /* we stay behind to read back the filtered text */
+X}
+X
+Xwaitfor(pid)const pid_t pid;		      /* wait for a specific process */
+X{ int i;pid_t j;
+X  while(pid!=(j=wait(&i))||(i&127)==127)
+X     if(-1==j)
+X	return EX_UNAVAILABLE;
+X  return i>>8&255;
+X}
+X
+Xgetstdin(pip)const int pip;
+X{ rclose(STDIN);rdup(pip);rclose(pip);
+X}
+X
+Xcallnewprog(newname)const char*const newname;
+X{ if(sh)					 /* should we start a shell? */
+X   { const char*newargv[4];
+X     yell(executing,newname);newargv[3]=0;newargv[2]=newname;
+X     newargv[1]=tgetenv(shellflags);*newargv=tgetenv(shell);shexec(newargv);
+X   }
+X {register const char*p;int argc;const char**newargv;
+X  argc=1;p=newname;	     /* If no shell, chop up the arguments ourselves */
+X  if(verbose)
+X   { log(executing);log(oquote);goto no_1st_comma;
+X   }
+X  do					     /* show chopped up command line */
+X   { if(verbose)
+X      { log(",");
+Xno_1st_comma:
+X	log(p);
+X      }
+X     while(*p++);
+X   }
+X  while(argc++,*p!=TMNATE);
+X  if(verbose)
+X     log(cquote);
+X  newargv=malloc(argc*sizeof*newargv);p=newname;argc=0;	 /* alloc argv array */
+X  do
+X   { newargv[argc++]=p;
+X     while(*p++);
+X   }
+X  while(*p!=TMNATE);
+X  newargv[argc]=0;shexec(newargv);
+X }
+X}
+X
+Xwriteerr(line)const char*const line;
+X{ log("Error while writing to");logqnl(line);
+X}
+X
+Xforkerr(pid,a)const pid_t pid;const char*const a;
+X{ if(pid==-1)
+X   { log("Failed forking");logqnl(a);return 1;
+X   }
+X  return 0;
+X}
+X
+Xprogerr(line)const char*const line;
+X{ log("Program failure of");logqnl(line);
+X}
+X
+Xopena(a)const char*const a;
+X{ lastfolder=cstr(lastfolder,a);yell("Opening",a);
+X#ifdef O_CREAT
+X  return ropen(a,O_WRONLY|O_APPEND|O_CREAT,NORMperm);
+X#else
+X {int fd;
+X  return(fd=ropen(a,O_WRONLY,0))<0?creat(a,NORMperm):fd;
+X }
+X#endif
+X}
+X
+Xyell(a,b)const char*const a,*const b;		     /* log if -d option set */
+X{ if(verbose)
+X   { log(a);logqnl(b);
+X   }
+X}
+X
+Xunlock(lockp)const char**const lockp;
+X{ lcking=1;
+X  if(*lockp)
+X   { yell("Unlocking",*lockp);
+X     if(unlink(*lockp))
+X      { log("Couldn't unlock");logqnl(*lockp);
+X      }
+X     free(*lockp);*lockp=0;
+X   }
+X  lcking=0;
+X  if(nextexit==1)	    /* make sure we are not inside terminate already */
+X   { log(newline);terminate();
+X   }
+X}
+X
+Xnomemerr()
+X{ log("Out of memory\nbuffer 0: \"");buf[linebuf-1]=buf2[linebuf-1]='\0';
+X  log(buf);log("\"\nbuffer 1:");logqnl(buf2);
+X  if(retval!=EX_TEMPFAIL)
+X     retval=EX_OSERR;
+X  terminate();
+X}
+X
+Xlogqnl(a)const char*const a;
+X{ log(oquote);log(a);log(cquote);
+X}
+X
+Xnextrcfile()			/* next rcfile specified on the command line */
+X{ const char*p;
+X  while(p= *gargv)
+X   { gargv++;
+X     if(!strchr(p,'='))
+X      { rcfile=p;return 1;
+X      }
+X   }
+X  return 0;
+X}
+X
+Xrclose(fd)const int fd;		      /* a sysV secure close (signal immune) */
+X{ int i;
+X  while((i=close(fd))&&errno==EINTR);
+X  return i;
+X}
+X
+Xrwrite(fd,a,len)const int fd,len;void*const a;	      /* a sysV secure write */
+X{ int i;
+X  while(0>(i=write(fd,a,(size_t)len))&&errno==EINTR);
+X  return i;
+X}
+X
+Xrread(fd,a,len)const int fd,len;void*const a;	       /* a sysV secure read */
+X{ int i;
+X  while(0>(i=read(fd,a,(size_t)len))&&errno==EINTR);
+X  return i;
+X}
+X
+Xropen(name,mode,mask)const char*const name;const int mode;const mode_t mask;
+X{ int i,r;					       /* a sysV secure open */
+X  if(!lcking)						  /* already locking */
+X     lcking=4;
+X  for(r=noresretry;0>(i=open(name,mode,mask));)
+X     if(errno!=EINTR&&!((errno==EMFILE||errno==ENFILE)&&(r<0||r--)))
+X	break;		 /* survives a temporary "file table full" condition */
+X  if(lcking==4)
+X     lcking=0;
+X  return i;
+X}
+X
+Xrdup(p)const int p;
+X{ int i,r;
+X  for(lcking=4,r=noresretry;0>(i=dup(p));)	  /* catch "file table full" */
+X     if(!((errno==EMFILE||errno==ENFILE)&&(r<0||r--)))
+X	break;
+X  lcking=0;return i;
+X}
+X
+Xrpipe(fd)int fd[2];
+X{ int i,r;
+X  for(lcking=4,r=noresretry;0>(i=pipe(fd));)	  /* catch "file table full" */
+X     if(!((errno==EMFILE||errno==ENFILE)&&(r<0||r--)))
+X      { *fd=fd[1]= -1;break;
+X      }
+X  lcking=0;return i;
+X}
+X
+Xlockit(name,lockp)char*name;const char**const lockp;
+X{ int i,permanent=2;struct stat stbuf;
+X  unlock(lockp);		       /* unlock any previous lockfile FIRST */
+X  if(!*name)			  /* to prevent deadlocks (I hate deadlocks) */
+X     return;
+X  name=tstrdup(name); /* allocate now, so we won't hang on memory *and* lock */
+X  for(;;)
+X   { yell("Locking",name);
+X     if(!NFSxopen(name,LOCKperm))
+X      { *lockp=name;break;			   /* lock acquired, hurray! */
+X      }
+X     switch(errno)
+X      { case EEXIST:
+X	 { time_t t;		   /* check if it's time for a lock override */
+X	   if(!stat(name,&stbuf)&&stbuf.st_size<=MAX_LOCK_SIZE&&locktimeout
+X	    &&(t=time((time_t*)0),!stat(name,&stbuf))&&	 /* stat till unlink */
+X	    locktimeout<t-stbuf.st_mtime)		/* should be atomic, */
+X	      if(unlink(name))		       /* but I can't guarantee that */
+X	       { log("Forced unlock denied on");logqnl(name);
+X	       }
+X	      else
+X	       { log("Forcing lock on");logqnl(name);suspend();
+X	       }
+X	   break;
+X	 }
+X	default:	       /* maybe filename too long, shorten and retry */
+X	   if(0<(i=strlen(name)-1)&&!strchr(dirsep,name[i-1]))
+X	    { log("Truncating");logqnl(name);log(" and retrying lock\n");
+X	      name[i]='\0';continue;
+X	    }
+Xfaillock:  log("Lock failure on");logqnl(name);goto term;
+X	case ENOENT:case ENOTDIR:case EIO:case EACCES:
+X	   if(!--permanent)
+X	      goto faillock;
+X	case ENOSPC:;
+X#ifdef EDQUOT
+X	case EDQUOT:;
+X#endif
+X      }
+X     sleep((unsigned)locksleep);
+X     if(nextexit)
+X      {
+Xterm:	free(name);break;		     /* drop the preallocated buffer */
+X      }
+X   }
+X  lcking=0;
+X  if(nextexit)
+X   { log(whilstwfor);log("lockfile");logqnl(name);terminate();
+X   }
+X}
+X
+Xlcllock()				   /* lock a local file (if need be) */
+X{ if(locknext)
+X     if(tolock)
+X	lockit(tolock,&loclock);
+X     else
+X	lockit(strcat(buf2,tgetenv(lockext)),&loclock);
+X}
+X
+Xsterminate()
+X{ static const char*const msg[]={newline,0,"memory\n","fork\n",
+X   "a file descriptor\n","a kernel lock\n"};
+X  ignoreterm();
+X  if(pidchild>0)	    /* don't kill what is not ours, we might be root */
+X     kill(pidchild,SIGTERM);
+X  if(!nextexit)
+X   { nextexit=1;log("Terminating prematurely");
+X     if(1!=lcking)
+X      { if(1<lcking)
+X	   log(whilstwfor);
+X	log(msg[lcking]);terminate();
+X      }
+X   }
+X}
+X
+Xterminate()
+X{ nextexit=2;			/* prevent multiple invocations of terminate */
+X  if(getpid()==thepid)
+X   { if(retval!=EX_OK)
+X      { log(Mail);
+X	log(fakedelivery?"lost\n":
+X	 retval==EX_TEMPFAIL?"requeued\n":"bounced\n");
+X      }
+X     unlock(&loclock);unlock(&globlock);fdunlock();
+X   }
+X  exit(fakedelivery==2?EX_OK:retval);
+X}
+X
+Xignoreterm()
+X{ signal(SIGTERM,SIG_IGN);signal(SIGHUP,SIG_IGN);signal(SIGINT,SIG_IGN);
+X  signal(SIGQUIT,SIG_IGN);
+X}
+X
+Xsuspend()
+X{ long t;
+X  sleep((unsigned)suspendv);
+X  if(alrmtime)
+X     if((t=alrmtime-time((time_t*)0))<=1)	  /* if less than 1s timeout */
+X	ftimeout();				  /* activate it by hand now */
+X     else		    /* set it manually again, to avoid problems with */
+X	alarm((unsigned)t);	/* badly implemented sleep library functions */
+X}
+X
+Xinittmout(progname)const char*const progname;
+X{ lastexec=cstr(lastexec,progname);
+X  alrmtime=timeoutv?time((time_t*)0)+(unsigned)timeoutv:0;
+X  alarm((unsigned)timeoutv);
+X}
+X
+Xskipspace()
+X{ while(testb(' ')||testb('\t'));
+X}
+X
+Xsgetc()						/* a fake fgetc for a string */
+X{ return *sgetcp?*(uchar*)sgetcp++:EOF;
+X}
+X
+Xskipped(x)const char*const x;
+X{ log("Skipped");logqnl(x);
+X}
+X
+Xconcatenate(old)char*const old;
+X{ register char*p=old;
+X  while(*p!=TMNATE)			  /* concatenate all other arguments */
+X   { while(*p++);
+X     p[-1]=' ';
+X   }
+X  *p=p[-1]='\0';return*old;
+X}
+X
+Xdetab(p)char*p;
+X{ while(p=strchr(p,'\t'))
+X     *p=' ';						/* take out all tabs */
+X}
+X
+Xstatic uchar rcbuf[STDBUF],*rcbufp,*rcbufend;	 /* buffers for custom stdio */
+Xstatic ungetb;						 /* pushed back char */
+X
+Xbopen(name)const char*const name;				 /* my fopen */
+X{ rcbufp=rcbufend=0;ungetb= -1;yell("Rcfile:",name);
+X  return rc=ropen(name,O_RDONLY,0);
+X}
+X
+Xgetbl(p)char*p;							  /* my gets */
+X{ int i;char*q;
+X  for(q=p;;)
+X   { switch(i=getb())
+X      { case '\n':case EOF:
+X	   *p='\0';return p!=q;		     /* did we read anything at all? */
+X      }
+X     *p++=i;
+X   }
+X}
+X
+Xgetb()								 /* my fgetc */
+X{ if(ungetb>=0)					    /* anything pushed back? */
+X   { int i;
+X     i=ungetb;ungetb= -1;return i;
+X   }
+X  if(rcbufp==rcbufend)
+X   { rcbufend=rcbuf+rread(rc,rcbufp=rcbuf,STDBUF);		   /* refill */
+X   }
+X  return rcbufp<rcbufend?*rcbufp++:EOF;
+X}
+X
+Xtestb(x)const int x;		   /* fgetc that only succeeds if it matches */
+X{ int i;
+X  if((i=getb())==x)
+X     return 1;
+X  ungetb=i;return 0;
+X}
+X
+Xalphanum(c)const int c;
+X{ return c>='0'&&c<='9'||c>='a'&&c<='z'||c>='A'&&c<='Z'||c=='_';
+X}
+X				       /* open file or new file in directory */
+Xdeliver(boxname)char*const boxname;
+X{ struct stat stbuf;
+X  strcpy(buf,boxname);			 /* boxname can be found back in buf */
+X  return stat(buf,&stbuf)||!S_ISDIR(stbuf.st_mode)?
+X   (tofolder=1,opena(buf)):dirmail();
+X}
+X
+X#ifndef fdlock
+Xstatic oldfdlock;				    /* the fd we locked last */
+X#ifdef F_SETLKW
+Xstatic struct flock flck;		/* why can't it be a local variable? */
+X
+Xfdlock(fd)					   /* the POSIX-fcntl() lock */
+X{ flck.l_type=F_WRLCK;flck.l_whence=SEEK_SET;flck.l_len=0;
+X  flck.l_start=tell(fd);lcking=5;fd=fcntl(oldfdlock=fd,F_SETLKW,&flck);
+X  lcking=0;return fd;
+X}
+X
+Xfdunlock()
+X{ flck.l_type=F_UNLCK;return fcntl(oldfdlock,F_SETLK,&flck);
+X}
+X#else /* F_SETLKW */
+X#ifdef F_LOCK
+Xstatic long oldlockoffset;
+X
+Xfdlock(fd)						 /* the sysV-lockf() */
+X{ oldlockoffset=tell(fd);lcking=5;fd=lockf(oldfdlock=fd,F_LOCK,0L);lcking=0;
+X  return fd;
+X}
+X
+Xfdunlock()
+X{ lseek(oldfdlock,oldlockoffset,SEEK_SET);return lockf(oldfdlock,F_ULOCK,0L);
+X}
+X#else /* F_LOCK */
+X#ifdef LOCK_EX
+Xfdlock(fd)						  /* the BSD-flock() */
+X{ lcking=5;fd=flock(oldfdlock=fd,LOCK_EX);lcking=0;return fd;
+X}
+X
+Xfdunlock()
+X{ return flock(oldfdlock,LOCK_UN);
+X}
+X#endif /* LOCK_EX */
+X#endif /* F_LOCK */
+X#endif /* F_SETLKW */
+X#endif /* fdlock */
+X
+X#include "exopen.h"
+X					/* an NFS secure exclusive file open */
+XNFSxopen(name,mode)char*name;const mode_t mode;
+X{ char*p;int j= -2,i;
+X  i=lastdirsep(name)-name;strncpy(p=malloc(i+UNIQnamelen),name,i);lcking=1;
+X  if(unique(p,p+i,mode))
+X     j=myrename(p,name);	 /* try and rename it, fails if nonexclusive */
+X  free(p);return j;
+X}
+END_OF_FILE
+if test 12095 -ne `wc -c <'procmail/retint.c'`; then
+    echo shar: \"'procmail/retint.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/retint.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                berg@messua.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+He did a quarter of the work in *half* the time!
+
+exit 0 # Just in case...

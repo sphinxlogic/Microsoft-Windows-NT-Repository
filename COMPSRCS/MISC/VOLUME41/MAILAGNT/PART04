@@ -1,0 +1,1241 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i004:  mailagent - Flexible mail filtering and processing package, v3.0, Part04/26
+Message-ID: <1993Dec2.133602.18028@sparky.sterling.com>
+X-Md4-Signature: c9b4ed00d8c90197ad647fdc4616a24a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:36:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 4
+Archive-name: mailagent/part04
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/filter/README agent/man/mailagent.SH.01
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:54 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 26)."'
+if test -f 'agent/filter/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/README'\"
+else
+  echo shar: Extracting \"'agent/filter/README'\" \(2156 characters\)
+  sed "s/^X//" >'agent/filter/README' <<'END_OF_FILE'
+XThis is the root directory for the C filter.
+X
+XUsing the C version of the filter instead of the shell version is up to you.
+XThis is not really a filter in the common sense, because it does not actually
+Xfilter anything based on the contents of your mails. It only distills your
+Xincoming mail into the mailagent's queue, avoiding the spawning of multiple
+Xperl processes which are resource consuming.
+X
+XI had to write a C version for the filter because I was loosing some mail on
+Xmy machine when I used the shell script. This occurred seldom, but still...
+XThe reason was due to the delivery mode at our site. We get our mail from a
+Xuucp feed. Once in a while, 20 or more mails were delivered at the same time,
+Xand the shell script was not fast enough, and sendmail + filter were eating
+Xall my system's resources.
+X
+XThis program was written in two days, in self defense, when I decided I could
+Xnot afford seeing my precious mail sweeping into /dev/null any longer. It
+Xmight not be as portable as I wanted it too.
+X
+XIf you have an internet connection and receive only a small amount of mail
+Xat a time, or if you have NFS mounted mailboxes, then the shell script filter
+Xmay well be the winner.
+X
+XIn case you are lucky enough to have a uucp connection *and* NFS mounted
+Xmailboxes where you may receive mail on multiple machines :-), then you may
+Xrun into difficulties while setting up your .forward. The best thing to do is
+Xto have the filter executable installed at the same location on all the
+Xmachines, say in /usr/local/bin/filter.
+X
+XIf your sendmail does not always set the uid correctly before invoking the
+Xmailer specified in the .forward, then you will have to use the C filter and
+Xmake a local copy with the setuid bit set. This is yet another reason for me
+Xto use this program on my MIPS workstation, grrr...
+X
+XThe C filter pays attention to more variables in the ~/.mailagent than the
+Xshell script one, mainly to ensure a proper PATH variable. Also note that
+Xthe algorithms used by the two programs are completely different. Despite the
+Xfact it was written in a hurry, I believe it is a little safer than its shell
+Xcounterpart. At least it is *much* faster.
+X
+END_OF_FILE
+  if test 2156 -ne `wc -c <'agent/filter/README'`; then
+    echo shar: \"'agent/filter/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/README'
+fi
+if test -f 'agent/man/mailagent.SH.01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/man/mailagent.SH.01'\"
+else
+  echo shar: Extracting \"'agent/man/mailagent.SH.01'\" \(49974 characters\)
+  sed "s/^X//" >'agent/man/mailagent.SH.01' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/man/mailagent.$manext (with variable substitutions)"
+X$rm -f mailagent.$manext
+X$spitshell >mailagent.$manext <<!GROK!THIS!
+X.TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+X''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+X'''
+X''' $Id: mailagent.SH,v 3.0 1993/11/29 13:48:27 ram Exp ram $
+X'''
+X'''  Copyright (c) 1990-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic License,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic License; a copy of which may be found at the root
+X'''  of the source tree for mailagent 3.0.
+X'''
+X''' $Log: mailagent.SH,v $
+X''' Revision 3.0  1993/11/29  13:48:27  ram
+X''' Baseline for mailagent 3.0 netwide release.
+X'''
+X.de Ex		\" Start of Example
+X.sp
+X.in +5
+X.nf
+X..
+X.de Ef		\" End of Example
+X.sp
+X.in -5
+X.fi
+X..
+X.SH NAME
+Xmailagent \- an automatic mail-processing tool
+X.SH SYNOPSIS
+X\fBmailagent\fR [ \fB\-dhilqtV\fR ] [ \fB\-s{umary}\fR ] [ \fB\-f\fI file\fR ]
+X[ \fB\-e\fI rule\fR ] [ \fB\-c\fI config\fR ] [ \fB\-L\fI loglevel\fR ]
+X[ \fB\-r\fI rulefile\fR ] [ \fB\-o\fI override\fR ] [ \fImailfile\fR ]
+X.SH DESCRIPTION
+X.I Mailagent
+Xallows you to process your mail automatically. Given a set of \fIlex\fR-like
+Xrules, you are able to fill mails to specific folders, forward messages to
+Xa third person, pipe a message to a command or even post the message to a
+Xnewsgroup. It is also possible to process messages containing some
+Xcommands.
+XThe \fImailagent\fR is not usually invoked manually but is rather called via
+Xthe \fIfilter\fR program, which is in turn invoked by \fIsendmail\fR.
+XThat means you must have \fIsendmail\fR on your system to use this.
+XYou also must have \fIperl\fR to run the mailagent scripts.
+X.PP
+XThere is a set of options which may be used when you invoke
+X\fImailagent\fR yourself. Please refer to the \fBOPTIONS\fR section for
+Xa complete description. You may use the \fB\-h\fR option to get a cryptic
+Xusage reminder.
+X'''
+X.SS Product Overview
+X.PP
+X.I Mailagent
+Xhas actually four distinct set of features, which can be used simultaneously
+Xor one at a time. This involves:
+X.IP \(bu 5
+XAn @SH command processor, to remain compatible with the first implementation.
+XIn this simplest usage, all the mail messages are left in your mailbox,
+Xwith special processing raised on messages whose subject is \fICommand\fR.
+XPlease refer to the section entitled \fBUSING THE DEFAULT RULES\fR if you
+Xwish to use this feature.
+X.IP \(bu
+XA complete mail filter, which helps you sort your mail based on various
+Xsorting criteria and actions. Filtering is specified in a rule file and
+Xsupersedes the default \fICommand\fR mail processing (which may be turned on
+Xagain by explicitly setting up a rule for it). This should be the most
+Xcommon use of \fImailagent\fR and is fully documented under the section
+Xentitled \fBUSING THE FILTER\fR.
+XYou may deliver mail to plain Unix-style folders but also to MMDF and MH ones.
+X.IP \(bu
+XA replacement for the \fIvacation\fR program, which will automatically
+Xanswer your mail while you are not there. You only need to supply a message
+Xto be sent back and the frequency at which this will occur. Some simple
+Xmacro substitutions allow you to re-use some parts of the mail header into
+Xyour vacation message, for a more personalized reply. See the \fBVACATION
+XMODE\fR section for more details.
+X.IP \(bu
+XA generic mail server, which will let you implement a real mail server
+Xwithout the hassle of the lower-level concerns like error recovery,
+Xlogging or command parsing. The full documentation can be found in the
+Xsection \fBGENERIC MAIL SERVER\fR at the end of this manual page.
+X.PP
+XIt is possible to extend the mailagent filtering commands by implementing
+Xthem in \fIperl\fR and then having them automagically loaded when used. Those
+Xextended commands will behave exactly like built in ones, as documented
+Xin the \fBEXTENDING FILTERING COMMANDS\fR section.
+X'''
+X.SS Learning From Examples
+X.PP
+XIt is quite possible that you will find this manual page too complex for you.
+XUnfortunately, it is not really meant to be a tutorial but rather a reference
+Xmaterial. If you wish, you may start by looking at the examples held in the
+Xdistribution source tree under \fIagent/examples\fR. This directory contains
+Xtwo examples of rule files (look at the README file first) and are verbosely
+Xcommented.
+X'''
+X''' G e t t i n g   S t a r t e d
+X'''
+X.SH "GETTING STARTED"
+X.PP
+XFirst, you need to install a minimum configuration and see how it works. It
+Xwould be useless to fully install the program and then discover that it does
+Xnot work as advertised...
+X.PP
+XTo start the installation, you have to set up a \fI~/.mailagent\fR file which is
+Xthe main configuration file, and choose the right \fIfilter\fR program.
+X'''
+X.SS "Choosing The Filter Program"
+X.PP
+XThe distribution comes with two filter programs. One written in shell and one
+Xin C. The shell version might be the one to use if you can receive your mail
+Xon many different platforms where your home directory is NFS-mounted (i.e.
+Xshared among all those platforms). The C version is safer and much faster,
+Xbut you need to install it to a fixed location.
+X.PP
+XOn some platforms, \fIsendmail\fR does not correctly reset its UID when
+Xprocessing mails in its own queue. In that case, you need to get a private
+Xcopy of the C filter program and make it setuid to yourself. The filter will
+Xthen correctly reset its UID if invoked with an effective UID different from
+Xyours (it may also require the setgid bit to reset GID as well).
+XIf this is indeed the case on your system, make sure you use the
+X\fIpath\fR configuration variable to set a proper PATH, as the filter will
+Xspawn a perl process with the '-S' option, looking for a \fImailagent\fR
+Xscript.
+X.PP
+XEven if you do not need to get a setuid copy of the \fIfilter\fR program, it
+Xis wise to set up a proper path: someone might break into your account by
+Xputting a mailagent Trojan horse in the appropriate location. Also make sure
+Xthe mailagent program is protected against writing, as well as the directory
+Xwhich holds it, or someone might substitute his own version of the script
+Xand break security. I believe the setuid \fIfilter\fR program to be safe, but
+Xoverlooking is always possible so please report any security hole to me.
+X.PP
+XThe \fIfilter\fR script can be found in the \fILib/mailagent\fR directory. It
+Xneeds some tailoring so you should copy it into your home directory and edit
+Xit to suit your needs. Comments held in it should be
+Xself explanatory. There is only a small section at the head of the
+Xscript which needs to be edited.  You'll have to delete shell comments
+Xin the \fIfilter\fR script by yourself if your shell cannot deal with them.
+X'''
+X.SS "Configuring The Mailagent"
+X.PP
+XYou have to copy the \fImailagent.cf\fR file held in the mailagent
+Xsub-directory \fI$privlibexp\fR (hereafter named Lib)
+Xas a \fI.mailagent\fR in your home directory. Edit it to configure the
+Xwhole processing. In particular, you have to choose a spool directory
+X(hereafter named Spool) and a log directory (hereafter named Log).
+X.PP
+XFollowing is a description of each of those fields, followed by a suggested
+Xvalue, when applicable. Fields marked as optional may not be present in the
+Xconfiguration file. Some fields have a close relationship with others, and
+Xthat is given too.
+X.sp
+X.PD 0
+X.TP 10
+X.I agemax
+XPeriod after which an entry in the database should be removed (suggested: 1y)
+XThis field is optional, but needed if \fIautoclean\fR is on.
+X.TP
+X.I authfile
+XRemote sending authorizations (not implemented yet).
+X.TP
+X.I autoclean
+XSet to ON (case insensitively), the mailagent will perform automatic cleaning
+Xof the database entries under \fIhash\fR by removing all the items older
+Xthan \fIagemax\fR. This is an optional field, omitting it defaults to OFF.
+X(suggested: OFF, unless you use ONCE, UNIQUE or RECORD commands, or activate
+Xthe vacation mode.)
+X.TP
+X.I cleanlaps
+XCleaning period for database entries. The value of the last clean up is saved
+Xinto the context file. This is optional, but needed if \fIautoclean\fR is on.
+X(suggested: 1M)
+X.TP
+X.I comfile
+XName of the file containing authorized commands. Needed when PROCESS is used.
+X(suggested: \$spool/commands).
+X.TP
+X.I compress
+XName of the file containing the list of compressed folders. See section about
+Xfolder compression. This is an optional parameter. (suggested: ~/.compress).
+X.TP
+X.I comserver
+XName of the file containing authorized SERVER commands and their definition.
+XThis is an optional parameter if you don't plan to use the generic mail server.
+X(suggested: $spool/server).
+X.TP
+X.I context
+XFile holding the mailagent context. The context saves some variables which
+Xneed to be kept over the life of the process. Needed if auto cleaning is
+Xactivated. (suggested: \$spool/context)
+X.TP
+X.I distlist
+XA list of all the available distributions. See the sample held in
+X\fILib/mailagent/distribs\fR. Needed by PROCESS only. (suggested:
+X\$spool/distribs)
+X.TP
+X.I emergdir
+XName of the directory which should be used for dumps, preferably. This is
+Xoptional. (suggested: ~/tmp/lost+mail)
+X.TP
+X.I hash
+XThe directory used for name hashing by the built-in database used by ONCE,
+XUNIQUE and RECORD commands. Optional, unless you make use of those commands
+Xor activate auto cleaning. The directory is placed in the spool area.
+X(suggested: dbr).
+X.TP
+X.I helpdir
+XDirectory where help files for SERVER commands are kept.
+X(suggested: $spool/help)
+X.TP
+X.I home
+XDefines where the home directory is. This must be accurate.
+X.TP
+X.I level
+XLog level, see below for a definition of available levels (suggested: 9).
+X.TP
+X.I log
+XName of the log file, put in Log directory. (suggested: agentlog).
+X.TP
+X.I logdir
+XLogging directory. (suggested: ~/var/log).
+X.TP
+X.I mailbox
+XThe name of the system mailbox file, which by default is the value of the
+X\fIuser\fR configuration variable. This is an optional parameter.
+X.TP
+X.I maildrop
+XLocation of the system mail spool directory. If none is provided, then the
+Xmailagent will use the value determined by Configure.
+X.TP
+X.I mailopt
+XOptions to be passed to the mailer (see \fIsendmail\fR). (optional, suggested:
+X-odq, when using sendmail).
+X.TP
+X.I maxcmds
+XMaximum number of commands that are allowed to be executed by a SERVER command
+Xbefore flushing the remaining of the mail message. (suggested: 10).
+X.TP
+X.I maxerrors
+XMaximum number of errors for the SERVER command before flushing the remaining
+Xof the mail message. (suggested: 10).
+X.TP
+X.I maxsize
+XMaximum size in bytes of files before using \fIkit\fR for sending files. This
+Xis used by PROCESS. (suggested: 150000).
+X.TP
+X.I mhprofile
+XThe name of the MH profile to be used. This is needed only when attempting
+Xto save in an MH folder. If this optional parameter is not set, the default
+Xvalue \fI~/.mh_profile\fR is used.
+X.TP
+X.I mmdf
+XSet this to ON if you wish to be able to save mail in MMDF-style mailboxes.
+X(suggested: OFF, unless you use MMDF or MH).
+X.TP
+X.I mmdfbox
+XThe value of this variable only matters when \fImmdf\fR is on. If set to ON,
+Xthen new folders will be created as MMDF ones. This variable is not used when
+Xsaving to an existing folder, since in that case the \fImailagent\fR will
+Xautomatically determine the type and save the message accordingly.
+X(suggested: OFF, unless you use MMDF or wish to use MH's \fImshf\fR).
+X.TP
+X.I msgprefix
+XName of the file to put in directory folders, specifying the message prefix
+Xto be used. Optional, defaults to \fI.msg_prefix\fR.
+X.TP
+X.I name
+XFirst name of the user, used by the mailagent when referring to you. This sets
+Xthe value of the %U macro.
+X.TP
+X.I newcmd
+XName of the file describing new filtering commands. See section \fIExtending
+XFiltering Commands\fR for more details. Leave this optional parameter out
+Xunless you are a mailagent expert. (suggested: \$spool/newcmd).
+X.TP
+X.I newsopt
+XOptions to be passed to the news posting program (see \fIsendnews\fR).
+X(optional, suggested: leave empty when using inews).
+X.TP
+X.I nfslock
+XSet it to ON to ensure NFS-secure locks. The difference is that the hostname
+Xis used in conjunction with the PID to obtain a lock. However, the mailagent
+Xhas to fork/exec to obtain that information. This is an optional parameter
+Xwhich is set to OFF by default. (suggested: OFF if you deliver
+Xmail from only one machine, even though it's via NFS).
+X.TP
+X.I passwd
+XFile where SERVER power passwords are kept -- encrypted usually.
+X(suggested: $powers/passwd).
+X.TP
+X.I path
+XMinimum path to be used by C filter program. To set a specific path
+Xfor a machine \fIhost\fR, set up a \fIp_host\fR variable. This will
+Xbe \fIprepended\fR to the default \fIPATH\fR variable supplied by other
+Xprograms. (suggested: /bin:/usr/bin:/usr/ucb). Note that the host name
+Xmust be specified without any domain name appended to it (e.g. for
+Xan host name of \fIlyon.eiffel.com\fR, use variable \fIp_lyon\fR). If your
+Xhost name contains an '-' in it, you must write it as a '_', since '-' is
+Xnot a valid character for a \fIperl\fR variable name.
+X.TP
+X.I perlib
+XThis variable may be used to change the perl search path for require'd files.
+XDirectories should be separated using a ':' character, just like a shell PATH.
+XThis path is prepended to the default perl search path. Any directory not
+Xstarting with a '/' (after ~name substitution) is taken relatively to the
+Xmailagent private lib directory determined at configuration time.
+X.TP
+X.I plsave
+XName of the file used to save the patchlevels for archived distributions.
+XThis is only used by the commands invoked via PROCESS. (suggested:
+X\$spool/plsave).
+X.TP
+X.I powerdir
+XDirectory listing user clearances for SERVER powers.
+X(suggested: $powers/clearance)
+X.TP
+X.I powerlist
+XName of file containing SERVER power aliases. Since power names can be
+Xarbitrary long but some filesystems still have a 14 character limitation
+Xon filename length, internal aliases are created and maintained by mailagent.
+X(suggested: $powers/aliases).
+X.TP
+X.I powerlog
+XFile where SERVER power requests are logged, in addition to the agentlog. Since
+Xthose are a security concern, it is a good idea to log them separately.
+XIf not defined, log them only in agentlog. (suggested: $logdir/powerlog).
+X.TP
+X.I powers
+XDirectory for SERVER power administration. (suggested: $spool/powers)
+X.TP
+X.I proglist
+XA small description for the available distributions. See the sample
+Xheld in \fILib/mailagent/proglist\fR. This is used by PROCESS only.
+X(suggested: \$spool/proglist)
+X.TP
+X.I queue
+XQueue directory (messages waiting to be processed). Required, of course.
+X(suggested: \$spool/queue)
+X.TP
+X.I rulecache
+XThe name of the file used to cache the latest compiled rules. Since usually
+X\fImailagent\fR works mainly with one same rule file, this saves the overhead
+Xof recompiling all the rules each time. (optional, suggested:
+X\$spool/rulecache).
+X.TP
+X.I rules
+XThe name of the file holding the filtering rules (optional,
+Xsuggested: ~/.rules).
+X.TP
+X.I scriptcc
+XFlag indicating whether a copy of the SERVER session transcript should be
+Xsend to the user running mailagent. (suggested: OFF).
+X.TP
+X.I sendmail
+XThe name of the program used to send mail. That program must accept the
+Xmail message with headers on its standard input and a list of recipients
+Xon the command line. If not specified, will use the mailer chosen at
+Xconfiguration time (sendmail usually). The command line used to mail a message
+Xwill be \fIsendmail mailopt address(es)\fR.
+X(optional, suggested: /usr/lib/sendmail).
+X.TP
+X.I sendnews
+XThe name of the program used to post news. That program must accept the
+Xnews article with headers on its standard input. If not specified, will use
+Xthe news posting program chosen at configuration time (inews usually).
+XThe command line used to post an article will be \fIsendnews -h newsopt\fR.
+X(optional, suggested: /usr/local/bin/inews).
+X.TP
+X.I seq
+XFile used to compute job numbers (suggested: .seq).
+X.TP
+X.I servdir
+XThe directory name where shell and perl server commands are stored. This is
+Xthe default lookup place. Optional parameter unless SERVER is used.
+X(suggested: $spool/cmds).
+X.TP
+X.I spool
+XSpool directory, required (suggested: ~/var/mailagent).
+X.TP
+X.I statfile
+XFile where statistics should be gathered. If no such file exists, no
+Xstatistics will be recorded (suggested: mailagent.st).
+X.TP
+X.I track
+XSet to \fIon\fR (case insensitively), this turns on the \fB\-t\fR option
+Xwhich tracks all the rule matches and the actions on standard output. This
+Xis optional (suggested: OFF).
+X.TP
+X.I timezone
+XThe time zone value for environment variable TZ (optional).
+X.TP
+X.I tmpdir
+XDirectory for temporary files. Required (suggested: /tmp).
+X.TP
+X.I user
+XLogin name of the user who runs the mailagent. This sets the value of the
+X%u macro.
+X.TP
+X.I vacation
+XA flag set to ON or OFF to switch the vacation mode accordingly.
+X.TP
+X.I vacfile
+XThe name of the file to be sent back in vacation mode (suggested: ~/.vacation).
+X.TP
+X.I vacperiod
+XThe minimum time elapsed between two vacation messages to a given address
+X(suggested: 1d).
+X.PD
+X'''
+X.SS "Available Logging Levels"
+X.PP
+XThe following log levels can be used while running the mailagent:
+X.Ex
+X0	No logging
+X1	Major problems only
+X2	Failed deliveries
+X3	Successful deliveries
+X4	Deferred messages
+X5	Successful filter actions
+X6	Unusual but benign incidents
+X7	Informative messages
+X8	Non-delivery filter actions
+X9	Mail reception
+X12	Debug
+X19	Verbose
+X20	Lot more verbose
+X.Ef
+X'''
+X.SS "Setting The Mail Agent"
+X.PP
+XOnce you have configured the mailagent in a \fI~/.mailagent\fR (where \fI~\fR
+Xstands for your home directory), you must tell \fIsendmail\fR how to invoke it.
+XThis is done by setting a \fI~/.forward\fR file which looks like this (leading
+Xand trailing double quotes are a mandatory part of it):
+X.Ex
+X"| exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+X.Ef
+XThis will pipe all your mails to the \fIfilter\fR program, redirecting all
+Xunusual messages to \fI~/.bak\fR. A sample filter shell script may be found in
+X\fILib/mailagent\fR, as well as a C filter program. On some systems, it may
+Xbe necessary to move the '|' character before the leading quote, but don't
+Xtry this unless you have no other choice (i.e. only as a last resort).
+X.PP
+XNote that the \fI.forward\fR file only pipes the mail to the \fIfilter\fR
+Xprogram and does not leave any copy in the mailbox. It is up to you to decide
+Xin the rule file whether you want to trash the mail away or leave it in the
+Xmailbox. If you do not have a rule file (i.e. you left a blank entry in your
+X\fI~/.mailagent\fR, or you named a non-existent file, or your file is simply
+Xempty), don't worry: the default action is to leave the mail in the mailbox.
+X'''
+X.SS "Allowed Commands"
+X.PP
+XThe allowed command file (as specified by the \fIcomfile\fR variable in
+Xyour \fI~/.mailagent\fR) contains all the recognized and allowed commands.
+XThe file \fIcommands\fR held in directory \fILib/mailagent\fR should be
+Xcopied as-is into your Spool directory.
+X'''
+X.SS "Testing Your Installation"
+X.PP
+XNow, assuming you have set a proper \fI~/.mailagent\fR file and edited the
+Xconfiguration section of the \fIfilter\fR, it is time to test your
+Xinstallation. Make sure your \fI.forward\fR is world readable and that the
+X\fIfilter\fR has the execution bits set (there is no reason to make the
+X\fIfilter\fR world readable).
+XSet a log-level of 20 and disable vacation mode (the \fIvacation\fR entry in the
+X\fI~/.mailagent\fR should be OFF). Set the name of the rule file to
+Xan empty file (or a non-existing file for that matter).
+XYou are ready to proceed...
+X.PP
+XSend yourself a mail and give the mailagent time to process your mail. The
+Xsubject of the message should be 'test' (in fact, anything but 'Command').
+XYou may want to run a "\fItail -f logfile\fR" to see what's happening. At the
+Xend of the processing, the logfile should contain something like the following
+X(names of temporaries may \-and will\- of course differ; timestamps have been
+Xremoved):
+X.Ex
+Xgot the right to process mail
+Xbuilding default rules
+Xparsing mail
+Xanalyzing mail
+Xin mode 'INITIAL' for ALL
+Xselector 'All' on '<1,->', pattern '/^Subject: [Cc]ommand/'
+Xmatching '/^Subject: [Cc]ommand/' on 'All' (<1,->) was false
+XNOTICE no match, leaving in mailbox
+XXEQ (LEAVE)
+Xstarting LEAVE
+Xstarting SAVE /usr/spool/mail/ram
+XLEFT [qm7831] in mailbox
+XFILTERED [qm7831] from ram (Raphael Manfredi)
+Xmailagent continues
+Xmailagent exits
+X.Ef
+X.PP
+XIf you do not get that, there is a problem somewhere. Start by looking at
+Xthe \fI~/.bak\fR file (or whatever file the \fI.forward\fR uses to redirect
+Xoutput of the filter). If you see something like:
+X.Ex
+XFATAL no valid queue directory
+XDUMPED in ~/mbox.filter
+X.Ef
+Xthen it means the \fIqueue\fR parameter in your \fI~/.mailagent\fR does not
+Xpoint to a valid directory. Your mail has been dumped in an emergency
+Xmailbox.
+X.PP
+XThe \fI~/.bak\fR file may also contain error messages stating that \fIperl\fR
+Xwas not found. In that case, there should be an error message in the logfile:
+X.Ex
+XERROR mailagent failed, [qm7886] left in queue
+X.Ef
+XIn that case, make sure the mail has correctly been queued in a file
+X\fIqm7886\fR. The queue will be processed again when another mail arrives
+Xor when the \fImailagent\fR is invoked with \fB\-q\fR (however, to avoid
+Xrace conditions, only mails which have remained for a while will be processed).
+X.PP
+XQueuing of mail also happens when another \fImailagent\fR is running. If the
+Xlogfile says:
+X.Ex
+Xdenied right to process mail
+X.Ef
+Xthen remove the \fIperl.lock\fR file in the Spool directory. Old lock files
+Xare automatically discarded by the \fImailagent\fR anyway (after one hour).
+X.PP
+XIf none of these occurs, then maybe \fIsendmail\fR did not process your
+X\fI~/.forward\fR at all or the file has a syntax error.
+XCheck your mailbox, and if your mail
+Xis in there, your \fI.forward\fR has not been processed. Otherwise, ask your
+Xsystem administrator to check \fIsendmail\fR's logfile. A correct entry would
+Xappear as (with leading timestamps and syslog stamps removed):
+X.Ex
+Xmessage-id=<9202041919.AA07882@york.eiffel.com>
+Xfrom=ram, size=395, class=0, received from local
+Xto="| /york/ram/mail/filter >>/york/ram/.bak 2>&1", delay=00:00:05, stat=Sent
+X.Ef
+X.PP
+XIf you still cannot find why the mail was not correctly processed, you should
+Xmake sure you normally receive mail by removing (or renaming) your
+X\fI~/.forward\fR and sending yourself another test mail. Also make sure your
+Xhome directory is world readable and "executable".
+X.PP
+XIf you are using the C filter, make sure it is running on the right platform.
+XThere may be a low-level routing of all your mail to a \fImailhost\fR machine,
+Xresponsible for the final delivery, and the filter program will run on that
+Xmachine, which may be a different platform than the one you compiled filter on.
+XAlso make sure your home directory is mounted on that machine, or the mail
+Xtransport agent will be unable to locate your \fI.forward\fR file, less process
+Xit.
+X.PP
+XThis kind of centralized mail delivery is good only when a few people have
+Xmail processing hooks (i.e. \fI.forward\fR files piping mail to a program);
+Xotherwise it's better to route mail to each user's workstation or machine,
+Xfor local processing, to avoid an excessive workload on the \fImailhost\fR
+Xmachine, especially if it is a dedicated NFS server. If you are a system
+Xadministrator installing \fImailagent\fR and expect many people to use it,
+Xkeep this in mind.
+X'''
+X''' O p t i o n s
+X'''
+X.SH OPTIONS
+XThere is a limited set of options which may be used when calling the
+Xmailagent directly. Only one special option at a time may be specified.
+XInvoking the mailagent as \fImailqueue\fR is equivalent to using the
+X\fB\-l\fR option.
+X.TP 15
+X.B \-c\fI file\fR
+XSpecify an alternate configuration file (~ substitution occurs). The default
+Xis \fI~/.mailagent\fR.
+X.TP
+X.B \-d
+XThe mailagent parses the rule file, compiles the rules and dumps them on the
+Xstandard output. This option is mainly used to check the syntax of the
+Xrule file and make sure the rules are what the user really thinks they are.
+X.TP
+X\fB\-e\fI rule\fR
+XThis option lets you specify some rules on the command line, which will
+Xoverride those specified via the ~/.mailagent, if any. There may be as many
+X\fB\-e\fR as necessary, all the rules being concatenated together as one
+Xhappy array, which is then parsed the same way a rule file is. If only \fBone\fR
+Xrule is given and there is no action specified between {...} braces, then
+Xthe whole line is enclosed between braces. Hence saying \fI-e 'SAVE foo'\fR
+Xwill be understood as \fI-e '{SAVE foo}'\fR, which will always match and
+Xbe executed. Using the \fB\-d\fR option in conjunction with this one is a
+Xconvenient way to debug a set of rules.
+X.TP
+X\fB\-f\fI mailfile\fR
+XUsing \fImailfile\fR as a UNIX-style mailbox (i.e. one where each mail is
+Xpreceded by a special From line stating the sender and the date the message
+Xwas issued), extract all its messages into the queue and process them as if
+Xthey were freshly arrived from the mail delivery subsystem.
+X.TP
+X.B \-h
+XPrint out a usage message on the standard error and exit.
+X.TP
+X.B \-i
+XInteractive mode, directs the mailagent to print a copy of all the log messages
+Xon \fIstderr\fR.
+X.TP
+X.B \-l
+XList the mailagent queue. Recently queued mails which are waited for by the
+X\fIfilter\fR are \fIskipped\fR for about half an hour, to avoid race conditions.
+X.TP
+X.B \-L\fI level\fR
+XOverride the log level specified in the configuration file.
+X.TP
+X.B \-o\fI override\fR
+XThis option lets you override a specific configuration option. The option must
+Xbe followed by a valid configuration line, which will be parsed after the
+Xconfiguration file itself. For instance, the \fI\-L 4\fR option is completely
+Xequivalent to \fI\-o 'level: 4'\fR. Note that any white space must be protected
+Xagainst shell interpretation by using the appropriate quoting mechanism. There
+Xmay be as many \fB\-o\fR options on the command line as necessary.
+X.TP
+X.B \-q
+XForce processing of the mailagent's queue. Only the mails not tagged as
+X\fIskipped\fR by the \fB\-l\fR option will be processed.
+X.TP
+X.B \-r\fI file\fR
+XSpecify an alternate rule file.
+X.TP
+X.B \-s {umary}
+XBuild a summary of all the statistics gathered so far. The output can be
+Xcontrolled by appending one or more letters from the set {umary}. Using
+X\fB\-summary\fR is a convenient way to get the whole history of the filter
+Xactions. The \fBu\fR modifier will print only used rules. The \fBm\fR will
+Xmerge all the statistics at the end while \fBa\fR reports the mode the
+Xfilter was in when the command was executed. The \fBr\fR asks for rule-based
+Xstatistics and the \fBy\fR is pretty useless and is here only to get a nice
+Xmnemonic option. Note that specifying an option more than once has no effect
+Xwhatsoever on the option itself (i.e. you may put three \fBUu\fR and only
+Xone \fBm\fR, but you'll still get the summary!).
+X.TP
+X.B \-t
+XPut the mailagent in a special tracking mode where all the rule matches and
+Xexecuted actions are printed on the standard output. This is mostly useful
+Xfor debugging a rule file. See also the \fItrack\fR parameter in the
+Xconfiguration file.
+X.TP
+X.B \-V
+XPrint version number and exit.
+X.PP
+XIf you invoke the mailagent without options and without any arguments, the
+Xprogram waits for a mail on its standard input. If an argument is provided, it
+Xis the name of a file holding one mail to be processed. This is the normal
+Xcalling procedure from the filter, the argument being the location of the
+Xqueued mail.
+X'''
+X''' D e f a u l t   R u l e s
+X'''
+X.SH "USING THE DEFAULT RULES"
+XIf you do not want to use the filtering feature of the mailagent, then the
+Xdefault built-in rules will be used. Those are really simple: all the mails
+Xare left in your mailbox and mails with a line "Subject: Command" anywhere in
+Xthe message will be processed. Commands are looked for on lines starting with
+X"@SH". The remaining of the line is then given to a shell for execution.
+X.PP
+XAvailable commands are read from a file (entry \fIcomfile\fR in your
+Xconfiguration file), one command name per line. Only those listed there will
+Xbe executed, others will produce an error message. The mailagent traps
+Xthe exit status and will send an error report if a command fails (provided
+Xthat the command does not issue a message by itself, in which case it
+Xshould return a zero exit status).
+X.PP
+XIf you do not want to use the default rules, you may skip the remaining of this
+Xsection.
+X'''
+X.SS "Configuring Help"
+X.PP
+XThe help text the mailagent will send to people must be copied from
+X\fILib/mailagent/agenthelp\fR into your own spool directory, as specified in your
+X\fI~/.mailagent\fR. Two macros may be used:
+X.TP 10
+X.I =DEST=
+XThis will be expanded to the sender's address (the one who sent you
+Xthe mail currently processed by the mailagent).
+X.TP
+X.I =MAXSIZE=
+XThis stands for the maximum size set before \fIkit\fR is used to send
+Xfiles back (parameter \fImaxsize\fR in your \fI~/.mailagent\fR file\fR).
+X.PP
+XYou may use the default help file or design one that will give even more
+Xdetails to the poor user.
+X'''
+X.SS "Distribution Files"
+X.PP
+XThe two files \fIproglist\fR and \fIdistribs\fR held in \fILib/mailagent\fR
+Xdescribe the distributions your mailagent will be able to distribute.
+XThe samples given show the expected syntax. In order to clarify things,
+Xhere is what the format should be:
+X.PP
+XFile \fIproglist\fR contains a small description for programs. The name
+Xof the program appears after a single star. It is followed by lines in
+Xfree format. An optional three-dashes line separates each program's
+Xdescription. Note that a leading tab will be added to each line
+Xof description.
+X.PP
+XThe \fIdistribs\fR file holds lines of the following form:
+X.Ex
+X\fIprogname version path archived compressed patches\fR
+X.Ef
+Xwhere:
+X.TP 10
+X.I progname
+Xis the program name (the same as the one mentioned in \fIproglist\fR).
+X.TP
+X.I version
+Xis the current version number. If none, a three-dashed line may be used.
+X.TP
+X.I path
+Xis the path where the distribution is stored. The ~ will be expanded into
+Xyour home directory. Note that if the distribution is stored in archived
+Xform, the path name is the one of the archive without the ending
+Xextension (which may be \fI.cpio.Z\fR or \fI.tar.Z\fR).
+X.TP
+X.I archived
+Xis either \fIy\fR or \fIn\fR depending on whether the distribution is
+Xarchived or not.
+X.TP
+X.I compressed
+Xis either \fIy\fR or \fIn\fR depending on whether the distribution is
+Xcompressed or not. This could be guessed from the extension's name, but
+Xwe must think of file systems with short names.
+X.TP
+X.I patches
+Xis \fIy\fR or \fIn\fR depending on whether the distribution is
+Xmaintained or not by you. If you put a \fIp\fR, this means official
+Xpatches are available, although you do not maintain the distribution.
+XFinally, an \fIo\fR means that this is an old version, where only patches
+Xare available, but maildist will not work. In that case, assuming the
+Xversion number is \fI1.0\fR, old patches are expected in a \fIbugs-1.0\fR
+Xdirectory.
+X.PP
+XYou may include comments in both files: all lines starting with a leading
+X# will be ignored.
+X'''
+X.SS "Testing Your Mail Agent"
+X.PP
+XIt is now time to make sure your mailagent works. Send yourself the following
+Xmail:
+X.Ex
+XSubject: Command
+X@SH mailhelp
+X.Ef
+XYou should receive back a mail from yourself with the subject set to:
+X"How to use my mailagent". If you don't, check the file \fI~/.bak\fR
+X(or whatever file you set in your \fI.forward\fR). If it is empty, look
+Xat the log file. If the log file is not empty, then perhaps the mail
+Xhas been queued. Check the \fIsendmail\fR queue. Also make sure that
+Xyou removed the '#' comments in the \fIfilter\fR script. On some systems,
+Xthey cause some trouble. If you are using the C filter, maybe your sendmail
+Xis broken and you need to make your own setuid copy (or perl might complain
+Xthat you have a kernel bug, etc...).
+X.PP
+XIf you have done everything right but it still does not work properly,
+Xincrease log level to 20 and resend your command mail. Then check the
+Xlog file. The diagnosis should be easier.
+X.PP
+XOnce this works, you should check your \fIdistribs\fR and \fIproglist\fR
+Xfiles by sending yourself the following mail:
+X.Ex
+XSubject: Command
+X@SH maillist
+X.Ef
+XIf the list you have in return is incorrect, then your distribution files
+Xare wrongly written. If you do not get the list, there is a problem with
+Xyour mailagent's configuration. Retry with a log level set to 20 and look
+Xat the issued log messages in your Log directory. Make sure that the file
+Xlisted in the \fIplsave\fR entry of your \fI~/.mailagent\fR is correctly
+Xupdated after a \fImaillist\fR has been run.
+X'''
+X''' F i l t e r i n g   R u l e s
+X'''
+X.SH "USING THE FILTER"
+XThe \fImailagent\fR can also be used as a filter: mail is parsed and some
+Xactions are taken based on simple \fIlex\fR-like rules. Actions range from
+Xa simple saving in a folder, a forwarding to another person, or even spawning
+Xof a shell command. Before going further, here is a small example of a valid
+Xrule file:
+X.Ex
+XFrom: root { FORWARD postmaster };
+XTo: gue@eiffel.fr { POST mail.gue };
+XSubject: /metaconfig/ { SAVE dist };
+X.Ef
+XThere are three distinct rules. Rules are applied in sequence, until one
+Xmatches (so the order is important). Any mail coming from \fIroot\fR will be
+Xforwarded to user \fIpostmaster\fR. A mail addressed to \fIgue@eiffel.fr\fR is
+Xa mail coming from a mailing list. The mail is posted on a local newsgroup
+X\fImail.gue\fR. Mails whose subject contains the word "metaconfig" will be
+Xsaved in a folder \fIdist\fR for delayed reading and will not appear in the
+Xmain mailbox. If no rule matched, the mail is left in the mailbox.
+X'''
+X.SS "Rule File Syntax"
+X.PP
+XHere is a non-formal description of the rule file. Parsing of the file is done
+Xlexically, hence the choice of non-ambiguous tokens like '{' or ';' which are
+Xeasily parsed. This introduces some limitations which are silently applied:
+Xfor instance, no '{' may be used as part of an address.
+X.PP
+XComments are introduced by a leading '#' , which must be on the left margin.
+XUnlike shell comments, a '#' which is not left justified will not be understood
+Xas a comment. However, spaces or tabs are allowed in front of '#'.
+X.PP
+XAll the statements in the rule file must end with a ';'. There are mainly
+Xfour parts in each line. A list of comma separated modes, between '<' and '>',
+Xwhich give the set of modes in which the rule applies. The special mode
+XALL will match everything. The filter begins in the mode INITIAL. Omitting the
+Xmode defaults to "<ALL>". It is possible to guard a rule against some
+Xspecific mode by negating it, which is done by prefixing the mode with '!'.
+XNegated modes take precedence other plain modes, meaning "<!ALL>" will never
+Xbe matched, ever, and that "<MODE, !MODE>" is equivalent to "<!MODE>".
+X.PP
+XThen comes a list of selectors. Those selectors must be space separated and end
+Xwith ':'. They represent the names of header fields which must be looked at
+Xby the forthcoming pattern. An empty selector list defaults to "Subject:".
+XSpecial selectors "All:", "Body:" and "Head:" apply to the whole message,
+Xits body or its header. A commonly used selector list is "To Cc:" which tests
+Xthe recipient fields of the header. If the selector name is preceded by an
+Xexclamation mark '!', then the logical value of the test for that selector is
+Xnegated.
+X.PP
+XThe list of selectors may end with an optional range specification, given as
+X\fI<min, max>\fR, before the final ':' character marking the end of the
+Xselector list. The minimum or the maximum may be given as '-', in which case
+Xit is replaced with the minimal or maximal possible value. Indices for
+Xselection begin at 1 (not 0), for instance: \fI<3, 7>\fR. If no range selection
+Xis given, then the default \fI<1, ->\fR is used. Ranges normally select lines
+Xwithin the matching buffer, unless the selector is expecting a list in which
+Xcase it operates on the list items. For instance, \fIBody <3, 5>:\fR would
+Xselect lines #3 to #5 (included) from the mail body, whereas \fITo Cc <1,3>:\fR
+Xwould focus on the first three addresses on each To: or Cc: header lines.
+XNegative values refer to that many lines or addresses back from the end, i.e.
+X\fICc <-2,->:\fR selects the last two addresses on the Cc: line.
+X.PP
+XThe selector is then followed by a pattern within '/' or by a single name.
+XIn order to ease the writing of the rules, the semantic of a single name varies
+Xdepending on the selector used. For the special selectors "From:", "To:", "Cc:",
+X"Sender:", their associated "Resent-" fields, "Reply-To:"
+Xand "Apparently-To:", a single name is understood as a match on the \fIlogin
+Xname\fR of the address. Note that if no "To:" field is present in the header,
+Xone will be forged from the "Apparently-To:" for the purpose of filtering only
+X(i.e. no physical modification on the header is done). If the login name of
+Xthe address is a full name of the form First.Last, only the last name is
+Xkept, and is lower-cased. If only a single name is given, only shell
+Xmetacharacters * and ? are allowed, as well as intervals [].
+X.PP
+XIf the pattern is preceded by a single exclamation mark '!', then the
+Xmatching status is negated (i.e. it will succeed if the pattern is not found).
+XIf a single word
+Xis used for non-special selectors, the same rules apply but the pattern is
+Xanchored at the beginning and the end for an exact match. With a pattern
+Xstarting with '/', any regular expression understood by \fIperl\fR may be
+Xused and your pattern will not be modified in any way. The other special
+Xselector "Newsgroups:" works as "To:", excepted that newsgroups names are
+Xexpected and a match is attempted on every item in the list. Every pattern
+Xmatch on a single name for an address-type field (i.e. "Newsgroups:" excluded),
+Xare made in case-insensitive mode.
+X.PP
+XThere is also a little magic involved when matching on an address field. Namely,
+Xif the pattern is not a single word and is \fIanchored at the beginning\fR,
+Xthen only the address part of the field will be kept. For instance, if we
+Xhave a From: field whose value is \fIRaphael Manfredi <ram@eiffel.com>\fR, then
+Xthe pattern \fI/Raphael/\fR would match, but not \fI/^Raphael/\fR. Instead,
+X\fI/^ram@.*$/\fR would match, but this is more easily done with a single word
+Xpattern \fIram\fR, for it only focuses on the login name of the address and
+Xwould also match if the address was written as \fIeiffel.com!ram\fR.
+X.PP
+XThis may sound a little complex, but this design is meant to make things
+Xeasier for the user. Here are some other examples:
+X.Ex
+X# Match \fIram@eiffel.com\fR as well as \fIram@educ.emse.fr\fR.
+XFrom: ram
+X
+X# Match \fIroot@eiffel.com\fR, \fIram\fR but not \fIribbon@eiffel.com\fR
+XFrom: r[oa]*
+X
+X# Match \fIgue@eiffel.fr\fR but not \fIalgue@eiffel.fr\fR
+XTo Cc: gue@eiffel.fr
+X
+X# This will match \fIgue@eiffel.fr\fR as well as \fIalgue@eiffel.com\fR
+XTo Cc: /gue@eiffel/
+X
+X# Match \fIcomp.lang.perl\fR but not \fIcomp.lang.perl.poetry\fR (?)
+XNewsgroups: comp.lang.perl
+X
+X# Accept anything but messages coming from \fIroot\fR
+XFrom: !root
+X.Ef
+XWhen attempting a match on "To:", "Cc:" or "Apparently-To:", a
+Xlist of addresses separated by a comma is expected, whereas only one
+Xaddress is expected after "From:". If you omit the pattern, it will be
+Xunderstood as * (recall that a single word uses shell meta-characters), which
+Xwill match anything.
+X.PP
+XThen comes the action to be taken when a match occurs. There are only a
+Xlimited set of valid actions which will be described soon in detail. The
+Xaction is enclosed in curly braces '{' and '}' and actions are separated or
+Xterminated (depending on your taste) by a ';'. Action names are spelled in
+Xupper-case for readability, but case is irrelevant. If you want to put a ';'
+Xwithin the rule, it must be escaped by preceding it with a backslash.
+XA double backslash is translated into a single one, and any other escape
+Xsequence involving the backslash character is ignored (i.e. \\\\n would
+Xbe kept verbatim).
+X.PP
+XNote that a rule should
+Xbe ended by a single ';' after the last '}'. It is possible to omit this
+Xfinal ';', but that single token is the re-synchronizing point for error
+Xrecovery. One could argue however that there should be no syntax error, and
+Xthus the ';' ought to be safely omitted. Whenever in doubt, check your rule
+Xfile with the \fB\-d\fR option.
+X.PP
+XHere is a prototypical rule (using \fIperl\fR regular expressions; please refer
+Xto the subsection \fBRegular Expressions\fR for more information):
+X.Ex
+X<ROOT> From: /^\\\\w+@eiffel.com$/ { SAVE eiffel };
+X.Ef
+XThat rule will only be taken into account when the filter is in the mode ROOT
+X(recall that the processing starts in mode INITIAL; use BEGIN to change the
+Xmode, as in \fIlex\fR). So in mode ROOT, anything which comes from a user
+Xlocated in the \fIeiffel.com\fR site is saved in folder \fIeiffel\fR for
+Xdeferred reading. The mail will not appear in the mailbox.
+X.PP
+XIt is possible to have more than one selection for a rule. Identical selectors
+Xare logically \fIor\fR'ed while different ones are \fIand\fR'ed. The selections
+Xare comma separated. For instance,
+X.Ex
+XFrom: root, To: ram, From: ram, Subject: /\\\\btest\\\\b/ { DELETE };
+X.Ef
+Xwill delete a mail from \fIroot\fR or \fIram\fR if it is sent to \fIram\fR
+Xand has the word \fItest\fR in its subject. It is also possible to write the
+Xprevious rule as:
+X.Ex
+XFrom: root, ram, To: ram, Subject: /\\\\btest\\\\b/ { DELETE };
+X.Ef
+Xbecause if no selector is given, the previous one is used (with the first
+Xselector being "Subject:" by default).
+X.PP
+XAnywhere in the rule file, it is possible to define some variables. The list
+Xof recognized variables is given later. For now, let's say that \fImaildir\fR
+Xis the default folder directory. This variable is used by the SAVE command
+Xwhen the argument is not an absolute path. Setting
+X.Ex
+Xmaildir = ~/mail;
+X.Ef
+Xwill direct the filter to use \fI~/mail\fR as the folder directory (default is
+X\fI~/Mail\fR). Note the ~ substitution and the final ';'. It is not possible
+X(currently) to modify the environment by setting PATH for instance.
+X.PP
+XFinally, there is a special construct to load patterns from a file. A pattern
+Xenclosed in double quotes means that the patterns to be applied should be
+Xtaken from the specified file. The file is expected to be in the directory
+X\fImailfilter\fR if it is not an absolute path (~ substitution occurs). If
+Xthe variable is not set \fImaildir\fR will be used. If by chance (!)
+X\fImaildir\fR is not set either, the home directory is used. The file should
+Xcontain one pattern per line, shell comments (#) being allowed at the beginning
+Xof each line.
+X.PP
+XAn action may be followed by other rules. Hence the following is perfectly
+Xvalid:
+X.Ex
+XFrom:
+X	ram		{ SAVE ram }
+X	/plc/i		{ SAVE plc }
+X	root		{ SAVE ~/admin }
+X	/xyz/		{ DELETE }
+X	"users"		{ LEAVE }
+X	;
+X.Ef
+XNote the use of the file inclusion: all the users listed in file \fIusers\fR
+Xwill have their mail left in the system mailbox. The usual rules apply for
+Xthese loaded patterns.
+X'''
+X.SS "Selector Combination"
+X.PP
+XA single rule may have a various set of selectors. For instance, in the
+Xfollowing rule:
+X.Ex
+XFrom: ram, To Cc: root, !Subject: /test/, From: raphael
+X.Ef
+Xwe have the following set { From, To Cc, !Subject }. The first two selectors
+Xare called \fIdirect\fR selectors, !Subject: is called a \fInegated\fR selector.
+XThe To Cc: selector is a \fIgroup\fR selector decomposing into two \fIdirect\fR
+Xselectors, while From: is an \fIatomic\fR selector. Finally, From: is also
+Xa selector with \fImultiple\fR occurrences. The \fIvalue\fR of a selector is
+Xits matching status logical value.
+X.PP
+XLet \fID\fR be the set of direct selectors and \fIN\fR the set of
+Xnegated selectors, which form a partition of \fIR\fR, the set of all the
+Xselectors in the rule. That is to say, \fIR\fR is the union of \fID\fR
+Xand \fIN\fR, and \fID\fR intersected with \fIN\fR is the empty set
+X(trivial proof: a selector is either direct or negated). If either \fID\fR
+Xor \fIN\fR is empty, then it's not a partition but in that case we have
+Xeither \fID\fR = \fIR\fR or else \fIN\fR = \fIR\fR.
+X.PP
+XLet's define the logical value of a set \fIS\fR as being the logical
+Xvalue the filter would return if those rules were actually written.
+XThen the logical value of \fID\fR is the logical value of each of its item
+Xwith the AND logical operator distributed among them, i.e. the logical
+Xvalue of { a, b, c } is the value of (a AND b AND c). Let's write it
+XAND(\fID\fR). The logical value of each of the items is the logical value of
+Xthe selector itself if it is not multiple, or it is the logical value of
+Xall the occurrences of the multiple selector within the rule, with the
+Xlogical OR operation distributed among them. That is to say, in the
+Xabove example, the value of From is true iff the From: fields contains
+X\fIram\fR OR \fIraphael\fR.  Let's write that OR[From].
+X.PP
+XTo be sound, we have to apply De Morgan's Law on \fIN\fR, hence the following
+Xrules: the logical value of \fIN\fR is OR(\fIN\fR) and given a negated selector
+X\fIs\fR, its logical value is AND[\fIs\fR]. And finally, the logical value of
+X\fIR\fR is that of \fID\fR AND \fIN\fR, with by convention having the logical
+Xvalue of the empty set be \fItrue\fR.
+X.PP
+XFor those who do not know De Morgan's Law, here it is: given two logical
+Xpropositions \fIp\fR and \fIq\fR, then the following identities occur:
+X.Ex
+XNOT (p AND q) <=> (NOT p) OR (NOT q)
+XNOT (p OR q) <=> (NOT p) AND (NOT q)
+X.Ef
+XWhile we are in the logic of the propositions,
+Xnote also that OR and AND are mutually distributive, that is to say, given
+Xthree logical propositions \fIp\fR, \fIq\fR and \fIr\fR, we have:
+X.Ex
+Xp AND (q OR r) <=> (p AND q) OR (p AND r)
+Xp OR (q AND r) <=> (p OR q) AND (p OR r)
+X.Ef
+XTo be complete, OR and AND are associative with themselves and commutative.
+XAnd the \fIB\fR set { 0, 1 } equipped with the set of operations (NOT, OR, AND)
+Xis an \fIalgebra\fR (a Boolean one). I will spare you the definition of an
+Xalgebra, which really has nothing to do in this manual page (which is for a
+Xmail agent, in case you don't remember :-).
+X.PP
+XThe attentive reader will certainly have noted that I have not specified
+Xthe logical value of a group selector. Well, given a group selector \fIG\fR,
+Xwe decompose it into a \fIDG\fR and \fING\fR partition, \fIDG\fR being the
+Xsubset of (atomic) direct selectors of \fIG\fR and \fING\fR being the subset of
+X(atomic) negated selectors.  Then the logical value of \fIDG\fR is
+XOR(\fIDG\fR) and the logical value of \fING\fR is AND(\fING\fR);
+Xthe global logical value of \fIG\fR being that of \fIDG\fR OR \fING\fR.
+XIn case either \fIDG\fR or \fING\fR is empty, then we don't have a partition,
+Xbut by convention the value of the empty set is \fIfalse\fR, and one of the
+Xsets is equal to \fIG\fR.
+XNote that within a group selector, the rules are exactly the dual of the
+Xrules within \fIR\fR.
+X.PP
+XNow the only rule which is not \fIlogical\fR is whether a group selector
+Xbelongs to \fID\fR or \fIN\fR. I've chosen, for analogy reasons, to make the
+Xgroup selector belong to \fID\fR if it does not start by '!' and to \fIN\fR
+Xotherwise. That is, !To Cc: belongs to \fIN\fR whilst Cc !To: belongs to
+X\fID\fR. Apart from that, order within the group selector is irrelevant:
+XTo Cc: is equivalent to Cc To:, so the behavior in the quotient set is sound.
+X.PP
+XHere are some examples:
+X.Ex
+X# Match anything: (not from ram OR not from root) is always true.
+XFrom: !ram, !root
+X
+X# Match anything but reject mails coming from ram OR root
+X!From: ram, root
+X
+X# Reject mails whose headers matching /^Re.*/ contain the word test
+X!^Re.*: /\\\\btest\\\\b/
+X
+X# Keep mails whose subject contains \fItest\fR AND \fIhost\fR
+X!Subject: !/test/, !/host/
+X
+X# Matches if \fIram\fR is listed in the \fITo\fR OR the \fICc\fR line
+XTo Cc: ram
+X.Ef
+X'''
+X.SS "Minimal Header"
+X.PP
+XA minimal set of selectors are guaranteed to be set, regardless of the
+Xactual header of the message. This is for the purpose of filtering only,
+Xno physical alteration is performed.
+X.sp
+X.PD 0
+X.TP 10
+X.I Envelope:
+XThis is the address found in the mail envelope, i.e. the address where the
+Xmail seems to originate from. This can be different from the \fIFrom:\fR
+Xaddress field if the mail originates from a \fItrusted\fR user, in sendmail's
+Xterminology. If you don't know what that is, simply ignore it.
+X.TP
+X.I From:
+XUser who wrote the mail. If this line is missing, uses the address found in
+Xthe first From line.
+X.TP
+X.I To:
+XThe main recipient(s) of the message. If this line is missing but a set of
+X\fIApparently-To:\fR lines is found, then those addresses are used instead. If
+Xno such line exists, then assume the mail was directed to the user (which
+Xseems a reasonable assumption :-).
+X.TP
+X.I Sender:
+XUser who sent the mail. This may differ from the \fIFrom:\fR line. If no
+Xsuch field exists, then the address in the first From line is used (mail
+Xenvelope).
+X.TP
+X.I Reply-To:
+XWhere any reply should be sent. If no \fIReply-To:\fR field is present, then
+Xthe \fIReturn-Path\fR is used (with <> stripped out), or the \fIFrom:\fR
+Xline is parsed to extract the e-mail address of the author.
+X.PD
+X'''
+X.SS "Variables"
+X.PP
+XThe mailagent supports user-defined variables, which are globals. They are
+Xset via the ASSIGN command and referred to with the %# macro. Assuming we
+Xset a variable \fIhost\fR, then %#\fIhost\fR would be replaced by the actual
+Xvalue of the variable. This enables some variable propagation across the rules.
+X.PP
+XFor example, let's say the user receives cron outputs from various machines
+Xand wishes to save them on a per-machine basis, differentiating between
+Xdaily outputs and weekly ones. Here is a solution:
+X.Ex
+XSubject: /output for host (\\\\w+)/	{ ASSIGN host %1; REJECT };
+END_OF_FILE
+  if test 49974 -ne `wc -c <'agent/man/mailagent.SH.01'`; then
+    echo shar: \"'agent/man/mailagent.SH.01'\" unpacked with wrong size!
+  fi
+  # end of 'agent/man/mailagent.SH.01'
+fi
+echo shar: End of archive 4 \(of 26\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

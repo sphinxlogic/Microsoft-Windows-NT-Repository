@@ -1,0 +1,272 @@
+Newsgroups: comp.sources.misc
+From: wswietse@bs.win.tue.nl (Wietse Venema)
+Subject:  v30i102:  pcmail2 - PC-MAIL release 2, Patch04
+Message-ID: <1992Jul6.162456.10677@sparky.imd.sterling.com>
+X-Md4-Signature: 6c44f746eea3bc7ad9fe476946ad1cfd
+Date: Mon, 6 Jul 1992 16:24:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wswietse@bs.win.tue.nl (Wietse Venema)
+Posting-number: Volume 30, Issue 102
+Archive-name: pcmail2/patch04
+Environment: UNIX, MSDOS
+Patch-To: pcmail2: Volume 10, Issue 33-44
+
+This is the fourth patch for the pc-mail release 2 package that appeared in
+comp.sources.misc January 1990. Earlier patches can obtained via anonymous
+ftp from the comp.sources.misc archives at ftp.uu.net, or from the author's
+machine ftp.win.tue.nl, where updated versions of the MS-DOS binaries can
+be found, too (directory /pub/mail/pc-mail-*), including a program that
+patches binaries to support COM2.
+
+The following four problems are taken care of by this patch:
+
+1 - In send/expect patterns, runs of '-' delimiters would be treated 
+    as a single '-'.  This made it impossible to use expect patterns of
+    the form:  CONNECT--CONNECT. Thanks to Phil Hughes (fyl@fylz.com)
+    for pointing out this problem.
+
+2 - The code that included the original message in a reply was trying
+    to be too smart. This caused problems with some compilers. Phil
+    Blanchfield (phil@dgbt.doc.ca) found this one.
+
+	Wietse Venema
+	Eindhoven University of Technology
+	The Netherlands
+
+*** connect.c-	Mon Jan 22 13:04:12 1990
+--- connect.c	Fri Jul  3 17:07:46 1992
+***************
+*** 80,88 ****
+  /* CREATION DATE
+  /*      Fri Mar 27 17:11:12 GMT+1:00 1987
+  /* LAST MODIFICATION
+! /*	90/01/22 13:01:26
+  /* VERSION/RELEASE
+! /*	2.1
+  /*--*/
+  
+  #include <stdio.h>
+--- 80,88 ----
+  /* CREATION DATE
+  /*      Fri Mar 27 17:11:12 GMT+1:00 1987
+  /* LAST MODIFICATION
+! /*	92/07/03 17:07:43
+  /* VERSION/RELEASE
+! /*	2.2
+  /*--*/
+  
+  #include <stdio.h>
+***************
+*** 146,151 ****
+--- 146,152 ----
+  public int disconnect()
+  {
+      conn_send(escape(DISC_SEQUENCE));		/* send disconnect sequence */
++     sleep(1);					/* let output drain */
+      return (0);					/* always succeeds... */
+  }
+  
+***************
+*** 193,199 ****
+       * are specified.
+       */
+  
+!     for (xp = split(&s, "-"); xp; xp = split(&s, "-")) {
+  
+  	debug(4) ("Expecting: %S\nReceiving: ", xp);
+  
+--- 194,200 ----
+       * are specified.
+       */
+  
+!     for (xp = split_ch(&s, '-'); xp; xp = split_ch(&s, '-')) {
+  
+  	debug(4) ("Expecting: %S\nReceiving: ", xp);
+  
+***************
+*** 214,220 ****
+  
+  	/* try alternative sequence, if specified, else fail */
+  
+! 	if (sp = split(&s, "-")) {
+  	    conn_send(sp);
+  	} else {
+  	    trap(E_NOLINE, "LOGIN FAILED (at \"%S\")", xp);
+--- 215,221 ----
+  
+  	/* try alternative sequence, if specified, else fail */
+  
+! 	if (sp = split_ch(&s, '-')) {
+  	    conn_send(sp);
+  	} else {
+  	    trap(E_NOLINE, "LOGIN FAILED (at \"%S\")", xp);
+*** defs.h-	Mon Jan 22 13:04:12 1990
+--- defs.h	Fri Jul  3 17:07:49 1992
+***************
+*** 80,85 ****
+--- 80,86 ----
+  extern char *myrealloc();
+  extern char *strcons();
+  extern char *split();
++ extern char *split_ch();
+  extern char **strvec();
+  extern char *vecstr();
+  
+***************
+*** 97,103 ****
+  /* CREATION DATE
+  /*      Mon Apr  6 16:58:42 GMT+1:00 1987
+  /* LAST MODIFICATION
+! /*	90/01/22 13:01:28
+  /* VERSION/RELEASE
+! /*	2.1
+  /*--*/
+--- 98,104 ----
+  /* CREATION DATE
+  /*      Mon Apr  6 16:58:42 GMT+1:00 1987
+  /* LAST MODIFICATION
+! /*	92/07/03 17:07:46
+  /* VERSION/RELEASE
+! /*	2.2
+  /*--*/
+*** reply.c-	Mon Jan 22 13:04:33 1990
+--- reply.c	Fri Jul  3 17:07:52 1992
+***************
+*** 45,53 ****
+  /* CREATION DATE
+  /*	Sun Dec 10 15:48:35 MET 1989
+  /* LAST MODIFICATION
+! /*	90/01/22 13:02:29
+  /* VERSION/RELEASE
+! /*	2.1
+  /*--*/
+  
+  #include <stdio.h>
+--- 45,53 ----
+  /* CREATION DATE
+  /*	Sun Dec 10 15:48:35 MET 1989
+  /* LAST MODIFICATION
+! /*	92/07/03 17:07:49
+  /* VERSION/RELEASE
+! /*	2.2
+  /*--*/
+  
+  #include <stdio.h>
+***************
+*** 186,202 ****
+--- 186,206 ----
+      char    line[LINE];
+      FILE   *in;
+  
++ #ifdef notdef
+      /* Suppress the first line of the message body if it is empty. */
++ #endif
+  
+      if (in = ascopen(original, "r")) {
+  	while (ascgets(line, sizeof(line), in)) {
+  	    switch (context = ms_parse(context, line)) {
+  	    case MS_BODY:
++ #ifdef notdef
+  		context++;			/* hack */
+  		if (line[0] == 0)		/* hack */
+  		    break;
+  		/* FALLTHROUGH */
+  	    case MS_BODY + 1:			/* hack */
++ #endif
+  		fprintf(out, ">%s\n", line);
+  		break;
+  	    }
+*** str.c-	Mon Jan 22 13:04:39 1990
+--- str.c	Fri Jul  3 17:07:55 1992
+***************
+*** 17,22 ****
+--- 17,26 ----
+  /*	char **cpp;
+  /*	char *sep;
+  /*
++ /*	char *split_ch(cpp, sep)
++ /*	char **cpp;
++ /*	char sep;
++ /*
+  /*	int istrncmp(s1,s2,n)
+  /*	char *s1,s2;
+  /*	int n;
+***************
+*** 48,53 ****
+--- 52,62 ----
+  /*	can parse only one string at a time. It still modifies its
+  /*	arguments, however.
+  /*
++ /*	split_ch() is like split(), but does not treat runs of delimiter
++ /*	characters as one delimiter. Instead of a delimiter set it takes
++ /*	one delimiter character. Otherwise, the interface is the same
++ /*	as with split().
++ /*
+  /*	istrcmp() is a case-insensitive version of the strcmp() function.
+  /*
+  /*	istrncmp() is a case-insensitive version of the strncmp() function.
+***************
+*** 83,91 ****
+  /* CREATION DATE
+  /*	Tue Apr  5 20:59:29 MET 1988
+  /* LAST MODIFICATION
+! /*	90/01/22 13:02:43
+  /* VERSION/RELEASE
+! /*	2.1
+  /*--*/
+  
+  #include <stdio.h>
+--- 92,100 ----
+  /* CREATION DATE
+  /*	Tue Apr  5 20:59:29 MET 1988
+  /* LAST MODIFICATION
+! /*	92/07/03 17:07:52
+  /* VERSION/RELEASE
+! /*	2.2
+  /*--*/
+  
+  #include <stdio.h>
+***************
+*** 238,243 ****
+--- 247,284 ----
+      if (start[0] == 0) {
+  	return (0);				/* no token */
+      } else if (end = strpbrk(start, sep)) {	/* look for separator */
++ 	*end = '\0';				/* nullify */
++ 	*cpp = end + 1;				/* advance beyond end */
++ 	return (start);				/* return token */
++     } else {
++ 	*cpp = start + strlen(start);		/* advance to terminator */
++ 	return (start);				/* return token */
++     }
++ }
++ 
++ /* split_ch - return next token in *cpp, update cpp */
++ 
++ public char *split_ch(cpp, sep)
++ register char **cpp;
++ register char sep;
++ {
++     register char *start;
++     char   *end;
++     char   *strchr();
++ 
++     /*
++      * Find the beginning of the first token. If none is found, just return a
++      * null value. Otherwise, if there is a separator that follows the token,
++      * nullify it and advance *cpp to the first character after the nullified
++      * separator. If the token is not followed by a separator advance *cpp to
++      * the null byte that follows the token.
++      */
++ 
++     start = *cpp;
++ 
++     if (start[0] == 0) {
++ 	return (0);				/* no token */
++     } else if (end = strchr(start, sep)) {	/* look for separator */
+  	*end = '\0';				/* nullify */
+  	*cpp = end + 1;				/* advance beyond end */
+  	return (start);				/* return token */
+
+exit 0 # Just in case...

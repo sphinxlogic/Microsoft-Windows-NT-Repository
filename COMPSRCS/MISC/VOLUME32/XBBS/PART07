@@ -1,0 +1,2450 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i022:  xbbs - A Bulletin Board System for System V, Part07/11
+Message-ID: <1992Sep9.045326.26501@sparky.imd.sterling.com>
+X-Md4-Signature: b1d325a30fe5930ea48fb8c4b280fbd0
+Date: Wed, 9 Sep 1992 04:53:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 22
+Archive-name: xbbs/part07
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbscarc.c bbscconf.c bbscmsga.c bbscport.c bulletin.mod
+#   crc.c msgpack/packfile.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:53 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 11)."'
+if test -f 'bbscarc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscarc.c'\"
+else
+  echo shar: Extracting \"'bbscarc.c'\" \(4767 characters\)
+  sed "s/^X//" >'bbscarc.c' <<'END_OF_FILE'
+X#include "bbscdef.h"
+X
+Xstruct heads {				/* archive entry header format */
+X	char		name[13];	/* file name */
+X	int		size;		/* size of file, in bytes */
+X	unsigned short	date;		/* creation date */
+X	unsigned short	time;		/* creation time */
+X	unsigned short		crc;		/* cyclic redundancy check */
+X	int		length;		/* true file length */
+X};
+X
+X#define ARCMARK		26	/* special archive marker */
+X#define ARCVER		9	/* archive header version code */
+X#define ARCFNLEN	13	/* file name length */
+X
+Xchar	hdrver;			/* header version */
+XFILE	*arc;			/* the old archive */
+XFILE	*inps;
+X
+Xlistarc(filename, port_id)
+Xchar	*filename, *port_id;
+X{
+X	struct heads	hdr;			/* header data */
+X	long		tnum, tlen, tsize;	/* totals */
+X	strcpy(buf128, "/tmp/arclst.");
+X	strcat(buf128, port_id);
+X	inps = fopen(buf128, "w");
+X
+X	strcpy(buf128, filename);
+X
+X	fprintf(inps, "\nArchive:  %s\n\n", buf128);
+X
+X	tnum = tlen = tsize = 0;	/* reset totals */
+X
+X	fprintf(inps, "Name          Length    Stowage    SF   Size now  ");
+X	fprintf(inps, "Date       Time    CRC\n");
+X	fprintf(inps, "============  ========  ========  ====  ========  ");
+X	fprintf(inps, "=========  ======  ====\n");
+X	
+X	if (!(arc = fopen(buf128, "rb"))) {	/* open archive for reading */
+X		fprintf(inps, "Cannot read archive: %s\n", buf128);
+X		return;
+X	}
+X
+X	while (readhdr(&hdr, arc)) {	/* else report on all files */
+X		lstfile(&hdr);
+X		tnum++; 		/* update totals */
+X		tlen += hdr.length;
+X		tsize += hdr.size;
+X		fseek(arc, hdr.size, 1);/* skip to next header */
+X	}
+X
+X	fclose(arc);			/* close archive after reading */
+X
+X	fprintf(inps, "        ====  ========            ====  ========\n");
+X	fprintf(inps, "Total %6ld  %8ld            %3ld%%  %8ld  \n\n",
+X	   tnum, tlen, tlen ? 100L - (100L * tsize) / tlen : 0, tsize);
+X	fclose(inps);
+X}
+X
+Xstatic lstfile(hdr)		       /* tell about a file */
+Xstruct heads *hdr;		       /* pointer to header data */
+X{
+X	int	yr, mo, dy;		       /* parts of a date */
+X	int	hh, mm, ss;		       /* parts of a time */
+X
+X	static char	*mon[] = {	       /* month abbreviations */
+X		"Jan", "Feb", "Mar", "Apr",
+X		"May", "Jun", "Jul", "Aug",
+X		"Sep", "Oct", "Nov", "Dec"
+X	};
+X
+X	yr = (hdr -> date >> 9) & 0x7f;		/* dissect the date */
+X	mo = (hdr -> date >> 5) & 0x0f;
+X	dy = hdr -> date & 0x1f;
+X
+X	hh = (hdr -> time >> 11) & 0x1f;	/* dissect the time */
+X	mm = (hdr -> time >> 5) & 0x3f;
+X	ss = (hdr -> time & 0x1f) * 2;
+X
+X	fprintf(inps, "%-12s  %8ld  ", hdr -> name, hdr -> length);
+X
+X	switch (hdrver) {
+X	case 1:
+X	case 2:
+X		fprintf(inps, "   --   ");
+X		break;
+X	case 3:
+X		fprintf(inps, " Packed ");
+X		break;
+X	case 4:
+X		fprintf(inps, "Squeezed");
+X		break;
+X	case 5:
+X	case 6:
+X	case 7:
+X		fprintf(inps, "crunched");
+X		break;
+X	case 8:
+X		fprintf(inps, "Crunched");
+X		break;
+X	case 9: fprintf(inps, "Squashed");
+X		break;
+X	default:
+X		fprintf(inps, "Unknown!");
+X	}
+X
+X	fprintf(inps, "  %3ld%%  %8ld  %2d %3s %02d  %2d:%02d%c  %04X\n",
+X	    100L - (100L * hdr -> size) / hdr -> length,
+X	    hdr -> size,
+X	    dy, mon[mo-1], (yr + 80) % 100,
+X	    (hh > 12 ? hh - 12 : hh), mm, (hh > 12 ? 'p' : 'a'), hdr -> crc);
+X}
+X
+Xint readhdr(hdr, f)			/* read a header from an archive */
+Xstruct heads	*hdr;			/* storage for header */
+XFILE		*f;			/* archive to read header from */
+X{
+X	char		name[ARCFNLEN];	/* filename buffer */
+X	int		try = 0;	/* retry counter */
+X	static int	first = 1;	/* true only on first read */
+X
+X	if (!f)				/* if archive didn't open */
+X		return 0;		/* then pretend it's the end */
+X	if (feof(f))			/* if no more data */
+X		return 0;		/* then signal end of archive */
+X
+X	if (fgetc(f) != ARCMARK) {	/* check archive validity */
+X		fprintf(inps, "An entry in %s has a bad header.\n", buf128);
+X
+X		while(!feof(f)) {
+X			try++;
+X			if (fgetc(f) == ARCMARK) {
+X				ungetc(hdrver = fgetc(f), f);
+X				if (hdrver >= 0 && hdrver <= ARCVER)
+X					break;
+X			}
+X		}
+X
+X		if (feof(f) && first) {
+X			fprintf(inps,"%s is not an archive.\n", buf128);
+X			return 0;
+X		}
+X
+X		fprintf(inps, "  %d bytes skipped.\n", try);
+X
+X		if (feof(f))
+X			return 0;
+X	}
+X
+X	hdrver = fgetc(f);		/* get header version */
+X	if (hdrver < 0) {
+X		fprintf(inps, "Invalid header in archive %s\n", buf128);
+X		return 0;
+X	}
+X	if (hdrver == 0)
+X		return 0;		/* note our end of archive marker */
+X	if (hdrver > ARCVER) {
+X		fread(name, sizeof(char), ARCFNLEN, f);
+X		fprintf(inps, "I don't know how to handle file %s in archive %s\n",
+X		   name, buf128);
+X		fprintf(inps, "I think you need a newer version of ARC.\n");
+X	        return 0;
+X	}
+X
+X	/* amount to read depends on header type */
+X
+X	if (hdrver == 1) {			/* old style is shorter */
+X		fread(hdr, sizeof (struct heads) - sizeof (long int), 1, f);
+X		hdrver = 2;           		/* convert header to new format */
+X		hdr -> length = hdr -> size;	/* size is same when not packed */
+X	} else
+X		fread(hdr, sizeof (struct heads), 1, f);
+X	first = 0;
+X	return 1;				/* we read something */
+X}
+END_OF_FILE
+  if test 4767 -ne `wc -c <'bbscarc.c'`; then
+    echo shar: \"'bbscarc.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscarc.c'
+fi
+if test -f 'bbscconf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscconf.c'\"
+else
+  echo shar: Extracting \"'bbscconf.c'\" \(7847 characters\)
+  sed "s/^X//" >'bbscconf.c' <<'END_OF_FILE'
+X/* Conference Section     05/01/90      */
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <utmp.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <pwd.h>
+X#include <signal.h>
+X#include "bbscdef.h"
+X
+X#ifdef SYSV
+X#include <dirent.h>
+X#include <sys/dir.h>
+X#else
+X#include <sys/ndir.h>
+X#endif
+X
+Xextern int      no_cntrl_k;
+Xstruct stat     thisstat;
+Xchar           *getlogin();
+X
+X#ifdef SYSV
+X#ifndef ESIX54
+X#define	opendir(path) fopen (path, "r")
+X#define closedir(dirp) fclose (dirp)
+Xstruct dirent  *
+Xreaddir(dirp)
+X    DIR            *dirp;
+X{
+X    static struct dirent entry;
+X    if (dirp == NULL)
+X	return (NULL);
+X    for (;;) {
+X	if (fread(&entry, sizeof(struct dirent), 1, dirp) == 0)
+X	    return (NULL);
+X	if (entry.d_ino)
+X	    return (&entry);
+X    }
+X}
+X#endif
+X#endif
+X
+Xconf()
+X{
+X    int             mypid, loginpid, uid;
+X    register struct utmp *u;
+X    extern struct utmp *getutent();
+X    struct passwd  *getpwuid();
+X    struct passwd  *pwd;
+X    char            mybyte;
+X    char            byten, byter, bytes, bytet;
+X    char           *bufptr, *myname, *cmf;
+X    char            buffer[20], my_ext[10];
+X    char            buffs[99];
+X    int             length, handle, handlex;
+X    int             match, sigrets, pidrets, cmpflag;
+X    FILE           *infile;
+X    match = 1;
+X    byten = (char) '\n';
+X    byter = (char) '\r';
+X    bytes = (char) ' ';
+X    mypid = getpid();
+X    myname = getlogin();
+X    uid = getuid();
+X    loginpid = getppid();
+X    pwd = getpwuid(uid);
+X/*
+X     *Check to see if the login name is the same as the present users pw
+X     * name. If it isn't, let's play around a little and make it work for us!
+X*/
+X    strcpy(who_am_i, myname);
+X    strcpy(who_am_I, pwd->pw_name);
+X    handle = strcmp(who_am_i, who_am_I);
+X    if (handle != 0)
+X	match = 0;
+X/*
+X     *Flag that we are in conference!
+X*/
+X    while ((u = getutent()) != NULL) {
+X	handle = strcmp(u->ut_user, myname);
+X	if (match) {
+X	    if (handle == 0 && u->ut_pid == mypid) {
+X		strcpy(my_ext, u->ut_id);
+X		strcpy(who_am_I, u->ut_line);
+X	    }
+X	} else {
+X	    if (handle == 0 && u->ut_pid == loginpid) {
+X		strcpy(my_ext, u->ut_id);
+X		strcpy(who_am_I, u->ut_line);
+X	    }
+X	}
+X    }
+X    endutent();
+X    strcpy(who_am_i, "/tmp/conf");
+X    strcat(who_am_i, my_ext);
+X    if ((inbuf = fopen(who_am_i, "w")) == NULL) {
+X	portsout("\n\rError opening flag file!\n\r");
+X	exit(1);
+X    }
+X    fprintf(inbuf, "%s %s %s\n", w_fname, w_lname, who_am_I);
+X    fclose(inbuf);
+X/*
+X     *Flag all users that I just went into conference
+X*/
+X    strcpy(buf128, "ls /tmp/pid* > /tmp/on.sys.");
+X    strcat(buf128, my_ext);
+X    (void) system(buf128);
+X    strcpy(buf128, "/tmp/on.sys.");
+X    strcat(buf128, my_ext);
+X    if ((otbuf = fopen(buf128, "r")) == NULL) {
+X	portsout("\n\rError opening list file!\n\r");
+X	exit(1);
+X    }
+X    while (fscanf(otbuf, "%s", buffs) != EOF) {
+X	infile = fopen(buffs, "r");
+X	cmpflag = strlen(buffs);
+X	cmf = buffs + cmpflag - 2;
+X	strcpy(buffer, cmf);
+X	fgets(buffs, 6, infile);
+X	fclose(infile);
+X	pidrets = atoi(buffs);
+X	if ((sigrets = kill(pidrets, 0)) != 0)
+X	    continue;		/* not valid  */
+X	setutent();
+X	cmpflag = 0;
+X	while ((u = getutent()) != NULL) {
+X	    if (u->ut_pid == pidrets) {
+X		cmpflag = 1;
+X		strcpy(buf128, "/dev/");
+X		strcat(buf128, u->ut_line);
+X		handle = open(buf128, O_WRONLY);
+X		sprintf(buf128, "\n\r**** %s %s went into conference ****\n\r", w_fname, w_lname);
+X		write(handle, buf128, strlen(buf128));
+X		close(handle);
+X	    }
+X	}
+X	endutent();
+X	if (!cmpflag) {
+X	    setutent();
+X	    while ((u = getutent()) != NULL) {
+X		cmpflag = strlen(u->ut_line);
+X		cmf = u->ut_line + cmpflag - 2;
+X		if ((strcmp(cmf, buffer)) == 0) {
+X		    strcpy(buf128, "/dev/");
+X		    strcat(buf128, u->ut_line);
+X		    handle = open(buf128, O_WRONLY);
+X		    sprintf(buf128, "\n\r**** %s %s went into conference ****\n\r", w_fname, w_lname);
+X		    write(handle, buf128, strlen(buf128));
+X		    close(handle);
+X		}
+X	    }
+X	    endutent();
+X	}
+X	cmpflag = 0;
+X    }
+X    fclose(otbuf);
+X
+X
+X/*   
+X     *List the users that are presently in conference
+X*/
+X    portsout("\n\r\n\rThe following users are presently in conference\n\r");
+X    no_cntrl_k = 1;
+X    strcpy(buf128, "ls /tmp/conf* > /tmp/inconf.");
+X    strcat(buf128, my_ext);
+X    (void) system(buf128);
+X    strcpy(buf128, "/tmp/inconf.");
+X    strcat(buf128, my_ext);
+X    if ((otbuf = fopen(buf128, "r")) == NULL) {
+X	portsout("\n\rError opening list file!\n\r");
+X	exit(1);
+X    }
+X    while (fscanf(otbuf, "%s", who_am_i) != EOF) {
+X	cmd_p(who_am_i);
+X    }
+X    fclose(otbuf);
+X    no_cntrl_k = 0;
+X/*
+X     *Start the loop for input
+X*/
+X
+X    portsout("\n\rDepressing the escape key will exit the conference!\n\r");
+X    strcpy(who_am_I, "<");
+X    strcat(who_am_I, w_fname);
+X    strcat(who_am_I, " ");
+X    strcat(who_am_I, w_lname);
+X    strcat(who_am_I, "> ");
+X    buf128[0] = '\0';
+X    while (1) {
+X	bufptr = buf128;
+X	*bufptr = '\0';
+X      conf_loop:
+X	mybyte = portin_chat();
+X	if (mybyte == '\033')
+X	    break;
+X	if (mybyte == 127)
+X	    mybyte = '\b';
+X	if (mybyte == '\b') {
+X	    length = strlen(buf128);
+X	    if (!length)
+X		goto conf_loop;
+X	    length--;
+X	    portout_chat(mybyte);
+X	    portout_chat(bytes);
+X	    portout_chat(mybyte);
+X	    bufptr = length + buf128;
+X	    *bufptr = '\0';
+X	    goto conf_loop;
+X	}
+X	portout_chat(mybyte);
+X	length = strlen(buf128);
+X	bufptr = length + buf128;
+X	*bufptr++ = mybyte;
+X	*bufptr = '\0';
+X	if (mybyte == '\n' || mybyte == '\r')
+X	    goto saver;
+X	goto conf_loop;
+X      saver:
+X	if (mybyte == '\n')
+X	    bytet = byter;
+X	else
+X	    bytet = byten;
+X	portout_chat(bytet);
+X	length = strlen(buf128);
+X	bufptr = length + buf128;
+X	*bufptr++ = bytet;
+X	*bufptr = '\0';
+X	strcpy(who_am_i, "ls /tmp/conf* > /tmp/inconf.");
+X	strcat(who_am_i, my_ext);
+X	(void) system(who_am_i);
+X	strcpy(who_am_i, "/tmp/inconf.");
+X	strcat(who_am_i, my_ext);
+X	if ((inbuf = fopen(who_am_i, "r")) == NULL) {
+X	    portsout("\n\rError opening list file!\n\r");
+X	    exit(1);
+X	}
+X	while (fscanf(inbuf, "%s", who_am_i) != EOF) {
+X	    handle = strlen(who_am_i);
+X	    handlex = strlen(my_ext);
+X	    length = handle - handlex + 1;
+X	    substr(who_am_i, x_pathandfile, length, handlex);
+X	    length = strcmp(x_pathandfile, my_ext);
+X	    if (length != 0) {
+X		otbuf = fopen(who_am_i, "r");
+X		fscanf(otbuf, "%s%s%s", who_am_i, x_filename, x_pathandfile);
+X		fclose(otbuf);
+X		strcpy(who_am_i, "/dev/");
+X		strcat(who_am_i, x_pathandfile);
+X		handle = open(who_am_i, O_WRONLY);
+X		length = strlen(who_am_I);
+X		write(handle, who_am_I, length);
+X		length = strlen(buf128);
+X		write(handle, buf128, length);
+X		close(handle);
+X	    }
+X	}
+X	fclose(inbuf);
+X    }
+X    strcpy(who_am_i, "/tmp/conf");
+X    strcat(who_am_i, my_ext);
+X    unlink(who_am_i);
+X}
+Xwho_is_there()
+X{
+X    DIR            *dirp;
+X    FILE           *infile;
+X
+X#ifdef SYSV
+X    struct dirent  *readdir();
+X    struct dirent  *dp;
+X#else
+X    struct direct  *readdir();
+X    struct direct  *dp;
+X#endif
+X
+X    char           *ptr1, *ptr2;
+X    int             i, j;
+X    portsout("\n\r\n\r");
+X    dirp = opendir("/tmp");
+X    while ((dp = readdir(dirp)) != NULL) {
+X	strcpy(who_am_i, dp->d_name);
+X	ptr1 = who_am_i;
+X	ptr2 = who_am_I;
+X	for (i = 0; i < 3; i++)
+X	    *ptr2++ = *ptr1++;
+X	*ptr2 = '\0';
+X	j = strcmp(who_am_I, "pid");
+X	if (!j) {
+X	    strcpy(who_am_I, "/tmp/");
+X	    strcat(who_am_I, dp->d_name);
+X	    infile = fopen(who_am_I, "r");
+X	    fgets(who_am_I, 6, infile);
+X	    i = atoi(who_am_I);
+X	    fclose(infile);
+X	    j = kill(i, 0);	/* see if it is a good pid */
+X	    if (!j) {
+X		strcpy(buf128, ORGPATH);
+X		strcat(buf128, "lastcall.bbs");
+X		ptr1 = who_am_i + 3;
+X		ptr2 = who_am_I;
+X		for (i = 3; i < 5; i++)
+X		    *ptr2++ = *ptr1++;
+X		*ptr2 = '\0';
+X		strcat(buf128, who_am_I);
+X		infile = fopen(buf128, "r");
+X		fgets(buf128, 99, infile);
+X		strip(buf128);
+X		portsout("On port ");
+X		portsout(who_am_I);
+X		portsout(" -- ");
+X		portsout(buf128);
+X		portsout(CRLF);
+X		fclose(infile);
+X	    }
+X	}
+X    }
+X    closedir(dirp);
+X    portsout("\n\r\n\r");
+X}
+END_OF_FILE
+  if test 7847 -ne `wc -c <'bbscconf.c'`; then
+    echo shar: \"'bbscconf.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscconf.c'
+fi
+if test -f 'bbscmsga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscmsga.c'\"
+else
+  echo shar: Extracting \"'bbscmsga.c'\" \(9408 characters\)
+  sed "s/^X//" >'bbscmsga.c' <<'END_OF_FILE'
+X/*------------------------------------------------------------------------
+X       Name: bbscarea.c
+X   Comments: Display file areas and select one
+X  ------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include "bbscdef.h"
+X
+X
+Xint             set_yet_m = FALSE;
+Xextern int      user_priv;
+X
+X
+Xchange_msga( type ) int type;
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X
+X	char           *buf_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int             length;
+X
+X	if( type == -1)
+X		return;
+X
+Xdo_again:
+X	strcpy(buf128, MSGS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rError Opening File Area List: Notify Sysop!\n\r");
+X		return (-1);
+X	}
+X	if(!type) {
+X	portsout("\n\r    Directory     Description                                      \n\r");
+X	portsout("    ============= ========================================== \n\r");
+X	}
+X
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Message Area List: Notify Sysop!\n\r");
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 57;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 6; ptr++)
+X				*buf_ptr++ = ' ';
+X			*buf_ptr = '\0';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X			if(!type) {
+X			strip(buf128);
+X			term_space(buf128);
+X			portsout(buf128);
+X			portsout("\n\r");
+X			}
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	if (line_cnt <= 1)
+X		return;
+X	if (set_yet_m && !type) {
+X		portsout(CRLF);
+X		portsout(" Q) Quit to Previous Menu");
+X	}
+X	if(!type)portsout(CRLF);
+X	fclose(fpt);
+X	if(!type)portsout(CRLF);
+X
+X	while (1) {
+X		if(!type) {
+X		portsout("Enter Selection ===> ");
+X		portsin_cmp(choice, 2, "Qq");
+X		portsout(CRLF);
+X		*choice = toupper(*choice);
+X
+X		if (*choice == 'Q' && set_yet_m)
+X			return (-1);
+X
+X
+X		index_value = atoi(choice);
+X		}
+X		else index_value = type;
+X		if (index_value > 0 && index_value < line_cnt) {
+X			if (dir_priv[index_value] <= user_priv) {
+X				parse_arg(f_lines[index_value]);
+X				set_yet_m = TRUE;
+X				hdrread();
+X				itoa(buf128,index_value);
+X				if(index_value > 9)
+X					{
+X					strcpy(l_m_base, buf128);
+X					}
+X				else
+X					{
+X					strcpy(l_m_base, "0");
+X					strcat(l_m_base,buf128);
+X					}
+X				
+X				rewritx();
+X				return (0);
+X			}
+X		}
+X		if( type != 0 ) {
+X			type = 0;
+X			portsout("\n\rInvalid directory request!\n\r");
+X			goto do_again;
+X		}
+X	}
+X}
+X
+X
+X
+X
+X
+Xparse_arg(string)
+X	char           *string;
+X{
+X
+X	register char  *file_ptr, *xptr;
+X	register int    i;
+X
+X	strcpy(m_pathname, ORGPATH);
+X	file_ptr = (m_pathname + strlen(m_pathname));
+X	xptr = who_am_I;
+X
+X	i = 0;
+X	while (string[i] != ' ') {
+X		*file_ptr = string[i];
+X		*xptr = string[i];
+X		++xptr;
+X		++file_ptr;
+X		++i;
+X	}
+X	*file_ptr = '/';
+X	++file_ptr;
+X	*file_ptr = '\0';
+X	*xptr = '\0';
+X
+X}
+Xcheck_msga()
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char           *buf_ptr, *file_ptr, *char_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int             length, strl, ii;
+X
+X
+X	strcpy(buf128, MSGS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rError Opening File Area List: Notify Sysop!\n\r");
+X		return (-1);
+X	}
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Message Area List: Notify Sysop!\n\r");
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 57;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X			strl = strlen(dir_priv_ascii);
+X			if (strl == 0) {
+X				portsout("\n\rError reading privilege level\n\r");
+X				exit(1);
+X			}
+X			char_ptr = strchr(dir_priv_ascii, '*');
+X			if (char_ptr != NULL) {
+X				strcpy(c_pathname, ORGPATH);
+X				file_ptr = (c_pathname + strlen(c_pathname));
+X				ii = 0;
+X				while (f_lines[line_cnt][ii] != ' ') {
+X					*file_ptr = f_lines[line_cnt][ii];
+X					++file_ptr;
+X					++ii;
+X				}
+X				*file_ptr = '/';
+X				++file_ptr;
+X				*file_ptr = '\0';
+X				*char_ptr = '\0';
+X			}
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	fclose(fpt);
+X
+X	if (line_cnt <= 1)
+X		return;
+X
+X
+X	for (index_value = 1; index_value < line_cnt; index_value++) {
+X		if (dir_priv[index_value] <= user_priv) {
+X			parse_arg(f_lines[index_value]);
+X			hdrread();
+X			portsout("\n\rMail check for area '");
+X			portsout(who_am_I);
+X			portsout("'\n\r");
+X			mail_to_you();
+X			portsout("\n\r*************************************************\n\r");
+X		}
+X	}
+X/*                      SIG checking                         */
+X	strcpy(buf128, SIGS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		fclose(fpt);
+X		return;      /* No sigs */
+X	}
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 83);
+X		if ((fgets(f_lines[line_cnt], 82, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in SIG Area List: Notify Sysop!\n\r");
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 74;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 74, length);
+X			strl = strlen(dir_priv_ascii);
+X			if (strl == 0) {
+X				portsout("\n\rError reading privilege level\n\r");
+X				exit(1);
+X			}
+X			char_ptr = strchr(dir_priv_ascii, '*');
+X			if (char_ptr != NULL) {
+X				*char_ptr = '\0';
+X			}
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read_sig;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 73;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X		}
+Xnext_read_sig:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	fclose(fpt);
+X
+X	if (line_cnt <= 1)
+X		return;
+X
+X
+X	for (index_value = 1; index_value < line_cnt; index_value++) {
+X		if (dir_priv[index_value] <= user_priv) {
+X			parse_arg(f_lines[index_value]);
+X			strcat(m_pathname, "msgs/");
+X			hdrread();
+X			portsout("\n\rMail check for SIG area '");
+X			portsout(who_am_I);
+X			portsout("'\n\r");
+X			mail_to_you();
+X			portsout("\n\r*************************************************\n\r");
+X		}
+X	}
+X/*                   End of SIG checking                     */
+X}
+Xcheck_msga_n()
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char           *buf_ptr, *file_ptr, *char_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int             length, strl, ii;
+X
+X
+X	strcpy(buf128, MSGS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rError Opening File Area List: Notify Sysop!\n\r");
+X		return (-1);
+X	}
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Message Area List: Notify Sysop!\n\r");
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 57;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X			strl = strlen(dir_priv_ascii);
+X			if (strl == 0) {
+X				portsout("\n\rError reading privilege level\n\r");
+X				exit(1);
+X			}
+X			char_ptr = strchr(dir_priv_ascii, '*');
+X			if (char_ptr != NULL) {
+X				strcpy(c_pathname, ORGPATH);
+X				file_ptr = (c_pathname + strlen(c_pathname));
+X				ii = 0;
+X				while (f_lines[line_cnt][ii] != ' ') {
+X					*file_ptr = f_lines[line_cnt][ii];
+X					++file_ptr;
+X					++ii;
+X				}
+X				*file_ptr = '/';
+X				++file_ptr;
+X				*file_ptr = '\0';
+X				*char_ptr = '\0';
+X			}
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read_n;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X		}
+Xnext_read_n:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	fclose(fpt);
+X
+X	if (line_cnt <= 1)
+X		return;
+X
+X
+X	for (index_value = 1; index_value < line_cnt; index_value++) {
+X		if (dir_priv[index_value] <= user_priv) {
+X			parse_arg(f_lines[index_value]);
+X			hdrread();
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 9408 -ne `wc -c <'bbscmsga.c'`; then
+    echo shar: \"'bbscmsga.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscmsga.c'
+fi
+if test -f 'bbscport.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscport.c'\"
+else
+  echo shar: Extracting \"'bbscport.c'\" \(7862 characters\)
+  sed "s/^X//" >'bbscport.c' <<'END_OF_FILE'
+X/*
+X	bbscport.c
+X
+X*/
+X
+X#include "bbscdef.h"
+X#include <string.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/locking.h>
+Xextern int no_cntrl_k;
+Xextern int hold_off;
+Xextern int toggle_hold;
+Xextern unsigned int Zsec;
+X
+X#define LASTDATE  " 05/05/89 "
+X
+X#define PGMNAME "BBSCPORT "
+X
+Xchar portin()		/* get one byte from the port */
+X{
+X	char byte;
+X	int byte0;
+X	unsigned int ssec, tsec, usec, vsec;
+X	int this_timer, wsec;
+X	if(toggle_hold) (void) sys_toggle();
+X	hold_off = TRUE;
+X	this_timer = which_timer;
+X	which_timer = 3;
+X	ssec = alarm(0);
+X	tsec = waittime;
+X	if(tsec > ssec)
+X		{
+X		tsec = ssec;
+X		which_timer = this_timer;
+X		}
+X	Zsec = ssec - tsec;
+X	alarm(tsec);
+X	byte0=cget();
+X	byte = (char)byte0;
+X	switch ( byte0 ) {
+X	
+X	case -1:
+X		fprintf(stderr,"cget() returns -1 -- ABORTING");
+X		exit(1);
+X	default:
+X		usec = alarm(0);
+X		which_timer = this_timer;
+X		wsec = ssec - (tsec - usec);
+X		if(wsec < 2 ) wsec = 2;
+X		vsec = wsec;
+X		alarm( vsec );
+X		hold_off = FALSE;
+X		if(toggle_hold) (void)sys_toggle();
+X		return(byte);
+X	}
+X}
+X
+Xchar portin_chat()		/* get one byte from the port */
+X{
+X	char byte;
+X	int byte0;
+X	byte0=cget_chat();
+X	byte = (char)byte0;
+X	switch ( byte0 ) {
+X	
+X	case -1:
+X		fprintf(stderr,"cget() returns -1 -- ABORTING");
+X		exit(1);
+X	default:
+X		return(byte);
+X	}
+X}
+Xportsin(buf,max)	/* get a line of input max. chars long */
+Xint max ; char *buf ;
+X	{
+X	int cnt, byte ; char bytex ;
+X	cnt = 0;
+X	byte = FALSE;
+X	while (++cnt <= max && byte != '\r')
+X		{
+X		while((byte = (int)portin()) < ' ' || byte > '}')
+X			{
+X			if( byte == 127) byte = '\b';
+X			if (byte == '\r') { break ; } /* carriage return */
+X			if (byte == '\b' && cnt > 1)	/* backspace */
+X				{
+X				portout(byte);
+X				portout(' ');
+X				portout(byte);
+X				*buf--;	/* backout last char */
+X				cnt--;	/* decrement count too */
+X				}
+X			}
+X		if (byte != '\r')
+X			{
+X			*buf++ = byte;
+X			}
+X		portout(byte);	/* echo good chars only */
+X		}
+X	*buf++	= '\0';			/* tag \0 on end */
+X	}
+Xportsinz(buf,max)	/* get a line of input max. chars long */
+Xint max ; char *buf ;
+X	{
+X	int cnt, byte ; char bytex ;
+X	cnt = 0;
+X	byte = FALSE;
+X	while (++cnt <= max && byte != '\r')
+X		{
+X		while((byte = (int)portin()) < ' ' || byte > '}')
+X			{
+X			if (byte == 127) byte = '\b';
+X			if (byte == '\r') { break ; } /* carriage return */
+X			if (byte == '\b' && cnt > 1)	/* backspace */
+X				{
+X				portout(byte);
+X				portout(' ');
+X				portout(byte);
+X				*buf--;	/* backout last char */
+X				cnt--;	/* decrement count too */
+X				}
+X			}
+X		if (byte != '\r')
+X			{
+X			*buf++ = byte;
+X			}
+X		portout('_');	/* echo an underscore  */
+X		}
+X	*buf++	= '\0';			/* tag \0 on end */
+X	}
+Xportsinm(buf,max,buf1)	/* get a line of input max. chars long */
+Xint max;
+Xchar *buf, *buf1;
+X	{
+X	int cnt, byte ; char bytex ;
+X	int  new_max;
+X	cnt = 0;
+X	new_max = max;
+X	byte = FALSE;
+X	while (++cnt <= new_max && byte != '\r')
+X		{
+X		while((byte = (int)portin()) < ' ' || byte > '}')
+X			{
+X			if (byte == 127) byte = '\b';
+X			if (byte == '\r') { break ; } /* carriage return */
+X			if (byte == '\b' && cnt > 1)	/* backspace */
+X				{
+X				portout(byte);
+X				portout(' ');
+X				portout(byte);
+X				*buf--;	/* backout last char */
+X				cnt--;	/* decrement count too */
+X				}
+X			if (byte == '\b' && cnt == 1 && in_the_buffer > 0)
+X				{
+X				portout(byte);
+X				portout(' ');
+X				portout(byte);
+X				in_the_buffer--;
+X				new_max++;
+X				buf1[in_the_buffer] = '\0';
+X				}
+X
+X			}
+X		if (byte != '\r')
+X			{
+X			*buf++ = byte;
+X			}
+X		portout(byte);	/* echo good chars only */
+X		}
+X	*buf++	= '\0';			/* tag \0 on end */
+X	}
+X
+X
+Xportsin_cmp(buf,max,cmp_str)	/* get a line of input max. chars long */
+Xint max ; char *buf , *cmp_str;
+X	{
+X	int cnt, byte ; char bytex ;
+X	char *result;
+X	cnt = 0;
+X	byte = FALSE;
+X	while (++cnt <= max && byte != '\r')
+X		{
+X		while((byte = (int)portin()) < ' ' || byte > '}')
+X			{
+X			if (byte == 127) byte = '\b';
+X			if (byte == '\r') { break ; } /* carriage return */
+X			if (byte == '\b' && cnt > 1)	/* backspace */
+X				{
+X				portout(byte);
+X				portout(' ');
+X				portout(byte);
+X				*buf--;	/* backout last char */
+X				cnt--;	/* decrement count too */
+X				}
+X			}
+X		if (byte != '\r')
+X			{
+X			if(cnt == 1)
+X				{
+X				result = strchr(cmp_str,byte);
+X				if(result != NULL)		
+X					{
+X					*buf++ = byte;
+X					portout(byte);
+X					*buf++ = '\0';
+X					return;
+X					}
+X				}
+X			*buf++ = byte;
+X			}
+X		portout(byte);	/* echo good chars only */
+X		}
+X	*buf++	= '\0';			/* tag \0 on end */
+X	}
+X
+Xportout(byte)		/* send one byte to the port */
+Xchar byte;		/* return CTL_K for those times want to check */
+X	{		/* if the person wants to stop sending        */
+X	char byte0 ;
+X 
+X	byte0 = byte ; write(STDOUT,&byte0,1) ; /* send the byte */
+X	if(if_monitor)
+X		{
+X		write(mon_handle,&byte0,1);
+X		}
+X	return(OK) ;
+X	}
+X  
+Xportout_chat(byte)		/* send one byte to the port */
+Xchar byte;		/* return CTL_K for those times want to check */
+X	{		/* if the person wants to stop sending        */
+X	char byte0 ;
+X 
+X	byte0 = byte ; write(STDOUT,&byte0,1) ; /* send the byte */
+X	if(if_monitor)
+X		{
+X		write(mon_handle,&byte0,1);
+X		}
+X	return(OK) ;
+X	}
+X  
+Xportsout(string)	/* send a string to the port */
+Xchar *string ;
+X	{
+X	char byte ;
+X
+X	while (byte = (*string++))
+X		{
+X  		portout(byte) ;		/* send one byte at a time */
+X		}
+X	}
+X
+Xportsout_chat(string)	/* send a string to the port */
+Xchar *string ;
+X	{
+X	char byte ;
+X
+X	while (byte = (*string++))
+X		{
+X  		portout_chat(byte) ;		/* send one byte at a time */
+X		}
+X	}
+Xportlsout(string,len)  /* send a string to the port, pad to length */
+Xchar *string ; int len ;
+X	{
+X	char byte ;
+X
+X	while (byte = (*string++))
+X		{
+X  		portout(byte) ;		/* send one byte at a time */
+X		len-- ;
+X		}
+X	while (len > 0) { portout(' ') ; len-- ; } /* pad with spaces */
+X	}
+X
+Xporttype(tbuf)		/* type a file to the port */
+XFILE	*tbuf ;
+X	{
+X	int byte ;
+X	int xp;
+X	if(xpert)xp = 10; else xp = 5;
+X	stop_that = FALSE;	/* reset switch */
+X	if(!no_cntrl_k) portsout("\r\nType CTL-K to skip this\r\n\n");
+X	lnctx=1;
+X	byte = 0;
+X	while (((byte = getc (tbuf)) != EOF) && (byte != CPMEOF))
+X		{
+X		if(byte == '\n')
+X			{
+X			portout('\r');
+X			if(toggle)
+X			{
+X				lnctx++;
+X				if ( lnctx == 23 )
+X					{
+X					portsout(CRLF);
+X					if(!no_cntrl_k)
+X						portsout("*** Depress a key to continue ( control-k to quit ) ........ ");
+X					else
+X						portsout("*** Depress a key to continue  ........ ");
+X					jnk[0] = portin();
+X					if (jnk[0] == CTL_K )
+X					{			  
+X						stop_that = TRUE;
+X					}
+X					portsout(CRLF);
+X					lnctx=1;
+X					}
+X			}
+X			}
+X		if ( isprint(byte) == 0  && isspace(byte) == 0 )
+X		{
+X			portsout(CRLF);
+X			portsout(CRLF);
+X			portsout(CRLF);
+X			portsout("A non-printable character has been detected!");
+X			portsout(CRLF);
+X			portsout("This is probably NOT an ASCII file!");
+X			portsout(CRLF);
+X			portsout(CRLF);
+X			portsout(CRLF);
+X			stop_that = FALSE;
+X			return;
+X		}
+X		portout(byte);
+X		if (stop_that)		 /* received ctl-K or K */
+X			{
+X			portsout(CRLF);
+X			stop_that = FALSE;	/* reset switch */
+X			return;			/* nuf's enough */
+X			}
+X		}
+X	if(toggle && !no_cntrl_k && ( lnctx > xp ))
+X		{
+X		portsout(CRLF);
+X		portsout("*** Depress a key to continue ........ ");
+X		jnk[0] = portin();
+X		portsout(CRLF);
+X		}
+X	}
+X
+Xportinit()
+X	{
+X		setraw();
+X	}
+X	/* set raw mode for this terminal 
+X	struct sgttyb arg;
+X	ioctl (STDIN, TIOCGETP, &arg);
+X	arg.sg_flags |= RAW ;
+X	arg.sg_flags &= ~ECHO;
+X	ioctl (STDIN, TIOCSETP, &arg);
+X	}
+X*/
+X
+Xportrst()
+X	{
+X		restore();
+X	}
+X	/* set raw mode for this terminal 
+X	struct sgttyb arg;
+X	ioctl (STDIN, TIOCGETP, &arg);
+X	arg.sg_flags &= ~RAW;
+X	arg.sg_flags |= ECHO ;
+X	ioctl (STDIN, TIOCSETP, &arg);
+X	}
+X*/
+X
+Xchar gobble()				/* gobble up any answer */
+X	{
+X	int cnt = 0 ;
+X	while (cnt++ < 20) (void)portin() ;
+X	}
+Xrewritx()
+X{
+X	FILE *scope;
+X	int fds, result;
+X	if((scope=fopen(USERS,"r+"))==NULL)
+X		{
+X		portsout("\n\rError opening USERS file!\n\r");
+X		exit(1);
+X		}
+X	fds = fileno(scope);
+X	rewind(scope);
+X	locking(fds, LK_LOCK, 0L);
+X	result=fseek(scope, save_d_pos, 0);
+X	rewrtuser(scope);
+X	rewind(scope);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(scope);
+X}
+END_OF_FILE
+  if test 7862 -ne `wc -c <'bbscport.c'`; then
+    echo shar: \"'bbscport.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscport.c'
+fi
+if test -f 'bulletin.mod' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bulletin.mod'\"
+else
+  echo shar: Extracting \"'bulletin.mod'\" \(9228 characters\)
+  sed "s/^X//" >'bulletin.mod' <<'END_OF_FILE'
+X
+X
+X
+X                                   Version 7.00
+X
+X        The message base has been expanded to allow upto 99 lines per message
+X        instead of the older maximum of 20. Multiple questionnaires are now
+X        supported instead of only one.
+X
+X        Version 7.10 Improved file listings and other minor modifications.
+X
+X        Version 7.20 Fixed BUG in zmodem and ymodem-batch uploads.
+X
+X        Version 7.21 Unreleased version --- added USENET ACCESS
+X
+X        Version 7.22 Allow ^K to exit zip mail
+X
+X        Version 7.23 is exactly the same as 7.22 but has a compile option
+X                     in bbsc1.c to define logname as getlogin for SYSV.
+X
+X        Version 7.24 Cleaned up main memu
+X
+X        Version 7.25 Added Batch read command in message section. Also, the
+X                     code now notified the user when he/she was last on the
+X                     system. 
+X
+X        Version 7.30 Fixed a NASTY bug in the message base which happened
+X                     when messages got to be around 80 lines and more.
+X
+X        Version 7.31 Trapped SIGHUP and added MUCH MORE information into
+X                     the callers log!!! Enhanced the questionnaire routine.
+X
+X
+X        Version 7.40 Enhanced message system. Now, the user can block and
+X                     center text.
+X
+X        Version 7.41 Made a new message section entry called "e(N)ter blocked
+X                     message". Also, deleted the "not used" U(nix mail) entry.
+X
+X        Version 7.42 IMPROVED text blocking algorithm
+X
+X        Version 7.43 BUG FIX in blocking/rt justify algorithm. An if statement
+X                     was previously " > 72" and should have been " >= 72"
+X                     Files changed were bbsc12.h and bbsc2.c
+X
+X        Version 7.44 Now the code will list the contents of .zip files
+X                     unzipunx.tar.Z is needed for this new option.
+X
+X        Version 7.45 Added Control-k reminders
+X
+X        Version 7.50 NEW SIG option..... Read MAKEsig for installation
+X
+X        Version 7.51 Modified msg checking code to include sigs.
+X                     Added a new optional file called sigentry.bbs which
+X                     is displayed to the user when he opts to log into a
+X                     private sig and he is not registered.
+X
+X        Version 7.60 The menus are NOW variable according to the user's
+X                     privilege level. If the user DOES NOT have the privilege
+X                     to use the option, the option will NOT be displayed.
+X
+X        Version 7.70 New option in the files menu "Z(ip new list)". This
+X                     new option allows you to scan all allowable directories
+X                     for new files.
+X
+X        Version 7.80 The Zip new list) option is now Z(ip file menu). Now,
+X                     you can ZIP for NEW, locate, raw and regual file list.
+X
+X        Version 7.81 Fixed "usenet" option so that if the user enters usenet
+X                     more than once, the path will be correct. Added logging
+X                     of chats into the callers file.
+X
+X         Version 7.82 Enhanced the questionnaire by adding two new commands:
+X                      ^ and *. The '^' is nearly the same as the '!' except
+X                      that the input MUST NOT be NULL ( strlen > 0 ). The
+X                      '*' is nearly the same as the '$' except for the same
+X                      reason.
+X
+X
+X         Version 7.83 You can now DISALLOW bbs users from certain sio lines.
+X                      A new file, inval_port.bbs, can contain a list of the
+X                      sio lines which you do not wish bbs users to use. An
+X                      example of this file is included in the distribution.
+X                      A log of the disallowed called is stored in a file
+X                      called restricted.bbs.
+X
+X         Version 7.84 Added Additional features option to each SIG; therefore,
+X                      each SIG can have its own external programs and/or
+X                      shell scripts which is independent of the main menu
+X                      A(dditional) features option. The format of the 
+X                      features.bbs file is exactly the same as the one for
+X                      the main menu; however, this file is stored in the SIG
+X                      directory ( same as where sigentry.bbs and sigwelcome.bbs
+X                      are stored )
+X
+X        Version 7.85  When a message is sent to a user, the name is now 
+X                      verified. In addition to name verification, the follow-
+X                      two aliases are permitted: Sysop and ALL. If Sysop is
+X                      used as the first name, the Sysop's real name will be
+X                      substituted into the message; if All is used as the
+X                      first name, All Users will be substituted.
+X                      If the upload directory is nolonger in the same file-
+X                      system as the upload path, a Unix style mv will be
+X                      performed; however, the user will get a message telling
+X                      him to notify the sysop that the upload path is not
+X                      in the same filesystem as the bbs users' home directory.
+X                      
+X        Version 7.86  Improved time accounting ( more accurate and reliable )
+X
+X        Version 7.87  IMPORTANT --- Repaired possible security problem
+X                      has been repaired. I won't make this known what it was
+X                      yet until other sites upgrade to this version. 
+X                      Added a V(ersion) option to the main menu.
+X                      Made new file upload/download menu for wildcard transfer.
+X
+X        Version 7.88  Minor compatibilty mod for some *nixs
+X
+X	Version 7.89  Now, the readnews and postnews programs are variable
+X                      determined within your configuration file. See my
+X                      .config.bbs example if you are just editing an 
+X                      existing file. Xbbsgen has been modified to add the
+X                      new terms.
+X
+X        Version 7.90  Check to see if a file is printable ASCII before
+X                      attempting to do an ASCII download or TYPE. Check to
+X                      see if an asterisk was typed while using a file locate
+X                      command. Bbscconf.c now no longer needs any external
+X                      files to compile under SYSV.
+X
+X        Version 7.91  Allow multiple files to be downloaded from the d/l
+X                      command line.
+X
+X        Version 7.92  Display the files that will be downloaded if a multiple
+X                      request is made either by using an asterisk of by more
+X                      than one request per comamnd line. Insure that the 
+X                      cross-reference table does not get garbage stored in
+X                      it.
+X
+X        Version 7.93  Minor modification to help with multiple file trasnfers.
+X
+X        Version 7.94  All users are notified when a user enters into
+X                      conference. ( As per request )
+X
+X        Version 7.95  Added a new option in the main menu which displays the
+X                      present users which are in conference.
+X
+X        Version 7.96  Fixed difftime() problem with SCO UNIX also modified
+X                      multi-file transfer option line.
+X
+X        Version 7.97  Added more info about downloaded files in "callers"
+X                      file. Fixed minor "bug" in file description when the
+X                      user uses the full 5 lines. Changed the "State"
+X                      request for new callers to State/Provence/Country.
+X
+X        Version 7.98  Allow blocked ( right justified ) for message replays and
+X                      departure messages.
+X
+X        Version 7.99  Guarantee that names are ONLY alpha characters. This will
+X                      filter out line noise. Cosmetic changes too.
+X
+X	Version 7.100 Fixed minor bug which would allow less than 4 character
+X                      passwords when changed.
+X
+X        Version 7.101 Now will compile and run under SysV.4. This has been
+X                      tested under Esix5.4.4.
+X
+X        Version 7.200  Nolonger needs an external arc or unzip program. Tested
+X                       under Xenix2.3.2 and SVR4 release 4.
+X
+X
+X                     ************** OPTIONAL FILE *************
+X
+X        An  optional file, locking.h, is now available to allow the XBBS  code
+X        to  compile  on AT&T 3Bs or other truly SysV systems.  Remember,  this
+X        file MUST NOT be used for Xenix systems.
+X
+X
+X                              ************************
+X                              AVAILABLE FILE PROTOCOLS
+X
+X        For  Uploading:  Ascii, Xmodem-checksum, Xmodem-crc, Ymodem, SEAlink*,
+X        Zmodem, and Kermit.
+X
+X        For  Downloading:  Ascii, Xmodem-checksum, Xmodem-crc, Ymodem, Kermit,
+X        SEAlink*, Zmodem, and type. CREDITS: SEAlink is a copyrighted protocol 
+X        by System Enhancements Associates.
+X
+X        Note:   The  kermit that is used on this system NOW  supports  sliding
+X        windows!   There are TWO different Ymodem protocols available, BATCH &
+X        NON-BATCH.
+X 
+X
+X        What    is    MOST   important..................    E   N   J   O    Y
+X        ........................  Sanford ( Sandy ) Zelkovitz
+END_OF_FILE
+  if test 9228 -ne `wc -c <'bulletin.mod'`; then
+    echo shar: \"'bulletin.mod'\" unpacked with wrong size!
+  fi
+  # end of 'bulletin.mod'
+fi
+if test -f 'crc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crc.c'\"
+else
+  echo shar: Extracting \"'crc.c'\" \(9683 characters\)
+  sed "s/^X//" >'crc.c' <<'END_OF_FILE'
+X/*
+X * A version of Ward Christensen's file transfer protocol for
+X * Unix System V or 4.2 bsd.
+X *
+X *        Emmet P. Gray, ..!ihnp4!uiucuxc!fthood!egray, 16 Aug 85
+X *
+X * Modified by Sanford Zelkovitz   08/18/86
+X * Last modification date = 05/20/87
+X */
+X
+X#define SV
+X#undef  BSD
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifdef SV
+X#include <termio.h>
+X#endif
+X#ifdef BSD
+X#include <sgtty.h>
+X#endif
+X
+X#define MAXERRORS 10			/* max number of times to retry */
+X#define SECSIZE	128			/* CP/M sector, transmission block */
+X#define CPMEOF	26			/* End Of File (for CP/M) */
+X#define SOH	1			/* Start Of Header */
+X#define EOT	4			/* End Of Transmission */
+X#define ACK	6			/* ACKnowledge */
+X#define NAK	21			/* Negative AcKnowledge */
+X#define CAN	24			/* CANcel */
+X
+Xint synchron;
+Xint exit_return;
+Xunsigned char crc1, crc2;
+X#ifdef SV
+Xstruct termio ttyhold;
+X#endif
+X#ifdef BSD
+Xstruct sgttyb ttyhold;
+X#endif
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int msgstat;
+X	char *tty, *ttyname();
+X	struct stat stbuf;
+X	exit_return=0;
+X	if (argc != 3) {
+X		usage();
+X		exit(1);
+X	}
+X	tty = ttyname(1);
+X	stat(tty, &stbuf); 
+X	msgstat = (stbuf.st_mode & 0777);
+X	chmod(tty, 0600);			/* mesg n */
+X#ifdef SV
+X	ioctl(0, TCGETA, &ttyhold);		/* get current settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCGETP, &ttyhold);
+X#endif
+X	switch (*argv[1]) {
+X		case 'r':
+X			recvfile(argv[2]);
+X			break;
+X		case 's':
+X			sendfile(argv[2]);
+X			break;
+X		default:
+X			usage();
+X	}
+X#ifdef SV
+X	ioctl(0, TCSETAF, &ttyhold);		/* restore settings */
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSETP, &ttyhold);
+X#endif
+X	chmod(tty, msgstat);			/* restore mesg status */
+X	exit(exit_return);
+X}
+X
+X/* send a file to the remote */
+Xsendfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char chr, checksum, block, sector[SECSIZE];
+X	int i, mode, nbytes, errcount, size, speed;
+X	long min, sec;
+X	static int baud[15] = {0, 50, 75, 110, 134, 150, 200,
+X	300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+X	struct stat sbuf;
+X
+X	if (!(fp = fopen(tfile, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", tfile);
+X		exit_return=1;
+X		return;
+X	}
+X	stat(tfile, &sbuf);
+X	size = (sbuf.st_size / 128) + 1;
+X#ifdef SV
+X	speed = baud[ttyhold.c_cflag & 017];
+X#endif
+X#ifdef BSD
+X	speed = baud[ttyhold.sg_ispeed];
+X#endif
+X	sec = size;
+X	sec = sec * 128L * 11L / speed;
+X	min = sec / 60L;
+X	sec = sec - min * 60L;
+X	printf("File open: %d records\r\n", size);
+X	printf("Send time: %ld min, %ld sec at %d baud\r\n", min, sec, speed);
+X	printf("To cancel: use CTRL-X numerous times\r\n");
+X	printf("Waiting ready signal\r\n");
+X
+X	rawmode();
+X	errcount = 0;
+X	mode = 0;
+X	block = 1;
+X	while (errcount < MAXERRORS) {
+X		chr = getchar_t();
+X		if (chr == NAK)			/* checksum mode */
+X			break;
+X		if (chr == 'C') {		/* CRC mode */
+X			mode = 1;
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "xmodem: Timed out on acknowledge\r\n");
+X		exit_return=1;
+X		return;
+X	}
+X	while (nbytes = fread(sector, sizeof(sector[0]), SECSIZE, fp)) {
+X		if (nbytes < SECSIZE) {		/* fill short sector */
+X			for (i=nbytes; i < SECSIZE; i++)
+X				sector[i] = CPMEOF;
+X		}
+X		errcount = 0;
+X		while (errcount < MAXERRORS) {
+X			putchar(SOH);		/* the header */
+X			putchar(block);		/* the block number */
+X			chr = ~block;
+X			putchar(chr);		/* it's complement */
+X			checksum = 0;
+X			crc1 = 0;
+X			crc2 = 0;
+X			for (i=0; i < SECSIZE; i++) {
+X				putchar(sector[i]);
+X				if (mode)
+X					update_crc(sector[i]);
+X				else
+X					checksum += sector[i];
+X			}
+X			if (mode) {
+X				update_crc(0);
+X				update_crc(0);
+X				putchar(crc1);
+X				putchar(crc2);
+X			}
+X			else
+X				putchar(checksum);
+Xrec_loop:
+X			chr = getchar_t();
+X			if (chr == CAN) {
+X				sleep(3);
+X				fprintf(stderr,"\r\nxmodem: Abort request received\r\n");
+X				exit_return=1;
+X				return;
+X			}
+X			if (chr == ACK)
+X				break;		/* got it! */
+X			if (chr != NAK ) goto rec_loop;   /* noise on line? */
+X			errcount++;
+X		}
+X		if (errcount == MAXERRORS) {
+X			error();
+X			exit_return=1;
+X			return;
+X		}
+X		block++;
+X	}
+X	errcount = 0;
+X	exit_return=1;
+X	while (errcount < MAXERRORS) {
+X		putchar(EOT);
+X		if (getchar_t() == ACK)
+X			{
+X			exit_return=0;
+X			break;
+X			}
+X		errcount++;
+X	}
+X	return;
+X}
+X
+X/* receive a file from the remote */
+Xrecvfile(tfile)
+Xchar *tfile;
+X{
+X	FILE *fp;
+X	unsigned char hdr, blk, cblk, tmp, cksum;
+X	unsigned char c1, c2, sum, block, sector[SECSIZE];
+X	int i, stop = 0, mode, errcount, resync();
+X	long true_end;
+X	char ans[40];
+X
+X	if (!access(tfile, 00)) {
+X		while (1) {
+X			printf("File already exists \r\n");
+X				return;
+X		}
+X	}
+X
+X	if (!(fp = fopen(tfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for write\r\n", tfile);
+X		return;
+X	}
+X	printf("File open - ready to receive\r\n");
+X	rawmode();
+X	errcount = 0;
+X	block = 1;
+X	
+X	sleep(10);
+X	while (errcount < MAXERRORS) {
+X		if (errcount < (MAXERRORS / 2)) {
+X			putchar('C');		/* try CRC mode first */
+X			mode = 1;
+X		}
+X		else {
+X			putchar(NAK);		/* then checksum */
+X			mode = 0;
+X		}
+X		if ((hdr = getchar_t()) == SOH) {
+X			ungetc(SOH, stdin);
+X			break;
+X		}
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		sleep(3);
+X		fprintf(stderr, "\r\nxmodem: Timed out on acknowledge\r\n");
+X		return;
+X	}
+X	errcount = 0;
+X
+X	while (errcount < MAXERRORS) {
+X		hdr = getchar_t();
+X		if (hdr == CAN) {
+X			sleep(3);
+X			fprintf(stderr, "\r\nxmodem: Abort request received\r\n");
+X			return;
+X		}
+X		if (hdr == EOT)			/* done! */
+X			break;
+X		if (hdr != SOH) {		/* read in junk for 6 seconds */
+X			synchron = 0;		/*  to re-synchronized block */
+X			signal(SIGALRM, resync);
+X			alarm(6);
+X			while(synchron == 0)
+X				hdr = getchar();
+X			goto nak;
+X		}
+X		blk = getchar_t();
+X		cblk = getchar_t();
+X		crc1 = 0;
+X		crc2 = 0;
+X		sum = 0;
+X		for (i=0; i < SECSIZE; i++) {
+X			sector[i] = getchar_t();
+X			if (mode)
+X				update_crc(sector[i]);
+X			else
+X				sum += sector[i];
+X		}
+X		if (mode) {
+X			c1 = getchar_t();
+X			c2 = getchar_t();
+X		}
+X		else
+X			cksum = getchar_t();
+X		if (blk != block && blk != (block - 1))
+X			goto nak;
+X		tmp = ~blk;
+X		if (cblk != tmp)
+X			goto nak;
+X		if (mode) {
+X			update_crc(0);
+X			update_crc(0);
+X			if (c1 != crc1 || c2 != crc2)
+X				goto nak;
+X		}
+X		else {
+X			if (cksum != sum)
+X				goto nak;
+X		}
+X		if (block == blk) {
+X			fflush(fp);
+X			fwrite(sector, sizeof(sector[0]), SECSIZE, fp);
+X		}
+X		block = blk + 1;
+X		putchar(ACK);			/* got it! */
+X		errcount = 0;
+X		continue;
+X
+X	nak:	putchar(NAK);			/* do it over */
+X		errcount++;
+X	}
+X	if (errcount == MAXERRORS) {
+X		error();
+X		return;
+X	}
+X	putchar(ACK);
+X	for (i = SECSIZE -1; i >= 0; i--) {	/* find true EOF */
+X		if (sector[i] != CPMEOF) {
+X			stop = i;
+X			break;
+X		}
+X	}
+X/*
+X * Some CPM systems don't pad the end of the file with ^Z's so the file may
+X * have junk at the end.  A conservative approach had to be taken in order
+X * for Unix object code (where ^Z's may be valid data) to transfer properly.
+X */
+X	true_end = ftell(fp) - SECSIZE + stop +1;
+X	fclose(fp);
+X	truncate(tfile, true_end);
+X	return;
+X}
+X
+X/* give minimal usage message */
+Xusage()
+X{
+X	fprintf(stderr, "Usage: xmodem [ s | r ] filename\r\n");
+X	fprintf(stderr, "       options are 's' for send or 'r' for receive\r\n");
+X	return;
+X}
+X
+X/* exceeded the maximum number of retry's */
+Xerror()
+X{
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	putchar(CAN);
+X	sleep(3);
+X	fprintf(stderr, "\r\nxmodem: Exceeded error limit...aborting\r\n");
+X	return;
+X}
+X
+X/* update the CRC bytes */
+Xupdate_crc(c)
+Xunsigned char c;
+X{
+X	int i, temp;
+X	unsigned char carry, c_crc1, c_crc2;
+X	for (i=0; i < 8; i++) {
+X		temp = c * 2;
+X		c = temp;			/* rotate left */
+X		carry = ((temp > 255) ? 1 : 0);
+X		temp = crc2 * 2;
+X		crc2 = temp;
+X		crc2 |= carry;			/* rotate with carry */
+X		c_crc2 = ((temp > 255) ? 1 : 0);
+X		temp = crc1 * 2;
+X		crc1 = temp;
+X		crc1 |= c_crc2;
+X		c_crc1 = ((temp > 255) ? 1 : 0);
+X		if (c_crc1) {
+X			crc2 ^= 0x21;
+X			crc1 ^= 0x10;
+X		}
+X	}
+X	return;
+X}
+X
+X/* getchar with a 10 sec time out */
+Xgetchar_t()
+X{
+X	int force_it();
+X	unsigned char c;
+X	signal(SIGALRM, force_it);
+X	alarm(10);				/* only have 10 sec... */
+X	c = getchar();
+X	alarm(0);
+X	return(c);
+X}
+X
+X/*
+X * This code (and the resync() below) is the most machine dependent part
+X * of the program.  The action of the signal SIGALRM during a read system
+X * call is not well defined.  Some systems return the stack to the point
+X * outside the system call, others inside the call itself.  Have fun...
+X */
+Xforce_it()
+X{
+X	unsigned char c;
+X	c = CPMEOF;				/* arbitrary default char */
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+X
+X/* truncate file to given length */
+Xtruncate(path, length)
+Xchar *path;
+Xlong length;
+X{
+X	FILE *fp, *tempfp;
+X	long i;
+X	char c, string[80], *tempfile, *mktemp();
+X	if (!(fp = fopen(path, "r"))) {
+X		fprintf(stderr, "xmodem: Can't open '%s' for read\r\n", path);
+X		return;
+X	}
+X	tempfile = mktemp("/tmp/trunXXXXXX");
+X	if (!(tempfp = fopen(tempfile, "w"))) {
+X		fprintf(stderr, "xmodem: Can't open temporary file\r\n");
+X		return;
+X	}
+X	for (i=0; i < length; i++) {
+X		c = fgetc(fp);
+X		fputc(c, tempfp);
+X	}
+X	fclose(fp);
+X	fclose(tempfp);
+X	sprintf(string, "mv %s %s", tempfile, path);
+X	system(string);
+X	return;
+X}
+X
+X/* put the stdin/stdout in the "raw" mode */
+Xrawmode()
+X{
+X#ifdef SV
+X	struct termio tbuf;
+X	ioctl(0, TCGETA, &tbuf);
+X	tbuf.c_cc[4] = 1;			/* VMIN */
+X	tbuf.c_cc[5] = 0;			/* VTIME */
+X	tbuf.c_iflag = 0;
+X	tbuf.c_oflag = 0;
+X	tbuf.c_lflag = 0;
+X	tbuf.c_cflag &= ~CSIZE;
+X	tbuf.c_cflag |= CS8;
+X	tbuf.c_cflag &= ~PARENB;
+X	ioctl(0, TCSETAF, &tbuf);
+X	return;
+X#endif
+X#ifdef BSD
+X	struct sgttyb sgbuf;
+X	ioctl(0, TIOCGETP, &sgbuf);
+X	sgbuf.sg_flags |= RAW;
+X	sgbuf.sg_flags &= ~ECHO;
+X	ioctl(0, TIOCSETP, &sgbuf);
+X	return;
+X#endif
+X}
+X
+X/*  after 6 seconds of reading junk data... */
+Xresync()
+X{
+X	char c;
+X	synchron = 1;				/* set the flag */
+X	c = SOH;
+X#ifdef SV
+X	ungetc(c, stdin);
+X#endif
+X#ifdef BSD
+X	ioctl(0, TIOCSTI, &c);
+X#endif
+X	return;
+X}
+END_OF_FILE
+  if test 9683 -ne `wc -c <'crc.c'`; then
+    echo shar: \"'crc.c'\" unpacked with wrong size!
+  fi
+  # end of 'crc.c'
+fi
+if test -f 'msgpack/packfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msgpack/packfile.c'\"
+else
+  echo shar: Extracting \"'msgpack/packfile.c'\" \(9557 characters\)
+  sed "s/^X//" >'msgpack/packfile.c' <<'END_OF_FILE'
+X/*
+X * bbscfile.c 
+X *
+X */
+X
+X/* #define DEBUG 1 */
+X
+X#include "packdef.h"
+X#include <string.h>
+Xchar            bufs[99];
+X
+X
+Xhdrwrt()
+X{				/* write the header from memory variables *//* h
+X				 * eader is a 1 record file */
+X	int             fd;
+X	int             fd1;
+X	char            buf128[MSGSECT];
+X
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, NEWHEADER);
+X	if ((fd = open(bufs, WRITE, 0666)) < 0) {	/* open i/o */
+X		printf("Can't open header-file, will create it!");
+X		printf(CRLF);
+X		if ((fd = creat(bufs, 0666)) < 0) {
+X			printf("Can't create header-file, aborting!");
+X			printf(CRLF);
+X			return (ERROR);
+X		}
+X	}
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, NEWXREF);
+X	if ((fd1 = open(bufs, WRITE, 0666)) < 0) {
+X		printf("Can't open xref file, will create it!");
+X		printf(CRLF);
+X		if ((fd1 = creat(bufs, 0666)) < 0) {
+X			printf(" XREF creation error! -- abort!");
+X			printf(CRLF);
+X			return (ERROR);
+X		}
+X	}
+X	itoa(h_next_msg, h_next);	/* convert int to char */
+X	itoa(h_act_msg, h_act);
+X	strfill(buf128, 26, MSGSECT);	/* init buf128 to all hex 1a */
+X	sprintf(buf128, "%s~%s~%s~",	/* build record */
+X		h_next_msg,
+X		h_act_msg,
+X		h_date);
+X	write(fd, buf128, MSGSECT);	/* write it */
+X	close(fd);		/* no need to leave it open */
+X	write(fd1, ytable, 4000);
+X	close(fd1);
+X	return (OK);
+X}
+X
+Xhdrreadr()
+X{				/* read the header file into memory */
+X	int             fd, i, cnt1, cnt;
+X	char            buf128[MSGSECT];
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, HEADER);
+X	if ((fd = open(bufs, READ, 0666)) < 0) {
+X		printf("Can't open header-file, using inital values!");
+X		printf(CRLF);
+X		h_next = 1;
+X		h_next_msg[0] = '1';
+X		h_next_msg[1] = 0;
+X		h_act = 1;
+X		h_act_msg[0] = '1';
+X		h_act_msg[1] = 0;
+X		h_date[0] = '0';
+X		h_date[1] = 0;
+X		goto next;
+X	}
+X	if ((cnt = read(fd, buf128, MSGSECT)) != MSGSECT) {
+X		printf(CRLF);
+X		printf("<<< header read error >>>");
+X		printf(CRLF);
+X		return (ERROR);
+X	}
+X	cnt = sscanf(buf128, "%[^~]~%[^~]~%[^~]~",
+X		     h_next_msg,
+X		     h_act_msg,
+X		     h_date);
+Xnext:
+X	close(fd);
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, CROSSREF);
+X	if ((fd = open(bufs, READ, 0666)) < 0) {
+X		printf("Can't open xref file --- setting values!");
+X		printf(CRLF);
+X		xtable[0] = 1L;
+X		for (i = 1; i <= 999; i++)
+X			xtable[i] = 0L;
+X		return;
+X	}
+X	if ((cnt1 = read(fd, xtable, 4000)) != 4000) {
+X		printf(CRLF);
+X		printf("<<< xref read error >>>");
+X		printf(CRLF);
+X		return (ERROR);
+X	}
+X	close(fd);
+X	/* 
+X	 * if (cnt != 2) { return(ERROR) ; } */
+X	h_next = atoi(h_next_msg);
+X	h_act = atoi(h_act_msg);
+X	return (OK);
+X}
+X
+Xhdrreadw()
+X{				/* read the header file into memory */
+X	int             fd, i, cnt1, cnt;
+X	char            buf128[MSGSECT];
+X
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, NEWHEADER);
+X	if ((fd = open(bufs, READ, 0666)) < 0) {	/* open input */
+X		printf("Can't open header-file, using inital values!");
+X		printf(CRLF);
+X		h_next = 1;
+X		h_next_msg[0] = '1';
+X		h_next_msg[1] = 0;
+X		h_act = 1;
+X		h_act_msg[0] = '1';
+X		h_act_msg[1] = 0;
+X		h_date[0] = '0';
+X		h_date[1] = 0;
+X		hdrwrt();
+X		goto next;
+X	}
+X	if ((cnt = read(fd, buf128, MSGSECT)) != MSGSECT) {
+X		printf(CRLF);
+X		printf("<<< header read error >>>");
+X		printf(CRLF);
+X		return (ERROR);
+X	}
+X	cnt = sscanf(buf128, "%[^~]~%[^~]~%[^~]~",
+X		     h_next_msg,
+X		     h_act_msg,
+X		     h_date);
+Xnext:
+X	close(fd);		/* no need to leave it open */
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, NEWXREF);
+X	if ((fd = open(bufs, READ, 0666)) < 0) {
+X		printf("Can't open xref file --- setting values!");
+X		printf(CRLF);
+X		ytable[0] = 1L;
+X		for (i = 1; i <= 999; i++)
+X			ytable[i] = 0L;
+X		return;
+X	}
+X	if ((cnt1 = read(fd, ytable, 4000)) != 4000) {
+X		printf(CRLF);
+X		printf("<<< xref read error >>>");
+X		printf(CRLF);
+X		return (ERROR);
+X	}
+X	close(fd);
+X	/* 
+X	 * if (cnt != 2) { return(ERROR) ; } */
+X	h_next = atoi(h_next_msg);
+X	h_act = atoi(h_act_msg);
+X	return (OK);
+X}
+X
+Xmsgopenr(how)
+X	int             how;	/* how to open 0=input, 1=output, 2=i/o */
+X{
+X	int             fd;
+X
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, MESSAGES);
+X	if ((fd = open(bufs, how, 0666)) < 0) {	/* open i/o */
+X		printf("can't open message-file, will create it!");
+X		printf(CRLF);
+X		if ((fd = creat(bufs, 0666)) < 0) {
+X			printf("can't create message-file, aborting!");
+X			printf(CRLF);
+X			return (ERROR);
+X		}
+X	}
+X	return (fd);
+X}
+X
+Xmsgopenw(how)
+X	int             how;	/* how to open 0=input, 1=output, 2=i/o */
+X{
+X	int             fd;
+X	strcpy(bufs, m_pathname);
+X	strcat(bufs, NEWMSG);
+X
+X	if ((fd = open(bufs, how, 0666)) < 0) {	/* open i/o */
+X		printf("can't open message-file, will create it!");
+X		printf(CRLF);
+X		if ((fd = creat(bufs, 0666)) < 0) {
+X			printf("can't create message-file, aborting!");
+X			printf(CRLF);
+X			return (ERROR);
+X		}
+X	}
+X	return (fd);
+X}
+X
+Xmsgclose(fd)
+X	int             fd;
+X{
+X	return (close(fd));
+X}
+X
+Xmsgwrt(fd)			/* write the message file from memory
+X				 * variables */
+X	int             fd;	/* writes a message starting with the h_next
+X				 * msg # */
+X{
+X	int             rc,	/* return code */
+X	                cnt1, cnt2, len;
+X	char            bufmsg0[MSG1MAX + 1], buf128[MSGSECT + 1], this1[10], next1[10];
+X
+X	rc = cnt1 = len = cnt2 = 0;
+X	itoa(this1, h_next);	/* convert int to char */
+X	ytable[h_act - 1] = h_next;
+X	h_act++;
+X	rc = seek(fd, h_next - 1, 0);	/* seek next available sector */
+X	h_next++;
+X	itoa(next1, h_next);
+X	strfill(buf128, 0, MSGSECT);	/* init buf128 to all hex 00 */
+X	/*
+X	 * build first piece of msg record 
+X	 */
+X	sprintf(buf128, "%-10s~%-10s~%-2s~%-9s~%-15s~%-21s~%-21s~%-11s~%-21s~",
+X		this1,		/* this rcd # */
+X		next1,		/* points next rcd # */
+X		msg_delete,	/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	rc = write(fd, buf128, MSGSECT);	/* write the first 128 byte
+X						 * record */
+X	/* for a message record */
+X	/*
+X	 * build the n+1 piece of msg record 
+X	 */
+X
+X	len = (strlen(msg_text) / MSG1MAX) + 1;	/* calc how many more 128 */
+X	/* byte records to write */
+X	cnt2 = 1;		/* init for substr */
+X	while (len--) {
+X		itoa(this1, h_next);	/* calc/convert record #'s */
+X		h_next++;
+X		if (len == 0) {
+X			strcpy(next1, "0");	/* marks last 128 byte piece */
+X		}
+X		 /* of a msg */ 
+X		else {
+X			itoa(next1, h_next);
+X		}
+X		strfill(bufmsg0, 0, MSG1MAX);
+X		substr(msg_text, bufmsg0, cnt2, MSG1MAX);	/* mv MSG1MAX to buff */
+X		cnt2 += MSG1MAX;/* up cnt2 by MSG1MAX */
+X		strfill(buf128, 0, MSGSECT);	/* init buf128 to all hex 00 */
+X		sprintf(buf128, "%-10s~%-10s~%-2s~%-102s~",
+X			this1,	/* this rcd # */
+X			next1,	/* point to next rcd # */
+X			msg_delete,	/* delete byte */
+X			bufmsg0);	/* piece of msg */
+X		rc = write(fd, buf128, MSGSECT);	/* write n+1 128 byte
+X							 * record */
+X	}
+X
+X	strfill(buf128, 26, MSGSECT);	/* fill with all hex 1a */
+X	rc = write(fd, buf128, MSGSECT);	/* write all hex 1a 128 byte
+X						 * record */
+X	return (OK);
+X}
+X
+X
+Xmsgread(fd, msgno)		/* read message number requested */
+X	int             fd,	/* returns ERROR if msg past eof */
+X	                msgno;	/* returns 0 if msg is not 1st piece */
+X/* of a message */
+X/* returns 0 if msg is deleted */
+X/* returns msg # if successful */
+X{
+X	int             rc,	/* return code */
+X	                msgac, cnt1, cnt2, len, next, ret_this, file_size;
+X	char            bufmsg0[MSG1MAX + 1], buf128[MSGSECT + 256], buftmp[MSGSECT + 256], this1[10], act[10], next1[10];
+X
+X	msgac = xtable[msgno - 1];
+X	if (msgac > h_next) {	/* don't try to seek past end of file */
+X		return (ERROR);
+X	}
+X	if (msgac == 0) {
+X		return (ERROR);
+X	}
+X	if ((rc = seek(fd, msgac - 1, 0)) == ERROR) {
+X		printf(CRLF);
+X		printf("Can't seek on message-file!");
+X		printf(CRLF);
+X		return (ERROR);	/* when cant find it */
+X	}
+X	if (read(fd, buf128, MSGSECT) != MSGSECT) {	/* read 128 byte sector */
+X		printf(CRLF);
+X		printf("Can't read in message-file!");
+X		printf(CRLF);
+X		return (ERROR);
+X	}
+X	/*
+X	 * get first piece of msg record 
+X	 */
+X	/* do trial read, since if not first record, fields might overflow */
+X	rc = sscanf(buf128, "%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X		    buftmp, buftmp, buftmp, buftmp, buftmp, buftmp, buftmp, buftmp, buftmp);
+X	if (rc != 9) {		/* makes sure we read the 1st piece *//* of a
+X				 * message and not in the middle */
+X		return (0);	/* 0 when is not the msg header */
+X	}
+X	/* now do the real read since looks like is a good record */
+X	rc = sscanf(buf128, "%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X		    this1,	/* this rcd # */
+X		    next1,	/* points to next rcd # */
+X		    msg_delete,	/* delete byte */
+X		    msg_date,
+X		    msg_time,
+X		    msg_to,
+X		    msg_from,
+X		    msg_pass,
+X		    msg_subject);
+X	if (rc != 9) {		/* makes sure we read the 1st piece *//* of a
+X				 * message and not in the middle */
+X		return (0);	/* 0 when is not the msg header */
+X	}
+X	if (msg_delete[0] == '9') {	/* check for deleted messages *//* if
+X					 * so, return as if not found */
+X		return (0);
+X	}
+X	ret_this = atoi(this1);	/* return this msg no. */
+X	next = atoi(next1);
+X	itoa(act, msgno);
+X	strcpy(msg_no, act);
+X	msg_text[0] = '\0';
+X	while (next) {		/* read until no more pieces for *//* this
+X				 * message */
+X		if (read(fd, buf128, MSGSECT) != MSGSECT) {	/* read next sector */
+X			printf(CRLF);
+X			printf("Can't read in message-file(2)!");
+X			printf(CRLF);
+X			return (ERROR);
+X		}
+X		strfill(bufmsg0, 0, MSG1MAX);	/* init bufmsg0 to all hex 00 */
+X		rc = sscanf(buf128, "%[^~]~%[^~]~%[^~]~%[^~]~",
+X			    this1,	/* this rcd # */
+X			    next1,	/* point to next rcd # */
+X			    msg_delete,	/* delete byte */
+X			    bufmsg0);	/* piece of msg */
+X		next = atoi(next1);
+X		strcat(msg_text, bufmsg0);	/* tag piece of msg to */
+X		/* whole msg array */
+X	}
+X	return (ret_this);	/* if all ok, return the msg no. found */
+X}
+X
+X/* end of program  	 */
+END_OF_FILE
+  if test 9557 -ne `wc -c <'msgpack/packfile.c'`; then
+    echo shar: \"'msgpack/packfile.c'\" unpacked with wrong size!
+  fi
+  # end of 'msgpack/packfile.c'
+fi
+echo shar: End of archive 7 \(of 11\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

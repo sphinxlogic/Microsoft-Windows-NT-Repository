@@ -1,0 +1,1198 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:24 EST 1993
+Submit chipset-2 05/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 10)."
+# Contents:  common.mk src/btree/btdelete.c src/btree/btdelrank.c
+#   src/btree/btdelutl.c src/btree/btdump.c src/btree/btnew.c
+# Wrapped by paul@sander on Sun Nov 22 15:41:51 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f common.mk -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"common.mk\"
+else
+echo shar: Extracting \"common.mk\" \(6426 characters\)
+sed "s/^X//" >common.mk <<'END_OF_common.mk'
+X# common.mk -- contains common make macros that are used the Makefiles
+X#              included with the Software ChipSet.  Please edit this file
+X#              as needed for your system.
+X
+X# This file is part of a suite of programs called Software Chipset.
+X# The source code for Software Chipset has been released into the
+X# public domain by its author, Paul Sander.
+X
+XSHELL=/bin/sh
+X
+X################
+X
+X# This is the default list of components that are built and installed,
+X# or installed into an archive when a new distribution is built.
+X
+XCOMPONENTS=`/bin/ls ./src`
+X
+X################
+X
+X# The following macros describe the staging that is used when the top-level
+X# makefile builds the entire Software ChipSet distribution.  This staging
+X# area provides a means to test the all of the components while keeping
+X# them isolated from a live system.  All of these macros must specify
+X# fullpaths.  It would be a bad idea to put the staging area in the
+X# directory tree rooted at "`pwd`/src".
+X
+X# STAGE is the root of a test staging area.  The full component library is
+X# built in the directory hierarchy rooted here, then installed into a
+X# live system from here.
+X
+XSTAGE=/tmp/ChipSet
+X
+X# The following macros specify where Software ChipSet public header files,
+X# libraries, and documentation go, and also specify working areas that are
+X# used when building the libraries and distribution media.  Each of these
+X# macros are used directly by the build procedures for the Software ChipSet.
+X# Note that these need not mirror the organization of the filesystem into
+X# which the component libraries are ultimately installed.
+X
+X# Public header files go here.
+X
+XSTAGEINC=$(STAGE)/include
+X
+X# Library archive files go here.
+X
+XSTAGELIB=$(STAGE)/lib
+X
+X# Documentation goes here.
+X
+XSTAGEMAN=$(STAGE)/man
+X
+X# Temporary work area.  This must be on the same physical device as
+X# the directory containing this file if new distributions of the Software
+X# ChipSet are made from your site.
+X
+XSTAGETMP=$(STAGE)/tmp
+X
+X# Distribution media placed here.
+X
+XSTAGEINST=$(STAGE)/install
+X
+X
+X################
+X
+X# The following macros describe the filesystem into which the Software
+X# ChipSet is ultimately installed.  This is the live system in general
+X# use.  All of these macros must specify fullpaths.
+X
+X# This is where the components are installed for production use.
+X
+XDEST=/usr/local
+X
+X# This is where public header files go.
+X
+XDESTINC=$(DEST)/include
+X
+X# This is where the libchipset.a file goes.
+X
+XDESTLIB=$(DEST)/lib
+X
+X# This is where the man pages are.  Software ChipSet man pages are
+X# installed in a man3 directory contained by this directory.
+X
+XDESTMAN=$(DEST)/man
+X
+X
+X################
+X
+X# The following macros are used to describe the development area in
+X# which components are built and tested in isolation from a live system.
+X# These macros are used by the individual makefiles within the component
+X# source directories themselves, and not by the top-level makefile that
+X# installs ALL of the components into a single staging area.  Though these
+X# macros need not have the same values as those for the staging area, they
+X# typically are out of convenience; this is because it allows a programmer
+X# to invoke "make" in each of the component source directories and at the
+X# top-level and get similar results.  Again, these must all be fullpaths.
+X
+X# The root of the developer's installation area.  This is not used directly,
+X# but may be used to compute the locations of needed directories.
+X
+XROOT=$(STAGE)
+X
+X# The location in which public header files are installed.
+X
+XINCDIR=$(STAGEINC)
+X
+X# The location in which component libraries are installed.
+X
+XLIBDIR=$(STAGELIB)
+X
+X# The location in which man pages are installed.
+X
+XMANDIR=$(STAGEMAN)
+X
+X################
+X
+X# These are directives to the compiler and linker to specify search
+X# paths for needed files when components are built.
+X
+XINCLUDES=-I$(INCDIR)
+XLIBSEARCH=-L$(LIBDIR)
+X
+X################
+X
+X# The following macros are used when the native C compiler is used.  The
+X# COVERAGE macro causes the components to write message to stdout that
+X# indicate decisions made.  This feature is useful for debugging the
+X# components, and should be turned off when the components are installed.
+X
+X#CC = cc $(INCLUDES)
+X#CFLAGS = -O
+X#CFLAGS = -g -DCOVERAGE
+X#LD = cc $(LIBSEARCH)
+X#LFLAGS =
+X
+X# The following macros are used when the Gnu C compiler is used.
+X
+XCC = gcc $(INCLUDES)
+XCFLAGS = -O -ansi -pedantic
+X#CFLAGS = -g -DCOVERAGE -ansi -pedantic
+X#CFLAGS = -g -ansi -pedantic
+XLD = gcc $(LIBSEARCH)
+XLFLAGS =
+X
+X################
+X
+X# This macro lists all of the special libraries with which the test programs
+X# must be linked.  Presently, none are really needed, but libmalloc often
+X# provides a better memory allocator than libc.a .
+X
+XTESTLIBS=
+X#TESTLIBS=-lmalloc
+X
+X################
+X
+X# Manpage suffix after installation
+X
+XMANSUFF=3l
+X
+X################
+X
+X# Set this to your ranlib program; must specify fullpath.  If you do not
+X# have ranlib, leave this as-is.
+X
+XRANLIB=/bin/ranlib
+X
+X################
+X
+X# Set this appropriately to produce PostScript output.  Must be a filter.
+X
+XPSROFF=psroff -t -man
+X#PSROFF=troff -Tpsc -man | psdit
+X
+X################
+X
+X# Set this appropriately to produce ASCII plaintext.  Must be a filter.
+X
+XNROFF=nroff -man | col -b -x
+X#NROFF=nroff -man
+X
+X################
+X
+X# This compresses ASCII plaintext files for some systems.  COMPRESS must
+X# be a filter.
+X
+XCOMPRESS=compress
+XZSUFF=.Z
+X#COMPRESS=/bin/cat
+X#ZSUFF=
+X
+X################
+X
+X# These macros describe how man pages are processed prior to installation.
+X# Some systems prefer Troff source to be installed in /usr/man/whatever,
+X# while others prefer plaintext to be installed in /usr/catman/whatever.
+X# Still others want compressed plaintext.  And they figure out what type
+X# of file they have by looking at the file's extension.  So, INSTALLMAN
+X# specifies a filter that processes Troff source to produce the proper
+X# file for the "man" command, and INSTALLSUFF specifies the proper
+X# extension for the file after processing.  INSTALLSUFF is appended to
+X# MANSUFF when the man pages are processed.
+X
+XINSTALLMAN=$(NROFF) | $(COMPRESS)
+XINSTALLSUFF=$(ZSUFF)
+X
+X#INSTALLMAN=/bin/cat
+X#INSTALLSUFF=
+X
+X################
+X
+X# Default rules
+X
+X.SUFFIXES: .$(MANSUFF) .man .doc .ps
+X
+X# Format man pages
+X
+X.man.$(MANSUFF):
+X	< $*.man $(NROFF) > $*.$(MANSUFF)
+X
+X.man.doc:
+X	< $*.man $(NROFF) > $*.doc
+X
+X.man.ps:
+X	< $*.man $(PSROFF) > $*.ps
+X
+X################
+X
+X# Default target, just in case
+X
+Xall:
+X
+X### End of File ###
+X
+END_OF_common.mk
+if test 6426 -ne `wc -c <common.mk`; then
+    echo shar: \"common.mk\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btdelete.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btdelete.c\"
+else
+echo shar: Extracting \"src/btree/btdelete.c\" \(4533 characters\)
+sed "s/^X//" >src/btree/btdelete.c <<'END_OF_src/btree/btdelete.c'
+X/********************************************************************
+X *
+X * btdelete.c -- This file contains functions needed to delete a key
+X *               from an in-memory B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_delNode -- This function searches a sub-tree for a key, and
+X *               deletes the key.  If the key is found in a leaf node,
+X *               it is simply removed and returned to the caller;
+X *               otherwise, it is swapped with its predecessor, and
+X *               the returned to the caller.  If any node loses its
+X *               b-tree'ness, the tree is reorganized.  If the key is
+X *               not found, NULL is returned.
+X *
+X *               Note that there is another static function sharing
+X *               this name in the btdelrank.c file.  There is no
+X *               interaction between the two.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void *bt_delNode(BTREE tree, BTNODE *node, void *key, void **data)
+X#else
+Xstatic void *bt_delNode(tree,node,key,data)
+XBTREE	tree;
+XBTNODE	*node;
+Xvoid	*key;
+Xvoid	**data;
+X#endif
+X{
+X	int	i;
+X	int	res;
+X	void	*retval;
+X
+X	/* Key not found */
+X	if (node == NULL)
+X	{
+X		/* This branch is never taken. */
+X		COVER("btdelete.c",1);
+X		return NULL;
+X	}
+X
+X	/* Search for key, descend tree until found or find leaf */
+X	i = bt_searchNode(node,key,tree->comp,&res);
+X	if (res == 0)
+X	{
+X		COVER("btdelete.c",2);
+X		if (node->children == NULL)
+X		{
+X			/* Key was not found */
+X			COVER("btdelete.c",3);
+X			return NULL;
+X		}
+X		COVER("btdelete.c",4);
+X		retval = bt_delNode(tree,node->children[i],key,data);
+X		if (retval)
+X		{
+X			COVER("btdelete.c",5);
+X			node->tsize--;
+X		}
+X	}
+X	else
+X	{
+X		COVER("btdelete.c",6);
+X		/* Return the deleted node to caller */
+X		if (data != NULL)
+X		{
+X			COVER("btdelete.c",7);
+X			*data = node->data[i];
+X		}
+X		retval = node->keys[i];
+X
+X		if (node->children == NULL)
+X		{
+X			/* Delete from leaf */
+X			COVER("btdelete.c",8);
+X			bt_delKey(node,i);
+X		}
+X		else
+X		{
+X			/* Swap with predecessor */
+X			COVER("btdelete.c",9);
+X			node->keys[i] = bt_delPred(tree,node->children[i],
+X			                           &node->data[i]);
+X			node->tsize--;
+X		}
+X	}
+X
+X	/* If a child node was reorganized, rebalancing may be necessary */
+X	if ((node->children != NULL) &&
+X	    (node->children[i]->nkeys < (tree->order - 1) / 2))
+X	{
+X		COVER("btdelete.c",10);
+X		res = bt_rotateRight(node,i - 1,tree->order);
+X		if (res == 0)
+X		{
+X			COVER("btdelete.c",11);
+X			res = bt_rotateLeft(node,i,tree->order);
+X		}
+X		if (res == 0)
+X		{
+X			COVER("btdelete.c",12);
+X			if (i >= node->nkeys)
+X			{
+X				COVER("btdelete.c",13);
+X				i--;
+X			}
+X			bt_weld(tree,node,i);
+X		}
+X	}
+X	return retval;
+X}
+X
+X/********************************************************************
+X *
+X * bt_delete -- This function deletes the specified key from a
+X *              b-tree and reorganizes it as necessary.  The deleted
+X *              key is returned to the caller if it is found, NULL
+X *              is returned otherwise.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_delete(void *ptree, void *key, void **data)
+X#else
+Xvoid	*bt_delete(ptree,key,data)
+Xvoid	*ptree;
+Xvoid	*key;
+Xvoid	**data;
+X#endif
+X{
+X	BTNODE	*root;
+X	void	*retval;
+X	BTREE	tree;
+X
+X	tree = (BTREE) ptree;
+X
+X	/* Check parameters */
+X	if (ptree == NULL)
+X	{
+X		COVER("btdelete.c",14);
+X		return NULL;
+X	}
+X
+X	if (key == NULL)
+X	{
+X		COVER("btdelete.c",15);
+X		return NULL;
+X	}
+X
+X	/* Do no deletion if tree is empty */
+X	root = tree->root;
+X	if (root->nkeys == 0)
+X	{
+X		COVER("btdelete.c",16);
+X		return NULL;
+X	}
+X
+X	/* Delete the key */
+X	retval = bt_delNode(tree,root,key,data);
+X
+X	/*
+X	 * Delete the root if it is empty, yet its children are not.
+X	 * This happens after a weld on the last key in the root.
+X	 */
+X	COVER("btdelete.c",16);
+X	if ((root->nkeys == 0) && (root->children != NULL))
+X	{
+X		COVER("btdelete.c",17);
+X		tree->root = root->children[0];
+X		bt_free(root->keys);
+X		bt_free(root->children);
+X		bt_free(root);
+X		tree->capacity -= tree->order - 1;
+X		tree->root->parent = NULL;
+X	}
+X	if (retval != NULL)
+X	{
+X		COVER("btdelete.c",18);
+X		tree->currNode = NULL;
+X	}
+X	return retval;
+X}
+X
+X/************ End of file ***************/
+X
+END_OF_src/btree/btdelete.c
+if test 4533 -ne `wc -c <src/btree/btdelete.c`; then
+    echo shar: \"src/btree/btdelete.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btdelrank.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btdelrank.c\"
+else
+echo shar: Extracting \"src/btree/btdelrank.c\" \(4452 characters\)
+sed "s/^X//" >src/btree/btdelrank.c <<'END_OF_src/btree/btdelrank.c'
+X/********************************************************************
+X *
+X * btdelrank.c -- This file contains functions necessary to perform
+X *                deletion by rank from a B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_delNode -- This function performs a recursive descent of the
+X *               tree until the key at the desired rank location is
+X *               found.  If that key is found in a leaf node, it is
+X *               removed; if not, its predecessor replaces it.  In
+X *               any case, the tree is reorganized as necessary.
+X *
+X *               Note that there is another static function sharing
+X *               this name in the btdelete.c file.  There is no
+X *               interaction between the two.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void *bt_delNode(BTREE tree, BTNODE *node, int rank, void **data)
+X#else
+Xstatic void *bt_delNode(tree,node,rank,data)
+XBTREE	tree;
+XBTNODE	*node;
+Xint	rank;
+Xvoid	**data;
+X#endif
+X{
+X	void	*retval;
+X	int	i;
+X	int	acc;
+X	int	last;
+X	int	res;
+X
+X	if (node->children == NULL)
+X	{
+X		/* rank < node->nkeys */
+X		COVER("btdelrank.c",1);
+X		if (data != NULL)
+X		{
+X			COVER("btdelrank.c",2);
+X			*data = node->data[rank];
+X		}
+X		retval = node->keys[rank];
+X		bt_delKey(node,rank);
+X	}
+X	else
+X	{
+X		/*
+X		 * Scan to find subtree containing node containing key of
+X		 * given rank
+X		 */
+X		COVER("btdelrank.c",3);
+X		acc = 0;
+X		last = 0;
+X		for (i = 0; acc += node->children[i]->tsize, acc < rank; i++)
+X		{
+X			COVER("btdelrank.c",4);
+X			acc++;		/* Count key in this node */
+X			last = acc;
+X		}
+X
+X		if (acc == rank)
+X		{
+X			COVER("btdelrank.c",5);
+X			/* Key is contained in this node */
+X			if (data != NULL)
+X			{
+X				COVER("btdelrank.c",6);
+X				*data = node->data[i];
+X			}
+X			retval = node->keys[i];
+X			node->keys[i] = bt_delPred(tree,node->children[i],
+X			                           &node->data[i]);
+X		}
+X		else
+X		{
+X			/* Key is in the subtree rooted at the i'th child */
+X			COVER("btdelrank.c",7);
+X			retval = bt_delNode(tree,node->children[i],rank-last,
+X			                    data);
+X		}
+X		node->tsize--;
+X
+X		/*
+X		 * If a child node was reorganized, rebalancing may be
+X		 * necessary
+X		 */
+X		if (node->children[i]->nkeys < (tree->order - 1) / 2)
+X		{
+X			COVER("btdelrank.c",8);
+X			res = bt_rotateRight(node,i - 1,tree->order);
+X			if (res == 0)
+X			{
+X				COVER("btdelrank.c",9);
+X				res = bt_rotateLeft(node,i,tree->order);
+X			}
+X			if (res == 0)
+X			{
+X				COVER("btdelrank.c",10);
+X				if (i >= node->nkeys)
+X				{
+X					COVER("btdelrank.c",11);
+X					i--;
+X				}
+X				bt_weld(tree,node,i);
+X			}
+X		}
+X	}
+X	return retval;
+X}
+X
+X/********************************************************************
+X *
+X * bt_delRank -- This function deletes the key having the specified
+X *               rank from a b-tree and reorganizes it as necessary.
+X *               The deleted key is returned to the caller if it is
+X *               found, NULL is returned otherwise.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_delRank(void *ptree, int rank, void **data)
+X#else
+Xvoid	*bt_delRank(ptree,rank,data)
+Xvoid	*ptree;
+Xint	rank;
+Xvoid	**data;
+X#endif
+X{
+X	BTNODE	*root;
+X	void	*retval;
+X	BTREE	tree;
+X
+X	tree = (BTREE) ptree;
+X
+X	/* Do no deletion if tree is empty */
+X	if (tree == NULL)
+X	{
+X		COVER("btdelrank.c",12);
+X		return NULL;
+X	}
+X	if (rank < 0)
+X	{
+X		COVER("btdelrank.c",13);
+X		return NULL;
+X	}
+X	if (rank >= tree->root->tsize)
+X	{
+X		COVER("btdelrank.c",14);
+X		return NULL;
+X	}
+X	COVER("btdelrank.c",15);
+X	root = tree->root;
+X
+X	/* Delete the key */
+X	retval = bt_delNode(tree,root,rank,data);
+X
+X	/*
+X	 * Delete the root if it is empty, yet its children are not.
+X	 * This happens after a weld on the last key in the root.
+X	 */
+X	if ((root->nkeys == 0) && (root->children != NULL))
+X	{
+X		COVER("btdelrank.c",16);
+X		tree->root = root->children[0];
+X		bt_free(root->keys);
+X		bt_free(root->children);
+X		bt_free(root);
+X		tree->capacity -= tree->order - 1;
+X		tree->root->parent = NULL;
+X	}
+X	if (retval != NULL)
+X	{
+X		COVER("btdelrank.c",17);
+X		tree->currNode = NULL;
+X	}
+X	return retval;
+X}
+X
+X/******** End of file ********/
+X
+END_OF_src/btree/btdelrank.c
+if test 4452 -ne `wc -c <src/btree/btdelrank.c`; then
+    echo shar: \"src/btree/btdelrank.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btdelutl.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btdelutl.c\"
+else
+echo shar: Extracting \"src/btree/btdelutl.c\" \(4382 characters\)
+sed "s/^X//" >src/btree/btdelutl.c <<'END_OF_src/btree/btdelutl.c'
+X/********************************************************************
+X *
+X * btdelutl.c -- This file contains functions needed to delete a key
+X *               from an in-memory B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_delKey -- This function deletes the specified key from the
+X *              specified node.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_delKey(BTNODE *node, int n)
+X#else
+Xvoid bt_delKey(node,n)
+XBTNODE	*node;
+Xint	n;
+X#endif
+X{
+X	int	i;
+X
+X	COVER("btdelutl.c",1);
+X	for (i = n; i < node->nkeys - 1; i++)
+X	{
+X		COVER("btdelutl.c",2);
+X		node->keys[i] = node->keys[i+1];
+X		node->data[i] = node->data[i+1];
+X	}
+X	if (node->children != NULL)
+X	{
+X		/*
+X		 * This branch should never be taken, since the only places
+X		 * where keys are actually deleted are from leaf nodes.
+X		 */
+X		COVER("btdelutl.c",3);
+X		for (i = n; i < node->nkeys; i++)
+X		{
+X			COVER("btdelutl.c",4);
+X			node->children[i] = node->children[i+1];
+X		}
+X	}
+X	node->nkeys--;
+X	node->tsize--;
+X	return;
+X}
+X
+X/********************************************************************
+X *
+X * bt_weld -- This function is the opposite of burst, above.  It joins
+X *            two neighboring children of the given node, and lowers a
+X *            key into the result.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_weld(BTREE tree, BTNODE *node, int n)
+X#else
+Xvoid bt_weld(tree,node,n)
+XBTREE	tree;
+XBTNODE	*node;
+Xint	n;
+X#endif
+X{
+X	int	i;
+X	int	j;
+X	BTNODE	*left;
+X	BTNODE	*right;
+X
+X	if (node->children == NULL)
+X	{
+X		/*
+X		 * This branch is never taken, because all functions that
+X		 * call bt_burst explicitly test for child nodes.
+X		 */
+X		COVER("btdelutl.c",5);
+X		return;
+X	}
+X	COVER("btdelutl.c",6);
+X	left = node->children[n];
+X	right = node->children[n+1];
+X	i = left->nkeys;
+X	left->keys[i] = node->keys[n];
+X	left->data[i] = node->data[n];
+X	for (i++, j = 0; j < right->nkeys; i++, j++)
+X	{
+X		COVER("btdelutl.c",7);
+X		left->keys[i] = right->keys[j];
+X		left->data[i] = right->data[j];
+X	}
+X	for (i = n + 1; i < node->nkeys; i++)
+X	{
+X		COVER("btdelutl.c",8);
+X		node->keys[i-1] = node->keys[i];
+X		node->data[i-1] = node->data[i];
+X		node->children[i] = node->children[i+1];
+X	}
+X	node->nkeys--;
+X	if (left->children != NULL)
+X	{
+X		COVER("btdelutl.c",9);
+X		for (i = left->nkeys + 1, j = 0; j <= right->nkeys; i++, j++)
+X		{
+X			COVER("btdelutl.c",10);
+X			left->children[i] = right->children[j];
+X			left->children[i]->parent = left;
+X		}
+X		bt_free(right->children);
+X	}
+X	left->nkeys += right->nkeys + 1;
+X	left->tsize += right->tsize + 1;
+X	bt_free(right->keys);
+X	bt_free(right);
+X	tree->capacity -= tree->order - 1;
+X	return;
+X}
+X
+X/********************************************************************
+X *
+X * bt_delPred -- This function searches a sub-tree, and deletes the
+X *               highest key it finds, and returns it to its caller.
+X *               If any node along the way  loses its b-tree'ness, the
+X *               tree is reorganized after the deletion.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_delPred(BTREE tree, BTNODE *node, void **data)
+X#else
+Xvoid *bt_delPred(tree,node,data)
+XBTREE	tree;
+XBTNODE	*node;
+Xvoid	**data;
+X#endif
+X{
+X	BTNODE	*pnode;
+X	int	res;
+X	void	*retval;
+X
+X	/*
+X	 * If at a leaf node, delete the highest key, otherwise
+X	 * call self recursively
+X	 */
+X	if (node->children == NULL)
+X	{
+X		COVER("btdelutl.c",11);
+X		if (data != NULL)
+X		{
+X			COVER("btdelutl.c",12);
+X			*data = node->data[node->nkeys - 1];
+X		}
+X		retval = node->keys[node->nkeys - 1];
+X		node->nkeys--;
+X	}
+X	else
+X	{
+X		COVER("btdelutl.c",13);
+X		pnode = node->children[node->nkeys];
+X		retval = bt_delPred(tree,pnode,data);
+X
+X		/* Reorganize tree if node gets too empty */
+X		if (pnode->nkeys < (tree->order - 1) / 2)
+X		{
+X			COVER("btdelutl.c",14);
+X			res = bt_rotateRight(node,node->nkeys - 1,tree->order);
+X			if (res == 0)
+X			{
+X				COVER("btdelutl.c",15);
+X				bt_weld(tree,node,node->nkeys - 1);
+X			}
+X		}
+X	}
+X	node->tsize--;
+X	return retval;
+X}
+X
+X/******** End of File ********/
+X
+END_OF_src/btree/btdelutl.c
+if test 4382 -ne `wc -c <src/btree/btdelutl.c`; then
+    echo shar: \"src/btree/btdelutl.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btdump.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btdump.c\"
+else
+echo shar: Extracting \"src/btree/btdump.c\" \(3884 characters\)
+sed "s/^X//" >src/btree/btdump.c <<'END_OF_src/btree/btdump.c'
+X/*********************************************************************
+X *
+X * btdump.c -- This function contains functions needed to display
+X *             the contents of an in-memory B-tree, passing each key
+X *             to a callback function.  This file contains non-portable
+X *             code that is intended to help debug the B-tree
+X *             implementation.  Also, all pointers are displayed
+X *             surrounded by "X", so that an automated test program
+X *             can filter out machine-dependent pointer values.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/*********************************************************************
+X *
+X * bt_dumpNode -- This function displays the contents of a node and
+X *                then recursively displays its children.  Note
+X *                that this function assumes that a pointer to a node
+X *                is the same size as an integer.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void bt_dumpNode(BTNODE *node, void (*key_dump)(void*,void*,void*),
+X                        void *info)
+X#else
+Xstatic void bt_dumpNode(node,key_dump,info)
+XBTNODE	*node;
+Xvoid	(*key_dump)();
+Xvoid	*info;
+X#endif
+X{
+X	int	i;
+X
+X	if (node == NULL)
+X	{
+X		printf("ERROR:  null node pointer\n");
+X		return;
+X	}
+X	printf("%08x: %d keys (keys %08x, children %08x, data %08x),\n",
+X	       (int) node,node->nkeys,node->keys,node->children,node->data);
+X	printf("currKey = %d, parent = %08x, tsize = %d\n",
+X	       node->currKey,(int) node->parent,node->tsize);
+X	printf("--------\n");
+X	for (i = 0; i < node->nkeys; i++)
+X	{
+X		if (node->children != NULL)
+X		{
+X			printf("    %08x\n",(int)(node->children[i]));
+X		}
+X		else
+X		{
+X			printf("    %08x\n",0);
+X		}
+X		if (key_dump != NULL)
+X		{
+X			printf("        ");
+X			(*key_dump)(node->keys[i],node->data[i],info);
+X		}
+X	}
+X	if (node->children != NULL)
+X	{
+X		printf("    %08x\n",(int)(node->children[i]));
+X		for (i = 0; i <= node->nkeys; i++)
+X		{
+X			bt_dumpNode(node->children[i],key_dump,info);
+X		}
+X	}
+X	else
+X	{
+X		printf("    %08x\n",0);
+X	}
+X
+X	fflush(stdout);
+X	return;
+X}
+X
+X/*********************************************************************
+X *
+X * bt_dump -- This function displays the contents of a B-tree.  The
+X *            caller passes in a function that displays the contents
+X *            of one of the keys stored in the tree.  The calling
+X *            protocol for this function is:
+X *
+X *                       key_dump(key,data,info)
+X *                       void *key;
+X *                       void *data;
+X *                       void *info;
+X *
+X *            If key_dump is NULL, no action is taken.  This is useful
+X *            if the structure of the tree is desired without including
+X *            its contents.
+X *
+X *********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_dump(void *ptree, void (*key_dump)(void*,void*,void*), void *info)
+X#else
+Xvoid bt_dump(ptree,key_dump,info)
+Xvoid	*ptree;
+Xvoid	(*key_dump)();
+Xvoid	*info;
+X#endif
+X{
+X	BTREE	tree;
+X
+X	tree = (BTREE) ptree;
+X	printf("B-tree dump  %x:\n\n",(int)ptree);
+X	printf("order = %d\n",tree->order);
+X	printf("capacity = %d\n",tree->capacity);
+X	printf("contains %d keys\n",tree->root->tsize);
+X	printf("efficiency is %d per cent\n",
+X	       (tree->root->tsize*100)/tree->capacity);
+X	printf("handle at %08x\n",(int)tree);
+X	printf("root  = %08x\n",(int) tree->root);
+X	printf("currNode  = %08x\n",(int) tree->currNode);
+X	printf("nextOk = %d\n",tree->nextOk);
+X	printf("data = %x\n",(int)(tree->data));
+X	printf("\n");
+X	bt_dumpNode(tree->root,key_dump,info);
+X	return;
+X}
+X
+X/******** End of file *********/
+X
+END_OF_src/btree/btdump.c
+if test 3884 -ne `wc -c <src/btree/btdump.c`; then
+    echo shar: \"src/btree/btdump.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btnew.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btnew.c\"
+else
+echo shar: Extracting \"src/btree/btnew.c\" \(3819 characters\)
+sed "s/^X//" >src/btree/btnew.c <<'END_OF_src/btree/btnew.c'
+X/***********************************************************************
+X *
+X * btnew.c -- This file contains functions to create a new in-memory
+X *            B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ***********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/***********************************************************************
+X *
+X * bt_new -- Given a BT_SETUP structure, this function creates an empty
+X *           B-tree structure.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid	*bt_new(void *psetup)
+X#else
+Xvoid	*bt_new(psetup)
+Xvoid	*psetup;
+X#endif
+X{
+X	BTREE		tree;
+X	BT_SETUP	*setup;
+X	int		i;
+X	int		order;
+X
+X	/* Validate parameters */
+X	setup = (BT_SETUP*) psetup;
+X	if (setup == NULL)
+X	{
+X		COVER("btnew.c",1);
+X		return (void *) NULL;
+X	}
+X	COVER("btnew.c",2);
+X	order = setup->order;
+X
+X	/* Allocate the handle */
+X	tree = (BTREE) bt_malloc(sizeof(struct btree));
+X	if (tree != NULL)
+X	{
+X		/* Allocate the root */
+X		tree->root = (BTNODE*) bt_malloc(sizeof(struct btnode));
+X		if (tree->root != NULL)
+X		{
+X			/* Initialize root */
+X			tree->order = order;
+X			tree->comp = setup->comp;
+X			tree->data = setup->data;
+X			tree->root->nkeys = 0;
+X			tree->root->children = NULL;
+X
+X			/* Allocate key array */
+X			tree->root->keys =
+X				(void**)bt_malloc((order - 1) * sizeof(void*));
+X			if (tree->root->keys != NULL)
+X			{
+X				tree->root->data = (void**)bt_malloc(
+X				                  (order - 1) * sizeof(void*));
+X				if (tree->root->data != NULL)
+X				{
+X					/* Initialize keys */
+X					for (i = 0; i < order - 1; i++)
+X					{
+X						tree->root->keys[i] = NULL;
+X						tree->root->data[i] = NULL;
+X					}
+X					tree->root->nkeys = 0;
+X					tree->root->parent = NULL;
+X					tree->root->tsize = 0;
+X					tree->capacity = order - 1;
+X					tree->currNode = NULL;
+X					return (void *) tree;
+X				}
+X				/* Failed to allocate data, free keys */
+X				bt_free(tree->root->keys);
+X			}
+X
+X			/* Failed to allocate keys, free tree */
+X			bt_free(tree->root);
+X		}
+X		/* Failed to allocate root, free handle */
+X		bt_free(tree);
+X	}
+X	/* Failed to allocate handle, return null (error) */
+X	return (void *) NULL;
+X}
+X
+X/***********************************************************************
+X *
+X * bt_setup -- This function allocates a B-tree setup structure, and
+X *             returns it to the caller.  The parameters are the order
+X *             (max number of children per node) of the tree, and a
+X *             pointer to a comparison function for keys.  The setup
+X *             structure is then passed to bt_new() when a new tree
+X *             is created.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_setup(int order, int (*comp)(void*,void*), void *data)
+X#else
+Xvoid *bt_setup(order,comp,data)
+Xint	order;
+Xint	(*comp)();
+Xvoid	*data;
+X#endif
+X{
+X	BT_SETUP	*retval;
+X
+X	if (comp == NULL)
+X	{
+X		COVER("btnew.c",3);
+X		return (void *) NULL;
+X	}
+X	if (order < 3)
+X	{
+X		COVER("btnew.c",4);
+X		return (void *) NULL;
+X	}
+X	COVER("btnew.c",5);
+X	retval = (BT_SETUP*) bt_malloc(sizeof(BT_SETUP));
+X	if (retval != NULL)
+X	{
+X		retval->order = order;
+X		retval->comp = (COMPFN) comp;
+X		retval->data = data;
+X	}
+X	return (void*) retval;
+X}
+X
+X/***********************************************************************
+X *
+X * bt_freeSetup -- This function frees a B-tree setup structure.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_freeSetup(void *setup)
+X#else
+Xvoid bt_freeSetup(setup)
+Xvoid	*setup;
+X#endif
+X{
+X	COVER("btnew.c",6);
+X	if (setup != NULL)
+X	{
+X		bt_free(setup);
+X	}
+X	return;
+X}
+X
+X/********** End of file **********/
+X
+END_OF_src/btree/btnew.c
+if test 3819 -ne `wc -c <src/btree/btnew.c`; then
+    echo shar: \"src/btree/btnew.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 5 \(of 10\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

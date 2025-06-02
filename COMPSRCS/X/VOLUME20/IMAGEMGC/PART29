@@ -1,0 +1,1561 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i085:  imagemagic - X11 image processing and display, Part29/38
+Message-ID: <1993Jul14.232108.22827@sparky.sterling.com>
+X-Md4-Signature: 05605897a8e950d385e8f78efa6111dc
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:21:08 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 85
+Archive-name: imagemagic/part29
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.29 (part 29 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/image.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 29; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/image.c'
+else
+echo 'x - continuing file ImageMagick/image.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/image.c' &&
+X    return;
+X  /*
+X    Allocate memory for pixel indexes.
+X  */
+X  pixels=(unsigned short *) malloc(image->colors*sizeof(unsigned short));
+X  if (pixels == (unsigned short *) NULL)
+X    {
+X      Warning("unable to sort colormap","memory allocation failed");
+X      return;
+X    }
+X  /*
+X    Assign index values to colormap entries.
+X  */
+X  for (i=0; i < image->colors; i++)
+X    image->colormap[i].index=(unsigned short) i;
+X  /*
+X    Sort image colormap by decreasing color popularity.
+X  */
+X  (void) qsort((void *) image->colormap,(int) image->colors,sizeof(ColorPacket),
+X    IntensityCompare);
+X  /*
+X    Update image colormap indexes to sorted colormap order.
+X  */
+X  for (i=0; i < image->colors; i++)
+X    pixels[image->colormap[i].index]=(unsigned short) i;
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    index=pixels[p->index];
+X    p->red=image->colormap[index].red;
+X    p->green=image->colormap[index].green;
+X    p->blue=image->colormap[index].blue;
+X    p->index=index;
+X    p++;
+X  }
+X  (void) free((char *) pixels);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S t e r e o I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function StereoImage combines two images and produces a single image that
+%  is the composite of a left and right image of a stereo pair.  The left
+%  image is converted to grayscale and written to the red channel of the
+%  stereo image.  The right image is converted to grayscale and written to the
+%  blue channel of the stereo image.  View the composite image with red-blue
+%  glasses to create a stereo effect.
+%
+%  The format of the StereoImage routine is:
+%
+%      stereo_image=StereoImage(left_image,right_image)
+%
+%  A description of each parameter follows:
+%
+%    o stereo_image: Function StereoImage returns a pointer to the stereo
+%      image.  A null image is returned if there is a memory shortage.
+%
+%    o left_image: The address of a structure of type Image.
+%
+%    o right_image: The address of a structure of type Image.
+%
+%
+*/
+Image *StereoImage(left_image,right_image)
+Image
+X  *left_image,
+X  *right_image;
+{
+X  Image
+X    *stereo_image;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q,
+X    *r;
+X
+X  if ((left_image->columns != right_image->columns) ||
+X      (left_image->rows != right_image->rows))
+X    {
+X      Warning("unable to create stereo image",
+X        "left and right image sizes differ");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize stereo image attributes.
+X  */
+X  stereo_image=CopyImage(left_image,left_image->columns,left_image->rows,False);
+X  if (stereo_image == (Image *) NULL)
+X    {
+X      Warning("unable to create stereo image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  stereo_image->class=DirectClass;
+X  /*
+X    Copy left image to red channel and right image to blue channel.
+X  */
+X  QuantizeImage(left_image,256,8,False,GRAYColorspace,True);
+X  p=left_image->pixels;
+X  left_image->runlength=p->length+1;
+X  QuantizeImage(right_image,256,8,False,GRAYColorspace,True);
+X  q=right_image->pixels;
+X  right_image->runlength=q->length+1;
+X  r=stereo_image->pixels;
+X  for (i=0; i < (stereo_image->columns*stereo_image->rows); i++)
+X  {
+X    if (left_image->runlength != 0)
+X      left_image->runlength--;
+X    else
+X      {
+X        p++;
+X        left_image->runlength=p->length;
+X      }
+X    if (right_image->runlength != 0)
+X      right_image->runlength--;
+X    else
+X      {
+X        q++;
+X        right_image->runlength=q->length;
+X      }
+X    r->red=(unsigned int) (p->red*12) >> 4;
+X    r->green=0;
+X    r->blue=q->blue;
+X    r->index=0;
+X    r->length=0;
+X    r++;
+X  }
+X  return(stereo_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S y n c I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function SyncImage initializes the red, green, and blue intensities of each
+%  pixel as defined by the colormap index.
+%
+%  The format of the SyncImage routine is:
+%
+%      SyncImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+void SyncImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned short
+X    index;
+X
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    index=p->index;
+X    p->red=image->colormap[index].red;
+X    p->green=image->colormap[index].green;
+X    p->blue=image->colormap[index].blue;
+X    p++;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   T r a n s f o r m I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function TransformImage creates a new image that is a transformed size of
+%  of existing one as specified by the clip, image and scale geometries.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  If a clip geometry is specified a subregion of the image is obtained.
+%  If the specified image size, as defined by the image and scale geometries,
+%  is smaller than the actual image size, the image is first reduced to an
+%  integral of the specified image size with an antialias digital filter.  The
+%  image is then scaled to the exact specified image size with pixel
+%  replication.  If the specified image size is greater than the actual image
+%  size, the image is first enlarged to an integral of the specified image
+%  size with bilinear interpolation.  The image is then scaled to the exact
+%  specified image size with pixel replication.
+%
+%  The format of the TransformImage routine is:
+%
+%      TransformImage(image,clip_geometry,image_geometry,scale_geometry)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of an address of a structure of type Image.  The
+%      transformed image is returned as this parameter.
+%
+%    o clip_geometry: Specifies a pointer to a clip geometry string.
+%      This geometry defines a subregion of the image.
+%
+%    o image_geometry: Specifies a pointer to a image geometry string.
+%      The specified width and height of this geometry string are absolute.
+%
+%    o scale_geometry: Specifies a pointer to a scale geometry string.
+%      The specified width and height of this geometry string are relative.
+%
+%
+*/
+void TransformImage(image,clip_geometry,image_geometry,scale_geometry)
+Image
+X  **image;
+X
+char
+X  *clip_geometry,
+X  *image_geometry,
+X  *scale_geometry;
+{
+X  Image
+X    *transformed_image;
+X
+X  int
+X    flags,
+X    x,
+X    y;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  transformed_image=(*image);
+X  if (clip_geometry != (char *) NULL)
+X    {
+X      Image
+X        *clipped_image;
+X
+X      RectangleInfo
+X        clip_info;
+X
+X      /*
+X        Clip transformed_image to a user specified size.
+X      */
+X      clip_info.x=0;
+X      clip_info.y=0;
+X      flags=XParseGeometry(clip_geometry,&clip_info.x,&clip_info.y,
+X        &clip_info.width,&clip_info.height);
+X      if ((flags & WidthValue) == 0)
+X        clip_info.width=(unsigned int)
+X          ((int) transformed_image->columns-clip_info.x);
+X      if ((flags & HeightValue) == 0)
+X        clip_info.height=(unsigned int)
+X          ((int) transformed_image->rows-clip_info.y);
+X      if ((flags & XNegative) != 0)
+X        clip_info.x+=transformed_image->columns-clip_info.width;
+X      if ((flags & YNegative) != 0)
+X        clip_info.y+=transformed_image->rows-clip_info.height;
+X      clipped_image=ClipImage(transformed_image,&clip_info);
+X      if (clipped_image != (Image *) NULL)
+X        {
+X          DestroyImage(transformed_image);
+X          transformed_image=clipped_image;
+X        }
+X    }
+X  /*
+X    Scale image to a user specified size.
+X  */
+X  width=transformed_image->columns;
+X  height=transformed_image->rows;
+X  if (scale_geometry != (char *) NULL)
+X    {
+X      float
+X        height_factor,
+X        width_factor;
+X
+X      width_factor=1.0;
+X      height_factor=0.0;
+X      (void) sscanf(scale_geometry,"%fx%f",&width_factor,&height_factor);
+X      if (height_factor == 0.0)
+X        height_factor=width_factor;
+X      width=(unsigned int) (width*width_factor);
+X      height=(unsigned int) (height*height_factor);
+X    }
+X  if (image_geometry != (char *) NULL)
+X    (void) XParseGeometry(image_geometry,&x,&y,&width,&height);
+X  while ((transformed_image->columns >= (width << 1)) &&
+X         (transformed_image->rows >= (height << 1)))
+X  {
+X    Image
+X      *reduced_image;
+X
+X    /*
+X      Reduce image with a antialias digital filter.
+X     */
+X    reduced_image=ReduceImage(transformed_image);
+X    if (reduced_image == (Image *) NULL)
+X      break;
+X    DestroyImage(transformed_image);
+X    transformed_image=reduced_image;
+X  }
+X  while ((transformed_image->columns <= (width >> 1)) &&
+X         (transformed_image->rows <= (height >> 1)))
+X  {
+X    Image
+X      *zoomed_image;
+X
+X    /*
+X      Zoom transformed_image with bilinear interpolation.
+X    */
+X    zoomed_image=ZoomImage(transformed_image);
+X    if (zoomed_image == (Image *) NULL)
+X      break;
+X    DestroyImage(transformed_image);
+X    transformed_image=zoomed_image;
+X  }
+X  if ((transformed_image->columns != width) ||
+X      (transformed_image->rows != height))
+X    {
+X      Image
+X        *scaled_image;
+X
+X      /*
+X        Scale image with pixel replication.
+X      */
+X      scaled_image=ScaleImage(transformed_image,width,height);
+X      if (scaled_image != (Image *) NULL)
+X        {
+X          DestroyImage(transformed_image);
+X          transformed_image=scaled_image;
+X        }
+X    }
+X  *image=transformed_image;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%     T r a n s f o r m R G B I m a g e                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure TransformRGBImage converts the reference image from an alternate
+%  colorspace to RGB.
+%
+%  The format of the TransformRGBImage routine is:
+%
+%      TransformRGBImage(image,colorspace)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace
+%      the image is currently in.  On return the image is in the RGB
+%      color space.
+%
+%
+*/
+void TransformRGBImage(image,colorspace)
+Image
+X  *image;
+X
+unsigned int
+X  colorspace;
+{
+#define R 0
+#define G (MaxRGB+1)
+#define B (MaxRGB+1)*2
+X
+X  long
+X    *blue,
+X    *green,
+X    *red;
+X
+X  register int
+X    i,
+X    x,
+X    y,
+X    z;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *range_limit;
+X
+X  unsigned char
+X    *range_table;
+X
+X  if ((colorspace == RGBColorspace) || (colorspace == GRAYColorspace))
+X    return;
+X  /*
+X    Allocate the tables.
+X  */
+X  red=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  green=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  blue=(long *) malloc(3*(MaxRGB+1)*sizeof(long));
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  if ((red == (long *) NULL) || (green == (long *) NULL) ||
+X      (blue == (long *) NULL) || (range_table == (unsigned char *) NULL))
+X    {
+X      Warning("unable to transform color space","memory allocation failed");
+X      return;
+X    }
+X  /*
+X    Initialize tables.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  switch (colorspace)
+X  {
+X    case XYZColorspace:
+X    {
+X      /*
+X        Initialize XYZ tables:
+X
+X          R =  2.36444*X-0.89680*Y-0.46770*Z
+X          G = -0.51483*X+1.42523*Y+0.08817*Z
+X          B =  0.00500*X-0.01439*Y+1.00921*Z
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(2.36444)*i;
+X        green[i+R]=(-UpShifted(0.89680))*i;
+X        blue[i+R]=(-UpShifted(0.46770))*i;
+X        red[i+G]=(-UpShifted(0.51483))*i;
+X        green[i+G]=UpShifted(1.42523)*i;
+X        blue[i+G]=UpShifted(0.08817)*i;
+X        red[i+B]=UpShifted(0.00500)*i;
+X        green[i+B]=(-UpShifted(0.01439))*i;
+X        blue[i+B]=UpShifted(1.00921)*i;
+X      }
+X      break;
+X    }
+X    case YCbCrColorspace:
+X    {
+X      /*
+X        Initialize YCbCr tables:
+X
+X          R = Y           +1.40200*Cr
+X          G = Y-0.34414*Cb-0.71414*Cr
+X          B = Y+1.77200*Cb
+X
+X        Cb and Cr, normally -0.5 through 0.5, must be normalized to the range 0
+X        through MaxRGB.
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(1.00000)*i;
+X        green[i+R]=0;
+X        blue[i+R]=UpShifted(1.40200/2)*(2*i-MaxRGB);
+X        red[i+G]=UpShifted(1.00000)*i;
+X        green[i+G]=(-UpShifted(0.34414/2))*(2*i-MaxRGB);
+X        blue[i+G]=(-UpShifted(0.71414/2))*(2*i-MaxRGB);
+X        red[i+B]=UpShifted(1.00000)*i;
+X        green[i+B]=UpShifted(1.77200/2)*(2*i-MaxRGB);
+X        blue[i+B]=0;
+X      }
+X      break;
+X    }
+X    case YIQColorspace:
+X    {
+X      /*
+X        Initialize YIQ tables:
+X
+X          R = Y+0.95620*I+0.62140*Q
+X          G = Y-0.27270*I-0.64680*Q
+X          B = Y-1.10370*I+1.70060*Q
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(1.00000)*i;
+X        green[i+R]=UpShifted(0.95620)*i;
+X        blue[i+R]=UpShifted(0.62140)*i;
+X        red[i+G]=UpShifted(1.00000)*i;
+X        green[i+G]=(-UpShifted(0.27270))*i;
+X        blue[i+G]=(-UpShifted(0.64680))*i;
+X        red[i+B]=UpShifted(1.00000)*i;
+X        green[i+B]=(-UpShifted(1.10370))*i;
+X        blue[i+B]=UpShifted(1.70060)*i;
+X      }
+X      break;
+X    }
+X    case YUVColorspace:
+X    default:
+X    {
+X      /*
+X        Initialize YUV tables:
+X
+X          R = Y          +1.13980*V
+X          G = Y-0.39380*U-0.58050*V
+X          B = Y+2.02790*U
+X
+X        U and V, normally -0.5 through 0.5, must be normalized to the range 0
+X        through MaxRGB.
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(1.00000)*i;
+X        green[i+R]=0;
+X        blue[i+R]=UpShifted(1.13980/2)*(2*i-MaxRGB);
+X        red[i+G]=UpShifted(1.00000)*i;
+X        green[i+G]=(-UpShifted(0.39380/2))*(2*i-MaxRGB);
+X        blue[i+G]=(-UpShifted(0.58050/2))*(2*i-MaxRGB);
+X        red[i+B]=UpShifted(1.00000)*i;
+X        green[i+B]=UpShifted(2.02790/2)*(2*i-MaxRGB);
+X        blue[i+B]=0;
+X      }
+X      break;
+X    }
+X  }
+X  /*
+X    Convert to RGB.
+X  */
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Convert DirectClass image.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        x=p->red;
+X        y=p->green;
+X        z=p->blue;
+X        p->red=range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        p->green=range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        p->blue=range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Convert PseudoClass image.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        x=image->colormap[i].red;
+X        y=image->colormap[i].green;
+X        z=image->colormap[i].blue;
+X        image->colormap[i].red=
+X          range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        image->colormap[i].green=
+X          range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        image->colormap[i].blue=
+X          range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X      }
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        x=p->red;
+X        y=p->green;
+X        z=p->blue;
+X        p->red=range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        p->green=range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        p->blue=range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X        p++;
+X      }
+X      break;
+X    }
+X  }
+X  /*
+X    Free allocated memory.
+X  */
+X  (void) free((char *) range_table);
+X  (void) free((char *) blue);
+X  (void) free((char *) green);
+X  (void) free((char *) red);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U n C o m p r e s s I m a g e                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UncompressImage uncompresses runlength-encoded pixels packets to
+%  a rectangular array of pixels.
+%
+%  The format of the UncompressImage routine is:
+%
+%      status=UncompressImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function UncompressImage returns True if the image is
+%      uncompressed otherwise False.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int UncompressImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j,
+X    length;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  RunlengthPacket
+X    *uncompressed_pixels;
+X
+X  if (image->packets == (image->columns*image->rows))
+X    return(True);
+X  /*
+X    Uncompress runlength-encoded packets.
+X  */
+X  uncompressed_pixels=(RunlengthPacket *) realloc((char *) image->pixels,
+X    image->columns*image->rows*sizeof(RunlengthPacket));
+X  if (uncompressed_pixels == (RunlengthPacket *) NULL)
+X    return(False);
+X  image->pixels=uncompressed_pixels;
+X  p=image->pixels+image->packets-1;
+X  q=uncompressed_pixels+image->columns*image->rows-1;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    length=p->length;
+X    for (j=0; j <= length; j++)
+X    {
+X      *q=(*p);
+X      q->length=0;
+X      q--;
+X    }
+X    p--;
+X  }
+X  image->packets=image->columns*image->rows;
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Z o o m I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ZoomImage creates a new image that is a integral size greater
+%  than an existing one.  It allocates the memory necessary for the new Image
+%  structure and returns a pointer to the new image.
+%
+%  ZoomImage scans the reference image to create a zoomed image by bilinear
+%  interpolation.  The zoomed image columns and rows become:
+%
+%    number_columns << 1
+%    number_rows << 1
+%
+%  The format of the ZoomImage routine is:
+%
+%      zoomed_image=ZoomImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o zoomed_image: Function ZoomImage returns a pointer to the image after
+%      zooming.  A null image is returned if there is a a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+static Image *ZoomImage(image)
+Image
+X  *image;
+{
+X  Image
+X    *zoomed_image;
+X
+X  register RunlengthPacket
+X    *cs,
+X    *ns,
+X    *p,
+X    *q,
+X    *s;
+X
+X  register unsigned int
+X    x;
+X
+X  RunlengthPacket
+X    *scanline;
+X
+X  unsigned int
+X    y;
+X
+X  if (((image->columns*image->rows) << 1) > MaxImageSize)
+X    {
+X      Warning("unable to zoom image","image size too large");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize scaled image attributes.
+X  */
+X  zoomed_image=CopyImage(image,image->columns << 1,image->rows << 1,False);
+X  if (zoomed_image == (Image *) NULL)
+X    {
+X      Warning("unable to zoom image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  zoomed_image->class=DirectClass;
+X  /*
+X    Allocate scan line buffer.
+X  */
+X  scanline=(RunlengthPacket *) malloc(4*image->columns*sizeof(RunlengthPacket));
+X  if (scanline == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to zoom image","memory allocation failed");
+X      DestroyImage(zoomed_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Preload a scan line and interpolate.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  s=scanline;
+X  for (x=0; x < image->columns; x++)
+X  {
+X    *s=(*p);
+X    s++;
+X    if (image->runlength != 0)
+X      {
+X        image->runlength--;
+X        *s=(*p);
+X      }
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X        s->red=(unsigned char) ((int) (p->red+(s-1)->red) >> 1);
+X        s->green=(unsigned char) ((int) (p->green+(s-1)->green) >> 1);
+X        s->blue=(unsigned char) ((int) (p->blue+(s-1)->blue) >> 1);
+X        s->index=(unsigned short) ((int) (p->index+(s-1)->index) >> 1);
+X      }
+X    s++;
+X  }
+X  /*
+X    Zoom each row.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  q=zoomed_image->pixels;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    cs=scanline+image->columns*((y+0) % 2)*2;
+X    ns=scanline+image->columns*((y+1) % 2)*2;
+X    /*
+X      Read a scan line and interpolate.
+X    */
+X    s=ns;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      *s=(*p);
+X      s++;
+X      if (image->runlength != 0)
+X        {
+X          image->runlength--;
+X          *s=(*p);
+X        }
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X          s->red=(unsigned char) ((int) (p->red+(s-1)->red) >> 1);
+X          s->green=(unsigned char) ((int) (p->green+(s-1)->green) >> 1);
+X          s->blue=(unsigned char) ((int) (p->blue+(s-1)->blue) >> 1);
+X          s->index=(unsigned short) ((int) (p->index+(s-1)->index) >> 1);
+X        }
+X      s++;
+X    }
+X    /*
+X      Dump column interpolation values.
+X    */
+X    s=cs;
+X    for (x=0; x < zoomed_image->columns; x++)
+X    {
+X      *q=(*s);
+X      q->length=0;
+X      q++;
+X      s++;
+X    }
+X    /*
+X      Dump row interpolation values.
+X    */
+X    for (x=0; x < zoomed_image->columns; x++)
+X    {
+X      q->red=(unsigned char) ((int) (cs->red+ns->red) >> 1);
+X      q->green=(unsigned char) ((int) (cs->green+ns->green) >> 1);
+X      q->blue=(unsigned char) ((int) (cs->blue+ns->blue) >> 1);
+X      q->index=(unsigned short) ((int) (cs->index+ns->index) >> 1);
+X      q->length=0;
+X      q++;
+X      cs++;
+X      ns++;
+X    }
+X  }
+X  (void) free((char *) scanline);
+X  return(zoomed_image);
+}
+SHAR_EOF
+echo 'File ImageMagick/image.c is complete' &&
+chmod 0644 ImageMagick/image.c ||
+echo 'restore of ImageMagick/image.c failed'
+Wc_c="`wc -c < 'ImageMagick/image.c'`"
+test 119137 -eq "$Wc_c" ||
+	echo 'ImageMagick/image.c: original size 119137, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/image.h ==============
+if test -f 'ImageMagick/image.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/image.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/image.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/image.h' &&
+/*
+X  Image define declarations.
+*/
+#define AbsoluteValue(x)  ((x) < 0 ? -(x) : (x))
+#define DegreesToRadians(x) ((x)*3.14159265358979323846/180.0)
+#define Intensity(color)  (unsigned int)  \
+X  ((unsigned int) ((color).red*77+(color).green*150+(color).blue*29) >> 8)
+#define MaxColormapSize  65535
+#define MaxImageSize  (4096*4096)
+#define MaxRGB  255
+#define MaxRunlength  255
+X
+/*
+X  Image Id's
+*/
+#define UndefinedId  0
+#define ImageMagickId  1
+/*
+X  Image classes:
+*/
+#define UndefinedClass  0
+#define DirectClass  1
+#define PseudoClass  2
+/*
+X  Image colorspaces:
+*/
+#define UndefinedColorspace  0
+#define RGBColorspace  1
+#define GRAYColorspace 2
+#define XYZColorspace  3
+#define YCbCrColorspace  4
+#define YIQColorspace  5
+#define YUVColorspace  6
+/*
+X  Image compression algorithms:
+*/
+#define UndefinedCompression  0
+#define NoCompression  1
+#define RunlengthEncodedCompression  2
+#define QEncodedCompression  3
+/*
+X  Image interlace:
+*/
+#define UndefinedInterlace  0
+#define NoneInterlace  1
+#define LineInterlace  2
+#define PlaneInterlace  3
+/*
+X  Image compositing operations:
+*/
+#define UndefinedCompositeOp  0
+#define OverCompositeOp  1
+#define InCompositeOp  2
+#define OutCompositeOp  3
+#define AtopCompositeOp  4
+#define XorCompositeOp  5
+#define PlusCompositeOp  6
+#define MinusCompositeOp  7
+#define AddCompositeOp  8
+#define SubtractCompositeOp  9
+#define DifferenceCompositeOp  10
+#define ReplaceCompositeOp  11
+X
+/*
+X  Typedef declarations for the Display program.
+*/
+typedef struct _ColorPacket
+{
+X  unsigned char
+X    red,
+X    green,
+X    blue,
+X    flags;
+X
+X  unsigned short
+X    index;
+} ColorPacket;
+X
+typedef struct _ImageInfo
+{
+X  char
+X    filename[2048];
+X
+X  char
+X    *server_name,
+X    *font,
+X    *geometry,
+X    *density,
+X    *page,
+X    *border_color;
+X
+X  unsigned int
+X    interlace,
+X    monochrome,
+X    quality,
+X    verbose;
+X
+X  char
+X    *undercolor;
+} ImageInfo;
+X
+typedef struct _RectangleInfo
+{
+X  unsigned int
+X    width,
+X    height;
+X
+X  int
+X    x,
+X    y;
+} RectangleInfo;
+X
+typedef struct _RunlengthPacket
+{
+X  unsigned char
+X    red,
+X    green,
+X    blue,
+X    length;
+X
+X  unsigned short
+X    index;
+} RunlengthPacket;
+X
+typedef struct _Image
+{
+X  FILE
+X    *file;
+X
+X  int
+X    status;
+X
+X  char
+X    filename[2048],
+X    magick[12],
+X    *comments,
+X    *label;
+X
+X  unsigned int
+X    id,
+X    class,
+X    colorspace,
+X    alpha,
+X    compression,
+X    columns,
+X    rows,
+X    colors,
+X    scene;
+X
+X  char
+X    *montage,
+X    *directory;
+X
+X  ColorPacket
+X    *colormap;
+X
+X  char
+X    *signature;
+X
+X  RunlengthPacket
+X    *pixels,
+X    *packet;
+X
+X  unsigned long
+X    packets;
+X
+X  unsigned int
+X    runlength,
+X    packet_size;
+X
+X  unsigned char
+X    *packed_pixels;
+X
+X  unsigned int
+X    orphan;
+X
+X  struct _Image
+X    *previous,
+X    *next;
+} Image;
+X
+/*
+X  Image utilities routines.
+*/
+extern Image
+X  *AllocateImage _Declare((char *)),
+X  *BorderImage _Declare((Image *,RectangleInfo *,ColorPacket *,ColorPacket *)),
+X  *ClipImage _Declare((Image *,RectangleInfo *)),
+X  *CopyImage _Declare((Image *,unsigned int,unsigned int,unsigned int)),
+X  *EnhanceImage _Declare((Image *)),
+X  *FrameImage _Declare((Image *,RectangleInfo *,unsigned int,ColorPacket *,
+X    ColorPacket *)),
+X  *NoisyImage _Declare((Image *)),
+X  *ReadImage _Declare((ImageInfo *)),
+X  *ReflectImage _Declare((Image *)),
+X  *RollImage _Declare((Image *,int,int)),
+X  *RotateImage _Declare((Image *,double,unsigned int)),
+X  *ScaleImage _Declare((Image *,unsigned int,unsigned int)),
+X  *ShearImage _Declare((Image *,double,double,unsigned int)),
+X  *StereoImage _Declare((Image *,Image *));
+X
+extern int
+X  ReadDataBlock _Declare((char *,FILE *));
+X
+extern unsigned int
+X  NumberColors _Declare((Image *,FILE *)),
+X  ReadData _Declare((char *,int,int,FILE *)),
+X  UncompressImage _Declare((Image *)),
+X  WriteImage _Declare((ImageInfo *,Image *));
+X
+extern void
+X  CloseImage _Declare((Image *)),
+X  ColormapSignature _Declare((Image *)),
+X  CompositeImage _Declare((Image *,unsigned int,Image *,int,int)),
+X  CompressColormap _Declare((Image *)),
+X  CompressImage _Declare((Image *)),
+X  DestroyImage _Declare((Image *)),
+X  DestroyImages _Declare((Image *)),
+X  GammaImage _Declare((Image *,double)),
+X  InverseImage _Declare((Image *)),
+X  GetImageInfo _Declare((ImageInfo *)),
+X  NormalizeImage _Declare((Image *)),
+X  OpenImage _Declare((Image *,char *)),
+X  QuantizationError _Declare((Image *,unsigned int *,double *,double *)),
+X  QuantizeImage _Declare((Image *,unsigned int,unsigned int,unsigned int,
+X    unsigned int,unsigned int)),
+X  QuantizeImages _Declare((Image **,unsigned int,Image *,unsigned int,
+X    unsigned int,unsigned int,unsigned int,unsigned int)),
+X  RGBTransformImage _Declare((Image *,unsigned int)),
+X  SortColormapByIntensity _Declare((Image *)),
+X  SyncImage _Declare((Image *)),
+X  TransformImage _Declare((Image **,char *,char *,char *)),
+X  TransformRGBImage _Declare((Image *,unsigned int));
+SHAR_EOF
+chmod 0644 ImageMagick/image.h ||
+echo 'restore of ImageMagick/image.h failed'
+Wc_c="`wc -c < 'ImageMagick/image.h'`"
+test 4822 -eq "$Wc_c" ||
+	echo 'ImageMagick/image.h: original size 4822, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/import.man ==============
+if test -f 'ImageMagick/import.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/import.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/import.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/import.man' &&
+.ad l
+.nh
+.TH import 1 "10 October 1992" "ImageMagick"
+.SH NAME
+import - capture some or all of an X server screen and save the image to
+a file.
+.SH SYNOPSIS
+.B "import"
+[ \fIoptions\fP ... ] \fIfile\fP
+.SH DESCRIPTION
+\fBimport\fP reads an image from any visible window on an X server and
+outputs it as an image file.  You can capture a single window, the
+entire screen, or any rectangular portion of the screen.  Use
+\fBdisplay\fP (see \fBdisplay(1)\fP) for redisplay, printing, editing,
+formatting, archiving, image processing, etc. of the captured image.
+.PP
+The target window can be specified by id, name, or may be selected by
+clicking the mouse in the desired window.  If you press a button and
+then drag, a rectangle will form which expands and contracts as
+the mouse moves.  To save the portion of the screen  defined by the
+rectangle, just release the button.  The keyboard bell is rung once at
+the beginning of the screen capture and twice when it completes.
+.PP
+.SH EXAMPLES
+.PP
+To select an X window with the mouse and save it in the MIFF image
+format to a file titled window.miff, use:
+.PP
+.B
+X     import window.miff
+.PP
+To select an X window and save it in the Encapsulated Postscript format
+to include in another document, use:
+.PP
+.B
+X     import figure.eps
+.PP
+To capture the entire X server screen in the JPEG image format in a file
+titled root.jpeg, use:
+.PP
+.B
+X     import -window root root.jpeg
+.SH OPTIONS
+\fBimport\fP options can appear on the command line or in your X resources
+file (see \fBX(1)\fP).  Options on the command line supersede values specified
+in your X resources file.
+.TP 5
+.B "-border"
+include image borders in the output image.
+.TP 5
+.B "-compress \fItype\fP"
+the type of image compression: \fIQEncoded\fP or \fIRunlengthEncoded\fP.
+See \fBmiff(5)\fP for details.
+X
+Specify \fB\+compress\fP to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+.TP 5
+.B "-delay \fIseconds\fP"
+pause before selecting target window.
+X
+This option is useful when you need time to ready the target window before
+it is captured to a file.
+.TP 5
+.B "-density \fI<width>x<height>
+vertical and horizonal density of the image.
+X
+This option specifies an image density whose interpretation changes
+with the type of image.  The default is 72 dots per inch in the
+horizonal and vertical direction for Postscript.  Text files default to
+80 characters in width and 60 lines in height.  Use this option to
+alter the default density.
+.TP 5
+.B "-descend"
+obtain image by descending window hierarchy.
+X
+Normally the colormap of the chosen window is used to obtain the red,
+green, and blue values.  This option reads each subwindow and its
+colormap of the chosen window.  The final image is guarenteed to have the
+correct colors but obtaining the image is significantly slower.
+.TP 5
+.B "-display \fIhost:display[.screen]\fP"
+specifies the X server to contact; see \fBX(1)\fP.
+.TP 5
+.B "-frame"
+include window manager frame.
+.TP 5
+.B "-geometry \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+the width and height of the image.
+X
+Use this option to specified the width and height of raw images whose
+dimensions are unknown such as \fBGRAY\fP, \fBRGB\fP, and \fBCMYK\fP.
+This option can also change the default 8.5 by 11 width and height of
+the Postscript canvas.   When printing an image, \fI<x offset>\fP and
+\fI<y offset>\fP is relative to a Postscript page.
+.TP 5
+.B "-interlace \fItype\fP"
+the type of interlacing scheme: \fBNONE\fP, \fBLINE\fP, or \fBPLANE\fP.
+X
+This option is used to specify the type of interlacing scheme for raw
+image formats such as \fBRGB\fP or \fBYUV\fP.  \fBNONE\fP means do not
+interlace (RGBRGBRGBRGBRGBRGB...), \fBLINE\fP uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and \fBPLANE\fP uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+.TP 5
+.B "-monochrome"
+transform image to black and white.
+.TP 5
+.B "-page \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the Postscript page.
+X
+Use this option to specify the dimensions of the Postscript page in picas.  The
+default is to center the image on a letter page, 612 by 792 picas.
+Other common sizes are:
+X
+X    540x720   Note
+X    612x1008  Legal
+X    842x1190  A3
+X    595x842   A4
+X    421x595   A5
+X    297x421   A6
+X    709x1002  B4
+X    612x936   U.S. Foolscap
+X    612x936   European Foolscap
+X    396x612   Half Letter
+X    792x1224  11x17
+X    1224x792  Ledger
+X
+The page geometry is relative to the vertical and horizonal density of the
+Postscript page.  See \fB-density\fP for details.
+.TP 5
+.B "-quality \fIvalue\fP"
+JPEG quality setting.
+X
+Quality is 0 (worst) to 100 (best). The default is 75.
+.TP 5
+.B "-rotate \fIdegrees\fP"
+apply Paeth image rotation to the image.
+X
+Empty triangles left over from rotating the image are filled with the
+color defined by the pixel at location (0,0).
+.TP 5
+.B "-scene \fIvalue\fP"
+image scene number.
+.TP 5
+.B "-screen"
+This option indicates that the GetImage request used to obtain the image
+should be done on the root window, rather than directly on the specified
+window.  In this way, you can obtain pieces of other windows that overlap
+the specified window, and more importantly, you can capture menus or other
+popups that are independent windows but appear over the specified window.
+.TP 5
+.B -verbose
+print detailed information about the image.
+X
+This information is printed: image scene number;  image name;  image size;
+the image class (\fIDirectClass\fP or \fIPseudoClass\fP);  the total
+number of unique colors;  and the number of seconds to read and write the
+image.
+.TP 5
+.B "-window \fIid\fP"
+select window with this id or name.
+X
+With this option you can specify the target window by id or name rather
+than using the mouse.  Specify 'root' to select X's root window as the
+target window.
+.PP
+Change \fI-\fP to \fI+\fP in any option above to reverse its effect.  For
+example \fB+frame\fP means do include window manager frame.
+.PP
+\fIfile\fP specifies the image filename.  By default, the image is
+written in the Postscript image format.  To specify a particular image
+format, precede the filename with an image format name and a colon
+(i.e.  ps:image) or specify the image type as the filename suffix (i.e.
+image.ps).  See \fBconvert(1)\fP for a list of valid image formats.
+.PP
+If \fIfile\fP has the extension \fB.Z\fP or \fB.gz\fP, the file size is
+compressed using with \fBcompress\fP or \fBgzip\fP respectively.  If
+\fIfile\fP already exists, you will be prompted as to whether it
+should be overwritten.
+.SH ENVIRONMENT
+.PP
+.TP 5
+.B display
+To get the default host, display number, and screen.
+.SH SEE ALSO
+.B
+display(1), animate(1), mogrify(1), convert(1), quantize(9), X(1), miff(5)
+.SH COPYRIGHT
+Copyright 1993 E. I. du Pont de Nemours & Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+& Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours & Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. du Pont de Nemours & Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours & Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of this software.
+.SH AUTHORS
+John Cristy, E.I. du Pont De Nemours & Company Incorporated
+SHAR_EOF
+chmod 0644 ImageMagick/import.man ||
+echo 'restore of ImageMagick/import.man failed'
+Wc_c="`wc -c < 'ImageMagick/import.man'`"
+test 8036 -eq "$Wc_c" ||
+	echo 'ImageMagick/import.man: original size 8036, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/quantize.c ==============
+if test -f 'ImageMagick/quantize.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/quantize.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/quantize.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/quantize.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%           QQQ   U   U   AAA   N   N  TTTTT  IIIII   ZZZZZ  EEEEE            %
+%          Q   Q  U   U  A   A  NN  N    T      I        ZZ  E                %
+%          Q   Q  U   U  AAAAA  N N N    T      I      ZZZ   EEEEE            %
+%          Q  QQ  U   U  A   A  N  NN    T      I     ZZ     E                %
+%           QQQQ   UUU   A   A  N   N    T    IIIII   ZZZZZ  EEEEE            %
+%                                                                             %
+%                                                                             %
+%              Reduce the Number of Unique Colors in an Image                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Realism in computer graphics typically requires using 24 bits/pixel to
+%  generate an image.  Yet many graphic display devices do not contain
+%  the amount of memory necessary to match the spatial and color
+%  resolution of the human eye.  The QUANTIZE program takes a 24 bit
+%  image and reduces the number of colors so it can be displayed on
+%  raster device with less bits per pixel.  In most instances, the
+%  quantized image closely resembles the original reference image.
+%
+%  A reduction of colors in an image is also desirable for image
+%  transmission and real-time animation.
+%
+%  Function Quantize takes a standard RGB or monochrome images and quantizes
+%  them down to some fixed number of colors.
+%
+%  For purposes of color allocation, an image is a set of n pixels, where
+%  each pixel is a point in RGB space.  RGB space is a 3-dimensional
+%  vector space, and each pixel, pi,  is defined by an ordered triple of
+%  red, green, and blue coordinates, (ri, gi, bi).
+%
+%  Each primary color component (red, green, or blue) represents an
+%  intensity which varies linearly from 0 to a maximum value, cmax, which
+%  corresponds to full saturation of that color.  Color allocation is
+%  defined over a domain consisting of the cube in RGB space with
+%  opposite vertices at (0,0,0) and (cmax,cmax,cmax).  QUANTIZE requires
+%  cmax = 255.
+%
+%  The algorithm maps this domain onto a tree in which each node
+%  represents a cube within that domain.  In the following discussion
+%  these cubes are defined by the coordinate of two opposite vertices:
+%  The vertex nearest the origin in RGB space and the vertex farthest
+%  from the origin.
+%
+%  The tree's root node represents the the entire domain, (0,0,0) through
+%  (cmax,cmax,cmax).  Each lower level in the tree is generated by
+%  subdividing one node's cube into eight smaller cubes of equal size.
+%  This corresponds to bisecting the parent cube with planes passing
+%  through the midpoints of each edge.
+%
+%  The basic algorithm operates in three phases: Classification,
+%  Reduction, and Assignment.  Classification builds a color
+%  description tree for the image.  Reduction collapses the tree until
+%  the number it represents, at most, the number of colors desired in the
+%  output image.  Assignment defines the output image's color map and
+%  sets each pixel's color by reclassification in the reduced tree.
+%
+%  Classification begins by initializing a color description tree of
+%  sufficient depth to represent each possible input color in a leaf.
+%  However, it is impractical to generate a fully-formed color
+%  description tree in the classification phase for realistic values of
+%  cmax.  If colors components in the input image are quantized to k-bit
+%  precision, so that cmax= 2k-1, the tree would need k levels below the
+%  root node to allow representing each possible input color in a leaf.
+%  This becomes prohibitive because the tree's total number of nodes is
+%  1 + sum(i=1,k,8k).
+%
+%  A complete tree would require 19,173,961 nodes for k = 8, cmax = 255.
+%  Therefore, to avoid building a fully populated tree, QUANTIZE: (1)
+%  Initializes data structures for nodes only as they are needed;  (2)
+%  Chooses a maximum depth for the tree as a function of the desired
+%  number of colors in the output image (currently log2(colormap size)).
+%
+%  For each pixel in the input image, classification scans downward from
+%  the root of the color description tree.  At each level of the tree it
+%  identifies the single node which represents a cube in RGB space
+%  containing the pixel's color.  It updates the following data for each
+%  such node:
+%
+%    n1 : Number of pixels whose color is contained in the RGB cube
+%    which this node represents;
+%
+%    n2 : Number of pixels whose color is not represented in a node at
+%    lower depth in the tree;  initially,  n2 = 0 for all nodes except
+%    leaves of the tree.
+%
+%    Sr, Sg, Sb : Sums of the red, green, and blue component values for
+%    all pixels not classified at a lower depth. The combination of
+%    these sums and n2  will ultimately characterize the mean color of a
+%    set of pixels represented by this node.
+%
+%  Reduction repeatedly prunes the tree until the number of nodes with
+%  n2 > 0 is less than or equal to the maximum number of colors allowed
+%  in the output image.  On any given iteration over the tree, it selects
+%  those nodes whose n1  count is minimal for pruning and merges their
+%  color statistics upward. It uses a pruning threshold, ns, to govern
+%  node selection as follows:
+%
+%    ns = 0
+%    while number of nodes with (n2 > 0) > required maximum number of colors
+%      prune all nodes such that n1 <= ns
+%      Set ns to minimum n1 in remaining nodes
+%
+%  When a node to be pruned has offspring, the pruning procedure invokes
+%  itself recursively in order to prune the tree from the leaves upward.
+%  n2,  Sr, Sg,  and  Sb in a node being pruned are always added to the
+%  corresponding data in that node's parent.  This retains the pruned
+%  node's color characteristics for later averaging.
+%
+%  For each node, n2 pixels exist for which that node represents the
+%  smallest volume in RGB space containing those pixel's colors.  When n2
+%  > 0 the node will uniquely define a color in the output image. At the
+%  beginning of reduction,  n2 = 0  for all nodes except a the leaves of
+%  the tree which represent colors present in the input image.
+%
+%  The other pixel count, n1, indicates the total number of colors
+%  within the cubic volume which the node represents.  This includes n1 -
+%  n2  pixels whose colors should be defined by nodes at a lower level in
+%  the tree.
+%
+%  Assignment generates the output image from the pruned tree.  The
+%  output image consists of two parts: (1)  A color map, which is an
+%  array of color descriptions (RGB triples) for each color present in
+%  the output image;  (2)  A pixel array, which represents each pixel as
+%  an index into the color map array.
+%
+%  First, the assignment phase makes one pass over the pruned color
+%  description tree to establish the image's color map.  For each node
+%  with n2  > 0, it divides Sr, Sg, and Sb by n2 .  This produces the
+%  mean color of all pixels that classify no lower than this node.  Each
+%  of these colors becomes an entry in the color map.
+%
+%  Finally,  the assignment phase reclassifies each pixel in the pruned
+%  tree to identify the deepest node containing the pixel's color.  The
+%  pixel's value in the pixel array becomes the index of this node's mean
+%  color in the color map.
+%
+%  For efficiency, QUANTIZE requires that the reference image be in a
+SHAR_EOF
+true || echo 'restore of ImageMagick/quantize.c failed'
+fi
+echo 'End of ImageMagick part 29'
+echo 'File ImageMagick/quantize.c is continued in part 30'
+echo 30 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

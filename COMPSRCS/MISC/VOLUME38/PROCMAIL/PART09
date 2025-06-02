@@ -1,0 +1,1395 @@
+Newsgroups: comp.sources.misc
+From: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Subject: v38i028:  procmail - mail processing package v2.90, Part09/11
+Message-ID: <1993Jul1.151348.21879@sparky.imd.sterling.com>
+X-Md4-Signature: 71ed12661abfa71ed2a54c31dab55d5a
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 1 Jul 1993 15:13:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: berg@pool.informatik.rwth-aachen.de (Stephen R. van den Berg)
+Posting-number: Volume 38, Issue 28
+Archive-name: procmail/part09
+Environment: sendmail, smail, MMDF, mailsurr, UNIX, POSIX
+Supersedes: procmail: Volume 35, Issue 21-32,124,125
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 9 (of 11)."
+# Contents:  procmail/initmake procmail/src/formail.c
+#   procmail/src/multigram.c
+# Wrapped by berg@tubastos on Thu Jul  1 14:06:18 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'procmail/initmake' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/initmake'\"
+else
+echo shar: Extracting \"'procmail/initmake'\" \(7781 characters\)
+sed "s/^X//" >'procmail/initmake' <<'END_OF_FILE'
+X#! /bin/sh
+X:
+X#$Id: initmake,v 1.37 1993/06/23 14:35:06 berg Exp $
+X
+XPATH=.:$PATH
+XBSHELL=$1
+Xshift; MSHELL=$1
+Xshift; RM="$1"
+Xshift; MV="$1"
+Xshift; LN="$1"
+Xshift; SEARCHLIBS="$1"
+Xshift; LIBPATHS="$1"
+Xshift; DEVNULL=$1
+Xshift; MAKE="$1"
+Xshift; O=$1
+Xshift; CC="$1"
+Xshift; CFLAGS1="$1"
+Xshift; LDFLAGS1="$1"
+Xshift; BINSS="$1"
+Xshift; MANS1S="$1"
+Xshift; MANS5S="$1"
+Xshift; SUBDIRS="$1"
+Xshift; BINDIR="$1"
+X
+Xtest 1 != $# &&
+X echo "Don't start this script directly, use \`make init'" && exit 1
+X
+Xtest -z "$MSHELL" || SHELL=$MSHELL
+Xcase "$SHELL" in
+X  *sh*)
+X     case "$SHELL" in
+X	*csh*) echo "Warning: really perverted make detected"; SHELL="";;
+X     esac;;
+X  *) echo "Warning: perverted make detected"; SHELL="";;
+Xesac
+Xtest -z "$SHELL" && SHELL=$BSHELL
+X
+Xexport SHELL PATH
+X
+XFGREP="fgrep"		# POSIX, or not POSIX, that is the question...
+Xif test \^hello = "`echo '^hello' | grep -F '^hello' 2>&1`"
+Xthen FGREP="grep -F"				# and POSIX it is!
+Xfi
+X
+Xecho hi | $FGREP hi >$DEVNULL
+Xt=$?
+Xecho ho | $FGREP hi >$DEVNULL
+Xf=$?
+Xif test 0 != $t -o 0 = $f
+Xthen
+X  echo "Your \"$FGREP\" program seems to be incapable of returning a proper"
+X  echo "exitvalue depending on the success of the search.  This script can"
+X  echo "not work without it."
+X  exit 2
+Xfi
+X
+Xif test ! -z "$LD_LIBRARY_PATH"
+Xthen
+X  echo '***************************** WARNING *********************************'
+X  echo '* You seem to have set the LD_LIBRARY_PATH variable, this might cause *'
+X  echo '* some trouble during the execution of this autoconf script.  If the  *'
+X  echo '* the make does not finish by itself, do a: "make clean",	      *'
+X  echo '* clear LD_LIBRARY_PATH from the environment, and start over.	      *'
+X  echo '***************************** WARNING *********************************'
+Xfi
+X
+Xcd src				# diving into the source directory ######
+Xcat >_autotst.c <<HERE
+Xmain()
+X{ return 0;
+X}
+XHERE
+X$RM _autotst.rrr _autotst.$O _autotst
+X
+Xcc=""
+X
+Xfor a in "$CC" cc gcc
+Xdo
+X  echo $a $CFLAGS1 _autotst.c -o _autotst $LDFLAGS1 >>_autotst.rrr
+X  test -z "$cc" -a ! -z "$a" &&
+X   ($a $CFLAGS1 _autotst.c -o _autotst $LDFLAGS1) >>_autotst.rrr \
+X   2>&1 && cc="$a"
+X  echo "::::" >>_autotst.rrr
+Xdone
+Xif test -z "$cc"
+Xthen
+X  echo 2>&1 "Whoeaaa!  There's something fishy going on here."
+X  echo 2>&1 "You have a look and see if you detect anything uncanny:"
+X  echo 2>&1 "-------------------------------------------------------"
+X  cat 2>&1 _autotst.rrr
+X  echo 2>&1 "-------------------------------------------------------"
+X  echo 2>&1 "I suggest you take a look at the definition of CFLAGS* and CC"
+X  echo 2>&1 "in the Makefile before you try make again."
+X  exit 1
+Xfi
+X$RM _autotst.rrr _autotst.$O _autotst
+Xecho "$cc seems to work fine, using that as the C-compiler"
+X
+Xcat >_autotst.c <<HERE
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <sys/stat.h>
+Xmain()
+X{ struct stat buf;return!&buf;
+X}
+XHERE
+X
+XCFLAGS=""
+X
+Xcase "$CFLAGS1" in
+X  *-D_POSIX_SOURCE*);;
+X  *)
+X     if $cc -c $CFLAGS1 _autotst.c >$DEVNULL 2>&1
+X     then
+X     :
+X     else
+X	$RM _autotst.$O
+X	$cc -c $CFLAGS1 -D_POSIX_SOURCE _autotst.c >$DEVNULL 2>&1 &&
+X	 CFLAGS=" -D_POSIX_SOURCE"
+X     fi;;
+Xesac
+X
+XLDFLAGSC=""
+X
+Xtest -f _autotst.$O || $cc -c $CFLAGS1 $CFLAGS _autotst.c >$DEVNULL 2>&1
+X$cc $CFLAGS1 $CFLAGS _autotst.$O -o _autotst $LDFLAGS1 -lc >_autotst.rrr 2>&1 \
+X && if grep "[\"']c['\"]" _autotst.rrr >$DEVNULL
+X  then
+X  :
+X  else
+X     LDFLAGSC=" -lc"
+X  fi
+X
+XLDFLAGS="$SEARCHLIBS"
+Xfirstrun=yes
+X
+Xwhile $RM _autotst
+X $cc $CFLAGS1 $CFLAGS _autotst.$O -o _autotst $LDFLAGS1 $LDFLAGS \
+X  $LDFLAGSC >_autotst.rrr 2>&1
+X test $firstrun = yes -o ! -f _autotst
+Xdo
+X  firstrun=no
+X  set dummy $LDFLAGS
+X  shift
+X  echo 2>&1 "	...scanning for $# libraries..."
+X  NEWLDFLAGS=""
+X  for a in $LDFLAGS dummy
+X  do
+X     if test dummy != $a
+X     then
+X	lib=`expr $a : '-l\(.*\)'`
+X	if $FGREP lib$lib _autotst.rrr >$DEVNULL ||
+X	 $FGREP -e $a _autotst.rrr >$DEVNULL ||
+X	 grep "[\"']$lib['\"]" _autotst.rrr >$DEVNULL
+X	then
+X	:
+X	else
+X	   OLDIFS="$IFS"; IFS=":$IFS"
+X	   found=no
+X	   for libpath in $LIBPATHS $LD_LIBRARY_PATH
+X	   do
+X	      set $libpath/*lib$lib[A-Z.]*
+X	      test -f $1 && found=yes
+X	   done
+X	   IFS="$OLDIFS"
+X	   test yes = $found && NEWLDFLAGS="$NEWLDFLAGS $a"
+X	fi
+X     fi
+X  done
+X  if test a"$LDFLAGS" = a"$NEWLDFLAGS"
+X  then
+X     echo 2>&1 "Whoeaaa!  There's something fishy going on here."
+X     echo 2>&1 "You have a look and see if you detect anything uncanny:"
+X     echo 2>&1 "-------------------------------------------------------"
+X     cat 2>&1 _autotst.rrr
+X     echo 2>&1 "-------------------------------------------------------"
+X     echo 2>&1 \
+X       "I suggest you take a look at the definition of LDFLAGS* and SEARCHLIBS"
+X     echo 2>&1 "in the Makefile before you try make again."
+X     echo 2>&1 "Also: write me a mail showing the errorlog you just generated."
+X     echo 2>&1 "The errorlog can still be found in src/_autotst.rrr"
+X     echo 2>&1 "It would be helpful if you could mention what machine and OS"
+X     echo 2>&1 "you are trying to compile this on (uname -a).  Thanks."
+X     exit 1
+X  fi
+X  LDFLAGS="$NEWLDFLAGS"
+Xdone
+X
+X$RM _autotst.$O _autotst.c _autotst
+Xcd ..			# returning to the main procmail directory ######
+X
+XLDFLAGS="$LDFLAGS$LDFLAGSC"
+X
+Xtest -z "$CFLAGS" || echo "Added CFLAGS=$CFLAGS"
+Xtest -z "$LDFLAGS" || echo "Added LDFLAGS=$LDFLAGS"
+X
+Xfor a in $SUBDIRS
+Xdo
+X  if test ! -f $a/Makefile.init
+X  then
+X     $LN $a/Makefile $a/Makefile.init
+X     $RM $a/Makefile
+X     $LN $a/Makefile.init $a/Makefile
+X  fi
+Xdone
+X
+Xtest -f Makefile.0 || sed -e '/^# Makefile - mark/,$ !d' <Makefile >Makefile.0
+Xsed -e '/^# Makefile - mark/,$ d' <Makefile >_Makefile
+Xecho "# Makefile.1 - mark, don't (re)move this, a sed script needs it
+X" >>_Makefile
+X
+Xtest a$SHELL != a$MSHELL && echo  "SHELL	= $SHELL"	>>_Makefile
+Xecho "FGREP	= $FGREP"				>>_Makefile
+Xtest -z "$MAKE" && echo "MAKE	= make"			>>_Makefile
+Xtest a"$cc" != a"$CC" && echo "CC	= $cc"		>>_Makefile
+X
+Xecho "CFLAGS	= \$(CFLAGS1)$CFLAGS"			>>_Makefile
+Xecho "LDFLAGS	= \$(LDFLAGS1)$LDFLAGS"			>>_Makefile
+Xecho							>>_Makefile
+X
+XMANSS=""
+XMANS1=""
+XMANS5=""
+XMANS=""
+XNMANS=""
+XBINS=""
+XNBINS=""
+Xfor a in $MANS1S
+Xdo
+X  MANSS="$MANSS $a.1"
+X  MANS1="$MANS1 $a.\$(MAN1SUFFIX)"
+Xdone
+Xfor a in $MANS5S
+Xdo
+X  MANSS="$MANSS $a.5"
+X  MANS5="$MANS5 $a.\$(MAN5SUFFIX)"
+Xdone
+Xfor a in $MANSS
+Xdo
+X  MANS="$MANS new/$a"
+X  NMANS="$NMANS ../new/$a"
+Xdone
+Xfor a in $BINSS
+Xdo
+X  BINS="$BINS new/$a"
+X  NBINS="$NBINS ../new/$a"
+Xdone
+X
+Xecho "BINS=$BINS"					>>_Makefile
+Xecho "MANS=$MANS"					>>_Makefile
+Xecho "MANS1=$MANS1"					>>_Makefile
+Xecho "MANS5=$MANS5"					>>_Makefile
+Xecho "MANSS=$MANSS"					>>_Makefile
+Xecho "NBINS=$NBINS"					>>_Makefile
+Xecho "NMANS=$NMANS"					>>_Makefile
+Xecho							>>_Makefile
+X
+Xfor a in $SUBDIRS
+Xdo
+X  sed -e '1,/^# Makefile.0 - mark/ d' <_Makefile >$a/_Makefile
+X  cat $a/Makefile.0 >>$a/_Makefile
+Xdone
+X
+Xecho "BINDIR=$BINDIR"					>>src/_Makefile
+X
+Xfor a in $BINSS
+Xdo
+X  echo							>>src/_Makefile
+X  echo "../new/$a: $a ../config.check"			>>src/_Makefile
+X  echo "	@\$(RM) \$@"				>>src/_Makefile
+X  echo "	\$(LN) $a \$@"				>>src/_Makefile
+Xdone
+X
+Xfor a in $MANSS
+Xdo
+X  echo							>>man/_Makefile
+X  echo "../new/$a: $a ../config.check"			>>man/_Makefile
+X  echo "	@\$(RM) \$@"				>>man/_Makefile
+X  echo "	\$(LN) $a \$@"				>>man/_Makefile
+Xdone
+X
+Xfor a in $MANS1S
+Xdo
+X  echo							>>man/_Makefile
+X  echo "$a.1: $a.man man.sed mansed"			>>man/_Makefile
+X  echo \
+X   "	\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+X   >>man/_Makefile
+Xdone
+X
+Xfor a in $MANS5S
+Xdo
+X  echo							>>man/_Makefile
+X  echo "$a.5: $a.man man.sed mansed"			>>man/_Makefile
+X  echo \
+X   "	\$(SHELL) ./mansed \$(SHELL) $a.man \$@ \"\$(RM)\" \$(DEVNULL)" \
+X   >>man/_Makefile
+Xdone
+X
+Xcat Makefile.1 >>_Makefile
+X$MV _Makefile Makefile
+X
+Xsleep 1			# Some machines are just too speedy, make gets confused
+X
+Xfor a in $SUBDIRS
+Xdo
+X  echo "#" >>$a/_Makefile
+X  $MV $a/_Makefile $a/Makefile
+Xdone
+END_OF_FILE
+if test 7781 -ne `wc -c <'procmail/initmake'`; then
+    echo shar: \"'procmail/initmake'\" unpacked with wrong size!
+fi
+chmod +x 'procmail/initmake'
+# end of 'procmail/initmake'
+fi
+if test -f 'procmail/src/formail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/formail.c'\"
+else
+echo shar: Extracting \"'procmail/src/formail.c'\" \(18606 characters\)
+sed "s/^X//" >'procmail/src/formail.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	formail - The mail (re)formatter				*
+X *									*
+X *	Seems to be relatively bug free.				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: formail.c,v 1.24 1993/06/23 12:56:01 berg Exp $";
+X#endif
+Xstatic /*const*/char rcsdate[]="$Date: 1993/06/23 12:56:01 $";
+X#include "includes.h"
+X#include <ctype.h>		/* iscntrl() */
+X#include "formail.h"
+X#include "sublib.h"
+X#include "shell.h"
+X#include "common.h"
+X#include "fields.h"
+X#include "ecommon.h"
+X#include "formisc.h"
+X
+Xstatic const char unknown[]=UNKNOWN,re[]=" Re:",fmusage[]=FM_USAGE,
+X From_[]=		FROM,				/* VNIX 'From ' line */
+X Article_[]=		"Article ",		   /* USENET 'Article ' line */
+X x_[]=			"X-",				/* general extension */
+X old_[]=		OLD_PREFIX;			     /* my extension */
+X#define ssl(str)		str,STRLEN(str)
+X#define bsl(str)		{ssl(str)}
+X#define sslbar(str,bar1,bar2)	{ssl(str),STRLEN(bar1)-1,STRLEN(bar2)-1}
+X#include "header.h"
+X/*
+X *	sender determination fields in order of importance/reliability
+X *	reply-address determination fields (wrepl specifies the weight for
+X *	for regular replies, wtrepl specifies the weight for trusted users)
+X *
+X *	I bet this is the first time you see a bar graph in C-source-code :-)
+X */
+Xstatic const struct {const char*head;int len,wrepl,wtrepl;}sest[]=
+X{ sslbar(replyto	,"******"	,"********"	),
+X  sslbar(Fromm		,"*"		,"****"		),
+X  sslbar(retreceiptto	,"********"	,"*******"	),
+X  sslbar(sender		,"*****"	,"******"	),
+X  sslbar(res_replyto	,"***********"	,"***********"	),
+X  sslbar(res_from	,"***foo***"	,"***bar***"	),
+X  sslbar(res_sender	,"**********"	,"**********"	),
+X  sslbar(errorsto	,"*******"	,"*****"	),
+X  sslbar(path		,"**"		,"*"		),
+X  sslbar(returnpath	,"***"		,"***"		),
+X  sslbar(From_		,"****"		,"**"		)
+X};
+X
+Xstatic struct saved rex[]=
+X{ bsl(subject),bsl(references),bsl(messageid),bsl(date)
+X};
+X#define subj	(rex+0)
+X#define refr	(rex+1)
+X#define msid	(rex+2)
+X#define hdate	(rex+3)
+X
+X#ifdef sMAILBOX_SEPARATOR
+X#define emboxsep	smboxsep
+X#define MAILBOX_SEPARATOR
+Xstatic const char smboxsep[]=sMAILBOX_SEPARATOR;
+X#endif /* sMAILBOX_SEPARATOR */
+X#ifdef eMAILBOX_SEPARATOR
+X#ifdef emboxsep
+X#undef emboxsep
+X#else
+X#define MAILBOX_SEPARATOR
+X#endif
+Xstatic const char emboxsep[]=eMAILBOX_SEPARATOR;
+X#endif /* eMAILBOX_SEPARATOR */
+X
+Xconst char binsh[]=BinSh,sfolder[]=FOLDER,
+X couldntw[]="Couldn't write to stdout";
+Xint errout,oldstdout,quiet,buflast;
+Xpid_t child= -1;
+XFILE*mystdout;
+Xsize_t nrskip,nrtotal= -1,buflen,buffilled;
+Xlong totallen;
+Xchar*buf,*logsummary;
+Xstruct field*rdheader,*xheader,*Xheader;
+Xstatic struct field*iheader,*Iheader,*aheader,*Aheader,*Rheader,*nheader;
+X
+Xstatic void logfolder P((void))	 /* estimate the no. of characters needed to */
+X{ size_t i;char num[8*sizeof totallen*4/10+1];	       /* represent totallen */
+X  static const char tabchar[]=TABCHAR;
+X  if(logsummary)
+X   { putssn(sfolder,STRLEN(sfolder));i=strlen(logsummary)+STRLEN(sfolder);
+X     i-=i%TABWIDTH;
+X     do putssn(tabchar,STRLEN(tabchar));
+X     while((i+=TABWIDTH)<LENoffset);
+X     ultstr(7,totallen,num);putssn(num,strlen(num));putcs('\n');
+X   }
+X}
+X    /* checks if the last field in rdheader looks like a known digest header */
+Xstatic digheadr P((void))
+X{ char*chp;int i;size_t j;struct field*fp;
+X  for(fp=rdheader;fp->fld_next;fp=fp->fld_next);	 /* skip to the last */
+X  i=maxindex(cdigest);chp=fp->fld_text;j=fp->id_len;
+X  while((cdigest[i].lnr!=j||strnIcmp(cdigest[i].hedr,chp,j))&&i--);
+X  return i>=0||j>STRLEN(old_)&&!strnIcmp(old_,chp,STRLEN(old_))||
+X   j>STRLEN(x_)&&!strnIcmp(x_,chp,STRLEN(x_));
+X}
+X
+Xstatic artheadr P((void))	     /* could it be the start of an article? */
+X{ if(!rdheader&&!strncmp(buf,Article_,STRLEN(Article_)))
+X   { addbuf();rdheader->id_len=STRLEN(Article_);return 1;
+X   }
+X  return 0;
+X}
+X
+Xstatic PROGID;
+X
+Xmain(lastm,argv)const char*const argv[];
+X{ int i,split=0,force=0,bogus=1,every=0,areply=0,trust=0,digest=0,nowait=0,
+X   keepb=0,minfields=(char*)progid-(char*)progid,conctenate=0;
+X  size_t j,lnl,escaplen;char*chp,*namep,*escap=ESCAP;
+X  struct field*fldp,*fp2,**afldp,*fdate;
+X  if(lastm)			       /* sanity check, any argument at all? */
+X#define Qnext_arg()	if(!*chp&&!(chp=(char*)*++argv))goto usg
+X     while(chp=(char*)*++argv)
+X      { if((lastm= *chp++)==FM_SKIP)
+X	   goto number;
+X	else if(lastm!=FM_TOTAL)
+X	   goto usg;
+X	for(;;)
+X	 { switch(lastm= *chp++)
+X	    { case FM_TRUST:trust=1;continue;
+X	      case FM_REPLY:areply=1;continue;
+X	      case FM_FORCE:force=1;continue;
+X	      case FM_EVERY:every=1;continue;
+X	      case FM_DIGEST:digest=1;continue;
+X	      case FM_NOWAIT:nowait=1;continue;
+X	      case FM_KEEPB:keepb=1;continue;
+X	      case FM_CONCATENATE:conctenate=1;continue;
+X	      case FM_QUIET:quiet=1;continue;
+X	      case FM_LOGSUMMARY:Qnext_arg();
+X		 if(strlen(logsummary=chp)>MAXfoldlen)
+X		    chp[MAXfoldlen]='\0';
+X		 detab(chp);break;
+X	      case FM_SPLIT:split=1;
+X		 if(!*chp&&*++argv)
+X		    goto parsedoptions;
+X		 goto usg;
+X	      case HELPOPT1:case HELPOPT2:elog(fmusage);elog(FM_HELP);
+X		 goto xusg;
+X	      case FM_MINFIELDS:Qnext_arg();chp++;
+X	      default:chp--;
+Xnumber:		 if(*chp-'0'>(unsigned)9)	    /* the number is not >=0 */
+X		    goto usg;
+X		 i=strtol(chp,&chp,10);
+X		 switch(lastm)			/* where does the number go? */
+X		  { case FM_SKIP:nrskip=i;break;
+X		    case FM_MINFIELDS:minfields=i;break;
+X		    default:nrtotal=i;
+X		  }
+X		 continue;
+X	      case FM_BOGUS:bogus=0;continue;
+X	      case FM_QPREFIX:Qnext_arg();escap=chp;break;
+X	      case FM_ADD_IFNOT:case FM_ADD_ALWAYS:case FM_REN_INSERT:
+X	      case FM_DEL_INSERT:case FM_EXTRACT:case FM_EXTRC_KEEP:
+X	      case FM_ReNAME:Qnext_arg();
+X		 if(!breakfield(chp,lnl=strlen(chp)))
+X		    goto invfield;
+X		 chp[lnl]='\n';			       /* terminate the line */
+X		 afldp=addfield(lastm==FM_REN_INSERT?&iheader:
+X		  lastm==FM_DEL_INSERT?&Iheader:lastm==FM_ADD_IFNOT?&aheader:
+X		  lastm==FM_ADD_ALWAYS?&Aheader:lastm==FM_EXTRACT?&xheader:
+X		  lastm==FM_EXTRC_KEEP?&Xheader:&Rheader,chp,++lnl);
+X		 if(lastm==FM_ReNAME)	      /* then we need a second field */
+X		  { int copied=0;
+X		    for(namep=(chp=(fldp= *afldp)->fld_text)+lnl,
+X		     chp+=lnl=fldp->id_len;chp<namep;++chp)
+X		     { switch(*chp)			  /* skip whitespace */
+X			{ case ' ':case '\t':case '\n':continue;
+X			}
+X		       break;
+X		     }				   /* second field attached? */
+X		    if(i=breakfield(chp,(size_t)(namep-chp)))  /* squeeze on */
+X		       tmemmove(fldp->fld_text+lnl,chp,i),copied=1;
+X		    else if(!(chp=(char*)*++argv)||	 /* look at next arg */
+X		     !(i=breakfield(chp,strlen(chp))))		/* no field? */
+Xinvfield:	     { nlog("Invalid field-name:");logqnl(chp?chp:"");
+X		       goto usg;
+X		     }
+X		    *afldp=fldp=
+X		     realloc(fldp,FLD_HEADSIZ+(fldp->tot_len=lnl+i));
+X		    if(!copied)			   /* if not squeezed on yet */
+X		       tmemmove(fldp->fld_text+lnl,chp,i);    /* squeeze now */
+X		  }
+X	      case '\0':;
+X	    }
+X	   break;
+X	 }
+X      }
+Xparsedoptions:
+X  escaplen=strlen(escap);mystdout=stdout;signal(SIGPIPE,SIG_IGN);
+X  if(split)
+X   { oldstdout=dup(STDOUT);fclose(stdout);startprog((const char*Const*)argv);
+X     if(!minfields)			       /* no user specified minimum? */
+X	minfields=DEFminfields;				 /* take our default */
+X   }
+X  else if(every||digest||minfields)	      /* these combinations are only */
+X     goto usg;				  /* valid in combination with split */
+X  if((xheader||Xheader)&&logsummary||keepb&&!(areply||xheader))
+Xusg:						     /* options sanity check */
+X   { elog(fmusage);					   /* impossible mix */
+Xxusg:
+X     return EX_USAGE;
+X   }
+X  buf=malloc(buflen=BSIZE);totallen=0;i=maxindex(rex); /* prime some buffers */
+X  do rex[i].rexp=malloc(1);
+X  while(i--);
+X  fdate=0;addfield(&fdate,date,STRLEN(date)); /* fdate is only for searching */
+X  while((buflast=getchar())=='\n');		     /* skip leading garbage */
+X  if(!readhead())					    /* start looking */
+X   {
+X#ifdef sMAILBOX_SEPARATOR			      /* check for a leading */
+X     if(!strncmp(smboxsep,buf,STRLEN(smboxsep)))	/* mailbox separator */
+X      { buffilled=0;goto startover;				  /* skip it */
+X      }
+X#endif
+X     if(digest&&artheadr())
+X	goto startover;
+X   }
+X  else
+Xstartover:
+X     while(readhead());				 /* read in the whole header */
+X  ;{ size_t lenparkedbuf;void*parkedbuf;
+X     if(rdheader&&!strncmp(rdheader->fld_text,Article_,STRLEN(Article_)))
+X	rdheader->fld_text[STRLEN(Article_)-1]=HEAD_DELIMITER;	   /* proper */
+X     namep=0;totallen=0;i=maxindex(rex);			    /* field */
+X     do rex[i].rexl=0;
+X     while(i--);				 /* all state has been reset */
+X     for(fldp=rdheader;fldp;fldp=fldp->fld_next)    /* go through the linked */
+X      { int nowm;				    /* list of header-fields */
+X	if(conctenate)
+X	   concatenate(fldp);			 /* look for `sender' fields */
+X	chp=fldp->fld_text;j=fldp->id_len;i=maxindex(sest);
+X	while((sest[i].len!=j||strnIcmp(sest[i].head,chp,j))&&i--);
+X	if(i>=0&&(i!=maxindex(sest)||fldp==rdheader))	  /* found anything? */
+X	 { char*saddr;char*tmp;			     /* determine the weight */
+X	   nowm=trust?sest[i].wtrepl:areply?i:sest[i].wrepl;chp+=j;
+X	   tmp=malloc(j=fldp->tot_len-j);tmemmove(tmp,chp,j);
+X	   tmp[j-1]='\0';chp=pstrspn(tmp," \t\n");
+X	   for(saddr=0;;chp=skipwords(chp))		/* skip RFC 822 wise */
+X	    { switch(*chp)
+X	       { default:
+X		    if(!saddr)		   /* if we haven't got anything yet */
+X		       saddr=chp;		/* this might be the address */
+X		    continue;
+X		 case '<':skipwords(saddr=chp);	  /* hurray, machine useable */
+X		 case '\0':;
+X	       }
+X	      break;
+X	    }
+X	   if(saddr)			    /* any useful mailaddress found? */
+X	    { if(*saddr)			  /* did it have any length? */
+X	       { if(strstr(saddr,".UUCP"))
+X		    nowm-=(maxindex(sest)+2)*3;	 /* depreciate .UUCP address */
+X		 else if(!strpbrk(saddr,"@!/"))
+X		    nowm-=(maxindex(sest)+2)*2;		/* depreciate "user" */
+X		 else if(strchr(saddr,'@')&&!strchr(saddr,'.'))
+X		    nowm-=maxindex(sest)+2;	     /* depreciate user@host */
+X		 if(!namep||nowm>lastm)		/* better than previous ones */
+X		  { saddr=strcpy(malloc(strlen(saddr)+1),saddr);lastm=nowm;
+X		    goto newnamep;
+X		  }
+X	       }
+X	      else if(sest[i].head==returnpath)		/* nill Return-Path: */
+X	       { saddr=0;lastm=maxindex(sest)+2;		 /* override */
+Xnewnamep:	 if(namep)
+X		    free(namep);
+X		 namep=saddr;
+X	       }
+X	    }
+X	   free(tmp);
+X	 }				   /* save headers for later perusal */
+X	i=maxindex(rex);chp=fldp->fld_text;j=fldp->id_len;    /* e.g. areply */
+X	while((rex[i].lenr!=j||strnIcmp(rex[i].headr,chp,j))&&i--);
+X	chp+=j;
+X	if(i>=0&&(j=fldp->tot_len-j)>1)			  /* found anything? */
+X	   tmemmove(rex[i].rexp=realloc(rex[i].rexp,rex[i].rexl=j),chp,j);
+X      }
+X     tmemmove(parkedbuf=malloc(buffilled),buf,lenparkedbuf=buffilled);
+X     buffilled=0;    /* moved the contents of buf out of the way temporarily */
+X     if(areply)		      /* autoreply requested, we clean up the header */
+X      { for(fldp= *(afldp= &rdheader);fldp;)
+X	   if(!(fp2=findf(fldp,iheader))||fp2->id_len<fp2->tot_len-1)
+X	      *afldp=fldp->fld_next,free(fldp),fldp= *afldp;   /* remove all */
+X	   else					/* except the ones mentioned */
+X	      fldp= *(afldp= &fldp->fld_next);		       /* as -i ...: */
+X	loadbuf(to,STRLEN(to));loadchar(' ');	   /* generate the To: field */
+X	if(namep)	       /* did we find a valid return address at all? */
+X	   loadbuf(namep,strlen(namep));	      /* then insert it here */
+X	else
+X	   loadbuf(unknown,STRLEN(unknown));	    /* or insert our default */
+X	loadchar('\n');addbuf();		       /* add it to rdheader */
+X	if(subj->rexl)				      /* any Subject: found? */
+X	 { loadbuf(subject,STRLEN(subject));	  /* sure, check for leading */
+X	   if(strnIcmp(pstrspn(chp=subj->rexp," \t"),Re,STRLEN(Re)))  /* Re: */
+X	      loadbuf(re,STRLEN(re));	       /* no Re: , add one ourselves */
+X	   loadsaved(subj);addbuf();
+X	 }
+X	if(refr->rexl||msid->rexl)	   /* any References: or Message-ID: */
+X	 { loadbuf(references,STRLEN(references)); /* yes insert References: */
+X	   if(refr->rexl)
+X	    { if(msid->rexl)	    /* if we're going to append a Message-ID */
+X		 --refr->rexl;		    /* suppress the trailing newline */
+X	      loadsaved(refr);
+X	    }
+X	   if(msid->rexl)
+X	      loadsaved(msid);		       /* here's our missing newline */
+X	   addbuf();
+X	 }
+X	if(msid->rexl)			 /* do we add an In-Reply-To: field? */
+X	   loadbuf(inreplyto,STRLEN(inreplyto)),loadsaved(msid),addbuf();
+X      }				       /* are we allowed to add From_ lines? */
+X     else if(!force&&(!rdheader||!eqFrom_(rdheader->fld_text)))	 /* missing? */
+X      { struct field*old;time_t t;	     /* insert a From_ line up front */
+X	t=time((time_t*)0);old=rdheader;rdheader=0;
+X	loadbuf(From_,STRLEN(From_));
+X	if(namep)			  /* we found a valid return address */
+X	   loadbuf(namep,strlen(namep));
+X	else
+X	   loadbuf(unknown,STRLEN(unknown));			    /* Date: */
+X	if(!hdate->rexl||!findf(fdate,aheader))
+X	   loadchar(' '),chp=ctime(&t),loadbuf(chp,strlen(chp)); /* no Date: */
+X	else					 /* we generate it ourselves */
+X	   loadsaved(hdate);	      /* yes, found Date:, then copy from it */
+X	addbuf();rdheader->fld_next=old;
+X      }
+X     for(fldp=aheader;fldp;fldp=fldp->fld_next)
+X	if(!findf(fldp,rdheader))	       /* only add what didn't exist */
+X	   addfield(&nheader,fldp->fld_text,fldp->tot_len);
+X     if((fldp= *(afldp= &rdheader))&&logsummary&&eqFrom_(fldp->fld_text))
+X	concatenate(fldp),putssn(fldp->fld_text,fldp->tot_len);
+X     while(fldp)
+X      { lnl=fldp->id_len;chp=fldp->fld_text;
+X	if(logsummary)
+X	 { if(lnl==STRLEN(subject)&&!strnIcmp(chp,subject,lnl))
+X	    { concatenate(fldp);chp[i=fldp->tot_len-1]='\0';detab(chp);
+X	      putcs(' ');putssn(chp,i>=MAXSUBJECTSHOW?MAXSUBJECTSHOW:i);
+X	      putcs('\n');
+X	    }
+X	 }
+X	if(findf(fldp,Iheader))				    /* delete fields */
+X	 { *afldp=fldp->fld_next,free(fldp);fldp= *afldp;continue;
+X	 }
+X	else if(fp2=findf(fldp,Rheader))	  /* explicitly rename field */
+X	   renfield(afldp,lnl,fp2->fld_text+lnl,fp2->tot_len-lnl);
+X	else if((fp2=findf(fldp,iheader))&&!(areply&&lnl==fp2->tot_len-1))
+X	   renfield(afldp,(size_t)0,old_,STRLEN(old_)); /* implicitly rename */
+X	fldp= *(afldp= &(*afldp)->fld_next);
+X      }					/* restore the saved contents of buf */
+X     tmemmove(buf,parkedbuf,buffilled=lenparkedbuf);free(parkedbuf);
+X   }
+X  flushfield(&rdheader);flushfield(&nheader);dispfield(Aheader);
+X  dispfield(iheader);dispfield(Iheader);
+X  if(namep)
+X     free(namep);
+X  if(!(xheader||Xheader))		 /* we're not just extracting fields */
+X     lputcs('\n');		/* make sure it is followed by an empty line */
+X  if(!keepb&&(areply||xheader||Xheader))		    /* decision time */
+X   { logfolder();				   /* we throw away the rest */
+X     if(split)
+X	closemine();
+X     opensink();					 /* discard the body */
+X   }
+X  lnl=1;					  /* last line was a newline */
+X  if(buffilled==1)		   /* the header really ended with a newline */
+X     buffilled=0;	      /* throw it away, since we already inserted it */
+X  while(buffilled||!lnl||buflast!=EOF)	 /* continue the quest, line by line */
+X   { if(!buffilled)				      /* is it really empty? */
+X	readhead();				      /* read the next field */
+X     if(rdheader)		    /* anything looking like a header found? */
+X      { if(eqFrom_(chp=rdheader->fld_text))	      /* check if it's From_ */
+Xfromanyway:
+X	 { register size_t k;
+X	   if(split&&(lnl||every)&&    /* more thorough check for a postmark */
+X	    (k=strcspn(chp=pstrspn(chp+STRLEN(From_)," \t")," \t\n"))&&
+X	    *pstrspn(chp+k," \t")!='\n')
+X	      goto accuhdr;		     /* ok, postmark found, split it */
+X	   if(bogus)						   /* disarm */
+X	      lputssn(escap,escaplen);
+X	 }
+X	else if(split&&digest&&(lnl||every)&&digheadr())	  /* digest? */
+Xaccuhdr: { for(i=minfields;--i&&readhead()&&digheadr(););   /* found enough? */
+X	   if(!i)					   /* then split it! */
+Xsplitit:    { if(!lnl)	    /* did the previous mail end with an empty line? */
+X		 lputcs('\n');			      /* but now it does :-) */
+X	      logfolder();
+X	      if((fclose(mystdout)==EOF||errout==EOF)&&!quiet)
+X		 nlog(couldntw),elog(", continuing...\n"),split= -1;
+X	      if(!nowait)
+X		 waitforit();		 /* wait till the child has finished */
+X	      startprog((const char*Const*)argv);goto startover;
+X	    }					    /* and there we go again */
+X	 }
+X      }
+X     else if(eqFrom_(buf))			 /* special case, From_ line */
+X      { addbuf();goto fromanyway;      /* add it manually, readhead() didn't */
+X      }
+X     else if(split&&digest&&(lnl||every)&&artheadr())
+X	goto accuhdr;
+X#ifdef MAILBOX_SEPARATOR
+X     if(!strncmp(emboxsep,buf,STRLEN(emboxsep)))	     /* end of mail? */
+X      { if(split)		       /* gobble up the next start separator */
+X	 { buffilled=0;
+X#ifdef sMAILBOX_SEPARATOR
+X	   getline();buffilled=0;		 /* but only if it's defined */
+X#endif
+X	   if(buflast!=EOF)					   /* if any */
+X	      goto splitit;
+X	   break;
+X	 }
+X	else if(bogus)
+X	   goto putsp;				   /* escape it with a space */
+X      }
+X     else if(!strncmp(smboxsep,buf,STRLEN(smboxsep)&&bogus))
+Xputsp:	lputcs(' ');
+X#endif /* MAILBOX_SEPARATOR */
+X     lnl=buffilled==1;		      /* check if we just read an empty line */
+X     if(areply&&bogus)					  /* escape the body */
+X	if(fldp=rdheader)	      /* we already read some "valid" fields */
+X	 { register char*p;
+X	   rdheader=0;
+X	   do			       /* careful, they can contain newlines */
+X	    { fp2=fldp->fld_next;chp=fldp->fld_text;
+X	      do
+X	       { lputssn(escap,escaplen);
+X		 lputssn(chp,(p=strchr(chp,'\n')+1)-chp);
+X	       }
+X	      while((chp=p)<fldp->fld_text+fldp->tot_len);
+X	      free(fldp);					/* delete it */
+X	    }
+X	   while(fldp=fp2);		       /* escape all fields we found */
+X	 }
+X	else
+X	 { if(buffilled>1)	  /* we don't escape empty lines, looks neat */
+X	      lputssn(escap,escaplen);
+X	   goto flbuf;
+X	 }
+X     else if(rdheader)
+X	flushfield(&rdheader); /* beware, after this buf can still be filled */
+X     else
+Xflbuf:	lputssn(buf,buffilled),buffilled=0;
+X   }			       /* make sure the mail ends with an empty line */
+X  logfolder();closemine();child= -1;waitforit();	/* wait for everyone */
+X  return split<0?EX_IOERR:EX_OK;
+X}
+X
+XeqFrom_(a)const char*const a;
+X{ return!strncmp(a,From_,STRLEN(From_));
+X}
+X
+Xbreakfield(line,len)const char*const line;size_t len;	   /* look where the */
+X{ const char*p=line;			   /* fieldname ends (RFC 822 specs) */
+X  if(eqFrom_(line))				      /* special case, From_ */
+X     return STRLEN(From_);
+X  while(len--&&!iscntrl(*p))		    /* no control characters allowed */
+X   { switch(*p++)
+X      { default:continue;
+X	case HEAD_DELIMITER:len=p-line;return len==1?0:len;	  /* eureka! */
+X	case ' ':;					/* no spaces allowed */
+X      }
+X     break;
+X   }
+X  return 0;		    /* sorry, does not seem to be a legitimate field */
+X}
+END_OF_FILE
+if test 18606 -ne `wc -c <'procmail/src/formail.c'`; then
+    echo shar: \"'procmail/src/formail.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/formail.c'
+fi
+if test -f 'procmail/src/multigram.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procmail/src/multigram.c'\"
+else
+echo shar: Extracting \"'procmail/src/multigram.c'\" \(18039 characters\)
+sed "s/^X//" >'procmail/src/multigram.c' <<'END_OF_FILE'
+X/************************************************************************
+X *	multigram - The human mail address reader			*
+X *									*
+X *	It uses multigrams to intelligently filter out mail addresses	*
+X *	from the garbage in any arbitrary mail.				*
+X *	Multigram is currently unable to pick out addresses that	*
+X *	contain embedded whitespace.					*
+X *	This program also contains some swiss-army-knife mailinglist	*
+X *	support features.						*
+X *									*
+X *	Most notably:	flist	A program that should be setuid root.	*
+X *									*
+X *	Seems to be relatively bug free.				*
+X *									*
+X *	Copyright (c) 1990-1992, S.R. van den Berg, The Netherlands	*
+X *	#include "README"						*
+X ************************************************************************/
+X#ifdef RCS
+Xstatic /*const*/char rcsid[]=
+X "$Id: multigram.c,v 1.30 1993/06/07 12:37:18 berg Exp $";
+X#endif
+Xstatic /*const*/char rcsdate[]="$Date: 1993/06/07 12:37:18 $";
+X#include "includes.h"
+X#include "sublib.h"
+X#include "shell.h"
+X#include "ecommon.h"
+X
+X#include "targetdir.h"	  /* see ../mailinglist/install.sh2 for more details */
+X
+X#define BUFSTEP		16
+X#define COPYBUF		16384
+X/*#define SPEEDBUF	COPYBUF	       /* uncomment to get a speed increase? */
+X#define SCALE_WEIGHT	0x7fff
+X#define EXCL_THRESHOLD	30730
+X
+X#define DEFmaxgram	4
+X#define DEFminweight	(SCALE_WEIGHT/4)	      /* sanity cutoff value */
+X#define DEFbest_matches 2
+X
+X#define DEFAULTS_DIR	".etc"			  /* some configurable paths */
+X#define GLOCKFILE	"../.etc/rc.lock"
+X#define RCMAIN		"./.etc/rc.main"
+X#define LLOCKFILE	"rc.lock"
+X#define REQUEST		"-request"
+X#define RCSUBMIT	"./rc.submit"
+X#define RCREQUEST	"./rc.request"
+X#define RCPOST		"./../.etc/rc.post"
+X#define RCINIT		"RC_INIT=rc.init"
+X#define XENVELOPETO	"X_ENVELOPE_TO="
+X#define LIST		"list="
+X
+X#define metoo_SENDMAIL		"-om"
+X#define nometoo_SENDMAIL	"-omF"
+X#define REMOV1_DELIM "(Only"
+X#define REMOV2_DELIM "addresses below this line can be automatically removed)"
+X#define NOT_METOO	"(-n)"
+X
+Xstruct string{char*text,*itext;size_t textlen,buflen;};
+X
+Xstatic remov_delim,maxgram;
+X
+XstrnIcmp(a,b,l)const char*a,*b;size_t l;			     /* stub */
+X{ return strncmp(a,b,l);
+X}
+X		    /* read a string from a file into a struct string buffer */
+Xstatic size_t readstr(file,p,linewise)FILE*const file;struct string*p;
+X const int linewise;
+X{ size_t len;int i,firstspc;
+X  static const char rem1str[]=REMOV1_DELIM,rem2str[]=REMOV2_DELIM;
+X  for(len=firstspc=0;;)
+X   { switch(i=getc(file))
+X      { case ' ':case '\t':case '\n':
+X	   if(!len)				  /* only skip leading space */
+X	      continue;
+X	   if(!linewise)		      /* do we need a complete line? */
+X	      break;				       /* no, a word will do */
+X	   if(!firstspc)			     /* already seen spaces? */
+X	    { if(i=='\n')			     /* no, so check for EOL */
+X	       { p->text[len]='\0';	  /* terminate the first word, split */
+X		 if(++len==p->buflen)		 /* still buffer space left? */
+X		    p->text=realloc(p->text,p->buflen+=BUFSTEP);
+X		 break;
+X	       }
+X	      i='\0';firstspc=1;
+X	    }			 /* not the first word on the line, continue */
+X	   if(i=='\n')
+X	      break;
+X	default:p->text[len]=i;		      /* regular character, store it */
+X	   if(++len==p->buflen)			   /* watch our buffer space */
+X	      p->text=realloc(p->text,p->buflen+=BUFSTEP);
+X	   continue;					   /* next character */
+X	case EOF:;
+X      }
+X     p->text[len]='\0';			 /* terminate the buffer in any case */
+X     if(linewise&&!remov_delim&&!strcmp(p->text,rem1str)&&
+X      !strcmp(p->text+sizeof rem1str,rem2str))	       /* special delimiter? */
+X	remov_delim=1;
+X     return len;
+X   }
+X}
+X
+Xstatic char*tstrdup(p)const char*const p;
+X{ return strcpy(malloc(strlen(p)+1),p);
+X}
+X
+Xstatic void lowcase(str)struct string*const str;	   /* make lowercase */
+X{ register char*p;
+X  for(p=str->itext=tstrdup(str->text);*p;p++)
+X     if((unsigned)*p-'A'<'Z'-'A')
+X	*p+='a'-'A';
+X}
+X
+Xstatic void elog(a)const char*const a;
+X{ fputs(a,stderr);
+X}
+X							/* the program names */
+Xstatic const char idhash[]="idhash",flist[]="flist",senddigest[]="senddigest",
+X dirsep[]=DIRSEP;
+Xstatic const char*progname="multigram";
+X
+Xvoid nlog(a)const char*const a;		    /* log error with identification */
+X{ elog(progname);elog(": ");elog(a);
+X}
+X						 /* finds the next character */
+Xstatic char*lastdirsep(filename)const char*filename;
+X{ const char*p;					/* following the last DIRSEP */
+X  while(p=strpbrk(filename,dirsep))
+X     filename=p+1;
+X  return(char*)filename;
+X}
+X						   /* check rc.lock file age */
+Xstatic rclock(file,stbuf)const char*const file;struct stat*const stbuf;
+X{ int waited=0;
+X  while(!stat(file,stbuf)&&time((time_t*)0)-stbuf->st_mtime<DEFlocktimeout)
+X     waited=1,sleep(DEFlocksleep);		     /* wait, if appropriate */
+X  return waited;
+X}
+X
+Xstatic char*argstr(first,last)const char*first,*last;		/* construct */
+X{ char*chp;size_t i;				   /* an argument assignment */
+X  strcpy(chp=malloc((i=strlen(first))+strlen(last)+1),first);
+X  strcpy(chp+i,last);return chp;
+X}
+X
+Xstatic PROGID;
+X
+Xstatic matchgram(fuzzstr,hardstr)
+Xconst struct string*const fuzzstr;struct string*const hardstr;
+X{ size_t minlen,maxlen;unsigned maxweight;int meter;
+X  register size_t gramsize;
+X  if((minlen=hardstr->textlen=strlen(hardstr->text))>(maxlen=fuzzstr->textlen))
+X     minlen=fuzzstr->textlen,maxlen=hardstr->textlen;
+X  if((gramsize=minlen-1)>maxgram)
+X     gramsize=maxgram;
+X  maxweight=SCALE_WEIGHT/(gramsize+1);
+X  meter=(int)((unsigned long)SCALE_WEIGHT/2*minlen/maxlen)-SCALE_WEIGHT/2;
+X  do					    /* reset local multigram counter */
+X   { register lmeter=0;size_t cmaxlen=maxlen;
+X     ;{ register const char*fzz,*hrd;
+X	fzz=fuzzstr->itext;
+X	do
+X	 { for(hrd=fzz+1;hrd=strchr(hrd,*fzz);)		 /* is it present in */
+X	      if(!strncmp(++hrd,fzz+1,gramsize))	      /* own string? */
+X	       { if(cmaxlen>gramsize+1)
+X		    cmaxlen--;
+X		  goto dble_gram;		     /* skip until it's last */
+X	       }
+X	   for(hrd=hardstr->itext;hrd=strchr(hrd,*fzz);)	/* otherwise */
+X	       if(!strncmp(++hrd,fzz+1,gramsize))	 /* search it in the */
+X		{ lmeter++;break;			       /* dist entry */
+X		}
+Xdble_gram:;
+X	 }
+X	while(*(++fzz+gramsize));				/* next gram */
+X      }
+X     if(lmeter)
+X      { unsigned weight;
+X	if(cmaxlen>minlen)
+X	   cmaxlen=minlen;
+X	meter+=lmeter*(weight=maxweight/(unsigned)(cmaxlen-gramsize));
+X	meter-=weight*
+X	 (unsigned long)((lmeter+=gramsize-cmaxlen)<0?-lmeter:lmeter)/cmaxlen;
+X      }
+X   }
+X  while(gramsize--);			 /* search all gramsizes down to one */
+X  return meter;
+X}
+X
+Xmain(minweight,argv)char*argv[];
+X{ struct string fuzzstr,hardstr,excstr,exc2str;FILE*hardfile;
+X  const char*addit=0;
+X  struct match{char*fuzz,*hard;int metric;long lentry;off_t offs1,offs2;}
+X   **best,*curmatch=0;
+X  unsigned best_matches,charoffs=0,remov=0,renam=0,
+X   chkmetoo=(char*)progid-(char*)progid;
+X  int lastfrom;
+X  static const char usage[]=
+X"Usage: multigram [-cdmr] [-b nnn] [-l nnn] [-w nnn] [-ax address] filename\n";
+X  if(minweight)			      /* sanity check, any arguments at all? */
+X   { char*chp;
+X     if(!strcmp(chp=lastdirsep(argv[0]),flist))		 /* suid flist prog? */
+X      { struct stat stbuf;char*arg;
+X	static const char request[]=REQUEST,listid[]=LISTID,
+X	 rcrequest[]=RCREQUEST,rcpost[]=RCPOST,list[]=LIST,
+X	 defdir[]=DEFAULTS_DIR,targetdir[]=TARGETDIR,
+X	 *pmexec[]={PROCMAIL,RCSUBMIT,RCINIT,0,0,0,rcrequest,rcpost,0};
+X#define Endpmexec(i)	(pmexec[maxindex(pmexec)-(i)])
+X	progname=flist;*chp='\0';
+X	if(chdir(targetdir))
+X	 { nlog("Couldn't chdir to \"");elog(targetdir);elog("\"\n");
+X	   return EX_NOPERM;
+X	 }
+X	if(stat(defdir,&stbuf))
+X	 { nlog("Can't find \"");elog(defdir);elog("\" in \"");
+X	   elog(targetdir);elog("\"\n");return EX_NOINPUT;
+X	 }
+X	if(minweight!=2)		       /* wrong number of arguments? */
+X	 { elog("Usage: flist listname[-request]\n");return EX_USAGE;
+X	 }
+X	chp=strchr(arg=argv[1],'\0');		       /* check for -request */
+X	if(chp-arg>STRLEN(request)&&!strcmp(chp-=STRLEN(request),request))
+X	   *chp='\0',pmexec[1]=rcrequest,Endpmexec(1)=0,Endpmexec(2)=rcpost;
+X	else
+X	   chp=0;
+X	if(!strcmp(arg,chPARDIR)||strpbrk(arg,dirsep))
+X	 { nlog("Bogus listname\n");return EX_NOPERM;
+X	 }
+X	if(geteuid()==ROOT_uid)		  /* continue as the list maintainer */
+X	 { struct passwd*pass;
+X	   if(!(pass=getpwnam(listid)))
+X	    { nlog("User \");elog(listid);elog(\" unknown\n");
+X	      return EX_NOUSER;
+X	    }
+X	   setgid(pass->pw_gid);initgroups(listid,pass->pw_gid);
+X	   setuid(pass->pw_uid);endpwent();
+X	 }
+X	else
+X	   setgid(stbuf.st_gid),setuid(stbuf.st_uid);
+X	if(chdir(arg))			     /* goto the list's subdirectory */
+X	   pmexec[1]=RCMAIN,Endpmexec(2)=0,chdir(defdir);
+X	Endpmexec(5)=INIT_PATH;
+X	Endpmexec(4)=argstr(list,arg);		    /* pass on the list name */
+X	if(chp)					  /* was it a -request list? */
+X	   *chp= *request;		     /* then restore the leading '-' */
+X	Endpmexec(3)=argstr(XENVELOPETO,arg);
+X	while(rclock(GLOCKFILE,&stbuf)||rclock(LLOCKFILE,&stbuf));  /* stall */
+X	execve(pmexec[0],(char*const*)pmexec,environ);nlog("Couldn't exec \"");
+X	elog(pmexec[0]);elog("\"\n");return EX_UNAVAILABLE;	    /* panic */
+X      }
+X     setgid(getgid());setuid(getuid());		  /* revoke suid permissions */
+X     if(!strcmp(chp,idhash))				  /* idhash program? */
+X      { unsigned long hash=0;int i;
+X	progname=idhash;
+X	if(minweight!=1)
+X	 { elog("Usage: idhash\n");return EX_USAGE;
+X	 }
+X	while(i=fgetc(stdin),!feof(stdin))		       /* hash away! */
+X	   hash=hash*67067L+i;
+X	printf("%lx",hash);return EX_OK;
+X      }
+X     if(!strcmp(chp,senddigest))		      /* senddigest program? */
+X      { struct stat stbuf;
+X	progname=senddigest;
+X	if(minweight<5)
+X	 { elog(
+X	 "Usage: senddigest maxage maxsize bodyfile trailerfile [file] ...\n");
+X	   return EX_USAGE;
+X	 }
+X	if(!stat(argv[3],&stbuf))
+X	 { time_t newt;off_t size;
+X	   newt=stbuf.st_mtime;size=stbuf.st_size;
+X	   if(!stat(argv[minweight=4],&stbuf))
+X	    { off_t maxsize;
+X	      if(stbuf.st_mtime+strtol(argv[1],(char**)0,10)<newt)
+X		 return EX_OK;				   /* digest too old */
+X	      maxsize=strtol(argv[2],(char**)0,10);goto statd;
+X	      do
+X	       { if(!stat(argv[minweight],&stbuf))
+Xstatd:		    if((size+=stbuf.st_size)>maxsize)	  /* digest too big? */
+X		       return EX_OK;
+X	       }
+X	      while(argv[++minweight]);
+X	    }
+X	 }
+X	return 1;
+X      }
+X     minweight=SCALE_WEIGHT;best_matches=maxgram=0;exc2str.text=excstr.text=0;
+X     while((chp= *++argv)&&*chp=='-')
+X	for(chp++;;)
+X	 { int c;
+X	   switch(c= *chp++)
+X	    { case 'c':charoffs=1;continue;
+X	      case 'd':remov=1;continue;
+X	      case 'r':renam=1;continue;
+X	      case 'm':chkmetoo=1;continue;
+X	      case 'a':
+X		 if(!*chp&&!(chp= *++argv))
+X		    goto usg;
+X		 addit=chp;break;
+X	      case 'x':
+X		 if(!*chp&&!(chp= *++argv))
+X		    goto usg;
+X		 if(excstr.text)
+X		    exc2str.text=chp;
+X		 else
+X		    excstr.text=chp;
+X		 break;
+X	      case 'b':case 'l':case 'w':
+X	       { int i;
+X		 ;{ const char*ochp;
+X		    if(!*chp&&!(chp= *++argv)||
+X		     (i=strtol(ochp=chp,(char**)&chp,10),chp==ochp))
+X		       goto usg;
+X		  }
+X		 switch(c)
+X		  { case 'b':best_matches=i;continue;
+X		    case 'l':minweight=i;continue;
+X		    case 'w':maxgram=i;continue;
+X		  }
+X	       }
+X	      case HELPOPT1:case HELPOPT2:elog(usage);
+X		 elog(
+X "\t-a address\tadd this address to the list\
+X\n\t-b nnn\t\tmaximum no. of best matches shown\
+X\n\t-c\t\tdisplay offsets in characters\
+X\n\t-d\t\tdelete address from list\
+X\n\t-m\t\tcheck for metoo\
+X\n\t-l nnn\t\tlower bound metric\
+X\n\t-r\t\trename address on list\
+X\n\t-x address\texclude this address from the search (max. 2)\
+X\n\t-w nnn\t\twindow width used when matching\n");return EX_USAGE;
+X	      case '-':
+X		 if(!*chp)
+X		  { chp= *++argv;goto lastopt;
+X		  }
+X	      default:goto usg;
+X	      case '\0':;
+X	    }
+X	   break;
+X	 }
+Xlastopt:
+X     if(!chp||*++argv||renam+remov+!!addit>1)
+X	goto usg;
+X     if(excstr.text)
+X      { excstr.textlen=strlen(excstr.text);lowcase(&excstr);
+X	if(exc2str.text)
+X	   exc2str.textlen=strlen(exc2str.text),lowcase(&exc2str);
+X      }
+X     if(!(hardfile=fopen(chp,remov||renam||addit?"r+":"r")))
+X      { nlog("Couldn't open \"");elog(chp);elog("\"\n");return EX_IOERR;
+X      }
+X#ifdef SPEEDBUF				   /* allocate a bigger stdio buffer */
+X     setvbuf(hardfile,malloc(SPEEDBUF),_IOFBF,(size_t)SPEEDBUF);
+X#endif
+X   }
+X  else
+Xusg:
+X   { elog(usage);return EX_USAGE;
+X   }
+X  if(addit)			      /* special subfunction, to add entries */
+X   { int lnl;off_t lasttell;				 /* to the dist file */
+X     for(lnl=1,lasttell=0;;)
+X      { switch(getc(hardfile))			    /* step through the file */
+X	 { case '\n':
+X	      if(!lnl)			    /* looking for trailing newlines */
+X		 lnl=1,lasttell=ftell(hardfile);
+X	      continue;
+X	   default:lnl=0;continue;
+X	   case EOF:;				   /* or the end of the file */
+X	 }
+X	break;
+X      }				     /* go back there, and add the new entry */
+X     fseek(hardfile,lasttell,SEEK_SET);fprintf(hardfile,"%s\n",addit);
+X     printf("Added: %s\n",addit);fclose(hardfile);return EX_OK;
+X   }
+X  if(!maxgram)
+X     maxgram=DEFmaxgram;
+X  maxgram--;
+X  if(minweight==SCALE_WEIGHT)
+X     minweight=DEFminweight;
+X  if(!best_matches)
+X     best_matches=DEFbest_matches;
+X  fuzzstr.text=malloc(fuzzstr.buflen=BUFSTEP);
+X  hardstr.text=malloc(hardstr.buflen=BUFSTEP);
+X  ;{ int i;
+X     best=malloc(best_matches--*sizeof*best);i=best_matches;
+X     do
+X      { best[i]=malloc(sizeof**best);best[i]->hard=malloc(1);
+X	best[i]->fuzz=malloc(1);best[i]->metric= -SCALE_WEIGHT;
+X      }
+X     while(i--);
+X   }
+X  for(lastfrom= -1;readstr(stdin,&fuzzstr,0);)
+X   { int meter,maxmetric;long linentry;off_t offs1,offs2;
+X     ;{ char*chp,*echp;int parens;
+X	echp=strchr(chp=fuzzstr.text,'\0')-1;
+X	do
+X	 { switch(*echp)
+X	    { case '.':case ',':case ';':case ':':case '?':case '!':*echp='\0';
+X		 continue;
+X	    }
+X	   break;
+X	 }
+X	while(--echp>chp);    /* roughly check if it could be a mail address */
+X	if(lastfrom<=0&&!strpbrk(chp,"@/")&&(!strchr(chp,'!')||
+X	 strchr(chp,'|')||strchr(chp,',')||strstr(chp,"..")))
+X	 { if(lastfrom<0)
+X	      lastfrom=!strcmp(SHFROM,chp);
+X	   continue;			  /* apparently not an email address */
+X	 }
+X	lastfrom=0;
+X	for(parens=0;chp=strchr(chp,'(');chp++,parens++);
+X	for(chp=fuzzstr.text;chp=strchr(chp,')');chp++,parens--);
+X	if(*(chp=fuzzstr.text)=='(')
+X	 { if(!parens&&*echp==')')
+X	    { *echp='\0';goto shftleft;
+X	    }
+X	   if(parens>0)
+Xshftleft:     tmemmove(chp,chp+1,strlen(chp));
+X	 }
+X	else if(parens<0&&*echp==')')
+X	   *echp='\0';
+X	if(*(chp=fuzzstr.text)=='<'&&*(echp=strchr(chp,'\0')-1)=='>'
+X	 &&!strchr(chp,','))			      /* strip '<' and '>' ? */
+X	   *echp='\0',tmemmove(chp,chp+1,echp-chp);
+X	if(!(fuzzstr.textlen=strlen(chp)))
+X	   continue;
+X	lowcase(&fuzzstr);
+X	if(excstr.text&&matchgram(&fuzzstr,&excstr)>=EXCL_THRESHOLD||
+X	 exc2str.text&&matchgram(&fuzzstr,&exc2str)>=EXCL_THRESHOLD)
+X	 { free(fuzzstr.itext);continue;
+X	 }
+X	;{ int i=0;
+X	   do
+X	    { if(best[i]->metric==-SCALE_WEIGHT&&!strcmp(best[i]->fuzz,chp))
+X		 break;
+X	      if(!strcmp(best[i]->fuzz,chp))	/* already matched this one? */
+X		 goto dupl_addr;
+X	    }
+X	   while(++i<=best_matches);
+X	 }
+X	if(!curmatch)
+X	   curmatch=malloc(sizeof*curmatch);
+X	curmatch->fuzz=tstrdup(chp);curmatch->hard=malloc(1);
+X	curmatch->metric= -SCALE_WEIGHT;
+X      }
+X     fseek(hardfile,(off_t)0,SEEK_SET);maxmetric=best[best_matches]->metric;
+X     for(remov_delim=offs2=linentry=0;
+X      offs1=offs2,readstr(hardfile,&hardstr,1);)
+X      { offs2=ftell(hardfile);linentry++;
+X	if(*hardstr.text=='(')
+X	   continue;				   /* unsuitable for matches */
+X	lowcase(&hardstr);meter=matchgram(&fuzzstr,&hardstr);
+X	free(hardstr.itext);			 /* check if we had any luck */
+X	if(meter>maxmetric&&(remov_delim||!renam&&!remov))
+X	 { size_t hardlen;
+X	   curmatch->metric=maxmetric=meter;curmatch->lentry=linentry;
+X	   free(curmatch->hard);hardlen=hardstr.textlen+1;
+X	   hardlen+=strlen(hardstr.text+hardlen)+1;
+X	   curmatch->hard=malloc(hardlen+=strlen(hardstr.text+hardlen)+1);
+X	   tmemmove(curmatch->hard,hardstr.text,hardlen);
+X	   curmatch->offs1=offs1;curmatch->offs2=offs2;
+X	 }
+X      }
+X     free(fuzzstr.itext);	 /* maybe this match can be put in the array */
+X     if(curmatch->metric>-SCALE_WEIGHT)		   /* of best matches so far */
+X      { struct match*mp,**mmp;
+X	free((mp= *(mmp=best+best_matches))->fuzz);free(mp->hard);free(mp);
+X	while(--mmp>=best&&(mp= *mmp)->metric<curmatch->metric)
+X	   mmp[1]=mp;					   /* keep it sorted */
+X	mmp[1]=curmatch;curmatch=0;
+X      }
+X     else
+X	free(curmatch->fuzz),free(curmatch->hard);
+Xdupl_addr:;
+X   }
+X  ;{ int i;struct match*mp;
+X     for(i=0;i<=best_matches&&(mp=best[i++])->metric>=minweight;)
+X	if(chkmetoo)
+X	   printf("%s\n",strcmp(mp->hard+strlen(mp->hard)+1,NOT_METOO)
+X	    ?metoo_SENDMAIL:nometoo_SENDMAIL);
+X	else
+X	   printf("%3ld %-34s %5d %-34s\n",
+X	    charoffs?mp->offs1:mp->lentry,mp->hard,mp->metric,mp->fuzz);
+X     if((mp= *best)->metric>=minweight)
+X      { struct match*worse;
+X	if(renam)
+X	 { long line;int i,w1;unsigned maxweight;
+X	   maxweight=SCALE_WEIGHT/(maxgram+1)>>1;;
+X	   for(i=1,line=mp->lentry,w1=mp->metric,worse=0;
+X	    i<=best_matches&&(mp=best[i++])->metric>=minweight;)
+X	      if(mp->lentry==line&&mp->metric+maxweight<w1)
+X	       { goto remv1;
+X	       }
+X	   for(i=1;i<=best_matches&&(mp=best[i++])->metric>=minweight;)
+X	      if(mp->metric+maxweight<w1)
+Xremv1:	       { worse=mp;mp= *best;goto remv;
+X	       }
+X	   nlog("Couldn't find a proper address pair\n");goto norenam;
+X	 }
+X	if(remov)
+Xremv:	 { char*buf;off_t offs1,offs2;size_t readin;
+X	   buf=malloc(COPYBUF);offs1=mp->offs1;offs2=mp->offs2;
+X	   while(fseek(hardfile,offs2,SEEK_SET),
+X	    readin=fread(buf,1,COPYBUF,hardfile))
+X	    { offs2=ftell(hardfile);fseek(hardfile,offs1,SEEK_SET);
+X	      if(buf[readin-1]=='\n')	  /* try and remove some empty lines */
+X		 while(readin>1&&buf[readin-2]=='\n')	/* at the end, since */
+X		    readin--;		     /* every time could be the last */
+X	      fwrite(buf,1,readin,hardfile);offs1=ftell(hardfile);
+X	    }
+X	   free(buf);fseek(hardfile,offs1,SEEK_SET);
+X	   printf("Removed: %s\n",mp->hard);
+X	   if(renam)
+X	      fputs(worse->fuzz,hardfile),printf("Added: %s\n",worse->fuzz);
+X	   do putc('\n',hardfile);			   /* erase the tail */
+X	   while(ftell(hardfile)<offs2);
+X	   fclose(hardfile);
+X	 }
+X	return EX_OK;
+X      }
+X   }
+X  if(remov||renam)
+X   { nlog("Couldn't even find a single address\n");
+X   }
+Xnorenam:
+X  return 1;
+X}
+END_OF_FILE
+if test 18039 -ne `wc -c <'procmail/src/multigram.c'`; then
+    echo shar: \"'procmail/src/multigram.c'\" unpacked with wrong size!
+fi
+# end of 'procmail/src/multigram.c'
+fi
+echo shar: End of archive 9 \(of 11\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Sincerely,                                  berg@pool.informatik.rwth-aachen.de
+           Stephen R. van den Berg (AKA BuGless).    berg@physik.tu-muenchen.de
+
+"Always look on the bright side of life!"
+
+exit 0 # Just in case...

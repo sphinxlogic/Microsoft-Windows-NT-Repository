@@ -1,0 +1,2334 @@
+Newsgroups: comp.sources.misc
+From: byron@archone.tamu.edu (Byron Rakitzis)
+Subject:  v30i028:  rc - A Plan 9 shell reimplementation, v1.4, Part05/07
+Message-ID: <1992May30.031709.5529@sparky.imd.sterling.com>
+X-Md4-Signature: 474125028d94776fa000cf213810a3b6
+Date: Sat, 30 May 1992 03:17:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: byron@archone.tamu.edu (Byron Rakitzis)
+Posting-number: Volume 30, Issue 28
+Archive-name: rc/part05
+Environment: UNIX
+Supersedes: rc: Volume 23, Issue 61-66
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  CHANGES fn.c glob.c heredoc.c history/history.1
+#   history/history.c parse.y rc.h var.c version.c
+# Wrapped by kent@sparky on Fri May 29 20:55:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 7)."'
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+  echo shar: Extracting \"'CHANGES'\" \(5591 characters\)
+  sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+XChanges since 1.2: (Too many to count!)
+X
+XA memory stomping bug was fixed (provoked by assigning a variable
+Xto its old value plus something else).
+X
+XBetter signal handling; a real signal handler which manages a queue
+Xof pending signals was added.
+X
+Xrc now ignores SIGQUIT and traps SIGINT even in non-interactive
+Xmode. Thus,
+X
+X	rc ed.sh
+X
+Xwill not do mysterious things if the shell script "ed.sh" calls a
+Xcommand like "ed" and then you hit ^C.
+X
+Xrc now opens 0, 1, 2 on /dev/null if they are inherited closed.
+Xrc -o prevents this.
+X
+XA couple of stupid O(n^2) string appends were replaced with O(n)
+Xloops. This should make foo=`{cat /etc/termcap} bar=$^foo a little
+Xfaster :-)
+X
+XReturning a list of signals from a function is now legal, so "return
+X$status" should always work.
+X
+XThe code has been revised, new printing routines have been added.
+X
+Xrc no longer uses redundant braces when exporting functions.
+X
+XA first stab at a verification suite has been added (trip.rc).
+X(someone, please help me make this comprehensive!)
+X
+Xrc -p now does not initialize functions from the environment. This
+Xshould make it easier to write shell scripts that don't need to
+Xassume anything about the environment.
+X
+XInherited ignored signals are now ignored in the current shell and
+Xpassed on ignored to the child processes. whatis -s also reflects
+Xthis information.
+X
+XA file descriptor leak in the /dev/fd implementation of >{} was
+Xfixed.
+X
+XA variable set to '' was not imported from the environment; this
+Xhas been fixed.
+X
+XChanges since 1.3beta:
+X
+XNew Makefile/config.h setup.
+X
+Xbuiltin echo may now be conditionally included out, to use a Goldwynism.
+X
+Xbuiltin exit takes any legal exit status. If the status is not all zeros,
+Xrc exits with 1. (having "exit sigiot" produce a core dump would be going
+Xa little far, I think.)
+X
+Xlimit does not append a unit after a zero limit; 0g was too confusing.
+X
+Xexec > /nonexistentfile does not cause rc to exit any more.
+X
+XIf a noninteractive rc is started with sigint ignored, rc does not install
+Xits own signal handler.
+X
+Xerror messages produced by rc in a subshell were cleaned up. (rc erroneously
+Xreset the 'interactive' flag after a fork)
+X
+Xprint.c was cleaned up a little; no functionality was changed, but should
+Xbe more portable now.
+X
+Xa bug in rc-1.3beta (not previous versions) was fixed: setting the first
+Xelement of $path to '' caused PATH to be exported as '':etc..
+X
+Xgetopt's "illegal option" message was gratuitously changed to something
+Xless abrupt.
+X
+Xsome dead code was removed from input.c
+X
+X%term was changed to %token in parse.y; apparently newer yacc's don't grok
+X%term any more.
+X
+Xa race condition in the signal handler was fixed.
+X
+Xthe variable in for() was getting evaluated each time through the loop
+X(e.g., for (`{echo i;date>[1=2]} in 1 2 3)echo $i would print the date
+Xthree times). This was cleaned up.
+X
+Xa redundant fork() was removed from walk.c; this showed up when running
+Xa braced command with a redirection in the background. e.g., {a;b}>c&
+X
+Xman pages for history and rc were cleaned up by david (thanks).
+X
+Xrc set SIGQUIT and SIGTERM to SIG_DFL on background jobs---even when
+Xtrying to do old-style backgrounding (i.e., don't use process groups,
+Xjust ignore SIGINT & SIGQUIT & SIGTERM).
+X
+X$0 is now changed to the name of the signal when entering a signal
+Xhandler. Thus it's possible to write code like
+X
+X	fn sigint sigterm sigquit {
+X		switch ($0) {
+X		case sigint
+X			...
+X		case sigterm
+X			...
+X
+Xwait with no arguments now prints the pid of any and all children
+Xthat died with a signal. e.g.,
+X
+X	; wait
+X	25321: terminated
+X	25325: terminated
+X
+Xas opposed to
+X
+X	; wait
+X	terminated
+X
+XAn error saving/restoring state in the input stream code would
+Xcause rc to exit with the (erroneous) command:
+X
+X	eval '|[a'
+X
+XFIFO's were not removed in a backgrounded command, e.g.,
+X
+X	cat <{echo hi}&
+X
+XChanges since rc-1.4beta:
+X
+Xgetopt was renamed to rc_getopt to avoid libc collisions.
+X
+X$cdpath with a / in it caused a cd to sometimes have two //'s at the
+Xfront of the path. This is reserved by POSIX, so I changed it to skip
+Xone of the /'s.
+X
+Xsignal handling now emulates sh in the way I described in a previous
+Xmessage: the race condition present in older rc's whereby some SIGINTs
+Xgot lost is now gone; any SIGINT received during a wait() is acted upon
+Xat the end of the wait(), unless of course SIGINT is being deliberately
+Xignored.
+X
+Xgetopt was renamed to avoid naming conflicts with libc. Also a sound
+Xmove since rc_getopt is no longer quite libc-getopt compatible; I had
+Xto add in a mechanism for resetting getopt.
+X
+Xsignal handler code in fn.c was cleaned up; there were several bugs
+Xin rc-1.4beta, notably the shell sometimes spawned background jobs
+Xwith SIGTERM ignored. I took the opportunity to make things a little
+Xcleaner here.
+X
+Xa quasi-memory leak in the code for while() was fixed: a long-running
+Xwhile that had rc commands allocating memory in it could cause the
+Xshell to grow without bounds. I fixed this by placing the while loop
+X(*and* test!) inside a new allocation arena each time through the loop.
+X
+XA new configuration parameter, NOJOB, was added to allow you to force
+Xv7-style backgrounding (no setpgrp, ignore SIGINT and SIGTERM).
+X
+XThe FIFO code was reworked a little. It should be more robust now---
+XFIFOs get removed at the end of the command of the argument list
+Xthat they were on:
+X
+X		fn foo {echo $*; cat $*}
+X		foo<{echo hi}
+X
+Xnow works as expected. Also FIFO names are pushed onto the exception
+Xstack so that their removal occurs in the face of exceptions and so
+Xon.
+X
+XA memory leak in treefree() was plugged up --- the root node of a
+Xfunction was not getting freed.
+END_OF_FILE
+  if test 5591 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGES'
+fi
+if test -f 'fn.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fn.c'\"
+else
+  echo shar: Extracting \"'fn.c'\" \(6644 characters\)
+  sed "s/^X//" >'fn.c' <<'END_OF_FILE'
+X/*
+X   fn.c: functions for adding and deleting functions from the symbol table.
+X   Support for signal handlers is also found here.
+X*/
+X
+X#include <signal.h>
+X#include <errno.h>
+X#include "rc.h"
+X#include "sigmsgs.h"
+X
+Xstatic void fn_handler(int), dud_handler(int);
+X
+Xstatic bool runexit = FALSE;
+Xstatic Node *handlers[NUMOFSIGNALS], null;
+Xstatic void (*def_sigint)(int) = SIG_DFL,
+X	    (*def_sigquit)(int) = SIG_DFL,
+X	    (*def_sigterm)(int) = SIG_DFL;
+X
+X/*
+X   Set signals to default values for rc. This means that interactive
+X   shells ignore SIGTERM, etc.
+X*/
+X
+Xextern void inithandler() {
+X	int i;
+X	null.type = nBody;
+X	null.u[0].p = null.u[1].p = NULL;
+X	for (i = 1; i < NUMOFSIGNALS; i++)
+X#ifdef NOSIGCLD
+X		if (i != SIGCLD)
+X#endif
+X		if (sighandlers[i] == SIG_IGN)
+X			fnassign(signals[i].name, NULL); /* ignore incoming ignored signals */
+X	if (interactive || sighandlers[SIGINT] != SIG_IGN) {
+X		def_sigint = sigint;
+X		fnrm("sigint"); /* installs SIGINT catcher if not inherited ignored */
+X	}
+X	if (!dashdee) {
+X		if (interactive || sighandlers[SIGQUIT] != SIG_IGN) {
+X			def_sigquit = dud_handler;
+X			fnrm("sigquit"); /* "ignores" SIGQUIT unless inherited ignored */
+X		}
+X		if (interactive) {
+X			def_sigterm = dud_handler;
+X			fnrm("sigterm"); /* ditto for SIGTERM */
+X		}
+X	}
+X}
+X
+X/* only run this in a child process! resets signals to their default values */
+X
+Xextern void setsigdefaults(bool sysvbackground) {
+X	int i;
+X	/*
+X	   General housekeeping: setsigdefaults happens after fork(),
+X	   so it's a convenient place to clean up open file descriptors.
+X	   (history file, scripts, etc.)
+X	*/
+X	closefds();
+X	/*
+X	   Restore signals to SIG_DFL, paying close attention to
+X	   a few quirks: SIGINT, SIGQUIT and are treated specially
+X	   depending on whether we are doing v7-style backgrounding
+X	   or not; the default action for SIGINT, SIGQUIT and SIGTERM
+X	   must be set to the appropriate action; finally, care must
+X	   be taken not to set to SIG_DFL any signals which are being
+X	   ignored.
+X	*/
+X	for (i = 1; i < NUMOFSIGNALS; i++)
+X		if (sighandlers[i] != SIG_IGN) {
+X			handlers[i] = NULL;
+X			switch (i) {
+X			case SIGINT:
+X				if (sysvbackground) {
+X					def_sigint = SIG_IGN;
+X					fnassign("sigint", NULL); /* ignore */
+X				} else {
+X					def_sigint = SIG_DFL;
+X					goto sigcommon;
+X				}
+X				break;
+X			case SIGQUIT:
+X				if (sysvbackground) {
+X					def_sigquit = SIG_IGN;
+X					fnassign("sigquit", NULL); /* ignore */
+X				} else {
+X					def_sigquit = SIG_DFL;
+X					goto sigcommon;
+X				}
+X				break;
+X			case SIGTERM:
+X				def_sigterm = SIG_DFL;
+X				/* FALLTHROUGH */
+X			sigcommon:
+X			default:
+X				if (sighandlers[i] != SIG_DFL) {
+X					rc_signal(i, SIG_DFL);
+X					delete_fn(signals[i].name);
+X				}
+X			}
+X		}
+X	delete_fn("sigexit");
+X	runexit = FALSE; /* No sigexit on subshells */
+X}
+X
+X/* rc's exit. if runexit is set, run the sigexit function. */
+X
+Xextern void rc_exit(int stat) {
+X	static char *sigexit[2] = {
+X		"sigexit",
+X		NULL
+X	};
+X	if (runexit) {
+X		runexit = FALSE;
+X		funcall(sigexit);
+X		stat = getstatus();
+X	}
+X	exit(stat);
+X}
+X
+X/* The signal handler for all functions. calls walk() */
+X
+Xstatic void fn_handler(int s) {
+X	List *dollarzero;
+X	Estack e;
+X	Edata star;
+X	int olderrno;
+X	if (s < 1 || s >= NUMOFSIGNALS)
+X		panic("unknown signal");
+X	olderrno = errno;
+X	dollarzero = nnew(List);
+X	dollarzero->w = signals[s].name;
+X	dollarzero->n = NULL;
+X	varassign("*", dollarzero, TRUE);
+X	star.name = "*";
+X	except(eVarstack, star, &e);
+X	walk(handlers[s], TRUE);
+X	varrm("*", TRUE);
+X	unexcept(); /* eVarstack */
+X	errno = olderrno;
+X}
+X
+X/* A dud signal handler for SIGQUIT and SIGTERM */
+X
+Xstatic void dud_handler(int s) {
+X}
+X
+X/*
+X   Assign a function in Node form. Check to see if the function is also
+X   a signal, and set the signal vectors appropriately.
+X*/
+X
+Xextern void fnassign(char *name, Node *def) {
+X	Node *newdef = treecpy(def == NULL ? &null : def, ealloc); /* important to do the treecopy first */
+X	Function *new = get_fn_place(name);
+X	int i;
+X	new->def = newdef;
+X	new->extdef = NULL;
+X	if (strncmp(name, "sig", conststrlen("sig")) == 0) { /* slight optimization */
+X#ifdef NOSIGCLD /* System V machines treat SIGCLD very specially */
+X		if (streq(name, "sigcld"))
+X			rc_error("can't trap SIGCLD");
+X#endif
+X		if (streq(name, "sigexit"))
+X			runexit = TRUE;
+X		for (i = 1; i < NUMOFSIGNALS; i++) /* zero is a bogus signal */
+X			if (streq(signals[i].name, name)) {
+X				handlers[i] = newdef;
+X				if (def == NULL)
+X					rc_signal(i, SIG_IGN);
+X				else
+X					rc_signal(i, fn_handler);
+X				break;
+X			}
+X	}
+X}
+X
+X/* Assign a function from the environment. Store just the external representation */
+X
+Xextern void fnassign_string(char *extdef) {
+X	char *name = get_name(extdef+3); /* +3 to skip over "fn_" */
+X	Function *new;
+X	if (name == NULL)
+X		return;
+X	new = get_fn_place(name);
+X	new->def = NULL;
+X	new->extdef = ecpy(extdef);
+X}
+X
+X/* Return a function in Node form, evaluating an entry from the environment if necessary */
+X
+Xextern Node *fnlookup(char *name) {
+X	Function *look = lookup_fn(name);
+X	Node *ret;
+X	if (look == NULL)
+X		return NULL; /* not found */
+X	if (look->def != NULL)
+X		return look->def;
+X	if (look->extdef == NULL) /* function was set to null, e.g., fn foo {} */
+X		return &null;
+X	ret = parse_fn(name, look->extdef);
+X	if (ret == NULL) {
+X		efree(look->extdef);
+X		look->extdef = NULL;
+X		return &null;
+X	} else {
+X		return look->def = treecpy(ret, ealloc); /* Need to take it out of nalloc space */
+X	}
+X}
+X
+X/* Return a function in string form (used by makeenv) */
+X
+Xextern char *fnlookup_string(char *name) {
+X	Function *look = lookup_fn(name);
+X
+X	if (look == NULL)
+X		return NULL;
+X	if (look->extdef != NULL)
+X		return look->extdef;
+X	return look->extdef = fun2str(name, look->def);
+X}
+X
+X/*
+X   Remove a function from the symbol table. If it also defines a signal
+X   handler, restore the signal handler to its default value.
+X*/
+X
+Xextern void fnrm(char *name) {
+X	int i;
+X	for (i = 1; i < NUMOFSIGNALS; i++)
+X		if (streq(signals[i].name, name)) {
+X			handlers[i] = NULL;
+X			switch (i) {
+X			case SIGINT:
+X				rc_signal(i, def_sigint);
+X				break;
+X			case SIGQUIT:
+X				rc_signal(i, def_sigquit);
+X				break;
+X			case SIGTERM:
+X				rc_signal(i, def_sigterm);
+X				break;
+X			default:
+X				rc_signal(i, SIG_DFL);
+X			}
+X		}
+X	if (streq(name, "sigexit"))
+X		runexit = FALSE;
+X	delete_fn(name);
+X}
+X
+Xextern void whatare_all_signals() {
+X	int i;
+X	for (i = 1; i < NUMOFSIGNALS; i++)
+X		if (*signals[i].name != '\0')
+X			if (sighandlers[i] == SIG_IGN)
+X				fprint(1, "fn %s {}\n", signals[i].name);
+X			else if (sighandlers[i] == fn_handler)
+X				fprint(1, "fn %S {%T}\n", signals[i].name, handlers[i]);
+X			else
+X				fprint(1, "fn %s\n", signals[i].name);
+X}
+X
+Xextern void prettyprint_fn(int fd, char *name, Node *n) {
+X	fprint(fd, "fn %S {%T}\n", name, n);
+X}
+END_OF_FILE
+  if test 6644 -ne `wc -c <'fn.c'`; then
+    echo shar: \"'fn.c'\" unpacked with wrong size!
+  fi
+  # end of 'fn.c'
+fi
+if test -f 'glob.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'glob.c'\"
+else
+  echo shar: Extracting \"'glob.c'\" \(6206 characters\)
+  sed "s/^X//" >'glob.c' <<'END_OF_FILE'
+X/* glob.c: rc's (ugly) globber. This code is not elegant, but it works */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "rc.h"
+X#ifdef NODIRENT
+X#include <sys/dir.h>
+X#define dirent direct /* need to get the struct declaraction right */
+X#else
+X#include <dirent.h>
+X#endif
+X
+Xstatic List *dmatch(char *, char *, char *);
+Xstatic List *doglob(char *, char *);
+Xstatic List *lglob(List *, char *, char *, SIZE_T);
+Xstatic List *sort(List *);
+X
+X/*
+X   Matches a list of words s against a list of patterns p. Returns true iff
+X   a pattern in p matches a word in s. () matches (), but otherwise null
+X   patterns match nothing.
+X*/
+X
+Xextern bool lmatch(List *s, List *p) {
+X	List *q;
+X	int i;
+X	bool okay;
+X	if (s == NULL) {
+X		if (p == NULL) /* null matches null */
+X			return TRUE;
+X		for (; p != NULL; p = p->n) { /* one or more stars match null */
+X			if (*p->w != '\0') { /* the null string is a special case; it does *not* match () */
+X				okay = TRUE;
+X				for (i = 0; p->w[i] != '\0'; i++)
+X					if (p->w[i] != '*' || p->m[i] != 1) {
+X						okay = FALSE;
+X						break;
+X					}
+X				if (okay)
+X					return TRUE;
+X			}
+X		}
+X		return FALSE;
+X	}
+X	for (; s != NULL; s = s->n)
+X		for (q = p; q != NULL; q = q->n)
+X			if (match(q->w, q->m, s->w))
+X				return TRUE;
+X	return FALSE;
+X}
+X
+X/*
+X   Globs a list; checks to see if each element in the list has a metacharacter. If it
+X   does, it is globbed, and the output is sorted.
+X*/
+X
+Xextern List *glob(List *s) {
+X	List *top, *r;
+X	bool meta;
+X	for (r = s, meta = FALSE; r != NULL; r = r->n)
+X		if (r->m != NULL)
+X			meta = TRUE;
+X	if (!meta)
+X		return s; /* don't copy lists with no metacharacters in them */
+X	for (top = r = NULL; s != NULL; s = s->n) {
+X		if (s->m == NULL) { /* no metacharacters; just tack on to the return list */
+X			if (top == NULL)
+X				top = r = nnew(List);
+X			else
+X				r = r->n = nnew(List);
+X			r->w = s->w;
+X		} else {
+X			if (top == NULL)
+X				top = r = sort(doglob(s->w, s->m));
+X			else
+X				r->n = sort(doglob(s->w, s->m));
+X			while (r->n != NULL)
+X				r = r->n;
+X		}
+X	}
+X	r->n = NULL;
+X	return top;
+X}
+X
+X/* Matches a pattern p against the contents of directory d */
+X
+Xstatic List *dmatch(char *d, char *p, char *m) {
+X	bool matched = FALSE;
+X	List *top, *r;
+X	static DIR *dirp;
+X	static struct dirent *dp;
+X	static struct stat s;
+X	/* prototypes for XXXdir functions. comment out if necessary */
+X	extern DIR *opendir(const char *);
+X	extern struct dirent *readdir(DIR *);
+X	/*extern int closedir(DIR *);*/
+X
+X	top = r = NULL;
+X	/* opendir succeeds on regular files on some systems, so the stat() call is necessary (sigh) */
+X	if (stat(d, &s) < 0 || (s.st_mode & S_IFMT) != S_IFDIR || (dirp = opendir(d)) == NULL)
+X		return NULL;
+X	while ((dp = readdir(dirp)) != NULL)
+X		if ((*dp->d_name != '.' || *p == '.') && match(p, m, dp->d_name)) { /* match ^. explicitly */
+X			matched = TRUE;
+X			if (top == NULL)
+X				top = r = nnew(List);
+X			else
+X				r = r->n = nnew(List);
+X			r->w = ncpy(dp->d_name);
+X			r->m = NULL;
+X		}
+X	closedir(dirp);
+X	if (!matched)
+X		return NULL;
+X	r->n = NULL;
+X	return top;
+X}
+X
+X/*
+X   lglob() globs a pattern agains a list of directory roots. e.g., (/tmp /usr /bin) "*"
+X   will return a list with all the files in /tmp, /usr, and /bin. NULL on no match.
+X   slashcount indicates the number of slashes to stick between the directory and the
+X   matched name. e.g., for matching ////tmp/////foo*
+X*/
+X
+Xstatic List *lglob(List *s, char *p, char *m, SIZE_T slashcount) {
+X	List *q, *r, *top, foo;
+X	static List slash;
+X	static SIZE_T slashsize = 0;
+X	if (slashcount + 1 > slashsize) {
+X		slash.w = ealloc(slashcount + 1);
+X		slashsize = slashcount;
+X	}
+X	slash.w[slashcount] = '\0';
+X	while (slashcount > 0)
+X		slash.w[--slashcount] = '/';
+X	for (top = r = NULL; s != NULL; s = s->n) {
+X		q = dmatch(s->w, p, m);
+X		if (q != NULL) {
+X			foo.w = s->w;
+X			foo.m = NULL;
+X			foo.n = NULL;
+X			if (!(s->w[0] == '/' && s->w[1] == '\0')) /* need to separate */
+X				q = concat(&slash, q);		  /* dir/name with slash */
+X			q = concat(&foo, q);
+X			if (r == NULL)
+X				top = r = q;
+X			else
+X				r->n = q;
+X			while (r->n != NULL)
+X				r = r->n;
+X		}
+X	}
+X	return top;
+X}
+X
+X/*
+X   Doglob globs a pathname in pattern form against a unix path. Returns the original
+X   pattern (cleaned of metacharacters) on failure, or the globbed string(s).
+X*/
+X
+Xstatic List *doglob(char *w, char *m) {
+X	static char *dir = NULL, *pattern = NULL, *metadir = NULL, *metapattern = NULL;
+X	static SIZE_T dsize = 0;
+X	char *d, *p, *md, *mp;
+X	SIZE_T psize;
+X	char *s = w;
+X	List firstdir;
+X	List *matched;
+X	if ((psize = strlen(w) + 1) > dsize || dir == NULL) {
+X		efree(dir); efree(pattern); efree(metadir); efree(metapattern);
+X		dir = ealloc(psize);
+X		pattern = ealloc(psize);
+X		metadir = ealloc(psize);
+X		metapattern = ealloc(psize);
+X		dsize = psize;
+X	}
+X	d = dir;
+X	p = pattern;
+X	md = metadir;
+X	mp = metapattern;
+X	if (*s == '/')
+X		while (*s == '/')
+X			*d++ = *s++, *md++ = *m++;
+X	else
+X		while (*s != '/' && *s != '\0')
+X			*d++ = *s++, *md++ = *m++; /* get first directory component */
+X	*d = '\0';
+X	/*
+X	   Special case: no slashes in the pattern, i.e., open the current directory.
+X	   Remember that w cannot consist of slashes alone (the other way *s could be
+X	   zero) since doglob gets called iff there's a metacharacter to be matched
+X	*/
+X	if (*s == '\0') {
+X		matched = dmatch(".", dir, metadir);
+X		goto end;
+X	}
+X	if (*w == '/') {
+X		firstdir.w = dir;
+X		firstdir.m = metadir;
+X		firstdir.n = NULL;
+X		matched = &firstdir;
+X	} else {
+X		/*
+X		   we must glob against current directory,
+X		   since the first character is not a slash.
+X		*/
+X		matched = dmatch(".", dir, metadir);
+X	}
+X	do {
+X		SIZE_T slashcount;
+X		SIGCHK;
+X		for (slashcount = 0; *s == '/'; s++, m++)
+X			slashcount++; /* skip slashes */
+X		while (*s != '/' && *s != '\0')
+X			*p++ = *s++, *mp++ = *m++; /* get pattern */
+X		*p = '\0';
+X		matched = lglob(matched, pattern, metapattern, slashcount);
+X		p = pattern, mp = metapattern;
+X	} while (*s != '\0');
+Xend:	if (matched == NULL) {
+X		matched = nnew(List);
+X		matched->w = w;
+X		matched->m = NULL;
+X		matched->n = NULL;
+X	}
+X	return matched;
+X}
+X
+Xstatic List *sort(List *s) {
+X	SIZE_T nel = listnel(s);
+X	if (nel > 1) {
+X		char **a;
+X		List *t;
+X		qsort(a = list2array(s, FALSE), nel, sizeof(char *), starstrcmp);
+X		for (t = s; t != NULL; t = t->n)
+X			t->w = *a++;
+X	}
+X	return s;
+X}
+END_OF_FILE
+  if test 6206 -ne `wc -c <'glob.c'`; then
+    echo shar: \"'glob.c'\" unpacked with wrong size!
+  fi
+  # end of 'glob.c'
+fi
+if test -f 'heredoc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'heredoc.c'\"
+else
+  echo shar: Extracting \"'heredoc.c'\" \(3442 characters\)
+  sed "s/^X//" >'heredoc.c' <<'END_OF_FILE'
+X/* heredoc.c: heredoc slurping is done here */
+X
+X#include "rc.h"
+X
+Xstruct Hq {
+X	Node *doc;
+X	char *name;
+X	Hq *n;
+X	bool quoted;
+X} *hq;
+X
+Xstatic bool dead = FALSE;
+X
+X/*
+X * read in a heredocument. A clever trick: skip over any partially matched end-of-file
+X * marker storing only the number of characters matched. If the whole marker is matched,
+X * return from readheredoc(). If only part of the marker is matched, copy that part into
+X * the heredocument.
+X *
+X * BUG: if the eof string contains a newline, the state can get confused, and the
+X * heredoc may continue past where it should.  on the other hand, /bin/sh seems to
+X * never get out of its readheredoc() when the heredoc string contains a newline
+X */
+X
+Xstatic char *readheredoc(char *eof) {
+X	int c;
+X	char *t, *buf, *bufend;
+X	unsigned char *s;
+X	SIZE_T bufsize;
+X	t = buf = nalloc(bufsize = 512);
+X	bufend = &buf[bufsize];
+X	dead = FALSE;
+X#define	RESIZE(extra) { \
+X		char *nbuf; \
+X		bufsize = bufsize * 2 + extra; \
+X		nbuf = nalloc(bufsize); \
+X		memcpy(nbuf, buf, (SIZE_T) (t - buf)); \
+X		t = nbuf + (t - buf); \
+X		buf = nbuf; \
+X		bufend = &buf[bufsize]; \
+X	}
+X	for (;;) {
+X		print_prompt2();
+X		for (s = (unsigned char *) eof; (c = gchar()) == *s; s++)
+X			;
+X		if (*s == '\0' && (c == '\n' || c == EOF)) {
+X			*t++ = '\0';
+X			return buf;
+X		}
+X		if (s != (unsigned char *) eof) {
+X			SIZE_T len = s - (unsigned char *) eof;
+X			if (t + len >= bufend)
+X				RESIZE(len);
+X			memcpy(t, eof, len);
+X			t += len;
+X		}
+X		for (;; c = gchar()) {
+X			if (c == EOF) {
+X				yyerror("heredoc incomplete");
+X				dead = TRUE;
+X				return NULL;
+X			}
+X			if (t + 1 >= bufend)
+X				RESIZE(0);
+X			*t++ = c;
+X			if (c == '\n')
+X				break;
+X		}
+X	}
+X}
+X
+X/* parseheredoc -- turn a heredoc with variable references into a node chain */
+X
+Xstatic Node *parseheredoc(char *s) {
+X	int c = *s;
+X	Node *result = NULL;
+X	while (TRUE) {
+X		Node *node;
+X		switch (c) {
+X		default: {
+X			char *begin = s;
+X			while ((c = *s++) != '\0' && c != '$')
+X				;
+X			*--s = '\0';
+X			node = mk(nQword, begin, NULL);
+X			break;
+X		}
+X		case '$': {
+X			char *begin = ++s, *var;
+X			c = *s++;
+X			if (c == '$') {
+X				node = mk(nQword, "$", NULL);
+X				c = *s;
+X			} else {
+X				SIZE_T len = 0;
+X				do
+X					len++;
+X				while (!dnw[c = *(unsigned char *) s++]);
+X				if (c == '^')
+X					c = *s;
+X				else
+X					s--;
+X				var = nalloc(len + 1);
+X				var[len] = '\0';
+X				memcpy(var, begin, len);
+X				node = mk(nFlat, mk(nWord, var, NULL));
+X			}
+X			break;
+X		}
+X		case '\0':
+X			return result;
+X		}
+X		result = (result == NULL) ? node : mk(nConcat, result, node);
+X	}
+X}
+X
+X/* read in heredocs when yyparse hits a newline. called from yyparse */
+X
+Xextern int heredoc(int end) {
+X	Hq *here;
+X	if ((here = hq) != NULL) {
+X		hq = NULL;
+X		if (end) {
+X			yyerror("heredoc incomplete");
+X			return FALSE;
+X		}
+X		do {
+X			Node *n = here->doc;
+X			char *s = readheredoc(here->name);
+X			if (dead)
+X				return FALSE;
+X			n->u[2].p = here->quoted ? mk(nQword, s, NULL) : parseheredoc(s);
+X			n->u[0].i = rHerestring;
+X		} while ((here = here->n) != NULL);
+X	}
+X	return TRUE;
+X}
+X
+X/* queue pending heredocs into a queue. called from yyparse */
+X
+Xextern int qdoc(Node *name, Node *n) {
+X	Hq *new, **prev;
+X	if (name->type != nWord && name->type != nQword) {
+X		yyerror("eof-marker not a single literal word");
+X		flushu();
+X		return FALSE;
+X	}
+X	for (prev = &hq; (new = *prev) != NULL; prev = &new->n)
+X		;
+X	*prev = new = nnew(Hq);
+X	new->name = name->u[0].s;
+X	new->quoted = (name->type == nQword);
+X	new->doc = n;
+X	new->n = NULL;
+X	return TRUE;
+X}
+END_OF_FILE
+  if test 3442 -ne `wc -c <'heredoc.c'`; then
+    echo shar: \"'heredoc.c'\" unpacked with wrong size!
+  fi
+  # end of 'heredoc.c'
+fi
+if test -f 'history/history.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'history/history.1'\"
+else
+  echo shar: Extracting \"'history/history.1'\" \(5923 characters\)
+  sed "s/^X//" >'history/history.1' <<'END_OF_FILE'
+X.\" history.1
+X.\"-------
+X.\" See rc.1 for man page portability notes.
+X.\"-------
+X.\" Dd	distance to space vertically before a "display"
+X.\" These are what n/troff use for interparagraph distance
+X.\"-------
+X.if t .nr Dd .4v
+X.if n .nr Dd 1v
+X.\"-------
+X.\" Ds	begin a display, indented .5 inches from the surrounding text.
+X.\"
+X.\" Note that uses of Ds and De may NOT be nested.
+X.\"-------
+X.de Ds
+X.\" .RS \\$1
+X.sp \\n(Ddu
+X.in +0.5i
+X.nf
+X..
+X.\"-------
+X.\" De	end a display (no trailing vertical spacing)
+X.\"-------
+X.de De
+X.fi
+X.in
+X.\" .RE
+X..
+X.\"-------
+X.\" I stole the Xf macro from the -man macros on my machine (originally
+X.\" "}S", I renamed it so that it won't conflict).
+X.\"-------
+X.\" Set Cf to the name of the constant width font.
+X.\" It will be "C" or "(CW", typically.
+X.\" NOTEZ BIEN the lines defining Cf must have no trailing white space:
+X.\"-------
+X.if t .ds Cf C
+X.if n .ds Cf R
+X.\"-------
+X.\" Rc - Alternate Roman and Courier
+X.\"-------
+X.de Rc
+X.Xf R \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Ic - Alternate Italic and Courier
+X.\"-------
+X.de Ic
+X.Xf I \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Bc - Alternate Bold and Courier
+X.\"-------
+X.de Bc
+X.Xf B \\*(Cf \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Cr - Alternate Courier and Roman
+X.\"-------
+X.de Cr
+X.Xf \\*(Cf R \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Ci - Alternate Courier and Italic
+X.\"-------
+X.de Ci
+X.Xf \\*(Cf I \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Cb - Alternate Courier and Bold
+X.\"-------
+X.de Cb
+X.Xf \\*(Cf B \& "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+X..
+X.\"-------
+X.\" Xf - Alternate fonts
+X.\"
+X.\" \$1 - first font
+X.\" \$2 - second font
+X.\" \$3 - desired word with embedded font changes, built up by recursion
+X.\" \$4 - text for first font
+X.\" \$5 - \$9 - remaining args
+X.\"
+X.\" Every time we are called:
+X.\"
+X.\" If		there is something in \$4
+X.\" then	Call ourself with the fonts switched,
+X.\"		with a new word made of the current word (\$3) and \$4
+X.\"		rendered in the first font,
+X.\"		and with the remaining args following \$4.
+X.\" else	We are done recursing.  \$3 holds the desired output
+X.\"		word.  We emit \$3, change to Roman font, and restore
+X.\"		the point size to the default.
+X.\" fi
+X.\"
+X.\" Use Xi to add a little bit of space after italic text.
+X.\"-------
+X.de Xf
+X.ds Xi
+X.\"-------
+X.\" I used to test for the italic font both by its font position
+X.\" and its name.  Now just test by its name.
+X.\"
+X.\" .if "\\$1"2" .if !"\\$5"" .ds Xi \^
+X.\"-------
+X.if "\\$1"I" .if !"\\$5"" .ds Xi \^
+X.\"-------
+X.\" This is my original code to deal with the recursion.
+X.\" Evidently some nroffs can't deal with it.
+X.\"-------
+X.\" .ie !"\\$4"" \{\
+X.\" .	Xf \\$2 \\$1 "\\$3\\f\\$1\\$4\\*(Xi" "\\$5" "\\$6" "\\$7" "\\$8" "\\$9"
+X.\" .\}
+X.\" .el \{\\$3
+X.\" .	ft R	\" Restore the default font, since we don't know
+X.\" .		\" what the last font change was.
+X.\" .	ps 10	\" Restore the default point size, since it might
+X.\" .		\" have been changed by an argument to this macro.
+X.\" .\}
+X.\"-------
+X.\" Here is more portable (though less pretty) code to deal with
+X.\" the recursion.
+X.\"-------
+X.if !"\\$4"" .Xf \\$2 \\$1 "\\$3\\f\\$1\\$4\\*(Xi" "\\$5" "\\$6" "\\$7" "\\$8" "\\$9"
+X.if "\\$4"" \\$3\fR\s10
+X..
+X.TH HISTORY 1 "30 July 1991"
+X.SH NAME
+X\-, \-\|\-, \-p, \-\|\-p \- shell history programs
+X.SH SYNOPSIS
+X.B \-
+X.RI [ pattern ...]
+X.RI [ substitution ...]
+X.SH DESCRIPTION
+XThis set of programs provides a crude history mechanism for the shell
+X.IR rc (1).
+XIt is based on the v8 UNIX programs
+X.IR = ,
+X.IR == ,
+Xetc.
+X.PP
+XThe program
+X.RI `` \- ''
+Xruns the shell on the command it is requested to find.
+XThe program
+X.RI `` \-\|\- ''
+Xedits that command first.
+XThe programs
+X.RI `` \-p ''
+Xand
+X.RI `` \-\|\-p ''
+Xare similar, except that they print the final command on their standard
+Xoutput instead of running the shell.
+X.PP
+XThe commands work by looking for a file
+Xnamed by the environment variable
+X.Cr $history ,
+Xand by searching for previous commands in this file.
+XOld commands can be edited,
+Xor simply re-executed according to the rules below:
+X.PP
+XA command is searched for by examining the lines in
+X.Cr $history
+Xin reverse order.
+XLines which contain a previous invocation of the history
+Xprogram itself are ignored.
+XIf one or more
+X.I pattern
+Xis supplied on the command line,
+Xthen the patterns are used as a means of
+Xlimiting the search.
+XPatterns match any substring of a previous command,
+Xand if more than one pattern is present then all patterns must be
+Xmatched before a command is selected.
+X.PP
+XSubstitutions may also be specified on the command line.
+XThese have the syntax:
+X.Ds
+X.Ic old : new
+X.De
+X.PP
+X(Note that the
+X.I old
+Xpattern is used as a search-limiting pattern also.)
+XSubstitutions happen on the first match.
+X.PP
+XFinally, a command may be edited in a crude line-mode fashion:
+XThe line to be edited is printed out, and below it the user
+Xsupplies modifications to the command:
+X.TP
+X.B any character
+XReplaces the character above.
+X.TP
+X.B space or tab
+XSkips over the above character(s).
+X.TP
+X.B #
+XDeletes one character.
+X.TP
+X.B %
+XReplaces one character with a space.
+X.TP
+X.B ^
+XInserts the rest of the typed line just before the character.
+X.TP
+X.B $
+XDeletes the rest of the line from that character on, and replaces
+Xit with the rest of the typed line.
+X.TP
+X.B +
+XAppends the rest of the typed line.
+X.TP
+X.B \-
+XBacks up to a previous command satisfying the same matching
+Xconstraints.
+X.TP
+X.B end of file
+XIf an end-of-file is read from the keyboard by the editor,
+Xit aborts with exit status 1 and does not produce any output.
+X.SH EXAMPLES
+XThe history programs work best when their output is reinterpreted by
+Xthe shell using an
+X.Cr eval
+Xcommand.
+XThis can be achieved by writing a shell function to perform the
+Xreinterpretation:
+X.Ds
+X.Cr "fn - -- {"
+X.Cr "	comm = \`{$0^p $*}"
+X.Cr "	if (! ~ $#comm 0) {"
+X.Cr "		echo $comm >[1=2]"
+X.Cr "		eval $comm"
+X.Cr "	}"
+X.Cr "}"
+END_OF_FILE
+  if test 5923 -ne `wc -c <'history/history.1'`; then
+    echo shar: \"'history/history.1'\" unpacked with wrong size!
+  fi
+  # end of 'history/history.1'
+fi
+if test -f 'history/history.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'history/history.c'\"
+else
+  echo shar: Extracting \"'history/history.c'\" \(6472 characters\)
+  sed "s/^X//" >'history/history.c' <<'END_OF_FILE'
+X/*
+X	history.c -- primitive history mechanism
+X
+X	Paul Haahr & Byron Rakitzis, July 1991.
+X
+X	This program mimics the att v8 = and == history programs.
+X	The edit() algorithm was adapted from a similar program
+X	that Boyd Roberts wrote, but otherwise all the code has
+X	been written from scratch.
+X
+X	edit() was subsequently redone by Hugh Redelmeier in order
+X	to correctly deal with tab characters in the source line.
+X
+X	BUGS:
+X	There is an implicit assumption that commands are no
+X	more than 1k characters long. 
+X*/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+Xstatic char *id = "@(#) history.c  8/91";
+X
+X#undef FALSE
+X#undef TRUE
+Xtypedef enum { FALSE, TRUE } bool;
+X
+X#define CHUNKSIZE 65536
+X
+Xstatic struct {
+X	char *old, *new;
+X} *replace;
+X
+Xstatic char **search, *progname, *history;
+Xstatic char me;	/* typically ':' or '-' */
+Xstatic bool editit = FALSE, printit = FALSE;
+Xstatic int nreplace = 0, nsearch = 0;
+Xstatic FILE *fp;
+X
+Xstatic void *ealloc(size_t n) {
+X	void *p = (void *) malloc(n);
+X	if (p == NULL) {
+X		perror("malloc");
+X		exit(1);
+X	}
+X	return p;
+X}
+X
+Xstatic void *erealloc(void *p, size_t n) {
+X	p = (void *) realloc(p, n);
+X	if (p == NULL) {
+X		perror("realloc");
+X		exit(1);
+X	}
+X	return p;
+X}
+X
+Xstatic char *newstr() {
+X	return ealloc((size_t)1024);
+X}
+X
+Xstatic char *basename(char *s) {
+X	char *t = strrchr(s, '/');
+X	return (t == NULL) ? s : t + 1;
+X}
+X
+X/* stupid O(n^2) substring matching routine */
+X
+Xstatic char *isin(char *target, char *pattern) {
+X	size_t plen = strlen(pattern);
+X	size_t tlen = strlen(target);
+X	for (; tlen >= plen; target++, --tlen)
+X		if (strncmp(target, pattern, plen) == 0)
+X			return target;
+X	return NULL;
+X}
+X
+X/* replace the first match in the string with "new" */
+Xstatic char *sub(char *s, char *old, char *new) {
+X	char *t, *u;
+X
+X	t = isin(s, old);
+X	u = newstr();
+X
+X	*t = '\0';
+X	while (*old != '\0')
+X		old++, t++;
+X	strcpy(u, s);
+X	strcat(u, new);
+X	strcat(u, t);
+X	return u;
+X}
+X
+Xstatic char *edit(char *s) {
+X	char *final, *f, *end;
+X	int col;
+X	bool ins;
+X	
+Xstart:
+X	fprintf(stderr, "%s\n", s);	
+X	f = final = newstr();
+X	end = s + strlen(s);
+X	col = 0;
+X	ins = FALSE;
+X	
+X	for (;; col++) {
+X		int	c = getchar();
+X
+X		if (c == me && col == 0) {
+X			int	peekc = getchar();
+X			if (peekc == '\n')
+X				return NULL;
+X			ungetc(peekc, stdin);
+X		}
+X		if (c == '\n') {
+X			if (col == 0)
+X				return s;
+X			
+X			while (s < end) /* copy remainder of string */
+X				*f++ = *s++;
+X			*f = '\0';
+X			s = final;
+X			goto start;
+X		} else if (ins || s>=end) {
+X			/* col need not be accurate -- tabs need not be interpreted */
+X			*f++ = c;
+X		} else {
+X			switch (c) {
+X			case '+':
+X				while (s < end)
+X					*f++ = *s++;
+X				*f = '\0';
+X				continue;
+X			case '%':
+X				c = ' ';
+X				/* FALLTHROUGH */
+X			default:
+X				*f++ = c;
+X				break;	
+X			case EOF:
+X				exit(1);
+X				/* NOTREACHED */
+X			case ' ':
+X				if (*s == '\t') {
+X					int	oldcol = col;
+X
+X					for (;; col++) {
+X						int	peekc;
+X
+X						if ((col&07) == 07) {
+X							*f++ = '\t';	/* we spaced past a tab */
+X							break;
+X						}
+X						peekc = getchar();
+X						if (peekc != ' ') {
+X							ungetc(peekc, stdin);
+X							if (peekc != '\n') {
+X								/* we spaced partially into a tab */
+X								do {
+X									*f++ = ' ';
+X									oldcol++;
+X								} while (oldcol <= col);
+X							}
+X							break;
+X						}
+X					}
+X				} else {
+X					*f++ = *s;
+X				}
+X				break;
+X			case '#':
+X				break;
+X			case '$':
+X				end = s;	/* truncate s */
+X				continue;	/* skip incrementing s */
+X			case '^':
+X				ins = TRUE;
+X				continue;	/* skip incrementing s */
+X			case '\t':
+X				for (;; col++) {
+X					if ((*f++ = s<end? *s++ : '\t') == '\t') {
+X						col = col | 07;	/* advance to before next tabstop */
+X					}
+X					if ((col&07) == 07)	/* stop before tabstop */
+X						break;
+X				}
+X				continue;	/* skip incrementing s */
+X			}
+X			if (s<end && (*s!='\t' || (col&07)==07))
+X				s++;
+X		}
+X	}
+X}
+X
+Xstatic char *readhistoryfile(char **last) {
+X	char *buf;
+X	size_t count, size;
+X	long nread;
+X
+X	if ((history = getenv("history")) == NULL) {
+X		fprintf(stderr, "$history not set\n");
+X		exit(1);
+X	}
+X	fp = fopen(history, "r+");
+X	if (fp == NULL) {
+X		perror(history);
+X		exit(1);
+X	}
+X
+X	size = 0;
+X	count = 0;
+X	buf = ealloc(size = CHUNKSIZE);
+X	while ((nread = fread(buf + count, sizeof (char), size - count, fp)) > 0) {
+X		count += nread;
+X		if (size - count == 0)
+X			buf = erealloc(buf, size *= 4);
+X	}
+X	if (nread == -1) {
+X		perror(history);
+X		exit(1);
+X	}
+X	*last = buf + count;
+X	return buf;
+X}
+X
+Xstatic char *getcommand() {
+X	char *s, *t;
+X	static char *hist = NULL, *last;
+X
+X	if (hist == NULL) {
+X		hist = readhistoryfile(&last);
+X		*--last = '\0';		/* trim final newline */
+X	}
+X
+Xagain:	s = last;
+X	if (s < hist)
+X		return NULL;
+X	while (*--s != '\n')
+X		if (s <= hist) {
+X			last = hist - 1;
+X			return hist;
+X		}
+X	*s = '\0';
+X	last = s++;
+X
+X	/*
+X	 * if the command contains the "me" character at the start of the line
+X	 * or after any of [`{|()] then try again
+X	 */
+X
+X	for (t = s; *t != '\0'; t++)
+X		if (*t == me) {
+X			char *u = t - 1;
+X			while (u >= s && (*u == ' ' || *u == '\t'))
+X				--u;
+X			if (u < s || *u == '`' || *u == '{' || *u == '|' || *u == '(' || *u == ')')
+X				goto again;
+X		}
+X	return s;
+X}
+X
+Xint main(int argc, char **argv) {
+X	int i;
+X	char *s;
+X
+X	s = progname = basename(argv[0]);
+X	me = *s++;
+X	if (*s == me) {
+X		s++;
+X		editit = TRUE;
+X	}
+X	if (*s == 'p') {
+X		s++;
+X		printit = TRUE;
+X	}
+X/* Nahh...
+X	if (*s != '\0') {
+X		fprintf(stderr, "\"%s\": bad name for history program\n", progname);
+X		exit(1);
+X	}
+X*/
+X
+X	if (argc > 1) {
+X		replace = ealloc((argc - 1) * sizeof *replace);
+X		search = ealloc((argc - 1) * sizeof *search);
+X	}
+X	for (i = 1; i < argc; i++)
+X		if ((s = strchr(argv[i], ':')) == NULL)
+X			search[nsearch++] = argv[i];
+X		else {
+X			*(char *)s = '\0';	/* do we confuse ps too much? */
+X			replace[nreplace].old = argv[i];
+X			replace[nreplace].new = s + 1;
+X			nreplace++;
+X		}
+X
+Xnext:	s = getcommand();
+X	if (s == NULL) {
+X		fprintf(stderr, "command not matched\n");
+X		return 1;
+X	}
+X	for (i = 0; i < nsearch; i++)
+X		if (!isin(s, search[i]))
+X			goto next;
+X	for (i = 0; i < nreplace; i++)
+X		if (!isin(s, replace[i].old))
+X			goto next;
+X		else
+X			s = sub(s, replace[i].old, replace[i].new);
+X	if (editit) {
+X		s = edit(s);
+X		if (s == NULL)
+X			goto next;
+X	}
+X	fseek(fp, 0, 2); /* 2 == end of file. i.e., append command to $history */
+X	fprintf(fp, "%s\n", s);
+X	fclose(fp);
+X	if (printit)
+X		printf("%s\n", s);
+X	else {
+X		char *shell = getenv("SHELL");
+X
+X		if (!editit)
+X			fprintf(stderr, "%s\n", s);
+X		if (shell == NULL)
+X			shell = "/bin/sh";
+X		execl(shell, basename(shell), "-c", s, NULL);
+X		perror(shell);
+X		exit(1);
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 6472 -ne `wc -c <'history/history.c'`; then
+    echo shar: \"'history/history.c'\" unpacked with wrong size!
+  fi
+  # end of 'history/history.c'
+fi
+if test -f 'parse.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parse.y'\"
+else
+  echo shar: Extracting \"'parse.y'\" \(5348 characters\)
+  sed "s/^X//" >'parse.y' <<'END_OF_FILE'
+X/* parse.y */
+X
+X/*
+X * Adapted from rc grammar, v10 manuals, volume 2.
+X */
+X
+X%{
+X#include "rc.h"
+X#ifndef lint
+X#define lint		/* hush up gcc -Wall, leave out the dumb sccsid's. */
+X#endif
+Xstatic Node *star, *nolist;
+XNode *parsetree;	/* not using yylval because bison declares it as an auto */
+X%}
+X
+X%token ANDAND BACKBACK BANG CASE COUNT DUP ELSE END FLAT FN FOR IF IN
+X%token OROR PIPE REDIR SREDIR SUB SUBSHELL SWITCH TWIDDLE WHILE WORD HUH
+X
+X%left WHILE ')' ELSE
+X%left ANDAND OROR '\n'
+X%left BANG SUBSHELL
+X%left PIPE
+X%right '$' 
+X%left SUB
+X/*
+X*/
+X
+X%union {
+X	struct Node *node;
+X	struct Redir redir;
+X	struct Pipe pipe;
+X	struct Dup dup;
+X	struct Word word;
+X	char *keyword;
+X}
+X
+X%type <redir> REDIR SREDIR
+X%type <pipe> PIPE
+X%type <dup> DUP
+X%type <word> WORD
+X%type <keyword> keyword
+X%type <node> assign body brace case cbody cmd cmdsa cmdsan comword epilog
+X	     first line nlwords paren redir sword simple iftail word words
+X
+X%start rc
+X
+X%%
+X
+Xrc	: line end		{ parsetree = $1; YYACCEPT; }
+X	| error end		{ yyerrok; parsetree = NULL; YYABORT; }
+X
+X/* an rc line may end in end-of-file as well as newline, e.g., rc -c 'ls' */
+Xend	: END	/* EOF */	{ if (!heredoc(1)) YYABORT; } /* flag error if there is a heredoc in the queue */
+X	| '\n'			{ if (!heredoc(0)) YYABORT; } /* get heredoc on \n */
+X
+X/* a cmdsa is a command followed by ampersand or newline (used in "line" and "body") */
+Xcmdsa	: cmd ';'
+X	| cmd '&'		{ $$ = ($1 != NULL ? mk(nNowait,$1) : $1); }
+X
+X/* a line is a single command, or a command terminated by ; or & followed by a line (recursive) */
+Xline	: cmd
+X	| cmdsa line		{ $$ = ($1 != NULL ? mk(nBody,$1,$2) : $2); }
+X
+X/* a body is like a line, only commands may also be terminated by newline */
+Xbody	: cmd
+X	| cmdsan body		{ $$ = ($1 == NULL ? $2 : $2 == NULL ? $1 : mk(nBody,$1,$2)); }
+X
+Xcmdsan	: cmdsa
+X	| cmd '\n'		{ $$ = $1; if (!heredoc(0)) YYABORT; } /* get h.d. on \n */
+X
+Xbrace	: '{' body '}'		{ $$ = $2; }
+X
+Xparen	: '(' body ')'		{ $$ = $2; }
+X
+Xassign	: first '=' word	{ $$ = mk(nAssign,$1,$3); }
+X
+Xepilog	:			{ $$ = NULL; }
+X	| redir epilog		{ $$ = mk(nEpilog,$1,$2); }
+X
+X/* a redirection is a dup (e.g., >[1=2]) or a file redirection. (e.g., > /dev/null) */
+Xredir	: DUP			{ $$ = mk(nDup,$1.type,$1.left,$1.right); }
+X	| REDIR word		{ $$ = mk(nRedir,$1.type,$1.fd,$2);
+X				  if ($1.type == rHeredoc && !qdoc($2, $$)) YYABORT; /* queue heredocs up */
+X				}
+X	| SREDIR word		{ $$ = mk(nRedir,$1.type,$1.fd,$2);
+X				  if ($1.type == rHeredoc && !qdoc($2, $$)) YYABORT; /* queue heredocs up */
+X				}
+X
+Xcase	: CASE words ';'	 		{ $$ = mk(nCase, $2); }
+X	| CASE words '\n'	 		{ $$ = mk(nCase, $2); }
+X
+Xcbody	: cmd					{ $$ = mk(nCbody, $1, NULL); }
+X	| case cbody				{ $$ = mk(nCbody, $1, $2); }
+X	| cmdsan cbody				{ $$ = mk(nCbody, $1, $2); }
+X
+Xiftail	: cmd		%prec ELSE
+X	| brace ELSE optnl cmd			{ $$ = mk(nElse,$1,$4); }
+X
+Xcmd	: /* empty */	%prec WHILE		{ $$ = NULL; }
+X	| simple
+X	| brace epilog				{ $$ = mk(nBrace,$1,$2); }
+X	| IF paren optnl iftail			{ $$ = mk(nIf,$2,$4); }
+X	| FOR '(' word IN words ')' optnl cmd	{ $$ = mk(nForin,$3,$5,$8); }
+X	| FOR '(' word ')' optnl cmd		{ $$ = mk(nForin,$3,star,$6); }
+X	| WHILE paren optnl cmd			{ $$ = mk(nWhile,$2,$4); }
+X	| SWITCH '(' word ')' optnl '{' cbody '}' { $$ = mk(nSwitch,$3,$7); }
+X	| TWIDDLE optcaret word words		{ $$ = mk(nMatch,$3,$4); }
+X	| cmd ANDAND optnl cmd			{ $$ = mk(nAndalso,$1,$4); }
+X	| cmd OROR optnl cmd			{ $$ = mk(nOrelse,$1,$4); }
+X 	| cmd PIPE optnl cmd			{ $$ = mk(nPipe,$2.left,$2.right,$1,$4); }
+X	| redir cmd	%prec BANG		{ $$ = ($2 != NULL ? mk(nPre,$1,$2) : $1); }
+X	| assign cmd	%prec BANG		{ $$ = ($2 != NULL ? mk(nPre,$1,$2) : $1); }
+X	| BANG optcaret cmd			{ $$ = mk(nBang,$3); }
+X	| SUBSHELL optcaret cmd			{ $$ = mk(nSubshell,$3); }
+X	| FN words brace			{ $$ = mk(nNewfn,$2,$3); }
+X	| FN words				{ $$ = mk(nRmfn,$2); }
+X
+Xoptcaret : /* empty */
+X	| '^'
+X
+Xsimple	: first
+X	| simple word			{ $$ = ($2 != NULL ? mk(nArgs,$1,$2) : $1); }
+X	| simple redir			{ $$ = mk(nArgs,$1,$2); }
+X
+Xfirst	: comword
+X	| first '^' sword		{ $$ = mk(nConcat,$1,$3); }
+X
+Xsword	: comword
+X	| keyword			{ $$ = mk(nWord,$1, NULL); }
+X
+Xword	: sword
+X	| word '^' sword		{ $$ = mk(nConcat,$1,$3); }
+X
+Xcomword	: '$' sword			{ $$ = mk(nVar,$2); }
+X	| '$' sword SUB words ')'	{ $$ = mk(nVarsub,$2,$4); }
+X	| COUNT sword			{ $$ = mk(nCount,$2); }
+X	| FLAT sword			{ $$ = mk(nFlat, $2); }
+X	| '`' sword			{ $$ = mk(nBackq,nolist,$2); }
+X	| '`' brace			{ $$ = mk(nBackq,nolist,$2); }
+X	| BACKBACK word	brace		{ $$ = mk(nBackq,$2,$3); }
+X	| BACKBACK word	sword		{ $$ = mk(nBackq,$2,$3); }
+X	| '(' nlwords ')'		{ $$ = $2; }
+X	| REDIR brace			{ $$ = mk(nNmpipe,$1.type,$1.fd,$2); }
+X	| WORD				{ $$ = ($1.w[0] == '\'') ? mk(nQword, $1.w+1, NULL) : mk(nWord,$1.w, $1.m); }
+X
+Xkeyword	: FOR		{ $$ = "for"; }
+X	| IN		{ $$ = "in"; }
+X	| WHILE		{ $$ = "while"; }
+X	| IF		{ $$ = "if"; }
+X	| SWITCH	{ $$ = "switch"; }
+X	| FN		{ $$ = "fn"; }
+X	| ELSE		{ $$ = "else"; }
+X	| CASE		{ $$ = "case"; }
+X	| TWIDDLE	{ $$ = "~"; }
+X	| BANG		{ $$ = "!"; }
+X	| SUBSHELL	{ $$ = "@"; }
+X
+Xwords	:		{ $$ = NULL; }
+X	| words word	{ $$ = ($1 != NULL ? ($2 != NULL ? mk(nLappend,$1,$2) : $1) : $2); }
+X
+Xnlwords :		{ $$ = NULL; }
+X	| nlwords '\n'
+X	| nlwords word	{ $$ = ($1 != NULL ? ($2 != NULL ? mk(nLappend,$1,$2) : $1) : $2); }
+X
+Xoptnl	: /* empty */
+X	| optnl '\n'
+X
+X%%
+X
+Xvoid initparse() {
+X	star = treecpy(mk(nVar,mk(nWord,"*",NULL)), ealloc);
+X	nolist = treecpy(mk(nVar,mk(nWord,"ifs",NULL)), ealloc);
+X}
+X
+END_OF_FILE
+  if test 5348 -ne `wc -c <'parse.y'`; then
+    echo shar: \"'parse.y'\" unpacked with wrong size!
+  fi
+  # end of 'parse.y'
+fi
+if test -f 'rc.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rc.h'\"
+else
+  echo shar: Extracting \"'rc.h'\" \(9028 characters\)
+  sed "s/^X//" >'rc.h' <<'END_OF_FILE'
+X#include "config.h"
+X#include "proto.h"
+X
+X/* datatypes */
+X
+X/* braindamaged IBM header files #define true and false */
+X#undef FALSE
+X#undef TRUE
+X
+X#include <stdarg.h>
+X
+Xtypedef void builtin_t(char **);
+Xtypedef struct Block Block;
+Xtypedef struct Dup Dup;
+Xtypedef struct Estack Estack;
+Xtypedef struct Function Function;
+Xtypedef struct Hq Hq;
+Xtypedef struct Htab Htab;
+Xtypedef struct Jbwrap Jbwrap;
+Xtypedef struct List List;
+Xtypedef struct Node Node;
+Xtypedef struct Pipe Pipe;
+Xtypedef struct Redir Redir;
+Xtypedef struct Rq Rq;
+Xtypedef struct Variable Variable;
+Xtypedef struct Word Word;
+Xtypedef struct Format Format;
+Xtypedef union Edata Edata;
+X
+Xtypedef enum nodetype {
+X	nAndalso, nAssign, nBackq, nBang, nBody, nCbody, nNowait, nBrace, nConcat,
+X	nCount, nElse, nFlat, nDup, nEpilog, nNewfn, nForin, nIf, nQword,
+X	nOrelse, nPipe, nPre, nRedir, nRmfn, nArgs, nSubshell, nCase,
+X	nSwitch, nMatch, nVar, nVarsub, nWhile, nWord, nLappend, nNmpipe
+X} nodetype;
+X
+Xtypedef enum ecodes {
+X	eError, eBreak, eReturn, eVarstack, eArena, eFifo, eFd
+X} ecodes;
+X
+Xtypedef enum bool {
+X	FALSE, TRUE
+X} bool;
+X
+Xtypedef enum inputtype {
+X	iFd, iString
+X} inputtype;
+X
+Xtypedef enum redirtype {
+X	rFrom, rCreate, rAppend, rHeredoc, rHerestring
+X} redirtype;
+X
+Xtypedef bool (*Conv)(Format *, int);
+X
+Xunion Edata {
+X	Jbwrap *jb;
+X	Block *b;
+X	char *name;
+X	int fd;
+X};
+X
+Xstruct Estack {
+X	ecodes e;
+X	bool interactive;
+X	Edata data;
+X	Estack *prev;
+X};
+X
+Xstruct List {
+X	char *w, *m;
+X	List *n;
+X};
+X
+Xstruct Node {
+X	nodetype type;
+X	union {
+X		char *s;
+X		int i;
+X		Node *p;
+X	} u[4];
+X};
+X
+Xstruct Pipe {
+X	int left, right;
+X};
+X
+Xstruct Dup {
+X	redirtype type;
+X	int left, right;
+X};
+X
+Xstruct Redir {
+X	redirtype type;
+X	int fd;
+X};
+X
+Xstruct Word {
+X	char *w, *m;
+X};
+X
+Xstruct Rq {
+X	Node *r;
+X	struct Rq *n;
+X};
+X
+Xstruct Function {
+X	Node *def;
+X	char *extdef;
+X};
+X
+Xstruct Variable {
+X	List *def;
+X	char *extdef;
+X	Variable *n;
+X};
+X
+Xstruct Htab {
+X	char *name;
+X	void *p;
+X};
+X
+Xstruct Format {
+X	/* for the formatting routines */
+X	va_list args;
+X	long flags, f1, f2;
+X	/* for the buffer maintainence routines */
+X	char *buf, *bufbegin, *bufend;
+X	int flushed;
+X	void (*grow)(Format *, SIZE_T);
+X	union { int n; void *p; } u;
+X};
+X
+X/* Format->flags values */
+Xenum {
+X	FMT_long	= 1,		/* %l */
+X	FMT_short	= 2,		/* %h */
+X	FMT_unsigned	= 4,		/* %u */
+X	FMT_zeropad	= 8,		/* %0 */
+X	FMT_leftside	= 16,		/* %- */
+X	FMT_altform	= 32,		/* %# */
+X	FMT_f1set	= 64,		/* %<n> */
+X	FMT_f2set	= 128		/* %.<n> */
+X};
+X
+X/* macros */
+X#define EOF (-1)
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#define a2u(x) n2u(x, 10)
+X#define o2u(x) n2u(x, 8)
+X#define arraysize(a) ((int)(sizeof(a)/sizeof(*a)))
+X#define enew(x) ((x *) ealloc(sizeof(x)))
+X#define ecpy(x) strcpy((char *) ealloc(strlen(x) + 1), x)
+X#define lookup_fn(s) ((Function *) lookup(s, fp))
+X#define lookup_var(s) ((Variable *) lookup(s, vp))
+X#define nnew(x) ((x *) nalloc(sizeof(x)))
+X#define ncpy(x) (strcpy((char *) nalloc(strlen(x) + 1), x))
+X#ifndef offsetof
+X#define offsetof(t, m) ((SIZE_T) (((char *) &((t *) 0)->m) - (char *)0))
+X#endif
+X#define streq(x, y) (*(x) == *(y) && strcmp(x, y) == 0)
+X#define conststrlen(x) (sizeof (x) - 1)
+X
+X/* rc prototypes */
+X
+X/* main.c */
+Xextern char *prompt, *prompt2;
+Xextern Rq *redirq;
+Xextern bool dashdee, dashee, dashvee, dashex, dashell,
+X	dasheye, dashen, dashpee, interactive;
+Xextern int rc_pid;
+Xextern int lineno;
+X
+X/* builtins.c */
+Xextern builtin_t *isbuiltin(char *);
+Xextern void b_exec(char **), funcall(char **), b_dot(char **), b_builtin(char **);
+Xextern char *which(char *, bool);
+X
+X/* except.c */
+Xextern bool nl_on_intr;
+Xextern bool outstanding_cmdarg(void);
+Xextern void pop_cmdarg(bool);
+Xextern void rc_raise(ecodes);
+Xextern void except(ecodes, Edata, Estack *);
+Xextern void unexcept(void);
+Xextern void rc_error(char *);
+Xextern void sigint(int);
+X
+X/* exec.c */
+Xextern void exec(List *, bool);
+Xextern void doredirs(void);
+X
+X/* footobar.c */
+Xextern char *fun2str(char *, Node *);
+Xextern char *list2str(char *, List *);
+Xextern char **list2array(List *, bool);
+Xextern char *get_name(char *);
+Xextern List *parse_var(char *, char *);
+Xextern Node *parse_fn(char *, char *);
+Xextern void initprint(void);
+Xextern void rc_exit(int); /* here for odd reasons; user-defined signal handlers are kept in fn.c */
+X
+X/* getopt.c */
+Xextern int rc_getopt(int, char **, char *);
+X
+Xextern int rc_optind, rc_opterr, rc_optopt;
+Xextern char *rc_optarg;
+X
+X/* glob.c */
+Xextern bool lmatch(List *, List *);
+Xextern List *glob(List *);
+X
+X/* glom.c */
+Xextern void assign(List *, List *, bool);
+Xextern void qredir(Node *);
+Xextern List *append(List *, List*);
+Xextern List *flatten(List *);
+Xextern List *glom(Node *);
+Xextern List *concat(List *, List *);
+Xextern List *varsub(List *, List *);
+Xextern List *word(char *, char *);
+X
+X/* hash.c */
+Xextern Htab *fp, *vp;
+Xextern void *lookup(char *, Htab *);
+Xextern Function *get_fn_place(char *);
+Xextern List *varlookup(char *);
+Xextern Node *fnlookup(char *);
+Xextern Variable *get_var_place(char *, bool);
+Xextern bool varassign_string(char *);
+Xextern char **makeenv(void);
+Xextern char *fnlookup_string(char *);
+Xextern char *varlookup_string(char *);
+Xextern void alias(char *, List *, bool);
+Xextern void starassign(char *, char **, bool);
+Xextern void delete_fn(char *);
+Xextern void delete_var(char *, bool);
+Xextern void fnassign(char *, Node *);
+Xextern void fnassign_string(char *);
+Xextern void fnrm(char *);
+Xextern void initenv(char **);
+Xextern void inithash(void);
+Xextern void setsigdefaults(bool);
+Xextern void inithandler(void);
+Xextern void varassign(char *, List *, bool);
+Xextern void varrm(char *, bool);
+Xextern void whatare_all_vars(void);
+Xextern void whatare_all_signals(void);
+Xextern void prettyprint_var(int, char *, List *);
+Xextern void prettyprint_fn(int, char *, Node *);
+X
+X/* heredoc.c */
+Xextern int heredoc(int);
+Xextern int qdoc(Node *, Node *);
+Xextern Hq *hq;
+X
+X/* input.c */
+Xextern void initinput(void);
+Xextern Node *parseline(char *);
+Xextern int gchar(void);
+Xextern void ugchar(int);
+Xextern Node *doit(bool);
+Xextern void flushu(void);
+Xextern void pushfd(int);
+Xextern void pushstring(char **, bool);
+Xextern void popinput(void);
+Xextern void closefds(void);
+Xextern int last;
+Xextern bool rcrc;
+X
+X/* lex.c */
+Xextern int yylex(void);
+Xextern void inityy(void);
+Xextern void yyerror(const char *);
+Xextern void scanerror(char *);
+Xextern void print_prompt2(void);
+Xextern const char nw[], dnw[];
+X
+X/* list.c */
+Xextern void listfree(List *);
+Xextern List *listcpy(List *, void *(*)(SIZE_T));
+Xextern SIZE_T listlen(List *);
+Xextern int listnel(List *);
+X
+X/* match.c */
+Xextern bool match(char *, char *, char *);
+X
+X/* alloc.c */
+Xextern void *ealloc(SIZE_T);
+Xextern void *erealloc(void *, SIZE_T);
+Xextern void efree(void *);
+Xextern Block *newblock(void);
+Xextern void *nalloc(SIZE_T);
+Xextern void nfree(void);
+Xextern void restoreblock(Block *);
+X
+X/* open.c */
+Xextern int rc_open(const char *, redirtype);
+X
+X/* print.c */
+X/*
+X   The following prototype should be:
+Xextern Conv fmtinstall(int, Conv);
+X   but this freaks out SGI's compiler under IRIX3.3.2
+X*/
+Xextern bool (*fmtinstall(int, bool (*)(Format *, int)))(Format *, int);
+Xextern int printfmt(Format *, const char *);
+Xextern int fmtprint(Format *, const char *,...);
+Xextern void fmtappend(Format *, const char *, SIZE_T);
+Xextern void fmtcat(Format *, const char *);
+Xextern int fprint(int fd, const char *fmt,...);
+Xextern char *mprint(const char *fmt,...);
+Xextern char *nprint(const char *fmt,...);
+X/*
+X   the following macro should by rights be coded as an expression, not
+X   a statement, but certain compilers (notably DEC) have trouble with
+X   void expressions inside the ?: operator. (sheesh, give me a break!)
+X*/
+X#define	fmtputc(f, c) {\
+X	if ((f)->buf >= (f)->bufend)\
+X		(*(f)->grow)((f), (SIZE_T)1);\
+X	*(f)->buf++ = (c);\
+X}
+X
+X/* y.tab.c (parse.y) */
+Xextern Node *parsetree;
+Xextern int yyparse(void);
+Xextern void initparse(void);
+X
+X/* redir.c */
+Xextern void doredirs(void);
+X
+X/* signal.c */
+Xextern void initsignal(void);
+Xextern void catcher(int);
+Xextern void sigchk(void);
+Xextern void (*rc_signal(int, void (*)(int)))(int);
+Xextern void (*sighandlers[])(int);
+Xextern volatile SIG_ATOMIC_T slow, interrupt_happened;
+X#define SIGCHK sigchk()
+X
+X/* status.c */
+Xextern int istrue(void);
+Xextern int getstatus(void);
+Xextern void set(bool);
+Xextern void setstatus(int, int);
+Xextern List *sgetstatus(void);
+Xextern void setpipestatus(int [], int);
+Xextern void statprint(int, int);
+Xextern void ssetstatus(char **);
+X
+X/* tree.c */
+Xextern Node *mk(int /*nodetype*/,...);
+Xextern Node *treecpy(Node *, void *(*)(SIZE_T));
+Xextern void treefree(Node *);
+X
+X/* utils.c */
+Xextern bool isabsolute(char *);
+Xextern int n2u(char *, unsigned int);
+Xextern int rc_read(int, char *, SIZE_T);
+Xextern int mvfd(int, int);
+Xextern int starstrcmp(const void *, const void *);
+Xextern void pr_error(char *);
+Xextern char *clear(char *, SIZE_T);
+Xextern void panic(char *);
+Xextern void uerror(char *);
+Xextern void writeall(int, char *, SIZE_T);
+X
+X/* wait.c */
+Xextern int rc_fork(void);
+Xextern int rc_wait4(int, int *, bool);
+Xextern List *sgetapids(void);
+Xextern void waitforall(void);
+Xextern bool forked;
+X
+X/* walk.c */
+Xextern bool walk(Node *, bool);
+Xextern bool cond;
+X
+END_OF_FILE
+  if test 9028 -ne `wc -c <'rc.h'`; then
+    echo shar: \"'rc.h'\" unpacked with wrong size!
+  fi
+  # end of 'rc.h'
+fi
+if test -f 'var.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'var.c'\"
+else
+  echo shar: Extracting \"'var.c'\" \(5988 characters\)
+  sed "s/^X//" >'var.c' <<'END_OF_FILE'
+X/* var.c: provide "public" functions for adding and removing variables from the symbol table */
+X
+X#include "rc.h"
+X
+Xstatic void colonassign(char *, List *, bool);
+Xstatic void listassign(char *, List *, bool);
+Xstatic int hasalias(char *);
+X
+Xstatic char *const aliases[] = {
+X	"home", "HOME", "path", "PATH", "cdpath", "CDPATH"
+X};
+X
+X/* assign a variable in List form to a name, stacking if appropriate */
+X
+Xextern void varassign(char *name, List *def, bool stack) {
+X	Variable *new;
+X	List *newdef = listcpy(def, ealloc); /* important to do the listcpy first; get_var_place() frees old values */
+X	new = get_var_place(name, stack);
+X	new->def = newdef;
+X	new->extdef = NULL;
+X#ifdef READLINE /* need to reset readline() every time TERM or TERMCAP changes */
+X	if (interactive && (streq(name, "TERM") || streq(name, "TERMCAP"))) {
+X		extern void rl_reset_terminal(char *);
+X		rl_reset_terminal(NULL);
+X	}
+X#endif
+X}
+X
+X/* assign a variable in string form. Check to see if it is aliased (e.g., PATH and path) */
+X
+Xextern bool varassign_string(char *extdef) {
+X	static bool aliasset[arraysize(aliases)] = {
+X		FALSE, FALSE, FALSE, FALSE, FALSE, FALSE
+X	};
+X	char *name = get_name(extdef);
+X	Variable *new;
+X	int i;
+X	if (name == NULL)
+X		return FALSE; /* add it to bozo env */
+X	if ((i = hasalias(name)) != -1) {
+X		aliasset[i] = TRUE;
+X		i ^= 1;			 	/* set i to the "opposite" case subscript and */
+X		if (i&1 && aliasset[i])		/* don't alias variables that are already set in upper case */
+X			return TRUE;
+X	}
+X	new = get_var_place(name, FALSE);
+X	new->def = NULL;
+X	new->extdef = ealloc(strlen(extdef) + 1);
+X	strcpy(new->extdef, extdef);
+X	if (i != -1)
+X		alias(name, varlookup(name), FALSE);
+X	return TRUE;
+X}
+X
+X/*
+X   Return a List based on a name lookup. If the list is in external (string) form,
+X   convert it to internal (List) form. Treat $n (n is an integer) specially as $*(n).
+X   Also check to see if $status is being dereferenced. (we lazily evaluate the List
+X   associated with $status)
+X*/
+X
+Xextern List *varlookup(char *name) {
+X	Variable *look;
+X	List *ret, *l;
+X	int sub;
+X	if (streq(name, "status"))
+X		return sgetstatus();
+X	if (streq(name, "apids"))
+X		return sgetapids();
+X	if (*name != '\0' && (sub = a2u(name)) != -1) { /* handle $1, $2, etc. */
+X		for (l = varlookup("*"); l != NULL && sub != 0; --sub)
+X			l = l->n;
+X		if (l == NULL)
+X			return NULL;
+X		ret = nnew(List);
+X		ret->w = l->w;
+X		ret->m = NULL;
+X		ret->n = NULL;
+X		return ret;
+X	}
+X	look = lookup_var(name);
+X	if (look == NULL)
+X		return NULL; /* not found */
+X	if (look->def != NULL)
+X		return look->def;
+X	if (look->extdef == NULL)
+X		return NULL; /* variable was set to null, e.g., a=() echo foo */
+X	ret = parse_var(name, look->extdef);
+X	if (ret == NULL) {
+X		look->extdef = NULL;
+X		return NULL;
+X	}
+X	return look->def = ret;
+X}
+X
+X/* lookup a variable in external (string) form, converting if necessary. Used by makeenv() */
+X
+Xextern char *varlookup_string(char *name) {
+X	Variable *look;
+X	look = lookup_var(name);
+X	if (look == NULL)
+X		return NULL;
+X	if (look->extdef != NULL)
+X		return look->extdef;
+X	if (look->def == NULL)
+X		return NULL;
+X	return look->extdef = list2str(name, look->def);
+X}
+X
+X/* remove a variable from the symtab. "stack" determines whether a level of scoping is popped or not */
+X
+Xextern void varrm(char *name, bool stack) {
+X	int i = hasalias(name);
+X	if (streq(name, "*") && !stack) { /* when assigning () to $*, we want to preserve $0 */
+X		varassign("*", varlookup("0"), FALSE);
+X		return;
+X	}
+X	delete_var(name, stack);
+X	if (i != -1)
+X		delete_var(aliases[i^1], stack);
+X}
+X
+X/* assign a value (List) to a variable, using array "a" as input. Used to assign $* */
+X
+Xextern void starassign(char *dollarzero, char **a, bool stack) {
+X	List *s, *var;
+X	var = nnew(List);
+X	var->w = dollarzero;
+X	if (*a == NULL) {
+X		var->n = NULL;
+X		varassign("*", var, stack);
+X		return;
+X	}
+X	var->n = s = nnew(List);
+X	while (1) {
+X		s->w = *a++;
+X		if (*a == NULL) {
+X			s->n = NULL;
+X			break;
+X		} else
+X			s = s->n = nnew(List);
+X	}
+X	varassign("*", var, stack);
+X}
+X
+X/* (ugly name, huh?) assign a colon-separated value to a variable (e.g., PATH) from a List (e.g., path) */
+X
+Xstatic void colonassign(char *name, List *def, bool stack) {
+X	List dud;
+X	if (def == NULL) {
+X		varassign(name, NULL, stack);
+X		return;
+X	}
+X	dud.w = nprint("%-L", def, ":");
+X	dud.n = NULL;
+X	varassign(name, &dud, stack);
+X}
+X
+X/* assign a List variable (e.g., path) from a colon-separated string (e.g., PATH) */
+X
+Xstatic void listassign(char *name, List *def, bool stack) {
+X	List *val, *r;
+X	char *v, *w;
+X	if (def == NULL) {
+X		varassign(name, NULL, stack);
+X		return;
+X	}
+X	v = def->w;
+X	r = val = enew(List);
+X	while ((w = strchr(v, ':')) != NULL) {
+X		*w = '\0';
+X		r->w = ecpy(v);
+X		*w = ':';
+X		v = w + 1;
+X		r->n = enew(List);
+X		r = r->n;
+X	}
+X	r->w = ecpy(v);
+X	r->n = NULL;
+X	varassign(name, val, stack);
+X}
+X
+X/* check to see if a particular variable is aliased; return -1 on failure, or the index */
+X
+Xstatic int hasalias(char *name) {
+X	int i;
+X	for (i = 0; i < arraysize(aliases); i++)
+X		if (streq(name, aliases[i]))
+X			return i;
+X	return -1;
+X}
+X
+X/* alias a variable to its lowercase equivalent. function pointers are used to specify the conversion function */
+X
+Xextern void alias(char *name, List *s, bool stack) {
+X	static void (*vectors[])(char *, List *, bool) = {
+X		varassign, varassign, colonassign, listassign, colonassign, listassign
+X	};
+X	int i = hasalias(name);
+X	if (i != -1)
+X		(*vectors[i])(aliases[i^1], s, stack); /* xor hack to reverse case of alias entry */
+X}
+X
+Xextern void prettyprint_var(int fd, char *name, List *s) {
+X	int i;
+X	static const char * const keywords[] = {
+X		"if", "in", "fn", "for", "else", "switch", "while", "case"
+X	};
+X	if (s == NULL) {
+X		fprint(fd, "%S=()\n", name);
+X		return;
+X	}
+X	if (streq(name, "*")) {
+X		s = s->n;
+X		if (s == NULL)
+X			return; /* Don't print $0, and if $* is not set, skip it */
+X	}
+X	for (i = 0; i < arraysize(keywords); i++)
+X		if (streq(keywords[i], name)) {
+X			fprint(fd, "%#S=", name);
+X			goto value;
+X		}
+X	fprint(fd, "%S=", name);
+Xvalue:
+X	fprint(fd, s->n == NULL ? "%L\n" : "(%L)\n", s, " ");
+X}
+END_OF_FILE
+  if test 5988 -ne `wc -c <'var.c'`; then
+    echo shar: \"'var.c'\" unpacked with wrong size!
+  fi
+  # end of 'var.c'
+fi
+if test -f 'version.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.c'\"
+else
+  echo shar: Extracting \"'version.c'\" \(50 characters\)
+  sed "s/^X//" >'version.c' <<'END_OF_FILE'
+Xconst char id[] = "@(#)rc version 1.4, 5/26/92.";
+END_OF_FILE
+  if test 50 -ne `wc -c <'version.c'`; then
+    echo shar: \"'version.c'\" unpacked with wrong size!
+  fi
+  # end of 'version.c'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

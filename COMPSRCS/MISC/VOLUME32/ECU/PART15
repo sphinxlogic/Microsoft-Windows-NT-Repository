@@ -1,0 +1,2334 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i050:  ecu - ECU Asynchronous Communications v3.20, Part15/40
+Message-ID: <1992Sep13.153555.5502@sparky.imd.sterling.com>
+X-Md4-Signature: cde5726cfd9f6ced031f319e8c1353f5
+Date: Sun, 13 Sep 1992 15:35:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 50
+Archive-name: ecu/part15
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.15 (part 15 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecuxfer.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 15; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecuxfer.c'
+else
+echo 'x - continuing file ecuxfer.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecuxfer.c' &&
+X		}
+X		else if(ustmp < 128)
+X		{
+X			setcolor(colors_alert);
+X			if(ustmp == 127)
+X				pputs("[127 or more files skipped]");
+X			else
+X				pprintf("[%u files rejected]",ustmp);
+X			erc = 0;
+X		}
+X		else
+X		{
+X			setcolor(colors_alert);
+X			pprintf("[transfer aborted by %s]",
+X				signal_name_text(ustmp & 0x7F));
+X			erc = eProcAttn_Interrupt;
+X		}
+X	}
+X	else
+X	{
+X		tcap_curbotleft();
+X		setcolor(colors_error);
+X		pprintf("[transfer killed by %s]",
+X			signal_name_text(ustmp & 0x7F));
+X		erc = eProcAttn_Interrupt;
+X	}
+X
+X	setcolor(colors_at_entry);
+X	pputs("\n");
+X	return(erc);
+X
+X}	/* end of report_send_status */
+X
+X/*+-----------------------------------------------------------------------
+X	send_files_to_remote(argc,argv)
+X------------------------------------------------------------------------*/
+Xvoid
+Xsend_files_to_remote(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	register itmp;
+X	register input_state = 0;
+X	register input_state_mod;
+X	long ltmp;
+X	int input_done;
+X	int used_argv = 0;
+X	char *ckufnm;
+X	char execcmd[256];
+X	char s80[80];
+X	char flst[80];
+X	uchar delim;	/* important to be unsigned to avoid sign extension */
+X	WINDOW *window_create();
+X	char bottom_label[64];
+X	int old_ttymode = get_ttymode();
+X
+X	p_binary = 1;		/* assume p_binary xfer */
+X	p_sendfull = 0;		/* assume no full pathnames */
+X	p_overwrite = 1;	/* assume overwrite */
+X	p_xfernew = 0;		/* assume send only newer */
+X	p_filelist[0] = 0;	/* no filenames yet */
+X#if defined(WHT)
+X	zwindw_size = 65536;					/* my preference */
+X#else
+X#if defined(DEFAULT_SZ_WINDOW)
+X	zwindw_size = DEFAULT_SZ_WINDOW_SIZE;	/* your preference */
+X#else
+X	zwindw_size = 0;						/* default to full streaming sz */
+X#endif /* DEFAULT_SZ_WINDOW */
+X#endif /* WHT */
+X
+X	switch(to_lower(*(argv[0] + 1)))
+X	{
+X		case 'x': xfertype = ECUSZ_X; break;
+X		case 'y': xfertype = ECUSZ_Y; break;
+X		case 'z': xfertype = ECUSZ_Z; break;
+X		case 'k': xfertype = CKERMIT; break;
+X		case 's': xfertype = ECUSEA; break;
+X		default: ff(se,"send command invalid\n");
+X			return;
+X	}
+X
+X	kill_rcvr_process(SIGUSR1);	/* SIGUSR1 gives chance to close log file */
+X
+X/* define and open window */
+X	input_state_mod = 0;
+X	xfrw_tlx = (COLS - SNDW_COLS) / 2;
+X	xfrw_cols = SNDW_COLS;
+X	switch(xfertype)
+X	{
+X		case ECUSEA:
+X			input_state_mod = 1;
+X			xfrw_lines = 7;
+X			break;
+X		case ECUSZ_X:
+X			input_state_mod = 2;
+X			xfrw_lines = 9;
+X			break;
+X		case ECUSZ_Z:
+X			input_state_mod = 7;
+X			xfrw_lines = input_state_mod + 7;
+X			break;
+X		case CKERMIT:
+X			input_state_mod = 3;
+X			xfrw_lines = input_state_mod + 7;
+X			break;
+X		case ECUSZ_Y:
+X			input_state_mod = 2;
+X			xfrw_lines = input_state_mod + 7;
+X			break;
+X		default:
+X			termecu(9999);
+X	}
+X
+X	windows_start();
+X	sprintf(execcmd,"Send %s",xfer_title_fragment());
+X	xfrw = window_create(execcmd,-3,SNDW_TLY,(int)xfrw_tlx,
+X			(int)xfrw_lines,(int)xfrw_cols);
+X	xfrw_display_cmd_line();
+X	xfrws_display_literals();
+X	xfrws_display_allvars();
+X	wmove(xfrw,0,27);
+X	waddstr(xfrw," dir: ");
+X	if(strlen(curr_dir) > (unsigned)(xfrw_cols - 32))
+X	{
+X		strncpy(s80,curr_dir,xfrw_cols - 32);
+X		s80[xfrw_cols - 32] = 0;
+X		waddstr(xfrw,s80);
+X	}
+X	else
+X		waddstr(xfrw,curr_dir);
+X	waddch(xfrw,' ');
+X	flst[0] = 0;
+X
+XREENTER_INPUT_LOOP:
+X	input_done = 0;
+X	while(!input_done)
+X	{
+X		switch(input_state)
+X		{
+X			case 0:		/* filename(s) */
+X				xfrw_bot_msg("enter file(s) to send");
+XCASE_0_AGAIN:
+X				if(used_argv || (argc == 1))
+X				{
+X					itmp = wingets(xfrw,SNDW_FILE_Y,SNDW_FILE_X,flst,
+X						SNDW_FILE_LEN + 1,&delim,
+X						(p_filelist[0] != 0),(int *)0);
+X				}
+X				else
+X				{
+X					used_argv = 1;
+X					flst[0] = 0;
+X					for(itmp = 1; itmp < argc; itmp++)
+X					{
+X						if((strlen(flst) + strlen(argv[itmp]) + 1) >
+X							sizeof(flst))
+X						{
+X							xfrw_bot_msg("arguments too long ... reenter list");
+X							ring_bell();
+X							goto CASE_0_AGAIN;
+X						}
+X						strcat(flst,argv[itmp]);
+X						if(itmp != (argc - 1))
+X							strcat(flst," ");
+X					}
+X					delim = NL;
+X				}
+X				if(delim == ESC)
+X					break;
+X				if(strlen(flst))
+X				{
+X					strcpy(p_filelist,flst);
+X					xfrws_display_name();
+X					if(find_shell_chars(p_filelist))
+X					{
+X					char *expcmd;
+X
+X						if(expand_wildcard_list(p_filelist,&expcmd))
+X						{
+X							xfrw_bot_msg(expcmd);
+X							ring_bell();
+X							goto CASE_0_AGAIN;
+X						}
+X						expcmd[SNDW_FILE_LEN - 1] = 0;
+X						clear_area(xfrw,SNDW_FILE_Y,SNDW_FILE_X,SNDW_FILE_LEN);
+X						waddstr(xfrw,expcmd);
+X						free(expcmd);
+X					}
+X				}
+X				break;
+X
+X			case 1:		/* binary */
+X				xfrw_bot_msg("Y: no conversion, N: NLs converted to CR/LF");
+X				wmove(xfrw,SNDW_BIN_Y,SNDW_BIN_X);
+X				wrefresh(xfrw);
+X				delim = NL;
+X				switch(itmp = xfrw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1:
+X						p_binary = itmp;
+X						xfrws_display_binary();
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 2:		/* overwrite */
+X				xfrw_bot_msg("Y: overwrite, N: protect destination files");
+X				wmove(xfrw,SNDW_OVERW_Y,SNDW_OVERW_X);
+X				wrefresh(xfrw);
+X				delim = NL;
+X				switch(itmp = xfrw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1:
+X						p_overwrite = itmp;
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 3:		/* send full pathnames */
+X				xfrw_bot_msg(
+X					"Y: full pathnames, N: strip directory portion from names");
+X				wmove(xfrw,SNDW_SENDFULL_Y,SNDW_SENDFULL_X);
+X				wrefresh(xfrw);
+X				delim = NL;
+X				switch(itmp = xfrw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1:
+X						p_sendfull = itmp;
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 4:		/* src newer than dest */
+X
+X				xfrw_bot_msg(
+X				"Y: send only if source newer than destination, N send all");
+X				wmove(xfrw,SNDW_XFERNEW_Y,SNDW_XFERNEW_X);
+X				wrefresh(xfrw);
+X				delim = NL;
+X				switch(itmp = xfrw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1:
+X						p_xfernew = itmp;
+X						xfrws_display_xfernew();
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 5:		/* resume interrupted transfer */
+X
+X				xfrw_bot_msg(
+X				"Y: resume transfer at remote file EOF, N send all");
+X				wmove(xfrw,SNDW_RESUME_Y,SNDW_RESUME_X);
+X				wrefresh(xfrw);
+X				delim = NL;
+X				switch(itmp = xfrw_get_single("ny"))
+X				{
+X					case 0:
+X					case 1:
+X						p_resume = itmp;
+X						xfrws_display_resume();
+X						break;
+X					default:
+X						delim = itmp & 0xFF;
+X						break;
+X				}
+X				break;
+X
+X			case 6:		/* window size */
+X
+X				xfrw_bot_msg(
+X				"window size (max bytes sent before ACK required) 0 = stream");
+XCASE_5_AGAIN:
+X				sprintf(s80,"%u",zwindw_size);
+X				clear_area(xfrw,SNDW_ZWINDW_Y,SNDW_ZWINDW_X,
+X					SNDW_ZWINDW_LEN + 10);
+X				itmp = wingets(xfrw,SNDW_ZWINDW_Y,SNDW_ZWINDW_X,s80,
+X					SNDW_ZWINDW_LEN + 1,&delim,1,(int *)0);
+X				if((delim == ESC))
+X					break;
+X				if( ((ltmp = atol(s80)) != 0) &&
+X					((ltmp < 256) || (ltmp > ZWINDW_LIMIT)))
+X				{
+X				char xbmsg[80];
+X					ring_bell();
+X					sprintf(xbmsg,"window size must be 0 or 256 <= w <= %u",
+X						ZWINDW_LIMIT);
+X					xfrw_bot_msg(xbmsg);
+X					goto CASE_5_AGAIN;
+X				}
+X				zwindw_size = (uint)(ltmp / 64L) * 64L;
+X				sprintf(s80,"%u%s",zwindw_size,
+X					(zwindw_size != (uint)ltmp) ? " adjusted" : "" );
+X				clear_area(xfrw,SNDW_ZWINDW_Y,SNDW_ZWINDW_X,
+X					SNDW_ZWINDW_LEN + 10);
+X				waddstr(xfrw,s80);
+X				break;
+X		}
+X
+X		switch(delim)
+X		{
+X			case XFcurup:
+X			case CTL_B:
+X				input_state = (input_state) ? input_state - 1 
+X				                            : input_state_mod - 1;
+X				break;
+X
+X			case XFcurdn:
+X			case TAB:
+X			case NL:
+X				input_state++;
+X				input_state %= input_state_mod;
+X				break;
+X
+X			case CTL_L:
+X			case CTL_R:
+X				tcap_clear_screen();
+X				touchwin(stdscr);
+X				wrefresh(stdscr);
+X				touchwin(xfrw);
+X				wrefresh(xfrw);
+X				break;
+X
+X			case ESC:
+X				xfrw_bot_msg("transfer abandoned");
+X				input_done = 1;
+X				break;
+X
+X			case XFend:
+X				input_done = 1;
+X				break;
+X		}
+X	}
+X
+X	if(delim == XFend)
+X	{
+X		if(!p_filelist[0])
+X		{
+X			ring_bell();
+X			xfrw_bot_msg("No filenames entered!  Press <ENTER>");
+X			(void)ttygetc(1);
+X			input_state = 0;
+X			goto REENTER_INPUT_LOOP;
+X		}
+X		xfrw_bot_msg("starting file transfer");
+X	}
+X
+X	wrefresh(xfrw);
+X	delwin(xfrw);
+X	windows_end(0);
+X	tcap_cursor(SNDW_TLY + xfrw_lines + 1,0);
+X
+X	if(delim == ESC)
+X	{
+X		start_rcvr_process(1);
+X		return;
+X	}
+X
+X	bottom_label[0] = 0;
+X	if(shm->Llogical[0])
+X		sprintf(bottom_label,"-C \"'Connected to %s'\" ",shm->Llogical);
+X
+X/* we are going to do a transfer! */
+X	switch(xfertype)
+X	{
+X		case ECUSZ_X:
+X			sprintf(execcmd,"%s/ecusz -X -. %d ",eculibdir,shm->Liofd);
+X			strcat(execcmd,bottom_label);
+X			if(protocol_log_packets)
+X				strcat(execcmd,"-, ");
+X			if(p_binary)
+X				strcat(execcmd,"-b ");
+X			else
+X				strcat(execcmd,"-a ");
+X			strcat(execcmd,p_filelist);
+X			break;
+X		case ECUSZ_Y:
+X			sprintf(execcmd,"%s/ecusz -Y -. %d -k ",eculibdir,shm->Liofd);
+X			strcat(execcmd,bottom_label);
+X			if(protocol_log_packets)
+X				strcat(execcmd,"-, ");
+X			if(p_binary)
+X				strcat(execcmd,"-b ");
+X			else
+X				strcat(execcmd,"-a ");
+X			strcat(execcmd,p_filelist);
+X			break;
+X
+X		case ECUSZ_Z:
+X			sprintf(execcmd,"%s/ecusz -Z -. %d ",eculibdir,shm->Liofd);
+X			strcat(execcmd,bottom_label);
+X			if(zwindw_size)
+X				sprintf(&execcmd[strlen(execcmd)]," -w %u ",zwindw_size);
+X			if(protocol_log_packets)
+X				strcat(execcmd,"-, ");
+X			if(p_overwrite)
+X				strcat(execcmd,"-y ");
+X			else
+X				strcat(execcmd,"-p ");
+X			if(p_binary)
+X				strcat(execcmd,"-b ");
+X			else
+X				strcat(execcmd,"-a ");
+X			if(p_xfernew)
+X				strcat(execcmd,"-n ");	/* overrides -y/-p choice earlier */
+X			if(p_resume)
+X				strcat(execcmd,"-r ");
+X			if(p_sendfull)
+X				strcat(execcmd,"-f ");
+X			strcat(execcmd,p_filelist);
+X			break;
+X
+X		case ECUSEA:
+X			sprintf(execcmd,"%s/ecusea -. %d -/ %s -s ",
+X				eculibdir,shm->Liofd,curr_dir);
+X			if(protocol_log_packets)
+X				strcat(execcmd,"-, ");
+X			strcat(execcmd,p_filelist);
+X			break;
+X
+X		case CKERMIT:	/* flexible kermit filename */
+X#ifdef WHT
+X		if(ckufnm = find_executable("ck5a")) /* private alpha version */
+X			;
+X#else
+X		if(ckufnm = (char *)0)
+X			;
+X#endif
+X		else if(ckufnm = find_executable("kermit"))
+X			;
+X		else if(ckufnm = find_executable("ckermit"))
+X			; /* our old 286 4E hack (and alternate name used by many) */
+X		else
+X		{
+X			ff(se,"Cannot find C-Kermit ('kermit' or 'ckermit')\r\n");
+X			last_child_wait_status = -1;
+X			goto EXIT;
+X		}
+X
+X		sprintf(execcmd,"%s -l %d -b %u -p %c%s%s -s %s",
+X				ckufnm,	/* kermit flexible name */
+X				shm->Liofd,
+X				shm->Lbaud,
+X				(shm->Lparity) ? shm->Lparity : 'n',
+X				(p_binary) ? " -i" : "",
+X				(p_overwrite) ? "" : " -w",
+X				p_filelist);
+X		break;
+X
+X	default:
+X		pprintf("logic error in send_files_to_remote xfertype=%d\n",
+X			xfertype);
+X		termecu(TERMECU_LOGIC_ERROR);
+X		/*NOTREACHED*/
+X}
+X
+Xfile_xfer_start();
+X
+Xif(!find_shell_chars(execcmd))
+X	exec_cmd(execcmd);
+Xelse
+X{
+Xchar *expcmd;
+X
+X	if(expand_wildcard_list(execcmd,&expcmd))
+X	{
+X		ff(se,"No files match\r\n");
+X		return;
+X	}
+X	exec_cmd(expcmd);
+X	free(expcmd);
+X}
+X
+XEXIT:
+Xlreset_ksr();				/* ensure line termio back to our config */
+Xttymode(old_ttymode);		/* xfer prog may screw up tty too */
+X
+Xswitch(xfertype)
+X{
+X	case ECUSEA:
+X	case ECUSZ_X:
+X	case ECUSZ_Y:
+X	case ECUSZ_Z:
+X		xfertype = 1;		/* was ecusz */
+X		break;
+X	default:
+X		xfertype = 0;
+X		break;
+X}
+X
+Xif(xfertype)	/* ecu knowledgable */
+X	report_send_status();
+Xelse
+X{
+X	tcap_stand_out();
+X	ff(se," transfer status %04x ",last_child_wait_status);
+X	tcap_stand_end();
+X	ff(se,"\r\n");
+X}
+X
+Xff(se,"\r\n");
+X
+Xfile_xfer_done_bell();
+Xstart_rcvr_process(1);
+X}	/* end of send_files_to_remote */
+X
+X/*+-------------------------------------------------------------------------
+Xreceive_files_from_remote(argc,argv)
+X
+Xalso used by "automatic rz"
+X
+Xarg[0] = "rk", "rs", "rx", "ry", or "rz"
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreceive_files_from_remote(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	register itmp;
+X	uchar delim;
+X	char execcmd[256];
+X	char bottom_label[64];
+X	char *ckufnm;
+X	int old_ttymode = get_ttymode();
+X	int restart_rcvr = need_rcvr_restart();
+X
+X	if(!argc)	/* this should never happen, but ... */
+X		return;
+X
+X	sprintf(bottom_label,"-C 'Connected to %s' ",
+X	    (shm->Llogical[0]) ? shm->Llogical : "?");
+X
+X	switch(to_lower(*(argv[0] + 1)))
+X	{
+X		case 'k': xfertype = CKERMIT; break;
+X		case 's': xfertype = ECUSEA; break;
+X		case 'x': xfertype = ECURZ_X; break;
+X		case 'y': xfertype = ECURZ_Y; break;
+X		case 'z': xfertype = ECURZ_Z; break;
+X		default: 
+X			ff(se,"receive command invalid\n");
+X			return;
+X	}
+X
+X
+X	if(xfertype == ECURZ_X)
+X	{
+X		char xfilenam[128];
+X		if(restart_rcvr)
+X			kill_rcvr_process(SIGUSR1);
+X		sprintf(execcmd,"%s/ecurz -X -. %d -c ",eculibdir,shm->Liofd);
+X		strcat(execcmd,bottom_label);
+X		if(protocol_log_packets)
+X			strcat(execcmd,"-, ");
+X
+X		if(argc > 1)
+X		{
+X			strncpy(xfilenam,argv[1],sizeof(xfilenam) - 1);
+X			xfilenam[sizeof(xfilenam) - 1] = 0;
+X		}
+X		else
+X		{
+X			ff(se,"    File name to receive via XMODEM/CRC:  ");
+X			ttygets(xfilenam,sizeof(xfilenam),TG_CRLF,&delim,(int *)0);
+X			if(!xfilenam[0] || (delim == ESC))
+X			{
+X				ff(se,"transfer abandoned\r\n");
+X				if(restart_rcvr)
+X					start_rcvr_process(1);
+X				return;
+X			}
+X		}
+X		/* get xmodem ascii or binary */
+X		ff(se,"Translate CR/LF to NL (y,n)? ");
+X		switch(itmp = to_lower(ttygetc(0)))
+X		{
+X		case 'y': 
+X			strcat(execcmd,"-a "); 
+X			break;
+X		case 'n': 
+X			strcat(execcmd,"-b "); 
+X			break;
+X		default:
+X			ff(se,"transfer abandoned\r\n");
+X			if(restart_rcvr)
+X				start_rcvr_process(1);
+X			return;
+X		}
+X		ff(se,"%s\r\n",(itmp == 'y') ? "yes" : "no");
+X		strcat(execcmd,xfilenam);
+X		file_xfer_start();
+X		exec_cmd(execcmd);
+X	}
+X	else if(xfertype == ECURZ_Y)
+X	{
+X		ff(se,"\r\n");
+X		if(restart_rcvr)
+X			kill_rcvr_process(SIGUSR1);
+X		sprintf(execcmd,"%s/ecurz -Y -. %d -y ",eculibdir,shm->Liofd);
+X		strcat(execcmd,bottom_label);
+X		if(protocol_log_packets)
+X			strcat(execcmd,"-, ");
+X		file_xfer_start();
+X		exec_cmd(execcmd);
+X	}
+X	else if(xfertype == ECURZ_Z)
+X	{
+X		ff(se,"\r\n");
+X		if(restart_rcvr)
+X			kill_rcvr_process(SIGUSR1);
+X		sprintf(execcmd,"%s/ecurz -Z -. %d ",eculibdir,shm->Liofd);
+X		if(protocol_log_packets)
+X			strcat(execcmd,"-, ");
+X		strcat(execcmd,bottom_label);
+X		file_xfer_start();
+X		exec_cmd(execcmd);
+X	}
+X	else if(xfertype == CKERMIT)
+X	{
+X		ckufnm = 0;
+X#ifdef WHT
+X		if(ckufnm = find_executable("ck5a")) /* private alpha version */
+X			;
+X#endif /* WHT */
+X
+X		if(!ckufnm && (ckufnm = find_executable("kermit")))
+X			;
+X		else if(ckufnm = find_executable("ckermit"))
+X			; /* our old 286 4E hack (and alternate name used by many) */
+X		else
+X		{
+X			ff(se,"Cannot find C-Kermit ('kermit' or 'ckermit')\r\n");
+X			last_child_wait_status = 255 << 8;
+X			return;	/* <<=================================== */
+X		}
+X		if(restart_rcvr)
+X			kill_rcvr_process(SIGUSR1);
+X		sprintf(execcmd,"%s -r -e 512 -l %d -b %d -p %c",
+X		    ckufnm,
+X		    shm->Liofd,shm->Lbaud,(shm->Lparity) ? shm->Lparity : 'n');
+X		ff(se,"    Translate CR/LF to NL (y,n)? ");
+X		switch(itmp = to_lower(ttygetc(0)))
+X		{
+X			case 'y': 
+X				strcat(execcmd," -i"); 
+X				break;
+X			case 'n': 
+X				break;
+X			default:
+X				ff(se,"transfer abandoned\r\n");
+X				if(restart_rcvr)
+X					start_rcvr_process(1);
+X				return;
+X		}
+X		ff(se,"%s\r\n",(itmp == 'a') ? "yes" : "no");
+X		file_xfer_start();
+X		exec_cmd(execcmd);
+X	}
+X	else if(xfertype == ECUSEA)
+X	{
+X		if(restart_rcvr)
+X			kill_rcvr_process(SIGUSR1);
+X		sprintf(execcmd,"%s/ecusea -r -. %d -/ %s",
+X		    eculibdir,shm->Liofd,curr_dir);
+X		if(protocol_log_packets)
+X			strcat(execcmd," -,");
+X		file_xfer_start();
+X		exec_cmd(execcmd);
+X	}
+X	lreset_ksr();				/* ensure line termio back to our config */
+X	ttymode(old_ttymode);		/* xfer prog may screw up tty too */
+X	file_xfer_done_bell();
+X	Nap(20L);
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X
+X}	/* end of receive_files_from_remote */
+X
+X/* end of ecuxfer.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecuxfer.c is complete' &&
+chmod 0644 ecuxfer.c ||
+echo 'restore of ecuxfer.c failed'
+Wc_c="`wc -c < 'ecuxfer.c'`"
+test 28250 -eq "$Wc_c" ||
+	echo 'ecuxfer.c: original size 28250, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuxkey.h ==============
+if test -f 'ecuxkey.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuxkey.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuxkey.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuxkey.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecuxkey.h -- function key single char value mapping
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XNOTE: all of these codes must be in the range 0x80 <= c <= 0xFD
+XInternational considerations make changing the ALT+[a-z] codes
+Xunadvisable.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:09-03-1991-23:16-wht@n4hgf2-alt-[a-z] starts w/0xE1: crisp compatibility */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:05-02-1991-01:57-r@n4hgf-alt-[a-z] range moved from 0x80-0x99 to 0xE0-0xF9 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecuxkey_h
+X#define _ecuxkey_h
+X
+X/*
+X * these are not changeable: they map to the last character in
+X * an AT/"ANSI" function key sequence
+X */
+X
+X#define XFcurup		(0x80 | 'A')	/* 0xC1 */
+X#define XFcurdn		(0x80 | 'B')	/* 0xC2 */
+X#define XFcurrt		(0x80 | 'C')	/* 0xC3 */
+X#define XFcurlf		(0x80 | 'D')	/* 0xC4 */
+X#define XFcur5		(0x80 | 'E')	/* 0xC5 */
+X#define XFend		(0x80 | 'F')	/* 0xC6 */
+X#define XFpgdn		(0x80 | 'G')	/* 0xC7 */
+X#define XFhome		(0x80 | 'H')	/* 0xC8 */
+X#define XFpgup		(0x80 | 'I')	/* 0xC9 */
+X#define XFins		(0x80 | 'L')	/* 0xCA */
+X#define XF1			(0x80 | 'M')	/* 0xCB */
+X#define XF2			(0x80 | 'N')	/* 0xCC */
+X#define XF3			(0x80 | 'O')	/* 0xCD */
+X#define XF4			(0x80 | 'P')	/* 0xCE */
+X#define XF5			(0x80 | 'Q')	/* 0xCF */
+X#define XF6			(0x80 | 'R')	/* 0xD0 */
+X#define XF7			(0x80 | 'S')	/* 0xD1 */
+X#define XF8			(0x80 | 'T')	/* 0xD2 */
+X#define XF9			(0x80 | 'U')	/* 0xD3 */
+X#define XF10		(0x80 | 'V')	/* 0xD4 */
+X#define XF11		(0x80 | 'W')	/* 0xD5 */
+X#define XF12		(0x80 | 'X')	/* 0xD6 */
+X#define XFbktab		(0x80 | 'Z')	/* 0xD7 */
+X
+X/*
+X * special codes for non-ANSI keyboard support
+X * These are really cleverly disguised magic numbers:
+X * they HAVE to have the values used below.
+X */
+X#define XF_no_way	0xFE
+X#define XF_not_yet	0xFF
+X
+X/*
+X * extended ALT+[a-z] codes
+X */
+X#define XF_ALTA	0xE1			/* depends on /usr/lib/keyboard keys ... */
+X#define XF_ALTZ	((unsigned)(0xE0+'z'-'a'))	/* ... mapping ALT-a to 0xE0, etc */
+X
+X#endif /* _ecuxkey_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuxkey.h */
+SHAR_EOF
+chmod 0644 ecuxkey.h ||
+echo 'restore of ecuxkey.h failed'
+Wc_c="`wc -c < 'ecuxkey.h'`"
+test 2415 -eq "$Wc_c" ||
+	echo 'ecuxkey.h: original size 2415, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= esd.h ==============
+if test -f 'esd.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping esd.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting esd.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'esd.h' &&
+X/*+-----------------------------------------------------------------------
+X	esd.h -- support header for users of esdutil.c
+X	wht@n4hgf.Mt-Park.GA.US
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:03-20-1992-06:28-wht@n4hgf-max size of esd now 16384 */
+X/*:08-29-1991-02:02-wht@n4hgf2-larger max string size for sun and SVR4 */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:04-24-1991-18:49-wht@n4hgf-add ESD_MAXSIZE */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _esd_h
+X#define _esd_h
+X
+X#define ESD_MAXSIZE 16384
+X
+Xtypedef struct esd
+X{
+X	char *pb;			/* pointer to string buffer */
+X	short cb;			/* count of bytes */
+X	short maxcb;		/* maximum bytes allowed */
+X	short index;		/* next character of significance */
+X	short old_index;	/* last token (backup or error reporting) */
+X}	ESD;
+X
+Xtypedef struct keyword_table_type /* table terminated with null key_word */
+X{
+X	char *key_word;		/* 12 char max key word */
+X	int key_token;		/* token returned on match */
+X} KEYTAB;
+X
+XESD *esdalloc();
+X
+X#endif /* _esd_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of esd.h */
+SHAR_EOF
+chmod 0644 esd.h ||
+echo 'restore of esd.h failed'
+Wc_c="`wc -c < 'esd.h'`"
+test 1310 -eq "$Wc_c" ||
+	echo 'esd.h: original size 1310, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= esdutil.c ==============
+if test -f 'esdutil.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping esdutil.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting esdutil.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'esdutil.c' &&
+X/*+----------------------------------------------------------------
+X	esdutil.c - ecu extended string descriptor manipulation
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	end_of_cmd(tesd)
+X	esd_null_terminate(tesd)
+X	esd_strip_trail_break(ztext)
+X	esdalloc(maxcb)
+X	esdcat(dest,suffix,realloc_ok)
+X	esdfgets(tesd,fileptr)
+X	esdfputs(tesd,fileptr,index_flag,nl_flag)
+X	esdfree(tesd)
+X	esdinit(tesd,cptr,maxcb)
+X	esdrealloc(tesd,maxcb)
+X	esdshow(tesd,title)
+X	esdstrcat(tesd,zstr)
+X	esdstrindex(esd1,esd2,index1_flag,index2_flag)
+X	esdzero(tesd)
+X	get_alpha_zstr(tesd,strbuf,strbuf_maxcb)
+X	get_alphanum_zstr(tesd,strbuf,strbuf_maxcb)
+X	get_cmd_char(tesd,pchar)
+X	get_numeric_value(tesd,value)
+X	get_numeric_zstr(tesd,strbuf,strbuf_maxcb)
+X	get_switches(tesd,switches,switches_max)
+X	get_word_zstr(tesd,strbuf,strbuf_maxcb)
+X	keyword_lookup(ktable,tesd)
+X	skip_cmd_break(tesd)
+X	skip_cmd_char(tesd,skipchar)
+X	skip_colon(tesd)
+X	skip_comma(tesd)
+X	skip_paren(tesd,fLeft)
+X	strindex(str1,str2)
+X
+XThis is old code; give me a break
+X-----------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-20-1992-06:26-wht@n4hgf-esdstrcat will grow an esd */
+X/*:08-25-1991-23:20-root@n4hgf2-get_switches could overflow result string */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:05-02-1991-04:12-wht@n4hgf-how did esdrealloc ever work? */
+X/*:04-23-1991-04:33-wht@n4hgf-function name reorganization */
+X/*:04-23-1991-04:33-wht@n4hgf-add esdcat */
+X/*:01-31-1991-14:49-wht@n4hgf-rework esdrealloc for speed */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X
+Xextern int errno;
+X
+X/*+-------------------------------------------------------------------------
+X    esd_null_terminate(&esd)
+X    puts null at 'cb' position of string (standard esd always
+X    has one more byte in buffer than maxcb says)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xesd_null_terminate(tesd)
+Xregister ESD *tesd;
+X{
+X	tesd->pb[tesd->cb] = 0;
+X}   /* end of esd_null_terminate */
+X
+X/*+-----------------------------------------------------------------------
+X	esdzero(tesd)  zero an esd 
+X------------------------------------------------------------------------*/
+Xvoid
+Xesdzero(tesd)
+Xregister ESD *tesd;
+X{
+X	tesd->cb = 0;				/* current count == 0 */
+X	tesd->index = 0;			/* parse index to first position */
+X	tesd->old_index = 0;		/* parse index to first position */
+X	*tesd->pb = 0;				/* start with null terminated string */
+X
+X}	/* end of esdzero */
+X
+X/*+-----------------------------------------------------------------------
+X	esdinit(tesd,cptr,maxcb)  init an esd 
+X------------------------------------------------------------------------*/
+Xvoid
+Xesdinit(tesd,cptr,maxcb)
+Xregister ESD *tesd;
+Xchar *cptr;
+Xregister maxcb;
+X{
+X	tesd->pb = cptr;			/* pointer to string */
+X	tesd->maxcb = maxcb;		/* max characters in buffer */
+X	esdzero(tesd);
+X
+X}	/* end of esdinit */
+X
+X/*+-----------------------------------------------------------------------
+X	esdptr = esdalloc(maxcb)	allocate an esd and buffer
+X------------------------------------------------------------------------*/
+XESD *
+Xesdalloc(maxcb)
+Xregister maxcb;		/* desired maxcb */
+X{
+Xregister ESD *tesd;
+Xregister actual_cb;
+X
+X	/* we get an extra character to ensure room for null past maxcb */
+X	actual_cb = maxcb + 1;
+X	if(actual_cb & 1)		/* even allocation */
+X		++actual_cb;
+X
+X	if(!(tesd = (ESD *)malloc(sizeof(ESD))))
+X		return((ESD *)0); 	/* return NULL if failure */
+X
+X	if(!(tesd->pb = malloc(actual_cb)))
+X	{
+X		free((char *)tesd);
+X		return((ESD *)0); 	/* return NULL if failure */
+X	}
+X
+X	esdinit(tesd,tesd->pb,maxcb);
+X	return(tesd);
+X
+X}	/* end of esdalloc */
+X
+X/*+-----------------------------------------------------------------------
+X	esdptr = esdrealloc(maxcb)	- realloc an esd buffer
+X
+Xmay only be used to enlarge an esd buffer
+Xthis used to use realloc(), which did a lot of unnecessary copying
+Xalso no more abnormal program termination on memory failure
+X------------------------------------------------------------------------*/
+Xint
+Xesdrealloc(tesd,maxcb)
+XESD *tesd;
+Xregister maxcb;		/* desired maxcb */
+X{
+Xregister actual_cb;
+Xchar *newpb;
+X
+X	if(!tesd || (tesd->maxcb > maxcb))
+X		return(eInternalLogicError);
+X
+X	/* enforce our limit */
+X	if(maxcb > ESD_MAXSIZE)
+X		return(eBufferTooSmall);
+X
+X	/* we get an extra character to ensure room for null past maxcb */
+X	actual_cb = maxcb + 1;
+X	if(actual_cb & 1)		/* even allocation */
+X		++actual_cb;
+X
+X	if(!(newpb = malloc(actual_cb)))
+X		return(eNoMemory);
+X
+X	if(tesd->cb)
+X		memcpy(newpb,tesd->pb,tesd->cb);
+X
+X	free(tesd->pb);
+X	tesd->pb = newpb;
+X	tesd->maxcb = actual_cb;
+X	esd_null_terminate(tesd);
+X	return(0);
+X
+X}	/* end of esdrealloc */
+X
+X/*+-----------------------------------------------------------------------
+X	esdfree(esdptr)
+X------------------------------------------------------------------------*/
+Xvoid
+Xesdfree(tesd)
+Xregister ESD *tesd;
+X{
+X	if(tesd && tesd->pb)
+X	{
+X		free(tesd->pb);
+X		free((char *)tesd);
+X	}
+X	else
+X	{
+X		errno = ENOMEM;
+X		ff(se,"\r\n\r\nFREE_ESD FAILED. FATAL ERROR. SORRY.\r\n");
+X		termecu(TERMECU_XMTR_FATAL_ERROR);
+X	}
+X}
+X
+X/*+-------------------------------------------------------------------------
+X    esdcat(dest,suffix,realloc_ok) - "strcat" for ESDs
+X
+X  Append 'suffix' contents to 'dest'
+X  if realloc_ok true, expand 'dest' as necessary
+X
+X  Returns: 0 - success
+X           eNoMemory
+X           eBufferTooSmall
+X--------------------------------------------------------------------------*/
+Xint
+Xesdcat(dest,suffix,realloc_ok)
+XESD *dest;
+XESD *suffix;
+Xint realloc_ok;
+X{
+X	int erc = 0;
+X	int new_maxcb = dest->cb + suffix->cb;
+X
+X	if(dest->maxcb < new_maxcb)
+X	{
+X		if(!realloc_ok)
+X			return(eBufferTooSmall);
+X		if(erc = esdrealloc(dest,new_maxcb))
+X			return(erc);
+X	}
+X
+X	memcpy(dest->pb + dest->cb,suffix->pb,suffix->cb + 1);  /* catch null too */
+X	dest->cb += suffix->cb;
+X
+X	return(0);
+X
+X}   /* end of esdcat */
+X
+X/*+-------------------------------------------------------------------------
+X    esdstrcat(tesd,zstr) - "strcat" for ESDs
+X
+Xsimilar to esdcat(), but with automatic esd growth
+X--------------------------------------------------------------------------*/
+Xint
+Xesdstrcat(tesd,zstr)
+XESD *tesd;
+Xchar *zstr;
+X{
+X	register zstrlen = strlen(zstr);
+X	register erc = 0;
+X
+X	if(zstrlen > (tesd->maxcb - tesd->cb))
+X	{
+X		if(erc = esdrealloc(tesd,tesd->cb + zstrlen))
+X			return(erc);
+X	}
+X
+X	if(zstrlen)
+X	{
+X		strncpy(tesd->pb + tesd->cb,zstr,zstrlen);
+X		tesd->cb += zstrlen;
+X		esd_null_terminate(tesd);
+X	}
+X
+X	return(erc);
+X
+X}	/* end of esdstrcat */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	esdshow(tesd,title)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xesdshow(tesd,title)
+XESD *tesd;
+Xchar *title;
+X{
+Xregister itmp;
+X
+X	if(title && *title)
+X	{
+X		pputs(title);
+X		pputs("\n");
+X	}
+X	esd_null_terminate(tesd);
+X	pputs(tesd->pb);
+X	pputs("\n");
+X	for(itmp = 0; itmp <= tesd->cb; itmp++)
+X	{
+X		if(itmp == tesd->old_index)
+X			pputc('^');
+X		else if(itmp == tesd->index)
+X			pputc('^');
+X		else
+X			pputc(' ');
+X		if((itmp > tesd->old_index) && (itmp > tesd->index))
+X			break;
+X	}
+X#if 0
+X	pprintf(" o%d i%d c%d\n",tesd->old_index,tesd->index,tesd->cb);
+X#else
+X	pputs("\n");
+X#endif
+X
+X}	/* end of esdshow */
+X
+X/*+----------------------------------------------------------------
+X    strindex:  string index function
+X
+X  Returns position of 'str2' in 'str1' if found
+X  If 'str2' is null, then 0 is returned (null matches anything)
+X  Returns -1 if not found
+X-----------------------------------------------------------------*/
+Xint
+Xstrindex(str1,str2)
+Xchar *str1;	/* the (target) string to search */
+Xchar *str2;	/* the (comparand) string to search for */
+X{
+Xregister istr1 = 0;
+Xregister lstr2 = strlen(str2);
+Xregister char *mstr = str1;	/* the (target) string to search */
+X
+X	if(*str2 == 0)			/* null string matches anything */
+X		return(0);
+X
+X	while(*mstr)
+X	{
+X		if(*mstr == *str2)
+X		{ /* we have a first char match... does rest of string match? */
+X			if(!strncmp(mstr,str2,lstr2))
+X				return(istr1);		/* if so, return match position */
+X		}
+X		mstr++;
+X		istr1++;
+X	}
+X
+X	return(-1);		/* if we exhaust target string, flunk */
+X
+X}   /* end of strindex */
+X
+X/*+-------------------------------------------------------------------------
+X	esdstrindex(esd1,esd2,index1_flag,index2_flag)
+X
+X  Call strindex with esd1->pb and esd2->pb.
+X  If index1_flag != 0, esd1->pb + esd1->index passed
+X  If index2_flag != 0, esd2->pb + esd2->index passed
+X--------------------------------------------------------------------------*/
+Xesdstrindex(esd1,esd2,index1_flag,index2_flag)
+Xregister ESD *esd1;
+Xregister ESD *esd2;
+Xregister index1_flag;
+Xregister index2_flag;
+X{
+X	return(strindex((index1_flag) ? esd1->pb : esd1->pb + esd1->index,
+X	    (index2_flag) ? esd2->pb : esd2->pb + esd2->index));
+X
+X}	/* end of esdstrindex */
+X
+X/*+----------------------------------------------------------------
+X    keyword_lookup(ktable,tesd)
+X
+X  Lookup string in keyword_table struct array
+X  Returns table->key_token if 'tesd' found in
+X  'table', else -1
+X
+X  Beware substrings.  "type","typedef" will both match "type"
+X-----------------------------------------------------------------*/
+Xkeyword_lookup(ktable,tesd)
+Xregister KEYTAB *ktable;
+Xregister char *tesd;
+X{
+X/* register plen = strlen(tesd); */
+X
+X	while(ktable->key_word)
+X	{
+X/*		if(!strncmp(ktable->key_word,tesd,plen)) */
+X		if(!strcmp(ktable->key_word,tesd))
+X			return(ktable->key_token);
+X		++ktable;
+X	}   /* end of while */
+X
+X	return(-1);     /* search failed */
+X
+X}   /* end of keyword_lookup */
+X
+X/*+----------------------------------------------------------------
+X    skip_cmd_break(tesd)
+X
+X  Finds next non-break
+X
+X  'tesd' is an esd with valid 'index' field
+X  Returns  0             index field points to non-break character
+X           eNoParameter  end of command found
+X-----------------------------------------------------------------*/
+Xint
+Xskip_cmd_break(tesd)
+Xregister ESD *tesd;
+X{
+Xregister cb = tesd->cb;
+Xregister index = tesd->index;
+Xregister char *pb = tesd->pb;
+X
+X	while(index < cb)
+X	{
+X		if(!isspace(*(pb + index)))
+X			break;
+X		index++;
+X	}
+X	tesd->old_index = tesd->index = index;
+X	if(index >= cb)
+X		return(eNoParameter);
+X	return(0);
+X
+X}   /* end of skip_cmd_break */
+X
+X/*+-------------------------------------------------------------------------
+X	end_of_cmd(tesd) - return 1 if at end of command
+X--------------------------------------------------------------------------*/
+Xint
+Xend_of_cmd(tesd)
+Xregister ESD *tesd;
+X{
+X	if(skip_cmd_break(tesd) || (*(tesd->pb + tesd->index) == ';') ||
+X			(*(tesd->pb + tesd->index) == '#'))
+X		return(1);
+X	return(0);
+X}	/* end of end_of_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = skip_cmd_char(tesd,skipchar)
+X--------------------------------------------------------------------------*/
+Xint
+Xskip_cmd_char(tesd,skipchar)
+Xregister ESD *tesd;
+Xregister char skipchar;
+X{
+Xint erc;
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X
+X	if(tesd->pb[tesd->index] == skipchar)
+X	{
+X		++tesd->index;
+X		return(0);
+X	}
+X
+X	return(eSyntaxError);
+X
+X}   /* end of skip_cmd_char */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = skip_colon(tesd)
+X--------------------------------------------------------------------------*/
+Xint
+Xskip_colon(tesd)
+Xregister ESD *tesd;
+X{
+X	register erc;
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X
+X	if(tesd->pb[tesd->index] == ':')
+X	{
+X		++tesd->index;
+X		return(0);
+X	}
+X
+X	return(eCommaExpected);
+X
+X}   /* end of skip_colon */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = skip_comma(tesd)
+X--------------------------------------------------------------------------*/
+Xint
+Xskip_comma(tesd)
+Xregister ESD *tesd;
+X{
+X	register erc;
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X
+X	if(tesd->pb[tesd->index] == ',')
+X	{
+X		++tesd->index;
+X		return(0);
+X	}
+X
+X	return(eCommaExpected);
+X
+X}   /* end of skip_comma */
+X
+X/*+-------------------------------------------------------------------------
+X    erc = skip_paren(fparam,LEFT or RIGHT)
+X--------------------------------------------------------------------------*/
+Xint
+Xskip_paren(tesd,fLeft)
+Xregister ESD *tesd;
+Xint fLeft;
+X{
+Xregister erc;
+Xregister char search = (fLeft) ? '(' : ')';
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X
+X	if(tesd->pb[tesd->index] == search)
+X	{
+X		tesd->index++;
+X		return(0);
+X	}
+X	return((fLeft) ? eMissingLeftParen : eMissingRightParen);
+X
+X}   /* end of skip_paren */
+X
+X/*+-------------------------------------------------------------------------
+X	get_cmd_char(tesd,pchar)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_cmd_char(tesd,pchar)
+Xregister ESD *tesd;
+Xchar *pchar;
+X{
+Xint erc;
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X	*pchar = tesd->pb[tesd->index++];
+X	return(0);
+X
+X}	/* end of get_cmd_char */
+X
+X/*+----------------------------------------------------------------
+X    get_alpha_zstr(&esd,&strbuf,strbuf_maxcb)
+X
+X  places next alphabetic string token [A-Za-z_] into
+X  the null-terminated 'strbuf' string.  returns 0 or -1
+X  or skip_cmd_break error codes
+X-----------------------------------------------------------------*/
+Xint
+Xget_alpha_zstr(tesd,strbuf,strbuf_maxcb)
+XESD *tesd;
+Xregister char *strbuf;
+Xint strbuf_maxcb;
+X{
+Xregister izstr;
+Xregister schar;
+Xregister char *pb = tesd->pb;
+X
+X	if(izstr = skip_cmd_break(tesd))
+X		return(izstr);
+X	izstr = 0;
+X	while( (izstr < strbuf_maxcb-1) && (tesd->index < tesd->cb) )
+X	{
+X		schar = pb[tesd->index];
+X		if((!isalpha(schar)) && (schar != '_'))
+X			break;
+X		strbuf[izstr++] = schar;
+X		tesd->index++;
+X	}
+X
+X	strbuf[izstr] = 0;
+X	return(izstr ? 0 : eBadParameter);
+X
+X}   /* end of get_alpha_zstr */
+X
+X/*+----------------------------------------------------------------
+X    get_alphanum_zstr(&esd,&strbuf,strbuf_maxcb)
+X
+X  places next alphanumeric string token [A-Za-z0-9_]
+X  into the null-terminated 'strbuf' string.  returns 0
+X  or -1 or skip_cmd_break error codes
+X-----------------------------------------------------------------*/
+Xint
+Xget_alphanum_zstr(tesd,strbuf,strbuf_maxcb)
+Xregister ESD *tesd;
+Xregister char *strbuf;
+Xint strbuf_maxcb;
+X{
+Xint izstr = 0;
+Xint schar;
+Xregister cb = tesd->cb;
+Xregister index;
+X
+X	if(izstr = skip_cmd_break(tesd))
+X		return(izstr);
+X
+X	index = tesd->index;
+X	while( (izstr < strbuf_maxcb-1) && (index < cb))
+X	{
+X		schar = tesd->pb[index++];
+X		if(isalnum(schar) || (schar == '_'))
+X			strbuf[izstr++] = schar;
+X		else
+X		{
+X			--index;
+X			break;
+X		}
+X	}
+X
+X	tesd->index = index;
+X	strbuf[izstr]=0;
+X	return(izstr ? 0 : eBadParameter);
+X
+X}   /* end of get_alphanum_zstr */
+X
+X/*+----------------------------------------------------------------
+X    get_numeric_zstr(&esd,&strbuf,strbuf_maxcb)
+X    gets next numeric string token places it
+X    into the null-terminated 'strbuf' string.  returns 0 or -1 
+X    or skip_cmd_break error codes
+X-----------------------------------------------------------------*/
+Xint
+Xget_numeric_zstr(tesd,strbuf,strbuf_maxcb)
+Xregister ESD *tesd;
+Xregister char *strbuf;
+Xregister strbuf_maxcb;
+X{
+X	register izstr;
+X	register schar;
+X
+X	if(izstr = skip_cmd_break(tesd))
+X		return(izstr);
+X
+X	while( (izstr < strbuf_maxcb-1) && (tesd->index < tesd->cb) )
+X	{
+X		schar = tesd->pb[tesd->index++];
+X		if( isdigit(schar) )
+X			strbuf[izstr++]=schar;
+X		else
+X		{
+X			--tesd->index;
+X			break;
+X		}
+X	}
+X
+X	strbuf[izstr]=0;
+X	return(izstr ? 0 : eBadParameter);
+X
+X}   /* end of get_numeric_zstr */
+X
+X/*+-----------------------------------------------------------------------
+X	get_numeric_value(tesd,&long_var)
+X------------------------------------------------------------------------*/
+Xget_numeric_value(tesd,value)
+Xregister ESD *tesd;
+Xregister long *value;
+X{
+Xregister erc;
+Xchar buf[32];
+X
+X	if(erc = get_numeric_zstr(tesd,buf,sizeof(buf)))
+X		return(erc);
+X	sscanf(buf,"%ld",value);
+X	return(0);
+X
+X}	/* end of get_numeric_value */
+X
+X/*+----------------------------------------------------------------
+X    get_word_zstr(&esd,&strbuf,strbuf_maxcb)
+X
+X  gets next word (continuous string of characters without spaces
+X  or tabs) returns 0 or -1 or skip_cmd_break error codes
+X-----------------------------------------------------------------*/
+Xint
+Xget_word_zstr(tesd,strbuf,strbuf_maxcb)
+Xregister ESD *tesd;
+Xregister char *strbuf;
+Xregister strbuf_maxcb;
+X{
+X	register izstr;
+X	register schar;
+X
+X	if(izstr = skip_cmd_break(tesd))
+X		return(izstr);
+X
+X	strbuf_maxcb--;
+X	while((izstr < strbuf_maxcb) && (tesd->index < tesd->cb))
+X	{
+X		schar = tesd->pb[tesd->index++];
+X		if( (schar > 0x20) && (schar <= 0x7e))
+X			strbuf[izstr++]=schar;
+X		else
+X		{
+X			--tesd->index;
+X			break;
+X		}
+X	}
+X
+X	strbuf[izstr]=0;
+X	return(izstr ? 0 : eBadParameter);
+X
+X}   /* end of get_word_zstr */
+X
+X/*+-------------------------------------------------------------------------
+X    esd_strip_trail_break(tesd)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xesd_strip_trail_break(ztext)
+Xregister ESD *ztext;
+X{
+X	while(ztext->cb &&
+X		((ztext->pb[ztext->cb-1] == 0x20) || (ztext->pb[ztext->cb-1] == 0x20)))
+X	{
+X		ztext->cb--;
+X	}
+X}   /* end of esd_strip_trail_break */
+X
+X/*+-------------------------------------------------------------------------
+X	esdfgets(&esd,fileptr)
+X
+X  stdio read from FILE *fileptr into esd
+X  returns tesd->cb set up not including trailing nl, tesd->index == 0
+X--------------------------------------------------------------------------*/
+Xint
+Xesdfgets(tesd,fileptr)
+Xregister ESD *tesd;
+Xregister FILE *fileptr;
+X{
+Xregister char *cptr;
+X
+X	tesd->cb = 0;
+X	if(!fgets(tesd->pb,tesd->maxcb+1,fileptr))
+X		return(eEOF);
+X	if(!(cptr = strchr(tesd->pb,0x0A)))
+X		return(eBufferTooSmall);
+X	tesd->cb = (int)(cptr - tesd->pb);
+X	esd_null_terminate(tesd);
+X	tesd->index = 0;
+X	tesd->old_index = 0;
+X	return(0);
+X
+X}	/* end of esdfgets */
+X
+X/*+-------------------------------------------------------------------------
+X	esdfputs(&esd,fileptr,index_flag,nl_flag)
+X
+X  write esd contents to stdio FILE *fileptr
+X  if index_flag is true, write from tesd->index thru end of esd
+X  otherwise, from start of esd
+X  if nl_flag is true, append nl to write, else just esd contents
+X--------------------------------------------------------------------------*/
+Xint
+Xesdfputs(tesd,fileptr,index_flag,nl_flag)
+Xregister ESD *tesd;
+XFILE *fileptr;
+Xint index_flag;
+Xint nl_flag;
+X{
+Xregister char *cptr;
+Xregister write_length;
+X
+X	if(index_flag)
+X	{
+X		cptr = &tesd->pb[tesd->index];
+X		write_length = tesd->cb - tesd->index;
+X	}
+X	else
+X	{
+X		cptr = tesd->pb;
+X		write_length = tesd->cb;
+X	}
+X
+X	if(write_length)
+X		fwrite(cptr,write_length,1,fileptr);
+X
+X	if(nl_flag)
+X		fputc(0x0A,fileptr);
+X
+X	return(0);
+X}	/* end of esdfputs */
+X
+X/*+-------------------------------------------------------------------------
+X    get_switches(tesd,switches,switches_max)
+X--------------------------------------------------------------------------*/
+Xint
+Xget_switches(tesd,switches,switches_max)
+XESD *tesd;
+Xchar *switches;
+Xint switches_max;
+X{
+Xregister erc;
+Xregister index;
+Xregister char *pb = tesd->pb;
+Xint cb = tesd->cb;
+Xchar schar;
+X
+X	*switches = 0;
+X
+X	if(erc = skip_cmd_break(tesd))
+X		return(erc);
+X
+X	index = tesd->index;
+X	if(*(pb + index) != '-')
+X		return(eNoSwitches);
+X
+X	if(switches_max < 3)
+X		return(eSwitchesTooLong);
+X
+X	switches_max--;			/* for trailing null */
+X	*switches++ = '-';
+X	switches_max--;
+X	index++;
+X	while(index < cb)
+X	{
+X		schar = *(pb + index++);
+X		if(switches_max > 0)
+X			*switches++ = schar;
+X		switches_max--;
+X		if(isspace(schar))
+X			break;
+X	}
+X
+X	tesd->index = index;
+X	*switches = 0;
+X	return((switches_max < 0) ? eSwitchesTooLong : 0);
+X
+X}   /* end of get_switches() */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of esdutil.c */
+SHAR_EOF
+chmod 0644 esdutil.c ||
+echo 'restore of esdutil.c failed'
+Wc_c="`wc -c < 'esdutil.c'`"
+test 19527 -eq "$Wc_c" ||
+	echo 'esdutil.c: original size 19527, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= expresp.c ==============
+if test -f 'expresp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping expresp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting expresp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'expresp.c' &&
+X/*+-------------------------------------------------------------------------
+X	expresp.c - HDB expect/respond per SCO Devices file
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X Meaning of some of the escape characters:
+X \p - pause (approximately 1/4-1/2 second delay)
+X \d - delay (2 seconds)
+X \D - phone number/token
+X \T - phone number with Dialcodes and character translation
+X \N - null byte
+X \K - insert a BREAK
+X \E - turn on echo checking (for slow devices)
+X \e - turn off echo checking
+X \r - carriage return
+X \c - no new-line
+X \n - send new-line
+X \nnn - send octal number
+X \\ - send backslash
+X \m### - sleep ### (decimal) milliseconds (non-standard)
+X Speed - Hayes-specific "CONNECT"  handler
+X
+X  Defined functions:
+X	execute_expresp(expresp_script)
+X	expect(str)
+X	pcmd_expresp(param)
+X	respond(str)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-04-1992-19:07-wht@n4hgf-new msec delay syntax + harden */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:12-16-1991-15:25-wht@n4hgf-allow for backslash in expect and respond */
+X/*:10-09-1991-20:21-wht@n4hgf-bad llookfor echo argument */
+X/*:08-01-1991-05:00-wht@n4hgf-\n sent CR not NL */
+X/*:08-01-1991-04:31-wht@n4hgf-nap min of hzmsec if \m */
+X/*:08-01-1991-04:22-wht@n4hgf-detect NULL expect string */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+X
+X#define MAX_FIELDS	50	/* max fields in a chat script */
+X#define MAX_EXPRESP	511	/* max length of a chat script */
+X#define MAX_EXPECT	63	/* max length of expect string */
+X#define DEFAULT_TIMEOUT_MSECS (10*1000L)
+X
+X#define ERDEBUG(verb,str,arg) if(expresp_verbosity >= verb) \
+X	pprintf(str,arg)
+X
+Xlong atol();
+Xchar *strip_phone_num();
+Xchar *dialcodes_translate();
+X
+Xextern int proctrace;
+X
+Xint expresp_verbosity = 0;
+Xulong expect_timeout_msecs = DEFAULT_TIMEOUT_MSECS;
+Xint expresp_echo_check = 0;
+X
+Xchar last_Speed_result[32];
+X
+X/*+-------------------------------------------------------------------------
+X	expect(str) - expect (read) string from remote
+Xreturn code on failure, 0 on success
+X--------------------------------------------------------------------------*/
+Xint
+Xexpect(str)
+Xchar *str;
+X{
+X	int erc;
+X	int itmp;
+X	char op;
+X	char s4[4];
+X	char parsebuf[MAX_EXPECT + 1];
+X	int remaining = MAX_EXPECT;
+X	long atol();
+X	register char *cptr;
+X	register char *parsed = parsebuf;
+X	int old_ttymode = get_ttymode();
+X
+X	if(!str)
+X	{
+X		ERDEBUG(2,"expect string NULL\n",0);
+X		return(eExpectRespondFail);
+X	}
+X
+X	if(old_ttymode != 2)
+X		ttymode(2);
+X
+X	/*
+X	 * ~?[]
+X	 */
+X	if((*str == '~') && *(str + 1) && (*(str + 2) == '['))
+X	{
+X		op = *(str + 1);
+X		str += 3;
+X		switch(op)
+X		{
+X			case 'm':	/* msec expect timeout */
+X			case 't':	/*  sec expect timeout */
+X				expect_timeout_msecs = atol(str);
+X				if(op == 't')
+X					expect_timeout_msecs *= 1000L;
+X				ERDEBUG(2,"expect timeout = %lu msec\n",expect_timeout_msecs);
+X				break;
+X
+X			default:
+X				ERDEBUG(0,"\nexpect: invalid subop: ~%c[]\n",op);
+X				break;
+X		}
+X		if(cptr = strchr(str,']'))
+X			str = cptr + 1;
+X		else
+X		{
+X			ERDEBUG(0,"\nexpect: missing ] after ~[%c\n",op);
+X			erc = eExpectRespondFail;
+X			goto DID_NOT_GET_EXPECTED;
+X		}
+X	}
+X
+X	ERDEBUG(2,"expect: <<%s>>\n",str);
+X	if(!strlen(str) || !strcmp(str,"\"\""))
+X		goto GOT_EXPECTED;
+X
+X	if(!strcmp(str,"Speed"))
+X	{
+X		LRWT lr;
+X		long ms_start;
+X		long ms_now;
+X		struct timeb now_timeb;
+X		ftime(&now_timeb);
+X		ms_start = (now_timeb.time * 1000) + now_timeb.millitm;
+X		do {
+X			last_Speed_result[0] = 0;
+X			lr.to1 = 90 * 100L;
+X			lr.to2 = 120L;
+X			/* allow interrupts + cooked read */
+X			lr.raw_flag = 0x80;
+X			lr.buffer = last_Speed_result;
+X			lr.bufsize = sizeof(last_Speed_result);
+X			lr.delim = "\n";
+X			lr.echo_flag = !!expresp_verbosity;
+X			lgets_timeout(&lr);
+X			ftime(&now_timeb);
+X			ms_now = (now_timeb.time * 1000) + now_timeb.millitm;
+X		} while(!sigint && !lr.count && ((ms_now - ms_start) < 90*1000L));
+X
+X		if(sigint || strncmp(lr.buffer,"CONNECT",7))
+X			goto DID_NOT_GET_EXPECTED;
+X		else
+X			goto GOT_EXPECTED;
+X	}
+X
+X	cptr = str;
+X	while(remaining && *cptr)
+X	{
+X		if(*cptr == '\\')
+X		{
+X			if(!*(++cptr))	/* if no character after escape, ... */
+X			{
+X				ERDEBUG(2," error: str ended with '\\'\n",0);
+X				goto DID_NOT_GET_EXPECTED;
+X			}
+X
+X			if(isdigit(*cptr))	/* handle \ooo */
+X			{
+X				strncpy(s4,cptr,3);
+X				s4[3] = 0;
+X				sscanf(s4,"%o",&itmp);
+X				cptr += strspn(s4,"01234567");
+X				*parsed++ = (char)itmp;
+X				remaining--;
+X				continue;
+X			}
+X
+X			switch(*cptr)
+X			{
+X				case 'n':
+X					*parsed++ = 0x0A;
+X					remaining--;
+X					break;
+X				case 'r':
+X					*parsed++ = 0x0D;
+X					remaining--;
+X					break;
+X				case '\\':
+X					*parsed++ = '\\';
+X					remaining--;
+X					break;
+X				case '~':
+X					*parsed++ = '~';
+X					remaining--;
+X					break;
+X				default:
+X					ERDEBUG(2," meaningless here: \\%c\n",*cptr);
+X					break;
+X			}
+X			cptr++;
+X		}
+X		else
+X		{
+X			*parsed++ = *cptr++;
+X			remaining--;
+X		}
+X	}
+X	*parsed = 0;
+X
+X	if(!remaining)
+X		ERDEBUG(1," expect string too long\n",0);
+X
+X	if(expresp_verbosity >= 3)
+X		hex_dump(parsebuf,strlen(parsebuf),"expecting",1);
+X
+X	if(llookfor(parsebuf,expect_timeout_msecs,!!expresp_verbosity))
+X	{
+XGOT_EXPECTED:
+X		ERDEBUG(2,"[EXPECT SUCCEEDED]\n",0);
+X		erc = 0;
+X		goto RESTORE_TTYMODE_AND_RETURN_ERC;
+X
+X	}
+X
+XDID_NOT_GET_EXPECTED:
+X	ERDEBUG(2,"[EXPECT FAILED%s]\n",(sigint) ? " (interrupted)" : "");
+X	if(sigint)
+X	{
+X		sigint = 0;
+X		erc = eCONINT;
+X	}
+X	else
+X		erc = eExpectRespondFail;
+X	goto RESTORE_TTYMODE_AND_RETURN_ERC;
+X
+XRESTORE_TTYMODE_AND_RETURN_ERC:
+X	if(old_ttymode != 2)
+X		ttymode(old_ttymode);
+X	return(erc);
+X
+X}	/* end of expect */
+X
+X/*+-------------------------------------------------------------------------
+X	respond(str) - send to remote
+X
+Xwe enable SIGINT processing in here and return if 'sigint'
+Xdetected, but here, unlike many other places, we do *not* reset
+Xsigint (since we do not really "handle" it)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrespond(str)
+Xregister char *str;
+X{
+X	int itmp;
+X	long nap_msec;
+X	char s4[4];
+X	char *cptr;
+X	char *phnum;
+X	char op;
+X	int send_no_cr = 0;
+X	int old_ttymode = get_ttymode();
+X
+X	if(sigint)
+X		return;
+X
+X	ttymode(2);	/* enable SIGINT/sigint */
+X
+X	ERDEBUG(2,"respond: <<%s>>\n",str);
+X	while(*str)
+X	{
+X		if(*str == '\\')
+X		{
+X			if(isdigit(*++str))	/* handle \ooo */
+X			{
+X				strncpy(s4,str,3);
+X				s4[3] = 0;
+X				sscanf(s4,"%o",&itmp);
+X				str += strspn(s4,"01234567") - 1; /* -1 because str++ later */
+X				lputc((char)itmp);
+X			}
+X			else switch(*str)
+X			{
+X				case 'p':  /* pause (approximately 1/4-1/2 second delay) */
+X					ldraino(0);	/* wait for output to drain */
+X					if(Nap(400L) < 0)
+X						goto RETURN;
+X					break;
+X				case 'M': /* CLOCAL on */
+X				case 'm': /* CLOCAL off */
+X					itmp = (*str == 'M');
+X					lCLOCAL(itmp);
+X					ERDEBUG(2,"CLOCAL set %s\n",(itmp) ? "ON" : "OFF");
+X					break;
+X				case 'd':  /* delay (2 seconds) */
+X					ldraino(0);	/* wait for output to drain */
+X					if(Nap(2000L) < 0)
+X						goto RETURN;
+X					break;
+X				case 'D':  /* phone number/token */
+X					cptr = strip_phone_num(shm->Ltelno);
+X					if(expresp_echo_check)
+X						lputs_paced(40,cptr);
+X					else
+X						lputs(cptr);
+X					break;
+X				case 'T':  /* phnum with Dialcodes and char translation */
+X					phnum = strip_phone_num(shm->Ltelno);
+X					cptr = dialcodes_translate(&phnum);
+X					if(expresp_echo_check)
+X					{
+X						lputs_paced(40,cptr);
+X						lputs_paced(40,phnum);
+X					}
+X					else
+X					{
+X						lputs(cptr);
+X						lputs(phnum);
+X					}
+X					break;
+X				case 'N':  /* null byte */
+X					lputc(0);
+X					break;
+X				case 'K':  /* insert a BREAK */
+X					lbreak();
+X					break;
+X				case 'E':  /* turn on echo checking (for slow devices) */
+X					expresp_echo_check = 1;
+X					break;
+X				case 'e':  /* turn off echo checking */
+X					expresp_echo_check = 0;
+X					break;
+X				case 'r':  /* carriage return */
+X					lputc(0x0D);
+X					break;
+X				case 'c':  /* no new-line */
+X					send_no_cr = 1;
+X					break;
+X				case 'n':  /* send new-line */
+X					lputc(0x0A);
+X					break;
+X				case '\\':  /* send backslash */
+X					lputc('\\');
+X					break;
+X				case '~':  /* send tilde */
+X					lputc('~');
+X					break;
+X			}
+X
+X		}
+X		else if((*str == '~') && *(str + 1) && (*(str + 2) == '['))
+X		{
+X			op = *(str + 1);
+X			str += 3;
+X			switch(op)
+X			{
+X
+X				case 'n':	/* nap for milliseconds */
+X					nap_msec = atol(str);
+X					if(nap_msec < 0L)
+X						nap_msec = 0;
+X					if(nap_msec >= 500)
+X						ERDEBUG(2,"nap for %lu msec\n",nap_msec);
+X					Nap(nap_msec);
+X					break;
+X
+X				default:
+X					ERDEBUG(0,"\nrespond: invalid subop: ~%c[]\n",op);
+X					break;
+X
+X			}
+X			if(cptr = strchr(str,']'))
+X				str = cptr + 1;
+X			else
+X			{
+X				ERDEBUG(0,"\nrespond: missing ] after ~[%c\n",op);
+X				goto RETURN;
+X			}
+X		}
+X		else
+X			lputc(*str);
+X
+X
+X		if(expresp_echo_check)
+X		{
+X			ldraino(1);		/* wait for output to drain, then flush input */
+X			Nap(40L);		/* fake it */
+X		}
+X		str++;
+X	}
+X
+X	if(!send_no_cr)
+X		lputc(0x0D);
+X
+XRETURN:
+X	ttymode(old_ttymode);
+X
+X}	/* end of respond */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_expresp(expresp_script)
+X
+Xreturn 0 on success, else error code
+X--------------------------------------------------------------------------*/
+Xint
+Xexecute_expresp(expresp_script)
+Xchar *expresp_script;
+X{
+X	char *fields[MAX_FIELDS + 1];
+X	int ifields;
+X	int nfields;
+X	int erc;
+X	char expresp_copy[MAX_EXPRESP + 1];
+X	char *expect_this;
+X	char *send_on_fail;
+X
+X#define EXPECT_STATE (!(ifields & 1))	/* even numbered fields are expect */
+X	expresp_echo_check = 0;
+X	last_Speed_result[0] = 0;
+X
+X	ERDEBUG(2,"[EXPECT/RESPOND INITIAL TIMEOUT %ld MSEC]\n",
+X	    expect_timeout_msecs);
+X
+X	strncpy(expresp_copy,expresp_script,sizeof(expresp_copy));
+X	build_arg_array(expresp_copy,fields,MAX_FIELDS,&nfields);
+X	if(!nfields)	/* if no script, assume success */
+X	{
+X		ERDEBUG(2,"[EMPTY SCRIPT - EXPECT/RESPOND SUCCEEDED]\n",0);
+X		return(0);
+X	}
+X
+X	for(ifields = 0; ifields < nfields; ifields++)
+X	{
+X		if(sigint)
+X			break;
+X		if(EXPECT_STATE)
+X		{
+X			expect_this = fields[ifields];
+X			while(1)	/* until break or return(error) */
+X			{
+X				if(send_on_fail = strchr(expect_this,'-'))
+X					*send_on_fail++ = 0;
+X				if(!(erc = expect(expect_this)))
+X					break;
+X				if((erc != eExpectRespondFail) || !send_on_fail)
+X				{
+X					ERDEBUG(2,"[EXPECT/RESPOND FAILED]\n",0);
+X					return(eExpectRespondFail);
+X				}
+X				if(expect_this = strchr(send_on_fail,'-'))
+X					*expect_this++ = 0;
+X				if(sigint)
+X					break;
+X				respond(send_on_fail);
+X			}
+X		}
+X		else
+X			respond(fields[ifields]);
+X	}
+X	if(sigint)
+X	{
+X		sigint = 0;
+X		ERDEBUG(2,"[CONSOLE INTERRUPT]\n",0);
+X		return(eCONINT);
+X	}
+X	ERDEBUG(2,"[EXPECT/RESPOND SUCCEEDED]\n",0);
+X	return(0);
+X
+X}	/* end of execute_expresp */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_expresp(param)
+Xexpresp [-v[v...]] <exp-resp-str> [<timeout_msecs>]
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_expresp(param)
+XESD *param;
+X{
+X	int erc;
+X	int itmp;
+X	char *cptr;
+X	ESD *tesd;
+X	char switches[8];
+X
+X	if((tesd = esdalloc(MAX_EXPRESP + 1)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = gstr(param,tesd,0))
+X	{
+X		esdfree(tesd);
+X		return(erc);
+X	}
+X
+X	expect_timeout_msecs = DEFAULT_TIMEOUT_MSECS;
+X	expresp_verbosity = (!!strchr(switches,'v')) || proctrace;
+X	if(expresp_verbosity)
+X	{
+X		cptr = switches;
+X		itmp = 0;
+X		while(*cptr)
+X			itmp += (*cptr++ == 'v');
+X		if(itmp > 1)
+X			expresp_verbosity = itmp;
+X	}
+X
+X	if(erc = gint(param,&expect_timeout_msecs))
+X	{
+X		/* if something there non-integer */
+X		if(!end_of_cmd(param))
+X		{
+X			erc = eSyntaxError;
+X			goto RETURN;
+X		}
+X	}
+X
+X	erc = execute_expresp(tesd->pb);
+X
+XRETURN:
+X	esdfree(tesd);
+X	iv[0] = !!erc;
+X	if(proctrace)
+X		pprintf("$i00 = %7ld (0x%08lx,0%lo)\n",iv[0],iv[0],iv[0]);
+X	if(erc == eExpectRespondFail)
+X		erc = 0;
+X	return(erc);
+X
+X}	/* end of pcmd_expresp */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of expresp.c */
+SHAR_EOF
+chmod 0644 expresp.c ||
+echo 'restore of expresp.c failed'
+Wc_c="`wc -c < 'expresp.c'`"
+test 12024 -eq "$Wc_c" ||
+	echo 'expresp.c: original size 12024, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= fasiintf.c ==============
+if test -f 'fasiintf.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping fasiintf.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fasiintf.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fasiintf.c' &&
+X/*+-------------------------------------------------------------------------
+X	fasiintf.c - FAS/i interface
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	display_fasi(fip)
+X	fasi_breaks_detected()
+X	fasi_line_errors()
+X	fasi_msr()
+X	fasi_rings_detected()
+X	icmd_fasi(narg,arg)
+X	ier_text(ier)
+X	lcr_text(lcr)
+X	mcr_text(mcr)
+X	msr_text(msr)
+X	pcmd_fasi(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:04-29-1991-18:52-wht@n4hgf-FAS/i 2.08.0 official release */
+X/*:12-24-1990-00:51-wht-creation */
+X
+X#include "ecu.h"
+X
+X#if	defined(FASI)
+X#include "ecuerror.h"
+X#include "esd.h"
+X#if defined(NULL)
+X#undef NULL
+X#endif
+X# include <local/fas.h>
+X
+Xextern int proctrace;
+X
+X/*+-------------------------------------------------------------------------
+X	msr_text(msr)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xmsr_text(msr)
+Xuchar msr;
+X{
+X	static char txt[50];
+X
+X	txt[0] = '*';
+X	txt[1] = 0;
+X	if(!msr)
+X	{
+X		strcat(txt,"NULL*");
+X		return(txt);
+X	}
+X	if(msr & MS_CTS_DELTA) strcat(txt,"dCTS*");
+X	if(msr & MS_DSR_DELTA) strcat(txt,"dDSR*");
+X	if(msr & MS_RING_TEDGE) strcat(txt,"dRI*");
+X	if(msr & MS_DCD_DELTA) strcat(txt,"dDCD*");
+X	if(msr & MS_CTS_PRESENT) strcat(txt,"CTS*");
+X	if(msr & MS_DSR_PRESENT) strcat(txt,"DSR*");
+X	if(msr & MS_RING_PRESENT) strcat(txt,"RING*");
+X	if(msr & MS_DCD_PRESENT) strcat(txt,"DCD*");
+SHAR_EOF
+true || echo 'restore of fasiintf.c failed'
+fi
+echo 'End of ecu320 part 15'
+echo 'File fasiintf.c is continued in part 16'
+echo 16 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1674 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 4/8
+Message-ID: <1992Apr12.182124.15369@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:24 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1663
+
+Archive-name: empireclient_110/part4
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 4 -+-+-+-+-+-+-+-+
+X`009    case CL_EMPIRETOOL:
+X`009`009if(is_playtime()) `123
+X`009`009    change_prompt(P_tool);
+X`009`009    start_empiretool(args);
+X`009`009`125 else write_line(playlimit_msg,E_client,NULL);
+X`009    break;
+X`009    case CL_LOAD:
+X`009`009if (is_playtime()) `123
+X`009`009    change_prompt(P_tool);
+X`009`009    startl_empiretool(args);
+X`009`009`125 else write_line(playlimit_msg,E_client,NULL);
+X`009    break;
+X`009    case CL_START:
+X`009`009if (is_playtime()) `123
+X`009`009    change_prompt(P_tool);
+X`009`009    startq_empiretool();
+X`009`009`125 else write_line(playlimit_msg,E_client,NULL);
+X`009    break;
+X`009    case CL_EMPIRE_EOF:
+X`009`009flip_empire_eof(1);
+X`009    break;
+X`009    case CL_NO_EMPIRE_EOF:
+X`009`009flip_empire_eof(0);
+X`009    break;
+X`009    `125
+X`009`125`032
+X    `125 else reprompt = 1; /* no command */
+X
+X    if (reprompt) ask_prompt(P_command,"Command> ",command_level_handler,1);
+X`125
+X
+X/* Partial ACTION routines *********************************************** *
+V/
+X
+X#define STILL_MESSAGE_LIMIT 1000
+X
+Xstatic int scanflag = 0;
+Xint BTU_left = 0;`009    /* for empiretool */
+X
+Xstatic void use_scanner(data_type D_data, char *data)
+X`123
+X    static int linecount = 0;
+X    if (!scanflag) `123
+X`009write_line("Scanning data ...",E_tool,NULL);
+X`009linecount = 0;
+X    `125
+X    scanflag = 1;
+X
+X    linecount++;
+X    if (linecount % STILL_MESSAGE_LIMIT == 0) `123
+X`009write_line("Still scanning data ...",E_tool,NULL);
+X
+X`009if (use_moretimer) cancel_moretimer();
+X`009flush_message(); /* force update */
+X    `125
+X`009
+X    ACTION_scanner(D_data, data);
+X    if (D_data == D_EOD) `123
+X`009ACTION_scanner = NULL; /* disable scanner */
+X`009scanflag = 0;
+X    `125
+X`125
+X
+Xstatic int is_query = 0;
+Xstatic char query_prompt`091PROMPT_SIZE`093 = "";
+X
+Xvoid answer_query(char *answer)`032
+X`123
+X    if (answer ==  RS_ABORT) write_command(CTLC);
+X    else `123
+X`009if (is_query) `123
+X`009    if (answer == RS_CTLD) write_command(CTLD);
+X`009    else `123
+X`009`009if (ACTION_handler == command_loop_handler) `123
+X`009`009    char buffer`091COMMAND_SIZE`093;
+X`009`009    /* feed EMPIRETOOL query answer */
+X`009`009    write_command(answer);
+X`009`009    sprintf(buffer,"%s%s",query_prompt,answer);
+X`009`009    write_line(buffer,E_none,NULL);
+X`009`009    is_query = 0;
+X`009`009`125 else `123
+X`009`009    is_query = 0;
+X`009`009    write_line("No active session for query answer ",E_tool,
+X`009`009`009answer);
+X`009`009    /* Going to command level */
+X`009`009    change_prompt(P_command);
+X`009`009`125
+X`009    `125
+X`009`125 else `123
+X`009    write_line("Internal error: no query in progress",E_tool,answer);
+X`009    /* Going to command level */
+X`009    change_prompt(P_command);
+X`009`125
+X    `125
+X`125
+X
+Xstatic FILE *redir_fd = NULL;
+X
+Xstatic void one_action(char command, char *param, int *ask)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    int a,b;
+X
+X    switch(command) `123
+X`009case C_CMDOK:
+X`009    if (ACTION_scanner) use_scanner(D_data,param);
+X`009    else `123`032
+X`009`009sprintf(buffer,"Ok. %s",param);
+X`009`009write_line(buffer,E_data,NULL);
+X`009`009/* *ask = 1; */
+X`009    `125
+X`009break;
+X`009case C_CMDERR:
+X`009    if (ACTION_scanner) use_scanner(D_error,param);
+X`009    /* print error also */
+X`009    write_line(param,E_server,NULL);
+X`009break;
+X`009case C_DATA:
+X`009    if (redir_fd) fprintf(redir_fd,"%s\n",param);
+X`009    else if (use_pipe) add_to_pipe(param);
+X`009    else if (ACTION_scanner) use_scanner(D_data,param);
+X`009    else write_line(param,E_data,NULL);
+X`009    if (use_timesaver) recycle_timesaver();
+X`009break;
+X`009case C_EXIT:
+X`009    if (ACTION_scanner) use_scanner(D_EOD,"");
+X`009    sprintf(buffer,"Exit: %s\n",param);
+X`009    write_line(buffer,E_server,NULL);
+X`009    quit_flag = 1;
+X`009break;
+X`009case C_INIT:
+X`009    write_line("Init not expected", E_client,param);
+X`009break;
+X`009case C_FLUSH:
+X`009    if (redir_fd) close_file(&redir_fd);
+X`009    if (use_pipe) `123
+X`009`009pipe_close_input = 1;
+X`009`009use_pipe = 0;
+X`009    `125
+X`009    if (ACTION_scanner) `123   `032
+X`009        is_query = 1;
+X`009`009strcpy(query_prompt,param);
+X`009`009use_scanner(D_prompt,param);
+X`009    `125
+X`009    else `123
+X`009`009strcpy(ACTION_prompt,param); /* change prompt */
+X`009`009*ask = 1;
+X`009    `125
+X`009break;
+X`009case C_PROMPT:
+X`009    is_query = 0;
+X`009    if (ACTION_scanner) use_scanner(D_EOD,"");
+X`009    if (redir_fd) close_file(&redir_fd);
+X`009    if (use_pipe) `123
+X`009`009pipe_close_input = 1;
+X`009`009use_pipe = 0;
+X`009    `125
+X`009    if (sscanf(param,"%d %d",&a,&b) != 2) `123
+X`009`009write_line("Bad PROMPT from server",E_client,param);
+X`009`009sprintf(ACTION_prompt,"(??:??) Command? ");
+X`009    `125 else `123
+X`009`009sprintf(ACTION_prompt,"(%d:%d) Command? ",a,b);
+X`009`009BTU_left = b;`009/* for EMPIRETOOL */
+X`009    `125
+X`009    strcpy(timesaver_prompt,ACTION_prompt);
+X`009    ACTION_echo_mode = 1;
+X`009    ACTION_main_prompt = 1;
+X`009    *ask = 1;
+X`009break;
+X`009case C_REDIR :`032
+X`009    if (redir_fd) close_file(&redir_fd);
+X`009    `123   int mode = F_WRITE;
+X`009`009if (*param == '>') param++;`009    /* >  new */
+X`009`009if (*param == '>') `123`009    /* >> append */
+X`009`009    param++;
+X`009`009    mode = F_APPEND;
+X`009`009`125
+X`009`009else if (*param == '!') `123`009    /* >! new */
+X`009`009    param++;
+X`009`009    mode = F_WRITE;
+X`009`009`125
+X`009`009if (*param == ' ') param++;
+X`009`009redir_fd = open_file(param,mode);
+X`009`009if (redir_fd) `123
+X`009`009    char name`091FILE_NAME_LEN`093;
+X`009`009    write_line("Output of command redirected to",E_client,
+X`009`009`009fgetname(redir_fd,name));
+X`009`009`125
+X`009    `125
+X`009break;
+X`009case C_EXECUTE :
+X`009    dump_to_server(param);
+X`009break;
+X`009case C_NOECHO:
+X`009    ACTION_echo_mode = 0;
+X`009    ACTION_main_prompt = 0;
+X`009    /* change echo mode */
+X`009    if (IS_PROGRESS(P_server) `124`124
+X`009`009prompts`091P_server`093.prompt_asked) *ask = 1;
+X`009break;
+X`009case C_ABORT:
+X`009    if (use_pipe) `123
+X`009`009use_pipe = 0;
+X`009`009pipe_close_input = 1;
+X`009    `125
+X`009    sprintf(buffer,"Aborted. %s",param);
+X`009    write_line(buffer,E_data,NULL);
+X`009break;
+X`009case C_PIPE:
+X`009    if (*param == '`124') param++;
+X`009    start_pipe(param);
+X`009break;
+X`009case C_BADCMD:
+X`009    if (ACTION_scanner) use_scanner(D_error,param);
+X`009    /* print error also */
+X`009    write_line(param,E_server,NULL);
+X`009break;
+X`009default:
+X`009    sprintf(buffer, "Bad command: %c",command);
+X`009    write_line(buffer,E_client,param);
+X    `125 /* case */
+X`125
+X
+Xstatic void handle_command(void)
+X`123
+X    /* Handle user input */
+X    if (!prompts`091current_prompt`093.screen) put_screen("\r",1,0);`009
+V    /* CR */
+X    switch(have_command) `123
+X    case 1:
+X`009if (log_fd && prompts`091current_prompt`093.echo_mode)`032
+X`009    fprintf(log_fd,"%s%s\n",
+X`009`009prompts`091current_prompt`093.prompt,
+X`009`009prompts`091current_prompt`093.command);
+X`009if (log_fd && !prompts`091current_prompt`093.echo_mode)`032
+X`009    fprintf(log_fd,"%s\n",
+X`009`009prompts`091current_prompt`093.prompt);
+X`009have_command = 0;
+X`009call_handler();
+X    break;
+X    case 2:
+X`009activate_prompt(current_prompt); /* reask it */
+X`009have_command = 0;
+X    break;
+X    `125
+X`125
+X
+Xstatic char feeded_command`091COMMAND_SIZE`093 = "";
+Xstatic data_scanner *feeded_routine = NULL;
+X
+Xvoid feed_command(char *command,data_scanner *routine)
+X`123   `032
+X    if (feeded_routine) `123
+X`009write_line("Internal error: Is already feeded command in buffer",
+X`009    E_tool,feeded_command);
+X`009ACTION_scanner = feeded_routine;
+X`009use_scanner(D_EOD,"");`009/* shut down scanner */
+X    `125
+X    feeded_routine = routine;
+X    strcpy(feeded_command,command);
+X`125
+X
+X/* ACTION routines ******************************************************* *
+V/
+X
+Xstatic void command_loop_handler(void)
+X`123
+X    char *command = prompts`091P_server`093.command;
+X    if (StrEQ(command,COMMAND_ESCAPE,0)) `123 /* change to COMMAND LEVEL */
+X`009change_prompt(P_command);
+X`009ask_prompt(P_server,`009/* activate this again */
+X`009    ACTION_prompt,
+X`009    ACTION_handler,
+X`009    ACTION_echo_mode);
+X    `125 else `123
+X`009ACTION_main_prompt = 0;
+X`009write_command(command);
+X`009if (use_timesaver) recycle_timesaver();
+X    `125
+X`125
+X
+Xstatic void handle_ctrld(void)
+X`123
+X    if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009print_more(length_counter,0,1);
+X`009clear_more();
+X`009have_asked_more = 0;
+X    `125
+X    cancel_prompt(); /* re-enables ctrld ! */
+X
+X    have_request = 0;
+X    prompt_delayed = 0;
+X    write_command(CTLD);
+X`009`009
+X    have_command = 0; /* discard entered command */
+X    have_ctrld = 0;
+X`125
+X
+Xextern int empiretool_cancel;  /* flag for empiretool canceling action */
+X
+Xstatic void command_loop()
+X`123
+X    int ask = 0;
+X    int status;
+X    char buffer `091COMMAND_SIZE`093;
+X    char *param;
+X    int starting = 1;
+X
+X    ACTION_handler = command_loop_handler;
+X
+X    if (use_timesaver) recycle_timesaver();
+X    while(( !quit_flag && !timesaver_launched )
+X`009    `124`124 tail != head) `123 /* read errors also */
+X`009if (starting) starting = 0; /* Handle end of login sequence */
+X`009else `123
+X
+X`009    have_ctrlc = 0; /* RESET */
+X
+X`009    sys$waitfr(EFLG); sys$clref(EFLG);
+X#`009    ifdef EVENTDEBUG
+X`009    fprintf(stderr,
+X`009`009"Wakeup - %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+X`009`009tail != head ? "server" : "",
+X`009`009error_tail != error_head ? "error" : "",
+X`009`009have_ctrld ?   "ctrl-d" : "",
+X`009`009have_ctrlc ?   "ctrl-c" : "",
+X`009`009have_command == 1 ? "user"   : "",
+X`009`009have_command == 2 ? "user/c"   : "",
+X`009`009more_key_pressed ? "more" : "",
+X`009`009timesaver_launched ? "timesaver" : "",
+X`009`009moretimer_launched ? "moretimer" : "",
+X`009`009updatetimer_launched ? "updatetimer" : "",
+X`009`009pipe_need_input ?   "pipe input" : "",
+X`009`009pipe_close_input == 1 ? "(close pipe input)" : "",
+X`009`009pipe_close_input == 3 ? "(pipe input closed)" : "",
+X`009`009have_pipe_output == 1 ?  "pipe output" : "",
+X`009`009have_pipe_output == 2 ?  "pipe output eof" : "",
+X`009`009pipe_ended  ?`009"pipe terminated" : "" );`009   `032
+X`009    fflush(stderr);
+X#`009    endif
+X`009`125`009
+X
+X`009print_errors();`009/* printing 1 */
+X`009if (have_ctrlc) `123
+X`009    empiretool_cancel = 1;
+X`009    write_command(CTLC);
+X`009`125`009
+X`009 /* sends text aborted to server */
+X
+X`009/* read data from server */
+X`009for(; tail!=head; tail = RING(tail, POOL_SIZE)) `123
+X
+X`009    param = &command_pool`091tail`093`0911`093;
+X`009    if (*param == ' ') param++; /* skip space */
+X
+X`009    if(isupper(command_pool`091tail`093`0910`093))
+X`009`009command_pool`091tail`093`0910`093 = tolower(command_pool`091tail`093
+V`0910`093);
+X`009    one_action(command_pool`091tail`093`0910`093,param,&ask);
+X`032
+X`009`125 /* for */
+X
+X`009if (pipe_need_input) put_input_to_pipe();
+X`009if (have_pipe_output) write_pipe_output();
+X`009if (pipe_ended) terminate_pipe();
+X`009if (have_ctrlc && pipe_id) kill_pipe_process();
+X`009print_errors();`009    /* printing 2 */
+X
+X`009/* handle `094D */
+X`009if (have_ctrld) handle_ctrld();
+X
+X`009if (USE_MORE) more_update();
+X
+X`009if (more_key_pressed) handle_more_key();
+X
+X`009if (have_command) handle_command();
+X
+X`009if (ask) `123
+X`009    if (strlen(timesaver_command)) `123
+X`009`009write_command(timesaver_command);
+X`009`009ACTION_main_prompt = 0;
+X`009`009sprintf(buffer,"%s%s",ACTION_prompt,timesaver_command);
+X`009`009timesaver_command`0910`093 = '\0'; /* reset */
+X`009`009write_line(buffer,E_none,NULL);
+X`009    `125 else ask_prompt(P_server,
+X`009`009`009      ACTION_prompt,
+X`009`009`009      ACTION_handler,
+X`009`009`009      ACTION_echo_mode);
+X`009    ask = 0;
+X`009`125
+X
+X`009if (updatetimer_launched) handle_updatetimer();
+X
+X`009if (feeded_routine &&`032
+X`009    (prompts`091P_server`093.prompt_asked `124`124
+X`009    (IS_PROGRESS(P_server))) &&
+X`009    ACTION_main_prompt) `123
+X`009`009/* feed EMPIRETOOL command */
+X`009`009write_command(feeded_command);
+X`009`009ACTION_main_prompt = 0;
+X`009`009sprintf(buffer,"%s%s",ACTION_prompt,feeded_command);
+X`009`009write_line(buffer,E_none,NULL);
+X`009`009disable_prompt(P_server,0);
+X`009`009ACTION_scanner = feeded_routine;    /* set */
+X`009`009feeded_command`0910`093 = '\0';
+X`009`009feeded_routine = NULL;`009    /* reset */
+X`009`125
+X
+X`009check_reading(0);
+X`009if (moretimer_launched) handle_moretimer();
+X`009if (output_printed) refresh_prompt(); /* reactivate prompt if exists */
+X
+X    `125 /* while */
+X    if (redir_fd) close_file(&redir_fd);
+X`125
+X
+Xstatic int login_step = 0; /* login step */
+X
+Xstatic void login_empire_handler(void)
+X`123
+X    char *command = prompts`091P_server`093.command;
+X    char buffer`091COMMAND_SIZE`093;
+X    switch (login_step) `123
+X    case 0: case 1: case 3: case 5: case 6:
+X`009write_line("Unexpected user input.",E_client,NULL);
+X    break;
+X    case 2: `032
+X`009sprintf(buffer,"%s %s",COUN,command);
+X`009write_command(buffer);
+X`009strcpy(timesaver_country,command);
+X`009login_step = 3;
+X    break;
+X    case 4: `032
+X`009sprintf(buffer,"%s %s",PASS,command);
+X`009strcpy(timesaver_pass,command);
+X`009write_command(buffer);
+X`009login_step = 5;
+X    break;
+X    default:`032
+X`009sprintf(buffer,"Internal error - bad step (%d) when handling user input"
+V,login_step);
+X`009write_line(buffer,E_client,command);
+X`009quit_flag = 1;
+X    break;
+X    `125 /* switch */
+X`125
+X
+Xstatic int login_empire(char *Country, char *Pass) /* 0 = failure 1 = succee
+Vd */
+X`123
+X    char *cuserid(char *);
+X    char userid`09116`093;
+X    char buffer`091COMMAND_SIZE`093;
+X    char buffer2`091COMMAND_SIZE`093;
+X    char *param;
+X
+X    int status;
+X    int ready_flag = 0;
+X    int ask = 0;
+X
+X    cuserid(userid);
+X
+X    login_step = 0; /* step: start of connection */
+X    ACTION_handler = login_empire_handler;
+X
+X    while(!quit_flag && !ready_flag) `123
+X
+X`009have_ctrlc = 0; /* RESET */
+X
+X`009sys$waitfr(EFLG); sys$clref(EFLG);
+X#`009ifdef EVENTDEBUG
+X`009fprintf(stderr,
+X`009    "Wakeup - %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+X`009    tail != head ?  "server" : "",
+X`009    error_tail != error_head ?  "error" : "",
+X`009    have_ctrld ?    "ctrl-d" : "",
+X`009    have_ctrlc ?    "ctrl-c" : "",
+X`009    moretimer_launched ? "moretimer" : "",
+X`009    updatetimer_launched ? "updatetimer" : "",
+X`009    have_command == 1 ?  "user"   : "",
+X`009    have_command == 2 ?  "user/c"   : "",
+X`009    more_key_pressed ?`009"more" : "",
+X`009    pipe_need_input ?`009"pipe input" : "",
+X`009    pipe_close_input == 1 ? "(close pipe input)" : "",
+X`009    pipe_close_input == 3 ? "(pipe input closed)" : "",
+X`009    have_pipe_output == 1 ?  "pipe output" : "",
+X`009    have_pipe_output == 2 ?  "pipe output eof" : "",
+X`009    pipe_ended  ?   "pipe terminated" : "" );`009   `032
+X`009fflush(stderr);
+X#`009endif
+X
+X`009print_errors();`009    /* printing 1 */
+X`009if (have_ctrlc) `123
+X`009    empiretool_cancel = 1;
+X`009    write_command(CTLC);`009
+X`009`125
+X`009 /* sends text aborted to server */
+X`009
+X`009/* read data from server */
+X`009for(; tail!=head && !ready_flag; tail = RING(tail, POOL_SIZE)) `123
+X`009    param = &command_pool`091tail`093`0911`093;
+X`009    if (*param == ' ') param++; /* skip space */
+X
+X`009    if (isupper(command_pool`091tail`093`0910`093))
+X`009`009command_pool`091tail`093`0910`093 = tolower(command_pool`091tail`093
+V`0910`093);
+X`009    switch(command_pool`091tail`093`0910`093) `123
+X`009    case C_CMDOK:
+X`009`009switch(login_step) `123
+X`009`009    case 0: case 2: case 4: case 6:`009
+X`009`009`009write_line("Ok not expected.",E_client,NULL);
+X`009`009`009quit_flag = 1;
+X`009`009`009break;
+X`009`009    case 1:
+X`009`009`009if (Country) `123
+X`009`009`009    sprintf(buffer,"%s %s",COUN, Country);
+X`009`009`009    strcpy(timesaver_country,Country);
+X`009`009`009    write_command(buffer);
+X`009`009`009    sprintf(buffer,"Country name? %s",Country);
+X`009`009`009    if (!silent_login) write_line(buffer,E_none,NULL);
+X`009`009`009    login_step = 3;
+X`009`009`009`125 else `123
+X`009`009`009    strcpy(ACTION_prompt, "Country name? ");
+X`009`009`009    login_step = 2;
+X`009`009`009    ask = 1;
+X`009`009`009`125
+X`009`009`009break;
+X`009`009    case 3:`009
+X`009`009`009if (Pass) `123
+X`009`009`009    sprintf(buffer,"%s %s",PASS, Pass);
+X`009`009`009    strcpy(timesaver_pass,Pass);
+X`009`009`009    write_command(buffer);
+X`009`009`009    if (!silent_login) write_line("Your name (password)? ",E_non
+Ve,NULL);
+X`009`009`009    login_step = 5;
+X`009`009`009`125 else `123
+X`009`009`009    strcpy(ACTION_prompt, "Your name (password)? ");
+X`009`009`009    login_step = 4;
+X`009`009`009    ask = 1;
+X`009`009`009    ACTION_echo_mode = 0;
+X`009`009`009`125
+X`009`009`009break;
+X`009`009    case 5:`009
+X`009`009`009strcpy(ACTION_prompt, ">>");
+X`009`009`009ACTION_echo_mode = 1;
+X`009`009`009write_command(PLAY);
+X`009`009`009login_step = 6;
+X`009`009`009break;
+X`009`009default:`032
+X`009`009    sprintf(buffer,"Internal error - bad step (%d) when receiving ok
+V",login_step);
+X`009`009    write_line(buffer,E_client,NULL);
+X`009`009    quit_flag = 1;
+X`009`009    break;
+X
+X`009`009`125
+X`009`009break;
+X`009    case C_CMDERR:
+X`009`009write_line(param,E_server,NULL);
+X`009`009quit_flag = 1;
+X`009`009break;
+X`009    case C_INIT:
+X`009`009switch(login_step) `123
+X`009`009    int version;
+X`009`009case 0:
+X`009`009    if (!silent_login) write_line(param,E_none,NULL);
+X`009`009    login_step = 1;
+X`009`009    sprintf(buffer,"%s %s",USER,userid);
+X`009`009    write_command(buffer);
+X`009`009    break;
+X`009`009case 1: case 2: case 3: case 4: case 5:
+X`009`009    write_line("Init unexpected.",E_client,param);
+X`009`009    quit_flag = 1;
+X`009`009    break;
+X`009`009case 6:
+X`009`009    version = atoi(param);
+X`009`009    if (version != CLIENTPROTO) `123
+X`009`009`009sprintf(buffer,"Empire version %d",version);
+X`009`009`009sprintf(buffer2,"Client version %d\n",CLIENTPROTO);
+X`009`009`009write_line(buffer,E_client,buffer2);
+X`009`009`009quit_flag =  1;
+X`009`009    `125
+X`009`009    else `123
+X`009`009`009ready_flag = 1;
+X`009`009    `125
+X`009`009    break;
+X`009`009default:`032
+X`009`009    sprintf(buffer,"Internal error - bad step (%d) when receiving in
+Vit",login_step);
+X`009`009    write_line(buffer,E_client,param);
+X`009`009    quit_flag = 1;
+X`009`009    break;
+X`009    `125
+X`009    break;
+X`009    case C_FLUSH:
+X`009`009write_line("Flush unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009`009break;
+X`009    case C_PROMPT:
+X`009`009write_line("Prompt unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009`009break;
+X            case C_REDIR :
+X`009`009write_line("Redir unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009`009break;
+X            case C_EXECUTE :
+X`009`009write_line("Execute unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009    break;
+X`009    case C_NOECHO:
+X`009`009write_line("Noecho unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009`009break;
+X`009    case C_ABORT:
+X`009`009sprintf(buffer,"Aborted. %s",param);
+X`009`009write_line(buffer,E_data,NULL);
+X`009`009quit_flag = 1;
+X`009`009break;
+X            case C_PIPE :
+X`009`009write_line("Pipe unexpected.",E_client,param);
+X`009`009quit_flag = 1;
+X`009`009break;
+X`009    case C_BADCMD:
+X`009`009write_line(param,E_server,NULL);
+X`009`009quit_flag = 1;
+X`009    break;
+X`009    default:
+X`009`009one_action(command_pool`091tail`093`0910`093,param,&ask);
+X`009`009break;
+X`009    `125 /* case */
+X`009`125 /* for */
+X
+X`009print_errors();
+X
+X`009/* handle `094D */
+X`009if (have_ctrld) `123
+X`009    if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009`009print_more(length_counter,0,1);
+X`009`009clear_more();
+X`009`009have_asked_more = 0;
+X`009    `125
+X`009    cancel_prompt();`009/* re-enables ctrld ! */
+X
+X`009    have_request = 0;
+X`009    prompt_delayed = 0;
+X`009    write_command(CTLD);
+X
+X`009    write_line("`094D",E_client,NULL);
+X`009    quit_flag = 1;
+X`009`009
+X`009    have_command = 0; /* discard entered command */
+X`009    have_ctrld = 0;
+X`009`125
+X
+X`009/* cancel login sequence */
+X`009if (have_ctrlc) `123
+X`009    if (USE_MORE && have_asked_more) `123   /* FLUSH MORE */
+X`009`009print_more(length_counter,0,1);
+X`009`009clear_more();
+X`009`009have_asked_more = 0;
+X`009    `125
+X`009    cancel_prompt();`009/* re-enables ctrlc ! */
+X`009    have_request = 0;
+X`009    prompt_delayed = 0;
+X
+X`009    write_line("`094C",E_client,NULL);
+X`009    quit_flag = 1;
+X`009`009
+X`009    have_command = 0; /* discard entered command */
+X`009`125
+X
+X
+X`009/* Handle user input */
+X`009if (have_command) handle_command();
+X`009if (USE_MORE) more_update();
+X`009if (more_key_pressed) handle_more_key();
+X
+X`009if (ask) `123
+X`009    ask_prompt(P_server,
+X`009`009ACTION_prompt,
+X`009`009ACTION_handler,
+X`009`009ACTION_echo_mode);
+X`009    ask = 0;
+X`009`125
+X
+X`009check_reading(0);
+X`009if (updatetimer_launched) handle_updatetimer();
+X`009if (moretimer_launched) handle_moretimer();
+X`009if (output_printed) refresh_prompt(); /* reactivate prompt if exists */
+X    `125 /* while */
+X    return ready_flag;
+X`125
+X
+Xstatic int reconnect = 0; /* reconnection needed ? */
+X
+Xstatic void timesaver_loop_handler(void)
+X`123
+X    char *command = prompts`091current_prompt`093.command;
+X    if (StrEQ(command,COMMAND_ESCAPE,0)) `123 /* change to COMMAND LEVEL */
+X`009change_prompt(P_command);
+X`009ask_prompt(P_server,`009/* activate this again */
+X`009    ACTION_prompt,
+X`009    ACTION_handler,
+X`009    ACTION_echo_mode);
+X    `125 else if (command`0910`093 == '\0') ask_prompt(P_server,
+X`009ACTION_prompt,
+X`009ACTION_handler,
+X`009ACTION_echo_mode);
+X    else if (!strncmp(command,"quit",strlen(command))) quit_flag = 1;
+X    else if (!strncmp(command,"bye",strlen(command))) quit_flag = 1;
+X    else reconnect = 1;
+X`125
+X
+Xstatic int timesaver_loop(short *connection,char *Server,char *Port)
+X`123
+X    int status;
+X    int ask=0;
+X    int a,b;
+X    char buffer `091COMMAND_SIZE`093;
+X    char *param;
+X    int starting = 1;
+X
+X    ACTION_handler = timesaver_loop_handler;
+X    reconnect = 0; /* don't need yet reconnection */
+X
+X    if (*connection >= 0)  `123
+X`009stop_reading();
+X`009close_connection(*connection);
+X`009write_line("Timesaver launched - connection closed.",E_client,NULL);
+X`009*connection = -1;
+X    `125
+X
+X    strcpy(ACTION_prompt,timesaver_prompt);
+X
+X
+X    ask_prompt(P_server,`009    /* reprint server's prompt */
+X`009`009ACTION_prompt,
+X`009`009ACTION_handler,
+X`009`009ACTION_echo_mode);
+X
+X    if (current_prompt != P_server && have_request)`032
+X`009activate_prompt(current_prompt); /* reprint also OTHER prompts */
+X
+X    timesaver_launched = 0; /* reset flag */
+X    cancel_timesaver();`009    /* for artcial launch = command level command
+V */
+X
+X    while( (!quit_flag && !reconnect)`032
+X`009`124`124 tail != head) `123 /* read errors also */
+X`009if (starting) starting = 0; /* Handle end of ending sequence */
+X`009else `123
+X`009    sys$waitfr(EFLG); sys$clref(EFLG);
+X#`009    ifdef EVENTDEBUG
+X`009    fprintf(stderr,
+X`009`009"Wakeup - %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+X`009`009tail != head ? "server" : "",
+X`009`009error_tail != error_head ? "error" : "",
+X`009`009have_ctrld ?   "ctrl-d" : "",
+X`009`009have_ctrlc ?   "ctrl-c" : "",
+X`009`009have_command == 1 ? "user"   : "",
+X`009`009have_command == 2 ? "user/c"   : "",
+X`009`009more_key_pressed ? "more" : "",
+X`009`009timesaver_launched ? "timesaver" : "",
+X`009`009moretimer_launched ? "moretimer" : "",
+X`009`009updatetimer_launched ? "updatetimer" : "",
+X`009`009pipe_need_input ?   "pipe input" : "",
+X`009`009pipe_close_input == 1 ? "(close pipe input)" : "",
+X`009`009pipe_close_input == 3 ? "(pipe input closed)" : "",
+X`009`009have_pipe_output  == 1 ?  "pipe output" : "",
+X`009`009have_pipe_output  == 2 ?  "pipe output eof" : "",
+X`009`009pipe_ended  ?`009"pipe terminated" : "" );`009   `032
+X`009    fflush(stderr);
+X#`009    endif
+X`009`125`009
+X
+X`009print_errors();`009    /* printing 1 */
+X
+X`009/* read data from server */
+X`009for(; tail!=head; tail = RING(tail, POOL_SIZE)) `123
+X`009    param = &command_pool`091tail`093`0911`093;
+X`009    if (*param == ' ') param++; /* skip space */
+X
+X`009    if (isupper(command_pool`091tail`093`0910`093))
+X`009`009command_pool`091tail`093`0910`093 = tolower(command_pool`091tail`093
+V`0910`093);
+X`009    one_action(command_pool`091tail`093`0910`093,param,&ask);
+X`009`125 /* for */
+X
+X`009if (pipe_need_input) put_input_to_pipe();
+X`009if (have_pipe_output) write_pipe_output();
+X`009if (pipe_ended) terminate_pipe();
+X`009if (have_ctrlc && pipe_id) kill_pipe_process();
+X
+X`009print_errors();
+X
+X`009/* handle `094D */
+X`009if (have_ctrld) `123
+X`009    if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009`009print_more(length_counter,0,1);
+X`009`009clear_more();
+X`009`009have_asked_more = 0;
+X`009    `125
+X`009    cancel_prompt();
+X`009    have_request = 0;
+X`009    prompt_delayed = 0;
+X`009    quit_flag = 1;
+X`009    write_line("`094D",E_client,NULL);
+X`009`009
+X`009    have_command = 0; /* discard entered command */
+X
+X`009    enable_ctrld();
+X`009    have_ctrld = 0;
+X`009`125
+X
+X`009if (USE_MORE) more_update();
+X
+X`009if (more_key_pressed) handle_more_key();
+X
+X`009if (have_ctrlc) empiretool_cancel = 1;
+X
+X`009/* Handle user input */
+X`009if (have_command) handle_command();
+X
+X`009/* reconnect for EMPIRETOOL */
+X`009if (updatetimer_launched) handle_updatetimer();  /* tool_update can feed
+V command */
+X`009if (feeded_routine) reconnect = 1;
+X`009if (moretimer_launched) handle_moretimer();
+X`009if (output_printed) refresh_prompt(); /* reactivate prompt if exists */
+X    `125 /* while */
+X
+X    if (reconnect) `123
+X`009int tmp = silent_login;
+X`009write_line("Reconnecting...",E_client,NULL);
+X`009disable_prompt(P_server,1); /* for slow lines and empiretool */
+X`009*connection = open_connection(Server,Port);
+X`009if (*connection < 0) return 0;
+X`009silent_login = 1;
+X`009start_reading(*connection);
+X`009if (!login_empire(timesaver_country,timesaver_pass)) `123
+X`009    silent_login = tmp;
+X`009    return 0;
+X`009`125
+X`009silent_login = tmp;
+X`009write_line("Reconnected.",E_client,NULL);
+X`009if (!feeded_routine) strcpy(timesaver_command,
+X`009    prompts`091current_prompt`093.command); /* for future processing */
+X`009else timesaver_command`0910`093 = '\0';
+X
+X`009return 1;
+X    `125
+X
+X    return 0;
+X
+X`125
+X
+X
+Xstatic void terminate_all(short *connection)
+X`123
+X    if (pipe_id `124`124 pipe_input_c >= 0 `124`124
+X        pipe_output_c >= 0) terminate_pipe();
+X
+X    if (*connection >= 0)  `123
+X`009close_connection(*connection);
+X`009write_line("Connection closed.",E_client,NULL);
+X`009*connection = -1;
+X    `125
+X    if (keychannel >= 0)  quit_keyboard();
+X    print_errors();
+X    if (USE_MORE) `123
+X`009print_more(length_counter,0,0);
+X`009clear_more();
+X    `125
+X
+X`125
+X
+Xstatic void session(char *Server,char *Port, char *Country, char *Pass,
+X    char *ET_file)
+X`123
+X    char buffer`091COMMAND_SIZE`093;
+X    char buffer2`091COMMAND_SIZE`093;
+X
+X    short connection;
+X
+X    sprintf(buffer,"Connecting (Server=%s Service=%s)",Server,Port);
+X    sprintf(buffer2,"Protocol version %d",CLIENTPROTO);
+X    write_line(buffer,E_client,buffer2);
+X    flush_message();
+X
+X    connection = open_connection(Server,Port);
+X    init_keyboard();
+X    start_command_level();
+X
+X    if (connection >= 0 && keychannel >= 0) `123
+X`009write_line("Connected",E_client,NULL);
+X`009flush_message();
+X
+X`009if (ET_file) set_ET_file(ET_file);
+X
+X`009start_reading(connection);
+X`009if (login_empire(Country,Pass)) `123
+X`009    if (autostart_empiretool) `123
+X`009`009if (is_playtime()) `123
+X`009`009    change_prompt(P_tool);
+X`009`009    if (autostart_empiretool_string`0910`093)`032
+X`009`009`009start_empiretool(autostart_empiretool_string);
+X`009`009    else startq_empiretool();
+X`009`009`125 else `123
+X`009`009    write_line(playlimit_msg,E_client,
+X`009`009`009"Option /EMPIRETOOL");
+X`009`009    goto finish;
+X`009`009`125
+X`009    `125
+X`009    do
+X`009`009command_loop();
+X`009    while (timesaver_launched &&`032
+X`009`009timesaver_loop(&connection,Server,Port));
+X
+X`009    finish_empiretool();
+X`009`125
+X`009finish:
+X`009if (connection >= 0) stop_reading();
+X    `125  `032
+X    terminate_all(&connection);
+X`125
+X
+X/* MAIN ********************************************************************
+V */
+X
+Xconst char *init_file = "SYS$LOGIN:EMPIRE.INIT";
+Xconst char *preinit_file = "EMPIRE.GLOBAL_INIT";
+Xconst char *init_logname = "EMPIRE_INIT";
+Xconst char *command = "EMPIRE";
+X
+Xstatic void read_C_params(int argc, char *argv`091`093,
+X    char **log_file_name,
+X    char **country_name,
+X    char **server_name,
+X    char **port_name,
+X    char **host_name,
+X    char **password)
+X`123
+X    if (argc < 2 `124`124 (argc == 2 && StrEQ(argv`0911`093,"?",0)) ) `123
+X`009fprintf(stderr,"Define EmpireClient as external command:\n");
+X`009fprintf(stderr,"       %s :== $%s .\n",command,argv`0910`093);
+X`009fprintf(stderr,"(You can define as DCL verb also:\n");
+X`009fprintf(stderr,"       SET COMMAND EMPIRE.CLD\n");
+X`009fprintf(stderr,"Look usage with command %s/HELP)\n",command);
+X`009fprintf(stderr,"Usage: %s Server Port\n",command);
+X/*`009fprintf(stderr,"       %s Server Service\n",command);`009    */
+X`009fprintf(stderr,"       %s Server Port Log-file\n",command);
+X`009fprintf(stderr,"If file %s exists also follows:\n",init_file);
+X`009fprintf(stderr,"Usage: %s \"Country\"\n",command);
+X`009fprintf(stderr,"       %s \"Country\" Log-file\n",command);
+X`009fprintf(stderr,"       %s host Server\n",command);
+X`009fprintf(stderr,"       %s host Server Log-file\n",command);
+X`009if (argc < 2) exit(/*SS$_BADPARAM*/ CLI$_REQPRMABS);
+X
+X`009exit (SS$_NORMAL);
+X    `125
+X
+X    if (argc >= 3 && StrEQ(argv`0911`093,"host",0)) `123
+X`009*host_name = argv`0912`093;
+X`009if (argc >= 4) *log_file_name = argv`0913`093;
+X    `125 else if (argc == 3 && search_default(argv`0911`093,D_country)) `123
+X`009*log_file_name = argv`0912`093;
+X`009*country_name  = argv`0911`093;
+X    `125 else if (argc == 2) *country_name = argv`0911`093;
+X    else `123
+X`009*server_name = argv`0911`093;
+X`009*port_name = argv`0912`093;
+X`009if (argc >= 4) *log_file_name = argv`0913`093;
+X    `125`009
+X`125
+X
+Xstatic unsigned long int check_cli_parameter(char *name)
+X`123
+X`009$DESCRIPTOR (name_d, name);
+X
+X`009name_d.dsc$w_length = strlen(name);
+X`009return (cli$present (&name_d));
+X`125
+X
+Xstatic unsigned long int read_cli_parameter(`032
+X`009char *name, char *value, size_t value_size)
+X`123
+X    $DESCRIPTOR (name_d, name);
+X    $DESCRIPTOR (value_d, value);
+X    unsigned short int len;
+X    unsigned long int result;
+X
+X    name_d.dsc$w_length = strlen(name);
+X    value_d.dsc$w_length = value_size -1;
+X    result = cli$get_value (&name_d, &value_d, &len);
+X    value`091len`093 = '\0';
+X    return (result);
+X`125
+X
+Xstatic void read_CLI_params(
+X    char **log_file_name,
+X    char **country_name,
+X    char **server_name,
+X    char **port_name,
+X    char **host_name,
+X    char **password)
+X`123
+X    int status,value;
+X
+X    static char log_buffer`091FILE_NAME_LEN`093 = "";
+X    static char cou_buffer`091COMMAND_SIZE`093 = "";
+X    static char ser_buffer`091COMMAND_SIZE`093 = "";
+X    static char por_buffer`091COMMAND_SIZE`093 = "";
+X    static char hos_buffer`091COMMAND_SIZE`093 = "";
+X    static char pas_buffer`091COMMAND_SIZE`093 = "";
+X
+X
+X    if (check_cli_parameter("HELP") == CLI$_PRESENT) `123
+X
+X`009fprintf(stderr,"Usage: %s /SERVER=Server /PORT=Port\n",command);
+X/*`009fprintf(stderr,"       %s /SERVER=Server /SERVICE=Service\n",command);
+V`009    */
+X`009fprintf(stderr,"If file %s exists also follows:\n",init_file);
+X`009fprintf(stderr,"Usage: %s \"Country\"\n",command);
+X`009fprintf(stderr,"       %s /HOST=Server\n",command);
+X`009fprintf(stderr,"Follow qualifiers is also allowed:\n");
+X`009fprintf(stderr," /LOG=Log-file\n /PASSWORD=Password\n");
+X`009fprintf(stderr," /EMPIRETOOL or /EMPIRETOOL=Dump_area\n");
+X`009exit (SS$_NORMAL);`009
+X    `125
+X
+X    if (check_cli_parameter("COUNTRY") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("COUNTRY",cou_buffer,sizeof(cou_buffer));
+X`009if (status == SS$_NORMAL) *country_name = cou_buffer;
+X`009else write_VMS_error("Some error to reading COUNTRY value",status);
+X    `125
+X
+X    if (check_cli_parameter("SERVER") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("SERVER",ser_buffer,sizeof(ser_buffer));
+X`009if (status == SS$_NORMAL) *server_name = ser_buffer;
+X`009else write_VMS_error("Some error to reading SERVER value",status);
+X    `125
+X
+X    if (check_cli_parameter("PORT") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("PORT",por_buffer,sizeof(por_buffer));
+X`009if (status == SS$_NORMAL) *port_name = por_buffer;
+X`009else write_VMS_error("Some error to reading PORT value",status);
+X    `125
+X
+X`009
+X    if (check_cli_parameter("SERVICE") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("SERVICE",por_buffer,sizeof(por_buffer));
+X`009if (status == SS$_NORMAL) *country_name = por_buffer;
+X`009else write_VMS_error("Some error to reading SERVICE value",status);
+X    `125
+X
+X    if (check_cli_parameter("LOG") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("LOG",log_buffer,sizeof(log_buffer));
+X`009if (status == SS$_NORMAL) *log_file_name = log_buffer;
+X`009else write_VMS_error("Some error to reading LOG value",status);
+X    `125
+X
+X    if (check_cli_parameter("HOST") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("HOST",hos_buffer,sizeof(hos_buffer));
+X`009if (status == SS$_NORMAL) `123
+X`009    char *tmp;
+X`009    *host_name = hos_buffer;
+X`009    for (tmp = hos_buffer; *tmp; tmp++) *tmp=tolower(*tmp);
+X`009`125
+X`009else write_VMS_error("Some error to reading HOST value",status);
+X    `125
+X
+X    if (check_cli_parameter("PASSWORD") == CLI$_PRESENT) `123
+X`009status = read_cli_parameter("PASSWORD",pas_buffer,sizeof(pas_buffer));
+X`009if (status == SS$_NORMAL) *password = pas_buffer;
+X`009else write_VMS_error("Some error to reading PASSWORD value",status);
+X    `125
+X
+X    if (check_cli_parameter("EMPIRETOOL") == CLI$_PRESENT) `123
+X`009autostart_empiretool = 1;
+X`009status = read_cli_parameter("EMPIRETOOL",
+X`009    autostart_empiretool_string,sizeof(autostart_empiretool_string));
+X`009if ( status == SS$_NORMAL `124`124 status == CLI$_DEFAULTED)
+X`009    /* ok */  ;
+X`009else if (status == CLI$_ABSENT)`032
+X`009    autostart_empiretool_string`0910`093 = '\0';
+X`009else write_VMS_error("Some error to reading EMPIRETOOL value",status);
+X    `125
+X    else if (check_cli_parameter("EMPIRETOOL") == CLI$_NEGATED)`032
+X`009autostart_empiretool = 0;
+X
+X`125
+X
+Xint handle_C_params(int *argc, char ***argv)
+X`123
+X    int res = (*argc >1 && (StrEQ((*argv)`0911`093,".",0) `124`124`032
+X`009`009`009    StrEQ((*argv)`0911`093,"?",0)));
+X    const char *IN=(*argv)`0910`093;
+X    if (res) `123
+X`009if (*argc > 1 && StrEQ((*argv)`0911`093,".",0)) `123
+X`009    (*argc)--;
+X`009    (*argv)++;
+X`009    (*argv)`0910`093 = IN;
+X`009`125
+X`009return 1;
+X    `125
+X    return 0;
+X`125
+X
+Xint main(int argc, char *argv`091`093)
+X`123
+X    FILE *init_fd = NULL;
+X    struct Service *service = NULL;
+X    const buffer`091FILE_NAME_LEN`093;
+X
+X    char *log_file_name`009= NULL;
+X    char *country_name`009= NULL;
+X    char *server_name`009= NULL;
+X    char *port_name`009= NULL;
+X    char *host_name`009= NULL;
+X    char *password`009= NULL;
+X    char *ET_file`009= NULL;
+X    const char *exec_file`009= argv`0910`093;
+X    char exec_directory`091FILE_NAME_LEN`093;
+X    char preinit`091FILE_NAME_LEN`093;
+X    char *ptr,*ptr2;
+X
+X    int is_external = 0;
+X
+X    init_screen();
+X
+X    strcpy(exec_directory,exec_file);
+X    ptr2 = NULL;
+X    /* find last `093 or > character: that is end of directory part */
+X    for(ptr = exec_directory; *ptr; ptr++)
+X`009if (*ptr == '`093') ptr2 = ptr;
+X`009else if (*ptr == '>') ptr2 = ptr;
+X    if (ptr2) *(ptr2+1) = '\0';`009`009    /* remove file name */
+X    strcpy(preinit,exec_directory);
+X    strcat(preinit,preinit_file);
+X
+X    if (have_file(preinit,buffer)) `123
+X`009init_fd = open_file(buffer, F_NONE);
+X`009if (init_fd) `123
+X`009    read_init_file(init_fd,1);`009/* 1 = is global initialization file *
+V/
+X`009    close_file(&init_fd);   /* set's init_fd = NULL */
+X`009`125
+X    `125 else `123
+X`009sprintf(buffer,"Global initialization file required: %s",preinit_file);
+X`009write_line(buffer,E_client,preinit);
+X`009write_line("Check installation",E_client,NULL);
+X`009exit(SS$_ABORT);
+X    `125
+X
+X    is_external = handle_C_params(&argc,&argv);
+X
+X    if (have_file(init_logname,buffer)) init_fd = open_file(buffer, F_NONE);
+X    else if (have_file(init_file,NULL) `124`124`032
+X`009is_external && (argc == 2 `124`124 (argc >= 3 && StrEQ(argv`0911`093,"ho
+Vst",0))))`032
+X`009init_fd = open_file(init_file, F_NONE);
+X    if (init_fd) `123
+X`009read_init_file(init_fd,0);  /* 0 = user's init file */
+X`009close_file(&init_fd);
+X    `125
+X
+X    /* START MESSAGE*/
+X    start_message();
+X    write_line("",E_none,NULL);
+X
+X    if (!is_external) read_CLI_params(
+X`009&log_file_name,&country_name,&server_name,&port_name,&host_name,
+X`009    &password);
+X    else read_C_params(argc,argv,
+X`009&log_file_name,&country_name,&server_name,&port_name,&host_name,
+X`009    &password);
+X
+X    if (log_file_name) log_fd = open_file(log_file_name,F_WRITE);
+X    if (country_name `124`124 host_name `124`124 !server_name `124`124 !port
+V_name) `123
+X`009if (host_name) `123
+X`009    service = search_default (host_name,D_host);
+X`009    if (!service) write_line("No host in init file",
+X`009`009E_client,host_name);
+X`009`125 else if (!country_name) `123
+X`009    service = search_default(NULL,D_country);
+X`009    if (!service) write_line("No any country in init file",E_client,NULL
+V);
+X`009`125 else `123
+X`009    service = search_default(country_name,D_country);
+X`009    if (!service) write_line("No country in init file",
+X`009`009E_client,country_name);
+X`009`125
+X`009if (service) `123
+X`009    if (!country_name) country_name = service -> Country;
+X`009    if (!port_name) port_name = service -> Port;
+X`009    if (!server_name) server_name = service -> Name;
+X`009    if (!password) password = service -> Pass;
+X`009    if (!ET_file && service -> ET_file`0910`093 != '\0')`032
+X`009`009ET_file = service -> ET_file;
+X`009`125
+X    `125`032
+X
+X    if (autostart_empiretool && (!country_name `124`124 !password))
+X`009write_line("Country name and password must give when uses /EMPIRETOOL",
+X`009    E_tool,NULL);
+X    else if (server_name && port_name) `032
+X`009session (server_name,port_name,country_name,password,ET_file);
+X    if (log_fd) close_file(&log_fd);
+X
+X    /* main cleanup */
+X    print_errors();
+X    if (filler.next) `123 /* print rest of error messages */
+X`009print_more(length_counter,0,0);
+X`009clear_more();
+X    `125
+X    quit_screen();
+X
+X    return SS$_NORMAL;
+X`125
+$ CALL UNPACK CLIENT.C;891 574250061
+$ create/nolog 'f'
+X/*`032
+X**`009CLIENT.H: Common declarations of CLIENT.C and EMPIRETOOL.C
+X**
+X**`009     * BSD Empire's client for VMS *
+X*/
+X
+Xextern char *EMPIRETOOL_VERSION;
+Xextern char *EMPIRETOOL_COMPILED_DATE;
+Xextern char *EMPIRETOOL_COMPILED_TIME;
+Xextern char *EMPIRECLIENT_VERSION;
+Xextern char *EMPIRECLIENT_COMPILED_DATE;
+Xextern char *EMPIRECLIENT_COMPILED_TIME;
+X
+X#define TERM_LEN 80
+X#define ERROR_LEN 400
+X#define FILE_NAME_LEN (8 + 160 + 8*160 + 2 + 8 + 5 +3 + 1)
+X
+X#if FILE_NAME_LEN > ERROR_LEN
+X#undef ERROR_LEN
+X#define ERROR_LEN FILE_NAME_LEN
+X#endif
+X
+Xtypedef enum `123 E_none, E_client, E_server, E_data, E_tool `125 error_clas
+Vs;
+X
+Xextern void write_C_error(char *Message);
+X
+Xextern void write_line(char *line, error_class error, char *cont);
+X
+Xextern void write_socket_error(char *Message);
+X
+Xextern void write_C_error(char *Message);
+X
+Xextern void write_VMS_error(char *Message, int status);
+X
+X#define F_NONE`009    0
+X#define F_WRITE`009    1
+X#define F_APPEND    2
+X
+Xextern FILE *open_file(char *file_name, int flags);
+X
+Xextern void close_file(FILE **fdp);
+X
+Xextern int have_file(char *file_name, char *buffer);
+X
+Xextern int StrEQ(char *str1, char *str2, int no_case);
+X
+X
+X#define PROMPT_SIZE 80
+X#define COMMAND_SIZE 120
+X
+Xtypedef enum `123`009P_server = 0,`032
+X`009`009P_command = 1,`032
+X`009`009P_tool = 2,
+X`009`009P_screen = 3 `125 prompt_type;
+X
+Xtypedef void command_handler(void);
+X
+Xtypedef enum `123`009SK_up, SK_down, SK_left, SK_right,
+X`009`009SK_eof, SK_return, SK_none, SK_key
+X`009    `125 screen_key;
+X
+Xtypedef void cursor_fn(
+X`009struct screen_data *screen,
+X`009prompt_type PR);
+X`009
+X
+Xtypedef struct SK_entry `123
+X`009    screen_key key;`009
+X`009    cursor_fn *handler;
+X`009    `125;
+X
+X#define SM_BOLD    1
+X#define SM_REVERSE 2
+X#define SM_7BIT    4
+X
+Xtypedef struct screen_data `123
+X    int Xpos;
+X    int Ypos;
+X    int Xmax;
+X    int Ymax;
+X    char *display;  /* Xmax * Ymax array */
+X    char *flags;    /* Xmax * Ymax array */
+X    int keynum;
+X    struct SK_entry *keys;   /* keynum array */
+X    int scroll_area;`009/* first scrolling line */
+X    `125;
+X
+Xextern volatile struct PRM `123
+X`009    char prompt `091PROMPT_SIZE`093;
+X`009    volatile command`091COMMAND_SIZE`093;
+X`009    volatile terminator`091COMMAND_SIZE`093;
+X`009    int prompt_asked;
+X`009    int echo_mode;
+X`009    command_handler *handler;
+X`009    char initial`091COMMAND_SIZE`093;
+X`009    char (*history)`091COMMAND_SIZE`093;
+X`009    int history_head;
+X`009    int history_tail;
+X`009    struct screen_data *screen;
+X`009`125 prompts`091`093;
+X
+Xextern void ask_prompt(prompt_type P, char *Prompt,
+X`009`009  command_handler *handler,
+X`009`009  int echo_mode);
+X
+Xextern void change_prompt(prompt_type P);
+Xextern void disable_prompt(prompt_type P, int noerror);
+X
+Xextern void parse_command(char *command, char *buffer1, char *buffer2);
+X
+Xtypedef enum `123 D_data, D_prompt, D_EOD, D_error `125 data_type;
+X
+X/* CONST result values of data_scanner */
+Xextern const char *RS_CTLD;`009/* ctrld */
+Xextern const char *RS_ABORT;`009/* abort */
+X
+Xtypedef void data_scanner(data_type D_data, char *data);
+X
+Xextern void feed_command(char *command,data_scanner *routine);
+X
+Xextern void start_empiretool(char *param);
+X
+Xextern void answer_query(char *answer);
+X
+Xextern int BTU_left;`009   `032
+X
+Xextern void cancel_updatetimer(void);
+Xextern void recycle_updatetimer(char *time);
+Xextern void tool_update(void);
+X
+Xextern int empiretool_cancel;
+Xextern char empiretool_file`091FILE_NAME_LEN`093;
+Xextern void finish_empiretool(void);
+X
+Xextern void flush_message(void);
+X
+Xextern void screen_write(prompt_type P, int X, int Y, int ATR, char *S);
+Xextern void screen_prompt(prompt_type P, int X, int Y);
+Xextern void screen_clear(prompt_type P, struct screen_data *screen);
+Xextern void screen_writeSA(prompt_type P, int ATR, char *S);
+X
+$ CALL UNPACK CLIENT.H;52 470688305
+$ create/nolog 'f'
+Xdefine verb EMPIRE
+X`009image YourDisk:<Your.directory.path>client
+X    parameter P1
+X`009label = COUNTRY
+X`009prompt = "(Quoted) country"
+X`009value(type=$expression)
+X
+X    qualifier PORT
+X`009nonnegatable
+X`009value(required,type=$number)
+X    qualifier SERVICE ! Same as port but not number
+X`009nonnegatable
+X`009value(required)
+X    disallow any2(PORT,SERVICE)
+X
+X    qualifier SERVER
+X`009nonnegatable
+X`009value(required)
+X    qualifier HOST`009! partial host name
+X`009nonnegatable
+X`009value(required)
+X    disallow (SERVER and HOST)
+X   `032
+X    qualifier PASSWORD
+X`009nonnegatable
+X`009value(required)
+X`009
+X    qualifier LOG
+X`009value(required,type=$outfile)
+X
+X    qualifier EMPIRETOOL
+X`009value
+X
+X    qualifier HELP
+X    disallow(HELP and (COUNTRY or PORT or SERVICE or SERVER or HOST or`032
+X`009PASSWORD or EMPIRETOOL))
+$ CALL UNPACK EMPIRE.CLD;19 653191
+$ create/nolog 'f'
+Xplaylimit 9-17 Empiretool disabled during office hours
+Xautoset
+$ CALL UNPACK EMPIRE.GLOBAL_INIT;5 1934300497
+$ create/nolog 'f'
+X#module EMPIRETOOL "EMPIRETOOL of Empire Client"
+X
+Xchar *EMPIRETOOL_VERSION =  "1.10";
+Xchar *EMPIRETOOL_COMPILED_DATE = __DATE__;
+Xchar *EMPIRETOOL_COMPILED_TIME = __TIME__;
+X
+X/*
+X**++
+X**  FACILITY:  Empire Tool
+X**
+X**  MODULE DESCRIPTION:
+X**
+X**      `123@tbs@`125
+X**
+X**  AUTHORS:
+X**
+X**      Kari E. Hurtta (hurtta@cc.Helsinki.FI)
+X**
+X**  CREATION DATE:  23.3.1991 (Starting)
+X**
+X**  DESIGN ISSUES:
+X**
+X**      Some simple tools for Empire Client for VMS
+X**
+X**  FILES USED:
+X**  `032
+X**  `009
+X**  `032
+X**  INCLUDED FILES:
+X**  `032
+X**`009sys$library:stdio.h
+X**`009sys$library:string.h
+X**`009sys$library:stdlib.h
+X**`009sys$librray:ctype.h
+X**`009client.h
+X**  `032
+X**  SUBSYSTEM:
+X**  `032
+X**  `009EMPIRECLIENT
+X**  `032
+X**  `032
+X**  `091@optional module tags@`093...
+X**
+X**  MODIFICATION HISTORY:
+X**
+X**`00924.3.1991 - V 0.00 : Body of empiretool created
+X**`00924.3.1991 - V 0.01 : Now parsing of dump work
+X**`00925.3.1991 - V 0.02 : Now parsing of conditions work - I hope
+X**`00927.3.1991 - V 0.03 : Many bugs fixed
+X**`009 8.4.1991 - V 0.04 : Some minor modifications`032
+X**`00911.4.1991 - V 0.05 : Better sec
+X**`00913.4.1991 - V 0.06 : Warning list, better conditions, C_sum
+X**`00915.4.1991 - V 0.07 : String field replaced by pointer(with maintenance
+V)
+X**`00918.4.1991 - V 0.08 : F_own and F_OWNED -fields added -
+X**`009`009`009     (conditions (V 0.06) seems broken)
+X**`00918.4.1991 - V 0.09 : copy_database -added
+X**`00918.4.1991 - V 0.10 : ask_message, message_handler -added
+X**`00919.4.1991 - V 0.11 : init_database, copy_database reimplemented -`032
+X**`009`009`009     argument bug fixed (stepper) (conditions works now)
+X**`00923.4.1991 - V 0.12 : copy_database renamed to resize_database -
+X**`009`009`009     parse_start_scan renamed to parse_dump_scan -
+X**`009`009`009     C_update, update*, delete* (database) -added
+X**`00923.4.1991 - V 0.13 : C_spy etc. -added - unknown fields should now`032
+X**`009`009`009     handle right - code for version dump started
+X**`00924.4.1991 - V 0.14 : part of version dump collected - C_version,
+X**`009`009`009     C_foodcheck (don't handle aggris)
+X**`00926.4.1991 - V 0.15 : C_birthcheck
+X**`00927.4.1991 - V 0.16 : Now empiretool reads map dump, C_map
+X**`00928.4.1991 - V 0.17 : tool_alloc, tool_free, string_alloc, string_free
+V -
+X**`009`009`009     There is still somethin wrong with memory handling`032
+X**`009`009`009     - C_autoexplore (don't work right)
+X**`00928.4.1991 - V 0.18 : Route scanner inplemented - now autoexplore works
+X**`009`009`009     right
+X**`00928.4.1991 - V 0.19 : C_move -added - now should movement cost calculat
+Ved
+X**`009`009`009     right (?)
+X**`00929.4.1991 - V 0.20 : C_path - minor change to UpdateFields
+X**`00930.4.1991 - V 0.21 : Now commands with syntax error is rejected
+X**`00930.4.1991 - V 0.22 : Now autoexplore desigs also last sector
+X**`009 1.5.1991 - V 0.23 : C_autodist implemented, not tested
+X**`009 1.5.1991 - V 0.24 : BTU check added, update messaged renamed to`032
+X**`009`009`009     fatal_message and modified
+X**`009 3.5.1991 - V 0.25 : loading and saving of database
+X**`009 7.5.1991 - V 0.26 : Now empiretool also saveing version information
+X**`009 9.5.1991 - V 0.27 : C_distribute
+X**`00913.5.1991 - V 0.28 : C_sectors
+X**`00915.5.1991 - V 0.29 : SortSectors renamed to sort_database,`032
+X**`009`009`009`009update_database rewrote
+X**`00918.5.1991 - V 0.30 : Variables implemented - not fully tested
+X**`00918.5.1991 - V 0.31 : Variable emplementation enchanted, C_if
+X**`00919.5.1991 - V 0.32 : Autoupdate propably work now
+X**`00922.5.1991 - V 0.33 : update_database rewrote again, short_update_wait,
+X**`009`009`009     update -command modified
+X**`00922.5.1991 - V 0.34 : C_quit
+X**`00922.5.1991 - V 0.35 : WriteField now uses write_word - C_desig
+X**`00923.5.1991 - V 0.36 : C_thre
+X**`00923.5.1991 - V 1.00 * DISTRIBUTED AS VERSION 1.00
+X**`009 1.6.1991 - V 1.01 : C_compare, V_dc, autodistribute modified,
+X**`009`009`009     `123 "gold", F_bar `125 removed from list, C_desigcheck,
+X**`009`009`009     paths no logger routed via unowned sectors
+X**`009 7.9.1991 - V 1.02 : bugfix: missing for -loop added to PackFields
+X**       5.3.1992 - V 1.03 : empiretool_cancel, V_beach, V_border
+X**`009 8.3.1992 - V 1.04 : empiretool_file, V_losed
+X**`00911.3.1992 - V 1.05 : bug fixing for empiretool_file, C_remember
+X**`00912.3.1992 - V 1.06 : flush_message
+X**`00914.3.1992 - V 1.07 : V_land, V_country, V_coast, now sector`032
+X**`009`009`009     -command accepts $var as area parameter,
+X**`009`009`009     V_nofood, V_baddes, some changes to C_compare,
+X**`009`009`009     C_exit, C_collect
+X**      29.3.1992 - V 1.08 : C_visual
+X**`00911.4.1992 - V 1.09 : show data in visual mode, expressions, :needfood,
+X**`009`009`009     :foodleft, :proeff, :newciv, :newuw
+X**`00912.4.1992 - V 1.09b : Bug fixing, automove
+X**`00912.4.1992 - V 1.10 : DISTRIBUTED AS VERSION 1.10
+X**--
+X*/
+X
+X/*
+X**
+X**  INCLUDE FILES
+X**
+X*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include "client.h"
+X
+X/* Memory allocation *******************************************************
+V */
+X
+Xstatic long int tool_alloced = 0;
+Xstatic long int tool_freed = 0;
+Xstatic int alloc_count = 0;
+Xstatic int free_count = 0;
+X
+Xstatic void *tool_alloc(size_t size)
+X`123
+X    void *ptr = NULL;
+X
+X    if (size == 0) `123
+X`009write_line("Internal_error(tool_alloc): size = 0",E_tool,NULL);
+X`009return NULL;
+X    `125
+X    ptr = malloc(size);
+X    if (!ptr) `123
+X`009char buffer`091ERROR_LEN`093;
+X`009char buffer2`091ERROR_LEN`093;
+X`009sprintf(buffer,"Allocation failure - size %d",size);
+X`009sprintf(buffer2,
+X"alloced = %ld freed = %ld in_use = %ld acount = %d fcount = %d in_use = %d"
+V,
+X`009    tool_alloced, tool_freed, tool_alloced - tool_freed,
+X`009    alloc_count, free_count, alloc_count - free_count);
+X`009write_line(buffer,E_tool,buffer2);
+X`009return NULL;
+X    `125
+X    tool_alloced += size;
+X    alloc_count += 1;
+X    return ptr;
+X`125
+X
+Xstatic void tool_free(void *ptr,size_t size)
+X`123  `032
+X    if (ptr == NULL) `123
+X`009char buffer`091ERROR_LEN`093;
+X`009sprintf(buffer,"Internal error(tool_free): ptr = NULL (size = %d)",
+X`009    size);
+X`009write_line(buffer,E_tool,NULL);
+X`009return ;
+X    `125
+X    if (size == 0) `123
+X`009write_line("Internal error(tool_free): size = 0",E_tool,NULL);
+X`009return ;
+X    `125
+X
+X    free(ptr);
+X    tool_freed += size;
+X    free_count += 1;
+X`125
+X
+X/* String allocation *******************************************************
+V */
+X
+X/*  define usually strings as static`032
+X    array so that they not need allocate */
+X
+Xstatic char *constant_strings`091`093 =
+X`123
+X    "",`009`009`009   `032
+X    "_",`009/* that string is _very_ normal */
+X    "?"
+X`125;
+X
+Xstatic char *string_alloc(char *ptr)
+X`123
+X    int i,len;
+X    char *result;
+X
+X    if (!ptr)`009return NULL;
+X    for (i = 0; i < sizeof(constant_strings) / sizeof(char *); i++) `123
+X`009if (StrEQ(ptr,constant_strings`091i`093,0))
+X`009    return (constant_strings`091i`093);
+X    `125
+X
+X    /* need allocation */
+X    len = strlen(ptr);
+X    result = tool_alloc(len+1);
+X    if (!result) `123
+X`009write_line("String allocation failure",E_tool,ptr);
+X`009return NULL;
+X    `125
+X    strcpy(result,ptr);
+X    return result;
+X`125
+X
+Xstatic void string_free(char *ptr)
+X`123
+X    int i,len;
+X    if (!ptr) return ;
+X
+X    for (i = 0; i < sizeof(constant_strings) / sizeof(char *); i++)`032
+X`009if (constant_strings`091i`093 == ptr) return ;
+X
+X    /* need freeing */
+X    len = strlen(ptr+1);
+X    tool_free((void *)ptr,len+1);
+X`125
+X
+X/* Starting ****************************************************************
+V */
+X
+Xtypedef enum `123 F_x, F_y, F_des, F_sdes, F_eff, F_mob, F_occupied,
+X`009F_min, F_gold, F_fert, F_ocontent, F_uran, F_work, F_avail,
+X`009F_terr, F_civ, F_mil, F_uw, F_food, F_shell, F_gun, F_pet,
+X`009F_iron, F_dust, F_bar, F_oil, F_lcm, F_hcm, F_rad,`032
+X`009F_u_del, F_f_del, F_s_del, F_g_del, F_p_del, F_i_del,`032
+X`009F_d_del, F_b_del, F_o_del, F_l_del, F_h_del, F_r_del,`032
+X`009F_u_cut, F_f_cut, F_s_cut, F_g_cut, F_p_cut, F_i_cut,`032
+X`009F_d_cut, F_b_cut, F_o_cut, F_l_cut, F_h_cut, F_r_cut,`032
+X`009F_dist_path, F_dist_x, F_dist_y,`032
+X`009F_u_dist, F_f_dist, F_s_dist, F_g_dist, F_p_dist, F_i_dist,`032
+X`009F_d_dist, F_b_dist, F_o_dist, F_l_dist, F_h_dist, F_r_dist,
+X`009F_own, /* for DEITY */
++-+-+-+-+-+-+-+-  END  OF PART 4 +-+-+-+-+-+-+-+-

@@ -1,0 +1,1295 @@
+Path: comp-sources-3b1
+From: zebra!vern (Vernon C. Hoxie)
+Subject:  v02i030:  NIST.timechk, version 2.1, Part02/02
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 24d5bf74 78e2632a c0948552 6b9f58bc
+
+Submitted-by: zebra!vern (Vernon C. Hoxie)
+Posting-number: Volume 2, Issue 30
+Archive-name: nistchk/part02
+
+
+---------------------------- cut here ------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  NISTtime.c calc.c obm.c
+# Wrapped by vern@zebra on Thu Aug 27 11:06:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f NISTtime.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"NISTtime.c\"
+else
+echo shar: Extracting \"NISTtime.c\" \(13458 characters\)
+sed "s/^X//" >NISTtime.c <<'END_OF_NISTtime.c'
+X#sccs	"@(#)	NIST.time:NISTtime.c	2.1"	8/27/92
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X *                                                                     *
+X *  Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X *                                                                     *
+X *      This source code may be freely distributed as long as this     *
+X *      copyright notice is included.  No monetary charges should      *
+X *      be made in excess of the cost of copying and distribution.     *
+X *                                                                     *
+X *      Any profits which might be derived from the sale of this       *
+X *      work must be shared with me.  Other monetary contributions     *
+X *      will be gratefully accepted.                                   *
+X *                                                                     *
+X *         Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X *                                                                     *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X
+X
+X#include "NISTtime.h"
+X#include <time.h>
+X#include <string.h>
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X * Usage: "NIST.time -c tty000" correct clock using "/dev/tty000"    *
+X *	  "NIST.time -i tty000" reset clock from scratch.                 *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X#ifndef DVC_LEN
+X#define DVC_LEN 30			/* Defined in <dial.h> */
+X#endif
+X
+X/* This is the start up getty used to set-up a smart modem */
+X
+Xstruct termio my_getty = 
+X{
+X	IGNBRK | IGNPAR | ICRNL | IXANY,                /* c_iflag   */
+X	0,                                              /* c_oflag   */
+X 	B1200 | CS8 | CREAD | HUPCL | CTSCD | CLOCAL,   /* c_cflag   */
+X	ISIG,                                           /* c_lflag   */
+X	0,                                              /* c_line    */
+X	{                                               /* c_cc[NCC] */
+X		CINTR,              /* VINTR  = DEL    */
+X		CQUIT,              /* VQUIT  = FS     */
+X		CERASE,             /* VERASE = BS     */
+X		CKILL,              /* VKILL  = '@'    */
+X		1,                  /* VMIN  = 1 char  */
+X		0                   /* VTIM  = 0 sec   */
+X	}
+X};
+X
+Xextern int run_mod( );
+Xextern long sys_delta;
+Xextern int dst;
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X
+X{
+X	void set_time( );
+X	void trunc_errs( );
+X	int done, high;
+X	char cflag, iflag;
+X	char *optp;
+X	char devname[DVC_LEN];
+X	cflag = '\0';
+X	iflag = '\0';
+X	if ( argc < 2 ) usage( );
+X	while (--argc > 0)
+X	{
+X		done = 0;
+X		optp = argv[argc];
+X	/* set the option flags from the command line following a '-' */
+X
+X		if (*optp == '-')
+X		{
+X			while ( *optp++ && ! done )
+X			{
+X				switch ( *optp )
+X				{
+X					case 'c': cflag = *optp; break;
+X					case 'i': iflag = *optp; break;
+X					default: done = 1;
+X				}
+X			}
+X			--optp;
+X		}
+X
+X		/* devname will be the last entry on the command line. */
+X		
+X		else if ( ! devname[0] ) strcpy( devname, optp );
+X	}
+X	if ( ! cflag && ! iflag ) usage( ); 
+X
+X		/* Put 'stderr' into /tmp/NIST temporarily */
+X
+X	freopen( TMP_ERRS, "w+", stderr );
+X
+X	if ( iflag ) boot = 1;
+X	else boot = 0;
+X
+X	if ( cflag || iflag ) set_time( devname );
+X
+X	/* Check if any errors were recorded */
+X	if (( high = ftell( stderr )) > 0 ) trunc_errs( high );
+X	unlink( TMP_ERRS );
+X
+X	exit( 0 );
+X}					/* main() */
+X
+Xusage( )
+X
+X{
+X	fprintf( stderr,
+X	 "Usage: NIST.time - [ c ][ i ] ph#/tty###\n" );
+X	exit( 0 );
+X}
+X
+Xvoid set_time( name )
+Xchar *name;
+X
+X{
+X	extern int run_obm( );
+X	extern int run_mod( );
+X	void update( );
+X	void sig_sleep( );
+X	void sign_off( );
+X	
+X	char *pph, *dev;
+X	char *ptty, *pscan;
+X	char *tty = "tty";
+X	char *ph = "ph";
+X	int k, ret;
+X	pph = ph;
+X	ptty = tty;
+X	pscan = name;
+X	dev = name;
+X
+X	/* Scan 'name' for "ph" or "tty".  These pointers will be the */
+X	/* flags for selecting the OBM or smart modem routine.        */
+X
+X	while ( *pscan && *pph && *ptty )
+X	{
+X		if ( *pph == *pscan) pph++;
+X			else pph = ph;
+X		if ( *ptty == *pscan ) ptty++;
+X		else ptty = tty;
+X
+X		/* Trim off any path name provided */
+X		if ( *pscan  == '/' ) dev = pscan + 1;
+X		pscan++;
+X	}
+X#ifdef DEBUG
+X	printf("Device name = %s\n", name);
+X#endif
+X	if ( ! *pscan ) usage( );
+X
+X	/* Limit activity to eight attempts then log an error message. */
+X
+X	for ( k = 8; k; k-- )
+X	{
+X		sys_delta = 0;		/* Reset delta time accumulator */
+X		if ( ! *pph )
+X		{
+X			ret = run_obm( dev );
+X			if ( tiofd > 0 )
+X			{
+X				if ( ret <= -10 )
+X				{
+X					tiofd = 0;
+X					ret += 10;
+X				}
+X				else sign_off();
+X			}
+X		}
+X		else if ( ! *ptty )
+X		{
+X			ret = run_mod( dev );
+X			sign_off( dev );
+X		}
+X		alarm( 0 );
+X		if ( ret == 0 )
+X		{
+X			update();
+X			return;
+X		}
+X		if ( ret < 0 )
+X		{
+X			fprintf(stderr,
+X			     "There was a fundamental system error.\n");
+X			fprintf(stderr,
+X					"The return code was %d\n", ret);
+X			break;
+X		}
+X		fflush( stderr );
+X#ifdef DEBUG
+X		printf("Sleep for %d secs. Retries to go, %d\n",
+X				ret, k - 1 );
+X#endif
+X		alarm( ret );
+X		signal( SIGALRM, sig_sleep ); 
+X		pause( );
+X	}
+X	fprintf( stderr, "Exceeded eight errors.\n" );
+X	return;
+X}			/* set_time() */
+X
+Xvoid trunc_errs( high )
+Xint high;
+X
+X{
+X	char *wrk, *buf;
+X	int efd, lfd, size1, size2;
+X	long now;
+X
+X			/* Close stderr so that it can be reopened for reading. */
+X	fclose( stderr );
+X	size1 = ERR_SIZE + high + 10;
+X	buf = malloc( size1 );
+X
+X			/* First enter the time stamp */
+X	time( &now );
+X	sprintf( buf, "Date: %s", ctime( &now ));
+X	wrk = buf + strlen( buf );
+X	efd = open( TMP_ERRS, O_RDONLY );
+X	wrk += read( efd, wrk, high );
+X	close ( efd );
+X	*wrk++ = '\n';							/* Mark the entry boundary */
+X
+X		/* Open the error log file and transfer */
+X		/* the entire file to 'buf' buffer.     */
+X	lfd = open( LOG_ERRS, O_RDWR | O_CREAT, 0666 );
+X	if ( size2 = ( ERR_SIZE + high + wrk - buf ) > size1 ) {
+X		size2 = size1;
+X	}
+X	wrk += read( lfd, wrk, size2 );
+X
+X		/* Limit size of error log. */
+X	if (( wrk - buf ) >= ERR_SIZE ) {
+X		while (( wrk-- - buf ) >= ERR_SIZE );
+X		while ( 1 ) {
+X			while ( *wrk-- != '\n' );
+X			if ( *wrk == '\n' ) break;
+X		}
+X		wrk++;
+X	}
+X	close( lfd );
+X			/* Reopen to truncate. */
+X	lfd = open( LOG_ERRS, O_RDWR | O_TRUNC, 0666 );
+X	write( lfd, buf, wrk - buf );
+X	close( lfd );
+X	return;
+X}					/* trunc_errs() */
+X
+Xvoid sig_timeout()
+X{
+X	signal( SIGALRM, sig_timeout );
+X	fprintf( stderr, "Timeout. " );
+X	longjmp( place, 180 );
+X	return;
+X}					/* sig_timeout() */
+X
+X	/* Used with the 'pause( )' command to catch and reset the      */
+X	/* alarm signals.  The same as 'sleep( ) but seems to be safer. */
+X
+Xvoid sig_sleep( )
+X{
+X	signal( SIGALRM, sig_sleep );
+X#ifdef DEBUG
+X	printf("'sig_sleep()' completed.\n");
+X#endif
+X	return;
+X}					/* sig_sleep() */
+X
+X#define CLOCK_TICK 1000/HZ		/* HZ = 60 for unix-pc */
+X
+X/* This routine is "borrowed" from kermit.  Its a handy little	*/
+X/* routine and if you are building your own library of pets,   */
+X/* consider this for inclusion - vch.  m = msec of delay.      */
+X
+Xint mpause( m )
+Xint m;
+X
+X{
+X	extern long times( );
+X	long t1, t2, tarray[4];
+X	int t3;
+X
+X	if ( m <= 0 ) return( 0 );
+X 	if (( t1 = times( tarray )) < 0) return( -1 );
+X	while (1)
+X	{
+X		if (( t2 = times( tarray )) < 0) return( -1 );
+X		t3 = (( int )( t2 - t1 )) * CLOCK_TICK;
+X		if ( t3 > m ) return( t3 );
+X 	}
+X}					/* mpause() */
+X
+Xint open_tty( dev )
+Xchar *dev;
+X
+X{
+X	int j;
+X	int c_flag, init_baud;
+X	char full_name[30];
+X
+X	strcat( strcpy( full_name, DEVPATH ), dev );
+X
+X	if (( j = access( full_name, 0 )) < 0 )
+X	{
+X		fprintf( stderr, "%s doesn't exist!\n", full_name );
+X		return( -1 );
+X	}
+X
+X	if (( j = open( full_name, O_RDWR | O_NDELAY ) ) == -1 )
+X	{
+X		fprintf( stderr, "Opening port %s, %s\n",
+X				full_name, sys_errlist[errno] );
+X		return( -1 );
+X	}
+X
+X#ifdef DEBUG
+X	printf( "The file for %s opened with fildes of %d\n",
+X			full_name, j);
+X#endif
+X
+X	if (( ioctl( j, TCGETA, &old_getty ) ) == -1 )
+X	{
+X		fprintf( stderr, "open_tty(), TCGETA old_getty, %s\n",
+X				sys_errlist[errno] );
+X		return( -1 );
+X	}
+X
+X	c_flag = my_getty.c_cflag & ~CBAUD;
+X#ifdef OBM
+X#ifdef EXTERNAL
+X	if ( strncmp( dev, "ph", 2 ) == 0 ) init_baud = B1200;
+X	else init_baud = INIT_BAUD;
+X#else		/* ! EXTERNAL */
+X	init_baud = B1200;
+X#endif
+X#else		/* ! OBM */
+X	init_baud = INIT_BAUD;
+X#endif
+X	my_getty.c_cflag = c_flag | init_baud | CLOCAL | CTSCD ;
+X
+X	if (( ioctl( j, TCSETA, &my_getty ) ) == -1 )
+X	{
+X		fprintf( stderr, "open_tty(), TCSETA my_getty, %s\n",
+X				sys_errlist[errno] );
+X		return( -1 );
+X	}
+X	return( j );			/* The return will be 'tiofd' */
+X}	/* open_tty() */
+X
+X	/* Open LCK..NIST in /usr/spool/uucp and insert our pid.  */
+X	/* Then try linking to a LCK.. file.  If there is an      */
+X	/* existing one, 'link()' will fail with errno set to     */
+X	/* EEXIST.  See if the process which set the LCK.. file   */
+X	/* still active with 'kill( opid, 0 ).  If it is active,  */
+X	/* return with a sleep value.  If inactive, commandeer    */
+X	/* it by 'unlink()' and then link it to LCK..NIST.        */
+X
+X	/* This revised sequence was suggested by Karl Swartz.    */
+X	/*   Thanks Karl!                                         */
+X
+Xint lock_it( dev )
+Xchar *dev;
+X
+X{
+X	int tfd, lfd;
+X	int pid, oldpid = 0;
+X
+X	strcat( strcpy( lck_file, LCKPATH ), dev );
+X	strcat( strcpy( nist_file, LCKPATH ), "NIST" );
+X
+X#ifdef DEBUG
+X	printf("lck_file = >%s<\n", lck_file);
+X	printf("nist_file = >%s<\n", nist_file);
+X#endif
+X
+X	if (( tfd = open ( nist_file, O_WRONLY | O_CREAT, 0666 ) ) <= 0 )
+X	{
+X		fprintf( stderr, "Can't open %s, %s\n",
+X				nist_file, sys_errlist[errno] );
+X		return( -1 );
+X	}
+X	pid = getpid();
+X	write( tfd, &pid, sizeof( int ));
+X	close( tfd );
+X	if (( link( nist_file, lck_file )) < 0 )
+X	{
+X		if ( errno != EEXIST )
+X		{
+X			fprintf( stderr, "Can't link %s to %s, %s\n",
+X				nist_file, lck_file, sys_errlist[errno] );
+X			return( -1 );
+X		}
+X		if (( lfd = open( lck_file, O_RDWR )) < 0 )
+X		{
+X			fprintf( stderr, "Can't open existing %s file, %s\n",
+X				lck_file, sys_errlist[errno] );
+X			return( -1 );
+X		}
+X		if (( read( lfd, &oldpid, sizeof( int ) ) ) < 0 )
+X		{	/* Give up if we can't read it */
+X			fprintf( stderr, "Can't read %s file, %s\n",
+X				lck_file, sys_errlist[errno] );
+X			return( -1 );
+X		}
+X
+X		if (pid != oldpid && ( kill( oldpid, 0 )) == 0 )
+X		{	/* We can't kill() it if it is in use! */
+X			fprintf( stderr, "%s is in use by pid %d\n",
+X					dev, oldpid );
+X			return( 300 );
+X		}
+X		unlink( lck_file );
+X		if (( link( nist_file, lck_file )) < 0 )
+X		{
+X			fprintf( stderr, "Second Link of %s to %s failed, %s\n",
+X				nist_file, lck_file, sys_errlist[errno] );
+X			return( -1 );
+X		}
+X	}
+X	hasLock = 1;
+X	return( 0 );
+X}					/* lock_it() */
+X
+X#ifdef DUMPGETTY
+X
+X#define INITTAB "/etc/inittab"
+X
+X	/* This routine changes the entry in '/etc/inttab' associated */
+X	/* with the device from a ' ' to ':' or back again depending  */
+X	/* upon the char 'new' which is passed to it.  After changing */
+X	/* the init table, it performs 'kill(1,1)' which causes the   */
+X	/* inittab to be re-examined.  This is a variation of a       */
+X	/* replacement for '/usr/lib/setgetty' on the Unix-pc.  That  */
+X	/* replacement was written by John B. Milton.                 */
+X
+Xint do_getty( dev, new )
+Xchar *dev, new;
+X
+X{
+X	int j;
+X	int ifd;
+X	int this;
+X	int last;
+X	
+X	char old;
+X	char test[6];
+X	char buf[85];
+X	char *pscan;
+X	char *ptarg;
+X	char *anch;
+X	
+X	if ( new == ' ') old = ':';
+X	else if ( new = ':' ) old = ' ';
+X#ifdef DEBUG
+X	else
+X	{
+X		printf("Bad option to 'do_getty()', use ' ' or ':'\n");
+X		exit( -1 );
+X	}
+X	if ( getuid( ) )
+X	{
+X		printf( 
+X		   "You must be running as 'su' to dump a 'uugetty'.\n" );
+X		return( -1 );
+X	}
+X#endif
+X	
+X	if (( ifd = open( INITTAB, O_RDWR ) ) < 0 )
+X	{
+X		fprintf( stderr, "Can't open %s, %s\n",
+X				INITTAB, sys_errlist[errno] );
+X		return( -1 );
+X	}
+X	
+X	anch = dev;
+X	while ( *++anch );
+X	anch -= 3;			/* get last three characters */
+X
+X	this = 0;
+X	ptarg = test;
+X	*ptarg++ = '\n';
+X	*ptarg++ = old;
+X	while ( *ptarg++ = *anch++);
+X	ptarg = test;
+X	while ( *ptarg )
+X	{
+X		if (( j = read( ifd, buf, sizeof(buf) - 1 )) < 0 )
+X		{
+X			fprintf( stderr, "Can't read %s, %s\n",
+X				INITTAB, sys_errlist[errno] );
+X			close( ifd );
+X			return( -1 );
+X		}
+X		if ( j == 0 )
+X		{
+X			had_getty = old;
+X#ifdef DEBUG
+X			printf( "Attempt to switch 'uugetty' failed.\n");
+X#endif
+X			close( ifd );
+X			return( 0 );
+X		}
+X		last = this;
+X		this += j;
+X		for ( pscan = buf; j && *ptarg; pscan++, j-- )
+X		{
+X			if ( *pscan == *ptarg ) ptarg++;
+X			else ptarg = test;
+X		}
+X	}
+X#ifdef DEBUG
+X	printf( "There was a getty.\n" );
+X#endif
+X	*(pscan - 4) = new;
+X	lseek( ifd, last, 0 );
+X	write( ifd, buf, this - last);
+X	had_getty = new;
+X	close( ifd );
+X		/* A sloppy 'telinit(1) q' */
+X	j = kill( 1, 1 );
+X	sleep( 5 );			/* Give the modem time to reset */
+X	return( j );
+X}					/* do_getty() */
+X#endif	/* #if DUMPGETTY */
+X
+X	/* Close up whatever tty files we can after collecting  */
+X	/* the data.                                            */
+X
+X
+Xvoid sign_off( dev )
+Xchar *dev;
+X
+X{
+X	if ( tiofd > 0 )
+X	{
+X		if ( ioctl( tiofd, TCSETA, &old_getty ) == -1 )
+X		{
+X			fprintf( stderr, "sign_off(), TCSETA old_getty, %s\n",
+X				sys_errlist[errno] );
+X		}
+X
+X#ifdef OBM
+X		if ( strpbrk( dev, "ph" ))
+X		{
+X 			if ( ioctl( tiofd, PIOCDISC, &old_phset ) == -1 )
+X				fprintf( stderr, "PIOCDISC old_phset, %s\n",
+X					sys_errlist[errno] );
+X		}
+X#endif	/* #ifdef OBM */
+X		close( tiofd );
+X	}
+X	tiofd = 0;
+X#ifdef DEBUG
+X	printf( "The 'sign_off()' device is %s\n", dev );
+X#endif
+X	if ( hasLock )
+X	{
+X		unlink( lck_file );
+X		hasLock = 0;
+X	}
+X	if (( access( nist_file, 0 )) == 0 ) unlink( nist_file );
+X#ifdef DUMPGETTY
+X  	if ( had_getty == ':' ) do_getty( dev, ' ' );
+X#endif	/* #ifdef DUMPGETTY */
+X
+X}					/* sign_off() */
+END_OF_NISTtime.c
+if test 13458 -ne `wc -c <NISTtime.c`; then
+    echo shar: \"NISTtime.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f calc.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"calc.c\"
+else
+echo shar: Extracting \"calc.c\" \(9707 characters\)
+sed "s/^X//" >calc.c <<'END_OF_calc.c'
+X#sccs	"@(#)	NIST.time:calc.c	2.1"	8/27/92
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X *                                                                     *
+X *  Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X *                                                                     *
+X *      This source code may be freely distributed as long as this     *
+X *      copyright notice is included.  No monetary charges should      *
+X *      be made in excess of the cost of copying and distribution.     *
+X *                                                                     *
+X *      Any profits which might be derived from the sale of this       *
+X *      work must be shared with me.  Other monetary contributions     *
+X *      will be gratefully accepted.                                   *
+X *                                                                     *
+X *         Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X *                                                                     *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X
+X
+X#include "NISTtime.h"
+X#include <sys/rtc.h>
+X#include <sys/syslocal.h>
+X#include <time.h>
+X
+Xlong sys_delta;
+Xint dst;
+X
+X	/* Translate the ascii data read in from NIST to a            */
+X	/* 'struct tm' for use in time comparison.  This may not be   */
+X	/* elegant in the context of the best use of 'C' library      */  
+X	/* functions, but it should be fast.  There are also a number */
+X	/* of checks to verify that we are converting a valid data    */
+X	/* string.                                                    */
+X
+Xint get_data(line)
+Xchar *line;
+X
+X{
+X	struct tm *gmt, nist;
+X	int dif[6];
+X	long now;
+X	int i, j;
+X	char *lpt;
+X	
+X	/* Get the system time as near as possible to the */
+X	/* receipt of the end of the NIST data line.      */
+X
+X	time( &now );
+X
+X	/* A return of 0 forces an additional data line to be read. */
+X
+X	lpt = line;
+X		/* Skip over the Julian date */
+X	while ( *lpt++ != ' ' );
+X
+X	nist.tm_year = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != '-' ) return( 0 );
+X	nist.tm_mon  = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != '-' ) return( 0 );
+X	nist.tm_mday = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != ' ' ) return( 0 );
+X	nist.tm_hour = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != ':' ) return( 0 );
+X	nist.tm_min  = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != ':' ) return( 0 );
+X	nist.tm_sec  = (( *lpt++ & 0x0f ) * 10 ) + ( *lpt++ & 0x0f );
+X	if ( *lpt++ != ' ' ) return( 0 );
+X
+X	/* Save the daylight savings time marker for the dst() readout */
+X
+X	dst = 0;
+X	while ( *lpt != ' ' ) dst = ( dst * 10 ) + ( *lpt++ & 0x0f );
+X
+X		/* If called with the '-i' option, boot will be TRUE.   */
+X		/* We will use the first response from NIST to set date */
+X		/* and time.  After it has been set, we will go ahead   */
+X		/* and collect eight samples to fine tune the time.     */
+X	 
+X#ifdef DEBUG
+X	printf("sys = %d, ", now );
+X#endif
+X	if ( boot )
+X	{
+X			/* Adjust for month of year */
+X		j = 0;
+X		boot = 0;
+X		switch ( nist.tm_mon )
+X		{
+X			case 12:
+X			case 11: j++;
+X			case 10:
+X			case  9: j++;
+X			case  8: j++;
+X			case  7:
+X			case  6: j++;
+X			case  5:
+X			case  4: j++;
+X			case  3: if ( nist.tm_year % 4 ) j -= 2;
+X				 else j--;
+X			case  2: j++;
+X			case  1: break;
+X		}
+X
+X		/* In case this is running past the year 2000 */
+X		if ( nist.tm_year < 70 ) nist.tm_year += 30;
+X		else nist.tm_year -= 70;
+X
+X	/* Adjust for leap years and toss in the month adjustment */
+X		nist.tm_mday = nist.tm_mday + (( nist.tm_year + 1 ) >> 2 )
+X								+ j;
+X
+X		now = nist.tm_year * 31536000 + ( nist.tm_mon - 1) * 2592000
+X			+ ( nist.tm_mday - 1 ) * 86400 + nist.tm_hour * 3600
+X			+ nist.tm_min * 60 + nist.tm_sec - 3;
+X		stime( &now );
+X		return( 0 );
+X	}
+X#ifdef DEBUG
+X	printf( "NIST = %d.\n", now );
+X#endif
+X	/* Fill the dif[] array with the time differences. */
+X
+X	gmt = gmtime( &now );
+X	dif[5] = nist.tm_year - gmt->tm_year;
+X	dif[4] = nist.tm_mon  - gmt->tm_mon - 1;
+X	dif[3] = nist.tm_mday - gmt->tm_mday;
+X	dif[2] = nist.tm_hour - gmt->tm_hour;
+X	dif[1] = nist.tm_min  - gmt->tm_min;
+X	dif[0] = nist.tm_sec  - gmt->tm_sec;
+X
+X	/* Add up the differences in dates and do an update      */
+X	/* only if they have a difference of zero.  That is,     */
+X	/* do fine tuning only if we have the same date as NIST. */
+X
+X	for (i = 3, j = 0; i < 6; j = j + dif[i++]);
+X	if (j == 0) sys_delta = sys_delta + dif[0] + (dif[1] * 60)
+X				+ (dif[2] * 3600) - 1;
+X	return(1);
+X}		/* get_data() */
+X
+X	/* Perform the actual clock update from the data collected by  */
+X	/* get_data( ).  This runs after the modem has hung up.        */
+X
+X	/* Since the error in the clock was summed over eight samples, */
+X	/* we round off the data by 1/2 sec before dividing by eight.  */
+X
+X	/* In order to avoid conflicts with crontab entries, the       */
+X	/* corrections are parsed in increments of 50 sec.  Plus       */
+X	/* increments are made at the fifth second and then a sleep()  */
+X	/* of 70 seconds is performed.  Negative increments are made   */
+X	/* at the 55th second and then a sleep() of 50 sec. is         */
+X	/* performed.                                                  */
+X
+Xvoid update()
+X
+X{
+X	void log_it();
+X	char *bufa[80], bufb[80];
+X	int del, dt, nap, fflag;
+X	long rtc_delta;
+X	long now;
+X	struct tm *sys_now;
+X	extern dst;
+X#ifdef UNIXPC
+X	struct rtc rtc_now, rtc_was;
+X#endif
+X
+X	/* The data was summed for eight valid data points.  Now we */
+X	/* round off by adding four then divide by eight. */
+X
+X	sys_delta = sys_delta >= 0 ? ( sys_delta + 4 ) >> 3
+X				 : ( sys_delta - 4 ) >> 3;
+X	dt = sys_delta;		/* Copy for incremental updates. */
+X	
+X	time( &now );		/* Get system time for log. */
+X	sys_now = gmtime( &now );
+X	sprintf( bufa, "%.24s, ", ctime( &now ));
+X
+X#ifdef NOSET
+X 	if ( 1 )	/* During testing, we can calculate the    */
+X#else			/* corrections we just won't install them. */
+X
+X		/* Only 'su' can update clock. */
+X	if ( getuid( ))
+X#endif
+X	{
+X		sprintf( bufb, "Corr. %3d. Not installed.\n", sys_delta );
+X		strcat( bufa, bufb );
+X		log_it( bufa );
+X		return;
+X	}
+X	
+X#ifdef DEBUG
+X	printf( "Correction is %d sec. at %d sec.  Taking a nap .. zzz\n",
+X		dt, sys_now->tm_sec );
+X#endif
+X		/* Loop until full correction is installed. */
+X	
+X	if ( dt < 0 )
+X	{
+X		link( "/usr/lib/crontab", "/usr/lib/tmp.cron" );
+X		unlink( "/usr/lib/crontab" );
+X		fflag = 1;
+X	}
+X	else fflag = 0;
+X
+X	while ( dt )
+X	{
+X		del = ( abs( dt ) > 50 )? 50: abs( dt );
+X		if ( dt < 0 ) del = -del;
+X		if ( dt < 0 )
+X		{
+X			if ( del > -50 ) nap = - del;
+X			else if ( sys_now->tm_sec > 55 ) nap = 0;
+X			else nap = 55 - sys_now->tm_sec;
+X		}
+X		else if ( dt > 0 ) nap = 125 - sys_now->tm_sec;
+X		sleep( nap );
+X		(void) nice( -20 );	/* no place to be interrupted */
+X		time( &now );
+X		now = now + del;
+X		stime( &now );		/* This should also work on 3B2 */
+X		(void) nice( 20 );		/* reset 'nice' to 20 */
+X		dt = dt - del;
+X		sys_now = gmtime( &now );
+X#ifdef DEBUG
+X	printf(	"%d:%d min. after insertion of %d sec, nap was %d sec\n",
+X			sys_now->tm_min, sys_now->tm_sec, del, nap );
+X#endif
+X	}
+X	sprintf( bufb, "Sys. Corr: %3d sec.", sys_delta );
+X	strcat( bufa, bufb );
+X	if ( fflag )
+X	{
+X		sleep( 59 - nap );
+X		link( "/usr/lib/tmp.cron", "/usr/lib/crontab" );
+X		unlink( "/usr/lib/tmp.cron" );
+X	}
+X
+X#ifdef UNIXPC
+X	nice( -20 );
+X	syslocal( SYSL_RDRTC, &rtc_was );
+X	time( &now );
+X	sys_now = localtime( &now );
+X
+X	rtc_now.sec1  = ( char )( sys_now->tm_sec  % 10 );
+X	rtc_now.sec10 = ( char )( sys_now->tm_sec  / 10 );
+X	rtc_now.min1  = ( char )( sys_now->tm_min  % 10 );
+X	rtc_now.min10 = ( char )( sys_now->tm_min  / 10 );
+X	rtc_now.hr1   = ( char )( sys_now->tm_hour % 10 );
+X	rtc_now.hr10  = ( char )( sys_now->tm_hour / 10 );
+X	rtc_now.day1  = ( char )( sys_now->tm_mday % 10 );
+X	rtc_now.day10 = ( char )( sys_now->tm_mday / 10 );
+X	rtc_now.mon1  = ( char )(( sys_now->tm_mon + 1 ) % 10 );
+X	rtc_now.mon10 = ( char )(( sys_now->tm_mon + 1 ) / 10 );
+X	rtc_now.yr1   = ( char )( sys_now->tm_year % 10 );
+X	rtc_now.yr10  = ( char )( sys_now->tm_year / 10 );
+X	rtc_now.wkday = ( char )( sys_now->tm_wday );
+X
+X		/* Now reset the rtc */
+X
+X#ifndef DEBUG
+X 	syslocal( SYSL_WRTRTC, &rtc_now );
+X#endif
+X	nice( 20 );
+X#endif	/* UNIXPC */
+X
+X		/* Calculate error for the log */
+X	
+X	rtc_delta = rtc_now.sec1  - rtc_was.sec1
+X		+ ( rtc_now.sec10 - rtc_was.sec10 ) * 10
+X		+ ( rtc_now.min1  - rtc_was.min1  ) * 60
+X		+ ( rtc_now.min10 - rtc_was.min10 ) * 600
+X		+ ( rtc_now.hr1   - rtc_was.hr1   ) * 3600
+X		+ ( rtc_now.hr10  - rtc_was.hr10  ) * 36000; 
+X	sprintf( bufb, " RTC Corr: %3d sec. %3d dst\n", rtc_delta, dst );
+X	strcat( bufa, bufb );
+X	log_it( bufa );
+X	return;
+X}					/* update() */
+X
+X/* Open the file and check that its size is less than LOG_SIZE */
+X/* lines.  Remove the oldest if it is too big.                 */
+X
+Xvoid log_it( new_data )
+Xchar *new_data;
+X
+X{
+X	char *tmp, *buf, *wrk;
+X	int lfd, num, was;
+X
+X		/* Open the correction log file and transfer */
+X		/* it to the 'buf' buffer */
+X	
+X	if (( lfd = open( LOG_NAME, O_RDONLY | O_CREAT, 0666 )) == 0)
+X	{
+X		fprintf( stderr, "Opening NIST.log, %s\n",
+X				sys_errlist[errno] );
+X		return;
+X	}
+X	buf = malloc(( LOG_SIZE + 5 ) * 80 );
+X	tmp = buf;
+X
+X		/* Save the old file in buffer */
+X
+X	was = read( lfd, tmp, (( LOG_SIZE + 4 ) * 80 ));
+X	close( lfd );
+X	lfd = open( LOG_NAME, O_WRONLY | O_TRUNC | O_APPEND, 0666 );
+X	
+X		/* Log the new data at the head of the file */
+X
+X	write( lfd, new_data, strlen( new_data ));
+X
+X		/* Now count the newlines to determine the end of file */
+X
+X	tmp = buf;
+X	for ( num = 1; num < LOG_SIZE && was; num++)
+X		while( *tmp++ != '\n' && --was );
+X
+X		/* Then move the old data back into the log file. */
+X
+X	wrk = buf;
+X	write( lfd, wrk, ( int )( tmp - buf ));
+X	close( lfd );
+X	free( buf );
+X	return;
+X}
+END_OF_calc.c
+if test 9707 -ne `wc -c <calc.c`; then
+    echo shar: \"calc.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f obm.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"obm.c\"
+else
+echo shar: Extracting \"obm.c\" \(7868 characters\)
+sed "s/^X//" >obm.c <<'END_OF_obm.c'
+X#sccs	"@(#)	NIST.time:obm.c	2.1"	8/27/92
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X *                                                                     *
+X *  Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X *                                                                     *
+X *      This source code may be freely distributed as long as this     *
+X *      copyright notice is included.  No monetary charges should      *
+X *      be made in excess of the cost of copying and distribution.     *
+X *                                                                     *
+X *      Any profits which might be derived from the sale of this       *
+X *      work must be shared with me.  Other monetary contributions     *
+X *      will be gratefully accepted.                                   *
+X *                                                                     *
+X *         Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X *                                                                     *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X
+X
+X#include "NISTtime.h"
+X
+X#ifdef OBM
+X
+X#include <dial.h>
+X
+Xextern struct termio my_getty;
+X
+Xstruct updata our_phset =
+X{
+X#ifdef TONE
+X	DATA | DTMF,			/* c_lineparam    */
+X#else
+X	DATA | PULSE,			/* c_lineparam    */
+X#endif
+X	5,                   /* c_waitdialtone */
+X	0,                   /* c_linestatus    */
+X#ifdef QUIET
+X	0,                   /* c_feedback     */
+X#else
+X	SPEAKERON | NORMSPK, /* c_feedback     */
+X#endif
+X	0                    /* c_waitflash    */
+X};
+X
+Xstatic int was = 0;			/* a flag set if was voice */
+X
+X	/* We first check to see if the line is set to VOICE or DATA. */
+X	/* If VOICE, close everything then call 'phonetoggle(1)' to   */
+X	/* change the status. Go ahead and dial and collect the data. */
+X	/* Afterwards, close up every thing and return.               */
+X
+Xint run_obm( dev )
+Xchar *dev;
+X
+X{
+X	void sign_off( );
+X	extern void sig_sleep( );
+X	extern void sig_timeout( );
+X	extern int lock_it( );
+X	extern int open_tty( );
+X	extern struct termio my_getty;
+X	int sample_status( );
+X	int do_toggle( );
+X	char buf[ 85 ];
+X	char *err_msg;
+X	char *phnum;
+X	int c_flag;
+X	int j, k;
+X
+X	if (( j = do_getty( dev, ':' )) < 0 ) return( -1 );
+X
+X	if (( tiofd = open_tty( dev )) < 0 ) {
+X		fprintf( stderr, "Unable to open OBM.\n" );
+X		return( -1 );
+X	}
+X
+X	if (( ioctl( tiofd, PIOCGETP, &old_phset )) == -1 ) {
+X		fprintf( stderr, "PIOCSETP old_phset failed, %s\n",
+X				sys_errlist[errno] );
+X		return( -1 );
+X	}
+X
+X			/* Check if phone line available */
+X	if (( j = sample_status( 5 )) < 0 ) {
+X		fprintf( stderr, "Unable get OBM status. Return was %d.\n", j);
+X		return( -1 );
+X	}
+X	if ( j == VOICE ) 	/* VOICE mode */
+X	{
+X		if (( was = do_toggle( dev )) < 0 ) return( -1 );
+X		j = run_obm( dev );
+X		if (( was = do_toggle( dev )) < 0 ) return( -1 );
+X		return( j );
+X	}
+X
+X	err_msg = "Timeout setting up OBM.\n";
+X	alarm( 25 );
+X	signal( SIGALRM, sig_timeout );
+X
+X	if ( ( j = setjmp( place ) ) != 0 )
+X	{
+X		fprintf( stderr, err_msg );
+X		return( j );
+X	}
+X	
+X	/* lock_it() returns 300 if an existing lock file is in use. */
+X	/* otherwise, it returns -1 for system errors. 		     */
+X
+X	if (( j = lock_it( dev )) != 0 ) return( j );
+X
+X	if (( j = sample_status( 6 )) == 0 ) /* DATA mode */
+X	{
+X		fprintf( stderr, "%s not in DATA mode.  Return was %d.\n", dev, j );
+X		return( -1 );
+X	}
+X
+X		/* If line is not in use, we'll get dialtone. */
+X
+X	k = 0;
+X	while ( 1 ) {
+X		if (( j = ioctl( tiofd, PIOCSETP, &our_phset )) == -1 )
+X		{
+X			fprintf( stderr, "Can't set 'our_phset'.\n" );
+X			return( -1 );
+X		}
+X
+X		if (( j = ioctl( tiofd, PIOCOFFHOOK, &our_phset )) == -1 ) {
+X			fprintf( stderr, "Can't go off hook.\n" );
+X			return( 300 );
+X		}
+X
+X		if ( sample_status( 1 ) ) {
+X			fprintf( stderr, "Phone line not available.\n" );
+X		/* Note: a 300 return causes a retry in 300 seconds. */
+X			return( 300 );
+X		}
+X
+X		if (( j = sample_status( 4 )) == DIALTONE ) break;	/* dialtone */
+X
+X		ioctl( tiofd, PIOCDISC, &our_phset );
+X		if ( k++ > 8 ) { 
+X			fprintf( stderr,
+X		"Unable to reset dialtone flag. Return was %d after %d tries.\n",
+X 								j, k );
+X			return( -1 );
+X		}
+X		close ( tiofd );
+X		tiofd = open_tty( dev );
+X		sleep( 1 );
+X	}
+X
+X	c_flag = my_getty.c_cflag & ~(CBAUD | CLOCAL | CTSCD );
+X	my_getty.c_cflag = c_flag | B1200;
+X
+X	if (( j = ioctl( tiofd, TCSETA, &my_getty )) == -1 )
+X	{
+X		fprintf( stderr, "obm_run(), Can't set 'my_getty'.\n" );
+X		return( -1 );
+X	}
+X
+X	err_msg = "Dialing OBM.\n";
+X	signal( SIGALRM, sig_timeout );
+X	j = alarm( 25 );
+X
+X#ifdef DEBUG
+X	printf( "The time left after set-up = %d secs.\n", j );
+X#endif
+X
+X	phnum = PHNUM;
+X	while ( *phnum ) ioctl( tiofd, PIOCDIAL, phnum++);
+X	ioctl( tiofd, PIOCDIAL, "@" );
+X
+X					/* MODEMCONNECTED ? */
+X	while ( sample_status( 2 ) == 0 ) {
+X		if ( sample_status( 7 ) != 0 ) {
+X			fprintf( stderr, "Busy tone detected.\n" );
+X			return( 15 );
+X		}
+X	}
+X	err_msg = "Timeout reading data.\n";
+X	signal( SIGALRM, sig_timeout );
+X	j = alarm( 25 );
+X
+X#ifdef DEBUG
+X	printf( "The time left after dialing = %d secs.\n", j );
+X#endif
+X
+X	for( k = 0; k < 8; ) {
+X		register char *p, *q;
+X
+X		q = buf + sizeof( buf );
+X		for ( p = buf; p < q; *p++ = '\0' );
+X		for ( p = buf; *p != '\n' && p < q; ) {
+X			read( tiofd, p, 1 );
+X			if (( *p >= ' ' && *p <= '~' )) *p++;
+X		}
+X#ifdef DEBUG
+X		if (( j = p - buf ) > 0 )
+X			printf( "%d %d >%c< %s", k, j, *(p-1), buf );
+X#endif
+X
+X		if ( *--p == '*' || *p == '#' ) k += get_data( buf );
+X	}
+X
+X	j = alarm( 0 );
+X#ifdef DEBUG
+X	printf( "Time left after data collection = %d secs.\n" , j );
+X#endif
+X	return( 0 );
+X}
+X
+X	/* Sample selected bits of the 'struct updata' to determine */
+X	/* the current status of the selected phone line. 	    */
+X
+Xint sample_status( what )
+Xint what;
+X
+X{
+X#ifdef DEBUG
+X	static int old_stat = 0;
+X	static int old_param = 0;
+X#endif
+X	struct updata this_phset;
+X	if ( ioctl( tiofd, PIOCGETP, &this_phset ) == -1)
+X	{
+X		fprintf( stderr, "Sample_status failure, %s\n",
+X					sys_errlist[errno] );
+X		return( -1 );
+X	}
+X#ifdef DEBUG
+X	if ( old_stat != this_phset.c_linestatus ||
+X		old_param != this_phset.c_lineparam )
+X	{
+X		old_stat = this_phset.c_linestatus;
+X		old_param = this_phset.c_lineparam;
+X		printf("c_linestatus = %o  ", old_stat );
+X		printf("c_lineparam  = %o\n", old_param );
+X	}
+X#endif
+X	switch ( what )
+X	{
+X				/* case 1; line busy */
+X		case 1:  return( this_phset.c_linestatus
+X			& ( SETOFFHOOK | INCOMERING | CALLINCOME ));
+X				/* case 2: modem ready */
+X		case 2:  return( this_phset.c_linestatus
+X			& MODEMCONNECTED );
+X				/* case3: line problem */
+X		case 3:  return( this_phset.c_linestatus & NOTONE );
+X				/* case 4: ready to dial */
+X		case 4:  return( this_phset.c_linestatus & DIALTONE );
+X				/* case 5: set to voice */
+X		case 5:  return( this_phset.c_lineparam & VOICE );
+X				/* case 6: set to data */
+X		case 6:  return( this_phset.c_lineparam & DATA );
+X				/* case 7: busy tone or congestion tone detected */
+X		case 7:  return( this_phset.c_linestatus
+X				& ( BUSYTONE | CONGTONE ));
+X			
+X		default: return( -1 );
+X	}
+X}					/* sample_status */
+X
+Xint do_toggle( dev )
+Xchar *dev;
+X
+X{
+X	void sign_off( );
+X	int k;
+X
+X	if (( ioctl( tiofd, PIOCSETP, &old_phset )) == -1 )
+X	{
+X		fprintf( stderr, "PIOCSETP old_phset failed, %s\n",
+X					sys_errlist[errno] );
+X		return( -1 );
+X	}
+X	k = sample_status( 5 );
+X#ifdef DEBUG
+X	if ( k == VOICE )
+X		printf( "Toggling phone to DATA.\n" );
+X	else printf( "Toggling phone to VOICE.\n" );
+X#endif
+X
+X	sign_off( dev );
+X	mpause(200);
+X
+X	if ( system( "/usr/bin/phtoggle" ) == -1 )
+X	{
+X		fprintf( stderr, "Phone toggle, %s\n",
+X					sys_errlist[errno] );
+X		return ( -1 );
+X	}
+X	sleep( 1 );
+X	return( k );
+X}
+X
+X#else		/* ifdef OBM */
+X	/* Dummy function if compiled for EXTERNAL only */
+Xint run_obm( dev )
+Xchar *dev;
+X
+X{
+X	fprintf( stderr,
+X	 "You need  to set the OBM flag in NIST.time.h' and\n );
+X	fprintf( stderr,
+X	 "recompile in order to use the UNIXPC On Board Modem.\n" );
+X	return ( 0 );
+X}
+X
+X#endif		/* #ifdef OBM */
+END_OF_obm.c
+if test 7868 -ne `wc -c <obm.c`; then
+    echo shar: \"obm.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Vernon C. Hoxie                            {ncar,boulder}!scicom!zebra!vern
+3975 W. 29th Ave.                                       voice: 303-477-1780
+Denver, Colo., 80212                                     uucp: 303-455-2670
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

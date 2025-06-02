@@ -1,0 +1,2730 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i008:  dbmalloc - Debug Malloc Library PL14, Part03/10
+Message-ID: <1992Sep4.151829.12481@sparky.imd.sterling.com>
+X-Md4-Signature: a13bcfeaac841047b679bf9a0d8e0ed0
+Date: Fri, 4 Sep 1992 15:18:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 8
+Archive-name: dbmalloc/part03
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 10)."
+# Contents:  calloc.c cctest.c datamc.c datams.c debug.h dgmalloc.c
+#   dump.c fill.c tostring.h
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:18 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'calloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'calloc.c'\"
+else
+echo shar: Extracting \"'calloc.c'\" \(4855 characters\)
+sed "s/^X//" >'calloc.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include <stdio.h>
+X
+X#include "mallocin.h"
+X
+X#ifndef lint
+Xstatic char rcs_header[] = "$Id: calloc.c,v 1.17 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X/*
+X * Function:	calloc()
+X *
+X * Purpose:	to call debug_calloc to do the allocation
+X *
+X * Arguments:	nelem	- number of elements
+X *		elsize	- size of each element
+X *
+X * Returns:	whatever debug_calloc returns
+X *
+X * Narrative:	call debug_calloc and return it's return
+X */
+XDATATYPE *
+Xcalloc(nelem,elsize)
+X	SIZETYPE 	  nelem;
+X	SIZETYPE	  elsize;
+X{
+X	return( debug_calloc((char *)NULL,(int)-1,nelem,elsize) );
+X}
+X
+X/*
+X * Function:	debug_calloc()
+X *
+X * Purpose:	to allocate and nullify a data area
+X *
+X * Arguments:	nelem	- number of elements
+X *		elsize	- size of each element
+X *
+X * Returns:	NULL	- if malloc fails
+X *		or pointer to allocated space
+X *
+X * Narrative:	determine size of area to malloc
+X *		malloc area.
+X *		if malloc succeeds
+X *		    fill area with nulls
+X *		return ptr to malloc'd region
+X */
+X
+XDATATYPE *
+Xdebug_calloc(file,line,nelem,elsize)
+X	CONST char	* file;
+X	int		  line;
+X	SIZETYPE 	  nelem;
+X	SIZETYPE 	  elsize;
+X{
+X	static IDTYPE	  call_counter;
+X
+X	/*
+X	 * increment call counter
+X	 */
+X	call_counter++;
+X
+X	return( DBFcalloc("calloc",M_T_CALLOC,call_counter,
+X			   file,line,nelem,elsize) );
+X
+X}
+X
+Xchar *
+XDBFcalloc(func,type,call_counter,file,line,nelem,elsize)
+X	CONST char	* func;
+X	int		  type;
+X	IDTYPE		  call_counter;
+X	CONST char	* file;
+X	int		  line;
+X	SIZETYPE 	  nelem;
+X	SIZETYPE 	  elsize;
+X{
+X	DATATYPE	* ptr;
+X	SIZETYPE	  size;
+X
+X	/*
+X	 * make sure malloc sub-system is initialized.
+X	 */
+X	MALLOC_INIT();
+X
+X	/*
+X	 * calculate the size to allocate
+X	 */
+X	size = elsize * nelem;
+X
+X	/*
+X	 * if the user wants to be warned about zero length mallocs, do so
+X	 */
+X	if( ((malloc_opts & MOPT_ZERO) != 0) && (size == 0) )
+X	{
+X		malloc_errno = M_CODE_ZERO_ALLOC;
+X		malloc_warning(func,file,line,(struct mlist *) NULL);
+X	}
+X
+X	ptr = DBFmalloc(func,type,call_counter,file,line,size);
+X
+X	if( ptr != NULL )
+X	{
+X		/*
+X		 * clear the area that was allocated
+X		 */
+X		VOIDCAST memset(ptr,'\0',size);
+X	}
+X
+X	return(ptr);
+X
+X} /* DBFcalloc(... */
+X
+X/*
+X * Function:	cfree()
+X *
+X * Purpose:	to free an area allocated by calloc (actually frees any
+X *		allocated area)
+X *
+X * Arguments:	cptr	- pointer to area to be freed
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	just call the appropriate function to perform the free
+X *
+X * Note:	most systems do not have such a call, but for the few that do,
+X *		it is here.
+X */
+XFREETYPE
+Xcfree( cptr )
+X	DATATYPE	* cptr;
+X{
+X	debug_cfree((CONST char *)NULL,(int)-1, cptr);
+X}
+X
+XFREETYPE
+Xdebug_cfree(file,line,cptr)
+X	CONST char	* file;
+X	int		  line;
+X	DATATYPE	* cptr;
+X{
+X	static IDTYPE	  call_counter;
+X
+X	call_counter++;	
+X
+X	DBFfree("cfree",F_T_CFREE,call_counter,file,line,cptr);
+X}
+X
+X/*
+X * $Log: calloc.c,v $
+X * Revision 1.17  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.16  1992/07/12  15:30:58  cpcahil
+X * Merged in Jonathan I Kamens' changes
+X *
+X * Revision 1.15  1992/07/03  00:03:25  cpcahil
+X * more fixes for pl13, several suggestons from Rich Salz.
+X *
+X * Revision 1.14  1992/04/22  18:17:32  cpcahil
+X * added support for Xt Alloc functions, linted code
+X *
+X * Revision 1.13  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.12  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.11  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.10  1991/12/06  17:58:42  cpcahil
+X * added cfree() for compatibility with some wierd systems
+X *
+X * Revision 1.9  91/12/02  19:10:08  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.8  91/11/25  14:41:51  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.7  91/11/24  00:49:21  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.6  90/05/11  00:13:07  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.5  90/02/24  20:41:57  cpcahil
+X * lint changes.
+X * 
+X * Revision 1.4  90/02/24  17:25:47  cpcahil
+X * changed $header to $id so full path isn't included.
+X * 
+X * Revision 1.3  90/02/24  13:32:24  cpcahil
+X * added function header.  moved log to end of file.
+X * 
+X * Revision 1.2  90/02/22  23:08:26  cpcahil
+X * fixed rcs_header line
+X * 
+X * Revision 1.1  90/02/22  23:07:38  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 4855 -ne `wc -c <'calloc.c'`; then
+    echo shar: \"'calloc.c'\" unpacked with wrong size!
+fi
+# end of 'calloc.c'
+fi
+if test -f 'cctest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cctest.c'\"
+else
+echo shar: Extracting \"'cctest.c'\" \(10577 characters\)
+sed "s/^X//" >'cctest.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#if __STDC__ || __cplusplus
+X# define __stdcargs(s) s
+X#else
+X# define __stdcargs(s) ()
+X#endif
+X
+X#ifdef USE_STDLIB
+X#include <stdlib.h>
+X#endif
+X#ifdef USE_UNISTD
+X#include <unistd.h>
+X#endif
+X#ifdef USE_MALLOC
+X#include <malloc.h>
+X#endif
+X#ifdef USE_MEMORY_H
+X#include <memory.h>
+X#endif
+X#ifdef USE_STRING_H
+X#include <string.h>
+X#endif
+X#ifdef USE_SYSENT
+X#include <sysent.h>
+X#endif
+X
+X
+X/*
+X * $Id: cctest.c,v 1.12 1992/08/22 16:27:13 cpcahil Exp $
+X */
+X/*
+X * This file is not a real source file for the malloc library.  The
+X * configuration utility uses this file to test the various compiler
+X * settings that can be used by the library.
+X */
+X
+X#ifdef VOIDTEST
+X	/*
+X	 * testing to see if the void datatype is used by this system
+X	 */
+X	void *
+X	function()
+X	{
+X		static void * t;
+X
+X		return(t);
+X	}
+X#endif
+X
+X#ifdef EXITTEST
+X
+X/*
+X * determine the return type of exit
+X */
+X#if __cplusplus
+X	extern "C" {
+X#endif
+X		EXITTYPE exit __stdcargs((int));
+X#if __cplusplus
+X	}
+X#endif
+X#if __cplusplus || __STDC__
+X#include <stdio.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X
+X	/*
+X	 * this bogus stuff is here simply to get c++ to shut-up about
+X 	 * unreferenced parameters.
+X	 */
+X	if( argv[argc] == "hello" )
+X	{
+X		printf("hello\n");
+X	}
+X	return(0);
+X}
+X#endif /* EXITTEST */
+X
+X#ifdef SETENVTEST
+X/*
+X * determine if setenv is supported
+X */
+X#if __cplusplus || __STDC__
+X#include <stdio.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X#ifdef setenv
+X#undef setenv
+X#endif
+X
+X	setenv("TESTSYM","YES",1);
+X
+X	/*
+X	 * this bogus stuff is here simply to get c++ to shut-up about
+X 	 * unreferenced parameters.
+X	 */
+X	if( argv[argc] == "hello" )
+X	{
+X		printf("hello\n");
+X	}
+X	return(0);
+X}
+X#endif /* SETENVTEST */
+X
+X#ifdef MALLOCHTEST
+X#include <malloc.h>
+X#endif
+X#ifdef ANSIHEADERTEST
+X#include <stdlib.h>
+X#endif
+X#ifdef POSIXHEADERTEST
+X#include <unistd.h>
+X#endif
+X
+X#if defined(MALLOCHTEST) || defined(ANSIHEADERTEST) || defined(POSIXHEADERTEST)
+X/*
+X * determine if certain headers are available
+X */
+X#if __cplusplus || __STDC__
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X	/*
+X	 * this bogus stuff is here simply to get c++ to shut-up about
+X 	 * unreferenced parameters.
+X	 */
+X	if( argv[argc] == "hello" )
+X	{
+X		printf("hello\n");
+X	}
+X	return(0);
+X}
+X#endif /* MALLOCHTEST || ANSIHEADERTEST || POSIXHEADERTEST */
+X
+X#ifdef ASM_UNDTEST
+X/*
+X * test requirement for underscores in external symbols
+X */
+X#if __cplusplus || __STDC__
+X#include <stdio.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X	int	  myroutine();
+X
+X#if i386
+X	printf("OK\n", myroutine());
+X#else
+X	printf("NOT OK\n");
+X#endif
+X
+X}
+X
+X#ifdef i386
+X	asm("	.globl _myroutine");
+X	asm("_myroutine:");
+X	asm("	xor %eax");
+X	asm("   ret");
+X#endif
+X
+X
+X#endif /* ASM_UNDTEST */
+X
+X
+X#ifdef ASM_REPTEST
+X/*
+X * test requirement for underscores in external symbols
+X */
+X#if __cplusplus || __STDC__
+X#include <stdio.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X	int	  myroutine();
+X
+X#if i386
+X	printf("OK\n", myroutine());
+X#else
+X	printf("NOT OK\n");
+X#endif
+X
+X}
+X
+X#ifdef i386
+X#ifdef USE_UNDERSCORE
+X	asm("	.globl _myroutine");
+X	asm("_myroutine:");
+X#else
+X	asm("	.globl myroutine");
+X	asm("myroutine:");
+X#endif
+X	asm("	xor %ecx");
+X	asm("	repe");
+X	asm("   ret");
+X#endif
+X
+X
+X#endif /* ASM_REPTEST */
+X
+X#ifdef CONSTTEST
+X	/*
+X	 * testing to see if the void datatype is used by this system
+X	 */
+X	const char *
+X	function()
+X	{
+X		static const char t[] = "hello";
+X
+X		return(t);
+X	}
+X#endif
+X
+X#ifdef MALLOC_COMPILETEST
+X
+X#if __cplusplus
+XDATATYPE * malloc( SIZETYPE size)
+X#else
+XDATATYPE *
+Xmalloc( size)
+X	SIZETYPE 	size;
+X#endif
+X{
+X	if( size > 0 )
+X	{
+X		return(0);
+X	}
+X	
+X	return(0);
+X}
+X
+X#endif /* MALLOC_COMPILETEST */
+X
+X#ifdef FREE_COMPILETEST
+X
+X#if __cplusplus
+XFREETYPE free( DATATYPE *data)
+X#else
+XFREETYPE
+Xfree(data)
+X	DATATYPE *data;
+X#endif
+X{
+X	if( ! data )
+X	{
+X		printf("foo\n");
+X	}
+X}
+X
+X#endif /* FREE_COMPILETEST */
+X
+X#ifdef MEM_COMPILETEST
+X
+XMEMDATA *memcpy __stdcargs((MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+X
+X#if __cplusplus
+XMEMDATA * memccpy(
+X	MEMDATA		* ptr1,
+X	CONST MEMDATA	* ptr2,
+X	int		  ch,
+X	MEMSIZE		  len )
+X#else
+XMEMDATA *
+Xmemccpy(ptr1,ptr2,ch,len)
+X	MEMDATA		* ptr1;
+X	CONST MEMDATA	* ptr2;
+X	int		  ch;
+X	MEMSIZE		  len;
+X#endif
+X{
+X	/*
+X	 * just make use of all the passed arguments so that we don't get bogus
+X	 * warning messages about unused arguments.  What we do doesn't have
+X	 * to make sense since we aren't going to run this.
+X	 */
+X	if( (ptr1 == ptr2) && (ch != len) )
+X	{
+X		return(ptr1);
+X	}
+X	return(memcpy(ptr1,ptr2,len));
+X}
+X
+X#endif /* MEM_COMPILETEST */
+X
+X#ifdef STR_COMPILETEST
+X
+X#include <string.h>
+X#if __cplusplus
+XSTRSIZE strlen( CONST char * str1 )
+X#else
+XSTRSIZE
+Xstrlen(str1)
+X	CONST char * str1;
+X#endif
+X{
+X	if( str1[0] != '\0')
+X	{
+X		return(1);
+X	}
+X	return(0);
+X}
+X
+X#endif /* STR_COMPILETEST */
+X
+X#ifdef WRT_COMPILETEST
+X#if __cplusplus
+Xint write(int fd, CONST char * buf, WRTSIZE size)
+X#else
+Xint
+Xwrite(fd,buf,size)
+X	 int		  fd;
+X	 CONST char	* buf;
+X	 WRTSIZE	  size;
+X#endif
+X{
+X	if( buf[fd] == (CONST char) size)
+X	{
+X		return(1);
+X	}
+X	return(0);
+X}
+X
+X#endif /* WRT_COMPILETEST */
+X
+X
+X#ifdef PRE_DEFINES
+X
+X/*
+X * this is used by the Configure script to get the compiler pre-defined symbol
+X * for this
+X */
+X#if __cplusplus
+X#include <stdio.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X	int	  varcnt = 0;
+X
+X#if __GNUC__
+X	if (__GNUC__ > 1)
+X		printf("(__GNUC__ == %d)", __GNUC__);
+X	else
+X		printf("__GNUC__");
+X	varcnt++;
+X#endif
+X#if __STDC__ 
+X	if( varcnt > 0 )
+X	{
+X		printf(" && ");
+X	}
+X	printf("__STDC__");
+X	varcnt++;
+X#endif
+X#if __HIGHC__ 
+X	if( varcnt > 0 )
+X	{
+X		printf(" && ");
+X	}
+X	printf("__HIGHC__");
+X	varcnt++;
+X#endif
+X#if __C89__ 
+X	if( varcnt > 0 )
+X	{
+X		printf(" && ");
+X	}
+X	printf("__C89__");
+X	varcnt++;
+X#endif
+X#if __cplusplus
+X	if( varcnt > 0 )
+X	{
+X		printf(" && ");
+X	}
+X	/*
+X	 * this bogus stuff is here simply to get c++ to shut-up about
+X 	 * unreferenced parameters.
+X	 */
+X	if( argv[argc] == "hello" )
+X	{
+X		printf("hello\n");
+X	}
+X	printf("__cplusplus");
+X	varcnt++;
+X#endif
+X
+X	/*
+X	 * if we found no pre-defines, print out the word none, so we can tell the
+X	 * difference between compilation failures and no pre-defs.
+X	 */
+X	if( varcnt == 0 )
+X	{
+X		printf("none");
+X		varcnt++;
+X	}
+X
+X	if( varcnt > 0 )
+X	{
+X		printf("\n");
+X	}
+X	return(0);
+X}
+X
+X#endif /* PRE_DEFINES */
+X	
+X
+X#ifdef SIGIOTTEST
+X#include <sys/types.h>
+X#include <signal.h>
+X	int
+X	function()
+X	{
+X		int signal = SIGIOT;
+X		return(signal);
+X	}
+X#endif
+X#ifdef SIGABRTTEST
+X#include <sys/types.h>
+X#include <signal.h>
+X	int
+X	function()
+X	{
+X		int signal = SIGABRT;
+X		return(signal);
+X	}
+X#endif
+X
+X#ifdef CHANGESTR
+X
+X#include <stdio.h>
+X
+X#define FILEBUFSIZE	(50*1024)
+X
+Xchar iobuffer[FILEBUFSIZE];
+X
+Xmain(argc,argv)
+X	int		  argc;
+X	char		* argv[];
+X{
+X	unsigned int	  cnt;
+X	FILE		* fp;
+X	unsigned int	  i;
+X	int		  len;
+X	char		* src;
+X	char		* tgt;
+X
+X	if( argc != 4 )
+X	{
+X		fprintf(stderr,"Usage: changestr file oldstr newstr\n");
+X		exit(1);
+X	}
+X	src = argv[2];
+X	tgt = argv[3];
+X
+X	/*
+X	 * get length of strings (note that we don't ensure that both strings
+X	 * are the same length and
+X	 */
+X	len = strlen(src);
+X	i   = strlen(tgt);
+X	if( i > len )
+X	{
+X		fprintf(stderr,"Error: second string cannot be longer %s\n",
+X				"than first string");
+X		exit(2);
+X	}
+X
+X	fp = fopen(argv[1],"r+");
+X
+X	if( fp == NULL )
+X	{
+X		fprintf(stderr,"Can't open %s\n",argv[1]);
+X		exit(3);
+X	}
+X
+X	/*
+X	 * read the entire file in (note that if the file is bigger
+X	 * than the specified blocksize, we won't be able to
+X	 * process it.
+X	 */
+X
+X	cnt = fread(iobuffer,1,FILEBUFSIZE,fp);
+X	if( cnt <= 0 )
+X	{
+X		fprintf(stderr,"Read error when reading %s\n",argv[1]);
+X		exit(4);
+X	}
+X
+X	for(i=0; i < (cnt-len); i++)
+X	{
+X		if( memcmp(iobuffer+i,src,len) == 0 )
+X		{
+X			memcpy(iobuffer+i,tgt,len);
+X			i += len-1;
+X		}
+X	}
+X
+X	if( fseek(fp,0L,0) != 0 )
+X	{
+X		fprintf(stderr,"Failed to seek to correct location\n");
+X		exit(5);
+X	}
+X
+X	if( fwrite(iobuffer,1,cnt,fp) != cnt )
+X	{
+X		fprintf(stderr,"Failed to write new data\n");
+X		exit(6);
+X	}
+X
+X	fclose(fp);
+X	
+X	exit(0);
+X} 
+X
+X
+X#endif /* CHNAGESTR */
+X
+X
+X#ifdef TESTDATAMC
+X
+X#include <stdio.h>
+X
+Xmain(argc,argv)
+X	int		  argc;
+X	char		* argv[];
+X{
+X	char		  buffer[30];
+X
+X	buffer[0] = '\0';
+X	buffer[1] = '\0';
+X	buffer[2] = '\0';
+X	buffer[3] = '\0';
+X	buffer[4] = '\0';
+X	buffer[5] = '\0';
+X	buffer[6] = '\0';
+X	buffer[7] = '\0';
+X	buffer[8] = '\0';
+X
+X	DataMC(buffer, "   y",5);
+X	DataMC(buffer+4, "yy",3);
+X
+X	DataMC(buffer+1, buffer,7);
+X	DataMC(buffer,   "x",1);
+X
+X	printf("%s\n",buffer);
+X
+X	return(0);
+X}
+X
+X/*
+X * we need to have our own memcpy here in order to find out if there will be
+X * some problem where the kludged version of memcpy (now should be named 
+X * DataMC) at least one system (SGI) has gotten into an infinite loop
+X * when the modified DataMC ended up calling the library's memcpy
+X */
+Xmemcpy()
+X{
+X	write(1,"Infinite loop\n",14);
+X	exit(1);
+X}
+X
+X#endif /* TESTDATAMC */
+X
+X#ifdef TESTDATAMS
+X#include <stdio.h>
+X
+Xmain(argc,argv)
+X	int		  argc;
+X	char		* argv[];
+X{
+X	char		  buffer[30];
+X
+X	buffer[0] = '\0';
+X	buffer[1] = '\0';
+X	buffer[2] = '\0';
+X	buffer[3] = '\0';
+X	buffer[4] = '\0';
+X	buffer[5] = '\0';
+X	buffer[6] = '\0';
+X	buffer[7] = '\0';
+X	buffer[8] = '\0';
+X	buffer[9] = '\0';
+X	buffer[10] = '\0';
+X
+X	DataMS(buffer,  'x',1);
+X	DataMS(buffer+1,' ',3);
+X	DataMS(buffer+4,'y',3);
+X
+X	printf("%s\n",buffer);
+X}
+X
+Xmemset()
+X{
+X	write(1,"Infinite loop\n",14);
+X	exit(1);
+X}
+X
+X#endif /* TESTDATAMS */
+X
+X#ifdef COMPARETEST 
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#if __cplusplus
+X#include <stdlib.h>
+Xmain(int argc, char *argv[])
+X#else
+Xmain(argc,argv)
+X	int	  argc;
+X	char	* argv[];
+X#endif
+X{
+X	char		  buffer[10];
+X	char		  buf2[10];
+X	int		  result;
+X
+X	buffer[0] = 'a';
+X	buffer[1] = '\0';
+X	buf2[0]   = 0xff;
+X	buf2[1] = '\0';
+X
+X	/*
+X	 * just to get c++ and some ANSI C compilers to shutup.  argc will
+X	 * be more than 1 when running this test.
+X	 */
+X	if( argc > 10 )
+X	{
+X		result = strcmp(argv[0],"junkstr");
+X	}
+X	else
+X	{
+X		result = COMPARETEST (buffer,buf2,1);
+X	}
+X
+X#ifdef TESTCHAR
+X	result = -result;
+X#endif
+X
+X	if( result < 0 )
+X	{
+X		exit(0);
+X	}
+X	else
+X	{
+X		exit(1);
+X	}
+X
+X}
+X	
+X
+X#endif /* COMPARETEST */
+END_OF_FILE
+if test 10577 -ne `wc -c <'cctest.c'`; then
+    echo shar: \"'cctest.c'\" unpacked with wrong size!
+fi
+# end of 'cctest.c'
+fi
+if test -f 'datamc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'datamc.c'\"
+else
+echo shar: Extracting \"'datamc.c'\" \(6395 characters\)
+sed "s/^X//" >'datamc.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X/*
+X * datamc.c - this module contains functions designed to efficiently 
+X *	      copy memory areas in a portable fasion
+X *
+X * The configure script will usually override this module with a copy
+X * of the system suplied memcpy() utility if it can figure out how to
+X * convert the module name to DataMS.
+X */
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: datamc.c,v 1.7 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include "mallocin.h"
+X
+Xtypedef int word;
+X
+X#define wordmask (sizeof(word)-1)
+X
+X#ifndef DONT_USE_ASM
+X#ifdef i386
+X#define ASM_MEMCPY	1
+X
+X/*
+X * DataMemcpy() - asm version of memcpy for use on 386 architecture systems.
+X *		  This is much faster than performing the operation directly.
+X *		  Note that the operation is performed by the use of word
+X *		  moves followed by byte moves and it doesn't matter that
+X *		  the word moves are not on a word aligned offset.
+X *
+X * This function differs from the system memcpy in that it correcly handles
+X * overlapping memory regions.  This is a requirement here because this is
+X * the same function that is called from memmove, memcpy, and bcopy.
+X */
+X/*
+X * DataMemcpy(tgt,src,len)
+X */
+X	asm("	.text");
+X	asm("	.align 4");
+X#ifdef USE_UNDERSCORE
+X	asm("	.globl _DataMC");
+X	asm("_DataMC:");
+X#else
+X	asm("	.globl DataMC");
+X	asm("DataMC:");
+X#endif
+X	asm("	pushl  %edi");
+X	asm("	pushl  %esi");
+X	asm("	pushl  %ebx");
+X
+X	/*
+X	 * get tgt -> edi
+X	 *     src -> esi
+X	 *     len -> ecx
+X	 */
+X	asm("	movl   16(%esp),%edi");
+X	asm("	movl   20(%esp),%esi");
+X	asm("	movl   24(%esp),%ecx");
+X
+X	/*
+X	 * compare target to src
+X	 */
+X 	asm("	cmpl   %edi,%esi");
+X	/*
+X	 * if( tgt == src ) nothing to do, so return
+X	 */
+X	asm("   je     .memdone"); 
+X	/*
+X	 * if(    (tgt > src)
+X	 */
+X	asm("	jg     .movenorm");
+X	/*
+X	 *     &&  tgt < (src + len)
+X	 */
+X	asm("	movl	%esi,%eax");
+X	asm("	addl	%ecx,%eax");
+X	asm("	cmpl	%edi,%eax");
+X	asm("   jl	.movenorm");
+X
+X	/*
+X	 * {
+X	 */
+X		/*
+X		 * move the pointers to the end of the data area to be 
+X		 * moved and set the direction flag so that 
+X		 */
+X
+X		/*
+X		 *     && ( len >= 4 ) )
+X		 */
+X		asm("	cmpl	$4,%ecx");
+X		asm("	jl	.moveshort");
+X		/*
+X		 * {
+X		 */
+X
+X			asm("	addl    %ecx,%edi");
+X			asm("	subl	$4,%edi");
+X			asm("	addl    %ecx,%esi");
+X			asm("	subl	$4,%esi");
+X			asm("	xor	%ebx,%ebx");
+X			asm("	jmp	.moveback");
+X		/* 
+X	 	 * }
+X		 * else
+X		 * {
+X	 	 */
+X			asm("	addl    %ecx,%edi");
+X			asm("	addl    %ecx,%esi");
+X			asm(".moveshort:");
+X			asm("	movl	$1,%ebx");
+X		/* 
+X		 * }
+X	 	 */
+X		asm(".moveback:");
+X		asm("	std");
+X		asm("	jmp	.movedata");
+X	/*
+X	 * }
+X	 * else
+X	 * {
+X 	 */
+X		asm(".movenorm:");
+X		asm("	mov	$1,%ebx");
+X
+X	/*
+X	 * }
+X	 */
+X
+X	/*
+X	 * now go move the data
+X	 */
+X	asm(".movedata:");
+X	asm("	movl   %edi,%eax");
+X	asm("	movl   %ecx,%edx");
+X	asm("	shrl   $02,%ecx");
+X#ifdef USE_REPE
+X	asm("	repe");
+X#else
+X	asm("	repz");
+X#endif
+X	asm("	movsl ");
+X
+X	/*
+X	 * if we were performing a negative move, adjust the pointer
+X	 * so that it points to the previous byte (right now it points
+X 	 * to the previous word
+X	 */
+X	asm("	cmpl	$0,%ebx");
+X	asm("   jnz	.movedata2");
+X	/*
+X	 * {
+X	 */
+X		asm("	addl	$3,%edi");
+X		asm("	addl	$3,%esi");
+X	/* 
+X	 * }
+X	 */
+X
+X	asm(".movedata2:");	
+X	asm("	movl   %edx,%ecx");
+X	asm("	andl   $03,%ecx");
+X#ifdef USE_REPE
+X	asm("	repe");
+X#else
+X	asm("	repz");
+X#endif
+X	asm("	movsb ");
+X
+X	asm("	cld");
+X
+X	/*
+X	 * return
+X	 */
+X	asm(".memdone:");
+X	asm("	popl	%ebx");
+X	asm("	popl	%esi");
+X	asm("	popl	%edi");
+X	asm("	ret");
+X
+X
+X#endif /* i386 */
+X#endif /* DONT_USE_ASM */
+X
+X#ifndef ASM_MEMCPY
+X
+Xvoid
+XDataMC(ptr1,ptr2,len)
+X	MEMDATA			* ptr1;
+X	CONST MEMDATA		* ptr2;
+X	MEMSIZE			  len;
+X{
+X	register MEMSIZE	  i;
+X	register char		* myptr1;
+X	register CONST char	* myptr2;
+X
+X	if( len <= 0 )
+X	{
+X		return;
+X	}
+X
+X	myptr1 = ptr1;
+X	myptr2 = ptr2;
+X
+X	/*
+X	 * while the normal memcpy does not guarrantee that it will 
+X	 * handle overlapping memory correctly, we will try...
+X	 */
+X	if( (myptr1 > myptr2) && (myptr1 < (myptr2+len)) )
+X	{
+X		myptr1 += len;
+X		myptr2 += len;
+X
+X		if( (((long)myptr1)&wordmask) == (((long)myptr2)&wordmask))
+X		{
+X			/*
+X			 * if the pointer is not on an even word boundary
+X			 */
+X			if( (i = (((long)myptr1) & wordmask)) != 0 )
+X			{
+X				/*
+X				 * process an extra byte at the word boundary
+X				 * itself
+X				 */
+X				while( (i-- > 0) && (len > 0) )
+X				{
+X					*(--myptr1) = *(--myptr2);
+X					len--;
+X				}
+X			}
+X
+X			/*
+X			 * convert remaining number of bytes to number of words
+X			 */
+X			i = len >> (sizeof(word)/2);
+X
+X			/*
+X			 * and copy them
+X			 */
+X			while( i-- > 0 )
+X			{
+X				myptr1 -= sizeof(word);
+X				myptr2 -= sizeof(word);
+X				*(word *)myptr1 = *(CONST word *)myptr2;
+X			}
+X
+X			/*
+X			 * and now handle any trailing bytes
+X			 */
+X			if( (i = (len & wordmask)) != 0 )
+X			{
+X				while( i-- > 0 )
+X				{
+X					*(--myptr1) = *(--myptr2);
+X				}
+X			}
+X		}
+X		/*
+X		 * else we have to do it on a byte by byte basis
+X		 */
+X		else
+X		{
+X			while( len-- > 0 )
+X			{
+X				*(--myptr1) = *(--myptr2);
+X			}
+X		}
+X	}
+X	else
+X	{
+X		/*
+X		 * if we can make this move on even boundaries
+X		 */
+X		if( (((long)myptr1)&wordmask) == (((long)myptr2)&wordmask) )
+X		{
+X			/*
+X			 * if the pointer is not on an even word boundary
+X			 */
+X			if( (i = (((long)myptr1) & wordmask)) != 0 )
+X			{
+X				while( (i++ < sizeof(word)) && (len > 0) )
+X				{
+X					*(myptr1++) = *(myptr2++);
+X					len--;
+X				}
+X			}
+X
+X			/*
+X			 * convert remaining number of bytes to number of words
+X			 */
+X			i = len >> (sizeof(word)/2);
+X
+X			/*
+X			 * and copy them
+X			 */
+X			while( i-- > 0 )
+X			{
+X				*(word *)myptr1 = *(CONST word *)myptr2;
+X				myptr1 += sizeof(word);
+X				myptr2 += sizeof(word);
+X			}
+X
+X			/*
+X			 * and now handle any trailing bytes
+X			 */
+X			if( (i = (len & wordmask)) != 0 )
+X			{
+X				while( i-- > 0 )
+X				{
+X					*(myptr1++) = *(myptr2++);
+X				}
+X			}
+X		}
+X		/*
+X		 * else we have to handle it a byte at a time
+X		 */
+X		else
+X		{
+X			while( len-- > 0 )
+X			{
+X				*(myptr1++) = *(myptr2++);
+X			}
+X		}
+X	}
+X	
+X	return;
+X
+X} /* DataMC(... */
+X
+X#endif /* ASM_MEMCPY */
+X
+END_OF_FILE
+if test 6395 -ne `wc -c <'datamc.c'`; then
+    echo shar: \"'datamc.c'\" unpacked with wrong size!
+fi
+# end of 'datamc.c'
+fi
+if test -f 'datams.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'datams.c'\"
+else
+echo shar: Extracting \"'datams.c'\" \(2609 characters\)
+sed "s/^X//" >'datams.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X/*
+X * datams.c - this module contains functions designed to efficiently 
+X *	      set memory areas to specified values in a portable fasion.
+X *
+X * The configure script will usually override this module with a copy
+X * of the system suplied memset() utility if it can figure out how to
+X * convert the module name to DataMS.
+X */
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: datams.c,v 1.4 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include "mallocin.h"
+X
+Xtypedef int word;
+X
+X#define wordmask (sizeof(word)-1)
+X#define FILL_ARRSIZ 	256
+X
+Xvoid
+XDataMS(ptr1,ch, len)
+X	MEMDATA			* ptr1;
+X	int			  ch;
+X	register MEMSIZE	  len;
+X{
+X	MEMSIZE			  i;
+X	register unsigned char	* ptr;
+X	word			  fillword;
+X	static word		  fillwords[FILL_ARRSIZ] = { -1 };
+X
+X	/*
+X	 * if nothing to do, return immediatly.
+X	 */
+X	if( len <= 0 )
+X	{
+X		return;
+X	}
+X
+X	/*
+X	 * if we haven't filled the fillwords array
+X	 */
+X	if( fillwords[0] == -1 )
+X	{
+X		int		  j;
+X		int		  k;
+X
+X		/*
+X		 * fill em all at this time.
+X		 */
+X		for(k=0; k < FILL_ARRSIZ; k++)
+X		{
+X			ptr = (unsigned char *) &fillwords[k];
+X			for(j=0; j < sizeof(word); j++)
+X			{
+X				*(ptr++) = (unsigned char) k;
+X			}
+X		}
+X	}
+X
+X	/*
+X	 * if the character is outside of the proper range, use 255
+X 	 */
+X	if( ((unsigned)ch) > 0xFF )
+X	{
+X		ch = ((unsigned)ch) & 0xFF;
+X	}
+X
+X	/*
+X	 * save the word we will use for filling
+X	 */
+X	fillword = fillwords[(unsigned)ch];
+X			
+X
+X	/*
+X	 * get the original pointer
+X	 */
+X	ptr = (unsigned char *) ptr1;
+X
+X	/*
+X	 * if we are not at a word offset, handle the single bytes at the
+X	 * begining of the set
+X	 */
+X	if( (i = (((long)ptr) & wordmask)) != 0 )
+X	{
+X		i = sizeof(word) - i;
+X		while( (i-- > 0) && (len > 0) )
+X		{
+X			*(ptr++) = ch;
+X			len--;
+X		}
+X	}
+X
+X	/*
+X	 * convert remaining number of bytes to number of words
+X	 */
+X	i = len >> (sizeof(word)/2);
+X
+X	/*
+X	 * and fill them
+X	 */
+X	while( i-- )
+X	{
+X		*(word *)ptr = fillword;
+X		ptr += sizeof(word);
+X	}
+X
+X	/*
+X	 * and now handle any trailing bytes
+X	 */
+X	if( (i = (len & wordmask)) != 0 )
+X	{
+X		while(i-- > 0 )
+X		{
+X			*(ptr++) = ch;
+X		}
+X	}
+X
+X	return;
+X
+X} /* DataMS(... */
+X
+END_OF_FILE
+if test 2609 -ne `wc -c <'datams.c'`; then
+    echo shar: \"'datams.c'\" unpacked with wrong size!
+fi
+# end of 'datams.c'
+fi
+if test -f 'debug.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'debug.h'\"
+else
+echo shar: Extracting \"'debug.h'\" \(3307 characters\)
+sed "s/^X//" >'debug.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X/************************************************************************/
+X/*									*/
+X/* this include sets up some macro functions which can be used while	*/
+X/* debugging the program, and then left in the code, but turned of by	*/
+X/* just not defining "DEBUG".  This way your production version of 	*/
+X/* the program will not be filled with bunches of debugging junk	*/
+X/*									*/
+X/************************************************************************/
+X/*
+X * $Id: debug.h,v 1.5 1992/08/22 16:27:13 cpcahil Exp $
+X */
+X
+X#ifdef DEBUG
+X
+X#if DEBUG == 1			/* if default level			*/
+X#undef DEBUG
+X#define DEBUG	100		/*   use level 100			*/
+X#endif
+X
+X#include <stdio.h>
+X
+X#define DEBUG0(val,str)\
+X				{\
+X				  if( DEBUG > val ) \
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,str);\
+X				}
+X#define DEBUG1(val,str,a1)\
+X			        {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG2(val,str,a1,a2)\
+X			        {\
+X				 char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG3(val,str,a1,a2,a3)\
+X			        {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG4(val,str,a1,a2,a3,a4)\
+X			         {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3,a4);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#define DEBUG5(val,str,a1,a2,a3,a4,a5)\
+X			         {\
+X				  char _debugbuf[100];\
+X				  if( DEBUG > val )\
+X				   {\
+X				    sprintf(_debugbuf,str,a1,a2,a3,a4,a5);\
+X				    fprintf(stderr,"%s(%d): %s\n",\
+X						__FILE__,__LINE__,_debugbuf);\
+X				   }\
+X		       		}
+X
+X#else
+X
+X#define DEBUG0(val,s)
+X#define DEBUG1(val,s,a1)
+X#define DEBUG2(val,s,a1,a2)
+X#define DEBUG3(val,s,a1,a2,a3)
+X#define DEBUG4(val,s,a1,a2,a3,a4)
+X#define DEBUG5(val,s,a1,a2,a3,a4,a5)
+X
+X#endif /* DEBUG */
+X
+X
+X/*
+X * $Log: debug.h,v $
+X * Revision 1.5  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.4  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.3  1991/11/25  14:41:51  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.2  90/05/11  00:13:08  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.1  90/02/23  07:09:01  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 3307 -ne `wc -c <'debug.h'`; then
+    echo shar: \"'debug.h'\" unpacked with wrong size!
+fi
+# end of 'debug.h'
+fi
+if test -f 'dgmalloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dgmalloc.c'\"
+else
+echo shar: Extracting \"'dgmalloc.c'\" \(2724 characters\)
+sed "s/^X//" >'dgmalloc.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X/*
+X * Author(s):
+X *  pds - Paul D. Smith (paul_smith@dg.com)
+X */
+X/*
+X * This module defines several libc internal interfaces to the allocation
+X * and/or memory routines under DG/UX.
+X */
+X
+X/*
+X * Added "_" components to make sure that libc versions of other
+X * malloc interfaces called by various libc routines (eg. getcwd) that
+X * must be used from libc do not have competing malloc implementations.
+X */
+X#include <stdio.h>
+X#include "mallocin.h"
+X
+XDATATYPE *
+X_malloc(size)
+X    SIZETYPE size;
+X{
+X    return( debug_malloc(NULL,-1,size) );
+X}
+X
+XDATATYPE *
+X_realloc(cptr,size)
+X	DATATYPE  * cptr;
+X	SIZETYPE    size;
+X{
+X    return( debug_realloc(NULL,-1,cptr,size) );
+X}
+X
+XDATATYPE *
+X_calloc(nelem,elsize)
+X	SIZETYPE 	  nelem;
+X	SIZETYPE 	  elsize;
+X{
+X    return( debug_calloc(NULL,-1,nelem,elsize) );
+X}
+X
+Xvoid
+X_free(cptr)
+X	DATATYPE	* cptr;
+X{
+X    debug_free(NULL,0,cptr);
+X}
+X
+Xint
+X_mallopt(cmd,value)
+X	int			        cmd;
+X	union dbmalloptarg    value;
+X{
+X    return( dbmallopt(cmd,&value) );
+X}
+X
+XMEMDATA  *
+X_bcopy(ptr2, ptr1, len)
+X	CONST MEMDATA	* ptr2;
+X	MEMDATA		* ptr1;
+X	MEMSIZE		  len;
+X{
+X	return( DBbcopy((char *)NULL,0,ptr2,ptr1,len) );
+X}
+X
+XMEMDATA  *
+X_bzero(ptr1, len)
+X	MEMDATA		* ptr1;
+X	MEMSIZE		  len;
+X{
+X	return( DBbzero((char *)NULL,0,ptr1,len) );
+X}
+X
+Xint
+X_bcmp(ptr2, ptr1, len)
+X	CONST MEMDATA	* ptr1;
+X	CONST MEMDATA	* ptr2;
+X	MEMSIZE		  len;
+X{
+X	return( DBbcmp((char *)NULL,0,ptr2, ptr1, len) );
+X}
+X
+XMEMDATA  *
+X__dg_bcopy(ptr2, ptr1, len)
+X	CONST MEMDATA	* ptr2;
+X	MEMDATA		* ptr1;
+X	MEMSIZE		  len;
+X{
+X	return( DBbcopy((char *)NULL,0,ptr2,ptr1,len) );
+X}
+X
+XMEMDATA  *
+X__dg_bzero(ptr1, len)
+X	MEMDATA		* ptr1;
+X	MEMSIZE		  len;
+X{
+X	return( DBbzero((char *)NULL,0,ptr1,len) );
+X}
+X
+Xint
+X__dg_bcmp(ptr2, ptr1, len)
+X	CONST MEMDATA	* ptr1;
+X	CONST MEMDATA	* ptr2;
+X	MEMSIZE		  len;
+X{
+X	return( DBbcmp((char *)NULL,0,ptr2, ptr1, len) );
+X}
+X
+X
+X/*
+X * $Log: dgmalloc.c,v $
+X * Revision 1.4  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.3  1992/07/03  00:03:25  cpcahil
+X * more fixes for pl13, several suggestons from Rich Salz.
+X *
+X * Revision 1.2  1992/07/02  15:35:52  cpcahil
+X * misc cleanups for PL13
+X *
+X * Revision 1.1  1992/05/06  04:53:29  cpcahil
+X * performance enhancments
+X *
+X */
+END_OF_FILE
+if test 2724 -ne `wc -c <'dgmalloc.c'`; then
+    echo shar: \"'dgmalloc.c'\" unpacked with wrong size!
+fi
+# end of 'dgmalloc.c'
+fi
+if test -f 'dump.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dump.c'\"
+else
+echo shar: Extracting \"'dump.c'\" \(11008 characters\)
+sed "s/^X//" >'dump.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include <stdio.h>
+X#include "mallocin.h"
+X#include "tostring.h"
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: dump.c,v 1.20 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X/*
+X * various macro definitions used within this module.
+X */
+X
+X#define WRITEOUT(fd,str,len)	if( write(fd,str,(WRTSIZE)(len)) != (len) ) \
+X				{ \
+X					VOIDCAST write(2,ERRSTR,\
+X						     (WRTSIZE)strlen(ERRSTR));\
+X					exit(120); \
+X				}
+X
+X#define DETAIL_NONE 		0
+X#define DETAIL_NOT_SET_YET	-1
+X#define DETAIL_ST_COL		(sizeof(DETAIL_HDR_3)-1)
+X#define ERRSTR	"I/O Error on malloc dump file descriptor\n"
+X#define FILE_LEN		20
+X#define LIST_ALL		1
+X#define LIST_SOME		2
+X#define NUM_BYTES		7
+X#define TITLE			" Dump of Malloc Chain "
+X
+X#define DETAIL_HDR_1 \
+X     "                             FREE     FREE                  ACTUAL SIZE    "
+X#define DETAIL_HDR_2 \
+X     "  PTR      NEXT     PREV     NEXT     PREV      FLAGS       INT    HEX     "
+X#define DETAIL_HDR_3 \
+X     "-------- -------- -------- -------- -------- ---------- -------- --------- "
+X
+X#define NORMAL_HDR_1 \
+X "POINTER     FILE  WHERE         LINE      ALLOC        DATA     HEX DUMP   \n"
+X#define NORMAL_HDR_2 \
+X "TO DATA      ALLOCATED         NUMBER     FUNCT       LENGTH  OF BYTES 1-7 \n"
+X#define NORMAL_HDR_3 \
+X "-------- -------------------- ------- -------------- ------- --------------\n"
+X
+X#define THISBUFSIZE (sizeof(NORMAL_HDR_3)+sizeof(DETAIL_HDR_3))
+X
+X
+X/*
+X * Function:	malloc_dump()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	- file descriptor to write data to
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just print out all the junk
+X *
+X */
+XVOIDTYPE
+Xmalloc_dump(fd)
+X	int		fd;
+X{
+X	malloc_list_items(fd,LIST_ALL,0L,0L);
+X}
+X
+X/*
+X * Function:	malloc_list()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	- file descriptor to write data to
+X *		histid1 - id of the first record to display
+X *		histid2 - id one above the last record to display
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just call malloc_list_items to display the junk
+X *
+X */
+XVOIDTYPE
+Xmalloc_list(fd,histid1,histid2)
+X	int		fd;
+X	IDTYPE		histid1;
+X	IDTYPE		histid2;
+X{
+X	malloc_list_items(fd, LIST_SOME, histid1, histid2);
+X}
+X
+X/*
+X * Function:	malloc_list_items()
+X *
+X * Purpose:	to dump a printed copy of the malloc chain and
+X *		associated data elements
+X *
+X * Arguments:	fd	  - file descriptor to write data to
+X *		list_type - type of list (all records, or a selected list)
+X *		histid1	  - first id to list (if type is some)
+X *		histid2   - one above last id to list
+X *
+X * Returns:	nothing of any use
+X *
+X * Narrative:	Just print out all the junk
+X *
+X * Notes:	This function is implemented using low level calls because
+X * 		of the likelyhood that the malloc tree is damaged when it
+X *		is called.  (Lots of things in the c library use malloc and
+X *		we don't want to get into a catch-22).
+X *
+X */
+XVOIDTYPE
+Xmalloc_list_items(fd,list_type,histid1,histid2)
+X	int			  fd;
+X	int			  list_type;
+X	IDTYPE			  histid1;
+X	IDTYPE			  histid2;
+X{
+X	char			  buffer[THISBUFSIZE];
+X	int			  detail;
+X	int			  first_time = 1;
+X	CONST char		* func;
+X	int			  i;
+X	int			  loc;
+X	struct mlist 		* ptr;
+X
+X	MALLOC_INIT();
+X
+X	if( (malloc_opts & MOPT_DETAIL) != 0 )
+X	{
+X		detail = DETAIL_ST_COL;
+X	}
+X	else
+X	{
+X		detail = DETAIL_NONE;
+X	}
+X
+X	/*
+X	 * for each element in the trace
+X	 */
+X	for(ptr = &malloc_start; ptr; ptr = ptr->next)
+X	{
+X		/*
+X		 * if this item is not in use or it is a stack element
+X		 *     and we are not in detail mode or list-all mode.
+X		 */
+X		if(  ( ((ptr->flag & M_INUSE)==0) || (GETTYPE(ptr)==M_T_STACK) )
+X		    && ((detail == DETAIL_NONE) || (list_type != LIST_ALL)) )
+X		{
+X			continue;
+X		}
+X		/*
+X		 * else if we are only listing a range of items, check to see
+X		 * if this item is in the correct range and is not marked. 
+X		 * if not, skip it
+X	 	 */
+X		else if(   (list_type == LIST_SOME)
+X			&& (    (ptr->hist_id < histid1)
+X			     || (ptr->hist_id >= histid2)
+X			     || ((ptr->flag & M_MARKED) != 0) ) )
+X		{
+X			continue;
+X		}
+X
+X		/*
+X		 * if this is the first time, put out the headers.
+X		 */
+X		if( first_time )
+X		{
+X			/*
+X			 * fill the title line with asterisks
+X			 */
+X			for(i=0; i < (detail + sizeof(NORMAL_HDR_3)-1); i++)
+X			{
+X				buffer[i] = '*';
+X			}
+X			buffer[i] = '\n';
+X			buffer[i+1] = EOS;
+X
+X			/*
+X			 * add in the title  (centered, of course)
+X			 */
+X			loc = (i - sizeof(TITLE)) / 2;
+X			for(i=0; i < (sizeof(TITLE)-1); i++)
+X			{
+X				buffer[loc+i] = TITLE[i];
+X			}
+X
+X			/*
+X			 * and write it out
+X			 */
+X			WRITEOUT(fd,buffer,strlen(buffer));
+X
+X			/*
+X			 * write out the column headers
+X			 */
+X			if( detail != DETAIL_NONE )
+X			{
+X				WRITEOUT(fd,DETAIL_HDR_1,
+X						sizeof(DETAIL_HDR_1)-1);
+X				WRITEOUT(fd,NORMAL_HDR_1,
+X						sizeof(NORMAL_HDR_1)-1);
+X				WRITEOUT(fd,DETAIL_HDR_2,
+X						sizeof(DETAIL_HDR_2)-1);
+X				WRITEOUT(fd,NORMAL_HDR_2,
+X						sizeof(NORMAL_HDR_2)-1);
+X				WRITEOUT(fd,DETAIL_HDR_3,
+X						sizeof(DETAIL_HDR_3)-1);
+X				WRITEOUT(fd,NORMAL_HDR_3,
+X						sizeof(NORMAL_HDR_3)-1);
+X			}
+X			else
+X			{
+X				WRITEOUT(fd,NORMAL_HDR_1,
+X						sizeof(NORMAL_HDR_1)-1);
+X				WRITEOUT(fd,NORMAL_HDR_2,
+X						sizeof(NORMAL_HDR_2)-1);
+X				WRITEOUT(fd,NORMAL_HDR_3,
+X						sizeof(NORMAL_HDR_3)-1);
+X			}
+X
+X			first_time = 0;
+X		}
+X
+X		/*
+X		 * fill in the string with blanks
+X		 */
+X		for(i=0; i < (sizeof(DETAIL_HDR_3)+sizeof(NORMAL_HDR_3)); i++)
+X		{
+X			buffer[i] = ' ';
+X		}
+X
+X		/*
+X	 	 * handle detail output
+X		 */
+X		if( detail != DETAIL_NONE )
+X		{
+X			VOIDCAST tostring(buffer,
+X					(ULONG)ptr,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+9,
+X					(ULONG)ptr->next,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+18,
+X					(ULONG)ptr->prev,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+27,
+X					(ULONG)ptr->freenext,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+36,
+X					(ULONG)ptr->freeprev,8,B_HEX,'0');
+X			VOIDCAST tostring(buffer+45,
+X					(ULONG)ptr->flag,10,B_HEX,'0');
+X			VOIDCAST tostring(buffer+56,
+X					(ULONG)ptr->s.size,8,B_DEC,' ');
+X			VOIDCAST tostring(buffer+65,
+X					(ULONG)ptr->s.size,8,B_HEX,'0');
+X			buffer[64] = '(';
+X			buffer[74] = ')';
+X		}
+X
+X		/*
+X		 * and now add in the normal stuff
+X		 */
+X	 	VOIDCAST tostring(buffer+detail,
+X				(ULONG) ptr->data, 8, B_HEX, '0');
+X
+X		/*
+X		 * if a file has been specified
+X		 */
+X		if( (ptr->file != NULL)	 && (ptr->file[0] != EOS) )
+X		{
+X
+X			for(i=0; (i < FILE_LEN) && (ptr->file[i] != EOS); i++)
+X			{
+X				buffer[detail+9+i] = ptr->file[i];
+X			}
+X
+X			VOIDCAST tostring(buffer+detail+30,
+X						(ULONG)ptr->line,7,B_DEC, ' ');
+X		}
+X		else
+X		{
+X			for(i=0; i < (sizeof("unknown")-1); i++)
+X			{
+X				buffer[detail+9+i] = "unknown"[i];
+X			}
+X		}
+X			
+X		func = MallocFuncName(ptr);
+X		/*
+X		 * copy the function name into the string.
+X		 */
+X		for( i=0; func[i] != EOS; i++)
+X		{
+X			buffer[detail+38+i] = func[i];
+X		}
+X
+X		/*
+X		 * add the call number
+X		 */
+X		buffer[detail+38+ i++] = '(';
+X		i += tostring(buffer+detail+38+i,(ULONG)ptr->id,0,B_DEC,' ');
+X		buffer[detail+38+i] = ')';
+X	
+X		/*
+X		 * display the length of the segment
+X		 */
+X		VOIDCAST tostring(buffer+detail+53,
+X				(ULONG)ptr->r_size,7,B_DEC,' ');
+X
+X		/* 
+X		 * display the first seven bytes of data
+X		 */
+X		for( i=0; (i < NUM_BYTES) && (i < ptr->r_size); i++)
+X		{
+X			VOIDCAST tostring(buffer+detail + 61 + (i * 2),
+X					(ULONG)ptr->data[i], 2, B_HEX, '0');
+X		}
+X
+X		buffer[detail + sizeof(NORMAL_HDR_3)] = '\n';
+X		WRITEOUT(fd,buffer,detail+sizeof(NORMAL_HDR_3)+1);
+X
+X		/*
+X		 * and dump any stack info (if it was specified by the user)
+X		 */
+X		StackDump(fd,(char *) NULL,ptr->stack);
+X
+X	}
+X
+X	if( detail != DETAIL_NONE )
+X	{
+X		WRITEOUT(fd,"Malloc start:      ",19);
+X		VOIDCAST tostring(buffer, (ULONG)&malloc_start, 10, B_HEX, '0');
+X		buffer[10] = '\n';
+X		WRITEOUT(fd,buffer,11);
+X
+X		WRITEOUT(fd,"Malloc end:        ", 19);
+X		VOIDCAST tostring(buffer, (ULONG) malloc_end, 10, B_HEX, '0');
+X		buffer[10] = '\n';
+X		WRITEOUT(fd,buffer,11);
+X
+X		WRITEOUT(fd,"Malloc data start: ", 19);
+X		VOIDCAST tostring(buffer,(ULONG)malloc_data_start,10,B_HEX,'0');
+X		buffer[10] = '\n';
+X		WRITEOUT(fd,buffer,11);
+X
+X		WRITEOUT(fd,"Malloc data end:   ", 19);
+X		VOIDCAST tostring(buffer,(ULONG)malloc_data_end, 10,B_HEX, '0');
+X		buffer[10] = '\n';
+X		WRITEOUT(fd,buffer,11);
+X
+X		WRITEOUT(fd,"Malloc free list:  ", 19);
+X		VOIDCAST tostring(buffer, (ULONG)malloc_freelist, 10,B_HEX,'0');
+X		buffer[10] = '\n';
+X		WRITEOUT(fd,buffer,11);
+X
+X		for(ptr=malloc_freelist->freenext; ptr!=NULL; ptr=ptr->freenext)
+X		{
+X			WRITEOUT(fd,"                -> ", 19);
+X			VOIDCAST tostring(buffer, (ULONG) ptr, 10, B_HEX, '0');
+X			buffer[10] = '\n';
+X			WRITEOUT(fd,buffer,11);
+X		}
+X
+X	}
+X
+X	WRITEOUT(fd,"\n",1);
+X	
+X} /* malloc_dump(... */
+X
+X
+X/*
+X * $Log: dump.c,v $
+X * Revision 1.20  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.19  1992/06/30  13:06:39  cpcahil
+X * added support for aligned allocations
+X *
+X * Revision 1.18  1992/06/22  23:40:10  cpcahil
+X * many fixes for working on small int systems
+X *
+X * Revision 1.17  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.16  1992/04/24  12:09:13  cpcahil
+X * (hopefully) final cleanup for patch 10
+X *
+X * Revision 1.15  1992/04/22  18:17:32  cpcahil
+X * added support for Xt Alloc functions, linted code
+X *
+X * Revision 1.14  1992/04/15  12:51:06  cpcahil
+X * fixes per testing of patch 8
+X *
+X * Revision 1.13  1992/04/14  02:27:30  cpcahil
+X * adjusted output of pointes so that values that had the high bit
+X * set would print correctly.
+X *
+X * Revision 1.12  1992/04/13  19:57:15  cpcahil
+X * more patch 8 fixes
+X *
+X * Revision 1.11  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.10  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.9  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.8  1991/12/04  09:23:36  cpcahil
+X * several performance enhancements including addition of free list
+X *
+X * Revision 1.7  91/11/25  14:41:52  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.6  91/11/24  00:49:25  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.5  90/08/29  21:22:37  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.4  90/05/11  00:13:08  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:07  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:27:48  cpcahil
+X * changed $header to $Id to remove full path from rcs id string
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 11008 -ne `wc -c <'dump.c'`; then
+    echo shar: \"'dump.c'\" unpacked with wrong size!
+fi
+# end of 'dump.c'
+fi
+if test -f 'fill.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fill.c'\"
+else
+echo shar: Extracting \"'fill.c'\" \(7792 characters\)
+sed "s/^X//" >'fill.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include <stdio.h>
+X#include "mallocin.h"
+X
+Xstatic long 	fillmalloc = -1;
+Xstatic long 	fillfree   = -1;
+X
+X#define FILLINIT() if( fillmalloc == -1 )  FillInit()
+X
+X
+X/*
+X * Fill check types
+X */
+X#define FILL_UNDER 	1
+X#define FILL_OVER	2
+X#define FILL_FREED	3
+X
+X/*
+X * FillInit() - fill initialization routine
+X */
+XVOIDTYPE
+XFillInit()
+X{
+X	char	* ptr;
+X	int	  i;
+X	
+X	ptr = (char *) &fillmalloc;
+X
+X	for( i=0; i < sizeof(long); i++)
+X	{
+X		*ptr++ = M_FILL;
+X	}
+X
+X	ptr = (char *) &fillfree;
+X
+X	for( i=0; i < sizeof(long); i++)
+X	{
+X		*ptr++ = M_FREE_FILL;
+X	}
+X
+X} /* FillInit(... */
+X
+X/*
+X * FillCheck()	check for overflow and/or underflow using the filled regions
+X *		in the specified malloc segment.
+X */
+Xint
+XFillCheck(func,file,line,ptr,showerrors)
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X	struct mlist	* ptr;
+X	int		  showerrors;
+X{
+X	int		  rtn = -1;
+X
+X	FILLINIT();
+X
+X	/*
+X	 * if this block has no filling
+X	 */
+X	if( (ptr->flag & (M_FILLED|M_DFILLED)) == 0 )
+X	{
+X		rtn = 0;
+X	}
+X	/*
+X	 * else if this block is in use or it was not free-filled
+X	 */
+X	else if(    ((ptr->flag & M_INUSE)  != 0) 
+X		 || ((ptr->flag & M_FILLED) == 0) )
+X	{
+X		/*
+X		 * check for data underflow and data overflow
+X		 */
+X		rtn =   FillCheckData(func,file,line,ptr,FILL_UNDER,showerrors)
+X		      + FillCheckData(func,file,line,ptr,FILL_OVER, showerrors);
+X	}
+X	/*
+X	 * else the block must have been freed
+X	 */
+X	else
+X	{
+X		/*
+X		 * check for data underflow and free filling
+X		 */
+X		rtn =   FillCheckData(func,file,line,ptr,FILL_UNDER,showerrors)
+X		      + FillCheckData(func,file,line,ptr,FILL_FREED,showerrors);
+X	}
+X
+X	return(rtn);
+X
+X} /* FillCheck(... */
+X
+X/*
+X * FillCheckData() - routine to check the data areas to ensure that they
+X * 		 are filled with the appropriate fill characters.
+X */
+Xint
+XFillCheckData(func,file,line,ptr,checktype,showerrors)
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X	struct mlist	* ptr;
+X	int		  checktype;
+X	int		  showerrors;
+X{
+X	register char		* data = NULL;
+X	int			  errcode = 0;
+X	char			  filler = '\0';
+X	long			  fillword = 0;
+X	register SIZETYPE	  i = 0;
+X	register long		* ldata;
+X	SIZETYPE		  limit = ptr->s.size;
+X	int			  rtn = -1;
+X
+X	if( (ptr->flag & (M_DFILLED | M_FILLED)) == 0 )
+X	{
+X		return(0);
+X	}
+X
+X	switch(checktype)
+X	{
+X		case FILL_UNDER:
+X			if(    ((ptr->flag & M_DFILLED) == 0 )
+X			    || (ptr->s.filler[LONGFILL-1] == fillmalloc) )
+X			{
+X				rtn = 0;
+X			}
+X			else
+X			{
+X
+X				/*
+X				 * if showing errors
+X			 	 */
+X				if( showerrors )
+X				{
+X					/*
+X					 * give the underrun error message
+X					 */
+X					malloc_errno = M_CODE_UNDERRUN;
+X					malloc_warning(func,file,line,ptr);
+X					/*
+X					 * fix the problem
+X					 */
+X					ptr->s.filler[LONGFILL-1] = fillmalloc;
+X				}
+X				rtn = 1;
+X			}
+X			break;
+X
+X		case FILL_OVER:
+X			if( (ptr->flag & M_DFILLED) == 0)
+X			{
+X				rtn = 0;
+X			}
+X			else
+X			{
+X				i        = ptr->r_size;
+X				errcode  = M_CODE_OVERRUN;
+X				filler   = M_FILL;
+X				fillword = fillmalloc;
+X				data	 = ptr->data;
+X			}
+X			break;
+X
+X		case FILL_FREED:
+X			if( (ptr->flag & M_FILLED) == 0)
+X			{
+X				rtn = 0;
+X			}
+X			else
+X			{
+X				i        = 0;
+X				errcode  = M_CODE_REUSE;
+X				filler   = M_FREE_FILL;
+X				fillword = fillfree;
+X				data	 = ptr->data;
+X			}
+X			break;
+X
+X		default:
+X			i = 0; 
+X			limit = 0;
+X			break;
+X	}
+X
+X	/*
+X	 * if there is nothing to check, just return 
+X	 */
+X	if( rtn != -1 )
+X	{
+X		return(rtn);
+X	}
+X			
+X	rtn = 0;
+X	data += i;
+X	i = limit - i;
+X	while( ((long)data) & (sizeof(long)-1) )
+X	{
+X		if( *data != filler )
+X		{
+X			if( showerrors )
+X			{
+X				malloc_errno = errcode;
+X				malloc_warning(func,file,line,ptr);
+X
+X				/*
+X				 * fix the underrun so we only get this
+X				 * message once
+X				 */
+X				while( i-- > 0 )
+X				{
+X					*(data++) = filler;
+X				}
+X			}
+X
+X			rtn++;
+X					
+X			break;
+X		}
+X		data++;
+X		i--;
+X	}
+X
+X	/*
+X	 * if we haven't found an error yet
+X	 */
+X	if( rtn == 0 )
+X	{
+X		/*
+X		 * convert to use longword pointer
+X		 */
+X		ldata = (long *) data;
+X		i >>= 2;
+X
+X		/*
+X		 * while more longwords to check
+X		 */	
+X		while( i > 0 )
+X		{
+X			if( *ldata != fillword )
+X			{
+X				if( showerrors )
+X				{
+X					malloc_errno = errcode;
+X					malloc_warning(func,file,line,ptr);
+X	
+X					/*
+X					 * fix the underrun so we only get this
+X					 * message once
+X					 */
+X					while( i-- > 0 )
+X					{
+X						*(ldata++) = fillword;
+X					}
+X				}
+X	
+X				rtn++;
+X				break;
+X			}
+X
+X			ldata++;
+X			i--;
+X		
+X		}
+X		
+X	}
+X
+X	return(rtn);
+X
+X} /* FillCheckData(... */
+X
+X/*
+X * FillData()	fill in the needed areas in the specified segment.  This is used
+X *		to place non-zero data in new malloc segments, setup boundary
+X *		areas to catch under/overflow, and overwrite freed segments so 
+X *		that they can't be usefully re-used.
+X */
+Xvoid
+XFillData(ptr,alloctype,start,nextptr)
+X	register struct mlist	* ptr;
+X	int			  alloctype;
+X	SIZETYPE		  start;
+X	struct mlist		* nextptr;
+X{
+X	int		  fills;
+X	int		  filler = 0;
+X	SIZETYPE	  limit = ptr->s.size;
+X	
+X	FILLINIT();
+X
+X	if( (malloc_opts & (MOPT_MFILL|MOPT_DFILL|MOPT_FFILL)) == 0)
+X	{
+X		ptr->flag &= ~(M_FILLED|M_DFILLED);
+X		return;
+X	}
+X
+X	switch(alloctype)
+X	{
+X		case FILL_MALLOC:
+X			fills = MOPT_MFILL | MOPT_DFILL;
+X			filler = M_FILL;
+X			break;
+X
+X		case FILL_FREE:
+X			fills = MOPT_FFILL;
+X			filler = M_FREE_FILL;
+X			break;
+X
+X		case FILL_SPLIT:
+X			fills = MOPT_FFILL;
+X			filler = M_FREE_FILL;
+X			break;
+X
+X		case FILL_JOIN:
+X			if( (ptr->flag&M_INUSE) != 0 )
+X			{
+X				if( ptr->flag & M_FILLED )
+X				{
+X					fills = MOPT_MFILL;
+X					filler = M_FILL;
+X				}
+X				else if(  ptr->flag & M_DFILLED )
+X				{
+X					fills = MOPT_MFILL;
+X					filler = M_FILL;
+X					start = ptr->r_size;;
+X				}
+X				else
+X				{
+X					fills = 0;
+X				}
+X			}
+X			else /* not in use */
+X			{
+X				/*
+X				 * if this segment has bee free-filled
+X				 */
+X				if( ptr->flag & M_FILLED )
+X				{
+X					fills = MOPT_MFILL;
+X					filler = M_FREE_FILL;
+X
+X					/*
+X					 * if the next segment is already filled
+X					 */
+X					if( (nextptr->flag & M_FILLED) != 0 )
+X					{
+X						limit = start + M_SIZE;
+X					}
+X				}
+X				/*
+X				 * else if this segment has overflow filling
+X				 * enabled, fill the next segment since it is
+X				 * now overflow of this segment.
+X				 */
+X				else if( (ptr->flag & M_DFILLED) != 0 )
+X				{
+X					fills = MOPT_DFILL;
+X					filler = M_FILL;
+X					start = ptr->r_size;;
+X				}
+X				else
+X				{
+X					fills = 0;
+X				}
+X			}
+X			break;
+X
+X		case FILL_REALLOC:
+X			if( ptr->flag & M_FILLED )
+X			{
+X				fills = MOPT_MFILL;
+X				filler = M_FILL;
+X			}
+X			else if( ptr->flag & M_DFILLED )
+X			{
+X				fills = MOPT_MFILL;
+X				filler = M_FILL;
+X				start = ptr->r_size;;
+X			}
+X			else
+X			{
+X				fills = 0;
+X			}
+X			break;
+X
+X		case FILL_CALLOC:
+X			fills = MOPT_DFILL;
+X			break;
+X
+X		default:
+X			fills = 0;
+X	}
+X
+X
+X	if( (fills & MOPT_DFILL) != 0 )
+X	{
+X		if( (malloc_opts & MOPT_DFILL) != 0 )
+X		{
+X			ptr->s.filler[LONGFILL-1] = fillmalloc;
+X			ptr->flag |= M_DFILLED;
+X		}
+X		else if( alloctype != FILL_FREE ) 
+X		{
+X			ptr->flag &= ~M_DFILLED;
+X		}
+X	}
+X
+X	if( (malloc_opts & (MOPT_MFILL|MOPT_FFILL) & fills) != 0 )
+X	{
+X		/*
+X		 * fill in the data
+X		 */
+X		DataMS(ptr->data+start, filler, (MEMSIZE) (limit - start));
+X
+X		ptr->flag |= M_FILLED;
+X	}
+X	else 
+X	{
+X		ptr->flag &= ~M_FILLED;
+X
+X		/*
+X		 * if we still have to fill the boundry area and this isn't 
+X		 * a free-fill, go do it
+X		 */
+X		if( ((ptr->flag & M_DFILLED) != 0) && (filler == M_FILL) )
+X		{
+X			DataMS(ptr->data+ptr->r_size, M_FILL, 
+X					(MEMSIZE) (limit - ptr->r_size));
+X		}
+X
+X	}
+X
+X} /* FillData(... */
+X
+END_OF_FILE
+if test 7792 -ne `wc -c <'fill.c'`; then
+    echo shar: \"'fill.c'\" unpacked with wrong size!
+fi
+# end of 'fill.c'
+fi
+if test -f 'tostring.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tostring.h'\"
+else
+echo shar: Extracting \"'tostring.h'\" \(1170 characters\)
+sed "s/^X//" >'tostring.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X/*
+X * $Id: tostring.h,v 1.5 1992/08/22 16:27:13 cpcahil Exp $
+X */
+X#define B_BIN	 2
+X#define B_DEC	10
+X#define B_HEX	16
+X#define B_OCTAL	 8
+X
+X/* 
+X * $Log: tostring.h,v $
+X * Revision 1.5  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.4  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.3  1991/11/25  14:42:07  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.2  90/05/11  00:13:11  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.1  90/02/23  07:09:05  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 1170 -ne `wc -c <'tostring.h'`; then
+    echo shar: \"'tostring.h'\" unpacked with wrong size!
+fi
+# end of 'tostring.h'
+fi
+echo shar: End of archive 3 \(of 10\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

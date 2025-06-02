@@ -1,0 +1,1251 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v33i061:  remind - A replacement for calendar, Part04/12
+Message-ID: <1992Nov10.041850.917@sparky.imd.sterling.com>
+X-Md4-Signature: 45f236c2b4a0d891540eed81669bdf14
+Date: Tue, 10 Nov 1992 04:18:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 33, Issue 61
+Archive-name: remind/part04
+Environment: UNIX, MS-DOS
+Supersedes: remind: Volume 17, Issue 3-6
+
+#!/bin/sh
+# This is part 04 of Remind 03.00.00
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= expr.c ==============
+if test X"$1" != X"-c" -a -f 'expr.c'; then
+	echo "File already exists: skipping 'expr.c'"
+else
+echo "x - extracting expr.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > expr.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  EXPR.C                                                     */
+X/*                                                             */
+X/*  This file contains routines to parse and evaluate          */
+X/*  expressions.                                               */
+X/*                                                             */
+X/*  Copyright 1991 by David F. Skoll.                          */
+X/*                                                             */
+X/***************************************************************/
+X
+X/* If we're using Turbo C, turn off annoying warning messages! */
+X#ifdef __TURBOC__
+X#pragma warn -pia
+X#endif
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include "config.h"
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include "err.h"
+X#include "types.h"
+X#include "expr.h"
+X#include "protos.h"
+X#include "globals.h"
+X
+X#define ISID(c) (isalnum(c) || (c) == '_')
+X#define EQ 0
+X#define GT 1
+X#define LT 2
+X#define GE 3
+X#define LE 4
+X#define NE 5
+X
+Xstatic char ExprBuf[TOKSIZE+1];
+Xstatic char CoerceBuf[TOKSIZE+1];
+Xextern int NumFuncs;
+X
+X#ifdef HAVE_PROTOS
+XPRIVATE int Multiply(void), Divide(void), Mod(void), Add(void),
+X	   Subtract(void), GreaterThan(void), LessThan(void),
+X	   EqualTo(void), NotEqual(void), LessOrEqual(void),
+X	   GreaterOrEqual(void), LogAND(void), LogOR(void),
+X	   UnMinus(void), LogNot(void),
+X	   Compare(int);
+XPRIVATE Operator *FindFunc(char *name, Operator where[], int num);
+X#else
+XPRIVATE int Multiply(), Divide(), Mod(), Add(),
+X	   Subtract(), GreaterThan(), LessThan(),
+X	   EqualTo(), NotEqual(), LessOrEqual(),
+X	   GreaterOrEqual(), LogAND(), LogOR(),
+X           UnMinus(), LogNot(), Compare();
+XPRIVATE Operator *FindFunc();
+X#endif
+X
+XPRIVATE int MakeValue ARGS ((char *s, Value *v, Var *locals));
+XPRIVATE int PushOpStack ARGS ((Operator *op));
+XPRIVATE int PopOpStack ARGS ((Operator *op));
+X
+X/* Binary operators - all left-associative */
+X
+X/* Make SURE they are sorted lexically... this may die on an EBCDIC
+X   system... */
+X
+XOperator BinOp[] = {
+X   { "!=", 15, BIN_OP, NotEqual },
+X   { "%", 20, BIN_OP, Mod },
+X   { "&&", 14, BIN_OP, LogAND },
+X   { "*", 20, BIN_OP, Multiply },
+X   { "+", 18, BIN_OP, Add },
+X   { "-", 18, BIN_OP, Subtract },
+X   { "/", 20, BIN_OP, Divide },
+X   { "<", 16, BIN_OP, LessThan },
+X   { "<=", 16, BIN_OP, LessOrEqual },
+X   { "==", 15, BIN_OP, EqualTo },
+X   { ">", 16, BIN_OP, GreaterThan },
+X   { ">=", 16, BIN_OP, GreaterOrEqual },
+X   { "||", 12, BIN_OP, LogOR },
+X};
+X#define NUM_BIN_OPS (sizeof(BinOp) / sizeof(Operator))
+X
+X/* These ones must be sorted too. */
+XOperator UnOp[] = {
+X   { "!", 22, UN_OP, LogNot },
+X   { "-", 22, UN_OP, UnMinus },
+X};
+X#define NUM_UN_OPS (sizeof(UnOp) / sizeof(Operator))
+X
+X/* Functions have the same definitions as operators, except the prec field
+X   is used to indicate how many arguments are needed. */
+Xextern Operator Func[];
+X
+XOperator OpStack[OP_STACK_SIZE];
+XValue    ValStack[VAL_STACK_SIZE];
+Xint OpStackPtr, ValStackPtr;
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DebugPerform                                               */
+X/*                                                             */
+X/*  Execute an operator or function with debugging.            */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int DebugPerform(Operator *op)
+X#else
+Xstatic int DebugPerform(op)
+XOperator *op;
+X#endif
+X{
+X   int r;
+X
+X   if (op->type == UN_OP) {
+X      fprintf(ErrFp, "%s ", op->name);
+X      PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X   } else { /* Must be binary operator */
+X      PrintValue(&ValStack[ValStackPtr-2], ErrFp);
+X      fprintf(ErrFp, " %s ", op->name);
+X      PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X   }
+X
+X   r = (op->func)();
+X   fprintf(ErrFp, " => ");
+X   if (!r) {
+X      PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X      putc('\n', ErrFp);
+X   } else {
+X      fprintf(ErrFp, "%s\n", ErrMsg[r]);
+X   }
+X   return r;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  CleanStack                                                 */
+X/*                                                             */
+X/*  Clean the stack after an error occurs.                     */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void CleanStack(void)
+X#else
+Xstatic void CleanStack()
+X#endif
+X{
+X   int i;
+X
+X   for (i=0; i<ValStackPtr; i++) DestroyValue(&ValStack[i]);
+X   ValStackPtr = 0;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PeekChar - peek ahead to next char.                        */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE char PeekChar(char **s)
+X#else
+Xstatic char PeekChar(s)
+Xchar **s;
+X#endif
+X{
+X   char *t = *s;
+X   while (*t && isspace(*t)) t++;
+X   return *t;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ParseExprToken                                             */
+X/*                                                             */
+X/*  Read a token.                                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int ParseExprToken(char *out, char **in)
+X#else
+Xstatic int ParseExprToken(out, in)
+Xchar *out;
+Xchar **in;
+X#endif
+X{
+X
+X   char c;
+X   
+X   *out = 0;
+X/* Skip white space */
+X   while (**in && isspace(**in)) (*in)++;
+X   
+X   if (!**in) return OK;
+X
+X   *out++ = c = *(*in)++;
+X   *out = 0;
+X
+X   switch(c) {
+X      case COMMA:
+X      case END_OF_EXPR:
+X      case '+':
+X      case '-':
+X      case '*':
+X      case '/':
+X      case '(':
+X      case ')':
+X      case '%': return OK;
+X
+X      case '&':
+X      case '|':
+X      case '=': if (**in == c) {
+X      	      *out++ = c;
+X      	      *out = 0;
+X      	      (*in)++;
+X           }
+X      	   return OK;
+X      	   
+X      case '!':
+X      case '>':
+X      case '<': if (**in == '=') {
+X      	      *out++ = '=';
+X      	      *out = 0;
+X      	      (*in)++;
+X           }
+X           return OK;
+X   }           
+X
+X   /* Handle the parsing of quoted strings */
+X   if (c == '\"') {
+X      while (**in) if ((c = *out++ = *(*in)++) == '\"') break;
+X      *out = 0;
+X      if (c == '\"') return OK ; else return E_MISS_QUOTE;
+X   }
+X
+X   if (!ISID(c)) return E_ILLEGAL_CHAR;
+X
+X   /* Parse a constant, variable name or function */
+X   while (ISID(**in) || **in == ':') *out++ = *(*in)++;
+X
+X   /* Chew up any remaining white space */
+X   while (**in && isspace(**in)) (*in)++;
+X
+X   /* Peek ahead - is it '('?  Then we have a function call */
+X   if (**in == '(') *out++ = *(*in)++;
+X
+X   *out = 0;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  EvalExpr                                                   */
+X/*  Evaluate an expression.  Return 0 if OK, non-zero if error */
+X/*  Put the result into value pointed to by v.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HaveProtos
+XPUBLIC int EvalExpr(char **e, Value *v)
+X#else
+Xint EvalExpr(e, v)
+Xchar **e;
+XValue *v;
+X#endif
+X{
+X   int r;
+X
+X   OpStackPtr = 0;
+X   ValStackPtr = 0;
+X   r = Evaluate(e, NULL);
+X
+X   /* Put last character parsed back onto input stream */
+X   if (*ExprBuf) (*e)--;
+X
+X   if (r) {
+X      CleanStack();
+X      return r;
+X   }
+X   r = CopyValue(v, ValStack);
+X   DestroyValue(ValStack);
+X   return r;
+X}
+X
+X/* Evaluate - do the actual work of evaluation. */
+X#ifdef HAVE_PROTOS
+XPUBLIC int Evaluate(char **s, Var *locals)
+X#else
+Xint Evaluate(s, locals)
+Xchar **s;
+XVar *locals;
+X#endif
+X{
+X   int OpBase, ValBase;
+X   int r;
+X   Operator *f;
+X   int args; /* Number of function arguments */
+X   Operator op, op2;
+X   Value va;
+X   char *ufname;
+X   
+X   OpBase = OpStackPtr;
+X   ValBase = ValStackPtr;
+X   
+X   while(1) {
+X/* Looking for a value.  Accept: value, unary op, func. call or left paren */
+X      r = ParseExprToken(ExprBuf, s);
+X      if (r) return r;
+X      if (!*ExprBuf) return E_EOLN;
+X
+X      if (*ExprBuf == '(') { /* Parenthesized expression */
+X	 r = Evaluate(s, locals);  /* Leaves the last parsed token in ExprBuf */
+X         if (r) return r;
+X	 if (*ExprBuf != ')') return E_MISS_RIGHT_PAREN;
+X      } else if (*ExprBuf == '+') continue; /* Ignore unary + */
+X      else if (*(ExprBuf + strlen(ExprBuf) -1) == '(') { /* Function Call */
+X	 *(ExprBuf + strlen(ExprBuf) - 1) = 0;
+X	 f = FindFunc(ExprBuf, Func, NumFuncs);
+X	 if (!f) {
+X	    ufname = StrDup(ExprBuf);
+X	    if (!ufname) return E_NO_MEM;
+X	 }
+X	 args = 0;
+X	 if (PeekChar(s) == ')') { /* Function has no arguments */
+X	    if (f) r = CallFunc(f, 0);
+X	    else {
+X	       r = CallUserFunc(ufname, 0);
+X	       free(ufname);
+X	    }
+X	    if (r) return r;
+X	    (void) ParseExprToken(ExprBuf, s); /* Guaranteed to be right paren. */
+X	 } else { /* Function has some arguments */
+X	    while(1) {
+X	       args++;
+X	       r = Evaluate(s, locals);
+X	       if (r) return r;
+X	       if (*ExprBuf == ')') break;
+X	       else if (*ExprBuf != ',') return E_ILLEGAL_CHAR;
+X            }
+X	    if (f) r = CallFunc(f, args);
+X	    else {
+X	       r = CallUserFunc(ufname, args);
+X	       free(ufname);
+X	    }
+X	    if (r) return r;
+X         }
+X      } else { /* Unary operator */
+X	 f = FindFunc(ExprBuf, UnOp, NUM_UN_OPS);
+X         if (f) {
+X            r = PushOpStack(f);
+X            if (r) return r;
+X	    continue;  /* Still looking for an atomic vlue */
+X	 } else if (!ISID(*ExprBuf) && *ExprBuf != '"') {
+X	    return E_ILLEGAL_CHAR;
+X	 } else { /* Must be a literal value */
+X	    r = MakeValue(ExprBuf, &va, locals);
+X	    if (r) return r;
+X	    r = PushValStack(&va);
+X	    if (r) return r;
+X	 }
+X      }
+X/* OK, we've got a literal value; now, we're looking for the end of the
+X      expression, or a binary operator. */
+X      r = ParseExprToken(ExprBuf, s);
+X      if (r) return r;
+X      if (*ExprBuf == 0 || *ExprBuf == ',' || *ExprBuf == ']' || *ExprBuf == ')') {
+X   /* We've hit the end of the expression.  Pop off and evaluate until
+X         OpStackPtr = OpBase and ValStackPtr = ValBase+1 */
+X         while (OpStackPtr > OpBase) {
+X            r = PopOpStack(&op);
+X            if (r) return r;
+X	    if (DebugFlag & DB_PRTEXPR)
+X	       r=DebugPerform(&op);
+X	    else
+X	       r=(op.func)();
+X  	    if (r) {
+X	       Eprint("Operator '%s' %s", op.name, ErrMsg[r]);
+X	       return r;
+X            }
+X	 }
+X         if (ValStackPtr != ValBase+1) return E_STACK_ERR; else return OK;
+X      }
+X      /* Must be a binary operator */
+X      f = FindFunc(ExprBuf, BinOp, NUM_BIN_OPS);
+X      if (!f) return E_EXPECTING_BINOP;
+X
+X      /* While operators of higher or equal precedence are on the stack,
+X         pop them off and evaluate */
+X      while (OpStackPtr > OpBase && OpStack[OpStackPtr-1].prec >= f->prec) {
+X         r = PopOpStack(&op2);
+X         if (r) return r;
+X	 if (DebugFlag & DB_PRTEXPR)
+X	    r=DebugPerform(&op2);
+X	 else
+X	    r=(op2.func)();
+X	 if (r) {
+X	    Eprint("Operator '%s' %s", op2.name, ErrMsg[r]);
+X	    return r;
+X         }
+X      }
+X      r = PushOpStack(f);
+X      if (r) return r;
+X   }
+X}
+X   
+X/***************************************************************/
+X/*                                                             */
+X/*  MakeValue                                                  */
+X/*  Generate a literal value.  It's either a string, a number  */
+X/*  or the value of a symbol.                                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int MakeValue(char *s, Value *v, Var *locals)
+X#else
+Xstatic int MakeValue(s, v, locals)
+Xchar *s;
+XValue *v;
+XVar *locals;
+X#endif
+X{
+X   int len;
+X   int h, m, r;
+X
+X   if (*s == '\"') { /* It's a literal string */
+X      len = strlen(s)-1;
+X      v->type = STR_TYPE;
+X      v->v.str = (char *) malloc(len);
+X      if (! v->v.str) {
+X         v->type = ERR_TYPE;
+X         return E_NO_MEM;
+X      }
+X      strncpy(v->v.str, s+1, len-1);
+X      *(v->v.str+len-1) = 0;
+X      return OK;
+X   } else if (isdigit(*s)) { /* It's a number - use len to hold it.*/
+X      len = 0;
+X      while (*s && isdigit(*s)) {
+X         len *= 10;
+X         len += (*s++ - '0');
+X      }
+X      if (*s == ':') { /* Must be a literal time */
+X	 s++;
+X	 if (!isdigit(*s)) return E_BAD_TIME;
+X	 h = len;
+X	 m = 0;
+X	 while (isdigit(*s)) {
+X	    m *= 10;
+X	    m += *s - '0';
+X	    s++;
+X	 }
+X	 if (*s || h>23 || m>59) return E_BAD_TIME;
+X	 v->type = TIM_TYPE;
+X	 v->v.val = h*60 + m;
+X	 return OK;
+X      }
+X      /* Not a time - must be a number */
+X      if (*s) return E_BAD_NUMBER;
+X      v->type = INT_TYPE;
+X      v->v.val = len;
+X      return OK;
+X   } else /* Must be a symbol */
+X     if (DebugFlag & DB_PRTEXPR)
+X        fprintf(ErrFp, "%s => ", s);
+X     r = GetVarValue(s, v, locals);
+X     if (! (DebugFlag & DB_PRTEXPR)) return r;
+X     if (r == OK) {
+X        PrintValue(v, ErrFp);
+X	putc('\n', ErrFp);
+X     }
+X     return r;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PushOpStack                                                */
+X/*                                                             */
+X/*  Push an operator onto the operator stack.                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int PushOpStack(Operator *op)
+X#else
+Xstatic int PushOpStack(op)
+XOperator *op;
+X#endif
+X{
+X   if (OpStackPtr >= OP_STACK_SIZE)
+X      return E_OP_STK_OVER;
+X   else {
+X      OpStack[OpStackPtr++] = *op;
+X      return OK;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PushValStack                                               */
+X/*                                                             */
+X/*  Push a value onto the value stack.                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int PushValStack(Value *val)
+X#else
+Xint PushValStack(val)
+XValue *val;
+X#endif
+X{
+X   if (ValStackPtr >= VAL_STACK_SIZE)
+X      return E_VA_STK_OVER;
+X   else {
+X      ValStack[ValStackPtr++] = *val;
+X      return OK;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PopOpStack                                                 */
+X/*                                                             */
+X/*  Pop an operator from the operator stack.                   */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int PopOpStack(Operator *op)
+X#else
+Xstatic int PopOpStack(op)
+XOperator *op;
+X#endif
+X{
+X   if (OpStackPtr <= 0)
+X      return E_OP_STK_UNDER;
+X   else {
+X      *op = OpStack[--OpStackPtr];
+X      return OK;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PopValStack                                               */
+X/*                                                             */
+X/*  Pop a value onto the value stack.                         */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int PopValStack(Value *val)
+X#else
+Xint PopValStack(val)
+XValue *val;
+X#endif
+X{
+X   if (ValStackPtr <= 0)
+X      return E_VA_STK_UNDER;
+X   else {
+X      *val = ValStack[--ValStackPtr];
+X      return OK;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoCoerce - actually coerce a value to the specified type.  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoCoerce(char type, Value *v)
+X#else
+Xint DoCoerce(type, v)
+Xchar type;
+XValue *v;
+X#endif
+X{
+X   int h, d, m, y, i;
+X   char *s;
+X   
+X   /* Do nothing if value is already the right type */
+X   if (type == v->type) return OK;
+X   
+X   switch(type) {
+X      case STR_TYPE:
+X         switch(v->type) {
+X            case INT_TYPE: sprintf(CoerceBuf, "%d", v->v.val); break;
+X            case TIM_TYPE: sprintf(CoerceBuf, "%02d:%02d", v->v.val / 60, v->v.val % 60);
+X			   break;
+X	    case DATE_TYPE: FromJulian(v->v.val, &y, &m, &d);
+X			    sprintf(CoerceBuf, "%04d/%02d/%02d", y, m+1, d);
+X			    break;
+X            default: return E_CANT_COERCE;
+X         }
+X         v->type = STR_TYPE;
+X	 v->v.str = StrDup(CoerceBuf);
+X	 if (!v->v.str) {
+X	    v->type = ERR_TYPE;
+X	    return E_NO_MEM;
+X	 }
+X	 return OK;
+X
+X      case INT_TYPE:
+X	 i = 0;
+X	 m = 1;
+X	 switch(v->type) {
+X	    case STR_TYPE:
+X	       s = v->v.str;
+X	       if (*s == '-') {
+X		  m = -1;
+X		  s++;
+X	       }
+X	       while(*s && isdigit(*s)) {
+X                  i *= 10;
+X                  i += (*s++) - '0';
+X               }
+X               if (*s) {
+X		  free (v->v.str);
+X                  v->type = ERR_TYPE;
+X                  return E_CANT_COERCE;
+X               }
+X               free(v->v.str);
+X               v->type = INT_TYPE;
+X	       v->v.val = i * m;
+X	       return OK;
+X
+X	    case DATE_TYPE:
+X	    case TIM_TYPE:
+X	       v->type = INT_TYPE;
+X	       return OK;
+X
+X            default: return E_CANT_COERCE;
+X	 }
+X
+X      case DATE_TYPE:
+X	 switch(v->type) {
+X	    case INT_TYPE:
+X	       if(v->v.val >= 0) {
+X		  v->type = DATE_TYPE;
+X		  return OK;
+X	       } else return E_2LOW;
+X
+X	    case STR_TYPE:
+X	       y=0; m=0; d=0;
+X	       s = v->v.str;
+X	       if (!isdigit(*s)) return E_CANT_COERCE;
+X	       while (isdigit(*s)) {
+X		  y *= 10;
+X		  y += *s++ - '0';
+X	       }
+X	       if (*s++ != '/') return E_CANT_COERCE;
+X	       if (!isdigit(*s)) return E_CANT_COERCE;
+X	       while (isdigit(*s)) {
+X		  m *= 10;
+X		  m += *s++ - '0';
+X	       }
+X	       m--;
+X	       if (*s++ != '/') return E_CANT_COERCE;
+X	       if (!isdigit(*s)) return E_CANT_COERCE;
+X	       while (isdigit(*s)) {
+X		  d *= 10;
+X		  d += *s++ - '0';
+X	       }
+X	       if (*s || y < BASE || y > BASE+YR_RANGE ||
+X		    m>11 || d<1 || d>DaysInMonth(m, y)) return E_CANT_COERCE;
+X	       v->type = DATE_TYPE;
+X	       free(v->v.str);
+X	       v->v.val = Julian(y, m, d);
+X	       return OK;
+X
+X	    default: return E_CANT_COERCE;
+X	 }
+X
+X      case TIM_TYPE:
+X	 switch(v->type) {
+X	    case INT_TYPE:
+X	       v->type = TIM_TYPE;
+X	       v->v.val %= 1440;
+X	       if (v->v.val < 0) v->v.val += 1440;
+X	       return OK;
+X
+X	    case STR_TYPE:
+X	       h = 0;
+X	       m = 0;
+X	       s = v->v.str;
+X	       if (!isdigit(*s)) return E_CANT_COERCE;
+X	       while (isdigit(*s)) {
+X		  h *= 10;
+X		  h += *s++ - '0';
+X	       }
+X	       if (*s++ != ':') return E_CANT_COERCE;
+X	       if (!isdigit(*s)) return E_CANT_COERCE;
+X	       while (isdigit(*s)) {
+X		  m *= 10;
+X		  m += *s++ - '0';
+X	       }
+X	       if (*s || h>23 || m>59) return E_CANT_COERCE;
+X	       v->type = TIM_TYPE;
+X	       free(v->v.str);
+X	       v->v.val = h*60+m;
+X	       return OK;
+X
+X	    default: return E_CANT_COERCE;
+X	 }
+X      default: return E_CANT_COERCE;
+X   }
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DestroyValue                                               */
+X/*                                                             */
+X/*  If value is of type string, deallocate string memory.      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC void DestroyValue(Value *v)
+X#else
+Xvoid DestroyValue(v)
+XValue *v;
+X#endif
+X{
+X   if (v->type == STR_TYPE && v->v.str) free(v->v.str);
+X   v->type = ERR_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Add                                                        */
+X/*                                                             */
+X/*  Perform addition.                                          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Add(void)
+X#else
+Xstatic int Add()
+X#endif
+X{
+X   Value v1, v2, v3;
+X   int r;
+X   
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X   
+X/* If both are ints, just add 'em */
+X   if (v2.type == INT_TYPE && v1.type == INT_TYPE) {
+X      v2.v.val += v1.v.val;
+X      return (PushValStack(&v2));
+X   }
+X
+X/* If it's a date plus an int, add 'em */
+X   if ((v1.type == DATE_TYPE && v2.type == INT_TYPE) ||
+X       (v1.type == INT_TYPE && v2.type == DATE_TYPE)) {
+X      v1.v.val += v2.v.val;
+X      v1.type = DATE_TYPE;
+X      return PushValStack(&v1);
+X   }
+X   
+X/* If it's a time plus an int, add 'em mod 1440 */
+X   if ((v1.type == TIM_TYPE && v2.type == INT_TYPE) ||
+X       (v1.type == INT_TYPE && v2.type == TIM_TYPE)) {
+X      v1.v.val = (v1.v.val + v2.v.val) % 1440;
+X      v1.type = TIM_TYPE;
+X      return PushValStack(&v1);
+X   }   	
+X
+X/* If either is a string, coerce them both to strings and concatenate */
+X   if (v1.type == STR_TYPE || v2.type == STR_TYPE) {
+X      if (r = DoCoerce(STR_TYPE, &v1)) {
+X      	 DestroyValue(&v1); DestroyValue(&v2);
+X         return r;
+X      }
+X      if (r = DoCoerce(STR_TYPE, &v2)) {
+X      	 DestroyValue(&v1); DestroyValue(&v2);
+X      	 return r;
+X      }
+X      v3.type = STR_TYPE;
+X      v3.v.str = (char *) malloc(strlen(v1.v.str) + strlen(v2.v.str) + 1);
+X      if (!v3.v.str) {
+X      	 DestroyValue(&v1); DestroyValue(&v2);
+X	 return E_NO_MEM;
+X      }
+X      strcpy(v3.v.str, v1.v.str);
+X      strcat(v3.v.str, v2.v.str);
+X      DestroyValue(&v1); DestroyValue(&v2);
+X      return (PushValStack(&v3));
+X   }
+X
+X   /* Don't handle other types yet */
+X   return E_BAD_TYPE;
+X}
+X      
+X/***************************************************************/
+X/*                                                             */
+X/*  Subtract                                                   */
+X/*                                                             */
+X/*  Perform subtraction.                                       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Subtract(void)
+X#else
+Xstatic int Subtract()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X   
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   /* If they're both INTs, do subtraction */
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val -= v2.v.val;
+X      return PushValStack(&v1);
+X   }
+X
+X   /* If it's a date minus an int, do subtraction, checking for underflow */
+X   if (v1.type == DATE_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val -= v2.v.val;
+X      if (v1.v.val < 0) return E_DATE_OVER;
+X      return PushValStack(&v1);
+X   }
+X
+X   /* If it's a time minus an int, do subtraction mod 1440 */
+X   if (v1.type == TIM_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val = (v1.v.val - v2.v.val) % 1440;
+X      return PushValStack(&v1);
+X   }
+X
+X   /* If it's a time minus a time or a date minus a date, do it */
+X   if ((v1.type == TIM_TYPE && v2.type == TIM_TYPE) ||
+X       (v1.type == DATE_TYPE && v2.type == DATE_TYPE)) {
+X      v1.v.val -= v2.v.val;
+X      v1.type = INT_TYPE;
+X      return PushValStack(&v1);
+X   }
+X
+X   /* Must be types illegal for subtraction */
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Multiply                                                   */
+X/*                                                             */
+X/*  Perform multiplication.                                    */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Multiply(void)
+X#else
+Xstatic int Multiply()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val *= v2.v.val;
+X      return PushValStack(&v1);
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Divide                                                     */
+X/*                                                             */
+X/*  Perform division.                                          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Divide(void)
+X#else
+Xstatic int Divide()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      if (v2.v.val == 0) return E_DIV_ZERO;
+X      v1.v.val /= v2.v.val;
+X      return PushValStack(&v1);
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Mod                                                        */
+X/*                                                             */
+X/*  Perform modulus function.                                  */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Mod(void)
+X#else
+Xstatic int Mod()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      if (v2.v.val == 0) return E_DIV_ZERO;
+X      v1.v.val %= v2.v.val;
+X      return PushValStack(&v1);
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  GreaterThan, LessThan, EqualTo, NotEqual, LessOrEqual,     */
+X/*  GreaterOrEqual                                             */
+X/*                                                             */
+X/*  All the comparison functions.                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int GreaterThan(void) {return Compare(GT);}
+XPRIVATE int LessThan(void) {return Compare(LT);}
+XPRIVATE int EqualTo(void) {return Compare(EQ);}
+XPRIVATE int NotEqual(void) {return Compare(NE);}
+XPRIVATE int LessOrEqual(void) {return Compare(LE);}
+XPRIVATE int GreaterOrEqual(void) {return Compare(GE);}
+X#else
+Xstatic int GreaterThan() {return Compare(GT);}
+Xstatic int LessThan() {return Compare(LT);}
+Xstatic int EqualTo() {return Compare(EQ);}
+Xstatic int NotEqual() {return Compare(NE);}
+Xstatic int LessOrEqual() {return Compare(LE);}
+Xstatic int GreaterOrEqual() {return Compare(GE);}
+X#endif
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  Compare                                                    */
+X/*  Do the actual work of comparison.                          */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int Compare(int how)
+X#else
+Xstatic int Compare(how)
+Xint how;
+X#endif
+X{
+X   Value v1, v2, v3;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X/* Special case for EQ and NE */
+X
+X   v3.type = INT_TYPE;
+X   if (v1.type != v2.type) {
+X      DestroyValue(&v1); DestroyValue(&v2);
+X      if (how == EQ) {
+X         v3.v.val = 0;
+X	 return PushValStack(&v3);
+X      } else if (how == NE) {
+X         v3.v.val = 1;
+X	 return PushValStack(&v3);
+X      } else return E_BAD_TYPE;
+X   }
+X
+X   if (v1.type == STR_TYPE) {
+X      switch(how) {
+X         case EQ: v3.v.val = (strcmp(v1.v.str, v2.v.str) == 0); break;
+X         case NE: v3.v.val = (strcmp(v1.v.str, v2.v.str) != 0); break;
+X         case LT: v3.v.val = (strcmp(v1.v.str, v2.v.str) < 0); break;
+X         case GT: v3.v.val = (strcmp(v1.v.str, v2.v.str) > 0); break;
+X         case LE: v3.v.val = (strcmp(v1.v.str, v2.v.str) <= 0); break;
+X         case GE: v3.v.val = (strcmp(v1.v.str, v2.v.str) >= 0); break;
+X      }
+X   } else {
+X      switch(how) {
+X         case EQ: v3.v.val = (v1.v.val == v2.v.val); break;
+X         case NE: v3.v.val = (v1.v.val != v2.v.val); break;
+X         case LT: v3.v.val = (v1.v.val < v2.v.val); break;
+X         case GT: v3.v.val = (v1.v.val > v2.v.val); break;
+X         case LE: v3.v.val = (v1.v.val <= v2.v.val); break;
+X         case GE: v3.v.val = (v1.v.val >= v2.v.val); break;
+X      }
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return PushValStack(&v3);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  LogOR                                                      */
+X/*                                                             */
+X/*  Do logical OR                                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int LogOR(void)
+X#else
+Xstatic int LogOR()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val = (v1.v.val || v2.v.val) ? 1 : 0;
+X      return PushValStack(&v1);
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  LogAND                                                     */
+X/*                                                             */
+X/*  Do logical AND                                             */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int LogAND(void)
+X#else
+Xstatic int LogAND()
+X#endif
+X{
+X   Value v1, v2;
+X   int r;
+X
+X   if (r = PopValStack(&v2)) return r;
+X   if (r = PopValStack(&v1)) {
+X      DestroyValue(&v2);
+X      return r;
+X   }
+X
+X   if (v1.type == INT_TYPE && v2.type == INT_TYPE) {
+X      v1.v.val = (v1.v.val && v2.v.val) ? 1 : 0;
+X      return PushValStack(&v1);
+X   }
+X   DestroyValue(&v1); DestroyValue(&v2);
+X   return E_BAD_TYPE;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  UnMinus                                                    */
+X/*                                                             */
+X/*  Unary Minus                                                */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int UnMinus(void)
+X#else
+Xstatic int UnMinus()
+X#endif
+X{
+X   Value *v = &ValStack[ValStackPtr-1];
+X   if (v->type != INT_TYPE) return E_BAD_TYPE;
+X   v->v.val = -v->v.val;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  LogNot                                                     */
+X/*                                                             */
+X/*  Logical NOT                                                */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int LogNot(void)
+X#else
+Xstatic int LogNot()
+X#endif
+X{
+X   Value *v = &ValStack[ValStackPtr-1];
+X   if (v->type != INT_TYPE) return E_BAD_TYPE;
+X   if (v->v.val) v->v.val = 0; else v->v.val = 1;
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  FindFunc                                                   */
+X/*                                                             */
+X/*  Find a function.                                           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE Operator *FindFunc(char *name, Operator where[], int num)
+X#else
+Xstatic Operator *FindFunc(name, where, num)
+Xchar *name;
+XOperator where[];
+Xint num;
+X#endif
+X{
+X   int top=num-1, bot=0;
+X   int mid, r;
+X   while (top >= bot) {
+X      mid = (top + bot) / 2;
+X      r = StrCmpi(name, where[mid].name);
+X      if (!r) return &where[mid];
+X      else if (r > 0) bot = mid+1;
+X      else top = mid-1;
+X   }
+X   return NULL;
+X}
+X	
+X/***************************************************************/
+X/*                                                             */
+X/*  PrintValue                                                 */
+X/*                                                             */
+X/*  Print a value to stdout for debugging purposes.            */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC void PrintValue (Value *v, FILE *fp)
+X#else
+Xvoid PrintValue(v, fp)
+XValue *v;
+XFILE *fp;
+X#endif
+X{
+X   int y, m, d;
+X   char *s;
+X
+X   if (v->type == STR_TYPE) {
+X      s=v->v.str;
+X      putc('"', fp);
+X      for (y=0; y<MAX_PRT_LEN && *s; y++) putc(*s++, fp);
+X      putc('"',fp);
+X      if (*s) fprintf(fp, "...");
+X   }      
+X   else if (v->type == INT_TYPE) fprintf(fp, "%d", v->v.val);
+X   else if (v->type == TIM_TYPE) fprintf(fp, "%02d:%02d", v->v.val / 60, v->v.val % 60);
+X   else if (v->type == DATE_TYPE) {
+X      FromJulian(v->v.val, &y, &m, &d);
+X      fprintf(fp, "%04d/%02d/%02d", y, m+1, d);
+X   }
+X   else fprintf(fp, "ERR");
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  CopyValue                                                  */
+X/*                                                             */
+X/*  Copy a value.                                              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int CopyValue(Value *dest, const Value *src)
+X#else
+Xint CopyValue(dest, src)
+XValue *dest, *src;
+X#endif
+X{
+X   dest->type = src->type;
+X   if (src->type == STR_TYPE) {
+X      dest->v.str = StrDup(src->v.str);
+X      if (!dest->v.str) {
+X	 dest->type = ERR_TYPE;
+X	 return E_NO_MEM;
+X      }
+X      return OK;
+X   } else {
+X      dest->v.val = src->v.val;
+X      return OK;
+X   }
+X}
+SHAR_EOF
+$TOUCH -am 1109141292 expr.c &&
+chmod 0600 expr.c ||
+echo "restore of expr.c failed"
+set `wc -c expr.c`;Wc_c=$1
+if test "$Wc_c" != "36192"; then
+	echo original size 36192, current size $Wc_c
+fi
+fi
+echo "End of part 4, continue with part 5"
+exit 0
+
+exit 0 # Just in case...

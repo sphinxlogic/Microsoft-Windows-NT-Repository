@@ -1,0 +1,1958 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i062:  ecu - ECU Asynchronous Communications v3.20, Part27/40
+Message-ID: <1992Sep14.144840.22238@sparky.imd.sterling.com>
+X-Md4-Signature: 993df7828f781ca49290a84e9186045e
+Date: Mon, 14 Sep 1992 14:48:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 62
+Archive-name: ecu/part27
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.27 (part 27 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file sea/ecusea.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 27; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping sea/ecusea.c'
+else
+echo 'x - continuing file sea/ecusea.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'sea/ecusea.c' &&
+X	return(0);                          /* exit with bad status */
+X}	/* end of send_file */
+X
+X/*+-------------------------------------------------------------------------
+X	set_utime_1980(filename,secs_since_1980)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xset_utime_1980(filename,secs_since_1980)
+Xchar *filename;						/* file to set stamp on */
+Xlong secs_since_1980;
+X{
+Xtime_t times[2];
+Xtime_t time();
+X
+X	times[0] = time((long *) 0);				/* accessed */
+X	times[1] = secs_since_1980 + OFFSET_1980;	/* modified (convert time) */
+X	utime(filename,times);
+X}	/* end of set_utime_1980 */
+X
+X/*+-------------------------------------------------------------------------
+X	receive_block(buf) - get block from line
+Xreturn 0 if good chk/CRC, 1 if bad
+X--------------------------------------------------------------------------*/
+Xint
+Xreceive_block(buf)
+Xchar *buf;				/* data buffer */
+X{
+Xregister unsigned int rdchar;	
+Xregister unsigned short rUINT16 = 0;	/* calculated CRC or check value */
+Xint itmp;
+Xint timeout = no_ack_mode ? 200 : 5;	/* short block timeout */
+Xunsigned short rcvd_crc;				/* received CRC or check value */
+X
+X	itmp = 128;
+X	while(itmp--)
+X	{
+X		if((rdchar = lgetc_timeout(timeout)) == TIMEOUT)
+X			return(1);
+X		if(crc_in_use)
+X			rUINT16 = crc_update(rdchar,rUINT16);
+X		else
+X			rUINT16 += rdchar;
+X		*buf++ = rdchar;
+X	}
+X
+X	if(crc_in_use)
+X	{
+X		rUINT16 = crc_update(0,rUINT16);
+X		rUINT16 = crc_update(0,rUINT16);
+X		rdchar = lgetc_timeout(timeout);
+X		rcvd_crc = (rdchar << 8) | lgetc_timeout(timeout);
+X	}
+X	else 
+X	{
+X		rUINT16 &= 0xFF;
+X		rcvd_crc = lgetc_timeout(timeout) & 0xFF;
+X	}
+X
+X	if(rUINT16 != rcvd_crc)
+X	{
+X		sprintf(s128,"bad %s calc=%04x rcvd=%04x",
+X			crc_in_use ? "CRC" : "checksum",rcvd_crc,rUINT16);
+X		report_str(s128,-1);
+X	}
+X	return(rUINT16 != rcvd_crc);
+X}	/* end of receive_block */
+X
+X/*+-------------------------------------------------------------------------
+X	receive_file()
+X--------------------------------------------------------------------------*/
+Xchar *
+Xreceive_file()
+X{
+Xint rdchar;					/* received character */
+Xint tries;					/* retry counter */
+Xint blknum;					/* desired block number */
+Xint inblk;					/* this block number */
+XFILE *fp;
+Xchar buf[128];				/* data buffer */
+Xchar tmpname[100];			/* name of temporary file */
+Xstatic char outname[100];	/* name of final file */
+XBLK0 blk0;					/* file header data storage */
+Xint endblk;					/* block number of EOT, if known */
+Xlong left = 0;				/* bytes left to output */
+Xint itmp;					/* index */
+Xint cnvrt;					/* flag -- convert filename? */
+Xchar *onp;					/* use to convert filename to l / rdchar */
+Xlong ftell();
+X
+X	*outname = '\0';		/* get name from transmitter */
+X	cnvrt = 1;		/* convert to local is necessary */
+X	sprintf(tmpname,"./SEA%05d.tmp",getpid());	/* use a unique temp filename */
+X
+X	if(!(fp = fopen(tmpname,"w")))
+X	{	/* open temporary file */
+X		sprintf(s128,"Cannot create temp file %s\n",tmpname);
+X		report_str(s128,0);
+X		xmit_cancel();
+X		return(NULL);
+X	}
+X
+X	blknum = 0;
+X	tries = -10;				/* kludge for first time around */
+X	crc_in_use = 1;				/* try for CRC error checking */
+X	error_count = 0;			/* no errors yet */
+X	endblk = 0;					/* we don't know the size yet */
+X	no_ack_mode = 0;			/* we don't know about this yet */
+X	memset((char *)&blk0,0,sizeof(blk0));	/* or much of anything else */
+X	report_protocol_crc_type("/CRC16");
+X
+XSEND_NAK:				/* we got a bad block */
+X	if(blknum > 1)
+X	{
+X		error_count++;
+X		report_str("bad block",1);
+X	}
+X	if(++tries > 10)
+X		goto CANCEL_TRANSFER;
+X	if(tries == 0)			/* if CRC isn't going */
+X	{
+X		crc_in_use = 0;		/* then give checksum a try */
+X		report_protocol_crc_type("/CHK");
+X	}
+X
+X	xmit_nak(blknum);		/* send the NAK */
+X	if(no_ack_mode && error_count > 20)
+X	{	/* if no_ack_mode mode isn't working */
+X		no_ack_mode = 0;		/* then shut it off */
+X		report_str("Overdrive disengaged",0);
+X	}
+X
+XRECEIVE_NEXT_BLOCK:				/* start of "get a block" */
+X	report_rxpos(ftell(fp));
+X	while((rdchar = lgetc_timeout(30)) != TIMEOUT)
+X	{
+X		if(rdchar == CAN)
+X		{
+X			if((rdchar = lgetc_timeout(30)) == CAN)
+X			{
+X				xmit_cancel();
+X				return(NULL);
+X			}
+X			break;
+X		}
+X		if(rdchar == EOT)
+X		{
+X			if(!endblk || endblk == blknum)
+X				goto RECEIVE_EOT_SEEN;
+X		}
+X		else if(rdchar == SOH)
+X		{
+X			if((inblk = lgetc_timeout(5)) == TIMEOUT)
+X				goto SEND_NAK;
+X			if(lgetc_timeout(5) == (inblk ^ 0xFF))
+X			{
+X				sprintf(s128,"receiving %d",inblk);
+X				report_last_rxhdr(s128,0);
+X				goto GOT_START_OF_BLOCK;	/* we found a start */
+X			}
+X		}
+X	}
+X	goto SEND_NAK;
+X
+XGOT_START_OF_BLOCK:				/* start of block detected */
+X	rdchar = blknum & 0xFF;
+X	if(inblk == 0 && blknum <= 1)
+X	{	/* if this is the header */
+X		if(receive_block((char *)&blk0))
+X			goto SEND_NAK;		/* bad header block */
+X		else 
+X		{
+X			xmit_ack(inblk);	/* ack the header */
+X
+X#if defined(M_UNIX)
+X			if(fname_too_long(blk0.filename))
+X			{
+X				strcpy(s128,"truncated: ");
+X				strncat(s128,blk0.filename,sizeof(s128) - 12);
+X				report_str(s128,-1);
+X				strcpy(outname,fname_truncated());
+X			}
+X			else
+X#endif
+X				strcpy(outname,blk0.filename);
+X			report_file_rcv_started(outname,blk0.length,
+X				blk0.secs_since_1980 + OFFSET_1980);
+X			if(left = blk0.length)	/* length to transfer */
+X				endblk=(int)((left + 127L)/128L)+1;
+X			if(no_ack_mode != blk0.send_no_acks)
+X			{
+X				sprintf(s128,"Overdrive %sengaged",
+X					(blk0.send_no_acks) ? "" : "dis");
+X				report_str(s128,0);
+X			}
+X			no_ack_mode = blk0.send_no_acks;
+X			blknum = 1;	/* now we want first data block */
+X			goto RECEIVE_NEXT_BLOCK;
+X		}
+X	}
+X
+X	if(inblk == rdchar)
+X	{			/* if this is the one we want */
+X		if(!receive_block(buf))
+X		{		/* else if we get it okay */
+X			if(!no_ack_mode)		/* if we're sending ACKs */
+X				xmit_ack(inblk);	/* then ACK the data */
+X			for(itmp = 0; itmp < 128; itmp++)
+X			{
+X				if(endblk)
+X				{	/* limit file size if known */
+X					if(!left)
+X						break;
+X					left--;
+X				}
+X				if(fputc(buf[itmp],fp) == EOF)
+X				{
+X					report_str("FILE WRITE ERROR",0);
+X					goto CANCEL_TRANSFER;
+X				}
+X			}
+X			tries = 0;		/* reset try count */
+X			blknum++;		/* we want the next block */
+X			goto RECEIVE_NEXT_BLOCK;
+X		}
+X		goto SEND_NAK;		/* ask for a resend */
+X	}
+X
+X	if(inblk < rdchar || inblk > rdchar + 100)
+X	{	/* if resending what we have */
+X		receive_block(buf);			/* ignore it */
+X		xmit_ack(inblk);			/* but ack it */
+X	}
+X	goto RECEIVE_NEXT_BLOCK;		/* else if running ahead */
+X
+XRECEIVE_EOT_SEEN:
+X#ifdef NAKEOT
+X	xmit_nak(blknum);				/* NAK the EOT, make sure */
+X	if(lgetc_timeout(20) != EOT)	/* we're all done */
+X		goto SEND_NAK;
+X#endif /* NAKEOT */
+X	xmit_ack(blknum);				/* ACK it and clean up */
+X	report_last_rxhdr("EOT",0);
+X	if(blknum > 1)
+X	{				/* if we really got anything */
+X		fclose(fp);
+X		unlink(outname);		/* rename temp to proper name */
+X		for(onp = outname;cnvrt && *onp;onp++)
+X			/* find out if there's lower- */
+X			if(islower(*onp))	/* case letters filename */
+X				cnvrt = 0;	/*  there are, don't convert */
+X		if(cnvrt)			/* if there aren't, make all */
+X			for(onp = outname;*onp;onp++)	/* into uppercase */
+X				*onp = tolower(*onp);
+X		if(link(tmpname,outname) == 0)
+X			unlink(tmpname);
+X		if(blk0.secs_since_1980)		/* set stamp, if known */
+X			set_utime_1980(outname,blk0.secs_since_1980);
+X		return(outname);
+X	}
+X	else 
+X	{				/* else no real file */
+X		fclose(fp);
+X		unlink(tmpname);		/* discard empty file */
+X		report_str("end of transfer",0);
+X		rf_done = 1;
+X		return(NULL);
+X	}
+X
+XCANCEL_TRANSFER:
+X	fclose(fp);
+X	xmit_cancel();
+X	rf_done = 2;
+X	return(NULL);
+X}	/* end of receive_file */
+X
+X/*+-------------------------------------------------------------------------
+X	cancel_transaction(sig)
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xcancel_transaction(sig)
+Xint sig;
+X{
+X	xmit_cancel();
+X	sprintf(s128,"signal %d ... exiting",sig);
+X	report_str(s128,1);
+X/*
+X	report_rx_ind(0);
+X	report_tx_ind(0);
+X*/
+X	report_uninit();
+X	if(sig == SIGQUIT)
+X		abort();
+X	exit(128+sig);
+X}	/* end of cancel_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	getspeed(code)
+X--------------------------------------------------------------------------*/
+Xstruct B_to_baud { unsigned baud; int B_code; };
+Xunsigned
+Xgetspeed(code)
+Xint code;
+X{
+Xregister itmp;
+Xstatic struct B_to_baud speeds[] = 
+X{
+X 50, B50, 75, B75, 110, B110, 300, B300, 600, B600, 1200, B1200,
+X 2400, B2400, 4800, B4800, 9600, B9600, 19200, EXTA, 38400, EXTB, 0
+X};
+X
+X	code &= CBAUD;
+X	for(itmp = 0; speeds[itmp].baud; itmp++)
+X		if(speeds[itmp].B_code == code)
+X			return(speeds[itmp].baud);
+X	return(38400);	/* Assume fifo if ioctl failed */
+X}	/* end of getspeed */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+Xint ipaths;
+Xint ok = 0;
+X#define MAX_PATHS 512
+Xchar *paths[MAX_PATHS];
+Xchar **ppaths = paths;
+Xchar *cptr;
+Xchar **gargv = argv;
+Xint gargc = argc;
+X
+X	exit_code = 254;
+X	while(--argc)
+X	{
+X		cptr = *++argv;
+X		if(*cptr == '-')
+X		{
+X			cptr++;
+X			switch(*cptr++)
+X			{
+X			case ',':
+X				log_packets = 1;
+X				break;
+X			case '/':
+X				if(--argc < 1)
+X					exit(255);
+X				strcpy(curr_dir,*++argv);
+X				break;
+X			case '.':
+X				if(--argc < 1)
+X					exit(255);
+X				iofd = atoi(*++argv);
+X				break;
+X			case 'r':
+X				sending_flag = 0;
+X				break;
+X			case 's':
+X				sending_flag = 1;
+X			}
+X		}
+X		else if(argc > 0)
+X		{
+X			if(npaths < MAX_PATHS)
+X			{
+X				*ppaths++ = cptr;
+X				npaths++;
+X			}
+X			else
+X			{
+X				printf("too many filenames to send\n");
+X				exit(255);
+X			}
+X		}
+X	}
+X
+X	if(sending_flag == -1)
+X	{
+X		printf("no -r or -s\n");
+X		exit(255);
+X	}
+X
+X	if((npaths < 1) && sending_flag)
+X		exit(253);
+X
+X	if(npaths && !sending_flag)
+X		exit(255);
+X
+X	if(log_packets)
+X	{
+X		char log_packets_name[64];
+X		FILE *ftmp;
+X		int iargv;
+X		sprintf(log_packets_name,"/tmp/sea%05d.plog",getpid());
+X		unlink(log_packets_name);
+X		ftmp = fopen(log_packets_name,"w");
+X		fclose(ftmp);
+X		log_packets = open(log_packets_name,O_WRONLY,0644);
+X		if(log_packets < 0)
+X			log_packets = 0;
+X		else
+X		{
+X			write(log_packets,"exec: ",6);
+X			for(iargv = 0; iargv < gargc; iargv++)
+X			{
+X				write(log_packets,gargv[iargv],strlen(gargv[iargv]));
+X				write(log_packets," ",1);
+X			}
+X			write(log_packets,"\n",1);
+X		}
+X	}
+X
+X	sprintf(s128,"ecusea %s",revision);
+X	report_init(s128);
+X	report_top_line("System Enhancement Associates");
+X	signal(SIGHUP,cancel_transaction);
+X	signal(SIGQUIT,cancel_transaction);
+X	signal(SIGINT,cancel_transaction);
+X	signal(SIGTERM,cancel_transaction);
+X#if	defined(SIGSTOP)
+X	/*
+X	 * call Roto-Rooter on POSIX plots
+X	 */
+X	signal(SIGSTOP,SIG_IGN);
+X	signal(SIGTSTP,SIG_IGN);
+X	signal(SIGCONT,SIG_IGN);
+X	signal(SIGTTIN,SIG_IGN);
+X	signal(SIGTTOU,SIG_IGN);
+X#endif
+X
+X	ioctl(iofd,TCGETA,&tio0);
+X	tio = tio0;
+X
+X	tio.c_oflag = 0;
+X	tio.c_cflag &= ~PARENB;
+X	tio.c_cflag &= ~CSIZE;
+X	tio.c_cflag |= CS8;
+X
+X	/*
+X	 * learn tick rate for various timers
+X	 */
+X	init_Nap();
+X
+X	baud_rate = getspeed(tio.c_cflag);
+X	ioctl(iofd,TCSETA,&tio);
+X	report_line(baud_rate,"RAW");
+X
+X	switch(sending_flag)
+X	{
+X		case 0:				/* receive files */
+X			while(receive_file() != NULL)
+X				Nap(1000L);
+X			ok = (rf_done == 1);
+X			break;
+X
+X		case 1:				/* send files */
+X			ipaths = 0;
+X			while(ipaths < npaths)
+X			{
+X				if(!(ok = send_file(paths[ipaths])))
+X					break;
+X				Nap(1000L);
+X				ipaths++;
+X			}
+X			if(ok)		/* no errors, send end marker */
+X				send_file("");
+X			report_str("end of transfer",0);
+X			break;
+X	}
+X
+X	ioctl(iofd,TCSETA,&tio0);
+X	report_line(baud_rate,"NORMAL");
+X	report_uninit();
+X	exit(ok ? 0 : exit_code);	/* and return error status */
+X
+X}	/* end of main */
+X
+SHAR_EOF
+echo 'File sea/ecusea.c is complete' &&
+chmod 0644 sea/ecusea.c ||
+echo 'restore of sea/ecusea.c failed'
+Wc_c="`wc -c < 'sea/ecusea.c'`"
+test 37329 -eq "$Wc_c" ||
+	echo 'sea/ecusea.c: original size 37329, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sea/scurses.c ==============
+if test -f 'sea/scurses.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping sea/scurses.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sea/scurses.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sea/scurses.c' &&
+X/*+-------------------------------------------------------------------------
+X	scurses.c -- ecu file transfer program curses interface
+X
+X  000000000011111111112222222222333333333344444444445555555550
+X  012345678901234567890123456789012345678901234567890123456789
+X00.----------------------------------------------------------.
+X01|  SEAlink_6____  _39____________________________________  |
+X02|  File ### of ###: _38__________________________________  |
+X03|  File position:  _8______ length: _8______               |
+X04|  _55____________________________________________________ | transaction
+X05|  _55____________________________________________________ | last rx/tx hdr
+X06|  Comm I/O: rx _8______  tx _8______ bytes                |
+X07|  Baud rate: _5___ BINARY blklen: _____ comm mode: CBREAK |
+X08|  Time started: session: HH:MM:SS  this file: HH:MM:SS    |
+X09|                elpased: HH:MM:SS       time: HH:MM:SS    |
+X10|  Error counts: this file:  _4__  total: _6____           |
+X11|  _55____________________________________________________ |  err str
+X12|  _55____________________________________________________ |  comment str
+X13|  _55____________________________________________________ |  remote info
+X14`----------------------------------------------------------'
+X
+X  Defined functions:
+X	clear_area(w,row,col,len)
+X	clear_area_char(w,row,col,len,fillchar)
+X	get_elapsed_time(elapsed_secs)
+X	hhmmss(tod)
+X	report_error_count()
+X	report_file_byte_io(count)
+X	report_file_close()
+X	report_file_open_length(length)
+X	report_file_open_tod()
+X	report_file_rcv_started(filename,length,last_mod_time)
+X	report_file_send_open(filename,filestat)
+X	report_init(title)
+X	report_last_rxhdr(rptstr,error_flag)
+X	report_last_txhdr(rptstr,error_flag)
+X	report_line(baud_rate,mode)
+X	report_protocol_crc_type(str)
+X	report_rx_ind(status)
+X	report_rx_tx_count()
+X	report_rxpos(pos)
+X	report_str(rptstr,error_flag)
+X	report_top_line(topstr)
+X	report_transaction(str)
+X	report_tx_ind(status)
+X	report_txpos(pos)
+X	report_uninit()
+X	vanilla_ruling()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-24-1992-21:15-wht@n4hgf-sort out vannilla vs. at ruling */
+X/*:02-09-1992-16:08-root@n4hgf-ruling characters only on  SCO (tcap curses) */
+X/*:08-28-1991-14:08-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "../ecucurses.h"
+X#include "../ecu_types.h"
+X#include "../ecu_stat.h"
+X#include <ctype.h>
+X#include <signal.h>
+X#include <time.h>
+X#include <sys/timeb.h>
+X
+X#if defined(M_SYSV)
+X#   include <sys/machdep.h>
+X#else
+X#if defined(ISC) || defined(SVR4)
+X#  include <sys/at_ansi.h>
+X#  include <sys/kd.h>
+X#endif
+X#endif
+X
+X#include "../pc_scr.h"
+X
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+Xlong time();
+Xextern char *tzname[];
+Xstruct tm *localtime();
+X
+X#define WIN_LINES	15
+X#define WIN_COLS	60
+X#define WIN_TOPY	2
+X#define WIN_LEFTX	8
+X
+Xextern char curr_dir[];
+Xextern char s128[];
+Xextern int Filcnt;
+Xextern int Restricted;
+Xextern int sending_flag;	/* send == 1, receive == 0 */
+Xextern int npaths;
+Xextern long rxpos;
+Xextern int log_packets;
+X
+XWINDOW	*win;
+Xint (*original_sigint_handler)();
+Xint (*original_sigquit_handler)();
+Xint (*original_sigterm_handler)();
+Xint curses_installed = 0;		/* curses not yet active */
+Xint this_file_errors = 0;
+Xint total_errors = 0;
+Xlong current_seconds;
+Xlong start_seconds;
+Xlong elapsed_seconds;
+Xunsigned long total_data_chars_xfered = 0L;
+X
+Xunsigned char sTL = at_TL;
+Xunsigned char sTR = at_TR;
+Xunsigned char sBL = at_BL;
+Xunsigned char sBR = at_BR;
+Xunsigned char sLT = at_LT;
+Xunsigned char sRT = at_RT;
+Xunsigned char sVR = at_VR;
+Xunsigned char sHR = at_HR;
+X
+Xchar *win_template[] =
+X{
+X/*00000000001111111111222222222233333333334444444444555555555 */
+X/*01234567890123456789012345678901234567890123456789012345678 */
+X/*.----------------------------------------------------------. */
+X  "  SEAlink                                                 ",	/* 1 */
+X  "  File ### of ###: _____________________________________  ",	/* 2 */
+X  "  File position:  ________ length: ________               ",	/* 3 */
+X  "                                                          ",	/* 4 */
+X  "  tx: ______________________  rx: ______________________  ",	/* 5 */
+X  "  Comm I/O: rx ________  tx ________ bytes                ",	/* 6 */
+X  "  Baud rate: _____ BINARY blklen: 128   comm mode: ______ ",	/* 7 */
+X  "  Time started: session: --:--:--  this file: --:--:--    ",	/* 8 */
+X  "                elapsed: --:--:--    current: --:--:--    ",	/* 9 */
+X  "  Error counts: this file:  ____  total: ______           ",	/* 10 */
+X  "                                                          ",	/* 11 */
+X  "                                                          ",	/* 12 */
+X  "                                                          ",	/* 13 */
+X/*`----------------------------------------------------------' */
+X(char *)0
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	vanilla_ruling() - use ordinary ruling characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xvanilla_ruling()
+X{
+X	sTL = vanilla_TL;
+X	sTR = vanilla_TR;
+X	sBL = vanilla_BL;
+X	sBR = vanilla_BR;
+X	sLT = vanilla_LT;
+X	sRT = vanilla_RT;
+X	sVR = vanilla_VR;
+X	sHR = vanilla_HR;
+X
+X}	/* end of vanilla_ruling */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_elapsed_time(elapsed_secs)
+X	hh:mm:ss returned
+X  static string address is returned
+X------------------------------------------------------------------------*/
+Xchar *get_elapsed_time(elapsed_secs)
+Xlong elapsed_secs;
+X{
+X	static char elapsed_time_str[10];
+X	long hh,mm,ss;
+X
+X	hh = elapsed_secs / 3600;
+X	elapsed_secs -= hh * 3600;
+X	mm = elapsed_secs / 60L;
+X	elapsed_secs -= mm * 60L;
+X	ss = elapsed_secs;
+X
+X	sprintf(elapsed_time_str,"%02ld:%02ld:%02ld",hh,mm,ss);
+X	return(elapsed_time_str);
+X}	/* end of get_elapsed_time */
+X
+X/*+-----------------------------------------------------------------------
+X	char *hhmmss(tod) - get time of day in form "hh:mm:ss"
+X
+X  static string address is returned
+X  if tod != (char *)0, time is returned there too
+X------------------------------------------------------------------------*/
+Xchar *
+Xhhmmss(tod)
+Xchar *tod;
+X{
+X	long cur_time = 0;
+X	struct tm *lt;			/* local time */
+X	static char tod_str[32];
+X
+X	cur_time = time((long *)0);
+X	lt = localtime(&cur_time);
+X
+X	sprintf(tod_str,"%02d:%02d:%02d",lt->tm_hour,lt->tm_min,lt->tm_sec);
+X
+X	if(tod != (char *)0)
+X		strcpy(tod,tod_str);
+X
+X	return(tod_str);
+X
+X}	/* end of hhmmss */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area(w,row,col,len)
+X--------------------------------------------------------------------------*/
+Xclear_area(w,row,col,len)
+XWINDOW	*w;
+Xint row;
+Xint col;
+Xint len;
+X{
+X	wmove(w,row,col);
+X	while(len-- > 0)
+X		waddch(w,' ');
+X	wmove(w,row,col);
+X
+X}	/* end of clear_area */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area_char(w,row,col,len,fillchar)
+X--------------------------------------------------------------------------*/
+Xclear_area_char(w,row,col,len,fillchar)
+XWINDOW	*w;
+Xint row;
+Xint col;
+Xint len;
+Xchar fillchar;
+X{
+X	wmove(w,row,col);
+X	while(len-- > 0)
+X		waddch(w,fillchar);
+X	wmove(w,row,col);
+X
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	report_top_line(topstr)
+X   top line: row 1 col 18 length 39
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_top_line(topstr)
+Xchar *topstr;
+X{
+Xchar s42[42];
+X	clear_area(win,1,18,39);
+X	if(strlen(topstr) < 39)
+X		waddstr(win,topstr);
+X	else
+X	{
+X		strncpy(s42,topstr,39);
+X		s42[39] = 0;
+X		waddstr(win,s42);
+X	}
+X}	/* end of report_top_line */
+X
+X/*+-------------------------------------------------------------------------
+X	report_protocol_crc_type(str)
+X
+X  protocol crc type:  row 1 col 10 length 6
+X--------------------------------------------------------------------------*/
+Xreport_protocol_crc_type(str)
+Xregister char *str;
+X{
+Xchar s8[8];
+X
+X	if(strlen(str) > 6)
+X	{
+X		strncpy(s8,str,6);
+X		s8[6] = 0;
+X		str = s8;
+X	}
+X	clear_area(win,1,10,6);
+X	waddstr(win,str);
+X	wrefresh(win);
+X	if(log_packets)
+X	{
+X		write(log_packets,"chk:  ",6);
+X		write(log_packets,str,strlen(str));
+X		write(log_packets,"\n",1);
+X	}
+X
+X}	/* end of report_protocol_crc_type */
+X
+X/*+-------------------------------------------------------------------------
+X	report_error_count()
+X	DOES NOT PERFORM A REFRESH CYCLE
+X  this file: row 10 col 29 len 4
+X  total:     row 10 col 42 len 6
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_error_count()
+X{
+X	char tmp[16];
+X
+X	clear_area(win,10,29,4);
+X	sprintf(tmp,"%4d",this_file_errors);
+X	waddstr(win,tmp);
+X
+X	clear_area(win,10,42,6);
+X	sprintf(tmp,"%6d",total_errors);
+X	waddstr(win,tmp);
+X	wrefresh(win);
+X
+X}	/* end of report_error_count */
+X
+X/*+-------------------------------------------------------------------------
+X	report_uninit()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_uninit()
+X{
+Xfloat total = (float)total_data_chars_xfered;
+X
+X	if(curses_installed)
+X	{
+X		if((total_data_chars_xfered != 0L) && (elapsed_seconds != 0L))
+X		{
+X			sprintf(s128,"Data xfer rate ~= %6.0f chars/sec",
+X			    total / (float)elapsed_seconds);
+X			if(log_packets)
+X			{
+X				write(log_packets,"info: ",6);
+X				write(log_packets,s128,strlen(s128));
+X				write(log_packets,"\n",1);
+X			}
+X			report_top_line(s128);
+X		}
+X		report_file_byte_io(0L);
+X		report_rx_tx_count();
+X		wmove(win,WIN_LINES - 1,WIN_COLS - 1);
+X		wrefresh(win);
+X		endwin();
+X		fprintf(stderr,"\r\n\r\n\r\n");
+X		fflush(stderr);
+X		curses_installed = 0;
+X	}
+X
+X}	/* end of report_uninit */
+X
+X/*+-------------------------------------------------------------------------
+X	report_init(title)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_init(title)
+Xchar *title;
+X{
+Xregister int itmp;
+X#if defined(CONS_GET)
+Xint monitor_type;
+X#endif
+X
+X	if(curses_installed)
+X		return;
+X
+X#if defined(M_SYSV)
+X	if(ioctl(0,CONS_GET,&monitor_type) < 0)	/* not multiscreen */
+X#ifdef M_SYSV	/* SCO non AT console */
+X		vanilla_ruling();
+X#endif
+X#else
+X	vanilla_ruling();
+X#endif
+X
+X	initscr();
+X	crmode();
+X	noecho();
+X	nonl();
+X	clear();
+X	curses_installed = 1;
+X	win = newwin(WIN_LINES,WIN_COLS,WIN_TOPY,WIN_LEFTX);
+X	box(win,sVR,sHR);
+X#ifndef SVR4
+X	wmove(win,0,0); waddch(win,sTL);
+X	wmove(win,win->_maxy - 1,0); waddch(win,sBL);
+X	wmove(win,win->_maxy - 1,win->_maxx - 1); waddch(win,sBR);
+X	wmove(win,0,win->_maxx - 1); waddch(win,sTR);
+X#endif
+X	wmove(win,0,2);
+X	wstandout(win);
+X	waddch(win,'[');
+X	waddch(win,' ');
+X	waddstr(win,title);
+X	waddch(win,' ');
+X	waddch(win,']');
+X	wstandend(win);
+X#ifdef SVR4
+X	whline(win, (unsigned long)(sHR & 0x00ff), 2);
+X	wmove(win,0, 8 + strlen(title));
+X#else
+X	waddch(win,sHR);
+X	waddch(win,sHR);
+X#endif
+X	waddstr(win," dir: ");
+X	waddstr(win,curr_dir);
+X	waddch(win,' ');
+X
+X	itmp = 0;
+X	while(1)
+X	{
+X		if(win_template[itmp] == (char *)0)
+X			break;
+X		wmove(win,itmp + 1,1);
+X		waddstr(win,win_template[itmp++]);
+X	}
+X	if(sending_flag)
+X	{
+X		clear_area(win,2,15,3);
+X		sprintf(s128,"%3d",npaths);
+X		waddstr(win,s128);
+X	}
+X	else	/* ecurz */
+X	{
+X		clear_area(win,2,11,8);	/* clear "of ###" */
+X		waddstr(win,":");
+X	}
+X
+X	clear_area(win,1,11,47);
+X	report_error_count();
+X	clear_area(win,8,26,8);		/* starting time */
+X	waddstr(win,hhmmss((char *)0));
+X	start_seconds = time((long *)0);
+X	current_seconds = start_seconds;
+X
+X	wrefresh(win);
+X
+X}	/* end of report_init */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rx_ind(status)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rx_ind(status)
+Xint status;
+X{
+X	wmove(win,1,54);
+X	waddch(win,(status) ? 'R' : ' ');
+X	wmove(win,1,54);
+X	wrefresh(win);
+X}	/* end of report_rx_ind */
+X
+X/*+-------------------------------------------------------------------------
+X	report_tx_ind(status)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_tx_ind(status)
+Xint status;
+X{
+X	wmove(win,1,56);
+X	waddch(win,(status) ? 'T' : ' ');
+X	wmove(win,1,56);
+X	wrefresh(win);
+X}	/* end of report_tx_ind */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rx_tx_count()
+X
+X  rx char count: row 6 col 16 length 8 unsigned long
+X  tx char count: row 6 col 29 length 8 unsigned long
+X  now time of day: row 1 col 50 length 8 hh:mm:ss
+X  This procedure may be counted upon to perform wrefresh(win)
+X
+Xelapsed time row 9 col 26 length 8
+Xcurrent tod row 9 col 47 length 8
+X--------------------------------------------------------------------------*/
+Xreport_rx_tx_count()
+X{
+X	extern unsigned long rx_char_count;
+X	extern unsigned long tx_char_count;
+X
+X	register char *cptr;
+X
+X	sprintf(s128,"%8ld",rx_char_count);
+X	wmove(win,6,16);
+X	waddstr(win,s128);
+X	sprintf(s128,"%8ld",tx_char_count);
+X	wmove(win,6,29);
+X	waddstr(win,s128);
+X
+X	/* now time of day */
+X	clear_area(win,9,47,8);
+X	cptr = hhmmss((char *)0);
+X	waddstr(win,cptr);
+X	current_seconds = time((long *)0);
+X	elapsed_seconds = current_seconds - start_seconds;
+X	cptr = get_elapsed_time(elapsed_seconds);
+X	clear_area(win,9,26,8);
+X	waddstr(win,cptr);
+X	wrefresh(win);		/* calling procs expect this to occur always */
+X
+X}	/* end of report_rx_tx_count */
+X
+X/*+-------------------------------------------------------------------------
+X	report_line(baud_rate,mode)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_line(baud_rate,mode)
+Xunsigned baud_rate;
+Xchar *mode;
+X{
+Xchar s16[16];
+X	wmove(win,7,14);
+X	sprintf(s16,"%5u",baud_rate);
+X	waddstr(win,s16);
+X	clear_area(win,7,52,6);
+X	waddstr(win,mode);
+X	wrefresh(win);
+X}	/* end of report_line */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rxpos(pos) row 3 col 19 len 8
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rxpos(pos)
+Xlong pos;
+X{
+Xchar tmp[16];
+Xchar refr;
+X
+X	if(rdchk(0))
+X	{
+X		read(0,&refr,1);
+X		if(refr == 0x0C || refr == 0x012)	/* ^L or ^R */
+X		{
+X			write(2,"\033[2J",4);
+X			Nap((long)60);
+X			touchwin(stdscr);
+X			wrefresh(stdscr);
+X			touchwin(win);
+X			wrefresh(win);
+X		}
+X	}
+X
+X	if((pos > 99999999L) || (pos < 0L))
+X		return;
+X
+X	sprintf(tmp,"%8lu",pos);
+X	wmove(win,3,19);
+X	waddstr(win,tmp);
+X	wrefresh(win);
+X	report_rx_tx_count();	/* which will do a refresh */
+X}	/* end of report_rxpos */
+X
+X/*+-------------------------------------------------------------------------
+X	report_txpos(pos)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_txpos(pos)
+Xlong pos;
+X{
+X	report_rxpos(pos);
+X}	/* end of report_txpos */
+X
+X/*+-------------------------------------------------------------------------
+X	report_last_txhdr(rptstr,error_flag)
+X	5,7,22
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_last_txhdr(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s24[24];
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"tx:   ",6);
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	if(strlen(rptstr) > 22)
+X	{
+X		strncpy(s24,rptstr,22);
+X		s24[23] = 0;
+X		rptstr = s24;
+X	}
+X	clear_area(win,5,7,22);
+X	waddstr(win,rptstr);
+X	wrefresh(win);
+X
+X	if(error_flag)
+X	{
+X		++this_file_errors;
+X		++total_errors;
+X		report_error_count();
+X	}
+X}	/* end of report_last_txhdr */
+X
+X/*+-------------------------------------------------------------------------
+X	report_last_rxhdr(rptstr,error_flag)
+X	5,35,22
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_last_rxhdr(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s24[24];
+Xextern int log_packets;
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"rx: ",4);
+X		write(log_packets,(error_flag) ? "E " : "  ",2);
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	if(strlen(rptstr) > 22)
+X	{
+X		strncpy(s24,rptstr,22);
+X		s24[23] = 0;
+X		rptstr = s24;
+X	}
+X	clear_area(win,5,35,22);
+X	waddstr(win,rptstr);
+X	wrefresh(win);
+X
+X	if(error_flag)
+X	{
+X		++this_file_errors;
+X		++total_errors;
+X		report_error_count();
+X	}
+X
+X}	/* end of report_last_rxhdr */
+X
+X/*+-------------------------------------------------------------------------
+X	report_str(rptstr,error_flag) row 11/12 col 3 len 55
+X
+X  error_flag == 0 for status/progress message
+X             == 1 for bump error count, unless rptstr is null
+X                  in which case, merely clear error string area
+X             == 2 write string on bottom line (not an error)
+X             == 3 write string on transaction line (not an error)
+X             == -1 use error line but do not bump error count
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_str(rptstr,error_flag)
+Xregister char *rptstr;
+Xint error_flag;
+X{
+Xchar s60[60];
+Xextern int log_packets;
+X
+X	if(strlen(rptstr) > 55)
+X	{
+X		strncpy(s60,rptstr,55);
+X		s60[56] = 0;
+X		rptstr = s60;
+X	}
+X
+X	switch(error_flag)
+X	{
+X		case 0:
+X			clear_area(win,12,3,55);
+X			break;
+X		case 1:
+X			++this_file_errors;
+X			++total_errors;
+X			report_error_count();
+X		case -1:
+X			clear_area(win,11,3,55);
+X			break;
+X		case 2:
+X			clear_area(win,13,3,55);
+X			break;
+X		case 3:
+X			clear_area(win,4,3,55);
+X			break;
+X	}
+X
+X	waddstr(win,rptstr);
+X	wrefresh(win);
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"info: ",6);
+X		sprintf(s60,"%2d ",error_flag);
+X		write(log_packets,s60,3);
+X		write(log_packets,rptstr,strlen(rptstr));
+X		write(log_packets,"\n",1);
+X	}
+X
+X}	/* end of report_str */
+X
+X/*+-------------------------------------------------------------------------
+X	report_transaction()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_transaction(str)
+Xchar *str;
+X{
+X	report_str(str,3);
+X}	/* end of report_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_open_tod() -- time of start of this file
+X
+X  this file open time: row 8 col 47 length 8
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_file_open_tod()
+X{
+X	clear_area(win,8,47,8);
+X	waddstr(win,hhmmss((char *)0));
+X	wrefresh(win);
+X}	/* end of report_file_open_tod */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_open_length(long_length)
+X  length:   row 3 col 36 len  8
+X--------------------------------------------------------------------------*/
+Xreport_file_open_length(length)
+Xlong length;
+X{
+X	clear_area(win,3,36,8);
+X	if(length <= 0)
+X		waddstr(win,"unknown");
+X	else
+X	{
+X		sprintf(s128,"%8lu",length);
+X		waddstr(win,s128);
+X	}
+X	wrefresh(win);
+X}	/* end of report_file_open_length */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_send_open(filename,filestat)
+X
+X  filename: row 2 col 20 len 38
+X  number:   row 2 col 8 len 3
+X  length:   row 3 col 36 len  8
+X  mode:     row 3 col 46 len 10
+X  time of start of this file: row 4 col 47 length 8 hh:mm:ss
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_file_send_open(filename,filestat)
+Xchar *filename;
+Xstruct stat *filestat;
+X{
+Xchar s50[50];
+Xregister char *cptr = filename;
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"file: ",6);
+X		write(log_packets,filename,strlen(filename));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	/* number */
+X	clear_area(win,2,8,3);
+X	sprintf(s50,"%3d",Filcnt);
+X	waddstr(win,s50);
+X
+X	/* filename */
+X	if(strlen(filename) > 38)
+X	{
+X		strncpy(s50,filename,38);
+X		s50[39] = 0;
+X		cptr = s50;
+X	}
+X	clear_area(win,2,20,38);
+X	waddstr(win,cptr);
+X
+X#if defined(LOG_XFER)
+X	sprintf(s128,"sending %s",filename);
+X	ecu_log_event(getppid(),s128);
+X#endif
+X
+X	/* length */
+X	report_file_open_length(filestat->st_size);
+X
+X	/* time of start of this file */
+X	report_file_open_tod();
+X
+X	this_file_errors = 0;
+X	report_error_count();
+X}	/* end of report_file_send_open */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_rcv_started(filename,length,last_mod_time)
+X
+X  filename: row 2 col 7 len 50
+X  length:   row 3 col 36 len  8 if not xmodem
+X  time of start of this file: row 4 col 47 length 8 hh:mm:ss
+X--------------------------------------------------------------------------*/
+Xreport_file_rcv_started(filename,length,last_mod_time)
+Xchar *filename;
+Xlong length;					/* if < 0, "UNKNOWN" */
+Xlong last_mod_time;			/* not currently displayed */
+X{
+Xregister char *cptr;
+Xchar s50[50];
+X
+X	if(log_packets)
+X	{
+X		write(log_packets,"file: ",6);
+X		write(log_packets,filename,strlen(filename));
+X		write(log_packets,"\n",1);
+X	}
+X
+X	/* filename */
+X	if(strlen(filename) > 38)
+X	{
+X		strncpy(s50,filename,38);
+X		s50[39] = 0;
+X		cptr = s50;
+X	}
+X	else
+X		cptr = filename;
+X
+X#if defined(LOG_XFER)
+X	sprintf(s128,"receiving %s",filename);
+X	ecu_log_event(getppid(),s128);
+X#endif
+X
+X	clear_area(win,2,20,38);
+X	waddstr(win,cptr);
+X
+X	/* file number */
+X	clear_area(win,2,8,3);
+X	sprintf(s50,"%3d",Filcnt);	/* rz uses as file number 1-n */
+X	waddstr(win,s50);
+X
+X/* if remote sender provides a file count, display it */
+X	if(npaths)
+X	{
+X		clear_area(win,2,12,7);	/* clear "of ###" */
+X		sprintf(s50,"of %3d:",npaths);
+X		waddstr(win,s50);
+X	}
+X
+X	/* length */
+X	report_file_open_length(length);
+X
+X	/* time of start of this file */
+X	report_file_open_tod();
+X
+X	this_file_errors = 0;
+X	report_error_count();
+X}	/* end of report_file_rcv_started */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_close()
+X--------------------------------------------------------------------------*/
+Xvoid report_file_close()
+X{
+X	report_str("End of file",0);
+X	wrefresh(win);
+X
+X}	/* end of report_file_close */
+X
+X/*+-------------------------------------------------------------------------
+X	report_file_byte_io(count)
+X--------------------------------------------------------------------------*/
+Xreport_file_byte_io(count)
+Xlong count;
+X{
+X
+X	total_data_chars_xfered += (long)count;
+X	if(total_data_chars_xfered)
+X	{
+X		sprintf(s128,"Total file bytes transferred: %lu",
+X			total_data_chars_xfered);
+X		report_str(s128,-1);
+X	}
+X
+X}	/* end of report_file_byte_io */
+X
+X/* end of scurses.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 sea/scurses.c ||
+echo 'restore of sea/scurses.c failed'
+Wc_c="`wc -c < 'sea/scurses.c'`"
+test 22195 -eq "$Wc_c" ||
+	echo 'sea/scurses.c: original size 22195, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sea/sealink.doc ==============
+if test -f 'sea/sealink.doc' -a X"$1" != X"-c"; then
+	echo 'x - skipping sea/sealink.doc (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sea/sealink.doc (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sea/sealink.doc' &&
+X                                     SEALINK
+X
+X                             File Transfer Protocol
+X
+X                                 9 February 1987
+X
+X
+X
+X          (C) COPYRIGHT 1986,87 by System Enhancement Associates, Inc.
+X
+X
+X
+X     This document describes briefly the  SEAlink  file  transfer  protocol
+X     developers' package.  SEAlink is a sliding  window  protocol  that  is
+X     fully  backwards compatible with XMODEM in all tested implementations.
+X
+X     The intent of SEAlink is to provide a file transfer protocol that does
+X     not  suffer  from  propagation  delays,  such  as  are  introduced  by
+X     satellite relays or packet switched  networks.  Actual  tests  of  the
+X     enclosed  routines  has  shown  that  SEAlink  is capable of virtually
+X     eliminating propagation delays and turnaround delays.  File  transfers
+X     between New Jersey and Hawaii,  which normally suffer a degradation of
+X     50% or more  due  to  satellite  relays,  proceed  as  fast  as  local
+X     transfers.  Even transfers within the local exchange are speeded up by
+X     up to 20% at 2400 baud by the elimination of turnaround delays.  Large
+X     volume  tests  show  that SEAlink is capable of coming to within 2% of
+X     the theoretical minimum time for data transfer.
+X
+X
+X
+X     The developers' package contains the following files:
+X
+X         SEALINK.DOC    This document.
+X         SEALINK.C      A set of C routines for implementing SEAlink.
+X         CLINK.EXE      A sample TTY program that implements SEAlink.
+X
+X
+X
+X     You are granted a license to use this code in your  programs,  and  to
+X     adapt  it to your particular situation and needs,  subject only to the
+X     following conditions:
+X
+X     1) You must refer to it as the SEAlink protocol,  and  you  must  give
+X        credit to System Enhancement Associates.
+X
+X     2) If  you  modify  it in such a way that your version cannot converse
+X        with the original code as supplied by us,  then you should refer to
+X        it as "SEAlink derived",  or as a "variation of SEAlink",  or words
+X        to that effect.
+X
+X     In short,  we're not asking for any money,  but we'd like to get  some
+X     credit for our work.
+X
+X
+X     This  document  is  not  meant  to  be  a  rigorous  definition of the
+X     protocol.  The code provided should serve to document the details  and
+X     fine  points  of  implementing SEAlink.  We will,  however,  present a
+X     brief synopsis of how SEAlink adds sliding windows to XMODEM,  and why
+X     XMODEM doesn't mind.
+X
+X     First of all,  SEAlink adds a block number to the ACK and NAK used  in
+X     XMODEM.(1)  We  thus  create  "ACK/NAK  packets",  with  the following
+X     structure:
+X
+X         Byte 0:   ACK, NAK, or C
+X         Byte 1:   Block number
+X         Byte 2:   One's compliment of block number
+X
+X     This is identical in form to the first three bytes of a  data  packet,
+X     except that the SOH has been replaced with an ACK or NAK.(2)
+X
+X     From the receiver's point of view,  it does not matter if  the  trans-
+X     mitter  is using sliding window or not.  The receiver simply sends ACK
+X     and NAK packets as appropriate.  Any XMODEM driver tested to date will
+X     simply ignore this excess data behind the ACK or NAK.
+X
+X     From the transmitter's point of view,  it just barely matters  if  the
+X     receiver can handle sliding window.  The transmitter always acts as if
+X     it  is  sending sliding window,  but varies the window size.  If it is
+X     seeing valid block numbers and check values behind the  received  ACKs
+X     and NAKs,  it sets the window size to six blocks.  Otherwise,  it sets
+X     the  window  size  to  one  block.  The  result is that it only "sends
+X     ahead" if the receiver can handle it.
+X
+X     It  should  be  a fairly simple matter to apply the underlying SEAlink
+X     logic to almost any variant of XMODEM.
+X
+X
+X     The  SEAlink  routines  provided  in  this package are also capable of
+X     passing system dependent information,  such as true file size and time
+X     of  last modification.  This data is passed in a special header block.
+X     The header block looks exactly like any other block, except that it is
+X     block number zero.
+X
+X     This is still backwards compatible with XMODEM,  as a SEAlink receiver
+X     does  not  mind if block zero is missing,  and any XMODEM receiver yet
+X     tested will regard block zero as a duplicate block and ACK it.
+X
+X     The data portion of block zero contains the following fields:
+X
+X
+X         Offset    Size      Contents
+X         ======    ====      ========
+X
+X            0        4       Original file length.
+X            4        4       Date  and  time  file  was  last mofified,  in
+X                             seconds since 1979.
+X            8       17       Original  file  name,  as  a  null  terminated
+X                             string.
+X           25       15       Name  of  transmitting  program,   as  a  null
+X                             terminated string.
+X           40       88       Null filler and expansion area.
+X
+X
+X     (1) XMODEM/CRC uses a "C" in place of  a  NAK  to  indicate  CRC  error
+X         detection.  SEAlink  follows  this convention,  and supports either
+X         checksum or CRC.  For brevity,  this document will use the term NAK
+X         to mean either a true NAK (hex 15) or a C (hex 43).
+X     (2) See previous footnote.
+X
+X     Any field which the transmitter cannot support should be  set  to  all
+X     zeros.  Conversly,  the  receiver  should ignore any null fields.  The
+X     receiver may ignore any field which he cannot support.
+X
+X
+X
+X     The  routines  enclosed  in  this package should be reasonably easy to
+X     implement in your application.  We have attempted to exclude  compiler
+X     dependent and system dependent logic from these routines.
+X
+X
+X     You will need to alter our references to our communications driver  to
+X     conform  to  your  own driver.  The communications related routines we
+X     use are:
+X
+X         com_putc(c)         Output character c to comm port.
+X
+X         int com_getc(t)     Get character from comm port within  t  tenths
+X                             of   a  second.   Return  EOF  if  time  limit
+X                             expires.
+X
+X         com_dump()          Discard any pending output without sending it.
+X
+X
+X     In  addition,  we  use  the  following  routines for controlling timed
+X     loops:
+X
+X         long timerset(t)    Set a timer.  Returns a timer value which will
+X                             expire in t tenths of a second.
+X
+X         int timeup(z)       Check a timer.  Returns true if  timer  z  has
+X                             expired yet, or false otherwise.
+X
+X
+X     These routines also make reference to the following functions for
+X     system dependent information, which is optional:
+X
+X         filestat(name,&fs)  Read directory entry for  a  file  and  return
+X                             system dependent information.
+X
+X         setstamp(f,dtg)     Set a file's date/time of last modification.
+X
+X
+X
+X
+X     The SEAlink  implementation  provided  in  this  package  is  used  by
+X     invoking the two primary routines:
+X
+X
+X         int xmtfile(name)             /* transmit a file */
+X         char *name;                   /* name of file to transmit */
+X
+X     This  routine is used to send a file.  One file is sent at a time.  If
+X     the  name  is blank (name is null or *name points to a null),  then an
+X     end of transmission marker is sent.
+X
+X     This routine returns a one if the file is successfully transmitted, or
+X     a zero if a fatal error occurs.
+X
+X
+X         char *rcvfile(name)           /* receive a file */
+X         char *name;                   /* name of file (optional) */
+X
+X     This routine is used to receive a file.  One file is  received.  If  a
+X     name is specified for the file,  then that name WILL be used,  and any
+X     name  sent  by  the transmitter will be ignored.  If the name is blank
+X     (name is null or *name points to a null),  then the  transmitter  must
+X     provide a name for the file.
+X
+X     This routine returns a pointer to  the  name  of  the  file  that  was
+X     received.  If the file transfer is not successful, then a null pointer
+X     is returned.
+X
+X     The  pointer  returned  by  rcvfile()  points to a static data buffer.
+X     This does not have to be freed (and should not be),  but  it  will  be
+X     overwritten the next time rcvfile() is called.
+X
+X     The  rcvfile()  function  works  on a temporary file whose name is the
+X     same as the final file,  but with a dash ("-") added at the beginning.
+X     If  a  file  transfer  is  aborted,  then  this temporary file will be
+X     retained.  An aborted file transfer will not harm a pre-existing  file
+X     of the same name.
+X
+X
+X
+X     These  routines  can  be  used  for  either  single  or  multiple file
+X     transfers.
+X
+X     To  send  multiple  files,  send  each  file one by one until either a
+X     transmit fails or all files are sent.  If all  files  are  sent,  then
+X     signal the end by calling xmtfile() with a null pointer.
+X
+X     To receive multiple files,  call rcvfile() repeatedly until it returns
+X     a null pointer.
+X
+X
+X
+X     This  package includes a demonstration program named CLINK (pronounced
+X     "clink"),  which is a  simple  TTY  program  for  doing  SEAlink  file
+X     transfers.  CLINK  does  not  perform  any  sort of terminal emulation
+X     whatsoever.  However,  she will make use of the ANSI.SYS screen driver
+X     if you have it installed.
+X
+X
+X     CLINK may be used in either of two ways: interactive mode or command
+X     mode.
+X
+X     To use CLINK in the interactive mode, give the command "CLINK" with no
+X     arguments.  Press  the  "ESCape"  key to give a command to CLINK.  The
+X     command "?" (question mark) instructs CLINK to tell you what  commands
+X     she understands.
+X
+X     To  use  CLINK  in the command mode,  give the command "CLINK" with an
+X     argument.  There are three arguments you can give CLINK in the command
+X     mode.  These are:
+X
+X      1) Receive files;  Do this with a command of the form:
+X
+X              CLINK R
+X
+X         CLINK  will  attempt  to receive one or more files from COM1,  and
+X         will terminate as soon as all files  are  received,  or  when  the
+X         transfer aborts.
+X
+X      2) Transmit files; Do this with a command of the form:
+X
+X              CLINK T <filename> ...
+X
+X         CLINK  will  attempt  to transmit the listed files over COM1,  and
+X         will terminate as soon as all files are sent,  or the transfer  is
+X         aborted.  <filename> may be one or more file names with or without
+X         drive and path specifiers.  Wildcards may be used.
+X
+X      3) Give help;  If you type:
+X
+X              CLINK ?
+X
+X         or any invalid command,  CLINK will display a  brief  reminder  of
+X         what arguments she understands in command mode.
+X
+X     In all cases, CLINK in the command mode will not alter the serial port
+X     other than to set eight data bits,  one stop bit,  and no parity.  Any
+X     previously installed serial drivers will be  replaced,  and  the  baud
+X     rate will not be changed.
+X
+X
+X
+X     CLINK comes with her own serial driver built in for the IBM PC  family
+X     and true compatibles,  but she is capable of using any standard FOSSIL
+X     driver.
+X
+SHAR_EOF
+chmod 0644 sea/sealink.doc ||
+echo 'restore of sea/sealink.doc failed'
+Wc_c="`wc -c < 'sea/sealink.doc'`"
+test 11247 -eq "$Wc_c" ||
+	echo 'sea/sealink.doc: original size 11247, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sea/sealink.imp ==============
+if test -f 'sea/sealink.imp' -a X"$1" != X"-c"; then
+	echo 'x - skipping sea/sealink.imp (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sea/sealink.imp (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sea/sealink.imp' &&
+X    SEAlink - Sliding window file transfer protocol
+X
+X    XENIX System V version by Scott Reynolds
+X    additional XENIX modifications by Sanford Zelkovitz, without whose help
+X    this couldn't have been accomplished
+X
+X    Based on:
+X
+X    MS-DOS Version 1.16, created on 01/15/87 at 01:40:52
+X(C) COPYRIGHT 1986,87 by System Enhancement Associates; ALL RIGHTS RESERVED
+X    By:  Thom Henderson
+X
+X    Description:
+X
+X	This file contains a set of routines to illustrate the SEAlink
+X	sliding window file transfer protocol.  SEAlink is fully backward
+X	compatible to XMODEM, and can be easily adapted to most XMODEM
+X	variants.
+X
+X	The intent of SEAlink is to provide a file transfer protocol that
+X	does not suffer from propagation delays, such as are introduced
+X	by satellite relays or packet switched networks.
+X
+X    Instructions:
+X
+X	Two routines are provided to implement SEAlink file transfers.
+X
+X	int xmtfile(name)		/+ transmit a file +/
+X	char *name;			/+ name of file to transmit +/
+X
+X	This routine is used to send a file.  One file is sent at a time.
+X	If the name is blank (name is null or *name points to a null),
+X	then only an end of transmission marker is sent.
+X
+X	This routine returns a one if the file is successfully
+X	transmitted, or a zero if a fatal error occurs.
+X
+X	char *rcvfile(name)		/+ receive a file +/
+X	char *name;			/+ name of file (optional) +/
+X
+X	This routine is used to receive a file.  One file is received.
+X	The name, if given, takes precedence and will be the name of
+X	the resulting file.  If the name is blank (name is null or *name
+X	points to a null), then the name given by the transmitter is used.
+X	If the transmitter does not give a name, then the file transfer
+X	is aborted.
+X
+X	This routine returns a pointer to the name of the file that
+X	was received.  If the file transfer is not successful, then
+X	a null pointer is returned.
+X
+X	The pointer returned by rcvfile() points to a static data buffer.
+X	This does not have to be freed (and should not be), but it will
+X	be overwritten the next time rcvfile() is called.
+X
+X	The rcvfile() function works on a temporary file whose name is
+X	the same as the final file, but with a period (".") added at the
+X	beginning.  If a file transfer is aborted, then this temporary
+X	file will be retained.  An aborted file transfer will not harm
+X	a pre-existing file of the same name.
+X
+X    Programming notes:
+X
+X	These routines can be used for either single or multiple file
+X	transfers.
+X
+X	To send multiple files, send each one one at a time until either
+X	a transmit fails or all files are sent.  If all files are sent,
+X	then signal the end by calling xmtfile() with a null pointer.
+X
+X	To receive multiple files, call rcvfile() repeatedly until it
+X	returns a null pointer.
+X
+X	These routines pass a "block zero", which contains information
+X	about the original file name, size, and date/time of last
+X	modification.  If you cannot implement block zero, then you can
+X	leave it out.  If you cannot set any given field in block zero
+X	when transmitting, then you should leave it set to zeros.  If you
+X	cannot use any given field of block zero when receiving, then
+X	you should ignore it.
+X
+X	These routines are fully compatible with XMODEM, including the
+X	original checksum method and later CRC adaptations.  It can be
+X	easily adapted to Modem7 protocol by adding a Modem7 filename
+X	transfer shell, though we do not recommend it.  The underlying
+X	logic, of course, can be adapted to almost any variant of XMODEM.
+X
+X    License:
+X
+X	You are granted a license to use this code in your programs, and
+X	to adapt it to your particular situation and needs, subject only
+X	to the following conditions:
+X
+X	1)   You must refer to it as the SEAlink protocol, and you must
+X     	give credit to System Enhancement Associates.
+X
+X	2)   If you modify it in such a way that your version cannot
+X     	converse with the original code as supplied by us, then
+X     	you should refer to it as "SEAlink derived", or as a
+X     	"variation of SEAlink", or words to that effect.
+X
+X	In short, we're not asking for any money, but we'd like to
+X	get some credit for our work.
+X
+X    Language:
+X
+X	Computer Innovations C86
+X	Adapted for IBM PC XENIX 2.00.2 C using UNIX System V compatible calls
+X
+X    Notes on XENIX modifications:
+X
+X	The com_getc() routine has a minimum delay of .1 seconds, due
+X	to the nature of the read() system call.  Attempts to eliminate
+X	this delay have proven more costly than leaving it in.
+X
+X	CRC maintenance functions were added to the original code, as
+X	they are not library calls under XENIX.
+X
+X	All output is performed through file descriptor 0, and is done
+X	in blocks using the write() system call rather than individual
+X	character writes.  File descriptor 1 may be selected by invoking
+X	the program with a "-1" argument.
+X
+X	Most low level routines utilize register class variables to
+X	decrease overhead and improve overall system response slightly.
+X
+X	A rudimentary command line processor was added to the original
+X	routines to drive the transmitter and receiver.  The two
+X	options, "s" and "r", are for sending and receiving respectively.
+X
+X	When invoked without proper arguments the program will display
+X	a short message including usage notes.
+X
+X	-- Scott Reynolds, Sysop U.S.S. Enterprise BBS, (906)228-9460
+SHAR_EOF
+chmod 0644 sea/sealink.imp ||
+echo 'restore of sea/sealink.imp failed'
+Wc_c="`wc -c < 'sea/sealink.imp'`"
+test 5213 -eq "$Wc_c" ||
+	echo 'sea/sealink.imp: original size 5213, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/README ==============
+if test -f 'gendial/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/README' &&
+XI have done at least rudimentary testing of each of these
+Xdialers in an SCO XENIX or UNIX.  I have good faith in
+Xthe HA24, USR24, MPAD, T2500 and MC9624 dialers.
+XSome many things and ROMs have been called Trailblazer Plus
+Xthat I juust dunno.
+X
+XdialgHA24       Hayes 2400
+XdialgMC9624     Microcom AX/9624c
+XdialgMPAD       AT&T Tridom VSAT modem emulation PAD
+XdialgT2500      Telebit T2500
+XdialgTBPlus     Telebit Trailblazer rom version 5.01
+XdialgUSR24      US Robotic Courier 2400
+SHAR_EOF
+chmod 0644 gendial/README ||
+echo 'restore of gendial/README failed'
+Wc_c="`wc -c < 'gendial/README'`"
+test 480 -eq "$Wc_c" ||
+	echo 'gendial/README: original size 480, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/install_dialer ==============
+if test -f 'gendial/install_dialer' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/install_dialer (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/install_dialer (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/install_dialer' &&
+X:
+X#+----------------------------------------------------------
+X# install_dialer -  ECU gendial modem dial installation
+X# usage: install_dialer directory executeable 
+X#+----------------------------------------------------------
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA
+X#:04-30-1991-16:07-root@n4hgf-add header and ls -l
+X
+Xlib="$1"
+X
+Xecho ''
+Xwhile [ x$2 != x ]
+Xdo
+X	echo Installing dialer $2 in $lib
+X	rm -f $lib/$2 $lib/$2~
+X	if [ -f $lib/$2 ]; then mv $lib/$2 $lib/$2~; fi
+X	cp $2 $lib/$2
+X	strip $lib/$2
+X	if [ -x /usr/bin/mcs ]; then /usr/bin/mcs -d $lib/$2; fi
+X	chown uucp $lib/$2; chgrp uucp $lib/$2; chmod 711 $lib/$2
+X	ls -l $lib/$2
+X	shift
+X	echo ''
+Xdone
+X
+SHAR_EOF
+chmod 0755 gendial/install_dialer ||
+echo 'restore of gendial/install_dialer failed'
+Wc_c="`wc -c < 'gendial/install_dialer'`"
+test 720 -eq "$Wc_c" ||
+	echo 'gendial/install_dialer: original size 720, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/dceHA24.c ==============
+if test -f 'gendial/dceHA24.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/dceHA24.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/dceHA24.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/dceHA24.c' &&
+X/*+-------------------------------------------------------------------------
+X	dceHA24.c - DCE-specific portion of generic SCO UUCP dialer
+X	Driver for generic Hayes-style 2400 baud modem
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X Necessary DCE switch setting or other configuration:
+X   enable onhook upon loss of DTR
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-02-1992-18:01-root@n4hgf-proper ordering of DCE_result entries */
+X/*:01-26-1992-15:30-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+SHAR_EOF
+true || echo 'restore of gendial/dceHA24.c failed'
+fi
+echo 'End of ecu320 part 27'
+echo 'File gendial/dceHA24.c is continued in part 28'
+echo 28 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

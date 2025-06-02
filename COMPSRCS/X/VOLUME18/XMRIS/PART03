@@ -1,0 +1,1761 @@
+Newsgroups: comp.sources.x
+Path: uunet!usc!sdd.hp.com!mips!msi!dcmartin
+From: Nathan Sidwell <nathan@inmos.co.uk>
+Subject: v18i024: Xmris - an X video game, Part03/09
+Message-ID: <1992Jul16.171724.1709@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i022-xmris@uunet.UU.NET>
+Date: Thu, 16 Jul 1992 17:17:24 GMT
+Approved: dcmartin@msi.com
+Lines: 1748
+
+Submitted-by: Nathan Sidwell <nathan@inmos.co.uk>
+Posting-number: Volume 18, Issue 24
+Archive-name: xmris/part03
+
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file create.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping create.c'
+else
+echo 'x - continuing file create.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'create.c' &&
+X {-PLAYER_UP2_BALL_X - BALL_WIDTH / 2,  PLAYER_UP2_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_UP1_BALL_X - BALL_WIDTH / 2, -PLAYER_UP1_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_UP2_BALL_X - BALL_WIDTH / 2, -PLAYER_UP2_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_RIGHT1_BALL_X - BALL_WIDTH / 2, PLAYER_RIGHT1_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_RIGHT2_BALL_X - BALL_WIDTH / 2, PLAYER_RIGHT2_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_RIGHT1_BALL_X - BALL_WIDTH / 2, PLAYER_RIGHT1_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_RIGHT2_BALL_X - BALL_WIDTH / 2, PLAYER_RIGHT2_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_UP1_BALL_X - BALL_WIDTH / 2,  PLAYER_UP1_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_UP2_BALL_X - BALL_WIDTH / 2,  PLAYER_UP2_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_UP1_BALL_X - BALL_WIDTH / 2, -PLAYER_UP1_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_UP2_BALL_X - BALL_WIDTH / 2, -PLAYER_UP2_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_PUSH1_BALL_X - BALL_WIDTH / 2, PLAYER_PUSH1_BALL_Y - BALL_HEIGHT / 2},
+X {-PLAYER_PUSH2_BALL_X - BALL_WIDTH / 2, PLAYER_PUSH2_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_PUSH1_BALL_X - BALL_WIDTH / 2, PLAYER_PUSH1_BALL_Y - BALL_HEIGHT / 2},
+X { PLAYER_PUSH2_BALL_X - BALL_WIDTH / 2, PLAYER_PUSH2_BALL_Y - BALL_HEIGHT / 2},
+};
+/*}}}*/
+/*{{{  COORD const ball_throw[8] =*/
+COORD const ball_throw[8] =
+{
+X  {-GAP_WIDTH / 2, -(CELL_HEIGHT + GAP_HEIGHT) / 2},
+X  {GAP_WIDTH / 2, (CELL_HEIGHT + GAP_HEIGHT) / 2},
+X  {-(CELL_WIDTH + GAP_WIDTH) / 2, GAP_HEIGHT / 2},
+X  {(CELL_WIDTH + GAP_WIDTH) / 2, GAP_HEIGHT / 2},
+X  {GAP_WIDTH / 2, -(CELL_HEIGHT + GAP_HEIGHT) / 2},
+X  {-GAP_WIDTH / 2, (CELL_HEIGHT + GAP_HEIGHT) / 2},
+X  {-(CELL_WIDTH + GAP_WIDTH) / 2, GAP_HEIGHT / 2},
+X  {(CELL_WIDTH + GAP_WIDTH) / 2, GAP_HEIGHT / 2},
+};
+/*}}}*/
+int const ball_dir[8] = {0, 1, 2, 1, 3, 2, 2, 1};
+/*{{{  int const player_dies[8] =*/
+int const player_dies[8] =
+X  {
+X    SPRITE_PLAYER_DEAD + 1,
+X    SPRITE_PLAYER + 0,
+X    SPRITE_PLAYER + 4,
+X    SPRITE_PLAYER + 2,
+X    SPRITE_PLAYER + 8,
+X    SPRITE_PLAYER + 6,
+X    SPRITE_PLAYER + 10,
+X    SPRITE_PLAYER_DEAD + 0,
+X  };
+/*}}}*/
+/*{{{  char const *title_text[] =*/
+char const *title_text[] =
+X  {
+X    "(C) 1992 Nathan Sidwell",
+#if __STDC__
+X    XMRISVERSION " " __DATE__, "",
+#else
+X    "                           ", /* should be enough space */
+#endif
+X    "Z - Left", "X - Right", "' - Up", "/ - Down", "Space - Throw",
+X    "Or use the mouse", "P - Pause", "Q - Quit",
+X    "Press a key or button to start", NULL
+X  };
+/*}}}*/
+#if SQUISH_SCORES != 7
+X  #error SQUISH_SCORES != 7
+#endif
+int const squish_scores[SQUISH_SCORES] = {0, 1000, 2000, 4000, 6000, 8000, 9900};
+/*}}}*/
+/*{{{  void create_resources(arc, argv)*/
+extern void create_resources FUNCARGLIST((argc, argv))
+int     argc    FUNCARGSEP
+char    **argv  FUNCARGTERM
+{
+X  display.display = XOpenDisplay(display.name);
+X  /*{{{  opened?*/
+X  if(!display.display)
+X    fatal_error("Cannot open display \"%s\"",
+X	display.name ? display.name : "DEFAULT", stderr);
+X  /*}}}*/
+X  /*{{{  open the display*/
+X  {
+X    display.screen = DefaultScreen(display.display);
+X    display.colormap = DefaultColormap(display.display, display.screen);
+X    display.root = DefaultRootWindow(display.display);
+X    display.depth = DefaultDepth(display.display, display.screen);
+X    display.black = BlackPixel(display.display, display.screen);
+X    display.white = WhitePixel(display.display, display.screen);
+X    display.xor = display.black ^ display.white; /* for xor context */
+X    /*
+X     * We want to suspend the game in case the window is iconified.
+X     * This is more difficult than it sounds.  On the Sun, iconification
+X     * seems to produce an UnmapNotify event -- very nice.  DECwindows,
+X     * however, informs the application by generating a PropertyNotify
+X     * event on a DEC-specific property -- very nasty.  The atom is
+X     * not defined in any of the DECwindows headers, so we will try
+X     * to get its value from the server, and use it later.  We are
+X     * hoping here that all non-DECwindows servers will return None
+X     * for this atom.
+X     */
+X    display.DEC_icon_atom =
+X	XInternAtom(display.display, "DEC_WM_ICON_STATE", True);
+X    display.event_mask = ExposureMask | (display.DEC_icon_atom == None ?
+X	StructureNotifyMask : PropertyChangeMask);
+X  }
+X  /*}}}*/
+X  /*{{{  reverse video?*/
+X  if(flags.reverse)
+X    {
+X      unsigned long temp;
+X	
+X      temp = display.black;
+X      display.black = display.white;
+X      display.white = temp;
+X    }
+X  /*}}}*/
+X  /*{{{  set foreground & background types*/
+X  {
+X    display.background = display.white == 0 ? COLOUR_ZERO :
+X	display.white == (1 << display.depth) - 1 ? COLOUR_ONE :
+X	COLOUR_WEIRD;
+X    display.foreground = display.black == 0 ? COLOUR_ZERO :
+X	display.black == (1 << display.depth) - 1 ? COLOUR_ONE :
+X	COLOUR_WEIRD;
+X  }
+X  /*}}}*/
+X  /*{{{  get a font*/
+X  {
+X    font.font = XLoadFont(display.display, font.name);
+X    if(!font.font)
+X      fatal_error("Cannot load font \"%s\"", font.name);
+X  }
+X  /*}}}*/
+X  /*{{{  create graphics contexts*/
+X  {
+X    XGCValues gcv;
+X    CONTEXT   *cptr;
+X    unsigned  count;
+X	
+X    gcv.plane_mask = AllPlanes;
+X    gcv.font       = font.font;
+X    gcv.graphics_exposures = False;
+X    gcv.line_width = 1;
+X    gcv.line_style = LineSolid;
+X    gcv.join_style = JoinMiter;
+X    gcv.fill_style = FillSolid;
+X    for(cptr = gcsdefine, count = 0; count != GCS; count++, cptr++)
+X      {
+X	gcv.function = cptr->function;
+X	gcv.foreground = *cptr->fgp;
+X	gcv.background = *cptr->bgp;
+X	GCN(count) = XCreateGC(display.display, display.root, 
+X	    GCForeground | GCBackground | GCFunction |
+X	    GCFont | GCGraphicsExposures | GCPlaneMask |
+X	    GCLineStyle | GCLineWidth | GCJoinStyle | GCFillStyle, &gcv);
+X	if(!GCN(count))
+X	  fatal_error("Cannot create context %d", count);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  create window*/
+X  {
+X    XSizeHints hints;
+X    XColor colors[2];
+X    Pixmap cursor, mask;
+X	
+X    hints.flags = PSize | PMinSize | PMaxSize;
+X    hints.width = WINDOW_WIDTH;
+X    hints.height = WINDOW_HEIGHT;
+X    hints.min_width = hints.max_width = hints.width;
+X    hints.min_height = hints.max_height = hints.height;
+X    colors[0].pixel = display.black;
+X    colors[1].pixel = display.white;
+X    XQueryColors(display.display, display.colormap, colors, 2);
+X    display.icon = XCreatePixmapFromBitmapData(display.display,
+X	display.root, icons[flags.gender].mask_bits,
+X	icons[flags.gender].width, icons[flags.gender].height, 1, 0, 1);
+X    if(!display.icon)
+X      fatal_error("Cannot create window icon");
+X    cursor = mask = 0;
+X    cursor = XCreatePixmapFromBitmapData(display.display,
+X	display.root, cursor_bits,
+X	cursor_width, cursor_height, 1, 0, 1);
+X    mask = XCreatePixmapFromBitmapData(display.display,
+X	display.root, cursorm_bits,
+X	cursorm_width, cursorm_height, 1, 0, 1);
+X    if(cursor && mask)
+X      display.cursor = XCreatePixmapCursor(display.display,
+X	  cursor, mask, &colors[0], &colors[1],
+X	  cursor_x_hot, cursor_y_hot);
+X    if(cursor)
+X      XFreePixmap(display.display, cursor);
+X    if(mask)
+X      XFreePixmap(display.display, mask);
+X    if(!display.cursor)
+X      fatal_error("Cannot create cursor icon");
+X    display.window = XCreateSimpleWindow(display.display, display.root,
+X	0, 0, hints.width, hints.height, 1, display.black, display.white);
+X    if(!display.window)
+X      fatal_error("Cannot create window");
+X    XSetStandardProperties(display.display, display.window,
+X	game_name, game_name, display.icon, argv, argc, &hints);
+X    XDefineCursor(display.display, display.window, display.cursor);
+X  }
+X  /*}}}*/
+X  display.back = XCreatePixmap(display.display, display.root,
+X      WINDOW_WIDTH, WINDOW_HEIGHT, display.depth);
+X  display.copy = XCreatePixmap(display.display, display.root,
+X      WINDOW_WIDTH, WINDOW_HEIGHT, display.depth);
+X  if(!display.back || !display.copy)
+X    fatal_error("Cannot create window copies");
+X  /*{{{  are we she?*/
+X  if(flags.gender)
+X    {
+X      memcpy(&sprites[SPRITE_MRIS + 1], &sprites[SPRITE_MRIS + 3],
+X	  sizeof(SPRITE));
+X      memcpy(&sprites[SPRITE_MRIS + 5], &sprites[SPRITE_MRIS + 7],
+X	  sizeof(SPRITE));
+X      memcpy(&sprites[SPRITE_MRIS + 3],  &spritet[0], sizeof(SPRITE));
+X      memcpy(&sprites[SPRITE_MRIS + 7],  &spritet[1], sizeof(SPRITE));
+X    }
+X  /*}}}*/
+X  /*{{{  create sprites*/
+X  {
+X    unsigned  i;
+X    SPRITE    *sptr;
+X	
+X    /*{{{  generate all the ones from bitmaps*/
+X    for(i = 0, sptr = sprites; i != SPRITES; i++, sptr++)
+X      {
+X	/* check that its the size we expected */
+X	assert((!sptr->expected.x || sptr->expected.x == sptr->width) &&
+X	    (!sptr->expected.y || sptr->expected.y == sptr->height));
+X	if(sptr->mask_bits || sptr->image_bits)
+X	  {
+X	    assert(sptr->width && sptr->height);
+X	    if(sptr->image_bits)
+X	      sptr->image = XCreatePixmapFromBitmapData(display.display,
+X		  display.root, sptr->image_bits,
+X		  sptr->width, sptr->height,
+X		  display.black, display.white, display.depth);
+X	    else
+X	      {
+X		sptr->image = XCreatePixmap(display.display, display.root,
+X		    sptr->width, sptr->height, display.depth);
+X		if(sptr->image)
+X		  XFillRectangle(display.display, sptr->image, GCN(GC_CLEAR),
+X		      0, 0, sptr->width, sptr->height);
+X	      }
+X	    if(sptr->mask_bits && sptr->image)
+X	      {
+X		sptr->mask = XCreatePixmapFromBitmapData(display.display,
+X		    display.root, sptr->mask_bits, sptr->width, sptr->height,
+X		    ((unsigned long)1 << display.depth) - (unsigned long)1,
+X		    (unsigned long)0, display.depth);
+X		if(sptr->mask)
+X		  XCopyArea(display.display, sptr->mask, sptr->image, GCN(GC_AND),
+X		      0, 0, sptr->width, sptr->height, 0, 0);
+X	      }
+X	    if((!sptr->mask && sptr->mask_bits) || !sptr->image)
+X	      fatal_error("Cannot create sprite %d", i);
+X	  }
+X      }
+X    /*}}}*/
+X    /*{{{  do the ball*/
+X    {
+X      sptr = &sprites[SPRITE_BALL];
+X      ball_xor = XCreatePixmap(display.display, display.window,
+X	  BALL_WIDTH, BALL_HEIGHT, display.depth);
+X      if(!ball_xor)
+X	fatal_error("Cannot create ball sprite");
+X      XFillRectangle(display.display, ball_xor, GCN(GC_MASK),
+X	  0, 0, BALL_WIDTH, BALL_HEIGHT);
+X      XFillRectangle(display.display, ball_xor, GCN(GC_BALL),
+X	  0, 0, BALL_WIDTH, BALL_HEIGHT);
+X      XCopyArea(display.display, sptr->mask, ball_xor, GCN(GC_AND),
+X	  0, 0, BALL_WIDTH, BALL_HEIGHT, 0, 0);
+X    }
+X    /*}}}*/
+X    /*{{{  now do the copies*/
+X    for(sptr = sprites, i = SPRITES; i--; sptr++)
+X      if(!sptr->copy)
+X	{
+X	  /* Sun's assert macro is broken, so I have to
+X	   * put it in a scope */
+X	  assert(sptr->mask_bits || sptr->image_bits);
+X	}
+X      else
+X	{
+X	  SPRITE    *optr;
+X	      
+X	  optr = &sprites[sptr->copy];
+X	  assert(optr->width && optr->height);
+X	  sptr->width = optr->width;
+X	  sptr->height = optr->height;
+X	  switch(sptr->reflect)
+X	  {
+X	    /*{{{  case 0: (no reflections)*/
+X	    case 0:
+X	      sptr->mask = optr->mask;
+X	      sptr->image = optr->image;
+X	      break;
+X	    /*}}}*/
+X	    /*{{{  case 1: (vertical axis)*/
+X	    case 1:
+X	    {
+X	      int       i;
+X						  
+X	      sptr->mask = XCreatePixmap(display.display, display.root,
+X		  sptr->width, sptr->height, display.depth);
+X	      sptr->image = XCreatePixmap(display.display, display.root,
+X		  sptr->width, sptr->height, display.depth);
+X	      if(sptr->image && sptr->mask)
+X		for(i = sptr->width; i--;)
+X		  {
+X		    XCopyArea(display.display, optr->mask, sptr->mask,
+X			GCN(GC_COPY),
+X			i, 0, 1, sptr->height, sptr->width - i - 1, 0);
+X		    XCopyArea(display.display, optr->image, sptr->image,
+X			GCN(GC_COPY),
+X			i, 0, 1, sptr->height, sptr->width - i - 1, 0);
+X		  }
+X	      break;
+X	    }
+X	    /*}}}*/
+X	    /*{{{  case 2: (horizontal axis)*/
+X	    case 2:
+X	    {
+X	      int       i;
+X						  
+X	      sptr->mask = XCreatePixmap(display.display, display.root,
+X		  sptr->width, sptr->height, display.depth);
+X	      sptr->image = XCreatePixmap(display.display, display.root,
+X		  sptr->width, sptr->height, display.depth);
+X	      if(sptr->mask && sptr->image)
+X		for(i = sptr->width; i--;)
+X		  {
+X		    XCopyArea(display.display, optr->mask, sptr->mask,
+X			GCN(GC_COPY),
+X			0, i, sptr->width, 1, 0, sptr->height - i - 1);
+X		    XCopyArea(display.display, optr->image, sptr->image,
+X			GCN(GC_COPY),
+X			0, i, sptr->width, 1, 0, sptr->height - i - 1);
+X		  }
+X	      break;
+X	    }
+X	    /*}}}*/
+X	    /*{{{  default*/
+X	    default:
+X	      assert(0);
+X	    /*}}}*/
+X	  }
+X	  if(!sptr->image || !sptr->mask)
+X	    fatal_error("Cannot generate sprite %d", SPRITES - 1 - i);
+X	}
+X    /*}}}*/
+X  }
+X  /*}}}*/
+X  /*{{{  check ball hold is ok*/
+X  {
+X    unsigned  i;
+X	
+X    for(i = sizeof(ball_hold) / sizeof(COORD); i--;)
+X      assert(ball_hold[i].x + CELL_WIDTH / 2 >= 0 &&
+X	  ball_hold[i].x + CELL_WIDTH / 2 <= CELL_WIDTH - BALL_WIDTH / 2 && 
+X	  ball_hold[i].y + CELL_HEIGHT / 2 >= 0 &&
+X	  ball_hold[i].y + CELL_HEIGHT / 2 <= CELL_HEIGHT - BALL_HEIGHT / 2);
+X  }
+X  /*}}}*/
+X  /*{{{  create score pixmaps*/
+X  {
+X    unsigned  i;
+X	
+X    for(i = BOARD_SCORES; i--;)
+X      {
+X	update.score.list[i].image = XCreatePixmap(display.display,
+X	    display.root, DIGIT_WIDTH * 4, DIGIT_HEIGHT, display.depth);
+X	update.score.list[i].mask = XCreatePixmap(display.display,
+X	    display.root, DIGIT_WIDTH * 4, DIGIT_HEIGHT, display.depth);
+X	if(!update.score.list[i].image || !update.score.list[i].mask)
+X	  fatal_error("Cannot create score pixmap");
+X      }
+X  }
+X  /*}}}*/
+X  return;
+}
+/*}}}*/
+/*{{{  void create_xtra_monster(index)*/
+extern void create_xtra_monster FUNCARGLIST((index))
+int   index FUNCARGTERM
+{
+X  SPRITE    *dptr;
+X  SPRITE    *sptr;
+X  SPRITE    *lptr;
+X  unsigned  i;
+X  
+X  sptr = &sprites[SPRITE_XTRA];
+X  lptr = &sprites[SPRITE_EXTRA];
+X  for(dptr = &sprites[SPRITE_XTRA], sptr = &sprites[SPRITE_XTRA_SOURCE],
+X      i = MONSTER_IMAGES; i--; dptr++, sptr++)
+X    {
+X      XCopyArea(display.display, sptr->image, dptr->image, GCN(GC_COPY),
+X	  0, 0, CELL_WIDTH, CELL_HEIGHT, 0, 0);
+X      XCopyArea(display.display, lptr->mask, dptr->image, GCN(GC_MASK),
+X	  index * (CELL_WIDTH / 2), 0, CELL_WIDTH / 2, CELL_HEIGHT / 2,
+X	  XTRA_LETTER_X, XTRA_LETTER_Y);
+X      XCopyArea(display.display, lptr[!(extra.got & 1 << index)].image,
+X	  dptr->image, GCN(GC_OR),
+X	  index * (CELL_WIDTH / 2), 0, CELL_WIDTH / 2, CELL_HEIGHT / 2,
+X	  XTRA_LETTER_X, XTRA_LETTER_Y);
+X    }
+X  return;
+}
+/*}}}*/
+/*{{{  void draw_extra_letter(index)*/
+extern void draw_extra_letter FUNCARGLIST((index))
+int     index  FUNCARGTERM
+{
+X  SPRITE    *lptr;
+X  int       x;
+X  
+X  lptr = &sprites[SPRITE_EXTRA];
+X  x = XTRA_X + index * XTRA_SPACING;
+X  XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X      x, XTRA_Y, CELL_WIDTH, CELL_HEIGHT);
+X  XCopyArea(display.display, lptr->mask,
+X      display.back, GCN(GC_MASK), index * (CELL_WIDTH / 2), 0,
+X      CELL_WIDTH / 2, CELL_HEIGHT / 2,
+X      x + XTRA_LETTER_X, XTRA_Y + XTRA_LETTER_Y);
+X  XCopyArea(display.display, lptr[!(extra.got & 1 << index)].image,
+X      display.back, GCN(GC_OR), index * (CELL_WIDTH / 2), 0,
+X      CELL_WIDTH / 2, CELL_HEIGHT / 2,
+X      x + XTRA_LETTER_X, XTRA_Y + XTRA_LETTER_Y);
+X  add_background(x, XTRA_Y, CELL_WIDTH, CELL_HEIGHT);
+X  return;
+}
+/*}}}*/
+/*{{{  void release_resources()*/
+extern void release_resources FUNCARGVOID
+/*
+X * frees all the resources we have allocated by create_resources
+X */
+{
+X  unsigned  i;
+X  SPRITE    *sptr;
+X
+X  if(display.window)
+X    {
+X      XUnmapWindow(display.display, display.window);
+X      XUndefineCursor(display.display, display.window);
+X      XDestroyWindow(display.display, display.window);
+X    }
+X  if(font.font)
+X    XUnloadFont(display.display, font.font);
+X  if(display.cursor)
+X    XFreeCursor(display.display, display.cursor);
+X  if(display.copy)
+X    XFreePixmap(display.display, display.copy);
+X  if(display.back)
+X    XFreePixmap(display.display, display.back);
+X  if(display.icon)
+X    XFreePixmap(display.display, display.icon);
+X  /*{{{  free gcs*/
+X  {
+X    GC        *gcptr;
+X    unsigned  count;
+X	
+X    for(gcptr = gcs, count = GCS; count--; gcptr++)
+X      if(*gcptr)
+X	{
+X	  XFreeGC(display.display, *gcptr);
+X	  *gcptr = 0;
+X	}
+X  }
+X  /*}}}*/
+X  for(i = SPRITES, sptr = sprites; i--; sptr++)
+X    {
+X      if(!sptr->copy || sptr->reflect)
+X	{
+X	  if(sptr->image)
+X	    XFreePixmap(display.display, sptr->image);
+X	  if(sptr->mask)
+X	    XFreePixmap(display.display, sptr->mask);
+X	}
+X    }
+X  for(i = BOARD_SCORES; i--;)
+X    {
+X      if(update.score.list[i].image)
+X	XFreePixmap(display.display, update.score.list[i].image);
+X      if(update.score.list[i].mask)
+X	XFreePixmap(display.display, update.score.list[i].mask);
+X    }
+X  if(display.display)
+X    {
+X      XFlush(display.display);
+X      XCloseDisplay(display.display);
+X    }
+X  return;
+}
+/*}}}*/
+SHAR_EOF
+echo 'File create.c is complete' &&
+chmod 0644 create.c ||
+echo 'restore of create.c failed'
+Wc_c="`wc -c < 'create.c'`"
+test 37076 -eq "$Wc_c" ||
+	echo 'create.c: original size 37076, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= demo.c ==============
+if test -f 'demo.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping demo.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting demo.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'demo.c' &&
+/*{{{  (C) 1992 Nathan Sidwell*/
+/*****************************************************************************
+X			X M R I S V1.01
+X			---------------
+X		    (C) 1992 Nathan Sidwell
+X
+This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+is in the public domain. Permission is granted to distribute and compile
+verbatim copies of this software for non-commercial, non-profit use,
+without fee. The software may be modified, provided that both the above copyright
+notice and this permission notice appear.
+X
+No guarantee is given as to the robustness or suitability of this
+software for your computer.
+X
+Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+*****************************************************************************/
+/*}}}*/
+#include "xmris.h"
+/*{{{  prototypes*/
+static int demo_board PROTOARGLIST((void));
+static int demo_keys PROTOARGLIST((void));
+static int move_demo PROTOARGLIST((void));
+static void move_mris PROTOARGLIST((void));
+/*}}}*/
+/*{{{  int demo_board()*/
+static int demo_board FUNCARGVOID
+{
+X  unsigned  den;
+X  unsigned  count;
+X  unsigned  quit;
+X
+X  quit = 0;
+X  player.screen = random() % 10;
+X  extra.select = random() % 5;
+X  extra.got = random() & 0x1F;
+X  create_xtra_monster(extra.select);
+X  new_board();
+X  zoom_board();
+X  draw_center(SPRITE_DEN);
+X  monster.monsters = 0;
+X  spawn_monster(4, 2, 2, PLAYER_START_X, PLAYER_START_Y, 0, 0);
+X  monster.list[0].stop = 1;
+X  monster.den = 0;
+X  player.ball.state = 0;
+X  player.ball.count = 8;
+X  player.old_ball.state = 0;
+X  /*{{{  plonk on M R I S*/
+X  for(count = 4; count--;)
+X    {
+X      unsigned  x, y;
+X      unsigned  j;
+X      CELL      *cptr;
+X      
+X      do
+X	{
+X	  do
+X	    j = random();
+X	  while(j >= CELLS_ACROSS * CELLS_DOWN);
+X	  x = j % CELLS_ACROSS;
+X	  y = j / CELLS_ACROSS;
+X	  cptr = BOARDCELL(x, y);
+X	}
+X      while(!cptr->visit);
+X      spawn_monster(SPRITE_MRIS + count + (random() & 4), 0, 0, x, y, 0, 0);
+X    }
+X  /*}}}*/
+X  refresh_window();
+X  count = DISPLAY_HOLD;
+X  den = 4;
+X  timer_start(FRAME_RATE);
+X  while(count)
+X    {
+X      quit = process_xevents(0);
+X      if(quit)
+X	{
+X	  player.button = 1;
+X	  break;
+X	}
+X      /*{{{  calc distances?*/
+X      if(den != monster.den)
+X	{
+X	  den = monster.den;
+X	  monster.list[0].cell.y = 0;
+X	  monster.list[0].cell.x = 4 + den;
+X	  calc_distances();
+X	  monster.list[0].cell.y = PLAYER_START_Y;
+X	  monster.list[0].cell.x = PLAYER_START_X;
+X	}
+X      /*}}}*/
+X      move_mris();
+X      if(monster.den == 4)
+X	count--;
+X      if(player.button)
+X	count = 0;
+X      show_updates();
+X	timer_wait();
+X      }
+X  timer_stop();
+X  return quit;
+}
+/*}}}*/
+/*{{{  int demo_keys()*/
+static int demo_keys FUNCARGVOID
+{
+X  unsigned  quit;
+X  unsigned  count;
+X
+X  monster.monsters = 0;
+X  apple.apples = 0;
+X  player.ball.state = 0;
+X  player.ball.count = 8;
+X  XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X      0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+X  /*{{{  put on M R I S*/
+X  {
+X    unsigned  missing;
+X    unsigned  index;
+X    int       x, y;
+X      
+X    missing = random() & 3;
+X    for(index = 4; index--;)
+X      {
+X	SPRITE    *sptr;
+X      
+X	sptr = &sprites[SPRITE_MRIS + index + 4 * (index == missing)];
+X	XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    PIXELX(4 + index, 0), PIXELY(-1, 0));
+X	XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    PIXELX(4 + index, 0), PIXELY(-1, 0));
+X      }
+X    y = random() % (CELLS_DOWN + 2) * (CELL_HEIGHT + GAP_HEIGHT);
+X    x = random() & 1 ? CELLS_ACROSS * (CELL_WIDTH + GAP_WIDTH) :
+X	-CELLS_ACROSS * (CELL_WIDTH + GAP_WIDTH);
+X    spawn_monster(SPRITE_MRIS + missing, 0, 0, 4 + missing, -1, x, y);
+X  }
+X  /*}}}*/
+X  XCopyArea(display.display, display.back, display.copy, GCN(GC_COPY),
+X      0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0);
+X  /*{{{  put on the title text*/
+X  {
+X    char const **tptr;
+X    unsigned  length;
+X    unsigned  index;
+X    unsigned  gnome;
+X      
+X    gnome = 0;
+X    for(tptr = title_text, index = 0; *tptr; tptr++, index++)
+X      {
+X	length = strlen(*tptr);
+X	if(length)
+X	  {
+X	    TEXT      info;
+X	    char  const *ptr;
+X	    unsigned  shift;
+X	      
+X	    ptr = strchr(*tptr, '-');
+X	    if(ptr)
+X	      {
+X		text_size(*tptr, ptr - *tptr + 1, &info);
+X		shift = info.width;
+X	      }
+X	    else
+X	      shift = 0;
+X	    text_size(*tptr, length, &info);
+X	    XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+X		WINDOW_WIDTH / 2 - (shift ? shift : info.width / 2),
+X		PIXELY(index, CELL_HEIGHT / 2) +
+X		(info.ascent - info.descent) / 2, *tptr, length);
+X	    /*{{{  spawn monster*/
+X	    {
+X	      unsigned  type;
+X	      int       cellx;
+X	      int       offsetx;
+X				
+X	      do
+X		{
+X		  type = random() & 3;
+X		  if(type & 2)
+X		    type++;
+X		}
+X	      while(type == 4 && gnome);
+X	      if(type == 4)
+X		gnome = 1;
+X	      if(random() & 1)
+X		{
+X		  cellx = -2;
+X		  offsetx = (CELLS_ACROSS + 2) * (CELL_WIDTH + GAP_WIDTH);
+X		}
+X	      else
+X		{
+X		  cellx = CELLS_ACROSS + 1;
+X		  offsetx = -(CELLS_ACROSS + 5) * (CELL_WIDTH + GAP_WIDTH);
+X		}
+X	      offsetx += CELL_WIDTH * (random() & 3);
+X	      spawn_monster(type, 0, 0, cellx, index, offsetx, 0);
+X	    }
+X	    /*}}}*/
+X	  }
+X      }
+X  }
+X  /*}}}*/
+X  count = DISPLAY_HOLD;
+X  refresh_window();
+X  timer_start(FRAME_RATE);
+X  while(count)
+X    {
+X      quit = process_xevents(0);
+X      if(quit)
+X	{
+X	  player.button = 1;
+X	  break;
+X	}
+X      if(!move_demo())
+X	count--;
+X      if(player.button)
+X	count = 0;
+X      show_updates();
+X      timer_wait();
+X      }
+X  timer_stop();
+X  return quit;
+}
+/*}}}*/
+/*{{{  int demo_mode()*/
+extern int demo_mode FUNCARGVOID
+{
+X  unsigned  quit;
+X
+X  global.state = 6;
+X  player.keyboard = 0;
+X  player.button = 0;
+X  player.pressed = 0;
+X  player.old_ball.state = 0;
+X  quit = 0;
+X  while(!player.button)
+X    {
+X      if(!player.button)
+X	quit = demo_keys();
+X      if(!player.button)
+X	quit = demo_board();
+X    }
+X  player.button = 0;
+X  return quit;
+}
+/*}}}*/
+/*{{{  void extra_life()*/
+extern void extra_life FUNCARGVOID
+/* does the extra life senario */
+{
+X  static char const *text[] = {"Congratulations", "You win extra", NULL};
+X  unsigned  thrown;
+X  
+X  add_background(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+X  XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X      BORDER_LEFT + 1, BORDER_TOP + 1, BOARD_WIDTH - 2, BOARD_HEIGHT - 2);
+X  /*{{{  display some text*/
+X  {
+X    unsigned  line;
+X    TEXT      info;
+X    char const **tptr;
+X    unsigned  length;
+X      
+X    line = BORDER_TOP + CELL_HEIGHT;
+X    for(tptr = text; *tptr; tptr++)
+X      {
+X	length = strlen(*tptr);
+X	text_size(*tptr, length, &info);
+X	XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+X	    WINDOW_WIDTH / 2 - info.width / 2,
+X	    line + info.ascent, *tptr, length);
+X	line += info.ascent + info.descent;
+X      }
+X  }
+X  /*}}}*/
+X  monster.monsters = 0;
+X  apple.apples = 0;
+X  spawn_monster(4, 3, 3, 3, DEN_Y, -(CELL_WIDTH + GAP_WIDTH) * 3, 0);
+X  spawn_monster(0, 2, 2, 0, DEN_Y,
+X      (CELLS_ACROSS - 1) * (CELL_WIDTH + GAP_WIDTH), 0);
+X  /*{{{  add m r i s*/
+X  {
+X    unsigned  i;
+X    for(i = 4; i--;)
+X      {
+X	XCopyArea(display.display, sprites[SPRITE_MRIS + 4 + i].mask,
+X	    display.back, GCN(GC_MASK), 0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    PIXELX(CELLS_ACROSS / 2 - 2 + i, 0), PIXELY(2, 0));
+X	XCopyArea(display.display, sprites[SPRITE_MRIS + 4 + i].image,
+X	    display.back, GCN(GC_OR), 0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    PIXELX(CELLS_ACROSS / 2 - 2 + i, 0), PIXELY(2, 0));
+X	spawn_monster(SPRITE_MRIS + i, 1, 1, CELLS_ACROSS / 2 - 2 + i,
+X	    2, 0, -(CELL_HEIGHT + GAP_HEIGHT) * 3 - CELL_HEIGHT / 2 * i);
+X      }
+X  }
+X  /*}}}*/
+X  draw_extra_letter(extra.select);
+X  player.pressed = 0;
+X  /*{{{  create a path*/
+X  {
+X    unsigned  i;
+X    CELL      *cptr;
+X	
+X    apple.apples = 0;
+X    for(cptr = BOARDCELL(0, DEN_Y), i = CELLS_ACROSS; i--; cptr++)
+X      {
+X	cptr->visit = 1;
+X	cptr->sprite = 0;
+X	cptr->distance = CELLS_ACROSS - i;
+X	cptr->depths[0] = 0;
+X	cptr->depths[1] = 0;
+X	cptr->depths[2] = -(CELL_WIDTH + GAP_WIDTH);
+X	cptr->depths[3] = CELL_WIDTH + GAP_WIDTH;
+X      }
+X    BOARDCELL(0, DEN_Y)->depths[2] = 0;
+X    BOARDCELL(CELLS_ACROSS - 1, DEN_Y)->depths[3] = 0;
+X  }
+X  /*}}}*/
+X  global.state = 5;
+X  thrown = 0;
+X  while(thrown != 3)
+X    {
+X      process_xevents(1);
+X      if(!monster.list[0].offset.x && !thrown)
+X	{
+X	  thrown = 1;
+X	  player.throw = 1;
+X	}
+X      bounce_ball();
+X      if(player.ball.state == 3)
+X	player.ball.state = 4;
+X      else if(player.ball.state == 4)
+X	{
+X	  player.ball.pixel.x = PIXELX(player.lives - 1, 0) + CELL_WIDTH / 2;
+X	  player.ball.pixel.y = BORDER_TOP + BOARD_HEIGHT + 1 +
+X	      CELL_HEIGHT / 2 - (CELL_HEIGHT + GAP_HEIGHT) * 3;
+X	}
+X      else if(!player.ball.state && thrown == 1)
+X	{
+X	  spawn_monster(SPRITE_PLAYER + 6, 0, 1, player.lives - 1, CELLS_DOWN,
+X	      0, -(CELL_HEIGHT + GAP_HEIGHT) * 3);
+X	  thrown = 2;
+X	}
+X      if(!move_demo() && thrown == 2)
+X	thrown = 3;
+X      show_updates();
+X      timer_wait();
+X    }
+X  XCopyArea(display.display, display.copy, display.back, GCN(GC_COPY),
+X      PIXELX(player.lives - 1, 0), PIXELY(CELLS_DOWN, 0),
+X      CELL_WIDTH, CELL_HEIGHT,
+X      PIXELX(player.lives - 1, 0), PIXELY(CELLS_DOWN, 0));
+X  player.lives++;
+X  return;
+}
+/*}}}*/
+/*{{{  int move_demo()*/
+static int move_demo FUNCARGVOID
+/*
+X * moves the monsters used in the demo screens
+X * we take each monster with a non-zero offset, and move it
+X * towards a zero offset (changing x first)
+X * it might get blown up by the ball
+X * returns the number of objects which moved
+X */
+{
+X  MONSTER   *mptr;
+X  unsigned  i;
+X  unsigned  moved;
+X
+X  moved = 0;
+X  for(mptr = monster.list, i = monster.monsters; i--; mptr++)
+X    {
+X      if(mptr->shot)
+X	mptr->type = 5;
+X      else
+X	{
+X	  if(mptr->offset.x)
+X	    /*{{{  left or right*/
+X	    {
+X	      int       dir;
+X				
+X	      moved++;
+X	      if(mptr->offset.x > 0)
+X		{
+X		  dir = 2;
+X		  mptr->offset.x -= VEL_X;
+X		  mptr->pixel.x -= VEL_X;
+X		}
+X	      else
+X		{
+X		  dir = 3;
+X		  mptr->offset.x += VEL_X;
+X		  mptr->pixel.x += VEL_X;
+X		}
+X	      if(dir != mptr->dir)
+X		{
+X		  mptr->dir = dir;
+X		  new_face(mptr);
+X		}
+X				  
+X	    }
+X	    /*}}}*/
+X	  else if(mptr->offset.y)
+X	    /*{{{  up or down*/
+X	    {
+X	      int       dir;
+X				
+X	      moved++;
+X	      if(mptr->offset.y > 0)
+X		{
+X		  dir = 0;
+X		  mptr->offset.y -= VEL_Y;
+X		  mptr->pixel.y -= VEL_Y;
+X		}
+X	      else
+X		{
+X		  dir = 1;
+X		  mptr->offset.y += VEL_Y;
+X		  mptr->pixel.y += VEL_Y;
+X		}
+X	      if(dir != mptr->dir)
+X		{
+X		  mptr->dir = dir;
+X		  new_face(mptr);
+X		}
+X				  
+X	    }
+X	    /*}}}*/
+X	  else
+X	    mptr->stop = 1;
+X	  if(!mptr->stop)
+X	    {
+X	      if(!mptr->cycle)
+X		{
+X		  mptr->cycle = MONSTER_CYCLES;
+X		  mptr->image++;
+X		  if(mptr->image == MONSTER_IMAGES)
+X		    mptr->image = 0;
+X		}
+X	      mptr->cycle--;
+X	    }
+X	}
+X	
+X    }
+X  return moved;
+}
+/*}}}*/
+/*{{{  void move_mris()*/
+static void move_mris FUNCARGVOID
+/*
+X * moves M R I S sprites around the board
+X * towards the top
+X */
+{
+X  unsigned  i;
+X  MONSTER   *mptr;
+X
+X  for(mptr = &monster.list[1], i = monster.monsters - 1; i--; mptr++)
+X    {
+X      CELL      *cptr;
+X	
+X      assert(mptr->type >= SPRITE_MRIS && mptr->type < SPRITE_MRIS + 8);
+X      cptr = BOARDCELL(mptr->cell.x, mptr->cell.y);
+X      if(mptr->offset.x || mptr->offset.y)
+X	move_movable(mptr, cptr);
+X      else if(!mptr->cell.y && mptr->cell.x == 4 + i)
+X	{
+X	  if(monster.den == i)
+X	    monster.den = i + 1;
+X	}
+X      else
+X	{
+X	  unsigned  valid;
+X	  unsigned  temp;
+X	  
+X	  valid = valid_directions(mptr, cptr);
+X	  temp = valid & (0xF ^ (1 << (mptr->dir ^ 1)));
+X	  if(temp)
+X	    valid &= temp | 0xF0;
+X	  if(monster.den == i && (temp = valid & (valid >> 4)))
+X	    valid = temp;
+X	  else
+X	    valid &= 0xF;
+X	  mptr->dir = choose_direction(valid);
+X	  move_movable(mptr, cptr);
+X	}
+X    }
+X  return;
+}
+/*}}}*/
+/*{{{  void show_history()*/
+extern void show_history FUNCARGVOID
+/* shows the history list */
+{
+X  unsigned  count;
+X  
+X  add_background(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+X  draw_extra_letter(extra.select);
+X  XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X      BORDER_LEFT + 1, BORDER_TOP + 1, BOARD_WIDTH - 2, BOARD_HEIGHT - 2);
+X  monster.monsters = 0;
+X  apple.apples = 0;
+X  player.ball.state = 0;
+X  player.ball.count = 8;
+X  player.old_ball.state = 0;
+X  /*{{{  add in the parts*/
+X  {
+X    unsigned  base;
+X    unsigned  screens;
+X    unsigned  index;
+X    TEXT      info;
+X    char      text[11];
+X    unsigned  length;
+X    static int sprites[3] = {SPRITE_CHERRY, SPRITE_NORMAL + 4, SPRITE_PLAYER + 4};
+X      
+X    screens = player.screen < CELLS_DOWN - 2 ? player.screen : CELLS_DOWN - 2;
+X    base = player.screen - screens;
+X    text_size("Screen 090", 10, &info);
+X    for(index = screens; index--;)
+X      {
+X	sprintf(text, "Screen %d", base + index + 1);
+X	length = strlen(text);
+X	XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+X	    PIXELX(CELLS_ACROSS / 2, -GAP_WIDTH) - info.width,
+X	    PIXELY(screens - index, (CELL_HEIGHT + GAP_HEIGHT) / 2) +
+X	    (info.ascent - info.descent) / 2,
+X	    text, length);
+X	if(history.prize & 1 << (screens - 1 - index))
+X	  spawn_monster(SPRITE_PRIZE_BASE +
+X	      (base + index) % SPRITE_PRIZES, 0, 0,
+X	      CELLS_ACROSS / 2 + 2, screens - index,
+X	      0, index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X	      CELLS_DOWN * GAP_HEIGHT + CELL_HEIGHT / 2 + GAP_HEIGHT +
+X	      (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - screens));
+X	spawn_monster(sprites[(history.ending >>
+X	    (screens - 1 - index) * 2) & 3],
+X	    0, 0, CELLS_ACROSS / 2, screens - index,
+X	    0, index * (2 * CELL_HEIGHT + GAP_HEIGHT) +
+X	    CELLS_DOWN * GAP_HEIGHT + 
+X	    (CELL_HEIGHT + GAP_HEIGHT) * (2 + CELLS_DOWN - screens));
+X      }
+X  }
+X  /*}}}*/
+X  global.state = 8;
+X  count = DISPLAY_HOLD;
+X  while(count)
+X    {
+X      process_xevents(1);
+X      if(!move_demo())
+X	count--;
+X      show_updates();
+X      timer_wait();
+X    }
+X  return;
+}
+/*}}}*/
+SHAR_EOF
+chmod 0644 demo.c ||
+echo 'restore of demo.c failed'
+Wc_c="`wc -c < 'demo.c'`"
+test 13731 -eq "$Wc_c" ||
+	echo 'demo.c: original size 13731, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= draw.c ==============
+if test -f 'draw.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping draw.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting draw.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'draw.c' &&
+/*{{{  (C) 1992 Nathan Sidwell*/
+/*****************************************************************************
+X			X M R I S V1.01
+X			---------------
+X		    (C) 1992 Nathan Sidwell
+X
+This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+is in the public domain. Permission is granted to distribute and compile
+verbatim copies of this software for non-commercial, non-profit use,
+without fee. The software may be modified, provided that both the above copyright
+notice and this permission notice appear.
+X
+No guarantee is given as to the robustness or suitability of this
+software for your computer.
+X
+Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+*****************************************************************************/
+/*}}}*/
+#include "xmris.h"
+#include "time.h"
+/*{{{  prototypes*/
+static void xor_ball PROTOARGLIST((void));
+/*}}}*/
+/*{{{  void add_background(x, y, w, h)*/
+extern void add_background FUNCARGLIST((x, y, width, height))
+int       x       FUNCARGSEP
+int       y       FUNCARGSEP
+int       width   FUNCARGSEP
+int       height  FUNCARGTERM
+/*
+X * adds an area to the background update list
+X */
+{
+X  BACKGROUND *bptr;
+X
+X  assert(update.back.backs != BACK_UPDATES);
+X  bptr = &update.back.list[update.back.backs++];
+X  bptr->place.x = x;
+X  bptr->place.y = y;
+X  bptr->size.x = width;
+X  bptr->size.y = height;
+X  return;
+}
+/*}}}*/
+/*{{{  void bounding_box(x, y, width, height)*/
+extern void bounding_box FUNCARGLIST((x, y, width, height))
+int       x       FUNCARGSEP
+int       y       FUNCARGSEP
+unsigned  width   FUNCARGSEP
+unsigned  height  FUNCARGTERM
+/*
+X * updates the update box so that it includes the
+X * supplied rectangle/
+X * remember to empty the update box to the background list
+X */
+{
+X  if(!update.set)
+X    {
+X      update.br.x = (update.tl.x = x) + width;
+X      update.br.y = (update.tl.y = y) + height;
+X      update.set = 1;
+X    }
+X  else
+X    {
+X      if(update.tl.x > x)
+X	update.tl.x = x;
+X      if(update.tl.y > y)
+X	update.tl.y = y;
+X      if(update.br.x < (int)(x + width))
+X	update.br.x = (int)(x + width);
+X      if(update.br.y < (int)(y + height))
+X	update.br.y = (int)(y + height);
+X    }
+X  return;
+}
+/*}}}*/
+/*{{{  void draw_center(index)*/
+extern void draw_center FUNCARGLIST((index))
+int   index FUNCARGTERM
+/*
+X * sets the center sprite and draws it on the background
+X */
+{
+X  SPRITE    *sptr;
+X
+X  BOARDCELL(DEN_X, DEN_Y)->sprite = index;
+X  add_background(PIXELX(DEN_X, 0), PIXELY(DEN_Y, 0), CELL_WIDTH, CELL_HEIGHT);
+X  XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X      PIXELX(DEN_X, 0), PIXELY(DEN_Y, 0), CELL_WIDTH, CELL_HEIGHT);
+X  sptr = &sprites[index];
+X  if(display.background != COLOUR_ZERO)
+X    XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X	0, 0, CELL_WIDTH, CELL_HEIGHT, PIXELX(DEN_X, 0), PIXELY(DEN_Y, 0));
+X  XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X      0, 0, CELL_WIDTH, CELL_HEIGHT, PIXELX(DEN_X, 0), PIXELY(DEN_Y, 0));
+X  return;
+}
+/*}}}*/
+/*{{{  void draw_extra()*/
+extern void draw_extra FUNCARGVOID
+{
+X  int       x;
+X  SPRITE    *sptr;
+X  
+X  x = XTRA_X + extra.select * XTRA_SPACING;
+X  sptr = &sprites[SPRITE_XTRA + (random() & 1)];
+X  XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X      0, 0, CELL_WIDTH, CELL_HEIGHT, x, XTRA_Y);
+X  XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X      0, 0, CELL_WIDTH, CELL_HEIGHT, x, XTRA_Y);
+X  add_background(x, XTRA_Y, CELL_WIDTH, CELL_HEIGHT);
+X  return;
+}
+/*}}}*/
+/*{{{  void new_board()*/
+extern void new_board FUNCARGVOID
+/*
+X * sets up a new board
+X */
+{
+X  BOARD const *map;
+X
+X  player.screen++;
+X  map = &boards[player.screen % BOARDS];
+X  /*{{{  clear board array*/
+X  {
+X    unsigned  i;
+X    CELL      *ptr;
+X	
+X    for(i = sizeof(board) / sizeof(board[0]), ptr = board; i--; ptr++)
+X      {
+X	ptr->depths[0] = 0;
+X	ptr->depths[1] = 0;
+X	ptr->depths[2] = 0;
+X	ptr->depths[3] = 0;
+X	ptr->visit = 0;
+X	ptr->distance = 0;
+X	ptr->sprite = 0;
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  draw blank background*/
+X  {
+X    /*{{{  set context*/
+X    {
+X      XGCValues gcv;
+X	  
+X      gcv.fill_style = FillTiled;
+X      gcv.tile = sprites[SPRITE_FILL_BASE + map->fill].image;
+X      XChangeGC(display.display, GCN(GC_BOARD), GCTile | GCFillStyle, &gcv);
+X    }
+X    /*}}}*/
+X    XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X	0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+X    XFillRectangle(display.display, display.back, GCN(GC_BOARD),
+X	BORDER_LEFT, BORDER_TOP, BOARD_WIDTH, BOARD_HEIGHT);
+X    XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X	PIXELX(DEN_X, -GAP_WIDTH / 2), PIXELY(DEN_Y, -GAP_HEIGHT / 2),
+X	CELL_WIDTH + GAP_WIDTH, CELL_HEIGHT + GAP_HEIGHT);
+X    XFillRectangle(display.display, display.back, GCN(GC_CLEAR),
+X	BORDER_LEFT + (CELL_WIDTH + GAP_WIDTH) * 4 + GAP_WIDTH, BORDER_TOP,
+X	XTRA_SPACING * 4 + CELL_WIDTH, GAP_HEIGHT * 2);
+X    XDrawRectangle(display.display, display.back, GCN(GC_SET),
+X	XTRA_X - 1, XTRA_Y - 1,
+X	XTRA_SPACING * 4 + CELL_WIDTH + 1, CELL_HEIGHT + 1);
+X    XDrawRectangle(display.display, display.back, GCN(GC_SET),
+X	BORDER_LEFT, BORDER_TOP,
+X	BOARD_WIDTH - 1, BOARD_HEIGHT - 1);
+X  }
+X  /*}}}*/
+X  /*{{{  add the xtra*/
+X  {
+X    unsigned  i;
+X      
+X    extra.escape = 0;
+X    for(i = 5; i--;)
+X      draw_extra_letter(i);
+X    draw_extra();
+X  }
+X  /*}}}*/
+X  /*{{{  add the screen number*/
+X  {
+X    char      text[10];
+X    int       length;
+X    int       ascent, descent;
+X    int       direction;
+X    XCharStruct chars;
+X      
+X    strcpy(text, "Screen ");
+X    length = 7 + itoa(text + 7, player.screen, 0);
+X    XQueryTextExtents(display.display, font.font, text, length,
+X	  &direction, &ascent, &descent, &chars);
+X    XDrawImageString(display.display, display.back, GCN(GC_TEXT),
+X	BORDER_LEFT + (CELL_WIDTH + GAP_WIDTH) * 8 +
+X	CELL_WIDTH / 2 + GAP_WIDTH, (CELL_HEIGHT - ascent - descent) / 2 +
+X	ascent + BORDER_TOP - CELL_HEIGHT, text, length);
+X  }
+X  /*}}}*/
+X  add_score(0, 0, 0);
+X  /*{{{  add lives*/
+X  if(player.lives)
+X    {
+X      unsigned  lives;
+X      SPRITE    *sptr;
+X      
+X      sptr = &sprites[SPRITE_PLAYER + 6];
+X      for(lives = player.lives - 1; lives--;)
+X	{
+X	  unsigned  x, y;
+X	    
+X	  x = PIXELX(lives, 0);
+X	  y = PIXELY(CELLS_DOWN, 0);
+X	  XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X	      0, 0, CELL_WIDTH, CELL_HEIGHT, x, y);
+X	  XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X	      0, 0, CELL_WIDTH, CELL_HEIGHT, x, y);
+X	}
+X    }
+X  /*}}}*/
+X  /*{{{  copy the map*/
+X  {
+X    char const *mptr;
+X    CELL      *cptr;
+X    unsigned  y, x;
+X	
+X    mptr = (char const *)map->map;
+X    cptr = BOARDCELL(0, 0);
+X    for(y = CELLS_DOWN; y--; cptr += CELL_STRIDE - CELLS_ACROSS)
+X      for(x = CELLS_ACROSS; x--; mptr++, cptr++)
+X	{
+X	  switch(*mptr)
+X	  {
+X	    /*{{{  case '@': (cherry)*/
+X	    case '@':
+X	      cptr->sprite = SPRITE_CHERRY;
+X	      break;
+X	    /*}}}*/
+X	    /*{{{  case 'X': (path)*/
+X	    case 'X':
+X	      cptr[0].visit = 1;
+X	      if(cptr[-1].visit)
+X		{
+X		  cptr[-1].depths[3] = CELL_WIDTH + GAP_WIDTH;
+X		  cptr[0].depths[2] = -(CELL_WIDTH + GAP_WIDTH);
+X		}
+X	      if(cptr[-CELL_STRIDE].visit)
+X		{
+X		  cptr[-CELL_STRIDE].depths[1] = CELL_HEIGHT + GAP_HEIGHT;
+X		  cptr[0].depths[0] = -(CELL_HEIGHT + GAP_HEIGHT);
+X		}
+X	      break;
+X	    /*}}}*/
+X	  }
+X	}
+X  }
+X  /*}}}*/
+X  /*{{{  add the apples*/
+X  {
+X    unsigned  i;
+X	
+X    apple.apples = 0;
+X    for(i = INITIAL_APPLES; i--;)
+X      {
+X	unsigned  y, x;
+X	unsigned  j;
+X	CELL      *cptr;
+X	APPLE     *aptr;
+X	  
+X	do
+X	  {
+X	    do
+X	      j = random();
+X	    while(j >= CELLS_ACROSS * (CELLS_DOWN - 1));
+X	    x = j % CELLS_ACROSS;
+X	    y = j / CELLS_ACROSS;
+X	    cptr = BOARDCELL(x, y);
+X	    for(aptr = apple.list, j = apple.apples; j--; aptr++)
+X	      if(aptr->cell.x == x && aptr->cell.y == y)
+X		{
+X		  aptr = NULL;
+X		  break;
+X		}
+X	  }
+X	while(cptr->visit || cptr->sprite || cptr[CELL_STRIDE].visit || !aptr);
+X	spawn_apple(x, y, 0, 0);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  cut the background*/
+X  {
+X    unsigned  y, x;
+X    COORD     cell;
+X    CELL      *cptr;
+X	
+X    cptr = BOARDCELL(0, 0);
+X    cell.x = GAP_WIDTH + BORDER_LEFT;
+X    cell.y = GAP_HEIGHT + BORDER_TOP;
+X    for(y = CELLS_DOWN; y--; cptr += CELL_STRIDE - CELLS_ACROSS,
+X	cell.x -= (CELL_WIDTH + GAP_WIDTH) * CELLS_ACROSS,
+X	cell.y += CELL_HEIGHT + GAP_HEIGHT)
+X      for(x = CELLS_ACROSS; x--; cptr++, cell.x += CELL_WIDTH + GAP_WIDTH)
+X	if(cptr->visit)
+X	  munch_hole(cptr, cell.x, cell.y);
+X	else if(cptr->sprite)
+X	  {
+X	    SPRITE    *sptr;
+X      
+X	    sptr = &sprites[SPRITE_CHERRY];
+X	    XCopyArea(display.display, sptr->mask, display.back, GCN(GC_MASK),
+X		0, 0, CELL_WIDTH, CELL_HEIGHT, cell.x, cell.y);
+X	    XCopyArea(display.display, sptr->image, display.back, GCN(GC_OR),
+X		0, 0, CELL_WIDTH, CELL_HEIGHT, cell.x, cell.y);
+X	  }
+X  }
+X  /*}}}*/
+X  /*{{{  initialize stuff*/
+X  {
+X    global.cherries = 5 * 8;
+X    global.difficulty = player.screen + DIFFICULTY_PEDESTAL;
+X    monster.normals = player.screen >= 3 ? 8 : 6;
+X    update.back.backs = 0;
+X    update.score.scores = 0;
+X  }
+X  /*}}}*/
+X  XCopyArea(display.display, display.back, display.copy, GCN(GC_COPY),
+X      0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0);
+X  return;
+}
+/*}}}*/
+/*{{{  void refresh_window()*/
+extern void refresh_window FUNCARGVOID
+/*
+X * refreshes the display window
+X */
+{
+X  XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY), 
+X      0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0);
+X  xor_ball();
+X  XDrawLine(display.display, display.window, GCN(GC_BALL),
+X      WINDOW_WIDTH - global.missed, WINDOW_HEIGHT - 1,
+X      WINDOW_WIDTH, WINDOW_HEIGHT - 1);
+X  return;
+}
+/*}}}*/
+/*{{{  void show_updates()*/
+extern void show_updates FUNCARGVOID
+/*
+X * shows all the updates on the update list
+X */
+{
+X  xor_ball();
+X  /*{{{  backgrounds to copy*/
+X  {
+X    unsigned  i;
+X    BACKGROUND *bptr;
+X	
+X    for(bptr = update.back.list, i = update.back.backs; i--; bptr++)
+X      XCopyArea(display.display, display.back, display.copy, GCN(GC_COPY),
+X	  bptr->place.x, bptr->place.y, bptr->size.x, bptr->size.y,
+X	  bptr->place.x, bptr->place.y);
+X  }
+X  /*}}}*/
+X  /*{{{  do the monster backgrounds*/
+X  {
+X    int       i;
+X    MONSTER   *mptr;
+X      
+X    for(mptr = monster.list, i = monster.monsters; i--; mptr++)
+X      {
+X	int   new;
+X      
+X	update.set = 0;
+X	if(mptr->type == 5)
+X	  new = 0;
+X	else if(mptr->type > 5)
+X	  new = mptr->type;
+X	else if(mptr->chew)
+X	  new = SPRITE_CHOMP + mptr->image;
+X	else if(mptr->face >= 8)
+X	  new = SPRITE_SQUISHED - 8 + mptr->type * 2 + mptr->face;
+X	else
+X	  new = SPRITE_MONSTERS + mptr->type * (6 * MONSTER_IMAGES) +
+X	      mptr->face * MONSTER_IMAGES + mptr->image;
+X	if(mptr->old_sprite && (new != mptr->old_sprite ||
+X	    mptr->pixel.x != mptr->old_pixel.x ||
+X	    mptr->pixel.y != mptr->old_pixel.y ||
+X	    (mptr == &monster.list[0] &&
+X	      !player.old_ball.state && player.ball.state)))
+X	  {
+X	    XCopyArea(display.display, display.back, display.copy, GCN(GC_COPY),
+X		mptr->old_pixel.x, mptr->old_pixel.y, CELL_WIDTH, CELL_HEIGHT,
+X		mptr->old_pixel.x, mptr->old_pixel.y);
+X	    if(mptr->pixel.x != mptr->old_pixel.x ||
+X		mptr->pixel.y != mptr->old_pixel.y || !new)
+X	      bounding_box(mptr->old_pixel.x, mptr->old_pixel.y,
+X		  CELL_WIDTH, CELL_HEIGHT);
+X	  }
+X	if(new)
+X	  {
+X	    mptr->old_pixel.x = mptr->pixel.x;
+X	    mptr->old_pixel.y = mptr->pixel.y;
+X	    mptr->old_sprite = new;
+X	    bounding_box(mptr->old_pixel.x, mptr->old_pixel.y,
+X		CELL_WIDTH, CELL_HEIGHT);
+X	  }
+X	else
+X	  {
+X	    memmove(mptr, mptr + 1, i * sizeof(MONSTER));
+X	    mptr--;
+X	    monster.monsters--;
+X	  }
+X	if(update.set)
+X	  add_background(update.tl.x, update.tl.y,
+X	      update.br.x - update.tl.x, update.br.y - update.tl.y);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  do the apple backgrounds*/
+X  {
+X    int       i;
+X    APPLE     *aptr;
+X      
+X    for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X      {
+X	int   new;
+X      
+X	update.set = 0;
+X	new = aptr->state;
+X	if(new != aptr->old_state || aptr->pixel.x != aptr->old_pixel.x ||
+X	    aptr->pixel.y != aptr->old_pixel.y)
+X	  {
+X	    APPLE_SIZE const *asp;
+X	    int       x, y;
+X	    int       width, height;
+X      
+X	    asp = &apple_sizes[aptr->old_state];
+X	    x = aptr->old_pixel.x + asp->offset.x;
+X	    y = aptr->old_pixel.y + asp->offset.y;
+X	    width = asp->size.x;
+X	    height = asp->size.y;
+X	    XCopyArea(display.display, display.back, display.copy, GCN(GC_COPY),
+X		x, y, width, height, x, y);
+X	    bounding_box(x, y, width, height);
+X	  }
+X	if(new != 6)
+X	  {
+X	    APPLE_SIZE const *asp;
+X	      
+X	    aptr->old_pixel.x = aptr->pixel.x;
+X	    aptr->old_pixel.y = aptr->pixel.y;
+X	    aptr->old_state = new;
+X	    asp = &apple_sizes[new];
+X	    bounding_box(aptr->old_pixel.x + asp->offset.x,
+X		aptr->old_pixel.y + asp->offset.y, asp->size.x, asp->size.y);
+X	  }
+X	else
+X	  {
+X	    unsigned  j;
+X	    MONSTER   *mptr;
+X      
+X	    for(mptr = monster.list, j =  monster.monsters; j--; mptr++)
+X	      if(!mptr->apple)
+X		/*EMPTY*/;
+X	      else if(mptr->apple == aptr)
+X		mptr->apple = NULL;
+X	      else if(mptr->apple > aptr)
+X		mptr->apple--;
+X	    memmove(aptr, aptr + 1, i * sizeof(APPLE));
+X	    aptr--;
+X	    apple.apples--;
+X	  }
+X	if(update.set)
+X	  add_background(update.tl.x, update.tl.y,
+X	      update.br.x - update.tl.x, update.br.y - update.tl.y);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  do the apple sprites*/
+X  {
+X    int       i;
+X    APPLE     *aptr;
+X      
+X    for(aptr = apple.list, i = apple.apples; i--; aptr++)
+X      {
+X	SPRITE    *sptr;
+X	APPLE_SIZE const *asp;
+X	int       x, y;
+X	int       width, height;
+X      
+X	asp = &apple_sizes[aptr->old_state];
+X	sptr = &sprites[SPRITE_APPLE + aptr->old_state];
+X	x = aptr->old_pixel.x + asp->offset.x;
+X	y = aptr->old_pixel.y + asp->offset.y;
+X	width = asp->size.x;
+X	height = asp->size.y;
+X	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X	    0, 0, width, height, x, y);
+X	XCopyArea(display.display, sptr->image, display.copy, GCN(GC_OR),
+X	    0, 0, width, height, x, y);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  do the monster sprites*/
+X  {
+X    int       i;
+X    MONSTER   *mptr;
+X      
+X    for(mptr = &monster.list[monster.monsters - 1], i = monster.monsters; i--; mptr--)
+X      {
+X	SPRITE    *sptr;
+X      
+X	sptr = &sprites[mptr->old_sprite];
+X	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    mptr->old_pixel.x, mptr->old_pixel.y);
+X	XCopyArea(display.display, sptr->image, display.copy, GCN(GC_OR),
+X	    0, 0, CELL_WIDTH, CELL_HEIGHT,
+X	    mptr->old_pixel.x, mptr->old_pixel.y);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  holding the ball?*/
+X  if(!player.ball.state && player.ball.count < 8)
+X    {
+X      COORD const *hold;
+X      
+X      hold = &ball_hold[player.ball.count * MONSTER_IMAGES + player.ball.image];
+X      if(display.foreground == COLOUR_WEIRD)
+X	XCopyArea(display.display, sprites[SPRITE_BALL].mask,
+X	    display.copy, GCN(GC_MASK), 0, 0, BALL_WIDTH, BALL_HEIGHT,
+X	    player.ball.pixel.x + hold->x, player.ball.pixel.y + hold->y);
+X      XCopyArea(display.display, sprites[SPRITE_BALL].image,
+X	  display.copy, GCN(GC_OR), 0, 0, BALL_WIDTH, BALL_HEIGHT,
+X	  player.ball.pixel.x + hold->x, player.ball.pixel.y + hold->y);
+X    }
+X  /*}}}*/
+X  /*{{{  scores to copy*/
+X  {
+X    unsigned  i;
+X    SCORE     *sptr;
+X      
+X    for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X      {
+X	XCopyArea(display.display, sptr->mask, display.copy, GCN(GC_MASK),
+X	    0, 0, DIGIT_WIDTH * 4, DIGIT_HEIGHT,
+X	    sptr->place.x, sptr->place.y);
+X	XCopyArea(display.display, sptr->image, display.copy, GCN(GC_OR),
+X	    0, 0, DIGIT_WIDTH * 4, DIGIT_HEIGHT,
+X	    sptr->place.x, sptr->place.y);
+X      }
+X  }
+X  /*}}}*/
+X  /*{{{  areas to window*/
+X  {
+X    unsigned  i;
+X    BACKGROUND *bptr;
+X	
+X    for(bptr = update.back.list, i = update.back.backs; i--; bptr++)
+X      XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+X	  bptr->place.x, bptr->place.y, bptr->size.x, bptr->size.y,
+X	  bptr->place.x, bptr->place.y);
+X  }
+X  /*}}}*/
+X  /*{{{  scores to window*/
+X  {
+X    unsigned  i;
+X    SCORE     *sptr;
+X      
+X    for(sptr = update.score.list, i = update.score.scores; i--; sptr++)
+X      XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+X	  sptr->place.x, sptr->place.y, DIGIT_WIDTH * 4, DIGIT_HEIGHT,
+X	  sptr->place.x, sptr->place.y);
+X  }
+X  /*}}}*/
+X  update.back.backs = 0;
+X  memcpy(&player.old_ball, &player.ball, sizeof(BALL));
+X  xor_ball();
+X  XSync(display.display, False);
+X  return;
+}
+/*}}}*/
+/*{{{  void text_size(text, length, tptr)*/
+extern void text_size FUNCARGLIST((text, length, tptr))
+char const *text  FUNCARGSEP
+unsigned  length  FUNCARGSEP
+TEXT      *tptr   FUNCARGTERM
+/*
+X * wraps up the XQueryTextExtents for us
+X */
+{
+X  int       direction;
+X  XCharStruct chars;
+X  
+X  XQueryTextExtents(display.display, font.font, text, length,
+X	  &direction, &tptr->ascent, &tptr->descent, &chars);
+X  tptr->width = chars.width;
+X  return;
+}
+/*}}}*/
+/*{{{  void xor_ball()*/
+static void xor_ball FUNCARGVOID
+/*
+X * draws the old ball on the window directly
+X * using the ball's gc
+X * if the ball is being held, then we don't draw it,
+X * as that's done differently to stop it flickering
+X */
+{
+X  switch(player.old_ball.state)
+X  {
+X    /*{{{  case 0:*/
+X    case 0:
+X      break;
+X    /*}}}*/
+X    /*{{{  case 1:*/
+X    case 1:
+X    {
+X      XCopyArea(display.display, ball_xor, display.window, GCN(GC_BALL),
+X	  0, 0, BALL_WIDTH, BALL_HEIGHT,
+X	  player.old_ball.pixel.x - BALL_WIDTH / 2,
+X	  player.old_ball.pixel.y - BALL_HEIGHT / 2);
+X      break;
+X    }
+X    /*}}}*/
+X    /*{{{  case 2: case 4:*/
+SHAR_EOF
+true || echo 'restore of draw.c failed'
+fi
+echo 'End of  part 3'
+echo 'File draw.c is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

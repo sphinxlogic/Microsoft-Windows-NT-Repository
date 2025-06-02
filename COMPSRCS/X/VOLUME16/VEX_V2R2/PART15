@@ -1,0 +1,2074 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i066: Video Extension for X (v2r2), Part15/29
+Message-ID: <1992Feb6.145707.548@msi.com>
+Date: 6 Feb 92 14:57:07 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2061
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 66
+Archive-name: vex.v2r2/part15
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 15 (of 29)."
+# Contents:  extensions/xv/lib/Xv.c
+#   extensions/xv/server/ddx/sunrop/pip_i2c.c install/ddx-sun.sh
+#   server/ddx/cfb32/cfbmskbits.h
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:47 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/lib/Xv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/lib/Xv.c'\"
+else
+echo shar: Extracting \"'extensions/xv/lib/Xv.c'\" \(15831 characters\)
+sed "s/^X//" >'extensions/xv/lib/Xv.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   Xv.c --- Xv library extension module.
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   26.06.91 Carver
+X**     - changed XvFreeAdaptors to XvFreeAdaptorInfo
+X**     - changed XvFreeEncodings to XvFreeEncodingInfo
+X**
+X**   11.06.91 Carver
+X**     - changed SetPortControl to SetPortAttribute
+X**     - changed GetPortControl to GetPortAttribute
+X**     - changed QueryBestSize
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   240.01.91 Carver
+X**     - version 1.4 upgrade
+X**
+X*/
+X
+X#include "Xvlibint.h"
+X
+Xstatic Bool wire_to_event();
+Xstatic int close_display();
+Xstatic char *error_string();
+X
+Xstatic XExtensionInfo *xv_info;
+Xstatic char *xv_extension_name = XvName;
+X
+X#define XvCheckExtension(dpy,i,val) \
+X		XextCheckExtension(dpy, i, xv_extension_name, val)
+X
+Xstatic XExtensionHooks xv_extension_hooks = {
+X    NULL,				/* create_gc */
+X    NULL,				/* copy_gc */
+X    NULL,				/* flush_gc */
+X    NULL,				/* free_gc */
+X    NULL,				/* create_font */
+X    NULL,				/* free_font */
+X    close_display,			/* close_display */
+X    wire_to_event,			/* wire_to_event */
+X    NULL,				/* event_to_wire */
+X    NULL,				/* error */
+X    error_string			/* error_string */
+X};
+X
+Xstatic char *xv_error_list[] = {
+X    "BadPort",
+X    "BadEncoding"
+X};
+X
+Xstatic XEXT_GENERATE_FIND_DISPLAY(find_display, xv_info,
+X				   xv_extension_name, 
+X				   &xv_extension_hooks,
+X				   XvNumEvents, NULL)
+X
+Xstatic XEXT_GENERATE_CLOSE_DISPLAY(close_display, xv_info)
+X
+Xstatic XEXT_GENERATE_ERROR_STRING (error_string, xv_extension_name,
+X				   XvNumErrors, xv_error_list)
+X
+X#define	PREAMBLE(stat) \
+X  XExtDisplayInfo *info = find_display(dpy); \
+X  XvCheckExtension(dpy,info,0); \
+X  LockDisplay(dpy)
+X
+X#define POSTAMBLE \
+X  UnlockDisplay(dpy); \
+X  SyncHandle()
+X
+XXvQueryExtension(dpy, p_version, p_revision, 
+X		 p_requestBase, p_eventBase, p_errorBase)
+Xregister Display *dpy;
+Xunsigned int *p_version, *p_revision;
+Xunsigned int *p_requestBase, *p_eventBase, *p_errorBase;
+X
+X{
+X  register xvQueryExtensionReq *req;
+X  xvQueryExtensionReply rep;
+X  XExtDisplayInfo *info = find_display(dpy);
+X
+X  if (XextHasExtension(info))
+X    {
+X      
+X      XvGetReq(QueryExtension, req);
+X      
+X      /* READ THE REPLY */
+X      
+X      if (_XReply(dpy, (xReply *)&rep, 0, xFalse) == 0) 
+X	{
+X	  UnlockDisplay(dpy);
+X	  SyncHandle();
+X	  return(XvBadExtension);
+X	}
+X      
+X      *p_version = rep.version;
+X      *p_revision = rep.revision;
+X      *p_requestBase = info->codes->major_opcode;
+X      *p_eventBase = info->codes->first_event;
+X      *p_errorBase = info->codes->first_error;
+X    }
+X  else
+X    {
+X      return XvBadExtension;
+X    }
+X
+X  return Success;
+X
+X}
+X
+XXvQueryAdaptors(dpy, window, p_nAdaptors, p_pAdaptors)
+X
+Xregister Display *dpy;
+XWindow window;
+Xunsigned int *p_nAdaptors;
+XXvAdaptorInfo **p_pAdaptors;
+X{
+X  register xvQueryAdaptorsReq *req;
+X  xvQueryAdaptorsReply rep;
+X  int size,ii,jj;
+X  char *name;
+X  XvAdaptorInfo *pas, *pa;
+X  XvFormat *pfs, *pf;
+X  char *buffer;
+X  union 
+X    {
+X      char *buffer;
+X      char *string;
+X      xvAdaptorInfo *pa;
+X      xvFormat *pf;
+X    } u;
+X  
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(QueryAdaptors, req);
+X  req->window = window;
+X
+X  /* READ THE REPLY */
+X
+X  if (_XReply(dpy, (xReply *)&rep, 0, xFalse) == 0) 
+X    {
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(XvBadReply);
+X    }
+X
+X  size = rep.length << 2;
+X  if ( (buffer = (char *)Xmalloc ((unsigned) size)) == NULL)
+X    {
+X      UnlockMutex(&lock);
+X      return(XvBadAlloc);
+X    }
+X  _XRead (dpy, buffer, size);
+X
+X  u.buffer = buffer;
+X
+X  /* GET INPUT ADAPTORS */
+X
+X  size = rep.num_adaptors*sizeof(XvAdaptorInfo);
+X  if ((pas=(XvAdaptorInfo *)Xmalloc(size))==NULL)
+X    {
+X      Xfree(buffer);
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(XvBadAlloc);
+X    }
+X
+X  /* INIT ADAPTOR FIELDS */
+X
+X  pa = pas;
+X  for (ii=0; ii<rep.num_adaptors; ii++)
+X    {
+X      pa->num_adaptors = 0;
+X      pa->name = (char *)NULL;
+X      pa->formats = (XvFormat *)NULL;
+X    }
+X
+X  pa = pas;
+X  for (ii=0; ii<rep.num_adaptors; ii++)
+X    {
+X      pa->type = u.pa->type;
+X      pa->base_id = u.pa->base_id;
+X      pa->num_ports = u.pa->num_ports;
+X      pa->num_formats = u.pa->num_formats;
+X      pa->num_adaptors = rep.num_adaptors - ii;
+X
+X      /* GET ADAPTOR NAME */
+X
+X      size = u.pa->name_size;
+X      u.buffer += (sz_xvAdaptorInfo + 3) & ~3;
+X
+X      if ( (name = (char *)Xmalloc(size+1)) == NULL)
+X	{
+X	  XvFreeAdaptorInfo(pas);
+X	  Xfree(buffer);
+X	  UnlockDisplay(dpy);
+X	  SyncHandle();
+X	  return(XvBadAlloc);
+X	}
+X      (void)strncpy(name, u.string, size);
+X      pa->name = name;
+X
+X      u.buffer += (size + 3) & ~3;
+X
+X      /* GET FORMATS */
+X
+X      size = pa->num_formats*sizeof(XvFormat);
+X      if ((pfs=(XvFormat *)Xmalloc(size))==NULL)
+X	{
+X	  XvFreeAdaptorInfo(pas);
+X	  Xfree(buffer);
+X	  UnlockDisplay(dpy);
+X	  SyncHandle();
+X	  return(XvBadAlloc);
+X	}
+X
+X      pf = pfs;
+X      for (ii=0; ii<pa->num_formats; ii++)
+X	{
+X	  pf->depth = u.pf->depth;
+X	  pf->visual_id = u.pf->visual;
+X	  pf++;
+X	  
+X	  u.buffer += (sz_xvFormat + 3) & ~3;
+X	}
+X
+X      pa->formats = pfs;
+X
+X      pa++;
+X
+X    }
+X
+X  *p_nAdaptors = rep.num_adaptors;
+X  *p_pAdaptors = pas;
+X
+X  POSTAMBLE;
+X
+X  return (Success);
+X}
+X
+X
+Xvoid
+XXvFreeAdaptorInfo(pAdaptors)
+X
+XXvAdaptorInfo *pAdaptors;
+X
+X{
+X
+X  XvEncodingInfo *pe;
+X  XvAdaptorInfo *pa;
+X  int ii;
+X
+X  if (!pAdaptors) return;
+X
+X  pa = pAdaptors;
+X
+X  for (ii=0; ii<pAdaptors->num_adaptors; ii++, pa++)
+X    {
+X      if (pa->name)
+X	{
+X	  Xfree(pa->name);
+X	}
+X      if (pa->formats)
+X	{
+X	  Xfree(pa->formats);
+X	}
+X    } 
+X
+X  Xfree(pAdaptors);
+X
+X}
+X
+X
+XXvQueryEncodings(dpy, port, p_nEncodings, p_pEncodings)
+X
+Xregister Display *dpy;
+XXvPortID port;
+Xunsigned int *p_nEncodings;
+XXvEncodingInfo **p_pEncodings;
+X{
+X  register xvQueryEncodingsReq *req;
+X  xvQueryEncodingsReply rep;
+X  int size,ii,jj;
+X  char *name;
+X  XvEncodingInfo *pes, *pe;
+X  char *buffer;
+X  union 
+X    {
+X      char *buffer;
+X      char *string;
+X      xvEncodingInfo *pe;
+X    } u;
+X  
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(QueryEncodings, req);
+X  req->port = port;
+X
+X  /* READ THE REPLY */
+X
+X  if (_XReply(dpy, (xReply *)&rep, 0, xFalse) == 0) 
+X    {
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(NULL);
+X    }
+X
+X  size = rep.length << 2;
+X  if ( (buffer = (char *)Xmalloc ((unsigned) size)) == NULL)
+X    {
+X      UnlockMutex(&lock);
+X      return(XvBadAlloc);
+X    }
+X  _XRead (dpy, buffer, size);
+X
+X  u.buffer = buffer;
+X
+X  /* GET ENCODINGS */
+X
+X  size = rep.num_encodings*sizeof(XvEncodingInfo);
+X  if ( (pes = (XvEncodingInfo *)Xmalloc(size)) == NULL)
+X    {
+X      Xfree(buffer);
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(XvBadAlloc);
+X    }
+X
+X  /* INITIALIZE THE ENCODING POINTER */
+X
+X  pe = pes;
+X  for (jj=0; jj<rep.num_encodings; jj++)
+X    {
+X      pe->name = (char *)NULL;
+X      pe->num_encodings = 0;
+X      pe++;
+X    }
+X
+X  pe = pes;
+X  for (jj=0; jj<rep.num_encodings; jj++)
+X    {
+X      pe->encoding_id = u.pe->encoding;
+X      pe->width = u.pe->width;
+X      pe->height = u.pe->height;
+X      pe->rate.numerator = u.pe->rate.numerator;
+X      pe->rate.denominator = u.pe->rate.denominator;
+X      pe->num_encodings = rep.num_encodings - jj;
+X
+X      size = u.pe->name_size;
+X      u.buffer += (sz_xvEncodingInfo + 3) & ~3;
+X
+X      if ( (name = (char *)Xmalloc(size+1)) == NULL)
+X	{
+X	  Xfree(buffer);
+X	  UnlockDisplay(dpy);
+X	  SyncHandle();
+X	  return(XvBadAlloc);
+X	}
+X      strncpy(name, u.string, size);
+X      pe->name = name;
+X      pe++;
+X
+X      u.buffer += (size + 3) & ~3;
+X
+X    }
+X
+X  *p_nEncodings = rep.num_encodings;
+X  *p_pEncodings = pes;
+X
+X  POSTAMBLE;
+X
+X  return (Success);
+X}
+X
+Xvoid
+XXvFreeEncodingInfo(pEncodings)
+X
+XXvEncodingInfo *pEncodings;
+X
+X{
+X
+X  XvEncodingInfo *pe;
+X  int ii;
+X
+X  if (!pEncodings) return;
+X
+X  pe = pEncodings;
+X
+X  for (ii=0; ii<pEncodings->num_encodings; ii++, pe++)
+X    {
+X      if (pe->name) Xfree(pe->name);
+X    }
+X
+X  Xfree(pEncodings);
+X
+X}
+X
+XXvPutVideo(dpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XDrawable d;
+XGC gc;
+Xint vx, vy, dx, dy;
+Xunsigned int vw, vh;
+Xunsigned int dw, dh;
+X
+X{
+X  int size;
+X  register xvPutVideoReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X  
+X  FlushGC(dpy, gc);
+X
+X  XvGetReq(PutVideo, req);
+X
+X  req->port = port;
+X  req->drawable = d;
+X  req->gc = gc->gid;
+X  req->vid_x = vx;
+X  req->vid_y = vy;
+X  req->vid_w = vw;
+X  req->vid_h = vh;
+X  req->drw_x = dx;
+X  req->drw_y = dy;
+X  req->drw_w = dw;
+X  req->drw_h = dh;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+X
+XXvPutStill(dpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XDrawable d;
+XGC gc;
+Xint vx, vy, dx, dy;
+Xunsigned int vw, vh;
+Xunsigned int dw, dh;
+X
+X{
+X  int size;
+X  register xvPutStillReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  FlushGC(dpy, gc);
+X
+X  XvGetReq(PutStill, req);
+X  req->port = port;
+X  req->drawable = d;
+X  req->gc = gc->gid;
+X  req->vid_x = vx;
+X  req->vid_y = vy;
+X  req->vid_w = vw;
+X  req->vid_h = vh;
+X  req->drw_x = dx;
+X  req->drw_y = dy;
+X  req->drw_w = dw;
+X  req->drw_h = dh;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+XXvGetVideo(dpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XDrawable d;
+XGC gc;
+Xint vx, vy, dx, dy;
+Xunsigned int vw, vh;
+Xunsigned int dw, dh;
+X
+X{
+X  int size;
+X  register xvGetVideoReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  FlushGC(dpy, gc);
+X
+X  XvGetReq(GetVideo, req);
+X  req->port = port;
+X  req->drawable = d;
+X  req->gc = gc->gid;
+X  req->vid_x = vx;
+X  req->vid_y = vy;
+X  req->vid_w = vw;
+X  req->vid_h = vh;
+X  req->drw_x = dx;
+X  req->drw_y = dy;
+X  req->drw_w = dw;
+X  req->drw_h = dh;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+XXvGetStill(dpy, port, d, gc, vx, vy, vw, vh, dx, dy, dw, dh)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XDrawable d;
+XGC gc;
+Xint vx, vy, dx, dy;
+Xunsigned int vw, vh;
+Xunsigned int dw, dh;
+X
+X{
+X  int size;
+X  register xvGetStillReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  FlushGC(dpy, gc);
+X
+X  XvGetReq(GetStill, req);
+X  req->port = port;
+X  req->drawable = d;
+X  req->gc = gc->gid;
+X  req->vid_x = vx;
+X  req->vid_y = vy;
+X  req->vid_w = vw;
+X  req->vid_h = vh;
+X  req->drw_x = dx;
+X  req->drw_y = dy;
+X  req->drw_w = dw;
+X  req->drw_h = dh;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+X
+XXvStopVideo(dpy, port, draw)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XDrawable draw;
+X
+X{
+X  register xvStopVideoReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(StopVideo, req);
+X  req->port = port;
+X  req->drawable = draw;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+XXvGrabPort(dpy, port, time)
+X     register Display *dpy;
+X     XvPortID port;
+X     Time time;
+X
+X{
+X  int result;
+X  xvGrabPortReply rep;
+X  register xvGrabPortReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(GrabPort, req);
+X  req->port = port;
+X  req->time = time;
+X
+X  if (_XReply (dpy, (xReply *) &rep, 0, xTrue) == 0) 
+X    rep.result = GrabSuccess;
+X
+X  result = rep.result;
+X
+X  POSTAMBLE;
+X
+X  return result;
+X}
+X
+XXvUngrabPort(dpy, port, time)
+X     register Display *dpy;
+X     XvPortID port;
+X     Time time;
+X
+X{
+X  register xvUngrabPortReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(UngrabPort, req);
+X  req->port = port;
+X  req->time = time;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+XXvSelectVideoNotify(dpy, drawable, onoff)
+X
+Xregister Display *dpy;
+XDrawable drawable;
+XBool onoff;
+X
+X{
+X  register xvSelectVideoNotifyReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(SelectVideoNotify, req);
+X  req->drawable = drawable;
+X  req->onoff = onoff;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+XXvSelectPortNotify(dpy, port, onoff)
+X
+Xregister Display *dpy;
+XXvPortID port;
+XBool onoff;
+X
+X{
+X  register xvSelectPortNotifyReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(SelectPortNotify, req);
+X  req->port = port;
+X  req->onoff = onoff;
+X
+X  POSTAMBLE;
+X
+X  return Success;
+X}
+X
+X
+XXvSetPortAttribute (dpy, port, attribute, value)
+X     register Display *dpy;
+X     XvPortID port;
+X     Atom attribute;
+X     int value;
+X{
+X  register xvSetPortAttributeReq *req;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(SetPortAttribute, req);
+X  req->port = port;
+X  req->attribute = attribute;
+X  req->value = value;
+X
+X  POSTAMBLE;
+X
+X  return (Success);
+X}
+X
+XXvGetPortAttribute (dpy, port, attribute, p_value)
+X     register Display *dpy;
+X     XvPortID port;
+X     Atom attribute;
+X     int *p_value;
+X{
+X  register xvGetPortAttributeReq *req;
+X  xvGetPortAttributeReply rep;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(GetPortAttribute, req);
+X  req->port = port;
+X  req->attribute = attribute;
+X
+X  /* READ THE REPLY */
+X
+X  if (_XReply(dpy, (xReply *)&rep, 0, xFalse) == 0) 
+X    {
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(XvBadReply);
+X    }
+X
+X  *p_value = rep.value;
+X  
+X  POSTAMBLE;
+X
+X  return (Success);
+X}
+X
+XXvQueryBestSize(dpy, port, motion, vid_w, vid_h, drw_w, drw_h, 
+X		p_actual_width, p_actual_height)
+X     register Display *dpy;
+X     XvPortID port;
+X     Bool motion;
+X     unsigned int vid_w, vid_h;
+X     unsigned int drw_w, drw_h;
+X     unsigned int *p_actual_width, *p_actual_height;
+X{
+X  register xvQueryBestSizeReq *req;
+X  xvQueryBestSizeReply rep;
+X
+X  PREAMBLE(XvBadExtension);
+X
+X  XvGetReq(QueryBestSize, req);
+X  req->port = port;
+X  req->motion = motion;
+X  req->vid_w = vid_w;
+X  req->vid_h = vid_h;
+X  req->drw_w = drw_w;
+X  req->drw_h = drw_h;
+X
+X  /* READ THE REPLY */
+X
+X  if (_XReply(dpy, (xReply *)&rep, 0, xFalse) == 0) 
+X    {
+X      UnlockDisplay(dpy);
+X      SyncHandle();
+X      return(XvBadReply);
+X    }
+X
+X  *p_actual_width = rep.actual_width;
+X  *p_actual_height = rep.actual_height;
+X
+X  POSTAMBLE;
+X
+X  return (Success);
+X}
+X
+Xstatic Bool
+Xwire_to_event(dpy, re, event)
+Xregister Display *dpy;	/* pointer to display structure */
+Xregister XvEvent *re;	/* pointer to where event should be reformatted */
+Xregister xvEvent *event;	/* protocol event */
+X
+X{
+X
+X  XExtDisplayInfo *info = find_display(dpy);
+X
+X  if (event->u.u.type == info->codes->first_event+XvVideoNotify)
+X    {
+X      re->xvvideo.type = event->u.u.type & 0x7f;
+X      re->xvvideo.serial = 
+X	_XSetLastRequestRead(dpy, (xGenericReply *)event);
+X      re->xvvideo.send_event = ((event->u.u.type & 0x80) != 0);
+X      re->xvvideo.display = dpy;
+X      re->xvvideo.time = event->u.videoNotify.time;
+X      re->xvvideo.reason = event->u.videoNotify.reason;
+X      re->xvvideo.drawable = event->u.videoNotify.drawable;
+X      re->xvvideo.port_id = event->u.videoNotify.port;
+X    }
+X  else if (event->u.u.type == info->codes->first_event+XvPortNotify)
+X    {
+X      re->xvport.type = event->u.u.type & 0x7f;
+X      re->xvport.serial = 
+X	_XSetLastRequestRead(dpy, (xGenericReply *)event);
+X      re->xvport.send_event = ((event->u.u.type & 0x80) != 0);
+X      re->xvport.display = dpy;
+X      re->xvport.time = event->u.portNotify.time;
+X      re->xvport.port_id = event->u.portNotify.port;
+X      re->xvport.attribute = event->u.portNotify.attribute;
+X      re->xvport.value = event->u.portNotify.value;
+X    }
+X  else
+X    {
+X      return (False);
+X    }
+X
+X
+X  return (True);
+X  
+X}
+END_OF_FILE
+if test 15831 -ne `wc -c <'extensions/xv/lib/Xv.c'`; then
+    echo shar: \"'extensions/xv/lib/Xv.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/lib/Xv.c'
+fi
+if test -f 'extensions/xv/server/ddx/sunrop/pip_i2c.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/sunrop/pip_i2c.c'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/sunrop/pip_i2c.c'\" \(14500 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/sunrop/pip_i2c.c' <<'END_OF_FILE'
+X/*******************************************************************************
+X * *************************************************************************** *
+X * *pip_i2c.c                                                                * *
+X * *                                                                         * *
+X * *    I-squared C Bus Support For SPARC(tm) Card Devices.                  * *
+X * *                                                                         * *
+X * *    Conventions:                                                         * *
+X * *       (1) File is formatted assuming tab stops every four characters.   * *
+X * *       (2) Routines are in alphabetical order.                           * *
+X * *                                                                         * *
+X * *                  Copyright 1991, RasterOps Microsystems, Inc.           * *
+X * *************************************************************************** *
+X *******************************************************************************/
+X
+X#include <sys/types.h>				/* General type defs. */
+X
+X/*
+X *   2	
+X *	I C Bus Programming Considerations And Details:
+X *
+X *		(1)	The i2c bus is implemented on the PIP as two contiguous bits in a 
+X *			single register. Thus read-modify writes are used to set and clear 
+X *			the bits. This can cause a problem during acknowledgement cycles 
+X *			since the receiver of data (one of the devices on the i2c bus) will 
+X *			hold the data line low during the acknowledgement cycle, which is 
+X *			ended with the clock being set high by us. However, since the clock 
+X *			is set high with a read-modify-write we pick up a low setting for 
+X *			the data bit and store it back. To get around this we explicitly set 
+X *			the data bit back to high after, or while, setting the clock. This 
+X *			actions are flagged with comments in the code below.
+X *
+X *		(2)	The standard cycle for sending the first data byte is as follows:
+X *
+X *                  Start
+X *                       |
+X *                       |
+X *                       |
+X *                   V      1     2     3     4     5     6     7     8    ack
+X *      Clock:     ____    __    __    __    __    __    __    __    __    __  
+X *                     \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__
+X *
+X *      Sender:    __     _____ _____ _____ _____ _____ _____ _____ ____________
+X *      Data         \___/_____X_____X_____X_____X_____X_____X_____X_____/
+X *
+X *      Reciever:  ____________________________________________________       __
+X *      Data                                                           \_____/
+X *
+X *		(3)	The standard cycle for sending subsequent bytes is:
+X *
+X *
+X *                           1     2     3     4     5     6     7     8    ack
+X *      Clock:          __    __    __    __    __    __    __    __    __  
+X *                 ____/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__
+X *
+X *      Sender:    _________ _____ _____ _____ _____ _____ _____ ___________
+X *      Data          \_____X_____X_____X_____X_____X_____X_____X_____/
+X *
+X *      Reciever:  __________________________________________________      ___
+X *      Data                                                         \____/
+X *
+X *		(4)	The standard cycle for stop at the end of data transmission is:
+X *
+X *
+X *      Clock:          ______
+X *                 ____/  
+X *
+X *      Sender:    ___    ____
+X *      Data          \__/
+X *
+X *		(5)	The standard cycle for reading a byte is:
+X *
+X *
+X *                           1     2     3     4     5     6     7     8    stop
+X *      Clock:          __    __    __    __    __    __    __    __    _____
+X *                 ____/  \__/  \__/  \__/  \__/  \__/  \__/  \__/  \__/ 
+X *
+X *      Sender:    __________________________________________________    ____
+X *      Data                                                         \__/
+X *
+X *      Receiver:  _________ _____ _____ _____ _____ _____ _____ ____  
+X *      Data          \_____X_____X_____X_____X_____X_____X_____X____\____
+X *
+X */
+X#define I2C_CLOCK_OFF           (u_int)0xBF
+X#define I2C_CLOCK_OFF_DATA_ZERO (u_int)0x3F
+X#define I2C_CLOCK_ON            (u_int)0x40
+X#define I2C_CLOCK_ON_DATA_ONE   (u_int)0xC0
+X#define I2C_DATA_ONE            (u_int)0x80
+X#define I2C_DATA_ZERO           (u_int)0x7F
+X
+X#define I2C_CLOCK_DELAY i2c_clock_delay()
+X#define I2C_DATA_DELAY i2c_data_delay()
+X
+X#define I2C_CLOCK_DATA_LOW  {*port &= I2C_CLOCK_OFF_DATA_ZERO; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_DATA_HIGH {*port |= I2C_CLOCK_ON_DATA_ONE; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_LOW       {*port &= I2C_CLOCK_OFF; I2C_CLOCK_DELAY;}
+X#define I2C_CLOCK_HIGH      {*port |= I2C_CLOCK_ON; I2C_CLOCK_DELAY;}
+X#define I2C_DATA_LOW        {*port &= I2C_DATA_ZERO; I2C_DATA_DELAY;}
+X#define I2C_DATA_HIGH       {*port |= I2C_DATA_ONE; I2C_DATA_DELAY;}
+X
+X#define I2C_READ_BIT		(u_int)0x01
+X
+X/*"i2c_clock"
+X *
+X *	Set the i2c bus clock signal to high or low state. This is used by 
+X *  diagnostics to get the i2c bus into a known state.
+X */
+Xi2c_clock(port, state)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		state;	/* = 1 for high, 0 for low. */
+X{
+X	if ( state )
+X	{
+X		I2C_CLOCK_HIGH;
+X	}
+X	else
+X	{
+X		I2C_CLOCK_LOW;
+X	}
+X}
+X
+X/*"i2c_clock_delay"
+X *
+X *	Delay an interval to let i2c bus clock signal settle.
+X */
+Xi2c_clock_delay()
+X{
+X    int i;
+X    for (i = 0; i < 10; i++) ;
+X    return i;
+X}
+X
+X/*"i2c_data"
+X *
+X *	Set the i2c bus data signal to high or low state. This is used by 
+X *  diagnostics to get the i2c bus into a known state.
+X */
+Xi2c_data(port, state)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		state;	/* = 1 for high, 0 for low. */
+X{
+X	if ( state )
+X	{
+X		I2C_DATA_HIGH;
+X	}
+X	else
+X	{
+X		I2C_DATA_LOW;
+X	}
+X}
+X
+X/*"i2c_data_delay"
+X *
+X *	Delay an interval to let i2c bus clock signal settle.
+X */
+Xi2c_data_delay()
+X{
+X    int i;
+X    for (i = 0; i < 10; i++) ;
+X    return i;
+X}
+X	
+X/*"i2c_read"
+X *
+X *	Write a slave address and subcomponent request to the i2c bus and read back 
+X *  the data associated with it.
+X *
+X *		= 1 if success
+X *		= 0 if error detected
+X */
+Xi2c_read(port, slave, subaddr, data)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		slave;		/* =  address of slave device writing to. */
+X	int		subaddr;	/* =  address of subcomponent writing to. */
+X	int		*data;		/* -> where to place data read. */
+X{
+X	int		delay;	/* Index: # of times tested for clock and data both high. */
+X	int		retry;	/* Index: # of attempt to get clock and data both high. */
+X
+X    /*  Make sure the i2c interface is in the proper state (both clock and data
+X     *  bits are high). If they are not, try toggling the clock and sending
+X     *  a stop command sequence.
+X     */
+X    for ( retry = 0; retry < 20; retry++ )
+X    {
+X        for (delay = 0; delay < 100000; delay++)
+X        {
+X           if((*port&(I2C_CLOCK_ON_DATA_ONE))==I2C_CLOCK_ON_DATA_ONE)goto start;
+X        }
+X        I2C_DATA_HIGH;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_HIGH;
+X     
+X        I2C_CLOCK_LOW;
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_HIGH;
+X        I2C_DATA_HIGH;
+X    }
+X
+X    if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) != I2C_CLOCK_ON_DATA_ONE )
+X    {
+X        printf("i2c_read(%x,%x): i2c bus not ready!!!!\n", slave, subaddr);
+X        return 0;
+X    }
+X
+X    /*  Send out the start pulse signals. 
+X     */
+Xstart:
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_LOW;
+X
+X	/*	Send out the slave device address. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_write_byte(port, slave) )
+X	{
+X		printf("i2c_read(%x,%x): unable to send slave byte in set address\n", 
+X			slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Send out the slave subcomponent address. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_write_byte(port, subaddr) )
+X	{
+X		printf("i2c_read(%x,%x): unable to send subaddress byte \n", 
+X			slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Initiate a new sequence by setting the data value low while clock is 
+X	 *  high.  (The data value was already high from the last byte write 
+X	 *  acknowledge cycle - see "i2c_write_byte" below.)
+X	 *	Send out the slave device address with a read indication. 
+X	 *	If there is an error pull down data then clock, then pull both high 
+X	 *	together, then clock high, and wait a while.
+X	 */
+X	I2C_CLOCK_LOW;
+X	I2C_CLOCK_HIGH;
+X	I2C_DATA_LOW;
+X	if ( !i2c_write_byte(port, slave | I2C_READ_BIT) )
+X	{
+X		printf("i2c_read(%x,%x): unable to send slave byte in read cmd \n", 
+X			slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Read back the data byte. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_read_byte(port, data) )
+X	{
+X		printf("i2c_read(%x,%x): unable to read data byte \n", slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	return 1;
+X}
+X
+X/*"i2c_read_byte"
+X *
+X *  Toggle a byte value off the i2c bus and wait for an acknowledgment.
+X *  This routine assumes that the i2c interface is properly prepared to
+X *  send data. Each data bit is transmitted by:
+X *      a) setting the clock bit low
+X *      b) setting the data bit to the appropriate sense (0 or 1)
+X *      c) setting the clock bit high
+X *
+X *      = 1 if successful
+X *      = 0 if error detected
+X */
+Xi2c_read_byte(port, data)
+X    u_char  *port;      /* -> i2c port to read from. */
+X    int     *data;      /* -> where to place data read. */
+X{
+X    int     bit;        /* Index: next bit to be transmitted. */
+X    int     delay;      /* How long to loop waiting for i2c to become ready. */
+X 
+X 
+X	/*	Loop reading in the bits, assembling them into a byte.
+X	 */
+X    for (bit = 0, *data = 0; bit < 8; bit++)
+X    {
+X        I2C_CLOCK_LOW;
+X		I2C_DATA_HIGH;	/* #### make sure slave is driving bus, (I'm not!). */
+X        I2C_CLOCK_HIGH;
+X		*data |= (*port & I2C_DATA_ONE) >> bit;
+X    }
+X 
+X	/*	We only read a single byte, so don't send an acknowledgement, rather
+X	 *	send the stop sequence.
+X	 */
+X	I2C_CLOCK_LOW;
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_HIGH;
+X    I2C_DATA_HIGH;
+X}
+X
+X/*"i2c_write"
+X *
+X *      = 1 if success
+X *      = 0 if error detected
+X */
+Xi2c_write(port, slave, subaddr, data)
+X    u_char  *port;      /* -> port for i2c bus. */
+X    int     slave;      /* =  address of slave device writing to. */
+X    int     subaddr;    /* =  address of subcomponent writing to. */
+X    int     data;       /* =  data to write. */
+X{
+X	int		delay;	/* Index: # of times tested for clock and data both high. */
+X	int		retry;	/* Index: # of attempt to get clock and data both high. */
+X
+X    /*  Make sure the i2c interface is in the proper state (both clock and data
+X     *  bits are high). If they are not, try toggling the clock and sending
+X     *  a stop command sequence.
+X     */
+X    for ( retry = 0; retry < 20; retry++ )
+X    {
+X        for (delay = 0; delay < 100000; delay++)
+X        {
+X          if ((*port&(I2C_CLOCK_ON_DATA_ONE))==I2C_CLOCK_ON_DATA_ONE)goto start;
+X        }
+X        I2C_DATA_HIGH;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_HIGH;
+X     
+X        I2C_CLOCK_LOW;
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_HIGH;
+X        I2C_DATA_HIGH;
+X    }
+X
+X	if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) != I2C_CLOCK_ON_DATA_ONE )
+X	{
+X		printf("i2c_write(%x,%x,%x): i2c bus not ready!!!!\n", 
+X			slave, subaddr, data&0xff);
+X		return 0;
+X	}
+X
+X	/*	Send out the start pulse signals. 
+X	 */
+Xstart:
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_LOW;
+X 
+X    /*  Send out the slave device address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, slave) )
+X    {
+X        printf("i2c_write(%x,%x,%x): unable to send slave byte \n", 
+X			slave, subaddr, data&0xff);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the slave subcomponent address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, subaddr) )
+X    {
+X        printf("i2c_write(%x,%x,%x): unable to send subaddress byte \n", 
+X			slave, subaddr, data&0xff);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the data byte. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, data) )
+X    {
+X        printf("i2c_write(%x,%x,%x): unable to send data byte \n", 
+X			slave, subaddr, data&0xff);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X	/*	All done with the transmission, so make sure i2c bus is in a known 
+X	 *  stopped state and return success to our caller.
+X	 */
+X	I2C_DATA_LOW;
+X	I2C_CLOCK_HIGH;
+X	I2C_DATA_HIGH;
+X    return 1;
+X}
+X
+X/*"i2c_write_byte"
+X *
+X *	Toggle a byte value into the i2c bus and wait for an acknowledgment.
+X *	This routine assumes that the i2c interface is properly prepared to
+X *	accept data. Each data bit is transmitted by:
+X *		a) setting the clock bit low
+X *		b) setting the data bit to the appropriate sense (0 or 1)
+X *		c) setting the clock bit high
+X *
+X *		= 1 if successful
+X *		= 0 if error detected
+X */
+Xi2c_write_byte(port, data)
+X	u_char	*port;		/* -> i2c port to write to. */
+X	int		data;		/* =  data to be written. */
+X{
+X	int			bit;		   /* Index: next bit to be transmitted. */
+X	int			delay;		   /* How long to loop waiting for i2c to go ready*/
+X
+X	for (bit = 0; bit < 8; bit++)
+X	{
+X		I2C_CLOCK_LOW;
+X		*port = (*port & I2C_DATA_ZERO) | ( (data << bit) & I2C_DATA_ONE );
+X		I2C_DATA_DELAY;
+X		I2C_CLOCK_HIGH;
+X		I2C_CLOCK_DELAY;
+X	}
+X
+X	/*	Set the clock is low, set the data bit high and look for the acknowledge 
+X	 *  from the slave device we have written to. When we receive the 
+X	 *  acknowledge bring the clock back high then low.
+X	 */
+X	I2C_CLOCK_LOW;
+X	I2C_DATA_HIGH;
+X	I2C_CLOCK_DATA_HIGH;
+X	for (delay = 0; delay < 100000; delay++)
+X	{
+X		if ( (*port & I2C_DATA_ONE) == 0 ) break;
+X	}
+X	if ( (*port & (I2C_DATA_ONE)) != 0 ) 
+X	{
+X		printf("i2c_write_byte(%x): i2c bus not ready!!!!\n", data);
+X		return 0;
+X	}
+X	I2C_CLOCK_LOW;
+X	I2C_DATA_HIGH;		/*####*/
+X	return 1;
+X}
+END_OF_FILE
+if test 14500 -ne `wc -c <'extensions/xv/server/ddx/sunrop/pip_i2c.c'`; then
+    echo shar: \"'extensions/xv/server/ddx/sunrop/pip_i2c.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/sunrop/pip_i2c.c'
+fi
+if test -f 'install/ddx-sun.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install/ddx-sun.sh'\"
+else
+echo shar: Extracting \"'install/ddx-sun.sh'\" \(4844 characters\)
+sed "s/^X//" >'install/ddx-sun.sh' <<'END_OF_FILE'
+X
+Xecho ""
+Xecho "  Adding files to $top/server/ddx/sun"
+X
+Xif [ ! -w $top/server/ddx/sun ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't access ddx/sun directory"
+X	exit
+Xfi
+X
+Xif [ -f $top/server/ddx/sun/sunCG8C.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/sunCG8C.c $top/server/ddx/sun/sunCG8C.c.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/sunCG8C.h ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/sunCG8C.h $top/server/ddx/sun/sunCG8C.h.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbstruct.h ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbstruct.h $top/server/ddx/sun/xfbstruct.h.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbscrinit.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbscrinit.c $top/server/ddx/sun/xfbscrinit.c.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbbstore.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbbstore.c $top/server/ddx/sun/xfbbstore.c.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbmap.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbmap.c $top/server/ddx/sun/xfbmap.c.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbmisc.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbmisc.c $top/server/ddx/sun/xfbmisc.c.$bak
+Xfi
+Xif [ -f $top/server/ddx/sun/xfbwindow.c ] 
+Xthen 
+Xmv -f $top/server/ddx/sun/xfbwindow.c $top/server/ddx/sun/xfbwindow.c.$bak
+Xfi
+X
+Xcp $pwd/server/ddx/sun/sunCG8C.c $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/sunCG8C.h $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbstruct.h $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbscrinit.c $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbwindow.c $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbmisc.c $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbbstore.c $top/server/ddx/sun
+Xcp $pwd/server/ddx/sun/xfbmap.c $top/server/ddx/sun
+X
+Xecho
+Xecho "  Modifying $top/server/ddx/sun/Imakefile"
+X
+Xmv -f $top/server/ddx/sun/Imakefile $top/server/ddx/sun/Imakefile.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move sun Imakefile to Imakefile.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/ddx/sun/Imakefile.$bak $top/server/ddx/sun/Imakefile
+Xchmod u+rw $top/server/ddx/sun/Imakefile
+X
+Xed - $top/server/ddx/sun/Imakefile << '-*-END-*-'
+Xg/sunCG8C\.c/s/sunCG8C\.c//
+X/sunCG4C\.c/s/sunCG4C\.c/sunCG4C.c sunCG8C.c/
+Xg/xfbscrinit\.c/s/ xfbscrinit\.c//
+Xg/xfbmisc\.c/s/ xfbmisc\.c//
+Xg/xfbwindow\.c/s/ xfbwindow\.c//
+Xg/xfbbstore\.c/s/ xfbbstore\.c//
+Xg/xfbmap\.c/s/ xfbmap\.c//
+X/sunKeyMap\.c/s/$/ xfbscrinit.c xfbmisc.c xfbwindow.c xfbbstore.c xfbmap.c/
+Xg/sunCG8C\.o/s/sunCG8C\.o//
+X/sunCG4C\.o/s/sunCG4C\.o/sunCG4C.o sunCG8C.o/
+Xg/xfbscrinit\.o/s/ xfbscrinit\.o//
+Xg/xfbmisc\.o/s/ xfbmisc\.o//
+Xg/xfbwindow\.o/s/ xfbwindow\.o//
+Xg/xfbbstore\.o/s/ xfbbstore\.o//
+Xg/xfbmap\.o/s/ xfbmap\.o//
+X/sunKeyMap\.o/s/$/ xfbscrinit.o xfbmisc.o xfbwindow.o xfbbstore.o xfbmap.o/
+Xw
+Xq
+X-*-END-*-
+X
+Xgrep -s sunCG8C $top/server/ddx/sun/Imakefile
+Xif [ $? -gt 0 ]
+Xthen
+X	echo "  Error: Couldn't modify Imakefile"
+X	exit
+Xfi
+X
+Xchmod u-w $top/server/ddx/sun/Imakefile
+X
+Xecho
+Xecho "  Modifying $top/server/ddx/sun/sunInit.c"
+X
+Xmv -f $top/server/ddx/sun/sunInit.c $top/server/ddx/sun/sunInit.c.$bak
+Xif [ $? -gt 0 ]
+Xthen
+X	echo ""
+X	echo "  Error: Couldn't move sunInit.c sunInit.c.$bak"
+X	exit
+Xfi
+X
+Xcp $top/server/ddx/sun/sunInit.c.$bak $top/server/ddx/sun/sunInit.c
+Xchmod u+rw $top/server/ddx/sun/sunInit.c
+X
+Xed - $top/server/ddx/sun/sunInit.c << '-*-END-*-'
+XH
+Xg/sunSupportsDepth24/d
+X/Bool[ 	]*sunSupportsDepth8[ 	]*/a
+XBool sunSupportsDepth24 = FALSE;
+X.
+Xg/sunCG8/d
+X/sunCG6CProbe(),/a
+Xextern Bool sunCG8CProbe(), sunCG8CCreate();
+X.
+X/[ 	]sunCG4CProbe,/a
+X    sunCG8CProbe,	"/dev/cgeight0",    sunCG8CCreate,
+X.
+Xg/static PixmapFormatRec[ 	]*formats/.,/#define NUMFORMATS/d
+Xg/format1 =/?[^^]?+1,.j
+Xg/format1 =/.,/format24/+2d
+X/fbFd[ 	]*sunFbs/a
+X
+Xstatic PixmapFormatRec	format1 = {
+X    1, 1, BITMAP_SCANLINE_PAD,	/* 1-bit deep */
+X};
+Xstatic PixmapFormatRec	format8 = {
+X    8, 8, BITMAP_SCANLINE_PAD,	/* 8-bit deep */
+X};
+Xstatic PixmapFormatRec	format24 = {
+X    24, 32, BITMAP_SCANLINE_PAD,	/* 24-bit deep */
+X};
+X.
+Xg/pScreenInfo->numPixmapFormats = NUMFORMATS;/d
+Xg/for (i=0; i< NUMFORMATS; i++)/d
+Xg/pScreenInfo->formats\[i\] = formats\[i\];/d
+Xg/pScreenInfo->numPixmapFormats = 1;/d
+Xg/pScreenInfo->formats\[0\] = format1;/d
+Xg/autoRepeatHandlersInstalled = /?[^^]?+1,.j
+X/autoRepeatHandlersInstalled = /i
+X
+X    pScreenInfo->numPixmapFormats = 1;
+X    pScreenInfo->formats[0] = format1;
+X
+X.
+Xg/if (!sunSupportsDepth8)/d
+Xg/pScreenInfo->numPixmapFormats--;/d
+Xg/if (sunSupportsDepth8)/d
+Xg/pScreenInfo->formats\[pScreenInfo->numPixmapFormats++\] = format8;/d
+Xg/if (sunSupportsDepth24)/d
+Xg/pScreenInfo->formats\[pScreenInfo->numPixmapFormats++\] = format24;/d
+X/if (sunFbData\[dev\]\.createProc)/-1i
+X    if (sunSupportsDepth8)
+X      pScreenInfo->formats[pScreenInfo->numPixmapFormats++] = format8;
+X    if (sunSupportsDepth24)
+X      pScreenInfo->formats[pScreenInfo->numPixmapFormats++] = format24;
+X.
+Xw
+Xq
+X-*-END-*-
+X
+Xgrep -s format24 $top/server/ddx/sun/sunInit.c
+Xif [ $? -gt 0 ]
+Xthen
+X	echo "  Error: Couldn't modify sunInit.c"
+X	exit
+Xfi
+X
+Xchmod u-w $top/server/ddx/sun/Imakefile
+X
+X
+X
+END_OF_FILE
+if test 4844 -ne `wc -c <'install/ddx-sun.sh'`; then
+    echo shar: \"'install/ddx-sun.sh'\" unpacked with wrong size!
+fi
+# end of 'install/ddx-sun.sh'
+fi
+if test -f 'server/ddx/cfb32/cfbmskbits.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbmskbits.h'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbmskbits.h'\" \(16406 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbmskbits.h' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1987 by Sun Microsystems, Inc. Mountain View, CA.
+X
+X                    All Rights Reserved
+X
+XPermission  to  use,  copy,  modify,  and  distribute   this
+Xsoftware  and  its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright no-
+Xtice  appear  in all copies and that both that copyright no-
+Xtice and this permission notice appear in  supporting  docu-
+Xmentation,  and  that the names of Sun or MIT not be used in
+Xadvertising or publicity pertaining to distribution  of  the
+Xsoftware  without specific prior written permission. Sun and
+XM.I.T. make no representations about the suitability of this
+Xsoftware for any purpose. It is provided "as is" without any
+Xexpress or implied warranty.
+X
+XSUN DISCLAIMS ALL WARRANTIES WITH REGARD TO  THIS  SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FIT-
+XNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SUN BE  LI-
+XABLE  FOR  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,  DATA  OR
+XPROFITS,  WHETHER  IN  AN  ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+XTHE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X********************************************************/
+X
+X/* $XConsortium: cfbmskbits.h,v 4.19 91/07/05 10:53:09 rws Exp $ */
+X
+Xextern unsigned int cfbstarttab[];
+Xextern unsigned int cfbendtab[];
+Xextern unsigned int cfbstartpartial[];
+Xextern unsigned int cfbendpartial[];
+Xextern unsigned int cfbrmask[];
+Xextern unsigned int cfbmask[];
+Xextern unsigned int QuartetBitsTable[];
+Xextern unsigned int QuartetPixelMaskTable[];
+X
+X
+X/*
+X * ==========================================================================
+X * Converted from mfb to support memory-mapped color framebuffer by smarks@sun, 
+X * April-May 1987.
+X *
+X * The way I did the conversion was to consider each longword as an
+X * array of four bytes instead of an array of 32 one-bit pixels.  So
+X * getbits() and putbits() retain much the same calling sequence, but
+X * they move bytes around instead of bits.  Of course, this entails the
+X * removal of all of the one-bit-pixel dependencies from the other
+X * files, but the major bit-hacking stuff should be covered here.
+X *
+X * I've created some new macros that make it easier to understand what's 
+X * going on in the pixel calculations, and that make it easier to change the 
+X * pixel size.
+X *
+X * name	    mfb	    cfb	    explanation
+X * ----	    ---	    ---	    -----------
+X * PPW	    32	    4	    pixels per word
+X * PLST	    31	    3	    last pixel in a word (should be PPW-1)
+X * PIM	    0x1f    0x03    pixel index mask (index within a word)
+X * PWSH	    5	    2	    pixel-to-word shift
+X * PSZ	    1	    8	    pixel size (bits)
+X * PMSK	    0x01    0xFF    single-pixel mask
+X *
+X * Note that even with these new macros, there are still many dependencies 
+X * in the code on the fact that there are 32 bits (not necessarily pixels) 
+X * in each word.  These macros remove the dependency that 1 pixel == 1 bit.
+X *
+X * I have also added a new macro, PFILL, that takes one pixel and
+X * replicates it throughout a word.  This macro definition is dependent
+X * upon pixel and word size; it doesn't use macros like PPW and so
+X * forth.  Examples: for monochrome, PFILL(1) => 0xffffffff, PFILL(0) =>
+X * 0x00000000.  For 8-bit color, PFILL(0x5d) => 0x5d5d5d5d.  This macro
+X * is used primarily for replicating a plane mask into a word.
+X *
+X * Color framebuffers operations also support the notion of a plane
+X * mask.  This mask determines which planes of the framebuffer can be
+X * altered; the others are left unchanged.  I have added another
+X * parameter to the putbits and putbitsrop macros that is the plane
+X * mask.
+X * ==========================================================================
+X */
+X
+X/* #define PPW	4 */
+X#if PPW == 8
+X#define PLST	7
+X#define PIM	0x07
+X#define PWSH	3
+X#define PSZ	4
+X#define PMSK	0xF
+X#endif
+X#if PPW == 4
+X#define PLST	3
+X#define PIM	0x03
+X#define PWSH	2
+X#define PSZ	8
+X#define PMSK	0xFF
+X#define PIXEL_ADDR
+X#define PixelType   unsigned char
+X#endif
+X#if PPW == 2
+X#define PLST	0
+X#define PIM	1
+X#define PWSH	1
+X#define PSZ	16
+X#define PMSK	0xFFFF
+X#define PIXEL_ADDR
+X#define PixelType   unsigned short
+X#endif
+X#if PPW == 1
+X#define PLST	0
+X#define PIM	0
+X#define PWSH	0
+X#define PSZ	32
+X#define PMSK	0xFFFFFFFF
+X#define PIXEL_ADDR
+X#define PixelType   unsigned long
+X#endif
+X
+X#ifndef DEPTH
+X#if PSZ == 32
+X#define DEPTH 24
+X#else
+X#define DEPTH PSZ
+X#endif
+X#endif
+X
+X/* the following notes use the following conventions:
+XSCREEN LEFT				SCREEN RIGHT
+Xin this file and maskbits.c, left and right refer to screen coordinates,
+XNOT bit numbering in registers.
+X
+Xcfbstarttab[n] 
+X	pixels[0,n-1] = 0's	pixels[n,PPW-1] = 1's
+Xcfbendtab[n] =
+X	pixels[0,n-1] = 1's	pixels[n,PPW-1] = 0's
+X
+Xcfbstartpartial[], cfbendpartial[]
+X	these are used as accelerators for doing putbits and masking out
+Xbits that are all contained between longword boudaries.  the extra
+X256 bytes of data seems a small price to pay -- code is smaller,
+Xand narrow things (e.g. window borders) go faster.
+X
+Xthe names may seem misleading; they are derived not from which end
+Xof the word the bits are turned on, but at which end of a scanline
+Xthe table tends to be used.
+X
+Xlook at the tables and macros to understand boundary conditions.
+X(careful readers will note that starttab[n] = ~endtab[n] for n != 0)
+X
+X-----------------------------------------------------------------------
+Xthese two macros depend on the screen's bit ordering.
+Xin both of them x is a screen position.  they are used to
+Xcombine bits collected from multiple longwords into a
+Xsingle destination longword, and to unpack a single
+Xsource longword into multiple destinations.
+X
+XSCRLEFT(dst, x)
+X	takes dst[x, PPW] and moves them to dst[0, PPW-x]
+X	the contents of the rest of dst are 0 ONLY IF
+X	dst is UNSIGNED.
+X	is cast as an unsigned.
+X	this is a right shift on the VAX, left shift on
+X	Sun and pc-rt.
+X
+XSCRRIGHT(dst, x)
+X	takes dst[0,x] and moves them to dst[PPW-x, PPW]
+X	the contents of the rest of dst are 0 ONLY IF
+X	dst is UNSIGNED.
+X	this is a left shift on the VAX, right shift on
+X	Sun and pc-rt.
+X
+X
+Xthe remaining macros are cpu-independent; all bit order dependencies
+Xare built into the tables and the two macros above.
+X
+Xmaskbits(x, w, startmask, endmask, nlw)
+X	for a span of width w starting at position x, returns
+Xa mask for ragged pixels at start, mask for ragged pixels at end,
+Xand the number of whole longwords between the ends.
+X
+Xmaskpartialbits(x, w, mask)
+X	works like maskbits(), except all the pixels are in the
+X	same longword (i.e. (x&0xPIM + w) <= PPW)
+X
+Xmask32bits(x, w, startmask, endmask, nlw)
+X	as maskbits, but does not calculate nlw.  it is used by
+X	cfbGlyphBlt to put down glyphs <= PPW bits wide.
+X
+Xgetbits(psrc, x, w, dst)
+X	starting at position x in psrc (x < PPW), collect w
+X	pixels and put them in the screen left portion of dst.
+X	psrc is a longword pointer.  this may span longword boundaries.
+X	it special-cases fetching all w bits from one longword.
+X
+X	+--------+--------+		+--------+
+X	|    | m |n|      |	==> 	| m |n|  |
+X	+--------+--------+		+--------+
+X	    x      x+w			0     w
+X	psrc     psrc+1			dst
+X			m = PPW - x
+X			n = w - m
+X
+X	implementation:
+X	get m pixels, move to screen-left of dst, zeroing rest of dst;
+X	get n pixels from next word, move screen-right by m, zeroing
+X		 lower m pixels of word.
+X	OR the two things together.
+X
+Xputbits(src, x, w, pdst, planemask)
+X	starting at position x in pdst, put down the screen-leftmost
+X	w bits of src.  pdst is a longword pointer.  this may
+X	span longword boundaries.
+X	it special-cases putting all w bits into the same longword.
+X
+X	+--------+			+--------+--------+
+X	| m |n|  |		==>	|    | m |n|      |
+X	+--------+			+--------+--------+
+X	0     w				     x     x+w
+X	dst				pdst     pdst+1
+X			m = PPW - x
+X			n = w - m
+X
+X	implementation:
+X	get m pixels, shift screen-right by x, zero screen-leftmost x
+X		pixels; zero rightmost m bits of *pdst and OR in stuff
+X		from before the semicolon.
+X	shift src screen-left by m, zero bits n-32;
+X		zero leftmost n pixels of *(pdst+1) and OR in the
+X		stuff from before the semicolon.
+X
+Xputbitsrop(src, x, w, pdst, planemask, ROP)
+X	like putbits but calls DoRop with the rasterop ROP (see cfb.h for
+X	DoRop)
+X
+Xgetleftbits(psrc, w, dst)
+X	get the leftmost w (w<=PPW) bits from *psrc and put them
+X	in dst.  this is used by the cfbGlyphBlt code for glyphs
+X	<=PPW bits wide.
+X*/
+X
+X#include	"X.h"
+X#include	"Xmd.h"
+X#include	"servermd.h"
+X#if	(BITMAP_BIT_ORDER == MSBFirst)
+X#define BitRight(lw,n)	((lw) >> (n))
+X#define BitLeft(lw,n)	((lw) << (n))
+X#else	/* (BITMAP_BIT_ORDER == LSBFirst) */
+X#define BitRight(lw,n)	((lw) << (n))
+X#define BitLeft(lw,n)	((lw) >> (n))
+X#endif	/* (BITMAP_BIT_ORDER == MSBFirst) */
+X
+X#define SCRLEFT(lw, n)	BitLeft (lw, (n) * PSZ)
+X#define SCRRIGHT(lw, n)	BitRight(lw, (n) * PSZ)
+X
+X/*
+X * Note that the shift direction is independent of the byte ordering of the 
+X * machine.  The following is portable code.
+X */
+X#if PPW == 4
+X#define PFILL(p) ( ((p)&PMSK)          | \
+X		   ((p)&PMSK) <<   PSZ | \
+X		   ((p)&PMSK) << 2*PSZ | \
+X		   ((p)&PMSK) << 3*PSZ )
+X#define PFILL2(p, pf) { \
+X    pf = (p) & PMSK; \
+X    pf |= (pf << PSZ); \
+X    pf |= (pf << 2*PSZ); \
+X}
+X#else
+X#define PFILL(p)    (p)
+X#define PFILL2(p,pf)	(pf = (p))
+X#endif
+X
+X/*
+X * Reduced raster op - using precomputed values, perform the above
+X * in three instructions
+X */
+X
+X#define DoRRop(dst, and, xor)	(((dst) & (and)) ^ (xor))
+X
+X#define DoMaskRRop(dst, and, xor, mask) \
+X    (((dst) & ((and) | ~(mask))) ^ (xor & mask))
+X
+X#define maskbits(x, w, startmask, endmask, nlw) \
+X    startmask = cfbstarttab[(x)&PIM]; \
+X    endmask = cfbendtab[((x)+(w)) & PIM]; \
+X    if (startmask) \
+X	nlw = (((w) - (PPW - ((x)&PIM))) >> PWSH); \
+X    else \
+X	nlw = (w) >> PWSH;
+X
+X#define maskpartialbits(x, w, mask) \
+X    mask = cfbstartpartial[(x) & PIM] & cfbendpartial[((x) + (w)) & PIM];
+X
+X#define mask32bits(x, w, startmask, endmask) \
+X    startmask = cfbstarttab[(x)&PIM]; \
+X    endmask = cfbendtab[((x)+(w)) & PIM];
+X
+X
+X#define getbits(psrc, x, w, dst) \
+Xif ( ((x) + (w)) <= PPW) \
+X{ \
+X    dst = SCRLEFT(*(psrc), (x)); \
+X} \
+Xelse \
+X{ \
+X    int m; \
+X    m = PPW-(x); \
+X    dst = (SCRLEFT(*(psrc), (x)) & cfbendtab[m]) | \
+X	  (SCRRIGHT(*((psrc)+1), m) & cfbstarttab[m]); \
+X}
+X
+X
+X#define putbits(src, x, w, pdst, planemask) \
+Xif ( ((x)+(w)) <= PPW) \
+X{ \
+X    unsigned long tmpmask; \
+X    maskpartialbits((x), (w), tmpmask); \
+X    tmpmask &= PFILL(planemask); \
+X    *(pdst) = (*(pdst) & ~tmpmask) | (SCRRIGHT(src, x) & tmpmask); \
+X} \
+Xelse \
+X{ \
+X    unsigned long m; \
+X    unsigned long n; \
+X    unsigned long pm = PFILL(planemask); \
+X    m = PPW-(x); \
+X    n = (w) - m; \
+X    *(pdst) = (*(pdst) & (cfbendtab[x] | ~pm)) | \
+X	(SCRRIGHT(src, x) & (cfbstarttab[x] & pm)); \
+X    *((pdst)+1) = (*((pdst)+1) & (cfbstarttab[n] | ~pm)) | \
+X	(SCRLEFT(src, m) & (cfbendtab[n] & pm)); \
+X}
+X#if defined(__GNUC__) && defined(mc68020)
+X#undef getbits
+X#define FASTGETBITS(psrc, x, w, dst) \
+X    asm ("bfextu %3{%1:%2},%0" \
+X	 : "=d" (dst) : "di" (x), "di" (w), "o" (*(char *)(psrc)))
+X
+X#define getbits(psrc,x,w,dst) \
+X{ \
+X    FASTGETBITS(psrc, (x) * PSZ, (w) * PSZ, dst); \
+X    dst = SCRLEFT(dst,PPW-(w)); \
+X}
+X
+X#define FASTPUTBITS(src, x, w, pdst) \
+X    asm ("bfins %3,%0{%1:%2}" \
+X	 : "=o" (*(char *)(pdst)) \
+X	 : "di" (x), "di" (w), "d" (src), "0" (*(char *) (pdst)))
+X
+X#undef putbits
+X#define putbits(src, x, w, pdst, planemask) \
+X{ \
+X    if (planemask != PMSK) { \
+X        unsigned long _m, _pm; \
+X        FASTGETBITS(pdst, (x) * PSZ , (w) * PSZ, _m); \
+X        PFILL2(planemask, _pm); \
+X        _m &= (~_pm); \
+X        _m |= (SCRRIGHT(src, PPW-(w)) & _pm); \
+X        FASTPUTBITS(_m, (x) * PSZ, (w) * PSZ, pdst); \
+X    } else { \
+X        FASTPUTBITS(SCRRIGHT(src, PPW-(w)), (x) * PSZ, (w) * PSZ, pdst); \
+X    } \
+X}
+X    
+X
+X#endif /* mc68020 */
+X
+X#define putbitsrop(src, x, w, pdst, planemask, rop) \
+Xif ( ((x)+(w)) <= PPW) \
+X{ \
+X    unsigned long tmpmask; \
+X    unsigned long t1, t2; \
+X    maskpartialbits((x), (w), tmpmask); \
+X    PFILL2(planemask, t1); \
+X    tmpmask &= t1; \
+X    t1 = SCRRIGHT((src), (x)); \
+X    DoRop(t2, rop, t1, *(pdst)); \
+X    *(pdst) = (*(pdst) & ~tmpmask) | (t2 & tmpmask); \
+X} \
+Xelse \
+X{ \
+X    unsigned long m; \
+X    unsigned long n; \
+X    unsigned long t1, t2; \
+X    unsigned long pm; \
+X    PFILL2(planemask, pm); \
+X    m = PPW-(x); \
+X    n = (w) - m; \
+X    t1 = SCRRIGHT((src), (x)); \
+X    DoRop(t2, rop, t1, *(pdst)); \
+X    *(pdst) = (*(pdst) & (cfbendtab[x] | ~pm)) | (t2 & (cfbstarttab[x] & pm));\
+X    t1 = SCRLEFT((src), m); \
+X    DoRop(t2, rop, t1, *((pdst) + 1)); \
+X    *((pdst)+1) = (*((pdst)+1) & (cfbstarttab[n] | ~pm)) | \
+X	(t2 & (cfbendtab[n] & pm)); \
+X}
+X
+X/*
+X * Use these macros only when you're using the MergeRop stuff
+X * in ../mfb/mergerop.h
+X */
+X
+X/* useful only when not spanning destination longwords */
+X#define putbitsmropshort(src,x,w,pdst) {\
+X    unsigned long   _tmpmask; \
+X    unsigned long   _t1; \
+X    maskpartialbits ((x), (w), _tmpmask); \
+X    _t1 = SCRRIGHT((src), (x)); \
+X    *pdst = DoMaskMergeRop(_t1, *pdst, _tmpmask); \
+X}
+X
+X/* useful only when spanning destination longwords */
+X#define putbitsmroplong(src,x,w,pdst) { \
+X    unsigned long   _startmask, _endmask; \
+X    int		    _m; \
+X    unsigned long   _t1; \
+X    _m = PPW - (x); \
+X    _startmask = cfbstarttab[x]; \
+X    _endmask = cfbendtab[(w) - _m]; \
+X    _t1 = SCRRIGHT((src), (x)); \
+X    pdst[0] = DoMaskMergeRop(_t1,pdst[0],_startmask); \
+X    _t1 = SCRLEFT ((src),_m); \
+X    pdst[1] = DoMaskMergeRop(_t1,pdst[1],_endmask); \
+X}
+X
+X#define putbitsmrop(src,x,w,pdst) \
+Xif ((x) + (w) <= PPW) {\
+X    putbitsmropshort(src,x,w,pdst); \
+X} else { \
+X    putbitsmroplong(src,x,w,pdst); \
+X}
+X
+X#if GETLEFTBITS_ALIGNMENT == 1
+X#define getleftbits(psrc, w, dst)	dst = *((unsigned int *) psrc)
+X#endif /* GETLEFTBITS_ALIGNMENT == 1 */
+X
+X#define getglyphbits(psrc, x, w, dst) \
+X{ \
+X    dst = BitLeft((unsigned) *(psrc), (x)); \
+X    if ( ((x) + (w)) > 32) \
+X	dst |= (BitRight((unsigned) *((psrc)+1), 32-(x))); \
+X}
+X#if GETLEFTBITS_ALIGNMENT == 2
+X#define getleftbits(psrc, w, dst) \
+X    { \
+X	if ( ((int)(psrc)) & 0x01 ) \
+X		getglyphbits( ((unsigned int *)(((char *)(psrc))-1)), 8, (w), (dst) ); \
+X	else \
+X		dst = *((unsigned int *) psrc); \
+X    }
+X#endif /* GETLEFTBITS_ALIGNMENT == 2 */
+X
+X#if GETLEFTBITS_ALIGNMENT == 4
+X#define getleftbits(psrc, w, dst) \
+X    { \
+X	int off, off_b; \
+X	off_b = (off = ( ((int)(psrc)) & 0x03)) << 3; \
+X	getglyphbits( \
+X		(unsigned int *)( ((char *)(psrc)) - off), \
+X		(off_b), (w), (dst) \
+X	       ); \
+X    }
+X#endif /* GETLEFTBITS_ALIGNMENT == 4 */
+X
+X#if (PPW*PSZ==32)
+X#define GET_VALID_BITS_FROM_LONG(l) (l)
+X#else
+X#define GET_VALID_BITS_FROM_LONG(l) ((l)&((1L<<(PPW*PSZ))-1))
+X#endif
+X
+X/*
+X * getstipplepixels( psrcstip, x, w, ones, psrcpix, destpix )
+X *
+X * Converts bits to pixels in a reasonable way.  Takes w (1 <= w <= 4)
+X * bits from *psrcstip, starting at bit x; call this a quartet of bits.
+X * Then, takes the pixels from *psrcpix corresponding to the one-bits (if
+X * ones is TRUE) or the zero-bits (if ones is FALSE) of the quartet
+X * and puts these pixels into destpix.
+X *
+X * Example:
+X *
+X *      getstipplepixels( &(0x08192A3B), 17, 4, 1, &(0x4C5D6E7F), dest )
+X *
+X * 0x08192A3B = 0000 1000 0001 1001 0010 1010 0011 1011
+X *
+X * This will take 4 bits starting at bit 17, so the quartet is 0x5 = 0101.
+X * It will take pixels from 0x4C5D6E7F corresponding to the one-bits in this
+X * quartet, so dest = 0x005D007F.
+X *
+X * XXX Works with both byte order.
+X * XXX This works for all values of x and w within a doubleword.
+X */
+X#if (BITMAP_BIT_ORDER == MSBFirst)
+X#define getstipplepixels( psrcstip, x, w, ones, psrcpix, destpix ) \
+X{ \
+X    unsigned int q; \
+X    int m; \
+X    if ((m = ((x) - ((PPW*PSZ)-4))) > 0) { \
+X        q = (*(psrcstip)) << m; \
+X	if ( (x)+(w) > (PPW*PSZ) ) \
+X	    q |= GET_VALID_BITS_FROM_LONG(*((psrcstip)+1)) >> ((PPW*PSZ)-m); \
+X    } \
+X    else \
+X        q = (*(psrcstip)) >> -m; \
+X    q = QuartetBitsTable[(w)] & ((ones) ? q : ~q); \
+X    *(destpix) = (*(psrcpix)) & QuartetPixelMaskTable[q]; \
+X}
+X#else /* BITMAP_BIT_ORDER == LSB */
+X#define getstipplepixels( psrcstip, xt, w, ones, psrcpix, destpix ) \
+X{ \
+X    unsigned int q; \
+X    q = GET_VALID_BITS_FROM_LONG(*(psrcstip)) >> (xt); \
+X    if ( ((xt)+(w)) > (PPW*PSZ) ) \
+X        q |= (*((psrcstip)+1)) << ((PPW*PSZ)-(xt)); \
+X    q = QuartetBitsTable[(w)] & ((ones) ? q : ~q); \
+X    *(destpix) = (*(psrcpix)) & QuartetPixelMaskTable[q]; \
+X}
+X#endif
+END_OF_FILE
+if test 16406 -ne `wc -c <'server/ddx/cfb32/cfbmskbits.h'`; then
+    echo shar: \"'server/ddx/cfb32/cfbmskbits.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbmskbits.h'
+fi
+echo shar: End of archive 15 \(of 29\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

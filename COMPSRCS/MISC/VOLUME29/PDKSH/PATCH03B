@@ -1,0 +1,1377 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v29i084:  pdksh - Public Domain Korn Shell, v4, Patch03b/5
+Message-ID: <1992Apr26.041512.22140@sparky.imd.sterling.com>
+X-Md4-Signature: 7df7c1bf603caded7da0694639c2a7e6
+Date: Sun, 26 Apr 1992 04:15:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 29, Issue 84
+Archive-name: pdksh/patch03b
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+*** sh/emacs.c.old	Sat Apr 25 17:44:25 1992
+--- sh/emacs.c	Sat Apr 25 18:35:39 1992
+***************
+*** 10,17 ****
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 3.2 89/03/27 15:49:17 egisin Exp $";
+! static char *sccs_id = "@(#)emacs.c	1.7 91/11/25 13:32:56 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 10,16 ----
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 24,32 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"		/* DOTILDE */
+- #include "table.h"
+  #include "expand.h"
+  #include "edit.h"
+  
+--- 23,28 ----
+***************
+*** 77,83 ****
+  static	char   **x_nextcmdp;	/* for newline-and-next */
+  static	char	*xmp;		/* mark pointer */
+  static	int    (*x_last_command)();
+! static	struct	x_ftab Const *(*x_tab)[X_TABSZ] = NULL; /* key definition */
+  static	char    *(*x_atab)[X_TABSZ] = NULL; /* macro definitions */
+  #define	KILLSIZE	20
+  static	char    *killstack[KILLSIZE];
+--- 73,79 ----
+  static	char   **x_nextcmdp;	/* for newline-and-next */
+  static	char	*xmp;		/* mark pointer */
+  static	int    (*x_last_command)();
+! static	struct	x_ftab const *(*x_tab)[X_TABSZ] = NULL; /* key definition */
+  static	char    *(*x_atab)[X_TABSZ] = NULL; /* macro definitions */
+  #define	KILLSIZE	20
+  static	char    *killstack[KILLSIZE];
+***************
+*** 86,118 ****
+  static	char    *macroptr;
+  static	int	x_maxlen;	/* to determine column width */
+  
+! static	void	x_goto(), x_bs(), x_delete(), x_ins(), x_mapin();
+! static	int	x_fword(), x_bword(), x_size(), x_size_str();
+! static	void	x_zotc(), x_zots(), x_push(), x_load_hist();
+! static	void	compl_command(), compl_dec(), compl_file();
+! static	int	x_insert(), x_ins_string(), x_del_back();
+! static	int	x_del_char(), x_del_bword(), x_mv_bword(), x_mv_fword();
+! static	int	x_del_fword(), x_mv_back(), x_mv_forw(), x_search_char();
+! static	int	x_newline(), x_end_of_text(), x_abort(), x_error();
+! static	int	x_beg_hist(), x_end_hist(), x_prev_com(), x_next_com();
+! static	int	x_search_hist(), x_del_line(), x_mv_end(), x_mv_begin();
+! static	int	x_draw_line(), x_transpose(), x_meta1(), x_meta2();
+! static	int	x_kill(), x_yank(), x_meta_yank(), x_literal();
+! static	int	x_stuffreset(), x_stuff(), x_complete(), x_enumerate();
+! static	int	x_set_mark(), x_kill_region(), x_xchg_point_mark();
+! static	int	x_nl_next_com(), x_eot_del();
+! static	int	x_copy_arg();
+! static	int	x_noop();
+  #ifdef SILLY
+! static	int	x_game_of_life();
+  #endif
+! static	int	x_comp_file(), x_comp_comm();
+! static	int	x_list_file(), x_list_comm();
+! static	int	strmatch();
+! static int	x_prev_histword(), x_set_arg(), x_fold_case();
+  
+! 
+! static	struct x_ftab Const x_ftab[] = {
+   	{x_insert,	"auto-insert",		0,	 0,	0 },
+  	{x_error,	"error",		0,	 0,	0 },
+   	{x_ins_string,	"macro-string",		0,	 0,	XF_NOBIND|XF_ALLOC},
+--- 82,164 ----
+  static	char    *macroptr;
+  static	int	x_maxlen;	/* to determine column width */
+  
+! static int      x_insert    ARGS((int c));
+! static int      x_ins_string ARGS((int c));
+! static void     x_ins       ARGS((char *cp));
+! static int      x_del_back  ARGS((int c));
+! static int      x_del_char  ARGS((int c));
+! static void     x_delete    ARGS((int nc));
+! static int      x_del_bword ARGS((int c));
+! static int      x_mv_bword  ARGS((int c));
+! static int      x_mv_fword  ARGS((int c));
+! static int      x_del_fword ARGS((int c));
+! static int      x_bword     ARGS((void));
+! static int      x_fword     ARGS((void));
+! static void     x_goto      ARGS((char *cp));
+! static void     x_bs        ARGS((int c));
+! static int      x_size_str  ARGS((char *cp));
+! static int      x_size      ARGS((int c));
+! static void     x_zots      ARGS((char *str));
+! static void     x_zotc      ARGS((int c));
+! static int      x_mv_back   ARGS((int c));
+! static int      x_mv_forw   ARGS((int c));
+! static int      x_search_char ARGS((int c));
+! static int      x_newline   ARGS((int c));
+! static int      x_end_of_text ARGS((int c));
+! static int      x_beg_hist  ARGS((int c));
+! static int      x_end_hist  ARGS((int c));
+! static int      x_prev_com  ARGS((int c));
+! static int      x_next_com  ARGS((int c));
+! static void     x_load_hist ARGS((char **hp));
+! static int      x_nl_next_com ARGS((int c));
+! static int      x_eot_del   ARGS((int c));
+! static int      x_search_hist ARGS((int c));
+! static int      x_search    ARGS((char *pat, int offset));
+! static int      x_match     ARGS((char *str, char *pat));
+! static int      x_del_line  ARGS((int c));
+! static int      x_mv_end    ARGS((int c));
+! static int      x_mv_begin  ARGS((int c));
+! static int      x_draw_line ARGS((int c));
+! static int      x_transpose ARGS((int c));
+! static int      x_literal   ARGS((int c));
+! static int      x_meta1     ARGS((int c));
+! static int      x_meta2     ARGS((int c));
+! static int      x_kill      ARGS((int c));
+! static void     x_push      ARGS((int nchars));
+! static int      x_yank      ARGS((int c));
+! static int      x_meta_yank ARGS((int c));
+! static int      x_abort     ARGS((int c));
+! static int      x_error     ARGS((int c));
+! static int      x_stuffreset ARGS((int c));
+! static int      x_stuff     ARGS((int c));
+! static void     x_mapin     ARGS((char *cp));
+! static char *   x_mapout    ARGS((int c));
+! static void     x_print     ARGS((int prefix, int key));
+! static int      x_set_mark  ARGS((int c));
+! static int      x_kill_region ARGS((int c));
+! static int      x_xchg_point_mark ARGS((int c));
+! static int      x_copy_arg  ARGS((int c));
+! static int      x_noop      ARGS((int c));
+  #ifdef SILLY
+! static int      x_game_of_life ARGS((int c));
+  #endif
+! static void     add_stash   ARGS((char *dirnam, char *name));
+! static void     list_stash  ARGS((void));
+! static int      x_comp_comm ARGS((int c));
+! static int      x_list_comm ARGS((int c));
+! static int      x_complete  ARGS((int c));
+! static int      x_enumerate ARGS((int c));
+! static int      x_comp_file ARGS((int c));
+! static int      x_list_file ARGS((int c));
+! static void     compl_dec   ARGS((int type));
+! static void     compl_file  ARGS((int type));
+! static void     compl_command ARGS((int type));
+! static int      strmatch    ARGS((char *s1, char *s2));
+! static int      x_set_arg   ARGS((int c));
+! static int      x_prev_histword ARGS((void));
+! static int      x_fold_case ARGS((int c));
+  
+! static	struct x_ftab const x_ftab[] = {
+   	{x_insert,	"auto-insert",		0,	 0,	0 },
+  	{x_error,	"error",		0,	 0,	0 },
+   	{x_ins_string,	"macro-string",		0,	 0,	XF_NOBIND|XF_ALLOC},
+***************
+*** 125,130 ****
+--- 171,177 ----
+  	{x_noop,	"no-op",		0,	0,	0 },
+  /* Do not move the above! */
+  	{x_mv_fword,	"forward-word",		1,	'f',	0 },
++ 	{x_del_char,	"delete-char-forward",	0,	0,	0 },
+  	{x_del_fword,	"delete-word-forward", 	1,	'd',	0 },
+  	{x_mv_back,	"backward-char",	0, CTRL('B'),	0 },
+  	{x_mv_forw,	"forward-char",		0, CTRL('F'),	0 },
+***************
+*** 307,313 ****
+  x_ins(cp)
+  	char	*cp;
+  {
+! 	int	count, i;
+  	register int	adj = x_adj_done;
+  
+  	count = strlen(cp);
+--- 354,360 ----
+  x_ins(cp)
+  	char	*cp;
+  {
+! 	int	count;
+  	register int	adj = x_adj_done;
+  
+  	count = strlen(cp);
+***************
+*** 608,615 ****
+  	*xep = '\0';
+  	if ((c = x_getc()) < 0 ||
+  	    /* we search forward, I don't know what Korn does */
+! 	    (cp = (xcp == xep) ? NULL : strchr(xcp+1, c)) == NULL &&
+! 	    (cp = strchr(xbuf, c)) == NULL) {
+  		x_putc(BEL);
+  		return KSTD;
+  	}
+--- 655,662 ----
+  	*xep = '\0';
+  	if ((c = x_getc()) < 0 ||
+  	    /* we search forward, I don't know what Korn does */
+! 	    ((cp = (xcp == xep) ? NULL : strchr(xcp+1, c)) == NULL &&
+! 	    (cp = strchr(xbuf, c)) == NULL)) {
+  		x_putc(BEL);
+  		return KSTD;
+  	}
+***************
+*** 930,936 ****
+  	memmove(cp, xcp, nchars);
+  	cp[nchars] = 0;
+  	if (killstack[killsp])
+! 		afree((Void *)killstack[killsp], AEDIT);
+  	killstack[killsp] = cp;
+  	killsp = (killsp + 1) % KILLSIZE;
+  }
+--- 977,983 ----
+  	memmove(cp, xcp, nchars);
+  	cp[nchars] = 0;
+  	if (killstack[killsp])
+! 		afree((void *)killstack[killsp], AEDIT);
+  	killstack[killsp] = cp;
+  	killsp = (killsp + 1) % KILLSIZE;
+  }
+***************
+*** 1078,1084 ****
+  	char *a1, *a2;
+  	int macro;		/* bind -m */
+  {
+! 	struct x_ftab Const *fp;
+  	int prefix, key;
+  	char *sp = NULL;
+  
+--- 1125,1131 ----
+  	char *a1, *a2;
+  	int macro;		/* bind -m */
+  {
+! 	struct x_ftab const *fp;
+  	int prefix, key;
+  	char *sp = NULL;
+  
+***************
+*** 1134,1140 ****
+  	}
+  
+  	if ((x_tab[prefix][key]->xf_flags & XF_ALLOC) && x_atab[prefix][key])
+! 		afree((Void *)x_atab[prefix][key], AEDIT);
+  	x_tab[prefix][key] = fp;
+  	x_atab[prefix][key] = sp;
+  }
+--- 1181,1187 ----
+  	}
+  
+  	if ((x_tab[prefix][key]->xf_flags & XF_ALLOC) && x_atab[prefix][key])
+! 		afree((void *)x_atab[prefix][key], AEDIT);
+  	x_tab[prefix][key] = fp;
+  	x_atab[prefix][key] = sp;
+  }
+***************
+*** 1143,1149 ****
+  x_init_emacs()
+  {
+  	register int i, j;
+! 	struct x_ftab Const *fp;
+  
+  	ainit(AEDIT);
+  
+--- 1190,1196 ----
+  x_init_emacs()
+  {
+  	register int i, j;
+! 	struct x_ftab const *fp;
+  
+  	ainit(AEDIT);
+  
+***************
+*** 1319,1325 ****
+  				type = '*';
+  		if (type)
+  			++len;
+! 		afree((Void *)buf, ATEMP);
+  	}
+  
+  	if (len > x_maxlen)
+--- 1366,1372 ----
+  				type = '*';
+  		if (type)
+  			++len;
+! 		afree((void *)buf, ATEMP);
+  	}
+  
+  	if (len > x_maxlen)
+***************
+*** 1363,1373 ****
+  			x_puts(*record);
+  			loc += strlen(*record);
+  			tabstop += x_maxlen;	/* next tab stop */
+! 			afree((Void *)*record, ATEMP);
+  		}
+  	}
+  
+! 	afree((Void*)array, ATEMP);
+  	x_redraw(-1);
+  }
+  
+--- 1410,1420 ----
+  			x_puts(*record);
+  			loc += strlen(*record);
+  			tabstop += x_maxlen;	/* next tab stop */
+! 			afree((void *)*record, ATEMP);
+  		}
+  	}
+  
+! 	afree((void*)array, ATEMP);
+  	x_redraw(-1);
+  }
+  
+***************
+*** 1457,1463 ****
+  
+  	*cp = 0;
+  	strcpy(buf, cp = substitute(buf, DOTILDE));
+! 	afree((Void*)cp, ATEMP);
+  	lastp = strrchr(buf, '/');
+  	if (lastp)
+  		*lastp = 0;
+--- 1504,1510 ----
+  
+  	*cp = 0;
+  	strcpy(buf, cp = substitute(buf, DOTILDE));
+! 	afree((void*)cp, ATEMP);
+  	lastp = strrchr(buf, '/');
+  	if (lastp)
+  		*lastp = 0;
+***************
+*** 1478,1484 ****
+  	while ((dp = readdir(dirp)) != NULL)  {
+  		cp = dp->d_name;
+  		if (cp[0] == '.' &&
+! 		    (cp[1] == '\0' || cp[1] == '.' && cp[2] == '\0'))
+  			continue; /* always ignore . and .. */
+  		if (strncmp(lastp, cp, len) == 0)
+  			if (type)  {
+--- 1525,1531 ----
+  	while ((dp = readdir(dirp)) != NULL)  {
+  		cp = dp->d_name;
+  		if (cp[0] == '.' &&
+! 		    (cp[1] == '\0' || (cp[1] == '.' && cp[2] == '\0')))
+  			continue; /* always ignore . and .. */
+  		if (strncmp(lastp, cp, len) == 0)
+  			if (type)  {
+*** sh/eval.c.old	Sat Apr 25 17:44:25 1992
+--- sh/eval.c	Sat Apr 25 18:35:45 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 3.4 89/03/27 15:49:55 egisin Exp $";
+! static char *sccs_id = "@(#)eval.c	1.2 91/11/22 22:53:39 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 14,22 ****
+  #include <dirent.h>
+  #include <pwd.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"
+- #include "table.h"
+  #include "expand.h"
+  
+  /*
+--- 13,18 ----
+***************
+*** 43,55 ****
+  #define	XARG	3		/* expanding $*, $@ */
+  #define	XCOM	4		/* expanding $() */
+  
+! static	void	expand ARGS((char *, XPtrV *, int));
+! static	int	comsub ARGS((Expand *, char *comm));
+! static	int	varsub ARGS((Expand *, char *name, int stype));
+! static	void	glob ARGS((char *cp, XPtrV *wp));
+! static	void	globit ARGS((char *ds, char *dp, char *sp, XPtrV *wp, int check));
+! static	char   *tilde ARGS((char *wp));
+! static	char   *trimsub ARGS((char *str, char *pat, int how));
+  
+  int	ifs0 = ' ';		/* todo: first char of $IFS */
+  
+--- 39,53 ----
+  #define	XARG	3		/* expanding $*, $@ */
+  #define	XCOM	4		/* expanding $() */
+  
+! static void     expand      ARGS((char *cp, XPtrV *wp, int f));
+! static int      varsub      ARGS((Expand *xp, char *sp, int stype));
+! static int      comsub      ARGS((Expand *xp, char *cp));
+! static char *   trimsub     ARGS((char *str, char *pat, int how));
+! static void     glob        ARGS((char *cp, XPtrV *wp));
+! static void     globit      ARGS((char *ds, char *dp, char *sp, XPtrV *wp, int check));
+! static char *   debunk      ARGS((char *cp));
+! static char *   tilde       ARGS((char *acp));
+! static char *   homedir     ARGS((char *name));
+  
+  int	ifs0 = ' ';		/* todo: first char of $IFS */
+  
+***************
+*** 56,62 ****
+  /* compile and expand word */
+  char *
+  substitute(cp, f)
+! 	char Const *cp;
+  	int f;
+  {
+  	struct source *s, *sold;
+--- 54,60 ----
+  /* compile and expand word */
+  char *
+  substitute(cp, f)
+! 	char const *cp;
+  	int f;
+  {
+  	struct source *s, *sold;
+***************
+*** 139,144 ****
+--- 137,143 ----
+  	SubType subtype [10];	/* substitution type stack */
+  	register SubType *st = subtype + 10;
+  	int newlines;		/* For trailing newlines in COMSUB */
++ 	int trimming = 0;	/* flag if expanding ${var#pat} or ${var%pat} */
+  
+  	if (cp == NULL)
+  		errorf("eval:expand(NULL)\n");
+***************
+*** 188,194 ****
+  					if (flag[FNOUNSET] &&
+  					    strval(global(cp)) == null)
+  						errorf("%s: unset variable\n", cp);
+! 					f |= DOPAT;
+  					type = XBASE;
+  					*--qst = quote;
+  					quote = 0;
+--- 187,193 ----
+  					if (flag[FNOUNSET] &&
+  					    strval(global(cp)) == null)
+  						errorf("%s: unset variable\n", cp);
+! 					trimming++;
+  					type = XBASE;
+  					*--qst = quote;
+  					quote = 0;
+***************
+*** 217,222 ****
+--- 216,222 ----
+  					x.str = trimsub(strval(global(st->name)),
+  						dp, st->type);
+  					type = XSUB;
++ 					trimming--;
+  					continue;
+  				  case '=':
+  #if 0
+***************
+*** 287,293 ****
+  		}
+  
+  		/* check for end of word or IFS separation */
+! 		if (c == 0 || !quote && (f&DOBLANK) && ctype(c, C_IFS)) {
+  			if (word) {
+  				*dp++ = 0;
+  				cp = Xclose(ds, dp);
+--- 287,293 ----
+  		}
+  
+  		/* check for end of word or IFS separation */
+! 		if (c == 0 || (!quote && (f&DOBLANK) && ctype(c, C_IFS))) {
+  			if (word) {
+  				*dp++ = 0;
+  				cp = Xclose(ds, dp);
+***************
+*** 311,331 ****
+  				  case '*':
+  				  case '?':
+  				  case '[':
+! 					if (f&(DOPAT|DOGLOB)) {
+  						fdo |= (f&DOGLOB);
+  						*dp++ = MAGIC;
+  					}
+  					break;
+  				  case NOT:
+! 					if ((f&(DOPAT|DOGLOB)) &&
+  					    dp[-1] == '[' && dp[-2] == MAGIC) {
+  						*dp++ = MAGIC;
+  					}
+  					break;
+  				  case '~':
+! 					if ((f&DOTILDE) && dp == Xstring(ds, dp) ||
+! 					    !(f&DOBLANK) && 
+! 					    (dp[-1] == '=' || dp[-1] == ':')) {
+  						fdo |= DOTILDE;
+  						*dp++ = MAGIC;
+  					}
+--- 311,332 ----
+  				  case '*':
+  				  case '?':
+  				  case '[':
+! 					if (f&(DOPAT|DOGLOB) || trimming) {
+  						fdo |= (f&DOGLOB);
+  						*dp++ = MAGIC;
+  					}
+  					break;
+  				  case NOT:
+! 					if ((f&(DOPAT|DOGLOB) || trimming) &&
+  					    dp[-1] == '[' && dp[-2] == MAGIC) {
+  						*dp++ = MAGIC;
+  					}
+  					break;
+  				  case '~':
+! 					if (((f&DOTILDE) &&
+! 					     dp == Xstring(ds, dp)) ||
+! 					    (!(f&DOBLANK) && 
+! 					    (dp[-1] == '=' || dp[-1] == ':'))) {
+  						fdo |= DOTILDE;
+  						*dp++ = MAGIC;
+  					}
+***************
+*** 568,576 ****
+  		while ((d = readdir(dirp)) != NULL) {
+  			tsp = d->d_name;
+  			if (tsp[0] == '.' &&
+! 			    (tsp[1] == 0 || tsp[1] == '.' && tsp[2] == 0))
+  				continue; /* always ignore . and .. */
+! 			if (*tsp == '.' && *sp != '.' || !gmatch(tsp, sp))
+  				continue;
+  
+  			tdp = dp;
+--- 569,577 ----
+  		while ((d = readdir(dirp)) != NULL) {
+  			tsp = d->d_name;
+  			if (tsp[0] == '.' &&
+! 			    (tsp[1] == 0 || (tsp[1] == '.' && tsp[2] == 0)))
+  				continue; /* always ignore . and .. */
+! 			if ((*tsp == '.' && *sp != '.') || !gmatch(tsp, sp))
+  				continue;
+  
+  			tdp = dp;
+***************
+*** 622,628 ****
+  	while (1) {
+  		if ((c = *cp++) == 0) {
+  			*wp = 0;
+! 			afree((Void*)acp, ATEMP);
+  			return strsave(path, ATEMP);
+  		} else if (c == MAGIC && *cp == '~')
+  			break;
+--- 623,629 ----
+  	while (1) {
+  		if ((c = *cp++) == 0) {
+  			*wp = 0;
+! 			afree((void*)acp, ATEMP);
+  			return strsave(path, ATEMP);
+  		} else if (c == MAGIC && *cp == '~')
+  			break;
+*** sh/exec.c.old	Sat Apr 25 17:44:26 1992
+--- sh/exec.c	Sat Apr 25 18:30:45 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 3.4 89/03/27 15:50:10 egisin Exp $";
+! static char *sccs_id = "@(#)exec.c	1.6 91/11/25 13:33:03 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 15,32 ****
+  #include <fcntl.h>
+  #include <sys/stat.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"
+- #include "table.h"
+  
+! static	int	comexec ARGS((struct op *t, char **vp, char **ap, int flags));
+! static	void	iosetup ARGS((struct ioword *iop));
+! static	void	echo ARGS((char **, char **));
+! static	int	herein ARGS((char *name, int sub));
+  #ifdef	SHARPBANG
+! static	void	scriptexec ARGS((struct op *t, char **ap));
+  #endif
+  
+  /*
+   * handle systems that don't have F_SETFD
+   */
+--- 14,29 ----
+  #include <fcntl.h>
+  #include <sys/stat.h>
+  #include "sh.h"
+  
+! static int      comexec     ARGS((struct op *t, char **vp, char **ap, int flags));
+  #ifdef	SHARPBANG
+! static void     scriptexec  ARGS((struct op *tp, char **ap));
+  #endif
++ static void     iosetup     ARGS((struct ioword *iop));
++ static int      herein      ARGS((char *hname, int sub));
++ static void     echo        ARGS((char **vp, char **ap));
+  
++ 
+  /*
+   * handle systems that don't have F_SETFD
+   */
+***************
+*** 67,76 ****
+  int
+  execute(t, flags)
+  	register struct op *t;
+! 	Volatile int flags;	/* if XEXEC don't fork */
+  {
+  	int i;
+! 	int Volatile rv = 0;
+  	int pv[2];
+  	register char **ap;
+  	char *s, *cp;
+--- 64,73 ----
+  int
+  execute(t, flags)
+  	register struct op *t;
+! 	volatile int flags;	/* if XEXEC don't fork */
+  {
+  	int i;
+! 	int volatile rv = 0;
+  	int pv[2];
+  	register char **ap;
+  	char *s, *cp;
+***************
+*** 373,381 ****
+  
+  		if ((flags&XEXEC)) {
+  			j_exit();
+! 			if (flag[FMONITOR] || !(flags&XBGND)) {
+! 				signal(SIGINT, SIG_DFL);
+! 				signal(SIGQUIT, SIG_DFL);
+  			}
+  		}
+  
+--- 370,384 ----
+  
+  		if ((flags&XEXEC)) {
+  			j_exit();
+! 			if (flag[FMONITOR] || !(flags&XBGND))
+! 			{
+! #ifdef USE_SIGACT
+! 			  sigaction(SIGINT, &Sigact_dfl, NULL);
+! 			  sigaction(SIGQUIT, &Sigact_dfl, NULL);
+! #else
+! 			  signal(SIGINT, SIG_DFL);
+! 			  signal(SIGQUIT, SIG_DFL);
+! #endif
+  			}
+  		}
+  
+***************
+*** 622,629 ****
+  		for (i = 0; (*tp++ = name[i++]) != '\0';)
+  			;
+  		i = eaccess(line, mode);
+! 		if (i == 0 && (mode != 1 || stat(line,&buf) == 0 &&
+! 		    (buf.st_mode & S_IFMT) == S_IFREG))
+  			return line;
+  		/* what should we do about EACCES? */
+  		if (*sp++ == '\0')
+--- 625,632 ----
+  		for (i = 0; (*tp++ = name[i++]) != '\0';)
+  			;
+  		i = eaccess(line, mode);
+! 		if (i == 0 && (mode != 1 || (stat(line,&buf) == 0 &&
+! 		    (buf.st_mode & S_IFMT) == S_IFREG)))
+  			return line;
+  		/* what should we do about EACCES? */
+  		if (*sp++ == '\0')
+***************
+*** 710,716 ****
+  	int sub;
+  {
+  	int fd;
+! 	FILE * Volatile f = NULL;
+  
+  	f = fopen(hname, "r");
+  	if (f == NULL)
+--- 713,719 ----
+  	int sub;
+  {
+  	int fd;
+! 	FILE * volatile f = NULL;
+  
+  	f = fopen(hname, "r");
+  	if (f == NULL)
+*** sh/expand.h.old	Sat Apr 25 17:41:33 1992
+--- sh/expand.h	Sun Apr 19 19:21:25 1992
+***************
+*** 45,54 ****
+  		}
+  
+  /* free string */
+! #define	Xfree(xs, xp)	afree((Void*) (xs).beg, ATEMP)
+  
+  /* close, return string */
+! #define	Xclose(xs, xp)	(char*) aresize((Void*)(xs).beg, \
+  					(size_t)(xp - (xs).beg), ATEMP)
+  /* begin of string */
+  #define	Xstring(xs, xp)	((xs).beg)
+--- 45,54 ----
+  		}
+  
+  /* free string */
+! #define	Xfree(xs, xp)	afree((void*) (xs).beg, ATEMP)
+  
+  /* close, return string */
+! #define	Xclose(xs, xp)	(char*) aresize((void*)(xs).beg, \
+  					(size_t)(xp - (xs).beg), ATEMP)
+  /* begin of string */
+  #define	Xstring(xs, xp)	((xs).beg)
+***************
+*** 61,73 ****
+   */
+  
+  typedef struct XPtrV {
+! 	Void  **cur;		/* next avail pointer */
+! 	Void  **beg, **end;	/* begin, end of vector */
+  } XPtrV;
+  
+  #define	XPinit(x, n) { \
+! 			register Void **vp; \
+! 			vp = (Void**) alloc(sizeofN(Void*, n), ATEMP); \
+  			(x).cur = (x).beg = vp; \
+  			(x).end = vp + n; \
+  			}
+--- 61,73 ----
+   */
+  
+  typedef struct XPtrV {
+! 	void  **cur;		/* next avail pointer */
+! 	void  **beg, **end;	/* begin, end of vector */
+  } XPtrV;
+  
+  #define	XPinit(x, n) { \
+! 			register void **vp; \
+! 			vp = (void**) alloc(sizeofN(void*, n), ATEMP); \
+  			(x).cur = (x).beg = vp; \
+  			(x).end = vp + n; \
+  			}
+***************
+*** 75,82 ****
+  #define	XPput(x, p) { \
+  			if ((x).cur >= (x).end) { \
+  				int n = XPsize(x); \
+! 				(x).beg = (Void**) aresize((Void*) (x).beg, \
+! 						   sizeofN(Void*, n*2), ATEMP); \
+  				(x).cur = (x).beg + n; \
+  				(x).end = (x).cur + n; \
+  			} \
+--- 75,82 ----
+  #define	XPput(x, p) { \
+  			if ((x).cur >= (x).end) { \
+  				int n = XPsize(x); \
+! 				(x).beg = (void**) aresize((void*) (x).beg, \
+! 						   sizeofN(void*, n*2), ATEMP); \
+  				(x).cur = (x).beg + n; \
+  				(x).end = (x).cur + n; \
+  			} \
+***************
+*** 86,93 ****
+  #define	XPptrv(x)	((x).beg)
+  #define	XPsize(x)	((x).cur - (x).beg)
+  
+! #define	XPclose(x)	(Void**) aresize((Void*)(x).beg, \
+! 					 sizeofN(Void*, XPsize(x)), ATEMP)
+  
+! #define	XPfree(x)	afree((Void*) (x).beg, ATEMP)
+  
+--- 86,93 ----
+  #define	XPptrv(x)	((x).beg)
+  #define	XPsize(x)	((x).cur - (x).beg)
+  
+! #define	XPclose(x)	(void**) aresize((void*)(x).beg, \
+! 					 sizeofN(void*, XPsize(x)), ATEMP)
+  
+! #define	XPfree(x)	afree((void*) (x).beg, ATEMP)
+  
+*** sh/expr.c.old	Sat Apr 25 17:44:27 1992
+--- sh/expr.c	Sat Apr 25 18:35:54 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: expr.c,v 3.2 89/03/27 15:50:20 egisin Exp $";
+! static char *sccs_id = "@(#)expr.c	1.2 91/11/22 22:53:42 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: expr.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 11,17 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "table.h"
+  
+  #define	ef	else if		/* fashion statement */
+  
+--- 10,15 ----
+***************
+*** 22,35 ****
+  #define	LLE	0x05
+  #define	LGE	0x06
+  
+! static void token();		/* read next token */
+! static Const char *expression;	/* expression being evaluated */
+! static Const char *tokp;	/* lexical position */
+  static int tok;			/* token from token() */
+  static struct tbl *val;		/* value from token() */
+  
+! static struct tbl *tempvar(), *intvar();
+! static struct tbl *asn(), *e6(), *e5(), *e3(), *e2(), *e0();
+  
+  /*
+   * parse and evalute expression
+--- 20,39 ----
+  #define	LLE	0x05
+  #define	LGE	0x06
+  
+! static const char *expression;	/* expression being evaluated */
+! static const char *tokp;	/* lexical position */
+  static int tok;			/* token from token() */
+  static struct tbl *val;		/* value from token() */
+  
+! static struct tbl *asn      ARGS((void));
+! static struct tbl *e6       ARGS((void));
+! static struct tbl *e5       ARGS((void));
+! static struct tbl *e3       ARGS((void));
+! static struct tbl *e2       ARGS((void));
+! static struct tbl *e0       ARGS((void));
+! static void     token       ARGS((void));
+! static struct tbl *tempvar  ARGS((void));
+! static struct tbl *intvar   ARGS((struct tbl *vp));
+  
+  /*
+   * parse and evalute expression
+***************
+*** 43,49 ****
+  
+  long
+  evaluate(expr)
+! 	Const char *expr;
+  {
+  	struct tbl *v;
+  
+--- 47,53 ----
+  
+  long
+  evaluate(expr)
+! 	const char *expr;
+  {
+  	struct tbl *v;
+  
+*** sh/getopts.c.old	Sat Apr 25 17:44:27 1992
+--- sh/getopts.c	Sat Apr 25 18:35:57 1992
+***************
+*** 7,14 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 3.3 89/03/27 15:50:27 egisin Exp $";
+! static char *sccs_id = "@(#)getopts.c	1.2 91/11/22 22:53:43 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 15,21 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "table.h"
+  
+  /*
+   * The following is derived from getopt() source placed into the public
+--- 14,19 ----
+*** sh/history.c.old	Sat Apr 25 17:44:28 1992
+--- sh/history.c	Sat Apr 25 18:36:23 1992
+***************
+*** 5,12 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 3.3 89/01/27 00:08:27 egisin Exp $";
+! static char *sccs_id = "@(#)history.c	1.2 91/11/22 22:53:45 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 5,11 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 13,24 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "lex.h"
+  
+  char   *histrpl();
+  char  **current;
+  int	curpos;
+  
+  c_fc(wp)
+  	register char **wp;
+  {
+--- 12,29 ----
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+  
+  char   *histrpl();
+  char  **current;
+  int	curpos;
+  
++ static FILE *hist_fh = NULL;
++ static FILE *hist_open ARGS((char *mode));
++ #ifndef HISTFILE
++ # define HISTFILE ".pdksh_hist"
++ #endif
++ 
++   
+  c_fc(wp)
+  	register char **wp;
+  {
+***************
+*** 169,175 ****
+  
+  	if (histptr > history && last_line != source->line) { 
+  		source->line--;
+! 		afree((Void*)*histptr, APERM);
+  		histptr--;
+  		last_line = source->line;
+  	}
+--- 174,180 ----
+  
+  	if (histptr > history && last_line != source->line) { 
+  		source->line--;
+! 		afree((void*)*histptr, APERM);
+  		histptr--;
+  		last_line = source->line;
+  	}
+***************
+*** 186,192 ****
+  	char *cp;
+  
+  	if (++hp >= history + HISTORY) { /* remove oldest command */
+! 		afree((Void*)*history, APERM);
+  		for (hp = history; hp < history + HISTORY - 1; hp++)
+  			hp[0] = hp[1];
+  	}
+--- 191,197 ----
+  	char *cp;
+  
+  	if (++hp >= history + HISTORY) { /* remove oldest command */
+! 		afree((void*)*history, APERM);
+  		for (hp = history; hp < history + HISTORY - 1; hp++)
+  			hp[0] = hp[1];
+  	}
+***************
+*** 254,349 ****
+  	return line;
+  }
+  
+! #if 0
+! 
+! /* History file management routines (by DPK@BRL) */
+! 
+  void
+! hist_init()
+  {
+! 	register struct namnod *n;
+! 	int fd;
+  
+! 	if (hist_fd >= 0 || (flags&oneflg))
+! 		return;
+! 	if ((n = findnam(histname)) == (struct namnod *)0
+! 	 || n->namval == (char *)0)
+! 		return;
+! 	if ((fd = open(n->namval, O_RDWR)) >= 0) {
+! 		hist_load(fd);
+! 		(void)fcntl(fd, F_SETFL, O_APPEND);
+! 	}
+! 	hist_fd = fd;
+  }
+  
+  void
+  hist_finish()
+  {
+! 	if (hist_fd >= 0)
+! 		(void)close(hist_fd);
+! 	hist_fd = -1;
+  }
+  
+- void
+- hist_record(buf, len)
+- char	*buf;
+- int	len;
+- {
+- 	if (hist_fd >= 0)
+- 		(void)write(hist_fd, buf, (unsigned)len);
+- }
+  
+! void
+! hist_load(fd)
+! int	fd;
+  {
+! 	extern long	lseek();
+! 	struct stat sb;
+! 	char *x;
+! 	register char *cmdp, *end;
+! 	register int	len;
+! 	register int	i;
+! 
+! 	if (fstat(fd, &sb) < 0 || sb.st_size <= 0)
+! 		return;
+! 	if (x = alloc((unsigned)(sb.st_size+1))) {
+! 		(void)lseek(fd, 0L, 0);
+! 		if ((len = read(fd, x, (unsigned)sb.st_size)) <= 0) {
+! 			free((struct blk *)x);
+! 			return;
+! 		}
+! 		x[len] = 0;
+! 		end = x;
+! 		for (;;) {
+! 			while(*end == NL)
+! 				end++;		/* Skip NL */
+! 			if (*end == 0)
+! 				break;
+! 			cmdp = end;
+! 			while(*end && *end != NL)
+! 				end++;	/* Goto NL */
+! 			if (*end == 0)
+! 				break;
+! 			if ((len = (end - cmdp)) < 2)
+! 				continue;
+! 			if (len >= BUFSIZ)
+! 				len = BUFSIZ - 1;		/* Protection */
+! 			i = curhist % NHISTORY;
+! 			if(histbuf[i])
+! 				free((struct blk *)histbuf[i]);
+! 			histbuf[i] = alloc((unsigned)(len+1));
+! 			(void)strncpy(histbuf[i], cmdp, len);
+! 			histbuf[i][len] = 0;
+! 			curhist++;
+! 			histpc=curhist;
+! 		}
+! 		free((struct blk *)x);
+! 	}
+! 	return;
+  }
+  
+- #endif
+  
+  /*
+   * Return the current position.
+   */
+--- 259,358 ----
+  	return line;
+  }
+  
+! /*
+!  * 92-04-25 <sjg@zen>
+!  * A simple history file implementation.
+!  * At present we only save the history when we exit.
+!  * This can cause problems when there are multiple shells are 
+!  * running under the same user-id.  The last shell to exit gets 
+!  * to save its history.
+!  */
+  void
+! hist_init(s)
+!   Source *s;
+  {
+!   static int once = 0;
+!   FILE *fh;
+!   
+!   if (once++)
+!     return;
+  
+!   if (fh = hist_open("r"))
+!   {
+!     while (fgets(line, sizeof(line), fh) != NULL)
+!     {
+!       histsave(line); 
+!       s->line++;
+!     }
+!     line[0] = '\0';
+!     fclose(fh);
+! #if 0	/* this might be a good idea? */
+!     hist_fh = hist_open("a");
+! #endif
+!   }
+!   
+  }
+  
++ 
++ /*
++  * save our history.
++  * We check that we do not have more than we are allowed.
++  * If the history file is read-only we do nothing.
++  * Handy for having all shells start with a useful history set.
++  */
++ 
+  void
+  hist_finish()
+  {
+!   static int once = 0;
+!   FILE *fh;
+!   register int i, mx;
+!   register char **hp, *mode = "w";
+!   
+!   if (once++)
+!     return;
+!   if ((mx = atoi(strval(global("HISTSIZE")))) > HISTORY || mx <= 0)
+!     mx = HISTORY;
+!   /* check how many we have */
+!   i = histptr - history;
+!   if (i >= mx)
+!   {
+!     hp = &histptr[-mx];
+!   }
+!   else
+!   {
+!     hp = history;
+!   }
+!   if (fh = hist_open(mode))
+!   {
+!     for (i = 0; i < mx && hp[i]; i++)
+!       fprintf(fh, "%s\n", hp[i]);
+!     fclose(fh);
+!   }
+  }
+  
+  
+! /*
+!  * simply grab the nominated history file.
+!  */
+! static FILE *
+! hist_open(mode)
+!   char *mode;
+  {
+!   register char *rcp;
+!   FILE *fh;
+!   char name[128];
+!   
+!   if ((rcp = strval(global("HISTFILE"))) == NULL || *rcp == '\0')
+!   {
+!     (void) sprintf(name, "%s/%s", strval(global("HOME")), HISTFILE);
+!     rcp = name;
+!   }
+!   return fopen(rcp, mode);
+  }
+  
+  
++ 
+  /*
+   * Return the current position.
+   */
+***************
+*** 386,392 ****
+  	int	fwd;
+  	char 	*str;
+  {
+- 	char 	**hp = NULL;
+  	int	 pos = start;
+  	char	 *line, *last;
+  
+--- 395,400 ----
+*** sh/io.c.old	Sat Apr 25 17:44:28 1992
+--- sh/io.c	Sat Apr 25 18:36:32 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 3.4 89/03/27 15:50:52 egisin Exp $";
+! static char *sccs_id = "@(#)io.c	1.4 91/11/25 13:33:08 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 13,19 ****
+  #include <fcntl.h>
+  #include <signal.h>
+  #include <setjmp.h>
+! #if __STDC__
+  #include <stdarg.h>
+  #else
+  #include <varargs.h>
+--- 12,18 ----
+  #include <fcntl.h>
+  #include <signal.h>
+  #include <setjmp.h>
+! #ifdef __STDC__
+  #include <stdarg.h>
+  #else
+  #include <varargs.h>
+***************
+*** 44,51 ****
+  
+  /* shellf(...); error() */
+  int
+! #if __STDC__
+! errorf(Const char *fmt, ...) {
+  #else
+  errorf(va_alist) va_dcl
+  {
+--- 43,50 ----
+  
+  /* shellf(...); error() */
+  int
+! #ifdef __STDC__
+! errorf(const char *fmt, ...) {
+  #else
+  errorf(va_alist) va_dcl
+  {
+***************
+*** 53,59 ****
+  #endif
+  	va_list va;
+  
+! #if __STDC__
+  	va_start(va, fmt);
+  #else
+  	va_start(va);
+--- 52,58 ----
+  #endif
+  	va_list va;
+  
+! #ifdef __STDC__
+  	va_start(va, fmt);
+  #else
+  	va_start(va);
+***************
+*** 67,74 ****
+  
+  /* printf to shlout (stderr) */
+  int
+! #if __STDC__
+! shellf(Const char *fmt, ...) {
+  #else
+  shellf(va_alist) va_dcl
+  {
+--- 66,73 ----
+  
+  /* printf to shlout (stderr) */
+  int
+! #ifdef __STDC__
+! shellf(const char *fmt, ...) {
+  #else
+  shellf(va_alist) va_dcl
+  {
+***************
+*** 76,82 ****
+  #endif
+  	va_list va;
+  
+! #if __STDC__
+  	va_start(va, fmt);
+  #else
+  	va_start(va);
+--- 75,81 ----
+  #endif
+  	va_list va;
+  
+! #ifdef __STDC__
+  	va_start(va, fmt);
+  #else
+  	va_start(va);
+***************
+*** 100,106 ****
+--- 99,109 ----
+  	if (shf[fd] != NULL)
+  		return;
+  	if (fd <= 2)
++ #ifdef _MINIX
++ 		/* ? */;
++ #else
+  		_iob[fd]._flag = 0; /* re-use stdin, stdout, stderr */
++ #endif
+  	shf[fd] = fdopen(fd, "r+");
+  	if (shf[fd] == NULL)
+  		return;
+***************
+*** 137,143 ****
+  			else
+  				errorf("too many files open in shell\n");
+  #ifdef F_SETFD
+! 		(void) fcntl(nfd, F_SETFD, FD_CLEXEC);
+  #else
+  		(void) fd_clexec(ttyfd);
+  #endif
+--- 140,146 ----
+  			else
+  				errorf("too many files open in shell\n");
+  #ifdef F_SETFD
+! 		(void) fcntl(nfd, F_SETFD, 1);
+  #else
+  		(void) fd_clexec(ttyfd);
+  #endif
+
+exit 0 # Just in case...

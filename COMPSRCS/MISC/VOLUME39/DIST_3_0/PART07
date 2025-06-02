@@ -1,0 +1,1971 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i011:  dist-3.0 - Configure script generator and related tools, Part07/28
+Message-ID: <1993Aug18.184126.17427@sparky.sterling.com>
+X-Md4-Signature: 97765ee6de84ced4d0140d1f37ab6bb4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Wed, 18 Aug 1993 18:41:26 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 11
+Archive-name: dist-3.0/part07
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  kit/makedist.SH mcon/man/mlint.SH pat/patcil.SH
+#   pat/patmake.SH pat/patsend.SH
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:19 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 28)."'
+if test -f 'kit/makedist.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kit/makedist.SH'\"
+else
+  echo shar: Extracting \"'kit/makedist.SH'\" \(11786 characters\)
+  sed "s/^X//" >'kit/makedist.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xecho "Extracting kit/makedist (with variable substitutions)"
+Xcat >makedist <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: makedist.SH,v 3.0 1993/08/18 12:04:28 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# $Log: makedist.SH,v $
+X# Revision 3.0  1993/08/18  12:04:28  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+X\$version = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X$spitshell >>makedist <<'!NO!SUBS!'
+X
+Xrequire 'getopts.pl';
+X&usage unless &Getopts('c:f:dhvqs:V');
+X
+Xif ($opt_V) {
+X	print STDERR "makedist $version PL$patchlevel\n";
+X	exit 0;
+X} elsif ($opt_h) {
+X	&usage;
+X}
+X
+X$MAXKITSIZE = 50000 unless $MAXKITSIZE = $opt_s;
+X$KITOVERHEAD = 1800;
+X$FILEOVERHEAD = 90;
+X$CHOPSIZE = $MAXKITSIZE - $KITOVERHEAD - $FILEOVERHEAD;
+X
+X$NEWMANI = 'MANIFEST.new' unless $NEWMANI = $opt_f;
+X$MANI = 'MANIFEST' unless $opt_f;
+X$PACKLIST = 'PACKLIST';
+X$PACKNOTES = 'PACKNOTES';
+X
+X$tmpdir = "/tmp/MKst$$";	# Where to copy distribution
+X$tmpdir = '.' if $opt_q;	# Quick mode: no need to copy distribution
+X
+X&set_sig('aborted');		# Make sure we clean up in case of emergency
+X
+X&readpackage;
+X&get_patchlevel;
+X&manifake;
+X
+Xif ($opt_c) {				# Copy distribution only, no shell archive
+X	&distcopy;
+X	exit 0;
+X}
+X
+X&distfake;
+X&copyright'init($copyright) if -f $copyright;
+X
+Xunlink <$package.kit? $package.kit??>;
+Xchop($curdir = `pwd`);
+Xchdir $tmpdir || die "Can't chdir to $tmpdir.\n";
+X
+X&maniread;
+X&kitlists;
+X&manimake;
+X&kitbuild;
+X&cleanup;
+Xexit 0;
+X
+X# Physically build the kits
+Xsub kitbuild {
+X	$numkits = $#list;
+X	if ($numkits > 9) {
+X		$sp = '%02d';
+X	} else {
+X		$sp = '%d';
+X	}
+X
+X	for ($kitnum = 1; $kitnum <= $numkits; $kitnum++) {
+X		$list = $list[$kitnum];
+X		$kit = sprintf("$package.kit" . $sp,$kitnum);
+X		print "*** Making $kit ***\n";
+X		open(KIT,">$curdir/$kit") || do fatal("Can't create $curdir/$kit: $!");
+X
+X		&kitleader;
+X
+X		@files = split(' ',$list);
+X		reset 'X';
+X		for $file (@files) {
+X			$_ = $file;
+X			while (s|^(.*)/.*$|$1|) {
+X				push(@Xdirs,$_) unless $Xseen{$_}++;
+X			}
+X		}
+X		print KIT "mkdir ",join(' ', sort @Xdirs)," 2>/dev/null\n";
+X
+X		foreach $file (@files) {
+X			print "\t",$file,"\n" if $opt_v;
+X			print KIT "echo Extracting $file\n";
+X			print KIT "sed >$file <<'!STUFFY!FUNK!' -e 's/X//'\n";
+X			open(FILE, $file);
+X			&copyright'reset;			# Reset copyright for new file
+X			while (<FILE>) {
+X				# Use Lock[e]r as a pattern in case it is applied on ourselves
+X				s|Lock[e]r:.*\$|\$|;	# Remove locker mark
+X				print KIT &copyright'filter($_, 'X');
+X			}
+X			close FILE;
+X			print KIT "!STUFFY!FUNK!\n";
+X			-x "$file" && (print KIT "chmod +x $file\n");
+X		}
+X		&kittrailer;
+X		chmod 0755, $kit;
+X	}
+X}
+X
+Xsub kitlists {
+X	for $filename (keys %comment) {
+X		next if $filename =~ m|/$|;		# Skip directories
+X		next if -d $filename;			# Better safe than sorry
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X		   $blksize,$blocks) = stat($filename);
+X
+X		# Make sure file is not larger than the CHOPSIZE limit. If it is,
+X		# a split is attempted.
+X		if ($size > $CHOPSIZE) {
+X			print "Splitting $filename...\n" if $opt_v;
+X			$file_comment = $comment{$filename};
+X			open(FILE, $filename) || die "Can't open $filename: $!\n";
+X			$piece = 'AA';
+X			($dir, $name) = ('.', $filename)
+X				unless ($dir, $name) = ($filename =~ m|(.*)/(.*)|);
+X			$chopped = $dir . '/' . substr($name, 0, 11);
+X			$chopped =~ s|^\./||;
+X			&fatal("There is already a split file named $chopped")
+X				if defined $Chopped{$chopped};
+X			$Chopped{$chopped} = $filename;	# Association split <-> real file
+X			$size = 0;
+X			open(CURPIECE, ">$chopped:$piece") ||
+X				&fatal("Can't create $chopped:$piece: $!");
+X			while (<FILE>) {
+X				if ($size + length($_) > $CHOPSIZE) {
+X					close CURPIECE;
+X					$size{"$chopped:$piece"} = $size;
+X					$comment{"$chopped:$piece"} = "$file_comment (part $piece)";
+X					push(@files, "$chopped:$piece");
+X					print "\t$chopped:$piece ($size bytes)\n" if $opt_v;
+X					$size = 0;
+X					$piece++;		# AA -> AB, etc...
+X					open(CURPIECE, ">$chopped:$piece") ||
+X						&fatal("Can't create $chopped:$piece: $!");
+X				}
+X				print CURPIECE $_;
+X				$size += length($_);
+X			}
+X			close FILE;
+X			close CURPIECE;
+X			$size{"$chopped:$piece"} = $size;
+X			$comment{"$chopped:$piece"} = "$file_comment (part $piece)";
+X			push(@files, "$chopped:$piece");
+X			print "\t$chopped:$piece ($size bytes)\n" if $opt_v;
+X			delete $comment{$filename};		# File split, not in PACKLIST
+X		} else {
+X			$size += 1000000 if $filename =~ /README/;
+X			$size{$filename} = $size;
+X			push(@files, "$filename");
+X		}
+X	}
+X
+X	# Build a file PACKNOTES to reconstruct split files
+X	if (defined %Chopped) {
+X		open(PACKNOTES, ">$PACKNOTES") || &fatal("Can't create PACKNOTES: $!");
+X		foreach (keys %Chopped) {
+X			print PACKNOTES <<EOC;
+Xecho 'Building $Chopped{$_}...'
+Xcat $_:[A-Z][A-Z] > $Chopped{$_}
+Xrm -f $_:[A-Z][A-Z]
+XEOC
+X		}
+X		close PACKNOTES;
+X		push(@files, $PACKNOTES);
+X		$comment{$PACKNOTES} = 'Script to reconstruct split files';
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X		   $blksize,$blocks) = stat($PACKNOTES);
+X		$size{$PACKNOTES} = $size;
+X	}
+X
+X	# Currently, file PACKLIST does not exist, so its size is unknown and
+X	# it cannot be correctly put in one archive. Therefore, we take the
+X	# size of MANIFEST.new, which will give us a good estimation.
+X	push(@files, 'PACKLIST');
+X
+X	($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X	   $blksize,$blocks) = stat($NEWMANI);
+X	$size{$PACKLIST} = $size;
+X
+X	sub revnum { $size{$a} < $size{$b} ? 1 : $size{$a} > $size{$b} ? -1 : 0; }
+X	@files = sort revnum @files;
+X
+X	for (@files) {
+X		$size = $size{$_};
+X		$size -= 1000000 if /README/;
+X		$i=1;
+X		while (($newtot = int($tot[$i] + $size + $size/40 + $FILEOVERHEAD)) >
+X			$MAXKITSIZE-$KITOVERHEAD && $tot[$i]) {
+X				$i++;
+X		}
+X		$tot[$i] = $newtot;
+X		print "Adding $_ to kit $i giving $newtot bytes\n" if $opt_d;
+X		$kit{$_} = $i;
+X		$list[$i] .= " $_";
+X	}
+X}
+X
+X# Read manifest file and initialize the %comment array.
+Xsub maniread {
+X	do fatal("You don't have a $NEWMANI file.  Run manifake")
+X		unless -f "$NEWMANI";
+X	open(NEWMANI,$NEWMANI) || do fatal("Can't read $NEWMANI: $!");
+X	while (<NEWMANI>) {
+X		($key,$val) = split(' ',$_,1) unless ($key,$val) = /^(\S+)\s+(.*)/;
+X		$comment{$key} = $val;
+X	}
+X	close NEWMANI;
+X}
+X
+X# MANIFEST and MANIFEST.new must say the same thing.  Create the
+X# PACKLIST file (thus avoiding kit numbers in MANIFEST, which causes big
+X# patches when only re-ordering occurred).  Note that PACKLIST should
+X# not appear in MANIFEST.new (the user may remove it).
+Xsub manimake {
+X	# Add built packlist
+X	$comment{$PACKLIST} = 'Which files came with which kits';
+X
+X	open(PACKLIST, ">$PACKLIST") || do fatal("Can't create $PACKLIST: $!");
+X	print PACKLIST
+X"After all the $package kits are run you should have the following files:
+X
+XFilename                   Kit Description
+X--------                   --- -----------
+X";
+X	for (sort keys(comment)) {
+X		printf PACKLIST "%-27s %2s %.47s\n", $_, $kit{$_}, $comment{$_};
+X	}
+X	close PACKLIST;
+X}
+X
+Xsub kitleader {
+X	local($plevel);
+X	$plevel = " at patchlevel $patch_level" if $patch_level ne '';
+X	print KIT <<EOH;
+X#! /bin/sh
+X#
+X# This is $package version $baserev$plevel.
+X# Make a new directory for the $package sources, cd to it, and run kits 1 up
+X# to $numkits through sh.  When all $numkits kits have been run, read README.
+X#
+Xecho " "
+Xcat <<EOM
+XThis is $package $baserev$plevel, kit $kitnum (of $numkits):
+XIf this shell archive is complete, the line "End of kit $kitnum (of $numkits)"
+Xwill echo at the end.
+XEOM
+Xexport PATH || (echo "Please use sh to unpack this archive." ; kill \$\$)
+XEOH
+X}
+X
+Xsub kittrailer {
+X	$rangelist = '';
+X	for ($i = 1; $i <= $numkits; $i++) {
+X		$rangelist .= ' ' . $i;
+X	}
+X	print KIT <<EOM;
+Xecho \"End of kit $kitnum (of $numkits)\"
+Xecho \" \"
+Xcat /dev/null >kit${kitnum}isdone
+Xrun=''
+Xconfig=''
+Xfor iskit in$rangelist; do
+X	if test -f kit\${iskit}isdone; then
+X		run=\"\$run \$iskit\"
+X	else
+X		todo=\"\$todo \$iskit\"
+X	fi
+Xdone
+Xcase \$todo in
+X	'')
+X		echo \"You have run all your kits.\"
+XEOM
+X	if (defined %Chopped) {		# Some splitting occurred
+X		print KIT <<EOM;
+X		if test -f $PACKNOTES; then
+X			sh $PACKNOTES
+X		else
+X			echo \"You have to rebuild split files by hand (see $PACKLIST).\"
+X		fi
+XEOM
+X	}
+X	if (-f "README" && -f "Configure") {
+X		print KIT
+X"		echo \"Please read README and then type Configure.\"
+X		chmod 755 Configure\n";
+X	} elsif (-f "README") {
+X		print KIT
+X"		echo \"Please read README first.\"\n";
+X	} elsif (-f "Configure") {
+X		print KIT
+X"		echo \"Please run Configure first.\"
+X		chmod 755 Configure\n";
+X	}
+X	print KIT <<EOM;
+X		rm -f kit*isdone
+X		;;
+X	*)  echo \"You have run\$run.\"
+X		echo \"You still need to run\$todo.\"
+X		;;
+Xesac
+X: Someone might mail this, so exit before signature...
+Xexit 0
+XEOM
+X}
+X
+Xsub get_patchlevel {
+X	$patch_level = '';
+X	if (-f 'patchlevel.h') {
+X		open(PL, 'patchlevel.h');
+X		while (<PL>) {
+X			/^#define\s+PATCHLEVEL\s+(\w+)/ && ($patch_level = $1);
+X		}
+X		close PL;
+X	}
+X}
+X
+Xsub distfake {
+X	return if $opt_q;
+X	local($sw);
+X	$sw = 's' unless $opt_v;
+X	mkdir($tmpdir, 0700) || die "Can't create directory $tmpdir.\n";
+X	print "Building a copy of distribution in $tmpdir...\n" if $opt_v;
+X	system 'perl', '-S', 'patcol', "-a$sw", '-f', $NEWMANI, '-d', $tmpdir;
+X	system 'cp', $NEWMANI, "$tmpdir/$NEWMANI"
+X		unless -f "$tmpdir/$NEWMANI" && !$opt_f;
+X}
+X
+Xsub distcopy {
+X	local($sw);			# Switch to force patcol to copy checked out files
+X	&makedir($opt_c);
+X	print "Building a copy of distribution in $opt_c...\n" if $opt_v;
+X	$sw = 'c' if $opt_q;
+X	$sw .= 's' unless $opt_v;
+X	system 'perl', '-S', 'patcol', "-aRC$sw", '-f', $NEWMANI, '-d', $opt_c;
+X}
+X
+Xsub distrm {
+X	return if $opt_q;
+X	print "Removing distribution in $tmpdir...\n" if $opt_v;
+X	chdir "/";			# Do not stay in removed directory...
+X	system '/bin/rm', '-rf', "$tmpdir";
+X}
+X
+Xsub splitrm {
+X	foreach $base (keys %Chopped) {
+X		print "Removing split files for $base:\n" if $opt_v;
+X		$piece = 'AA';
+X		while (-f "$base:$piece") {
+X			print "\t$base:$piece\n" if $opt_v;
+X			unlink "$base:$piece";
+X			$piece++;		# AA -> AB, etc...
+X		}
+X	}
+X}
+X
+Xsub cleanup {
+X	&distrm if -d $tmpdir;
+X	if ($opt_q) {
+X		&splitrm;		# Remove in-place split files
+X		unlink $PACKLIST, $PACKNOTES;
+X	}
+X}
+X
+Xsub fatal {
+X	local($reason) = shift(@_);
+X	&cleanup;
+X	die "$reason\n";
+X}
+X
+Xsub set_sig {
+X	local($handler) = @_;
+X	$SIG{'HUP'} = $handler;
+X	$SIG{'INT'} = $handler;
+X	$SIG{'QUIT'} = $handler;
+X	$SIG{'TERM'} = $handler;
+X}
+X
+Xsub aborted {
+X	&set_sig('IGNORE');
+X	$opt_v = 1;		# Force verbose message in distrm
+X	&cleanup;
+X	print "Aborted.\n";
+X	exit 1;
+X}
+X
+Xsub usage {
+X	print STDERR <<EOM;
+XUsage: makedist [-dhqvV] [-c dir] [-s size] [-f manifest]
+X  -c : copy files in dir, do not build any shell archive.
+X  -d : debug mode.
+X  -f : use this file as manifest.
+X  -h : print this help message and exits.
+X  -q : quick mode: use checked-out files.
+X  -s : set maximum pack size.
+X  -v : verbose mode.
+X  -V : print version number and exits.
+XEOM
+X	exit 1;
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' ../pl/package.pl >>makedist
+X$grep -v '^;#' ../pl/manifake.pl | \
+X	$sed -e 's|die \(.*\);|do fatal(\1);|' >>makedist
+X$grep -v '^;#' ../pl/copyright.pl >>makedist
+X$grep -v '^;#' ../pl/makedir.pl >>makedist
+Xchmod +x makedist
+X$eunicefix makedist
+END_OF_FILE
+  if test 11786 -ne `wc -c <'kit/makedist.SH'`; then
+    echo shar: \"'kit/makedist.SH'\" unpacked with wrong size!
+  fi
+  # end of 'kit/makedist.SH'
+fi
+if test -f 'mcon/man/mlint.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/man/mlint.SH'\"
+else
+  echo shar: Extracting \"'mcon/man/mlint.SH'\" \(11846 characters\)
+  sed "s/^X//" >'mcon/man/mlint.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting mcon/man/metalint.$manext (with variable substitutions)"
+X$rm -f metalint.$manext
+X$spitshell >metalint.$manext <<!GROK!THIS!
+X.TH METACONFIG $manext "Version $VERSION PL$PATCHLEVEL"
+X''' @(#) Manual page for metalint
+X'''
+X''' $Id: mlint.SH,v 3.0 1993/08/18 12:10:15 ram Exp $
+X'''
+X'''  Copyright (c) 1991-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic Licence,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic Licence; a copy of which may be found at the root
+X'''  of the source tree for dist 3.0.
+X'''
+X''' $Log: mlint.SH,v $
+X''' Revision 3.0  1993/08/18  12:10:15  ram
+X''' Baseline for dist 3.0 netwide release.
+X'''
+X'''
+X.SH NAME
+Xmetalint \- a metaconfig unit consistency checker
+X.SH SYNOPSIS
+X.B metalint
+X[ \-\fBhklsV\fR ]
+X.SH DESCRIPTION
+X.I Metalint
+Xparses the units and performs some extensive consistency checks, to make sure
+Xthe whole set is sound. Due to the relatively huge amount of units available,
+Xit is becoming very difficult to maintain the units manually, and an automated
+Xprocess can be of real help, although not perfect.
+X.PP
+X.I Metalint
+Xoperates from within your top level package directory and is used to make sure
+Xyour own private units are correctly relying on the publicly available units.
+XIf you intensively develop new units, you should run \fImetalint\fR on them
+Xbefore making them publicly available.
+X.SH OPTIONS
+X.I Metalint
+Xrecognizes the following set of options:
+X.TP 15
+X.B \-h
+XPrint a short usage description and exit.
+X.TP
+X.B \-k
+XKeep temporary \fI.MT\fR directory.
+X.TP
+X.B \-l
+X(not implemented yet) By default, \fImetalint\fR only reports problems related
+Xto your own private units. This switch directs \fImetalint\fR to also report
+Xproblems in publicly available units.
+X.TP
+X.B \-s
+XSilent mode.
+X.TP
+X.B \-V
+XPrint version number and exit.
+X.SH DIAGNOSTICS
+XThe following diagnostics may be emitted by \fImetalint\fR:
+X.TP 5
+X"(?MAKE) ignoring duplicate dependency listing line."
+XMore than one ?MAKE: line bearing dependencies was found in the unit. There
+Xmay be only one such line, although multiple ?MAKE action lines may occur.
+X.TP
+X"(?MAKE) special unit 'Xxx' should not be listed as made."
+XA special unit symbol (first letter capitalized) may only be listed as made
+Xin the special unit itself.
+X.TP
+X"(?MAKE) '+xxx' is listed x times."
+XA conditional dependency is listed more than once. This is harmless though.
+X.TP
+X"(?MAKE) 'xxx' is listed x times."
+XA normal depdendency is listed more than once. Again, an harmless error.
+X.TP
+X"(?MAKE) 'xxx' listed as both conditional and full dependency."
+XSymbol is listed as a normal dependency and as a conditional one.
+X.I Metaconfig
+Xwill consider this as being a full dependency, but that may not be what you
+Xinitially wanted...
+X.TP
+X"(?S) duplicate description for variable '\$xxx'."
+XShell symbol is described more than once, and that will produce two entries
+Xin the Glossary.
+X.TP
+X"(?S) variable '\$xxx' is not listed on ?MAKE: line."
+XThe unit describes a shell symbol entry which cannot be used externally since
+Xnot listed as a dependency.
+X.TP
+X"(?S) syntax error in ?S: construct."
+XSelf explainatory.
+X.TP
+X"(?C) duplicate description for symbol 'XXX'."
+XC symbol is described more than once, and that will produce two entries for
+Xit in the Glossary.
+X.TP
+X"(?C) syntax error in ?C: construct."
+XSelf explainatory.
+X.TP
+X"(?H) symbol 'XXX' was already defined."
+XApparently, two ?H: lines are defining the same C symbol.
+X.TP
+X"(?H) variable '\$xxx' not even listed on ?MAKE: line."
+XA variable is used, but not listed on the dependency line.
+X.TP
+X"(?V) visible declaration in non-special unit ignored."
+XVisible declarations (?V: lines) may only appear in special units. Otherwise,
+Xthey are meaningless.
+X.TP
+X"(?V) wanted variable '\$xxx' made visible."
+XA wanted variable (described as a dependency on the ?MAKE: line) cannot be
+Xmade visible since that does not make any sense: the unit cannot depend on
+Xit and then advertise it as being locally defined.
+X.TP
+X"(?V) defined variable '\$xxx' made visible."
+XA defined variable (listed as made on the ?MAKE: line) cannot be made
+Xvisible, since it could as well be directly wanted in another unit.
+X.TP
+X"(?V) variable '\$xxx' already made visible by unit yyy."
+XInconsistent declaration: two units are making one single symbol visible...
+X.TP
+X"(?V) variable '\$xxx' already read-write visible in yyy."
+XThe variable was already made visible as read-write by another unit.
+X.TP
+X"(?V) variable '\$xxx' already read-only visible in yyy."
+XThe variable was already made visible as read-only by another unit.
+X.TP
+X"(?W) variable '\$xxx' already wanted."
+XVariable is already wanted, there is no need to explicitely ask for it here.
+X.TP
+X"(?W) variable '\$xxx' also locally defined."
+XA wanted variable would conflict with a locally defined variable and could
+Xresult in getting a garbage value.
+X.TP
+X"(?W) variable '\$xxx' already listed on a ?W: line in 'yyy'."
+XThe variable in the shell symbol section of a ?W: line can only appear in
+Xone unit.
+X.TP
+X"(?T) temporary symbol '\$xxx' multiply declared."
+XSelf explainatory.
+X.TP
+X"control sequence '?XXX:' ignored within body."
+XAttempt to use a control line other than ?X: or ?LINT: in the unit body,
+Xwhich should be only shell code
+X.TP
+X"variable '\$xxx' is changed."
+XA variable listed as wanted in the dependency line is changed. Such a variable
+Xshould be read-only for the unit. Use the \fIchange\fR lint hint to suppress
+Xthis message in pathological cases.
+X.TP
+X"no ?MAKE: line describing dependencies."
+XEvery unit should have a dependency line, or it will be silently ignored by
+X\fImetaconfig\fR.
+X.TP
+X"symbol '\$xxx' was not described."
+XThe shell symbol defined by this unit was not documented. Use the \fIdescribe\fR
+Xlint hint to suppress this message.
+X.TP
+X"C symbol 'XXX' was not described."
+XThe C symbol defined by this unit was not documented. Use the \fIknown\fR lint
+Xhint to suppress this message.
+X.TP
+X"C symbol 'XXX' was not defined by any ?H: line."
+XA C symbol was advertised by never defined, hence it cannot appear in the
+X\fIconfig.h\fR file and is therefore useless...
+X.TP
+X"variable '\$xxx' should have been set."
+XA variable listed on the make line as made by the unit was not set by the
+Xshell code body. Use the \fIset\fR lint hint to suppress this message in
+Xpathological cases.
+X.TP
+X"unused dependency variable '\$xxx'."
+XApparently no usage is made from a shell variable. Use the \fIchange\fR or
+X\fIuse\fR lint hints (depending on the situation) to suppress this message.
+X.TP
+X"unused conditional variable '\$xxx'.
+XApparently no usage is made from this conditional dependency. The \fIchange\fR
+Xor \fIuse\fR lint hints can be used to suppress this message.
+X.TP
+X"unused temporary variable '\$xxx'."
+XA variable declared as temporary in a ?T: line is not used. The \fIuse\fR lint
+Xhint will fool \fImetalint\fR into thinking it's indeed used.
+X.TP
+X"unknown control sequence '?XXX:'."
+XAttempt to use an unknown control sequence.
+X.TP
+X"symbol '\$xxx' has no default value."
+XA symbol used as a conditional dependency in some unit has no default value
+Xset by a ?D: line.
+X.TP
+X"stale ?MAKE: dependency 'xxx'."
+XUnit lists a symbol as a dependency, but that symbol is otherwise unknown, i.e.
+Xnever appears as made by any other unit.
+X.TP
+X"symbol '\$xxx' missing from ?MAKE."
+XA symbol used or defined was not listed as a dependency in the ?MAKE: line.
+X.TP
+X"missing xxx from ?MAKE for visible '\$yyy'."
+XA symbol defined as visible by a special unit is used, but that special unit
+Xis not part of the dependency line.
+X.TP
+X"unknown symbol '\$xxx'."
+XI have no idea about what this symbol is.
+X.TP
+X"read-only symbol '\$xxx' is set."
+XA symbol that should be read-only is set by the unit's shell code body.
+X.TP
+X"obsolete symbol 'xxx' is used."
+XAn obsolete symbol is used in the unit's shell code.
+X.TP
+X"undeclared symbol '\$xxx' is set."
+XThe unit tries to set a shell variable which has not been otherwise declared
+Xas made or as a temporary variable, or whatever.
+X.TP
+X"C symbol 'xxx' is defined in the following units:"
+XThe C symbol is defined in more that one unit. Offending units are listed.
+X.TP
+X"Shell symbol 'xxx' is defined in the following units:"
+XA shell symbol is defined in more than one unit. Offending units folllow.
+X.TP
+X"Shell symbol 'xxx' is altogether:"
+XA shell symbol is defined by some units, obsoleted by others and used as
+Xa temporary.
+X.TP
+X"Shell symbol 'xxx' is both defined and obsoleted:"
+XSelf explainatory.
+X.TP
+X"Shell symbol 'xxx' is both defined and used as temporary:"
+XSelf explainatory.
+X.TP
+X"Shell symbol 'xxx' obsoleted also used as temporary:"
+XSelf explainatory.
+X.TP
+X"definition of '\$XXX' not closed by '?S:.'."
+XSelf explainatory.
+X.TP
+X"definition of 'XXX' not closed by '?C:.'."
+XSelf explainatory.
+X.TP
+X"variable '\$xxx' is defined externally."
+XA variable defined externally (i.e. in another unit) is used, without proper
+Xdependency information. Use the \fIextern\fR lint hint to suppress this message.
+X.TP
+X"Cycle found for:"
+XThere is a dependency cycle found for the symbols listed. Only the symbols
+Xinvolved in the cycle are listed.
+X.TP
+X"Cycle involves:"
+XAn exerpt of the dependencies where the cycle was found is listed. This may
+Xinvolve far more symbols than the previous message, because \fImetalint\fR
+Xactually rescans the rules to emphasize the cycle and stops whenever it has
+Xfound one, i.e. it does not try to minimize it (the cycle is found using
+Xanother algorithm, which unfortunately cannot spit it out but only say
+Xfor sure there is one).
+X.SH REFERENCE
+X.I Metalint
+Xuses the following control lines, which are otherwise ignored by
+X\fImetaconfig\fR:
+X.TP 5
+X?V:\fIread-only symbols\fR:\fIread-write symbols\fR
+XThis line should be used only in special units. It lists all the shell
+Xvariable defined by the unit which should not be used directly as dependencies
+Xby other units: they must include this special unit in their dependency list
+Xif they make use of any of the symbols described here. Those can be viewed
+Xas exported symbols which you inherit from when depending from the unit.
+XSymbols may be exported read-only or read-write.
+X.TP
+X?T:\fIshell temporaries\fR
+XThis line should list all the shell variables used as temporaries within
+Xthe unit's body. This line should be kept accurate, and prevents you from
+Xwriting a unit defining a symbol which would be used as a scratch variable
+Xin another unit...
+X.TP
+X?LINT:\fIkeyword\fR \fIsymbol_list\fR
+XSpecifies a lint hint. The following keywords are available:
+X.RS +10
+X.TP 15
+X.PD 0
+X.I change
+Xshell variable ok to be changed
+X.TP
+X.I define
+Xshell variables listed are defined in this unit
+X.TP
+X.I describe
+Xlisted shell variables are described by ?S:
+X.TP
+X.I extern
+Xvariable known to be externally defined
+X.TP
+X.I known
+Xlisted C variables are described
+X.TP
+X.I set
+Xlisted variables are set
+X.TP
+X.I use
+Xvariables listed are used by this unit
+X.PD
+X.RS -10
+X.SH AUTHORS
+XHarlan Stenn <harlan@mumps.pfcs.com> wrote the first version, based on
+XLarry Wall's \fImetaconfig\fR from dist 2.0.
+X.br
+XRaphael Manfredi <ram@acri.fr> rewrote it from scratch for 3.0 with a few
+Xenhancements.
+X.SH FILES
+X.TP 10
+X.PD 0
+XLIB/dist/mcon/U/*.U
+XPublic unit files
+X.TP
+XU/*.U
+XPrivate unit files
+X.PD
+X.sp
+X.in +5
+Xwhere LIB is $privlibexp.
+X.in -5
+X.SH BUGS
+XIt is almost impossible with the current version to shut up all the
+X(spurious) warnings.
+X.SH "SEE ALSO"
+Xmetaconfig($manext), metaxref($manext)
+X!GROK!THIS!
+Xchmod 444 metalint.$manext
+END_OF_FILE
+  if test 11846 -ne `wc -c <'mcon/man/mlint.SH'`; then
+    echo shar: \"'mcon/man/mlint.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'mcon/man/mlint.SH'
+  # end of 'mcon/man/mlint.SH'
+fi
+if test -f 'pat/patcil.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pat/patcil.SH'\"
+else
+  echo shar: Extracting \"'pat/patcil.SH'\" \(12496 characters\)
+  sed "s/^X//" >'pat/patcil.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting pat/patcil (with variable substitutions)"
+X$cat >patcil <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -i~ -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: patcil.SH,v 3.0 1993/08/18 12:10:40 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# Original Author: Larry Wall <lwall@netlabs.com>
+X#
+X# $Log: patcil.SH,v $
+X# Revision 3.0  1993/08/18  12:10:40  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+X\$defeditor = '$defeditor';
+X\$pager = '$pager';
+X\$version = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+Xcat >>patcil <<'!NO!SUBS!'
+X
+Xrequire 'getopts.pl';
+X&usage unless $#ARGV >= 0;
+X&usage unless &Getopts("abfhnpqsV");
+X
+Xif ($opt_V) {
+X	print STDERR "patcil $version PL$patchlevel\n";
+X	exit 0;
+X} elsif ($opt_h) {
+X	&usage;
+X}
+X
+X$RCSEXT = ',v' unless $RCSEXT;
+X$PAGER = $ENV{'PAGER'} || "$pager";
+X
+Xsystem 'mkdir', 'RCS' unless -d 'RCS';
+X
+Xchop($pwd = `pwd`) unless -f '.package';
+Xuntil (-f '.package') {
+X	die "No .package file!  Run packinit.\n" unless $pwd;
+X	chdir '..' || die "Can't cd ..";
+X	$pwd =~ s|(.*)/(.*)|$1|;
+X	$prefix = $2 . '/' . $prefix;
+X}
+Xif ($prefix) {
+X	for (@ARGV) {
+X		s/^/$prefix/ unless m|^[-/]|;
+X	}
+X}
+X
+X# We now are at the top level
+X
+X&readpackage;
+X
+Xif (-f 'patchlevel.h') {
+X	open(PL,"patchlevel.h") || die "Can't open patchlevel.h\n";
+X	while (<PL>) {
+X	    $bnum = $1 if /^#define\s+PATCHLEVEL\s+(\d+)/;
+X	}
+X	die "Malformed patchlevel.h file.\n" if $bnum eq '';
+X	++$bnum;
+X} else {
+X	$bnum=1;
+X}
+X
+Xsystem 'mkdir', 'bugs' unless -d 'bugs';
+Xopen(LOGS,">>bugs/.logs$bnum");		# Remember logs for patmake
+Xopen(MODS,">>bugs/.mods$bnum");		# Remember modified files
+X
+Xpush(@sw,'-q') if $opt_q;
+Xpush(@sw,'-f') if $opt_f;
+X
+Xif ($opt_a) {
+X	open(MANI,"MANIFEST.new") || die "No MANIFEST.new found.\n";
+X	@ARGV = ();
+X	while (<MANI>) {
+X	    chop;
+X		s|^\./||;
+X		next if m|^patchlevel.h|;		# Special file
+X		($_) = split(' ');
+X		next if -d;
+X	    push(@ARGV,$_);
+X	}
+X	close MANI;
+X} elsif ($opt_n) {
+X	&newer;
+X}
+X
+X@filelist = @ARGV;
+X
+Xsub CLEANUP {
+X	print "Warning: restore $ARGV\n";
+X	exit 1;
+X}
+X
+Xif ($opt_s) {
+X	open(TTY,">/dev/tty");
+X	select(TTY);
+X	$| = 1;
+X	select(stdout);
+X	$SIG{'INT'} = 'CLEANUP';
+X	while (<>) {
+X		if (/^(.*)\$Log[:\$]/) {
+X			$comment = $1;
+X			$len = length($comment);
+X			print;
+X			$lastnl = 1;
+X			logline: while (<>) {
+X				$c = substr($_,0,$len);
+X				last logline unless $c eq $comment;
+X				$_ = substr($_,$len,999);
+X				if ($lastnl) {
+X					unless (/^Revision\s+\d/) {
+X						$_ = $comment . $_;
+X						last logline;
+X					}
+X					$lastnl = 0;
+X				} else {
+X					if ($_ eq "\n") {
+X						$lastnl = 1;
+X					}
+X				}
+X			}
+X		}
+X	}
+X	continue {
+X		print;
+X		if ($ARGV ne $oldargv) {
+X			print TTY "Stripping $ARGV...\n";
+X			$oldargv = $ARGV;
+X		}
+X	}
+X	$SIG{'INT'} = 'DEFAULT';
+X	close TTY;
+X}
+X
+Xif ($opt_b) {
+X	$flist = &rcsargs(@filelist);
+X	@flist=split(' ',$flist);
+X	system 'rcs', '-u', @flist;
+X	system 'rcs', "-l$revbranch", @flist;
+X	system 'ci', '-l', "-r$revbranch", @sw, @flist;
+X	exit 0;
+X}
+X
+Xopen(MANI,"MANIFEST.new") || die "Can't open MANIFEST.new.\n";
+Xwhile (<MANI>) {
+X	# Find how many spaces the user wants before comments
+X	$space || /(\S+\s+)\S+/ && ($space = length($1));
+X	($file,$file_comment) = m|(\S+)\s+(.*)|;
+X	$inmani{$file} = 1;						# File is listed in MANIFEST
+X	$comment{$file} = $file_comment;		# Save comments
+X}
+Xclose MANI;
+X$space = 29 unless $space;		# Default value
+X
+Xfile: foreach $file (@filelist) {
+X	$files = &rcsargs($file);
+X	@files = split(' ',$files);
+X	$file = $files[1] if $file =~ /\.$RCSEXT$/;
+X	unless ($inmani{$file}) {
+X		print "$file does not appear to be in your MANIFEST.new--add? [y] ";
+X		$ans = <stdin>;
+X		if ($ans !~ /^n/i) {
+X			print "MANIFEST.new comment? ";
+X			$file_comment = <stdin>;
+X			chop($file_comment);
+X			$spacenum = $space - length($file);
+X			$blank = " ";
+X			$blank = " " x $spacenum unless $spacenum < 1;
+X			`echo '${file}${blank}$file_comment' >>MANIFEST.new`;
+X			if (-f 'MANIFEST') {
+X				print "(Also adding file to your MANIFEST)\n";
+X				# Add a (new) at the end, so the two manifests will
+X				# differ and thus manifest will get patched correctly.
+X				`echo '${file}${blank}$file_comment (new)' >>MANIFEST`;
+X				print MODS "MANIFEST\n";
+X			}
+X		} else {
+X			$file_comment = "";			# No file, no comment
+X		}
+X	}
+X	$is_first = 0;			# Suppose this is not the first cil
+X	$revs = 0;				# Makes revs a numeric variable
+X	$rlog = `rlog -r$baserev -r$revbranch $files 2>&1`;
+X	($total) = ($rlog =~ /total revisions: (\d+)/);
+X	($revs) = ($rlog =~ /selected revisions: (\d+)/);
+X	$comment = &rcscomment($file);
+X	if (!$revs) {
+X		if ($total) {
+X			if ($rlog !~ /locks:\s*;/) {
+X				system 'rcs', '-u', @files;	# unlock branch
+X			}
+X			# New trunck revision
+X			system 'rcs', '-l', @files;		# lock trunk
+X		}
+X		else {
+X			$file_comment = $comment{$file} if $inmani{$file};
+X			if ($comment ne '') {
+X				&feed($file_comment, 'rcs', '-i', "-c$comment", @files);
+X			} else {
+X				&feed($file_comment, 'rcs', '-i', @files);
+X			}
+X		}
+X		if ($opt_p) {		# check in null as trunk revision
+X			rename($file, "$file.xxx");
+X			`cp /dev/null $file` unless -f $file;
+X			&cil_col("empty\n", $baserev);
+X			system 'rcs', "-Nlastpat:$baserev", @files;
+X			rename("$file.xxx", $file);
+X			$mess = &getlog($file);
+X			next file if $mess eq 'nope';
+X			system 'rcs', '-u', @files;		# Unlock trunck
+X			&feed($mess, 'ci', "-l$revbranch", @sw, @files) unless $?;
+X		} else {
+X			$is_first = 1;			# This is the first cil
+X			$mess = &getlog($file);
+X			next file if $mess eq 'nope';
+X			&cil_col($mess, $baserev);
+X			system 'rcs', "-Nlastpat:$baserev", @files;
+X		}
+X	} else {
+X		if (!$opt_f) {
+X			if ($revs == 1) {
+X				$delta = `rcsdiff -r$baserev $files 2>/dev/null`;
+X			} else {
+X				$delta = `rcsdiff -r$revbranch $files 2>/dev/null`;
+X			}
+X			if ($delta eq '') {		# No change in file
+X				print "No changes in $file since last patcil.\n";
+X				next;				# Skip file
+X			}
+X		}
+X		if ($revs == 1) {
+X			$mess = &getlog($file);
+X			next file if $mess eq 'nope';
+X			&cil_cil($mess, $revbranch);
+X		} else {
+X			$mess = &getlog($file);
+X			next file if $mess eq 'nope';
+X			&cil_col($mess, $revbranch);
+X		}
+X	}
+X}
+X
+X# Used for the first revisions on a branch
+Xsub cil_cil {
+X	local($mess) = shift(@_);
+X	local($rev) = shift(@_);
+X	if (&feed($mess, 'ci', @sw, "-l$rev", @files)) {
+X		print "Unlocking and trying again...\n";
+X		system 'rcs', '-u', @files;
+X		&feed($mess, 'ci', @sw, "-l$rev", @files) unless $?;
+X	}
+X}
+X
+X# Run a ci -l on the file. If this fails, try to lock the file first.
+X# If this fails again, try again with a separate checkout.
+Xsub cil_col {
+X	local($mess) = shift(@_);
+X	local($rev) = shift(@_);
+X	if (&feed($mess, 'ci', @sw, "-l$rev", @files)) {
+X		print "Locking and trying again...\n";
+X		if ($rev =~ /\d+\.\d+\.\d+/) {
+X			system 'rcs', "-l$rev", @files;		# Lock branch
+X		} else {
+X			system 'rcs', '-l', @files;			# Lock trunck
+X		}
+X		if (&feed($mess, 'ci', @sw, "-l$rev", @files)) {
+X			print "Trying again with separate checkout...\n";
+X			if (&feed($mess, 'ci', @sw, "-r$rev", @files)) {
+X				system 'rcs', "-u$rev", @files unless $?;
+X				system 'co', "-l$rev", @files unless $?;
+X			} else {
+X				print "Sorry, giving up...\n";
+X			}
+X		}
+X	}
+X}
+X
+Xsub feed {
+X	local($mess) = shift(@_);
+X	open(FORK,"|-") || exec @_;
+X	print FORK $mess;
+X	close FORK;
+X	$?;
+X}
+X
+Xsub getlog {
+X	local($file) = @_;
+X	local($mess) = '';
+X	local($prefix) = "patch$bnum: ";
+X	local($prompt) = $comment;
+X	local($len);
+X	$prompt = '>> ' unless $prompt;
+X	$prefix = '' if $is_first;
+X	print "Type log message for $file (finish with ., CR for previous):\n";
+X	try: for (;;) {
+X		line: for (print "$prompt$prefix";;print "$prompt$prefix") {
+X			if ($always) {
+X				print "\n";
+X				$line = '';
+X			} else {
+X				$line = <stdin>;
+X			}
+X			if ($line =~ /^\.?$/) {
+X				if ($mess) {
+X					last line;
+X				} else {
+X					$line = 'p';
+X				}
+X			}
+X			if ($line =~ /^[h?]$/) {
+X				print "
+XCR or .	Terminate log message.
+X!<cmd>	Start command in a subshell.
+XD	Print out diff listing since last patch.
+XN	Give name of the current file.
+XV or E	Call editor with a diff listing.
+Xa	Always use this message.
+Xd	Print out diff listing since last patcil.
+Xf	Forget message I have so far.
+Xh or ?	This help message.
+Xl	List what I have so far.
+Xn	Forget this file; go to next file if any.
+Xp	Append previous message.
+Xr	Print out the rlog for this file.
+Xv or e	Call editor.
+Xx	Toggle patch# prefix.
+X
+X";
+X				next line;
+X			}
+X			if ($line =~ /^!(.*)$/) {
+X				$_ = $1;
+X				$_ = ($ENV{'SHELL'} || "/bin/sh") if $1 eq '';
+X				system $_;
+X				next line;
+X			}
+X			if ($line =~ /^[VE]$/) {
+X				$mess .= "\n" . `rcsdiff -c -rlastpat $files`;
+X			}
+X			if ($line =~ /^[VEve]$/) {
+X				$mess = &edit($mess);
+X				next line;
+X			}
+X			if ($line =~ /^r$/) {
+X				system "rlog $files | $PAGER";
+X				next line;
+X			}
+X			if ($line =~ /^D$/) {
+X				if ($revs == 0) {
+X					print "Sorry. There is no revision for this file yet.\n";
+X				} else {
+X					system "rcsdiff -c -rlastpat $files | $PAGER";
+X				}
+X				next line;
+X			}
+X			if ($line =~ /^d$/) {
+X				if ($revs == 0) {
+X					print "Sorry. There is no revision for this file yet.\n";
+X				}
+X				elsif ($revs == 1) {
+X					system "rcsdiff -c -r$baserev $files | $PAGER";
+X				} else {
+X					system "rcsdiff -c -r$revbranch $files | $PAGER";
+X				}
+X				next line;
+X			}
+X			if ($line =~ /^N$/) {
+X				print "Typing log message for $file.\n";
+X				next line;
+X			}
+X			if ($line =~ /^f$/) {
+X				$mess = '';
+X				next line;
+X			}
+X			if ($line =~ /^a$/) {
+X				$always++ if $mess || $prevmess;
+X				next line;
+X			}
+X			if ($line =~ /^n$/) {
+X				$mess = 'nope';
+X				last line;
+X			}
+X			if ($line =~ /^l$/) {
+X				foreach $line (split(/\n/,$mess)) {
+X					print $prompt,$line,"\n";
+X				}
+X				next line;
+X			}
+X			if ($line =~ /^p$/) {
+X				$mess .= $prevmess;
+X				foreach $line (split(/\n/,$prevmess)) {
+X					print $prompt,$line,"\n";
+X				}
+X				next line;
+X			}
+X			if ($line =~ /^x$/) {
+X				$prefix = $prefix ? '' : "patch$bnum: ";
+X				next line;
+X			}
+X			$mess .= $prefix . $line;
+X			$len = length($comment . $prefix . $line);
+X			if ($len > 80) {
+X				print "(Warning: last line longer than 80 chars)\n";
+X			} elsif ($len > 72) {		# In case of vi with line numbers
+X				print "(Warning: last line longer than 72 chars)\n";
+X			}
+X			if (length($mess) > 511) {
+X				print "You'll have to trim to less than 512 chars...\n";
+X				sleep(3);
+X				$mess = &edit($mess);
+X			}
+X		}
+X		$mess = $prevmess if $mess eq '';
+X		if (!$mess) {
+X			print "No previous message, try again.\n";
+X			next try;
+X		}
+X		if (length($mess) > 511) {
+X			print "Sorry, that's too long; rcs won't take it.  Try again...\n";
+X			next try;
+X		}
+X		last try;
+X	}
+X	unless ($is_first) {
+X		print LOGS $mess unless $mess eq 'nope';
+X		print MODS "$file\n";
+X	}
+X	$prevmess = $mess unless $mess eq 'nope';
+X	$mess;			# Returned value
+X}
+X
+Xsub geteditor {
+X	local($editor) = $ENV{'VISUAL'};
+X	$editor = $ENV{'EDITOR'} unless $editor;
+X	$editor = $defeditor unless $editor;
+X	$editor = 'vi' unless $editor;
+X	$editor;
+X}
+X
+Xsub edit {
+X	$editor = &geteditor unless $editor;
+X	local($text) = join("\n", @_);
+X	open(TMP,">/tmp/cil$$") || die "Can't create /tmp/cil$$";
+X	print TMP $text;
+X	close TMP;
+X	system $editor, "/tmp/cil$$";
+X	$text = `cat /tmp/cil$$`;
+X	unlink "/tmp/cil$$";
+X	$text;
+X}
+X
+Xsub usage {
+X	print STDERR "Usage: patcil [-abfhnpqsV] [filelist]\n";
+X	print STDERR "  -a : all the files in MANIFEST.new\n";
+X	print STDERR "  -b : batch mode\n";
+X	print STDERR "  -f : force check in (passed through to ci)\n";
+X	print STDERR "  -h : print this message and exit\n";
+X	print STDERR "  -n : all the files newer than patchlevel.h\n";
+X	print STDERR "  -p : patching mode (null trunk revision if new file)\n";
+X	print STDERR "  -q : ask rcs to be quiet\n";
+X	print STDERR "  -s : strip log messages\n";
+X	print STDERR "  -V : print version number and exit\n";
+X	exit 1;
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' ../pl/newer.pl >>patcil
+X$grep -v '^;#' ../pl/package.pl >>patcil
+X$grep -v '^;#' ../pl/rcsargs.pl >>patcil
+X$grep -v '^;#' ../pl/comment.pl >>patcil
+Xchmod +x patcil
+X$eunicefix patcil
+END_OF_FILE
+  if test 12496 -ne `wc -c <'pat/patcil.SH'`; then
+    echo shar: \"'pat/patcil.SH'\" unpacked with wrong size!
+  fi
+  # end of 'pat/patcil.SH'
+fi
+if test -f 'pat/patmake.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pat/patmake.SH'\"
+else
+  echo shar: Extracting \"'pat/patmake.SH'\" \(11622 characters\)
+  sed "s/^X//" >'pat/patmake.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting pat/patmake (with variable substitutions)"
+Xcat >patmake <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: patmake.SH,v 3.0 1993/08/18 12:10:45 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# Original Author: Larry Wall <lwall@netlabs.com>
+X# Contribution by: Graham Stoney <greyham@research.canon.oz.au>
+X#
+X# $Log: patmake.SH,v $
+X# Revision 3.0  1993/08/18  12:10:45  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X#
+X# Revision 2.8.1.3  91/10/11  09:58:51  ram
+X# patch5: allows dot in makefile rules
+X# 
+X# Revision 2.8.1.2  91/07/14  14:00:42  ram
+X# patch1: urgent fix due to a disk crash (file was not synced, grrr...)
+X# 
+X# Revision 2.8.1.1  91/07/14  13:31:01  ram
+X# patch1: added usage message which also briefly describes options
+X# patch1: now uses the perl library getopts.pl for option parsing
+X# 
+X# Revision 2.8  91/07/08  13:26:52  ram
+X# 3.0 alpha baseline.
+X# 
+X
+X\$defeditor='$defeditor';
+X\$version = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X\$mailer = '$mailer';
+X!GROK!THIS!
+Xcat >>patmake <<'!NO!SUBS!'
+X
+Xrequire 'getopts.pl';
+X&usage unless &Getopts("hV");
+X
+Xif ($opt_V) {
+X	print STDERR "patmake $version PL$patchlevel\n";
+X	exit 0;
+X} elsif ($opt_h) {
+X	&usage;
+X}
+X
+X&readpackage;
+X&readusers;
+X
+X$RCSEXT = ',v' unless $RCSEXT;
+X$FILEOVERHEAD = 40;		# Name of files, Index, Prereq
+X$MAXPATSIZE = 50000;	# Maximum allowed size for a patch
+X$PATOVERHEAD = 2500;	# Litterature
+X$FIRST_PAT = 3000;		# Give space for first patch (descriptions)
+X
+Xif (-f 'patchlevel.h') {
+X	open(PL,"patchlevel.h") || die "Can't open patchlevel.h\n";
+X	while (<PL>) {
+X		if (/^#define\s+PATCHLEVEL\s+(\d+)/) {
+X			$last = $1;
+X			$patchline = $.;	# Record PATCHLEVEL line
+X		}
+X	}
+X	die "Malformed patchlevel.h file.\n" if $last eq '';
+X	$bnum = $last + 1;
+X}
+Xelse {
+X	$patchline = 1;
+X	$bnum = 1;
+X	$last = '';
+X}
+X
+X@ARGV = <[Mm]akefile*>;
+X$mf = '';
+Xif ($#ARGV > 0) {
+X	while (<>) {
+X		$mf .= $_ if /^[a-z.]+\s*:/;	# Rules in makefile
+X	}
+X}
+X$* = 1;
+X$after = '';
+X$after .= "\t\tConfigure -ders\n" if -f 'Configure';
+X$after .= "\t\tmake depend\n" if $mf =~ /^depend:/;
+X$after .= "\t\tmake\n" if $mf;
+X$after .= "\t\tmake test\n" if $mf =~ /^test:/;
+X$after .= "\t\tmake install\n" if $mf =~ /^install:/;
+X$after .= "\t\tmake install.man\n" if $mf =~ /^install\.man:/;
+X$* = 0;
+X
+Xchdir 'bugs' if -d 'bugs';
+X
+Xdie "Patch #$bnum already exists.\n" if -f "patch$bnum";
+X
+X@patlist=<*.$bnum>;
+Xdie "No diff files for patch #$bnum.\n" if $patlist[0] =~ /^\*/;
+X
+X# Look for size of each diff file
+Xfor (@patlist) {
+X	($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X		$blksize,$blocks) = stat($_);
+X	$size{$_} = $size;
+X}
+X
+X# Sort the array, biggest sizes first
+Xsub revnum { $size{$a} < $size{$b} ? 1 : $size{$a} > $size{$b} ? -1 : 0; }
+X@patlist = sort revnum @patlist;
+X
+X# Put files in a patch
+Xfor (@patlist) {
+X	$i=1;
+X	# Find the patch in which the current file can go
+X	# Divide size by 15 to count the 3 spaces added in front of each line
+X	while (($newtot = int($tot[$i] + $size{$_} + $size{$_}/15 + $FILEOVERHEAD)) >
+X			$MAXPATSIZE-$PATOVERHEAD-($i == 1 ? $FIRST_PAT : 0) && $tot[$i]) {
+X		$i++;
+X	}
+X	# Adding $_ to patch $i giving $newtot bytes
+X	$tot[$i] = $newtot;		# Update size of kit $i
+X	$list[$i] .= " $_";		# Add file to the kit $i
+X}
+X
+X$numpat = $#list;		# Number of patches to generate
+X
+Xif ($numpat > 1) {
+X	print "Warning: generating $numpat patches.\n";
+X	sleep(1);
+X}
+X
+Xif (-s ".logs$bnum") {
+X	$logs = '';
+X	open(LOGS,".logs$bnum");
+X	while (<LOGS>) {
+X		unless ($logseen{$_}) {
+X			$logs .= $_;
+X			$logseen{$_} = 1;
+X			$logsnum++;			# One more log
+X		}
+X	}
+X	close LOGS;
+X	$subs = $logs;
+X	$* = 1;
+X	$logs =~ s/^patch\d+:\s*/\t/g;
+X	$logs =~ s/\n/\n\n/g;
+X	$subs =~ s/^patch\d+:\s*/Subject: /g;
+X	$changes =~ s/^patch\d+:\s*/\t/g;
+X	$* = 0;
+X}
+Xelse {
+X	$subs = "Subject: \n";
+X}
+X
+X$hah = " (hah!)" if $bnum == 1;
+X$patbase = $bnum;			# First patch generated
+X
+X# Try to guess the priority of the patch
+Xif (-s ".mods$bnum") {
+X	open(MODS, ".mods$bnum");
+X	while (<MODS>) {
+X		unless ($fileseen{$_}) {
+X			$fileseen{$_} = 1;
+X			$modsnum++;			# One more modified file
+X		}
+X	}
+X	close MODS;
+X}
+X$modsnum++ unless $modsnum;		# Avoid divisions by zero
+X$mean = $logsnum / $modsnum;
+Xif ($mean > 0.7 && $mean < 1.3) {
+X	$priority = "MEDIUM";
+X} elsif ($mean <= 0.7) {
+X	$priority = "HIGH";		# Small changes
+X} else {
+X	$priority = "LOW";		# Big changes
+X}
+X
+Xfor ($i = 1; $i <= $numpat; $i++) {		# For all patches...
+X	open(PATCH,">patch$bnum") || die "Can't create patch #$bnum";
+X	chop($date=`date`);
+X	print PATCH
+X"System: $package version $baserev
+XPatch #: $bnum
+X";
+X	print PATCH "Priority: $priority\n" unless $priority eq '';
+X	# Print subjects only for first patch
+X	if ($i == 1) {
+X		print PATCH $subs;
+X	} else {
+X		print PATCH "Subject: patch #$patbase, continued\n";
+X	}
+X	print PATCH
+X"Date: $date
+XFrom: $maintname <$maintloc>
+X
+XDescription:
+X";
+X	# Print description and repeat-by only for first patch
+X	if ($i == 1) {
+X		print PATCH 
+X"$logs
+XRepeat-By:
+X";
+X	} else {
+X		print PATCH "\tSee patch #$patbase.\n\n";
+X	}
+X	print PATCH
+X"
+XFix:	From rn, say \"| patch -p -N -d DIR\", where DIR is your $package source
+X	directory.  Outside of rn, say \"cd DIR; patch -p -N <thisarticle\".
+X	If you don't have the patch program, apply the following by hand,
+X	or get patch (version 2.0, latest patchlevel).
+X
+X	After patching:
+X";
+X	# Do $after only after last patch
+X	if ($i == $numpat) {
+X		print PATCH $after;
+X	} else {
+X		printf PATCH
+X"\t\t*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #%d FIRST ***\n",
+X$patbase + $numpat - 1;
+X	}
+X	print PATCH "
+X	If patch indicates that patchlevel is the wrong version, you may need
+X	to apply one or more previous patches, or the patch may already
+X	have been applied.  See the patchlevel.h file to find out what has or
+X	has not been applied.  In any event, don't continue with the patch.
+X
+X	If you are missing previous patches$hah they can be obtained from me:
+X
+X		$maintname <$maintloc>
+X
+X";
+X	if ($mailagent ne 'false') {
+X		print PATCH
+X"	If you send a mail message of the following form it will greatly speed
+X	processing:
+X
+X		Subject: Command
+X		@SH mailpatch PATH $package $baserev LIST
+X			   ^ note the c
+X
+X	where PATH is a return path FROM ME TO YOU either in Internet notation,
+X	or in bang notation from some well-known host, and LIST is the number
+X	of one or more patches you need, separated by spaces, commas, and/or
+X	hyphens.  Saying 35- says everything from 35 to the end.
+X
+X	To get some more detailed instructions, send me the following mail:
+X
+X		Subject: Command
+X		@SH mailhelp PATH
+X
+X";
+X	}
+X	if ($ftpsite) {
+X		print PATCH
+X"	You can also get the patches via anonymous FTP from
+X	$ftpsite.
+X";
+X	}
+X	# Print patchlevel at the top of each patch
+X	print PATCH "
+XIndex: patchlevel.h
+X";
+X	if ($last eq '') {
+X		`echo "#define PATCHLEVEL 1" >patchlevel.h`;
+X		`cp /dev/null patchlevel.h.null`;
+X		print PATCH `diff -c patchlevel.h.null patchlevel.h`;
+X		unlink 'patchlevel.h', 'patchlevel.h.null';
+X	}
+X	else {
+X		print PATCH
+X"Prereq: $last
+X${patchline}c${patchline}
+X< #define PATCHLEVEL $last
+X---
+X> #define PATCHLEVEL $bnum
+X";
+X	}
+X	$last = $bnum;		# Update last patch
+X
+X	@ARGV = split(' ', $list[$i]);
+X	while (<>) { print PATCH; }
+X	print PATCH "\n*** End of Patch $bnum ***\n";
+X	close PATCH;
+X
+X	# Update patchlevel.h file
+X	$editor = $ENV{'VISUAL'};
+X	$editor = $ENV{'EDITOR'} unless $editor;
+X	$editor = $defeditor unless $editor;
+X	$editor = 'vi' unless $editor;
+X	system $editor, "patch$bnum";
+X	if (-s "patch$bnum") {
+X		system 'chmod', '-w', "patch$bnum";		# Protect newly created patch
+X		chdir '..';
+X		`echo "#define PATCHLEVEL 0" >patchlevel.h` unless -f 'patchlevel.h';
+X		open(PL,"patchlevel.h") || die "Can't open patchlevel.h\n";
+X		open(PLN,">patchlevel.h+") || die "Can't create new patchlevel.h\n";
+X		while (<PL>) {
+X			if (/^#define\s+PATCHLEVEL\s+(\d+)/) {
+X				$bnum = $1;
+X				$bnum++;		# Update patch level
+X				print PLN "#define PATCHLEVEL $bnum\n";
+X			} else {
+X				print PLN;		# Simply copy other lines
+X			}
+X		}
+X		close PLN;
+X		close PL;
+X		`mv -f patchlevel.h+ patchlevel.h`;
+X		die "Malformed patchlevel.h file.\n" if $bnum eq '';
+X
+X		if ($newsgroups) {
+X			print "\nDo you wish to post patch #$bnum to $newsgroups? [y] ";
+X			$ans = <stdin>;
+X			system 'patpost', $bnum unless $ans =~ /^n/i;
+X		}
+X		if ($recipients) {
+X			print "\n";
+X			if (0 == ($recipients =~ tr/ //)) {
+X				print "Do you wish to send patch #$bnum to $recipients? [y] ";
+X			} else {
+X				print "The following people are on the recipient list:\n\n";
+X				foreach $addr (split(' ', $recipients)) {
+X					print "\t$addr\n";
+X				}
+X				print "\nDo you wish to send patch #$bnum to them? [y] ";
+X			}
+X			$ans = <stdin>;
+X			system 'patsend', $bnum, $recipients unless $ans =~ /^n/i;
+X		}
+X		if ($ftpdir) {
+X			print "\nDo you wish to copy patch #$bnum to $ftpdir? [y] ";
+X			$ans = <stdin>;
+X			system 'patftp', $bnum unless $ans =~ /^n/i;
+X		}
+X	utime time, time, 'patchlevel.h';
+X	} else {
+X		unlink "patch$bnum";
+X		die "Aborted.\n";
+X	}
+X
+X	chdir 'bugs' || die "Cannot cd to bugs.\n";
+X	
+X	# Find priority for next patch in loop
+X	$priority='';
+X	open(PATCH, "patch$bnum") || die "Cannot re-open patch #$bnum !\n";
+X	while (<PATCH>) {
+X		/^Priority:\s*(\S+)\s*$/ && ($priority = $1);
+X	}
+X	close PATCH;
+X
+X	$bnum++;	# For next patch in loop
+X}
+X
+X# notify people about it.
+Xif ($notify) {
+X	print "\n";
+X	if (0 == ($notify =~ tr/ //)) {
+X		print "Do you wish to notify $notify? [y] ";
+X	} else {
+X		print "The following people are on the notify list:\n\n";
+X		foreach $addr (split(' ', $notify)) {
+X			print "\t$addr\n";
+X		}
+X		print "\nDo you wish to notify them? [y] ";
+X	}
+X	$ans = <STDIN>;
+X	if ($ans !~ /^n/i) {
+X		if ($numpat == 1) {
+X			$descr = "Patch $patbase";
+X			$has = "has"; $this = "this patch";
+X			$patlist = $patbase;
+X		} else {
+X			$descr = "Patches $patbase thru " . ($patbase+$numpat-1);
+X			$has = "have"; $this = "these patches";
+X			$patlist = $patbase . "-" . ($patbase+$numpat-1);
+X		}
+X		$opt = ($mailer =~ /sendmail/) ? '-odq' : '';
+X		open(MAILER, "|$mailer $opt $notify $cf'user");
+X		print MAILER
+X"To: $notify
+XSubject: $descr for $package version $baserev $has been released.
+XX-Mailer: dist [version $version PL$patchlevel]
+X
+XThis is just a quick note to let you know that $descr for $package
+Xversion $baserev $has just been released. If you are actively using $package,
+XI strongly suggest you upgrade by applying $this.
+X
+XYou can fetch $this automatically by sending me the following mail:
+X
+X	Subject: Command
+X	@SH mailpatch - $package $baserev $patlist
+X		   ^ note the c
+X
+XIf you are not interested in receiving information about future patches,
+Xplease send me the following mail:
+X
+X	Subject: Command
+X	@SH package - $package $baserev
+X
+X-- patmake speaking for $maintname.
+X";
+X		close MAILER;
+X	}
+X}
+X
+Xsub usage {
+X	print STDERR "Usage: patmake [-hV]\n";
+X	print STDERR "  -h : print this message and exit\n";
+X	print STDERR "  -V : print version number and exit\n";
+X	exit 1;
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' ../pl/package.pl >>patmake
+X$grep -v '^;#' ../pl/users.pl >>patmake
+Xchmod +x patmake
+X$eunicefix patmake
+END_OF_FILE
+  if test 11622 -ne `wc -c <'pat/patmake.SH'`; then
+    echo shar: \"'pat/patmake.SH'\" unpacked with wrong size!
+  fi
+  # end of 'pat/patmake.SH'
+fi
+if test -f 'pat/patsend.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pat/patsend.SH'\"
+else
+  echo shar: Extracting \"'pat/patsend.SH'\" \(3190 characters\)
+  sed "s/^X//" >'pat/patsend.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting pat/patsend (with variable substitutions)"
+Xcat >patsend <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: patsend.SH,v 3.0 1993/08/18 12:10:49 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# Original Author: Larry Wall <lwall@netlabs.com>
+X#
+X# $Log: patsend.SH,v $
+X# Revision 3.0  1993/08/18  12:10:49  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+X\$orgname='$orgname';
+X\$mailer='$mailer';
+X\$version = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+Xcat >>patsend <<'!NO!SUBS!'
+X
+Xrequire 'getopts.pl';
+X&usage unless &Getopts("hV");
+X
+Xif ($opt_V) {
+X	print STDERR "patsend $version PL$patchlevel\n";
+X	exit 0;
+X} elsif ($opt_h) {
+X	&usage;
+X}
+X
+X$RCSEXT = ',v' unless $RCSEXT;
+Xchdir '..' if -d '../bugs';
+X
+X&readpackage;
+X
+Xchop($orgname = `cat $orgname`) if $orgname =~ m|^/|;
+X
+Xwhile ($_ = shift) {
+X	if (/^(patch)?[1-9][\d,-]*$/) {
+X		s/^patch//;
+X		push(@argv,$_);
+X	} else {
+X		push(@dest,$_);
+X	}
+X}
+X$dest = join(' ',@dest);
+X&usage unless $dest;
+X
+X@ARGV = @argv;
+X
+Xopen(PL,"patchlevel.h") || die "Can't open patchlevel.h\n";
+Xwhile (<PL>) {
+X	$maxnum = $1 if /^#define\s+PATCHLEVEL\s+(\d+)/;
+X}
+Xclose PL;
+Xdie "Malformed patchlevel.h file.\n" if $maxnum eq '';
+X
+Xif ($#ARGV < 0) {
+X	$argv = $maxnum;
+X	@ARGV = $argv;
+X} else {
+X	$argv = &rangeargs(@ARGV);
+X	@ARGV = split(' ',$argv);
+X}
+X
+X$argv =~ s/ $//;
+X
+Xif ($#ARGV < 0) {
+X	print STDERR "No patches specified.\n";
+X	&usage;
+X} elsif ($#ARGV) {
+X	print "Sending $package $baserev patches $argv to $dest...\n";
+X} else {
+X	print "Sending $package $baserev patch $argv to $dest...\n";
+X}
+X
+Xfork && exit;
+X
+Xchdir 'bugs' || die "patsend: can't cd to bugs\n";
+X
+X$opt = '-odq' if $mailer =~ /sendmail/;
+X
+Xuntil ($#ARGV < 0) {
+X	$patnum = shift;
+X	open(XHEAD,">.xhead$$") || die "patsend: can't create temp file: $!\n";
+X	print XHEAD
+X"To: $dest
+XSubject: $package $baserev patch #$patnum
+XOrganization: $orgname
+X
+X
+X[The latest patch for $package version $baserev is #$maxnum.]
+X
+X";
+X	open(PATCH,"patch$patnum") || die "patsend: can't open patch$patnum: $!\n";
+X	while (<PATCH>) {
+X		print XHEAD;
+X	}
+X	close XHEAD;
+X	system "$mailer $opt $dest <.xhead$$";
+X}
+Xunlink ".xhead$$";
+X
+Xsub usage {
+X	print STDERR "Usage: patsend [-hV] [patchlist] [recipients]\n";
+X	print STDERR "  -h : print this message and exit\n";
+X	print STDERR "  -V : print version number and exit\n";
+X	exit 1;
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' ../pl/package.pl >>patsend
+X$grep -v '^;#' ../pl/rangeargs.pl >>patsend
+Xchmod +x patsend
+X$eunicefix patsend
+END_OF_FILE
+  if test 3190 -ne `wc -c <'pat/patsend.SH'`; then
+    echo shar: \"'pat/patsend.SH'\" unpacked with wrong size!
+  fi
+  # end of 'pat/patsend.SH'
+fi
+echo shar: End of archive 7 \(of 28\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

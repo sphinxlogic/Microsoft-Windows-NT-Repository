@@ -1,0 +1,1912 @@
+Newsgroups: comp.sources.misc
+From: db15@ukc.ac.uk (Damiano Bolla)
+Subject: v40i161:  ipp - IPP Routing Architecture Toolkit, Part03/06
+Message-ID: <1993Nov24.193624.7596@sparky.sterling.com>
+X-Md4-Signature: d5c462157c62fc14baeca2850bec1486
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Computing Lab, University of Kent at Canterbury, UK.
+Date: Wed, 24 Nov 1993 19:36:24 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: db15@ukc.ac.uk (Damiano Bolla)
+Posting-number: Volume 40, Issue 161
+Archive-name: ipp/part03
+Environment: INET
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  IPP/include/debug.h IPP/include/router.h
+#   IPP/lib/route/CloseIf.c IPP/lib/route/FindRoute.c
+#   IPP/lib/route/RouteAdd.c IPP/lib/route/ShowRoute.c
+#   IPP/lib/utils/RcvPack.c IPP/lib/utils/SndPack.c
+#   IPP/lib/utils/ipp_utils.c IPP/logd/logd.c IPP/router/ProcessCall.c
+#   IPP/router/SetInterface.c
+# Wrapped by kent@sparky on Wed Nov 24 11:50:59 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 6)."'
+if test -f 'IPP/include/debug.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/include/debug.h'\"
+else
+  echo shar: Extracting \"'IPP/include/debug.h'\" \(4051 characters\)
+  sed "s/^X//" >'IPP/include/debug.h' <<'END_OF_FILE'
+X/* ----------------------------------------------------------------------
+X * AUthor: Damiano Bolla, 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#ifndef DEBUG_H
+X#define DEBUG_H
+X
+X/* Debugging in this project is a major problem since there will be MANY
+X * concurrently running programs.. Fro this reason there MUST be a well defined
+X * interface to debugging. 
+X * A structure for each process will hold relevant information that will be
+X * useful to trak the process down and possibly understand the problem.
+X */
+X
+X#define ERR_LEN		255	/* I like this number :-)			*/
+X#define ERR_PACKET	ERR_LEN*4
+X
+X/* The type definition of an error is as follows				*/
+X/* The message will describe better why the function failed.			*/
+X
+X#define ERR_OK		0
+X#define ERR_MSG		1	/* A message to show nothing really important	*/
+X#define ERR_NOLISTEN	2	/* Cannot create a socket for listening		*/
+X#define ERR_NOACCEPT	3	/* Cannot accept a connection 			*/
+X#define ERR_SELECT	4	/* Select has problems	 			*/
+X#define ERR_SREAD	5	/* SafeRead had problems 			*/
+X#define ERR_NOCOMM	6	/* No command is given when expected 		*/
+X#define ERR_BADADDR	7	/* Bad net address is given 			*/
+X#define ERR_NOHOST	8	/* Cannot get informations on this host		*/
+X#define ERR_NOSOCK	9	/* Cannot create a new socket to use		*/
+X#define ERR_BADCONN	10	/* Connect could not connect to remote node	*/
+X#define ERR_BADRCV	11	/* The Receive packet had problems		*/
+X#define ERR_ALARM	12	/* Got an alarm sihgnal from the WatchDog sys	*/
+X#define ERR_SIGNAL	13	/* Got a signal.. I just dont' know what to do	*/
+X#define ERR_BADSND	14	/* There is a problem sending a packet...	*/
+X#define ERR_CONFIG	15	/* The config file is bad in some way		*/
+X#define ERR_NOCHECK	16	/* Cannot check the given descriptor...		*/
+X#define ERR_NOTECH	17	/* This link technology is not supported	*/
+X#define ERR_BADLINK	18	/* Something is wrong with link spec		*/
+X#define ERR_LNKUSED	19	/* Warning the link was used...			*/
+X#define ERR_BADROUTE	20	/* The given route is bad...			*/
+X#define ERR_NOTIMPL	21	/* This function is not implemented yet		*/
+X#define ERR_NOTCLOSE	22	/* Cannot close this socket now...		*/
+X#define ERR_TTL		23	/* TTL field got to zero... too bad		*/
+X#define ERR_NOROUTE	24	/* There is no route to the desired host	*/
+X#define ERR_BADPLACE	25	/* Hey... I should not be in this part of code	*/
+X#define ERR_BADDEPTH	26	/* The depth parameter is wrong..		*/
+X#define ERR_MEMFAULT	27	/* I am writing on a wrong memory area		*/
+X#define ERR_BADPACK	28	/* The given packet is BAD in some way		*/
+X#define ERR_BADNEXT	29	/* The received next address is NOT for me	*/
+X#define ERR_NOSPACE	30	/* There is no space in the buffer to write	*/
+X#define ERR_NULL	31	/* You passed a NULL pointer !!!		*/
+X#define ERR_LOOP	32	/* I am probably having a routing loop		*/
+X
+X
+X#define DEBUG_TEXT	0	/* This level show a text messages		*/
+X#define DEBUG_NOTICE	2	/* This level will show all notice mesages	*/
+X#define DEBUG_ALERT	4	/* Getting worse,,.. serious problems		*/
+X#define DEBUG_CRITICAL  6	/* Even worse, this should not really fail	*/
+X#define DEBUG_PANIC	8	/* With this we are really bad, we can't go on	*/
+X#define DEBUG_CRASH	10	/* The worse of all, should NOT happena t all	*/
+X
+X/* The next one defines the initial level of the debug system when started	*/
+X#define DEBUG_LEVEL	DEBUG_NOTICE
+X
+Xstruct Debug
+X   {
+X   u_long  logd_host;	/* The host where the logd is running			*/
+X   u_short logd_port;	/* The port where the logd is listening			*/
+X   int  send_socket;	/* The open socket to use totalk 			*/
+X   int  pid;	/* The process id of the process generating the fault		*/
+X   int  type;	/* A code describing the type of error				*/
+X   int  current_level;	/* The current debug level				*/
+X   int  debug_level;	/* The debug level of the message 			*/
+X   char prog[ERR_LEN+2];	/* The type of program running			*/
+X   char ident[ERR_LEN+2];	/* An identifier for the program, usually NetId	*/
+X   char msg[ERR_LEN+2];		/* The error message				*/
+X   char MsgBuff[ERR_PACKET+2]; 	/* Preallocated working buffer			*/
+X   };
+X
+X#endif
+END_OF_FILE
+  if test 4051 -ne `wc -c <'IPP/include/debug.h'`; then
+    echo shar: \"'IPP/include/debug.h'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/include/debug.h'
+fi
+if test -f 'IPP/include/router.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/include/router.h'\"
+else
+  echo shar: Extracting \"'IPP/include/router.h'\" \(5081 characters\)
+  sed "s/^X//" >'IPP/include/router.h' <<'END_OF_FILE'
+X/* ----------------------------------------------------------------------
+X * AUthor: Damiano Bolla, 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#ifndef ROUTER_H
+X#define ROUTER_H
+X
+X/* Each router has this max num of interfaces numbered 1 to IF_MAX included	*/
+X/* A value of zero as interface id means that that interface is invalid		*/
+X#define	IF_MAX		5	
+X
+X/* Each destination can have all this possible alternative routes		*/
+X/* They range from 1 to ROUTE_MAX since Zero is an invalid value		*/
+X#define ROUTE_MAX	4	
+X
+X/* This part is used by the functoin WhatIsIt to determine what and address	*/
+X/* I in relation of the address of the current host.				*/
+X#define IS_THISHOST	1	/* This packet is for this host			*/
+X#define IS_SAMENET	2	/* This packet is for this subnet		*/
+X#define IS_SUBNET	3	/* This packet is for a subnet of this router	*/
+X#define IS_PARENTNET	4	/* This packet is to go up in the tree		*/
+X
+X/* One general rule is that if something has a value of Zero it means that is 
+X * an invalid entry. 
+X */
+X
+X
+X/* -------------------------------------------------------------------------------
+X * This defines what is an Id table for packets received in this domain.
+X * Each sender in this domain set the sender number and the packId
+X * For each packet it goes up one..
+X * A receiver will then ceck if the new packet is > in ID than the old packet
+X */
+Xstruct SeenTime
+X   {
+X   u_short Sec;
+X   };
+X
+X/* Warning... ADDR_NUM IS NOT the same thing...				*/
+Xtypedef struct SeenTime SeenData[ADDR_NUM][ADDR_NUM];
+X
+X/* -------------------------------------------------------------------------------
+X * This defines a routing entry. I.e. an entry that contains information on how
+X * to reach a chosen destination. 
+X * You may have to reach the destination via another host or the chosen 
+X * destination may be directly connected...
+X * So: For an entry to ve "valid" Next MUST be != 0
+X */
+Xstruct Route
+X   {
+X   u_char Next;		/* The next hop that I will use, MUST be != 0 		*/
+X   u_char Interface;	/* The interface I am using, 0==NOT_USED		*/
+X   u_char Cost;		/* How much does it cost to send here ?			*/
+X   u_int  Cumulated;	/* How much have I spent so far ??			*/
+X   u_char Flag;		/* This is used by the sort routine...			*/
+X   };
+X
+X/* -------------------------------------------------------------------------------
+X * The Try entry is there to speed up the search of the "best" interface to 
+X * use to send data.
+X */
+Xstruct HostEntry
+X   {
+X   u_char Direct;			/* This indicate a Direct route to dest */
+X   u_char Another;			/* This is another route to try ..	*/
+X   struct Route Link[ROUTE_MAX+1];	/* Links are numbered 1->ROUTE_MAX	*/
+X   };
+X
+Xstruct NetEntry
+X   {
+X   u_char Try;				/* The Route entry to try next		*/
+X   u_char Direct;			/* This indicate a Direct route to dest */
+X   struct Route Link[ROUTE_MAX+1];	/* Links are numbered 1->ROUTE_MAX	*/
+X   };
+X
+X/* Host data holds informations on how to send data to the same subnet 		*/
+Xtypedef struct HostEntry HostData[ADDR_NUM];
+X
+X/* Net data holds informations on how to send data to a  subnet 		*/
+Xtypedef struct NetEntry NetData[ADDR_NUM];
+X
+X/* A route to the parent is a single entry on the REntry structure		*/
+Xtypedef struct NetEntry ParentData;
+X
+X/* -------------------------------------------------------------------------------
+X * I need a structure that describes an INTERFACE, I.e. the pure link, not the 
+X * relations of the link to the hosts. This is used by select...
+X * Again since the interfaces are numbered 1 to IF_MAX....
+X * An interface is "active" if Line != 0 but.. it can be listening for incoming
+X * calls on the "Ring" FD.
+X */
+Xstruct Interface
+X   {
+X   int   Line;		/* The descriptor of the interface.. if 0 == NOT USED	*/
+X   int   Technology;	/* can be sock or atm					*/
+X   int   Ring;		/* A file descriptor where you can wait for ringss..	*/
+X   char  RingHost[IP_NAMLEN+2];	/* The host where the ring waits		*/
+X   int   RingPort;	/* The sock port where the router listen for ring	*/
+X   u_int Sent;		/* Number of packets received				*/
+X   u_int Received;	/* Number of packets sent				*/
+X   };
+X
+Xtypedef struct Interface InterfaceData[IF_MAX+1];
+X
+X/* -------------------------------------------------------------------------------
+X * Ok. all the structures have been definedI need to put them in a big thing
+X * So I can handle the mess in a nice way.. :-)
+X */
+X
+Xstruct Routing
+X   {
+X   struct IPPaddr MyAddr;	/* My address :-)				*/
+X   u_char 	  PackId;	/* To generate "unique" packet ID		*/
+X   InterfaceData  ifdata;	/* Information for the interfaces in the system	*/
+X   HostData     hostdata;	/* Holds all the routing info for same level	*/
+X   NetData      netdata;	/* Holds routing info for subnet routing	*/
+X   ParentData   parentdata;	/* Holds infor for parent routing		*/
+X   SeenData	seendata;	/* Holds seen info			*/
+X   fd_set       readfds;	/* Used by select...				*/
+X   u_int 	Idle;		/* Keep trak of idle time...			*/
+X   u_int	BadCount;	/* Bad packets counter...			*/
+X   u_int	LoopCount;	/* Counts the looped packets			*/
+X   u_int	TTLCount;	/* Counts the TTL expired packets		*/
+X   };
+X
+X
+X
+X#endif
+END_OF_FILE
+  if test 5081 -ne `wc -c <'IPP/include/router.h'`; then
+    echo shar: \"'IPP/include/router.h'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/include/router.h'
+fi
+if test -f 'IPP/lib/route/CloseIf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/route/CloseIf.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/route/CloseIf.c'\" \(4281 characters\)
+  sed "s/^X//" >'IPP/lib/route/CloseIf.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: CloseIf.c
+X * AUthor: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "commands.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+Xvoid CloseHostRoute ( struct HostEntry *rdata, int Interface );
+Xvoid CloseNetRoute ( struct NetEntry *rdata, int Interface );
+Xvoid CloseParentRoute ( struct NetEntry *rdata, int Interface );
+X
+X/* This closes an interface on demand. It usually happens when there is an
+X * EOF on the FD associated with this interface.
+X * NOTE: A Ring interface will still retain it's ring property.
+X */
+Xint CloseIf ( struct Routing *rinfo, int Interface )
+X   {
+X   int Line;	/* The Fd of this interface					*/
+X
+X   Line = rinfo->ifdata[Interface].Line;
+X   if ( Line == NOT_USED )
+X      {
+X      /* really strange... somebody is asking me to close an already closed IF	
+X       * I give a warning but I still go on ... should I ?? Damiano	
+X       */
+X      sprintf (dbg.msg,"CloseInterface: Tryng to close an already closed line ");
+X      DebugCall ( ERR_NOTCLOSE, DEBUG_NOTICE );
+X      }
+X   else close ( Line ); 
+X
+X   /* Ok, this is all I have to do to say that this If is not in use anymore	*/
+X   rinfo->ifdata[Interface].Line = NOT_USED;
+X   rinfo->ifdata[Interface].Sent = 0;
+X   rinfo->ifdata[Interface].Received = 0;
+X
+X   /* Now the difficult part.. going on the routing table and delete all routes	
+X    * That are using this interface... log job..
+X    */
+X   CloseHostRoute ( rinfo->hostdata, Interface);
+X   CloseNetRoute ( rinfo->netdata, Interface );
+X   CloseParentRoute ( &rinfo->parentdata, Interface );
+X
+X   return (DONE);
+X   }
+X
+X
+X/* This function does once what othervise should be done three times.
+X * It is very similar to the above...
+X */
+Xvoid CloseHostRoute ( struct HostEntry *rdata, int Interface )
+X   {
+X   int c,d;
+X
+X   for (c=1; c< ADDR_NUM; c++)
+X      {
+X      /* The following check if there is any data to check in the route		*/
+X      if ( rdata[c].Direct == NOT_USED )continue;
+X
+X      for (d=1; d<=ROUTE_MAX; d++ )
+X         {
+X         /* This check if there is data in the routing entry...			*/
+X         if ( rdata[c].Link[d].Next == NOT_USED ) continue;
+X
+X         /* Ok, this is a valid route entry.. is this one using the close If	*/
+X         if ( rdata[c].Link[d].Interface == Interface )
+X            rdata[c].Link[d].Next = NOT_USED;
+X
+X         } /* End of the fro trough the routes					*/
+X
+X      /* This will readjust the Try value for a good Link (If any)		*/
+X      RouteHostMgr ( &rdata[c] );
+X
+X      } /* End of the for trough the hosts					*/
+X   }
+X
+X/* This function does once what othervise should be done three times.
+X * It is very similar to the above...
+X */
+Xvoid CloseNetRoute ( struct NetEntry *rdata, int Interface )
+X   {
+X   int c,d;
+X
+X   for (c=1; c< ADDR_NUM; c++)
+X      {
+X      /* The following check if there is any data to check in the route		*/
+X      if ( rdata[c].Try == NOT_USED )continue;
+X
+X      for (d=1; d<=ROUTE_MAX; d++ )
+X         {
+X         /* This check if there is data in the routing entry...			*/
+X         if ( rdata[c].Link[d].Next == NOT_USED ) continue;
+X
+X         /* Ok, this is a valid route entry.. is this one using the close If	*/
+X         if ( rdata[c].Link[d].Interface == Interface )
+X            rdata[c].Link[d].Next = NOT_USED;
+X
+X         } /* End of the fro trough the routes					*/
+X
+X      /* This will readjust the Try value for a good Link (If any)		*/
+X      RouteNetMgr ( &rdata[c] );
+X
+X      } /* End of the for trough the hosts					*/
+X   }
+X
+Xvoid CloseParentRoute ( struct NetEntry *rdata, int Interface )
+X   {
+X   int d;
+X
+X   for (d=1; d<=ROUTE_MAX; d++ )
+X      {
+X      /* This check if there is data in the routing entry...			*/
+X      if ( rdata->Link[d].Next == NOT_USED ) continue;
+X
+X      /* Ok, this is a valid route entry.. is this one using the close If	*/
+X      if ( rdata->Link[d].Interface == Interface )
+X         rdata->Link[d].Next = NOT_USED;
+X
+X      } /* End of the for trough the routes					*/
+X
+X   /* This will readjust the Try value for a good Link (If any)		*/
+X   RouteNetMgr ( rdata );
+X   }
+END_OF_FILE
+  if test 4281 -ne `wc -c <'IPP/lib/route/CloseIf.c'`; then
+    echo shar: \"'IPP/lib/route/CloseIf.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/route/CloseIf.c'
+fi
+if test -f 'IPP/lib/route/FindRoute.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/route/FindRoute.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/route/FindRoute.c'\" \(4765 characters\)
+  sed "s/^X//" >'IPP/lib/route/FindRoute.c' <<'END_OF_FILE'
+X/* -------------------------------------------------------------------------
+X * Ident: FindRoute.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This tryes to find a route to the desired destination...
+X * It wants the routing table, the destination, depth, and returns
+X * what is the right next with the given depth and the interface.
+X * NOTE: The interface returned is NOT a file descriptor it is anumber
+X * indicating what interface to use !!!
+X */
+Xint FindRoute ( struct Routing *rinfo, struct IPP *ipp, int *Interf )
+X   {
+X   struct IPPaddr Dest;
+X   int    DestIs;
+X   int    SelPos;	
+X   int    error;
+X   u_char DestNet;
+X   u_char DestHost;
+X   u_char Mylastbyte;
+X   u_char NextRouter;
+X   u_char NextHop;
+X
+X   Mylastbyte = rinfo->MyAddr.Addr[rinfo->MyAddr.Al -1];
+X   NextRouter = ipp->NextRouter;
+X   ipp_RtoA (ipp,&Dest);
+X
+X   /* First.. if we have a NextRouter we just have to go there..		*/
+X   /* I know that I have to use the host table to find NextHop + Interface	*/
+X   /* What I can change is just the From and the NextHop of the packet		*/
+X   /* ALl the rest remains the same						*/
+X   if ( NextRouter && (NextRouter != Mylastbyte) )
+X      {
+X      error = FindHostRoute ( rinfo, ipp->From, NextRouter, &NextHop, Interf );
+X      if ( error ) return (NOT_DONE);
+X      ipp->From = Mylastbyte;
+X      ipp->NextHop = NextHop;
+X      return (DONE);
+X      }
+X
+X   /* Ok.. I have to find out what to do..					*/
+X   DestIs = WhatIsIt ( &rinfo->MyAddr, &Dest );
+X   if ( DestIs == NOT_DONE )
+X      {
+X      sprintf (dbg.msg,"FindRoute: No match Dest %s ",ipp_ntoa(&Dest));
+X      DebugCall ( ERR_BADADDR, DEBUG_CRITICAL );
+X      return (NOT_DONE);
+X      }
+X
+X   if ( DestIs == IS_THISHOST )
+X      {
+X      sprintf (dbg.msg,"FindRoute: Given destination match to this host ");
+X      DebugCall ( ERR_BADADDR, DEBUG_CRITICAL );
+X      return (NOT_DONE);
+X      }
+X
+X   /* The SelPos is the position of the byte that decides the routing
+X    * in the Dest address. It depends on where we are in the net...
+X    * and therefore depends on the current address.
+X    * The -1 is because bytes are stored in position 0,1,2,3...
+X    */
+X   SelPos = rinfo->MyAddr.Al - Dest.Depth -1;
+X
+X   /* I have to find a route to a host I am not allowed to change the Sender
+X    * or the PackId, I can safely turn to zero the NextRouter, 
+X    */
+X   if ( DestIs == IS_SAMENET )
+X      {
+X      DestHost = Dest.Addr[SelPos];
+X      error = FindHostRoute ( rinfo, ipp->From, DestHost, &NextHop, Interf );
+X      if ( error ) return (NOT_DONE);
+X      ipp->From = Mylastbyte;
+X      ipp->NextHop = NextHop;
+X      ipp->NextRouter = NOT_USED;
+X      return (DONE);
+X      }
+X
+X   /* I am finding a route to a subnet, now the NextRouter is zeroed depending if
+X    * this is a direct route or not. If it is a direct one it is ZEro.
+X    */
+X   if ( DestIs == IS_SUBNET )
+X      {
+X      DestNet = Dest.Addr[SelPos];
+X      error = FindSubnetRoute ( rinfo, DestNet, &NextRouter, &NextHop, Interf);
+X      if ( error ) return (NOT_DONE);
+X      if ( NextRouter )
+X	 {
+X	 /* This is NOT a direct link and I am the originator of this packet
+X	  * Since this packet will try to reach the next router.
+X	  */
+X         ipp->From = Mylastbyte;
+X	 ipp->Sender = Mylastbyte;
+X	 ipp->PackId = ++rinfo->PackId;
+X	 ipp->NextRouter = NextRouter;
+X	 ipp->NextHop = NextHop;
+X	 return (DONE);
+X	 }
+X      else
+X	 {
+X	 /* This is a direct link down 
+X	  * I have to zero the Sender, the PackId, the NextRouter, even the from
+X	  */
+X         ipp->From = NOT_USED;
+X	 ipp->Sender = NOT_USED;
+X	 ipp->PackId = NOT_USED;
+X	 ipp->NextRouter = NOT_USED;
+X	 ipp->NextHop = NextHop;
+X	 return (DONE);
+X	 }
+X      }
+X
+X
+X   if ( DestIs == IS_PARENTNET )
+X      {
+X      error = FindParentRoute ( rinfo, &NextRouter, &NextHop, Interf );
+X      if ( error ) return (NOT_DONE);
+X      if ( NextRouter )
+X	 {
+X	 /* This is NOT a direct link and I am the originator of this packet
+X	  * Since this packet will try to reach the next router.
+X	  */
+X         ipp->From = Mylastbyte;
+X	 ipp->Sender = Mylastbyte;
+X	 ipp->PackId = ++rinfo->PackId;
+X	 ipp->NextRouter = NextRouter;
+X	 ipp->NextHop = NextHop;
+X	 return (DONE);
+X	 }
+X      else
+X	 {
+X	 /* This is a direct link UP
+X	  * I have to zero the Sender, the PackId, the NextRouter, even the from
+X	  */
+X         ipp->From = NOT_USED;
+X	 ipp->Sender = NOT_USED;
+X	 ipp->PackId = NOT_USED;
+X	 ipp->NextRouter = NOT_USED;
+X	 ipp->NextHop = NextHop;
+X	 return (DONE);
+X	 }
+X      }
+X
+X   sprintf (dbg.msg,"FindRoute: I should not be in this part of the code");
+X   DebugCall ( ERR_BADPLACE, DEBUG_CRITICAL );
+X   return (NOT_DONE);
+X   }
+END_OF_FILE
+  if test 4765 -ne `wc -c <'IPP/lib/route/FindRoute.c'`; then
+    echo shar: \"'IPP/lib/route/FindRoute.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/route/FindRoute.c'
+fi
+if test -f 'IPP/lib/route/RouteAdd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/route/RouteAdd.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/route/RouteAdd.c'\" \(6390 characters\)
+  sed "s/^X//" >'IPP/lib/route/RouteAdd.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: RouteAdd.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "commands.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+Xint InsHostRoute ( struct HostEntry *Entry, int NextHop, int Interf, int Cost );
+Xint InsNetRoute ( struct NetEntry *Entry, int NextHop, int Interf, int Cost );
+X
+X/* Thsi part receives a route spec and try to install it
+X * The route spec is in ascii format.
+X * The given string format is the following
+X * 1) net/host/parent indicatin if the route is for ...
+X * 2) num	Indicate the entry to modify
+X * 3) num	Indicate the interface to use
+X * 4) num	Indicate the host of a route
+X */
+X
+Xint RouteAdd ( struct Routing *rinfo, char *Arg )
+X   {
+X   char *Level;		/* For what level is this route ??			*/
+X   char Null[2]={0};
+X   int  Key;		/* What is the entry key ?				*/
+X   int  NextHop;	/* IPP (One byte) of the next hop			*/
+X   int  Interf;		/* The interface to use (If none == 0 )			*/
+X   int  Cost;		/* The cost of this route( relally 1->254)		*/
+X
+X
+X   if ((Level=strtok (Arg, CMD_SEP))==NULL) Level=Null;
+X   Key     = ipp_atoi (strtok (NULL,CMD_SEP));
+X   NextHop = ipp_atoi (strtok (NULL,CMD_SEP));
+X   Interf  = ipp_atoi (strtok (NULL,CMD_SEP));
+X   Cost    = ipp_atoi (strtok (NULL,CMD_SEP));
+X
+X   /* Key can be == 0 if we are talking of a route up to the tree		*/
+X   if ( (Key<0) || (Key>=ADDR_NUM) || (NextHop<=0) || (NextHop>=ADDR_NUM-1) ||
+X	(Interf<0) || (Interf>IF_MAX) || (Cost<=0) || (Cost>MAX_COST) )
+X      {
+X      sprintf (dbg.msg,"RouteAdd: Bad Params %d %d %d %d",Key,NextHop,Interf,Cost);
+X      DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   if ( strcasecmp (Level,LEV_NET) == 0 )
+X      {
+X      if ( Key > 0 ) 
+X         InsNetRoute ( &rinfo->netdata[Key], NextHop, Interf, Cost );
+X      return (DONE);
+X      }
+X
+X   if ( strcasecmp (Level,LEV_HOST) == 0 )
+X      {
+X      /* A route for a host MUST give the interface to use to reach the next hop	*/
+X      if ( Interf <= 0 )
+X         {
+X         sprintf (dbg.msg,"RouteAdd: A host route MUST have an interface ");
+X         DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X         return (NOT_DONE);
+X         }
+X      if ( (Key > 0) ) 
+X         InsHostRoute ( &rinfo->hostdata[Key], NextHop, Interf, Cost );
+X      return (DONE);
+X      }
+X
+X   if ( strcasecmp (Level,LEV_PARENT) == 0 )
+X      {
+X      if ( rinfo->MyAddr.Al <= 1 )
+X         {
+X         sprintf (dbg.msg,"RouteAdd: Cannot insert a parent route of top level");
+X         DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X         return (NOT_DONE);
+X         }
+X      InsNetRoute ( &rinfo->parentdata, NextHop, Interf, Cost );
+X      return (DONE);
+X      }
+X
+X   sprintf (dbg.msg,"RouteAdd: Bad level given '%s' ",Level);
+X   DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X   return (NOT_DONE);
+X   }
+X
+X/* ------------------------------------------------------------------------
+X * This insert a route in the appropriate slot...
+X * This assumes that the informations given are correct I.e. they
+X * are "legal" routings but may not be the "real" situation
+X * This allow to set routes for not existing hosts or subnet.
+X */
+Xint InsNetRoute ( struct NetEntry *Entry, int NextHop, int Interf, int Cost )
+X   {
+X   int Found;
+X   int c;
+X
+X   /* First thing to do is ... find a free space...
+X    * There is ONE case that reject the route add completly and that is 
+X    * when there is already the next how with the same interface
+X    */ 
+X   Found = FALSE;
+X   for ( c=1; c<=ROUTE_MAX; c++ )
+X      {
+X      if ( (Entry->Link[c].Next == NextHop) && 
+X           (Entry->Link[c].Interface == Interf) ) 
+X           {
+X           sprintf (dbg.msg,"InsRoute: You gave me an existing route" );
+X           DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X           return (NOT_DONE);
+X           }
+X
+X      /* Of course if the slot is empty this is a good thing			*/
+X      if ( Entry->Link[c].Next == NOT_USED ) { Found = TRUE; break;   }
+X
+X      }
+X
+X   if ( Found )
+X      {
+X      Entry->Link[c].Next = NextHop;
+X      Entry->Link[c].Interface = Interf;
+X      Entry->Link[c].Cost = Cost;
+X      Entry->Link[c].Cumulated = 0;
+X      Entry->Link[c].Flag = 0;
+X      /* Since this route is new, I may as well try it :-)			*/
+X      Entry->Try = c;	
+X      /* If this is a direct link then I say so !				*/
+X      if ( Interf ) Entry->Direct = c;
+X      return (DONE);
+X      }
+X
+X   /* I really don't know where to put this route. you have to delete one !	*/
+X   sprintf (dbg.msg,"InsRoute: Canot find a free slot to insert route" );
+X   DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X   return (NOT_DONE);
+X   }
+X
+X/* ------------------------------------------------------------------------
+X * This insert a route in the appropriate slot...
+X * This assumes that the informations given are correct I.e. they
+X * are "legal" routings but may not be the "real" situation
+X * This allow to set routes for not existing hosts or subnet.
+X */
+Xint InsHostRoute ( struct HostEntry *Entry, int NextHop, int Interf, int Cost )
+X   {
+X   int Found;
+X   int c;
+X
+X   /* First thing to do is ... find a free space...
+X    * There is ONE case that reject the route add completly and that is 
+X    * when there is already the next how with the same interface
+X    */ 
+X   Found = FALSE;
+X   for ( c=1; c<=ROUTE_MAX; c++ )
+X      {
+X      if ( (Entry->Link[c].Next == NextHop) && 
+X           (Entry->Link[c].Interface == Interf) ) 
+X           {
+X           sprintf (dbg.msg,"InsRoute: Route exist Next %d If %d",NextHop, Interf );
+X           DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X           return (NOT_DONE);
+X           }
+X
+X      /* Of course if the slot is empty this is a good thing			*/
+X      if ( Entry->Link[c].Next == NOT_USED ) { Found = TRUE; break;   }
+X
+X      }
+X
+X   if ( Found )
+X      {
+X      Entry->Link[c].Next = NextHop;
+X      Entry->Link[c].Interface = Interf;
+X      Entry->Link[c].Cost = Cost;
+X      Entry->Link[c].Cumulated = 0;
+X      Entry->Link[c].Flag = 0;
+X      Entry->Direct = c;	
+X      return (DONE);
+X      }
+X
+X   /* I really don't know where to put this route. you have to delete one !	*/
+X   sprintf (dbg.msg,"InsRoute: Canot find a free slot to insert route" );
+X   DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X   return (NOT_DONE);
+X   }
+END_OF_FILE
+  if test 6390 -ne `wc -c <'IPP/lib/route/RouteAdd.c'`; then
+    echo shar: \"'IPP/lib/route/RouteAdd.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/route/RouteAdd.c'
+fi
+if test -f 'IPP/lib/route/ShowRoute.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/route/ShowRoute.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/route/ShowRoute.c'\" \(4908 characters\)
+  sed "s/^X//" >'IPP/lib/route/ShowRoute.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: ShowRoute.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "commands.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+Xvoid ShowNetRoute ( struct NetEntry *rdata, char *Buff, int Bufflen );
+Xvoid ShowHostRoute ( struct HostEntry *rdata, char *Buff, int Bufflen );
+X
+X/* This one looks at the tree tables of routing and try to print them
+X * in a nice way. The difficult thing is NOT to ooverflow th buffer.
+X */
+Xint ShowRoute ( struct Routing *rinfo, char *Buff, int Bufflen )
+X   {
+X   int d;
+X   char *ptr;
+X   char Lbuff[IPP_DATA+2];	/* This must be enough.. for one line		*/
+X   int  Len;
+X
+X   ptr = Buff;
+X
+X   sprintf (ptr,"		Hosts routing \n");
+X   ptr += strlen (ptr); 
+X   sprintf (ptr,"Host \t Route \t Next \t If \t Cost \t Cumulated \n");
+X   ptr += strlen (ptr); 
+X   Len = Bufflen-strlen(Buff);
+X   ShowHostRoute ( rinfo->hostdata, ptr, Len);
+X
+X   ptr = Buff + strlen(Buff);
+X   sprintf (ptr,"		Net routing \n");
+X   ptr += strlen (ptr); 
+X   sprintf (ptr,"Net \t Route \t Next \t If \t Cost \t Cumulated \n");
+X   ptr += strlen (ptr); 
+X   Len = Bufflen-strlen(Buff);
+X   ShowNetRoute ( rinfo->netdata, ptr, Len );
+X
+X   ptr = Buff + strlen(Buff);
+X   sprintf (ptr,"		Parent routing \n");
+X   ptr += strlen (ptr); 
+X   sprintf (ptr,"Parent \t Route \t Next \t If \t Cost \t Cumulated \n");
+X   ptr += strlen (ptr); 
+X
+X   Len = Bufflen-strlen(Buff);
+X
+X   for (d=1; d<=ROUTE_MAX; d++ )
+X      {
+X      /* This check if there is data in the routing entry...			*/
+X      if ( rinfo->parentdata.Link[d].Next == 0 ) continue;
+X
+X      sprintf (Lbuff,"Parent \t %d \t %d \t %d \t %d \t %d \n",d,
+X      	rinfo->parentdata.Link[d].Next, rinfo->parentdata.Link[d].Interface, 
+X             rinfo->parentdata.Link[d].Cost, rinfo->parentdata.Link[d].Cumulated );
+X      if ( strlen(Buff)+strlen(Lbuff) >= Bufflen )
+X         {
+X	 sprintf (Buff,"Failure");		/* Better than nothing...		*/
+X         sprintf (dbg.msg,"ShowRoute: Buffer too small for all routing info");
+X      	 DebugCall ( ERR_MEMFAULT, DEBUG_ALERT );
+X      	 return (DONE);
+X         }
+X      strcpy (ptr, Lbuff);
+X      ptr += strlen (Lbuff);
+X      } /* End of the fro trough the routes					*/
+X   return (DONE);
+X   }
+X
+X
+X/* This function does once what othervise should be done three times.
+X * It is very similar to the above...
+X */
+Xvoid ShowNetRoute ( struct NetEntry *rdata, char *Buff, int Bufflen )
+X   {
+X   int c,d;
+X   char *ptr;
+X   char Lbuff[IPP_DATA+2];	/* This must be enough.. for one line		*/
+X
+X   ptr = Buff;
+X
+X   for (c=1; c< ADDR_NUM; c++)
+X      {
+X      /* The following check if there is any data to show...			*/
+X      if ( rdata[c].Try==0 )continue;
+X
+X      for (d=1; d<=ROUTE_MAX; d++ )
+X         {
+X         /* This check if there is data in the routing entry...			*/
+X         if ( rdata[c].Link[d].Next == 0 ) continue;
+X
+X         sprintf (Lbuff,"%d \t %d \t %d \t %d \t %d \t %d \n",c,d,
+X         	rdata[c].Link[d].Next, rdata[c].Link[d].Interface, 
+X                rdata[c].Link[d].Cost, rdata[c].Link[d].Cumulated );
+X         if ( strlen(Buff)+strlen(Lbuff) >= Bufflen )
+X            {
+X      	    sprintf (Buff,"Failure");		/* Better than nothing...		*/
+X      	    sprintf (dbg.msg,"ShowRoute: Buffer too small for all routing info");
+X      	    DebugCall ( ERR_MEMFAULT, DEBUG_ALERT );
+X      	    return;
+X            }
+X         strcpy (ptr, Lbuff);
+X         ptr += strlen (Lbuff);
+X         } /* End of the fro trough the routes					*/
+X      } /* End of the for trough the hosts					*/
+X   }
+X
+Xvoid ShowHostRoute ( struct HostEntry *rdata, char *Buff, int Bufflen )
+X   {
+X   int c,d;
+X   char *ptr;
+X   char Lbuff[IPP_DATA+2];	/* This must be enough.. for one line		*/
+X
+X   ptr = Buff;
+X
+X   for (c=1; c< ADDR_NUM; c++)
+X      {
+X      /* The following check if there is any data to show...			*/
+X      if ( rdata[c].Direct==0 )continue;
+X
+X      for (d=1; d<=ROUTE_MAX; d++ )
+X         {
+X         /* This check if there is data in the routing entry...			*/
+X         if ( rdata[c].Link[d].Next == 0 ) continue;
+X
+X         sprintf (Lbuff,"%d \t %d \t %d \t %d \t %d \t %d \n",c,d,
+X         	rdata[c].Link[d].Next, rdata[c].Link[d].Interface, 
+X                rdata[c].Link[d].Cost, rdata[c].Link[d].Cumulated );
+X         if ( strlen(Buff)+strlen(Lbuff) >= Bufflen )
+X            {
+X      	    sprintf (Buff,"Failure");		/* Better than nothing...		*/
+X      	    sprintf (dbg.msg,"ShowRoute: Buffer too small for all routing info");
+X      	    DebugCall ( ERR_MEMFAULT, DEBUG_ALERT );
+X      	    return;
+X            }
+X         strcpy (ptr, Lbuff);
+X         ptr += strlen (Lbuff);
+X         } /* End of the fro trough the routes					*/
+X      } /* End of the for trough the hosts					*/
+X   }
+X
+END_OF_FILE
+  if test 4908 -ne `wc -c <'IPP/lib/route/ShowRoute.c'`; then
+    echo shar: \"'IPP/lib/route/ShowRoute.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/route/ShowRoute.c'
+fi
+if test -f 'IPP/lib/utils/RcvPack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/utils/RcvPack.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/utils/RcvPack.c'\" \(4614 characters\)
+  sed "s/^X//" >'IPP/lib/utils/RcvPack.c' <<'END_OF_FILE'
+X/* ----------------------------------------------------------------------------
+X * Ident: RcvPack.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This function receives a IPP network packet from the given FD.
+X * At the moment I assume that a read from an FD will behave in the
+X * same way for all possible Link type... Damiano
+X * It requires the structure err for distributed debugging.
+X * It also requires the structure describing the packet locally.
+X * This function will check the packet for integrity using the given checksum
+X * but it will NOT deal with addresses at all.
+X * There is an additional problem... the EOF..
+X * This function is the best candidate for a check on EOF on a fd.
+X * If I get an EOF I will the report it.
+X * This function will return DONE (0) if a good packet is received
+X * or NOT_DONE if a bad packet is received.
+X * NOTE: That the EOF flag may be set in both cases !!!
+X */
+X
+Xint RcvPack ( struct IPP *ipp, int fd, int *Eof )
+X   {
+X   char buff[IPP_DATA*2];	/* This should be more than enough		*/
+X   int     Letti;		/* Char num read from fd			*/
+X   char    *ptr;		/* A workig pointer				*/
+X   char    *Tptr;		/* A workig pointer Tempory			*/
+X   u_short Tshort;		/* A tmp , I need it				*/
+X   u_short PackLen;		/* The received packet lenght			*/
+X   u_long  Tlong;		/* A tmp , I need it				*/
+X   u_long  Checksum;		/* The received checksum			*/
+X
+X   Letti = read (fd, buff, IPP_DATA*2 );
+X   if ( Letti < 0 )
+X      {
+X      /* We have an error here... let's report it ! .. 				*/
+X      sprintf (dbg.msg,"RcvPack: Read failed ");
+X      DebugCall ( ERR_BADRCV, DEBUG_ALERT );
+X      /* Should I set the EOF falg ? maybe a bit more testing of the exit code 	*/
+X      /* Have a look later, ok ?	Damiano					*/
+X      return (NOT_DONE);
+X      }
+X
+X   if ( Letti == 0 )
+X      {
+X      /* We have got an EOF and this is not too bad...				*/
+X      sprintf (dbg.msg,"RcvPack: Read reached an EOF ");
+X      DebugCall ( ERR_BADRCV, DEBUG_NOTICE );
+X      *Eof = TRUE;
+X      return (NOT_DONE);
+X      }
+X
+X   ptr = buff;	/* I use a temporary work pointer				*/
+X   /* If I am here I know I have some chars in the buffer, lets scan it		*/
+X   memcpy ((char *)&Tshort, ptr, 2 );
+X   PackLen = ntohs (Tshort);
+X   ptr += 2;
+X
+X   if ( PackLen > (IPP_DATA*2) )
+X      {
+X      /* Hey ! I am not ready for giant packets at the moment..			*/
+X      sprintf (dbg.msg,"RcvPack: Read received a giant packet size %d bytes ",PackLen);
+X      DebugCall ( ERR_BADRCV, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   ipp->Sl = (((u_char)*ptr)&0xF0) >> 4;	/* Msb is the Sender length	*/
+X   ipp->Rl = ((u_char)*ptr++)&0x0F;	/* Lsb is the Receiver length		*/
+X
+X   memcpy (ipp->SndAddr, ptr, ipp->Sl );
+X   ptr += ipp->Sl;
+X
+X   memcpy (ipp->RcvAddr, ptr, ipp->Rl );
+X   ptr += ipp->Rl;
+X
+X   ipp->Depth = ((u_char)*ptr++)&0x0F;	/* Lsb is the common tree depth valuel	*/
+X
+X   ipp->From        = *ptr++;
+X   ipp->Sender      = *ptr++;
+X   ipp->PackId      = *ptr++;
+X   ipp->NextRouter  = *ptr++;
+X   ipp->NextHop     = *ptr++;
+X   ipp->TTL         = *ptr++;
+X   ipp->Type        = *ptr++;
+X
+X   memcpy ( (char *)&Tshort, ptr, 2 );
+X   ptr += 2;		/* I MUST know that a short is this long		*/
+X   ipp->DataLen = ntohs ( Tshort );	/* All network data are in net format	*/
+X
+X   if ( ipp->DataLen > IPP_DATA )
+X      {
+X      /* I obviously have a problem... I can't deal with this thing...		*/
+X      sprintf (dbg.msg,"RcvPack: A packet has too much data %d byes ",ipp->DataLen);
+X      DebugCall ( ERR_BADRCV, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   /* Ok, If I am here I can fit the data... let's do it			*/
+X   memcpy ( ipp->Data, ptr, ipp->DataLen );
+X   ptr += ipp->DataLen;
+X
+X   memcpy ( (char *)&Tlong, ptr, 4 );
+X   /* NOTE: I am not adding the last 4 bytes !! Damiano				*/
+X   Checksum = ntohl ( Tlong );
+X
+X   /* Ok, good all is full... I just need to calculate the checksum		*/
+X   /* The checksum is just the sum from the beginning to where ptr is of all	*/
+X   Tlong = 0;	/* Reset the sum...						*/
+X   for ( Tptr=buff; Tptr < ptr; Tlong += *(Tptr++) );
+X
+X   if ( Tlong !=  Checksum )
+X      {
+X      /* Nooooo, not possible... wrong checksum ??? how is it possible ???	*/
+X      sprintf (dbg.msg,"RcvPack: A packet has wrong checksum !! ");
+X      DebugCall ( ERR_BADRCV, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   /* Ahhhh, ok, all is fine now. the packet is full and good			*/
+X   return (DONE);
+X   }
+X
+END_OF_FILE
+  if test 4614 -ne `wc -c <'IPP/lib/utils/RcvPack.c'`; then
+    echo shar: \"'IPP/lib/utils/RcvPack.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/utils/RcvPack.c'
+fi
+if test -f 'IPP/lib/utils/SndPack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/utils/SndPack.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/utils/SndPack.c'\" \(4170 characters\)
+  sed "s/^X//" >'IPP/lib/utils/SndPack.c' <<'END_OF_FILE'
+X/* ----------------------------------------------------------------------------
+X * Ident: SndPack.c
+X * AUthor: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This function sends a IPP network packet to the given FD.
+X * At the moment I assume that a write to an FD will behave in the
+X * same way for all possible Link type... Damiano
+X * It also requires the structure describing the packet locally.
+X * This function will compute the packet checksum
+X * but it will NOT deal with addresses at all.
+X * It is duty of someone above to have given the right FD !
+X * This function is the best candidate for a check on EOF on a fd.
+X * If I get an EOF I will the report it.
+X * This function will return DONE (0) if a good packet is sent
+X * or NOT_DONE if it cannot send a packet.
+X * NOTE: That the EOF flag may be set in both cases !!!
+X */
+X
+Xint SndPack ( struct IPP *ipp, int fd, int *Eof )
+X   {
+X   char buff[IPP_DATA*2];	/* This should be more than enough		*/
+X   int     Scritti;		/* umber of chars written into FD		*/
+X   char    *ptr;		/* A workig pointer				*/
+X   char    *Tptr;		/* A workig pointer Tempory			*/
+X   u_short Tshort;		/* A tmp , I need it				*/
+X   u_short PackLen;		/* The total packet length			*/
+X   u_long  Tlong;		/* A tmp , I need it				*/
+X   u_long  Checksum;		/* The checksum i am going to send		*/
+X
+X   /* The firt thing to do is to build the packet from the given IPP structure	*/
+X   ptr = buff;	/* I use a temporary work pointer				*/
+X   
+X   PackLen = 17 + ipp->Sl + ipp->Rl + ipp->DataLen;
+X   if ( PackLen > (IPP_DATA * 2) )
+X      {
+X      sprintf (dbg.msg,"SndPack: Tryng to send a %d bytes long packet ",PackLen);
+X      DebugCall ( ERR_BADSND, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   if ( ipp->DataLen > IPP_DATA )
+X      {
+X      sprintf (dbg.msg,"SndPack: Tryng to send a %d bytes Data ",ipp->DataLen);
+X      DebugCall ( ERR_BADSND, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   /* I have to convert this in a network format... REMEBAR !!!			*/
+X   Tshort = htons (PackLen);
+X   memcpy ( ptr, (char *)&Tshort, 2);
+X   ptr += 2;
+X
+X   /* Sl is in the MSB and Rl is in tle LSB					*/
+X   *ptr++ = (ipp->Sl << 4) | (ipp->Rl & 0x0F);
+X
+X   memcpy (ptr, ipp->SndAddr, ipp->Sl );
+X   ptr += ipp->Sl;
+X
+X   memcpy (ptr, ipp->RcvAddr, ipp->Rl );
+X   ptr += ipp->Rl;
+X
+X   /* Unused is in the MSB and Depth is in tle LSB				*/
+X   *ptr++ = 0 | (ipp->Depth & 0x0F);
+X
+X   *ptr++ = ipp->From;
+X   *ptr++ = ipp->Sender;
+X   *ptr++ = ipp->PackId;
+X   *ptr++ = ipp->NextRouter;
+X   *ptr++ = ipp->NextHop;
+X   *ptr++ = ipp->TTL;	
+X   *ptr++ = ipp->Type;
+X
+X   Tshort = htons (ipp->DataLen);
+X   memcpy ( ptr, (char *)&Tshort, 2);
+X   ptr += 2;
+X  
+X   memcpy (ptr, ipp->Data, ipp->DataLen);
+X   ptr += ipp->DataLen;
+X
+X   /* Ok, good all is full... I just need to calculate the checksum		*/
+X   /* The checksum is just the sum from the beginning to where ptr is of all	*/
+X   Checksum = 0;	/* Reset the sum...						*/
+X   for ( Tptr=buff; Tptr < ptr; Checksum += *(Tptr++) );
+X
+X   Tlong = htonl(Checksum);
+X   memcpy (ptr, (char *)&Tlong, 4);
+X
+X   /* Done, the packet is ready to send.. let's tr to send it			*/
+X   Scritti = write (fd, buff, PackLen );
+X
+X   if ( Scritti < 0 )
+X      {
+X      /* Hey we have a serious problem here !,, it failed completly !		*/
+X      /* We must have goten and EOF... BUT CHECK Damiano			*/
+X      *Eof = TRUE;
+X      sprintf (dbg.msg,"SndPack: Write failed completly, possible EOF");
+X      DebugCall ( ERR_BADSND, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   if ( Scritti != PackLen )
+X      {
+X      /* This is really difficult to handle... the pachet is lost anyway	*/
+X      /* I HAVE to get the manual and see what the write errcode are !		*/
+X      /* Get down to this !	Damiano						*/
+X      sprintf (dbg.msg,"SndPack: Write Did NOT send all data");
+X      DebugCall ( ERR_BADSND, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   /* Oh, well if I am here it is all fine and well.. happy hacking		*/
+X   return (DONE);
+X   }
+X
+END_OF_FILE
+  if test 4170 -ne `wc -c <'IPP/lib/utils/SndPack.c'`; then
+    echo shar: \"'IPP/lib/utils/SndPack.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/utils/SndPack.c'
+fi
+if test -f 'IPP/lib/utils/ipp_utils.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/lib/utils/ipp_utils.c'\"
+else
+  echo shar: Extracting \"'IPP/lib/utils/ipp_utils.c'\" \(5870 characters\)
+  sed "s/^X//" >'IPP/lib/utils/ipp_utils.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: ipp_utils.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <malloc.h>
+X#include <sys/types.h>
+X#include <string.h>
+X#include "defs.h"
+X#include "packet.h"
+X#include "debug.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This transform an address into an ascii string
+X * it returns the converted string if OK otherwise NULL
+X * It does not care of the Depth... should it ?
+X */
+Xchar *ipp_ntoa ( struct IPPaddr *addr )
+X   {
+X   int c;
+X   int addrlen;
+X   char tmp[10];	
+X   static char Risul[ADDR_DEPTH*5];	
+X   char *ptr;
+X
+X   /* All this code is EXTREMLY UGLY... I just want to go to sleep...		*/
+X   addrlen = addr->Al;
+X   if ( (addrlen>=ADDR_DEPTH) || (addrlen<=0) ) return (NULL);
+X
+X   ptr = Risul;
+X   for ( c=0; c<addrlen; c++)
+X      {
+X      sprintf (tmp,"%d.",addr->Addr[c]);
+X      strcpy (ptr,tmp);
+X      ptr += strlen (tmp);
+X      }
+X
+X   /* Ok, now.. there is a trailing dot... let's take that away..		*/
+X   *(--ptr) = 0;
+X   return (Risul);
+X   }
+X
+X/* This converts an ascii reppresentation of an address into the corresponding
+X * Machine rappresentation.
+X * If something goes wrong it returns a NULL pointer..
+X * The from address remains unchanged...
+X * It is assumed that a given address is ALWAYS from depth Zero.
+X */
+Xstruct IPPaddr *ipp_aton ( char *from )
+X   {
+X   int c;
+X   int tmp;
+X
+X   char *from1;
+X   char *from1orig;
+X   static struct IPPaddr risul;
+X
+X   from1 = (char *)malloc (strlen(from)+2);
+X   if ( from1 == NULL ) return (NULL);
+X   from1orig = from1;	/* Have to remembar this...				*/
+X
+X   risul.Al = 0;
+X   risul.Depth = 0;
+X
+X   strcpy (from1, from);
+X   strtok (from1,".");
+X
+X   c=0;
+X   /* I have to check that there is something to convert to a number AND
+X    * That I am not running wild away somewhere AND
+X    * That the converted address hos no zeros inside...
+X    */
+X   while (from1 && (c<ADDR_DEPTH) )
+X      {
+X      if ( (tmp=atoi(from1)) == 0) break;
+X      risul.Addr[c++]=tmp;	/* This is a good one	*/
+X      from1=strtok(NULL,".");
+X      }
+X
+X   free (from1orig);
+X
+X   if ( c <= 0 ) return (NULL);
+X
+X   risul.Al = c;
+X   return (&risul);
+X   }
+X
+X/* ---------------------------------------------------------------------------
+X * This one copy an address into the Sender field of a packet...
+X * Returns DONE if all ok NOT_DONE othewise
+X * In theory... the packet depth and Sender depth should be the same...
+X * So.. this will jsut stomp over the packet depth.. ? Damiano
+X */
+Xint ipp_AtoS ( struct IPPaddr *src, struct IPP *dest )
+X   {
+X   if ( (src == NULL) || (dest == NULL) ) return (NOT_DONE);
+X   if ( src->Al >= ADDR_DEPTH ) return (NOT_DONE);
+X
+X   dest->Sl = src->Al;
+X   memcpy (dest->SndAddr, src->Addr, src->Al );
+X
+X   dest->Depth = src->Depth;
+X   return (DONE);
+X   }
+X
+X/* ---------------------------------------------------------------------------
+X * This one copy an address into the Receiver field of a packet...
+X * Returns DONE if all ok NOT_DONE othewise
+X * Same as above for the depth.. Damiano
+X */
+Xint ipp_AtoR ( struct IPPaddr *src, struct IPP *dest )
+X   {
+X   if ( (src == NULL) || (dest == NULL) ) return (NOT_DONE);
+X   if ( src->Al >= ADDR_DEPTH ) return (NOT_DONE);
+X
+X   dest->Rl = src->Al;
+X   memcpy (dest->RcvAddr, src->Addr, src->Al );
+X
+X   dest->Depth = src->Depth;
+X   return (DONE);
+X   }
+X
+X
+X/* ---------------------------------------------------------------------------
+X * This one copy an address from the Sender field of a packet...
+X * Returns DONE if all ok NOT_DONE othewise
+X */
+Xint ipp_StoA ( struct IPP *src, struct IPPaddr *dest )
+X   {
+X   if ( (src == NULL) || (dest == NULL) ) return (NOT_DONE);
+X   if ( src->Sl >= ADDR_DEPTH ) return (NOT_DONE);
+X
+X   dest->Al = src->Sl;
+X   memcpy (dest->Addr, src->SndAddr, src->Sl );
+X
+X   dest->Depth = src->Depth;
+X   return (DONE);
+X   }
+X
+X/* ---------------------------------------------------------------------------
+X * This one copy an address from the Receiver field of a packet...
+X * Returns DONE if all ok NOT_DONE othewise
+X */
+Xint ipp_RtoA ( struct IPP *src, struct IPPaddr *dest )
+X   {
+X   if ( (src == NULL) || (dest == NULL) ) return (NOT_DONE);
+X   if ( src->Rl >= ADDR_DEPTH ) return (NOT_DONE);
+X
+X   dest->Al = src->Rl;
+X   memcpy (dest->Addr, src->RcvAddr, src->Rl );
+X
+X   dest->Depth = src->Depth;
+X   return (DONE);
+X   }
+X
+X
+X/* ---------------------------------------------------------------------------
+X * This one copy an address from an IPPaddr to another IPPaddr...
+X * Returns DONE if all ok NOT_DONE othewise
+X */
+Xint ipp_AtoA ( struct IPPaddr *dest, struct IPPaddr *src )
+X   {
+X   if ( (src == NULL) || (dest == NULL) ) return (NOT_DONE);
+X   if ( src->Al >= ADDR_DEPTH ) return (NOT_DONE);
+X
+X   dest->Al = src->Al;
+X   memcpy (dest->Addr, src->Addr, src->Al );
+X
+X   dest->Depth = src->Depth;
+X   return (DONE);
+X   }
+X
+X/* ---------------------------------------------------------------------------
+X * This one is asimple one :-) It gets apointer to what should be an INT
+X * and return the number if all is OK 0 otherwise
+X */
+Xint ipp_atoi ( char *Arg )
+X   {
+X   if ( Arg ) return (atoi(Arg));
+X   else return (0);
+X   }
+X
+X/* ---------------------------------------------------------------------------
+X * This function will set the packet sender and receiver according with the
+X * information given in the Snd and Rcv data.
+X * It will take care of generating the "right depth" from the two addresses
+X */
+Xint SetPackAddr ( struct IPP *ipp, struct IPPaddr *Snd, struct IPPaddr *Rcv )
+X   {
+X   if ( (ipp==NULL) || (Snd == NULL) || (Rcv == NULL) ) return (NOT_DONE);
+X
+X   if ( Snd->Depth || Rcv->Depth )
+X      {
+X      sprintf (dbg.msg,"SetPackAddr: Depth different than zero  ");
+X      DebugCall ( ERR_BADDEPTH, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   ipp_AtoS ( Snd, ipp);
+X   ipp_AtoR ( Rcv, ipp);
+X
+X   return (DONE);
+X   }
+END_OF_FILE
+  if test 5870 -ne `wc -c <'IPP/lib/utils/ipp_utils.c'`; then
+    echo shar: \"'IPP/lib/utils/ipp_utils.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/lib/utils/ipp_utils.c'
+fi
+if test -f 'IPP/logd/logd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/logd/logd.c'\"
+else
+  echo shar: Extracting \"'IPP/logd/logd.c'\" \(3661 characters\)
+  sed "s/^X//" >'IPP/logd/logd.c' <<'END_OF_FILE'
+X/* ----------------------------------------------------------------------
+X * Ident: logd.c
+X * Author: Damiano Bolla, 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X/* This program open a socket and then read debugging info from it.
+X * Once data arrives it reads it and then display it.
+X * It also prints who sent the data and when it was sent
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netdb.h>
+X#include <netinet/in.h>
+X#include <signal.h>
+X#include <sys/utsname.h>
+X#include "defs.h"	
+X#include "debug.h"
+X
+Xmain ()
+X   {
+X   int listen_socket;
+X   int listen_port;
+X   struct sockaddr_in address;
+X   struct hostent *host_name;
+X   int address_len;
+X   int error;
+X   time_t now;
+X
+X   /* I need a buffer for the messages...				*/
+X   char MsgBuff[ERR_PACKET+2];
+X
+X   listen_socket = socket ( PF_INET, SOCK_DGRAM, 0); 
+X   if ( listen_socket < 0)
+X      {
+X      fprintf (stderr,"logd: Cannot create the SOCK_DGRAM socket \n");
+X      exit (1);
+X      }
+X
+X   /* Let's fille the sturcture with good data...			*/
+X   address_len = sizeof (struct sockaddr_in);
+X   if ( getsockname (listen_socket, 
+X   		(struct sockaddr *)&address, 
+X   		&address_len ) )
+X      {
+X      fprintf (stderr,"Cannot get info on the SOCK_DGRAM socket \n");
+X      close ( listen_socket );	/* Do not forget this			*/
+X      return (1);
+X      }
+X
+X   /* I have to try to bind this socket to a port that is NOT in use...	*/
+X   /* The magic numbers here have nothing magic.. see the socket manual	*/
+X   for (listen_port=1234; listen_port<32000; listen_port++ )
+X      {
+X      address.sin_port = htons(listen_port);	
+X      if ( bind ( listen_socket,
+X		   (struct sockaddr *)&address,
+X                   sizeof(address))==0) break;
+X      else
+X         perror ("Cannot bind");
+X      }
+X
+X   /* I assume I got a port, If I havent the getsockname will tell me..	*/
+X   address_len = sizeof (struct sockaddr_in);
+X   if ( getsockname (listen_socket, 
+X   		(struct sockaddr *)&address, 
+X   		&address_len ) )
+X      {
+X      fprintf (stderr,"Cannot get info on the SOCK_DGRAM socket \n");
+X      close ( listen_socket );	/* Do not forget this			*/
+X      return (1);
+X      }
+X
+X   gethostname(MsgBuff,ERR_PACKET);
+X   printf ("LogdHost %s \n",MsgBuff );
+X   printf ("LogdPort %d \n",ntohs(address.sin_port)); 
+X
+X   /* Now it is time to start listening for messages			*/
+X   for (;;)
+X      {
+X      address_len = sizeof (struct sockaddr_in);
+X      error = recvfrom (listen_socket, 	/* The socket from where to get data	*/
+X		MsgBuff, 		/* Destination buffer			*/
+X		ERR_PACKET, 		/* Size of the buffer			*/
+X		0,			/* Options				*/
+X		(struct sockaddr *)&address, 	/* A place where to store 	*/
+X		&address_len 		/* The length of address		*/
+X		);
+X      if ( error > 0 )
+X	 {
+X	 printf ("---------------------------------------------------------\n");
+X
+X	 /* Then let's write down when this happened so I know when		*/
+X	 now=time(NULL);	/* Get the time					*/
+X	 printf ("At Time %s",ctime(&now) );
+X
+X	 /* Let's see who generated it so I can track it down...			*/
+X         host_name = gethostbyaddr ( (char*)&address.sin_addr.s_addr,4,AF_INET);
+X	 if ( host_name ) printf ("From %s \n",host_name->h_name);
+X         else printf ("From %s \n",inet_ntoa(address.sin_addr) );
+X
+X         /* Then we can display the message we received				*/
+X	 /* If I received n chars the Zero goes at the Nth char			*/
+X	 MsgBuff[error] = 0;	/* This works because the +2			*/
+X	 printf ("%s \n",MsgBuff);
+X	 }
+X      else
+X	 {
+X	 perror ("Logd failed bcause recvfrom error");
+X	 break;
+X	 }
+X
+X      } /* End of the newerending for loop					*/
+X
+X   /* No point to make a fuss out of it..					*/
+X   exit (0);
+X   }
+END_OF_FILE
+  if test 3661 -ne `wc -c <'IPP/logd/logd.c'`; then
+    echo shar: \"'IPP/logd/logd.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/logd/logd.c'
+fi
+if test -f 'IPP/router/ProcessCall.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/router/ProcessCall.c'\"
+else
+  echo shar: Extracting \"'IPP/router/ProcessCall.c'\" \(5742 characters\)
+  sed "s/^X//" >'IPP/router/ProcessCall.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: ProcessCall.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "commands.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This function has a newly created FD to talk with and it has a message
+X * just sent in the channel describing what is needed.
+X * It then needs to look at what it has and decide waht to do
+X * If it decides that the new socket is not needed it can close it !
+X */
+X
+Xint ProcessCall ( struct Routing *rinfo, 
+X	int Interface,
+X	int Newsocket,
+X	char *Msg )
+X   {
+X   char *Cmd;
+X   char *Arg;
+X   char Null[2]={0};
+X   struct IPPaddr *RemAddr;
+X   int NextHop;
+X   int Cost;
+X   int Shortest;
+X
+X   if ((Cmd=strtok (Msg, CMD_SEP))==NULL) Cmd=Null;
+X   if ((Arg=strtok (NULL, CMD_SEP))==NULL) Arg=Null;
+X
+X   sprintf (dbg.msg,"ProcessCall: Received '%s' '%s'",Cmd,Arg);
+X   DebugCall ( ERR_MSG, DEBUG_TEXT );
+X
+X   /* The only thing that I am able to do at connection setup is address	*/
+X   if ( strcasecmp (Cmd,CMD_ADDR) != 0 )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: Instead of address i got '%s'",Cmd);
+X      DebugCall ( ERR_NOCOMM, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   /* Good good let me see now.. is the given address a valid one ?		*/
+X   /* Oh boy if this part is going to be tedious...				*/
+X   RemAddr = ipp_aton(Arg);
+X   if ( RemAddr==NULL )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: Got an illegal address '%s'",Arg);
+X      DebugCall ( ERR_BADADDR, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   if ( RemAddr->Al > rinfo->MyAddr.Al+1  )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: Call with address too deep '%s'",Arg);
+X      DebugCall ( ERR_BADADDR, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   if ( (rinfo->MyAddr.Al==1) && (RemAddr->Al==0) )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: There is no parent of a top level '%s'",Arg);
+X      DebugCall ( ERR_BADADDR, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   if ( RemAddr->Al < rinfo->MyAddr.Al-1 )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: Cannot link a two level up parent '%s'",Arg);
+X      DebugCall ( ERR_BADADDR, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   Shortest = min(RemAddr->Al,rinfo->MyAddr.Al);
+X   if ( strncmp(RemAddr->Addr,rinfo->MyAddr.Addr,Shortest-1) != 0 )
+X      {
+X      sprintf (dbg.msg,"ProcessCall: router and caller don't match '%s'",Arg);
+X      DebugCall ( ERR_BADADDR, DEBUG_NOTICE );
+X      close (Newsocket);
+X      return (NOT_DONE);
+X      }
+X
+X   /* Ok.. I have the new nice descriptor here, but where do I put it ??	*/
+X   /* Let's make a simple rule... an interface with a Ring will hold		*/
+X   /* It's own newly created channell.. otherwise it become too complicatde	*/
+X   if ( rinfo->ifdata[Interface].Line ) 
+X      {
+X      if ( ExistFd ( rinfo->ifdata[Interface].Line , SOCK_TECH) )
+X         {
+X         sprintf (dbg.msg,"ProcessCall: Channel already exist");
+X         DebugCall ( ERR_NOTCLOSE, DEBUG_ALERT );
+X         close (Newsocket);
+X         return (NOT_DONE);
+X         }
+X      else close (  rinfo->ifdata[Interface].Line ); 
+X      }
+X
+X   /* Ok, now I am shure that this line if free, let's set it			*/
+X   rinfo->ifdata[Interface].Line = Newsocket;
+X
+X   /* good, I just have to set up the routing ttable...				*/
+X   /* This is good since this is a direct link to whatever is the address	*/
+X   if (RemAddr->Al > rinfo->MyAddr.Al)
+X      {
+X      struct NetEntry *Entry;
+X      Entry = &rinfo->netdata[RemAddr->Addr[RemAddr->Al-2]];
+X      NextHop = RemAddr->Addr[RemAddr->Al-1];
+X      Cost = 1;
+X      if ( InsNetRoute ( Entry, NextHop, Interface, Cost ) )
+X         {
+X         /* Too bad that this failed.. now i have to clean up !!!			*/
+X         rinfo->ifdata[Interface].Line = 0;	/* Say that this line is free	*/
+X         close ( Newsocket );			/* Not used anymore..		*/
+X         sprintf (dbg.msg,"ProcessCall: Cannot setup Network route");
+X         DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X         return (NOT_DONE);
+X         }
+X      return (DONE);
+X      }
+X      
+X   if (RemAddr->Al == rinfo->MyAddr.Al)
+X      {
+X      struct HostEntry *Entry;
+X      Entry = &rinfo->hostdata[RemAddr->Addr[RemAddr->Al-1]];
+X      NextHop = RemAddr->Addr[RemAddr->Al-1];
+X      Cost = 1;
+X      if ( InsHostRoute ( Entry, NextHop, Interface, Cost ) )
+X         {
+X         /* Too bad that this failed.. now i have to clean up !!!			*/
+X         rinfo->ifdata[Interface].Line = 0;	/* Say that this line is free	*/
+X         close ( Newsocket );			/* Not used anymore..		*/
+X         sprintf (dbg.msg,"ProcessCall: Cannot setup Host route");
+X         DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X         return (NOT_DONE);
+X         }
+X      return (DONE);
+X      }
+X
+X   if (RemAddr->Al < rinfo->MyAddr.Al )
+X      {
+X      struct NetEntry *Entry;
+X      Entry = &rinfo->parentdata;
+X      NextHop = RemAddr->Addr[RemAddr->Al-1];
+X      Cost = 1;
+X      if ( InsNetRoute ( Entry, NextHop, Interface, Cost ) )
+X         {
+X         /* Too bad that this failed.. now i have to clean up !!!			*/
+X         rinfo->ifdata[Interface].Line = 0;	/* Say that this line is free	*/
+X         close ( Newsocket );			/* Not used anymore..		*/
+X         sprintf (dbg.msg,"ProcessCall: Cannot setup Host route");
+X         DebugCall ( ERR_BADROUTE, DEBUG_ALERT );
+X         return (NOT_DONE);
+X         }
+X      return (DONE);
+X      }
+X
+X   return (DONE);
+X   }
+X
+END_OF_FILE
+  if test 5742 -ne `wc -c <'IPP/router/ProcessCall.c'`; then
+    echo shar: \"'IPP/router/ProcessCall.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/router/ProcessCall.c'
+fi
+if test -f 'IPP/router/SetInterface.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'IPP/router/SetInterface.c'\"
+else
+  echo shar: Extracting \"'IPP/router/SetInterface.c'\" \(4729 characters\)
+  sed "s/^X//" >'IPP/router/SetInterface.c' <<'END_OF_FILE'
+X/* ---------------------------------------------------------------------------
+X * Ident: SetInterface.c
+X * Author: Damiano Bolla 1993
+X * All this project is covered by the GNU Copyright.
+X */
+X
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include "defs.h"
+X#include "debug.h"
+X#include "packet.h"
+X#include "router.h"
+X#include "commands.h"
+X#include "func_defs.h"
+X
+Xextern struct Debug dbg;
+X
+X/* This function receives a string that describes the interface to set up
+X * The string is a series of tokens separated by spaces or tabs.. :-)
+X * The string format is the following
+X * 1) The interface number to set up from 1 onward to IF_MAX included
+X * 2) The technology used, currently is tcp, even if prevision for atm 
+X * 3) yes/no indicatin if the interface receives incoming calls or not
+X * 4) A strings describing optional params, in cas of tcp with no Ring
+X *    The string is a hostname and a port number where to set a link
+X * If one interface overwrite a previous one a warning is issued
+X * but the program continues.
+X */
+Xint SetInterface ( struct Routing *rinfo, char *Arg )
+X   {
+X   int  LinkNum;	/* Int identifing the link num				*/
+X   int  EndPort;	/* An integer indicating the end port to connect	*/
+X   char *Tech;		/* Technology used for this link			*/
+X   char *Ring;		/* Can this link ring or not ?				*/
+X   char *EndNam;	/* A string indicating the name of the endpoint(host)	*/
+X   char Null[2]={0};
+X
+X   LinkNum = ipp_atoi(strtok (Arg,CMD_SEP));
+X   if ((Tech=strtok (NULL,CMD_SEP))==NULL) Tech=Null;
+X   if ((Ring=strtok (NULL,CMD_SEP))==NULL) Ring=Null;
+X   if ((EndNam=strtok (NULL,CMD_SEP))==NULL) EndNam=Null;
+X   EndPort = ipp_atoi(strtok (NULL,CMD_SEP));
+X
+X   if ( (LinkNum <= 0) || (LinkNum >IF_MAX) )
+X      {
+X      sprintf (dbg.msg,"SetInetrface: Out of range Link Number %d",LinkNum);
+X      DebugCall ( ERR_BADLINK, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   if ( strcasecmp(Tech,SOCK_TECH_NAM) != 0 )
+X      {
+X      sprintf (dbg.msg,"SetInetrface: This technology is not supported %s",Tech);
+X      DebugCall ( ERR_NOTECH, DEBUG_ALERT );
+X      return (NOT_DONE);
+X      }
+X
+X   /* Ok, we are talking sockets here...					*/
+X   if ( strcasecmp (Ring,SAY_YES) == 0 )
+X      {
+X      /* Ok we have a ringing interface here...					*/
+X      /* What I have to do is to set it listen.... and report the params	*/
+X      int ListenSock;
+X      int ListenPort;
+X      char ListenHost[IP_NAMLEN+2];
+X
+X      if ( Listen ( &ListenSock, ListenHost, &ListenPort ) ) return (NOT_DONE);
+X
+X      /* I have to do it here after I know I have new good params...			*/
+X      if ( rinfo->ifdata[LinkNum].Line || rinfo->ifdata[LinkNum].Ring )
+X         {
+X         sprintf (dbg.msg,"SetInetrface: The Link %d was already configured",LinkNum);
+X         DebugCall ( ERR_LNKUSED, DEBUG_NOTICE );
+X         /* NOTE NOTE... NEWER close channle 0 !!!!				*/
+X         if ( rinfo->ifdata[LinkNum].Line ) close (rinfo->ifdata[LinkNum].Line);
+X         if ( rinfo->ifdata[LinkNum].Ring ) close (rinfo->ifdata[LinkNum].Ring);
+X         }
+X
+X      rinfo->ifdata[LinkNum].Ring = ListenSock;
+X      rinfo->ifdata[LinkNum].RingPort = ListenPort;
+X      strcpy(rinfo->ifdata[LinkNum].RingHost,ListenHost);
+X      rinfo->ifdata[LinkNum].Technology = SOCK_TECH;
+X      rinfo->ifdata[LinkNum].Sent = 0;
+X      rinfo->ifdata[LinkNum].Received = 0;
+X
+X      /* Ok, we have all what is needed, I just have to output what interface 	*/
+X      /* Is listening on what port....						*/
+X
+X      printf ("ListeningPort %d %s %d \n",LinkNum,ListenHost,ListenPort );
+X      return (DONE);
+X      }
+X
+X   if ( strcasecmp (Ring,SAY_NO) == 0 )
+X      {
+X      /* no ringing interface :-), I need to connect to a peer...			*/
+X      int Line;	
+X      
+X      if ( Connect ( EndNam, EndPort, &Line, &rinfo->MyAddr ) ) return (NOT_DONE);
+X
+X      /* I have to do it here after I know I have new good params...			*/
+X      if ( rinfo->ifdata[LinkNum].Line || rinfo->ifdata[LinkNum].Ring )
+X         {
+X         sprintf (dbg.msg,"SetInetrface: The Link %d was already configured",LinkNum);
+X         DebugCall ( ERR_LNKUSED, DEBUG_NOTICE );
+X         /* NOTE NOTE... NEWER close channle 0 !!!!				*/
+X         if ( rinfo->ifdata[LinkNum].Line ) close (rinfo->ifdata[LinkNum].Line);
+X         if ( rinfo->ifdata[LinkNum].Ring ) close (rinfo->ifdata[LinkNum].Ring);
+X         }
+X
+X      /* OK, boy... just record the mess...					*/
+X      rinfo->ifdata[LinkNum].Line = Line;
+X      rinfo->ifdata[LinkNum].Technology = SOCK_TECH;
+X      rinfo->ifdata[LinkNum].Sent = 0;
+X      rinfo->ifdata[LinkNum].Received = 0;
+X      return (DONE);
+X      }
+X
+X   sprintf (dbg.msg,"SetInterface: Wrong parameters ");
+X   DebugCall ( ERR_CONFIG, DEBUG_ALERT );
+X   return (NOT_DONE);
+X   }
+END_OF_FILE
+  if test 4729 -ne `wc -c <'IPP/router/SetInterface.c'`; then
+    echo shar: \"'IPP/router/SetInterface.c'\" unpacked with wrong size!
+  fi
+  # end of 'IPP/router/SetInterface.c'
+fi
+echo shar: End of archive 3 \(of 6\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

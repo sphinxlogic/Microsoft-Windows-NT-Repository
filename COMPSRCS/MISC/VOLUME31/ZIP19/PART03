@@ -1,0 +1,1671 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i095:  zip19 - Info-ZIP portable Zip, version 1.9, Part03/11
+Message-ID: <1992Aug23.064551.29045@sparky.imd.sterling.com>
+X-Md4-Signature: 5ca732e6f20f0ad06e2b983530c09eca
+Date: Sun, 23 Aug 1992 06:45:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 95
+Archive-name: zip19/part03
+Supersedes: zip: Volume 23, Issue 88-96
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, XOS, !AMIGA, ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun, PC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  trees.c util.c vms/makefile.vms
+# Wrapped by kent@sparky on Sun Aug 23 01:00:43 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 11)."'
+if test -f 'trees.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'trees.c'\"
+else
+  echo shar: Extracting \"'trees.c'\" \(40777 characters\)
+  sed "s/^X//" >'trees.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  trees.c by Jean-loup Gailly
+X *
+X *  This is a new version of im_ctree.c originally written by Richard B. Wales
+X *  for the defunct implosion method.
+X *
+X *  PURPOSE
+X *
+X *      Encode various sets of source values using variable-length
+X *      binary code trees.
+X *
+X *  DISCUSSION
+X *
+X *      The PKZIP "deflation" process uses several Huffman trees. The more
+X *      common source values are represented by shorter bit sequences.
+X *
+X *      Each code tree is stored in the ZIP file in a compressed form
+X *      which is itself a Huffman encoding of the lengths of
+X *      all the code strings (in ascending order by source values).
+X *      The actual code strings are reconstructed from the lengths in
+X *      the UNZIP process, as described in the "application note"
+X *      (APPNOTE.TXT) distributed as part of PKWARE's PKZIP program.
+X *
+X *  REFERENCES
+X *
+X *      Lynch, Thomas J.
+X *          Data Compression:  Techniques and Applications, pp. 53-55.
+X *          Lifetime Learning Publications, 1985.  ISBN 0-534-03418-7.
+X *
+X *      Storer, James A.
+X *          Data Compression:  Methods and Theory, pp. 49-50.
+X *          Computer Science Press, 1988.  ISBN 0-7167-8156-5.
+X *
+X *      Sedgewick, R.
+X *          Algorithms, p290.
+X *          Addison-Wesley, 1983. ISBN 0-201-06672-6.
+X *
+X *  INTERFACE
+X *
+X *      void ct_init (ush *attr, int *method)
+X *          Allocate the match buffer, initialize the various tables and save
+X *          the location of the internal file attribute (ascii/binary) and
+X *          method (DEFLATE/STORE)
+X *
+X *      void ct_tally (int dist, int lc);
+X *          Save the match info and tally the frequency counts.
+X *
+X *      long flush_block (char *buf, ulg stored_len, int eof)
+X *          Determine the best encoding for the current block: dynamic trees,
+X *          static trees or store, and output the encoded block to the zip
+X *          file. Returns the total compressed length for the file so far.
+X *
+X */
+X
+X#include <ctype.h>
+X#include "zip.h"
+X
+X/* ===========================================================================
+X * Constants
+X */
+X
+X#define MAX_BITS 15
+X/* All codes must not exceed MAX_BITS bits */
+X
+X#define MAX_BL_BITS 7
+X/* Bit length codes must not exceed MAX_BL_BITS bits */
+X
+X#define LENGTH_CODES 29
+X/* number of length codes, not counting the special END_BLOCK code */
+X
+X#define LITERALS  256
+X/* number of literal bytes 0..255 */
+X
+X#define END_BLOCK 256
+X/* end of block literal code */
+X
+X#define L_CODES (LITERALS+1+LENGTH_CODES)
+X/* number of Literal or Length codes, including the END_BLOCK code */
+X
+X#define D_CODES   30
+X/* number of distance codes */
+X
+X#define BL_CODES  19
+X/* number of codes used to transfer the bit lengths */
+X
+X
+Xlocal int near extra_lbits[LENGTH_CODES] /* extra bits for each length code */
+X   = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
+X
+Xlocal int near extra_dbits[D_CODES] /* extra bits for each distance code */
+X   = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+X
+Xlocal int near extra_blbits[BL_CODES]/* extra bits for each bit length code */
+X   = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,3,7};
+X
+X#define STORED_BLOCK 0
+X#define STATIC_TREES 1
+X#define DYN_TREES    2
+X/* The three kinds of block type */
+X
+X#ifndef LIT_BUFSIZE
+X#  ifdef SMALL_MEM
+X#    define LIT_BUFSIZE  0x2000
+X#  else
+X#  ifdef MEDIUM_MEM
+X#    define LIT_BUFSIZE  0x4000
+X#  else
+X#    define LIT_BUFSIZE  0x8000
+X#  endif
+X#  endif
+X#endif
+X#define DIST_BUFSIZE  LIT_BUFSIZE
+X/* Sizes of match buffers for literals/lengths and distances.  There are
+X * 4 reasons for limiting LIT_BUFSIZE to 64K:
+X *   - frequencies can be kept in 16 bit counters
+X *   - if compression is not successful for the first block, all input data is
+X *     still in the window so we can still emit a stored block even when input
+X *     comes from standard input.  (This can also be done for all blocks if
+X *     LIT_BUFSIZE is not greater than 32K.)
+X *   - if compression is not successful for a file smaller than 64K, we can
+X *     even emit a stored file instead of a stored block (saving 5 bytes).
+X *   - creating new Huffman trees less frequently may not provide fast
+X *     adaptation to changes in the input data statistics. (Take for
+X *     example a binary file with poorly compressible code followed by
+X *     a highly compressible string table.) Smaller buffer sizes give
+X *     fast adaptation but have of course the overhead of transmitting trees
+X *     more frequently.
+X *   - I can't count above 4
+X * The current code is general and allows DIST_BUFSIZE < LIT_BUFSIZE (to save
+X * memory at the expense of compression). Some optimizations would be possible
+X * if we rely on DIST_BUFSIZE == LIT_BUFSIZE.
+X */
+X
+X#define REP_3_6      16
+X/* repeat previous bit length 3-6 times (2 bits of repeat count) */
+X
+X#define REPZ_3_10    17
+X/* repeat a zero length 3-10 times  (3 bits of repeat count) */
+X
+X#define REPZ_11_138  18
+X/* repeat a zero length 11-138 times  (7 bits of repeat count) */
+X
+X/* ===========================================================================
+X * Local data
+X */
+X
+X/* Data structure describing a single value and its code string. */
+Xtypedef struct ct_data {
+X    union {
+X        ush  freq;       /* frequency count */
+X        ush  code;       /* bit string */
+X    } fc;
+X    union {
+X        ush  dad;        /* father node in Huffman tree */
+X        ush  len;        /* length of bit string */
+X    } dl;
+X} ct_data;
+X
+X#define Freq fc.freq
+X#define Code fc.code
+X#define Dad  dl.dad
+X#define Len  dl.len
+X
+X#define HEAP_SIZE (2*L_CODES+1)
+X/* maximum heap size */
+X
+Xlocal ct_data near dyn_ltree[HEAP_SIZE];   /* literal and length tree */
+Xlocal ct_data near dyn_dtree[2*D_CODES+1]; /* distance tree */
+X
+Xlocal ct_data near static_ltree[L_CODES+2];
+X/* The static literal tree. Since the bit lengths are imposed, there is no
+X * need for the L_CODES extra codes used during heap construction. However
+X * The codes 286 and 287 are needed to build a canonical tree (see ct_init
+X * below).
+X */
+X
+Xlocal ct_data near static_dtree[D_CODES];
+X/* The static distance tree. (Actually a trivial tree since all codes use
+X * 5 bits.)
+X */
+X
+Xlocal ct_data near bl_tree[2*BL_CODES+1];
+X/* Huffman tree for the bit lengths */
+X
+Xtypedef struct tree_desc {
+X    ct_data near *dyn_tree;      /* the dynamic tree */
+X    ct_data near *static_tree;   /* corresponding static tree or NULL */
+X    int     near *extra_bits;    /* extra bits for each code or NULL */
+X    int     extra_base;          /* base index for extra_bits */
+X    int     elems;               /* max number of elements in the tree */
+X    int     max_length;          /* max bit length for the codes */
+X    int     max_code;            /* largest code with non zero frequency */
+X} tree_desc;
+X
+Xlocal tree_desc near l_desc =
+X{dyn_ltree, static_ltree, extra_lbits, LITERALS+1, L_CODES, MAX_BITS, 0};
+X
+Xlocal tree_desc near d_desc =
+X{dyn_dtree, static_dtree, extra_dbits, 0,          D_CODES, MAX_BITS, 0};
+X
+Xlocal tree_desc near bl_desc =
+X{bl_tree, NULL,       extra_blbits, 0,         BL_CODES, MAX_BL_BITS, 0};
+X
+X
+Xlocal ush near bl_count[MAX_BITS+1];
+X/* number of codes at each bit length for an optimal tree */
+X
+Xlocal uch near bl_order[BL_CODES]
+X   = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+X/* The lengths of the bit length codes are sent in order of decreasing
+X * probability, to avoid transmitting the lengths for unused bit length codes.
+X */
+X
+Xlocal int near heap[2*L_CODES+1]; /* heap used to build the Huffman trees */
+Xlocal int heap_len;               /* number of elements in the heap */
+Xlocal int heap_max;               /* element of largest frequency */
+X/* The sons of heap[n] are heap[2*n] and heap[2*n+1]. heap[0] is not used.
+X * The same heap array is used to build all trees.
+X */
+X
+Xlocal uch near depth[2*L_CODES+1];
+X/* Depth of each subtree used as tie breaker for trees of equal frequency */
+X
+Xlocal uch length_code[MAX_MATCH-MIN_MATCH+1];
+X/* length code for each normalized match length (0 == MIN_MATCH) */
+X
+Xlocal uch dist_code[512];
+X/* distance codes. The first 256 values correspond to the distances
+X * 3 .. 258, the last 256 values correspond to the top 8 bits of
+X * the 15 bit distances.
+X */
+X
+Xlocal int near base_length[LENGTH_CODES];
+X/* First normalized length for each code (0 = MIN_MATCH) */
+X
+Xlocal int near base_dist[D_CODES];
+X/* First normalized distance for each code (0 = distance of 1) */
+X
+X#ifndef DYN_ALLOC
+X  local uch far l_buf[LIT_BUFSIZE];  /* buffer for literals/lengths */
+X  local ush far d_buf[DIST_BUFSIZE]; /* buffer for distances */
+X#else
+X  local uch far *l_buf;
+X  local ush far *d_buf;
+X#endif
+X
+Xlocal uch near flag_buf[(LIT_BUFSIZE/8)];
+X/* flag_buf is a bit array distinguishing literals from lengths in
+X * l_buf, and thus indicating the presence or absence of a distance.
+X */
+X
+Xlocal unsigned last_lit;    /* running index in l_buf */
+Xlocal unsigned last_dist;   /* running index in d_buf */
+Xlocal unsigned last_flags;  /* running index in flag_buf */
+Xlocal uch flags;            /* current flags not yet saved in flag_buf */
+Xlocal uch flag_bit;         /* current bit used in flags */
+X/* bits are filled in flags starting at bit 0 (least significant).
+X * Note: these flags are overkill in the current code since we don't
+X * take advantage of DIST_BUFSIZE == LIT_BUFSIZE.
+X */
+X
+Xlocal ulg opt_len;        /* bit length of current block with optimal trees */
+Xlocal ulg static_len;     /* bit length of current block with static trees */
+X
+Xlocal ulg compressed_len; /* total bit length of compressed file */
+X
+Xlocal ulg input_len;      /* total byte length of input file */
+X/* input_len is for debugging only since we can get it by other means. */
+X
+Xush *file_type;        /* pointer to UNKNOWN, BINARY or ASCII */
+Xint *file_method;      /* pointer to DEFLATE or STORE */
+X
+X#ifdef DEBUG
+Xextern ulg bits_sent;  /* bit length of the compressed data */
+Xextern ulg isize;      /* byte length of input file */
+X#endif
+X
+Xextern long block_start;       /* window offset of current block */
+Xextern unsigned near strstart; /* window offset of current string */
+X
+X/* ===========================================================================
+X * Local (static) routines in this file.
+X */
+X
+Xlocal void init_block     OF((void));
+Xlocal void pqdownheap     OF((ct_data near *tree, int k));
+Xlocal void gen_bitlen     OF((tree_desc near *desc));
+Xlocal void gen_codes      OF((ct_data near *tree, int max_code));
+Xlocal void build_tree     OF((tree_desc near *desc));
+Xlocal void scan_tree      OF((ct_data near *tree, int max_code));
+Xlocal void send_tree      OF((ct_data near *tree, int max_code));
+Xlocal int  build_bl_tree  OF((void));
+Xlocal void send_all_trees OF((int lcodes, int dcodes, int blcodes));
+Xlocal void compress_block OF((ct_data near *ltree, ct_data near *dtree));
+Xlocal void set_file_type  OF((void));
+X
+X
+X#ifndef DEBUG
+X#  define send_code(c, tree) send_bits(tree[c].Code, tree[c].Len)
+X   /* Send a code of the given tree. c and tree must not have side effects */
+X
+X#else /* DEBUG */
+X#  define send_code(c, tree) \
+X     { if (verbose>1) fprintf(stderr,"\ncd %3d ",(c)); \
+X       send_bits(tree[c].Code, tree[c].Len); }
+X#endif
+X
+X#define d_code(dist) \
+X   ((dist) < 256 ? dist_code[dist] : dist_code[256+((dist)>>7)])
+X/* Mapping from a distance to a distance code. dist is the distance - 1 and
+X * must not have side effects. dist_code[256] and dist_code[257] are never
+X * used.
+X */
+X
+X#define MAX(a,b) (a >= b ? a : b)
+X/* the arguments must not have side effects */
+X
+X/* ===========================================================================
+X * Allocate the match buffer, initialize the various tables and save the
+X * location of the internal file attribute (ascii/binary) and method
+X * (DEFLATE/STORE).
+X */
+Xvoid ct_init(attr, method)
+X    ush  *attr;   /* pointer to internal file attribute */
+X    int  *method; /* pointer to compression method */
+X{
+X    int n;        /* iterates over tree elements */
+X    int bits;     /* bit counter */
+X    int length;   /* length value */
+X    int code;     /* code value */
+X    int dist;     /* distance index */
+X
+X    file_type = attr;
+X    file_method = method;
+X    compressed_len = input_len = 0L;
+X        
+X    if (static_dtree[0].Len != 0) return; /* ct_init already called */
+X
+X#ifdef DYN_ALLOC
+X    d_buf = (ush far*) fcalloc(DIST_BUFSIZE, sizeof(ush));
+X    l_buf = (uch far*) fcalloc(LIT_BUFSIZE/2, 2);
+X    /* Avoid using the value 64K on 16 bit machines */
+X    if (l_buf == NULL || d_buf == NULL) error("ct_init: out of memory");
+X#endif
+X
+X    /* Initialize the mapping length (0..255) -> length code (0..28) */
+X    length = 0;
+X    for (code = 0; code < LENGTH_CODES-1; code++) {
+X        base_length[code] = length;
+X        for (n = 0; n < (1<<extra_lbits[code]); n++) {
+X            length_code[length++] = (uch)code;
+X        }
+X    }
+X    Assert (length == 256, "ct_init: length != 256");
+X    /* Note that the length 255 (match length 258) can be represented
+X     * in two different ways: code 284 + 5 bits or code 285, so we
+X     * overwrite length_code[255] to use the best encoding:
+X     */
+X    length_code[length-1] = (uch)code;
+X
+X    /* Initialize the mapping dist (0..32K) -> dist code (0..29) */
+X    dist = 0;
+X    for (code = 0 ; code < 16; code++) {
+X        base_dist[code] = dist;
+X        for (n = 0; n < (1<<extra_dbits[code]); n++) {
+X            dist_code[dist++] = (uch)code;
+X        }
+X    }
+X    Assert (dist == 256, "ct_init: dist != 256");
+X    dist >>= 7; /* from now on, all distances are divided by 128 */
+X    for ( ; code < D_CODES; code++) {
+X        base_dist[code] = dist << 7;
+X        for (n = 0; n < (1<<(extra_dbits[code]-7)); n++) {
+X            dist_code[256 + dist++] = (uch)code;
+X        }
+X    }
+X    Assert (dist == 256, "ct_init: 256+dist != 512");
+X
+X    /* Construct the codes of the static literal tree */
+X    for (bits = 0; bits <= MAX_BITS; bits++) bl_count[bits] = 0;
+X    n = 0;
+X    while (n <= 143) static_ltree[n++].Len = 8, bl_count[8]++;
+X    while (n <= 255) static_ltree[n++].Len = 9, bl_count[9]++;
+X    while (n <= 279) static_ltree[n++].Len = 7, bl_count[7]++;
+X    while (n <= 287) static_ltree[n++].Len = 8, bl_count[8]++;
+X    /* Codes 286 and 287 do not exist, but we must include them in the
+X     * tree construction to get a canonical Huffman tree (longest code
+X     * all ones)
+X     */
+X    gen_codes(static_ltree, L_CODES+1);
+X
+X    /* The static distance tree is trivial: */
+X    for (n = 0; n < D_CODES; n++) {
+X        static_dtree[n].Len = 5;
+X        static_dtree[n].Code = bi_reverse(n, 5);
+X    }
+X
+X    /* Initialize the first block of the first file: */
+X    init_block();
+X}
+X
+X/* ===========================================================================
+X * Initialize a new block.
+X */
+Xlocal void init_block()
+X{
+X    int n; /* iterates over tree elements */
+X
+X    /* Initialize the trees. */
+X    for (n = 0; n < L_CODES;  n++) dyn_ltree[n].Freq = 0;
+X    for (n = 0; n < D_CODES;  n++) dyn_dtree[n].Freq = 0;
+X    for (n = 0; n < BL_CODES; n++) bl_tree[n].Freq = 0;
+X
+X    dyn_ltree[END_BLOCK].Freq = 1;
+X    opt_len = static_len = 0L;
+X    last_lit = last_dist = last_flags = 0;
+X    flags = 0; flag_bit = 1;
+X}
+X
+X#define SMALLEST 1
+X/* Index within the heap array of least frequent node in the Huffman tree */
+X
+X
+X/* ===========================================================================
+X * Remove the smallest element from the heap and recreate the heap with
+X * one less element. Updates heap and heap_len.
+X */
+X#define pqremove(tree, top) \
+X{\
+X    top = heap[SMALLEST]; \
+X    heap[SMALLEST] = heap[heap_len--]; \
+X    pqdownheap(tree, SMALLEST); \
+X}
+X
+X/* ===========================================================================
+X * Compares to subtrees, using the tree depth as tie breaker when
+X * the subtrees have equal frequency. This minimizes the worst case length.
+X */
+X#define smaller(tree, n, m) \
+X   (tree[n].Freq < tree[m].Freq || \
+X   (tree[n].Freq == tree[m].Freq && depth[n] <= depth[m]))
+X
+X/* ===========================================================================
+X * Restore the heap property by moving down the tree starting at node k,
+X * exchanging a node with the smallest of its two sons if necessary, stopping
+X * when the heap property is re-established (each father smaller than its
+X * two sons).
+X */
+Xlocal void pqdownheap(tree, k)
+X    ct_data near *tree;  /* the tree to restore */
+X    int k;               /* node to move down */
+X{
+X    int v = heap[k];
+X    int j = k << 1;  /* left son of k */
+X    while (j <= heap_len) {
+X        /* Set j to the smallest of the two sons: */
+X        if (j < heap_len && smaller(tree, heap[j+1], heap[j])) j++;
+X
+X        /* Exit if v is smaller than both sons */
+X        if (smaller(tree, v, heap[j])) break;
+X
+X        /* Exchange v with the smallest son */
+X        heap[k] = heap[j],  k = j;
+X
+X        /* And continue down the tree, setting j to the left son of k */
+X        j <<= 1;
+X    }
+X    heap[k] = v;
+X}
+X
+X/* ===========================================================================
+X * Compute the optimal bit lengths for a tree and update the total bit length
+X * for the current block.
+X * IN assertion: the fields freq and dad are set, heap[heap_max] and
+X *    above are the tree nodes sorted by increasing frequency.
+X * OUT assertions: the field len is set to the optimal bit length, the
+X *     array bl_count contains the frequencies for each bit length.
+X *     The length opt_len is updated; static_len is also updated if stree is
+X *     not null.
+X */
+Xlocal void gen_bitlen(desc)
+X    tree_desc near *desc; /* the tree descriptor */
+X{
+X    ct_data near *tree  = desc->dyn_tree;
+X    int near *extra     = desc->extra_bits;
+X    int base            = desc->extra_base;
+X    int max_code        = desc->max_code;
+X    int max_length      = desc->max_length;
+X    ct_data near *stree = desc->static_tree;
+X    int h;              /* heap index */
+X    int n, m;           /* iterate over the tree elements */
+X    int bits;           /* bit length */
+X    int xbits;          /* extra bits */
+X    ush f;              /* frequency */
+X    int overflow = 0;   /* number of elements with bit length too large */
+X
+X    for (bits = 0; bits <= MAX_BITS; bits++) bl_count[bits] = 0;
+X
+X    /* In a first pass, compute the optimal bit lengths (which may
+X     * overflow in the case of the bit length tree).
+X     */
+X    tree[heap[heap_max]].Len = 0; /* root of the heap */
+X
+X    for (h = heap_max+1; h < HEAP_SIZE; h++) {
+X        n = heap[h];
+X        bits = tree[tree[n].Dad].Len + 1;
+X        if (bits > max_length) bits = max_length, overflow++;
+X        tree[n].Len = bits;
+X        /* We overwrite tree[n].Dad which is no longer needed */
+X
+X        if (n > max_code) continue; /* not a leaf node */
+X
+X        bl_count[bits]++;
+X        xbits = 0;
+X        if (n >= base) xbits = extra[n-base];
+X        f = tree[n].Freq;
+X        opt_len += (ulg)f * (bits + xbits);
+X        if (stree) static_len += (ulg)f * (stree[n].Len + xbits);
+X    }
+X    if (overflow == 0) return;
+X
+X    Trace((stderr,"\nbit length overflow\n"));
+X    /* This happens for example on obj2 and pic of the Calgary corpus */
+X
+X    /* Find the first bit length which could increase: */
+X    do {
+X        bits = max_length-1;
+X        while (bl_count[bits] == 0) bits--;
+X        bl_count[bits]--;      /* move one leaf down the tree */
+X        bl_count[bits+1] += 2; /* move one overflow item as its brother */
+X        bl_count[max_length]--;
+X        /* The brother of the overflow item also moves one step up,
+X         * but this does not affect bl_count[max_length]
+X         */
+X        overflow -= 2;
+X    } while (overflow > 0);
+X
+X    /* Now recompute all bit lengths, scanning in increasing frequency.
+X     * h is still equal to HEAP_SIZE. (It is simpler to reconstruct all
+X     * lengths instead of fixing only the wrong ones. This idea is taken
+X     * from 'ar' written by Haruhiko Okumura.)
+X     */
+X    for (bits = max_length; bits != 0; bits--) {
+X        n = bl_count[bits];
+X        while (n != 0) {
+X            m = heap[--h];
+X            if (m > max_code) continue;
+X            if (tree[m].Len != (unsigned) bits) {
+X                Trace((stderr,"code %d bits %d->%d\n", m, tree[m].Len, bits));
+X                opt_len += ((long)bits-(long)tree[m].Len)*(long)tree[m].Freq;
+X                tree[m].Len = bits;
+X            }
+X            n--;
+X        }
+X    }
+X}
+X
+X/* ===========================================================================
+X * Generate the codes for a given tree and bit counts (which need not be
+X * optimal).
+X * IN assertion: the array bl_count contains the bit length statistics for
+X * the given tree and the field len is set for all tree elements.
+X * OUT assertion: the field code is set for all tree elements of non
+X *     zero code length.
+X */
+Xlocal void gen_codes (tree, max_code)
+X    ct_data near *tree;        /* the tree to decorate */
+X    int max_code;              /* largest code with non zero frequency */
+X{
+X    ush next_code[MAX_BITS+1]; /* next code value for each bit length */
+X    ush code = 0;              /* running code value */
+X    int bits;                  /* bit index */
+X    int n;                     /* code index */
+X
+X    /* The distribution counts are first used to generate the code values
+X     * without bit reversal.
+X     */
+X    for (bits = 1; bits <= MAX_BITS; bits++) {
+X        next_code[bits] = code = (code + bl_count[bits-1]) << 1;
+X    }
+X    /* Check that the bit counts in bl_count are consistent. The last code
+X     * must be all ones.
+X     */
+X    Assert (code + bl_count[MAX_BITS]-1 == (1<<MAX_BITS)-1,
+X            "inconsistent bit counts");
+X    Tracev((stderr,"\ngen_codes: max_code %d ", max_code));
+X
+X    for (n = 0;  n <= max_code; n++) {
+X        int len = tree[n].Len;
+X        if (len == 0) continue;
+X        /* Now reverse the bits */
+X        tree[n].Code = bi_reverse(next_code[len]++, len);
+X
+X        Tracec(tree != static_ltree, (stderr,"\nn %3d %c l %2d c %4x (%x) ",
+X             n, (isgraph(n) ? n : ' '), len, tree[n].Code, next_code[len]-1));
+X    }
+X}
+X
+X/* ===========================================================================
+X * Construct one Huffman tree and assigns the code bit strings and lengths.
+X * Update the total bit length for the current block.
+X * IN assertion: the field freq is set for all tree elements.
+X * OUT assertions: the fields len and code are set to the optimal bit length
+X *     and corresponding code. The length opt_len is updated; static_len is
+X *     also updated if stree is not null. The field max_code is set.
+X */
+Xlocal void build_tree(desc)
+X    tree_desc near *desc; /* the tree descriptor */
+X{
+X    ct_data near *tree   = desc->dyn_tree;
+X    ct_data near *stree  = desc->static_tree;
+X    int elems            = desc->elems;
+X    int n, m;          /* iterate over heap elements */
+X    int max_code = -1; /* largest code with non zero frequency */
+X    int node = elems;  /* next internal node of the tree */
+X
+X    /* Construct the initial heap, with least frequent element in
+X     * heap[SMALLEST]. The sons of heap[n] are heap[2*n] and heap[2*n+1].
+X     * heap[0] is not used.
+X     */
+X    heap_len = 0, heap_max = HEAP_SIZE;
+X
+X    for (n = 0; n < elems; n++) {
+X        if (tree[n].Freq != 0) {
+X            heap[++heap_len] = max_code = n;
+X            depth[n] = 0;
+X        } else {
+X            tree[n].Len = 0;
+X        }
+X    }
+X
+X    /* The pkzip format requires that at least one distance code exists,
+X     * and that at least one bit should be sent even if there is only one
+X     * possible code. So to avoid special checks later on we force at least
+X     * two codes of non zero frequency.
+X     */
+X    while (heap_len < 2) {
+X        int new = heap[++heap_len] = (max_code < 2 ? ++max_code : 0);
+X        tree[new].Freq = 1;
+X        depth[new] = 0;
+X        opt_len--; if (stree) static_len -= stree[new].Len;
+X        /* new is 0 or 1 so it does not have extra bits */
+X    }
+X    desc->max_code = max_code;
+X
+X    /* The elements heap[heap_len/2+1 .. heap_len] are leaves of the tree,
+X     * establish sub-heaps of increasing lengths:
+X     */
+X    for (n = heap_len/2; n >= 1; n--) pqdownheap(tree, n);
+X
+X    /* Construct the Huffman tree by repeatedly combining the least two
+X     * frequent nodes.
+X     */
+X    do {
+X        pqremove(tree, n);   /* n = node of least frequency */
+X        m = heap[SMALLEST];  /* m = node of next least frequency */
+X
+X        heap[--heap_max] = n; /* keep the nodes sorted by frequency */
+X        heap[--heap_max] = m;
+X
+X        /* Create a new node father of n and m */
+X        tree[node].Freq = tree[n].Freq + tree[m].Freq;
+X        depth[node] = (uch) (MAX(depth[n], depth[m]) + 1);
+X        tree[n].Dad = tree[m].Dad = node;
+X#ifdef DUMP_BL_TREE
+X        if (tree == bl_tree) {
+X            fprintf(stderr,"\nnode %d(%d), sons %d(%d) %d(%d)",
+X                    node, tree[node].Freq, n, tree[n].Freq, m, tree[m].Freq);
+X        }
+X#endif
+X        /* and insert the new node in the heap */
+X        heap[SMALLEST] = node++;
+X        pqdownheap(tree, SMALLEST);
+X
+X    } while (heap_len >= 2);
+X
+X    heap[--heap_max] = heap[SMALLEST];
+X
+X    /* At this point, the fields freq and dad are set. We can now
+X     * generate the bit lengths.
+X     */
+X    gen_bitlen(desc);
+X
+X    /* The field len is now set, we can generate the bit codes */
+X    gen_codes (tree, max_code);
+X}
+X
+X/* ===========================================================================
+X * Scan a literal or distance tree to determine the frequencies of the codes
+X * in the bit length tree. Updates opt_len to take into account the repeat
+X * counts. (The contribution of the bit length codes will be added later
+X * during the construction of bl_tree.)
+X */
+Xlocal void scan_tree (tree, max_code)
+X    ct_data near *tree; /* the tree to be scanned */
+X    int max_code;       /* and its largest code of non zero frequency */
+X{
+X    int n;                     /* iterates over all tree elements */
+X    int prevlen = -1;          /* last emitted length */
+X    int curlen;                /* length of current code */
+X    int nextlen = tree[0].Len; /* length of next code */
+X    int count = 0;             /* repeat count of the current code */
+X    int max_count = 7;         /* max repeat count */
+X    int min_count = 4;         /* min repeat count */
+X
+X    if (nextlen == 0) max_count = 138, min_count = 3;
+X    tree[max_code+1].Len = (ush)-1; /* guard */
+X
+X    for (n = 0; n <= max_code; n++) {
+X        curlen = nextlen; nextlen = tree[n+1].Len;
+X        if (++count < max_count && curlen == nextlen) {
+X            continue;
+X        } else if (count < min_count) {
+X            bl_tree[curlen].Freq += count;
+X        } else if (curlen != 0) {
+X            if (curlen != prevlen) bl_tree[curlen].Freq++;
+X            bl_tree[REP_3_6].Freq++;
+X        } else if (count <= 10) {
+X            bl_tree[REPZ_3_10].Freq++;
+X        } else {
+X            bl_tree[REPZ_11_138].Freq++;
+X        }
+X        count = 0; prevlen = curlen;
+X        if (nextlen == 0) {
+X            max_count = 138, min_count = 3;
+X        } else if (curlen == nextlen) {
+X            max_count = 6, min_count = 3;
+X        } else {
+X            max_count = 7, min_count = 4;
+X        }
+X    }
+X}
+X
+X/* ===========================================================================
+X * Send a literal or distance tree in compressed form, using the codes in
+X * bl_tree.
+X */
+Xlocal void send_tree (tree, max_code)
+X    ct_data near *tree; /* the tree to be scanned */
+X    int max_code;       /* and its largest code of non zero frequency */
+X{
+X    int n;                     /* iterates over all tree elements */
+X    int prevlen = -1;          /* last emitted length */
+X    int curlen;                /* length of current code */
+X    int nextlen = tree[0].Len; /* length of next code */
+X    int count = 0;             /* repeat count of the current code */
+X    int max_count = 7;         /* max repeat count */
+X    int min_count = 4;         /* min repeat count */
+X
+X    /* tree[max_code+1].Len = -1; */  /* guard already set */
+X    if (nextlen == 0) max_count = 138, min_count = 3;
+X
+X    for (n = 0; n <= max_code; n++) {
+X        curlen = nextlen; nextlen = tree[n+1].Len;
+X        if (++count < max_count && curlen == nextlen) {
+X            continue;
+X        } else if (count < min_count) {
+X            do { send_code(curlen, bl_tree); } while (--count != 0);
+X
+X        } else if (curlen != 0) {
+X            if (curlen != prevlen) {
+X                send_code(curlen, bl_tree); count--;
+X            }
+X            Assert(count >= 3 && count <= 6, " 3_6?");
+X            send_code(REP_3_6, bl_tree); send_bits(count-3, 2);
+X
+X        } else if (count <= 10) {
+X            send_code(REPZ_3_10, bl_tree); send_bits(count-3, 3);
+X
+X        } else {
+X            send_code(REPZ_11_138, bl_tree); send_bits(count-11, 7);
+X        }
+X        count = 0; prevlen = curlen;
+X        if (nextlen == 0) {
+X            max_count = 138, min_count = 3;
+X        } else if (curlen == nextlen) {
+X            max_count = 6, min_count = 3;
+X        } else {
+X            max_count = 7, min_count = 4;
+X        }
+X    }
+X}
+X
+X/* ===========================================================================
+X * Construct the Huffman tree for the bit lengths and return the index in
+X * bl_order of the last bit length code to send.
+X */
+Xlocal int build_bl_tree()
+X{
+X    int max_blindex;  /* index of last bit length code of non zero freq */
+X
+X    /* Determine the bit length frequencies for literal and distance trees */
+X    scan_tree(dyn_ltree, l_desc.max_code);
+X    scan_tree(dyn_dtree, d_desc.max_code);
+X
+X    /* Build the bit length tree: */
+X    build_tree(&bl_desc);
+X    /* opt_len now includes the length of the tree representations, except
+X     * the lengths of the bit lengths codes and the 5+5+4 bits for the counts.
+X     */
+X
+X    /* Determine the number of bit length codes to send. The pkzip format
+X     * requires that at least 4 bit length codes be sent. (appnote.txt says
+X     * 3 but the actual value used is 4.)
+X     */
+X    for (max_blindex = BL_CODES-1; max_blindex >= 3; max_blindex--) {
+X        if (bl_tree[bl_order[max_blindex]].Len != 0) break;
+X    }
+X    /* Update opt_len to include the bit length tree and counts */
+X    opt_len += 3*(max_blindex+1) + 5+5+4;
+X    Tracev((stderr, "\ndyn trees: dyn %ld, stat %ld", opt_len, static_len));
+X
+X    return max_blindex;
+X}
+X
+X/* ===========================================================================
+X * Send the header for a block using dynamic Huffman trees: the counts, the
+X * lengths of the bit length codes, the literal tree and the distance tree.
+X * IN assertion: lcodes >= 257, dcodes >= 1, blcodes >= 4.
+X */
+Xlocal void send_all_trees(lcodes, dcodes, blcodes)
+X    int lcodes, dcodes, blcodes; /* number of codes for each tree */
+X{
+X    int rank;                    /* index in bl_order */
+X
+X    Assert (lcodes >= 257 && dcodes >= 1 && blcodes >= 4, "not enough codes");
+X    Assert (lcodes <= L_CODES && dcodes <= D_CODES && blcodes <= BL_CODES,
+X            "too many codes");
+X    Tracev((stderr, "\nbl counts: "));
+X    send_bits(lcodes-257, 5); /* not -255 as stated in appnote.txt */
+X    send_bits(dcodes-1,   5);
+X    send_bits(blcodes-4,  4); /* not -3 as stated in appnote.txt */
+X    for (rank = 0; rank < blcodes; rank++) {
+X        Tracev((stderr, "\nbl code %2d ", bl_order[rank]));
+X        send_bits(bl_tree[bl_order[rank]].Len, 3);
+X    }
+X    Tracev((stderr, "\nbl tree: sent %ld", bits_sent));
+X
+X    send_tree(dyn_ltree, lcodes-1); /* send the literal tree */
+X    Tracev((stderr, "\nlit tree: sent %ld", bits_sent));
+X
+X    send_tree(dyn_dtree, dcodes-1); /* send the distance tree */
+X    Tracev((stderr, "\ndist tree: sent %ld", bits_sent));
+X}
+X
+X/* ===========================================================================
+X * Determine the best encoding for the current block: dynamic trees, static
+X * trees or store, and output the encoded block to the zip file. This function
+X * returns the total compressed length for the file so far.
+X */
+Xulg flush_block(buf, stored_len, eof)
+X    char *buf;        /* input block, or NULL if too old */
+X    ulg stored_len;   /* length of input block */
+X    int eof;          /* true if this is the last block for a file */
+X{
+X    ulg opt_lenb, static_lenb; /* opt_len and static_len in bytes */
+X    int max_blindex;  /* index of last bit length code of non zero freq */
+X
+X    flag_buf[last_flags] = flags; /* Save the flags for the last 8 items */
+X
+X     /* Check if the file is ascii or binary */
+X    if (*file_type == (ush)UNKNOWN) set_file_type();
+X
+X    /* Construct the literal and distance trees */
+X    build_tree(&l_desc);
+X    Tracev((stderr, "\nlit data: dyn %ld, stat %ld", opt_len, static_len));
+X
+X    build_tree(&d_desc);
+X    Tracev((stderr, "\ndist data: dyn %ld, stat %ld", opt_len, static_len));
+X    /* At this point, opt_len and static_len are the total bit lengths of
+X     * the compressed block data, excluding the tree representations.
+X     */
+X
+X    /* Build the bit length tree for the above two trees, and get the index
+X     * in bl_order of the last bit length code to send.
+X     */
+X    max_blindex = build_bl_tree();
+X
+X    /* Determine the best encoding. Compute first the block length in bytes */
+X    opt_lenb = (opt_len+3+7)>>3;
+X    static_lenb = (static_len+3+7)>>3;
+X    input_len += stored_len; /* for debugging only */
+X
+X    Trace((stderr, "\nopt %lu(%lu) stat %lu(%lu) stored %lu lit %u dist %u ",
+X            opt_lenb, opt_len, static_lenb, static_len, stored_len,
+X            last_lit, last_dist));
+X
+X    if (static_lenb <= opt_lenb) opt_lenb = static_lenb;
+X
+X    /* If compression failed and this is the first and last block,
+X     * and if the zip file can be seeked (to rewrite the local header),
+X     * the whole file is transformed into a stored file:
+X     */
+X#ifdef FORCE_METHOD
+X    if (level == 1 && eof && compressed_len == 0L) { /* force stored file */
+X#else
+X    if (stored_len <= opt_lenb && eof && compressed_len == 0L && seekable()) {
+X#endif
+X        /* Since LIT_BUFSIZE <= 2*WSIZE, the input data must be there: */
+X        if (buf == NULL) error ("block vanished");
+X
+X        copy_block(buf, (unsigned)stored_len, 0); /* without header */
+X        compressed_len = stored_len << 3;
+X        *file_method = STORE;
+X
+X#ifdef FORCE_METHOD
+X    } else if (level == 2 && buf != NULL) { /* force stored block */
+X#else
+X    } else if (stored_len+4 <= opt_lenb && buf != NULL) {
+X                       /* 4: two words for the lengths */
+X#endif
+X        /* The test buf != NULL is only necessary if LIT_BUFSIZE > WSIZE.
+X         * Otherwise we can't have processed more than WSIZE input bytes since
+X         * the last block flush, because compression would have been
+X         * successful. If LIT_BUFSIZE <= WSIZE, it is never too late to
+X         * transform a block into a stored block.
+X         */
+X        send_bits((STORED_BLOCK<<1)+eof, 3);  /* send block type */
+X        compressed_len = (compressed_len + 3 + 7) & ~7L;
+X        compressed_len += (stored_len + 4) << 3;
+X
+X        copy_block(buf, (unsigned)stored_len, 1); /* with header */
+X
+X#ifdef FORCE_METHOD
+X    } else if (level == 3) { /* force static trees */
+X#else
+X    } else if (static_lenb == opt_lenb) {
+X#endif
+X        send_bits((STATIC_TREES<<1)+eof, 3);
+X        compress_block(static_ltree, static_dtree);
+X        compressed_len += 3 + static_len;
+X    } else {
+X        send_bits((DYN_TREES<<1)+eof, 3);
+X        send_all_trees(l_desc.max_code+1, d_desc.max_code+1, max_blindex+1);
+X        compress_block(dyn_ltree, dyn_dtree);
+X        compressed_len += 3 + opt_len;
+X    }
+X    Assert (compressed_len == bits_sent, "bad compressed size");
+X    init_block();
+X
+X    if (eof) {
+X        Assert (input_len == isize, "bad input size");
+X        bi_windup();
+X        compressed_len += 7;  /* align on byte boundary */
+X    }
+X    Tracev((stderr,"\ncomprlen %lu(%lu) ", compressed_len>>3,
+X           compressed_len-7*eof));
+X
+X    return compressed_len >> 3;
+X}
+X
+X/* ===========================================================================
+X * Save the match info and tally the frequency counts. Return true if
+X * the current block must be flushed.
+X */
+Xint ct_tally (dist, lc)
+X    int dist;  /* distance of matched string */
+X    int lc;    /* match length-MIN_MATCH or unmatched char (if dist==0) */
+X{
+X    l_buf[last_lit++] = (uch)lc;
+X    if (dist == 0) {
+X        /* lc is the unmatched char */
+X        dyn_ltree[lc].Freq++;
+X    } else {
+X        /* Here, lc is the match length - MIN_MATCH */
+X        dist--;             /* dist = match distance - 1 */
+X        Assert((ush)dist < (ush)MAX_DIST &&
+X               (ush)lc <= (ush)(MAX_MATCH-MIN_MATCH) &&
+X               (ush)d_code(dist) < (ush)D_CODES,  "ct_tally: bad match");
+X
+X        dyn_ltree[length_code[lc]+LITERALS+1].Freq++;
+X        dyn_dtree[d_code(dist)].Freq++;
+X
+X        d_buf[last_dist++] = dist;
+X        flags |= flag_bit;
+X    }
+X    flag_bit <<= 1;
+X
+X    /* Output the flags if they fill a byte: */
+X    if ((last_lit & 7) == 0) {
+X        flag_buf[last_flags++] = flags;
+X        flags = 0, flag_bit = 1;
+X    }
+X    /* Try to guess if it is profitable to stop the current block here */
+X    if (level > 2 && (last_lit & 0xfff) == 0) {
+X        /* Compute an upper bound for the compressed length */
+X        ulg out_length = (ulg)last_lit*8L;
+X        ulg in_length = (ulg)strstart-block_start;
+X        int dcode;
+X        for (dcode = 0; dcode < D_CODES; dcode++) {
+X            out_length += (ulg)dyn_dtree[dcode].Freq*(5L+extra_dbits[dcode]);
+X        }
+X        out_length >>= 3;
+X        Trace((stderr,"\nlast_lit %u, last_dist %u, in %ld, out ~%ld(%ld%%) ",
+X               last_lit, last_dist, in_length, out_length,
+X               100L - out_length*100L/in_length));
+X        if (last_dist < last_lit/2 && out_length < in_length/2) return 1;
+X    }
+X    return (last_lit == LIT_BUFSIZE-1 || last_dist == DIST_BUFSIZE);
+X    /* We avoid equality with LIT_BUFSIZE because of wraparound at 64K
+X     * on 16 bit machines and because stored blocks are restricted to
+X     * 64K-1 bytes.
+X     */
+X}
+X
+X/* ===========================================================================
+X * Send the block data compressed using the given Huffman trees
+X */
+Xlocal void compress_block(ltree, dtree)
+X    ct_data near *ltree; /* literal tree */
+X    ct_data near *dtree; /* distance tree */
+X{
+X    unsigned dist;      /* distance of matched string */
+X    int lc;             /* match length or unmatched char (if dist == 0) */
+X    unsigned lx = 0;    /* running index in l_buf */
+X    unsigned dx = 0;    /* running index in d_buf */
+X    unsigned fx = 0;    /* running index in flag_buf */
+X    uch flag = 0;       /* current flags */
+X    unsigned code;      /* the code to send */
+X    int extra;          /* number of extra bits to send */
+X
+X    if (last_lit != 0) do {
+X        if ((lx & 7) == 0) flag = flag_buf[fx++];
+X        lc = l_buf[lx++];
+X        if ((flag & 1) == 0) {
+X            send_code(lc, ltree); /* send a literal byte */
+X            Tracecv(isgraph(lc), (stderr," '%c' ", lc));
+X        } else {
+X            /* Here, lc is the match length - MIN_MATCH */
+X            code = length_code[lc];
+X            send_code(code+LITERALS+1, ltree); /* send the length code */
+X            extra = extra_lbits[code];
+X            if (extra != 0) {
+X                lc -= base_length[code];
+X                send_bits(lc, extra);        /* send the extra length bits */
+X            }
+X            dist = d_buf[dx++];
+X            /* Here, dist is the match distance - 1 */
+X            code = d_code(dist);
+X            Assert (code < D_CODES, "bad d_code");
+X
+X            send_code(code, dtree);       /* send the distance code */
+X            extra = extra_dbits[code];
+X            if (extra != 0) {
+X                dist -= base_dist[code];
+X                send_bits(dist, extra);   /* send the extra distance bits */
+X            }
+X        } /* literal or match pair ? */
+X        flag >>= 1;
+X    } while (lx < last_lit);
+X
+X    send_code(END_BLOCK, ltree);
+X}
+X
+X/* ===========================================================================
+X * Set the file type to ASCII or BINARY, using a crude approximation:
+X * binary if more than 20% of the bytes are <= 6 or >= 128, ascii otherwise.
+X * IN assertion: the fields freq of dyn_ltree are set and the total of all
+X * frequencies does not exceed 64K (to fit in an int on 16 bit machines).
+X */
+Xlocal void set_file_type()
+X{
+X    int n = 0;
+X    unsigned ascii_freq = 0;
+X    unsigned bin_freq = 0;
+X    while (n < 7)        bin_freq += dyn_ltree[n++].Freq;
+X    while (n < 128)    ascii_freq += dyn_ltree[n++].Freq;
+X    while (n < LITERALS) bin_freq += dyn_ltree[n++].Freq;
+X    *file_type = bin_freq > (ascii_freq >> 2) ? BINARY : ASCII;
+X    if (*file_type == BINARY && translate_eol) {
+X        warn("-l used on binary file", "");
+X    }
+X}
+END_OF_FILE
+  if test 40777 -ne `wc -c <'trees.c'`; then
+    echo shar: \"'trees.c'\" unpacked with wrong size!
+  fi
+  # end of 'trees.c'
+fi
+if test -f 'util.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util.c'\"
+else
+  echo shar: Extracting \"'util.c'\" \(12887 characters\)
+  sed "s/^X//" >'util.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  util.c by Mark Adler.
+X */
+X
+X#include "zip.h"
+X#include <ctype.h>
+X
+X#if defined(MSDOS) && !defined(OS2) && !defined(__GO32__) && !defined(WIN32)
+X#  include <dos.h>
+X#endif
+X
+Xuch upper[256], lower[256];
+X/* Country-dependent case map table */
+X
+X
+X#ifndef UTIL /* UTIL picks out namecmp code (all utils) and crc32 (zipcloak) */
+X
+X/* Local functions */
+X#ifdef PROTO
+X  local int recmatch(char *, char *);
+X  local unsigned ident(unsigned chr);
+X#endif /* PROTO */
+X
+Xchar *isshexp(p)
+Xchar *p;                /* candidate sh expression */
+X/* If p is a sh expression, a pointer to the first special character is
+X   returned.  Otherwise, NULL is returned. */
+X{
+X  for (; *p; p++)
+X    if (*p == '\\' && *(p+1))
+X      p++;
+X#ifdef VMS
+X    else if (*p == '%' || *p == '*')
+X#else /* !VMS */
+X    else if (*p == '?' || *p == '*' || *p == '[')
+X#endif /* ?VMS */
+X      return p;
+X  return NULL;
+X}
+X
+X
+Xlocal int recmatch(p, s)
+Xchar *p;                /* sh pattern to match */
+Xchar *s;                /* string to match it to */
+X/* Recursively compare the sh pattern p with the string s and return 1 if
+X   they match, and 0 or 2 if they don't or if there is a syntax error in the
+X   pattern.  This routine recurses on itself no deeper than the number of
+X   characters in the pattern. */
+X{
+X  int c;                /* pattern char or start of range in [-] loop */ 
+X
+X  /* Get first character, the pattern for new recmatch calls follows */
+X  c = *p++;
+X
+X  /* If that was the end of the pattern, match if string empty too */
+X  if (c == 0)
+X    return *s == 0;
+X
+X  /* '?' (or '%') matches any character (but not an empty string) */
+X#ifdef VMS
+X  if (c == '%')
+X#else /* !VMS */
+X  if (c == '?')
+X#endif /* ?VMS */
+X    return *s ? recmatch(p, s + 1) : 0;
+X
+X  /* '*' matches any number of characters, including zero */
+X  if (c == '*')
+X  {
+X    if (*p == 0)
+X      return 1;
+X    for (; *s; s++)
+X      if ((c = recmatch(p, s)) != 0)
+X        return c;
+X    return 2;           /* 2 means give up--shmatch will return false */
+X  }
+X
+X#ifndef VMS             /* No bracket matching in VMS */
+X  /* Parse and process the list of characters and ranges in brackets */
+X  if (c == '[')
+X  {
+X    int e;              /* flag true if next char to be taken literally */
+X    char *q;            /* pointer to end of [-] group */
+X    int r;              /* flag true to match anything but the range */
+X
+X    if (*s == 0)                        /* need a character to match */
+X      return 0;
+X    p += (r = *p == '!');               /* see if reverse */
+X    for (q = p, e = 0; *q; q++)         /* find closing bracket */
+X      if (e)
+X        e = 0;
+X      else
+X        if (*q == '\\')
+X          e = 1;
+X        else if (*q == ']')
+X          break;
+X    if (*q != ']')                      /* nothing matches if bad syntax */
+X      return 0;
+X    for (c = 0, e = *p == '-'; p < q; p++)      /* go through the list */
+X    {
+X      if (e == 0 && *p == '\\')         /* set escape flag if \ */
+X        e = 1;
+X      else if (e == 0 && *p == '-')     /* set start of range if - */
+X        c = *(p-1);
+X      else
+X      {
+X        if (*(p+1) != '-')
+X          for (c = c ? c : *p; c <= *p; c++)    /* compare range */
+X            if (case_map(c) == case_map(*s))
+X              return r ? 0 : recmatch(q + 1, s + 1);
+X        c = e = 0;                      /* clear range, escape flags */
+X      }
+X    }
+X    return r ? recmatch(q + 1, s + 1) : 0;      /* bracket match failed */
+X  }
+X#endif /* !VMS */
+X
+X  /* If escape ('\'), just compare next character */
+X  if (c == '\\')
+X    if ((c = *p++) == 0)                /* if \ at end, then syntax error */
+X      return 0;
+X
+X  /* Just a character--compare it */
+X  return case_map(c) == case_map(*s) ? recmatch(p, ++s) : 0;
+X}
+X
+X
+Xint shmatch(p, s)
+Xchar *p;                /* sh pattern to match */
+Xchar *s;                /* string to match it to */
+X/* Compare the sh pattern p with the string s and return true if they match,
+X   false if they don't or if there is a syntax error in the pattern. */
+X{
+X  return recmatch(p, s) == 1;
+X}
+X
+X
+X#ifdef MSDOS
+X
+Xint dosmatch(p, s)
+Xchar *p;                /* dos pattern to match */
+Xchar *s;                /* string to match it to */
+X/* Break the pattern and string into name and extension parts and match
+X   each separately using shmatch(). */
+X{
+X  char *p1, *p2;        /* pattern sections */
+X  char *s1, *s2;        /* string sections */
+X  int r;                /* result */
+X
+X  if ((p1 = malloc(strlen(p) + 1)) == NULL ||
+X      (s1 = malloc(strlen(s) + 1)) == NULL)
+X  {
+X    if (p1 != NULL)
+X      free((voidp *)p1);
+X    return 0;
+X  }
+X  strcpy(p1, p);
+X  strcpy(s1, s);
+X  if ((p2 = strrchr(p1, '.')) != NULL)
+X    *p2++ = 0;
+X  else
+X    p2 = "";
+X  if ((s2 = strrchr(s1, '.')) != NULL)
+X    *s2++ = 0;
+X  else
+X    s2 = "";
+X  r = shmatch(p2, s2) && shmatch(p1, s1);
+X  free((voidp *)p1);
+X  free((voidp *)s1);
+X  return r;
+X}
+X#endif /* MSDOS */
+X
+Xvoidp far **search(b, a, n, cmp)
+Xvoidp *b;               /* pointer to value to search for */
+Xvoidp far **a;          /* table of pointers to values, sorted */
+Xextent n;               /* number of pointers in a[] */
+Xint (*cmp) OF((voidp *, voidp far *));  /* comparison function for search */
+X/* Search for b in the pointer list a[0..n-1] using the compare function
+X   cmp(b, c) where c is an element of a[i] and cmp() returns negative if
+X   *b < *c, zero if *b == *c, or positive if *b > *c.  If *b is found,
+X   search returns a pointer to the entry in a[], else search() returns
+X   NULL.  The nature and size of *b and *c (they can be different) are
+X   left up to the cmp() function.  A binary search is used, and it is
+X   assumed that the list is sorted in ascending order. */
+X{
+X  voidp far **i;        /* pointer to midpoint of current range */
+X  voidp far **l;        /* pointer to lower end of current range */
+X  int r;                /* result of (*cmp)() call */
+X  voidp far **u;        /* pointer to upper end of current range */
+X
+X  l = (voidp far **)a;  u = l + (n-1);
+X  while (u >= l)
+X    if ((r = (*cmp)(b, *(i = l + ((u - l) >> 1)))) < 0)
+X      u = i - 1;
+X    else if (r > 0)
+X      l = i + 1;
+X    else
+X      return (voidp far **)i;
+X  return NULL;          /* If b were in list, it would belong at l */
+X}
+X
+X#endif /* !UTIL */
+X
+X
+X/* Table of CRC-32's of all single byte values (made by makecrc.c) */
+Xlocal ulg crctab[] = {
+X  0x00000000L, 0x77073096L, 0xee0e612cL, 0x990951baL, 0x076dc419L,
+X  0x706af48fL, 0xe963a535L, 0x9e6495a3L, 0x0edb8832L, 0x79dcb8a4L,
+X  0xe0d5e91eL, 0x97d2d988L, 0x09b64c2bL, 0x7eb17cbdL, 0xe7b82d07L,
+X  0x90bf1d91L, 0x1db71064L, 0x6ab020f2L, 0xf3b97148L, 0x84be41deL,
+X  0x1adad47dL, 0x6ddde4ebL, 0xf4d4b551L, 0x83d385c7L, 0x136c9856L,
+X  0x646ba8c0L, 0xfd62f97aL, 0x8a65c9ecL, 0x14015c4fL, 0x63066cd9L,
+X  0xfa0f3d63L, 0x8d080df5L, 0x3b6e20c8L, 0x4c69105eL, 0xd56041e4L,
+X  0xa2677172L, 0x3c03e4d1L, 0x4b04d447L, 0xd20d85fdL, 0xa50ab56bL,
+X  0x35b5a8faL, 0x42b2986cL, 0xdbbbc9d6L, 0xacbcf940L, 0x32d86ce3L,
+X  0x45df5c75L, 0xdcd60dcfL, 0xabd13d59L, 0x26d930acL, 0x51de003aL,
+X  0xc8d75180L, 0xbfd06116L, 0x21b4f4b5L, 0x56b3c423L, 0xcfba9599L,
+X  0xb8bda50fL, 0x2802b89eL, 0x5f058808L, 0xc60cd9b2L, 0xb10be924L,
+X  0x2f6f7c87L, 0x58684c11L, 0xc1611dabL, 0xb6662d3dL, 0x76dc4190L,
+X  0x01db7106L, 0x98d220bcL, 0xefd5102aL, 0x71b18589L, 0x06b6b51fL,
+X  0x9fbfe4a5L, 0xe8b8d433L, 0x7807c9a2L, 0x0f00f934L, 0x9609a88eL,
+X  0xe10e9818L, 0x7f6a0dbbL, 0x086d3d2dL, 0x91646c97L, 0xe6635c01L,
+X  0x6b6b51f4L, 0x1c6c6162L, 0x856530d8L, 0xf262004eL, 0x6c0695edL,
+X  0x1b01a57bL, 0x8208f4c1L, 0xf50fc457L, 0x65b0d9c6L, 0x12b7e950L,
+X  0x8bbeb8eaL, 0xfcb9887cL, 0x62dd1ddfL, 0x15da2d49L, 0x8cd37cf3L,
+X  0xfbd44c65L, 0x4db26158L, 0x3ab551ceL, 0xa3bc0074L, 0xd4bb30e2L,
+X  0x4adfa541L, 0x3dd895d7L, 0xa4d1c46dL, 0xd3d6f4fbL, 0x4369e96aL,
+X  0x346ed9fcL, 0xad678846L, 0xda60b8d0L, 0x44042d73L, 0x33031de5L,
+X  0xaa0a4c5fL, 0xdd0d7cc9L, 0x5005713cL, 0x270241aaL, 0xbe0b1010L,
+X  0xc90c2086L, 0x5768b525L, 0x206f85b3L, 0xb966d409L, 0xce61e49fL,
+X  0x5edef90eL, 0x29d9c998L, 0xb0d09822L, 0xc7d7a8b4L, 0x59b33d17L,
+X  0x2eb40d81L, 0xb7bd5c3bL, 0xc0ba6cadL, 0xedb88320L, 0x9abfb3b6L,
+X  0x03b6e20cL, 0x74b1d29aL, 0xead54739L, 0x9dd277afL, 0x04db2615L,
+X  0x73dc1683L, 0xe3630b12L, 0x94643b84L, 0x0d6d6a3eL, 0x7a6a5aa8L,
+X  0xe40ecf0bL, 0x9309ff9dL, 0x0a00ae27L, 0x7d079eb1L, 0xf00f9344L,
+X  0x8708a3d2L, 0x1e01f268L, 0x6906c2feL, 0xf762575dL, 0x806567cbL,
+X  0x196c3671L, 0x6e6b06e7L, 0xfed41b76L, 0x89d32be0L, 0x10da7a5aL,
+X  0x67dd4accL, 0xf9b9df6fL, 0x8ebeeff9L, 0x17b7be43L, 0x60b08ed5L,
+X  0xd6d6a3e8L, 0xa1d1937eL, 0x38d8c2c4L, 0x4fdff252L, 0xd1bb67f1L,
+X  0xa6bc5767L, 0x3fb506ddL, 0x48b2364bL, 0xd80d2bdaL, 0xaf0a1b4cL,
+X  0x36034af6L, 0x41047a60L, 0xdf60efc3L, 0xa867df55L, 0x316e8eefL,
+X  0x4669be79L, 0xcb61b38cL, 0xbc66831aL, 0x256fd2a0L, 0x5268e236L,
+X  0xcc0c7795L, 0xbb0b4703L, 0x220216b9L, 0x5505262fL, 0xc5ba3bbeL,
+X  0xb2bd0b28L, 0x2bb45a92L, 0x5cb36a04L, 0xc2d7ffa7L, 0xb5d0cf31L,
+X  0x2cd99e8bL, 0x5bdeae1dL, 0x9b64c2b0L, 0xec63f226L, 0x756aa39cL,
+X  0x026d930aL, 0x9c0906a9L, 0xeb0e363fL, 0x72076785L, 0x05005713L,
+X  0x95bf4a82L, 0xe2b87a14L, 0x7bb12baeL, 0x0cb61b38L, 0x92d28e9bL,
+X  0xe5d5be0dL, 0x7cdcefb7L, 0x0bdbdf21L, 0x86d3d2d4L, 0xf1d4e242L,
+X  0x68ddb3f8L, 0x1fda836eL, 0x81be16cdL, 0xf6b9265bL, 0x6fb077e1L,
+X  0x18b74777L, 0x88085ae6L, 0xff0f6a70L, 0x66063bcaL, 0x11010b5cL,
+X  0x8f659effL, 0xf862ae69L, 0x616bffd3L, 0x166ccf45L, 0xa00ae278L,
+X  0xd70dd2eeL, 0x4e048354L, 0x3903b3c2L, 0xa7672661L, 0xd06016f7L,
+X  0x4969474dL, 0x3e6e77dbL, 0xaed16a4aL, 0xd9d65adcL, 0x40df0b66L,
+X  0x37d83bf0L, 0xa9bcae53L, 0xdebb9ec5L, 0x47b2cf7fL, 0x30b5ffe9L,
+X  0xbdbdf21cL, 0xcabac28aL, 0x53b39330L, 0x24b4a3a6L, 0xbad03605L,
+X  0xcdd70693L, 0x54de5729L, 0x23d967bfL, 0xb3667a2eL, 0xc4614ab8L,
+X  0x5d681b02L, 0x2a6f2b94L, 0xb40bbe37L, 0xc30c8ea1L, 0x5a05df1bL,
+X  0x2d02ef8dL
+X};
+X
+X
+Xulg crc32(c, b)
+Xulg c;                  /* current contents of crc shift register */
+Xint b;                  /* byte (eight bits) to run through */
+X/* Return the CRC-32 c updated with the eight bits in b. */
+X{
+X  return crctab[((int)c ^ b) & 0xff] ^ (c >> 8);
+X}
+X
+X
+X#ifndef UTIL /* UTIL picks out namecmp code (all utils) and crc32 (zipcloak) */
+X
+Xulg updcrc(s, n)
+Xchar *s;                /* pointer to bytes to pump through */
+Xextent n;               /* number of bytes in s[] */
+X/* Run a set of bytes through the crc shift register.  If s is a NULL
+X   pointer, then initialize the crc shift register contents instead.
+X   Return the current crc in either case. */
+X{
+X  register ulg c;       /* temporary variable */
+X
+X  static ulg crc = 0xffffffffL; /* shift register contents */
+X
+X  if (s == NULL)
+X    c = 0xffffffffL;
+X  else
+X  {
+X    c = crc;
+X    while (n--)
+X      c = crctab[((int)c ^ (*s++)) & 0xff] ^ (c >> 8);
+X  }
+X  crc = c;
+X  return c ^ 0xffffffffL;       /* (instead of ~c for 64-bit machines) */
+X}
+X
+X#endif /* !UTIL */
+X
+X
+X#if (defined(MSDOS) && !defined(OS2) && !defined(__GO32__) && !defined(WIN32))
+X
+Xlocal unsigned ident(unsigned chr)
+X{
+X   return chr; /* in al */
+X}
+X
+Xvoid init_upper()
+X{
+X  static struct country {
+X    uch ignore[18];
+X    int (far *casemap)(int);
+X    uch filler[16];
+X  } country_info;
+X
+X  struct country far *info = &country_info;
+X  union REGS regs;
+X  struct SREGS sregs;
+X  int c;
+X
+X  regs.x.ax = 0x3800; /* get country info */
+X  regs.x.dx = FP_OFF(info);
+X  sregs.ds  = FP_SEG(info);
+X  intdosx(&regs, &regs, &sregs);
+X  for (c = 0; c < 128; c++) {
+X    upper[c] = (uch) toupper(c);
+X    lower[c] = (uch) c;
+X  }
+X  for (; c < sizeof(upper); c++) {
+X    upper[c] = (uch) (*country_info.casemap)(ident(c));
+X    /* ident() required because casemap takes its parameter in al */
+X    lower[c] = (uch) c;
+X  }
+X  for (c = 0; c < sizeof(upper); c++ ) {
+X    int u = upper[c];
+X    if (u != c && lower[u] == (uch) u) {
+X      lower[u] = (uch)c;
+X    }
+X  }
+X  for (c = 'A'; c <= 'Z'; c++) {
+X    lower[c] = (uch) (c - 'A' + 'a');
+X  }
+X}
+X#else
+X#  ifndef OS2
+X
+Xvoid init_upper()
+X{
+X  int c;
+X  for (c = 0; c < sizeof(upper); c++) upper[c] = lower[c] = c;
+X  for (c = 'a'; c <= 'z';        c++) upper[c] = c - 'a' + 'A';
+X  for (c = 'A'; c <= 'Z';        c++) lower[c] = c - 'A' + 'a';
+X}
+X#  endif /* OS2 */
+X
+X#endif /* MSDOS && !__GO32__ && !OS2 */
+X
+Xint namecmp(string1, string2)
+X  char *string1, *string2;
+X/* Compare the two strings ignoring case, and correctly taking into
+X * account national language characters. For operating systems with
+X * case sensitive file names, this function is equivalent to strcmp.
+X */
+X{
+X  int d;
+X
+X  for (;;)
+X  {
+X    d = (int) (unsigned char) case_map(*string1)
+X      - (int) (unsigned char) case_map(*string2);
+X    
+X    if (d || *string1 == 0 || *string2 == 0)
+X      return d;
+X      
+X    string1++;
+X    string2++;
+X  }
+X}
+END_OF_FILE
+  if test 12887 -ne `wc -c <'util.c'`; then
+    echo shar: \"'util.c'\" unpacked with wrong size!
+  fi
+  # end of 'util.c'
+fi
+if test -f 'vms/makefile.vms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/makefile.vms'\"
+else
+  echo shar: Extracting \"'vms/makefile.vms'\" \(3279 characters\)
+  sed "s/^X//" >'vms/makefile.vms' <<'END_OF_FILE'
+X#============================================================================
+X# Makefile for VMS Zip, ZipCloak, ZipNote  and ZipSplit          Greg Roelofs
+X# Version:  1.8f   [for use with Todd Aven's MAKE/VMS 3.4]       25 June 1992
+X#============================================================================
+X
+X# Most recent revisions:  25 June 1992
+X
+X
+X#####################
+X# MACRO DEFINITIONS #
+X#####################
+X
+XCRYPTO =
+XCLOAK =
+XCFLAGS =
+XUFLAGS = /def=UTIL
+X# Uncomment next three lines for decryption version:
+X#CRYPTO = crypt.obj,
+X#CLOAK = zipcloak.exe
+X#CFLAGS = /def=CRYPT
+X#UFLAGS = /def=(UTIL,CRYPT)
+X
+XCC = cc
+XLIB =
+X# Uncomment next two lines to use the GNU compiler (also add /undef=__STDC__
+X# to CFLAGS and UFLAGS, possibly split UFLAGS into two /def's, and possibly
+X# replace /obj=$@ [below] with copy/rename/delete setup).  NOT TESTED.
+X#CC = gcc
+X#LIB = gnu_cc:[000000]gcclib.olb/lib,
+X
+XE = .exe
+XO = .obj
+XLD = link
+XLDFLAGS =
+X
+XZIPS = zip$E zipnote$E zipsplit$E $(CLOAK)
+X
+X# object file lists
+XOBJZ = zip$O, zipfile$O, zipup$O, fileio$O, $(CRYPTO) util$O,-
+X   globals$O, VMSmunch$O, vms$O
+XOBJI = deflate$O, trees$O, bits$O
+XOBJN = zipnote$O, zipfile_$O, zipup_$O, fileio_$O, util_$O,-
+X   globals$O, VMSmunch$O
+XOBJS = zipsplit$O, zipfile_$O, zipup_$O, fileio_$O, util_$O,-
+X   globals$O, VMSmunch$O
+XOBJC = zipcloak$O, zipfile_$O, zipup_$O, fileio_$O, util$O,-
+X   globals$O, VMSmunch$O, crypt_$O
+X
+X
+X###############################################
+X# BASIC COMPILE INSTRUCTIONS AND DEPENDENCIES #
+X###############################################
+X
+Xdefault:	$(ZIPS)
+X
+X
+X# suffix rules
+X*.obj:	*.c				# `*.c' necessary?
+X	$(CC) $(CFLAGS) $<
+X
+X*_.obj:	*.c				# `$*' not legal
+X	$(CC) $(UFLAGS) /obj=$@ $<
+X
+X
+X# executables makerules (trailing `$' makes line a data line)
+Xzip$E:		$(OBJZ), $(OBJI)
+X	$(LD) $(LDFLAGS) $(OBJZ), $(OBJI), $(LIB) sys$input/opt
+X	sys$share:vaxcrtl.exe/shareable $
+X
+Xzipnote$E:	$(OBJN)
+X	$(LD) $(LDFLAGS) $(OBJN), $(LIB) sys$input/opt
+X	sys$share:vaxcrtl.exe/shareable $
+X
+Xzipcloak$E:	$(OBJC)
+X	$(LD) $(LDFLAGS) $(OBJC), $(LIB) sys$input/opt
+X	sys$share:vaxcrtl.exe/shareable $
+X
+Xzipsplit$E:	$(OBJS)
+X	$(LD) $(LDFLAGS) $(OBJS), $(LIB) sys$input/opt
+X	sys$share:vaxcrtl.exe/shareable $
+X
+X# dependencies for zip, zipnote, zipcloak, and zipsplit
+X$(OBJZ):	zip.h ziperr.h tailor.h
+X$(OBJI):	zip.h ziperr.h tailor.h
+X$(OBJN):	zip.h ziperr.h tailor.h
+X$(OBJS):	zip.h ziperr.h tailor.h
+X$(OBJC):	zip.h ziperr.h tailor.h
+Xfileio$O:	VMSmunch.h
+Xvms$O:          vms.c zip.h
+XVMSmunch$O:     VMSmunch.c VMSmunch.h
+Xzip$O:		revision.h
+Xzipcloak$O:	revision.h
+Xzipfile$O:	VMSmunch.h
+Xzipnote$O:	revision.h
+Xzipsplit$O:	revision.h
+Xzipup$O:	revision.h
+X
+X
+Xclean:
+X	del *.obj;*
+X	del *.exe;* 		# use "purge/log" instead?
+X
+X
+X# the backslash '\' is the continuation character if it occurs as
+X# the last non-white character on the line.
+X# the hyphen '-' is the DCL continuation character, so if it occurs
+X# as the last non-white character on the line, the next line will
+X# not have the dollar sign '$' prepended.
+X
+X
+X################################
+X# INDIVIDUAL MACHINE MAKERULES #
+X################################
+X
+Xgeneric:	default		# first try if unknown
+Xgeneric2:	default		# second try if unknown
+Xvax:		default
+Xvms:		default
+X
+Xall:		$(ZIPS)
+Xzip:		zip$E
+Xzipcloak:	zipcloak$E
+Xzipnote:	zipnote$E
+Xzipsplit:	zipsplit$E
+END_OF_FILE
+  if test 3279 -ne `wc -c <'vms/makefile.vms'`; then
+    echo shar: \"'vms/makefile.vms'\" unpacked with wrong size!
+  fi
+  # end of 'vms/makefile.vms'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

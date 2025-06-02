@@ -1,0 +1,764 @@
+Newsgroups: comp.sources.misc
+From: bert@netcom.com (Roberto Sierra)
+Subject: v40i004:  magicsquare - NxN Magic Square Solver, Part01/01
+Message-ID: <1993Oct11.013714.17142@sparky.sterling.com>
+X-Md4-Signature: 0ee26c7808e4df3afe3f9053ef457ade
+Keywords: ANSI C program computes solutions to NxN Magic Square Problem
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Tempered MicroDesigns
+Date: Mon, 11 Oct 1993 01:37:14 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: bert@netcom.com (Roberto Sierra)
+Posting-number: Volume 40, Issue 4
+Archive-name: magicsquare/part01
+Environment: ANSI-C
+
+rqureshi@girtab.usc.edu (Rauf) wrote:
+>  I was wondering if any of the esteemed reader of this group
+>  could answer my question or show me a way to find it.
+>
+>  How you can write the integers from 1 to 36, in a big square with
+>  36 small squares in it, such that the sum of the numbers in diagonal,
+>  column or rows is same. with no repitition of numbers.
+>
+>  I know how to do it for squares of order 5X5, 7X7,... but this 6X6 is
+>  a bit tricky for me.
+
+[*Long* reply with C code to follow -- be forwarned!!]
+
+I love puzzles, so this seemed an ideal problem to tackle last
+night while eating cold spaghetti with the headphones blaring.
+Unfortunately, after much puzzling and a ream of scratch paper
+consumed, I couldn't come up with a direct approach to solving
+the problem for abitrary NxN cases, nor could I answer the specific
+6x6 question posed.
+
+What I *was* able to do fairly rapidly (being a programmer and
+not a mathematician by trade) was to hack out an exhaustive search
+program in C which finds the solutions to the NxN problem if you throw
+enough CPU cycles at the problem.  I'm fairly certain that if you
+ran this program overnight, or perhaps for a day or two you'd get
+the answers you want.  [Warning: the algorithm is probably of
+exponential order, so don't try anything too large early on
+unless you have unlimited access to a Cray!].
+
+The code is actually not too bad.  For 3x3 and 4x4 cases, it
+generates the solutions quite rapidly (or at least faster than
+the *worst* algorithm I could conceive of).  It starts taking
+more time for 5x5 and 6x6 and so on.  Still, there's a recursive
+pruning algorithm that does a pretty good job in reducing the
+number of cases tested.
+
+What would definitely help would be to understand the properties
+of these squares in more detail.  I have some hunches about the
+basics of these beasts, but not enough to trust to code.
+
+For example, I suspect that all odd-sized squares have fairly
+simple solutions in which the 'middle' number in the sequence
+must be located at the center of the square.  For 3x3 squares,
+the 5 goes in the middle.  For 5x5 square, I'm pretty sure the
+13 has to go in the middle -- it makes 'sense' that way.  For
+even-sized squares (4x4, 6x6, etc.), there are a lot more
+solutions, and they are much weirder, since there is a greater
+degree of freedom to where values are placed.
+
+Also, I suspect that all of the solutions for a given square size
+have the same sum, but have no proof of this phenomenon.  For example,
+the 3x3 solution (and rotations thereof) adds up to 15.  All of
+the 4x4 solutions add up to 34.  I'm not sure what the 5x5
+solutions should add up to, but I have a hunch the magic number
+is 65 (the middle number '13' times the order '5') -- yet to
+be verified, so don't quote me.
+
+Again, these are only vague hunches... no firm conclusions.
+
+
+I actually had some code that was already pretty close to what
+I needed, so it only took a few hours to whack it into shape.
+You should be able to get this to run on any machine with an ANSI-
+compliant C compiler.  There's instructions for how to fire the
+thing up embedded in the code and a detailed description of the
+algorithm.
+
+One nice thing about the code is that you can tell the program
+to look for cases only exhibiting a certain sum value, which
+will limit the number of cases tested by orders of magnitude.
+For example, it takes a couple of minutes on a Sun to come up
+with the first 4x4 solution unless you tell it that the 4x4 
+sum is 34 (all solutions add to 34), in which case you'll
+get the same answer back in about a second!!  If you know
+what the magic number is for larger systems, 5x5, 6x6 and
+7x7 and so on, then that'll help a great deal.  The problem
+is, I don't know what the magic numbers are, or even if all
+of the solutions share the same sum.
+
+If anyone can come up with a better algorithm, let me know,
+I'd be interested in hearing about it.  I know I could do
+a better job if I spent more time on it and understood the
+properties of these 'magic' squares better.  The nice thing
+about having an exhaustive search program lying around is
+that you don't have to know too much about the underlying
+nature of the problem.  Just leave your system running the
+next time you go home for spaghetti.  :-)
+
+
+   Roberto Sierra
+   Tempered MicroDesigns
+   San Francisco, CA
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  MagicSquare.c
+# Wrapped by kent@sparky on Sun Oct 10 20:34:47 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'MagicSquare.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MagicSquare.c'\"
+else
+  echo shar: Extracting \"'MagicSquare.c'\" \(22090 characters\)
+  sed "s/^X//" >'MagicSquare.c' <<'END_OF_FILE'
+X/*
+X**  MagicSquare.c   --	Find solutions to the Magic Squares problem.
+X**			Roberto Sierra	7/25/93  v1.0
+X**
+X**  Description:
+X**	This program finds all the possible ways that the integers
+X**	1 through N^2 can be arranged in an NxN square so that the
+X**	sum of any row, column, or diagonal is identical.  By default,
+X**	the program prints the first solution it finds.  You can
+X**	use command line options to have all solutions printed or
+X**	merely counted.  The program allows the square to be any
+X**	size from 1x1 (trivial case) to 10x10.  WARNING: the time
+X**	required by the algorithm blows up sharply as the dimensions
+X**	increase.
+X**
+X**	The code makes no attempt to eliminate symmetrical solutions,
+X**	so the number of distinct solutions will be much lower than
+X**	the number of solutions reported by the program.
+X**
+X**
+X**  Usage:
+X**	MagicSquare [-ac] n [sum]
+X**
+X**	n	The dimensions of the square (the length of a side).
+X**		Must be an integer value in the range 1<=n<=10.
+X**	sum	Optional sum constraint.  By default, the program
+X**		will find arrangements matching any sum that appears along
+X**		all rows, columns and diagonals.  By specifying a specific
+X**		sum, only those solutions which match that specific sum
+X**		will be searched for and reported.  This should speed up
+X**		the program quite significantly.  The sum value, if
+X**		supplied, must be an integer in the proper range --
+X**		[FYI -- n*(n+1)/2 <= sum <= n*(2n^2-n+1)/2]
+X**	-a	Find (and print) ALL solutions.
+X**	-c	Count all solutions, but do not print them.  Overrides -a.
+X**
+X**	The output is sent to stdout.  All error messages are
+X**	sent to stderr.  If a problem arises, -1 is returned.
+X**
+X**
+X**  Examples:
+X**
+X**	MagicSquare 3		## Show a 3x3 solution
+X**	3x3 board...
+X**	sum=15
+X**	  2  7  6
+X**	  9  5  1
+X**	  4  3  8
+X**
+X**	MagicSquare -c 3	## Count all 3x3 solutions
+X**	3x3 board...
+X**	...there are 8 solutions.
+X**
+X**	MagicSquare 4 34	## Show a 4x4 solution whose sum is 34
+X**	4x4 square...
+X**	sum = 34
+X**	  1 14  8 11
+X**	 15  4 10  5
+X**	 12  7 13  2
+X**	  6  9  3 16
+X**
+X**	MagicSquare -a 4 10	## Show all 4x4 solutions whose sum is 10
+X**	4x4 square...
+X**	...there are 0 solutions whose sum is 10
+X**
+X**
+X**  Build Instructions:
+X**	You'll need an ANSI C compiler (or the willingness to edit
+X**	the program a bit).  If you've got Gnu C, then you can
+X**	compile and load the program as follows:
+X**
+X**		gcc MagicSquare.c -ansi -o MagicSquare
+X**
+X**	[If you're using MPW on the Mac, define '-d MPW' on the
+X**	compile line so that background processing will occur.]
+X**
+X**
+X**  Algorithm:
+X**	A brute-force approach would be to attempt to find all possible
+X**	ways that N^2 integers can be arranged within an NxN square,
+X**	compute the row/column/diagonal sums for each position, and
+X**	report only those arrangments which have equal sums all around.
+X**	The problem is that N^2 integers can be arranged in (N^2)!
+X**	ways, which blows up rapidly as N increases.  For N=2,
+X**	only 24 positions need be tested.  For N=3, some 362,880
+X**	positions exist (still relatively reasonable).  However,
+X**	for N=4, roughly 2x10^13 possible positions exist and the
+X**	numbers get much worse beyond that.  In addition, the cost of
+X**	computing row/column/diagonal sums for each position will
+X**	gobble up lots of CPU time.
+X**
+X**	Although the approach I've taken is still fairly simplistic
+X**	and still blows up quite sharply as the size of the square
+X**	grows, it's not quite on the order of (N^2)!  [I wouldn't
+X**	hazard to guess what the actual order is...].  Fortunately,
+X**	I already had a piece of recursive code which I was able to
+X**	hack into shape in the space of an evening to do the job, so
+X**	I'm quite satisfied with the result for that reason alone.
+X**	[FYI -- The other code computed solutions to the Eight Queens
+X**	chess problem in an extremely rapid, straightforward manner.]
+X**
+X**	The algorithm makes no assumptions about the nature of these
+X**	'magic' squares, and therefore is able to find ALL possible
+X**	solutions.  A better algorithm would exploit the specific
+X**	nature of the magic these squares exhibit.
+X**
+X**	My algorithm is as follows:
+X**	(1)  If the user has supplied a constraining sum, perform
+X**	     step 3, otherwise perform step 2 instead.
+X**	(2)  Along the 'forward' diagonal, recursively generate
+X**	     all possible ways that N integers can be arranged
+X**	     along the diagonal.  For each position, record the
+X**	     sum of the diagonal and use it as the 'target' for
+X**	     the remainder of the algorithm.  Go on to step 4.
+X**	(3)  If a constraining sum has been supplied by the user,
+X**	     then along the 'forward' diagonal, recursively generate
+X**	     all possible ways that N integers that add up to the
+X**	     target sum can be arranged.  Go on to step 4.
+X**	(4)  Now that the 'target' sum value has been computed
+X**	     and a set of diagonal values are in place, pivot on
+X**	     the value in the top-left corner and recursively
+X**	     generate all possible ways that the remaining (N^2)-N
+X**	     integers can be arranged such that the sum of the row
+X**	     matches the target.  Stop the recursion at the first
+X**	     point that we know we're at a dead end (for instance,
+X**	     if the row sum exceeds the target sum or there are
+X**	     no numbers left which are small enough to do the job).
+X**	(5)  Once the top row has been generated, pivot on the
+X**	     same top-left value and recursively generate a column
+X**	     from the remaining set of integers such that the
+X**	     column sum matches the target.  Once again, stop
+X**	     the recursion at any point where it is clear that
+X**	     the sum won't match the target or the necessary
+X**	     integers are unavailable.
+X**	(6)  Repeat steps 4 and 5 on successive diagonal pivots
+X**	     until all rows and columns have been generated.
+X**	(7)  Lastly, when all rows and columns have been generated
+X**	     with matching sums, check that the sum of the reverse
+X**	     diagonal also matches.  If so, print the board layout
+X**	     as a solution and continue in this manner until all
+X**	     possible solutions have been found (-a or -c option).
+X**
+X**	Note:
+X**	The loops are structured to try smaller numbers first
+X**	and the larger numbers later.  I experimented with flipping
+X**	the allocation order around and discovered that it typically
+X**	takes *much* longer to find the first solution if the larger
+X**	numbers are allocated first.  I guess this is because there
+X**	is more low-level recursion going on with low numbers last.
+X**
+X**	The initial code was somewhat ugly in the way that
+X**	the sums were computed and the way that unique integers
+X**	were tracked.  Hopefully I'll be able to spend another
+X**	evening putting in some better code to make these 'inner
+X**	loops' significantly faster.
+X**
+X**
+X**  Contact:
+X**	For queries regarding this program, or to obtain source
+X**	for the Eight Queens chess program mentioned, contact
+X**	the author at any of the following addresses:
+X**
+X**		Roberto Sierra
+X**		bert@netcom.com   (preferred address)
+X**		73557.2101@compuserve.com
+X**
+X**		Tempered MicroDesigns
+X**		P.O. Box 170638
+X**		San Francisco, CA  94117
+X**
+X**
+X**  Fine Print:
+X**	This program is in the public domain and can be used for
+X**	any purpose whatsoever, including commercial application.
+X**	[I'd like to hear what you do with it, though.]
+X**	Absolutely no warranty or liability is implied or extended
+X**	by the author.
+X**
+X**
+X**  Modification History:
+X**	PRS  7/25/93  v1.0 -- Original ANSI C version.  Inefficient.
+X**
+X*/
+X
+X
+X#include <stdio.h>				/* Need standard I/O functions */
+X#include <stdlib.h>				/* Need exit() routine interface */
+X#include <string.h>				/* Need strcmp() interface */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X#include <CursorCtl.h>				/* Need cursor control interfaces */
+X#endif
+X
+X#define MAXSIZE     10				/* Maximum size of square */
+X#define MAXVALUE    (MAXSIZE * MAXSIZE) 	/* Maximum integer value */
+X
+X						/* ONE of these must be #define'd */
+X#define	ORIG_SCAN				/* Select original 'uniqueness' method */
+X#undef	LUT_SCAN				/* Faster scanner -- limited to 5x5 max */
+X
+X
+X
+X
+X/******************************/
+X/****	GLOBAL VARIABLES   ****/
+X/******************************/
+X
+Xint		n = 0;				/* Size of square */
+Xint		nsquare = 0;			/* Maximum integer value (n*n) */
+Xint		printing = 1;			/* TRUE if printing positions */
+Xint		findall = 0;			/* TRUE if finding all solutions */
+X
+Xunsigned long	solutions = 0;			/* Number of solutions found */
+Xint		board[MAXSIZE][MAXSIZE];	/* Shows current contents of board */
+Xint		targ = 0;			/* Target col/row/diagonal sum value */
+Xchar		*progname = 0;			/* The name of this program */
+Xchar		usage[] = {"usage: %s [-ac] n [sum]\n"};
+X						/* Usage string */
+X
+X
+X/*******************/
+X/****	MACROS	****/
+X/*******************/
+X
+X/*
+X**  ORIG_SCAN scanning method
+X**  This is a series of macros which scan through integers
+X**  such that no integer is ever used more than once.  Since
+X**  this stuff sits at the 'bottom' of the recursion, the loops
+X**  tend to slow everything down.  [This was the original scanning
+X**  method, and was the easiest to implement.]
+X*/
+X
+X#ifdef	ORIG_SCAN				/* Start of ORIG_SCAN implementation */
+X
+Xint	inuse[MAXVALUE+1];			/* Shows which numbers are in use */
+X
+X#define RESERVE(i)	    (inuse[i] = i)	/* Mark value as in use */
+X#define RELEASE(i)	    (inuse[i] = 0)	/* Mark value as not in use */
+X/* Looping primitives */
+X						/* Loop through all values */
+X#define FOR_ALL(i)	    for(i=1; i<=nsquare; ++i)
+X						/* Find all available values */
+X#define FOR_AVAILABLE(i)    FOR_ALL(i) if (!inuse[i])
+X						/* Find all available thru maximum */
+X#define FOR_AVAILABLE_RESTRICTED(i,high)    \
+X			    for(i=1; i<=(high); ++i) if (!inuse[i])
+X
+Xvoid init_scan(void)				/* Initializes scanning variables */
+X{
+X    register int i;				/* Loop variable */
+X    FOR_ALL(i) RELEASE(i);			/* Release all values */
+X}						/* End of init_scan() */
+X
+X#endif	/*ORIG_SCAN*/				/* End of ORIG_SCAN implementation */
+X
+X
+X
+X/*
+X**  LUT_SCAN scanning method
+X**  [not yet implemented]
+X*/
+X
+X#ifdef	LUT_SCAN				/* Start of LUT_SCAN implementation */
+X#error	LUT_SCAN not yet implemented.  Use ORIG_SCAN.
+X#endif	/*LUT_SCAN*/				/* End of LUT_SCAN implementation */
+X
+X
+X
+X
+X
+X/***********************/
+X/****	ROUTINES    ****/
+X/***********************/
+X
+X/* Internal prototypes */
+Xvoid	main(int argc,char **argv);		    /*	Main program */
+Xvoid	free_diagonal(int i,int sum);		    /*	Diagonal recursion */
+Xvoid	constrained_diagonal(int i,int sum);	    /*	Diagonal to match constraint
+X*/
+Xvoid	row(int i);				    /*	Main row routine */
+Xvoid	column(int i);				    /*	Main column routine */
+Xvoid	row_recurse(int i,int j,int sum,int *p);    /*	Row recursion routine */
+Xvoid	col_recurse(int i,int j,int sum,int *p);    /*	Column recursion routine
+X*/
+Xvoid	final_check(void);			    /*	Bottom level solution check */
+Xvoid	pboard(void);				    /*	Print a solution */
+X
+X
+X
+X
+X
+X/*---------------------------- main() -------------------------
+X**
+X**  The job of the main program is mostly to decode the command
+X**  line arguments and initialize all the arrays and variables
+X**  needed.  Then, the appropriate free or constrained diagonal
+X**  recursion routine is called.
+X*/
+X
+Xvoid main(int argc,char **argv)
+X{
+X    register int    i;				/* Loop variables */
+X    register char   *p; 			/* Pointer to argument */
+X
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X    InitCursorCtl(0);				/* Enable cursor control */
+X#endif
+X
+X    progname = argv[0]; 			/* The name of the program */
+X
+X    /****   DECODE COMMAND LINE ARGUMENTS   ****/
+X
+X    for (i=1; i<argc; ++i) {			/* Scan through arguments */
+X	p = argv[i];				/* Pointer to base of argument */
+X	if (*p == '-') {			/* Command line option? */
+X	    while (*++p) {			/* Loop through characters */
+X		switch (*p) {			/* What is the character */
+X		case 'a':			/* '-a' option */
+X		    findall = 1;		/* Set flag to find all solutions */
+X		    break;
+X		case 'c':			/* '-c' option */
+X		    printing = 0;		/* Counting, not printing */
+X		    findall = 1;		/* Also forces findall option */
+X		    break;
+X		default:			/* Illegal option */
+X		    fprintf(stderr,"%s: Illegal option '%s'\n",progname,argv[i]);
+X		    fprintf(stderr,usage,progname);
+X		    exit(-1);
+X		}				/* End of switch */
+X	    }					/* End of loop */
+X	} else {				/* End of option test */
+X	    if (n == 0) {			/* Is N unitialized? */
+X		if (sscanf(p,"%d",&n) != 1) {	/* Read N value */
+X		    fprintf(stderr,"%s: '%s' is not an integer\n", progname, p);
+X		    exit(-1);
+X		}
+X		if (n <= 0 || n > MAXSIZE) {	/* Range check */
+X		    fprintf(stderr,"%s: 1st number, %d, not in proper range\n",
+X			progname, n);
+X		    fprintf(stderr,"%s: should be in range 1..%d\n",progname,MAXSIZE);
+X		}
+X	    } else if (targ == 0) {		/* Is target sum uninitialized? */
+X	    	int lowsum = n*(n+1)/2;		/* Sum of integers 1..N */
+X		int highsum = n*(2*n*n-n+1)/2;	/* Sum of integers N^2-N+1..N^2 */
+X		
+X		if (sscanf(p,"%d",&targ) != 1) {
+X		    fprintf(stderr,"%s: '%s' is not an integer\n", progname, p);
+X		    exit(-1);
+X		}
+X		if (targ < lowsum || targ > highsum) {
+X		    fprintf(stderr,
+X			"%s: 2nd number, %d, not in proper range\n",
+X			progname, targ);
+X		    fprintf(stderr,
+X		        "%s: should be in the range %d..%d for a %dx%d square\n",
+X			progname, lowsum, highsum, n, n);
+X		    exit(-1);
+X		}
+X	    } else {				/* Too many arguments */
+X	        fprintf(stderr,"%s: unexpected argument '%s'\n", progname, p);
+X		fprintf(stderr,usage,progname);
+X		exit(-1);
+X	    }					/* End of value if-then-else */
+X	}					/* End of argument test */
+X    }						/* End of argument scan loop */
+X    if (n == 0) {
+X	fprintf(stderr,"%s: parameter N is missing\n",progname);
+X	fprintf(stderr,usage,progname);
+X	exit(-1);
+X    }
+X
+X
+X    /*	INITIALIZATION	*/
+X    nsquare = n*n;				/* This is the highest integer */
+X    init_scan();				/* Initialize scanning variables */
+X
+X    printf("%dx%d square...\n", n, n);
+X    fflush(stdout);				/* Force prompt to output */
+X    if (targ == 0) free_diagonal(0,0);		/* Begin unconstrained recursion */
+X    else constrained_diagonal(0,0);		/* Otherwise, use constrained sum */
+X
+X
+X    /*	REPORT NUMBER OF SOLUTIONS FOUND  */
+X    if (printing && solutions) putchar('\n');
+X    if (solutions == 1) {
+X	printf("...there is %ld solution", solutions);
+X    } else {
+X	printf("...there are %ld solutions", solutions);
+X    }
+X    if (targ) printf(" whose sum is %d", targ);
+X    printf("\n");
+X
+X    exit(0);					/* No errors */
+X}						/* End of main() */
+X
+X
+X
+X
+X/*---------------------- free_diagonal() -----------------------
+X**
+X**  This fills in the forward diagonal values and computes
+X**  the sum of the diagonal as it proceeds.  It is recursive
+X**  so that all possible combinations are attempted.  When
+X**  the diagonal is full, then row/column filling is performed.
+X*/
+X
+Xvoid free_diagonal(register int pivot, int sum)
+X{
+X    register int    x;				/* Value under test */
+X    register int    *p = &board[pivot][pivot];	/* Address of pivot point */
+X
+X    if (pivot++ == n) {				/* Stop recursion */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X	SpinCursor(1);				/* Enable background processing */
+X#endif
+X	targ = sum;				/* Set target sum for rows/columns */
+X	row(0);					/* Begin row/column fill */
+X	targ = 0;				/* Reset to 'floating' sum */
+X    } else {					/* Diagonal not full yet */
+X	FOR_AVAILABLE(x) {			/* For all available values... */
+X	    *p = RESERVE(x);			/* Reserve value for pivot */
+X	    free_diagonal(pivot,sum+x);		/* Recurse to next pivot */
+X	    *p = RELEASE(x);			/* Release pivot value */
+X	}
+X    }
+X}						/* End of free_diagonal() */
+X
+X
+X
+X
+X/*-------------------- constrained_diagonal() -------------------
+X**
+X**  This fills in the forward diagonal values in a constrained
+X**  fashion so that their sum is equal to that of the target
+X**  value supplied by the user.  It is recursive in nature so
+X**  that all possible combinations are attempted.  When the
+X**  diagonal is full, then row/column filling is started.
+X*/
+X
+Xvoid constrained_diagonal(register int pivot, int sum)
+X{
+X    register int    x;				/* Value under test */
+X    register int    *p = &board[pivot][pivot];	/* Address of pivot point */
+X    register int    range = targ - sum;		/* Range of possible values */
+X
+X    if (pivot++ == n) {				/* Stop recursion */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X	SpinCursor(1);				/* Enable background processing */
+X#endif
+X	if (sum == targ) row(0);		/* Begin row/column fill */
+X    } else {					/* Diagonal not full yet */
+X	if (range>nsquare) range = nsquare;	/* Clip range to m	FOR_AVAILABLE_RESTRICTED(x,range) {	/* For all available <= range */
+X	    *p = RESERVE(x);			/* Reserve value for pivot */
+X	    constrained_diagonal(pivot,sum+x);	/* Recurse to next pivot */
+X	    *p = RELEASE(x);			/* Release pivot value */
+X	}
+X    }
+X}						/* End of constrained_diagonal() */
+X
+X
+X
+X
+X/*------------------------- row() ------------------------
+X**
+X**  row() is the top of the row recursion process.
+X**  The current sum of the specified row is computed.
+X**  Then the row recursion routine is called to fill
+X**  in the remaining slots with all possible values.
+X*/
+X
+Xvoid row(register int i)
+X{
+X    register int    j,sum=0;			/* Column index, row sum */
+X    register int    *p = &board[i][0];		/* Pointer to first item */
+X
+X    for (j=0; j<=i; ++j) {			/* For all columns thru pivot */
+X	sum += *p++;				/* Add values in row */
+X    }
+X    row_recurse(i,i+1,sum,p);			/* Begin row recursion */
+X}						/* End of row() */
+X
+X
+X
+X/*----------------------- column() -----------------------
+X**
+X**  COLUMN is the top of the column recursion process.
+X**  The current sum of the specified column is computed.
+X**  Then the column recursion routine is called to fill
+X**  in the remaining slots with all possible values.
+X*/
+X
+Xvoid column(register int j)
+X{
+X    register int    i,sum=0;			/* Row index, column sum */
+X    register int    *p = &board[0][j];		/* Pointer to first item */
+X
+X    for (i=0; i<=j; ++i) {			/* For all rows thru pivot */
+X	sum += *p;				/* Add values in column */
+X	p += MAXSIZE;				/* Advance to next row */
+X    }
+X    col_recurse(j+1,j,sum,p);			/* Begin column recursion */
+X}						/* End of column() */
+X
+X
+X
+X
+X
+X/*------------------- row_recurse() ----------------------
+X**
+X**  ROW_RECURSE is the row recursion routine.
+X**  This routine fills in the remaining items in a row
+X**  with all possible values so that the row sum does
+X**  not exceed the target sum.	If the target sum is
+X**  acheived exactly, then the row is accepted and column
+X**  recursion is initiated.
+X*/
+X
+Xvoid row_recurse(int i, int j, int sum, register int *p)
+X{
+X    register int    x;				/* Value under test */
+X    register int    range = targ - sum;		/* Range of possible values */
+X
+X    if (j++ == n) { 				/* Stop recursion */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X	SpinCursor(1);				/* Enable background processing */
+X#endif
+X
+X	if (range == 0) {			/* Accept row if sum is correct */
+X	    if (i+1 == n) final_check();	/* Last row done, final checks */
+X	    else column(i);			/* Otherwise, do column fill */
+X	}
+X    } else {					/* Haven't reached bottom yet */
+X	if (range>nsquare) range = nsquare;	/* Clip range to maximum */
+X	FOR_AVAILABLE_RESTRICTED(x,range) {	/* For all available <= range */
+X	    *p = RESERVE(x);			/* Reserve value at position */
+X	    row_recurse(i,j,sum+x,p+1);		/* Recurse to next column */
+X	    *p = RELEASE(x);			/* Release value from position */
+X	}
+X    }
+X}						/* End of row_recurse() */
+X
+X
+X
+X
+X/*--------------------- col_recurse() -----------------------
+X**
+X**  COL_RECURSE is the column recursion routine.
+X**  This routine fills in the remaining items in a column
+X**  with all possible values so that the column sum does
+X**  not exceed the target sum.	If the target sum is
+X**  acheived exactly, then the recursion ceases and a
+X**  final check of the reverse diagonal is performed before
+X**  the solution can be accepted.
+X*/
+X
+Xvoid col_recurse(int i,int j, int sum, register int *p)
+X{
+X    register int    x;				/* Value under test */
+X    register int    range = targ - sum;		/* Range of possible values */
+X
+X    if (i++ == n) { 				/* Stop recursion */
+X	if (range == 0) {			/* Accept column if sum is correct */
+X	    if (j+1 == n) final_check();	/* Last column done, final checks */
+X	    else row(j+1);			/* Otherwise do next row fill */
+X	}
+X    } else {					/* Haven't reached bottom yet */
+X	if (range>nsquare) range = nsquare;	/* Clip range to maximum */
+X	FOR_AVAILABLE_RESTRICTED(x,range) {	/* For all available <= range */
+X	    *p = RESERVE(x);			/* Reserve value at position */
+X	    col_recurse(i,j,sum+x,p+MAXSIZE);	/* Recurse to next row */
+X	    *p = RELEASE(x);			/* Release value from position */
+X	}
+X    }
+X}						/* End of col_recurse() */
+X
+X
+X
+X
+X/*--------------------- final_check() ---------------------
+X**
+X**  FINAL_CHECK tests the reverse diagonal sum.
+X**  This occurs at the bottom of all pivot, row and column recursion,
+X**  so if the sum is OK, then a new solution has been found.
+X*/
+X
+Xvoid final_check(void)
+X{
+X    register int    i, sum=0;			/* Loop variable, diagonal sum */
+X
+X    for(i=0; i<n; ++i) {			/* Loop through all rows (cols) */
+X	sum += board[i][n-i-1];			/* Add values along diagonal */
+X    }
+X    if (sum == targ) {				/* Diagonal sum matches desired? */
+X	++solutions;				/* Congrats.  We have a solution */
+X	if (printing) pboard(); 		/* Print the solution if desired */
+X	if (!findall) exit(0);			/* Stop if only looking for first */
+X    }
+X}						/* End of final_check() */
+X
+X
+X
+X
+X/*----------------------- pboard() ----------------------
+X**
+X**  This routines prints the board for a particular solution.
+X**
+X*/
+X
+Xvoid pboard(void)
+X{
+X    register int    i,j;			/* Rank/File indices */
+X
+X    if (findall) {				/* Print solution number */
+X	printf("\nSolution #%lu -- ",solutions);
+X    }
+X    printf("sum = %d\n",targ);			/* Print characteristic sum */
+X    for(i=0; i<n; ++i) {			/* Loop through all rows */
+X	for(j=0; j<n; ++j) {			/* Loop through all columns */
+X	    printf(" %2d",board[i][j]); 	/* Print values at each position */
+X	}					/* End of column loop */
+X	putchar('\n');				/* Break line */
+X    }						/* End of row loop */
+X    fflush(stdout);				/* Force solution to output */
+X}						/* End of pboard() */
+X
+X
+X
+X
+X
+X/****	End of MagicSquare.c	****/
+X
+END_OF_FILE
+  if test 22090 -ne `wc -c <'MagicSquare.c'`; then
+    echo shar: \"'MagicSquare.c'\" unpacked with wrong size!
+  fi
+  # end of 'MagicSquare.c'
+fi
+echo shar: End of archive.
+exit 0
+
+exit 0 # Just in case...

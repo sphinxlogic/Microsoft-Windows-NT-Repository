@@ -1,0 +1,1995 @@
+Newsgroups: comp.sources.misc
+From: jv@mh.nl (Johan Vromans)
+Subject:  v30i046:  mserv-3.0 - Squirrel Mail Server Software, Part01/04
+Message-ID: <csm-v30i046=mserv-3.0.195346@sparky.IMD.Sterling.COM>
+X-Md4-Signature: f77c278186bdd737dbd360d5cccc0bd0
+Date: Sun, 14 Jun 1992 00:58:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@mh.nl (Johan Vromans)
+Posting-number: Volume 30, Issue 46
+Archive-name: mserv-3.0/part01
+Environment: Perl
+
+The Squirrel Mail Server is a mail response program. You can send
+email to it, and it will try to react sensible to your message.
+
+Main purpose of the mail server is to obtain files from an archive,
+but other functions can be added easily.
+
+Version 3 is a complete rework of Version 1 (a.k.a. Multihouse-1),
+that has been in production on a number of sites ever since its
+release in 1988.  Both the popular csdserv (by Dave Shaver) and the
+UTRECHT mail server (by Piet van Oostrum) have been dereived from
+Multihouse-1.
+
+The Squirrel Mail Server software is distributed under the terms of
+the GNU Public Licence.
+
+A brief survey of old and new features:
+
+  - All written in perl, hence portable and easily maintainable.
+  - Easy to install.
+  - Archives can be split over a number of directories or file systems.
+  - Requests are queued and processed by a separate daemon process
+    (e.g. from cron). This cuts down on the system load. Moreover, you
+    can control when the queue is being run.
+  - Requests can be honoured `as is' (name the file and you'll get
+    it), but the server can also perform directory searches and index
+    file lookup.
+    You need GNU find and locate for the index lookup feature.
+  - While looking for files, the server knows about commonly handled
+    filenames (e.g. ".tar.Z" in "foo.tar.Z") and pseudo-standard
+    version numbering (e.g. "gcc-2.1.tar.Z"). It is quite well
+    possible that a simple request for "emacs" will actually transmit the
+    file "gnu/emacs-18.58/dist/emacs-18.58.tar.Z".
+  - Requests can be encoded using a number of encoding schemes, e.g.
+    uuencode, xxencode, Dumas' uue and btoa.
+  - Requests that are too large to send in one piece are automatically
+    split and transferred in parts. The server provides a smart
+    unpacking program on request,
+  - Parts of requests can be re-transmitted in case of failure.
+  - Requests can designate a directory. In this case the whole
+    directory tree is packed using some popular packing programs
+    (compressed tar, zoo or zip).
+  - Requests can be sent by email, or via uucp.
+  - The server can be asked to return a list of archive entries that
+    match a given request, thus obsoleting the need to transfer huge
+    "ls-lR" type index files to find out whatsitcalled.
+  - All transfers can be logged. Maintenance procedures include a
+    reporting tool.
+
+Probable future directions:
+
+  - Anonymous FTP interface.
+  - Automatic (and transparent) downloading of unknown archive entries
+    from other archive servers.
+  - Notifier services (you'll be notified if archive entries are
+    added).
+  - Remote maintenance.
+
+Requirements:
+
+  - Perl 4.0 patchlevel 19 or later.
+  - GNU find 3.5 or later (only if you want to exploit the index
+    features).
+  - A decent mail system that can deliver mail to a process (sendmail,
+    smail3, or smail2.5 w/ mods).
+
+For more information:
+
+	<jv@mh.nl>
+	Johan Vromans
+	Multihouse Research
+--------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README ChangeLog HELP mlistener.pl process.pl
+# Wrapped by kent@sparky on Sat Jun 13 19:46:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 4)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(4368 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X@(#)@ README	3.4 - README
+X
+XSquirrel Mail Server
+X====================
+X
+XThe Squirrel Mail Server is a mail response program. You can send
+Xemail to it, and it will try to react sensible to your message.
+X
+XMain purpose of the mail server is to obtain files from an archive,
+Xbut other functions can be added easily.
+X
+XThe Squirrel Mail Server software is 
+X
+X	Copyright 1988,1992 Johan Vromans
+X
+Xand distributed under the terms of the GNU Public Licence. It is
+Xwritten in Perl.
+X
+XDistribution
+X============
+X
+XThis package contains the following files.
+X
+X    README		This document.
+X    ChangeLog		A log of changes.
+X    INSTALL		The documentation on how to install the package.
+X    mserv_common.pl	Common information for the mail server constituents.
+X    mserv_config.pl	Configuration file.
+X    process.pl		Perl script to parse mail messages, and to
+X			enqueue the requests.
+X    pr_*.pl		Demand loadable modules for process.pl
+X    rfc822.pl		A package to process rfc822 based messages.
+X    dorequest.pl	Perl script to encode and split the files, and sent
+X			them to the requester.
+X    dr_*.pl		Demand loadable modules for dorequest.pl
+X    ms_lock.pl		Portable file locking package
+X    unpack.pl		Perl script to unpack a concatenated series of parts.
+X    HELP		The HELP file.
+X    mlistener.pl	Generator for a simple wrapper around "process.pl"
+X			to enable setuid processing.
+X    makeindex.pl	A simple script to aid in maintaining an index
+X    			of archive entries.
+X    chkconfig.pl	A tool to feed back on the configuration file.
+X    testlock.pl		A tool to test the locking package.
+X    report.pl		A tool to generate usage and error reports.
+X    do_report.pl	A script to use report.pl
+X    do_runq.sh		A shell script to run the mail server queue from cron.
+X    CRONTAB.sample	A sample cron tab for the mail server.
+X    mserv.notes
+X    mserv.hints		Sample files.
+X    ixlookup.patch	Patch to GNU find 3.5 'locate.c' for create
+X    			the index lookup program.
+X    Makefile		To install the package.
+X
+X
+XPrinciple of operation
+X======================
+X
+XWhen a mail is sent to the appropriate designation, generally a mail
+Xalias, it is piped into program "listener". This program effectivily
+Xchanges user to the mail server user, and passes control to the perl
+Xscript "process".  This program reads the input, extracts the return
+Xaddress to be used from the mail headers, and parses the commands in
+Xthe message body.  See "HELP.txt" for a detailed description of the
+Xcommands.  "process" tries to locate the requested files in the
+Xarchive libraries, using default extensions to filenames as described
+Xbelow.  Requests are then put in the mail server queue.
+X
+XA separate daemon process ("dorequest", usually invoked by cron) can
+Xbe used to process the queue. This program encodes the file, splits it
+Xinto parts, and passes each part to the mail program for delivery.
+X
+XWhen all parts of a specific delivery are concatenated in the correct
+Xorder (e.g. using a mail program), the original file can be unpacked
+Xusing the perl program "unpack".
+X
+XStructure of the archives
+X=========================
+X
+XThe mail server can handle a list of directories, each of which
+Xcontains zero or more archive entries. By default the following
+Xconventions in the naming of archive entries are used:
+X
+X   XXXX         Plain file (ascii text)
+X   XXXX.shar    Shell Archive
+X   XXXX.shar.Z  Compressed Shell Archive
+X   XXXX.Z       Compressed file
+X   XXXX.tar     Unix tar format
+X   XXXX.tar.Z   Compressed tar
+X   XXXX.TZ      Compressed tar
+X   XXXX.zoo     Zoo archive format
+X   XXXX.zip	Zip archive format
+X
+XWhen someone requests for item XXXX, all of these possibilities are
+Xtried in locating the desired archive item.
+X
+XIt is also possible to configure the server to locate entries using a
+Xnormalized version encoding scheme. In this case, it will also find
+Xfiles of the form XXXX-YYYZZZ (with ZZZ one of the above extensions).
+XAlso, if a suitable file appears to be a directory, the search is
+Xcontinued in this directory.
+X
+XFinally, it is possible to have the server lookup entries in an index
+Xfile. 
+X
+XAbout the software
+X==================
+X
+XVersion 3 is a complete rework of Version 1 (a.k.a. Multihouse-1),
+Xthat has been in production on a number of sites ever since its
+Xrelease in 1988.  Both the popular csdserv (by Dave Shaver) and the
+XUTRECHT mail server (by Piet van Oostrum) have been dereived from
+XMultihouse-1.
+X
+END_OF_FILE
+  if test 4368 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'ChangeLog' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ChangeLog'\"
+else
+  echo shar: Extracting \"'ChangeLog'\" \(109 characters\)
+  sed "s/^X//" >'ChangeLog' <<'END_OF_FILE'
+XWed Jun 10 11:57:44 1992  Johan Vromans  (jv at largo)
+X
+X	* ================ Released V3.00 ================
+X
+END_OF_FILE
+  if test 109 -ne `wc -c <'ChangeLog'`; then
+    echo shar: \"'ChangeLog'\" unpacked with wrong size!
+  fi
+  # end of 'ChangeLog'
+fi
+if test -f 'HELP' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'HELP'\"
+else
+  echo shar: Extracting \"'HELP'\" \(15640 characters\)
+  sed "s/^X//" >'HELP' <<'END_OF_FILE'
+XThe Mail Server
+X===============
+X
+XThe mail server is a mail response program. This means that you can
+Xsend it an email message, and the program will read this message,
+Xextracts commands from it, and execute these commands if no errors
+Xwere encountered.
+X
+XThe main purpose of the mail server is to handle requests for files in
+Xarchives. By sending a request for a file, the mail server will look
+Xit up and send the requested file to the originator of the request,
+Xeither via email or via UUCP.
+X
+XWhen files are transferred via email, binary files (e.g. compressed
+Xarchives) are encoded using one of several popular encoding schemes.
+XBig files are split into pieces to avoid mailer limits.
+X
+XBasic Use
+X=========
+X
+XTo request a file from the server send an email message with the
+Xfollowing command:
+X
+X   SEND filename
+X
+XThis will have the requested file send via email to the originator of
+Xthe mail message. Encoding, if needed, will be performed with the
+X'btoa' program. BEGIN and END can be used to protect the request
+Xfrom anything else in the mail message, e.g. a signature:
+X
+X   BEGIN
+X   SEND filename
+X   END
+X   .signature follows.....
+X
+XTo receive a file via UUCP, use the following commands:
+X
+X   UUCP host!path user
+X   SEND filename
+X
+XThis will have all requested files transferred via UUCP to the
+Xdesignated host!path. It is equivalent to the Unix command:
+X
+X   uucp -drnuser host!path/filename 
+X
+XIt is your own responsibility that the supplied path is accessible to
+Xyour UUCP system!
+X
+XThe Server's Archives
+X=====================
+X
+XFiles are stored in the archives in one of the following formats:
+X
+XPlain: normal ASCII text.
+X
+XShell Archive: ASCII files which can be unloaded using the
+X    Unix sh(1) program.
+X    Shell Archives have names ending in ".shar".
+X
+XCompressed: 16-bit compression using the compress(1) utility.
+X    Compressed files have names ending in ".Z".
+X
+XTar: standard UNIX tar(1) format.
+X    Tar archives have names ending in ".tar".
+X
+XCompressed Tar: compressed tar archive.
+X    Compressed tar archives have names ending in ".tar.Z" or ".TZ".
+X
+XZoo: standard "zoo" format.
+X    These files have names ending in ".zoo".
+X
+XWhen requesting a file you do not have to specify the format-specific
+Xextension. A request for a file "foo" will automatically be changed to
+X"foo", "foo.tar", "foo.shar", "foo.Z", "foo.TZ" or "foo.zoo" whichever is
+Xavailable.
+X
+XAdditional formats may be added.
+X
+XCommand Syntax
+X==============
+X
+XA command consists of a keyword (verb), followed by zero or more
+Xarguments, depending on the command. Command verbs may be specified in
+Xall uppercase letters, lowercase or whatever mixed case. In other
+Xwords: case is not significant in command verbs. Case *IS* significant
+Xin command arguments.
+XEmpty lines are ignored.
+X
+XThe following commands are understood by the server. The order of
+Xcommand classes is important.
+X
+X 1. Destination selection. One or more of the following commands must
+X    be issued before any request command.
+X
+X    REPLY <address>
+X    ---------------
+X      The return address used by the server is set to the indicated
+X      <address>. This must be a valid address by which you can be
+X      reached. It should contain a domain-based address.
+X      Use this command if you are not sure that the return addresses
+X      generated by your mail system are reliable.
+X      The address specified with this command will be used by the
+X      server to confirm receipt.
+X
+X    UUCP <host>!<path> <user>
+X    -------------------------
+X      The mail server will transfer requests to the indicated host
+X      using UUCP. The host must be known to the server system.
+X      Requests will be transferred to the indicated <path>. UUCP
+X      notification messages will be send to <user>.
+X
+X    MAIL <address>
+X    --------------
+X      The mail server will transfer requests to the indicated address
+X      using e-mail. This is the default transfer method for the
+X      server. You must specify a valid (preferable domain-based)
+X      address by which you can be reached.
+X      If no UUCP nor MAIL commands have been issued, requests will be
+X      send to the recipient as specified by a REPLY command, or
+X      dereived from the mail headers.
+X
+X 2. Transfer parameters. These parameters may be set as often as
+X    needed. Setting transfers parameters affects only requests that
+X    follow these commands.
+X
+X    LIMIT <number>
+X    --------------
+X      Specify the maximum number of Kbytes which may be sent in a single
+X      transfer. Requests that exceed this amount will be split
+X      before sending.
+X      The amount may be specified with a trailing K, e.g. "30K".
+X      The default value is 64K.
+X      NOTE: due to overhead, it is possible that the size of the
+X      mail which reaches you will (slightly) exceed this limit.
+X
+X    UUENCODE
+X    --------
+X    XXENCODE
+X    --------
+X    UUE
+X    ---
+X    BTOA
+X    ----
+X      The requested files will be encoded using the indicated encoding
+X      method. 
+X      Not all methods need to be available in the server installation.
+X
+X    CWD [<path>]
+X    ------------
+X      Sets (or cancels) the current working directory for subsequent
+X      commands. CWD commands do not nest, e.g. after "CWD foo; CWD bar"
+X      the current directory will be "bar", not "foo/bar".
+X
+X 3. Request commands. 
+X
+X    INDEX [<item>]
+X    --------------
+X      The specified <item> is looked up in the server archives. If
+X      found, a list of all items that match the request is returned.
+X      For example, "INDEX gcc" will return a list of every item in the
+X      server archives that has "gcc" in its name or path.
+X      "INDEX" without arguments will request for a file INDEX in the
+X      archives, if present.
+X      Since index requests can return a huge amount of information,
+X      the number of lines returned is limited to (usually) a few
+X      houndred lines. 
+X
+X    SEARCH <item>
+X    -------------
+X      The specified <item> is looked up in the server archives. If
+X      found, a list of all items that match the request is returned.
+X      SEARCH is more limited that INDEX. It returns only archive
+X      entries that are eligible to be found by a SEND command.
+X      This can be used to find out which versions of a specific package
+X      can be found on the server, and where.
+X      For example, "SEARCH gcc" will return a list of every item in the
+X      server archives that has a name that starts with "gcc", followed
+X      by something that looks like a version number, and ends with
+X      ".tar.Z" or some other predefined extension.
+X
+X    SEND <item> [<item>...]
+X    -----------------------
+X      The specified <item>s are looked up in the server archives. If
+X      found, they will be sent to you. Multiple items may be
+X      specified with one SEND command.
+X      If a SEARCH request for the named item returns multiple
+X      possibilities, the SEND request will be treated as a SEARCH, 
+X      i.e. a list of possibilities is returned.
+X      NOTE: the names of the <item>s are case sentive!
+X
+X    RESEND <item> <part> [<part>...]
+X    --------------------------------
+X      Re-send the indicated <part>s of this item. This is useful if not
+X      all parts of a multi-parts transmission did arrive correctly.
+X      When re-transmitting, the encoding and limit used must be
+X      identical to those of the original transmission.
+X
+X    PACK <method>
+X    -----------
+X      Subsequent SEND requests must select directies. This directory
+X      will be packed into a file using the indicated method, and
+X      transferred.  <method> may be "tar", "zoo" or "zip".  If
+X      <method> is "off", subsequent request are treated normally.
+X      NOTE: <method> "tar" means "compressed tar".  A limit (usually
+X      2Mb) is imposed on the total size of the files in the
+X      directories.
+X
+X 4. Misc. commands
+X
+X    HELP
+X    ----
+X      This command gives a brief list of server commands.
+X      Note that this is NOT the same as the "SEND HELP" command.
+X      The latter command will send this document.
+X
+X    TEST
+X    ----
+X      This command is for testing. No files will be sent if you use
+X      this, but a confirmation message will be sent to the return path as
+X      determined from the mail headers or the REPLY command.  You may
+X      use this to find out if your address is valid, and to check the
+X      status of your request.
+X
+X    BEGIN
+X    -----
+X      Ignore anything above this line, and start looking for commands.
+X      This command can be used to discard incorrect responses, errors
+X      etc. that may result from input that was not directed to the mail
+X      server itself.
+X
+X    END or EXIT
+X    -----------
+X      The remainder of the message is ignored. This can be useful if a
+X      .signature is appended to the message.
+X
+X
+XSample Mail Server Report (email transfer)
+X==========================================
+X
+XSending:
+X
+X	mail jv@mh.nl
+X	btoa
+X        index bio
+X	search bio
+X	send bio
+X	resend zoo 2 3 4
+X	send foo
+X	end
+X
+Xwill generate the following report:
+X
+X	From: Mail Server <mserv@mh.nl>
+X[1]	To: jv@mhres.mh.nl
+X	Subject: Request by jv
+X	Date: Sun, 1 Oct 92 18:25:39 MET (+0100)
+X
+X	Processing mail headers ...
+X[2]	Default return address: "jv@mhres.mh.nl"
+X
+X	Processing message contents...
+X
+X	Command: mail jv@mh.nl
+X[3]	=> Transfer via email to "jv@mh.nl"
+X
+X	Command: btoa
+X	=> Encoding = btoa
+X
+X	Command: index bio
+X	=> Index: bio
+X
+X	Command: search bio
+X	=> Search: bio
+X
+X	Command: send bio HELP
+X	=> Return address: "jv"
+X	=> Send: bio
+X	=> Send: HELP
+X
+X	Command: resend zoo 2 3 4
+X	=> Resend: zoo, parts 2,3,4
+X
+X	Command: send foo
+X	=> Send: foo
+X
+X	Command: end
+X	=> Okay
+X
+X	Your message has been processed.
+X
+X[4]	Index results:
+X
+X            Date     Size   Index: bio
+X	  --------  -----   ---------------------------------
+X	  91/07/10     2K   bio-2.4/Makefile
+X	  91/07/06     3K   bio-2.4/README
+X	  91/07/09    14K   bio-2.4/bio.diffs
+X	  91/07/09    36K   bio-2.4/bio.tar.Z
+X	  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X	  89/12/16     4K   fastio/stubio.c
+X
+X[5]	Search results:
+X
+X	    Date     Size   Search: bio
+X	  --------  -----   ---------------------------------
+X	  91/07/09    36K   bio-2.4/bio.tar.Z
+X	  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X
+X[6]	Request "bio" is ambiguous:
+X
+X	    Date     Size   Search: bio
+X	  --------  -----   ---------------------------------
+X	  91/07/09    36K   bio-2.4/bio.tar.Z
+X	  91/07/09    36K   bio-2.4/bio-2.4.tar.Z
+X
+X[7]	Requests:
+X
+X	  Request                       Size Enc Limit Status
+X	  ---------------------------- ----- --- ----- -------
+X	  bio                                          Ambiguous
+X	  HELP				 11K  B    64K Queued
+X	  zoo-2.1/zoo.TZ                171K  B    64K Queued (parts 2 3 4 only)
+X	  foo                                          Unknown
+X
+X	The requests with status "Queued" will be sent as soon as the load of
+X	the server system permits, usually within 24 hours.
+X
+X	Mail Server finished.
+X
+XAs you can see, the return mail is sent to the address [1] extracted
+Xfrom the mail headers [2]. A REPLY command could have been used to
+Xsupply a different address.
+X
+XThe MAIL command [3] instructs the server to send the requests via
+Xemail to the given address. If the MAIL command had not been issued,
+Xthe address from the message header [2] would have been used.
+X
+XThe result from the INDEX command [4] returns info for every file in
+Xthe archives that have "bio" in its name or path.
+X
+XThe result from the SEARCH command [5] returns info for every file in
+Xthe archives that that is likely to be a selectable archive item.
+X
+XSince more than one file matches the request for "bio", it is turned
+Xinto a SEARCH command [6].
+X
+XIn the list of requests [7] the size and encoding of the files are
+Xshown. Note that the size is the size *before* encoding!
+XRequest "foo" could not be found and is skipped.
+X
+XSome time later the following mails will arrive:
+X
+X    From               Size      Subject
+X    --------------   ---------   ----------------------------------
+X    Mail Server      298/10175   "HELP (complete) ascii"
+X    Mail Server      829/65453   "zoo.TZ (part 2 of 4) btoa encoded"
+X    Mail Server      829/65453   "zoo.TZ (part 3 of 4) btoa encoded"
+X    Mail Server      325/25578   "zoo.TZ (part 4 of 4) btoa encoded"
+X
+XFiles which are sent in parts have all pieces clearly marked as such:
+X
+X    ------ begin of zoo.TZ -- btoa encoded -- part 2 of 4 ------
+X    #(_0M#C)R-&3BEIu9#I[oEFn;50r5kb6%CJq%=NMgE3in`tMpnX0rOEYPWNM...
+X    =69S\PiSodA"*lArTZ.-(g6DL2A6_5>DMuFV/&S7H/]XEgLe(l@e;-Rqr:iZ...
+X    ...
+X    ...
+X    $`eP&iGea"a#e[F!oeo1r@U/FP;::i"V)j_EW+.(U*&IrTJ+u'9=$MY7s*CC...
+X    uI=a5*Wj^#1LD,&>MZKY@H1_a9QE$$4[+?[ePhh"h2Ub"/a,(ES*ZH"nK"6d...
+X    ------ end of zoo.TZ -- btoa encoded -- part 2 of 4 ------
+X
+XSample Mail Server Report (uucp transfer)
+X=========================================
+X
+XSending:
+X
+X	uucp mhres!/usr/spool/uucppublic/receive/jv jv
+X	btoa
+X	limit 64K
+X	send bio-2.4
+X	resend zoo 2 3 4
+X	send foo
+X	end
+X
+Xwill generate the following report:
+X
+X	From: Mail Server <mserv@mh.nl>
+X[1]	To: jv@mhres.mh.nl
+X	Subject: Request by jv
+X	Date: Sun, 1 Oct 92 18:41:39 MET (+0100)
+X
+X	Mail Server V3.0 [process 3.21]
+X
+X	Processing mail headers ...
+X[2]	Default return address: "jv@mhres.mh.nl"
+X
+X	Processing message contents...
+X
+X	Command: uucp mhres!/usr/spool/uucppublic/receive/jv/server jv
+X[3]	=> Transfer via UUCP to "mhres!/usr/spool/uucppublic/receive/jv/server"
+X	=> (UUCP notification to: "jv")
+X
+X	Command: btoa
+X	=> Encoding = btoa
+X
+X	Command: limit 64K
+X	=> Limit = 64K
+X
+X	Command: send bio HELP
+X	=> Return address: "jv"
+X	=> Send: bio
+X	=> Send: HELP
+X
+X	Command: resend zoo 2 3 4
+X	=> Resend: zoo, parts 2,3,4
+X
+X	Command: send foo
+X	=> Send: foo
+X
+X	Command: end
+X	=> Okay
+X
+X	Your message has been processed.
+X
+X[4]	Requests:
+X
+X	  Request                       Size Limit Remarks
+X	  ---------------------------- ----- ----- -------
+X	  bio-2.4/bio-2.4.tar.Z          36K   64K Queued
+X	  HELP				 11K   64K Queued
+X	  zoo-2.1/zoo.TZ                171K   64K Queued (parts 2 3 4 only)
+X	  foo                                      Unknown
+X
+X	The requests with status "Queued" will be sent as soon as the load of
+X	the server system permits, usually within 24 hours.
+X
+X	Mail Server finished.
+X
+XAs you can see, the return mail is sent to the address [1] extracted
+Xfrom the mail headers [2]. A REPLY command could have been used to
+Xsupply a different address.
+X
+XThe UUCP command [3] instructs the server to send the requests via
+Xuucp to the given system.
+X
+XIn the list of requests [4] the size of the files is
+Xshown.
+XRequest "foo" could not be found and is skipped.
+X
+XSome time later the following files will arrive:
+X
+X    /usr/spool/uucppublic/receive/jv/server/bio.tar.Z
+X    /usr/spool/uucppublic/receive/jv/server/HELP
+X    /usr/spool/uucppublic/receive/jv/server/zoo.TZ/part02of04
+X    /usr/spool/uucppublic/receive/jv/server/zoo.TZ/part03of04
+X    /usr/spool/uucppublic/receive/jv/server/zoo.TZ/part04of04
+X
+XHistory
+X=======
+X
+XThis mail server has been developed by Johan Vromans at Multihouse
+XResearch. It is all written in Perl, except for one small C-wrapper
+Xprogram. 
+XThis software is Copyright 1988, 1992 by Johan Vromans, and may be
+Xdistributed according to the GNU Public Licence.
+X
+XVersion 1 was released in 1988 and has helped to develop Perl-2.
+XIt has been in full production at a number of sites ever since.
+XVersion 2 has never been released. 
+XThis is version 3, completely reworked, and requires Perl 4.019 or
+Xlater. 
+X
+XFor questions, information and remarks:
+X
+X	Johan Vromans
+X--
+XJohan Vromans				       jv@mh.nl via internet backbones
+XMultihouse Automatisering bv		       uucp: ..!{uunet,hp4nl}!mh.nl!jv
+XDoesburgweg 7, 2803 PL Gouda, The Netherlands  phone/fax: +31 1820 62944/62500
+X------------------------ "Arms are made for hugging" -------------------------
+X
+XSCCS Info: @(#)@ HELP	3.9 - HELP
+END_OF_FILE
+  if test 15640 -ne `wc -c <'HELP'`; then
+    echo shar: \"'HELP'\" unpacked with wrong size!
+  fi
+  # end of 'HELP'
+fi
+if test -f 'mlistener.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mlistener.pl'\"
+else
+  echo shar: Extracting \"'mlistener.pl'\" \(4502 characters\)
+  sed "s/^X//" >'mlistener.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# mlistener.pl -- make listener.c
+X# SCCS Status     : @(#)@ mlistener.pl	1.3
+X# Author          : Johan Vromans
+X# Created On      : Sun May 31 14:22:56 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Tue Jun  2 12:55:46 1992
+X# Update Count    : 18
+X# Status          : Unknown, Use with caution!
+X
+X$my_name = "mlistener.pl";
+X$my_version = "1.3";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xrequire "./mserv_common.pl";	# USE CURRENT DIR, NOT LIBDIR!
+X
+X################ Options handling ################
+X
+X$opt_verbose = $opt_ident = $opt_help = 0;
+X$opt_setruid = $opt_setenv = $opt_uid = 0;
+X$opt_nosetruid = $opt_nosetenv = $opt_nouid = 0;
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+Xprint STDERR ($my_package, " [", $my_name, " ", $my_version, "]\n")
+X    if $opt_ident || $opt_verbose;
+X
+X################ Main ################
+X
+X$mserv_uid = (getpwnam ($mserv_owner))[2];
+Xdie ("Cannot get UID for user $mserv_owner\n") unless defined $mserv_uid;
+X
+Xif ( $opt_verbose ) {
+X    print STDERR ("Using ", $have_setruid ? "setruid system call" :
+X		  "'su' program", ".\n");
+X    print STDERR ("Using setenv library call.\n")
+X	if $have_setruid && $have_setenv;
+X    print STDERR ("Change to UID $mserv_uid.\n")
+X	if $have_setruid && $use_uid;
+X}
+X
+X$have_setruid |= $opt_setruid;
+X$have_setruid = 0 if $opt_nosetruid;
+X$have_setenv |= $opt_setenv;
+X$have_setenv = 0 if $opt_nosetenv || !$have_setruid;
+X$use_uid |= $opt_uid;
+X$use_uid = 0 if $opt_nouid || !$have_setruid;
+X
+Xrequire "ctime.pl";
+Xchop ($ctime = &ctime(time));
+X$uid = $use_uid ? ", uid = $mserv_uid" : "";
+X$opt = "";
+X$opt .= " setruid" if $have_setruid;
+X$opt .= " setenv" if $have_setenv;
+X$opt .= " useuid" if $use_uid;
+X
+Xprint <<EOD;
+X/* listener - receives mails and passes them to the mail server */
+X
+Xstatic char *SCCS_id[] = 
+X    {"@(#)@ Generated by mlistener.pl 1.3 on $ctime",
+X     "@(#)@ Configuration:",
+X     "@(#)@     Server  = $mserv_owner$uid",
+X     "@(#)@     Process = $libdir/process",
+X     "@(#)@     Options =$opt"};
+X
+X#include <stdio.h>
+XEOD
+Xprint <<EOD if $have_setruid && !$use_uid;
+X#include <pwd.h>
+XEOD
+Xprint <<EOD if $have_setruid;
+Xint setruid();
+XEOD
+Xprint <<EOD if $have_setruid && !$use_uid;
+Xint setrgid();
+XEOD
+Xprint <<EOD if $have_setenv;
+Xint setenv();
+XEOD
+Xprint <<EOD;
+X
+X/* In an attempt to leave some useful tracks upon failure, 
+X * we're gonna exit with special values.
+X */
+X#define abend(i)	exit(88+(i))
+X
+Xint chdir();
+X
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+XEOD
+X
+Xif ( $have_setruid && $use_uid ) {
+X    print <<EOD;
+X	/* Change identity. */
+X	if (setruid ($mserv_uid) < 0) abend (1);
+XEOD
+X    print <<EOD if $have_setenv;
+X	setenv ("USER", "$mserv_owner", 1);
+X	setenv ("LOGNAME", "$mserv_owner", 1);
+X	setenv ("HOME", "/tmp", 1);
+XEOD
+X    print <<EOD;
+X	if (chdir ("/tmp") < 0) abend (3);
+X
+X	/* Execute the real listener */
+X	return execl ("$libdir/process", "process", (char*)0);
+X	abend (4);
+XEOD
+X}
+Xelsif ( $have_setruid ) {
+X    print <<EOD;
+X	struct passwd *pw;
+X
+X	/* Get info from system */
+X	pw = getpwnam ("$mserv_owner");
+X	if ( pw == NULL ) {
+X	  perror ("getpwnam");
+X	  exit (70);			/* Internal software error */
+X	}
+X
+X	/* Change identity. */
+X	if (setruid (pw->pw_uid) < 0) abend (1);
+X	if (setrgid (pw->pw_gid) < 0) abend (2);
+XEOD
+X    print <<EOD if $have_setenv;
+X	setenv ("USER", pw->pw_name, 1);
+X	setenv ("LOGNAME", pw->pw_name, 1);
+X	setenv ("HOME", pw->pw_dir, 1);
+XEOD
+X    print <<EOD;
+X	if (chdir (pw->pw_dir) < 0) abend (3);
+X
+X	/* Execute the real listener */
+X	return execl ("$libdir/process", "process", (char*)0);
+X	abend (4);
+XEOD
+X}
+Xelse {
+X    print <<EOD;
+X	/* Become root so we can so "su" w/o asking */
+X	if (setuid (0) < 0) abend (10);
+X	chdir ("/tmp");
+X
+X	/* Execute the real listener via "su" */
+X	return execl ("/bin/su", "su", "$mserv_owner", "-c", 
+X		      "$libdir/process", (char*)0);
+X	abend (11);
+XEOD
+X}
+Xprint "}\n";
+X
+X################ Subroutines ################
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    if ( !&NGetOpt ("setenv", "setruid", "nosetenv", "nosetruid",
+X		    "uid", "nouid",
+X		    "verbose", "ident", "help")
+X	|| $opt_help
+X	|| (@ARGV > 0)) {
+X	&usage;
+X    }
+X}
+X
+Xsub usage {
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [-help] [-ident]
+X
+XOptions:
+X    -[no]setruid  use (do not use) setruid system call
+X    -[no]setenv	  use (do not use) setenv library call
+X    -help	  this message
+X    -ident	  print identification
+X    -verbose	  supply verbose information
+XEndOfUsage
+X    exit (1);
+X}
+END_OF_FILE
+  if test 4502 -ne `wc -c <'mlistener.pl'`; then
+    echo shar: \"'mlistener.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mlistener.pl'
+fi
+if test -f 'process.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'process.pl'\"
+else
+  echo shar: Extracting \"'process.pl'\" \(24561 characters\)
+  sed "s/^X//" >'process.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# process.pl -- 
+X# SCCS Status     : @(#)@ process	3.32
+X# Author          : Johan Vromans
+X# Created On      : ***
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Tue Jun  9 11:45:48 1992
+X# Update Count    : 358
+X# Status          : Going steady.
+X
+X# This program processes mail messages, and enqueues requests for
+X# the mail server.
+X#
+X# For options and calling, see subroutine 'usage'.
+X#
+X$my_name = "process";
+X$my_version = "3.32";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+Xrequire "mserv_common.pl";
+X
+X################ Options handling ################
+X
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+X@ARGV = ("-") unless @ARGV > 0;
+X
+X################ Setting up ################
+X
+X# All output goes to STDOUT, and will be mailed to the requestor.
+X# Create a temp file to catch all.
+X$tmpfile = "/usr/tmp/mserv$$";
+Xopen (STDOUT, ">" . $tmpfile) unless $opt_debug;
+X
+X# Motd.
+X&include ($notesfile);
+X
+X$errflag = 0;
+X$didhelp = 0;
+X$needhelp = 0;
+X
+X# Turn extensions into pattern.
+X($extpat = "(" . join("|", @exts) . ")") =~ s/\./\\./g;
+X
+X# Search strategy.
+X$dofilesearch = 1 unless $dodirsearch || $doindexsearch;
+X
+Xrequire "$libdir/rfc822.pl";
+X
+X&start_read (shift(@ARGV)) ||
+X    &die ("Cannot read input [$!]\n");
+X
+X# Flush "From_" line...
+Xif ( defined $rfc822'line_in_cache && $rfc822'line_in_cache =~ /^From / ) {
+X    undef $rfc822'line_in_cache;
+X}
+X
+Xprint STDOUT ("Processing mail headers...\n");
+X
+X$h_from = "";
+X$h_reply = "";
+X
+Xwhile ( $res = &read_header ) {
+X    last if $res == $rfc822'EMPTY_LINE;
+X    next unless $res == $rfc822'VALID_HEADER;
+X    $rfc822'header =~ tr/[A-Z]/[a-z]/;
+X    $h_from = $rfc822'contents if $rfc822'header eq "from";
+X    $h_reply = $rfc822'contents if $rfc822'header eq "reply-to";
+X}
+X
+X# Preset sender info.
+X$h_from = $h_reply if $h_reply;
+X$v_sender = $h_from;
+X&parse_addresses ($h_from);
+Xif ( @rfc822'addresses == 1 ) {		#'){
+X    $h_from = $rfc822'addresses[0];	#';
+X    $v_sender = $rfc822'addr_comments{$h_from} || $h_from;	#';
+X}
+X
+X# Setup defaults.
+X&reset;
+Xprint STDOUT ("Default return address: \"$sender\"\n");
+X
+X# Since comments in programs need to be useful, it is not allowed to
+X# place the comment "Command loop" here.
+Xprint STDOUT ("\nProcessing message contents...\n\n");
+X&command_loop;
+Xprint STDOUT ("Your message has been processed.\n");
+Xclose (STDIN);
+X
+Xif ( $commands == 0 ) {
+X    print STDOUT ("No commands were found.\n");
+X    &help;
+X}
+Xelsif ( $errflag ) {
+X    print STDOUT ("Number of errors detected = $errflag.\n",
+X		  "NO WORK WILL BE DONE.\n");
+X    &help unless $didhelp;
+X}
+Xelse {
+X    print STDOUT ("\n");
+X    require "$libdir/pr_doindex.pl", &index_loop if @indexq > 0;
+X    &search_loop if @searchq > 0;
+X    require "$libdir/pr_dowork.pl", &work_loop if @workq > 0;
+X    &help if $needhelp && !$didhelp;
+X}
+X
+X&include ($hintsfile) 
+X    unless $didhelp || $opt_debug || $opt_nomail;
+X
+Xprint STDOUT ("\nMail Server finished.\n");
+X
+X# Send confirmation message to recipient.
+X&confirm;
+X
+X# Startup the queue run in the background.
+X&background_run ("$libdir/dorequest" . ($opt_trace ? " -trace": "")) 
+X    if $auto_runrequest && !$opt_debug;
+X
+Xexit (0);
+X
+X################ Subroutines ################
+X
+Xsub search {
+X    local ($request, $wantall) = @_;
+X
+X    # This function returns an array of strings, each describing one
+X    # possibility. Each description is a NUL-joined string with fields:
+X    #   - the basename (used for sorting)
+X    #   - the size
+X    #   - the last modification date
+X    #   - the name of the library (LIB)
+X    #   - the part between library and basename
+X    #
+X    # If $wantall == TRUE, all possibilities are returned.
+X    # If $wantall == FALSE, one possibility is returned if the filesearch
+X    # (failing that, the directory search) locates exactly one file.
+X    # Otherwise, all possibilities are returned.
+X
+X    local (@ret) = ();
+X
+X    if ( $dofilesearch ) {
+X	foreach $lib ( @libdirs ) {
+X	    push (@ret, &filesearch ($lib, $request));
+X	}
+X    }
+X
+X    if ( $dodirsearch && ($wantall || @ret != 1)) {
+X	require "$libdir/pr_dsearch.pl";
+X	foreach $lib ( @libdirs ) {
+X	    push (@ret, &dirsearch ($lib, $request));
+X	}
+X    }
+X
+X    if ( $doindexsearch && ($wantall || @ret != 1)) {
+X	require "$libdir/pr_isearch.pl";
+X	if ( $indexfile =~ m|^/| ) {
+X	    local ($lib) = defined $indexlib ? $indexlib 
+X		: (&fnsplit($indexfile))[0];
+X	    push (@ret, &indexsearch ($indexfile, $lib, $request));
+X	}
+X	else {
+X	    foreach $lib ( @libdirs ) {
+X		push (@ret, &indexsearch ("$lib/$indexfile", $lib, $request));
+X	    }
+X	}
+X    }
+X
+X    if ( $opt_debug || $opt_trace ) {
+X	@ret = reverse ( sort (@ret));
+X	print STDOUT ("=> Search queue:\n");
+X	local ($i) = 1;
+X	foreach $entry ( @ret ) {
+X	    local (@a) = &zu ($entry);
+X	    printf STDOUT ("  %3d: %s %s %s %s:%s:%s\n", $i, 
+X			   $a[0], $a[1], $a[2], $a[3], $a[4], $a[0]);
+X	    $i++;
+X	}
+X	@ret;
+X    }
+X    else {
+X	reverse ( sort (@ret));
+X    }
+X}
+X
+Xsub filesearch {
+X
+X    local ($libdir, $request) = @_;
+X
+X    # Locate an archive item $request in library $libdir.
+X    # Eligible items are in the format XXX or
+X    # XXX.EXT, where EXT is one of the known extensions.
+X    #
+X    # See "sub search" for a description of the return values.
+X
+X    local (@retval);		# return value
+X    local (@a);			# to hold stat() result
+X
+X    # Normalize the request. 
+X    # $tryfile will be the basename of the request.
+X    # $subdir holds the part between $libdir and $tryfile.
+X    local ($subdir, $tryfile) = &fnsplit ($request);
+X    $subdir .= "/" if $subdir && $subdir !~ m|/$|;
+X    $libdir .= "/" if $libdir && $libdir !~ m|/$|;
+X
+X    print STDOUT ("Try file $libdir$subdir$tryfile...\n") if $opt_debug;
+X
+X    # First attempt: see if the given file exists 'as is', with possible 
+X    # extensions
+X
+X    foreach $ext ( "", @exts) {
+X	if ( -f $libdir.$subdir.$tryfile.$ext && -r _ ) {
+X	    @a = stat (_);
+X	    print STDOUT ("File $libdir$subdir$tryfile$ext (found)\n")
+X		if $opt_debug;
+X	    push (@retval, 
+X		  &zp ($tryfile.$ext, $a[7], $a[9], $libdir, $subdir));
+X	}
+X    }
+X
+X    return @retval;
+X}
+X
+Xsub confirm {
+X
+X    # Send the contents of the temp file to the requestor.
+X
+X    # Close it, and reopen.
+X    close (STDOUT);
+X    open (MESSAGE, $tmpfile);
+X
+X    if ( $opt_debug || $opt_nomail ) {
+X	open (MAILER, ">&STDERR");
+X    }
+X    else {
+X	open (MAILER, "|$sendmail '$recipient' $mserv_bcc");
+X    }
+X
+X    print MAILER ("To: $recipient\n",
+X		  "Subject: Request by $v_sender\n");
+X
+X    if ( defined @x_headers ) {
+X	foreach $hdr ( @x_headers ) {
+X	    print MAILER ($hdr, "\n");
+X	}
+X    }
+X    print MAILER ("\n");
+X
+X    while ( <MESSAGE> ) {
+X	# Suppress unrecognized stuff.
+X	if ( $reset > 1 ) {
+X	    $reset-- if /^=> Resetting/;
+X	    if ( $reset > 1 ) {
+X		print MAILER $' if /^Command: /;
+X	    }
+X	    else {
+X		print MAILER $_;
+X	    }
+X	}
+X	else {
+X	    print MAILER $_;
+X	}
+X    }
+X    close (MAILER);
+X    close (MESSAGE);
+X
+X    # This aids in debugging...
+X    rename ($tmpfile, "/usr/tmp/mserv.last");
+X    unlink ($tmpfile);
+X}
+X
+Xsub enqueue {
+X
+X    # Add a request to the queue.
+X
+X    local (@work) = @_;
+X
+X    if ( grep (/\s/, @work) ) {
+X	return "Refused";
+X    }
+X
+X    if (open (BATCH, ">>$queue")) {
+X	if ( &locking (*BATCH, 1) == 1 ) {
+X	    seek (BATCH, 0, 2);
+X	    print BATCH (join (" ", @work), "\n");
+X	    close (BATCH);
+X	    $entries++;
+X	    if ( defined $plist && $plist =~ /\S/ ) {
+X		local ($remarks) = "Queued (part";
+X		$remarks .= "s" if $plist =~ /,/;
+X		$remarks .= " ${plist} only)";
+X		return $remarks;
+X	    }
+X	    else {
+X		"Queued";
+X	    }
+X
+X	}
+X	else {
+X	    "Queue error";
+X	}
+X    }
+X    else {
+X	"Cannot queue";
+X    }
+X}
+X
+Xsub dolist {
+X    local ($list_type, $query, *found) = (@_);
+X    local ($entries) = 0;
+X    local ($name, $size, $date, $lib, $subdir); # elements of @found
+X    local ($prev);		# to suppress duplicates
+X    local (@tm);		# for time conversions
+X
+X    $~ = "list_header";
+X    write;
+X    $~ = "list_format";
+X    $: = " /";		# break filenames at logical places
+X    $= = 99999;
+X
+X    # have we found something?
+X    unless ( @found > 0 ) {
+X	$size = $date = "";
+X	$name = "***not found***";
+X	write;
+X	next;
+X    }
+X
+X    $prev = "";
+X    foreach $found ( @found ) {
+X
+X	($name, $size, $date, $lib, $subdir) = &zu ($found);
+X
+X	# Avoid duplicates.
+X	next if $lib.$subdir.$name eq $prev;
+X	$prev = $lib.$subdir.$name;
+X
+X	# Normalize size and date, if needed.
+X	$size = int(($size+1023)/1024) . "K" unless $size =~ /K$/;
+X	if ( $date =~ /^T/ ) {
+X	    $date = $';
+X	}
+X	else {
+X	    @tm = localtime ($date);
+X	    $date = sprintf("%02d/%02d/%02d", 
+X			    1900+$tm[5], $tm[4]+1, $tm[3]);
+X	}
+X
+X	$name = $subdir.$name;
+X	write;
+X    }
+X}
+X
+Xsub search_loop {
+X
+X    print STDOUT ("Search results:\n");
+X
+X    foreach $query ( @searchq ) {
+X
+X	local (@found);		# return from search
+X
+X	# Locate them.
+X	@found = &search ($query, 1);
+X
+X	# Print report.
+X	&dolist ("Search", $query, *found);
+X
+X    }
+X
+X    print STDOUT ("\n");
+X}
+X
+Xsub reset {
+X    # Set defaults.
+X    @workq = ();
+X    @searchq = ();
+X    @indexq = ();
+X    $commands = 0;
+X    $errflag = 0;
+X    $method = "";
+X    @limits = @email_limits;	# assume mail
+X
+X    # Who sent this mail?
+X    $sender = $h_from ? $h_from : "?";
+X
+X    # Who gets the replies?
+X    $recipient = $sender;
+X
+X    # Destination for email transfers.
+X    $destination = "";
+X
+X    # Destination for UUCP transfers.
+X    $uupath = $uunote = "";
+X
+X    # Tally.
+X    $reset++;
+X}
+X
+Xsub errmsg {
+X  local ($msg) = shift (@_);
+X  print STDOUT ">>>>>>>> $msg\n";
+X  $errflag++;
+X}
+X
+Xsub include {
+X    local ($file) = @_;
+X    if ( open (NOTES, $file) ) {
+X	while ( <NOTES> ) {
+X	    print STDOUT;
+X	}
+X	close (NOTES);
+X    }
+X}
+X
+Xsub fnsplit {
+X    local ($file) = @_;
+X    # Normalize $file -> ($dir, $basename)
+X    local (@path) = split (m|/+|, $file);
+X    (join ("/", @path[0..$#path-1]), $path[$#path]);
+X}
+X
+X# Pseudo-record pack/unpack
+Xsub zp { join ("\0", @_); }
+Xsub zu { split (/\0/, $_[0]); }
+X
+Xsub command_loop {
+X
+X    local ($res, $cmd, @cmd);
+X    local ($curdir) = "";
+X
+X    while ( $res = &read_body ) {
+X
+X	next if $res != $rfc822'DATA_LINE;	#';
+X
+X	if ( $rfc822'line =~ /\s*;\s*/ ) {		#'){
+X	    $rfc822'line_in_cache = "$'\n";
+X	    $rfc822'line = $`;
+X	}
+X
+X	$commands++;
+X	print STDOUT "Command: $rfc822'line\n";
+X	@cmd = split (/[\t ,:=]+/, $rfc822'line);	#');
+X	@cmd = grep ( $_ ne "", @cmd);
+X
+X	# get command verb, shifting leading "set" verb
+X	do {
+X	    $cmd = shift (@cmd);
+X	    last unless $cmd;
+X	    $cmd  =~ tr/[a-z]/[A-Z]/;
+X	} while ( $cmd eq "SET" );
+X
+X	################ exit | end ################
+X
+X	if (( $cmd eq "EXIT" ) | ( $cmd eq "END" )) {
+X	    print STDOUT "=> Okay\n";
+X	    last;
+X	}
+X
+X	################ begin ################
+X
+X	if (( $cmd eq "BEGIN" )) {
+X	    print STDOUT "=> Resetting\n";
+X	    &reset;
+X	}
+X
+X	################ reply <address> ################
+X
+X	elsif ( $cmd eq "PATH" || $cmd eq "REPLY" ) {
+X	    if ( @workq + @searchq + @indexq ) {
+X		&errmsg ("$cmd command must precede all other commands");
+X		next;
+X	    }
+X
+X	    shift (@cmd) if $cmd[0] =~ /to/i;
+X
+X	    if ( @cmd == 1 ) {
+X		&parse_addresses ($cmd[0]);
+X		if ( @rfc822'addresses != 1 ) {	#'){
+X		    &errmsg ("Invalid return address: \"$cmd[0]\"");
+X		    next;
+X		}
+X		$recipient = shift (@rfc822'addresses);	#');
+X		push (@workq, &zp ("M", $recipient));
+X		print STDOUT "=> Return address: \"$recipient\"\n";
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd email-address");
+X	    }
+X	}
+X
+X	################ mail <address> ################
+X
+X	elsif ( $cmd eq "MAIL" ) {
+X
+X	    if ( $method ne "" ) {
+X		&errmsg ("$cmd command must precede other commands");
+X		next;
+X	    }
+X
+X	    shift (@cmd) if $cmd[0] =~ /to/i;
+X
+X	    if ( @cmd == 1 ) {
+X		&parse_addresses ($cmd[0]);
+X		if ( @rfc822'addresses != 1 ) {	#'){
+X		    &errmsg ("Invalid return address: \"$sender\"");
+X		    next;
+X		}
+X		$method = "M";
+X		$destination = $rfc822'addresses[0];	#';
+X		push (@workq, &zp ("M", $destination));
+X		print STDOUT ("=> Transfer via email to \"$destination\"\n");
+X		@limits = @email_limits;
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd email-address");
+X	    }
+X	}
+X
+X	################ uucp <path> ################
+X
+X	elsif ( $cmd eq "UUCP" && defined $uucp ) {
+X
+X	    if ( $method  ne "" ) {
+X		&errmsg ("$cmd command must precede other commands");
+X		next;
+X	    }
+X
+X	    local ($msg) = "Usage: $cmd host!path user";
+X
+X	    shift (@cmd) if $cmd[0] =~ /to/i;
+X
+X	    if ( @cmd == 2 ) {
+X		($uupath, $uunote) = @cmd;
+X
+X		if ( $uupath =~ /!/ ) {
+X		    local ($host, $path) = ($`, $');
+X		    local ($ok);
+X		    ($ok = &check_uucp_name ($host)) ||
+X			&errmsg ("Unknown UUCP system name: \"$host\"");
+X		    ($ok += &check_uucp_path ($path)) ||
+X			&errmsg ("Invalid UUCP path name: \"$path\"");
+X		    if ( $ok == 2 ) {
+X			$method = "U";
+X			push (@workq, &zp ("U", $uupath, $uunote));
+X			print STDOUT ("=> Transfer via UUCP to \"$uupath\"\n");
+X			print STDOUT ("=> (UUCP notification to \"$uunote\")\n");
+X			@limits = @uucp_limits;
+X		    }
+X		}
+X		else {
+X		    &errmsg ($msg);
+X		    next;
+X		}
+X	    }
+X	    else {
+X		&errmsg ($msg);
+X	    }
+X	}
+X
+X	################ limit [ <number>[K] ] ################
+X
+X	elsif ( $cmd eq "LIMIT" ) {
+X
+X	    if ( @cmd == 0 ) {
+X		push (@workq, &zp ("L", $limits[1]));
+X		print STDOUT "=> Limit = $limits[1]K (default)\n";
+X	    }
+X	    elsif ( $cmd[0] =~ /^(\d+)K?$/i ) {
+X		local ($new) = $1;
+X		local ($msg) = "Warning: LIMIT must be between ".
+X		    "$limits[0]K and $limits[2]K";
+X
+X		if ( $new < $limits[0] ) {
+X		    $new = $limits[0];
+X		    &errmsg ($msg);
+X		    $errflag--;
+X		}
+X		elsif ( $new > $limits[2] ) {
+X		    $new = $limits[2];
+X		    &errmsg ($msg);
+X		    $errflag--;
+X		}
+X		push (@workq, &zp ("L", $new));
+X		print STDOUT "=> Limit = ${new}K\n";
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd [ number[K] ]");
+X
+X	    }
+X	}
+X
+X	################ various encoders ################
+X
+X	elsif ( $cmd eq "UUENCODE" || $cmd eq "UUDECODE" || $cmd eq "UU" ) {
+X	    &setencoding ("uuencoding", $uuencode, "U");
+X	}
+X	elsif ( $cmd eq "XXENCODE" || $cmd eq "XXDECODE" || $cmd eq "XX" ) {
+X	    &setencoding ("xxencoding", $xxencode, "X");
+X	}
+X	elsif ( $cmd eq "UUD" || $cmd eq "UUE" ) {
+X	    &setencoding ("uue", $uue, "D");
+X	}
+X	elsif ( $cmd eq "BTOA" || $cmd eq "ATOB") {
+X	    &setencoding ("btoa", $btoa, "B");
+X	}
+X
+X	################ send <item> [ <item>...] ################
+X
+X	elsif ( $cmd eq "SEND" || $cmd eq "TOPIC" || $cmd eq "GET" ) {
+X
+X	    if ( @cmd > 0 ) {
+X		foreach $item ( @cmd ) {
+X		    if ( $item =~ m:(^\.|/\.): ) {
+X			&errmsg ("Illegal request");
+X		    }
+X		    else {
+X			&setdefaults;
+X			push (@workq, &zp ("S", $curdir.$item)); 
+X			print STDOUT "=> Send: $curdir$item\n";
+X		    }
+X		}
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd item [ item ... ]");
+X	    }
+X	}
+X
+X	################ resend <item> <number> [ <number>...] ################
+X
+X	elsif ( $cmd eq "RESEND" ) {
+X
+X	    local ($msg) = "Usage: $cmd item part# [ part# ... ]";
+X
+X	    if ( @cmd > 1 ) {
+X		local ($item) = shift (@cmd);
+X		local ($plist) = "";
+X		if ( $item =~ m:(^\.|/\.): ) {
+X		    &errmsg ("Illegal request");
+X		    next;
+X		}
+X		foreach $num (@cmd) {
+X		    if ( $num =~ /^\d+$/ ) {
+X			$plist .= 0+$num . ",";
+X		    }
+X		    else {
+X			&errmsg ($msg);
+X			last;
+X		    }
+X		}
+X		&setdefaults;
+X		chop ($plist);
+X		push (@workq, &zp ("S", $curdir.$item, $plist));
+X		print STDOUT ("=> Resend: $curdir$item, part",
+X			      (@plist > 0) ? "s " : " ",
+X			      $plist, "\n");
+X	    }
+X	    else {
+X		&errmsg ($msg);
+X	    }
+X	}
+X	
+X	################ pack ################
+X
+X	elsif ( $cmd eq "PACK" && defined $packing_limit && $packing_limit ) {
+X
+X	    if ( @cmd == 1 ) {
+X		local ($packing);
+X
+X		($packing = $cmd[0]) =~ tr/[A-Z]/[a-z]/;
+X		if ( ($packing eq "tar" && (-x $tar || -x $pdtar)) ||
+X		     ($packing eq "zip" && -x $zip) ||
+X		     ($packing eq "zoo" && -x $zoo) ) {
+X		    push (@workq, &zp ("P", $packing));
+X		    print STDOUT ("=> Subsequent directories will be ",
+X				  "packed using $packing\n");
+X		} 
+X		elsif ( $packing eq "off" ) {
+X		    push (@workq, &zp ("P"));
+X		    print STDOUT "=> No more packing\n";
+X		}
+X		else {
+X		    &errmsg ("Wrong argument for PACK");
+X		}
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd { ".
+X			 (-x $tar ? "tar | " : "").
+X			 (-x $zip ? "zip | " : "").
+X			 (-x $zoo ? "zoo | " : "").
+X			 "off }");
+X	    }
+X	}
+X
+X	################ search <item> [ <item>...] ################
+X
+X	elsif ( $cmd eq "SEARCH" ) {
+X
+X	    if ( @cmd > 0 ) {
+X		foreach $item ( @cmd ) {
+X		    if ( $item =~ m:(^\.|/\.): ) {
+X			&errmsg ("Illegal request");
+X		    }
+X		    else {
+X			push (@searchq, $curdir.$item);
+X			print STDOUT "=> Search: $curdir$item\n";
+X		    }
+X		}
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd item [ item ... ]");
+X	    }
+X	}
+X
+X	################ index ################
+X	
+X	elsif ( $cmd eq "INDEX" && ( @cmd == 0 || defined $indexfile ) ) {
+X
+X	    if ( @cmd == 0 ) {
+X		&setdefaults;
+X		push (@workq, &zp ("S", $curdir."INDEX")); 
+X		print STDOUT "=> Send: ${curdir}INDEX\n";
+X	    }
+X	    elsif ( @cmd > 0 ) {
+X		foreach $item ( @cmd ) {
+X		    if ( $item =~ m:(^\.|/\.): ) {
+X			&errmsg ("Illegal request");
+X		    }
+X		    else {
+X			push (@indexq, $curdir.$item);
+X			print STDOUT "=> Index: $curdir$item\n";
+X		    }
+X		}
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd item [ item ... ]");
+X	    }
+X	}
+X
+X	################ help ################
+X
+X	elsif ( $cmd eq "HELP" ) {
+X
+X	    if ( @cmd == 0 ) {
+X		print STDOUT ("=> Okay, I'll append some help ".
+X			      "at the end of this message\n");
+X		$needhelp = 1;
+X	    }
+X	    else {
+X		&errmsg ("HELP does not take any arguments ".
+X			 "(but you'll get help anyway)");
+X	    }
+X	}
+X
+X	################ test ################
+X
+X	elsif ( $cmd eq "TEST" ) {
+X
+X	    if ( @cmd == 0 ) {
+X		$opt_noqueue = 1;
+X		print STDOUT "=> Okay\n";
+X	    }
+X	    else {
+X		&errmsg ("Command $cmd unknown");
+X	    }
+X	}
+X
+X	################ cwd ################
+X
+X	elsif ( $cmd eq "CWD" || $cmd eq "REQUEST" ) {
+X
+X	    if ( @cmd == 0 ) {
+X		print STDOUT ("=> No current directory\n");
+X		$curdir = "";
+X	    }
+X	    elsif ( @cmd == 1 ) {
+X		if ( $cmd[0] =~ m:(^\.|/\.): ) {
+X		    &errmsg ("Illegal directory");
+X		}
+X		else {
+X		    $curdir = $cmd[0];
+X		    print STDOUT ("=> Current directory = $curdir\n");
+X		    $curdir .= "/" unless $curdir =~ m|/$|;
+X		}
+X	    }
+X	    else {
+X		&errmsg ("Usage: $cmd [ path ]");
+X	    }
+X	}
+X
+X	################ UNKNOWN ################
+X
+X	else {
+X	    &errmsg ("Command $cmd unknown");
+X	}
+X
+X	################ End of Commands ################
+X
+X	print STDOUT "\n";
+X    }
+X}
+X
+Xsub setdefaults {
+X
+X    unless ( $recipient ) {
+X	$recipient = $sender;
+X	print STDOUT ("=> Return address: \"$recipient\"\n");
+X    }
+X
+X    unless ( $method ) {
+X	$method = "M";
+X	$destination = $recipient unless $destination ne "";
+X	push (@workq, &zp ("M", $destination));
+X	print STDOUT ("=> Transfer via email to \"$destination\"\n");
+X	@limits = @email_limits;
+X    }
+X}
+X
+Xsub setencoding {
+X    local ($tag, $encoder, $encoding) = @_;
+X    if ( @cmd == 0 ) {
+X	if ( -x $encoder ) {
+X	    push (@workq, &zp ("E", $encoding));
+X	    print STDOUT "=> Encoding = $encoding ($tag)\n";
+X	}
+X	else {
+X	    print STDOUT "=> Encoding '$tag' not available\n";
+X	}
+X    }
+X    else {
+X	$tag =~ tr/a-z/A-Z/;
+X	&errmsg ("$tag does not take any arguments");
+X    }
+X}
+X
+Xsub die {
+X    local ($msg) = "@_";
+X    print STDOUT ($msg, "\n");
+X    $sender = $sender || $mserv_owner || $mserv_bcc || "postmaster";
+X    $mserv_bcc = $mserv_owner;
+X    &confirm;
+X    exit (1);
+X}
+X
+Xsub background_run {
+X    local ($cmd) = @_;
+X
+X    # Run $cmd in the background.
+X
+X    local ($pid);
+X
+X    if ( ($pid = fork) == 0 ) {
+X
+X	# Child process. Disable signals.
+X	foreach $sig ( "HUP", "INT", "QUIT" ) {
+X	    $SIG{$sig} = "IGNORE";
+X	}
+X
+X	# Fork another child to do the job.
+X	if ( fork == 0 ) {
+X	    # Execute command. No way to signal failure.
+X	    exec $cmd;
+X	    exit (0);
+X	}
+X
+X    }
+X
+X    # Wait for first child to complete. 
+X    # This assures that the signals are armed before the parent can do
+X    # harmful things.
+X    waitpid ($pid, 0);
+X}
+X
+Xsub check_uucp_name {
+X    return 1 unless $uuname ne "";
+X    local ($host) = @_;
+X    open ( UUNAME, $uuname . "|" );
+X    local (@hosts) = <UUNAME>;
+X    close (UUNAME);
+X    @found = grep ( /^$host$/, @hosts );
+X    return @found == 1;
+X}
+X
+Xsub check_uucp_path {
+X    local ($path) = @_;
+X    # $path should start with slash or tilde.
+X    $path =~ /^[\/~]/;
+X}
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    $opt_debug = $opt_trace = $opt_nomail = $opt_noqueue = $opt_help = 0;
+X    if ( !&NGetOpt ("debug", "trace", "noqueue", "nomail", "help")
+X	|| $opt_help
+X	|| (@ARGV > 0 && !($opt_debug || $opt_trace || $opt_nomail))) {
+X	&usage;
+X    }
+X}
+X
+Xsub usage {
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [-help] [-noqueue] [-debug] < mail-message
+X
+XOptions:
+X    -help	this message
+X    -noqueue	process message, but do not enter request
+X    -nomail	do not reply by email (testing only)
+X    -debug	for debugging
+X    -trace	for debugging
+X
+X'mail-message' should be RFC-822 conformant.
+XEndOfUsage
+X    exit (1);
+X}
+X
+Xformat M_header =
+X
+X  Request                                        Size  Enc  Limit  Status
+X  --------------------------------------------  -----  ---  -----  ------
+X.
+Xformat M_list =
+X  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@>>>>>>  @||  @>>>>  @<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name, $size, $coding, $limit, $remarks
+X~~  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name
+X.
+Xformat U_header =
+X
+X  Request                                        Size  Limit  Status
+X  --------------------------------------------  -----  -----  ------
+X.
+Xformat U_list =
+X  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@>>>>>>  @>>>>  @<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name, $size, $limit, $remarks
+X~~  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name
+X.
+Xformat list_header =
+X
+X     Date       Size  @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$list_type . ": " . $query
+X  ----------  ------  ----------------------------
+X.
+Xformat list_format =
+X  @<<<<<<<<< @>>>>>>  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$date, $size, $name
+X~~                      ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name
+X.
+X
+X# WARNING: ugly layout ahead!
+X
+Xsub help {
+X# Auto-configuring help message.
+Xprint STDOUT <<SquirrelTail;
+XValid server commands are:
+X
+XBEGIN
+X    Discard anything above this line, and start processing commands.
+XREPLY <address>
+X    Specify return address for replies. Use this if you are not sure that
+X    your mail system generates correct return addresses.
+XMAIL <address>
+X    Requests will be sent via email to <address>. This is the default.
+XSquirrelTail
+X
+Xprint STDOUT <<SquirrelTail if defined $uucp;
+XUUCP <host>!<path> <user>
+X    Requests will be sent via uucp to <host>!<path>. The <user> on
+X    <host> will be notified. <path> must be writable by the UUCP
+X    system on <host>.
+XSquirrelTail
+X
+Xlocal ($l) = "";
+X$l = " and $uucp_limits[1]K bytes for UUCP" if defined $uucp;
+Xprint STDOUT <<SquirrelTail;
+XLIMIT <number>
+X    Maximum number of Kbytes to be sent per transfer.
+X    Default is $email_limits[1]K bytes for email$l.
+X    The limit applies to subsequent "send" commands.
+XSquirrelTail
+X
+Xprint ("BTOA\n")	if -x $btoa;
+Xprint ("UUE\n")		if -x $uue;
+Xprint ("XXENCODE\n")	if -x $xxencode;
+Xprint STDOUT <<SquirrelTail;
+XUUENCODE
+X    Specify encoding to be used. Default is UUENCODE.
+X    The encoding applies to subsequent "send" commands.
+XSquirrelTail
+X
+Xprint STDOUT <<SquirrelTail;
+XCWD [<path>]
+X    Sets or cancels the current working directory for subsequent commands.
+XSquirrelTail
+X
+Xprint STDOUT <<SquirrelTail if defined $indexfile;
+XINDEX [<item>...]
+X    Look up everything in the archives that matches the <item>s.
+X    If no <item>s are specified, requests for a file named "INDEX".
+XSquirrelTail
+X
+Xprint STDOUT <<SquirrelTail;
+XSEARCH <item> [<item>...]
+X    Look up the indicated archive entries, and return a list of 
+X    files found.
+XSEND <item> [<item>...]
+X    Specify the items to be sent.
+XRESEND <item> <part> [<part>...]
+X    Re-sends the indicated <parts> from the specified <item>.
+X    The encoding and limit must be identical to those used in the
+X    original request.
+XSquirrelTail
+X
+Xif ( defined $packing_limit ) {
+X    print STDOUT "PACK {";
+X    print STDOUT " TAR |" if -x $tar || -x $pdtar;
+X    print STDOUT " ZOO |" if -x $zoo;
+X    print STDOUT " ZIP |" if -x $zip;
+Xprint STDOUT <<SquirrelTail;
+X OFF }
+X    Subsequent requests must specify directories, which will be
+X    packed using the indicated method and transferred.
+X    "PACK OFF" cancels packing.
+XSquirrelTail
+X}
+X
+Xprint STDOUT <<SquirrelTail;
+XHELP
+X    This message.
+X    Use "send HELP" for a more detailed description on how to use
+X    the archive server.
+XEND
+XEXIT
+X    Terminate command processing. The remainder of
+X    the input will be ignored.
+X
+XCase is insignificant in the command verbs, but it is
+Xsignificant in the <path> and <item> specifications.
+X
+XSquirrelTail
+X$didhelp = 1;
+X}
+END_OF_FILE
+  if test 24561 -ne `wc -c <'process.pl'`; then
+    echo shar: \"'process.pl'\" unpacked with wrong size!
+  fi
+  # end of 'process.pl'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

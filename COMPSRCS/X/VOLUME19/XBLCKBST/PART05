@@ -1,0 +1,665 @@
+Newsgroups: comp.sources.x
+From: master@cats.UCSC.EDU (Mark Wedel)
+Subject: v19i048:  xblockbuster - a variation of the break-out type games, Part05/05
+Message-ID: <1993Mar17.160341.718@sparky.imd.sterling.com>
+X-Md4-Signature: 0c0e4d28c089b40dd79905677b19006b
+Date: Wed, 17 Mar 1993 16:03:41 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: master@cats.UCSC.EDU (Mark Wedel)
+Posting-number: Volume 19, Issue 48
+Archive-name: xblockbuster/part05
+Environment: X11R5
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 5)."
+# Contents:  balls_pallet.c
+# Wrapped by master@sleipner on Sat Mar 13 02:21:02 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'balls_pallet.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'balls_pallet.c'\"
+else
+echo shar: Extracting \"'balls_pallet.c'\" \(16058 characters\)
+sed "s/^X//" >'balls_pallet.c' <<'END_OF_FILE'
+X/*
+X * File:       balls_pallet.c
+X * Author:     Eric Van Gestel
+X * Updated for X11 by Mark S. Wedel
+X *
+X * For:                xblockbuster
+X *
+X * Implementation:
+X *     Drawing is to be done twice with the same coordinates such that
+X *     the second removes the first while restoring the context.
+X *     The procedure move_balls is called on timeout (xblockbuster.c)
+X *     The procedure draw_pallet is called whenever the pallet changes (mouse
+X *     movement event, button 1 or 2, or hitting a clipper.)
+X *     Auxilary print functions added by MSW to help clean up the code a
+X *     little.
+X *     The auxiliary functions return a boolean value indicating whether
+X *     the hit might have increased the score.
+X */
+X
+X
+X#include "xblockbuster.h"
+X
+X#include "icons/ball.pr"
+X
+Xstatic char	str[256];
+X
+X
+Xvoid print_score()
+X{
+X	sprintf(str, "Score:  %d ", score );
+X	XDrawImageString(display, win, gc, OFFSET_SCORE, font_height, str, 
+X			strlen(str));
+X}
+X
+Xvoid print_balls()
+X{
+X	sprintf(str, "Balls left:  %d ", balls_left);
+X	XDrawImageString(display, win, gc, OFFSET_BALLS, font_height, str, 
+X			strlen(str));
+X}
+X
+XPixmap ball_pr;
+Xextern int	in_event, do_balls, timer_active;
+X
+Xvoid ball_init()
+X{
+X	ball_pr = XCreateBitmapFromData(display, win, ball_bits, ball_width, ball_height);
+X}
+X
+X/* Macro to draw a ball */
+X
+X#define draw_ball( ball )      \
+X	XCopyPlane(display, ball_pr, win, gc_xor, 0, 0, 16, 16, \
+X		(int)( (ball)->x ) - 8, (int)( (ball)->y ) - 8, 1)
+X
+X
+X/* Procedure to draw the pallet */
+Xvoid
+Xdraw_pallet(  )
+X{
+X	XDrawLine( display, win, gc_xor, pallet_xI - pallet_lengthI + 2, pallet_yI,
+X		   pallet_xI + pallet_lengthI - 2, pallet_yI);
+X	XDrawLine( display, win, gc_xor, pallet_xI - pallet_lengthI + 1, pallet_yI + 1,
+X		   pallet_xI + pallet_lengthI - 1, pallet_yI + 1);
+X	XDrawLine( display, win, gc_xor, pallet_xI - pallet_lengthI, pallet_yI + 2,
+X		   pallet_xI + pallet_lengthI, pallet_yI + 2);
+X	XDrawLine( display, win, gc_xor, pallet_xI - 1, pallet_yI + 3,
+X		   pallet_xI - 1, pallet_yI + 6);
+X	XDrawLine( display, win, gc_xor, pallet_xI - 1, pallet_yI + 6,
+X		   pallet_xI + 1, pallet_yI + 6);
+X	XDrawLine( display, win, gc_xor, pallet_xI + 1, pallet_yI + 6,
+X		   pallet_xI + 1, pallet_yI + 3);
+X	XDrawLine( display, win, gc_xor, 0, mouse_yI - 1,	/* <HC> */
+X		   10, mouse_yI - 1);
+X	XDrawLine( display, win, gc_xor, 0, mouse_yI,
+X		   10, mouse_yI);
+X	XDrawLine( display, win, gc_xor, 0, mouse_yI + 1,	/* <HC> */
+X		   10, mouse_yI + 1);
+X	XDrawLine( display, win, gc_xor, STAGE_WIDTH_IN_PIXELS - 1, mouse_yI - 1,	/* <HC> */
+X		   STAGE_WIDTH_IN_PIXELS - 11, mouse_yI - 1);
+X	XDrawLine( display, win, gc_xor, STAGE_WIDTH_IN_PIXELS - 1, mouse_yI,
+X		   STAGE_WIDTH_IN_PIXELS - 11, mouse_yI);
+X	XDrawLine( display, win, gc_xor, STAGE_WIDTH_IN_PIXELS - 1, mouse_yI + 1,	/* <HC> */
+X		   STAGE_WIDTH_IN_PIXELS - 11, mouse_yI + 1);
+X}
+X
+X
+X/* Procedure to show the speeds */
+X#define SX     OFFSET_SPEED + 70
+Xvoid
+Xshow_speeds(  )
+X{
+X	int             sp;
+X
+X	XDrawImageString(display, win, gc, OFFSET_SPEED, font_height,
+X		"Speed:          ",16);
+X
+X	/* scale line */
+X	XDrawLine( display, win, gc, SX, font_height - 1, SX + SPEED_RESOLUTION - 1, font_height - 1);
+X	XDrawLine( display, win, gc, SX, font_height, SX + SPEED_RESOLUTION, font_height);
+X	XDrawLine( display, win, gc, SX, font_height + 1, SX + SPEED_RESOLUTION - 1, font_height + 1);
+X
+X	/* base bar */
+X	XDrawLine( display, win, gc, SX, font_height - 12, SX, font_height + 3);
+X	XDrawLine( display, win, gc, SX + 1, font_height - 12, SX + 1, font_height + 3);
+X
+X	/* launch speed bar */
+X	sp = ( int ) ( launch_speed * SPEED_RESOLUTION_FACTOR );
+X	if ( launch_speed < MAX_SPEED )
+X		XDrawLine( display, win, gc, SX + sp, font_height - 2, SX + sp, font_height + 2);
+X	else
+X		XDrawLine( display, win, gc, SX + sp, font_height - 2, SX + sp, font_height + 2);
+X
+X	/* ball lines */
+X	if ( ball1.quadrant ) {
+X		sp = ( int ) ( ball1.speed * SPEED_RESOLUTION_FACTOR );
+X		XDrawLine( display, win, gc, SX, font_height - 4, SX + sp, font_height - 4);
+X	}
+X	if ( ball2.quadrant ) {
+X		sp = ( int ) ( ball2.speed * SPEED_RESOLUTION_FACTOR );
+X		XDrawLine( display, win, gc, SX, font_height - 7, SX + sp, font_height - 7);
+X	}
+X	if ( ball3.quadrant ) {
+X		sp = ( int ) ( ball3.speed * SPEED_RESOLUTION_FACTOR );
+X		XDrawLine( display, win, gc, SX, font_height - 10, SX + sp, font_height - 10);
+X	}
+X}
+X
+X
+X
+X/* auxiliary procedures */
+Xvoid
+Xnew_ball( ball )
+X	register struct Ball *ball;
+X{
+X	if ( balls_left-- ) {
+X		ball->quadrant = launch_quadrant;
+X		ball->angle = 0.0;
+X		ball->row = launch_row;
+X		ball->col = launch_col;
+X		ball->x = launch_x;
+X		ball->y = launch_y;
+X		ball->speed = launch_speed;
+X		ball->x_speed = launch_speed * ( ( ball->quadrant == NE ) ? M_SQRT2_2
+X						  /* NW */ : -M_SQRT2_2 );
+X		ball->y_speed = launch_speed * -M_SQRT2_2;
+X		/* initial ball image */
+X		draw_ball( ball );
+X		/* show balls left */
+X		print_balls();
+X		/* show speeds */
+X		show_speeds(  );
+X	} else {
+X		balls_left = 0;	/* kludge */
+X		XDrawImageString(display, win, gc, 0, font_height,
+X			"Game Over.",10 );
+X		sleep( 2 );
+X		show_score_board(  );	/* BYE !! */
+X	}
+X}
+X
+X
+Xvoid
+Xblow_up( row, col )
+X	register int    row, col;
+X{
+X	if ( stage[row][col].code == ' ' )
+X		return;		/* nothing there */
+X	if ( IS_HIT_BRICK( stage[row][col].code ) )
+X		nbricks--;
+X	stage[row][col].code = 'R';
+X	draw_brick( row, col );
+X}
+X
+X
+Xint				/* boolean */
+Xhit_brick( hit, ball )
+X	register int    hit;	/* enumeration { HORIZONTAL, VERTICAL } */
+X	register struct Ball *ball;
+X{
+X	register struct Brick *brick = &stage[ball->row][ball->col];
+X	register int    busted = FALSE;
+X	register int    redraw = FALSE;
+X	register int    score_hit = FALSE;
+X	char		str[80];
+X
+X	/* has the ball left the stage vertically ? */
+X	if ( ball->row < 0 || ball->row > MAX_ROW ) {
+X		ball->quadrant = NO_BALL;	/* so much for this ball */
+X		return ( score_hit );
+X	}
+X	/* check for looping */
+X	switch ( brick->code ) {
+X	case ' ':		/* no hit */
+X		break;
+X	case '#':
+X	case '/':
+X	case '\\':
+X	case '^':
+X	case '0':
+X	case 'A':
+X	case 'R':
+X	case 'S':
+X	case 'U':		/* because it may undo another one */
+X	case 'W':
+X	case '%':
+X		if ( !( ++loop_nhits % LOOP_MAX ) )
+X			ball->x -=
+X				ball->x_speed * ( double ) ( loop_nhits / LOOP_MAX ) + 1;
+X		/* horizontal shift, trying to get out of a bounce loop */
+X		/* negative to try to avoid leaving the stage */
+X		break;
+X	default:		/* non-solid brick */
+X		loop_nhits = 0;
+X	}
+X
+X	/* advance score taking special action if needed */
+X	switch ( brick->code ) {
+X	case ' ':		/* clear space */
+X		/* has the ball left the stage horizontally ? */
+X		if ( ball->col <= 0 || ball->col >= MAX_COL ) {
+X			ball->quadrant = NO_BALL;	/* so much for this ball */
+X		}
+X		return ( score_hit );	/* no hit */
+X
+X	case '#':		/* solid wall */
+X	case '/':		/* launchpad NE */
+X	case '\\':		/* launchpad NW */
+X	case '^':		/* emitter */
+X		break;
+X
+X	case '0':		/* solid brick */
+X		score += score_incr;
+X		score_hit = TRUE;
+X		break;
+X
+X	case 'A':		/* absorber */
+X		ball->x += ( double ) ( emit_col - ball->col ) * 64;
+X		ball->y += ( double ) ( emit_row - ball->row ) * 16;
+X		break;
+X	case 'C':		/* clipper */
+X		if ( ++( brick->nhits ) == 2 ) {
+X			draw_pallet();
+X			pallet_lengthI -= pallet_lengthI / 5;
+X			if ( pallet_lengthI < MIN_PALLET_LENGTH )
+X				pallet_lengthI = MIN_PALLET_LENGTH;
+X			pallet_length = ( double ) pallet_lengthI;
+X			busted = TRUE;
+X			draw_pallet();
+X		}
+X		break;
+X	case 'D':		/* double */
+X		if ( ++( brick->nhits ) == 2 ) {
+X			score_incr *= 2;
+X			busted = TRUE;
+X			sprintf(str,"Bonus x%d",score_incr);
+X			XDrawImageString(display, win, gc,
+X			 OFFSET_SCORE, font_height*2, str, 
+X				strlen(str));
+X		}
+X		break;
+X	case 'E':		/* extra ball */
+X		if ( ++( brick->nhits ) == 2 ) {
+X			balls_left++;
+X			print_balls();
+X			busted = TRUE;
+X		}
+X		break;
+X	case 'G':		/* gap */
+X		if ( ++( brick->nhits ) == 2 ) {
+X			ball->quadrant = NO_BALL;	/* so much for this ball */
+X			busted = TRUE;
+X		}
+X		break;
+X	case 'H':		/* halt */
+X		if ( ++( brick->nhits ) == 3 )
+X			busted = TRUE;
+X		{
+X			double          pause = 0.1 * ( double ) ( 10 - brick->nhits );
+X
+X			ball->speed *= pause;
+X			ball->x_speed *= pause;
+X			ball->y_speed *= pause;
+X		}
+X		/* approximative; will be corrected on next pallet deflection */
+X		show_speeds(  );
+X		break;
+X	case 'I':		/* invisible brick */
+X		score += score_incr;
+X		brick->code = '1';
+X		nbricks++;
+X		score_hit = redraw = TRUE;
+X		break;
+X	case 'L':		/* launch ball */
+X		if ( ++( brick->nhits ) == 2 ) {
+X			balls_left++;	/* kludge to avoid consuming a ball */
+X			if ( !ball1.quadrant )
+X				new_ball( &ball1 );
+X			else if ( !ball2.quadrant )
+X				new_ball( &ball2 );
+X			else if ( !ball3.quadrant )
+X				new_ball( &ball3 );
+X			else
+X				print_balls();
+X			show_speeds(  );
+X			busted = TRUE;
+X		}
+X		break;
+X	case 'M':		/* mine */
+X		if ( ++( brick->nhits ) == 3 ) {
+X			blow_up( ball->row - 1, ball->col - 1 );
+X			blow_up( ball->row - 1, ball->col );
+X			blow_up( ball->row - 1, ball->col + 1 );
+X			blow_up( ball->row, ball->col - 1 );
+X			blow_up( ball->row, ball->col + 1 );
+X			blow_up( ball->row + 1, ball->col - 1 );
+X			blow_up( ball->row + 1, ball->col );
+X			blow_up( ball->row + 1, ball->col + 1 );
+X			busted = TRUE;
+X		}
+X		break;
+X	case 'P':		/* pause */
+X		if ( ++( brick->nhits ) == 8 ) {
+X			launch_speed -= ( launch_speed - INIT_SPEED ) * 0.3;
+X			busted = TRUE;
+X		}
+X		show_speeds(  );
+X		break;
+X	case 'R':		/* refractor */
+X		ball->angle = -( ball->angle );
+X		{
+X			register int    sign = ( ball->x_speed * ball->y_speed ) < 0;
+X			register double tmp = ball->x_speed;
+X
+X			ball->x_speed = sign ? -( ball->y_speed ) : ball->y_speed;
+X			ball->y_speed = sign ? -tmp : tmp;
+X			/*
+X			 * note no check for NEAR_HORIZONTAL and none needed
+X			 * since,
+X			 */
+X			/*
+X			 * if it gets too horizontal, it probably will hit it
+X			 * again.
+X			 */
+X		}
+X		return ( FALSE );	/* no deflection */
+X	case 'S':		/* speeder */
+X		if ( ball->speed < SPEED_LIMIT ) {
+X			ball->speed += SPEED_INCR;
+X			ball->x_speed += ( ball->x_speed < 0 ) ? -SPEED_INCR_2
+X				: SPEED_INCR_2;
+X			ball->y_speed += ( ball->y_speed < 0 ) ? -SPEED_INCR_2
+X				: SPEED_INCR_2;
+X			/*
+X			 * approximative; will be corrected on next pallet
+X			 * deflection
+X			 */
+X			show_speeds(  );
+X		} else
+X			pallet_modif++;
+X		break;
+X	case 'T':		/* triple */
+X		if ( ++( brick->nhits ) == 3 ) {
+X			score_incr *= 3;
+X			busted = TRUE;
+X			sprintf(str,"Bonus x%d",score_incr);
+X			XDrawImageString(display, win, gc,
+X			 OFFSET_SCORE, font_height*2, str, 
+X				strlen(str));
+X		}
+X		break;
+X	case 'U': /* undo */ ;
+X		/* effective only after something has been busted */
+X		if ( last_busted_brick ) {
+X			last_busted_brick->code = last_busted_code;
+X			last_busted_brick->nhits = 0;
+X			if ( IS_HIT_BRICK( last_busted_code ) )
+X				nbricks++;
+X			draw_brick( last_busted_row, last_busted_col );
+X			busted = TRUE;
+X		}
+X		break;
+X	case 'W': /* open window */ ;
+X		brick->code = '%';
+X		 /* redraw = TRUE */ draw_brick( ball->row, ball->col );
+X		return ( score_hit );	/* no deflection */
+X	case '%': /* closed window */ ;
+X		brick->code = 'W';
+X		redraw = TRUE;
+X		break;
+X	case 'X':		/* expander */
+X		if ( ++( brick->nhits ) == 4 ) {
+X			pallet_modif -= 2 * PALLET_INCR;
+X			busted = TRUE;
+X		}
+X		break;
+X
+X	default:
+X		if ( brick->code >= '1' && brick->code <= '9' ) {
+X			/* hit bricks */
+X			score += ++( brick->nhits ) * score_incr;
+X			score_hit = TRUE;
+X			if ( brick->nhits == brick->code - '0' )
+X				busted = TRUE;
+X			else
+X				redraw = TRUE;
+X		} else {	/* 'a' .. 'e' & 'j' */
+X			/* bonus= bricks */
+X			if ( ++( brick->nhits ) > brick->code - 'a' + 1 ) {
+X				score += ( brick->code - 'a' + 1 ) * 10 * score_incr;
+X				score_hit = busted = TRUE;
+X			}
+X		}
+X	}
+X	if ( busted ) {
+X		last_busted_brick = brick;
+X		last_busted_code = brick->code;
+X		last_busted_row = ball->row;
+X		last_busted_col = ball->col;
+X		if ( IS_HIT_BRICK( brick->code ) )
+X			nbricks--;
+X		brick->code = ' ';
+X		redraw = TRUE;
+X	}
+X	/* redraw brick (never on the sides) */
+X	if ( redraw ) {
+X		if ( pallet_row == ball->row )
+X			draw_pallet(  );	/* avoid shadow */
+X		draw_brick( ball->row, ball->col );
+X		if ( pallet_row == ball->row )
+X			draw_pallet(  );	/* restore */
+X	}
+X	/* deflection */
+X	if ( ball->col <= 0 || ball->col >= MAX_COL ) {
+X		/*
+X		 * kludge to avoid tunnelling out through the side (or
+X		 * corner)
+X		 */
+X		if ( ( ball->col <= 0 &&
+X		       ( ball->quadrant == NW || ball->quadrant == SW ) ) ||
+X		     ( ball->col >= MAX_COL &&
+X		       ( ball->quadrant == NE || ball->quadrant == SE ) ) )
+X			brick_deflection( VERTICAL, ball );
+X		if ( ( ball->row == 0 &&
+X		       ( ball->quadrant == NE || ball->quadrant == NW ) ) ||
+X		     ( ball->row == MAX_ROW &&
+X		       ( ball->quadrant == SE || ball->quadrant == SW ) ) )
+X			brick_deflection( HORIZONTAL, ball );
+X	} else
+X		brick_deflection( hit, ball );
+X
+X	return ( score_hit );
+X}
+X
+Xint				/* boolean */
+Xmove_ball( ball )
+X	register struct Ball *ball;
+X{
+X	register int    tmp;	/* tmp row or col designation */
+X	register int    hit = FALSE;	/* enumeration { FALSE, HORIZONTAL,
+X					 * VERTICAL } */
+X	register int    score_hit = FALSE;	/* boolean */
+X
+X	/* erase ball image */
+X	draw_ball( ball );
+X
+X	/* move ball */
+X	ball->x += ball->x_speed;
+X	ball->y += ball->y_speed;
+X
+X	/* might it have hit a brick ? */
+X	if ( ( tmp = X_COL( ball->x ) ) != ball->col ) {
+X		ball->col = tmp;
+X		hit = VERTICAL;
+X	}
+X	if ( ( tmp = Y_ROW( ball->y ) ) != ball->row ) {
+X		ball->row = tmp;
+X		hit = HORIZONTAL;	/* HORIZONTAL takes precedence over
+X					 * VERTICAL */
+X	}
+X	if ( hit )
+X		score_hit = hit_brick( hit, ball );
+X	if ( !ball->quadrant ) {
+X		/* so much for this ball */
+X		show_speeds(  );
+X		return ( score_hit );
+X	}
+X	/* might it have hit the pallet ? */
+X	if ( ball->y >= pallet_y - 0.1 &&	/* round of protection */
+X	     ball->y <= pallet_y + ball->y_speed &&
+X	     ball->x >= pallet_x - pallet_length &&
+X	     ball->x <= pallet_x + pallet_length ) {
+X		loop_nhits = 0;
+X		pallet_deflection( ball );
+X	}
+X	/* redraw ball image */
+X	draw_ball( ball );
+X
+X	return ( score_hit );
+X}
+X
+Xvoid check_ball(ball, old_pallet_y)
+Xregister struct Ball *ball;
+Xdouble old_pallet_y;
+X{
+X	if ( ball->y >= pallet_y - 0.1 &&	/* round of protection */
+X	     ball->y <= old_pallet_y + ball->y_speed &&
+X	     ball->x >= pallet_x - pallet_length &&
+X	     ball->x <= pallet_x + pallet_length ) {
+X		loop_nhits = 0;
+X		pallet_deflection( ball );
+X	}
+X}
+X
+Xvoid
+Xcheck_deflections(old_pallet_y )
+Xdouble old_pallet_y;
+X{
+X	if (ball1.quadrant) check_ball(&ball1,old_pallet_y);
+X	if (ball2.quadrant) check_ball(&ball3,old_pallet_y);
+X	if (ball3.quadrant) check_ball(&ball3,old_pallet_y);
+X}
+X
+X
+Xvoid draw_balls()
+X{
+X	if ( ball1.quadrant ) draw_ball(&ball1);
+X	if ( ball2.quadrant ) draw_ball(&ball2);
+X	if ( ball3.quadrant ) draw_ball(&ball3);
+X}
+X
+X
+X/*** on timeout event ***/
+Xvoid move_balls( )
+X{
+X	register int    score_hit1 = FALSE, score_hit2 = FALSE, score_hit3 = FALSE;
+X
+X	/* start new ball if none left */
+X	if ( !ball1.quadrant && !ball2.quadrant && !ball3.quadrant ) {
+X		new_ball( &ball1 );
+X	}
+X
+X	/* move balls */
+X	if ( ball1.quadrant )
+X		score_hit1 = move_ball( &ball1 );
+X	if ( ball2.quadrant )
+X		score_hit2 = move_ball( &ball2 );
+X	if ( ball3.quadrant )
+X		score_hit3 = move_ball( &ball3 );
+X
+X	/* start new stage if no more bricks to bust */
+X	if ( nbricks <= 0 ) {
+X
+X		/* add stage bonus */
+X		score += 100;
+X
+X		XFillRectangle( display,win, gc_erase,
+X			0, 0, STAGE_WIDTH_IN_PIXELS - 1, MSG_HEIGHT);
+X		XDrawImageString(display, win, gc,
+X			 0,font_height, " Stage bonus: 100",17);
+X
+X
+X		/* erase ball images */
+X		if ( ball1.quadrant ) {
+X			ball1.quadrant = NO_BALL;
+X			balls_left++;	/* kludge to avoid consuming the ball */
+X			draw_ball( &ball1 );
+X		}
+X		if ( ball2.quadrant ) {
+X			ball2.quadrant = NO_BALL;
+X			balls_left++;	/* kludge to avoid consuming the ball */
+X			draw_ball( &ball2 );
+X		}
+X		if ( ball3.quadrant ) {
+X			ball3.quadrant = NO_BALL;
+X			balls_left++;	/* kludge to avoid consuming the ball */
+X			draw_ball( &ball3 );
+X		}
+X		/* update score */
+X		print_score();
+X		timer_active=0;
+X		/* off we go again */
+X		new_stage(  );
+X
+X	} else {
+X
+X		/* update score */
+X		if ( score_hit1 || score_hit2 || score_hit3 )
+X			print_score();
+X
+X
+X		if (!ball1.quadrant && !ball2.quadrant && !ball3.quadrant) {
+X			timer_active=0;
+X			XFlush(display);
+X			if (balls_left==0) {
+X				print_balls();
+X				show_score_board(  );	/* BYE !! */
+X			}
+X		}
+X	}
+X
+X}
+X
+X
+X
+END_OF_FILE
+if test 16058 -ne `wc -c <'balls_pallet.c'`; then
+    echo shar: \"'balls_pallet.c'\" unpacked with wrong size!
+fi
+# end of 'balls_pallet.c'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

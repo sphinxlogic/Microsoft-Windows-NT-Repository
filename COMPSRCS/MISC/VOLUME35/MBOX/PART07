@@ -1,0 +1,2388 @@
+Newsgroups: comp.sources.misc
+From: Volker.Schuermann@unnet.w.open.de (Volker Schuermann)
+Subject: v35i042:  mbox - ix/Mbox, A BBS for UNIX and MINIX v1.6 PL10j7, Part07/15
+Message-ID: <1993Feb5.185734.10323@sparky.imd.sterling.com>
+X-Md4-Signature: d63f2d7d680fc06f2914f870bf1dee18
+Date: Fri, 5 Feb 1993 18:57:34 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Volker.Schuermann@unnet.w.open.de (Volker Schuermann)
+Posting-number: Volume 35, Issue 42
+Archive-name: mbox/part07
+Environment: MINIX, ISC, ESIX, SVR3
+Supersedes: mbox: Volume 31, Issue 16-27
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/loop.c src/mail.c src/makro.c wendy/fast
+# Wrapped by kent@sparky on Fri Feb  5 12:18:09 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 15)."'
+if test -f 'src/loop.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/loop.c'\"
+else
+  echo shar: Extracting \"'src/loop.c'\" \(22323 characters\)
+  sed "s/^X//" >'src/loop.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  loop.c						   */
+X/*        FUNKTIONEN  sigcatch(), cut_bef(), cut_arg(), rates(), loop()	   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  18.12.1992					   */
+X/***************************************************************************/
+X   
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/wait.h>
+X#include <time.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <sys/stat.h>
+X
+X#include "mbox.h"
+X
+Xextern time_t time_start, time_now;
+X
+Xjmp_buf jmpenv;
+X
+X/***************************************************************************/
+X/*      FUNKTION  sigcatch()						   */
+X/*  BESCHREIBUNG  Wird aufgerufen, wenn eines der abgefangen Signale	   */
+X/*		  eintrifft. Je nach Signal wird entweder ein CTRL-X       */
+X/*		  simuliert, oder das Programm ordnungsgemaesst beendet.   */
+X/*     PARAMETER  sig  =  Nummer des ausloesenden Signals                  */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid sigcatch(sig)
+Xint sig;
+X{
+X  unsigned char tmp[80];  
+X
+X  signal(SIGINT,   SIG_IGN);
+X  signal(SIGQUIT,  SIG_IGN);
+X  signal(SIGHUP,   SIG_IGN);
+X  signal(SIGABRT,  SIG_IGN);
+X  signal(SIGTERM,  SIG_IGN);
+X
+X  chdir( HOME );
+X 
+X  switch (sig) {
+X	case SIGINT:
+X	case SIGQUIT:
+X		sprintf(tmp, "%s/I.%d", TMP, getpid());
+X		unlink(tmp);
+X		sprintf(tmp, "%s/show%d", TMP, getpid());
+X		unlink(tmp);
+X		mbunlock( UDBASE );
+X		printf("\n");
+X		ansi("mr");
+X		printf("%s", LOP01_MSG);
+X		ansi("me");
+X		printf("\n\n");
+X		longjmp(jmpenv, 1);
+X		break;
+X      case SIGHUP:
+X      case SIGABRT:
+X      case SIGTERM:
+X		printf("\n\n");
+X		ansi("mr");
+X		printf("%s", LOP02_MSG);
+X		ansi("me");
+X		printf("");
+X		logout();
+X		exit(-1);
+X		break;
+X  }
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  cut_bef()						   */
+X/*  BESCHREIBUNG  Filtert den Befehl aus der Eingabe eines Users.          */
+X/*     PARAMETER  Eingabezeile                                             */
+X/*     RUECKGABE  Der isolierte Befehl                                     */
+X/***************************************************************************/
+X
+Xunsigned char *cut_bef(s)
+Xunsigned char s[];
+X{
+X  static unsigned char bef[STRING];
+X  int i = 0;
+X
+X  while (s[i] > 32) {
+X	bef[i] = s[i];
+X	i++;
+X  }
+X  bef[i] = '\0';
+X  return (unsigned char *) bef;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  cut_arg()						   */
+X/*  BESCHREIBUNG  Filtert das Argument aus der Eingabe des Users.          */
+X/*     PARAMETER  Eingabezeile 	                                           */
+X/*     RUECKGABE  Das isolierte Argument                                   */
+X/***************************************************************************/
+X
+Xunsigned char *cut_arg(s)
+Xunsigned char s[];
+X{
+X  static unsigned char arg[STRING];
+X  int i = 0, a = 0;
+X
+X  while (s[i] > 32) i++;
+X  if (s[i] == '\0') return (unsigned char *) "";
+X
+X  while (s[i] == 32) i++;
+X
+X  while (s[i] != '\0') {
+X	arg[a] = s[i];
+X	i++;
+X	a++;
+X  }
+X  arg[a] = '\0';
+X
+X  while((arg[(a-1)] < 33) && (a > 1)){
+X	a--;
+X	arg[a] = '\0';
+X  }
+X
+X  return (unsigned char *) arg;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  rates()						   */
+X/*  BESCHREIBUNG  Ermittelt die Telefongebuehren des laufenden Anrufs und  */
+X/*		  bereitet sie als PROMPT auf.                             */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  PROMPT-Zeile fuer Gebuehren                              */
+X/***************************************************************************/
+X
+Xunsigned char *rates()
+X{
+X  static unsigned char s[STRING];
+X  unsigned char t[STRING];
+X  int nz, rz, wz;
+X  int dif;
+X  int n1, n2, r1, r2, w1, w2;
+X  struct tm *timeptr;
+X
+X  time(&time_now);
+X  dif = time_now - time_start;
+X
+X  n1 = dif / NZNT;
+X  n1++;
+X  n1 *= TARIF;
+X  n2 = dif / NZBT;
+X  n2++;
+X  n2 *= TARIF;
+X  r1 = dif / RZNT;
+X  r1++;
+X  r1 *= TARIF;
+X  r2 = dif / RZBT;
+X  r2++;
+X  r2 *= TARIF;
+X  w1 = dif / WZNT;
+X  w1++;
+X  w1 *= TARIF;
+X  w2 = dif / WZBT;
+X  w2++;
+X  w2 *= TARIF;
+X
+X  timeptr = localtime(&time_now);
+X  sprintf(t, "%s", asctime(timeptr));
+X
+X  if ((t[0] == 'S') || (timeptr->tm_hour > 18) || (timeptr->tm_hour < 8)) {
+X	sprintf(s, "(%ds) NZ %d.%02.2d, RZ %d.%02.2d, WZ %d.%02.2d",
+X	 dif, fix(n2), flt(n2), fix(r2), flt(r2), fix(w2), flt(w2));
+X  }
+X  else {
+X	sprintf(s, "(%ds) NZ %d.%02.2d, RZ %d.%02.2d, WZ %d.%02.2d",
+X	 dif, fix(n1), flt(n1), fix(r1), flt(r1), fix(w1), flt(w1));
+X  }
+X
+X  return (unsigned char *) s;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  loop.c						   */
+X/*  BESCHREIBUNG  Die Eingaben des Users werden entgegengenommen und die   */
+X/*		  entsprechenden Routinen aufgerufen und ausgefuehrt.      */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid loop()
+X{
+X  unsigned char s[STRING];
+X  unsigned char t[STRING];
+X  unsigned char l[LONGSTRING];
+X  unsigned char befehl[STRING];
+X  unsigned char argument[STRING];
+X  unsigned char prompt[STRING];
+X
+X  unsigned char prev_befehl[10][STRING];
+X  int wasok;
+X
+X  int c;
+X
+X  unsigned char bef_buff[(STRING * 2)];
+X  int bef_rec;
+X
+X  int ende = 0, ok, dummy, i;
+X  int pp;
+X  int to_del;
+X  int fpid;
+X
+X  struct stat fst;
+X
+X
+X  sprintf(prev_befehl[1], "%s ", BEF[BB1].befehl);
+X  sprintf(prev_befehl[2], "%s ", BEF[BB2].befehl); 
+X  sprintf(prev_befehl[3], "%s ", BEF[BB3].befehl);
+X  sprintf(prev_befehl[4], "%s ", BEF[BB4].befehl);
+X  sprintf(prev_befehl[5], "%s ", BEF[BB5].befehl);
+X  sprintf(prev_befehl[6], "%s ", BEF[BB6].befehl);
+X  sprintf(prev_befehl[7], "%s ", BEF[BB7].befehl);
+X  sprintf(prev_befehl[8], "%s ", BEF[BB8].befehl);
+X  sprintf(prev_befehl[9], "%s ", BEF[BB9].befehl);
+X
+X  wasok = 1;
+X
+X  bef_buff[0] = '\0';
+X
+X  DISKUSSION = 0;
+X
+X  do {
+X
+X	if(setjmp(jmpenv) == 1){
+X		bef_buff[0] = '\0';
+X	}
+X
+X	FASTER:
+X	
+X	signal(SIGINT,  sigcatch);
+X	signal(SIGQUIT, sigcatch);
+X
+X	signal(SIGHUP,  sigcatch);
+X	signal(SIGABRT, sigcatch);
+X	signal(SIGTERM, sigcatch);
+X
+X	sprintf(s, "%s/usr/%d/INDEX", HOME, USER.id);
+X	stat(s, &fst);
+X	if(fst.st_size > IDX_SIZE){
+X		printf("%c\n\n%s\n", BELL, LOP03_MSG); 
+X	}
+X        IDX_SIZE = (long) fst.st_size;
+X
+X	if(bef_buff[0] != '\0'){
+X		sprintf(s, "%s", bef_buff);		
+X		IS_BUFFERED = 1;
+X		bef_rec++;
+X		goto BUFFERING;
+X	}
+X        else 
+X		IS_BUFFERED = 0;
+X
+X
+X	bef_rec = 0;
+X
+X	ansi("md");
+X	prompt[0] = '\0';
+X
+X	switch (USER.prompt) {
+X	    case 1:
+X			strcat(prompt, (unsigned char *) mytime(0));
+X			break;
+X	    case 2:	
+X			strcat(prompt, NG);
+X			break;
+X	    case 3:	
+X			strcat(prompt, (unsigned char *) rates());
+X			break;
+X	}
+X	printf("\n[%s] %s > ", prompt, LOP06_MSG);
+X	ansi("me");
+X	if (USER.bell == 1) printf("%c", BELL);
+X
+X	befehl[0] = '\0';
+X
+X#ifdef _CORELEFT
+X	if(coreleft() < _CORELEFT){
+X		sprintf(s, "%d", _CORELEFT);
+X		nerror( "loop.c", 288, "loop", "Speicherplatz kleiner ", s );
+X	}
+X#endif
+X
+X
+X	do {
+X		strcpy(s, (unsigned char *) getline(60, 11001, 32, befehl));
+X		to_del = length(befehl);
+X
+X		if (s[0] == 48) {
+X			headline( LOP05_MSG );
+X			printf("\n");
+X			for (i = 9; i > 0; i--) {
+X				printf(" %d: %s\n", i, prev_befehl[i]);
+X			}
+X			goto FASTER;
+X		}
+X		if ((s[0] > 48) && (s[0] < 58)) {
+X			sprintf(befehl, "%s", prev_befehl[(s[0] - 48)]);
+X			printf("%c", CR);
+X			if (ansi("ce") == 1) {
+X				printf("                                                               ");
+X			}
+X			ansi("md");
+X			printf("%c[%s] %s > ", CR, prompt, LOP06_MSG);
+X			ansi("me");
+X		}
+X	} while ((s[0] > 47) && (s[0] < 58));
+X
+X	
+X        if(makro_definition(s) != 0) goto FASTER;
+X
+X
+X	BUFFERING:
+X
+X	if((bef_rec > MAKRO_MAX_REK) && (USER.level < (ADMIN_LEV+1))){
+X		bef_buff[0] = '\0';
+X		goto FASTER;
+X	}
+X
+X        
+X	strcpy(t, (unsigned char *) makro(s));
+X	strcpy(s, t); 
+X        
+X	while ((s[0] == 32) || (s[0] == '.')) {
+X		sprintf(befehl, "%s", (unsigned char *) strcopy(s, 1, length(s)));
+X		sprintf(s, "%s", befehl);
+X	}
+X
+X	i = 0; ok = 0;
+X	while((ok == 0) && (s[i] != '\0')){
+X		if(s[i] == ','){ 
+X			strcpy(bef_buff, (unsigned char *) strcopy(s, (i+1), length(s)));
+X			s[i] = '\0';
+X			ok++;
+X		}			
+X		i++;
+X	}
+X	if(ok == 0) bef_buff[0] = '\0';
+X	
+X	strcpy(befehl, (unsigned char *) cut_bef(s));
+X	strcpy(argument, (unsigned char *) cut_arg(s));
+X	strcpy(s, (unsigned char *) upcased(befehl));
+X	strcpy(befehl, s);
+X
+X	sprintf(s, "%s %s", befehl, argument);
+X
+X	if (wasok == 1) {
+X		ok = 0;
+X		for (i = 9; i > 0; i--) {
+X			if ((strcomp(s, prev_befehl[i]) == 0) && (strcomp(prev_befehl[i], s) == 0))
+X				ok++;
+X		}
+X		if ((ok == 0) && (befehl[0] > 32)) {
+X			for (i = 9; i > 1; i--) {
+X				sprintf(prev_befehl[i], "%s", prev_befehl[(i - 1)]);
+X			}
+X			sprintf(prev_befehl[1], "%s %s", befehl, argument);
+X		}
+X	}
+X	else {
+X		sprintf(prev_befehl[1], "%s %s", befehl, argument);
+X	}
+X
+X	sprintf(s, "[%s] %s %s", LOP04_MSG, befehl, argument);
+X	control(s, 3);
+X
+X	sprintf(s, "%s %s", befehl, argument);
+X	whodo(s);
+X
+X
+X	wasok = 0;
+X
+X	if (befehl[0] == '"') {
+X		ansi("md");
+X		/*
+X		printf(" <- Nein, so daemlich kann kein User sein !\n");
+X		*/
+X		printf(" %s\n", LOP07_MSG);
+X		ansi("me");
+X		goto FASTER;
+X	}
+X	if (befehl[0] == '\0') goto FASTER;
+X
+X
+X	if(argument[0] == '?') {
+X		strcpy(argument, befehl);
+X		strcpy(befehl, BEF[BB7].befehl);
+X 	}
+X
+X/*  ?  */
+X
+X	if (befehl[0] == '?') {
+X		if (argument[0] != '*') {
+X			sprintf(s, " %s %d) ", LOP08_MSG, USER.level);
+X		} else {
+X			sprintf(s, " %s ", LOP09_MSG, USER.level);
+X		}
+X		headline(s);
+X		printf("\n");
+X		bef("?", argument);
+X		goto FASTER;
+X	}
+X
+X/* <BREAK> */
+X
+X	if (strcomp(befehl, "<BREAK>") == 0) {
+X		printf("!@#?");
+X		ansi("md");
+X		printf(" %s", LOP10_MSG);
+X		ansi("me");
+X		printf("\n");
+X		goto FASTER;
+X	}
+X	wasok = 1;
+X
+X
+X	switch (bef(befehl, argument)) {
+X
+X	    case 275:		/* RELOGIN */
+X
+X		logout();
+X		intro();
+X		break;
+X
+X
+X	    case 240:		/* MINIX */
+X
+X		if (argument[0] == '\0') {
+X			ansi("md");
+X			printf(" %s\n", LOP11_MSG);
+X			ansi("me");
+X		}
+X		else {
+X			printf("\n\n");
+X			sprintf(s, "exec %s %s %d %d", RSH, argument, OLDUID, OLDGID);
+X			system(s);
+X		}
+X		break;
+X
+X
+X	    case 110:
+X	    case 120:		/* + -  */
+X
+X		scanner(befehl[0]);
+X		break;
+X
+X
+X	    case 190:		/* HILFE */
+X
+X		printf("\n\n");
+X		if (argument[0] < 33)
+X			help("=");
+X		else {
+X			if(argument[0] == '*'){	
+X				help("*");
+X			}
+X			else{
+X				strcpy(s, "#");
+X				strcat(s, upcased(argument));
+X				if (help(s) < 1) {
+X					ansi("md");
+X					printf("%s \"%s\" %s\n", LOP12_MSG, argument, LOP13_MSG);
+X					ansi("me");
+X				}
+X			}
+X		}
+X		break;
+X
+X
+X	    case 150:		/* BRETT */
+X
+X		if(strcomp("**", argument) == NULL) strcpy(argument, "^");
+X		brett(argument);
+X		break;
+X
+X
+X	    case 130:		/* ANRUFER */
+X
+X		if(argument[0] == '#'){
+X			statistik();
+X			break;
+X		}
+X
+X		if(argument[0] == '%'){
+X			headline( LOP34_MSG );
+X			printf("%s\n", LOP35_MSG);
+X			printf("===============================================================================\n");
+X			printf("%s ..", LOP29_MSG);
+X	
+X			switch( (fpid = fork()) ){
+X				case -1 :
+X					break;
+X				case  0 : 
+X					while(1){
+X						printf(".");
+X						sleep(2);
+X					}	
+X					break;
+X			}
+X			sprintf(t, "%s/%d.srt", TMP, getpid());
+X			sprintf(l, SECONDCUT, CALLS, t);
+X			system(l); 			
+X			kill( fpid, SIGKILL );
+X			(void) wait( &fpid );
+X			printf("%c", CR);
+X			show(t, 9999, USER.more + 100);
+X			unlink(t);
+X			break;
+X		}
+X
+X		headline( LOP14_MSG );
+X		printf("%s\n", LOP15_MSG);
+X		printf("===============================================================================\n");
+X
+X		if (argument[0] != '*') {
+X			show(CALLS, 19, USER.more);
+X		}
+X		else {
+X			show(CALLS, 9999, USER.more + 100);
+X		}
+X		break;
+X
+X
+X	    case 200:		/* INHALT */
+X
+X		inhalt2(argument, 'I');
+X		break;
+X
+X
+X	    case 210:		/* LESEN */
+X
+X		dummy = (pruefe(argument));
+X		if (dummy == 0) lesen(argument);
+X		if (dummy == -1) lesen2(argument, 'L');
+X		break;
+X
+X
+X
+X	    case 230:		/* SCHREIBEN */
+X
+X		if (USER.level < WRITE_IN_LEV) {
+X			ansi("md");
+X			printf(" %s\n", LOP16_MSG);
+X			ansi("me");
+X		}
+X		else
+X			schreiben(argument);
+X		break;
+X
+X
+X	    case 220:		/* LOESCHEN */
+X
+X		dummy = (pruefe(argument));
+X		if (dummy == 0) loeschen(argument);
+X		if (dummy == -1) loeschen2(argument, 'D');
+X		break;
+X
+X
+X	    case 160:		/* BRIEF */
+X
+X		if (USER.level < WRITE_IN_LEV) {
+X			ansi("md");
+X			printf(" %s\n", LOP16_MSG);
+X			ansi("me");
+X		}
+X		else
+X			if((brief(argument) == 0) && (strcomp(GUEST, USER.name) != 0)){
+X				sprintf(s, "%s?", USER.name);
+X				brief(s);
+X				sprintf(s, "%s/usr/%d/INDEX", HOME, USER.id);
+X				stat(s, &fst);
+X			        IDX_SIZE = (int) fst.st_size;
+X			}
+X			else bef_buff[0] = '\0';
+X		break;
+X
+X
+X	    case 170:		/* CHAT */
+X
+X		sprintf(s, "exec %s %s \"%s\" %d %d", RSH, CHAT, USER.nick, OLDUID, OLDGID);
+X		system(s);
+X		break;
+X
+X
+X	    case 250:		/* PM */
+X
+X		strcpy(BRETT, "PM");
+X		printf("\n");
+X		sprintf(NG, "%s.PM", USER.name);
+X		sprintf(INHALT, "%s/usr/%d/INDEX", HOME, USER.id);
+X		break;
+X
+X
+X	    case 260:		/* POSTFACH */
+X
+X		postfach("*");
+X		break;
+X
+X
+X	    case 300:		/* USER */
+X
+X		userliste(argument);
+X		break;
+X
+X
+X	    case 140:		/* ANSAGE */
+X
+X		ansage();
+X		break;
+X
+X
+X	    case 310:		/* UNTERSCHRIFT */
+X
+X		unterschrift();
+X		break;
+X
+X
+X	    case 320:		/* VERSION */
+X
+X		printf("\n\n");
+X		ansi("md");
+X		printf("Version: ");
+X		ansi("me");
+X		printf("%s %s %s\n", VERSION, PATCHLEVEL, AUTOR);
+X
+X		if(argument[0] == '#'){
+X			ansi("md");
+X			printf("\nMein spezieller Dank gilt folgenden Mitarbeitern, Beta-Testern und Ratgebern: \n\n");
+X			ansi("me");
+X			
+X			printf("andreas@xenox.ruhr.de       - fuer den \"NewsFeed\" und seine Geduld\n");
+X			printf("                              bei unseren \"Sonderwuenschen\"\n\n");
+X
+X			printf("az@unnet.w.open.de          - fuer seinen Einsatz beim \"Einrichten\"\n");
+X			printf("                              der Mailbox und der PD-Portierung\n\n");
+X
+X			printf("joergg@unnet.ruhr.sub.org   - fuer seine Ideen, Tips, konstruktive\n");
+X			printf("                              Kritik und gruendliche Tests\n\n");		
+X
+X			printf("klausr@skylink.ruhr.sub.org - fuer viele Vorschlaege, und vor allem\n");			
+X			printf("                              fuer seine praesizen Fehlerbeschreibungen\n\n");			
+X
+X			printf("stefans@coduck.ruhr.sub.org - fuer seine Hilfe bei der Installation\n");
+X			printf("                              der 386er Patches und der PD-Beschaffung\n\n");
+X
+X			printf("walterb@weller.ruhr.sub.org - fuer seine Unterstuetzung bei der Portierung auf\n");
+X			printf("                              UNIX SVR3 und bei der Installation\n\n");
+X
+X			printf("hergo@ivcmd.boerde.de       - fuer seine Hilfe bei der Bildung einer Referenz-\n");
+X			printf("                              Version zur Verwendung von CDIFFs\n\n");
+X			
+X		}
+X		
+X		if(argument[0] == '*'){
+X			ansi("md");
+X			printf("\n%s ", LOP17_MSG);
+X			ansi("me");
+X#ifdef _SYS7
+X			printf("-D_SYS7 ");
+X#endif
+X#ifdef _MBOX
+X			printf("-D_MBOX ");
+X#endif
+X#ifdef _MINIX
+X			printf("-D_MINIX ");
+X#endif
+X#ifdef _ESTDIO
+X			printf("-D_ESTDIO ");
+X#endif
+X#ifdef _CORELEFT
+X			printf("-D_CORELEFT ");
+X#endif
+X#ifdef _DATESTAMP
+X			printf("-D_DATESTAMP ");
+X#endif
+X#ifdef _BAUDRATE
+X			printf("-D_BAUDRATE ");
+X#endif
+X#ifdef _MULTIMEDIA
+X			printf("-D_MULTIMEDIA ");
+X#endif
+X#ifdef _METAMAIL
+X			printf("-D_METAMAIL ");
+X#endif
+X#ifdef _UMLAUT
+X			printf("-D_UMLAUT ");
+X#endif
+X
+X			printf("\n");
+X		}
+X
+X		break;
+X
+X
+X	    case 270:		/* PORTINFO */
+X
+X		port( argument );
+X		break;
+X
+X
+X	    case 280:		/* SETUP */
+X
+X		sprintf(s, "%s", NG);
+X		sprintf(t, "%s", BRETT);
+X		setup();
+X		if (strcomp("PM", t) != 0) brett(s);
+X		break;
+X
+X
+X	    case 125:		/* ADMIN */
+X
+X		sprintf(s, "%s", NG);
+X		sprintf(t, "%s", BRETT);
+X		admin();
+X		if (strcomp("PM", t) != 0) brett(s);
+X		break;
+X
+X
+X	    case 205:		/* ID */
+X
+X		if(strcomp("-c", argument) == 0){ /* Memory fault - core dumped */
+X			printf("\n\nDebug-Modus: ");
+X			fclose(0);   
+X			break;
+X		}
+X
+X		if(strcomp("*", argument) == 0){
+X			BAUDRATE = baudrate( MAX_BPS );
+X			printf("\n\n>>> Baudrate %d\n", BAUDRATE);
+X			break;
+X		}
+X
+X		if(strcomp("#", argument) == 0){
+X			printf("\n\n>>> Coreleft %d\n", coreleft());
+X			break;
+X		}
+X
+X		printf("\n\n>>> %s (UID %d|%d|%d) (GID %d|%d|%d)\n", MYNAME,
+X		       getuid(), geteuid(), OLDUID,
+X		       getgid(), getegid(), OLDGID);
+X		break;
+X
+X
+X	    case 215:		/* LEVEL */
+X
+X		show_level();
+X		break;
+X
+X
+X	    case 290:		/* STATUS */
+X
+X		status();
+X		break;
+X
+X
+X	    case 330: 		/* MAKRO */
+X
+X		set_makros();
+X		break;
+X
+X
+X	    case 340:		/* WEITERLEITEN */
+X
+X		weiterleiten( argument );
+X		break;
+X
+X
+X	    case 350:           /* SLEEP */
+X
+X		dummy = atoi( argument );
+X		if(dummy < 1) dummy = 1;
+X		printf("\n");
+X		ansi( "mr" );
+X		printf(" %s ... ", LOP29_MSG);
+X		ansi( "me" );	
+X		sleep( dummy );
+X		break;		
+X
+X
+X	    case 360:		/* KEYPRESSED */
+X
+X		printf("\n");
+X		ansi("mr");
+X		printf(" Taste ! ");
+X		ansi("me");
+X		dummy = getint();
+X		if((dummy == CTRL_X) || (dummy == 'x') || (dummy == 'q')){
+X			bef_buff[0] = '\0';
+X			printf("\n");
+X		}
+X		break;
+X
+X
+X	    case 370:		/* DATUM */
+X		
+X		ansi("md");
+X		printf("\n\n%s ", LOP18_MSG);
+X		ansi("me"); 
+X		printf("%s, ", (unsigned char *) mydate( 2 ));
+X		printf("%s\n",  (unsigned char *) mydate( 0 ));
+X		break;
+X	
+X
+X	    case 380:		/* ZEIT */
+X
+X		ansi("md");
+X		printf("\n\n%s ", LOP19_MSG);
+X		ansi("me");
+X		printf("%s\n", (unsigned char *) mytime( 0 ));
+X		ansi("md");
+X		printf("Online: ");
+X		ansi("me");
+X		time(&time_now);
+X		printf("%d %s\n",  (int) time_now - time_start, LOP20_MSG);
+X		break;
+X
+X
+X	   case 390:		/* SPIELE */
+X
+X		games();
+X		break;
+X	
+X
+X	    case 400:		/* RICHTUNG */
+X
+X		ansi("md");
+X		printf("\n\n%s ", LOP21_MSG);
+X		ansi("me");
+X
+X		if (USER.leserichtung == 1) {
+X			USER.leserichtung = 2;
+X			printf("%s\n", LOP22_MSG);
+X		}
+X		else {
+X			USER.leserichtung = 1;
+X			printf("%s\n", LOP22aMSG);
+X		}
+X		break;
+X
+X
+X	    case 410:           /* STATISTIK */
+X
+X		if ((argument[0] != '#') && (argument[0] != '$') && (argument[0] != '%') && (argument[0] != '!') && (argument[0] != '>')) {
+X			headline( LOP23_MSG );
+X			printf("%s\n", LOP24_MSG);
+X			printf("===============================================================================\n");
+X
+X			if (argument[0] != '*') {
+X				show(MB_DLOG, 19, USER.more);
+X			}
+X			else {
+X				show(MB_DLOG, 9999, USER.more + 100);
+X			}
+X		}
+X		if(argument[0] == '$') {
+X			headline( LOP25_MSG );
+X			show(UUCPCOSTS, 9999, USER.more);
+X		}
+X   		if(argument[0] == '#') {
+X			headline( LOP26_MSG );
+X			printf("%s\n", LOP27_MSG);
+X			printf("===============================================================================\n");
+X
+X			show(PDLOG, 9999, USER.more + 100);
+X		}
+X		if(argument[0] == '>') {
+X			headline( LOP27aMSG );
+X			printf("%s\n", LOP27bMSG);
+X			printf("===============================================================================\n");
+X
+X			show(XMDLOG, 9999, USER.more + 100);
+X		}
+X		if(argument[0] == '%') {
+X			headline( LOP32_MSG );
+X			printf("%s\n", LOP33_MSG);
+X			printf("===============================================================================\n");
+X			printf("%s ..", LOP29_MSG);
+X	
+X			switch( (fpid = fork()) ){
+X				case -1 :
+X					break;
+X				case  0 : 
+X					while(1){
+X						printf(".");
+X						sleep(2);
+X					}	
+X					break;
+X			}
+X			sprintf(t, "%s/%d.srt", TMP, getpid());
+X			sprintf(l, SORTEDCUT, PDLOG, t);
+X			system(l); 			
+X			kill( fpid, SIGKILL );
+X			(void) wait( &fpid );
+X			printf("%c", CR);
+X			show(t, 9999, USER.more + 100);
+X			unlink(t);
+X		}
+X		if(argument[0] == '!') {
+X			headline( " OUTDIAL " );
+X			show("/local/mbox/etc/outdial.log", 9999, USER.more);
+X		}
+X
+X		break;
+X 
+X
+X	    case 430:		/* SUCHEN */
+X
+X		suchen( argument );
+X		break;	
+X
+X	    			
+X	    case 420:		/* RING */
+X
+X		ende = 1;
+X		break;
+X
+X
+X	    case 440:		/* DOWNLOAD */
+X
+X		download( argument );
+X		break;
+X
+X 	    case 450:		/* OUTDIAL */
+X
+X		outdial();
+X		break;
+X
+X	    case 460:		/* AREA */
+X
+X		if((strcomp("++", argument) == 0) || (strcomp("--", argument) == 0)){
+X			scanner( argument[0] + 1500 );
+X		}
+X		else{
+X			scanner( argument[0] + 500 );
+X		}	
+X		break;
+X
+X
+X	    case 470:		/* SYSINFO */
+X
+X		headline( " SYSiNFO " );
+X		show(SYSINFO, 9999, USER.more);
+X		break;
+X
+X	    case 480:		/* EDIT */
+X
+X		edit( argument );
+X		break;
+X
+X	    case 490:		/* DIS */
+X
+X		dis( argument );
+X		break;
+X
+X	    case 500:		/* UMLAUT */
+X
+X		ansi("md");
+X		printf("\n\n%s ", LOP33aMSG);
+X		ansi("me");
+X
+X		if (UMLAUT_MODUS == 4) {
+X			UMLAUT_MODUS = USER.schluessel[2];
+X			switch(UMLAUT_MODUS){
+X				case 1 : printf("%s\n", ADM70dMSG);
+X					 break;
+X				case 2 : printf("%s\n", ADM70eMSG);
+X					 break;
+X				case 3 : printf("%s\n", ADM70fMSG);
+X					 break;
+X				case 4 : printf("%s\n", ADM70gMSG);
+X					 break;
+X			}
+X		}
+X		else {
+X			UMLAUT_MODUS = 4;
+X			printf("%s\n", LOP33bMSG);
+X		}
+X		break;
+X
+X	    case 510:		/* MONITOR */
+X
+X		i = atoi( argument );
+X 		if(i < 1) i = 15;
+X
+X		switch( (fpid = fork()) ){
+X			case -1 :
+X				break;
+X			case  0 : 
+X				while(1){
+X					headline( LOP14_MSG );
+X					printf("%s\n", LOP15_MSG);
+X					printf("===============================================================================\n");
+X					show(CALLS, 19, USER.more);
+X					sleep( i ); 
+X					statistik();
+X					sleep( i ); 
+X					port( "" );
+X					sleep( i ); 
+X					headline( LOP23_MSG );
+X					printf("%s\n", LOP24_MSG);
+X					printf("===============================================================================\n");
+X					show(MB_DLOG, 19, USER.more);
+X					sleep( i ); 
+X				}	
+X		}
+X		c = getch();
+X		kill( fpid, SIGKILL );
+X		(void) wait( &fpid );		
+X		break;
+X
+X	    case 1000:		/* User Defined Command */
+X
+X		/* See 'befehl.c' how that works ;-) */
+X		break;
+X
+X	    case 180:		/* ENDE */
+X
+X#ifdef _MINIX
+X		if (tty() >= FIRST_EX_TTY) {
+X			printf("\n\n");
+X			ansi("mr");
+X			printf("%c%s [%c, %c] > ", CR, LOP28_MSG, GBL06_MSG, GBL07_MSG);
+X			ansi("me");
+X			
+X			c = yesno();
+X		} else
+X#endif
+X			c = GBL06_MSG;
+X
+X
+X		if (c == GBL06_MSG)
+X			ende = 1;
+X		else
+X			printf("\n");
+X
+X		if(argument[0] == '*'){
+X			USER.lasttime = LASTTIME;
+X			strcpy(USER.lastlog, (unsigned char *) datereconv( LASTLOG ));
+X		}
+X		else{
+X			strcpy(s, (unsigned char *) mydate(0));
+X			s[10] = '\0';
+X			strcpy(USER.lastlog, s);
+X			strcpy(s, (unsigned char *) mytime(1));
+X			USER.lasttime = timeconv(s);
+X		}
+X
+X		break;
+X
+X	    case -1:		/* LEVEL ??? */
+X
+X		wasok = 0;
+X		ansi("md");
+X		printf(" %s %d ...\n", LOP30_MSG, USER.level);
+X		ansi("me");
+X		break;
+X
+X	    default:
+X
+X		wasok = 0;
+X		ansi("md");
+X		printf(" %s\n", LOP31_MSG);
+X		ansi("me");
+X	}
+X
+X  } while (ende == 0);
+X}
+END_OF_FILE
+  if test 22323 -ne `wc -c <'src/loop.c'`; then
+    echo shar: \"'src/loop.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/loop.c'
+fi
+if test -f 'src/mail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mail.c'\"
+else
+  echo shar: Extracting \"'src/mail.c'\" \(22275 characters\)
+  sed "s/^X//" >'src/mail.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  mail.c						   */
+X/*        FUNKTIONEN  brief()						   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  16.11.1992					   */
+X/***************************************************************************/
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <time.h>
+X
+X#include "mbox.h"
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  brief()						   */
+X/*  BESCHREIBUNG  Eine persoenliche Nachricht wird verschickt. Je nach     */
+X/*		  Empfaenger-Adresse und Parameter wird die Post ins       */
+X/*		  MBox-interne Mailsystem geschickt, oder an MAIL          */
+X/*		  weitergleitet. Die Adresse des Empfaengers wird ent-     */
+X/*		  weder als Parameter uebergeben, oder aus einer Datei     */
+X/*		  gefiltert, auf die geantwortet werden soll (REPLY-Mode). */
+X/*     PARAMETER  arg  =  "~REPLY~"    =  REPLY-Modus aktivieren           */
+X/*		  arg  =  "Empfaenger" =  verwertbare Adresse fuer das     */
+X/*			  interen Mail-System oder MAIL.                   */
+X/*     RUECKGABE   -1  =  Abbruch                                          */
+X/***************************************************************************/
+X
+Xint brief(arg)
+Xunsigned char arg[];
+X{
+X  FILE *fp;
+X  FILE *ff;
+X  FILE *ft;
+X  int fd;
+X  int i, j;
+X  int ok;
+X  struct userdaten LOOSER;
+X
+X  time_t timer;
+X  struct tm *timeptr;
+X
+X  int receiver;
+X  int mail_id;
+X  int EX_PM = 0;
+X  int REPLY = 0;
+X  int lines = 0;
+X  int WEITERLEITEN = 0;
+X  int HOLD = 0;
+X  int UMLEITUNG = 0;
+X  int KOPIE = 0;
+X
+X  unsigned char s[STRING];
+X  unsigned char t[STRING];
+X  unsigned char TEP[STRING];
+X  unsigned char REP[STRING];
+X  unsigned char f[STRING];
+X  unsigned char subject[STRING];
+X  unsigned char from[STRING];
+X  unsigned char rec_char[STRING];
+X  unsigned char ex[LONGSTRING];
+X  unsigned char user[STRING];
+X  unsigned char mesg_id[STRING];
+X  unsigned char refs[STRING];
+X  unsigned char date[STRING];
+X  unsigned char c;
+X  unsigned char protokoll;
+X  unsigned char lf;
+X  unsigned char pubdir[STRING];
+X  unsigned char dummy[STRING];
+X  unsigned char username[STRING];
+X  unsigned char reply[STRING];
+X  unsigned char priority[STRING];
+X  unsigned char action[STRING];
+X  unsigned char cc[STRING];
+X  unsigned char bcc[STRING];
+X  unsigned char encrypted[STRING];
+X  unsigned char comments[STRING];
+X  unsigned char keywords[STRING];
+X  unsigned char fortune[STRING];
+X  unsigned char content[STRING];
+X  unsigned char receipt[STRING];
+X
+X  long cont_length = 0;
+X
+X  unsigned char YOUR_SITE[STRING];
+X
+X  int BINFILE;
+X  int news_reply = 0;
+X
+X  struct stat fst;
+X
+X
+X  i = 0;
+X  ok = 0;
+X
+X  mesg_id[0] = '\0';
+X
+X  if (arg[0] == '\0') {
+X	ansi("md");
+X	printf(" %s\n", MAL03_MSG);
+X	ansi("me");
+X	return -1;
+X  }
+X  EX_PM = 0;
+X
+X  i = 0;
+X  strcpy(t, USER.name);
+X  while (t[i] != '\0') {
+X	if (t[i] == ' ') t[i] = '.';
+X	i++;
+X  }
+X  strcpy(username, t);
+X  action[0] = '\0';
+X  priority[0] = '\0';
+X  encrypted[0] = '\0';
+X  keywords[0] = '\0';
+X  comments[0] = '\0';
+X  cc[0] = '\0';
+X  bcc[0] = '\0';
+X  fortune[0] = '\0';
+X  content[0] = '\0';
+X  receipt[0] = '\0';
+X
+X#ifdef _UMLAUT
+X  if(UMLAUT_MODUS < 3) strcpy(content, (unsigned char *) "text/plain; charset=iso-8859-1");
+X#endif
+X
+X  i = 0;
+X  while (arg[i] != '\0') {
+X	if ((arg[i] == '!') || (arg[i] == '@') || (arg[i] == '%')) EX_PM++;
+X	i++;
+X  }
+X
+X  if ((EX_PM > 0) && (USER.level < MAILOUT_LEV)) {
+X	ansi("md");
+X	printf("\n\n%s (%d) %s\n", MAL04_MSG, MAILOUT_LEV, MAL05_MSG);
+X	ansi("me");
+X	return -1;
+X  }
+X
+X  if(arg[length(arg) -1] == '?'){
+X	arg[length(arg) -1] = '$';
+X	HOLD++;
+X	KOPIE++;
+X  }
+X
+X  if(arg[length(arg) -1] == '$'){
+X	WEITERLEITEN++;
+X	arg[length(arg) -1] = '\0';
+X	sprintf(TEP, "%s/usr/%d/.lastletter", HOME, USER.id);
+X	sprintf(t, "%s/usr/%d/.lastsubject", HOME, USER.id);
+X	fp = fopen( t, "r" );
+X	if(fp == NULL) {
+X		return -1; 
+X	}
+X	fgets(s, 80, fp);
+X	fclose(fp);
+X	if(HOLD == 0){
+X		sprintf(subject, "%s %s", MAL06_MSG, s);
+X		UMLEITUNG++;
+X	}else
+X		sprintf(subject, "%s", s);
+X  }
+X
+X  user[0] = '\0';
+X  strcat(user, arg);
+X
+X  if(WEITERLEITEN != 0) goto TRY_AGAIN;
+X
+X  if (strcomp("~REPLY~", arg) == 0) {
+X	REPLY++;
+X	sprintf(REP, "%s/%dRep", TMP, getpid());
+X	sprintf(TEP, "%s/%dTep", TMP, getpid());
+X	fp = fopen(REP, "r");
+X	if (fp == NULL) {
+X		nerror("mail.c", 278, "brief", "Datei-Lesefehler", REP);
+X	}
+X	fgets(s, 80, fp	);			/* HEADER: Autor */
+X
+X	sprintf(dummy, "%s %s", GBL01_MSG, X_MAIL_DEMON);
+X
+X	if ((strcomp(GBL01_MSG, s) == 0) && (strcomp(dummy, s) != 0)) {
+X		strcpy(user, (unsigned char *) strcopy(s, (1+strlen(GBL01_MSG)), 80));
+X
+X		fgets(s, 80, fp);		/* HEADER: Datum */
+X		fgets(s, 80, fp);		/* HEADER: Betreff */
+X
+X		strcpy(t, (unsigned char *) strcopy(s, (1+strlen(GBL03_MSG)), 80));
+X		subject[0]= '\0';
+X		if (strcomp("Re: ", t) != 0) {
+X			strcpy(subject, "Re: ");
+X		}
+X		strcat(subject, (unsigned char *) stripped(t));
+X
+X		fgets(s, 80, fp);	/* HEADER: Leer */
+X		fgets(s, 80, fp);	/* HEADER: Leer */
+X	}
+X	else {		/* UUCP-Header (!MBox) */
+X
+X		sprintf(subject, MAL07_MSG);
+X		refs[0] = '\0';
+X		mesg_id[0] = '\0';
+X
+X		ok = -1;
+X
+X		while ((ok < 1) && (fgets(s, 80, fp) != NULL)) {
+X			if (strcomp("Lines: ", s)      == 0) ok = 1;
+X			if (strcomp("Date: ",  s)      == 0) {
+X				strcpy(date, (unsigned char *) strcopy(s, 6, 80));
+X			}
+X			if (strcomp("Newsgroups: ", s) == 0) news_reply++;
+X			if (strcomp("Subject: ", s)    == 0) {
+X				subject[0] = '\0';
+X				strcpy(t, (unsigned char *) strcopy(s, 9, 80));
+X				if (strcomp("Re: ", t) != 0) {
+X					sprintf(subject, "%s", "Re: ");
+X				}
+X				strcat(subject, (unsigned char *) stripped(t));
+X			}
+X			if (strcomp("Message-Id: ", s) == 0) {
+X				strcpy(mesg_id, (unsigned char *) strcopy(s, 12, 80));
+X			}
+X			if (strcomp("From: ", s) == 0) {
+X				strcpy(from, (unsigned char *) strcopy(s, 6, 80));
+X				ok = 0;
+X			}
+X			if (strcomp("From ", s) == 0) {
+X				strcpy(from, (unsigned char *) strcopy(s, 5, 80));
+X				ok = 0;
+X			}
+X			if (strcomp("References: ", s) == 0) {
+X				strcpy(refs, (unsigned char *) strcopy(s, 12, 80));
+X			}
+X			if (strcomp("Comments: ", s) == 0) {
+X				strcpy(comments, (unsigned char *) strcopy(s, 10, 80));
+X				strcpy(comments, (unsigned char *) stripped(comments));	
+X			}
+X			if (strcomp("Keywords: ", s) == 0) {
+X				strcpy(keywords, (unsigned char *) strcopy(s, 10, 80));
+X				strcpy(keywords, (unsigned char *) stripped(keywords));
+X			}
+X			if (strcomp("Content-Type: ", s) == 0) {
+X				strcpy(content, (unsigned char *) strcopy(s, 14, 80));
+X				strcpy(content, (unsigned char *) stripped(content));
+X			}
+X
+X			if ((strlen(s) < 5) && (ok == 0)) ok = 1;
+X		}
+X	}
+X
+X	ff = fopen(TEP, "w");
+X	while (fgets(s, 80, fp) != NULL) {
+X		if(s[0] != '\n') fputs("> ", ff);
+X		fputs((unsigned char *) iso_line(s), ff);
+X	}
+X	fputs("", ff);
+X	fclose(ff);
+X	fclose(fp);
+X  }
+X
+X  TRY_AGAIN:
+X
+X  if((WEITERLEITEN != 0) && (EX_PM != 0)){
+X	sprintf(rec_char, "%s", user);
+X	if(checkdomaintype( rec_char ) != 0) return -1;
+X	goto ONCE_MORE;
+X  }
+X
+X  receiver = 0;
+X
+X  maybe_locked(UDBASE, "r"); mblock(UDBASE);
+X  fd = open(UDBASE, O_RDONLY);
+X  if (fd == -1) {
+X	nerror("mail.c", 216, "brief", "Datei-Lesefehler", UDBASE);
+X  }
+X  lseek(fd, 0L, SEEK_SET);
+X  while ((receiver == 0) && (read(fd, (unsigned char *) &LOOSER, sizeof(LOOSER)) == sizeof(LOOSER))) {
+X	if ((strcomp(user, LOOSER.name) == 0) ||
+X	    (strcomp(LOOSER.name, user) == 0) ||
+X	    (strcomp(user, LOOSER.nick) == 0) ||
+X	    (strcomp(user, LOOSER.sh_name) == 0)) {
+X		receiver = LOOSER.id;
+X		strcpy(rec_char, LOOSER.name);
+X	}
+X  }
+X  close(fd);
+X  mbunlock(UDBASE);
+X
+X  if ((receiver == 0) && (EX_PM == 0)) {
+X
+X	if (REPLY != 0) {
+X		strcpy(user, fetch_reciepy(REP));
+X		if (fetch_local == 1) goto TRY_AGAIN;
+X		strcpy(rec_char, (unsigned char *) stripped(user));
+X		if (strcomp(user, "OOPS") == 0) {
+X			ansi("md");
+X			printf("\n\n%s\n", MAL08_MSG);
+X			ansi("me ");
+X			unlink(TEP);
+X			unlink(REP); /* ??? */
+X			return -1;
+X		}
+X		EX_PM = 1;
+X		c = MAL13_MSG;
+X		goto REPLY_MARK;
+X	}
+X	else {
+X		ansi("md");
+X		strcpy(rec_char, (unsigned char *) stripped(user));
+X		printf("\n\n%s \"%s\" %s\n", MAL09_MSG, user, MAL10_MSG);
+X		ansi("me");
+X		if(WEITERLEITEN == 0) unlink(TEP);
+X		unlink(REP);
+X		return -1;
+X	}
+X  }
+X
+X  if(WEITERLEITEN != 0) goto ONCE_MORE;
+X
+X  unlink(REP);
+X
+X  if (EX_PM == 0) {
+X	ansi("md");
+X	sprintf(s, "%s/usr/%d/.hello", HOME, receiver);
+X	printf("\n\n");
+X	show(s, 22, 0);
+X	ansi("me");
+X  }
+X  else {
+X	strcpy(rec_char, arg);
+X  }
+X
+X  if(checkdomaintype( rec_char ) != 0) return -1;
+X
+X  if (REPLY != 0) {
+X	c = MAL13_MSG;
+X	goto REPLY_MARK;
+X  }
+X  printf("\n\n");
+X  ansi("mr");
+X  printf("[%s \"%s\"] %s, ? > ", MAL11_MSG, rec_char, MAL12_MSG);
+X  ansi("me");
+X  printf("%c%c", MAL13_MSG, BS);
+X
+X  do {
+X	c = getint();
+X	if (c >= 97) c -= 32;
+X	if (c == '?') {
+X		clearline();
+X		ansi("mr");
+X		printf("%c%s > ", CR, MAL16_MSG);
+X		ansi("me");
+X	}
+X	if (c == ENTER) c = MAL13_MSG;
+X	if ((c != MAL13_MSG) && (c != MAL14_MSG) && (c != MAL15_MSG)) c = 0;
+X  } while (c == 0);
+X
+X  printf("%c", c);
+X
+X  if (c == MAL15_MSG) {		/* VERWERFEN */
+X	unlink(REP);
+X	unlink(TEP);
+X	printf("\n");
+X	return -1;
+X  }
+X  sprintf(TEP, "%s/M%d", TMP, getpid());
+X  sprintf(pubdir, "%s/dir%d", TMP, getpid());
+X
+X  if (c == MAL14_MSG) {		/* UPLOAD */
+X	clearline();
+X	ansi("mr");
+X	printf("%c%s, ? > ", CR, MAL17_MSG);
+X	ansi("me");
+X
+X	do {
+X		protokoll = getint();
+X		if (protokoll >= 97) protokoll -= 32;
+X		if (protokoll == '?') {
+X			clearline();
+X			ansi("mr");
+X			printf("%c%s > ", CR, MAL17aMSG);
+X			ansi("me");
+X		}
+X		if ((protokoll != MAL18_MSG) && (protokoll != MAL18_MSG) &&
+X		    (protokoll != MAL20_MSG) && (protokoll != MAL21_MSG))
+X			protokoll = 0;
+X	} while (protokoll == 0);
+X
+X	printf("%c", protokoll);
+X
+X  }
+X  printf("\n\n%c", CR);
+X  ansi("mr");
+X  printf("%s ", MAL22_MSG);
+X  ansi("me");
+X  printf(" %s (%s)\n%c", USER.name, USER.nick, CR);
+X  ansi("mr");
+X  printf("%s ", MAL23_MSG);
+X  ansi("me");
+X  printf(" %s\n%c", rec_char, CR);
+X  ansi("mr");
+X  printf("%s ", MAL24_MSG);
+X  ansi("me");
+X  printf(" ");
+X  strcpy(subject, (unsigned char *) getline(50, -11, '.', ""));
+X  printf("\n");
+X  ansi("mr");
+X  printf("%s ", MAL23aMSG);
+X  ansi("me");
+X  printf(" ");
+X  strcpy(cc, (unsigned char *) getline(50, -11, '.', ""));
+X
+X  REPLY_MARK:
+X
+X  if(checkdomaintype( rec_char ) != 0) return -1;
+X
+X  if (c == MAL13_MSG) {
+X	sprintf(s, "%s %s", EDDY, TEP);
+X	noctrlx();
+X	system(s);
+X	ctrlx();
+X	protokoll = '*';
+X  }
+X  else {			/* UPLOAD */
+X
+X	printf("\n\n");
+X	printf("%s\n\n", MAL25_MSG); 
+X	ansi("md");
+X	printf("%s", MAL26_MSG);
+X	ansi("me");
+X          
+X	unlink( TEP );
+X	
+X	switch (protokoll) {
+X	    case MAL18_MSG:
+X			fp = fopen(TEP, "w");
+X			if (fp == NULL) {
+X				nerror("mail.c", 268, "brief", "DSF", TEP);
+X			}
+X			c = 0;
+X			lf = CR;
+X
+X			fputc(LF, fp);
+X
+X			while ((c != CTRL_X) && (c != CTRL_D)) {
+X				c = getint();
+X				if ((c == CR) && (lf == CR)) fputc(LF, fp);
+X				if (c == CR) lf = CR;
+X				if (c == LF) lf = LF;
+X				if ((c != CTRL_X) && (c != CTRL_D) && (c != CR)) {
+X					fputc(c, fp);
+X				}
+X			}
+X			fclose(fp);
+X			break;
+X
+X	    case MAL19_MSG:
+X			printf("\n");
+X			sprintf(s, "exec %s -bc TimeTravelAgency", RX);
+X			break;
+X	    case MAL20_MSG:
+X			printf("\n");
+X			sprintf(s, "exec %s -b", RB);
+X			break;
+X	    case MAL21_MSG:
+X			printf("\n");
+X			sprintf(s, "exec %s -b", RZ);
+X			break;
+X	}
+X	if (protokoll != MAL18_MSG){
+X		mkdir( pubdir, 0777 );
+X		chdir( pubdir );
+X
+X		system( s );
+X
+X		chdir( HOME );
+X		sprintf(s, "mv %s/* %s", pubdir, TEP);
+X		system( s );
+X		sprintf(s, "rm -r %s", pubdir);
+X		system( s );
+X	}
+X	sync();
+X	stat(TEP, &fst);
+X	if (fst.st_size < 3L) {
+X		printf("\n\n%s\n", MAL27_MSG);
+X		control(MAL28_MSG, 3);
+X		unlink(REP);	/* ??? */
+X		unlink(TEP);
+X		return -1;
+X	}	
+X	if (prf(TEP) == 1) {
+X		printf("\n\n");
+X		ansi( "md" );
+X		printf("%s", MAL25_MSG);		
+X		ansi( "me" );
+X		unlink(REP); 	/* ??? */
+X		unlink(TEP);
+X		return -1;
+X		BINFILE++;
+X	}
+X	else{
+X		mkix(TEP);
+X	}
+X  }
+X
+X  sprintf(reply, "%s <%s@%s>", USER.name, username, UUCPID);
+X
+X  ONCE_MORE:
+X
+X    
+X  if((HOLD != 0) || ((WEITERLEITEN != 0) && (IS_BUFFERED != 0))) goto HOLD_MARK;
+X
+X  printf("\n\n");
+X  ansi("mr");
+X  printf("[%s \"%s\"] %s, ? > ", MAL11_MSG, rec_char, MAL28aMSG);
+X  ansi("me");
+X  printf("%c%c", MAL29_MSG, BS);
+X
+X  do {
+X	c = getint();
+X	if (c >= 97) c -= 32;
+X	if (c == '?') {
+X		clearline();
+X		ansi("mr");
+X		printf("%c%s > ", CR, MAL32_MSG);
+X		ansi("me");
+X	}
+X	if (c == ENTER) c = MAL29_MSG;
+X	if ((c != MAL29_MSG) && (c != MAL30_MSG) && (c != MAL30aMSG) &&  (c != MAL31_MSG) && (c != MAL31aMSG)) c = 0;
+X  } while (c == 0);
+X
+X  printf("%c", c);
+X
+X  if (c == MAL31_MSG) {		/* WEITERSCHREIBEN */
+X	sprintf(s, "%s %s", EDDY, TEP);
+X	noctrlx();
+X	system(s);
+X	ctrlx();
+X	goto ONCE_MORE;
+X  }
+X  if (c == MAL30_MSG) {		/* VERWERFEN */
+X	printf("\n");
+X	unlink(TEP);
+X	unlink(REP);
+X	return -1;
+X  }
+X  if (c == MAL31aMSG) {		/* HEADER */
+X	headline( MAL32aMSG );
+X	printf("\n");
+X
+X	time(&timer);
+X
+X	ansi( "md" );
+X	printf("From: ");
+X	ansi( "me" );
+X	printf("%s <%s@%s>\n", USER.name, username, UUCPID);
+X
+X	ansi( "md" );
+X	printf("Reply-To: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(reply, (unsigned char *) getline(80, -1001, 32, reply));
+X		printf("\n");
+X	}
+X	else printf("%s\n", reply);
+X
+X	ansi( "md" );
+X	printf("Return-Receipt-To: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		/*
+X		if(receipt[0] == '\0') sprintf(receipt, (unsigned char *) "%s@%s",  username, UUCPID);
+X		*/
+X		strcpy(receipt, (unsigned char *) getline(80, -1001, 32, receipt));
+X		printf("\n");
+X	}
+X
+X	i = 0; j = 0;			/* Empfaenger: Realname */
+X	while(from[i] != '\0'){
+X		if(from[i] == '<'){
+X			strcpy(s, (unsigned char *) strcopy(from, 0, (i-1)));
+X			j = i;
+X		}
+X		if(from[i] == '(') j = i+1;
+X		if(from[i] == ')') strcpy(s, (unsigned char *) strcopy(from, j, (i-1)));
+X		i++;
+X	}
+X	if(j == 0) strcpy(s, from);
+X		
+X	if(mesg_id[0] != '\0'){
+X		ansi( "md" );
+X		printf("In-Reply-To: ");
+X		ansi( "me" );
+X		printf("%s; ", (unsigned char *) stripped(mesg_id)); 
+X		printf("from \"%s\" at %s", (unsigned char *) stripped(s), date);
+X
+X		if(refs[0] != '\0') 
+X			sprintf(s, "%s ", stripped(refs));
+X		else
+X			s[0] = '\0';
+X		strcat(s, mesg_id);
+X		ansi( "md" );
+X		printf("References: ");
+X		ansi( "me" );
+X		printf("%s", s);
+X	}
+X
+X	ansi( "md" );
+X	printf("To: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(rec_char, (unsigned char *) getline(80, -1001, 32, rec_char));
+X		printf("\n");
+X	}
+X	else printf("%s\n", rec_char);
+X
+X	ansi( "md" );
+X	printf("Cc: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(cc, (unsigned char *) getline(80, -1001, 32, cc));
+X		printf("\n");
+X	}
+X	else printf("%s\n", cc);
+X
+X	ansi( "md" );
+X	printf("Bcc: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(bcc, (unsigned char *) getline(80, -1001, 32, bcc));
+X		printf("\n");
+X	}
+X	else printf("%s\n", bcc);
+X
+X
+X	ansi( "md" );
+X	printf("Subject: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(subject, (unsigned char *) getline(80, -1001, 32, subject));
+X		printf("\n");
+X	}
+X	else printf("%s\n", subject);
+X
+X	ansi( "md" );
+X	printf("Keywords: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(keywords, (unsigned char *) getline(80, -1001, 32, keywords));
+X		printf("\n");
+X	}
+X	else printf("%s\n", keywords);
+X
+X	ansi( "md" );
+X	printf("Comments: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(comments, (unsigned char *) getline(80, -1001, 32, comments));
+X		printf("\n");
+X	}
+X	else printf("%s\n", comments);
+X
+X	ansi( "md" );
+X	printf("Encrypted: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(encrypted, (unsigned char *) getline(80, -1001, 32, encrypted));
+X		printf("\n");
+X	}
+X	else printf("%s\n", encrypted);
+X
+X#ifdef _MULTIMEDIA
+X	ansi( "md" );
+X	printf("MIME-Version: ");
+X	ansi( "me" );
+X	printf("%s\n", MIME_VERSION);
+X
+X	if(USER.level >= WRITE_INTERNAT){
+X		if(content[0] == '\0')
+X			strcpy(content, (unsigned char *) "text/plain; charset=us-ascii");
+X		ansi( "md" ); 
+X		printf("Content-Type: ");
+X		ansi( "me" );
+X		strcpy(content, (unsigned char *) getline(80, -1001, 32, content));
+X		printf("\n");
+X	}
+X#endif
+X
+X	ansi( "md" );
+X	printf("X-Mailer: ");
+X	ansi( "me" );
+X	printf("%s %s %s\n", VERSION, PATCHLEVEL, AUTOR);	
+X
+X	ansi( "md" );
+X	printf("Priority: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(priority, (unsigned char *) getline(80, -1001, 32, priority));
+X		printf("\n");
+X	}
+X	else printf("%s\n", priority);
+X
+X	ansi( "md" );
+X	printf("Action: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(action, (unsigned char *) getline(80, -1001, 32, action));
+X		printf("\n");
+X	}
+X	else printf("%s\n", action);
+X
+X	ansi( "md" );
+X	printf("X-Fortune: ");
+X	ansi( "me" );
+X	if(USER.level > GUEST_LEV){
+X		strcpy(fortune, (unsigned char *) getline(80, -1001, 32, fortune));
+X		printf("\n");
+X	}
+X	else printf("%s\n", fortune);
+X
+X
+X	ansi( "md" );
+X	printf("Message-Id: ");
+X	ansi( "me" );
+X   	printf("<%x.%d@%s>\n", timer, USER.id, UUCPID);
+X
+X	goto ONCE_MORE;
+X  }
+X
+X
+X  HOLD_MARK:
+X
+X  if((UMLEITUNG == 0) && (WEITERLEITEN == 0) && (strcomp(TMP, TEP) == 0)){
+X	sprintf(s, "cp %s %s/usr/%d/.lastletter > /dev/null", TEP, HOME, USER.id);
+X	system( s );     
+X	sprintf(s, "%s/usr/%d/.lastsubject", HOME, USER.id);
+X	fp = fopen( s, "w" );
+X	if(fp == NULL){
+X		nerror("mail.c", 500, "brief", "Datei-Schreibfehler", s);
+X	}
+X	fprintf(fp, "%s", subject);
+X	fclose(fp);
+X  }
+X
+X
+X  if (EX_PM == 0) {
+X	sprintf(s, "%s/usr/%d/seq", HOME, receiver);
+X	maybe_locked(s, "r");
+X	fp = fopen(s, "r");
+X	if (fp == NULL) {
+X		nerror("mail.c", 431, "brief", "Datei-Lesefehler", s);
+X	}
+X	fscanf(fp, "%d", &mail_id);
+X	fclose(fp);
+X	fp = fopen(s, "w");
+X	fprintf(fp, "%d\n", (mail_id + 1));
+X	fclose(fp);
+X
+X	sprintf(s, "%s/usr/%d/%d", HOME, receiver, mail_id);
+X  }
+X  else {
+X	umask(0000);
+X	sprintf(s, "%s/%d.expm", TMP, getpid());
+X  }
+X
+X
+X  fp = fopen(s, "w");
+X
+X  if (EX_PM == 0) {
+X	sprintf(s, "%s %s (%s)\n", GBL01_MSG, USER.name, USER.nick);
+X	fputs(s, fp);
+X
+X	time(&timer);
+X	timeptr = localtime(&timer);
+X	strcpy(t, asctime(timeptr));
+X
+X	sprintf(s, "%s %s", GBL02_MSG, t);
+X	fputs(s, fp);
+X
+X	sprintf(s, "%s %s\n\n", GBL03_MSG, subject);
+X	fputs(s, fp);
+X
+X	fputs("Content-Type: text/richtext;\n", fp);
+X
+X	lines = 5;
+X   }
+X   else {
+X	lines = 4;
+X  }
+X
+X  ff = fopen(TEP, "r");
+X  if (ff == 0) {
+X	printf("\n\n");
+X	ansi("md");
+X	printf("%s\n", MAL33_MSG);
+X	ansi("me");
+X	control(MAL34_MSG, 3);
+X	return;
+X  }
+X  stat(TEP, &fst);
+X  cont_length = fst.st_size;
+X
+X  if(EX_PM != 0){
+X
+X	time(&timer);
+X
+X	i = 0; j = 0;			/* Empfaenger: Realname */
+X	while(from[i] != '\0'){
+X		if(from[i] == '<'){
+X			strcpy(s, (unsigned char *) strcopy(from, 0, (i-1)));
+X			j = i;
+X		}
+X		if(from[i] == '(') j = i+1;
+X		if(from[i] == ')') strcpy(s, (unsigned char *) strcopy(from, j, (i-1)));
+X		i++;
+X	}
+X	if(j == 0) strcpy(s, from);
+X
+X	fprintf(fp, "From: %s@%s (%s)\n", username, UUCPID, USER.name); 
+X	if(reply[0] != '\0')
+X		fprintf(fp, "Reply-To: %s\n", reply);
+X	if(receipt[0] != '\0')
+X		fprintf(fp, "Return-Receipt-To: %s\n", receipt);
+X	fprintf(fp, "Organization: %s\n", ORGANIZATION);
+X	if(mesg_id[0] != '\0'){
+X		fprintf(fp, "In-Reply-To: %s; ", (unsigned char *) stripped(mesg_id)); 
+X		fprintf(fp, "from \"%s\" at %s", (unsigned char *) stripped(s), date);
+X		if(refs[0] != '\0') 
+X			sprintf(s, "%s ", stripped(refs));
+X		else
+X			s[0] = '\0';
+X		strcat(s, mesg_id);
+X		fprintf(fp, "References: %s", s);
+X	}
+X        fprintf(fp, "To: %s\n", rec_char);
+X	if(cc[0] != '\0')
+X		fprintf(fp, "Cc: %s\n", cc);
+X
+X	sprintf(s, "%s/usr/%d/.face", HOME, USER.id); /* X-Face ??? */
+X	ft = fopen( s, "r" );
+X	if(ft != NULL){
+X		while(fgets(s, 70, ft) != NULL){
+X			fprintf(fp, "X-Face: %s\n", (unsigned char *) stripped(s));
+X		}
+X		fclose(ft);
+X	}
+X
+X	if(subject[0] != '\0')
+X		fprintf(fp, "Subject: %s\n", subject);
+X	if(keywords[0] != '\0')
+X		fprintf(fp, "Keywords: %s\n", keywords);
+X	if(comments[0] != '\0')
+X		fprintf(fp, "Comments: %s\n", comments);
+X	if(encrypted[0] != '\0')
+X		fprintf(fp, "Encrypted: %s\n", encrypted);
+X
+X#ifdef _MULTIMEDIA
+X	fprintf(fp, "MIME-Version: %s\n", MIME_VERSION);
+X	if(content[0] != '\0'){
+X		fprintf(fp, "Content-Type: %s\n", content);
+X		if(UMLAUT_MODUS < 3) fprintf(fp, "Content-Transfer-Encoding: 8bit\n");
+X		fprintf(fp, "Content-Length: %ld\n", cont_length);
+X	}
+X#endif
+X	fprintf(fp, "X-Mailer: %s %s %s\n", VERSION, PATCHLEVEL, AUTOR);	
+X	if(priority[0] != '\0')
+X		fprintf(fp, "Priority: %s\n", priority);
+X	if(action[0] != '\0')
+X		fprintf(fp, "Action: %s\n", action);
+X	if(fortune[0] != '\0')
+X		fprintf(fp, "X-Fortune: %s\n", fortune);
+X   	fprintf(fp, "Message-Id: <%x.%d@%s>\n", timer, USER.id, UUCPID);
+X 	fputs("\n", fp);
+X  }
+X
+X  UMLAUT_MODUS = 1;
+X  while (fgets(s, 80, ff) != 0) {
+X	fputs((unsigned char *) iso_line(s), fp);
+X	lines++;
+X  }
+X  fclose(ff);
+X
+X  if(UMLEITUNG == 0){
+X	  sprintf(s, "%s/usr/%d/.signature", HOME, USER.id);
+X	  ff = fopen(s, "r");
+X	  if (ff != NULL) {
+X		while (fgets(s, 80, ff) != 0) {
+X			fputs((unsigned char *) iso_line(s), fp);
+X			lines++;
+X		}
+X		fclose(ff);
+X	  }
+X  }
+X
+X  UMLAUT_MODUS = USER.schluessel[2];
+X
+X  if(WEITERLEITEN == 0) unlink(TEP);
+X  fclose(fp);
+X
+X  if (EX_PM == 0) {
+X	sprintf(s, "%s/usr/%d/INDEX", HOME, receiver);
+X	maybe_locked(s, "r"); 
+X	fp = fopen(s, "a");
+X	if (fp == NULL) {
+X		nerror("mail.c", 527, "brief", "Datei-Ergaenzungsfehler", s);
+X	}
+X	sprintf(s, "%d              ", mail_id);
+X	s[6] = '\0';
+X	if(HOLD != 0){
+X		s[5] = '>';
+X	}
+X	fputs(s, fp);
+X
+X	sprintf(ex, "%s                                ", subject);
+X	ex[26] = '\0';
+X	fputs(ex, fp);
+X
+X	sprintf(ex, "  %s                                        ", USER.name);
+X	ex[22] = '\0';
+X	fputs(ex, fp);
+X
+X	strcpy(s, (unsigned char *) mydate(1));
+X	strcpy(t, (unsigned char *) mytime(1));
+X	sprintf(ex, "  %s  %s         ", s, t);
+X	ex[19] = '\0';
+X	fputs(ex, fp);
+X
+X	sprintf(s, "%-6.d\n", lines);
+X	fputs(s, fp);
+X
+X	fclose(fp);
+X  }
+X  else {
+X	sprintf(s, " X-Mail via UUCP (%s) ", rec_char);
+X	headline(s);
+X	printf("\n%s", MAL35_MSG);
+X	sprintf(s, "%s/%d.expm", TMP, getpid());
+X	sprintf(t, "/bin/sh ./etc/rmail.sh %s %s 2>&1 /dev/null", s, rec_char);
+X	system(t);
+X	unlink(s);
+X	unlink(f);
+X	umask(0007);
+X	printf(" %s\n", MAL36_MSG);
+X  }
+X
+X  unlink(REP);
+X  if((UMLEITUNG == 0) && (WEITERLEITEN == 0)) unlink(TEP);
+X
+X  sprintf(s, "%s \"%s\" %s", MAL11_MSG, rec_char, MAL37_MSG);
+X  control(s, 3);
+X
+X  printf("\n");
+X
+X
+X#ifdef _PMCOPY
+X
+X  IS_BUFFERED = 0;
+X
+X  if(WEITERLEITEN == 0){
+X	  if((strcomp(POSTMASTER, LOOSER.sh_name) == 0) || (strcomp(POSTMASTER, LOOSER.nick) == 0)){
+X		if(bcc[0] != '\0') strcat(bcc, ", ");
+X		sprintf(s, "%s!root", UUCPSITE);
+X		strcat(bcc, (unsigned char *) s);
+X		IS_BUFFERED = 1;
+X	  }
+X  }
+X#endif
+X
+X  if((cc[0] != '\0') || (bcc[0] != '\0')){
+X	carboncopy(cc, bcc);
+X  }
+X
+X  return 0;
+X}
+END_OF_FILE
+  if test 22275 -ne `wc -c <'src/mail.c'`; then
+    echo shar: \"'src/mail.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mail.c'
+fi
+if test -f 'src/makro.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/makro.c'\"
+else
+  echo shar: Extracting \"'src/makro.c'\" \(5585 characters\)
+  sed "s/^X//" >'src/makro.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  makro.c						   */
+X/*        FUNKTIONEN  makro()						   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  16.11.1991					   */
+X/***************************************************************************/
+X
+X#include <stdio.h>
+X
+X#include "mbox.h"
+X
+X
+Xvoid get_makros();
+X
+X/***************************************************************************/
+X/*      FUNKTION  makro()						   */
+X/*  BESCHREIBUNG  Makros auswerten					   */
+X/*     PARAMETER  s  =  Eingabezeile                                       */
+X/*     RUECKGABE  Eingabezeile mit Gegenwerten der Makros	           */
+X/***************************************************************************/
+X
+Xunsigned char *makro( s )
+Xunsigned char s[];
+X{
+X  static unsigned char t[STRING];
+X  unsigned char f[STRING];
+X  int a = 0, b = 0, i = 0;
+X  int m = 0, ok = 0;
+X  int subcom = 0;
+X
+X  t[0] = '\0';
+X
+X  strcat(s, " ");
+X
+X  while(s[0] == ' ') *s++;
+X
+X  while(s[i] != '\0'){
+X
+X	if(s[i] == ' '){
+X		b = i -1;
+X		f[0] = '\0';
+X		strcat(f, strcopy(s, a, b));
+X		a = i +1;
+X		ok = 0; 
+X		m = 0;
+X
+X		while(MAK[m].makname[0] != '\0'){
+X			if((strcomp(f, MAK[m].makname) == 0) && (strcomp(MAK[m].makname, f) == 0) && (subcom == 0)){
+X				ok = 1; 
+X				strcat(t, MAK[m].makwert);
+X			}
+X			m++;
+X		}
+X		if(ok == 0) strcat(t, stripped(f));
+X		strcat(t, " ");
+X	
+X		subcom++;
+X	}
+X	i++;
+X  }
+X  return (unsigned char *) t;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  set_makros						   */
+X/*  BESCHREIBUNG  Die Makro-Datei wird angezeigt und kann geandert werden. */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid set_makros()
+X{
+X  FILE *ff;
+X  unsigned char s[STRING];
+X  unsigned char t[STRING];
+X  unsigned char tmp[STRING];
+X  unsigned char c;
+X  int b;
+X
+X
+X  printf("\n\n%s\n\n", MAK01_MSG);
+X
+X  ansi("md");
+X  b = 4;
+X  while(MAK[b].makname[0] != '\0'){
+X	printf("%s%c=%c%s\n", MAK[b].makname, TAB, TAB, MAK[b].makwert);
+X	b++;
+X  }  
+X  printf("\n");  
+X  ansi("mr");
+X  printf("%c%s [%c, %c] > ", CR, MAK02_MSG, GBL06_MSG, GBL07_MSG);
+X  ansi("me");
+X
+X  c = yesno();
+X
+X  if (c == GBL06_MSG) {
+X	sprintf(t, "%s %s", EDDY, MAKRO);
+X	system(t);
+X  }
+X
+X  get_makros();
+X
+X  printf("\n");
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  get_makros()						   */
+X/*  BESCHREIBUNG  Liest die userabhaengigen Makro-Vereinbarungen in die    */
+X/*		  Stuktur ein				                   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine							   */
+X/***************************************************************************/
+X
+Xvoid get_makros()
+X{
+X  FILE *fp;
+X  unsigned char s[STRING];
+X  unsigned char t[STRING];
+X  int b = 0, i = 0;
+X
+X
+X  sprintf(MAK[0].makname, "demo");
+X  sprintf(MAK[0].makwert, "?, sl 3, PM, sl 3, i, sl 3, anr, sl 3, dem1");
+X  sprintf(MAK[1].makname, "dem1");
+X  sprintf(MAK[1].makwert, "b, sl 3, +, +, +, +, +, +, i, sl 3, +, dem2");
+X  sprintf(MAK[2].makname, "dem2");
+X  sprintf(MAK[2].makwert, "i, sl 3, +, i, sl 3, b, +, i, sl 3, ?, dem3");
+X  sprintf(MAK[3].makname, "dem3");
+X  sprintf(MAK[3].makwert, "sl 3, v, sl 3, h hilf, sl 3, st, sl 3, pm, i");
+X 
+X
+X  fp = fopen(MAKRO, "r");
+X  if (fp == NULL) {
+X	MAK[4].makname[0] = '\0';
+X	return;
+X  }
+X
+X
+X  b = 4;
+X
+X  while(fgets(s, 80, fp) != NULL){
+X
+X	MAK[b].makname[0] = '\0';
+X	MAK[b].makwert[0] = '\0';
+X	
+X	i = 0;
+X
+X	while((s[i] != '=') && (s[i] != '\0')) i++;
+X
+X	t[0] = '\0'; strcat(t, strcopy(s, 0, (i-1)));
+X	strcat(MAK[b].makname, stripped(t));
+X
+X	t[0] = '\0'; strcat(t, strcopy(s, (i+1), length(s)));
+X 	strcat(MAK[b].makwert, stripped(t));
+X
+X	b++;
+X	if (b >= (MAX_MAK -1)) {
+X		nerror("makro.c", 108, "get_makro", "MAX_MAK ueberschritten !!", "???");
+X	}
+X  }
+X  MAK[b].makname[0] = '\0';
+X
+X  fclose(fp);
+X
+X}
+X
+X/***************************************************************************/
+X/*      FUNKTION  add_makros()						   */
+X/*  BESCHREIBUNG  Haengt Makro-Definition aus einer Prompt-Eingabe an die  */
+X/*		  Makro-Datei an			                   */
+X/*     PARAMETER  s  =  Makro-Definition                                   */
+X/*     RUECKGABE  keine							   */
+X/***************************************************************************/
+X
+Xvoid add_makro( s )
+Xunsigned char s[];
+X{
+X  FILE *fp;
+X
+X  fp = fopen( MAKRO, "a" );
+X  if(fp == NULL){
+X	nerror("makro.c", 189, "add_makro", "Datei-Erweiterungsfehler", MAKRO);
+X  }
+X  fputs((unsigned char *) stripped(s), fp);
+X  fputs("\n", fp);
+X  fclose(fp);
+X
+X  get_makros();
+X
+X  printf("\n\n%s\n", MAK03_MSG);
+X  
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  makro_definition()					   */
+X/*  BESCHREIBUNG  Prueft ob die Prompt-Eingabe eine Makro-Definition ent-  */
+X/*		  haelt.    				                   */
+X/*     PARAMETER  s  =  Prompt-Eingabe                                     */
+X/*     RUECKGABE  0  =  Keine Definition				   */
+X/*                1  =  Makro-Definition				   */
+X/***************************************************************************/
+X
+Xint makro_definition( s )
+Xunsigned char s[];
+X{
+X  int i = 0;
+X  int ok = 0;
+X
+X  while(s[i] != '\0'){
+X	if(s[i] == '=') ok++;
+X	i++;
+X  }
+X
+X  if(ok == 1){
+X	add_makro( s );
+X  }
+X  if(ok > 1){
+X	ansi("md");
+X	printf(" %s\n", MAK04_MSG);
+X	ansi("me");
+X  }
+X  return ok;
+X}
+X
+END_OF_FILE
+  if test 5585 -ne `wc -c <'src/makro.c'`; then
+    echo shar: \"'src/makro.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/makro.c'
+fi
+if test -f 'wendy/fast' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wendy/fast'\"
+else
+  echo shar: Extracting \"'wendy/fast'\" \(99 characters\)
+  sed "s/^X//" >'wendy/fast' <<'END_OF_FILE'
+Xmake clean
+X/etc/mount /dev/PS1 /user
+Xcpdir -mvs /local/mbox/wendy /user
+Xsync
+X/etc/umount /dev/PS1
+X
+END_OF_FILE
+  if test 99 -ne `wc -c <'wendy/fast'`; then
+    echo shar: \"'wendy/fast'\" unpacked with wrong size!
+  fi
+  chmod +x 'wendy/fast'
+  # end of 'wendy/fast'
+fi
+echo shar: End of archive 7 \(of 15\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

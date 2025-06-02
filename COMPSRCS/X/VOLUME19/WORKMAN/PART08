@@ -1,0 +1,1538 @@
+Newsgroups: comp.sources.x
+From: koreth@hyperion.com (Steven Grimm)
+Subject: v19i016:  workman - CD player for HP, Sun, DEC, Linux, Part08/09
+Message-ID: <1993Mar9.164628.2220@sparky.imd.sterling.com>
+X-Md4-Signature: 8cd10d732a396516c321e310795f041d
+Date: Tue, 9 Mar 1993 16:46:28 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: koreth@hyperion.com (Steven Grimm)
+Posting-number: Volume 19, Issue 16
+Archive-name: workman/part08
+Environment: X11R5 Xview3 HP Sun Dec Linux
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 9)."
+# Contents:  hardware.c
+# Wrapped by koreth@gerbilmeister on Thu Mar  4 10:04:52 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'hardware.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hardware.c'\"
+else
+echo shar: Extracting \"'hardware.c'\" \(34717 characters\)
+sed "s/^X//" >'hardware.c' <<'END_OF_FILE'
+X/*
+X * @(#)hardware.c	1.13	3/4/93
+X *
+X * Get information about a CD.
+X */
+Xstatic char *ident = "@(#)hardware.c	1.13 3/4/93";
+X
+X#include <errno.h>
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <fcntl.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#ifndef linux
+X# include <ustat.h>
+X#endif /* !linux */
+X#include <sys/time.h>
+X#ifdef hpux
+X#include <sys/scsi.h>
+X#else /* ! hpux */
+X# ifdef solbourne
+X#  include <mfg/dklabel.h>
+X#  include <mfg/dkio.h>
+X#  include <dev/srvar.h>
+X# else  /* ! solbourne */
+X#  ifdef ultrix
+X#   include <string.h>
+X#   include <sys/rzdisk.h>
+X#   include <sys/cdrom.h>
+X#  else  /* sun */
+X#   ifdef SYSV
+X#    include <sys/cdio.h>
+X#   else  /* ! SYSV */
+X#    ifdef linux
+X#     include <linux/cdrom.h>
+X#    else
+X#     include <sundev/srreg.h>
+X#    endif /* linux */
+X#   endif  /* SYSV */
+X#  endif  /* ultrix */
+X# endif  /* solbourne */
+X#endif  /* hpux */
+X#include "struct.h"
+X
+X#ifdef hpux
+X
+Xint INTTOBCD(number)	 /* do an integer to bcd conversion */
+Xunsigned char number;
+X{
+X	return (number+6*(number/10)) & 0xff ;
+X}
+Xunsigned char BCDTOINT(number)	 /* do a bcd to integer conversion */
+Xint number;
+X{
+X	return (number/16)*10 + number%16;
+X}
+X/*#define INTTOBCD(a) ((a / 10) << 4) | (a % 10)*/
+X/*#define BCDTOINT(a) (((a & 0xF0) >> 4) * 10) + (a & 0x0F)*/
+X        
+Xunion scsi_cd_reply {
+X        u_char	all[12];	/* reserve 12 bytes for reply */
+X        struct {
+X                unsigned playback_status:8;
+X#define CDAUDIO_SUBQ_PLAY	0x00
+X#define CDAUDIO_SUBQ_STILL	0x01
+X#define CDAUDIO_SUBQ_PAUSE	0x02
+X#define CDAUDIO_SUBQ_DONE	0x03
+X                unsigned control_data:8;
+X#define CDAUDIO_SUBQ_PREEMPHASIS	0x01
+X#define CDAUDIO_SUBQ_COPY_OK		0x02
+X#define CDAUDIO_SUBQ_DATA_TRK		0x04
+X#define CDAUDIO_SUBQ_4_CHAN		0x08
+X                unsigned track:8;
+X                unsigned index:8;
+X                unsigned minute:8;
+X                unsigned second:8;
+X                unsigned frame:8;
+X                unsigned abs_minute:8;
+X                unsigned abs_second:8;
+X                unsigned abs_frame:8;
+X        } rdsubq;
+X        union {
+X                struct {
+X                        unsigned first:8;
+X                        unsigned last:8;
+X                } track;
+X                struct {
+X                        unsigned minute:8;
+X                        unsigned second:8;
+X                        unsigned frame:8;
+X                        unsigned control_data:8;
+X                } time;
+X        } rdinfo;
+X        struct {
+X                unsigned mode_data:8;
+X        } rdmode;
+X} reply_buf;
+X
+X#define SCSI_TIMEOUT 500
+X
+X/* CD audio io opcodes */
+X#define CDAUDIOSTOP	0x1B	/* Stop */
+X#define CDAUDIOSEARCH	0xC0	/* Search Track */
+X#define CDAUDIOPLAY	0xC1	/* Play Audio */
+X#define CDAUDIOSTILL	0xC2	/* Still */
+X#define CDAUDIOSTOPTIME	0xC3	/* Set Stop Time */
+X#define CDAUDIOTROPEN	0xC4	/* Tray Open (Caddy eject) */
+X#define CDAUDIOTRCLOSE	0xC5	/* Tray Close */
+X#define CDAUDIORDSUBQ	0xC6	/* Read Subcode-Q Data */
+X#define CDAUDIORDINFO	0xC7	/* Read Disc Information */
+X#define CDAUDIORDMODE	0xC8	/* Read CD Mode */
+X
+X/* Types for search and play */
+X#define CDAUDIO_TYPE_LBA	0x00	/* Logical block address */
+X#define CDAUDIO_TYPE_ABS	0x01<<6	/* Absolute time */
+X#define CDAUDIO_TYPE_TRK	0x02<<6	/* Track number */
+X#define CDAUDIO_TYPE_SAVE	0x03<<6	/* Preserve previous ending address (Play) */
+X
+X/* Play modes */
+X#define CDAUDIO_PLAY_MUTE	0x00	/* Muting on */
+X#define CDAUDIO_PLAY_LEFT	0x01	/* Left channel Mono */
+X#define CDAUDIO_PLAY_RIGHT	0x02	/* Right channel Mono */
+X#define CDAUDIO_PLAY_STEREO	0x03	/* Stereo */
+X#define CDAUDIO_PLAY_SAVE	0x04	/* Preserve previous playback mode */
+X
+Xstruct scsi_cmd_parms track_search = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIOSEARCH, 0x00, 0x01, 0x00, 0x00,
+X	0x00, 0x00, 0x00, 0x00, CDAUDIO_TYPE_ABS
+X};
+X
+Xstruct scsi_cmd_parms play_audio = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIOPLAY, 0x03, 0x02, 0x00, 0x00,
+X	0x00, 0x00, 0x00, 0x00, CDAUDIO_TYPE_ABS
+X};
+X
+X/*
+X * read_disc_info[4] values
+X */
+X#define CDAUDIO_TOC_TRK		0x00	/* Track number of 1st and last on disc */
+X#define CDAUDIO_TOC_LEADOUT	0x01
+X#define CDAUDIO_TOC_CTRL	0x02	/* Starting pt of control */
+X
+Xstruct scsi_cmd_parms read_disc_info = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIORDINFO, 0x00, 0x00, 0x00, 0x00,
+X	0x00, 0x00, 0x00, 0x00, 0x00
+X};
+X
+Xstruct scsi_cmd_parms stop = {
+X	6, 1, SCSI_TIMEOUT,
+X	CDAUDIOSTOP, 0x00, 0x00, 0x00, 0x00, 0x00
+X};
+X
+Xstruct scsi_cmd_parms playing_status = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIORDSUBQ, 0x0a, 0x00, 0x00, 0x00,
+X	0x00, 0x00, 0x00, 0x00, 0x00
+X};
+X
+Xstruct scsi_cmd_parms disc_eject = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIOTROPEN, 0x00, 0x00, 0x00, 0x00, 
+X	0x00, 0x00, 0x00, 0x00, 0x00
+X};
+X
+Xstruct scsi_cmd_parms still = {
+X	10, 1, SCSI_TIMEOUT,
+X	CDAUDIOSTILL, 0x00, 0x00, 0x00, 0x00, 
+X	0x00, 0x00, 0x00, 0x00, 0x00
+X};
+X#endif
+X
+X#ifdef ultrix
+X/*
+X *   This structure will be filled with the TOC header and all entries.
+X * Ultrix doesn't seem to allow getting single TOC entries.
+X *                              - Chris Ross (cross@eng.umd.edu)
+X */
+Xstruct cd_toc_header_and_entries {
+X	struct cd_toc_header	cdth;
+X	struct cd_toc_entry		cdte[CDROM_MAX_TRACK+1];
+X};
+X#endif
+X
+Xvoid *malloc();
+Xchar *strchr();
+X
+X#ifdef ultrix
+X# define MAX_LINE_LENGTH	100			/* For reading uerf */
+X
+Xvoid	find_cdrom();
+X#endif
+X
+Xextern struct play *playlist;
+Xextern struct cdinfo thiscd, *cd;
+X
+Xint	cd_fd = -1;
+X
+X/*
+X * The minimum volume setting for the Sun and DEC CD-ROMs is 128 but for other
+X * machines this might not be the case.
+X */
+Xint	min_volume = 128;
+Xint	max_volume = 255;
+X
+X#ifdef hpux
+Xchar    *cd_device = "/dev/rscsi";
+X#else
+X#ifdef ultrix
+Xchar	*cd_device = NULL;
+X#else  /* sun */
+X# ifdef SYSV
+Xchar	*cd_device = "/dev/rdsk/c0t6d0s2";
+X# else
+X# ifdef linux
+Xchar    *cd_device = "/dev/sr0\0";
+X# else
+Xchar	*cd_device = "/dev/rsr0\0";
+X# endif
+X# endif
+X#endif
+X#endif
+X
+Xextern int cur_track, cur_index, cur_lasttrack, cur_firsttrack, cur_pos_abs,	
+X	cur_frame, cur_pos_rel, cur_tracklen, cur_cdlen, cur_ntracks,	
+X	cur_nsections, cur_cdmode, cur_listno, cur_stopmode, exit_on_eject,
+X	cur_balance;
+Xextern char *cur_artist, *cur_cdname, *cur_trackname;
+Xextern char	cur_contd, cur_avoid;
+X
+X#ifdef ultrix
+X/*
+X * find_cdrom
+X *
+X * Read through the boot records (via a call to uerf) and find the SCSI
+X * address of the CD-ROM.
+X */
+Xvoid
+Xfind_cdrom()
+X{
+X	char	data[MAX_LINE_LENGTH];
+X	FILE	*uerf;
+X	int	fds[2];
+X	int	pid;
+X
+X	pipe(fds);
+X
+X	if ((pid = fork()) == 0) {
+X		close(fds[0]);
+X		dup2(fds[1], 1);
+X		execl("/etc/uerf", "uerf", "-R", "-r", "300", NULL);
+X		_exit(1);
+X	} else if (pid < 0) {
+X		perror("fork");
+X		exit(1);
+X	}
+X
+X	close(fds[1]);
+X	uerf = fdopen(fds[0], "r");
+X
+X	while(fgets(data, MAX_LINE_LENGTH, uerf))
+X		if (strstr(data, "(RRD42)")) {
+X			char	*device;
+X
+X			cd_device = (char *)malloc(sizeof("/dev/rrz##c"));
+X			strcpy(cd_device, "/dev/r");
+X			device = strstr(data, "rz");
+X			device[(int)(strchr(device, ' ') - device)] = '\0';
+X			strcat(cd_device, device);
+X			strcat(cd_device, "c");
+X			break;
+X		}
+X
+X	fclose(uerf);
+X
+X	if (cd_device == NULL) {
+X		fprintf(stderr, "No cdrom (RRD42) is installed on this system");
+X		exit(1);
+X	}
+X
+X	kill(pid, 15);
+X	(void)wait((int *)NULL);
+X}
+X#endif
+X
+X/*
+X * read_toc()
+X *
+X * Read the table of contents from the CD.  Return a pointer to a cdinfo
+X * struct containing the relevant information (minus artist/cdname/etc.)
+X * This is a static struct.  Returns NULL if there was an error.
+X *
+X * XXX allocates one trackinfo too many.
+X */
+Xstruct cdinfo *
+Xread_toc()
+X{
+X	struct playlist		*l;
+X#ifdef hpux
+X#else /* ! hpux */
+X#ifdef ultrix
+X	struct cd_toc_header	hdr;
+X	struct cd_toc_entry	entry;
+X#else /* sun */
+X	struct cdrom_tochdr	hdr;
+X	struct cdrom_tocentry	entry;
+X#endif
+X#endif
+X	int			i, pos;
+X
+X	if (cd_fd < 0)
+X		return(NULL);
+X
+X#ifdef hpux
+X        read_disc_info.command[1] = CDAUDIO_TOC_TRK;
+X        if ((ioctl(cd_fd, SIOC_SET_CMD, &read_disc_info) < 0) ||
+X            (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0))
+X#else
+X#ifdef ultrix
+X	if (ioctl(cd_fd, CDROM_TOC_HEADER, &hdr))
+X#else
+X	if (ioctl(cd_fd, CDROMREADTOCHDR, &hdr))
+X#endif
+X#endif
+X	{
+X		perror("readtochdr");
+X		return (NULL);
+X	}
+X
+X	thiscd.artist[0] = thiscd.cdname[0] = '\0';
+X	thiscd.whichdb = thiscd.otherrc = thiscd.otherdb = NULL;
+X	thiscd.length = 0;
+X	thiscd.autoplay = thiscd.playmode = thiscd.volume = 0;
+X#ifdef hpux
+X	thiscd.ntracks = BCDTOINT(reply_buf.rdinfo.track.last);
+X#else
+X#ifdef ultrix
+X	thiscd.ntracks = hdr.th_ending_track;
+X#else
+X	thiscd.ntracks = hdr.cdth_trk1;
+X#endif
+X#endif
+X	if (thiscd.lists != NULL)
+X	{
+X		for (l = thiscd.lists; l->name != NULL; l++)
+X		{
+X			free(l->name);
+X			free(l->list);
+X		}
+X		free(thiscd.lists);
+X		thiscd.lists = NULL;
+X	}
+X
+X	if (thiscd.trk != NULL)
+X		free(thiscd.trk);
+X
+X	thiscd.trk = malloc((thiscd.ntracks + 1) * sizeof(struct trackinfo));
+X	if (thiscd.trk == NULL)
+X	{
+X		perror("malloc");
+X		return (NULL);
+X	}
+X#ifdef hpux
+X	for (i = 0; i <= thiscd.ntracks; i++)
+X	{
+X		if (i == thiscd.ntracks) {
+X                        read_disc_info.command[1] = CDAUDIO_TOC_LEADOUT;
+X			read_disc_info.command[2] = 0;
+X                }
+X		else {
+X                        read_disc_info.command[1] = CDAUDIO_TOC_CTRL;
+X                        read_disc_info.command[2] = INTTOBCD(i + 1); 
+X                }
+X                if ((ioctl(cd_fd, SIOC_SET_CMD, &read_disc_info) < 0) ||
+X                    (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0))
+X                {
+X                        fprintf(stderr, "%s: read_disc_info: track=%d: %s\n",
+X				cd_device, i+1, strerror(errno));
+X                        return(NULL);
+X                }
+X                
+X		thiscd.trk[i].data =
+X                        thiscd.trk[i].avoid =
+X				reply_buf.rdinfo.time.control_data &
+X				CDAUDIO_SUBQ_DATA_TRK ? 1 : 0;
+X		thiscd.trk[i].length = BCDTOINT(reply_buf.rdinfo.time.minute) *
+X				60 + BCDTOINT(reply_buf.rdinfo.time.second);
+X		thiscd.trk[i].start = thiscd.trk[i].length * 75 +
+X				BCDTOINT(reply_buf.rdinfo.time.frame);
+X		thiscd.trk[i].songname = thiscd.trk[i].otherrc =
+X		thiscd.trk[i].otherdb = NULL;
+X		thiscd.trk[i].contd = 0;
+X		thiscd.trk[i].volume = 0;
+X		thiscd.trk[i].track = i + 1;
+X		thiscd.trk[i].section = 0;
+X        }
+X#else
+X#ifdef ultrix
+X	{
+X		struct cd_toc				toc;
+X		struct cd_toc_header_and_entries	toc_buffer;
+X
+X		bzero((char *)&toc_buffer, sizeof(toc_buffer));
+X		toc.toc_address_format = CDROM_MSF_FORMAT;
+X		toc.toc_starting_track = 0;
+X		toc.toc_alloc_length = (u_short)(((hdr.th_data_len1 << 8) +
+X					hdr.th_data_len0) & 0xfff) + 2;
+X		toc.toc_buffer = (caddr_t)&toc_buffer;
+X
+X		if (ioctl(cd_fd, CDROM_TOC_ENTRYS, &toc)) {
+X			perror("toc read");
+X			return(NULL);
+X		}
+X
+X		for (i = 0; i <= thiscd.ntracks; i++)
+X		{
+X			bcopy((char *)&toc_buffer.cdte[i], (char *)&entry,
+X				sizeof(entry));
+X
+X			thiscd.trk[i].data =
+X			thiscd.trk[i].avoid = entry.te_control &
+X				CDROM_DATA_TRACK ? 1 : 0;
+X			thiscd.trk[i].length = entry.te_absaddr.msf.m_units *
+X				60 + entry.te_absaddr.msf.s_units;
+X			thiscd.trk[i].start = thiscd.trk[i].length * 75 +
+X				entry.te_absaddr.msf.f_units;
+X			thiscd.trk[i].songname = thiscd.trk[i].otherrc =
+X			thiscd.trk[i].otherdb = NULL;
+X			thiscd.trk[i].contd = 0;
+X			thiscd.trk[i].volume = 0;
+X			thiscd.trk[i].track = i + 1;
+X			thiscd.trk[i].section = 0;
+X		}
+X	}
+X#else  /* sun */
+X	for (i = 0; i <= thiscd.ntracks; i++)
+X	{
+X		if (i == thiscd.ntracks)
+X			entry.cdte_track = CDROM_LEADOUT;
+X		else
+X			entry.cdte_track = i + 1;
+X		entry.cdte_format = CDROM_MSF;
+X		if (ioctl(cd_fd, CDROMREADTOCENTRY, &entry))
+X		{
+X			perror("tocentry read");
+X			return (NULL);
+X		}
+X
+X		thiscd.trk[i].data =
+X		thiscd.trk[i].avoid = entry.cdte_ctrl & CDROM_DATA_TRACK ?
+X			1 : 0;
+X		thiscd.trk[i].length = entry.cdte_addr.msf.minute * 60 +
+X				entry.cdte_addr.msf.second;
+X		thiscd.trk[i].start = thiscd.trk[i].length * 75 +
+X				entry.cdte_addr.msf.frame;
+X		thiscd.trk[i].songname = thiscd.trk[i].otherrc =
+X		thiscd.trk[i].otherdb = NULL;
+X		thiscd.trk[i].contd = 0;
+X		thiscd.trk[i].volume = 0;
+X		thiscd.trk[i].track = i + 1;
+X		thiscd.trk[i].section = 0;
+X	}
+X#endif
+X#endif
+X
+X/* Now compute actual track lengths. */
+X	pos = thiscd.trk[0].length;
+X
+X	for (i = 0; i < thiscd.ntracks; i++)
+X	{
+X		thiscd.trk[i].length = thiscd.trk[i+1].length - pos;
+X		pos = thiscd.trk[i+1].length;
+X		if (thiscd.trk[i].data)
+X			thiscd.trk[i].length = (thiscd.trk[i + 1].start -
+X				thiscd.trk[i].start) * 2;
+X		if (thiscd.trk[i].avoid)
+X			strmcpy(&thiscd.trk[i].songname, "DATA TRACK");
+X	}
+X
+X	thiscd.length = thiscd.trk[thiscd.ntracks].length;
+X
+X	return (&thiscd);
+X}
+X
+X/*
+X * cd_status()
+X *
+X * Return values:
+X *
+X *	0	No CD in drive.
+X *	1	CD in drive.
+X *	2	CD has just been inserted (TOC has been read)
+X *	3	CD has just been removed
+X *
+X * Updates cur_track, cur_pos_rel, cur_pos_abs and other variables.
+X */
+Xint
+Xcd_status()
+X{
+X	char				realname[MAXPATHLEN];
+X	static int			warned = 0;
+X#ifdef hpux
+X        int                             flag = 1;
+X#else
+X#ifdef ultrix
+X	struct cd_sub_channel		sc;
+X	struct cd_subc_channel_data	scd;
+X#else
+X	struct cdrom_subchnl		sc;
+X#endif
+X#endif
+X	int				ret = 1;
+X
+X	if (cd_fd < 0)
+X	{
+X#ifdef ultrix
+X		if (cd_device == NULL)
+X			find_cdrom();
+X#endif
+X
+X#ifdef hpux
+X		if ((cd_fd = open(cd_device, O_RDWR)) < 0)
+X#else
+X		if ((cd_fd = open(cd_device, 0)) < 0)
+X#endif
+X		{
+X
+X			if (errno == EACCES)
+X			{
+X				if (!warned)
+X				{
+X#if     defined(ultrix) || defined(hpux) || defined(linux)
+X					/* Ultrix doesn't have a realpath(3) */
+X					strcpy(realname, cd_device);
+X#else
+X					if (realpath(cd_device, realname) ==
+X						NULL)
+X					{
+X						perror("realpath");
+X						return (0);
+X					}
+X#endif
+X
+X					fprintf(stderr,
+X		"As root, please run\n\nchmod 666 %s\n\n%s\n", realname,
+X		"to give yourself permission to access the CD-ROM device.");
+X					warned++;
+X				}
+X			}
+X#if defined(ultrix) || defined(hpux)
+X			else if (errno != EINTR)
+X#else
+X			else if (errno != ENXIO)
+X#endif
+X			{
+X				perror(cd_device);
+X				exit(1);
+X			}
+X			return (0);
+X		}
+X		cur_cdmode = 5;
+X#ifdef hpux
+X                flag = 1;
+X                if (ioctl(cd_fd, SIOC_CMD_MODE, &flag) < 0)
+X                {
+X                        fprintf(stderr, "%s: SIOC_CMD_MODE: true: %s\n",
+X				cd_device, strerror(errno));
+X                        /*exit(1);*/
+X                }
+X#endif
+X	}
+X
+X	if (warned)
+X	{
+X		warned = 0;
+X		fprintf(stderr, "Thank you.\n");
+X	}
+X
+X#ifdef hpux
+X        if ((ioctl(cd_fd, SIOC_SET_CMD, &playing_status) < 0) ||
+X            (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0))
+X#else
+X#ifdef ultrix
+X	sc.sch_address_format	= CDROM_MSF_FORMAT;
+X	sc.sch_data_format	= CDROM_CURRENT_POSITION;
+X	sc.sch_track_number	= 0;
+X	sc.sch_alloc_length	= sizeof(scd);
+X	sc.sch_buffer		= (caddr_t)&scd;
+X
+X	if (ioctl(cd_fd, CDROM_READ_SUBCHANNEL, &sc))
+X#else
+X	sc.cdsc_format = CDROM_MSF;
+X
+X	if (ioctl(cd_fd, CDROMSUBCHNL, &sc))
+X#endif
+X#endif
+X	{
+X		cur_cdmode = 5;
+X		cur_track = -1;
+X		cur_cdlen = cur_tracklen = 1;
+X		cur_pos_abs = cur_pos_rel = cur_frame = 0;
+X
+X		if (exit_on_eject)
+X			exit(0);
+X
+X		return (0);
+X	}
+X
+X	if (cur_cdmode == 5)	/* CD has been ejected */
+X	{
+X		cur_pos_rel = cur_pos_abs = cur_frame = 0;
+X
+X		if ((cd = read_toc()) == NULL)
+X		{
+X			close(cd_fd);
+X			cd_fd = -1;
+X			if (exit_on_eject)
+X				exit(0);
+X			else
+X				return (0);
+X		}
+X		cur_nsections = 0;
+X		cur_ntracks = cd->ntracks;
+X		cur_cdlen = cd->length;
+X		load();
+X		cur_artist = cd->artist;
+X		cur_cdname = cd->cdname;
+X		cur_cdmode = 4;
+X		ret = 2;
+X	}
+X
+X#ifdef hpux
+X        switch (reply_buf.rdsubq.playback_status) {
+X        case CDAUDIO_SUBQ_PLAY:
+X		cur_cdmode = 1;
+Xdopos:
+X                cur_pos_abs = BCDTOINT(reply_buf.rdsubq.abs_minute) * 60 +
+X                        BCDTOINT(reply_buf.rdsubq.abs_second);
+X		cur_frame = cur_pos_abs * 75 +
+X			BCDTOINT(reply_buf.rdsubq.abs_frame);
+X
+X		/* Only look up the current track number if necessary. */
+X		if (cur_track < 1 || cur_frame < cd->trk[cur_track-1].start ||
+X				cur_frame >= (cur_track >= cur_ntracks ?
+X				(cur_cdlen + 1) * 75 :
+X				cd->trk[cur_track].start))
+X		{
+X			cur_track = 0;
+X			while (cur_track < cur_ntracks && cur_frame >=
+X					cd->trk[cur_track].start)
+X				cur_track++;
+X		}
+X		if (cur_track >= 1 && BCDTOINT(reply_buf.rdsubq.track) >
+X						cd->trk[cur_track-1].track)
+X			cur_track++;
+X
+X		cur_index = BCDTOINT(reply_buf.rdsubq.index);
+Xdoall:
+X		if (cur_track >= 1 && cur_track <= cur_ntracks)
+X		{
+X			cur_trackname = cd->trk[cur_track-1].songname;
+X			cur_avoid = cd->trk[cur_track-1].avoid;
+X			cur_contd = cd->trk[cur_track-1].contd;
+X			cur_pos_rel = (cur_frame -
+X				cd->trk[cur_track-1].start) / 75;
+X			if (cur_pos_rel < 0)
+X				cur_pos_rel = -cur_pos_rel;
+X		}
+X
+X		if (playlist != NULL && playlist[0].start)
+X		{
+X			cur_pos_abs -= cd->trk[playlist[cur_listno-1].
+X				start - 1].start / 75;
+X			cur_pos_abs += playlist[cur_listno-1].starttime;
+X		}
+X		if (cur_pos_abs < 0)
+X			cur_pos_abs = cur_frame = 0;
+X
+X		if (cur_track < 1)
+X			cur_tracklen = cd->length;
+X		else
+X			cur_tracklen = cd->trk[cur_track-1].length;
+X		break;
+X
+X	case CDAUDIO_SUBQ_PAUSE:
+X	case CDAUDIO_SUBQ_STILL:
+X		if (cur_cdmode == 1 || cur_cdmode == 3)
+X			cur_cdmode = 3;
+X		else
+X			cur_cdmode = 4;
+X		goto dopos;
+X
+X	/*
+X	 * The following status is returned both when the CD is idle and
+X	 * when the disc stops (there is no "done playing" status.)
+X	 */
+X	case CDAUDIO_SUBQ_DONE:
+X		if (cur_cdmode == 1)
+X		{
+X			cur_cdmode = 0;
+X			break;
+X		}
+X		cur_cdmode = 4;
+X		cur_lasttrack = cur_firsttrack = -1;
+X		goto doall;
+X
+X        default:
+X		cur_cdmode = 0;
+X                /*printf("Unknown status=%x\n",
+X			reply_buf.rdsubq.playback_status);*/
+X		break;
+X        }
+X#else
+X#ifdef ultrix
+X	switch (scd.scd_header.sh_audio_status) {
+X	case AS_PLAY_IN_PROGRESS:
+X		cur_cdmode = 1;
+Xdopos:
+X		cur_pos_abs = scd.scd_position_data.scp_absaddr.msf.m_units*60+
+X			scd.scd_position_data.scp_absaddr.msf.s_units;
+X		cur_frame = cur_pos_abs * 75 +
+X				scd.scd_position_data.scp_absaddr.msf.f_units;
+X
+X		/* Only look up the current track number if necessary. */
+X		if (cur_track < 1 || cur_frame < cd->trk[cur_track-1].start ||
+X				cur_frame >= (cur_track >= cur_ntracks ?
+X				(cur_cdlen + 1) * 75 :
+X				cd->trk[cur_track].start))
+X		{
+X			cur_track = 0;
+X			while (cur_track < cur_ntracks && cur_frame >=
+X					cd->trk[cur_track].start)
+X				cur_track++;
+X		}
+X		if (cur_track >= 1 && scd.scd_position_data.scp_track_number >
+X						cd->trk[cur_track-1].track)
+X			cur_track++;
+X
+X		cur_index = scd.scd_position_data.scp_index_number;
+Xdoall:
+X		if (cur_track >= 1 && cur_track <= cur_ntracks)
+X		{
+X			cur_trackname = cd->trk[cur_track-1].songname;
+X			cur_avoid = cd->trk[cur_track-1].avoid;
+X			cur_contd = cd->trk[cur_track-1].contd;
+X			cur_pos_rel = (cur_frame -
+X				cd->trk[cur_track-1].start) / 75;
+X			if (cur_pos_rel < 0)
+X				cur_pos_rel = -cur_pos_rel;
+X		}
+X
+X		if (playlist != NULL && playlist[0].start)
+X		{
+X			cur_pos_abs -= cd->trk[playlist[cur_listno-1].
+X				start - 1].start / 75;
+X			cur_pos_abs += playlist[cur_listno-1].starttime;
+X		}
+X		if (cur_pos_abs < 0)
+X			cur_pos_abs = cur_frame = 0;
+X
+X		if (cur_track < 1)
+X			cur_tracklen = cd->length;
+X		else
+X			cur_tracklen = cd->trk[cur_track-1].length;
+X		break;
+X
+X	case AS_PLAY_PAUSED:
+X		if (cur_cdmode == 1 || cur_cdmode == 3)
+X		{
+X			cur_cdmode = 3;
+X			goto dopos;
+X		}
+X		else
+X			cur_cdmode = 4;
+X		goto doall;
+X
+X	case AS_PLAY_COMPLETED:
+X		cur_cdmode = 0;		/* waiting for next track. */
+X		break;
+X
+X	case AS_NO_STATUS:
+X		cur_cdmode = 4;
+X		cur_lasttrack = cur_firsttrack = -1;
+X		goto doall;
+X	}
+X#else  /* sun */
+X	switch (sc.cdsc_audiostatus) {
+X	case CDROM_AUDIO_PLAY:
+X		cur_cdmode = 1;
+Xdopos:
+X		cur_pos_abs = sc.cdsc_absaddr.msf.minute * 60 +
+X			sc.cdsc_absaddr.msf.second;
+X		cur_frame = cur_pos_abs * 75 + sc.cdsc_absaddr.msf.frame;
+X
+X		/* Only look up the current track number if necessary. */
+X		if (cur_track < 1 || cur_frame < cd->trk[cur_track-1].start ||
+X				cur_frame >= (cur_track >= cur_ntracks ?
+X				(cur_cdlen + 1) * 75 :
+X				cd->trk[cur_track].start))
+X		{
+X			cur_track = 0;
+X			while (cur_track < cur_ntracks && cur_frame >=
+X					cd->trk[cur_track].start)
+X				cur_track++;
+X		}
+X		if (cur_track >= 1 && sc.cdsc_trk > cd->trk[cur_track-1].track)
+X			cur_track++;
+X
+X		cur_index = sc.cdsc_ind;
+Xdoall:
+X		if (cur_track >= 1 && cur_track <= cur_ntracks)
+X		{
+X			cur_trackname = cd->trk[cur_track-1].songname;
+X			cur_avoid = cd->trk[cur_track-1].avoid;
+X			cur_contd = cd->trk[cur_track-1].contd;
+X			cur_pos_rel = (cur_frame -
+X				cd->trk[cur_track-1].start) / 75;
+X			if (cur_pos_rel < 0)
+X				cur_pos_rel = -cur_pos_rel;
+X		}
+X
+X		if (playlist != NULL && playlist[0].start)
+X		{
+X			cur_pos_abs -= cd->trk[playlist[cur_listno-1].
+X				start - 1].start / 75;
+X			cur_pos_abs += playlist[cur_listno-1].starttime;
+X		}
+X		if (cur_pos_abs < 0)
+X			cur_pos_abs = cur_frame = 0;
+X
+X		if (cur_track < 1)
+X			cur_tracklen = cd->length;
+X		else
+X			cur_tracklen = cd->trk[cur_track-1].length;
+X		break;
+X
+X	case CDROM_AUDIO_PAUSED:
+X		if (cur_cdmode == 1 || cur_cdmode == 3)
+X		{
+X			cur_cdmode = 3;
+X			goto dopos;
+X		}
+X		else
+X			cur_cdmode = 4;
+X		goto doall;
+X
+X	case CDROM_AUDIO_COMPLETED:
+X		cur_cdmode = 0;		/* waiting for next track. */
+X		break;
+X
+X	case CDROM_AUDIO_NO_STATUS:
+X		cur_cdmode = 4;
+X		cur_lasttrack = cur_firsttrack = -1;
+X		goto doall;
+X	}
+X#endif  /* ultrix */
+X#endif  /* hpux */
+X	return (ret);
+X}
+X
+X/*
+X * scale_volume(vol, max)
+X *
+X * Return a volume value suitable for passing to the CD-ROM drive.  "vol"
+X * is a volume slider setting; "max" is the slider's maximum value.
+X *
+X * On Sun and DEC CD-ROM drives, the amount of sound coming out the jack
+X * increases much faster toward the top end of the volume scale than it
+X * does at the bottom.  To make up for this, we make the volume scale look
+X * sort of logarithmic (actually an upside-down inverse square curve) so
+X * that the volume value passed to the drive changes less and less as you
+X * approach the maximum slider setting.  The actual formula looks like
+X *
+X *     (max^2 - (max - vol)^2) * (max_volume - min_volume)
+X * v = --------------------------------------------------- + min_volume
+X *                           max^2
+X *
+X * If your system's volume settings aren't broken in this way, something
+X * like the following should work:
+X *
+X *	return ((vol * (max_volume - min_volume)) / max + min_volume);
+X */
+Xscale_volume(vol, max)
+X	int	vol, max;
+X{
+X	return ((max * max - (max - vol) * (max - vol)) *
+X		(max_volume - min_volume) / (max * max) + min_volume);
+X}
+X
+X/*
+X * unscale_volume(cd_vol, max)
+X *
+X * Given a value between min_volume and max_volume, return the volume slider
+X * value needed to achieve that value.
+X *
+X * Rather than perform floating-point calculations to reverse the above
+X * formula, we simply do a binary search of scale_volume()'s return values.
+X */
+Xunscale_volume(cd_vol, max)
+X	int	cd_vol, max;
+X{
+X	int	vol, incr, scaled;
+X
+X	for (vol = max / 2, incr = max / 4 + 1; incr; incr /= 2)
+X	{
+X		scaled = scale_volume(vol, max);
+X		if (cd_vol == scaled)
+X			break;
+X		if (cd_vol < scaled)
+X			vol -= incr;
+X		else
+X			vol += incr;
+X	}
+X	
+X	if (vol < 0)
+X		vol = 0;
+X	else if (vol > max)
+X		vol = max;
+X
+X	return (vol);
+X}
+X
+X/*
+X * cd_volume(vol, bal, max)
+X *
+X * Set the volume levels.  "vol" and "bal" are the volume and balance knob
+X * settings, respectively.  "max" is the maximum value of the volume knob
+X * (the balance knob is assumed to always go from 0 to 20.)
+X */
+Xvoid
+Xcd_volume(vol, bal, max)
+X	int	vol, bal, max;
+X{
+X	int	left, right;
+X#ifdef hpux
+X#else
+X#ifdef ultrix
+X	struct cd_playback		pb;
+X	struct cd_playback_status	ps;
+X	struct cd_playback_control	pc;
+X#else /* sun */
+X	struct cdrom_volctrl v;
+X#endif
+X#endif
+X
+X/*
+X * Set "left" and "right" to volume-slider values accounting for the
+X * balance setting.
+X *
+X * XXX - the maximum volume setting is assumed to be in the 20-30 range.
+X */
+X	if (bal < 9)
+X		right = vol - (9 - bal) * 2;
+X	else
+X		right = vol;
+X	if (bal > 11)
+X		left = vol - (bal - 11) * 2;
+X	else
+X		left = vol;
+X
+X/* Adjust the volume to make up for the CD-ROM drive's weirdness. */
+X	left = scale_volume(left, max);
+X	right = scale_volume(right, max);
+X
+X#ifdef hpux
+X        /* printf("HPUX cannot adjust volume - sigh.\n"); */
+X#else
+X#ifdef ultrix
+X# if 0
+X /*
+X  * According to the ultrix 4.2 cdrom.h, which defines the below structure,
+X  * I'd assume that it should be possible to change the volume this way.
+X  * But, I can't for the life of me figure out how.  (Is there an ioctl
+X  * for it?  What is it?)
+X  *                           Chris Ross (cross@eng.umd.edu)
+X  */
+X	struct cd_volume_control	v;
+X
+X	v.vc_channel_0 = left < 0 ? 0 : left > 255 ? 255 : left;
+X	v.vc_channel_1 = right < 0 ? 0 : right > 255 ? 255 : right;
+X	if (cd_fd >= 0)
+X		(void) ioctl(cd_fd, /**/, &v);
+X# else
+X /* Alternative (working) method.  Messy, but functional. */
+X
+X	bzero((char *)&pb, sizeof(pb));
+X	bzero((char *)&ps, sizeof(ps));
+X	bzero((char *)&pc, sizeof(pc));
+X
+X	pb.pb_alloc_length = sizeof(ps);
+X	pb.pb_buffer = (caddr_t)&ps;
+X
+X	if (cd_fd >= 0) {
+X		if (ioctl(cd_fd, CDROM_PLAYBACK_STATUS, &pb)) {
+X			perror("playback_status in cd_volume()");
+X			return;
+X		}
+X		pc.pc_chan0_select = ps.ps_chan0_select;
+X		pc.pc_chan0_volume = (left < CDROM_MIN_VOLUME) ?
+X			CDROM_MIN_VOLUME : (left > CDROM_MAX_VOLUME) ?
+X			CDROM_MAX_VOLUME : left;
+X		pc.pc_chan1_select = ps.ps_chan1_select;
+X		pc.pc_chan1_volume = (right < CDROM_MIN_VOLUME) ?
+X			CDROM_MIN_VOLUME : (right > CDROM_MAX_VOLUME) ?
+X			CDROM_MAX_VOLUME : right;
+X
+X		pb.pb_alloc_length = sizeof(pc);
+X		pb.pb_buffer = (caddr_t)&pc;
+X
+X		(void)ioctl(cd_fd, CDROM_PLAYBACK_CONTROL, &pb);
+X	}
+X# endif
+X#else  /* sun */
+X	v.channel0 = left < 0 ? 0 : left > 255 ? 255 : left;
+X	v.channel1 = right < 0 ? 0 : right > 255 ? 255 : right;
+X	if (cd_fd >= 0)
+X		(void) ioctl(cd_fd, CDROMVOLCTRL, &v);
+X#endif  /* ultrix */
+X#endif  /* hpux */
+X}
+X
+X/*
+X * pause_cd()
+X *
+X * Pause the CD, if it's in play mode.  If it's already paused, go back to
+X * play mode.
+X */
+Xvoid
+Xpause_cd()
+X{
+X	if (cd_fd < 0)	/* do nothing if there's no CD! */
+X		return;
+X
+X	switch (cur_cdmode) {
+X	case 1:		/* playing */
+X		cur_cdmode = 3;
+X#ifdef hpux
+X		ioctl(cd_fd, SIOC_SET_CMD, &still);		/* pause  */
+X		(void)read(cd_fd, reply_buf, sizeof(reply_buf));
+X#else
+X#ifdef ultrix
+X		ioctl(cd_fd, CDROM_PAUSE_PLAY);
+X#else
+X		ioctl(cd_fd, CDROMPAUSE);
+X#endif
+X#endif
+X		break;
+X	case 3:		/* paused */
+X		cur_cdmode = 1;
+X#ifdef hpux
+X                play_audio.command[9] = CDAUDIO_TYPE_SAVE;
+X		ioctl(cd_fd, SIOC_SET_CMD, &play_audio);	/* play  */
+X		(void)read(cd_fd, reply_buf, sizeof(reply_buf));
+X#else
+X#ifdef ultrix
+X		ioctl(cd_fd, CDROM_RESUME_PLAY);
+X#else
+X		ioctl(cd_fd, CDROMRESUME);
+X#endif
+X#endif
+X	}
+X}
+X
+X/*
+X * stop_cd()
+X *
+X * Stop the CD if it's not already stopped.
+X */
+Xvoid
+Xstop_cd()
+X{
+X	if (cd_fd < 0)
+X		return;
+X
+X	if (cur_cdmode != 4)
+X	{
+X		cur_lasttrack = cur_firsttrack = -1;
+X		cur_cdmode = 4;
+X#ifdef hpux
+X		ioctl(cd_fd, SIOC_SET_CMD, &stop);	/* stop playing */
+X		(void)read(cd_fd, reply_buf, sizeof(reply_buf));
+X#else
+X#ifdef ultrix
+X		ioctl(cd_fd, SCSI_STOP_UNIT);
+X#else
+X		ioctl(cd_fd, CDROMSTOP);
+X#endif
+X#endif
+X		cur_track = 1;
+X	}
+X}
+X
+X/*
+X * play_chunk(start, end)
+X *
+X * Play the CD from one position to another (both in frames.)
+X */
+Xvoid
+Xplay_chunk(start, end)
+X	int start, end;
+X{
+X#ifdef hpux
+X        unsigned char Smin, Ssec, Sframe;
+X        unsigned char Fmin, Fsec, Fframe;
+X#else
+X#ifdef ultrix
+X	struct cd_play_audio_msf	msf;
+X#else
+X	struct cdrom_msf		msf;
+X#endif
+X#endif
+X
+X	if (cd == NULL || cd_fd < 0)
+X		return;
+X
+X	end--;
+X	if (start >= end)
+X		start = end-1;
+X
+X#ifdef hpux
+X        Smin = start / (60*75);
+X        Ssec = (start % (60*75)) / 75;
+X        Sframe = start % 75;
+X        Fmin = end / (60*75);
+X        Fsec = (end % (60*75)) / 75;
+X        Fframe = end % 75;
+X
+X        /*printf("start=%d:%d[%d] end=%d:%d[%d]\n", Smin, Ssec, Sframe,
+X		Fmin, Fsec, Fframe);*/
+X        
+X        track_search.command[1] = 1;
+X        track_search.command[2] = INTTOBCD(Smin);
+X        track_search.command[3] = INTTOBCD(Ssec);
+X        track_search.command[4] = INTTOBCD(Sframe);
+X        track_search.command[9] = CDAUDIO_TYPE_ABS;
+X
+X        if ((ioctl(cd_fd, SIOC_SET_CMD, &track_search) < 0) ||
+X            (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0)) {
+X                fprintf(stderr, "%s: track_search: %s\n", cd_device,
+X			strerror(errno));
+X                return;
+X        }
+X
+X        play_audio.command[1] = CDAUDIO_PLAY_STEREO;
+X        play_audio.command[2] = INTTOBCD(Fmin);
+X        play_audio.command[3] = INTTOBCD(Fsec);
+X        play_audio.command[4] = INTTOBCD(Fframe);
+X        play_audio.command[9] = CDAUDIO_TYPE_ABS;
+X        
+X        if ((ioctl(cd_fd, SIOC_SET_CMD, &play_audio) < 0) ||
+X            (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0)) {
+X                fprintf(stderr, "%s: play_audio: %s\n", cd_device,
+X			strerror(errno));
+X                return;
+X        }
+X#else
+X#ifdef ultrix
+X	msf.msf_starting_M_unit	= start / (60*75);
+X	msf.msf_starting_S_unit	= (start % (60*75)) / 75;
+X	msf.msf_starting_F_unit	= start % 75;
+X	msf.msf_ending_M_unit	= end / (60*75);
+X	msf.msf_ending_S_unit	= (end % (60*75)) / 75;
+X	msf.msf_ending_F_unit	= end % 75;
+X
+X	if (ioctl(cd_fd, SCSI_START_UNIT))
+X	{
+X		perror("SCSI_START_UNIT");
+X		return;
+X	}
+X	if (ioctl(cd_fd, CDROM_PLAY_MSF, &msf))
+X	{
+X		printf("play(%d,%d)\n",start,end);
+X		printf("msf = %d:%d:%d %d:%d:%d\n",
+X			msf.msf_starting_M_unit, msf.msf_starting_S_unit,
+X			msf.msf_starting_F_unit, msf.msf_ending_M_unit,
+X			msf.msf_ending_S_unit, msf.msf_ending_F_unit);
+X		perror("CDROM_PLAY_MSF");
+X		return;
+X	}
+X#else
+X	msf.cdmsf_min0 = start / (60*75);
+X	msf.cdmsf_sec0 = (start % (60*75)) / 75;
+X	msf.cdmsf_frame0 = start % 75;
+X	msf.cdmsf_min1 = end / (60*75);
+X	msf.cdmsf_sec1 = (end % (60*75)) / 75;
+X	msf.cdmsf_frame1 = end % 75;
+X
+X	if (ioctl(cd_fd, CDROMSTART))
+X	{
+X		perror("CDROMSTART");
+X		return;
+X	}
+X	if (ioctl(cd_fd, CDROMPLAYMSF, &msf))
+X	{
+X		printf("play(%d,%d)\n",start,end);
+X		printf("msf = %d:%d:%d %d:%d:%d\n",
+X			msf.cdmsf_min0, msf.cdmsf_sec0, msf.cdmsf_frame0,
+X			msf.cdmsf_min1, msf.cdmsf_sec1, msf.cdmsf_frame1);
+X		perror("CDROMPLAYMSF");
+X		return;
+X	}
+X#endif  /* ultrix */
+X#endif  /* hpux */
+X}
+X
+X/*
+X * play_cd(starttrack, pos, endtrack)
+X *
+X * Start playing the CD or jump to a new position.  "pos" is in seconds,
+X * relative to start of track.
+X */
+Xvoid
+Xplay_cd(start, pos, end)
+Xint start, pos, end;
+X{
+X
+X	if (cd == NULL || cd_fd < 0)
+X		return;
+X
+X	cur_firsttrack = start;
+X	start--;
+X	end--;
+X	cur_lasttrack = end;
+X
+X	play_chunk(cd->trk[start].start + pos * 75, end >= cur_ntracks ?
+X		cur_cdlen * 75 : cd->trk[end].start - 1);
+X}
+X
+X/*
+X * Set the offset into the current track and play.  -1 means end of track
+X * (i.e., go to next track.)
+X */
+Xvoid
+Xplay_from_pos(pos)
+X	int	pos;
+X{
+X	if (pos == -1)
+X		if (cd)
+X			pos = cd->trk[cur_track - 1].length - 1;
+X	if (cur_cdmode == 1)
+X		play_cd(cur_track, pos, playlist[cur_listno-1].end);
+X}
+X
+X/*
+X * Eject the current CD, if there is one, and set the mode to 5.
+X *
+X * Returns 0 on success, 1 if the CD couldn't be ejected, or 2 if the
+X * CD contains a mounted filesystem.
+X */
+Xeject_cd()
+X{
+X	struct stat	stbuf;
+X	struct ustat	ust;
+X
+X	if (cur_cdmode == 5)		/* Already ejected! */
+X		return (0);
+X
+X	if (fstat(cd_fd, &stbuf) != 0)
+X	{
+X		perror("fstat");
+X		return (1);
+X	}
+X
+X	/* Is this a mounted filesystem? */
+X	if (ustat(stbuf.st_rdev, &ust) == 0)
+X		return (2);
+X
+X#ifdef hpux
+X        if ((ioctl(cd_fd, SIOC_SET_CMD, &disc_eject) < 0) ||
+X            (read(cd_fd, reply_buf, sizeof(reply_buf)) < 0))
+X        {
+X#else
+X#ifdef ultrix
+X	if (ioctl(cd_fd, CDROM_EJECT_CADDY))
+X	{
+X		perror("CDROM_EJECT_CADDY");
+X#else
+X	if (ioctl(cd_fd, CDROMEJECT))
+X	{
+X		perror("CDEJECT");
+X#endif
+X#endif
+X		return (1);
+X	}
+X
+X	if (exit_on_eject)
+X		exit(0);
+X
+X	cur_track = -1;
+X	cur_cdlen = cur_tracklen = 1;
+X	cur_pos_abs = cur_pos_rel = cur_frame = 0;
+X	cur_cdmode = 5;
+X
+X	return (0);
+X}
+X
+X/* Try to keep the CD open all the time.  This is run in a subprocess. */
+Xvoid
+Xkeep_cd_open()
+X{
+X	int	fd;
+X	struct flock	fl;
+X	extern	end;
+X
+X	for (fd = 0; fd < 256; fd++)
+X		close(fd);
+X
+X	if (fork())
+X		exit(0);
+X
+X	if ((fd = open("/tmp/cd.lock", O_RDWR | O_CREAT, 0666)) < 0)
+X		exit(0);
+X	fl.l_type = F_WRLCK;
+X	fl.l_whence = 0;
+X	fl.l_start = 0;
+X	fl.l_len = 0;
+X	if (fcntl(fd, F_SETLK, &fl) < 0)
+X		exit(0);
+X
+X	if (open(cd_device, 0) >= 0)
+X	{
+X		brk(&end);
+X		pause();
+X	}
+X
+X	exit(0);
+X}
+X
+X/*
+X * find_trkind(track, index)
+X *
+X * Start playing at a particular track and index, optionally using a particular
+X * frame as a starting position.  Returns a frame number near the start of the
+X * index mark if successful, 0 if the track/index didn't exist.
+X *
+X * This is made significantly more tedious (though probably easier to port)
+X * by the fact that CDROMPLAYTRKIND doesn't work as advertised.  The routine
+X * does a binary search of the track, terminating when the interval gets to
+X * around 10 frames or when the next track is encountered, at which point
+X * it's a fair bet the index in question doesn't exist.
+X */
+Xfind_trkind(track, index, start)
+X	int	track, index, start;
+X{
+X	int	top = 0, bottom, current, interval, ret = 0, i;
+X
+X	if (cd == NULL || cd_fd < 0)
+X		return;
+X
+X	for (i = 0; i < cur_ntracks; i++)
+X		if (cd->trk[i].track == track)
+X			break;
+X	bottom = cd->trk[i].start;
+X
+X	for (; i < cur_ntracks; i++)
+X		if (cd->trk[i].track > track)
+X			break;
+X
+X	top = i == cur_ntracks ? (cd->length - 1) * 75 : cd->trk[i].start;
+X
+X	if (start > bottom && start < top)
+X		bottom = start;
+X
+X	current = (top + bottom) / 2;
+X	interval = (top - bottom) / 4;
+X
+X	do {
+X		play_chunk(current, current + 75);
+X
+X		if (cd_status() != 1)
+X			return (0);
+X		while (cur_frame < current)
+X			if (cd_status() != 1 || cur_cdmode != 1)
+X				return (0);
+X			else
+X				susleep(1);
+X
+X		if (cd->trk[cur_track - 1].track > track)
+X			break;
+X
+X		if (cur_index >= index)
+X		{
+X			ret = current;
+X			current -= interval;
+X		}
+X		else
+X			current += interval;
+X		interval /= 2;
+X	} while (interval > 2);
+X
+X	return (ret);
+X}
+X
+X/*
+X * Simulate usleep() using select().
+X */
+Xsusleep(usec)
+X	int	usec;
+X{
+X	struct timeval	tv;
+X
+X	timerclear(&tv);
+X	tv.tv_sec = usec / 1000000;
+X	tv.tv_usec = usec % 1000000;
+X	return (select(0, NULL, NULL, NULL, &tv));
+X}
+X
+X/*
+X * Read the initial volume from the drive, if available.  Set cur_balance to
+X * the balance level (0-20, 10=centered) and return the proper setting for
+X * the volume knob.
+X *
+X * "max" is the maximum value of the volume knob.
+X */
+Xread_initial_volume(max)
+X	int max;
+X{
+X	int	left, right;
+X#ifdef hpux
+X#else
+X#ifdef ultrix
+X	struct cd_playback		pb;
+X	struct cd_playback_status	ps;
+X#endif
+X#endif
+X
+X#ifdef hpux
+X	/* Snakes can't read the volume; oh well */
+X	left = right = 255;
+X#else
+X#ifdef ultrix
+X	bzero((char *)&pb, sizeof(pb));
+X	bzero((char *)&ps, sizeof(ps));
+X
+X	pb.pb_alloc_length = sizeof(ps);
+X	pb.pb_buffer = (caddr_t)&ps;
+X
+X	if (cd_fd >= 0) {
+X		if (ioctl(cd_fd, CDROM_PLAYBACK_STATUS, &pb)) {
+X			perror("playback_status in read_initial_volume()");
+X			return;
+X		}
+X		left = ps.ps_chan0_volume;
+X		right = ps.ps_chan1_volume;
+X	}
+X	else
+X		left = right = CDROM_MAX_VOLUME;
+X#else /* sun */
+X	/* Suns can't read the volume; oh well */
+X	left = right = 255;
+X#endif
+X#endif
+X
+X	left = unscale_volume(left, max);
+X	right = unscale_volume(right, max);
+X
+X	if (left < right)
+X	{
+X		cur_balance = (right - left) / 2 + 11;
+X		if (cur_balance > 20)
+X			cur_balance = 20;
+X
+X		return (right);
+X	}
+X	else if (left == right)
+X	{
+X		cur_balance = 10;
+X		return (left);
+X	}
+X	else
+X	{
+X		cur_balance = (right - left) / 2 + 9;
+X		if (cur_balance < 0)
+X			cur_balance = 0;
+X
+X		return (left);
+X	}
+X}
+END_OF_FILE
+if test 34717 -ne `wc -c <'hardware.c'`; then
+    echo shar: \"'hardware.c'\" unpacked with wrong size!
+fi
+# end of 'hardware.c'
+fi
+echo shar: End of archive 8 \(of 9\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

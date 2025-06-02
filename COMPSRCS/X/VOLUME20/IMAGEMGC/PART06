@@ -1,0 +1,1645 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i062:  imagemagic - X11 image processing and display, Part06/38
+Message-ID: <1993Jul14.175355.924@sparky.sterling.com>
+X-Md4-Signature: 876c13a522ed2d602a8f0f4218ca8470
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:53:55 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 62
+Archive-name: imagemagic/part06
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.06 (part 6 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/xtp/regular.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/xtp/regular.c'
+else
+echo 'x - continuing file ImageMagick/xtp/regular.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/xtp/regular.c' &&
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static char *NextToken(p)
+register char
+X  *p;
+{
+X  register int
+X    offset;
+X
+X  if (p == &start_code)
+X    return(NULL);
+X  offset=Next(p);
+X  if (offset == 0)
+X    return(NULL);
+X  if (OpCode(p) == Back)
+X    return(p-offset);
+X  else
+X    return(p+offset);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   N o d e                                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static char *Node(opcode)
+int
+X  opcode;
+{
+X  register char
+X    *ptr,
+X    *status;
+X
+X  status=code;
+X  if (status == &start_code)
+X    {
+X      code_size+=3;
+X      return(status);
+X    }
+X  ptr=status;
+X  *ptr++=(char) opcode;
+X  *ptr++='\0';
+X  *ptr++='\0';
+X  code=ptr;
+X  return(status);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   O p T a i l                                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static void OpTail(p,value)
+char
+X  *p;
+X
+char
+X  *value;
+{
+X  /*
+X    "Operandless" and "op != MatchThisOrNext" are synonymous in practice.
+X  */
+X  if ((p == NULL) || (p == &start_code) || (OpCode(p) != MatchThisOrNext))
+X    return;
+X  Tail(Operand(p),value);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   P i e c e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static char *Piece(flagp)
+int
+X  *flagp;
+{
+X  int
+X    flags;
+X
+X  register char
+X    *next_token,
+X    op,
+X    *status;
+X
+X  status=Atom(&flags);
+X  if (status == NULL)
+X    return(NULL);
+X  op=(*token);
+X  if (!MultipleMatches(op))
+X    {
+X      *flagp=flags;
+X      return(status);
+X    }
+X  if (!(flags & NonNull) && op != '?')
+X    Fail("*+ operand could be empty");
+X  *flagp=(op != '+') ? (WorstCase | SpecialStart) : (WorstCase | NonNull);
+X  if (op == '*' && (flags & Simple))
+X    Insert(MatchZeroOrMore,status);
+X  else
+X    if (op == '*')
+X      {
+X        /*
+X          Emit x* as (x&|), where & means "self".
+X        */
+X        Insert(MatchThisOrNext,status);
+X        OpTail(status,Node(Back));
+X        OpTail(status,status);
+X        Tail(status,Node(MatchThisOrNext));
+X        Tail(status,Node(MatchEmptyString));
+X      }
+X    else
+X      if ((op == '+') && (flags & Simple))
+X        Insert(MatchOneOrMore,status);
+X      else
+X        if (op == '+')
+X          {
+X            /*
+X              Emit x+ as x (&|), where & means "self".
+X            */
+X            next_token=Node(MatchThisOrNext);
+X            Tail(status,next_token);
+X            Tail(Node(Back),status);
+X            Tail(next_token,Node(MatchThisOrNext));
+X            Tail(status,Node(MatchEmptyString));
+X          }
+X        else
+X          if (op == '?')
+X            {
+X              /*
+X                Emit x? as (x|)
+X              */
+X              Insert(MatchThisOrNext,status);
+X              Tail(status,Node(MatchThisOrNext));
+X              next_token=Node(MatchEmptyString);
+X              Tail(status,next_token);
+X              OpTail(status,next_token);
+X            }
+X  token++;
+X  if (MultipleMatches(*token))
+X    Fail("nested *?+");
+X  return(status);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e g u l a r                                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static char *Regular(parenthesized,flagp)
+int
+X  parenthesized;
+X
+int
+X  *flagp;
+{
+X  int
+X    flags;
+X
+X  register char
+X    *br,
+X    *ender,
+X    *status;
+X
+X  register int
+X    count;
+X
+X  count=0;
+X  *flagp=NonNull;
+X  if (!parenthesized)
+X    status=NULL;
+X  else
+X    {
+X      /*
+X        Make an Open node.
+X      */
+X      if (number_parenthesis >= NumberSubExpressions)
+X        Fail("too many ()");
+X      count=number_parenthesis;
+X      number_parenthesis++;
+X      status=Node(Open+count);
+X    }
+X  /*
+X    Pick up the branches, linking them together.
+X  */
+X  br=Branch(&flags);
+X  if (br == NULL)
+X    return(NULL);
+X  if (status != NULL)
+X    Tail(status,br);
+X  else
+X    status=br;
+X  if (!(flags & NonNull))
+X    *flagp&=(~NonNull);
+X  *flagp|=flags & SpecialStart;
+X  while (*token == '|')
+X  {
+X    token++;
+X    br=Branch(&flags);
+X    if (br == NULL)
+X      return(NULL);
+X    Tail(status,br);
+X    if (!(flags & NonNull))
+X      *flagp &= ~NonNull;
+X    *flagp|=flags & SpecialStart;
+X  }
+X  /*
+X    Make a closing node and hook it on the end.
+X  */
+X  ender=Node((parenthesized) ? Close+count : EndOfProgram);
+X  Tail(status,ender);
+X  /*
+X    Hook the tails of the branches to the closing node.
+X  */
+X  for(br=status; br != NULL; br=NextToken(br))
+X    OpTail(br,ender);
+X  /*
+X    Check for proper termination.
+X  */
+X  if (parenthesized && (*token++ != ')'))
+X    Fail("unmatched()")
+X  else
+X    if (!parenthesized && (*token != '\0'))
+X      {
+X        if (*token == ')')
+X          Fail("unmatched()")
+X        else
+X          Fail("junk on end")
+X       }
+X  return(status);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e p e a t                                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static int Repeat(p)
+char
+X  *p;
+{
+X  register char
+X    *operand,
+X    *scan;
+X
+X  register int
+X    count=0;
+X
+X  scan=p;
+X  operand=Operand(p);
+X  switch(OpCode(p))
+X  {
+X    case MatchAnyCharacter:
+X    {
+X      count=strlen(scan);
+X      scan+=count;
+X      break;
+X    }
+X    case MatchExactly:
+X    {
+X      while (*operand == *scan)
+X      {
+X        count++;
+X        scan++;
+X      }
+X      break;
+X    }
+X    case MatchAnyCharacterOf:
+X    {
+X      while ((*scan != '\0') && (strchr(operand,*scan) != NULL))
+X      {
+X        count++;
+X        scan++;
+X      }
+X      break;
+X    }
+X    case MatchAnyCharacterBut:
+X    {
+X      while ((*scan != '\0') && (strchr(operand,*scan) == NULL))
+X      {
+X        count++;
+X        scan++;
+X      }
+X      break;
+X    }
+X    default:
+X    {
+X      (void) fprintf(stderr,"Regular(3): %s","internal foulup");
+X      count=0;
+X      break;
+X    }
+X  }
+X  p=scan;
+X  return(count);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   T a i l                                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static void Tail(p,val)
+char
+X  *p;
+X
+char
+X  *val;
+{
+X  register char
+X    *scan,
+X    *temp;
+X
+X  register int
+X    offset;
+X
+X  if (p == &start_code)
+X    return;
+X  /*
+X    Find last node.
+X  */
+X  scan=p;
+X  for(;;)
+X  {
+X    temp=NextToken(scan);
+X    if (temp == NULL)
+X      break;
+X    scan=temp;
+X  }
+X  if (OpCode(scan) == Back)
+X    offset=scan-val;
+X  else
+X    offset=val-scan;
+X  *(scan+1)=(offset >> 8) & 0377;
+X  *(scan+2)=offset & 0377;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   T r y                                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+static int Try(regular_expression,pattern)
+RegularExpression
+X  *regular_expression;
+X
+char
+X  *pattern;
+{
+X  register char
+X    **ep,
+X    **sp;
+X
+X  register int
+X    i;
+X
+X  p=pattern;
+X  subpattern=regular_expression->subpattern;
+X  subpattern_end=regular_expression->subpattern_end;
+X  sp=regular_expression->subpattern;
+X  ep=regular_expression->subpattern_end;
+X  for(i=NumberSubExpressions; i > 0; i--)
+X  {
+X    *sp++=NULL;
+X    *ep++=NULL;
+X  }
+X  if (!Match(regular_expression->program+1))
+X    return(0);
+X  else
+X    {
+X      regular_expression->subpattern[0]=pattern;
+X      regular_expression->subpattern_end[0]=p;
+X      return(1);
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   C o m p i l e R e g u l a r E x p r e s s i o n                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function CompileRegularExpression compiles a regular expression into a
+%  structure of type RegularExpression and returns a pointer to it.  The space
+%  is allocated using function malloc and may be released by function free.
+%
+%
+*/
+RegularExpression *CompileRegularExpression(regular_expression)
+char
+X  *regular_expression;
+{
+X  int
+X    flags;
+X
+X  register char
+X    *longest,
+X    *scan;
+X
+X  register RegularExpression
+X    *r;
+X
+X  register int
+X    length;
+X
+X  if (regular_expression == NULL)
+X    Fail("NULL argument");
+X  /*
+X    First pass: determine size.
+X  */
+X  token=regular_expression;
+X  number_parenthesis=1;
+X  code_size=0L;
+X  code=(&start_code);
+X  EmitCode(Magick);
+X  if (Regular(0,&flags) == NULL)
+X    return(NULL);
+X  /*
+X    Allocate space.
+X  */
+X  r=(RegularExpression *) malloc((code_size+sizeof(RegularExpression)));
+X  if (r == (RegularExpression *) NULL)
+X    Fail("out of space");
+X  /*
+X    Second pass: emit code.
+X  */
+X  token=regular_expression;
+X  number_parenthesis=1;
+X  code=r->program;
+X  EmitCode(Magick);
+X  if (Regular(0,&flags) == NULL)
+X    return(NULL);
+X  /*
+X    Dig out information for optimizations.
+X  */
+X  r->start_character='\0';
+X  r->anchor=0;
+X  r->priority_pattern=NULL;
+X  r->pattern_length=0;
+X  scan=r->program+1;
+X  if (OpCode(NextToken(scan)) == EndOfProgram)
+X    {
+X      scan=Operand(scan);
+X      if (OpCode(scan) == MatchExactly)
+X        r->start_character=(*Operand(scan));
+X      else
+X        if (OpCode(scan) == MatchBeginningOfLine)
+X          r->anchor++;
+X      /*
+X        If there's something expensive in the regular expression, find the
+X        longest literal pattern that must appear and make it the
+X        priority_pattern.
+X      */
+X      if (flags & SpecialStart)
+X        {
+X          longest=NULL;
+X          length=0;
+X          for(; scan != NULL; scan=NextToken(scan))
+X            if ((OpCode(scan) == MatchExactly) &&
+X                ((int) strlen(Operand(scan)) >= length))
+X              {
+X                longest=Operand(scan);
+X                length=strlen(Operand(scan));
+X              }
+X          r->priority_pattern=longest;
+X          r->pattern_length=length;
+X        }
+X    }
+X  return(r);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E x e c u t e R e g u l a r E x p r e s s i o n                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ExecuteRegularExpression matches a NULL-terminated pattern against
+%  the compiled regular expression in regular-expression.  It returns 1 for
+%  success and 0 for failure.
+%
+%
+*/
+int ExecuteRegularExpression(regular_expression,pattern)
+register RegularExpression
+X  *regular_expression;
+X
+register char
+X  *pattern;
+{
+X  register char
+X    *s;
+X
+X  if ((regular_expression == (RegularExpression *) NULL) ||
+X      (pattern == (char *) NULL))
+X    {
+X      (void) fprintf(stderr,"Regular(3): %s","NULL parameter\n");
+X      return(0);
+X    }
+X  /*
+X    Check validity of program.
+X  */
+X  if (((int)*(unsigned char *)(regular_expression->program)) != Magick)
+X    {
+X      (void) fprintf(stderr,"Regular(3): %s","corrupted program");
+X      return(0);
+X    }
+X  /*
+X    If there is a "must appear" pattern, look for it.
+X  */
+X  if (regular_expression->priority_pattern != NULL)
+X    {
+X      s=pattern;
+X      while ((s=strchr(s,regular_expression->priority_pattern[0])) != NULL)
+X      {
+X        if (strncmp(s,regular_expression->priority_pattern,
+X            regular_expression->pattern_length) == 0)
+X          break;
+X        s++;
+X       }
+X       if (s == NULL)
+X         return(0);
+X    }
+X  /*
+X    Mark beginning of line for ^.
+X  */
+X  start_pattern=pattern;
+X  /*
+X    Simplest case:  anchored match need be tried only once.
+X  */
+X  if (regular_expression->anchor)
+X    return(Try(regular_expression,pattern));
+X  /*
+X    Messy cases:  unanchored match.
+X  */
+X  s=pattern;
+X  if (regular_expression->start_character != '\0')
+X    while ((s=strchr(s,regular_expression->start_character)) != NULL)
+X    {
+X      if (Try(regular_expression,s))
+X        return(1);
+X      s++;
+X    }
+X  else
+X    do
+X    {
+X      if (Try(regular_expression,s))
+X        return(1);
+X    } while (*s++ != '\0');
+X  return(0);
+}
+SHAR_EOF
+echo 'File ImageMagick/xtp/regular.c is complete' &&
+chmod 0644 ImageMagick/xtp/regular.c ||
+echo 'restore of ImageMagick/xtp/regular.c failed'
+Wc_c="`wc -c < 'ImageMagick/xtp/regular.c'`"
+test 36662 -eq "$Wc_c" ||
+	echo 'ImageMagick/xtp/regular.c: original size 36662, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/xtp/regular.h ==============
+if test -f 'ImageMagick/xtp/regular.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/xtp/regular.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/xtp/regular.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/xtp/regular.h' &&
+/*
+X  Definitions etc. for RegularExpression(3) routines.
+*/
+#define EndOfProgram  0
+#define MatchBeginningOfLine  1
+#define MatchEndOfProgramOfLine  2
+#define MatchAnyCharacter  3
+#define MatchAnyCharacterOf  4
+#define MatchAnyCharacterBut  5
+#define MatchThisOrNext  6
+#define Back  7
+#define MatchExactly  8
+#define MatchEmptyString  9
+#define MatchZeroOrMore  10
+#define MatchOneOrMore  11
+#define Open  20
+#define Close  30
+X
+#define WorstCase  0
+#define NonNull  1
+#define Simple  2
+#define SpecialStart  4
+X
+#define Fail(m)  \
+{  \
+X  (void) fprintf(stderr,"RegularExpression: %s\n",m);  \
+X  return(NULL);  \
+}
+#define Magick   0234
+#define Meta  "^$.[()|?+*\\"
+#define MultipleMatches(c) (((c) == '*') || ((c) == '+') || ((c) == '?'))
+#define Next(p) (((*((p)+1) & 0377) << 8 )+(*((p)+2) & 0377))
+#define NumberSubExpressions  10
+#define OpCode(p) (*(p))
+#define Operand(p) ((p)+3)
+X
+typedef struct _RegularExpression 
+{
+X  char 
+X    *subpattern[NumberSubExpressions],
+X    *subpattern_end[NumberSubExpressions],
+X    start_character,
+X    anchor,
+X    *priority_pattern;
+X
+X  int 
+X    pattern_length;
+X
+X  char 
+X    program[1];
+} RegularExpression;
+X
+extern RegularExpression 
+X  *CompileRegularExpression _Declare((char *));
+X
+extern int 
+X  ExecuteRegularExpression _Declare((RegularExpression *,char *));
+SHAR_EOF
+chmod 0644 ImageMagick/xtp/regular.h ||
+echo 'restore of ImageMagick/xtp/regular.h failed'
+Wc_c="`wc -c < 'ImageMagick/xtp/regular.h'`"
+test 1299 -eq "$Wc_c" ||
+	echo 'ImageMagick/xtp/regular.h: original size 1299, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/xtp/xtp.c ==============
+if test -f 'ImageMagick/xtp/xtp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/xtp/xtp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/xtp/xtp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/xtp/xtp.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                            X   X  TTTTT PPPP                                %
+%                             X X     T   P   P                               %
+%                              X      T   PPPP                                %
+%                             X X     T   P                                   %
+%                            X   X    T   P                                   %
+%                                                                             %
+%                                                                             %
+%                         File transfer program.                              %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                             October 1992                                    %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. Dupont de Nemours & Company                           %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above copyright notice appear in all copies and that     %
+%  both that copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. Dupont de Nemours     %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. Dupont de Nemours & Company makes no representations    %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. Dupont de Nemours & Company disclaims all warranties with regard     %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. Dupont de Nemours & Company be        %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Xtp is a utility for retrieving, listing, or printing files from a
+%  remote network site.  Xtp performs most of the same functions as the
+%  FTP program, but does not require any interactive commands.  You simply
+%  specify the file transfer task on the command line and xtp performs the
+%  transfer automatically.
+%
+%  This program was adapted from a similiar program written by Steve Singles,
+%  University of Delaware.
+%
+%  Command syntax:
+%
+%  Usage: xtp [-options ...] <host/ip address> [ <home directory> ]
+%
+%  Where options include:
+%    -binary                retrieve files as binary
+%    -exclude expression    exclude files that match the expression
+%    -directory expression  list file names that match the expression
+%    -ident password        specifies password
+%    -port number           port number of FTP server
+%    -print expression      print files that match the expression
+%    -prune                 do not recursively search for files
+%    -retrieve expression   retrieve files that match the expression
+%    -send expression       send files that match the expression
+%    -timeout seconds       specifies maximum seconds of XTP session
+%    -user name             identify yourself to the remote FTP server
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#define _POSIX_SOURCE  1
+#include "xtp.h"
+#include "regular.h"
+#include <unistd.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <termios.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+/*
+X  Variable declarations.
+*/
+static char
+X  *client_name,
+X  slave_tty[16];
+X
+static int
+X  master,
+X  status;
+X
+static RegularExpression
+X  *directory_expression,
+X  *exclude_expression,
+X  *print_expression,
+X  *retrieve_expression;
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *GetHostInfo _Declare((char *));
+X
+/*
+X  Forward declarations.
+*/
+static char
+X  *Wait _Declare((void));
+X
+static void
+X  DirectoryRequest _Declare((char *, char *)),
+X  PrintRequest _Declare((char *,unsigned int)),
+X  RetrieveRequest _Declare((char *,unsigned int));
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   D i r e c t o r y R e q u e s t                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function DirectoryRequest lists a file name and its attributes.
+%
+%  The format of the DirectoryRequest routine is:
+%
+%    DirectoryRequest(fileinfo,filename)
+%
+%  A description of each parameter follows:
+%
+%    o filename:  Specifies a pointer to a character array that contains
+%      information about the file.
+%
+%    o filename:  Specifies a pointer to a character array that contains
+%      the name of the file.
+%
+*/
+static void DirectoryRequest(fileinfo,filename)
+char
+X  *fileinfo,
+X  *filename;
+{
+X  status=0;
+X  if (*fileinfo == '\0')
+X    (void) fprintf(stdout,"%s\n",filename);
+X  else
+X    (void) fprintf(stdout,"%s %s\n",fileinfo,filename);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",client_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E x e c u t e F t p                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ExecuteFtp executes the FTP program as a child process.
+%
+%  The format of the ExecuteFtp routine is:
+%
+%    ExecuteFtp(host_name,port)
+%
+%  A description of each parameter follows:
+%
+%    o host_name:  Specifies a pointer to a character array that contains the
+%      name of the host to establish a connection to a FTP server.
+%
+%    o port:  Specifies a port number.  If the port number is NULL, xtp
+%      attempts to contact a FTP server at the default port.
+%
+%
+%
+*/
+static void ExecuteFtp(host_name,port)
+char
+X  *host_name,
+X  *port;
+{
+X  int
+X    slave;
+X
+X  struct sigaction
+X    action;
+X
+X  struct termios
+X    attributes;
+X
+X  /*
+X    Get slave tty line.
+X  */
+X  action.sa_handler=SIG_IGN;
+X  (void) sigemptyset(&action.sa_mask);
+X  action.sa_flags=0;
+X  (void) sigaction(SIGTSTP,&action,(struct sigaction *) NULL);
+X  if (isatty(STDIN_FILENO))
+X    (void) setsid();
+X  slave=open(slave_tty,O_RDWR | O_NOCTTY);
+X  if (slave < 0)
+X    Error("unable to open slave pseudo-terminal",slave_tty);
+X  /*
+X    Condition slave tty line.
+X  */
+X  (void) tcgetattr(slave,&attributes);
+X  attributes.c_iflag&=(~(BRKINT | IGNPAR | PARMRK | INPCK | ISTRIP | INLCR |
+X    IGNCR | ICRNL | IXON));
+X  attributes.c_iflag|=IGNBRK | IXOFF;
+X  attributes.c_oflag&=(~OPOST);
+X  attributes.c_lflag&=
+X    (~(ECHO | ECHOE | ECHOK | ECHONL | ICANON | ISIG | NOFLSH | TOSTOP));
+X  attributes.c_cflag&=(~(CSIZE | CSTOPB | HUPCL | PARENB));
+X  attributes.c_cflag|=CLOCAL | CREAD | CS8;
+X  (void) tcflush(slave,TCIFLUSH);
+X  (void) tcsetattr(slave,TCSANOW,&attributes);
+X  /*
+X    Execute FTP program as a child process.
+X  */
+X  (void) close(master);
+X  (void) dup2(slave,STDIN_FILENO);
+X  (void) dup2(slave,STDOUT_FILENO);
+X  (void) dup2(slave,STDERR_FILENO);
+X  (void) close(slave);
+X  (void) execlp("ftp","ftp","-n","-i","-g","-v",host_name,port,(char *) 0);
+X  perror("ftp");
+X  (void) kill(0,SIGTERM);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   G e t P a s s w o r d                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function GetPassword prompts the user for a password.  The password is
+%  not echoed on the terminal.
+%
+%  The format of the GetPassword routine is:
+%
+%    password=GetPassword(prompt)
+%
+%  A description of each parameter follows:
+%
+%    o password:  Specifies a pointer to a character array that contains
+%      accepted from the user.
+%
+%    o prompt:  Specifies a pointer to a character array that contains
+%      a message to display to the user.
+%
+%
+*/
+static char *GetPassword(prompt)
+char
+X  *prompt;
+{
+X  static char
+X    password[2048];
+X
+X  struct termios
+X    attributes;
+X
+X  (void) fprintf(stdout,"%s",prompt);
+X  (void) fflush(stdout);
+X  (void) tcgetattr(STDIN_FILENO,&attributes);
+X  attributes.c_lflag&=(~ECHO);
+X  (void) tcsetattr(STDIN_FILENO,TCSANOW,&attributes);
+X  (void) gets(password);
+X  attributes.c_lflag|=ECHO;
+X  (void) tcsetattr(STDIN_FILENO,TCSANOW,&attributes);
+X  (void) fprintf(stdout,"\n");
+X  return(password);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   G e t P s e u d o T e r m i n a l                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function GetPseudoTerminal returns a master/slave pair of pseudo-terminals.
+%
+%  The format of the GetPseudoTerminal routine is:
+%
+%    GetPseudoTerminal()
+%
+%
+*/
+static void GetPseudoTerminal()
+{
+X  char
+X    master_tty[16];
+X
+X  register char
+X    *bank,
+X    *cp;
+X
+X  struct stat
+X    info;
+X
+X  for (bank="pqrs"; *bank; bank++)
+X  {
+X    (void) sprintf(master_tty,"/dev/pty%c0",*bank);
+X    if (stat(master_tty,&info) < 0)
+X      break;
+X    for (cp="0123456789abcdef"; *cp; cp++)
+X    {
+X      (void) sprintf((char *) master_tty,"/dev/pty%c%c",*bank,*cp);
+X      master=open(master_tty,O_RDWR);
+X      if (master >= 0)
+X        {
+X          /*
+X            Verify slave side is usable.
+X          */
+X          (void) sprintf(slave_tty,"/dev/tty%c%c",*bank,*cp);
+X          if (access(slave_tty,R_OK | W_OK) == 0)
+X            {
+X              struct termios
+X                attributes;
+X
+X              /*
+X                Condition master tty line.
+X              */
+X              (void) tcgetattr(master,&attributes);
+X              attributes.c_lflag&=(~(ICANON | ECHO));
+X              (void) tcflush(master,TCIFLUSH);
+X              (void) tcsetattr(master,TCSANOW,&attributes);
+X              return;
+X            }
+X          (void) close(master);
+X        }
+X    }
+X  }
+X  Error("All network ports in use",(char *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   M a k e D i r e c t o r y                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function MakeDirectory checks each component of a directory path and if it
+%  does not exist, creates it.
+%
+%  The format of the MakeDirectory routine is:
+%
+%    MakeDirectory(directory)
+%
+%  A description of each parameter follows:
+%
+%    o directory:  Specifies a pointer to a character array that contains
+%      the name of the directory to create.
+%
+%
+*/
+static int MakeDirectory(directory)
+char
+X  *directory;
+{
+X  register char
+X    *p;
+X
+X  struct stat
+X    info;
+X
+X  /*
+X    Determine first component of the directory.
+X  */
+X  p=strrchr(directory,'/');
+X  if ((p == (char *) NULL) || (p == directory))
+X    return(False);
+X  *p='\0';
+X  if (lstat(directory,&info) < 0)
+X    {
+X      /*
+X        Path component does not exist;  create it.
+X      */
+X      if (MakeDirectory(directory) == 0)
+X        if (mkdir(directory,(mode_t) 0777) >= 0)
+X          {
+X            *p='/';
+X            return(False);
+X          }
+X    }
+X  else
+X    if (S_ISDIR(info.st_mode))
+X      {
+X        /*
+X          Path component already exists.
+X        */
+X        *p='/';
+X        return(False);
+X      }
+X  /*
+X    Path component is a file not a directory.
+X  */
+X  *p='/';
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   P r i n t R e q u e s t                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function PrintRequest prints a file on the remote FTP server.
+%
+%  The format of the PrintRequest routine is:
+%
+%    PrintRequest(filename,verbose)
+%
+%  A description of each parameter follows:
+%
+%    o filename:  Specifies a pointer to a character array that contains
+%      the name of the file to print.
+%
+%    o verbose: An unsigned integer.  A value other than zero dhows all
+%      responses from the remote server.
+%
+%
+*/
+static void PrintRequest(filename,verbose)
+char
+X  *filename;
+X
+unsigned int
+X  verbose;
+{
+X  char
+X    command[2048],
+X    *response;
+X
+X  /*
+X    get remote-file [ - | < |zcat > ].
+X  */
+X  (void) sprintf(command,"get %s",filename);
+X  if (strcmp(filename+strlen(filename)-2,".Z"))
+X    (void) strcat(command," -\n");
+X  else
+X    (void) strcat(command," |zcat\n");
+X  (void) write(master,command,strlen(command));
+X  (void) fprintf(stdout,"%s:\n",filename);
+X  while ((response=Wait()))
+X    if (status == 0)
+X      (void) fprintf(stdout,"%s\n",response);
+X    else
+X      if ((status == 5) || verbose)
+X        (void) fprintf(stderr,"%s\n",response);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   P r o c e s s R e q u e s t                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ProcessRequest first records any file in the current directory
+%  of the remote FTP server or any of its subdirectories.  Next each filename
+%  is either accepted or rejected based on a user specified regular
+%  expresssion.  If any files match the regular expression, its filename is
+%  listed, it is printed, or it is retrieved as specified on the command line.
+%
+%  The format of the ProcessRequest routine is:
+%
+%    ProcessRequest(prune,verbose)
+%
+%  A description of each parameter follows:
+%
+%    o prune:  Specifies whether to recusively search for files.
+%
+%    o verbose: An unsigned integer.  A value other than zero dhows all
+%      responses from the remote server.
+%
+%
+*/
+static void ProcessRequest(prune,verbose)
+unsigned int
+X  prune,
+X  verbose;
+{
+X  typedef struct _DirectoryNode
+X  {
+X    char
+X      *info,
+X      *name;
+X
+X    struct _DirectoryNode
+X      *next;
+X  } DirectoryNode;
+X
+X  char
+X    command[2048],
+X    directory[2048],
+X    *info,
+X    *name,
+X    *response;
+X
+X  DirectoryNode
+X    *next,
+X    *root;
+X
+X  register char
+X    *p;
+X
+X  register DirectoryNode
+X    **last,
+X    *node;
+X
+X  RegularExpression
+X    *date_expression,
+X    *mode_expression;
+X
+X  unsigned int
+X    unix_filesystem;
+X
+X  /*
+X    Initialize function variables.
+X  */
+X  root=(DirectoryNode *) NULL;
+X  last=(&root);
+X  *directory='\0';
+X  response=(char *) NULL;
+X  unix_filesystem=False;
+X  if (!prune)
+X    {
+X      /*
+X        Obtain a time sorted recursive directory if available.
+X      */
+X      (void) strcpy(command,"get ls-ltR.Z |zcat\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if ((status == 0) || (status == 5))
+X          break;
+X      if (status == 5)
+X        {
+X          /*
+X            Obtain a recursive directory if available.
+X          */
+X          while (Wait());
+X          (void) strcpy(command,"get ls-lR.Z |zcat\n");
+X          (void) write(master,command,strlen(command));
+X          while ((response=Wait()))
+X            if ((status == 0) || (status == 5))
+X              break;
+X        }
+X      if (status == 5)
+X        while (Wait());
+X      else
+X        {
+X          (void) fprintf(stderr,"Using existing directory listing...\n");
+X          unix_filesystem=True;
+X        }
+X    }
+X  if (prune || !unix_filesystem)
+X    {
+X      /*
+X        Determine if the FTP server has unix-style filenames.
+X      */
+X      mode_expression=CompileRegularExpression("^.[rwx-][rwx-][rwx-]");
+X      (void) strcpy(command,"dir\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (!unix_filesystem)
+X          if (*response != '\0')
+X            unix_filesystem=ExecuteRegularExpression(mode_expression,response);
+X      (void) free((char *) mode_expression);
+X      /*
+X        Obtain recursive directory listing with the FTP directory command.
+X      */
+X      if (prune)
+X        (void) strcpy(command,"dir\n");
+X      else
+X        if (unix_filesystem)
+X          (void) strcpy(command,"ls -ltR\n");
+X        else
+X          (void) strcpy(command,"ls [...]\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if ((status == 0) || (status == 5))
+X          break;
+X      if (status == 5)
+X        {
+X          /*
+X            Directory command has limited functionality.
+X          */
+X          while (Wait());
+X          (void) strcpy(command,"dir\n");
+X          (void) write(master,command,strlen(command));
+X          while ((response=Wait()))
+X            if (status == 0)
+X              break;
+X        }
+X    }
+X  status=(-1);
+X  if (response == (char *) NULL)
+X    return;
+X  if (!unix_filesystem)
+X    do
+X    {
+X      /*
+X        Link non unix-style file into file list.
+X      */
+X      if ((status > 0) || (*response == '\0'))
+X        continue;
+X      while (*response == ' ')
+X        response++;
+X      /*
+X        Extract file name & info.
+X      */
+X      name=response;
+X      info=response;
+X      while ((*info != ' ') && *info)
+X        info++;
+X      *info='\0';
+X      node=(DirectoryNode *) malloc(sizeof(DirectoryNode));
+X      if (node == (DirectoryNode *) NULL)
+X        Error("unable to allocate memory",(char *) NULL);
+X      node->name=(char *) malloc((strlen(name)+1)*sizeof(char));
+X      node->info=(char *) malloc((strlen(info)+1)*sizeof(char));
+X      if ((node->name == (char *) NULL) || (node->info == (char *) NULL))
+X        Error("unable to allocate memory",(char *) NULL);
+X      (void) strcpy(node->name,name);
+X      (void) strcpy(node->info,info);
+X      node->next=(DirectoryNode *) NULL;
+X      if (exclude_expression)
+X        if (ExecuteRegularExpression(exclude_expression,node->name))
+X          {
+X            /*
+X              Free allocated memory for this node.
+X            */
+X            (void) free((char *) node->info);
+X            (void) free((char *) node->name);
+X            (void) free((char *) node);
+X            continue;
+X          }
+X      *last=node;
+X      last=(&node->next);
+X    }
+X    while ((response=Wait()));
+X  else
+X    {
+X      RegularExpression
+X        *access_expression;
+X
+X      access_expression=
+X        CompileRegularExpression("Permission denied|not found|cannot access");
+X      date_expression=
+X        CompileRegularExpression(" [0-9][0-9][0-9][0-9]|[0-9][0-9]:[0-9][0-9]");
+X      do
+X      {
+X        /*
+X           Link unix-style file into file list.
+X        */
+X        if ((status > 0) || (*response == '\0'))
+X          continue;
+X        while (*response == ' ')
+X          response++;
+X        p=response+strlen(response)-1;
+X        if ((*response == '-') || (*response == 'F'))
+X          {
+X            if (ExecuteRegularExpression(access_expression,response))
+X              continue;
+X            /*
+X              Extract file info & name.
+X            */
+X            while (p-- > (response+5))
+X              if (*p == ' ')
+X                if (!ExecuteRegularExpression(date_expression,p-5))
+X                  *p='_';
+X                else
+X                  break;
+X            *p++='\0';
+X            while (*p == ' ')
+X              p++;
+X            name=p;
+X            info=response;
+X            node=(DirectoryNode *) malloc(sizeof(DirectoryNode));
+X            if (node == (DirectoryNode *) NULL)
+X              Error("unable to allocate memory",(char *) NULL);
+X            node->name=(char *) malloc(strlen(directory)+strlen(name)+1);
+X            node->info=(char *) malloc(strlen(info)+1);
+X            if ((node->name == (char *) NULL) || (node->info == (char *) NULL))
+X              Error("unable to allocate memory",(char *) NULL);
+X            (void) strcpy(node->name,directory);
+X            (void) strcat(node->name,name);
+X            (void) strcpy(node->info,info);
+X            node->next=(DirectoryNode *) NULL;
+X            if (exclude_expression)
+X              if (ExecuteRegularExpression(exclude_expression,node->name))
+X                {
+X                  /*
+X                    Free allocated memory for this node.
+X                  */
+X                  (void) free((char *) node->info);
+X                  (void) free((char *) node->name);
+X                  (void) free((char *) node);
+X                  continue;
+X                }
+X            *last=node;
+X            last=(&node->next);
+X          }
+X        else
+X          if (*p == ':')
+X            {
+X              /*
+X                File is a directory.
+X              */
+X              do { p--; } while (*p == ' ');
+X              *(++p)='\0';
+X              (void) strcpy(directory,response);
+X              (void) strcat(directory,"/");
+X            }
+X      }
+X      while ((response=Wait()));
+X      (void) free((char *) access_expression);
+X      (void) free((char *) date_expression);
+X    }
+X  /*
+X    Traverse the file list and act on a filename if it matches the regular
+X    expression.
+X  */
+X  status=(-1);
+X  node=root;
+X  while (node)
+X  {
+X    if (directory_expression)
+X      if (ExecuteRegularExpression(directory_expression,node->name))
+X        (void) DirectoryRequest(node->info,node->name);
+X    if (print_expression)
+X      if (ExecuteRegularExpression(print_expression,node->name))
+X        (void) PrintRequest(node->name,verbose);
+X    if (retrieve_expression)
+X      if (ExecuteRegularExpression(retrieve_expression,node->name))
+X        (void) RetrieveRequest(node->name,verbose);
+X    /*
+X      Free allocated memory for this node.
+X    */
+X    (void) free((char *) node->info);
+X    (void) free((char *) node->name);
+X    next=node->next;
+X    (void) free((char *) node);
+X    node=next;
+X  }
+X  if (status < 0)
+X    Warning("no files matched your expression",(char *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e t r i e v e R e q u e s t                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RetrieveRequest retrieves a file from the remote FTP server.
+%
+%  The format of the RetrieveRequest routine is:
+%
+%    RetrieveRequest(filename,verbose)
+%
+%  A description of each parameter follows:
+%
+%    o filename:  Specifies a pointer to a character array that contains
+%      the name of the file to retrieve.
+%
+%    o verbose: An unsigned integer.  A value other than zero dhows all
+%      responses from the remote server.
+%
+%
+*/
+static void RetrieveRequest(filename,verbose)
+char
+X  *filename;
+X
+unsigned int
+X  verbose;
+{
+X  char
+X    command[2048],
+X    *response;
+X
+X  /*
+X    get remote-file
+X  */
+X  (void) MakeDirectory(filename);
+X  (void) sprintf(command,"get %s\n",filename);
+X  (void) write(master,command,strlen(command));
+X  while ((response=Wait()))
+X    if (status == 0)
+X      (void) fprintf(stdout,"%s\n",response);
+X    else
+X      if ((status == 5) || verbose)
+X        (void) fprintf(stderr,"%s\n",response);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S i g n a l C h i l d                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+SHAR_EOF
+true || echo 'restore of ImageMagick/xtp/xtp.c failed'
+fi
+echo 'End of ImageMagick part 6'
+echo 'File ImageMagick/xtp/xtp.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

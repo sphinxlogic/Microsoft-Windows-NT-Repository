@@ -1,0 +1,1540 @@
+Path: comp-sources-3b1
+From: thad@btr.com (Thaddeus P. Floryan)
+Subject:  v02i020:  tprobe: tape saveset analyzer and duplicator, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: f20c84c6 bb9657c6 a066ce14 8881e749
+
+Submitted-by: thad@btr.com (Thaddeus P. Floryan)
+Posting-number: Volume 2, Issue 20
+Archive-name: tprobe/part01
+
+
+T P R O B E  -- Tape Saveset Analyzer and Duplicator, Version 1.0
+
+tprobe is a utility which succeeds duplicating boot/install tapes that are not
+easily copied by other means.  One of its features is operation over a pipeline
+utilizing multiple tape drives whereever they exist on a network or a system.
+
+tprobe can also (indirectly) perform media conversions, though the only
+verified conversions have been from QIC-120 and QIC-150 to QIC-24 and vice
+versa; there is no inherent limitation, so other conversions are definitely
+possible.
+
+Another feature is that a tape may be processed without disk space being
+usurped for intermediate staging.  Thus, a full 150MB tape can be duplicated
+even if one's system has only, say, 20MB free.
+
+tprobe's basic operation reveals a tape's existing saveset layout and stored
+capacity, and requires only a single tape drive for this analysis.
+
+tprobe was intended to be a one-time-only program, but it is useful in its
+present incarnation and does solve others' immediate and present problems.
+
+Systems on which tprobe has been installed and tested include CTIX, Sun-3,
+Sun-4, 3B1 (with QIC-02, *NOT* the /dev/rft3 floppy tape), and an AT&T 3B2
+(with a SCSI tapedrive).
+
+Accompanying this source distribution is complete nroff-/troff-ready
+documentation and additional notes and anecdotes not appropriate for the "man"
+page.  Additional README.* files contain extracts from some of my recent Usenet
+postings concerning tapes, their formats, their setup and their handling per:
+
+README.2150	concerning Archive 2060S/2150S jumper settings
+README.5945	concerning Archive 5945C, SCSI, and Emulex MT02 setup
+README.exb	concerning Exabyte EXB-8200 capacities and setup
+README.qic	concerning QIC compatibility
+README.tzk10	concerning DEC's TZK10 and Archive's ST525 drives
+
+This program has functioned satisfactorily for the author, but no guarantees
+or warrantees are given or implied that tprobe will be suitable for your
+applications; this software is distributed "AS IS."
+
+Any error detection and correction, such as may exist, is limited to that
+available with the standard system I/O calls open(2), read(2) and write(2).
+
+By installing tprobe on your system, you assume all risks and liabilities
+for its use.
+
+Thad Floryan [ thad@btr.com (OR) {decwrl, mips, fernwood}!btr!thad ]
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 02/18/1992 21:43 UTC by thad@cosmic
+# Source directory /usr/local/src/tprobe
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#   1211 -rw-r--r-- Makefile
+#   1140 -rw-r--r-- Makefile.3b1
+#   3465 -rw-r--r-- README
+#   1675 -rw-r--r-- README.2150
+#   2440 -rw-r--r-- README.5945
+#   1931 -rw-r--r-- README.exb
+#   2742 -rw-r--r-- README.qic
+#   1657 -rw-r--r-- README.tzk10
+#  11058 -rw-r--r-- tprobe.c
+#   9992 -rw-r--r-- tprobe.man
+#
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+else
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+X# Generic Makefile for tprobe
+X#
+X# make		will create the tprobe executable in the current directory
+X# make catman	will create catman-style documentation in the current directory
+X# make install	will mv(1) the executable to the specified $(DEST) directory
+X# make clean	will tidy-up the current directory after a link or install
+X# make lint	will check the source for programming irregularities
+X# make lintp	will check the source for portability considerations
+X#
+X# Several options can be uncommented for configuration on your system.
+X
+XCC	=	cc
+X
+X# Uncomment or change as appropriate for your system:
+X#
+XCOPT	=	-O
+X#CDBG	=	-g
+X#CPROF	=	-p -g
+X#
+XCFLAGS	=	$(COPT) $(CDBG) $(CPROF)
+X
+XLDFLAGS =	-s
+X
+X# Uncomment or change as appropriate for your system:
+X#
+X#LSVR3	=	-lc_s
+X#
+XLIBS	=	$(LSVR3)
+X
+XNAME	=	tprobe
+XOBJS	=	tprobe.o
+XSRCS	=	tprobe.c
+XMANF	=	tprobe.man
+XMANEXT	=	1
+X
+XDEST	=	/usr/local/bin
+XFMODE	=	555
+X
+X$(NAME)	:	$(OBJS)
+X		$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+X
+Xinstall :	$(NAME)
+X		mv    $(NAME)  $(DEST)/
+X		chmod $(FMODE) $(DEST)/$(NAME)
+X
+Xcatman	:	$(NAME).$(MANEXT)
+X
+X$(NAME).$(MANEXT) : $(MANF)
+X		nroff -man $(MANF) > $(NAME).$(MANEXT)
+X
+Xclean	:
+X		rm -f core *~ $(OBJS)
+X
+Xlint	:
+X		lint $(SRCS)
+X
+Xlintp	:
+X		lint -p $(SRCS)
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 1211 -eq "$Wc_c" ||
+	echo 'Makefile: original size 1211, current size' "$Wc_c"
+fi
+# ============= Makefile.3b1 ==============
+if test -f 'Makefile.3b1' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile.3b1 (File already exists)'
+else
+echo 'x - extracting Makefile.3b1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile.3b1' &&
+X# 3B1 Makefile for tprobe
+X#
+X# make		will create the tprobe executable in the current directory
+X# make cat	will create catman-style documentation in the current directory
+X# make install	will mv(1) the executable to the specified $(DEST) directory
+X# make clean	will tidy-up the current directory after a link or install
+X# make lint	will check the source for programming irregularities
+X# make lintp	will check the source for portability considerations
+X#
+X# Several options can be uncommented for configuration on your system.
+X
+XCC	=	gcc
+X
+X# Uncomment or change as appropriate for your system:
+X#
+XCOPT	=	-O
+X#CDBG	=	-g
+X#CPROF	=	-p -g
+X#
+XCFLAGS	=	$(COPT) $(CDBG) $(CPROF)
+X
+XLDFLAGS =	-s
+X
+XLIBS	=	/lib/crt0s.o /lib/shlib.ifile
+X
+XNAME	=	tprobe
+XOBJS	=	tprobe.o
+XSRCS	=	tprobe.c
+XMANF	=	tprobe.man
+XMANEXT	=	1
+X
+XDEST	=	/usr/local/bin
+XFMODE	=	555
+X
+X$(NAME)	:	$(OBJS)
+X		$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+X
+Xinstall :	$(NAME)
+X		mv    $(NAME)  $(DEST)/
+X		chmod $(FMODE) $(DEST)/$(NAME)
+X
+Xcat	:	$(NAME).$(MANEXT)
+X
+X$(NAME).$(MANEXT) : $(MANF)
+X		nroff -man $(MANF) > $(NAME).$(MANEXT)
+X
+Xclean	:
+X		rm -f core *~ $(OBJS)
+X
+Xlint	:
+X		lint $(SRCS)
+X
+Xlintp	:
+X		lint -p $(SRCS)
+SHAR_EOF
+chmod 0644 Makefile.3b1 ||
+echo 'restore of Makefile.3b1 failed'
+Wc_c="`wc -c < 'Makefile.3b1'`"
+test 1140 -eq "$Wc_c" ||
+	echo 'Makefile.3b1: original size 1140, current size' "$Wc_c"
+fi
+# ============= README ==============
+if test -f 'README' -a X"$1" != X"-c"; then
+	echo 'x - skipping README (File already exists)'
+else
+echo 'x - extracting README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README' &&
+X			     T P R O B E
+X
+X		 Tape Saveset Analyzer and Duplicator
+X
+X     @(#)README V1.0, 12-Feb-1992, Thad Floryan [ thad@btr.com ]
+X
+X
+Xtprobe is a utility which succeeds duplicating boot/install tapes that are not
+Xeasily copied by other means.  One of its features is operation over a pipeline
+Xutilizing multiple tape drives whereever they exist on a network or a system.
+X
+Xtprobe can also (indirectly) perform media conversions, though the only
+Xverified conversions have been from QIC-120 and QIC-150 to QIC-24 and vice
+Xversa; there is no inherent limitation, so other conversions are definitely
+Xpossible.
+X
+XAnother feature is that a tape may be processed without disk space being
+Xusurped for intermediate staging.  Thus, a full 150MB tape can be duplicated
+Xeven if one's system has only, say, 20MB free.
+X
+Xtprobe's basic operation reveals a tape's existing saveset layout and stored
+Xcapacity, and requires only a single tape drive for this analysis.
+X
+Xtprobe was intended to be a one-time-only program, but it is useful in its
+Xpresent incarnation and does solve immediate and present problems.
+X
+Xtprobe was conceived when it was realized the SunOS 4.1.1 Sun-3 SUNBIN install
+Xtape was to be the last ever from Sun for that architecture and that a backup
+Xwas essential to prevent disaster if the tape should be "bad" when most needed
+Xto boot into a miniroot.
+X
+XComplete nroff-/troff-ready documentation accompanies this distribution.
+XAdditional notes and anecdotes not appropriate for the "man" page follow.
+X
+Xtprobe began as a Kwik'N'Dirty program to ascertain the saveset layout of
+Xtapes to discover why "obvious" means of tape duplication were not successful;
+Xvarying record sizes were found to be the problem whose solution (for my
+Xpurposes) is the present release.
+X
+XAn obvious but often neglected fact is that tape drives need to be kept clean.
+XMany tape subsystem enclosures are poorly-designed, with fans sucking in dust
+Xand atmospheric contaminants over the heads and operating parts.  It's my
+Xopinion that tape drive housings should be constructed with fan(s) blowing
+Xfiltered air IN to maintain a positive pressure inside the enclosure as a
+Xbarrier to pollution (per the guidelines of clean rooms used in semiconductor
+Xmanufacture).  Systems with externally-replaceable filters are the best.
+X
+XFor optimum performance and reliability, tapes should also be retensioned
+Xprior to use.  Retensioning (one high speed rewind cycle from end to end)
+Xassures a even tape pack and facilitates accurate tape handling by the tape
+Xdrive transport.
+X
+XAlways, ALWAYS write-protect a tape after removing it from a drive.  All QIC
+Xand 1/2" cartridges have a tab that can be turned or flipped to a "SAFE"
+Xposition; DO IT!  The number of laments posted to Usenet after someone
+Xoverwrites a crucial backup is increasing; be SAFE, not SORRY.
+X
+XRemember: the most dangerous command on UNIX, or any system for that matter,
+Xis the RETURN.  Very few commands are retractable.  Be careful!
+X
+XAccompanying this README are extracts from some of my recent Usenet postings
+Xconcerning tapes, their formats, their setup and their handling per:
+X
+XREADME.qic	concerning QIC compatibility
+XREADME.2150	concerning Archive 2060S/2150S jumper settings
+XREADME.5945	concerning Archive 5945C, SCSI, and Emulex MT02 setup
+XREADME.exb	concerning Exabyte EXB-8200 capacities and setup
+XREADME.tzk10	concerning DEC's TZK10 and Archive's ST525 drives
+X
+X
+XThad Floryan [ thad@btr.com (OR) {decwrl, mips, fernwood}!btr!thad ]
+SHAR_EOF
+chmod 0644 README ||
+echo 'restore of README failed'
+Wc_c="`wc -c < 'README'`"
+test 3465 -eq "$Wc_c" ||
+	echo 'README: original size 3465, current size' "$Wc_c"
+fi
+# ============= README.2150 ==============
+if test -f 'README.2150' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.2150 (File already exists)'
+else
+echo 'x - extracting README.2150 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.2150' &&
+X		 Viper 2060S and 2150S hardware setup
+X
+X
+XHardware setup amongst the 9 sets of jumpers includes:
+X
+X	SCSI ID:	3 sets of jumpers
+X	Serial:		this should NOT be set
+X	Diagnostic:	this should NOT be set
+X	Parity Enable:	setting depends on your interface; either EVERYTHING
+X			or NOTHING on the bus should be checking parity.
+X	Buffer Disc:	3 sets of jumpers select 2, 4, 6, 8, 12, 16, 24 and
+X			32K buffer sizes.  Factory default is 16K.  This is
+X			the number of bytes transferred over the bus in a
+X			single operation.  A mininum of 16K is required for
+X			the SCSI "COPY" command.
+X
+X
+XWhere to find all this at the back of the drive:
+X
+X	[OOOO]	TTTTTTTT TTTTTTTT TTTTTTTT
+X	 [JJ]	SSSSSSSSSSSSSSSSSSSSSSSSSS
+X
+X	Where:	[OOOO]	is the power connector
+X		 [JJ]	is the jumper block
+X		TTTTTT	are the three 8-pin terminators
+X		SSSSSS	is the 25x2 SCSI connector
+X
+X	The jumper block looks like this (in the orientation as above):
+X
+X	[ SERIAL ]	[  CF2	]	[  ID2	]
+X	[  DIAG. ]	[  CF1	]	[  ID1	]
+X	[ PARITY ]	[  CF0	]	[  ID0	]
+X
+X	SERIAL: no jumper
+X	DIAG:	no jumper
+X	PARITY: jumper to enable
+X
+X	============================= BUFFER ==============================
+X
+X	SIZE:	2K	4K	6K	8K	12K	16K	24K	32K
+X
+X	CF2:	o o	o o	o o	o o    [o=o]   [o=o]   [o=o]   [o=o]
+X	CF1:	o o	o o    [o=o]   [o=o]	o o	o o    [o=o]   [o=o]
+X	CF0:	o o    [o=o]	o o    [o=o]	o o    [o=o]	o o    [o=o]
+X
+X
+X	============================= SCSI ID =============================
+X
+X	ID:	 0	 1	 2	 3	 4	 5	 6	 7
+X
+X	ID2:	o o	o o	o o	o o    [o=o]   [o=o]   [o=o]   [o=o]
+X	ID1:	o o	o o    [o=o]   [o=o]	o o	o o    [o=o]   [o=o]
+X	ID0:	o o    [o=o]	o o    [o=o]	o o    [o=o]	o o    [o=o]
+X
+X	===================================================================
+SHAR_EOF
+chmod 0644 README.2150 ||
+echo 'restore of README.2150 failed'
+Wc_c="`wc -c < 'README.2150'`"
+test 1675 -eq "$Wc_c" ||
+	echo 'README.2150: original size 1675, current size' "$Wc_c"
+fi
+# ============= README.5945 ==============
+if test -f 'README.5945' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.5945 (File already exists)'
+else
+echo 'x - extracting README.5945 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.5945' &&
+X>I have a surplus Archive 5945C QIC tape drive intended for an
+X>NCR Tower computer.  The drive assembly includes an interface
+X>board of some kind.  The adapter board, which is separate from
+X>the tape drive, has a 50 pin edge connector.
+X>
+X>Is this a SCSI assembly?
+X
+XNo, it is not a SCSI assembly.
+X
+XI have identical drives/cards on my Britton-Lee/ShareBase boxes, and on
+X3B1, CT MiniFrame, and CT MightyFrame systems.
+X
+XThe drive is QIC-02; the interface card accompanying it (assuming it's
+Xmfd by Archive) is most likely a QIC-36 to QIC-02 adapter/translator.
+X
+XOn the 50-wire edge connector, not many of the "pins" are used.  In fact,
+Xwhen used in external tape-drive-only shoeboxes, Archive has two interface
+Xcards which adapt an external connector to the 50-wire edge connector per:
+X
+X	D-37 connector to 50-wire edge: 80332-001
+X	DB25 connector to 50-wire edge: 80221-001
+X
+XThese connector-adapter cards are about 1" x 3", and are intended to be
+Xmounted on the "wall" of an enclosure case.
+X
+XWhen that tape-drive/card is (typically) mounted inside a computer, a 50-wire
+Xribbon connector is usually used to connect the drive to either a motherboard
+Xor an internal expansion card.  This is why "pulls" (a surplussed drive from
+Xan old computer) are often mistaken for being a SCSI drive.
+X
+XIf the accompanying card is an Emulex MT02 (as used on Sun3 systems, for
+Xexample), then you could use that drive on a SCSI bus.  The 25x2 SCSI connector
+Xand the two 14-PIN 220/330 Ohm terminator sockets would be obvious; the ID
+Xselection is not obvious (due to use of an unlabelled 8-pos'n DIP switch):
+X
+X	SW-1 thru SW-3 select SCSI ID per:
+X		SW-3 is bit "2", SW-2 is bit "1", SW-1 is bit "0"
+X
+X	SW-4 is not used.
+X
+X	SW-5 must be ON ("tach" rate), SW-6 and SW-7 must be OFF
+X
+X	SW-8 enables parity checking
+X
+XSUMMARY: if the card accompanying the drive is mfd by Archive, it's NOT SCSI,
+Xand you risk damage attempting to adapt a cable to plug it into a SCSI-based
+Xsystem.
+X
+XWITHOUT EXCEPTION, of the 100's of HDs, tape drives, and other peripherals
+XI've seen, SCSI ones will have a 25x2 dual-row pin connector whose pins are
+Xon 0.100" centers, and they'll also have an "obvious" location for SCSI
+Xterminators (either 14-/16-pin DIP sockets, several SIP sockets, or one
+Xlarge 24-DIP socket), and either a DIP switch or jumpers for selecting other
+XSCSI and mfr-specific parameters (such as parity, buffer sizes, delayed power-
+Xon, "PIN 26" TERMPWR selections, etc.).
+SHAR_EOF
+chmod 0644 README.5945 ||
+echo 'restore of README.5945 failed'
+Wc_c="`wc -c < 'README.5945'`"
+test 2440 -eq "$Wc_c" ||
+	echo 'README.5945: original size 2440, current size' "$Wc_c"
+fi
+# ============= README.exb ==============
+if test -f 'README.exb' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.exb (File already exists)'
+else
+echo 'x - extracting README.exb (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.exb' &&
+X>Could someone tell me if an Exabyte 8200 puts 2.3GB on
+X>a 90 or 120 minute tape?
+X
+XDepends what cartridge TYPE you're using, and whether you're operating the
+Xdrive in "international mode" or not.
+X
+XFrom Exabyte's "Product Specification" manual, they identify the P5 and P6
+Xcartridges, and they list the track and total block capacities from which
+Xthe following table is an extract.  The block count represents the number
+Xof 1024-byte blocks.  Their table is in hex, but I just happen to have my
+XCasio fx-451 calculator handy for conversions to decimal!
+X
+XCartridge	Blocks (LBOT to LEOT)
+X
+XP5-15		 5C100H =   377,088	* 1024 =   386,138,112 bytes
+XP5-30		 BC2B8H =   770,744	* 1024 =   789,241,856 bytes
+XP5-60		172FF8H = 1,519,608	* 1024 = 1,556,078,592 bytes
+XP5-90		22C668H = 2,279,016	* 1024 = 2,333,712,384 bytes
+X
+XP6-15		 407E0H =   264,160	* 1024 =   270,499,840 bytes
+XP6-30		 80FC0H =   528,320	* 1024 =   540,999,680 bytes
+XP6-60		102020H = 1,056,800	* 1024 = 1,082,163,200 bytes
+XP6-90		182EA0H = 1,584,800	* 1024 = 1,622,835,200 bytes
+XP6-120		1FF0E0H = 2,093,280	* 1024 = 2,143,518,720 bytes
+X
+X--------------------
+X
+XSo far I've seen two styles of EXB-8200 drives whose external option jumperings
+Xdo NOT resemble those depicted in the Exabyte manuals (various forms of the
+XEXABYTE CORP EXB-8200 8MM Cartridge Tape Subsystem Product Specification,
+Xpart number MKT-015-03).
+X
+XAnother Exabyte manual is their "Interface User's Manual", MKT-016-04, which
+Xon pages 115-117 show how to set (or check) parity, even/odd byte disconnect,
+Xdomestic/international cartridges, fixed/variable block modes, etc.) on an
+XINTERNAL (to the drive) PC card [ and it's a bear to open the drive's card
+Xcage due to cheap tin (putty? :-) screws whose heads disintegrate even with a
+Xproper ISO metric screwdriver (same problem with Japanese audio gear;
+Xdifficult to believe that with the world's most modern steel mills, their
+Xsteel is the worse (too soft)) ]
+SHAR_EOF
+chmod 0644 README.exb ||
+echo 'restore of README.exb failed'
+Wc_c="`wc -c < 'README.exb'`"
+test 1931 -eq "$Wc_c" ||
+	echo 'README.exb: original size 1931, current size' "$Wc_c"
+fi
+# ============= README.qic ==============
+if test -f 'README.qic' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.qic (File already exists)'
+else
+echo 'x - extracting README.qic (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.qic' &&
+X[concerning QIC compatibility]
+X
+XSeems some clarification is required here.  Irrespective of the drive's
+Xinterface (QIC-02, SCSI, etc.) there are several TRACK formats common to all
+XQIC (Quarter Inch Cartridge) tapes with several levels of upward-compatible
+XREAD conformance.
+X
+XAll the QIC drives perform "serpentine" (hence Archive's Viper, Cobra, etc.)
+Xrecording meaning one track at a time is recorded in one direction, then the
+Xheads move and subsequent recording occurs in the opposite direction, etc.
+X
+XMuch like the compatibility between {mono, stereo, quad} Philips "Compact
+XCassettes" (tm) for audio, the QIC manufacturers have agreed upon:
+X
+XQIC-11	4 tracks
+X
+XQIC-24	9 tracks. 60MB with DC600A tape.
+X	Tracks 0-3  are READ-compatible with the 4 tracks of QIC-11
+X
+XQIC-120	15 (??) tracks [see below] 120MB with DC6150 tape.
+X	Tracks 0-3  are READ-compatible with the 4 tracks of QIC-11
+X	Tracks 0-8  are READ-compatible with the 9 tracks of QIC-24
+X
+XHP	16 tracks.  Pre-formatted from H-P and incompatible with everything.
+X
+XQIC-150	18 tracks. 150MB with DC6150 tape; 250MB with DC6250 tape.
+X	Tracks 0-3  are READ-compatible with the  4 tracks of QIC-11
+X	Tracks 0-8  are READ-compatible with the  9 tracks of QIC-24
+X	Tracks 0-14 are READ-compatible with the 15 tracks of QIC-120
+X
+XQIC-525	?? tracks. 525MB with DC6525 tape.
+X	Tracks 0-8  are READ-compatible with the  9 tracks of QIC-24
+X	Tracks 0-14 are READ-compatible with the 15 tracks of QIC-120
+X	Tracks 0-17 are READ-compatible with the 18 tracks of QIC-150
+X
+XNOTE that Sun publishes "A Tutorial on 1/4 Inch Tape Drives", Part Number
+X800-1315-02, which describes all the operational characteristics of such
+Xdrives and graphically depicts the track layouts illustrating the WHY and
+XHOW of the read compatibilities.
+X
+XNOTE the QIC-150 drive can write 250MB using a longer tape (DC6250) analogous
+Xto the difference between C-90 and C-120 audio cassettes.
+X
+XNOTE the QIC-525 drive is NOT read-compatible with QIC-11.
+X
+XNOTE it wasn't made clear to me by Maynard (Archive's end-user and support
+Xorganization) the "true" differences between QIC-120 and QIC-150 drives; it's
+Xeither or both the number of tracks and/or the recording density, so take the
+X"15-tracks of QIC-120" with a grain of salt until someone else posts the
+Xdefinitive answer.
+X
+XThe newer drives are able to automatically sense the recording density and
+Xmake internal adjustments for read-compatibility.
+X
+XBut, whew, the extra calendaring of the tape's surface and the exotic coating
+Xfor the DC6525 media have pushed its list price (from Archive) up to $79 (this
+Xfrom a price list at UniForum in January 1992) per cartridge.
+X
+XIf you want the info direct from THE manufacturer:
+X
+X	uunet!maynhbd!info (OR) info@maynhbd.UUCP
+X	1-800-821-8782
+SHAR_EOF
+chmod 0644 README.qic ||
+echo 'restore of README.qic failed'
+Wc_c="`wc -c < 'README.qic'`"
+test 2742 -eq "$Wc_c" ||
+	echo 'README.qic: original size 2742, current size' "$Wc_c"
+fi
+# ============= README.tzk10 ==============
+if test -f 'README.tzk10' -a X"$1" != X"-c"; then
+	echo 'x - skipping README.tzk10 (File already exists)'
+else
+echo 'x - extracting README.tzk10 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README.tzk10' &&
+X>[...]
+X>DEC now offers a 1/4" tape drive - TZK10, which can be used
+X>for backup, etc.  The tapes can hold up to 525Mb.  This is
+X>significantly more than SUN tape drives, but I heard that the
+X>drives are compatible, i.e. you can read SUN tapes on the TZK10 (tar).
+X>Is this true?  Also, does anyone know the type of tapes that hold
+X>up to 525Mb and their ballpark price.  I currently have a TK50 and
+X>would like to move to something with more capacity and not too much $$.
+X>[...]
+X
+XWhat you're describing sounds much like Archive's new ST525 series which
+Xuse the QIC-525 "format" for 525MB.
+X
+XIf this IS, in fact, the situation, then the drive would be READ compatible
+Xwith QIC-24 (60MB with DC600A tape, 9 tracks), QIC-120, and QIC-150(150MB with
+XDC6150 tapes or 250MB with DC6250 tapes, 18 tracks) as used on Sun (and other)
+Xsystems.
+X
+XFrom Archive's latest pricing sheet (just received last week from Maynard,
+XArchive's end-user and support subsidiary):
+X
+X	90507	DC6250 media		$69.00
+X	90509	DC6525 media		$79.00
+X
+XThose prices are their "US Retail."  Given that 3M DC6250 tapes are < $29
+Xlocally (Silicon Valley: Fry's Electronics, a "consumer"-type store), you
+Xshould be able to adjust the (expected) price for 3M DC6525 accordingly.
+X
+XArchive's/Maynard's "US Retail" pricing for a "raw" ST525 drive is $1,528
+Xfor their "ST525i internal 525MB SCSI drive kit" and $1,880 for their
+X"ST525e external 525MB SCSI drive kit."
+X
+XI dunno; as much as I like Archive drives (over 20 of them here), that
+X"list" pricing is comparable to Exabyte EXB-8200 drives which can store
+X4x more data (2.3GB on P5-90 cartridges).
+X
+X
+X[ NOTE: prices quoted above are circa January 1992 ]
+SHAR_EOF
+chmod 0644 README.tzk10 ||
+echo 'restore of README.tzk10 failed'
+Wc_c="`wc -c < 'README.tzk10'`"
+test 1657 -eq "$Wc_c" ||
+	echo 'README.tzk10: original size 1657, current size' "$Wc_c"
+fi
+# ============= tprobe.c ==============
+if test -f 'tprobe.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping tprobe.c (File already exists)'
+else
+echo 'x - extracting tprobe.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tprobe.c' &&
+X/*
+X *	tprobe	- tape analyzer and duplicator
+X *
+X *	usage: tprobe  [ -b N ] [ -r | -w ]  /dev/tapedevice
+X *
+X *	"-b N" specifies a buffersize N other than the default 65536 bytes.
+X *
+X *	"-r" reads tapedevice and writes to stdout in a special form designed
+X *	to be piped to another tprobe process (even across a net) for writing
+X *	(i.e. duplicating) a tape onto a second tape drive.
+X *
+X *	"-w" reads stdin specially formatted by another tprobe process and
+X *	writes (i.e. duplicates) to tapedevice.
+X *
+X *	with no options (other than -b), tprobe reads tapedevice and writes
+X *	a brief analysis its findings to stdout.
+X *
+X *	Adding switch "-d" for the read-side permits a file (instead of a tape)
+X *	to be used for testing purposes; only works if compiled with -DDEBUG.
+X *
+X *	In general, the tape should be rewound before the first use of tprobe.
+X *	And the tapedevice "should" be the no-rewind on close device; for
+X *	example:
+X *
+X *		3B1:		/dev/rmt4
+X *		CTIX:		/dev/rmt4
+X *		SunOS 4.1.1:	/dev/nrst8
+X *
+X *	To rewind the tape (before and) after using tprobe:
+X *
+X *		3B1:		qrewind			(Thad's QIC-02 program)
+X *		CTIX:		tsioctl -c rewind /dev/rmt0
+X *		SunOS 4.1.1:	mt -f /dev/rst8 rewind
+X *
+X * REVISION HISTORY:
+X *
+X * 1991		----	T.Floryan, original Kwik'N'Dirty program for own use
+X * 12-Feb-1992	V1.0	T.Floryan, release to Usenet after lint-fixing, etc.
+X *			Comments, suggestions, complaints to thad@btr.com
+X *
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <malloc.h>		/* added to suppress some of lint's whining */
+X
+Xextern	void	exit();
+Xextern	char	*strncpy();
+Xextern	int	open();
+Xextern	int	read();
+Xextern	int	write();
+Xextern	int	atoi();
+X
+Xvoid	probe_tape();
+Xvoid	read_tape();
+Xvoid	write_tape();
+Xvoid	usage();
+X
+Xtypedef int		MWORD;
+Xtypedef int		LWORD;	/* sizeof(int) must be sizeof(long) */
+Xtypedef unsigned int	UWORD;
+X
+X#define STDIN	0		/* for read() device		*/
+X#define STDOUT	1		/* for write() device		*/
+X#define BLKSIZE	512		/* QIC tape physical blocking	*/
+X#define TBUFSIZ	65536		/* default R/W buffer size	*/
+X#define MINBUF	512		/* minimum R/W buffer size: 2^9	*/
+X#define MAXBUF	1048576		/* maximum R/W buffer size: 2^20*/
+X#define UMASK	0666		/* needed for creat(2) usage	*/
+X#define VERSKIP	4		/* skip displacement in version string */
+X
+X
+X/*	The following headers represent the control information passed
+X *	by a tape reader process to a tape writer process
+X */
+X#define HDRSIZE	10		/* size of a control header	*/
+X
+X#define SCANSTR	"%8ld"
+X#define BUFHDR	"B%08ld\n"
+X#define DATHDR	"D%08ld\n"
+X#define SIZHDR	"S%08ld\n"
+X#define CLSHDR	"C00000000\n"
+X#define ERRHDR	"E00000000\n"
+X#define EOTHDR	"T00000000\n"
+X
+X
+X#define STATSTR	"SS%4d: %7ld blocks, %10ld bytes\n"
+X#define GTTLSTR	"GTotal: %7ld blocks, %10ld bytes\n"
+X
+X#ifdef DEBUG
+Xint debug = 0;
+Xchar *cmd_options = "b:rwd?hH";
+X#else
+Xchar *cmd_options = "b:rw?hH";
+X#endif
+X
+XLWORD	tbufsize = TBUFSIZ;
+X
+Xchar *version =
+X	"@(#)tprobe V1.0, 12-Feb-1992, Thad Floryan [ thad@btr.com ]";
+X
+Xchar *usage_text[] = {
+X	"usage:	tprobe [-b N] [-r] tapedev [ | tprobe [-b N] -w tapedev ]",
+X	"where:	-b  sets buffer size to N (overriding the default 65536)",
+X	"	-r  specifies \"this\" process to be the tape reader",
+X	"	-w  designates \"this\" process to be a tape writer",
+X	0
+X};
+X
+X
+Xmain(argc, argv)
+X	int	argc;
+X	char	*argv[];
+X{
+X	extern int	 getopt();
+X	extern int	 optind;
+X	extern char	*optarg;
+X
+X	MWORD	mode = 0;	/* 0=analysis, 1=read, 2=write	*/
+X	MWORD	bufset = 0;	/* non-zero if "-b" specified */
+X	MWORD	optchr;
+X
+X
+X/*
+X *	Quick check to see if the program CAN run on this system due
+X *	to various assumptions.
+X */
+X	if (sizeof(int) != sizeof(long)) {
+X	    (void) fprintf(stderr, "Program won't run on this system\n");
+X	    exit(1);
+X	}
+X/*
+X *	Process options
+X */
+X
+X	while ( ( optchr = getopt( argc, argv, cmd_options ) ) != EOF ) {
+X
+X	    switch (optchr) {
+X
+X	    case 'b':	if (bufset != 0) {
+X			    (void) fprintf(stderr,
+X				"%s: buffer size already set\n", argv[0]);
+X			    usage();
+X			}
+X			++bufset;
+X			tbufsize = atoi(optarg);
+X			if ((tbufsize < MINBUF) || (tbufsize > MAXBUF)) {
+X			    (void) fprintf(stderr,
+X				"%s: unreasonable buffer size (%ld)\n",
+X				argv[0], tbufsize);
+X			    usage();
+X			}
+X			if ((tbufsize % BLKSIZE) != 0) {
+X			    (void) fprintf(stderr,
+X				"%s: buffer size (%ld) not multiple of 512\n",
+X				argv[0], tbufsize);
+X			    usage();
+X			}
+X			break;
+X
+X	    case 'r':	if (mode != 0) {
+X			    (void) fprintf(stderr,"%s: too many options\n",
+X				argv[0]);
+X			    usage();
+X			}
+X			mode = 1;
+X			break;
+X
+X	    case 'w':	if (mode != 0) {
+X			    (void) fprintf(stderr,"%s: too many options\n",
+X				argv[0]);
+X			    usage();
+X			}
+X			mode = 2;
+X			break;
+X
+X#ifdef DEBUG
+X	    case 'd':	if (mode != 1) {	/* must be spec'd after "-r" */
+X			    usage();
+X			}
+X			++debug;
+X			break;
+X#endif /* DEBUG */
+X
+X	    case '?':
+X	    case 'h':
+X	    case 'H':
+X	    default:	usage();
+X	    }
+X	}
+X
+X	if ( optind == argc )
+X	    usage();
+X
+X	if ( optind != (argc - 1)) {
+X	    (void) fprintf(stderr,
+X		"%s: extraneous data on command line ``%s''\n",
+X		argv[0], argv[optind + 1]);
+X	    usage();
+X	}
+X
+X	switch (mode) {
+X		case 0:	probe_tape(argv[optind]);
+X			break;
+X		case 1:	read_tape(argv[optind]);
+X			break;
+X		case 2:	write_tape(argv[optind]);
+X			break;
+X	}
+X
+X	return 0;
+X}
+X
+X
+Xvoid
+Xprobe_tape(tapedev)
+X	char	*tapedev;
+X{
+X	LWORD	grandttl = 0;
+X	LWORD	numread  = 0;
+X	MWORD	ssno     = 0;
+X	MWORD	td       = 0;
+X	LWORD	ttlread;
+X
+X	char	*bptr;
+X	char	errmsg[200];
+X
+X
+X	bptr = (char *) malloc(tbufsize + 4);
+X
+X	while (td >= 0) {
+X
+X	    if ( (td = open(tapedev, O_RDONLY, 0)) < 0) {
+X		(void) sprintf(errmsg, "Cannot open tape unit %s", tapedev);
+X		perror(errmsg);
+X		exit(1);
+X	    }
+X
+X	    ttlread = 0;
+X
+X	    for (;;) {
+X		numread = read(td, bptr, (UWORD) tbufsize);
+X		if (numread != tbufsize) {
+X			if (numread > 0) {
+X			    ttlread += numread;
+X			}
+X			break;
+X		}
+X		ttlread += numread;
+X	    }
+X
+X	    (void) printf(STATSTR, ssno, ttlread/BLKSIZE, ttlread);
+X	    ++ssno;
+X	    grandttl += ttlread;
+X
+X	    (void) close(td);
+X
+X	    if (numread < 0) {
+X		(void) sprintf(errmsg, "Read error = %d", errno);
+X		perror(errmsg);
+X		td = -1;
+X		break;
+X	    }
+X	    if ((ttlread == 0) || (numread == 0)) {
+X		(void) printf("End of tape\n");
+X		td = -1;
+X		break;
+X	    }
+X	}
+X
+X	(void) free(bptr);
+X
+X	(void) printf(GTTLSTR, grandttl/BLKSIZE, grandttl);
+X}
+X
+X
+Xvoid
+Xread_tape(tapedev)
+X	char	*tapedev;
+X{
+X	LWORD	grandttl = 0;
+X	LWORD	numread  = 0;
+X	MWORD	td       = 0;
+X	LWORD	ttlread;
+X
+X	char	*bptr;
+X	char	*dataptr;
+X	char	errmsg[200];
+X	char	header[HDRSIZE + 2];
+X
+X
+X	bptr = (char *) malloc(tbufsize + HDRSIZE + 2);
+X
+X	if (bptr == NULL) {
+X	    (void) sprintf(errmsg,
+X			"Cannot allocate requested buffer size: %ld",
+X			tbufsize);
+X	    perror(errmsg);
+X	    exit(1);
+X	}
+X
+X	dataptr = bptr + HDRSIZE;
+X
+X	(void) sprintf(header, BUFHDR, tbufsize);
+X	(void) write(STDOUT, header, HDRSIZE);
+X
+X	while (td >= 0) {
+X
+X	    if ( (td = open(tapedev, O_RDONLY, 0)) < 0) {
+X		(void) sprintf(errmsg, "Cannot open tape unit %s", tapedev);
+X		perror(errmsg);
+X		exit(1);
+X	    }
+X
+X	    ttlread = 0;
+X
+X	    for (;;) {
+X		numread = read(td, dataptr, (UWORD) tbufsize);
+X		if (numread != tbufsize) {
+X			if (numread > 0) {
+X			    ttlread += numread;
+X			    (void) sprintf(header, DATHDR, numread);
+X			    (void) strncpy(bptr, header, HDRSIZE);
+X			    (void) write(STDOUT, bptr,
+X					 (UWORD) (numread + HDRSIZE));
+X			}
+X			break;
+X		}
+X		ttlread += numread;
+X		(void) sprintf(header, DATHDR, numread);
+X		(void) strncpy(bptr, header, HDRSIZE);
+X		(void) write(STDOUT, bptr, (UWORD) (numread + HDRSIZE));
+X	    }
+X	    grandttl += ttlread;
+X
+X	    (void) close(td);
+X	    (void) write(STDOUT, CLSHDR, HDRSIZE); /* close */
+X
+X#ifdef DEBUG
+X	    if (debug)
+X		td = (-1);
+X#endif /* ifdef DEBUG */
+X
+X	    if (numread < 0) {
+X		(void) write(STDOUT, ERRHDR, HDRSIZE); /* tape error */
+X		td = -1;
+X		break;
+X	    }
+X	    if ((ttlread == 0) || (numread == 0)) {
+X		(void) write(STDOUT, EOTHDR, HDRSIZE); /* end of tape */
+X		td = -1;
+X		break;
+X	    }
+X	}
+X	(void) sprintf(header, SIZHDR, grandttl/BLKSIZE);
+X	(void) write(STDOUT, header, HDRSIZE);
+X
+X	(void) free(bptr);
+X}
+X
+X
+Xvoid
+Xwrite_tape(tapedev)
+X	char	*tapedev;
+X{
+X	LWORD	grandttl = 0;
+X	LWORD	hdrvalue;
+X	LWORD	numleft;
+X	LWORD	numread  = 0;
+X	LWORD	numwrote = 0;
+X	MWORD	process  = 1;
+X	MWORD	satis    = 0;
+X	MWORD	td       = -1;
+X	LWORD	ttlread  = 0;
+X
+X	char	*bptr;
+X	char	*dataptr;
+X	char	*readptr;
+X	char	errmsg[200];
+X
+X
+X
+X	bptr = (char *) malloc(tbufsize + HDRSIZE + 2);
+X
+X	if (bptr == NULL) {
+X	    (void) sprintf(errmsg,
+X			"Cannot allocate requested buffer size: %ld",
+X			tbufsize);
+X	    perror(errmsg);
+X	    exit(1);
+X	}
+X
+X	numread = read(STDIN, bptr, HDRSIZE);
+X
+X	if (numread != HDRSIZE) {
+X	    (void) sprintf(errmsg,
+X			"We gotta problem; header size wrong: %ld",
+X			numread);
+X	    perror(errmsg);
+X	    exit(1);
+X	}
+X
+X	if (*bptr == 'B') {
+X	    (void) sscanf(bptr + 1, SCANSTR, &hdrvalue);
+X	    if (hdrvalue != tbufsize) {
+X		(void) sprintf(errmsg, "Buffer disagreement: R=%ld, W=%ld",
+X			hdrvalue, tbufsize);
+X		perror(errmsg);
+X		exit(1);
+X	    }
+X	} else {
+X	    perror("First header not ``B''");
+X	    exit(1);
+X	}
+X
+X	dataptr = bptr + HDRSIZE;
+X
+X	while (process != 0) {
+X
+X	    numread = read(STDIN, bptr, HDRSIZE);
+X
+X	    if (numread != HDRSIZE) {
+X		(void) sprintf(errmsg,
+X				"We gotta problem; header size wrong: %ld",
+X				numread);
+X		perror(errmsg);
+X		exit(1);
+X	    }
+X	    (void) sscanf(bptr + 1, SCANSTR, &hdrvalue);
+X
+X	    switch (*bptr) {
+X	    case 'D':	if (td < 0) {
+X			    if ( (td = creat(tapedev, UMASK)) < 0) {
+X				(void) sprintf(errmsg,
+X					       "Cannot open tape unit %s",
+X					       tapedev);
+X				perror(errmsg);
+X				process = 0;
+X			    }
+X			}
+X
+X			numleft = hdrvalue;
+X			readptr = dataptr;
+X			satis   = 0;
+X
+X			while (satis == 0) {
+X			    numread  = read(STDIN, readptr, (UWORD) numleft);
+X			    if (numread != numleft) {
+X				numleft -= numread;
+X				readptr += numread;
+X				ttlread += numread;
+X			    } else {
+X				ttlread += numread;
+X				++satis;
+X			    }
+X			}
+X
+X			numwrote = write(td, dataptr, (UWORD) hdrvalue);
+X			if (numwrote != hdrvalue) {
+X			    (void) fprintf(stderr,
+X				"Tape size error: %ld should be %ld\n",
+X				numwrote, hdrvalue);
+X			    (void) close(td);
+X			    process = 0;
+X			} else {
+X			    grandttl += numwrote;
+X			}
+X			break;
+X	    case 'C':	if (td < 0) {
+X			    if ( (td = creat(tapedev, UMASK)) < 0) {
+X				(void) sprintf(errmsg,
+X					       "Cannot open tape unit %s",
+X					       tapedev);
+X				perror(errmsg);
+X				process = 0;
+X			    }
+X			}
+X			(void) close(td);
+X			td = -1;
+X			break;
+X	    case 'T':	process = 0;	/* Remote End-Of-Tape; all done */
+X			break;
+X	    case 'S':	if (hdrvalue != (grandttl/BLKSIZE)) {
+X			    (void) fprintf(stderr,
+X				"Grand total mismatch: %ld should be %ld\n",
+X				grandttl, ttlread);
+X			}
+X			td = -1;
+X			process = 0;
+X			break;
+X	    case 'E':	(void) fprintf(stderr, "Remote error detected\n");
+X			break;
+X	    default:	(void) fprintf(stderr, "Header error: %c\n", *bptr);
+X			if (td >= 0) {
+X			    (void) close(td);
+X			    td = -1;
+X			}
+X			process = 0;
+X	    }
+X	}
+X
+X	(void) free(bptr);
+X}
+X
+Xvoid
+Xusage()
+X{
+X	int	ndx = 0;
+X
+X	while ( usage_text[ndx] != 0 ) {
+X
+X	    (void) fprintf( stderr, "%s\n", usage_text[ndx++] );
+X	}
+X	(void) fprintf( stderr, "%s\n", version + VERSKIP );
+X	exit(1);
+X}
+SHAR_EOF
+chmod 0644 tprobe.c ||
+echo 'restore of tprobe.c failed'
+Wc_c="`wc -c < 'tprobe.c'`"
+test 11058 -eq "$Wc_c" ||
+	echo 'tprobe.c: original size 11058, current size' "$Wc_c"
+fi
+# ============= tprobe.man ==============
+if test -f 'tprobe.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping tprobe.man (File already exists)'
+else
+echo 'x - extracting tprobe.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tprobe.man' &&
+X.TH TPROBE L "12-Feb-1992"
+X.\"@(#)tprobe.man V1.0, 12-Feb-1992, Thad Floryan [ thad@btr.com ]
+X.SH NAME
+Xtprobe \- tape saveset analyzer and duplicator
+X.SH SYNOPSIS
+Xtprobe [-b
+X.I n]
+X.I /dev/NRTD
+X.LP
+Xtprobe [-b
+X.I n]
+X-r
+X.I /dev/NRTD0
+X| tprobe [-b
+X.I n]
+X-w
+X.I /dev/NRTD1
+X.LP
+X.I [host]
+Xtprobe [-b
+X.I n]
+X-r
+X.I /dev/NRTD0
+X|
+X.ti +23
+X.I [host]
+Xtprobe [-b
+X.I n]
+X-w
+X.I /dev/NRTD1
+X.sp
+X.ta +0.3i
+X.in +0.3i
+X.ti -0.3i
+X\(bu
+X.I	``/dev/NRTDn''
+Xis typically the "no-rewind-on-close" tape device [See
+X.I OPERATING NOTES]
+X.sp
+X.ti -0.3i
+X\(bu
+X.I	``host''
+Xis the system-dependent clause signifying remote tape
+Xoperation [See
+X.I OPERATING NOTES]
+X.in -0.3i
+X.SH DESCRIPTION
+X.I tprobe
+Xis a utility which succeeds duplicating boot/install tapes that are not
+Xeasily copied by other means.  One of its features is operation over a
+Xpipeline utilizing multiple tape drives whereever they exist on a network
+Xor a system.
+X.sp
+X.I tprobe
+Xcan also (indirectly) perform media conversions, though the
+Xonly verified conversions have been from QIC-120 and QIC-150 to QIC-24
+Xand vice versa; there is no inherent limitation, so other conversions
+Xare definitely possible.
+X.sp
+XAnother feature is that a tape may be processed without disk space being
+Xusurped for intermediate staging.  Thus, a full 150MB tape can be duplicated
+Xeven if one's system has only, say, 20MB free.
+X.sp
+X.I tprobe's
+Xbasic operation reveals a tape's existing saveset layout and stored capacity,
+Xand requires only a single tape drive for this analysis.
+X.sp
+X.I tprobe
+Xwas intended to be a one-time-only program, but it is useful in its present
+Xincarnation and does solve immediate and present problems.
+XFor
+X.I tprobe's
+Xraison d'etre and anecdotes, see the
+X.I BACKGROUND
+Xsection.
+X.SH OPTIONS
+X.TP 8
+X.I -b
+XSpecifies the buffering size to help maintain streaming operation.  The
+Xdefault is 65536 bytes.  A value must be stated in bytes; no abbreviations
+Xare recognized in this version.  The buffer must be the same size at both
+Xends of the pipe else the "write" process will diagnose the error and abort.
+X.sp
+XFor 8mm EXB-8200 drives, 262144 (256KB) appears to be an optimal size.
+XExperiment!
+X.TP 8
+X.I -r
+XDesignates "this" process to be the tape reader and head of the pipeline.
+X.TP 8
+X.I -w
+XDesignates "this" process to be a tape writer and a tail of the pipeline
+X(see
+X.IB tee(1)).
+X.SH OPERATING NOTES
+XWith no options (other than -b),
+X.I tprobe
+Xreads a tape and writes a brief analysis of its findings to stdout.
+X.sp
+XThe tape device should be a "no-rewind-on-close" device per the following
+Xexamples:
+X.sp
+X.nf
+X.RS
+X/dev/nrst8      SunOS 4.1.1 with a SCSI tape
+X.br
+X/dev/rmt4       CTIX or 3B1 with a QIC-02 drive
+X.RE
+X.fi
+X.sp
+XIn general, a tape should be rewound before use.
+XSeveral examples of rewinding a tape on some systems are:
+X.sp
+X.nf
+X.RS
+XSunOS 4.1.1:    mt -f /dev/rst8 rewind
+X.br
+XCTIX:           tsioctl -c rewind /dev/rmt0
+X.br
+X3B1:            qrewind   # (Thad's QIC-02 program)
+X.RE
+X.fi
+X.sp
+XThe "[host]" as shown in the
+X.I SYNOPSIS
+Xtakes the forms:
+X.sp
+X.RS
+X[rsh | remsh | rcmd] hostname
+X.RE
+X.sp
+Xas appropriate for the system on which the command is issued.
+XSpecification simply as "hostname" is permitted if /usr/hosts/MAKEHOSTS has
+Xbeen previously executed and "/usr/hosts" is present in $PATH.
+X.sp
+XNote that for remote system operation, the /etc/hosts.equiv and/or
+Xthe ~/.rhosts authentication file(s) must be previously established.
+X.I tprobe
+Xmust exist within the directories specified in all one's $PATH's, especially
+Xso for remote operation.
+X.sp
+XNote that not all systems' and/or applications' install tapes have two
+Xconsecutive file-marks to designate end-of-tape;
+X.I tprobe
+Xwill still correctly duplicate such tapes.
+X.SH EXAMPLES
+XTo duplicate a tape mounted on a remote Sun named "faraway" onto the local
+XSun, assuring that all tapes are rewound before and after the operation:
+X.sp
+X.in +0.5i
+Xrsh faraway mt -f /dev/rst8 rewind
+X.br
+Xmt -f /dev/rst8 rewind
+X.br
+Xrsh faraway tprobe -r /dev/nrst8 | tprobe -w /dev/nrst8
+X.br
+Xrsh faraway mt -f /dev/rst8 rewind
+X.br
+Xmt -f /dev/rst8 rewind
+X.in -0.5i
+X.sp
+XTo duplicate a tape on a local Sun having two tape drives:
+X.sp
+X.ti +0.5i
+Xtprobe -r /dev/nrst8 | tprobe -w /dev/nrst9
+X.sp
+XTo duplicate a tape between two remote Sun systems ("proxy" mode)
+Xwhere both remote systems have link entries in /usr/hosts:
+X.sp
+X.ti +0.5i
+Xhost1 tprobe -r /dev/nrst8 | host2 tprobe -w /dev/nrst8
+X.SH BACKGROUND
+XIt appears there's confusion surrounding the "difficulty" making [legally
+Xpermissible] backup copies of one's boot/install tapes to assure continued
+Xoperation of one's system(s).
+X.sp
+XMany people's attempts with
+X.IB dd(1),
+X.IB cat(1),
+Xetc. have failed (even though such
+Xattempts have worked duplicating, say, "pure" tar- or cpio-written tapes).
+X.sp
+XThe reason for the difficulty is due to the varying record sizes typically
+Xfound on boot/install tapes.  In other words, it's difficult to specify an
+X.I efficient
+Xleast-common-denominator (LCD) block/record size to
+X.IB dd(1)
+Xfor a "raw" duplication [ although an intelligent shell script can get around
+Xthis, using
+X.IB dd(1)'s
+Xstats ]; note programs such as
+X.IB cat(1)
+Xtend to assume constantly-fixed record sizes.
+X.sp
+XFor the record, the LCD for QIC tapes is 512-bytes, which is the physical
+Xblocking size.  But if you attempt to use that size, your data will be
+X``Shoe Shined'' into oblivion!  :-)
+X.sp
+XThree representative samplings of the beginning layout of boot tapes
+Xanalyzed by
+X.I tprobe
+Xfor a Sun, a CTIX, and an AT&T boot/install tape are shown below.
+X"SS n" is the save-set number (a save-set being the data
+Xbetween file-marks on a tape).
+X"blocks" are the 512-byte physical records as written on QIC tapes.
+XThese examples show
+X.I tprobe
+Xoperation from a Sun system console:
+X.sp
+X.RS
+X% # SunOS 4.1.1 Sun-3 SUNBIN, tape 1 of 2
+X.br
+X% #
+X.br
+X% tprobe /dev/nrst8
+X.br
+XSS   0:     64 blocks,     32768 bytes
+X.br
+XSS   1:     16 blocks,      8192 bytes
+X.br
+XSS   2:   1425 blocks,    729600 bytes
+X.br
+XSS   3:   3200 blocks,   1638400 bytes
+X.br
+XSS   4:  14000 blocks,   7168000 bytes
+X.br
+XSS   5:    146 blocks,     74752 bytes
+X.br
+XSS   6:  22674 blocks,  11609088 bytes
+X.br
+X[...]
+X.sp
+X% # CTIX 6.2 MightyFrame RUNTIME/INSTALL
+X.br
+X% #
+X.br
+X% tprobe /dev/nrst8
+X.br
+XSS   0:    128 blocks,     65536 bytes
+X.br
+XSS   1:    768 blocks,    393216 bytes
+X.br
+XSS   2:   1888 blocks,    966656 bytes
+X.br
+XSS   3:   2176 blocks,   1114112 bytes
+X.br
+XSS   4:    320 blocks,    163840 bytes
+X.br
+XSS   5:    384 blocks,    196608 bytes
+X.br
+XSS   6:    256 blocks,    131072 bytes
+X.br
+X[...]
+X.sp
+X% # AT&T 3B2 SVR3.2.2 LOAD 19 OS & UTILS
+X.br
+X% #
+X.br
+X% tprobe /dev/nrst8
+X.br
+XSS   0:   4099 blocks,   2098688 bytes
+X.br
+XSS   1:   8610 blocks,   4408320 bytes
+X.br
+XSS   2:      3 blocks,      1536 bytes
+X.br
+XSS   3:   1422 blocks,    728064 bytes
+X.br
+XSS   4:   1422 blocks,    728064 bytes
+X.br
+XSS   5:   1422 blocks,    728064 bytes
+X.br
+XSS   6:   1422 blocks,    728064 bytes
+X.br
+X[...]
+X.RE
+X.sp
+X.I tprobe
+Xwas conceived when it was realized the SunOS 4.1.1 Sun-3 SUNBIN install tape
+Xwas to be the last ever from Sun for that architecture and that a backup was
+Xessential to prevent disaster if the tape should be "bad" when most needed
+Xto boot into a miniroot.
+X.sp
+X.I tprobe's
+Xmain purpose is to read one tape and write to another over Ethernet since
+Xsystems typically possess only one tape drive.
+X.sp
+X.I tprobe
+Xduplicates tapes
+X.I without consuming disk space
+Xand, as a side benefit,
+Xindirectly converts tape media between QIC-11/-24/-120/-150/-525 within
+Xthe storage capability of the output tape.
+X.sp
+XThe first test of
+X.I tprobe
+Xwas the duplication of a SunOS install tape by reading the original on a 3B1
+Xwhile writing the duplicate on a CT MightyFrame, then booting and
+Xsuninstall'ing from the duplicated tape on a Sun-3/60.
+X.sp
+XSystems on which
+X.I tprobe
+Xhas been installed and tested include 3B1, CTIX, Sun-3, Sun-4, and an AT&T 3B2.
+X.SH AUTHOR
+XThad Floryan
+X.br
+Xthad@btr.com (OR) {decwrl,mips,fernwood}!btr!thad
+X.br
+X.ne 3
+X.SH VERSION
+XThe present release of
+X.I tprobe
+Xis 1.0, dated 12-Feb-1992.
+X.SH FUTURE DEVELOPMENT
+X.ta +0.3i
+X.in +0.3i
+X.ti -0.3i
+X\(bu	Add double buffering (for speed) along the lines of the
+X.IB ddd(1)
+Xprogram posted to comp.sources.unix/Volume15 by Tapani Lindgren, with two
+Xchild processes alternating pipe I/O with tape I/O.
+X.sp
+X.ti -0.3i
+X\(bu	Devise a method of truly copying, say, a full 150MB tape onto
+Xthree 60MB tapes.  Would require more tape "smarts" to detect EOM (end
+Xof media) and prompting for media change.  Not certain of feasibility
+Xdue to unknown source media's genesis (e.g. tar, cpio, whatever).
+X.SH CAVEATS
+X.PP
+XThis program has functioned satisfactorily for the author, but no guarantees
+Xor warrantees are given or implied that
+X.I tprobe
+Xwill be suitable for your applications; this software is distributed
+X.I AS IS.
+X.sp
+XAny error detection and correction, such as may exist, is limited to that
+Xavailable with the standard system I/O calls
+X.IB open(2),
+X.IB read(2)
+Xand
+X.IB write(2).
+X.sp
+XBy installing
+X.I tprobe
+Xon your system, you assume all risks and liabilities for its use.
+X.SH BUGS
+X.PP
+XInternal counters and statistics are kept as "long" data;
+Xnewer tape drives whose media capacity exceeds a system's ability to
+Xretain a tally that large will definitely be troublesome.
+X.sp
+X.I tprobe
+Xassumes the user has specified a tape device as its object; anything else
+Xas
+X.I tprobe's
+Xobject will probably trigger unknown and bizarre side-effects.
+X.SH SEE ALSO
+XAll pertinent tape, mt, mtio, tsioctl, etc. commands as appropriate for
+Xyour system(s) to ascertain the correct tape device syntax and semantics
+Xfor your drive(s) operated per "no-rewind-on-close."
+X.sp
+XThe
+X.IB copytape(1)
+Xprogram by David S. Hayes (April 1985/July 1986) is also
+Xworthy of your consideration.   On a system with one tape drive, it
+Xcreates a specially-formatted intermediate file whose size reflects the
+Xtape's contents; on a two-tape-drive system it can duplicate a tape in
+Xone pass.  Because of its intermediate file,
+X.IB copytape(1)
+Xeasily produces multiple copies after a single read of the master tape.
+SHAR_EOF
+chmod 0644 tprobe.man ||
+echo 'restore of tprobe.man failed'
+Wc_c="`wc -c < 'tprobe.man'`"
+test 9992 -eq "$Wc_c" ||
+	echo 'tprobe.man: original size 9992, current size' "$Wc_c"
+fi
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

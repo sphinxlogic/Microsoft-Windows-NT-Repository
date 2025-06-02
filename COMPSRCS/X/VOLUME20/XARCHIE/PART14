@@ -1,0 +1,1890 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i042:  xarchie - An X browser interface to Archie, v2.0.6, Part14/24
+Message-ID: <1993Jun15.223407.933@sparky.imd.sterling.com>
+X-Md4-Signature: be279a54b869dd0eb2ae183c6544a918
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:34:07 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 42
+Archive-name: xarchie/part14
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part14
+
+#!/bin/sh
+# this is Part.14 (part 14 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/regex.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 14; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/regex.c'
+else
+echo 'x - continuing file xarchie-2.0.6/regex.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/regex.c' &&
+X *	matches:	fo foo fooo foobar fobar foxx ...
+X *
+X *	pattern:	fo[ob]a[rz]	
+X *	compile:	CHR f CHR o CCL bitset CHR a CCL bitset END
+X *	matches:	fobar fooar fobaz fooaz
+X *
+X *	pattern:	foo\\+
+X *	compile:	CHR f CHR o CHR o CHR \ CLO CHR \ END END
+X *	matches:	foo\ foo\\ foo\\\  ...
+X *
+X *	pattern:	\(foo\)[1-3]\1	(same as foo[1-3]foo)
+X *	compile:	BOT 1 CHR f CHR o CHR o EOT 1 CCL bitset REF 1 END
+X *	matches:	foo1foo foo2foo foo3foo
+X *
+X *	pattern:	\(fo.*\)-\1
+X *	compile:	BOT 1 CHR f CHR o CLO ANY END EOT 1 CHR - REF 1 END
+X *	matches:	foo-foo fo-fo fob-fob foobar-foobar ...
+X * 
+X */
+X
+#define MAXNFA  1024
+#define MAXTAG  10
+X
+#define OKP     1
+#define NOP     0
+X
+#define CHR     1
+#define ANY     2
+#define CCL     3
+#define BOL     4
+#define EOL     5
+#define BOT     6
+#define EOT     7
+#define BOW	8
+#define EOW	9
+#define REF     10
+#define CLO     11
+X
+#define END     0
+X
+/*
+X * The following defines are not meant
+X * to be changeable. They are for readability
+X * only.
+X *
+X */
+#define MAXCHR	128
+#define CHRBIT	8
+#define BITBLK	MAXCHR/CHRBIT
+#define BLKIND	0170
+#define BITIND	07
+X
+#define ASCIIB	0177
+X
+typedef /*unsigned*/ char CHAR;
+X
+static int  tagstk[MAXTAG];             /* subpat tag stack..*/
+static CHAR nfa[MAXNFA];		/* automaton..       */
+static int  sta = NOP;               	/* status of lastpat */
+X
+static CHAR bittab[BITBLK];		/* bit table for CCL */
+X					/* pre-set bits...   */
+static CHAR bitarr[] = {1,2,4,8,16,32,64,128};
+X
+static int internal_error;
+X
+static void
+chset(c)
+register CHAR c;
+{
+X	bittab[((c) & BLKIND) >> 3] |= bitarr[(c) & BITIND];
+}
+X
+#define badpat(x)	return (*nfa = END, x)
+#define store(x)	*mp++ = x
+X 
+char *     
+re_comp(pat)
+char *pat;
+{
+X	register char *p;               /* pattern pointer   */
+X	register CHAR *mp = nfa;        /* nfa pointer       */
+X	register CHAR *lp;              /* saved pointer..   */
+X	register CHAR *sp = nfa;        /* another one..     */
+X
+X	register int tagi = 0;          /* tag stack index   */
+X	register int tagc = 1;          /* actual tag count  */
+X
+X	register int n;
+X	register CHAR mask;		/* xor mask -CCL/NCL */
+X	int c1, c2;
+X		
+X	if (!pat || !*pat)
+X		if (sta)
+X			return 0;
+X		else
+X			badpat("No previous regular expression");
+X	sta = NOP;
+X
+X	for (p = pat; *p; p++) {
+X		lp = mp;
+X		switch(*p) {
+X
+X		case '.':               /* match any char..  */
+X			store(ANY);
+X			break;
+X
+X		case '^':               /* match beginning.. */
+X			if (p == pat)
+X				store(BOL);
+X			else {
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		case '$':               /* match endofline.. */
+X			if (!*(p+1))
+X				store(EOL);
+X			else {
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		case '[':               /* match char class..*/
+X			store(CCL);
+X
+X			if (*++p == '^') {
+X				mask = 0377;	
+X				p++;
+X			}
+X			else
+X				mask = 0;
+X
+X			if (*p == '-')		/* real dash */
+X				chset(*p++);
+X			if (*p == ']')		/* real brac */
+X				chset(*p++);
+X			while (*p && *p != ']') {
+X				if (*p == '-' && *(p+1) && *(p+1) != ']') {
+X					p++;
+X					c1 = *(p-2) + 1;
+X					c2 = *p++;
+X					while (c1 <= c2)
+X						chset(c1++);
+X				}
+#ifdef EXTEND
+X				else if (*p == '\\' && *(p+1)) {
+X					p++;
+X					chset(*p++);
+X				}
+#endif
+X				else
+X					chset(*p++);
+X			}
+X			if (!*p)
+X				badpat("Missing ]");
+X
+X			for (n = 0; n < BITBLK; bittab[n++] = (char) 0)
+X				store(mask ^ bittab[n]);
+X	
+X			break;
+X
+X		case '*':               /* match 0 or more.. */
+X		case '+':               /* match 1 or more.. */
+X			if (p == pat)
+X				badpat("Empty closure");
+X			lp = sp;		/* previous opcode */
+X			if (*lp == CLO)		/* equivalence..   */
+X				break;
+X			switch(*lp) {
+X
+X			case BOL:
+X			case BOT:
+X			case EOT:
+X			case BOW:
+X			case EOW:
+X			case REF:
+X				badpat("Illegal closure");
+X			default:
+X				break;
+X			}
+X
+X			if (*p == '+')
+X				for (sp = mp; lp < sp; lp++)
+X					store(*lp);
+X
+X			store(END);
+X			store(END);
+X			sp = mp;
+X			while (--mp > lp)
+X				*mp = mp[-1];
+X			store(CLO);
+X			mp = sp;
+X			break;
+X
+X		case '\\':              /* tags, backrefs .. */
+X			switch(*++p) {
+X
+X			case '(':
+X				if (tagc < MAXTAG) {
+X					tagstk[++tagi] = tagc;
+X					store(BOT);
+X					store(tagc++);
+X				}
+X				else
+X					badpat("Too many \\(\\) pairs");
+X				break;
+X			case ')':
+X				if (*sp == BOT)
+X					badpat("Null pattern inside \\(\\)");
+X				if (tagi > 0) {
+X					store(EOT);
+X					store(tagstk[tagi--]);
+X				}
+X				else
+X					badpat("Unmatched \\)");
+X				break;
+X			case '<':
+X				store(BOW);
+X				break;
+X			case '>':
+X				if (*sp == BOW)
+X					badpat("Null pattern inside \\<\\>");
+X				store(EOW);
+X				break;
+X			case '1':
+X			case '2':
+X			case '3':
+X			case '4':
+X			case '5':
+X			case '6':
+X			case '7':
+X			case '8':
+X			case '9':
+X				n = *p-'0';
+X				if (tagi > 0 && tagstk[tagi] == n)
+X					badpat("Cyclical reference");
+X				if (tagc > n) {
+X					store(REF);
+X					store(n);
+X				}
+X				else
+X					badpat("Undetermined reference");
+X				break;
+#ifdef EXTEND
+X			case 'b':
+X				store(CHR);
+X				store('\b');
+X				break;
+X			case 'n':
+X				store(CHR);
+X				store('\n');
+X				break;
+X			case 'f':
+X				store(CHR);
+X				store('\f');
+X				break;
+X			case 'r':
+X				store(CHR);
+X				store('\r');
+X				break;
+X			case 't':
+X				store(CHR);
+X				store('\t');
+X				break;
+#endif
+X			default:
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		default :               /* an ordinary char  */
+X			store(CHR);
+X			store(*p);
+X			break;
+X		}
+X		sp = lp;
+X	}
+X	if (tagi > 0)
+X		badpat("Unmatched \\(");
+X	store(END);
+X	sta = OKP;
+X	return 0;
+}
+X
+X
+static char *bol;
+static char *bopat[MAXTAG];
+static char *eopat[MAXTAG];
+char *pmatch();
+X
+/*
+X * re_exec:
+X * 	execute nfa to find a match.
+X *
+X *	special cases: (nfa[0])	
+X *		BOL
+X *			Match only once, starting from the
+X *			beginning.
+X *		CHR
+X *			First locate the character without
+X *			calling pmatch, and if found, call
+X *			pmatch for the remaining string.
+X *		END
+X *			re_comp failed, poor luser did not
+X *			check for it. Fail fast.
+X *
+X *	If a match is found, bopat[0] and eopat[0] are set
+X *	to the beginning and the end of the matched fragment,
+X *	respectively.
+X *
+X */
+X
+int
+re_exec(lp)
+register char *lp;
+{
+X	register char c;
+X	register char *ep = 0;
+X	register CHAR *ap = nfa;
+X
+X	bol = lp;
+X
+X	bopat[0] = 0;
+X	bopat[1] = 0;
+X	bopat[2] = 0;
+X	bopat[3] = 0;
+X	bopat[4] = 0;
+X	bopat[5] = 0;
+X	bopat[6] = 0;
+X	bopat[7] = 0;
+X	bopat[8] = 0;
+X	bopat[9] = 0;
+X
+X	switch(*ap) {
+X
+X	case BOL:			/* anchored: match from BOL only */
+X		ep = pmatch(lp,ap);
+X		break;
+X	case CHR:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		while (*lp && *lp != c)
+X			lp++;
+X		if (!*lp)		/* if EOS, fail, else fall thru. */
+X			return 0;
+X	default:			/* regular matching all the way. */
+X		while (*lp) {
+X			if ((ep = pmatch(lp,ap)))
+X				break;
+X			lp++;
+X		}
+X		break;
+X	case END:			/* munged automaton. fail always */
+X		return 0;
+X	}
+X	if (!ep)
+X		return 0;
+X
+X	if (internal_error)
+X		return -1;
+X
+X	bopat[0] = lp;
+X	eopat[0] = ep;
+X	return 1;
+}
+X
+/* 
+X * pmatch: 
+X *	internal routine for the hard part
+X *
+X * 	This code is mostly snarfed from an early
+X * 	grep written by David Conroy. The backref and
+X * 	tag stuff, and various other mods are by oZ.
+X *
+X *	special cases: (nfa[n], nfa[n+1])
+X *		CLO ANY
+X *			We KNOW ".*" will match ANYTHING
+X *			upto the end of line. Thus, go to
+X *			the end of line straight, without
+X *			calling pmatch recursively. As in
+X *			the other closure cases, the remaining
+X *			pattern must be matched by moving
+X *			backwards on the string recursively,
+X *			to find a match for xy (x is ".*" and 
+X *			y is the remaining pattern) where
+X *			the match satisfies the LONGEST match
+X *			for x followed by a match for y.
+X *		CLO CHR
+X *			We can again scan the string forward
+X *			for the single char without recursion, 
+X *			and at the point of failure, we execute 
+X *			the remaining nfa recursively, as
+X *			described above.
+X *
+X *	At the end of a successful match, bopat[n] and eopat[n]
+X *	are set to the beginning and end of subpatterns matched
+X *	by tagged expressions (n = 1 to 9).	
+X *
+X */
+X
+/*
+X * character classification table for word boundary
+X * operators BOW and EOW. the reason for not using 
+X * ctype macros is that we can let the user add into 
+X * our own table. see re_modw. This table is not in
+X * the bitset form, since we may wish to extend it
+X * in the future for other character classifications. 
+X *
+X *	TRUE for 0-9 A-Z a-z _
+X */
+static char chrtyp[MAXCHR] = {
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 
+X	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 0, 0, 0, 0, 0
+X	};
+X
+#define inascii(x)	(0177&(x))
+#define iswordc(x) 	chrtyp[inascii(x)]
+#define isinset(x,y) 	((x)[((y)&BLKIND)>>3] & bitarr[(y)&BITIND])
+X
+/*
+X * skip values for CLO XXX to skip past the closure
+X *
+X */
+X
+#define ANYSKIP	2 	/* [CLO] ANY END ...	     */
+#define CHRSKIP	3	/* [CLO] CHR chr END ...     */
+#define CCLSKIP 18	/* [CLO] CCL 16bytes END ... */
+X
+static char *
+pmatch(lp, ap)
+register char *lp;
+register CHAR *ap;
+{
+X	register int op, c, n;
+X	register char *e;		/* extra pointer for CLO */
+X	register char *bp;		/* beginning of subpat.. */
+X	register char *ep;		/* ending of subpat..	 */
+X	char *are;			/* to save the line ptr. */
+X
+X	while ((op = *ap++) != END)
+X		switch(op) {
+X
+X		case CHR:
+X			if (*lp++ != *ap++)
+X				return 0;
+X			break;
+X		case ANY:
+X			if (!*lp++)
+X				return 0;
+X			break;
+X		case CCL:
+X			c = *lp++;
+X			if (!isinset(ap,c))
+X				return 0;
+X			ap += BITBLK;
+X			break;
+X		case BOL:
+X			if (lp != bol)
+X				return 0;
+X			break;
+X		case EOL:
+X			if (*lp)
+X				return 0;
+X			break;
+X		case BOT:
+X			bopat[*ap++] = lp;
+X			break;
+X		case EOT:
+X			eopat[*ap++] = lp;
+X			break;
+X 		case BOW:
+X			if (lp!=bol && iswordc(lp[-1]) || !iswordc(*lp))
+X				return 0;
+X			break;
+X		case EOW:
+X			if (lp==bol || !iswordc(lp[-1]) || iswordc(*lp))
+X				return 0;
+X			break;
+X		case REF:
+X			n = *ap++;
+X			bp = bopat[n];
+X			ep = eopat[n];
+X			while (bp < ep)
+X				if (*bp++ != *lp++)
+X					return 0;
+X			break;
+X		case CLO:
+X			are = lp;
+X			switch(*ap) {
+X
+X			case ANY:
+X				while (*lp)
+X					lp++;
+X				n = ANYSKIP;
+X				break;
+X			case CHR:
+X				c = *(ap+1);
+X				while (*lp && c == *lp)
+X					lp++;
+X				n = CHRSKIP;
+X				break;
+X			case CCL:
+X				while ((c = *lp) && isinset(ap+1,c))
+X					lp++;
+X				n = CCLSKIP;
+X				break;
+X			default:
+X				internal_error++;
+X				return 0;
+X			}
+X
+X			ap += n;
+X
+X			while (lp >= are) {
+X				if (e = pmatch(lp, ap))
+X					return e;
+X				--lp;
+X			}
+X			return 0;
+X		default:
+X			internal_error++;
+X			return 0;
+X		}
+X	return lp;
+}
+SHAR_EOF
+echo 'File xarchie-2.0.6/regex.c is complete' &&
+chmod 0644 xarchie-2.0.6/regex.c ||
+echo 'restore of xarchie-2.0.6/regex.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/regex.c'`"
+test 15953 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/regex.c: original size 15953, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/regex.h ==============
+if test -f 'xarchie-2.0.6/regex.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/regex.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/regex.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/regex.h' &&
+/*
+X * regex.h : External defs for Ozan Yigit's regex functions, for systems
+X *	that don't have them builtin. See regex.c for copyright and other
+X *	details.
+X *
+X * Note that this file can be included even if we're linking against the
+X * system routines, since the interface is (deliberately) identical.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 11 Sep 1991.
+X */
+X
+#if defined(_AUX_SOURCE) || defined(USG)
+/* Let them use ours if they wish.  */
+# ifndef NOREGEX
+extern char *regcmp();
+extern char *regex();
+#define re_comp regcmp
+#define re_exec regex
+# endif
+#else
+extern char *re_comp();
+extern int re_exec();
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/regex.h ||
+echo 'restore of xarchie-2.0.6/regex.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/regex.h'`"
+test 624 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/regex.h: original size 624, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/resolv.c ==============
+if test -f 'xarchie-2.0.6/resolv.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/resolv.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/resolv.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/resolv.c' &&
+/*
+X * resolv.c : Program to test if you need -lresolv to ensure DNS
+X *	      hostname lookups.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X * Compile with: cc -o resolv resolv.c
+X *
+X * If you get an error message when you run the program, you need -lresolv.
+X */
+X
+#include <stdio.h>
+#include <netdb.h>
+X
+main(argc,argv)
+int argc;
+char *argv[];
+{
+X    char *hostname = "archie.ans.net";
+X    char *addr;
+X    struct hostent *host;
+X    int i;
+X
+X    if (argc > 1)
+X	hostname = argv[1];
+X    if((host=gethostbyname(hostname)) == NULL) {
+X        herror(hostname);
+X        exit(1);
+X    } else {
+X	if (strcmp(hostname,host->h_name) != 0)
+X	    printf("%s has official name %s\n",hostname,host->h_name);
+X	for (i=0; host->h_aliases[i]; i++)
+X	    if (strcmp(hostname,host->h_aliases[i]) != 0)
+X		printf("%s has alias %s\n",hostname,host->h_aliases[i]);
+X	for (i=0; host->h_addr_list[i]; i++) {
+X	    addr = host->h_addr_list[i];
+X	    printf("%s has address %d.%d.%d.%d\n",hostname,
+X		   ((unsigned char *)addr)[0],((unsigned char *)addr)[1],
+X		   ((unsigned char *)addr)[2],((unsigned char *)addr)[3]);
+X	}
+X	exit(0);
+X    }
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/resolv.c ||
+echo 'restore of xarchie-2.0.6/resolv.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/resolv.c'`"
+test 1122 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/resolv.c: original size 1122, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/saveload.c ==============
+if test -f 'xarchie-2.0.6/saveload.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/saveload.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/saveload.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/saveload.c' &&
+/*
+X * saveload.c : Device-independent routines for writing (ie printing),
+X *	saving, and restoring the browser contents.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+#include <stdio.h>
+#include "sysdefs.h"
+#include "stringdefs.h"
+#include "pfs.h"
+#include "pprot.h"
+#include "xtypes.h"
+#include "db.h"
+#include "query.h"
+#include "browser.h"
+#include "settings.h"
+#include "types.h"
+#include "appres.h"
+#include "alert.h"
+#include "status.h"
+X
+/*
+X * Functions defined here
+X */
+int save(),load(),writeToFile();
+X
+static void writeEntry(),saveEntry();
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Save browser contents to FILENAME for later load.
+X */
+int
+save(db,filename)
+DbEntry *db;
+char *filename;
+{
+X    FILE *fp;
+X    DbEntry *hostp,*locp,*filep;
+X
+X    if ((fp=fopen(filename,"w")) == NULL) {
+X	alert1("Can't open %s for writing",filename);
+X	return(0);
+X    }
+X    status1("Saving to %s...",filename);
+X    /* Save the settinsg first */
+X    fprintf(fp,"archieHost: %s\n",appResources.archieHost);
+X    fprintf(fp,"searchType: %s\n",searchTypeToString(appResources.searchType));
+X    fprintf(fp,"sortType: %s\n",sortTypeToString(appResources.sortType));
+X    fprintf(fp,"niceLevel: %d\n",appResources.niceLevel);
+X    fprintf(fp,"maxHits: %d\n",appResources.maxHits);
+X    fprintf(fp,"timeout: %d\n",appResources.timeout);
+X    fprintf(fp,"retries: %d\n",appResources.retries);
+X    /* Now dump the browser */
+X    for (hostp=db->entries; hostp != NULL; hostp = hostp->next)
+X	for (locp=hostp->entries; locp != NULL; locp = locp->next)
+X	    for (filep=locp->entries; filep != NULL; filep=filep->next)
+X		saveEntry(fp,filep);
+X    fclose(fp);
+X    status0("Ready");
+X    return(1);
+}
+X
+static void
+saveEntry(fp,dbp)
+FILE *fp;
+DbEntry *dbp;
+{
+X    VLINK vl;
+X    DbEntry *entry;
+X
+X    /* Sanity check */
+X    if ((vl=dbp->vlink) == NULL) {
+X	fprintf(stderr,"NULL vlink to save()\n");
+X	return;
+X    }
+X    /* Save the vlink info */
+X    fprintf(fp,"LINK %c %s '%s' %s %s %s %s %d %d ", vl->linktype,
+X	    vl->type, vl->name, vl->hosttype, vl->host, 
+X	    vl->nametype, vl->filename, vl->version,
+X	    vl->f_magic_no);
+X    /* And the relevant attributes */
+X    fprintf(fp,"%d ",dbp->size);
+X    fprintf(fp,"%s ",dbp->modes);
+X    fprintf(fp,"%s",dbp->gt_date);
+#ifdef undef
+X    /* When we didn't keep gt_date (now needed for sorting), we used this: */
+X    for (ap = vl->lattrib; ap; ap = ap->next)
+X	if (strcmp(ap->aname,"LAST-MODIFIED") == 0)
+X	    fprintf(fp,"%s",ap->value.ascii);
+#endif
+X    fprintf(fp,"\n");
+X    /* Recursively save the sub-entries */
+X    for (entry=dbp->entries; entry != NULL; entry=entry->next)
+X	saveEntry(fp,entry);
+}
+X
+/*
+X * Load browser from FILENAME made by save.
+X */
+int
+load(db,filename)
+DbEntry *db;
+char *filename;
+{
+X    FILE *fp;
+X    char buf[256];
+X    VLINK first_link,last_link,cur_link;
+X    PATTRIB cur_at;
+X    char l_linktype;
+X    char l_name[MAX_DIR_LINESIZE];
+X    char l_type[MAX_DIR_LINESIZE];
+X    char l_htype[MAX_DIR_LINESIZE];
+X    char l_host[MAX_DIR_LINESIZE];
+X    char l_ntype[MAX_DIR_LINESIZE];
+X    char l_fname[MAX_DIR_LINESIZE];
+X    int	tmp;
+X
+X    if ((fp=fopen(filename,"r")) == NULL) {
+X	alert1("Can't open %s for reading",filename);
+X	return(0);
+X    }
+X    status1("Loading from %s...",filename);
+X    /* Load the settings */
+X    if (fscanf(fp,"archieHost: %s\n",appResources.archieHost) < 1 ||
+X	fscanf(fp,"searchType: %s\n",buf) < 1 ||
+X	(appResources.searchType=stringToSearchType(buf)) == GfError ||
+X	fscanf(fp,"sortType: %s\n",buf) < 1 ||
+X	(appResources.sortType=stringToSortType(buf)) == GfError ||
+X	fscanf(fp,"niceLevel: %d\n",&(appResources.niceLevel)) < 1 ||
+X	fscanf(fp,"maxHits: %d\n",&(appResources.maxHits)) < 1 ||
+X	fscanf(fp,"timeout: %d\n",&(appResources.timeout)) < 1 ||
+X	fscanf(fp,"retries: %d\n",&(appResources.retries)) < 1) {
+X	fclose(fp);
+X	alert1("Error in header of file \"%s\"!",filename);
+X	return(0);
+X    } else {
+X	reinitSettings();
+X    }
+X    /* Load the browser */
+X    first_link = last_link = NULL;
+X    while (!feof(fp)) {
+X	/* Get a new vlink */
+X	cur_link = vlalloc();
+X	/* Read the vlink fields */
+X	tmp = fscanf(fp,"LINK %c %s %s %s %s %s %s %d %d", &l_linktype,
+X		     l_type, l_name, l_htype, l_host, 
+X		     l_ntype, l_fname, &(cur_link->version),
+X		     &(cur_link->f_magic_no));
+X	if (tmp != 9) {
+X	    alert1("Load error in file %s!",filename);
+X	    vlfree(cur_link);
+X	    break;
+X	}
+X	/* Store data in vlink */
+X	cur_link->linktype = l_linktype;
+X	cur_link->type = stcopyr(l_type,cur_link->type);
+X	cur_link->name = stcopyr(unquote(l_name),cur_link->name);
+X	cur_link->hosttype = stcopyr(l_htype,cur_link->hosttype);
+X	cur_link->host = stcopyr(l_host,cur_link->host);
+X	cur_link->nametype = stcopyr(l_ntype,cur_link->nametype);
+X	cur_link->filename = stcopyr(l_fname,cur_link->filename);
+X	/* Add vlink to chain */
+X	if (first_link == NULL) {
+X	    last_link = first_link = cur_link;
+X	    cur_link->next = cur_link->previous = NULL;
+X	} else {
+X	    last_link->next = cur_link;
+X	    cur_link->previous = last_link;
+X	    cur_link->next = NULL;
+X	    last_link = cur_link;
+X	}
+X	/* Read the attributes */
+X	tmp = fscanf(fp,"%s %s %s\n",l_name,l_type,l_htype);
+X	if (tmp != 3) {
+X	    alert1("Load error in file %s!",filename);
+X	    break;
+X	}
+X	/* Put them in the vlink's attribute list */
+X	cur_link->lattrib = cur_at = atalloc();
+X	cur_at->aname = stcopyr("SIZE",cur_at->aname);
+X	cur_at->avtype = stcopyr("ASCII",cur_at->avtype);
+X	cur_at->value.ascii = stcopyr(l_name,cur_at->value.ascii);
+X	cur_at->next = atalloc();
+X	cur_at->next->previous = cur_at;
+X	cur_at = cur_at->next;
+X	cur_at->aname = stcopyr("UNIX-MODES",cur_at->aname);
+X	cur_at->avtype = stcopyr("ASCII",cur_at->avtype);
+X	cur_at->value.ascii = stcopyr(l_type,cur_at->value.ascii);
+X	cur_at->next = atalloc();
+X	cur_at->next->previous = cur_at;
+X	cur_at = cur_at->next;
+X	cur_at->aname = stcopyr("LAST-MODIFIED",cur_at->aname);
+X	cur_at->avtype = stcopyr("ASCII",cur_at->avtype);
+X	cur_at->value.ascii = stcopyr(l_htype,cur_at->value.ascii);
+X    }
+X    fclose(fp);
+X    if (first_link == NULL) {
+X	status0("No entries loaded!");
+X	return(0);
+X    }
+X    status0("Parsing...");
+X    resetBrowser();
+X    clearEntries(db);
+X    tmp = parseArchieQueryResults(db,first_link,NULL);
+X    displayEntries(db,0);
+X    status2("Loaded %d entries from \"%s\"",(char *)tmp,filename);
+X    return(1);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Write browser contents to FILENAME. If ONELINE is True, each entry gets
+X *	whole line.
+X */
+int
+writeToFile(db,filename,oneline)
+DbEntry *db;
+char *filename;
+int oneline;
+{
+X    FILE *fp;
+X    DbEntry *hostp,*locp,*filep;
+X    char *prefix;
+X
+X    if ((fp=fopen(filename,"w")) == NULL) {
+X	alert1("Can't open %s for writing",filename);
+X	return(0);
+X    }
+X    status1("Writing to %s...",filename);
+X    if (oneline) {
+X	for (hostp=db->entries; hostp != NULL; hostp = hostp->next)
+X	    for (locp=hostp->entries; locp != NULL; locp = locp->next)
+X		for (filep=locp->entries; filep != NULL; filep=filep->next) {
+X		    prefix = malloc(strlen(hostp->name)+strlen(locp->name)+3);
+X		    sprintf(prefix,"%s:%s/",hostp->name,locp->name);
+X		    writeEntry(fp,filep,oneline,prefix);
+X		    free(prefix);
+X		}
+X    } else {
+X	for (hostp=db->entries; hostp != NULL; hostp = hostp->next) {
+X	    fprintf(fp,"%s\n",hostp->name);
+X	    for (locp=hostp->entries; locp != NULL; locp = locp->next) {
+X		fprintf(fp,"\t%s\n",locp->name);
+X		for (filep=locp->entries; filep != NULL; filep=filep->next)
+X		    writeEntry(fp,filep,oneline,"");
+X	    }
+X	}
+X    }
+X    fclose(fp);
+X    status0("Ready");
+X    return(1);
+}
+X
+static void
+writeEntry(fp,filep,oneline,prefix)
+FILE *fp;
+DbEntry *filep;
+int oneline;
+char *prefix;
+{
+X    DbEntry *entry;
+X    char *newprefix;
+X
+X    /* Write this entry */
+X    if (oneline) {
+X	fprintf(fp,"%s %10d  %12s  %s%s\n",
+X		filep->modes,filep->size,filep->date,prefix,filep->name);
+X    } else {
+X	fprintf(fp,"\t\t%s %10d  %12s  %s%s\n",
+X		filep->modes,filep->size,filep->date,prefix,filep->name);
+X    }
+X    /* Add this entry to the prefix */
+X    newprefix = malloc(strlen(prefix)+strlen(filep->name)+2);
+X    sprintf(newprefix,"%s%s/",prefix,filep->name);
+X    /* Recursively write the sub-entries */
+X    for (entry=filep->entries; entry != NULL; entry=entry->next)
+X	writeEntry(fp,entry,oneline,newprefix);
+X    free(newprefix);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/saveload.c ||
+echo 'restore of xarchie-2.0.6/saveload.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/saveload.c'`"
+test 8181 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/saveload.c: original size 8181, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/saveload.h ==============
+if test -f 'xarchie-2.0.6/saveload.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/saveload.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/saveload.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/saveload.h' &&
+/*
+X * saveload.h : Device-independent routines for dumping (ie printing),
+X *	saving, and restoring state.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef SAVELOAD_H
+#define SAVELOAD_H
+X
+extern int save(),load(),writeToFile();
+X
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/saveload.h ||
+echo 'restore of xarchie-2.0.6/saveload.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/saveload.h'`"
+test 261 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/saveload.h: original size 261, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/selectdefs.h ==============
+if test -f 'xarchie-2.0.6/selectdefs.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/selectdefs.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/selectdefs.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/selectdefs.h' &&
+/*
+X * selectdefs.h : FD_SET and relatives
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X * I don't really expect this to work if none of the include cases
+X * is used. I mean, where's the definition of the fd_set structure,
+X * anyway? However, perhaps it's a start. Better would be to add a case
+X * to the confgure script to find the things no matter where they are.
+X *
+X * 13 May 1993: Fail if none of the macros defined.
+X */
+X
+#include "config.h"
+X
+#include <stdio.h>			/* Some folks need this also */
+X
+#ifdef FD_SET_IN_SYS_TYPES_H			/* normal */
+# include <sys/types.h>
+#else
+#ifdef FD_SET_IN_SYS_SELECT_H
+# include <sys/select.h>			/* _AIX */
+#else
+#ifdef FD_SET_IN_SYS_INET_H
+# include <sys/inet.h>				/* u3b2 */
+#else
+"One of the FD_SET_IN_* macros must be defined in config.h!";
+#endif
+#endif
+#endif
+X
+#ifndef NBBY
+# define NBBY		8				/* bits per byte */
+#endif
+#ifndef NFDBITS
+# define NFDBITS	(sizeof (fd_mask) * NBBY)       /* bits per mask */
+#endif
+#ifndef FD_SETSIZE
+# define FD_SETSIZE	32
+#endif
+#ifndef FD_SET
+# define FD_SET(n,p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+#endif
+#ifndef FD_CLR
+# define FD_CLR(n,p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+#endif
+#ifndef FD_ISSET
+# define FD_ISSET(n,p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+#endif
+#ifndef FD_ZERO
+# define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/selectdefs.h ||
+echo 'restore of xarchie-2.0.6/selectdefs.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/selectdefs.h'`"
+test 1399 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/selectdefs.h: original size 1399, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/selection.c ==============
+if test -f 'xarchie-2.0.6/selection.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/selection.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/selection.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/selection.c' &&
+/*
+X * selection.c : Code that the X and Curses browsers use, but that
+X *	others might be able to do without, or do better.
+X *
+X * Note that we need to maintain the selections for those levels
+X * of the browser that aren't displayed right now. Again, you may
+X * get better mileage from your window system.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 13 May 1993: Store selections in order they're made.
+X */
+#include <stdio.h>
+#include "xtypes.h"
+#include "sysdefs.h"
+#include "db.h"
+#include "display.h"
+#include "browser.h"
+#include "selection.h"
+#include "debug.h"
+X
+/*
+X * Functions defined here:
+X */
+void resetSelections();
+void redrawSelectionsForPane(),resetSelectionsForPane();
+void addSelection(),addSelectionInPane(),removeSelection();
+SelectedItem *getSelection();
+Boolean isSelected(),isSelectedInPane();
+Boolean hasSelection(),hasSelectionInPane();
+void forEachSelectedItemAtDepth(),forEachSelectedItem();
+X
+/*
+X * Data defined here:
+X */
+static SelectedItem *selectedItems[MAX_DEPTH];
+static int deepest;
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+resetSelections(depth)
+int depth;
+{
+X    SelectedItem *item,*nextItem;
+X    int i;
+X
+X    DEBUG1("clearing selections for depth >= %d\n",depth);
+X    for (i=depth; i < MAX_DEPTH; i++) {
+X	for (item=selectedItems[i]; item != NULL; item = nextItem) {
+X	    nextItem = item->next;
+X	    XtFree((char *)item);
+X	}
+X	selectedItems[i] = NULL;
+X    }
+X    deepest = depth-1;
+X    DEBUG1("deepest now = %d\n",deepest);
+}
+X
+void
+redrawSelectionsForPane(pane)
+int pane;
+{
+X    SelectedItem *item;
+X
+X    DEBUG1("redrawing selections for pane %d\n",pane);
+X    for (item=selectedItems[paneDepth(pane)]; item != NULL;
+X	 item=item->next) {
+X	highlightBrowserItem(pane,item->list_index);
+X    }
+}
+X
+void
+resetSelectionsForPane(pane)
+int pane;
+{
+X    DEBUG1("clearing selections for pane %d\n",pane);
+X    resetSelections(paneDepth(pane));
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+addSelection(depth,dbp,list_index)
+int depth;
+DbEntry *dbp;
+int list_index;
+{
+X    SelectedItem *last;
+X
+X    DEBUG3("adding selection \"%s\"(0x%x) at depth %d\n",dbp->name,dbp,depth);
+X    if (selectedItems[depth] == NULL) {
+X	selectedItems[depth] = XtNew(SelectedItem);
+X	selectedItems[depth]->prev = NULL;
+X	selectedItems[depth]->next = NULL;
+X	last = selectedItems[depth];
+X    } else {
+X	for (last=selectedItems[depth]; last->next != NULL; last=last->next)
+X	    /*EMPTY*/;
+X	last->next = XtNew(SelectedItem);
+X	last->next->prev = last;
+X	last->next->next = NULL;
+X	last = last->next;
+X    }
+X    last->entry = dbp;
+X    last->list_index = list_index;
+X    dbp->selected = depth;
+X    if (depth > deepest) {
+X	deepest = depth;
+X	DEBUG1("deepest now = %d\n",deepest);
+X    }
+}
+X
+void
+addSelectionInPane(pane,dbp,list_index)
+int pane;
+DbEntry *dbp;
+int list_index;
+{
+X    DEBUG3("adding selection \"%s\"(0x%x) in pane %d\n",dbp->name,dbp,pane);
+X    addSelection(paneDepth(pane),dbp,list_index);
+}
+X
+void
+removeSelection(depth,dbp,list_index)
+int depth;
+DbEntry *dbp;
+int list_index;
+{
+X    SelectedItem *item;
+X
+X    DEBUG3("removing selection \"%s\"(0x%x) at depth %d\n",
+X	   (dbp?dbp->name:"<NIL>"),dbp,depth);
+X    for (item=selectedItems[depth]; item != NULL; item = item->next)
+X	if ((dbp == NULL || item->entry == dbp) &&
+X	    (list_index == -1  || item->list_index == list_index))
+X	    break;
+X    if (item == NULL) {
+X	fprintf(stderr,"removeSelection: Can't find entry 0x%x (list_index=%d) at depth %d\n",dbp,list_index,depth);
+X	return;
+X    }
+X    if (item == selectedItems[depth]) {
+X	selectedItems[depth] = item->next;
+X	if (item->next != NULL)
+X	    item->next->prev = NULL;
+X    } else {
+X	item->prev->next = item->next;
+X	if (item->next != NULL)
+X	    item->next->prev = item->prev;
+X    }
+X    XtFree((char *)item);
+X    if (selectedItems[depth] == NULL) {
+X	deepest = depth-1;
+X	DEBUG1("deepest now = %d\n",deepest);
+X    }
+}
+X
+SelectedItem *
+getSelection(depth)
+int depth;
+{
+X    return(selectedItems[depth]);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+Boolean
+isSelected(depth,list_index)
+int depth,list_index;
+{
+X    SelectedItem *item;
+X
+X    for (item=selectedItems[depth];
+X	 item != NULL && item->list_index != list_index; item=item->next)
+X	/*EMPTY*/;
+X    return(item != NULL);
+}
+X
+Boolean
+isSelectedInPane(pane,list_index)
+int pane,list_index;
+{
+X    return(isSelected(paneDepth(pane),list_index));
+}
+X
+Boolean
+hasSelection(depth)
+int depth;
+{
+X    return(selectedItems[depth] != NULL);
+}
+X
+Boolean
+hasSelectionInPane(pane)
+int pane;
+{
+X    return(hasSelection(paneDepth(pane)));
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * Calls "func" for each selected item at depth "depth", passing DbEntry
+X * and list_index.
+X */
+void
+forEachSelectedItemAtDepth(depth,func)
+int depth;
+void (*func)();
+{
+X    SelectedItem *item;
+X
+X    for (item=selectedItems[depth]; item != NULL; item=item->next)
+X	(*func)(item->entry,item->list_index);
+}
+X
+/*
+X * Like above, but calls "func" for each item selected at the deepest
+X * level.
+X */
+void
+forEachSelectedItem(func)
+void (*func)();
+{
+X    SelectedItem *item;
+X
+X    if (deepest == -1) {
+X	DEBUG0("forEachSelectedItem: nothing selected\n");
+X       return;
+X    }
+X    for (item=selectedItems[deepest]; item != NULL; item=item->next)
+X	(*func)(item->entry,item->list_index);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/selection.c ||
+echo 'restore of xarchie-2.0.6/selection.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/selection.c'`"
+test 5127 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/selection.c: original size 5127, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/selection.h ==============
+if test -f 'xarchie-2.0.6/selection.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/selection.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/selection.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/selection.h' &&
+/*
+X * selection.h : Defs for manipulating items selected in the browser
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef SELECTION_H
+#define SELECTION_H
+X
+#include "db.h"
+X
+typedef struct SelectedItem_s {
+X    DbEntry *entry;
+X    int list_index;
+X    struct SelectedItem_s *next,*prev;
+} SelectedItem;
+X
+extern void resetSelections();
+extern void redrawSelectionsForPane(),resetSelectionsForPane();
+extern void addSelection(),addSelectionInPane(),removeSelection();
+extern SelectedItem *getSelection();
+extern Boolean isSelected(),isSelectedInPane();
+extern Boolean hasSelection(),hasSelectionInPane();
+extern void forEachSelectedItemAtDepth(),forEachSelectedItem();
+X
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/selection.h ||
+echo 'restore of xarchie-2.0.6/selection.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/selection.h'`"
+test 697 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/selection.h: original size 697, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/settings.c ==============
+if test -f 'xarchie-2.0.6/settings.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/settings.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/settings.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/settings.c' &&
+/*
+X * settings.c : Set program parameters on a popup panel
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 22 Oct 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/Shell.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/Label.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Cardinals.h>
+#include "xarchie.h"
+#include "types.h"
+#include "appres.h"
+#include "m-defs.h"
+#include "rdgram.h"
+#include "alert.h"
+#include "status.h"
+#include "popups.h"
+#include "xutil.h"
+#include "stringdefs.h"
+#include "weight.h"
+#include "tilde.h"
+extern void resortBrowser();		/* browser.c */
+X
+/*
+X * Functions declared in this file
+X */
+void initSettings(),reinitSettings();
+void setSettingsShellState();
+void updateSettingsHost(),updateSettingsSearchType();
+void updateSettingsSortType(),updateSettingsNiceLevel();
+void updateSettingsAutoScroll();
+void updateSettingsFtpType(),updateSettingsFtpPrompt();
+void updateSettingsFtpTrace(),updateSettingsFtpStrip();
+void setSettingsChangedFlag();
+X
+static void initSettingsWidgets();
+static void addTextEventHandler(),textEventProc();
+static void popupSettingsAction();
+static void applySettingsAction(),defaultSettingsAction(),doneSettingsAction();
+static void setHostAction(),setSearchTypeAction();
+static void setSortTypeAction(),setNiceLevelAction();
+static void setHostNowAction(),setSearchTypeNowAction();
+static void setSortTypeNowAction(),setNiceLevelNowAction();
+static int settingsConfirm();
+static void settingsConfirmCallback();
+X
+/*
+X * Data declared in this file
+X */
+static Widget settingsShell;
+static Widget setApplyButton;
+static Widget setHostText;
+static Widget setSearchLabel,setSortLabel;
+static Widget setNiceText,setMaxHitsText;
+static Widget setTimeoutText,setRetriesText;
+static Widget setAutoScrollLabel;
+static Widget ftpLocalDirText,ftpTypeLabel;
+static Widget ftpPromptLabel,ftpTraceLabel,ftpStripLabel;
+static Widget ftpMailAddressText;
+static Widget setHostWeightsLabel,setHostWeightsText;
+X
+static char *defArchieHost;
+static SearchType currentSearchType,defSearchType;
+static SortType currentSortType,defSortType;
+static int defMaxHits,defTimeout,defRetries,defNiceLevel;
+static Boolean currentAutoScroll,defAutoScroll;
+static char *defFtpLocalDir,*defFtpType;
+static Boolean currentFtpPrompt,defFtpPrompt;
+static Boolean currentFtpTrace,defFtpTrace;
+static Boolean currentFtpStrip,defFtpStrip;
+static char *defFtpMailAddress;
+static char *defHostWeights;
+static Boolean settingsChanged,isPoppedUp;
+X
+static XtActionsRec actionTable[] = {
+X    { "popup-settings",		popupSettingsAction },
+X    { "settings-apply",		applySettingsAction },
+X    { "settings-default",	defaultSettingsAction },
+X    { "settings-done",		doneSettingsAction },
+X    { "set-host",		setHostAction },
+X    { "set-host-now",		setHostNowAction },
+X    { "set-search-type",	setSearchTypeAction },
+X    { "set-search-type-now",	setSearchTypeNowAction },
+X    { "set-sort-type",		setSortTypeAction },
+X    { "set-sort-type-now",	setSortTypeNowAction },
+X    { "set-nice-level",		setNiceLevelAction },
+X    { "set-nice-level-now",	setNiceLevelNowAction },
+};
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * initSettings() : Stores away the values of the application resources
+X *	at startup for use by the default-settings() action. Also
+X *	create the settings panel and register the action procedures.
+X */
+void
+initSettings()
+{
+X    defArchieHost = XtNewString(appResources.archieHost);
+X    defSearchType = appResources.searchType;
+X    defSortType = appResources.sortType;
+X    defNiceLevel = appResources.niceLevel;
+X    defMaxHits = appResources.maxHits;
+X    defTimeout = appResources.timeout;
+X    defRetries = appResources.retries;
+X    defAutoScroll = appResources.autoScroll;
+X    defFtpLocalDir = XtNewString(appResources.ftpLocalDir);
+X    defFtpType = XtNewString(appResources.ftpType);
+X    defFtpPrompt = appResources.ftpPrompt;
+X    defFtpTrace = appResources.ftpTrace;
+X    defFtpStrip = appResources.ftpStrip;
+X    defFtpMailAddress = XtNewString(appResources.ftpMailAddress);
+X    defHostWeights = XtNewString(appResources.hostWeights);
+X    isPoppedUp = False;
+X    XtAppAddActions(appContext,actionTable,XtNumber(actionTable));
+X    initSettingsWidgets();
+}
+X
+/*
+X * reinitSettings() : Sets the values in the settings editor from the
+X *	current state of the application resources.
+X */
+void
+reinitSettings()
+{
+X    char buf[16];
+X    static int firsttime = 1;
+X
+X    setWidgetString(setHostText,appResources.archieHost);
+X    updateSettingsSearchType(appResources.searchType);
+X    updateSettingsSortType(appResources.sortType);
+X    sprintf(buf,"%d",appResources.niceLevel);
+X    setWidgetString(setNiceText,buf);
+X    sprintf(buf,"%d",appResources.maxHits);
+X    setWidgetString(setMaxHitsText,buf);
+X    sprintf(buf,"%d",appResources.timeout);
+X    setWidgetString(setTimeoutText,buf);
+X    sprintf(buf,"%d",appResources.retries);
+X    setWidgetString(setRetriesText,buf);
+X    updateSettingsAutoScroll(appResources.autoScroll);
+X    /* Kludge to prevent tilde from being expanded in the Text item */
+X    if (firsttime) {
+X	setWidgetString(ftpLocalDirText,appResources.ftpLocalDir);
+X	firsttime = 0;
+X    }
+X    updateSettingsFtpType(appResources.ftpType);
+X    updateSettingsFtpPrompt(appResources.ftpPrompt);
+X    updateSettingsFtpTrace(appResources.ftpTrace);
+X    updateSettingsFtpStrip(appResources.ftpStrip);
+X    setWidgetString(ftpMailAddressText,appResources.ftpMailAddress);
+X    setWidgetString(setHostWeightsText,appResources.hostWeights);
+X    setSettingsChangedFlag(False);
+X    updateSettingsMenuMarks();
+}
+X
+/*
+X * initSettingsWidgets() : Create the popup settings editor.
+X */
+static void
+initSettingsWidgets()
+{
+X    Widget form;
+X
+X    settingsShell = XtCreatePopupShell("settingsShell",
+X				       topLevelShellWidgetClass,toplevel,
+X				       NULL,0);
+X    form = XtCreateManagedWidget("settingsForm",formWidgetClass,
+X				 settingsShell,NULL,0);
+X    (void) XtCreateManagedWidget("setDoneButton",commandWidgetClass,
+X				 form,NULL,0);
+X    setApplyButton = XtCreateManagedWidget("setApplyButton",commandWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("setDefaultButton",commandWidgetClass,
+X				form,NULL,0);
+X    (void)XtCreateManagedWidget("setHostButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    setHostText = XtCreateManagedWidget("setHostText",asciiTextWidgetClass,
+X					form,NULL,0);
+X    (void)XtCreateManagedWidget("setSearchButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    setSearchLabel = XtCreateManagedWidget("setSearchLabel",labelWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("setSortButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    setSortLabel = XtCreateManagedWidget("setSortLabel",labelWidgetClass,
+X					 form,NULL,0);
+X    (void)XtCreateManagedWidget("setNiceButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    setNiceText = XtCreateManagedWidget("setNiceText",asciiTextWidgetClass,
+X					form,NULL,0);
+X    (void)XtCreateManagedWidget("setMaxHitsLabel",labelWidgetClass,
+X				form,NULL,0);
+X    setMaxHitsText = XtCreateManagedWidget("setMaxHitsText",
+X					   asciiTextWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("setTimeoutLabel",labelWidgetClass,
+X				form,NULL,0);
+X    setTimeoutText = XtCreateManagedWidget("setTimeoutText",
+X					   asciiTextWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("setRetriesLabel",labelWidgetClass,
+X				form,NULL,0);
+X    setRetriesText = XtCreateManagedWidget("setRetriesText",
+X					   asciiTextWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("setAutoScrollButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    setAutoScrollLabel = XtCreateManagedWidget("setAutoScrollLabel",
+X					       labelWidgetClass,
+X					       form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpMailAddressLabel",labelWidgetClass,
+X				form,NULL,0);
+X    ftpMailAddressText = XtCreateManagedWidget("ftpMailAddressText",
+X					       asciiTextWidgetClass,
+X					       form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpLocalDirLabel",labelWidgetClass,
+X				form,NULL,0);
+X    ftpLocalDirText = XtCreateManagedWidget("ftpLocalDirText",
+X					    asciiTextWidgetClass,
+X					    form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpTypeButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    ftpTypeLabel = XtCreateManagedWidget("ftpTypeLabel",labelWidgetClass,
+X					 form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpPromptButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    ftpPromptLabel = XtCreateManagedWidget("ftpPromptLabel",labelWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpTraceButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    ftpTraceLabel = XtCreateManagedWidget("ftpTraceLabel",labelWidgetClass,
+X					   form,NULL,0);
+X    (void)XtCreateManagedWidget("ftpStripButton",menuButtonWidgetClass,
+X				form,NULL,0);
+X    ftpStripLabel = XtCreateManagedWidget("ftpStripLabel",labelWidgetClass,
+X					   form,NULL,0);
+X    setHostWeightsLabel = XtCreateManagedWidget("setHostWeightsLabel",
+X						labelWidgetClass,
+X						form,NULL,0);
+X    setHostWeightsText = XtCreateManagedWidget("setHostWeightsText",
+X					       asciiTextWidgetClass,
+X					       form,NULL,0);
+X    /* Add event handler for detecting changes */
+X    addTextEventHandler(setHostText);
+X    addTextEventHandler(setMaxHitsText);
+X    addTextEventHandler(setTimeoutText);
+X    addTextEventHandler(setRetriesText);
+X    addTextEventHandler(setNiceText);
+X    addTextEventHandler(setHostWeightsText);
+X    addTextEventHandler(ftpMailAddressText);
+X    addTextEventHandler(ftpLocalDirText);
+X    XtRealizeWidget(settingsShell);
+X    /* Enable WM_DELETE_WINDOW handling */
+X    (void)XSetWMProtocols(XtDisplay(settingsShell),XtWindow(settingsShell),
+X			  &WM_DELETE_WINDOW,1);
+}
+X
+static void
+addTextEventHandler(w)
+Widget w;
+{
+X    if (w != NULL)
+X	XtAddEventHandler(w,KeyPressMask|ButtonPressMask,False,
+X			  textEventProc,(XtPointer)NULL);
+}
+X
+void
+setSettingsShellState(state)
+int state;
+{
+X    if (!isPoppedUp)
+X	return;
+X    switch (state) {
+X	case NormalState:
+X	    XtMapWidget(settingsShell);
+X	    break;
+X	case IconicState:
+X	    XtUnmapWidget(settingsShell);
+X	    break;
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Action procedures */
+X
+#define ACTION_PROC(NAME)	void NAME(w,event,params,num_params) \
+X					Widget w; \
+X					XEvent *event; \
+X					String *params; \
+X					Cardinal *num_params;
+X
+/*
+X * popupSettingsAction() : Pops up the settings editor, and fills it with
+X *	the information from the current values of the application settings.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(popupSettingsAction)
+{
+X    if (isPoppedUp) {
+X	XRaiseWindow(display,XtWindow(settingsShell));
+X    } else {
+X	reinitSettings();
+X	XtPopup(settingsShell,XtGrabNone);
+X	isPoppedUp = True;
+X    }
+}
+X
+/*
+X * applySettingsAction() : Callback for apply button - Set the application
+X *	resources from the items on the settings editor panel. Some of these
+X *	require special action when changed, and this routine does that.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(applySettingsAction)
+{
+X    char *s;
+X    int n;
+X
+X    /* Host */
+X    s = getWidgetString(setHostText);
+X    if (strcmp(appResources.archieHost,s) != 0) {
+X	XtFree(appResources.archieHost);
+X	appResources.archieHost = XtNewString(s);
+X	setHostMenuMark(appResources.archieHost);
+X    }
+X    /* Search type */
+X    if (appResources.searchType != currentSearchType) {
+X	appResources.searchType = currentSearchType;
+X	setSearchMenuMark(appResources.searchType);
+X    }
+X    /* Sort type */
+X    if (appResources.sortType != currentSortType) {
+X	appResources.sortType = currentSortType;
+X	setSortMenuMark(appResources.searchType);
+X	resortBrowser();
+X    }
+X    /* Nice level */
+X    s = getWidgetString(setNiceText);
+X    n = atoi(s);
+X    if (n < RDGRAM_MIN_PRI)		/* leave -32766 to -32768 alone */
+X	n = RDGRAM_MIN_PRI;
+X    else if (n > RDGRAM_MAX_SPRI)
+X	n = RDGRAM_MAX_PRI;
+X    if (appResources.niceLevel != n) {
+X	appResources.niceLevel = n;
+X	setNiceMenuMark(appResources.niceLevel);
+X    }
+X    /* Max hits */
+X    s = getWidgetString(setMaxHitsText);
+X    appResources.maxHits = atoi(s);
+X    /* Timeout */
+X    s = getWidgetString(setTimeoutText);
+X    appResources.timeout = atoi(s);
+X    /* Retries */
+X    s = getWidgetString(setRetriesText);
+X    appResources.retries = atoi(s);
+X    /* Auto Scroll */
+X    appResources.autoScroll = currentAutoScroll;
+X    /* Ftp mail address */
+X    s = getWidgetString(ftpMailAddressText);
+X    if (strcmp(appResources.ftpMailAddress,s) != 0) {
+X	XtFree(appResources.ftpMailAddress);
+X	appResources.ftpMailAddress = XtNewString(s);
+X    }
+X    /* Ftp local dir */
+X    s = getWidgetString(ftpLocalDirText);
+X    s = tildeExpand(s);
+X    if (strcmp(appResources.ftpLocalDir,s) != 0) {
+X	XtFree(appResources.ftpLocalDir);
+X	appResources.ftpLocalDir = XtNewString(s);
+X    }
+X    /* Ftp type (uses Label not Text) */
+X    s = getWidgetLabel(ftpTypeLabel);
+X    if (strcmp(appResources.ftpType,s) != 0) {
+X	XtFree(appResources.ftpType);
+X	appResources.ftpType = XtNewString(s);
+X    }
+X    /* Ftp prompt */
+X    appResources.ftpPrompt = currentFtpPrompt;
+X    /* Ftp trace */
+X    appResources.ftpTrace = currentFtpTrace;
+X    /* Ftp strip */
+X    appResources.ftpStrip = currentFtpStrip;
+X    /* Host Weights */
+X    s = getWidgetString(setHostWeightsText);
+X    if (strcmp(appResources.hostWeights,s) != 0) {
+X	XtFree(appResources.hostWeights);
+X	appResources.hostWeights = XtNewString(s);
+X	reinitHostWeights();
+X	resortBrowser();
+X    }
+X    /* All done */
+X    setSettingsChangedFlag(False);
+}
+X
+/*
+X * defaultSettingsAction() : Callback for default button - Reset the items
+X *      to their default values.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(defaultSettingsAction)
+{
+X    char buf[16];
+X
+X    setWidgetString(setHostText,defArchieHost);
+X    updateSettingsSearchType(defSearchType);
+X    updateSettingsSortType(defSortType);
+X    sprintf(buf,"%d",defNiceLevel);
+X    setWidgetString(setNiceText,buf);
+X    sprintf(buf,"%d",defMaxHits);
+X    setWidgetString(setMaxHitsText,buf);
+X    sprintf(buf,"%d",defTimeout);
+X    setWidgetString(setTimeoutText,buf);
+X    sprintf(buf,"%d",defRetries);
+X    setWidgetString(setRetriesText,buf);
+X    updateSettingsAutoScroll(defAutoScroll);
+X    setWidgetString(ftpMailAddressText,defFtpMailAddress);
+X    setWidgetString(ftpLocalDirText,defFtpLocalDir);
+X    updateSettingsFtpType(defFtpType);
+X    updateSettingsFtpPrompt(defFtpPrompt);
+X    updateSettingsFtpTrace(defFtpTrace);
+X    updateSettingsFtpStrip(defFtpStrip);
+X    setWidgetString(setHostWeightsText,defHostWeights);
+X    setSettingsChangedFlag(True);
+}
+X
+/*
+X * doneSettingsAction() : Callback for done button - Pop down the editor.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(doneSettingsAction)
+{
+X    if (!settingsChanged || settingsConfirm()) {
+X	XtPopdown(settingsShell);
+X	isPoppedUp = False;
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * setHostAction() : Action procedure to set the host.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(setHostAction)
+{
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-host()");
+X	return;
+X    }
+X    if (setHostText == NULL) {
+X	alert0("set-host() has no effect since setHostText was not created");
+X	return;
+X    }
+X    setWidgetString(setHostText,*params);
+X    setSettingsChangedFlag(True);
+}
+X
+/*
+X * setSearchTypeAction() : Action procedure to set the search type.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(setSearchTypeAction)
+{
+X    XrmValue from,to;
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-search-type()");
+X	return;
+X    }
+X    from.addr = *params;
+X    from.size = sizeof(String);
+X    to.addr = NULL;
+X    XtConvertAndStore(w,XtRString,&from,GfRSearchType,&to);
+X    if (to.addr != NULL)
+X	updateSettingsSearchType((SearchType)(*(to.addr)));
+X    setSettingsChangedFlag(True);
+}
+X
+/*
+X * setSortTypeAction() : Action procedure to set the sort type.
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(setSortTypeAction)
+{
+X    XrmValue from,to;
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/settings.c failed'
+fi
+echo 'End of xarchie-2.0.6 part 14'
+echo 'File xarchie-2.0.6/settings.c is continued in part 15'
+echo 15 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

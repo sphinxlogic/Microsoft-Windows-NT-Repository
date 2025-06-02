@@ -1,0 +1,557 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 44/47
+Message-ID: <1992Nov20.210435.1@acad2.alaska.edu>
+Lines: 545
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Sat, 21 Nov 1992 01:04:35 GMT
+Xref: uunet vmsnet.sources.games:544
+
+-+-+-+-+-+-+-+-+ START OF PART 44 -+-+-+-+-+-+-+-+
+X`009    strcat(buf, "simple UDP"); break;
+X`009case MODE_FAT:
+X`009    strcat(buf, "fat UDP"); break;
+X#ifdef DOUBLE_UDP
+X`009case MODE_DOUBLE:
+X`009    strcat(buf, "double UDP"); break;
+X#endif
+X`009`125
+X`009break;
+X    case UDP_FORCE_RESET:
+X`009sprintf(buf, "Force reset to TCP");
+X`009break;
+X    case UDP_UPDATE_ALL:
+X`009sprintf(buf, "Request full update (=)");
+X`009break;
+X    case UDP_DONE:
+X`009strcpy(buf, "Done");
+X`009break;
+X#ifdef GATEWAY
+X    case UDP_GW:
+X`009sprintf(buf, "gw: %s %d/%d/%d", gw_mach, gw_serv_port, gw_port,
+X`009`009gw_local_port);
+X`009break;
+X#endif
+X    default:
+X`009fprintf(stderr, "netrek: UDP error: bad udprefresh(%d) call\n", i);
+X    `125
+X
+X    W_WriteText(udpWin, 0, i, textColor, buf, strlen(buf), 0);
+X`125
+X
+Xudpaction(data)
+XW_Event *data;
+X`123
+X    int i;
+X
+X    switch (data->y) `123
+X    case UDP_CURRENT:
+X`009if (commMode == COMM_TCP)
+X`009    sendUdpReq(COMM_UDP);
+X`009else
+X`009    sendUdpReq(COMM_TCP);
+X`009break;
+X    case UDP_STATUS:
+X    case UDP_DROPPED:
+X`009W_Beep();
+X`009break;
+X    case UDP_SEQUENCE:
+X`009udpSequenceChk = !udpSequenceChk;
+X`009udprefresh(UDP_SEQUENCE);
+X`009break;
+X    case UDP_SEND:
+X`009udpClientSend++;
+X`009if (udpClientSend > 3) udpClientSend = 0;
+X`009udprefresh(UDP_SEND);
+X`009break;
+X    case UDP_RECV:
+X`009udpClientRecv++;
+X#ifdef DOUBLE_UDP
+X`009if (udpClientRecv > MODE_DOUBLE) udpClientRecv = 0;
+X#else
+X`009if (udpClientRecv >= MODE_DOUBLE) udpClientRecv = 0;
+X#endif
+X`009udprefresh(UDP_RECV);
+X`009sendUdpReq(COMM_MODE + udpClientRecv);
+X`009break;
+X    case UDP_DEBUG:
+X`009udpDebug++;
+X`009if (udpDebug > 2) udpDebug = 0;
+X`009udprefresh(UDP_DEBUG);
+X`009break;
+X    case UDP_FORCE_RESET:
+X`009/* clobber UDP */
+X`009UDPDIAG(("*** FORCE RESET REQUESTED\n"));
+X`009sendUdpReq(COMM_TCP);
+X`009commMode = commModeReq = COMM_TCP;
+X`009commStatus = STAT_CONNECTED;
+X`009commSwitchTimeout = 0;
+X`009udpClientSend = udpClientRecv = udpSequenceChk = udpTotal = 1;
+X`009udpDebug = udpDropped = udpRecentDropped = 0;
+X`009if (udpSock >= 0)
+X`009    closeUdpConn(udpSock);
+X`009for (i=0; i<UDP_NUMOPTS; i++)
+X`009    udprefresh(i);
+X`009break;
+X    case UDP_UPDATE_ALL:
+X`009sendUdpReq(COMM_UPDATE);
+X`009break;
+X    case UDP_DONE:
+X`009udpdone();
+X`009break;
+X#ifdef GATEWAY
+X    case UDP_GW:
+X`009W_Beep();
+X`009break;
+X#endif
+X    `125
+X`125
+X
+Xudpdone()
+X`123
+X    /* Unmap window */
+X    W_UnmapWindow(udpWin);
+X`125
+X
+$ CALL UNPACK UDPOPT.C;1 658975029
+$ create/nolog 'f'
+X/*
+X * util.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <signal.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+X/*
+X** Provide the angular distance between two angles.
+X*/
+Xangdist(x, y)
+Xunsigned char x, y;
+X`123
+X    register unsigned char res;
+X
+X    if (x>y) res=x-y;
+X    else res=y-x;
+X    if (res > 128)
+X`009return(256 - (int) res);
+X    return((int) res);
+X`125
+X
+X/*
+X** Find the object nearest mouse.  Returns a pointer to an
+X** obtype structure.  This is used for info and locking on.
+X**
+X** Because we are never interested in it, this function will
+X** never return your own ship as the target.
+X**
+X** Finally, this only works on the two main windows
+X*/
+X
+Xstatic struct obtype _target;
+X
+Xstruct obtype *
+Xgettarget(ww, x, y, targtype)
+XW_Window ww;
+Xint x, y;
+Xint targtype;
+X`123
+X    register int i;
+X    register struct player *j;
+X    register struct planet *k;
+X    int`009g_x, g_y;
+X    double dist, closedist;
+X
+X    if (ww == mapw) `123
+X`009g_x = x * GWIDTH / WINSIDE;
+X`009g_y = y * GWIDTH / WINSIDE;
+X    `125
+X    else `123
+X`009g_x = me->p_x + ((x - WINSIDE/2) * SCALE);
+X`009g_y = me->p_y + ((y - WINSIDE/2) * SCALE);
+X    `125
+X    closedist = GWIDTH;
+X
+X    if (targtype & TARG_PLANET) `123
+X`009for (i = 0, k = &planets`091i`093; i < MAXPLANETS; i++, k++) `123
+X`009    dist = hypot((double) (g_x - k->pl_x), (double) (g_y - k->pl_y));
+X`009    if (dist < closedist) `123
+X`009`009_target.o_type = PLANETTYPE;
+X`009`009_target.o_num = i;
+X`009`009closedist = dist;
+X`009    `125
+X
+X`009`125
+X    `125
+X
+X    if (targtype & TARG_PLAYER) `123
+X`009for (i = 0, j = &players`091i`093; i < MAXPLAYER; i++, j++) `123
+X`009    if (j->p_status != PALIVE)
+X`009`009continue;
+X`009    if ((j->p_flags & PFCLOAK) && (!(targtype & TARG_CLOAK)))
+X`009`009continue;
+X`009    if (j == me && !(targtype & TARG_SELF))
+X`009`009continue;
+X`009    dist = hypot((double) (g_x - j->p_x), (double) (g_y - j->p_y));
+X`009    if (dist < closedist) `123
+X`009`009_target.o_type = PLAYERTYPE;
+X`009`009_target.o_num = i;
+X`009`009closedist = dist;
+X`009    `125
+X`009`125
+X    `125
+X
+X    if (closedist == GWIDTH) `123`009`009/* Didn't get one.  bad news */
+X`009_target.o_type = PLAYERTYPE;
+X`009_target.o_num = me->p_no;`009/* Return myself.  Oh well... */
+X`009return(&_target);
+X    `125
+X    else `123
+X`009return(&_target);
+X    `125
+X`125
+X
+X#ifdef hpux
+X
+Xsrandom(foo)
+Xint foo;
+X`123
+X    rand(foo);
+X`125
+X
+Xrandom()
+X`123
+X    return(rand());
+X`125
+X
+X#include <time.h>
+X#include <sys/resource.h>
+X
+Xgetrusage(foo, buf)
+Xint foo;
+Xstruct rusage *buf;
+X`123
+X    buf->ru_utime.tv_sec = 0;
+X    buf->ru_stime.tv_sec = 0;
+X`125
+X
+X#include <sys/signal.h>
+X
+Xint (*
+Xsignal(sig, funct))()
+Xint sig;
+Xint (*funct)();
+X`123
+X    struct sigvec vec, oldvec;
+X
+X    sigvector(sig, 0, &vec);
+X    vec.sv_handler = funct;
+X    sigvector(sig, &vec, (struct sigvec *) 0);
+X`125
+X#endif /*hpux*/
+$ CALL UNPACK UTIL.C;1 1781591964
+$ create/nolog 'f'
+X#include "vmsutils.h"
+X
+X#include <stdio.h>
+X#include <ssdef.h>
+X#include <jpidef.h>
+X
+Xtypedef struct itmlst_str `123
+X  short buffer_length;
+X  short item_code;
+X  long buffer_address;
+X  long retlen_address;
+X`125 Itmlst;
+X
+Xlong random(void) `123
+X  long rand();
+X  return (rand());
+X`125
+X
+Xint fork(void) `123
+X  int vfork();
+X  return (vfork());
+X`125
+X
+Xvoid srandom(int seed) `123
+X  srand(seed);
+X`125
+X
+Xchar *crypt(char *cryptstr, char *key) `123
+X  return (cryptstr);                         /* not really crypted */
+X`125
+X
+Xbcopy(char *from_str, char *to_str, int length) `123
+X  int i;
+X  for (i=0; i<length; i++)
+X    to_str`091i`093 = from_str`091i`093;
+X`125
+X
+Xbzero( char *str, int length) `123
+X  int i;
+X  for (i=0; i<length; i++)`032
+X    str`091i`093 = '\0';
+X`125
+X
+Xchar *index(char *str, char c) `123
+X  while (*str != '\0') `123
+X    if (*str == c)
+X      return (str);
+X    else`032
+X      str++;
+X  `125
+X  return ((char *) 0);
+X`125
+X
+Xchar *rindex(char *str, char c) `123
+X  char *firstc = str;
+X
+X  str += strlen(str);       /* go to the end of the string  */
+X  while (str >= str) `123      /* while not over the beginning */
+X    if (*str == c)         `032
+X      return (str);
+X    else`032
+X      str--;
+X  `125
+X  return ((char *) 0);
+X`125
+X
+Xint bcmp(char *b1, char *b2, int length) `123
+X  int i;
+X
+X  for (i=0; i<length; i++) `123
+X    if (b1`091i`093 != b2`091i`093)
+X      return (-1);  /* strings aren't alike */
+X  `125
+X  return (0);   /* strings are alike */
+X`125
+X
+Xstruct passwd *getpwuid(int not_used) `123
+X  struct passwd *passwd= (struct passwd *) malloc(sizeof(struct passwd));
+X  short retlen;
+X  char *cptr  = malloc(20*sizeof(char));
+X  Itmlst itmlst = `12319, JPI$_USERNAME, (long)cptr, (long)&retlen`125;
+X
+X  passwd->pw_name = cptr;
+X
+X  if (!(sys$getjpiw(NULL, NULL, NULL, &itmlst, NULL, NULL, NULL) & 0x1)) `12
+V3
+X    passwd->pw_name`091retlen`093 = '\0';
+X    while (*cptr) `123          /* find first whitespace and terminate there
+V */
+X      if (*cptr == ' ') `123
+X`009*cptr = '\0';`032
+X      `125
+X      cptr++;
+X    `125
+X    return (passwd);
+X  `125 else `123
+X    strcpy(passwd->pw_name, "VMS-nousername");
+X    return (NULL);
+X  `125
+X`125
+$ CALL UNPACK VMSUTILS.C;1 1431268095
+$ create/nolog 'f'
+X#ifndef VMSUTILS_H
+X#define VMSUTILS_H
+X
+Xstruct passwd `123
+X  char *pw_name;
+X`125;
+X
+X#ifdef NOT
+Xtypedef long fd_set;
+X
+X#define FD_ZERO(fdl)         ((*fdl)=0L)
+X#define FD_SET(fd, fdl)     ((*fdl) `124= (1<<(fd)))
+X#define FD_ISSET(fd, fdl)   ((*fdl) & (1<<(fd)))
+X#endif`032
+X
+X#endif VMSUTILS_H
+X
+$ CALL UNPACK VMSUTILS.H;1 308030016
+$ create/nolog 'f'
+XUDP version of VMSnetrek (beta):
+X
+XWhy UDP?
+X`009Well, using the User Datagram Protocol allows us to bypass some of TCPs
+X(Transport Control Protocol) more file-transfer friendly features.  For
+Xexample, using tcp if an error occurs in the tranmission of a update packet
+Xbeing sent to you, all updates are held up until the lost update times out a
+Vnd
+Xis retransmitted.  Of course, while this retranmission is going on you have`
+V032
+Xbeen destroyed by your enemy.  The UDP protocol does not check for lost`032
+Xpackets and thus you are free to ignore the one lost packet and use the newe
+Vr
+Xones.  For more info about UDP and real time tranmission, see a real time te
+Vxt
+Xor Unix Network Programming (Stevens).
+X
+XTo compile, at the prompt type:
+X
+X`009$ mms defines   ! to build logicals for include files
+X`009$ mms libs      ! to build x11 libraries
+X`009$ mms           ! to compile VMSnetrek.exe
+X
+Xto compile the source, you must have DECwindows/Motif installed, have the X-
+Vwindow`032
+Xheader files, have UCX and its header files, and have mms.  The code may com
+Vpile
+Xwith another IP package; however, it has not been tried by me.  If you do no
+Vt have
+Xthe mms package, you may be able to use gnu make to compile; otherwise you w
+Vill
+Xhave to build it by hand.  The source was compiled by the VAX C compiler ver
+Vsion`032
+X3.1.  If you have any problems or if you make changes, please notify me.
+X
+Xto run, at the prompt type:
+X`009
+X`009$ set display /create /node=yourXnodename /screen=0 /trans=tcpip
+X`009$ VMSnetrek == "$''f$environment("DEFAULT")'VMSnetrek.exe"
+X`009$ VMSnetrek`032
+X
+Xalternatively, you can run the setup file :
+X
+X`009$ @setup <nodename>        !fill in the X window display server for <nod
+Vename>
+X
+XThis will connect you to bigmax.ulowell.edu.  If the bigmax server is not`03
+V2
+Xrunning or if no one is logged on, then use another server.
+X
+X`009$ VMSnetrek -h 128.103.25.59 -p 2592  ! connect to harvard server
+X`009$ VMSnetrek -h bigmax.ulowell.edu -p 2592  ! connect to ulowell server
+X
+XThe display argument is ignored by the VMSnetrek client.  You need to set th
+Ve display
+Xusing the "set display" command above.
+X
+XFor more information on servers read the rec.games.netrek news group.  There
+V`032
+Xis a list of servers and what they run.  A list of current servers is includ
+Ved
+Xwith this distibution.
+X
+XThis client is NOT BLESSED.  This means that you cannot log in to a "bronco"
+Xserver that requires blessed binaries.  I am working on getting the client`0
+V32
+Xblessed, but I need to find someone with reserved.c who can use a vms machin
+Ve.
+XIf you know of such a person please send me mail!
+X
+XYou should be able to play on bigmax all the time (we don't have reserved.c)
+Xand you will be able to play on harvard every other day (when borgs are`032
+Xallowed).
+X
+XPorting info:
+X
+X`009o most problems were caused by name collisions with VMS or
+X`009  function/data types unavalible in VMS
+X`009o all changed code should be surrounded by "#ifdef VMS"
+X
+Xserver code:`032
+X`009
+X`009o I have ported all the server code.  Unfortunately, there remains a`032
+X`009  problem running the ntserver on a VMS system.  Because VMS does not`03
+V2
+X`009  pass it's file descriptors (except a pipe implemented as a mailbox)`03
+V2
+X`009  to child programs like a unix system would after a fork/exec I cannot
+X`009  make a startd.  It is possible that UCX 2.0 will have a inetd
+X`009  which will do this work for us... for those with access to it.
+X`009  Until then, I don't think we will be able to run the server`032
+X`009  on a VMS system without major chages which will then not be`032
+X`009  compatible with the current unix versions.
+X`009  However, if you want to run the server, ask me for the code and
+X`009  I will mail it to you.  It will work if you run the ntserver
+X`009  first (specifying a socket number) and then connect using the`032
+X`009  client.
+X
+XJohn 'MacGyver' Richardson `124"sun dogs fire on the horizon        \ \   \
+Xjrichard@cs.ulowell.edu    `124 meteor rain stars across the night   * *   \
+V   /\
+Xjrichard@duck.ulowell.edu  `124 ...the spark still flies                /\
+V  * /  \
+X                           `124 reflected in another pair of eyes." /\ /  \/
+V\/
+X                                                           ------  \   / /`0
+V32
+X
+X
+X
+$ CALL UNPACK VMS_README.TXT_4;1 1514079118
+$ create/nolog 'f'
+X/*
+X * war.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <signal.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X#include "packets.h"
+X
+Xstatic int newhostile;
+X
+X/* Set up the war window and map it */
+Xstatic char *feds = "FED - ";
+Xstatic char *roms = "ROM - ";
+Xstatic char *klis = "KLI - ";
+Xstatic char *oris = "ORI - ";
+Xstatic char *gos = "  Re-program";
+Xstatic char *exs = "  Exit - no change";
+Xstatic char *peaces = "Peace";
+Xstatic char *hostiles = "Hostile";
+Xstatic char *wars = "War";
+X
+Xwarwindow()
+X`123
+X    W_MapWindow(war);
+X    newhostile = me->p_hostile;
+X    warrefresh();
+X`125
+X
+Xwarrefresh()
+X`123
+X    fillwin(0, feds, newhostile, me->p_swar, FED);
+X    fillwin(1, roms, newhostile, me->p_swar, ROM);
+X    fillwin(2, klis, newhostile, me->p_swar, KLI);
+X    fillwin(3, oris, newhostile, me->p_swar, ORI);
+X    W_WriteText(war, 0, 4, textColor, gos, strlen(gos), 0);
+X    W_WriteText(war, 0, 5, textColor, exs, strlen(exs), 0);
+X`125
+X
+Xfillwin(menunum, string, hostile, warbits, team)
+Xint menunum;
+Xchar *string;
+Xint hostile, warbits;
+Xint team;
+X`123
+X    char buf`09180`093;
+X
+X    if (team & warbits) `123
+X`009(void) sprintf(buf, "  %s%s", string, wars);
+X`009W_WriteText(war, 0, menunum, rColor, buf, strlen(buf), 0);
+X    `125
+X    else if (team & hostile) `123
+X`009(void) sprintf(buf, "  %s%s", string, hostiles);
+X`009W_WriteText(war, 0, menunum, yColor, buf, strlen(buf), 0);
+X    `125
+X    else `123
+X`009(void) sprintf(buf, "  %s%s", string, peaces);
++-+-+-+-+-+-+-+-  END  OF PART 44 +-+-+-+-+-+-+-+-

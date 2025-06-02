@@ -1,0 +1,1913 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Subject: v17i040: xdvi, dvi previewer, Part04/05, Part01/02
+Message-ID: <1992Mar23.190000.18799@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Date: Mon, 23 Mar 1992 19:00:00 GMT
+Approved: dcmartin@msi.com
+
+[ Sorry for the problem on this one.. it was over 64k bytes, and 
+  I needed to split it up. If your unshar program has problems, you
+  might just want to use /bin/sh - dcm ]
+
+Submitted-by: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 40
+Archive-name: xdvi/part04a
+
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 03/23/1992 18:56 UTC by dcmartin@fascet
+# Source directory /n/merlin/u2/ftp/pub/comp.sources.x/volume17/xdvi
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  79591 -rw-r--r-- xdvi.c
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= xdvi.c ==============
+if test -f 'xdvi.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xdvi.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xdvi.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xdvi.c' &&
+/*
+X * DVI previewer for X.
+X *
+X * Eric Cooper, CMU, September 1985.
+X *
+X * Code derived from dvi-imagen.c.
+X *
+X * Modification history:
+X * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X * 12/1988	Added 'R' option, toolkit, magnifying glass
+X *			--Paul Vojta, UC Berkeley.
+X * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X *
+X *	Compilation options:
+X *	SYSV	compile for System V
+X *	VMS	compile for VMS
+X *	X10	compile for X10
+X *	NOTOOL	compile without toolkit (X11 only)
+X *	BUTTONS	compile with buttons on the side of the window (needs toolkit)
+X *	MSBITFIRST	store bitmaps internally with most significant bit first
+X *	BMSHORT	store bitmaps in shorts instead of bytes
+X *	BMLONG	store bitmaps in longs instead of bytes
+X *	ALTFONT	default for -altfont option
+X *	A4	use European size paper
+X */
+X
+#ifndef	ALTFONT
+#define	ALTFONT	"cmr10"
+#endif
+X
+#ifndef	A4
+#define	DEFAULT_PAPER		"us"
+#else
+#define	DEFAULT_PAPER		"a4"
+#endif
+X
+#if	!defined(X10) && !defined(NOTOOL)
+#define	TOOLKIT
+#else
+#undef	TOOLKIT
+#undef	BUTTONS
+#endif
+X
+#include <ctype.h>
+X
+#define	EXTERN
+#define	INIT(x)	=x
+#include "xdvi.h"
+X
+#ifndef lint
+#include "patchlevel.h"
+static	struct {_Xconst char	a[36], b, c, d;}
+#ifndef X10
+X	header = {"$Header: xdvi.c (X11), patchlevel = ", '0' + PATCHLEVEL / 10,
+X		'0' + PATCHLEVEL % 10, 0};
+#else
+X	header = {"$Header: xdvi.c (X10), patchlevel = ", '0' + PATCHLEVEL / 10,
+X		'0' + PATCHLEVEL % 10, 0};
+#endif
+#endif	/* lint */
+X
+#ifndef	X_NOT_STDC_ENV
+#include <stdlib.h>
+#endif
+X
+#ifndef X10
+/* Xlib is already included */
+#include <X11/Xutil.h>
+#include <X11/cursorfont.h>
+#include <X11/keysym.h>
+#include "xdvi.icon"
+#endif /* X10 */
+X
+#ifdef	TOOLKIT
+#undef Boolean
+#include <X11/Intrinsic.h>
+#ifdef OLD_X11_TOOLKIT
+#include <X11/Atoms.h>
+#else /* not OLD_X11_TOOLKIT */
+#include <X11/Xatom.h>
+#include <X11/StringDefs.h>
+#endif /* not OLD_X11_TOOLKIT */
+#include <X11/Shell.h>	/* needed for def. of XtNiconX */
+#ifndef	XtSpecificationRelease
+#define	XtSpecificationRelease	0
+#endif
+#if	XtSpecificationRelease >= 4
+#include <X11/Xaw/Viewport.h>
+#ifdef	BUTTONS
+#include <X11/Xaw/Command.h>
+#endif
+#else	/* XtSpecificationRelease < 4 */
+#include <X11/Viewport.h>
+#ifdef	BUTTONS
+#include <X11/Command.h>
+#endif
+#endif	/* XtSpecificationRelease */
+#else	/* !TOOLKIT */
+#define	XtNumber(arr)	(sizeof(arr)/sizeof(arr[0]))
+typedef	int		Position;
+typedef	unsigned int	Dimension;
+#ifndef X10
+typedef	unsigned int	Pixel;
+#define	XtPending()	XPending(DISP)
+#else
+#define	XtPending	XPending
+#define	XMoveResizeWindow XConfigureWindow
+#endif
+#endif	/* TOOLKIT */
+X
+#ifdef	HAS_SIGIO
+#include <fcntl.h>
+#include <signal.h>
+#endif
+X
+#ifndef X10
+static	Display	*DISP;
+#define	DPY	DISP,
+static	Screen	*SCRN;
+static	Cursor	redraw_cursor, ready_cursor;
+X
+#ifdef	VMS
+/*
+X * Magnifying glass cursor
+X *
+X * Developed by Tom Sawyer, April 1990
+X * Contibuted by Hunter Goatley, January 1991
+X *
+X */
+X
+#define mag_glass_width 16
+#define mag_glass_height 16
+#define mag_glass_x_hot 6
+#define mag_glass_y_hot 6
+static char mag_glass_bits[] = {
+X	0xf8, 0x03, 0x0c, 0x06, 0xe2, 0x09, 0x13, 0x1a, 0x01, 0x14, 0x01, 0x14,
+X	0x01, 0x10, 0x01, 0x10, 0x01, 0x10, 0x03, 0x10, 0x02, 0x18, 0x0c, 0x34,
+X	0xf8, 0x6f, 0x00, 0xd8, 0x00, 0xb0, 0x00, 0xe0
+};
+#include <decw$cursor.h>	/* Include the DECWindows cursor symbols */
+static	int	DECWCursorFont;	/* Space for the DECWindows cursor font  */
+static	Pixmap	MagnifyPixmap;	/* Pixmap to hold our special mag-glass  */
+#endif	/* VMS */
+X
+#define	SetCursor(x)	XDefineCursor(DISP, WINDOW(mane), x)
+#define	ClearPage(wr)	XClearWindow(DISP, WINDOW(wr));
+#define	ClearArea(win, x, y, w, h)	XClearArea(DISP, win, x, y, w, h, False)
+#define	DarkenArea(win, x, y, w, h) \
+X			XFillRectangle(DISP, win, ruleGC, x, y, w, h)
+#define	CopyArea(win, x, y, w, h, x2, y2) \
+X			XCopyArea(DISP, win, win, DefaultGCOfScreen(SCRN), \
+X				x, y, w, h, x2, y2)
+#define	Flush()		XFlush(DISP)
+#ifndef X11HEIGHT
+#define	X11HEIGHT	8	/* Height of server default font */
+#endif
+#else	/* X10 */
+#define	DPY
+#define	GC		int
+#define	SetCursor(x)
+#define	ClearPage(wr)	XClear(WINDOW(wr));
+#define	ClearArea(win, x, y, w, h)	XPixSet(win, x, y, w, h, backpix)
+#define	DarkenArea(win, x, y, w, h)	XPixSet(win, x, y, w, h, foreGC)
+#define	CopyArea(win, x, y, w, h, x2, y2) \
+X			XMoveArea(win, x, y, x2, y2, w, h, GXcopy);
+#define	XBell(a,b)	XFeep(b/10-1)
+#define	Flush()		XFlush()
+#define	ConnectionNumber(DISP)	(_XlibCurrentDisplay->fd)
+#ifndef X10FONT
+#define	X10FONT	"helv10b"	/* Font for X10 error messages */
+#define	X10HEIGHT	10
+#endif
+#endif	/* X10 */
+X
+#define	MAGBORD	1	/* border size for magnifier */
+X
+/*
+X * Command line flags.
+X */
+static	_Xconst	char	*paper		= DEFAULT_PAPER;
+static	char	*sidemargin, *topmargin;
+static	char	*xoffset, *yoffset;
+static	Boolean	reverse;
+static	Dimension	bwidth	= 2;
+static	int	bak_shrink;
+static	char	*debug_arg;
+static	int	mg_size[5] = {200, 350, 600, 900, 1200};
+static	char	*curr_page;
+X
+static	int	pageno_correct	= 1;
+static	Boolean	keep_flag	= False;
+#ifdef	BUTTONS
+Boolean	expert		= False;
+#endif
+X
+#ifndef X10
+#ifdef	TOOLKIT
+X		/* fg and bg colors */
+static	Arg	fore_args = {XtNforeground,	(XtArgVal) 0};
+#define	fore_Pixel	fore_args.value
+static	Arg	back_args = {XtNbackground,	(XtArgVal) 0};
+#define	back_Pixel	back_args.value
+#else	/* !TOOLKIT */
+static	Pixel	fore_Pixel, back_Pixel;
+#endif	/* TOOLKIT */
+static	Pixel	brdr_Pixel, hl_Pixel, cr_Pixel;
+#endif	/* X10 */
+X
+static	char	*fore_color;
+static	char	*back_color;
+static	char	*brdr_color;
+static	char	*high_color;
+static	char	*curs_color;
+static	GC	foreGC, highGC;
+#ifndef X10
+static	GC	ruleGC;
+static	GC	foreGC2;
+#else	/* X10 */
+#define	ruleGC	foreGC
+#endif	/* X10 */
+X
+#define	clip_w	mane.width
+#define	clip_h	mane.height
+static	Dimension	window_w, window_h;
+#ifndef X10
+static	Position	main_x, main_y;
+static	XImage	*image;
+#else	/* X10 */
+#define	main_x	0
+#define	main_y	0
+static	int	GXfunc;
+static	int	backpix, backmap, bdrmap;
+/*
+X * Cursor and mask for valid cursor
+X */
+#include "xdvi_curs.h"
+#include "xdvi_mask.h"
+#endif	/* X10 */
+X
+static	Position mag_x, mag_y, new_mag_x, new_mag_y;
+static	Boolean	mag_moved = False;
+static	int	home_x, home_y;
+static	int	min_x, max_x, min_y, max_y;
+X
+struct WindowRec mane	= {NULL, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+struct WindowRec alt	= {NULL, 1, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+/*	currwin is temporary storage except for within redraw() */
+struct WindowRec currwin = {NULL, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X
+#ifdef	TOOLKIT
+static	Widget	top_level, vport_widget, draw_widget, clip_widget;
+#ifdef	BUTTONS
+static	Widget	form_widget, line_widget, right_widget;
+#endif
+static	Widget	x_bar, y_bar;	/* horizontal and vertical scroll bars */
+X
+static	Arg	vport_args[] = {
+#ifdef	BUTTONS
+X	{XtNborderWidth, (XtArgVal) 0},
+X	{XtNtop,	(XtArgVal) XtChainTop},
+X	{XtNbottom,	(XtArgVal) XtChainBottom},
+X	{XtNleft,	(XtArgVal) XtChainLeft},
+X	{XtNright,	(XtArgVal) XtChainRight},
+#endif
+X	{XtNallowHoriz,	(XtArgVal) True},
+X	{XtNallowVert,	(XtArgVal) True},
+};
+X
+/*	Note:  Argument order in the following is important! */
+X
+static	Arg	draw_args[] = {
+X	{XtNwidth,	(XtArgVal) 0},
+X	{XtNheight,	(XtArgVal) 0},
+X	{XtNx,		(XtArgVal) 0},
+X	{XtNy,		(XtArgVal) 0},
+X	{XtNlabel,	(XtArgVal) ""},
+};
+X
+#ifdef	BUTTONS
+static	Arg	form_args[] = {
+X	{XtNdefaultDistance, (XtArgVal) 0},
+};
+#define	XTRA_WID	79
+X
+static	Arg	line_args[] = {
+X	{XtNbackground,	(XtArgVal) 0},
+X	{XtNwidth,	(XtArgVal) 1},
+X	{XtNheight,	(XtArgVal) 0},
+X	{XtNfromHoriz,	(XtArgVal) NULL},
+X	{XtNborderWidth, (XtArgVal) 0},
+X	{XtNtop,	(XtArgVal) XtChainTop},
+X	{XtNbottom,	(XtArgVal) XtChainBottom},
+X	{XtNleft,	(XtArgVal) XtChainRight},
+X	{XtNright,	(XtArgVal) XtChainRight},
+};
+X
+static	Arg	right_args[] = {
+X	{XtNfromHoriz,	(XtArgVal) NULL},
+X	{XtNwidth,	(XtArgVal) (XTRA_WID - 1)},
+X	{XtNheight,	(XtArgVal) 0},
+X	{XtNborderWidth, (XtArgVal) 0},
+X	{XtNtop,	(XtArgVal) XtChainTop},
+X	{XtNbottom,	(XtArgVal) XtChainBottom},
+X	{XtNleft,	(XtArgVal) XtChainRight},
+X	{XtNright,	(XtArgVal) XtChainRight},
+};
+X
+static	struct {
+X	_Xconst	char	*label;
+X	_Xconst	char	*name;
+X	int	closure;
+X	int	y_pos;
+X	}
+X	command_table[] = {
+X		{"Quit",	"quit",		'q',		50},
+X		{"Shrink1",	"sh1",		1 << 8 | 's',	150},
+X		{"Shrink2",	"sh2",		2 << 8 | 's',	200},
+X		{"Shrink3",	"sh3",		3 << 8 | 's',	250},
+X		{"Shrink4",	"sh4",		4 << 8 | 's',	300},
+X		{"Page-10",	"prev10",	10 << 8 | 'p',	400},
+X		{"Page-5",	"prev5",	5 << 8 | 'p',	450},
+X		{"Prev",	"prev",		'p',		500},
+X		{"Next",	"next",		'n',		600},
+X		{"Page+5",	"next5",	5 << 8 | 'n',	650},
+X		{"Page+10",	"next10",	10 << 8 | 'n',	700},
+};
+X
+static	void	handle_command();
+X
+static	XtCallbackRec	command_call[] = {
+X	{handle_command, NULL},
+X	{NULL,		NULL},
+};
+X
+static	Arg	command_args[] = {
+X	{XtNlabel,	NULL},
+X	{XtNx,		(XtArgVal) 6},
+X	{XtNy,		(XtArgVal) 0},
+X	{XtNwidth,	(XtArgVal) 64},
+X	{XtNheight,	(XtArgVal) 30},
+X	{XtNcallback,	(XtArgVal) command_call},
+};
+X
+#ifdef	NOQUERY
+#define	drawWidgetClass	widgetClass;
+#else
+X
+/* ARGSUSED */
+static	XtGeometryResult
+QueryGeometry(w, constraints, reply)
+X	Widget	w;
+X	XtWidgetGeometry *constraints, *reply;
+{
+X	reply->request_mode = CWWidth | CWHeight;
+X	reply->width = page_w;
+X	reply->height = page_h;
+X	return XtGeometryAlmost;
+}
+X
+#include <X11/IntrinsicP.h>
+#include <X11/CoreP.h>
+X
+X	/* if the following gives you trouble, just compile with -DNOQUERY */
+static	WidgetClassRec	drawingWidgetClass = {
+X  {
+X    /* superclass         */    &widgetClassRec,
+X    /* class_name         */    "Draw",
+X    /* widget_size        */    sizeof(WidgetRec),
+X    /* class_initialize   */    NULL,
+X    /* class_part_initialize*/  NULL,
+X    /* class_inited       */    FALSE,
+X    /* initialize         */    NULL,
+X    /* initialize_hook    */    NULL,
+X    /* realize            */    XtInheritRealize,
+X    /* actions            */    NULL,
+X    /* num_actions        */    0,
+X    /* resources          */    NULL,
+X    /* num_resources      */    0,
+X    /* xrm_class          */    NULLQUARK,
+X    /* compress_motion    */    FALSE,
+X    /* compress_exposure  */    TRUE,
+X    /* compress_enterleave*/    FALSE,
+X    /* visible_interest   */    FALSE,
+X    /* destroy            */    NULL,
+X    /* resize             */    XtInheritResize,
+X    /* expose             */    XtInheritExpose,
+X    /* set_values         */    NULL,
+X    /* set_values_hook    */    NULL,
+X    /* set_values_almost  */    XtInheritSetValuesAlmost,
+X    /* get_values_hook    */    NULL,
+X    /* accept_focus       */    XtInheritAcceptFocus,
+X    /* version            */    XtVersion,
+X    /* callback_offsets   */    NULL,
+X    /* tm_table           */    XtInheritTranslations,
+X    /* query_geometry       */  QueryGeometry,
+X    /* display_accelerator  */  XtInheritDisplayAccelerator,
+X    /* extension            */  NULL
+X  }
+};
+X
+#define	drawWidgetClass	&drawingWidgetClass
+X
+#endif	/* NOQUERY */
+X
+static	void
+create_buttons(h)
+X	XtArgVal	h;
+{
+X	int i;
+X
+X	line_args[2].value = h;
+X	line_args[3].value = (XtArgVal) vport_widget;
+X	line_widget = XtCreateManagedWidget("line", widgetClass, form_widget,
+X		line_args, XtNumber(line_args));
+X	right_args[0].value = (XtArgVal) line_widget;
+X	right_args[2].value = h;
+X	right_widget = XtCreateManagedWidget("right", compositeWidgetClass,
+X		form_widget, right_args, XtNumber(right_args));
+X
+X	command_args[2].value = (XtArgVal) vport_widget;
+X	for (i = 0; i < XtNumber(command_table); ++i) {
+X	    command_args[0].value = (XtArgVal) command_table[i].label;
+X	    command_args[2].value = (XtArgVal) command_table[i].y_pos;
+X	    command_call[0].closure = (caddr_t) command_table[i].closure;
+X	    (void) XtCreateManagedWidget(command_table[i].name,
+X		commandWidgetClass, right_widget,
+X		command_args, XtNumber(command_args));
+X	}
+}
+#endif	/* BUTTONS */
+X
+#else	/* !TOOLKIT */
+#define	BAR_WID		12	/* width of darkened area */
+#define	BAR_THICK	15	/* gross amount removed */
+X
+static	Window	top_level;
+static	Window	x_bar, y_bar;
+static	int	x_bgn, x_end, y_bgn, y_end;	/* scrollbar positions */
+#endif	/* TOOLKIT */
+X
+/*
+X *	Mechanism to keep track of the magnifier window.  The problems are,
+X *	(a) if the button is released while the window is being drawn, this
+X *	could cause an X error if we continue drawing in it after it is
+X *	destroyed, and
+X *	(b) creating and destroying the window too quickly confuses the window
+X *	manager, which is avoided by waiting for an expose event before
+X *	destroying it.
+X */
+static	short	alt_stat;	/* 1 = wait for expose, */
+X				/* -1 = destroy upon expose */
+static	Boolean	alt_canit;	/* stop drawing this window */
+X
+/*
+X *	Data for buffered events.
+X */
+X
+static	Boolean	canit		= False,
+X		has_arg		= False;
+static	short	event_counter	= 0,
+X		event_freq	= 70;
+static	int	number		= 0,
+X		sign		= 1;
+static	jmp_buf	canit_env;
+X
+static	void	can_exposures(), read_events(), keystroke();
+X
+#ifdef	lint
+#ifndef	X10
+char	xdvi_bits[288];
+#ifdef	TOOLKIT
+WidgetClass	viewportWidgetClass, widgetClass;
+WidgetClassRec	widgetClassRec;
+#ifdef	BUTTONS
+WidgetClass	formWidgetClass, compositeWidgetClass, commandWidgetClass;
+#endif	/* BUTTONS */
+#endif	/* TOOLKIT */
+#else	/* X10 */
+short	xdvi_bits[15], xdvi_mask_bits[15];
+Display	*_XlibCurrentDisplay;
+#endif	/* X10 */
+#endif	/* lint */
+X
+#ifdef	sun
+extern	char	*sprintf();
+#endif
+X
+extern	double	atof();
+extern	volatile void	exit();
+X
+/********************************
+X *	  tpic routines		*
+X *******************************/
+X
+/* Things we need from spec_draw, unfortunately */
+X
+/* (ignored for now)
+extern int pen_size, blacken, whiten, shade;
+*/
+X
+#define	toint(x)	((int) ((x) + 0.5))
+#define	xconv(x)	(toint(specialConv*(x))/shrink_factor + PXL_H)
+#define	yconv(y)	(toint(specialConv*(y))/shrink_factor + PXL_V)
+X
+/*
+X *	Draw a line from (fx,fy) to (tx,ty).
+X *	Right now, we ignore pen_size.
+X */
+void
+line_btw(fx, fy, tx, ty)
+int fx, fy, tx, ty;
+{
+X	register int	fcx = xconv(fx),
+X			tcx = xconv(tx),
+X			fcy = yconv(fy),
+X			tcy = yconv(ty);
+X
+X	if ((fcx < max_x || tcx < max_x) && (fcx >= min_x || tcx >= min_x) &&
+X	    (fcy < max_y || tcy < max_y) && (fcy >= min_y || tcy >= min_y))
+#ifndef X10
+X		XDrawLine(DISP, WINDOW(currwin), ruleGC,
+X		    fcx - currwin.base_x, fcy - currwin.base_y,
+X		    tcx - currwin.base_x, tcy - currwin.base_y);
+#else
+X		XLine(WINDOW(currwin),
+X		    fcx - currwin.base_x, fcy - currwin.base_y,
+X		    tcx - currwin.base_x, tcy - currwin.base_y,
+X		    1, 1, ruleGC, GXcopy, AllPlanes);
+#endif
+}
+X
+/*
+X *	Draw a dot at (x,y)
+X */
+void
+dot_at(x, y)
+X	int	x, y;
+{
+X	register int	cx = xconv(x),
+X			cy = yconv(y);
+X
+X	if (cx < max_x && cx >= min_x && cy < max_y && cy >= min_y)
+#ifndef X10
+X	    XDrawPoint(DISP, WINDOW(currwin), ruleGC,
+X		cx - currwin.base_x, cy - currwin.base_y);
+#else
+X	    XPixSet(WINDOW(currwin), cx - currwin.base_x, cy - currwin.base_y,
+X		1, 1, ruleGC);
+#endif
+}
+X
+/*
+X *	Apply the requested attributes to the last path (box) drawn.
+X *	Attributes are reset.
+X *	(Not currently implemented.)
+X */
+X	/* ARGSUSED */
+void
+do_attribute_path(last_min_x, last_max_x, last_min_y, last_max_y)
+int last_min_x, last_max_x, last_min_y, last_max_y;
+{
+}
+X
+/*
+X *	Put a rectangle on the screen.  hl determines the GC.
+X */
+X
+void
+put_rectangle(x, y, w, h, hl)
+X	int x, y, w, h;
+X	Boolean hl;
+{
+X	if (x < max_x && x + w >= min_x && y < max_y && y + h >= min_y) {
+X		if (--event_counter == 0) read_events(False);
+#ifndef X10
+X		XFillRectangle(DISP, WINDOW(currwin), hl ? highGC : ruleGC,
+X		    x - currwin.base_x, y - currwin.base_y,
+X		    w ? w : 1, h ? h : 1);
+#else
+X		XPixSet(WINDOW(currwin), x - currwin.base_x, y - currwin.base_y,
+X		    w ? w : 1, h ? h : 1, hl ? highGC : ruleGC);
+#endif
+X	}
+}
+X
+void
+put_bitmap(bitmap, x, y)
+X	register struct bitmap *bitmap;
+X	register int x, y;
+{
+X
+X	if (debug & DBG_BITMAP)
+X		Printf("X(%d,%d)\n", x - currwin.base_x, y - currwin.base_y);
+X	if (x < max_x && x + bitmap->w >= min_x &&
+X	    y < max_y && y + bitmap->h >= min_y) {
+X		if (--event_counter == 0) read_events(False);
+#ifndef X10
+X		image->width = bitmap->w;
+X		image->height = bitmap->h;
+X		image->data = bitmap->bits;
+X		image->bytes_per_line = bitmap->bytes_wide;
+X		XPutImage(DISP, WINDOW(currwin), foreGC, image,
+X			0, 0,
+X			x - currwin.base_x, y - currwin.base_y,
+X			bitmap->w, bitmap->h);
+X		if (foreGC2)
+X		    XPutImage(DISP, WINDOW(currwin), foreGC2, image,
+X			0, 0,
+X			x - currwin.base_x, y - currwin.base_y,
+X			bitmap->w, bitmap->h);
+#else
+X		XBitmapBitsPut(WINDOW(currwin),
+X			x - currwin.base_x, y - currwin.base_y,
+X			bitmap->w, bitmap->h, bitmap->bits,
+X			foreGC, backpix, NULL, GXfunc, AllPlanes);
+#endif
+X	}
+}
+X
+/*
+X *	Event-handling routines
+X */
+X
+static	void
+expose(windowrec, x, y, w, h)
+X	register struct WindowRec *windowrec;
+X	int	x, y, w, h;
+{
+X	if (windowrec->min_x > x) windowrec->min_x = x;
+X	if (windowrec->max_x < x + w)
+X	    windowrec->max_x = x + w;
+X	if (windowrec->min_y > y) windowrec->min_y = y;
+X	if (windowrec->max_y < y + h)
+X	    windowrec->max_y = y + h;
+}
+X
+static	void
+clearexpose(windowrec, x, y, w, h)
+X	struct WindowRec *windowrec;
+X	int	x, y, w, h;
+{
+X	ClearArea(WINDOW(*windowrec), x, y, w, h);
+X	expose(windowrec, x, y, w, h);
+}
+X
+static	void
+scrollwindow(windowrec, x0, y0)
+X	register struct WindowRec *windowrec;
+X	int	x0, y0;
+{
+X	int	x, y;
+X	int	x2 = 0, y2 = 0;
+X	int	ww, hh;
+X
+X	x = x0 - windowrec->base_x;
+X	y = y0 - windowrec->base_y;
+X	ww = windowrec->width - x;
+X	hh = windowrec->height - y;
+X	windowrec->base_x = x0;
+X	windowrec->base_y = y0;
+X	if (currwin.win == windowrec->win) {
+X	    currwin.base_x = x0;
+X	    currwin.base_y = y0;
+X	}
+X	windowrec->min_x -= x;
+X	if (windowrec->min_x < 0) windowrec->min_x = 0;
+X	windowrec->max_x -= x;
+X	if (windowrec->max_x > windowrec->width)
+X	    windowrec->max_x = windowrec->width;
+X	windowrec->min_y -= y;
+X	if (windowrec->min_y < 0) windowrec->min_y = 0;
+X	windowrec->max_y -= y;
+X	if (windowrec->max_y > windowrec->height)
+X	    windowrec->max_y = windowrec->height;
+X	if (x < 0) {
+X	    x2 = -x;
+X	    x = 0;
+X	    ww = windowrec->width - x2;
+X	}
+X	if (y < 0) {
+X	    y2 = -y;
+X	    y = 0;
+X	    hh = windowrec->height - y2;
+X	}
+X	if (ww <= 0 || hh <= 0) {
+X	    ClearPage(*windowrec);
+X	    windowrec->min_x = windowrec->min_y = 0;
+X	    windowrec->max_x = windowrec->width;
+X	    windowrec->max_y = windowrec->height;
+X	}
+X	else {
+X	    CopyArea(WINDOW(*windowrec), x, y, ww, hh, x2, y2);
+X	    if (x > 0) clearexpose(windowrec, ww, 0, x, windowrec->height);
+X	    if (x2 > 0) clearexpose(windowrec, 0, 0, x2, windowrec->height);
+X	    if (y > 0) clearexpose(windowrec, 0, hh, windowrec->width, y);
+X	    if (y2 > 0) clearexpose(windowrec, 0, 0, windowrec->width, y2);
+X	}
+}
+X
+#ifdef	TOOLKIT
+/*
+X *	routines for X11 toolkit
+X */
+X
+static	Arg	arg_wh[] = {
+X	{XtNwidth,	(XtArgVal) &window_w},
+X	{XtNheight,	(XtArgVal) &window_h},
+};
+X
+static	Position	window_x, window_y;
+static	Arg	arg_xy[] = {
+X	{XtNx,		(XtArgVal) &window_x},
+X	{XtNy,		(XtArgVal) &window_y},
+};
+X
+#define	get_xy()	XtGetValues(draw_widget, arg_xy, XtNumber(arg_xy))
+X
+#define	mane_base_x	0
+#define	mane_base_y	0
+X
+static	void
+home(scrl)
+X	Boolean	scrl;
+{
+X	register int coord;
+X
+X	if (!scrl) XUnmapWindow(DISP, WINDOW(mane));
+X	get_xy();
+X	coord = 0;
+X	if (page_w > clip_w) {
+X	    coord = (page_w - clip_w) / 2;
+X	    if (coord > home_x / mane.shrinkfactor)
+X		coord = home_x / mane.shrinkfactor;
+X	    XtCallCallbacks(x_bar, XtNscrollProc,
+X		(XtPointer) (window_x + coord));
+X	}
+X	coord = 0;
+X	if (page_h > clip_h) {
+X	    coord = (page_h - clip_h) / 2;
+X	    if (coord > home_y / mane.shrinkfactor)
+X		coord = home_y / mane.shrinkfactor;
+X	    XtCallCallbacks(y_bar, XtNscrollProc,
+X		(XtPointer) (window_y + coord));
+X	}
+X	if (!scrl) {
+X	    XMapWindow(DISP, WINDOW(mane));
+X	    /* Wait for the server to catch up---this eliminates flicker. */
+X	    XSync(DISP, False);
+X	}
+}
+X
+static	Boolean	resized	= False;
+X
+static	void
+get_geom()
+{
+X	static	Dimension	new_clip_w, new_clip_h;
+X	static	Arg	arg_wh_clip[] = {
+X		{XtNwidth,	(XtArgVal) &new_clip_w},
+X		{XtNheight,	(XtArgVal) &new_clip_h},
+X	};
+X	register int	old_clip_w;
+X
+X	XtGetValues(vport_widget, arg_wh, XtNumber(arg_wh));
+X	XtGetValues(clip_widget, arg_wh_clip, XtNumber(arg_wh_clip));
+X	/* Note:  widgets may be destroyed but not forgotten */
+X	x_bar = page_w <= new_clip_w ? NULL
+X	    : XtNameToWidget(vport_widget, "horizontal");
+X	y_bar = page_h <= new_clip_h ? NULL
+X	    : XtNameToWidget(vport_widget, "vertical");
+X	old_clip_w = clip_w;
+X			/* we need to do this because */
+X			/* sizeof(Dimension) != sizeof(int) */
+X	clip_w = new_clip_w;
+X	clip_h = new_clip_h;
+X	if (old_clip_w == 0) home(False);
+X	resized = False;
+}
+X
+static	void
+center(x, y)
+X	int x, y;
+{
+/*	We use the clip widget here because it gives a more exact value. */
+X	x -= clip_w/2;
+X	y -= clip_h/2;
+X	if (x_bar) XtCallCallbacks(x_bar, XtNscrollProc, (XtPointer) x);
+X	if (y_bar) XtCallCallbacks(y_bar, XtNscrollProc, (XtPointer) y);
+X	XWarpPointer(DISP, None, None, 0, 0, 0, 0, -x, -y);
+}
+X
+/*
+X *	callback routines
+X */
+X
+/* The following callback routine should never be called. */
+X	/*ARGSUSED*/
+static	void
+handle_key(widget, junk, event)
+X	Widget	widget;
+X	caddr_t	junk;
+X	XEvent	*event;
+{
+X	XBell(DISP, 20);
+}
+X
+X	/*ARGSUSED*/
+static	void
+handle_resize(widget, junk, event)
+X	Widget	widget;
+X	caddr_t	junk;
+X	XEvent	*event;
+{
+X	resized = True;
+}
+X
+#ifdef	BUTTONS
+X	/*ARGSUSED*/
+static	void
+handle_command(widget, client_data, call_data)
+X	Widget	widget;
+X	caddr_t	client_data;
+X	caddr_t	call_data;
+{
+X	keystroke(((int) client_data) & 0xff, ((int) client_data) >> 8,
+X		(((int) client_data) >> 8) != 0, (XEvent *) NULL);
+}
+#endif	/* BUTTONS */
+X
+#else	/* !TOOLKIT */
+X
+/*
+X *	brute force scrollbar routines
+X */
+X
+static	void
+paint_x_bar()
+{
+X	register int	new_x_bgn = mane.base_x * clip_w / page_w;
+X	register int	new_x_end = (mane.base_x + clip_w) * clip_w / page_w;
+X
+X	if (new_x_bgn >= x_end || x_bgn >= new_x_end) {	/* no overlap */
+X	    ClearArea(x_bar, x_bgn, 1, x_end - x_bgn, BAR_WID);
+X	    DarkenArea(x_bar, new_x_bgn, 1, new_x_end - new_x_bgn, BAR_WID);
+X	}
+X	else {		/* this stuff avoids flicker */
+X	    if (x_bgn < new_x_bgn)
+X		ClearArea(x_bar, x_bgn, 1, new_x_bgn - x_bgn, BAR_WID);
+X	    else
+X		DarkenArea(x_bar, new_x_bgn, 1, x_bgn - new_x_bgn, BAR_WID);
+X	    if (new_x_end < x_end)
+X		ClearArea(x_bar, new_x_end, 1, x_end - new_x_end, BAR_WID);
+X	    else
+X		DarkenArea(x_bar, x_end, 1, new_x_end - x_end, BAR_WID);
+X	}
+X	x_bgn = new_x_bgn;
+X	x_end = new_x_end;
+}
+X
+static	void
+paint_y_bar()
+{
+X	register int	new_y_bgn = mane.base_y * clip_h / page_h;
+X	register int	new_y_end = (mane.base_y + clip_h) * clip_h / page_h;
+X
+X	if (new_y_bgn >= y_end || y_bgn >= new_y_end) {	/* no overlap */
+X	    ClearArea(y_bar, 1, y_bgn, BAR_WID, y_end - y_bgn);
+X	    DarkenArea(y_bar, 1, new_y_bgn, BAR_WID, new_y_end - new_y_bgn);
+X	}
+X	else {		/* this stuff avoids flicker */
+X	    if (y_bgn < new_y_bgn)
+X		ClearArea(y_bar, 1, y_bgn, BAR_WID, new_y_bgn - y_bgn);
+X	    else
+X		DarkenArea(y_bar, 1, new_y_bgn, BAR_WID, y_bgn - new_y_bgn);
+X	    if (new_y_end < y_end)
+X		ClearArea(y_bar, 1, new_y_end, BAR_WID, y_end - new_y_end);
+X	    else
+X		DarkenArea(y_bar, 1, y_end, BAR_WID, new_y_end - y_end);
+X	}
+X	y_bgn = new_y_bgn;
+X	y_end = new_y_end;
+}
+X
+static	void
+scrollmane(x, y)
+X	int	x, y;
+{
+X	register int	old_base_x = mane.base_x;
+X	register int	old_base_y = mane.base_y;
+X	if (x > page_w - clip_w) x = page_w - clip_w;
+X	if (x < 0) x = 0;
+X	if (y > page_h - clip_h) y = page_h - clip_h;
+X	if (y < 0) y = 0;
+X	scrollwindow(&mane, x, y);
+X	if (old_base_x != mane.base_x && x_bar) paint_x_bar();
+X	if (old_base_y != mane.base_y && y_bar) paint_y_bar();
+}
+X
+static	void
+reconfig()
+{
+X	int	x_thick = 0;
+X	int	y_thick = 0;
+#ifdef	X10
+X	int	old_clip_w = clip_w;
+X	int	old_clip_h = clip_h;
+X	int	old_x_thick = x_thick;
+X	int	old_y_thick = y_thick;
+#endif
+X
+X		/* determine existence of scrollbars */
+X	if (window_w < page_w) x_thick = BAR_THICK;
+X	if (window_h - x_thick < page_h) y_thick = BAR_THICK;
+X	clip_w = window_w - y_thick;
+X	if (clip_w < page_w) x_thick = BAR_THICK;
+X	clip_h = window_h - x_thick;
+X
+X		/* process drawing (clip) window */
+X	if (mane.win == NULL) {	/* initial creation */
+#ifndef X10
+X	    mane.win = XCreateSimpleWindow(DISP, top_level, y_thick, x_thick,
+X			(unsigned int) clip_w, (unsigned int) clip_h, 0,
+X			brdr_Pixel, back_Pixel);
+X	    XSelectInput(DPY WINDOW(mane), ExposureMask |
+X			ButtonPressMask | ButtonMotionMask | ButtonReleaseMask);
+#else
+X	    mane.win = XCreateWindow(top_level, y_thick, x_thick,
+X			clip_w, clip_h, 0, bdrmap, backmap);
+X	    XSelectInput(WINDOW(mane),  ExposeRegion | ExposeCopy |
+X			ButtonPressed | ButtonReleased |
+X			LeftDownMotion | MiddleDownMotion | RightDownMotion);
+#endif
+X	    XMapWindow(DPY WINDOW(mane));
+X	}
+X	else
+#ifdef	X10
+X	if (clip_w != old_clip_w || clip_h != old_clip_h ||
+X		x_thick != old_x_thick || y_thick != old_y_thick) {
+#endif
+X	    XMoveResizeWindow(DPY WINDOW(mane),
+X		y_thick, x_thick, clip_w, clip_h);
+#ifdef	X10
+X	    XSync(False);
+X	}
+#endif
+X
+X		/* process scroll bars */
+X	if (x_thick) {
+X	    if (x_bar) {
+X		XMoveResizeWindow(DPY x_bar,
+X		    y_thick - 1, -1, clip_w, BAR_THICK - 1);
+X		paint_x_bar();
+X	    }
+X	    else {
+#ifndef X10
+X		x_bar = XCreateSimpleWindow(DISP, top_level, y_thick - 1, -1,
+X				(unsigned int) clip_w, BAR_THICK - 1, 1,
+X				brdr_Pixel, back_Pixel);
+X		XSelectInput(DISP, x_bar,
+X			ExposureMask | ButtonPressMask | Button2MotionMask);
+#else
+X		x_bar = XCreateWindow(top_level,
+X				y_thick - 1, -1, clip_w, BAR_THICK - 1, 1,
+X				bdrmap, backmap);
+X		XSelectInput(x_bar,
+X			ExposeRegion | ButtonPressed | MiddleDownMotion);
+#endif
+X		XMapWindow(DPY x_bar);
+X	    }
+X	    x_bgn = mane.base_x * clip_w / page_w;
+X	    x_end = (mane.base_x + clip_w) * clip_w / page_w;
+X	}
+X	else
+X	    if (x_bar) {
+X		XDestroyWindow(DPY x_bar);
+X		x_bar = NULL;
+X	    }
+X
+X	if (y_thick) {
+X	    if (y_bar) {
+X		XMoveResizeWindow(DPY y_bar,
+X		    -1, x_thick - 1, BAR_THICK - 1, clip_h);
+X		paint_y_bar();
+X	    }
+X	    else {
+#ifndef X10
+X		y_bar = XCreateSimpleWindow(DISP, top_level, -1, x_thick - 1,
+X				BAR_THICK - 1, (unsigned int) clip_h, 1,
+X				brdr_Pixel, back_Pixel);
+X		XSelectInput(DISP, y_bar,
+X			ExposureMask | ButtonPressMask | Button2MotionMask);
+#else
+X		y_bar = XCreateWindow(top_level,
+X				-1, x_thick - 1, BAR_THICK - 1, clip_h, 1,
+X				bdrmap, backmap);
+X		XSelectInput(y_bar,
+X			ExposeRegion | ButtonPressed | MiddleDownMotion);
+#endif
+X		XMapWindow(DPY y_bar);
+X	    }
+X	    y_bgn = mane.base_y * clip_h / page_h;
+X	    y_end = (mane.base_y + clip_h) * clip_h / page_h;
+X	}
+X	else
+X	    if (y_bar) {
+X		XDestroyWindow(DPY y_bar);
+X		y_bar = NULL;
+X	    }
+}
+X
+static	void
+home(scrl)
+X	Boolean	scrl;
+{
+X	int	x = 0, y = 0;
+X
+X	if (page_w > clip_w) {
+X	    x = (page_w - clip_w) / 2;
+X	    if (x > home_x / mane.shrinkfactor)
+X		x = home_x / mane.shrinkfactor;
+X	}
+X	if (page_h > clip_h) {
+X	    y = (page_h - clip_h) / 2;
+X	    if (y > home_y / mane.shrinkfactor)
+X		y = home_y / mane.shrinkfactor;
+X	}
+X	if (scrl)
+X	    scrollmane(x, y);
+X	else {
+X	    mane.base_x = x;
+X	    mane.base_y = y;
+X	    if (currwin.win == mane.win) {
+X		currwin.base_x = x;
+X		currwin.base_y = y;
+X	    }
+X	    if (x_bar) paint_x_bar();
+X	    if (y_bar) paint_y_bar();
+X	}
+}
+X
+#define	get_xy()
+#define	window_x 0
+#define	window_y 0
+#define	mane_base_x	mane.base_x
+#define	mane_base_y	mane.base_y
+#endif	/* TOOLKIT */
+X
+static	void
+compute_mag_pos(xp, yp)
+X	int	*xp, *yp;
+{
+X	register int t;
+X
+X	t = mag_x + main_x - alt.width/2;
+#ifndef X10
+X	if (t > WidthOfScreen(SCRN) - alt.width - 2*MAGBORD)
+X	    t = WidthOfScreen(SCRN) - alt.width - 2*MAGBORD;
+#else
+X	if (t > (int) window_w - alt.width - 2*MAGBORD)
+X	    t = window_w - alt.width - 2*MAGBORD;
+#endif
+X	if (t < 0) t = 0;
+X	*xp = t;
+X	t = mag_y + main_y - alt.height/2;
+#ifndef X10
+X	if (t > HeightOfScreen(SCRN) - alt.height - 2*MAGBORD)
+X	    t = HeightOfScreen(SCRN) - alt.height - 2*MAGBORD;
+#else
+X	if (t > (int) window_h - alt.height - 2*MAGBORD)
+X	    t = window_h - alt.height - 2*MAGBORD;
+#endif
+X	if (t < 0) t = 0;
+X	*yp = t;
+}
+X
+#ifdef	TOOLKIT
+X	/*ARGSUSED*/
+static	void
+handle_button(widget, junk, event)
+X	Widget	widget;
+X	caddr_t	junk;
+#else	/* !TOOLKIT */
+static	void
+handle_button(event)
+#endif	/* TOOLKIT */
+X	XButtonEvent *event;
+{
+X	int x, y;
+#ifndef X10
+X	XSetWindowAttributes attr;
+X
+X	alt.width = alt.height = mg_size[event->button - 1];
+#else
+X	alt.width = alt.height = mg_size[2 - (event->detail & ValueMask)];
+#endif
+X	if (alt.win != NULL || mane.shrinkfactor == 1 || alt.width <= 0)
+X	    XBell(DISP, 20);
+X	else {
+X	    mag_x = event->x;
+X	    mag_y = event->y;
+#ifndef X10
+X	    main_x = event->x_root - mag_x;
+X	    main_y = event->y_root - mag_y;
+#endif
+X	    compute_mag_pos(&x, &y);
+X	    alt.base_x = (event->x + mane_base_x) * mane.shrinkfactor -
+X		alt.width/2;
+X	    alt.base_y = (event->y + mane_base_y) * mane.shrinkfactor -
+X		alt.height/2;
+#ifndef X10
+X	    attr.save_under = True;
+X	    attr.border_pixel = brdr_Pixel;
+X	    attr.background_pixel = back_Pixel;
+X	    attr.override_redirect = True;
+X	    alt.win = XCreateWindow(DISP, RootWindowOfScreen(SCRN),
+X			x, y, alt.width, alt.height, MAGBORD,
+X			0,	/* depth from parent */
+X			InputOutput, CopyFromParent,
+X			CWSaveUnder | CWBorderPixel | CWBackPixel |
+X			CWOverrideRedirect, &attr);
+X	    XSelectInput(DISP, WINDOW(alt), ExposureMask);
+#else
+X	    alt.win = XCreateWindow(WINDOW(mane),
+X			x, y, alt.width, alt.height, MAGBORD,
+X			bdrmap, backmap);
+X	    XSelectInput(WINDOW(alt), ExposeRegion);
+#endif
+X	    XMapWindow(DPY WINDOW(alt));
+X	    alt_stat = 1;	/* waiting for exposure */
+X	}
+}
+X
+#ifdef	TOOLKIT
+X	/*ARGSUSED*/
+static	void
+handle_motion(widget, junk, event)
+X	Widget	widget;
+X	caddr_t	junk;
+X	XMotionEvent *event;
+{
+X	new_mag_x = event->x;
+X	main_x = event->x_root - new_mag_x;
+X	new_mag_y = event->y;
+X	main_y = event->y_root - new_mag_y;
+X	mag_moved = (new_mag_x != mag_x || new_mag_y != mag_y);
+}
+#endif	/* TOOLKIT */
+X
+static	void
+movemag(x, y)
+X	int	x, y;
+{
+X	int	xx, yy;
+X
+X	mag_x = x;
+X	mag_y = y;
+X	if (mag_x == new_mag_x && mag_y == new_mag_y) mag_moved = False;
+X	compute_mag_pos(&xx, &yy);
+X	XMoveWindow(DPY WINDOW(alt), xx, yy);
+X	scrollwindow(&alt, (x + mane_base_x) * mane.shrinkfactor - alt.width/2,
+X	    (y + mane_base_y) * mane.shrinkfactor - alt.height/2);
+}
+X
+#ifdef	TOOLKIT
+X	/*ARGSUSED*/
+static	void
+handle_release(widget, junk, event)
+X	Widget	widget;
+X	caddr_t	junk;
+X	XButtonEvent *event;
+#else	/* !TOOLKIT */
+static	void
+handle_release()
+#endif	/* TOOLKIT */
+{
+X	if (alt.win)
+X	    if (alt_stat) alt_stat = -1;	/* destroy upon expose */
+X	    else {
+X		XDestroyWindow(DPY WINDOW(alt));
+X		if (currwin.win == alt.win) alt_canit = True;
+X		alt.win = NULL;
+X		mag_moved = False;
+X		can_exposures(&alt);
+X	    }
+}
+X
+#ifdef	TOOLKIT
+X	/*ARGSUSED*/
+static	void
+handle_exp(widget, windowrec, event)
+X	Widget	widget;
+X	struct WindowRec *windowrec;
+X	register XExposeEvent *event;
+{
+X	if (windowrec == &alt)
+X	    if (alt_stat < 0) {	/* destroy upon exposure */
+X		alt_stat = 0;
+X		handle_release(widget, (caddr_t) NULL, (XButtonEvent *) event);
+X		return;
+X	    }
+X	    else
+X		alt_stat = 0;
+X	expose(windowrec, event->x, event->y, event->width, event->height);
+}
+#endif	/* TOOLKIT */
+X
+/* |||
+X *	Currently the event handler does not coordinate XCopyArea requests
+X *	with GraphicsExpose events.  This can lead to problems if the window
+X *	is partially obscured and one, for example, drags a scrollbar.
+X */
+X
+#ifndef X10
+#define	XKEY(ev)	(ev).xkey
+#ifndef	TOOLKIT
+#define	XANY(ev)	(ev).xany
+#define	XCONFIG(ev)	(ev).xconfigure
+#define	XEXPOSE(ev)	(ev).xexpose
+#define	XMOTION(ev)	(ev).xmotion
+#define	XBUTTON(ev)	(ev).xbutton
+#define	ISEXPOSE(ev)	((ev).type == Expose)
+#endif	/* TOOLKIT */
+#else	/* X10 */
+#define	XANY(ev)	(ev)
+#define	XCONFIG(ev)	(*((XExposeEvent *) &(ev)))
+#define	XEXPOSE(ev)	(*((XExposeEvent *) &(ev)))
+#define	XMOTION(ev)	(*((XMouseMovedEvent *) &(ev)))
+#define	XBUTTON(ev)	(*((XButtonEvent *) &(ev)))
+#define	XKEY(ev)	(*((XKeyEvent *) &(ev)))
+#define	ConfigureNotify	ExposeWindow
+#define	Expose		ExposeRegion
+#define	ISEXPOSE(ev)	((ev).type == ExposeWindow || (ev).type == ExposeRegion)
+#define	MotionNotify	MouseMoved
+#define	ButtonPress	ButtonPressed
+#define	ButtonRelease	ButtonReleased
+#define	KeyPress	KeyPressed
+#endif	/* X10 */
+X
+static	void
+keystroke(ch, number0, arg0, eventp)
+X	char	ch;
+X	int	number0;
+X	Boolean	arg0;
+X	XEvent	*eventp;
+{
+X	int	next_page;
+#ifdef	TOOLKIT
+X	Window	ww;
+#endif
+X
+X	next_page = current_page;
+X	switch (ch) {
+X	    case 'q':
+X	    case '\003':	/* control-C */
+X	    case '\004':	/* control-D */
+#ifdef	VMS
+X	    case '\032':	/* control-Z */
+#endif
+X		exit(0);
+X	    case 'n':
+X	    case 'f':
+X	    case ' ':
+X	    case '\r':
+X	    case '\n':
+X		/* scroll forward; i.e. go to relative page */
+X		next_page = current_page + (arg0 ? number0 : 1);
+X		break;
+X	    case 'p':
+X	    case 'b':
+X	    case '\b':
+X	    case '\177':	/* Del */
+X		/* scroll backward */
+X		next_page = current_page - (arg0 ? number0 : 1);
+X		break;
+X	    case 'g':
+X		/* go to absolute page */
+X		next_page = (arg0 ? number0 - pageno_correct :
+X		    total_pages - 1);
+X		break;
+X	    case 'P':		/* declare current page */
+X		pageno_correct = arg0 * number0 - current_page;
+X		return;
+X	    case 'k':		/* toggle keep-position flag */
+X		keep_flag = (arg0 ? number0 : !keep_flag);
+X		return;
+X	    case '\f':
+X		/* redisplay current page */
+X		break;
+X	    case '^':
+X		home(True);
+X		return;
+#ifdef	TOOLKIT
+X	    case 'l':
+X		if (!x_bar) goto bad;
+X		XtCallCallbacks(x_bar, XtNscrollProc,
+X		    (XtPointer) (-2 * (int) clip_w / 3));
+X		return;
+X	    case 'r':
+X		if (!x_bar) goto bad;
+X		XtCallCallbacks(x_bar, XtNscrollProc,
+X		    (XtPointer) (2 * (int) clip_w / 3));
+X		return;
+X	    case 'u':
+X		if (!y_bar) goto bad;
+X		XtCallCallbacks(y_bar, XtNscrollProc,
+X		    (XtPointer) (-2 * (int) clip_h / 3));
+X		return;
+X	    case 'd':
+X		if (!y_bar) goto bad;
+X		XtCallCallbacks(y_bar, XtNscrollProc,
+X		    (XtPointer) (2 * (int) clip_h / 3));
+X		return;
+X	    case 'c':
+X		center(eventp->xkey.x, eventp->xkey.y);
+X		return;
+X	    case 'M':
+X		XTranslateCoordinates(DISP, eventp->xkey.window,
+X			WINDOW(mane), eventp->xkey.x, eventp->xkey.y,
+X			&home_x, &home_y, &ww);	/* throw away last argument */
+X		home_x *= mane.shrinkfactor;
+X		home_y *= mane.shrinkfactor;
+X		return;
+#ifdef	BUTTONS
+X	    case 'x':
+X		if (arg0 && expert == (number0 != 0)) return;
+X		if (expert) {	/* create buttons */
+X		    XtResizeWidget(vport_widget, window_w -= XTRA_WID, window_h,
+X			0);
+X		    create_buttons((XtArgVal) window_h);
+X		    expert = False;
+X		}
+X		else {		/* destroy buttons */
+X		    XtResizeWidget(vport_widget, window_w += XTRA_WID, window_h,
+X			0);
+X		    XtDestroyWidget(right_widget);
+X		    XtDestroyWidget(line_widget);
+X		    expert = True;
+X		}
+X		return;
+#endif	/* BUTTONS */
+#else	/* !TOOLKIT */
+X	    case 'l':
+X		if (mane.base_x <= 0) goto bad;
+X		scrollmane(mane.base_x - 2 * clip_w / 3, mane.base_y);
+X		return;
+X	    case 'r':
+X		if (mane.base_x >= page_w - clip_w) goto bad;
+X		scrollmane(mane.base_x + 2 * clip_w / 3, mane.base_y);
+X		return;
+X	    case 'u':
+X		if (mane.base_y <= 0) goto bad;
+X		scrollmane(mane.base_x, mane.base_y - 2 * clip_h / 3);
+X		return;
+X	    case 'd':
+X		if (mane.base_y >= page_h - clip_h) goto bad;
+X		scrollmane(mane.base_x, mane.base_y + 2 * clip_h / 3);
+X		return;
+X	    case 'c':	/* unchecked scrollmane() */
+X		scrollwindow(&mane, mane.base_x + XKEY(*eventp).x - clip_w/2,
+X		    mane.base_y + XKEY(*eventp).y - clip_h/2);
+X		if (x_bar) paint_x_bar();
+X		if (y_bar) paint_y_bar();
+#ifndef X10
+X		XWarpPointer(DISP, None, None, 0, 0, 0, 0,
+X		    clip_w/2 - XKEY(*eventp).x, clip_h/2 - XKEY(*eventp).y);
+#else
+X		XWarpMouse(WINDOW(mane), clip_w/2, clip_h/2, GXcopy);
+#endif
+X		return;
+X	    case 'M':
+X		home_x = (XKEY(*eventp).x - (y_bar ? BAR_THICK : 0)
+X		    + mane.base_x) * mane.shrinkfactor;
+X		home_y = (XKEY(*eventp).y - (x_bar ? BAR_THICK : 0)
+X		    + mane.base_y) * mane.shrinkfactor;
+X		return;
+#endif	/* TOOLKIT */
+X
+#ifndef X10
+X	    case '\020':	/* Control P */
+X		Printf("Unit = %d, bitord = %d, byteord = %d\n",
+X		    BitmapUnit(DISP), BitmapBitOrder(DISP),
+X		    ImageByteOrder(DISP));
+X		return;
+#endif
+X	    case 's':
+X		if (!arg0) {
+X		    int temp;
+X		    number0 = ROUNDUP(unshrunk_page_w, window_w - 2);
+X		    temp = ROUNDUP(unshrunk_page_h, window_h - 2);
+X		    if (number0 < temp) number0 = temp;
+X		}
+X		if (number0 <= 0) goto bad;
+X		if (number0 == mane.shrinkfactor) return;
+X		mane.shrinkfactor = number0;
+X		init_page();
+X		if (number0 != 1 && number0 != bak_shrink) {
+X		    bak_shrink = number0;
+X		    reset_fonts();
+X		}
+#ifdef	TOOLKIT
+X		draw_args[0].value = (XtArgVal) page_w;
+X		draw_args[1].value = (XtArgVal) page_h;
+X		XtSetValues(draw_widget, draw_args, (Cardinal) 2);
+X		get_geom();
+X		home(False);
+#else	/* TOOLKIT */
+X		reconfig();
+X		home(False);
+#endif	/* TOOLKIT */
+X		break;
+X	    case 'S':
+X		if (!arg0) goto bad;
+X		if (number0 < 0) goto bad;
+X		if (number0 == density) return;
+X		density = number0;
+X		reset_fonts();
+X		if (mane.shrinkfactor == 1) return;
+X		break;
+X	    case 'R':
+X		/* reread DVI file */
+X		--dvi_time;	/* then it will notice a change */
+X		break;
+X	    default:
+X		goto bad;
+X	}
+X	if (0 <= next_page && next_page < total_pages) {
+X	    if (current_page != next_page) {
+X		current_page = next_page;
+X		hush_spec_now = hush_spec;
+X		if (!keep_flag) home(False);
+X	    }
+X	    canit = True;
+X	    Flush();
+X	    return;	/* don't use longjmp here:  it might be called from
+X			 * within the toolkit, and we don't want to longjmp out
+X			 * of Xt routines. */
+X	}
+X	bad:  XBell(DISP, 10);
+}
+X
+#ifndef X10
+#define	TRSIZE	100
+#endif	/* X10 */
+static	void
+read_events(wait)
+X	Boolean	wait;
+{
+X	char	ch;
+X	Boolean	arg0;
+X	int	number0;
+X	XEvent	event;
+#ifndef X10
+X	char	trbuf[TRSIZE];
+#endif
+X	char	*string;
+X	int	nbytes;
+X
+X	alt_canit = False;
+X	for (;;) {
+X	    ch = '\0';
+X	    event_counter = event_freq;
+X	    /*
+X	     * The above line clears the flag indicating that an event is
+X	     * pending.  So if an event comes in right now, the flag will be
+X	     * set again needlessly, but we just end up making an extra call.
+X	     * Also, watch out, if we destroy the magnifying glass while
+X	     * writing it.
+X	     */
+X	    if (!XtPending() && (!wait || canit || mane.min_x < MAXDIM ||
+X		    alt.min_x < MAXDIM || mag_moved))
+X		if (!wait && (canit || alt_canit)) longjmp(canit_env, 1);
+X		else return;
+#ifdef	TOOLKIT
+X	    XtNextEvent(&event);
+X	    if (resized) get_geom();
+X	    if (event.xany.window == WINDOW(alt) &&
+X		    event.type == Expose) {
+X		handle_exp((Widget) NULL, &alt, &event.xexpose);
+X		continue;
+X	    }
+X	    if (event.type != KeyPress) {
+X		XtDispatchEvent(&event);
+X		continue;
+X	    }
+X	    string = trbuf;
+X	    nbytes = XLookupString(&event.xkey, string, TRSIZE, NULL, NULL);
+X	    if (nbytes > 1) ch = '?';
+X	    if (nbytes != 0) ch = *string;
+#else	/* !TOOLKIT */
+X
+X	    XNextEvent(DPY &event);
+X	    if (XANY(event).window == WINDOW(mane) ||
+X		XANY(event).window == WINDOW(alt)) {
+X
+X		struct WindowRec *wr = &mane;
+X
+X		if (XANY(event).window == WINDOW(alt)) {
+X		    wr = &alt;
+X		    /* check in case we already destroyed the window */
+X		    if (alt_stat < 0) { /* destroy upon exposure */
+X			alt_stat = 0;
+X			handle_release();
+X			continue;
+X		    }
+X		    else
+X			alt_stat = 0;
+X		}
+X		switch (event.type) {
+#ifndef X10
+X		case GraphicsExpose:
+#else
+X		case ExposeWindow:
+#endif
+X		case Expose:
+#ifdef X10
+X		    if (XEXPOSE(event).detail & ExposeCopy)
+X			ClearArea(event.window,
+X			    XEXPOSE(event).x, XEXPOSE(event).y,
+X			    XEXPOSE(event).width, XEXPOSE(event).height);
+#endif
+X		    expose(wr, XEXPOSE(event).x, XEXPOSE(event).y,
+X			XEXPOSE(event).width, XEXPOSE(event).height);
+#ifdef X10
+X		case ExposeCopy:	/* throw away junk event */
+#endif
+X		    break;
+X
+X		case MotionNotify:
+#ifdef X10
+X		case LeftDownMotion:
+X		case MiddleDownMotion:
+X		case RightDownMotion:
+#endif
+X		    new_mag_x = XMOTION(event).x;
+X		    new_mag_y = XMOTION(event).y;
+X		    mag_moved = (new_mag_x != mag_x || new_mag_y != mag_y);
+X		    break;
+X
+X		case ButtonPress:
+X		    handle_button(&XBUTTON(event));
+X		    break;
+X
+X		case ButtonRelease:
+X		    handle_release();
+X		    break;
+X		}	/* end switch */
+X	    }	/* end if window == {mane,alt}.win */
+X
+X	    else if (XANY(event).window == x_bar) {
+X		if (ISEXPOSE(event))
+X		    DarkenArea(x_bar, x_bgn, 1, x_end - x_bgn, BAR_WID);
+X		else if (event.type == MotionNotify)
+X		    scrollmane(XMOTION(event).x * page_w / clip_w,
+X			mane.base_y);
+#ifndef X10
+X		else switch (XBUTTON(event).button)
+#else
+X		else if (event.type == ButtonPress)
+X		    switch (3 - (XBUTTON(event).detail & ValueMask))
+#endif
+X		{
+X		    case 1:
+X			scrollmane(mane.base_x + XBUTTON(event).x, mane.base_y);
+X			break;
+X		    case 2:
+X			scrollmane(XBUTTON(event).x * page_w / clip_w,
+X			    mane.base_y);
+X			break;
+X		    case 3:
+X			scrollmane(mane.base_x - XBUTTON(event).x, mane.base_y);
+X		}
+X	    }
+X
+X	    else if (XANY(event).window == y_bar) {
+X		if (ISEXPOSE(event))
+X		    DarkenArea(y_bar, 1, y_bgn, BAR_WID, y_end - y_bgn);
+X		else if (event.type == MotionNotify)
+X		    scrollmane(mane.base_x,
+X			XMOTION(event).y * page_h / clip_h);
+#ifndef X10
+X		else switch (XBUTTON(event).button)
+#else
+X		else if (event.type == ButtonPress)
+X		    switch (3 - (XBUTTON(event).detail & ValueMask))
+#endif
+X		{
+X		    case 1:
+X			scrollmane(mane.base_x, mane.base_y + XBUTTON(event).y);
+X			break;
+X		    case 2:
+X			scrollmane(mane.base_x,
+X			    XBUTTON(event).y * page_h / clip_h);
+X			break;
+X		    case 3:
+X			scrollmane(mane.base_x, mane.base_y - XBUTTON(event).y);
+X		}
+X	    }
+X
+X	    else if (XANY(event).window == top_level)
+X		switch (event.type) {
+X		case ConfigureNotify:
+X		    if (XANY(event).window == top_level &&
+X			(XCONFIG(event).width != window_w ||
+X			XCONFIG(event).height != window_h)) {
+X			    register Window old_mane_win = mane.win;
+X
+X			    window_w = XCONFIG(event).width;
+X			    window_h = XCONFIG(event).height;
+X			    reconfig();
+X			    if (old_mane_win == NULL) home(False);
+X		    }
+X		    break;
+X
+#ifndef X10
+X		case MapNotify:		/* if running w/o WM */
+X		    if (mane.win == NULL) {
+X			reconfig();
+X			home(False);
+X		    }
+X		    break;
+#endif
+X
+X		case KeyPress:
+#ifndef X10
+X		    string = trbuf;
+X		    nbytes = XLookupString(&event.xkey, string, TRSIZE, NULL,
+X			NULL);
+#else
+X		    string = XLookupMapping(&event, &nbytes);
+#endif
+X		    if (nbytes > 1) ch = '?';
+X		    if (nbytes != 0) ch = *string;
+X		    break;
+X		}
+#endif	/* TOOLKIT */
+X	    if (ch == '\0') continue;
+X	    if (ch >= '0' && ch <= '9') {
+X		has_arg = True;
+X		number = number * 10 + sign * (ch - '0');
+X		continue;
+X	    }
+X	    else if (ch == '-') {
+X		has_arg = True;
+X		sign = -1;
+X		number = 0;
+X		continue;
+X	    }
+X	    number0 = number;
+X	    number = 0;
+X	    sign = 1;
+X	    arg0 = has_arg;
+X	    has_arg = False;
+X	    keystroke(ch, number0, arg0, &event);
+X	}
+}
+X
+static	void
+redraw(windowrec)
+X	struct WindowRec *windowrec;
+{
+X	char	*errtext;
+#ifdef X10
+X	static FontInfo *font = 0;
+#endif
+X
+X	currwin = *windowrec;
+X	min_x = currwin.min_x + currwin.base_x;
+X	min_y = currwin.min_y + currwin.base_y;
+X	max_x = currwin.max_x + currwin.base_x;
+X	max_y = currwin.max_y + currwin.base_y;
+X	can_exposures(windowrec);
+X
+X	if (debug & DBG_EVENT)
+X	    Printf("Redraw %d x %d at (%d, %d) (base=%d,%d)\n", max_x - min_x,
+X		max_y - min_y, min_x, min_y, currwin.base_x, currwin.base_y);
+X	SetCursor(redraw_cursor);
+X	Flush();
+X	if (errtext = (char *) setjmp(dvi_env)) {
+X	    ClearPage(mane);
+#ifndef X10
+X	    get_xy();
+X	    XDrawString(DISP, WINDOW(mane), foreGC,
+X		5 - window_x, 5 + X11HEIGHT - window_y,
+X		errtext, strlen(errtext));
+#else
+X	    if (!font) font = XOpenFont(X10FONT);
+X	    XTextMask(WINDOW(mane), 5, 5 + X10HEIGHT, errtext, strlen(errtext),
+X		font->id, foreGC);
+#endif
+X	    if (dvi_file) {
+X		Fclose(dvi_file);
+X		dvi_file = NULL;
+X	    }
+X	}
+X	else {
+X	    draw_page();
+X	    hush_spec_now = True;
+X	}
+}
+X
+void
+redraw_page()
+{
+X	if (debug & DBG_EVENT) Fputs("Redraw page:  ", stdout);
+X	get_xy();
+X	ClearPage(mane);
+X	mane.min_x = -window_x;
+X	mane.max_x = -window_x + clip_w;
+X	mane.min_y = -window_y;
+X	mane.max_y = -window_y + clip_h;
+X	redraw(&mane);
+}
+X
+/*
+X *	Interrupt system for receiving events.  The program sets a flag
+X *	whenever an event comes in, so that at the proper time (i.e., when
+X *	reading a new dvi item), we can check incoming events to see if we
+X *	still want to go on printing this page.  This way, one can stop
+X *	displaying a page if it is about to be erased anyway.  We try to read
+X *	as many events as possible before doing anything and base the next
+X *	action on all events read.
+X *	Note that the Xlib and Xt routines are not reentrant, so the most we
+X *	can do is set a flag in the interrupt routine and check it later.
+X *	Also, sometimes the interrupts are not generated (some systems only
+X *	guarantee that SIGIO is generated for terminal files, and on the system
+X *	I use, the interrupts are not generated if I use "(xdvi foo &)" instead
+X *	of "xdvi foo").  Therefore, there is also a mechanism to check the
+X *	event queue every 70 drawing operations or so.  This mechanism is
+X *	disabled if it turns out that the interrupts do work.
+X *	For a fuller discussion of some of the above, see xlife in
+X *	comp.sources.x.
+X */
+X
+static	void
+can_exposures(windowrec)
+X	struct WindowRec *windowrec;
+{
+X	windowrec->min_x = windowrec->min_y = MAXDIM;
+X	windowrec->max_x = windowrec->max_y = 0;
+}
+X
+static	void
+handle_intr() {
+X	event_counter = 1;
+X	event_freq = -1;	/* forget Plan B */
+}
+X
+#ifdef	HAS_SIGIO
+static	void
+enable_intr() {
+X	int	socket	= ConnectionNumber(DISP);
+X	if (!isatty(0)) {
+X	    puts("trying...");
+X	    if (dup2(socket, 0) == -1) perror(prog);
+X	    socket = 0;
+X	}
+X	(void) signal(SIGIO, handle_intr);
+X	(void) fcntl(socket, F_SETOWN, getpid());
+X	(void) fcntl(socket, F_SETFL, fcntl(socket, F_GETFL, 0) | FASYNC);
+}
+#endif	/* HAS_SIGIO */
+X
+static	void
+do_pages()
+{
+X	if (debug & DBG_BATCH) {
+#ifdef	TOOLKIT
+X	    while (mane.min_x == MAXDIM) read_events(True);
+#else	/* !TOOLKIT */
+X	    while (mane.min_x == MAXDIM)
+X		if (setjmp(canit_env)) break;
+X		else read_events(True);
+#endif	/* TOOLKIT */
+X	    for (current_page = 0; current_page < total_pages; ++current_page)
+X		redraw_page();
+X	}
+X	else {	/* normal operation */
+#ifdef	HAS_SIGIO
+X	    enable_intr();
+#endif
+X	    (void) setjmp(canit_env);
+X	    for (;;) {
+X		if (mane.win) SetCursor(ready_cursor);
+X		read_events(True);
+X		if (canit) {
+X		    canit = False;
+X		    can_exposures(&mane);
+X		    can_exposures(&alt);
+X		    redraw_page();
+X		}
+X		else if (mag_moved) {
+X		    if (alt.win == NULL) mag_moved = False;
+X		    else if (abs(new_mag_x - mag_x) >
+X			2 * abs(new_mag_y - mag_y))
+X			    movemag(new_mag_x, mag_y);
+X		    else if (abs(new_mag_y - mag_y) >
+X			2 * abs(new_mag_x - mag_x))
+X			    movemag(mag_x, new_mag_y);
+X		    else movemag(new_mag_x, new_mag_y);
+X		}
+X		else if (alt.min_x < MAXDIM) redraw(&alt);
+X		else if (mane.min_x < MAXDIM) redraw(&mane);
+X		Flush();
+X	    }
+X	}
+}
+X
+static	volatile void
+usage() {
+#ifndef X10
+#ifndef	VMS
+#ifdef	BUTTONS
+X	Fputs("\
+Usage: xdvi [+[<page>]] [-s <shrink>] [-S <density>] [-p <pixels>] [-l] [-rv]\n\
+X	[-expert] [-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X	[-hushspecials] [-hushchars] [-hush]\n\
+X	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+[-cr <color>]\n\
+X	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X	[-iconic] [-display <host:display>] [-copy] [-thorough] dvi_file\n",
+X	stderr);
+#else	/* !BUTTONS */
+X	Fputs("\
+Usage: xdvi [+[<page>]] [-s <shrink>] [-S <density>] [-p <pixels>] [-l] [-rv]\n\
+X	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X	[-hushspecials] [-hushchars] [-hush]\n\
+X	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+[-cr <color>]\n\
+X	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X	[-iconic] [-display <host:display>] [-copy] [-thorough] dvi_file\n",
+X	stderr);
+#endif	/* BUTTONS */
+#else	/* VMS */
+X	Fputs("\
+Usage: xdvi [+[<page>]] [-s <shrink>] [-density <%>] [-p <pixels>] [-l] [-rv]\n\
+X	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\
+\n", stderr);
+X	Fputs("\
+X	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X	[-hushspecials] [-hushchars] [-hush]\n\
+X	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+[-cr <color>]\n\
+X	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X	[-iconic] [-display <host::display>] [-copy] [-thorough] dvi_file\n",
+SHAR_EOF
+true || echo 'restore of xdvi.c failed'
+fi
+echo 'End of  part 1'
+echo 'File xdvi.c is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

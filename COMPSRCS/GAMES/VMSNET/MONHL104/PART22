@@ -1,0 +1,1465 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 22/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.064856.11108@klaava.Helsinki.FI>
+Date: 14 Jun 92 06:48:56 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1453
+
+Archieve-name: monster_helsinki_104/part22
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 22/32
+
+-+-+-+-+-+-+-+-+ START OF PART 22 -+-+-+-+-+-+-+-+
+X`009for i := 1 to maxplayers do
+X`009`009if anint.int`091i`093 = loc then
+X`009`009`009anint.int`091i`093 := 1;
+X`009putint;
+Xend;
+X
+X
+Xprocedure do_zap(s: string);
+Xlabel exit_label;
+Xvar
+X`009loc: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009if s = '' then grab_line('Room? ',s,eof_handler := leave);
+X
+X`009gethere;
+X`009if checkhide then begin
+X`009if lookup_room(loc,s,true) then begin
+X`009`009gethere(loc);
+X`009`009if (here.owner = userid) or (owner_priv) then begin `123 minor chang
+Ve by leino@finuha `125
+X`009`009`009clear_people(loc);
+X`009`009`009if find_numpeople = 0 then begin
+X`009`009`009`009if find_numexits = 0 then begin
+X`009`009`009`009`009if find_numobjs = 0 then begin
+X`009`009`009`009`009`009del_room(loc);
+X`009`009`009`009`009`009writeln('Room deleted.');
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('You must remove all of the objects from tha
+Vt room first.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('You must delete all of the exits from that room
+V first.');
+X`009`009`009end else
+X`009`009`009`009writeln('Sorry, you cannot destroy a room if people are stil
+Vl in it.');
+X`009`009end else
+X`009`009`009writeln('You are not the owner of that room.');
+X`009end else
+X`009`009writeln('There is no room named ',s,'.');
+X`009end;
+X    exit_label:
+Xend;
+X
+X`123 custom_room moved to module CUSTOM `125
+X
+X
+X`123 procedure do_custom moved to module CUSTOM `125
+X
+Xprocedure reveal_people(var three: boolean);
+Xvar
+X`009retry,i: integer;
+X
+Xbegin
+X`009if debug then
+X`009`009writeln('%revealing people');
+X`009three := false;
+X`009retry := 1;
+X
+X`009repeat
+X`009`009retry := retry + 1;
+X`009`009i := (rnd100 mod maxpeople) + 1;
+X`009`009if (here.people`091i`093.hiding > 0) and
+X`009`009`009`009(i <> myslot) then begin
+X`009`009`009three := true;
+X`009`009`009writeln('You''ve found ',here.people`091i`093.name,' hiding in t
+Vhe shadows!');
+X`009`009`009log_event(myslot,E_FOUNDYOU,i,0);
+X`009`009end;
+X`009until (retry > 7) or three;
+Xend;
+X
+X
+X
+Xprocedure reveal_objects(var two: boolean);
+Xvar
+X`009tmp: string;
+X`009i: integer;
+X`009modified: boolean;
+X
+Xbegin
+X    if debug then
+X`009writeln('%revealing objects');
+X    two := false;
+X    modified := false;
+X    getroom;
+X    for i := 1 to maxobjs do begin
+X`009if here.objs`091i`093 <> 0 then`009`123 if there is an object here `125
+X`009    if (here.objhide`091i`093 <> 0) then begin
+X`009`009two := true;
+X
+X`009`009if here.objhide`091i`093 = DEFAULT_LINE then`032
+X`009`009    writeln('You''ve found ',obj_part(here.objs`091i`093),'.')
+X`009`009else begin
+X`009`009    print_desc(here.objhide`091i`093);
+X`009`009    delete_block(here.objhide`091i`093);
+X`009`009end;
+X`009`009here.objhide`091i`093 := 0; `123 mark them unhidden `125
+X`009`009`123 delete_block make this also - but writeln not ! `125
+X`009`009modified := true;   `123 mark: must write to database `125
+X`009    end;
+X    end;
+X    if modified then putroom else freeroom;
+Xend;
+X
+X
+Xprocedure reveal_exits(var one: boolean);
+Xvar
+X`009retry,i: integer;
+X
+Xbegin
+X`009if debug then
+X`009`009writeln('%revealing exits');
+X`009one := false;
+X`009retry := 1;
+X
+X`009repeat
+X`009`009retry := retry + 1;
+X`009`009i := (rnd100 mod maxexit) + 1;  `123 a random exit `125
+X`009`009if (here.exits`091i`093.hidden <> 0) and (not found_exit`091i`093) t
+Vhen begin
+X`009`009`009one := true;
+X`009`009`009found_exit`091i`093 := true;`009`123 mark exit as found `125
+X
+X`009`009`009if here.exits`091i`093.hidden = DEFAULT_LINE then begin
+X`009`009`009`009if here.exits`091i`093.alias = '' then
+X`009`009`009`009`009writeln('You''ve found a hidden exit: ',direct`091i`093,
+V'.')
+X`009`009`009`009else
+X`009`009`009`009`009writeln('You''ve found a hidden exit: ',here.exits`091i`
+V093.alias,'.');
+X`009`009`009end else
+X`009`009`009`009print_desc(here.exits`091i`093.hidden);
+X`009`009end;
+X`009until (retry > 4) or (one);
+Xend;
+X
+X
+Xprocedure do_search(s: string);
+Xvar
+X`009chance: integer;
+X`009found,dummy: boolean;
+X
+Xbegin
+X`009if checkhide then begin
+X`009`009chance := rnd100;
+X`009`009found := false;
+X`009`009dummy := false;
+X
+X`009`009if chance in `0911..20`093 then
+X`009`009`009reveal_objects(found)
+X`009`009else if chance in `09121..40`093 then
+X`009`009`009reveal_exits(found)
+X`009`009else if chance in `09141..60`093 then
+X`009`009`009reveal_people(dummy);
+X
+X`009`009if found then begin
+X`009`009`009log_event(myslot,E_FOUND,0,0);
+X`009`009end else if not(dummy) then begin
+X`009`009`009log_event(myslot,E_SEARCH,0,0);
+X`009`009`009writeln('You haven''t found anything.');
+X`009`009end;
+X`009end;
+Xend;
+X
+Xprocedure do_unhide(s: string);
+X
+Xbegin
+X`009if s = '' then begin
+X`009`009if hiding then begin
+X`009`009`009hiding := false;
+X`009`009`009log_event(myslot,E_UNHIDE,0,0);
+X`009`009`009getroom;
+X`009`009`009here.people`091myslot`093.hiding := 0;
+X`009`009`009putroom;
+X`009`009`009writeln('You are no longer hiding.');
+X`009`009end else
+X`009`009`009writeln('You were not hiding.');
+X`009end;
+Xend;
+X
+X
+Xprocedure do_hide(s: string);
+Xlabel 0; `123 for panic `125
+Xvar
+X`009slot,n,oldloc: integer;
+X`009founddsc: integer;
+X`009tmp: string;
+X
+X    function action(s: shortstring; n: integer): boolean;
+X    begin
+X`009if obj_here(n) then begin
+X`009    writeln('Enter the description the player will see when the ',s,' is
+V found:');
+X`009    writeln('(if no description is given a default will be supplied)');
+X`009    writeln;
+X`009    writeln('`091 Editing the "object found" description `093');
+X
+X`009    founddsc := 0;
+X`009    if edit_desc(founddsc) then ;
+X`009    if founddsc = 0 then
+X`009`009founddsc := DEFAULT_LINE;
+X  `032
+X`009    if oldloc <> location then begin
+X`009`009delete_block(founddsc);
+X`009`009goto 0; `123 panic `125
+X`009    end;
+X
+X`009    getroom;
+X`009    slot := find_obj(n);
+X`009    here.objhide`091slot`093 := founddsc;
+X`009    putroom;
+X
+X`009    tmp := obj_part(n);
+X`009    log_event(myslot,E_HIDOBJ,0,0,tmp);
+X`009    writeln('You have hidden ',tmp,'.');
+X`009    action := true;
+X`009end else if obj_hold(n) then begin
+X`009    writeln('You''ll have to put ',s,' down before it can be hidden.');
+X`009    action := true;
+X`009end else action := false;
+X`009checkevents(TRUE);
+X`009if oldloc <> location then goto 0; `123 panic `125
+X    end; `123 action `125
+X
+X    function restriction (n: integer): boolean;
+X`009begin
+X`009    restriction := obj_here(n,false) or obj_hold(n);
+X`009    `123 false = found also hidden objects `125
+X`009end;
+X
+Xbegin
+X`009gethere;
+X`009if s = '' then begin`009`123 hide yourself `125
+X
+X`009`009`009`123 don't let them hide (or hide better) if people
+X`009`009`009  that they can see are in the room.  Note that the
+X`009`009`009  use of n_can_see instead of find_numpeople will
+X`009`009`009  let them hide if other people are hidden in the
+X`009`009`009  room that they have not seen.  The previously hidden
+X`009`009`009  people will see them hide `125
+X
+X`009`009if n_can_see > 0 then begin
+X`009`009`009if hiding then
+X`009`009`009`009writeln('You can''t hide any better with people in the room.
+V')
+X`009`009`009else
+X`009`009`009`009writeln('You can''t hide when people are watching you.');
+X`009`009end else if (rnd100 > 25) then begin
+X`009`009`009if here.people`091myslot`093.hiding >= 4 then
+X`009`009`009`009writeln('You''re pretty well hidden now.  I don''t think you
+V could be any less visible.')
+X`009`009`009else begin
+X`009`009`009`009getroom;
+X`009`009`009`009here.people`091myslot`093.hiding :=`032
+X`009`009`009`009`009`009here.people`091myslot`093.hiding + 1;
+X`009`009`009`009putroom;
+X`009`009`009`009if hiding then begin
+X`009`009`009`009`009log_event(myslot,E_NOISES,rnd100,0);
+X`009`009`009`009`009writeln('You''ve managed to hide yourself a little bette
+Vr.');
+X`009`009`009`009end else begin
+X`009`009`009`009`009log_event(myslot,E_IHID,0,0);
+X`009`009`009`009`009writeln('You''ve hidden yourself from view.');
+X`009`009`009`009`009hiding := true;
+X`009`009`009`009end;
+X`009`009`009end;
+X`009`009end else begin `123 unsuccessful `125
+X`009`009`009if hiding then
+X`009`009`009`009writeln('You could not find a better hiding place.')
+X`009`009`009else
+X`009`009`009`009writeln('You could not find a good hiding place.');
+X`009`009end;
+X`009end else begin`009`123 Hide an object `125
+X`009`009oldloc := location;
+X`009`009if scan_obj(action,s,,restriction) then begin
+X`009`009end else
+X`009`009`009writeln('I see no such object here.');
+X`009end;
+X`0090:  `123 for panic `125
+Xend;
+X
+X
+Xprocedure do_punch(s: string);
+Xlabel exit_label;
+Xvar
+X`009sock,n: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+X
+Xbegin
+X`009if s = '' then grab_line('Victim? ',s,eof_handler := leave);
+X
+X`009if not read_global_flag(GF_WARTIME) then
+X`009    writeln('Don''t you dare disturb the Pax Monstruosa!')
+X`009else if s <> '' then begin
+X`009`009if parse_pers(n,s) then begin
+X`009  `009`009if n = myslot then
+X`009`009`009`009writeln('Self-abuse will not be tolerated in the Monster uni
+Vverse.')
+X`009`009`009else if protected(n) then begin
+X`009`009`009`009log_event(myslot,E_TRYPUNCH,n,0);
+X`009`009`009`009writeln('A mystic shield of force prevents you from attackin
+Vg.');
+X`009`009`009end else if (here.people`091n`093.experience >= protect_exp) `12
+V3 and protected_MM `125 then begin
+X`009`009`009`009log_event(myslot,E_TRYPUNCH,n,0);
+X`009`009`009`009writeln('You can''t punch that person.');
+X`009  `009`009end else begin
+X`009`009`009`009if hiding then begin
+X`009`009`009`009`009hiding := false;
+X
+X`009  `009`009`009`009getroom;
+X`009`009`009`009`009here.people`091myslot`093.hiding := 0;
+X`009`009`009`009`009putroom;
+X                                `032
+X`009`009`009`009`009log_event(myslot,E_HIDEPUNCH,n,0);
+X`009  `009`009`009`009writeln('You pounce unexpectedly on ',here.people`091n
+V`093.name,'!');
+X                                        if here.people`091n`093.kind = P_MON
+VSTER then attack_monster(n,2);
+X`009`009`009`009end else begin
+X`009`009`009`009`009if myexperience < (rnd100 div 3) then
+X                                          sock := (rnd100 mod numpunches)+1
+X                                        else sock := BAD_PUNCH;
+X
+X`009`009`009`009`009log_event(myslot,E_PUNCH,n,sock);
+X`009`009`009`009`009put_punch(sock,here.people`091n`093.name);
+X                                        if here.people`091n`093.kind = P_MON
+VSTER then attack_monster(n,punch_force(sock));
+X`009  `009`009`009end;
+X`009`009`009`009wait(1+random*3);`009`123 Ha ha ha `125
+X`009`009`009end;
+X`009`009end else
+X`009`009`009writeln('That person cannot be seen in this room.');
+X`009end else
+X`009`009writeln('To punch somebody, type PUNCH <personal name>.');
+X    exit_label:
+Xend;
+X
+X`123 procedure do_program moved to module CUSTOM `125
+X
+X`123 returns TRUE if anything was actually dropped `125
+Xfunction drop_everything;
+X`123 forward function drop_everything(pslot: integer := 0): boolean; `125
+Xvar
+X`009i: integer;
+X`009slot: integer;
+X`009didone: boolean;
+X`009theobj: integer;
+X`009tmp: string;
+X
+Xbegin
+X`009if pslot = 0 then
+X`009`009pslot := myslot;
+X
+X`009gethere;
+X`009didone := false;
+X
+X`009mywield := 0;
+X`009mywear := 0;
+X`009mydisguise := 0;
+X
+X`009for i := 1 to maxhold do begin
+X`009`009if here.people`091pslot`093.holding`091i`093 <> 0 then begin
+X`009`009`009didone := true;
+X`009`009`009theobj := here.people`091pslot`093.holding`091i`093;
+X`009`009`009slot := i;
+X`009`009`009if place_obj(theobj,TRUE) then begin
+X`009`009`009   `032
+X`009`009`009    drop_obj(slot,pslot);
+X`009`009`009   `032
+X`009`009`009    getobj(theobj);
+X`009`009`009    freeobj;
+X
+X`009`009`009    if obj.actindx > 0 then begin
+X`009`009`009`009run_monster('',obj.actindx,'drop you','','',
+X`009`009`009`009    sysdate+' '+systime);
+X
+X`009`009`009`009gethere;`009`123 necessary after run_monster `125
+X`009`009`009    end;
+X
+X`009`009`009end else begin`009`123 no place to put it, it's lost .... `125
+X`009`009`009`009getobj(theobj);
+X`009`009`009`009obj.numexist := obj.numexist - 1;
+X`009`009`009`009putobj;
+X`009`009`009`009tmp := obj.oname;
+X`009`009`009`009writeln('The ',tmp,' was lost.');
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X
+X`009drop_everything := didone;
+Xend;
+X
+Xprocedure do_endplay(lognum: integer;ping:boolean := FALSE);
+X
+X`123 If update is true do_endplay will update the "last play" date & time
+X  we don't want to do this if this endplay is called from a ping `125
+X
+Xbegin
+X`009if not(ping) then begin
+X`009`009`009`123 Set the "last date & time of play" `125
+X`009`009getdate;
+X`009`009adate.idents`091lognum`093 := sysdate + ' ' + systime;
+X`009`009putdate;
+X`009end;
+X
+X
+X`009`123 Put the player to sleep.  Don't delete his information,
+X`009  so it can be restored the next time they play. `125
+X
+X`009getindex(I_ASLEEP);
+X`009indx.free`091lognum`093 := true;`009`123 Yes, I'm asleep `125
+X`009putindex;
+Xend;
+X
+X
+Xfunction check_person(n: integer;id: string):boolean;
+X
+Xbegin
+X`009inmem := false;
+X`009gethere;
+X`009if here.people`091n`093.username = id then
+X`009`009check_person := true
+X`009else
+X`009`009check_person := false;
+Xend;
+X
+X
+Xfunction nuke_person(n: integer;id: string): boolean;
+Xvar
+X`009lognum: integer;
+X`009tmp: string;
+X
+Xbegin
+X`009getroom;
+X`009if here.people`091n`093.username = id then begin
+X
+X`009`009`009`123 drop everything they're carrying `125
+X`009`009drop_everything(n);
+X
+X`009`009tmp := here.people`091n`093.username;
+X`009`009`009`123 we'll need this for do_endplay `125
+X
+X`009`009`009`123 Remove the person from the room `125
+X`009`009here.people`091n`093.kind := 0;
+X`009`009here.people`091n`093.username := '';
+X`009`009here.people`091n`093.name := '';
+X`009`009putroom;
+X
+X`009`009`009`123 update the log entries for them `125
+X`009`009`009`123 but first we have to find their log number
+X`009`009`009  (mylog for them).  We can do this with a lookup_user
+X`009`009`009  give the userid we got above `125
+X
+X`009`009if lookup_user(lognum,tmp) then begin
+X`009`009`009do_endplay(lognum,TRUE);
+X`009`009`009`009`123 TRUE tells do_endplay not to update the
+X`009`009`009`009  "time of last play" information 'cause we
+X`009`009`009`009  don't know how long the "zombie" has been
+X`009`009`009`009  there. `125
+X`009`009end else
+X`009`009`009writeln('%error in nuke_person; can''t fing their log number; no
+Vtify the Monster Manager');
+X
+X`009`009nuke_person := true;
+X`009end else begin
+X`009`009freeroom;
+X`009`009nuke_person := false;
+X`009end;
+Xend;
+X
+X
+Xfunction ping_player(n:integer;silent: boolean := false): boolean;
+Xvar
+X`009retry: integer;
+X`009id: string;
+X`009idname: string;
+X        kind: integer;
+X
+Xbegin
+X`009ping_player := false;
+X
+X`009id := here.people`091n`093.username;
+X`009idname := here.people`091n`093.name;
+X        kind := here.people`091n`093.kind;
+X
+X`009if kind = P_PLAYER then begin
+X`009`009retry := 0;
+X`009`009ping_answered := false;
+X
+X`009`009repeat
+X`009`009`009retry := retry + 1;
+X`009`009`009if not(silent) then
+X`009    `009`009`009writeln('Sending ping # ',retry:1,' to ',idname,' . . .'
+V);
+X       `032
+X`009`009`009log_event(myslot,E_PING,n,0,myname);
+X`009`009`009`123 leaving here myname, not replace it with log_name `125
+X
+X`009`009`009wait(1);
+X`009`009`009checkevents(TRUE);
+X`009`009`009`009`123 TRUE = don't reprint prompt `125
+X
+X`009`009`009if not(ping_answered) then
+X`009`009`009`009if check_person(n,id) then begin
+X`009`009`009`009`009wait(1);
+X`009`009`009`009`009checkevents(TRUE);
+X`009`009`009`009end else
+X`009`009`009`009`009ping_answered := true;
+X
+X`009`009`009if not(ping_answered) then
+X`009`009`009`009if check_person(n,id) then begin
+X`009`009`009`009`009wait(1);
+X`009`009`009`009`009checkevents(TRUE);
+X`009`009`009`009end else
+X`009`009`009`009`009ping_answered := true;
+X
+X`009`009until (retry >= MAX_PING) or ping_answered;
+X
+X`009`009if not(ping_answered) then begin
+X`009`009`009if not(silent) then
+X
+X`009`009`009`009writeln('That person is not responding to your pings . . .')
+V;
+X        `032
+X`009`009`009if nuke_person(n,id) then begin
+X`009`009`009`009ping_player := true;
+X`009`009`009`009if not(silent) then
+X`009`009`009`009`009writeln(idname,' shimmers and vanishes from sight.');
+X`009`009`009`009log_event(myslot,E_PINGONE,n,0,idname);
+X`009`009`009end else
+X`009`009`009`009if not(silent) then
+X`009`009`009`009`009writeln('That person is not a zombie after all.');
+X`009`009end else
+X`009`009`009if not(silent) then
+X`009`009`009`009writeln('That person is alive and well.');
+X`009end else if not(silent) then
+X`009`009writeln ('This isn''t player. You can only ping player.')
+Xend;
+X
+X
+Xprocedure do_ping(s: string);
+Xlabel exit_label;
+Xvar
+X`009n: integer;
+X`009dummy: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+X
+Xbegin
+X`009if s = '' then grab_line('Player? ',s,eof_handler := leave);
+X
+X`009if s <> '' then begin
+X`009`009if parse_pers(n,s) then begin
+X`009`009`009if n = myslot then
+X`009`009`009`009writeln('Don''t ping yourself.')
+X`009`009`009else dummy := ping_player(n);
+X`009`009end else
+X`009`009`009writeln('You see no person here by that name.');
+X`009end else
+X`009`009writeln('To see if someone is really alive, type PING <personal name
+V>.');
+X    exit_label:
+Xend;
+X
+Xprocedure list_get;
+Xvar
+X`009first: boolean;
+X`009i: integer;
+X
+Xbegin
+X`009first := true;
+X`009for i := 1 to maxobjs do begin
+X`009`009if (here.objs`091i`093 <> 0) and
+X`009`009   (here.objhide`091i`093 = 0) then begin
+X`009`009`009if first then begin
+X`009`009`009`009writeln('Objects that you see here:');
+X`009`009`009`009first := false;
+X`009`009`009end;
+X`009`009`009writeln('   ',obj_part(here.objs`091i`093));
+X`009`009end;
+X`009end;
+X`009if first then
+X`009`009writeln('There is nothing you see here that you can get.');
+Xend;
+X
+X
+X
+X`123 print the get success message for object number n `125
+X
+Xprocedure p_getsucc(n: integer);
+X
+Xbegin
+X`009`123 we assume getobj has already been done `125
+X`009if (obj.getsuccess = 0) or (obj.getsuccess = DEFAULT_LINE) then
+X`009`009writeln('Taken ',obj_part(n,FALSE),'.')
+X`009else
+X`009`009print_desc(obj.getsuccess);
+Xend;
+X
+X
+Xprocedure do_meta_get(n: integer);
+Xvar
+X`009slot: integer;
+X
+Xbegin
+X`009if obj_here(n) then begin
+X`009`009if can_hold then begin
+X`009`009`009slot := find_obj(n);
+X`009`009`009if take_obj(n,slot) then begin
+X`009`009`009`009hold_obj(n);
+X`009`009`009`009log_event(myslot,E_GET,0,0,
+X`123 >>> `125`009`009log_name + ' has picked up ' + obj_part(n) + '.');
+X`009`009`009`009p_getsucc(n);
+X`009`009`009end else
+X`009`009`009`009writeln('Someone got to it before you did.');
+X`009`009end else
+X`009`009`009writeln('Your hands are full.  You''ll have to drop something yo
+Vu''re carrying first.');
+X`009end else if obj_hold(n) then
+X`009`009writeln('You''re already holding that item.')
+X`009else
+X`009`009writeln('That item isn''t in an obvious place.');
+Xend;     `032
+X
+X
+Xprocedure do_get(s: string);
+Xlabel 0;    `123 for panic `125
+Xvar
+X`009n,oldloc: integer;
+X`009ok: boolean;                                     `032
+X
+X`009procedure trapget;
+X`009begin
+X        `009log_event(myslot,E_TRAP,,obj.d1,obj.oname);
+X`009`009if (obj.getfail=0) or (obj.getfail=DEFAULT_LINE) then
+X`009`009`009writeln('You try get ',obj.oname,' but it bites you.')
+X`009  `009else print_desc(obj.getfail);
+X`009`009take_hit(obj.ap);
+X`009end;
+X
+X    function action(s: shortstring; n: integer): boolean;
+X    begin
+X`009if obj_here(n) then begin
+X`009    getobj(n);
+X`009    freeobj;
+X`009    ok := true;
+X
+X`009    if obj.sticky then begin
+X`009`009ok := false;  `032
+X`009`009if obj.kind = O_TRAP then trapget
+X`009`009else begin
+X`009`009    log_event(myslot,E_FAILGET,n,0);
+X`009`009    if (obj.getfail = 0) or (obj.getfail = DEFAULT_LINE) then
+X`009`009`009writeln('You can''t take ',obj_part(n,FALSE),'.')
+X`009`009    else
+X`009`009`009print_desc(obj.getfail);
+X`009`009end;
+X`009`009if obj.actindx > 0 then
+X`009`009    run_monster('',obj.actindx,
+X`009`009`009'get fail','','',
+X`009`009`009sysdate+' '+systime);
+X`009    end else if obj.getobjreq > 0 then begin
+X`009`009if not(obj_hold(obj.getobjreq)) then begin
+X`009`009    ok := false;
+X`009`009    if obj.kind = O_TRAP then trapget
+X`009`009    else begin
+X`009`009`009log_event(myslot,E_FAILGET,n,0);
+X`009`009`009if (obj.getfail = 0) or (obj.getfail = DEFAULT_LINE) then
+X`009`009`009    writeln('You''ll need something first to get the ',obj_part(
+Vn,FALSE),'.')
+X`009`009`009else
+X`009`009`009    print_desc(obj.getfail);
+X`009`009    end;
+X`009`009    if obj.actindx > 0 then
+X`009`009`009run_monster('',obj.actindx,
+X`009`009`009    'get fail','','',
+X`009`009`009    sysdate+' '+systime);
+X`009`009    end;
+X`009    end;`009`123 obj sticky `125
+X
+X`009    if ok then begin
+X`009`009do_meta_get(n);`009`009`123 get the object `125
+X`009`009if obj.actindx > 0 then
+X`009`009    run_monster('',obj.actindx,
+X`009`009`009'get succeed','','',
+X`009`009    sysdate+' '+systime);
+X`009    end;
+X`009    action := true;
+X`009end `123 else if obj_hold(n) then begin
+X`009    writeln('You have already ',obj_part(n),'.');
+X`009    action := true;
+X`009end `125 else action := false;
+X`009checkevents(TRUE);
+X`009if oldloc <> location then goto 0; `123 panic `125
+X    end; `123 action `125
+X`009  `032
+X    function restriction (n: integer): boolean;
+X`009begin
+X`009    restriction := obj_here(n,true) or obj_hold(n);
+X`009    `123 true = not found hidden objects `125
+X`009end;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto 0;
+X    end;
+X
+X
+X
+Xbegin
+X`009if s = '' then begin                             `032
+X`009`009list_get;
+X`009`009writeln;
+X`009`009grab_line('Object? ',s,eof_handler := leave);
+X`009end;
+X`009oldloc := location;
+X
+X`009if scan_obj(action,s,,restriction) then begin
+X`009    `123 functin action make all `125
+X`009end else if lookup_detail(n,s) then begin
+X`009`009`009writeln('That detail of this room is here for the enjoyment of a
+Vll Monster players,');
+X`009`009`009writeln('and may not be taken.');
+X`009end else
+X`009`009writeln('There is no object here by that name.');
+X`0090:  `123 panic `125
+Xend;
+X
+X
+Xprocedure do_drop(s: string);
+Xlabel`0090;  `123 for panic `125
+Xvar
+X`009slot,n,oldloc: integer;
+X
+X    function action(s: shortstring; n: integer): boolean;
+X    begin
+X`009if obj_hold(n) then begin
+X`009    getobj(n);
+X`009    freeobj;
+X`009    if obj.sticky then
+X`009`009writeln(obj_part(n),': You can''t drop sticky objects.')
+X`009    else if can_drop then begin
+X`009`009slot := find_hold(n);
+X`009`009if place_obj(n) then begin
+X`009`009    drop_obj(slot);
+X`009`009    log_event(myslot,E_DROP,0,n,
+X`009`009`009log_name + ' has dropped '+obj_part(n) + '.');
+X
+X`009`009    if mywield = n then x_unwield;
+X`009`009    if mywear = n then x_unwear;
+X`009`009    if obj.actindx > 0 then
+X`009`009`009run_monster('',obj.actindx,
+X`009`009`009    'drop succeed','','',
+X`009`009`009    sysdate+' '+systime);
+X
+X`009`009end else
+X`009`009    writeln('Someone took the spot where your were going to drop ',o
+Vbj_part(n),'.');
+X`009    end else
+X`009`009writeln('It is too cluttered here.  Find somewhere else to drop your
+V things.');
+X`009    action := true;
+X`009end else begin
+X`009    action := false;
+X`009end;
+X`009checkevents(TRUE);
+X`009if oldloc <> location then goto 0; `123 panic `125
+X    end; `123 action `125
+X
+X    function restriction (n: integer): boolean;
+X`009begin
+X`009`009restriction := obj_hold(n);
+X`009end;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto 0;
+X    end;
+X
+X
+X
+Xbegin
+X    if s = '' then grab_line('Object? ',s,eof_handler := leave);
+X    oldloc := location;
+X    if s = '' then begin
+X`009writeln('To drop an object, type DROP <object name>.');
+X`009writeln('To see what you are carrying, type INV (inventory).');
+X    end else if scan_obj(action,s,,restriction) then begin
+X    end else
+X`009writeln('You''re not holding that item.  To see what you''re holding, ty
+Vpe INVENTORY.');
+X    0:`009`123 for panic `125
+Xend;
+X
+X
+Xprocedure do_inv(s: string);
+Xlabel 0; `123 for panic `125
+Xvar
+X`009first: boolean;
+X`009i,n: integer;
+X`009objnum,oldloc: integer;
+X
+X`009function restriction(slot: integer): boolean;
+X`009begin
+X`009    restriction := here.people`091slot`093.hiding = 0;
+X`009    `123 can't se people when he is hiding `125
+X`009end;
+X
+X`009function action(s: shortstring; n: integer): boolean;
+X`009begin
+X`009    first := true;
+X`009    log_event(myslot,E_LOOKYOU,n,0);
+X`009    for i := 1 to maxhold do begin
+X`009`009objnum := here.people`091n`093.holding`091i`093;
+X`009`009if objnum <> 0 then begin
+X`009`009    if first then begin
+X`009`009`009writeln(here.people`091n`093.name,' is holding:');
+X`009`009`009first := false;
+X`009`009    end;
+X`009`009    write('   ',obj_part(objnum));
+X`009`009    if objnum = here.people`091n`093.wielding then write(' wielded')
+V;
+X`009`009    if objnum = here.people`091n`093.wearing then write(' worn');
+X`009`009    writeln;
+X`009`009end;
+X`009    end;
+X`009    if first then
+X`009`009writeln(here.people`091n`093.name,' is empty handed.');
+X`009    action := true;
+X`009    checkevents(TRUE);
+X`009    if oldloc <> location then goto 0; `123 panic `125
+X`009end;
+X
+Xbegin
+X`009gethere;
+X`009oldloc := location;
+X`009if s = '' then begin
+X`009`009noisehide(50);
+X`009`009first := true;
+X`009`009log_event(myslot,E_INVENT,0,0);
+X`009`009for i := 1 to maxhold do begin
+X`009`009    objnum := here.people`091myslot`093.holding`091i`093;
+X`009`009    if objnum <> 0 then begin
+X`009`009`009if first then begin
+X`009`009`009    writeln('You are holding:');
+X`009`009`009    first := false;
+X`009`009`009end;
+X`009`009`009write('   ',obj_part(objnum));
+X`009`009`009if objnum = mywield then write(' wielded');
+X`009`009`009if objnum = mywear then write(' worn');
+X`009`009`009writeln;
+X`009`009    end;
+X`009`009end;
+X`009`009if first then
+X`009  `009`009writeln('You are empty handed.');
+X`009end else if scan_pers_slot(action,s,,restriction) then begin
+X`009end else
+X`009`009writeln('To see what someone else is carrying, type INV <personal na
+Vme>.');
+X`0090: `123 for panic `125
+Xend;
+X
+X
+X`123 translate a personal name into a real userid on request `125
+X
+Xprocedure do_whois(s: string);
+Xlabel exit_label;
+Xvar
+X`009n: integer;
+X
+X    function action(s: shortstring; n: integer): boolean;
+X    begin
+X`009if user.idents`091n`093 = '' then`032
+X`009    writeln (s,' no have userid.')
+X`009else if user.idents`091n`093`0911`093 = ':' then
+X`009    writeln(s,' isn''t player, it is a monster.')
+X`009else writeln(s,' is ',user.idents`091n`093,'.');
+X`009action := true;
+X    end; `123 action `125
+X
+X    function restriction (n: integer): boolean;
+X`009begin
+X`009`009restriction := true;
+X`009end;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009if s = '' then grab_line('Player? ',s,eof_handler := leave);
+X
+X`009getuser;
+X`009freeuser;
+X
+X`009if scan_pers(action,s,,restriction) then begin
+X               `032
+X`009end else
+X`009`009writeln('There is no one playing with that personal name.');
+X    exit_label:
+Xend;
+X
+X
+Xprocedure do_players(param: string);
+Xlabel 1,2; `123 for quit `125
+Xvar
+X`009i,j: integer;
+X`009tmpasleep: indexrec;
+X`009where_they_are: intrec;
+X`009ok: boolean;
+X`009c : char;
+X`009code : integer;
+X`009count: integer;
+X`009s1: string;
+X`009str: shortstring;
+X`009type_monsters,type_players,write_this: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto 2;
+X    end;
+X
+Xvar short_line: boolean;
+X
+Xbegin
+X
+X    short_line :=  terminal_line_len < 80;
+X   `032
+X    param := lowcase(param);
+X    if param = '' then param := 'players';
+X
+X    type_monsters := index(param,'mon') > 0;
+X    type_players  := index(param,'pla') > 0;
+X    if param = 'all' then begin
+X`009type_monsters := true;
+X`009type_players := true;
+X    end;
+X    if param = '?' then begin
+X`009command_help('players');
+X    end else if not type_monsters and not type_players then
+X`009writeln ('Type PLAYERS ? for help.')
+X    else begin
+X
+X`009count := 0;
+X`009log_event(myslot,E_PLAYERS,0,0);
+X`009getindex(I_ASLEEP);`009`123 Rec of bool; False if playing now `125
+X`009freeindex;
+X`009tmpasleep := indx;
+X
+X`009getindex(I_PLAYER);`009`123 Rec of valid player log records  `125
+X`009freeindex;`009`009`123 False if a valid player log `125
+X
+X`009getuser;`009`009`123 Corresponding userids of players `125
+X`009freeuser;
+X
+X`009getpers;`009`009`123 Personal names of players `125
+X`009freepers;
+X
+X`009getdate;`009`009`123 date of last play `125
+X`009freedate;
+X
+X`009getint(N_LOCATION);
+X`009freeint;
+X`009where_they_are := anint;
+X
+X`009getnam;`009`009`009`123 room names `125
+X`009freenam;
+X
+X`009getown;`009`009`009`123 room owners `125
+X`009freeown;
+X
+X`009getint(N_SELF);
+X`009freeint;
+X
+X`009writeln;
+X`009if not short_line then write ('Userid          ');
+X`009write ('Personal Name          ');
+X`009if not short_line then write ('    Last Play     ');
+X`009writeln ('   Where');
+X`009for i := 1 to maxplayers do begin
+X`009`009if not(indx.free`091i`093) then begin
+X`009`009`009write_this := true;
+X                        if user.idents`091i`093 = '' then begin
+X`009`009`009    if not short_line then write('<unknown>       ')
+X                        end else if user.idents`091i`093`0911`093 <> ':' the
+Vn begin
+X`009`009`009   if not type_players then write_this := false
+X`009`009`009   else if not short_line then begin
+X`009`009`009       write(user.idents`091i`093);
+X`009`009`009       for j := length(user.idents`091i`093) to 15 do
+X`009`009`009`009    write(' ');
+X`009`009`009   end;
+X                        end else begin
+X`009`009`009   if not type_monsters then write_this := false
+X`009`009`009   else if not short_line then begin
+X`009`009`009       readv(user.idents`091i`093,c,code);
+X`009`009`009       str := class_out(monster_owner(code));
+X`009`009`009       write('<',str,'>');
+X`009`009`009       for j := length(str) to 13 do write(' ');
+X`009`009`009   end;
+X                        end;
+X
+X`009`009`009if write_this then begin
+X`009`009`009    write(pers.idents`091i`093);
+X`009`009`009    for j := length(pers.idents`091i`093) to 21 do
+X`009`009`009`009write(' ');
+X
+X`009`009`009    if not short_line then begin
+X`009`009`009`009if tmpasleep.free`091i`093 then begin
+X`009`009`009`009    write(adate.idents`091i`093);
+X`009`009`009`009    if length(adate.idents`091i`093) < 19 then
+X`009`009`009`009`009for j := length(adate.idents`091i`093) to 18 do
+X`009`009`009`009`009    write(' ');
+X`009`009`009`009end else
+X`009`009`009`009`009write('   -playing now-   ');
+X`009`009`009    end;
+X
+X`009`009`009    if (anint.int`091i`093 <> 0) and (anint.int`091i`093 <> DEFA
+VULT_LINE) then
+X`009`009`009`009write(' * ')
+X`009`009`009    else
+X`009`009`009`009write('   ');
+X
+X`123 let people see, who have quitted in their rooms `125
+X`009`009`009    if (own.idents`091where_they_are.int`091i`093`093 =
+X`009`009`009`009    public_id) or
+X`009`009`009       (own.idents`091where_they_are.int`091i`093`093 =
+X`009`009`009`009    disowned_id) or
+X`009`009`009       (own.idents`091where_they_are.int`091i`093`093 =
+X`009`009`009`009    userid) then
+X`009`009`009`009    ok := true
+X`009`009`009    else
+X`009`009`009`009ok := false;
+X
+X
+X`123 let the Monster wizards see ev'rything.. `125
+X`009`009`009    if manager_priv or`032
+X`009`009`009       ( (poof_priv or owner_priv)`032
+X`009`009`009`009and (here.owner <> system_id)) then`032
+X`009`009`009`009`123 minor change by leino@finuha `125
+X`009`009`009`009`123 and hurtta@finuh `125
+X`009`009`009`009ok := true;
+X
+X
+X`009`009`009    if ok then begin
+X`009`009`009`009    write(nam.idents`091 where_they_are.int`091i`093 `093);
+X`009`009`009    end else
+X`009`009`009`009    write('n/a');
+X
+X
+X`009`009`009    writeln;
+X`009`009`009    count := count +1;
+X`009`009`009    if count mod (terminal_page_len -2) = 0 then begin
+X`009`009`009`009grab_line('-more-',s1,erase := true,
+X`009`009`009`009    eof_handler := leave);
+X`009`009`009`009if s1 > '' then goto 1;
+X`009`009`009    end;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009writeln;
+X`0091:
+X    end;
+X    2:
+Xend;
+X
+X
+Xprocedure do_self(s: string);
+Xlabel 0; `123 for panic `125
+Xvar
+X`009n,oldloc: integer;
+X
+X    function action(s: shortstring; n: integer): boolean;
+X    begin
+X`009writeln(s,':');
+X`009getint(N_SELF);
+X`009freeint;
+X`009if (anint.int`091n`093 = 0) or (anint.int`091n`093 = DEFAULT_LINE) then
+X`009    writeln('That person has not made a self-description.')
+X`009else begin
+X`009    print_desc(anint.int`091n`093);
+X`009    log_event(myslot,E_VIEWSELF,0,0,pers.idents`091n`093);
+X`009end;
+X`009action := true;
+X`009checkevents(true);
+X`009if oldloc <> location then goto 0; `123 panic `125
+X    end; `123 action `125
+X
+X    function restriction (n: integer): boolean;
+X`009begin
+X`009`009restriction := true;
+X`009end;
+X
+X
+Xbegin
+X`009oldloc := location;
+X`009if length(s) = 0 then begin
+X`009`009log_action(c_self,0);
+X`009`009writeln('`091 Editing your self description `093');
+X`009`009if edit_desc(myself) then begin
+X`009`009`009getroom;
+X`009`009`009here.people`091myslot`093.self := myself;
+X`009`009`009putroom;
+X`009`009`009getint(N_SELF);
+X`009`009`009anint.int`091mylog`093 := myself;
+X`009`009`009putint;
+X`009`009`009log_event(myslot,E_SELFDONE,0,0);
+X`009`009end;
+X`009end else if scan_pers(action,s,,restriction) then begin
+X`009end else
+X`009`009writeln('There is no person by that name.');
+X`0090: `123 for panic `125
+Xend;
+X
+X
+Xprocedure do_health(s: string);
+Xvar lev,rel: integer;
+Xbegin
+X`009lev := level(myexperience);
+X`009rel := myhealth * 10 div leveltable`091lev`093.health;
+X
+X`009writeln('Your health rate is ',myhealth:1,'/',
+X`009    leveltable`091lev`093.health:1,'.');
+X`009if rel > 9 then rel := 9;
+X`009write('You ');
+X        if  myhealth = 0 then writeln('are dead.')
+X`009else case rel of
+X`009`0099: writeln('are in exceptional health.');
+X`009`0098: writeln('are in better than average condition.');
+X`009`0097: writeln('are in perfect health.');
+X`009`0096: writeln('feel a little bit dazed.');
+X`009`0095: writeln('have some minor cuts and abrasions.');
+X`009`0094: writeln('have some wounds, but are still fairly strong.');
+X`009`0093: writeln('are suffering from some serious wounds.');
+X`009`0092: writeln('are very badly wounded.');
+X`009`0091,0: writeln('have many serious wounds, and are near death.');
+X`009`009otherwise writeln('don''t seem to be in any condition at all.');
+X`009end;
+Xend;
+X
+X
+Xprocedure crystal_look(chill_msg: integer);
+Xvar
+X`009numobj,numppl,numsee: integer;
+X`009i: integer;
+X`009yes: boolean;
+X
+Xbegin
+X`009writeln;
+X`009print_desc(here.primary);
+X`009log_event(0,E_CHILL,chill_msg,0,'',here.locnum);
+X`009numppl := find_numpeople;
+X`009numsee := n_can_see + 1;
+X
+X`009if numppl > numsee then
+X`009`009writeln('Someone is hiding here.')
+X`009else if numppl = 0 then begin
+X`009`009writeln('Strange, empty shadows swirl before your eyes.');
+X`009end;
+X`009if rnd100 > 50 then
+X`009`009people_header('at this place.')
+X`009else case numppl of
+X`009`009`0090: writeln('Vague empty forms drift through your view.');
+X`009`009`0091: writeln('You can make out a shadowy figure here.');
+X`009`009`0092: writeln('There are two dark figures here.');
+X`009`009`0093: writeln('You can see the silhouettes of three people.');
+X`009`009`009otherwise
+X`009`009`009`009writeln('Many dark figures can be seen here.');
+X`009end;
+X
+X`009numobj := find_numobjs;
+X`009if rnd100 > 50 then begin
+X`009`009if rnd100 > 50 then
+X`009`009`009show_objects
+X`009`009else if numobj > 0 then
+X`009`009`009writeln('Some objects are here.')
+X`009`009else
+X`009`009`009writeln('There are no objects here.');
+X`009end else begin
+X`009`009yes := false;
+X`009`009for i := 1 to maxobjs do
+X`009`009`009if here.objhide`091i`093 <> 0 then
+X`009`009`009`009yes := true;
+X`009`009if yes then
+X`009`009`009writeln('Something is hidden here.');
+X`009end;
+X`009writeln;
+Xend;
+X
+X
+Xprocedure use_crystal(objnum: integer);
+Xlabel exit_label;
+Xvar
+X`009done: boolean;
+X`009s: string;
+X`009n: integer;
+X`009done_msg,chill_msg: integer;
+X`009tmp: string;
+X`009i: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009gethere;
+X`009log_event(myslot,E_DONECRYSTALUSE,0,0);
+X`009print_desc(done_msg);
+X`009goto exit_label;
+X    end;
+X
+X
+X
+Xbegin
+X`009if obj_hold(objnum) then begin
+X`009`009log_action(e_usecrystal,0);
+X`009`009getobj(objnum);
+X`009`009freeobj;
+X`009`009done_msg := obj.d1;
+X`009`009chill_msg := obj.d2;
+X
+X`009`009grab_line('',s,eof_handler := leave);
+X`009`009if lookup_room(n,s) then begin
+X`009`009`009gethere(n);
+X`009`009`009crystal_look(chill_msg);
+X`009`009`009done := false;
+X`009`009end else
+X`009`009`009done := true;
+X
+X`009`009while not(done) do begin
+X`009`009`009grab_line('',s,eof_handler := leave);
+X`009`009`009if lookup_dir(n,s) then begin
+X`009`009`009`009if here.exits`091n`093.toloc > 0 then begin
+X`009`009`009`009`009gethere(here.exits`091n`093.toloc);
+X`009`009`009`009`009crystal_look(chill_msg);
+X`009`009`009`009end;
+X`009`009`009end else begin
+X`009`009`009`009s := lowcase(s);
+X`009`009`009`009tmp := bite(s);
+X`009`009`009`009if tmp = 'poof' then begin
+X`009`009`009`009`009if lookup_room(n,s) then begin
+X`009`009`009`009`009`009gethere(n);
+X`009`009`009`009`009`009crystal_look(chill_msg);
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009done := true;
+X`009`009`009`009end else if tmp = 'say' then begin
+X`009`009`009`009`009i := (rnd100 mod 4) + 1;
+X`009`009`009`009`009log_event(0,E_NOISE2,i,0,'',n);
+X`009`009`009`009end else
+X`009`009`009`009`009done := true;
+X`009`009`009end;
+X`009`009end;
+X
+X`009  `009gethere;
+X`009`009log_event(myslot,E_DONECRYSTALUSE,0,0);
+X`009`009print_desc(done_msg);
+X`009end else
+X`009`009writeln('You must be holding it first.');
+X    exit_label:
+Xend;
+X
+X
+X
+Xprocedure p_usefail(n: integer);
+X
+Xbegin
+X`009`123 we assume getobj has already been done `125
+X`009if (obj.usefail = 0) or (obj.usefail = DEFAULT_LINE) then
+X   `009`009writeln('It doesn''t work for some reason.')
+X`009else
+X`009`009print_desc(obj.usefail);
+Xend;
+X
+X
+Xprocedure p_usesucc(n: integer);
+X
+Xbegin
+X`009`123 we assume getobj has already been done `125
+X`009if (obj.usesuccess = 0) or (obj.usesuccess = DEFAULT_LINE) then
+X`009  `009writeln('It seems to work, but nothing appears to happen.')
+X`009else
+X`009`009print_desc(obj.usesuccess);
+Xend;                  `032
+X
+Xprocedure p_attack (n,victim: integer);                                 `032
+XVar vs: string;
+Xbegin
+X`009`123 we assume getroom has already been done `125
+X        getobj (n);`009`123    can we remove this ? `125
+X`009freeobj; `009`123 -> (what happen in grab_line) `125
+X        vs := here.people`091victim`093.name;
+X`009if (obj.usesuccess = 0) or (obj.usesuccess = DEFAULT_LINE) then
+X`009`009writeln('You attack ',vs)
+X`009else
+X`009`009block_subs(obj.usesuccess,vs);
+Xend;                                                              `032
+X
+X
+Xprocedure use_weapon (n: integer);
+Xlabel exit_label;
+Xvar done: boolean;
+X    victim,factor: integer;
+X    s,last: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X   factor := leveltable`091level(myexperience)`093.factor;
+X   Writeln ('Use weapon - Whom do you attack ?');
+X   done := False; last := '<unknown>';
+X   repeat
+X    `032
+X     if not read_global_flag(GF_WARTIME) then begin
+X`009writeln('Don''t you dare disturb the Pax Monstruosa!');
+X`009done := true
+X     end else if mywield <> n then begin
+X`009writeln ('You are no longer wielding that weapon.');
+X`009done := true;
+X     end else begin
+X`009grab_line ('Victim? ',s,eof_handler := leave);`032
+X`009if s = '.' then s := last;
+X`009last := s;
+X
+X`009if s = '' then done := true
+X`009else if not parse_pers(victim,s) then begin
+X`009    Writeln (s,' isn''t here.');
+X`009    victim := 0
+X`009end;
+X     end;
+X
+X     if not done and (victim > 0) then
+X       if victim = myslot Then Writeln ('Suicide is not allowed.')
+X       else if protected (victim) or (rnd100 > factor) then begin `123 Ha Ha
+V `125
+X`009`009log_event(myslot,E_FAILUSE,n,0);
+X`009`009p_usefail(n);
+X       end else if (here.people`091victim`093.experience >= protect_exp)`032
+X       `123`009and protected_MM `125 then begin
+X`009`009log_event(myslot,E_FAILUSE,n,0);
+X`009`009writeln('You can''t attack that person.');
+X       end else begin
+X`009`009if hiding then begin
+X`009`009`009hiding := false;
+X
+X`009`009`009getroom;  `032
+X`009`009`009here.people`091myslot`093.hiding := 0;
+X`009`009`009putroom;
+X                                `032
+X                        log_event(myslot,E_HATTACK,victim,n);
+X                        Writeln ('You step out from shadows and ...');
+X                        p_attack (n,victim);
+X`009`009       `009if here.people`091victim`093.kind = P_MONSTER then begin
+X`009`009`009`009getobj(n);
+X`009`009`009`009freeobj;
+X`009`009`009`009attack_monster(victim,obj.ap);
+X`009`009`009end;`032
+X`009`009end else begin
+X       `009      `009`009log_event(myslot,E_ATTACK,victim,n);
+X`009`009`009p_attack (n,victim);
+X`009`009       `009if here.people`091victim`093.kind = P_MONSTER then begin
+X`009`009`009`009getobj(n);
+X`009`009`009`009freeobj;
+X`009`009`009`009attack_monster(victim,obj.ap);
+X`009`009`009end;`032
+X`009`009end;
+X`009`009wait (1+random*4); `123 Ha Ha Ha `125
+X`009end;
+X   until done;
+X   exit_label:
+Xend;
+X
+Xprocedure use_book(n: integer);
+Xvar p: integer;
+Xbegin
+X    p := obj.parms`091OP_SPELL`093;
+X    if p > 0 then begin
+X`009getint(N_SPELL);
+X`009freeint;
+X`009getspell_name;
+X`009freespell_name;
+X`009run_monster('',anint.int`091p`093,'learn',`032
+X`009    'book name',objnam.idents`091n`093,
+X`009    sysdate + ' ' + systime,
+X`009    spell_name.idents`091p`093,myname);
+X    end;
+Xend; `123 use_book `125
+X
+Xprocedure do_use(s: string);
+Xlabel exit_label;
+Xvar
+X`009n: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009if s = '' then grab_line('Object? ',s,eof_handler := leave);
+X
+X`009if length(s) = 0 then
+X`009`009writeln('To use an object, type USE <object name>')
+X`009else if parse_obj(n,s) then begin
+X`009`009getobj(n);
+X`009`009freeobj;
+X
+X`009`009if (obj.useobjreq > 0) and not(obj_hold(obj.useobjreq)) then begin
+X`009`009`009log_event(myslot,E_FAILUSE,n,0);
+X`009`009`009p_usefail(n);
+X`009`009end else if (obj.uselocreq > 0) and (location <> obj.uselocreq) then
+V begin
+X`009`009`009log_event(myslot,E_FAILUSE,n,0);
+X`009`009`009p_usefail(n);
+X`009`009end else if (obj.kind = O_WEAPON) and`032
+X                            ((obj.exreq > myexperience) or
+X                            (n <> mywield)) then begin  `123 Ha Ha Ha `125
+X`009`009`009log_event(myslot,E_FAILUSE,n,0);
+X`009`009`009p_usefail(n);
++-+-+-+-+-+-+-+-  END  OF PART 22 +-+-+-+-+-+-+-+-

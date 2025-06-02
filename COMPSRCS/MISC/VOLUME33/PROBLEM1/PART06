@@ -1,0 +1,1751 @@
+Newsgroups: comp.sources.misc
+From: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Subject:  v33i077:  problem1.1 - A Problem Database Manager, Part06/07
+Message-ID: <1992Nov12.195602.29226@sparky.imd.sterling.com>
+X-Md4-Signature: 5cefd572afecd35299021a3f8c28107d
+Date: Thu, 12 Nov 1992 19:56:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Posting-number: Volume 33, Issue 77
+Archive-name: problem1.1/part06
+Environment: UNIX, C++, GDBM, Termcap
+Supersedes: problem: Volume 33, Issue 2-9
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 7)."
+# Contents:  problem2.C
+# Wrapped by lijewski@xtesoc2 on Wed Nov 11 16:20:12 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'problem2.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'problem2.C'\"
+else
+echo shar: Extracting \"'problem2.C'\" \(46030 characters\)
+sed "s/^X//" >'problem2.C' <<'END_OF_FILE'
+X/*
+X**
+X** problem - a problem database manager
+X**
+X** Written in C++ using the termcap library for screen management
+X** and GDBM as the database library.
+X**
+X** problem.C is made by cating together problem1.C and problem2.C
+X**
+X** problem2.C problem2.C 1.30   Delta\'d: 17:54:17 11/9/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X/*
+X** append_to_problem - append to an already existing problem.  Returns
+X**                     false if the problem does not exist.  This indicates
+X**                     that we do not need to redisplay the command list.
+X**                     Returns true if we need to redisplay the command
+X**                     list.  If number, which defaults to zero, is
+X**                     nonzero, we use that number instead of prompting.
+X*/
+X
+Xint append_to_problem(const char *number)
+X{
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int (strlen(key.dptr) + 1);
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # `%' ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;  // only the message area has been corrupted
+X    }
+X
+X    //
+X    // The problem exists.
+X    //
+X    update_existing_problem(data, key, APPENDED);
+X    update_modeline();  // redisplay the previous modeline
+X
+X    free(data.dptr);
+X    if (!number) DELETE key.dptr;
+X
+X    return 1;     // must refresh the screen
+X}
+X
+X/*
+X** subscribe_to_area - put user on interested parties list for current area.
+X**                     Exits on error
+X*/
+X
+Xstatic void subscribe_to_area()
+X{
+X    int mailfd = open_maillist_file();
+X    const int chunksize = 20;
+X    const int linelen   = 10;
+X    char **users = new char*[chunksize];
+X    FILE *mailfp = fdopen(mailfd, "r+");
+X    if (!mailfp)
+X        error("file %s, line %d, fdopen() failed", __FILE__, __LINE__);
+X    int nusers = read_file(mailfp, users, chunksize, linelen);
+X    if (nusers < 0)
+X        error("file %s, line %d, error reading %s maillist",
+X              __FILE__, __LINE__, CurrentArea());
+X
+X    //
+X    // Is user already subscribed?
+X    //
+X    const char *user = username();
+X    for (int i = 0, subscribed = 0; i < nusers; i++)
+X        if (strcmp(users[i], user) == 0)
+X        {
+X            subscribed = 1; break;
+X        }
+X
+X    for (i = 0; i < nusers; i++) DELETE users[i];
+X    DELETE users;
+X
+X    if (subscribed)
+X    {
+X        (void)close(mailfd); (void)fclose(mailfp);
+X        ding();
+X        message("You already subscribe to the `%' area ", CurrentArea());
+X        sleep(2);
+X        return;
+X    }
+X
+X    //
+X    // Lock on sequence file when updating the maillist.
+X    //
+X    int seqfd = open(sequence_file(), O_RDWR);
+X    if (seqfd < 0) error("file %s, line %d, open() on `%s' failed",
+X                         __FILE__, __LINE__, sequence_file());
+X
+X    block_tstp_and_winch(); // block SIGTSTP and WINCH
+X    lock_file(seqfd);       // lock our sequence file
+X
+X    //
+X    // Seek to end of maillist file.
+X    //
+X    if (fseek(mailfp, 0, SEEK_END))
+X        error("file %s, line %d, fseek() failed", __FILE__, __LINE__);
+X    (void)fprintf(mailfp, "%s\n", user); // add them
+X
+X    (void)fclose(mailfp);
+X    (void) close(mailfd);
+X    unlock_file(seqfd);
+X    (void)close(seqfd);
+X
+X    unblock_tstp_and_winch();
+X
+X    message("You now subscribe to the `%' area ", CurrentArea());
+X    sleep(2);
+X}
+X
+X/*
+X** unsubscribe_from_area - unsubscribe from the current area.  Exits on error.
+X*/
+X
+Xstatic void unsubscribe_from_area()
+X{
+X    int mailfd   = open_maillist_file();
+X    FILE *mailfp = fdopen(mailfd, "r+");
+X    if (!mailfp)
+X        error("file %s, line %d, fdopen() failed", __FILE__, __LINE__);
+X
+X    const int chunksize = 20;
+X    const int linelen   = 10;
+X    char **users = new char*[chunksize];
+X    int nusers   = read_file(mailfp, users, chunksize, linelen);
+X    if (nusers < 0)
+X        error("file %s, line %d, error reading %s maillist",
+X              __FILE__, __LINE__, CurrentArea());
+X
+X    //
+X    // Are they already subscribed?
+X    //
+X    const char *user = username();
+X    for (int i = 0, subscribed = 0; i < nusers; i++)
+X        if (strcmp(users[i], user) == 0)
+X        {
+X            subscribed = 1;
+X            break;
+X        }
+X
+X    for (i = 0; i < nusers; i++) DELETE users[i];
+X    DELETE users;
+X
+X    if (!subscribed)
+X    {
+X        (void)fclose(mailfp);
+X        (void)close(mailfd);
+X        ding();
+X        message("You're not a subscribee of the `%' area ", CurrentArea());
+X        sleep(2);
+X        return;
+X    }
+X
+X    //
+X    // They subscribe - remove them.
+X    //
+X    if (fseek(mailfp, 0, SEEK_SET))  // seek to beginning of file
+X        error("file %s, line %d, fseek() failed", __FILE__, __LINE__);
+X
+X    //
+X    // First, build a tmp file for new maillist.
+X    //
+X    char *tmpfile = new char[strlen(mail_list_prefix()) + 12];
+X    (void)sprintf(tmpfile, "%s.%d", mail_list_prefix(), getpid());
+X    int tmpfd = open(tmpfile, O_RDWR|O_CREAT, 0644);
+X
+X    if (tmpfd < 0)
+X        error("file %s, line %d, open(%s) failed",
+X              __FILE__, __LINE__, tmpfile);
+X
+X    FILE *tmpfp = fdopen(tmpfd, "w+");
+X    if (!tmpfp)
+X        error("file %s, line %d, fdopen() failed", __FILE__, __LINE__);
+X
+X    //
+X    // We use the sequence_file for locking.
+X    //
+X    int seqfd = open(sequence_file(), O_RDWR);
+X    if (seqfd < 0)
+X        error("file %s, line %d, open() on `%s' failed",
+X              __FILE__, __LINE__, sequence_file());
+X    
+X    block_tstp_and_winch(); // block SIGTSTP and WINCH
+X    lock_file(seqfd);       // lock our sequence file
+X
+X    for (char *line = fgetline(mailfp, 10); line; line = fgetline(mailfp, 10))
+X    {
+X        if (strcmp(line, user) == 0)
+X        {
+X            DELETE line;
+X            continue;
+X        }
+X        (void)fprintf(tmpfp, "%s\n", line);
+X        DELETE line;
+X    }
+X
+X    if (feof(mailfp) && !ferror(mailfp))
+X    {
+X        //
+X        // Alternate maillist correctly constructed.
+X        //
+X        (void)fclose(tmpfp);
+X        (void)fclose(mailfp);
+X        (void) close(tmpfd);
+X        (void) close(mailfd);
+X
+X        //
+X        // Remove old maillist.
+X        //
+X        String maillist(mail_list_prefix());
+X        maillist += ".";
+X        maillist += CurrentArea();
+X
+X        if (unlink((const char *)maillist) < 0)
+X            error("file %s, line %d, unlink(%s) failed",
+X                  __FILE__, __LINE__, (const char *)maillist);
+X        if (rename((const char *)tmpfile, (const char *)maillist) < 0)
+X            error("file %s, line %d, rename(%s, %s) failed", __FILE__,
+X                  __LINE__, (const char *)tmpfile, (const char *)maillist);
+X
+X        message("You've been unsubscribed from the `%' area ", CurrentArea());
+X    }
+X    else
+X    {
+X        (void)fclose(tmpfp);
+X        (void)fclose(mailfp);
+X        (void) close(tmpfd);
+X        (void) close(mailfd);
+X        ding();
+X        message("Problem updating maillist -- update not committed ");
+X    }
+X
+X    unlock_file(seqfd);
+X    (void)close(seqfd);
+X    unblock_tstp_and_winch();
+X
+X    DELETE tmpfile;
+X
+X    sleep(2);
+X}
+X
+X/*
+X** examine_problem - pages through a problem in current area.  Returns one
+X**                   if the problem exists, otherwise zero.  If number is
+X**                   nonzero -- it defaults to zero --, we use that number
+X**                   instead of prompting for one.
+X*/
+X
+Xint examine_problem(const char *number)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr = number ? (char *) number : prompt("Problem # --> ",
+X                                                 redisplay_commands); 
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Build tmp file to pass to pager.
+X    //
+X    const char *file = temporary_file();
+X
+X    //
+X    // Write the problem to the file.  Remember that the problem is
+X    // stored in the database as a string, with the null character counted
+X    // as part of its length.
+X    //
+X    int fd;
+X    if ((fd = open(file, O_RDWR)) < 0) 
+X        error("file %s, line %d, open(%s, O_RDWR) failed",
+X              __FILE__, __LINE__, file);
+X    if (write(fd, data.dptr, data.dsize - 1) != data.dsize - 1)
+X        error("file %s, line %d, write() failed", __FILE__, __LINE__);
+X
+X#ifdef NOLESS
+X    const char *pager = getenv("PAGER");
+X    if (pager == 0) pager = "more";
+X
+X    String argstring(pager);
+X    argstring += " ";
+X    argstring += file;
+X
+X    //
+X    // We tokenize because the user could have PAGER
+X    // set to "less -i -Q -M", which execvp would not
+X    // recognize as a legal filename.
+X    //
+X    const char **args = tokenize(argstring, " \t");
+X    pager = args[0];
+X#else
+X    //
+X    // Use "less".
+X    //
+X    const char *prefix = "-PProblem #";
+X    const char *suffix = " -- line %lb?L/%L. byte %bB?s/%s. ?e(END) :?pB%pB\\% ..-- q (quit) H (help)";
+X
+X    String prompt(prefix);
+X    prompt += key.dptr;
+X    prompt += suffix;
+X
+X    const char *pager = "less";
+X    const char *args[5];
+X    args[0] = pager;
+X    args[1] = "-d";
+X    args[2] = prompt;
+X    args[3] = file;
+X    args[4] = 0;
+X#endif /*NOLESS*/
+X
+X#ifdef NOLESS
+X    //
+X    // We prompt for a keypress before returning from the pager, so
+X    // that we do not immediately return when we hit last page.
+X    // This is because some pagers -- "more" being one -- exit when
+X    // you get to the last page, which makes perusal of the last page
+X    // difficult.  We do not have to do this with "less", since it is exited
+X    // deliberately by typing a q.
+X    //
+X    if (!execute(pager, args, 1))
+X#else
+X    if (!execute(pager, args))
+X#endif /*NOLESS*/
+X    {
+X        (void)unlink(file);
+X        error("file %s, line %d, problem running pager: `%s'",
+X              __FILE__, __LINE__, pager);
+X    }
+X
+X    (void)close(fd);
+X    (void)unlink(file);
+X
+X    update_modeline();  // redisplay previous modeline
+X
+X    free(data.dptr);
+X    if (!number) DELETE key.dptr;
+X
+X    return 1;           // must update screen
+X}
+X
+X/*
+X** summary_info - returns a string in newd space of the form:
+X**
+X**                     prob# status severity last-activity-date summary
+X**
+X**                sort_by_date "knows" the format of the lines output
+X**                by this function, so if you change the format, you need
+X**                to change sort_by_date also.
+X*/
+X
+Xchar *summary_info(datum &data)
+X{
+X    const char *tail = data.dptr;
+X
+X    //
+X    // Updated is Fields\[4\]
+X    //
+X    for (int i = 0; i < 4; i++)
+X    {
+X        tail = strchr(tail, '\n');
+X        tail += 1;                  // step past the newline
+X    }
+X    tail += max_field_length() + 1; // this is the Updated line
+X    const char *updated = tail + 4; // do not output the day of the week
+X    tail = strchr(tail, '\n');      // end of Updated line
+X    int updatedLen = tail - updated;
+X
+X    //
+X    // Keywords is Fields\[5\] - just skip over it for now
+X    //
+X    tail += 1;                      // step past the newline
+X    tail = strchr(tail, '\n');      // end of Keywords line
+X
+X    //
+X    // Summary is Fields\[6\]
+X    //
+X    tail += 1;                      // step past the newline
+X    tail += max_field_length() + 1; // this is the Summary line
+X    const char *summary = tail;
+X    tail = strchr(tail, '\n');      // end of Summary line
+X    int summaryLen = tail - summary;
+X
+X    //
+X    // Status Field\[7\]
+X    //
+X    tail += 1;                      // step past the newline
+X    tail += max_field_length() + 1; // this is the Status line
+X    const char *status = tail;
+X    tail = strchr(tail, '\n');      // end of Status line
+X    int statusLen = tail - status;
+X
+X    //
+X    // Severity is Field\[9\]
+X    //
+X    tail += 1;                      // step past the newline
+X    tail = strchr(tail, '\n');      // end of Site line
+X    tail += 1;                      // step past the newline
+X    tail += max_field_length() + 1; // this is the Severity line
+X    const char severity = *tail;
+X    tail = strchr(tail, '\n');      // end of Severity line
+X
+X    //
+X    // Problem # is Fields\[10\]
+X    //
+X    tail += 1;                      // step past the newline
+X    tail += max_field_length() + 1; // this is the prob # line
+X    const char *number = tail;
+X    //
+X    // Find the end of the problem # field - probably contains a space.
+X    //
+X    tail = strchr(tail, '\n');
+X    while (*(tail - 1) == ' ') tail--; // strip off trailing spaces
+X    int numberLen = tail - number;
+X
+X    const int numberFieldLen = 5;      // min width of Prob # field in summary
+X    int len = numberLen > numberFieldLen ? numberLen : numberFieldLen;
+X    char *line = new char[updatedLen + summaryLen + statusLen + len + 4];
+X
+X
+X    *line = 0; // stringify
+X
+X    if (numberLen < numberFieldLen) 
+X    {
+X        //
+X        // Pad the length to numberFieldLen by prepending spaces.
+X        //
+X        int nSpaces = numberFieldLen - numberLen;
+X        for (int i = 0; i < nSpaces; i++)
+X            *(line + i) = ' ';
+X        *(line + nSpaces) = 0;  // restringify
+X    }
+X        
+X    (void)strncat(line, number, numberLen);
+X    line[len] = 0;
+X    (void)strcat(line, " ");
+X    (void)strncat(line, status, statusLen);
+X    line[len += statusLen + 1] = 0;
+X
+X    //
+X    // if status == "open", output the severity also
+X    //
+X    if (line[len - 1] == ' ') line[len - 1] = severity;
+X
+X    (void)strcat(line, " ");
+X    (void)strncat(line, updated, updatedLen);
+X    line[len += updatedLen + 1] = 0;
+X    (void)strcat(line, " ");
+X    (void)strncat(line, summary, summaryLen);
+X    line[len += summaryLen + 1] = 0;
+X
+X    return line;
+X}
+X
+X/*
+X** lsign - returns -1, 0 or 1 depending on the sign of the argument
+X*/
+X
+Xinline int lsign(long arg)
+X{
+X    return arg == 0 ? 0 : (arg > 0 ? 1 : -1);
+X}
+X
+X/*
+X** sort_by_date - the comparison function passed to qsort used when
+X**                sorting listing lines by date.
+X*/
+X
+Xstatic int sort_by_date(const void *a, const void *b)
+X{
+X    char *tmpa = *(char **)a;
+X    char *tmpb = *(char **)b;
+X
+X    while (*tmpa == ' ') tmpa++;        // step over any spaces preceding Prob#
+X    while (*tmpb == ' ') tmpb++;        // ditto
+X
+X    tmpa = strchr(tmpa, ' ') + 1;       // step onto first character of Status
+X    tmpb = strchr(tmpb, ' ') + 1;       // ditto
+X
+X    if (strncmp(tmpa, tmpb, 4))
+X        //
+X        // Sort "open" before "closed".
+X        //
+X        return -strncmp(tmpa, tmpb, 4);
+X    else if (strncmp(tmpa, tmpb, 6))
+X        //
+X        // Sort by severity.
+X        //
+X        return strncmp(tmpa, tmpb, 6);
+X    else
+X    {
+X        //
+X        // Lastly, sort by most recent first.
+X        //
+X        tmpa += 7;
+X        tmpb += 7;
+X        return lsign(seconds_in_date(tmpb) - seconds_in_date(tmpa));
+X    }
+X}
+X
+X/*
+X** view_summary_lines - page through data from problem headers in current area.
+X**                      Returns one if the database exists, else zero.
+X*/
+X
+Xstatic int view_summary_lines()
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        sleep(2);
+X        return 0;
+X    }
+X
+X    open_database(GDBM_READER);
+X    datum key = gdbm_firstkey(GdbmFile);
+X    if (!key.dptr)
+X    {
+X        String msg("Area `");
+X        msg += CurrentArea();
+X        msg += "' appears to be empty ";
+X        
+X        ding();
+X        message(msg);
+X        sleep(2);
+X
+X        gdbm_close(GdbmFile);
+X        return 0;
+X    }
+X
+X    DList summaryLines;  // listing of problem summaries
+X    datum data, tmp;
+X    const int chunksize = 100;
+X    int size = chunksize;
+X    int pos = 0;
+X    char **lines = new char*[size];
+X
+X    message("Reading problems ... ");
+X    while (1)
+X    {
+X        data = gdbm_fetch(GdbmFile, key);
+X        lines[pos++] = summary_info(data);
+X        if (pos == size)
+X        {
+X            //
+X            // Grow lines.
+X            //
+X            char **newspace = new char*[size += chunksize];
+X            for (int i = 0; i < pos; i++) newspace[i] = lines[i];
+X            DELETE lines;
+X            lines = newspace;
+X        }
+X        free(data.dptr);
+X        tmp = gdbm_nextkey(GdbmFile, key);
+X        free(key.dptr);
+X        key = tmp;
+X        if (!key.dptr) break;
+X    }
+X    gdbm_close(GdbmFile);
+X    message("Reading problems ... done");
+X
+X    //
+X    // Sort lines "most recently updated" first.
+X    //
+X    qsort(lines, pos, sizeof(char**), sort_by_date);
+X    for (int i = 0; i < pos; i++)
+X        summaryLines.add(new DLink((char **)&lines[i]));
+X
+X    DELETE lines;
+X
+X    initialize_lister(&summaryLines);
+X    initial_listing(&summaryLines);
+X
+X    String suffix(CurrentArea());
+X    suffix += " ---- q (quit) H (help)";
+X
+X    update_modeline(ModelinePrefix, suffix);
+X
+X    summaryLines.saveYXPos(0, goal_column(&summaryLines));
+X    if (summaryLines.currLine()->length() > columns())    
+X        leftshift_current_line(&summaryLines);
+X    else
+X        move_cursor(summaryLines.savedYPos(), summaryLines.savedXPos());
+X    synch_display();
+X
+X    lister_cmd_loop(&summaryLines);
+X
+X    return 1;
+X}
+X
+X/*
+X** close_problem - close an existing problem in current area.  Returns one if
+X**                 we did the close, zero otherwise.  Only a database
+X**                 administrator or the original logger can close a problem.
+X**                 number, which defaults to null, is used if not null,
+X**                 instead of prompting for the number.  Also, only an open
+X**                 problem can be closed.
+X*/
+X
+Xint close_problem(const char *number)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Are we authorized to close the problem?
+X    //
+X    char *tmp = strchr(data.dptr, '\n');  // logger is Fields\[1\]
+X    tmp += 1;                             // step past the newline
+X    tmp += max_field_length() + 1;        // the logger
+X    int llen  = strchr(tmp, '\n') - tmp;  // # of chars in logger
+X    const char *user = username();
+X
+X    if ((llen != strlen(user) || strncmp(user, tmp, llen)) &&
+X        getuid() != geteuid())
+X    {
+X        ding();
+X        message("You're not authorized to close problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        free(data.dptr);
+X        return 0;
+X    }
+X
+X    //
+X    // Is the problem open?
+X    //
+X    for (int i = 0; i < 6; i++)
+X    {
+X        // status is Fields\[7\]
+X        tmp = strchr(tmp, '\n');
+X        tmp += 1;  // step past newline
+X    }
+X    if (strncmp(tmp + max_field_length() + 1, "open", 4))
+X    {
+X        ding();
+X        message("Only open problems can be closed ");
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        free(data.dptr);
+X        return 0;
+X    }
+X
+X    update_existing_problem(data, key, CLOSED);
+X    update_modeline();  // redisplay previous modeline
+X
+X    free(data.dptr);
+X    if (!number) DELETE key.dptr;
+X
+X    return 1;
+X}
+X
+X/*
+X** reopen_problem - reopen a closed problem in current area.  Returns one if
+X**                  we did the reopen, zero otherwise.  Only a database
+X**                  administrator or the original logger can reopen a problem.
+X**                  number, which defaults to null, is used if not null,
+X**                  instead of prompting for the number.
+X*/
+X
+Xint reopen_problem(const char *number)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Are we authorized to reopen the problem?
+X    //
+X    char *tmp = strchr(data.dptr, '\n');  // logger is Fields\[1\]
+X    tmp += 1;                             // step past the newline
+X    tmp += max_field_length() + 1;        // the logger
+X    int llen  = strchr(tmp, '\n') - tmp;  // # of chars in logger
+X    const char *user = username();
+X
+X    if ((llen != strlen(user) || strncmp(user, tmp, llen)) &&
+X        getuid() != geteuid())
+X    {
+X        ding();
+X        message("You're not authorized to close problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        free(data.dptr);
+X        return 0;
+X    }
+X
+X    //
+X    // Only closed problems can be opened.
+X    //
+X    for (int i = 0; i < 6; i++)
+X    {
+X        // status is Fields\[7\]
+X        tmp = strchr(tmp, '\n');
+X        tmp += 1;  // step past newline
+X    }
+X    if (strncmp(tmp + max_field_length() + 1, "closed", 6))
+X    {
+X        ding();
+X        message("Only closed problems can be reopened ");
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        free(data.dptr);
+X        return 0;
+X    }
+X
+X    update_existing_problem(data, key, REOPENED);
+X    update_modeline();  // redisplay previous modeline
+X
+X    free(data.dptr);
+X    if (!number) DELETE key.dptr;
+X
+X    return 1;
+X}
+X
+X/*
+X** delete_problem - delete the problem from current area.
+X**                  This is strictly for the database administrators.
+X**                  If number is non-null, use it instead of prompting
+X**                  for the problem number.  Returns 1 if the problem
+X**                  was deleted, 0 otherwise.
+X*/
+X
+Xint delete_problem(const char *number)
+X{
+X    int del = 0;  // was delete successful?
+X
+X    if (getuid() != geteuid())
+X    {
+X        ding();
+X        message("Only database administrators can to delete problems ");
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // The problem exists; delete it.
+X    //
+X    const char *msg = "Do you really want to delete this problem (n|y)? ";
+X    if (del = yes_or_no(msg, redisplay_commands, No, 0))
+X        update_database(key, data, DELETED);
+X    free(data.dptr);
+X    if (!number) DELETE key.dptr;
+X
+X    return del;
+X}
+X
+X/*
+X** reorganize_database - reorganize the database for current area
+X*/
+X
+Xvoid reorganize_database(int dodelay)
+X{
+X    if (getuid() != geteuid())
+X    {
+X        ding();
+X        message("Only database administrators can reorganize the database ");
+X        if (dodelay) sleep(2);
+X        return;
+X    }
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (dodelay) sleep(2);
+X        return;
+X    }
+X
+X    const char *msg = "Do you really want to reorganize this database (n|y)? ";
+X    if (yes_or_no(msg, redisplay_commands, No, 0))
+X    {
+X        datum key, data;  // just placeholders here
+X        update_database(key, data, REORGANIZED);
+X    }
+X}
+X
+X/*
+X** search - prompt for pattern -- regexp -- and display the matches.
+X**          Returns zero if we only need to redisplay
+X**          the prompt, else returns one.
+X*/
+X
+X//
+X// Ways to search -- over full problem text or just the header
+X//
+Xenum SearchMethod { FULLTEXT, HEADER };
+X
+Xstatic int search(const SearchMethod how)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        sleep(2);
+X        return 0;
+X    }
+X
+X    char *keywords = prompt("Search for --> ", redisplay_commands);
+X    const char **list = tokenize(keywords, " ,\t");
+X    DELETE keywords;
+X
+X    if (!list[0]) return 0;  // no words to search for
+X
+X    //
+X    // Build a regular expression to search for.
+X    // We want to build a pattern of the form:
+X    //
+X    //   word1|word2|word3|word4 ...
+X    //
+X    int len = 0;                          // total length of all words in list
+X    for (int i = 0; list[i]; i++)
+X        len += (int) strlen(list[i]) + 1; // plus one for the |
+X    char *line = new char[len + 1];
+X    line[0] = 0;                          // make it into a valid string
+X
+X    //
+X    // Are each of the words individually a valid regexp?
+X    //
+X    regexp *regex;
+X    for (i = 0; list[i]; i++)
+X    {
+X        if ((regex = regcomp(list[i])) == 0)
+X        {
+X            String msg("`");
+X            msg += list[i];
+X            msg += "' isn't a valid regex: ";
+X            msg += REerror;
+X            msg +=  ", skipping ... ";
+X
+X            ding();
+X            message(msg);
+X            sleep(2);
+X            DELETE line;
+X        }
+X        else
+X        {
+X            (void)strcat(line, list[i]);
+X            (void)strcat(line, "|");
+X        }
+X        DELETE (char *) regex;
+X    }
+X
+X    //
+X    // Remove any trailing |s.
+X    //
+X    if (line[strlen(line) - 1] == '|') line[strlen(line) - 1] = 0;
+X    if (strlen(line) == 0)
+X    {
+X        ding();
+X        message("No valid regular expressions among your keywords ");
+X        sleep(2);
+X        DELETE line;
+X        return 0;
+X    }
+X    if ((regex = regcomp(line)) == 0)
+X    {
+X        ding();
+X        message("regcomp() failed: %", REerror);
+X        sleep(2);
+X        DELETE line;
+X        return 0;
+X    }
+X
+X    open_database(GDBM_READER);
+X    datum key = gdbm_firstkey(GdbmFile);
+X    if (!key.dptr)
+X    {
+X        String msg("Area `");
+X        msg += CurrentArea();
+X        msg += "' appears to be empty ";
+X
+X        ding();
+X        message(msg);
+X        sleep(2);
+X        DELETE line;
+X        DELETE (char *) regex;
+X        return 0;
+X    }
+X
+X    DList summaryLines;  // listing of problem summaries
+X    datum data, tmp;
+X    const int chunksize = 100;
+X    int size = chunksize, pos = 0;
+X    char **lines = new char*[size];
+X
+X    message("Reading problems ... ");
+X
+X    while (1)
+X    {
+X        data = gdbm_fetch(GdbmFile, key);
+X        switch (how)
+X        {
+X          case HEADER:
+X          {
+X              //
+X              // Search only the problem header.
+X              //
+X              char *tail = data.dptr;
+X              for (int i = 0; i < NFields(); i++)
+X              {
+X                  tail = strchr(tail, '\n');
+X                  tail += 1; // step past the newline
+X              }
+X              *tail = 0;     // treat the header as one long string
+X              if (regexec(regex, data.dptr)) lines[pos++] = summary_info(data);
+X          }
+X              break;
+X          case FULLTEXT:
+X              //
+X              // Search over full problem text.
+X              //
+X              if (regexec(regex, data.dptr)) lines[pos++] = summary_info(data);
+X              break;
+X          default: error("file %s, line %d, illegal case in switch()",
+X                           __FILE__, __LINE__);
+X        }
+X        if (pos == size)
+X        {
+X            //
+X            // Grow lines.
+X            //
+X            char **newspace = new char*[size += chunksize];
+X            for (int i = 0; i < pos; i++) newspace[i] = lines[i];
+X            DELETE lines;
+X            lines = newspace;
+X        }
+X        free(data.dptr);
+X        tmp = gdbm_nextkey(GdbmFile, key);
+X        free(key.dptr);
+X        key = tmp;
+X        if (!key.dptr) break;
+X    }
+X
+X    gdbm_close(GdbmFile);
+X    message("Reading problems ... done");
+X    DELETE (char *) regex;
+X
+X    //
+X    // Sort lines.
+X    //
+X    qsort(lines, pos, sizeof(char**), sort_by_date);
+X    for (i = 0; i < pos; i++)
+X        summaryLines.add(new DLink((char **)&lines[i]));
+X    DELETE lines;
+X
+X    //
+X    // Are there any problem summaries to peruse?
+X    //
+X    if (!summaryLines.nelems())
+X    {
+X         ding();
+X         message("No matches for regex `%' ", line);
+X         sleep(2);
+X         DELETE line;
+X         return 0;
+X     }
+X
+X    initialize_lister(&summaryLines);
+X    initial_listing(&summaryLines);
+X
+X    String suffix(CurrentArea());
+X    suffix += " (regex: ";
+X    suffix += line;
+X    suffix += ") ---- q (quit) H (help)";
+X
+X    update_modeline(ModelinePrefix, suffix);
+X    DELETE line;
+X
+X    summaryLines.saveYXPos(0, goal_column(&summaryLines));
+X    if (summaryLines.currLine()->length() > columns())    
+X        leftshift_current_line(&summaryLines);
+X    else
+X        move_cursor(summaryLines.savedYPos(), summaryLines.savedXPos());
+X    synch_display();
+X
+X    lister_cmd_loop(&summaryLines);
+X
+X    return 1;
+X}
+X
+X//
+X// the header data -- needs to be shared between display_header and
+X//                    modify_keywords so that we can call prompt using
+X//                    display_header as its second argument.
+X//
+Xstatic datum header_data;
+X
+X/*
+X** display_header - put up the header of the problem in data.
+X*/
+X
+Xstatic void display_header()
+X{
+X    clear_display_area();
+X
+X    enter_standout_mode();
+X    for (int i = 0; i < NFields() && i < rows() - 2; i++)
+X        display_string(Fields[i]);
+X    end_standout_mode();
+X
+X    int flen   = max_field_length() + 1;
+X    char *tmp1 = header_data.dptr, *tmp2;
+X
+X    for (i = 0; i < NFields() && i < rows() - 2; i++)
+X    {
+X        tmp2  = strchr(tmp1, '\n');
+X        *tmp2 = 0;        // stringify
+X        move_cursor(i, flen);
+X        display_string(tmp1 + flen);
+X        *tmp2 = '\n';     // unstringify
+X        tmp1  = tmp2 + 1; // step past newline to next Field
+X    }
+X}
+X
+X/*
+X** modify_keywords - allows the problem owner or the administrator
+X**                   to change the Keyword field.
+X*/
+X
+Xint modify_keywords(const char *number)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    header_data = data;
+X
+X    //
+X    // Are we authorized to modify the problem\'s keywords?
+X    //
+X    char *tmp = strchr(data.dptr, '\n');  // logger is Fields\[1\]
+X    tmp += 1;                             // step past the newline
+X    tmp += max_field_length() + 1;        // the logger
+X    int llen  = strchr(tmp, '\n') - tmp;  // # of chars in logger
+X    const char *user = username();
+X
+X    if ((llen != strlen(user) || strncmp(user, tmp, llen)) &&
+X        getuid() != geteuid())
+X    {
+X        ding();
+X        message("You're not authorized to modify problem # %'s keywords ",
+X                key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Put up problem header.
+X    //
+X    String suffix(CurrentArea());
+X    suffix += "  # ";
+X    suffix += key.dptr;
+X    suffix += " (modifying keywords)";
+X
+X    String old_modeline(current_modeline);
+X
+X    update_modeline(ModelinePrefix, suffix);
+X    display_header();
+X
+X    char *newkeywords = prompt("New keyword field --> ", display_header);
+X
+X    //
+X    // Make new data datum.
+X    //
+X    datum newdata;
+X    tmp = data.dptr;
+X
+X    //
+X    // Find old Keyword field -- Fields\[5\].
+X    //
+X    for (int i = 0; i < 5; i++)
+X    {
+X        tmp  = strchr(tmp, '\n');
+X        tmp += 1;                             // step past newline
+X    }
+X    tmp += max_field_length() + 1;            // the Keywords field data
+X    newdata.dsize = data.dsize + (int)strlen(newkeywords) -
+X                    (strchr(tmp, '\n') - tmp);
+X    newdata.dptr = new char[newdata.dsize];
+X
+X    char overwritten = *tmp;
+X    *tmp = 0;                                 // stringify data.dptr
+X    (void)strcpy(newdata.dptr, data.dptr);    // data preceding Keywords field
+X    *tmp = overwritten;                       // replace overwritten character
+X    (void)strcat(newdata.dptr, newkeywords);  // new keywords
+X    (void)strcat(newdata.dptr, strchr(tmp, '\n'));  // following data
+X
+X    DELETE newkeywords;
+X    free(data.dptr);
+X
+X    update_existing_problem(newdata, key, KEYWORDMOD);
+X    update_modeline();                        // force comlete redisplay
+X    update_modeline(old_modeline);            // update to old version
+X
+X    if (!number) DELETE key.dptr;
+X    DELETE newdata.dptr;
+X
+X    return 1;
+X}
+X
+X/*
+X** modify_severity - allows the problem owner or the administrator
+X**                   to change the Severity field.
+X*/
+X
+Xint modify_severity(const char *number)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Are we authorized to modify the problem\'s severity?
+X    //
+X    char *tmp = strchr(data.dptr, '\n');  // logger is Fields\[1\]
+X    tmp += 1;                             // step past the newline
+X    tmp += max_field_length() + 1;        // the logger
+X    int llen  = strchr(tmp, '\n') - tmp;  // # of chars in logger
+X    const char *user = username();
+X
+X    if ((llen != strlen(user) || strncmp(user, tmp, llen)) &&
+X        getuid() != geteuid())
+X    {
+X        ding();
+X        message("You're not authorized to modify problem # %'s severity ",
+X                key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    char newSeverity = get_severity(display_header);
+X
+X    //
+X    // Find old Severity field -- Fields\[9\].
+X    //
+X    tmp = data.dptr;
+X    for (int i = 0; i < 9; i++)
+X    {
+X        tmp  = strchr(tmp, '\n');
+X        tmp += 1;                   // step past newline
+X    }
+X    tmp += max_field_length() + 1;  // the Severity field data
+X
+X
+X    //
+X    // Are the severities actually different?
+X    //
+X    if (*tmp == newSeverity)
+X    {
+X        ding();
+X        message("The old and new severities are the same");
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    *tmp = newSeverity;             // set new Severity
+X
+X    update_existing_problem(data, key, SEVERITYMOD);
+X    update_modeline();
+X
+X    if (!number) DELETE key.dptr;
+X    free(data.dptr);
+X
+X    return 1;
+X}
+X
+X/*
+X** transfer_problem - allows the problem owner or the administrator
+X**                    to move the problem to another area.
+X*/
+X
+Xint transfer_problem(const char *number, char *area)
+X{
+X    if (!database_exists())
+X    {
+X        ding();
+X        message("There is no database for problem area `%' ", CurrentArea());
+X        if (!number) sleep(2);
+X        return 0;
+X    }
+X
+X    datum key;
+X    key.dptr  = number ? (char *) number : prompt("Problem # --> ",
+X                                                  redisplay_commands);
+X    key.dsize = int(strlen(key.dptr)) + 1;
+X
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X
+X    if (!data.dptr)
+X    {
+X        ding();
+X        message("There is no problem # % ", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    header_data = data;
+X
+X    //
+X    // Are we authorized to transfer the problem to another area?
+X    //
+X    char *tmp = strchr(data.dptr, '\n');  // logger is Fields\[1\]
+X    tmp += 1;                             // step past the newline
+X    tmp += max_field_length() + 1;        // the logger
+X    int llen  = strchr(tmp, '\n') - tmp;  // # of chars in logger
+X    const char *user = username();
+X
+X    if ((llen != strlen(user) || strncmp(user, tmp, llen)) &&
+X        getuid() != geteuid())
+X    {
+X        ding();
+X        message("You're not authorized to transfer problem # %", key.dptr);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            free(data.dptr);
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Area is null when called from the command display.
+X    //
+X    if (!area) area = prompt("New Area --> ", redisplay_commands);
+X
+X    //
+X    // Is area a valid area?
+X    //
+X    // This is guaranteed to be true if we get here when called
+X    // from the view window.
+X    //
+X    if (!is_area(area))
+X    {
+X        ding();
+X        message("`%' isn't a valid problem area", area);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            DELETE area;
+X            free(data.dptr);
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Is area really a new problem area?
+X    //
+X    // This is guaranteed to be true if we get here when called
+X    // from the view window.
+X    //
+X    if (strcmp(area, CurrentArea()) == 0)
+X    {
+X        ding();
+X        message("`%' is the same as the current area", area);
+X        if (!number)
+X        {
+X            DELETE key.dptr;
+X            DELETE area;
+X            free(data.dptr);
+X            sleep(2);
+X        }
+X        return 0;
+X    }
+X
+X    //
+X    // Build new problem header -- must update Area field.
+X    //
+X    if (strlen(area) <= strlen(CurrentArea()))
+X    {
+X        //
+X        // We can just overwrite the old area with the new one.
+X        // We blank out any extra characters in the old area.
+X        //
+X        tmp = data.dptr + max_field_length() + 1;
+X        strncpy(tmp, area, strlen(area));
+X        int i = int (strlen(CurrentArea()) - strlen(area));
+X        tmp += strlen(area);
+X        for (int j = 0; j < i; j++) *tmp++ = ' ';
+X
+X        update_existing_problem(data, key, TRANSFER);
+X
+X        free(data.dptr);
+X    }
+X    else
+X    {
+X        //
+X        // We must build a new problem entry.
+X        //
+X        int i = int (strlen(area) - strlen(CurrentArea()));
+X        datum newdata;
+X        newdata.dsize = data.dsize + i;
+X        newdata.dptr  = new char[newdata.dsize];
+X        strncpy(newdata.dptr, data.dptr, max_field_length() + 1);
+X        *(newdata.dptr + max_field_length() + 1) = 0;
+X        strcat(newdata.dptr, area);
+X        strcat(newdata.dptr, strchr(data.dptr, '\n'));
+X        free(data.dptr);
+X
+X        update_existing_problem(newdata, key, TRANSFER);
+X
+X        DELETE newdata.dptr;
+X    }
+X
+X    update_modeline(); // completely redisplay modeline
+X
+X    if (!number)
+X    {
+X        DELETE key.dptr;
+X        DELETE area;
+X    }
+X
+X    return 1;
+X}
+X
+X/*
+X** problem - examine the area in problem
+X*/
+X
+Xstatic void problem(const char *area)
+X{
+X    const char *the_area = is_area(area) ? area : choose_problem_area();
+X    const char *helpmsg  = "The Available Commands:";
+X    setCurrentArea(the_area);
+X    commands_screen();
+X    String suffix(CurrentArea());
+X    suffix += " ---- q (quit) H (help)";
+X
+X    update_modeline(ModelinePrefix, suffix);
+X    message("Your Choice --> ");
+X
+X    char key;
+X    char refresh = 1; // need to redisplay command list?
+X    char redomsg = 1; // need to redisplay the message?
+X    while (1)
+X    {
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0    || // assume only fails when errno==EINTR 
+X            key == KEY_CTL_L)
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged)
+X            {
+X                windowSizeChanged = 0;
+X                adjust_window();
+X            }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay_commands();
+X            refresh = 0;
+X        }
+X        else
+X            switch(key)
+X            {
+X              case KEY_l:
+X                log_new_problem(); refresh = 1; break;
+X              case KEY_e:
+X                refresh = examine_problem(); break;
+X              case KEY_v:
+X                refresh = view_summary_lines(); break;
+X              case KEY_a:
+X                refresh = append_to_problem(); break;
+X              case KEY_s:
+X                subscribe_to_area(); refresh = 0; break;
+X              case KEY_u:
+X                unsubscribe_from_area(); refresh = 0; break;
+X              case KEY_c:
+X                refresh = close_problem(); break;
+X              case KEY_k:
+X                refresh = search(HEADER); break;
+X              case KEY_K:
+X                refresh = search(FULLTEXT); break;
+X              case KEY_M:
+X                refresh = modify_keywords(); break;
+X              case KEY_R:
+X                refresh = reopen_problem(); break;
+X              case KEY_P:
+X                refresh = modify_severity(); break;
+X              case KEY_T:
+X                refresh = transfer_problem(); break;
+X              case KEY_d:
+X                (void)delete_problem(); refresh = 0; break;
+X              case KEY_r:
+X                reorganize_database(); refresh = 0; break;
+X              case KEY_q:
+X                return;
+X              case KEY_H: case KEY_QM:
+X                help((const char **)&Commands[0], NCommands(), helpmsg);
+X                refresh = 1; break;
+X              default:
+X                ding(); redomsg = refresh = 0; break;
+X            }
+X        if (refresh)
+X        {
+X            commands_screen();
+X            update_modeline(ModelinePrefix, suffix);
+X        }
+X        if (redomsg) message("Your Choice --> ");
+X        redomsg = 1;
+X    }
+X}
+X
+Xmain(int argc, char *argv[])
+X{
+X    if (!isatty(0) || !isatty(1))
+X    {
+X        (void)fputs("stdin & stdout must be terminals\n", stderr);
+X        exit(1);
+X    }
+X
+X    //
+X    // Usage: problem \[-v\] \[-d\] \[area1\] \[area2\] \[...\]
+X    //
+X    // We only accept the -d flag if it is the first argument.
+X    // It directs us to use a different directory as our HomeBase.
+X    // Regarding problem areas, we just ignore invalid ones.
+X    // The -v option just prints out the version string and exits.
+X    //
+X    argc--;
+X    argv++;
+X    if (argc && strcmp(*argv, "-v") == 0)
+X    {
+X        fputs(Version, stdout);
+X        exit(0);
+X    }
+X    else if (argc && strcmp(*argv, "-d") == 0)
+X    {
+X        argc--; argv++;
+X        if (!argc)
+X        {
+X            fputs("Ignoring `-d' flag - no corresponding directory.", stdout);
+X            sleep(2);
+X        }
+X        else
+X        {
+X            HomeBase = *argv;
+X            argc--;
+X            argv++;
+X        }
+X    }
+X
+X    //
+X    // If you do not have SIGINTERRUPT then signals almost surely interrupt
+X    // read.  If you do have it, you will need this to ensure that signals
+X    // interrupt slow system calls -- we are only interested in read.
+X    //
+X#ifdef SIGINTERRUPT
+X#ifdef SIGTSTP
+X    if (siginterrupt(SIGTSTP, 1) < 0)
+X    {
+X        perror("siginterrupt(SIGTSTP)");
+X        exit(1);
+X    }
+X#endif
+X#ifdef SIGWINCH
+X    if (siginterrupt(SIGWINCH, 1) < 0)
+X    {
+X        perror("siginterrupt(SIGWINCH)");
+X        exit(1);
+X    }
+X#endif
+X#endif
+X
+X    set_new_handler(free_store_exception);
+X    initialize();
+X    set_signals();
+X
+X    if (!database_directory_exists())
+X        error("Database directory `%s' isn't accessible.", HomeBase);
+X
+X    while (1) problem(*argv ? *argv++ : choose_problem_area());
+X}
+END_OF_FILE
+if test 46030 -ne `wc -c <'problem2.C'`; then
+    echo shar: \"'problem2.C'\" unpacked with wrong size!
+fi
+# end of 'problem2.C'
+fi
+echo shar: End of archive 6 \(of 7\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

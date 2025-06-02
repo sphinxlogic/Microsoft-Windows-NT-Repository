@@ -1,0 +1,1373 @@
+Newsgroups: comp.sources.x
+From: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Subject: v21i039:  pan - A post a note program, Part03/06
+Message-ID: <1993Nov9.000711.10838@sparky.sterling.com>
+X-Md4-Signature: d738080ee283dab4ed83b9b13a36e2b8
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 00:07:11 GMT
+Approved: chris@sterling.com
+
+Submitted-by: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Posting-number: Volume 21, Issue 39
+Archive-name: pan/part03
+Environment: X11, OpenLook, XView
+Supersedes: pan: Volume 16, Issue 137-142
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 03 of a multipart archive
+# ============= pan3.0/hidexp.c ==============
+if test ! -d 'pan3.0'; then
+    echo 'x - creating directory pan3.0'
+    mkdir 'pan3.0'
+fi
+if test -f 'pan3.0/hidexp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/hidexp.c (File already exists)'
+else
+echo 'x - extracting pan3.0/hidexp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/hidexp.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+X/*
+X    Routine called when hide notes button is selected.  Hides ALL notes.
+X*/
+Xhideall()
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            if(np->mapped && np->state != Hidden)
+X                {
+X                w_hidenote(np);
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    refresh_popups();
+X    }
+X
+X/*
+X    Routine called when expose notes button menu selection All is selected.
+X    Exposes ALL notes.
+X*/
+Xexposeall()
+X    {
+X    int  count;
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    /* Count how many will be exposed */
+X    count = 0;
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            if(np->state != Visible)
+X                {
+X                if(!np->mapped)
+X                    {
+X                    count++;
+X                    }
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    if(windowmax != -1 && count >= windowmax)
+X        {
+X        char buf[1024];
+X
+X        sprintf(buf, "This action will expose %d notes!", count);
+X        if(notice_prompt(main_frame, NULL,
+X                     NOTICE_MESSAGE_STRINGS, 
+X                         buf,
+X                         "Proceed?",
+X                         NULL,
+X                     NOTICE_BUTTON_YES, "Yes",
+X                     NOTICE_BUTTON_NO, "No",
+X                     NOTICE_NO_BEEPING, noticenobeep,
+X                     NULL) == NOTICE_NO)
+X            {
+X            return;
+X            }
+X        }
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            if(np->state != Visible)
+X                {
+X                if(!np->mapped)
+X                    {
+X                    w_exposenote(np, ERRONDISPLAY);
+X                    }
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    refresh_popups();
+X    }
+X
+X/*
+X    Routine called when expose notes button menu selection All is selected
+X    from within a folder.  Exposes ALL notes in the folder.
+X*/
+Xexposefolder(sp)
+X    struct SubDir *sp;
+X    {
+X    int  count;
+X    struct Note *np;
+X
+X    /* Count how many will be exposed */
+X    count = 0;
+X    np = (struct Note *) LLM_first(&sp->note_rt);
+X    while(np != NULL)
+X        {
+X        if(np->state != Visible)
+X            {
+X            if(!np->mapped)
+X                {
+X                count++;
+X                }
+X            }
+X        np = (struct Note *) LLM_next(&sp->note_rt);
+X        }
+X    if(windowmax != -1 && count >= windowmax)
+X        {
+X        char buf[1024];
+X 
+X        sprintf(buf, "This action will expose %d notes!", count);
+X        if(notice_prompt(main_frame, NULL,
+X                     NOTICE_MESSAGE_STRINGS,
+X                         buf,
+X                         "Proceed?",
+X                         NULL,
+X                     NOTICE_BUTTON_YES, "Yes",
+X                     NOTICE_BUTTON_NO, "No",
+X                     NOTICE_NO_BEEPING, noticenobeep,
+X                     NULL) == NOTICE_NO)
+X            {
+X            return;
+X            }
+X        }
+X
+X    np = (struct Note *) LLM_first(&sp->note_rt);
+X    while(np != NULL)
+X        {
+X        if(np->state != Visible)
+X            {
+X            if(!np->mapped)
+X                {
+X                w_exposenote(np, ERRONDISPLAY);
+X                }
+X            }
+X        np = (struct Note *) LLM_next(&sp->note_rt);
+X        }
+X    refresh_popups();
+X    }
+X
+X/*
+X    Routine called when the hide button on a note is selected.  Hides the
+X    selected note.
+X*/
+Xhidenote(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    struct Note *np;
+X
+X    np = (struct Note *) xv_get(item, PANEL_CLIENT_DATA);
+X
+X    w_hidenote(np);
+X
+X    refresh_popups();
+X    }
+X
+X/*
+X    Called when the window border menu Quit item is selected on a note.
+X    Veils the note.
+X*/
+Xdismissed(frame)
+X    Frame frame;
+X    {
+X    int  found = 0;
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL && !found)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL && !found)
+X            {
+X            if(np->mapped && np->frame == frame)
+X                {
+X                w_veilnote(np);
+X                found = 1;
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    refresh_popups();
+X    }
+X
+X/*
+X    Called when an expose menu item is chosen.  Figures out which note
+X    to expose, then does it.
+X*/
+Xexposemenu(menu, mitem)
+X    Menu menu;
+X    Menu_item mitem;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X    char *ptext;
+X    Menu_item pullright;
+X
+X    np = (struct Note *)xv_get(mitem, MENU_CLIENT_DATA);
+X    if(np == NULL &&
+X       strcmp((char *)xv_get(mitem, MENU_STRING), CHOICE_ALL) == 0)
+X        {
+X        exposeall();
+X        }
+X    else if((long) np == 0xFFFFFFFF &&
+X       strcmp((char *)xv_get(mitem, MENU_STRING), CHOICE_ALL) == 0)
+X        {
+X        pullright = (Menu_item) xv_get(menu, MENU_PARENT);
+X        ptext = (char *)xv_get(pullright, MENU_STRING);
+X        sp = (struct SubDir *) LLM_first(&subdir_rt);
+X        while(sp != NULL)
+X            {
+X            if(strcmp(sp->subdir, ptext) == 0)
+X                exposefolder(sp);
+X            sp = (struct SubDir *) LLM_next(&subdir_rt);
+X            }
+X        }
+X    else
+X        {
+X        if(np == NULL)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "No notes to expose",
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            return;
+X            }
+X        if(!np->mapped)
+X            {
+X            w_exposenote(np, ERRONDISPLAY);
+X            }
+X        refresh_popups();
+X        }
+X    }
+X
+X/* refresh any pop up windows as necessary */
+Xrefresh_popups()
+X    {
+X    refresh_move();
+X    refresh_destroy();
+X    refresh_search();
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/hidexp.c ||
+echo 'restore of pan3.0/hidexp.c failed'
+Wc_c="`wc -c < 'pan3.0/hidexp.c'`"
+test 7422 -eq "$Wc_c" ||
+	echo 'pan3.0/hidexp.c: original size 7422, current size' "$Wc_c"
+fi
+# ============= pan3.0/pan.man ==============
+if test -f 'pan3.0/pan.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/pan.man (File already exists)'
+else
+echo 'x - extracting pan3.0/pan.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/pan.man' &&
+X.TH pan l "July 2, 1991"
+X.SH NAME
+Xpan \- Post A Note Open Look program
+X.SH SYNTAX
+X\fBpan\fP [args...]
+X.SH DESCRIPTION
+XThe \fBpan\fP program keeps track of multiple text notes.  Each note
+Xhas its own window and associated attributes.  The position, size, and
+Xvisibility of each note is maintained across invocations along with the
+Xnote text.
+X.LP
+XA note may be in one of three states: Visible, Hidden, or Veiled.
+XA visible note has a window mapped to the display.  A hidden note is not
+Xmapped to the display.  A veiled note is a note which has been dismissed
+Xvia the window manager's window menu.  It is not mapped, but the permanent
+Xstate is still "Visible".  This feature allows a note to be unmapped, but
+Xmade visible automatically upon the next invocation of \fBpan\fP.  A veiled
+Xnote may be exposed just like a hidden note.
+X.LP
+XThe \fBpan\fP program accepts all standard Open Look command line arguments.
+X.LP
+XIn addition, \fBpan\fP accepts the following command line arguments:
+X.LP
+X\fB-d<directory>\fP
+X.RS
+XSet the initial pan directory.  This overrides the X resource
+X\fBinitialDirectory\fP.
+X.RE
+X.LP
+XAll notes are automatically saved to disk when the pointer moves outside
+Xof the note window, or upon loss of the keyboard focus.  Note that saving
+Xto disk is only done if changes have been made.
+X.LP
+XThe \fBpan\fP program has one base window from which many functions may be
+Xaccessed.  Each note consists of a separate window which may or may not be
+Xmapped to the display.  The base window has the following buttons:
+X.LP
+X\fBNew Note\fP
+X.RS
+XClicking on this button with mouse button 1 causes a new blank note to
+Xbe created and made visible.  This new note is created in the default folder.
+X.LP
+XClicking on this button and holding with mouse button 3 will bring up a menu
+Xof folders in which a new note may be created.
+X.RE
+X.LP
+X\fBHide Notes\fP
+X.RS
+XClicking on this button causes all visible notes to be unmapped from the 
+Xdisplay.
+X.RE
+X.LP
+X\fBExpose Notes\fP
+X.RS
+XThis button has a menu attached to it.  Clicking with mouse button 1
+Xselects the default action.  Pressing mouse button 3 brings up
+Xa menu.  The menu items are:
+X.LP
+X\fBAll\fP
+X.RS
+XExpose (make visible) all notes.  This option can be limited in scope via the
+X\fBwindowMax\fP X resource.  This is the default action.
+X.RE
+X.LP
+X\fB<Folders>\fP
+X.RS
+XAn additional entry for each folder is displayed.  By moving the pointer right,
+Xa menu of all hidden notes in that folder is displayed.  The first entry is
+Xthe item "All".  Selecting this will expose all notes in the folder.  This
+Xaction is also limited by the \fBwindowMax\fP X resource. The
+Xremaining items are individual notes within the folder.
+X.RE
+X.RE
+X.LP
+X\fBAction\fP
+X.RS
+XThis button has a menu attached to it.  Clicking with mouse button 1
+Xselects the default action.  Pressing mouse button 3 brings up
+Xa menu.  The menu items are:
+X.LP
+X\fBCreate Folder...\fP
+X.RS
+XSelecting this menu item brings up another window that allows a folder
+Xname to be entered.  When this is done, \fBpan\fP will create a new
+Xfolder.  This is the default menu item.  This may be changed with the
+X\fBactionDefault\fP X resource.
+X.RE
+X.LP
+X\fBMove Note...\fP
+X.RS
+XThis menu item will bring up a window with 3 lists.  The first list is the
+Xfolder \fBfrom\fP which to move notes.  The second list is the folder
+X\fBto\fP which notes will be moved.  The third list is the list of notes
+Xin the source folder.  Select the appropriate source and destination folders,
+Xthen select the note or notes to be moved and click on the "Apply" button.  The
+Xselected notes will be moved to the destination folder.
+X.RE
+X.LP
+X\fBPrint Note\fP
+X.RS
+XThis menu item will bring up a menu of all folders, similar to the \fBExpose\fP
+Xmenu.  
+XSliding the pointer to the right while holding
+Xmouse button 3 down reveals a list of all notes in the selected folder.
+XHighlight the one
+Xto be printed and release the mouse button to cause the note to be printed.
+X.RE
+X.LP
+X\fBDestroy Folder...\fP
+X.RS
+XThis menu item will pop up a window with a list of all available folders.
+XSelecting a folder and then clicking the "Apply" button will cause all
+Xnotes in that folder to be destroyed.  The folder itself will then be
+Xdestroyed.  \fIThis is an extremely destructive function and should be
+Xused with great care.\fP
+X.RE
+X.LP
+X\fBQuit\fB
+X.RS
+XCause \fBpan\fP to exit.
+X.RE
+X.RE
+X.LP
+X\fBSearch:\fP
+X.RS
+XThis is a text entry field.  It can be used to enter a regular expression.
+XUpon pressing the \fIreturn\fP key, \fBpan\fP will search for a note with
+Xa title matching the RE and expose it if there is a single match.  If more
+Xthan one note matches, a list window will be displayed allowing multiple
+Xselections of notes to expose.
+X.RE
+X.LP
+XIn addition, there is an abbreviated menu button to the right of the
+X\fBSearch:\fP text entry field.  Using the X resource \fBsearchMenu\fP,
+Xa list of regular expressions may be specified from which to build a
+Xmenu.  This allows shortcut exposures without typing in the text entry
+Xfield.  Using this menu does not destroy the contents of the text entry
+Xfield.  The default menu has only 1 regular expression: '.'.
+X.SH NOTE WINDOWS
+XEach note window contains the following items:
+X.LP
+X\fBTitle\fP
+X.RS
+XThis is a scrolling text entry item.  A note title may be entered here.  \fBThe
+Xtitle does not become active until the return key is pressed.\fP
+X.RE
+X.LP
+X\fBHide\fP
+X.RS
+XClicking on this button will cause this note to be hidden.
+X.RE
+X.LP
+X\fBAction\fP
+X.RS
+XThis is a menu button.  Clicking on it with mouse button 1 will cause the
+Xdefault menu item to be selected.  Clicking on it with mouse button 3 will
+Xdisplay a menu with the following items:
+X.LP
+X\fBPrint\fP
+X.RS
+XThis item will cause the note to be printed.
+X.RE
+X.LP
+X\fBWidth <n>\fP
+X.RS
+XThis item will cause the note's width to expand so the text subwindow can
+Xaccommodate at least \fB<n>\fP characters before wrapping.  See the X
+Xresource \fBsetWidth\fP for a more detailed explanation.
+X.RE
+X.LP
+X\fBDestroy\fP
+X.RS
+XThis menu item will cause this note to be destroyed.  There is
+Xno way to recover a note after this action is taken.
+X.RE
+X.RE
+X.SH RESOURCES
+XThe \fBpan\fP program will query the X server for resource information.
+XThe following items of information are examined by \fBpan\fP:
+X.LP
+X\fBpan.initialDirectory (string)\fP
+X.RS
+XThis resource may be defined with a directory name.  \fBPan\fP will read
+Xthis directory for notes upon startup instead of reading the default directory.
+XNote that the \fB-d\fP command line argument can override this.
+X.LP
+XThe current default directory is "$HOME/.pan".  It will be created 
+Xautomatically by \fBpan\fP if necessary.  Note that a directory other than the
+Xdefault will \fBnot\fP be automatically created.
+X.RE
+X.LP
+X\fBpan.printCommand (string)\fP
+X.RS
+XThis resource may be defined to be a command that will cause a note to
+Xbe printed.
+X.LP
+XThe current default command is "/usr/ucb/lpr $FILE".  Another command, including
+Xflags may be substituted.  Two special variables are available:  $FILE, and 
+X$NOTETITLE.  The first will contain the full path and file name of the note
+Xselected to be printed.  The second will contain the full title of the note
+Xselected to be printed.  If a postscript printer is available, a nicely
+Xformatted printout may be obtained by using 'mp -o -s "$NOTETITLE" $FILE | lpr'.
+XDon't include the single quotes in the .Xdefaults file.  I use them for
+Xemphasis only.
+X.RE
+X.LP
+X\fBpan.confirmDestroy (boolean)\fP
+X.RS
+XThis resource controls whether \fBpan\fP will display a confirmation notice
+Xwhen the destroy button on a note is selected.
+X.LP
+XThe default value is False.
+X.RE
+X.LP
+X\fBpan.noticeBeep (boolean)\fP
+X.RS
+XThis resource controls whether notices displayed by \fBpan\fP will be 
+Xaccompanied by an audible beep.
+X.LP
+XThe current default is True.
+X.RE
+X.LP
+X\fBpan.iconTransparent (boolean)\fP
+X.RS
+XThis resource controls whether or not the icons used by \fBpan\fP have
+Xa transparent background.  It is retained for backwards compatibility.
+XIcon masks are now used, so this attribute currently has no effect.
+X.LP
+XThe default value is False.
+X.RE
+X.LP
+X\fBpan.folderOrder (string)\fP
+X.RS
+XThis is a string resource.  It consists of a comma separated list of folder
+Xnames.  This resource allows the order in which folders appear in the menus
+Xto be specified.  Any folders not explicitly mentioned are added to the
+Xend of the list in the order in which they are encountered when reading
+Xthe directory.
+X.LP
+XThe default value is "Miscellaneous".
+X.RE
+X.LP
+X\fBpan.defaultSearch (string)\fP
+X.RS
+XThis resource allows the specification of a default search string to appear
+Xin the "Search:" field in the base window.
+X.LP
+XThe default value is "".
+X.RE
+X.LP
+X\fBpan.folderInTitle (boolean)\fP
+X.RS
+XThis resource specifies whether or not to display a note's folder name along
+Xwith the note title in the window manager's title bar.
+X.LP
+XThe default is False.
+X.RE
+X.LP
+X\fBpan.textFont (string)\fP
+X.RS
+XThis resource allows the specification of an alternate font to be used in
+Xthe text subwindow.  I highly recommend using a fixed with font in this
+Xresource if the \fBWidth\fP menu item on a note is to be used.  I have found
+Xthat a good font is "8x13".  (Quotes for emphasis only.)
+X.LP
+XThe default font if this resource is not set is chosen by the XView toolkit,
+Xand depends upon the -scale option.
+X.RE
+X.LP
+X\fBpan.windowMax (integer)\fP
+X.RS
+XThis resource limits the number of windows that may be exposed as the result
+Xof a single expose action.  If the number would be exceeded, and the expose
+Xaction is interactive, a confirmation notice is posted before \fBpan\fP
+Xwill continue the operation.  If the operation is from the pan control
+Xlanguage, \fBwindowMax\fP notes are exposed, then the action is halted
+Xsilently.
+X.LP
+XUse a value of -1 to disable this feature.  A value of 0 will cause
+Xconfirmation to occur for every expose action.  Any other value will allow
+Xthat many notes to be exposed before confirmation is requested.
+X.LP
+XThe default value is 20.
+X.RE
+X.LP
+X\fBpan.actionDefault (string)\fP
+X.RS
+XThis resource allows the default menu item on the \fBAction\fP menu button
+Xon the main \fBpan\fP window to be chosen.  This option is case sensitive
+Xand the value must be spelled exactly as seen in the menu including the
+Xperiods.
+X.LP
+XThe default value is "Create Folder...". (Quotes for emphasis only.)
+X.RE
+X.LP
+X\fBpan.menuTextLength (integer)\fP
+X.RS
+XThis option specifies the maximum number of characters of the note titles that
+Xwill appear in the \fBExpose Notes\fP and \fBPrint Note\fP menus.  This allows
+Xfor more or less of a title to be displayed in a menu.  Note that by default
+Xthe font used in menus is proportional.  Because of this, \fBpan\fP will 
+Xcalculate the pixel width of a string of \fBmenuTextLength\fP characters from
+Xthe average character width, then build a specific menu item adding or
+Xsubtracting characters to get as close to the calculated value as possible.
+XThis allows some titles to squeeze in a few extra characters, and generally
+Xmakes the menu items line up better.
+X.LP
+XThe default value is 20.
+X.RE
+X.LP
+X\fBpan.setWidth (integer)\fP
+X.RS
+XThis resource specifies the character width that a note window will be set
+Xto when the note's \fBWidth <n>\fP menu item is chosen.  Note that this
+Xworks best if a fixed width font has been specified with \fBtextFont\fP.  The
+Xdefault text subwindow font size is reported inaccurately by XView, 
+X(especially when -scale is used), making it difficult to accurately calculate
+Xa proper window size.  Even with a fixed width font, the window size is only
+Xapproximate because XView provides no way that I can find to determine the
+Xscrollbar width, or the window border widths.  See \fBtopMargin\fP for a
+Xmore detailed explanation of window border settings.
+X.RE
+X.LP
+X\fBpan.logging (boolean)\fP
+X.RS
+XThis resource is used to prevent \fBpan\fP from creating a log file during
+Xcommand execution.  See the section on \fBControl Language\fP for more
+Xinformation.
+X.LP
+XThe default is True.
+X.RE
+X.LP
+X\fBpan.topMargin (integer)\fP
+X.br
+X\fBpan.bottomMargin (integer)\fP
+X.br
+X\fBpan.leftMargin (integer)\fP
+X.br
+X\fBpan.rightMargin (integer)\fP
+X.RS
+XThese resources are used to indicate the pixel widths of the window manager's
+Xframe that is placed around pan windows.  The defaults are set to reasonable
+Xvalues for \fBolwm\fP and \fBolvwm\fP.  If another window manager is used,
+Xset these resources to appropriate values.  Failure to do this can cause
+X\fBpan\fP to incorrectly calculate window sizes and widget positions.
+X.RE
+X.LP
+X\fBpan.checkInterval (integer)\fP
+X.RS
+XThis resource is used to control how often the control language file is
+Xchecked for new commands.  The value should be specified in seconds.
+X.LP
+XThe default value is 60 seconds.
+X.RE
+X.LP
+X\fBpan.searchMenu (string)\fP
+X.RS
+XThis resource may be used to specify a list of note titles that will be
+Xused to build the shortcut search menu.  The items must be space or comma
+Xseparated, and both single and double quotes are supported in case a title
+Xcontains whitespace.
+X.LP
+XThe default value is ".".
+X.RE
+X.LP
+X\fBpan.noteWidth (integer)\fP
+X.br
+X\fBpan.noteHeight (integer)\fP
+X.br
+X.RS
+XThese resources are used to indicate a preferred width and height for a newly
+Xcreated note.  By default, \fBpan\fP tries to create a note as small as
+Xpossible, while making sure that all buttons and text items are visible.  This
+Xmay be overridden by specifying \fBboth\fP resources.  If only one is 
+Xspecified, it is ignored.  The values for both are specified in terms of
+Xpixels.  Note that if these resources are used, \fBpan\fP will not be
+Xable to adjust automatically to the use of the -scale option.
+X.LP
+XThe default value for both is -1 which means \fBpan\fP will determine the
+Xappropriate size based on the scale and the fonts requested.
+X.RE
+X.LP
+X.SH CONTROL LANGUAGE
+XNew to \fBPan V3.0\fP is a command line interface and general control
+Xlanguage.  Most of the features available in \fBpan\fP through the
+Xwindowing interface can now be used from the command line via a
+Xprogram called \fBpancmd\fP.  See the manual entry for \fBpancmd\fP
+Xfor more information on how to use the command.  This section describes
+Xthe actual control language since it is part of the \fBpan\fP program.
+X.LP
+XThe following actions are supported by the control language:
+X.LP
+X.RS
+Xo Note Creation
+X.br
+Xo Note Exposure
+X.br
+Xo Note Hiding
+X.br
+Xo Note Veiling
+X.br
+Xo Note Printing
+X.br
+Xo Note Movement Between Folders
+X.br
+Xo Folder Creation
+X.br
+Xo Pan Process Exit
+X.LP
+X.RE
+XNote that no destructive commands have been implemented.  The following is
+Xa list of the commands and their syntax.  The convention I use in describing
+Xthe syntax is to surround optional arguments with "[]", and to indicate
+Xuser required parameters with "<>".
+X.LP
+XWhen specifying a parameter for a command, if whitespace must be embedded,
+Xsingle or double quote marks may be used around the parameter.
+X.LP
+X\fBNote Creation\fP
+X.RS
+Xnewnote [folder <folder>] [title <title>] [size <width> <height>]
+X.br
+X	[location <x> <y>] [hidden|visible|veiled] [file <name>]
+X.LP
+XThis command causes \fBpan\fP to create a new note.  All parameters are
+Xoptional.  If no parameters are specified, the default action is to create
+Xa note as if the "New Note" button had bee clicked on with mouse button 1.
+X.LP
+XThe folder and title options may be used to specify the note's folder and
+Xtitle respectively.  The size and location options will control the note's
+Xsize and location respectively.  The parameters for these options are to
+Xbe specified in pixels.  By default, a new note is visible, but any of the
+Xthree states may be specified for the note.  The optional file parameter
+Xspecifies a full path name of a file from which the contents of the note
+Xare to be loaded.
+X.LP
+XExample:
+X.LP
+X.RS
+Xnewnote title Termcap size 500 200 location 10 10 visible
+X.br
+X	file /etc/termcap
+X.RE
+X.RE
+X.LP
+X\fBNote Exposure\fP
+X.RS
+Xexpose title <title RE> [windowmax <max # to expose>]
+X.LP
+XThis command causes \fBpan\fP to expose all notes (up to the X resource
+X\fBpan.windowMax\fP) with titles that match the given regular expression.
+XIf the windowmax parameter is given, it temporarily overrides the maximum
+Xset in the X resource database.
+X.LP
+XExample:
+X.LP
+X.RS
+Xexpose title "Phone Numbers"
+X.RE
+X.RE
+X.LP
+X\fBNote Hiding\fP
+X.RS
+Xhide title <title RE>
+X.LP
+XThis command will cause all notes with titles matching the given regular
+Xexpression to be hidden.
+X.LP
+XExample:
+X.LP
+X.RS
+Xhide title "To Do List"
+X.RE
+X.RE
+X.LP
+X\fBNote Veiling\fP
+X.RS
+Xveil title <title RE>
+X.LP
+XThis command will cause all notes with titles matching the given regular
+Xexpression to be veiled.
+X.LP
+XExample:
+X.LP
+X.RS
+Xveil title "Meeting Tomorrow"
+X.RE
+X.RE
+X.LP
+X\fBNote Printing\fP
+X.RS
+Xprint folder <folder> title <title RE>
+X.LP
+XThis command will cause all notes within the specified folder that have
+Xtitles matching the given regular expression to be queued for printing.
+XIn order to not overload the computer, \fBpan\fP will start only one
+Xprint command (specified by the X resource \fBpan.printCommand\fP) at a time.
+XWhen the print process exits, the next matching note will be queued.  This
+Xqueuing process is done asynchronously in the background so that the \fBpan\fP
+Xprocess can still respond to other commands and user interaction.
+X.LP
+XExample:
+X.LP
+X.RS
+Xprint folder Reference title .
+X.RE
+X.RE
+X.LP
+X\fBNote Movement Between Folders\fP
+X.RS
+Xmove source <folder> title <title RE> destination <folder>
+X.LP
+XThis command will move notes between folders.  All notes with titles matching
+Xthe given regular expression in the source folder are moved to the destination
+Xfolder.
+X.LP
+XExample:
+X.LP
+X.RS
+Xmove source Miscellaneous title "[Xx] [Ww]indow" destination X_Notes
+X.RE
+X.RE
+X.LP
+X\fBFolder Creation\fP
+X.RS
+Xnewfolder folder <name>
+X.LP
+XThis command will create a new folder.  The folder name may not contain
+Xwhitespace or slash characters.
+X.LP
+XExample:
+X.LP
+X.RS
+Xnewfolder folder X_Notes
+X.RE
+X.RE
+X.LP
+X\fBPan Process Exit\fP
+X.RS
+Xquit
+X.LP
+XThis command causes the currently running \fBpan\fP command to exit.
+X.RE
+X.LP
+X.SH NOTES
+XThe \fBpan\fP program will accept drag and drop files from the Open Look
+Xfile manager.
+XFor this feature to work, the file icon must be dropped directly into the text
+Xsubwindow of the note.  Dropping the icon anywhere else will not have
+Xany effect.
+X.LP
+XA late addition to this version of \fBpan\fP is the ability to drag a note
+Xto another application.  The drag and drop target (the small square in the
+Xupper, right-hand corner of the note windows) may be used for this purpose.
+X.LP
+XIf the note file directories are examined, occasionally files with names
+Xending in a "%" character will be seen.  These files are created automatically
+Xby the Open Look text subwindow package, and are simply old versions of the
+Xnote files being edited.
+X.SH WINDOW CLASS
+X\fBPan\fP supports three different window classes for use with window manager
+Xproperties such as minimal decor.  The first is "PanMain".  This is the class
+Xfor the main window.  The second is "PanNote".  This is the class for all
+Xnotes.  The third is "Pan" (assuming the executable name is not changed).
+XThis is used for all pop up windows, such as the create folder window.
+X.SH FILES
+XDefault note directory:
+X.RS
+X$HOME/.pan
+X.RE
+X.LP
+XNote files:
+X.RS
+XNote_%d_%d
+X.br
+XNote_%d_%d.info
+X.LP
+Xwhere the "%d" instances are replaced by unique id numbers.
+X.RE
+X.SH FILE FORMAT
+XThe "Note_%d_%d" file is a plain ASCII file containing the note text.  Lines
+Xare delimited by the newline character.
+X.LP
+XThe "Note_%d_%d.info" file is a plain ASCII file currently containing 3 lines.
+X.LP
+XThe first line contains 4 whitespace separated numbers followed by a
+Xtext word.  The 4 numbers describe the note window's start x, start y,
+Xwidth, and height.  The text word is either "VISIBLE" or "HIDDEN" describing
+Xwhether the note is mapped to the display by default or not.
+X.LP
+XThe second line of the file contains the note title.
+X.LP
+XThe third line is an ASCII representation of the decimal number returned 
+Xby time(3) describing the note's creation date and time.
+X.LP
+XAn example might be:
+X.nf
+X
+X4	424	349	206	HIDDEN
+XNote title
+X664129826
+X
+X.fi
+X.SH BUGS
+XOccasionally, when a new note is created, the focus is initially in the text
+Xsub-window instead of in the title panel item.  This appears to be a problem
+Xwith XView.
+X.LP
+XUnder OW3.0, if PgUp/PgDn is pressed when at the top/bottom of the file,
+Xthe window beeps as many times as
+Xthere are lines visible.  This also appears to be a problem with XView.
+XI have been told that there might be a patch from Sun for this problem,
+Xbut I haven't tried to verify it.
+X.LP
+XThe text sub-window package in xview creates files ending with a "%" character
+Xand doesn't delete them.  Periodically it is a good idea to remove them by
+Xhand to recover disk space.  If you accidentally destroy a note that had
+Xtext in it, you \fImight\fP be able to recover the text by looking through the
+Xfiles ending with a "%" character.
+X.SH ACKNOWLEDGEMENTS
+XMy thanks to the many people who submitted bug reports and requests for
+Xenhancements.  I have tried to incorporate as many of the ideas I received
+Xas possible into version 3.0 of \fBPan\fP.  I'm not listing specific names
+Xhere because I didn't keep track of the people, just the requests.  Sorry.
+XNext time I'll keep the names too.
+X.LP
+XIf you don't find your enhancement request in this release, don't despair!
+XI was unable to include everything I wanted to because of the demands of
+Xmy real job.  If you don't see it, and you still want it, feel free to
+Xrequest the feature again.
+X.SH AUTHOR
+XJeffrey Bailey
+SHAR_EOF
+chmod 0644 pan3.0/pan.man ||
+echo 'restore of pan3.0/pan.man failed'
+Wc_c="`wc -c < 'pan3.0/pan.man'`"
+test 21398 -eq "$Wc_c" ||
+	echo 'pan3.0/pan.man: original size 21398, current size' "$Wc_c"
+fi
+# ============= pan3.0/misc.c ==============
+if test -f 'pan3.0/misc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/misc.c (File already exists)'
+else
+echo 'x - extracting pan3.0/misc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/misc.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xchar *add_sorted(nr, title)
+X    struct LLM_root *nr;
+X    char *title;
+X    {
+X    struct Note *np;
+X
+X    np = (struct Note *)LLM_first(nr);
+X    if(np == NULL)
+X        {
+X        return(LLM_add(nr));
+X        }
+X    while(np != NULL && strcmp(title, np->ntitle) >= 0)
+X        {
+X        np = (struct Note *)LLM_next(nr);
+X        }
+X    if(np == NULL)
+X        {
+X        return(LLM_add(nr));
+X        }
+X    return(LLM_insert(nr, (char *)np));
+X    }
+X
+X/* adjust nodes position in list since the title may have changed */
+Xadjust_sorted(np)
+X    struct Note *np;
+X    {
+X    struct LLM_root *nr;
+X    struct Note *tp;
+X
+X    nr = &np->sp->note_rt;
+X    LLM_unlink(nr, (char *)np);
+X    tp = (struct Note *)LLM_first(nr);
+X    while(tp != NULL && strcmp(np->ntitle, tp->ntitle) >= 0)
+X        {
+X        tp = (struct Note *)LLM_next(nr);
+X        }
+X    LLM_link(nr, (char *)tp, (char *)np);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/misc.c ||
+echo 'restore of pan3.0/misc.c failed'
+Wc_c="`wc -c < 'pan3.0/misc.c'`"
+test 1762 -eq "$Wc_c" ||
+	echo 'pan3.0/misc.c: original size 1762, current size' "$Wc_c"
+fi
+# ============= pan3.0/parser.c ==============
+if test -f 'pan3.0/parser.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/parser.c (File already exists)'
+else
+echo 'x - extracting pan3.0/parser.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/parser.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef HAS_STDLIB
+X#include <stdlib.h>
+X#else
+Xextern char *malloc();
+Xextern char *getenv();
+X#endif /* HAS_STDLIB */
+X
+X/*
+X    Component structure for each token on the linked list.
+X*/
+Xstruct ps_component
+X    {
+X    struct ps_component *ps_prev; /* Pointer to previous node */
+X    struct ps_component *ps_next; /* Pointer to next node */
+X    char *ps_text;		  /* Pointer to token text */
+X    char ps_start_delim;	  /* Character delimiter for start of token */
+X    char ps_end_delim;		  /* Character delimiter for end of token */
+X    };
+X
+Xstatic struct ps_component *ps_add_node();
+X
+X/*
+X
+X    Name:  parse_string()
+X
+X    Calling sequence is:
+X
+X		string  - pointer to string to be parsed
+X		delim   - pointer to string of delimiters
+X		d_quote - 1 or 0 allowing/disallowing double quoting
+X		s_quote - 1 or 0 allowing/disallowing single quoting
+X		esc     - 1 or 0 allowing/disallowing escaping
+X
+X    Returns:  A pointer to the first node in the linked list; NULL on failure
+X              *OR* if the string contains no tokens.
+X
+X    Note that this routine is implemented as a somewhat complex state machine.
+X*/
+X
+Xstruct ps_component *parse_string(string, delim, d_quote, s_quote, esc)
+X    char *string, *delim;
+X    int  d_quote, s_quote, esc;
+X    {
+X    struct ps_component *start, *ps_add_node();
+X    char *point1, *point2, *t_string, *t_component;
+X    int  beg_escape = 0;
+X    int  in_escape = 0;
+X    int  in_d_quote = 0;
+X    int  in_s_quote = 0;
+X    int  in_component = 0;
+X    int  is_delim = 0;
+X    int  is_quote = 0;
+X    int  beg_component = 1;
+X    char temp [2];
+X    char t_start_delim;
+X
+X    t_start_delim = NULL;
+X    temp [1] = 0;
+X    start = NULL;
+X
+X    /* Skip leading delimiters */
+X    point1 = string;
+X    temp [0] = *point1;
+X    while(*point1 != NULL && instr(delim, temp) != NULL)
+X        {
+X        t_start_delim = *point1;
+X        temp [0] = *++point1;
+X        }
+X
+X    /* quick check for null string */
+X    if(!strlen(point1)) return(NULL);
+X
+X    /* allocate temp storage */
+X    t_string = malloc(strlen(point1) + 1);
+X    if(t_string == NULL) return(NULL);
+X    strcpy(t_string, point1);
+X    t_component = malloc(strlen(t_string) + 1);
+X    if(t_component == NULL)
+X        {
+X        free(t_string);
+X        return(NULL);
+X        }
+X    *t_component = 0;
+X    point1 = t_string;
+X    point2 = t_component;
+X
+X    /* parse the string */
+X    while(*point1 != NULL)
+X        {
+X        /* handle the escape character logic */
+X        in_escape = 0;
+X        if(beg_escape) in_escape = 1;
+X        beg_escape = 0;
+X        is_quote = 0;
+X
+X        /* is the next char a delimiter? */
+X        temp [0] = *point1;
+X        if(instr(delim, temp) != NULL) is_delim = 1;
+X            else is_delim = 0;
+X
+X        /* if an escape char and not already escaped */
+X        if(*point1 == '\\' && !in_escape && esc) beg_escape = 1;
+X
+X        /* if a double quote, not in single quote, and not escaped */
+X        if(*point1 == '"' && !in_s_quote && !in_escape)
+X            {
+X            /* if not escaped, in double quote, and it is a double quote */
+X            if(d_quote && in_d_quote && !beg_escape)
+X                {
+X                is_quote = 1;
+X                in_d_quote = 0;
+X                *point2 = 0;
+X                start = ps_add_node(start, t_component,
+X                                                '"', *point1);
+X                point2 = t_component;
+X                }
+X            else
+X                if(d_quote && !in_d_quote) /* beginning double quote */
+X                    {
+X                    is_quote = 1;
+X                    in_d_quote = 1;
+X                    beg_component = 1;
+X                    }
+X            }
+X        /* if a single quote, not in double quote, and not escaped */
+X        if(*point1 == '\'' && !in_d_quote && !in_escape)
+X            {
+X            /* if not escaped, in single quote, and it is a single quote */
+X            if(s_quote && in_s_quote && !beg_escape)
+X                {
+X                is_quote = 1;
+X                in_s_quote = 0;
+X                *point2 = 0;
+X                start = ps_add_node(start, t_component,
+X                                                '\'', *point1);
+X                point2 = t_component;
+X                }
+X            else
+X                if(s_quote && !in_s_quote) /* beginning single quote */
+X                    {
+X                    is_quote = 1;
+X                    in_s_quote = 1;
+X                    beg_component = 1;
+X                    }
+X            }
+X        /* if delimiter, not in quotes and not escaped, or is a quote */
+X        if( (is_delim && !in_d_quote && !in_s_quote && !in_escape) || is_quote)
+X            {
+X            /* at the beginning of a component */
+X            beg_component = 1;
+X            in_component = 0;
+X            *point2 = 0;
+X            if(strlen(t_component)) start = ps_add_node(start, t_component,
+X                                            t_start_delim, *point1);
+X            /* store the start delimiter */
+X            t_start_delim = *point1;
+X            point2 = t_component;
+X            }
+X        else
+X            {
+X            if(beg_component) /* if start of component, mark as in comp. */
+X                {
+X                in_component = 1;
+X                beg_component = 0;
+X                }
+X            /* copy while in component */
+X            if(in_component && !beg_escape)
+X                {
+X                *point2 = *point1;
+X                point2++;
+X                }
+X            }
+X        point1++;
+X        }
+X    /* if still in component, terminate and add it to the list */
+X    if(in_component)
+X        {
+X        *point2 = 0;
+X        if(strlen(t_component)) start = ps_add_node(start, t_component,
+X                                        t_start_delim, *point1);
+X        }
+X    /* free temp storage */
+X    free(t_string);
+X    free(t_component);
+X    return(start);
+X    }
+X
+X/*
+X    Name: ps_add_node()
+X
+X    Description:  private routine called to build list
+X*/
+X
+Xstatic struct ps_component *ps_add_node(start, text, start_delim, end_delim)
+X    struct ps_component *start;
+X    char *text;
+X    char start_delim, end_delim;
+X    {
+X    struct ps_component *hold, *current, *prev;
+X
+X    hold = (struct ps_component *) malloc(sizeof(struct ps_component));
+X    if(hold == NULL) return(NULL);
+X    hold->ps_text = malloc(strlen(text) + 1);
+X    if(hold->ps_text == NULL) return(NULL);
+X    strcpy(hold->ps_text, text);
+X    hold->ps_start_delim = start_delim;
+X    hold->ps_end_delim = end_delim;
+X    current = start;
+X    prev = current;
+X    while(current != NULL)
+X        {
+X        prev = current;
+X        current = current->ps_next;
+X        }
+X    if(prev == NULL)
+X        {
+X        start = hold;
+X        hold->ps_prev = NULL;
+X        hold->ps_next = NULL;
+X        }
+X    else
+X        {
+X        prev->ps_next = hold;
+X        hold->ps_prev = prev;
+X        hold->ps_next = NULL;
+X        }
+X    return(start);
+X    }
+X
+X/*
+X    Name:  free_ps_list()
+X
+X    Description:  Routine to free a list built by parse_string.  Pass the
+X                  address of the first node in the list.
+X*/
+X
+Xfree_ps_list(start)
+X    struct ps_component *start;
+X    {
+X    struct ps_component *current, *hold;
+X
+X    current = start;
+X    while(current != NULL)
+X        {
+X        hold = current->ps_next;
+X        if(current->ps_text != NULL) free(current->ps_text);
+X        free(current);
+X        current = hold;
+X        }
+X    return(1);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/parser.c ||
+echo 'restore of pan3.0/parser.c failed'
+Wc_c="`wc -c < 'pan3.0/parser.c'`"
+test 8168 -eq "$Wc_c" ||
+	echo 'pan3.0/parser.c: original size 8168, current size' "$Wc_c"
+fi
+true || echo 'restore of pan3.0/rmfolder.c failed'
+echo End of part 3, continue with part 4
+exit 0
+
+--
+Jeffrey Bailey
+Racal-Datacom, Inc.
+Mail Stop E-110
+1601 N. Harrison Parkway                  INET : jeff@rd1.interlan.com
+Sunrise, FL 33323-2899                    UUCP : ...uflorida!novavax!rd1!jeff
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

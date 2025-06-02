@@ -1,0 +1,1608 @@
+Newsgroups: comp.sources.misc
+From: cruiser1@u.washington.edu (Walter D. Pullen)
+Subject:  v30i065:  astrolog - Generation of astrology charts v2.25, Part04/08
+Message-ID: <1992Jun18.185643.12616@sparky.imd.sterling.com>
+X-Md4-Signature: c0288a0c2f8b6664c4f05a7d6bcc5606
+Date: Thu, 18 Jun 1992 18:56:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cruiser1@u.washington.edu (Walter D. Pullen)
+Posting-number: Volume 30, Issue 65
+Archive-name: astrolog/part04
+Environment: UNIX, VMS
+Supersedes: astrolog: Volume 28, Issue 104-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 8)."
+# Contents:  graphics.c History.p2
+# Wrapped by cruiser1@milton.u.washington.edu on Thu Jun 11 21:53:37 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'graphics.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'graphics.c'\"
+else
+echo shar: Extracting \"'graphics.c'\" \(29126 characters\)
+sed "s/^X//" >'graphics.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: graphics.c
+X** (Initially programmed 10/23-29/1991)
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1992 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef X11
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+Xtypedef struct {
+X  bit m[BITMAPX][BITMAPY];
+X} bitmapstruct;
+Xtypedef bitmapstruct *bitmap;
+X
+X#define P(B, X, Y) ((B)->m[X][Y])
+X#define NEW(B) B = (bitmapstruct *) malloc(sizeof(bitmapstruct))
+X#define DISPOSE(B) free(B)
+X
+X
+X/*
+X*******************************************************************************
+X** Variables
+X*******************************************************************************
+X*/
+X
+Xchar *maincolorname[]
+X  = {"black", "white", "gold", "gray35", "tan", "pink", "blue"};
+Xchar *rainbowcolorname[]
+X  = {"white", "orangered", "orange", "yellow", "green",
+X       "cyan", "deepskyblue", "violet"};
+Xint elemcolorindex[]   = {-1,  4, -4, -6};
+Xint aspectcolorindex[] = { 1, -3,  6, -1, -4, -5,  4,  4, -2, -2,
+X			  -7, -7, -7,  2,  5,  5,  2,  2,  5};
+X
+Xcolor maincolor[6+1], rainbowcolor[7+1],
+X  elemcolor[4], aspectcolor[ASPECTS+1], objectcolor[TOTAL+1], hilite, gray;
+X
+XColormap cmap;
+XDisplay *disp;
+XFont font;
+XGC gc, pmgc;
+XKeySym key;
+XPixmap pixmap, icon;
+XWindow window, root;
+XXEvent event;
+XXSizeHints hint;
+XXWMHints *wmhint;
+Xint screen, depth;
+Xchar xkey[10];
+Xcolor fg, bg, on = ON, off = OFF;
+X
+Xbitmap bm;
+Xchar modex = 'c', outputfile[STRING] = "tty", string[STRING];
+Xint xmono = FALSE, xcolor = TRUE, xreverse = FALSE,
+X  xbitmap = FALSE, xroot = FALSE, xtext = TRUE, bonus = FALSE, label = TRUE,
+X  turtlex = 0, turtley = 0, scale = 200, chartx = DEFAULTX, charty = DEFAULTY,
+X  degree = 0, xnow = FALSE;
+Xdouble Mon1, Day1, Yea1, Tim1, Zon1, Lon1, Lat1, tilt = 0.0;
+X
+X#define STORE1  Mon1 = Mon; Day1 = Day; Yea1 = Yea; Tim1 = Tim; Zon1 = Zon; \
+X  Lon1 = Lon; Lat1 = Lat
+X#define RECALL1 Mon = Mon1; Day = Day1; Yea = Yea1; Tim = Tim1; Zon = Zon1; \
+X  Lon = Lon1; Lat = Lat1
+X
+X
+X/*
+X*******************************************************************************
+X** Astrolog icon
+X*******************************************************************************
+X*/
+X
+X#define icon_width 63
+X#define icon_height 32
+Xstatic char icon_bits[] = {
+X 0x00,0x00,0x00,0xa8,0x0a,0x00,0x00,0x00,0x00,0x00,0x40,0x55,0x55,0x01,0x00,
+X 0x00,0x00,0x00,0xa8,0xaa,0xaa,0x0a,0x00,0x00,0x00,0x00,0x54,0xf5,0x57,0x15,
+X 0x00,0x00,0x00,0x80,0xaa,0xaa,0xaa,0xaa,0x00,0x00,0x00,0x40,0xd5,0xff,0xff,
+X 0x55,0x01,0x00,0x00,0xa0,0xaa,0xaa,0xaa,0xaa,0x02,0x00,0x00,0x50,0xfd,0xff,
+X 0xff,0x5f,0x05,0x00,0x00,0xa8,0xaa,0x2a,0xaa,0xaa,0x0a,0x00,0x00,0xd4,0xff,
+X 0xaf,0xfa,0xff,0x15,0x00,0x00,0xaa,0x2a,0x00,0x00,0xaa,0x2a,0x00,0x00,0xf5,
+X 0xbf,0xaa,0xaa,0xfe,0x57,0x00,0x80,0xaa,0x02,0x00,0x00,0xa0,0xaa,0x00,0x40,
+X 0xfd,0xab,0xfa,0xaf,0xea,0x5f,0x01,0xa0,0xaa,0x80,0xff,0xff,0x80,0xaa,0x02,
+X 0x50,0xff,0xea,0xff,0xff,0xab,0x7f,0x05,0xa0,0x2a,0xf0,0xff,0xff,0x07,0xaa,
+X 0x02,0xd0,0xbf,0xfa,0x0f,0xf8,0xaf,0x7e,0x05,0xa8,0x0a,0xfc,0x01,0xc0,0x1f,
+X 0xa8,0x0a,0xd4,0xaf,0x7e,0x00,0x00,0xbf,0xfa,0x15,0xa8,0x0a,0x3f,0x00,0x00,
+X 0x7e,0xa8,0x0a,0xf4,0xaf,0x1f,0xe0,0x03,0xfc,0xfa,0x15,0xaa,0x82,0x0f,0xdc,
+X 0x1d,0xf8,0xa0,0x2a,0xf4,0xab,0x07,0x23,0x62,0xf0,0xea,0x17,0xaa,0xc2,0x87,
+X 0x91,0xc4,0xf0,0xa1,0x2a,0xf4,0xeb,0xc3,0xd0,0x85,0xe1,0xeb,0x17,0xaa,0xe0,
+X 0x83,0x91,0xc4,0xe0,0x83,0x2a,0xf5,0xeb,0x03,0x23,0x62,0xe0,0xeb,0x57,0xaa,
+X 0xe0,0x01,0xdc,0x1d,0xc0,0x83,0x2a,0xf5,0xeb,0x01,0xe0,0x03,0xc0,0xeb,0x57,
+X 0xaa,0xe0,0x01,0x00,0x00,0xc0,0x83,0x2a,0xfd,0xeb,0x01,0x00,0x00,0xc0,0xeb,
+X 0x5f};
+X
+X
+X/*
+X*******************************************************************************
+X** Standard procedures
+X*******************************************************************************
+X*/
+X
+Xsort(n1, n2)
+Xint *n1, *n2;
+X{
+X  int temp;
+X  if (*n1 > *n2) {
+X    temp = *n1;
+X    *n1  = *n2;
+X    *n2  = temp;
+X  }
+X}
+X
+Xint intinstring(str)
+Xchar **str;
+X{
+X  int num = 0, i;
+X  for (i = 0; ; i++) {
+X    if (**str < '0' || **str > '9')
+X      return num > 0 ? num : (i < 1 ? 1 : 0);
+X    num = num*10+(**str)-'0';
+X    (*str)++;
+X  }
+X}
+X
+Xwritefile()
+X{
+X  FILE *data;
+X  char formatw = BITMAPMODE, tty;
+X  tty = (outputfile[0] == 't' && outputfile[1] == 't' &&
+X	 outputfile[2] == 'y' && outputfile[3] == 0);
+X  while (TRUE) {
+X    if (tty) {
+X      printf("Enter name of file to write X bitmap to - ");
+X      scanf("%s", outputfile);
+X    }
+X    data = fopen(outputfile, "w");
+X    if (data != NULL)
+X      break;
+X    else {
+X      printf(" Bad output file.\n");
+X      tty = 1;
+X    }
+X  }
+X  writebitmap(data, outputfile, formatw);
+X  fclose(data);
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Graphic procedures
+X*******************************************************************************
+X*/
+X
+Xlegalize(x, y)
+Xint *x, *y;
+X{
+X  if (*x < 0)
+X    *x = 0;
+X  else if (*x >= chartx)
+X    *x = chartx-1;
+X  if (*y < 0)
+X    *y = 0;
+X  else if (*y >= charty)
+X    *y = charty-1;
+X}
+X
+Xvoid drawpoint(x, y, o)
+Xint x, y;
+Xbit o;
+X{
+X  legalize(&x, &y);
+X  if (xbitmap)
+X    P(bm, x, y) = o;
+X  else
+X    XDrawPoint(disp, pixmap, gc, x, y);
+X}
+X
+Xvoid block(x1, y1, x2, y2, o)
+Xint x1, y1, x2, y2;
+Xbit o;
+X{
+X  int x, y;
+X  legalize(&x1, &y1); legalize(&x2, &y2);
+X  sort(&y1, &y2);
+X  for (y = y1; y <= y2; y++)
+X    drawline(x1, y, x2, y, o, 0);
+X}
+X
+Xvoid rect(x1, y1, x2, y2, xsiz, ysiz, o)
+Xint x1, y1, x2, y2, xsiz, ysiz;
+Xbit o;
+X{
+X  block(x1, y1, x2, y1 + ysiz - 1, o);
+X  block(x1, y1 + ysiz, x1 + xsiz - 1, y2 - ysiz, o);
+X  block(x2 - xsiz + 1, y1 + ysiz, x2, y2 - ysiz, o);
+X  block(x1, y2 - ysiz + 1, x2, y2, o);
+X}
+X
+Xvoid drawline(x1, y1, x2, y2, o, skip)
+Xint x1, y1, x2, y2, skip;
+Xbit o;
+X{
+X  int x = x1, y = y1, xadd, yadd, xinc, yinc, xabs, yabs, i, j = 0, temp;
+X  if (!xbitmap) {
+X    Xcolor(o);
+X    if (skip <= 0) {
+X      XDrawLine(disp, pixmap, gc, x1, y1, x2, y2);
+X      return;
+X    }
+X  }
+X  if (skip < 0)
+X    skip = 0;
+X  if (x2 - x1 >= 0)
+X    xadd = 1;
+X  else
+X    xadd = 3;
+X  if (y2 - y1 >= 0)
+X    yadd = 2;
+X  else
+X    yadd = 4;
+X  xabs = abs(x2 - x1);
+X  yabs = abs(y2 - y1);
+X  if (xabs < yabs) {
+X    temp = xadd;
+X    xadd = yadd;
+X    yadd = temp;
+X    temp = xabs;
+X    xabs = yabs;
+X    yabs = temp;
+X  }
+X  xinc = xabs;
+X  yinc = xabs >> 1;
+X  if (!(xabs & 1) && xadd > 2)
+X    yinc--;
+X  for (i = 0; i <= xinc; i++) {
+X    if (j < 1)
+X      drawpoint(x, y, o);
+X    j = j < skip ? j+1 : 0;
+X    switch (xadd) {
+X    case 1: x++;
+X      break;
+X    case 2: y++;
+X      break;
+X    case 3: x--;
+X      break;
+X    case 4: y--;
+X    }
+X    yinc += yabs;
+X    if (yinc - xabs >= 0) {
+X      yinc -= xabs;
+X      switch (yadd) {
+X      case 1: x++;
+X	break;
+X      case 2: y++;
+X	break;
+X      case 3: x--;
+X	break;
+X      case 4: y--;
+X      }
+X    }
+X  }
+X}
+X
+Xclipnegative(x1, y1, x2, y2)
+Xint *x1, *y1, *x2, *y2;
+X{
+X  *x1 -= *y1*(*x2-*x1)/(*y2-*y1);
+X  *y1 = 0;
+X}
+X
+Xclipgreater(x1, y1, x2, y2, s)
+Xint *x1, *y1, *x2, *y2, s;
+X{
+X  *x1 += (s-*y1)*(*x2-*x1)/(*y2-*y1);
+X  *y1 = s;
+X}
+X
+Xvoid drawclip(x1, y1, x2, y2, o, skip)
+Xint x1, y1, x2, y2, skip;
+Xbit o;
+X{
+X  if (x1 < 0)
+X    clipnegative(&y1, &x1, &y2, &x2);
+X  if (x2 < 0)
+X    clipnegative(&y2, &x2, &y1, &x1);
+X  if (y1 < 0)
+X    clipnegative(&x1, &y1, &x2, &y2);
+X  if (y2 < 0)
+X    clipnegative(&x2, &y2, &x1, &y1);
+X  if (x1 > chartx)
+X    clipgreater(&y1, &x1, &y2, &x2, chartx);
+X  if (x2 > chartx)
+X    clipgreater(&y2, &x2, &y1, &x1, chartx);
+X  if (y1 > charty)
+X    clipgreater(&x1, &y1, &x2, &y2, charty);
+X  if (y2 > charty)
+X    clipgreater(&x2, &y2, &x1, &y1, charty);
+X  drawline(x1, y1, x2, y2, o, skip);
+X}
+X
+Xvoid turtle(lin, x0, y0, o)
+Xchar *lin;
+Xint x0, y0;
+Xbit o;
+X{
+X  int i, j, x, y, deltax, deltay, blank = 0, noupdate = 0;
+X  char cmd;
+X  turtlex = x0; turtley = y0;
+X  if (!xbitmap)
+X    Xcolor(o);
+X  while (TRUE) {
+X    cmd = CAP(*lin);
+X    lin++;
+X    switch (cmd) {
+X    case 0:
+X      return;
+X    case 'B':
+X      blank = 1; break;
+X    case 'N':
+X      noupdate = 1; break;
+X    case 'U': case 'D': case 'L': case 'R':
+X    case 'E': case 'F': case 'G': case 'H':
+X      switch (cmd) {
+X      case 'U': deltax =  0; deltay = -1; break;
+X      case 'D': deltax =  0; deltay =  1; break;
+X      case 'L': deltax = -1; deltay =  0; break;
+X      case 'R': deltax =  1; deltay =  0; break;
+X      case 'E': deltax =  1; deltay = -1; break;
+X      case 'F': deltax =  1; deltay =  1; break;
+X      case 'G': deltax = -1; deltay =  1; break;
+X      case 'H': deltax = -1; deltay = -1; break;
+X      default: ;
+X      }
+X      x = turtlex;
+X      y = turtley;
+X      j = intinstring(&lin)*scale/100;
+X      if (blank) {
+X	turtlex += deltax*j;
+X	turtley += deltay*j;
+X      } else {
+X	drawpoint(turtlex, turtley, o);
+X	for (i = 0; i < j; i++) {
+X	  turtlex += deltax;
+X	  turtley += deltay;
+X	  drawpoint(turtlex, turtley, o);
+X	}
+X      }
+X      if (noupdate) {
+X	turtlex = x;
+X	turtley = y;
+X      }
+X      break;
+X    default:
+X      fprintf(stderr, "Bad turtle subcommand: %c\n", cmd);
+X    }
+X    if (cmd != 'B' && cmd != 'N')
+X      blank = noupdate = 0;
+X  }
+X}
+X
+X#define INTTOHEX(I) (char) ((I) < 10 ? '0' + (I) : 'a' + (I) - 10)
+X
+Xwritebitmap(data, name, mode)
+XFILE *data;
+Xchar *name, mode;
+X{
+X  char line[STRING];
+X  int x, y, i, value, temp = 0;
+X
+X  fprintf(data, "#define %s_width %d\n" , name, chartx);
+X  fprintf(data, "#define %s_height %d\n", name, charty);
+X  fprintf(data, "static %s %s_bits[] = {",
+X	  mode != 'S' ? "char" : "short", name);
+X  for (y = 0; y < charty; y++) {
+X    x = 0;
+X    do {
+X      if (y + x > 0)
+X        fprintf(data, ",");
+X      if (temp == 0)
+X      	fprintf(data, "\n%s",
+X		mode == 'B' ? "  " : (mode == 'C' ? " " : ""));
+X      value = 0;
+X      for (i = (mode != 'S' ? 7 : 15); i >= 0; i--)
+X        value = (value << 1) + (!P(bm, x + i, y) && x + i < chartx);
+X      if (mode == 'B')
+X	putc(' ', data);
+X      fprintf(data, "0x");
+X      if (mode == 'S')
+X        fprintf(data, "%c%c",
+X		INTTOHEX(value >> 12), INTTOHEX((value >> 8) & 15));
+X      fprintf(data, "%c%c",
+X	      INTTOHEX((value >> 4) & 15), INTTOHEX(value & 15));
+X      temp++;
+X      if ((mode == 'B' && temp >= 12) ||
+X	  (mode == 'C' && temp >= 15) ||
+X	  (mode == 'S' && temp >= 11))
+X      	temp = 0;
+X      x += (mode != 'S' ? 8 : 16);
+X    } while (x < chartx);
+X  }
+X  fprintf(data, "};\n");
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** X routines
+X*******************************************************************************
+X*/
+X
+Xcolor Xmakecolor(name)
+Xchar *name;
+X{
+X  XColor col;
+X  XParseColor(disp, cmap, name, &col);
+X  XAllocColor(disp, cmap, &col);
+X  return col.pixel;
+X}
+X
+XXcolorinit()
+X{
+X  int i, j;
+X  for (i = 1; i <= 7; i++)
+X    maincolor[i-1] = rainbowcolor[i] = !xreverse;
+X  maincolor[0] = rainbowcolor[0] = xreverse;
+X  if (!xbitmap) {
+X    cmap = XDefaultColormap(disp, screen);
+X    for (i = 0; i <= 6; i++)
+X      maincolor[i] = Xmakecolor(maincolorname[xcolor ?
+X	(i > 1 ? i : (xreverse ? 1-i : i)) : (xreverse ? i < 1 : i > 0)]);
+X    for (i = 1; i <= 7; i++)
+X      rainbowcolor[i] = xcolor ?
+X	Xmakecolor(rainbowcolorname[i]) : maincolor[1];
+X  }
+X  off = maincolor[0]; on = maincolor[1];
+X  hilite = maincolor[2]; gray = maincolor[3];
+X  for (i = 0; i < 4; i++)
+X    elemcolor[i] = (j = elemcolorindex[i]) < 0 ?
+X      rainbowcolor[-j] : maincolor[j];
+X  for (i = 0; i <= ASPECTS; i++)
+X    aspectcolor[i] = (j = aspectcolorindex[i]) < 0 ?
+X      rainbowcolor[-j] : maincolor[j];
+X  objectcolor[0] = elemcolor[1];
+X  for (i = 1; i <= 10; i++)
+X    objectcolor[i] = elemcolor[(ruler1[i]-1)%4];
+X  for (i = 11; i <= 15; i++)
+X    objectcolor[i] = hilite;
+X  for (i = 16; i <= 20; i++)
+X    objectcolor[i] = rainbowcolor[7];
+X  objectcolor[18] = elemcolor[1]; objectcolor[19] = elemcolor[0];
+X  objectcolor[21] = elemcolor[2]; objectcolor[22] = elemcolor[3];
+X  objectcolor[23] = elemcolor[1]; objectcolor[24] = elemcolor[2];
+X  for (i = objects+5; i <= objects+12; i++)
+X    objectcolor[i] = maincolor[5];
+X  for (i = BASE+1; i <= total; i++) {
+X    j = i-BASE;
+X    objectcolor[i] = (starbright[j] < 0.0 ? rainbowcolor[3] :
+X		      (starbright[j] < 1.0 ? hilite :
+X		       (starbright[j] < 2.0 && starbright[j] != 1.70 ?
+X			rainbowcolor[2] : rainbowcolor[1])));
+X  }
+X  if (!xbitmap) {
+X    XSetBackground(disp, gc, off);
+X    XSetForeground(disp, pmgc, off);
+X    Xcolor(on);
+X  }
+X}
+X
+XXbegin()
+X{
+X  disp = XOpenDisplay(0);
+X  if (!disp) {
+X    printf("Can't open display.\n");
+X    exit(1);
+X  }
+X  screen = DefaultScreen(disp);
+X  bg = BlackPixel(disp, screen);
+X  fg = WhitePixel(disp, screen);
+X  hint.x = hint.width = chartx; hint.y = hint.height = charty;
+X  hint.min_width = BITMAPX1; hint.min_height = BITMAPY1;
+X  hint.max_width = BITMAPX;  hint.max_height = BITMAPY;
+X  hint.flags = PPosition | PSize | PMaxSize | PMinSize;
+X  /*wmhint = XGetWMHints(disp, window);
+X  wmhint->input = True;
+X  XSetWMHints(disp, window, wmhint);*/
+X  depth = DefaultDepth(disp, screen);
+X  if (depth < 5) {
+X    xmono = TRUE;
+X    xcolor = FALSE;
+X  }
+X  root = RootWindow(disp, screen);
+X  if (xroot)
+X    window = root;
+X  else
+X    window = XCreateSimpleWindow(disp, DefaultRootWindow(disp),
+X      hint.x, hint.y, hint.width, hint.height, 5, fg, bg);
+X  pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X  icon = XCreateBitmapFromData(disp, DefaultRootWindow(disp),
+X    icon_bits, icon_width, icon_height);
+X  if (!xroot)
+X    XSetStandardProperties(disp, window, "Astrolog", "Astrolog",
+X      icon, xkey, 0, &hint);
+X  gc = XCreateGC(disp, window, 0, 0);
+X  XSetGraphicsExposures(disp, gc, 0);
+X  font = XLoadFont(disp, FONT);
+X  XSetFont(disp, gc, font);
+X  pmgc = XCreateGC(disp, window, 0, 0);
+X  Xcolorinit();
+X  if (!xroot)
+X    XSelectInput(disp, window, KeyPressMask | StructureNotifyMask |
+X      ExposureMask | ButtonPressMask | ButtonReleaseMask | ButtonMotionMask);
+X  XMapRaised(disp, window);
+X  XSync(disp, 0);
+X  XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X}
+X
+Xaddtime(mod, vec)
+Xint mod, vec;
+X{
+X  float toadd, h, m, j;
+X  toadd = vec;
+X  h = floor(F);
+X  m = (F-floor(F))*100.0;
+X  if (mod == 1)
+X    m += 1.0/60.0*(double)toadd;
+X  else if (mod == 2)
+X    m += 1.0*(double)toadd;
+X  if (m < 0.0 || m >= 60.0 || mod == 3) {
+X    if (m >= 60.0) {
+X      m -= 60.0; toadd = sgn(toadd);
+X    } else if (m < 0.0) {
+X      m += 60.0; toadd = sgn(toadd);
+X    }
+X    h += 1.0*(double)toadd;
+X  }
+X  if (h >= 24.0 || h < 0.0 || mod == 4) {
+X    if (h >= 24.0) {
+X      h -= 24.0; toadd = sgn(toadd);
+X    } else if (h < 0.0) {
+X      h += 24.0; toadd = sgn(toadd);
+X    }
+X    D += 1.0*(double)toadd;
+X  }
+X  if (D > (j = (double) dayinmonth((int) M, (int) Y)) ||
+X      D < 1.0 || mod == 5) {
+X    if (D > j) {
+X      D -= j; toadd = sgn(toadd);
+X    } else if (D < 1.0) {
+X      D += j; toadd = sgn(toadd);
+X    }
+X    M += 1.0*(double)toadd;
+X  }
+X  if (M > 12.0 || M < 1.0 || mod == 6) {
+X    if (M > 12.0) {
+X      M -= 12.0; toadd = sgn(toadd);
+X    } else if (M < 1.0) {
+X      M += 12.0; toadd = sgn(toadd);
+X    }
+X    Y += 1.0*(double)toadd;
+X  }
+X  if (mod == 7)
+X    Y += 10.0*(double)toadd;
+X  else if (mod == 8)
+X    Y += 100.0*(double)toadd;
+X  else if (mod == 9)
+X    Y += 1000.0*(double)toadd;
+X  F = h+m/100.0;
+X}
+X
+Xdisplaykeys()
+X{
+X  printf("\nAstrolog window keypress options (version %s):\n", VERSION);
+X  printf(" Press 'H' to display this list of key options.\n");
+X  printf(" Press 'p' to toggle pause status on or off.\n");
+X  printf(" Press 'x' to toggle fg/bg colors in window.\n");
+X  printf(" Press 'm' to toggle color/monochrome display in window.\n");
+X  printf(" Press 'T' to toggle header info on current chart in window.\n");
+X  printf(" Press 'i' to toggle status of the minor chart modification.\n");
+X  printf(" Press 'l' to toggle labelling of object points in chart.\n");
+X  printf(" Press 'v' to display current chart in window on text screen.\n");
+X  printf(" Press 'R' to toggle restriction status of minor objects.\n");
+X  printf(" Press 'C' to toggle restriction status of minor house cusps.\n");
+X  printf(" Press 'u' to toggle restriction status of uranian planets.\n");
+X  printf(" Press 'U' to toggle restriction status of fixed stars.\n");
+X  printf(" Press 's', 'h', 'f', 'F' to toggle status of siderial zodiac,\n");
+X  printf("        heliocentric charts, domal charts, and decan charts.\n");
+X  printf(" Press 'O' and 'o' to recall/store a previous chart from memory.\n");
+X  printf(" Press 'B' to dump current window contents to root background.\n");
+X  printf(" Press 'Q' to resize wheel chart display to a square.\n");
+X  printf(" Press '<' and '>' to decrease/increase the scale size of the\n");
+X  printf("       glyphs and the size of world map.\n");
+X  printf(" Press '[' and ']' to decrease/increase tilt in globe display.\n");
+X  printf(" Press 'N' to toggle animation status on or off. Charts will\n");
+X  printf("       be updated to current status and globe will rotate.\n");
+X  printf(" Press '!'-'(' to begin updating current chart by adding times.\n");
+X  printf("       !: seconds, @: minutes, #: hours, $: days, %: months,\n");
+X  printf("       ^: years, &: years*10, *: years*100, (: years*1000.\n");
+X  printf(" Press 'r' to reverse direction of time-lapse or animation.\n");
+X  printf(" Press '1'-'9' to set rate of animation to 'n' degrees, etc.\n");
+X  printf(" Press 'V','L','A','Z','S','W','G','P' to switch to normal (-v),\n");
+X  printf("       astrograph (-L), grid (-g), local (-Z), space (-S),\n");
+X  printf("       world (-XW), globe (-XG), and polar (-XP) modes.\n");
+X  printf(" Press 'q' to terminate the window and program.\n\n");
+X  printf(" Left   mouse button: Draw lines on chart in window.\n");
+X  printf(" Middle mouse button: Print coordinates of pointer on world map.\n");
+X  printf(" Right  mouse button: Terminate the window and program.\n");
+X}
+X
+XXspin()
+X{
+X  int xbreak = FALSE, xpause = FALSE, xupdate = FALSE, xevent = TRUE,
+X    xnew = FALSE, buttonx = 0, buttony = 0, dir = 1, length, i, j, k;
+X  double lon, lat;
+X  while (!xbreak) {
+X    if (chartx < BITMAPX1) {
+X      chartx = BITMAPX1;
+X      xupdate = TRUE;
+X    } else if (chartx > BITMAPX) {
+X      chartx = BITMAPX;
+X      xupdate = TRUE;
+X    }
+X    if (charty < BITMAPY1) {
+X      charty = BITMAPY1;
+X      xupdate = TRUE;
+X    } else if (charty > BITMAPY) {
+X      charty = BITMAPY;
+X      xupdate = TRUE;
+X    }
+X    if (modex == 'l' || modex == 'w') {
+X      length = 360*scale/100+2;
+X      if (chartx != length) {
+X	chartx = length;
+X	xupdate = TRUE;
+X      }
+X      length = (90*2+1)*scale/100+2;
+X      if (charty != length) {
+X	charty = length;
+X	xupdate = TRUE;
+X      }
+X    } else if (modex == 'a') {
+X      if (chartx != (length = (objects+(relation==1))*CELLSIZE*scale/100+1)) {
+X	chartx = length;
+X	xupdate = TRUE;
+X      } if (charty != length) {
+X	charty = length;
+X	xupdate = TRUE;
+X      }
+X    }
+X    if (xupdate) {
+X      xupdate = FALSE;
+X      XResizeWindow(disp, window, chartx, charty);
+X      XFreePixmap(disp, pixmap);
+X      pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X      xevent = TRUE;
+X    }
+X    if (xnew && (!xnow || xpause)) {
+X      xnew = FALSE;
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      castchart(TRUE);
+X      xevent = TRUE;
+X    }
+X    if (xnow && !xpause && modex != 'w')
+X      xevent = TRUE;
+X    if (xevent) {
+X      xevent = FALSE;
+X      if (xnow)
+X	if (modex == 'g' || modex == 'p') {
+X	  degree += dir;
+X	  if (degree >= 360)
+X	    degree -= 360;
+X	  else if (degree < 0)
+X	    degree += 360;
+X	} else if (modex != 'w') {
+X	  if (xnow == 10)
+X#ifdef TIME
+X	    inputdata("now")
+X#endif
+X	      ;
+X	  else {
+X	    M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X	    addtime(xnow, dir);
+X	  }
+X	  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X	  castchart(TRUE);
+X	  if (relation) {
+X	    for (i = 1; i <= total; i++)
+X	      planet2[i] = planet[i];
+X	    for (i = 1; i <= SIGNS; i++)
+X	      house2[i] = house[i];
+X	  }
+X	}
+X      Xcolor(on);
+X      XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X      xchart();
+X      XSync(disp, 0);
+X      XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X    }
+X    if (XEventsQueued(disp, QueuedAfterFlush)) { /*QueuedAfterReading)) {*/
+X      XNextEvent(disp, &event);
+X      if (event.type == Expose && event.xexpose.count == 0) {
+X	XSync(disp, 0);
+X	XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X      }
+X      switch (event.type) {
+X      case ConfigureNotify:
+X	chartx = event.xconfigure.width;
+X	charty = event.xconfigure.height;
+X	XFreePixmap(disp, pixmap);
+X	pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X	xevent = TRUE;
+X	break;
+X      case MappingNotify:
+X	XRefreshKeyboardMapping(&event);
+X	break;
+X      case ButtonPress:
+X	buttonx = event.xbutton.x; buttony = event.xbutton.y;
+X	if (event.xbutton.button == Button1) {
+X	  Xcolor(hilite);
+X	  drawpoint(buttonx, buttony, hilite);
+X	  XSync(disp, 0);
+X	  XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X	} else if (event.xbutton.button == Button2 &&
+X		   (modex == 'l' || modex == 'w')) {
+X	  lon = 180.0-(double)(event.xbutton.x-1)/(double)(chartx-2)*DEGREES;
+X	  lat =  90.0-(double)(event.xbutton.y-1)/(double)(charty-2)*181.0;
+X	  printf("Mouse is at %s.\n", stringlocation(lon, lat, 60.0));
+X	} else if (event.xbutton.button == Button3)
+X	  xbreak = TRUE;
+X	break;
+X      case MotionNotify:
+X	Xcolor(hilite);
+X	drawline(buttonx, buttony, event.xbutton.x, event.xbutton.y,
+X		 hilite, 0);
+X	XSync(disp, 0);
+X	XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X	buttonx = event.xbutton.x; buttony = event.xbutton.y;
+X      case KeyPress:
+X	length = XLookupString(&event, xkey, 10, &key, 0);
+X	if (length == 1) {
+X	  i = xkey[0];
+X	  switch (i) {
+X	  case 'p':
+X	    xpause = 1-xpause;
+X	    break;
+X	  case 'r':
+X	    dir = -dir;
+X	    break;
+X	  case 'x':
+X	    xreverse = 1-xreverse;
+X	    Xcolorinit();
+X	    xevent = TRUE;
+X	    break;
+X	  case 'm':
+X	    if (!xmono) {
+X	      xcolor = 1-xcolor;
+X	      Xcolorinit();
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case 'B':
+X	    XSetWindowBackgroundPixmap(disp, root, pixmap);
+X	    XClearWindow(disp, root);
+X	    break;
+X	  case 'T':
+X	    xtext = 1-xtext;
+X	    xevent = TRUE;
+X	    break;
+X	  case 'i':
+X	    bonus = 1-bonus;
+X	    xevent = TRUE;
+X	    break;
+X	  case '<':
+X	    if (scale > 100) {
+X	      scale -= 100;
+X	      xupdate = TRUE;
+X	    }
+X	    break;
+X	  case '>':
+X	    if (scale < 300) {
+X	      scale += 100;
+X	      xupdate = TRUE;
+X	    }
+X	    break;
+X	  case '[':
+X	    if (modex == 'g') {
+X	      tilt = tilt > -90.0 ? tilt-11.25 : -90.0;
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case ']':
+X	    if (modex == 'g') {
+X	      tilt = tilt < 90.0 ? tilt+11.25 : 90.0;
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case 'Q':
+X	    if (chartx > charty)
+X	      chartx = charty;
+X	    else
+X	      charty = chartx;
+X	    xupdate = TRUE;
+X	    break;
+X	  case 'R':
+X	    for (i = 11; i <= 15; i++)
+X	      ignore[i] = 1-ignore[i];
+X	    ignore[17] = 1-ignore[17]; ignore[20] = 1-ignore[20];
+X	    xevent = TRUE;
+X	    break;
+X	  case 'C':
+X	    cusp = 1-cusp;
+X	    for (i = objects+1; i <= objects+4; i++)
+X	      ignore[i] = 1-ignore[i];
+X	    xnew = TRUE;
+X	    break;
+X	  case 'u':
+X	    uranian = 1-uranian;
+X	    for (i = objects+5; i <= BASE; i++)
+X	      ignore[i] = 1-ignore[i];
+X	    xnew = TRUE;
+X	    break;
+X	  case 'U':
+X	    universe = universe ? 0 : 1;
+X	    for (i = BASE+1; i <= total; i++)
+X	      ignore[i] = 1-ignore[i];
+X	    xnew = TRUE;
+X	    break;
+X	  case 's':
+X	    siderial = 1-siderial;
+X	    xnew = TRUE;
+X	    break;
+X	  case 'h':
+X	    centerplanet = centerplanet ? 0 : 1;
+X	    xnew = TRUE;
+X	    break;
+X	  case 'f':
+X	    flip = 1-flip;
+X	    xnew = TRUE;
+X	    break;
+X	  case 'F':
+X	    decan = 1-decan;
+X	    xnew = TRUE;
+X	    break;
+X	  case 'o':
+X	    STORE1;
+X	    break;
+X	  case 'O':
+X	    RECALL1;
+X	    xnew = TRUE;
+X	    break;
+X	  case 'l':
+X	    label = 1-label;
+X	    xevent = TRUE;
+X	    break;
+X	  case 'N':
+X	    xnow = xnow ? 0 : 10;
+X	    break;
+X	  case '!': xnow = 1; break;
+X	  case '@': xnow = 2; break;
+X	  case '#': xnow = 3; break;
+X	  case '$': xnow = 4; break;
+X	  case'\%': xnow = 5; break;
+X	  case '^': xnow = 6; break;
+X	  case '&': xnow = 7; break;
+X	  case '*': xnow = 8; break;
+X	  case '(': xnow = 9; break;
+X	  case 'V': modex = 'c'; xevent = TRUE; break;
+X	  case 'L': modex = 'l'; xevent = TRUE; break;
+X	  case 'A': modex = 'a'; xevent = TRUE; break;
+X	  case 'Z': modex = 'z'; xevent = TRUE; break;
+X	  case 'S': modex = 's'; xevent = TRUE; break;
+X	  case 'W': modex = 'w'; xevent = TRUE; break;
+X	  case 'P': modex = 'p'; xevent = TRUE; break;
+X	  case 'G': modex = 'g'; xevent = TRUE; break;
+X	  case 'v':
+X	    chartlocation();
+X	    break;
+X	  case 'H': case '?':
+X	    displaykeys();
+X	    break;
+X	  case 'q':
+X	    xbreak = TRUE;
+X	    break;
+X	  default:
+X	    if (i > '0' && i <= '9')
+X	      dir = (dir > 0 ? 1 : -1)*(i-'0');
+X	  }
+X	}
+X      default: ;
+X      }
+X    }
+X  }
+X}
+X
+XXend()
+X{
+X  XFreeGC(disp, gc);
+X  XFreeGC(disp, pmgc);
+X  XFreePixmap(disp, pixmap);
+X  XDestroyWindow(disp, window);
+X  XCloseDisplay(disp);
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Main processing
+X*******************************************************************************
+X*/
+X
+Xvoid xdisplayswitches()
+X{
+X  printf("\nSwitches to access X window options:\n");
+X  printf(" -X: Create a graphics chart instead of displaying it as text.\n");
+X  printf(" -Xb: Create X bitmap instead of putting graphics in window.\n");
+X  printf(" -XB: Display X chart on root instead of in a separate window.\n");
+X  printf(" -Xm: For color monitors, display charts in black and white.\n");
+X  printf(" -Xr: Create window or bitmap in reversed colors (B on W).\n");
+X  printf(" -Xw <hor> [<ver>]: Change the size of the chart window.\n");
+X  printf(" -Xs <percentage>: Change the size of characters by n%%.\n");
+X  printf(" -Xi: Display chart in slightly modified form.\n");
+X  printf(" -XT: Inhibit display of chart info at bottom of window.\n");
+X  printf(" -XW: Simply create the bitmap of the world.\n");
+X  printf(" -XP: Create the bitmap of the world, but as a polar projection.\n");
+X  printf(" -XG [<degrees>]: Display the bitmap of the world as a globe.\n");
+X  printf(" -Xn: Start up chart or globe display in animation mode.\n");
+X  printf(" -Xo <file>: Write output bitmap to specified file.\n");
+X  printf("Also, press 'H' within X window for list of key press options.\n");
+X}
+X
+Xint xprocess(argc, argv, pos)
+Xint argc, pos;
+Xchar **argv;
+X{
+X  int i = 0, j;
+X  switch (argv[0][pos]) {
+X  case 0:
+X    break;
+X  case 'W':
+X    modex = 'w';
+X    autom = TRUE;
+X    break;
+X  case 'P':
+X    modex = 'p';
+X    autom = TRUE;
+X    break;
+X  case 'G':
+X    if (argc > 1 && ((degree = atoi(argv[1])) || argv[1][0] == '0')) {
+X      i++;
+X      if (degree < 0 || degree > 359) {
+X	fprintf(stderr, "Value %d passed to switch -XG out of range.\n",
+X		degree);
+X	exit(1);
+X      }
+X    } else
+X      degree = 0;
+X    modex = 'g';
+X    autom = TRUE;
+X    break;
+X  case 'b':
+X    xbitmap = TRUE;
+X    xcolor = FALSE;
+X    break;
+X  case 'B':
+X    xroot = TRUE;
+X    break;
+X  case 'm':
+X    xcolor = FALSE;
+X    break;
+X  case 'r':
+X    xreverse = TRUE;
+X    break;
+X  case 'w':
+X    if (argc <= 1)
+X      toofew("Xw");
+X    chartx = atoi(argv[1]);
+X    if (argc > 2 && (charty = atoi(argv[2]))) {
+X      argc--; argv++;
+X      i++;
+X    } else
+X      charty = chartx;
+X    if (chartx < BITMAPY1 || chartx > BITMAPX ||
+X	charty < BITMAPY1 || charty > BITMAPY) {
+X      fprintf(stderr, "Values %d,%d passed to switch -Xw out of range.\n",
+X	      chartx, charty);
+X      exit(1);
+X    }
+X    i++;
+X    break;
+X  case 's':
+X    if (argc <= 1)
+X      toofew("Xs");
+X    scale = atoi(argv[1]);
+X    if (scale < 100 || scale > 300 || scale%100 != 0) {
+X      fprintf(stderr, "Value %d passed to switch -Xs out of range.\n", scale);
+X      exit(1);
+X    }
+X    i++;
+X    break;
+X  case 'i':
+X    bonus = TRUE;
+X    break;
+X  case 'T':
+X    xtext = FALSE;
+X    break;
+X  case 'n':
+X    if (argc > 1 && (xnow = atoi(argv[1])))
+X      i++;
+X    else
+X      xnow = 10;
+X    if (xnow < 1 || xnow > 10) {
+X      fprintf(stderr, "Value %d passed to switch -Xn out of range.\n", xnow);
+X      exit(1);
+X    }
+X    break;
+X  case 'o':
+X    if (argc <= 1)
+X      toofew("Xo");
+X    xbitmap = TRUE;
+X    xcolor = FALSE;
+X    for (j = 0; (outputfile[j] = argv[1][j]) != 0; j++)
+X      ;
+X    i++;
+X    break;
+X  default:
+X    fprintf(stderr, "Unknown switch -X%c\n", argv[0][2]);
+X    exit(1);
+X  }
+X  return i;
+X}
+X
+Xvoid xaction()
+X{
+X  if (modex == 'c' && (todisplay & 64) > 0)
+X    modex = 'l';
+X  else if (modex == 'c' && (todisplay & 4) > 0) {
+X    modex = 'a';
+X    chartx = charty = (objects+(relation==1))*CELLSIZE*scale/100+1;
+X  } else if (modex == 'c' && (todisplay & 8) > 0) {
+X    modex = 'z';
+X    chartx = (360+12)*scale/100;
+X    charty = (90*2+12)*scale/100;
+X  } else if (modex == 'c' && (todisplay & 16) > 0)
+X    modex = 's';
+X  if (modex == 'l' || modex == 'w') {
+X    chartx = 360*scale/100+2;
+X    charty = (90*2+1)*scale/100+2;
+X  }
+X  if (xbitmap) {
+X    NEW(bm);
+X    Xcolorinit();
+X  } else
+X    Xbegin();
+X  if (xroot || xbitmap)
+X    xchart();
+X  if (xbitmap)
+X    writefile();
+X  else {
+X    if (xroot) {
+X      XSetWindowBackgroundPixmap(disp, root, pixmap);
+X      XClearWindow(disp, root);
+X    } else {
+X      STORE1;
+X      Xspin();
+X    }
+X    Xend();
+X  }
+X}
+X#endif
+X
+X/**/
+END_OF_FILE
+if test 29126 -ne `wc -c <'graphics.c'`; then
+    echo shar: \"'graphics.c'\" unpacked with wrong size!
+fi
+# end of 'graphics.c'
+fi
+if test -f 'History.p2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'History.p2'\"
+else
+echo shar: Extracting \"'History.p2'\" \(28608 characters\)
+sed "s/^X//" >'History.p2' <<'END_OF_FILE'
+X************************************************
+XAstrolog 2.10 posted Tue, 18 Feb 92 07:59:03 GMT
+X************************************************
+X
+XAs I post this, we are having the Full Moon in Leo/Aquarius. Identity,
+Xrepresented by the Sun, is in the sign of computers, unconventional
+Xscience, and contribution to humanity; opposite the Moon in the sign
+Xof self-expression. The opposition is occurring in the last degree of
+Xthese two signs, building up to the entry into the signs of analysis
+Xand self-transcendence. Therefore, guess what it's a good time for?
+X
+XBehold: the next version (2.10) of our Astrolog astrology program! It
+Xhas been over two months since the last version, however some of the
+Xmany new features should make it worth the wait. Some of these
+Xincluded are: X windows in Color, several new X window chart displays,
+Xlots more progression and aspect support, ability to do transits to
+Xcomposite and other charts, latitude crossings for astro-carto-
+Xgraphy, and other things, along with our standard batch of bug fixes.
+X
+XAs before, there are 6 source files: astrolog.h, data.c, formulas.c,
+Xoptions.c, graphics.c, and driver.c. Each of these files should be in
+Xa separate posting of straight C source code after or nearby this one
+Xin the list of articles. There a small unix Makefile for the program
+Xat the end of this update article. Again, I am posting each file
+Xseparately in this manner, rather than using shar, tar, zip, etc,
+Xbecause we always have the issue of non-unix people not having access
+Xto or not knowing how how to extract the program. Note however, that
+Xvery soon I am going to finally post Astrolog to a formal source group
+X(comp.sources.misc) as a standard shell archive for us unix junkies,
+Xso it should be available at a 24 hour ftp site soon.
+X
+X--
+X
+XHere is a complete list of new features now in Astrolog over version 2.00,
+Xlisted in rough order from the most significant to least significant:
+X
+XA) Color X windows is probably the main new feature added to Astrolog
+X   2.10. The charts displayed in color are *much* more eye catching than
+X   the old B/W ones, IMHO. Here is how the colors have been assigned for
+X   the normal wheel and astro-graph charts: Four colors have been
+X   allocated for the four elements - Fire = Red, Earth = Brown, Air =
+X   Green, Water = Blue. The various sign glyphs (and the corresponding
+X   house labels) are in the color of their element. Planets are in the
+X   color of the sign of their main ruler. Chiron and the four asteroids
+X   are Gold, while the north node, and other non-physical objects like
+X   the fortune and vertex are Violet. Representations of the Ascendant/
+X   Descendant/ Midheaven/ Nadir (in the astro-graph map lines and
+X   elsewhere) are in the element color of the corresponding sign/house
+X   that the angular lines refer to, i.e. Ascendant = Red, Midheaven =
+X   Brown, Descendant = Green, Nadir = Blue. A few extra things have been
+X   added for color wheel charts only: dark gray lines marking off each
+X   house (in addition to the main lines on the horizon and meridian), and
+X   each degree instead of every 5th degree being marked in dark gray on
+X   the outer circle (every 5th degree being white). Aspects lines are
+X   colored too, as follows: Conjunctions = Yellow, Sextiles = Light Blue,
+X   Squares = Red, Trines = Green, Oppositions = Dark Blue. For the minor
+X   aspects we have: Inconjuncts/Semisextiles = Brown, Semisquares/
+X   Sesquiquadratures = Orange, (Bi/Semi)Quintiles = Violet,
+X   (Bi/Tri)Septiles = Gold, (Bi/Quatro)Noviles = Pink.
+X
+XB) For color X systems, the new -Xm switch will create all windows in
+X   monochrome B/W mode, as they were in 2.00. In addition, pressing the
+X   'm' key within a window will toggle in and out of monochrone mode on
+X   color systems.
+X
+XC) Aspect grid windows with the appropriate aspect glyphs can be
+X   displayed by combining the -g option with the -X option (astrolog -g
+X   -X). Both the split aspect/midpoint grids labeled down the diagonal,
+X   as well as the relationship aspect grids between two charts (astrolog
+X   -r <file1> <file2> -g) are supported. The aspects glyphs, objects, and
+X   the signs in the grids are in their colors as defined earlier. Like
+X   the astro-graph windows, these charts can't be resized in the normal
+X   way unless one uses the '>' and '<' keys. For anything less than the
+X   largest scale size (achieved with the switch -Xs 300, or by pressing
+X   '>' within a window) all that will be displayed in each aspect grid
+X   cell is the glyphs of the aspect in effect, the planet being aspected,
+X   or the sign of the midpoint. However, once the largest scale size is
+X   reached, there is room in each cell to display the aspect orb to the
+X   nearest minute off of exact (with a plus or minus sign indicating
+X   whether the actual angle is slightly greater than or less than exact);
+X   the degree and minute in addition to the sign for midpoints; and the
+X   degree and sign location for each planet that's in the grid.
+X   Remember, the ASCII aspect grids in earlier versions were rather
+X   limited, only displaying orbs to the nearest 0.1 degree, midpoints to
+X   the nearest degree, as well as the confusing '.' vs. ',' for angles
+X   slightly greater or less than exact (not to mention leaving the vertex
+X   out for the relationship grids between two charts). Well no longer: we
+X   can now see *real* aspect grids with Astrolog!
+X
+XD) The -A display aspects option has been extended to display a brief
+X   verbal description of what each aspect glyph look like. This is in
+X   case one doesn't know what aspects the weird symbols in the -g -X
+X   displays are referring to.
+X
+XE) A new text display switch has been included, -Z, which prints out
+X   where each object is on the local horizon in terms of altitude and
+X   azimuth. For each object, the following is displayed: Its altitude on
+X   the local horizon from +90 degrees (straight up) to -90 degrees
+X   (straight down), and its azimuth from 0..360 degrees, where 0 = due
+X   east, 90 = north, 180 = west, 270 = south. To make visualizing the
+X   azimuth easier, an "azimuth vector" with a N/S component and a W/E
+X   component is displayed, e.g. (1.00s 0.33w) means that the object is
+X   mainly south, with its true angle being formed by an vector component
+X   west that's 1/3 the strength of the south component, i.e. the object
+X   is about 18 degrees west of south. This along with the altitude should
+X   make it easy to physically point to where any planet is at any moment,
+X   making it easy to locate planets in the night sky. This feature can
+X   also be used to determine the times that a planet rises and sets.
+X   Also displayed are altitude and azimuth differences between each
+X   object and the Sun and Moon, first showing the number of degrees that
+X   the Sun/Moon is "ahead" (or farther east in the zodiac) of the object
+X   in question, and then the number of degrees that the Sun/Moon is above
+X   the object in question. This feature can be used to roughly predict
+X   eclipses! Both the Sun and Moon span about 0.5 degrees in the sky,
+X   therefore if both the azimuth and altitude differences are < 0.5 (or
+X   1.0 if the difference is between the Sun and Moon themselves) then the
+X   object in question is probably being occulted somewhat by the
+X   Sun/Moon. Note that there are three types of planetary position
+X   displays: Right ascension and declination showing the object's
+X   position with respect to the stars, longitude and latitude showing
+X   where on the Earth the object is straight up (as in the astro-graph
+X   zenith locations), and finally azimuth and altitude showing the
+X   positions of the object relative to the local horizon.
+X
+XF) This new -Z local horizon feature can be displayed in an X window
+X   as well (e.g. astrolog -Z -X), in which all the planets will be
+X   displayed in a window depicting the sky. The small dot above or below
+X   each glyph indicates exactly where each planet is. (Some of the glyphs
+X   may be overlapping, although the program tries to cut down on this.)
+X   There is a horizontal line dividing the window representing the local
+X   horizon; planets above this line are visible, while planets below it
+X   are set. There are three vertical lines dividing the window as well:
+X   The middle line represents the due south direction, the one to the
+X   left is due east, the one to the right is due west, and the edges of
+X   the window are due north. Like the standard chart display, this window
+X   may be resized to any proportion. One can press the 'Z' key in any
+X   window to enter this display type in that window at any time.
+X
+XG) Ability to write the actual sign and house positions of a chart to
+X   a file (instead of just the time and place) has been implemented via
+X   the -o0 <file> option. This option can be used interchangeably with
+X   the old -o output to file switch. The information written includes the
+X   zodiac position of the 20 main objects, their retrograde status and
+X   declination, as well as the positions of the (first six) house cusps.
+X   This file information can easily be passed into another program, and
+X   can be read back into Astrolog with the -i option. The -i option will
+X   automatically determine which type the file is, and will either use
+X   the given positions, or else calculate them as needed (note that some
+X   switches, such as the -c house system selection, will have no effect
+X   for this new file type.) Check an example of one of these files to see
+X   the precise format (a zodiac position is recorded as three numbers:
+X   degree in sign, sign as 1..12, and floating point minute within
+X   degree.) When the files are read back in, they will be flagged as
+X   "having no space or time" like the composite charts in the chart
+X   header displays.
+X
+XH) The new file format can allow one to do things such as transits to
+X   composite charts (send the composite chart to file with -o0 option and
+X   then use that file as the first parameter to the -T option) composites
+X   between two composite charts (use -rc between two composite charts
+X   sent to a file) and even, if one is willing to do a small amount of
+X   editing, to do transits to midpoints or the 0 degrees Aries point.
+X   Note that one can easily edit the positions in the -o0 position file
+X   to be whatever they like, so one could replace some unimportant object
+X   (like the vertex) with 0 degrees Aries or an important midpoint value.
+X   Note that trying to still use the -o time and space output with an
+X   output chart that doesn't have space/time will confuse the program; it
+X   will either say it can't make the file or else will output the
+X   time/space of the most recent parameter file it read in.
+X
+XI) Another file output feature, the ability to concatenate "comment
+X   lines" at the end of a data file, been been added to both the -o and
+X   -o0 options. (Some people have complained that the info in the
+X   Astrolog chart files are too cryptic.) After scanning the filename,
+X   the -o[0] option will then write any parameter that follows it at the
+X   end of the file, until a parameter beginning with a '-' (the next
+X   switch) is reached. For example: -o 'file' "Walter D. Pullen" Seattle
+X   will add my name and my birth city in two separate lines at the end of
+X   'file'. (In unix, quotes can be used to allow spaces within one
+X   parameter.)
+X
+XJ) Determining dates of transits of progressed planets to natal
+X   planets can be done with the new -Tp <file> <month> <year> option.
+X   This is just like the -T option, except that the exact aspects of
+X   progressed planets (rather than transiting planets) to the planets in
+X   'file' are displayed. Again, one can substitute '0' for the month to
+X   scan the entire year.
+X
+XK) Another added progression feature allows determining aspect times
+X   of progressed planets among themselves. The -i <file> -dp <month>
+X   <year> switch will, like the -d option, display times of aspects and
+X   sign changes, except that they will be for the chart in file,
+X   progressed throughout the month specified. Progressed planets move
+X   very slowly ("year for a day") so therefore there will usually be, if
+X   any, only a couple of aspects in a given month; again, one might want
+X   to substitute '0' for the month to scan the whole year. Also, since
+X   they move so slow, the accuracy is cut down, do the dates given are
+X   probably only accurate to the nearest day, in spite of the times given
+X   to the minute. Note that Astrolog can now scan for aspects of:
+X   transiting planets among themselves (-d switch), transiting planets to
+X   natal planets (-T switch), progressed planets to natal planets (-Tp),
+X   and progressed planets among themselves (-dp). Only thing Astrolog
+X   can't do is do progressed planets to transiting planets, although that
+X   may change in the next version :)
+X
+XL) The new -pn switch is like the -p <month> <date> <year> switch
+X   except that (like the -n switch) it assumes the current moment now to
+X   cast the progressed chart to. This is just another shorthand
+X   convenience to see what ones progressed chart is like presently; just
+X   do: astrolog -i file -pn.
+X
+XM) Determination of latitude crossing points has been added to the
+X   astro-graph routines! The new -L0 option will do the same thing as the
+X   -L option, except that after displaying the longitude and latitude
+X   locations of the Asc/Desc/MC/IC lines, it will then search among the
+X   lines and display (in order from farthest North to farthest South) the
+X   latitude of any points where lines cross each other. This includes the
+X   curvy Asc/Desc lines crossing the straight MC/IC lines as well as
+X   cases where different Asc/Desc lines cross themselves. And unlike Jim
+X   Lewis' astro*carto*graphy, Astrolog will also display the longitude of
+X   the crossing (useful for Asc/Desc crossings) in addition to the
+X   latitude (as well allowing more planetary bodies to be included in the
+X   scan, and going farther North and South than Jim Lewis' printouts go.)
+X   Note however, that there is presently a small (very rare) minor
+X   omission glitch in the code, where if a crossing is within a couple of
+X   degrees of 180 deg W/E, it may not be displayed.
+X
+XN) Change the default orbs of the various aspects with the -Ao <orb1>
+X   <orb2>... <orbn> switch. Do you not like the 7 degree orbs for
+X   conjunctions that are in there by default? One can change the first n
+X   aspect orbs (i.e. as many orb values that one puts after the -Ao)
+X   anywhere from just the conjunction to all 18 aspects. Non-integer
+X   values are allowed of course. Use negative orb values to completely
+X   eliminate an aspect from ever appearing. For example: astrolog -A 6
+X   -Ao 5 5 -1 10 narrows the orbs for Conjunction and Opposition,
+X   completely eliminates the Square, widens the orb for Trines, and
+X   leaves the Sextiles and Inconjuncts in the default values. Note that
+X   for very wide orbs more than one aspect may apply for a particular
+X   angle, in which case the more fundamental aspect is chosen. Also for
+X   wide aspects the decimal value of the orb may be lost in the -g text
+X   grid (due to too many characters) and their might be some slight
+X   overlap in the X window -g cells.
+X
+XO) Note that Astrolog imposes restrictions on the max orb that any
+X   particular aspect can have to certain particular objects, namely the
+X   node, fortune, and vertex, which can't have aspects to them in excess
+X   of 2 degrees. One can suspend these restrictions by replacing the -Ao
+X   <orbs> option above, invoking it as -AO <orbs> instead. For a fun (and
+X   perhaps useful) display, try: astrolog -A 1 -AO 180 -g [-X], and see
+X   everything conjunct everything else.
+X
+XP) Search through the aspect grid for major aspect configurations,
+X   including Grand Trines, T-Squares, Grand Crosses, Yod's, and Cradles
+X   with the -g0 option. This option will produce the same aspect grid
+X   that -g displays, but afterwards will go through the grid and list any
+X   of these aspect configurations and what objects are forming them. Of
+X   course, to see any Yod's, one has to -A 6 or more so that Inconjuncts
+X   will be included in the aspect grid.
+X   
+XQ) Display the locations of the "Uranian" planets with the -u switch.
+X   Transneptunian or Uranian planets are an interesting subset of
+X   astrology which includes various objects alleged to be beyond Pluto
+X   (or something like that, I'm just the programmer). Anyway, Astrolog
+X   can display the zodiac positions of these bodies as well, and will do
+X   this by taking the eight Uranian bodies and literally replacing
+X   Mercury..Pluto with them. (Do: astrolog -u -O to list them.) This
+X   replacement will allow the Uranians to be included in Astrolog's
+X   various options, although of course this means that they can't
+X   interact with Mercury..Pluto in any way. (Note, I didn't bother to
+X   change the X glyphs or sign rulerships since I don't know what they
+X   are for the Uranians.)
+X
+XR) Decan displays are now supported in Astrolog, and one can display a
+X   decan influenced chart with the -3 switch. The decan theory is that
+X   each sign in the zodiac can be divided into three parts: The first 10
+X   degrees (i.e. the first decan) is mainly influenced by the sign in
+X   question, the second 10 degrees (second decan) although still
+X   influenced by the sign in question is also somewhat influenced by the
+X   next sign of the same element, while the last decan is influenced by
+X   the third sign of the same element. The -3 switch applied to a chart
+X   will move each object into the sign of its decan. For example, if the
+X   Sun is at 29 degrees Aquarius and the Moon at 5 degrees Virgo, in the
+X   resulting chart, the Sun will go to Libra (26 degrees) and the Moon
+X   will remain in Virgo (although be at 15 degrees now since it was
+X   previously in the middle of the first decan of Virgo.)
+X
+XS) In the -w text wheel option, the objects in each house are printed
+X   from top to bottom in order from earliest in the house to latest. This
+X   looks good except for in houses 5..8 where this appears backwards
+X   (i.e. a planet having just entered the 6th house from the 5th is
+X   displayed right under the Descendant.) Replace -w with the -w0 switch
+X   and the objects from houses 4 through 9 will be reversed and printed
+X   in order from bottom to top, making a more flowing looking chart.
+X
+XT) The new -q0 <month> <date> <year> <time> option takes the four
+X   parameters and casts a chart for the time in question. The time zone
+X   and location are taken from the default compiled values. This is just
+X   yet another useful shorthand way to quickly make a chart. Note that
+X   this is just like the -q <month> <date> <year> option except that -q
+X   always casts it for noon in the default zone. Also note that the -a
+X   option which takes all seven chart parameters can be duplicated with
+X   -q0 along with the -z <zone> and -l <long> <lat> options.
+X
+XU) A couple of new compile time option variables have been added to
+X   the include file astrolog.h. For those people who don't like Placidus,
+X   a new default house system can be set to the value from 0..9
+X   indicating what system to use if the user doesn't explicitly specify
+X   it with -c, Another thing: It must be mentioned that although the
+X   accuracy of Sun..Pluto and Chiron are to the nearest minute for years
+X   1900-2000, the four asteroids are relatively inaccurate and can even
+X   be a couple of degrees off in the worse case. Also, some people just
+X   don't like or care about the minor bodies. If you don't want these
+X   values to appear by default, there is a new #define that can be
+X   commented out so that it will be as if -R is always included when the
+X   program is run. (Simply do -R to get them back if you compile it this
+X   way.) There is a new feature added to all the X window displays which
+X   can toggle the restriction status of the asteroids and other minors.
+X   Press the 'R' (restrict) key in the window and the screen will be
+X   redrawn with the restriction status of these toggled.
+X
+XV) The -Xn [<value>] option can be used to start up an X window in
+X   animation mode. Before, one would have to explicitly press 'N' or a
+X   shift+number key to start the window animation. Without a parameter
+X   after -Xn, the option will start it up in continuous update to "now"
+X   mode (which is like pressing 'N' in that any chart will be erased with
+X   the current chart now.) The switch can accept parameters from 1..9,
+X   corresponding to the animation rates obtained by pressing shift 1..9
+X   in the window, i.e. update whatever chart is passed to it seconds,
+X   minutes, hours, days, months, years, etc. later each time.
+X
+XW) Familiar with ley lines? They are energy lines crossing the Earth.
+X   I was experimenting earlier with the master ley line grids on the
+X   Earth (in the pattern of an overlapped 20 sided Icosahedron and 12
+X   sided Dodecahedron) and I figured Astrolog with it's world map would
+X   be an interesting program to explore this with. The -XW world map
+X   display option is always still, and can never be animated. If however
+X   one tries to animate it, either by the -Xn switch or pressing 'N' in
+X   the window, a new display showing the ley lines will be shown.
+X   Actually this is mainly a hack, but I figured I would leave it in
+X   there for amusement and inspiration. Hackers note: there is an
+X   interesting "bug" that can arise with the -XW as well as the -XG (and
+X   -XP, described below) switches: These displays can be brought up
+X   without having to specify an actual chart. Now suppose one presses
+X   'C', 'W', etc. to bring up a chart - what will be displayed? The
+X   answer will be whatever default values were already there, and if
+X   you're curious, I set to be the time of the New Moon on 1-4-1992 at
+X   11:11pm GMT at Greenwich England. (i.e. one week before the 11:11)
+X
+XX) The -XP option will generate a polar view of the Earth as a globe.
+X   This is like the -XG globe option except that the view is from the top
+X   (or bottom) and therefore doesn't rotate. By default, the view is
+X   looking down on the north pole with 0 deg W/E toward the bottom of the
+X   screen. To see a (fixed) view of the south pole hemisphere, go into
+X   animation mode. Again, like with all the other X window display
+X   options, one can enter this display with a keystroke: press 'P' in any
+X   Astrolog window and it will revert to this display.
+X
+XY) A couple of conveniences for the X window features have been added.
+X   Note that the -Xo <bitmapfilename> option is only used in conjunction
+X   with the -Xb write output to bitmap switch. Therefore, I have -Xo
+X   automatically assume -Xb is set. (Invoking -Xb itself without -Xo will
+X   have the program prompt the user for the bitmap filename.) In other
+X   words, astrolog -Xb -Xo 'file' is the same as just astrolog -Xo
+X   'file'. (This may change if I add other file types, but for now none
+X   are planned.) Also, I should mention that Astrolog includes it's own
+X   appropriate bitmap if one iconifies the window, instead of reverting
+X   to the braindead UnknownIcon as it did before.
+X
+XZ) A few other minor things have been done to the program, such as the
+X   -H help switch displays more information (e.g. what the difference
+X   between -T and -T0 is) as well as mentioning for X that you can press
+X   the 'H' key while within the X window to get a list of all the neat
+X   things you can do in window once it's already been created.
+X
+X
+XI could have added a bunch of other features to this version, but as
+Xyou can see, I ran out of letters :) Oh well, wait for version 2.20!
+XRemember now that the -e everything switch includes a lot more chart
+Xinformation in it since there are more features now.
+X
+X
+XHere is the list of bug fixes over version 2.00,
+Xlisted in rough order from the most major to the least major:
+X
+X1) I inadvertently disabled the -p progression option while updating
+X   the program from version 1.40 to 2.00, so that it would produce
+X   progressed charts way off. This has been fixed and the program
+X   produces those charts as well as it did in version 1.40 and before.
+X2) There was a bug in the midpoint routine which would yield results
+X   180 degrees off occasionally when the two points being passed to the
+X   routine were themselves almost 180 degrees apart. This would mainly
+X   affect composite charts and the midpoint grid. This has been fixed for
+X   all cases now.
+X3) Some composite charts where the house cusps in the two charts are
+X   almost 180 degrees apart would have the composite cusps in
+X   non-sequential order, 180 degrees apart from where they should be,
+X   e.g. two opposing cusps could be interchanged. The program now makes
+X   sure this won't happen, and takes corrective measures if necessary.
+X   Also, composite charts are no longer displayed in the chart headers
+X   with a bunch of 0's for the date, time, etc. Composite charts are
+X   properly labeled as being such, while only charts that exists in
+X   space/time will have their coordinates printed.
+X4) Some of the values in the header displays, such as time, long/lat,
+X   etc, would occasionally be displayed one number higher than they
+X   should be, due to improperly rounding up. This has been fixed. A few
+X   other minor display areas have been fixed, e.g. in the heliocentric
+X   planet list -h -O, Earth was abbreviated as "Eart" before.
+X5) In the -w text wheel option, the objects in each house are supposed
+X   to be printed from top to bottom in order from earliest in the house
+X   to latest. The program did this correctly except for cases in which a
+X   house spanned 0 degrees Aries, in which case the Aries planets would
+X   be printed before the Pisces planets. This should be the other way
+X   around, as it is now.
+X6) I probably should have made the -g text aspect grid and the -E
+X   ephemeris display be able to be affected by the -R restrictions. They
+X   weren't before and they are now.
+X7) Some of my very bad X windows programming in version 2.00 has been
+X   cleaned up, as least slightly. The program no longer core dumps if the
+X   DISPLAY environment variable isn't set properly. Before, the windows
+X   would come up white on black on some machines, and yet black on white
+X   on others; now as expected everything will come up white on black
+X   unless one specifies otherwise with the -Xr switch. Finally, a couple
+X   of people have mentioned that version 2.00 would eat up *lots* of cpu
+X   even while doing nothing (unless in 'p'ause mode). Also while in pause
+X   mode, uncovering part of the Astrolog window would leave that part
+X   blank until pause mode was left. Now, Astrolog doesn't eat cpu unless
+X   it's doing something useful, and it will always redraw its windows if
+X   unmapped.
+X8) Some things that caused problems for PC users have been corrected;
+X   Astrolog now is explicitly declaring 32 bit longs in places where the
+X   PC assuming 16 bit ints would cause problems, as well as eliminating a
+X   couple of unnecessary declarations and adding some more declarations
+X   which aren't necessary for unix but would confuse a PC.
+X
+XNote for PC users: I have tried to make this program as much
+Xexecutable on personal computers and other non-unix systems as
+Xpossible. Although this version should be easier to compile than
+Xprevious ones were, still there are probably some things I've
+Xforgotten/left out. For instance, for as least one person the
+Xoptions.c and formulas.c files were too long in version 2.00 and had
+Xto be split again, so one should be aware of these possible factors.
+X
+XUnfortunately, I am graduating in a little over a month from now, and
+Xtherefore probably won't be able to work on or support Astrolog much
+Xunless I can get another account somewhere. Still, I hope to release
+Xan Astrolog 2.20 in another month, perhaps including features like
+Xfixed star tracking. (Have you Sun conjunct the Pleiades? Find out!)
+X
+XI wish to express thanks to the many people who have pointed out the
+Xbugs (and have made suggestions for new features) in this (as well as
+Xprevious) versions so that they could be corrected. You know who you
+Xare! :) As the Sun leaves Aquarius after the Full Moon let's remember
+Xthe power of unified effort; and of course the Sun will soon be back
+Xin Aquarius, perhaps next time in the Age of Aquarius!
+X
+X
+X************************************************
+XAstrolog 2.20 posted Wed,  3 Jun 92 00:25:40 GMT
+X************************************************
+X
+X-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-
+X|    Walter D. "Cruiser1" Pullen    |    cruiser1@milton.u.washington.edu.    |
+X-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-
+END_OF_FILE
+if test 28608 -ne `wc -c <'History.p2'`; then
+    echo shar: \"'History.p2'\" unpacked with wrong size!
+fi
+# end of 'History.p2'
+fi
+echo shar: End of archive 4 \(of 8\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    echo "See the README file for further instructions."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

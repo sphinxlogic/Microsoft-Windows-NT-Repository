@@ -1,0 +1,2437 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i148:  nocol - Network Monitoring System, Part18/26
+Message-ID: <1993Nov23.212803.21957@sparky.sterling.com>
+X-Md4-Signature: 9412511bd24c9b17792d670aa273dbf1
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 21:28:03 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 148
+Archive-name: nocol/part18
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c
+#   nocol-3.0/src/cmu-snmp/apps/snmpstatus.c
+#   nocol-3.0/src/cmu-snmp/apps/snmptest.c
+#   nocol-3.0/src/cmu-snmp/include/snmp_client.c
+#   nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c
+#   nocol-3.0/src/netmon/filter.c nocol-3.0/src/perlnocol/nrmon
+#   nocol-3.0/src/utility/log-maint
+# Wrapped by kent@sparky on Tue Nov  9 22:22:22 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 18 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c'\" \(9726 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * Copyright (c) 1983,1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that this notice is preserved and that due credit is given
+X * to the University of California at Berkeley. The name of the University
+X * may not be used to endorse or promote products derived from this
+X * software without specific prior written permission. This software
+X * is provided ``as is'' without express or implied warranty.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X
+X#include <netinet/in.h>
+X
+X#include <stdio.h>
+X#include <signal.h>
+X
+X#include "main.h"
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X#include "mib.h"
+X
+X#define	YES	1
+X#define	NO	0
+X
+Xextern	int nflag;
+Xextern	char *interface;
+Xextern	char *routename(), *netname();
+Xextern	struct snmp_session *Session;
+Xextern	struct variable_list *getvarbyname();
+X
+Xoid oid_ifname[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 2, 1};
+Xstatic oid oid_ifinucastpkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 11, 1};
+Xstatic oid oid_cfg_nnets[] = {1, 3, 6, 1, 2, 1, 2, 1, 0};
+X
+X#define IFNAME		2
+X#define IFMTU		4
+X#define IFOPERSTATUS	8
+X#define INUCASTPKTS	11
+X#define INNUCASTPKTS	12
+X#define INERRORS	14
+X#define OUTUCASTPKTS	17
+X#define OUTNUCASTPKTS	18
+X#define OUTERRORS	20
+X
+X/*
+X * Print a description of the network interfaces.
+X */
+Xintpr(interval)
+X	int interval;
+X{
+X	oid varname[MAX_NAME_LEN], *instance, *ifentry;
+X	int varname_len;
+X	int ifnum, cfg_nnets;
+X	struct variable_list *var;
+X	char name[128];
+X	int mtu;
+X	int ipkts, ierrs, opkts, oerrs, operstatus, collisions;
+X
+X	if (interval) {
+X		sidewaysintpr((unsigned)interval);
+X		return;
+X	}
+X	printf("%-11.11s %-5.5s %-11.11s %-15.15s %8.8s %5.5s %8.8s %5.5s",
+X		"Name", "Mtu", "Network", "Address", "Ipkts", "Ierrs",
+X		"Opkts", "Oerrs");
+X	putchar('\n');
+X	var = getvarbyname(Session, oid_cfg_nnets, sizeof(oid_cfg_nnets) / sizeof(oid));
+X	if (var)
+X	    cfg_nnets = *var->val.integer;
+X	else
+X	    return;
+X	bcopy((char *)oid_ifname, (char *)varname, sizeof(oid_ifname));
+X	varname_len = sizeof(oid_ifname) / sizeof(oid);
+X	ifentry = varname + 9;
+X	instance = varname + 10;
+X	for (ifnum = 1; ifnum <= cfg_nnets; ifnum++) {
+X		register char *cp;
+X		char *index();
+X
+X		*name = mtu = 0;
+X		ipkts = ierrs = opkts = oerrs = operstatus = collisions = 0;
+X		*instance = ifnum;
+X		*ifentry = IFNAME;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var){
+X		    bcopy((char *)var->val.string, name, var->val_len);
+X		    name[var->val_len] = 0;
+X		}
+X		*ifentry = IFMTU;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    mtu = *var->val.integer;
+X		*ifentry = IFOPERSTATUS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    operstatus = *var->val.integer;
+X		*ifentry = INUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ipkts = *var->val.integer;
+X		*ifentry = INNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ipkts += *var->val.integer;
+X		*ifentry = INERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    ierrs = *var->val.integer;
+X		*ifentry = OUTUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    opkts = *var->val.integer;
+X		*ifentry = OUTNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    opkts += *var->val.integer;
+X		*ifentry = OUTERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    oerrs = *var->val.integer;
+X
+X		name[15] = '\0';
+X		if (interface != 0 &&
+X		    strcmp(name, interface) != 0)
+X			continue;
+X		cp = index(name, '\0');
+X		if (operstatus != MIB_IFSTATUS_UP)
+X			*cp++ = '*';
+X		*cp = '\0';
+X		printf("%-11.11s %-5d ", name, mtu);
+X		printf("%-11.11s ", "none");
+X		printf("%-15.15s ", "none");
+X		printf("%8d %5d %8d %5d %5d",
+X		    ipkts, ierrs,
+X		    opkts, oerrs, collisions);
+X		putchar('\n');
+X	}
+X}
+X
+X#define	MAXIF	10
+Xstruct	iftot {
+X	char	ift_name[128];		/* interface name */
+X	int	ift_ip;			/* input packets */
+X	int	ift_ie;			/* input errors */
+X	int	ift_op;			/* output packets */
+X	int	ift_oe;			/* output errors */
+X	int	ift_co;			/* collisions */
+X} iftot[MAXIF];
+X
+Xu_char	signalled;			/* set if alarm goes off "early" */
+X
+X/*
+X * Print a running summary of interface statistics.
+X * Repeat display every interval seconds, showing statistics
+X * collected over that interval.  Assumes that interval is non-zero.
+X * First line printed at top of screen is always cumulative.
+X */
+Xsidewaysintpr(interval)
+X	unsigned interval;
+X{
+X	register struct iftot *ip, *total;
+X	register int line;
+X	struct iftot *lastif, *sum, *interesting, ifnow, *now = &ifnow;
+X	int oldmask;
+X	int catchalarm();
+X	struct variable_list *var;
+X	oid varname[MAX_NAME_LEN], *instance, *ifentry;
+X	int varname_len;
+X	int ifnum, cfg_nnets;
+X	char *index();
+X
+X	lastif = iftot;
+X	sum = iftot + MAXIF - 1;
+X	total = sum - 1;
+X	interesting = iftot;
+X	var = getvarbyname(Session, oid_cfg_nnets, sizeof(oid_cfg_nnets) / sizeof(oid));
+X	if (var)
+X	    cfg_nnets = *var->val.integer;
+X	else
+X	    return;
+X	bcopy((char *)oid_ifname, (char *)varname, sizeof(oid_ifname));
+X	varname_len = sizeof(oid_ifname) / sizeof(oid);
+X	for (ifnum = 1, ip = iftot; ifnum <= cfg_nnets; ifnum++) {
+X		char *cp;
+X
+X		ip->ift_name[0] = '(';
+X		varname[10] = ifnum;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var){
+X		    bcopy((char *)var->val.string, ip->ift_name + 1, var->val_len);
+X		}
+X		if (interface && strcmp(ip->ift_name + 1, interface) == 0)
+X			interesting = ip;
+X		ip->ift_name[15] = '\0';
+X		cp = index(ip->ift_name, '\0');
+X		sprintf(cp, ")");
+X		ip++;
+X		if (ip >= iftot + MAXIF - 2)
+X			break;
+X	}
+X	lastif = ip;
+X
+X	(void)signal(SIGALRM, catchalarm);
+X	signalled = NO;
+X	(void)alarm(interval);
+Xbanner:
+X	printf("    input   %-6.6s    output       ", interesting->ift_name);
+X	if (lastif - iftot > 0)
+X		printf("     input  (Total)    output");
+X	for (ip = iftot; ip < iftot + MAXIF; ip++) {
+X		ip->ift_ip = 0;
+X		ip->ift_ie = 0;
+X		ip->ift_op = 0;
+X		ip->ift_oe = 0;
+X		ip->ift_co = 0;
+X	}
+X	putchar('\n');
+X	printf("%8.8s %5.5s %8.8s %5.5s %5.5s ",
+X		"packets", "errs", "packets", "errs", "colls");
+X	if (lastif - iftot > 0)
+X		printf("%8.8s %5.5s %8.8s %5.5s %5.5s ",
+X			"packets", "errs", "packets", "errs", "colls");
+X	putchar('\n');
+X	fflush(stdout);
+X	line = 0;
+Xloop:
+X	sum->ift_ip = 0;
+X	sum->ift_ie = 0;
+X	sum->ift_op = 0;
+X	sum->ift_oe = 0;
+X	sum->ift_co = 0;
+X	bcopy((char *)oid_ifinucastpkts, (char *)varname, sizeof(oid_ifinucastpkts));
+X	varname_len = sizeof(oid_ifinucastpkts) / sizeof(oid);
+X	ifentry = varname + 9;
+X	instance = varname + 10;
+X	for (ifnum = 1, ip = iftot; ifnum <= cfg_nnets && ip < lastif; ip++, ifnum++) {
+X		bzero((char *)now, sizeof(*now));
+X		*instance = ifnum;
+X		*ifentry = INUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ip = *var->val.integer;
+X		*ifentry = INNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ip += *var->val.integer;
+X		*ifentry = INERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_ie = *var->val.integer;
+X		*ifentry = OUTUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_op = *var->val.integer;
+X		*ifentry = OUTNUCASTPKTS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_op += *var->val.integer;
+X		*ifentry = OUTERRORS;
+X		var = getvarbyname(Session, varname, varname_len);
+X		if (var)
+X		    now->ift_oe = *var->val.integer;
+X
+X		if (ip == interesting)
+X			printf("%8d %5d %8d %5d %5d ",
+X				now->ift_ip - ip->ift_ip,
+X				now->ift_ie - ip->ift_ie,
+X				now->ift_op - ip->ift_op,
+X				now->ift_oe - ip->ift_oe,
+X				now->ift_co - ip->ift_co);
+X		ip->ift_ip = now->ift_ip;
+X		ip->ift_ie = now->ift_ie;
+X		ip->ift_op = now->ift_op;
+X		ip->ift_oe = now->ift_oe;
+X		ip->ift_co = now->ift_co;
+X		sum->ift_ip += ip->ift_ip;
+X		sum->ift_ie += ip->ift_ie;
+X		sum->ift_op += ip->ift_op;
+X		sum->ift_oe += ip->ift_oe;
+X		sum->ift_co += ip->ift_co;
+X	}
+X	if (lastif - iftot > 0)
+X		printf("%8d %5d %8d %5d %5d ",
+X			sum->ift_ip - total->ift_ip,
+X			sum->ift_ie - total->ift_ie,
+X			sum->ift_op - total->ift_op,
+X			sum->ift_oe - total->ift_oe,
+X			sum->ift_co - total->ift_co);
+X	*total = *sum;
+X	putchar('\n');
+X	fflush(stdout);
+X	line++;
+X	oldmask = sigblock(sigmask(SIGALRM));
+X	if (! signalled) {
+X		sigpause(0);
+X	}
+X	sigsetmask(oldmask);
+X	signalled = NO;
+X	(void)alarm(interval);
+X	if (line == 21)
+X		goto banner;
+X	goto loop;
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * Called if an interval expires before sidewaysintpr has completed a loop.
+X * Sets a flag to not wait for the alarm.
+X */
+Xcatchalarm()
+X{
+X	signalled = YES;
+X}
+END_OF_FILE
+  if test 9726 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmpnetstat/if.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c'\" \(9959 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c' <<'END_OF_FILE'
+X/*
+X * snmpstatus.c - send snmp GET requests to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_client.h"
+X#include "snmp_api.h"
+X#include "mib.h"
+X
+Xint	snmp_dump_packet = 0;
+X
+Xoid	objid_sysDescr[] = {1, 3, 6, 1, 2, 1, 1, 1, 0};
+Xint	length_sysDescr = sizeof(objid_sysDescr)/sizeof(oid);
+Xoid	objid_sysUpTime[] = {1, 3, 6, 1, 2, 1, 1, 3, 0};
+Xint	length_sysUpTime = sizeof(objid_sysUpTime)/sizeof(oid);
+Xoid	objid_ifOperStatus[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 8};
+Xint	length_ifOperStatus = sizeof(objid_ifOperStatus)/sizeof(oid);
+Xoid	objid_ifInUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 11};
+Xint	length_ifInUCastPkts = sizeof(objid_ifInUCastPkts)/sizeof(oid);
+Xoid	objid_ifInNUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 12};
+Xint	length_ifInNUCastPkts = sizeof(objid_ifInNUCastPkts)/sizeof(oid);
+Xoid	objid_ifOutUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 17};
+Xint	length_ifOutUCastPkts = sizeof(objid_ifOutUCastPkts)/sizeof(oid);
+Xoid	objid_ifOutNUCastPkts[] = {1, 3, 6, 1, 2, 1, 2, 2, 1, 18};
+Xint	length_ifOutNUCastPkts = sizeof(objid_ifOutNUCastPkts)/sizeof(oid);
+Xoid	objid_ipInReceives[] = {1, 3, 6, 1, 2, 1, 4, 3, 0};
+Xint	length_ipInReceives = sizeof(objid_ipInReceives)/sizeof(oid);
+Xoid	objid_ipOutRequests[] = {1, 3, 6, 1, 2, 1, 4, 10, 0};
+Xint	length_ipOutRequests = sizeof(objid_ipOutRequests)/sizeof(oid);
+X
+Xchar *
+Xuptime_string(timeticks, buf)
+X    register u_long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0){
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    } else if (days == 1) {
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    } else {
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X    }
+X    return buf;
+X}
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu, *response;
+X    struct variable_list *vars;
+X    int	arg;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    char    name[256];
+X    char    buf[64];
+X    int	    good_var, index;
+X    int	    status, count;
+X    u_long  ipackets = 0, opackets = 0, down_interfaces = 0;
+X    u_long  ipin = 0, ipout = 0;
+X    u_long  uptime = 0;
+X
+X    /*
+X     * usage: snmpstatus gateway-name [community-name]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else {
+X	    printf("usage: snmpstatus gateway-name [community-name]\n");
+X	    exit(1);
+X	}
+X    }
+X    if (!(gateway)){
+X	printf("usage: snmpstatus gateway-name [community-name]\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    if (community == NULL){
+X	session.community_len = SNMP_DEFAULT_COMMUNITY_LEN;
+X    } else {
+X	session.community_len = strlen(community);
+X    }
+X    session.retries = 4;
+X    session.timeout = 500000;
+X    session.authenticator = NULL;
+X    snmp_synch_setup(&session);
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    strcpy(name, "No System Description Available");
+X    pdu = snmp_pdu_create(GET_REQ_MSG);
+X
+X    snmp_add_null_var(pdu, objid_sysDescr, length_sysDescr);
+X    snmp_add_null_var(pdu, objid_sysUpTime, length_sysUpTime);
+X    snmp_add_null_var(pdu, objid_ipInReceives, length_ipInReceives);
+X    snmp_add_null_var(pdu, objid_ipOutRequests, length_ipOutRequests);
+X
+Xretry:
+X    status = snmp_synch_response(ss, pdu, &response);
+X    if (status == STAT_SUCCESS){
+X	if (response->errstat == SNMP_ERR_NOERROR){
+X	    for(vars = response->variables; vars; vars = vars->next_variable){
+X		if (vars->name_length == length_sysDescr &&
+X		    !bcmp((char *)objid_sysDescr, (char*)vars->name, sizeof(objid_sysDescr))){
+X			bcopy((char *)vars->val.string, name, vars->val_len);
+X			name[vars->val_len] = '\0';
+X		}
+X		if (vars->name_length == length_sysUpTime &&
+X		    !bcmp((char *)objid_sysUpTime, (char*)vars->name, sizeof(objid_sysUpTime))){
+X			uptime = *vars->val.integer;
+X		}
+X		if (vars->name_length == length_ipInReceives &&
+X		    !bcmp((char *)objid_ipInReceives, (char*)vars->name, sizeof(objid_ipInReceives))){
+X			ipin = *vars->val.integer;
+X		}
+X		if (vars->name_length == length_ipOutRequests &&
+X		    !bcmp((char *)objid_ipOutRequests, (char*)vars->name, sizeof(objid_ipOutRequests))){
+X			ipout = *vars->val.integer;
+X		}
+X	    }
+X	} else {
+X	    printf("Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X	    if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		printf("This name doesn't exist: ");
+X		for(count = 1, vars = response->variables; vars && count != response->errindex;
+X		    vars = vars->next_variable, count++)
+X			;
+X		if (vars)
+X		    print_objid(vars->name, vars->name_length);
+X		printf("\n");
+X	    }
+X	    if ((pdu = snmp_fix_pdu(response, GET_REQ_MSG)) != NULL)
+X		goto retry;
+X	}
+X
+X    } else if (status == STAT_TIMEOUT){
+X	printf("No Response from %s\n", gateway);
+X	exit(1);
+X    } else {    /* status == STAT_ERROR */
+X	printf("An error occurred, Quitting\n");
+X	exit(2);
+X    }
+X
+X    printf("[%s]=>[%s] Up: %s\n", inet_ntoa(response->address.sin_addr), name,
+X	uptime_string(uptime, buf));
+X
+X    if (response)
+X	snmp_free_pdu(response);
+X
+X    pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X
+X    snmp_add_null_var(pdu, objid_ifOperStatus, length_ifOperStatus);
+X    snmp_add_null_var(pdu, objid_ifInUCastPkts, length_ifInUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifInNUCastPkts, length_ifInNUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifOutUCastPkts, length_ifOutUCastPkts);
+X    snmp_add_null_var(pdu, objid_ifOutNUCastPkts, length_ifOutNUCastPkts);
+X
+X    good_var = 5;
+X    while(good_var == 5){
+X	good_var = 0;
+X	status = snmp_synch_response(ss, pdu, &response);
+X	if (status == STAT_SUCCESS){
+X	    if (response->errstat == SNMP_ERR_NOERROR){
+X		pdu = snmp_pdu_create(GETNEXT_REQ_MSG);
+X
+X		index = 0;
+X		for(vars = response->variables; vars; vars = vars->next_variable){
+X		    if (index == 0 && vars->name_length >= length_ifOperStatus &&
+X			!bcmp((char *)objid_ifOperStatus, (char *)vars->name,
+X			sizeof(objid_ifOperStatus))){
+X			    if (*vars->val.integer != MIB_IFSTATUS_UP)
+X				down_interfaces++;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 1 && vars->name_length >= length_ifInUCastPkts &&
+X			!bcmp((char *)objid_ifInUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifInUCastPkts))){
+X			    ipackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 2 && vars->name_length >= length_ifInNUCastPkts &&
+X			!bcmp((char *)objid_ifInNUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifInNUCastPkts))){
+X			    ipackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 3 && vars->name_length >= length_ifOutUCastPkts &&
+X			!bcmp((char *)objid_ifOutUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifOutUCastPkts))){
+X			    opackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    } else if (index == 4 && vars->name_length >= length_ifOutNUCastPkts &&
+X			!bcmp((char *)objid_ifOutNUCastPkts, (char *)vars->name,
+X			sizeof(objid_ifOutNUCastPkts))){
+X			    opackets += *vars->val.integer;
+X			    snmp_add_null_var(pdu, vars->name, vars->name_length);
+X			    good_var++;
+X		    }
+X		    index++;
+X		}
+X	    } else {
+X		printf("Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X		if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		    printf("This name doesn't exist: ");
+X		    for(count = 1, vars = response->variables; vars && count != response->errindex;
+X			vars = vars->next_variable, count++)
+X			    ;
+X		    if (vars)
+X			print_objid(vars->name, vars->name_length);
+X		    printf("\n");
+X		}
+X	    }
+X
+X	} else if (status == STAT_TIMEOUT){
+X	    printf("No Response from %s\n", gateway);
+X	} else {    /* status == STAT_ERROR */
+X	    printf("An error occurred, Quitting\n");
+X	}
+X
+X	if (response)
+X	    snmp_free_pdu(response);
+X    }
+X    printf("Recv/Trans packets: Interfaces: %d/%d | IP: %d/%d\n", ipackets, opackets, ipin, ipout);
+X    if (down_interfaces > 0){
+X	printf("%d interface%s down!\n", down_interfaces, down_interfaces > 1 ? "s are": " is" );
+X    }
+X}
+X
+END_OF_FILE
+  if test 9959 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmpstatus.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmptest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmptest.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmptest.c'\" \(9304 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmptest.c' <<'END_OF_FILE'
+X/*
+X * snmptest.c - send snmp requests to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <errno.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+Xextern int  errno;
+Xint command = GET_REQ_MSG;
+Xint	snmp_dump_packet = 0;
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    struct snmp_pdu *pdu, *response;
+X    struct variable_list *vars, *vp;
+X    int	arg, ret;
+X    char *gateway = NULL;
+X    char *community = NULL;
+X    int	    status, count;
+X
+X    init_mib();
+X    /*
+X     * usage: snmptest gateway-name community-name
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    fprintf(stderr, "invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X	if (gateway == NULL){
+X	    gateway = argv[arg];
+X	} else if (community == NULL){
+X	    community = argv[arg]; 
+X	} else {
+X	    fprintf(stderr, "usage: snmptest gateway-name community-name\n");
+X	    exit(1);
+X	}
+X    }
+X    if (community == NULL)
+X	community = "public";	/* default to public */
+X
+X    if (!(gateway && community)){
+X	fprintf(stderr, "usage: snmptest gateway-name community-name\n");
+X	exit(1);
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = gateway;
+X    session.community = (u_char *)community;
+X    session.community_len = strlen((char *)community);
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    snmp_synch_setup(&session);
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	fprintf(stderr, "Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    while(1){
+X	vars = NULL;
+X	for(ret = 1; ret != 0;){
+X	    vp = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    vp->next_variable = NULL;
+X	    vp->name = NULL;
+X	    vp->val.string = NULL;
+X
+X	    while((ret = input_variable(vp)) == -1)
+X		;
+X	    if (ret == 1){
+X		/* add it to the list */
+X		if (vars == NULL){
+X		    /* if first variable */
+X		    pdu = snmp_pdu_create(command);
+X		    pdu->variables = vp;
+X		} else {
+X		    vars->next_variable = vp;
+X		}
+X		vars = vp;
+X	    } else {
+X		/* free the last (unused) variable */
+X		if (vp->name)
+X		    free((char *)vp->name);
+X		if (vp->val.string)
+X		    free((char *)vp->val.string);
+X		free((char *)vp);
+X	    }
+X	}
+X	status = snmp_synch_response(ss, pdu, &response);
+X	if (status == STAT_SUCCESS){
+X	    switch(response->command){
+X		case GET_REQ_MSG:
+X		    printf("Received GET REQUEST ");
+X		    break;
+X		case GETNEXT_REQ_MSG:
+X		    printf("Received GETNEXT REQUEST ");
+X		    break;
+X		case GET_RSP_MSG:
+X		    printf("Received GET RESPONSE ");
+X		    break;
+X		case SET_REQ_MSG:
+X		    printf("Received SET REQUEST ");
+X		    break;
+X		case TRP_REQ_MSG:
+X		    printf("Received TRAP REQUEST ");
+X		    break;
+X	    }
+X	    printf("from %s\n", inet_ntoa(response->address.sin_addr));
+X	    printf("requestid 0x%x errstat 0x%x errindex 0x%x\n",
+X		response->reqid, response->errstat, response->errindex);
+X	    if (response->errstat == SNMP_ERR_NOERROR){
+X		for(vars = response->variables; vars; vars = vars->next_variable)
+X		    print_variable(vars->name, vars->name_length, vars);
+X	    } else {
+X		fprintf(stderr, "Error in packet.\nReason: %s\n", snmp_errstring(response->errstat));
+X		if (response->errstat == SNMP_ERR_NOSUCHNAME){
+X		    for(count = 1, vars = response->variables; vars && count != response->errindex;
+X			vars = vars->next_variable, count++)
+X			    ;
+X		    if (vars){
+X			printf("This name doesn't exist: ");
+X			print_objid(vars->name, vars->name_length);
+X		    }
+X		    printf("\n");
+X		}
+X	    }
+X
+X	} else if (status == STAT_TIMEOUT){
+X	    fprintf(stderr, "No Response from %s\n", gateway);
+X	} else {    /* status == STAT_ERROR */
+X	    fprintf(stderr, "An error occurred, Quitting\n");
+X	}
+X
+X	if (response)
+X	    snmp_free_pdu(response);
+X    }
+X}
+X
+Xint
+Xascii_to_binary(cp, bufp)
+X    u_char  *cp;
+X    u_char *bufp;
+X{
+X    int	subidentifier;
+X    u_char *bp = bufp;
+X
+X    for(; *cp != '\0'; cp++){
+X	if (isspace(*cp))
+X	    continue;
+X	if (!isdigit(*cp)){
+X	    fprintf(stderr, "Input error\n");
+X	    return -1;
+X	}
+X	subidentifier = atoi(cp);
+X	if (subidentifier > 255){
+X	    fprintf(stderr, "subidentifier %d is too large ( > 255)\n", subidentifier);
+X	    return -1;
+X	}
+X	*bp++ = (u_char)subidentifier;
+X	while(isdigit(*cp))
+X	    cp++;
+X	cp--;
+X    }
+X    return bp - bufp;
+X}
+X
+X
+Xint
+Xhex_to_binary(cp, bufp)
+X    u_char  *cp;
+X    u_char *bufp;
+X{
+X    int	subidentifier;
+X    u_char *bp = bufp;
+X
+X    for(; *cp != '\0'; cp++){
+X	if (isspace(*cp))
+X	    continue;
+X	if (!isxdigit(*cp)){
+X	    fprintf(stderr, "Input error\n");
+X	    return -1;
+X	}
+X	sscanf(cp, "%x", &subidentifier);
+X	if (subidentifier > 255){
+X	    fprintf(stderr, "subidentifier %d is too large ( > 255)\n", subidentifier);
+X	    return -1;
+X	}
+X	*bp++ = (u_char)subidentifier;
+X	while(isxdigit(*cp))
+X	    cp++;
+X	cp--;
+X    }
+X    return bp - bufp;
+X}
+X
+X
+Xinput_variable(vp)
+X    struct variable_list    *vp;
+X{
+X    u_char  buf[256], value[256], ch;
+X
+X    printf("Please enter the variable name: ");
+X    fflush(stdout);
+X    gets(buf);
+X
+X    if (*buf == 0){
+X	vp->name_length = 0;
+X	return 0;
+X    }
+X    if (*buf == '$'){
+X	switch(buf[1]){
+X	    case 'G':
+X		command = GET_REQ_MSG;
+X		printf("Request type is GET REQUEST\n");
+X		break;
+X	    case 'N':
+X		command = GETNEXT_REQ_MSG;
+X		printf("Request type is GETNEXT REQUEST\n");
+X		break;
+X	    case 'S':
+X		command = SET_REQ_MSG;
+X		printf("Request type is SET REQUEST\n");
+X		break;
+X	    case 'D':
+X		if (snmp_dump_packet){
+X		    snmp_dump_packet = 0;
+X		    printf("Turned packet dump off\n");
+X		} else {
+X		    snmp_dump_packet = 1;
+X		    printf("Turned packet dump on\n");
+X		}
+X		break;
+X	    case 'Q':
+X		printf("Quitting,  Goodbye\n");
+X		exit(0);
+X		break;
+X	    default:
+X		fprintf(stderr, "Bad command\n");
+X	}
+X	return -1;
+X    }
+X    vp->name_length = MAX_NAME_LEN;
+X    if (!read_objid(buf, value, &vp->name_length))
+X	return -1;
+X    vp->name = (oid *)malloc(vp->name_length * sizeof(oid));
+X    bcopy((char *)value, (char *)vp->name, vp->name_length * sizeof(oid));
+X
+X    if (command == SET_REQ_MSG){
+X	printf("Please enter variable type [i|s|x|d|n|o|t|a]: ");
+X	fflush(stdout);
+X	gets(buf);
+X	ch = *buf;
+X	switch(ch){
+X	    case 'i':
+X		vp->type = INTEGER;
+X		break;
+X	    case 's':
+X		vp->type = STRING;
+X		break;
+X	    case 'x':
+X		vp->type = STRING;
+X		break;
+X	    case 'd':
+X		vp->type = STRING;
+X		break;
+X	    case 'n':
+X		vp->type = NULLOBJ;
+X		break;
+X	    case 'o':
+X		vp->type = OBJID;
+X		break;
+X	    case 't':
+X		vp->type = TIMETICKS;
+X		break;
+X	    case 'a':
+X		vp->type = IPADDRESS;
+X		break;
+X	    default:
+X		fprintf(stderr, "bad type \"%c\", use \"i\", \"s\", \"x\", \"d\", \"n\", \"o\", \"t\", or \"a\".\n", *buf);
+X		return -1;
+X	}
+X	printf("Please enter new value: "); fflush(stdout);
+X	gets(buf);
+X	switch(vp->type){
+X	    case INTEGER:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = atoi(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    case STRING:
+X		if (ch == 'd'){
+X		    vp->val_len = ascii_to_binary(buf, value);
+X		} else if (ch == 's'){
+X		    strcpy(value, buf);
+X		    vp->val_len = strlen(buf);
+X		} else if (ch == 'x'){
+X		    vp->val_len = hex_to_binary(buf, value);
+X		}
+X		vp->val.string = (u_char *)malloc(vp->val_len);
+X		bcopy((char *)value, (char *)vp->val.string, vp->val_len);
+X		break;
+X	    case NULLOBJ:
+X		vp->val_len = 0;
+X		vp->val.string = NULL;
+X		break;
+X	    case OBJID:
+X		vp->val_len = MAX_NAME_LEN;;
+X		read_objid(buf, value, &vp->val_len);
+X		vp->val_len *= sizeof(oid);
+X		vp->val.objid = (oid *)malloc(vp->val_len);
+X		bcopy((char *)value, (char *)vp->val.objid, vp->val_len);
+X		break;
+X	    case TIMETICKS:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = atoi(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    case IPADDRESS:
+X		vp->val.integer = (long *)malloc(sizeof(long));
+X		*(vp->val.integer) = inet_addr(buf);
+X		vp->val_len = sizeof(long);
+X		break;
+X	    default:
+X		fprintf(stderr, "Internal error\n");
+X		break;
+X	}
+X    } else {	/* some form of get message */
+X	vp->type = NULLOBJ;
+X	vp->val_len = 0;
+X    }
+X    return 1;
+X}
+X
+END_OF_FILE
+  if test 9304 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmptest.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmptest.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmptest.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/snmp_client.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/snmp_client.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/snmp_client.c'\" \(9573 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/snmp_client.c' <<'END_OF_FILE'
+X/*
+X * snmp_client.c - a toolkit of common functions for an SNMP client.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <stdio.h>
+X#include <netinet/in.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+X#ifndef BSD4_3
+X#define BSD4_2
+X#endif
+X
+X#ifndef BSD4_3
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+X
+Xextern int errno;
+Xstruct synch_state snmp_synch_state;
+X
+Xstruct snmp_pdu *
+Xsnmp_pdu_create(command)
+X    int command;
+X{
+X    struct snmp_pdu *pdu;
+X
+X    pdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bzero((char *)pdu, sizeof(struct snmp_pdu));
+X    pdu->command = command;
+X    pdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    pdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    pdu->address.sin_addr.s_addr = SNMP_DEFAULT_ADDRESS;
+X    pdu->enterprise = NULL;
+X    pdu->enterprise_length = 0;
+X    pdu->variables = NULL;
+X    return pdu;
+X}
+X
+X/*
+X * Add a null variable with the requested name to the end of the list of
+X * variables for this pdu.
+X */
+Xsnmp_add_null_var(pdu, name, name_length)
+X    struct snmp_pdu *pdu;
+X    oid *name;
+X    int name_length;
+X{
+X    struct variable_list *vars;
+X
+X    if (pdu->variables == NULL){
+X	pdu->variables = vars = (struct variable_list *)malloc(sizeof(struct variable_list));
+X    } else {
+X	for(vars = pdu->variables; vars->next_variable; vars = vars->next_variable)
+X	    ;
+X	vars->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	vars = vars->next_variable;
+X    }
+X
+X    vars->next_variable = NULL;
+X    vars->name = (oid *)malloc(name_length * sizeof(oid));
+X    bcopy((char *)name, (char *)vars->name, name_length * sizeof(oid));
+X    vars->name_length = name_length;
+X    vars->type = ASN_NULL;
+X    vars->val.string = NULL;
+X    vars->val_len = 0;
+X}
+X
+Xsnmp_synch_input(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    struct variable_list *var, *newvar;
+X    struct synch_state *state = (struct synch_state *)magic;
+X    struct snmp_pdu *newpdu;
+X
+X    if (reqid != state->reqid)
+X	return 0;
+X    state->waiting = 0;
+X    if (op == RECEIVED_MESSAGE && pdu->command == GET_RSP_MSG){
+X	/* clone the pdu */
+X	state->pdu = newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X	bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X	newpdu->variables = 0;
+X	var = pdu->variables;
+X	if (var != NULL){
+X	    newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    while(var->next_variable){
+X		newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X		var = var->next_variable;
+X		newvar = newvar->next_variable;
+X		bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X		if (var->name != NULL){
+X		    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X		}
+X		if (var->val.string != NULL){
+X		    newvar->val.string = (u_char *)malloc(var->val_len);
+X		    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X		}
+X		newvar->next_variable = 0;
+X	    }
+X	}
+X	state->status = STAT_SUCCESS;
+X    } else if (op == TIMED_OUT){
+X	state->status = STAT_TIMEOUT;
+X    }
+X    return 1;
+X}
+X
+X
+X/*
+X * If there was an error in the input pdu, creates a clone of the pdu
+X * that includes all the variables except the one marked by the errindex.
+X * The command is set to the input command and the reqid, errstat, and
+X * errindex are set to default values.
+X * If the error status didn't indicate an error, the error index didn't
+X * indicate a variable, the pdu wasn't a get response message, or there
+X * would be no remaining variables, this function will return NULL.
+X * If everything was successful, a pointer to the fixed cloned pdu will
+X * be returned.
+X */
+Xstruct snmp_pdu *
+Xsnmp_fix_pdu(pdu, command)
+X    struct snmp_pdu *pdu;
+X    int command;
+X{
+X    struct variable_list *var, *newvar;
+X    struct snmp_pdu *newpdu;
+X    int index, copied = 0;
+X
+X    if (pdu->command != GET_RSP_MSG || pdu->errstat == SNMP_ERR_NOERROR || pdu->errindex <= 0)
+X	return NULL;
+X    /* clone the pdu */
+X    newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X    newpdu->variables = 0;
+X    newpdu->command = command;
+X    newpdu->reqid = SNMP_DEFAULT_REQID;
+X    newpdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    newpdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    var = pdu->variables;
+X    index = 1;
+X    if (pdu->errindex == index){	/* skip first variable */
+X	var = var->next_variable;
+X	index++;
+X    }
+X    if (var != NULL){
+X	newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	if (var->name != NULL){
+X	    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X	    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	}
+X	if (var->val.string != NULL){
+X	    newvar->val.string = (u_char *)malloc(var->val_len);
+X	    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	}
+X	newvar->next_variable = 0;
+X	copied++;
+X
+X	while(var->next_variable){
+X	    var = var->next_variable;
+X	    if (++index == pdu->errindex)
+X		continue;
+X	    newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    newvar = newvar->next_variable;
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    copied++;
+X	}
+X    }
+X    if (index < pdu->errindex || copied == 0){
+X	snmp_free_pdu(newpdu);
+X	return NULL;
+X    }
+X    return newpdu;
+X}
+X
+X
+Xint
+Xsnmp_synch_response(ss, pdu, response)
+X    struct snmp_session *ss;
+X    struct snmp_pdu *pdu;
+X    struct snmp_pdu **response;
+X{
+X    struct synch_state *state = &snmp_synch_state;
+X    int numfds, count;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X    int block;
+X
+X
+X    if ((state->reqid = snmp_send(ss, pdu)) == 0){
+X	*response = NULL;
+X	snmp_free_pdu(pdu);
+X	return STAT_ERROR;
+X    }
+X    state->waiting = 1;
+X
+X    while(state->waiting){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X	    snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X	    /* FALLTHRU */
+X	    default:
+X		return STAT_ERROR;
+X	}
+X    }
+X    *response = state->pdu;
+X    return state->status;
+X}
+X
+Xsnmp_synch_setup(session)
+X    struct snmp_session *session;
+X{
+X    session->callback = snmp_synch_input;
+X    session->callback_magic = (void *)&snmp_synch_state;
+X}
+X
+Xchar	*error_string[6] = {
+X    "No Error",
+X    "Response message would have been too large.",
+X    "There is no such variable name in this MIB.",
+X    "The value given has the wrong type or length",
+X    "This variable is read only",
+X    "A general failure occured"
+X};
+X
+Xchar *
+Xsnmp_errstring(errstat)
+X    int	errstat;
+X{
+X    if (errstat <= SNMP_ERR_GENERR && errstat >= SNMP_ERR_NOERROR){
+X	return error_string[errstat];
+X    } else {
+X	return "Unknown Error";
+X    }
+X}
+END_OF_FILE
+  if test 9573 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/snmp_client.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/snmp_client.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/snmp_client.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c'\" \(9675 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c' <<'END_OF_FILE'
+X/*
+X * snmp_client.c - a toolkit of common functions for an SNMP client.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <stdio.h>
+X#include <netinet/in.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+X#ifndef BSD4_3
+X#define BSD4_2
+X#endif
+X
+X#if defined(FD_SET)  ||  defined(BSD4_3)
+X# define HAVE_FD_MACROS
+X#endif
+X
+X#ifndef HAVE_FD_MACROS
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif	/* HAVE_FD_MACROS */
+X
+X
+Xextern int errno;
+Xstruct synch_state snmp_synch_state;
+X
+Xstruct snmp_pdu *
+Xsnmp_pdu_create(command)
+X    int command;
+X{
+X    struct snmp_pdu *pdu;
+X
+X    pdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bzero((char *)pdu, sizeof(struct snmp_pdu));
+X    pdu->command = command;
+X    pdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    pdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    pdu->address.sin_addr.s_addr = SNMP_DEFAULT_ADDRESS;
+X    pdu->enterprise = NULL;
+X    pdu->enterprise_length = 0;
+X    pdu->variables = NULL;
+X    return pdu;
+X}
+X
+X/*
+X * Add a null variable with the requested name to the end of the list of
+X * variables for this pdu.
+X */
+Xsnmp_add_null_var(pdu, name, name_length)
+X    struct snmp_pdu *pdu;
+X    oid *name;
+X    int name_length;
+X{
+X    struct variable_list *vars;
+X
+X    if (pdu->variables == NULL){
+X	pdu->variables = vars = (struct variable_list *)malloc(sizeof(struct variable_list));
+X    } else {
+X	for(vars = pdu->variables; vars->next_variable; vars = vars->next_variable)
+X	    ;
+X	vars->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	vars = vars->next_variable;
+X    }
+X
+X    vars->next_variable = NULL;
+X    vars->name = (oid *)malloc(name_length * sizeof(oid));
+X    bcopy((char *)name, (char *)vars->name, name_length * sizeof(oid));
+X    vars->name_length = name_length;
+X    vars->type = ASN_NULL;
+X    vars->val.string = NULL;
+X    vars->val_len = 0;
+X}
+X
+Xsnmp_synch_input(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    struct variable_list *var, *newvar;
+X    struct synch_state *state = (struct synch_state *)magic;
+X    struct snmp_pdu *newpdu;
+X
+X    if (reqid != state->reqid)
+X	return 0;
+X    state->waiting = 0;
+X    if (op == RECEIVED_MESSAGE && pdu->command == GET_RSP_MSG){
+X	/* clone the pdu */
+X	state->pdu = newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X	bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X	newpdu->variables = 0;
+X	var = pdu->variables;
+X	if (var != NULL){
+X	    newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    while(var->next_variable){
+X		newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X		var = var->next_variable;
+X		newvar = newvar->next_variable;
+X		bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X		if (var->name != NULL){
+X		    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X		}
+X		if (var->val.string != NULL){
+X		    newvar->val.string = (u_char *)malloc(var->val_len);
+X		    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X		}
+X		newvar->next_variable = 0;
+X	    }
+X	}
+X	state->status = STAT_SUCCESS;
+X    } else if (op == TIMED_OUT){
+X	state->status = STAT_TIMEOUT;
+X    }
+X    return 1;
+X}
+X
+X
+X/*
+X * If there was an error in the input pdu, creates a clone of the pdu
+X * that includes all the variables except the one marked by the errindex.
+X * The command is set to the input command and the reqid, errstat, and
+X * errindex are set to default values.
+X * If the error status didn't indicate an error, the error index didn't
+X * indicate a variable, the pdu wasn't a get response message, or there
+X * would be no remaining variables, this function will return NULL.
+X * If everything was successful, a pointer to the fixed cloned pdu will
+X * be returned.
+X */
+Xstruct snmp_pdu *
+Xsnmp_fix_pdu(pdu, command)
+X    struct snmp_pdu *pdu;
+X    int command;
+X{
+X    struct variable_list *var, *newvar;
+X    struct snmp_pdu *newpdu;
+X    int index, copied = 0;
+X
+X    if (pdu->command != GET_RSP_MSG || pdu->errstat == SNMP_ERR_NOERROR || pdu->errindex <= 0)
+X	return NULL;
+X    /* clone the pdu */
+X    newpdu = (struct snmp_pdu *)malloc(sizeof(struct snmp_pdu));
+X    bcopy((char *)pdu, (char *)newpdu, sizeof(struct snmp_pdu));
+X    newpdu->variables = 0;
+X    newpdu->command = command;
+X    newpdu->reqid = SNMP_DEFAULT_REQID;
+X    newpdu->errstat = SNMP_DEFAULT_ERRSTAT;
+X    newpdu->errindex = SNMP_DEFAULT_ERRINDEX;
+X    var = pdu->variables;
+X    index = 1;
+X    if (pdu->errindex == index){	/* skip first variable */
+X	var = var->next_variable;
+X	index++;
+X    }
+X    if (var != NULL){
+X	newpdu->variables = newvar = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	if (var->name != NULL){
+X	    newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X	    bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	}
+X	if (var->val.string != NULL){
+X	    newvar->val.string = (u_char *)malloc(var->val_len);
+X	    bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	}
+X	newvar->next_variable = 0;
+X	copied++;
+X
+X	while(var->next_variable){
+X	    var = var->next_variable;
+X	    if (++index == pdu->errindex)
+X		continue;
+X	    newvar->next_variable = (struct variable_list *)malloc(sizeof(struct variable_list));
+X	    newvar = newvar->next_variable;
+X	    bcopy((char *)var, (char *)newvar, sizeof(struct variable_list));
+X	    if (var->name != NULL){
+X		newvar->name = (oid *)malloc(var->name_length * sizeof(oid));
+X		bcopy((char *)var->name, (char *)newvar->name, var->name_length * sizeof(oid));
+X	    }
+X	    if (var->val.string != NULL){
+X		newvar->val.string = (u_char *)malloc(var->val_len);
+X		bcopy((char *)var->val.string, (char *)newvar->val.string, var->val_len);
+X	    }
+X	    newvar->next_variable = 0;
+X	    copied++;
+X	}
+X    }
+X    if (index < pdu->errindex || copied == 0){
+X	snmp_free_pdu(newpdu);
+X	return NULL;
+X    }
+X    return newpdu;
+X}
+X
+X
+Xint
+Xsnmp_synch_response(ss, pdu, response)
+X    struct snmp_session *ss;
+X    struct snmp_pdu *pdu;
+X    struct snmp_pdu **response;
+X{
+X    struct synch_state *state = &snmp_synch_state;
+X    int numfds, count;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X    int block;
+X
+X
+X    if ((state->reqid = snmp_send(ss, pdu)) == 0){
+X	*response = NULL;
+X	snmp_free_pdu(pdu);
+X	return STAT_ERROR;
+X    }
+X    state->waiting = 1;
+X
+X    while(state->waiting){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X	    snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X	    /* FALLTHRU */
+X	    default:
+X		return STAT_ERROR;
+X	}
+X    }
+X    *response = state->pdu;
+X    return state->status;
+X}
+X
+Xsnmp_synch_setup(session)
+X    struct snmp_session *session;
+X{
+X    session->callback = snmp_synch_input;
+X    session->callback_magic = (void *)&snmp_synch_state;
+X}
+X
+Xchar	*error_string[6] = {
+X    "No Error",
+X    "Response message would have been too large.",
+X    "There is no such variable name in this MIB.",
+X    "The value given has the wrong type or length",
+X    "This variable is read only",
+X    "A general failure occured"
+X};
+X
+Xchar *
+Xsnmp_errstring(errstat)
+X    int	errstat;
+X{
+X    if (errstat <= SNMP_ERR_GENERR && errstat >= SNMP_ERR_NOERROR){
+X	return error_string[errstat];
+X    } else {
+X	return "Unknown Error";
+X    }
+X}
+END_OF_FILE
+  if test 9675 -ne `wc -c <'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/snmplib/snmp_client.c'
+fi
+if test -f 'nocol-3.0/src/netmon/filter.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/netmon/filter.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/netmon/filter.c'\" \(9886 characters\)
+  sed "s/^X//" >'nocol-3.0/src/netmon/filter.c' <<'END_OF_FILE'
+X/*
+X * $Header: /home/aggarwal/lsrc/nocol/src/netmon/RCS/filter.c,v 1.2 1993/10/30 03:51:36 aggarwal Exp $
+X */
+X
+X/* Copyright 1992 JvNCnet, Princeton */
+X
+X/*+
+X ** The functions 'compile_pattern' and 'filter' allow NETMON to filter 
+X ** out only the information that the user desires.  Logical AND and OR 
+X ** is also incorporated in this feature, allowing input such as:
+X **
+X ** airport | 13:27 & Error (prints status of the 'airport' sites as well
+X **                          any errors that occurred at 13:27)
+X ** 
+X ** 'compile_pattern' works like this:
+X **
+X ** A new argument is started every time an AND (&) operator is
+X ** encountered.
+X ** 
+X ** A new row of arguments is started every time an OR (|) operator is
+X ** encountered.
+X **
+X ** So, if the input is: THIS & THAT | YOU & ME | WHATEVER | A & B & C
+X ** The pointers would be assigned as follows:
+X **
+X ** compiled[0][0] = "THIS"		compiled[0][1] = "THAT"
+X ** compiled[1][0] = "YOU"		compiled[1][1] = "ME"
+X ** compiled[2][0] = "WHATEVER"
+X ** compiled[3][0] = "A"		compiled[3][1] = "B"	compiled[3][2] = "C"
+X **
+X ** 'filter' filters out the desired information by comparing the
+X ** EVENT data structure against the arguments row by row, argument by
+X ** argument.
+X **
+X ** Given the data above, 'filter' would first check arguments of
+X ** row 0.  If THIS (args[0][0]) was not in the data, the whole row can
+X ** be skipped because we know that (THIS & THAT) will be FALSE. 
+X **
+X ** 'filter' returns 1 if any of the rows of arguments match,
+X ** otherwise it returns 0.
+X**/
+X
+X/*
+X * $Log: filter.c,v $
+X * Revision 1.2  1993/10/30  03:51:36  aggarwal
+X * Changed the name from filter() to nocolfilter()
+X *
+X * Revision 1.1  1992/06/18  21:03:49  aggarwal
+X * Initial revision
+X *
+X */
+X
+X#include "netmon.h"
+X#include <string.h>
+X
+X#define MAXARGS		20			/* Max # of search words */
+X#define MAXTEXTLEN	10000			/* Max length of pattern */
+X
+Xvoid compile_pattern();
+Xint nocolfilter();
+X
+Xstatic char *(compiled[MAXARGS][MAXARGS]);	/* Compiled pattern */
+Xstatic char pattern_defined=0;			/* Is a pattern specified? */
+X
+X#ifdef FILTERMAIN
+X
+X#include <stdio.h>
+X#include <sys/file.h>
+X#include <arpa/inet.h>
+X
+X#define	MAXFILTERLEN 	1024
+X#define FILENAME  "/nocol/data/ippingmon-data"	/* nocol data file */
+X
+X
+Xint main(argc,argv)
+X     int argc;
+X     char *argv[];
+X{
+X    int i, j, fd;
+X    EVENT v;                                    /* defined in nocol.h        */
+X    char *p;
+X    char argline[MAXFILTERLEN];
+X
+X    *argline = '\0';				/* Start argline[] off fresh */
+X
+X    /* Let's get the arguments that we are going to search for */
+X    if (argc > 1)
+X      /* The arguments we need are on the command line - use them */
+X      for (i=1; i < argc; i++) {
+X	  /* Throw the entire command line into argline[] */
+X	  strncat(argline, argv[i], MAXFILTERLEN);
+X	  strncat(argline, " ", MAXFILTERLEN);
+X      } /* end of for */
+X    else {					/* Nothing useful in argv[] */
+X 	printf("arguments> ");			/* Prompt for arguments */
+X
+X	for (i=0; i < MAXFILTERLEN; ) {		/* Build argline[] */
+X	    /*
+X	    ** Read one line & append it to argline[]
+X	    ** Don't forget to replace the NUL terminator ('\0')
+X	    ** with a space!
+X	    */
+X	    if (gets( &(argline[i]) ) == NULL)
+X	      break;
+X	    i = strlen(argline);
+X	    argline[i++] = ' ';
+X	}
+X
+X	/* Now, we killed the last NUL terminator - put it back */
+X	argline[i] = '\0';
+X    }
+X
+X    /* If "DISABLE" is one of the arguments, quit */
+X    if (strstr(argline,"DISABLE")) {
+X	printf("SEARCH DISABLED\n");
+X	exit(1);
+X    }
+X
+X    compile_pattern(argline);			/* Parse argline[] */
+X
+X    /* Open the file - if it doesn't exist, give error and exit */
+X    if ((fd = open(FILENAME, O_RDONLY)) == -1) {
+X	fprintf(stderr,"Error: main unable to open file %s\n", FILENAME);
+X	exit(1);
+X    }
+X
+X    /* Read each EVENT structure in, one by one */
+X    while (read(fd, (char *) &v, sizeof(v)) == sizeof(v)) {
+X	/* Does this EVENT structure match the arguments? */
+X	if (nocolfilter(&v))	{
+X	    /*
+X	    ** It does!  Print it out
+X	    ** But do we want the extended format or the short format?
+X	    */
+X	    if (options & emode)
+X	      /* Extended format - EFMT, EFIELDS are defined in netmon.h */
+X	      printf(EFMT, EFIELDS);
+X	    else
+X	      /* Short format - SFTM, SFIELDS are defined in netmon.h */
+X	      printf(SFMT, SFIELDS);
+X
+X	    printf("\n");			/* Don't forget the newline! */
+X	} /* end of if */
+X    } /* end of while */
+X
+X    close(FILENAME);				/* All done, so close it */
+X} /* end of main */
+X
+X#endif /* end of #ifdef FILTERMAIN */
+X 
+X
+X	
+X/*+ 
+X** FUNCTION: compile_pattern  
+X**
+X** Copies the string of arguments 'pattern' to a temporary string,
+X** eliminating invalid characters and converting valid characters to
+X** lowercase.
+X**
+X** The locations of the arguments within 'pattern' are stored in the
+X** global static two-dimensional array of pointers 'compiled[row][col]'.  
+X**
+X** If an AND (&) is encountered, it is interpreted as a logical AND,
+X** and means that the argument to follow is to included in the current
+X** row (or group) of arguments.  Therefore, 'col' is increased by
+X** 1, while 'row' remains unchanged.
+X**
+X** If an OR (|) is encountered, it is interpreted as a logical OR,
+X** and means that the argument to follow is to be included in a new
+X** row (or group) of arguments.  Therefore, 'row' is increased by 1,
+X** and 'col' is set to zero (to start at the beginning of the row).
+X**
+X** Spaces and tabs are ignored, and any other characters are added to
+X** the end of the current argument.
+X**/
+X
+X
+Xvoid compile_pattern(pattern)
+X     char *pattern;
+X{
+X    static char text[MAXTEXTLEN];		/* Cooked form of pattern */
+X    char *s, *t;
+X    int row, col;
+X    int was_conjunction;			/* Was previous word AND/OR? */
+X
+X    if (strlen(pattern) > 0)
+X      pattern_defined = 1;			/* Enable filtering */
+X    else
+X      pattern_defined = 0;			/* Disable filtering */
+X
+X    /*
+X    ** We don't want to see a conjunction right off the bat,
+X    ** so pretend we just saw one...  then we'll ignore any
+X    ** conjunctions that come before normal arguments
+X    */
+X    was_conjunction = 1;
+X
+X    /* Run through the pattern one character at a time */
+X    t = text;
+X    s = pattern;
+X    row = col = 0;
+X    while (*s != '\0')
+X	switch(*s) {
+X	 case ' ': case '\t': 			/* skip white space */
+X	    s++; break;	   
+X
+X	 case '|' :				/* OR */
+X	   /* If the last thing was a conjunction, ignore this one */
+X	   if (! was_conjunction) {		/* Begin a new row */
+X	       *t++ = '\0';
+X	       compiled[++row][0] = ++t;
+X	       col = 0;
+X
+X	       was_conjunction = 1;	       /* Remember we saw a conj. */
+X	   }
+X	    s++; break;
+X	      
+X	 case '&' :				/* AND */
+X	   /* If the last thing was a conjunction, ignore this one */
+X	   if (! was_conjunction) {
+X	       *t++ = '\0';			/* Goto next column */
+X	       compiled[row][++col] = t;
+X
+X	       was_conjunction = 1;		/* Remember we saw a conj. */
+X	   }
+X	    s++; break;
+X
+X	 default:				/* any normal character */
+X	    *t = tolower(*s);			/* Make everything lowercase */
+X
+X	    /*
+X	    ** If the last thing was a conjunction, then this must
+X	    ** be the start of a normal argument - so save a pointer
+X	    ** to the beginning of this word in sargs[][]
+X	    **
+X	    ** Then, t will just skip over the rest of the characters
+X	    ** in the word
+X	    */
+X	    if (was_conjunction)
+X	      compiled[row][col] = t;
+X	    t++;
+X	    s++;
+X
+X	    /* Remember this wasn't a conjunction */
+X	    was_conjunction = 0;
+X	    break;
+X	} /* end of switch */
+X
+X    /* By the way, we're NOT in the while loop anymore */
+X
+X    *t='\0';				/* Don't forget the NUL terminator */
+X
+X    /* Deal with the case where the last thing we saw was a conjunction */
+X    if (was_conjunction)
+X      compiled[row][col]=NULL;
+X
+X    /*
+X    ** Add a NULL terminator to our list of rows so we know
+X    ** where the end is (remember, the arguments are global)
+X    */
+X    compiled[++row][col]=NULL;
+X} /* end of compile_pattern */
+X
+X
+X
+X
+X
+X/*+ 
+X** FUNCTION: nocolfilter
+X**
+X** Searches for arguments in the data structure 'v' by their
+X** respective groups as stored in 'args[row][argnum]'.
+X**
+X** Searching begins with the first row, argument by argument.  If an
+X** argument is not found in 'v' then searching stops in that row and
+X** moves to the next.
+X**
+X** If all arguments in a row are found in 'v' then this EVENT structure
+X** matches are filter condition and we may return TRUE immediately.
+X**/
+X
+X
+Xint nocolfilter(vptr)
+X     EVENT *vptr;
+X{
+X    EVENT v;
+X    char line[1024];
+X    char *p;
+X    int row, col;
+X
+X    if (!pattern_defined)			/* If no pattern specified, */
+X	return (1);				/* then don't filter anything */
+X    /*
+X    ** Copy the EVENT structure pointed by vptr into v
+X    ** This is done because the EFIELDS and SFIELDS #define's
+X    ** were set up assuming v would be a EVENT structure,
+X    ** not a pointer to one
+X    ** Yes, I know this qualifies as an ugly hack...
+X    */
+X    bcopy((char *) vptr, (char *) &v, sizeof(v));
+X
+X    /*
+X    ** Throw everything in v into one big formatted line
+X    ** This make searching a lot easier
+X    */
+X    if (options & emode)
+X      /* Extended format - EFMT, EFIELDS are defined in netmon.h */
+X      sprintf(line, EFMT, EFIELDS);
+X    else
+X      /* Short format - SFMT, SFIELDS are defined in netmon.h */
+X      sprintf(line, SFMT, SFIELDS);
+X
+X    for (p=line; *p != '\0'; p++)		/* Make everything lowercase */
+X      *p = tolower(*p);
+X
+X    /* Loop through the rows one by one... */
+X    for (row=0; compiled[row][0] != NULL; row++) {
+X	/*
+X	** If all the arguments on this row match line[],
+X	** then return TRUE right away - this EVENT structure
+X	** should pass through the filter
+X	*/
+X	for (col=0; compiled[row][col] != NULL; col++)
+X	  if (! strstr(line, compiled[row][col]))
+X	    break;
+X
+X	if (compiled[row][col] == NULL)
+X	  return(1);				/* Match found */
+X
+X	/*
+X	** There were still arguments left on this row.
+X	** I guess line[] doesn't match this row - so let's try another!
+X	*/
+X    }
+X
+X    return(0);					/* Match not found */
+X} /* end of filter */
+END_OF_FILE
+  if test 9886 -ne `wc -c <'nocol-3.0/src/netmon/filter.c'`; then
+    echo shar: \"'nocol-3.0/src/netmon/filter.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/netmon/filter.c'
+fi
+if test -f 'nocol-3.0/src/perlnocol/nrmon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/perlnocol/nrmon'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/perlnocol/nrmon'\" \(9574 characters\)
+  sed "s/^X//" >'nocol-3.0/src/perlnocol/nrmon' <<'END_OF_FILE'
+X#!/usr/local/bin/perl 
+X#
+X# $Header: /home/aggarwal/lsrc/nocol/src/perlnocol/RCS/nrmon,v 1.3 1993/11/02 04:05:48 aggarwal Exp $
+X#
+X# 	nrmon - perl nocol NOVELL route monitor
+X#
+X# Date: September 21, 1993
+X# Programmer: John Wobus, jmwobus@mailbox.syr.edu
+X#  Modifications:  vikas@jvnc.net
+X#
+X#    (c) Syracuse University Computing & Network Services 1993
+X#
+X# No warranty is expressed or implied.  Permission to copy and use is
+X# extended to all.  Permission to redistribute is granted under the
+X# following conditions: it is not sold for profit; this copyright
+X# notice remains intact; the same permissions extend to the recipient;
+X# and if any changes are made, a notice is added so stating.
+X#
+X#####################
+X#
+X# Command Format:
+X#
+X#  nrmon
+X#
+X#    Automatically kills old process and forks a new one, reading
+X#    the configuration file in the process.
+X#
+X# What it does:
+X#
+X#    nrmon reads the NOVELL routing table from a Cisco router and compares
+X#    it with its own configuration file and reports the differences
+X#    through nocol.  Nocol reports two kinds of problems:
+X
+X#    Site      Address      Time   +-Variable-+ +-Value-+  Condition
+X#   Net 501  e16 1b038cc5    14:43  Novell Route        1    Critical
+X#   Net 43   e9 04000118     16:10   Unrg NRoute        0    Critical
+X#
+X#    The first line states that a route to the IPX network with network
+X#    number 501 through the router's interface Ethernet 16 to a router
+X#    with mac address "????1b038cc5" is missing.
+X#    The second line states that a route has appeared to Net 43, through
+X#    the router's interface Ethernet 16 to "????04000118" but
+X#    this route is not listed in nrmon's configuration file.
+X#
+X#    It is important to remember that nrmon monitors the network as
+X#    it appears from one Cisco router in the network.  It will notice
+X#    and report many kinds of changes, but even so, its view is restricted.
+X#
+X# Files used:
+X#
+X#   rcisco                      perl program to do a Cisco router
+X#                               command remotely.
+X#   nocol/data/armon-output     path to which to write nocol events.
+X#   armon-confg                 configuration file.
+X#   armon.pid                   file holding armon's current process id.
+X#
+X# Nocol event elements used:
+X#   sender                     "nrmon"
+X#   severity                   up: 4; down: 3,2,1;
+X#   nocop                      up, down, unknown, test
+X#   site
+X#     name                     "Net " followed by the hex IPX network number
+X#     addr                      The last 8 digits of the route's next
+X#                               hop's Ethernet address followed by space and
+X#                               the Router's ethernet port (e0, e1, etc).
+X#                               Example: "1b038cc5" e8"
+X#   var                       
+X#     name                      either "Reg_NovellRoute" or "Unrg_NovellRoute"
+X#     value                     0 if missing, 1 if present
+X#     threshold                 always 0
+X#     units                     always "Entry"
+X#
+X# To install this:
+X#   (1) Choose where to put this file and the above 4 files and
+X#       assign the perl variables below appropriately.
+X#   (2) Create your armon-confg file in its chosen place.
+X#   (3) Edit rcisco to include your Cisco router's password and put
+X#       rcisco in its chosen place. Preferably in 'rcisco' and not
+X#	in this file since otherwise a 'ps' will show the password.
+X#   (4) Put this file in its chosen place.
+X#   (5) Add appropriate code to rc.local to start this monitor.
+X#
+X# Configuration file format:
+X#    #<text>                                   Comment line.
+X#    router=<router>                           Name of Cisco router.
+X#    <netnum> e<intnum> <next-hop>             Route via ethernet interface.
+X#    test= <netnum> s<intnum> <next-hop>
+X#
+X# Sample configuration file:
+X#    # nrmon configuration
+X#    router=mycisco.excellent.edu
+X#     # Route that is through another router:
+X#     2 e9 D2.aa00.0400.0118
+X#     # Directly-connected network:
+X#     4 e22
+X#    test=3  s1 D2.aa00.0400.1234
+X#
+X## 
+X##
+X#
+X#
+X############################
+X## Variables customization #  overrides values in the nocollib.pl library
+X############################
+X$rprog="./rcisco";			# Path for rcisco.
+X$rpasswd="";				# if NULL, uses the default in rcisco
+X$rcommand="show novell route";
+X$varname="Reg_NovellRoute";		# Registered appletalk route
+X$varname_unreg="Unrg_NovellRoute";	# Unregistered route
+X$varunits="Entry" ;			# the var.units field in EVENT struct
+X$sleepint=60*5;       			# Seconds to sleep between tries.
+X############################
+X$debug = 0;				# set to 1 for debugging output
+X$libdebug = 0;				# set to 1 for debugging output
+X
+Xrequire  "nocollib.pl" ;
+X
+X-x $rprog || die("Could not find executable $rprog, exiting");
+X
+X@me=split(/\//,$0); $me=pop(@me);
+X# $piddir=join("/",@me); if ($piddir eq "") {$piddir=$etcdir;}
+X$piddir=$etcdir;
+X$cfile="$etcdir/$me-confg";
+X$datafile="$datadir/$me-output";
+X
+X$sender= $me ;				# filled in the EVENT sender
+X$maxseverity = $E_ERROR ;		# max severity of events
+X    
+X##
+X# Read the config file. Use '\t' as a separator (since we are allowing
+X# spaces in the names). Also define the regular expression as
+X# a string to make it easier to modify, etc.
+X
+Xsub readconf {
+X    local ($nets, $interface, $nhop) ;
+X    local ($line_re)= '^\s*([\dABCDEF]+)\s+((e|s)\d+)\s+(\S+)?$' ;
+X    open(CONFIG,"<$cfile")||die("Couldn't find $cfile, exiting");
+X    while(<CONFIG>)
+X    {
+X	chop;
+X	if(/^\s*#/) {next;}   # skip comments
+X	if(/^\s*$/) {next;}   # skip blank lines
+X
+X	if(/^\s*router\s*=\s*(\S+)(\s.*)?$/)  {$router=$1;}
+X    	elsif(/^\s*test\s*=\s*([\dABCDEF]+)\s+((e|s)\d+)\s+(\S+)?$/){
+X	    $nets=$1; $interface=$2; $nhop=$4;
+X	    $nhop=~tr/a-z/A-Z/;			# to lowercase
+X	    $item="$nets\t$interface\t$nhop"; # tabs as separators
+X	    push(@items,$item);
+X	    $nocop{$item} = $nocop{$item} | $n_TEST;
+X	}
+X	elsif(/^$line_re/){
+X            $nets=$1; $interface=$2; $nhop=$4;
+X	    $nhop=~tr/a-z/A-Z/;
+X            $item="$nets\t$interface\t$nhop";
+X	    push(@items,$item);
+X	}
+X    }			# end while(CONFIG)
+X    close(CONFIG);
+X    if(!$router){die("No router specified in $cfile, exiting")};
+X    if(0>$#items){die("Nothing to monitor in $cfile, exiting")};
+X    if ($debug)
+X    {
+X	print "\n(debug) Router= $router\n";
+X	print "Items are:\n"; foreach (@items) { print "\t$_\n" } ;
+X    }
+X    ;	    #end readconf
+X    
+X}
+X
+X## Check the current state of the router
+X#
+Xsub dotest
+X{
+X    local ($loginok) = 0;
+X    foreach(@items){$found{$_}=0;}
+X    
+X    $command="$rprog $router ".' "'."$rpasswd".'" '.'"'."$rcommand".'"';
+X    if ($debug) {print "(debug) dotest: running command $command\n" ;}
+X    
+X    open(ROUTER,"$command |");
+X    
+X    $line=""; $ready="";
+X    while(<ROUTER>)
+X    {
+X	tr/\r\n//d;
+X	if ( />/ ) {$loginok = 1 ;} # got the 'Router>' prompt
+X	if(/^\s/){	# Lines starting with space are continuation lines.
+X	    $line.=$_;
+X	}
+X	else {$ready=$line; $line=$_;}
+X	if($ready ne ""){&doline; $ready="";}
+X    }
+X    
+X    if($ready ne ""){&doline; $ready="";}
+X    close(ROUTER);
+X    if ($loginok == 0) { print "Login into remote host failed\n" ;}
+X}
+X
+X## The output of 'show novell route' on a cisco is:
+X#	R Net 27 in [1] hops via D2.aa00.0400.0118,  18 sec, 0 uses, Ethernet9
+X#	C Net 31 is directly connected, 29924 uses, Ethernet15
+X##	
+Xsub doline
+X{
+X    local ($nets, $interface, $nhop) ;# $ready has the line to process.
+X    if($ready =~ /^[RC] Net ([\dABCDEF]+) ((in.*via (\S+),)|(is)).*((Ethernet|Serial)\d+)$/)
+X    {
+X	$nets=$1;
+X	$interface = $6;
+X	$nhop=$4; $nhop=~tr/a-z/A-Z/; # set case-insensitive
+X	$interface =~ s/Ethernet/e/ ;  $interface =~ s/Serial/s/ ;
+X	$item="$nets\t$interface\t$nhop";
+X	if ($debug) {print "(debug) doline: Found item $item\n" ;}
+X	$found{$item}=1;
+X	if(!$isitem{$item})		# determine if to be inserted into list
+X	{
+X	    $isitem{$item}=1;
+X	    push(@items,$item);
+X	}
+X    }
+X    else
+X    {
+X#	if ($debug) {print "(debug) doline: Router output skipped- $ready\n";}
+X    }
+X}
+X   
+X
+X
+X###
+X### Main program:
+X###
+X
+X# Fork and get rid of old process.
+Xif($p=fork){print "$p\n";exit;}
+X&standalone($me,$piddir);
+X
+X&readconf;
+X# $item  is an index into the arrays. Note the sitename and the siteaddr
+X# values.
+Xforeach $item (@items) {
+X    local ($nets, $interface, $nhop) = split(/\t/, $item) ;
+X
+X    &init_event("$nhop", "$nets/$interface", $item);
+X    $registered{$item}=1;	# exists in the config file
+X    $isitem{$item}=1;		# easy index to each item found.
+X}
+X
+X
+Xwhile (1)
+X{
+X    &dotest;
+X    foreach $item (@items)
+X    {
+X	local ($nets, $interface, $nhop) = split(/\t/, $item) ;
+X	local($status,$value);
+X	
+X	if (!$registered{$item})
+X	{
+X	    if ($found{$item})	# unexpected route found (not in config)
+X	    {
+X		($nets, $interface, $nhop) = split(/\t/, $item) ;
+X		&init_event("$nhop", "$nets/$interface", $item);
+X				# stuff in initial kind of values
+X		$varname{$item}=$varname_unreg;
+X		$forget{$item}=0;	# remember to check the next time
+X		$status = 0; $value = 1;
+X	    }
+X	    else			# earlier unknown route has gone away.
+X	    {
+X		$forget{$item}=1;
+X		$status = 1 ; $value = 0;
+X	    }
+X	}
+X	elsif ($found{$item})	# valid route is present
+X	{ $status = 1; $value = 1; }
+X	else {$status = 0; $value = 0; }		# configured route missing
+X
+X	; ## Now update the event arrays for each item.
+X	if(!$forget{$item})
+X	{
+X	    &update_event($item, $status, $value, $maxseverity);
+X	}
+X    }  # end foreach()
+X
+X    ; ## Note: we want to write the file quickly.
+X
+X    open(OEVENTS,">$datafile");
+X    foreach $item (@items)
+X    {
+X	if(!$forget{$item})
+X	{
+X	    &writeevent($item);
+X	}
+X    }
+X    close(OEVENTS);
+X    sleep($sleepint);
+X
+X}			# end while(forever)
+END_OF_FILE
+  if test 9574 -ne `wc -c <'nocol-3.0/src/perlnocol/nrmon'`; then
+    echo shar: \"'nocol-3.0/src/perlnocol/nrmon'\" unpacked with wrong size!
+  fi
+  chmod +x 'nocol-3.0/src/perlnocol/nrmon'
+  # end of 'nocol-3.0/src/perlnocol/nrmon'
+fi
+if test -f 'nocol-3.0/src/utility/log-maint' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/utility/log-maint'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/utility/log-maint'\" \(558 characters\)
+  sed "s/^X//" >'nocol-3.0/src/utility/log-maint' <<'END_OF_FILE'
+X#!/bin/sh 
+X#
+X# daily maintenance for nocol log files. Move old logs and then sighup
+X# the noclogd process.
+X#
+X#
+XOLD=/nocol/logs/old
+XLOGDIR=/nocol/logs
+XPIDFILE=/nocol/etc/noclogd.pid
+X
+Xtest -d $LOGDIR  || exit 1
+Xtest -d $OLD     || mkdir $OLD
+Xtest -d $OLD     || exit 1
+X
+Xcd $LOGDIR
+X
+Xfor f in *
+Xdo
+X  if test -f $f ; then
+X  	test -f $OLD/$f.2.Z && mv $OLD/$f.2.Z $OLD/$f.3.Z
+X  	test -f $OLD/$f.1.Z && mv $OLD/$f.1.Z $OLD/$f.2.Z
+X  	test -f $OLD/$f.0.Z && mv $OLD/$f.0.Z $OLD/$f.1.Z
+X  	mv $f $OLD/$f.0 ; compress $OLD/$f.0
+X  fi
+Xdone
+X
+X#
+Xkill -HUP `head -1 $PIDFILE`
+END_OF_FILE
+  if test 558 -ne `wc -c <'nocol-3.0/src/utility/log-maint'`; then
+    echo shar: \"'nocol-3.0/src/utility/log-maint'\" unpacked with wrong size!
+  fi
+  chmod +x 'nocol-3.0/src/utility/log-maint'
+  # end of 'nocol-3.0/src/utility/log-maint'
+fi
+echo shar: End of archive 18 \(of 26\).
+cp /dev/null ark18isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

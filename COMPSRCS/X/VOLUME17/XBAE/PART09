@@ -1,0 +1,1986 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i036: Xbae widgets (MOTIF), Part09/12
+Message-ID: <1992Mar23.180157.16280@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i028-xbae@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 18:01:57 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 36
+Archive-name: xbae/part09
+
+Submitted-by: aw@jello
+Archive-name: Xbae/part09
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is Xbae.shar.09 (part 9 of Xbae)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Xbae/src/Matrix.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Xbae/src/Matrix.c'
+else
+echo 'x - continuing file Xbae/src/Matrix.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Xbae/src/Matrix.c' &&
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X	(mw, True);
+X
+X    /*
+X     * Generate expose events on Matrix and Clip to force the
+X     * columns to be redrawn.
+X     */
+X    XClearArea(XtDisplay(mw), XtWindow(mw),
+X	       0, 0,
+X	       0 /*Full Width*/, 0 /*Full Height*/,
+X	       True);
+X    XbaeClipRedraw(ClipChild(mw));
+}
+X
+/*
+X * Public interface to delete_columns method
+X */
+void
+XXbaeMatrixDeleteColumns(w, position, num_columns)
+Widget w;
+int position;
+int num_columns;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the delete_columns method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.delete_columns)
+X	((XbaeMatrixWidget)w, position, num_columns);
+}
+X
+/*
+X * Matrix set_row_colors method
+X */
+static void
+SetRowColors(mw, position, colors, num_colors)
+XXbaeMatrixWidget mw;
+int position;
+Pixel *colors;
+int num_colors;
+{
+X    Rectangle rect;
+X    int i, j;
+X
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_colors <= 0)
+X	return;
+X    if (position < 0 || position + num_colors > mw->matrix.rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"setRowColors", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds or too many colors in SetRowColors.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * If we don't have any colors yet, malloc them, and initialize
+X     * unused entries to foreground
+X     */
+X    if (mw->matrix.colors == NULL) {
+X	CreateColors(mw);
+X	for (i = 0; i < position; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++)
+X		mw->matrix.colors[i][j] = mw->manager.foreground;
+X	for (i = position + num_colors; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++)
+X		mw->matrix.colors[i][j] = mw->manager.foreground;
+X    }
+X
+X    /*
+X     * Set each row to the appropriate color
+X     */
+X    for (i = 0; i < num_colors; i++)
+X	for (j = 0; j < mw->matrix.columns; j++)
+X	    mw->matrix.colors[i + position][j] = colors[i];
+X
+X    /*
+X     * Redraw all the visible non-fixed cells.	We don't need to clear first
+X     * since only the color changed.
+X     */
+X    SETRECT(rect,
+X	    0, 0,
+X	    ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+X    RedrawCells(mw, &rect);
+X
+X    /*
+X     * Redraw all the visible fixed cells (but not the labels).
+X     * We don't need to clear first since only the color changed.
+X     */
+X    SETRECT(rect,
+X	    ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+X	    mw->core.width - 1, mw->core.height - 1);
+X    RedrawLabelsAndFixed(mw, &rect);
+}
+X
+/*
+X * Public interface to set_row_colors method
+X */
+void
+XXbaeMatrixSetRowColors(w, position, colors, num_colors)
+Widget w;
+int position;
+Pixel *colors;
+int num_colors;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the set_row_colors method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.set_row_colors)
+X	((XbaeMatrixWidget)w, position, colors, num_colors);
+}
+X
+/*
+X * Matrix set_column_colors method
+X */
+static void
+SetColumnColors(mw, position, colors, num_colors)
+XXbaeMatrixWidget mw;
+int position;
+Pixel *colors;
+int num_colors;
+{
+X    Rectangle rect;
+X    int i, j;
+X
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_colors <= 0)
+X	return;
+X    if (position < 0 || position + num_colors > mw->matrix.columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"setColumnColors", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds or too many colors in SetColumnColors.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * If we don't have any colors yet, malloc them, and initialize
+X     * unused entries to foreground
+X     */
+X    if (mw->matrix.colors == NULL) {
+X	CreateColors(mw);
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < position; j++)
+X		mw->matrix.colors[i][j] = mw->manager.foreground;
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = position + num_colors; j < mw->matrix.columns; j++)
+X		mw->matrix.colors[i][j] = mw->manager.foreground;
+X    }
+X
+X    /*
+X     * Set each column to the appropriate color
+X     */
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	for (j = 0; j < num_colors; j++)
+X	    mw->matrix.colors[i][j + position] = colors[j];
+X
+X    /*
+X     * Redraw all the visible non-fixed cells.	We don't need to clear first
+X     * since only the color changed.
+X     */
+X    SETRECT(rect,
+X	    0, 0,
+X	    ClipChild(mw)->core.width - 1, ClipChild(mw)->core.height - 1);
+X    RedrawCells(mw, &rect);
+X
+X    /*
+X     * Redraw all the visible fixed cells (but not the labels).
+X     * We don't need to clear first since only the color changed.
+X     */
+X    SETRECT(rect,
+X	    ROW_LABEL_WIDTH(mw), COLUMN_LABEL_HEIGHT(mw),
+X	    mw->core.width - 1, mw->core.height - 1);
+X    RedrawLabelsAndFixed(mw, &rect);
+}
+X
+/*
+X * Public interface to set_column_colors method
+X */
+void
+XXbaeMatrixSetColumnColors(w, position, colors, num_colors)
+Widget w;
+int position;
+Pixel *colors;
+int num_colors;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the set_column_colors method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.set_column_colors)
+X	((XbaeMatrixWidget)w, position, colors, num_colors);
+}
+X
+/*
+X * Matrix set_cell_color method
+X */
+static void
+SetCellColor(mw, row, column, color)
+XXbaeMatrixWidget mw;
+int row;
+int column;
+Pixel color;
+{
+X    int i, j;
+X
+X    /*
+X     * Do some error checking.
+X     */
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"setCellColor", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for SetCellColor.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * If we don't have any colors yet, malloc them and initialize them
+X     */
+X    if (mw->matrix.colors == NULL) {
+X	CreateColors(mw);
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    for (j = 0; j < mw->matrix.columns; j++)
+X		mw->matrix.colors[i][j] = mw->manager.foreground;
+X    }
+X
+X    /*
+X     * Set our cells color
+X     */
+X    mw->matrix.colors[row][column] = color;
+X
+X    /*
+X     * Redraw the cell if it is visible
+X     */
+X    if (IsCellVisible(mw, row, column))
+X	DrawCell(mw, row, column);
+}
+X
+/*
+X * Public interface to set_cell_color method
+X */
+void
+XXbaeMatrixSetCellColor(w, row, column, color)
+Widget w;
+int row;
+int column;
+Pixel color;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the set_cell_color method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.set_cell_color)
+X	((XbaeMatrixWidget)w, row, column, color);
+}
+X
+X
+/*
+X * Action to edit a non-fixed cell.
+X */
+/* ARGSUSED */
+static void
+EditCellACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X    int row, column;
+X    XrmQuark q;
+X    static XrmQuark QPointer, QLeft, QRight, QUp, QDown;
+X    static Boolean haveQuarks = False;
+X
+X    /*
+X     * Get static quarks for the parms we understand
+X     */
+X    if (!haveQuarks) {
+X	QPointer = XrmStringToQuark("Pointer");
+X	QLeft = XrmStringToQuark("Left");
+X	QRight = XrmStringToQuark("Right");
+X	QUp = XrmStringToQuark("Up");
+X	QDown = XrmStringToQuark("Down");
+X	haveQuarks = True;
+X    }
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w could be Matrix, or the Clip or textField children of Matrix
+X     */
+X    if (XtIsSubclass(w, xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) w;
+X    else if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"editCellACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to EditCell action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Make sure we have a single parm
+X     */
+X    if (*nparams != 1) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"editCellACT", "badParms", "XbaeMatrix",
+X			"XbaeMatrix: Wrong number of parameters passed to EditCell action, needs 1",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Initialize row/column to the current position
+X     */
+X    row = mw->matrix.current_row;
+X    column = mw->matrix.current_column;
+X
+X    /*
+X     * Quarkify the string param
+X     */
+X    q = XrmStringToQuark(params[0]);
+X
+X    /*
+X     * If we aren't currently editing, then the only kind of traversal that
+X     * makes sense is pointer.
+X     */
+X    if (!XtIsManaged(TextChild(mw)) && q != QPointer)
+X	return;
+X
+X    if (q == QPointer) {
+X	int x, y;
+X
+X	/*
+X	 * Get the x,y point coordinate relative to the Clip window.
+X	 * Return if this event did not occur in the Clip subwindow
+X	 * (since we can only edit non-fixed cells).
+X	 */
+X	switch (event->type) {
+X	case ButtonPress:
+X	case ButtonRelease:
+X	    x = event->xbutton.x;
+X	    y = event->xbutton.y;
+X	    break;
+X	case KeyPress:
+X	case KeyRelease:
+X	    x = event->xkey.x;
+X	    y = event->xkey.y;
+X	    break;
+X	case MotionNotify:
+X	    x = event->xmotion.x;
+X	    y = event->xmotion.y;
+X	    break;
+X	default:
+X	    return;
+X	}
+X
+X	if (event->xbutton.subwindow == XtWindow(ClipChild(mw))) {
+X	    x -= FIXED_COLUMN_LABEL_OFFSET(mw);
+X	    y -=  FIXED_ROW_LABEL_OFFSET(mw);
+X	}
+X	else if (event->xbutton.window != XtWindow(ClipChild(mw)))
+X	    return;
+X
+X	/*
+X	 * Convert the point to a row,column. If it does not pick a valid
+X	 * cell, then return.
+X	 */
+X	if (!XYToRowCol(mw, &x, &y, &row, &column, NonFixedCell))
+X	    return;
+X    }
+X    else if (q == QRight) {
+X	/*
+X	 * If we are in the lower right corner, stay there.
+X	 * Otherwise move over a column, if we move off the right edge,
+X	 * then move down a row and back to the first non-fixed column.
+X	 */
+X	if (mw->matrix.current_row != mw->matrix.rows - 1 ||
+X	    mw->matrix.current_column != mw->matrix.columns -1) {
+X
+X	    column++;
+X
+X	    if (column >= (int)mw->matrix.columns) {
+X		column = mw->matrix.fixed_columns;
+X		row++;
+X	    }
+X	}
+X    }
+X    else if (q == QLeft) {
+X	/*
+X	 * If we are in the upper left corner, stay there.
+X	 * Otherwise move back a column, if we move before the fixed columns,
+X	 * then move up a row and over to the last column.
+X	 */
+X	if (mw->matrix.current_row != mw->matrix.fixed_rows ||
+X	    mw->matrix.current_column !=
+X	    mw->matrix.fixed_columns) {
+X
+X	    column--;
+X
+X	    if (column < (int)mw->matrix.fixed_columns) {
+X		column = mw->matrix.columns - 1;
+X		row--;
+X	    }
+X	}
+X    }
+X    else if (q == QDown) {
+X	row++;
+X
+X	if (row >= (int)mw->matrix.rows)
+X	    row = mw->matrix.fixed_rows;
+X    }
+X    else if (q == QUp) {
+X	row--;
+X
+X	if (row < (int)mw->matrix.fixed_rows)
+X	    row = mw->matrix.rows - 1;
+X    }
+X
+X    /*
+X     * Call the traverseCellCallback to allow the application to
+X     * perform custom traversal.
+X     */
+X    if (mw->matrix.traverse_cell_callback) {
+X	XbaeMatrixTraverseCellCallbackStruct call_data;
+X
+X	call_data.reason = XbaeTraverseCellReason;
+X	call_data.row = mw->matrix.current_row;
+X	call_data.column = mw->matrix.current_column;
+X	call_data.next_row = row;
+X	call_data.next_column = column;
+X	call_data.fixed_rows = mw->matrix.fixed_rows;
+X	call_data.fixed_columns = mw->matrix.fixed_columns;
+X	call_data.num_rows = mw->matrix.rows;
+X	call_data.num_columns = mw->matrix.columns;
+X	call_data.param = params[0];
+X	call_data.qparam = q;
+X
+X	XtCallCallbackList((Widget)mw, mw->matrix.traverse_cell_callback,
+X			   (XtPointer) &call_data);
+X
+X	row = call_data.next_row;
+X	column = call_data.next_column;
+X    }
+X
+X    /*
+X     * Attempt to edit the new cell using the edit_cell method.
+X     * If we are editing a cell based on pointer position, we always
+X     * call edit_cell.	Otherwise, we must be editing a new cell to
+X     * call edit_cell.
+X     */
+X    if (q == QPointer || (row != mw->matrix.current_row ||
+X			  column != mw->matrix.current_column))
+X	(*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.edit_cell)
+X	    (mw, row, column);
+X
+X    /*
+X     * Traverse to the textField
+X     */
+X    XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+}
+X
+/*
+X * Action to unmap the textField and discard any edits made
+X */
+/* ARGSUSED */
+static void
+CancelEditACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X    Boolean unmap;
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w could be Matrix, or the Clip or textField children of Matrix
+X     */
+X    if (XtIsSubclass(w, xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) w;
+X    else if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"cancelEditACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to CancelEdit action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Make sure we have a single param
+X     */
+X    if (*nparams != 1) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"cancelEditACT", "badParms", "XbaeMatrix",
+X			"XbaeMatrix: Wrong number of parameters passed to CancelEdit action, needs 1",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Validate our param
+X     */
+X    if (!strcmp(params[0], "True"))
+X	unmap = True;
+X    else if (!strcmp(params[0], "False"))
+X	unmap = False;
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"cancelEditACT", "badParm", "XbaeMatrix",
+X			"XbaeMatrix: Invalid parameter passed to CancelEdit action, must be True or False",
+X			NULL, 0);
+X	return;
+X    }
+X    /*
+X     * Call the cancel_edit method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X	(mw, unmap);
+}
+X
+/*
+X * Action save any edits made and unmap the textField if params[0] is True
+X */
+/* ARGSUSED */
+static void
+CommitEditACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X    Boolean unmap;
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w could be Matrix, or the Clip or textField children of Matrix
+X     */
+X    if (XtIsSubclass(w, xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) w;
+X    else if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"commitEditACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to CommitEdit action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Make sure we have a single param
+X     */
+X    if (*nparams != 1) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"commitEditACT", "badParms", "XbaeMatrix",
+X			"XbaeMatrix: Wrong number of parameters passed to CommitEdit action, needs 1",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Validate our param
+X     */
+X    if (!strcmp(params[0], "True"))
+X	unmap = True;
+X    else if (!strcmp(params[0], "False"))
+X	unmap = False;
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"commitEditACT", "badParm", "XbaeMatrix",
+X			"XbaeMatrix: Invalid parameter passed to CommitEdit action, must be True or False",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    (void)(*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.commit_edit)
+X	(mw, unmap);
+}
+X
+/*
+X * Convert the coordinates in an event to be relative to the Clip
+X * window or the Matrix window.  Set the cell to indicate which one.
+X * Used by some actions.
+X */
+/* ARGSUSED */
+static Boolean
+EventToXY(mw, event, x, y, cell)
+XXbaeMatrixWidget mw;
+XXEvent *event;
+int *x, *y;
+CellType *cell;
+{
+X    switch (event->type) {
+X    case ButtonPress:
+X    case ButtonRelease:
+X	*x = event->xbutton.x;
+X	*y = event->xbutton.y;
+X	break;
+X    case KeyPress:
+X    case KeyRelease:
+X	*x = event->xkey.x;
+X	*y = event->xkey.y;
+X	break;
+X    case MotionNotify:
+X        *x = event->xmotion.x;
+X        *y = event->xmotion.y;
+X	break;
+X    default:
+X	return False;
+X    }
+X
+X    if (event->xbutton.subwindow == XtWindow(ClipChild(mw))) {
+X	*cell = NonFixedCell;
+X	*x -= FIXED_COLUMN_LABEL_OFFSET(mw);
+X	*y -= FIXED_ROW_LABEL_OFFSET(mw);
+X    }
+X    else if (event->xbutton.window == XtWindow(mw))
+X	*cell = FixedCell;
+X    else if (event->xbutton.window == XtWindow(ClipChild(mw)))
+X	*cell = NonFixedCell;
+X    else if (event->xbutton.window == XtWindow(TextChild(mw))) {
+X	Position tx, ty;
+X	*cell = NonFixedCell;
+X	XtVaGetValues(TextChild(mw),
+X		      XmNx, &tx,
+X		      XmNy, &ty,
+X		      NULL);
+X	*x += tx;
+X	*y += ty;
+X    }
+X    else
+X	return False;
+X
+X    return True;
+}
+X
+/* ARGSUSED */
+static void
+SelectCellACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X    int x, y;
+X    int row, column;
+X    CellType cell;
+X    XbaeMatrixSelectCellCallbackStruct call_data;
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w could be Matrix, or the Clip or textField children of Matrix
+X     */
+X    if (XtIsSubclass(w, xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) w;
+X    else if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"selectCellACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to SelectCell action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * If we don't have a selectCellCallback, then return now
+X     */
+X    if (!mw->matrix.select_cell_callback)
+X	return;
+X    
+X    if (!EventToXY(mw, event, &x, &y, &cell))
+X	return;
+X
+X    /*
+X     * Convert the point to a row,column. If it does not pick a valid
+X     * cell, then return.
+X     */
+X    if (!XYToRowCol(mw, &x, &y, &row, &column, cell))
+X	return;
+X
+X    /*
+X     * Call our select_cell callbacks
+X     */
+X    call_data.reason = XbaeSelectCellReason;
+X    call_data.row = row;
+X    call_data.column = column;
+X    call_data.selected_cells = mw->matrix.selected_cells;
+X    call_data.cells = mw->matrix.cells;
+X    call_data.num_params = *nparams;
+X    call_data.params = params;
+X    call_data.event = event;
+X
+X    XtCallCallbackList((Widget)mw, mw->matrix.select_cell_callback,
+X		       (XtPointer) &call_data);
+}
+X
+X
+/* ARGSUSED */
+static void
+TraverseNextACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w should be the textField widget.
+X     */
+X    if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"traverseNextACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to TraverseNext action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Set the traversing direction flag.  XmProcessTraversal may traverse
+X     * to the Clip widget. If it does, then we will see this flag in
+X     * the Clip focusCallback, TraverseInCB, and we will continue to traverse
+X     * on out of the mw.  yuck!
+X     */
+X    mw->matrix.traversing = XmTRAVERSE_NEXT_TAB_GROUP;
+X    XmProcessTraversal(TextChild(mw), XmTRAVERSE_NEXT_TAB_GROUP);
+X    mw->matrix.traversing = NOT_TRAVERSING;
+}
+X
+/* ARGSUSED */
+static void
+TraversePrevACT(w, event, params, nparams)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    XbaeMatrixWidget mw;
+X
+X    /*
+X     * Get Matrix widget and make sure it is a Matrix subclass.
+X     * w should be the textField widget.
+X     */
+X    if (XtIsSubclass(XtParent(w), xbaeMatrixWidgetClass))
+X	mw = (XbaeMatrixWidget) XtParent(w);
+X    else {
+X	XtAppWarningMsg(XtWidgetToApplicationContext(w),
+X			"traversePrevACT", "badWidget", "XbaeMatrix",
+X			"XbaeMatrix: Bad widget passed to TraversePrev action",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Set the traversing direction flag.  XmProcessTraversal may traverse
+X     * to the Clip widget. If it does, then we will see this flag in
+X     * the Clip focusCallback, TraverseInCB, and we will continue to traverse
+X     * on out of the mw.  yuck!
+X     */
+X    mw->matrix.traversing = XmTRAVERSE_PREV_TAB_GROUP;
+X    XmProcessTraversal(TextChild(mw), XmTRAVERSE_PREV_TAB_GROUP);
+X    mw->matrix.traversing = NOT_TRAVERSING;
+}
+X
+/*
+X * Convert a comma separated list of strings to a NULL terminated array
+X * of substrings.  Handles escaped commas (\,) and escaped escaped commas (\\,)
+X * - A comma (,) terminates a string
+X * - A backslash-comma (\,) does not terminate a string and is copied as
+X *   a comma (,)
+X * - A backslash-backslash-comma (\\,) does not terminate a string and is
+X *   copied as a backslash-comma (\,)
+X */
+/* ARGSUSED */
+Boolean
+CvtStringToStringArray(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static String *array;
+X    String start = from->addr;
+X
+X    if (*num_args != 0)
+X	XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X			"cvtStringToStringArray", "wrongParameters",
+X			"XbaeMatrix",
+X			"String to StringArray conversion needs no extra arguments",
+X			NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(String *)) {
+X	to->size = sizeof(String *);
+X	return False;
+X    }
+X
+X    if (start == NULL || *start == '\0')
+X	array = NULL;
+X    else {
+X	char *ch, *next, *a;
+X	int i, sub, len, count;
+X	
+X	/*
+X	 * Count the substrings
+X	 */
+X	for (ch = start, count = 1; *ch != '\0'; ch++) {
+X
+X	    /*
+X	     * We hit a backslash
+X	     */
+X	    if (*ch == '\\') {
+X		/*
+X		 * Take care of backslash-backslash-comma
+X		 */
+X		if (*(ch+1) == '\\' && *(ch+2) == ',')
+X		    ch += 2;
+X		
+X		/*
+X		 * Take care of backslash-comma
+X		 */
+X		else if (*(ch+1) == ',')
+X		    ch++;
+X	    }
+X	    /*
+X	     * We hit an unescaped comma
+X	     */
+X	    else if (*ch == ',')
+X		count++;
+X	}
+X	
+X	/*
+X	 * Malloc the array, make it one bigger for a terminating NULL entry
+X	 */
+X	array = (String *) XtMalloc((count + 1) * sizeof(String));
+X	array[count] = NULL;
+X	
+X	for (sub = 0; sub < count; sub++) {
+X	    
+X	    /*
+X	     * Skip leading white space
+X	     */
+X	    while (isspace((unsigned char)*start))
+X		start++;
+X	    
+X	    /*
+X	     * Count the number of chars in this substring.
+X	     * backslash-comma counts as one and does not terminate.
+X	     * backslash-backslash-comma counts as two and does not terminate.
+X	     */
+X	    for (ch = start, len = 0; *ch != '\0' && *ch != ','; ch++) {
+X		/*
+X		 * We hit a backslash
+X		 */
+X		if (*ch == '\\') {
+X		    /*
+X		     * Take care of backslash-backslash-comma
+X		     */
+X		    if (*(ch+1) == '\\' && *(ch+2) == ',') {
+X			len += 2;
+X			ch += 2;
+X		    }
+X		    /*
+X		     * Take care of backslash-comma
+X		     */
+X		    else if (*(ch+1) == ',') {
+X			len++;
+X			ch++;
+X		    }
+X		    else
+X			len++;
+X		}
+X		else
+X		    len++;
+X	    }
+X	    
+X	    /*
+X	     * Save the beginning of the next substring
+X	     */
+X	    next = ch + 1;
+X	    
+X	    /*
+X	     * Back up over trailing white space if we moved at all
+X	     */
+X	    if (ch != start)
+X		while (isspace((unsigned char)*(--ch)))
+X		    len--;
+X	    
+X	    /*
+X	     * Malloc a String of the correct size
+X	     */
+X	    array[sub] = (String) XtMalloc(len + 1);
+X	    
+X	    /*
+X	     * Copy the substring into our new string.
+X	     * backslash-comma gets copied as comma.
+X	     * backslash-backslash-comma gets copied as backslash-comma.
+X	     */
+X	    for (i = 0, ch = start, a = array[sub];
+X		 i < len;
+X		 i++, ch++) {
+X		
+X		/*
+X		 * We hit a backslash
+X		 */
+X		if (*ch == '\\') {
+X		    /*
+X		     * Take care of backslash-backslash-comma
+X		     */
+X		    if (*(ch+1) == '\\' && *(ch+2) == ',') {
+X			*(a++) = '\\';
+X			*(a++) = ',';
+X			i++;
+X			ch += 2;
+X		    }
+X		    /*
+X		     * Take care of backslash-comma
+X		     */
+X		    else if (*(ch+1) == ',') {
+X			*(a++) = ',';
+X			ch++;
+X		    }
+X		    else
+X			*(a++) = *ch;
+X		}
+X		else
+X		    *(a++) = *ch;
+X	    }
+X	    *a = '\0';
+X	    
+X	    /*
+X	     * Point to the beginning of the next string.
+X	     */
+X	    start = next;
+X	}
+X    }
+X
+X    if (to->addr == NULL)
+X	to->addr = (caddr_t) &array;
+X    else
+X	*(String **) to->addr = array;
+X    to->size = sizeof(String *);
+X
+X    return True;
+}
+X
+/*
+X * Free the string array allocated by the String to StringArray converter
+X */
+/* ARGSUSED */
+void
+StringArrayDestructor(app, to, converter_data, args, num_args)
+XXtAppContext app;
+XXrmValuePtr to;
+XXtPointer converter_data;
+XXrmValuePtr args;
+Cardinal *num_args;
+{
+X    String *array = *(String **) to->addr;
+X    String *entry;
+X
+X    if (array == NULL)
+X	return;
+X
+X    for (entry = array; *entry != NULL; entry++)
+X	XtFree((XtPointer) *entry);
+X
+X    XtFree((XtPointer) array);
+}
+X
+/*
+X * Convert a comma separated list of short ints to array of widths.
+X * The array is terminated with BAD_WIDTH.
+X */
+/* ARGSUSED */
+Boolean
+CvtStringToWidthArray(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static short *array;
+X    String start = from->addr;
+X    char *ch;
+X    int i, count;
+X
+X    if (*num_args != 0)
+X	XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X			"cvtStringToWidthArray", "wrongParameters",
+X			"XbaeMatrix",
+X			"String to WidthArray conversion needs no extra arguments",
+X			NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(short *)) {
+X	to->size = sizeof(short *);
+X	return False;
+X    }
+X
+X    if (start == NULL || *start == '\0')
+X	array = NULL;
+X
+X    else {
+X
+X	/*
+X	 * Count the comma separated shorts
+X	 */
+X	for (ch = start, count = 1; *ch != '\0'; ch++)
+X	    if (*ch == ',')
+X		count++;
+X
+X	/*
+X	 * Malloc the array
+X	 */
+X	array = (short *) XtMalloc((count + 1) * sizeof(short));
+X	array[count] = BAD_WIDTH;
+X
+X	for (i = 0; i < count; i++) {
+X
+X	    array[i] = (short) atoi(start);
+X
+X	    /*
+X	     * Find the comma at the end of this short
+X	     */
+X	    /* EMPTY */
+X	    for (; *start != '\0' && *start != ','; start++);
+X	    start++;
+X	}
+X    }
+X
+X    if (to->addr == NULL)
+X	to->addr = (caddr_t) &array;
+X    else
+X	*(short **) to->addr = array;
+X    to->size = sizeof(short *);
+X
+X    return True;
+}
+X
+/*
+X * Free the width array allocated by the String to WidthArray converter
+X */
+/* ARGSUSED */
+void
+WidthArrayDestructor(app, to, converter_data, args, num_args)
+XXtAppContext app;
+XXrmValuePtr to;
+XXtPointer converter_data;
+XXrmValuePtr args;
+Cardinal *num_args;
+{
+X    short *array = *(short **) to->addr;
+X
+X    XtFree((XtPointer) array);
+}
+X
+/*
+X * Convert a comma separated list of ints to array of max lengths.
+X * The array is terminated with BAD_MAXLENGTH.
+X */
+/* ARGSUSED */
+Boolean
+CvtStringToMaxLengthArray(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static int *array;
+X    String start = from->addr;
+X    char *ch;
+X    int i, count;
+X
+X    if (*num_args != 0)
+X	XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X			"cvtStringToMaxLengthArray", "wrongParameters",
+X			"XbaeMatrix",
+X			"String to MaxLengthArray conversion needs no extra arguments",
+X			NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(int *)) {
+X	to->size = sizeof(int *);
+X	return False;
+X    }
+X
+X    if (start == NULL || *start == '\0')
+X	array = NULL;
+X
+X    else {
+X
+X	/*
+X	 * Count the comma separated ints
+X	 */
+X	for (ch = start, count = 1; *ch != '\0'; ch++)
+X	    if (*ch == ',')
+X		count++;
+X
+X	/*
+X	 * Malloc the array
+X	 */
+X	array = (int *) XtMalloc((count + 1) * sizeof(int));
+X	array[count] = BAD_MAXLENGTH;
+X
+X	for (i = 0; i < count; i++) {
+X
+X	    array[i] = (int) atoi(start);
+X
+X	    /*
+X	     * Find the comma at the end of this int
+X	     */
+X	    /* EMPTY */
+X	    for (; *start != '\0' && *start != ','; start++);
+X	    start++;
+X	}
+X    }
+X
+X    if (to->addr == NULL)
+X	to->addr = (caddr_t) &array;
+X    else
+X	*(int **) to->addr = array;
+X    to->size = sizeof(int *);
+X
+X    return True;
+}
+X
+/*
+X * Free the max length array allocated by the String to
+X * MaxLengthArray converter
+X */
+/* ARGSUSED */
+void
+MaxLengthArrayDestructor(app, to, converter_data, args, num_args)
+XXtAppContext app;
+XXrmValuePtr to;
+XXtPointer converter_data;
+XXrmValuePtr args;
+Cardinal *num_args;
+{
+X    int *array = *(int **) to->addr;
+X
+X    XtFree((XtPointer) array);
+}
+X
+/*
+X * Compare two strings up to length chars, and return True if they are equal.
+X * Handles Xm prefix too. The string test must be lower case.
+X * Used by StringToAlignmentArray converter.
+X */
+static Boolean
+StringsAreEqual(in, test, length)
+String in;
+String test;
+int length;
+{
+X    int i;
+X
+X    if ((in[0] == 'X' || in[0] == 'x') &&
+X	(in[1] == 'M' || in[1] == 'm'))
+X	in +=2;
+X
+X    for (i = 0; i < length; i++) {
+X	char c = *in; 
+X
+X	if (isupper(c))
+X	    c = tolower(c);
+X
+X	if (c != test[i])
+X	    return False;
+X
+X	in++;
+X    }
+X
+X    /*
+X     * String in may have trailing garbage, but as long as the first
+X     * length chars matched, we return True
+X     */
+X    return True;
+}
+X
+/*
+X * Convert a comma separated list of alignments to array of alignments
+X * (unsigned chars).  The array is terminated by BAD_ALIGNMENT.
+X */
+/* ARGSUSED */
+Boolean
+CvtStringToAlignmentArray(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static unsigned char *array;
+X    String start = from->addr;
+X    char *ch;
+X    int i, count;
+X
+X    if (*num_args != 0)
+X	XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X			"cvtStringToAlignmentArray", "wrongParameters",
+X			"XbaeMatrix",
+X			"String to AlignmentArray conversion needs no extra arguments",
+X			NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(unsigned char *)) {
+X	to->size = sizeof(unsigned char *);
+X	return False;
+X    }
+X
+X    if (start == NULL || *start == '\0')
+X	array = NULL;
+X
+X    else {
+X
+X	/*
+X	 * Count the comma separated alignments
+X	 */
+X	for (ch = start, count = 1; *ch != '\0'; ch++)
+X	    if (*ch == ',')
+X		count++;
+X
+X	/*
+X	 * Malloc the array
+X	 */
+X	array = (unsigned char *)XtMalloc((count + 1) * sizeof(unsigned char));
+X	array[count] = BAD_ALIGNMENT;
+X
+X	/*
+X	 * Compare each substring to the alignment strings.
+X	 * If we find a bad one, display a warning and fail.
+X	 * We should be able to use XtCallConverter on _XmCvtStringToAlignment,
+X	 * but that function is static so we have to duplicate its
+X	 * functionality.
+X	 */
+X	for (i = 0; i < count; i++) {
+X
+X	    /*
+X	     * Skip leading white space
+X	     */
+X	    while (isspace(*start))
+X		start++;
+X
+X	    if (StringsAreEqual(start, "alignment_beginning", 19))
+X		array[i] = XmALIGNMENT_BEGINNING;
+X	    else if (StringsAreEqual(start, "alignment_center", 16))
+X		array[i] = XmALIGNMENT_CENTER;
+X	    else if (StringsAreEqual(start, "alignment_end", 13))
+X		array[i] = XmALIGNMENT_END;
+X	    else {
+X		XtDisplayStringConversionWarning(dpy, from->addr,
+X						 XmRAlignmentArray);
+X		return False;
+X	    }
+X
+X	    /*
+X	     * Find the comma at the end of this alignment
+X	     */
+X	    /* EMPTY */
+X	    for (; *start != '\0' && *start != ','; start++);
+X	    start++;
+X	}
+X    }
+X
+X    if (to->addr == NULL)
+X	to->addr = (caddr_t) &array;
+X    else
+X	*(unsigned char **) to->addr = array;
+X    to->size = sizeof(unsigned char *);
+X
+X    return True;
+}
+X
+/*
+X * Free the alignment array allocated by the String to AlignmentArray converter
+X */
+/* ARGSUSED */
+void
+AlignmentArrayDestructor(app, to, converter_data, args, num_args)
+XXtAppContext app;
+XXrmValuePtr to;
+XXtPointer converter_data;
+XXrmValuePtr args;
+Cardinal *num_args;
+{
+X    unsigned char *array = *(unsigned char **) to->addr;
+X
+X    XtFree((XtPointer) array);
+}
+X
+X
+/*
+X * ScrollMgr implementation.
+X * When we scroll using XCopyArea, occluding windows will cause GraphicsExpose
+X * events to be generated, if there are no occluding windows then NoExpose
+X * events will be generated. The removal of occluding windows will cause Expose
+X * events.  If a number of scrolls (XCopyAreas) occur in quick succession,
+X * the events will contain obsolete x/y information since our internal
+X * coordinates have been scrolled to a new location.  The ScrollMgr
+X * keeps track of scrolls and offsets required to relocate the events to the
+X * current coordinate system.
+X * 
+X * The Matrix widget has two ScrollMgrs, one for the Matrixs window
+X * and one for the Clip widgets window.
+X *
+X * Each widgets compress_exposures field should be XtExposeCompressSeries
+X * or XtExposeNoCompress.
+X * 
+X * The idea behind this code is based on the PanHandler posted by Chuck Ocheret
+X * (chuck@fid.morgan.com)
+X */
+X
+/*
+X * Create and initialize a ScrollMgr
+X */
+static SmScrollMgr
+SmCreateScrollMgr()
+{
+X    SmScrollMgr scrollMgr = XtNew(SmScrollMgrRec);
+X
+X    scrollMgr->offset_x = 0;
+X    scrollMgr->offset_y = 0;
+X    scrollMgr->scroll_count = 0;
+X    scrollMgr->scroll_queue = NULL;
+X    scrollMgr->scrolling = False;
+X
+X    return scrollMgr;
+}
+X
+/*
+X * Destroy a ScrollMgr, including any queued scrolls
+X */
+static void
+SmDestroyScrollMgr(scrollMgr)
+SmScrollMgr scrollMgr;
+{
+X    if (scrollMgr->scroll_queue) {
+X	SmScrollNode node = scrollMgr->scroll_queue->next;
+X
+X	while (node != scrollMgr->scroll_queue) {
+X	    SmScrollNode d = node;
+X	    node = node->next;
+X	    XtFree((XtPointer)d);
+X	}
+X	XtFree((XtPointer) node);
+X    }
+X
+X    XtFree((XtPointer)scrollMgr);
+}
+X
+/*
+X * Record a new scroll request in the ScrollMgr
+X */
+static void
+SmAddScroll(scrollMgr, delta_x, delta_y)
+SmScrollMgr scrollMgr;
+int delta_x;
+int delta_y;
+{
+X    SmScrollNode node = XtNew(SmScrollNodeRec);
+X
+X    node->x = delta_x;
+X    node->y = delta_y;
+X
+X    scrollMgr->offset_x += delta_x;
+X    scrollMgr->offset_y += delta_y;
+X    scrollMgr->scroll_count++;
+X
+X    /*
+X     * Insert the node at the end of the queue
+X     */
+X    if (!scrollMgr->scroll_queue) {
+X	scrollMgr->scroll_queue = node;
+X	node->next = node;
+X	node->prev = node;
+X    }
+X    else {
+X	SmScrollNode last = scrollMgr->scroll_queue->prev;
+X
+X	last->next = node;
+X	node->next = scrollMgr->scroll_queue;
+X	node->prev = last;
+X	scrollMgr->scroll_queue->prev = node;
+X    }
+}
+X
+/*
+X * Remove a scroll from the ScrollMgr queue
+X */
+static void
+SmRemoveScroll(scrollMgr)
+SmScrollMgr scrollMgr;
+{
+X    if (scrollMgr->scroll_count) {
+X	SmScrollNode node = scrollMgr->scroll_queue;
+X
+X	scrollMgr->offset_x -= node->x;
+X	scrollMgr->offset_y -= node->y;
+X
+X	/*
+X	 * Remove node from head of queue
+X	 */
+X	if (node->next == node)
+X	    scrollMgr->scroll_queue = NULL;
+X	else {
+X	    scrollMgr->scroll_queue = node->next;
+X	    node->next->prev = node->prev;
+X	    node->prev->next = node->next;
+X	}
+X	XtFree((XtPointer)node);
+X
+X	scrollMgr->scroll_count--;
+X    }
+}
+X
+/*
+X * Handle an expose event
+X */
+static void
+SmScrollEvent(scrollMgr, event)
+SmScrollMgr scrollMgr;
+XXEvent *event;
+{
+X    switch (event->type) {
+X
+X    case Expose:
+X
+X	/*
+X	 * Normal Expose event, translate it into our scrolled
+X	 * coordinate system.
+X	 */
+X	event->xexpose.x += scrollMgr->offset_x;
+X	event->xexpose.y += scrollMgr->offset_y;
+X	break;
+X
+X    case GraphicsExpose:
+X
+X	/*
+X	 * If we are not scrolling, then this must be the first
+X	 * GraphicsExpose event.  Remove the corresponding scroll from the
+X	 * queue, and if we have more GraphicsExposes to come, set scrolling
+X	 * to True.
+X	 */
+X	if (scrollMgr->scrolling == False) {
+X	    SmRemoveScroll(scrollMgr);
+X	    if (event->xgraphicsexpose.count != 0)
+X		scrollMgr->scrolling = True;
+X	}
+X
+X	/*
+X	 * This is the last GraphicsExpose so set scrolling to False.
+X	 */
+X	else if (event->xgraphicsexpose.count == 0)
+X	    scrollMgr->scrolling = False;
+X
+X	/*
+X	 * Translate the event into our scrolled coordinate system.
+X	 */
+X	event->xgraphicsexpose.x += scrollMgr->offset_x;
+X	event->xgraphicsexpose.y += scrollMgr->offset_y;
+X	break;
+X
+X    case NoExpose:
+X
+X	/*
+X	 * A NoExpose event means we won't be getting any GraphicsExpose
+X	 * events, so remove the scroll from the queue and set scrolling
+X	 * to False.
+X	 */
+X	SmRemoveScroll(scrollMgr);
+X	scrollMgr->scrolling = False;
+X	break;
+X
+X    default:
+X	break;
+X    }
+}
+X
+SHAR_EOF
+echo 'File Xbae/src/Matrix.c is complete' &&
+chmod 0444 Xbae/src/Matrix.c ||
+echo 'restore of Xbae/src/Matrix.c failed'
+Wc_c="`wc -c < 'Xbae/src/Matrix.c'`"
+test 206960 -eq "$Wc_c" ||
+	echo 'Xbae/src/Matrix.c: original size 206960, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/version.c ==============
+if test -f 'Xbae/src/version.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/version.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/version.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/version.c' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X */
+X
+#ifndef SABER
+static char sccsid[] = "@(#)version.c	3.5 3/13/92";
+#endif
+X
+/*
+X
+X  This file contains version information for a given Xbae release.
+X  The SCCSID of this file should be used as the Xbae release number.
+X
+X  Matrix.h	3.7
+X  MatrixP.h	3.7
+X  Matrix.c	3.12
+X  Clip.h	3.3
+X  ClipP.h	3.3
+X  Clip.c	3.3
+X  Caption.h	1.4
+X  CaptionP.h	1.4
+X  Caption.c	1.7
+X
+*/
+SHAR_EOF
+chmod 0444 Xbae/src/version.c ||
+echo 'restore of Xbae/src/version.c failed'
+Wc_c="`wc -c < 'Xbae/src/version.c'`"
+test 1453 -eq "$Wc_c" ||
+	echo 'Xbae/src/version.c: original size 1453, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/Caption.h ==============
+if test -f 'Xbae/src/Caption.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/Caption.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/Caption.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/Caption.h' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * CaptionWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+X */
+X
+#ifndef _Caption_h
+#define _Caption_h
+X
+/*
+X *  "@(#)Caption.h	1.4 2/18/92"
+X */
+X
+/*
+X * Caption Widget public include file
+X */
+X
+#include <Xm/Xm.h>
+#include <X11/Core.h>
+X
+X
+/* Resources:
+X * Name			Class		RepType		Default Value
+X * ----			-----		-------		-------------
+X * fontList		FontList	FontList	dynamic
+X * labelAlignment	LabelAlignment	LabelAlignment	AlignmentCenter
+X * labelOffset		LabelOffset	int		0
+X * labelPixmap		LabelPixmap	PrimForegroundPixmap
+X *							XmUNSPECIFIED_PIXMAP
+X * labelPosition	LabelPosition	LabelPosition	PositionLeft
+X * labelString		XmString	XmString	widget name
+X * labelTextAlignment	Alignment	Alignment	XmALIGNMENT_CENTER
+X * labelType		LabelType	LabelType	XmSTRING
+X */
+X
+/*
+X * New resource constants
+X */
+#define XmNlabelPosition "labelPosition"
+#define XmCLabelPosition "LabelPosition"
+#define XmNlabelAlignment "labelAlignment"
+#define XmCLabelAlignment "LabelAlignment"
+#define XmNlabelTextAlignment "labelTextAlignment"
+#define XmNlabelOffset "labelOffset"
+#define XmCLabelOffset "LabelOffset"
+X
+#define XmRLabelPosition "LabelPosition"
+#define XmRLabelAlignment "LabelAlignment"
+X
+/* Class record constants */
+X
+extern WidgetClass xbaeCaptionWidgetClass;
+X
+typedef struct _XbaeCaptionClassRec *XbaeCaptionWidgetClass;
+typedef struct _XbaeCaptionRec *XbaeCaptionWidget;
+X
+/*
+X * Type for XmNlabelPosition resource
+X */
+typedef enum _XbaeLabelPosition {
+X    XbaePositionLeft,
+X    XbaePositionRight,
+X    XbaePositionTop,
+X    XbaePositionBottom
+} XbaeLabelPosition;
+X
+/*
+X * Type for XmNlabelAlignment resource
+X */
+typedef enum _XbaeLabelAlignment {
+X    XbaeAlignmentTopOrLeft,
+X    XbaeAlignmentCenter,
+X    XbaeAlignmentBottomOrRight
+} XbaeLabelAlignment;
+X
+#endif /* _Caption_h */
+/* DON'T ADD STUFF AFTER THIS #endif */
+X
+SHAR_EOF
+chmod 0444 Xbae/src/Caption.h ||
+echo 'restore of Xbae/src/Caption.h failed'
+Wc_c="`wc -c < 'Xbae/src/Caption.h'`"
+test 2904 -eq "$Wc_c" ||
+	echo 'Xbae/src/Caption.h: original size 2904, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/CaptionP.h ==============
+if test -f 'Xbae/src/CaptionP.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/CaptionP.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/CaptionP.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/CaptionP.h' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * CaptionWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+X */
+X
+/*
+X * CaptionP.h - Private definitions for Caption widget
+X */
+X
+#ifndef _CaptionP_h
+#define _CaptionP_h
+X
+/*
+X *  "@(#)CaptionP.h	1.4 2/18/92"
+X */
+X
+#include <Xm/XmP.h>
+#include <Xbae/Caption.h>
+X
+X
+/*
+X * New fields for the Caption widget class record
+X */
+typedef struct {
+X    XtPointer			extension;
+} XbaeCaptionClassPart;
+X
+/*
+X * Full class record declaration
+X */
+typedef struct _XbaeCaptionClassRec {
+X    CoreClassPart		core_class;
+X    CompositeClassPart		composite_class;
+X    ConstraintClassPart		constraint_class;
+X    XmManagerClassPart		manager_class;
+X    XbaeCaptionClassPart	caption_class;
+} XbaeCaptionClassRec;
+X
+extern XbaeCaptionClassRec xbaeCaptionClassRec;
+X
+/*
+X * New fields for the Caption widget record
+X */
+typedef struct {
+X    /* resources */
+X    XmFontList		font_list;
+X    XbaeLabelAlignment	label_alignment;
+X    int			label_offset;
+X    Pixmap		label_pixmap;
+X    XbaeLabelPosition	label_position;
+X    XmString		label_string;
+X    unsigned char	label_text_alignment;
+X    unsigned char	label_type;
+X
+X    /* private state */
+X
+} XbaeCaptionPart;
+X
+/*
+X * Full instance record declaration
+X */
+typedef struct _XbaeCaptionRec {
+X    CorePart		core;
+X    CompositePart	composite;
+X    ConstraintPart	constraint;
+X    XmManagerPart	manager;
+X    XbaeCaptionPart	caption;
+} XbaeCaptionRec;
+X
+#endif /* _CaptionP_h */
+SHAR_EOF
+chmod 0444 Xbae/src/CaptionP.h ||
+echo 'restore of Xbae/src/CaptionP.h failed'
+Wc_c="`wc -c < 'Xbae/src/CaptionP.h'`"
+test 2477 -eq "$Wc_c" ||
+	echo 'Xbae/src/CaptionP.h: original size 2477, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/Clip.h ==============
+if test -f 'Xbae/src/Clip.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/Clip.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/Clip.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/Clip.h' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * ClipWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+X */
+X
+/*
+X * Clip.h - Public definitions for Clip widget
+X */
+X
+#ifndef _Clip_h
+#define _Clip_h
+X
+/*
+X *  "@(#)Clip.h	3.3 2/18/92"
+X */
+X
+#include <Xm/Xm.h>
+X
+X
+/* Resources:
+X * Name			Class			RepType		Default Value
+X * ----			-----			-------		-------------
+X * exposeProc		Function		Function	NULL
+X * focusCallback	Callback		Callback	NULL
+X */
+X
+#define XmNexposeProc "exposeProc"
+X
+X
+/* Class record constants */
+X
+extern WidgetClass xbaeClipWidgetClass;
+X
+typedef struct _XbaeClipClassRec *XbaeClipWidgetClass;
+typedef struct _XbaeClipRec *XbaeClipWidget;
+X
+X
+/*
+X * External interfaces to class methods
+X */
+X
+X
+#if defined (__cplusplus) || defined(c_plusplus)
+extern "C" {
+#endif
+X
+extern void XbaeClipRedraw(
+#if NeedFunctionPrototypes
+X			   Widget	/* w */
+#endif
+X			   );
+X
+#if defined (__cplusplus) || defined(c_plusplus)
+}
+#endif
+X
+#endif /* _Clip_h */
+SHAR_EOF
+chmod 0444 Xbae/src/Clip.h ||
+echo 'restore of Xbae/src/Clip.h failed'
+Wc_c="`wc -c < 'Xbae/src/Clip.h'`"
+test 1996 -eq "$Wc_c" ||
+	echo 'Xbae/src/Clip.h: original size 1996, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/ClipP.h ==============
+if test -f 'Xbae/src/ClipP.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/ClipP.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/ClipP.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/ClipP.h' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * ClipWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+SHAR_EOF
+true || echo 'restore of Xbae/src/ClipP.h failed'
+fi
+echo 'End of Xbae part 9'
+echo 'File Xbae/src/ClipP.h is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

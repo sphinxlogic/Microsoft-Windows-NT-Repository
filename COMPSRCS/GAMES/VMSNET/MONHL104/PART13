@@ -1,0 +1,1284 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 13/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.021837.4404@klaava.Helsinki.FI>
+Date: 14 Jun 92 02:18:37 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1272
+
+Archieve-name: monster_helsinki_104/part13
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 13/32
+
+-+-+-+-+-+-+-+-+ START OF PART 13 -+-+-+-+-+-+-+-+
+X    else buffer `091used`093 := ''`009`009`009
+X    end;
+X
+X    old_prompt := prompt;
+X    s := line;`009`009`009`009`009
+X    if eof_detected then eof_handler;
+X
+Xend; `123 grab_line `125       `009`009`009`123 end of grab line`009`125
+X
+X`032
+X
+X`091external(LIB$SPAWN)`093`032
+X   Function SPAWN      ( %DESCR command_string:     string := %IMMED 0;`032
+X                         %DESCR input_file:         string := %IMMED 0;
+X                         %DESCR output_file:        string := %IMMED 0;
+X                         %REF   flags:              unsigned := %IMMED 0;
+X                         %DESCR process_name:       STRING := %IMMED 0;
+V        `032
+X                         %REF   process_id:         unsigned := %IMMED 0;
+X                         %REF   completion_status:  integer := %IMMED 0;
+X`009`009`009 %REF   completion_efn:     integer := %IMMED 0;
+X                         %REF   AST:  `091unsafe`093      integer := %IMMED
+V 0;
+X                                ASTarg: `091unsafe`093    integer := %IMMED
+V 0;
+X                         %DESCR prompt:             STRING  := %IMMED 0;
+X                         %DESCR cli:                STRING  := %IMMED 0
+X                       ): unsigned; EXTERNAL;
+X
+X
+X
+XProcedure ReadTerminalType;     `123 By Kari Hurtta `125
+XVar result: Unsigned;
+XBegin
+X  if not odd (GetDvi (DVI$_TRM,,'SYS$OUTPUT',result)) then
+X`009terminal := false`009`009`123 Some bad failure (?) `125
+X  Else `009Terminal := Odd (Result);       `123 Is this terminal `009`125
+X `032
+X  If terminal then begin
+X`009if not odd (GetDvi (DVI$_TT_DECCRT,,'SYS$OUTPUT',result)) then
+X`009`009DecCrt := false`009`009`123 some bad failure (?)`009`125
+X`009else`009DecCrt := Odd (result)
+X  End;
+X
+X    if not odd (GetDvi(DVI$_DEVBUFSIZ,,'SYS$OUTPUT',result)) then
+X`009terminal_line_len := 80`009`009`123 some wrong so default `125
+X    else terminal_line_len := int(result);
+X
+X    if not odd (GetDvi(DVI$_TT_PAGE,,'SYS$OUTPUT',result)) then
+X`009terminal_page_len := 24`009`009`123 some wrong so default `125
+X    else terminal_page_len := int(result);
+X
+Xend; `123 ReadTerminalType `125
+X                                        `032
+X`091 global`093
+Xprocedure setup_guts;
+Xvar
+X        border: unsigned;
+X        rows,cols: integer;
+X        mask: unsigned;
+X`032
+Xbegin
+X        seed := clock;
+X        old_prompt := '';
+X     `032
+X`009ReadTerminalType;
+X`032
+X    syscall($assign('SYS$OUTPUT',out_chan));
+X    syscall($assign('SYS$INPUT',inp_chan));
+X
+X    syscall($clref(tmr_efn));`009`009`123 timer not yet launced `125
+X    check_timer(force := true);`009`009`123 activate timer `125
+X
+X
+X   mask := %X'02000000';        `123 CTRL/Y  Just for DCL `125
+X`123 mask := ...21... for ctrl-t too `125
+X   syscall( lib$disable_ctrl( mask, save_dcl_ctrl ));`032
+X`032
+Xend;
+X`032
+X`091global`093
+Xprocedure finish_guts;
+X`032
+Xbegin
+X`009
+X       syscall( lib$enable_ctrl(save_dcl_ctrl));       `123 re-enable dcl ct
+Vrls `125
+Xend;
+X
+X
+X`091global`093           `032
+XProcedure do_dcl (command: string := '');
+X
+XConst dcl_efn = 32;`009`009`123 EF:n numero `125
+X                    `032
+XVar end_dcl: boolean;           `123 True kun aliohjelma suoritettu loppuun
+V `125
+X    code:    unsigned;           `123 Tapahtumalipun tila `125
+X    succeed: boolean;           `123 onnistuiko k`228sky `125
+X    Id:      unsigned;          `123 prosessin pid `125
+X    name:    string;            `123 prosessin nimi `125
+X    mask:    unsigned := 2 ** (dcl_efn-base_efn) + 2 ** (tmr_efn-base_efn);
+XBegin    `032
+X
+X  name := Substr ('_'+userident,1,10);`032
+X `032
+X  WriteLn ('Control switch to child-process: ',name);`032
+X  if command = '' Then WriteLn ('Use LOG to return Monster.');
+X                                        `032
+X  succeed := odd (SPawn ( command, '' , '' , 1 ,
+X                            name , Id , 0, dcl_efn,,,'Dcl> '));
+X  If not succeed Then WriteLn ('Oops ! Can''t start child process ..');
+X `032
+X  end_dcl := not succeed;
+X  while not end_dcl do  `123 odotetaan loppumista `125
+X    begin
+X     `032
+X      syscall($wflor(base_efn,mask));   `123 odotetaan ett`228 timerin tai a
+Vliprosessin
+X`009`009`009`009      EF laukeaa `125
+X
+X      if (check_timer) then checkevents (true);`032
+X`009`009`009`123 check_timer my`246skin laittaa timeri uudestaan `125
+X`009`009`009`123 k`228yntiin. alunperin se on k`228ynistetty `125
+X`009`009`009`123 setup_guts:issa `125
+X
+X      syscall ($readef (base_efn,code));
+X      end_dcl := uand(code,2 ** (dcl_efn-base_efn)) > 0; `123 onko lapsi kuo
+Vllut `125
+X    end;
+X
+X WriteLn ('Control return to Monster');
+X
+XEnd; `123 do_dcl `125
+X
+X`032
+Xend.
+$ CALL UNPACK GUTS.PAS;147 3047530017
+$ create/nolog 'f'
+XWelcome to the game Monster!
+X
+XBut what now?
+X
+XGoodgulf the Grey appears in a puff of orange smoke!
+XHe is very angry...
+X
+X"What are you doing here? The Dungeon is now closed!"
+X
+XHe waves his Iron Staff and yells "Begone!"
+X
+XYou disappear in a burst of multicolored light...
+X
+XOn wall you see announcement:
+X
+X**********************************************************************
+X*                                                                    *
+X*                    Dungeon is closed on weekdays                   *
+X*                         between 09.00-17.00                        *
+X*                                                                    *
+X**********************************************************************
+$ CALL UNPACK ILMOITUS.TXT;5 1426665687
+$ create/nolog 'f'
+X! Monster initialization file    (c) Kari Hurtta
+X!`032
+X! Name of this file must be MONSTER.INIT
+X! The file must be located in the same direction as the monster's image.
+X
+XMM_userid: %manager%
+X`009
+X! The Monster Manager has the most power; this should be
+X! the game administrator.`032
+X
+X! protected_MM: true
+X
+Xgen_debug:   false
+X!`009`009   this tells whether everyone may use the debug command.
+X!                  it must be able to be disabled because it tells players
+X!                  too much about monsters. On the other hand, it must also`
+V032
+X!                  be able to be enabled, if we want to do test runs under
+X!                  an unprivileged userid`009`009
+X
+XREBUILD_OK: true
+X
+X!`009`009  if this is true, the MM can blow away and reformat the
+X!`009`009  entire universe. It's a good idea to set this to false
+X
+Xroot:    %db1% ! world database
+Xcoderoot:%db2% ! mdl database
+X       `032
+X!`009`009  This is where the Monster database goes.
+X!`009`009  The root directory must be  world:e  and
+X!`009`009  the  datafiles  Monster  creates  in  it
+X!`009`009  world:rw for people to be able to  play.
+X!`009`009  The  coderoot  directory  is  where  the
+X!`009`009  codefiles for monsters go. The directory
+X!`009`009  must additionally have  an  ACL  default
+X!`009`009  world:rw  for  files  and ACL rw for the
+X!`009`009  managers. This sucks, but we don't  have
+X!`009`009  setgid to games on VMS.`032
+X
+XLEVELTABLE:
+X!  name`009`009    exp`009         priv`009 health`009   h.fac    pow    hid
+Vden`032
+XBeginner,           0,           0,      10,       40,      0,     nohidden
+XNovice,             1,           0,      10,       40,      2,     nohidden
+XRanger,             500,         0,      15,       50,      3,     nohidden
+XAdventurer,         1000,        0,      20,       60,      5,     nohidden
+XHero,               2000,        32,     30,       60,      10,    nohidden
+XChampion,           6000,        0,      40,       70,      10,    nohidden
+XConjurer,           12000,       16,     50,       70,      12,    nohidden
+XMagician,           20000,       0,      60,       70,      15,    nohidden
+XEnchanter,          40000,       2,      80,       75,      20,    nohidden
+XSorcerer,           70000,       256,      100,      80,      20,    nohidde
+Vn
+XWarlock,            120000,      4,      120,      85,      35,    nohidden
+XApprentice wizard,  300000,      8,      150,      85,      50,    nohidden
+XWizard,             700000,      64,     300,      90,      80,    nohidden
+XAlmost Dead,        1000100,     0,      10,       40,      2,     hidden
+XManager,            2000000,     1,      500,      100,     500,   hidden
+XDruid,              2001000,     0,      500,      100,     500,   hidden
+XCharlatan,          2008000,     0,      500,      100,     500,   hidden
+XWanderer,           2009000,     0,      500,      100,     500,   hidden
+XChief Architect,    3000000,     0,      500,      100,     500,   hidden
+XBug Hunter,         5000000,     0,      500,      100,     500,   hidden
+XEND OF LEVELTABLE
+XArchpriv:   0
+XArchhealth: 800
+XArchfactor: 100
+XArchpower:  1000
+X
+Xmaxexperience: 1000000
+X!  Monster Manager's experience is MaxInt
+X
+Xprotect_exp: 700000
+X!  gives protection agaist violence
+X
+XPlaytime: +++++++++--------+++++++
+X! Eli suomeksi:
+X! Monster on suljettu arkisin 09-17.
+X
+X!Playtime: ++++++++++++++++++++++++   ! Miten niin suljettu ?
+X!                                       onpa taas suljettu.
+X
+Xdefault_allow: 20    ! How many rooms players made at default
+Xmin_room:      5     ! How many rooms players can made without exit request
+Xmin_accept:    5     ! How many accepts must players made
+$ CALL UNPACK INIT.PROTO;2 994737065
+$ create/nolog 'f'
+X`091inherit ('Global','Guts','Database','Parser'),environment`093
+Xmodule interpreter (output);`009`009`009    `123 hurtta@finuh `125
+X`123+
+XCOMPONENT: Interpreter for MDL
+X`009   MDL = Monster Definition Language
+X
+XPROGRAM DESCRIPTION:
+X`032
+X   `032
+X`032
+XAUTHORS:
+X`032
+X    Kari Hurtta
+X`032
+XCREATION DATE: (unknown) about ?.3.1989
+X`032
+XDESIGN ISSUES:
+X`032
+X
+X`032
+XVERSION:
+X
+X
+X`032
+XMODIFICATION HISTORY:
+X`032
+X     Date     `124   Name  `124 Description
+X--------------+---------+---------------------------------------------------
+V----
+X   11.2.1991  `124         `124 This comment header created
+X   26.5.1992  `124 Hurtta  `124 Now parser print error line also (LINE_* in
+V parse)
+X--------------+---------+---------------------------------------------------
+V----
+X
+X-`125
+X`032
+X`123 Interpreter for MDL `125
+X`123 MDL = Monster Definition Language `125
+X
+X`123 Kooditiedoston rakenne:
+X
+XYksi atomi (= yksi rivi kooditiedostossa):
+X
+XTapaus 1:
+X
+X<atomin numero>,
+Xkaksoispiste,
+X<parametrin 1 numero>,
+Xkaksoispiste,
+X<parametrin 2 numero>,
+Xkaksoispiste,
+X<parametrin 3 numero>,
+Xkaksoispiste,
+X<funktion nimi>,
+XEOLN
+X
+XTapaus 2:
+X
+X<atomin numero negatiivisena>,
+Xkaksoispiste,
+X<parametrin 1 numero>,
+Xkaksoispiste,
+X<parametrin 2 numero>,
+Xkaksoispiste,
+X<parametrin 3 numero>,
+Xkaksoispiste,
+X<funktion numero>,
+XEOLN
+X
+XTapaus 3:
+X
+X<atomin numero negatiivisena>,
+Xkaksoispiste,
+X<parametrin 1 numero>,
+Xkaksoispiste,
+X<parametrin 2 numero>,
+Xkaksoispiste,
+X<parametrin 3 numero>,
+Xkaksoispiste,
+X<funktion numero>,
+Xkaksoispiste,
+X<parametrien lukum`228`228r`228 - 3>,
+Xkaksoispiste,
+X<loput parametrit kaksoipistell`228 erotettuina>,
+XEOLN
+X
+XTapaus 4:
+XH,
+X<header -funktion numero>,
+Xkaksoispiste,
+X<parametrien lukum`228`228r`228>,
+Xkaksoispiste,
+X<parametrit kaksoispisteell`228 erotettuina>,
+Xkaksoispiste,
+Xlabel_kentt`228,
+XEOLN
+X
+XTapaus 5:
+XJ,
+X<hyppyosoite>,
+Xkaksoispiste,
+X<parametrien lukum`228`228r`228>,
+Xkaksoispiste,
+X<parametrit kaksoispisteell`228 erotettuina>,
+XEOLN
+X
+X`125
+X
+X
+Xconst atom_length = shortlen;  `032
+X
+X
+X      string_length = mega_length;
+X
+X`032
+X      max_functions = 80;  `123 esimerkiksi null,get, ...   `125
+X      max_headers   = 10;  `123 esimerkiksi SUBMIT, FOR ... `125
+X      max_labels    = 50;`032
+X
+X`009max_flag = 5;
+X`009max_param = 30;
+X
+X`009new_line_limit = 3;`009`123 kuinka monta parametria pit`228`228 olla ett
+V`228 `125
+X`009`009`009`009`123 parametrit tulostetaan kukin omalle`032
+X`009`009`009`009    rivilleen `125
+X
+X`009max_buffer = 5;`009`009`123 Puskurien lukum`228`228r`228 `125
+X
+X`009ERROR_ID = 70;`009`009`123 virheen numero `125
+X`009LABEL_ID = 6;`009`009`123 LABEL headerin numero `125
+X`009GOSUB_ID = 3;`009`009`123 GOSUB headerin numero `125
+X                     `032
+Xtype  atom_t = shortstring; `009`009`009    `123 Muuttujat ja k`228skyt   `1
+V25
+X`009`009`009`009`009`009    `123 ja listan alkiot`009    `125
+X      string_t = mega_string;                       `123 merkkijonot`009
+V    `125
+X      string_l = string;`009`009`009`123 rivin pituiset merkkijonot `125
+X`009`123 class moved to parser.pas `125
+X
+X      name_type = (n_function, n_header, n_const, n_comment,
+X`009`009   n_head, n_error,n_variable, n_gosub);
+X`009`009`009`009`009`009    `123 loodin k`228skyjen tyyppi `125
+X
+X      paramtable = array `091 1 .. max_param `093 of integer;
+X
+X
+X      atom = record`009`009`009`009    `123 yksi ohjelman k`228sky   `125
+X`009`009nametype: name_type;
+X                name: integer;
+X                long_name: `094string_t;
+X`009`009params: paramtable
+X                `123 p1,p2,p3: integer `125
+X             end;                `032
+X
+X     tabletyp = array `091 1 .. MAXATOM `093 of atom;`009`123 Ohjelman talle
+Vtuspaikka   `125
+X    `032
+X     buffer = record
+X`009table: tabletyp;
+X`009used: 0 .. MAXATOM;`009`009`009`123 Ohjelman koko`009`009    `125
+X`009current_program: integer;`009`009`123 T`228m`228nhetkinen ohjelmakood `1
+V25
+X`009current_version: integer;`009`009`123 ja sen versionumero`009    `125
+X`009time: 0 .. maxint;`009`009`009`123 Kuinka paljon aikaa`009    `125
+X`009`009`009`009`009`009`123 k`228yt`246st`228 `125
+X    end; `123 buffer `125
+X                     `032
+XVar`009line_i: string_t := '';
+X      code_running : boolean := false; `123 est`228`228 p`228`228lekk`228ise
+Vn suorittamisen `125
+X      cursor: integer := 0;
+X      cl,ql: class;      `032
+X      error_counter : integer := 0;
+X
+X`009pool : array `091 1 .. max_buffer `093 of buffer;
+X`009current_buffer : 1 .. max_buffer;
+X
+X`009monster_level: integer;`009    `123 0 jos ei tasoa `125`032
+X`009used_attack:   integer;
+X`009attack_limit:  integer;
+X
+X      privilegion: boolean;`009    `123 lippu: onko koodi privileged-moodiss
+Va `125
+X      system_code: boolean;`009    `123 lippu: omistaako systeemi koodin`009
+V    `125
+X      spell_mode:  boolean;`009    `123 lippu: onko spell-moodissa
+V            `125
+X         `032
+X      ftable: array `091 1 .. max_functions `093 of record
+X`009    name: atom_t;
+X`009    min:  0 .. max_param;
+X`009    max:  0 .. max_param
+X      end;
+X
+X      htable: array `091 1 .. max_headers `093   of record
+X`009    name: atom_t;
+X`009    min:  0 .. max_param;
+X`009    max:  0 .. max_param
+X      end;
+X
+X      flagtable: array `0911 .. max_flag `093 of record
+X`009`009value: unsigned;
+X`009`009off: string_l;
+X`009`009on: string_l;
+X`009    end;
+X
+XValue ftable := (
+X`009('+',`009`0092,  max_param),`009    `123 1 `125
+X`009('=',`009`0092,  2),`009`009    `123 2 `125
+X`009('inv',`009`0090,  0),`009`009    `123 3 `125
+X`009('pinv',`0090,  0),`009`009    `123 4 `125
+X`009('players',`0090,  0),`009`009    `123 5 `125
+X`009('objects',`0090,  0),`009`009    `123 6 `125
+X`009('get',`009`0091,  1),`009`009    `123 7 `125
+X`009('pget',`0091,  1),`009`009    `123 8 `125
+X`009('drop',`0091,  1),`009`009    `123 9 `125
+X`009('pdrop',`0091,  1),`009`009    `123 10 `125
+X`009('and',`009`0092,  2),`009`009    `123 11 `125
+X`009('or',`009`0091,  3),`009`009    `123 12 `125
+X`009('move',`0091,  1),`009`009    `123 13 `125
+X`009('pmove',`0091,  1),`009`009    `123 14 `125
+X`009('pprint',`0090,  max_param),`009    `123 15 `125
+X`009('print',`0090,  max_param),`009    `123 16 `125
+X`009('oprint',`0090,  max_param),`009    `123 17 `125
+X`009('pprint raw',`0090,  max_param),`009    `123 18 `125
+X`009('print raw',`0090,  max_param),`009    `123 19 `125
+X`009('oprint raw',`0090,  max_param),`009    `123 20 `125
+X`009('print null',`0091,  max_param),`009    `123 21 `125
+X`009('if',`009`0092,  3),`009`009    `123 22 `125
+X`009('where',`0091,  1),`009`009    `123 23 `125
+X`009('null',`0090,  max_param),`009    `123 24 `125
+X`009('attack',`0091,  1),`009`009    `123 25 `125
+X`009('heal',`0091,  1),`009`009    `123 26 `125
+X`009('not',`009`0091,  1),`009`009    `123 27 `125
+X`009('random',`0091,  1),`009`009    `123 28 `125
+X`009('strip',`0091,  1),`009`009    `123 29 `125
+X`009('experience',`0091,  1),`009`009    `123 30 `125
+X`009('plus',`0092,  2),`009`009    `123 31 `125
+X`009('difference',`0092,  2),`009`009    `123 32 `125
+X`009('times',`0092,  2),`009`009    `123 33 `125
+X`009('quotient',`0092,  2),`009`009    `123 34 `125
+X`009('set experience',  1,`0091),`009    `123 35 `125
+X`009('get state',`0090,  0),`009`009    `123 36 `125
+X`009('set state',`0091,  1),`009`009    `123 37 `125
+X`009('less',`0092,  2),`009`009    `123 38 `125
+X`009('number',`0091,  1),`009`009    `123 39 `125
+X`009('health',`0091,  1),`009`009    `123 40 `125
+X`009('all objects',`0090,  0),`009`009    `123 41 `125
+X`009('all rooms',`0090,  0),`009`009    `123 42 `125
+X`009('all players',`0090,  0),`009`009    `123 43 `125
+X`009('control',`0092,  2),`009`009    `123 44 `125
+X`009('exclude',`0092,  2),`009`009    `123 45 `125
+X`009('get remote state',`0091,  1),`009    `123 46 `125
+X`009('set remote state',`0092,  2),`009    `123 47 `125
+X`009('remote players',`0091,  1),`009    `123 48 `125
+X`009('remote objects',`0091,  1),`009    `123 49 `125
+X`009('duplicate',`0091,  1),`009`009    `123 50 `125
+X`009('pduplicate',`0091,  1),`009`009    `123 51 `125
+X`009('destroy',`009`0091,  1),`009    `123 52 `125
+X`009('pdestroy',`009`0091,  1),`009    `123 53 `125
+X`009('string head',`009`0091,  1),`009    `123 54 `125
+X`009('string tail',`009`0091,  1),`009    `123 55 `125
+X`009('head',`009`0091,  1),`009    `123 56 `125
+X`009('tail',`009`0091,  1),`009    `123 57 `125
+X`009('lookup object',`0091,  1),`009    `123 58 `125
+X`009('lookup player',`0091,  1),`009    `123 59 `125
+X`009('lookup room',`009`0091,  1),`009    `123 60 `125
+X`009('privilege',`009`0092,  2),`009    `123 61 `125
+X`009('parse player',`0091,  1),`009    `123 62 `125
+X`009('parse object',`0091,  1),`009    `123 63 `125
+X`009('parse room',`009`0091,  1),`009    `123 64 `125
+X`009('userid',`009`0091,  1),`009    `123 65 `125
+X`009('list',`0091,  max_param),`009    `123 66 `125
+X`009('mattack',`0092,  2),`009`009    `123 67 `125
+X`009('mheal',`0092,  2),`009`009    `123 68 `125
+X`009('include',`0092,  2),`009`009    `123 69 `125
+X`009('-ERROR-',`009`0090,  0),`009    `123 70 `125
+X`009('lookup direction',`0091,1),`009    `123 71 `125
+X`009('prog',1, max_param),`009`009    `123 72 `125
+X`009('get global flag',1,1),`009    `123 73 `125
+X`009('==',2,2),`009`009`009    `123 74 `125
+X`009('===',2,2),`009`009`009    `123 75 `125
+X`009('spell level',0,0),`009`009    `123 76 `125
+X`009('set spell level',1,1),`009    `123 77 `125
+X`009('',0,0),`009`009`123 78 `125
+X`009('',0,0),`009`009`123 79 `125
+X`009('',0,0)`009`009`123 80 `125
+X    );`032
+X
+X    htable := (
+X`009('SUBMIT ',`0092,2),`009`123 1 `125
+X`009('FOR ',`0092,2),`009`123 2 `125
+X`009('GOSUB ',`0090,max_param),`009`123 3 `125
+X`009('DEFINE ',`0091,1),`009`123 4 `125
+X`009('SET ',`0091,1),`009`123 5 `125
+X`009('LABEL ',`0090,max_param),`009`123 6 `125
+X`009('',0,0),`009`009`123 7 `125
+X`009('',0,0),`009`009`123 8 `125
+X`009('',0,0),`009`009`123 9 `125
+X`009('',0,0)`009`009`123 10 `125
+X`009);
+X   `032
+X
+X    flagtable := (
+X`009( 1, 'Control access enabled', 'Control access disabled' ),
+X`009( 2, 'Spell mode disabled', 'Spell mode enabled' ),
+X`009( 4, '', '' ),
+X`009( 8, '', '' ),
+X`009( 16, '', '' ));
+X
+X`123 muduulissa QUEUE olevia proseduureja `125
+X`091external`093
+Xfunction send_submit (monster: atom_t; code: integer;
+X`009label_name: atom_t; deltatime: integer; player: atom_t): boolean;
+Xexternal;
+X               `032
+X`123 moduulissa GUTS olevia proseduureja `125
+X
+X`123 moduulissa MON olevia globaaleja muuttujia `125
+Xvar  myname : `091external`093 atom_t;    `032
+X     `123 debug ja indx on nyt DATABASE.PASiissa `125
+X     userid: `091external`093 varying `09112`093 of char; `123 pit`228`228 o
+Vla yht`228 pitk`228 kuin `125
+X`009`009`009`009`009`009`123 weryshortstring `125
+X
+X`123 moduulissa MON olevia globaaleja rutiineja `125
+X
+X`091external`093                                                        `032
+Xprocedure checkevents (silent: boolean := false); external;
+X`091external`093
+Xfunction alloc_general(class: integer; var n: integer): boolean; external;
+X`091external`093
+Xprocedure delete_general(class: integer; var n: integer); external;
+X
+X`091external`093
+Xfunction int_userid(player: atom_t): atom_t; `123 = "" not found `125
+Xexternal;
+X`091external`093
+Xfunction int_set_experience(player: atom_t; amount: integer): boolean;
+Xexternal;
+X`091external`093
+Xfunction int_get_experience(player: atom_t): integer; external;
+X`091external`093
+Xfunction int_get_code(player: atom_t): integer; external;
+X
+X`091external`093
+Xfunction int_ask_privilege(player,privilege: atom_t): boolean; external;
+X
+X`091external`093
+Xfunction int_get_health(player: atom_t): integer; external;
+X
+X`123 int_lookup_X functions are in PARSER.PAS and no longer need definations
+V `125
+X
+X`091external`093`032
+Xfunction int_inv (player: atom_t): string_t; external;
+X`091external`093
+Xfunction int_objects(player: atom_t): string_t; external;
+X
+X
+X`091external`093
+Xfunction int_l_object: string_t; external;
+X
+X`091external`093
+Xfunction int_l_player: string_t; external;
+X
+X`091external`093
+Xfunction int_l_room: string_t; external;
+X
+X
+X`091external`093
+Xfunction int_players(player: atom_t): string_t; external;
+X`091external`093
+Xfunction int_remote_objects(room: atom_t): string_t; external;
+X`091external`093
+Xfunction int_remote_players(room: atom_t): string_t; external;
+X
+X
+X
+X`091external`093
+Xfunction int_get(player,object: atom_t): boolean; external;
+X`091external`093
+Xfunction int_drop(player,object: atom_t): boolean; external;
+X`091external`093
+Xfunction int_duplicate(player,object,owner: atom_t; privileged: boolean):
+X         boolean; external;
+Xfunction int_destroy(player,object,owner: atom_t; privileged: boolean):
+X         boolean; external;
+X
+X`091external`093
+Xfunction int_poof (player,room,owner: atom_t;`032
+X         general,own: boolean): boolean; external;
+X`091external`093
+Xfunction int_login (player: atom_t; force: boolean): integer; external;
+X`091external`093
+Xprocedure int_logout (player: atom_t); external;
+X`091external`093
+Xfunction int_where (player: atom_t): atom_t; external;
+Xfunction int_attack(player: atom_t; power: integer): boolean; external;
+X`091external`093
+Xfunction int_heal(player: atom_t; amount: integer): boolean; external;
+X`091external`093
+Xprocedure int_broadcast(player: atom_t; s: string_l; to_other: boolean);`032
+Xexternal;
+X
+X
+X`123 write_debug moved to parser.pas `125
+X
+X`123 cut_atom moved to parser.pas `125
+X
+Xfunction exact_function (var x: integer; s: atom_t): boolean;
+Xvar i: integer;
+Xbegin
+X    write_debug('%exact_function : s = ',s);
+X    x := 0;
+X    for i := 1 to max_functions do
+X`009if ftable`091i`093.name > '' then
+X`009    if EQ (s,ftable`091i`093.name) then x := i;
+X    exact_function := x <> 0;
+X    if x > 0 then write_debug('%exact_function : ok');
+Xend;
+X
+Xfunction exact_header (var x: integer; s: atom_t): boolean;
+Xvar i: integer;
+Xbegin
+X    write_debug('%exact_header : s = ',s);
+X    x := 0;
+X    for i := 1 to max_headers do
+X`009if htable`091i`093.name > '' then
+X`009    if index (s,htable`091i`093.name) = 1 then x := i;
+X    exact_header := x <> 0;
+X    if x > 0 then write_debug('%exact_header : ok');
+Xend;
+X
+Xfunction x_monster_owner (code: integer; class : integer := 0): atom_t;
+Xforward; `123 sama kuin monster_owner, muutta yht`228aikaa global & forward
+V `125
+X         `123 ei onnistunut `125
+X
+Xfunction x_get_flag(code: integer; flag: integer): boolean; forward;
+X
+X`123 classify moved to parser.pas `125   `032
+X
+X`123 clean_spaces moved to parser.pas `125
+X
+Xfunction count_params(params: paramtable): integer;
+Xvar i,count: integer;`009
+Xbegin`009`009`009    `009`123 lasketaan parametrien m`228`228r`228 `125
+X    write_debug('%count_params');
+X    count := 0;
+X    for i := 1 to max_param do if params`091i`093 <> 0 then count := i;
+X    count_params := count;
+Xend;`009`123 count_params `125
+X
+Xprocedure clear_program (buffer: integer);
+Xvar ln,i: integer;
+Xbegin
+X    with pool`091buffer`093 do begin
+X`009for ln := 1 to used do with table `091 ln `093 do begin
+X`009    for i := 1 to max_param do params`091i`093 := 0;
+X`009    if long_name <> nil then dispose(long_name);
+X`009    long_name := nil;
+X`009    nametype := n_comment;
+X`009    name := 0;
+X`009end;
+X`009used := 0;
+X`009time := 0;
+X`009current_program := 0;
+X`009current_version := 0;
+X    end;
+Xend; `123 clear program `125
+X  `032
+X
+Xprocedure parse (var source,result: text);      `032
+Xlabel 999;
+Xvar atom_count: integer;
+X    atom_readed: boolean;
+X    current_atom: string_t;
+X    error_flag: boolean;
+X    label_count: integer;
+X    labels : array `091 1 .. max_labels `093 of
+X`009record
+X`009    name: atom_t;
+X`009    loc: integer;
+X`009end;
+X
+X    line: string_t;
+X    linep,atom_line_p: integer;
+X    linecount: integer;
+X
+X    procedure read_line;
+X    begin
+X`009if EOF(source) then begin
+X`009    line := '';
+X`009    linep := 0;
+X`009    linecount := linecount +1;
+X`009    atom_line_p := -1;
+X`009end else begin
+X`009    READLN(source,line);
+X`009    linep := 1;
+X`009    atom_line_p := -1;
+X`009    linecount := linecount +1;
+X`009end;
+X    end; `123 read_line `125
+X
+X    function LINE_EOF: boolean;
+X    begin
+X`009if linep > 0 then LINE_EOF := false
+X`009else LINE_EOF := eof(source);
+X    end; `123 LINE_EOF `125
+X
+X    function LINE_EOLN: boolean;
+X    begin
+X`009LINE_EOLN := length(line) < linep;
+X    end; `123 LINE_EOLN `125
+X
+X    function LINE_C : char;
+X    begin
+X`009if length(line) < linep then LINE_C := ' '
+X`009else LINE_C := line`091linep`093;
+X    end; `123 LINE_C `125
+X
+X    procedure LINE_GET;
+X    begin
+X`009if length(line) < linep then read_line
+X`009else linep := linep  +1;
+X    end; `123 LINE_GET `125
+X`009
+X    procedure LINE_error;`032
+X    var I: integer;
+X    begin
+X`009writeln;
+X`009write(linecount:4,' ');
+X`009for I := 1 to length(line) do
+X`009    if classify(line`091i`093) = space then write (' ')
+X`009    else write (line`091i`093);
+X`009writeln;
+X`009if linep > 0 then begin
+X`009    if atom_line_p > 0 then writeln('     ','!':atom_line_p)
+X`009    else `009`009    writeln('near ','!':linep);
+X`009end;
+X    end; `123 LINE_error `125
+X
+X    procedure replace_GOSUB;
+X    var i,j,loc: integer;
+X    begin
+X`009for i := 1 to atom_count do
+X`009    with pool`091current_buffer`093.table`091i`093 do
+X`009`009if nametype = n_header then if name = GOSUB_ID then begin
+X`009`009    loc := 0;
+X`009`009    for j := 1 to label_count do
+X`009`009`009if EQ(long_name`094,labels`091j`093.name) then loc := j;
+X
+X`009`009    if loc = 0 then begin
+X`009`009`009LINE_error;
+X`009`009`009writeln('Error: GOSUB ',long_name`094);
+X`009`009`009writeln('       without LABEL ',long_name`094);
+X`009`009`009error_flag := true;
+X`009`009    end else begin
+X`009`009`009dispose(long_name);
+X`009`009`009long_name := nil;
+X`009`009`009nametype := n_gosub;
+X`009`009`009name := labels`091loc`093.loc;
+X`009`009    end;
+X`009`009end;
+X    end; `123 replace_GOSUB `125
+X
+X`009  procedure write_comment; forward;
+X
+X`009  function read_comment: string_t;
+X             var bf: string_t;`032
+X                 ok: boolean;
+X`009`009 too_long: boolean;
+X`009  begin
+X`009`009write_debug('%read_comment');
+X`009`009too_long := false;
+X                bf := LINE_C;
+X                if classify(LINE_C) <> comment then halt;
+X                LINE_GET;`032
+X                ok := LINE_EOF;
+X                if not ok then
+X                   if LINE_EOLN then ok := true;
+X
+X                while not ok do begin
+X                   if length(bf) >= string_length-2 then too_long := true`03
+V2
+X                   else if classify(LINE_C) = space then bf := bf + ' '
+X                   else bf := bf + LINE_C;
+X                   LINE_GET;
+X                   ok := LINE_EOF;
+X                   if not ok then
+X                      if LINE_EOLN then ok := true;
+X
+X                end; `032
+X                if too_long then begin
+X`009`009   error_flag := true;
+X`009`009   LINE_error;
+X                   Writeln ('Error: Too long comment.');
+X                   Writeln ('       Limit comments to ',string_length-2:1,'
+V characters.');
+X                end;
+X`009`009read_comment := bf;
+X`009`009write_debug('%read_comment = ',bf);
+X`009  end; `123 read_comment `125
+X
+X
+X
+X          function atom:string_t;
+X          var a: string_t;                `032
+X
+X`009
+X             function read_string: string_t;
+X             var bf: string_t;`032
+X                 ok,detec: boolean;
+X`009`009 too_long: boolean;
+X             begin
+X`009`009write_debug('%read_string');
+X`009`009too_long := false;
+X                bf := '';
+X                repeat
+X                   if classify(LINE_C) <> string_c then halt;
+X                   LINE_GET;`032
+X                   ok := LINE_EOF;
+X                   if not ok then
+X                      if LINE_eoln then ok := true
+X                      else if classify (LINE_C) = string_c then ok := true
+X`009`009      else if classify (LINE_C) = comment then begin
+X`009`009`009write_comment;
+X`009`009`009ok := true;
+X`009`009      end;
+X                   while not ok do begin
+X                      if length(bf) >= string_length-2 then too_long := true
+X                      else if classify(LINE_C) = space then bf := bf + ' '
+X                      else bf := bf + LINE_C;
+X                      LINE_GET;
+X                      ok := LINE_EOF;
+X                      if not ok then
+X                         if LINE_EOLN then ok := true
+X                         else if classify (LINE_C) = string_c then ok := tru
+Ve;
+X                   end; `032
+X                   if not(LINE_EOF) then LINE_GET;
+X                   if not(LINE_EOF) then if LINE_C = '&' then begin
+X                      LINE_GET;
+X                      detec := false;
+X                      repeat
+X                         if LINE_EOF then detec := true
+X                         else if LINE_EOLN then LINE_GET
+X                         else if classify(LINE_C) = space then LINE_GET
+X`009`009`009 else if classify(LINE_C) = comment then begin
+X`009`009`009    write_comment;
+X                         end else detec := true;
+X                      until detec;
+X                      if not(LINE_EOF) then`032
+X                         if classify(LINE_C) = string_c then ok := false;
+X                   end;
+X                until ok;
+X                read_string := '"' + bf + '"';
+X                if too_long then begin
+X`009`009   error_flag := true;
+X`009`009   LINE_error;
+X                   writeln('Error: String constant is too long.');
+X                   writeln('       Limit it to ',string_length-2:1,' charact
+Vers.');
+X                end;
+X`009`009write_debug('%read_string = ','"' + bf + '"');
+X             end; `123 read_string `125
+X
+X             function read_letter: atom_t;
+X             var bf: string_t;`032
+X                 ok: boolean;
+X             begin
+X`009`009write_debug('%read_letter');
+X                bf := LINE_C;
+X                if classify(LINE_C) <> letter then halt;
+X                LINE_GET;`032
+X                ok := LINE_EOF;
+X                if not ok then
+X                   if LINE_EOLN then ok := true
+X                   else ok := not (classify (LINE_C) in `091letter, space `0
+V93);
+X                while not ok do begin
+X                   if length(bf) >= string_length-2 then `123 too_long := tr
+Vue `125
+X                   else if classify(LINE_C) = space then bf := bf + ' '
+X                   else bf := bf + LINE_C;
+X                   LINE_GET;
+X                   ok := LINE_EOF;
+X                   if not ok then
+X                      if LINE_EOLN then ok := true
+X                      else ok := not (classify (LINE_C) in `091letter, space
+V `093);
+X                end; `032
+X                if length(bf) <= atom_length then read_letter := bf`032
+X                else begin
+X`009`009   LINE_error;
+X                   Writeln ('Error: Too long symbol.');
+X                   Writeln ('       Limit symbols to ',atom_length:1,' chara
+Vcters.');
+X`009`009   error_flag := true;
+X                   read_letter := substr(bf,1,atom_length)
+X                end;
+X`009`009write_debug('%read_letter = ',bf);
+X             end; `123 read_letter `125
+X
+X
+X      var ok : boolean;
+X
+X      begin `123 atom `125
+X`009write_debug('%atom');
+X`009atom_line_p := -1;
+X        ok := classify (LINE_C) <> space;
+X`009if classify(LINE_C) = comment then begin
+X`009    write_comment;
+X`009    ok := LINE_EOF;
+X`009end;
+X        while not ok do begin`032
+X          LINE_GET;
+X          if LINE_EOF then ok := true
+X          else if classify (LINE_C) = comment then begin
+X`009    write_comment;
+X`009    ok := LINE_EOF;
+X`009  end else ok :=  classify (LINE_C) <> space;
+X        end;
+X       `032
+X        atom := '';
+X        if not (LINE_EOF) then begin
+X`009   atom_line_p := linep;
+X           case classify(LINE_C) of
+X              space: halt;
+X`009      comment: halt;
+X              string_c: atom := read_string;
+X              bracket: begin
+X                 atom := LINE_C;
+X                 LINE_GET;
+X              end;
+X             letter: atom := clean_spaces(read_letter);
+X           end;
+X        end;
+X      end; `123 atom `125
+X
+X          procedure read_atom;`009 `032
+X          begin
+X`009    write_debug('%read_atom');
+X            if not atom_readed then begin
+X               if LINE_EOF then begin
+X`009`009  LINE_error;
+X                  writeln('Error: END OF FILE detected');
+X`009`009  error_flag := true;
+X
+X                  goto 999
+X               end;
+X               current_atom := atom;
+X               if current_atom > '' then if current_atom `0911`093 = '_' the
+Vn begin
+X`009`009  error_flag := true;
+X`009`009  LINE_error;
+X                  writeln('Error: Symbol can''t start with _');
+X
+X`009       end;
+X            end;
+X`009    write_debug('%read_atom : current_atom = ',current_atom);
+X            atom_readed := true
+X          end;
+X
+X`009  function search_atom: integer;
+X`009  var i,j,loc: integer;
+X`009    flag: boolean;
+X`009  begin
+X`009    loc := 0;
+X`009    for i := 1 to atom_count -1 do
+X`009`009if pool`091current_buffer`093.table`091atom_count`093.nametype =
+X`009`009    pool`091current_buffer`093.table`091i`093.nametype `032
+X`009`009then if pool`091current_buffer`093.table`091atom_count`093.name =
+X`009`009    pool`091current_buffer`093.table`091i`093.name`032
+X`009`009then if (pool`091current_buffer`093.table`091atom_count`093.long_nam
+Ve`032
+X`009`009`009= nil) =
+X`009`009    (pool`091current_buffer`093.table`091i`093.long_name = nil)`032
+X`009`009then begin
+X`009`009   if pool`091current_buffer`093.table`091i`093.long_name = nil then
+V flag`032
+X`009`009`009:= true
+X`009`009   else flag :=`032
+X`009`009    EQ(pool`091current_buffer`093.table`091atom_count`093.long_name`
+V094,
+X`009`009`009pool`091current_buffer`093.table`091i`093.long_name`094);
+X`009`009    `123 EQ: NonPadding comparison `125
+X
+X`009`009    if flag then for j := 1 to max_param do
+X`009`009`009if pool`091current_buffer`093.table`091atom_count`093.params`091
+Vj`093 <>
+X`009`009`009    pool`091current_buffer`093.table`091i`093.params`091j`093 th
+Ven
+X`009`009`009`009flag := false;
+X
+X`009`009    if flag then loc := i;
+X
+X`009`009end;
+X`009   `032
+X`009`009if loc = 0 then search_atom := atom_count
+X`009`009else begin
+X`009`009    with pool`091current_buffer`093.table `091 atom_count `093 do be
+Vgin
+X`009`009`009for i := 1 to max_param do params`091i`093 := 0;
+X`009`009`009    if long_name <> nil then dispose(long_name);
+X`009`009`009long_name := nil;
+X`009`009`009nametype := n_comment;
+X`009`009`009name := 0;
+X`009`009    end;
+X`009`009    atom_count := atom_count -1;
+X`009`009    search_atom := loc;
+X`009`009end;
+X`009  end;
+X           `032
+X          function put_atom (name:string_t; p1,p2,p3: integer := 0): integer
+V;
+X          begin   `032
+X`009    write_debug('%put_atom');
+X            if atom_count >= MAXATOM then begin
+X`009       LINE_error;
+X               WriteLn ('Error: Too many atom in program.');
+X               WriteLn ('       Limit atom number to ',MAXATOM:1,
+X                       ' atoms.');
+X`009       error_flag := true;
+X               goto 999
+X            end;
+X            atom_count := atom_count + 1;
+X`009    pool`091current_buffer`093.table`091atom_count`093.params`0911`093 :
+V= p1;
+X`009    pool`091current_buffer`093.table`091atom_count`093.params`0912`093 :
+V= p2;
+X`009    pool`091current_buffer`093.table`091atom_count`093.params`0913`093 :
+V= p3;
+X`009    pool`091current_buffer`093.table`091atom_count`093.name := 0;
+X`009    new(pool`091current_buffer`093.table`091atom_count`093.long_name);
+X            pool`091current_buffer`093.table`091atom_count`093.long_name`094
+V := '!!!';
+X
+X`009    case name`0911`093 of
+X`009`009'_': begin
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.nametype `032
+X`009`009`009:= n_variable;
+X
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.long_name`094
+X`009`009`009:= substr(name,2,length(name)-1);
+X`009`009end;
+X`009`009'"': begin
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.nametype `032
+X`009`009`009:= n_const;
+X
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.long_name`094
+V     `032
+X`009`009`009    := substr(name,2,length(name)-2);
+X
+X
+X
+X`009`009end;
+X`009`009'!':  begin
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.nametype := n
+V_comment;
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.long_name`094
+V := name
+X
+X`009`009end;
+X`009`009'-':  begin
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.nametype := n
+V_head;
+X`009`009    pool`091current_buffer`093.table`091atom_count`093.long_name`094
+V := name
+X
+X`009`009end;
+X`009    end; `123 case `125
+X
+X            put_atom := search_atom;
+X          end;
+X
+X`009  procedure write_comment;
+X`009  begin
+X`009    put_atom(read_comment);
+X`009  end; `123 write_comment `125
+X
+X`009  function put_atom_H(code:integer; params: paramtable; atom: string):
+X`009    integer;
+X`009  var i,count,result,loc: integer;
+X`009  begin
+X`009    write_debug('%put_atom_H');   `032
+X            if atom_count >= MAXATOM then begin
+X`009       LINE_error;
+X               WriteLn ('Error: Too many atom in program.');
+X               WriteLn ('       Limit atom number to ',MAXATOM:1,
+X                       ' atoms.');
+X`009       error_flag := true;
+X               goto 999
+X            end;
+X            atom_count := atom_count + 1;
+X`009    pool`091current_buffer`093.table`091atom_count`093.name     := code;
+X`009    pool`091current_buffer`093.table`091atom_count`093.nametype := n_hea
+Vder;
+X`009    pool`091current_buffer`093.table`091atom_count`093.params   := param
+Vs;
+X`009    new(pool`091current_buffer`093.table`091atom_count`093.long_name);
+X`009    pool`091current_buffer`093.table`091atom_count`093.long_name`094
+V     := atom;
+X`009    if code = LABEL_ID then begin`032
+X`009`009if label_count >= max_labels then begin
+X`009`009    LINE_error;
+X`009`009    WriteLn ('Error: Too many LABELs in program.');
+X`009`009    WriteLn ('       Limit label number to ',max_labels:1,
+X                       ' labels.');
+X`009`009    error_flag := true;
+X`009`009    goto 999
+X`009`009end;
+X`009`009loc := 0;
+X`009`009for i := 1 to label_count do`032
+X`009`009    if EQ(labels`091i`093.name,atom) then loc := i;
+X`009`009if loc > 0 then begin
+X`009`009    LINE_error;
+X`009`009    writeln('Error: Dublicate LABEL ',atom);
+X`009`009    error_flag := true;
+X`009`009end;
+X`009`009label_count := label_count +1;
+X`009`009labels`091label_count`093.name := atom;
+X`009`009result := search_atom;
+X`009`009labels`091label_count`093.loc := result;
+X`009`009put_atom_H := result;
+X`009    end else put_atom_H := search_atom;;
+X`009end;`032
+X
+X          function put_atom_2 (code:integer; params: paramtable): integer;
+X`009  var i,count: integer;
+X          begin
+X`009    write_debug('%put_atom_2');   `032
+X            if atom_count >= MAXATOM then begin
+X`009       LINE_error;
+X               WriteLn ('Error: Too many atom in program.');
+X               WriteLn ('       Limit atom number to ',MAXATOM:1,
+X                       ' atoms.');
+X`009       error_flag := true;
+X               goto 999
+X            end;
+X            atom_count := atom_count + 1;
+X`009    pool`091current_buffer`093.table`091atom_count`093.name := code;
+X`009    pool`091current_buffer`093.table`091atom_count`093.nametype := n_fun
+Vction;
+X`009    pool`091current_buffer`093.table`091atom_count`093.params := params;
+X            put_atom_2 := search_atom;
+X          end;
+X
+X`009  function put_error(message: string_t): integer;
+X`009  var params: paramtable;
+X`009      counter: integer;
+X`009  begin
+X`009    for counter := 1 to max_param do params`091counter`093 := 0;
+X`009    params`0911`093 := put_atom('"'+message+'"');
+X`009    put_error := put_atom_2(ERROR_ID,params);
+X`009    error_flag := true;
+X
+X`009  end; `123 put_error `125 `032
+X`009             `032
+X          function eval: integer;
+X          var params: paramtable;
+X`009      counter: integer;  `032
+X              name,refer: string_t;
+X`009      fcode: integer;
+X`009      min,max:`009integer;
+X
+X`009      function_type: name_type;
+X
+X          begin`032
+X`009    write_debug('%eval');
+X`009    for counter := 1 to max_param do params`091counter`093 := 0;
+X`009    counter := 0;
+X`009    fcode := 0;
+X            read_atom;
+X            if current_atom = '-' then begin
+X`009`009LINE_error;
+X`009`009writeln ('Error: Parameter expected.');
+X`009`009writeln ('       ''-'' detected.');
+X`009`009eval := put_error ('Parameter expected.');
+X
+X            end else if current_atom = ')' then begin
+X`009`009LINE_error;
+X`009`009writeln ('Error: Parameter expected.');
+X`009`009writeln ('       '')'' detected.');
+X`009`009eval := put_error ('Parameter expected.');
+X
+X            end else if current_atom = ',' then begin
+X`009       LINE_error;
+X               writeln ('Error: Parameter expected.');
+X               writeln ('       '','' detected.');
+X               eval := put_error ('Parameter expected.');
+X
+X            end else begin  `032
+X               name := clean_spaces (current_atom);
+X               atom_readed := false;
+X               if name = '' then begin
+X`009`009  LINE_error;
+X                  writeln ('Error: Empty parameter detected.');
+X                  writeln ('       Internal error or end of file.');
+X                  eval := put_error ('Empty parameter detected.');
+X
+X               end else if (name = '(') or (name = ')') or`032
+X`009`009           (name = ',') or (name = '-') then begin
+X`009`009    LINE_error;
+X`009`009    writeln('Error: ''',name,''' detected.');
+X`009`009    writeln('       Function, variable or string expected.');
+X`009`009    error_flag := true;
+X
+X`009`009    if (name = '(') then begin
+X`009`009`009atom_readed := false;
+X`009`009`009eval := eval;
++-+-+-+-+-+-+-+-  END  OF PART 13 +-+-+-+-+-+-+-+-

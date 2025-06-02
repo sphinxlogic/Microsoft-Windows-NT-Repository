@@ -1,0 +1,1159 @@
+Newsgroups: comp.sources.misc
+From: bart@zigzag.z-code.com (Bart Schaefer)
+Subject:  v32i101:  mush - Mail User's Shell, Patch05a/3
+Message-ID: <csm-v32i101=mush.090852@sparky.IMD.Sterling.COM>
+X-Md4-Signature: de0a568d764b1a26ccc4349228eda4a5
+Date: Fri, 16 Oct 1992 14:12:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bart@zigzag.z-code.com (Bart Schaefer)
+Posting-number: Volume 32, Issue 101
+Archive-name: mush/patch05a
+Environment: UNIX
+Patch-To: mush: Volume 18, Issue 58-79
+
+[ Please note: there are three parts to this submission, the 
+[ first two parts are actual patches while the third part is 
+[ a shar file of new files. -Kent+
+
+This is Part 01 of Official Patch #5 for Mush 7.2.  To apply this patch,
+save this message to a file in your mush source directory and type:
+
+	patch -N -p1 < file
+
+If you are using an Apollo workstation, you will first need to apply
+Part 02 of this patch, and then proceed with:
+
+	sh apollo.shar
+	patch -N -p1 < apollo.patch
+
+See the files README and README.apollo for details.
+
+This patch is a bit odd in that it contains a patch to a shar file (the
+apollo.shar) but that was smaller than resending the entire shar.
+
+New stuff:
+
+  * POP support; -T timeout option works to specify time between POP checks
+
+  * MIME support (recognizes MIME messages and sends them to "metamail"
+    if it is available; see variable $metamail)
+
+  * Expansion of variable values containing quote characters finally works
+    the way it does in most shells
+
+  * Check for From_ line even if MMDF is defined, to get date_received etc.
+
+Bugfixes:
+
+  * Better parsing of double-quoted tokens in addresses
+
+  * Unsetenv allocates a new copy of the environment on first call
+
+  * Doesn't attempt to init tty if there isn't one
+
+  * #define CURSES in config.h (as opposed to in CFLAGS) should work
+
+  * On AIX, curses mode won't dump core
+
+  * Recognize more date formats, and store dates to resolution in seconds
+    for more accurate date sorting
+
+  * Tool mode "sort" menu "by value of sort variable" works now
+
+  * Better handling of X.400 addresses (heuristic for distinguishing them
+    from file names has been improved)
+
+  * Tool mode "save" pullright directory-walking menus work in all contexts
+    (I hope)
+
+  * Moved that silly piece of code that was setting $realname to the
+    spool folder path
+
+  * Code to init all hostname aliases for $hostname finally works right in
+    all cases
+
+  * Many improvements to DOT_LOCK; NFS "secure" lockfile creation
+
+  * ~user/$variable parses correctly and expands $variable
+
+  * Some compilation fixes for SGI IRIX
+
+  * Child-process management for pager process improved
+
+  * Support for POSIX_UTIME fixed
+
+  * "saveopts" of variables, aliases, etc. with embedded quotes of mixed
+    types does appropriate quoting of its output
+
+@OFF
+
+As usual, complete sources for Mush (already including the changes in this
+patch) can be obtained via anonymous ftp from:
+
+                  cse.ogi.edu:pub/mush/mush-7.2.tar.Z
+
+It may be a few days before I have a chance to update the cse.ogi.edu
+archive, so if you need 7.2.5 _now_, save this patch before retrieving
+the rest of the source.
+
+Mush 7.2 was most recently posted to comp.sources.misc at patchlevel 2.
+Patches 3, 4, 5, and any future patches will be made available for ftp
+from cse.ogi.edu, or you can send E-mail to me:
+
+                         schaefer@cse.ogi.edu
+
+Include in your message a line of the form
+
+@PATCH patch-number path-from-ogicse-to-you
+
+where patch-number is the number of the patch you need (digit, 3 to 5)
+and path-from-ogicse-to-you is either your Internet domain address or
+a UUCP path from site ogicse to you at your site.  There continue to
+be sendmail configuration problems at ogicse so please do not use mixed
+UUCP and Internet addresses and do not use domain names (with `.'s) in
+UUCP paths.  Ogicse does do UUCP map lookups now, so user@site.UUCP will
+often work if your site is registered.  If you don't get your patches
+in 2 or 3 days, try again, but use a different path.
+
+You may include one @PATCH line for each patch you need.
+
+You can also recieve a complete set of sources by E-mail by including
+a line of the form
+
+@MUSH path-from-ogicse-to-you
+
+where path-from-ogicse-to-you is as above.  You need not request both
+source and patches; the source you receive will include all current
+patches.  Sources are shipped as a 10-part compressed tar file, encoded
+for mailing with the "btoa" utility.  You will receive instructions
+explaining how to unpack the tar file in a separate message.
+
+Decwrl also operates an E-mail server that accesses anonymous ftp.  To
+get instructions, send a message to:
+
+                        ftpmail@decwrl.dec.com
+
+Include the following lines in the text:
+
+help
+quit
+
+To get the mush sources, send the following:
+
+reply your-email-address
+connect cse.ogi.edu
+chdir pub/mush
+btoa				<-- replace with uuencode if you prefer
+binary
+get mush-7.2.tar.Z
+quit
+
+Other information, plus questions and answers, on mush and mush patches
+is available from the mush-users mailing list, which is gatewayed in
+both directions with newsgroup comp.mail.mush.  The list currently
+resides at mush-users@apple.com.  Requests to be added to or deleted
+from the list should be sent to mush-users-request@apple.com
+
+Prereq: 7.2.4"
+*** 7.2.4/mush.1	Sun Feb  2 14:35:12 1992
+--- 7.2.5/mush.1	Wed Oct 14 00:57:54 1992
+***************
+*** 10,16 ****
+  .if n .ds - --
+  .if t .ds - \(em
+  .nh
+! .TH MUSH 1 "Feb 2, 1992" "Version 7.2.4"
+  .SH NAME
+  The Mail User's Shell \- Shell for electronic mail.
+  .SH SYNOPSIS
+--- 10,16 ----
+  .if n .ds - --
+  .if t .ds - \(em
+  .nh
+! .TH MUSH 1 "Oct 14, 1992" "Version 7.2.5"
+  .SH NAME
+  The Mail User's Shell \- Shell for electronic mail.
+  .SH SYNOPSIS
+***************
+*** 4424,4429 ****
+--- 4424,4472 ----
+  When
+  .B mbox
+  is not set, \*Q~/mbox\*U is used.
++ .TP
++ .B metamail
++ (String)
++ This variable should be set to the name of a program that displays
++ multimedia messages encapsulated in MIME format
++ .RI ( e.g. ,
++ Nathaniel Borenstein's
++ .I metamail
++ program).
++ When this variable is set, any message that contains a Content-Type: header
++ will be passed to the indicated program for display (by any of the commands
++ .BR print ,
++ .BR type ,
++ .BR next ,
++ .IR etc. ).
++ This overrides truncation by the
++ .B top
++ command, disregards the value of
++ .BR crt ,
++ and forces all headers to be passed to the display program.
++ .IR NOTE :
++ If
++ .B alwaysignore
++ is boolean true (set but with no value), ignored headers are omitted and
++ blank lines are stripped as specified by the value of
++ .BR squeeze ,
++ .IR "even when sending to the metamail pager" .
++ If you set
++ .BR metamail ,
++ you should either not set
++ .B alwaysignore
++ or set it to one or more of its possible values.
++ .sp
++ The program specified by
++ .B metamail
++ is invoked in tool mode as well, instead of paging the message in the
++ message subwindow.
++ This program is therefore expected to be able to determine for itself
++ .RI ( e.g. ,
++ via the
++ .I mailcap
++ configuration file) that SunView is running, and to
++ create appropriate windows as needed.
+  .TP
+  .B metoo
+  (Boolean)
+*** 7.2.4/README	Sun Feb  2 09:24:06 1992
+--- 7.2.5/README	Sat Aug 22 11:46:59 1992
+***************
+*** 28,38 ****
+  implementing features and providing backwards compatibility with previous
+  versions.  Modification of the source for personal use is permitted.
+  Modifications sent to the authors are humbly accepted and it is their
+! perogative to make the mods official.  Only the "official" sources may be
+  redistributed and no sale of the code or any part thereof is permitted
+  without written consent from the authors.  Further, no part of the code
+  may be used in any other product, free or otherwise, without consent from
+! the authors.
+  
+  MUSH IS PROVIDED AS IS, WITHOUT WARRANTY.  AUTHORS HEREBY DISCLAIM
+  ALL WARRANTIES INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES
+--- 28,39 ----
+  implementing features and providing backwards compatibility with previous
+  versions.  Modification of the source for personal use is permitted.
+  Modifications sent to the authors are humbly accepted and it is their
+! prerogative to make the mods official.  Only the "official" sources may be
+  redistributed and no sale of the code or any part thereof is permitted
+  without written consent from the authors.  Further, no part of the code
+  may be used in any other product, free or otherwise, without consent from
+! the authors.  Distribution of sources containing adaptations of the SunView
+! interface to XView or to any X11-based interface is expressly prohibited.
+  
+  MUSH IS PROVIDED AS IS, WITHOUT WARRANTY.  AUTHORS HEREBY DISCLAIM
+  ALL WARRANTIES INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES
+***************
+*** 229,235 ****
+      configuration in order to work properly.  There seem to be
+      major differences between the last several releases, so your
+      milage may vary.  Before RISC/OS 3.2, there are numerous curses
+!     library bugs, and, lock.c should be compiled with BSD defined, but
+      everything else should be SYSV.  -DGETWD should be used and -lbsd
+      must be added to OTHERLIBS in the Makefile.
+  
+--- 230,236 ----
+      configuration in order to work properly.  There seem to be
+      major differences between the last several releases, so your
+      milage may vary.  Before RISC/OS 3.2, there are numerous curses
+!     library bugs, and lock.c should be compiled with BSD defined, but
+      everything else should be SYSV.  -DGETWD should be used and -lbsd
+      must be added to OTHERLIBS in the Makefile.
+  
+***************
+*** 302,307 ****
+--- 303,315 ----
+  Smail:
+      If you are using smail-2.x you need to define NO_COMMAS and PICKY_MAILER.
+      On a SYSV system, define MAIL_DELIVERY as /bin/rmail.
++ 
++ POP:
++     Define POP3_SUPPORT.  You may also need to define HOMEMAIL; see config.h
++     for additional configuration of HOMEMAIL.
++ 
++     You will still need to define other macros appropriately for the
++     transport agent that is used to *send* mail from your machine.
+  
+  All others:
+      Chances are, your MTA uses the "From " format to separate messges in
+*** 7.2.4/dates.c	Thu May 16 18:28:48 1991
+--- 7.2.5/dates.c	Sat Aug 22 11:46:50 1992
+***************
+*** 220,226 ****
+      char Wkday[4], Zone[12], dst[4];
+      char a_or_p;
+      int Month = 0, Day = 0, Year = 0;
+!     int Hours = -1, Mins = -1;
+      struct tm T;
+  
+      Zone[0] = dst[0] = 0;
+--- 220,226 ----
+      char Wkday[4], Zone[12], dst[4];
+      char a_or_p;
+      int Month = 0, Day = 0, Year = 0;
+!     int Hours = -1, Mins = -1, Secs = -1;
+      struct tm T;
+  
+      Zone[0] = dst[0] = 0;
+***************
+*** 238,275 ****
+      /* RFC822 formats and minor variations -- order important */
+  
+      /*   day_number month_name year_number time timezone */
+!     if (sscanf(p, "%d %s %d %d:%d:%*d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone, dst) >= 5 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+      if (sscanf(p, "%d %s %d %d:%d %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone, dst) >= 5 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+      /*   day_name day_number month_name year_number time timezone */
+!     if (sscanf(p, "%*s %d %s %d %d:%d:%*d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone, dst) >= 5 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+      if (sscanf(p, "%*s %d %s %d %d:%d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone, dst) >= 5 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+  
+      /* Ctime format (From_ lines) -- timezone almost never found */
+  
+-     /*   day_name month_name day_number time year_number */
+-     if (sscanf(p, "%*s %s %d %d:%d:%*d %d",
+- 	    month, &Day, &Hours, &Mins, &Year) == 5)
+- 	goto gotit;
+      /*   day_name month_name day_number time timezone year_number */
+!     if (sscanf(p, "%*s %s %d %d:%d:%*d %7s %d",
+! 	    month, &Day, &Hours, &Mins, Zone, &Year) == 6)
+  	goto gotit;
+      Zone[0] = 0;
+!     if (sscanf(p, "%*s %s %d %d:%d:%*d %7s %3s %d",
+! 	    month, &Day, &Hours, &Mins, Zone, dst, &Year) == 7)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+  
+      /* Other common variants */
+--- 238,280 ----
+      /* RFC822 formats and minor variations -- order important */
+  
+      /*   day_number month_name year_number time timezone */
+!     if (sscanf(p, "%d %s %d %d:%d:%d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, &Secs, Zone, dst) >= 6 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+      if (sscanf(p, "%d %s %d %d:%d %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone) >= 5 && Day) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = dst[0] = 0;
+      /*   day_name day_number month_name year_number time timezone */
+!     if (sscanf(p, "%*s %d %s %d %d:%d:%d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, &Secs, Zone, dst) >= 6 && Day)
+  	goto gotit;
+      Zone[0] = dst[0] = 0;
+      if (sscanf(p, "%*s %d %s %d %d:%d %7s %3s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone, dst) >= 5 && Day) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = dst[0] = 0;
+  
+      /* Ctime format (From_ lines) -- timezone almost never found */
+  
+      /*   day_name month_name day_number time timezone year_number */
+!     if (sscanf(p, "%*s %s %d %d:%d:%d %7s %d",
+! 	    month, &Day, &Hours, &Mins, &Secs, Zone, &Year) == 7)
+  	goto gotit;
+      Zone[0] = 0;
+!     /*   day_name month_name day_number time year_number */
+!     if (sscanf(p, "%*s %s %d %d:%d:%d %d",
+! 	    month, &Day, &Hours, &Mins, &Secs, &Year) == 6)
+  	goto gotit;
++     /*   day_name month_name day_number time timezone dst year_number */
++     if (sscanf(p, "%*s %s %d %d:%d:%d %7s %3s %d",
++ 	    month, &Day, &Hours, &Mins, &Secs, Zone, dst, &Year) == 8)
++ 	goto gotit;
+      Zone[0] = dst[0] = 0;
+  
+      /* Other common variants */
+***************
+*** 276,289 ****
+  
+      /*   day_number month_name year_number time-timezone (day) */
+      /*                                       ^no colon separator */
+!     if (sscanf(p, "%d %s %d %2d%2d-%6[0123456789]",
+! 	    &Day, month, &Year, &Hours, &Mins, &Zone[1]) == 6) {
+! 	Zone[0] = '-';
+  	goto gotit;
+!     }
+!     if (sscanf(p, "%d %s %d %2d%2d-%7s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone) == 6)
+  	goto gotit;
+      Zone[0] = 0;
+  
+      /*   day_number month_name year_number time timezone	*/
+--- 281,294 ----
+  
+      /*   day_number month_name year_number time-timezone (day) */
+      /*                                       ^no colon separator */
+!     if (sscanf(p, "%d %s %d %2d%2d%1[-+]%6[0123456789]",
+! 	    &Day, month, &Year, &Hours, &Mins, &Secs, &Zone[0], &Zone[1]) == 8)
+  	goto gotit;
+!     if (sscanf(p, "%d %s %d %2d%2d-%7s",	/* Does this _ever_ hit? */
+! 	    &Day, month, &Year, &Hours, &Mins, Zone) == 6) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = 0;
+  
+      /*   day_number month_name year_number time timezone	*/
+***************
+*** 291,313 ****
+      /*   (This is the odd one in the RFC822 examples section;	*/
+      /*    also catches the slop from partial hits above.)	*/
+      if (sscanf(p, "%d %s %d %2d%2d %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone) >= 5 && Day)
+  	goto gotit;
+      Zone[0] = 0;
+      
+      Zone[1] = 0;	/* Yes, Zone[1] -- tested below */
+  
+      /*   day_number month_name year_number, time "-" ?? */
+!     if (sscanf(p,"%d %s %d, %d:%d:%*d -%6[0123456789]",
+! 	    &Day, month, &Year, &Hours, &Mins, &Zone[1]) >= 5 && Day) {
+! 	if (Zone[1])
+! 	    Zone[0] = '-';
+  	goto gotit;
+-     }
+  
+      /*   day_number month_name year_number 12_hour_time a_or_p */
+!     if (sscanf(p, "%d %s %d %d:%d:%*d %cm %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, &a_or_p, Zone) >= 6) {
+  	if (a_or_p == 'p')
+  	    Hours += 12;
+  	goto gotit;
+--- 296,318 ----
+      /*   (This is the odd one in the RFC822 examples section;	*/
+      /*    also catches the slop from partial hits above.)	*/
+      if (sscanf(p, "%d %s %d %2d%2d %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, Zone) >= 5 && Day) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = 0;
+      
+      Zone[1] = 0;	/* Yes, Zone[1] -- tested below */
+  
+      /*   day_number month_name year_number, time "-" ?? */
+!     if (sscanf(p,"%d %s %d, %d:%d:%d %1[-+]%6[0123456789]",
+! 	    &Day, month, &Year, &Hours, &Mins, &Secs,
+! 	    &Zone[0], &Zone[1]) >= 6 && Day)
+  	goto gotit;
+  
+      /*   day_number month_name year_number 12_hour_time a_or_p */
+!     if (sscanf(p, "%d %s %d %d:%d:%d %cm %7s",
+! 	    &Day, month, &Year, &Hours, &Mins, &Secs, &a_or_p, Zone) >= 7) {
+  	if (a_or_p == 'p')
+  	    Hours += 12;
+  	goto gotit;
+***************
+*** 314,338 ****
+      }
+  
+      /*   day_name month_name day_number year_number time */
+!     if (sscanf(p, "%*s %s %d %d %d:%d:%*d %7s",
+! 	    month, &Day, &Year, &Hours, &Mins, Zone) >= 5)
+  	goto gotit;
+      Zone[0] = 0;
+      if (sscanf(p, "%*s %s %d %d %d:%d %7s",
+! 	    month, &Day, &Year, &Hours, &Mins, Zone) >= 5)
+  	goto gotit;
+      Zone[0] = 0;
+  
+      /*   day_name month_name day_number time timezone year_number */
+!     if (sscanf(p, "%*s %s %d %d:%d:%*d %7s %d",
+! 	    month, &Day, &Hours, &Mins, Zone, &Year) == 6)
+  	goto gotit;
+      Zone[0] = 0;
+      if (sscanf(p, "%*s %s %d %d:%d %7s %d",
+! 	    month, &Day, &Hours, &Mins, Zone, &Year) == 6)
+  	goto gotit;
+      Zone[0] = 0;
+  
+      /*   day_number-month_name-year time */
+      if (sscanf(p,"%d-%[^-]-%d %d:%d", &Day, month, &Year, &Hours, &Mins) == 5)
+  	goto gotit;
+--- 319,349 ----
+      }
+  
+      /*   day_name month_name day_number year_number time */
+!     if (sscanf(p, "%*s %s %d %d %d:%d:%d %7s",
+! 	    month, &Day, &Year, &Hours, &Mins, &Secs, Zone) >= 6)
+  	goto gotit;
+      Zone[0] = 0;
+      if (sscanf(p, "%*s %s %d %d %d:%d %7s",
+! 	    month, &Day, &Year, &Hours, &Mins, Zone) >= 5) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = 0;
+  
+      /*   day_name month_name day_number time timezone year_number */
+!     if (sscanf(p, "%*s %s %d %d:%d:%d %7s %d",
+! 	    month, &Day, &Hours, &Mins, &Secs, Zone, &Year) == 7)
+  	goto gotit;
+      Zone[0] = 0;
+      if (sscanf(p, "%*s %s %d %d:%d %7s %d",
+! 	    month, &Day, &Hours, &Mins, Zone, &Year) == 6) {
+! 	Secs = 0;
+  	goto gotit;
++     }
+      Zone[0] = 0;
+  
++     Secs = 0;	/* For the next 3 attempts */
++ 
+      /*   day_number-month_name-year time */
+      if (sscanf(p,"%d-%[^-]-%d %d:%d", &Day, month, &Year, &Hours, &Mins) == 5)
+  	goto gotit;
+***************
+*** 348,355 ****
+  
+      /*   month_name day_number time year Zone */
+      /*   (ctime, but without the day name)    */
+!     if (sscanf(p, "%s %d %d:%d:%*d %d %7s",
+! 	    month, &Day, &Hours, &Mins, &Year, Zone) >= 5)
+  	goto gotit;
+      Zone[0] = 0;
+  
+--- 359,366 ----
+  
+      /*   month_name day_number time year Zone */
+      /*   (ctime, but without the day name)    */
+!     if (sscanf(p, "%s %d %d:%d:%d %d %7s",
+! 	    month, &Day, &Hours, &Mins, &Secs, &Year, Zone) >= 6)
+  	goto gotit;
+      Zone[0] = 0;
+  
+***************
+*** 383,389 ****
+  	    days_ctr++;
+      	(void) (sprintf(Wkday, "%.3s", day_names[(int)(days_ctr % 7L)]));
+      }
+!     T.tm_sec = 0;		/* not recorded, so ignore it */
+      T.tm_min = Mins;
+      T.tm_hour = Hours;
+      T.tm_mday = Day;
+--- 394,400 ----
+  	    days_ctr++;
+      	(void) (sprintf(Wkday, "%.3s", day_names[(int)(days_ctr % 7L)]));
+      }
+!     T.tm_sec = Secs;
+      T.tm_min = Mins;
+      T.tm_hour = Hours;
+      T.tm_mday = Day;
+*** 7.2.4/makefile.bsd	Thu Jan 30 22:00:59 1992
+--- 7.2.5/makefile.bsd	Sat Aug 22 11:47:04 1992
+***************
+*** 1,16 ****
+  # makefile.bsd	(c) copyright 1991	(Dan Heller)
+  # SunOS users should add -DSUN_3_5, -DSUN_4_0, or -DSUN_4_1 to CFLAGS.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h
+  
+  SRCS= main.c init.c misc.c mail.c hdrs.c execute.c commands.c print.c dates.c \
+        signals.c setopts.c msgs.c pick.c sort.c expr.c folders.c \
+        loop.c viewopts.c curses.c curs_io.c bind.c file.c strings.c \
+!       lock.c macros.c options.c addrs.c malloc.c glob.c command2.c
+  OBJS= main.o init.o misc.o mail.o hdrs.o execute.o commands.o print.o file.o \
+        signals.o setopts.o msgs.o pick.o sort.o expr.o strings.o \
+        folders.o dates.o loop.o viewopts.o curses.o curs_io.o bind.o \
+!       lock.o macros.o options.o addrs.o malloc.o glob.o command2.o
+  
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+--- 1,18 ----
+  # makefile.bsd	(c) copyright 1991	(Dan Heller)
+  # SunOS users should add -DSUN_3_5, -DSUN_4_0, or -DSUN_4_1 to CFLAGS.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h pop.h
+  
+  SRCS= main.c init.c misc.c mail.c hdrs.c execute.c commands.c print.c dates.c \
+        signals.c setopts.c msgs.c pick.c sort.c expr.c folders.c \
+        loop.c viewopts.c curses.c curs_io.c bind.c file.c strings.c \
+!       lock.c macros.c options.c addrs.c malloc.c glob.c command2.c \
+!       pop.c pmush.c xcreat.c
+  OBJS= main.o init.o misc.o mail.o hdrs.o execute.o commands.o print.o file.o \
+        signals.o setopts.o msgs.o pick.o sort.o expr.o strings.o \
+        folders.o dates.o loop.o viewopts.o curses.o curs_io.o bind.o \
+!       lock.o macros.o options.o addrs.o malloc.o glob.o command2.o \
+!       pop.o pmush.o xcreat.o
+  
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+*** 7.2.4/makefile.hpux	Thu Jan 30 22:01:20 1992
+--- 7.2.5/makefile.hpux	Sat Aug 22 11:47:04 1992
+***************
+*** 1,20 ****
+  # Mush makefile for HP/UX.
+  #
+! HDRS1= mush.h config.h
+  HDRS2= strings.h options.h
+  HDRS3= bindings.h glob.h
+! HDRS4= version.h
+  SRCS1= commands.c dates.c execute.c expr.c folders.c \
+  	hdrs.c init.c loop.c mail.c main.c misc.c msgs.c pick.c \
+  	print.c setopts.c signals.c sort.c viewopts.c options.c lock.c
+  SRCS2= bind.c curs_io.c curses.c file.c strings.c macros.c \
+! 	addrs.c malloc.c glob.c command2.c
+  
+  OBJS1= commands.o dates.o execute.o expr.o folders.o \
+  	hdrs.o init.o loop.o mail.o main.o misc.o msgs.o pick.o \
+  	print.o setopts.o signals.o sort.o viewopts.o options.o lock.o
+  OBJS2= bind.o curs_io.o curses.o file.o strings.o macros.o \
+! 	addrs.o malloc.o glob.o command2.o
+  
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+--- 1,20 ----
+  # Mush makefile for HP/UX.
+  #
+! HDRS1= mush.h config.h-dist
+  HDRS2= strings.h options.h
+  HDRS3= bindings.h glob.h
+! HDRS4= version.h pop.h
+  SRCS1= commands.c dates.c execute.c expr.c folders.c \
+  	hdrs.c init.c loop.c mail.c main.c misc.c msgs.c pick.c \
+  	print.c setopts.c signals.c sort.c viewopts.c options.c lock.c
+  SRCS2= bind.c curs_io.c curses.c file.c strings.c macros.c \
+! 	addrs.c malloc.c glob.c command2.c pop.c pmush.c xcreat.c
+  
+  OBJS1= commands.o dates.o execute.o expr.o folders.o \
+  	hdrs.o init.o loop.o mail.o main.o misc.o msgs.o pick.o \
+  	print.o setopts.o signals.o sort.o viewopts.o options.o lock.o
+  OBJS2= bind.o curs_io.o curses.o file.o strings.o macros.o \
+! 	addrs.o malloc.o glob.o command2.o pop.o pmush.o xcreat.o
+  
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+*** 7.2.4/makefile.sun	Thu Jan 30 22:01:37 1992
+--- 7.2.5/makefile.sun	Sat Aug 22 11:47:07 1992
+***************
+*** 3,21 ****
+  # Note that the default SunOS version for mush is 4.1.  If you have an
+  # older version of SunOS, you must explicitly define SUN_3_5 or SUN_4_0.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h
+  
+  SRCS= addrs.c bind.c commands.c curs_io.c curses.c dates.c doproc.c \
+        execute.c expr.c file.c fkeys.c folders.c glob.c hdrs.c init.c lock.c \
+        loop.c macros.c mail.c main.c malloc.c misc.c misc_frame.c msgs.c \
+        options.c panels.c pick.c print.c hdr_sw.c setopts.c signals.c sort.c \
+!       strings.c tool.c tooledit.c viewopts.c command2.c
+  
+  OBJS= addrs.o bind.o commands.o curs_io.o curses.o dates.o doproc.o \
+        execute.o expr.o file.o fkeys.o folders.o glob.o hdrs.o init.o lock.o \
+        loop.o macros.o mail.o main.o malloc.o misc.o misc_frame.o msgs.o \
+        options.o panels.o pick.o print.o hdr_sw.o setopts.o signals.o sort.o \
+!       strings.o tool.o tooledit.o viewopts.o command2.o
+  
+  IMAGES= mail.icon.1 mail.icon.2
+  
+--- 3,21 ----
+  # Note that the default SunOS version for mush is 4.1.  If you have an
+  # older version of SunOS, you must explicitly define SUN_3_5 or SUN_4_0.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h pop.h
+  
+  SRCS= addrs.c bind.c commands.c curs_io.c curses.c dates.c doproc.c \
+        execute.c expr.c file.c fkeys.c folders.c glob.c hdrs.c init.c lock.c \
+        loop.c macros.c mail.c main.c malloc.c misc.c misc_frame.c msgs.c \
+        options.c panels.c pick.c print.c hdr_sw.c setopts.c signals.c sort.c \
+!       strings.c tool.c tooledit.c viewopts.c command2.c pop.c pmush.c xcreat.c
+  
+  OBJS= addrs.o bind.o commands.o curs_io.o curses.o dates.o doproc.o \
+        execute.o expr.o file.o fkeys.o folders.o glob.o hdrs.o init.o lock.o \
+        loop.o macros.o mail.o main.o malloc.o misc.o misc_frame.o msgs.o \
+        options.o panels.o pick.o print.o hdr_sw.o setopts.o signals.o sort.o \
+!       strings.o tool.o tooledit.o viewopts.o command2.o pop.o pmush.o xcreat.o
+  
+  IMAGES= mail.icon.1 mail.icon.2
+  
+*** 7.2.4/makefile.sys.v	Thu Jan 30 22:02:19 1992
+--- 7.2.5/makefile.sys.v	Sat Aug 22 11:47:04 1992
+***************
+*** 4,21 ****
+  HDRS1= mush.h config.h
+  HDRS2= strings.h options.h
+  HDRS3= bindings.h glob.h
+! HDRS4= version.h
+  SRCS1= commands.c dates.c execute.c expr.c folders.c \
+  	hdrs.c init.c loop.c mail.c main.c misc.c msgs.c pick.c \
+  	print.c setopts.c signals.c sort.c viewopts.c options.c lock.c
+  SRCS2= bind.c curs_io.c curses.c file.c strings.c macros.c \
+! 	addrs.c malloc.c glob.c command2.c
+  
+  OBJS1= commands.o dates.o execute.o expr.o folders.o \
+  	hdrs.o init.o loop.o mail.o main.o misc.o msgs.o pick.o \
+  	print.o setopts.o signals.o sort.o viewopts.o options.o lock.o
+  OBJS2= bind.o curs_io.o curses.o file.o strings.o macros.o \
+! 	addrs.o malloc.o glob.o command2.o
+  
+  HELP= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+--- 4,21 ----
+  HDRS1= mush.h config.h
+  HDRS2= strings.h options.h
+  HDRS3= bindings.h glob.h
+! HDRS4= version.h pop.h
+  SRCS1= commands.c dates.c execute.c expr.c folders.c \
+  	hdrs.c init.c loop.c mail.c main.c misc.c msgs.c pick.c \
+  	print.c setopts.c signals.c sort.c viewopts.c options.c lock.c
+  SRCS2= bind.c curs_io.c curses.c file.c strings.c macros.c \
+! 	addrs.c malloc.c glob.c command2.c pop.c pmush.c xcreat.c
+  
+  OBJS1= commands.o dates.o execute.o expr.o folders.o \
+  	hdrs.o init.o loop.o mail.o main.o misc.o msgs.o pick.o \
+  	print.o setopts.o signals.o sort.o viewopts.o options.o lock.o
+  OBJS2= bind.o curs_io.o curses.o file.o strings.o macros.o \
+! 	addrs.o malloc.o glob.o command2.o pop.o pmush.o xcreat.o
+  
+  HELP= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+*** 7.2.4/makefile.xenix	Thu Jan 30 22:02:41 1992
+--- 7.2.5/makefile.xenix	Sat Aug 22 11:47:04 1992
+***************
+*** 6,12 ****
+  # are running some other kind of xenix, you might need to change the
+  # CFLAGS and LDFLAGS options.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h
+  SRCS1= main.c init.c misc.c execute.c
+  SRCS2= signals.c msgs.c pick.c viewopts.c
+  SRCS3= sort.c expr.c folders.c dates.c
+--- 6,12 ----
+  # are running some other kind of xenix, you might need to change the
+  # CFLAGS and LDFLAGS options.
+  #
+! HDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h pop.h
+  SRCS1= main.c init.c misc.c execute.c
+  SRCS2= signals.c msgs.c pick.c viewopts.c
+  SRCS3= sort.c expr.c folders.c dates.c
+***************
+*** 15,25 ****
+  SRCS6= mail.c print.c
+  SRCS7= curses.c curs_io.c
+  SRCS8= file.c strings.c malloc.c
+! SRCS9= lock.c macros.c addrs.c glob.c
+  OBJS= main.o init.o misc.o mail.o hdrs.o execute.o commands.o print.o file.o \
+        signals.o setopts.o msgs.o pick.o sort.o expr.o strings.o \
+        folders.o dates.o loop.o viewopts.o bind.o curses.o curs_io.o \
+!       lock.o macros.o options.o addrs.o malloc.o glob.o command2.o
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+  	sample.mushrc advanced.mushrc digestify
+--- 15,26 ----
+  SRCS6= mail.c print.c
+  SRCS7= curses.c curs_io.c
+  SRCS8= file.c strings.c malloc.c
+! SRCS9= lock.c macros.c addrs.c glob.c pop.c pmush.c xcreat.c
+  OBJS= main.o init.o misc.o mail.o hdrs.o execute.o commands.o print.o file.o \
+        signals.o setopts.o msgs.o pick.o sort.o expr.o strings.o \
+        folders.o dates.o loop.o viewopts.o bind.o curses.o curs_io.o \
+!       lock.o macros.o options.o addrs.o malloc.o glob.o command2.o \
+!       pop.o pmush.o xcreat.o
+  HELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
+  	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
+  	sample.mushrc advanced.mushrc digestify
+*** 7.2.4/doproc.c	Thu Dec  6 16:52:58 1990
+--- 7.2.5/doproc.c	Sat Aug 22 11:47:05 1992
+***************
+*** 873,879 ****
+  	when 4: argv[1] = "s";
+  	when 5: argv[1] = "d";
+  	when 6: argv[1] = "p";
+! 	when 7: do_set(set_options, "sort");
+  	when 8: (void) help(0, "sort", tool_help);
+      }
+      if (value != 8) {
+--- 873,879 ----
+  	when 4: argv[1] = "s";
+  	when 5: argv[1] = "d";
+  	when 6: argv[1] = "p";
+! 	when 7: if (!(argv[1] = do_set(set_options, "sort"))) return;
+  	when 8: (void) help(0, "sort", tool_help);
+      }
+      if (value != 8) {
+*** 7.2.4/hdr_sw.c	Thu Dec  6 16:52:59 1990
+--- 7.2.5/hdr_sw.c	Sat Aug 22 11:47:06 1992
+***************
+*** 359,371 ****
+  	/* if user selected something, figure out what was selected. */
+  	if (!cur_msg_item)
+  	    return;
+  #ifndef NO_WALK_MENUS
+! 	if ((Menu)menu_get(cur_msg_item, MENU_PARENT) == hdr_save_menu) {
+! 	    save_place = (char *)menu_get(cur_msg_item, MENU_CLIENT_DATA);
+! 	    action = SAVE_MSG;
+! 	} else
+  #endif /* NO_WALK_MENUS */
+! 	    action = (char *) menu_get(cur_msg_item, MENU_CLIENT_DATA);
+      } else
+  	action = (char *) event;
+  
+--- 359,382 ----
+  	/* if user selected something, figure out what was selected. */
+  	if (!cur_msg_item)
+  	    return;
++ 	else {
+  #ifndef NO_WALK_MENUS
+! 	    Menu item = (Menu)cur_msg_item;
+! 	    while (item = (Menu)menu_get(item, MENU_PARENT))
+! 		if ((Menu)item == hdr_save_menu)
+! 		    break;
+! 		/* May also need to test the type of item and
+! 		 * break if it is not a Menu_item -- but how??
+! 		 * My sunview isn't that good ... I got the
+! 		 * fragment above from Dan's XView book.
+! 		 */
+! 	    if ((Menu)item == hdr_save_menu) {
+! 		save_place = (char *)menu_get(cur_msg_item, MENU_CLIENT_DATA);
+! 		action = SAVE_MSG;
+! 	    } else
+  #endif /* NO_WALK_MENUS */
+! 		action = (char *) menu_get(cur_msg_item, MENU_CLIENT_DATA);
+! 	}
+      } else
+  	action = (char *) event;
+  
+***************
+*** 446,451 ****
+--- 457,463 ----
+  	    return;
+  	otherwise :
+  	    print("unknown switch: %c\n", action);
++ 	    return;
+      }
+      (void) sprintf(&buf[strlen(buf)], " %d", message+1);
+  
+*** 7.2.4/apollo.shar	Tue Feb 18 22:47:32 1992
+--- 7.2.5/apollo.shar	Wed Oct 14 00:50:52 1992
+***************
+*** 177,187 ****
+  then echo original size 1828, current size $Sum;fi
+  echo "x - extracting apollo.patch (Text)"
+  sed 's/^X//' << 'SHAR_EOF' > apollo.patch &&
+! X*** 7.2.4/file.c	Thu Jan 30 20:50:48 1992
+! X--- apollo/file.c	Fri Feb 14 07:48:54 1992
+  X***************
+! X*** 467,473 ****
+! X--- 467,477 ----
+  X  mask_fopen(file, mode)
+  X  char *file, *mode;
+  X  {
+--- 177,187 ----
+  then echo original size 1828, current size $Sum;fi
+  echo "x - extracting apollo.patch (Text)"
+  sed 's/^X//' << 'SHAR_EOF' > apollo.patch &&
+! X*** 7.2.5/file.c	Sat Aug 22 11:46:56 1992
+! X--- apollo/file.c	Tue Oct 13 23:53:59 1992
+  X***************
+! X*** 469,475 ****
+! X--- 469,479 ----
+  X  mask_fopen(file, mode)
+  X  char *file, *mode;
+  X  {
+***************
+*** 194,200 ****
+  X  #ifdef SYSV
+  X      /* XENIX and other older sytems can't handle "a+".	Even newer
+  X***************
+! X*** 482,490 ****
+  X  	if (fp = fopen(file, mode))
+  X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
+  X      } else
+--- 194,200 ----
+  X  #ifdef SYSV
+  X      /* XENIX and other older sytems can't handle "a+".	Even newer
+  X***************
+! X*** 484,492 ****
+  X  	if (fp = fopen(file, mode))
+  X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
+  X      } else
+***************
+*** 204,210 ****
+  X      return fp;
+  X  }
+  X  
+! X--- 486,500 ----
+  X  	if (fp = fopen(file, mode))
+  X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
+  X      } else
+--- 204,210 ----
+  X      return fp;
+  X  }
+  X  
+! X--- 488,502 ----
+  X  	if (fp = fopen(file, mode))
+  X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
+  X      } else
+***************
+*** 220,232 ****
+  X      return fp;
+  X  }
+  X  
+! X*** 7.2.4/init.c	Thu Jan 30 00:14:42 1992
+! X--- apollo/init.c	Thu Jan 30 20:51:42 1992
+  X***************
+! X*** 90,95 ****
+! X--- 90,102 ----
+! X  	(void) add_option(&set_options, argv);
+! X      }
+  X      crt = 24;
+  X+ #ifdef apollo
+  X+     if (apollo_ispad()) {
+--- 220,232 ----
+  X      return fp;
+  X  }
+  X  
+! X*** 7.2.5/init.c	Sat Aug 22 13:36:35 1992
+! X--- apollo/init.c	Tue Oct 13 23:54:01 1992
+  X***************
+! X*** 93,98 ****
+! X--- 93,105 ----
+! X      mailfile = "";
+! X  
+  X      crt = 24;
+  X+ #ifdef apollo
+  X+     if (apollo_ispad()) {
+***************
+*** 238,248 ****
+  X      screen = 18;
+  X      wrapcolumn = 0; /* Default is no wrap */
+  X      escape = DEF_ESCAPE;
+! X*** 7.2.4/lock.c	Sun Feb  2 19:43:53 1992
+! X--- apollo/lock.c	Sun Feb  2 19:46:24 1992
+  X***************
+! X*** 303,308 ****
+! X--- 303,311 ----
+  X  {
+  X      struct options *tmp;
+  X      FILE *fp;
+--- 238,248 ----
+  X      screen = 18;
+  X      wrapcolumn = 0; /* Default is no wrap */
+  X      escape = DEF_ESCAPE;
+! X*** 7.2.5/lock.c	Sun Oct 11 18:14:56 1992
+! X--- apollo/lock.c	Tue Oct 13 23:54:02 1992
+  X***************
+! X*** 305,310 ****
+! X--- 305,313 ----
+  X  {
+  X      struct options *tmp;
+  X      FILE *fp;
+***************
+*** 253,259 ****
+  X      for (tmp = exclude_list; tmp; tmp = tmp->next)
+  X  	if (strcmp(tmp->option, filename) == 0) {
+  X***************
+! X*** 317,323 ****
+  X      if (dot_lock(filename) != 0)
+  X  	return NULL_FILE;
+  X  #endif /* DOT_LOCK */
+--- 253,259 ----
+  X      for (tmp = exclude_list; tmp; tmp = tmp->next)
+  X  	if (strcmp(tmp->option, filename) == 0) {
+  X***************
+! X*** 319,325 ****
+  X      if (dot_lock(filename) != 0)
+  X  	return NULL_FILE;
+  X  #endif /* DOT_LOCK */
+***************
+*** 261,267 ****
+  X  	return NULL_FILE;
+  X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
+  X  	tmp->option = savestr(filename);
+! X--- 320,336 ----
+  X      if (dot_lock(filename) != 0)
+  X  	return NULL_FILE;
+  X  #endif /* DOT_LOCK */
+--- 261,267 ----
+  X  	return NULL_FILE;
+  X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
+  X  	tmp->option = savestr(filename);
+! X--- 322,338 ----
+  X      if (dot_lock(filename) != 0)
+  X  	return NULL_FILE;
+  X  #endif /* DOT_LOCK */
+***************
+*** 280,287 ****
+  X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
+  X  	tmp->option = savestr(filename);
+  X***************
+! X*** 384,389 ****
+! X--- 397,408 ----
+  X  
+  X      if (!(mail_fp = exclusive_fopen(filename, mode)))
+  X  	return NULL_FILE;
+--- 280,287 ----
+  X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
+  X  	tmp->option = savestr(filename);
+  X***************
+! X*** 386,391 ****
+! X--- 399,410 ----
+  X  
+  X      if (!(mail_fp = exclusive_fopen(filename, mode)))
+  X  	return NULL_FILE;
+***************
+*** 295,302 ****
+  X  
+  X      if (mode[0] != 'r' || mode[1] == '+')
+  X***************
+! X*** 436,441 ****
+! X--- 455,462 ----
+  X  	(void) exclusive_fclose(mail_fp);
+  X  	return NULL_FILE;
+  X      }
+--- 295,302 ----
+  X  
+  X      if (mode[0] != 'r' || mode[1] == '+')
+  X***************
+! X*** 438,443 ****
+! X--- 457,464 ----
+  X  	(void) exclusive_fclose(mail_fp);
+  X  	return NULL_FILE;
+  X      }
+***************
+*** 305,312 ****
+  X      return mail_fp;
+  X  }
+  X  
+! X*** 7.2.4/mail.c	Thu May 16 20:05:57 1991
+! X--- apollo/mail.c	Thu Jan 30 20:26:42 1992
+  X***************
+  X*** 601,606 ****
+  X--- 601,612 ----
+--- 305,312 ----
+  X      return mail_fp;
+  X  }
+  X  
+! X*** 7.2.5/mail.c	Sat Aug 22 11:46:48 1992
+! X--- apollo/mail.c	Tue Oct 13 23:54:04 1992
+  X***************
+  X*** 601,606 ****
+  X--- 601,612 ----
+***************
+*** 322,332 ****
+  X  			if (!*p && !(p = do_set(set_options, "pager")))
+  X  			    p = DEF_PAGER;
+  X  			if (!*p || !strcmp(p, "internal"))
+! X*** 7.2.4/main.c	Wed Jan 29 23:34:31 1992
+! X--- apollo/main.c	Thu Jan 30 21:08:54 1992
+  X***************
+! X*** 140,145 ****
+! X--- 140,150 ----
+  X  	(void) signal(SIGINT, catch);
+  X  	(void) signal(SIGQUIT, catch);
+  X  	(void) signal(SIGHUP, catch);
+--- 322,332 ----
+  X  			if (!*p && !(p = do_set(set_options, "pager")))
+  X  			    p = DEF_PAGER;
+  X  			if (!*p || !strcmp(p, "internal"))
+! X*** 7.2.5/main.c	Mon Sep 21 10:32:25 1992
+! X--- apollo/main.c	Tue Oct 13 23:54:05 1992
+  X***************
+! X*** 143,148 ****
+! X--- 143,153 ----
+  X  	(void) signal(SIGINT, catch);
+  X  	(void) signal(SIGQUIT, catch);
+  X  	(void) signal(SIGHUP, catch);
+***************
+*** 338,361 ****
+  X  	if (istool || hdrs_only)
+  X  	    turnon(glob_flags, ECHO_FLAG);
+  X  	if (!hdrs_only)
+! X*** 7.2.4/msgs.c	Wed Nov 13 01:28:43 1991
+! X--- apollo/msgs.c	Thu Jan 30 20:30:55 1992
+  X***************
+! X*** 31,36 ****
+! X--- 31,41 ----
+  X  #ifdef MSG_SEPARATOR
+  X      turnon(flg, NO_SEPARATOR);
+  X  #endif /* MMDF */
+  X+ #ifdef apollo
+  X+     if (!istool && apollo_ispad())
+! X+ 	pager = "NONE";		/* The pad IS the pager */
+  X+     else
+  X+ #endif /* apollo */
+! X      if (!istool && isoff(flg, NO_PAGE) &&
+! X  	    crt < msg[n].m_lines && isoff(flg, M_TOP)) {
+! X  	if (!(pager = do_set(set_options, "pager")))
+! X*** 7.2.4/mush.h	Wed Jan 29 21:57:49 1992
+! X--- apollo/mush.h	Thu Jan 30 20:25:40 1992
+  X***************
+  X*** 56,61 ****
+  X--- 56,67 ----
+--- 338,361 ----
+  X  	if (istool || hdrs_only)
+  X  	    turnon(glob_flags, ECHO_FLAG);
+  X  	if (!hdrs_only)
+! X*** 7.2.5/msgs.c	Sat Aug 22 11:46:51 1992
+! X--- apollo/msgs.c	Tue Oct 13 23:56:05 1992
+  X***************
+! X*** 32,37 ****
+! X--- 32,42 ----
+  X  #ifdef MSG_SEPARATOR
+  X      turnon(flg, NO_SEPARATOR);
+  X  #endif /* MMDF */
+  X+ #ifdef apollo
+  X+     if (!istool && apollo_ispad())
+! X+ 	pager = "NONE";         /* The pad IS the pager */
+  X+     else
+  X+ #endif /* apollo */
+! X      if (ison(msg[n].m_flags, METAMAIL) && isoff(flg, NO_PAGE) &&
+! X  	    (pager = do_set(set_options, "metamail"))) {
+! X  	intro = FALSE;
+! X*** 7.2.5/mush.h	Sun Sep 20 14:12:32 1992
+! X--- apollo/mush.h	Tue Oct 13 23:54:08 1992
+  X***************
+  X*** 56,61 ****
+  X--- 56,67 ----
+***************
+*** 374,381 ****
+  SHAR_EOF
+  chmod 0644 apollo.patch || echo "restore of apollo.patch fails"
+  set `wc -c apollo.patch`;Sum=$1
+! if test "$Sum" != "5160"
+! then echo original size 5160, current size $Sum;fi
+  echo "x - extracting apollo_file.c (Text)"
+  sed 's/^X//' << 'SHAR_EOF' > apollo_file.c &&
+  X/*
+--- 374,381 ----
+  SHAR_EOF
+  chmod 0644 apollo.patch || echo "restore of apollo.patch fails"
+  set `wc -c apollo.patch`;Sum=$1
+! if test "$Sum" != "5134"
+! then echo original size 5134, current size $Sum;fi
+  echo "x - extracting apollo_file.c (Text)"
+  sed 's/^X//' << 'SHAR_EOF' > apollo_file.c &&
+  X/*
+
+-- 
+Bart Schaefer                                     schaefer@zigzag.z-code.com
+Z-Code Software Corp.                             schaefer@z-code.com
+
+exit 0 # Just in case...

@@ -1,0 +1,1116 @@
+Newsgroups: comp.sources.x
+From: duane@blacks.jpl.nasa.gov (Duane Clark)
+Subject: v19i084:  Jetedit -  A Motif text editor, Patch01
+Message-ID: <1993Apr19.144334.22447@sparky.imd.sterling.com>
+X-Md4-Signature: 7951d7bdf93fa67a5f8533daf4cbe916
+Date: Mon, 19 Apr 1993 14:43:34 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: duane@blacks.jpl.nasa.gov (Duane Clark)
+Posting-number: Volume 19, Issue 84
+Archive-name: Jetedit/patch01
+Environment: X11, OSF/Motif
+Patch-To: Jetedit: Volume 19, Issue 80-83
+
+
+ You can determine the current version of jetedit by seeing if the file
+ patchlevel.h is included in the directory with the source. If it is, 
+ you have at least version 1.2. Next compare the contents of patchlevel.h
+ to the following lines:
+ #define PATCHLEVEL 0    - Indicates jetedit1.2
+ #define PATCHLEVEL 1    - Indicates jetedit1.21
+
+ Here is a list of the changes:
+
+ The great majority were contributed by Henry Tumblin.
+ From: "Henry R. Tumblin, Ace Wrecking & Software" <tumblin@crl.dec.com>
+        Well I picked jetedit up this morning and after some head
+ scratching I got it up and running on OSF/1 AXP. All my changes are
+ for portability with the exception of the use of the XCreateImage change
+ in CreateDefaultImage, which is the proper way to initialize an
+ image for X.
+
+ Jeff Jackson <jackson@daimler.ucs.indiana.edu>
+ Contributed a patch for a bug where I used a string rather than an
+ XmString for a XmNdirMask.
+
+ nstramer@supergas.dazixco.ingr.com (Naftaly Stramer)
+ Pointed out a bug resulting in core dumps on some platforms if you
+ backspaced over the "number of spaces to use for tabs" box in the
+ preferences dialog.
+
+
+--------------------------cut here-------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  jpatch
+# Wrapped by duane@blacks.jpl.nasa.gov on Wed Apr 14 19:26:19 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'jpatch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jpatch'\"
+else
+echo shar: Extracting \"'jpatch'\" \(39386 characters\)
+sed "s/^X//" >'jpatch' <<'END_OF_FILE'
+X*** ../xm2/patchlevel.h	Sat Apr  3 19:43:12 1993
+X--- patchlevel.h	Wed Apr 14 19:16:45 1993
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL 0
+X--- 1 ----
+X! #define PATCHLEVEL 1
+X*** ../xm2/xme.h	Sat Mar 27 11:19:19 1993
+X--- xme.h	Wed Apr 14 18:10:53 1993
+X***************
+X*** 14,20 ****
+X  #include <fcntl.h>
+X  #include <errno.h>
+X  #include <sys/stat.h>
+X! #include <sys/unistd.h>
+X  #include <X11/Xos.h>
+X  #include <X11/Xatom.h>
+X  #include <X11/Intrinsic.h>
+X--- 14,20 ----
+X  #include <fcntl.h>
+X  #include <errno.h>
+X  #include <sys/stat.h>
+X! #include <unistd.h>
+X  #include <X11/Xos.h>
+X  #include <X11/Xatom.h>
+X  #include <X11/Intrinsic.h>
+X***************
+X*** 80,85 ****
+X--- 80,86 ----
+X  WHERE void   CloseUndoBuffer();
+X  WHERE void   CloseUndoBuffer();
+X  WHERE void   UndoStoreCB ();
+X+ WHERE void   MotionCB ();
+X  WHERE void   ToBottom();
+X  WHERE void   ToTop();
+X  WHERE void   CutItem();
+X*** ../xm2/xme.c	Sat Mar 27 11:20:09 1993
+X--- xme.c	Wed Apr 14 13:14:48 1993
+X***************
+X*** 176,183 ****
+X  **      main
+X  */
+X  void main (argc,argv)
+X! unsigned int    argc;
+X! char            **argv;
+X  {
+X      XFontStruct	*font;
+X      Widget	app_shell;	/*  ApplicationShell    */
+X--- 176,183 ----
+X  **      main
+X  */
+X  void main (argc,argv)
+X! int    argc;
+X! char   **argv;
+X  {
+X      XFontStruct	*font;
+X      Widget	app_shell;	/*  ApplicationShell    */
+X***************
+X*** 452,459 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X      
+X      text = XmCreateScrolledText (MainW, "text", al, ac);
+X!     XtAddCallback(text, XmNmodifyVerifyCallback, UndoStoreCB, NULL);
+X!     XtAddCallback(text, XmNmotionVerifyCallback, MotionCB, NULL);
+X       
+X      /* modify the functions of some of the keyboards keys with
+X          functions from the Action table. */
+X--- 452,459 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X      
+X      text = XmCreateScrolledText (MainW, "text", al, ac);
+X!     XtAddCallback(text, XmNmodifyVerifyCallback, (XtCallbackProc) UndoStoreCB, NULL);
+X!     XtAddCallback(text, XmNmotionVerifyCallback, (XtCallbackProc) MotionCB, NULL);
+X       
+X      /* modify the functions of some of the keyboards keys with
+X          functions from the Action table. */
+X*** ../xm2/xmedialg.c	Mon Mar 15 13:51:55 1993
+X--- xmedialg.c	Wed Apr 14 17:52:23 1993
+X***************
+X*** 405,411 ****
+X      XmInstallImage (image, "warning_image");
+X                                          
+X      ac = 0;
+X!     XtSetArg(al[ac], XmNdirMask, ""); ac++;
+X      XtSetArg(al[ac], XmNwidth, 220); ac++;
+X  #ifdef HARDCODE
+X      XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X--- 405,411 ----
+X      XmInstallImage (image, "warning_image");
+X                                          
+X      ac = 0;
+X!     XtSetArg(al[ac], XmNdirMask, XmStringCreateSimple("")); ac++;
+X      XtSetArg(al[ac], XmNwidth, 220); ac++;
+X  #ifdef HARDCODE
+X      XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
+X***************
+X*** 415,423 ****
+X      open_dialog = XmCreateFileSelectionDialog(menu_bar,
+X              "file selection dialog", al, ac);
+X      XtAddCallback (open_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_FSELECT);
+X      XtAddCallback (open_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_FSELECT);
+X      button = XmFileSelectionBoxGetChild (open_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 415,423 ----
+X      open_dialog = XmCreateFileSelectionDialog(menu_bar,
+X              "file selection dialog", al, ac);
+X      XtAddCallback (open_dialog, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer)DIALOG_FSELECT);
+X      XtAddCallback (open_dialog, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer)DIALOG_FSELECT);
+X      button = XmFileSelectionBoxGetChild (open_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 431,441 ****
+X      open_warning = CreateSpecialWarningDialog(menu_bar, "open warning",
+X              "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (open_warning, XmNapplyCallback,
+X!             DialogApplyCB, DIALOG_OWARNING);
+X      XtAddCallback (open_warning, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_OWARNING);
+X      XtAddCallback (open_warning, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_OWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X--- 431,441 ----
+X      open_warning = CreateSpecialWarningDialog(menu_bar, "open warning",
+X              "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (open_warning, XmNapplyCallback,
+X!             (XtCallbackProc) DialogApplyCB, (XtPointer) DIALOG_OWARNING);
+X      XtAddCallback (open_warning, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer) DIALOG_OWARNING);
+X      XtAddCallback (open_warning, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer) DIALOG_OWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X***************
+X*** 448,456 ****
+X      new_dialog = XmCreatePromptDialog(menu_bar,
+X             "new file dialog", al, ac);
+X      XtAddCallback (new_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_NEW);
+X      XtAddCallback (new_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_NEW);
+X      button = XmSelectionBoxGetChild (new_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 448,456 ----
+X      new_dialog = XmCreatePromptDialog(menu_bar,
+X             "new file dialog", al, ac);
+X      XtAddCallback (new_dialog, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer) DIALOG_NEW);
+X      XtAddCallback (new_dialog, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer) DIALOG_NEW);
+X      button = XmSelectionBoxGetChild (new_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 464,474 ****
+X      new_warning = CreateSpecialWarningDialog(menu_bar, "new_warning",
+X             "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (new_warning, XmNapplyCallback,
+X!            DialogApplyCB, DIALOG_NWARNING);
+X      XtAddCallback (new_warning, XmNokCallback,
+X!            DialogAcceptCB, DIALOG_NWARNING);
+X      XtAddCallback (new_warning, XmNcancelCallback,
+X!            DialogCancelCB, DIALOG_NWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X--- 464,474 ----
+X      new_warning = CreateSpecialWarningDialog(menu_bar, "new_warning",
+X             "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (new_warning, XmNapplyCallback,
+X!            (XtCallbackProc) DialogApplyCB, (XtPointer) DIALOG_NWARNING);
+X      XtAddCallback (new_warning, XmNokCallback,
+X!            (XtCallbackProc) DialogAcceptCB, (XtPointer) DIALOG_NWARNING);
+X      XtAddCallback (new_warning, XmNcancelCallback,
+X!            (XtCallbackProc) DialogCancelCB, (XtPointer) DIALOG_NWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
+X***************
+X*** 485,493 ****
+X      file_exists_dialog = XmCreateWarningDialog(menu_bar,
+X             "file exists dialog", al, ac);
+X      XtAddCallback (file_exists_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_F_EXISTS);
+X      XtAddCallback (file_exists_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_F_EXISTS);
+X      button = XmMessageBoxGetChild (file_exists_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 485,493 ----
+X      file_exists_dialog = XmCreateWarningDialog(menu_bar,
+X             "file exists dialog", al, ac);
+X      XtAddCallback (file_exists_dialog, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer) DIALOG_F_EXISTS);
+X      XtAddCallback (file_exists_dialog, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer) DIALOG_F_EXISTS);
+X      button = XmMessageBoxGetChild (file_exists_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 501,511 ****
+X      close_warning = CreateSpecialWarningDialog(menu_bar, "close_warning",
+X             "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (close_warning, XmNapplyCallback,
+X!            DialogApplyCB, DIALOG_CWARNING);
+X      XtAddCallback (close_warning, XmNokCallback,
+X!            DialogAcceptCB, DIALOG_CWARNING);
+X      XtAddCallback (close_warning, XmNcancelCallback,
+X!            DialogCancelCB, DIALOG_CWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X--- 501,511 ----
+X      close_warning = CreateSpecialWarningDialog(menu_bar, "close_warning",
+X             "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (close_warning, XmNapplyCallback,
+X!            (XtCallbackProc) DialogApplyCB, (XtPointer)DIALOG_CWARNING);
+X      XtAddCallback (close_warning, XmNokCallback,
+X!            (XtCallbackProc) DialogAcceptCB, (XtPointer)DIALOG_CWARNING);
+X      XtAddCallback (close_warning, XmNcancelCallback,
+X!            (XtCallbackProc) DialogCancelCB, (XtPointer)DIALOG_CWARNING);
+X  
+X      ac = 0;
+X      XtSetArg(al[ac], XmNselectionLabelString, XmStringCreateLtoR
+X***************
+X*** 519,525 ****
+X          XmStringCreateLtoR("Save As", charset));  ac++;
+X      save_as_dialog = XmCreatePromptDialog(menu_bar, "save as dialog", al, ac);
+X      XtAddCallback (save_as_dialog, XmNokCallback,
+X!            DialogAcceptCB, DIALOG_SAVE_AS);
+X      button = XmSelectionBoxGetChild (save_as_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 519,525 ----
+X          XmStringCreateLtoR("Save As", charset));  ac++;
+X      save_as_dialog = XmCreatePromptDialog(menu_bar, "save as dialog", al, ac);
+X      XtAddCallback (save_as_dialog, XmNokCallback,
+X!            (XtCallbackProc)DialogAcceptCB, (XtPointer)DIALOG_SAVE_AS);
+X      button = XmSelectionBoxGetChild (save_as_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 538,546 ****
+X      exists_as_dialog = XmCreateWarningDialog(menu_bar,
+X             "file exists as dialog", al, ac);
+X      XtAddCallback (exists_as_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_EXISTS_AS);
+X      XtAddCallback (exists_as_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_EXISTS_AS);
+X      button = XmMessageBoxGetChild (exists_as_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 538,546 ----
+X      exists_as_dialog = XmCreateWarningDialog(menu_bar,
+X             "file exists as dialog", al, ac);
+X      XtAddCallback (exists_as_dialog, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer)DIALOG_EXISTS_AS);
+X      XtAddCallback (exists_as_dialog, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer)DIALOG_EXISTS_AS);
+X      button = XmMessageBoxGetChild (exists_as_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 555,563 ****
+X      file_mode_dialog = XmCreateWarningDialog(menu_bar,
+X             "file mode dialog", al, ac);
+X      XtAddCallback (file_mode_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_F_MODE);
+X      XtAddCallback (file_mode_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_F_MODE);
+X      button = XmMessageBoxGetChild (file_mode_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 555,563 ----
+X      file_mode_dialog = XmCreateWarningDialog(menu_bar,
+X             "file mode dialog", al, ac);
+X      XtAddCallback (file_mode_dialog, XmNokCallback,
+X!             (XtCallbackProc)DialogAcceptCB, (XtPointer)DIALOG_F_MODE);
+X      XtAddCallback (file_mode_dialog, XmNcancelCallback,
+X!             (XtCallbackProc)DialogCancelCB, (XtPointer)DIALOG_F_MODE);
+X      button = XmMessageBoxGetChild (file_mode_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X***************
+X*** 586,594 ****
+X      exit_warning = CreateSpecialWarningDialog(menu_bar, "exit_warning",
+X            "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (exit_warning, XmNapplyCallback,
+X!         DialogApplyCB, DIALOG_XWARNING);
+X      XtAddCallback (exit_warning, XmNokCallback,
+X!         DialogAcceptCB, DIALOG_XWARNING);
+X  
+X      ac = 0;
+X  #ifdef HARDCODE
+X--- 586,594 ----
+X      exit_warning = CreateSpecialWarningDialog(menu_bar, "exit_warning",
+X            "warning_image", "Save Changes?", al, ac);
+X      XtAddCallback (exit_warning, XmNapplyCallback,
+X!         (XtCallbackProc) DialogApplyCB, (XtPointer)DIALOG_XWARNING);
+X      XtAddCallback (exit_warning, XmNokCallback,
+X!         (XtCallbackProc) DialogAcceptCB, (XtPointer)DIALOG_XWARNING);
+X  
+X      ac = 0;
+X  #ifdef HARDCODE
+X***************
+X*** 624,632 ****
+X      goto_dialog = XmCreatePromptDialog(menu_bar,
+X             "goto dialog", al, ac);
+X      XtAddCallback (goto_dialog, XmNokCallback,
+X!             DialogAcceptCB, DIALOG_GOTO);
+X      XtAddCallback (goto_dialog, XmNcancelCallback,
+X!             DialogCancelCB, DIALOG_GOTO);
+X      button = XmSelectionBoxGetChild (goto_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X--- 624,632 ----
+X      goto_dialog = XmCreatePromptDialog(menu_bar,
+X             "goto dialog", al, ac);
+X      XtAddCallback (goto_dialog, XmNokCallback,
+X!             (XtCallbackProc) DialogAcceptCB, (XtPointer)DIALOG_GOTO);
+X      XtAddCallback (goto_dialog, XmNcancelCallback,
+X!             (XtCallbackProc) DialogCancelCB, (XtPointer)DIALOG_GOTO);
+X      button = XmSelectionBoxGetChild (goto_dialog, XmDIALOG_HELP_BUTTON);
+X      XtUnmanageChild (button);
+X  
+X*** ../xm2/xmefile.c	Wed Jan 20 09:09:59 1993
+X--- xmefile.c	Wed Apr 14 13:15:20 1993
+X***************
+X*** 259,265 ****
+X     cm.window = XtWindow(text);
+X     cm.format = 32;
+X     cm.data.l[0] = XA_PRIMARY;
+X!    XSendEvent(XtDisplay(text), cm.window, TRUE, NoEventMask, &cm);
+X  }
+X  
+X  
+X--- 259,265 ----
+X     cm.window = XtWindow(text);
+X     cm.format = 32;
+X     cm.data.l[0] = XA_PRIMARY;
+X!    XSendEvent(XtDisplay(text), cm.window, TRUE, NoEventMask,(XEvent *) &cm);
+X  }
+X  
+X  
+X*** ../xm2/xmemenu.c	Wed Jan 20 09:10:00 1993
+X--- xmemenu.c	Wed Apr 14 13:15:24 1993
+X***************
+X*** 271,277 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Open", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_OPEN);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X--- 271,278 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Open", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc)MenuCB, (XtPointer) MENU_OPEN);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X***************
+X*** 284,290 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "New", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_NEW);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X--- 285,292 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "New", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer)MENU_NEW);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X***************
+X*** 294,300 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Close", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_CLOSE);
+X      XtManageChild (button);
+X      
+X      
+X--- 296,303 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Close", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer)MENU_CLOSE);
+X      XtManageChild (button);
+X      
+X      
+X***************
+X*** 308,314 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      save_button = XmCreatePushButtonGadget (menu_pane, "Save", al, ac);
+X!     XtAddCallback (save_button, XmNactivateCallback, MenuCB, MENU_SAVE);
+X      XtManageChild (save_button);
+X      XtSetSensitive(save_button, False);
+X      
+X--- 311,318 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      save_button = XmCreatePushButtonGadget (menu_pane, "Save", al, ac);
+X!     XtAddCallback (save_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_SAVE);
+X      XtManageChild (save_button);
+X      XtSetSensitive(save_button, False);
+X      
+X***************
+X*** 320,326 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Save As...", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_SAVE_AS);
+X      XtManageChild (button);
+X      
+X      
+X--- 324,331 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Save As...", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_SAVE_AS);
+X      XtManageChild (button);
+X      
+X      
+X***************
+X*** 338,344 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Exit", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_EXIT);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X--- 343,350 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Exit", al, ac);
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_EXIT);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X***************
+X*** 365,371 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      undo_button = XmCreatePushButtonGadget (menu_pane, "Undo", al, ac);
+X!     XtAddCallback (undo_button, XmNactivateCallback, MenuCB, MENU_UNDO);
+X      XtManageChild (undo_button);
+X      XtSetSensitive(undo_button, False);
+X      
+X--- 371,378 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      undo_button = XmCreatePushButtonGadget (menu_pane, "Undo", al, ac);
+X!     XtAddCallback (undo_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_UNDO);
+X      XtManageChild (undo_button);
+X      XtSetSensitive(undo_button, False);
+X      
+X***************
+X*** 383,389 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      cut_button = XmCreatePushButtonGadget (menu_pane, "Cut", al, ac);
+X!     XtAddCallback (cut_button, XmNactivateCallback, MenuCB, MENU_CUT);
+X      XtManageChild (cut_button);
+X      XtSetSensitive(cut_button, False);
+X      
+X--- 390,397 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      cut_button = XmCreatePushButtonGadget (menu_pane, "Cut", al, ac);
+X!     XtAddCallback (cut_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_CUT);
+X      XtManageChild (cut_button);
+X      XtSetSensitive(cut_button, False);
+X      
+X***************
+X*** 397,403 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      copy_button = XmCreatePushButtonGadget (menu_pane, "Copy", al, ac);
+X!     XtAddCallback (copy_button, XmNactivateCallback, MenuCB, MENU_COPY);
+X      XtManageChild (copy_button);
+X      XtSetSensitive(copy_button, False);
+X      
+X--- 405,412 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      copy_button = XmCreatePushButtonGadget (menu_pane, "Copy", al, ac);
+X!     XtAddCallback (copy_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_COPY);
+X      XtManageChild (copy_button);
+X      XtSetSensitive(copy_button, False);
+X      
+X***************
+X*** 411,417 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      paste_button = XmCreatePushButtonGadget (menu_pane, "Paste", al, ac); ac++;
+X!     XtAddCallback (paste_button, XmNactivateCallback, MenuCB, MENU_PASTE);
+X      XtManageChild (paste_button);
+X      XtSetSensitive(paste_button, False);
+X      
+X--- 420,427 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      paste_button = XmCreatePushButtonGadget (menu_pane, "Paste", al, ac); ac++;
+X!     XtAddCallback (paste_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_PASTE);
+X      XtManageChild (paste_button);
+X      XtSetSensitive(paste_button, False);
+X      
+X***************
+X*** 426,432 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      clear_button = XmCreatePushButtonGadget (menu_pane, "Clear", al, ac);
+X!     XtAddCallback (clear_button, XmNactivateCallback, MenuCB, MENU_CLEAR);
+X      XtManageChild (clear_button);
+X      XtSetSensitive(clear_button, False);
+X      
+X--- 436,443 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      clear_button = XmCreatePushButtonGadget (menu_pane, "Clear", al, ac);
+X!     XtAddCallback (clear_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_CLEAR);
+X      XtManageChild (clear_button);
+X      XtSetSensitive(clear_button, False);
+X      
+X***************
+X*** 440,446 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Preferences", al, ac); ac++;
+X!     XtAddCallback (button, XmNactivateCallback, MenuCB, MENU_PREF);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X--- 451,458 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      button = XmCreatePushButtonGadget (menu_pane, "Preferences", al, ac); ac++;
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_PREF);
+X      XtManageChild (button);
+X      
+X      ac = 0;
+X***************
+X*** 468,474 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      find_button = XmCreatePushButtonGadget (menu_pane, "Find", al, ac);
+X!     XtAddCallback (find_button, XmNactivateCallback, MenuCB, MENU_FIND);
+X      XtManageChild (find_button);
+X      XtSetSensitive(find_button, False);
+X      
+X--- 480,487 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      find_button = XmCreatePushButtonGadget (menu_pane, "Find", al, ac);
+X!     XtAddCallback (find_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_FIND);
+X      XtManageChild (find_button);
+X      XtSetSensitive(find_button, False);
+X      
+X***************
+X*** 482,488 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      findA_button = XmCreatePushButtonGadget (menu_pane, "FindA", al, ac);
+X!     XtAddCallback (findA_button, XmNactivateCallback, MenuCB, MENU_FINDA);
+X      XtManageChild (findA_button);
+X      XtSetSensitive(findA_button, False);
+X      
+X--- 495,502 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      findA_button = XmCreatePushButtonGadget (menu_pane, "FindA", al, ac);
+X!     XtAddCallback (findA_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_FINDA);
+X      XtManageChild (findA_button);
+X      XtSetSensitive(findA_button, False);
+X      
+X***************
+X*** 496,502 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      replace_button = XmCreatePushButtonGadget (menu_pane, "Replace", al, ac);
+X!     XtAddCallback (replace_button, XmNactivateCallback, MenuCB, MENU_REPLACE);
+X      XtManageChild (replace_button);
+X      XtSetSensitive(replace_button, False);
+X      
+X--- 510,517 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      replace_button = XmCreatePushButtonGadget (menu_pane, "Replace", al, ac);
+X!     XtAddCallback (replace_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_REPLACE);
+X      XtManageChild (replace_button);
+X      XtSetSensitive(replace_button, False);
+X      
+X***************
+X*** 510,516 ****
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      goto_button = XmCreatePushButtonGadget (menu_pane, "GoTo", al, ac);
+X!     XtAddCallback (goto_button, XmNactivateCallback, MenuCB, MENU_GOTO);
+X      XtManageChild (goto_button);
+X      XtSetSensitive(goto_button, False);
+X      
+X--- 525,532 ----
+X      XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X  #endif
+X      goto_button = XmCreatePushButtonGadget (menu_pane, "GoTo", al, ac);
+X!     XtAddCallback (goto_button, XmNactivateCallback, 
+X!               (XtCallbackProc) MenuCB, (XtPointer) MENU_GOTO);
+X      XtManageChild (goto_button);
+X      XtSetSensitive(goto_button, False);
+X      
+XNo differences encountered
+X*** ../xm2/xmepref.c	Wed Jan 20 09:10:01 1993
+X--- xmepref.c	Wed Apr 14 17:58:02 1993
+X***************
+X*** 195,201 ****
+X      case PREF_SPACES:
+X          {
+X          XmTextVerifyCallbackStruct *cb = (XmTextVerifyCallbackStruct *) call_data;
+X!         temp_str[0] = (cb->text->ptr)[0];
+X          }
+X          temp_str[1] = '\0';
+X          sscanf(temp_str, "%d", &tab_sp);
+X--- 195,204 ----
+X      case PREF_SPACES:
+X          {
+X          XmTextVerifyCallbackStruct *cb = (XmTextVerifyCallbackStruct *) call_data;
+X!         if (cb->text->length)
+X!             temp_str[0] = (cb->text->ptr)[0];
+X!         else
+X!             temp_str[0] = '0';
+X          }
+X          temp_str[1] = '\0';
+X          sscanf(temp_str, "%d", &tab_sp);
+X***************
+X*** 424,430 ****
+X  #endif
+X      style_n_button = XmCreateToggleButtonGadget (radio, "Style_N", al, ac);
+X      XtManageChild (style_n_button);
+X!     XtAddCallback (style_n_button, XmNarmCallback, PreferencesCB, PREF_STYLE_N);
+X      
+X      ac=0;
+X      if (indent_style == SMART) {
+X--- 427,434 ----
+X  #endif
+X      style_n_button = XmCreateToggleButtonGadget (radio, "Style_N", al, ac);
+X      XtManageChild (style_n_button);
+X!     XtAddCallback (style_n_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_STYLE_N);
+X      
+X      ac=0;
+X      if (indent_style == SMART) {
+X***************
+X*** 437,443 ****
+X  #endif
+X      style_sm_button = XmCreateToggleButtonGadget (radio, "Style_SM", al, ac);
+X      XtManageChild (style_sm_button);
+X!     XtAddCallback (style_sm_button, XmNarmCallback, PreferencesCB, PREF_STYLE_SM);
+X      
+X      ac=0;
+X      if (indent_style == SYNTAX) {
+X--- 441,448 ----
+X  #endif
+X      style_sm_button = XmCreateToggleButtonGadget (radio, "Style_SM", al, ac);
+X      XtManageChild (style_sm_button);
+X!     XtAddCallback (style_sm_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_STYLE_SM);
+X      
+X      ac=0;
+X      if (indent_style == SYNTAX) {
+X***************
+X*** 450,456 ****
+X  #endif
+X      style_sy_button = XmCreateToggleButtonGadget (radio, "Style_SY", al, ac);
+X      XtManageChild (style_sy_button);
+X!     XtAddCallback (style_sy_button, XmNarmCallback, PreferencesCB, PREF_STYLE_SY);
+X      
+X      XtManageChild (radio);
+X      
+X--- 455,462 ----
+X  #endif
+X      style_sy_button = XmCreateToggleButtonGadget (radio, "Style_SY", al, ac);
+X      XtManageChild (style_sy_button);
+X!     XtAddCallback (style_sy_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_STYLE_SY);
+X      
+X      XtManageChild (radio);
+X      
+X***************
+X*** 506,512 ****
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      open3_button = XmCreatePushButton (form, "Open3", al, ac);
+X!     XtAddCallback (open3_button, XmNactivateCallback, PreferencesCB, PREF_OPEN3);
+X      XtManageChild (open3_button);
+X      
+X      ac = 0;
+X--- 512,519 ----
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      open3_button = XmCreatePushButton (form, "Open3", al, ac);
+X!     XtAddCallback (open3_button, XmNactivateCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_OPEN3);
+X      XtManageChild (open3_button);
+X      
+X      ac = 0;
+X***************
+X*** 526,532 ****
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      open1_button = XmCreatePushButton (form, "Open1", al, ac);
+X!     XtAddCallback (open1_button, XmNactivateCallback, PreferencesCB, PREF_OPEN1);
+X      XtManageChild (open1_button);
+X      
+X      ac = 0;
+X--- 533,540 ----
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      open1_button = XmCreatePushButton (form, "Open1", al, ac);
+X!     XtAddCallback (open1_button, XmNactivateCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_OPEN1);
+X      XtManageChild (open1_button);
+X      
+X      ac = 0;
+X***************
+X*** 548,554 ****
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X      open2_button = XmCreatePushButton (form, "Open2", al, ac);
+X!     XtAddCallback (open2_button, XmNactivateCallback, PreferencesCB, PREF_OPEN2);
+X      XtManageChild (open2_button);
+X      
+X      ac = 0;
+X--- 556,563 ----
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X      open2_button = XmCreatePushButton (form, "Open2", al, ac);
+X!     XtAddCallback (open2_button, XmNactivateCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_OPEN2);
+X      XtManageChild (open2_button);
+X      
+X      ac = 0;
+X***************
+X*** 581,587 ****
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      close1_button = XmCreatePushButton (form, "Close1", al, ac);
+X!     XtAddCallback (close1_button, XmNactivateCallback, PreferencesCB, PREF_CLOSE1);
+X      XtManageChild (close1_button);
+X      
+X      ac = 0;
+X--- 590,597 ----
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      close1_button = XmCreatePushButton (form, "Close1", al, ac);
+X!     XtAddCallback (close1_button, XmNactivateCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_CLOSE1);
+X      XtManageChild (close1_button);
+X      
+X      ac = 0;
+X***************
+X*** 603,609 ****
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X      close2_button = XmCreatePushButton (form, "Close2", al, ac);
+X!     XtAddCallback (close2_button, XmNactivateCallback, PreferencesCB, PREF_CLOSE2);
+X      XtManageChild (close2_button);
+X      
+X      /*** Separator between indent and tabs areas ***/
+X--- 613,620 ----
+X      XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X      XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X      close2_button = XmCreatePushButton (form, "Close2", al, ac);
+X!     XtAddCallback (close2_button, XmNactivateCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_CLOSE2);
+X      XtManageChild (close2_button);
+X      
+X      /*** Separator between indent and tabs areas ***/
+X***************
+X*** 648,654 ****
+X  #endif
+X      lead_t_button = XmCreateToggleButtonGadget (radio, "Lead_T", al, ac);
+X      XtManageChild (lead_t_button);
+X!     XtAddCallback (lead_t_button, XmNarmCallback, PreferencesCB, PREF_LEAD_T);
+X      
+X      ac=0;
+X      if (!leading_tabs) {
+X--- 659,666 ----
+X  #endif
+X      lead_t_button = XmCreateToggleButtonGadget (radio, "Lead_T", al, ac);
+X      XtManageChild (lead_t_button);
+X!     XtAddCallback (lead_t_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_LEAD_T);
+X      
+X      ac=0;
+X      if (!leading_tabs) {
+X***************
+X*** 661,667 ****
+X  #endif
+X      lead_f_button = XmCreateToggleButtonGadget (radio, "Lead_F", al, ac);
+X      XtManageChild (lead_f_button);
+X!     XtAddCallback (lead_f_button, XmNarmCallback, PreferencesCB, PREF_LEAD_F);
+X      
+X      XtManageChild (radio);
+X      
+X--- 673,680 ----
+X  #endif
+X      lead_f_button = XmCreateToggleButtonGadget (radio, "Lead_F", al, ac);
+X      XtManageChild (lead_f_button);
+X!     XtAddCallback (lead_f_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_LEAD_F);
+X      
+X      XtManageChild (radio);
+X      
+X***************
+X*** 704,710 ****
+X  #endif
+X      trail_t_button = XmCreateToggleButtonGadget (radio, "Trail_T", al, ac);
+X      XtManageChild (trail_t_button);
+X!     XtAddCallback (trail_t_button, XmNarmCallback, PreferencesCB, PREF_TRAIL_T);
+X      
+X      ac=0;
+X      if (!trailing_tabs) {
+X--- 717,724 ----
+X  #endif
+X      trail_t_button = XmCreateToggleButtonGadget (radio, "Trail_T", al, ac);
+X      XtManageChild (trail_t_button);
+X!     XtAddCallback (trail_t_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_TRAIL_T);
+X      
+X      ac=0;
+X      if (!trailing_tabs) {
+X***************
+X*** 717,723 ****
+X  #endif
+X      trail_f_button = XmCreateToggleButtonGadget (radio, "Trail_F", al, ac);
+X      XtManageChild (trail_f_button);
+X!     XtAddCallback (trail_f_button, XmNarmCallback, PreferencesCB, PREF_TRAIL_F);
+X      
+X      XtManageChild (radio);
+X      
+X--- 731,738 ----
+X  #endif
+X      trail_f_button = XmCreateToggleButtonGadget (radio, "Trail_F", al, ac);
+X      XtManageChild (trail_f_button);
+X!     XtAddCallback (trail_f_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_TRAIL_F);
+X      
+X      XtManageChild (radio);
+X      
+X***************
+X*** 756,762 ****
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      spaces_text = XmCreateText(form, "spaces",al,ac);
+X      XtManageChild (spaces_text);
+X!     XtAddCallback (spaces_text, XmNmodifyVerifyCallback, PreferencesCB, PREF_SPACES);
+X      
+X      ac = 0;
+X      XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X--- 771,778 ----
+X      XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X      spaces_text = XmCreateText(form, "spaces",al,ac);
+X      XtManageChild (spaces_text);
+X!     XtAddCallback (spaces_text, XmNmodifyVerifyCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_SPACES);
+X      
+X      ac = 0;
+X      XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X***************
+X*** 800,806 ****
+X  #endif
+X      case_f_button = XmCreateToggleButtonGadget (radio, "Case_F", al, ac);
+X      XtManageChild (case_f_button);
+X!     XtAddCallback (case_f_button, XmNarmCallback, PreferencesCB, PREF_CASE_F);
+X      
+X      ac=0;
+X      if (indent_case) {
+X--- 816,823 ----
+X  #endif
+X      case_f_button = XmCreateToggleButtonGadget (radio, "Case_F", al, ac);
+X      XtManageChild (case_f_button);
+X!     XtAddCallback (case_f_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_CASE_F);
+X      
+X      ac=0;
+X      if (indent_case) {
+X***************
+X*** 816,822 ****
+X  #endif
+X      case_t_button = XmCreateToggleButtonGadget (radio, "Case_T", al, ac);
+X      XtManageChild (case_t_button);
+X!     XtAddCallback (case_t_button, XmNarmCallback, PreferencesCB, PREF_CASE_T);
+X      
+X      XtManageChild (radio);
+X      
+X--- 833,840 ----
+X  #endif
+X      case_t_button = XmCreateToggleButtonGadget (radio, "Case_T", al, ac);
+X      XtManageChild (case_t_button);
+X!     XtAddCallback (case_t_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_CASE_T);
+X      
+X      XtManageChild (radio);
+X      
+X***************
+X*** 840,846 ****
+X      XtSetArg (al[ac], XmNalignment, XmALIGNMENT_BEGINNING); ac++;
+X      wrap_button = XmCreateToggleButtonGadget (form, "Wrap", al, ac);
+X      XtManageChild (wrap_button);
+X!     XtAddCallback (wrap_button, XmNarmCallback, PreferencesCB, PREF_WRAP);
+X      
+X      /*** Put a separator and help message below the work area ***/
+X      ac = 0;
+X--- 858,865 ----
+X      XtSetArg (al[ac], XmNalignment, XmALIGNMENT_BEGINNING); ac++;
+X      wrap_button = XmCreateToggleButtonGadget (form, "Wrap", al, ac);
+X      XtManageChild (wrap_button);
+X!     XtAddCallback (wrap_button, XmNarmCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_WRAP);
+X      
+X      /*** Put a separator and help message below the work area ***/
+X      ac = 0;
+X***************
+X*** 856,865 ****
+X          "Press HELP for lines to put in a defaults file for these preferences.", al, ac);
+X      XtManageChild (label);
+X      
+X!     XtAddCallback (pref_dialog, XmNmapCallback, PreferencesCB, PREF_MAP);
+X!     XtAddCallback (pref_dialog, XmNokCallback, PreferencesCB, PREF_OK);
+X!     XtAddCallback (pref_dialog, XmNcancelCallback, PreferencesCB, PREF_CANCEL);
+X!     XtAddCallback (pref_dialog, XmNhelpCallback, PreferencesCB, PREF_HELP);
+X      
+X      
+X      /***  Unmanage unneeded children.  ***/
+X--- 875,888 ----
+X          "Press HELP for lines to put in a defaults file for these preferences.", al, ac);
+X      XtManageChild (label);
+X      
+X!     XtAddCallback (pref_dialog, XmNmapCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_MAP);
+X!     XtAddCallback (pref_dialog, XmNokCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_OK);
+X!     XtAddCallback (pref_dialog, XmNcancelCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_CANCEL);
+X!     XtAddCallback (pref_dialog, XmNhelpCallback, 
+X!               (XtCallbackProc) PreferencesCB, (XtPointer) PREF_HELP);
+X      
+X      
+X      /***  Unmanage unneeded children.  ***/
+X*** ../xm2/xmespec.c	Wed Jan 20 09:10:01 1993
+X--- xmespec.c	Wed Apr 14 13:15:30 1993
+X***************
+X*** 54,71 ****
+X  {
+X      XImage *image;
+X  
+X!     image = (XImage *) XtMalloc (sizeof (XImage));
+X!     image->width = width;
+X!     image->height = height;
+X!     image->data = bits;
+X!     image->depth = 1;
+X!     image->xoffset = 0;
+X!     image->format = XYBitmap;
+X!     image->byte_order = LSBFirst;
+X!     image->bitmap_unit = 8;
+X!     image->bitmap_bit_order = LSBFirst;
+X!     image->bitmap_pad = 8;
+X!     image->bytes_per_line = (width+7)/8;
+X      return (image);
+X  }
+X  
+X--- 54,62 ----
+X  {
+X      XImage *image;
+X  
+X!     image = XCreateImage ( theDisp, theVisual, 
+X!               1, XYBitmap, 0, bits, width, height, 8, (width+7)/8 );
+X! 
+X      return (image);
+X  }
+X  
+X***************
+X*** 593,603 ****
+X           XmStringCreateLtoR("Done", charset)); ac++;
+X      XtSetValues(Find_dialog, al, ac);
+X  
+X!     XtAddCallback (button, XmNactivateCallback, FindHelpCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNokCallback, FindCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNapplyCallback, ReplaceCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNcancelCallback, ReplaceAllCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNhelpCallback, ExitCB, NULL); 
+X      
+X      /*	Unmanage unneeded children. */
+X      i = 0;
+X--- 584,599 ----
+X           XmStringCreateLtoR("Done", charset)); ac++;
+X      XtSetValues(Find_dialog, al, ac);
+X  
+X!     XtAddCallback (button, XmNactivateCallback, 
+X!               (XtCallbackProc) FindHelpCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNokCallback, 
+X!               (XtCallbackProc) FindCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNapplyCallback, 
+X!               (XtCallbackProc) ReplaceCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNcancelCallback, 
+X!               (XtCallbackProc) ReplaceAllCB, NULL);
+X!     XtAddCallback (Find_dialog, XmNhelpCallback, 
+X!               (XtCallbackProc) ExitCB, NULL); 
+X      
+X      /*	Unmanage unneeded children. */
+X      i = 0;
+END_OF_FILE
+if test 39386 -ne `wc -c <'jpatch'`; then
+    echo shar: \"'jpatch'\" unpacked with wrong size!
+fi
+# end of 'jpatch'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

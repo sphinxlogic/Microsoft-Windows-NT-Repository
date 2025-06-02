@@ -1,0 +1,982 @@
+Newsgroups: comp.sources.misc
+From: franklin@ug.cs.dal.ca (Steve Franklin)
+Subject: v41i082:  planner - Named pipe for random .plan or .signature, Part01/01
+Message-ID: <1994Jan10.033921.11121@sparky.sterling.com>
+Summary: Superior finger logging
+X-Md4-Signature: f7c1df91c7aa695c33d8bdc1ba983d7b
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Math, Stats & CS, Dalhousie University, Halifax, NS, Canada
+Date: Mon, 10 Jan 1994 03:39:21 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: franklin@ug.cs.dal.ca (Steve Franklin)
+Posting-number: Volume 41, Issue 82
+Archive-name: planner/part01
+Environment: Finger
+Supersedes: planner: Volume 39, Issue 48
+
+Here is another update to the planner script that has been contributed
+to by countless users that are all mentioned throughout the README file. I 
+have certainly contributed the least to any of the code of this project,
+but was more concerned with putting some utility and functionality into it. 
+   Hopefully people will continue to have more ideas that they can put into
+this. In case people are curious, I've logged approximately 30,000 finger 
+requests to my account, and it's still as reliableas ever. I have looked
+at all the available packages, and have to say that this seems to be the
+sturdiest and "frilliest" package that is available. Basically lets you do
+anything to your .plan that you could ever want. Check it out by fingering
+    franklin@ug.cs.dal.ca
+
+The change to this package that merits a repost is that it will no longer
+hang your machine when a mirror host (NFS mounted volume) is fingered. Before,
+the .plan was a named pipe which pointed to a background process. However,
+this background process did not exist on other machiens that had the same
+file system, so it would just hang the finger daemon (bad). So, to get around 
+this, the named pipe is placed in the /tmp disk, and a symbolic link to 
+the .plan file is made (credits go to Fumiaki Kamiya). Then, people will
+simply get a "No Plan" message when they finger other hosts that do not have
+the resident background process.
+
+People should also note that this is incredibly cpu-friendly. It gets the
+host-name of the machine that is fingering you through a simple step involving
+netstat (but only taking a head-20 of the output). 
+
+It should also be noted that this will NOT run on ULTRIX, disabled finger 
+daemons, or, of course, VMS. I would not recommend that any new users
+work with this, because it can definitely peeve your system administrator,
+and because you will have to play with the code to get it working. To any
+moderate to advanced UNIX user, it should be quite easy - just take a bit
+of tweaking. I haven't been able to figure out an easy way to make the code
+universal, because there are so many places where you have to change pathnames,
+usernames, etc. But, you should be able to get it running flawlessly in under
+an hour at the very most.
+
+Hoping you have fun with this, and hoping your New Year's Celebration was
+as good as mine,
+
+Steve Franklin
+---------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  planner planner/Makefile planner/Makefile.old
+#   planner/README planner/README.old planner/changes
+#   planner/logfinger planner/plan.1 planner/plan.c planner/planner
+#   planner/planner1.0.header planner/scripts planner/scripts/delplan
+#   planner/scripts/killplan planner/scripts/lf
+#   planner/scripts/renewplan planner/scripts/rf
+# Wrapped by kent@sparky on Sun Jan  9 21:35:11 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test ! -d 'planner' ; then
+    echo shar: Creating directory \"'planner'\"
+    mkdir 'planner'
+fi
+if test -f 'planner/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/Makefile'\"
+else
+  echo shar: Extracting \"'planner/Makefile'\" \(32 characters\)
+  sed "s/^X//" >'planner/Makefile' <<'END_OF_FILE'
+Xplan: plan.c
+X	cc -o plan plan.c
+END_OF_FILE
+  if test 32 -ne `wc -c <'planner/Makefile'`; then
+    echo shar: \"'planner/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'planner/Makefile'
+fi
+if test -f 'planner/Makefile.old' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/Makefile.old'\"
+else
+  echo shar: Extracting \"'planner/Makefile.old'\" \(1401 characters\)
+  sed "s/^X//" >'planner/Makefile.old' <<'END_OF_FILE'
+XDEST	      = /home/napalm/bin/fifo
+X
+XEXTHDRS	      = /usr/include/fcntl.h \
+X		/usr/include/signal.h \
+X		/usr/include/stdio.h \
+X		/usr/include/sys/fcntl.h \
+X		/usr/include/sys/file.h \
+X		/usr/include/sys/stat.h \
+X		/usr/include/sys/sysmacros.h \
+X		/usr/include/sys/sysmacros.h \
+X		/usr/include/sys/types.h \
+X		/usr/include/sys/types.h
+X
+XHDRS	      =
+X
+XLDFLAGS	      =
+X
+XLIBS	      =
+X
+XLINKER	      = cc
+X
+XMAKEFILE      = Makefile
+X
+XOBJS	      = plan.o
+X
+XPRINT	      = pr
+X
+XPROGRAM	      = plan
+X
+XSRCS	      = plan.c
+X
+Xall:		$(PROGRAM)
+X
+X$(PROGRAM):     $(OBJS) $(LIBS)
+X		@echo -n "Loading $(PROGRAM) ... "
+X		@$(LINKER) $(LDFLAGS) $(OBJS) $(LIBS) -o $(PROGRAM)
+X		@echo "done"
+X
+Xclean:;		@rm -f $(OBJS)
+X
+Xdepend:;	@mkmf -f $(MAKEFILE) PROGRAM=$(PROGRAM) DEST=$(DEST)
+X
+Xindex:;		@ctags -wx $(HDRS) $(SRCS)
+X
+Xinstall:	$(PROGRAM)
+X		@echo Installing $(PROGRAM) in $(DEST)
+X		@install -s $(PROGRAM) $(DEST)
+X
+Xprint:;		@$(PRINT) $(HDRS) $(SRCS)
+X
+Xprogram:        $(PROGRAM)
+X
+Xtags:           $(HDRS) $(SRCS); @ctags $(HDRS) $(SRCS)
+X
+Xupdate:		$(DEST)/$(PROGRAM)
+X
+X$(DEST)/$(PROGRAM): $(SRCS) $(LIBS) $(HDRS) $(EXTHDRS)
+X		@make -f $(MAKEFILE) DEST=$(DEST) install
+X###
+Xplan.o: /usr/include/sys/types.h /usr/include/sys/sysmacros.h \
+X	/usr/include/sys/sysmacros.h /usr/include/sys/file.h \
+X	/usr/include/sys/fcntl.h /usr/include/sys/types.h \
+X	/usr/include/fcntl.h /usr/include/stdio.h /usr/include/sys/stat.h \
+X	/usr/include/signal.h
+END_OF_FILE
+  if test 1401 -ne `wc -c <'planner/Makefile.old'`; then
+    echo shar: \"'planner/Makefile.old'\" unpacked with wrong size!
+  fi
+  # end of 'planner/Makefile.old'
+fi
+if test -f 'planner/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/README'\"
+else
+  echo shar: Extracting \"'planner/README'\" \(3946 characters\)
+  sed "s/^X//" >'planner/README' <<'END_OF_FILE'
+XSteve Franklin  (not the original author)
+Xfranklin@ug.cs.dal.ca
+XCompiled on January 1st, 1994 
+X
+XBefore I continue by describing what all of this does, I should point out that
+XI am not the original author of this software. I have modified it like
+Xmany before me and am now trying to simplify the documentation as so many
+Xusers have requested.
+X
+XPurpose: The purpose of planner is to create an ultra cool .plan file so
+X         that people can get random .plan's when they finger you. It
+X         can be used in a variety of ways, and depending on how creative
+X         you are, can make you rich beyond your wildest dreams (well, sorta)
+X
+XContents:   Makefile      Self-explanatory - type "make" to compile
+X            delplan       Kills the current running plan process on this host
+X            killplan      Creates an at job to keep track of plan so that if
+X                          the machine reboots, then it resets itself
+X            logfinger     Hardly changed this - perl script to log whos fingering
+X            lf            Short script to let you know when you were last fin'd
+X            plan.1        Man page
+X            plan.c        C-code for the plan application
+X            planner       Shell script that shows a couple of neat tricks
+X            readme.orig   Original read me that was getting a tad "congested"
+X            renewplan     Script for starting up plan cleanly.
+X            rf            Takes a numeric argument to show you the last # of
+X                          fingers
+XChanges: The latest big change has been the eradication of the 'hanging'
+X         problem on shadow machines (NFS mounted volumes). To get around
+X         this, Fumiaki Kamiya <kamiya@SLINKY.CS.NYU.EDU> recommended putting
+X         the named pipe file on the tmp disk, then doing a symbolic link
+X         to the $HOME/.plan file. Then, when fingered on any mirror sites, 
+X         the .plan file doesn't point to anything, giving the "No Plan" msg.
+X
+X         The original plan seemed quite concerned with who was fingering you 
+X         from your local machine, but just logged "somebody" as fingering
+X         you if it was from another machine. All it took was a few additions
+X         (a la netstat) to let you figure out which machine is fingering you
+X         and a few more changes to impress the fingerer by letting them
+X         know their hostname. These settings are recorded into a file that
+X         you can later query.
+X
+XRequirements:  In order to run plan, you need bsd-ish architecture. Users
+X               running ULTRIX are out of luck, as are VMS users of course.
+X
+XInstructions:  The simplest way to sort through this is to first edit
+X               "planner","renewplan" and "logfinger" to resemble your environ.
+X               and your preferences. Then, place plan and renewplan in 
+X               your bin directory or any dir that your $PATH variable points 
+X               to. Simply type "renewplan" and it does the rest for you.
+X
+XQuestions:     Feel free to send questions to franklin@ug.cs.dal.ca
+X               but please try to read through all the documentation as well.
+X
+XCautions:      If your machine reboots, you will have an empty named pipe
+X               pointing at no process (it doesn't exist since the machine 
+X               rebooted). So, you have to restart the plan process (renewplan)
+X               after a reboot. If you don't catch it, people's finger 
+X               processes will clog up your finger port. To get around this
+X               I had an "at + 1 hour..." included in "renewplan" to re-exec
+X               renewplan every hour - if there was a reboot, plan would
+X               start up no more than an hour after the reboot. 
+X
+XExample:       Check out franklin@ug.cs.dal.ca for an example of how the
+X               planner pipe can be used - hopefully it's up and running :)
+X               Hopefully you guys will mail me if you get neat ideas of
+X               your own...
+END_OF_FILE
+  if test 3946 -ne `wc -c <'planner/README'`; then
+    echo shar: \"'planner/README'\" unpacked with wrong size!
+  fi
+  # end of 'planner/README'
+fi
+if test -f 'planner/README.old' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/README.old'\"
+else
+  echo shar: Extracting \"'planner/README.old'\" \(5668 characters\)
+  sed "s/^X//" >'planner/README.old' <<'END_OF_FILE'
+XAll I did was to put in a function that keeps track of the PID for
+Xplan by writing it to a file called ".planpid" in your home directory.
+XNow you run plan in your .login, and, to kill the process when you log
+Xout, put something like this in your .logout:
+X
+X	kill `cat /home/mine/.planpid`
+X	rm -f /home/mine/.planpid
+X
+XYou have to remove the .planpid (or modify the code), because the 
+Xprogram will not run if a plan is already running, which it assumes
+Xwhen it finds a .planpid file already there.
+X
+XIf someone wanted to run multiple plans, maybe one for a .signature
+Xand another for a .plan, the save name for the PID could be changed,
+Xand the program compiled twice (the binary is not that big, ~40K on
+Xthe HP 425's I used), or, if someone is really motivated, they could
+Xadd a command line argument for the save name.
+X
+XSure, my modification isn't very complex, but it does what I needed
+Xit to do, and maybe someone else can use it.
+X
+XKaren	(napalm@ugcs.caltech.edu)
+X
+X****  Additions by Geoff Loker ****
+X
+XI have modified Tony Rems' code for plan a bit to get rid of the
+Xnecessity for hard-coding in the file name to be set up as a FIFO.
+XThe program will now accept an optional argument that specifies the
+Xname of the FIFO to be used.  If that argument is not set, the default
+XFIFO is $HOME/.plan.
+X
+XIn order to use this program, your O/S needs to support named pipes.
+XYou also need to link in getopt for the changes to work.
+X
+XAny executable program can be set up to run when the specified FIFO is
+Xopened, but don't forget that the program you specify to run is being
+Xrun under your userid.
+X
+X****  Original README ****
+X
+XDate: Thu, 11 Apr 91 14:09:10 MST
+XFrom: Jim Armstrong <armstron@cs.arizona.edu>
+XSubject: RE: fingeree ...
+X
+X> >About a month ago there was a sample program posted to this newsgroup that
+X> >set up a FIFO named pipe as your .plan file.  I modified the code to set up
+X> >a simple (perhaps naive) finger monitor for users on my machine.  The process
+X> do you still have the source for it? would you send it to me?
+X
+XHere is the article which appeared in comp.unix.questions a while back.  It
+Xcontains generic code that will run any program you want whenever a certain
+Xfile is accessed (i.e. the .plan file in this case).  All you have to do is
+Xcompile it (it creates an executable called 'plan') and then to get it
+Xrunning say 'plan a.out &' where a.out is some program you have written.
+XI don't have my program any more, but basically what I did was a ps au
+Xwithin that program.  It used egrep to search for someone currently fingering
+Xme and appended the output to a file.  To get really fancy you could then
+Xread from that file to find out exactly who it is (all in the same program)
+Xand print out a nice personal message to whoever is fingering you as part
+Xof what looks to be your .plan file.  A couple of things to watch out for:
+XIf the finger is remote, the ps au won't find anything.  Also, if two people
+Xfinger you at the same time you may run into trouble, but I didn't try
+Xexperimenting with this too much.  I also found it helpful to timestamp a
+Xdate to the file, too (I used localtime() for efficiency).  This makes it
+Xeasier to look back later at the file and see who's been fingering you and
+Xwhen while you were not logged on.  It also helpful in debugging your program.
+X
+XSo set up this code and experiment with different programs.  Just be creative
+Xand see what else you can do with it.  One idea I used for a while is making
+Xit print a different quote each time.  The possibilites are endless.  Enjoy.
+X
+XJim
+X
+X
+XArticle 31270 of comp.unix.questions:
+XFrom: rembo@unisoft.UUCP (Tony Rems)
+XNewsgroups: comp.unix.questions
+XSubject: Re: Finger
+XDate: 22 Feb 91 02:44:17 GMT
+XReply-To: rembo@unisoft.UUCP (Tony Rems)
+XOrganization: UniSoft Corporation -- UNIX R Us.
+X
+XIn article <37675@netnews.upenn.edu> minzhi@eniac.seas.upenn.edu (Min-Zhi Shao) writes:
+X>
+X>    When I fingered our system administrator, I got the following result:
+X>
+X>_________________________________________________________________________
+X>Login name: gardella  			In real life: Ed Gardella [CETS]
+X>Directory: /home/cets/gardella      	Shell: /usr/local/bin/bash
+X>On since Feb 15 19:49:04 on ttyp1 from TSTEST.SEAS.UPEN
+X>14 minutes Idle Time
+X>No unread mail
+X>Project: System Administrator eniac.seas.upenn.edu
+X>Plan:
+X>         Meander about until something interesting comes along.
+X>
+X>Office: 154 Moore Building           Work Phone: 898-2491
+X>                                     Home Phone: 387-4104
+X>
+X>I have been fingered 3 times today
+X>_________________________________________________________________________
+X>
+X>the .plan file in his home directory looks like:
+X>
+X>prw-r--r--  1 gardella        0 Feb 15 23:48 /home/cets/gardella/.plan
+X>^
+X
+XAs you have found out by now, I'm sure, the p means that this is 
+Xa named pipe aka a FIFO.  If you'd like to do this yourself, here
+Xis a little program I wrote to do it (see the comments at the
+Xthe beginning of the plan.c file for usage info):  
+X
+XHere's the shar of my plan program, just cut up until it says
+X"cut here", and then type 'sh filename' using whatever filename
+Xyou save it as.  If you use 'plan' it will get overwritten.
+X
+XThe code here should compile w/o any problems on any BSD machine,
+XI have tried it on a Sun, Vax 750, and Pyramid 90x.  It should
+Xalso work properly on any SVR4.0 machine.  
+X
+XThe code is pretty heavily commented so it should be self
+Xexplanatory.  
+X
+XNote that you should put a -DFILENAME="your_home_dir/.plan"
+Xto get it to put your path in, or you can just edit the 
+Xsource and change the value of FILENAME permanently.  
+X
+XIf you have any problems getting it compiled, just send me mail.
+X
+XEnjoy.  
+X
+X-Tony
+X
+END_OF_FILE
+  if test 5668 -ne `wc -c <'planner/README.old'`; then
+    echo shar: \"'planner/README.old'\" unpacked with wrong size!
+  fi
+  # end of 'planner/README.old'
+fi
+if test -f 'planner/changes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/changes'\"
+else
+  echo shar: Extracting \"'planner/changes'\" \(431 characters\)
+  sed "s/^X//" >'planner/changes' <<'END_OF_FILE'
+XSteve Franklin  (not the original author)
+Xfranke1@llnl.gov
+XAugust 10, 1993
+X
+XHere is yet another modification of the origial plan FIFO utility.o
+XPlease see README.old and readme.orig for more information.
+X
+XChanges:
+X    Added -d daemon command switch.
+X    Karen's PID stuff was changed to cleanup .plan and .planpid upon exit.
+X    Added PIDCHECK precompiler directive to comment the above out if you wish.
+X    Cleaned up code a bit.
+END_OF_FILE
+  if test 431 -ne `wc -c <'planner/changes'`; then
+    echo shar: \"'planner/changes'\" unpacked with wrong size!
+  fi
+  # end of 'planner/changes'
+fi
+if test -f 'planner/logfinger' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/logfinger'\"
+else
+  echo shar: Extracting \"'planner/logfinger'\" \(615 characters\)
+  sed "s/^X//" >'planner/logfinger' <<'END_OF_FILE'
+X#!/usr/bin/perl -- # -*-Perl-*-
+X
+X$me = "franklin";
+X$logfile = "/users/students/franklin/.dots/.fingerees";
+X$pscommand = "ps -auw";
+X
+Xopen(PS, "$pscommand |");
+X@fingers = grep(/(f\s+$me)|(finger\s+$me)/, <PS>);
+Xclose(PS);
+X
+X#($num) = unpack("A9", `wc -l $logfile`); # =~ s/^\s*(\d+).*\n/\1/;
+X#($num2) = $num/2;
+X#printf "I have been fingered %d time", $num2;
+X#print "s" if ($num - 1);
+X#print " today\n";
+X#close(STDOUT);
+X
+Xopen(LOG, ">>$logfile");
+Xforeach $line (@fingers) {
+X    ($user) = $line =~ /^\s*(\S+)/;
+X    print LOG "$user, at ", `date`;
+X}
+X
+Xprint(LOG "somebody, at ", `date`) if (! ($#fingers + 1));
+Xclose(LOG);
+END_OF_FILE
+  if test 615 -ne `wc -c <'planner/logfinger'`; then
+    echo shar: \"'planner/logfinger'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/logfinger'
+  # end of 'planner/logfinger'
+fi
+if test -f 'planner/plan.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/plan.1'\"
+else
+  echo shar: Extracting \"'planner/plan.1'\" \(1603 characters\)
+  sed "s/^X//" >'planner/plan.1' <<'END_OF_FILE'
+X.TH PLAN L "\*(V)" "4BSD"
+X.SH NAME
+Xplan - run an executable when a specified FIFO is opened
+X.SH SYNOPSIS
+X.B plan
+X[
+X.BR -d
+X] [
+X.BR -f file
+X]
+X.B executable
+X.SH DESCRIPTION
+X.I plan
+Xtakes the name of an executable program and runs it on a FIFO that
+Xis specified on the command line or on a FIFO in the user's home directory
+Xnamed .plan.  Whenever the FIFO is accessed, the output of the executable
+Xprogram goes to the FIFO.  It writes it's PID a file, so the process
+Xcan be killed during logout, and it checks for the existence of this
+Xfile to make sure plan isn't already running.
+X.SH OPTIONS
+X.TP
+X.B \-d
+XRun \fIplan\fR in daemon mode.
+X.PP
+X.TP
+X.B \-f file_name
+XThe \fB\-f flag causes \fIplan\fR to set up the specified \fBfile_name\fR
+Xas a FIFO rather than the default \fB$HOME/.plan\fR.
+X.PP
+XSome sample uses of \fIplan\fR would be:
+X.TP
+X.B plan -d /usr/games/fortune
+XThis will display a randomly selected fortune as the contents of
+Xyour .plan file whenever you are fingered.
+X.TP
+X.B plan -d -f ~/.signature ~/bin/gensig
+XThis will run the program gensig whenever your .signature file is accessed,
+Xallowing you to change your .signature whenever you post.
+X.TP
+X.B plan -d ~/bin/logfinger
+XThis will run the program logfinger whenever your .plan file is accessed,
+Xand you can log all instances of people fingering you.
+X.SH AUTHOR
+XTony Rems (rembo@unisoft.com)
+X.PP
+XModifications by Geoff Loker (geoff@mdms.moore.com).
+XMore modifications by Karen Bruner (napalm@ugcs.caltech.edu).
+XEven more modifications by Norman Franke (franke1@llnl.gov).
+X.SH BUGS
+XYour system must support named pipes in order for this to work.
+END_OF_FILE
+  if test 1603 -ne `wc -c <'planner/plan.1'`; then
+    echo shar: \"'planner/plan.1'\" unpacked with wrong size!
+  fi
+  # end of 'planner/plan.1'
+fi
+if test -f 'planner/plan.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/plan.c'\"
+else
+  echo shar: Extracting \"'planner/plan.c'\" \(4953 characters\)
+  sed "s/^X//" >'planner/plan.c' <<'END_OF_FILE'
+X/*	THIS IS THE UNPUBLISHED SOURCE CODE OF REMBO		*/
+X/*	The copyright notice above does not evidence any   	*/
+X/*	actual or intended publication of such source code.	*/
+X/*	So, use it if you like, but give me credit.		*/
+X
+X/*
+X    Usage: plan [-d] [-f file_name] program_name
+X
+X    Description:
+X
+X    This program takes the full pathname of an executable and runs it on a
+X    fifo in the user's home directory named .plan.  This way, when finger
+X    is executed, the output of the program goes to the fifo.
+X
+XWritten by:  Tony Rems
+X    Send bugs and flames to /dev/null or
+X    rembo@unisoft.com
+X
+XModifications:
+X
+X    September 1991 (by Geoff Loker geoff@mdms.moore.com)
+X
+X    Modified the program so that the path to the .plan file is not
+X    hardcoded in.  Now any number of users can use the program at the same
+X    time.  I also modified the program to use an optional argument to
+X    specify which file to use.  The default file used is still the user's
+X    .plan, but this can now also be used to set up .signatures or any other
+X    file the user wants.
+X
+X    January 1992 (by Karen Bruner napalm@ugcs.caltech.edu)
+X
+X    Added pid_deal function, so people can stick the program in their
+X    .login, and then have it killed by their .logout.  Program will not run
+X    if a .planpid file, the file with the PID for plan, already exists in
+X    the user's home Directory.
+X
+X    August 10, 1993 (by Norman Franke franke1@llnl.gov)
+X
+X    Cleaned up indenting, made PID stuff selectable via precompiler
+X    directive. Added chmod, else it wouldn't work on my system. Made it
+X    clean up old .plan and .planpid upon exit.  Made it fork, so one
+X    doesn't need to run in the background.
+X*/
+X
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <sys/stat.h>
+X#include <signal.h>
+X#include <string.h>
+X
+X/* Defines */
+X#define PERMS 0666
+X#define USAGE "%s [-d] [-f file_name] program_name\n"
+X#define PIDCHECK
+X
+X/* Function prototypes */
+Xvoid sig_handler();
+Xint pid_deal();	
+Xvoid write_pid();
+X
+X/* Files for later cleanup */
+Xchar plan[256];
+Xchar savepid[100];
+X
+Xextern char *optarg;
+Xextern int optind;
+X
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X    int c, fflg;
+X    char *file;
+X    int fd, pid, status;
+X    char *getenv(), *home, *strcat(), *strcpy();
+X    int pid_check, daemon = 0;
+X
+X    fflg = c = 0;
+X    while ((c = getopt(argc, argv, "df:")) != EOF) {
+X	switch (c) {
+X	    case 'f':
+X		file = optarg;
+X		fflg++;
+X		break;
+X	    case 'd':
+X		daemon = 1;
+X		break;
+X	}
+X    }
+X
+X#ifdef PIDCHECK
+X	pid_check = pid_deal();
+X#else
+X	pid_check = 1;
+X#endif
+X
+X    if (pid_check != 1) {
+X	printf("plan already running\n");
+X	exit(1);
+X    }
+X
+X    if (fflg)
+X	strcpy(plan, file);
+X    else {
+X	home = getenv("HOME");
+X	strcpy(plan, home);
+X	strcat(plan, "/.plan");
+X    }
+X
+X    if ( argc != optind + 1 ) {
+X	fprintf (stderr, USAGE, argv[0]);
+X	exit(1);
+X    }
+X
+X/* Catch interrupts for cleanup */
+X    signal(SIGTERM, sig_handler);
+X    signal(SIGINT, sig_handler);
+X    signal(SIGHUP, sig_handler);
+X
+X    unlink (plan);
+X
+X/* Make the fifo */
+X    if ((mknod(plan, S_IFIFO | PERMS, 0)) < 0 ) {
+X	    perror("mknod");
+X	    exit(2);
+X    }
+X    if ((chmod(plan, 0644)) < 0) {
+X	    perror("chmod");
+X	    exit(2);
+X    }
+X
+X    if (daemon) {
+X	switch (pid = fork()) {
+X	    case -1:
+X		perror("fork");
+X		exit(4);
+X	    case 0:
+X		break;
+X	    default:
+X		exit(0);
+X	}
+X    }
+X
+X#ifdef PIDCHECK
+X    write_pid();
+X#endif
+X
+X    while (1) {
+X	if ((fd = open(plan, O_WRONLY)) < 0 ) {
+X	    perror("open");
+X	    exit(3);
+X	}
+X
+X/* Once our open completes we know that someone else has
+X* opened the FIFO for reading, so we can know run our 
+X* program on it.  So, we fork, exec our program and
+X* wait for the child to complete.
+X*/
+X	switch (pid = fork()) {
+X	    case -1:
+X		perror("fork");
+X		exit(4);
+X		break;
+X/* If we're in the child, we copy our fifo to stdout */
+X/* and exec the program given */
+X	    case 0:
+X		dup2(fd, 1);
+X		execlp(argv[optind],argv[optind],(void *)NULL);
+X		perror("child returned");
+X		exit(5);
+X		break;
+X/* If we're in the parent, we close the pipe and wait */
+X	    default:
+X		close(fd);
+X		while (wait(&status) != pid);
+X		break;
+X	}
+X	sleep(2);
+X	close(fd);
+X    }
+X}
+X
+Xvoid sig_handler()  /* cleanup */
+X{
+X	unlink(plan);
+X	unlink(savepid);
+X	exit(0);
+X}
+X
+X#ifdef PIDCHECK
+Xint pid_deal()
+X{
+X    FILE *sp;
+X    int checker;
+X    char *home;
+X
+X    home = getenv("HOME");		/* put save name for file */
+X    strcpy(savepid, home);		/* in savepid */
+X    strcat(savepid, "/.planpid");
+X
+X/* test for existence of .planpid by trying to open the file for reading */
+X/* return a zero if read was successful, i.e., file already exists */
+X/* file doesn't exist, return a 1 to execute the rest of the program */
+X    if ((sp = fopen(savepid, "r")) != NULL) checker = 0;
+X	else checker = 1;
+X    fclose(sp);
+X
+X    return checker;
+X}
+X
+Xvoid write_pid()
+X{
+X    FILE *sp;
+X
+X    if (!(sp = fopen(savepid, "w"))) {
+X	perror("fopen");
+X	exit(1);
+X    }
+X    fprintf(sp, "%d", getpid()); 	/* puts PID for plan into file */
+X    fclose(sp);
+X} 
+X#endif
+END_OF_FILE
+  if test 4953 -ne `wc -c <'planner/plan.c'`; then
+    echo shar: \"'planner/plan.c'\" unpacked with wrong size!
+  fi
+  # end of 'planner/plan.c'
+fi
+if test -f 'planner/planner' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/planner'\"
+else
+  echo shar: Extracting \"'planner/planner'\" \(1481 characters\)
+  sed "s/^X//" >'planner/planner' <<'END_OF_FILE'
+X#!/bin/sh
+Xecho ""
+Xecho ""
+X/pub/bin/stfortune
+Xecho ""
+Xecho ""
+X
+X
+Xperl $HOME/bin/planner/logfinger
+X#  This previous line points to the logfinger script
+XWHO=`netstat -n | head -25 | grep 129.173.4.4.79 | grep ESTABLISHED | head -1 | awk '{ p=NF-1;printf "%s\n",$p}' | awk -F. '{printf "%s.%s.%s.%s\n",$1,$2,$3,$4}'`
+X#                                                     ^^^^^^^^^^^^^
+X#                                  This is the finger port. Your IP number
+X#                                  plus .79 (the finger port suffix)
+X#                                  Change the IP number to reflect yours
+X
+Xif [ -z "$WHO" ]
+X   then WHO='129.173.4.4'
+Xfi
+X
+X#  If it doesn't catch any IP number fingering you then it must be a local
+X#  finger
+X
+XHOST=`host $WHO 2>/dev/null| grep Name | awk '{ printf "%s\n",$2 }'`
+Xecho "     " $WHO "->" $HOST >> $HOME/.dots/.fingerees
+Xecho "You're fingering me from "$WHO ", which is "$HOST
+XTIME=`date '+%H:%M, %D'`
+Xecho ""
+Xecho ""
+Xstardate=`/pub/bin/stardate`
+Xecho "Today's date/time is "$stardate" (STTNG format)"
+Xecho ""
+X#echo "Mail franklin@ug.cs.dal.ca, subject 00LIST (capitalized, with zeroes)"
+X#echo "for the latest version of the Macintosh shareware FAQ"
+X#echo ""
+Xecho "If you're not from around here..."
+Xnumber=`expr $$ % 13 + 1`
+Xif [ $number -eq "10" ]
+X	then number=9
+Xfi
+Xecho ""
+Xdotplan $number "Drop me some e-mail and say hello!"
+XFILE=/pub/lib/today/`date +%h.%d`
+Xcat $FILE
+Xecho "(If you do/don't like the .plan change - MAIL me and let me know!)"
+END_OF_FILE
+  if test 1481 -ne `wc -c <'planner/planner'`; then
+    echo shar: \"'planner/planner'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/planner'
+  # end of 'planner/planner'
+fi
+if test -f 'planner/planner1.0.header' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/planner1.0.header'\"
+else
+  echo shar: Extracting \"'planner/planner1.0.header'\" \(2371 characters\)
+  sed "s/^X//" >'planner/planner1.0.header' <<'END_OF_FILE'
+X   Well, here is another update to the planner script that has been contributed
+Xto by countless users that are all mentioned throughout the README file. I 
+Xhave certainly contributed the least to any of the code of this project,
+Xbut was more concerned with putting some utility and functionality into it. 
+X   Hopefully people will continue to have more ideas that they can put into
+Xthis. In case people are curious, I've logged approximately 30,000 finger 
+Xrequests to my account, and it's still as reliableas ever. I have looked
+Xat all the available packages, and have to say that this seems to be the
+Xsturdiest and "frilliest" package that is available. Basically lets you do
+Xanything to your .plan that you could ever want. Check it out by fingering
+X    franklin@ug.cs.dal.ca
+X
+X   The change to this package that merits a repost is that it will no longer
+Xhang your machine when a mirror host (NFS mounted volume) is fingered. Before,
+Xthe .plan was a named pipe which pointed to a background process. However,
+Xthis background process did not exist on other machiens that had the same
+Xfile system, so it would just hang the finger daemon (bad). So, to get around 
+Xthis, the named pipe is placed in the /tmp disk, and a symbolic link to 
+Xthe .plan file is made (credits go to Fumiaki Kamiya). Then, people will
+Xsimply get a "No Plan" message when they finger other hosts that do not have
+Xthe resident background process.
+X
+X   People should also note that this is incredibly cpu-friendly. It gets the
+Xhost-name of the machine that is fingering you through a simple step involving
+Xnetstat (but only taking a head-20 of the output). 
+X
+X   It shouldalso be noted that this will NOT run on ULTRIX, disabled finger 
+Xdaemons, or, of course, VMS. I would not recommend that any new users
+Xwork with this, because it can definitely peeve your system administrator,
+Xand because you will have to play with the code to get it working. To any
+Xmoderate to advanced UNIX user, it should be quite easy - just take a bit
+Xof tweaking. I haven't been able to figure out an easy way to make the code
+Xuniversal, because there are so many places where you have to change pathnames,
+Xusernames, etc. But, you should be able to get it running flawlessly in under
+Xan hour at the very most.
+X
+X
+XHoping you have fun with this, and hoping your New Year's Celebration was
+Xas good as mine,
+X
+X
+XSteve Franklin
+X
+END_OF_FILE
+  if test 2371 -ne `wc -c <'planner/planner1.0.header'`; then
+    echo shar: \"'planner/planner1.0.header'\" unpacked with wrong size!
+  fi
+  # end of 'planner/planner1.0.header'
+fi
+if test ! -d 'planner/scripts' ; then
+    echo shar: Creating directory \"'planner/scripts'\"
+    mkdir 'planner/scripts'
+fi
+if test -f 'planner/scripts/delplan' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/scripts/delplan'\"
+else
+  echo shar: Extracting \"'planner/scripts/delplan'\" \(171 characters\)
+  sed "s/^X//" >'planner/scripts/delplan' <<'END_OF_FILE'
+X    if [ -f $HOME/.planpid ] ; then
+X        builtin kill -9 -9 `cat $HOME/.planpid` >/dev/null 2>&1 ;
+X        trm -f $HOME/.plan $HOME/.planpid >/dev/null 2>&1  ;
+X    fi
+X
+END_OF_FILE
+  if test 171 -ne `wc -c <'planner/scripts/delplan'`; then
+    echo shar: \"'planner/scripts/delplan'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/scripts/delplan'
+  # end of 'planner/scripts/delplan'
+fi
+if test -f 'planner/scripts/killplan' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/scripts/killplan'\"
+else
+  echo shar: Extracting \"'planner/scripts/killplan'\" \(618 characters\)
+  sed "s/^X//" >'planner/scripts/killplan' <<'END_OF_FILE'
+X#!/bin/sh
+X
+Xat now + 10 minute /users/students/franklin/bin/killplan 2>/dev/null >/dev/null 2>&1
+X
+Xif [ ! -f /tmp/franklinsplan_file ]
+Xthen /users/students/franklin/bin/renewplan
+Xelse echo "planfile is there" 2>/dev/null >/dev/null
+Xfi
+X
+Xzz=`ps guxw | grep planner | grep franklin | grep -v "grep" |awk '{printf"%s\n",$2}'`
+X
+Xif [ ! -z "$zz" ]
+X	then echo "process is there" 2>/dev/null >/dev/null
+X	zzz=`cat $HOME/.planpid`
+X		if [ "$zz" -eq "$zzz" ]
+X         echo $zz >> $HOME/.file
+X			then echo "hi" 2>/dev/null >/dev/null
+X			else /users/students/franklin/bin/renewplan
+X		fi
+X	else /users/students/franklin/bin/renewplan
+Xfi
+END_OF_FILE
+  if test 618 -ne `wc -c <'planner/scripts/killplan'`; then
+    echo shar: \"'planner/scripts/killplan'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/scripts/killplan'
+  # end of 'planner/scripts/killplan'
+fi
+if test -f 'planner/scripts/lf' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/scripts/lf'\"
+else
+  echo shar: Extracting \"'planner/scripts/lf'\" \(234 characters\)
+  sed "s/^X//" >'planner/scripts/lf' <<'END_OF_FILE'
+X#!/bin/sh
+Xtimeit=`/usr/5bin/ls -l /users/students/franklin/.dots/.fingerees | cut -c42-54`
+Xuser=`tail -2 /users/students/franklin/.dots/.fingerees | head -1 | cut -c1-8 | tr "," " "`
+Xecho "you were last fingered at:" $timeit by $user
+END_OF_FILE
+  if test 234 -ne `wc -c <'planner/scripts/lf'`; then
+    echo shar: \"'planner/scripts/lf'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/scripts/lf'
+  # end of 'planner/scripts/lf'
+fi
+if test -f 'planner/scripts/renewplan' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/scripts/renewplan'\"
+else
+  echo shar: Extracting \"'planner/scripts/renewplan'\" \(560 characters\)
+  sed "s/^X//" >'planner/scripts/renewplan' <<'END_OF_FILE'
+X#!/bin/sh
+X#if [ "$HOST" = "ug" ]
+X#then
+X#at now + 1 hour /users/students/franklin/bin/renewplan > /dev/null 2>&1
+X    if [ -f $HOME/.planpid ] ; then
+X        kill -9 `cat $HOME/.planpid` >/dev/null 2>&1 ;
+X        rm -f $HOME/.plan $HOME/.planpid /tmp/.planlink >/dev/null 2>&1 ;
+X    fi
+X    if [ ! -f $HOME/.fingerees ] ; then
+X        echo " " >$HOME/.fingerees  ;
+X    fi;
+X    $HOME/bin/planner/plan -d -f /tmp/.planlink $HOME/bin/planner/planner & sleep 2;
+X    ln -s /tmp/.planlink $HOME/.plan
+X    chmod a+r /tmp/.planlink 
+X    touch /tmp/franklinsplan_file
+X#fi
+END_OF_FILE
+  if test 560 -ne `wc -c <'planner/scripts/renewplan'`; then
+    echo shar: \"'planner/scripts/renewplan'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/scripts/renewplan'
+  # end of 'planner/scripts/renewplan'
+fi
+if test -f 'planner/scripts/rf' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'planner/scripts/rf'\"
+else
+  echo shar: Extracting \"'planner/scripts/rf'\" \(61 characters\)
+  sed "s/^X//" >'planner/scripts/rf' <<'END_OF_FILE'
+X#!/bin/sh
+Xtail -$1 /users/students/franklin/.dots/.fingerees
+END_OF_FILE
+  if test 61 -ne `wc -c <'planner/scripts/rf'`; then
+    echo shar: \"'planner/scripts/rf'\" unpacked with wrong size!
+  fi
+  chmod +x 'planner/scripts/rf'
+  # end of 'planner/scripts/rf'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

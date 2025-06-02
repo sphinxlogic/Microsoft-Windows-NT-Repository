@@ -1,0 +1,2934 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i029:  gnuplot - interactive function plotting utility, Part17/33
+Message-ID: <1993Oct22.163549.24123@sparky.sterling.com>
+X-Md4-Signature: d6eb3fd2db67e4a1323d9b026434d4a4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 22 Oct 1993 16:35:49 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 29
+Archive-name: gnuplot/part17
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/docs/doc2hlp.com gnuplot/internal.c
+#   gnuplot/os2/gclient.c gnuplot/specfun.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 33)."'
+if test -f 'gnuplot/docs/doc2hlp.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/docs/doc2hlp.com'\"
+else
+  echo shar: Extracting \"'gnuplot/docs/doc2hlp.com'\" \(90 characters\)
+  sed "s/^X//" >'gnuplot/docs/doc2hlp.com' <<'END_OF_FILE'
+X$ def/user sys$input [.docs]gnuplot.doc
+X$ def/user sys$output []gnuplot.hlp
+X$ run doc2hlp
+END_OF_FILE
+  if test 90 -ne `wc -c <'gnuplot/docs/doc2hlp.com'`; then
+    echo shar: \"'gnuplot/docs/doc2hlp.com'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/docs/doc2hlp.com'
+fi
+if test -f 'gnuplot/internal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/internal.c'\"
+else
+  echo shar: Extracting \"'gnuplot/internal.c'\" \(16884 characters\)
+  sed "s/^X//" >'gnuplot/internal.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: internal.c%v 3.50.1.8 1993/07/27 05:37:15 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - internal.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X * 
+X */
+X
+X#include <math.h>
+X#include <stdio.h>
+X#include "plot.h"
+X
+XTBOOLEAN undefined;
+X
+X#ifndef AMIGA_SC_6_1
+Xchar *strcpy();
+X#endif /* !AMIGA_SC_6_1 */
+X
+Xstruct value *pop(), *Gcomplex(), *Ginteger();
+Xdouble magnitude(), angle(), real();
+X
+Xstruct value stack[STACK_DEPTH];
+X
+Xint s_p = -1;   /* stack pointer */
+X
+X
+X/*
+X * System V and MSC 4.0 call this when they wants to print an error message.
+X * Don't!
+X */
+X#ifndef _CRAY
+X#if defined(MSDOS) || defined(DOS386)
+X#ifdef __TURBOC__
+Xint matherr()	/* Turbo C */
+X#else
+Xint matherr(x)	/* MSC 5.1 */
+Xstruct exception *x;
+X#endif /* TURBOC */
+X#else /* not MSDOS */
+X#ifdef apollo
+Xint matherr(struct exception *x)	/* apollo */
+X#else /* apollo */
+X#if defined(AMIGA_SC_6_1)||defined(ATARI)&&defined(__GNUC__)||defined(__hpux__)||defined(PLOSS) ||defined(SOLARIS)
+Xint matherr(x)
+Xstruct exception *x;
+X#else    /* Most everyone else (not apollo). */
+Xint matherr()
+X#endif /* AMIGA_SC_6_1 || GCC_ST */
+X#endif /* apollo */
+X#endif /* MSDOS */
+X{
+X	return (undefined = TRUE);		/* don't print error message */
+X}
+X#endif /* not _CRAY */
+X
+X
+Xreset_stack()
+X{
+X	s_p = -1;
+X}
+X
+X
+Xcheck_stack()	/* make sure stack's empty */
+X{
+X	if (s_p != -1)
+X		fprintf(stderr,"\nwarning:  internal error--stack not empty!\n");
+X}
+X
+X
+Xstruct value *pop(x)
+Xstruct value *x;
+X{
+X	if (s_p  < 0 )
+X		int_error("stack underflow",NO_CARET);
+X	*x = stack[s_p--];
+X	return(x);
+X}
+X
+X
+Xpush(x)
+Xstruct value *x;
+X{
+X	if (s_p == STACK_DEPTH - 1)
+X		int_error("stack overflow",NO_CARET);
+X	stack[++s_p] = *x;
+X}
+X
+X
+X#define ERR_VAR "undefined variable: "
+X
+Xf_push(x)
+Xunion argument *x;		/* contains pointer to value to push; */
+X{
+Xstatic char err_str[sizeof(ERR_VAR) + MAX_ID_LEN] = ERR_VAR;
+Xstruct udvt_entry *udv;
+X
+X	udv = x->udv_arg;
+X	if (udv->udv_undef) {	 /* undefined */
+X		(void) strcpy(&err_str[sizeof(ERR_VAR) - 1], udv->udv_name);
+X		int_error(err_str,NO_CARET);
+X	}
+X	push(&(udv->udv_value));
+X}
+X
+X
+Xf_pushc(x)
+Xunion argument *x;
+X{
+X	push(&(x->v_arg));
+X}
+X
+X
+Xf_pushd1(x)
+Xunion argument *x;
+X{
+X	push(&(x->udf_arg->dummy_values[0]));
+X}
+X
+X
+Xf_pushd2(x)
+Xunion argument *x;
+X{
+X	push(&(x->udf_arg->dummy_values[1]));
+X}
+X
+X
+Xf_pushd(x)
+Xunion argument *x;
+X{
+Xstruct value param;
+X	(void) pop(&param);
+X	push(&(x->udf_arg->dummy_values[param.v.int_val]));
+X}
+X
+X
+X#define ERR_FUN "undefined function: "
+X
+Xf_call(x)  /* execute a udf */
+Xunion argument *x;
+X{
+Xstatic char err_str[sizeof(ERR_FUN) + MAX_ID_LEN] = ERR_FUN;
+Xregister struct udft_entry *udf;
+Xstruct value save_dummy;
+X
+X	udf = x->udf_arg;
+X	if (!udf->at) { /* undefined */
+X		(void) strcpy(&err_str[sizeof(ERR_FUN) - 1],
+X				udf->udf_name);
+X		int_error(err_str,NO_CARET);
+X	}
+X	save_dummy = udf->dummy_values[0];
+X	(void) pop(&(udf->dummy_values[0]));
+X
+X	execute_at(udf->at);
+X	udf->dummy_values[0] = save_dummy;
+X}
+X
+X
+Xf_calln(x)  /* execute a udf of n variables */
+Xunion argument *x;
+X{
+Xstatic char err_str[sizeof(ERR_FUN) + MAX_ID_LEN] = ERR_FUN;
+Xregister struct udft_entry *udf;
+Xstruct value save_dummy[MAX_NUM_VAR];
+X
+X	int i;
+X	int num_pop;
+X	struct value num_params;
+X
+X	udf = x->udf_arg;
+X	if (!udf->at) { /* undefined */
+X		(void) strcpy(&err_str[sizeof(ERR_FUN) - 1],
+X				udf->udf_name);
+X		int_error(err_str,NO_CARET);
+X	}
+X	for(i=0; i<MAX_NUM_VAR; i++) 
+X		save_dummy[i] = udf->dummy_values[i];
+X
+X	/* if there are more parameters than the function is expecting */
+X	/* simply ignore the excess */
+X	(void) pop(&num_params);
+X
+X	if(num_params.v.int_val > MAX_NUM_VAR) {
+X		/* pop the dummies that there is no room for */
+X		num_pop = num_params.v.int_val - MAX_NUM_VAR;
+X		for(i=0; i< num_pop; i++)
+X			(void) pop(&(udf->dummy_values[i]));
+X
+X		num_pop = MAX_NUM_VAR;
+X	} else {
+X		num_pop = num_params.v.int_val;
+X	}
+X
+X	/* pop parameters we can use */
+X	for(i=num_pop-1; i>=0; i--)
+X		(void) pop(&(udf->dummy_values[i]));
+X
+X	execute_at(udf->at);
+X	for(i=0; i<MAX_NUM_VAR; i++) 
+X		udf->dummy_values[i] = save_dummy[i];
+X}
+X
+X
+Xstatic int_check(v)
+Xstruct value *v;
+X{
+X	if (v->type != INTGR)
+X		int_error("non-integer passed to boolean operator",NO_CARET);
+X}
+X
+X
+Xf_lnot()
+X{
+Xstruct value a;
+X	int_check(pop(&a));
+X	push(Ginteger(&a,!a.v.int_val) );
+X}
+X
+X
+Xf_bnot()
+X{
+Xstruct value a;
+X	int_check(pop(&a));
+X	push( Ginteger(&a,~a.v.int_val) );
+X}
+X
+X
+Xf_bool()
+X{			/* converts top-of-stack to boolean */
+X	int_check(&top_of_stack);
+X	top_of_stack.v.int_val = !!top_of_stack.v.int_val;
+X}
+X
+X
+Xf_lor()
+X{
+Xstruct value a,b;
+X	int_check(pop(&b));
+X	int_check(pop(&a));
+X	push( Ginteger(&a,a.v.int_val || b.v.int_val) );
+X}
+X
+Xf_land()
+X{
+Xstruct value a,b;
+X	int_check(pop(&b));
+X	int_check(pop(&a));
+X	push( Ginteger(&a,a.v.int_val && b.v.int_val) );
+X}
+X
+X
+Xf_bor()
+X{
+Xstruct value a,b;
+X	int_check(pop(&b));
+X	int_check(pop(&a));
+X	push( Ginteger(&a,a.v.int_val | b.v.int_val) );
+X}
+X
+X
+Xf_xor()
+X{
+Xstruct value a,b;
+X	int_check(pop(&b));
+X	int_check(pop(&a));
+X	push( Ginteger(&a,a.v.int_val ^ b.v.int_val) );
+X}
+X
+X
+Xf_band()
+X{
+Xstruct value a,b;
+X	int_check(pop(&b));
+X	int_check(pop(&a));
+X	push( Ginteger(&a,a.v.int_val & b.v.int_val) );
+X}
+X
+X
+Xf_uminus()
+X{
+Xstruct value a;
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			a.v.int_val = -a.v.int_val;
+X			break;
+X		case CMPLX:
+X			a.v.cmplx_val.real =
+X				-a.v.cmplx_val.real;
+X			a.v.cmplx_val.imag =
+X				-a.v.cmplx_val.imag;
+X	}
+X	push(&a);
+X}
+X
+X
+Xf_eq() /* note: floating point equality is rare because of roundoff error! */
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val ==
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val ==
+X						b.v.cmplx_val.real &&
+X					   b.v.cmplx_val.imag == 0.0);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (b.v.int_val == a.v.cmplx_val.real &&
+X					   a.v.cmplx_val.imag == 0.0);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real==
+X						b.v.cmplx_val.real &&
+X						a.v.cmplx_val.imag==
+X						b.v.cmplx_val.imag);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_ne()
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val !=
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val !=
+X						b.v.cmplx_val.real ||
+X					   b.v.cmplx_val.imag != 0.0);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (b.v.int_val !=
+X						a.v.cmplx_val.real ||
+X					   a.v.cmplx_val.imag != 0.0);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real !=
+X						b.v.cmplx_val.real ||
+X						a.v.cmplx_val.imag !=
+X						b.v.cmplx_val.imag);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_gt()
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val >
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val >
+X						b.v.cmplx_val.real);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.cmplx_val.real >
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real >
+X						b.v.cmplx_val.real);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_lt()
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val <
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val <
+X						b.v.cmplx_val.real);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.cmplx_val.real <
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real <
+X						b.v.cmplx_val.real);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_ge()
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val >=
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val >=
+X						b.v.cmplx_val.real);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.cmplx_val.real >=
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real >=
+X						b.v.cmplx_val.real);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_le()
+X{
+Xstruct value a, b;
+X	register int result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.int_val <=
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.int_val <=
+X						b.v.cmplx_val.real);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					result = (a.v.cmplx_val.real <=
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					result = (a.v.cmplx_val.real <=
+X						b.v.cmplx_val.real);
+X			}
+X	}
+X	push(Ginteger(&a,result));
+X}
+X
+X
+Xf_plus()
+X{
+Xstruct value a, b, result;
+X	(void) pop(&b);
+X	(void) pop(&a);
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Ginteger(&result,a.v.int_val +
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.int_val +
+X						b.v.cmplx_val.real,
+X					   b.v.cmplx_val.imag);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Gcomplex(&result,b.v.int_val +
+X						a.v.cmplx_val.real,
+X					   a.v.cmplx_val.imag);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.cmplx_val.real+
+X						b.v.cmplx_val.real,
+X						a.v.cmplx_val.imag+
+X						b.v.cmplx_val.imag);
+X			}
+X	}
+X	push(&result);
+X}
+X
+X
+Xf_minus()
+X{
+Xstruct value a, b, result;
+X	(void) pop(&b);
+X	(void) pop(&a);		/* now do a - b */
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Ginteger(&result,a.v.int_val -
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.int_val -
+X						b.v.cmplx_val.real,
+X					   -b.v.cmplx_val.imag);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Gcomplex(&result,a.v.cmplx_val.real -
+X						b.v.int_val,
+X					    a.v.cmplx_val.imag);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.cmplx_val.real-
+X						b.v.cmplx_val.real,
+X						a.v.cmplx_val.imag-
+X						b.v.cmplx_val.imag);
+X			}
+X	}
+X	push(&result);
+X}
+X
+X
+Xf_mult()
+X{
+Xstruct value a, b, result;
+X	(void) pop(&b);
+X	(void) pop(&a);	/* now do a*b */
+X
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Ginteger(&result,a.v.int_val *
+X						b.v.int_val);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.int_val *
+X						b.v.cmplx_val.real,
+X						a.v.int_val *
+X						b.v.cmplx_val.imag);
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					(void) Gcomplex(&result,b.v.int_val *
+X						a.v.cmplx_val.real,
+X						b.v.int_val *
+X						a.v.cmplx_val.imag);
+X					break;
+X				case CMPLX:
+X					(void) Gcomplex(&result,a.v.cmplx_val.real*
+X						b.v.cmplx_val.real-
+X						a.v.cmplx_val.imag*
+X						b.v.cmplx_val.imag,
+X						a.v.cmplx_val.real*
+X						b.v.cmplx_val.imag+
+X						a.v.cmplx_val.imag*
+X						b.v.cmplx_val.real);
+X			}
+X	}
+X	push(&result);
+X}
+X
+X
+Xf_div()
+X{
+Xstruct value a, b, result;
+Xregister double square;
+X	(void) pop(&b);
+X	(void) pop(&a);	/* now do a/b */
+X
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					if (b.v.int_val)
+X					  (void) Ginteger(&result,a.v.int_val /
+X						b.v.int_val);
+X					else {
+X					  (void) Ginteger(&result,0);
+X					  undefined = TRUE;
+X					}
+X					break;
+X				case CMPLX:
+X					square = b.v.cmplx_val.real*
+X						b.v.cmplx_val.real +
+X						b.v.cmplx_val.imag*
+X						b.v.cmplx_val.imag;
+X					if (square)
+X						(void) Gcomplex(&result,a.v.int_val*
+X						b.v.cmplx_val.real/square,
+X						-a.v.int_val*
+X						b.v.cmplx_val.imag/square);
+X					else {
+X						(void) Gcomplex(&result,0.0,0.0);
+X						undefined = TRUE;
+X					}
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					if (b.v.int_val)
+X					  
+X					  (void) Gcomplex(&result,a.v.cmplx_val.real/
+X						b.v.int_val,
+X						a.v.cmplx_val.imag/
+X						b.v.int_val);
+X					else {
+X						(void) Gcomplex(&result,0.0,0.0);
+X						undefined = TRUE;
+X					}
+X					break;
+X				case CMPLX:
+X					square = b.v.cmplx_val.real*
+X						b.v.cmplx_val.real +
+X						b.v.cmplx_val.imag*
+X						b.v.cmplx_val.imag;
+X					if (square)
+X					(void) Gcomplex(&result,(a.v.cmplx_val.real*
+X						b.v.cmplx_val.real+
+X						a.v.cmplx_val.imag*
+X						b.v.cmplx_val.imag)/square,
+X						(a.v.cmplx_val.imag*
+X						b.v.cmplx_val.real-
+X						a.v.cmplx_val.real*
+X						b.v.cmplx_val.imag)/
+X							square);
+X					else {
+X						(void) Gcomplex(&result,0.0,0.0);
+X						undefined = TRUE;
+X					}
+X			}
+X	}
+X	push(&result);
+X}
+X
+X
+Xf_mod()
+X{
+Xstruct value a, b;
+X	(void) pop(&b);
+X	(void) pop(&a);	/* now do a%b */
+X
+X	if (a.type != INTGR || b.type != INTGR)
+X		int_error("can only mod ints",NO_CARET);
+X	if (b.v.int_val)
+X		push(Ginteger(&a,a.v.int_val % b.v.int_val));
+X	else {
+X		push(Ginteger(&a,0));
+X		undefined = TRUE;
+X	}
+X}
+X
+X
+Xf_power()
+X{
+Xstruct value a, b, result;
+Xregister int i, t, count;
+Xregister double mag, ang;
+X	(void) pop(&b);
+X	(void) pop(&a);	/* now find a**b */
+X
+X	switch(a.type) {
+X		case INTGR:
+X			switch (b.type) {
+X				case INTGR:
+X					count = abs(b.v.int_val);
+X					t = 1;
+X					for(i = 0; i < count; i++)
+X						t *= a.v.int_val;
+X					if (b.v.int_val >= 0)
+X						(void) Ginteger(&result,t);
+X					else
+X					  if (t != 0)
+X					    (void) Gcomplex(&result,1.0/t,0.0);
+X					  else {
+X						 undefined = TRUE;
+X						 (void) Gcomplex(&result, 0.0, 0.0);
+X					  }
+X					break;
+X				case CMPLX:
+X					mag =
+X					  pow(magnitude(&a),fabs(b.v.cmplx_val.real));
+X					if (b.v.cmplx_val.real < 0.0)
+X					  if (mag != 0.0)
+X					    mag = 1.0/mag;
+X					  else 
+X					    undefined = TRUE;
+X					mag *= exp(-b.v.cmplx_val.imag*angle(&a));
+X					ang = b.v.cmplx_val.real*angle(&a) +
+X					      b.v.cmplx_val.imag*log(magnitude(&a));
+X					(void) Gcomplex(&result,mag*cos(ang),
+X						mag*sin(ang));
+X			}
+X			break;
+X		case CMPLX:
+X			switch (b.type) {
+X				case INTGR:
+X					if (a.v.cmplx_val.imag == 0.0) {
+X						mag = pow(a.v.cmplx_val.real,(double)abs(b.v.int_val));
+X						if (b.v.int_val < 0)
+X						  if (mag != 0.0)
+X						    mag = 1.0/mag;
+X						  else 
+X						    undefined = TRUE;
+X						(void) Gcomplex(&result,mag,0.0);
+X					}
+X					else {
+X						/* not so good, but...! */
+X						mag = pow(magnitude(&a),(double)abs(b.v.int_val));
+X						if (b.v.int_val < 0)
+X						  if (mag != 0.0)
+X						    mag = 1.0/mag;
+X						  else 
+X						    undefined = TRUE;
+X						ang = angle(&a)*b.v.int_val;
+X						(void) Gcomplex(&result,mag*cos(ang),
+X							mag*sin(ang));
+X					}
+X					break;
+X				case CMPLX:
+X					mag = pow(magnitude(&a),fabs(b.v.cmplx_val.real));
+X					if (b.v.cmplx_val.real < 0.0)
+X					  if (mag != 0.0)
+X					    mag = 1.0/mag;
+X					  else 
+X					    undefined = TRUE;
+X					mag *= exp(-b.v.cmplx_val.imag*angle(&a));
+X					ang = b.v.cmplx_val.real*angle(&a) +
+X					      b.v.cmplx_val.imag*log(magnitude(&a));
+X					(void) Gcomplex(&result,mag*cos(ang),
+X						mag*sin(ang));
+X			}
+X	}
+X	push(&result);
+X}
+X
+X
+Xf_factorial()
+X{
+Xstruct value a;
+Xregister int i;
+Xregister double val;
+X
+X	(void) pop(&a);	/* find a! (factorial) */
+X
+X	switch (a.type) {
+X		case INTGR:
+X			val = 1.0;
+X			for (i = a.v.int_val; i > 1; i--)  /*fpe's should catch overflows*/
+X				val *= i;
+X			break;
+X		default:
+X			int_error("factorial (!) argument must be an integer",
+X			NO_CARET);
+X		}
+X
+X	push(Gcomplex(&a,val,0.0));
+X			
+X}
+X
+X
+Xint
+Xf_jump(x)
+Xunion argument *x;
+X{
+X	return(x->j_arg);
+X}
+X
+X
+Xint
+Xf_jumpz(x)
+Xunion argument *x;
+X{
+Xstruct value a;
+X	int_check(&top_of_stack);
+X	if (top_of_stack.v.int_val) {	/* non-zero */
+X		(void) pop(&a);
+X		return 1;				/* no jump */
+X	}
+X	else
+X		return(x->j_arg);		/* leave the argument on TOS */
+X}
+X
+X
+Xint
+Xf_jumpnz(x)
+Xunion argument *x;
+X{
+Xstruct value a;
+X	int_check(&top_of_stack);
+X	if (top_of_stack.v.int_val)	/* non-zero */
+X		return(x->j_arg);		/* leave the argument on TOS */
+X	else {
+X		(void) pop(&a);
+X		return 1;				/* no jump */
+X	}
+X}
+X
+X
+Xint
+Xf_jtern(x)
+Xunion argument *x;
+X{
+Xstruct value a;
+X
+X	int_check(pop(&a));
+X	if (a.v.int_val)
+X		return(1);				/* no jump; fall through to TRUE code */
+X	else
+X		return(x->j_arg);		/* go jump to FALSE code */
+X}
+END_OF_FILE
+  if test 16884 -ne `wc -c <'gnuplot/internal.c'`; then
+    echo shar: \"'gnuplot/internal.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/internal.c'
+fi
+if test -f 'gnuplot/os2/gclient.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/os2/gclient.c'\"
+else
+  echo shar: Extracting \"'gnuplot/os2/gclient.c'\" \(37236 characters\)
+  sed "s/^X//" >'gnuplot/os2/gclient.c' <<'END_OF_FILE'
+X#ifdef INCRCSDATA
+Xstatic char RCSid[]="$Id: gclient.c%v 3.50 1993/07/09 05:35:24 woo Exp $" ;
+X#endif
+X
+X/****************************************************************************
+X
+X    PROGRAM: Gnupmdrv
+X    
+X    MODULE:  gclient.c
+X        
+X    This file contains the client window procedures for Gnupmdrv
+X    
+X****************************************************************************/
+X
+X/*
+X * PM driver for GNUPLOT
+X * Copyright (C) 1992   Roger Fearick
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHOR
+X * 
+X *   Gnuplot driver for OS/2:  Roger Fearick
+X * 
+X * Send your comments or suggestions to 
+X *  info-gnuplot@dartmouth.edu.
+X * This is a mailing list; to join it send a note to 
+X *  info-gnuplot-request@dartmouth.edu.  
+X * Send bug reports to
+X *  bug-gnuplot@dartmouth.edu.
+X**/
+X
+X#define INCL_PM
+X#define INCL_WIN
+X#define INCL_SPL
+X#define INCL_SPLDOSPRINT
+X#define INCL_WINSTDFONT
+X#define INCL_DOSMEMMGR
+X#define INCL_DOSPROCESS
+X#define INCL_DOSERRORS
+X#define INCL_DOSFILEMGR
+X#define INCL_DOSNMPIPES
+X#define INCL_DOSSESMGR
+X#define INCL_DOSSEMAPHORES
+X#define INCL_DOSMISC
+X#define INCL_DOSQUEUES
+X#define INCL_WINSWITCHLIST
+X#include <os2.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <process.h>
+X#include "gnupmdrv.h"
+X
+X/*==== g l o b a l    d a t a ================================================*/
+X
+Xextern char szIPCName[] ;       /* name used in IPC with gnuplot */
+X
+X/*==== l o c a l    d a t a ==================================================*/
+X
+X#define   GNUBUF    1024        /* buffer for gnuplot commands */
+X#define   PIPEBUF   4096        /* size of pipe buffers */
+X#define   CMDALLOC  4096        /* command buffer allocation increment (ints) */
+X#define   ENVSIZE   2048        /* size of environment */ 
+X#define   GNUPAGE   4096        /* size of gnuplot page in pixels (driver dependent) */
+X
+X#define   PAUSE_DLG 1           /* pause handled in dialog box */
+X#define   PAUSE_BTN 2           /* pause handled by menu item */
+X#define   PAUSE_GNU 3           /* pause handled by Gnuplot */
+X
+Xstatic HWND     hWndstart ;     /* used for errors in startup */
+Xstatic ULONG    pidGnu=0L ;      /* gnuplot session id */
+Xstatic ULONG    ppidGnu=0L ;      /* gnuplot pid */
+Xstatic HPS      hpsScreen ;     /* screen pres. space */
+X
+Xstatic HSWITCH hSwitch = 0 ;    /* switching between windows */
+Xstatic SWCNTRL swGnu ;
+X
+Xstatic BOOL     bLineTypes = FALSE ;
+Xstatic BOOL     bLineThick = FALSE ;
+Xstatic BOOL     bColours = TRUE ;
+Xstatic BOOL     bShellPos = FALSE ;
+Xstatic BOOL     bPlotPos = FALSE ;
+Xstatic ULONG    ulPlotPos[4] ;
+Xstatic ULONG    ulShellPos[4] ;
+Xstatic char     szFontNameSize[FONTBUF] ;
+Xstatic char     achPrinterName[128] = "" ;
+Xstatic PRQINFO3 infPrinter = { "" } ;
+Xstatic HMTX     semCommands ;
+Xstatic HEV      semStartSeq ;   /* semaphore to start things in right sequence */
+Xstatic HEV      semPause ;
+Xstatic ULONG    ulPauseReply = 1 ;
+Xstatic ULONG    ulPauseMode  = PAUSE_DLG ;
+X
+X            /* commands from gnuplot come via this ... */
+X            
+Xstatic HPIPE    hRead = 0L ; 
+X           
+X            /* stuff for screen-draw thread control */
+X            
+Xstatic BOOL     bExist ; 
+Xstatic BOOL     bStopDraw ; 
+Xstatic HEV      semDrawDone ;
+Xstatic HEV      semStartDraw ;
+X
+X            /* command buffer */
+X            
+Xstatic int ncalloc = 0 ;
+Xstatic int ic = 0 ;
+Xstatic volatile int *commands = NULL ;
+X
+X/*==== f u n c t i o n s =====================================================*/
+X
+Xint             DoPrint( HWND ) ;
+XMRESULT         WmClientCmdProc( HWND , ULONG, MPARAM, MPARAM ) ; 
+Xvoid            ChangeCheck( HWND, USHORT, USHORT ) ;
+XBOOL            QueryIni( HAB ) ;
+Xstatic void     SaveIni( void ) ;
+Xstatic void     ThreadDraw( void ) ;
+Xstatic void     DoPaint( HWND, HPS ) ;
+Xstatic void     Display( void ) ;
+Xvoid            SelectFont( HPS, char *, short );
+Xstatic void     ReadGnu( void ) ;
+Xstatic void     WaitEnd( void ) ;
+Xstatic void     AllocMore() ;
+Xstatic int      BufRead( HFILE, void*, int, PULONG ) ;
+Xint             GetNewFont( HWND, HPS ) ;
+X
+X
+X/*==== c o d e ===============================================================*/
+X
+XMRESULT EXPENTRY DisplayClientWndProc(HWND hWnd, ULONG message, MPARAM mp1, MPARAM mp2)
+X/*
+X**  Window proc for main window
+X**  -- passes most stuff to active child window via WmClientCmdProc
+X**  -- passes DDE messages to DDEProc
+X*/
+X{
+X    HDC     hdcScreen ;
+X    SIZEL   sizlPage ;
+X    TID     tidDraw, tidSpawn ;
+X    char    *pp ;
+X    ULONG   ulID ;
+X    ULONG   ulFlag ;
+X    char    szErrs[128] ;
+X    
+X    switch (message) {
+X
+X        case WM_CREATE:
+X
+X                // set initial values
+X            ChangeCheck( hWnd, IDM_LINES_THICK, bLineThick?IDM_LINES_THICK:0 ) ;
+X            ChangeCheck( hWnd, IDM_LINES_SOLID, bLineTypes?0:IDM_LINES_SOLID ) ;
+X            ChangeCheck( hWnd, IDM_COLOURS, bColours?IDM_COLOURS:0 ) ;
+X            hWndstart = hWnd ;  /* used in ReadGnu for errors */ 
+X                // disable close from system menu (close only from gnuplot)
+X            WinSendMsg( WinWindowFromID( WinQueryWindow( hWnd, QW_PARENT ), FID_SYSMENU ),
+X                        MM_SETITEMATTR,
+X                        MPFROM2SHORT(SC_CLOSE, TRUE ),
+X                        MPFROM2SHORT(MIA_DISABLED, MIA_DISABLED ) ) ;
+X                // setup semaphores
+X            DosCreateMutexSem( NULL, &semCommands, 0L, 0L ) ;
+X            DosCreateEventSem( NULL, &semStartDraw, 0L, 0L ) ;
+X            DosCreateEventSem( NULL, &semDrawDone, 0L, 0L ) ;
+X            DosCreateEventSem( NULL, &semStartSeq, 0L, 0L ) ;
+X            DosCreateEventSem( NULL, &semPause, 0L, 0L ) ;
+X            bStopDraw = FALSE ;
+X            bExist = TRUE ;
+X                // create a dc and hps to draw on the screen
+X            hdcScreen = WinOpenWindowDC( hWnd ) ;
+X            sizlPage.cx = GNUPAGE ; sizlPage.cy = GNUPAGE ;
+X            hpsScreen = GpiCreatePS( hab, hdcScreen, &sizlPage,
+X                           PU_ARBITRARY|GPIT_MICRO|GPIA_ASSOC) ;
+X                // spawn a thread to do the drawing
+X            DosCreateThread( &tidDraw, (PFNTHREAD)ThreadDraw, 0L, 0L, 8192L ) ;
+X                // then spawn server for GNUPLOT ...
+X            DosCreateThread( &tidSpawn, (PFNTHREAD)ReadGnu, 0L, 0L, 8192L ) ;
+X            DosWaitEventSem( semStartSeq, SEM_INDEFINITE_WAIT ) ;
+X                // get details of command-line window
+X            hSwitch = WinQuerySwitchHandle( 0, ppidGnu ) ;
+X            WinQuerySwitchEntry( hSwitch, &swGnu ) ;
+X                // set size of this window
+X            WinSetWindowPos( WinQueryWindow( hWnd, QW_PARENT ), 
+X                             HWND_TOP,
+X                             ulShellPos[0],
+X                             ulShellPos[1],
+X                             ulShellPos[2],
+X                             ulShellPos[3], 
+X                             bShellPos?SWP_SIZE|SWP_MOVE|SWP_SHOW|SWP_ACTIVATE:SWP_SHOW|SWP_ACTIVATE ) ;
+X                //  clear screen 
+X            DosPostEventSem( semDrawDone ) ;  
+X            break ;
+X            
+X
+X        case WM_COMMAND:
+X
+X            return WmClientCmdProc( hWnd , message , mp1 , mp2 ) ;
+X
+X        case WM_CLOSE:
+X
+X            if( WinSendMsg( hWnd, WM_USER_PRINT_QBUSY, 0L, 0L ) != 0L ) {
+X                WinMessageBox( HWND_DESKTOP,
+X                               hWnd, 
+X                               "Still printing - not closed",
+X                               APP_NAME,
+X                               0,
+X                               MB_OK | MB_ICONEXCLAMATION ) ;
+X                return 0L ;
+X                }
+X      	    return (WinDefWindowProc(hWnd, message, mp1, mp2));
+X
+X        case WM_PAINT:
+X
+X            DoPaint( hWnd, hpsScreen ) ;
+X            break ;     
+X
+X        case WM_SIZE :
+X            
+X            WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            break ;
+X
+X        case WM_PRESPARAMCHANGED:
+X        
+X            pp = malloc(FONTBUF) ;
+X            if( WinQueryPresParam( hWnd, 
+X                                   PP_FONTNAMESIZE, 
+X                                   0, 
+X                                   &ulID, 
+X                                   FONTBUF, 
+X                                   pp, 
+X                                   QPF_NOINHERIT ) != 0L ) {
+X                strcpy( szFontNameSize, pp ) ;
+X                WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X                }
+X            free(pp) ; 
+X            break ;
+X            
+X        case WM_USER_PRINT_BEGIN:
+X        case WM_USER_PRINT_OK :
+X        case WM_USER_DEV_ERROR :
+X        case WM_USER_PRINT_ERROR :
+X        case WM_USER_PRINT_QBUSY :
+X
+X            return( PrintCmdProc( hWnd, message, mp1, mp2 ) ) ;
+X
+X        case WM_GNUPLOT:
+X                // display the plot         
+X            WinSetWindowPos( hwndFrame, HWND_TOP, 0,0,0,0, SWP_ACTIVATE|SWP_ZORDER ) ;
+X            WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            return 0L ;
+X
+X        case WM_PAUSEPLOT:
+X                /* put pause message on screen, or enable 'continue' button */
+X            if( ulPauseMode == PAUSE_DLG ) {
+X                WinLoadDlg( HWND_DESKTOP,
+X                            hWnd,
+X                            (PFNWP)PauseMsgDlgProc,
+X                            0L,
+X                            IDD_PAUSEBOX,
+X                            (char*)mp1 ) ; 
+X                }
+X            else { 
+X                WinEnableMenuItem( WinWindowFromID( 
+X                                   WinQueryWindow( hWnd, QW_PARENT ), FID_MENU ),
+X                                   IDM_CONTINUE,
+X                                   TRUE ) ;            
+X                }
+X            return 0L ;
+X
+X        case WM_PAUSEEND:
+X            /* resume plotting */
+X            ulPauseReply = (ULONG) mp1 ;
+X            DosPostEventSem( semPause ) ;
+X            return 0L ;
+X    
+X	default:         /* Passes it on if unproccessed    */
+X	    return (WinDefWindowProc(hWnd, message, mp1, mp2));
+X    }
+X    return (NULL);
+X}
+X
+XMRESULT WmClientCmdProc(HWND hWnd, ULONG message, MPARAM mp1, MPARAM mp2)
+X/*
+X**   Handle client window command (menu) messages
+X**   -- mostly passed on to active child window
+X**
+X*/
+X    {
+X    ULONG usDlg ;
+X    extern HWND hApp ;
+X    static ulPauseItem = IDM_PAUSEDLG ;
+X
+X    switch( (USHORT) SHORT1FROMMP( mp1 ) ) {
+X                
+X        case IDM_ABOUT :    /* show the 'About' box */
+X             
+X            WinDlgBox( HWND_DESKTOP,
+X                       hWnd , 
+X                       (PFNWP)About ,
+X                       0L,
+X                       ID_ABOUT, 
+X                       NULL ) ;
+X            break ;
+X
+X
+X        case IDM_PRINT :    /* print plot */
+X
+X            if( SetupPrinter( hWnd, achPrinterName, &infPrinter ) )
+X                WinPostMsg( hWnd, WM_USER_PRINT_BEGIN, (MPARAM)&infPrinter, 0L ) ; 
+X            break ;
+X
+X        case IDM_PRINTSETUP :    /* select printer */
+X
+X            WinDlgBox( HWND_DESKTOP,
+X                       hWnd ,
+X                       (PFNWP)QPrintersDlgProc,
+X                       0L,
+X                       IDD_QUERYPRINT, 
+X                       achPrinterName ) ;
+X            break ;
+X
+X        case IDM_LINES_THICK:
+X                // change line setting
+X            bLineThick = !bLineThick ;
+X            ChangeCheck( hWnd, IDM_LINES_THICK, bLineThick?IDM_LINES_THICK:0 ) ;
+X            WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            break ;
+X
+X        case IDM_LINES_SOLID:
+X                // change line setting
+X            bLineTypes = !bLineTypes ;
+X            ChangeCheck( hWnd, IDM_LINES_SOLID, bLineTypes?0:IDM_LINES_SOLID ) ;
+X            WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            break ;
+X
+X        case IDM_COLOURS:
+X                // change colour setting
+X            bColours = !bColours ;        
+X            ChangeCheck( hWnd, IDM_COLOURS, bColours?IDM_COLOURS:0 ) ;
+X            WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            break ;
+X
+X        case IDM_FONTS:
+X        
+X            if( GetNewFont( hWnd, hpsScreen ) ) 
+X                WinInvalidateRect( hWnd, NULL, TRUE ) ;
+X            break ;
+X            
+X        case IDM_SAVE :
+X            SaveIni() ;
+X            break ;
+X            
+X        case IDM_COMMAND:       /* go back to GNUPLOT command window */            
+X            WinSwitchToProgram( hSwitch ) ;
+X            break ;
+X
+X        case IDM_CONTINUE:
+X            WinPostMsg( hWnd, WM_PAUSEEND, 1L, 0L ) ; 
+X            WinEnableMenuItem( WinWindowFromID( 
+X                               WinQueryWindow( hWnd, QW_PARENT ), FID_MENU ),
+X                               IDM_CONTINUE,
+X                               FALSE ) ;            
+X            break ;
+X            
+X        case IDM_PAUSEGNU:  /* gnuplot handles pause */
+X            ChangeCheck( hWnd, ulPauseItem, IDM_PAUSEGNU ) ;
+X            ulPauseItem = IDM_PAUSEGNU ;
+X            ulPauseMode = PAUSE_GNU ;
+X            break ;
+X            
+X        case IDM_PAUSEDLG:  /* pause message in dlg box */
+X            ChangeCheck( hWnd, ulPauseItem, IDM_PAUSEDLG ) ;
+X            ulPauseItem = IDM_PAUSEDLG ;
+X            ulPauseMode = PAUSE_DLG ;
+X            break ;
+X            
+X        case IDM_PAUSEBTN:  /* pause uses menu button, no message */
+X            ChangeCheck( hWnd, ulPauseItem, IDM_PAUSEBTN ) ;
+X            ulPauseItem = IDM_PAUSEBTN ;
+X            ulPauseMode = PAUSE_BTN ;
+X            break ;
+X          
+X        case IDM_HELPFORHELP:
+X            WinSendMsg(WinQueryHelpInstance(hWnd),
+X                       HM_DISPLAY_HELP, 0L, 0L ) ;
+X            return 0L ;
+X
+X        case IDM_EXTENDEDHELP:
+X            WinSendMsg(WinQueryHelpInstance(hWnd),
+X                        HM_EXT_HELP, 0L, 0L);
+X            return 0L ;
+X
+X        case IDM_KEYSHELP:
+X            WinSendMsg(WinQueryHelpInstance(hWnd),
+X                       HM_KEYS_HELP, 0L, 0L);
+X            return 0L ;
+X
+X        case IDM_HELPINDEX:
+X            WinSendMsg(WinQueryHelpInstance(hWnd),
+X                       HM_HELP_INDEX, 0L, 0L);
+X            return 0L ;
+X
+X        default : 
+X    
+X            return WinDefWindowProc( hWnd, message, mp1, mp2 ) ;
+X
+X        }  
+X    return( NULL ) ;
+X    }                      
+X
+Xvoid ChangeCheck( HWND hWnd , USHORT wItem1 , USHORT wItem2 )
+X/*
+X**  Utility function:
+X**
+X**  move check mark from menu item 1 to item 2
+X*/
+X    {
+X    HWND hMenu ;
+X
+X    hMenu = WinWindowFromID( WinQueryWindow( hWnd, QW_PARENT ), 
+X                             FID_MENU ) ;            
+X    if( wItem1 != 0 )
+X        WinSendMsg( hMenu,
+X                    MM_SETITEMATTR,
+X                    MPFROM2SHORT( wItem1, TRUE ),
+X                    MPFROM2SHORT( MIA_CHECKED, 0 ) ) ;
+X    if( wItem2 != 0 )
+X        WinSendMsg( hMenu,
+X                    MM_SETITEMATTR,
+X                    MPFROM2SHORT( wItem2, TRUE ),
+X                    MPFROM2SHORT( MIA_CHECKED, MIA_CHECKED ) ) ;
+X    }       
+X
+XBOOL QueryIni( HAB hab )
+X/*
+X** Query INI file
+X*/
+X    {
+X    BOOL         bPos, bData ;
+X    ULONG        ulOpts[4] ;
+X    HINI         hini ;
+X    ULONG        ulCB ;
+X    char         *p ;
+X    
+X            // get default printer name    
+X            
+X    PrfQueryProfileString( HINI_PROFILE,
+X                           "PM_SPOOLER",
+X                           "PRINTER",
+X                           ";",
+X                           achPrinterName,
+X                           (long) sizeof achPrinterName ) ;
+X    if( (p=strchr( achPrinterName, ';' )) != NULL ) *p = '\0' ;
+X    
+X            // read gnuplot ini file
+X
+X    hini = PrfOpenProfile( hab, GNUINI ) ;
+X    ulCB = sizeof( ulShellPos ) ;
+X    bPos = PrfQueryProfileData( hini, APP_NAME, INISHELLPOS, &ulShellPos, &ulCB ) ;
+X    ulCB = sizeof( ulOpts ) ;
+X    bData = PrfQueryProfileData( hini, APP_NAME, INIOPTS, &ulOpts, &ulCB ) ;
+X    if( bData ) {
+X        bLineTypes = (BOOL)ulOpts[0] ;
+X        bLineThick = (BOOL)ulOpts[1] ;
+X        bColours = (BOOL)ulOpts[2] ;
+X        ulPauseMode = ulOpts[3] ;
+X        }
+X    else {
+X        bLineTypes = FALSE ;  /* default values */
+X        bLineThick = FALSE ;
+X        bColours = TRUE ;
+X        ulPauseMode = 1 ;
+X        }
+X    PrfQueryProfileString( hini, APP_NAME, INIFONT, INITIAL_FONT, 
+X                                 szFontNameSize, FONTBUF ) ;
+X    PrfCloseProfile( hini ) ;
+X    bShellPos = bPos ;
+X    return bPos ;
+X    }
+X
+Xstatic void SaveIni( )
+X/*
+X** save data in ini file
+X*/
+X    {
+X    SWP swp ;
+X    HINI  hini ;
+X    ULONG ulOpts[4] ;
+X    
+X    hini = PrfOpenProfile( hab, GNUINI ) ;
+X    WinQueryWindowPos( hwndFrame, &swp ) ;
+X    ulPlotPos[0] = swp.x ;
+X    ulPlotPos[1] = swp.y ;
+X    ulPlotPos[2] = swp.cx ;
+X    ulPlotPos[3] = swp.cy ;
+X    PrfWriteProfileData( hini, APP_NAME, INISHELLPOS, &ulPlotPos, sizeof(ulPlotPos) ) ;
+X/*
+X    WinQueryWindowPos( swGnu.hwnd, &swp ) ;
+X    ulPlotPos[0] = swp.x ;
+X    ulPlotPos[1] = swp.y ;
+X    ulPlotPos[2] = swp.cx ;
+X    ulPlotPos[3] = swp.cy ;
+X    PrfWriteProfileData( hini, APP_NAME, INIPLOTPOS, &ulPlotPos, sizeof(ulPlotPos) ) ;
+X*/
+X    ulOpts[0] = (ULONG)bLineTypes ;
+X    ulOpts[1] = (ULONG)bLineThick ; 
+X    ulOpts[2] = (ULONG)bColours ;
+X    ulOpts[3] = ulPauseMode ; 
+X    PrfWriteProfileData( hini, APP_NAME, INIOPTS, &ulOpts, sizeof(ulOpts) ) ;
+X    PrfWriteProfileString( hini, APP_NAME, INIFONT, szFontNameSize ) ;
+X    PrfCloseProfile( hini ) ;
+X    }
+X
+Xstatic void DoPaint( HWND hWnd, HPS hps  ) 
+X/*
+X**  Paint the screen with current data 
+X*/
+X    {
+X    RECTL rectClient ;
+X    ULONG ulCount ;    
+X    bStopDraw = TRUE ;    // stop any drawing in progress and wait for 
+X                          // thread to signal completion 
+X    DosWaitEventSem( semDrawDone, SEM_INDEFINITE_WAIT ) ;
+X    DosResetEventSem( semDrawDone, &ulCount ) ;
+X    WinBeginPaint( hWnd , hps, NULL ) ;
+X    DosPostEventSem( semStartDraw ) ;  // start drawing
+X    }
+X
+Xstatic void ThreadDraw( )
+X/*
+X**  Thread to draw plot
+X*/
+X    {
+X    HAB  hab ;
+X    RECTL rectClient ;
+X    ULONG ulCount ;
+X
+X        /* initialize and wait until ready to draw */
+X    
+X    hab = WinInitialize( 0 ) ;
+X
+X        /* ok - draw until window is destroyed */
+X
+X    while( bExist )  {
+X
+X                // indicate access to window 
+X        DosWaitEventSem( semStartDraw, SEM_INDEFINITE_WAIT ) ;
+X        DosResetEventSem( semStartDraw, &ulCount ) ;
+X
+X                // will be set TRUE if we decide to stop in the middle, but now
+X        bStopDraw = FALSE ;         
+X        
+X        GpiResetPS( hpsScreen, GRES_ALL ) ;        
+X        WinQueryWindowRect( hApp, (PRECTL)&rectClient ) ;
+X        GpiSetPageViewport( hpsScreen, &rectClient ) ;
+X
+X        WinFillRect( hpsScreen, &rectClient, CLR_WHITE ) ;
+X
+X        ScalePS( hpsScreen, &rectClient, 0 ) ;
+X
+X        PlotThings( hpsScreen, 0L ) ;
+X                // ok, say that we did it
+X
+X        WinEndPaint( hpsScreen ) ;
+X        DosPostEventSem( semDrawDone ) ;
+X        }
+X   
+X    WinTerminate( hab ) ;
+X    }
+X
+X
+Xenum JUSTIFY { LEFT, CENTRE, RIGHT } jmode;
+X
+Xvoid PlotThings( HPS hps, long lColour ) 
+X/*
+X**  Plot a spectrum and related graphs on the designated presentation space
+X**
+X**  Input:
+X**          HPS hps         -- presentation space handle of plot ps
+X**          long lColour    -- number of physical colours, used mainly by
+X**                             printer drivers to set black & white mode.
+X**                             If 0, assume screen display
+X**
+X**  Note: use semaphore to prevent access to command list while
+X**        pipe thread is reallocating the list.
+X*/
+X    {
+X    int i, lt, ta, col, sl, n, x, y, cx, cy, width ;
+X    int icnow ;
+X    int cmd ;
+X    char *str, *buf ;
+X    long sw ;
+X    POINTL ptl ;
+X    POINTL aptl[4] ;    
+X    FONTMETRICS fm ;
+X    HDC hdc ;
+X    long lVOffset ;
+X    long yDeviceRes ;
+X    long lCurCol ;
+X    long lOldLine = 0 ;
+X    BOOL bBW ;
+X    GRADIENTL grdl ;
+X    BOOL bHorz = TRUE ;
+X    SIZEF sizHor, sizVer ;
+X        /* sometime, make these user modifiable... */
+X    static long lLineTypes[7] = { LINETYPE_SOLID,
+X                                  LINETYPE_SHORTDASH,
+X                                  LINETYPE_DOT,
+X                                  LINETYPE_DASHDOT,
+X                                  LINETYPE_LONGDASH,
+X                                  LINETYPE_DOUBLEDOT,
+X                                  LINETYPE_DASHDOUBLEDOT } ;
+X    static long lCols[15] =     { CLR_BLACK,
+X                                  CLR_DARKGRAY,
+X                                  CLR_BLUE,
+X                                  CLR_RED,
+X                                  CLR_GREEN,
+X                                  CLR_CYAN,
+X                                  CLR_PINK,
+X                                  CLR_YELLOW,
+X                                  CLR_DARKBLUE,
+X                                  CLR_DARKRED,
+X                                  CLR_DARKGREEN,
+X                                  CLR_DARKCYAN,
+X                                  CLR_DARKPINK,
+X                                  CLR_BROWN,
+X                                  CLR_PALEGRAY } ;
+X
+X    if( commands == NULL ) return ;
+X
+X        /* check for colourless devices */
+X
+X    if( lColour== 1 || lColour == 2 ) bBW = TRUE ;
+X    else bBW = FALSE ;
+X
+X        /* get vertical offset for horizontal text strings */
+X        /* (0.5 em height, so string in vertically centered
+X           about plot position */
+X
+X    GpiQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm ) ;
+X    lVOffset = fm.lEmHeight ;
+X
+X    
+X   /* loop over accumulated commands from inboard driver */
+X
+X    DosRequestMutexSem( semCommands, SEM_INDEFINITE_WAIT ) ;
+X
+X    GpiSetLineWidth( hps, bLineThick?LINEWIDTH_THICK:LINEWIDTH_NORMAL ) ;
+X    for( i=0; bExist && i<ic; ) {
+X
+X            if( bStopDraw ) break ;
+X
+X            cmd = commands[i++];
+X
+X      /*   PM_vector(x,y) - draw vector  */
+X            if (cmd == 'V') { 
+X                 ptl.x = (LONG)commands[i++] ; ptl.y = (LONG)commands[i++] ;
+X                 GpiLine( hps, &ptl ) ;
+X	         }
+X
+X      /*   PM_move(x,y) - move  */
+X            else if (cmd == 'M')  {
+X                ptl.x = (LONG)commands[i++] ; ptl.y = (LONG)commands[i++] ;
+X                GpiMove( hps, &ptl ) ;
+X                }
+X        
+X      /*   PM_put_text(x,y,str) - draw text   */
+X            else if (cmd == 'T') { 
+X                x = commands[i++] ;
+X                y = commands[i++] ;
+X	        str = (char*)&commands[i] ; 
+X	        sl = strlen(str) ;
+X	        i += 1+sl/sizeof(int) ;
+X                lCurCol = GpiQueryColor( hps ) ;
+X                GpiSetColor( hps, CLR_BLACK ) ;
+X                GpiQueryTextBox( hps, (LONG)strlen( str ), str, 4L, aptl ) ;
+X                if( bHorz ) sw = aptl[3].x ;
+X                else sw = aptl[3].y ;
+X                switch(jmode) {
+X	            case LEFT:   sw = 0;     break;
+X	            case CENTRE: sw = -sw/2; break;
+X	            case RIGHT:  sw = -sw;   break;
+X                    }
+X                if( bHorz ) {
+X                    ptl.x = (LONG)(x+sw) ; ptl.y = (LONG)(y-lVOffset/4) ;
+X                    }
+X                else {
+X                    ptl.x = (LONG)x ; ptl.y = (LONG)(y+sw) ;
+X                    }
+X                GpiCharStringAt( hps, &ptl, (LONG) strlen( str ) , str ) ;
+X                GpiSetColor( hps, lCurCol ) ;
+X	        }
+X
+X      /*   PM_justify_text(mode) - set text justification mode  */
+X            else if (cmd == 'J') 
+X    	        jmode = commands[i++] ;
+X
+X      /*   PM_linetype(type) - set line type  */
+X      /* mapped to colour */
+X            else if (cmd == 'L') { 
+X    	        lt = commands[i++] ;
+X	    /* linetype = -2 axes, -1 border, 0 arrows, all to 0 */
+X	        col = lt ;
+X                if( lt == -1 ) GpiSetLineWidth( hps, LINEWIDTH_NORMAL ) ;
+X                else GpiSetLineWidth( hps, bLineThick?LINEWIDTH_THICK:LINEWIDTH_NORMAL ) ;
+X                if( lt < 0 ) lt = 0 ;
+X	        lt = (lt%8);
+X	        col = (col+2)%16 ;
+X                if( bLineTypes || bBW ) {
+X                    GpiSetLineType( hps, lLineTypes[lt] ) ;
+X                    }
+X                if( !bBW )  /* maintain some flexibility here in case we don't want
+X                           the model T option */ 
+X                    if( bColours ) GpiSetColor( hps, lCols[col] ) ;
+X                    else GpiSetColor( hps, CLR_BLACK ) ;
+X                }
+X
+X            else if (cmd == 'D') { /* point/dot mode - may need colour change */
+X    	        lt = commands[i++] ;  /* 1: enter point mode, 0: exit */
+X                if( bLineTypes || bBW ) {
+X                    if( lt == 1 ) lOldLine = GpiSetLineType( hps, lLineTypes[0] ) ;
+X                    else GpiSetLineType( hps, lOldLine ) ;
+X                    }
+X                }
+X
+X      /*   PM_text_angle(ang) - set text angle, 0 horz, 1 vert  */
+X            else if (cmd == 'A') { 
+X    	        ta = commands[i++] ;
+X                if( ta == 0 ) {
+X                    grdl.x = 0L ; grdl.y = 0L ;
+X                    GpiSetCharAngle( hps, &grdl ) ;
+X                    if( !bHorz ) {
+X                        GpiQueryCharBox( hps, &sizVer ) ;
+X                        sizHor.cx = sizVer.cy ; sizHor.cy = sizVer.cx ;
+X                        GpiSetCharBox( hps, &sizHor ) ;
+X                        bHorz = TRUE ;
+X                        }
+X                    }
+X                else if( ta == 1 ) {
+X                    grdl.x = 0L ; grdl.y = 1L ;
+X                    GpiSetCharAngle( hps, &grdl ) ;
+X                    if( bHorz ) {
+X                        GpiQueryCharBox( hps, &sizHor ) ;
+X                        sizVer.cx = sizHor.cy ; sizVer.cy = sizHor.cx ;
+X                        GpiSetCharBox( hps, &sizVer ) ;
+X                        bHorz = FALSE ;
+X                        }
+X                    }
+X                else continue ;            
+X                }
+X            }
+X        DosReleaseMutexSem( semCommands ) ;
+X    }
+X    
+Xshort ScalePS( HPS hps, PRECTL prect, USHORT usFlags )
+X/*
+X**  Get a font to use
+X**  Scale the plot area to world coords for subsequent plotting
+X*/
+X    {
+X    RECTL rectView, rectClient ;
+X    SIZEL sizePage ;
+X    static char *szFontName ;
+X    static short shFontSize ;
+X        
+X    rectClient = *prect ;
+X    sizePage.cx = GNUPAGE ; 
+X    sizePage.cy = GNUPAGE ; 
+X
+X    sscanf( szFontNameSize, "%d", &shFontSize ) ;
+X    szFontName = strchr( szFontNameSize, '.' ) + 1 ;
+X    rectView.xLeft = 0L ;
+X    rectView.xRight = sizePage.cx ;
+X    rectView.yBottom = 0L ; rectView.yTop = sizePage.cy ;
+X    GpiSetPS( hps, &sizePage, PU_ARBITRARY ) ;
+X    GpiSetPageViewport( hps, &rectClient ) ;
+X    SelectFont( hps, szFontName, shFontSize ) ;
+X    GpiSetGraphicsField( hps, &rectView ) ;
+X    return 0 ;
+X    }
+X
+Xvoid SelectFont( HPS hps, char *szFont, short shPointSize )
+X/*
+X**  Select a named and sized outline (adobe) font
+X*/
+X    {
+X     HDC         hdc ;
+X     static FATTRS fat ;
+X     LONG   xDeviceRes, yDeviceRes ;
+X     POINTL ptlFont ;
+X     SIZEF  sizfx ;
+X     static LONG lcid = 0L ;
+X
+X     fat.usRecordLength  = sizeof fat ;
+X     fat.fsSelection     = 0 ;
+X     fat.lMatch          = 0 ;
+X     fat.idRegistry      = 0 ;
+X     fat.usCodePage      = GpiQueryCp (hps) ;
+X     fat.lMaxBaselineExt = 0 ;
+X     fat.lAveCharWidth   = 0 ;
+X     fat.fsType          = 0 ;
+X     fat.fsFontUse       = FATTR_FONTUSE_OUTLINE |
+X                           FATTR_FONTUSE_TRANSFORMABLE ;
+X
+X     strcpy (fat.szFacename, szFont) ;
+X
+X     if( lcid == 0L ) lcid = 1L ;
+X     else {
+X        GpiSetCharSet( hps, 0L) ;
+X        GpiDeleteSetId( hps, lcid ) ;
+X        }
+X     GpiCreateLogFont (hps, NULL, lcid, &fat) ;
+X     GpiSetCharSet( hps, lcid ) ;
+X
+X     hdc = GpiQueryDevice (hps) ;
+X
+X     DevQueryCaps (hdc, CAPS_HORIZONTAL_RESOLUTION, 1L, &xDeviceRes) ;
+X     DevQueryCaps (hdc, CAPS_VERTICAL_RESOLUTION,   1L, &yDeviceRes) ;
+X
+X                         // Find desired font size in pixels
+X
+X     ptlFont.x = 254L * (long)shPointSize * xDeviceRes / 720000L ;
+X     ptlFont.y = 254L * (long)shPointSize * yDeviceRes / 720000L ;
+X
+X                         // Convert to page units
+X
+X     GpiConvert (hps, CVTC_DEVICE, CVTC_PAGE, 1L, &ptlFont) ;
+X
+X                         // Set the character box
+X
+X     sizfx.cx = MAKEFIXED (ptlFont.x, 0) ;
+X     sizfx.cy = MAKEFIXED (ptlFont.y, 0) ;
+X
+X     GpiSetCharBox (hps, &sizfx) ;
+X    }
+X
+Xstatic void ReadGnu()
+X/*
+X** Thread to read plot commands from  GNUPLOT pm driver.
+X** Opens named pipe, then clears semaphore to allow GNUPLOT driver to proceed.
+X** Reads commands and builds a command list.
+X*/
+X    {
+X    char *szEnv ;
+X    char *szFileBuf ;
+X    ULONG rc; 
+X    USHORT usErr ;
+X    ULONG cbR ;
+X    STARTDATA start ;
+X    USHORT i ;
+X    PID ppid ;
+X    unsigned char buff[2] ;
+X    int len ;
+X    HEV hev ;
+X    static char *szPauseText = NULL ;
+X    ULONG ulPause ;
+X    char *pszPipeName, *pszSemName ;
+X    
+X#ifdef USEOWNALLOC
+X    DosAllocMem( &commands, 64*1024*1024, PAG_READ|PAG_WRITE ) ;
+X#endif
+X
+X    DosEnterCritSec() ;
+X    pszPipeName = malloc( 256 ) ;
+X    pszSemName  = malloc( 256 ) ;
+X    DosExitCritSec() ;
+X    strcpy( pszPipeName, "\\pipe\\" ) ;
+X    strcpy( pszSemName, "\\sem32\\" ) ;
+X    strcat( pszPipeName, szIPCName ) ;
+X    strcat( pszSemName, szIPCName ) ;
+X
+X            /* open a named pipe for communication with gnuplot */
+X 
+X    rc = DosCreateNPipe( pszPipeName,
+X                         &hRead, 
+X                         NP_ACCESS_DUPLEX|NP_NOINHERIT|NP_NOWRITEBEHIND ,
+X                         1|NP_WAIT|NP_READMODE_MESSAGE|NP_TYPE_MESSAGE,
+X                         PIPEBUF,
+X                         PIPEBUF,
+X                         0xFFFFFFFF) ;
+X    hev = 0 ;       /* OK, gnuplot can try to open npipe ... */
+X    DosOpenEventSem( pszSemName, &hev ) ;
+X    DosPostEventSem( hev ) ;
+X    
+X
+X    
+X        /* attach to gnuplot */
+X
+X    if( DosConnectNPipe( hRead ) == 0L ) {
+X
+X        /* store graphics commands */
+X        /* use semaphore to prevent problems with drawing while reallocating
+X           the command buffers */
+X
+X        DosRead( hRead, &ppidGnu, 4, &cbR ) ;
+X        DosPostEventSem( semStartSeq ) ;         /* once we've got pidGnu */
+X
+X
+X        while (1) {
+X        
+X            usErr=BufRead(hRead,buff, 1, &cbR) ;
+X            if( usErr != 0 ) break ;
+X 
+X            switch( *buff ) {
+X                case 'G' :    /* enter graphics mode */
+X    	            /* wait for access to command list and lock it */
+X                    DosRequestMutexSem( semCommands, SEM_INDEFINITE_WAIT ) ;
+X                    DosEnterCritSec() ;
+X#ifdef USEOWNALLOC
+X                    if( ncalloc > 0 ) {
+X                        DosSetMem( commands, ncalloc*sizeof(int), PAG_DECOMMIT ) ;
+X#else
+X       	            if (commands!=NULL) {    // delete all old commands and prepare for new
+X    	                free(commands);
+X#endif
+X    	                }
+X                    ic = 0 ;
+X                    ncalloc = CMDALLOC ;
+X#ifdef USEOWNALLOC
+X                    DosSetMem( commands, ncalloc*sizeof(int), PAG_COMMIT|PAG_DEFAULT ) ;
+X#else
+X                    commands = (int*)malloc(ncalloc*sizeof(int)) ;
+X#endif
+X                    DosExitCritSec() ;
+X                    DosReleaseMutexSem( semCommands ) ;
+X                    break ;
+X                    
+X                case 'E' :     /* leave graphics mode (graph completed) */
+X                    Display() ; /* plot graph */
+X                    break ;
+X                    
+X                case 'R' :
+X                    /* gnuplot has reset drivers, we do nothing */
+X                    break ;
+X
+X                case 'M' :   /* move */
+X                case 'V' :   /* draw vector */
+X                    commands[ ic++ ] = (int)*buff ; 
+X                    if( ic+2 >= ncalloc ) AllocMore() ;
+X                    BufRead(hRead,&commands[ic], 2*sizeof(int), &cbR) ;
+X                    ic+=2 ;
+X                    break ;
+X                  
+X                case 'P' :   /* pause */
+X                    BufRead(hRead,&len, sizeof(int), &cbR) ;
+X                    len = (len+sizeof(int)-1)/sizeof(int) ;
+X                    if( len > 0 ){  /* get pause text */
+X                        szPauseText = malloc( len*sizeof(int) ) ;
+X                        BufRead(hRead,szPauseText, len*sizeof(int), &cbR) ;
+X                        }
+X                    if( ulPauseMode != PAUSE_GNU ) {
+X                             /* pause and wait for semaphore to be cleared */
+X                        DosResetEventSem( semPause, &ulPause ) ;
+X                        WinPostMsg( hApp, WM_PAUSEPLOT, (MPARAM) szPauseText, 0L ) ;
+X                        DosWaitEventSem( semPause, SEM_INDEFINITE_WAIT ) ;
+X                        }
+X                    else { /* gnuplot handles pause */
+X                        ulPauseReply = 2 ;
+X                        }
+X                    if( szPauseText != NULL ) free( szPauseText ) ;
+X                    szPauseText = NULL ;
+X                             /* reply to gnuplot so it can continue */
+X                    DosWrite( hRead, &ulPauseReply, sizeof(int), &cbR ) ;
+X                    break ; 
+X                       
+X                case 'T' :   /* write text */
+X                    commands[ ic++ ] = (int)*buff ; 
+X                    if( ic+1 >= ncalloc ) AllocMore() ;
+X                        /* read x, y, len */
+X                    BufRead(hRead,&commands[ic++], sizeof(int), &cbR) ;
+X                    BufRead(hRead,&commands[ic++], sizeof(int), &cbR) ;
+X                    BufRead(hRead,&len, sizeof(int), &cbR) ;
+X                    if( ic+1+((len+sizeof(int)-1)/sizeof(int)) >= ncalloc ) AllocMore() ;
+X                    BufRead(hRead,&commands[ic], len, &cbR) ;
+X                    if( len == 0 ) len = 1 ;
+X                    ic += (len+sizeof(int)-1)/sizeof(int) ;
+X                    break ;
+X                    
+X                case 'J' :   /* justify */
+X                case 'A' :   /* text angle */
+X                case 'L' :   /* line type */
+X                case 'D' :   /* points mode */
+X                
+X                    commands[ ic++ ] = (int)*buff ; 
+X                    if( ic+1 >= ncalloc ) AllocMore() ;
+X                    BufRead(hRead,&commands[ic++], sizeof(int), &cbR) ;
+X                    break ;
+X
+X                 default :  /* should handle error */
+X                    break ;
+X                 }
+X             }
+X        }
+X    DosEnterCritSec() ;
+X    free( szFileBuf ) ;
+X    free( szEnv ) ;
+X    DosExitCritSec() ;
+X    pidGnu = 0 ; /* gnuplot has shut down (?) */
+X    WinPostMsg( hApp, WM_CLOSE, 0L, 0L ) ;    
+X    }
+X
+Xstatic int BufRead( HFILE hfile, void *buf, int nBytes, ULONG *pcbR )
+X/*
+X** pull next plot command out of buffer read from GNUPLOT
+X*/
+X    {
+X    ULONG ulR, ulRR ;
+X    static char buffer[GNUBUF] ;
+X    static char *pbuffer = buffer+GNUBUF, *ebuffer = buffer+GNUBUF ;
+X    
+X    for( ; nBytes > 0 ; nBytes-- ) {
+X        if( pbuffer >= ebuffer ) {
+X            ulR = GNUBUF ;
+X            DosRead( hfile, buffer, ulR, &ulRR ) ;
+X            pbuffer = buffer ;
+X            ebuffer = pbuffer+ulRR ;
+X            }
+X        *(char*)buf++ = *pbuffer++ ;
+X        }
+X    return 0L ;
+X    } 
+X
+Xstatic void AllocMore()
+X/*
+X**  Allocate more memory for plot commands
+X*/
+X    {
+X    DosRequestMutexSem( semCommands, SEM_INDEFINITE_WAIT ) ;
+X    DosEnterCritSec() ;
+X#ifdef USEOWNALLOC
+X    DosSetMem( commands+ncalloc, CMDALLOC*sizeof(int), PAG_COMMIT|PAG_DEFAULT ) ;
+X#endif
+X    ncalloc = ncalloc + CMDALLOC ;
+X#ifndef USEOWNALLOC
+X    commands = (int*)realloc(commands, ncalloc*sizeof(int)) ;
+X#endif
+X    DosExitCritSec() ;
+X    DosReleaseMutexSem( semCommands ) ;
+X    }
+X
+Xstatic void Display()
+X/*
+X**  Display gnuplot results 
+X**  -- must post message as this thread is not drawing thread
+X*/
+X    {
+X    WinPostMsg( hApp, WM_GNUPLOT, 0L, 0L ) ;    
+X    }
+X
+X 
+Xint GetNewFont( HWND hwnd, HPS hps ) 
+X/*
+X** Get a new font using standard font dialog
+X*/
+X    {
+X    static FONTDLG pfdFontdlg;      /* Font dialog info structure */
+X    static int i1 =1 ;
+X    static int     iSize ;
+X    char szPtList[64] ;
+X    HWND    hwndFontDlg;     /* Font dialog window handle */
+X    char    *p ; 
+X    char szFamilyname[FACESIZE];
+X 
+X    if( i1 ) {
+X        strcpy( pfdFontdlg.fAttrs.szFacename, strchr( szFontNameSize, '.' ) + 1 ) ;
+X        strcpy( szFamilyname, strchr( szFontNameSize, '.' ) + 1 ) ;
+X        sscanf( szFontNameSize, "%d", &iSize ) ;
+X        memset(&pfdFontdlg, 0, sizeof(FONTDLG));
+X 
+X        pfdFontdlg.cbSize = sizeof(FONTDLG);
+X        pfdFontdlg.hpsScreen = hps;
+X /*   szFamilyname[0] = 0;*/
+X        pfdFontdlg.pszFamilyname = szFamilyname;
+X        pfdFontdlg.usFamilyBufLen = FACESIZE;
+X        pfdFontdlg.fl = FNTS_HELPBUTTON | FNTS_CENTER | FNTS_VECTORONLY | FNTS_INITFROMFATTRS ; 
+X        pfdFontdlg.clrFore = CLR_BLACK;
+X        pfdFontdlg.clrBack = CLR_WHITE;
+X        pfdFontdlg.usWeight = 5 ;
+X        pfdFontdlg.fAttrs.usCodePage = 0;
+X        i1=0; 
+X        }
+X    sprintf( szPtList, "%d 8 10 12 14 18 24", iSize ) ;
+X    pfdFontdlg.pszPtSizeList = szPtList ;
+X    pfdFontdlg.fxPointSize = MAKEFIXED(iSize,0); 
+X    hwndFontDlg = WinFontDlg(HWND_DESKTOP, hwnd, &pfdFontdlg);
+X 
+X    if (hwndFontDlg && (pfdFontdlg.lReturn == DID_OK)) {
+X        iSize = FIXEDINT( pfdFontdlg.fxPointSize ) ;
+X        sprintf( szFontNameSize, "%d.%s", iSize, pfdFontdlg.fAttrs.szFacename ) ;
+X        return 1 ;
+X        }
+X    else return 0 ;
+X    }
+END_OF_FILE
+  if test 37236 -ne `wc -c <'gnuplot/os2/gclient.c'`; then
+    echo shar: \"'gnuplot/os2/gclient.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/os2/gclient.c'
+fi
+if test -f 'gnuplot/specfun.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/specfun.c'\"
+else
+  echo shar: Extracting \"'gnuplot/specfun.c'\" \(20743 characters\)
+  sed "s/^X//" >'gnuplot/specfun.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: specfun.c%v 3.50.1.9 1993/08/05 05:38:59 woo Exp $";
+X#endif
+X
+X
+X/** GNUPLOT - specfun.c
+X *
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley,
+X *                                              Jos van der Woude
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed
+X * as patches to released version.
+X *
+X * This software is provided "as is" without express or implied warranty.
+X *
+X *
+X * AUTHORS
+X *
+X *   Original Software:
+X *   Jos van der Woude, jvdwoude@hut.nl
+X *
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <math.h>
+X#include <stdio.h>
+X#include "plot.h"
+X
+X#ifdef vms
+X#include <errno.h>
+X#else
+Xextern int errno;
+X#endif /* vms */
+X
+X
+Xextern struct value stack[STACK_DEPTH];
+Xextern int s_p;
+Xextern double zero;
+X
+Xstruct value *pop(), *Gcomplex(), *Ginteger();
+X
+Xdouble magnitude(), angle(), real(), imag();
+X
+X#define ITMAX   100
+X#ifdef FLT_EPSILON
+X#define MACHEPS FLT_EPSILON /* 1.0E-08 */
+X#else
+X#define MACHEPS 1.0E-08
+X#endif
+X#ifdef FLT_MIN_EXP
+X#define MINEXP  FLT_MIN_EXP /* -88.0 */
+X#else
+X#define MINEXP  -88.0
+X#endif
+X#ifdef FLT_MAX
+X#define OFLOW   FLT_MAX /* 1.0E+37 */
+X#else
+X#define OFLOW   1.0E+37
+X#endif
+X#ifdef FLT_MAX_10_EXP
+X#define XBIG    FLT_MAX_10_EXP /* 2.55E+305 */
+X#else
+X#define XBIG    2.55E+305
+X#endif
+X
+X/*
+X * Mathematical constants
+X */
+X#define LNPI 1.14472988584940016
+X#define LNSQRT2PI 0.9189385332046727
+X#define PI 3.14159265358979323846
+X#define PNT68 0.6796875
+X#define SQRTPI 0.9189385332046727417803297
+X#define SQRT_TWO 1.41421356237309504880168872420969809   /* JG */
+X
+X#ifndef min /* GCC ST uses inline functions */
+X#define min(a,b) ((a) < (b) ? (a) : (b))
+X#endif
+X
+X/* Global variables, not visible outside this file */
+X#ifndef GAMMA
+Xstatic int signgam = 0;
+X#else
+Xextern int signgam;
+X#endif
+Xstatic long     Xm1 = 2147483563L;
+Xstatic long     Xm2 = 2147483399L;
+Xstatic long     Xa1 = 40014L;
+Xstatic long     Xa2 = 40692L;
+X
+X/* Local function declarations, not visible outside this file */
+Xstatic double confrac();
+Xstatic double ibeta();
+Xstatic double igamma();
+Xstatic double ranf();
+X
+X#ifndef GAMMA
+X/* Provide GAMMA function for those who do not already have one */
+Xstatic double lngamma();
+Xstatic double lgamneg();
+Xstatic double lgampos();
+X
+X/**
+X * from statlib, Thu Jan 23 15:02:27 EST 1992 ***
+X *
+X * This file contains two algorithms for the logarithm of the gamma function.
+X * Algorithm AS 245 is the faster (but longer) and gives an accuracy of about
+X * 10-12 significant decimal digits except for small regions around X = 1 and
+X * X = 2, where the function goes to zero.
+X * The second algorithm is not part of the AS algorithms.   It is slower but
+X * gives 14 or more significant decimal digits accuracy, except around X = 1
+X * and X = 2.   The Lanczos series from which this algorithm is derived is
+X * interesting in that it is a convergent series approximation for the gamma
+X * function, whereas the familiar series due to De Moivre (and usually wrongly
+X * called Stirling's approximation) is only an asymptotic approximation, as
+X * is the true and preferable approximation due to Stirling.
+X * 
+X * Uses Lanczos-type approximation to ln(gamma) for z > 0. Reference: Lanczos,
+X * C. 'A precision approximation of the gamma function', J. SIAM Numer.
+X * Anal., B, 1, 86-96, 1964. Accuracy: About 14 significant digits except for
+X * small regions in the vicinity of 1 and 2.
+X * 
+X * Programmer: Alan Miller CSIRO Division of Mathematics & Statistics
+X * 
+X * Latest revision - 17 April 1988
+X * 
+X * Additions: Translated from fortran to C, code added to handle values z < 0.
+X * The global variable signgam contains the sign of the gamma function.
+X * 
+X * IMPORTANT: The signgam variable contains garbage until AFTER the call to
+X * lngamma().
+X * 
+X * Permission granted to distribute freely for non-commercial purposes only
+X * Copyright (c) 1992 Jos van der Woude, jvdwoude@hut.nl
+X */
+X
+X/* Local data, not visible outside this file 
+Xstatic double   a[] =
+X{
+X    0.9999999999995183E+00,
+X    0.6765203681218835E+03,
+X    -.1259139216722289E+04,
+X    0.7713234287757674E+03,
+X    -.1766150291498386E+03,
+X    0.1250734324009056E+02,
+X    -.1385710331296526E+00,
+X    0.9934937113930748E-05,
+X    0.1659470187408462E-06,
+X};   */
+X
+X/* from Ray Toy */
+Xstatic double a[] = {
+X        .99999999999980993227684700473478296744476168282198,
+X     676.52036812188509856700919044401903816411251975244084,
+X   -1259.13921672240287047156078755282840836424300664868028,
+X     771.32342877765307884865282588943070775227268469602500,
+X    -176.61502916214059906584551353999392943274507608117860,
+X      12.50734327868690481445893685327104972970563021816420,
+X       -.13857109526572011689554706984971501358032683492780,
+X        .00000998436957801957085956266828104544089848531228,
+X        .00000015056327351493115583383579667028994545044040,
+X};
+X
+Xstatic double   lgamneg(z)
+Xdouble z;
+X{
+X    double          tmp;
+X
+X    /* Use reflection formula, then call lgampos() */
+X    tmp = sin(z * PI);
+X
+X    if (fabs(tmp) < MACHEPS) {
+X	tmp = 0.0;
+X    } else if (tmp < 0.0) {
+X	tmp = -tmp;
+X        signgam = -1;
+X    }
+X    return LNPI - lgampos(1.0 - z) - log(tmp);
+X
+X}
+X
+Xstatic double   lgampos(z)
+Xdouble z;
+X{
+X    double          sum;
+X    double          tmp;
+X    int             i;
+X
+X    sum = a[0];
+X    for (i = 1, tmp = z; i < 9; i++) {
+X        sum += a[i] / tmp;
+X	tmp++;
+X    }
+X
+X    return log(sum) + LNSQRT2PI - z - 6.5 + (z - 0.5) * log(z + 6.5);
+X}
+X
+Xstatic double lngamma(z)
+Xdouble z;
+X{
+X    signgam = 1.0;
+X
+X    if (z <= 0.0)
+X	return lgamneg(z);
+X    else
+X	return lgampos(z);
+X}
+X
+X#define GAMMA lngamma
+X#endif /* GAMMA */
+X
+Xf_erf()
+X{
+Xstruct value a;
+Xdouble x;
+X
+X        x = real(pop(&a));
+X#ifndef ERF
+X        x = x < 0.0 ? -igamma(0.5, x * x) : igamma(0.5, x * x);
+X#else
+X        x = erf(x);
+X#endif
+X        push( Gcomplex(&a,x,0.0) );
+X}
+X
+Xf_erfc()
+X{
+Xstruct value a;
+Xdouble x;
+X
+X        x = real(pop(&a));
+X#ifndef ERF
+X        x = x < 0.0 ? 1.0 + igamma(0.5, x * x) : 1.0 - igamma(0.5, x * x);
+X#else
+X        x = erfc(x);
+X#endif
+X        push( Gcomplex(&a,x,0.0) );
+X}
+X
+Xf_ibeta()
+X{
+Xstruct value a;
+Xdouble x;
+Xdouble arg1;
+Xdouble arg2;
+X
+X    x = real(pop(&a));
+X    arg2 = real(pop(&a));
+X    arg1 = real(pop(&a));
+X
+X    x = ibeta(arg1, arg2, x);
+X    if(x == -1.0) {
+X        undefined = TRUE;
+X        push( Ginteger(&a,0) );
+X    } else
+X        push( Gcomplex(&a,x,0.0) );
+X}
+X
+Xf_igamma()
+X{
+Xstruct value a;
+Xdouble x;
+Xdouble arg1;
+X
+X    x = real(pop(&a));
+X    arg1 = real(pop(&a));
+X
+X    x = igamma(arg1,x);
+X    if(x == -1.0) {
+X        undefined = TRUE;
+X        push( Ginteger(&a,0) );
+X    } else
+X        push( Gcomplex(&a,x,0.0) );
+X}
+X
+Xf_gamma()
+X{
+Xregister double y;
+Xstruct value a;
+X
+X        y = GAMMA(real(pop(&a)));
+X	if (y > 88.0) {
+X		undefined = TRUE;
+X		push( Ginteger(&a,0) );
+X	}
+X	else
+X		push( Gcomplex(&a,signgam * exp(y),0.0) );
+X}
+X
+Xf_lgamma()
+X{
+Xstruct value a;
+X
+X        push( Gcomplex(&a, GAMMA(real(pop(&a))),0.0) );
+X}
+X
+X#ifndef BADRAND
+X
+Xf_rand()
+X{
+Xstruct value a;
+X
+X        push( Gcomplex(&a, ranf(real(pop(&a))),0.0) );
+X}
+X
+X#else
+X
+X/* Use only to observe the effect of a "bad" random number generator. */
+Xf_rand()
+X{
+Xstruct value a;
+X
+Xstatic unsigned int y =0;
+Xunsigned int maxran = 1000;
+X
+X	(void)real(pop(&a));
+X	y = (781*y + 387) %maxran;
+X
+X	push( Gcomplex(&a, (double) y /maxran,0.0) );
+X}
+X
+X#endif
+X
+X/** ibeta.c
+X *
+X *   DESCRIB   Approximate the incomplete beta function Ix(a, b).
+X *
+X *                           _
+X *                          |(a + b)     /x  (a-1)         (b-1)
+X *             Ix(a, b) = -_-------_--- * |  t     * (1 - t)     dt (a,b > 0)
+X *                        |(a) * |(b)   /0
+X *
+X *
+X *
+X *   CALL      p = ibeta(a, b, x)
+X *
+X *             double    a    > 0
+X *             double    b    > 0
+X *             double    x    [0, 1]
+X *
+X *   WARNING   none
+X *
+X *   RETURN    double    p    [0, 1]
+X *                            -1.0 on error condition
+X *
+X *   XREF      lngamma()
+X *
+X *   BUGS      none
+X *
+X *   REFERENCE The continued fraction expansion as given by
+X *             Abramowitz and Stegun (1964) is used.
+X *
+X * Permission granted to distribute freely for non-commercial purposes only
+X * Copyright (c) 1992 Jos van der Woude, jvdwoude@hut.nl
+X */
+X
+Xstatic double          ibeta(a, b, x)
+Xdouble a, b, x;
+X{
+X    /* Test for admissibility of arguments */
+X    if (a <= 0.0 || b <= 0.0)
+X	return -1.0;
+X    if (x < 0.0 || x > 1.0)
+X	return -1.0;;
+X
+X    /* If x equals 0 or 1, return x as prob */
+X    if (x == 0.0 || x == 1.0)
+X	return x;
+X
+X    /* Swap a, b if necessarry for more efficient evaluation */
+X    return a < x * (a + b) ? 1.0 - confrac(b, a, 1.0 - x) : confrac(a, b, x);
+X}
+X
+Xstatic double   confrac(a, b, x)
+Xdouble a, b, x;
+X{
+X    double          Alo = 0.0;
+X    double          Ahi;
+X    double          Aev;
+X    double          Aod;
+X    double          Blo = 1.0;
+X    double          Bhi = 1.0;
+X    double          Bod = 1.0;
+X    double          Bev = 1.0;
+X    double          f;
+X    double          fold;
+X    double          Apb = a + b;
+X    double          d;
+X    int             i;
+X    int             j;
+X
+X    /* Set up continued fraction expansion evaluation. */
+X    Ahi = exp(GAMMA(Apb) + a * log(x) + b * log(1.0 - x) -
+X              GAMMA(a + 1.0) - GAMMA(b));
+X
+X    /*
+X     * Continued fraction loop begins here. Evaluation continues until
+X     * maximum iterations are exceeded, or convergence achieved.
+X     */
+X    for (i = 0, j = 1, f = Ahi; i <= ITMAX; i++, j++) {
+X	d = a + j + i;
+X	Aev = -(a + i) * (Apb + i) * x / d / (d - 1.0);
+X	Aod = j * (b - j) * x / d / (d + 1.0);
+X	Alo = Bev * Ahi + Aev * Alo;
+X	Blo = Bev * Bhi + Aev * Blo;
+X	Ahi = Bod * Alo + Aod * Ahi;
+X	Bhi = Bod * Blo + Aod * Bhi;
+X
+X	if (fabs(Bhi) < MACHEPS)
+X	    Bhi = 0.0;
+X
+X	if (Bhi != 0.0) {
+X	    fold = f;
+X	    f = Ahi / Bhi;
+X	    if (fabs(f - fold) < fabs(f) * MACHEPS)
+X		return f;
+X	}
+X    }
+X
+X    return -1.0;
+X}
+X
+X/** igamma.c
+X *
+X *   DESCRIB   Approximate the incomplete gamma function P(a, x).
+X *
+X *                         1     /x  -t   (a-1)
+X *             P(a, x) = -_--- * |  e  * t     dt      (a > 0)
+X *                       |(a)   /0
+X *
+X *   CALL      p = igamma(a, x)
+X *
+X *             double    a    >  0
+X *             double    x    >= 0
+X *
+X *   WARNING   none
+X *
+X *   RETURN    double    p    [0, 1]
+X *                            -1.0 on error condition
+X *
+X *   XREF      lngamma()
+X *
+X *   BUGS      Values 0 <= x <= 1 may lead to inaccurate results.
+X *
+X *   REFERENCE ALGORITHM AS239  APPL. STATIST. (1988) VOL. 37, NO. 3
+X *
+X * Permission granted to distribute freely for non-commercial purposes only
+X * Copyright (c) 1992 Jos van der Woude, jvdwoude@hut.nl
+X */
+X
+X/* Global variables, not visible outside this file */
+Xstatic double   pn1, pn2, pn3, pn4, pn5, pn6;
+X
+Xstatic double          igamma(a, x)
+Xdouble a, x;
+X{
+X    double          arg;
+X    double          aa;
+X    double          an;
+X    double          b;
+X    int             i;
+X
+X    /* Check that we have valid values for a and x */
+X    if (x < 0.0 || a <= 0.0)
+X	return -1.0;
+X
+X    /* Deal with special cases */
+X    if (x == 0.0)
+X	return 0.0;
+X    if (x > XBIG)
+X	return 1.0;
+X
+X    /* Check value of factor arg */
+X    arg = a * log(x) - x - GAMMA(a + 1.0);
+X    if (arg < MINEXP)
+X	return -1.0;
+X    arg = exp(arg);
+X
+X    /* Choose infinite series or continued fraction. */
+X
+X    if ((x > 1.0) && (x >= a + 2.0)) {
+X	/* Use a continued fraction expansion */
+X
+X	double          rn;
+X	double          rnold;
+X
+X	aa = 1.0 - a;
+X	b = aa + x + 1.0;
+X	pn1 = 1.0;
+X	pn2 = x;
+X	pn3 = x + 1.0;
+X	pn4 = x * b;
+X	rnold = pn3 / pn4;
+X
+X	for (i = 1; i <= ITMAX; i++) {
+X
+X	    aa++;
+X	    b += 2.0;
+X	    an = aa * (double) i;
+X
+X	    pn5 = b * pn3 - an * pn1;
+X	    pn6 = b * pn4 - an * pn2;
+X
+X	    if (pn6 != 0.0) {
+X
+X		rn = pn5 / pn6;
+X		if (fabs(rnold - rn) <= min(MACHEPS, MACHEPS * rn))
+X		    return 1.0 - arg * rn * a;
+X
+X		rnold = rn;
+X	    }
+X	    pn1 = pn3;
+X	    pn2 = pn4;
+X	    pn3 = pn5;
+X	    pn4 = pn6;
+X
+X	    /* Re-scale terms in continued fraction if terms are large */
+X	    if (fabs(pn5) >= OFLOW) {
+X
+X		pn1 /= OFLOW;
+X		pn2 /= OFLOW;
+X		pn3 /= OFLOW;
+X		pn4 /= OFLOW;
+X	    }
+X	}
+X    } else {
+X	/* Use Pearson's series expansion. */
+X
+X	for (i = 0, aa = a, an = b = 1.0; i <= ITMAX; i++) {
+X
+X	    aa++;
+X	    an *= x / aa;
+X	    b += an;
+X	    if (an < b * MACHEPS)
+X		return arg * b;
+X	}
+X    }
+X    return -1.0;
+X}
+X
+X/***********************************************************************
+X     double ranf(double init)
+X                RANDom number generator as a Function
+X     Returns a random floating point number from a uniform distribution
+X     over 0 - 1 (endpoints of this interval are not returned) using a
+X     large integer generator.
+X     This is a transcription from Pascal to Fortran of routine
+X     Uniform_01 from the paper
+X     L'Ecuyer, P. and Cote, S. "Implementing a Random Number Package
+X     with Splitting Facilities." ACM Transactions on Mathematical
+X     Software, 17:98-111 (1991)
+X
+X               GeNerate LarGe Integer
+X     Returns a random integer following a uniform distribution over
+X     (1, 2147483562) using the generator.
+X     This is a transcription from Pascal to Fortran of routine
+X     Random from the paper
+X     L'Ecuyer, P. and Cote, S. "Implementing a Random Number Package
+X     with Splitting Facilities." ACM Transactions on Mathematical
+X     Software, 17:98-111 (1991)
+X***********************************************************************/
+Xstatic double          ranf(init)
+Xdouble init;
+X{
+X
+X    long            k, z;
+X    static int      firsttime = 1;
+X    static long     s1, s2;
+X
+X    /* (Re)-Initialize seeds if necessary */
+X    if (init < 0.0 || firsttime == 1) {
+X	firsttime = 0;
+X	s1 = 1234567890L;
+X	s2 = 1234567890L;
+X    }
+X    /* Generate pseudo random integers */
+X    k = s1 / 53668L;
+X    s1 = Xa1 * (s1 - k * 53668L) - k * 12211;
+X    if (s1 < 0)
+X	s1 += Xm1;
+X    k = s2 / 52774L;
+X    s2 = Xa2 * (s2 - k * 52774L) - k * 3791;
+X    if (s2 < 0)
+X	s2 += Xm2;
+X    z = s1 - s2;
+X    if (z < 1)
+X	z += (Xm1 - 1);
+X
+X    /*
+X     * 4.656613057E-10 is 1/Xm1.  Xm1 is set at the top of this file and is
+X     * currently 2147483563. If Xm1 changes, change this also.
+X     */
+X    return (double) 4.656613057E-10 *z;
+X}
+X
+X/* ----------------------------------------------------------------
+X   Following to specfun.c made by John Grosh (jgrosh@arl.mil)
+X   on 28 OCT 1992.
+X   ---------------------------------------------------------------- */
+X
+Xf_normal()	/* Normal or Gaussian Probability Function */
+X{
+Xstruct value a;
+Xdouble x;
+X
+X	/* ref. Abramowitz and Stegun 1964, "Handbook of Mathematical 
+X	   Functions", Applied Mathematics Series, vol 55,
+X	   Chapter 26, page 934, Eqn. 26.2.29 and Jos van der Woude 
+X           code found above */
+X
+X	x = real(pop(&a));
+X
+X#ifndef ERF
+X        x = 0.5 * SQRT_TWO * x;
+X        x = 0.5 * (1.0 + (x < 0.0 ? -igamma(0.5, x * x) : igamma(0.5, x * x)));
+X#else
+X	x = 0.5 * (1.0 + erf(0.5 * SQRT_TWO * x));
+X#endif
+X        push( Gcomplex(&a,x,0.0) );
+X}
+X
+Xf_inverse_normal()  /* Inverse normal distribution function */
+X{
+Xstruct value a;
+Xdouble x;
+Xdouble inverse_normal_func();
+X
+X	x = real(pop(&a));
+X
+X	if (fabs(x) >= 1.0) {
+X		undefined = TRUE;
+X		push(Gcomplex(&a,0.0, 0.0));
+X	} else {
+X		push( Gcomplex(&a,inverse_normal_func(x), 0.0) );
+X	}
+X}
+X
+X
+Xf_inverse_erf()  /* Inverse error function */
+X{
+Xstruct value a;
+Xdouble x;
+Xdouble inverse_error_func();
+X
+X	x = real(pop(&a));
+X
+X	if (fabs(x) >= 1.0) {
+X		undefined = TRUE;
+X		push(Gcomplex(&a,0.0, 0.0));
+X	} else {
+X		push( Gcomplex(&a,inverse_error_func(x), 0.0) );
+X	}
+X}
+X
+Xdouble 
+Xinverse_normal_func(p)
+Xdouble p;
+X{
+X	/* 
+X           Source: This routine was derived (using f2c) from the 
+X                   FORTRAN subroutine MDNRIS found in 
+X                   ACM Algorithm 602 obtained from netlib.
+X
+X                   MDNRIS code contains the 1978 Copyright 
+X                   by IMSL, INC. .  Since MDNRIS has been 
+X                   submitted to netlib it may be used with 
+X                   the restriction that it may only be 
+X                   used for noncommercial purposes and that
+X                   IMSL be acknowledged as the copyright-holder
+X                   of the code.
+X        */
+X
+X	/* Initialized data */
+X	static double eps = 1e-10;
+X	static double g0 = 1.851159e-4;
+X	static double g1 = -.002028152;
+X	static double g2 = -.1498384;
+X	static double g3 = .01078639;
+X	static double h0 = .09952975;
+X	static double h1 = .5211733;
+X	static double h2 = -.06888301;
+X	static double sqrt2 = 1.414213562373095;
+X
+X	/* Local variables */
+X	static double a, w, x;
+X	static double sd, wi, sn, y;
+X
+X	double inverse_error_func();
+X
+X	/* Note: 0.0 < p < 1.0 */
+X
+X	/* p too small, compute y directly */
+X	if (p <= eps) {
+X		a = p + p;
+X		w = sqrt(-(double)log(a + (a - a * a)));
+X
+X		/* use a rational function in 1.0 / w */
+X		wi = 1.0 / w;
+X		sn = ((g3 * wi + g2) * wi + g1) * wi;
+X		sd = ((wi + h2) * wi + h1) * wi + h0;
+X		y = w + w * (g0 + sn / sd);
+X		y = -y * sqrt2;
+X	} else {
+X		x = 1.0 - (p + p);
+X		y = inverse_error_func(x);
+X		y = -sqrt2 * y;
+X	}
+X	return(y);
+X} 
+X
+X
+Xdouble 
+Xinverse_error_func(p) 
+Xdouble p;
+X{
+X	/* 
+X           Source: This routine was derived (using f2c) from the 
+X                   FORTRAN subroutine MERFI found in 
+X                   ACM Algorithm 602 obtained from netlib.
+X
+X                   MDNRIS code contains the 1978 Copyright 
+X                   by IMSL, INC. .  Since MERFI has been 
+X                   submitted to netlib, it may be used with 
+X                   the restriction that it may only be 
+X                   used for noncommercial purposes and that
+X                   IMSL be acknowledged as the copyright-holder
+X                   of the code.
+X        */
+X
+X
+X
+X	/* Initialized data */
+X	static double a1 = -.5751703;
+X	static double a2 = -1.896513;
+X	static double a3 = -.05496261;
+X	static double b0 = -.113773;
+X	static double b1 = -3.293474;
+X	static double b2 = -2.374996;
+X	static double b3 = -1.187515;
+X	static double c0 = -.1146666;
+X	static double c1 = -.1314774;
+X	static double c2 = -.2368201;
+X	static double c3 = .05073975;
+X	static double d0 = -44.27977;
+X	static double d1 = 21.98546;
+X	static double d2 = -7.586103;
+X	static double e0 = -.05668422;
+X	static double e1 = .3937021;
+X	static double e2 = -.3166501;
+X	static double e3 = .06208963;
+X	static double f0 = -6.266786;
+X	static double f1 = 4.666263;
+X	static double f2 = -2.962883;
+X	static double g0 = 1.851159e-4;
+X	static double g1 = -.002028152;
+X	static double g2 = -.1498384;
+X	static double g3 = .01078639;
+X	static double h0 = .09952975;
+X	static double h1 = .5211733;
+X	static double h2 = -.06888301;
+X
+X	/* Local variables */
+X	static double a, b, f, w, x, y, z, sigma, z2, sd, wi, sn;
+X
+X	x = p;
+X
+X	/* determine sign of x */
+X	if (x > 0)
+X		sigma = 1.0;
+X	else
+X		sigma = -1.0;
+X
+X	/* Note: -1.0 < x < 1.0 */
+X
+X	z = fabs(x);
+X
+X	/* z between 0.0 and 0.85, approx. f by a 
+X	   rational function in z  */
+X
+X	if (z <= 0.85) {
+X		z2 = z * z;
+X		f = z + z * (b0 + a1 * z2 / (b1 + z2 + a2 
+X		    / (b2 + z2 + a3 / (b3 + z2))));
+X
+X	/* z greater than 0.85 */
+X	} else {
+X		a = 1.0 - z;
+X		b = z;
+X
+X		/* reduced argument is in (0.85,1.0), 
+X		   obtain the transformed variable */
+X
+X		w = sqrt(-(double)log(a + a * b));
+X
+X		/* w greater than 4.0, approx. f by a 
+X		   rational function in 1.0 / w */
+X
+X		if (w >= 4.0) {
+X			wi = 1.0 / w;
+X			sn = ((g3 * wi + g2) * wi + g1) * wi;
+X			sd = ((wi + h2) * wi + h1) * wi + h0;
+X			f = w + w * (g0 + sn / sd);
+X
+X		/* w between 2.5 and 4.0, approx. 
+X		   f by a rational function in w */
+X
+X		} else if (w < 4.0 && w > 2.5) {
+X			sn = ((e3 * w + e2) * w + e1) * w;
+X			sd = ((w + f2) * w + f1) * w + f0;
+X			f = w + w * (e0 + sn / sd);
+X
+X		/* w between 1.13222 and 2.5, approx. f by 
+X		   a rational function in w */
+X		} else if (w <= 2.5 && w > 1.13222) {
+X			sn = ((c3 * w + c2) * w + c1) * w;
+X			sd = ((w + d2) * w + d1) * w + d0;
+X			f = w + w * (c0 + sn / sd);
+X		}
+X	}
+X	y = sigma * f;
+X	return(y);
+X}
+X
+END_OF_FILE
+  if test 20743 -ne `wc -c <'gnuplot/specfun.c'`; then
+    echo shar: \"'gnuplot/specfun.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/specfun.c'
+fi
+echo shar: End of archive 17 \(of 33\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

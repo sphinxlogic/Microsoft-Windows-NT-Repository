@@ -1,0 +1,288 @@
+Newsgroups: comp.sources.misc
+From: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Subject: v35i084:  ee - Easy Editor, a simple editor for UNIX, Part05/05
+Message-ID: <1993Feb22.041538.15494@sparky.imd.sterling.com>
+X-Md4-Signature: adca076c633600b46133ac20ffb10244
+Date: Mon, 22 Feb 1993 04:15:38 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Posting-number: Volume 35, Issue 84
+Archive-name: ee/part05
+Environment: SYSV, SunOS, Curses
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile new_curse.h
+# Wrapped by kent@sparky on Sat Feb 20 21:31:20 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 5)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1482 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# This is the make file for ee, the "easy editor".
+X#
+X# If building ee using curses, type "make curses", otherwise new_curse (a 
+X# subset of curses that supports ee) will be built and ee will use new_curse 
+X# instead of curses.
+X#
+X# The "install" target ("make install") will copy the ee binary to 
+X# the /usr/local/bin directory on the local system.  The man page (ee.1) 
+X# will be copied into the /usr/local/man/man1 directory.
+X#
+X# The "clean" target ("make clean") will remove the ee and new_curse.o 
+X# object files, and the ee binary.
+X#
+X# If compiling on Sun, include -DSUN in the DEFINES line, and -I/usr/5include 
+X# and -L/usr/5lib in the CFLAGS (this may be useful for other systems as well).
+X#
+X# If the system does not have localization routines, use the -DNO_CATGETS
+X# define.  If the system supports setlocale(), catopen(), and catgets() and 
+X# localization is desired, do not use -DNO_CATGETS.
+X#
+X
+X# for System V, using new_curse with terminfo
+XDEFINES =	-DSYS5 -DNCURSE -DNO_CATGETS
+X#DEFINES =	-DSYS5 
+X
+X# for BSD, using new_curse with tremcap
+X#DEFINES = 	-DCAP -DNCURSE
+X
+X# flags for compilation
+XCFLAGS = -s
+X
+Xall :	ee
+X
+Xcurses :	ee.c
+X	cc ee.c -o ee $(CFLAGS) -lcurses 
+X
+Xee :	ee.o new_curse.o
+X	cc -o ee ee.o new_curse.o $(CFLAGS) 
+X
+Xee.o :	ee.c new_curse.h
+X	cc -c ee.c $(DEFINES) $(CFLAGS) 
+X
+Xnew_curse.o :	new_curse.c new_curse.h
+X	cc new_curse.c -c $(DEFINES) $(CFLAGS)
+X
+Xinstall :
+X	cp ee /usr/local/bin/ee
+X	cp ee.1 /usr/local/man/man1/ee.1
+X
+Xclean :
+X	rm -f ee.o new_curse.o ee 
+X
+END_OF_FILE
+  if test 1482 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  chmod +x 'Makefile'
+  # end of 'Makefile'
+fi
+if test -f 'new_curse.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'new_curse.h'\"
+else
+  echo shar: Extracting \"'new_curse.h'\" \(4162 characters\)
+  sed "s/^X//" >'new_curse.h' <<'END_OF_FILE'
+X/*
+X |	new_curse.h
+X |
+X |	A subset of curses developed for use with ae.
+X |
+X |	written by Hugh Mahon
+X |
+X |	No warranties, implied, or otherwise are hereby made for this 
+X |	software, nor are any claims as to the suitability of this software 
+X |	for any purpose.
+X |
+X |	*** USE AT YOUR OWN RISK! ***
+X |
+X |	This software is not a product of Hewlett-Packard, Co., or any 
+X |	other company.  No support is implied or offered with this software.
+X |	You've got the source, and you're on your own.
+X |
+X |	This software is for free distribution, and is not to be sold, or 
+X |	otherwise traded for value without the express, written consent of 
+X |	the author.  Likewise, any derivatives of this software cannot be 
+X |	sold or traded without the consent of the author.  
+X |
+X |	This notice should be included with this software and any derivatives.
+X */
+X
+X#include <stdio.h>
+X#include <varargs.h>
+X
+X#ifdef SYS5
+X#include <termio.h>
+X#else
+X#include <sgtty.h>
+X#include <fcntl.h>
+X#endif
+X
+X#define KEY_BREAK	0401
+X#define KEY_DOWN	0402
+X#define KEY_UP		0403
+X#define KEY_LEFT	0404
+X#define KEY_RIGHT	0405
+X#define KEY_HOME	0406
+X#define KEY_BACKSPACE	0407
+X#define KEY_F0		0410
+X#define KEY_F(n) 	(KEY_F0+(n))
+X#define KEY_DL		0510
+X#define KEY_IL		0511
+X#define KEY_DC		0512
+X#define KEY_IC		0513
+X#define KEY_EIC		0514
+X#define KEY_CLEAR	0515
+X#define KEY_EOS		0516
+X#define KEY_EOL		0517
+X#define KEY_SF		0520
+X#define KEY_SR		0521
+X#define KEY_NPAGE	0522
+X#define KEY_PPAGE	0523
+X#define KEY_STAB	0524
+X#define KEY_CTAB	0525
+X#define KEY_CATAB	0526
+X#define KEY_ENTER	0527
+X#define KEY_SRESET	0530
+X#define KEY_RESET	0531
+X#define KEY_PRINT	0532
+X#define KEY_LL		0533
+X#define KEY_A1	0534
+X#define KEY_A3	0535
+X#define KEY_B2	0536
+X#define KEY_C1	0537
+X#define KEY_C3	0540
+X#define KEY_BTAB	0541
+X#define KEY_BEG	0542
+X#define KEY_CANCEL	0543
+X#define KEY_CLOSE	0544
+X#define KEY_COMMAND	0545
+X#define KEY_COPY	0546
+X#define KEY_CREATE	0547
+X#define KEY_END	0550
+X#define KEY_EXIT	0551
+X#define KEY_FIND	0552
+X#define KEY_HELP	0553
+X#define KEY_MARK	0554
+X#define KEY_MESSAGE	0555
+X#define KEY_MOVE	0556
+X#define KEY_NEXT	0557
+X#define KEY_OPEN	0560
+X#define KEY_OPTIONS	0561
+X#define KEY_PREVIOUS	0562
+X#define KEY_REDO	0563
+X#define KEY_REFERENCE	0564
+X#define KEY_REFRESH	0565
+X#define KEY_REPLACE	0566
+X#define KEY_RESTART	0567
+X#define KEY_RESUME	0570
+X#define KEY_SAVE	0571
+X#define KEY_SBEG	0572
+X#define KEY_SCANCEL	0573
+X#define KEY_SCOMMAND	0574
+X#define KEY_SCOPY	0575
+X#define KEY_SCREATE	0576
+X#define KEY_SDC	0577
+X#define KEY_SDL	0600
+X#define KEY_SELECT	0601
+X#define KEY_SEND	0602
+X#define KEY_SEOL	0603
+X#define KEY_SEXIT	0604
+X#define KEY_SFIND	0605
+X#define KEY_SHELP	0606
+X#define KEY_SHOME	0607
+X#define KEY_SIC	0610
+X#define KEY_SLEFT	0611
+X#define KEY_SMESSAGE	0612
+X#define KEY_SMOVE	0613
+X#define KEY_SNEXT	0614
+X#define KEY_SOPTIONS	0615
+X#define KEY_SPREVIOUS	0616
+X#define KEY_SPRINT	0617
+X#define KEY_SREDO	0620
+X#define KEY_SREPLACE	0621
+X#define KEY_SRIGHT	0622
+X#define KEY_SRSUME	0623
+X#define KEY_SSAVE	0624
+X#define KEY_SSUSPEND	0625
+X#define KEY_SUNDO	0626
+X#define KEY_SUSPEND	0627
+X#define KEY_UNDO	0630
+X
+X#define TRUE 1
+X#define FALSE 0
+X
+X#define A_STANDOUT 0001	/* standout mode			*/
+X#define SCROLL 1		/* text has been scrolled	*/
+X#define CLEAR  2		/* window has been cleared	*/
+X#define CHANGE 3		/* window has been changed	*/
+X#define UP 1			/* direction of scroll		*/
+X#define DOWN 2
+X
+Xchar *fgets();
+Xchar *calloc();
+Xchar *malloc();
+Xchar *getenv();
+X
+Xstruct _line {
+X	struct _line *next_screen;
+X	struct _line *prev_screen;
+X	char *row;
+X	char *attributes;
+X	int last_char;
+X	int changed;
+X	int scroll;
+X	int number;
+X	};
+X
+Xstruct _line *top_of_win;
+X
+Xtypedef struct WIND {
+X	int SR;		/* starting row		*/
+X	int SC;		/* starting column	*/
+X	int LC;		/* last column		*/
+X	int LX;		/* last cursor column position	*/
+X	int LY;		/* last cursor row position	*/
+X	int Attrib;	/* attributes active in window	*/
+X	int Num_lines;	/* number of lines		*/
+X	int Num_cols;	/* number of columns		*/
+X	int scroll_up;	/* number of lines moved	*/
+X	int scroll_down;
+X	int SCROLL_CLEAR;	/* indicates that window has been scrolled or cleared	*/
+X	struct _line *first_line;
+X	} WINDOW;
+X
+Xextern WINDOW *curscr;
+Xextern WINDOW *stdscr;
+Xextern WINDOW *newwin();
+X
+Xextern int LINES, COLS;
+END_OF_FILE
+  if test 4162 -ne `wc -c <'new_curse.h'`; then
+    echo shar: \"'new_curse.h'\" unpacked with wrong size!
+  fi
+  # end of 'new_curse.h'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

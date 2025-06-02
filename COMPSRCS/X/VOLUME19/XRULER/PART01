@@ -1,0 +1,379 @@
+Newsgroups: comp.sources.x
+From: mmm@cetia.fr (Mark Martin)
+Subject: v19i042:  xruler - xruler - vertical/horizontal transparent ruler or grid, Part01/01
+Message-ID: <1993Mar12.145737.25896@sparky.imd.sterling.com>
+X-Md4-Signature: 238cd7c86491cd0f94ff2d91056185c0
+Date: Fri, 12 Mar 1993 14:57:37 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: mmm@cetia.fr (Mark Martin)
+Posting-number: Volume 19, Issue 42
+Archive-name: xruler/part01
+Environment: X11, Shape, xbiff, atobm, awk
+
+xruler creates a shaped window in the form of a horizontal or vertical
+ruler, or as a transparent grid which can be placed over other windows
+to aid with taking measurements and so on.
+
+It is a (bourne) shell script needing awk, atobm, and xbiff from X11
+Release 4 or 5.  The server must implement shaped windows.
+
+The awk script is a little slow when creating horizontal rulers.
+Give it time...
+
+Copyright 1992 Mark M Martin. Cetia. France. 
+Anyone may use, copy, distribute, sell this script provided the above
+copyright is kept in it.  No implied warranty or fitness for purpose.
+
+email: mmm@cetia.fr
+--
+Mark M Martin			mmm@cetia.fr
+Cetia, France.
+
+
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	xruler/README
+#	xruler/xruler
+#	xruler/xruler.man
+#	xruler/Imakefile
+#	xruler/Makefile.std
+#	xruler/patchlevel.h
+# This archive created: Fri Sep 11 19:21:14 FDT 1992
+# By: mmm
+# Part 1 of 1
+PATH=/bin:$PATH export PATH
+mkdir xruler
+if test -f 'xruler/README'
+then	echo "shar: will not overwrite existing file xruler/README"
+else	echo "shar: extracting xruler/README (604 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/README'
+Xxruler creates a shaped window in the form of a horizontal or vertical
+Xruler, or as a transparent grid which can be placed over other windows
+Xto aid with taking measurements and so on.
+X
+XIt is a (bourne) shell script needing awk, atobm, and xbiff from X11
+XRelease 4 or 5.  The server must implement shaped windows.
+X
+XThe awk script is a little slow when creating horizontal rulers.
+XGive it time...
+X
+XCopyright 1992 Mark M Martin. Cetia. France. 
+XAnyone may use, copy, distribute, sell this script provided the above
+Xcopyright is kept in it.  No implied warranty or fitness for purpose.
+X
+Xemail: mmm@cetia.fr
+END-OF-FILE!
+	if test 604 -ne "`wc -c <'xruler/README'`"
+	then	echo "shar: error transmitting xruler/README (604 characters)"
+	fi
+fi
+if test -f 'xruler/xruler'
+then	echo "shar: will not overwrite existing file xruler/xruler"
+else	echo "shar: extracting xruler/xruler (3494 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/xruler'
+X#!/bin/sh
+X# xruler: create a vertical transparent ruler. 11sep1992
+X# Copyright 1992 Mark M Martin. Cetia. France. 
+X# Anyone may use, copy, distribute, sell this script provided the above
+X# copyright is kept in it.  No implied warranty or fitness for purpose.
+X
+Xusage="usage: $0 -h height -w width -grid -l linewidth -tl ticklength -t tickinterval..."
+X
+X# --- some default sizes. The corner is an handle making it easier to
+X# --- grip the ruler if no window manager title bar.
+X
+Xcorner=15 linewidth= ticklen=20 grid=0
+Xdefaultticks='50 25' defaultheight=700
+Xheight= width= debug=false
+X
+Xwhile	case $1 in
+X	-h|-height)	shift
+X			height=$1 ;;
+X	-w|-width)	shift
+X			width=$1 ;;
+X	-tl|-ticklength)shift
+X			ticklen=$1 ;;
+X	-grid)		grid=1 ;;
+X	-l|-linewidth)	shift
+X			linewidth=$1 ;;
+X	-t|-ticks)	while	case $2 in
+X				[0-9]*)	allticks="$allticks $2" ;;
+X				*)	break ;;
+X				esac
+X			do	shift
+X			done ;;
+X	-debug)		debug=true ;;
+X	'')		break ;;
+X	*)		echo "$usage"
+X			exit 1 ;;
+X	esac
+Xdo	shift
+Xdone
+X
+Xif [ -z "$allticks" ]
+Xthen	allticks=$defaultticks
+Xfi
+Xcase "$height+$width+$grid" in
+X++0)		height=$defaultheight ;;
+X+*+1|*++1)	echo "height and width must be given for -grid"
+X		exit 1;;
+Xesac
+Xif [ -z "$linewidth" ]
+Xthen	if [ $grid = 1 ]
+X	then	linewidth=1
+X	else	linewidth=2
+X	fi
+Xfi
+X
+Xtmp=/tmp/rule$$
+Xtrap 'rm -f $tmp;exit' 1 2 3 15
+X
+Xawk '
+XBEGIN{	vert = '"0$height"'; horiz = '"0$width"'; corner = '"$corner"'
+X	linewidth = '"$linewidth"'; ticklen = '"$ticklen"'; grid = '"$grid"'
+X	numticks = split("'"$allticks"'",ticks," ")
+X	t = ticklen
+X	for(i = 1;i<=numticks;i++){
+X		ticklength[i] = int(t)
+X		t = t*.75
+X	}
+X	maxlen = ticklen
+X	if(vert)height = vert+linewidth
+X	else height = ticklen
+X	if(maxlen<corner)maxlen = corner
+X	width = horiz+linewidth
+X	if(horiz && maxlen<width)maxlen = width
+X	# precompute the (non full) horizontal lines all alike for a grid
+X	if(grid){
+X	    str = ""
+X	    for(w = linewidth;w<width;w++){
+X		mark = 0
+X		for(i = 1;i<=numticks && !mark;i++)
+X		    if((w%ticks[i])<linewidth)
+X			mark++
+X		if(mark)str = str "#"
+X		else str = str "-"
+X	    }
+X	}
+X	for(l = -corner;l<height;l++){
+X		tl = linewidth;
+X		if(l<-1)tl = corner;
+X		else if(l==-1)tl = 0;
+X		else if(horiz && l<linewidth)tl = width
+X		else if(vert){
+X		    for(i = 1;i<=numticks;i++)
+X			if((l%ticks[i])<linewidth){
+X			    if(grid){ tl = width; break }
+X			    else if(tl<ticklength[i])tl = ticklength[i]
+X			}
+X		}
+X		for(w = 0;w<tl;w++)printf("#");
+X		if(grid && tl==linewidth){
+X			printf("%s",str)
+X			w = width
+X		}
+X		else if(l>0 && horiz && l<ticklen){
+X		    for(;w<width;w++){
+X		        mark = 0
+X			for(i = 1;i<=numticks && !mark;i++)
+X			    if((w%ticks[i])<linewidth)
+X				if(l<ticklength[i])mark++
+X			if(mark)printf("#");
+X			else printf("-")
+X		    }
+X		}
+X		for(;w<maxlen;w++)printf("-");
+X		printf("\n");
+X	}
+X}
+X' </dev/null |
+Xif $debug
+Xthen	cat
+Xelse	atobm >$tmp
+Xfi
+X
+X# --- there are weird effects if the geometry isnt bigger than actual bitmap
+X
+Xcase "$height+$width" in
+X+*)	height=$ticklen ;;
+X*+)	width=$ticklen ;;
+Xesac
+Xheight=`expr $height + $corner + $linewidth + 10`
+Xwidth=`expr $width + $linewidth + 10`
+X
+Xif $debug
+Xthen	echo ${width}x$height
+X	exit
+Xfi
+X
+Xxbiff	-name xruler \
+X	-xrm "xruler.Geometry:${width}x$height-1+1" \
+X	-xrm "xruler*shapeWindow:true" \
+X	-xrm "xruler*flip:false" \
+X	-xrm "xruler*fullPixmap:$tmp" \
+X	-xrm "xruler*fullPixmapMask:$tmp" \
+X	-xrm "xruler*emptyPixmap:$tmp" \
+X	-xrm "xruler*emptyPixmapMask:$tmp" \
+X	-xrm "xruler*file:/dev/null" \
+X	-xrm "xruler*update:9999999" &
+X
+X# --- give it time to read file then remove it.
+X
+X(	sleep 60
+X	rm -f $tmp
+X) &
+END-OF-FILE!
+	chmod +x xruler/xruler
+	if test 3494 -ne "`wc -c <'xruler/xruler'`"
+	then	echo "shar: error transmitting xruler/xruler (3494 characters)"
+	fi
+fi
+if test -f 'xruler/xruler.man'
+then	echo "shar: will not overwrite existing file xruler/xruler.man"
+else	echo "shar: extracting xruler/xruler.man (1703 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/xruler.man'
+X.\"xruler man
+X.TH XRULER 1X
+X.SH NAME
+Xxruler \- a vertical or horizontal transparent ruler or grid
+X.SH SYNOPSIS
+X.B
+Xxruler
+X.RB [ -h
+X.IR height ]
+X.RB [ -w
+X.IR width ]
+X.RB [ -l
+X.IR linewidth ]
+X.RB [ -tl
+X.IR ticklength ]
+X.RB [ -grid ]
+X.RB [ -t
+X.IR "tickinterval ..." ]
+X.SH DESCRIPTION
+X.B xruler
+Xcreates a shaped window in the form of a ruler with intervals marked
+Xby ticks.
+XThe ruler can be vertical, horizontal or both, or be a rectangular grid.
+XThe window can be positioned over other windows to ease measuring
+Xestimates.
+X.P
+XA foreground colour can be specified, for example, by the resource line
+X
+X	xruler*foreground: red
+X
+Xin the .Xdefaults file or xrdb database.
+X.SH OPTIONS
+XAll values are in pixels.
+X.TP
+X-h
+Xis followed by the height of the vertical ruler.
+X.TP
+X-w
+Xis followed by the width of the horizontal ruler.
+X.TP
+X-l
+Xis followed by the width of the lines used to draw the ruler.
+XThis defaults to 2 for rulers and 1 for grids.
+X.TP
+X-t
+Xis followed by a list of tick intervals.
+XThe default is 50 and 25.
+XWhen more than one interval is specified the length of the later ones
+Xis 75% of the previous one.
+X.TP
+X-tl
+Xis followed by the length of the largest tick.
+XIf more than one tick interval is specified, the length of later ones
+Xis 75% of the previous one.
+X.TP
+X-grid
+XThe ticklength is ignored and a grid of the given height and width
+Xis produced.
+XNeither height nor width can be defaulted.
+X.SH LIMITATIONS
+XThe shape extension must exist in the server.
+Xxbiff and atobm must be in the PATH.
+X.SH AUTHOR
+XCopyright 1992 Mark M Martin. Cetia. France. 
+X
+XAnyone may use, copy, distribute, sell this script provided the above
+Xcopyright is kept in it.
+XNo implied warranty or fitness for purpose.
+X
+Xemail: mmm@cetia.fr
+END-OF-FILE!
+	if test 1703 -ne "`wc -c <'xruler/xruler.man'`"
+	then	echo "shar: error transmitting xruler/xruler.man (1703 characters)"
+	fi
+fi
+if test -f 'xruler/Imakefile'
+then	echo "shar: will not overwrite existing file xruler/Imakefile"
+else	echo "shar: extracting xruler/Imakefile (117 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/Imakefile'
+XXCOMM Imakefile for xruler script
+X
+Xall::
+X
+XInstallNamedProg(xruler,xruler,$(BINDIR))
+XInstallManPage(xruler,$(MANDIR))
+END-OF-FILE!
+	if test 117 -ne "`wc -c <'xruler/Imakefile'`"
+	then	echo "shar: error transmitting xruler/Imakefile (117 characters)"
+	fi
+fi
+if test -f 'xruler/Makefile.std'
+then	echo "shar: will not overwrite existing file xruler/Makefile.std"
+else	echo "shar: extracting xruler/Makefile.std (475 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/Makefile.std'
+X
+X           BINDIR = /usr/bin/X11
+X     INSTBINFLAGS = -m 0755 -o bin -g bin
+X          INSTALL = install
+X           MANDIR =  /usr/catman/man1
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* 
+X               RM = rm -f
+X
+X
+Xall::
+X
+Xinstall:: xruler
+X	$(INSTALL) -c $(INSTBINFLAGS) xruler $(DESTDIR)$(BINDIR)/xruler
+X
+Xinstall.man:: xruler.man
+X	$(INSTALL) -c $(INSTMANFLAGS) xruler.man $(DESTDIR)$(MANDIR)/xruler.$(MANSUFFIX)
+X
+Xclean::
+X	$(RM_CMD) "#"*
+END-OF-FILE!
+	if test 475 -ne "`wc -c <'xruler/Makefile.std'`"
+	then	echo "shar: error transmitting xruler/Makefile.std (475 characters)"
+	fi
+fi
+if test -f 'xruler/patchlevel.h'
+then	echo "shar: will not overwrite existing file xruler/patchlevel.h"
+else	echo "shar: extracting xruler/patchlevel.h (85 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xruler/patchlevel.h'
+X/*
+X * xruler:
+X * level 0: initial release to comp.sources.x
+X */
+X#define PATCHLEVEL 0
+END-OF-FILE!
+	if test 85 -ne "`wc -c <'xruler/patchlevel.h'`"
+	then	echo "shar: error transmitting xruler/patchlevel.h (85 characters)"
+	fi
+fi
+echo 'end of shar part 1 of 1'
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

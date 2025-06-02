@@ -1,0 +1,2753 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i058:  bwbasic - Bywater BASIC interpreter version 2.10, Part07/15
+Message-ID: <1993Oct29.162613.3785@sparky.sterling.com>
+X-Md4-Signature: 76314a64ce85a269d8ba6f851d240f2a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:26:13 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 58
+Archive-name: bwbasic/part07
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_cmd.c bwbasic-2.10/bwb_mes.h
+# Wrapped by kent@sparky on Thu Oct 21 10:47:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_cmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_cmd.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_cmd.c'\" \(46688 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_cmd.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_cmd.c       Miscellaneous Commands
+X                        for Bywater BASIC Interpreter
+X
+X                        Commands:       RUN
+X                                        LET
+X                                        LOAD
+X                                        MERGE
+X                                        CHAIN
+X                                        NEW
+X                                        RENUM
+X                                        SAVE
+X                                        LIST
+X                                        GOTO
+X                                        GOSUB
+X                                        RETURN
+X                                        ON
+X                                        STOP
+X                                        END
+X                                        SYSTEM
+X                                        TRON
+X                                        TROFF
+X                                        DELETE
+X                                        RANDOMIZE
+X					ENVIRON
+X                                        CMDS            (*debugging)
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <ctype.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X#if HAVE_SIGNAL
+X#include <signal.h>
+X#endif
+X
+Xchar err_gosubl[ MAXVARNAMESIZE + 1 ] = { '\0' }; /* line for error GOSUB */
+X
+X#if ANSI_C
+Xextern struct bwb_line *bwb_xnew( struct bwb_line *l );
+Xextern struct bwb_line *bwb_onerror( struct bwb_line *l );
+Xstruct bwb_line *bwb_donum( struct bwb_line *l );
+Xstruct bwb_line *bwb_dounnum( struct bwb_line *l );
+Xstatic int xl_line( FILE *file, struct bwb_line *l );
+X#else
+Xextern struct bwb_line *bwb_xnew();
+Xextern struct bwb_line *bwb_onerror();
+Xstruct bwb_line *bwb_donum();
+Xstruct bwb_line *bwb_dounnum();
+Xstatic int xl_line();
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_null()
+X
+X	DESCRIPTION:    This is a null command function body, and
+X			can be used as the basis for developing
+X			new BASIC commands.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_null( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_null( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_null(): NULL command" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       bwb_rem()
+X
+X	DESCRIPTION:    This C function implements the BASIC rem
+X			(REMark) command, ignoring the remainder
+X			of the line.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_rem( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_rem( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_rem(): REM command" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* do not use bwb_zline() here; blank out remainder of line */
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_let()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			LET assignment command, even if LET
+X			is implied and not explicit.
+X
+X	SYNTAX:		LET variable = expression
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_let( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_let( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_let(): pos <%d> line <%s>",
+X      l->position, l->buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Call the expression interpreter to evaluate the assignment */
+X
+X   bwb_exp( l->buffer, TRUE, &( l->position ) );
+X
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_go
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			GO command, branching appropriately to
+X			GOTO or GOSUB.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_go( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_go( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   if ( strcmp( tbuf, CMD_XSUB ) == 0 )
+X      {
+X      return bwb_gosub( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_XTO ) == 0 )
+X      {
+X      return bwb_goto( l );
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in bwb_go(): Nonsense following GO" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax );
+X#endif
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_goto
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			GOTO command.
+X
+X   	SYNTAX:		GOTO line | label
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_goto( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_goto( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *x;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_goto(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_noln );
+X
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_goto(): buffer has <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* check for target label */
+X
+X#if STRUCT_CMDS
+X
+X   if ( isalpha( tbuf[ 0 ] ))
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_goto(): found LABEL, <%s>", tbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      x = find_label( tbuf );
+X      x->position = 0;
+X      return x;
+X      }
+X
+X   else
+X      {
+X      for ( x = &CURTASK bwb_start; x != &CURTASK bwb_end; x = x->next )
+X         {
+X         if ( x->number == atoi( tbuf ) )
+X            {
+X
+X            /* found the requested number */
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_goto(): returning line <%d>", x->number );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            x->position = 0;
+X            return x;
+X            }
+X         }
+X      }
+X
+X#else
+X
+X   for ( x = &CURTASK bwb_start; x != &CURTASK bwb_end; x = x->next )
+X      {
+X      if ( x->number == atoi( tbuf ) )
+X         {
+X
+X         /* found the requested number */
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_goto(): returning line <%d>", x->number );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         x->position = 0;
+X         return x;
+X         }
+X      }
+X
+X#endif
+X
+X   sprintf( bwb_ebuf, err_lnnotfound, atoi( tbuf ) );
+X   bwb_error( bwb_ebuf );
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_gosub()
+X
+X	DESCRIPTION:    This function implements the BASIC GOSUB
+X			command.
+X
+X   	SYNTAX:		GOSUB line | label
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_gosub( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_gosub( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *x;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         sprintf( bwb_ebuf, err_noln );
+X         bwb_error( bwb_ebuf );
+X
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   /* get the target line number in tbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   /* check for a label rather than line number */
+X
+X#if STRUCT_CMDS
+X
+X   if ( isalpha( atbuf[ 0 ] ))
+X      {
+X      x = find_label( atbuf );
+X
+X#if MULTISEG_LINES
+X      CURTASK excs[ CURTASK exsc ].position = l->position;
+X#endif
+X
+X      bwb_incexec();
+X
+X      /* set the new position to x and return x */
+X
+X      x->cmdnum = -1;
+X      x->marked = FALSE;
+X      x->position = 0;
+X      bwb_setexec( x, 0, EXEC_GOSUB );
+X
+X      return x;
+X
+X      }
+X
+X#endif
+X
+X   for ( x = &CURTASK bwb_start; x != &CURTASK bwb_end; x = x->next )
+X      {
+X
+X      if ( x->number == atoi( atbuf ))
+X         {
+X
+X         /* this is the line we are looking for */
+X
+X#if MULTISEG_LINES
+X         CURTASK excs[ CURTASK exsc ].position = l->position;
+X#endif
+X
+X         /* increment the EXEC stack */
+X
+X         bwb_incexec();
+X
+X         /* set the new position to x and return x */
+X
+X         x->cmdnum = -1;
+X         x->marked = FALSE;
+X         x->position = 0;
+X         bwb_setexec( x, 0, EXEC_GOSUB );
+X
+X         return x;
+X         }
+X      }
+X
+X   /* the requested line was not found */
+X
+X   sprintf( bwb_ebuf, err_lnnotfound, atoi( atbuf ) );
+X   bwb_error( bwb_ebuf );
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_return()
+X
+X	DESCRIPTION:    This function implements the BASIC RETURN
+X			command.
+X
+X   	SYNTAX:		RETURN
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_return( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_return( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if  INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_return() at line <%d> cmdnum <%d>",
+X      l->number, l->cmdnum );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* see if old position was "GOSUB" */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code != EXEC_GOSUB )
+X      {
+X      bwb_error( err_retnogosub );
+X      }
+X
+X   /* decrement the EXEC stack counter */
+X
+X   bwb_decexec();
+X
+X   /* restore position and return old line */
+X
+X#if MULTISEG_LINES
+X   CURTASK excs[ CURTASK exsc ].line->position
+X      = CURTASK excs[ CURTASK exsc ].position;
+X   return CURTASK excs[ CURTASK exsc ].line;
+X#else
+X   CURTASK excs[ CURTASK exsc ].line->next->position = 0;
+X   return CURTASK excs[ CURTASK exsc ].line->next;
+X#endif
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_on
+X
+X        DESCRIPTION:    This function implements the BASIC ON...
+X                        GOTO or ON...GOSUB statements.
+X
+X			It will also detect the ON ERROR... statement
+X			and pass execution to bwb_onerror().
+X
+X   	SYNTAX:		ON variable GOTO|GOSUB line[,line,line,...]
+X
+X	LIMITATION:     As implemented here, the ON...GOSUB|GOTO
+X			command recognizes line numbers only
+X			(not labels).
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_on( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_on( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *oline, *x;
+X   char varname[ MAXVARNAMESIZE + 1 ];
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   static int p;
+X   struct exp_ese *rvar;
+X   int v;
+X   int loop;
+X   int num_lines;
+X   int command;
+X   int lines[ MAX_GOLINES ];
+X   char sbuf[ 7 ];
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         sprintf( bwb_ebuf, err_incomplete );
+X         bwb_error( bwb_ebuf );
+X
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   /* get the variable name or numerical constant */
+X
+X   adv_element( l->buffer, &( l->position ), varname );
+X
+X   /* check for ON ERROR statement */
+X
+X#if COMMON_CMDS
+X   strncpy( sbuf, varname, 6 );
+X   bwb_strtoupper( sbuf );
+X   if ( strcmp( sbuf, CMD_XERROR ) == 0 )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_on(): detected ON ERROR" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return bwb_onerror( l );
+X      }
+X#endif	/* COMMON_CMDS */
+X
+X   /* evaluate the variable name or constant */
+X
+X   p = 0;
+X   rvar = bwb_exp( varname, FALSE, &p );
+X   v = (int) exp_getnval( rvar );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_on(): value is <%d>", v );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Get GOTO or GOSUB statements */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X   if ( strncmp( tbuf, CMD_GOTO, (size_t) strlen( CMD_GOTO ) ) == 0 )
+X      {
+X      command = getcmdnum( CMD_GOTO );
+X      }
+X   else if ( strncmp( tbuf, CMD_GOSUB, (size_t) strlen( CMD_GOSUB ) ) == 0 )
+X      {
+X      command = getcmdnum( CMD_GOSUB );
+X      }
+X   else
+X      {
+X      sprintf( bwb_ebuf, ERR_ONNOGOTO );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   num_lines = 0;
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X
+X      /* read a line number */
+X
+X      inp_adv( l->buffer, &( l->position ) );
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X
+X      lines[ num_lines ] = atoi( tbuf );
+X
+X      ++num_lines;
+X
+X      if ( num_lines >= MAX_GOLINES )
+X         {
+X         loop = FALSE;
+X         }
+X
+X      /* check for end of line */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      switch( l->buffer[ l->position ] )
+X         {
+X         case '\0':
+X         case '\n':
+X         case '\r':
+X         case ':':
+X            loop = FALSE;
+X            break;
+X         }
+X
+X      }
+X
+X   /* advance to end of segment */
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ) );
+X#endif
+X
+X   /* Be sure value is in range */
+X
+X   if ( ( v < 1 ) || ( v > num_lines ))
+X      {
+X      sprintf( bwb_ebuf, err_valoorange );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   if ( command == getcmdnum( CMD_GOTO ))
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_on(): executing ON...GOTO" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      oline = NULL;
+X      for ( x = &CURTASK bwb_start; x != &CURTASK bwb_end; x = x->next )
+X	 {
+X	 if ( x->number == lines[ v - 1 ] )
+X	    {
+X
+X	    /* found the requested number */
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in bwb_on(): returning line <%d>", x->number );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    oline = x;
+X	    }
+X	 }
+X
+X      if ( oline == NULL )
+X	 {
+X	 bwb_error( err_lnnotfound );
+X	 return bwb_zline( l );
+X	 }
+X
+X      oline->position = 0;
+X      bwb_setexec( oline, 0, CURTASK excs[ CURTASK exsc ].code );
+X
+X      return oline;
+X
+X      }
+X
+X   else if ( command == getcmdnum( CMD_GOSUB ))
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_on(): executing ON...GOSUB" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* save current stack level */
+X
+X      bwb_setexec( l, l->position, CURTASK excs[ CURTASK exsc ].code );
+X
+X      /* increment exec stack */
+X
+X      bwb_incexec();
+X
+X      /* get memory for line and buffer */
+X
+X      if ( ( oline = calloc( 1, sizeof( struct bwb_line ) ) ) == NULL )
+X	 {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_on(): failed to find memory for oline" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      if ( ( oline->buffer = calloc( 1, MAXSTRINGSIZE + 1 ) ) == NULL )
+X	 {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_on(): failed to find memory for oline buffer" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X
+X      CURTASK excs[ CURTASK exsc ].while_line = oline;
+X
+X      sprintf( oline->buffer, "%s %d", CMD_GOSUB, lines[ v - 1 ] );
+X      oline->marked = FALSE;
+X      oline->position = 0;
+X      oline->next = l->next;
+X      bwb_setexec( oline, 0, EXEC_ON );
+X      return oline;
+X      }
+X
+X   else
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_on(): invalid value for command." );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_stop()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			STOP command, interrupting program flow
+X			at a specific point.
+X
+X   	SYNTAX:		STOP
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_stop( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_stop( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if HAVE_SIGNAL
+X#if HAVE_RAISE
+X   raise( SIGINT );
+X#else
+X   kill( getpid(), SIGINT );
+X#endif
+X#endif
+X
+X   return bwb_xend( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xend()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			END command, checking for END SUB
+X			or END FUNCTION, else stopping program
+X			execution for a simple END command.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_xend( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_xend( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X#if STRUCT_CMDS
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_xend(): entered funtion" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Detect END SUB or END FUNCTION here */
+X
+X#if STRUCT_CMDS
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   if ( strcmp( tbuf, CMD_XSUB ) == 0 )
+X      {
+X      return bwb_endsub( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_XFUNCTION ) == 0 )
+X      {
+X      return bwb_endfnc( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_XIF ) == 0 )
+X      {
+X      return bwb_endif( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_XSELECT ) == 0 )
+X      {
+X      return bwb_endselect( l );
+X      }
+X
+X#endif			/* STRUCT_CMDS */
+X
+X   /* else a simple END statement */
+X
+X   break_handler();
+X
+X   return &CURTASK bwb_end;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_do()
+X
+X	DESCRIPTION:    This C function implements the BASIC DO
+X			command, also checking for the DO NUM
+X			and DO UNNUM commands for interactive
+X			programming environment.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_do( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_do( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   /* if there is no argument (with STRUCT_CMDS) then we have a
+X      DO-LOOP structure: pass on to bwb_doloop() in bwb_stc.c */
+X
+X#if STRUCT_CMDS
+X
+X   if ( strlen( tbuf ) == 0 )
+X      {
+X      return bwb_doloop( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_WHILE ) == 0 )
+X      {
+X      return bwb_while( l );
+X      }
+X#endif
+X
+X#if INTERACTIVE
+X   if ( strcmp( tbuf, CMD_XNUM ) == 0 )
+X      {
+X      return bwb_donum( l );
+X      }
+X
+X   if ( strcmp( tbuf, CMD_XUNNUM ) == 0 )
+X      {
+X      return bwb_dounnum( l );
+X      }
+X#endif				/* INTERACTIVE */
+X
+X   /* if none of these occurred, then presume an error */
+X
+X   bwb_error( err_syntax );
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_run()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			RUN command.
+X
+X			Even though RUN is not a core statement,
+X			the function bwb_run() is called from
+X			core, so it must be present for a minimal
+X			implementation.
+X
+X   	SYNTAX:		RUN [line]|[file-name]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_run( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_run( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current, *x;
+X   int go_lnumber;                /* line number to go to */
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   struct exp_ese *e;
+X   FILE *input;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): entered function. buffer <%s> pos <%d>",
+X      l->buffer, l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* see if there is an element */
+X
+X   current = NULL;
+X   adv_ws( l->buffer, &( l->position ) );
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): check buffer <%s> pos <%d> char <0x%x>",
+X      l->buffer, l->position, l->buffer[ l->position ] );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X   switch ( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_run(): no argument; begin at start.next" );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         current = CURTASK bwb_start.next;
+X         e = NULL;
+X         break;
+X      default:
+X         e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X         break;
+X      }
+X
+X   /* check its type: if it is a string, open the file and execute it */
+X
+X   if (( e != NULL ) && ( e->type == STRING ))
+X      {
+X      bwb_new( l );				/* clear memory */
+X      str_btoc( tbuf, exp_getsval( e ) );	/* get string in tbuf */
+X      if ( ( input = fopen( tbuf, "r" )) == NULL )	/* open file */
+X         {
+X         sprintf( bwb_ebuf, err_openfile, tbuf );
+X         bwb_error( bwb_ebuf );
+X         }
+X      bwb_fload( input );		/* load program */
+X      bwb_run( &CURTASK bwb_start );            /* and call bwb_run() recursively */
+X      }
+X
+X   /* else if it is a line number, execute the program in memory
+X      at that line number */
+X
+X   else
+X      {
+X
+X      if ( current == NULL )
+X         {
+X
+X         if ( e != NULL )
+X            {
+X            go_lnumber = (int) exp_getnval( e );
+X            }
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_run(): element detected <%s>, lnumber <%d>",
+X            tbuf, go_lnumber );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         for ( x = CURTASK bwb_start.next; x != &CURTASK bwb_end; x = x->next )
+X            {
+X            if ( x->number == go_lnumber )
+X               {
+X               current = x;
+X               }
+X            }
+X         }
+X
+X      if ( current == NULL )
+X         {
+X         sprintf( bwb_ebuf, err_lnnotfound, go_lnumber );
+X         bwb_error( bwb_ebuf );
+X         return &CURTASK bwb_end;
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_run(): ready to run starting at line %d",
+X         current->number );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( CURTASK rescan == TRUE )
+X         {
+X         bwb_scan();
+X         }
+X
+X      current->position = 0;
+X      CURTASK exsc = 0;
+X      bwb_setexec( current, 0, EXEC_NORM );
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_run(): function complete." );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   return current;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_new()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			NEW command.
+X
+X			Even though NEW is not a core statement,
+X			the function bwb_run() is called from
+X			core, so it must be present for a minimal
+X			implementation.
+X
+X	SYNTAX:		NEW
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_new( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_new( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X   /* clear program in memory */
+X
+X   bwb_xnew( l );
+X
+X   /* clear all variables */
+X
+X   bwb_clear( l );
+X
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/* End of Core Functions Section */
+X
+X#if INTERACTIVE
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_system()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			SYSTEM command, exiting to the operating
+X			system (or calling program).  It is also
+X			called by the QUIT command, a functional
+X			equivalent for SYSTEM in Bywater BASIC.
+X
+X	SYNTAX:		SYSTEM
+X			QUIT
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_system( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_system( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   prn_xprintf( stdout, "\n" );
+X
+X#if INTENSIVE_DEBUG
+X   bwb_debug( "in bwb_system(): ready to exit" );
+X#endif
+X
+X   bwx_terminate();
+X   return &CURTASK bwb_end;                 /* to make LINT happy */
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_load()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LOAD command.
+X
+X   	SYNTAX:		LOAD file-name
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_load( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_load( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X   /* clear current contents */
+X
+X   bwb_new( l );
+X
+X   /* call xload function to load program in memory */
+X
+X   bwb_xload( l );
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xload()
+X
+X        DESCRIPTION:	This C function loads a BASIC program
+X			into memory.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_xload( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_xload( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   FILE *loadfile;
+X
+X   /* Get an argument for filename */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   bwb_const( l->buffer, CURTASK progfile, &( l->position ) );
+X   if ( ( loadfile = fopen( CURTASK progfile, "r" )) == NULL )
+X      {
+X      sprintf( bwb_ebuf, err_openfile, CURTASK progfile );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   bwb_fload( loadfile );
+X
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_save()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			LOAD command.
+X
+X   	SYNTAX:		SAVE file-name
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_save( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_save( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   FILE *outfile;
+X   static char filename[ MAXARGSIZE ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_save(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Get an argument for filename */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_nofn );
+X
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   bwb_const( l->buffer, filename, &( l->position ) );
+X   if ( ( outfile = fopen( filename, "w" )) == NULL )
+X      {
+X      sprintf( bwb_ebuf, err_openfile, filename );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   bwb_xlist( l, outfile );
+X   fclose( outfile );
+X
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_list()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LIST command.
+X
+X   	SYNTAX:		LIST line[-line]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_list( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_list( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   bwb_xlist( l, stdout );
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xlist()
+X
+X        DESCRIPTION:	This C function lists the program in
+X			memory to a specified output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_xlist( struct bwb_line *l, FILE *file )
+X#else
+Xstruct bwb_line *
+Xbwb_xlist( l, file )
+X   struct bwb_line *l;
+X   FILE *file;
+X#endif
+X   {
+X   struct bwb_line *start, *end, *current;
+X   int s, e;
+X   int f, r;
+X
+X   start = CURTASK bwb_start.next;
+X   end = &CURTASK bwb_end;
+X
+X   r = bwb_numseq( &( l->buffer[ l->position ] ), &s, &e );
+X
+X   /* advance to the end of the segment */
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   if (( r == FALSE ) || ( s == 0 ))
+X      {
+X      s = CURTASK bwb_start.next->number;
+X      }
+X
+X   if ( e == 0 )
+X      {
+X      e = s;
+X      }
+X
+X   if ( r == FALSE )
+X      {
+X      for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X         {
+X         if ( current->next == &CURTASK bwb_end )
+X            {
+X            e = current->number;
+X            }
+X         }
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_xlist(): LBUFFER sequence is %d-%d", s, e );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* abort if either number == (MAXLINENO + 1) which denotes CURTASK bwb_end */
+X
+X   if ( ( s == (MAXLINENO + 1)) || ( e == (MAXLINENO + 1 ) ) )
+X      {
+X
+X      return bwb_zline( l );
+X      }
+X
+X   /* Now try to find the actual lines in memory */
+X
+X   f = FALSE;
+X
+X   for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      if ( current != l )
+X         {
+X         if (( current->number == s ) && ( f == FALSE ))
+X            {
+X            f = TRUE;
+X	    start = current;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in bwb_xlist(): start line number is <%d>",
+X               s );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         }
+X      }
+X
+X   /* check and see if a line number was found */
+X
+X   if ( f == FALSE )
+X      {
+X      sprintf( bwb_ebuf, err_lnnotfound, s );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   if ( e >= s )
+X      {
+X      for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X         {
+X         if ( current != l )
+X            {
+X            if ( current->number == e )
+X               {
+X#if INTENSIVE_DEBUG
+X	       sprintf( bwb_ebuf, "in bwb_xlist(): end line number is <%d>",
+X                  current->next->number );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               end = current->next;
+X               }
+X            }
+X         }
+X      }
+X   else
+X      {
+X      end = start;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_xlist(): line sequence is <%d-%d>",
+X      start->number, end->number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* previous should now be set to the line previous to the
+X      first in the omission list */
+X
+X   /* now go through and list appropriate lines */
+X
+X   if ( start == end )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_xlist(): start == end" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      xl_line( file, start );
+X      }
+X   else
+X      {
+X      for ( current = start; current != end; current = current->next )
+X         {
+X         xl_line( file, current );
+X         }
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       xl_line()
+X
+X	DESCRIPTION:    This function lists a single program
+X			line to a specified device of file.
+X			It is called by bwb_xlist();
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xxl_line( FILE *file, struct bwb_line *l )
+X#else
+Xstatic int
+Xxl_line( file, l )
+X   FILE *file;
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   if (( file == stdout ) || ( file == stderr ))
+X      {
+X
+X      if ( l->xnum == TRUE )
+X	 {
+X	 sprintf( tbuf, "%7d: %s\n", l->number, l->buffer );
+X	 }
+X      else
+X	 {
+X	 sprintf( tbuf, "       : %s\n", l->buffer );
+X	 }
+X
+X      prn_xprintf( file, tbuf );
+X      }
+X   else
+X      {
+X
+X      if ( l->xnum == TRUE )
+X	 {
+X	 fprintf( file, "%d %s\n", l->number, l->buffer );
+X	 }
+X      else
+X	 {
+X	 fprintf( file, "%s\n", l->buffer );
+X	 }
+X
+X      }
+X
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_delete()
+X
+X	DESCRIPTION:    This C function implements the BASIC
+X			DELETE command for interactive programming,
+X			deleting a specified program line (or lines)
+X			from memory.
+X
+X   	SYNTAX:		DELETE line[-line]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_delete( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_delete( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *start, *end, *current, *previous, *p, *next;
+X   static int s, e;
+X   int f;
+X
+X   previous = &CURTASK bwb_start;
+X   start = CURTASK bwb_start.next;
+X   end = &CURTASK bwb_end;
+X
+X   bwb_numseq( &( l->buffer[ l->position ] ), &s, &e );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_delete(): LBUFFER sequence is %d-%d", s, e );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* advance to the end of the segment */
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   /* Now try to find the actual lines in memory */
+X
+X   previous = p = &CURTASK bwb_start;
+X   f = FALSE;
+X
+X   for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      if ( current != l )
+X         {
+X         if (( current->xnum == TRUE ) && ( current->number == s ))
+X            {
+X            f = TRUE;
+X            previous = p;
+X            start = current;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_delete(): start line number is <%d>",
+X               s );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         }
+X      p = current;
+X      }
+X
+X   /* check and see if a line number was found */
+X
+X   if ( f == FALSE )
+X      {
+X      sprintf( bwb_ebuf, err_lnnotfound, s );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   if ( e > s )
+X      {
+X      for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X         {
+X         if ( current != l )
+X            {
+X            if (( current->xnum == TRUE) &&  ( current->number == e ))
+X               {
+X#if INTENSIVE_DEBUG
+X	       sprintf( bwb_ebuf, "in bwb_delete(): end line number is <%d>",
+X		  e );
+X	       bwb_debug( bwb_ebuf );
+X#endif
+X
+X               end = current->next;
+X               }
+X            }
+X         }
+X      }
+X   else
+X      {
+X      end = start->next;
+X      }
+X
+X   /* previous should now be set to the line previous to the
+X      first in the omission list */
+X
+X   /* now go through and delete appropriate lines */
+X
+X   current = start;
+X   while (( current != end ) && ( current != &CURTASK bwb_end ))
+X      {
+X      next = current->next;
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_delete(): deleting line %d",
+X         current->number );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* free line memory */
+X
+X      bwb_freeline( current );
+X
+X      /* recycle */
+X
+X      current = next;
+X      }
+X
+X   /* reset link */
+X
+X   previous->next = current;
+X
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_donum()
+X
+X	DESCRIPTION:    This function implements the BASIC DO
+X			NUM command, numbering all program lines
+X			in memory in increments of 10 beginning
+X			at 10.
+X
+X	SYNTAX:		DO NUM
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_donum( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_donum( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int lnumber;
+X
+X   lnumber = 10;
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      current->number = lnumber;
+X      current->xnum = TRUE;
+X
+X      lnumber += 10;
+X      if ( lnumber >= MAXLINENO )
+X         {
+X         return bwb_zline( l );
+X         }
+X      }
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_dounnum()
+X
+X	DESCRIPTION:    This function implements the BASIC DO
+X			UNNUM command, removing all line numbers
+X			from the program in memory.
+X
+X	SYNTAX:		DO UNNUM
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_dounnum( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_dounnum( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X
+X   for ( current = bwb_start.next; current != &bwb_end; current = current->next )
+X      {
+X      current->number = 0;
+X      current->xnum = FALSE;
+X      }
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif				/* INTERACTIVE */
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_chain()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			CHAIN command.
+X
+X   	SYNTAX:		CHAIN file-name
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_chain( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_chain( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X   /* deallocate all variables except common ones */
+X
+X   var_delcvars();
+X
+X   /* remove old program from memory */
+X
+X   bwb_xnew( l );
+X
+X   /* call xload function to load new program in memory */
+X
+X   bwb_xload( l );
+X
+X   /* reset all stack counters */
+X
+X   CURTASK exsc = -1;
+X   CURTASK expsc = 0;
+X   CURTASK xtxtsc = 0;
+X
+X   /* run the program */
+X
+X   return bwb_run( &CURTASK bwb_start  );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_merge()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			MERGE command, merging command lines from
+X			a specified file into the program in memory
+X			without deleting the lines already in memory.
+X
+X   	SYNTAX:		MERGE file-name
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_merge( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_merge( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X   /* call xload function to merge program in memory */
+X
+X   bwb_xload( l );
+X
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_onerror()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X        		ON ERROR GOSUB command.
+X
+X   	SYNTAX:		ON ERROR GOSUB line | label
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_onerror( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_onerror( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_onerror(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* get the GOSUB STATEMENT */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X   /* check for GOSUB statement */
+X
+X   bwb_strtoupper( tbuf );
+X   if ( strcmp( tbuf, CMD_GOSUB ) != 0 )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_onerror(): GOSUB statement missing" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X
+X   /* get the GOSUB line */
+X
+X   adv_element( l->buffer, &( l->position ), err_gosubl );
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_tron()
+X
+X	DESCRIPTION:    This function implements the BASIC TRON
+X			command, turning the trace mechanism on.
+X
+X	SYNTAX:		TRON
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_tron( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_tron( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   bwb_trace = TRUE;
+X   prn_xprintf( stdout, "Trace is ON\n" );
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_troff()
+X
+X	DESCRIPTION:    This function implements the BASIC TROFF
+X			command, turning the trace mechanism off.
+X
+X	SYNTAX:		TROFF
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_troff( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_troff( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   bwb_trace = FALSE;
+X   prn_xprintf( stdout, "Trace is OFF\n" );
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif				/* COMMON_CMDS */
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_randomize()
+X
+X	DESCRIPTION:    This function implements the BASIC
+X			RANDOMIZE command, seeding the pseudo-
+X			random number generator.
+X
+X	SYNTAX:		RANDOMIZE number
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_randomize( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_randomize( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   register unsigned n;
+X   struct exp_ese *e;
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X#if MULTISEG_LINES
+X      case ':':
+X#endif
+X         n = (unsigned) 1;
+X         break;
+X      default:
+X         n = (unsigned) 0;
+X         break;
+X      }
+X
+X   /* get the argument in tbuf */
+X
+X   if ( n == (unsigned) 0 )
+X      {
+X      e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X      n = (unsigned) exp_getnval( e );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_randomize(): argument is <%d>", n );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   srand( n );
+X
+X   return bwb_zline( l );
+X   }
+X
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xnew()
+X
+X        DESCRIPTION:	Clears the program in memory, but does not
+X			deallocate all variables.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_xnew( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_xnew( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current, *previous;
+X   int wait;
+X
+X   wait = TRUE;
+X   for ( current = CURTASK bwb_start.next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      if ( wait != TRUE )
+X         {
+X         free( previous );
+X         }
+X      wait = FALSE;
+X      previous = current;
+X      }
+X
+X   CURTASK bwb_start.next = &CURTASK bwb_end;
+X
+X   return bwb_zline( l );
+X   }
+X
+X#if UNIX_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_environ()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			ENVIRON command, assigning a string
+X			value to an environment variable.
+X
+X	SYNTAX:		ENVIRON variable-string$ = string$
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_environ( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_environ( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];
+X   char tmp[ MAXSTRINGSIZE + 1 ];
+X   register int i;
+X   int pos;
+X   struct exp_ese *e;
+X
+X   /* find the equals sign */
+X
+X   for ( i = 0; ( l->buffer[ l->position ] != '=' ) && ( l->buffer[ l->position ] != '\0' ); ++i )
+X      {
+X      tbuf[ i ] = l->buffer[ l->position ];
+X      tbuf[ i + 1 ] = '\0';
+X      ++( l->position );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): variable string is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* get the value string to be assigned */
+X
+X   pos = 0;
+X   e = bwb_exp( tbuf, FALSE, &pos );
+X   str_btoc( tbuf, exp_getsval( e ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): variable string resolves to <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* find the equals sign */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] != '=' )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_environ(): failed to find equal sign" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X   ++( l->position );
+X
+X   /* get the value string to be assigned */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ));
+X   str_btoc( tmp, exp_getsval( e ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): value string resolves to <%s>", tmp );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* construct string */
+X
+X   strcat( tbuf, "=" );
+X   strcat( tbuf, tmp );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_environ(): assignment string is <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* now assign value to variable */
+X
+X   if ( putenv( tbuf ) == -1 )
+X      {
+X      bwb_error( err_opsys );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   /* return */
+X
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X#endif					/* UNIX_CMDS */
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_cmds()
+X
+X	DESCRIPTION:    This function implements a CMD command,
+X			which lists all commands implemented.
+X			It is not part of a BASIC specification,
+X			but is used for debugging bwBASIC.
+X
+X	SYNTAX:		CMDS
+X
+X***************************************************************/
+X
+X#if PERMANENT_DEBUG
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_cmds( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_cmds( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   register int n;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   prn_xprintf( stdout, "BWBASIC COMMANDS AVAILABLE: \n" );
+X
+X   /* run through the command table and print comand names */
+X
+X   for ( n = 0; n < COMMANDS; ++n )
+X      {
+X      sprintf( tbuf, "%s \n", bwb_cmdtable[ n ].name );
+X      prn_xprintf( stdout, tbuf );
+X      }
+X
+X   return bwb_zline( l );
+X   }
+X#endif
+X
+X/***************************************************************
+X
+X	FUNCTION:       getcmdnum()
+X
+X	DESCRIPTION:    This function returns the number associated
+X			with a specified command (cmdstr) in the
+X			command table.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xgetcmdnum( char *cmdstr )
+X#else
+Xint
+Xgetcmdnum( cmdstr )
+X   char *cmdstr;
+X#endif
+X   {
+X   register int c;
+X
+X   for ( c = 0; c < COMMANDS; ++c )
+X      {
+X      if ( strcmp( bwb_cmdtable[ c ].name, cmdstr ) == 0 )
+X         {
+X         return c;
+X         }
+X      }
+X
+X   return -1;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_zline()
+X
+X        DESCRIPTION:	This function is called at the exit from
+X        		Bywater BASIC command functions.  If
+X        		MULTISEG_LINES is TRUE, then it returns
+X        		a pointer to the current line; otherwise it
+X        		sets the position in the next line to zero
+X        		and returns a pointer to the next line.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xextern struct bwb_line *
+Xbwb_zline( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_zline( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X#if MULTISEG_LINES
+X   /* l->marked = FALSE; */
+X   return l;
+X#else
+X   l->next->position = 0;
+X   return l->next;
+X#endif
+X   }
+X
+X
+END_OF_FILE
+  if test 46688 -ne `wc -c <'bwbasic-2.10/bwb_cmd.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_cmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_cmd.c'
+fi
+if test -f 'bwbasic-2.10/bwb_mes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_mes.h'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_mes.h'\" \(20585 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_mes.h' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_mes.h       Header File for Natural-Language-Specific
+X                        Text Messages for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X
+X#ifndef TRUE
+X#define TRUE    1
+X#define FALSE   0
+X#endif
+X
+X/****************************************************************
+X
+X	The following Latin conventions are used:
+X
+X	LATIN			ENGLISH
+X
+X	acies datorum		array (of data)
+X        crusta			shell
+X	litteras		(character) string
+X	memoria mutabilis	RAM
+X	organum			device
+X	ordo			line
+X	praeceptum		command
+X	  praecepta		  program (commands)
+X	  praecepta interna	  operating system
+X	  praeceptellum		  function
+X	tabula			file
+X
+X****************************************************************/
+X
+X#if LATIN
+X#define MES_SIGNON      "Interpres <Super Flumina> ad linguam BASIC, versionis"
+X#define MES_COPYRIGHT   "Iure proprio scriptoris (c) 1993, Eduardi de Campobello"
+X#define MES_LANGUAGE	"Cum nuntiis latinis ab ipso E. de C."
+X#define PROMPT          "bwBASIC: "
+X#define ERROR_HEADER    "ERRANT praecepta in ordine"
+X#define ERRD_HEADER     "ERRANT praecepta"
+X#define MATHERR_HEADER  "ERRANT praecepta"
+X#define MES_BREAK       "Intermittuntur praecepta in ordine"
+X#define ERR_OPENFILE    "Non patet tabula quod <%s> vocatur"
+X#define ERR_GETMEM      "Deest memoria mutabilis"
+X#define ERR_LINENO      "Non adicitur novus ordo praeceptorum"
+X#define ERR_LNNOTFOUND  "Non invenitur ordo praeceptorum <%d>"
+X#define ERR_LOADNOFN    "LOAD requirit nomen ad tabulam"
+X#define ERR_NOLN        "Non invenitur ordo praeceptorum"
+X#define ERR_NOFN        "Non invenitur nomen ad tabulam"
+X#define ERR_RETNOGOSUB  "RETURN sine GOSUB"
+X#define ERR_INCOMPLETE  "Praeceptum imcompletum"
+X#define ERR_ONNOGOTO    "ON sine GOTO sive GOSUB"
+X#define ERR_VALOORANGE  "Numerus in praeceptis excedit fines"
+X#define ERR_SYNTAX      "Non sequunter praecepta"
+X#define ERR_DEVNUM      "Numerus ad organum invalidum est"
+X#define ERR_DEV         "Errat organum"
+X#define ERR_OPSYS	"Errant praecepta interna"
+X#define ERR_ARGSTR	"Praeceptum requirit litteras"
+X#define ERR_DEFCHAR	"ad varium definiendum"
+X#define ERR_MISMATCH	"Non congruunt typus"
+X#define ERR_DIMNOTARRAY	"Praeceptum requirit nomen ad aciem datorum"
+X#define ERR_OD		"Desunt data"
+X#define ERR_OVERFLOW	"Data excedunt fines"
+X#define ERR_NF		"NEXT sine FOR"
+X#define ERR_UF		"Non definitur praeceptellum"
+X#define ERR_DBZ		"Non licet divisio ab nihilo"
+X#define ERR_REDIM	"Non licet varium iterum definiendum"
+X#define ERR_OBDIM	"Debet OPTION BASE procedere DIM"
+X#define ERR_UC		"Praeceptum incognitum est"
+X#define ERR_NOPROGFILE	"Tabula praeceptorum non invenitur"
+X#endif
+X
+X#if POL_ENGLISH
+X#define MES_SIGNON      "Bywater BASIC Interpreter/Shell, version"
+X#define MES_COPYRIGHT   "Copyright (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE	"Polite English messages courtesy of t.a.c."
+X#define PROMPT          "How may we help you? "
+X#define ERROR_HEADER    "Very sorry. There is a problem in line"
+X#define ERRD_HEADER     "Very sorry. There is a problem"
+X#define MATHERR_HEADER  "We have a small problem"
+X#define MES_BREAK       "At your request, the program has been interrupted at line"
+X#define ERR_OPENFILE    "I'm afraid we have failed \nto open file %s."
+X#define ERR_GETMEM      "I'm afraid we have failed \nto find sufficient memory."
+X#define ERR_LINENO      "I'm afraid we have failed \nto link line number."
+X#define ERR_LNNOTFOUND  "I'm afraid that we \ncannot find line number %d."
+X#define ERR_LOADNOFN    "Could you perhaps specify \nwhich file you wish to be loaded?"
+X#define ERR_NOLN        "It would help greatly \nif there were a line number here."
+X#define ERR_NOFN        "It would help greatly \nif there were a file name here."
+X#define ERR_RETNOGOSUB  "Is it possible \nthat there is a RETURN without a GOSUB here?"
+X#define ERR_INCOMPLETE  "I'm afraid that the statement\nappears to be incomplete."
+X#define ERR_ONNOGOTO    "It appears that there is an ON \nwithout a corresponding GOTO or GOSUB statement."
+X#define ERR_VALOORANGE  "A value given here \nseems to be out of range."
+X#define ERR_SYNTAX      "Could it be \nthat there is a syntax error at this point?"
+X#define ERR_DEVNUM      "The device or file \nnumber here does not seem to be correct."
+X#define ERR_DEV         "There appears \nto have been an error addressing the file or device \nwhich you requested."
+X#define ERR_OPSYS	"A most unfortunate error \nseems to have been generated by the computer's operating system."
+X#define ERR_ARGSTR	"Could you perhaps \nsupply a string argument at this point?"
+X#define ERR_DEFCHAR	"The variable definition \nat this point appears to have an improper argument."
+X#define ERR_MISMATCH	"It would appear \nthat something in this statement is rather seriously mismatched."
+X#define ERR_DIMNOTARRAY	"Could you perhaps \nsupply an array name for the argument at this point?"
+X#define ERR_OD		"Oh dear, we seem to have no more data to read now."
+X#define ERR_OVERFLOW	"Subhuman devices \ndo have their limits, and we're afraid that at this point \nthe limits of Bywater BASIC have been exceeded."
+X#define ERR_NF		"There seems to be \na NEXT statement without a corresponding FOR statement. Could you check on it?"
+X#define ERR_UF		"It would appear \nthat the function named at this point has not been defined."
+X#define ERR_DBZ		"Unfortunately, \ndivision by zero can cause dreadful problems in a computer."
+X#define ERR_REDIM	"We're very sorry \nto say that a variable such as this cannot be redimensioned."
+X#define ERR_OBDIM	"It would be ever so helpful \nif the OPTION BASE statement were to be called prior to the DIM statement."
+X#define ERR_UC		"I'm afraid that \nwe are unable to recognize the command you have given here."
+X#define ERR_NOPROGFILE	"Very sorry, but \nwe simply must have a program file to interpret."
+X#endif
+X
+X#if IMP_ENGLISH
+X#define MES_SIGNON      "Bywater BASIC Interpreter/Shell, version"
+X#define MES_COPYRIGHT   "Watch it: Copyright (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE	"Impolite English messages courtesy of Oscar the Grouch"
+X#define PROMPT          "(*sigh) What now? "
+X#define ERROR_HEADER    "YOU SCREWED UP at line"
+X#define ERRD_HEADER     "YOU SCREWED UP"
+X#define MATHERR_HEADER  "ANOTHER SCREWUP!"
+X#define MES_BREAK       "Only a geek like you would interrupt this program at line"
+X#define ERR_OPENFILE    "Ha ha! I can't open file %s. Too bad, sucker."
+X#define ERR_GETMEM      "There isn't near enough memory \nfor this lunacy."
+X#define ERR_LINENO      "You jerk: \nyou entered a non-existent line number."
+X#define ERR_LNNOTFOUND  "You total idiot.  \nLine number %d isn't there. HA!"
+X#define ERR_LOADNOFN    "Get out of here. \nNo way to load that file."
+X#define ERR_NOLN        "Dumb bozo: you need to put \na LINE NUMBER here. Hint: Can you count?"
+X#define ERR_NOFN        "Nerd of the year. \nYou forgot to enter a file name. \nWhy don't you learn BASIC and come back in a year?"
+X#define ERR_RETNOGOSUB  "Oh come on, total amateur. \nYou've got a RETURN without a GOSUB"
+X#define ERR_INCOMPLETE  "Dimwit. Why don't you \ncomplete the statement here for a change."
+X#define ERR_ONNOGOTO    "You failed again: \nON without a GOTO or GOSUB."
+X#define ERR_VALOORANGE  "Go home, beginner. \nThe value here is way out of range."
+X#define ERR_SYNTAX      "Sure sign of a fourth-rate programmer: \nThis makes no sense at all."
+X#define ERR_DEVNUM      "Way to go, space cadet. \nThe device (or file) number here is totally in orbit."
+X#define ERR_DEV         "HO! The file or device \n you requested says: DROP DEAD."
+X#define ERR_OPSYS	"You obviously don't know \nwhat this computer can or can't do."
+X#define ERR_ARGSTR	"Do you have big ears? \n(Like Dumbo?) You obviously need a string argument at this point."
+X#define ERR_DEFCHAR	"Amazing. Surely children \nknow how to form a corrent argument here."
+X#define ERR_MISMATCH	"No way, turkey. \nThe statement here is TOTALLY mismatched."
+X#define ERR_DIMNOTARRAY	"Incredible. Why don't you \nsuppy an ARRAY NAME where the prograqm calls for an ARRAY NAME? (Or just go home.)"
+X#define ERR_OD		"Have you ever studied BASIC before? \nYou've run out of data."
+X#define ERR_OVERFLOW	"Congratulations on writing a program \nthat totally exceeds all limits."
+X#define ERR_NF		"Go back to kindergarten: \nYou have a NEXT statement FOR."
+X#define ERR_UF		"Trash. Total trash. \nDefine your stupid functions before calling them."
+X#define ERR_DBZ		"Obviously, you'll never be a programmer. \nYou've tried division by zero here."
+X#define ERR_REDIM	"You just don't understand: \nyou cannot redimension this variable."
+X#define ERR_OBDIM	"Dork. You called OPTION BASE after DIM. \nLeave me alone."
+X#define ERR_UC		"What do you think this is? \nTry entering a BASIC command here."
+X#define ERR_NOPROGFILE	"Idiot.  No way this will run without a program file."
+X#endif
+X
+X#if STD_RUSSIAN
+X#define MES_SIGNON      "iNTERPRETATOR Bywater BASIC, WERSIQ"
+X#define MES_COPYRIGHT   "Copyright (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE    ""
+X#define PROMPT          "gOTOWO"
+X#define ERROR_HEADER    "o{ibka W STROKE"
+X#define MATHERR_HEADER  "o{ibka"
+X#define MES_BREAK       "pROGRAMMA PRERWANA W STROKE"
+X#define ERR_OPENFILE    "nE MOGU OTKRYTX FAJL %s"
+X#define ERR_GETMEM      "mALO PAMQTI"
+X#define ERR_LINENO      "nEWERNYJ NOMER STROKI"
+X#define ERR_LNNOTFOUND  "sTROKA %d NE NAJDENA"
+X#define ERR_LOADNOFN    "LOAD: NE ZADANO IMQ FAJLA"
+X#define ERR_NOLN        "oTSUTSTWUET NOMER STROKI"
+X#define ERR_NOFN        "oTSUTSTWUET IMQ FAJLA"
+X#define ERR_RETNOGOSUB  "RETURN BEZ GOSUB"
+X#define ERR_INCOMPLETE  "nEWER[ENNYJ OPERATOR"
+X#define ERR_ONNOGOTO    "ON BEZ GOTO ILI GOSUB"
+X#define ERR_VALOORANGE  "zNA^ENIE WNE DIAPAZONA"
+X#define ERR_SYNTAX      "sINTAKSI^ESKAQ O[IBKA"
+X#define ERR_DEVNUM      "nEWERNYJ NOMER USTROJSTWA"
+X#define ERR_DEV         "o[IBKA USTROJSTWA"
+X#define ERR_OPSYS       "o[IBKA W KOMANDE OPERACIONNOJ SISTEMY"
+X#define ERR_ARGSTR      "aRGUMENT DOLVEN BYTX STROKOJ"
+X#define ERR_DEFCHAR     "nEWERNYJ ARGUMENT W OPREDELENII PEREMENNOJ"
+X#define ERR_MISMATCH    "nESOOTWETSTWIE TIPOW"
+X#define ERR_DIMNOTARRAY "aRGUMENT NE IMQ MASSIWA"
+X#define ERR_OD          "nET DANNYH"
+X#define ERR_OVERFLOW    "pEREPOLNENIE"
+X#define ERR_NF          "NEXT BEZ FOR"
+X#define ERR_UF          "nEOPREDELENNAQ FUNKCIQ"
+X#define ERR_DBZ         "dELENIE NA NOLX"
+X#define ERR_REDIM       "nELXZQ MENQTX RAZMERNOSTX PEREMENNOJ"
+X#define ERR_OBDIM       "OPTION BASE DOLVNA BYTX WYZWANA DO DIM"
+X#define ERR_UC          "nEWERNAQ KOMANDA"
+X#define ERR_NOPROGFILE	"Program file not specified"
+X#endif
+X
+X/* STD_GERMAN */
+X
+X#if STD_GERMAN
+X#define MES_SIGNON      "Bywater BASIC Interpreter/Shell, version"
+X#define MES_COPYRIGHT   "Copyright (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE    "Ausgegeben auf Deutsch von Joerg Rieger"
+X#define PROMPT          "bwBASIC: "
+X#define ERROR_HEADER    "Irrtum in Zeile"
+X#define ERRD_HEADER     "IRRTUM"
+X#define MATHERR_HEADER  "IRRTUM"
+X#define MES_BREAK       "Programm unterbrochen in Zeile"
+X#define ERR_OPENFILE    "Datei %s kann nict geoeffnet werden"
+X#define ERR_GETMEM      "Speicher kann nicht gefunden werden"
+X#define ERR_LINENO      "Zeilennummer kann nicht verbunden werden"
+X#define ERR_LNNOTFOUND  "Zeilennummer %d nicht gefunden"
+X#define ERR_LOADNOFN    "LOAD: Keine Dateiname angegeben"
+X#define ERR_NOLN        "Keine Zeilennummer"
+X#define ERR_NOFN        "Keine Dateiname"
+X#define ERR_RETNOGOSUB  "RETURN ohne GOSUB"
+X#define ERR_INCOMPLETE  "Angabe nicht vollstaendig"
+X#define ERR_ONNOGOTO    "ON ohne GOTO oder GOSUB"
+X#define ERR_VALOORANGE  "Wert is ausserhalb des Grenzbereits"
+X#define ERR_SYNTAX      "Syntax-fehler"
+X#define ERR_DEVNUM      "Ungueltige Geraetnummer"
+X#define ERR_DEV         "Geraet irrtum"
+X#define ERR_OPSYS       "Irrtum in Anwenden des System-Befehls"
+X#define ERR_ARGSTR      "Das Argument muss geradlinig sein"
+X#define ERR_DEFCHAR     "Falsches Argument fuer eine Variable Definition"
+X#define ERR_MISMATCH    "Type verwechselt"
+X#define ERR_DIMNOTARRAY "Das Argument ist kein Feldname"
+X#define ERR_OD          "Keine Daten mehr vorhanden"
+X#define ERR_OVERFLOW    "Ueberflutung"
+X#define ERR_NF          "NEXT ohne FOR"
+X#define ERR_UF          "Funktion nicht definiert"
+X#define ERR_DBZ         "Teile durch Null"
+X#define ERR_REDIM       "Die Variable kann nicht neu dimensioniert werdern"
+X#define ERR_OBDIM       "OPTION BASE muss vor DIM aufgerufen werden"
+X#define ERR_UC          "Befehl unbekannt"
+X#define ERR_NOPROGFILE  "Programm Datei nicht angegeben"
+X#endif
+X
+X/* ESPERANTO */
+X
+X#if ESPERANTO
+X#define MES_SIGNON      "Bywater BASIC Tradukilo/SXelo, vario"
+X#define MES_COPYRIGHT   "Kopirajtita (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE    "Esperanta traduko farigxi per Ricxjo Muelisto."
+X#define PROMPT          "bwBASIC: "
+X#define ERROR_HEADER    "ERARO en vico"
+X#define ERRD_HEADER     "ERARO"
+X#define MATHERR_HEADER  "ERARO"
+X#define MES_BREAK       "Programo interrompita cxe vico"
+X#define ERR_OPENFILE    "Malsukcesis malfermi dosieron %s"
+X#define ERR_GETMEM      "Malsukcesis trovi memorajxo"
+X#define ERR_LINENO      "Malsukcesis ligi vicnumero"
+X#define ERR_LNNOTFOUND  "Vicnumero %d ne trovita"
+X#define ERR_LOADNOFN    "LOAD: dosiernomo ne specifita"
+X#define ERR_NOLN        "Ne estas vicnumero"
+X#define ERR_NOFN        "Ne estas dosiernomo"
+X#define ERR_RETNOGOSUB  "RETURN sen GOSUB"
+X#define ERR_INCOMPLETE  "Necompleta deklaro"
+X#define ERR_ONNOGOTO    "ON sen GOTO aux GOSUB"
+X#define ERR_VALOORANGE  "Valorajxo estas eksteretenda"
+X#define ERR_SYNTAX      "Sintakseraro"
+X#define ERR_DEVNUM      "Nevalida aparatnumero"
+X#define ERR_DEV         "Aparateraro"
+X#define ERR_OPSYS       "Eraro en funkcisistema ordono"
+X#define ERR_ARGSTR      "Argumento devas esti serio"
+X#define ERR_DEFCHAR     "Erara argumento por varianto difinajxo"
+X#define ERR_MISMATCH    "Tipa misparo"
+X#define ERR_DIMNOTARRAY "Argumento ne estas kolektonomo"
+X#define ERR_OD          "Ne havas pli da informoj"
+X#define ERR_OVERFLOW    "Ektroajxo"
+X#define ERR_NF          "NEXT sen FOR"
+X#define ERR_UF          "Nedifininta funkcio"
+X#define ERR_DBZ         "Dividu per nulo"
+X#define ERR_REDIM       "Varianto ne eble esti redimensigxinta"
+X#define ERR_OBDIM       "OPTION BASE devas uzigxi antaux ol DIM"
+X#define ERR_UC          "Nekonata ordono"
+X#define ERR_NOPROGFILE  "Programa dosiero ne specifita"
+X#endif
+X
+X/* Standard English is taken as a default: if MES_SIGNON is not defined by
+X   this time (i.e., by some other language definition), then
+X   the following standard English definitions are utilized. */
+X
+X#ifndef MES_SIGNON
+X#define MES_SIGNON      "Bywater BASIC Interpreter/Shell, version"
+X#define MES_COPYRIGHT   "Copyright (c) 1993, Ted A. Campbell"
+X#define MES_LANGUAGE    " "
+X#define PROMPT          "bwBASIC: "
+X#define ERROR_HEADER    "ERROR in line"
+X#define ERRD_HEADER     "ERROR"
+X#define MATHERR_HEADER  "ERROR"
+X#define MES_BREAK       "Program interrupted at line"
+X#define ERR_OPENFILE    "Failed to open file %s"
+X#define ERR_GETMEM      "Failed to find memory"
+X#define ERR_LINENO      "Failed to link line number"
+X#define ERR_LNNOTFOUND  "Line number %d not found"
+X#define ERR_LOADNOFN    "LOAD: no filename specified"
+X#define ERR_NOLN        "No line number"
+X#define ERR_NOFN        "No file name"
+X#define ERR_RETNOGOSUB  "RETURN without GOSUB"
+X#define ERR_INCOMPLETE  "Incomplete statement"
+X#define ERR_ONNOGOTO    "ON without GOTO or GOSUB"
+X#define ERR_VALOORANGE  "Value is out of range"
+X#define ERR_SYNTAX      "Syntax error"
+X#define ERR_DEVNUM      "Invalid device number"
+X#define ERR_DEV         "Device error"
+X#define ERR_OPSYS       "Error in operating system command"
+X#define ERR_ARGSTR      "Argument must be a string"
+X#define ERR_DEFCHAR     "Incorrect argument for variable definition"
+X#define ERR_MISMATCH    "Type mismatch"
+X#define ERR_DIMNOTARRAY "Argument is not an array name"
+X#define ERR_OD          "Out of data"
+X#define ERR_OVERFLOW    "Overflow"
+X#define ERR_NF          "NEXT without FOR"
+X#define ERR_UF          "Undefined function"
+X#define ERR_DBZ         "Divide by zero"
+X#define ERR_REDIM       "Variable cannot be redimensioned"
+X#define ERR_OBDIM       "OPTION BASE must be called prior to DIM"
+X#define ERR_UC          "Unknown command"
+X#define ERR_NOPROGFILE  "Program file not specified"
+X#endif
+X
+X/****************************************************************
+X
+X	BASIC Command Name Definitions
+X
+X	The following definitions of command names are given in
+X	order to allow users to redefine BASIC command names.
+X	No alternatives are supplied.
+X
+X****************************************************************/
+X
+X#ifndef CMD_SYSTEM
+X#define CMD_SYSTEM	"SYSTEM"
+X#define CMD_QUIT	"QUIT"
+X#define CMD_REM		"REM"
+X#define CMD_LET		"LET"
+X#define CMD_PRINT	"PRINT"
+X#define CMD_INPUT	"INPUT"
+X#define CMD_GO          "GO"
+X#define CMD_GOTO        "GOTO"
+X#define CMD_GOSUB	"GOSUB"
+X#define CMD_RETURN	"RETURN"
+X#define CMD_ON		"ON"
+X#define CMD_IF		"IF"
+X#define CMD_WHILE	"WHILE"
+X#define CMD_WEND	"WEND"
+X#define CMD_WRITE	"WRITE"
+X#define CMD_END		"END"
+X#define CMD_FOR		"FOR"
+X#define CMD_NEXT	"NEXT"
+X#define CMD_STOP	"STOP"
+X#define CMD_DATA	"DATA"
+X#define CMD_READ	"READ"
+X#define CMD_RESTORE	"RESTORE"
+X#define CMD_DIM		"DIM"
+X#define CMD_OPTION	"OPTION"
+X#define CMD_OPEN	"OPEN"
+X#define CMD_CLOSE	"CLOSE"
+X#define CMD_GET		"GET"
+X#define CMD_PUT		"PUT"
+X#define CMD_LSET	"LSET"
+X#define CMD_RSET	"RSET"
+X#define CMD_FIELD	"FIELD"
+X#define CMD_LINE	"LINE"
+X#define CMD_DEF		"DEF"
+X#define CMD_VARS	"VARS"
+X#define CMD_CMDS	"CMDS"
+X#define CMD_FNCS	"FNCS"
+X#define CMD_CHDIR	"CHDIR"
+X#define CMD_MKDIR	"MKDIR"
+X#define CMD_RMDIR	"RMDIR"
+X#define CMD_KILL	"KILL"
+X#define CMD_ENVIRON	"ENVIRON"
+X#define CMD_LIST	"LIST"
+X#define CMD_LOAD	"LOAD"
+X#define CMD_RUN		"RUN"
+X#define CMD_SAVE	"SAVE"
+X#define CMD_DELETE	"DELETE"
+X#define CMD_NEW		"NEW"
+X#define CMD_DEFDBL	"DEFDBL"
+X#define CMD_DEFINT	"DEFINT"
+X#define CMD_DEFSNG	"DEFSNG"
+X#define CMD_DEFSTR	"DEFSTR"
+X#define CMD_CALL	"CALL"
+X#define CMD_SUB		"SUB"
+X#define CMD_FUNCTION	"FUNCTION"
+X#define CMD_LABEL	"lAbEl"			/* not really used: set to an unlikely combination */
+X#define CMD_ELSE	"ELSE"
+X#define CMD_ELSEIF	"ELSEIF"
+X#define CMD_SELECT	"SELECT"
+X#define CMD_CASE	"CASE"
+X#define CMD_MERGE	"MERGE"
+X#define CMD_CHAIN	"CHAIN"
+X#define CMD_COMMON	"COMMON"
+X#define CMD_ERROR	"ERROR"
+X#define CMD_WIDTH	"WIDTH"
+X#define CMD_TRON	"TRON"
+X#define CMD_TROFF	"TROFF"
+X#define CMD_RANDOMIZE	"RANDOMIZE"
+X#define CMD_FILES	"FILES"
+X#define CMD_EDIT	"EDIT"
+X#define CMD_ERASE	"ERASE"
+X#define CMD_SWAP	"SWAP"
+X#define CMD_NAME	"NAME"
+X#define CMD_CLEAR	"CLEAR"
+X#define CMD_THEN	"THEN"
+X#define CMD_TO		"TO"
+X#define CMD_STEP	"STEP"
+X#define CMD_DO      "DO"
+X#define CMD_LOCATE  "LOCATE"
+X#define CMD_CLS     "CLS"
+X#define CMD_COLOR   "COLOR"
+X#define CMD_LOOP	"LOOP"
+X#define CMD_EXIT	"EXIT"
+X#define CMD_XUSING      "USING"
+X#define CMD_XFOR        "FOR"
+X#define CMD_XDO		"DO"
+X#define CMD_XUNTIL	"UNTIL"
+X#define CMD_XNUM    "NUM"
+X#define CMD_XUNNUM	"UNNUM"
+X#define CMD_XSUB	"SUB"
+X#define CMD_XTO		"TO"
+X#define CMD_XERROR	"ERROR"
+X#define CMD_XSUB	"SUB"
+X#define CMD_XFUNCTION	"FUNCTION"
+X#define CMD_XIF		"IF"
+X#define CMD_XSELECT	"SELECT"
+X#endif
+X
+X/****************************************************************
+X
+X	External Definitions for Error Messages
+X
+X****************************************************************/
+X
+Xextern char err_openfile[];
+Xextern char err_getmem[];
+Xextern char err_noln[];
+Xextern char err_nofn[];
+Xextern char err_lnnotfound[];
+Xextern char err_incomplete[];
+Xextern char err_valoorange[];
+Xextern char err_syntax[];
+Xextern char err_devnum[];
+Xextern char err_dev[];
+Xextern char err_opsys[];
+Xextern char err_argstr[];
+Xextern char err_defchar[];
+Xextern char err_mismatch[];
+Xextern char err_dimnotarray[];
+Xextern char err_retnogosub[];
+Xextern char err_od[];
+Xextern char err_overflow[];
+Xextern char err_nf[];
+Xextern char err_uf[];
+Xextern char err_dbz[];
+Xextern char err_redim[];
+Xextern char err_obdim[];
+Xextern char err_uc[];
+Xextern char err_noprogfile[];
+X
+X
+X
+END_OF_FILE
+  if test 20585 -ne `wc -c <'bwbasic-2.10/bwb_mes.h'`; then
+    echo shar: \"'bwbasic-2.10/bwb_mes.h'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_mes.h'
+fi
+echo shar: End of archive 7 \(of 15\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

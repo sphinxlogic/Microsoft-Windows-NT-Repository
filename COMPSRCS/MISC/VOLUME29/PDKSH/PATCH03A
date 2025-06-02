@@ -1,0 +1,1351 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v29i083:  pdksh - Public Domain Korn Shell, v4, Patch03a/5
+Message-ID: <1992Apr26.041420.21937@sparky.imd.sterling.com>
+X-Md4-Signature: 217984c7db21459f0fe18fcfae6ca2ed
+Date: Sun, 26 Apr 1992 04:14:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 29, Issue 83
+Archive-name: pdksh/patch03a
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+Before applying this patch you must:
+
+	mv sh/ulimit.c sh/do_ulimit.c
+
+Apply the patch:
+
+	patch -p0 < patch03a
+	patch -p0 < patch03b
+	patch -p0 < patch03c
+	patch -p0 < patch03d
+	patch -p0 < patch03e
+
+Prereq: 09-Nov-91
+Prereq: 10-Nov-91
+Prereq: 25-Nov-91
+Prereq: 25-Apr-92
+*** PATCHDATES.old	Sat Apr 25 17:44:07 1992
+--- PATCHDATES	Sun Apr 26 10:21:49 1992
+***************
+*** 3,5 ****
+--- 3,6 ----
+  10-Nov-91
+  25-Nov-91
+  25-Apr-92
++ 26-Apr-92
+*** sh/ChangeLog.old	Sat Apr 25 17:44:13 1992
+--- sh/ChangeLog	Sat Apr 25 00:24:10 1992
+***************
+*** 1,3 ****
+--- 1,90 ----
++ Sat Apr 25 00:20:51 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* Implemented a simple history file.
++ 	The default file is "$HOME/.pdksh_hist" but can be changed by
++ 	setting HISTFILE in any of /etc/profile,.profile or .kshrc.
++ 	The format is trivial - one line per history item.  
++ 	You can creat a set history file, by making it read-only.
++ 	History is only saved during wrap-up and only if the file is
++ 	writeable.  NOTE: if writeable the file is OVERWRITTEN.
++ 
++ Fri Apr 24 22:22:04 1992  Simon J Gerraty  (sjg@zen)
++ 
++ 	* sigact.c: New file.
++ 	An implementation of sigaction() and freinds, which simply
++ 	interfaces to BSD's setsigmask() et al, BSD4.1's setsig() or plain
++ 	old signal(2).  It attempts to use the most useful available.
++ 	If it thinks the system really has sigaction() it compiles to
++ 	noting, and its header sigact.h does nothing.
++ 	At present all use of sigaction is bounded by USE_SIGACT, if/when
++ 	this approach appears to work, the alternatives will be withdrawn.
++ 
++ Fri Apr 24 10:42:40 1992  Simon J Gerraty  (sjg@taureau)
++ 
++ 	* Added support for sigaction and friends!, turns out sigset() 
++ 	et al just don't handle job control.  Define USE_SIGACT if you
++ 	have sigaction().  Job control now works on this System V machine
++ 	(Bull DPX/2).
++ 
++ 	* getsc_(lex.c), x_getc(edit.c):  Added goto's! to allow the
++ 	read() calls to be retried (on systems that don't do it
++ 	automatically) if the read() was interrupted by a SIGCHLD
++ 	(sigchld_caught > 0).  This was the cause of the problem with an
++ 	async child terminating the shell on System V.
++ 
++ Wed Apr 22 14:57:01 1992  Simon J Gerraty  (sjg@taureau)
++ 
++ 	* exchild(jobs.c): block SIGCHLD when fork()ing, until safe to
++ 	receive.
++ 
++ 	* Added support? for sigset() and friends.  Allow JOBS to work on
++ 	System V machines.  This does NOT work right yet.
++ 	With JOBS defined, an async process terminates the shell when it
++ 	(the child) exits, and ^Z does nothing!  
++ 
++ Tue Apr 21 15:18:08 1992  Simon J. Gerraty  (sjg@sun0)
++ 
++ 	* removed const qualifyer from setctypes() 1st arg, as gcc-2.1
++ 	generates incorrect code for this function.  This is a temperary
++ 	hack until gcc is fixed.
++ 
++ 	* do not install std/stdc/stdarg.h in std/h, any compiler that
++ 	will use stdarg.h should have one.
++ 
++ Sun Apr 19 20:16:32 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* added support of stdargs to tree.c and _fixed_ the use of
++ 	varargs. 
++ 
++ Sat Apr 18 16:35:48 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* x_read(edit.c): added logic to check $EDITOR etc.
++ 
++ 
++ Fri, 10 Jan 92 13:13:52	  Bullseye Software  (sumax!polari!bullseye)
++ 
++ 	* alloc.c:afreeall() references memory it has already deallocated.
++ 
++ Wed, 1 Jan 92 20:03:55	Bert Gijsbers (a430mcb1@diamond.sara.nl)
++ 
++ 	* expand(eval.c):  PS1='${PWD##/*/}[!]% ' prints also characters
++ 	with ascii = 128 
++ 
++ 	* main(main.c): Testing whether the first letter of argv[0] is a
++ 	'-' does not work when ksh reads .kshrc.
++ 
++ Sun, 29 Dec 91 20:05:02  Bert Gijsbers (a430mcb1@diamond.sara.nl)
++ 
++ 	* Support for Minix.
++ 
++ Wed, 11 Dec 91 12:41:31	Kees J. Bot (kjb@cs.vu.nl)
++ 
++ 	* fixes for sun3 with 4.1.1
++ 
++ Wed, 4 Dec 91 15:53:43  Reg Quinton (reggers@julian.uwo.ca)
++ 
++ 	* fixes for SGI
++ 
+  Mon Nov 25 12:36:42 1991  Simon J. Gerraty  (sjg at zen)
+  
+  	* stdh.h:  make sure FD_CLEXEC is defined if we support F_SETFD.
+*** sh/Makefile.old	Sat Apr 25 17:44:13 1992
+--- sh/Makefile	Sat Apr 25 18:33:13 1992
+***************
+*** 1,10 ****
+  # PD Bourne/Korn Shell
+! # @(#)Makefile 1.3 91/11/25 13:33:10
+  
+  SHELL = /bin/sh
+  MAKE  = make
+  
+! LN    = ln
+  
+  # You _can_ build this shell without the ../std tree if your
+  # system provides a sufficiently POSIX environment, or if your
+--- 1,10 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.2 1992/04/25 08:33:03 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+  
+! LN    = ln -s
+  
+  # You _can_ build this shell without the ../std tree if your
+  # system provides a sufficiently POSIX environment, or if your
+***************
+*** 13,19 ****
+  # gcc is good value on most mc68k's and sun386's if nothing else.
+  # if you don't have gcc cc should do
+  # CC=gcc -pipe
+! CC=cc
+  
+  # The following are the defintions used (or thereabouts) 
+  # to build ksh without ../std
+--- 13,19 ----
+  # gcc is good value on most mc68k's and sun386's if nothing else.
+  # if you don't have gcc cc should do
+  # CC=gcc -pipe
+! CC=gcc -pipe 
+  
+  # The following are the defintions used (or thereabouts) 
+  # to build ksh without ../std
+***************
+*** 20,32 ****
+  #
+  # sun386 SunOS 4.0.2, sun3 SunOS 4.0.3
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHRDS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o strstr.o 
+  #
+  # sun3  SunOS 4.1.1
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHRDS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+  #
+--- 20,32 ----
+  #
+  # sun386 SunOS 4.0.2, sun3 SunOS 4.0.3
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o strstr.o 
+  #
+  # sun3  SunOS 4.1.1
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+  #
+***************
+*** 33,63 ****
+  # sun4c (sparc) SunOS 4.1.1
+  # CC=cc -pipe	# don't use gcc
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHRDS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+  #
+  # Bull DPX/2 B.O.S. 2.00.45
+! # CONFIG=-D_SYSV
+  # XOPTS=
+  # XOBJS=
+  #
+  
+  #CONFIG= -D_SYSV
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  CONFIG= -D_BSD
+  
+  STD=../std
+  INCL=$(STD)/h
+! XINCL=-I$(STD)/h
+  LDOPTS=-L$(STD)
+  XOBJS=
+  
+  # use -O if you trust it :-)
+! #DBG=-g
+  CFLAGS = $(DBG) $(CONFIG) $(XINCL) $(XOPTS)
+  
+! LDFLAGS = $(LDOPTS)
+  
+  COMPATLIBS = -lstdc -lposix
+  #XLIBS = -lc_s
+--- 33,70 ----
+  # sun4c (sparc) SunOS 4.1.1
+  # CC=cc -pipe	# don't use gcc
+  # CONFIG=-D_BSD
+! # XOPTS=-DNOSTDHDRS
+  # copy these from ../std/stdc or ensure they are in libstdc.a
+  # XOBJS = memmove.o
+  #
+  # Bull DPX/2 B.O.S. 2.00.45
+! # CC=gcc -ansi
+! # CONFIG=-D_POSIX_SOURCE
+  # XOPTS=
+  # XOBJS=
+  #
++ # Minix-386 1.5.10 with estdio
++ # CONFIG= -D_BSD -D_MINIX -D_POSIX_SOURCE
++ # XOPTS=
++ # XOBJS=
++ #
+  
+  #CONFIG= -D_SYSV
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  CONFIG= -D_BSD
+  
++ 
+  STD=../std
+  INCL=$(STD)/h
+! XINCL=-I$(INCL)
+  LDOPTS=-L$(STD)
+  XOBJS=
+  
+  # use -O if you trust it :-)
+! DBG=-g -O
+  CFLAGS = $(DBG) $(CONFIG) $(XINCL) $(XOPTS)
+  
+! LDFLAGS = $(DBG) $(LDOPTS)
+  
+  COMPATLIBS = -lstdc -lposix
+  #XLIBS = -lc_s
+***************
+*** 68,75 ****
+  SRCS1 =	version.c main.c misc.c trap.c alloc.c io.c \
+  	syn.c lex.c edit.c emacs.c vi.c history.c tree.c 
+  SRCS2 =	exec.c jobs.c \
+! 	c_sh.c c_ksh.c c_test.c getopts.c ulimit.c \
+! 	var.c table.c eval.c expr.c mail.c trace.c
+  SRCS =	Makefile $(HDRS) $(SRCS1) $(SRCS2) 
+  
+  OBJS =	version.o main.o misc.o \
+--- 75,82 ----
+  SRCS1 =	version.c main.c misc.c trap.c alloc.c io.c \
+  	syn.c lex.c edit.c emacs.c vi.c history.c tree.c 
+  SRCS2 =	exec.c jobs.c \
+! 	c_sh.c c_ksh.c c_test.c getopts.c do_ulimit.c \
+! 	var.c table.c eval.c expr.c mail.c sigact.c trace.c
+  SRCS =	Makefile $(HDRS) $(SRCS1) $(SRCS2) 
+  
+  OBJS =	version.o main.o misc.o \
+***************
+*** 76,83 ****
+  	syn.o lex.o edit.o emacs.o vi.o tree.o \
+  	exec.o jobs.o trap.o \
+  	c_sh.o c_ksh.o c_test.o \
+! 	ulimit.o getopts.o expr.o history.o \
+! 	var.o table.o alloc.o io.o eval.o mail.o trace.o $(XOBJS)
+  
+  ksh: $(OBJS) 
+  	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+--- 83,90 ----
+  	syn.o lex.o edit.o emacs.o vi.o tree.o \
+  	exec.o jobs.o trap.o \
+  	c_sh.o c_ksh.o c_test.o \
+! 	do_ulimit.o getopts.o expr.o history.o \
+! 	var.o table.o alloc.o io.o eval.o mail.o sigact.o trace.o $(XOBJS)
+  
+  ksh: $(OBJS) 
+  	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+***************
+*** 89,95 ****
+  	rm -f ksh
+  
+  link:
+! 	($(SHELL) ../std/mklinks $(INCL) stdh.h)
+  	
+  
+  depend:
+--- 96,102 ----
+  	rm -f ksh
+  
+  link:
+! 	($(SHELL) ../std/mklinks ../std/h stdh.h)
+  	
+  
+  depend:
+***************
+*** 101,106 ****
+--- 108,119 ----
+  	@echo "strip /bin/ksh"
+  	@echo "chmod 555 /bin/ksh"
+  
++ .c.s:
++ 	$(CC) $(CFLAGS) -S -o $@ $<
++ 
++ asms: $(OBJS:.o=.s)
++ 
++ 
+  # DO NOT DELETE THIS LINE -- make depend depends on it.
+  # If this runs make out of memory, delete /usr/include lines.
+  alloc.o: alloc.c
+***************
+*** 233,238 ****
+--- 246,252 ----
+  syn.o: table.h
+  syn.o: trace.h
+  syn.o: tree.h
++ sigact.o: sigact.h sigact.c
+  table.o: config.h
+  table.o: sh.h
+  table.o: stdh.h
+***************
+*** 252,262 ****
+  tree.o: trace.h
+  tree.o: tree.c
+  tree.o: tree.h
+! ulimit.o: config.h
+! ulimit.o: sh.h
+! ulimit.o: stdh.h
+! ulimit.o: trace.h
+! ulimit.o: ulimit.c
+  var.o: config.h
+  var.o: expand.h
+  var.o: sh.h
+--- 266,276 ----
+  tree.o: trace.h
+  tree.o: tree.c
+  tree.o: tree.h
+! do_ulimit.o: config.h
+! do_ulimit.o: sh.h
+! do_ulimit.o: stdh.h
+! do_ulimit.o: trace.h
+! do_ulimit.o: do_ulimit.c
+  var.o: config.h
+  var.o: expand.h
+  var.o: sh.h
+*** sh/alloc.c.old	Sat Apr 25 17:44:14 1992
+--- sh/alloc.c	Sat Apr 25 18:33:46 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id";
+! static char *sccs_id = "@(#)alloc.c	1.2 91/11/22 22:53:32 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: alloc.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 25,39 ****
+  
+  union Cell {
+  	size_t	size;
+! 	Cell   *next;
+  	struct {int _;} junk;	/* alignment */
+  };
+  
+  struct Block {
+! 	Block  *next;		/* list of Blocks in Area */
+! 	Cell   *free;		/* object free list */
+! 	Cell   *last;		/* &b.cell[size] */
+! 	Cell	cell [1];	/* [size] Cells for allocation */
+  };
+  
+  Block aempty = {&aempty, aempty.cell, aempty.cell};
+--- 24,38 ----
+  
+  union Cell {
+  	size_t	size;
+! 	union Cell   *next;
+  	struct {int _;} junk;	/* alignment */
+  };
+  
+  struct Block {
+! 	struct Block  *next;		/* list of Blocks in Area */
+! 	union Cell   *free;		/* object free list */
+! 	union Cell   *last;		/* &b.cell[size] */
+! 	union Cell	cell [1];	/* [size] Cells for allocation */
+  };
+  
+  Block aempty = {&aempty, aempty.cell, aempty.cell};
+***************
+*** 53,71 ****
+  	register Area *ap;
+  {
+  	register Block *bp;
+  
+! 	if (ap->free == NULL || ap->free == &aempty)
+! 		return;
+! 	for (bp = ap->free; ; bp = bp->next) {
+! 		free((Void*)bp);
+! 		if (bp->next == ap->free)
+! 			break;
+  	}
+- 	ap->free = &aempty;
+  }
+  
+  /* allocate object from Area */
+! Void *
+  alloc(size, ap)
+  	size_t size;
+  	register Area *ap;
+--- 52,72 ----
+  	register Area *ap;
+  {
+  	register Block *bp;
++ 	register Block *tmp;
+  
+! 	bp = ap->free;
+! 	if (bp != NULL && bp != &aempty) {
+! 		do {
+! 			tmp = bp->next;
+! 			free((void*)bp);
+! 			bp = tmp;
+! 		} while (bp != ap->free);
+! 		ap->free = &aempty;
+  	}
+  }
+  
+  /* allocate object from Area */
+! void *
+  alloc(size, ap)
+  	size_t size;
+  	register Area *ap;
+***************
+*** 126,138 ****
+  		bp->free = fp;
+  	else
+  		fpp->next = fp;
+! 	return (Void*) dp;
+  }
+  
+  /* change size of object -- like realloc */
+! Void *
+  aresize(ptr, size, ap)
+! 	register Void *ptr;
+  	size_t size;
+  	Area *ap;
+  {
+--- 127,139 ----
+  		bp->free = fp;
+  	else
+  		fpp->next = fp;
+! 	return (void*) dp;
+  }
+  
+  /* change size of object -- like realloc */
+! void *
+  aresize(ptr, size, ap)
+! 	register void *ptr;
+  	size_t size;
+  	Area *ap;
+  {
+***************
+*** 148,154 ****
+  	if (dp == NULL || (dp-1)->size < cells) { /* enlarge object */
+  		register Cell *np;
+  		register int i;
+! 		Void *optr = ptr;
+  
+  		ptr = alloc(size, ap);
+  		np = (Cell*) ptr;
+--- 149,155 ----
+  	if (dp == NULL || (dp-1)->size < cells) { /* enlarge object */
+  		register Cell *np;
+  		register int i;
+! 		void *optr = ptr;
+  
+  		ptr = alloc(size, ap);
+  		np = (Cell*) ptr;
+***************
+*** 166,180 ****
+  			(dp-1)->size = cells;
+  			dp += cells + 1;
+  			(dp-1)->size = split;
+! 			afree((Void*)dp, ap);
+  		}
+  	}
+! 	return (Void*) ptr;
+  }
+  
+  void
+  afree(ptr, ap)
+! 	Void *ptr;
+  	register Area *ap;
+  {
+  	register Block *bp;
+--- 167,181 ----
+  			(dp-1)->size = cells;
+  			dp += cells + 1;
+  			(dp-1)->size = split;
+! 			afree((void*)dp, ap);
+  		}
+  	}
+! 	return (void*) ptr;
+  }
+  
+  void
+  afree(ptr, ap)
+! 	void *ptr;
+  	register Area *ap;
+  {
+  	register Block *bp;
+*** sh/alloc.h.old	Sat Apr 25 17:41:31 1992
+--- sh/alloc.h	Sun Apr 19 19:21:15 1992
+***************
+*** 6,18 ****
+  	struct Block *free;	/* free list */
+  } Area;
+  
+- Area   *ainit ARGS((Area *ap));
+- void	afreeall ARGS((Area *ap));
+- void	ashrink ARGS((Area *ap));
+- void	aerror ARGS((Area *ap, const char *msg));
+- void	awarn ARGS((Area *ap, const char *msg));
+- 
+- Void   *alloc ARGS((size_t size, Area *ap));
+- Void   *aresize ARGS((Void *ptr, size_t size, Area *ap));
+- void	afree ARGS((Void *ptr, Area *ap));
+- 
+--- 6,8 ----
+*** sh/c_ksh.c.old	Sat Apr 25 17:44:14 1992
+--- sh/c_ksh.c	Sat Apr 25 18:34:12 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_ksh.c,v 3.4 89/03/27 15:47:16 egisin Exp $";
+! static char *sccs_id = "@(#)c_ksh.c	1.2 91/11/22 22:53:34 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_ksh.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 11,23 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "table.h"
+  
+  int
+  c_hash(wp)
+  	register char **wp;
+  {
+- 	register int i;
+  	register struct tbl *tp, **p;
+  
+  	wp++;
+--- 10,21 ----
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+  
++ 
+  int
+  c_hash(wp)
+  	register char **wp;
+  {
+  	register struct tbl *tp, **p;
+  
+  	wp++;
+***************
+*** 49,55 ****
+  	register int done = 0;
+  	register int prt = 0;
+  	register struct tbl *v_pwd = NULL, *v_oldpwd = NULL;
+- 	extern Void cleanpath();
+  
+  	if ((dir = wp[1]) == NULL && (dir = strval(global("HOME"))) == NULL)
+  		errorf("no home directory");
+--- 47,52 ----
+***************
+*** 361,371 ****
+  				printf("%s\n", vp->name);
+  			    } else
+  			    if (thing == '+' ||
+! 				fclr && (vp->flag&fclr) == fclr) {
+  				printf("%s\n", vp->name);
+  			    } else
+  			    if (thing == '-' ||
+! 				fset && (vp->flag&fset) == fset) {
+  				if (fset&FUNCT)
+  				    printf("function %s\n", vp->name);
+  				else
+--- 358,368 ----
+  				printf("%s\n", vp->name);
+  			    } else
+  			    if (thing == '+' ||
+! 				(fclr && (vp->flag&fclr) == fclr)) {
+  				printf("%s\n", vp->name);
+  			    } else
+  			    if (thing == '-' ||
+! 				(fset && (vp->flag&fset) == fset)) {
+  				if (fset&FUNCT)
+  				    printf("function %s\n", vp->name);
+  				else
+***************
+*** 393,399 ****
+  {
+  	register struct table *t = &lexicals;
+  	register struct tbl *ap, **p;
+- 	register int i;
+  	int rv = 0;
+  
+  	if (*++wp != NULL && strcmp(*wp, "-d") == 0) {
+--- 390,395 ----
+***************
+*** 422,428 ****
+  			if (ap->type == CKEYWD)
+  				errorf("cannot alias keyword\n");
+  			if ((ap->flag&ALLOC)) {
+! 				afree((Void*)ap->val.s, APERM);
+  				ap->flag &= ~(ALLOC|ISSET);
+  			}
+  			ap->type = CALIAS;
+--- 418,424 ----
+  			if (ap->type == CKEYWD)
+  				errorf("cannot alias keyword\n");
+  			if ((ap->flag&ALLOC)) {
+! 				afree((void*)ap->val.s, APERM);
+  				ap->flag &= ~(ALLOC|ISSET);
+  			}
+  			ap->type = CALIAS;
+***************
+*** 450,456 ****
+  		if (ap == NULL || ap->type != CALIAS)
+  			continue;
+  		if ((ap->flag&ALLOC))
+! 			afree((Void*)ap->val.s, APERM);
+  		ap->flag &= ~(DEFINED|ISSET|ALLOC);
+  	}
+  	return 0;
+--- 446,452 ----
+  		if (ap == NULL || ap->type != CALIAS)
+  			continue;
+  		if ((ap->flag&ALLOC))
+! 			afree((void*)ap->val.s, APERM);
+  		ap->flag &= ~(DEFINED|ISSET|ALLOC);
+  	}
+  	return 0;
+***************
+*** 545,550 ****
+--- 541,547 ----
+  	return rv;
+  }
+  
++ #ifdef EMACS
+  int
+  c_bind(wp)
+  	register char **wp;
+***************
+*** 568,578 ****
+  
+  	return 0;
+  }
+  
+  extern	c_fc();
+  extern	c_getopts();
+  
+! Const struct builtin kshbuiltins [] = {
+  	{"cd", c_cd},
+  	{"print", c_print},
+  	{"getopts", c_getopts},
+--- 565,576 ----
+  
+  	return 0;
+  }
++ #endif
+  
+  extern	c_fc();
+  extern	c_getopts();
+  
+! const struct builtin kshbuiltins [] = {
+  	{"cd", c_cd},
+  	{"print", c_print},
+  	{"getopts", c_getopts},
+*** sh/c_sh.c.old	Sat Apr 25 17:44:15 1992
+--- sh/c_sh.c	Sat Apr 25 18:30:41 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "Id: /u/egisin/sh/src/RCS/c_sh.c,v 3.1 88/11/03 09:14:31 egisin Exp $";
+! static char *sccs_id = "@(#)c_sh.c	1.4 91/11/22 22:53:24 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_sh.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 14,24 ****
+  #include <unistd.h>		/* getcwd */
+  #include <sys/times.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"
+- #include "table.h"
+  
+! static	char *clocktos();
+  #ifndef CLK_TCK
+  #define CLK_TCK 60			/* 60HZ */
+  #endif
+--- 13,21 ----
+  #include <unistd.h>		/* getcwd */
+  #include <sys/times.h>
+  #include "sh.h"
+  
+! static char *   clocktos    ARGS((clock_t t));
+! 
+  #ifndef CLK_TCK
+  #define CLK_TCK 60			/* 60HZ */
+  #endif
+***************
+*** 145,151 ****
+  					*cp++ = c;
+  				continue;
+  			}
+! 			if (c == '\n' || wp[1] && ctype(c, C_IFS))
+  				break;
+  			*cp++ = c;
+  		}
+--- 142,148 ----
+  					*cp++ = c;
+  				continue;
+  			}
+! 			if (c == '\n' || (wp[1] && ctype(c, C_IFS)))
+  				break;
+  			*cp++ = c;
+  		}
+***************
+*** 195,201 ****
+  		if (p == NULL)
+  			errorf("trap: bad signal %s\n", wp[-1]);
+  		if (p->trap != NULL)
+! 			afree((Void*)p->trap, APERM);
+  		p->trap = NULL;
+  		if (s != NULL) {
+  			if (strlen(s) != 0) {
+--- 192,198 ----
+  		if (p == NULL)
+  			errorf("trap: bad signal %s\n", wp[-1]);
+  		if (p->trap != NULL)
+! 			afree((void*)p->trap, APERM);
+  		p->trap = NULL;
+  		if (s != NULL) {
+  			if (strlen(s) != 0) {
+***************
+*** 217,228 ****
+  	register struct trap *p;
+  	void (*f)();
+  {
+! 	if (p->signal == 0)
+! 		return;
+! 	if (signal(p->signal, SIG_IGN) != SIG_IGN || p->ourtrap) {
+! 		p->ourtrap = 1;
+! 		signal(p->signal, f);
+! 	}
+  }
+  
+  int
+--- 214,238 ----
+  	register struct trap *p;
+  	void (*f)();
+  {
+!   if (p->signal == 0)
+!     return;
+! #ifdef USE_SIGACT
+!   sigaction(p->signal, &Sigact_ign, &Sigact);
+!   if (Sigact.sa_handler != SIG_IGN || p->ourtrap)
+!   {
+!     p->ourtrap = 1;
+!     Sigact.sa_handler = f;
+!     sigaction(p->signal, &Sigact, NULL);
+!     sigemptyset(&Sigact.sa_mask);
+!     Sigact.sa_flags = 0;
+!   }
+! #else
+!   if (signal(p->signal, SIG_IGN) != SIG_IGN || p->ourtrap)
+!   {
+!     p->ourtrap = 1;
+!     signal(p->signal, f);
+!   }
+! #endif
+  }
+  
+  int
+***************
+*** 289,301 ****
+  	register char **wp;
+  {
+  	struct block *l = e.loc;
+- 	register struct tbl *vp, **p;
+  	register char **owp = wp;
+  	register char *cp;
+  	int old_fmonitor = flag[FMONITOR];
+  
+  	if ((cp = *++wp) == NULL) {
+! 		static char * Const args [] = {"set", "-", NULL};
+  		extern int c_typeset ARGS((char **args));
+  		return c_typeset(args);
+  	}
+--- 299,310 ----
+  	register char **wp;
+  {
+  	struct block *l = e.loc;
+  	register char **owp = wp;
+  	register char *cp;
+  	int old_fmonitor = flag[FMONITOR];
+  
+  	if ((cp = *++wp) == NULL) {
+! 		static char * const args [] = {"set", "-", NULL};
+  		extern int c_typeset ARGS((char **args));
+  		return c_typeset(args);
+  	}
+***************
+*** 468,474 ****
+  
+  extern	int c_test();		/* in test.c */
+  
+! Const struct builtin shbuiltins [] = {
+  	{"=:", c_label},
+  	{"=.", c_dot},
+  	{"[", c_test},
+--- 477,483 ----
+  
+  extern	int c_test();		/* in test.c */
+  
+! const struct builtin shbuiltins [] = {
+  	{"=:", c_label},
+  	{"=.", c_dot},
+  	{"[", c_test},
+*** sh/c_test.c.old	Sat Apr 25 17:44:15 1992
+--- sh/c_test.c	Sat Apr 25 18:34:23 1992
+***************
+*** 6,13 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_test.c,v 3.3 89/03/27 15:47:25 egisin Exp $";
+! static char *sccs_id = "@(#)c_test.c	1.2 91/11/22 22:53:37 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 6,12 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: c_test.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 82,88 ****
+  struct t_op {
+  	char *op_text;
+  	short op_num, op_type;
+! } Const ops [] = {
+  	{"-r",	FILRD,	UNOP},
+  	{"-w",	FILWR,	UNOP},
+  	{"-x",	FILEX,	UNOP},
+--- 81,87 ----
+  struct t_op {
+  	char *op_text;
+  	short op_num, op_type;
+! } const ops [] = {
+  	{"-r",	FILRD,	UNOP},
+  	{"-w",	FILWR,	UNOP},
+  	{"-x",	FILEX,	UNOP},
+***************
+*** 125,131 ****
+  };
+  
+  char **t_wp;
+! struct t_op Const *t_wp_op;
+  
+  static void syntax();
+  
+--- 124,130 ----
+  };
+  
+  char **t_wp;
+! struct t_op const *t_wp_op;
+  
+  static void syntax();
+  
+***************
+*** 227,233 ****
+  	opnd1 = *t_wp;
+  	(void) t_lex(*++t_wp);
+  	if (t_wp_op && t_wp_op->op_type == BINOP) {
+! 		struct t_op Const *op = t_wp_op;
+  
+  		if ((opnd2 = *++t_wp) == (char *)0)
+  			syntax(op->op_text, "argument expected");
+--- 226,232 ----
+  	opnd1 = *t_wp;
+  	(void) t_lex(*++t_wp);
+  	if (t_wp_op && t_wp_op->op_type == BINOP) {
+! 		struct t_op const *op = t_wp_op;
+  
+  		if ((opnd2 = *++t_wp) == (char *)0)
+  			syntax(op->op_text, "argument expected");
+***************
+*** 318,324 ****
+  t_lex(s)
+  	register char *s;
+  {
+! 	register struct t_op Const *op = ops;
+  
+  	if (s == 0) {
+  		t_wp_op = (struct t_op *)0;
+--- 317,323 ----
+  t_lex(s)
+  	register char *s;
+  {
+! 	register struct t_op const *op = ops;
+  
+  	if (s == 0) {
+  		t_wp_op = (struct t_op *)0;
+*** sh/config.h.old	Sat Apr 25 17:44:16 1992
+--- sh/config.h	Sat Apr 25 18:34:51 1992
+***************
+*** 1,7 ****
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * SCCSID: @(#)config.h 1.2 91/11/22 22:53:31
+   */
+  
+  #ifndef	_CONFIG_H
+--- 1,7 ----
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * RCSid: $Id: config.h,v 1.2 1992/04/25 08:33:28 sjg Exp $
+   */
+  
+  #ifndef	_CONFIG_H
+***************
+*** 18,23 ****
+--- 18,31 ----
+  #ifndef SIGINT
+  #include <signal.h>
+  #endif
++ 
++ /*
++  * leave USE_SIGACT defined.
++  * if you don't have sigaction(2) and the
++  * implementation in sigact.c doesn't work for your system,
++  * fix it.
++  */
++ #define USE_SIGACT			/* POSIX signal handling */
+  
+  #if defined(JOBS) && !defined(SIGCONT)
+  #undef JOBS
+*** sh/edit.c.old	Sat Apr 25 17:44:16 1992
+--- sh/edit.c	Sat Apr 25 18:35:26 1992
+***************
+*** 7,14 ****
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 3.2 89/03/27 15:47:34 egisin Exp $";
+! static char *sccs_id = "@(#)edit.c	1.5 91/11/22 22:52:59 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 17,24 ****
+  #include <fcntl.h>
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "lex.h"
+  #include "tty.h"
+  #define EXTERN
+  #include "edit.h"
+--- 16,25 ----
+  #include <fcntl.h>
+  #include <errno.h>
+  #include <setjmp.h>
++ #ifndef NOSTDHDRS
++ # include <string.h>
++ #endif
+  #include "sh.h"
+  #include "tty.h"
+  #define EXTERN
+  #include "edit.h"
+***************
+*** 28,38 ****
+  extern unsigned	sleep();
+  #endif
+  
+- #if 0
+- int	x_do_init = 1;		/* set up tty modes */
+- int	x_cols = 80;		/* todo: $COLUMNS */
+- int	ed_erase = -1, ed_kill = -1, ed_werase = -1, ed_intr = -1, ed_quit = -1;
+- #endif
+  
+  static int	x_noecho = 0;
+  
+--- 29,34 ----
+***************
+*** 46,52 ****
+  	size_t len;
+  {
+    static int setup_done = 0;
+- 	char	c;
+  	int	i;
+  
+    if (setup_done != 42)
+--- 42,47 ----
+***************
+*** 91,100 ****
+  int
+  x_getc()
+  {
+! 	char c;
+  
+  	if (read(ttyfd, &c, 1) != 1)
+! 		return -1;
+  	return c & 0x7F;
+  }
+  
+--- 86,109 ----
+  int
+  x_getc()
+  {
+!   char c;
+  
++   /*
++    * This allows the arival of a SIGCHLD to not disturb us until 
++    * we are ready. 
++    * BSD and other systems that automatically rety a read after 
++    * an interrupt don't need this but it doesn't do any harm 
++    * either. 
++    */
++  retry:
+  	if (read(ttyfd, &c, 1) != 1)
+! 	{
+! 	  if (sigchld_caught)		/* just a SIGCHLD ? */
+! 	  {
+! 	    goto retry;
+! 	  }
+! 	  return -1;
+! 	}
+  	return c & 0x7F;
+  }
+  
+***************
+*** 123,128 ****
+--- 132,138 ----
+  x_adjust()
+  {
+    x_adj_done++;			/* flag the fact that we were called. */
++ #ifdef EMACS
+    /*
+     * we had a promblem if the prompt length > x_cols / 2
+     */
+***************
+*** 130,135 ****
+--- 140,146 ----
+      xbp = xbuf;
+    xlp_valid = FALSE;
+    x_redraw(x_cols);
++ #endif
+    x_flush();
+  }
+  
+***************
+*** 197,204 ****
+--- 208,217 ----
+  static struct ttychars lchars, lcharsorig;
+  #else
+  static struct tchars tchars, tcharsorig;
++ #ifdef TIOCGLTC
+  static struct ltchars ltchars, ltcharsorig;
+  #endif
++ #endif
+  #else
+  static	struct termio cb, cborig;
+  #endif
+***************
+*** 230,237 ****
+--- 243,253 ----
+  	lchars.tc_rprntc = -1;
+  #else
+  	(void)ioctl(ttyfd, TIOCGETC, &tcharsorig);
++ #ifdef TIOCGLTC
+  	(void)ioctl(ttyfd, TIOCGLTC, &ltcharsorig);
++ #endif
+  	tchars = tcharsorig;
++ #ifdef TIOCGLTC
+  	ltchars = ltcharsorig;
+  	ed_werase = ltchars.t_werasc;
+  	ltchars = ltcharsorig;
+***************
+*** 238,247 ****
+--- 254,266 ----
+  	ltchars.t_suspc = -1;
+  	ltchars.t_dsuspc = -1;
+  	ltchars.t_lnextc = -1;
++ #endif
+  	tchars.t_intrc = -1;
+  	tchars.t_quitc = -1;
++ #ifdef TIOCGLTC
+  	ltchars.t_rprntc = -1;
+  #endif
++ #endif
+  #else /* !_BSD */
+  	(void)ioctl(ttyfd, TCGETA, &cborig);
+  	if ((cborig.c_lflag & ECHO) == 0)
+***************
+*** 297,304 ****
+--- 316,325 ----
+  		(void)ioctl(ttyfd, TIOCSATC, &lchars);
+  #else
+  		(void)ioctl(ttyfd, TIOCSETC, &tchars);
++ #ifdef TIOCGLTC
+  		(void)ioctl(ttyfd, TIOCSLTC, &ltchars);
+  #endif
++ #endif
+  	}
+  	else {
+  		(void)ioctl(ttyfd, TIOCSETN, &cborig);
+***************
+*** 306,313 ****
+--- 327,336 ----
+  		(void)ioctl(ttyfd, TIOCSATC, &lcharsorig);
+  #else
+  		(void)ioctl(ttyfd, TIOCSETC, &tcharsorig);
++ #ifdef TIOCGLTC
+  		(void)ioctl(ttyfd, TIOCSLTC, &ltcharsorig);
+  #endif
++ #endif
+  	}
+  	return prev;
+  }
+***************
+*** 404,407 ****
+--- 427,469 ----
+    return count;
+  }
+  
++ 
++ /*
++  * this function check the environment
++  * for FCEDIT,EDITOR or VISUAL
++  * as a hint to what edit mode is desired.
++  */
++ init_editmode()
++ {
++   static char *ev[] = { "FCEDIT", "EDITOR", "VISUAL", NULL };
++   register int i;
++   register char *rcp, *rcp2;
++ 
++   for (i = 0; ev[i]; i++)
++   {
++     if ((rcp = getenv(ev[i])) && *rcp)
++       break;
++   }
++   if (ev[i] && rcp)
++   {
++     if (rcp2 = strrchr(rcp, '/'))
++       rcp = ++rcp2;
++ #ifdef EMACS
++     if (strstr(rcp, "emacs"))
++     {
++       flag[FVI] = 0;
++       flag[FEMACS] = 1;
++     }
++     else
++ #endif
++ #ifdef VI
++       if (strstr(rcp, "vi"))
++       {
++ 	flag[FVI] = 1;
++ 	flag[FEMACS] = 0;
++       }
++ #endif
++   }
++   return 0;
++ }
+  #endif
+*** sh/edit.h.old	Sat Apr 25 17:41:32 1992
+--- sh/edit.h	Sat Apr 25 18:35:34 1992
+***************
+*** 7,21 ****
+   * SEE ALSO:
+   *      
+   *
+!  * AMENDED:
+!  *      91/09/17  23:28:04  (sjg)
+   *
+-  * RELEASED:
+-  *      91/11/09  15:36:18  v1.3
+-  *
+-  * SCCSID:
+-  *      @(#)edit.h  1.3  91/09/17  23:28:04  (sjg)
+-  *
+   */
+  
+  /* some useful #defines */
+--- 7,15 ----
+   * SEE ALSO:
+   *      
+   *
+!  * RCSid:
+!  *      $Id: edit.h,v 1.2 1992/04/25 08:33:28 sjg Exp $
+   *
+   */
+  
+  /* some useful #defines */
+***************
+*** 53,63 ****
+  EXTERN int	x_do_init;		/* set up tty modes */
+  EXTERN int	ed_erase, ed_kill, ed_werase, ed_intr, ed_quit;
+  
+- #if defined(__STDC__) || defined(PROTO)
+- # define _P_(p) p
+- #else
+- # define _P_(p) ()
+- #endif		/* __STDC__ || PROTO */
+  #ifdef DEBUG
+  # define _D_(x) x
+  #else
+--- 47,52 ----
+***************
+*** 65,85 ****
+  #endif
+  
+  /****  edit.c  ****/
+! int             x_read      _P_((int fd, char *buf, size_t len));
+! int             x_getc      _P_((void));
+! void            x_flush     _P_((void));
+! void            x_adjust    _P_((void));
+! void            x_putc      _P_((int c));
+! int             x_debug_info _P_((void));
+! void            x_puts      _P_((char *s));
+! void            x_init      _P_((void));
+! bool_t          x_mode      _P_((bool_t onoff));
+! bool_t          x_mode      _P_((bool_t onoff));
+! int             promptlen   _P_((char *cp));
+  
+  /****  emacs.c  ****/
+! void            x_redraw    _P_((int limit));
+! char*		x_lastcp    _P_((void));
+  EXTERN int xlp_valid _I_(0);
+    
+  /* This lot goes at the END */
+--- 54,74 ----
+  #endif
+  
+  /****  edit.c  ****/
+! int             x_read      ARGS((int fd, char *buf, size_t len));
+! int             x_getc      ARGS((void));
+! void            x_flush     ARGS((void));
+! void            x_adjust    ARGS((void));
+! void            x_putc      ARGS((int c));
+! int             x_debug_info ARGS((void));
+! void            x_puts      ARGS((char *s));
+! void            x_init      ARGS((void));
+! bool_t          x_mode      ARGS((bool_t onoff));
+! bool_t          x_mode      ARGS((bool_t onoff));
+! int             promptlen   ARGS((char *cp));
+  
+  /****  emacs.c  ****/
+! void            x_redraw    ARGS((int limit));
+! char*		x_lastcp    ARGS((void));
+  EXTERN int xlp_valid _I_(0);
+    
+  /* This lot goes at the END */
+
+exit 0 # Just in case...

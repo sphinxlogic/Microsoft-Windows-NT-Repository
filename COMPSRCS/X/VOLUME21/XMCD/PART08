@@ -1,0 +1,3506 @@
+Newsgroups: comp.sources.x
+From: ti@bazooka.amb.org (Ti Kan)
+Subject: v21i070:  xmcd - X11/Motif CD audio player, Part08/13
+Message-ID: <1993Dec19.193953.24519@sparky.sterling.com>
+X-Md4-Signature: 0290c5e6191ccc77c2581f31e885965c
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 19:39:53 GMT
+Approved: chris@sterling.com
+
+Submitted-by: ti@bazooka.amb.org (Ti Kan)
+Posting-number: Volume 21, Issue 70
+Archive-name: xmcd/part08
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 13)."
+# Contents:  lib_demo.c lib_hita.c lib_hpux.c lib_nec.c lib_odt.c
+#   lib_pion.c lib_sim.c
+# Wrapped by ti@bazooka on Mon Nov  8 10:35:21 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'lib_demo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_demo.c'\"
+else
+echo shar: Extracting \"'lib_demo.c'\" \(6704 characters\)
+sed "s/^X//" >'lib_demo.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_demo_c_ident_ = "@(#)lib_demo.c	1.67 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#ifdef SIMULATED_CDROM
+X
+X#ifndef OSI_VERS
+X#define OSI_VERS	"1.00"			/* Version */
+X#endif
+X
+X
+Xextern AppData		app_data;
+Xextern bool_t		notrom_error;
+X
+Xint			cdsim_sfd[2] = { -1, -1 },
+X			cdsim_rfd[2] = { -1, -1 };
+X#ifndef LINT
+Xbool_t			lib_demo = TRUE;
+X#endif
+X
+XSTATIC pid_t		cdsim_pid = -1;
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	simpkt_t	spkt,
+X			rpkt;
+X	static word32_t	pktid = 0;
+X
+X	if (cdsim_rfd[0] < 0 || cdsim_sfd[1] < 0 || notrom_error)
+X		return(FALSE);
+X
+X	memset(&spkt, (byte_t) 0, CDSIM_PKTSZ);
+X	memset(&rpkt, (byte_t) 0, CDSIM_PKTSZ);
+X
+X	/* Set up SCSI CDB */
+X	switch (opcode & 0xf0) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		spkt.cdbsz = 12;
+X		spkt.cdb[0] = opcode;
+X		spkt.cdb[1] = param;
+X		spkt.cdb[2] = (addr >> 24) & 0xff;
+X		spkt.cdb[3] = (addr >> 16) & 0xff;
+X		spkt.cdb[4] = (addr >> 8) & 0xff;
+X		spkt.cdb[5] = (addr & 0xff);
+X		spkt.cdb[6] = (length >> 24) & 0xff;
+X		spkt.cdb[7] = (length >> 16) & 0xff;
+X		spkt.cdb[8] = (length >> 8) & 0xff;
+X		spkt.cdb[9] = length & 0xff;
+X		spkt.cdb[10] = rsvd;
+X		spkt.cdb[11] = control;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		spkt.cdbsz = 10;
+X		spkt.cdb[0] = opcode;
+X		spkt.cdb[1] = param;
+X		spkt.cdb[2] = (addr >> 24) & 0xff;
+X		spkt.cdb[3] = (addr >> 16) & 0xff;
+X		spkt.cdb[4] = (addr >> 8) & 0xff;
+X		spkt.cdb[5] = addr & 0xff;
+X		spkt.cdb[6] = rsvd;
+X		spkt.cdb[7] = (length >> 8) & 0xff;
+X		spkt.cdb[8] = length & 0xff;
+X		spkt.cdb[9] = control;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		spkt.cdbsz = 6;
+X		spkt.cdb[0] = opcode;
+X		spkt.cdb[1] = param;
+X		spkt.cdb[2] = (addr >> 8) & 0xff;
+X		spkt.cdb[3] = addr & 0xff;
+X		spkt.cdb[4] = length & 0xff;
+X		spkt.cdb[5] = control;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		return(FALSE);
+X	}
+X
+X	spkt.len = (size > MAX_DATALEN) ? MAX_DATALEN : size;
+X	spkt.dir = rw;
+X	spkt.pktid = ++pktid;
+X
+X	/* Reset packet id if overflowing */
+X	if (pktid == 0xffff)
+X		pktid = 0;
+X
+X	/* Copy data from user buffer into packet */
+X	if (rw == WRITE_OP && buf != NULL && spkt.len != 0)
+X		memcpy(spkt.data, buf, spkt.len);
+X
+X	/* Send command packet */
+X	if (!cdsim_sendpkt("pthru", cdsim_sfd[1], &spkt))
+X		return(FALSE);
+X
+X	/* Get response packet */
+X	if (!cdsim_getpkt("pthru", cdsim_rfd[0], &rpkt))
+X		return(FALSE);
+X
+X	/* Sanity check */
+X	if (rpkt.pktid != spkt.pktid) {
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "pthru: packet sequence error.\n");
+X
+X		return(FALSE);
+X	}
+X
+X	/* Check return status */
+X	if (rpkt.retcode != CDSIM_COMPOK) {
+X		if (app_data.scsierr_msg && spkt.cdb[0] != OP_S_TEST)
+X			fprintf(stderr,
+X				"pthru: cmd error (opcode=0x%x status=%d).\n",
+X				rpkt.cdb[0], rpkt.retcode);
+X
+X		return(FALSE);
+X	}
+X
+X	/* Copy data from packet into user buffer */
+X	if (rw == READ_OP && buf != NULL && rpkt.len != 0)
+X		memcpy(buf, rpkt.data, rpkt.len);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	/* Hard code some capabilities parameters for the
+X	 * simulated CD-ROM drive.  This overrides the
+X	 * parameters from the device-specific config files.
+X	 */
+X	app_data.device = "(none)";
+X	app_data.vendor_code = VENDOR_SCSI2;
+X	app_data.play10_supp = TRUE;
+X	app_data.play12_supp = TRUE;
+X	app_data.playmsf_supp = TRUE;
+X	app_data.playti_supp = TRUE;
+X	app_data.load_supp = TRUE;
+X	app_data.eject_supp = TRUE;
+X	app_data.mselvol_supp = FALSE;
+X	app_data.mselvol_dbd = FALSE;
+X	app_data.pause_supp = TRUE;
+X	app_data.caddylock_supp = TRUE;
+X
+X	/* Open pipe for IPC */
+X	if (pipe(cdsim_sfd) < 0 || pipe(cdsim_rfd) < 0) {
+X		cd_fatal_popup(app_data.str_fatal, "Cannot open pipe.");
+X		return(FALSE);
+X	}
+X
+X	/* Fork the CD simulator child */
+X	switch (cdsim_pid = fork()) {
+X	case -1:
+X		cd_fatal_popup(app_data.str_fatal, "Cannot fork.");
+X		return(FALSE);
+X
+X	case 0:
+X		/* Child: run CD simulator */
+X		cdsim_main();
+X		exit(0);
+X
+X	default:
+X		/* Parent: continue running the CD player */
+X#ifdef DEBUG
+X		fprintf(stderr, "pthru: forked cdsim child pid=%d\n",
+X			cdsim_pid);
+X#endif
+X		break;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	int	stat_val;
+X
+X	/* Close down pipes */
+X	close(cdsim_sfd[0]);
+X	close(cdsim_sfd[1]);
+X	close(cdsim_rfd[0]);
+X	close(cdsim_rfd[1]);
+X
+X	/* Shut down child */
+X	if (cdsim_pid > 0 && kill(cdsim_pid, 0) == 0)
+X		kill(cdsim_pid, SIGTERM);
+X
+X	/* Wait for child to exit */
+X	waitpid(cdsim_pid, &stat_val, 0);
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (Demo Dummy)\n", OSI_VERS);
+X	return(vers);
+X}
+X
+X
+X#else	/* !SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t			lib_demo = FALSE;
+X#endif
+X
+X#endif	/* SIMULATED_CDROM */
+X
+END_OF_FILE
+if test 6704 -ne `wc -c <'lib_demo.c'`; then
+    echo shar: \"'lib_demo.c'\" unpacked with wrong size!
+fi
+# end of 'lib_demo.c'
+fi
+if test -f 'lib_hita.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_hita.c'\"
+else
+echo shar: Extracting \"'lib_hita.c'\" \(11792 characters\)
+sed "s/^X//" >'lib_hita.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   The name "Hitachi" is a trademark of Hitachi Corporation, and is
+X *   used here for identification purposes.  This software and its
+X *   author are not affiliated in any way with Hitachi.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_hita_c_ident_ = "@(#)lib_hita.c	1.36 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#ifdef HITACHI
+X
+X#ifndef LINT
+Xbool_t			lib_hita = TRUE;
+X#endif
+X
+X
+XSTATIC bool_t		hita_paused = FALSE,		/* Currently paused */
+X			hita_playing = FALSE,		/* Currently playing */
+X			hita_audio_muted = FALSE;
+X							/* Audio is muted */
+XSTATIC word32_t		hita_pause_addr = 0;		/* Pause addr */
+XSTATIC haudio_arg_t	hita_sav_end;			/* Save addr */
+X
+X
+X/*
+X * Internal functions
+X */
+X
+X/*
+X * hita_do_pause
+X *	Send a vendor-unique Pause command to the drive
+X *
+X * Args:
+X *	ret_addr - Pointer to a buffer where the paused address will be
+X *		   written to.  If NULL, no pause address info will
+X *		   returned.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xhita_do_pause(hmsf_t *ret_addr)
+X{
+X	hmsf_t	pause_addr;
+X	bool_t	ret;
+X
+X	if ((ret = pthru_send(OP_VH_PAUSE, 0,
+X			      (byte_t *) AD_VH_PAUSE(&pause_addr),
+X			      SZ_VH_PAUSE, 0, 0, 0, 0, READ_OP)) == TRUE) {
+X		if (ret_addr != NULL)
+X			*ret_addr = pause_addr;	/* structure copy */
+X	}
+X	return(ret);
+X}
+X
+X
+X/*
+X * Public functions
+X */
+X
+X/*
+X * hita_playaudio
+X *	Play audio function: send vendor-unique play audio command
+X *	to the drive.
+X *
+X * Args:
+X *	addr_fmt - Flags indicating which address formats are passed in
+X *	If ADDR_BLK, then:
+X *	    start_addr - The logical block starting address
+X *	    end_addr - The logical block ending address
+X *	If ADD_MSF, then:
+X *	    start_msf - Pointer to the starting MSF address structure
+X *	    end_msf - Pointer to the ending MSF address structure
+X *	If ADDR_TRKIDX, then:
+X *	    trk - The starting track number
+X *	    idx - The starting index number
+X *	If ADDR_OPTEND, then the ending address, if specified, can be
+X *	ignored if possible.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xhita_playaudio(
+X	byte_t		addr_fmt,
+X	word32_t	start_addr,
+X	word32_t	end_addr,
+X	msf_t		*start_msf,
+X	msf_t		*end_msf,
+X	byte_t		trk,
+X	byte_t		idx
+X)
+X{
+X	bool_t		ret = FALSE;
+X	msf_t		istart_msf,
+X			iend_msf;
+X	word32_t	addr1 = 0,
+X			addr2 = 0;
+X	haudio_arg_t	*a1,
+X			*a2;
+X	curstat_t	*s = curstat_addr();
+X
+X	a1 = (haudio_arg_t *) &addr1;
+X	a2 = (haudio_arg_t *) &addr2;
+X
+X	if (!ret && (addr_fmt & ADDR_BLK) && !(addr_fmt & ADDR_MSF)) {
+X		/* Convert block address to MSF format */
+X		blktomsf(
+X			start_addr,
+X			&istart_msf.min, &istart_msf.sec, &istart_msf.frame,
+X			MSF_OFFSET(s)
+X		);
+X
+X		blktomsf(
+X			end_addr,
+X			&iend_msf.min, &iend_msf.sec, &iend_msf.frame,
+X			MSF_OFFSET(s)
+X		);
+X
+X		/* Let the ADDR_MSF code handle the request */
+X		start_msf = &istart_msf;
+X		end_msf = &iend_msf;
+X		addr_fmt |= ADDR_MSF;
+X		ret = FALSE;
+X	}
+X
+X	if (!ret && (addr_fmt & ADDR_MSF)) {
+X		a1->addr_smin = (byte_t) start_msf->min;
+X		a1->addr_ssec = (byte_t) start_msf->sec;
+X		a1->addr_sframe = (byte_t) start_msf->frame;
+X
+X		a2->addr_emin = hita_sav_end.addr_emin = (byte_t) end_msf->min;
+X		a2->addr_esec = hita_sav_end.addr_esec = (byte_t) end_msf->sec;
+X		a2->addr_eframe = hita_sav_end.addr_eframe = (byte_t)
+X			end_msf->frame;
+X
+X		/* Send a pause command to cease any current audio playback,
+X		 * then send the actual play audio command.
+X		 */
+X		if ((ret = hita_do_pause(NULL)) == TRUE) {
+X			ret = pthru_send(
+X				OP_VH_AUDPLAY,
+X				addr1, NULL, 0, 0, addr2,
+X				(byte_t) (hita_audio_muted ? 0x7 : 0x1),
+X				0, READ_OP
+X			);
+X		}
+X	}
+X
+X	if (ret) {
+X		hita_paused = FALSE;
+X		hita_playing = TRUE;
+X	}
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * hita_pause_resume
+X *	Pause/resume function: send vendor-unique commands to implement
+X *	the pause and resume capability.
+X *
+X * Args:
+X *	resume - TRUE: resume, FALSE: pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xhita_pause_resume(bool_t resume)
+X{
+X	bool_t		ret = FALSE;
+X	word32_t	addr1 = 0,
+X			addr2 = 0;
+X	haudio_arg_t	*a1,
+X			*a2;
+X	hmsf_t		*a;
+X
+X
+X	a1 = (haudio_arg_t *) &addr1;
+X	a2 = (haudio_arg_t *) &addr2;
+X	a = (hmsf_t *) &hita_pause_addr;
+X
+X        if (resume) {
+X		if (!hita_paused)
+X			return(TRUE);
+X
+X		a1->addr_smin = a->min;
+X		a1->addr_ssec = a->sec;
+X		a1->addr_sframe = a->frame;
+X		a2->addr_emin = hita_sav_end.addr_emin;
+X		a2->addr_esec = hita_sav_end.addr_esec;
+X		a2->addr_eframe = hita_sav_end.addr_eframe;
+X
+X		ret = pthru_send(
+X			OP_VH_AUDPLAY,
+X			addr1, NULL, 0, 0, addr2,
+X			(byte_t) (hita_audio_muted ? 0x7 : 0x1),
+X			0, READ_OP
+X		);
+X        }
+X        else {
+X		if (hita_paused)
+X			return(TRUE);
+X
+X		ret = hita_do_pause(a);
+X	}
+X
+X	if (ret) {
+X		hita_paused = !resume;
+X		hita_playing = !hita_paused;
+X	}
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * hita_start_stop
+X *	Start/stop function: When playing audio, the Hitachi drive must
+X *	first be paused before sending a Start/Stop Unit command to
+X *	stop it.  This routine performs the pause.
+X *
+X * Args:
+X *	start - TRUE: start unit, FALSE: stop unit
+X *	loej - TRUE: load/eject caddy, FALSE: do not load/eject (not used)
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xhita_start_stop(bool_t start, bool_t loej)
+X{
+X	/* If audio playback is in progress, pause the playback.
+X	 * Then, return to caller (do_start_stop() in lib_scsipt.c)
+X	 * and issue a start/stop unit command from there.
+X	 */
+X	if (!start && hita_playing) {
+X		hita_playing = FALSE;
+X
+X		return(hita_do_pause(NULL));
+X	}
+X
+X	hita_paused = FALSE;
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * hita_get_playstatus
+X *	Send vendor-unique command to obtain current audio playback
+X *	status.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	audio_status - Address where a current status code (SCSI-2
+X *		       style) is to be returned.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xhita_get_playstatus(curstat_t *s, byte_t *audio_status)
+X{
+X	int		trkno,
+X			idxno;
+X	byte_t		buf[SZ_VH_RDSTAT];
+X	haudstat_t	*d;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	if (!pthru_send(OP_VH_RDSTAT, 0, (byte_t *) AD_VH_RDSTAT(buf),
+X			SZ_VH_RDSTAT, 0, 0, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	d = (haudstat_t *)(void *) buf;
+X
+X	trkno = (word32_t) d->trkno;
+X	if (s->cur_trk != trkno) {
+X		s->cur_trk = trkno;
+X		dpy_track(s);
+X	}
+X	idxno = 1;	/* Fudge */
+X	if (s->cur_idx != idxno) {
+X		s->cur_idx = idxno;
+X		dpy_index(s);
+X	}
+X
+X	s->cur_tot_min = (byte_t) d->abs_addr.min;
+X	s->cur_tot_sec = (byte_t) d->abs_addr.sec;
+X	s->cur_tot_frame = (byte_t) d->abs_addr.frame;
+X	s->cur_trk_min = (byte_t) d->rel_addr.min;
+X	s->cur_trk_sec = (byte_t) d->rel_addr.sec;
+X	s->cur_trk_frame = (byte_t) d->rel_addr.frame;
+X	msftoblk(
+X		s->cur_tot_min, s->cur_tot_sec, s->cur_tot_frame,
+X		&s->cur_tot_addr, MSF_OFFSET(s)
+X	);
+X	msftoblk(
+X		s->cur_trk_min, s->cur_trk_sec, s->cur_trk_frame,
+X		&s->cur_trk_addr, 0
+X	);
+X
+X	/* Make up SCSI-2 style audio status */
+X	if (hita_paused)
+X		*audio_status = AUDIO_PAUSED;
+X	else if (d->playing)
+X		*audio_status = AUDIO_PLAYING;
+X	else {
+X		*audio_status = AUDIO_COMPLETED;
+X		hita_playing = FALSE;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * hita_get_toc
+X *	Send vendor-unique command to obtain the disc table-of-contents
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure, which contains the TOC
+X *	    table to be updated.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xhita_get_toc(curstat_t *s)
+X{
+X	int		i,
+X			j,
+X			xfer_len;
+X	byte_t		buf[sizeof(hdiscinfo_t)];
+X	hdiscinfo_t	*p;
+X	hmsf_t		*a;
+X
+X
+X	if (hita_playing)
+X		return(FALSE);	/* Drive is busy */
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Read the TOC header first */
+X	if (!pthru_send(OP_VH_RDINFO, 0, (byte_t *) AD_VH_RDINFO(buf),
+X			SZ_VH_TOCHDR, SZ_VH_TOCHDR & 0xff,
+X			SZ_VH_TOCHDR >> 8, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	p = (hdiscinfo_t *)(void *) buf;
+X
+X	s->first_trk = (byte_t) p->first_trk;
+X	s->last_trk = (byte_t) p->last_trk;
+X
+X	xfer_len = SZ_VH_TOCHDR +
+X		   ((int) (p->last_trk - p->first_trk + 2) * SZ_VH_TOCENT);
+X
+X	if (xfer_len > SZ_VH_RDINFO)
+X		xfer_len = SZ_VH_RDINFO;
+X
+X	/* Read the appropriate number of bytes of the entire TOC */
+X	if (!pthru_send(OP_VH_RDINFO, 0, (byte_t *) AD_VH_RDINFO(buf),
+X			xfer_len, (byte_t) (xfer_len & 0xff), xfer_len >> 8,
+X			0, 0, READ_OP))
+X		return(FALSE);
+X
+X	/* Get the starting position of each track */
+X	for (i = 0, j = (int) s->first_trk; j <= (int) s->last_trk; i++, j++) {
+X		a = (hmsf_t *)(void *) &p->msfdata[(i+1) * 3];
+X		s->trkinfo[i].trkno = j;
+X		s->trkinfo[i].min = (byte_t) a->min;
+X		s->trkinfo[i].sec = (byte_t) a->sec;
+X		s->trkinfo[i].frame = (byte_t) a->frame;
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&s->trkinfo[i].addr,
+X			MSF_OFFSET(s)
+X		);
+X		s->trkinfo[i].type = (a->data == 0) ? TYP_AUDIO : TYP_DATA;
+X	}
+X	s->tot_trks = (byte_t) i;
+X
+X	/* Get the lead-out track position */
+X	a = (hmsf_t *)(void *) &p->msfdata[0];
+X	s->trkinfo[i].trkno = LEAD_OUT_TRACK;
+X	s->tot_min = s->trkinfo[i].min = (byte_t) a->min;
+X	s->tot_sec = s->trkinfo[i].sec = (byte_t) a->sec;
+X	s->tot_frame = s->trkinfo[i].frame = (byte_t) a->frame;
+X	msftoblk(
+X		s->trkinfo[i].min,
+X		s->trkinfo[i].sec,
+X		s->trkinfo[i].frame,
+X		&s->trkinfo[i].addr,
+X		MSF_OFFSET(s)
+X	);
+X	s->tot_addr = s->trkinfo[i].addr;
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * hita_mute
+X *	Send vendor-unique command to mute/unmute the audio
+X *
+X * Args:
+X *	mute - TRUE: mute audio, FALSE: un-mute audio
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xhita_mute(bool_t mute)
+X{
+X	word32_t	addr1 = 0,
+X			addr2 = 0;
+X	haudio_arg_t	*a1,
+X			*a2;
+X	curstat_t	*s = curstat_addr();
+X
+X
+X	if (mute == hita_audio_muted)
+X		return(TRUE);
+X
+X	a1 = (haudio_arg_t *) &addr1;
+X	a2 = (haudio_arg_t *) &addr2;
+X
+X	if (hita_playing) {
+X		/* Pause the playback first */
+X        	if (!hita_do_pause(NULL))
+X			return(FALSE);
+X
+X		a1->addr_smin = (byte_t) s->cur_tot_min;
+X		a1->addr_ssec = (byte_t) s->cur_tot_sec;
+X		a1->addr_sframe = (byte_t) s->cur_tot_frame;
+X		a2->addr_emin = hita_sav_end.addr_emin;
+X		a2->addr_esec = hita_sav_end.addr_esec;
+X		a2->addr_eframe = hita_sav_end.addr_eframe;
+X
+X		if (!pthru_send(OP_VH_AUDPLAY, addr1, NULL, 0, 0, addr2,
+X				(byte_t) (mute ? 0x7 : 0x1), 0, READ_OP))
+X			return(FALSE);
+X	}
+X
+X	hita_audio_muted = mute;
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * hita_eject
+X *	Send vendor-unique command to eject the caddy
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xhita_eject(void)
+X{
+X	/* If audio playback is in progress, pause the playback first */
+X	if (hita_playing && !hita_do_pause(NULL))
+X		return(FALSE);
+X
+X	hita_playing = hita_paused = FALSE;
+X
+X	/* Eject the caddy */
+X	return(pthru_send(OP_VH_EJECT, 0, NULL, 0, 0x1, 0, 0, 0, READ_OP));
+X}
+X
+X
+X/*
+X * hita_init
+X *	Initialize the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xhita_init(void)
+X{
+X	/* Do nothing */
+X}
+X
+X
+X/*
+X * hita_halt
+X *	Shut down the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xhita_halt(void)
+X{
+X	/* Do nothing */
+X}
+X
+X
+X#else	/* !HITACHI */
+X
+X#ifndef LINT
+Xbool_t				lib_hita = FALSE;
+X#endif
+X
+X#endif	/* HITACHI */
+X
+END_OF_FILE
+if test 11792 -ne `wc -c <'lib_hita.c'`; then
+    echo shar: \"'lib_hita.c'\" unpacked with wrong size!
+fi
+# end of 'lib_hita.c'
+fi
+if test -f 'lib_hpux.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_hpux.c'\"
+else
+echo shar: Extracting \"'lib_hpux.c'\" \(6448 characters\)
+sed "s/^X//" >'lib_hpux.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   This software module contains code that interfaces xmcd to
+X *   the HP-UX Release 9.0 operating system.  The name "HP" and "hpux"
+X *   are used here for identification purposes.  This software and
+X *   its author are not affiliated with the Hewlett-Packard Company.
+X */
+X#ifndef LINT
+Xstatic char *_lib_hpux_c_ident_ = "@(#)lib_hpux.c	1.8 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#if defined(hpux) && !defined(SIMULATED_CDROM)
+X
+X#ifndef OSI_VERS
+X#define OSI_VERS	"1.0"		/* Version */
+X#endif
+X
+X
+Xextern AppData		app_data;
+Xextern bool_t		notrom_error;
+X
+X#ifndef LINT
+Xbool_t			lib_hpux = TRUE;
+X#endif
+X
+XSTATIC int		fd = -1;	/* Passthrough device file desc */
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	struct sctl_io	sctl;
+X
+X	
+X	if (fd < 0 || notrom_error)
+X		return(FALSE);
+X
+X	memset(&sctl, (byte_t) 0, sizeof(sctl));
+X
+X	/* set up SCSI CDB */
+X	switch (opcode & 0xf0) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		sctl.cdb[0] = opcode;
+X		sctl.cdb[1] = param;
+X		sctl.cdb[2] = (addr >> 24) & 0xff;
+X		sctl.cdb[3] = (addr >> 16) & 0xff;
+X		sctl.cdb[4] = (addr >> 8) & 0xff;
+X		sctl.cdb[5] = (addr & 0xff);
+X		sctl.cdb[6] = (length >> 24) & 0xff;
+X		sctl.cdb[7] = (length >> 16) & 0xff;
+X		sctl.cdb[8] = (length >> 8) & 0xff;
+X		sctl.cdb[9] = length & 0xff;
+X		sctl.cdb[10] = rsvd;
+X		sctl.cdb[11] = control;
+X
+X		sctl.cdb_length = 12;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		sctl.cdb[0] = opcode;
+X		sctl.cdb[1] = param;
+X		sctl.cdb[2] = (addr >> 24) & 0xff;
+X		sctl.cdb[3] = (addr >> 16) & 0xff;
+X		sctl.cdb[4] = (addr >> 8) & 0xff;
+X		sctl.cdb[5] = addr & 0xff;
+X		sctl.cdb[6] = rsvd;
+X		sctl.cdb[7] = (length >> 8) & 0xff;
+X		sctl.cdb[8] = length & 0xff;
+X		sctl.cdb[9] = control;
+X
+X		sctl.cdb_length = 10;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		sctl.cdb[0] = opcode;
+X		sctl.cdb[1] = param;
+X		sctl.cdb[2] = (addr >> 8) & 0xff;
+X		sctl.cdb[3] = addr & 0xff;
+X		sctl.cdb[4] = length & 0xff;
+X		sctl.cdb[5] = control;
+X
+X		sctl.cdb_length = 6;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		return(FALSE);
+X	}
+X
+X#ifdef DEBUG
+X	{
+X		byte_t	*p = (byte_t *) &sctl.cdb[0];
+X		int	i;
+X
+X		fprintf(stderr, "\nSCSI CDB bytes:");
+X		for (i = 0; i < sctl.cdb_length; i++, p++)
+X			fprintf(stderr, " %02x", i, *p);
+X		fprintf(stderr, "\n");
+X	}
+X#endif
+X
+X	/* set up sctl_io */
+X	sctl.data = buf;
+X	sctl.data_length = (unsigned) size;
+X	if (rw == READ_OP && size > 0)
+X		sctl.flags = SCTL_READ;
+X	else
+X		sctl.flags = 0;
+X
+X	sctl.max_msecs = 10000;	/* Allow 10 seconds for command */
+X
+X	/* Send the command down via the "pass-through" interface */
+X	if (ioctl(fd, SIOC_IO, &sctl) < 0) {
+X		perror("SIOC_IO ioctl failed");
+X		return(FALSE);
+X	}
+X
+X	if (sctl.cdb_status != S_GOOD) {
+X		if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, "%s: %s %s:\n%s=0x%x %s=0x%x %s=0x%x",
+X				PROGNAME,
+X				"SCSI command fault on",
+X				app_data.device,
+X				"Opcode",
+X				opcode,
+X				"Cdb_status",
+X				sctl.cdb_status,
+X				"Sense_status",
+X				sctl.sense_status);
+X
+X			if (sctl.sense_status == S_GOOD && sctl.sense_xfer > 2)
+X				fprintf(stderr,
+X					" Key=0x%x Code=0x%x Qual=0x%x\n",
+X					sctl.sense[2] & 0x0f,
+X					sctl.sense[12],
+X					sctl.sense[13]);
+X			else
+X				fprintf(stderr, "\n");
+X		}
+X
+X		return(FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	struct stat	stbuf;
+X	char		errstr[STR_BUF_SZ];
+X
+X	/* Check for validity of device node */
+X	if (stat(path, &stbuf) < 0) {
+X		sprintf(errstr, app_data.str_staterr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X	if ((stbuf.st_mode & S_IFMT) != S_IFCHR) {
+X		sprintf(errstr, app_data.str_noderr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X
+X	/* Check for another copy of xmcd running on the same
+X	 * CD-ROM device.
+X	 */
+X	if (!cd_devlock(path))
+X		return(FALSE);
+X
+X	if ((fd = open(path, O_RDONLY)) < 0)
+X		return(FALSE);
+X
+X	/* Obtain exclusive open */
+X	if (ioctl(fd, SIOC_EXCLUSIVE, 1) < 0) {
+X		close(fd);
+X		fd = -1;
+X		return(FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	if (fd >= 0) {
+X		/* Relinquish exclusive open */
+X		ioctl(fd, SIOC_EXCLUSIVE, 0);
+X
+X		close(fd);
+X		fd = -1;
+X	}
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (for HP-UX)\n", OSI_VERS);
+X	return(vers);
+X}
+X
+X
+X#else	/* !hpux || !SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t			lib_hpux = FALSE;
+X#endif
+X
+X#endif	/* hpux SIMULATED_CDROM */
+X
+END_OF_FILE
+if test 6448 -ne `wc -c <'lib_hpux.c'`; then
+    echo shar: \"'lib_hpux.c'\" unpacked with wrong size!
+fi
+# end of 'lib_hpux.c'
+fi
+if test -f 'lib_nec.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_nec.c'\"
+else
+echo shar: Extracting \"'lib_nec.c'\" \(9492 characters\)
+sed "s/^X//" >'lib_nec.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   The name "NEC" is a trademark of NEC Corporation, and is
+X *   used here for identification purposes.  This software and its
+X *   author are not affiliated in any way with NEC.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_nec_c_ident_ = "@(#)lib_nec.c	1.30 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#ifdef NEC
+X
+X
+X#ifndef LINT
+Xbool_t		lib_nec = TRUE;
+X#endif
+X
+XSTATIC bool_t	nec_audio_muted = FALSE;	/* Is audio muted? */
+X
+X
+X/*
+X * nec_playaudio
+X *	Play audio function: send vendor-unique play audio command
+X *	to the drive.
+X *
+X * Args:
+X *	addr_fmt - Flags indicating which address formats are passed in
+X *	If ADDR_BLK, then:
+X *	    start_addr - The logical block starting address
+X *	    end_addr - The logical block ending address
+X *	If ADD_MSF, then:
+X *	    start_msf - Pointer to the starting MSF address structure
+X *	    end_msf - Pointer to the ending MSF address structure
+X *	If ADDR_TRKIDX, then:
+X *	    trk - The starting track number
+X *	    idx - The starting index number
+X *	If ADDR_OPTEND, then the ending address, if specified, can be
+X *	ignored if possible.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xnec_playaudio(
+X	byte_t		addr_fmt,
+X	word32_t	start_addr,
+X	word32_t	end_addr,
+X	msf_t		*start_msf,
+X	msf_t		*end_msf,
+X	byte_t		trk,
+X	byte_t		idx
+X)
+X{
+X	bool_t		ret = FALSE;
+X	word32_t	addr = 0;
+X	naudio_arg_t	*p;
+X
+X	p = (naudio_arg_t *) &addr;
+X
+X	if (!ret && addr_fmt & ADDR_MSF) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VN_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x1, 0x1 << 6, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			if (!pthru_send(OP_VN_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x0, 0x1 << 6, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location, muting, and start play */
+X			p->addr_min = (byte_t) ltobcd(end_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(end_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(end_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VN_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				(byte_t) (nec_audio_muted ? 0x0 : 0x3),
+X				0x1 << 6, READ_OP
+X			);
+X		}
+X	}
+X
+X	if (!ret && addr_fmt & ADDR_BLK) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_logical = start_addr;
+X
+X			ret = pthru_send(
+X				OP_VN_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x1, 0x0, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_logical = start_addr;
+X
+X			if (!pthru_send(OP_VN_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x0, 0x0, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location, muting, and start play */
+X			p->addr_logical = end_addr;
+X
+X			ret = pthru_send(
+X				OP_VN_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				(byte_t) (nec_audio_muted ? 0x0 : 0x3),
+X				0x0, READ_OP
+X			);
+X		}
+X	}
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * nec_pause_resume
+X *	Pause/resume function: send vendor-unique commands to implement
+X *	the pause and resume capability.
+X *
+X * Args:
+X *	resume - TRUE: resume, FALSE: pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xnec_pause_resume(bool_t resume)
+X{
+X	if (resume) {
+X		return(
+X			pthru_send(
+X				OP_VN_AUDPLAY, 0, NULL, 0, 0, 0,
+X				(byte_t) (nec_audio_muted ? 0x0 : 0x3),
+X				0x3 << 6, READ_OP
+X			)
+X		);
+X	}
+X	else {
+X		return(
+X			pthru_send(
+X				OP_VN_STILL, 0, NULL, 0, 0, 0,
+X				0, 0, READ_OP
+X			)
+X		);
+X	}
+X}
+X
+X
+X/*
+X * nec_get_playstatus
+X *	Send vendor-unique command to obtain current audio playback
+X *	status.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	audio_status - Address where a current status code (SCSI-2
+X *		       style) is to be returned.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xnec_get_playstatus(curstat_t *s, byte_t *audio_status)
+X{
+X	int		i,
+X			trkno,
+X			idxno;
+X	byte_t		buf[sizeof(nsubq_data_t)];
+X	nsubq_data_t	*d;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	if (!pthru_send(OP_VN_RDSUBQ, 0, buf, SZ_VN_RDSUBQ, 0, 0,
+X		       SZ_VN_RDSUBQ, 0, READ_OP))
+X		return(FALSE);
+X
+X	d = (nsubq_data_t *)(void *) buf;
+X
+X	trkno = bcdtol((word32_t) d->trkno);
+X	if (s->cur_trk != trkno) {
+X		s->cur_trk = trkno;
+X		dpy_track(s);
+X	}
+X
+X	idxno = bcdtol((word32_t) d->idxno);
+X	if (s->cur_idx != idxno) {
+X		s->cur_idx = idxno;
+X		s->sav_iaddr = s->cur_tot_addr;
+X		dpy_index(s);
+X	}
+X
+X	if ((i = curtrk_pos(s)) >= 0)
+X		s->trkinfo[i].type = (d->trktype == 0) ? TYP_AUDIO : TYP_DATA;
+X
+X	s->cur_tot_min = (byte_t) bcdtol(d->abs_min);
+X	s->cur_tot_sec = (byte_t) bcdtol(d->abs_sec);
+X	s->cur_tot_frame = (byte_t) bcdtol(d->abs_frame);
+X	s->cur_trk_min = (byte_t) bcdtol(d->rel_min);
+X	s->cur_trk_sec = (byte_t) bcdtol(d->rel_sec);
+X	s->cur_trk_frame = (byte_t) bcdtol(d->rel_frame);
+X	msftoblk(
+X		s->cur_tot_min, s->cur_tot_sec, s->cur_tot_frame,
+X		&s->cur_tot_addr, MSF_OFFSET(s)
+X	);
+X	msftoblk(
+X		s->cur_trk_min, s->cur_trk_sec, s->cur_trk_frame,
+X		&s->cur_trk_addr, 0
+X	);
+X
+X	/* Translate NEC audio status to SCSI-2 audio status */
+X	switch (d->audio_status) {
+X	case NAUD_PLAYING:
+X		*audio_status = AUDIO_PLAYING;
+X		break;
+X
+X	case NAUD_PAUSED:
+X	case NAUD_SRCH_PAUSED:
+X		*audio_status = AUDIO_PAUSED;
+X		break;
+X
+X	case NAUD_COMPLETED:
+X		*audio_status = AUDIO_COMPLETED;
+X		break;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * nec_get_toc
+X *	Send vendor-unique command to obtain the disc table-of-contents
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure, which contains the TOC
+X *	    table to be updated.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xnec_get_toc(curstat_t *s)
+X{
+X	int		i,
+X			j;
+X	byte_t		buf[SZ_VN_RDTOC];
+X	ninfo_00_t	*t0;
+X	ninfo_01_t	*t1;
+X	ninfo_02_t	*t2;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Find number of tracks */
+X	if (!pthru_send(OP_VN_RDTOC, 0, buf, SZ_VN_RDTOC,
+X			0, 0, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	t0 = (ninfo_00_t *) buf;
+X	s->first_trk = (byte_t) bcdtol(t0->first_trk);
+X	s->last_trk = (byte_t) bcdtol(t0->last_trk);
+X
+X	/* Get the starting position of each track */
+X	for (i = 0, j = (int) s->first_trk; j <= (int) s->last_trk; i++, j++) {
+X		memset(buf, (byte_t) 0, sizeof(buf));
+X
+X		if (!pthru_send(OP_VN_RDTOC, ltobcd(j) << 24,
+X				buf, SZ_VN_RDTOC, 0, 0, 2,
+X				0, READ_OP))
+X			return(FALSE);
+X
+X		t2 = (ninfo_02_t *) buf;
+X
+X		s->trkinfo[i].trkno = j;
+X		s->trkinfo[i].min = (byte_t) bcdtol(t2->min);
+X		s->trkinfo[i].sec = (byte_t) bcdtol(t2->sec);
+X		s->trkinfo[i].frame = (byte_t) bcdtol(t2->frame);
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&s->trkinfo[i].addr,
+X			MSF_OFFSET(s)
+X		);
+X	}
+X	s->tot_trks = (byte_t) i;
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Get the lead out track position */
+X	if (!pthru_send(OP_VN_RDTOC, 0,
+X			buf, SZ_VN_RDTOC, 0, 0, 1,
+X			0, READ_OP))
+X		return(FALSE);
+X
+X	t1 = (ninfo_01_t *) buf;
+X
+X	s->trkinfo[i].trkno = LEAD_OUT_TRACK;
+X	s->tot_min = s->trkinfo[i].min = (byte_t) bcdtol(t1->min);
+X	s->tot_sec = s->trkinfo[i].sec = (byte_t) bcdtol(t1->sec);
+X	s->tot_frame = s->trkinfo[i].frame = (byte_t) bcdtol(t1->frame);
+X	msftoblk(
+X		s->trkinfo[i].min,
+X		s->trkinfo[i].sec,
+X		s->trkinfo[i].frame,
+X		&s->trkinfo[i].addr,
+X		MSF_OFFSET(s)
+X	);
+X	s->tot_addr = s->trkinfo[i].addr;
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * nec_mute
+X *	Send vendor-unique command to mute/unmute the audio
+X *
+X * Args:
+X *	mute - TRUE: mute audio, FALSE: unmute audio
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xnec_mute(bool_t mute)
+X{
+X	curstat_t	*s = curstat_addr();
+X
+X	if (nec_audio_muted != mute) {
+X		switch (s->mode) {
+X		case M_NODISC:
+X		case M_STOP:
+X		case M_PAUSE:
+X			break;
+X
+X		default:
+X			if (!pthru_send(OP_VN_AUDPLAY, 0, NULL, 0, 0, 0,
+X					(byte_t) (mute ? 0x0 : 0x3),
+X					0x3 << 6, READ_OP))
+X				return(FALSE);
+X			break;
+X		}
+X
+X		nec_audio_muted = mute;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * nec_eject
+X *	Send vendor-unique command to eject the caddy
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xnec_eject(void)
+X{
+X	return(pthru_send(OP_VN_EJECT, 0, NULL, 0, 0, 0, 1, 0, READ_OP));
+X}
+X
+X
+X/*
+X * nec_init
+X *	Initialize the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xnec_init(void)
+X{
+X	/* Do nothing */
+X}
+X
+X
+X/*
+X * nec_halt
+X *	Shut down the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xnec_halt(void)
+X{
+X	/* Do nothing */
+X}
+X
+X#else	/* !NEC */
+X
+X#ifndef LINT
+Xbool_t		lib_nec = FALSE;
+X#endif
+X
+X#endif	/* NEC */
+X
+END_OF_FILE
+if test 9492 -ne `wc -c <'lib_nec.c'`; then
+    echo shar: \"'lib_nec.c'\" unpacked with wrong size!
+fi
+# end of 'lib_nec.c'
+fi
+if test -f 'lib_odt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_odt.c'\"
+else
+echo shar: Extracting \"'lib_odt.c'\" \(6591 characters\)
+sed "s/^X//" >'lib_odt.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   This software module contains code that interfaces xmcd to
+X *   the SCO Open Desktop operating system.  The name "SCO" and "ODT"
+X *   are used here for identification purposes.  This software and
+X *   its author are not affiliated with The Santa Cruz Operation, Inc.
+X */
+X#ifndef LINT
+Xstatic char *_lib_odt_c_ident_ = "@(#)lib_odt.c	1.108 93/10/05";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#if defined(sco) && !defined(SIMULATED_CDROM)
+X
+X#ifndef OSI_VERS
+X#define OSI_VERS	"1.0"		/* Version */
+X#endif
+X
+X
+Xextern AppData		app_data;
+Xextern bool_t		notrom_error;
+X
+X#ifndef LINT
+Xbool_t			lib_odt = TRUE;
+X#endif
+X
+XSTATIC int		fd = -1;	/* Passthrough device file desc */
+XSTATIC req_sense_data_t	sense_data;	/* Request sense data buffer */
+X
+X
+X/*
+X * pthru_send
+X *	Build SCSI CDB and sent command to the device.
+X *
+X * Args:
+X *	opcode - SCSI command opcode
+X *	addr - The "address" portion of the SCSI CDB
+X *	buf - Pointer to data buffer
+X *	size - Number of bytes to transfer
+X *	rsvd - The "reserved" portion of the SCSI CDB
+X *	length - The "length" portion of the SCSI CDB
+X *	param - The "param" portion of the SCSI CDB
+X *	control - The "control" portion of the SCSI CDB
+X *	rw - Data transfer direction flag (READ_OP or WRITE_OP)
+X *
+X * Return:
+X *	TRUE - command completed successfully
+X *	FALSE - command failed
+X */
+Xbool_t
+Xpthru_send(
+X	byte_t		opcode,
+X	word32_t	addr,
+X	byte_t		*buf,
+X	word32_t	size,
+X	byte_t		rsvd,
+X	word32_t	length,
+X	byte_t		param,
+X	byte_t		control,
+X	byte_t		rw
+X)
+X{
+X	struct scsicmd	sc;
+X	union scsi_cdb	*cdb;
+X
+X	
+X	if (fd < 0 || notrom_error)
+X		return(FALSE);
+X
+X	memset(&sense_data, (byte_t) 0, sizeof(sense_data));
+X	memset(&sc, (byte_t) 0, sizeof(sc));
+X	cdb = (union scsi_cdb *) sc.cdb;
+X
+X	/* set up SCSI CDB */
+X	switch (opcode & 0xf0) {
+X	case 0xa0:
+X	case 0xe0:
+X		/* 12-byte commands */
+X		cdb->twelve.opcode = opcode;
+X		cdb->twelve.misc = param;
+X		cdb->twelve.lun = 0;
+X		CDB12_BLK(&cdb->twelve, bswap32(addr));
+X		CDB12_LEN(&cdb->twelve, bswap32(length));
+X		CDB12_RSV(&cdb->twelve, rsvd);
+X		CDB12_CTL(&cdb->twelve, control);
+X
+X		sc.cdb_len = 12;
+X		break;
+X
+X	case 0xc0:
+X	case 0xd0:
+X	case 0x20:
+X	case 0x30:
+X	case 0x40:
+X		/* 10-byte commands */
+X		cdb->ten.opcode = opcode;
+X		cdb->ten.misc = param;
+X		cdb->ten.lun = 0;
+X		CDB10_BLK(&cdb->ten, bswap32(addr));
+X		CDB10_LEN(&cdb->ten, bswap16((word16_t) length));
+X		CDB10_RSV(&cdb->ten, rsvd);
+X		CDB10_CTL(&cdb->ten, control);
+X
+X		sc.cdb_len = 10;
+X		break;
+X
+X	case 0x00:
+X	case 0x10:
+X		/* 6-byte commands */
+X		cdb->six.opcode = opcode;
+X		cdb->six.misc = param;
+X		cdb->six.lun = 0;
+X		CDB6_BLK(&cdb->six, bswap16((word16_t) addr));
+X		CDB6_LEN(&cdb->six, (byte_t) length);
+X		CDB6_CTL(&cdb->six, control);
+X
+X		sc.cdb_len = 6;
+X		break;
+X
+X	default:
+X		if (app_data.scsierr_msg)
+X			fprintf(stderr, "0x%02x: Unknown SCSI opcode\n",
+X				opcode);
+X		return(FALSE);
+X	}
+X
+X#ifdef DEBUG
+X	{
+X		byte_t	*p = (byte_t *) sc.cdb;
+X		int	i;
+X
+X		fprintf(stderr, "\nSCSI CDB bytes:");
+X		for (i = 0; i < sc.cdb_len; i++, p++)
+X			fprintf(stderr, " %02x", *p);
+X		fprintf(stderr, "\n");
+X	}
+X#endif
+X
+X	/* set up scsicmd */
+X	sc.data_ptr = (faddr_t) buf;
+X	sc.data_len = size;
+X	sc.is_write = (rw == WRITE_OP);
+X
+X	/* Send the command down via the "pass-through" interface */
+X	if (ioctl(fd, SCSIUSERCMD, &sc) < 0) {
+X		perror("SCSIUSERCMD ioctl failed");
+X		return(FALSE);
+X	}
+X
+X	if (sc.host_sts || sc.target_sts) {
+X		if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, "%s: %s %s:\n%s=0x%x %s=0x%x %s=0x%x",
+X				PROGNAME,
+X				"SCSI command fault on",
+X				app_data.device,
+X				"Opcode",
+X				opcode,
+X				"Host_status",
+X				sc.host_sts,
+X				"Target_status",
+X				sc.target_sts);
+X		}
+X
+X		/* Send Request Sense command */
+X		cdb->six.opcode = OP_S_RSENSE;
+X		cdb->six.misc = 0;
+X		cdb->six.lun = 0;
+X		CDB6_BLK(&cdb->six, 0);
+X		CDB6_LEN(&cdb->six, SZ_RSENSE);
+X		CDB6_CTL(&cdb->six, 0);
+X		sc.data_ptr = (faddr_t) AD_RSENSE(&sense_data);
+X		sc.data_len = SZ_RSENSE;
+X		sc.is_write = FALSE;
+X		sc.cdb_len = 6;
+X
+X		if (ioctl(fd, SCSIUSERCMD, &sc) < 0 || sense_data.valid == 0) {
+X			if (opcode != OP_S_TEST && app_data.scsierr_msg)
+X				fprintf(stderr, "\n");
+X#ifdef DEBUG
+X			perror("SCSIUSERCMD ioctl (Request Sense) failed");
+X#endif
+X		}
+X		else if (opcode != OP_S_TEST && app_data.scsierr_msg) {
+X			fprintf(stderr, " Key=0x%x Code=0x%x Qual=0x%x\n",
+X				sense_data.key,
+X				sense_data.code,
+X				sense_data.qual);
+X		}
+X
+X		return(FALSE);
+X	}
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_open
+X *	Open SCSI passthrough device
+X *
+X * Args:
+X *	path - device path name string
+X *
+X * Return:
+X *	TRUE - open successful
+X *	FALSE - open failed
+X */
+Xbool_t
+Xpthru_open(char *path)
+X{
+X	struct stat	stbuf;
+X	char		errstr[STR_BUF_SZ];
+X
+X	/* Check for validity of device node */
+X	if (stat(path, &stbuf) < 0) {
+X		sprintf(errstr, app_data.str_staterr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X	if ((stbuf.st_mode & S_IFMT) != S_IFCHR) {
+X		sprintf(errstr, app_data.str_noderr, path);
+X		cd_fatal_popup(app_data.str_fatal, errstr);
+X		return(FALSE);
+X	}
+X
+X	/* Check for another copy of xmcd running on the same
+X	 * CD-ROM device.
+X	 */
+X	if (!cd_devlock(path))
+X		return(FALSE);
+X
+X	if ((fd = open(path, O_RDONLY)) < 0)
+X		return(FALSE);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pthru_close
+X *	Close SCSI passthrough device
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpthru_close(void)
+X{
+X	if (fd >= 0) {
+X		close(fd);
+X		fd = -1;
+X	}
+X}
+X
+X
+X/*
+X * pthru_vers
+X *	Return OS Interface Module version string
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Module version text string.
+X */
+Xchar *
+Xpthru_vers(void)
+X{
+X	static char	vers[STR_BUF_SZ];
+X
+X	sprintf(vers, "OS Interface module v%s (for SCO ODT)\n", OSI_VERS);
+X	return(vers);
+X}
+X
+X#else	/* !sco || SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t			lib_odt = FALSE;
+X#endif
+X
+X#endif	/* sco SIMULATED_CDROM */
+X
+X
+END_OF_FILE
+if test 6591 -ne `wc -c <'lib_odt.c'`; then
+    echo shar: \"'lib_odt.c'\" unpacked with wrong size!
+fi
+# end of 'lib_odt.c'
+fi
+if test -f 'lib_pion.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_pion.c'\"
+else
+echo shar: Extracting \"'lib_pion.c'\" \(9566 characters\)
+sed "s/^X//" >'lib_pion.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *   The name "Pioneer" is a trademark of Pioneer Corporation, and is
+X *   used here for identification purposes.  This software and its
+X *   author are not affiliated in any way with Pioneer.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_pion_c_ident_ = "@(#)lib_pion.c	1.25 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include "xmcd.h"
+X#include "util.h"
+X#include "cdfunc.h"
+X#include "lib_scsipt.h"
+X
+X#ifdef PIONEER
+X
+X
+X#ifndef LINT
+Xbool_t		lib_pion = TRUE;
+X#endif
+X
+X
+X/*
+X * pion_playaudio
+X *	Play audio function: send vendor-unique play audio command
+X *	to the drive.
+X *
+X * Args:
+X *	addr_fmt - Flags indicating which address formats are passed in
+X *	If ADDR_BLK, then:
+X *	    start_addr - The logical block starting address
+X *	    end_addr - The logical block ending address
+X *	If ADD_MSF, then:
+X *	    start_msf - Pointer to the starting MSF address structure
+X *	    end_msf - Pointer to the ending MSF address structure
+X *	If ADDR_TRKIDX, then:
+X *	    trk - The starting track number
+X *	    idx - The starting index number
+X *	If ADDR_OPTEND, then the ending address, if specified, can be
+X *	ignored if possible.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xpion_playaudio(
+X	byte_t		addr_fmt,
+X	word32_t	start_addr,
+X	word32_t	end_addr,
+X	msf_t		*start_msf,
+X	msf_t		*end_msf,
+X	byte_t		trk,
+X	byte_t		idx
+X)
+X{
+X	bool_t		ret = FALSE;
+X	word32_t	addr = 0;
+X	paudio_arg_t	*p;
+X
+X	p = (paudio_arg_t *) &addr;
+X
+X	if (!ret && addr_fmt & ADDR_MSF) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VP_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x19, 0x1 << 6, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_min = (byte_t) ltobcd(start_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(start_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(start_msf->frame);
+X
+X			if (!pthru_send(OP_VP_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x9, 0x1 << 6, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location and start play */
+X			p->addr_min = (byte_t) ltobcd(end_msf->min);
+X			p->addr_sec = (byte_t) ltobcd(end_msf->sec);
+X			p->addr_frame = (byte_t) ltobcd(end_msf->frame);
+X
+X			ret = pthru_send(
+X				OP_VP_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				0x19, 0x1 << 6, READ_OP
+X			);
+X		}
+X	}
+X
+X	if (!ret && addr_fmt & ADDR_BLK) {
+X		if (addr_fmt & ADDR_OPTEND) {
+X			/* Position laser head at desired location
+X			 * and start play.
+X			 */
+X			p->addr_logical = start_addr;
+X
+X			ret = pthru_send(
+X				OP_VP_AUDSRCH,
+X				addr, NULL, 0, 0, 0,
+X				0x19, 0x0, READ_OP
+X			);
+X		}
+X		else {
+X			/* Position laser head at desired location */
+X			p->addr_logical = start_addr;
+X
+X			if (!pthru_send(OP_VP_AUDSRCH,
+X					addr, NULL, 0, 0, 0,
+X					0x9, 0x0, READ_OP))
+X				return(FALSE);
+X
+X			/* Specify end location and start play */
+X			p->addr_logical = end_addr;
+X
+X			ret = pthru_send(
+X				OP_VP_AUDPLAY,
+X				addr, NULL, 0, 0, 0,
+X				0x19, 0x0, READ_OP
+X			);
+X		}
+X	}
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * pion_pause_resume
+X *	Pause/resume function: send vendor-unique commands to implement
+X *	the pause and resume capability.
+X *
+X * Args:
+X *	resume - TRUE: resume, FALSE: pause
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xpion_pause_resume(bool_t resume)
+X{
+X	if (resume) {
+X		return(
+X			pthru_send(
+X				OP_VP_PAUSE, 0, NULL, 0, 0, 0,
+X				0x0, 0, READ_OP
+X			)
+X		);
+X	}
+X	else {
+X		return(
+X			pthru_send(
+X				OP_VP_PAUSE, 0, NULL, 0, 0, 0,
+X				0x1 << 4, 0, READ_OP
+X			)
+X		);
+X	}
+X}
+X
+X
+X/*
+X * pion_get_playstatus
+X *	Send vendor-unique command to obtain current audio playback
+X *	status.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure
+X *	audio_status - Address where a current status code (SCSI-2
+X *		       style) is to be returned.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xpion_get_playstatus(curstat_t *s, byte_t *audio_status)
+X{
+X	int			i,
+X				trkno,
+X				idxno;
+X	byte_t			buf[sizeof(psubq_data_t)];
+X	bool_t			stopped;
+X	paudstat_data_t		*a;
+X	psubq_data_t		*d;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Send Pioneer Read Audio Status command */
+X	if (!pthru_send(OP_VP_AUDSTAT, 0, AD_VP_AUDSTAT(buf), SZ_VP_AUDSTAT,
+X			0, SZ_VP_AUDSTAT, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	a = (paudstat_data_t *)(void *) buf;
+X
+X	stopped = FALSE;
+X
+X	/* Translate Pioneer audio status to SCSI-2 audio status */
+X	switch (a->status) {
+X	case PAUD_PLAYING:
+X	case PAUD_MUTEPLAY:
+X		*audio_status = AUDIO_PLAYING;
+X		break;
+X
+X	case PAUD_PAUSED:
+X		*audio_status = AUDIO_PAUSED;
+X		break;
+X
+X	case PAUD_COMPLETED:
+X		*audio_status = AUDIO_COMPLETED;
+X		stopped = TRUE;
+X		break;
+X
+X	case PAUD_ERROR:
+X		*audio_status = AUDIO_FAILED;
+X		stopped = TRUE;
+X		break;
+X
+X	case PAUD_NOSTATUS:
+X		*audio_status = AUDIO_NOSTATUS;
+X		stopped = TRUE;
+X		break;
+X	}
+X
+X	if (stopped) {
+X		s->cur_tot_min = (byte_t) bcdtol(a->abs_min);
+X		s->cur_tot_sec = (byte_t) bcdtol(a->abs_sec);
+X		s->cur_tot_frame = (byte_t) bcdtol(a->abs_frame);
+X
+X		if ((i = curtrk_pos(s)) >= 0)
+X			s->trkinfo[i].type =
+X				(a->trktype == 0) ? TYP_AUDIO : TYP_DATA;
+X
+X		return(TRUE);
+X	}
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Send Pioneer Read Subcode Q command */
+X	if (!pthru_send(OP_VP_RDSUBQ, 0, AD_VP_SUBQ(buf), SZ_VP_RDSUBQ,
+X			0, SZ_VP_RDSUBQ, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	d = (psubq_data_t *)(void *) buf;
+X
+X	trkno = bcdtol((word32_t) d->trkno);
+X	if (s->cur_trk != trkno) {
+X		s->cur_trk = trkno;
+X		dpy_track(s);
+X	}
+X
+X	idxno = bcdtol((word32_t) d->idxno);
+X	if (s->cur_idx != idxno) {
+X		s->cur_idx = idxno;
+X		s->sav_iaddr = s->cur_tot_addr;
+X		dpy_index(s);
+X	}
+X
+X	if ((i = curtrk_pos(s)) >= 0)
+X		s->trkinfo[i].type =
+X			(d->trktype == 0) ? TYP_AUDIO : TYP_DATA;
+X
+X	s->cur_tot_min = (byte_t) bcdtol(d->abs_min);
+X	s->cur_tot_sec = (byte_t) bcdtol(d->abs_sec);
+X	s->cur_tot_frame = (byte_t) bcdtol(d->abs_frame);
+X	s->cur_trk_min = (byte_t) bcdtol(d->rel_min);
+X	s->cur_trk_sec = (byte_t) bcdtol(d->rel_sec);
+X	s->cur_trk_frame = (byte_t) bcdtol(d->rel_frame);
+X	msftoblk(
+X		s->cur_tot_min, s->cur_tot_sec, s->cur_tot_frame,
+X		&s->cur_tot_addr, MSF_OFFSET(s)
+X	);
+X	msftoblk(
+X		s->cur_trk_min, s->cur_trk_sec, s->cur_trk_frame,
+X		&s->cur_trk_addr, 0
+X	);
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pion_get_toc
+X *	Send vendor-unique command to obtain the disc table-of-contents
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure, which contains the TOC
+X *	    table to be updated.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xpion_get_toc(curstat_t *s)
+X{
+X	int		i,
+X			j;
+X	byte_t		buf[SZ_VP_RDTOC];
+X	pinfo_00_t	*t0;
+X	pinfo_01_t	*t1;
+X	pinfo_02_t	*t2;
+X
+X
+X	memset(buf, (byte_t) 0, sizeof(buf));
+X
+X	/* Find number of tracks */
+X	if (!pthru_send(OP_VP_RDTOC, 0, buf, SZ_VP_RDTOC,
+X			0, SZ_VP_RDTOC, 0, 0, READ_OP))
+X		return(FALSE);
+X
+X	t0 = (pinfo_00_t *) buf;
+X	s->first_trk = (byte_t) bcdtol(t0->first_trk);
+X	s->last_trk = (byte_t) bcdtol(t0->last_trk);
+X
+X	/* Get the starting position of each track */
+X	for (i = 0, j = (int) s->first_trk; j <= (int) s->last_trk; i++, j++) {
+X		if (!pthru_send(OP_VP_RDTOC, ltobcd(j),
+X				buf, SZ_VP_RDTOC, 0, SZ_VP_RDTOC, 0,
+X				0x2 << 6, READ_OP))
+X			return(FALSE);
+X
+X		t2 = (pinfo_02_t *)(void *) buf;
+X
+X		s->trkinfo[i].trkno = j;
+X		s->trkinfo[i].min = (byte_t) bcdtol(t2->min);
+X		s->trkinfo[i].sec = (byte_t) bcdtol(t2->sec);
+X		s->trkinfo[i].frame = (byte_t) bcdtol(t2->frame);
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&s->trkinfo[i].addr,
+X			MSF_OFFSET(s)
+X		);
+X	}
+X	s->tot_trks = (byte_t) i;
+X
+X	/* Get the lead out track position */
+X	if (!pthru_send(OP_VP_RDTOC, 0,
+X			buf, SZ_VP_RDTOC, 0, SZ_VP_RDTOC, 0,
+X			0x1 << 6, READ_OP))
+X		return(FALSE);
+X
+X	t1 = (pinfo_01_t *) buf;
+X
+X	s->trkinfo[i].trkno = LEAD_OUT_TRACK;
+X	s->tot_min = s->trkinfo[i].min = (byte_t) bcdtol(t1->min);
+X	s->tot_sec = s->trkinfo[i].sec = (byte_t) bcdtol(t1->sec);
+X	s->tot_frame = s->trkinfo[i].frame = (byte_t) bcdtol(t1->frame);
+X	msftoblk(
+X		s->trkinfo[i].min,
+X		s->trkinfo[i].sec,
+X		s->trkinfo[i].frame,
+X		&s->trkinfo[i].addr,
+X		MSF_OFFSET(s)
+X	);
+X	s->tot_addr = s->trkinfo[i].addr;
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * pion_eject
+X *	Send vendor-unique command to eject the caddy
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+Xbool_t
+Xpion_eject(void)
+X{
+X	return(pthru_send(OP_VP_EJECT, 0, NULL, 0, 0, 0, 1, 0, READ_OP));
+X}
+X
+X
+X/*
+X * pion_init
+X *	Initialize the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpion_init(void)
+X{
+X	/* Do nothing */
+X}
+X
+X
+X/*
+X * pion_halt
+X *	Shut down the vendor-unique support module
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpion_halt(void)
+X{
+X	/* Do nothing */
+X}
+X
+X#else	/* !PIONEER */
+X
+X#ifndef LINT
+Xbool_t		lib_pion = TRUE;
+X#endif
+X
+X#endif	/* PIONEER */
+X
+END_OF_FILE
+if test 9566 -ne `wc -c <'lib_pion.c'`; then
+    echo shar: \"'lib_pion.c'\" unpacked with wrong size!
+fi
+# end of 'lib_pion.c'
+fi
+if test -f 'lib_sim.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib_sim.c'\"
+else
+echo shar: Extracting \"'lib_sim.c'\" \(18785 characters\)
+sed "s/^X//" >'lib_sim.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_lib_sim_c_ident_ = "@(#)lib_sim.c	1.26 93/09/28";
+X#endif
+X
+X#include "xmcd.h"
+X#include "util.h"
+X#include "lib_scsipt.h"
+X
+X
+X#ifdef SIMULATED_CDROM
+X
+X#ifndef CDSIM_VERS
+X#define CDSIM_VERS		"1.00"	/* CD-ROM simulator version */
+X#endif
+X
+Xextern int			cdsim_sfd[],
+X				cdsim_rfd[];
+X
+X#ifndef LINT
+Xbool_t				lib_sim = TRUE;
+X#endif
+X
+XSTATIC simstat_t		cdsim_stat;
+XSTATIC time_t			cdsim_start_time = 0,
+X				cdsim_pause_time = 0,
+X				cdsim_pause_elapsed = 0,
+X				cdsim_prev_pause = 0,
+X				cdsim_elapsed = 0,
+X				cdsim_now;
+X
+XSTATIC inquiry_data_t		cdsim_inqdata;
+XSTATIC byte_t			cdsim_tocdata1[SZ_RDTOC],
+X				cdsim_tocdata2[SZ_RDTOC];
+X
+X
+X
+X/*
+X * cdsim_sendpkt
+X *	Write a CD simulator packet down the pipe
+X *
+X * Args:
+X *	name - The text string describing the caller module
+X *	fd - Pipe file descriptor
+X *	s - Pointer to the packet data
+X *
+X * Return:
+X *	TRUE - pipe write successful
+X *	FALSE - pipe write failed
+X */
+Xbool_t
+Xcdsim_sendpkt(char *name, int fd, simpkt_t *s)
+X{
+X	byte_t	*p = (byte_t *) s;
+X	int	i,
+X		ret;
+X
+X	if (fd < 0)
+X		return(FALSE);
+X
+X	/* Brand packet with magic number */
+X	s->magic = CDSIM_MAGIC;
+X
+X	/* Send a packet */
+X	i = CDSIM_PKTSZ;
+X	while ((ret = write(fd, p, i)) < i) {
+X		if (ret < 0 && errno != EBADF) {
+X			fprintf(stderr, "%s: packet write error (errno=%d)\n",
+X				name, errno);
+X			return(FALSE);
+X		}
+X
+X		i -= ret;
+X		p += ret;
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * cdsim_getpkt
+X *	Read a CD simulator packet from the pipe
+X *
+X * Args:
+X *	name - The text string describing the caller module
+X *	fd - Pipe file descriptor
+X *	s - Pointer to the packet data
+X *
+X * Return:
+X *	TRUE - pipe read successful
+X *	FALSE - pipe read failed
+X */
+Xbool_t
+Xcdsim_getpkt(char *name, int fd, simpkt_t *r)
+X{
+X	byte_t	*p = (byte_t *) r;
+X	int	i,
+X		ret;
+X
+X	if (fd < 0)
+X		return(FALSE);
+X
+X	/* Get a packet */
+X	i = CDSIM_PKTSZ;
+X	while ((ret = read(fd, p, i)) < i) {
+X		if (ret < 0 && errno != EBADF) {
+X			fprintf(stderr, "%s: packet read error (errno=%d)\n",
+X				name, errno);
+X			return(FALSE);
+X		}
+X
+X		i -= ret;
+X		p += ret;
+X	}
+X
+X	/* Check packet for magic number */
+X	if (r->magic != CDSIM_MAGIC) {
+X		fprintf(stderr, "%s: bad packet magic number.\n", name);
+X		return(FALSE);
+X	}
+X
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * cdsim_sig
+X *	CD simulator process signal handler
+X *
+X * Args:
+X *	sig - The signal number
+X *
+X * Return:
+X *	Nothing.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xcdsim_sig(int sig)
+X{
+X	fprintf(stderr, "CD-ROM simulator exiting.\n");
+X	exit(0);
+X}
+X
+X
+X/*
+X * cdsim_s_test
+X *	Test Unit Ready command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC word32_t
+Xcdsim_s_test(simpkt_t *r, simpkt_t *s)
+X{
+X	if (cdsim_stat.status == CDSIM_NODISC)
+X		return(CDSIM_COMPERR);
+X	else
+X		return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_s_inquir
+X *	Inquiry command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+XSTATIC 
+Xcdsim_s_inquir(simpkt_t *r, simpkt_t *s)
+X{
+X	s->len = (r->len > CDSIM_INQSZ) ? CDSIM_INQSZ : r->len;
+X
+X	/* Copy inquiry data into packet */
+X	memcpy(s->data, (byte_t *) &cdsim_inqdata, s->len);
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_s_mselect
+X *	Mode Select command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC 
+Xcdsim_s_mselect(simpkt_t *r, simpkt_t *s)
+X{
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_s_msense
+X *	Mode Sense command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC 
+Xcdsim_s_msense(simpkt_t *r, simpkt_t *s)
+X{
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_s_start
+X *	Start/Stop Unit command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_s_start(simpkt_t *r, simpkt_t *s)
+X{
+X	cdsim_start_time = 0;
+X	cdsim_elapsed = 0;
+X	cdsim_pause_time = 0;
+X	cdsim_pause_elapsed = 0;
+X	cdsim_prev_pause = 0;
+X
+X	if (r->cdb[4] & 0x01) {
+X		/* Start unit */
+X		if (r->cdb[4] & 0x02) {
+X			/* Load disc */
+X			cdsim_stat.status = CDSIM_STOPPED;
+X			return(CDSIM_COMPOK);
+X		}
+X		else if (cdsim_stat.status == CDSIM_NODISC)
+X			return(CDSIM_COMPERR);
+X	}
+X	else {
+X		/* Stop unit */
+X		if (cdsim_stat.status == CDSIM_NODISC)
+X			return(CDSIM_COMPERR);
+X		else if (r->cdb[4] & 0x02) {
+X			/* Eject disc */
+X			if (cdsim_stat.caddylock)
+X				return(CDSIM_COMPERR);
+X			else {
+X				cdsim_stat.status = CDSIM_NODISC;
+X				return(CDSIM_COMPOK);
+X			}
+X		}
+X		else {
+X			/* Stop disc */
+X			cdsim_stat.status = CDSIM_STOPPED;
+X			return(CDSIM_COMPOK);
+X		}
+X	}
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_s_prevent
+X *	Prevent/Allow Medium Removal command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_s_prevent(simpkt_t *r, simpkt_t *s)
+X{
+X	if (r->cdb[4] & 0x01)
+X		cdsim_stat.caddylock = TRUE;
+X	else
+X		cdsim_stat.caddylock = FALSE;
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_rdsubq
+X *	Read Subchannel command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+XSTATIC
+Xcdsim_m_rdsubq(simpkt_t *r, simpkt_t *s)
+X{
+X	subq_hdr_t	*h = (subq_hdr_t *)(void *) s->data;
+X	subq_01_t	*s1 = (subq_01_t *)(void *)
+X			      (s->data + sizeof(subq_hdr_t));
+X
+X	/* Subchannel formats */
+X	switch (r->cdb[3]) {
+X	case SUB_CURPOS:
+X		h->subch_len = 15;
+X
+X		s1->fmt_code = SUB_CURPOS;
+X		s1->preemph = 0;
+X		s1->copyallow = 0;
+X		s1->trktype = 0;
+X		s1->audioch = 0;
+X		s1->adr = 0;
+X
+X		s1->trkno = cdsim_stat.trkno;
+X		s1->idxno = cdsim_stat.idxno;
+X
+X		if (r->cdb[1] & 0x02) {
+X			blktomsf(
+X				cdsim_stat.absaddr,
+X				&s1->abs_addr.msf.min,
+X				&s1->abs_addr.msf.sec,
+X				&s1->abs_addr.msf.frame,
+X				FRAME_PER_SEC << 1
+X			);
+X
+X			blktomsf(
+X				cdsim_stat.reladdr,
+X				&s1->rel_addr.msf.min,
+X				&s1->rel_addr.msf.sec,
+X				&s1->rel_addr.msf.frame,
+X				0
+X			);
+X		}
+X		else {
+X			s1->abs_addr.logical = bswap32(cdsim_stat.absaddr);
+X			s1->rel_addr.logical = bswap32(cdsim_stat.reladdr);
+X		}
+X
+X		s->len = sizeof(subq_hdr_t) + sizeof(subq_01_t);
+X
+X		break;
+X
+X	default:
+X		/* The other formats are not implemented */
+X		return(CDSIM_COMPERR);
+X	}
+X
+X	switch (cdsim_stat.status) {
+X	case CDSIM_PLAYING:
+X		h->audio_status = AUDIO_PLAYING;
+X		break;
+X
+X	case CDSIM_PAUSED:
+X		h->audio_status = AUDIO_PAUSED;
+X		break;
+X
+X	default:
+X		h->audio_status = AUDIO_COMPLETED;
+X		break;
+X	}
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_rdtoc
+X *	Read TOC command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+XSTATIC
+Xcdsim_m_rdtoc(simpkt_t *r, simpkt_t *s)
+X{
+X	byte_t	*startoff;
+X
+X	if (r->cdb[1] & 0x02)
+X		startoff = cdsim_tocdata2 + sizeof(toc_hdr_t);
+X	else
+X		startoff = cdsim_tocdata1 + sizeof(toc_hdr_t);
+X
+X	s->len = (r->len > SZ_RDTOC) ? SZ_RDTOC : r->len;
+X
+X	if (r->cdb[6] > 1) {
+X		int	skip;
+X
+X		skip = ((int) r->cdb[6] - 1) *
+X			sizeof(toc_trk_descr_t);
+X		s->len -= skip;
+X		startoff += skip;
+X	}
+X
+X	/* Copy TOC data into packet */
+X
+X	/* Header info */
+X	memcpy(s->data, cdsim_tocdata1, sizeof(toc_hdr_t));
+X
+X	/* TOC data */
+X	memcpy(s->data + sizeof(toc_hdr_t), startoff, s->len);
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_play
+X *	Play Audio (10) command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_m_play(simpkt_t *r, simpkt_t *s)
+X{
+X	cdsim_stat.startaddr = (r->cdb[2] << 24) | (r->cdb[3] << 16) |
+X		(r->cdb[4] << 8) | r->cdb[5];
+X	cdsim_stat.endaddr = cdsim_stat.startaddr +
+X		((r->cdb[7] << 8) | r->cdb[8]);
+X
+X	if (cdsim_stat.endaddr <= cdsim_stat.startaddr)
+X		return(CDSIM_PARMERR);
+X
+X	cdsim_start_time = cdsim_now;
+X	cdsim_elapsed = 0;
+X	cdsim_pause_time = 0;
+X	cdsim_pause_elapsed = 0;
+X	cdsim_prev_pause = 0;
+X
+X	cdsim_stat.status = CDSIM_PLAYING;
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_playmsf
+X *	Play Audio MSF command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_m_playmsf(simpkt_t *r, simpkt_t *s)
+X{
+X	msftoblk(r->cdb[3], r->cdb[4], r->cdb[5], &cdsim_stat.startaddr,
+X		 FRAME_PER_SEC << 1);
+X	msftoblk(r->cdb[6], r->cdb[7], r->cdb[8], &cdsim_stat.endaddr,
+X		 FRAME_PER_SEC << 1);
+X
+X	if (cdsim_stat.endaddr <= cdsim_stat.startaddr)
+X		return(CDSIM_PARMERR);
+X
+X	cdsim_start_time = cdsim_now;
+X	cdsim_elapsed = 0;
+X	cdsim_pause_time = 0;
+X	cdsim_pause_elapsed = 0;
+X	cdsim_prev_pause = 0;
+X
+X	cdsim_stat.status = CDSIM_PLAYING;
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_playti
+X *	Play Audio Track/index command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_m_playti(simpkt_t *r, simpkt_t *s)
+X{
+X	int	strk = (int) r->cdb[4],
+X		sidx = (int) r->cdb[5],
+X		etrk = (int) r->cdb[7],
+X		eidx = (int) r->cdb[8];
+X
+X	if (sidx > (int) cdsim_stat.trk[strk - 1].nidxs) {
+X		strk++;
+X		sidx = 1;
+X	}
+X
+X	if (strk > (int) cdsim_stat.ntrks || etrk > (int) cdsim_stat.ntrks)
+X		return(CDSIM_PARMERR);
+X
+X	if (eidx > (int) cdsim_stat.trk[strk - 1].nidxs)
+X		eidx = (int) cdsim_stat.trk[strk - 1].nidxs;
+X
+X	cdsim_stat.startaddr = cdsim_stat.trk[strk - 1].iaddr[sidx - 1];
+X	cdsim_stat.endaddr = cdsim_stat.trk[etrk].iaddr[eidx];
+X
+X	if (cdsim_stat.endaddr <= cdsim_stat.startaddr)
+X		return(CDSIM_PARMERR);
+X
+X	cdsim_start_time = cdsim_now;
+X	cdsim_elapsed = 0;
+X	cdsim_pause_time = 0;
+X	cdsim_pause_elapsed = 0;
+X	cdsim_prev_pause = 0;
+X
+X	cdsim_stat.status = CDSIM_PLAYING;
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_m_pause
+X *	Pause/Resume command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_m_pause(simpkt_t *r, simpkt_t *s)
+X{
+X	if (cdsim_stat.status == CDSIM_PAUSED && r->cdb[8] & 0x01) {
+X		/* Resume */
+X		cdsim_stat.status = CDSIM_PLAYING;
+X		cdsim_prev_pause += cdsim_pause_elapsed;
+X		cdsim_pause_elapsed = 0;
+X
+X		return(CDSIM_COMPOK);
+X	}
+X	else {
+X		cdsim_stat.status = CDSIM_PAUSED;
+X		time(&cdsim_pause_time);
+X		return(CDSIM_COMPOK);
+X	}
+X}
+X
+X
+X/*
+X * cdsim_m_pause
+X *	Play Audio (12) command simulation function
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	Command completion status code
+X */
+X/*ARGSUSED*/
+XSTATIC
+Xcdsim_l_play(simpkt_t *r, simpkt_t *s)
+X{
+X	cdsim_stat.startaddr = (r->cdb[2] << 24) | (r->cdb[3] << 16) |
+X		(r->cdb[4] << 8) | r->cdb[5];
+X	cdsim_stat.endaddr = cdsim_stat.startaddr +
+X		((r->cdb[6] << 24) | (r->cdb[7] << 16) |
+X		 (r->cdb[8] << 8) | r->cdb[9]);
+X
+X	if (cdsim_stat.endaddr <= cdsim_stat.startaddr)
+X		return(CDSIM_PARMERR);
+X
+X	cdsim_start_time = cdsim_now;
+X	cdsim_elapsed = 0;
+X	cdsim_pause_time = 0;
+X	cdsim_pause_elapsed = 0;
+X	cdsim_prev_pause = 0;
+X
+X	cdsim_stat.status = CDSIM_PLAYING;
+X
+X	return(CDSIM_COMPOK);
+X}
+X
+X
+X/*
+X * cdsim_svccmd
+X *	Service a command
+X *
+X * Args:
+X *	r - Pointer to the command packet
+X *	s - Pointer to the response packet
+X *
+X * Return:
+X *	TRUE - success
+X *	FALSE - failure
+X */
+XSTATIC bool_t
+Xcdsim_svccmd(simpkt_t *r, simpkt_t *s)
+X{
+X	memset(s, (byte_t) 0, CDSIM_PKTSZ);
+X
+X#ifdef DEBUG
+X	fprintf(stderr, "cdsim: pktid=%d cdbsz=%d len=%d dir=%d cdb=",
+X		r->pktid, r->cdbsz, r->len, r->dir);
+X
+X	for (i = 0; i < (int) r->cdbsz; i++)
+X		fprintf(stderr, " %02x", r->cdb[i]);
+X
+X	fprintf(stderr, "\n");
+X#endif
+X
+X	/* Set return packet id */
+X	s->pktid = r->pktid;
+X
+X	/* Copy CDB */
+X	s->cdbsz = r->cdbsz;
+X	memcpy(s->cdb, r->cdb, r->cdbsz);
+X
+X	/* Truncate if necessary */
+X	if (s->len > MAX_DATALEN)
+X		s->len = MAX_DATALEN;
+X
+X	/* Direction flag */
+X	s->dir = r->dir;
+X
+X	/* Interpret CDB and service the command */
+X	switch (r->cdb[0]) {
+X	case OP_S_TEST:
+X		/* Test unit ready */
+X		s->retcode = cdsim_s_test(r, s);
+X		break;
+X
+X	case OP_S_INQUIR:
+X		/* Inquiry */
+X		s->retcode = cdsim_s_inquir(r, s);
+X		break;
+X
+X	case OP_S_MSELECT:
+X		/* Mode select */
+X		s->retcode = cdsim_s_mselect(r, s);
+X		break;
+X
+X	case OP_S_MSENSE:
+X		/* Mode sense */
+X		s->retcode = cdsim_s_msense(r, s);
+X		break;
+X
+X	case OP_S_START:
+X		/* Start/stop unit */
+X		s->retcode = cdsim_s_start(r, s);
+X		break;
+X
+X	case OP_S_PREVENT:
+X		/* Prevent/allow medium removal */
+X		s->retcode = cdsim_s_prevent(r, s);
+X		break;
+X
+X	case OP_M_RDSUBQ:
+X		/* Read subchannel */
+X		s->retcode = cdsim_m_rdsubq(r, s);
+X		break;
+X
+X	case OP_M_RDTOC:
+X		/* Read TOC */
+X		s->retcode = cdsim_m_rdtoc(r, s);
+X		break;
+X
+X	case OP_M_PLAY:
+X		/* Play audio (10) */
+X		s->retcode = cdsim_m_play(r, s);
+X		break;
+X
+X	case OP_M_PLAYMSF:
+X		/* Play audio MSF */
+X		s->retcode = cdsim_m_playmsf(r, s);
+X		break;
+X
+X	case OP_M_PLAYTI:
+X		/* Play audio track/index */
+X		s->retcode = cdsim_m_playti(r, s);
+X		break;
+X
+X	case OP_M_PAUSE:
+X		/* Pause/resume */
+X		s->retcode = cdsim_m_pause(r, s);
+X		break;
+X
+X	case OP_L_PLAY:
+X		/* Play audio (12) */
+X		s->retcode = cdsim_l_play(r, s);
+X		break;
+X
+X	default:
+X		/* Command not implemented */
+X		s->retcode = CDSIM_NOTSUPP;
+X		break;
+X	}
+X
+X	return(cdsim_sendpkt("cdsim", cdsim_rfd[1], s));
+X}
+X
+X
+X/*
+X * cdsim_init
+X *	Initialize the CD-simulator subsystem
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcdsim_init(void)
+X{
+X	int		i,
+X			j;
+X	toc_hdr_t	*h1 = (toc_hdr_t *)(void *) cdsim_tocdata1,
+X			*h2 = (toc_hdr_t *)(void *) cdsim_tocdata2;
+X	toc_trk_descr_t	*t1,
+X			*t2;
+X
+X	/* Initialize internal states */
+X	cdsim_stat.status = CDSIM_STOPPED;
+X	cdsim_stat.ntrks = CDSIM_NTRKS;
+X	cdsim_stat.absaddr = 0;
+X	cdsim_stat.reladdr = 0;
+X	cdsim_stat.startaddr = 0;
+X	cdsim_stat.endaddr = 0;
+X	cdsim_stat.caddylock = 0;
+X
+X	/* Addresses for each simulated track and index */
+X	for (i = 0; i < CDSIM_NTRKS; i++) {
+X		if (i == 0)
+X			cdsim_stat.trk[i].addr = 0;
+X		else
+X			cdsim_stat.trk[i].addr = (i * CDSIM_TRKLEN) - 150;
+X
+X		cdsim_stat.trk[i].nidxs = CDSIM_NIDXS;
+X
+X		for (j = 0; j < (int) cdsim_stat.trk[i].nidxs; j++) {
+X			cdsim_stat.trk[i].iaddr[j] = (j * CDSIM_IDXLEN) +
+X						     cdsim_stat.trk[i].addr;
+X		}
+X	}
+X
+X	/* Simulated lead-out track */
+X	cdsim_stat.trk[i].addr = (i * CDSIM_TRKLEN) - 150;
+X	cdsim_stat.trk[i].nidxs = 0;
+X
+X	/* Initialize inquiry data */
+X	cdsim_inqdata.type = DEV_ROM;
+X	cdsim_inqdata.pqual = 0;
+X	cdsim_inqdata.qualif = 0;
+X	cdsim_inqdata.rmb = 1;
+X	cdsim_inqdata.ver = 2;
+X	cdsim_inqdata.len = 38;
+X	strncpy((char *) cdsim_inqdata.vendor, "XMCD    ", 8);
+X	strncpy((char *) cdsim_inqdata.prod, "CD-ROM SIMULATOR", 16);
+X	strncpy((char *) cdsim_inqdata.revnum, CDSIM_VERS, 4);
+X
+X	/* Initialize TOC data */
+X	h1->data_len = h2->data_len = bswap16(
+X		((CDSIM_NTRKS + 1) * sizeof(toc_trk_descr_t)) + 2
+X	);
+X
+X	h1->first_trk = h2->first_trk = 1;
+X	h1->last_trk = h2->last_trk = CDSIM_NTRKS;
+X
+X	t1 = (toc_trk_descr_t *)(void *) (cdsim_tocdata1 + sizeof(toc_hdr_t));
+X	t2 = (toc_trk_descr_t *)(void *) (cdsim_tocdata2 + sizeof(toc_hdr_t));
+X
+X	for (i = 0; i < CDSIM_NTRKS; i++) {
+X		t1->preemph = t2->preemph = 0;
+X		t1->copyallow = t2->copyallow = 0;
+X		t1->trktype = t2->trktype = 0;
+X		t1->audioch = t2->audioch = 0;
+X		t1->adr = t2->adr = 0;
+X		t1->trkno = t2->trkno = i + 1;
+X		t1->abs_addr.logical = bswap32(cdsim_stat.trk[i].addr);
+X		blktomsf(
+X			cdsim_stat.trk[i].addr,
+X			&t2->abs_addr.msf.min,
+X			&t2->abs_addr.msf.sec,
+X			&t2->abs_addr.msf.frame,
+X			FRAME_PER_SEC << 1
+X		);
+X
+X		t1 = (toc_trk_descr_t *)
+X			((byte_t *)(void *) t1 + sizeof(toc_trk_descr_t));
+X		t2 = (toc_trk_descr_t *)
+X			((byte_t *)(void *) t2 + sizeof(toc_trk_descr_t));
+X	}
+X
+X	/* Lead-out track */
+X	t1->preemph = t2->preemph = 0;
+X	t1->copyallow = t2->copyallow = 0;
+X	t1->trktype = t2->trktype = 0;
+X	t1->audioch = t2->audioch = 0;
+X	t1->adr = t2->adr = 0;
+X	t1->trkno = t2->trkno = LEAD_OUT_TRACK;
+X	t1->abs_addr.logical = bswap32(cdsim_stat.trk[i].addr);
+X	blktomsf(
+X		cdsim_stat.trk[i].addr,
+X		&t2->abs_addr.msf.min,
+X		&t2->abs_addr.msf.sec,
+X		&t2->abs_addr.msf.frame,
+X		FRAME_PER_SEC << 1
+X	);
+X}
+X
+X
+X/*
+X * cdsim_main
+X *	The CD simulator main function
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcdsim_main(void)
+X{
+X	int		i,
+X			j;
+X	simpkt_t	spkt,
+X			rpkt;
+X
+X	fprintf(stderr, "CD-ROM simulator version %s (pid=%d) starting...\n",
+X		CDSIM_VERS, getpid());
+X
+X	/* Install signal handlers */
+X	signal(SIGINT, cdsim_sig);
+X	signal(SIGTERM, cdsim_sig);
+X	signal(SIGHUP, cdsim_sig);
+X
+X	/* Initialize CD-ROM simulator */
+X	cdsim_init();
+X
+X	/* Main simulation service loop */
+X	for (;;) {
+X		/* Get SCSI request */
+X		if (!cdsim_getpkt("cdsim", cdsim_sfd[0], &rpkt))
+X			continue;
+X
+X		time(&cdsim_now);
+X		/* Update status */
+X		switch (cdsim_stat.status) {
+X		case CDSIM_PLAYING:
+X			cdsim_elapsed = cdsim_now - cdsim_start_time -
+X				cdsim_pause_elapsed - cdsim_prev_pause;
+X
+X			cdsim_stat.absaddr = cdsim_elapsed * FRAME_PER_SEC +
+X				cdsim_stat.startaddr;
+X
+X			cdsim_stat.trkno = 0;
+X			for (i = 0; i < (int) cdsim_stat.ntrks; i++) {
+X				if (cdsim_stat.trk[i].addr > cdsim_stat.absaddr)
+X					break;
+X				cdsim_stat.trkno++;
+X			}
+X
+X			cdsim_stat.idxno = 0;
+X			for (j = 0; j < (int) cdsim_stat.trk[i-1].nidxs; j++) {
+X				if (cdsim_stat.trk[i-1].iaddr[j] >
+X				    cdsim_stat.absaddr)
+X					break;
+X				cdsim_stat.idxno++;
+X			}
+X
+X			cdsim_stat.reladdr = cdsim_stat.absaddr -
+X				cdsim_stat.trk[i-1].addr;
+X
+X			if (cdsim_stat.absaddr > cdsim_stat.endaddr) {
+X				cdsim_stat.status = CDSIM_STOPPED;
+X				cdsim_elapsed = 0;
+X				cdsim_start_time = 0;
+X				cdsim_pause_time = 0;
+X				cdsim_prev_pause = 0;
+X				cdsim_pause_elapsed = 0;
+X			}
+X			break;
+X
+X		case CDSIM_PAUSED:
+X			cdsim_pause_elapsed = cdsim_now - cdsim_pause_time;
+X			break;
+X		}
+X
+X		/* Process SCSI request */
+X		cdsim_svccmd(&rpkt, &spkt);
+X	}
+X}
+X
+X#else	/* !SIMULATED_CDROM */
+X
+X#ifndef LINT
+Xbool_t				lib_sim = FALSE;
+X#endif
+X
+X#endif	/* SIMULATED_CDROM */
+X
+END_OF_FILE
+if test 18785 -ne `wc -c <'lib_sim.c'`; then
+    echo shar: \"'lib_sim.c'\" unpacked with wrong size!
+fi
+# end of 'lib_sim.c'
+fi
+echo shar: End of archive 8 \(of 13\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 13 archives.
+    echo "Now read the README and INSTALL files for further instructions."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+    ///  Ti Kan                vorsprung durch technik
+   ///   AMB Research Laboratories, Sunnyvale, CA. USA
+  ///    ti@amb.org
+ //////  ...!{decwrl,synopsys,tandem,tsoft,ultra}!sgiblab!bazooka!ti
+///      ...!uunet!bazooka!ti
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

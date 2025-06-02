@@ -1,0 +1,2357 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: lfernand@ee.ryerson.ca (luis fernandes)
+Newsgroups: comp.sources.x
+Subject: v16i042: X abacus, Part01/04
+Message-ID: <csx-16i042-xabacus@uunet.UU.NET>
+Date: 5 Feb 92 14:59:12 GMT
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2345
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: lfernand@ee.ryerson.ca (luis fernandes)
+Posting-number: Volume 16, Issue 42
+Archive-name: xabacus/part01
+
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 1 (of 4)."
+# Contents:  README aba.c abacus.ps.aa abacus.ps.ac
+# Wrapped by dcmartin@snoopy on Mon Jan 13 16:06:29 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2983 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+Xxabacus is an implementation of the classic Chinese abacus for X.
+X
+Xo   It has a built-in demo-mode that teaches the user:
+X    - how to count (from 1 to 20) using the abacus
+X    - how to perform simple additions 
+X    - how to perform simple subtractions.
+X
+Xo   In addition, there is a rudimentary facility for generating data that 
+X    may be used to write customized scripts for teaching other concepts.
+X
+Xo   The PostScript document, Abacus.ps, included in the distribution,
+X    describes every possible techinique for performing additions and 
+X    subtractions using an abacus (typing "make ps" will build the file).
+X
+Xo   Refer to xabacus.man, for details about command-line options and user-
+X    definable X-resources available.
+X
+XThis application has been tested on a SPARCstation 1, 1+ & 2 running SunOS 4.1
+X& 4.1.1B (color & monochrome) under X11R4.  It uses Xt, the X Toolkit, for the
+Xresource and command-line parsing functions.  All other graphics are
+Ximplemented using raw Xlib calls.
+X
+XThe distribution contains:
+X    Imakefile                3 guesses...
+X    Makefile                 in case imake is not available
+X    README                   this file
+X    main.c,aba.c,Xinit.c     the source of all that is good...
+X    demo.c,maindefs.h            :
+X    main.h,demo.h                :
+X    resource.h                   :
+X    patchlevel.h                 :
+X    icon.bm                  bitmap for the icon
+X    Lesson?.cmd              3 script-files for the demo-mode
+X    XAbacus.ad               applications-default file (examples only)
+X    xabacus.man              man-page
+X    abacus.psaa,abacus.psab  (parts 1 & 2 of Abacus.ps)
+X
+XTo build xabacus, first unpack all the shar files. Then type...
+X
+Xxmkmf               (if you have it) will make a Makefile, otherwise edit the
+X                    supplied Makefile
+Xmake                will build the application
+Xxabacus -demo ./    will run the application in demo mode (assuming the
+X                    Lesson?.cmd files are present in the directory in which 
+X                    you issue this command)
+Xxabacus             will run the abacus in operational mode 
+Xmake ps             will create Abacus.ps from: abacus.psaa & abacus.psab; the
+X                    original PS file was split into 2 files of managable size.
+X
+XFor a site-installation it is recommended  that the Lesson?.cmd files be copied
+Xto /usr/lib/X11/xabacus (or some other appropriate place; on the condition that
+Xthe reference to /usr/lib/X11/xabacus in the manual-page be modified to reflect
+Xthis new path).
+X
+X--
+XCopyright 1991, Luis Fernandes (uunet!mnetor!lsuc!ryelect!lfernand)
+X
+XPermission to use, copy, hack, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted, provided that
+Xthe above copyright notice appear in all copies and that both that copyright
+Xnotice and this permission notice appear in supporting documentation.
+X
+XThis application is presented as is without any implied or written warranty.
+END_OF_FILE
+if test 2983 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'aba.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'aba.c'\"
+else
+echo shar: Extracting \"'aba.c'\" \(4893 characters\)
+sed "s/^X//" >'aba.c' <<'END_OF_FILE'
+X#include "main.h"
+X#include <stdio.h>
+X
+X#define DrawArc(x,y,w,h)	XFillArc(display, base, gc[BEADS],x,y,w,h,0,360*64)
+X
+X/*----------------------------------------------------------------------
+X * initAbacus, initializes the bits in the column array to represent
+X *	the resting positions of the beads: 2 bead on top deck pos 1 & 2,
+X *	pos 2 empty; 5 beads lower deck pos 4-8, pos 3 empty
+X *
+X *	=============	Row Position (index 'r' )
+X *		O			0
+X *		O			1			Upper Deck
+X *		|			2
+X *	=============
+X *		|			3
+X *		O			4
+X *		O			5			Lower Deck
+X *		O			6
+X *		O			7
+X *		O			8
+X *	=============
+X *		passed, returns: nothing
+X */
+XinitAbacus()
+X{
+Xint i;
+X#ifdef DEBUG
+X	(void)fprintf(stderr," DEBUG initAbacus():\n");
+X#endif
+X	/* 502d=111110011 (2 bead on top deck pos 1 & 2; 5 beads lower deck
+X	 * pos 4-8, pos 2 & 3 are empty initially) */
+X	for(i=0; i<MAXCOLS; i++) column[i]=499;
+X
+X}/* init abacus */
+X
+X/*----------------------------------------------------------------------
+X * drawAbacus, calls the necessary routines to draw the abacus;
+X *	for handling exposures.
+X *
+X *      passed, returns: nothing
+X */
+X
+XdrawAbacus()
+X{
+Xunsigned int i;
+X#ifdef DEBUG
+X	(void)fprintf(stderr," DEBUG drawAbacus():\n");
+X#endif
+X	/* since the beads are XOR'd it causes problems if the window isn't
+X	 * cleared*/
+X	XClearWindow( display, base);
+X
+X	drawRails();
+X	drawFrame();
+X	drawMidFrame();
+X
+X	for(i=0; i<ncols; i++) drawColumn(i);
+X
+X}/* draw*/
+X
+XanimateBead(r,c)
+Xunsigned int r,c;
+X{
+Xint i;
+X
+X	if(r<3){	/* selection in upper deck*/
+X    	/* find empty row in upperdeck; pos 0,1,2*/
+X    	for(i=0; i<3; i++) if(!RowOccupied(i,column[c])) break;
+X
+X		if(i<r)		/* if empty row is above cur bead...*/
+X			moveBeadUp(r,c);
+X		else
+X			moveBeadDn(r,c);
+X	}
+X	else{		/* selection in upper deck*/
+X
+X        /* find empty row in lowerdeck; pos 3-8 */
+X        for(i=3; i<9; i++) if(!RowOccupied(i,column[c])) break;
+X
+X        if(i<r)     /* if empty row is above cur bead...*/
+X            moveBeadUp(r,c);
+X        else
+X            moveBeadDn(r,c);
+X
+X	}
+X}/* animate bead*/
+X
+X
+XmoveBeadUp(r,c)
+Xunsigned int r,c;
+X{
+X
+X	/* keep looking for an empty position directly above*/
+X	if(RowOccupied(r-1,column[c])) moveBeadUp(r-1,c);
+X
+X    undrawBead(r,c);
+X    column[c]=column[c]-(1<<r); /* row 'r' is now empty */
+X    drawBead(r-1,c);
+X    column[c]=column[c]+((unsigned)1<<((r-1))); /* row 'r-1' now is occupied*/
+X
+X	return;
+X}/* move bead up*/
+X
+XmoveBeadDn(r,c)
+Xunsigned int r,c;
+X{
+X
+X	/* keep looking for an empty position directly below*/
+X    if(RowOccupied(r+1,column[c])) moveBeadDn(r+1,c);
+X
+X    undrawBead(r,c);
+X    column[c]=column[c]-(1<<r); /* row 'r' is now empty */
+X    drawBead(r+1,c);
+X    column[c]=column[c]+((unsigned)1<<((r+1))); /* row 'r+1' now is occupied*/
+X
+X}/* move bead down*/
+X
+X/*----------------------------------------------------------------------
+X * drawColumn, calls the routines necessary to re-draw 1 complete column
+X *
+X *		passed: an index (0 - ncols) representing colimn to be drawn
+X *		returns: nothing
+X */
+XdrawColumn(col)
+Xunsigned int col;
+X{
+Xunsigned int beadnum;
+X
+X	for(beadnum=0; beadnum<9; beadnum++) 
+X		if(RowOccupied(beadnum,column[col])) drawBead(beadnum, col);
+X
+X}/* draw column*/
+X
+X
+X/*----------------------------------------------------------------------
+X * drawBead, draws 1 bead
+X *
+X *		passed: an index representing the column number the bead is in
+X *				an index representing the row of the bead is in
+X *				rows numbered 0 to 9 (7 beads + 2 blanks)
+X */
+XdrawBead(beadnum,col)
+Xunsigned int col,beadnum;
+X{
+X
+X	if(beadnum<3)	/* drawing beads on top deck*/
+X	DrawArc( framewidth+colgap+(col*(beadwidth+colgap)), 
+X		framewidth+(beadnum*(beadheight+rowgap)), beadwidth, beadheight);
+X	else			/* drawing beads on bot deck, account for middle frame*/
+X		DrawArc( framewidth+colgap+(col*(beadwidth+colgap)), 
+X		(2*framewidth)+(beadnum*(beadheight+rowgap)), 
+X		beadwidth, beadheight);
+X
+X	XFlush(display);
+X
+X}
+X
+X/*----------------------------------------------------------------------
+X * undrawBead, undraws a bead at given location (The beads are drawn using
+X *	the XOR function so this is possible.
+X */
+XundrawBead(beadnum,col)
+Xunsigned int col,beadnum;
+X{
+X
+X	drawBead(beadnum,col);
+X}
+X
+X/*----------------------------------------------------------------------
+X * drawFrame, drawMidFrame, drawRails, draw the rest of the abacus
+X *	it is advisable to call drawRails before the ~Frame routines
+X */
+XdrawMidFrame()
+X{
+X
+X	XDrawLine(display, base, gc[FRAME],0,midframey+(ROWGAP<<1),
+X			width,midframey+(ROWGAP<<1));
+X	XFlush(display);
+X
+X}/* draw mid frame*/
+X
+XdrawFrame()
+X{
+X
+X	XDrawRectangle(display, base, gc[FRAME], framewidth/2,framewidth/2, 
+X		width-(framewidth),height-(framewidth));
+X	XFlush(display);
+X
+X}/* draw frame*/
+X
+XdrawRails()
+X{
+Xint i;
+X
+X	for(i=0; i<ncols; i++)
+X		XDrawLine(display, base, gc[RAILS],
+X			framewidth+colgap+(beadwidth/2)+(i*(beadwidth+colgap)),0,
+X			framewidth+colgap+(beadwidth/2)+(i*(beadwidth+colgap)),height);
+X
+X	XFlush(display);
+X
+X}/* draw Rails*/
+X
+END_OF_FILE
+if test 4893 -ne `wc -c <'aba.c'`; then
+    echo shar: \"'aba.c'\" unpacked with wrong size!
+fi
+# end of 'aba.c'
+fi
+if test -f 'abacus.ps.aa' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'abacus.ps.aa'\"
+else
+echo shar: Extracting \"'abacus.ps.aa'\" \(21574 characters\)
+sed "s/^X//" >'abacus.ps.aa' <<'END_OF_FILE'
+X%!
+X%%BoundingBox: (atend)
+X%%Pages: (atend)
+X%%DocumentFonts: (atend)
+X%%EndComments
+X%
+X% FrameMaker PostScript Prolog 3.0, for use with FrameMaker 3.0
+X% Copyright (c) 1986,87,89,90,91 by Frame Technology Corporation.
+X% All rights reserved.
+X%
+X% Known Problems:
+X%	Due to bugs in Transcript, the 'PS-Adobe-' is omitted from line 1
+X/FMversion (3.0) def 
+X% Set up Color vs. Black-and-White
+X	/FMPrintInColor systemdict /colorimage known
+X		systemdict /currentcolortransfer known or def
+X% Uncomment this line to force b&w on color printer
+X%   /FMPrintInColor false def
+X/FrameDict 195 dict def 
+Xsystemdict /errordict known not {/errordict 10 dict def
+X		errordict /rangecheck {stop} put} if
+X% The readline in 23.0 doesn't recognize cr's as nl's on AppleTalk
+XFrameDict /tmprangecheck errordict /rangecheck get put 
+Xerrordict /rangecheck {FrameDict /bug true put} put 
+XFrameDict /bug false put 
+Xmark 
+X% Some PS machines read past the CR, so keep the following 3 lines together!
+Xcurrentfile 5 string readline
+X00
+X0000000000
+Xcleartomark 
+Xerrordict /rangecheck FrameDict /tmprangecheck get put 
+XFrameDict /bug get { 
+X	/readline {
+X		/gstring exch def
+X		/gfile exch def
+X		/gindex 0 def
+X		{
+X			gfile read pop 
+X			dup 10 eq {exit} if 
+X			dup 13 eq {exit} if 
+X			gstring exch gindex exch put 
+X			/gindex gindex 1 add def 
+X		} loop
+X		pop 
+X		gstring 0 gindex getinterval true 
+X		} def
+X	} if
+X/FMVERSION {
+X	FMversion ne {
+X		/Times-Roman findfont 18 scalefont setfont
+X		100 100 moveto
+X		(FrameMaker version does not match postscript_prolog!)
+X		dup =
+X		show showpage
+X		} if
+X	} def 
+X/FMLOCAL {
+X	FrameDict begin
+X	0 def 
+X	end 
+X	} def 
+X	/gstring FMLOCAL
+X	/gfile FMLOCAL
+X	/gindex FMLOCAL
+X	/orgxfer FMLOCAL
+X	/orgproc FMLOCAL
+X	/organgle FMLOCAL
+X	/orgfreq FMLOCAL
+X	/yscale FMLOCAL
+X	/xscale FMLOCAL
+X	/manualfeed FMLOCAL
+X	/paperheight FMLOCAL
+X	/paperwidth FMLOCAL
+X/FMDOCUMENT { 
+X	array /FMfonts exch def 
+X	/#copies exch def
+X	FrameDict begin
+X	0 ne dup {setmanualfeed} if
+X	/manualfeed exch def
+X	/paperheight exch def
+X	/paperwidth exch def
+X	/yscale exch def
+X	/xscale exch def
+X	currenttransfer cvlit /orgxfer exch def
+X	currentscreen cvlit /orgproc exch def
+X	/organgle exch def /orgfreq exch def
+X	setpapername 
+X	manualfeed {true} {papersize} ifelse 
+X	{manualpapersize} {false} ifelse 
+X	{desperatepapersize} if
+X	end 
+X	} def 
+X	/pagesave FMLOCAL
+X	/orgmatrix FMLOCAL
+X	/landscape FMLOCAL
+X/FMBEGINPAGE { 
+X	FrameDict begin 
+X	/pagesave save def
+X	3.86 setmiterlimit
+X	/landscape exch 0 ne def
+X	landscape { 
+X		90 rotate 0 exch neg translate pop 
+X		}
+X		{pop pop}
+X		ifelse
+X	xscale yscale scale
+X	/orgmatrix matrix def
+X	gsave 
+X	} def 
+X/FMENDPAGE {
+X	grestore 
+X	pagesave restore
+X	end 
+X	showpage
+X	} def 
+X/FMFONTDEFINE { 
+X	FrameDict begin
+X	findfont 
+X	ReEncode 
+X	1 index exch 
+X	definefont 
+X	FMfonts 3 1 roll 
+X	put
+X	end 
+X	} def 
+X/FMFILLS {
+X	FrameDict begin
+X	array /fillvals exch def
+X	end 
+X	} def 
+X/FMFILL {
+X	FrameDict begin
+X	 fillvals 3 1 roll put
+X	end 
+X	} def 
+X/FMNORMALIZEGRAPHICS { 
+X	newpath
+X	0.0 0.0 moveto
+X	1 setlinewidth
+X	0 setlinecap
+X	0 0 0 sethsbcolor
+X	0 setgray 
+X	} bind def
+X	/fx FMLOCAL
+X	/fy FMLOCAL
+X	/fh FMLOCAL
+X	/fw FMLOCAL
+X	/llx FMLOCAL
+X	/lly FMLOCAL
+X	/urx FMLOCAL
+X	/ury FMLOCAL
+X/FMBEGINEPSF { 
+X	end 
+X	/FMEPSF save def 
+X	/showpage {} def 
+X	FMNORMALIZEGRAPHICS 
+X	[/fy /fx /fh /fw /ury /urx /lly /llx] {exch def} forall 
+X	fx fy translate 
+X	rotate
+X	fw urx llx sub div fh ury lly sub div scale 
+X	llx neg lly neg translate 
+X	} bind def
+X/FMENDEPSF {
+X	FMEPSF restore
+X	FrameDict begin 
+X	} bind def
+XFrameDict begin 
+X/setmanualfeed {
+X%%BeginFeature *ManualFeed True
+X	 statusdict /manualfeed true put
+X%%EndFeature
+X	} def
+X/max {2 copy lt {exch} if pop} bind def
+X/min {2 copy gt {exch} if pop} bind def
+X/inch {72 mul} def
+X/pagedimen { 
+X	paperheight sub abs 16 lt exch 
+X	paperwidth sub abs 16 lt and
+X	{/papername exch def} {pop} ifelse
+X	} def
+X	/papersizedict FMLOCAL
+X/setpapername { 
+X	/papersizedict 14 dict def 
+X	papersizedict begin
+X	/papername /unknown def 
+X		/Letter 8.5 inch 11.0 inch pagedimen
+X		/LetterSmall 7.68 inch 10.16 inch pagedimen
+X		/Tabloid 11.0 inch 17.0 inch pagedimen
+X		/Ledger 17.0 inch 11.0 inch pagedimen
+X		/Legal 8.5 inch 14.0 inch pagedimen
+X		/Statement 5.5 inch 8.5 inch pagedimen
+X		/Executive 7.5 inch 10.0 inch pagedimen
+X		/A3 11.69 inch 16.5 inch pagedimen
+X		/A4 8.26 inch 11.69 inch pagedimen
+X		/A4Small 7.47 inch 10.85 inch pagedimen
+X		/B4 10.125 inch 14.33 inch pagedimen
+X		/B5 7.16 inch 10.125 inch pagedimen
+X	end
+X	} def
+X/papersize {
+X	papersizedict begin
+X		/Letter {lettertray letter} def
+X		/LetterSmall {lettertray lettersmall} def
+X		/Tabloid {11x17tray 11x17} def
+X		/Ledger {ledgertray ledger} def
+X		/Legal {legaltray legal} def
+X		/Statement {statementtray statement} def
+X		/Executive {executivetray executive} def
+X		/A3 {a3tray a3} def
+X		/A4 {a4tray a4} def
+X		/A4Small {a4tray a4small} def
+X		/B4 {b4tray b4} def
+X		/B5 {b5tray b5} def
+X		/unknown {unknown} def
+X	papersizedict dup papername known {papername} {/unknown} ifelse get
+X	end
+X	/FMdicttop countdictstack 1 add def 
+X	statusdict begin stopped end 
+X	countdictstack -1 FMdicttop {pop end} for 
+X	} def
+X/manualpapersize {
+X	papersizedict begin
+X		/Letter {letter} def
+X		/LetterSmall {lettersmall} def
+X		/Tabloid {11x17} def
+X		/Ledger {ledger} def
+X		/Legal {legal} def
+X		/Statement {statement} def
+X		/Executive {executive} def
+X		/A3 {a3} def
+X		/A4 {a4} def
+X		/A4Small {a4small} def
+X		/B4 {b4} def
+X		/B5 {b5} def
+X		/unknown {unknown} def
+X	papersizedict dup papername known {papername} {/unknown} ifelse get
+X	end
+X	stopped 
+X	} def
+X/desperatepapersize {
+X	statusdict /setpageparams known
+X		{
+X		paperwidth paperheight 0 1 
+X		statusdict begin
+X		{setpageparams} stopped pop 
+X		end
+X		} if
+X	} def
+X/savematrix {
+X	orgmatrix currentmatrix pop
+X	} bind def
+X/restorematrix {
+X	orgmatrix setmatrix
+X	} bind def
+X/dmatrix matrix def
+X/dpi    72 0 dmatrix defaultmatrix dtransform
+X    dup mul exch   dup mul add   sqrt def
+X/freq dpi 18.75 div 8 div round dup 0 eq {pop 1} if 8 mul dpi exch div def
+X/sangle 1 0 dmatrix defaultmatrix dtransform exch atan def
+X/DiacriticEncoding [
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /space /exclam /quotedbl
+X/numbersign /dollar /percent /ampersand /quotesingle /parenleft
+X/parenright /asterisk /plus /comma /hyphen /period /slash /zero /one
+X/two /three /four /five /six /seven /eight /nine /colon /semicolon
+X/less /equal /greater /question /at /A /B /C /D /E /F /G /H /I /J /K
+X/L /M /N /O /P /Q /R /S /T /U /V /W /X /Y /Z /bracketleft /backslash
+X/bracketright /asciicircum /underscore /grave /a /b /c /d /e /f /g /h
+X/i /j /k /l /m /n /o /p /q /r /s /t /u /v /w /x /y /z /braceleft /bar
+X/braceright /asciitilde /.notdef /Adieresis /Aring /Ccedilla /Eacute
+X/Ntilde /Odieresis /Udieresis /aacute /agrave /acircumflex /adieresis
+X/atilde /aring /ccedilla /eacute /egrave /ecircumflex /edieresis
+X/iacute /igrave /icircumflex /idieresis /ntilde /oacute /ograve
+X/ocircumflex /odieresis /otilde /uacute /ugrave /ucircumflex
+X/udieresis /dagger /.notdef /cent /sterling /section /bullet
+X/paragraph /germandbls /registered /copyright /trademark /acute
+X/dieresis /.notdef /AE /Oslash /.notdef /.notdef /.notdef /.notdef
+X/yen /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/ordfeminine /ordmasculine /.notdef /ae /oslash /questiondown
+X/exclamdown /logicalnot /.notdef /florin /.notdef /.notdef
+X/guillemotleft /guillemotright /ellipsis /.notdef /Agrave /Atilde
+X/Otilde /OE /oe /endash /emdash /quotedblleft /quotedblright
+X/quoteleft /quoteright /.notdef /.notdef /ydieresis /Ydieresis
+X/fraction /currency /guilsinglleft /guilsinglright /fi /fl /daggerdbl
+X/periodcentered /quotesinglbase /quotedblbase /perthousand
+X/Acircumflex /Ecircumflex /Aacute /Edieresis /Egrave /Iacute
+X/Icircumflex /Idieresis /Igrave /Oacute /Ocircumflex /.notdef /Ograve
+X/Uacute /Ucircumflex /Ugrave /dotlessi /circumflex /tilde /macron
+X/breve /dotaccent /ring /cedilla /hungarumlaut /ogonek /caron
+X] def
+X/ReEncode { 
+X	dup 
+X	length 
+X	dict begin 
+X	{
+X	1 index /FID ne 
+X		{def} 
+X		{pop pop} ifelse 
+X	} forall 
+X	0 eq {/Encoding DiacriticEncoding def} if 
+X	currentdict 
+X	end 
+X	} bind def
+X/graymode true def
+X	/bwidth FMLOCAL
+X	/bpside FMLOCAL
+X	/bstring FMLOCAL
+X	/onbits FMLOCAL
+X	/offbits FMLOCAL
+X	/xindex FMLOCAL
+X	/yindex FMLOCAL
+X	/x FMLOCAL
+X	/y FMLOCAL
+X/setpattern {
+X	 /bwidth  exch def
+X	 /bpside  exch def
+X	 /bstring exch def
+X	 /onbits 0 def  /offbits 0 def
+X	 freq sangle landscape {90 add} if 
+X		{/y exch def
+X		 /x exch def
+X		 /xindex x 1 add 2 div bpside mul cvi def
+X		 /yindex y 1 add 2 div bpside mul cvi def
+X		 bstring yindex bwidth mul xindex 8 idiv add get
+X		 1 7 xindex 8 mod sub bitshift and 0 ne
+X		 {/onbits  onbits  1 add def 1}
+X		 {/offbits offbits 1 add def 0}
+X		 ifelse
+X		}
+X		setscreen
+X	 {} settransfer
+X	 offbits offbits onbits add div FMsetgray
+X	/graymode false def
+X	} bind def
+X/grayness {
+X	FMsetgray
+X	graymode not {
+X		/graymode true def
+X		orgxfer cvx settransfer
+X		orgfreq organgle orgproc cvx setscreen
+X		} if
+X	} bind def
+X	/HUE FMLOCAL
+X	/SAT FMLOCAL
+X	/BRIGHT FMLOCAL
+X	/Colors FMLOCAL
+XFMPrintInColor 
+X	
+X	{
+X	/HUE 0 def
+X	/SAT 0 def
+X	/BRIGHT 0 def
+X	% array of arrays Hue and Sat values for the separations [HUE BRIGHT]
+X	/Colors   
+X	[[0    0  ]    % black
+X	 [0    0  ]    % white
+X	 [0.00 1.0]    % red
+X	 [0.37 1.0]    % green
+X	 [0.60 1.0]    % blue
+X	 [0.50 1.0]    % cyan
+X	 [0.83 1.0]    % magenta
+X	 [0.16 1.0]    % comment / yellow
+X	 ] def
+X      
+X	/BEGINBITMAPCOLOR { 
+X		BITMAPCOLOR} def
+X	/BEGINBITMAPCOLORc { 
+X		BITMAPCOLORc} def
+X	/BEGINBITMAPTRUECOLOR { 
+X		BITMAPTRUECOLOR } def
+X	/BEGINBITMAPCOLORc { 
+X		BITMAPTRUECOLORc } def
+X	/K { 
+X		Colors exch get dup
+X		0 get /HUE exch store 
+X		1 get /BRIGHT exch store
+X		  HUE 0 eq BRIGHT 0 eq and
+X			{1.0 SAT sub setgray}
+X			{HUE SAT BRIGHT sethsbcolor} 
+X		  ifelse
+X		} def
+X	/FMsetgray { 
+X		/SAT exch 1.0 exch sub store 
+X		  HUE 0 eq BRIGHT 0 eq and
+X			{1.0 SAT sub setgray}
+X			{HUE SAT BRIGHT sethsbcolor} 
+X		  ifelse
+X		} bind def
+X	}
+X	
+X	{
+X	/BEGINBITMAPCOLOR { 
+X		BITMAPGRAY} def
+X	/BEGINBITMAPCOLORc { 
+X		BITMAPGRAYc} def
+X	/BEGINBITMAPTRUECOLOR { 
+X		BITMAPTRUEGRAY } def
+X	/BEGINBITMAPTRUECOLORc { 
+X		BITMAPTRUEGRAYc } def
+X	/FMsetgray {setgray} bind def
+X	/K { 
+X		pop
+X		} def
+X	}
+Xifelse
+X/normalize {
+X	transform round exch round exch itransform
+X	} bind def
+X/dnormalize {
+X	dtransform round exch round exch idtransform
+X	} bind def
+X/lnormalize { 
+X	0 dtransform exch cvi 2 idiv 2 mul 1 add exch idtransform pop
+X	} bind def
+X/H { 
+X	lnormalize setlinewidth
+X	} bind def
+X/Z {
+X	setlinecap
+X	} bind def
+X	/fillvals FMLOCAL
+X/X { 
+X	fillvals exch get
+X	dup type /stringtype eq
+X	{8 1 setpattern} 
+X	{grayness}
+X	ifelse
+X	} bind def
+X/V { 
+X	gsave eofill grestore
+X	} bind def
+X/N { 
+X	stroke
+X	} bind def
+X/M {newpath moveto} bind def
+X/E {lineto} bind def
+X/D {curveto} bind def
+X/O {closepath} bind def
+X	/n FMLOCAL
+X/L { 
+X 	/n exch def
+X	newpath
+X	normalize
+X	moveto 
+X	2 1 n {pop normalize lineto} for
+X	} bind def
+X/Y { 
+X	L 
+X	closepath
+X	} bind def
+X	/x1 FMLOCAL
+X	/x2 FMLOCAL
+X	/y1 FMLOCAL
+X	/y2 FMLOCAL
+X	/rad FMLOCAL
+X/R { 
+X	/y2 exch def
+X	/x2 exch def
+X	/y1 exch def
+X	/x1 exch def
+X	x1 y1
+X	x2 y1
+X	x2 y2
+X	x1 y2
+X	4 Y 
+X	} bind def
+X/RR { 
+X	/rad exch def
+X	normalize
+X	/y2 exch def
+X	/x2 exch def
+X	normalize
+X	/y1 exch def
+X	/x1 exch def
+X	newpath
+X	x1 y1 rad add moveto
+X	x1 y2 x2 y2 rad arcto
+X	x2 y2 x2 y1 rad arcto
+X	x2 y1 x1 y1 rad arcto
+X	x1 y1 x1 y2 rad arcto
+X	closepath
+X	16 {pop} repeat
+X	} bind def
+X/C { 
+X	grestore
+X	gsave
+X	R 
+X	clip
+X	} bind def
+X	/FMpointsize FMLOCAL
+X/F { 
+X	FMfonts exch get
+X	FMpointsize scalefont
+X	setfont
+X	} bind def
+X/Q { 
+X	/FMpointsize exch def
+X	F 
+X	} bind def
+X/T { 
+X	moveto show
+X	} bind def
+X/RF { 
+X	rotate
+X	0 ne {-1 1 scale} if
+X	} bind def
+X/TF { 
+X	gsave
+X	moveto 
+X	RF
+X	show
+X	grestore
+X	} bind def
+X/P { 
+X	moveto
+X	0 32 3 2 roll widthshow
+X	} bind def
+X/PF { 
+X	gsave
+X	moveto 
+X	RF
+X	0 32 3 2 roll widthshow
+X	grestore
+X	} bind def
+X/S { 
+X	moveto
+X	0 exch ashow
+X	} bind def
+X/SF { 
+X	gsave
+X	moveto
+X	RF
+X	0 exch ashow
+X	grestore
+X	} bind def
+X/B { 
+X	moveto
+X	0 32 4 2 roll 0 exch awidthshow
+X	} bind def
+X/BF { 
+X	gsave
+X	moveto
+X	RF
+X	0 32 4 2 roll 0 exch awidthshow
+X	grestore
+X	} bind def
+X/G { 
+X	gsave
+X	newpath
+X	normalize translate 0.0 0.0 moveto 
+X	dnormalize scale 
+X	0.0 0.0 1.0 5 3 roll arc 
+X	closepath fill
+X	grestore
+X	} bind def
+X/A { 
+X	gsave
+X	savematrix
+X	newpath
+X	2 index 2 div add exch 3 index 2 div sub exch 
+X	normalize 2 index 2 div sub exch 3 index 2 div add exch 
+X	translate 
+X	scale 
+X	0.0 0.0 1.0 5 3 roll arc 
+X	restorematrix
+X	stroke
+X	grestore
+X	} bind def
+X	/x FMLOCAL
+X	/y FMLOCAL
+X	/w FMLOCAL
+X	/h FMLOCAL
+X	/xx FMLOCAL
+X	/yy FMLOCAL
+X	/ww FMLOCAL
+X	/hh FMLOCAL
+X	/FMsaveobject FMLOCAL
+X	/FMoptop FMLOCAL
+X	/FMdicttop FMLOCAL
+X/BEGINPRINTCODE { 
+X	/FMdicttop countdictstack 1 add def 
+X	/FMoptop count 4 sub def 
+X	/FMsaveobject save def
+X	userdict begin 
+X	/showpage {} def 
+X	FMNORMALIZEGRAPHICS 
+X	3 index neg 3 index neg translate
+X	} bind def
+X/ENDPRINTCODE {
+X	count -1 FMoptop {pop pop} for 
+X	countdictstack -1 FMdicttop {pop end} for 
+X	FMsaveobject restore 
+X	} bind def
+X/gn { 
+X	0 
+X	{	46 mul 
+X		cf read pop 
+X		32 sub 
+X		dup 46 lt {exit} if 
+X		46 sub add 
+X		} loop
+X	add 
+X	} bind def
+X	/str FMLOCAL
+X/cfs { 
+X	/str sl string def 
+X	0 1 sl 1 sub {str exch val put} for 
+X	str def 
+X	} bind def
+X/ic [ 
+X	0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0223
+X	0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0223
+X	0
+X	{0 hx} {1 hx} {2 hx} {3 hx} {4 hx} {5 hx} {6 hx} {7 hx} {8 hx} {9 hx}
+X	{10 hx} {11 hx} {12 hx} {13 hx} {14 hx} {15 hx} {16 hx} {17 hx} {18 hx}
+X	{19 hx} {gn hx} {0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11} {12}
+X	{13} {14} {15} {16} {17} {18} {19} {gn} {0 wh} {1 wh} {2 wh} {3 wh}
+X	{4 wh} {5 wh} {6 wh} {7 wh} {8 wh} {9 wh} {10 wh} {11 wh} {12 wh}
+X	{13 wh} {14 wh} {gn wh} {0 bl} {1 bl} {2 bl} {3 bl} {4 bl} {5 bl} {6 bl}
+X	{7 bl} {8 bl} {9 bl} {10 bl} {11 bl} {12 bl} {13 bl} {14 bl} {gn bl}
+X	{0 fl} {1 fl} {2 fl} {3 fl} {4 fl} {5 fl} {6 fl} {7 fl} {8 fl} {9 fl}
+X	{10 fl} {11 fl} {12 fl} {13 fl} {14 fl} {gn fl}
+X	] def
+X	/sl FMLOCAL
+X	/val FMLOCAL
+X	/ws FMLOCAL
+X	/im FMLOCAL
+X	/bs FMLOCAL
+X	/cs FMLOCAL
+X	/len FMLOCAL
+X	/pos FMLOCAL
+X/ms { 
+X	/sl exch def 
+X	/val 255 def 
+X	/ws cfs 
+X	/im cfs 
+X	/val 0 def 
+X	/bs cfs 
+X	/cs cfs 
+X	} bind def
+X400 ms 
+X/ip { 
+X	is 
+X	0 
+X	cf cs readline pop 
+X	{	ic exch get exec 
+X		add 
+X		} forall 
+X	pop 
+X	
+X	} bind def
+X/wh { 
+X	/len exch def 
+X	/pos exch def 
+X	ws 0 len getinterval im pos len getinterval copy pop
+X	pos len 
+X	} bind def
+X/bl { 
+X	/len exch def 
+X	/pos exch def 
+X	bs 0 len getinterval im pos len getinterval copy pop
+X	pos len 
+X	} bind def
+X/s1 1 string def
+X/fl { 
+X	/len exch def 
+X	/pos exch def 
+X	/val cf s1 readhexstring pop 0 get def
+X	pos 1 pos len add 1 sub {im exch val put} for
+X	pos len 
+X	} bind def
+X/hx { 
+X	3 copy getinterval 
+X	cf exch readhexstring pop pop 
+X	} bind def
+X	/h FMLOCAL
+X	/w FMLOCAL
+X	/d FMLOCAL
+X	/lb FMLOCAL
+X	/bitmapsave FMLOCAL
+X	/is FMLOCAL
+X	/cf FMLOCAL
+X/wbytes { 
+X	dup 
+X	8 eq {pop} {1 eq {7 add 8 idiv} {3 add 4 idiv} ifelse} ifelse
+X	} bind def
+X/BEGINBITMAPBWc { 
+X	1 {} COMMONBITMAPc
+X	} bind def
+X/BEGINBITMAPGRAYc { 
+X	8 {} COMMONBITMAPc
+X	} bind def
+X/BEGINBITMAP2BITc { 
+X	2 {} COMMONBITMAPc
+X	} bind def
+X/COMMONBITMAPc { 
+X	/r exch def
+X	/d exch def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/lb w d wbytes def 
+X	sl lb lt {lb ms} if 
+X	/bitmapsave save def 
+X	r                    
+X	/is im 0 lb getinterval def 
+X	ws 0 lb getinterval is copy pop 
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{ip} image 
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BEGINBITMAPBW { 
+X	1 {} COMMONBITMAP
+X	} bind def
+X/BEGINBITMAPGRAY { 
+X	8 {} COMMONBITMAP
+X	} bind def
+X/BEGINBITMAP2BIT { 
+X	2 {} COMMONBITMAP
+X	} bind def
+X/COMMONBITMAP { 
+X	/r exch def
+X	/d exch def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/bitmapsave save def 
+X	r                    
+X	/is w d wbytes string def
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{cf is readhexstring pop} image
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X	/proc1 FMLOCAL
+X	/proc2 FMLOCAL
+X	/newproc FMLOCAL
+X/Fmcc {
+X    /proc2 exch cvlit def
+X    /proc1 exch cvlit def
+X    /newproc proc1 length proc2 length add array def
+X    newproc 0 proc1 putinterval
+X    newproc proc1 length proc2 putinterval
+X    newproc cvx
+X} bind def
+X/ngrayt 256 array def
+X/nredt 256 array def
+X/nbluet 256 array def
+X/ngreent 256 array def
+X	/gryt FMLOCAL
+X	/blut FMLOCAL
+X	/grnt FMLOCAL
+X	/redt FMLOCAL
+X	/indx FMLOCAL
+X	/cynu FMLOCAL
+X	/magu FMLOCAL
+X	/yelu FMLOCAL
+X	/k FMLOCAL
+X	/u FMLOCAL
+X/colorsetup {
+X	currentcolortransfer
+X	/gryt exch def
+X	/blut exch def
+X	/grnt exch def
+X	/redt exch def
+X	0 1 255 {
+X		/indx exch def
+X		/cynu 1 red indx get 255 div sub def
+X		/magu 1 green indx get 255 div sub def
+X		/yelu 1 blue indx get 255 div sub def
+X		/k cynu magu min yelu min def
+X		/u k currentundercolorremoval exec def
+X		nredt indx 1 0 cynu u sub max sub redt exec put
+X		ngreent indx 1 0 magu u sub max sub grnt exec put
+X		nbluet indx 1 0 yelu u sub max sub blut exec put
+X		ngrayt indx 1 k currentblackgeneration exec sub gryt exec put
+X	} for
+X	{255 mul cvi nredt exch get}
+X	{255 mul cvi ngreent exch get}
+X	{255 mul cvi nbluet exch get}
+X	{255 mul cvi ngrayt exch get}
+X	setcolortransfer
+X	{pop 0} setundercolorremoval
+X	{} setblackgeneration
+X	} bind def
+X	/tran FMLOCAL
+X/fakecolorsetup {
+X	/tran 256 string def
+X	0 1 255 {/indx exch def 
+X		tran indx
+X		red indx get 77 mul
+X		green indx get 151 mul
+X		blue indx get 28 mul
+X		add add 256 idiv put} for
+X	currenttransfer
+X	{255 mul cvi tran exch get 255.0 div}
+X	exch Fmcc settransfer
+X} bind def
+X/BITMAPCOLOR { 
+X	/d 8 def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/bitmapsave save def 
+X	colorsetup
+X	/is w d wbytes string def
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{cf is readhexstring pop} {is} {is} true 3 colorimage 
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BITMAPCOLORc { 
+X	/d 8 def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/lb w d wbytes def 
+X	sl lb lt {lb ms} if 
+X	/bitmapsave save def 
+X	colorsetup
+X	/is im 0 lb getinterval def 
+X	ws 0 lb getinterval is copy pop 
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{ip} {is} {is} true 3 colorimage
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BITMAPTRUECOLORc { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        
+X        /is w string def
+X        
+X        ws 0 w getinterval is copy pop 
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        {ip} {gip} {bip} true 3 colorimage
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPTRUECOLOR { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        /is w string def
+X        /gis w string def
+X        /bis w string def
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        { cf is readhexstring pop } 
+X        { cf gis readhexstring pop } 
+X        { cf bis readhexstring pop } 
+X        true 3 colorimage 
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPTRUEGRAYc { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        
+X        /is w string def
+X        
+X        ws 0 w getinterval is copy pop 
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        {ip gip bip w gray} image
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/ww FMLOCAL
+X/r FMLOCAL
+X/g FMLOCAL
+X/b FMLOCAL
+X/i FMLOCAL
+X/gray { 
+X        /ww exch def
+X        /b exch def
+X        /g exch def
+X        /r exch def
+X        0 1 ww 1 sub { /i exch def r i get .299 mul g i get .587 mul
+X			b i get .114 mul add add r i 3 -1 roll floor cvi put } for
+X        r
+X        } bind def
+X/BITMAPTRUEGRAY { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        /is w string def
+X        /gis w string def
+X        /bis w string def
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        { cf is readhexstring pop 
+X          cf gis readhexstring pop 
+X          cf bis readhexstring pop w gray}  image
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPGRAY { 
+X	8 {fakecolorsetup} COMMONBITMAP
+X	} bind def
+X/BITMAPGRAYc { 
+X	8 {fakecolorsetup} COMMONBITMAPc
+X	} bind def
+X/ENDBITMAP {
+X	} bind def
+Xend 
+X	/ALDsave FMLOCAL
+X	/ALDmatrix matrix def ALDmatrix currentmatrix pop
+X/StartALD {
+X	/ALDsave save def
+X	 savematrix
+X	 ALDmatrix setmatrix
+X	} bind def
+X/InALD {
+X	 restorematrix
+X	} bind def
+X/DoneALD {
+X	 ALDsave restore
+X	} bind def
+X%%EndProlog
+X%%BeginSetup
+X(3.0) FMVERSION
+X1 1 612 792 0 1 16 FMDOCUMENT
+X0 0 /Helvetica FMFONTDEFINE
+X1 0 /Helvetica-Bold FMFONTDEFINE
+X2 0 /Times-Roman FMFONTDEFINE
+X3 0 /Times-Italic FMFONTDEFINE
+X4 0 /Times-Bold FMFONTDEFINE
+X32 FMFILLS
+X0 0 FMFILL
+X1 .1 FMFILL
+X2 .3 FMFILL
+X3 .5 FMFILL
+X4 .7 FMFILL
+X5 .9 FMFILL
+X6 .97 FMFILL
+X7 1 FMFILL
+X8 <0f1e3c78f0e1c387> FMFILL
+X9 <0f87c3e1f0783c1e> FMFILL
+X10 <cccccccccccccccc> FMFILL
+X11 <ffff0000ffff0000> FMFILL
+X12 <8142241818244281> FMFILL
+X13 <03060c183060c081> FMFILL
+X14 <8040201008040201> FMFILL
+X16 1 FMFILL
+X17 .9 FMFILL
+X18 .7 FMFILL
+X19 .5 FMFILL
+X20 .3 FMFILL
+X21 .1 FMFILL
+X22 0.03 FMFILL
+X23 0 FMFILL
+X24 <f0e1c3870f1e3c78> FMFILL
+X25 <f0783c1e0f87c3e1> FMFILL
+X26 <3333333333333333> FMFILL
+X27 <0000ffff0000ffff> FMFILL
+X28 <7ebddbe7e7dbbd7e> FMFILL
+X29 <fcf9f3e7cf9f3f7e> FMFILL
+X30 <7fbfdfeff7fbfdfe> FMFILL
+X%%EndSetup
+X%%Page: "1" 1
+X%%BeginPaperSize: Letter
+X%%EndPaperSize
+X612 792 0 FMBEGINPAGE
+X72 746 540 756 R
+X7 X
+X0 K
+XV
+X72 32.67 540 42.67 R
+XV
+X161 394 437 537 R
+X3 X
+XV
+X0.5 H
+X2 Z
+X0 X
+XN
+X0 24 Q
+X(The) 233 641 T
+X258.78 350.14 269.26 350.14 2 L
+X1 H
+XN
+X264.02 349.85 264.02 334.13 2 L
+XN
+X258.78 334.42 269.26 334.42 2 L
+XN
+X258.78 342.86 269.26 342.86 2 L
+XN
+X284.98 358 284.98 323.95 2 L
+XN
+X278.28 348.98 291.67 348.98 2 L
+XN
+END_OF_FILE
+if test 21574 -ne `wc -c <'abacus.ps.aa'`; then
+    echo shar: \"'abacus.ps.aa'\" unpacked with wrong size!
+fi
+# end of 'abacus.ps.aa'
+fi
+if test -f 'abacus.ps.ac' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'abacus.ps.ac'\"
+else
+echo shar: Extracting \"'abacus.ps.ac'\" \(22902 characters\)
+sed "s/^X//" >'abacus.ps.ac' <<'END_OF_FILE'
+X72 444.02 558 444.02 2 L
+X7 X
+XV
+X2 Z
+X0 X
+XN
+X72 74.02 558 74.02 2 L
+X7 X
+XV
+X0.25 H
+X0 X
+XN
+X72 55.01 558 66.96 R
+X7 X
+XV
+X1 10 Q
+X0 X
+X(6) 527.85 60.96 T
+X1 9 Q
+X( of) 533.41 60.96 T
+X1 10 Q
+X(12) 546.89 60.96 T
+X207 468 558 693 R
+X7 X
+XV
+X207 658.99 558 669 C
+X207 660 459 660 2 L
+X0.25 H
+X0 Z
+X0 X
+X0 K
+XN
+X0 0 612 792 C
+X2 24 Q
+X0 X
+X0 K
+X-0.48 (The Abacus) 207 677 S
+X1 9 Q
+X(The Art of Calculation using) 207 600.99 T
+X(Beads) 207 588.99 T
+X72 87.98 558 432 R
+X7 X
+XV
+X72 410.98 558 420 C
+X207 418.49 558 418.49 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X72 418.49 198 418.49 2 L
+X0 Z
+XN
+X0 0 612 792 C
+X1 12 Q
+X0 X
+X0 K
+X(1.0) 181.33 424 T
+X(Introduction) 207 424 T
+X72 200.94 558 213.98 C
+X207 208 558 208 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X72 208 198 208 2 L
+X0 Z
+XN
+X0 0 612 792 C
+X1 9 Q
+X0 X
+X0 K
+X(FIGURE  1) 72 194.94 T
+X0 F
+X(The Anatomy of an Abacus) 207 194.94 T
+X2 10 Q
+X(The classic abacus has two decks. Each deck, separated by a beam, has several \050nor-) 207 173.28 T
+X-0.14 (mally 13\051 rods on which are mounted beads. Each rod on the top deck contains 2 beads,) 207 161.28 P
+X(and each rod on the bottom deck contains 5 beads. Each bead on the upper deck has a) 207 149.28 T
+X(value of \336ve, while each bead on the lower deck has value of one.) 207 137.28 T
+X(Beads are considered counted, when moved) 207 113.28 T
+X3 F
+X(towar) 384.91 113.28 T
+X(ds) 407.87 113.28 T
+X2 F
+X( the beam separating the decks.) 416.76 113.28 T
+X72 87.98 558 432 C
+X78.75 227.98 551.25 410.98 C
+X78.75 227.98 551.25 410.98 R
+X7 X
+X0 K
+XV
+X206 250 416 359 R
+X3 X
+XV
+X0.5 H
+X2 Z
+X0 X
+XN
+X209.8 325.46 412.19 354.1 R
+X7 X
+XV
+X0 X
+XN
+X210.57 256.57 411.43 318.6 R
+X7 X
+XV
+X0 X
+XN
+X90 450 6.47 4.19 219.86 347.62 G
+X90 450 6.47 4.19 219.86 347.62 A
+X90 450 6.47 4.19 219.86 337.71 G
+X90 450 6.47 4.19 219.86 337.71 A
+X90 450 6.47 4.19 219.86 292.09 G
+X90 450 6.47 4.19 219.86 292.09 A
+X90 450 6.47 4.19 219.86 302.76 G
+X90 450 6.47 4.19 219.86 302.76 A
+X90 450 6.47 4.19 219.86 281.63 G
+X90 450 6.47 4.19 219.86 281.63 A
+X90 450 6.47 4.19 219.86 271.51 G
+X90 450 6.47 4.19 219.86 271.51 A
+X90 450 6.47 4.19 220.4 261.6 G
+X90 450 6.47 4.19 220.4 261.6 A
+X220.02 354.64 220.02 256.32 2 L
+XV
+XN
+X90 450 6.47 4.19 358.01 347.51 G
+X90 450 6.47 4.19 358.01 347.51 A
+X90 450 6.47 4.19 358.01 337.6 G
+X90 450 6.47 4.19 358.01 337.6 A
+X90 450 6.47 4.19 358.01 291.98 G
+X90 450 6.47 4.19 358.01 291.98 A
+X90 450 6.47 4.19 358.01 302.65 G
+X90 450 6.47 4.19 358.01 302.65 A
+X90 450 6.47 4.19 358.01 281.52 G
+X90 450 6.47 4.19 358.01 281.52 A
+X90 450 6.47 4.19 358.01 271.4 G
+X90 450 6.47 4.19 358.01 271.4 A
+X90 450 6.47 4.19 358.55 261.49 G
+X90 450 6.47 4.19 358.55 261.49 A
+X358.17 354.54 358.17 256.21 2 L
+XV
+XN
+X90 450 6.47 4.19 372.79 347.4 G
+X90 450 6.47 4.19 372.79 347.4 A
+X90 450 6.47 4.19 372.79 337.49 G
+X90 450 6.47 4.19 372.79 337.49 A
+X90 450 6.47 4.19 372.79 291.87 G
+X90 450 6.47 4.19 372.79 291.87 A
+X90 450 6.47 4.19 372.79 302.54 G
+X90 450 6.47 4.19 372.79 302.54 A
+X90 450 6.47 4.19 372.79 281.42 G
+X90 450 6.47 4.19 372.79 281.42 A
+X90 450 6.47 4.19 372.79 271.29 G
+X90 450 6.47 4.19 372.79 271.29 A
+X90 450 6.47 4.19 373.34 261.38 G
+X90 450 6.47 4.19 373.34 261.38 A
+X372.96 354.43 372.96 256.1 2 L
+XV
+XN
+X90 450 6.47 4.19 387.36 347.51 G
+X90 450 6.47 4.19 387.36 347.51 A
+X90 450 6.47 4.19 387.36 337.6 G
+X90 450 6.47 4.19 387.36 337.6 A
+X90 450 6.47 4.19 387.36 291.98 G
+X90 450 6.47 4.19 387.36 291.98 A
+X90 450 6.47 4.19 387.36 302.65 G
+X90 450 6.47 4.19 387.36 302.65 A
+X90 450 6.47 4.19 387.36 281.52 G
+X90 450 6.47 4.19 387.36 281.52 A
+X90 450 6.47 4.19 387.36 271.4 G
+X90 450 6.47 4.19 387.36 271.4 A
+X90 450 6.47 4.19 387.9 261.49 G
+X90 450 6.47 4.19 387.9 261.49 A
+X387.52 354.54 387.52 256.21 2 L
+XV
+XN
+X90 450 6.47 4.19 402.68 347.4 G
+X90 450 6.47 4.19 402.68 347.4 A
+X90 450 6.47 4.19 402.68 337.49 G
+X90 450 6.47 4.19 402.68 337.49 A
+X90 450 6.47 4.19 402.68 291.87 G
+X90 450 6.47 4.19 402.68 291.87 A
+X90 450 6.47 4.19 402.68 302.54 G
+X90 450 6.47 4.19 402.68 302.54 A
+X90 450 6.47 4.19 402.68 281.42 G
+X90 450 6.47 4.19 402.68 281.42 A
+X90 450 6.47 4.19 402.68 271.29 G
+X90 450 6.47 4.19 402.68 271.29 A
+X90 450 6.47 4.19 403.23 261.38 G
+X90 450 6.47 4.19 403.23 261.38 A
+X402.85 354.43 402.85 256.1 2 L
+XV
+XN
+X90 450 6.47 4.19 297.25 347.4 G
+X90 450 6.47 4.19 297.25 347.4 A
+X90 450 6.47 4.19 297.25 337.49 G
+X90 450 6.47 4.19 297.25 337.49 A
+X90 450 6.47 4.19 297.25 291.87 G
+X90 450 6.47 4.19 297.25 291.87 A
+X90 450 6.47 4.19 297.25 302.54 G
+X90 450 6.47 4.19 297.25 302.54 A
+X90 450 6.47 4.19 297.25 281.42 G
+X90 450 6.47 4.19 297.25 281.42 A
+X90 450 6.47 4.19 297.25 271.29 G
+X90 450 6.47 4.19 297.25 271.29 A
+X90 450 6.47 4.19 297.79 261.38 G
+X90 450 6.47 4.19 297.79 261.38 A
+X297.41 354.43 297.41 256.1 2 L
+XV
+XN
+X90 450 6.47 4.19 312.03 347.29 G
+X90 450 6.47 4.19 312.03 347.29 A
+X90 450 6.47 4.19 312.03 337.39 G
+X90 450 6.47 4.19 312.03 337.39 A
+X90 450 6.47 4.19 312.03 291.76 G
+X90 450 6.47 4.19 312.03 291.76 A
+X90 450 6.47 4.19 312.03 302.43 G
+X90 450 6.47 4.19 312.03 302.43 A
+X90 450 6.47 4.19 312.03 281.31 G
+X90 450 6.47 4.19 312.03 281.31 A
+X90 450 6.47 4.19 312.03 271.18 G
+X90 450 6.47 4.19 312.03 271.18 A
+X90 450 6.47 4.19 312.58 261.27 G
+X90 450 6.47 4.19 312.58 261.27 A
+X312.2 354.32 312.2 255.99 2 L
+XV
+XN
+X90 450 6.47 4.19 326.6 347.4 G
+X90 450 6.47 4.19 326.6 347.4 A
+X90 450 6.47 4.19 326.6 337.49 G
+X90 450 6.47 4.19 326.6 337.49 A
+X90 450 6.47 4.19 326.6 291.87 G
+X90 450 6.47 4.19 326.6 291.87 A
+X90 450 6.47 4.19 326.6 302.54 G
+X90 450 6.47 4.19 326.6 302.54 A
+X90 450 6.47 4.19 326.6 281.42 G
+X90 450 6.47 4.19 326.6 281.42 A
+X90 450 6.47 4.19 326.6 271.29 G
+X90 450 6.47 4.19 326.6 271.29 A
+X90 450 6.47 4.19 327.14 261.38 G
+X90 450 6.47 4.19 327.14 261.38 A
+X326.76 354.43 326.76 256.1 2 L
+XV
+XN
+X90 450 6.47 4.19 341.92 347.3 G
+X90 450 6.47 4.19 341.92 347.3 A
+X90 450 6.47 4.19 341.92 337.39 G
+X90 450 6.47 4.19 341.92 337.39 A
+X90 450 6.47 4.19 341.92 291.76 G
+X90 450 6.47 4.19 341.92 291.76 A
+X90 450 6.47 4.19 341.92 302.43 G
+X90 450 6.47 4.19 341.92 302.43 A
+X90 450 6.47 4.19 341.92 281.31 G
+X90 450 6.47 4.19 341.92 281.31 A
+X90 450 6.47 4.19 341.92 271.18 G
+X90 450 6.47 4.19 341.92 271.18 A
+X90 450 6.47 4.19 342.47 261.27 G
+X90 450 6.47 4.19 342.47 261.27 A
+X342.09 354.32 342.09 255.99 2 L
+XV
+XN
+X90 450 6.47 4.19 235.95 347.84 G
+X90 450 6.47 4.19 235.95 347.84 A
+X90 450 6.47 4.19 235.95 337.93 G
+X90 450 6.47 4.19 235.95 337.93 A
+X90 450 6.47 4.19 235.95 292.3 G
+X90 450 6.47 4.19 235.95 292.3 A
+X90 450 6.47 4.19 235.95 302.98 G
+X90 450 6.47 4.19 235.95 302.98 A
+X90 450 6.47 4.19 235.95 281.85 G
+X90 450 6.47 4.19 235.95 281.85 A
+X90 450 6.47 4.19 235.95 271.72 G
+X90 450 6.47 4.19 235.95 271.72 A
+X90 450 6.47 4.19 236.49 261.82 G
+X90 450 6.47 4.19 236.49 261.82 A
+X236.11 354.86 236.11 256.53 2 L
+XV
+XN
+X90 450 6.47 4.19 250.73 347.73 G
+X90 450 6.47 4.19 250.73 347.73 A
+X90 450 6.47 4.19 250.73 337.82 G
+X90 450 6.47 4.19 250.73 337.82 A
+X90 450 6.47 4.19 250.73 292.2 G
+X90 450 6.47 4.19 250.73 292.2 A
+X90 450 6.47 4.19 250.73 302.87 G
+X90 450 6.47 4.19 250.73 302.87 A
+X90 450 6.47 4.19 250.73 281.74 G
+X90 450 6.47 4.19 250.73 281.74 A
+X90 450 6.47 4.19 250.73 271.62 G
+X90 450 6.47 4.19 250.73 271.62 A
+X90 450 6.47 4.19 251.27 261.71 G
+X90 450 6.47 4.19 251.27 261.71 A
+X250.89 354.75 250.89 256.42 2 L
+XV
+XN
+X90 450 6.47 4.19 265.29 347.84 G
+X90 450 6.47 4.19 265.29 347.84 A
+X90 450 6.47 4.19 265.29 337.93 G
+X90 450 6.47 4.19 265.29 337.93 A
+X90 450 6.47 4.19 265.29 292.31 G
+X90 450 6.47 4.19 265.29 292.31 A
+X90 450 6.47 4.19 265.29 302.98 G
+X90 450 6.47 4.19 265.29 302.98 A
+X90 450 6.47 4.19 265.29 281.85 G
+X90 450 6.47 4.19 265.29 281.85 A
+X90 450 6.47 4.19 265.29 271.72 G
+X90 450 6.47 4.19 265.29 271.72 A
+X90 450 6.47 4.19 265.84 261.82 G
+X90 450 6.47 4.19 265.84 261.82 A
+X265.46 354.86 265.46 256.53 2 L
+XV
+XN
+X90 450 6.47 4.19 280.62 347.73 G
+X90 450 6.47 4.19 280.62 347.73 A
+X90 450 6.47 4.19 280.62 337.82 G
+X90 450 6.47 4.19 280.62 337.82 A
+X90 450 6.47 4.19 280.62 292.2 G
+X90 450 6.47 4.19 280.62 292.2 A
+X90 450 6.47 4.19 280.62 302.87 G
+X90 450 6.47 4.19 280.62 302.87 A
+X90 450 6.47 4.19 280.62 281.74 G
+X90 450 6.47 4.19 280.62 281.74 A
+X90 450 6.47 4.19 280.62 271.62 G
+X90 450 6.47 4.19 280.62 271.62 A
+X90 450 6.47 4.19 281.16 261.71 G
+X90 450 6.47 4.19 281.16 261.71 A
+X280.78 354.75 280.78 256.43 2 L
+XV
+XN
+X218.55 318.98 404.97 325.17 R
+X3 X
+XV
+X2 10 Q
+X0 X
+X(upper) 451.62 337.14 T
+X(-deck) 474.18 337.14 T
+X(lower) 451.38 284.39 T
+X(-deck) 473.93 284.39 T
+X(frame) 341.94 388.04 T
+X(rail) 153.75 326.04 T
+X(bead) 148.5 279.02 T
+X434.01 350.29 422.47 353.6 434.01 356.91 434.01 353.6 4 Y
+XV
+X433.41 321.04 421.88 324.35 433.41 327.66 433.41 324.35 4 Y
+XV
+X434.01 353.6 434.35 353.6 445.63 353.6 445.63 324.35 433.41 324.35 5 L
+X0 Z
+XN
+X433.29 312.29 421.75 315.6 433.29 318.91 433.29 315.6 4 Y
+XV
+X432.66 251.66 421.13 254.97 432.66 258.28 432.66 254.97 4 Y
+XV
+X433.29 315.6 434.25 315.6 446.13 315.6 446.13 254.97 432.66 254.97 5 L
+XN
+X217.66 313.51 228.75 318.1 221.78 308.33 219.72 310.92 4 Y
+XV
+X171.25 303.1 209.76 303.1 219.72 310.92 3 L
+X2 Z
+XN
+X(beam) 146.25 302.47 T
+X204.72 284.41 216.25 281.1 204.72 277.79 204.72 281.1 4 Y
+XV
+X171.25 281.1 204.72 281.1 2 L
+XN
+X281.05 361.84 269.12 360.73 278.65 367.99 279.85 364.92 4 Y
+XV
+X339.13 390.1 M
+X 306 383.85 306 383.85 316.63 383.54 D
+X 326.55 383.24 327.21 383.23 279.88 364.89 D
+X0 Z
+XN
+X210.34 332.03 221.88 328.72 210.34 325.42 210.34 328.72 4 Y
+XV
+X170 328.72 210.34 328.72 2 L
+X2 Z
+XN
+X72 87.98 558 432 C
+X0 0 612 792 C
+XFMENDPAGE
+X%%EndPage: "6" 7
+X%%Page: "7" 7
+X612 792 0 FMBEGINPAGE
+X54 750.02 540 750.02 2 L
+X7 X
+X0 K
+XV
+X2 H
+X0 Z
+X0 X
+XN
+X54 730.01 540 745.2 R
+X7 X
+XV
+X1 9 Q
+X0 X
+X(Addition) 189 739.2 T
+X54 726.98 540 726.98 2 L
+X7 X
+XV
+X0.25 H
+X0 X
+XN
+X54 74.02 540 74.02 2 L
+X7 X
+XV
+X2 Z
+X0 X
+XN
+X54 55.01 540 66.96 R
+X7 X
+XV
+X1 10 Q
+X0 X
+X(7) 54 60.96 T
+X1 9 Q
+X( of) 59.56 60.96 T
+X1 10 Q
+X( 12) 70.54 60.96 T
+X1 9 Q
+X(The Abacus) 189 60.96 T
+X498.25 742.67 502.85 742.67 2 L
+X1 H
+XN
+X500.55 742.55 500.55 735.65 2 L
+XN
+X498.25 735.78 502.85 735.78 2 L
+XN
+X498.25 739.48 502.85 739.48 2 L
+XN
+X509.74 746.12 509.74 731.18 2 L
+XN
+X506.8 742.16 512.68 742.16 2 L
+XN
+X505.53 738.21 513.7 738.21 2 L
+XN
+X507.44 735.78 505.14 732.33 2 L
+XN
+X511.65 735.4 513.19 732.33 2 L
+XN
+X505.35 743.7 M
+X 505.67 742.81 505.67 742.81 505.75 742.49 D
+X 505.83 742.17 505.83 742.17 505.87 741.85 D
+X 505.91 741.53 505.91 741.53 505.35 740.49 D
+XN
+X522.12 733.79 528.11 741.74 R
+XN
+X517.84 731.84 533 731.84 2 L
+XN
+X522.12 737.1 528.11 737.1 2 L
+XN
+X522.12 739.3 528.11 739.3 2 L
+XN
+X521.51 746.88 521.99 746.02 522.12 744.8 521.51 742.6 4 L
+XN
+X522.61 746.14 523.95 746.27 2 L
+XN
+X522.48 744.07 523.83 742.72 2 L
+XN
+X526.64 747 527.13 746.14 527.25 744.92 526.64 742.72 4 L
+XN
+X527.74 746.27 529.09 746.39 2 L
+XN
+X527.62 744.19 528.96 742.84 2 L
+XN
+X522.85 732.69 523.83 731.72 524.07 730.74 523.71 729.88 522.85 729.03 5 L
+XN
+X527.74 732.69 527.98 730.86 527.5 729.39 3 L
+XN
+X517.15 710.58 532 710.58 2 L
+XN
+X519.31 710.58 518.59 713.6 529.12 713.6 528.11 710.58 4 L
+XN
+X522.63 713.6 522.49 710.72 2 L
+XN
+X525.37 713.32 525.22 710.58 2 L
+XN
+X516.72 720.23 523.64 720.67 2 L
+XN
+X520.03 722.83 521.62 721.1 2 L
+XN
+X521.04 719.66 522.05 717.93 2 L
+XN
+X518.16 715.77 518.88 716.78 519.17 718.79 518.88 723.69 522.34 724.56 522.2 715.91 6 L
+XN
+X519.03 724.27 520.18 726 2 L
+XN
+X525.22 719.95 526.38 720.81 526.23 723.69 527.53 723.98 528.97 723.84 529.12 721.39 528.97 720.23
+X 530.27 719.8 531.13 720.67 9 L
+XN
+X524.65 714.9 526.81 715.77 528.83 717.35 529.4 718.79 525.22 718.79 527.1 716.34 528.4 715.19
+X 531.13 715.19 8 L
+XN
+X504.26 712.64 509.61 719.74 R
+XN
+X500.44 710.89 513.98 710.89 2 L
+XN
+X504.26 715.59 509.61 715.59 2 L
+XN
+X504.26 717.55 509.61 717.55 2 L
+XN
+X503.71 724.32 504.15 723.56 504.26 722.47 503.71 720.5 4 L
+XN
+X504.7 723.67 505.9 723.78 2 L
+XN
+X504.59 721.81 505.79 720.61 2 L
+XN
+X508.3 724.43 508.74 723.67 508.85 722.58 508.3 720.61 4 L
+XN
+X509.28 723.78 510.48 723.89 2 L
+XN
+X509.17 721.92 510.37 720.72 2 L
+XN
+X504.91 711.66 505.79 710.78 506.01 709.91 505.68 709.15 504.91 708.38 5 L
+XN
+X509.28 711.66 509.5 710.02 509.06 708.71 3 L
+XN
+X54 87.5 540 686.02 R
+X7 X
+XV
+X54 672.98 540 686.02 C
+X189 680.04 540 680.04 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X54 680.04 180 680.04 2 L
+X0 Z
+XN
+X0 0 612 792 C
+X1 9 Q
+X0 X
+X0 K
+X(FIGURE  2) 54 666.98 T
+X0 F
+X(Numeric Representation of Number 87,654,321 on the Abacus) 189 666.98 T
+X54 503.97 540 512.99 C
+X189 511.48 540 511.48 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X54 511.48 180 511.48 2 L
+X0 Z
+XN
+X0 0 612 792 C
+X1 12 Q
+X0 X
+X0 K
+X(2.0) 163.33 516.99 T
+X(Addition) 189 516.99 T
+X2 10 Q
+X-0.22 (Addition on the abacus involves registering the numbers on the beads in the straight-for-) 189 483.3 P
+X(ward left-to-right sequence they are written down in. As long as the digits are placed) 189 471.3 T
+X(correctly) 189 459.3 T
+X(, and the carry\325) 223.87 459.3 T
+X(s noted properly) 283.82 459.3 T
+X(, the answer to the operation immediately pre-) 348.12 459.3 T
+X(sents itself right on the abacus. There are 4 approaches to performing additions \050or sub-) 189 447.3 T
+X-0.1 (tractions\051, each applied to particular situations. Each of these techniques is explained in) 189 435.3 P
+X(tabular form in the sections that follow) 189 423.3 T
+X2 8 Q
+X(1) 344.45 427.3 T
+X2 10 Q
+X(.) 348.45 423.3 T
+X1 F
+X(2.1) 166.11 393.3 T
+X(Simple Addition) 189 393.3 T
+X2 F
+X(When performing the addition 6+2, one would move 1 bead from the upper deck down) 189 369.3 T
+X(\050value = 5\051 and one bead from the lower deck up \050value = 1\051; this represents 6. Moving) 189 357.3 T
+X(2 beads from the lower deck \050in the same column\051 up \050value = 1 * 2 beads = 2\051 would) 189 345.3 T
+X-0.17 (complete the operation. The answer is then obtained by reading resultant bead positions.) 189 333.3 P
+X54 302.94 540 315.97 C
+X189 309.99 540 309.99 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X54 309.99 180 309.99 2 L
+X0 Z
+XN
+X0 0 612 792 C
+X54 279.97 540 293.94 C
+X189 285.94 540 285.94 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X0 0 612 792 C
+X1 9 Q
+X0 X
+X0 K
+X(T) 54 296.94 T
+X(ABLE  1) 58.83 296.94 T
+X0 F
+X(Simple Addition) 189 296.94 T
+X0 8 Q
+X(Original Number) 202.8 274.64 T
+X(Formula) 312.68 274.64 T
+X(Bead-Operations Involved) 396 274.64 T
+X(lower-deck) 411.35 264.64 T
+X( upper-deck) 488.78 264.64 T
+X(0,1,2,3,4,5,6,7,8) 198 254.64 T
+X(plus 1) 313.33 254.64 T
+X(+1) 427.44 254.64 T
+X(0,1,2,5,6 or 7) 198 244.64 T
+X(plus 2) 313.33 244.64 T
+X(+2) 427.44 244.64 T
+X(0,1,5 or 6) 198 234.64 T
+X(plus 3) 313.33 234.64 T
+X(+3) 427.44 234.64 T
+X(0 or 3) 198 224.64 T
+X(plus 4) 313.33 224.64 T
+X(+4) 427.44 224.64 T
+X(0,1,2,3 or 4) 198 214.64 T
+X(plus 5) 313.33 214.64 T
+X(+1) 508.44 214.64 T
+X(0,1,2, or 3) 198 204.64 T
+X(plus 6) 313.33 204.64 T
+X(+1) 427.44 204.64 T
+X(+1) 508.44 204.64 T
+X(0,1 or 2) 198 194.64 T
+X(plus 7) 313.33 194.64 T
+X(+2) 427.44 194.64 T
+X(+1) 508.44 194.64 T
+X(0 or 1) 198 184.64 T
+X(plus 8) 313.33 184.64 T
+X(+3) 427.44 184.64 T
+X(+1) 508.44 184.64 T
+X(0) 198 174.64 T
+X(plus 9) 313.33 174.64 T
+X(+4) 427.44 174.64 T
+X(+1) 508.44 174.64 T
+X54 153.5 540 169.56 C
+X189 161.49 333 161.49 2 L
+X0.25 H
+X2 Z
+X0 X
+X0 K
+XN
+X0 0 612 792 C
+X2 8 Q
+X0 X
+X0 K
+X-0.28 (1.  The tables are used as follows: given) 189 148.17 P
+X3 F
+X-0.28 (Original Number) 316.57 148.17 P
+X2 F
+X-0.28 (, to add/subtract) 371.6 148.17 P
+X3 F
+X-0.28 (Formula) 424.04 148.17 P
+X2 F
+X-0.28 (, perform) 452.03 148.17 P
+X3 F
+X-0.28 (Bead-Operations) 483.21 148.17 P
+X(Involved) 189 139.17 T
+X2 F
+X(.) 216.53 139.17 T
+X-0.03 ( For example, to add 2 and 7, move down) 189 130.17 P
+X3 F
+X-0.03 (Original Number) 323.76 130.17 P
+X2 F
+X-0.03 ( column to a row containing 2 and down) 379.03 130.17 P
+X3 F
+X-0.03 (Formula) 510.04 130.17 P
+X2 F
+X-0.13 (to a row containing 7 \050the 7th row\051 then move across to read the) 189 121.17 P
+X3 F
+X-0.13 (Operation Involved) 394.13 121.17 P
+X2 F
+X-0.13 (: move 2 bead counters in) 456.4 121.17 P
+X(the lower-deck and 1 bead counter in the upper-deck to represent the sum; the answer then presents itself on) 189 112.17 T
+X(the abacus. The \322+\323 symbol, in the) 189 103.17 T
+X3 F
+X(Operations Involved) 302.1 103.17 T
+X2 F
+X( column represents moving the bead in question,) 367.61 103.17 T
+X3 F
+X(towards) 189 94.17 T
+X2 F
+X( the rail; the \322-\323 symbol represents moving the bead in question) 214.77 94.17 T
+X3 F
+X(away) 419.52 94.17 T
+X2 F
+X( from the rail.) 436.4 94.17 T
+X54 87.5 540 686.02 C
+X273 547.99 540 663.98 C
+X273 547.99 540 663.98 R
+X7 X
+X0 K
+XV
+X4 14 Q
+X0 X
+X(8 7 6 5 4 3 2 1) 297 552.98 T
+X278.88 565.88 424.88 654.88 R
+X3 X
+XV
+X0.5 H
+X2 Z
+X0 X
+XN
+X281.52 627.49 422.23 650.87 R
+X7 X
+XV
+X0 X
+XN
+X282.05 571.24 421.7 621.89 R
+X7 X
+XV
+X0 X
+XN
+X90 450 4.5 3.42 288.51 645.58 G
+X90 450 4.5 3.42 288.51 645.58 A
+X90 450 4.5 3.42 288.51 637.49 G
+X90 450 4.5 3.42 288.51 637.49 A
+X90 450 4.5 3.42 288.51 600.24 G
+X90 450 4.5 3.42 288.51 600.24 A
+X90 450 4.5 3.42 288.51 608.95 G
+X90 450 4.5 3.42 288.51 608.95 A
+X90 450 4.5 3.42 288.51 591.7 G
+X90 450 4.5 3.42 288.51 591.7 A
+X90 450 4.5 3.42 288.51 583.44 G
+X90 450 4.5 3.42 288.51 583.44 A
+X90 450 4.5 3.42 288.89 575.34 G
+X90 450 4.5 3.42 288.89 575.34 A
+X288.62 651.32 288.62 571.03 2 L
+XV
+XN
+X90 450 4.5 3.42 384.56 645.5 G
+X90 450 4.5 3.42 384.56 645.5 A
+X90 450 4.5 3.42 384.56 637.41 G
+X90 450 4.5 3.42 384.56 637.41 A
+X90 450 4.5 3.42 384.56 600.15 G
+X90 450 4.5 3.42 384.56 600.15 A
+X90 450 4.5 3.42 384.56 608.86 G
+X90 450 4.5 3.42 384.56 608.86 A
+X90 450 4.5 3.42 384.56 591.62 G
+X90 450 4.5 3.42 384.56 591.62 A
+X90 450 4.5 3.42 384.56 583.35 G
+X90 450 4.5 3.42 384.56 583.35 A
+X90 450 4.5 3.42 384.94 575.26 G
+X90 450 4.5 3.42 384.94 575.26 A
+X384.67 651.23 384.67 570.94 2 L
+XV
+XN
+X90 450 4.5 3.42 394.84 645.41 G
+X90 450 4.5 3.42 394.84 645.41 A
+X90 450 4.5 3.42 394.84 637.32 G
+X90 450 4.5 3.42 394.84 637.32 A
+X90 450 4.5 3.42 394.84 600.06 G
+X90 450 4.5 3.42 394.84 600.06 A
+X90 450 4.5 3.42 394.84 608.78 G
+X90 450 4.5 3.42 394.84 608.78 A
+X90 450 4.5 3.42 394.84 591.53 G
+X90 450 4.5 3.42 394.84 591.53 A
+X90 450 4.5 3.42 394.84 583.26 G
+X90 450 4.5 3.42 394.84 583.26 A
+X90 450 4.5 3.42 395.21 575.17 G
+X90 450 4.5 3.42 395.21 575.17 A
+X394.95 651.14 394.95 570.85 2 L
+XV
+XN
+X90 450 4.5 3.42 404.96 645.5 G
+X90 450 4.5 3.42 404.96 645.5 A
+X90 450 4.5 3.42 404.96 637.41 G
+X90 450 4.5 3.42 404.96 637.41 A
+X90 450 4.5 3.42 404.96 600.15 G
+X90 450 4.5 3.42 404.96 600.15 A
+X90 450 4.5 3.42 404.96 608.86 G
+X90 450 4.5 3.42 404.96 608.86 A
+X90 450 4.5 3.42 404.96 591.62 G
+X90 450 4.5 3.42 404.96 591.62 A
+X90 450 4.5 3.42 404.96 583.35 G
+X90 450 4.5 3.42 404.96 583.35 A
+X90 450 4.5 3.42 405.34 575.26 G
+X90 450 4.5 3.42 405.34 575.26 A
+X405.08 651.23 405.08 570.94 2 L
+XV
+XN
+X90 450 4.5 3.42 415.62 645.41 G
+X90 450 4.5 3.42 415.62 645.41 A
+X90 450 4.5 3.42 415.62 637.32 G
+X90 450 4.5 3.42 415.62 637.32 A
+X90 450 4.5 3.42 415.62 600.06 G
+X90 450 4.5 3.42 415.62 600.06 A
+X90 450 4.5 3.42 415.62 608.78 G
+X90 450 4.5 3.42 415.62 608.78 A
+X90 450 4.5 3.42 415.62 591.53 G
+X90 450 4.5 3.42 415.62 591.53 A
+X90 450 4.5 3.42 415.62 583.26 G
+X90 450 4.5 3.42 415.62 583.26 A
+X90 450 4.5 3.42 415.99 575.17 G
+X90 450 4.5 3.42 415.99 575.17 A
+X415.73 651.14 415.73 570.85 2 L
+XV
+XN
+X90 450 4.5 3.42 373.37 645.32 G
+X90 450 4.5 3.42 373.37 645.32 A
+X90 450 4.5 3.42 373.37 637.23 G
+X90 450 4.5 3.42 373.37 637.23 A
+X373.49 651.05 373.49 570.77 2 L
+XV
+XN
+X299.81 651.5 299.81 571.21 2 L
+XV
+XN
+X310.08 649.5 310.08 571.12 2 L
+XV
+XN
+X320.21 651.5 320.21 571.21 2 L
+XV
+XN
+X90 450 4.5 3.42 330.75 645.67 G
+X90 450 4.5 3.42 330.75 645.67 A
+X90 450 4.5 3.42 330.75 631.58 G
+X90 450 4.5 3.42 330.75 631.58 A
+X90 450 4.5 3.42 330.75 600.33 G
+X90 450 4.5 3.42 330.75 600.33 A
+X90 450 4.5 3.42 330.75 609.04 G
+X90 450 4.5 3.42 330.75 609.04 A
+X90 450 4.5 3.42 330.75 591.79 G
+X90 450 4.5 3.42 330.75 591.79 A
+X90 450 4.5 3.42 330.75 583.53 G
+X90 450 4.5 3.42 330.75 583.53 A
+X90 450 4.5 3.42 331.13 575.43 G
+X90 450 4.5 3.42 331.13 575.43 A
+X330.87 651.41 330.87 571.12 2 L
+XV
+XN
+X287.6 622.2 417.21 627.26 R
+X3 X
+XV
+X0 X
+X90 450 4.5 3.42 373.37 600.47 G
+X90 450 4.5 3.42 373.37 600.47 A
+X90 450 4.5 3.42 373.37 617.69 G
+X90 450 4.5 3.42 373.37 617.69 A
+X90 450 4.5 3.42 373.37 591.94 G
+X90 450 4.5 3.42 373.37 591.94 A
+X90 450 4.5 3.42 373.37 583.67 G
+X90 450 4.5 3.42 373.37 583.67 A
+X90 450 4.5 3.42 373.75 575.58 G
+X90 450 4.5 3.42 373.75 575.58 A
+X90 450 4.5 3.42 363.1 575.17 G
+X90 450 4.5 3.42 363.1 575.17 A
+X90 450 4.5 3.42 342.32 645.41 G
+X90 450 4.5 3.42 342.32 645.41 A
+X90 450 4.5 3.42 342.32 637.32 G
+X90 450 4.5 3.42 342.32 637.32 A
+X90 450 4.5 3.42 341.82 609.06 G
+X90 450 4.5 3.42 341.82 609.06 A
+X90 450 4.5 3.42 341.82 617.78 G
+X90 450 4.5 3.42 341.82 617.78 A
+X90 450 4.5 3.42 341.82 600.53 G
+X90 450 4.5 3.42 341.82 600.53 A
+X90 450 4.5 3.42 341.82 592.26 G
+X90 450 4.5 3.42 341.82 592.26 A
+X90 450 4.5 3.42 342.69 575.17 G
+X90 450 4.5 3.42 342.69 575.17 A
+X342.43 651.14 342.43 570.85 2 L
+XV
+XN
+X90 450 4.5 3.42 352.59 645.32 G
+X90 450 4.5 3.42 352.59 645.32 A
+X90 450 4.5 3.42 352.59 637.23 G
+X90 450 4.5 3.42 352.59 637.23 A
+X90 450 4.5 3.42 352.59 608.97 G
+X90 450 4.5 3.42 352.59 608.97 A
+X90 450 4.5 3.42 352.59 617.69 G
+X90 450 4.5 3.42 352.59 617.69 A
+X90 450 4.5 3.42 352.59 600.44 G
+X90 450 4.5 3.42 352.59 600.44 A
+X90 450 4.5 3.42 352.59 583.17 G
+X90 450 4.5 3.42 352.59 583.17 A
+X90 450 4.5 3.42 352.97 575.08 G
+X90 450 4.5 3.42 352.97 575.08 A
+X352.71 651.05 352.71 570.77 2 L
+XV
+XN
+X90 450 4.5 3.42 362.72 645.41 G
+X90 450 4.5 3.42 362.72 645.41 A
+X90 450 4.5 3.42 362.72 637.32 G
+X90 450 4.5 3.42 362.72 637.32 A
+X90 450 4.5 3.42 363.22 609.06 G
+X90 450 4.5 3.42 363.22 609.06 A
+X90 450 4.5 3.42 363.22 617.78 G
+X90 450 4.5 3.42 363.22 617.78 A
+X90 450 4.5 3.42 362.72 591.53 G
+X90 450 4.5 3.42 362.72 591.53 A
+X90 450 4.5 3.42 362.72 583.26 G
+X90 450 4.5 3.42 362.72 583.26 A
+X362.83 651.14 362.83 570.85 2 L
+XV
+XN
+X90 450 4.5 3.42 319.75 645.67 G
+X90 450 4.5 3.42 319.75 645.67 A
+X90 450 4.5 3.42 319.75 631.58 G
+X90 450 4.5 3.42 319.75 631.58 A
+X90 450 4.5 3.42 309.75 645.67 G
+X90 450 4.5 3.42 309.75 645.67 A
+X90 450 4.5 3.42 309.75 631.58 G
+X90 450 4.5 3.42 309.75 631.58 A
+X90 450 4.5 3.42 299.75 645.67 G
+X90 450 4.5 3.42 299.75 645.67 A
+X90 450 4.5 3.42 299.75 631.58 G
+X90 450 4.5 3.42 299.75 631.58 A
+X90 450 4.5 3.42 310.6 575.17 G
+X90 450 4.5 3.42 310.6 575.17 A
+X90 450 4.5 3.42 300.09 608.97 G
+X90 450 4.5 3.42 300.09 608.97 A
+X90 450 4.5 3.42 300.09 617.69 G
+X90 450 4.5 3.42 300.09 617.69 A
+X90 450 4.5 3.42 300.09 600.44 G
+X90 450 4.5 3.42 300.09 600.44 A
+X90 450 4.5 3.42 300.09 583.17 G
+X90 450 4.5 3.42 300.09 583.17 A
+X90 450 4.5 3.42 300.47 575.08 G
+X90 450 4.5 3.42 300.47 575.08 A
+X90 450 4.5 3.42 310.72 609.06 G
+X90 450 4.5 3.42 310.72 609.06 A
+X90 450 4.5 3.42 310.72 617.78 G
+X90 450 4.5 3.42 310.72 617.78 A
+X90 450 4.5 3.42 310.22 591.53 G
+X90 450 4.5 3.42 310.22 591.53 A
+X90 450 4.5 3.42 310.22 583.26 G
+X90 450 4.5 3.42 310.22 583.26 A
+X90 450 4.5 3.42 320.37 599.97 G
+X90 450 4.5 3.42 320.37 599.97 A
+X90 450 4.5 3.42 320.37 617.19 G
+X90 450 4.5 3.42 320.37 617.19 A
+X90 450 4.5 3.42 320.37 591.44 G
+X90 450 4.5 3.42 320.37 591.44 A
+X90 450 4.5 3.42 320.37 583.17 G
+X90 450 4.5 3.42 320.37 583.17 A
+X90 450 4.5 3.42 320.75 575.08 G
+X90 450 4.5 3.42 320.75 575.08 A
+X2 10 Q
+X(1) 442.57 614.47 T
+X380.84 616.85 441.27 616.85 2 L
+X4 X
+XN
+X335.98 586.86 346.84 622 R
+X3 X
+XN
+X370.27 609.57 451.99 609.57 2 L
+X4 X
+XN
+X337.41 629.57 434.13 629.57 2 L
+XN
+X0 X
+X(5) 436.29 627.18 T
+X(2) 454.29 607.76 T
+X357.56 603.14 369.13 621.14 R
+X3 X
+XN
+X347.55 595.14 462.7 595.14 2 L
+X4 X
+XN
+X0 X
+X(4) 467.29 593.33 T
+X54 87.5 540 686.02 C
+X0 0 612 792 C
+XFMENDPAGE
+X%%EndPage: "7" 8
+X%%Page: "8" 8
+X612 792 0 FMBEGINPAGE
+X72 750.02 558 750.02 2 L
+X7 X
+X0 K
+XV
+X2 H
+X0 Z
+X0 X
+XN
+X72 730.01 558 745.2 R
+X7 X
+XV
+X1 9 Q
+X0 X
+X(Addition) 207 739.2 T
+X72 726.98 558 726.98 2 L
+X7 X
+XV
+X0.25 H
+X0 X
+XN
+X72 74.02 558 74.02 2 L
+X7 X
+XV
+X2 Z
+X0 X
+XN
+X72 55.01 558 66.96 R
+X7 X
+END_OF_FILE
+if test 22902 -ne `wc -c <'abacus.ps.ac'`; then
+    echo shar: \"'abacus.ps.ac'\" unpacked with wrong size!
+fi
+# end of 'abacus.ps.ac'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

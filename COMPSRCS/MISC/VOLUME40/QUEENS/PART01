@@ -1,0 +1,549 @@
+Newsgroups: comp.sources.misc
+From: bert@netcom.com (Roberto Sierra)
+Subject: v40i003:  queens - N-Queens Chess Solver, Part01/01
+Message-ID: <1993Oct11.013103.16689@sparky.sterling.com>
+X-Md4-Signature: 5aa8b3ee711a9180710d0a58758d5fbb
+Keywords: ANSI C program to solve N Queens Chess Problem
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Tempered MicroDesigns
+Date: Mon, 11 Oct 1993 01:31:03 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: bert@netcom.com (Roberto Sierra)
+Posting-number: Volume 40, Issue 3
+Archive-name: queens/part01
+Environment: Sun, Mac, ANSI-C
+
+I'm sure that there are a bazillion solutions to the Eight Queens
+chess problem floating around on the net, but I'm still quite
+proud of the solution I came up with way back in '84.  I can't
+resist showing it off to everyone.  Amazingly, it still works!! ;-)
+
+The Eight Queens problem, for those who don't know, involves
+finding all the ways that you can place 8 queens on a chess board
+so that no queen can capture any other -- that is, no more than
+a single queen appears on any rank, file or diagonal.  Try to
+do it yourself -- it's *really* hard.
+
+On a Sun or Mac, my program will find all 92 8x8 solutions
+in a fraction of a second.  OK -- so there are actually only
+23 unique solutions -- my program doesn't exploit rotational
+symmetries to report only unique solutions.  If you have an
+ANSI C compiler, you should be able to get it up and running
+in minutes.  Instructions are included in the source code.
+
+The heart of the code is a recursive pruning algorithm that
+zeros in on solutions quickly without wasting a lot of time.
+I've found that it's an excellent way to teach recursive
+programming techniques to people.  Also, great care has
+been taking to minimize the amount of time it takes to
+detect when queens lie on the same rank, file or diagonal.
+I'm particularly proud of how I did that.
+
+I recently dug up the code to solve another unrelated
+problem, ANSI-fied it in the process, and decided that
+it was about time I posted it for all to see.
+
+Have fun with it!!
+
+some examples...
+
+$ Queens 8   ## Nearly instantaneous
+8 queens on a 8x8 board...
+ Q - - - - - - -
+ - - - - Q - - -
+ - - - - - - - Q
+ - - - - - Q - -
+ - - Q - - - - -
+ - - - - - - Q -
+ - Q - - - - - -
+ - - - Q - - - -
+
+$ Queens -c 8  ## Count all 8x8 solutions.  <1 second.
+8 queens on a 8x8 board...
+...there are 92 solutions
+
+$ Queens -c 12  ## Count all 12x12 solutions. About 20 seconds.
+12 queens on a 12x12 board...
+...there are 14200 solutions
+
+
+   Roberto Sierra
+   Tempered MicroDesigns
+   San Francisco, CA
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Queens.c README
+# Wrapped by kent@sparky on Sun Oct 10 20:29:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'Queens.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Queens.c'\"
+else
+  echo shar: Extracting \"'Queens.c'\" \(13250 characters\)
+  sed "s/^X//" >'Queens.c' <<'END_OF_FILE'
+X/*
+X**  Queens.c	--  Find solutions to the Eight-Queens chess problem.
+X**		    Roberto Sierra  3/19/84  Version 1.1
+X**
+X**  Description:
+X**	This program finds all the possible ways that N queens can
+X**	be placed on an NxN chessboard so that the queens cannot
+X**	capture one another -- that is, so that no rank, file or
+X**	diagonal is occupied by more than one queen.  By default,
+X**	the program prints the first solution it finds.  You can
+X**	use the -a option to print all solutions, or the -c option
+X**	just to count them.  The program allows the chess board
+X**	to be from 1x1 (trivial case) to 100x100.  Warning: the
+X**	larger the chess board, the longer it typically takes to
+X**	find each solution, even though there may be more of them.
+X**
+X**	This is a terrific example of the utility of recursion.  The
+X**	algorithm uses recursion to drastically limit the number
+X**	of board positions that are tested.  The program is able
+X**	to find all 8x8 queen solutions in a fraction of a second
+X**	(not counting print time).  The code makes no attempt to
+X**	eliminate symmetrical solutions, so the number of solutions
+X**	reported will always be higher than the actual number of
+X**	distinct solutions.
+X**
+X**
+X**  Usage:
+X**	Queens [-ac] n
+X**
+X**	n	number of queens (rows and columns).
+X**		An integer from 1 to 100.
+X**	-a	Find (and print) all solutions.
+X**	-c	Count all solutions, but do not print them.
+X**
+X**	The output is sent to stdout.  All errors messages are
+X**	sent to stderr.  If a problem arises, the return code is -1.
+X**
+X**
+X**  Examples:
+X**
+X**	Queens 8	## Show an 8x8 solution
+X**	8 queens on a 8x8 board...
+X**	 Q - - - - - - -
+X**	 - - - - Q - - -
+X**	 - - - - - - - Q
+X**	 - - - - - Q - -
+X**	 - - Q - - - - -
+X**	 - - - - - - Q -
+X**	 - Q - - - - - -
+X**	 - - - Q - - - -
+X**
+X**	Queens -c 8	## Count all 8x8 solutions
+X**	8 queens on a 8x8 board...
+X**	...there are 92 solutions.
+X**
+X**	Queens -a 4	## Show all 4x4 solutions
+X**	4 queens on a 4x4 board...
+X**	
+X**	Solution #1:
+X**	 - Q - -
+X**	 - - - Q
+X**	 Q - - -
+X**	 - - Q -
+X**	
+X**	Solution #2:
+X**	 - - Q -
+X**	 Q - - -
+X**	 - - - Q
+X**	 - Q - -
+X**	
+X**	...there are 2 solutions.
+X**
+X**
+X**  Build Instructions:
+X**	You'll need an ANSI C compiler (or the willingness to edit
+X**	the program a bit).  If you've got Gnu C, then you can
+X**	compile and load the program as follows:
+X**
+X**		gcc Queens.c -ansi -o Queens
+X**
+X**	[If you're using MPW on the Mac, define '-d MPW' on the
+X**	compile line so that background processing will occur.]
+X**
+X**
+X**  Algorithm:
+X**	In a 1984 Byte article, I ran across an interesting letter
+X**	from a high school student who was attempting to solve the
+X**	Eight Queens problem using a BASIC interpreter.  He had
+X**	developed a program which placed eight queens successively
+X**	on all sixty-four squares, testing for conflicts at each
+X**	iteration.  Of course, such a program would require 64^8
+X**	iterations (about 2.8x10^14 iterations).  Even in C on a,
+X**	fast CPU, this could take months or years.  Byte's answer was
+X**	to alter the loops so that the queens resided on separate
+X**	ranks, thereby reducing the number of iterations required
+X**	to find all solutions to 8^8 iterations (about 16 million).
+X**	More reasonable, but still requiring a chunk of CPU time.
+X**
+X**	I puzzled about this problem a bit, and came to realize that
+X**	this was still wasting a lot of CPU cycles.  Though I'm sure
+X**	others have come up with good algorithms, I decided to come
+X**	up with my own, with a particular eye on efficiency.  The
+X**	resulting algorithm finds all 8x8 solutions in a fraction
+X**	of a second (there are 92 solutions, including rotations).
+X**	On a Sun 4, it'll find all 365,596 solutions on a 14x14 board
+X**	in a bit over 2 minutes (printing them out requires extra
+X**	time, of course).  Even Byte's solution would require 14^14
+X**	iterations (about 10^16) which would take aeons.
+X**
+X**	My algorithm works as follows:
+X**	(1)  Place a queen in the top left corner.
+X**	(2)  Place another queen immediately below.
+X**	(3)  Test for conflicts.  If the second queen conflicts (it
+X**	     does at first), then move it one square to the right.
+X**	(4)  Loop step 3 until there are no conflicts.  Place
+X**	     the next queen on the board and recurse.
+X**	(5)  If any queen reaches the right edge of the board,
+X**	     remove it and 'pop' to the previous recursion level.
+X**	(6)  Now repeat these steps recursively until all eight
+X**	     queens (or however many) have been placed without
+X**	     conflict -- the result is a solution to the problem,
+X**	     which is counted and optionally printed.
+X**
+X**	Because conflicts are tested as the recursion proceeds,
+X**	this has the effect of 'pruning' the recursion so that
+X**	a large number of board positions are not even attempted.
+X**	The result is that the algorithm runs in reasonable time.
+X**
+X**	I used a few tricks to make the test-for-conflict code
+X**	extremely efficient -- there is no 'inner' loop to search
+X**	along ranks, files, or diagonals.  A series of arrays are
+X**	maintained instead which indicate which queen currently
+X**	'owns' each rank, file or diagonal.  This makes the
+X**	algorithm really fly, though the code is a little hard to
+X**	read.  Lastly, pointer arithmetic is used to reduce the
+X**	number of implicit multiplications used in array addressing.
+X**
+X**
+X**  Contact:
+X**	For queries regarding this program, contact Roberto Sierra
+X**	at any of the following addresses:
+X**
+X**		Roberto Sierra
+X**		bert@netcom.com   (preferred address)
+X**		73557.2101@compuserve.com
+X**
+X**		Tempered MicroDesigns
+X**		P.O. Box 170638
+X**		San Francisco, CA  94117
+X**
+X**
+X**  Fine Print:
+X**	This program is in the public domain and can be used for
+X**	any purpose whatsoever, including commercial application.
+X**	[I'd like to hear what you do with it, though.]
+X**	Absolutely no warranty or liability is implied or extended
+X**	by the author.
+X**
+X**
+X**  Modification History:
+X**	PRS  3/19/84  v1.0 -- Original version.
+X**	PRS  7/25/93  v1.1 -- ANSIfied the code.  More efficient pointers.
+X**
+X*/
+X
+X
+X#include <stdio.h>				/* Need standard I/O functions */
+X#include <stdlib.h>				/* Need exit() routine interface */
+X#include <string.h>				/* Need strcmp() interface */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X#include <CursorCtl.h>				/* Need cursor control interfaces */
+X#endif
+X
+X#define MAXQUEENS   100 			/* Maximum number of queens */
+X#define MAXRANKS    MAXQUEENS			/* Maximum number of ranks (rows) */
+X#define MAXFILES    MAXQUEENS			/* Maximum number of files (columns) */
+X#define MAXDIAGS    (MAXRANKS+MAXFILES-1)	/* Maximum number of diagonals */
+X#define EMPTY	    (MAXQUEENS+1)		/* Marks unoccupied file or diagonal */
+X
+X/* GLOBAL VARIABLES */
+X
+Xint		queens;				/* Number of queens to place */
+Xint		ranks;				/* Number of ranks (rows) */
+Xint		files;				/* Number of files (columns) */
+Xint		printing = 1;			/* TRUE if printing positions */
+Xint		findall = 0;			/* TRUE if finding all solutions */
+X
+Xunsigned long	solutions = 0;			/* Number of solutions found */
+Xint		queen[MAXRANKS];		/* File on which each queen is located */
+Xint		file[MAXFILES]; 		/* Which queen 'owns' each file */
+Xint		fordiag[MAXDIAGS];		/* Which queen 'owns' forward diagonals */
+Xint		bakdiag[MAXDIAGS];		/* Which queen 'owns' reverse diagonals */
+Xchar		*progname = 0;			/* The name of this program */
+X
+X
+X
+X
+X
+X/***********************/
+X/****	ROUTINES    ****/
+X/***********************/
+X
+X/* Internal prototypes */
+Xvoid	main(int argc,char **argv);		/* Main program */
+Xvoid	find(int level);			/* Algorithm to find solutions */
+Xvoid	pboard(void);				/* Print a solution */
+X
+X
+X
+X
+X/*---------------------- main() ---------------------------
+X**  MAIN program.  The main purpose of this routine is
+X**  to deal with decoding the command line arguments,
+X**  initializing the various arrays, and starting the
+X**  recursive search routine.
+X*/
+X
+Xvoid main(int argc,char **argv)
+X{
+X    register int    i;				/* Loop variable */
+X    register char   *p; 			/* Pointer to argument */
+X
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X    InitCursorCtl(0);				/* Enable cursor control */
+X#endif
+X
+X    progname = argv[0]; 			/* The name of the program */
+X
+X    /****   DECODE COMMAND LINE ARGUMENTS   ****/
+X
+X    for (i=1; i<argc; ++i) {			/* Scan through arguments */
+X	p = argv[i];				/* Pointer to base of argument */
+X	if (*p == '-') {			/* Command line option? */
+X	    while (*++p) {			/* Loop through characters */
+X		switch (*p) {			/* What is the character */
+X		case 'a':			/* '-a' option */
+X		    findall = 1;		/* Set flag to find all solutions */
+X		    break;
+X		case 'c':			/* '-c' option */
+X		    printing = 0;		/* Counting, not printing */
+X		    findall = 1;		/* Also forces findall option */
+X		    break;
+X		default:			/* Illegal option */
+X		    fprintf(stderr,"%s: Illegal option '%s'\n",progname,argv[i]);
+X		    fprintf(stderr,"usage: %s [-ac] queens\n",progname);
+X		    exit(-1);
+X		}				/* End of switch */
+X	    }					/* End of loop */
+X	} else {				/* End of option test */
+X	    if (sscanf(p,"%d",&queens) != 1) {	/* Read integer argument */
+X		fprintf(stderr,"%s: non-integer argument '%s'\n",progname,p);
+X		exit(-1);
+X	    }
+X	    if (queens <= 0) {			/* N must be positive */
+X		fprintf(stderr,"%s: queens must be positive integer\n",progname);
+X		exit(-1);
+X	    }
+X	    if (queens > MAXQUEENS) {		/* N can't be too large */
+X		fprintf(stderr,"%s: can't have more than %d queens\n",
+X			progname, MAXQUEENS);
+X		exit(-1);
+X	    }
+X	}					/* End of argument test */
+X    }						/* End of argument scan loop */
+X    if (queens == 0) {
+X	fprintf(stderr,"%s: missing queens argument\n",progname);
+X	fprintf(stderr,"usage: %s [-ac] queens\n",progname);
+X	exit(-1);
+X    }
+X
+X
+X    ranks = files = queens;			/* NxN board for N queens */
+X    printf("%d queen%s on a %dx%d board...\n",
+X	    queens, queens>1? "s" : "", ranks, files);
+X    fflush(stdout);
+X
+X    /*	Initialization	*/
+X    solutions = 0;				/* No solutions yet */
+X    for (i=0; i<MAXFILES; ++i) file[i] = EMPTY;
+X    for (i=0; i<MAXDIAGS; ++i) fordiag[i] = bakdiag[i] = EMPTY;
+X
+X    /* Find all solutions (begin recursion) */
+X    find(0);
+X    if (printing && solutions) putchar('\n');
+X
+X    /* Report results */
+X    if (solutions == 1) {
+X	printf("...there is 1 solution\n");
+X    } else {
+X	printf("...there are %ld solutions\n", solutions);
+X    }
+X
+X    exit(0);					/* No errors */
+X}						/* End of main() */
+X
+X
+X
+X/*-------------------------- find() ----------------------------
+X**  FIND is the recursive heart of the program, and finds all
+X**  solutions given a set of level-1 fixed queen positions.
+X**  The routine moves a single queen through all files (columns)
+X**  at the current rank (recursion level).  As the queen is moved,
+X**  conflict tests are made.  If the queen can be placed without
+X**  conflict, then the routine recurses to the next level.  When
+X**  all queens have been placed without conflict, a solution is
+X**  counted and reported.
+X*/
+X
+Xvoid find(register int level)
+X{
+X    register int    f;				/* Indexes through files */
+X    register int    *fp,*fdp,*bdp;		/* Ptrs to file/diagonal entries */
+X
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X    if (level & 7 == 0) {			/* Periodically break for... */
+X	SpinCursor(1);				/* background processing */
+X    }
+X#endif
+X
+X    if (level == queens) {			/* Placed all queens?  Stop. */
+X	++solutions;				/* Congrats, this is a solution! */
+X	if (printing) pboard(); 		/* Print board if printing */
+X	if (!findall) exit(0);			/* May stop after first solution */
+X#ifdef	MPW					/* Macintosh MPW ONLY */
+X	SpinCursor(1);				/* Allow background processing */
+X#endif
+X    } else {					/* Not at final level yet */
+X	
+X	for (					/* MOVE QUEEN THROUGH ALL FILES */
+X	    f = 0,				/* Queen starts at left (file 0) */
+X	    fp = file,				/* Ptr to base of file array */
+X	    fdp = &fordiag[level],		/* Ptr to first fwd diag entry */
+X	    bdp = &bakdiag[level+files-1]	/* Ptr to first bak diag entry */
+X	;
+X	    f < files				/* Loop through all files */
+X	;
+X	    ++f,				/* Advance index */
+X	    ++fp, ++fdp, --bdp			/* Advance pointers */
+X	) {
+X	    if (*fp >= level && 		/* No queen on the file? */
+X		*fdp >= level && *bdp >= level	/* No queens on diagonals? */
+X	    ) {
+X		queen[level] = f;		/* Note new position of queen */
+X		*fp = *fdp = *bdp = level;	/* Place queen on file & diags */
+X		find(level+1);			/* This level OK, recurse to next */
+X		*fp = *fdp = *bdp = EMPTY;	/* Remove queen from file & diags */
+X	    }					/* End of conflict test */
+X	}					/* End of file loop */
+X    }						/* End if (level == queens) */
+X}						/* End of find() */
+X
+X
+X
+X
+X/*------------------------- pboard() -----------------------
+X**  This routines prints the board for a particular solution.
+X**  The output is sent to stdout.
+X*/
+X
+Xvoid pboard(void)
+X{
+X    register int    i,j;			/* Rank/File indices */
+X
+X    if (findall) {				/* Only if searching for all */
+X	printf("\nSolution #%lu:\n",solutions);	/* Print solution number */
+X    }
+X    for (i=0; i<ranks; ++i) {			/* Loop through all ranks */
+X	for (j=0; j<files; ++j) {		/* Loop through all files */
+X	    putchar(' ');			/* Output a space */
+X	    if (j==queen[i]) putchar('Q');	/* Output Q for queen... */
+X	    else putchar('-');			/* or '-' if empty */
+X	}
+X	putchar('\n');				/* Break line */
+X    }
+X    fflush(stdout);				/* Flush solution to output */
+X}						/* End of pboard() */
+X
+X
+X
+X
+X
+X/****	End of Queens.c ****/
+X
+END_OF_FILE
+  if test 13250 -ne `wc -c <'Queens.c'`; then
+    echo shar: \"'Queens.c'\" unpacked with wrong size!
+  fi
+  # end of 'Queens.c'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1999 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+XI'm sure that there are a bazillion solutions to the Eight Queens
+Xchess problem floating around on the net, but I'm still quite
+Xproud of the solution I came up with way back in '84.  I can't
+Xresist showing it off to everyone.  Amazingly, it still works!! ;-)
+X
+XThe Eight Queens problem, for those who don't know, involves
+Xfinding all the ways that you can place 8 queens on a chess board
+Xso that no queen can capture any other -- that is, no more than
+Xa single queen appears on any rank, file or diagonal.  Try to
+Xdo it yourself -- it's *really* hard.
+X
+XOn a Sun or Mac, my program will find all 92 8x8 solutions
+Xin a fraction of a second.  OK -- so there are actually only
+X23 unique solutions -- my program doesn't exploit rotational
+Xsymmetries to report only unique solutions.  If you have an
+XANSI C compiler, you should be able to get it up and running
+Xin minutes.  Instructions are included in the source code.
+X
+XThe heart of the code is a recursive pruning algorithm that
+Xzeros in on solutions quickly without wasting a lot of time.
+XI've found that it's an excellent way to teach recursive
+Xprogramming techniques to people.  Also, great care has
+Xbeen taking to minimize the amount of time it takes to
+Xdetect when queens lie on the same rank, file or diagonal.
+XI'm particularly proud of how I did that.
+X
+XI recently dug up the code to solve another unrelated
+Xproblem, ANSI-fied it in the process, and decided that
+Xit was about time I posted it for all to see.
+X
+XHave fun with it!!
+X
+Xsome examples...
+X
+X$ Queens 8   ## Nearly instantaneous
+X8 queens on a 8x8 board...
+X Q - - - - - - -
+X - - - - Q - - -
+X - - - - - - - Q
+X - - - - - Q - -
+X - - Q - - - - -
+X - - - - - - Q -
+X - Q - - - - - -
+X - - - Q - - - -
+X
+X$ Queens -c 8  ## Count all 8x8 solutions.  <1 second.
+X8 queens on a 8x8 board...
+X...there are 92 solutions
+X
+X$ Queens -c 12  ## Count all 12x12 solutions. About 20 seconds.
+X12 queens on a 12x12 board...
+X...there are 14200 solutions
+X
+X
+X   Roberto Sierra
+X   Tempered MicroDesigns
+X   San Francisco, CA
+END_OF_FILE
+  if test 1999 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

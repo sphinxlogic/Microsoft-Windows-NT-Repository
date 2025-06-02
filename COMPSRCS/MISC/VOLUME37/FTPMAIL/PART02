@@ -1,0 +1,1911 @@
+Newsgroups: comp.sources.misc
+From: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Subject: v37i052:  ftpmail - Automatic Email to FTP Gateway, v1.13, Part02/02
+Message-ID: <1993May11.193144.22713@sparky.imd.sterling.com>
+X-Md4-Signature: 28cfc2033e24e811711c75d0d5f81a9f
+Date: Tue, 11 May 1993 19:31:44 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Posting-number: Volume 37, Issue 52
+Archive-name: ftpmail/part02
+Environment: UNIX, Perl, Sun, Dec, INET
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  auth chat2.pl config.pl crontab dq.pl inst.pl
+#   mmdf_maildelivery pp_mailfilter sendmail_forward socket.ph
+#   support.pl
+# Wrapped by kent@sparky on Tue May 11 12:58:18 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'auth' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'auth'\"
+else
+  echo shar: Extracting \"'auth'\" \(65 characters\)
+  sed "s/^X//" >'auth' <<'END_OF_FILE'
+X# Patterns for who is authorised to use ftpmail
+X#
+X# anyone
+X.*@.*
+END_OF_FILE
+  if test 65 -ne `wc -c <'auth'`; then
+    echo shar: \"'auth'\" unpacked with wrong size!
+  fi
+  # end of 'auth'
+fi
+if test -f 'chat2.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chat2.pl'\"
+else
+  echo shar: Extracting \"'chat2.pl'\" \(9620 characters\)
+  sed "s/^X//" >'chat2.pl' <<'END_OF_FILE'
+X# chat.pl: chat with a server
+X# Based on: V2.01.alpha.7 91/06/16
+X# Randal L. Schwartz (was <merlyn@iwarp.intel.com>)
+X# multihome additions by A.Macpherson@bnr.co.uk
+X# allow for /dev/pts based systems by Joe Doupnik <JRD@CC.USU.EDU>
+X
+Xpackage chat;
+X
+Xif( defined( &main'PF_INET ) ){
+X	$pf_inet = &main'PF_INET;
+X	$sock_stream = &main'SOCK_STREAM;
+X	local($name, $aliases, $proto) = getprotobyname( 'tcp' );
+X	$tcp_proto = $proto;
+X}
+Xelse {
+X	# XXX hardwired $PF_INET, $SOCK_STREAM, 'tcp'
+X	# but who the heck would change these anyway? (:-)
+X	$pf_inet = 2;
+X	$sock_stream = 1;
+X	$tcp_proto = 6;
+X}
+X
+X
+X$sockaddr = 'S n a4 x8';
+Xchop($thishost = `hostname`);
+X
+X# *S = symbol for current I/O, gets assigned *chatsymbol....
+X$next = "chatsymbol000000"; # next one
+X$nextpat = "^chatsymbol"; # patterns that match next++, ++, ++, ++
+X
+X
+X## $handle = &chat'open_port("server.address",$port_number);
+X## opens a named or numbered TCP server
+X
+Xsub open_port { ## public
+X	local($server, $port) = @_;
+X
+X	local($serveraddr,$serverproc);
+X
+X	# We may be multi-homed, start with 0, fixup once connexion is made
+X	$thisaddr = "\0\0\0\0" ;
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X
+X	*S = ++$next;
+X	if ($server =~ /^(\d+)+\.(\d+)\.(\d+)\.(\d+)$/) {
+X		$serveraddr = pack('C4', $1, $2, $3, $4);
+X	} else {
+X		local(@x) = gethostbyname($server);
+X		return undef unless @x;
+X		$serveraddr = $x[4];
+X	}
+X	$serverproc = pack($sockaddr, 2, $port, $serveraddr);
+X	unless (socket(S, $pf_inet, $sock_stream, $tcp_proto)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (bind(S, $thisproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (connect(S, $serverproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X# We opened with the local address set to ANY, at this stage we know
+X# which interface we are using.  This is critical if our machine is
+X# multi-homed, with IP forwarding off, so fix-up.
+X	local($fam,$lport);
+X	($fam,$lport,$thisaddr) = unpack($sockaddr, getsockname(S));
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X# end of post-connect fixup
+X	select((select(S), $| = 1)[0]);
+X	$next; # return symbol for switcharound
+X}
+X
+X## ($host, $port, $handle) = &chat'open_listen([$port_number]);
+X## opens a TCP port on the current machine, ready to be listened to
+X## if $port_number is absent or zero, pick a default port number
+X## process must be uid 0 to listen to a low port number
+X
+Xsub open_listen { ## public
+X
+X	*S = ++$next;
+X	local($thisport) = shift || 0;
+X	local($thisproc_local) = pack($sockaddr, 2, $thisport, $thisaddr);
+X	local(*NS) = "__" . time;
+X	unless (socket(NS, $pf_inet, $sock_stream, $tcp_proto)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (bind(NS, $thisproc_local)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (listen(NS, 1)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	select((select(NS), $| = 1)[0]);
+X	local($family, $port, @myaddr) =
+X		unpack("S n C C C C x8", getsockname(NS));
+X	$S{"needs_accept"} = *NS; # so expect will open it
+X	(@myaddr, $port, $next); # returning this
+X}
+X
+X## $handle = &chat'open_proc("command","arg1","arg2",...);
+X## opens a /bin/sh on a pseudo-tty
+X
+Xsub open_proc { ## public
+X	local(@cmd) = @_;
+X
+X	*S = ++$next;
+X	local(*TTY) = "__TTY" . time;
+X	local($pty,$tty) = &_getpty(S,TTY);
+X	die "Cannot find a new pty" unless defined $pty;
+X	$pid = fork;
+X	die "Cannot fork: $!" unless defined $pid;
+X	unless ($pid) {
+X		close STDIN; close STDOUT; close STDERR;
+X		setpgrp(0,$$);
+X		if (open(DEVTTY, "/dev/tty")) {
+X		    ioctl(DEVTTY,0x20007471,0);		# XXX s/b &TIOCNOTTY
+X		    close DEVTTY;
+X		}
+X		open(STDIN,"<&TTY");
+X		open(STDOUT,">&TTY");
+X		open(STDERR,">&STDOUT");
+X		die "Oops" unless fileno(STDERR) == 2;	# sanity
+X		close(S);
+X		exec @cmd;
+X		die "Cannot exec @cmd: $!";
+X	}
+X	close(TTY);
+X	$next; # return symbol for switcharound
+X}
+X
+X# $S is the read-ahead buffer
+X
+X## $return = &chat'expect([$handle,] $timeout_time,
+X## 	$pat1, $body1, $pat2, $body2, ... )
+X## $handle is from previous &chat'open_*().
+X## $timeout_time is the time (either relative to the current time, or
+X## absolute, ala time(2)) at which a timeout event occurs.
+X## $pat1, $pat2, and so on are regexs which are matched against the input
+X## stream.  If a match is found, the entire matched string is consumed,
+X## and the corresponding body eval string is evaled.
+X##
+X## Each pat is a regular-expression (probably enclosed in single-quotes
+X## in the invocation).  ^ and $ will work, respecting the current value of $*.
+X## If pat is 'TIMEOUT', the body is executed if the timeout is exceeded.
+X## If pat is 'EOF', the body is executed if the process exits before
+X## the other patterns are seen.
+X##
+X## Pats are scanned in the order given, so later pats can contain
+X## general defaults that won't be examined unless the earlier pats
+X## have failed.
+X##
+X## The result of eval'ing body is returned as the result of
+X## the invocation.  Recursive invocations are not thought
+X## through, and may work only accidentally. :-)
+X##
+X## undef is returned if either a timeout or an eof occurs and no
+X## corresponding body has been defined.
+X## I/O errors of any sort are treated as eof.
+X
+X$nextsubname = "expectloop000000"; # used for subroutines
+X
+Xsub expect { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	local($endtime) = shift;
+X
+X	local($timeout,$eof) = (1,1);
+X	local($caller) = caller;
+X	local($rmask, $nfound, $timeleft, $thisbuf);
+X	local($cases, $pattern, $action, $subname);
+X	$endtime += time if $endtime < 600_000_000;
+X
+X	if (defined $S{"needs_accept"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_accept"};
+X		delete $S{"needs_accept"};
+X		$S{"needs_close"} = *NS;
+X		unless(accept(S,NS)) {
+X			($!) = ($!, close(S), close(NS));
+X			return undef;
+X		}
+X		select((select(S), $| = 1)[0]);
+X	}
+X
+X	# now see whether we need to create a new sub:
+X
+X	unless ($subname = $expect_subname{$caller,@_}) {
+X		# nope.  make a new one:
+X		$expect_subname{$caller,@_} = $subname = $nextsubname++;
+X
+X		$cases .= <<"EDQ"; # header is funny to make everything elsif's
+Xsub $subname {
+X	LOOP: {
+X		if (0) { ; }
+XEDQ
+X		while (@_) {
+X			($pattern,$action) = splice(@_,0,2);
+X			if ($pattern =~ /^eof$/i) {
+X				$cases .= <<"EDQ";
+X		elsif (\$eof) {
+X	 		package $caller;
+X			$action;
+X		}
+XEDQ
+X				$eof = 0;
+X			} elsif ($pattern =~ /^timeout$/i) {
+X			$cases .= <<"EDQ";
+X		elsif (\$timeout) {
+X		 	package $caller;
+X			$action;
+X		}
+XEDQ
+X				$timeout = 0;
+X			} else {
+X				$pattern =~ s#/#\\/#g;
+X			$cases .= <<"EDQ";
+X		elsif (\$S =~ /$pattern/) {
+X			\$S = \$';
+X		 	package $caller;
+X			$action;
+X		}
+XEDQ
+X			}
+X		}
+X		$cases .= <<"EDQ" if $eof;
+X		elsif (\$eof) {
+X			undef;
+X		}
+XEDQ
+X		$cases .= <<"EDQ" if $timeout;
+X		elsif (\$timeout) {
+X			undef;
+X		}
+XEDQ
+X		$cases .= <<'ESQ';
+X		else {
+X			$rmask = "";
+X			vec($rmask,fileno(S),1) = 1;
+X			($nfound, $rmask) =
+X		 		select($rmask, undef, undef, $endtime - time);
+X			if ($nfound) {
+X				$nread = sysread(S, $thisbuf, 1024);
+X				if ($nread > 0) {
+X					$S .= $thisbuf;
+X				} else {
+X					$eof++, redo LOOP; # any error is also eof
+X				}
+X			} else {
+X				$timeout++, redo LOOP; # timeout
+X			}
+X			redo LOOP;
+X		}
+X	}
+X}
+XESQ
+X		eval $cases; die "$cases:\n$@" if $@;
+X	}
+X	$eof = $timeout = 0;
+X	do $subname();
+X}
+X
+X## &chat'print([$handle,] @data)
+X## $handle is from previous &chat'open().
+X## like print $handle @data
+X
+Xsub print { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	print S @_;
+X	if( $chat'debug ){
+X		print STDERR "printed:";
+X		print STDERR @_;
+X	}
+X}
+X
+X## &chat'close([$handle,])
+X## $handle is from previous &chat'open().
+X## like close $handle
+X
+Xsub close { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X	 	*S = shift;
+X	}
+X	close(S);
+X	if (defined $S{"needs_close"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_close"};
+X		delete $S{"needs_close"};
+X		close(NS);
+X	}
+X}
+X
+X## @ready_handles = &chat'select($timeout, @handles)
+X## select()'s the handles with a timeout value of $timeout seconds.
+X## Returns an array of handles that are ready for I/O.
+X## Both user handles and chat handles are supported (but beware of
+X## stdio's buffering for user handles).
+X
+Xsub select { ## public
+X	local($timeout) = shift;
+X	local(@handles) = @_;
+X	local(%handlename) = ();
+X	local(%ready) = ();
+X	local($caller) = caller;
+X	local($rmask) = "";
+X	for (@handles) {
+X		if (/$nextpat/o) { # one of ours... see if ready
+X			local(*SYM) = $_;
+X			if (length($SYM)) {
+X				$timeout = 0; # we have a winner
+X				$ready{$_}++;
+X			}
+X			$handlename{fileno($_)} = $_;
+X		} else {
+X			$handlename{fileno(/'/ ? $_ : "$caller\'$_")} = $_;
+X		}
+X	}
+X	for (sort keys %handlename) {
+X		vec($rmask, $_, 1) = 1;
+X	}
+X	select($rmask, undef, undef, $timeout);
+X	for (sort keys %handlename) {
+X		$ready{$handlename{$_}}++ if vec($rmask,$_,1);
+X	}
+X	sort keys %ready;
+X}
+X
+X# ($pty,$tty) = $chat'_getpty(PTY,TTY):
+X# internal procedure to get the next available pty.
+X# opens pty on handle PTY, and matching tty on handle TTY.
+X# returns undef if can't find a pty.
+X# Modify "/dev/pty" to "/dev/pts" for Dell Unix v2.2 (aka SVR4.04). Joe Doupnik.
+X
+Xsub _getpty { ## private
+X	local($_PTY,$_TTY) = @_;
+X	$_PTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	$_TTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	local($pty, $tty, $kind);
+X	if( -e "/dev/pts000" ){		## mods by Joe Doupnik Dec 1992
+X		$kind = "pts";		## SVR4 Streams
+X	} else {
+X		$kind = "pty";		## BSD Clist stuff
+X	}
+X	for $bank (112..127) {
+X		next unless -e sprintf("/dev/$kind%c0", $bank);
+X		for $unit (48..57) {
+X			$pty = sprintf("/dev/$kind%c%c", $bank, $unit);
+X			open($_PTY,"+>$pty") || next;
+X			select((select($_PTY), $| = 1)[0]);
+X			($tty = $pty) =~ s/pty/tty/;
+X			open($_TTY,"+>$tty") || next;
+X			select((select($_TTY), $| = 1)[0]);
+X			system "stty nl>$tty";
+X			return ($pty,$tty);
+X		}
+X	}
+X	undef;
+X}
+X
+X1;
+END_OF_FILE
+  if test 9620 -ne `wc -c <'chat2.pl'`; then
+    echo shar: \"'chat2.pl'\" unpacked with wrong size!
+  fi
+  # end of 'chat2.pl'
+fi
+if test -f 'config.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.pl'\"
+else
+  echo shar: Extracting \"'config.pl'\" \(7225 characters\)
+  sed "s/^X//" >'config.pl' <<'END_OF_FILE'
+X# Local configuration details for ftpmail.
+X#
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/config.pl,v 1.10 1993/04/25 20:27:48 lmjm Exp lmjm $
+X# $Log: config.pl,v $
+X# Revision 1.10  1993/04/25  20:27:48  lmjm
+X# Added mail_overhead.
+X#
+X# Revision 1.9  1993/04/25  14:14:58  lmjm
+X# Allow for multiple help files (one per language).
+X#
+X# Revision 1.8  1993/04/23  23:27:03  lmjm
+X# Massive renaming for sys5.
+X#
+X# Revision 1.7  1993/04/23  17:23:37  lmjm
+X# Renamed ftpmail-local-config.pl to ftpmail-config.pl
+X# Made pathnames relative to $ftpmail_dir
+X#
+X# Revision 1.6  1993/04/20  20:15:37  lmjm
+X# Don't attempt to reply to mail from ftpmail!
+X# Allow for a message of the day file.
+X#
+X# Revision 1.5  1993/04/15  14:17:44  lmjm
+X# Typos fixed.
+X# Ignore system and admin mail on advice from Christophe
+X#
+X# Revision 1.4  1993/04/13  10:34:37  lmjm
+X# Added more variables to tailor help messages.
+X# Dont recommend using ftpmail-request
+X# Changed job pausing.
+X#
+X# Revision 1.3  1993/03/30  20:32:21  lmjm
+X# By default use sendmail.
+X# By default use immediate.
+X# Max user settable limit to 100 K.
+X#
+X# Revision 1.2  1993/03/23  21:40:13  lmjm
+X# Now ftpmail_dir is ftpmail's home directory
+X# Added sendmail, mime and batched processing
+X#  based on work by Christophe.Wolfhugel@grasp.insa-lyon.fr.
+X#
+X
+X#-- Needs tailoring ----------------------------------------------------------
+X
+X# Parent directory of the system
+X# This is now the home direcory of the ftpmail account.
+X# $ftpmail_dir = "/src.doc.ic.ac.uk/public/ic.doc/ftpmail";
+X
+X# Default site to connect to
+X$default_site = 'src.doc.ic.ac.uk';
+X
+X# My hostname for Mime multipart message ids and help messages
+X$hostname = 'src.doc.ic.ac.uk';
+X
+X# ftpmail's full email address in help messages
+X$ftpmail_email = "ftpmail@$hostname";
+X
+X# Managers email address in help messages
+X$managers_email = "ukuug-soft@$hostname";
+X
+X# How to send mail - has "-s 'subj'" and the reply-to name appended
+X# Or use sendmail - this is a much better option.  Also the mime support
+X# is only available under sendmail.
+X#  If you give the -f ftpmail-request then all mail will appear to be
+X# sent by ftpmail-request.  This means that it will require a mailbox or
+X# alias.  Also beware that a *LOT* of users submit requests to ftpmail by
+X# replying to older messages to you will have to look out for this.  Using
+X# -f is therefor NOT recommended.
+X#$mail_cmd = "/usr/lib/sendmail -t -odi -f ftpmail-request";
+X$mail_cmd = "/usr/lib/sendmail -t -odi";
+X# $mail_cmd = "/usr/ucb/mail -v ";
+X
+X# A dumber mailer is one which thinks:
+X# mail 'Lee McLoughlin <lmjm@doc>' is a message to 3 accounts 'Lee', 'McLoughlin'
+X# and '<lmjm@doc>.  Most mailers these days are NOT dumb so leave this set to
+X# 0.
+X$dumb_mailer = 0;
+X
+X# ftpmail can process jobs in one of two ways
+X# immediate: after each get/dir/ls mail the result back to the user
+X# non-immedaite:  keep all the files received by get/dir/ls till the
+X#            entire jobs is done then mail the results back.  This may
+X#	     use a lot of space.
+X$immediate = 0;
+X
+X# Cleanup input copies once queued.  If this is set to 0 then
+X# copies of all input will be left lying around - so cron will have
+X# to clean it.
+X$cleanup = 1;
+X
+X# If this file exists exit before the next parse of the queue.
+X$ftpmail_scan_end = "scan-end";
+X
+X# If set to 1 limit to just login=anonymous, passwd=-ftpmail/$replyto
+X$restricted = 0;
+X
+X# TODO:
+X# If set is the name of a file containing restrictions on when to
+X# attempt to connect to certain sites.  This can be used to allow only
+X# traffic to the local archive during busy times but allow connections
+X# everywhere the rest of the time.
+X#  Each line in the file is either a comment '#.*' or
+X# day of week: mon|tue|wed|thur|fri|say|sun, an hour range and a site pattern
+X# eg:  mon|tue|wed|thru|fri 9-18 src.doc.ic.ac.uk
+X#   only try jobs to the local site during working hours.
+X$time_restrictions = "restrictions";
+X
+X# TODO:
+X# Only allow ftp sessions to these sites - default is to all
+X# it is a regexp matching the sites
+X# $ftp_permitted = '^.*\.doc\.ic\.ac\.uk$';
+X
+X#-- needs checking -----------------------------------------------------------
+X
+X# Paths for various commands
+X$btoa = '/usr/local/bin/btoa';
+X$uuencode = '/usr/local/bin/uuencode';
+X$compress = '/usr/ucb/compress';
+X
+X# -1 because the higher settings take a lot more time for only 
+X# a little improvement.
+X$gzip = '/usr/local/bin/gzip -1';
+X
+X# Mime stuff
+X$mime_version = '1.0';
+X$mmencode = '/usr/local/mailcap/mmencode';
+X
+X# Any reply-to name matching this pattern should not be replied to
+X$dont_reply_to = 'ftpmail|postmaster|mmdf|mailer-daemon|system|admin';
+X
+X#-- may tweek ---------------------------------------------------------------
+X
+X# How long to pause between parses of the queue
+X$between_runs_pause = 60; # seconds
+X
+X# Max no of commands in a job
+X$max_cmds = 100;
+X
+X# If a job fails how long to pause before retrying
+X$retry_pause = 6 * (60 * 60);  # 6 hours
+X
+X# Never try a job more than this many times.
+X$max_tries = 3;
+X
+X# Pause for this much after each mail sent to avoid flooding the email
+X# system.  Only set to 0 if using mail does NOT submit in background -
+X# so sendmail should have mail_pause set to 0.
+X$mail_pause = 0; # seconds
+X
+X# Files bigger than this are split up - can be reset by 'size num' in job
+X$def_max_size = 60 * 1024;
+X
+X# Upper limit on what the user can ask for in a size command
+X$max_size = 100 * 1024;
+X
+X# Asking to split up files smaller than this is ignored
+X$min_size = 10 * 1024;
+X
+X# This is the size, in bytes, of the extra bits that your mailer adds
+X# to messages.  It usuall the size of the mail headers (From:..,Date:...)
+X# Be careful is you have an X.400 mailer as the overheads may be larger.
+X$mail_overhead = 2048;
+X
+X# Files bigger than this are aborted - to avoid overflowing the
+X# mail system
+X$max_processing_size = 10 * 1024 * 1024;
+X
+X# When trying to connect to the ftp daemon
+X$ftp_port = 21;
+X$retry_call = 1;	# Do retry
+X$retry_attempts = 1;	#  but only ONCE
+X
+X
+X#-- probably OK ------------------------------------------------------------
+X
+X# All file/directory names are relative to ftpmail_dir
+X
+X# Where temp files are stored (including files being pulled back from
+X# remote sites).
+X$tmpdir = "tmp";
+X
+X# Where the ftpmail queue is stored.
+X$quedir = "queue";
+X
+X# Where copies of the input are kept (you have to remove these manually
+X# or via a cron job).
+X$incopydir = "tmp";
+X
+X# Where the authorisation file resides
+X$authfile = "auth";
+X
+X# Where to keep track of goings on!
+X$logfile = "log";
+X
+X# Directory containing help files.  helpdir/help is the
+X# default one returned.  I have this as a symlink to english.
+X$helpdir = "help";
+X
+X# Message of the day file.  If present then it is emailed back at
+X# the start of any email response.
+X$motdfile = "motd";
+X
+X# This file is used to lock processing by dq
+X# Not releative to $ftpmail_dir.  Keep it in /tmp so it gets wiped automatically
+X# on a system crash.
+X$lock = "/tmp/ftpmail.lock";
+X
+X# Used to log an ftp session (this is email back to the user)
+X$xferlog = "$tmpdir/xferlog";
+X
+X# Temp file where get's and dir's copy into before being emailed
+X$incoming = "$tmpdir/infile";
+X
+X#-- leave at very end-----------------------------------------------------
+X
+X# Make sure this package returns TRUE
+X1;
+END_OF_FILE
+  if test 7225 -ne `wc -c <'config.pl'`; then
+    echo shar: \"'config.pl'\" unpacked with wrong size!
+  fi
+  # end of 'config.pl'
+fi
+if test -f 'crontab' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crontab'\"
+else
+  echo shar: Extracting \"'crontab'\" \(60 characters\)
+  sed "s/^X//" >'crontab' <<'END_OF_FILE'
+X15,45 * * * * /src.doc.ic.ac.uk/public/ic.doc/ftpmail/dq.pl
+END_OF_FILE
+  if test 60 -ne `wc -c <'crontab'`; then
+    echo shar: \"'crontab'\" unpacked with wrong size!
+  fi
+  # end of 'crontab'
+fi
+if test -f 'dq.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dq.pl'\"
+else
+  echo shar: Extracting \"'dq.pl'\" \(19116 characters\)
+  sed "s/^X//" >'dq.pl' <<'END_OF_FILE'
+X#!/usr/bin/perl -s
+X# Very simple ftpmail system
+X# De-Queue a transfer and do it
+X# By Lee McLoughlin <lmjm@doc.ic.ac.uk>
+X#  You can do what you like with this except claim that you wrote it or
+X#  give copies with changes not approved by Lee.  Neither Lee nor any other
+X#  organisation can be held liable for any problems caused by the use or
+X#  storage of this package.
+X#
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/dq.pl,v 1.16 1993/04/28 18:19:19 lmjm Exp lmjm $
+X# $Log: dq.pl,v $
+X# Revision 1.16  1993/04/28  18:19:19  lmjm
+X# From chris, corrected filename in mime message.
+X#
+X# Revision 1.15  1993/04/25  20:27:49  lmjm
+X# Use own split routine to implement size paramater.
+X#
+X# Revision 1.14  1993/04/25  14:38:52  lmjm
+X# Dont requeue jobs that have been tried too many times.
+X#
+X# Revision 1.13  1993/04/25  14:14:59  lmjm
+X# Conform to mime rules on filenames.
+X#
+X# Revision 1.12  1993/04/25  13:18:01  lmjm
+X# Moved signal handling into ftp'pl.
+X#
+X# Revision 1.11  1993/04/23  23:27:04  lmjm
+X# Massive renaming for sys5.
+X#
+X# Revision 1.10  1993/04/23  20:03:16  lmjm
+X# Don't use STDIN, STDOUT or STDERR.
+X# Use own verion of library routines before any others.
+X# Log the pid when sleeping to make it easier to kill.
+X#
+X# Revision 1.9  1993/04/23  17:23:37  lmjm
+X# Renamed ftpmail-local-config.pl to ftpmail-config.pl
+X# Made pathnames relative to $ftpmail_dir.
+X# Moved the check_tries handle to the start of the job.
+X#
+X# Revision 1.8  1993/04/21  10:58:38  lmjm
+X# Added jobid to response.
+X#
+X# Revision 1.7  1993/04/20  20:15:37  lmjm
+X# Turned printing job to mail into a library routine.
+X#
+X# Revision 1.6  1993/04/15  18:07:14  lmjm
+X# Scan queue in perl not by calling ls.
+X# Added more logging.
+X# Done inplace change the comms variable.
+X# Dump stdout onto stderr when playing with fd's before mailing.
+X# Don't send a completed message if job was zapped.
+X#
+X# Revision 1.5  1993/04/15  14:17:43  lmjm
+X# log when quitting.
+X# Something is adding spaces to the start of job lines - zap them for now.
+X# Don't requeue overtried jobs.
+X# Added some patches from  Christophe.
+X#
+X# Revision 1.4  1993/04/13  10:34:36  lmjm
+X# Lots of little cleanups in logging and response messages
+X#
+X# Revision 1.3  1993/03/30  20:32:19  lmjm
+X# Must have an ftpmail account whose home directory everything is in.
+X# New -test option that uses /tmp/ftpmail-test
+X# Simplified the parsing of the jobs.
+X# ftpmail-dq keeps running till shutdown
+X# Changed the mime code, now handles force better.
+X# Moved the close( STDOUT ) to where it doesn't cause mail to fail!
+X#
+X# Revision 1.2  1993/03/23  21:40:10  lmjm
+X# Fixed all those little internal problems.
+X# Rewrote the setup routines.
+X# Added gzip and btoa support
+X# Added mime, multipart and all sorts of other good things based on work by
+X#  Christophe.Wolfhugel@grasp.insa-lyon.fr
+X#
+X
+X$ftpmail = 'ftpmail';
+X
+Xif( $test ){
+X	$ftpmail_dir = '/tmp/ftpmail-test';
+X}
+Xelse {
+X	# The ftpmail_dir is the home directory of ftpmail.
+X	$ftpmail_dir = (getpwnam( $ftpmail ))[ 7 ];
+X}
+X
+Xif( ! $ftpmail_dir ){
+X	die "No home directory for ftpmail\n";
+X}
+X
+Xif( ! -d $ftpmail_dir ){
+X	die "no such directory as $ftpmail_dir\n";
+X}
+X
+Xchdir( $ftpmail_dir ) || die "cannot chdir to $ftpmail_dir\n";
+X
+X# All the auxillary scripts come from ftpmail's home dir.
+Xunshift( @INC, '.' );
+X
+Xrequire 'config.pl';
+Xrequire 'support.pl';
+Xrequire 'ftp.pl';
+Xrequire 'chat2.pl';
+X
+X# Don't leave files around writable
+Xumask( 077 );
+X
+Xsub handler {
+X	local( $sig ) = @_;
+X	local( $msg ) = "Caught a SIG$sig shutting down";
+X	warn $msg;
+X	&log( $msg );
+X	exit( 0 );
+X}
+X$SIG{ 'PIPE' } = 'handler';
+X# Only allow jobs to be updated.  (In case q.pl has deleted it.)
+X$updating_only = 1;
+X
+X# Mime types
+X$partial = 1;
+X$octets = 2;
+X$text = 3;
+X
+X# Counters for Mime multiparts;
+X$partno = 0;
+X$nparts = 0;
+X# part id
+X$id = '';
+X
+X&trap_signals();
+X&lock();
+X&ftp'set_timeout( 60 );		# Use long timeouts
+X&ftp'set_signals( "main'log" );	# Beware of SIGPIPES
+X&ftp'debug( 1 );
+Xwhile( ! -f $ftpmail_scan_end ){
+X	&scan_q();
+X	&process_qfiles();
+X	if( $between_runs_pause ){
+X		&log( "nothing to do - sleeping pid=$$" );
+X		sleep( $between_runs_pause );
+X	}
+X}
+X&log( "found $ftpmail_scan_end so quiting" );
+X&unlock();
+Xexit( 0 );
+X
+X# Scan the Q directory
+Xsub scan_q
+X{
+X	&log( "scanning queue" );
+X	
+X	@qfiles = ();
+X	opendir( dir, $quedir ) || die "Cannot open directory: $quedir";
+X	local( @dir ) = readdir( dir );
+X	closedir( dir );
+X
+X	foreach $_ ( @dir ){
+X		if( /^\d+\.\d+$/ ){
+X			push( @qfiles, $_ );
+X		}
+X	}
+X	@qfiles = sort @qfiles;
+X}
+X
+X
+Xsub process_qfiles
+X{
+X	local( $qf );
+X	foreach $qf ( @qfiles ){
+X		if( -f $ftpmail_scan_end ){
+X			last;
+X		}
+X		$qfile = "$quedir/$qf";
+X		&process_qfile();
+X	}
+X}
+X
+Xsub process_qfile
+X{
+X	if( ! open( qf, $qfile ) ){
+X		# File was probably deleted by the user
+X		return;
+X	}
+X
+X	# Only give up if a serious error occurs - otherwise retry.
+X	$give_up = 0;
+X
+X	# Force encoding?
+X	$force = 0;
+X
+X	# filters
+X	$compress_it = 0;
+X	$gzip_it = 0;
+X	$uuencode_it = 0;
+X	$atob_it = 0;
+X	$mime_it = 0;
+X
+X	# Set the max file size from the local config file.
+X	$max_file_size = $def_max_size;
+X
+X	# When running in non-interactive mode this is the
+X	# jobs to do.
+X	@mailback = ();	# an elem is true if @comms elem needs to be mailed
+X	@filename = ();	# filename to report in messages
+X	@filters = ();	# filters to apply to file.
+X
+X	# input lines
+X	# Strip out the informational lines and stick the rest into @comms
+X	@comms = ();
+X	while( <qf> ){
+X		chop;
+X		# This s/.. is to get around an old bug - shouldn't be needed now
+X		s/^\s*//;
+X		if( /^reply-to (.+)$/ ){
+X			$reply_to = $1;
+X			next;
+X		}
+X		elsif( /^tries (\d+)( (\d+))?$/ ){
+X			$tries = $1;
+X			$whenretry = $2;
+X			next;
+X		}
+X		push( @comms, $_ );
+X	}
+X	close( qf );
+X	
+X	if( ! &check_tries() ){
+X		# Too many - job has been dequeued
+X		return;
+X	}
+X	
+X	if( $whenretry > time() ){
+X		&log( "too early to process $qfile" ) if $test;
+X		return;
+X	}
+X
+X	&log( "starting job: $qfile" );
+X	
+X	$tries++;
+X	# On failure don't retry the job for progressively
+X	# longer times.
+X	$whenretry = time() + $retry_pause;
+X	&write_entry();
+X	
+X	# Send all ftp errors into xferlog
+X	open( out, ">$xferlog" ) || &fatal( "Cannot create $xferlog" );
+X	$ftp'showfd = "main'out";
+X	
+X	$mailing_back = $immediate;
+X	
+X	&ftp_to_site();
+X	close( out );
+X
+X	if( ! $immediate ){
+X		# mail out all the completed get/dir/ls
+X		$mailing_back = 1;
+X		for( $cmdno = 0; $cmdno <= $#comms; $cmdno++ ){
+X			if( $mailback[ $cmdno ] ){
+X				&mail_back();
+X			}
+X		}
+X	}
+X	&finish_entry();
+X	
+X	unlink( $xferlog );
+X}
+X
+Xsub ftp_to_site
+X{
+X	local( $mode ) = undef;
+X	local( $open ) = undef;
+X	
+X	# All done?
+X	$job_done = 0;
+X
+X	# Make sure connection is shut down.
+X	&chat'close();
+X
+X	&log( "$qfile: tries=$tries [$max_tries] reply_to=$reply_to" );
+X	# process commands
+X	$site = $user = $pass = '';
+X	for( $cmdno = 0; $cmdno <= $#comms; $cmdno++ ){
+X		$_ = $comm = $comms[ $cmdno ];
+X		if( /^DONE|FAILED/ ){
+X			&log( "skipping: $_" );
+X		}
+X		elsif( /^open (.+)$/i ){
+X			$site = $1;
+X		}
+X		elsif( /^user (.+)$/i ){
+X			$user = $1;
+X		}
+X		elsif( /^pass (.+)$/i ){
+X			$pass = $1;
+X			
+X			&log( "connecting to $site" );
+X			$res = &ftp'open( $site, $ftp_port, $retry_call, $retry_attempts );
+X			if( $res != 1 ){
+X				&pralog( "Failed to connect" );
+X				last;
+X			}
+X			&log( "logging in as $user $pass" );
+X			if( ! &ftp'login( $user, $pass ) ){
+X				&pralog( "Failed to login" );
+X				&ftp'close();
+X				last;
+X			}
+X			$pwd = &ftp'pwd();
+X			&log( "pwd=$pwd" );
+X			
+X			# Default type is binary
+X			if( ! defined( $mode ) ){
+X				$mode = 'I';
+X			}
+X			if( ! &ftp'type( $mode ) ){
+X				&pralog( "Failed to set type to binary" );
+X			}
+X		}
+X		elsif( /^mode (.+)$/i ){
+X			$mode = $1 eq 'binary' ? 'I' : 'A';
+X			if( defined( $open ) ){
+X				if( ! &ftp'type( $mode ) ){
+X					&pralog( "Failed to set type to $1" );
+X				}
+X			}
+X		}
+X		elsif( /^cd (.+)$/i ){
+X			$dir = $1;
+X			&log( "cwd $dir" );
+X			if( ! &ftp'cwd( $dir ) ){
+X				&pralog( "Failed to change to remote directory: $dir" );
+X				$give_up = 1;
+X				last;
+X			}
+X			$pwd = &ftp'pwd();
+X			&log( "pwd=$pwd" );
+X		}
+X		elsif( /^(compress|gzip)( no)?$/i ){
+X			eval "\$$1_it = 1";
+X			&log( "$1_it set" ) if $test;
+X		}
+X		elsif( /^(force )?(compress|gzip|uuencode|btoa|mime)( no)?$/i ){
+X			$force = $1 eq 'force ';
+X			&log( "force set" ) if $force && $test;
+X			eval "\$$2_it = 1";
+X			&log( "$2_it set" ) if $test;
+X		}
+X		elsif( /^size (\d+)/i ){
+X			$max_file_size = $1;
+X		}
+X		elsif( /^(ls|dir) (.*)/i ){
+X			$path = $2;
+X			local( $old_mode );
+X			
+X			&log( $comm );
+X			if( $mode ne 'A' ){
+X				if( &ftp'type( 'A' ) ){
+X					$old_mode = $mode;
+X				}
+X				else {
+X					&pralog( "Cannot set type to ascii for dir listing, trying to carry on" );
+X				}
+X			}
+X			
+X			if( ! &ftp'dir_open( $path ) ){
+X				&pralog( "Cannot get remote directory listing because: $ftp'response" );
+X				$give_up = 1;
+X			}
+X			
+X			local( $in ) = "$incoming.$cmdno";
+X			open( IN, ">$in" ) || &fail( "cannot create $in" );
+X
+X			# Suck back dir listing output into a temp file
+X			while( ($len = &ftp'read()) > 0 ){
+X				$bytes += $len;
+X				if( $mode eq 'A' ){
+X					$ftp'buf =~ s/\r//g;
+X				}
+X				print IN $ftp'buf;
+X			}
+X			close( IN );
+X
+X			&ftp'dir_close();
+X			if( defined( $old_mode ) && ! &ftp'type( $old_mode ) ){
+X				&pralog( "Cannot reset type after dir" );
+X			}
+X
+X			if( $len < 0 ){
+X				&pralog( "\nTimed out reading data" );
+X				last;
+X			}
+X
+X			$filename = "directory-listing";
+X			&mail_back();
+X		}
+X		elsif( /^get (.+)/i ){
+X			local( $in ) = "$incoming.$cmdno";
+X			
+X			$filename = $1;
+X
+X			&log( $comm );
+X			if( ! &ftp'get( $filename, $in, 0 ) ){
+X				$comms[ $cmdno ] = "FAILED $comms[ $cmdno ]";
+X				&pralog( "failed to get $filename" );
+X			}
+X			else {
+X				&mail_back();
+X			}
+X		}
+X		else {
+X			&log( "Internal error: found command: $_" );
+X		}
+X		
+X		if( $cmdno == $#comms ){
+X			$job_done = 1;
+X		}
+X	}
+X	
+X	&log( "job done" );
+X	&ftp'quit();
+X}
+X
+X# Check out the tries counter.  If too many then dequeue job.
+X# Return 1 if ok.
+Xsub check_tries
+X{
+X	if( $tries <= $max_tries ){
+X		return 1;
+X	}
+X	
+X	unlink( $qfile );
+X	&log( "Job $qfile failed and dequeued" );
+X	&respond( "failed", "Your job failed to be fully processed after too may tries ($tries)" );
+X	$job_done = 1;
+X	return 0;
+X}
+X
+X
+X# This should check error status
+Xsub mail_back
+X{
+X	if( ! $mailing_back ){
+X		# Not mailing stuff back yet, just remember it.
+X		$mailback[ $cmdno ] = 1;
+X		$filename[ $cmdno ] = $filename;
+X		$pwd[ $cmdno ] = $pwd;
+X		local( $f ) = '';
+X		$f .= 'c' if $compress_it;
+X		$f .= 'g' if $gzip_it;
+X		$f .= 'a' if $atob_it;
+X		$f .= 'u' if $uuencode_it;
+X		$f .= 'm' if $mime_it;
+X		$f .= 'F' if $force;
+X		$filters[ $cmdno ] = $f;
+X		&log( "delayed mail back: $pwd $filename $f" ) if $test;
+X		return;
+X	}
+X
+X	local( $note, $suff, $infile, $command );
+X	
+X	$infile = "$incoming.$cmdno";
+X	if( ! $immediate ){
+X		$command = $comms[ $cmdno ];
+X		$filename = $filename[ $cmdno ];
+X		$pwd = $pwd[ $cmdno ];
+X		local( $f ) = $filters[ $cmdno ];
+X		$compress_it = ($f =~ /c/);
+X		$gzip_it = ($f =~ /g/);
+X		$atob_it = ($f =~ /a/);
+X		$uuencode_it = ($f =~ /u/);
+X		$mime_it = ($f =~ /m/);
+X		$force_it = ($f =~ /F/);
+X		&log( "NOW mailing back: $pwd $filename $f" ) if $test;
+X	}
+X	
+X	$partno = 0;
+X	$nparts = 0;
+X	$id = '';
+X	$cte = '';
+X	
+X	# I use single quotes when running system commands so prevent extra ones
+X	$command =~ s/'//g;
+X	
+X	local( $report ) = "$site:$pwd";
+X	if( $command =~ /get/ ){
+X		$report .= "/$filename";
+X	}
+X	
+X	if( $compress_it ){
+X		&log( "compressing $infile" );
+X		system( "$compress '$infile'" );
+X		if( -r "$infile.Z" ){
+X			$note = ' compressed';
+X			$infile .= '.Z';
+X			$suff = '.Z';
+X		}
+X	}
+X	elsif( $gzip_it ){
+X		&log( "gzip $infile" );
+X		system( "$gzip '$infile'" );
+X		if( -r "$infile.z" ){
+X			$note = ' gzipped';
+X			$infile .= '.z';
+X			$suff = '.z';
+X		}
+X	}
+X	
+X	$is_text = (-T $infile);
+X	if( $force || $mime_it || ! $is_text ){
+X		if( !$mime_it && !$uuencode_it && !$btoa_it ){
+X			&log( "non text but no method, using uuencode" );
+X			$uuencode_it = 1;
+X		}
+X		# Convert binary file using given filter
+X		# (Execpt mime, only encode if you have to)
+X		if( $mime_it && ($force || !$is_text) ){
+X			&log( "mmencoding $infile" );
+X			system( "$mmencode < '$infile' > '$infile.mm'" );
+X			unlink( $infile );
+X			$note .= ' mmencoded';
+X			$infile .= '.mm';
+X			$cte = 'base64';
+X		}
+X		elsif( $uuencode_it ){
+X			&log( "uuencoding $infile" );
+X			system( "$uuencode '$filename$suff' < '$infile' > '$infile.uu'" );
+X			unlink( $infile );
+X			$note .= ' uuencoded';
+X			$infile .= '.uu';
+X		}
+X		elsif( $btoa_it ){
+X			&log( "btoa-ing $infile" );
+X			system( "$btoa < '$infile' > '$infile.btoa'" );
+X			unlink( $infile );
+X			$note .= ' btoa';
+X			$infile .= '.btoa';
+X		}
+X	}
+X
+X	$report .= $note . " ($command)";
+X	
+X	if( $mime_it ){
+X		$nparts = 0;
+X		$partno = 0;
+X		$id = "ftpmail-" . time . "-$$@$hostname";
+X	}
+X
+X	local( $file_size ) = &size( $infile );
+X	if( $file_size > $max_processing_size ){
+X		local( $msg ) = "file size exceeded max. processing size ($max_processing_size), canceling job";
+X		&log( $msg );
+X		&log( $report );
+X	
+X		&mailit( 'aborting job: too big', $msg );
+X	}
+X	elsif( $file_size >= $max_file_size ){
+X		# Split the file up and mail back the parts
+X		# Allow for mail headers.  If you have to pay
+X		# by size then it is important not to accidentally go over
+X		# limit.
+X		$nparts = &tsplit( $infile, $max_file_size - $mail_overhead );
+X&log( "tsplit $infile $max_file_size into $nparts" );
+X		
+X		for( $partno = 1; $partno <= $nparts; $partno++ ){
+X			local( $file ) = "$tmpdir/part$partno";
+X			local( $reppart ) = "[$partno of $nparts]";
+X			
+X			&mailit( "$reppart $report", $file, 1 );
+X
+X			unlink( $file );
+X		}
+X	}
+X	else {
+X		&mailit( $report, $infile, 1 );
+X	}
+X	unlink( $infile );
+X	
+X	$comms[ $cmdno ] = "DONE $comms[ $cmdno ]";
+X	&write_entry();
+X}
+X
+Xsub mime_header
+X{
+X	local( $kind, $file  ) = @_;
+X	print MAIL "Mime-Version: $mime_version\n";
+X	if( $kind == $text ){
+X		print MAIL "Content-Type: text/plain; charset=US-ASCII\n";
+X	}
+X	elsif( $kind == $partial ){
+X		print MAIL "Content-Type: message/partial;\n";
+X		print MAIL " id=\"$id\"; number=$partno; total=$nparts\n";
+X	}
+X	elsif( $kind == $octets ){
+X		print MAIL "Content-Type: application/octet-stream;\n";
+X		print MAIL "  name=\"$filename$suff\"\n";
+X	}
+X	if( $cte ){
+X		print MAIL "Content-Transfer-Encoding: $cte\n";
+X	}
+X}
+X
+X# A Mime message has extra header fields
+X# and if the message is a (mime) split up message then whole
+X# mime message is chopped up and sent as a series of message/partial messages
+Xsub mailit
+X{
+X	local( $subject, $file, $isfile ) = @_;
+X	
+X	&log( "mailit $reply_to $subject" );
+X	
+X	if( $mail_cmd =~ /sendmail/ ){
+X		open( MAIL, "| $mail_cmd" ) || &fail( "Can't start $mail_cmd" );
+X		print MAIL "To: $reply_to\n";
+X		print MAIL "Subject: $subject\n";
+X		if( $mime_it ){
+X			# cte is set if this file was encoded
+X			local( $kind ) = $cte ? $octets : $text;
+X			if( $nparts != 0 ){
+X				# Don't output the cte except in the
+X				# inner message.
+X				local( $real_cte ) = $cte;
+X				$cte = '';
+X				&mime_header( $partial, $file );
+X				$cte = $real_cte;
+X				if( $partno == 1 ){
+X					# Output the header for the
+X					# inner message.
+X					print MAIL "\n";
+X					&mime_header( $kind, $file );
+X				}
+X			}
+X			else {
+X				&mime_header( $kind, $file );
+X			}
+X		}
+X		print MAIL "\n";
+X	}
+X	else {
+X		open( MAIL, "| $mail_cmd -s '$subject' '$reply_to' >/dev/null 2>&1" ) ||
+X			 &fail( "Can't start $mail_cmd" );
+X	}
+X	
+X	if( ! $isfile ){
+X		# $file is the string to send
+X		print MAIL $file;
+X	}
+X	else {
+X		open( IN, $file ) || &fail( "Can't reopen $file" );
+X		while( <IN> ){
+X			print MAIL;
+X		}
+X		close( IN );
+X	}
+X	close( MAIL );
+X	
+X	sleep( $mail_pause ) if $mail_pause;
+X}
+X
+Xsub size
+X{
+X	local( $file ) = @_;
+X	
+X	local( $dev,$ino,$fmode,$nlink,$uid,$gid,$rdev,$ssize,
+X	      $atime,$mtime,$ctime,$blksize,$blocks ) =
+X		      stat( $file );
+X	return( $ssize );
+X}
+X
+X# Output a standard lump of messages
+Xsub respond
+X{
+X	local( $status, $msg ) = @_;
+X	local( $c );
+X	local( $subject ) = "ftpmail job $status";
+X	
+X	&log( "respond $reply_to $subject" );
+X	
+X	if( $mail_cmd =~ /sendmail/ ){
+X		open( MAIL, "| $mail_cmd" ) || &fail( "Can't start $mail_cmd" );
+X		print MAIL "To: $reply_to\n";
+X		print MAIL "Subject: $subject\n\n";
+X	}
+X	else {
+X		open( MAIL, "| $mail_cmd -s '$subject' '$reply_to' >/dev/null 2>&1" ) ||
+X			 &fail( "Can't start $mail_cmd" );
+X	}
+X	print MAIL "$ftpmail_response\n";
+X	print MAIL "$msg\nYour job was (lines begining DONE show completed transfers):\n";
+X	&mail_comms();
+X	print MAIL "\nThe ftp log contains:\n";
+X	open( LOG, $xferlog ) || &fail( "cannot reopen $xferlog" );
+X	local( @log ) = <LOG>;
+X	close( LOG );
+X	print MAIL join( "\n", "@log" );
+X	print MAIL "\n";
+X	close MAIL;
+X	
+X	sleep( $mail_pause ) if $mail_pause;
+X}
+X
+Xsub finish_entry
+X{
+X	if( $job_done ){
+X		if( -f $qfile ){
+X		# The job is done and hasn't been deleted due to too many tries
+X			unlink( $qfile );
+X			&log( "deleting $qfile" );
+X			&respond( "completed", "" );
+X		}
+X	}
+X	elsif( $give_up ){
+X		unlink( $qfile );
+X		&log( "Job $qfile failed when a serious error occured" );
+X		&respond( "failed", "An unrecoverable error occured so your job was aborted" );
+X	}
+X	else {
+X		if( ! &check_tries() ){
+X			return;
+X		}
+X		&log( "Requeing job: $qfile" );
+X		&respond( "queueing for retry $qfile", "" );
+X		&write_entry();
+X	}
+X}
+X
+X
+Xsub lock
+X{
+X	if( -r $lock ){
+X		open( lock, "<$lock" ) || &fatal( "Cannot open lockfile $lock" );
+X		local( $pid ) = <lock>;
+X		chop( $pid );
+X		close( lock );
+X		# Check that the locking process is still around
+X		if( kill( 0, $pid ) == 1 ){
+X			# Still locked
+X			&log( "queue already locked by $pid" );
+X			exit( 0 );
+X		}
+X		else {
+X			# No process so zap lock
+X			unlink $lock;
+X		}
+X	}
+X	open( lock, ">$lock" ) || &fatal( "Cannot create lockfile $lock" );
+X	print lock "$$\n";
+X	close lock;
+X}
+X
+Xsub unlock
+X{
+X	unlink( $lock );
+X}
+X
+Xsub shutdown
+X{
+X	&log( "Received HUP so shutting down" );
+X	exit( 0 );
+X}
+X
+Xsub trap_signals
+X{
+X	$SIG{ 'HUP' } = "main\'shutdown";
+X}
+X
+X# print to out and log it.
+Xsub pralog
+X{
+X	local( $msg ) = @_;
+X	print out "$msg\n";
+X	&log( $msg );
+X}
+X
+X# Split the file up into chunks size big, remove the
+X# original and return the number of parts
+Xsub tsplit
+X{
+X	local( $file, $size ) = @_;
+X	local( $buffer, $in, $sofar );
+X	local( $index ) = 0;
+X	local( $part );
+X
+X	open( f, $file ) || &fatal( "Cannot open $file to split" );
+X	$sofar = $size;
+X	while( <f> ){
+X		$in = length( $_ );
+X		if( $sofar >= $size ){
+X			if( $part ){
+X				close( part );
+X			}
+X			$index++;
+X			$part = "$tmpdir/part$index";
+X			unlink( $part );
+X			open( part, ">$part" ) || &fatal( "cannot create $part" );
+X			$sofar = 0;
+X		}
+X		print part;
+X		$sofar += $in;
+X	}
+X	close( part );
+X	close( f );
+X
+X	return $index;
+X}
+X
+X# Split the file up into chunks size big, remove the
+X# original and return the number of parts
+Xsub binsplit
+X{
+X	local( $file, $size ) = @_;
+X	local( $bufsiz ) = 512;
+X	local( $buffer, $in, $sofar );
+X	local( $index ) = 0;
+X	local( $part );
+X
+X	open( f, $file ) || &fatal( "Cannot open $file to split" );
+X	$sofar = $size; # Force a new file
+X	while( ($in = sysread( f, $buffer, $bufsiz )) > 0 ){
+X		if( $sofar >= $size ){
+X			if( $part ){
+X				close( part );
+X			}
+X			$index++;
+X			$part = "$tmpdir/part$index";
+X			unlink( $part );
+X			open( part, ">$part" ) || &fatal( "cannot create $part" );
+X			$sofar = 0;
+X		}
+X		if( ($out = syswrite( part, $buffer, $in )) != $in ){
+X			&fatal( "Failed to write data to $part" );
+X		}
+X		$sofar += $in;
+X	}
+X	close( part );
+X	close( f );
+X
+X	return $index;
+X}
+END_OF_FILE
+  if test 19116 -ne `wc -c <'dq.pl'`; then
+    echo shar: \"'dq.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'dq.pl'
+  # end of 'dq.pl'
+fi
+if test -f 'inst.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inst.pl'\"
+else
+  echo shar: Extracting \"'inst.pl'\" \(2620 characters\)
+  sed "s/^X//" >'inst.pl' <<'END_OF_FILE'
+X#!/usr/bin/perl -s
+X# Create the directories needed for ftpmail to work
+X# By Lee McLoughlin <lmjm@doc.ic.ac.uk>
+X#  You can do what you like with this except claim that you wrote it or
+X#  give copies with changes not approved by Lee.  Neither Lee nor any other
+X#  organisation can be held liable for any problems caused by the use or
+X#  storage of this package.
+X#
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/inst.pl,v 1.7 1993/04/25 14:15:10 lmjm Exp lmjm $
+X# $Log: inst.pl,v $
+X# Revision 1.7  1993/04/25  14:15:10  lmjm
+X# Allow for multiple help files (one per language).
+X#
+X# Revision 1.6  1993/04/23  23:27:05  lmjm
+X# Massive renaming for sys5.
+X#
+X# Revision 1.5  1993/04/23  20:03:17  lmjm
+X# Use own version of library routines before others.
+X#
+X# Revision 1.4  1993/04/23  17:23:39  lmjm
+X# Renamed ftpmail-local-config.pl to ftpmail-config.pl
+X# Made pathnames relative to $ftpmail_dir.
+X#
+X# Revision 1.3  1993/03/30  20:32:20  lmjm
+X# Now requires an ftpmail account whose home directory everything is in
+X# changed the -test option to use /tmp/ftpmail-test
+X#
+X# Revision 1.2  1993/03/23  21:40:12  lmjm
+X# Cleaned up to use ftpmail's home and droped the .sh from the install.
+X#
+X
+X$ftpmail = 'ftpmail';
+X
+Xif( $test ){
+X	$ftpmail_dir = '/tmp/ftpmail-test';
+X}
+Xelse {
+X	# The ftpmail_dir is the home directory of ftpmail.
+X	$ftpmail_dir = (getpwnam( $ftpmail ))[ 7 ];
+X	$do_chown = 1;
+X}
+X
+X
+Xmkdir( $ftpmail_dir, 0755 );
+Xprint "mkdir $ftpmail_dir\n";
+X
+Xif( ! $ftpmail_dir ){
+X	die "No home directory for ftpmail\n";
+X}
+X
+Xif( ! -d $ftpmail_dir ){
+X	die "no such directory as $ftpmail_dir\n";
+X}
+X
+Xchop( $here = `pwd` );
+X
+Xchdir( $ftpmail_dir ) || die "cannot chdir to $ftpmail_dir\n";
+X
+Xunshift( @INC, $here );
+X
+Xrequire 'config.pl';
+X
+X@dirs = ( $tmpdir, $quedir, $helpdir );
+X@files = (
+X	'q.pl',
+X	'dq.pl',
+X	'support.pl',
+X	'config.pl',
+X	'ftp.pl',
+X	'chat2.pl',
+X	'socket.ph',
+X	$authfile );
+X# All the help files are help_language
+X@helpfiles = (
+X	'help_english' );
+X
+Xforeach $dir ( @dirs ){
+X	if( ! -d $dir ){
+X		print "mkdir $dir\n";
+X		if( ! mkdir( $dir, 0755 ) ){
+X			die "Failed to create $dir";
+X		}
+X	}
+X}
+X
+X# Copy in the rest of the files
+Xprint "Installing files\n";
+Xforeach $file ( @files ){
+X	print "copying $file\n";
+X	system( "cp $here/$file ." );
+X}
+Xforeach $file ( @helpfiles ){
+X	print "copying $file\n";
+X	$f = $file;
+X	# change help_english -> english
+X	$f =~ s,help_,,;
+X	system( "cp $here/$file $helpdir/$f" );
+X}
+Xlink( "$helpdir/english", "$helpdir/help" );
+Xsystem( "chmod 755 q.pl dq.pl" );
+Xif( $do_chown ){
+X	$uid = (getpwnam( $ftpmail ))[ 2 ];
+X	chown $uid, 0, @files;
+X	chown $uid, 0, @dirs;
+X	chown $uid, 0, $ftpmail_dir;
+X}
+END_OF_FILE
+  if test 2620 -ne `wc -c <'inst.pl'`; then
+    echo shar: \"'inst.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'inst.pl'
+  # end of 'inst.pl'
+fi
+if test -f 'mmdf_maildelivery' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mmdf_maildelivery'\"
+else
+  echo shar: Extracting \"'mmdf_maildelivery'\" \(64 characters\)
+  sed "s/^X//" >'mmdf_maildelivery' <<'END_OF_FILE'
+Xdefault * pipe A "/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+END_OF_FILE
+  if test 64 -ne `wc -c <'mmdf_maildelivery'`; then
+    echo shar: \"'mmdf_maildelivery'\" unpacked with wrong size!
+  fi
+  # end of 'mmdf_maildelivery'
+fi
+if test -f 'pp_mailfilter' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pp_mailfilter'\"
+else
+  echo shar: Extracting \"'pp_mailfilter'\" \(246 characters\)
+  sed "s/^X//" >'pp_mailfilter' <<'END_OF_FILE'
+X# Default path is only /vol/pp/bin
+X# Under MMDF path contained $HOME, hence /homes/info-server
+XPATH="/vol/pp/bin:/homes/info-server:/usr/local/bin:/usr/ucb/bin:/usr/bin";
+X
+Xif( !delivered ){
+X	pipe "/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl";
+X}
+END_OF_FILE
+  if test 246 -ne `wc -c <'pp_mailfilter'`; then
+    echo shar: \"'pp_mailfilter'\" unpacked with wrong size!
+  fi
+  # end of 'pp_mailfilter'
+fi
+if test -f 'sendmail_forward' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sendmail_forward'\"
+else
+  echo shar: Extracting \"'sendmail_forward'\" \(48 characters\)
+  sed "s/^X//" >'sendmail_forward' <<'END_OF_FILE'
+X"|/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+END_OF_FILE
+  if test 48 -ne `wc -c <'sendmail_forward'`; then
+    echo shar: \"'sendmail_forward'\" unpacked with wrong size!
+  fi
+  # end of 'sendmail_forward'
+fi
+if test -f 'socket.ph' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'socket.ph'\"
+else
+  echo shar: Extracting \"'socket.ph'\" \(2752 characters\)
+  sed "s/^X//" >'socket.ph' <<'END_OF_FILE'
+Xif (!defined &_sys_socket_h) {
+X    eval 'sub _sys_socket_h {1;}';
+X    eval 'sub SOCK_STREAM {1;}';
+X    eval 'sub SOCK_DGRAM {2;}';
+X    eval 'sub SOCK_RAW {3;}';
+X    eval 'sub SOCK_RDM {4;}';
+X    eval 'sub SOCK_SEQPACKET {5;}';
+X    eval 'sub SO_DEBUG {0x0001;}';
+X    eval 'sub SO_ACCEPTCONN {0x0002;}';
+X    eval 'sub SO_REUSEADDR {0x0004;}';
+X    eval 'sub SO_KEEPALIVE {0x0008;}';
+X    eval 'sub SO_DONTROUTE {0x0010;}';
+X    eval 'sub SO_BROADCAST {0x0020;}';
+X    eval 'sub SO_USELOOPBACK {0x0040;}';
+X    eval 'sub SO_LINGER {0x0080;}';
+X    eval 'sub SO_OOBINLINE {0x0100;}';
+X    eval 'sub SO_DONTLINGER {(~ &SO_LINGER);}';
+X    eval 'sub SO_SNDBUF {0x1001;}';
+X    eval 'sub SO_RCVBUF {0x1002;}';
+X    eval 'sub SO_SNDLOWAT {0x1003;}';
+X    eval 'sub SO_RCVLOWAT {0x1004;}';
+X    eval 'sub SO_SNDTIMEO {0x1005;}';
+X    eval 'sub SO_RCVTIMEO {0x1006;}';
+X    eval 'sub SO_ERROR {0x1007;}';
+X    eval 'sub SO_TYPE {0x1008;}';
+X    eval 'sub SOL_SOCKET {0xffff;}';
+X    eval 'sub AF_UNSPEC {0;}';
+X    eval 'sub AF_UNIX {1;}';
+X    eval 'sub AF_INET {2;}';
+X    eval 'sub AF_IMPLINK {3;}';
+X    eval 'sub AF_PUP {4;}';
+X    eval 'sub AF_CHAOS {5;}';
+X    eval 'sub AF_NS {6;}';
+X    eval 'sub AF_NBS {7;}';
+X    eval 'sub AF_ECMA {8;}';
+X    eval 'sub AF_DATAKIT {9;}';
+X    eval 'sub AF_CCITT {10;}';
+X    eval 'sub AF_SNA {11;}';
+X    eval 'sub AF_DECnet {12;}';
+X    eval 'sub AF_DLI {13;}';
+X    eval 'sub AF_LAT {14;}';
+X    eval 'sub AF_HYLINK {15;}';
+X    eval 'sub AF_APPLETALK {16;}';
+X    eval 'sub AF_NIT {17;}';
+X    eval 'sub AF_802 {18;}';
+X    eval 'sub AF_OSI {19;}';
+X    eval 'sub AF_X25 {20;}';
+X    eval 'sub AF_OSINET {21;}';
+X    eval 'sub AF_GOSIP {22;}';
+X    eval 'sub AF_MAX {21;}';
+X    eval 'sub PF_UNSPEC { &AF_UNSPEC;}';
+X    eval 'sub PF_UNIX { &AF_UNIX;}';
+X    eval 'sub PF_INET { &AF_INET;}';
+X    eval 'sub PF_IMPLINK { &AF_IMPLINK;}';
+X    eval 'sub PF_PUP { &AF_PUP;}';
+X    eval 'sub PF_CHAOS { &AF_CHAOS;}';
+X    eval 'sub PF_NS { &AF_NS;}';
+X    eval 'sub PF_NBS { &AF_NBS;}';
+X    eval 'sub PF_ECMA { &AF_ECMA;}';
+X    eval 'sub PF_DATAKIT { &AF_DATAKIT;}';
+X    eval 'sub PF_CCITT { &AF_CCITT;}';
+X    eval 'sub PF_SNA { &AF_SNA;}';
+X    eval 'sub PF_DECnet { &AF_DECnet;}';
+X    eval 'sub PF_DLI { &AF_DLI;}';
+X    eval 'sub PF_LAT { &AF_LAT;}';
+X    eval 'sub PF_HYLINK { &AF_HYLINK;}';
+X    eval 'sub PF_APPLETALK { &AF_APPLETALK;}';
+X    eval 'sub PF_NIT { &AF_NIT;}';
+X    eval 'sub PF_802 { &AF_802;}';
+X    eval 'sub PF_OSI { &AF_OSI;}';
+X    eval 'sub PF_X25 { &AF_X25;}';
+X    eval 'sub PF_OSINET { &AF_OSINET;}';
+X    eval 'sub PF_GOSIP { &AF_GOSIP;}';
+X    eval 'sub PF_MAX { &AF_MAX;}';
+X    eval 'sub SOMAXCONN {5;}';
+X    eval 'sub MSG_OOB {0x1;}';
+X    eval 'sub MSG_PEEK {0x2;}';
+X    eval 'sub MSG_DONTROUTE {0x4;}';
+X    eval 'sub MSG_MAXIOVLEN {16;}';
+X}
+X1;
+END_OF_FILE
+  if test 2752 -ne `wc -c <'socket.ph'`; then
+    echo shar: \"'socket.ph'\" unpacked with wrong size!
+  fi
+  # end of 'socket.ph'
+fi
+if test -f 'support.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'support.pl'\"
+else
+  echo shar: Extracting \"'support.pl'\" \(2450 characters\)
+  sed "s/^X//" >'support.pl' <<'END_OF_FILE'
+X# support for the ftpmail system
+X# By Lee McLoughlin <lmjm@doc.ic.ac.uk>
+X#  You can do what you like with this except claim that you wrote it or
+X#  give copies with changes not approved by Lee.  Neither Lee nor any other
+X#  organisation can be held liable for any problems caused by the use or
+X#  storage of this package.
+X#
+X
+X# Don't change this unless you are really clever.
+X$ftpmail_response = '<FTP EMAIL> response';
+X
+X
+X# Expects globals $qfile, $reply_to, $tries, and @comms
+X# If updating_only is set then the file will not be recreated only updated.
+Xsub write_entry
+X{
+X	local( $c );
+X
+X	if( $updating_only && ! -f $qfile ){
+X		# Job must have been deleted
+X		return;
+X	}
+X	open( qfile, "> $qfile" ) || die "Cannot create queue entry";;
+X	local( $to ) = $reply_to;
+X	$to =~ s/\\@/@/;
+X	print qfile "reply-to $to\n";
+X	print qfile "tries $tries $whenretry\n";
+X	foreach $c ( @comms ){
+X		print qfile "$c\n";
+X	}
+X	close( qfile );
+X}
+X
+X# returns the number of items in the queue
+Xsub queuelen
+X{
+X	local( @qfiles );
+X	local( $qlen ) = 0;
+X
+X	@qfiles = ();
+X	opendir( dir, $quedir ) || die "Cannot open directory $quedir ";
+X	local( @dir ) = readdir( dir );
+X	closedir( dir );
+X
+X	foreach $_ ( @dir ){
+X		if( /^\d+\.\d+$/ ){
+X			$qlen++;
+X		}
+X	}
+X	return $qlen;
+X}
+X
+X# Pretty print the contents of the comms array to MAIL
+Xsub mail_comms
+X{
+X	local( $c );
+X	local( $site, $user, $pass );
+X	local( $show_open ) = 1;
+X
+X	print MAIL "      reply-to $reply_to\n";
+X	foreach $_ ( @comms ){
+X		if( /^open (.+)$/i ){
+X			$site = $1;
+X			next;
+X		}
+X		elsif( /^user (.+)$/i ){
+X			$user = $1;
+X			next;
+X		}
+X		elsif( /^pass (.+)$/i ){
+X			$pass = $1;
+X			next;
+X		}
+X		if( $show_open ){
+X			print MAIL "      open $site $user $pass\n";
+X			$show_open = 0;
+X		}
+X		local( $l ) = $_;
+X		if( $l !~ /DONE/ ){
+X			$l =~ s/^/     /;
+X		}
+X		print MAIL " $l\n";
+X	}
+X}
+X
+X# print the MAIL any contents of the ftpmail message of the day file
+Xsub mail_motd
+X{
+X	if( open( motd, $motdfile ) ){
+X		while( <motd> ){
+X			print MAIL;
+X		}
+X		close( motd );
+X	}
+X}
+X
+Xsub fatal
+X{
+X	local( $fatal_error ) = @_;
+X
+X	&log( "Fatal error $fatal_error" );
+X	exit( 0 );
+X}
+X
+Xsub log
+X{
+X	local( $msg ) = @_;
+X
+X	&gettime();
+X
+X	open( LOG, ">>$logfile" ) || die "All is lost!\n";
+X	print LOG "$time $msg\n";
+X	close( LOG );
+X}
+X
+Xsub gettime
+X{
+X    ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+X						localtime(time);
+X    $time = sprintf( "%02d/%02d/%02d %02d:%02d:%02d",
+X		    $year, $mon+1, $mday, $hour, $min, $sec );
+X}
+X
+X#  Make sure this package returns TRUE
+X1;
+END_OF_FILE
+  if test 2450 -ne `wc -c <'support.pl'`; then
+    echo shar: \"'support.pl'\" unpacked with wrong size!
+  fi
+  # end of 'support.pl'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

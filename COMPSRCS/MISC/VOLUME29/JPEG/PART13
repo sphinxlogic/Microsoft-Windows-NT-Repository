@@ -1,0 +1,1631 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i013:  jpeg - JPEG image compression, Part13/18
+Message-ID: <1992Mar25.145314.587@sparky.imd.sterling.com>
+X-Md4-Signature: dd9a990254c73b0a65c23d38b2fced8d
+Date: Wed, 25 Mar 1992 14:53:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 13
+Archive-name: jpeg/part13
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  USAGE jconfig.h jdcolor.c jdmain.c jrdrle.c
+# Wrapped by kent@sparky on Mon Mar 23 16:02:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 18)."'
+if test -f 'USAGE' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'USAGE'\"
+else
+  echo shar: Extracting \"'USAGE'\" \(9783 characters\)
+  sed "s/^X//" >'USAGE' <<'END_OF_FILE'
+XUSAGE instructions for the Independent JPEG Group's JPEG software
+X=================================================================
+X
+XINTRODUCTION
+X
+XThis distribution contains software to implement JPEG image compression and
+Xdecompression.  JPEG (pronounced "jay-peg") is a standardized compression
+Xmethod for full-color and gray-scale images.  JPEG is designed to handle
+X"real-world" scenes, for example scanned photographs.  Cartoons, line
+Xdrawings, and other non-realistic images are not JPEG's strong suit; on this
+Xsort of material you may get poor image quality and/or little compression.
+X
+XJPEG is lossy, meaning that the output image is not necessarily identical to
+Xthe input image.  Hence you should not use JPEG if you have to have identical
+Xoutput bits.  However, on typical real-world images, very good compression
+Xlevels can be obtained with no visible change, and amazingly high compression
+Xis possible if you can tolerate a low-quality image.  You can trade off image
+Xquality against file size by adjusting the compressor's "quality" setting.
+X
+XThis file describes usage of the standard programs "cjpeg" and "djpeg" that
+Xcan be built directly from the distributed C code.  See the README file for
+Xhints on incorporating the JPEG software into other programs.
+X
+XIf you are on a Unix machine you may prefer to read the Unix-style manual
+Xpages in files cjpeg.1 and djpeg.1.
+X
+XNOTE: at some point we will probably redesign the user interface, so the
+Xcommand line switches described here will change.
+X
+X
+XGENERAL USAGE
+X
+XWe provide two programs, cjpeg to compress an image file into JPEG format,
+Xand djpeg to decompress a JPEG file back into a conventional image format.
+X
+XOn Unix-like systems, you say:
+X	cjpeg [switches] [imagefile] >jpegfile
+Xor
+X	djpeg [switches] [jpegfile]  >imagefile
+XThe programs read the specified input file, or standard input if none is
+Xnamed.  They always write to standard output (with trace/error messages to
+Xstandard error).  These conventions are handy for piping images between
+Xprograms.
+X
+XOn most non-Unix systems, you say:
+X	cjpeg [switches] imagefile jpegfile
+Xor
+X	djpeg [switches] jpegfile  imagefile
+Xi.e., both the input and output files are named on the command line.  This
+Xstyle is a little more foolproof, and it loses no functionality if you don't
+Xhave pipes.  (You can get this style on Unix too, if you prefer, by defining
+XTWO_FILE_COMMANDLINE when you compile the programs; see SETUP.)
+X
+XThe currently supported image file formats are: PPM (PBMPLUS color format),
+XPGM (PBMPLUS gray-scale format), GIF, Targa, and RLE (Utah Raster Toolkit
+Xformat).  (RLE is supported only if the URT library is available.)
+Xcjpeg recognizes the input image format automatically, with the exception
+Xof some Targa-format files.  You have to tell djpeg which format to generate.
+X
+XThe only JPEG file format currently supported is the JFIF format.  Support for
+Xthe TIFF/JPEG format will probably be added at some future date.
+X
+X
+XCJPEG DETAILS
+X
+XThe command line switches for cjpeg are:
+X
+X	-Q quality	Scale quantization tables to adjust image quality.
+X			Quality is 0 (worst) to 100 (best); default is 75.
+X			(See below for more info.)
+X
+X	-o		Perform optimization of entropy encoding parameters.
+X			Without this, default encoding parameters are used.
+X			-o usually makes the JPEG file a little smaller, but
+X			cjpeg runs somewhat slower and needs much more memory.
+X			Image quality and speed of decompression are unaffected
+X			by -o.
+X
+X	-T		Input file is Targa format.  Targa files that contain
+X			an "identification" field will not be automatically
+X			recognized by cjpeg; for such files you must specify
+X			-T to force cjpeg to treat the input as Targa format.
+X
+X	-I		Generate noninterleaved JPEG file (not yet supported).
+X
+X	-a		Use arithmetic coding rather than Huffman coding.
+X			(Not currently supported for legal reasons.)
+X
+X	-d		Enable debug printout.  More -d's give more printout.
+X			Also, version information is printed at startup.
+X
+X	-m memory	Set limit for amount of memory to use in processing
+X			large images.  Value is in thousands of bytes, or
+X			millions of bytes if "M" is attached to the number.
+X			For example, -m 4m selects 4000000 bytes.  If more
+X			space is needed, temporary files will be used.
+X
+XThe -Q switch lets you trade off compressed file size against quality of the
+Xreconstructed image: the higher the -Q setting, the larger the JPEG file, and
+Xthe closer the output image will be to the original input.  Normally you want
+Xto use the lowest -Q setting (smallest file) that decompresses into something
+Xvisually indistinguishable from the original image.  For this purpose the -Q
+Xsetting should be between 50 and 95; the default of 75 is often about right.
+XIf you see defects at -Q 75, then go up 5 or 10 counts at a time until you are
+Xhappy with the output image.  (The optimal setting will vary from one image to
+Xanother.)
+X
+X-Q 100 will generate a quantization table of all 1's, eliminating loss in the
+Xquantization step (but there is still information loss in subsampling, as well
+Xas roundoff error).  This setting is mainly of interest for experimental
+Xpurposes.  -Q values above about 95 are NOT recommended for normal use; the
+Xcompressed file size goes up dramatically for hardly any gain in output image
+Xquality.
+X
+XIn the other direction, -Q values below 50 will produce very small files of
+Xlow image quality.  Settings around 5 to 10 might be useful in preparing an
+Xindex of a large image library, for example.  Try -Q 2 (or so) for some
+Xamusing Cubist effects.  (Note: -Q values below about 25 generate 2-byte
+Xquantization tables, which are considered optional in the JPEG standard.
+Xcjpeg emits a warning message when you give such a -Q value, because some
+Xcommercial JPEG programs may be unable to decode the resulting file.)
+X
+X
+XDJPEG DETAILS
+X
+XThe command line switches for djpeg are:
+X
+X	-G		Select GIF output format (implies -q, with default
+X			of 256 colors).
+X
+X	-P		Select PPM or PGM output format (this is the default).
+X			PGM is emitted if the JPEG file is gray-scale or if -g
+X			is specified.
+X
+X	-R		Select RLE output format.  Requires URT library.
+X
+X	-T		Select Targa output format.  Gray-scale format is
+X			emitted if the JPEG file is gray-scale or if -g is
+X			specified; otherwise, colormapped format is emitted
+X			if -q is specified; otherwise, 24-bit full-color
+X			format is emitted.
+X
+X	-g		Force gray-scale output even if input is color.
+X
+X	-q N		Quantize to N colors.  This reduces the number of
+X			colors in the output image so that it can be displayed
+X			on a colormapped display or stored in a colormapped
+X			file format.  For example, if you have an 8-bit
+X			display, you'd need to quantize to 256 or fewer colors.
+X
+X	-D		Do not use dithering in color quantization.
+X			By default, Floyd-Steinberg dithering is applied when
+X			quantizing colors, but on some images dithering may
+X			result in objectionable "graininess".  If that
+X			happens, you can turn off dithering with -D.
+X			-D is ignored unless you also say -q or -G.
+X
+X	-1		Use one-pass instead of two-pass color quantization.
+X			The one-pass method is faster and needs less memory,
+X			but it produces a lower-quality image.
+X			-1 is ignored unless you also say -q or -G.  Also,
+X			the one-pass method is always used for gray-scale
+X			output (the two-pass method is no improvement then).
+X
+X	-b		Perform cross-block smoothing.  This is quite
+X			memory-intensive and only seems to improve the image
+X			at very low quality settings (-Q 10 to 20 or so).
+X			At normal -Q settings it may make the image worse.
+X
+X	-d		Enable debug printout.  More -d's give more printout.
+X			Also, version information is printed at startup.
+X
+X	-m memory	Set limit for amount of memory to use in processing
+X			large images.  Value is in thousands of bytes, or
+X			millions of bytes if "M" is attached to the number.
+X			For example, -m 4m selects 4000000 bytes.  If more
+X			space is needed, temporary files will be used.
+X
+X
+XHINTS
+X
+XAvoid running an image through a series of JPEG compression/decompression
+Xcycles.  Image quality loss will accumulate; after ten or so cycles the image
+Xmay be noticeably worse than it was after one cycle.  It's best to use a
+Xlossless format while manipulating an image, then convert to JPEG format when
+Xyou are ready to file the image away.
+X
+XThe -o option to cjpeg is worth using when you are making a "final" version
+Xfor posting or archiving.  It's also a win when you are using low -Q settings
+Xto make very small JPEG files; the percentage improvement is often a lot more
+Xthan it is on larger files.
+X
+XThe default memory usage limit (-m) is set when the software is compiled.
+XIf you get an "insufficient memory" error, try specifying a smaller -m value,
+Xeven -m 0 to use the absolute minimum space.  You may want to recompile with
+Xa smaller default value if this happens often.
+X
+Xdjpeg with two-pass color quantization requires a good deal of space; on
+XMS-DOS machines it may run out of memory even with -m 0.  In that case you
+Xcan still decompress, with some loss of image quality, by specifying -1
+Xfor one-pass quantization.
+X
+XIf more space is needed than will fit in the available main memory (as
+Xdetermined by -m), temporary files will be used.  (MS-DOS versions will try to
+Xget extended or expanded memory first.)  The temporary files are often rather
+Xlarge: in typical cases they occupy three bytes per pixel, for example
+X3*800*600 = 1.44Mb for an 800x600 image.  If you don't have enough free disk
+Xspace, leave out -o (for cjpeg) or specify -1 (for djpeg).  On MS-DOS, the
+Xtemporary files are created in the directory named by the TMP or TEMP
+Xenvironment variable, or in the current directory if neither of those exist.
+XAmiga implementations put the temp files in the directory named by JPEGTMP:,
+Xso be sure to assign JPEGTMP: to a disk partition with adequate free space.
+END_OF_FILE
+  if test 9783 -ne `wc -c <'USAGE'`; then
+    echo shar: \"'USAGE'\" unpacked with wrong size!
+  fi
+  # end of 'USAGE'
+fi
+if test -f 'jconfig.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jconfig.h'\"
+else
+  echo shar: Extracting \"'jconfig.h'\" \(11361 characters\)
+  sed "s/^X//" >'jconfig.h' <<'END_OF_FILE'
+X/*
+X * jconfig.h
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains preprocessor declarations that help customize
+X * the JPEG software for a particular application, machine, or compiler.
+X * Edit these declarations as needed (or add -D flags to the Makefile).
+X */
+X
+X
+X/*
+X * These symbols indicate the properties of your machine or compiler.
+X * The conditional definitions given may do the right thing already,
+X * but you'd best look them over closely, especially if your compiler
+X * does not handle full ANSI C.  An ANSI-compliant C compiler should
+X * provide all the necessary features; __STDC__ is supposed to be
+X * predefined by such compilers.
+X */
+X
+X/*
+X * HAVE_STDC is tested below to see whether ANSI features are available.
+X * We avoid testing __STDC__ directly for arcane reasons of portability.
+X * (On some compilers, __STDC__ is only defined if a switch is given,
+X * but the switch also disables machine-specific features we need to get at.
+X * In that case, -DHAVE_STDC in the Makefile is a convenient solution.)
+X */
+X
+X#ifdef __STDC__			/* if compiler claims to be ANSI, believe it */
+X#define HAVE_STDC
+X#endif
+X
+X
+X/* Does your compiler support function prototypes? */
+X/* (If not, you also need to use ansi2knr, see SETUP) */
+X
+X#ifdef HAVE_STDC		/* ANSI C compilers always have prototypes */
+X#define PROTO
+X#else
+X#ifdef __cplusplus		/* So do C++ compilers */
+X#define PROTO
+X#endif
+X#endif
+X
+X/* Does your compiler support the declaration "unsigned char" ? */
+X/* How about "unsigned short" ? */
+X
+X#ifdef HAVE_STDC		/* ANSI C compilers must support both */
+X#define HAVE_UNSIGNED_CHAR
+X#define HAVE_UNSIGNED_SHORT
+X#endif
+X
+X/* Define this if an ordinary "char" type is unsigned.
+X * If you're not sure, leaving it undefined will work at some cost in speed.
+X * If you defined HAVE_UNSIGNED_CHAR then it doesn't matter very much.
+X */
+X
+X/* #define CHAR_IS_UNSIGNED */
+X
+X/* Define this if your compiler implements ">>" on signed values as a logical
+X * (unsigned) shift; leave it undefined if ">>" is a signed (arithmetic) shift,
+X * which is the normal and rational definition.
+X */
+X
+X/* #define RIGHT_SHIFT_IS_UNSIGNED */
+X
+X/* Define "void" as "char" if your compiler doesn't know about type void.
+X * NOTE: be sure to define void such that "void *" represents the most general
+X * pointer type, e.g., that returned by malloc().
+X */
+X
+X/* #define void char */
+X
+X/* Define const as empty if your compiler doesn't know the "const" keyword. */
+X/* (Even if it does, defining const as empty won't break anything.) */
+X
+X#ifndef HAVE_STDC		/* ANSI C and C++ compilers should know it. */
+X#ifndef __cplusplus
+X#define const
+X#endif
+X#endif
+X
+X/* For 80x86 machines, you need to define NEED_FAR_POINTERS,
+X * unless you are using a large-data memory model or 80386 flat-memory mode.
+X * On less brain-damaged CPUs this symbol must not be defined.
+X * (Defining this symbol causes large data structures to be referenced through
+X * "far" pointers and to be allocated with a special version of malloc.)
+X */
+X
+X#ifdef MSDOS
+X#define NEED_FAR_POINTERS
+X#endif
+X
+X
+X/* The next three symbols only affect the system-dependent user interface
+X * modules (jcmain.c, jdmain.c).  You can ignore these if you are supplying
+X * your own user interface code.
+X */
+X
+X/* Define this if you want to name both input and output files on the command
+X * line, rather than using stdout and optionally stdin.  You MUST do this if
+X * your system can't cope with binary I/O to stdin/stdout.  See comments at
+X * head of jcmain.c or jdmain.c.
+X */
+X
+X#ifdef MSDOS			/* two-file style is needed for PCs */
+X#define TWO_FILE_COMMANDLINE
+X#endif
+X#ifdef THINK_C			/* needed for Macintosh too */
+X#define TWO_FILE_COMMANDLINE
+X#endif
+X
+X/* Define this if your system needs explicit cleanup of temporary files.
+X * This is crucial under MS-DOS, where the temporary "files" may be areas
+X * of extended memory; on most other systems it's not as important.
+X */
+X
+X#ifdef MSDOS
+X#define NEED_SIGNAL_CATCHER
+X#endif
+X
+X/* By default, we open image files with fopen(...,"rb") or fopen(...,"wb").
+X * This is necessary on systems that distinguish text files from binary files,
+X * and is harmless on most systems that don't.  If you have one of the rare
+X * systems that complains about the "b" spec, define this symbol.
+X */
+X
+X/* #define DONT_USE_B_MODE */
+X
+X
+X/* If you're getting bored, that's the end of the symbols you HAVE to
+X * worry about.  Go fix the makefile and compile.
+X */
+X
+X
+X/* On a few systems, type boolean and/or macros FALSE, TRUE may appear
+X * in standard header files.  Or you may have conflicts with application-
+X * specific header files that you want to include together with these files.
+X * In that case you need only comment out these definitions.
+X */
+X
+Xtypedef int boolean;
+X#undef FALSE			/* in case these macros already exist */
+X#undef TRUE
+X#define FALSE	0		/* values of boolean */
+X#define TRUE	1
+X
+X/* This defines the size of the I/O buffers for entropy compression
+X * and decompression; you could reduce it if memory is tight.
+X */
+X
+X#define JPEG_BUF_SIZE	4096 /* bytes */
+X
+X
+X
+X/* These symbols determine the JPEG functionality supported. */
+X
+X/*
+X * These defines indicate whether to include various optional functions.
+X * Undefining some of these symbols will produce a smaller but less capable
+X * program file.  Note that you can leave certain source files out of the
+X * compilation/linking process if you've #undef'd the corresponding symbols.
+X * (You may HAVE to do that if your compiler doesn't like null source files.)
+X */
+X
+X/* Arithmetic coding is unsupported for legal reasons.  Complaints to IBM. */
+X#undef  ARITH_CODING_SUPPORTED	/* Arithmetic coding back end? */
+X#define MULTISCAN_FILES_SUPPORTED /* Multiple-scan JPEG files? */
+X#define ENTROPY_OPT_SUPPORTED	/* Optimization of entropy coding parms? */
+X#define BLOCK_SMOOTHING_SUPPORTED /* Block smoothing during decoding? */
+X#define QUANT_1PASS_SUPPORTED	/* 1-pass color quantization? */
+X#define QUANT_2PASS_SUPPORTED	/* 2-pass color quantization? */
+X/* these defines indicate which JPEG file formats are allowed */
+X#define JFIF_SUPPORTED		/* JFIF or "raw JPEG" files */
+X#undef  JTIFF_SUPPORTED		/* JPEG-in-TIFF (not yet implemented) */
+X/* these defines indicate which image (non-JPEG) file formats are allowed */
+X#define GIF_SUPPORTED		/* GIF image file format */
+X/* #define RLE_SUPPORTED */	/* RLE image file format (by default, no) */
+X#define PPM_SUPPORTED		/* PPM/PGM image file format */
+X#define TARGA_SUPPORTED		/* Targa image file format */
+X#undef  TIFF_SUPPORTED		/* TIFF image file format (not yet impl.) */
+X
+X/* more capability options later, no doubt */
+X
+X
+X/*
+X * Define exactly one of these three symbols to indicate whether you want
+X * 8-bit, 12-bit, or 16-bit sample (pixel component) values.  8-bit is the
+X * default and is nearly always the right thing to use.  You can use 12-bit if
+X * you need to support image formats with more than 8 bits of resolution in a
+X * color value.  16-bit should only be used for the lossless JPEG mode (not
+X * currently supported).  Note that 12- and 16-bit values take up twice as
+X * much memory as 8-bit!
+X * Note: if you select 12- or 16-bit precision, it is dangerous to turn off
+X * ENTROPY_OPT_SUPPORTED.  The standard Huffman tables are only good for 8-bit
+X * precision, so jchuff.c normally uses entropy optimization to compute
+X * usable tables for higher precision.  If you don't want to do optimization,
+X * you'll have to supply different default Huffman tables.
+X */
+X
+X#define EIGHT_BIT_SAMPLES
+X#undef  TWELVE_BIT_SAMPLES
+X#undef  SIXTEEN_BIT_SAMPLES
+X
+X
+X
+X/*
+X * The remaining definitions don't need to be hand-edited in most cases.
+X * You may need to change these if you have a machine with unusual data
+X * types; for example, "char" not 8 bits, "short" not 16 bits,
+X * or "long" not 32 bits.  We don't care whether "int" is 16 or 32 bits,
+X * but it had better be at least 16.
+X */
+X
+X/* First define the representation of a single pixel element value. */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..255.
+X * You can use a signed char by having GETJSAMPLE mask it with 0xFF.
+X * If you have only signed chars, and you are more worried about speed than
+X * memory usage, it might be a win to make JSAMPLE be short.
+X */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+X
+Xtypedef unsigned char JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+X
+Xtypedef char JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not CHAR_IS_UNSIGNED */
+X
+Xtypedef char JSAMPLE;
+X#define GETJSAMPLE(value)  ((value) & 0xFF)
+X
+X#endif /* CHAR_IS_UNSIGNED */
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X#define BITS_IN_JSAMPLE   8
+X#define MAXJSAMPLE	255
+X#define CENTERJSAMPLE	128
+X
+X#endif /* EIGHT_BIT_SAMPLES */
+X
+X
+X#ifdef TWELVE_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..4095. */
+X/* On nearly all machines "short" will do nicely. */
+X
+Xtypedef short JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#define BITS_IN_JSAMPLE   12
+X#define MAXJSAMPLE	4095
+X#define CENTERJSAMPLE	2048
+X
+X#endif /* TWELVE_BIT_SAMPLES */
+X
+X
+X#ifdef SIXTEEN_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..65535. */
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+X
+Xtypedef unsigned short JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not HAVE_UNSIGNED_SHORT */
+X
+X/* If int is 32 bits this'll be horrendously inefficient storage-wise.
+X * But since we don't actually support 16-bit samples (ie lossless coding) yet,
+X * I'm not going to worry about making a smarter definition ...
+X */
+Xtypedef unsigned int JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#endif /* HAVE_UNSIGNED_SHORT */
+X
+X#define BITS_IN_JSAMPLE    16
+X#define MAXJSAMPLE	65535
+X#define CENTERJSAMPLE	32768
+X
+X#endif /* SIXTEEN_BIT_SAMPLES */
+X
+X
+X/* Here we define the representation of a DCT frequency coefficient.
+X * This should be a signed 16-bit value; "short" is usually right.
+X * It's important that this be exactly 16 bits, no more and no less;
+X * more will cost you a BIG hit of memory, less will give wrong answers.
+X */
+X
+Xtypedef short JCOEF;
+X
+X
+X/* The remaining typedefs are used for various table entries and so forth.
+X * They must be at least as wide as specified; but making them too big
+X * won't cost a huge amount of memory, so we don't provide special
+X * extraction code like we did for JSAMPLE.  (In other words, these
+X * typedefs live at a different point on the speed/space tradeoff curve.)
+X */
+X
+X/* UINT8 must hold at least the values 0..255. */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xtypedef unsigned char UINT8;
+X#else /* not HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+Xtypedef char UINT8;
+X#else /* not CHAR_IS_UNSIGNED */
+Xtypedef short UINT8;
+X#endif /* CHAR_IS_UNSIGNED */
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X/* UINT16 must hold at least the values 0..65535. */
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+Xtypedef unsigned short UINT16;
+X#else /* not HAVE_UNSIGNED_SHORT */
+Xtypedef unsigned int UINT16;
+X#endif /* HAVE_UNSIGNED_SHORT */
+X
+X/* INT16 must hold at least the values -32768..32767. */
+X
+X#ifndef XMD_H			/* X11/xmd.h correctly defines INT16 */
+Xtypedef short INT16;
+X#endif
+X
+X/* INT32 must hold signed 32-bit values; if your machine happens */
+X/* to have 64-bit longs, you might want to change this. */
+X
+X#ifndef XMD_H			/* X11/xmd.h correctly defines INT32 */
+Xtypedef long INT32;
+X#endif
+END_OF_FILE
+  if test 11361 -ne `wc -c <'jconfig.h'`; then
+    echo shar: \"'jconfig.h'\" unpacked with wrong size!
+  fi
+  # end of 'jconfig.h'
+fi
+if test -f 'jdcolor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdcolor.c'\"
+else
+  echo shar: Extracting \"'jdcolor.c'\" \(9030 characters\)
+  sed "s/^X//" >'jdcolor.c' <<'END_OF_FILE'
+X/*
+X * jdcolor.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains output colorspace conversion routines.
+X * These routines are invoked via the methods color_convert
+X * and colorout_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/**************** YCbCr -> RGB conversion: most common case **************/
+X
+X/*
+X * YCbCr is defined per CCIR 601-1, except that Cb and Cr are
+X * normalized to the range 0..MAXJSAMPLE rather than -0.5 .. 0.5.
+X * The conversion equations to be implemented are therefore
+X *	R = Y                + 1.40200 * Cr
+X *	G = Y - 0.34414 * Cb - 0.71414 * Cr
+X *	B = Y + 1.77200 * Cb
+X * where Cb and Cr represent the incoming values less MAXJSAMPLE/2.
+X * (These numbers are derived from TIFF Appendix O, draft of 4/10/91.)
+X *
+X * To avoid floating-point arithmetic, we represent the fractional constants
+X * as integers scaled up by 2^14 (about 4 digits precision); we have to divide
+X * the products by 2^14, with appropriate rounding, to get the correct answer.
+X * Notice that Y, being an integral input, does not contribute any fraction
+X * so it need not participate in the rounding.
+X *
+X * For even more speed, we avoid doing any multiplications in the inner loop
+X * by precalculating the constants times Cb and Cr for all possible values.
+X * For 8-bit JSAMPLEs this is very reasonable (only 256 table entries); for
+X * 12-bit samples it is still acceptable.  It's not very reasonable for 16-bit
+X * samples, but if you want lossless storage you shouldn't be changing
+X * colorspace anyway.
+X * The Cr=>R and Cb=>B values can be rounded to integers in advance; the
+X * values for the G calculation are left scaled up, since we must add them
+X * together before rounding.
+X */
+X
+X#define SCALEBITS	14
+X#define ONE_HALF	((INT32) 1 << (SCALEBITS-1))
+X#define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
+X
+Xstatic INT16 * Cr_r_tab;	/* => table for Cr to R conversion */
+Xstatic INT16 * Cb_b_tab;	/* => table for Cb to B conversion */
+Xstatic INT32 * Cr_g_tab;	/* => table for Cr to G conversion */
+Xstatic INT32 * Cb_g_tab;	/* => table for Cb to G conversion */
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_init (decompress_info_ptr cinfo)
+X{
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  INT32 i, x2;
+X#else
+X  int i, x2;			/* smart compiler may do 16x16=>32 multiply */
+X#endif
+X  SHIFT_TEMPS
+X
+X  Cr_r_tab = (INT16 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT16));
+X  Cb_b_tab = (INT16 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT16));
+X  Cr_g_tab = (INT32 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT32));
+X  Cb_g_tab = (INT32 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT32));
+X
+X  for (i = 0; i <= MAXJSAMPLE; i++) {
+X    /* i is the actual input pixel value, in the range 0..MAXJSAMPLE */
+X    /* The Cb or Cr value we are thinking of is x = i - MAXJSAMPLE/2 */
+X    x2 = 2*i - MAXJSAMPLE;	/* twice x */
+X    /* Cr=>R value is nearest int to 1.40200 * x */
+X    Cr_r_tab[i] = (INT16)
+X		    RIGHT_SHIFT(FIX(1.40200/2) * x2 + ONE_HALF, SCALEBITS);
+X    /* Cb=>B value is nearest int to 1.77200 * x */
+X    Cb_b_tab[i] = (INT16)
+X		    RIGHT_SHIFT(FIX(1.77200/2) * x2 + ONE_HALF, SCALEBITS);
+X    /* Cr=>G value is scaled-up -0.71414 * x */
+X    Cr_g_tab[i] = (- FIX(0.71414/2)) * x2;
+X    /* Cb=>G value is scaled-up -0.34414 * x */
+X    /* We also add in ONE_HALF so that need not do it in inner loop */
+X    Cb_g_tab[i] = (- FIX(0.34414/2)) * x2 + ONE_HALF;
+X  }
+X}
+X
+X
+X/*
+X * Convert some rows of samples to the output colorspace.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X		 JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  register UINT16 y, cb, cr;
+X  register INT32 x;
+X#else
+X  register int y, cb, cr;
+X  register int x;
+X#endif
+X  register JSAMPROW inptr0, inptr1, inptr2;
+X  register JSAMPROW outptr0, outptr1, outptr2;
+X  long col;
+X  int row;
+X  SHIFT_TEMPS
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    inptr0 = input_data[0][row];
+X    inptr1 = input_data[1][row];
+X    inptr2 = input_data[2][row];
+X    outptr0 = output_data[0][row];
+X    outptr1 = output_data[1][row];
+X    outptr2 = output_data[2][row];
+X    for (col = num_cols; col > 0; col--) {
+X      y  = GETJSAMPLE(*inptr0++);
+X      cb = GETJSAMPLE(*inptr1++);
+X      cr = GETJSAMPLE(*inptr2++);
+X      /* Note: if the inputs were computed directly from RGB values,
+X       * range-limiting would be unnecessary here; but due to possible
+X       * noise in the DCT/IDCT phase, we do need to apply range limits.
+X       */
+X      x = y + Cr_r_tab[cr];	/* red */
+X      if (x < 0) x = 0;
+X      else if (x > MAXJSAMPLE) x = MAXJSAMPLE;
+X      *outptr0++ = (JSAMPLE) x;
+X      x = y + ((int) RIGHT_SHIFT(Cb_g_tab[cb] + Cr_g_tab[cr], SCALEBITS));
+X      if (x < 0) x = 0;
+X      else if (x > MAXJSAMPLE) x = MAXJSAMPLE;
+X      *outptr1++ = (JSAMPLE) x;
+X      x = y + Cb_b_tab[cb];	/* blue */
+X      if (x < 0) x = 0;
+X      else if (x > MAXJSAMPLE) x = MAXJSAMPLE;
+X      *outptr2++ = (JSAMPLE) x;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_term (decompress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/**************** Cases other than YCbCr -> RGB **************/
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xnull_init (decompress_info_ptr cinfo)
+X/* colorout_init for cases where no setup is needed */
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * Color conversion for no colorspace change: just copy the data.
+X */
+X
+XMETHODDEF void
+Xnull_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X	      JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X  short ci;
+X
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    jcopy_sample_rows(input_data[ci], 0, output_data[ci], 0,
+X		      num_rows, num_cols);
+X  }
+X}
+X
+X
+X/*
+X * Color conversion for grayscale: just copy the data.
+X * This also works for YCbCr/YIQ -> grayscale conversion, in which
+X * we just copy the Y (luminance) component and ignore chrominance.
+X */
+X
+XMETHODDEF void
+Xgrayscale_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X		   JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X  jcopy_sample_rows(input_data[0], 0, output_data[0], 0,
+X		    num_rows, num_cols);
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xnull_term (decompress_info_ptr cinfo)
+X/* colorout_term for cases where no teardown is needed */
+X{
+X  /* no work needed */
+X}
+X
+X
+X
+X/*
+X * The method selection routine for output colorspace conversion.
+X */
+X
+XGLOBAL void
+Xjseldcolor (decompress_info_ptr cinfo)
+X{
+X  /* Make sure num_components agrees with jpeg_color_space */
+X  switch (cinfo->jpeg_color_space) {
+X  case CS_GRAYSCALE:
+X    if (cinfo->num_components != 1)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  case CS_RGB:
+X  case CS_YCbCr:
+X  case CS_YIQ:
+X    if (cinfo->num_components != 3)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  case CS_CMYK:
+X    if (cinfo->num_components != 4)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG colorspace");
+X    break;
+X  }
+X
+X  /* Set color_out_comps and conversion method based on requested space */
+X  switch (cinfo->out_color_space) {
+X  case CS_GRAYSCALE:
+X    cinfo->color_out_comps = 1;
+X    if (cinfo->jpeg_color_space == CS_GRAYSCALE ||
+X	cinfo->jpeg_color_space == CS_YCbCr ||
+X	cinfo->jpeg_color_space == CS_YIQ) {
+X      cinfo->methods->color_convert = grayscale_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  case CS_RGB:
+X    cinfo->color_out_comps = 3;
+X    if (cinfo->jpeg_color_space == CS_YCbCr) {
+X      cinfo->methods->color_convert = ycc_rgb_convert;
+X      cinfo->methods->colorout_init = ycc_rgb_init;
+X      cinfo->methods->colorout_term = ycc_rgb_term;
+X    } else if (cinfo->jpeg_color_space == CS_RGB) {
+X      cinfo->methods->color_convert = null_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  default:
+X    /* Permit null conversion from CMYK or YCbCr to same output space */
+X    if (cinfo->out_color_space == cinfo->jpeg_color_space) {
+X      cinfo->color_out_comps = cinfo->num_components;
+X      cinfo->methods->color_convert = null_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else			/* unsupported non-null conversion */
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X  }
+X
+X  if (cinfo->quantize_colors)
+X    cinfo->final_out_comps = 1;	/* single colormapped output component */
+X  else
+X    cinfo->final_out_comps = cinfo->color_out_comps;
+X}
+END_OF_FILE
+  if test 9030 -ne `wc -c <'jdcolor.c'`; then
+    echo shar: \"'jdcolor.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdcolor.c'
+fi
+if test -f 'jdmain.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdmain.c'\"
+else
+  echo shar: Extracting \"'jdmain.c'\" \(8658 characters\)
+  sed "s/^X//" >'jdmain.c' <<'END_OF_FILE'
+X/*
+X * jdmain.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains a trivial test user interface for the JPEG decompressor.
+X * It should work on any system with Unix- or MS-DOS-style command lines.
+X *
+X * Two different command line styles are permitted, depending on the
+X * compile-time switch TWO_FILE_COMMANDLINE:
+X *	djpeg [options]  inputfile outputfile
+X *	djpeg [options]  [inputfile]
+X * In the second style, output is always to standard output, which you'd
+X * normally redirect to a file or pipe to some other program.  Input is
+X * either from a named file or from standard input (typically redirected).
+X * The second style is convenient on Unix but is unhelpful on systems that
+X * don't support pipes.  Also, you MUST use the first style if your system
+X * doesn't do binary I/O to stdin/stdout.
+X */
+X
+X#include "jinclude.h"
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare exit() */
+X#endif
+X#ifdef NEED_SIGNAL_CATCHER
+X#include <signal.h>		/* to declare signal() */
+X#endif
+X
+X#ifdef THINK_C
+X#include <console.h>		/* command-line reader for Macintosh */
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#define WRITE_BINARY	"w"
+X#else
+X#define READ_BINARY	"rb"
+X#define WRITE_BINARY	"wb"
+X#endif
+X
+X#ifndef EXIT_FAILURE		/* define exit() codes if not provided */
+X#define EXIT_FAILURE  1
+X#endif
+X#ifndef EXIT_SUCCESS
+X#ifdef VMS
+X#define EXIT_SUCCESS  1		/* VMS is very nonstandard */
+X#else
+X#define EXIT_SUCCESS  0
+X#endif
+X#endif
+X
+X
+X#include "jversion.h"		/* for version message */
+X
+X
+X/*
+X * PD version of getopt(3).
+X */
+X
+X#include "egetopt.c"
+X
+X
+X/*
+X * This list defines the known output image formats
+X * (not all of which need be supported by a given version).
+X * You can change the default output format by defining DEFAULT_FMT;
+X * indeed, you had better do so if you undefine PPM_SUPPORTED.
+X */
+X
+Xtypedef enum {
+X	FMT_GIF,		/* GIF format */
+X	FMT_PPM,		/* PPM/PGM (PBMPLUS formats) */
+X	FMT_RLE,		/* RLE format */
+X	FMT_TARGA,		/* Targa format */
+X	FMT_TIFF		/* TIFF format */
+X} IMAGE_FORMATS;
+X
+X#ifndef DEFAULT_FMT		/* so can override from CFLAGS in Makefile */
+X#define DEFAULT_FMT	FMT_PPM
+X#endif
+X
+Xstatic IMAGE_FORMATS requested_fmt;
+X
+X
+X/*
+X * This routine gets control after the input file header has been read.
+X * It must determine what output file format is to be written,
+X * and make any other decompression parameter changes that are desirable.
+X */
+X
+XMETHODDEF void
+Xd_ui_method_selection (decompress_info_ptr cinfo)
+X{
+X  /* if grayscale or CMYK input, force similar output; */
+X  /* else leave the output colorspace as set by options. */
+X  if (cinfo->jpeg_color_space == CS_GRAYSCALE)
+X    cinfo->out_color_space = CS_GRAYSCALE;
+X  else if (cinfo->jpeg_color_space == CS_CMYK)
+X    cinfo->out_color_space = CS_CMYK;
+X
+X  /* select output file format */
+X  /* Note: jselwxxx routine may make additional parameter changes,
+X   * such as forcing color quantization if it's a colormapped format.
+X   */
+X  switch (requested_fmt) {
+X#ifdef GIF_SUPPORTED
+X  case FMT_GIF:
+X    jselwgif(cinfo);
+X    break;
+X#endif
+X#ifdef PPM_SUPPORTED
+X  case FMT_PPM:
+X    jselwppm(cinfo);
+X    break;
+X#endif
+X#ifdef RLE_SUPPORTED
+X  case FMT_RLE:
+X    jselwrle(cinfo);
+X    break;
+X#endif
+X#ifdef TARGA_SUPPORTED
+X  case FMT_TARGA:
+X    jselwtarga(cinfo);
+X    break;
+X#endif
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported output file format");
+X    break;
+X  }
+X}
+X
+X
+X/*
+X * Signal catcher to ensure that temporary files are removed before aborting.
+X * NB: for Amiga Manx C this is actually a global routine named _abort();
+X * see -Dsignal_catcher=_abort in CFLAGS.  Talk about bogus...
+X */
+X
+X#ifdef NEED_SIGNAL_CATCHER
+X
+Xstatic external_methods_ptr emethods; /* for access to free_all */
+X
+XGLOBAL void
+Xsignal_catcher (int signum)
+X{
+X  emethods->trace_level = 0;	/* turn off trace output */
+X  (*emethods->free_all) ();	/* clean up memory allocation & temp files */
+X  exit(EXIT_FAILURE);
+X}
+X
+X#endif
+X
+X
+XLOCAL void
+Xusage (char * progname)
+X/* complain about bad command line */
+X{
+X  fprintf(stderr, "usage: %s ", progname);
+X  fprintf(stderr, "[-G] [-P] [-R] [-T] [-b] [-g] [-q colors] [-1] [-D] [-d] [-m mem]");
+X#ifdef TWO_FILE_COMMANDLINE
+X  fprintf(stderr, " inputfile outputfile\n");
+X#else
+X  fprintf(stderr, " [inputfile]\n");
+X#endif
+X  exit(EXIT_FAILURE);
+X}
+X
+X
+X/*
+X * The main program.
+X */
+X
+XGLOBAL int
+Xmain (int argc, char **argv)
+X{
+X  struct decompress_info_struct cinfo;
+X  struct decompress_methods_struct dc_methods;
+X  struct external_methods_struct e_methods;
+X  int c;
+X
+X  /* On Mac, fetch a command line. */
+X#ifdef THINK_C
+X  argc = ccommand(&argv);
+X#endif
+X
+X  /* Initialize the system-dependent method pointers. */
+X  cinfo.methods = &dc_methods;
+X  cinfo.emethods = &e_methods;
+X  jselerror(&e_methods);	/* error/trace message routines */
+X  jselmemmgr(&e_methods);	/* memory allocation routines */
+X  dc_methods.d_ui_method_selection = d_ui_method_selection;
+X
+X  /* Now OK to enable signal catcher. */
+X#ifdef NEED_SIGNAL_CATCHER
+X  emethods = &e_methods;
+X  signal(SIGINT, signal_catcher);
+X#ifdef SIGTERM			/* not all systems have SIGTERM */
+X  signal(SIGTERM, signal_catcher);
+X#endif
+X#endif
+X
+X  /* Set up default JPEG parameters. */
+X  j_d_defaults(&cinfo, TRUE);
+X  requested_fmt = DEFAULT_FMT;	/* set default output file format */
+X
+X  /* Scan command line options, adjust parameters */
+X  
+X  while ((c = egetopt(argc, argv, "GPRTbgq:1Dm:d")) != EOF)
+X    switch (c) {
+X    case 'G':			/* GIF output format. */
+X      requested_fmt = FMT_GIF;
+X      break;
+X    case 'P':			/* PPM output format. */
+X      requested_fmt = FMT_PPM;
+X      break;
+X    case 'R':			/* RLE output format. */
+X      requested_fmt = FMT_RLE;
+X      break;
+X    case 'T':			/* Targa output format. */
+X      requested_fmt = FMT_TARGA;
+X      break;
+X    case 'b':			/* Enable cross-block smoothing. */
+X      cinfo.do_block_smoothing = TRUE;
+X      break;
+X    case 'g':			/* Force grayscale output. */
+X      cinfo.out_color_space = CS_GRAYSCALE;
+X      break;
+X    case 'q':			/* Do color quantization. */
+X      { int val;
+X	if (optarg == NULL)
+X	  usage(argv[0]);
+X	if (sscanf(optarg, "%d", &val) != 1)
+X	  usage(argv[0]);
+X	cinfo.desired_number_of_colors = val;
+X      }
+X      cinfo.quantize_colors = TRUE;
+X      break;
+X    case '1':			/* Use fast one-pass quantization. */
+X      cinfo.two_pass_quantize = FALSE;
+X      break;
+X    case 'D':			/* Suppress dithering in color quantization. */
+X      cinfo.use_dithering = FALSE;
+X      break;
+X    case 'm':			/* Maximum memory in Kb (or Mb with 'm'). */
+X      { long lval;
+X	char ch = 'x';
+X
+X	if (optarg == NULL)
+X	  usage(argv[0]);
+X	if (sscanf(optarg, "%ld%c", &lval, &ch) < 1)
+X	  usage(argv[0]);
+X	if (ch == 'm' || ch == 'M')
+X	  lval *= 1000L;
+X	e_methods.max_memory_to_use = lval * 1000L;
+X      }
+X      break;
+X    case 'd':			/* Debugging. */
+X      e_methods.trace_level++;
+X      break;
+X    case '?':
+X    default:
+X      usage(argv[0]);
+X      break;
+X    }
+X
+X  /* If -d appeared, print version identification */
+X  if (e_methods.trace_level > 0)
+X    fprintf(stderr, "Independent JPEG Group's DJPEG, version %s\n%s\n",
+X	    JVERSION, JCOPYRIGHT);
+X
+X  /* Select the input and output files */
+X
+X#ifdef TWO_FILE_COMMANDLINE
+X
+X  if (optind != argc-2) {
+X    fprintf(stderr, "%s: must name one input and one output file\n", argv[0]);
+X    usage(argv[0]);
+X  }
+X  if ((cinfo.input_file = fopen(argv[optind], READ_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind]);
+X    exit(EXIT_FAILURE);
+X  }
+X  if ((cinfo.output_file = fopen(argv[optind+1], WRITE_BINARY)) == NULL) {
+X    fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind+1]);
+X    exit(EXIT_FAILURE);
+X  }
+X
+X#else /* not TWO_FILE_COMMANDLINE -- use Unix style */
+X
+X  cinfo.input_file = stdin;	/* default input file */
+X  cinfo.output_file = stdout;	/* always the output file */
+X
+X  if (optind < argc-1) {
+X    fprintf(stderr, "%s: only one input file\n", argv[0]);
+X    usage(argv[0]);
+X  }
+X  if (optind < argc) {
+X    if ((cinfo.input_file = fopen(argv[optind], READ_BINARY)) == NULL) {
+X      fprintf(stderr, "%s: can't open %s\n", argv[0], argv[optind]);
+X      exit(EXIT_FAILURE);
+X    }
+X  }
+X
+X#endif /* TWO_FILE_COMMANDLINE */
+X  
+X  /* Set up to read a JFIF or baseline-JPEG file. */
+X  /* A smarter UI would inspect the first few bytes of the input file */
+X  /* to determine its type. */
+X#ifdef JFIF_SUPPORTED
+X  jselrjfif(&cinfo);
+X#else
+X  You shoulda defined JFIF_SUPPORTED.   /* deliberate syntax error */
+X#endif
+X
+X  /* Do it to it! */
+X  jpeg_decompress(&cinfo);
+X
+X  /* All done. */
+X  exit(EXIT_SUCCESS);
+X  return 0;			/* suppress no-return-value warnings */
+X}
+END_OF_FILE
+  if test 8658 -ne `wc -c <'jdmain.c'`; then
+    echo shar: \"'jdmain.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdmain.c'
+fi
+if test -f 'jrdrle.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdrle.c'\"
+else
+  echo shar: Extracting \"'jrdrle.c'\" \(11363 characters\)
+  sed "s/^X//" >'jrdrle.c' <<'END_OF_FILE'
+X/*
+X * jrdrle.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in Utah RLE format.
+X * The Utah Raster Toolkit library is required (version 3.0).
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed RLE format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X *
+X * Based on code contributed by Mike Lijewski.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef RLE_SUPPORTED
+X
+X/* rle.h is provided by the Utah Raster Toolkit. */
+X
+X#include <rle.h>
+X
+X
+X/*
+X * load_image assumes that JSAMPLE has the same representation as rle_pixel,
+X * to wit, "unsigned char".  Hence we can't cope with 12- or 16-bit samples.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * We support the following types of RLE files:
+X *   
+X *   GRAYSCALE   - 8 bits, no colormap
+X *   PSEUDOCOLOR - 8 bits, colormap
+X *   TRUECOLOR   - 24 bits, colormap
+X *   DIRECTCOLOR - 24 bits, no colormap
+X *
+X * For now, we ignore any alpha channel in the image.
+X */
+X
+Xtypedef enum { GRAYSCALE, PSEUDOCOLOR, TRUECOLOR, DIRECTCOLOR } rle_kind;
+X
+Xstatic rle_kind visual;		/* actual type of input file */
+X
+X/*
+X * Since RLE stores scanlines bottom-to-top, we have to invert the image
+X * to conform to JPEG's top-to-bottom order.  To do this, we read the
+X * incoming image into a virtual array on the first get_input_row call,
+X * then fetch the required row from the virtual array on subsequent calls.
+X */
+X
+Xstatic big_sarray_ptr image;	/* single array for GRAYSCALE/PSEUDOCOLOR */
+Xstatic big_sarray_ptr red_channel; /* three arrays for TRUECOLOR/DIRECTCOLOR */
+Xstatic big_sarray_ptr green_channel;
+Xstatic big_sarray_ptr blue_channel;
+Xstatic long cur_row_number;	/* last row# read from virtual array */
+X
+Xstatic rle_hdr header;		/* Input file information */
+Xstatic rle_map *colormap;	/* RLE colormap, if any */
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  long width, height;
+X
+X  /* Use RLE library routine to get the header info */
+X  header.rle_file = cinfo->input_file;
+X  switch (rle_get_setup(&header)) {
+X  case RLE_SUCCESS:
+X    /* A-OK */
+X    break;
+X  case RLE_NOT_RLE:
+X    ERREXIT(cinfo->emethods, "Not an RLE file");
+X    break;
+X  case RLE_NO_SPACE:
+X    ERREXIT(cinfo->emethods, "Insufficient memory for RLE header");
+X    break;
+X  case RLE_EMPTY:
+X    ERREXIT(cinfo->emethods, "Empty RLE file");
+X    break;
+X  case RLE_EOF:
+X    ERREXIT(cinfo->emethods, "Premature EOF in RLE header");
+X    break;
+X  default:
+X    ERREXIT(cinfo->emethods, "Bogus RLE error code");
+X    break;
+X  }
+X
+X  /* Figure out what we have, set private vars and return values accordingly */
+X  
+X  width  = header.xmax - header.xmin + 1;
+X  height = header.ymax - header.ymin + 1;
+X  header.xmin = 0;		/* realign horizontally */
+X  header.xmax = width-1;
+X
+X  cinfo->image_width      = width;
+X  cinfo->image_height     = height;
+X  cinfo->data_precision   = 8;  /* we can only handle 8 bit data */
+X
+X  if (header.ncolors == 1 && header.ncmap == 0) {
+X    visual     = GRAYSCALE;
+X    TRACEMS(cinfo->emethods, 1, "Gray-scale RLE file");
+X  } else if (header.ncolors == 1 && header.ncmap == 3) {
+X    visual     = PSEUDOCOLOR;
+X    colormap   = header.cmap;
+X    TRACEMS1(cinfo->emethods, 1, "Colormapped RLE file with map of length %d",
+X	     1 << header.cmaplen);
+X  } else if (header.ncolors == 3 && header.ncmap == 3) {
+X    visual     = TRUECOLOR;
+X    colormap   = header.cmap;
+X    TRACEMS1(cinfo->emethods, 1, "Full-color RLE file with map of length %d",
+X	     1 << header.cmaplen);
+X  } else if (header.ncolors == 3 && header.ncmap == 0) {
+X    visual     = DIRECTCOLOR;
+X    TRACEMS(cinfo->emethods, 1, "Full-color RLE file");
+X  } else
+X    ERREXIT(cinfo->emethods, "Can't handle this RLE setup");
+X  
+X  switch (visual) {
+X  case GRAYSCALE:
+X    /* request one big array to hold the grayscale image */
+X    image = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_GRAYSCALE;
+X    cinfo->input_components = 1;
+X    break;
+X  case PSEUDOCOLOR:
+X    /* request one big array to hold the pseudocolor image */
+X    image = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_RGB;
+X    cinfo->input_components = 3;
+X    break;
+X  case TRUECOLOR:
+X  case DIRECTCOLOR:
+X    /* request three big arrays to hold the RGB channels */
+X    red_channel   = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    green_channel = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    blue_channel  = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_RGB;
+X    cinfo->input_components = 3;
+X    break;
+X  }
+X
+X  cinfo->total_passes++;	/* count file reading as separate pass */
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * These are called only after load_image has read the image into
+X * the virtual array(s).
+X */
+X
+X
+XMETHODDEF void
+Xget_grayscale_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for GRAYSCALE images */
+X{
+X  JSAMPROW inputrows[1];	/* a pseudo JSAMPARRAY structure */
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  inputrows[0] = *((*cinfo->emethods->access_big_sarray)
+X			(image, cur_row_number, FALSE));
+X
+X  jcopy_sample_rows(inputrows, 0, pixel_row, 0, 1, cinfo->image_width);
+X}
+X
+X
+XMETHODDEF void
+Xget_pseudocolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for PSEUDOCOLOR images */
+X{
+X  long col;
+X  JSAMPROW image_ptr, ptr0, ptr1, ptr2;
+X  int val;
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  image_ptr = *((*cinfo->emethods->access_big_sarray)
+X		(image, cur_row_number, FALSE));
+X
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    val = GETJSAMPLE(*image_ptr++);
+X    *ptr0++ = colormap[val      ] >> 8;
+X    *ptr1++ = colormap[val + 256] >> 8;
+X    *ptr2++ = colormap[val + 512] >> 8;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_truecolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for TRUECOLOR images */
+X/* The colormap consists of 3 independent lookup tables */
+X{
+X  long col;
+X  JSAMPROW red_ptr, green_ptr, blue_ptr, ptr0, ptr1, ptr2;
+X  
+X  cur_row_number--;		/* work down in array */
+X  
+X  red_ptr   = *((*cinfo->emethods->access_big_sarray)
+X		(red_channel, cur_row_number, FALSE));
+X  green_ptr = *((*cinfo->emethods->access_big_sarray)
+X		(green_channel, cur_row_number, FALSE));
+X  blue_ptr  = *((*cinfo->emethods->access_big_sarray)
+X		(blue_channel, cur_row_number, FALSE));
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = colormap[GETJSAMPLE(*red_ptr++)        ] >> 8;
+X    *ptr1++ = colormap[GETJSAMPLE(*green_ptr++) + 256] >> 8;
+X    *ptr2++ = colormap[GETJSAMPLE(*blue_ptr++)  + 512] >> 8;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_directcolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for DIRECTCOLOR images */
+X{
+X  JSAMPROW inputrows[3];	/* a pseudo JSAMPARRAY structure */
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  inputrows[0] = *((*cinfo->emethods->access_big_sarray)
+X			(red_channel, cur_row_number, FALSE));
+X  inputrows[1] = *((*cinfo->emethods->access_big_sarray)
+X			(green_channel, cur_row_number, FALSE));
+X  inputrows[2] = *((*cinfo->emethods->access_big_sarray)
+X			(blue_channel, cur_row_number, FALSE));
+X
+X  jcopy_sample_rows(inputrows, 0, pixel_row, 0, 3, cinfo->image_width);
+X}
+X
+X
+X/*
+X * Load the color channels into separate arrays.  We have to do
+X * this because RLE files start at the lower left while the JPEG standard
+X * has them starting in the upper left.  This is called the first time
+X * we want to get a row of input.  What we do is load the RLE data into
+X * big arrays and then call the appropriate routine to read one row from
+X * the big arrays.  We also change cinfo->methods->get_input_row so that
+X * subsequent calls go straight to the row-reading routine.
+X */
+X
+XMETHODDEF void
+Xload_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  long row;
+X  rle_pixel *rle_row[3];
+X  
+X  /* Read the RLE data into our virtual array(s).
+X   * We assume here that (a) rle_pixel is represented the same as JSAMPLE,
+X   * and (b) we are not on a machine where FAR pointers differ from regular.
+X   */
+X  RLE_CLR_BIT(header, RLE_ALPHA); /* don't read the alpha channel */
+X
+X  switch (visual) {
+X  case GRAYSCALE:
+X  case PSEUDOCOLOR:
+X    for (row = 0; row < cinfo->image_height; row++) {
+X      (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X      /*
+X       * Read a row of the image directly into our big array.
+X       * Too bad this doesn't seem to return any indication of errors :-(.
+X       */
+X      rle_row[0] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(image, row, TRUE));
+X      rle_getrow(&header, rle_row);
+X    }
+X    break;
+X  case TRUECOLOR:
+X  case DIRECTCOLOR:
+X    for (row = 0; row < cinfo->image_height; row++) {
+X      (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X      /*
+X       * Read a row of the image directly into our big arrays.
+X       * Too bad this doesn't seem to return any indication of errors :-(.
+X       */
+X      rle_row[0] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(red_channel, row, TRUE));
+X      rle_row[1] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(green_channel, row, TRUE));
+X      rle_row[2] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(blue_channel, row, TRUE));
+X      rle_getrow(&header, rle_row);
+X    }
+X    break;
+X  }
+X  cinfo->completed_passes++;
+X  
+X  /* Set up to call proper row-extraction routine in future */
+X  switch (visual) {
+X  case GRAYSCALE:
+X    cinfo->methods->get_input_row = get_grayscale_row;
+X    break;
+X  case PSEUDOCOLOR:
+X    cinfo->methods->get_input_row = get_pseudocolor_row;
+X    break;
+X  case TRUECOLOR:
+X    cinfo->methods->get_input_row = get_truecolor_row;
+X    break;
+X  case DIRECTCOLOR:
+X    cinfo->methods->get_input_row = get_directcolor_row;
+X    break;
+X  }
+X
+X  /* And fetch the topmost (bottommost) row */
+X  cur_row_number = cinfo->image_height;
+X  (*cinfo->methods->get_input_row) (cinfo, pixel_row);   
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for RLE format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrrle (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init    = input_init;
+X  cinfo->methods->get_input_row = load_image; /* until first call */
+X  cinfo->methods->input_term    = input_term;
+X}
+X
+X#endif /* RLE_SUPPORTED */
+END_OF_FILE
+  if test 11363 -ne `wc -c <'jrdrle.c'`; then
+    echo shar: \"'jrdrle.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdrle.c'
+fi
+echo shar: End of archive 13 \(of 18\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

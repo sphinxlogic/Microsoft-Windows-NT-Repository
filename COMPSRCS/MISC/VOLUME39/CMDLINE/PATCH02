@@ -1,0 +1,413 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject: v39i044:  cmdline - C++ Library for parsing command-line arguments, Patch02
+Message-ID: <1993Aug22.020821.984@sparky.sterling.com>
+X-Md4-Signature: 2f744d5b8cbcbb000b28eef1210c1052
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: brad@travis.csd.harris.com
+Organization: Harris Computer Systems
+Date: Sun, 22 Aug 1993 02:08:21 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 39, Issue 44
+Archive-name: cmdline/patch02
+Environment: C++
+Patch-To: cmdline: Volume 31, Issue 47-54
+
+This is patch 2 of CmdLine. CmdLine is an object-oriented command-line
+argument parser for C++ programs.
+
+To apply this patch:
+
+1) cd to you CmdLine source directory
+2) unshar/unpack the patch file into this directory
+3) type "patch -p0 <PATCH02"
+
+If you want more information about CmdLine or want the latest source,
+please send an e-mail request to brad@ssd.csd.harris.com
+
+ ______________________ "And miles to go before I sleep." ______________________
+ Brad Appleton                         Harris Corp., Computer Systems Division
+   Senior Software Engineer            2101 West Cypress Creek Road,  M/S 161 
+     brad@ssd.csd.harris.com           Fort Lauderdale, FL  33309-1892  USA
+       ...!uunet!travis!brad                 Phone: (305) 973-5190
+ ~~~~~~~~~~~~~~~~~~~ Disclaimer: I said it, not my employer! ~~~~~~~~~~~~~~~~~~~
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  PATCH02
+# Wrapped by brad@amber on Thu Aug 19 16:36:15 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'PATCH02' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PATCH02'\"
+else
+echo shar: Extracting \"'PATCH02'\" \(8993 characters\)
+sed "s/^X//" >'PATCH02' <<'END_OF_FILE'
+X*** README.OLD	Thu Aug 19 16:31:18 1993
+X--- README	Thu Aug 19 16:01:35 1993
+X***************
+X*** 187,189 ****
+X--- 187,193 ----
+X   - Added the ability to allow (at run-time) the use of "+" as the long-option
+X     prefix (this could be done only at compile-time until now).
+X     
+X+  08/19/93		Brad Appleton		<brad@ssd.csd.harris.com>
+X+  -----------------------------------------------------------------------------
+X+  - Fixed a problem that some machines/compilers had with the contructor
+X+    ignoring the first CmdArg.
+X*** src/lib/cmdline.c.OLD	Thu Aug 19 16:31:41 1993
+X--- src/lib/cmdline.c	Thu Aug 19 15:58:06 1993
+X***************
+X*** 130,135 ****
+X--- 130,137 ----
+X  filebasename(const char * filename)
+X  {
+X  
+X+    if (filename == NULL)  return  filename ;
+X+ 
+X  #if (defined(vms) || defined(msdos) || defined(os2))
+X     const char * start, * p1, * p2 ;
+X     char * str, * ext;
+X***************
+X*** 199,205 ****
+X  }
+X  
+X     // Constructor with a name and CmdArgs
+X! CmdLine::CmdLine(const char * cmdname, CmdArg * ...)
+X     : cmd_parse_state(cmd_START_STATE),
+X       cmd_state(cmd_START_STATE),
+X       cmd_flags(DEFAULT_CMDFLAGS),
+X--- 201,207 ----
+X  }
+X  
+X     // Constructor with a name and CmdArgs
+X! CmdLine::CmdLine(const char * cmdname, CmdArg * cmdarg1 ...)
+X     : cmd_parse_state(cmd_START_STATE),
+X       cmd_state(cmd_START_STATE),
+X       cmd_flags(DEFAULT_CMDFLAGS),
+X***************
+X*** 219,226 ****
+X     CmdArgList * arg_list = iter();
+X  
+X     va_list  ap;
+X!    va_start(ap, cmdname);
+X!    for (CmdArg * cmdarg = va_CmdArgP(ap) ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X        arg_list->add(cmdarg);
+X     }
+X     va_end(ap);
+X--- 221,228 ----
+X     CmdArgList * arg_list = iter();
+X  
+X     va_list  ap;
+X!    va_start(ap, cmdarg1);
+X!    for (CmdArg * cmdarg = cmdarg1 ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X        arg_list->add(cmdarg);
+X     }
+X     va_end(ap);
+X***************
+X*** 228,234 ****
+X  
+X  
+X     // Constructor with CmdArgs
+X! CmdLine::CmdLine(CmdArg * cmdarg, CmdArg * ...)
+X     : cmd_parse_state(cmd_START_STATE),
+X       cmd_state(cmd_START_STATE),
+X       cmd_flags(DEFAULT_CMDFLAGS),
+X--- 230,236 ----
+X  
+X  
+X     // Constructor with CmdArgs
+X! CmdLine::CmdLine(CmdArg * cmdarg1 ...)
+X     : cmd_parse_state(cmd_START_STATE),
+X       cmd_state(cmd_START_STATE),
+X       cmd_flags(DEFAULT_CMDFLAGS),
+X***************
+X*** 241,257 ****
+X       cmd_err(NULL),
+X       cmd_quit_handler(NULL)
+X  {
+X!    if (cmdarg == NULL)  return;
+X     ::init_args(cmd_args);
+X  
+X     CmdArgListListIter  iter(cmd_args);
+X     CmdArgList * arg_list = iter();
+X  
+X-    arg_list->add(cmdarg);
+X- 
+X     va_list  ap;
+X!    va_start(ap, cmdarg);
+X!    for (cmdarg = va_CmdArgP(ap) ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X        arg_list->add(cmdarg);
+X     }
+X     va_end(ap);
+X--- 243,257 ----
+X       cmd_err(NULL),
+X       cmd_quit_handler(NULL)
+X  {
+X!    if (cmdarg1 == NULL)  return;
+X     ::init_args(cmd_args);
+X  
+X     CmdArgListListIter  iter(cmd_args);
+X     CmdArgList * arg_list = iter();
+X  
+X     va_list  ap;
+X!    va_start(ap, cmdarg1);
+X!    for (CmdArg * cmdarg = cmdarg1 ; cmdarg ; cmdarg = va_CmdArgP(ap)) {
+X        arg_list->add(cmdarg);
+X     }
+X     va_end(ap);
+X***************
+X*** 273,282 ****
+X  void
+X  CmdLine::name(const char * progname)
+X  {
+X  #if (defined(vms) || defined(msdos) || defined(os2))
+X     delete [] cmd_name;
+X  #endif
+X!    cmd_name = ::filebasename(progname);
+X  }
+X  
+X  
+X--- 273,284 ----
+X  void
+X  CmdLine::name(const char * progname)
+X  {
+X+    static  const char unknown_progname[] = "<unknown-program>" ;
+X+ 
+X  #if (defined(vms) || defined(msdos) || defined(os2))
+X     delete [] cmd_name;
+X  #endif
+X!    cmd_name = ::filebasename((progname) ? progname : unknown_progname);
+X  }
+X  
+X  
+X***************
+X*** 347,352 ****
+X  CmdArg *
+X  CmdLineCmdArgIter::operator()(void)
+X  {
+X!    return  (iter) ? (*iter)() : NULL ;
+X  }
+X  
+X--- 349,354 ----
+X  CmdArg *
+X  CmdLineCmdArgIter::operator()(void)
+X  {
+X!    return  (iter) ? iter->operator()() : NULL ;
+X  }
+X  
+X*** src/lib/cmdline.h.OLD	Thu Aug 19 16:31:44 1993
+X--- src/lib/cmdline.h	Wed Aug 18 09:22:11 1993
+X***************
+X*** 506,514 ****
+X        //
+X     CmdLine(const char * name =0);
+X  
+X!    CmdLine(const char * name, CmdArg * ...);   // last arg should be NULL
+X  
+X!    CmdLine(CmdArg * cmdarg, CmdArg * ...);     // last arg should be NULL
+X  
+X     virtual ~CmdLine(void);
+X  
+X--- 506,514 ----
+X        //
+X     CmdLine(const char * name =0);
+X  
+X!    CmdLine(const char * name, CmdArg * cmdarg1 ...); // last arg should be NULL
+X  
+X!    CmdLine(CmdArg * cmdarg1 ...);  // last arg should be NULL
+X  
+X     virtual ~CmdLine(void);
+X  
+X*** src/lib/fifolist.h.OLD	Thu Aug 19 16:31:49 1993
+X--- src/lib/fifolist.h	Mon Apr 19 11:15:48 1993
+X***************
+X*** 57,68 ****
+X     GenericFifoListNode * head;
+X     GenericFifoListNode * tail;
+X  
+X- public:
+X     GenericFifoList(void)
+X        : head(0), tail(0), num_items(0), del_items(0), mod(0) {}
+X  
+X-    virtual  ~GenericFifoList(void);
+X- 
+X     // Remove the first item from the list
+X     void *
+X     remove(void);
+X--- 57,65 ----
+X***************
+X*** 71,76 ****
+X--- 68,76 ----
+X     void
+X     add(void * item);
+X  
+X+ public:
+X+    virtual  ~GenericFifoList(void);
+X+ 
+X     // Was the list modified since the last time we checked?
+X     int
+X     modified(void) { return (mod) ? (mod = 0, 1) : 0 ; }
+X***************
+X*** 101,107 ****
+X  private:
+X     GenericFifoList::GenericFifoListNode * current;
+X  
+X! public:
+X     GenericFifoListIter(GenericFifoList & fifo_list)
+X        : current(fifo_list.head) {}
+X  
+X--- 101,107 ----
+X  private:
+X     GenericFifoList::GenericFifoListNode * current;
+X  
+X! protected:
+X     GenericFifoListIter(GenericFifoList & fifo_list)
+X        : current(fifo_list.head) {}
+X  
+X***************
+X*** 108,120 ****
+X     GenericFifoListIter(GenericFifoList * fifo_list)
+X        : current(fifo_list->head) {}
+X  
+X-    virtual  ~GenericFifoListIter(void);
+X- 
+X     // Return the current item in the list and advance to the next item.
+X     // returns NULL if at end-of-list
+X     //
+X     void *
+X     operator()(void);
+X  } ;
+X  
+X  
+X--- 108,122 ----
+X     GenericFifoListIter(GenericFifoList * fifo_list)
+X        : current(fifo_list->head) {}
+X  
+X     // Return the current item in the list and advance to the next item.
+X     // returns NULL if at end-of-list
+X     //
+X     void *
+X     operator()(void);
+X+ 
+X+ public:
+X+    virtual  ~GenericFifoListIter(void);
+X+ 
+X  } ;
+X  
+X  
+X***************
+X*** 125,131 ****
+X     unsigned           index;
+X     GenericFifoList::GenericFifoListNode * current;
+X  
+X! public:
+X     GenericFifoListArray(GenericFifoList & fifo_list)
+X        : list(fifo_list), index(0), current(fifo_list.head) {}
+X  
+X--- 127,133 ----
+X     unsigned           index;
+X     GenericFifoList::GenericFifoListNode * current;
+X  
+X! protected:
+X     GenericFifoListArray(GenericFifoList & fifo_list)
+X        : list(fifo_list), index(0), current(fifo_list.head) {}
+X  
+X***************
+X*** 132,139 ****
+X     GenericFifoListArray(GenericFifoList * fifo_list)
+X        : list(*fifo_list), index(0), current(fifo_list->head) {}
+X  
+X-    virtual  ~GenericFifoListArray(void);
+X- 
+X     // How many items are in the array?
+X     unsigned  count(void) const  { return  list.count(); }
+X  
+X--- 134,139 ----
+X***************
+X*** 147,152 ****
+X--- 147,156 ----
+X     //
+X     void *
+X     operator[](unsigned  ndx);
+X+ 
+X+ public:
+X+    virtual  ~GenericFifoListArray(void);
+X+ 
+X  } ;
+X  
+X  #ifdef TEMPLATES
+X***************
+X*** 187,198 ****
+X  
+X     Type &
+X     operator[](unsigned  ndx)
+X!       { return  *((Type *) GenericFifoListArray::operator[](ndx)) }
+X  } ;
+X  
+X  #define  DECLARE_FIFO_LIST(Name,Type) \
+X     typedef  FifoList<Type> Name; \
+X!    typedef  FifoListIter<Type>  name2(Name,Iter) \
+X     typedef  FifoListArray<Type> name2(Name,Array)
+X  
+X  #else  /* dont have templates -- have to fake it */
+X--- 191,202 ----
+X  
+X     Type &
+X     operator[](unsigned  ndx)
+X!       { return  *((Type *) GenericFifoListArray::operator[](ndx)); }
+X  } ;
+X  
+X  #define  DECLARE_FIFO_LIST(Name,Type) \
+X     typedef  FifoList<Type> Name; \
+X!    typedef  FifoListIter<Type>  name2(Name,Iter); \
+X     typedef  FifoListArray<Type> name2(Name,Array)
+X  
+X  #else  /* dont have templates -- have to fake it */
+X*** src/lib/patchlevel.c.OLD	Thu Aug 19 16:31:52 1993
+X--- src/lib/patchlevel.c	Wed Jul 14 10:55:42 1993
+X***************
+X*** 24,36 ****
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.01" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  1
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.01"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+X--- 24,36 ----
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.02" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  2
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.02"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+END_OF_FILE
+if test 8993 -ne `wc -c <'PATCH02'`; then
+    echo shar: \"'PATCH02'\" unpacked with wrong size!
+fi
+# end of 'PATCH02'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

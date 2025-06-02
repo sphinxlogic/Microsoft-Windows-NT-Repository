@@ -1,0 +1,2268 @@
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: envbvs@bea.lbl.gov (Brian V. Smith)
+Newsgroups: comp.sources.x
+Subject: v16i016: Xfig 2.1.3, Part11/25
+Message-ID: <1992Feb4.145946.838@msi.com>
+Date: 4 Feb 92 14:59:46 GMT
+References: <csx-16i006-xfig-2.1.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2255
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: envbvs@bea.lbl.gov (Brian V. Smith)
+Posting-number: Volume 16, Issue 16
+Archive-name: xfig-2.1.3/part11
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 11 (of 25)."
+# Contents:  Examples/README d_text.c u_list.c u_undo.c
+# Wrapped by dcmartin@fascet on Tue Feb  4 06:42:29 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Examples/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/README'\"
+else
+echo shar: Extracting \"'Examples/README'\" \(301 characters\)
+sed "s/^X//" >'Examples/README' <<'END_OF_FILE'
+XThe figure files have been uuencoded so that they may be mailed
+Xto comp.sources.x without any problem with the ^A (control A)
+Xin the text objects.
+X
+XTo decode them, do the following (csh):
+X
+Xforeach file (*.uu)
+X   uudecode $file
+Xend
+X
+Xor the following (ksh):
+X
+Xfor file in *.uu
+Xdo
+X    uudecode $file
+Xdone
+END_OF_FILE
+if test 301 -ne `wc -c <'Examples/README'`; then
+    echo shar: \"'Examples/README'\" unpacked with wrong size!
+fi
+# end of 'Examples/README'
+fi
+if test -f 'd_text.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'d_text.c'\"
+else
+echo shar: Extracting \"'d_text.c'\" \(15677 characters\)
+sed "s/^X//" >'d_text.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_fonts.h"
+X#include "u_list.h"
+X#include "u_search.h"
+X#include "w_canvas.h"
+X#include "w_drawprim.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X
+Xextern PIX_FONT lookfont();
+X
+X#define CTRL_H	8
+X#define NL	10
+X#define CR	13
+X#define CTRL_X	24
+X#define SP	32
+X#define DEL	127
+X
+X#define			BUF_SIZE	400
+X
+Xchar		prefix[BUF_SIZE],	/* part of string left of mouse click */
+X		suffix[BUF_SIZE];	/* part to right of click */
+Xint		leng_prefix, leng_suffix;
+Xstatic int	char_ht, char_wid;
+Xstatic int	base_x, base_y;
+X
+Xstatic PR_SIZE	tsize;
+Xstatic PR_SIZE	ssize;
+X
+Xstatic int	work_psflag, work_font, work_fontsize, work_textjust;
+Xstatic		finish_n_start();
+Xstatic		init_text_input(), cancel_text_input();
+Xstatic		wrap_up();
+Xint		char_handler();
+Xstatic F_text  *new_text();
+X
+Xstatic int	cpy_n_char();
+Xstatic int	prefix_length();
+Xstatic int	initialize_char_handler();
+Xstatic int	terminate_char_handler();
+Xstatic int	erase_char_string();
+Xstatic int	draw_char_string();
+Xstatic int	turn_on_blinking_cursor();
+Xstatic int	turn_off_blinking_cursor();
+Xstatic int	move_blinking_cursor();
+X
+Xtext_drawing_selected()
+X{
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_leftbut_proc = init_text_input;
+X    canvas_rightbut_proc = null_proc;
+X    set_mousefun("posn cursor", "", "");
+X    set_cursor(pencil_cursor);
+X}
+X
+Xstatic
+Xfinish_n_start(x, y)
+X{
+X    wrap_up();
+X    init_text_input(x, y);
+X}
+X
+Xfinish_text_input()
+X{
+X    wrap_up();
+X    text_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcancel_text_input()
+X{
+X    erase_char_string();
+X    terminate_char_handler();
+X    if (cur_t != NULL) {
+X	draw_text(cur_t, PAINT);
+X	toggle_textmarker(cur_t);
+X    }
+X    text_drawing_selected();
+X    draw_mousefun_canvas();
+X    reset_action_on();
+X}
+X
+Xstatic
+Xnew_text_line()
+X{
+X    wrap_up();
+X    cur_y += (int) ((float) char_ht * cur_textstep);
+X    cur_x = base_x;
+X    init_text_input(cur_x, cur_y);
+X}
+X
+Xstatic
+Xwrap_up()
+X{
+X    PR_SIZE	    size;
+X
+X    reset_action_on();
+X    erase_char_string();
+X    terminate_char_handler();
+X
+X    if (cur_t == NULL) {	/* a brand new text */
+X	if (leng_prefix == 0)
+X	    return;
+X	cur_t = new_text();
+X	add_text(cur_t);
+X    } else {			/* existing text modified */
+X	strcat(prefix, suffix);
+X	leng_prefix += leng_suffix;
+X	if (leng_prefix == 0) {
+X	    delete_text(cur_t);
+X	    return;
+X	}
+X	if (!strcmp(cur_t->cstring, prefix)) {
+X	    /* we didn't change anything */
+X	    draw_text(cur_t, PAINT);
+X	    toggle_textmarker(cur_t);
+X	    return;
+X	}
+X	new_t = copy_text(cur_t);
+X	change_text(cur_t, new_t);
+X	if (strlen(new_t->cstring) >= leng_prefix) {
+X	    strcpy(new_t->cstring, prefix);
+X	} else {		/* free old and allocate new */
+X	    cfree(new_t->cstring);
+X	    if ((new_t->cstring = new_string(leng_prefix + 1)) != NULL)
+X		strcpy(new_t->cstring, prefix);
+X	}
+X	size = pf_textwidth(new_t->font, psfont_text(new_t), new_t->size,
+X			    leng_prefix, prefix);
+X	new_t->height = size.y;
+X	new_t->length = size.x; /* in pixels */
+X	cur_t = new_t;
+X    }
+X    draw_text(cur_t, PAINT);
+X    toggle_textmarker(cur_t);
+X}
+X
+Xstatic
+Xinit_text_input(x, y)
+X    int		    x, y;
+X{
+X    int		    basx;
+X
+X    cur_x = x;
+X    cur_y = y;
+X
+X    set_action_on();
+X    set_mousefun("reposn cursor", "finish text", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_kbd_proc = char_handler;
+X    canvas_middlebut_proc = finish_text_input;
+X    canvas_leftbut_proc = finish_n_start;
+X    canvas_rightbut_proc = cancel_text_input;
+X
+X    /*
+X     * set working font info to current settings. This allows user to change
+X     * font settings while we are in the middle of accepting text without
+X     * affecting this text i.e. we don't allow the text to change midway
+X     * through
+X     */
+X
+X    work_fontsize = cur_fontsize;
+X    work_font = using_ps ? cur_ps_font : cur_latex_font;
+X    work_psflag = using_ps;
+X    work_textjust = cur_textjust;
+X
+X    /* load the X font and get its id for this font, size */
+X    canvas_font = lookfont(x_fontnum(work_psflag, work_font), work_fontsize);
+X    char_ht = char_height(canvas_font);
+X    char_wid = char_width(canvas_font);
+X
+X    if ((cur_t = text_search(cur_x, cur_y)) == NULL) {	/* new text input */
+X	leng_prefix = leng_suffix = 0;
+X	*suffix = 0;
+X	prefix[leng_prefix] = '\0';
+X	base_x = cur_x;
+X	base_y = cur_y;
+X    } else {			/* clicked on existing text */
+X	if (hidden_text(cur_t)) {
+X	    put_msg("Can't edit hidden text");
+X	    reset_action_on();
+X	    text_drawing_selected();
+X	    return;
+X	}
+X	toggle_textmarker(cur_t);
+X	draw_text(cur_t, ERASE);
+X	switch (cur_t->type) {
+X	case T_LEFT_JUSTIFIED:
+X	    basx = cur_t->base_x;
+X	    break;
+X	case T_CENTER_JUSTIFIED:
+X	    basx = cur_t->base_x - cur_t->length / 2;
+X	    break;
+X	case T_RIGHT_JUSTIFIED:
+X	    basx = cur_t->base_x - cur_t->length;
+X	    break;
+X	}
+X	leng_suffix = strlen(cur_t->cstring);
+X	/* leng_prefix is # of char in the text before the cursor */
+X	leng_prefix = prefix_length(cur_t->cstring, cur_x - basx);
+X	leng_suffix -= leng_prefix;
+X	cpy_n_char(prefix, cur_t->cstring, leng_prefix);
+X	strcpy(suffix, &cur_t->cstring[leng_prefix]);
+X	tsize = pf_textwidth(cur_t->font, psfont_text(cur_t), cur_t->size,
+X			     leng_prefix, prefix);
+X	ssize = pf_textwidth(cur_t->font, psfont_text(cur_t), cur_t->size,
+X			     leng_suffix, suffix);
+X	cur_x = base_x = basx;
+X	cur_y = base_y = cur_t->base_y;
+X	cur_x += tsize.x;
+X	work_font = cur_t->font;
+X	work_fontsize = cur_t->size;
+X	work_textjust = cur_t->type;
+X    }
+X    initialize_char_handler(canvas_win, finish_text_input,
+X			    base_x, base_y);
+X    draw_char_string();
+X}
+X
+Xstatic
+XF_text	       *
+Xnew_text()
+X{
+X    F_text	   *text;
+X    PR_SIZE	    size;
+X
+X    if ((text = create_text()) == NULL)
+X	return (NULL);
+X
+X    if ((text->cstring = new_string(leng_prefix + 1)) == NULL) {
+X	free((char *) text);
+X	return (NULL);
+X    }
+X    text->type = work_textjust;
+X    text->font = work_font;	/* put in current font number */
+X    text->size = work_fontsize; /* added 9/25/89 B.V.Smith */
+X    text->angle = cur_angle;
+X    text->flags = cur_textflags;
+X    text->color = cur_color;
+X    text->depth = 0;
+X    text->pen = 0;
+X    size = pf_textwidth(text->font, psfont_text(text), text->size,
+X			leng_prefix, prefix);
+X    text->length = size.x;	/* in pixels */
+X    text->height = size.y;	/* in pixels */
+X    text->base_x = base_x;
+X    text->base_y = base_y;
+X    strcpy(text->cstring, prefix);
+X    text->next = NULL;
+X    return (text);
+X}
+X
+Xstatic int
+Xcpy_n_char(dst, src, n)
+X    char	   *dst, *src;
+X    int		    n;
+X{
+X    /* src must be longer than n chars */
+X
+X    while (n--)
+X	*dst++ = *src++;
+X    *dst = '\0';
+X}
+X
+Xstatic int
+Xprefix_length(string, where_p)
+X    char	   *string;
+X    int		    where_p;
+X{
+X    /* c stands for character unit and p for pixel unit */
+X    int		    l, len_c, len_p;
+X    int		    char_wid, where_c;
+X    PR_SIZE	    size;
+X
+X    if (canvas_font == NULL)
+X	fprintf(stderr, "xfig: Error, in prefix_length, canvas_font = NULL\n");
+X    len_c = strlen(string);
+X    size = pf_textwidth(cur_t->font, psfont_text(cur_t), cur_t->size,
+X			len_c, string);
+X    len_p = size.x;
+X    if (where_p >= len_p)
+X	return (len_c);		/* entire string is the prefix */
+X
+X    char_wid = char_width(canvas_font);
+X    where_c = where_p / char_wid;	/* estimated char position */
+X    size = pf_textwidth(cur_t->font, psfont_text(cur_t), cur_t->size,
+X			where_c, string);
+X    l = size.x;			/* actual length (pixels) of string of
+X				 * where_c chars */
+X    if (l < where_p) {
+X	do {			/* add the width of next char to l */
+X	    l += (char_wid = char_advance(canvas_font, (unsigned char) string[where_c++]));
+X	} while (l < where_p);
+X	if (l - (char_wid >> 1) >= where_p)
+X	    where_c--;
+X    } else if (l > where_p) {
+X	do {			/* subtract the width of last char from l */
+X	    l -= (char_wid = char_advance(canvas_font, (unsigned char) string[--where_c]));
+X	} while (l > where_p);
+X	if (l + (char_wid >> 1) >= where_p)
+X	    where_c++;
+X    }
+X    if (where_c < 0) {
+X	fprintf(stderr, "xfig file %s line %d: Error in prefix_length - adjusted\n", __FILE__, __LINE__);
+X	where_c = 0;
+X    }
+X    return (where_c);
+X}
+X
+X/*******************************************************************
+X
+X	char handling routines
+X
+X*******************************************************************/
+X
+X#define			BLINK_INTERVAL	700	/* milliseconds blink rate */
+X
+Xstatic PIXWIN	pw;
+Xstatic int	ch_height;
+Xstatic int	cbase_x, cbase_y;
+Xstatic float	rbase_x, rcur_x;
+Xstatic int	obase_x;
+X
+Xstatic		(*cr_proc) ();
+X
+Xstatic
+Xdraw_cursor(x, y)
+X    int		    x, y;
+X{
+X    pw_vector(pw, x, y, x, y - ch_height, INV_PAINT, 1, RUBBER_LINE, 0.0,
+X	      DEFAULT_COLOR);
+X}
+X
+Xstatic int
+Xinitialize_char_handler(p, cr, bx, by)
+X    PIXWIN	    p;
+X    int		    (*cr) ();
+X    int		    bx, by;
+X{
+X    pw = p;
+X    cr_proc = cr;
+X    rbase_x = obase_x = cbase_x = bx;	/* keep real base so dont have
+X					 * roundoff */
+X    rcur_x = cur_x;
+X    cbase_y = by;
+X
+X    ch_height = char_height(canvas_font);
+X    turn_on_blinking_cursor(draw_cursor, draw_cursor,
+X			    cur_x, cur_y, (long) BLINK_INTERVAL);
+X}
+X
+Xstatic int
+Xterminate_char_handler()
+X{
+X    turn_off_blinking_cursor();
+X    cr_proc = NULL;
+X}
+X
+X/*
+X * we use INV_PAINT below instead of ERASE and PAINT to avoid interactions
+X * with the cursor.  It means that we need to do a ERASE before we start the
+X * cursor and a PAINT after it is turned off.
+X */
+X
+Xstatic int
+Xerase_char_string()
+X{
+X    pw_text(pw, cbase_x, cbase_y, INV_PAINT, work_font, work_psflag,
+X	    work_fontsize, prefix, DEFAULT_COLOR);
+X    if (leng_suffix)
+X	pw_text(pw, cur_x, cbase_y, INV_PAINT, work_font, work_psflag,
+X		work_fontsize, suffix, DEFAULT_COLOR);
+X}
+X
+Xstatic int
+Xdraw_char_string()
+X{
+X    pw_text(pw, cbase_x, cbase_y, INV_PAINT,
+X	    work_font, work_psflag, work_fontsize, prefix, DEFAULT_COLOR);
+X    if (leng_suffix)
+X	pw_text(pw, cur_x, cbase_y, INV_PAINT,
+X	      work_font, work_psflag, work_fontsize, suffix, DEFAULT_COLOR);
+X    move_blinking_cursor(cur_x, cur_y);
+X}
+X
+Xchar_handler(c)
+X    unsigned char   c;
+X{
+X    int		    cwidth;
+X
+X    if (cr_proc == NULL)
+X	return;
+X
+X    if (c == CR || c == NL) {
+X	erase_char_string();
+X	/*
+X	 * comment out the cr_proc() and un-comment the new_text-line() to
+X	 * have new text automatically start after old
+X	 */
+X	/* cr_proc(); */
+X	new_text_line();
+X    } else if (c == DEL || c == CTRL_H) {
+X	if (leng_prefix > 0) {
+X	    /*
+X	     * To increase efficiency you could remove the erase_char_string
+X	     * from the next line and add the following in the switch below:
+X	     * LEFT:			erase_suffix CENTER:	erase_prefix
+X	     * erase_suffix RIGHT:	erase_prefix A similar thing would
+X	     * need to be done for draw_char_string and for the other text
+X	     * functions below.
+X	     */
+X	    erase_char_string();
+X	    cwidth = char_advance(canvas_font, (unsigned char) prefix[leng_prefix - 1]);
+X	    /* correct text/cursor posn for justification and zoom factor */
+X	    switch (work_textjust) {
+X	    case T_LEFT_JUSTIFIED:
+X		/* move the suffix to the left */
+X		rcur_x -= (float) (cwidth);
+X		break;
+X	    case T_CENTER_JUSTIFIED:
+X		/* advance right by cwidth/2 */
+X		rbase_x += (float) (cwidth / 2.0);
+X		/* move suffix left by cwidth/2 */
+X		rcur_x -= (float) (cwidth / 2.0);
+X		break;
+X	    case T_RIGHT_JUSTIFIED:
+X		/* move prefix to right */
+X		rbase_x += (float) (cwidth);
+X		break;
+X	    }
+X	    prefix[--leng_prefix] = '\0';
+X	    cbase_x = rbase_x;	/* fix */
+X	    cur_x = rcur_x;
+X	    draw_char_string();
+X	}
+X    } else if (c == CTRL_X) {
+X	if (leng_prefix > 0) {
+X	    erase_char_string();
+X	    switch (work_textjust) {
+X	    case T_CENTER_JUSTIFIED:
+X		while (leng_prefix--)	/* subtract char width/2 per char */
+X		    rcur_x -= char_advance(canvas_font, (unsigned char) prefix[leng_prefix]) /
+X			2.0;
+X		cur_x = cbase_x = rbase_x = rcur_x;
+X		break;
+X	    case T_RIGHT_JUSTIFIED:
+X		cbase_x = rbase_x = cur_x = rcur_x;
+X		break;
+X	    case T_LEFT_JUSTIFIED:
+X		cur_x = rcur_x = cbase_x = rbase_x;
+X		break;
+X	    }
+X	    leng_prefix = 0;
+X	    *prefix = '\0';
+X	    draw_char_string();
+X	}
+X    } else if (c < SP) {
+X	put_msg("Invalid character ignored");
+X    } else if (leng_prefix + leng_suffix == BUF_SIZE) {
+X	put_msg("Text buffer is full, character is ignored");
+X    } else {			/* normal text character */
+X	erase_char_string();
+X	cwidth = char_advance(canvas_font, (unsigned char) c);
+X	/* correct text/cursor posn for justification and zoom factor */
+X	switch (work_textjust) {
+X	case T_LEFT_JUSTIFIED:
+X	    /* move the suffix to the right */
+X	    rcur_x += (float) (cwidth);
+X	    break;
+X	case T_CENTER_JUSTIFIED:
+X	    /* advance left by cwidth/2 */
+X	    rbase_x -= (float) (cwidth / 2.0);
+X	    /* move suffix right by cwidth/2 */
+X	    rcur_x += (float) (cwidth / 2.0);
+X	    break;
+X	case T_RIGHT_JUSTIFIED:
+X	    /* move prefix to left */
+X	    rbase_x -= (float) (cwidth);
+X	    break;
+X	}
+X	prefix[leng_prefix++] = c;
+X	prefix[leng_prefix] = '\0';
+X	cbase_x = rbase_x;	/* fix */
+X	cur_x = rcur_x;
+X	draw_char_string();
+X    }
+X}
+X
+X/*******************************************************************
+X
+X	blinking cursor handling routines
+X
+X*******************************************************************/
+X
+Xstatic int	cursor_on, cursor_is_moving;
+Xstatic int	cursor_x, cursor_y;
+Xstatic int	(*erase) ();
+Xstatic int	(*draw) ();
+Xstatic XtTimerCallbackProc blink();
+Xstatic unsigned long blink_timer;
+Xstatic XtIntervalId blinkid;
+Xstatic int	stop_blinking = False;
+Xstatic int	cur_is_blinking = False;
+X
+Xstatic int
+Xturn_on_blinking_cursor(draw_cursor, erase_cursor, x, y, msec)
+X    int		    (*draw_cursor) ();
+X    int		    (*erase_cursor) ();
+X    int		    x, y;
+X    unsigned long   msec;
+X{
+X    draw = draw_cursor;
+X    erase = erase_cursor;
+X    cursor_is_moving = 0;
+X    cursor_x = x;
+X    cursor_y = y;
+X    blink_timer = msec;
+X    draw(x, y);
+X    cursor_on = 1;
+X    if (!cur_is_blinking) {	/* if we are already blinking, don't request
+X				 * another */
+X	blinkid = XtAppAddTimeOut(tool_app, blink_timer, (XtTimerCallbackProc) blink,
+X				  (XtPointer) NULL);
+X	cur_is_blinking = True;
+X    }
+X    stop_blinking = False;
+X}
+X
+Xstatic int
+Xturn_off_blinking_cursor()
+X{
+X    if (cursor_on)
+X	erase(cursor_x, cursor_y);
+X    stop_blinking = True;
+X}
+X
+Xstatic		XtTimerCallbackProc
+Xblink(client_data, id)
+X#if XtSpecificationRelease >= 4
+X    XtPointer	    client_data;
+X
+X#else
+X    caddr_t	    client_data;
+X
+X#endif
+X    XtIntervalId   *id;
+X{
+X    if (!stop_blinking) {
+X	if (cursor_is_moving)
+X	    return (0);
+X	if (cursor_on) {
+X	    erase(cursor_x, cursor_y);
+X	    cursor_on = 0;
+X	} else {
+X	    draw(cursor_x, cursor_y);
+X	    cursor_on = 1;
+X	}
+X	blinkid = XtAppAddTimeOut(tool_app, blink_timer, (XtTimerCallbackProc) blink,
+X				  (XtPointer) NULL);
+X    } else {
+X	stop_blinking = False;	/* signal that we've stopped */
+X	cur_is_blinking = False;
+X    }
+X    return (0);
+X}
+X
+Xstatic int
+Xmove_blinking_cursor(x, y)
+X    int		    x, y;
+X{
+X    cursor_is_moving = 1;
+X    if (cursor_on)
+X	erase(cursor_x, cursor_y);
+X    cursor_x = x;
+X    cursor_y = y;
+X    draw(cursor_x, cursor_y);
+X    cursor_on = 1;
+X    cursor_is_moving = 0;
+X}
+END_OF_FILE
+if test 15677 -ne `wc -c <'d_text.c'`; then
+    echo shar: \"'d_text.c'\" unpacked with wrong size!
+fi
+# end of 'd_text.c'
+fi
+if test -f 'u_list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_list.c'\"
+else
+echo shar: Extracting \"'u_list.c'\" \(18136 characters\)
+sed "s/^X//" >'u_list.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "resources.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_list.h"
+X#include "u_elastic.h"
+X#include "u_undo.h"
+X
+Xvoid
+Xlist_delete_arc(arc_list, arc)
+X    F_arc	  **arc_list, *arc;
+X{
+X    F_arc	   *a, *aa;
+X
+X    if (*arc_list == NULL)
+X	return;
+X    if (arc == NULL)
+X	return;
+X
+X    for (a = aa = *arc_list; aa != NULL; a = aa, aa = aa->next) {
+X	if (aa == arc) {
+X	    if (aa == *arc_list)
+X		*arc_list = (*arc_list)->next;
+X	    else
+X		a->next = aa->next;
+X	    break;
+X	}
+X    }
+X    arc->next = NULL;
+X}
+X
+Xvoid
+Xlist_delete_ellipse(ellipse_list, ellipse)
+X    F_ellipse	  **ellipse_list, *ellipse;
+X{
+X    F_ellipse	   *q, *r;
+X
+X    if (*ellipse_list == NULL)
+X	return;
+X    if (ellipse == NULL)
+X	return;
+X
+X    for (q = r = *ellipse_list; r != NULL; q = r, r = r->next) {
+X	if (r == ellipse) {
+X	    if (r == *ellipse_list)
+X		*ellipse_list = (*ellipse_list)->next;
+X	    else
+X		q->next = r->next;
+X	    break;
+X	}
+X    }
+X    ellipse->next = NULL;
+X}
+X
+Xvoid
+Xlist_delete_line(line_list, line)
+X    F_line	   *line, **line_list;
+X{
+X    F_line	   *q, *r;
+X
+X    if (*line_list == NULL)
+X	return;
+X    if (line == NULL)
+X	return;
+X
+X    for (q = r = *line_list; r != NULL; q = r, r = r->next) {
+X	if (r == line) {
+X	    if (r == *line_list)
+X		*line_list = (*line_list)->next;
+X	    else
+X		q->next = r->next;
+X	    break;
+X	}
+X    }
+X    line->next = NULL;
+X}
+X
+Xvoid
+Xlist_delete_spline(spline_list, spline)
+X    F_spline	  **spline_list, *spline;
+X{
+X    F_spline	   *q, *r;
+X
+X    if (*spline_list == NULL)
+X	return;
+X    if (spline == NULL)
+X	return;
+X
+X    for (q = r = *spline_list; r != NULL; q = r, r = r->next) {
+X	if (r == spline) {
+X	    if (r == *spline_list)
+X		*spline_list = (*spline_list)->next;
+X	    else
+X		q->next = r->next;
+X	    break;
+X	}
+X    }
+X    spline->next = NULL;
+X}
+X
+Xvoid
+Xlist_delete_text(text_list, text)
+X    F_text	  **text_list, *text;
+X{
+X    F_text	   *q, *r;
+X
+X    if (*text_list == NULL)
+X	return;
+X    if (text == NULL)
+X	return;
+X
+X    for (q = r = *text_list; r != NULL; q = r, r = r->next)
+X	if (r == text) {
+X	    if (r == *text_list)
+X		*text_list = text->next;
+X	    else
+X		q->next = text->next;
+X	    break;
+X	}
+X    text->next = NULL;
+X}
+X
+Xvoid
+Xlist_delete_compound(list, compound)
+X    F_compound	  **list, *compound;
+X{
+X    F_compound	   *c, *cc;
+X
+X    if (*list == NULL)
+X	return;
+X    if (compound == NULL)
+X	return;
+X
+X    for (cc = c = *list; c != NULL; cc = c, c = c->next) {
+X	if (c == compound) {
+X	    if (c == *list)
+X		*list = (*list)->next;
+X	    else
+X		cc->next = c->next;
+X	    break;
+X	}
+X    }
+X    compound->next = NULL;
+X}
+X
+Xvoid
+Xlist_add_arc(arc_list, a)
+X    F_arc	  **arc_list, *a;
+X{
+X    F_arc	   *aa;
+X
+X    a->next = NULL;
+X    if ((aa = last_arc(*arc_list)) == NULL)
+X	*arc_list = a;
+X    else
+X	aa->next = a;
+X}
+X
+Xvoid
+Xlist_add_ellipse(ellipse_list, e)
+X    F_ellipse	  **ellipse_list, *e;
+X{
+X    F_ellipse	   *ee;
+X
+X    e->next = NULL;
+X    if ((ee = last_ellipse(*ellipse_list)) == NULL)
+X	*ellipse_list = e;
+X    else
+X	ee->next = e;
+X}
+X
+Xvoid
+Xlist_add_line(line_list, l)
+X    F_line	  **line_list, *l;
+X{
+X    F_line	   *ll;
+X
+X    l->next = NULL;
+X    if ((ll = last_line(*line_list)) == NULL)
+X	*line_list = l;
+X    else
+X	ll->next = l;
+X}
+X
+Xvoid
+Xlist_add_spline(spline_list, s)
+X    F_spline	  **spline_list, *s;
+X{
+X    F_spline	   *ss;
+X
+X    s->next = NULL;
+X    if ((ss = last_spline(*spline_list)) == NULL)
+X	*spline_list = s;
+X    else
+X	ss->next = s;
+X}
+X
+Xvoid
+Xlist_add_text(text_list, t)
+X    F_text	  **text_list, *t;
+X{
+X    F_text	   *tt;
+X
+X    t->next = NULL;
+X    if ((tt = last_text(*text_list)) == NULL)
+X	*text_list = t;
+X    else
+X	tt->next = t;
+X}
+X
+Xvoid
+Xlist_add_compound(list, c)
+X    F_compound	  **list, *c;
+X{
+X    F_compound	   *cc;
+X
+X    c->next = NULL;
+X    if ((cc = last_compound(*list)) == NULL)
+X	*list = c;
+X    else
+X	cc->next = c;
+X}
+X
+Xvoid
+Xdelete_line(old_l)
+X    F_line	   *old_l;
+X{
+X    list_delete_line(&objects.lines, old_l);
+X    clean_up();
+X    set_latestline(old_l);
+X    set_action_object(F_DELETE, O_POLYLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xdelete_arc(old_a)
+X    F_arc	   *old_a;
+X{
+X    list_delete_arc(&objects.arcs, old_a);
+X    clean_up();
+X    set_latestarc(old_a);
+X    set_action_object(F_DELETE, O_ARC);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xdelete_ellipse(old_e)
+X    F_ellipse	   *old_e;
+X{
+X    list_delete_ellipse(&objects.ellipses, old_e);
+X    clean_up();
+X    set_latestellipse(old_e);
+X    set_action_object(F_DELETE, O_ELLIPSE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xdelete_text(old_t)
+X    F_text	   *old_t;
+X{
+X    list_delete_text(&objects.texts, old_t);
+X    clean_up();
+X    set_latesttext(old_t);
+X    set_action_object(F_DELETE, O_TEXT);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xdelete_spline(old_s)
+X    F_spline	   *old_s;
+X{
+X    list_delete_spline(&objects.splines, old_s);
+X    clean_up();
+X    set_latestspline(old_s);
+X    set_action_object(F_DELETE, O_SPLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xdelete_compound(old_c)
+X    F_compound	   *old_c;
+X{
+X    list_delete_compound(&objects.compounds, old_c);
+X    clean_up();
+X    set_latestcompound(old_c);
+X    set_action_object(F_DELETE, O_COMPOUND);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_line(new_l)
+X    F_line	   *new_l;
+X{
+X    list_add_line(&objects.lines, new_l);
+X    clean_up();
+X    set_latestline(new_l);
+X    set_action_object(F_ADD, O_POLYLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_arc(new_a)
+X    F_arc	   *new_a;
+X{
+X    list_add_arc(&objects.arcs, new_a);
+X    clean_up();
+X    set_latestarc(new_a);
+X    set_action_object(F_ADD, O_ARC);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_ellipse(new_e)
+X    F_ellipse	   *new_e;
+X{
+X    list_add_ellipse(&objects.ellipses, new_e);
+X    clean_up();
+X    set_latestellipse(new_e);
+X    set_action_object(F_ADD, O_ELLIPSE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_text(new_t)
+X    F_text	   *new_t;
+X{
+X    list_add_text(&objects.texts, new_t);
+X    clean_up();
+X    set_latesttext(new_t);
+X    set_action_object(F_ADD, O_TEXT);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_spline(new_s)
+X    F_spline	   *new_s;
+X{
+X    list_add_spline(&objects.splines, new_s);
+X    clean_up();
+X    set_latestspline(new_s);
+X    set_action_object(F_ADD, O_SPLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xadd_compound(new_c)
+X    F_compound	   *new_c;
+X{
+X    list_add_compound(&objects.compounds, new_c);
+X    clean_up();
+X    set_latestcompound(new_c);
+X    set_action_object(F_ADD, O_COMPOUND);
+X    set_modifiedflag();
+X}
+X
+X
+Xvoid
+Xchange_line(old_l, new_l)
+X    F_line	   *old_l, *new_l;
+X{
+X    list_delete_line(&objects.lines, old_l);
+X    list_add_line(&objects.lines, new_l);
+X    clean_up();
+X    old_l->next = new_l;
+X    set_latestline(old_l);
+X    set_action_object(F_CHANGE, O_POLYLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xchange_arc(old_a, new_a)
+X    F_arc	   *old_a, *new_a;
+X{
+X    list_delete_arc(&objects.arcs, old_a);
+X    list_add_arc(&objects.arcs, new_a);
+X    clean_up();
+X    old_a->next = new_a;
+X    set_latestarc(old_a);
+X    set_action_object(F_CHANGE, O_ARC);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xchange_ellipse(old_e, new_e)
+X    F_ellipse	   *old_e, *new_e;
+X{
+X    list_delete_ellipse(&objects.ellipses, old_e);
+X    list_add_ellipse(&objects.ellipses, new_e);
+X    clean_up();
+X    old_e->next = new_e;
+X    set_latestellipse(old_e);
+X    set_action_object(F_CHANGE, O_ELLIPSE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xchange_text(old_t, new_t)
+X    F_text	   *old_t, *new_t;
+X{
+X    list_delete_text(&objects.texts, old_t);
+X    list_add_text(&objects.texts, new_t);
+X    clean_up();
+X    old_t->next = new_t;
+X    set_latesttext(old_t);
+X    set_action_object(F_CHANGE, O_TEXT);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xchange_spline(old_s, new_s)
+X    F_spline	   *old_s, *new_s;
+X{
+X    list_delete_spline(&objects.splines, old_s);
+X    list_add_spline(&objects.splines, new_s);
+X    clean_up();
+X    old_s->next = new_s;
+X    set_latestspline(old_s);
+X    set_action_object(F_CHANGE, O_SPLINE);
+X    set_modifiedflag();
+X}
+X
+Xvoid
+Xchange_compound(old_c, new_c)
+X    F_compound	   *old_c, *new_c;
+X{
+X    list_delete_compound(&objects.compounds, old_c);
+X    list_add_compound(&objects.compounds, new_c);
+X    clean_up();
+X    old_c->next = new_c;
+X    set_latestcompound(old_c);
+X    set_action_object(F_CHANGE, O_COMPOUND);
+X    set_modifiedflag();
+X}
+X
+Xtail(ob, tails)
+X    F_compound	   *ob, *tails;
+X{
+X    F_arc	   *a;
+X    F_compound	   *c;
+X    F_ellipse	   *e;
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_text	   *t;
+X
+X    if (NULL != (a = ob->arcs))
+X	for (; a->next != NULL; a = a->next);
+X    if (NULL != (c = ob->compounds))
+X	for (; c->next != NULL; c = c->next);
+X    if (NULL != (e = ob->ellipses))
+X	for (; e->next != NULL; e = e->next);
+X    if (NULL != (l = ob->lines))
+X	for (; l->next != NULL; l = l->next);
+X    if (NULL != (s = ob->splines))
+X	for (; s->next != NULL; s = s->next);
+X    if (NULL != (t = ob->texts))
+X	for (; t->next != NULL; t = t->next);
+X
+X    tails->arcs = a;
+X    tails->compounds = c;
+X    tails->ellipses = e;
+X    tails->lines = l;
+X    tails->splines = s;
+X    tails->texts = t;
+X}
+X
+X/*
+X * Make pointers in tails point to the last element of each list of l1 and
+X * Append the lists in l2 after those in l1. The tails pointers must be
+X * defined prior to calling append.
+X */
+Xappend_objects(l1, l2, tails)
+X    F_compound	   *l1, *l2, *tails;
+X{
+X    if (tails->arcs)
+X	tails->arcs->next = l2->arcs;
+X    else
+X	l1->arcs = l2->arcs;
+X    if (tails->compounds)
+X	tails->compounds->next = l2->compounds;
+X    else
+X	l1->compounds = l2->compounds;
+X    if (tails->ellipses)
+X	tails->ellipses->next = l2->ellipses;
+X    else
+X	l1->ellipses = l2->ellipses;
+X    if (tails->lines)
+X	tails->lines->next = l2->lines;
+X    else
+X	l1->lines = l2->lines;
+X    if (tails->splines)
+X	tails->splines->next = l2->splines;
+X    else
+X	l1->splines = l2->splines;
+X    if (tails->texts)
+X	tails->texts->next = l2->texts;
+X    else
+X	l1->texts = l2->texts;
+X}
+X
+X/* Cut is the dual of append. */
+X
+Xcut_objects(objects, tails)
+X    F_compound	   *objects, *tails;
+X{
+X    if (tails->arcs)
+X	tails->arcs->next = NULL;
+X    else
+X	objects->arcs = NULL;
+X    if (tails->compounds)
+X	tails->compounds->next = NULL;
+X    else
+X	objects->compounds = NULL;
+X    if (tails->ellipses)
+X	tails->ellipses->next = NULL;
+X    else
+X	objects->ellipses = NULL;
+X    if (tails->lines)
+X	tails->lines->next = NULL;
+X    else
+X	objects->lines = NULL;
+X    if (tails->splines)
+X	tails->splines->next = NULL;
+X    else
+X	objects->splines = NULL;
+X    if (tails->texts)
+X	tails->texts->next = NULL;
+X    else
+X	objects->texts = NULL;
+X}
+X
+Xappend_point(x, y, point)
+X    int		    x, y;
+X    F_point	  **point;
+X{
+X    F_point	   *p;
+X
+X    if ((p = create_point()) == NULL)
+X	return;
+X
+X    p->x = x;
+X    p->y = y;
+X    p->next = NULL;
+X    (*point)->next = p;
+X    *point = p;
+X}
+X
+Xnum_points(points)
+X    F_point	   *points;
+X{
+X    int		    n;
+X    F_point	   *p;
+X
+X    for (p = points, n = 0; p != NULL; p = p->next, n++);
+X    return (n);
+X}
+X
+XF_text	       *
+Xlast_text(list)
+X    F_text	   *list;
+X{
+X    F_text	   *tt;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (tt = list; tt->next != NULL; tt = tt->next);
+X    return tt;
+X}
+X
+XF_line	       *
+Xlast_line(list)
+X    F_line	   *list;
+X{
+X    F_line	   *ll;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (ll = list; ll->next != NULL; ll = ll->next);
+X    return ll;
+X}
+X
+XF_spline       *
+Xlast_spline(list)
+X    F_spline	   *list;
+X{
+X    F_spline	   *ss;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (ss = list; ss->next != NULL; ss = ss->next);
+X    return ss;
+X}
+X
+XF_arc	       *
+Xlast_arc(list)
+X    F_arc	   *list;
+X{
+X    F_arc	   *tt;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (tt = list; tt->next != NULL; tt = tt->next);
+X    return tt;
+X}
+X
+XF_ellipse      *
+Xlast_ellipse(list)
+X    F_ellipse	   *list;
+X{
+X    F_ellipse	   *tt;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (tt = list; tt->next != NULL; tt = tt->next);
+X    return tt;
+X}
+X
+XF_compound     *
+Xlast_compound(list)
+X    F_compound	   *list;
+X{
+X    F_compound	   *tt;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (tt = list; tt->next != NULL; tt = tt->next);
+X    return tt;
+X}
+X
+XF_point	       *
+Xlast_point(list)
+X    F_point	   *list;
+X{
+X    F_point	   *tt;
+X
+X    if (list == NULL)
+X	return NULL;
+X
+X    for (tt = list; tt->next != NULL; tt = tt->next);
+X    return tt;
+X}
+X
+XF_arc	       *
+Xprev_arc(list, arc)
+X    F_arc	   *list, *arc;
+X{
+X    F_arc	   *csr;
+X
+X    if (list == arc)
+X	return NULL;
+X
+X    for (csr = list; csr->next != arc; csr = csr->next);
+X    return csr;
+X}
+X
+XF_compound     *
+Xprev_compound(list, compound)
+X    F_compound	   *list, *compound;
+X{
+X    F_compound	   *csr;
+X
+X    if (list == compound)
+X	return NULL;
+X
+X    for (csr = list; csr->next != compound; csr = csr->next);
+X    return csr;
+X}
+X
+XF_ellipse      *
+Xprev_ellipse(list, ellipse)
+X    F_ellipse	   *list, *ellipse;
+X{
+X    F_ellipse	   *csr;
+X
+X    if (list == ellipse)
+X	return NULL;
+X
+X    for (csr = list; csr->next != ellipse; csr = csr->next);
+X    return csr;
+X}
+X
+XF_line	       *
+Xprev_line(list, line)
+X    F_line	   *list, *line;
+X{
+X    F_line	   *csr;
+X
+X    if (list == line)
+X	return NULL;
+X
+X    for (csr = list; csr->next != line; csr = csr->next);
+X    return csr;
+X}
+X
+XF_spline       *
+Xprev_spline(list, spline)
+X    F_spline	   *list, *spline;
+X{
+X    F_spline	   *csr;
+X
+X    if (list == spline)
+X	return NULL;
+X
+X    for (csr = list; csr->next != spline; csr = csr->next);
+X    return csr;
+X}
+X
+XF_text	       *
+Xprev_text(list, text)
+X    F_text	   *list, *text;
+X{
+X    F_text	   *csr;
+X
+X    if (list == text)
+X	return NULL;
+X
+X    for (csr = list; csr->next != text; csr = csr->next);
+X    return csr;
+X}
+X
+XF_point	       *
+Xprev_point(list, point)
+X    F_point	   *list, *point;
+X{
+X    F_point	   *csr;
+X
+X    if (list == point)
+X	return NULL;
+X
+X    for (csr = list; csr->next != point; csr = csr->next);
+X    return csr;
+X}
+X
+Xint
+Xobject_count(list)
+X    F_compound	   *list;
+X{
+X    register int    cnt;
+X    F_arc	   *a;
+X    F_text	   *t;
+X    F_compound	   *c;
+X    F_ellipse	   *e;
+X    F_line	   *l;
+X    F_spline	   *s;
+X
+X    cnt = 0;
+X    for (a = list->arcs; a != NULL; a = a->next, cnt++);
+X    for (t = list->texts; t != NULL; t = t->next, cnt++);
+X    for (c = list->compounds; c != NULL; c = c->next, cnt++);
+X    for (e = list->ellipses; e != NULL; e = e->next, cnt++);
+X    for (l = list->lines; l != NULL; l = l->next, cnt++);
+X    for (s = list->splines; s != NULL; s = s->next, cnt++);
+X    return (cnt);
+X}
+X
+Xset_tags(list, tag)
+X    F_compound	   *list;
+X    int		    tag;
+X{
+X    F_arc	   *a;
+X    F_text	   *t;
+X    F_compound	   *c;
+X    F_ellipse	   *e;
+X    F_line	   *l;
+X    F_spline	   *s;
+X
+X    for (a = list->arcs; a != NULL; a = a->next) {
+X	mask_toggle_arcmarker(a);
+X	a->tagged = tag;
+X	mask_toggle_arcmarker(a);
+X    }
+X    for (t = list->texts; t != NULL; t = t->next) {
+X	mask_toggle_textmarker(t);
+X	t->tagged = tag;
+X	mask_toggle_textmarker(t);
+X    }
+X    for (c = list->compounds; c != NULL; c = c->next) {
+X	mask_toggle_compoundmarker(c);
+X	c->tagged = tag;
+X	mask_toggle_compoundmarker(c);
+X    }
+X    for (e = list->ellipses; e != NULL; e = e->next) {
+X	mask_toggle_ellipsemarker(e);
+X	e->tagged = tag;
+X	mask_toggle_ellipsemarker(e);
+X    }
+X    for (l = list->lines; l != NULL; l = l->next) {
+X	mask_toggle_linemarker(l);
+X	l->tagged = tag;
+X	mask_toggle_linemarker(l);
+X    }
+X    for (s = list->splines; s != NULL; s = s->next) {
+X	mask_toggle_splinemarker(s);
+X	s->tagged = tag;
+X	mask_toggle_splinemarker(s);
+X    }
+X}
+X
+Xvoid
+Xget_links(llx, lly, urx, ury)
+X    int		    llx, lly, urx, ury;
+X{
+X    F_line	   *l;
+X    F_point	   *a;
+X    F_linkinfo	   *j, *k;
+X
+X    j = NULL;
+X    for (l = objects.lines; l != NULL; l = l->next)
+X	if (l->type == T_POLYLINE) {
+X	    a = l->points;
+X	    if (point_on_perim(a, llx, lly, urx, ury)) {
+X		if ((k = new_link(l, a, a->next)) == NULL)
+X		    return;
+X		if (j == NULL)
+X		    cur_links = k;
+X		else
+X		    j->next = k;
+X		j = k;
+X		if (k->prevpt != NULL)
+X		    k->two_pts = (k->prevpt->next == NULL);
+X		continue;
+X	    }
+X	    if (a->next == NULL)/* single point, no need to check further */
+X		continue;
+X	    a = last_point(l->points);
+X	    if (point_on_perim(a, llx, lly, urx, ury)) {
+X		if ((k = new_link(l, a, prev_point(l->points, a))) == NULL)
+X		    return;
+X		if (j == NULL)
+X		    cur_links = k;
+X		else
+X		    j->next = k;
+X		j = k;
+X		if (k->prevpt != NULL)
+X		    k->two_pts = (prev_point(l->points, k->prevpt) == NULL);
+X		continue;
+X	    }
+X	}
+X}
+X
+X#define LINK_TOL 3
+X
+Xint
+Xpoint_on_perim(p, llx, lly, urx, ury)
+X    F_point	   *p;
+X    int		    llx, lly, urx, ury;
+X{
+X    return ((abs(p->x - llx) <= LINK_TOL && p->y >= lly - LINK_TOL
+X	     && p->y <= ury + LINK_TOL) ||
+X	    (abs(p->x - urx) <= LINK_TOL && p->y >= lly - LINK_TOL
+X	     && p->y <= ury + LINK_TOL) ||
+X	    (abs(p->y - lly) <= LINK_TOL && p->x >= llx - LINK_TOL
+X	     && p->x <= urx + LINK_TOL) ||
+X	    (abs(p->y - ury) <= LINK_TOL && p->x >= llx - LINK_TOL
+X	     && p->x <= urx + LINK_TOL));
+X}
+X
+Xvoid
+Xadjust_links(mode, links, dx, dy, cx, cy, sx, sy, copying)
+X    int		    mode;
+X    F_linkinfo	   *links;
+X    int		dx, dy;		/* delta */
+X    int		cx, cy;		/* center of scale - NOT USED YET */
+X    float	sx, sy;		/* scale factor - NOT USED YET */
+X    int		    copying;
+X{
+X    F_linkinfo	   *k;
+X    F_line	   *l;
+X
+X    if (mode != SMART_OFF)
+X	for (k = links; k != NULL; k = k->next) {
+X	    if (copying) {
+X		l = copy_line(k->line);
+X		list_delete_line(&objects.lines, k->line);
+X		list_add_line(&saved_objects.lines, k->line);
+X		list_add_line(&objects.lines, l);
+X	    } else {
+X		mask_toggle_linemarker(k->line);
+X		draw_line(k->line, ERASE);
+X	    }
+X	    if (mode == SMART_SLIDE && k->prevpt != NULL) {
+X		if (k->endpt->x == k->prevpt->x)
+X		    k->prevpt->x += dx;
+X		else
+X		    k->prevpt->y += dy;
+X	    }
+X	    k->endpt->x += dx;
+X	    k->endpt->y += dy;
+X	    draw_line(k->line, PAINT);
+X	    mask_toggle_linemarker(k->line);
+X	}
+X}
+END_OF_FILE
+if test 18136 -ne `wc -c <'u_list.c'`; then
+    echo shar: \"'u_list.c'\" unpacked with wrong size!
+fi
+# end of 'u_list.c'
+fi
+if test -f 'u_undo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_undo.c'\"
+else
+echo shar: Extracting \"'u_undo.c'\" \(16987 characters\)
+sed "s/^X//" >'u_undo.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X/**************** IMPORTS ****************/
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_list.h"
+X#include "u_undo.h"
+X
+X/*************** EXPORTS *****************/
+X
+X/*
+X * Object_tails *usually* points to the last object in each linked list in
+X * objects.  The exceptions occur when multiple objects are added to a figure
+X * (e.g. file read, break compound, undo delete region).  In these cases,
+X * the added objects are appended to the object lists (and saved_objects is
+X * set up to point to the new objects) but object_tails is not changed.
+X * This speeds up a subsequent undo operation which need only set
+X * all the "next" fields of objects pointed to by object_tails to NULL.
+X */
+X
+XF_compound	saved_objects = {NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+XF_compound	object_tails = {NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+X
+X/*************** LOCAL *****************/
+X
+Xstatic int	last_object;
+Xstatic int	last_action = F_NULL;
+Xstatic F_pos	last_position, new_position;
+Xstatic int	last_arcpointnum;
+Xstatic F_point *last_prev_point, *last_selected_point, *last_next_point;
+Xstatic F_linkinfo *last_links;
+Xstatic int	last_linkmode;
+X
+Xvoid
+Xundo()
+X{
+X    switch (last_action) {
+X	case F_ADD:
+X	undo_add();
+X	break;
+X    case F_DELETE:
+X	undo_delete();
+X	break;
+X    case F_MOVE:
+X	undo_move();
+X	break;
+X    case F_CHANGE:
+X	undo_change();
+X	break;
+X    case F_GLUE:
+X	undo_glue();
+X	break;
+X    case F_BREAK:
+X	undo_break();
+X	break;
+X    case F_LOAD:
+X	undo_load();
+X	break;
+X    case F_SCALE:
+X	undo_scale();
+X	break;
+X    case F_ADD_POINT:
+X	undo_addpoint();
+X	break;
+X    case F_DELETE_POINT:
+X	undo_deletepoint();
+X	break;
+X    case F_ADD_ARROW_HEAD:
+X	undo_add_arrowhead();
+X	break;
+X    case F_DELETE_ARROW_HEAD:
+X	undo_delete_arrowhead();
+X	break;
+X    case F_CONVERT:
+X	undo_convert();
+X	break;
+X    default:
+X	put_msg("Nothing to UNDO");
+X	return;
+X    }
+X    put_msg("Undo complete");
+X}
+X
+Xundo_addpoint()
+X{
+X    if (last_object == O_POLYLINE)
+X	linepoint_deleting(saved_objects.lines, last_prev_point,
+X			   last_selected_point);
+X    else
+X	splinepoint_deleting(saved_objects.splines, last_prev_point,
+X			     last_selected_point);
+X}
+X
+Xundo_deletepoint()
+X{
+X    last_action = F_NULL;	/* to avoid doing a clean-up during adding */
+X
+X    if (last_object == O_POLYLINE)
+X	linepoint_adding(saved_objects.lines, last_prev_point,
+X			 last_selected_point, last_next_point);
+X    else
+X	splinepoint_adding(saved_objects.splines, last_prev_point,
+X			   last_selected_point, last_next_point);
+X    last_next_point = NULL;
+X}
+X
+Xundo_break()
+X{
+X    cut_objects(&objects, &object_tails);
+X    list_add_compound(&objects.compounds, saved_objects.compounds);
+X    last_action = F_GLUE;
+X    toggle_markers_in_compound(saved_objects.compounds);
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X}
+X
+Xundo_glue()
+X{
+X    list_delete_compound(&objects.compounds, saved_objects.compounds);
+X    tail(&objects, &object_tails);
+X    append_objects(&objects, saved_objects.compounds, &object_tails);
+X    last_action = F_BREAK;
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    toggle_markers_in_compound(saved_objects.compounds);
+X    if (cur_mode != F_GLUE && cur_mode != F_BREAK)
+X	set_tags(saved_objects.compounds, 0);
+X}
+X
+Xundo_convert()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	spline_2_line(saved_objects.splines);
+X	break;
+X    case O_SPLINE:
+X	line_2_spline(saved_objects.lines);
+X	break;
+X    }
+X}
+X
+Xundo_add_arrowhead()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	delete_linearrow(saved_objects.lines,
+X			 last_prev_point, last_selected_point);
+X	break;
+X    case O_SPLINE:
+X	delete_splinearrow(saved_objects.splines,
+X			   last_prev_point, last_selected_point);
+X	break;
+X    case O_ARC:
+X	delete_arcarrow(saved_objects.arcs, last_arcpointnum);
+X	break;
+X    default:
+X	return;
+X    }
+X    last_action = F_DELETE_ARROW_HEAD;
+X}
+X
+Xundo_delete_arrowhead()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	add_linearrow(saved_objects.lines,
+X		      last_prev_point, last_selected_point);
+X	break;
+X    case O_SPLINE:
+X	add_splinearrow(saved_objects.splines,
+X			last_prev_point, last_selected_point);
+X	break;
+X    case O_ARC:
+X	add_arcarrow(saved_objects.arcs, last_arcpointnum);
+X	break;
+X    default:
+X	return;
+X    }
+X    last_action = F_ADD_ARROW_HEAD;
+X}
+X
+X/*
+X * saved_objects.xxxx contains a pointer to the original object,
+X * saved_objects.xxxx->next points to the changed object.
+X */
+X
+Xundo_change()
+X{
+X    last_action = F_NULL;	/* to avoid a clean-up during "unchange" */
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	new_l = saved_objects.lines;	/* the original */
+X	old_l = saved_objects.lines->next;	/* the changed object */
+X	change_line(old_l, new_l);
+X	redisplay_lines(new_l, old_l);
+X	break;
+X    case O_ELLIPSE:
+X	new_e = saved_objects.ellipses;
+X	old_e = saved_objects.ellipses->next;
+X	change_ellipse(old_e, new_e);
+X	redisplay_ellipses(new_e, old_e);
+X	break;
+X    case O_TEXT:
+X	new_t = saved_objects.texts;
+X	old_t = saved_objects.texts->next;
+X	change_text(old_t, new_t);
+X	redisplay_texts(new_t, old_t);
+X	break;
+X    case O_SPLINE:
+X	new_s = saved_objects.splines;
+X	old_s = saved_objects.splines->next;
+X	change_spline(old_s, new_s);
+X	redisplay_splines(new_s, old_s);
+X	break;
+X    case O_ARC:
+X	new_a = saved_objects.arcs;
+X	old_a = saved_objects.arcs->next;
+X	change_arc(old_a, new_a);
+X	redisplay_arcs(new_a, old_a);
+X	break;
+X    case O_COMPOUND:
+X	new_c = saved_objects.compounds;
+X	old_c = saved_objects.compounds->next;
+X	change_compound(old_c, new_c);
+X	redisplay_compounds(new_c, old_c);
+X	break;
+X    }
+X}
+X
+X/*
+X * When a single object is created, it is appended to the appropriate list
+X * in objects.	It is also placed in the appropriate list in saved_objects.
+X *
+X * When a number of objects are created (usually by reading them in from
+X * a file or undoing a remove-all action), they are appended to the lists in
+X * objects and also saved in saved_objects.  The pointers in object_tails
+X * will be set to point to the last members of the lists in objects prior to
+X * the appending.
+X *
+X * Note: The read operation will set the pointers in object_tails while the
+X * remove-all operation will zero pointers in objects.
+X */
+X
+Xundo_add()
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	list_delete_line(&objects.lines, saved_objects.lines);
+X	redisplay_line(saved_objects.lines);
+X	break;
+X    case O_ELLIPSE:
+X	list_delete_ellipse(&objects.ellipses, saved_objects.ellipses);
+X	redisplay_ellipse(saved_objects.ellipses);
+X	break;
+X    case O_TEXT:
+X	list_delete_text(&objects.texts, saved_objects.texts);
+X	redisplay_text(saved_objects.texts);
+X	break;
+X    case O_SPLINE:
+X	list_delete_spline(&objects.splines, saved_objects.splines);
+X	redisplay_spline(saved_objects.splines);
+X	break;
+X    case O_ARC:
+X	list_delete_arc(&objects.arcs, saved_objects.arcs);
+X	redisplay_arc(saved_objects.arcs);
+X	break;
+X    case O_COMPOUND:
+X	list_delete_compound(&objects.compounds, saved_objects.compounds);
+X	redisplay_compound(saved_objects.compounds);
+X	break;
+X    case O_ALL_OBJECT:
+X	cut_objects(&objects, &object_tails);
+X	compound_bound(&saved_objects, &xmin, &ymin, &xmax, &ymax);
+X	redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X	break;
+X    }
+X    last_action = F_DELETE;
+X}
+X
+Xundo_delete()
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	list_add_line(&objects.lines, saved_objects.lines);
+X	redisplay_line(saved_objects.lines);
+X	break;
+X    case O_ELLIPSE:
+X	list_add_ellipse(&objects.ellipses, saved_objects.ellipses);
+X	redisplay_ellipse(saved_objects.ellipses);
+X	break;
+X    case O_TEXT:
+X	list_add_text(&objects.texts, saved_objects.texts);
+X	redisplay_text(saved_objects.texts);
+X	break;
+X    case O_SPLINE:
+X	list_add_spline(&objects.splines, saved_objects.splines);
+X	redisplay_spline(saved_objects.splines);
+X	break;
+X    case O_ARC:
+X	list_add_arc(&objects.arcs, saved_objects.arcs);
+X	redisplay_arc(saved_objects.arcs);
+X	break;
+X    case O_COMPOUND:
+X	list_add_compound(&objects.compounds, saved_objects.compounds);
+X	redisplay_compound(saved_objects.compounds);
+X	break;
+X    case O_ALL_OBJECT:
+X	compound_bound(&saved_objects, &xmin, &ymin, &xmax, &ymax);
+X	append_objects(&objects, &saved_objects, &object_tails);
+X	redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X    }
+X    last_action = F_ADD;
+X}
+X
+Xundo_move()
+X{
+X    int		    dx, dy;
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X
+X    dx = last_position.x - new_position.x;
+X    dy = last_position.y - new_position.y;
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	line_bound(saved_objects.lines, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_line(saved_objects.lines, dx, dy);
+X	line_bound(saved_objects.lines, &xmin2, &ymin2, &xmax2, &ymax2);
+X	adjust_links(last_linkmode, last_links, dx, dy, 0, 0, 1.0, 1.0, 0);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_ELLIPSE:
+X	ellipse_bound(saved_objects.ellipses, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_ellipse(saved_objects.ellipses, dx, dy);
+X	ellipse_bound(saved_objects.ellipses, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_TEXT:
+X	text_bound(saved_objects.texts, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_text(saved_objects.texts, dx, dy);
+X	text_bound(saved_objects.texts, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_SPLINE:
+X	spline_bound(saved_objects.splines, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_spline(saved_objects.splines, dx, dy);
+X	spline_bound(saved_objects.splines, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_ARC:
+X	arc_bound(saved_objects.arcs, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_arc(saved_objects.arcs, dx, dy);
+X	arc_bound(saved_objects.arcs, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_COMPOUND:
+X	compound_bound(saved_objects.compounds, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_compound(saved_objects.compounds, dx, dy);
+X	compound_bound(saved_objects.compounds, &xmin2, &ymin2, &xmax2, &ymax2);
+X	adjust_links(last_linkmode, last_links, dx, dy, 0, 0, 1.0, 1.0, 0);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    }
+X    swap_newp_lastp();
+X}
+X
+Xundo_load()
+X{
+X    F_compound	    temp;
+X    char	    ctemp[128];
+X
+X    temp = objects;
+X    objects = saved_objects;
+X    saved_objects = temp;
+X    strcpy(ctemp, cur_filename);
+X    strcpy(cur_filename, save_filename);
+X    strcpy(save_filename, ctemp);
+X    redisplay_canvas();
+X    set_modifiedflag();
+X    last_action = F_LOAD;
+X}
+X
+Xundo_scale()
+X{
+X    float	    scalex, scaley;
+X
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    draw_compoundelements(saved_objects.compounds, ERASE);
+X    scalex = ((float) (last_position.x - fix_x)) / (new_position.x - fix_x);
+X    scaley = ((float) (last_position.y - fix_y)) / (new_position.y - fix_y);
+X    scale_compound(saved_objects.compounds, scalex, scaley, fix_x, fix_y);
+X    draw_compoundelements(saved_objects.compounds, PAINT);
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    swap_newp_lastp();
+X}
+X
+Xswap_newp_lastp()
+X{
+X    int		    t;		/* swap new_position and last_position	*/
+X
+X    t = new_position.x;
+X    new_position.x = last_position.x;
+X    last_position.x = t;
+X    t = new_position.y;
+X    new_position.y = last_position.y;
+X    last_position.y = t;
+X}
+X
+X/*
+X * Clean_up should be called before committing a user's request. Clean_up
+X * will attempt to free all the allocated memories which resulted from
+X * delete/remove action.  It will set the last_action to F_NULL.  Thus this
+X * routine should be before set_action_object(). if they are to be called in
+X * the same routine.
+X */
+Xclean_up()
+X{
+X    if (last_action == F_CHANGE) {
+X	switch (last_object) {
+X	case O_ARC:
+X	    saved_objects.arcs->next = NULL;
+X	    free_arc(&saved_objects.arcs);
+X	    break;
+X	case O_COMPOUND:
+X	    saved_objects.compounds->next = NULL;
+X	    free_compound(&saved_objects.compounds);
+X	    break;
+X	case O_ELLIPSE:
+X	    saved_objects.ellipses->next = NULL;
+X	    free_ellipse(&saved_objects.ellipses);
+X	    break;
+X	case O_POLYLINE:
+X	    saved_objects.lines->next = NULL;
+X	    free_line(&saved_objects.lines);
+X	    break;
+X	case O_SPLINE:
+X	    saved_objects.splines->next = NULL;
+X	    free_spline(&saved_objects.splines);
+X	    break;
+X	case O_TEXT:
+X	    saved_objects.texts->next = NULL;
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	}
+X    } else if (last_action == F_DELETE) {
+X	switch (last_object) {
+X	case O_ARC:
+X	    free_arc(&saved_objects.arcs);
+X	    break;
+X	case O_COMPOUND:
+X	    free_compound(&saved_objects.compounds);
+X	    break;
+X	case O_ELLIPSE:
+X	    free_ellipse(&saved_objects.ellipses);
+X	    break;
+X	case O_POLYLINE:
+X	    free_line(&saved_objects.lines);
+X	    break;
+X	case O_SPLINE:
+X	    free_spline(&saved_objects.splines);
+X	    break;
+X	case O_TEXT:
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	case O_ALL_OBJECT:
+X	    free_arc(&saved_objects.arcs);
+X	    free_compound(&saved_objects.compounds);
+X	    free_ellipse(&saved_objects.ellipses);
+X	    free_line(&saved_objects.lines);
+X	    free_spline(&saved_objects.splines);
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	}
+X    } else if (last_action == F_DELETE_POINT) {
+X	free((char *) last_selected_point);
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X	last_next_point = NULL;
+X    } else if (last_action == F_ADD_POINT) {
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X    } else if (last_action == F_LOAD) {
+X	free_arc(&saved_objects.arcs);
+X	free_compound(&saved_objects.compounds);
+X	free_ellipse(&saved_objects.ellipses);
+X	free_line(&saved_objects.lines);
+X	free_spline(&saved_objects.splines);
+X	free_text(&saved_objects.texts);
+X    } else if (last_action == F_GLUE) {
+X	saved_objects.compounds = NULL;
+X    } else if (last_action == F_BREAK) {
+X	free((char *) saved_objects.compounds);
+X	saved_objects.compounds = NULL;
+X    } else if (last_action == F_ADD || last_action == F_MOVE) {
+X	saved_objects.arcs = NULL;
+X	saved_objects.compounds = NULL;
+X	saved_objects.ellipses = NULL;
+X	saved_objects.lines = NULL;
+X	saved_objects.splines = NULL;
+X	saved_objects.texts = NULL;
+X	free_linkinfo(&last_links);
+X    } else if (last_action == F_CONVERT) {
+X	saved_objects.splines = NULL;
+X	saved_objects.lines = NULL;
+X    } else if (last_action == F_ADD_ARROW_HEAD ||
+X	       last_action == F_DELETE_ARROW_HEAD) {
+X	saved_objects.splines = NULL;
+X	saved_objects.lines = NULL;
+X	saved_objects.arcs = NULL;
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X    }
+X    last_action = F_NULL;
+X}
+X
+Xset_latestarc(arc)
+X    F_arc	   *arc;
+X{
+X    saved_objects.arcs = arc;
+X}
+X
+Xset_latestobjects(objects)
+X    F_compound	   *objects;
+X{
+X    saved_objects = *objects;
+X}
+X
+Xset_latestcompound(compound)
+X    F_compound	   *compound;
+X{
+X    saved_objects.compounds = compound;
+X}
+X
+Xset_latestellipse(ellipse)
+X    F_ellipse	   *ellipse;
+X{
+X    saved_objects.ellipses = ellipse;
+X}
+X
+Xset_latestline(line)
+X    F_line	   *line;
+X{
+X    saved_objects.lines = line;
+X}
+X
+Xset_latestspline(spline)
+X    F_spline	   *spline;
+X{
+X    saved_objects.splines = spline;
+X}
+X
+Xset_latesttext(text)
+X    F_text	   *text;
+X{
+X    saved_objects.texts = text;
+X}
+X
+Xset_last_prevpoint(prev_point)
+X    F_point	   *prev_point;
+X{
+X    last_prev_point = prev_point;
+X}
+X
+Xset_last_selectedpoint(selected_point)
+X    F_point	   *selected_point;
+X{
+X    last_selected_point = selected_point;
+X}
+X
+Xset_last_nextpoint(next_point)
+X    F_point	   *next_point;
+X{
+X    last_next_point = next_point;
+X}
+X
+Xset_last_arcpointnum(num)
+X    int		    num;
+X{
+X    last_arcpointnum = num;
+X}
+X
+Xset_lastposition(x, y)
+X    int		    x, y;
+X{
+X    last_position.x = x;
+X    last_position.y = y;
+X}
+X
+Xset_newposition(x, y)
+X    int		    x, y;
+X{
+X    new_position.x = x;
+X    new_position.y = y;
+X}
+X
+Xset_action(action)
+X    int		    action;
+X{
+X    last_action = action;
+X}
+X
+Xset_action_object(action, object)
+X    int		    action, object;
+X{
+X    last_action = action;
+X    last_object = object;
+X}
+X
+Xset_lastlinkinfo(mode, links)
+X    int		    mode;
+X    F_linkinfo	   *links;
+X{
+X    last_linkmode = mode;
+X    last_links = links;
+X}
+END_OF_FILE
+if test 16987 -ne `wc -c <'u_undo.c'`; then
+    echo shar: \"'u_undo.c'\" unpacked with wrong size!
+fi
+# end of 'u_undo.c'
+fi
+echo shar: End of archive 11 \(of 25\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

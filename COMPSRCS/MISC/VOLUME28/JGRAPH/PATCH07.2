@@ -1,0 +1,463 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v28i008:  jgraph - A filter for plotting postscript graphs, Patch07.2
+Message-ID: <1992Feb2.033333.25217@sparky.imd.sterling.com>
+X-Md4-Signature: 95fd5155def2cc8c8a57dad9dcc00e4c
+Date: Sun, 2 Feb 1992 03:33:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 28, Issue 8
+Archive-name: jgraph/patch07.2
+Environment: UNIX, VMS, postscript
+Patch-To: jgraph: Volume 16, Issue 20
+
+Jgraph Patch 7.2: Mon Jan 27 13:22:05 EST 1992
+
+There was another layout/bounding box bug -- Thanks to Kevin Thompson
+for pointing it out -- it cropped up most visibly when there were 
+negative x_translate values.  Anyway, check out the man page entries 
+for X, Y, bbox, x_translate and y_translate -- they should give a better
+clue about bboxes & centering.
+
+Again let me know if there are more bugs -- thanks for your patience.
+
+Jim
+
+Patch from 7.1:  (as usual, the new version is in princeton.edu:pub/jgraph.Z)
+
+*** /dev/null	Mon Jan 27 13:00:42 1992
+--- MSDOS.help	Mon Jan 27 13:00:29 1992
+***************
+*** 0 ****
+--- 1,11 ----
++ This from Alan S. Raskin:
++ 
++ You may be interested in knowing what it takes to get jgraph to compile
++ MS-DOS/MS-QuickC:
++ 
++ 1) Ignore all of the "function should return a value" warnings.  :-)
++ 2) Use the blank VMS templates for popen and pclose in token.c
++ 3) Define float=double to avoid math-overflow run-time errors.
++ 
++ -Alan
++ 
+*** ../work/README	Mon Jan 27 13:19:24 1992
+--- README	Mon Jan 27 13:00:30 1992
+***************
+*** 1,4 ****
+! $Revision: 7.1 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+--- 1,4 ----
+! $Revision: 7.2 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+*** ../work/draw.c	Mon Jan 27 13:19:27 1992
+--- draw.c	Mon Jan 27 13:00:31 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:48 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:44 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 370,377 ****
+  Graph g;
+  {
+    comment("Drawing New Graph");
+!   printf("%f %f translate\n", g->x_translate - g->x_axis->psize / 2.0, 
+!           g->y_translate);
+    if (g->border) {
+      printline(0.0, 0.0, 0.0, g->y_axis->psize, 'x');
+      printline(0.0, 0.0, 0.0, g->x_axis->psize, 'y');
+--- 370,378 ----
+  Graph g;
+  {
+    comment("Drawing New Graph");
+! /*   printf("%f %f translate\n", g->x_translate - g->x_axis->psize / 2.0,  */
+! /*           g->y_translate); */
+!   printf("%f %f translate\n", g->x_translate, g->y_translate);
+    if (g->border) {
+      printline(0.0, 0.0, 0.0, g->y_axis->psize, 'x');
+      printline(0.0, 0.0, 0.0, g->x_axis->psize, 'y');
+***************
+*** 384,391 ****
+    draw_curves(g);
+    draw_legend(g);
+    draw_strings(g);
+!   printf("%f %f translate\n", - g->x_translate + g->x_axis->psize / 2.0, 
+!           - g->y_translate);
+  
+  }
+  
+--- 385,393 ----
+    draw_curves(g);
+    draw_legend(g);
+    draw_strings(g);
+! /*   printf("%f %f translate\n", - g->x_translate + g->x_axis->psize / 2.0,  */
+! /*           - g->y_translate); */
+!   printf("%f %f translate\n", - g->x_translate, - g->y_translate);
+  
+  }
+  
+***************
+*** 424,434 ****
+    printf("\t/$F2psEnd\n");
+    printf("{$F2psEnteredState restore end} def\t%%%%EndProlog\n");
+    printf("$F2psBegin\n");
+!   printf("%f 0 translate\n", gs->width / 2.0);
+!   if (pp)
+      printf("%f %f translate\n",
+!       ((8.5 * FCPI) - (gs->bb[2] - gs->bb[0])) / 2.0,     
+!       (gs->bb[3] > (3*FCPI)) ? ((11*FCPI) - gs->bb[3]) / 2 : (5.5*FCPI));
+    printf("1 setlinecap 1 setlinejoin\n");
+    printf("0.700 setlinewidth\n");
+  }
+--- 426,436 ----
+    printf("\t/$F2psEnd\n");
+    printf("{$F2psEnteredState restore end} def\t%%%%EndProlog\n");
+    printf("$F2psBegin\n");
+!   if (pp) {
+      printf("%f %f translate\n",
+!       (((8.5 * FCPI) - gs->width) / 2.0) - gs->bb[0],     
+!       (((11.0 * FCPI) - gs->height) / 2.0) - gs->bb[1]);     
+!   }
+    printf("1 setlinecap 1 setlinejoin\n");
+    printf("0.700 setlinewidth\n");
+  }
+*** ../work/edit.c	Mon Jan 27 13:19:27 1992
+--- edit.c	Mon Jan 27 13:00:31 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:49 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:45 $
+   * $Author: jsp $
+   */
+  
+*** ../work/jgraph.1	Mon Jan 27 13:19:32 1992
+--- jgraph.1	Mon Jan 27 13:00:39 1992
+***************
+*** 253,260 ****
+  \fBY\fR
+  and
+  \fBX\fR
+! inches, respectively.  If you still need further control over the
+! bounding box, try the
+  \fBbbox\fR
+  command.  If there's more than one page in the jgraph file, 
+  \fBY,\fR
+--- 253,261 ----
+  \fBY\fR
+  and
+  \fBX\fR
+! inches, respectively, but to maintain the current centering of the 
+! graph.  If you still need further control over the
+! bounding box (e.g. to change the centering), try the
+  \fBbbox\fR
+  command.  If there's more than one page in the jgraph file, 
+  \fBY,\fR
+***************
+*** 261,268 ****
+  \fBX\fR
+  and
+  \fBbbox\fR
+! values can be given for each graph.  I'm not sure if that really
+! means anything though.
+  .TP
+  \fBbbox \fIfloat\fB \fIfloat\fB \fIfloat\fB \fIfloat\fB\fR
+  If the 
+--- 262,268 ----
+  \fBX\fR
+  and
+  \fBbbox\fR
+! values can be given for each graph.
+  .TP
+  \fBbbox \fIfloat\fB \fIfloat\fB \fIfloat\fB \fIfloat\fB\fR
+  If the 
+***************
+*** 276,281 ****
+--- 276,285 ----
+  to see what the bounding box is that jgraph produces, and then
+  alter that accordingly with
+  \fBbbox.\fR
++ The main use for this is to change the automatic centering that jgraph
++ performs:  Usually the center of the bounding box that jgraph computes 
++ is put at the center of the page.  Changing the bbox changes this 
++ center.
+  .PD
+  .RE
+  .LP
+***************
+*** 391,406 ****
+  .PP
+  .TP
+  \fBx_translate \|[\fIfloat\fB\|]\fR   
+! By default, graphs are drawn centered at the
+! bottom of the page.  This command lets the user move the graph
+! horizontally 
+! \fB\|[\fIfloat\fB\|] \fR
+! inches.
+  .TP
+  \fBy_translate \|[\fIfloat\fB\|]\fR   
+! This moves the graph 
+  \fB\|[\fIfloat\fB\|] \fR
+! inches vertically.
+  .TP
+  \fBX \|[\fIfloat\fB\|]\fR
+  .br
+--- 395,422 ----
+  .PP
+  .TP
+  \fBx_translate \|[\fIfloat\fB\|]\fR   
+! .br
+! .ns
+  .TP
+  \fBy_translate \|[\fIfloat\fB\|]\fR   
+! By default, the bottom left-hand corner of each graph is at point
+! (0,0) (final postscript units).
+! \fBX_translate\fR
+! and
+! \fBY_translate\fR
+! tranlate the bottom left-hand corner of the graph 
+  \fB\|[\fIfloat\fB\|] \fR
+! inches.  The main use of this is to draw more than one graph on 
+! a page.  Note that jgraph considers all the graphs drawn on the
+! page when it computes its bounding box for centering.  Thus, if
+! only one graph is drawn, it will always be centered on the page, 
+! regardless of its 
+! \fBX_translate\fR
+! and
+! \fBY_translate\fR
+! values.  These values are used for relative placement of the graphs.
+!    To change the centering of the graphs, use
+! \fBbbox.\fR
+  .TP
+  \fBX \|[\fIfloat\fB\|]\fR
+  .br
+***************
+*** 1185,1188 ****
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 7.1 $.
+--- 1201,1204 ----
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 7.2 $.
+*** ../work/jgraph.c	Mon Jan 27 13:19:33 1992
+--- jgraph.c	Mon Jan 27 13:00:32 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:54 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:50 $
+   * $Author: jsp $
+   */
+  
+*** ../work/jgraph.h	Mon Jan 27 13:19:34 1992
+--- jgraph.h	Mon Jan 27 13:00:33 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:56 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:52 $
+   * $Author: jsp $
+   */
+  
+*** ../work/list.c	Mon Jan 27 13:19:34 1992
+--- list.c	Mon Jan 27 13:00:34 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:57 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:53 $
+   * $Author: jsp $
+   */
+  
+*** ../work/list.h	Mon Jan 27 13:19:35 1992
+--- list.h	Mon Jan 27 13:00:34 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:57:58 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:54 $
+   * $Author: jsp $
+   */
+  
+*** ../work/printline.c	Mon Jan 27 13:19:36 1992
+--- printline.c	Mon Jan 27 13:00:35 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:00 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:56 $
+   * $Author: jsp $
+   */
+  
+*** ../work/prio_list.c	Mon Jan 27 13:19:37 1992
+--- prio_list.c	Mon Jan 27 13:00:35 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:01 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:57 $
+   * $Author: jsp $
+   */
+  
+*** ../work/prio_list.h	Mon Jan 27 13:19:37 1992
+--- prio_list.h	Mon Jan 27 13:00:36 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:02 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:58 $
+   * $Author: jsp $
+   */
+  
+*** ../work/process.c	Mon Jan 27 13:19:38 1992
+--- process.c	Mon Jan 27 13:00:36 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:03 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:59 $
+   * $Author: jsp $
+   */
+  
+*** ../work/show.c	Mon Jan 27 13:19:40 1992
+--- show.c	Mon Jan 27 13:00:37 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:06 $
+   * $Author: jsp $
+   */ 
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:56:02 $
+   * $Author: jsp $
+   */ 
+  
+*** ../work/token.c	Mon Jan 27 13:19:49 1992
+--- token.c	Mon Jan 27 13:00:39 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 7.1 $
+!  * $Date: 92/01/23 15:58:07 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:56:06 $
+   * $Author: jsp $
+   */
+  
+
+exit 0 # Just in case...

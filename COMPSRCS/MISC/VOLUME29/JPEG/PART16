@@ -1,0 +1,1400 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  REPOST: v29i016:  jpeg - JPEG image compression, Part16/18
+Message-ID: <1992Mar28.212117.29215@sparky.imd.sterling.com>
+X-Md4-Signature: aa48c5adc5cb63f30b3d2652bd455c9a
+Date: Sat, 28 Mar 1992 21:21:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 16
+Archive-name: jpeg/part16
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+[ Reposted due to a propagation problem.  -Kent+ ]
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jddeflts.c jdmcu.c jwrtarga.c makdjpeg.cf makefile.bcc
+#   makefile.manx makefile.mc5 testimg.jpg.u testorig.jpg.u
+# Wrapped by kent@sparky on Mon Mar 23 16:02:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 18)."'
+if test -f 'jddeflts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jddeflts.c'\"
+else
+  echo shar: Extracting \"'jddeflts.c'\" \(6026 characters\)
+  sed "s/^X//" >'jddeflts.c' <<'END_OF_FILE'
+X/*
+X * jddeflts.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains optional default-setting code for the JPEG decompressor.
+X * User interfaces do not have to use this file, but those that don't use it
+X * must know more about the innards of the JPEG code.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/* Default do-nothing progress monitoring routine.
+X * This can be overridden by a user interface that wishes to
+X * provide progress monitoring; just set methods->progress_monitor
+X * after j_d_defaults is done.  The routine will be called periodically
+X * during the decompression process.
+X *
+X * During any one pass, loopcounter increases from 0 up to (not including)
+X * looplimit; the step size is not necessarily 1.  Both the step size and
+X * the limit may differ between passes.  The expected total number of passes
+X * is in cinfo->total_passes, and the number of passes already completed is
+X * in cinfo->completed_passes.  Thus the fraction of work completed may be
+X * estimated as
+X *		completed_passes + (loopcounter/looplimit)
+X *		------------------------------------------
+X *				total_passes
+X * ignoring the fact that the passes may not be equal amounts of work.
+X *
+X * When decompressing, the total_passes figure is an estimate that may be
+X * on the high side; completed_passes will jump by more than one if some
+X * passes are skipped.
+X */
+X
+XMETHODDEF void
+Xprogress_monitor (decompress_info_ptr cinfo, long loopcounter, long looplimit)
+X{
+X  /* do nothing */
+X}
+X
+X
+X/*
+X * Reload the input buffer after it's been emptied, and return the next byte.
+X * See the JGETC macro for calling conditions.
+X *
+X * This routine can be overridden by the system-dependent user interface,
+X * in case the data source is not a stdio stream or some other special
+X * condition applies.  Note, however, that this capability only applies for
+X * JFIF or similar serial-access JPEG file formats.  The input file control
+X * module for a random-access format such as TIFF/JPEG would most likely
+X * override the read_jpeg_data method with its own routine.
+X */
+X
+XMETHODDEF int
+Xread_jpeg_data (decompress_info_ptr cinfo)
+X{
+X  cinfo->next_input_byte = cinfo->input_buffer + MIN_UNGET;
+X
+X  cinfo->bytes_in_buffer = (int) JFREAD(cinfo->input_file,
+X					cinfo->next_input_byte,
+X					JPEG_BUF_SIZE);
+X  
+X  if (cinfo->bytes_in_buffer <= 0)
+X    ERREXIT(cinfo->emethods, "Unexpected EOF in JPEG file");
+X
+X  return JGETC(cinfo);
+X}
+X
+X
+X
+X/* Default parameter setup for decompression.
+X *
+X * User interfaces that don't choose to use this routine must do their
+X * own setup of all these parameters.  Alternately, you can call this
+X * to establish defaults and then alter parameters selectively.  This
+X * is the recommended approach since, if we add any new parameters,
+X * your code will still work (they'll be set to reasonable defaults).
+X *
+X * standard_buffering should be TRUE to cause an input buffer to be allocated
+X * (the normal case); if FALSE, the user interface must provide a buffer.
+X * This option is most useful in the case that the buffer must not be freed
+X * at the end of an image.  (For example, when reading a sequence of images
+X * from a single file, the remaining data in the buffer represents the
+X * start of the next image and mustn't be discarded.)  To handle this,
+X * allocate the input buffer yourself at startup, WITHOUT using alloc_small
+X * (probably a direct call to malloc() instead).  Then pass FALSE on each
+X * call to j_d_defaults to ensure the buffer state is not modified.
+X *
+X * If the source of the JPEG data is not a stdio stream, override the
+X * read_jpeg_data method with your own routine after calling j_d_defaults.
+X * You can still use the standard buffer if it's appropriate.
+X *
+X * CAUTION: if you want to decompress multiple images per run, it's necessary
+X * to call j_d_defaults before *each* call to jpeg_decompress, since subsidiary
+X * structures like the quantization tables are automatically freed during
+X * cleanup.
+X */
+X
+XGLOBAL void
+Xj_d_defaults (decompress_info_ptr cinfo, boolean standard_buffering)
+X/* NB: the external methods must already be set up. */
+X{
+X  short i;
+X
+X  /* Initialize pointers as needed to mark stuff unallocated. */
+X  /* Outer application may fill in default tables for abbreviated files... */
+X  cinfo->comp_info = NULL;
+X  for (i = 0; i < NUM_QUANT_TBLS; i++)
+X    cinfo->quant_tbl_ptrs[i] = NULL;
+X  for (i = 0; i < NUM_HUFF_TBLS; i++) {
+X    cinfo->dc_huff_tbl_ptrs[i] = NULL;
+X    cinfo->ac_huff_tbl_ptrs[i] = NULL;
+X  }
+X  cinfo->colormap = NULL;
+X
+X  /* Default to RGB output */
+X  /* UI can override by changing out_color_space */
+X  cinfo->out_color_space = CS_RGB;
+X  cinfo->jpeg_color_space = CS_UNKNOWN;
+X  /* Setting any other value in jpeg_color_space overrides heuristics in */
+X  /* jrdjfif.c.  That might be useful when reading non-JFIF JPEG files, */
+X  /* but ordinarily the UI shouldn't change it. */
+X  
+X  /* Default to no gamma correction of output */
+X  cinfo->output_gamma = 1.0;
+X  
+X  /* Default to no color quantization */
+X  cinfo->quantize_colors = FALSE;
+X  /* but set reasonable default parameters for quantization, */
+X  /* so that turning on quantize_colors is sufficient to do something useful */
+X  cinfo->two_pass_quantize = TRUE;
+X  cinfo->use_dithering = TRUE;
+X  cinfo->desired_number_of_colors = 256;
+X  
+X  /* Default to no smoothing */
+X  cinfo->do_block_smoothing = FALSE;
+X  cinfo->do_pixel_smoothing = FALSE;
+X  
+X  /* Allocate memory for input buffer, unless outer application provides it. */
+X  if (standard_buffering) {
+X    cinfo->input_buffer = (char *) (*cinfo->emethods->alloc_small)
+X					((size_t) (JPEG_BUF_SIZE + MIN_UNGET));
+X    cinfo->bytes_in_buffer = 0;	/* initialize buffer to empty */
+X  }
+X
+X  /* Install standard buffer-reloading method (outer code may override). */
+X  cinfo->methods->read_jpeg_data = read_jpeg_data;
+X
+X  /* Install default do-nothing progress monitoring method. */
+X  cinfo->methods->progress_monitor = progress_monitor;
+X}
+END_OF_FILE
+  if test 6026 -ne `wc -c <'jddeflts.c'`; then
+    echo shar: \"'jddeflts.c'\" unpacked with wrong size!
+  fi
+  # end of 'jddeflts.c'
+fi
+if test -f 'jdmcu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdmcu.c'\"
+else
+  echo shar: Extracting \"'jdmcu.c'\" \(6106 characters\)
+  sed "s/^X//" >'jdmcu.c' <<'END_OF_FILE'
+X/*
+X * jdmcu.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains MCU disassembly routines and quantization descaling.
+X * These routines are invoked via the disassemble_MCU, reverse_DCT, and
+X * disassemble_init/term methods.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/*
+X * Quantization descaling and zigzag reordering
+X */
+X
+X
+X/* ZAG[i] is the natural-order position of the i'th element of zigzag order. */
+X
+Xstatic const short ZAG[DCTSIZE2] = {
+X  0,  1,  8, 16,  9,  2,  3, 10,
+X 17, 24, 32, 25, 18, 11,  4,  5,
+X 12, 19, 26, 33, 40, 48, 41, 34,
+X 27, 20, 13,  6,  7, 14, 21, 28,
+X 35, 42, 49, 56, 57, 50, 43, 36,
+X 29, 22, 15, 23, 30, 37, 44, 51,
+X 58, 59, 52, 45, 38, 31, 39, 46,
+X 53, 60, 61, 54, 47, 55, 62, 63
+X};
+X
+X
+XLOCAL void
+Xqdescale_zig (JBLOCK input, JBLOCKROW outputptr, QUANT_TBL_PTR quanttbl)
+X{
+X  const short * zagptr = ZAG;
+X  short i;
+X
+X  for (i = DCTSIZE2-1; i >= 0; i--) {
+X    (*outputptr)[*zagptr++] = (*input++) * (*quanttbl++);
+X  }
+X}
+X
+X
+X
+X/*
+X * Fetch one MCU row from entropy_decode, build coefficient array.
+X * This version is used for noninterleaved (single-component) scans.
+X */
+X
+XMETHODDEF void
+Xdisassemble_noninterleaved_MCU (decompress_info_ptr cinfo,
+X				JBLOCKIMAGE image_data)
+X{
+X  JBLOCK MCU_data[1];
+X  long mcuindex;
+X  jpeg_component_info * compptr;
+X  QUANT_TBL_PTR quant_ptr;
+X
+X  /* this is pretty easy since there is one component and one block per MCU */
+X  compptr = cinfo->cur_comp_info[0];
+X  quant_ptr = cinfo->quant_tbl_ptrs[compptr->quant_tbl_no];
+X  for (mcuindex = 0; mcuindex < cinfo->MCUs_per_row; mcuindex++) {
+X    /* Fetch the coefficient data */
+X    (*cinfo->methods->entropy_decode) (cinfo, MCU_data);
+X    /* Descale, reorder, and distribute it into the image array */
+X    qdescale_zig(MCU_data[0], image_data[0][0] + mcuindex, quant_ptr);
+X  }
+X}
+X
+X
+X/*
+X * Fetch one MCU row from entropy_decode, build coefficient array.
+X * This version is used for interleaved (multi-component) scans.
+X */
+X
+XMETHODDEF void
+Xdisassemble_interleaved_MCU (decompress_info_ptr cinfo,
+X			     JBLOCKIMAGE image_data)
+X{
+X  JBLOCK MCU_data[MAX_BLOCKS_IN_MCU];
+X  long mcuindex;
+X  short blkn, ci, xpos, ypos;
+X  jpeg_component_info * compptr;
+X  QUANT_TBL_PTR quant_ptr;
+X  JBLOCKROW image_ptr;
+X
+X  for (mcuindex = 0; mcuindex < cinfo->MCUs_per_row; mcuindex++) {
+X    /* Fetch the coefficient data */
+X    (*cinfo->methods->entropy_decode) (cinfo, MCU_data);
+X    /* Descale, reorder, and distribute it into the image array */
+X    blkn = 0;
+X    for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X      compptr = cinfo->cur_comp_info[ci];
+X      quant_ptr = cinfo->quant_tbl_ptrs[compptr->quant_tbl_no];
+X      for (ypos = 0; ypos < compptr->MCU_height; ypos++) {
+X	image_ptr = image_data[ci][ypos] + (mcuindex * compptr->MCU_width);
+X	for (xpos = 0; xpos < compptr->MCU_width; xpos++) {
+X	  qdescale_zig(MCU_data[blkn], image_ptr, quant_ptr);
+X	  image_ptr++;
+X	  blkn++;
+X	}
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Perform inverse DCT on each block in an MCU row's worth of data;
+X * output the results into a sample array starting at row start_row.
+X * NB: start_row can only be nonzero when dealing with a single-component
+X * scan; otherwise we'd have to pass different offsets for different
+X * components, since the heights of interleaved MCU rows can vary.
+X * But the pipeline controller logic is such that this is not necessary.
+X */
+X
+XMETHODDEF void
+Xreverse_DCT (decompress_info_ptr cinfo,
+X	     JBLOCKIMAGE coeff_data, JSAMPIMAGE output_data, int start_row)
+X{
+X  DCTBLOCK block;
+X  JBLOCKROW browptr;
+X  JSAMPARRAY srowptr;
+X  long blocksperrow, bi;
+X  short numrows, ri;
+X  short ci;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    /* calculate size of an MCU row in this component */
+X    blocksperrow = cinfo->cur_comp_info[ci]->subsampled_width / DCTSIZE;
+X    numrows = cinfo->cur_comp_info[ci]->MCU_height;
+X    /* iterate through all blocks in MCU row */
+X    for (ri = 0; ri < numrows; ri++) {
+X      browptr = coeff_data[ci][ri];
+X      srowptr = output_data[ci] + (ri * DCTSIZE + start_row);
+X      for (bi = 0; bi < blocksperrow; bi++) {
+X	/* copy the data into a local DCTBLOCK.  This allows for change of
+X	 * representation (if DCTELEM != JCOEF).  On 80x86 machines it also
+X	 * brings the data back from FAR storage to NEAR storage.
+X	 */
+X	{ register JCOEFPTR elemptr = browptr[bi];
+X	  register DCTELEM *localblkptr = block;
+X	  register short elem = DCTSIZE2;
+X
+X	  while (--elem >= 0)
+X	    *localblkptr++ = (DCTELEM) *elemptr++;
+X	}
+X
+X	j_rev_dct(block);	/* perform inverse DCT */
+X
+X	/* output the data into the sample array.
+X	 * Note change from signed to unsigned representation:
+X	 * DCT calculation works with values +-CENTERJSAMPLE,
+X	 * but sample arrays always hold 0..MAXJSAMPLE.
+X	 * Have to do explicit range-limiting because of quantization errors
+X	 * and so forth in the DCT/IDCT phase.
+X	 */
+X	{ register JSAMPROW elemptr;
+X	  register DCTELEM *localblkptr = block;
+X	  register short elemr, elemc;
+X	  register DCTELEM temp;
+X
+X	  for (elemr = 0; elemr < DCTSIZE; elemr++) {
+X	    elemptr = srowptr[elemr] + (bi * DCTSIZE);
+X	    for (elemc = 0; elemc < DCTSIZE; elemc++) {
+X	      temp = (*localblkptr++) + CENTERJSAMPLE;
+X	      if (temp < 0) temp = 0;
+X	      else if (temp > MAXJSAMPLE) temp = MAXJSAMPLE;
+X	      *elemptr++ = (JSAMPLE) temp;
+X	    }
+X	  }
+X	}
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Initialize for processing a scan.
+X */
+X
+XMETHODDEF void
+Xdisassemble_init (decompress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X/*
+X * Clean up after a scan.
+X */
+X
+XMETHODDEF void
+Xdisassemble_term (decompress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X
+X/*
+X * The method selection routine for MCU disassembly.
+X */
+X
+XGLOBAL void
+Xjseldmcu (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->comps_in_scan == 1)
+X    cinfo->methods->disassemble_MCU = disassemble_noninterleaved_MCU;
+X  else
+X    cinfo->methods->disassemble_MCU = disassemble_interleaved_MCU;
+X  cinfo->methods->reverse_DCT = reverse_DCT;
+X  cinfo->methods->disassemble_init = disassemble_init;
+X  cinfo->methods->disassemble_term = disassemble_term;
+X}
+END_OF_FILE
+  if test 6106 -ne `wc -c <'jdmcu.c'`; then
+    echo shar: \"'jdmcu.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdmcu.c'
+fi
+if test -f 'jwrtarga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrtarga.c'\"
+else
+  echo shar: Extracting \"'jwrtarga.c'\" \(5888 characters\)
+  sed "s/^X//" >'jwrtarga.c' <<'END_OF_FILE'
+X/*
+X * jwrtarga.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write output images in Targa format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.
+X *
+X * These routines are invoked via the methods put_pixel_rows, put_color_map,
+X * and output_init/term.
+X *
+X * Based on code contributed by Lee Daniel Crocker.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef TARGA_SUPPORTED
+X
+X
+X/*
+X * To support 12-bit JPEG data, we'd have to scale output down to 8 bits.
+X * This is not yet implemented.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+XLOCAL void
+Xwrite_header (decompress_info_ptr cinfo, int num_colors)
+X/* Create and write a Targa header */
+X{
+X  char targaheader[18];
+X
+X  /* Set unused fields of header to 0 */
+X  MEMZERO((void *) targaheader, SIZEOF(targaheader));
+X
+X  if (num_colors > 0) {
+X    targaheader[1] = 1;		/* color map type 1 */
+X    targaheader[5] = (char) (num_colors & 0xFF);
+X    targaheader[6] = (char) (num_colors >> 8);
+X    targaheader[7] = 24;	/* 24 bits per cmap entry */
+X  }
+X
+X  targaheader[12] = (char) (cinfo->image_width & 0xFF);
+X  targaheader[13] = (char) (cinfo->image_width >> 8);
+X  targaheader[14] = (char) (cinfo->image_height & 0xFF);
+X  targaheader[15] = (char) (cinfo->image_height >> 8);
+X  targaheader[17] = 0x20;	/* Top-down, non-interlaced */
+X
+X  if (cinfo->out_color_space == CS_GRAYSCALE) {
+X    targaheader[2] = 3;		/* image type = uncompressed gray-scale */
+X    targaheader[16] = 8;	/* bits per pixel */
+X  } else {			/* must be RGB */
+X    if (num_colors > 0) {
+X      targaheader[2] = 1;	/* image type = colormapped RGB */
+X      targaheader[16] = 8;
+X    } else {
+X      targaheader[2] = 2;	/* image type = uncompressed RGB */
+X      targaheader[16] = 24;
+X    }
+X  }
+X
+X  if (JFWRITE(cinfo->output_file, targaheader, 18) != (size_t) 18)
+X    ERREXIT(cinfo->emethods, "Could not write Targa header");
+X}
+X
+X
+X/*
+X * Write the file header.
+X */
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->out_color_space == CS_GRAYSCALE) {
+X    /* Targa doesn't have a mapped grayscale format, so we will */
+X    /* demap quantized gray output.  Never emit a colormap. */
+X    write_header(cinfo, 0);
+X  } else if (cinfo->out_color_space == CS_RGB) {
+X    /* For quantized output, defer writing header until put_color_map time. */
+X    if (! cinfo->quantize_colors)
+X      write_header(cinfo, 0);
+X  } else {
+X    ERREXIT(cinfo->emethods, "Targa output must be grayscale or RGB");
+X  }
+X}
+X
+X
+X/*
+X * Write some pixel data.
+X */
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  register long width = cinfo->image_width;
+X  register int row;
+X  
+X  if (cinfo->final_out_comps == 1) {
+X    /* here for grayscale or quantized color output */
+X    for (row = 0; row < num_rows; row++) {
+X      ptr0 = pixel_data[0][row];
+X      for (col = width; col > 0; col--) {
+X	putc(GETJSAMPLE(*ptr0), outfile);
+X	ptr0++;
+X      }
+X    }
+X  } else {
+X    /* here for unquantized color output */
+X    for (row = 0; row < num_rows; row++) {
+X      ptr0 = pixel_data[0][row];
+X      ptr1 = pixel_data[1][row];
+X      ptr2 = pixel_data[2][row];
+X      for (col = width; col > 0; col--) {
+X	putc(GETJSAMPLE(*ptr2), outfile); /* write in BGR order */
+X	ptr2++;
+X	putc(GETJSAMPLE(*ptr1), outfile);
+X	ptr1++;
+X	putc(GETJSAMPLE(*ptr0), outfile);
+X	ptr0++;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Write some demapped pixel data when color quantization is in effect.
+X * For Targa, this is only applied to grayscale data.
+X */
+X
+XMETHODDEF void
+Xput_demapped_rows (decompress_info_ptr cinfo, int num_rows,
+X		   JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPARRAY color_map = cinfo->colormap;
+X  register JSAMPROW ptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      putc(GETJSAMPLE(color_map[0][GETJSAMPLE(*ptr)]), outfile);
+X      ptr++;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Write the color map.
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  int i;
+X
+X  if (cinfo->out_color_space == CS_RGB) {
+X    /* We only support 8-bit colormap indexes, so only 256 colors */
+X    if (num_colors > 256)
+X      ERREXIT(cinfo->emethods, "Too many colors for Targa output");
+X    /* Time to write the header */
+X    write_header(cinfo, num_colors);
+X    /* Write the colormap.  Note Targa uses BGR byte order */
+X    for (i = 0; i < num_colors; i++) {
+X      putc(GETJSAMPLE(colormap[2][i]), outfile);
+X      putc(GETJSAMPLE(colormap[1][i]), outfile);
+X      putc(GETJSAMPLE(colormap[0][i]), outfile);
+X    }
+X  } else {
+X    cinfo->methods->put_pixel_rows = put_demapped_rows;
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X{
+X  /* No work except to make sure we wrote the output file OK */
+X  fflush(cinfo->output_file);
+X  if (ferror(cinfo->output_file))
+X    ERREXIT(cinfo->emethods, "Output file write error");
+X}
+X
+X
+X/*
+X * The method selection routine for Targa format output.
+X * This should be called from d_ui_method_selection if Targa output is wanted.
+X */
+X
+XGLOBAL void
+Xjselwtarga (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->output_init = output_init;
+X  cinfo->methods->put_color_map = put_color_map;
+X  cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  cinfo->methods->output_term = output_term;
+X}
+X
+X#endif /* TARGA_SUPPORTED */
+END_OF_FILE
+  if test 5888 -ne `wc -c <'jwrtarga.c'`; then
+    echo shar: \"'jwrtarga.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrtarga.c'
+fi
+if test -f 'makdjpeg.cf' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makdjpeg.cf'\"
+else
+  echo shar: Extracting \"'makdjpeg.cf'\" \(300 characters\)
+  sed "s/^X//" >'makdjpeg.cf' <<'END_OF_FILE'
+XL jdmain.mix jdmaster.mix jddeflts.mix jbsmooth.mix jdarith.mix jdcolor.mix
+XL jdhuff.mix jdmcu.mix jdpipe.mix jdsample.mix jquant1.mix jquant2.mix
+XL jrevdct.mix jrdjfif.mix jwrgif.mix jwrppm.mix jwrrle.mix jwrtarga.mix
+XL jutils.mix jerror.mix jmemmgr.mix jmemsys.mix jmemdosa.mix
+Xfa;
+Xb djpeg,8K,48K,
+END_OF_FILE
+  if test 300 -ne `wc -c <'makdjpeg.cf'`; then
+    echo shar: \"'makdjpeg.cf'\" unpacked with wrong size!
+  fi
+  # end of 'makdjpeg.cf'
+fi
+if test -f 'makefile.bcc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.bcc'\"
+else
+  echo shar: Extracting \"'makefile.bcc'\" \(6113 characters\)
+  sed "s/^X//" >'makefile.bcc' <<'END_OF_FILE'
+X# Makefile for Independent JPEG Group's software
+X
+X# This makefile is suitable for Borland C (Turbo C) on MS-DOS.
+X# It is set up for Borland C++, revision 3.0 or later.
+X# For older versions (pre-3.0), replace "-O2" with "-O -G -Z" in CFLAGS.
+X# If you have an even older version of Turbo C, you may be able to make it
+X# work by saying "CC= tcc" below.  (Very early versions of Turbo C++,
+X# like 1.01, are so buggy that you may as well forget it.)
+X# Thanks to Tom Wright and Ge' Weijers for this file.
+X
+X# Read SETUP instructions before saying "make" !!
+X
+X# The name of your C compiler:
+XCC= bcc
+X
+X# You may need to adjust these cc options:
+XCFLAGS= -DHAVE_STDC -DINCLUDES_ARE_ANSI \
+X	-ms -DMSDOS -DINCOMPLETE_TYPES_BROKEN -w-par -O2
+X# -DHAVE_STDC -DINCLUDES_ARE_ANSI enable ANSI-C features (we DON'T want -A)
+X# -ms selects small memory model for most efficient code
+X# -DMSDOS enables DOS-specific code
+X# -DINCOMPLETE_TYPES_BROKEN suppresses bogus warning about undefined structures
+X# -w-par suppresses warnings about unused function parameters
+X# -O2 enables full code optimization (for pre-3.0 Borland C++, use -O -G -Z)
+X
+X# Link-time cc options:
+XLDFLAGS= -ms
+X# memory model option here must match CFLAGS!
+X
+X
+X# source files (independently compilable files)
+XSOURCES= jbsmooth.c jcarith.c jccolor.c jcdeflts.c jcexpand.c jchuff.c \
+X        jcmain.c jcmaster.c jcmcu.c jcpipe.c jcsample.c jdarith.c jdcolor.c \
+X        jddeflts.c jdhuff.c jdmain.c jdmaster.c jdmcu.c jdpipe.c jdsample.c \
+X        jerror.c jquant1.c jquant2.c jfwddct.c jrevdct.c jutils.c jmemmgr.c \
+X        jrdjfif.c jrdgif.c jrdppm.c jrdrle.c jrdtarga.c jwrjfif.c jwrgif.c \
+X        jwrppm.c jwrrle.c jwrtarga.c
+X# virtual source files (not present in distribution file)
+XVIRTSOURCES= jmemsys.c
+X# system-dependent implementations of source files
+XSYSDEPFILES= jmemansi.c jmemname.c jmemnobs.c jmemdos.c jmemdos.h \
+X        jmemdosa.asm
+X# files included by source files
+XINCLUDES= jinclude.h jconfig.h jpegdata.h jversion.h jmemsys.h egetopt.c
+X# documentation, test, and support files
+XDOCS= README SETUP USAGE CHANGELOG cjpeg.1 djpeg.1 architecture codingrules
+XMAKEFILES= makefile.ansi makefile.unix makefile.manx makefile.sas \
+X        makefile.mc5 makefile.mc6 makcjpeg.lnk makdjpeg.lnk makefile.bcc \
+X        makcjpeg.lst makdjpeg.lst makefile.pwc makcjpeg.cf makdjpeg.cf \
+X        makljpeg.cf makefile.mms makefile.vms makvms.opt
+XOTHERFILES= ansi2knr.c ckconfig.c example.c
+XTESTFILES= testorig.jpg testimg.ppm testimg.gif testimg.jpg
+XDISTFILES= $(DOCS) $(MAKEFILES) $(SOURCES) $(SYSDEPFILES) $(INCLUDES) \
+X        $(OTHERFILES) $(TESTFILES)
+X# objectfiles common to cjpeg and djpeg
+XCOMOBJECTS= jutils.obj jerror.obj jmemmgr.obj jmemsys.obj jmemdosa.obj
+X# compression objectfiles
+XCLIBOBJECTS= jcmaster.obj jcdeflts.obj jcarith.obj jccolor.obj jcexpand.obj \
+X        jchuff.obj jcmcu.obj jcpipe.obj jcsample.obj jfwddct.obj \
+X        jwrjfif.obj jrdgif.obj jrdppm.obj jrdrle.obj jrdtarga.obj
+XCOBJECTS= jcmain.obj $(CLIBOBJECTS) $(COMOBJECTS)
+X# decompression objectfiles
+XDLIBOBJECTS= jdmaster.obj jddeflts.obj jbsmooth.obj jdarith.obj jdcolor.obj \
+X        jdhuff.obj jdmcu.obj jdpipe.obj jdsample.obj jquant1.obj \
+X        jquant2.obj jrevdct.obj jrdjfif.obj jwrgif.obj jwrppm.obj \
+X        jwrrle.obj jwrtarga.obj
+XDOBJECTS= jdmain.obj $(DLIBOBJECTS) $(COMOBJECTS)
+X# These objectfiles are included in libjpeg.lib
+XLIBOBJECTS= $(CLIBOBJECTS) $(DLIBOBJECTS) $(COMOBJECTS)
+X
+X
+Xall: cjpeg.exe djpeg.exe
+X
+X
+Xcjpeg.exe: $(COBJECTS)
+X	$(CC) $(LDFLAGS) -ecjpeg.exe @makcjpeg.lst
+X
+Xdjpeg.exe: $(DOBJECTS)
+X	$(CC) $(LDFLAGS) -edjpeg.exe @makdjpeg.lst
+X
+X.c.obj:
+X	$(CC) $(CFLAGS) -c $<
+X
+Xclean:
+X	del *.obj
+X	del cjpeg.exe
+X	del djpeg.exe
+X	del testout.*
+X
+Xtest:
+X	del testout.*
+X	djpeg testorig.jpg testout.ppm
+X	djpeg -G testorig.jpg testout.gif
+X	cjpeg testimg.ppm testout.jpg
+X	fc testimg.ppm testout.ppm
+X	fc testimg.gif testout.gif
+X	fc testimg.jpg testout.jpg
+X
+X
+Xjbsmooth.obj : jbsmooth.c jinclude.h jconfig.h jpegdata.h
+Xjcarith.obj : jcarith.c jinclude.h jconfig.h jpegdata.h
+Xjccolor.obj : jccolor.c jinclude.h jconfig.h jpegdata.h
+Xjcdeflts.obj : jcdeflts.c jinclude.h jconfig.h jpegdata.h
+Xjcexpand.obj : jcexpand.c jinclude.h jconfig.h jpegdata.h
+Xjchuff.obj : jchuff.c jinclude.h jconfig.h jpegdata.h
+Xjcmain.obj : jcmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c
+Xjcmaster.obj : jcmaster.c jinclude.h jconfig.h jpegdata.h
+Xjcmcu.obj : jcmcu.c jinclude.h jconfig.h jpegdata.h
+Xjcpipe.obj : jcpipe.c jinclude.h jconfig.h jpegdata.h
+Xjcsample.obj : jcsample.c jinclude.h jconfig.h jpegdata.h
+Xjdarith.obj : jdarith.c jinclude.h jconfig.h jpegdata.h
+Xjdcolor.obj : jdcolor.c jinclude.h jconfig.h jpegdata.h
+Xjddeflts.obj : jddeflts.c jinclude.h jconfig.h jpegdata.h
+Xjdhuff.obj : jdhuff.c jinclude.h jconfig.h jpegdata.h
+Xjdmain.obj : jdmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c
+Xjdmaster.obj : jdmaster.c jinclude.h jconfig.h jpegdata.h
+Xjdmcu.obj : jdmcu.c jinclude.h jconfig.h jpegdata.h
+Xjdpipe.obj : jdpipe.c jinclude.h jconfig.h jpegdata.h
+Xjdsample.obj : jdsample.c jinclude.h jconfig.h jpegdata.h
+Xjerror.obj : jerror.c jinclude.h jconfig.h jpegdata.h
+Xjquant1.obj : jquant1.c jinclude.h jconfig.h jpegdata.h
+Xjquant2.obj : jquant2.c jinclude.h jconfig.h jpegdata.h
+Xjfwddct.obj : jfwddct.c jinclude.h jconfig.h jpegdata.h
+Xjrevdct.obj : jrevdct.c jinclude.h jconfig.h jpegdata.h
+Xjutils.obj : jutils.c jinclude.h jconfig.h jpegdata.h
+Xjmemmgr.obj : jmemmgr.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+Xjrdjfif.obj : jrdjfif.c jinclude.h jconfig.h jpegdata.h
+Xjrdgif.obj : jrdgif.c jinclude.h jconfig.h jpegdata.h
+Xjrdppm.obj : jrdppm.c jinclude.h jconfig.h jpegdata.h
+Xjrdrle.obj : jrdrle.c jinclude.h jconfig.h jpegdata.h
+Xjrdtarga.obj : jrdtarga.c jinclude.h jconfig.h jpegdata.h
+Xjwrjfif.obj : jwrjfif.c jinclude.h jconfig.h jpegdata.h
+Xjwrgif.obj : jwrgif.c jinclude.h jconfig.h jpegdata.h
+Xjwrppm.obj : jwrppm.c jinclude.h jconfig.h jpegdata.h
+Xjwrrle.obj : jwrrle.c jinclude.h jconfig.h jpegdata.h
+Xjwrtarga.obj : jwrtarga.c jinclude.h jconfig.h jpegdata.h
+Xjmemsys.obj : jmemsys.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+Xjmemdosa.obj : jmemdosa.asm
+X	tasm /mx jmemdosa.asm
+END_OF_FILE
+  if test 6113 -ne `wc -c <'makefile.bcc'`; then
+    echo shar: \"'makefile.bcc'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.bcc'
+fi
+if test -f 'makefile.manx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.manx'\"
+else
+  echo shar: Extracting \"'makefile.manx'\" \(5948 characters\)
+  sed "s/^X//" >'makefile.manx' <<'END_OF_FILE'
+X# Makefile for Independent JPEG Group's software
+X
+X# This makefile is for Amiga systems using Manx Aztec C ver 5.x.
+X# Use jmemname.c as the system-dependent memory manager.
+X# Thanks to D.J. James (djjames@cup.portal.com) for this version.
+X
+X# Read SETUP instructions before saying "make" !!
+X
+X# The name of your C compiler:
+XCC= cc
+X
+X# You may need to adjust these cc options:
+XCFLAGS= -MC -MD -sf -sn -sp -DAMIGA -DTWO_FILE_COMMANDLINE \
+X	-DNEED_SIGNAL_CATCHER -Dsignal_catcher=_abort
+X
+X# Link-time cc options:
+XLDFLAGS= 
+X
+X# To link any special libraries, add the necessary -l commands here.
+XLDLIBS= -lml -lcl
+X
+X# miscellaneous OS-dependent stuff
+X# linker
+XLN= ln
+X# file deletion command
+XRM= delete quiet
+X# library (.lib) file creation command
+XAR= lb
+X
+X
+X# source files (independently compilable files)
+XSOURCES= jbsmooth.c jcarith.c jccolor.c jcdeflts.c jcexpand.c jchuff.c \
+X        jcmain.c jcmaster.c jcmcu.c jcpipe.c jcsample.c jdarith.c jdcolor.c \
+X        jddeflts.c jdhuff.c jdmain.c jdmaster.c jdmcu.c jdpipe.c jdsample.c \
+X        jerror.c jquant1.c jquant2.c jfwddct.c jrevdct.c jutils.c jmemmgr.c \
+X        jrdjfif.c jrdgif.c jrdppm.c jrdrle.c jrdtarga.c jwrjfif.c jwrgif.c \
+X        jwrppm.c jwrrle.c jwrtarga.c
+X# virtual source files (not present in distribution file)
+XVIRTSOURCES= jmemsys.c
+X# system-dependent implementations of source files
+XSYSDEPFILES= jmemansi.c jmemname.c jmemnobs.c jmemdos.c jmemdos.h \
+X        jmemdosa.asm
+X# files included by source files
+XINCLUDES= jinclude.h jconfig.h jpegdata.h jversion.h jmemsys.h egetopt.c
+X# documentation, test, and support files
+XDOCS= README SETUP USAGE CHANGELOG cjpeg.1 djpeg.1 architecture codingrules
+XMAKEFILES= makefile.ansi makefile.unix makefile.manx makefile.sas \
+X        makefile.mc5 makefile.mc6 makcjpeg.lnk makdjpeg.lnk makefile.bcc \
+X        makcjpeg.lst makdjpeg.lst makefile.pwc makcjpeg.cf makdjpeg.cf \
+X        makljpeg.cf makefile.mms makefile.vms makvms.opt
+XOTHERFILES= ansi2knr.c ckconfig.c example.c
+XTESTFILES= testorig.jpg testimg.ppm testimg.gif testimg.jpg
+XDISTFILES= $(DOCS) $(MAKEFILES) $(SOURCES) $(SYSDEPFILES) $(INCLUDES) \
+X        $(OTHERFILES) $(TESTFILES)
+X# objectfiles common to cjpeg and djpeg
+XCOMOBJECTS= jutils.o jerror.o jmemmgr.o jmemsys.o
+X# compression objectfiles
+XCLIBOBJECTS= jcmaster.o jcdeflts.o jcarith.o jccolor.o jcexpand.o jchuff.o \
+X        jcmcu.o jcpipe.o jcsample.o jfwddct.o jwrjfif.o jrdgif.o jrdppm.o \
+X        jrdrle.o jrdtarga.o
+XCOBJECTS= jcmain.o $(CLIBOBJECTS) $(COMOBJECTS)
+X# decompression objectfiles
+XDLIBOBJECTS= jdmaster.o jddeflts.o jbsmooth.o jdarith.o jdcolor.o jdhuff.o \
+X        jdmcu.o jdpipe.o jdsample.o jquant1.o jquant2.o jrevdct.o jrdjfif.o \
+X        jwrgif.o jwrppm.o jwrrle.o jwrtarga.o
+XDOBJECTS= jdmain.o $(DLIBOBJECTS) $(COMOBJECTS)
+X# These objectfiles are included in libjpeg.lib
+XLIBOBJECTS= $(CLIBOBJECTS) $(DLIBOBJECTS) $(COMOBJECTS)
+X
+X
+Xall: cjpeg djpeg
+X# By default, libjpeg.lib is not built unless you explicitly request it.
+X# You can add libjpeg.lib to the line above if you want it built by default.
+X
+X
+Xcjpeg: $(COBJECTS)
+X	$(LN) $(LDFLAGS) -o cjpeg $(COBJECTS) $(LDLIBS)
+X
+Xdjpeg: $(DOBJECTS)
+X	$(LN) $(LDFLAGS) -o djpeg $(DOBJECTS) $(LDLIBS)
+X
+X# libjpeg.lib is useful if you are including the JPEG software in a larger
+X# program; you'd include it in your link, rather than the individual modules.
+Xlibjpeg.lib: $(LIBOBJECTS)
+X	-$(RM) libjpeg.lib
+X	$(AR) libjpeg.lib  $(LIBOBJECTS)
+X
+Xclean:
+X	-$(RM) *.o cjpeg djpeg libjpeg.lib core testout.*
+X
+Xdistribute:
+X	-$(RM) jpegsrc.tar*
+X	tar cvf jpegsrc.tar $(DISTFILES)
+X	compress -v jpegsrc.tar
+X
+Xtest: cjpeg djpeg
+X	-$(RM) testout.ppm testout.gif testout.jpg
+X	djpeg testorig.jpg testout.ppm
+X	djpeg -G testorig.jpg testout.gif
+X	cjpeg testimg.ppm testout.jpg
+X	cmp testimg.ppm testout.ppm
+X	cmp testimg.gif testout.gif
+X	cmp testimg.jpg testout.jpg
+X
+X
+Xjbsmooth.o : jbsmooth.c jinclude.h jconfig.h jpegdata.h 
+Xjcarith.o : jcarith.c jinclude.h jconfig.h jpegdata.h 
+Xjccolor.o : jccolor.c jinclude.h jconfig.h jpegdata.h 
+Xjcdeflts.o : jcdeflts.c jinclude.h jconfig.h jpegdata.h 
+Xjcexpand.o : jcexpand.c jinclude.h jconfig.h jpegdata.h 
+Xjchuff.o : jchuff.c jinclude.h jconfig.h jpegdata.h 
+Xjcmain.o : jcmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c 
+Xjcmaster.o : jcmaster.c jinclude.h jconfig.h jpegdata.h 
+Xjcmcu.o : jcmcu.c jinclude.h jconfig.h jpegdata.h 
+Xjcpipe.o : jcpipe.c jinclude.h jconfig.h jpegdata.h 
+Xjcsample.o : jcsample.c jinclude.h jconfig.h jpegdata.h 
+Xjdarith.o : jdarith.c jinclude.h jconfig.h jpegdata.h 
+Xjdcolor.o : jdcolor.c jinclude.h jconfig.h jpegdata.h 
+Xjddeflts.o : jddeflts.c jinclude.h jconfig.h jpegdata.h 
+Xjdhuff.o : jdhuff.c jinclude.h jconfig.h jpegdata.h 
+Xjdmain.o : jdmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c 
+Xjdmaster.o : jdmaster.c jinclude.h jconfig.h jpegdata.h 
+Xjdmcu.o : jdmcu.c jinclude.h jconfig.h jpegdata.h 
+Xjdpipe.o : jdpipe.c jinclude.h jconfig.h jpegdata.h 
+Xjdsample.o : jdsample.c jinclude.h jconfig.h jpegdata.h 
+Xjerror.o : jerror.c jinclude.h jconfig.h jpegdata.h 
+Xjquant1.o : jquant1.c jinclude.h jconfig.h jpegdata.h 
+Xjquant2.o : jquant2.c jinclude.h jconfig.h jpegdata.h 
+Xjfwddct.o : jfwddct.c jinclude.h jconfig.h jpegdata.h 
+Xjrevdct.o : jrevdct.c jinclude.h jconfig.h jpegdata.h 
+Xjutils.o : jutils.c jinclude.h jconfig.h jpegdata.h 
+Xjmemmgr.o : jmemmgr.c jinclude.h jconfig.h jpegdata.h jmemsys.h 
+Xjrdjfif.o : jrdjfif.c jinclude.h jconfig.h jpegdata.h 
+Xjrdgif.o : jrdgif.c jinclude.h jconfig.h jpegdata.h 
+Xjrdppm.o : jrdppm.c jinclude.h jconfig.h jpegdata.h 
+Xjrdrle.o : jrdrle.c jinclude.h jconfig.h jpegdata.h 
+Xjrdtarga.o : jrdtarga.c jinclude.h jconfig.h jpegdata.h 
+Xjwrjfif.o : jwrjfif.c jinclude.h jconfig.h jpegdata.h 
+Xjwrgif.o : jwrgif.c jinclude.h jconfig.h jpegdata.h 
+Xjwrppm.o : jwrppm.c jinclude.h jconfig.h jpegdata.h 
+Xjwrrle.o : jwrrle.c jinclude.h jconfig.h jpegdata.h 
+Xjwrtarga.o : jwrtarga.c jinclude.h jconfig.h jpegdata.h 
+Xjmemsys.o : jmemsys.c jinclude.h jconfig.h jpegdata.h jmemsys.h 
+END_OF_FILE
+  if test 5948 -ne `wc -c <'makefile.manx'`; then
+    echo shar: \"'makefile.manx'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.manx'
+fi
+if test -f 'makefile.mc5' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.mc5'\"
+else
+  echo shar: Extracting \"'makefile.mc5'\" \(6015 characters\)
+  sed "s/^X//" >'makefile.mc5' <<'END_OF_FILE'
+X# Makefile for Independent JPEG Group's software
+X
+X# This makefile is for Microsoft C for MS-DOS, version 5.x.
+X
+X# Read SETUP instructions before saying "make" !!
+X
+X# Microsoft's brain-damaged version of make uses nonstandard syntax (a blank
+X# line is needed to terminate a command list) and it simply scans the rules
+X# in order, rather than doing a true dependency-tree walk.  Furthermore,
+X# expanded command lines can't exceed 128 chars (this is a DOS bug, not
+X# make's fault); so we can't just name all the objectfiles in the link steps.
+X# Instead we shove each objectfile into a library as it is made, and link
+X# from the library.  The objectfiles are also kept separately as timestamps.
+X
+X# You may need to adjust these cc options:
+XCFLAGS=  /AS /I. /W3 /Oail /Gs   # NB: /Gs turns off stack oflo checks
+XLDFLAGS= /Fm /F 2000             # /F hhhh  sets stack size (in hex)
+X# In particular:
+X#   Add /DMSDOS if your compiler doesn't automatically #define MSDOS.
+X#   Add /DMEM_STATS to enable gathering of memory usage statistics.
+X# You might also want to add /G2 if you have an 80286, etc.
+X
+X
+X# source files (independently compilable files)
+XSOURCES= jbsmooth.c jcarith.c jccolor.c jcdeflts.c jcexpand.c jchuff.c \
+X        jcmain.c jcmaster.c jcmcu.c jcpipe.c jcsample.c jdarith.c jdcolor.c \
+X        jddeflts.c jdhuff.c jdmain.c jdmaster.c jdmcu.c jdpipe.c jdsample.c \
+X        jerror.c jquant1.c jquant2.c jfwddct.c jrevdct.c jutils.c jmemmgr.c \
+X        jrdjfif.c jrdgif.c jrdppm.c jrdrle.c jrdtarga.c jwrjfif.c jwrgif.c \
+X        jwrppm.c jwrrle.c jwrtarga.c
+X# virtual source files (not present in distribution file)
+XVIRTSOURCES= jmemsys.c
+X# system-dependent implementations of source files
+XSYSDEPFILES= jmemansi.c jmemname.c jmemnobs.c jmemdos.c jmemdos.h \
+X        jmemdosa.asm
+X# files included by source files
+XINCLUDES= jinclude.h jconfig.h jpegdata.h jversion.h jmemsys.h egetopt.c
+X# documentation, test, and support files
+XDOCS= README SETUP USAGE CHANGELOG cjpeg.1 djpeg.1 architecture codingrules
+XMAKEFILES= makefile.ansi makefile.unix makefile.manx makefile.sas \
+X        makefile.mc5 makefile.mc6 makcjpeg.lnk makdjpeg.lnk makefile.bcc \
+X        makcjpeg.lst makdjpeg.lst makefile.pwc makcjpeg.cf makdjpeg.cf \
+X        makljpeg.cf makefile.mms makefile.vms makvms.opt
+XOTHERFILES= ansi2knr.c ckconfig.c example.c
+XTESTFILES= testorig.jpg testimg.ppm testimg.gif testimg.jpg
+XDISTFILES= $(DOCS) $(MAKEFILES) $(SOURCES) $(SYSDEPFILES) $(INCLUDES) \
+X        $(OTHERFILES) $(TESTFILES)
+X# objectfiles common to cjpeg and djpeg
+XCOMOBJECTS= jutils.obj jerror.obj jmemmgr.obj jmemsys.obj jmemdosa.obj
+X# compression objectfiles
+XCLIBOBJECTS= jcmaster.obj jcdeflts.obj jcarith.obj jccolor.obj jcexpand.obj \
+X        jchuff.obj jcmcu.obj jcpipe.obj jcsample.obj jfwddct.obj \
+X        jwrjfif.obj jrdgif.obj jrdppm.obj jrdrle.obj jrdtarga.obj
+XCOBJECTS= jcmain.obj $(CLIBOBJECTS) $(COMOBJECTS)
+X# decompression objectfiles
+XDLIBOBJECTS= jdmaster.obj jddeflts.obj jbsmooth.obj jdarith.obj jdcolor.obj \
+X        jdhuff.obj jdmcu.obj jdpipe.obj jdsample.obj jquant1.obj \
+X        jquant2.obj jrevdct.obj jrdjfif.obj jwrgif.obj jwrppm.obj \
+X        jwrrle.obj jwrtarga.obj
+XDOBJECTS= jdmain.obj $(DLIBOBJECTS) $(COMOBJECTS)
+X# These objectfiles are included in libjpeg.lib
+XLIBOBJECTS= $(CLIBOBJECTS) $(DLIBOBJECTS) $(COMOBJECTS)
+X
+X
+X# inference rule used for all compilations except jcmain.c, jdmain.c
+X# notice that objectfile is also inserted into libjpeg.lib
+X.c.obj:
+X	cl $(CFLAGS) /c $*.c
+X	lib libjpeg -+$*.obj;
+X
+X# inference rule for assembly code
+X.asm.obj:
+X	masm /mx $*;
+X	lib libjpeg -+$*.obj;
+X
+X
+Xjbsmooth.obj : jbsmooth.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcarith.obj : jcarith.c jinclude.h jconfig.h jpegdata.h
+X
+Xjccolor.obj : jccolor.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcdeflts.obj : jcdeflts.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcexpand.obj : jcexpand.c jinclude.h jconfig.h jpegdata.h
+X
+Xjchuff.obj : jchuff.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcmain.obj : jcmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c
+X	cl $(CFLAGS) /c $*.c
+X
+Xjcmaster.obj : jcmaster.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcmcu.obj : jcmcu.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcpipe.obj : jcpipe.c jinclude.h jconfig.h jpegdata.h
+X
+Xjcsample.obj : jcsample.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdarith.obj : jdarith.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdcolor.obj : jdcolor.c jinclude.h jconfig.h jpegdata.h
+X
+Xjddeflts.obj : jddeflts.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdhuff.obj : jdhuff.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdmain.obj : jdmain.c jinclude.h jconfig.h jpegdata.h jversion.h egetopt.c
+X	cl $(CFLAGS) /c $*.c
+X
+Xjdmaster.obj : jdmaster.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdmcu.obj : jdmcu.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdpipe.obj : jdpipe.c jinclude.h jconfig.h jpegdata.h
+X
+Xjdsample.obj : jdsample.c jinclude.h jconfig.h jpegdata.h
+X
+Xjerror.obj : jerror.c jinclude.h jconfig.h jpegdata.h
+X
+Xjquant1.obj : jquant1.c jinclude.h jconfig.h jpegdata.h
+X
+Xjquant2.obj : jquant2.c jinclude.h jconfig.h jpegdata.h
+X
+Xjfwddct.obj : jfwddct.c jinclude.h jconfig.h jpegdata.h
+X
+Xjrevdct.obj : jrevdct.c jinclude.h jconfig.h jpegdata.h
+X
+Xjutils.obj : jutils.c jinclude.h jconfig.h jpegdata.h
+X
+Xjmemmgr.obj : jmemmgr.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+X
+Xjrdjfif.obj : jrdjfif.c jinclude.h jconfig.h jpegdata.h
+X
+Xjrdgif.obj : jrdgif.c jinclude.h jconfig.h jpegdata.h
+X
+Xjrdppm.obj : jrdppm.c jinclude.h jconfig.h jpegdata.h
+X
+Xjrdrle.obj : jrdrle.c jinclude.h jconfig.h jpegdata.h
+X
+Xjrdtarga.obj : jrdtarga.c jinclude.h jconfig.h jpegdata.h
+X
+Xjwrjfif.obj : jwrjfif.c jinclude.h jconfig.h jpegdata.h
+X
+Xjwrgif.obj : jwrgif.c jinclude.h jconfig.h jpegdata.h
+X
+Xjwrppm.obj : jwrppm.c jinclude.h jconfig.h jpegdata.h
+X
+Xjwrrle.obj : jwrrle.c jinclude.h jconfig.h jpegdata.h
+X
+Xjwrtarga.obj : jwrtarga.c jinclude.h jconfig.h jpegdata.h
+X
+Xjmemsys.obj : jmemsys.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+X
+Xjmemdosa.obj : jmemdosa.asm
+X
+X
+Xcjpeg.exe: $(COBJECTS)
+X	cl /Fecjpeg.exe jcmain.obj libjpeg.lib $(LDFLAGS)
+X
+Xdjpeg.exe: $(DOBJECTS)
+X	cl /Fedjpeg.exe jdmain.obj libjpeg.lib $(LDFLAGS)
+END_OF_FILE
+  if test 6015 -ne `wc -c <'makefile.mc5'`; then
+    echo shar: \"'makefile.mc5'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.mc5'
+fi
+if test -f 'testimg.jpg.u' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testimg.jpg.u'\"
+else
+  echo shar: Extracting \"'testimg.jpg.u'\" \(6072 characters\)
+  sed "s/^X//" >'testimg.jpg.u' <<'END_OF_FILE'
+Xbegin 666 testimg.jpg
+XM_]C_X  02D9)1@ ! 0   0 !  #_VP!#  @&!@<&!0@'!P<)"0@*#!0-# L+
+XM#!D2$P\4'1H?'AT:'!P@)"XG("(L(QP<*#<I+# Q-#0T'R<Y/3@R/"XS-#+_
+XMVP!# 0D)"0P+#!@-#1@R(1PA,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R
+XM,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C+_P  1" !] 'T# 2(  A$! Q$!_\0 
+XM'P   04! 0$! 0$           $" P0%!@<("0H+_\0 M1   @$# P($ P4%
+XM! 0   %] 0(#  01!1(A,4$&$U%A!R)Q%#*!D:$((T*QP152T? D,V)R@@D*
+XM%A<8&1HE)B<H*2HT-38W.#DZ0T1%1D=(24I35%565UA96F-D969G:&EJ<W1U
+XM=G=X>7J#A(6&AXB)BI*3E)66EYB9FJ*CI*6FIZBIJK*SM+6VM[BYNL+#Q,7&
+XMQ\C)RM+3U-76U]C9VN'BX^3EYN?HZ>KQ\O/T]?;W^/GZ_\0 'P$  P$! 0$!
+XM 0$! 0        $" P0%!@<("0H+_\0 M1$  @$"! 0#! <%! 0  0)W  $"
+XM Q$$!2$Q!A)!40=A<1,B,H$(%$*1H;'!"2,S4O 58G+1"A8D-.$E\1<8&1HF
+XM)R@I*C4V-S@Y.D-$149'2$E*4U155E=865IC9&5F9VAI:G-T=79W>'EZ@H.$
+XMA8:'B(F*DI.4E9:7F)F:HJ.DI::GJ*FJLK.TM;:WN+FZPL/$Q<;'R,G*TM/4
+XMU=;7V-G:XN/DY>;GZ.GJ\O/T]?;W^/GZ_]H # ,!  (1 Q$ /P"1I?N1QJ V
+XM/E4= *E0) K%CESC+>IJ")1;Q%F8F1CR>] .[YWZYP!7%8^L+<;DG<^>?N@=
+XM6J8W4<&WS&)F(.$49('T]*I-+Y &1F1CA5]#_D51N[Z.#]U+,!(_+E?O'V [
+XM5I3I\S,IZ&Q_;5NJLN\H^.CC&3[5,;]HI52>+RE925F+9&?2O/KS48'N$1(Y
+XM7E#@_,_!]  /PK7OM8NI8H())XXIWXQC)'^?\]JZEA4T<TIV9V:3Q;0RN)!D
+XM_,#G\..E)+J,$$'F/*/+'.X<]L]J\VGNIHI8U%PVY^3*&P3P3CCM]/S-5-$T
+XM[4->NC,9Y(K2,@27!."/8>K<]*3PL8ZMZ$>TOT/6(KHW)3R&$N\95E.1CUSZ
+XM5H6UF6Y)\S'<_=4^WK5+0]*AT_38+;:Z6Z+\L;'YVYZM_AVK<+*HPH '3 %<
+XM<K7LMB)SZ(0*(CD#>_JU2#>_+<TW.2*DWJB%F8*H&23T%"1@VV/1 H]Z661+
+XM:W>9^BC@>I]*YO6?&-O81JMC&+IV!_>9P@_QKE9KW7O$)(D=UB)X51M6JU-:
+XM>'E/5Z(UKO789+IH$)GGE;#"/N?3/84GB7QB_@N+3[5(DDN;B-I94_N+D!?_
+XM &;\JK,-.\$6":A>XN+QSB& -@D]_H/>O--7U"[U[5;C4;J15EF;..< =@/8
+XM#BM*5-3=WL;32?NK8] P[GS6!SV7L*7<JIYCEAQQM[>]-W(!NF;YP/NYX%<W
+XMJ6L>8;BVV$+&27D![=AQUHIP4M#MG+E6I<N=8N77R57$@8E)."?3M[&L!9#=
+XMW#PPRL/E+2R]]H&3S_2F6EZ[EXR0 R_+_A1&$M9W;YC$VU7(ZE3G(KOA!15D
+XM<<Y.3(["7R!+>X^9.(E/8D8!_"KEK=QF6>>X!DG*,Q;^XH'0>A[53U2W:RN&
+XMPZF$ &/:PSM(R..O>M#0]/O]27SV\UH'_=QKGF0]>/;CDT^91W)M=:%O3](:
+XM;4[:XN_,\LQ?P#^)AQ&OT!Y->H:1H\=A!$TD:)Y8_=PI]V,?U/O63H&DFWSY
+XMLV^6-L'I@$^GX8K>N93$ @8DGK7%BI\TK+8R3:5D3,YW%B<XI(W9R/[I]:KL
+XMQ!5>K'J,]!5^VM_ERYR3T'85S:!RNUQLLQB@DD2,R,BY"@XS^->9W>MZCK%T
+XMW]H.R6ZN1]GBR%"]L]RP//->L"(E",9![5Y!XR5]*U222(;58_,O9@>U:46N
+XM>QM3IQ<6^J.BT=5WFW= Y&"I(SU]/\]ZO:WX@T[PS;AKD>==-_J[5#@_5O05
+XM@>&+MKFU<HYS$#M;/(4C(_J/PKSW4)FNM2GG+%M[DY/)JY4%.I=[%IM1L3:G
+XMJ=YKFI27]Z^Z1SA0.%1>P ["JSD#'TJ5%&WT JJY+L374K+1"L='J>H)>WGE
+XM1#8&W#?R<@#)P/PK&C=IHYH9"=\A5E &2V,_+^HK1@C0ZBDA^6)%,$&[^)R#
+XM^F3_ "K-M)'A0-OV,[;>1D^_\ZT4%!61,JCDVV#H1<"( !P0N!V)JW:2J#,C
+XMQ^:'7*_0*23]:I#_ $>^*3%@RM\S#L?6K:PO//;V%L5>1T$8;.0%^\6^G/Z&
+XMFFDKB9<L=,B\0RV4^6$$2>7< MEF(/RJ/J"/RKU/1["*W4)L5'";0J]$7^Z/
+XMZU0\->'XK.*+:@PJD1''//5S[GMZ"MP/#;337,KB.WB&W<W&37FUJKJ2TV&[
+XM13BMQMO&L6H3;AA%"MN/?C''Y5%+.9'8QC&3QD=*Q]3U;[:P,-ZMI &  P,L
+XM>@R>P]JSY-;U#3[@HT<5U&O78WS"H;YMC6GAFM9;G86L>QP3R2<DFMB+  ]*
+XMYO3M8@U"W$B*T;#@HXY!K;@D+0@BLMG8*L7U-.+&*\X^)FG[XQ(H'(KL+W7;
+XM72H]T[,6[(@R37 >+/$$VNVK1Q1I BM@%W&[]*N%^9-"P\)*5^A@^ +AAJ3V
+XMQ;_61L@Y[]1_(_G7/W*;+V9 ,!6('YU=\)2-;>)K3/>90?H3C^M2ZY"(=<O(
+XMQP-VX?0G_$UZ+^,@RY#LB(Z9Z5 &$8 .>:EG;,@4<;:LV&G->^8P7(4@ XIJ
+XMW4"UK2"U%E&%X1V?/KC"_P!*S9 )]/+])8Y3N&>26 Y_-3^==#K@@ETS>J@-
+XM&2N".$+,2<GOUP![>U<JI(/!.3SS6TW9F4-43SW4=Q#'YL9$ZKCS5_CQP 1_
+XM6NP\"Z*GS7-QRT@R>#Q'V4>[']!7*Z1IQU+5%1P5MH1OE(]/3ZD\5[3I5I'I
+XM^G>==;(HXP997/ ''3\!@ 5R8BI9<O4T^%<QIH\=G:27,[B- ,DD8P/I7E7B
+XM_5]1O[A65'ALU;$:]AGN?>NCNM7EUV\WX,=HI_=1^O\ M'W_ )59.G)- 8V0
+XM,OH:XXM19TTJ#BN:>[_ \V_LN[DOXX&9Y6<C"J?F;IC'^>*ZO7/!MQX=O[>\
+XMT^[8PR-ATD^;GW]1FMVVL+JTN UNQ4#(7(!(_&K]S]HGMB+QEE8 _,1C'Y5L
+XMZMUH'(U43OH8MA."^57:3VKLXYTL-!EOIE)6-<A1_$>PKBU0QE6/4G)KMO(2
+XM^\+&&10RY&0>AKG2N:8NRBO4\BO+G5M<UG9?-)&DC[1%">ASP,?ES^-96MV/
+XM]BZM+:I(7C'*D]?QKT.>*>R<O;[$<*55]N2/Q-<5K%G,PDNKE_,F8C+'MS75
+XM&I'1(A4Y;F9H3$:Y;2YY\Z/)_P"!BMKQ3%MUN[?@;6(_4'^M86FMLFA8\'SD
+XM_P#0JZ7QP/*U*3 YE5&_3'^%;OXD<YQQ)Y<^M=_X2LTM='#R\M,V\?2N$M8Q
+XM-/%$!DR2!<>U>H6ML%A6)%PL:A1BLZTK1L..]SD=*NFU:ZNH;QD:!.(5( 52
+XM3P?<^YKG-2ADL=0FMYHV1T<\$8_*NKM+FPT.SD:98[F.Y@8%U<##'L![9K)L
+XM+>]\37UK-+&TEM9(J2N!DL 20/<U:F[N3V)<4E9'7^!]#/EPAU^<XN)N._\ 
+XM O\ 7\Z@\;>)/MVJQZ'9OBTMW'VAE/\ K)!_#]!_/Z5I:KKQ\,>$7EM0?[0O
+XM7VJ^,>7[C/4@?J:\WTN-FC:9B2PF&3]0:PBN:]20XKFJ)=$=_9*$5,= *Z&T
+XMD' /0USEB?W2]JV;:3 %<AZLXW1NX4KNXZ52O779MQQ1'.2,'IVJEJ,X6)B>
+XM@'-*[.:$/>*-QMW#'>NRT-A)H$JYY49KAW5WC#@>]=CX2<202Q,1M*G-7%ZA
+XMC(_N?0Q=0&[)[UQWB1UCL&SU)%=;>,/FYZ'%<!XMN@TL5L#_ +1JZ2YII%.7
+XM+2,)7$=NC]"LJ_XUUOQ"5MUE<@<'Y"?H 1_,UR5SQIZ8ZEU;]*[/Q4OVSPE:
+XM72] (Y"?7C%=C?O(XF<_X8M#-K:$C*0J6/UKTZUCV0AC_'S7%^"K4FQENB.9
+XMFP#["NWW; %'05R8B5YV'T1YQ#H-SK[P+;1>39K&%BP.O7+,.F<]ZZKPL;;P
+XM[IUXA9)+2W+2S7)_B; X'J3@ 5HZDSZ-:)I%NXEOI4$9*#_5KT&/<UY[K=\D
+XMUU'I$$O^AQ2?O9%Z2R],_0=!^)[UNVZKMT,TKKUV_P REK.IW7B'49;RY+*O
+XM_+&('*H/2K&BQ!K.<D<B9>/SK-ML--SP.1BM'1G\H7B'LP'X@-_A6D[<K2-:
+XM:M),["U&V-1SBM2!L 9K)L9!+"K>U:43 C%>9U/6>J-")LC--NH1-&5/<52E
+XMNTLU#2MM#' XH74[=U!$R$>QIF+B[W1 -(GN[H&.64.%P CD+^5=#I%A<:;8
+XMO.\^2ZXV@8Q5'3M?L;6Y#9\PXQ@5:NO$MB;>2VB$C,!GIW/:J1C6=67NI:&5
+XMJ$RPQ2.QPB@DGT%>774[7VH/.V<NW ]!VKK/&.HF*SCM%.))N6'HO_US7(0*
+XM/-SV Y_*N[#PY8N1SUYW:@BQ=18@0#G@''X9_K75*_VSX=PJ<EEC:/IW# "N
+XM:NUW+@=3D 8]!_\ 6KH?"W^D>%S!CE;KD>WWOZ42?NW\R9+5'0:!9BTTNUA"
+XM[2%W,/<\UJL>:BMTVKCT %/)YZ5P7YG=CEH['->)]4.D^8GFK+K-TI,L@_Y8
+XM(1T'H2/R&*X IC800#FIKN>2ZNYKB:4RR2.69VZL?6FE2/)'/)KTX0Y(V>YC
+XM>[N$0Y+9X)S5RU;;<2X/WB&^O!_QK/#,NUNW0U,&.Y6'8421:9U&E7F8 ">1
+XM6Y;RYZ$5PD5S);@R)SM;)'L:Z'2M6BGP"0/4'BN&K2:=T>C2JJ2L=0^V6,Y'
+XM-4O)6-LA!^ ZU8@E23'S#!]ZT;>")QGC</UK*Q?M.0JV]Y;1J/\ 0XV<>L>:
+XM2^NHH4ENYD2)0H^11C'I6N\<84\*N!7!>-+TAK6U0D!B97]\=!6L$YOE,)U5
+XM:]CD[^]DU'4I;F0DEC\H]!V%-@1A(L?=G /O3(HB'YZFK%FHDU"WX_Y: G\Z
+XM]"2LK(X8N[N795!FB/;S/YG_  K?\")_H=\A[2*?T(K%E3YTP,XR?UK?\"+M
+XMDU('TB//ODUS3?[MFDMTSJU&,^F:,4V-U\L#(R.M&ZN-1(E+4\U\0Z+%IUT\
+XMEE(6M1)Y;(?O1-Z'U!['V-9\H#7%JH/\.>!_GTKHH";^2WDE Q?2R6LR@<':
+XMP <>AYS]17,H<WL0/.T$#\C7K2N8TWI8@'IGWJ2$X.T?A[4TJ%92/7%2%0)\
+XM#BAEIDUNQ^U*I^ZW'-=38Z19B$.\09CSS7-.@66V8=2<?K78V0S"I_V0:Y*S
+XM:2:.R@KNS+EO:VR >7"JX]":TX9$C0<<U2MU!4,>_:IQ_K O:N5MF[BC2@VW
+XM3;608/4@FHM7\!V&LA95FE@G5<*<[E_$&K=DH0KBMF-S251Q=T<%>^R/&M;\
+XM&ZQH699(?/MAG,T(R /<=16'ILBM?*=PRIS7T=&V>& (/!SWKS#XC>%[#1S#
+XMK&GKY#S.!)$H^4D]QZ5V4\1[3W9;G/&7*TF<Q*P\W'H6!K=\)_N[+4)5.22B
+XMC\F_^M7+-*7GDR.[?SKJO")W:/,QZM=E3] !2J*T6=70L[;F,[@V<]?K1_:$
+X5\?!!)K4=0>,56>)-W2L42VGN?__9
+X 
+Xend
+END_OF_FILE
+  if test 6072 -ne `wc -c <'testimg.jpg.u'`; then
+    echo shar: \"'testimg.jpg.u'\" unpacked with wrong size!
+  else 
+    echo shar: Uudecoding \"'testimg.jpg'\"
+    cat testimg.jpg.u | uudecode 
+    if [ -f testimg.jpg ]; then 
+       rm testimg.jpg.u
+    fi   
+  fi
+  # end of 'testimg.jpg.u'
+fi
+if test -f 'testorig.jpg.u' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testorig.jpg.u'\"
+else
+  echo shar: Extracting \"'testorig.jpg.u'\" \(6077 characters\)
+  sed "s/^X//" >'testorig.jpg.u' <<'END_OF_FILE'
+Xbegin 666 testorig.jpg
+XM_]C_X  02D9)1@ ! 0   0 !  #_VP!#  @&!@<&!0@'!P<)"0@*#!0-# L+
+XM#!D2$P\4'1H?'AT:'!P@)"XG("(L(QP<*#<I+# Q-#0T'R<Y/3@R/"XS-#+_
+XMVP!# 0D)"0P+#!@-#1@R(1PA,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R
+XM,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C+_P  1" !] 'T# 2(  A$! Q$!_\0 
+XM'P   04! 0$! 0$           $" P0%!@<("0H+_\0 M1   @$# P($ P4%
+XM! 0   %] 0(#  01!1(A,4$&$U%A!R)Q%#*!D:$((T*QP152T? D,V)R@@D*
+XM%A<8&1HE)B<H*2HT-38W.#DZ0T1%1D=(24I35%565UA96F-D969G:&EJ<W1U
+XM=G=X>7J#A(6&AXB)BI*3E)66EYB9FJ*CI*6FIZBIJK*SM+6VM[BYNL+#Q,7&
+XMQ\C)RM+3U-76U]C9VN'BX^3EYN?HZ>KQ\O/T]?;W^/GZ_\0 'P$  P$! 0$!
+XM 0$! 0        $" P0%!@<("0H+_\0 M1$  @$"! 0#! <%! 0  0)W  $"
+XM Q$$!2$Q!A)!40=A<1,B,H$(%$*1H;'!"2,S4O 58G+1"A8D-.$E\1<8&1HF
+XM)R@I*C4V-S@Y.D-$149'2$E*4U155E=865IC9&5F9VAI:G-T=79W>'EZ@H.$
+XMA8:'B(F*DI.4E9:7F)F:HJ.DI::GJ*FJLK.TM;:WN+FZPL/$Q<;'R,G*TM/4
+XMU=;7V-G:XN/DY>;GZ.GJ\O/T]?;W^/GZ_]H # ,!  (1 Q$ /P"1I?N1QJ V
+XM/E4= *E0) K%CESC+>IJ")1;Q%F8F1CR>] .[YWZYP!7%8^L+<;DG<^>?N@=
+XM6J8W4<&WS&)F(.$49('T]*I-+Y &1F1CA5]#_D51N[Z.#]U+,!(_+E?O'V [
+XM5I3I\S,IZ&Q_;5NJLN\H^.CC&3[5,;]HI52>+RE925F+9&?2O/KS48'N$1(Y
+XM7E#@_,_!]  /PK7OM8NI8H())XXIWXQC)'^?\]JZEA4T<TIV9V:3Q;0RN)!D
+XM_,#G\..E)+J,$$'F/*/+'.X<]L]J\VGNIHI8U%PVY^3*&P3P3CCM]/S-5-$T
+XM[4->NC,9Y(K2,@27!."/8>K<]*3PL8ZMZ$>TOT/6(KHW)3R&$N\95E.1CUSZ
+XM5H6UF6Y)\S'<_=4^WK5+0]*AT_38+;:Z6Z+\L;'YVYZM_AVK<+*HPH '3 %<
+XM<K7LMB)SZ(0*(CD#>_JU2#>_+<TW.2*DWJB%F8*H&23T%"1@VV/1 H]Z661+
+XM:W>9^BC@>I]*YO6?&-O81JMC&+IV!_>9P@_QKE9KW7O$)(D=UB)X51M6JU-:
+XM>'E/5Z(UKO789+IH$)GGE;#"/N?3/84OB/Q@W@R*PM5A22YGC:65/[BY 7_V
+XM;\JJ,-.\$6":A>XN+QSB& -@D]_H/>O--7U"YU[5;C4;P_O9FS@9PH[ >P'%
+XM:4J:F[O8VFD_=6QZ!AW/FL#GLO84NY53S'+#CC;V]Z;N0#=,WS@?=SP*YO4M
+XM8\PW%ML(6,DO(#V[#CK13@I:';.7*M2Y<ZQ<NODJN) Q*2<$^G;V-8"R&[N'
+XMAAE8?*6EE[[0,GG^E,M+UW+QD@!E^7_"B,):SNWS&)MJN1U*G.17?""BK(XY
+XMR<F1V$OD"6]Q\R<1*>Q(P#^%7+6[C,L\]P#).49BW]Q0.@]#VJGJENUE<-AU
+XM,( ,>UAG:1D<=>]:&AZ??ZDOGMYK0/\ NXUSS(>O'MQR:?,H[DVNM"WI^D--
+XMJ=M<7?F>68OX!_$PXC7Z \FO4-(T>.P@B:2-$\L?NX4^[&/ZGWK)T#23;Y\V
+XM;?+&V#TP"?3\,5O7,IB 0,23UKBQ4^:5EL9)M*R)F<[BQ.<4D;LY']T^M5V8
+XM@JO5CU&>@J_;6_RY<Y)Z#L*YM Y7:XV68Q022)&9&1<A0<9_&O,[O6]1UBZ;
+XM^T'9+=7(^SQ9"A>V>Y8'GFO6!$2A&,@]J\@\9*^E:I))$-JL?F7LP/:M*+7/
+XM8VITXN+?5'1:.J[S;N@<C!4D9Z^G^>]7M;\0:=X9MPUR/.NF_P!7:H<'ZMZ"
+XML#PQ=M<VKE'.8@=K9Y"D9']1^%>>ZA,UUJ4\Y8MO<G)Y-7*@IU+O8M-J-B;4
+XM]3O-<U*2_O7W2.<*!PJ+V '8579@I'TJ1%&WT JJ^78D5U*RT0K'1ZGJ"7MY
+XMY40V!MPW\G( R<#\*QHW::.:&0G?(590!DMC/R_J*T8(T.HI(?EB13!!N_B<
+XM@_ID_P JS;21X4#;]C.VWD9/O_.M%!05D3*HY-M@Z$7 B  <$+@=B:MVDJ@S
+XM(\?FAUROT"DD_6J0_P!'OBDQ8,K?,P['UJVL+SSV]A;%7D=!&&SD!?O%OIS^
+XMAIII*XF7+'3(O$,ME/EA!$GEW +99B#\JCZ@C\J]3T>PBMU";%1PFT*O1%_N
+XMC^M4/#7A^*SBBVH,*I$1QSSU<^Y[>@K<#PVTTUS*XCMXAMW-QDUYM:JZDM-A
+XMNT4XK<;;QK%J$VX810K;CWXQQ^512SF1V,8QD\9'2L?4]6^VL##>K:0!@ ,#
+XM+'H,GL/:L^36]0T^X*-'%=1KUV-\PJ&^;8UIX9K66YV%K'L<$\DG))K8BP /
+XM2N;T[6(-0MQ(BM&PX*..0:VX)"T((K+9V"K%]33BQBO./B9I^^,2*!R*["]U
+XMVUTJ/=.S%NR(,DUP'BSQ!-KMJT<4:0(K8!=QN_2KA?F30L/"2E?H8/@"X8:D
+XM]L6_UD;(.>_4?R/YUS]RFR]F0# 5B!^=7?"4C6WB:TSWF4'Z$X_K4NN0B'7+
+XMR,<#=N'T)_Q->B_C(,N0[(B.F>E0!A& #GFI9VS(%'&VK>G::U]YK 9"X .*
+XM:MU L:T@M191A>$=GSZXPO\ 2LV0"?3R_26.4[AGDE@.?S4_G70ZX()=,WJH
+XM#1DK@CA"S$G)[]< >WM7*J2#P3D\\UM-V9E#5$\]U'<0Q^;&1.JX\U?X\< $
+XM?UKL/ NBI\US<<M(,G@\1]E'NQ_05RND:<=2U14<%;:$;Y2/3T^I/%>TZ5:1
+XMZ?IWG76R*.,&65SP!QT_ 8 %<F(J67+U-/A7,::/'9VDES.XC0#))&,#Z5Y5
+XMXOU?4;^X5E1X;-6Q&O89[GWKH[K5Y==O-^#':*?W4?K_ +1]_P"563IR30&-
+XMD#+Z&N.+46=-*@XKFGN_P/-O[+NY+^.!F>5G(PJGYFZ8Q_GBNKUSP;<>';^W
+XMO-/NV,,C8=)/FY]_49K=MK"ZM+@-;L5 R%R 2/QJ_<_:)[8B\996 /S$8Q^5
+XM;.K=:!R-5$[Z&+83@OE5VD]J[..=+#09;Z925C7(4?Q'L*XM4,95CU)R:[;R
+XM$OO"QAD4,N1D'H:YTKFF+LHKU/(KRYU;7-9V7S21I(^T10GH<\#'Y<_C65K=
+XMC_8NK2VJ2%XQRI/7\:]#GBGLG+V^Q'"E5?;DC\37%:Q9S,)+JY?S)F(RQ[<U
+XMU1J1T2(5.6YF:$Q&N6TN>?.CR?\ @8K:\4Q;=;NWX&UB/U!_K6%IK;)H6/!\
+XMY/\ T*NE\<#RM2DP.951OTQ_A6[^)'.<<2>7/K7?>$[,6VCAWY:9M_X5PMK&
+XM)IXH@,F20+CVKU&TM@L*Q(,+&H48K.O*T;#CO<Y#2KIM6NKJ&\9&@3B%2 %4
+XMD\'W/N:YS4H9+'4)K>:-D='/!&/RKJ[2YL-#LY&F6.YCN8&!=7 PQ[ >V:R;
+XM"WO?$U]:S2QM);62*DK@9+ $D#W-6IN[D]B7%)61U_@?0SY<(=?G.+B;CO\ 
+XMP+_7\Z@\;>)/MVJQZ'9OBTMW'VAE/^LD'\/T'\_I6EJNO'PQX1>6U!_M"]?:
+XMKXQY?N,]2!^IKS?2XV:-IF)+"89/U!K"*YKU)#BN:HET1W]DH14QT KH;20<
+XM ]#7.6)_=+VK9MI, 5R'JSC=&[A2N[CI5*]==FW'%$<Y(P>G:J6HSA8F)Z <
+XMTKLYH0]XHW&W<,=Z[+0V$F@2KGE1FN'=7>,.![UV/A)Q)!+$Q&TJ<U<7J&,C
+XM^Y]#%U ;LGO7'>)'6.P;/4D5UMXP^;GH<5P'BVZ#2Q6P/^T:NDN::13ERTC"
+XM5Q';H_0K*O\ C76_$)6W65R!P?D)^@!'\S7)7/&GICJ75OTKL_%2_;/"5I=+
+XMT CD)]>,5V-^\CB9S_ABT,VMH2,I"I8_6O3K6/9"&/\ 'S7%^"K4FQENB.9F
+XMP#["NWSM 4=!7)B)7G8KHCSB'0;G7W@6VB\FS6,+%@=>N68=,Y[UU7A8VWAW
+XM3KQ"R26EN6EFN3_$V!P/4G  K1U)GT:T32+=Q+?2H(R4'^K7H,>YKSW6[Y)K
+XMJ/2()?\ 0XI/WLB])9>F?H.@_$]ZW;=5VZ&25UZ[?YE+6=3NO$.HRWER65?^
+XM6,0.50>E6-%B#6<Y(Y$R\?G6;;8:;G@<C%:.C/Y0O$/9@/Q ;_"M)VY6D:TU
+XM:29V%J-L:CG%:D#8 S638R"6%6]JTHF!&*\SJ>L]4:$39&:;=0B:,J>XJE+=
+XMI9J&E;:&.!Q0NIV[J")D(]C3,7%WNB :1/=W0,<LH<+@!'(7\JZ'2+"XTVQ>
+XM=Y\EUQM QBJ.G:_8VMR&SYAQC JU=>);$V\EM$)&8#/3N>U4C&LZLO=2T,K4
+XM)EABD=CA%!)/H*\NNIVOM0>=LY=N!Z#M76>,=1,5G':*<23<L/1?_KFN0@4>
+XM;GL!S^5=V'ARQ<CGKSNU!%BZBQ @'/ ./PS_ %KJE?[9\.X5.2RQM'T[A@!7
+XM-7:[EP.IR ,>@_\ K5T/A;_2/"Y@QRMUR/;[W]*)/W;^9,EJCH- LQ::7:PA
+XM=I"[F'N>:U6/-16Z;5QZ "GD\]*X+\SNQRT=CFO$^J'2?,3S5EUFZ4F60?\ 
+XM+!".@]"1^0Q7 %,;"" <U-=SR75W-<32F621RS.W5CZTTJ1Y(YY->G"')&SW
+XM,;W=PB');/!.:N6K;;B7!^\0WUX/^-9X9EVMVZ&I@QW*P["B2+3.HTJ\S  3
+XMR*W+>7/0BN$BN9+<&1.=K9(]C70Z5JT4^ 2!Z@\5PU:33NCT:5525CJ'VRQG
+XM(YJEY*QMD(/P'6K$$J28^88/O6C;P1.,\;A^M96+]IR%6WO+:-1_H<;./6/-
+XM)?744*2W<R)$H4?(HQCTK7>.,*>%7 K@O&EZ0UK:H2 Q,K^^.@K6"<WRF$ZJ
+XMM>QR=_>R:CJ4MS(22Q^4>@["FP(PD6/NS@'WID41#\]35BS42:A;\?\ +0$_
+XMG7H25E9'#%W=R[*H,T1[>9_,_P"%;_@1/]#OD/:13^A%8LJ?.F!G&3^M;_@1
+XM=LFI ^D1Y]\FN:;_ ';-);IG5J,9],T8IL;KY8&1D=:-U<:B1*6IYKXAT6+3
+XMKIY+*0M:B3RV0_>B;T/J#V/L:SY0&N+50?X<\#_/I71P@WTEO)-MQ?3R6<R@
+XM<$J1AQZ'G/U%<PAS?1 \[00/R->M*YC3>EB >F?>I(3@[1^'M3< ,I'KBI"H
+XM$^!Q0RTR:W8_:E4_=;CFNIL=(LQ"'>(,QYYKFI(PDMJW=CC]:[&R&85/^R#7
+XM)6;231V4%=V9<M[6V0#RX57'H36G#(D:#CFJ5N 5#'OVJ<?? [5RMLW<4:4&
+XMVZ;:R#!ZD$U%J_@.PUD+*LTL$ZKA3G<OX@U:L@$*XK:CD-)5'%W1P5[[(\:U
+XMOP;K&A9EDA\^V&<S0C( ]QU%8>FR*U\IW#*G-?1T1WC! (/!SWKS'XB^%K#2
+XM!%K.GKY#RRA)(E'RDGN/2NRGB/:>[+<YXRY6DSEY6'FX]"P-;OA/]W9:A*IR
+XM244?DW_UJY4S&2>3([M_.NK\(G=H\S'JUT0?H *516BSJZ%G;<QG<&SGK]:/
+X6[0GCX()-:CH#QBJSQ)NZ5BB6T]S_V3'J
+X 
+Xend
+END_OF_FILE
+  if test 6077 -ne `wc -c <'testorig.jpg.u'`; then
+    echo shar: \"'testorig.jpg.u'\" unpacked with wrong size!
+  else 
+    echo shar: Uudecoding \"'testorig.jpg'\"
+    cat testorig.jpg.u | uudecode 
+    if [ -f testorig.jpg ]; then 
+       rm testorig.jpg.u
+    fi   
+  fi
+  # end of 'testorig.jpg.u'
+fi
+echo shar: End of archive 16 \(of 18\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+exit 0 # Just in case...

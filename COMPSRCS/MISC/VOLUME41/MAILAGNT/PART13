@@ -1,0 +1,1516 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i013:  mailagent - Flexible mail filtering and processing package, v3.0, Part13/26
+Message-ID: <1993Dec2.134009.18793@sparky.sterling.com>
+X-Md4-Signature: 636878a5e50ff6738f25e7e7fd1036d4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:40:09 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 13
+Archive-name: mailagent/part13
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/maildist.SH agent/man/mailagent.SH.04
+#   agent/pl/listqueue.pl agent/pl/runcmd.pl config_h.SH
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:56 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 26)."'
+if test -f 'agent/maildist.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/maildist.SH'\"
+else
+  echo shar: Extracting \"'agent/maildist.SH'\" \(9883 characters\)
+  sed "s/^X//" >'agent/maildist.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/maildist (with variable substitutions)"
+X$spitshell >maildist <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: maildist.SH,v 3.0 1993/11/29 13:48:23 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: maildist.SH,v $
+X# Revision 3.0  1993/11/29  13:48:23  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+X\$mversion = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X
+X$spitshell >>maildist <<'!NO!SUBS!'
+X
+X$prog_name = $0;				# Who I am
+X$prog_name =~ s|^.*/(.*)|$1|;	# Keep only base name
+X
+X&read_config;		# First, read configuration file (in ~/.mailagent)
+X
+X# take job number and command from environment
+X# (passed by mailagent)
+X$jobnum = $ENV{'jobnum'};
+X$fullcmd = $ENV{'fullcmd'};
+X$pack = $ENV{'pack'};
+X$path = $ENV{'path'};
+X
+X&read_dist;			# Read distributions
+X
+X$dest = shift;		# Who should the system be sent to
+X$system = shift;	# Which system
+X$version = shift;	# Which version it is
+X
+X# A single '-' as first argument stands for return path
+X$dest = $path if $dest eq '-';
+X
+X# A single '-' for version means "highest available" version
+X$version = $Version{$system} if $version eq '-' || $version eq '';
+X
+X# Full program's name for H table access
+X$pname = $system . "|" . $version;
+X
+X$maillist = "To obtain a list of what is available, send me the following mail:
+X
+X	Subject: Command
+X	@SH maillist $path
+X		^ note the l";
+X
+Xif (!$System{$system}) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XSubject: No program called $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send a program called \"$system\".  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the program anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (UNKNOWN SYSTEM)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+Xif (!$Program{$pname}) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XSubject: No version $version for $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send version $version of $system.  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the program anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (BAD VERSION NUMBER)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+X# Has the user made a request for an old version (patch only) ?
+Xif ($Patch_only{$pname}) {
+X	# It is required that patch only systems have a version number
+X	&abort("old system has no version number") if $version eq '';
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XSubject: System $system $version is obsolete
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI can't send you version $version of $system. Sorry.
+X
+XThis version appears to be an old one, and only patches are available.
+XThe up-to-date version for $system is $Version{$system}.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, he may send you the latest version.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (PATCH ONLY VERSION)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+X# If the request is not the most recent version, warn the user.
+Xif ($version < $Version{$system}) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XSubject: Version $version of $system is an old one
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XYou asked for version $version of $system.
+X
+XThis version appears to be an old one, but it is sill available, and
+XI am currently processing your request. However, I wanted to let you
+Xknow that the up-to-date version for $system is $Version{$system}.
+X
+X$maillist
+X
+XUnless you receive an error message telling you otherwise, I am sending
+Xyou version $version of $system. You may also request for the new version
+Xright now if you wish.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("MSG old version still available") if $loglvl > 8;
+X}
+X
+X# Create a temporary directory
+X$tmp = "$cf'tmpdir/dmd$$";
+Xmkdir($tmp, 0700);
+X
+X# Need to unarchive the distribution
+Xif ($Archived{$pname}) {
+X	# Create a temporary directory for distribution
+X	$tmp_loc = "$cf'tmpdir/dmdl$$";
+X	mkdir($tmp_loc, 0700);
+X	$location =
+X		&unpack($Location{$pname}, $tmp_loc, $Compressed{$pname});
+X} else {
+X	$location = $Location{$pname};
+X}
+X
+X# Go to top-level directory
+Xchdir "$location" ||
+X	&abort("cannot go to $location");
+X
+X# We are now in the place. Look for a MANIFEST file. If none, we will
+X# send *everything* held, RCS sub-directories and executable/object files
+X# excepted.
+X
+X$manifest = '';
+X$tmp_list = '';
+X
+Xif (-f 'MANIFEST') {
+X	$manifest = "$location/MANIFEST";
+X} else {
+X	$tmp_list = "$cf'tmpdir/mdlist$$";
+X	open(FIND, "find . -type f -print | sort |") ||
+X		&abort("cannot run find");
+X	open(LIST, ">$tmp_list") ||
+X		&abort("cannot create $tmp_list");
+X	while (<FIND>) {
+X		chop;
+X		s|\./||;
+X		next if (m|^U/| && -f '.package');	# Skip units if meta-configured
+X		next if m|^RCS/|;			# Skip RCS files
+X		next if m|/RCS/|;
+X		next if m|,v$|;
+X		next if m|bugs/|;			# Skip bugs files (patches and al.)
+X		next if m|^\.#|;			# Skip [marked for deletion] files
+X		next if m|/\.#|;
+X		next if m|\.o$|;			# Skip object files
+X		next if m|core$|;			# Skip core files
+X		next if (-x $_ && -B $_);	# Skip binaries
+X		print LIST $_,"\n";			# Keep that file
+X	}
+X	close FIND;
+X	close LIST;
+X	$manifest = $tmp_list;
+X}
+X
+X&add_log("manifest is in $manifest") if $loglvl > 19;
+X
+X# If distribution is maintained by dist 3.0 (at least), there is a .package
+X# file in there and we can invoke makedist. Otherwise, we have to do it by
+X# hand...
+X
+Xif (-f '.package') {
+X	system "makedist -c $tmp -f $manifest";
+X	&abort("cannot run makedist -c $tmp") if $?;
+X} else {
+X	&makedist;
+X}
+X
+X$subject = "$system";
+X$subject .= " $version" if $version ne '0';
+X$subject .= " package";
+X&sendfile($dest, $tmp, $pack, $subject);
+X&clean_tmp;
+X
+Xexit 0;		# Ok
+X
+X# Now for each file in manifest, look if there is an
+X# RCS file associated with it. If so, check out either
+X# the 'lastpat' version or the highest version on the
+X# default branch, provided that the file does not exists
+X# in checked-out form. Otherwise, only run co if 'lastpat'
+X# is defined.
+Xsub makedist {
+X	chdir $tmp || &abort("cannot chdir to $tmp");
+X	open(MANI, $manifest) || &abort("cannot open $manifest");
+X	while (<MANI>) {
+X		next if /^--/;
+X		s|^\s*||;						# Remove leading spaces
+X		($file,$foo) = split;			# Save filename, discard comments
+X		next if (-d "$location/$file");	# Skip directories
+X		next if ($file =~ /^\s*$/);		# Skip blank lines
+X		# Extract dirname and basename
+X		($dir, $base) = ('', $file)
+X			unless ($dir, $base) = ($file =~ m|(.*/)(.*)|);
+X		$logmsg = '';				# String to add to log message
+X		$rcsfile = 'blurfl';
+X		$rcsfile = "$location/$file,v" if (-f "$location/$file,v");
+X		$rcsfile = "$location/${dir}RCS/$base,v"
+X			if (-f "$location/${dir}RCS/$base,v");
+X		next unless -f "$location/$file" || -f "$rcsfile";	# Skip unexisting files
+X		&makedir($dir) unless $dir eq '';
+X		open(COPY, ">$file") || &abort("cannot create $file");
+X		if ($rcsfile ne '') {
+X			$rlog = `rlog $rcsfile 2>&1`;
+X			($revs) = ($rlog =~ /lastpat: (\d+)/);
+X			if (!$revs) {
+X				# Symbol 'lastpat' is not defined
+X				# If file exists, open it. Otherwise, run co
+X				if (-f "$location/$file") {
+X					$logmsg = " (lastpat undefined)";
+X					$origfile = "$location/$file";
+X					open(FILE, $origfile) ||
+X						&abort("cannot open $origfile");
+X				} else {
+X					$logmsg = " (co but no lastpat)";
+X					$origfile = $rcsfile;
+X					open(FILE, "co -q -p $rcsfile |") ||
+X						&abort("cannot run co on $rcsfile");
+X				}
+X			} else {
+X				# Symbol 'lastpat' is defined
+X				$logmsg = " (co lastpat)";
+X				$origfile = $rcsfile;
+X				open(FILE, "co -q -p -rlastpat $rcsfile |") ||
+X					&abort("cannot run co on $rcsfile");
+X			}
+X		} else {
+X			$origfile = "$location/$file";
+X			open(FILE, "$location/$file") ||
+X				&abort("cannot open $location/$file");
+X		}
+X		while (<FILE>) {
+X			s|$|;      # Remove locker mark
+X			(print COPY) || &abort("copy error: $!");
+X		}
+X		close(FILE) || &abort("copy error: $!");
+X		close COPY;
+X		&add_log("copied $file$logmsg") if $loglvl > 19;
+X
+X		# If file is executable, change its permissions
+X		if (-x $origfile) {
+X			chmod 0755, $file;
+X		} else {
+X			chmod 0644, $file;
+X		}
+X	}
+X}
+X
+Xsub clean_tmp {
+X	# Do not stay in the directories we are removing...
+X	chdir $cf'home;
+X	if ($tmp ne '') {
+X		system '/bin/rm', '-rf', $tmp;
+X		&add_log("removed dir $tmp") if $loglvl > 19;
+X	}
+X	if ($Archived{$pname}) {
+X		system '/bin/rm', '-rf', $tmp_loc;
+X		&add_log("removed dir $tmp_loc") if $loglvl > 19;
+X	}
+X	unlink $tmp_list if $tmp_list ne '';
+X}
+X
+X# Emergency exit with clean-up
+Xsub abort {
+X	local($reason) = shift(@_);		# Why we are exiting
+X	&clean_tmp;
+X	&fatal($reason);
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' pl/makedir.pl >>maildist
+X$grep -v '^;#' pl/fatal.pl >>maildist
+X$grep -v '^;#' pl/add_log.pl >>maildist
+X$grep -v '^;#' pl/read_conf.pl >>maildist
+X$grep -v '^;#' pl/unpack.pl >>maildist
+X$grep -v '^;#' pl/sendfile.pl >>maildist
+X$grep -v '^;#' pl/distribs.pl >>maildist
+X$grep -v '^;#' pl/secure.pl >>maildist
+Xchmod 755 maildist
+X$eunicefix maildist
+END_OF_FILE
+  if test 9883 -ne `wc -c <'agent/maildist.SH'`; then
+    echo shar: \"'agent/maildist.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/maildist.SH'
+  # end of 'agent/maildist.SH'
+fi
+if test -f 'agent/man/mailagent.SH.04' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/man/mailagent.SH.04'\"
+else
+  echo shar: Extracting \"'agent/man/mailagent.SH.04'\" \(14651 characters\)
+  sed "s/^X//" >'agent/man/mailagent.SH.04' <<'END_OF_FILE'
+Xcareful. Let's assume you choose \fIroot-pass\fR as a password.
+X.PP
+XEdit \fIpasswd\fR (defined in your \fI~/.mailagent\fR and add the following
+Xline:
+X.Ex
+Xroot:<root-pass>:
+X.Ef
+Xi.e. enter the password in clear between '<' and '>'. It won't stay in that
+Xform for long, but this is the easiest way to bootstrap it. Protect the
+X\fIpasswd\fR file tightly (read-write permissions only for you). Then create
+Xa \fIpowerdir/root\fR file, protect it the same way and add your e-mail
+Xaddress to it, on a line by itself. That \fBmust\fR be the address that
+Xwill show up in the \fIFrom:\fR line of your mails. Since clearance files
+Xsupport shell-style patterns, you may use \fIlogin@*domain.top\fR to allow
+Xmails from your login from any machine in your domain.
+X.PP
+XYou are almost done. Now simply issue the following command:
+X.Ex
+XFrom: \fIyour e-mail address\fR
+X
+Xpower root root-pass
+Xpassword root root-pass
+X.Ef
+Xand feed that to:
+X.Ex
+Xmailagent -i -e 'SERVER -t'
+X.Ef
+XThe side effect of re-instantiating your password will be to crypt it in
+Xthe \fIpasswd\fR file, so that anybody looking at that file cannot guess
+Xyour \fIroot\fR password, hopefully.
+X.PP
+XOnce you have a valid \fIroot\fR power installed, you may create the
+X\fIsystem\fR power by using \fInewpower\fR. Further powers may then be
+Xcreated and deleted using the \fIsystem\fR power only.
+X.PP
+XYou should also create the \fIsecurity\fR power and give it a different
+Xpassword than the \fIroot\fR password. This is really needed only if you wish
+Xto remotely administrate the server. If you have local access and things
+Xget corrupted, it's always possible to change the root password manually by
+Xrepeating this bootstrapping sequence.
+X.PP
+XNote that clearance checks are made using the envelope address of the message,
+Xwhich is a little harder to forge than plain header fields like \fISender:\fR.
+XThe envelope is extracted by looking at the first header line, which on Unix
+Xsystems looks like:
+X.Ex
+X	From \fIenvelope-address send-date\fR
+X.Ef
+Xand is inserted by the mail transport agent (MTA). If you are using
+X\fIsendmail\fR as the MTA, then only \fItrusted\fR users declared in the
+X\fIsendmail.cf\fR file are able to create a "fake" envelope address, a
+Xfeature typically used by mailing list dispatchers, since that address is then
+Xused as the bounce target in case the mail cannot be delivered.
+XIf that first header line is absent, the
+Xsender is computed using the \fISender:\fR field if present, then
+Xthe \fIFrom:\fR field, but the \fIauth\fR variable is set to false and the
+Xserver will not switch into trusted mode; in other words, it will not be
+Xpossible to gain powers in that session.
+X.PP
+XMoreover, since the session transcript is sent to that same envelope address
+Xused to authenticate the eligibility for a power, the server feature can
+Xhardly be used to retrieve confidential information held at the site where
+Xthe \fImailagent\fR is run since the information would be sent to one of the
+Xusers cleared for that power. It is the responsibility of you, the user, to
+Xmake sure this cannot happen or you could get into legal troubles.
+X.PP
+XFinally, sensitive commands should be protected by a proper power, and great
+Xcare should be taken in writing the command implementation to ensure the
+Xsecurity cannot be circumvented. But no, this mailagent feature is not
+Xbelieved to be dangerous for the system or site it is used on, since a
+Xdetermined user could implement one trivially via a five line shell script.
+XIf security is really an issue, \fI.forward\fR files using the piping feature
+Xshould be prohibited and access to \fIcron\fR forbidden in order to avoid
+Xautomatic mail processing (since it would be possible to have cron invoke
+Xa \fImailagent\fR process \-or any other program for that matter\- to process
+Xthe incoming mail in a comparable way).
+X'''
+X.SS Example
+X.PP
+XHere is an example showing the steps involved in creating a \fIshell\fR
+Xcommand, which would take a script by collecting lines until an EOF mark
+Xand feed it to a real shell for execution. Since allowing this feature
+Xwithout any safeguards would be a real security hole, we protect that by
+Xrequesting the power \fIshell\fR before allowing the execution.
+X.PP
+XHere is my implementation of the \fIshell\fR command (available in the
+Xmailagent distribution under \fImisc/shell\fR):
+X.Ex
+X#!/bin/sh
+X
+X# Execute commands from stdin, as transmitted by the mailagent server.
+X# File descriptor #3 is a channel to the session transcript.
+X
+X# Make sure we have the shell power.
+X# Don't even allow the root power to bypass that for security reasons.
+Xcase ":\$powers:" in
+X:shell:) ;;
+X*)
+X	echo "Permission denied." >&3
+X	exit 1
+X	;;
+Xesac
+X
+X# Perhaps a shell was defined... Otherwise, use /bin/sh
+Xcase "\$shell" in
+X'') shell='/bin/sh';;
+Xesac
+X
+X# Normally, a shell command has its output included in the transcript only in
+X# case of error or when the user requests the trace. Here however, we need to
+X# see what happened, so everything is redirected to the session transcript.
+X
+Xexec \$shell -x >&3 2>&3
+X.Ef
+X.PP
+XNote how we make access to the \fI\$powers\fR and \fI\$shell\fR environment
+Xvariable. That last one is user-defined to allow dynamic set-up of a shell.
+X.PP
+XAssuming we store that command under \fIservdir/shell.sh\fR (don't forget to
+Xadd the execution bit on the file...), here is how
+Xwe declare it and its variable in the \fIcomserver\fR file.
+X.Ex
+Xshell	shell	-	y	-
+Xshell	var	-	-	-
+X.Ef
+XThis example shows that there is a separate name-space for variables and
+Xcommands. Moreover, the command bears the same name as its type -- don't let
+Xthat confuse you :-).
+X.PP
+XNow, assuming you have already created a \fIsystem\fR power and protected
+Xit with a password (let's assume \fIsys-pass\fR for the purpose of this
+Xexample), you need to create the shell power. Although you could do it
+Xmanually (like when you handcrafted the \fIroot\fR power), it's better to
+Xuse the SERVER interface since it ensures consistency.
+X.PP
+XIn order to create the \fIshell\fR power required to use the newly created
+X\fIshell\fR command, you need to add the following rule to your rule file:
+X.Ex
+XSubject: Server		{ SAVE server; SERVER -t };
+X.Ef
+Xwhich will save all server mail in a dedicated folder and process them. Note
+Xthe \fB\-t\fR option, which allows trusted mode, in which powers may be gained.
+XNow send yourself the following mail:
+X.Ex
+XSubject: Server
+Xpower system sys-pass
+Xnewpower shell shell-pass
+Xram@acri.fr
+XEOF
+X.Ef
+Xwhich requests for the \fIsystem\fR power (needed to created most powers),
+Xand then creates a new power \fIshell\fR, assigning \fIshell-pass\fR as its
+Xpassword and clearing \fIram@acri.fr\fR for it. Note the here-document
+Xfill-in for the newpower command, up to the EOF marker. Of course, you need
+Xto replace the address by your real address.
+X.PP
+XYou will receive a session transcript along these lines:
+X.Ex
+X    ---- Mailagent session transcript for ram@acri.fr ----
+X
+X----> power system ********
+XOK.
+X
+X====> newpower shell ********
+XOK.
+X
+X====> --
+XEnd of processing (.signature)
+X
+X    ---- End of mailagent session transcript ----
+X.Ef
+XNote the concealed passwords, and the prompt change once the system
+Xpower has been granted. Since my mailer automatically appends a signature,
+Xthe processing stops on it.
+X.PP
+XNow let's use this new command... Send yourself the following mail:
+X.Ex
+XSubject: Server
+Xset shell /bin/ksh
+Xset eof END
+Xshell
+Xls -l /etc/passwd
+XEND
+Xpower shell shell-pass
+Xshell
+Xls -l /etc/passwd
+XEND
+X.Ef
+XIf you everything is right, you should receive back a transcript looking
+Xlike this:
+X.Ex
+X    ---- Mailagent session transcript for ram@acri.fr ----
+X
+X----> set shell /bin/ksh
+XOK.
+X
+X----> set eof END
+XOK.
+X
+X----> shell
+XPermission denied.
+XCommand returned a non-zero status (1).
+XFAILED.
+X
+X----> power shell ********
+XOK.
+X
+X====> shell
+X+ ls -l /etc/passwd
+X-rw-r--r--   1 root     system       691 Oct 01 14:24 /etc/passwd
+XOK.
+X
+X====> --
+XEnd of processing (.signature)
+X
+X    ---- End of mailagent session transcript ----
+X.Ef
+XThe first invocation of the \fIshell\fR command fails since we lack the
+X\fIshell\fR power. The string "Permission denied." is echoed by the
+Xcommand itself into file descriptor #3 and makes it to the transcript.
+X'''
+X.SS Conclusion
+X.PP
+XThe generic mail server implemented in the mailagent can be used to
+Ximplement a mailing list manager, a vote server, an archive server, etc...
+XUnfortunately, it does not currently have the notion of state, with a command
+Xset dedicated to each state, so it is not possible to implement an intelligent
+Xarchive server.
+X.PP
+XIf you implement new simple server commands and feel they are generic enough
+Xto be contributed, please send them to me and I will gladly integrate them.
+X.SH EXAMPLES
+XHere are some examples of rule files. First, if you do not specify a rule
+Xfile or if it is empty, the following built-in rule applies:
+X.Ex
+XAll: /^Subject: [Cc]ommand/ { LEAVE; PROCESS };
+X.Ef
+XEvery mail is left in the mailbox. Besides, mail with "Subject: Command"
+Xanywhere in the message are processed.
+X.PP
+XThe following rule file is the one I am currently using:
+X.Ex
+Xmaildir = ~/mail;
+X
+XAll: /^Subject: [Cc]ommand/	{ SAVE cmds; PROCESS };
+X
+XTo: gue@eiffel.fr		{ POST -l mail.gue };
+XApparently-To: ram,
+XNewsgroups: mail.gue		{ BOUNCE gue@eiffel.fr };
+X
+X<_SEEN_>
+X	Apparently-To: ram,
+X	Newsgroups: mail.gue	{ DELETE };
+X
+XFrom: root, To: root		{ BEGIN ROOT; REJECT };
+X<ROOT> /^Daily run output/	{ WRITE ~/var/log/york/daily.%D };
+X<ROOT> /^Weekly run output/	{ WRITE ~/var/log/york/weekly };
+X<ROOT> /^Monthly run output/	{ WRITE ~/var/log/york/monthly };
+X
+XFrom: ram		{ BEGIN RAM; REJECT };
+X<RAM> To: ram		{ LEAVE };
+X<RAM> X-Mailer: /mailagent/	{ LEAVE };
+X<RAM>			{ DELETE };
+X.Ef
+X.PP
+XThe folder directory is set to \fI~/mail\fR. All command mails are saved
+Xin the folder \fI~/mail/cmds\fR and processed. They do not show up in
+Xmy mailbox. Mails directed to the \fIgue\fR mailing list (French Eiffel's
+XUsers Group, namely Groupe des Utilisateurs Eiffel) are posted on the local
+Xnewsgroup \fImail.gue\fR and do not appear in my mailbox either. Any follow-up
+Xmade on this group is mailed to me by \fIinews\fR (and not directly to the
+Xmailing list, because those mails would get back to me again and be fed to the
+Xnewsgroup, which in turn would have them mailed back to the list, and so on,
+Xand so forth).
+XHence the next rule which catches those follow-ups and bounces them to the
+Xmailing list. Those mails will indeed come back, but the _SEEN_ rule will
+Xsimply delete them.
+X.PP
+XOn my machine, the mails for \fIroot\fR are forwarded to me. However,
+Xeveryday, the \fIcron\fR daemon starts some processes to do some
+Xadministration clean-up (rotating log files, etc...), and mails the results
+Xback. They are redirected into specific folders with the WRITE command, to
+Xensure they do not grow up without limit. Note the macro substitution for the
+Xdaily output (on Mondays, the output is stored in \fIdaily.1\fR for instance).
+X.PP
+XThe next group of rules prevents the mail system from sending back mails when
+XI am in a group alias expansion. This is a \fIsendmail\fR option which I
+Xdisabled on my machine. Care is taken however to keep mails coming from the
+Xmailagent which I receive as a blind carbon copy.
+X.SH CAVEAT
+XIn order to limit the load overhead on the system, only \fBone\fR mailagent
+Xprocess is allowed to run the commands. If some new mail arrives while another
+Xmailagent is running, that mail is queued and will be processed later by the
+X\fImain\fR mailagent.
+X.PP
+XFor the same reason, the mails sent back by the mailagent are queued by
+X\fIsendmail\fR, to avoid the cost of mail transfer while processing commands.
+X.SH "SECURITY"
+XTo avoid any problems, the \fIfilter\fR will refuse to run if the configuration
+Xfile \fI~/.mailagent\fR or the rule file specified are world writable or not
+Xowned by the user. Those tests are enforced even if the the \fIfilter\fR does
+Xnot run setuid, because they compromise the security of your account.
+XThe \fImailagent\fR will also perform those checks.
+X.PP
+XIndeed, if someone can write into your \fI~/.mailagent\fR file, then he can
+Xeasily change your \fIrules\fR configuration parameter to point to another
+Xfaked rule file and then send you a mail, which will trigger the mailagent,
+Xrunning as you. Via the RUN command, this potential intruder could run any
+Xcommand, using your privileges, and could set a Trojan horse for later
+Xperusal. Applying the same logic, the rule file must also be protected tightly.
+X.PP
+XAnd, no surprise, the same rules apply for your \fInewcmd\fR file, which is
+Xused to describe extended filtering commands. Otherwise it would allow someone
+Xto quietly redefine a commonly used standard command like LEAVE and later
+Xbe able to assume your identity.
+X.SH FILES
+X.PD 0
+X.TP 20
+X~/.mailagent
+Xconfiguration file for mailagent.
+X.TP
+X~/mbox.filter
+Xmailbox used by \fIfilter\fR in case of error
+X.TP
+X~/mbox.urgent
+Xmailbox used by \fImailagent\fR in case of error
+X.TP
+X~/mbox.<username>
+Xmailbox used if writing access is denied in the mail spool directory
+X.TP
+X$privlibexp/mailagent
+Xdirectory holding templates and samples.
+X.TP
+XLog/agentlog
+Xmailagent's log file.
+X.TP
+XQueue/agent.wait
+Xlist of mails waiting to be processed and stored outside of the mailagent's
+Xspool directory.
+X.TP
+XQueue/qmXXXXX
+Xmail spooled by \fIfilter\fR.
+X.TP
+XQueue/fmXXXXX
+Xmail spooled by \fImailagent\fR.
+X.TP
+XHash/X/Y
+Xhash files used by RECORD, UNIQUE, ONCE commands and vacation mode.
+X.PD
+X.SH BUGS
+XThere is a small chance that mail arrives while the \fImain\fR mailagent
+Xis about to finish its processing. That mail will be queued and not
+Xprocessed until another mail arrives (the \fImain\fR mailagent always
+Xprocesses the queue after having dealt with the message that invoked it).
+X.PP
+XA version number must currently contain a dot. Moreover, an old system
+X(i.e. a system with an \fIo\fR in the patches column) must have a version
+Xnumber, so that the mailagent can compute the name of the directory
+Xholding the patches.
+X.PP
+XThe lock file is deliberately ignored when \fB\-q\fR option is used (in fact,
+Xit is ignored whenever an option is specified).
+XThis may result in having mails processed more than once.
+X.PP
+XThe mailagent is at the mercy of any \fIperl\fR bug, and there is little I
+Xcan do about it. Some spurious warnings may be emitted by the data-loaded
+Xversion, although they do not appear with the plain version.
+X.PP
+XParsing of the rule file should be done by a real parser and not lexically.
+XOr at least, it should be possible to escape otherwise meaningful characters
+Xlike ';' or '}' within the rules.
+X.SH AUTHOR
+XRaphael Manfredi <ram@acri.fr>.
+X.SH "SEE ALSO"
+Xmaildist($manext), mailhelp($manext), maillist($manext), mailpatch($manext),
+Xperl(1).
+X!GROK!THIS!
+Xchmod 444 mailagent.$manext
+END_OF_FILE
+  if test 14651 -ne `wc -c <'agent/man/mailagent.SH.04'`; then
+    echo shar: \"'agent/man/mailagent.SH.04'\" unpacked with wrong size!
+  fi
+  # end of 'agent/man/mailagent.SH.04'
+fi
+if test -f 'agent/pl/listqueue.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/listqueue.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/listqueue.pl'\" \(5316 characters\)
+  sed "s/^X//" >'agent/pl/listqueue.pl' <<'END_OF_FILE'
+X;# $Id: listqueue.pl,v 3.0 1993/11/29 13:48:56 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: listqueue.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:56  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X# List the current mails held in the queue, if any at all.
+X# See also the pqueue subroutine for other comments about the queue.
+Xsub list_queue {
+X	local(*DIR);
+X	unless (opendir(DIR, $cf'queue)) {
+X		&add_log("ERROR unable to open $cf'queue: $!");
+X		return;
+X	}
+X	local(@dir) = readdir DIR;		# Slurp the whole directory
+X	closedir DIR;
+X	local(@files) = grep(s!^(q|f)m!$cf'queue/${1}m!, @dir);
+X	undef @dir;
+X	if (-f "$cf'queue/$agent_wait") {
+X		if (open(WAITING, "$cf'queue/$agent_wait")) {
+X			while (<WAITING>) {
+X				chop;
+X				push(@files, $_);
+X			}
+X			close WAITING;
+X		} else {
+X			&add_log("ERROR cannot open $cf'queue/$agent_wait: $!") if $loglvl;
+X		}
+X	}
+X	# The @files array now contains the path name of all the queued mails
+X	# (at least those known to the mailagent).
+X	if (@files == 0) {
+X		print "Mailagent queue is empty.\n";
+X		return;
+X	}
+X	format STDOUT_TOP =
+XFilename      Size Queue time  Status    Sender / Recipient list
+X--------- -------- ----------- --------- --------------------------------------
+X.
+X	local($file);				# Base name of file (eventually stripped)
+X	local($directory);			# Directory where queued mail is stored
+X	local($queued);				# Queuing date
+X	local($status);				# Status of mail
+X	local($sender);				# Sender of mail
+X	local($star);				# The '*' identifies out of queue mails
+X	local($recipient);			# Recipient of mail
+X	local($buffer);				# Temporary buffer to build recipient list
+X	local($address);			# E-mail address candidate for recipient list
+X	local(%seen);				# Records addresses already seen
+X	$: = " ,";					# Break recipients on white space or colon
+X	format STDOUT =
+X@<<<<<<<< @>>>>>>>@@<<<<<<<<<< @<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$file     $size $star $queued  $status   $sender
+X                                         ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X                                         $recipient
+X~                                        ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X                                         $recipient
+X~                                        ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X                                         $recipient
+X~                                        ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X                                         $recipient
+X~                                        ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X                                         $recipient
+X~                                        ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<...
+X                                         $recipient
+X.
+X	local($n) = $#files + 1;
+X	local($s) = $n > 1 ? 's' : '';
+X	print STDOUT "                   Mailagent Queue ($n request$s)\n";
+X	foreach (@files) {
+X		($directory, $file) = m|^(.*)/(.*)|;
+X		&parse_mail($_, 'head_only');
+X		next unless defined $Header{'All'};
+X		# Remove comments from all the addresses. The From field is used to
+X		# identify the (possibly forged) sender while the To and Cc fields
+X		# are concatenated to list the recipients;
+X		$sender = (&parse_address($Header{'From'}))[0];
+X		$buffer = $Header{'To'};
+X		$buffer .= ',' . $Header{'Cc'} if $Header{'Cc'};
+X		$recipient = '';
+X		undef %seen;
+X		while ($buffer =~ s/^(.*),(.*)/$1/) {
+X			$address = (&parse_address($2))[0];
+X			unless ($seen{$address}++) {
+X				$recipient .= ', ' if $recipient;
+X				$recipient .= $address;
+X			}
+X		}
+X		$address = (&parse_address($buffer))[0];
+X		unless ($seen{$address}++) {
+X			$recipient .= ', ' if $recipient;
+X			$recipient .= $address;
+X		}
+X		unless (-f $_) {
+X			&add_log("WARNING unable to stat $_");
+X			next;
+X		}
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X			$atime,$mtime,$ctime,$blksize,$blocks) = stat(_);
+X		$status = '';
+X		# If file has 'mbox.' as part of its name, then it is an emergency
+X		# saving done by the mailagent. If it starts with 'logname', then it
+X		# is an emergency saving done by the filter.
+X		$file =~ s/^mbox\.// && ($status = 'Backup');
+X		$file =~ s/^$cf'user\.// && ($status = 'Backup');
+X		if ($file =~ /^qm/ && (time - $mtime) < 1800) {
+X			# Queue mails starting with 'qm' have been queued by the filter
+X			# program. To avoid race conditions, those mails are skipped for
+X			# half an hour (cf to pqueue subroutine).
+X			$status = 'Skipped' unless $status;		# Filter queued mail
+X		} else {
+X			# Processing of mail allowed (mailagent -q would flush it)
+X			$status = 'Deferred' unless $status;
+X		}
+X		($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+X			localtime($mtime);
+X		$queued = sprintf("%.2d/%.2d-%.2d:%.2d", ++$mon,$mday,$hour,$min);
+X		$queued = 'Now' if (time - $mtime) < 60;
+X		$star = '';
+X		$star = '*' if $directory ne $cf'queue;	# Spot out-of-queue mails
+X		if ((time - $mtime) > 86400) {			# Also spot old mails
+X			$star = '#';
+X			$star = '@' if $directory ne $cf'queue;
+X		}
+X		write(STDOUT);
+X	}
+X}
+X
+END_OF_FILE
+  if test 5316 -ne `wc -c <'agent/pl/listqueue.pl'`; then
+    echo shar: \"'agent/pl/listqueue.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/listqueue.pl'
+fi
+if test -f 'agent/pl/runcmd.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/runcmd.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/runcmd.pl'\" \(10178 characters\)
+  sed "s/^X//" >'agent/pl/runcmd.pl' <<'END_OF_FILE'
+X;# $Id: runcmd.pl,v 3.0 1993/11/29 13:49:15 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: runcmd.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:15  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# Execute the action enclosed in braces. The current working mode 'wmode' is
+X;# a local variable defined in analyze_mail. But this variable is visible when
+X;# 'xeqte' is called from within it. Thanks perl.
+X;#
+X;# The following commands are available (case is irrelevent):
+X;#  ABORT                    Aborts filtering right away
+X;#  ANNOTATE field <value>   Annotation in header a la MH
+X;#  APPLY rulefile           Apply an alternate rule file on message
+X;#  ASSIGN var <value>       Assign value to the user-defined variable
+X;#  BACK <cmd>               Execute <cmd> and eval its output
+X;#  BEGIN state              Enter in a new state for analysis
+X;#  BOUNCE address(es)       As FORWARD but leave header intact
+X;#  DELETE                   Trash the mail away
+X;#  FEED program             Same as PASS, but the whole message is given
+X;#  FORWARD address(es)      Forwards mail to specified addresses
+X;#  GIVE program             Give the body of the message to a program
+X;#  KEEP header(s)           Lists the header fields we want to keep
+X;#  LEAVE                    Leave mail in incomming mailbox
+X;#  MACRO name = (val, type) Define a user macro
+X;#  MESSAGE vacation         Sends a vacation-like message back
+X;#  NOP                      No operation (useful only with ONCE)
+X;#  NOTIFY address message   Notifies address with a given message
+X;#  ONCE (period) <cmd>      Executes any other single command once per period
+X;#  PASS program             Pass body to program and get new body back
+X;#  PERL script              Run script to perform some filtering actions
+X;#  PIPE program             Pipes message to program
+X;#  POST newsgroup(s)        Post message on specified newsgroups
+X;#  PROCESS                  The mailagent processes the commands in body
+X;#  PURIFY program           Feed header to program and get new header back
+X;#  QUEUE                    Queue mail (counts as save if successful)
+X;#  RECORD                   Record message and REJECT in seen mode if present
+X;#  REJECT                   Abort execution and continue analysis
+X;#  REQUIRE file [package]   Load perl code from file
+X;#  RESTART                  Abort execution and restart analysis from scratch
+X;#  RESYNC                   Resynchronize header (useful only with FEED)
+X;#  RUN program              Run the specified program
+X;#  SAVE folder              Saves mail in folder for delayed reading
+X;#  SELECT (when) <cmd>      Run command only within certain time period
+X;#  SERVER                   Process server commands
+X;#  SPLIT folder             Split digest message into folder
+X;#  STORE folder             Same as SAVE folder; LEAVE
+X;#  STRIP header(s)          Removes the lines from the message's header
+X;#  SUBST var //             Apply a substitution on variable
+X;#  TR var //                Apply a translation on variable
+X;#  UNIQUE                   Delete message if already in history and REJECT
+X;#  VACATION on/off          Allow/disallow vacation messages
+X;#  WRITE folder             Writes mail in folder (replaces, does not append)
+X
+X# Split the commands and execute them. This function is the main entry point
+X# for nesting level (e.g. execution of commands from BACK are driven by xeqte).
+X# We wish to keep track of the execution status of the last command, as does
+X# the shell with its $? variable. This is done by $lastcmd.
+Xsub xeqte {
+X	local($line) = shift(@_);		# Commands to execute
+X	local(@cmd);					# The commands to be ran
+X	local($status) = $FT_CONT;		# Status returned by run_command
+X	local($lastcmd) = 0;			# Failure status from last command
+X	local($_);
+X
+X	# Normally, a ';' separates each action. However, an escaped one as in \;
+X	# must not be taken into account. We also need to escape a single \, in
+X	# case we want a \ followed by a ; grr...
+X	$line =~ s/\\\\/\02/g;			# \\ -> ^B
+X	$line =~ s/\\;/\01/g;			# \; -> ^A
+X	@cmd = split(/;/, $line);		# Put all commands in an array
+X	foreach (@cmd) {				# Now restore orginal escaped sequences
+X		s/\01/;/g;					# ^A -> ;
+X		s/\02/\\/g;					# ^B -> \
+X	}
+X
+X	# Now run each command in turn
+X	foreach $cmd (@cmd) {
+X		$status = &run_command($cmd);
+X		last unless $status == $FT_CONT;
+X	}
+X
+X	# Remap $FT_ABORT on $FT_CONT. In effect, we just skipped the remaining
+X	# commands on the line and act as if they had been executed. This indeed
+X	# achieves the ABORT command.
+X	$status = $FT_CONT if $status == $FT_ABORT;
+X	$status;
+X}
+X
+X# Executes a filter command and return continuing status:
+X#  FT_CONT to continue
+X#  FT_REJECT if a reject was found
+X#  FT_RESTART if a restart was found
+X#  FT_ABORT if an abort was found
+Xsub run_command {
+X	local($cmd) = @_;				# Command to be run (passed to subroutines)
+X	local($cmd_name);				# Command name
+X	local($cont) = $FT_CONT;		# Continue by default
+X	local($mfile) = $file_name =~ m|.*/(.*)|;	# Basename of mail file
+X	$mfile = $file_name unless $mfile;			# There was no / in name
+X	$mfile = '<stdin>' unless $mfile;			# No $file_name if from STDIN
+X	&macros_subst(*cmd);			# Macros substitutions
+X	$cmd =~ s/^\s*//;				# Remove leading spaces
+X	$cmd =~ s/\s*$//;				# And trailing ones
+X	return $cont unless $cmd;		# Ignore null instructions
+X	($cmd_name) = $cmd =~ /^(\w+)/;
+X	$cmd_name =~ tr/a-z/A-Z/;		# In uppercase from now on
+X	# In the special mode _SEEN_, only a restricted set of action are allowed
+X	if ($wmode eq '_SEEN_') {
+X		if ($Rfilter{$cmd_name}) {
+X			&add_log("WARNING command $cmd_name not allowed") if $loglvl > 5;
+X			return $cont;
+X		}
+X	}
+X	&add_log("XEQ ($cmd)") if $loglvl > 10;
+X	print ">> $cmd\n" if $track_all;		# Option -t
+X	local($routine) = $Filter{$cmd_name};
+X	# Unknown commands default to LEAVE if no save have ever been done.
+X	# Otherwise, they are simply ignored.
+X	unless ($routine) {
+X		local($what) = 'defaults to LEAVE';
+X		$what = 'ignored' if $ever_saved;
+X		&add_log("ERROR unknown command $cmd_name ($what)")
+X			if $loglvl > 1;
+X		$routine = $Filter{'LEAVE'};		# Default action
+X		return $cont if $ever_saved;		# Command ignored
+X	}
+X	local($failed) = eval("&$routine");		# Eval traps all fatal errors
+X	$failed = 1 if &eval_error;				# Make sure eval worked
+X
+X	# If command does not belong to the set of those who do not modify the
+X	# last execution status recorded, then update $lastcmd with the failure
+X	# status.
+X	$lastcmd = $failed unless $Nostatus{$cmd_name};
+X
+X	# Update statistics
+X	unless ($failed) {
+X		&s_action($cmd_name, $wmode);
+X	} else {
+X		&s_failed($cmd_name, $wmode);
+X	}
+X	$cont;				# Continue status
+X}
+X
+X# Each filter command is handled by a specific function. The Filter array
+X# maps an action name to a subroutine, while the Rfilter array lists the
+X# authorized actions in the special mode _SEEN_ (used when a mail already
+X# filtered is processed).
+X# The %Nostatus array records the commands which do not modify the execution
+X# status recorded by the last command. Typically, those are commands which can
+X# never fail.
+Xsub init_filter {
+X	%Filter = (
+X		'ABORT', 'run_abort',		# Aborts application of filtering rules
+X		'ANNOTATE', 'run_annotate',	# Add new field into header
+X		'APPLY', 'run_apply',		# Apply alternate rule file on message
+X		'ASSIGN', 'run_assign',		# Assign value to variable
+X		'BACK', 'run_back',			# Eval feedback
+X		'BEGIN', 'run_begin',		# Enter in a new state
+X		'BOUNCE', 'run_bounce',		# Bounce message
+X		'DELETE', 'run_delete',		# Throw mail away, explicitely
+X		'FEED', 'run_feed',			# Feed back mail through program
+X		'FORWARD', 'run_forward',	# Forward mail
+X		'GIVE', 'run_give',			# Give body to command
+X		'KEEP', 'run_keep',			# Keep only the listed header fields
+X		'LEAVE', 'run_leave',		# Saving in incomming mailbox
+X		'MACRO', 'run_macro',		# Define a user macro
+X		'MESSAGE', 'run_message',	# Send a vacation-like file
+X		'NOP', 'run_nop',			# No operation
+X		'NOTIFY', 'run_notify',		# Notify reception of message
+X		'ONCE', 'run_once',			# Once control
+X		'PASS', 'run_pass',			# Pass body to program with feedback
+X		'PERL', 'run_perl',			# Perform actions from within a perl script
+X		'PIPE', 'run_pipe',			# Pipe message to specified command
+X		'POST', 'run_post',			# Post mail to the net
+X		'PROCESS', 'run_process',	# Mailagent processing
+X		'PURIFY', 'run_purify',		# Purify header through a program
+X		'QUEUE', 'run_queue',		# Queue mail
+X		'RECORD', 'run_record',		# Record message in history
+X		'REJECT', 'run_reject',		# Reject
+X		'REQUIRE', 'run_require',	# Load perl code
+X		'RESTART', 'run_restart',	# Restart
+X		'RESYNC', 'run_resync',		# Resynchronizes the header
+X		'RUN', 'run_run',			# Run specified program
+X		'SAVE', 'run_save',			# Save in a folder
+X		'SELECT', 'run_select',		# Time selection control
+X		'SERVER', 'run_server',		# Server processing
+X		'SPLIT', 'run_split',		# Split digest message
+X		'STORE', 'run_store',		# Save and leave copy in mailbox
+X		'STRIP', 'run_strip',		# Strip some header lines
+X		'SUBST', 'run_subst',		# Substitution on variable
+X		'TR', 'run_tr',				# Translation on variable
+X		'UNIQUE', 'run_unique',		# Delete message if already in history
+X		'VACATION', 'run_vacation',	# Allow or forbid vacation messages
+X		'WRITE', 'run_write',		# Write mail in folder
+X	);
+X	# Restricted filter actions: the commands listed below cannot be
+X	# executed in the special seen mode (in order to avoid loops).
+X	%Rfilter = (
+X		'BACK', 1,
+X		'BOUNCE', 1,
+X		'FEED', 1,
+X		'FORWARD', 1,
+X		'GIVE', 1,
+X		'NOTIFY', 1,
+X		'PASS', 1,
+X		'PIPE', 1,
+X		'POST', 1,
+X		'PURIFY', 1,
+X		'QUEUE', 1,
+X		'RUN', 1,
+X	);
+X	# The following commands do not modify the last status recorded.
+X	%Nostatus = (
+X		'ABORT', 1,
+X		'ASSIGN', 1,
+X		'BEGIN', 1,
+X		'KEEP', 1,
+X		'MACRO', 1,
+X		'NOP', 1,
+X		'REJECT', 1,
+X		'RESTART', 1,
+X		'RESYNC', 1,
+X		'STRIP', 1,
+X		'VACATION', 1,
+X	);
+X}
+X
+END_OF_FILE
+  if test 10178 -ne `wc -c <'agent/pl/runcmd.pl'`; then
+    echo shar: \"'agent/pl/runcmd.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/runcmd.pl'
+fi
+if test -f 'config_h.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config_h.SH'\"
+else
+  echo shar: Extracting \"'config_h.SH'\" \(10622 characters\)
+  sed "s/^X//" >'config_h.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting config.h (with variable substitutions)"
+Xsed <<!GROK!THIS! >config.h -e 's!^#undef!/\*#define!' -e 's!^#un-def!#undef!'
+X/*
+X * This file was produced by running the config_h.SH script, which
+X * gets its values from config.sh, which is generally produced by
+X * running Configure.
+X *
+X * Feel free to modify any of this as the need arises.  Note, however,
+X * that running config.h.SH again will wipe out any changes you've made.
+X * For a more permanent change edit config.sh and rerun config.h.SH.
+X *
+X * \$Id: config_h.SH,v 3.0 1993/11/29 13:50:28 ram Exp ram $
+X */
+X
+X/* Configuration time: $cf_time
+X * Configured by: $cf_by
+X * Target system: $myuname
+X */
+X
+X#ifndef _config_h_
+X#define _config_h_
+X
+X/* HAS_BCOPY:
+X *	This symbol is defined if the bcopy() routine is available to
+X *	copy blocks of memory.
+X */
+X#$d_bcopy HAS_BCOPY	/**/
+X
+X/* HAS_GETHOSTNAME:
+X *	This symbol, if defined, indicates that the C program may use the
+X *	gethostname() routine to derive the host name.  See also HAS_UNAME
+X *	and PHOSTNAME.
+X */
+X/* HAS_UNAME:
+X *	This symbol, if defined, indicates that the C program may use the
+X *	uname() routine to derive the host name.  See also HAS_GETHOSTNAME
+X *	and PHOSTNAME.
+X */
+X/* PHOSTNAME:
+X *	This symbol, if defined, indicates that the C program may use the
+X *	contents of PHOSTNAME as a command to feed to the popen() routine
+X *	to derive the host name.  See also HAS_GETHOSTNAME and HAS_UNAME.
+X *	Note that the command uses a fully qualified path, so that it is safe
+X *	even if used by a process with super-user privileges.
+X */
+X#$d_gethname HAS_GETHOSTNAME	/**/
+X#$d_uname HAS_UNAME		/**/
+X#$d_phostname PHOSTNAME "$aphostname"	/* How to get the host name */
+X
+X/* HAS_RENAME:
+X *	This symbol, if defined, indicates that the rename routine is available
+X *	to rename files.  Otherwise you should do the unlink(), link(), unlink()
+X *	trick.
+X */
+X#$d_rename HAS_RENAME	/**/
+X
+X/* HAS_INDEX:
+X *	This symbol is defined to indicate that the index()/rindex()
+X *	functions are available for string searching.
+X */
+X#$d_index HAS_INDEX	/**/
+X
+X/* HAS_STRERROR:
+X *	This symbol, if defined, indicates that the strerror routine is
+X *	available to translate error numbers to strings.
+X */
+X/* HAS_SYS_ERRLIST:
+X *	This symbol, if defined, indicates that the sys_errlist array is
+X *	available to translate error numbers to strings. The extern int
+X *	sys_nerr gives the size of that table.
+X */
+X/* HAS_SYS_ERRNOLIST:
+X *	This symbol, if defined, indicates that the sys_errnolist array is
+X *	available to translate an errno code into its symbolic name (e.g.
+X * ENOENT). The extern int sys_nerrno gives the size of that table.
+X */
+X/* strerror:
+X *	This preprocessor symbol is defined as a macro if strerror() is
+X *	not available to translate error numbers to strings but sys_errlist[]
+X *	array is there.
+X */
+X#$d_strerror HAS_STRERROR		/**/
+X#$d_syserrlst HAS_SYS_ERRLIST	/**/
+X#$d_sysernlst HAS_SYS_ERRNOLIST	/**/
+X#$d_strerrm strerror(e) ((e)<0||(e)>=sys_nerr?"unknown":sys_errlist[e]) /**/
+X
+X/* Time_t:
+X *	This symbol holds the type returned by time(). It can be long,
+X *	or time_t on BSD sites (in which case <sys/types.h> should be
+X *	included).
+X */
+X#define Time_t $timetype		/* Time type */
+X
+X/* UNION_WAIT:
+X *	This symbol if defined indicates to the C program that the argument
+X *	for the wait() system call should be declared as 'union wait status'
+X *	instead of 'int status'. You probably need to include <sys/wait.h>
+X *	in the former case (see I_SYSWAIT).
+X */
+X#$d_uwait UNION_WAIT		/**/
+X
+X/* HAS_VFORK:
+X *	This symbol, if defined, indicates that vfork() exists.
+X */
+X#$d_vfork HAS_VFORK	/**/
+X
+X/* Signal_t:
+X *	This symbol's value is either "void" or "int", corresponding to the
+X *	appropriate return type of a signal handler.  Thus, you can declare
+X *	a signal handler using "Signal_t (*handler)()", and define the
+X *	handler using "Signal_t handler(sig)".
+X */
+X#define Signal_t $signal_t	/* Signal handler's return type */
+X
+X/* I_FCNTL:
+X *	This manifest constant tells the C program to include <fcntl.h>.
+X */
+X#$i_fcntl I_FCNTL	/**/
+X
+X/* I_STRING:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <string.h> (USG systems) instead of <strings.h> (BSD systems).
+X */
+X#$i_string I_STRING		/**/
+X
+X/* I_SYS_FILE:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <sys/file.h> to get definition of R_OK and friends.
+X */
+X#$i_sysfile I_SYS_FILE		/**/
+X
+X/* I_SYS_WAIT:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <sys/wait.h>.
+X */
+X#$i_syswait I_SYS_WAIT	/**/
+X
+X/* I_TIME:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <time.h>.
+X */
+X/* I_SYS_TIME:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <sys/time.h>.
+X */
+X/* I_SYS_TIME_KERNEL:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <sys/time.h> with KERNEL defined.
+X */
+X#$i_time I_TIME		/**/
+X#$i_systime I_SYS_TIME		/**/
+X#$i_systimek I_SYS_TIME_KERNEL		/**/
+X
+X/* INTSIZE:
+X *	This symbol contains the size of an int, so that the C preprocessor
+X *	can make decisions based on it.
+X */
+X#define INTSIZE $intsize		/**/
+X
+X/* MYHOSTNAME:
+X *	This symbol contains name of the host the program is going to run on.
+X *	The domain is not kept with hostname, but must be gotten from MYDOMAIN.
+X *	The dot comes with MYDOMAIN, and need not be supplied by the program.
+X *	If gethostname() or uname() exist, MYHOSTNAME may be ignored. If MYDOMAIN
+X *	is not used, MYHOSTNAME will hold the name derived from PHOSTNAME.
+X */
+X#define MYHOSTNAME "$myhostname"		/**/
+X
+X/* PERLPATH:
+X *	This symbol contains the absolute location of the perl interpeter.
+X */
+X#define PERLPATH "$perlpath"		/**/
+X
+X/* Pid_t:
+X *	This symbol holds the type used to declare process ids in the kernel.
+X *	It can be int, uint, pid_t, etc... It may be necessary to include
+X *	<sys/types.h> to get any typedef'ed information.
+X */
+X#define Pid_t $pidtype		/* PID type */
+X
+X/* CAN_PROTOTYPE:
+X *	If defined, this macro indicates that the C compiler can handle
+X *	function prototypes.
+X */
+X/* DOTS:
+X *	This macro is used to specify the ... in function prototypes which
+X *	have arbitrary additional arguments.
+X */
+X/* NXT_ARG:
+X *	This macro is used to separate arguments in the declared argument list.
+X */
+X/* P_FUNC:
+X *	This macro is used to declare "private" (static) functions.
+X *	It takes three arguments: the function type and name, a parenthesized
+X *	traditional (comma separated) argument list, and the declared argument
+X *	list (in which arguments are separated with NXT_ARG, and additional
+X *	arbitrary arguments are specified with DOTS).  For example:
+X *
+X *		P_FUNC(int foo, (bar, baz), int bar NXT_ARG char *baz[])
+X */
+X/* P_FUNC_VOID:
+X *	This macro is used to declare "private" (static) functions that have
+X *	no arguments.  The macro takes one argument: the function type and name.
+X *	For example:
+X *
+X *		P_FUNC_VOID(int subr)
+X */
+X/* V_FUNC:
+X *	This macro is used to declare "public" (non-static) functions.
+X *	It takes three arguments: the function type and name, a parenthesized
+X *	traditional (comma separated) argument list, and the declared argument
+X *	list (in which arguments are separated with NXT_ARG, and additional
+X *	arbitrary arguments are specified with DOTS).  For example:
+X *
+X *		V_FUNC(int main, (argc, argv), int argc NXT_ARG char *argv[])
+X */
+X/* V_FUNC_VOID:
+X *	This macro is used to declare "public" (non-static) functions that have
+X *	no arguments.  The macro takes one argument: the function type and name.
+X *	For example:
+X *
+X *		V_FUNC_VOID(int fork)
+X */
+X/* _:
+X *	This macro is used to declare function parameters for folks who want
+X *	to make declarations with prototypes using a different style than
+X *	the above macros.  Use double parentheses.  For example:
+X *
+X *		int main _((int argc, char *argv[]));
+X */
+X#$prototype	CAN_PROTOTYPE	/**/
+X#ifdef CAN_PROTOTYPE
+X#define	NXT_ARG ,
+X#define	DOTS , ...
+X#define	V_FUNC(name, arglist, args)name(args)
+X#define	P_FUNC(name, arglist, args)static name(args)
+X#define	V_FUNC_VOID(name)name(void)
+X#define	P_FUNC_VOID(name)static name(void)
+X#define	_(args) args
+X#else
+X#define	NXT_ARG ;
+X#define	DOTS
+X#define	V_FUNC(name, arglist, args)name arglist args;
+X#define	P_FUNC(name, arglist, args)static name arglist args;
+X#define	V_FUNC_VOID(name)name()
+X#define	P_FUNC_VOID(name)static name()
+X#define	_(args) ()
+X#endif
+X
+X/* register1:
+X *	This symbol, along with register2, register3, etc. is either the word
+X *	"register" or null, depending on whether the C compiler pays attention
+X *	to this many register declarations.  The intent is that you don't have
+X *	to order your register declarations in the order of importance, so you
+X *	can freely declare register variables in sub-blocks of code and as
+X *	function parameters.  Do not use register<n> more than once per routine.
+X */
+X#define register1 $reg1		/**/
+X#define register2 $reg2		/**/
+X#define register3 $reg3		/**/
+X#define register4 $reg4		/**/
+X#define register5 $reg5		/**/
+X#define register6 $reg6		/**/
+X
+X/* Uid_t:
+X *	This symbol holds the type used to declare user ids in the kernel.
+X *	It can be int, ushort, uid_t, etc... It may be necessary to include
+X *	<sys/types.h> to get any typedef'ed information.
+X */
+X#define Uid_t $uidtype		/* UID type */
+X
+X/* VOIDFLAGS:
+X *	This symbol indicates how much support of the void type is given by this
+X *	compiler.  What various bits mean:
+X *
+X *	    1 = supports declaration of void
+X *	    2 = supports arrays of pointers to functions returning void
+X *	    4 = supports comparisons between pointers to void functions and
+X *		    addresses of void functions
+X *	    8 = suports declaration of generic void pointers
+X *
+X *	The package designer should define VOIDUSED to indicate the requirements
+X *	of the package.  This can be done either by #defining VOIDUSED before
+X *	including config.h, or by defining defvoidused in Myinit.U.  If the
+X *	latter approach is taken, only those flags will be tested.  If the
+X *	level of void support necessary is not present, defines void to int.
+X */
+X#ifndef VOIDUSED
+X#define VOIDUSED $defvoidused
+X#endif
+X#define VOIDFLAGS $voidflags
+X#if (VOIDFLAGS & VOIDUSED) != VOIDUSED
+X#define void int		/* is void to be avoided? */
+X#define M_VOID			/* Xenix strikes again */
+X#endif
+X
+X#endif
+X!GROK!THIS!
+END_OF_FILE
+  if test 10622 -ne `wc -c <'config_h.SH'`; then
+    echo shar: \"'config_h.SH'\" unpacked with wrong size!
+  fi
+  # end of 'config_h.SH'
+fi
+echo shar: End of archive 13 \(of 26\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

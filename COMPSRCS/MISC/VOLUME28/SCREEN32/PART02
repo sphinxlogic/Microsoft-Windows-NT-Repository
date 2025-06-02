@@ -1,0 +1,2467 @@
+Newsgroups: comp.sources.misc
+From: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Subject:  v28i019:  screen-3.2 - multiple windows on an ASCII terminal, v3.2, Part02/11
+Message-ID: <1992Feb9.223428.6445@sparky.imd.sterling.com>
+X-Md4-Signature: 5e2152902254e1043a419a4454675f32
+Date: Sun, 9 Feb 1992 22:34:28 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Posting-number: Volume 28, Issue 19
+Archive-name: screen-3.2/part02
+Environment: UNIX
+
+#!/bin/sh
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file screen3.2/ansi.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping screen3.2/ansi.c'
+else
+echo 'x - continuing file screen3.2/ansi.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'screen3.2/ansi.c' &&
+X    x--;
+X  while (x > 0 && !curr->tabs[x])
+X    x--;
+X  GotoPos(x, curr->y);
+X  curr->x = x;
+}
+X
+static void ClearScreen()
+{
+X  register int i;
+X  register char **ppi = curr->image, **ppa = curr->attr, **ppf = curr->font;
+X
+X  for (i = 0; i < rows; ++i)
+X    {
+X      AddLineToHist(curr, ppi, ppa, ppf);
+X      bclear(*ppi++, cols);
+X      bzero(*ppa++, cols);
+X      bzero(*ppf++, cols);
+X    }
+X  if (display)
+X    {
+X      PutStr(CL);
+X      screenx = screeny = 0;
+X      lp_missing = 0;
+X    }
+}
+X
+static void ClearFromBOS()
+{
+X  register int n, y = curr->y, x = curr->x;
+X
+X  for (n = 0; n < y; ++n)
+X    ClearInLine(1, n, 0, cols - 1);
+X  ClearInLine(1, y, 0, x);
+X  GotoPos(x, y);
+X  RestoreAttr();
+}
+X
+static void ClearToEOS()
+{
+X  register int n, y = curr->y, x = curr->x;
+X
+X  if (!y && !x)
+X    {
+X      ClearScreen();
+X      return;
+X    }
+X  if (display && CD)
+X    {
+X      PutStr(CD);
+X      lp_missing = 0;
+X    }
+X  ClearInLine(!CD, y, x, cols - 1);
+X  for (n = y + 1; n < rows; n++)
+X    ClearInLine(!CD, n, 0, cols - 1);
+X  GotoPos(x, y);
+X  RestoreAttr();
+}
+X
+static void ClearLine()
+{
+X  register int y = curr->y, x = curr->x;
+X
+X  ClearInLine(1, y, 0, cols - 1);
+X  GotoPos(x, y);
+X  RestoreAttr();
+}
+X
+static void ClearToEOL()
+{
+X  register int y = curr->y, x = curr->x;
+X
+X  ClearInLine(1, y, x, cols - 1);
+X  GotoPos(x, y);
+X  RestoreAttr();
+}
+X
+static void ClearFromBOL()
+{
+X  register int y = curr->y, x = curr->x;
+X
+X  ClearInLine(1, y, 0, x);
+X  GotoPos(x, y);
+X  RestoreAttr();
+}
+X
+static void ClearInLine(displ, y, x1, x2)
+int displ, y, x1, x2;
+{
+X  register int n;
+X
+X  if (x1 == cols)
+X    x1--;
+X  if (x2 == cols)
+X    x2--;
+X  if ((n = x2 - x1 + 1) != 0)
+X    {
+X      if (displ && display)
+X	{
+X	  if (x2 == cols - 1 && CE)
+X	    {
+X	      GotoPos(x1, y);
+X	      PutStr(CE);
+X	      if (y == screenbot)
+X		lp_missing = 0;
+X	    }
+X	  else
+X	    DisplayLine(curr->image[y], curr->attr[y], curr->font[y],
+X			blank, null, null, y, x1, x2);
+X	}
+X      if (curr)
+X	{
+X          bclear(curr->image[y] + x1, n);
+X          bzero(curr->attr[y] + x1, n);
+X          bzero(curr->font[y] + x1, n);
+X	}
+X    }
+}
+X
+static void CursorRight(n)
+register int n;
+{
+X  register int x = curr->x;
+X
+X  if (x == cols)
+X    {
+X      LineFeed(2);
+X      x = 0;
+X    }
+X  if ((curr->x += n) >= cols)
+X    curr->x = cols - 1;
+X  GotoPos(curr->x, curr->y);
+}
+X
+static void CursorUp(n)
+register int n;
+{
+X  if (curr->y < curr->top)		/* if above scrolling rgn, */
+X    {
+X      if ((curr->y -= n) < 0)		/* ignore its limits      */
+X         curr->y = 0;
+X    }
+X  else
+X    if ((curr->y -= n) < curr->top)
+X      curr->y = curr->top;
+X  GotoPos(curr->x, curr->y);
+}
+X
+static void CursorDown(n)
+register int n;
+{
+X  if (curr->y > curr->bot)		/* if below scrolling rgn, */
+X    {
+X      if ((curr->y += n) > rows - 1)	/* ignore its limits      */
+X        curr->y = rows - 1;
+X    }
+X  else
+X    if ((curr->y += n) > curr->bot)
+X      curr->y = curr->bot;
+X  GotoPos(curr->x, curr->y);
+}
+X
+static void CursorLeft(n)
+register int n;
+{
+X  if ((curr->x -= n) < 0)
+X    curr->x = 0;
+X  GotoPos(curr->x, curr->y);
+}
+X
+static void ASetMode(on)
+int on;
+{
+X  register int i;
+X
+X  for (i = 0; i < curr->NumArgs; ++i)
+X    {
+X      switch (curr->args[i])
+X	{
+X	case 4:
+X	  curr->insert = on;
+X	  InsertMode(on);
+X	  break;
+X	}
+X    }
+}
+X
+static void SelectRendition()
+{
+X  register int i = 0, a = curr->LocalAttr;
+X
+X  do
+X    {
+X      switch (curr->args[i])
+X	{
+X	case 0:
+X	  a = 0;
+X	  break;
+X	case 1:
+X	  a |= A_BD;
+X	  break;
+X	case 2:
+X	  a |= A_DI;
+X	  break;
+X	case 3:
+X	  a |= A_SO;
+X	  break;
+X	case 4:
+X	  a |= A_US;
+X	  break;
+X	case 5:
+X	  a |= A_BL;
+X	  break;
+X	case 7:
+X	  a |= A_RV;
+X	  break;
+X	case 22:
+X	  a &= ~(A_BD | A_SO | A_DI);
+X	  break;
+X	case 23:
+X	  a &= ~A_SO;
+X	  break;
+X	case 24:
+X	  a &= ~A_US;
+X	  break;
+X	case 25:
+X	  a &= ~A_BL;
+X	  break;
+X	case 27:
+X	  a &= ~A_RV;
+X	  break;
+X	}
+X    } while (++i < curr->NumArgs);
+X  NewRendition(curr->LocalAttr = a);
+}
+X
+void
+NewRendition(new)
+register int new;
+{
+X  register int i, old = GlobalAttr;
+X
+X  if (!display || old == new)
+X    return;
+X  GlobalAttr = new;
+X  for (i = 1; i <= A_MAX; i <<= 1)
+X    {
+X      if ((old & i) && !(new & i))
+X	{
+X	  PutStr(UE);
+X	  PutStr(SE);
+X	  PutStr(ME);
+X	  if (new & A_DI)
+X	    PutStr(attrtab[ATTR_DI]);
+X	  if (new & A_US)
+X	    PutStr(attrtab[ATTR_US]);
+X	  if (new & A_BD)
+X	    PutStr(attrtab[ATTR_BD]);
+X	  if (new & A_RV)
+X	    PutStr(attrtab[ATTR_RV]);
+X	  if (new & A_SO)
+X	    PutStr(attrtab[ATTR_SO]);
+X	  if (new & A_BL)
+X	    PutStr(attrtab[ATTR_BL]);
+X	  return;
+X	}
+X    }
+X  if ((new & A_DI) && !(old & A_DI))
+X    PutStr(attrtab[ATTR_DI]);
+X  if ((new & A_US) && !(old & A_US))
+X    PutStr(attrtab[ATTR_US]);
+X  if ((new & A_BD) && !(old & A_BD))
+X    PutStr(attrtab[ATTR_BD]);
+X  if ((new & A_RV) && !(old & A_RV))
+X    PutStr(attrtab[ATTR_RV]);
+X  if ((new & A_SO) && !(old & A_SO))
+X    PutStr(attrtab[ATTR_SO]);
+X  if ((new & A_BL) && !(old & A_BL))
+X    PutStr(attrtab[ATTR_BL]);
+}
+X
+void
+SaveSetAttr(newattr, newcharset)
+int newattr, newcharset;
+{
+X  NewRendition(newattr);
+X  NewCharset(newcharset);
+}
+X
+void
+RestoreAttr()
+{
+X  NewRendition(curr->LocalAttr);
+X  NewCharset(curr->charsets[curr->LocalCharset]);
+}
+X
+static void FillWithEs()
+{
+X  register int i;
+X  register char *p, *ep;
+X
+X  curr->y = curr->x = 0;
+X  for (i = 0; i < rows; ++i)
+X    {
+X      bzero(curr->attr[i], cols);
+X      bzero(curr->font[i], cols);
+X      p = curr->image[i];
+X      ep = p + cols;
+X      while (p < ep)
+X	*p++ = 'E';
+X    }
+X  if (display)
+X    Redisplay(0);
+}
+X
+/*
+X * if cur_only, we only redisplay current line, as a full refresh is
+X * too expensive.
+X */
+void Redisplay(cur_only)
+int cur_only;
+{
+X  register int i, stop;
+X
+X  PutStr(CL);
+X  screenx = screeny = 0;
+X  lp_missing = 0;
+X  stop = rows; i = 0;
+X  if (cur_only)
+X    {
+X      i = stop = curr->y;
+X      stop++;
+X    }
+X  for (; i < stop; ++i)
+X    {
+X      if (in_ovl)
+X	(*ovl_RedisplayLine)(i, 0, cols - 1, 1);
+X      else
+X        DisplayLine(blank, null, null, curr->image[i], curr->attr[i],
+X		    curr->font[i], i, 0, cols - 1);
+X    }
+X  if (!in_ovl)
+X    {
+X      GotoPos(curr->x, curr->y);
+X      NewRendition(curr->LocalAttr);
+X      NewCharset(curr->charsets[curr->LocalCharset]);
+X    }
+}
+X
+void
+DisplayLine(os, oa, of, s, as, fs, y, from, to)
+int from, to, y;
+register char *os, *oa, *of, *s, *as, *fs;
+{
+X  register int x;
+X  int last2flag = 0, delete_lp = 0;
+X
+X  if (!LP && y == screenbot && to == cols - 1)
+X    if (lp_missing
+X	|| s[to] != os[to] || as[to] != oa[to] || of[to] != fs[to])
+X      {
+X	if ((IC || IM) && (from < to || !in_ovl))
+X	  {
+X	    if ((to -= 2) < from - 1)
+X	      from--;
+X	    last2flag = 1;
+X	    lp_missing = 0;
+X	  }
+X	else
+X	  {
+X	    to--;
+X	    delete_lp = (CE || DC || CDC);
+X	    lp_missing = (s[to] != ' ' || as[to] || fs[to]);
+X	  }
+X      }
+X    else
+X      to--;
+X  for (x = from; x <= to; ++x)
+X    {
+X      if (s[x] == os[x] && as[x] == oa[x] && of[x] == fs[x])
+X	continue;
+X      GotoPos(x, y);
+X      NewRendition(as[x]);
+X      NewCharset(fs[x]);
+X      PUTCHAR(s[x]);
+X    }
+X  if (last2flag)
+X    {
+X      GotoPos(x, y);
+X      NewRendition(as[x + 1]);
+X      NewCharset(fs[x + 1]);
+X      PUTCHAR(s[x + 1]);
+X      GotoPos(x, y);
+X      NewRendition(as[x]);
+X      NewCharset(fs[x]);
+X      INSERTCHAR(s[x]);
+X    }
+X  else if (delete_lp)
+X    {
+X      if (DC)
+X	PutStr(DC);
+X      else if (CDC)
+X	CPutStr(CDC, 1);
+X      else if (CE)
+X	PutStr(CE);
+X    }
+}
+X
+void
+RefreshLine(y, from, to)
+int y, from, to;
+{
+X  char *oi = null;
+X
+X  if (CE && to == screenwidth-1)
+X    {
+X      GotoPos(from, y);
+X      PutStr(CE);
+X      oi = blank;
+X    }
+X  if (in_ovl)
+X    (*ovl_RedisplayLine)(y, from, to, (oi == blank));
+X  else
+X    DisplayLine(oi, null, null, curr->image[y], curr->attr[y],
+X                curr->font[y], y, from, to);
+}
+X
+static void RedisplayLine(os, oa, of, y, from, to)
+int from, to, y;
+char *os, *oa, *of;
+{
+X  DisplayLine(os, oa, of, curr->image[y], curr->attr[y],
+X	      curr->font[y], y, from, to);
+X  NewRendition(curr->LocalAttr);
+X  NewCharset(curr->charsets[curr->LocalCharset]);
+}
+X
+void
+FixLP(x2, y2)
+register int x2, y2;
+{
+X  register struct win *p = curr;
+X
+X  GotoPos(x2, y2);
+X  SaveSetAttr(p->attr[y2][x2], p->font[y2][x2]);
+X  PUTCHAR(p->image[y2][x2]);
+X  RestoreAttr();
+X  lp_missing = 0;
+}
+X
+void
+CheckLP(n_ch)
+char n_ch;
+{
+X  register int y = screenbot, x = cols - 1;
+X  register char n_at, n_fo, o_ch, o_at, o_fo;
+X
+X  o_ch = curr->image[y][x];
+X  o_at = curr->attr[y][x];
+X  o_fo = curr->font[y][x];
+X
+X  n_at = curr->LocalAttr;
+X  n_fo = curr->charsets[curr->LocalCharset];
+X
+X  lp_missing = 0;
+X  if (n_ch == o_ch && n_at == o_at && n_fo == o_fo)
+X    {
+X      return;
+X    }
+X  if (n_ch != ' ' || n_at || n_fo)
+X    lp_missing = 1;
+X  if (o_ch != ' ' || o_at || o_fo)
+X    {
+X      if (DC)
+X	PutStr(DC);
+X      else if (CDC)
+X	CPutStr(CDC, 1);
+X      else if (CE)
+X	PutStr(CE);
+X      else
+X	lp_missing = 1;
+X    }
+}
+X
+static void FindAKA()
+{
+X  register char *cp, *line, ch;
+X  register struct win *wp = curr;
+X  register int len = strlen(wp->cmd);
+X  int y;
+X
+X  y = (wp->autoaka > 0 && wp->autoaka <= wp->height) ? wp->autoaka - 1 : wp->y;
+X  cols = wp->width;
+X try_line:
+X  cp = line = wp->image[y];
+X  if (wp->autoaka > 0 && (ch = *wp->cmd) != '\0')
+X    {
+X      for (;;)
+X	{
+X	  if ((cp = index(cp, ch)) != NULL
+X	      && !strncmp(cp, wp->cmd, len))
+X	    break;
+X	  if (!cp || ++cp - line >= cols - len)
+X	    {
+X	      if (++y == wp->autoaka && y < rows)
+X		goto try_line;
+X	      return;
+X	    }
+X	}
+X      cp += len;
+X    }
+X  for (len = cols - (cp - line); len && *cp == ' '; len--, cp++)
+X    ;
+X  if (len)
+X    {
+X      if (wp->autoaka > 0 && (*cp == '!' || *cp == '%' || *cp == '^'))
+X	wp->autoaka = -1;
+X      else
+X	wp->autoaka = 0;
+X      line = wp->cmd + wp->akapos;
+X      while (len && *cp != ' ')
+X	{
+X	  if ((*line++ = *cp++) == '/')
+X	    line = wp->cmd + wp->akapos;
+X	  len--;
+X	}
+X      *line = '\0';
+X    }
+X  else
+X    wp->autoaka = 0;
+}
+X
+X
+/* We dont use HS status line with Input.
+X * If we would use it, then we should check e_tgetflag("es") if
+X * we are allowed to use esc sequences there.
+X * For now, we hope that Goto(,,STATLINE,0) brings us in the bottom
+X * line. jw.
+X */
+X
+static char inpbuf[101];
+static int inplen;
+static int inpmaxlen;
+static char *inpstring;
+static int inpstringlen;
+static void (*inpfinfunc)();
+X
+void
+Input(istr, len, finfunc)
+char *istr;
+int len;
+void (*finfunc)();
+{
+X  int maxlen;
+X
+X  inpstring = istr;
+X  inpstringlen = strlen(istr);
+X  if (len > 100)
+X    len = 100;
+X  maxlen = screenwidth - inpstringlen;
+X  if (!LP && STATLINE == screenbot)
+X    maxlen--;
+X  if (len > maxlen)
+X    len = maxlen;
+X  if (len < 2)
+X    {
+X      Msg(0, "Width too small");
+X      return;
+X    }
+X  inpmaxlen = len;
+X  inpfinfunc = finfunc;
+X  InitOverlayPage(process_inp_input, inpRedisplayLine, (int (*)())0, 1);
+X  inplen = 0;
+X  GotoPos(0, STATLINE);
+X  if (CE)
+X    PutStr(CE);
+X  else
+X    {
+X      DisplayLine(curr->image[screeny], curr->attr[screeny],
+X		  curr->font[screeny],
+X		  blank, null, null, screeny, 0, cols - 1);
+X    }
+X  inpRedisplayLine(STATLINE, 0, inpstringlen - 1, 0);
+X  GotoPos(inpstringlen, STATLINE);
+}
+X
+static void
+process_inp_input(ppbuf, plen)
+char **ppbuf;
+int *plen;
+{
+X  int len, x;
+X  char *pbuf;
+X  char ch;
+X
+X  if (ppbuf == 0)
+X    {
+X      AbortInp();
+X      return;
+X    }
+X  x = inpstringlen+inplen;
+X  len = *plen;
+X  pbuf = *ppbuf;
+X  while (len)
+X    {
+X      ch = *pbuf++;
+X      len--;
+X      if (ch >= ' ' && ch <= '~' && inplen < inpmaxlen)
+X	{
+X	  inpbuf[inplen++] = ch;
+X  	  GotoPos(x, STATLINE);
+X	  SaveSetAttr(A_SO, ASCII);
+X	  PUTCHAR(ch);
+X	  x++;
+X	}
+X      else if ((ch == '\b' || ch == 0177) && inplen > 0)
+X	{
+X	  inplen--;
+X	  x--;
+X  	  GotoPos(x, STATLINE);
+X	  SaveSetAttr(0, ASCII);
+X	  PUTCHAR(' ');
+X  	  GotoPos(x, STATLINE);
+X	}
+X      else if (ch == '\004' || ch == '\003' || ch == '\000' || ch == '\n' || ch == '\r')
+X	{
+X          if (ch != '\n' && ch != '\r')
+X	    inplen = 0;
+X	  inpbuf[inplen] = 0;
+X          AbortInp(); /* redisplays... */
+X          (*inpfinfunc)(inpbuf, inplen);
+X	  break;
+X	}
+X    }
+X  *ppbuf = pbuf;
+X  *plen = len;
+}
+X
+static void
+AbortInp()
+{
+X  in_ovl = 0;	/* So we can use RefreshLine() */
+X  RefreshLine(STATLINE, 0, screenwidth-1);
+X  ExitOverlayPage();
+}
+X
+static void
+inpRedisplayLine(y, xs, xe, isblank)
+int y, xs, xe, isblank;
+{
+X  int q, r, s, l, v;
+X
+X  if (y != STATLINE)
+X    return;
+X  inpbuf[inplen] = 0;
+X  GotoPos(xs,y);
+X  q = xs;
+X  v = xe - xs + 1;
+X  s = 0;
+X  r = inpstringlen;
+X  if (v > 0 && q < r)
+X    {
+X      SaveSetAttr(A_SO, ASCII);
+X      l = v;
+X      if (l > r-q)
+X	l = r-q;
+X      printf("%-*.*s", l, l, inpstring + q - s);
+X      q += l;
+X      v -= l;
+X    }
+X  s = r;
+X  r += inplen;
+X  if (v > 0 && q < r)
+X    {
+X      SaveSetAttr(A_SO, ASCII);
+X      l = v;
+X      if (l > r-q)
+X	l = r-q;
+X      printf("%-*.*s", l, l, inpbuf + q - s);
+X      q += l;
+X      v -= l;
+X    }
+X  s = r;
+X  r = screenwidth;
+X  if (!isblank && v > 0 && q < r)
+X    {
+X      SaveSetAttr(0, ASCII);
+X      l = v;
+X      if (l > r-q)
+X	l = r-q;
+X      printf("%-*.*s", l, l, "");
+X      q += l;
+X    }
+X  SetLastPos(q, y);
+}
+X
+static void
+AKAfin(buf, len)
+char *buf;
+int len;
+{
+X  if (len)
+X    {
+X      strcpy(curr->cmd + curr->akapos, buf);
+X    }
+}
+X
+void
+InputAKA()
+{
+X  void Input(), AKAfin();
+X
+X  Input("Set window's a.k.a. to: ", 20, AKAfin);
+}
+X
+static void
+Colonfin(buf, len)
+char *buf;
+int len;
+{
+X  if (len)
+X    RcLine(buf);
+}
+X
+void
+InputColon()
+{
+X  void Input(), Colonfin();
+X
+X  Input(":", 100, Colonfin);
+}
+X
+void
+MakeBlankLine(p, n)
+register char *p;
+register int n;
+{
+X  while (n--)
+X    *p++ = ' ';
+}
+X
+void
+MakeStatus(msg)
+char *msg;
+{
+X  register char *s, *t;
+X  register int max, ti;
+X
+X  SetCurr(fore);
+X  display = 1;
+X  if (!(max = HS))
+X    {
+X      max = !LP ? cols - 1 : cols;
+X    }
+X  if (status)
+X    {
+X      if (!BellDisplayed)
+X	{
+X	  ti = time((time_t *) 0) - TimeDisplayed;
+X	  if (ti < MsgMinWait)
+X	    sleep(MsgMinWait - ti);
+X	}
+X      RemoveStatus();
+X    }
+X  for (s = t = msg; *s && t - msg < max; ++s)
+X    if (*s == BELL)
+X      PutStr(BL);
+X    else if (*s >= ' ' && *s <= '~')
+X      *t++ = *s;
+X  *t = '\0';
+X  if (t > msg)
+X    {
+X      strncpy(LastMsg, msg, maxwidth);
+X      status = 1;
+X      status_lastx = screenx;
+X      status_lasty = screeny;
+X      StatLen = t - msg;
+X      if (!HS)
+X	{
+X	  GotoPos(0, STATLINE);
+X          SaveSetAttr(A_SO, ASCII);
+X	  InsertMode(0);
+X	  printf("%s", msg);
+X          screenx = -1;
+X	}
+X      else
+X	{
+X	  debug("HS:");
+X          SaveSetAttr(0, ASCII);
+X	  InsertMode(0);
+X	  CPutStr(TS, 0);
+X	  printf("%s", msg);
+X	  PutStr(FS);
+X	}
+X      (void) fflush(stdout);
+X      (void) time(&TimeDisplayed);
+X    }
+}
+X
+void
+RemoveStatus()
+{
+X  if (!status)
+X    return;
+X  status = 0;
+X  BellDisplayed = 0;
+X  SetCurr(fore);
+X  display = 1;
+X  if (!HS)
+X    {
+X      GotoPos(0, STATLINE);
+X      if (in_ovl)
+X	(*ovl_RedisplayLine)(STATLINE, 0, StatLen - 1, 0);
+X      else
+X	RedisplayLine(null, null, null, STATLINE, 0, StatLen - 1);
+X      GotoPos(status_lastx, status_lasty);
+X    }
+X  else
+X    {
+X      SaveSetAttr(0, ASCII);
+X      PutStr(DS);
+X    }
+}
+X
+void
+ClearDisplay()
+{
+X  PutStr(CL);
+X  screeny = screenx = 0;
+X  fflush(stdout);
+}
+X
+static void SetCurr(wp)
+struct win *wp;
+{
+X  curr = wp;
+X  cols = curr->width;
+X  rows = curr->height;
+X  display = curr->active;
+}
+X
+void
+InitOverlayPage(pro, red, rewrite, blockfore)
+void (*pro)();
+void (*red)();
+int (*rewrite)();
+int blockfore;
+{
+X  RemoveStatus();
+X  SetOvlCurr();
+X  ChangeScrollRegion(0, screenheight - 1);
+X  SetFlow(1);
+X  ovl_process = pro;
+X  ovl_RedisplayLine = red;
+X  ovl_Rewrite = rewrite;
+X  ovl_blockfore = blockfore;
+X  curr->active = 0;
+X  in_ovl = 1;
+}
+X
+void
+ExitOverlayPage()
+{
+X  ChangeScrollRegion(curr->top, curr->bot);
+X  GotoPos(curr->x, curr->y);
+X  RestoreAttr();
+X  SetFlow(curr->flow & FLOW_NOW);
+X  curr->active = 1;
+X  in_ovl = 0;
+}
+X
+void
+SetOvlCurr()
+{
+X  SetCurr(fore);
+X  SaveSetAttr(0, ASCII);
+X  InsertMode(0);
+X  display = 1;
+}
+X
+void
+SetLastPos(x,y)
+int x,y;
+{
+X  screenx = x;
+X  screeny = y;
+}
+X
+void
+WSresize(width, height)
+int width, height;
+{
+X  debug2("(display=%d:WSresize says:'%s'\n", display, tgoto(WS, width, height));
+X  PutStr(tgoto(WS, width, height));
+}
+X
+void
+ChangeScrollRegion(top, bot)
+int top, bot;
+{
+X  if (display == 0)
+X    return;
+X  if (CS == 0)
+X    {
+X      screentop = 0;
+X      screenbot = screenheight - 1;
+X      return;
+X    }
+X  if (top == screentop && bot == screenbot)
+X    return;
+X  debug2("ChangeScrollRegion: (%d - %d)\n", top, bot);
+X  PutStr(tgoto(CS, bot, top));
+X  screentop = top;
+X  screenbot = bot;
+X  screeny = screenx = -1;		/* Just in case... */
+}
+X
+X
+void AddLineToHist(wp, pi, pa, pf)
+struct win *wp;
+char **pi, **pa, **pf;
+{
+X  register char *q;
+X
+X  if (wp->histheight == 0)
+X    return;
+X  q = *pi; *pi = wp->ihist[wp->histidx]; wp->ihist[wp->histidx] = q;
+X  q = *pa; *pa = wp->ahist[wp->histidx]; wp->ahist[wp->histidx] = q;
+X  q = *pf; *pf = wp->fhist[wp->histidx]; wp->fhist[wp->histidx] = q;
+X  if (++wp->histidx >= wp->histheight)
+X    wp->histidx = 0;
+}
+X
+X
+/*
+X *
+X *  Termcap routines that use our extra_incap
+X *
+X */
+X
+/* findcap:
+X *   cap = capability we are looking for
+X *   tepp = pointer to bufferpointer
+X *   n = size of buffer (0 = infinity)
+X */
+X
+char *
+findcap(cap, tepp, n)
+char *cap;
+char **tepp;
+int n;
+{
+X  char *tep;
+X  char c, *p, *cp;
+X  int mode;	/* mode: 0=LIT  1=^  2=\x  3,4,5=\nnn */
+X  int num = 0, capl;
+X
+X  if (!extra_incap)
+X    return (0);
+X  tep = *tepp;
+X  capl = strlen(cap);
+X  cp = 0;
+X  mode = 0;
+X  for (p = extra_incap; *p; )
+X    {
+X      if (strncmp(p, cap, capl) == 0)
+X	{
+X	  p+=capl;
+X	  c = *p;
+X	  if (c && c != ':' && c != '@')
+X	    p++;
+X	  if (c == 0 || c == '@' || c == '=' || c == ':' || c == '#')
+X	    cp = tep;
+X	}
+X      while (c = *p)
+X	{
+X	  p++;
+X	  if (mode == 0)
+X	    {
+X	      if (c == ':')
+X	        break;
+X	      if (c == '^')
+X		mode = 1;
+X	      if (c == '\\')
+X		mode = 2;
+X	    }
+X	  else if (mode == 1)
+X	    {
+X	      c = c & 0x1f;
+X	      mode = 0;
+X	    }
+X	  else if (mode == 2)
+X	    {
+X	      switch(c)
+X		{
+X		case '0':
+X		case '1':
+X		case '2':
+X		case '3':
+X		case '4':
+X		case '5':
+X		case '6':
+X		case '7':
+X		case '8':
+X		case '9':
+X		  mode = 3;
+X		  num = 0;
+X		  break;
+X		case 'E':
+X		  c = 27;
+X		  break;
+X		case 'n':
+X		  c = '\n';
+X		  break;
+X		case 'r':
+X		  c = '\r';
+X		  break;
+X		case 't':
+X		  c = '\t';
+X		  break;
+X		case 'b':
+X		  c = '\b';
+X		  break;
+X		case 'f':
+X		  c = '\f';
+X		  break;
+X		}
+X	      if (mode == 2)
+X		mode = 0;
+X	    }
+X	  if (mode > 2)
+X	    {
+X	      num = num * 8 + (c - '0');
+X	      if (mode++ == 5 || (*p < '0' || *p > '9'))
+X		{
+X		  c = num;
+X		  mode = 0;
+X		}
+X	    }
+X	  if (mode)
+X	    continue;
+X
+X	  if (cp && n != 1)
+X	    {
+X	      *cp++ = c;
+X	      n--;
+X	    }
+X	}
+X      if (cp)
+X	{
+X	  *cp++ = 0;
+X	  *tepp = cp;
+X	  debug2("'%s' found in extra_incap -> %s\n", cap, tep);
+X	  return(tep);
+X	}
+X    }
+X  return(0);
+}
+X
+static char *
+e_tgetstr(cap, tepp)
+char *cap;
+char **tepp;
+{
+X  char *tep;
+X  if (tep = findcap(cap, tepp, 0))
+X    return((*tep == '@') ? 0 : tep);
+X  return (tgetstr(cap, tepp));
+}
+X
+static int
+e_tgetflag(cap)
+char *cap;
+{
+X  char buf[2], *bufp;
+X  char *tep;
+X  bufp = buf;
+X  if (tep = findcap(cap, &bufp, 2))
+X    return((*tep == '@') ? 0 : 1);
+X  return (tgetflag(cap));
+}
+X
+static int
+e_tgetnum(cap)
+char *cap;
+{
+X  char buf[20], *bufp;
+X  char *tep, c;
+X  int res, base = 10;
+X
+X  bufp = buf;
+X  if (tep = findcap(cap, &bufp, 20))
+X    {
+X      c = *tep;
+X      if (c == '@')
+X	return(-1);
+X      if (c == '0')
+X	base = 8;
+X      res = 0;
+X      while ((c = *tep++) >= '0' && c <= '9')
+X	res = res * base + (c - '0');
+X      return(res);
+X    }
+X  return (tgetnum(cap));
+}
+SHAR_EOF
+echo 'File screen3.2/ansi.c is complete' &&
+chmod 0444 screen3.2/ansi.c ||
+echo 'restore of screen3.2/ansi.c failed'
+Wc_c="`wc -c < 'screen3.2/ansi.c'`"
+test 68724 -eq "$Wc_c" ||
+	echo 'screen3.2/ansi.c: original size 68724, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/ansi.h ==============
+if test -f 'screen3.2/ansi.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/ansi.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/ansi.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/ansi.h' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X * $Id: ansi.h,v 1.2 92/02/03 02:27:39 jnweiger Exp $ FAU
+X */
+X
+#define NATTR		6
+X
+#define ATTR_DI		0	/* Dim mode */
+#define ATTR_US		1	/* Underscore mode */
+#define ATTR_BD		2	/* Bold mode */
+#define ATTR_RV		3	/* Reverse mode */
+#define ATTR_SO		4	/* Standout mode */
+#define ATTR_BL		5	/* Blinking */
+X
+#define A_DI	(1<<ATTR_DI)
+#define A_US	(1<<ATTR_US)
+#define A_BD	(1<<ATTR_BD)
+#define A_RV	(1<<ATTR_RV)
+#define A_SO	(1<<ATTR_SO)
+#define A_BL	(1<<ATTR_BL)
+#define A_MAX	(1<<(NATTR-1))
+X
+/* Types of movement used by GotoPos() */
+enum move_t {
+X	M_NONE,
+X	M_UP,
+X	M_CUP,
+X	M_DO,
+X	M_CDO,
+X	M_LE,
+X	M_CLE,
+X	M_RI,
+X	M_CRI,
+X	M_RW,
+X	M_CR	/* CR and rewrite */
+};
+X
+#define EXPENSIVE	 1000
+X
+#define G0			 0
+#define G1			 1
+#define G2			 2
+#define G3			 3
+X
+#define ASCII		 0
+X
+#ifdef TOPSTAT
+#define STATLINE	 (0)
+#else
+#define STATLINE	 (screenheight-1)
+#endif
+X
+SHAR_EOF
+chmod 0444 screen3.2/ansi.h ||
+echo 'restore of screen3.2/ansi.h failed'
+Wc_c="`wc -c < 'screen3.2/ansi.h'`"
+test 2276 -eq "$Wc_c" ||
+	echo 'screen3.2/ansi.h: original size 2276, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/extern.h ==============
+if test -f 'screen3.2/extern.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/extern.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/extern.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/extern.h' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X * $Id: extern.h,v 1.2 92/02/03 02:27:40 jnweiger Exp $ FAU
+X */
+X
+/****************************************************************
+X * Thanks to Christos S. Zoulas (christos@ee.cornell.edu) who 
+X * mangled the screen source through 'gcc -Wall'.
+X *
+X * this is his extern.h
+X ****************************************************************
+X */
+X
+#ifndef MEMFUNCS_DECLARED /* bsd386 */
+# ifndef SYSV
+extern void bzero __P((char *, int));
+# endif
+# ifdef sun
+extern char *memset __P((char *, int, size_t));
+# endif
+# ifndef bcopy
+extern void bcopy __P((char *, char *, int));
+# endif /* bcopy */
+#endif /* MEMFUNCS_DECLARED */
+struct rusage;
+#ifndef WAITSTUFF_DECLARED
+# ifdef BSDWAIT
+union wait;
+extern int wait3 __P((union wait *, int, struct rusage *));
+# else
+extern pid_t wait3 __P((int *, int, struct rusage *));
+# endif
+#endif /* WAITSTUFF_DECLARED */
+extern int getdtablesize __P((void));
+#ifndef REUID_DECLARED
+# if !defined(NOREUID)
+#  ifdef hpux
+extern int setresuid __P((uid_t, uid_t, uid_t));
+extern int setresgid __P((gid_t, gid_t, gid_t));
+#  else
+extern int setreuid __P((uid_t, uid_t));
+extern int setregid __P((gid_t, gid_t));
+#  endif
+# endif
+#endif /* REUID_DECLARED */
+#ifndef CRYPT_DECLARED
+extern char *crypt __P((char *, char *));
+#endif /* CRYPT_DECLARED */
+#ifdef sun
+extern int getpgrp __P((int));
+#endif
+#ifndef MKNOD_DECLARED
+# ifdef POSIX
+extern int mknod __P((const char *, mode_t, dev_t));
+# else
+extern int mknod __P((char *, int, int));
+# endif
+#endif /* MKNOD_DECLARED */
+#ifndef PUTENV_DECLARED
+extern int putenv __P((char *));
+#endif /* PUTENV_DECLARED */
+#ifndef KILLSTUFF_DECLARED
+extern int kill __P((pid_t, int));
+# ifndef SYSV
+extern int killpg __P((pid_t, int));
+# endif
+#endif /* KILLSTUFF_DECLARED */
+extern int tgetent __P((char *, char *));
+extern int tgetnum __P((char *));
+extern int tgetflag __P((char *));
+extern void tputs __P((char *, int, void (*)(int)));
+#ifdef notdef
+extern unsigned char     *_flsbuf __P((unsigned char, FILE *));
+#endif
+#ifndef NeXT
+extern int _flsbuf __P((unsigned char, FILE *));
+#endif
+# ifdef POSIX
+extern pid_t setsid __P((void));
+#  ifndef SETPGID_DECLARED
+extern int setpgid __P((pid_t, int));
+#  endif /* SETPGID_DECLARED */
+extern int tcsetpgrp __P((int, pid_t));
+# endif /* POSIX */
+extern pid_t getpid __P((void));
+extern uid_t getuid __P((void)); 
+extern uid_t geteuid __P((void));
+extern gid_t getgid __P((void)); 
+extern gid_t getegid __P((void));
+extern int isatty __P((int)); 
+#ifdef notdef
+extern int chown __P((const char *, uid_t, gid_t)); 
+#endif
+#ifndef GETHOSTNAME_DECLARED
+extern int gethostname __P((char *, size_t));
+#endif /* GETHOSTNAME_DECLARED */
+extern off_t lseek __P((int, off_t, int));
+#if defined(sun) && !defined(__GNUC__)		/* sun's exit returns ??? */
+extern int exit __P((int));
+#else
+extern void exit __P((int));
+#endif
+extern char *getwd __P((char *));
+extern char *getenv __P((const char *));
+extern time_t time __P((time_t *));
+X
+extern char *getlogin(), *getpass(), *ttyname();
+extern int fflush(); 
+#if !defined(__STDC__) || !defined(POSIX)
+extern char *malloc(), *realloc();
+#endif
+X
+extern char *Filename __P((char *));
+extern char *MakeTermcap __P((int));
+extern char *ProcessInput __P((char *, int *, char *, int *, int));
+extern char *SaveStr __P((char *));
+extern char *findcap __P((char *, char **, int));
+extern char *strdup __P((const char *));
+extern int ChangeScrollback __P((struct win *, int, int));
+extern int ChangeWindowSize __P((struct win *, int, int));
+extern int CompileKeys __P((char *, char *));
+extern int CountUsers __P((void));
+extern int FindSocket __P((int, int *));
+extern int GetAvenrun __P((void));
+extern int MakeClientSocket __P((int, char *));
+extern int MakeServerSocket __P((void));
+extern int MakeWindow __P((char *, char **, int, int, int, char *, int, int, char *));
+extern int MarkRoutine __P((int));
+extern int ParseEscape __P((char *));
+extern void RcLine __P((char *));
+extern int RecoverSocket __P((void));
+extern int RemoveUtmp __P((struct win *));
+extern int SetUtmp __P((struct win *, int));
+extern int UserContext __P((void));
+extern int UserStatus __P((void));
+extern int display_help __P((void));
+extern void display_copyright __P((void));
+#ifdef DEBUG
+extern sig_t FEChld __P(SIGPROTOARG);
+#endif
+extern sig_t SigHup __P(SIGPROTOARG);
+extern void Activate __P((int));
+extern void ChangeScreenSize __P((int, int, int));
+extern void ChangeScrollRegion __P((int, int));
+extern void CheckLP __P((int));
+extern void CheckScreenSize __P((int));
+extern void ClearDisplay __P((void));
+extern void Detach __P((int));
+extern void DisplayLine __P((char *, char *, char *, char *, char *, char *, int, int, int));
+extern void DoScreen __P((char *, char **));
+extern void DoSet __P((char **));
+extern void ExitOverlayPage __P((void));
+extern void FinishRc __P((char *));
+extern void FinitTerm __P((void));
+extern void FixLP __P((int, int));
+extern void GetTTY __P((int, struct mode *));
+extern void GotoPos __P((int, int));
+extern void InitKmem __P((void));
+extern void InitOverlayPage __P((void (*)(), void (*)(), int (*)(), int));
+extern void InitTerm __P((int));
+extern void InitTermcap __P((void));
+extern void InitUtmp __P((void));
+extern void InputAKA __P((void));
+extern void InputColon __P((void));
+extern void InsertMode __P((int));
+extern void Kill __P((int, int));
+extern void KillBuffers __P((void));
+extern void MakeBlankLine __P((char *, int));
+extern void MakeStatus __P((char *));
+#ifdef USEVARARGS
+extern void Msg __P((int, char *, ...));
+#else
+extern void Msg __P(());
+#endif
+extern void NewAutoFlow __P((struct win *, int));
+extern void NewCharset __P((int));
+extern void NewRendition __P(());
+extern void PUTCHAR __P((int));
+extern void INSERTCHAR __P((int));
+extern void PutChar __P((int));
+extern void PutStr __P((char *));
+extern void ReInitUtmp __P((void));
+extern void ReadFile __P((void));
+extern void ReceiveMsg __P((int));
+extern void Redisplay __P((int));
+extern void RefreshLine __P((int, int, int));
+#ifdef SVR4
+struct utmpx;
+extern void RemoveLoginSlot __P((slot_t, struct utmpx *));
+#else
+struct utmp;
+extern void RemoveLoginSlot __P((slot_t, struct utmp *));
+#endif
+extern void RemoveStatus __P((void));
+extern void Report __P((struct win *, char *, int, int));
+extern void ResetScreen __P((struct win *));
+extern void ResizeScreen __P((struct win *));
+extern void RestoreAttr __P((void));
+extern void RestoreLoginSlot __P((void));
+extern void SaveSetAttr __P((int, int));
+extern void ScrollRegion __P((int, int, int));
+extern void SendCreateMsg __P((int, int, char **, int, int, int, int, char *));
+#ifdef USEVARARGS
+extern void SendErrorMsg __P((char *, ...));
+#else
+extern void SendErrorMsg __P(());
+#endif
+extern void SetFlow __P((int));
+extern void SetLastPos __P((int, int));
+extern void SetMode __P((struct mode *, struct mode *));
+extern void SetOvlCurr __P((void));
+extern void SetTTY __P((int, struct mode *));
+extern void SlotToggle __P((int));
+extern void StartRc __P((char *));
+extern void SwitchWindow __P((int));
+extern void UserReturn __P((int));
+extern void WSresize __P((int, int));
+extern void WriteFile __P((int));
+extern void WriteString __P((struct win *, char *, int));
+extern void bclear __P((char *, int));
+#if !defined(MEMFUNCS_DECLARED) && !defined(bcopy)
+extern void bcopy __P((char *, char *, int));
+#endif /* !MEMFUNCS_DECLARED && !bcopy */
+extern void eexit __P((int));
+extern void exit_with_usage __P((char *));
+extern void main __P((int, char **));
+extern void screen_builtin_lck __P((void));
+extern void KillWindow __P((int));
+extern char *xrealloc __P((char *, int));
+extern void AddLineToHist __P((struct win *, char **, char **, char **));
+extern FILE *secfopen __P((char *, char *));
+extern char *stripdev __P((char *));
+extern int secopen __P((char *, int, int));
+SHAR_EOF
+chmod 0444 screen3.2/extern.h ||
+echo 'restore of screen3.2/extern.h failed'
+Wc_c="`wc -c < 'screen3.2/extern.h'`"
+test 9213 -eq "$Wc_c" ||
+	echo 'screen3.2/extern.h: original size 9213, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/fileio.c ==============
+if test -f 'screen3.2/fileio.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/fileio.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/fileio.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/fileio.c' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+#ifndef lint
+X  static char rcs_id[] = "$Id: fileio.c,v 1.2 92/02/03 02:27:42 jnweiger Exp $ FAU";
+#endif
+X
+#if defined(pyr) || defined(MIPS) || defined(GOULD_NP1) || defined(B43)
+extern int errno;
+#endif
+#include <sys/types.h>
+#ifndef sgi
+# include <sys/file.h>
+#endif /* sgi */
+#include <sys/stat.h>
+#include <fcntl.h>
+X
+#ifdef BSDI
+# include <sys/signal.h>
+#endif /* BSDI */
+X
+#include "config.h"
+#include "screen.h"
+#include "extern.h"
+X
+#ifdef _SEQUENT_
+# define UTHOST		/* _SEQUENT_ has got ut_find_host() */
+#endif
+X
+#ifndef GETUTENT
+# ifdef GETTTYENT
+#  include <ttyent.h>
+# else
+struct ttyent
+{
+X  char *ty_name;
+};
+static char *tt, *ttnext;
+static char ttys[] = "/etc/ttys";
+# endif
+#endif
+X
+#ifdef LOADAV
+# ifndef NeXT
+#  include <nlist.h>
+X
+static char KmemName[] = "/dev/kmem";
+#  if defined(_SEQUENT_) || defined(MIPS) || defined(SVR4) || defined(ISC) || defined (sgi)
+static char UnixName[] = "/unix";
+#  else
+#   ifdef sequent
+static char UnixName[] = "/dynix";
+#   else
+#    ifdef hpux
+static char UnixName[] = "/hp-ux";
+#    else
+#     ifdef xelos
+static char UnixName[] = "/xelos";
+#     else
+static char UnixName[] = "/vmunix";
+#     endif /* xelos */
+#    endif /* hpux */
+#   endif /* sequent */
+#  endif /* _SEQUENT_ ... */
+X
+#  ifdef alliant
+static char AvenrunSym[] = "_Loadavg";
+#  else
+#   if defined(hpux) || defined(_SEQUENT_) || defined(SVR4) || defined(ISC) || defined(sgi)
+static char AvenrunSym[] = "avenrun";
+#   else
+static char AvenrunSym[] = "_avenrun";
+#   endif
+#  endif /* alliant */
+static struct nlist nl[2];
+int avenrun;
+static kmemf;
+#  ifdef LOADAV_3LONGS
+long loadav[3];
+#  else
+#   ifdef LOADAV_4LONGS
+long loadav[4];
+#   else
+double loadav[3];
+#   endif
+#  endif
+# else /* NeXT */
+#  include <mach.h>
+kern_return_t error;
+host_t host;
+unsigned int info_count;
+struct processor_set_basic_info info;
+processor_set_t default_set;
+float loadav;
+int avenrun;
+# endif /* NeXT */
+#endif /* LOADAV */
+X
+#if defined(UTMPOK) && defined(GETUTENT) && !defined(SVR4)
+# if defined(hpux) /* cruel hpux release 8.0 */
+#  define pututline _pututline
+# endif /* hpux */
+extern struct utmp *getutline(), *pututline();
+# if defined(_SEQUENT_)
+extern struct utmp *ut_add_user(), *ut_delete_user();
+extern char *ut_find_host();
+# endif
+#endif
+#ifdef NETHACK
+extern nethackflag;
+#endif
+int hardcopy_append = 0;
+int all_norefresh = 0;
+X
+extern char *RcFileName, *home, *extra_incap, *extra_outcap;
+extern char *BellString, *ActivityString, *ShellProg, *ShellArgs[];
+extern char *BufferFile, *PowDetachString, *VisualBellString;
+extern int VBellWait, MsgWait, MsgMinWait;
+extern struct key ktab[];
+extern char Esc, MetaEsc;
+extern char *shellaka, SockPath[], *SockNamePtr, *LoginName;
+extern int loginflag, allflag, TtyMode, auto_detach;
+extern int iflag, rflag, dflag;
+extern int default_flow, wrap;
+extern HS, termcapHS, use_hardstatus, visual_bell, default_monitor;
+extern int default_histheight;
+extern int default_startup;
+extern int slowpaste;
+extern DeadlyMsg, HasWindow;
+extern ForeNum, screenwidth, screenheight;
+extern char display_tty[];
+extern struct win *fore;
+extern char screenterm[];
+extern int join_with_cr;
+extern struct mode OldMode, NewMode;
+extern int HasWindow;
+extern char mark_key_tab[];
+extern int real_uid, eff_uid;
+extern int real_gid, eff_gid;
+X
+#ifdef PASSWORD
+int CheckPassword;
+char Password[20];
+#endif
+X
+#ifdef COPY_PASTE
+extern char *copybuffer;
+extern copylen;
+#endif
+X
+static char *CatExtra __P((char *, char *));
+static char **SaveArgs __P((int, char **));
+static int Parse __P((char *, char *[]));
+static char *ParseChar __P((char *, char *));
+static void ParseNum __P((int, char *[], int*));
+static void ParseOnOff __P((int, char *[], int*));
+static void ParseSaveStr __P((int, char *[], char **, char *));
+static int IsNum __P((char *, int));
+static int IsNumColon __P((char *, int, char *, int));
+static slot_t TtyNameSlot __P((char *));
+X
+#if !defined(GETTTYENT) && !defined(GETUTENT)
+static void setttyent __P((void));
+static struct ttyent *getttyent __P((void));
+#endif
+X
+/*
+X * XXX: system
+X */
+extern time_t time __P((time_t *));
+#if !defined(BSDI) && !defined(SVR4)
+extern char *getpass __P((char *));
+#endif /* !BSDI && !SVR4 */
+#if defined(LOADAV) && !defined(NeXT) && !defined(NLIST_DECLARED)
+extern int nlist __P((char *, struct nlist *));
+#endif
+X
+char *KeyNames[] = 
+{
+X  "screen",
+X  "select0", "select1", "select2", "select3", "select4",
+X  "select5", "select6", "select7", "select8", "select9",
+X  "aka", "clear", "colon", "copy", "detach", "flow",
+X  "hardcopy", "help", "histnext", "history", "info", "kill", "lastmsg",
+X  "license",
+X  "lockscreen", "log", "login", "monitor", "next", "other", "paste",
+X  "pow_detach", "prev", "quit", "readbuf", "redisplay", "removebuf",
+X  "reset", "set", "shell", "suspend", "termcap", "time", "vbell",
+X  "version", "width", "windows", "wrap", "writebuf", "xoff", "xon",
+X  0,
+};
+X
+X
+/* Must be in alpha order !!! */
+X
+char *RCNames[] =
+{
+X  "activity", "all", "autodetach", "bell", "bind", "bufferfile", "chdir",
+X  "crlf", "echo", "escape", "flow", "hardcopy_append", "hardstatus", "login", 
+X  "markkeys", "mode", "monitor", "msgminwait", "msgwait", "nethack", "password",
+X  "pow_detach_msg", "redraw", "refresh", "screen", "scrollback", "shell", 
+X  "shellaka", "sleep", "slowpaste", "startup_message", "term", "termcap",
+X  "terminfo", "vbell", "vbell_msg", "vbellwait", "visualbell",
+X  "visualbell_msg", "wrap",
+};
+X
+enum RCcases
+{
+X  RC_ACTIVITY,
+X  RC_ALL,
+X  RC_AUTODETACH,
+X  RC_BELL,
+X  RC_BIND,
+X  RC_BUFFERFILE,
+X  RC_CHDIR,
+X  RC_CRLF,
+X  RC_ECHO,
+X  RC_ESCAPE,
+X  RC_FLOW,
+X  RC_HARDCOPY_APP,
+X  RC_HARDSTATUS,
+X  RC_LOGIN,
+X  RC_MARKKEYS,
+X  RC_MODE,
+X  RC_MONITOR,
+X  RC_MSGMINWAIT,
+X  RC_MSGWAIT,
+X  RC_NETHACK,
+X  RC_PASSWORD,
+X  RC_POW_DETACH_MSG,
+X  RC_REDRAW,
+X  RC_REFRESH,
+X  RC_SCREEN,
+X  RC_SCROLLBACK,
+X  RC_SHELL,
+X  RC_SHELLAKA,
+X  RC_SLEEP,
+X  RC_SLOWPASTE,
+X  RC_STARTUP_MESSAGE,
+X  RC_TERM,
+X  RC_TERMCAP,
+X  RC_TERMINFO,
+X  RC_VBELL,
+X  RC_VBELL_MSG,
+X  RC_VBELLWAIT,
+X  RC_VISUALBELL,
+X  RC_VISUALBELL_MSG,
+X  RC_WRAP,
+X  RC_RCEND
+};
+X
+#ifdef UTMPOK
+static utmp, utmpf;
+static char UtmpName[] = UTMPFILE;
+# ifdef MIPS
+X  static utmpfappend;
+# endif
+#endif
+X
+static FILE *fp = NULL;
+static char *rc_name;
+X
+char *SaveStr(str)
+register char *str;
+{
+X  register char *cp;
+X
+X  if ((cp = malloc(strlen(str) + 1)) == NULL)
+X    Msg_nomem;
+X  else
+X    strcpy(cp, str);
+X  return cp;
+}
+X
+static char *CatExtra(str1, str2)
+register char *str1, *str2;
+{
+X  register char *cp;
+X  register int len1, len2, add_colon;
+X
+X  len1 = strlen(str1);
+X  if (len1 == 0)
+X    return(str2);
+X  add_colon = (str1[len1 - 1] != ':');
+X  if (str2)
+X    {
+X      len2 = strlen(str2);
+X      if ((cp = realloc(str2, (unsigned) len1 + len2 + add_colon + 1)) == NULL)
+X	Msg_nomem;
+X      bcopy(cp, cp + len1 + add_colon, len2 + 1);
+X    }
+X  else
+X    {
+X      if (len1 == 0)
+X	return 0;
+X      if ((cp = malloc((unsigned) len1 + add_colon + 1)) == NULL)
+X	Msg_nomem;
+X      cp[len1 + add_colon] = '\0'; 
+X    }
+X  bcopy(str1, cp, len1);
+X  if (add_colon)
+X    cp[len1] = ':';
+X
+X  return cp;
+}
+X
+static char *findrcfile(rcfile)
+char *rcfile;
+{
+X  static char buf[256];
+X  char *rc, *p;
+X
+X  if (rcfile)
+X    {
+X      rc = SaveStr(rcfile);
+X      debug1("findrcfile: you specified '%s'\n", rcfile);
+X    }
+X  else
+X    {
+X      debug("findrcfile: you specified nothing...\n");
+X      if ((p = getenv("ISCREENRC")) != NULL && *p != '\0')
+X	{
+X	  debug1("  ... but $ISCREENRC has: '%s'\n", p);
+X	  rc = SaveStr(p);
+X	}
+X      else if ((p = getenv("SCREENRC")) != NULL && *p != '\0')
+X	{
+X	  debug1("  ... but $SCREENRC has: '%s'\n", p);
+X	  rc = SaveStr(p);
+X	}
+X      else
+X	{
+X	  debug("  ...nothing in $SCREENRC, defaulting $HOME/.screenrc\n");
+X	  if (strlen(home) > 244)
+X	    Msg(0, "Rc: home too large");
+X	  sprintf(buf, "%s/.iscreenrc", home);
+X          if (access(buf, R_OK))
+X	    sprintf(buf, "%s/.screenrc", home);
+X	  rc = SaveStr(buf);
+X	}
+X    }
+X  return rc;
+}
+X
+/*
+X * this will be called twice:
+X * 1) rcfilename = "/etc/screenrc"
+X * 2) rcfilename = RcFileName
+X */
+void
+StartRc(rcfilename)
+char *rcfilename;
+{
+X  register int argc, len;
+X  register char *p, *cp;
+X  char buf[256];
+X  char *args[MAXARGS], *t;
+X
+X  rc_name = findrcfile(rcfilename);
+X
+X  if ((fp = secfopen(rc_name, "r")) == NULL)
+X    {
+X      if (RcFileName && strcmp(RcFileName, rc_name) == 0)
+X	{
+X          /*
+X           * User explicitly gave us that name,
+X           * this is the only case, where we get angry, if we can't read
+X           * the file.
+X           */
+X	  debug3("StartRc: '%s','%s', '%s'\n", RcFileName, rc_name, rcfilename);
+X          Msg(0, "Unable to open \"%s\".", rc_name);
+X	  /* NOTREACHED */
+X	}
+X      debug1("StartRc: '%s' no good. ignored\n", rc_name);
+X      Free(rc_name);
+X      rc_name = "";
+X      return;
+X    }
+X  if ((t = getenv("TERM")) == NULL)
+X    Msg(0, "No TERM in environment.");
+X  debug1("startrc got termcp:%s\n", t);
+X  while (fgets(buf, sizeof buf, fp) != NULL)
+X    {
+X      if ((p = rindex(buf, '\n')) != NULL)
+X	*p = '\0';
+X      if ((argc = Parse(buf, args)) == 0)
+X	continue;
+X      if (strcmp(args[0], "echo") == 0)
+X	{
+X	  if (argc < 2 || (argc == 3 && strcmp(args[1], "-n")) || argc > 3)
+X	    {
+X	      DeadlyMsg = 0;
+X	      Msg(0, "%s: 'echo [-n] \"string\"' expected.", rc_name);
+X	    }
+X	  else
+X	    {
+X	      printf((argc == 3) ? "%s" : "%s\r\n", args[argc - 1]);
+X	    }
+X	}
+X      else if (strcmp(args[0], "sleep") == 0)
+X	{
+X	  if (argc != 2)
+X	    {
+X	      DeadlyMsg = 0;
+X	      Msg(0, "%s: sleep: one numeric argument expected.", rc_name);
+X	    }
+X	  else
+X	    sleep(atoi(args[1]));
+X	}
+#ifdef TERMINFO
+X      else if (strcmp(args[0], "terminfo") == 0)
+#else
+X      else if (strcmp(args[0], "termcap") == 0)
+#endif
+X	{
+X	  if (argc < 3 || argc > 4)
+X	    Msg(0, "%s: %s: incorrect number of arguments.", rc_name, args[0]);
+X	  for (p = args[1]; p && *p; p = cp)
+X	    {
+X	      if ((cp = index(p, '|')) != 0)
+X		*cp++ = '\0';
+X	      len = strlen(p);
+X	      if (p[len - 1] == '*')
+X		{
+X		  if (!(len - 1) || !strncmp(p, t, len - 1))
+X		    break;
+X		}
+X	      else if (!strcmp(p, t))
+X		break;
+X	    }
+X	  if (!(p && *p))
+X	    continue;
+X	  extra_incap = CatExtra(args[2], extra_incap);
+X	  if (argc == 4)
+X	    extra_outcap = CatExtra(args[3], extra_outcap);
+X	}
+X    }
+X  fclose(fp);
+X  Free(rc_name);
+X  rc_name = "";
+}
+X
+static char *
+ParseChar(p, cp)
+char *p, *cp;
+{
+X  if (*p == '^')
+X    {
+X      if (*++p == '?')
+X        *cp = '\177';
+X      else if (*p >= '@')
+X        *cp = Ctrl(*p);
+X      else
+X        return 0;
+X      ++p;
+X    }
+X  else if (*p == '\\' && *++p <= '7' && *p >= '0')
+X    {
+X      *cp = 0;
+X      do
+X        *cp = *cp * 8 + *p - '0';
+X      while (*++p <= '7' && *p >= '0');
+X    }
+X  else
+X    *cp = *p++;
+X  return p;
+}
+X
+/*
+X * CompileKeys must be called before Markroutine is first used.
+X * to initialise the keys with defaults, call CompileKeys(NULL, mark_key_tab);
+X *
+X * s is an ascii string in a termcap-like syntax. It looks like
+X *   "j=u:k=d:l=r:h=l: =.:" and so on...
+X * this example rebinds the cursormovement to the keys u (up), d (down),
+X * l (left), r (right). placing a mark will now be done with ".".
+X */
+int CompileKeys(s, array)
+char *s, *array;
+{
+X  int i;
+X  unsigned char key, value;
+X
+X  if (!s || !*s)
+X    {
+X      for (i = 0; i < 256; i++)
+X        array[i] = i;
+X      return 0;
+X    }
+X  while (*s)
+X    {
+X      s = ParseChar(s, (char *) &key);
+X      if (*s != '=')
+X	return -1;
+X      do 
+X	{
+X          s = ParseChar(++s, (char *) &value);
+X	  array[value] = key;
+X	}
+X      while (*s == '=');
+X      if (!*s) 
+X	break;
+X      if (*s++ != ':')
+X	return -1;
+X    }
+X  return 0;
+}
+X
+static char **SaveArgs(argc, argv)
+register int argc;
+register char **argv;
+{
+X  register char **ap, **pp;
+X
+X  if ((pp = ap = (char **) malloc((unsigned) (argc + 1) * sizeof(char **))) == 0)
+X    Msg_nomem;
+#ifdef notdef
+X  debug("saveargs:\n"); 
+#endif
+X  while (argc--)
+X    {
+X      debug1(" '%s'", *argv);
+X      *pp++ = SaveStr(*argv++);
+X    }
+X  debug("\n");
+X  *pp = 0;
+X  return ap;
+}
+X
+void
+FinishRc(rcfilename)
+char *rcfilename;
+{
+X  /* in FinishRc screen is not yet open, thus Msg() is deadly here.
+X   */
+X  char buf[256];
+X
+X  rc_name = findrcfile(rcfilename);
+X
+X  if ((fp = secfopen(rc_name, "r")) == NULL)
+X    {
+X      if (RcFileName && strcmp(RcFileName, rc_name) == 0)
+X	{
+X    	  /*
+X 	   * User explicitly gave us that name, 
+X	   * this is the only case, where we get angry, if we can't read
+X	   * the file.
+X	   */
+X  	  debug3("FinishRc:'%s','%s','%s'\n", RcFileName, rc_name, rcfilename);
+X          Msg(0, "Unable to open \"%s\".", rc_name);
+X	  /* NOTREACHED */
+X	}
+X      debug1("FinishRc: '%s' no good. ignored\n", rc_name);
+X      Free(rc_name);
+X      rc_name = "";
+X      return;
+X    }
+X
+X  debug("finishrc is going...\n");
+X  while (fgets(buf, sizeof buf, fp) != NULL)
+X    {
+X      RcLine(buf);
+X    }
+X  (void) fclose(fp);
+X  Free(rc_name);
+X  rc_name = "";
+}
+X
+/*
+X * this is a KEY_SET pressed
+X */
+void
+DoSet(argv)
+char **argv;
+{
+X  char *p;
+X  static char buf[256];
+X
+X  p = buf;
+X  debug("DoSet\n");
+X  if (!argv || !*argv || !**argv)
+X    {
+X      debug("empty DoSet\n");
+X      sprintf(buf, "set ");
+X      RcLine(buf);
+X      return;
+X    }
+X  sprintf(p, "set"); p+=3;
+X  while(*argv && (strlen(buf) + strlen(*argv) < 255))
+X    {
+X      sprintf(p, " %s", *argv++);
+X      p += strlen(p);
+X    }
+X  RcLine(buf);
+}
+X
+/*
+X *	"$HOST blafoo"   	-> "localhost blafoo"
+X *	"${HOST}blafoo"	  	-> "localhostblafoo"
+X *	"\$HOST blafoo" 	-> "$HOST blafoo"
+X *	"\\$HOST blafoo"	-> "\localhost blafoo"
+X *	"'$HOST ${HOST}'"	-> "'$HOST ${HOST}'" 
+X *	"'\$HOST'"       	-> "'\$HOST'"
+X *	"\'$HOST' $HOST"   	-> "'localhost' $HOST"
+X */
+static char *expand_env_vars(ss)
+char *ss;
+{
+X  static char ebuf[2048];
+X  register int esize = 2047, quofl = 0;
+X  register char *e = ebuf;
+X  register char *s = ss;
+X  register char *v;
+X
+X  while (*s && *s != '\n' && esize > 0)
+X    {
+X      if (*s == '\'')
+X	quofl ^= 1;
+X      if (*s == '$' && !quofl)
+X	{
+X	  char *p, c;
+X
+X	  p = ++s;
+X	  if (*s == '{')
+X	    {
+X	      p = ++s;
+X	      while (*p != '}')
+X	        if (*p++ == '\0')
+X	          return ss;
+X	    }
+X	  else
+X	    {
+X	      while (*p != ' ' && *p != '\0' && *p != '\n')
+X		p++;
+X	    }
+X	  c = *p;
+X	  debug1("exp: c='%c'\n", c);
+X	  *p = '\0';
+X	  if (v = getenv(s)) 
+X	    {
+X	      debug2("exp: $'%s'='%s'\n", s, v);
+X	      while (*v && esize-- > 0)
+X	        *e++ = *v++;
+X	    }
+X	  else 
+X	    debug1("exp: '%s' not env\n", s);
+X	  if ((*p = c) == '}')
+X	    p++;
+X	  s = p;
+X	}
+X      else
+X	{
+X	  if (s[0] == '\\' && !quofl)
+X	    if (s[1] == '$' || (s[1] == '\\' && s[2] == '$') ||
+X	        s[1] == '\'' || (s[1] == '\\' && s[2] == '\''))
+X	      s++;
+X	  *e++ = *s++;
+X	  esize--;
+X	}
+X    }
+X  if (esize <= 0)
+X    Msg(0, "expand_env_vars: buffer overflow\n");
+X  *e = '\0';
+X  return ebuf;
+}
+X
+void
+RcLine(ubuf)
+char *ubuf;
+{
+X  char *args[MAXARGS];
+X  register char *buf, *p, **pp, **ap;
+X  register int argc, setflag;
+X  int q, qq;
+X  char key;
+X  int low, high, mid, x;
+X
+X  buf = expand_env_vars(ubuf); 
+X
+X  ap = args;
+X
+X  if ((p = rindex(buf, '\n')) != NULL)
+X    *p = '\0';
+X  if (strncmp("set ", buf, 4) == 0)
+X    {
+X      buf += 4;
+X      setflag = 1;
+X      debug1("RcLine: '%s' is a set command\n", buf);
+X    }
+X  else if (strncmp("se ", buf, 3) == 0)
+X    {
+X      buf += 3;
+X      setflag = 1;
+X      debug1("RcLine: '%s' is a se command\n", buf);
+X    }
+X  else
+X    {
+X      setflag = 0;
+X      debug1("RcLine: '%s'\n", buf);
+X    }
+X  if ((argc = Parse(buf, ap)) == 0)
+X    {
+X      if (setflag)
+X	{
+X	  DeadlyMsg = 0;
+X	  Msg(0, "%s: set what?\n", rc_name);
+X	}
+X      return;
+X    }
+X
+X  low = 0;
+X  high = (int)RC_RCEND - 1;
+X  while (low <= high)
+X    {
+X      mid = (low + high) / 2;
+X      x = strcmp(ap[0], RCNames[mid]);
+X      if (x < 0)
+X        high = mid - 1;
+X      else if (x > 0)
+X        low = mid + 1;
+X      else
+X        break;
+X    }
+X  if (low > high)
+X    mid = (int)RC_RCEND;
+X  switch ((enum RCcases) mid)
+X    {
+X    case RC_ESCAPE:
+X      if (argc != 2 || !ParseEscape(ap[1]))
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(0, "%s: two characters required after escape.", rc_name);
+X	  return;
+X	}
+X      if (Esc != MetaEsc)
+X	ktab[Esc].type = KEY_OTHER;
+X      else
+X	ktab[Esc].type = KEY_IGNORE;
+X      return;
+X    case RC_CHDIR:
+X      if (setflag)
+X	break;
+X      p = argc < 2 ? home : ap[1];
+X      if (chdir(p) == -1)
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(errno, "%s", p);
+X	}
+X      return;
+X    case RC_SHELL:
+X      ParseSaveStr(argc, ap, &ShellProg, "shell");
+X      ShellArgs[0] = ShellProg;
+X      return;
+X    case RC_SHELLAKA:
+X      ParseSaveStr(argc, ap, &shellaka, "shellaka");
+X      return;
+X    case RC_SCREEN:
+X      if (setflag)
+X	break;
+X      DoScreen(rc_name, ap + 1);
+X      return;
+X    case RC_SLEEP:
+X    case RC_TERMCAP:
+X    case RC_TERMINFO:
+X      return;			/* Already handled */
+X    case RC_TERM:
+X      {
+X        char *tmp = NULL;
+X
+X        ParseSaveStr(argc, ap, &tmp, "term");
+X        if (!tmp)
+X          return;
+X	if (strlen(tmp) >= 20)
+X	  {
+X	    DeadlyMsg = 0;
+X            Msg(0,"%s: term: argument too long ( < 20)", rc_name);
+X            Free(tmp);
+X	    return;
+X          }
+X        strcpy(screenterm, args[1]);
+X	Free(tmp);
+X        debug1("screenterm set to %s\n", screenterm);
+X        MakeTermcap(0);
+X        return;	
+X      }
+X    case RC_ECHO:
+X      if (HasWindow && *rc_name == '\0')
+X	{
+X	  /*
+X	   * user typed ^A:echo... well, echo isn't FinishRc's job,
+X	   * but as he wanted to test us, we show good will
+X	   */
+X	  DeadlyMsg = 0;
+X	  if (argc == 2 || (argc == 3 && !strcmp(ap[1], "-n")))
+X	    Msg(0, "%s", ap[argc - 1]);
+X	  else
+X 	    Msg(0, "%s: 'echo [-n] \"string\"' expected.", rc_name);
+X	}
+X      return;
+X    case RC_BELL:
+X      ParseSaveStr(argc, ap, &BellString, "bell");
+X      return;
+X    case RC_BUFFERFILE:
+X      ParseSaveStr(argc, ap, &BufferFile, "bufferfile");
+X      return;
+X    case RC_ACTIVITY:
+X      ParseSaveStr(argc, ap, &ActivityString, "activity");
+X      return;
+X    case RC_POW_DETACH_MSG:
+X      ParseSaveStr(argc, ap, &PowDetachString, "pow_detach");
+X      return;
+X    case RC_LOGIN:
+#ifdef UTMPOK
+X      q = loginflag;
+X      ParseOnOff(argc, ap, &loginflag);
+X      if (fore && setflag)
+X	{
+X	  SlotToggle(loginflag?(1):(-1));
+X	  loginflag = q;
+X	}
+#endif
+X      return;
+X    case RC_FLOW:
+X      if (argc == 3 && ap[2][0] == 'i')
+X	{
+X	  iflag = 1;
+X	  argc--;
+X	}
+X      if (argc == 2 && ap[1][0] == 'a')
+X	default_flow = FLOW_AUTOFLAG;
+X      else
+X	ParseOnOff(argc, ap, &default_flow);
+X      return;
+X    case RC_WRAP:
+X      ParseOnOff(argc, ap, &wrap);
+X      return;
+X    case RC_HARDSTATUS:
+X      ParseOnOff(argc, ap, &use_hardstatus);
+X      if (use_hardstatus)
+X	HS = termcapHS;
+X      else
+X	HS = 0;
+X      return;
+X    case RC_MONITOR:
+X	{
+X	  int f; 
+X
+X	  ParseOnOff(argc, ap, &f);
+X	  if (fore && setflag)
+X	    fore->monitor = (f == 0) ? MON_OFF : MON_ON;
+X	  else
+X	    default_monitor = (f == 0) ? MON_OFF : MON_ON;
+X	}
+X      return;
+X    case RC_REDRAW:
+X    case RC_REFRESH:
+X	{
+X	  int r;
+X
+X	  ParseOnOff(argc, ap, &r);
+X	  if (fore && setflag)
+X	    fore->norefresh = (r) ? 0 : 1;
+X	  else
+X	    {
+X	      all_norefresh = (r) ? 0 : 1;
+X	      if (all_norefresh)
+X	        Msg(0, "No refresh on window change!\n");
+X	      else
+X	        Msg(0, "Window specific refresh\n");
+X	    }
+X	}
+X      return;
+X    case RC_VBELL:
+X    case RC_VISUALBELL:
+X      ParseOnOff(argc, ap, &visual_bell);
+X      return;
+X    case RC_VBELLWAIT:
+X      ParseNum(argc, ap, &VBellWait);
+X      if (fore && rc_name[0] == '\0')
+X        Msg(0, "vbellwait set to %d seconds", VBellWait);
+X      return;
+X    case RC_MSGWAIT:
+X      ParseNum(argc, ap, &MsgWait);
+X      if (fore && rc_name[0] == '\0')
+X        Msg(0, "msgwait set to %d seconds", MsgWait);
+X      return;
+X    case RC_MSGMINWAIT:
+X      ParseNum(argc, ap, &MsgMinWait);
+X      if (fore && rc_name[0] == '\0')
+X        Msg(0, "msgminwait set to %d seconds", MsgMinWait);
+X      return;
+X    case RC_SCROLLBACK:
+X      if (fore && setflag)
+X	{
+X	  int i;
+X
+X	  ParseNum(argc, ap, &i);
+X	  ChangeScrollback(fore, i, fore->width);
+SHAR_EOF
+true || echo 'restore of screen3.2/fileio.c failed'
+fi
+echo 'End of  part 2'
+echo 'File screen3.2/fileio.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

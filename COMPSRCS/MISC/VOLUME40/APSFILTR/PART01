@@ -1,0 +1,319 @@
+Newsgroups: comp.sources.misc
+From: andreas@knobel.knirsch.de (Andreas Klemm)
+Subject: v40i165:  apsfilter - postscript filter with file type auto recognition, v1.3, Part01/01
+Message-ID: <1993Nov26.160826.29181@sparky.sterling.com>
+Summary: line printer filter with file conversion
+X-Md4-Signature: 2d89c1b9b0ad7094e121b16bde1a3e1e
+Keywords: ps postscript lpr printcap filter dj500
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Andreas Klemm, 41469 Neuss, Germany
+Date: Fri, 26 Nov 1993 16:08:26 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: andreas@knobel.knirsch.de (Andreas Klemm)
+Posting-number: Volume 40, Issue 165
+Archive-name: apsfilter/part01
+Environment: lpr, dj500
+
+Here is apsfilter V 1.3 - an lp output filter for different file types.
+
+Since there are possibly different versions around - many sent directly
+via e-mail - I deceided to post it again to the related groups 
+(of my interest) so everybody has the chance to get the newest version.
+
+And I decided to give it a uniq name "apsfilter", so it's more easily
+to grab the newest version from a source group....
+
+Perhaps some of you have to add some lines to the file /etc/magic, 
+so that the file(1) command is able to recognize dvi and postscript files.
+--------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  apsfilter magic
+# Wrapped by kent@sparky on Fri Nov 26 10:05:33 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'apsfilter' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'apsfilter'\"
+else
+  echo shar: Extracting \"'apsfilter'\" \(5423 characters\)
+  sed "s/^X//" >'apsfilter' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X# apsfilter-1.3 - HP Deskjet 500 - output filter - V 1.3
+X#
+X# copyright 1993 by Andreas Klemm <andreas@knobel.knirsch.de>
+X#
+X# Mon Nov 15 12:35:26 GMT 1993
+X#
+X# additional contributors:
+X#
+X#	Steven A. Reisman <unido!beehive.mn.org!sar>
+X#		- added dvi filter
+X#
+X#	Jeff Stern <jstern@eclectic.ss.uci.edu>
+X#		- use lpfilter as an input filter
+X#		  so it's possible to print header pages
+X#		  without confusing the filter.
+X#		--> see modification section
+X#
+X
+X####################################################################
+X# A running /etc/printcap
+X####################################################################
+X#
+X# My /etc/printcap entry for parallel printer port lpt1:
+X# on a 486/33 using Linux Slackware using this filter as
+X# an output filter, since I don't need header pages. (andreas)
+X#
+X# HP Deskjet
+X# lp|deskjet|HP Deskjet 500:\
+X#	:lp=/dev/lp1:\
+X#	:sd=/usr/spool/lp1:\
+X#	:sh:\
+X#	:mx#0:\
+X#	:of=/usr/lib/lpfilter:
+X#
+X####################################################################
+X
+X####################################################################
+X# MODIFICATION SECTION
+X#		suggestions from other creative people
+X#		which use another configuration than I
+X####################################################################
+X#
+X# A) WANT HEADER PAGES
+X#			Jeff Stern <jstern@eclectic.ss.uci.edu>
+X#			Mon Nov  1 21:21:45 GMT 1993
+X#
+X# "... I changed to using it as an input filter instead of an output 
+X#  filter. This way I can still print header pages without confusing 
+X#  the filter. This necessarily required adding a command to tell 
+X#  printcap to send a formfeed at the beginning of opening the device 
+X#  and also specifying that that formfeed really also includes the 
+X#  LF-> CR+LF translation: this is so that the translation also will 
+X#  work for the header page, too."
+X#  Necessary Printcap entry instead of the default:
+X#	lp:lp=/dev/lp1:sd=/usr/spool/lp1:if=/usr/lib/lpfilter:mx#0:\
+X#       :lf=/usr/adm/lpd-errs:ff=\033E\033&k2G\033&a10L:fo
+X#
+X####################################################################
+X# END OF MODIFICATION SECTION
+X####################################################################
+X
+XPATH=/usr/bin:/bin:/usr/local/bin:/usr/TeX/bin:/home/bin
+Xexport PATH
+X
+X# where do you have diskspace
+X#
+XTmpDir=/usr/tmp
+X
+X# Temp. filename
+XTmpFile=$TmpDir/deskjetof.$$
+X
+X# Who should be notified by e-mail in case of print problems ?
+XNOTIFY=root
+X
+X# write print data from stdin to temp file
+Xcat - > $TmpFile
+X
+X#
+X# reset printer to power on values before print job
+X#
+Xecho -ne '\033E'
+X
+X# determine file type
+X# set output of the ``file'' command to new script arguments $1, $2, ..., $n
+X#
+Xset -- `file $TmpFile`
+X
+X# throw away $1 since that is the *file name*
+X#
+Xshift
+X
+X# the rest is a "string" which consist of one or multiple words 
+X# describing the file type. For example: "Korn Shell Script"
+X#
+XFileType=$*
+X
+Xcase $FileType in
+X
+X    PostScript*)	#
+X			# pipe ps data through ghostscript
+X			#	
+X			cat $TmpFile			\
+X			| gs -q				\
+X				-sDEVICE=djet500	\
+X				-r300x300		\
+X				-sPAPERSIZE=a4		\
+X				-dNOPAUSE		\
+X				-dSAFER			\
+X				-sOutputFile=-		\
+X					-		\
+X			/usr/local/lib/ghostscript/quit.ps \
+X			|| echo -ne '\033&l0H'
+X			# ^  if an error occurs, then
+X			# |  eject already loaded paper
+X			;;
+X
+X			
+X    *DVI*)		#
+X			# TeX dvi file -> dvips -> gs
+X			#	
+X			dvips 2>/dev/null $TmpFile -f	\
+X			| gs -q				\
+X				-sDEVICE=djet500	\
+X				-r300x300		\
+X				-sPAPERSIZE=a4		\
+X				-dNOPAUSE		\
+X				-dSAFER			\
+X				-sOutputFile=-		\
+X					-		\
+X			/usr/local/lib/ghostscript/quit.ps \
+X			|| echo -ne '\033&l0H'
+X			# ^  if an error occurs, then
+X			# |  eject already loaded paper
+X			;;
+X
+X    *text*|*script*)	#
+X			# print normal text with
+X			#	- cr/nl conversion
+X			#	- letter quality
+X			#	- 66 lines/page
+X			#	- left margin
+X			#	- 12 cpi pitch
+X			#
+X
+X			# LINE TERMINATION	\E & k # G
+X			#	0 = CR=CR   ; LF=LF   ; FF=FF (default)
+X			#	1 = CR=CR+LF; LF=LF   ; FF=FF
+X			# **	2 = CR=CR   ; LF=CR+LF; FF=CR+FF
+X			#	3 = CR=CR+LF; LF=CR+LF; FF=CR+FF
+X			echo -ne '\033&k2G'
+X
+X			# QUALITY		\E ( s # Q
+X			#   	1 = draft	= 240cps
+X			# **	2 = letter	= 120cps (default)
+X			echo -ne '\033(s2Q'
+X
+X			# Text Scale Mode		\E & k # W
+X			#   	5 = off (default)
+X			#     	6 = on
+X			#	ignored in landscape mode
+X			# echo -ne '\033&k5W'
+X
+X			# Perforation Skip Mode		\E & l # L
+X			#   	0 = off = 0.0 in Top Margin
+X			#   	1 = on  = 1/2 in Top Margin (default)
+X			echo -ne '\033&l0L'
+X
+X			# Left Margin			\E & a # L
+X			# 	# Valu^ = column number
+X			#	default = 0 = 1/8 in left margin
+X			#	used = 7 for 1" left margin
+X			echo -ne '\033&a7L'
+X
+X			# Pitch				\E ( s # H
+X			#	# = cpi
+X			#	default = 10 characters per inch
+X			# **	12 cpi
+X			echo -ne '\033(s12H'
+X
+X			# print tmp file
+X			cat $TmpFile
+X			;;
+X
+X	*data*)		#
+X			# print binary files
+X			#
+X
+X			# LINE TERMINATION	\E & k # G
+X			# **	0 = CR=CR   ; LF=LF   ; FF=FF (default)
+X			#	1 = CR=CR+LF; LF=LF   ; FF=FF
+X			#   	2 = CR=CR   ; LF=CR+LF; FF=CR+FF
+X			#	3 = CR=CR+LF; LF=CR+LF; FF=CR+FF
+X			echo -ne '\033&k0G'
+X
+X			# print tmp file
+X			cat $TmpFile
+X			;;
+X			
+X
+X	*)		#
+X			# Rest is an unknown file type ...... sorry ;-)
+X			#
+X
+X			echo "deskjetof: unknown filetype $FileType" > /dev/console
+X			echo "deskjetof: $TmpFile: unknown filetype $FileType" \
+X			| mail $NOTIFY
+X			NotOk=1
+X			;;
+Xesac
+X
+X#
+X# keep print job, that couldn't be printed because of errors....
+X#
+Xif [ ! "$NotOk" = "1" ]
+Xthen 
+X	rm -f $TmpFile
+Xfi
+X
+X
+X#
+X# reset printer to power on values after print job
+X#
+Xecho -ne '\033E'
+X#
+END_OF_FILE
+  if test 5423 -ne `wc -c <'apsfilter'`; then
+    echo shar: \"'apsfilter'\" unpacked with wrong size!
+  fi
+  # end of 'apsfilter'
+fi
+if test -f 'magic' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'magic'\"
+else
+  echo shar: Extracting \"'magic'\" \(346 characters\)
+  sed "s/^X//" >'magic' <<'END_OF_FILE'
+X# magic.postscript: Magic for postscript files
+X#
+X0	string		%!		PostScript document
+X>2	string	PS-Adobe-		conforming
+X>11	string	1.0			at level %s
+X>11	string	2.0			at level %s
+X
+X# magic.tex: 
+X#
+X0	short	0173402	DVI File
+X>16	string	>\0	(%s)
+X0	short	0173531	Packed TeX Font
+X>4	string	>\0	(%s)
+X2	string	\000\022	Metafont Font Metric
+X>34	string	>\0	(%s)
+X
+END_OF_FILE
+  if test 346 -ne `wc -c <'magic'`; then
+    echo shar: \"'magic'\" unpacked with wrong size!
+  fi
+  # end of 'magic'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

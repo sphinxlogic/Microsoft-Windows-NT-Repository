@@ -1,0 +1,1721 @@
+Newsgroups: comp.sources.misc
+From: Volker.Schuermann@unnet.w.open.de@unnet (Volker Schuermann)
+Subject:  v29i064:  mbox - A Bulletin Board System for UNIX and MINIX, Part02/10
+Message-ID: <1992Apr5.183306.29392@sparky.imd.sterling.com>
+X-Md4-Signature: 557d9bb10089065ed8f9e0f5b5ece0e1
+Date: Sun, 5 Apr 1992 18:33:06 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Volker.Schuermann@unnet.w.open.de@unnet (Volker Schuermann)
+Posting-number: Volume 29, Issue 64
+Archive-name: mbox/part02
+Environment: MINIX, ISC, ESIX, SVR3
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  src/admin.c src/bled.doc src/mbox.msg
+# Wrapped by kent@sparky on Sun Apr  5 11:57:39 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 10)."'
+if test -f 'src/admin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/admin.c'\"
+else
+  echo shar: Extracting \"'src/admin.c'\" \(24446 characters\)
+  sed "s/^X//" >'src/admin.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  admin.c						   */
+X/*        FUNKTIONEN  user_aendern(), user_anzeigen(), user_loeschen(),    */
+X/*		      setup_get(), wait_until_keypressed(), admin(),       */
+X/*		      setup()					           */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  18.03.1992					   */
+X/***************************************************************************/
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "mbox.h"
+X
+X
+Xvoid wait_until_keypressed();
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  user_aendern						   */
+X/*  BESCHREIBUNG  Aendern ALLER Teilnehmerparameter (von ADMIN aus)        */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid user_aendern()
+X{
+X  int fd;
+X  struct userdaten DUMMY, LOOSER;
+X  char s[STRING];
+X  char t[STRING];
+X  long ll = -1L;
+X  size_t dummy = sizeof(DUMMY);
+X  char c;
+X  int i;
+X  int uid = -1;
+X
+X  headline( ADM01_MSG );
+X
+X  printf("%s ", ADM02_MSG);
+X  strcpy(s, (char *) getline(30, 11, '.', ""));
+X  if ((s[0] > 47) && (s[0] < 58)) uid = atoi(s);
+X
+X  maybe_locked(UDBASE, "r"); lockf(UDBASE);
+X  fd = open(UDBASE, O_RDONLY);
+X  if(fd == -1){
+X	nerror("admin.c", 324, "aendern", "Datei-Lesefehler", UDBASE);
+X  }
+X  while(read(fd, &DUMMY, dummy) == dummy){
+X	if(uid == DUMMY.id){
+X		ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X	}
+X	else{
+X		if((strcomp(s, DUMMY.name) == 0) ||
+X		   (strcomp(s, DUMMY.nick) == 0) ||
+X		   (strcomp(s, DUMMY.sh_name) == 0)){
+X			ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X		}
+X	}
+X  }
+X  lseek(fd, ll, SEEK_SET);
+X  read(fd, &LOOSER, sizeof(LOOSER));
+X  close(fd);
+X  unlockf(UDBASE);
+X
+X  if(ll == -1L) return;
+X
+X  printf("%c%s %d                                               ", CR, ADM03_MSG, LOOSER.id);
+X
+X  printf("\n%s ", ADM04_MSG);
+X  strcpy(s, (char *) getline(30, 1011, '.', LOOSER.name));
+X  if (s[0] > 32) sprintf(LOOSER.name, s);
+X  if (s[0] == 32) LOOSER.name[0] = '\0';
+X
+X  printf("\n%s ", ADM05_MSG);
+X  strcpy(s, (char *) getline(10, 1011, '.', LOOSER.passwort));
+X  if (s[0] > 32) sprintf(LOOSER.passwort, s);
+X  if (s[0] == 32) LOOSER.passwort[0] = '\0';
+X
+X  printf("\n%s ", ADM06_MSG);
+X  strcpy(s, (char *) getline(14, 1011, '.', LOOSER.sh_name));
+X  if (s[0] > 32) sprintf(LOOSER.sh_name, s);
+X  if (s[0] == 32) LOOSER.sh_name[0] = '\0';
+X
+X  printf("\n%s ", ADM07_MSG);
+X  strcpy(s, (char *) getline(30, 1011, '.', LOOSER.nick));
+X  if (s[0] > 32) sprintf(LOOSER.nick, s);
+X  if (s[0] == 32) LOOSER.nick[0] = '\0';
+X
+X  printf("\n%s ", ADM08_MSG);
+X  strcpy(s, (char *) getline(30, 1011, '.', LOOSER.wohnort));
+X  if (s[0] > 31) sprintf(LOOSER.wohnort, s);
+X
+X  printf("\n%s ", ADM09_MSG);
+X  strcpy(s, (char *) getline(30, 1011, '.', LOOSER.strasse));
+X  if (s[0] > 31) sprintf(LOOSER.strasse, s);
+X
+X  printf("\n%s ", ADM10_MSG);
+X  strcpy(s, (char *) getline(20, 1011, '.', LOOSER.telefon1));
+X  if (s[0] > 31) sprintf(LOOSER.telefon1, s);
+X
+X  printf("\n%s ", ADM11_MSG);
+X  strcpy(s, (char *) getline(20, 1011, '.', LOOSER.telefon2));
+X  if (s[0] > 31) sprintf(LOOSER.telefon2, s);
+X
+X  printf("\n%s ", ADM12_MSG);
+X  strcpy(s, (char *) getline(10, 1114, '?', LOOSER.geburtsdatum));
+X  if (s[0] > 31) sprintf(LOOSER.geburtsdatum, s);
+X
+X  printf("\n%s ", ADM13_MSG);
+X  sprintf(t, "%d", LOOSER.terminal);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.terminal = atoi(s);
+X  if ((LOOSER.terminal < 1) || (LOOSER.terminal > 4)) LOOSER.terminal = 1;
+X
+X  printf("\n%s ", ADM14_MSG);
+X  sprintf(t, "%d", LOOSER.editor);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.editor = atoi(s);
+X  if ((LOOSER.editor < 1) || (LOOSER.editor > 3)) LOOSER.editor = 1;
+X
+X  printf("\n%s ", ADM15_MSG);
+X  sprintf(t, "%d", LOOSER.level);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.level = atoi(s);
+X
+X  printf("\n%s ", ADM16_MSG);
+X  sprintf(t, "%d", LOOSER.more);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.more = atoi(s);
+X  if ((LOOSER.more < 1) || (LOOSER.more > 3)) LOOSER.more = 1;
+X
+X  printf("\n%s ", ADM17_MSG);
+X  sprintf(t, "%d", LOOSER.bell);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.bell = atoi(s);
+X  if ((LOOSER.bell < -1) || (LOOSER.bell > 1)) LOOSER.bell = 0;
+X
+X  printf("\n%s ", ADM18_MSG);
+X  sprintf(t, "%d", LOOSER.prompt);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.prompt = atoi(s);
+X  if ((LOOSER.prompt < 1) || (LOOSER.prompt > 3)) LOOSER.prompt = 2;
+X
+X  printf("\n%s ", ADM19_MSG);
+X  LOOSER.tlines += 2;
+X  sprintf(t, "%d", LOOSER.tlines);
+X  strcpy(s, (char *) getline(5, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.tlines = atoi(s);
+X  LOOSER.tlines -= 2;
+X  if ((LOOSER.tlines < 22) || (LOOSER.tlines > 23)) LOOSER.tlines = DEF_MAX_SCR_LINES;
+X  
+X  printf("\n%s ", ADM20_MSG);
+X  strcpy(s, (char *) getline(10, 1114, '?', LOOSER.lastlog));
+X  if (s[0] > 31) sprintf(LOOSER.lastlog, s);
+X
+X  printf("\n%s ", ADM21_MSG);
+X  strcpy(t, (char *) timereconv((long) LOOSER.lasttime));
+X  t[5] = '\0';
+X  strcpy(s, (char *) getline(5, 1113, '?', t));
+X  LOOSER.lasttime = timeconv(s);
+X
+X  printf("\n%s ", ADM21aMSG);
+X  strcpy(s, (char *) getline(17, 1011, '.', LOOSER.account));
+X  if (s[0] > 31) sprintf(LOOSER.account, s);
+X
+X  printf("\n%s ", ADM22_MSG);
+X  strcpy(s, (char *) getline(58, 1011, '.', LOOSER.newsgrps));
+X  if (s[0] > 31) sprintf(LOOSER.newsgrps, s);
+X
+X  printf("\n%s ", ADM23_MSG);
+X  sprintf(t, "%d", LOOSER.seq);
+X  strcpy(s, (char *) getline(10, 1111, '.', t));
+X  if (s[0] > 31) LOOSER.seq = atoi(s);
+X
+X  wait_until_keypressed();
+X
+X  maybe_locked(UDBASE, "r"); lockf(UDBASE);
+X  fd = open(UDBASE, O_WRONLY);
+X  if (fd == -1) {
+X	nerror("admin.c", 428, "aendern", "Datei-Schreibfehler", UDBASE);
+X  }
+X  if (lseek(fd, ll, SEEK_SET) == -1) {
+X	nerror("admin.c", 431, "aendern", "Positionierungsfehler", UDBASE);
+X  }
+X  write(fd, &LOOSER, sizeof(LOOSER));
+X  close(fd);
+X  unlockf(UDBASE);
+X
+X  if (LOOSER.id == USER.id) {	/* Ich bin's !!! */
+X
+X	maybe_locked(UDBASE, "r");
+X	lockf(UDBASE);
+X	fd = open(UDBASE, O_RDONLY);
+X	if (fd == -1) {
+X		nerror("admin.c", 324, "aendern", "Datei-Lesefehler", UDBASE);
+X	}
+X	lseek(fd, ll, SEEK_SET);
+X	read(fd, &USER, sizeof(USER));
+X	close(fd);
+X	unlockf(UDBASE);
+X  }
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  user_anzeigen()					   */
+X/*  BESCHREIBUNG  ALLE Teilnehmerdaten anzeigen (von ADMIN aus)		   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid user_anzeigen()
+X{
+X  int fd;
+X  struct userdaten DUMMY, LOOSER;
+X  char s[STRING];
+X  char t[STRING];
+X  long ll = -1L;
+X  size_t dummy = sizeof(DUMMY);
+X  char c;
+X  int i;
+X  int uid = -1;
+X
+X
+X  headline( ADM01_MSG );
+X
+X  printf("%s ", ADM02_MSG);
+X  strcpy(s, (char *) getline(30, 11, '.', ""));
+X  if ((s[0] > 47) && (s[0] < 58)) uid = atoi(s);
+X
+X  maybe_locked(UDBASE, "r"); lockf(UDBASE);
+X  fd = open(UDBASE, O_RDONLY);
+X  if (fd == -1) {
+X	nerror("admin.c", 324, "aendern", "Datei-Lesefehler", UDBASE);
+X  }
+X  while (read(fd, &DUMMY, dummy) == dummy) {
+X	if (uid == DUMMY.id) {
+X		ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X	} 
+X	else{
+X		if ((strcomp(s, DUMMY.name) == 0) ||
+X		    (strcomp(s, DUMMY.nick) == 0) ||
+X		    (strcomp(s, DUMMY.sh_name) == 0)) {
+X			ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X		}
+X	}
+X  }
+X  lseek(fd, ll, SEEK_SET);
+X  read(fd, &LOOSER, sizeof(LOOSER));
+X  close(fd);
+X  unlockf(UDBASE);
+X
+X  if (ll == -1L) return;
+X
+X  printf("%c  %s %d                                               ", CR, ADM03_MSG, LOOSER.id);
+X  printf("\n  %s %s",   ADM04_MSG, LOOSER.name);
+X  printf("\n  %s %s",   ADM05_MSG, LOOSER.passwort);
+X  printf("\n  %s %s",   ADM06_MSG, LOOSER.sh_name);
+X  printf("\n  %s %s",   ADM07_MSG, LOOSER.nick);
+X  printf("\n  %s %s",   ADM08_MSG, LOOSER.wohnort);
+X  printf("\n  %s %s",   ADM09_MSG, LOOSER.strasse);
+X  printf("\n  %s %s",   ADM10_MSG, LOOSER.telefon1);
+X  printf("\n  %s %s",   ADM11_MSG, LOOSER.telefon2);
+X  printf("\n  %s %s",   ADM12_MSG, LOOSER.geburtsdatum);
+X  printf("\n  %s %d",   ADM13_MSG, LOOSER.terminal);
+X  printf("\n  %s %d",   ADM14_MSG, LOOSER.editor);
+X  printf("\n  %s %d",   ADM15_MSG, LOOSER.level);
+X  printf("\n  %s %d",   ADM16_MSG, LOOSER.more);
+X  printf("\n  %s %d",   ADM17_MSG, LOOSER.bell);
+X  printf("\n  %s %d",   ADM18_MSG, LOOSER.prompt);
+X  printf("\n  %s %d",   ADM19_MSG, LOOSER.tlines += 2);
+X  printf("\n  %s %s",   ADM20_MSG, LOOSER.lastlog);
+X  printf("\n  %s %.5s", ADM21_MSG, (char *) timereconv((long) LOOSER.lasttime));
+X  printf("\n  %s %s",   ADM21aMSG, LOOSER.account);
+X  printf("\n  %s %s",   ADM22_MSG, LOOSER.newsgrps);
+X  printf("\n  %s %d",   ADM23_MSG, LOOSER.seq);
+X
+X  wait_until_keypressed();
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  user_loeschen()					   */
+X/*  BESCHREIBUNG  Einen Teilnehmer einsch. persoenlicher Post etc. aus	   */
+X/*		  dem System entfernen.                                    */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid user_loeschen()
+X{
+X  int fd;
+X  int gd;
+X  struct userdaten DUMMY, LOOSER;
+X  char s[STRING];
+X  char t[STRING];
+X  long ll = -1L;
+X  size_t dummy = sizeof(DUMMY);
+X  char c;
+X  int i;
+X  int uid = -1;
+X
+X
+X  headline( ADM25_MSG );
+X	
+X  printf("\n%s ", ADM02_MSG);
+X  strcpy(s, (char *) getline(30, 11, '.', ""));
+X  if ((s[0] > 47) && (s[0] < 58)) uid = atoi(s);
+X
+X  maybe_locked(UDBASE, "r"); lockf(UDBASE);
+X  fd = open(UDBASE, O_RDONLY);
+X  if (fd == -1) {
+X	nerror("admin.c", 459, "loeschen", "Datei-Lesefehler", UDBASE);
+X  }
+X  while (read(fd, &DUMMY, dummy) == dummy) {
+X	if (uid == DUMMY.id) {
+X		ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X	}
+X	else{
+X		if ((strcomp(s, DUMMY.name) == 0) ||
+X		    (strcomp(s, DUMMY.nick) == 0) ||
+X		    (strcomp(s, DUMMY.sh_name) == 0)) {
+X			ll = lseek(fd, 0L, SEEK_CUR) - dummy;
+X		}
+X	}
+X  }
+X  lseek(fd, ll, SEEK_SET);
+X  read(fd, &LOOSER, sizeof(LOOSER));
+X  close(fd);
+X  unlockf(UDBASE);
+X
+X  if (ll == -1L) return;
+X
+X  printf("%c%s (%d)                                     ", CR, ADM26_MSG, LOOSER.id);
+X  printf("\n%s (%s) ", ADM27_MSG, LOOSER.name);
+X
+X  ansi("md");
+X  printf("\n\n%s [%c, %c] ? > ", ADM28_MSG, GBL06_MSG, GBL07_MSG);
+X  ansi("me");
+X
+X  c = yesno();
+X
+X  if (c != GBL06_MSG) return;
+X
+X  maybe_locked(UDBASE, "r"); lockf(UDBASE);
+X  fd = open(UDBASE, O_RDONLY);
+X  if (fd == -1) {
+X	nerror("admin.c", 490, "loeschen", "Datei-Lesefehler", UDBASE);
+X  }
+X  sprintf(s, "%s/%dbase", TMP, getpid());
+X
+X  gd = open(s, O_WRONLY | O_CREAT);
+X  if (gd == -1) {
+X	nerror("admin.c", 497, "loeschen", "Datei-Erstellungsfehler", s);
+X  }
+X  while (read(fd, &DUMMY, dummy) == dummy) {
+X	if (DUMMY.id != LOOSER.id) {
+X		write(gd, &DUMMY, dummy);
+X	}
+X  }
+X  close(gd);
+X  close(fd);
+X  unlockf(UDBASE);
+X
+X  sprintf(t, "cp %s %s", s, UDBASE);
+X  system(t);
+X
+X  unlink(s);
+X
+X  sprintf(s, "rm -r %s/usr/%d", HOME, LOOSER.id);
+X  system(s);
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  setup_get()						   */
+X/*  BESCHREIBUNG  Die Ziffern 1-max einlesen und zurueckgeben.		   */
+X/*     PARAMETER  max  =  groesste, zulaessige Ziffer		           */
+X/*     RUECKGABE  erfasste Ziffer (CHAR !!!)				   */
+X/***************************************************************************/
+X
+Xint setup_get(max)
+Xchar max;
+X{
+X  char c;
+X
+X  ansi("md");
+X  printf("\n[1-%c] %s > ", max, ADM29_MSG);
+X  ansi("me");
+X
+X  do {
+X	c = getint();
+X	if ((c < '0') || (c > max)) c = 0;
+X  } while (c == 0);
+X  printf("%c", c);
+X
+X  return c;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  wait_until_keypressed					   */
+X/*  BESCHREIBUNG  siehe FUNKTION					   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid wait_until_keypressed()
+X{
+X  char c;
+X
+X  ansi("md");
+X  printf("\n\n%s > ", ADM30_MSG);
+X  ansi("me");
+X 
+X  c = getint();
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  admin()						   */
+X/*  BESCHREIBUNG  Teilnehmerverwaltung fuer den Administrator/Sysop.       */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid admin()
+X{
+X  char c;
+X
+XAGAIN:
+X
+X  headline( ADM31_MSG );
+X
+X  printf(  "\n  1 - %s", ADM32_MSG);
+X  printf("\n\n  2 - %s", ADM33_MSG);
+X  printf("\n\n  3 - %s", ADM34_MSG);
+X  printf("\n\n  4 - %s", ADM35_MSG);
+X  printf("\n\n  5 - %s", ADM36_MSG);
+X
+X  printf("\n");
+X  printf("\n\n  8 - %s", ADM37_MSG);
+X
+X  MEDIUM: printf("\n");
+X
+X  c = setup_get('8');
+X
+X  switch (c) {
+X      case '1':	
+X		postfach("*");
+X		logout();
+X		intro();
+X		break;
+X
+X      case '2':	
+X		user_aendern();
+X		break;
+X
+X      case '3':	
+X		user_loeschen();
+X		break;
+X
+X      case '4':	
+X		user_anzeigen();
+X		break;
+X
+X      case '5':
+X		userliste("");
+X		wait_until_keypressed();
+X		break;
+X
+X       default:
+X		printf("\n");
+X		return;
+X  }
+X  goto AGAIN;
+X
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  setup()						   */
+X/*  BESCHREIBUNG  Teilnehmerdaten/Parameter aendern (fuer die User)        */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine	                                                   */
+X/***************************************************************************/
+X
+Xvoid setup()
+X{
+X  FILE *fp;
+X  int fd;
+X  char s[STRING];
+X  char t[STRING];
+X  char c;
+X  int i;
+X  int ok = 0;
+X  long ll;
+X  struct userdaten DUMMY;
+X  int dummy = sizeof(DUMMY);
+X  char *BLANKS = "                                               ";
+X
+X
+X  AGAIN:
+X
+X  headline( ADM38_MSG );
+X  printf("\n");
+X
+X  printf("  1 - %s\n\n", ADM39_MSG);
+X  printf("  2 - %s\n\n", ADM40_MSG);
+X  printf("  3 - %s\n\n", ADM41_MSG);
+X  printf("  4 - %s\n\n", ADM42_MSG);
+X  printf("  5 - %s\n\n", ADM43_MSG);
+X  printf("  6 - %s\n\n", ADM44_MSG);
+X  printf("  7 - %s\n\n", ADM45_MSG);
+X  printf("  8 - %s\n\n", ADM46_MSG);
+X  printf("\n");
+X  printf("  9 - %s\n\n", ADM47_MSG);
+X
+X  c = setup_get('9');
+X
+X  switch (c) {
+X      case '1':
+X		headline( ADM48_MSG );
+X		printf("\n");
+X		if (USER.terminal == 1)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 1 - ANSI (X3.64 ... PC-BBS-ANSI)\n\n");
+X		if (USER.terminal == 2)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 2 - VT100\n\n");
+X		if (USER.terminal == 3)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 3 - VT52\n\n");
+X		if (USER.terminal == 4)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 4 - Dump (%s)\n\n", ADM49_MSG);
+X		USER.terminal = setup_get('4') - 48;
+X		break;
+X
+X      case '2':
+X		headline( ADM50_MSG );
+X		printf("\n");
+X		fp = fopen(EDITORS, "r");
+X		if (fp == NULL) {
+X			nerror("admin.c", 563, "setup", "Datei-Lesefehler", EDITORS);
+X		}
+X		i = 0;
+X		while((fgets(s, 80, fp) != NULL) && (s[0] == '/'));
+X		while (fscanf(fp, "%s %s", s, t) > 0) {
+X			i++;
+X			if (USER.editor == i)
+X				printf("*");
+X			else
+X				printf(" ");
+X			printf(" %d - %s\n\n", i, s);
+X		}
+X		fclose(fp);
+X		USER.editor = setup_get((i + 48)) - 48;
+X	
+X		if (USER.level < WRITE_INTERNAT) USER.editor = 1;
+X		break;
+X
+X      case '3':
+X		headline( ADM51_MSG );
+X		printf("\n");
+X		strcpy(s, (char *) mytime(0));
+X		if ((USER.prompt == 1) && (USER.bell == 1))
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 1 - %s->     \"[%s] %s > \"\n\n", ADM52_MSG, s, LOP06_MSG);
+X		if ((USER.prompt == 1) && (USER.bell == 0))
+X			printf("*");             
+X		else
+X			printf(" ");
+X		printf(" 2 - %s->     \"[%s] %s > \"\n\n", ADM53_MSG, s, LOP06_MSG);
+X		if ((USER.prompt == 2) && (USER.bell == 1))
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 3 - %s->     \"[%s] %s > \"\n\n", ADM54_MSG, NG, LOP06_MSG);
+X		if ((USER.prompt == 2) && (USER.bell == 0))
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 4 - %s->     \"[%s] %s > \"\n\n", ADM55_MSG, NG, LOP06_MSG);
+X		if ((USER.prompt == 3) && (USER.bell == 1))
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 5 - %s->     \"[(Sec.) NZ, RZ, WZ] %s > \"\n\n", ADM56_MSG, LOP06_MSG);
+X		if ((USER.prompt == 3) && (USER.bell == 0))
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 6 - %s->     \"[(Sec.) NZ, RZ, WZ] %s > \"\n\n", ADM57_MSG, LOP06_MSG);
+X	
+X		c = setup_get('6');
+X		switch (c) {
+X			    case '1':
+X					USER.prompt = 1;
+X					USER.bell = 1;
+X					break;
+X			    case '2':
+X					USER.prompt = 1;
+X					USER.bell = 0;
+X					break;
+X			    case '3':
+X					USER.prompt = 2;
+X					USER.bell = 1;
+X					break;
+X			    case '4':
+X					USER.prompt = 2;
+X					USER.bell = 0;
+X					break;
+X			    case '5':
+X					USER.prompt = 3;
+X					USER.bell = 1;
+X					break;
+X			    case '6':
+X					USER.prompt = 3;
+X					USER.bell = 0;
+X					break;
+X		}
+X		break;
+X
+X      case '4':
+X		headline( ADM58_MSG );
+X		printf("\n");
+X		if (USER.more == 0)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 1 - %s\n\n", ADM59_MSG);
+X		if (USER.more == 1)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 2 - %s\n\n", ADM60_MSG);
+X		if (USER.more == 3)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 3 - %s\n\n", ADM61_MSG);
+X		printf("\n");
+X		printf("  4 - %s\n\n", ADM62_MSG);
+X		printf("  5 - %s\n\n", ADM63_MSG);
+X		printf("  6 - %s\n\n", ADM64_MSG);		
+X		printf("  7 - %s\n\n", ADM64aMSG);
+X
+X		i = setup_get('7') - 49;
+X
+X		if (i < 3) {
+X			USER.more = i;
+X			if (USER.more == 2) USER.more++;
+X		}
+X		else {
+X			headline( ADM58_MSG );
+X			printf("\n");
+X			
+X			if (i == 3) {
+X				if (USER.leserichtung == 1)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 1 - %s\n\n", ADM65_MSG);
+X				if (USER.leserichtung == 2)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 2 - %s\n\n", ADM66_MSG);
+X		
+X				USER.leserichtung = setup_get('2') - 48;
+X			}
+X			if (i == 4) {
+X				if (USER.tlines != 23)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 1 - %s\n\n", ADM67_MSG);
+X				if (USER.tlines == 23)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 2 - %s\n\n", ADM68_MSG);
+X		
+X				USER.tlines = setup_get('2') - 48 + 21;
+X			}
+X			if (i == 5) {
+X				if (USER.schluessel[0] != 32)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 1 - %s\n\n", ADM69_MSG);
+X				if (USER.schluessel[0] == 32)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 2 - %s\n\n", ADM70_MSG);
+X		
+X				i = setup_get('2') - 48;
+X				if (i == 2){
+X					USER.schluessel[0] = 32;
+X				}				
+X				else{
+X					USER.schluessel[0] = 1;
+X				}
+X			}
+X			if (i == 6) {
+X				if (USER.schluessel[1] == 2)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 1 - %s\n\n", ADM70aMSG);
+X				if (USER.schluessel[1] == 3)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 2 - %s\n\n", ADM70bMSG);
+X		
+X				if (USER.schluessel[1] == 4)
+X					printf("*");
+X				else
+X					printf(" ");
+X				printf(" 3 - %s\n\n", ADM70cMSG);
+X	
+X				i = setup_get('3') - 48;
+X				USER.schluessel[1] = i + 1;
+X			}
+X		}
+X		break;
+X
+X	case '5':
+X		if (strcomp(GUEST, USER.name) == 0) break;
+X
+X		headline( ADM71_MSG );
+X		printf("\n");
+X
+X		ansi("md");
+X		printf("%s\n", ADM72_MSG);
+X		printf("%s\n", ADM73_MSG);
+X		printf("%s\n", ADM74_MSG);
+X		printf("\n");
+X		printf("%s\n", ADM75_MSG);
+X		printf("%s\n", ADM76_MSG);
+X		ansi("me");
+X
+X		maybe_locked(UDBASE, "r"); 
+X	        fd = open(UDBASE, O_RDONLY);
+X		if (fd == -1) {
+X			nerror("admin.c", 747, "setup", "Datei-Lesefehler", UDBASE);
+X		}	
+X
+X		printf("\n%s ", ADM04_MSG);
+X		strcpy(s, (char *) getline(30, 1015, '.', USER.name));
+X		if(strcomp(GUEST, s) != 0){
+X			if (s[0] > 31){
+X				ok = 0;
+X				lseek(fd, 0L, SEEK_SET);
+X				while ((read(fd, &DUMMY, sizeof(DUMMY)) == sizeof(DUMMY)) && (ok == 0)) {
+X					if (strcomp(s, DUMMY.name)    == 0) ok = 1;
+X					if (strcomp(s, DUMMY.nick)    == 0) ok = 1;
+X					if (strcomp(s, DUMMY.sh_name) == 0) ok = 1;
+X				}
+X				if(USER.level < ADMIN_LEV){
+X					if ((strcomp("SYSOP", s) == 0) ||
+X					    (strcomp("POST",  s) == 0) ||
+X					    (strcomp("GAST",  s) == 0) ||
+X					    (strcomp("ADMIN", s) == 0) ||
+X					    (strcomp("COSYS", s) == 0)) ok++;
+X				}
+X
+X				if(ok == 0) sprintf(USER.name, s);
+X			}
+X		}
+X
+X		printf("\n%s ", ADM07_MSG);
+X		strcpy(s, (char *) getline(30, 1015, '.', USER.nick));
+X		if (s[0] > 31){	
+X			ok = 0;
+X			lseek(fd, 0L, SEEK_SET);
+X			while ((read(fd, &DUMMY, sizeof(DUMMY)) == sizeof(DUMMY)) && (ok == 0)) {
+X				if (strcomp(s, DUMMY.name)    == 0) ok = 1;
+X				if (strcomp(s, DUMMY.nick)    == 0) ok = 1;
+X				if (strcomp(s, DUMMY.sh_name) == 0) ok = 1;
+X			}
+X			if (USER.level < ADMIN_LEV){
+X				if ((strcomp("SYSOP", s) == 0) ||
+X				    (strcomp("POST",  s) == 0) ||
+X				    (strcomp("GAST",  s) == 0) ||
+X				    (strcomp("ADMIN", s) == 0) ||
+X				    (strcomp("COSYS", s) == 0)) ok++;
+X			}
+X
+X			if(ok == 0) sprintf(USER.nick, s);
+X		}
+X
+X		close(fd);
+X		unlockf(UDBASE);
+X
+X		printf("\n%s ", ADM08_MSG);
+X		strcpy(s, (char *) getline(30, 1011, '.', USER.wohnort));
+X		if (s[0] > 31) sprintf(USER.wohnort, s);
+X
+X		printf("\n%s ", ADM09_MSG);
+X		strcpy(s, (char *) getline(30, 1011, '.', USER.strasse));
+X		if (s[0] > 31) sprintf(USER.strasse, s);
+X
+X		printf("\n%s ", ADM10_MSG);
+X		strcpy(s, (char *) getline(20, 1011, '.', USER.telefon1));
+X		if (s[0] > 31) sprintf(USER.telefon1, s);
+X
+X		printf("\n%s ", ADM11_MSG);
+X		strcpy(s, (char *) getline(20, 1011, '.', USER.telefon2));
+X		if (s[0] > 31) sprintf(USER.telefon2, s);
+X
+X		printf("\n%s ", ADM12_MSG);
+X		strcpy(s, (char *) getline(10, 1114, '?', USER.geburtsdatum));
+X		if (s[0] > 31) sprintf(USER.geburtsdatum, s);
+X
+X		break;
+X
+X
+X      case '6':
+X		if (strcomp(GUEST, USER.name) == 0) break;
+X
+X		headline( ADM77_MSG );
+X		
+X		NIX: printf("\n%s ", ADM78_MSG);
+X	
+X		strcpy(s, (char *) getline(10, 12, '.', ""));
+X		if (s[0] != '\0') {
+X			strcpy(USER.passwort, (char *) crypted(s));
+X			printf(" (%s)", USER.passwort);
+X		}
+X		if (length(USER.passwort) < 5) {
+X			ansi("md");
+X			printf("\n\n%s\n", ADM79_MSG);
+X			ansi("me");
+X			goto NIX;
+X		}
+X		printf("\n\n%s ", ADM80_MSG);
+X		strcpy(s, (char *) getline(10, 12, '.', ""));
+X		strcpy(t, (char *) crypted(s));
+X		printf(" (%s)", t);
+X		if ((strcomp(t, USER.passwort) != 0) || (strcomp(USER.passwort, t) != 0)) {
+X			ansi("md");
+X			printf(" %s         \n", ADM81_MSG);
+X			ansi("me");
+X			goto NIX;
+X		}
+X		break;
+X
+X	case '7':
+X		headline( ADM82_MSG );
+X		printf("\n");
+X		strcpy(s, (char *) mytime(0));
+X		if (USER.intro == 1)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 1 - %s\n\n", ADM83_MSG);
+X		if (USER.intro == 2)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 2 - %s\n\n", ADM84_MSG);
+X		if (USER.intro == 3)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 3 - %s\n\n", ADM85_MSG);
+X		if (USER.intro == 4)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 4 - %s\n\n", ADM86_MSG);
+X
+X		USER.intro = setup_get('4') - 48;
+X		break;
+X
+X      case '8':
+X		headline( ADM87_MSG );
+X		printf("\n");
+X		if (USER.lastmode == 1)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 1 - %s\n\n", ADM88_MSG);
+X		if (USER.lastmode == 2)
+X			printf("*");
+X		else
+X			printf(" ");
+X		printf(" 2 - %s\n\n", ADM89_MSG);
+X		printf("\n");
+X		printf("  3 - %s\n\n", ADM90_MSG);
+X	
+X		i = setup_get('3') - 48;
+X
+X		switch (i) {
+X		    case 1:
+X				USER.lastmode = 1;
+X				LASTTIME = USER.lasttime;
+X				break;
+X		    case 2:
+X				USER.lastmode = 2;
+X				LASTTIME = (int) 0;
+X				break;
+X		    case 3:
+X				headline( ADM87_MSG );
+X				ansi("md");
+X				printf("\n%s\n", ADM91_MSG);
+X				printf("%s\n", ADM92_MSG);
+X				printf("%s\n", ADM93_MSG);
+X				printf("%s\n", ADM94_MSG);
+X				ansi("me");
+X
+X				printf("\n%s ", ADM95_MSG);
+X				strcpy(t, (char *) datereconv(LASTLOG));
+X				strcpy(s, (char *) getline(10, 1114, '?', t));
+X				LASTLOG = (long) dateconv(s);
+X
+X				printf("\n%s ", ADM96_MSG);
+X				strcpy(t, (char *) timereconv(LASTTIME));
+X				strcpy(s, (char *) getline(8, 1113, '?', t));
+X				LASTTIME = timeconv(s);
+X
+X				break;
+X		}
+X		break;
+X
+X      case '9':	
+X		goto ENDE;
+X		break;
+X  }
+X  printf("\n\n");
+X  init_user( ADM97_MSG );
+X  goto AGAIN;
+X
+X  ENDE:
+X
+X  printf("\n");
+X  return;
+X}
+END_OF_FILE
+  if test 24446 -ne `wc -c <'src/admin.c'`; then
+    echo shar: \"'src/admin.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/admin.c'
+fi
+if test -f 'src/bled.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/bled.doc'\"
+else
+  echo shar: Extracting \"'src/bled.doc'\" \(1399 characters\)
+  sed "s/^X//" >'src/bled.doc' <<'END_OF_FILE'
+X(B)LED ist ein zeilenorientierer Editor (Text-Erfassungssystem), der Texte
+Xbeliebiger Groesse verarbeiten kann.
+X
+XEr verwendet verschiedene Eingabemodi, die jeweils am Prefix vor der
+XZeilennummer zu identifizieren sind:
+X
+XL0000 Text-Zeile ...                  # Lese-Modus (".l" und ".L")
+XA0000 Text-Zeile ...                  # Anhaenge-Modus (".a")
+XI0000 Text-Zeile ...                  # Einfuge-Modus (".i")
+XK0000 Text-Zeile ...                  # Korrektur-Modus (".k");
+X
+XWird ein neuer Text erfasst, ist der Anhaenge-Modus aktiv. Mit dem
+XBefehl ".l" (bzw. ".L") kann man sich den bereits eingegeben Text
+Xanzeigen lassen.
+X
+XMuss eine Zeile korrigiert werden, wird mit dem Befehl ".k ZEILE" die
+Xentsprechende Zeile (ZEILE) nochmals angezeigt und kann ueberarbeitet
+Xwerden.
+X
+XSoll zwischen den bereits erfassten Zeilen neuer Text eingegeben werden,
+Xmuss mit ".i ZEILE" in den Einfuege-Modus gewechselt werden. Von nun 
+Xan werden die Eingaben zwischen "ZEILE -1" und "ZEILE" eingefuegt. Die
+XNummerierung der auf "ZEILE" folgenden Zeilen wird automatisch angepasst.
+XDer Einfuege-Modus wird mit ".a" beendet. Danach ist der Anhaenge-Modus
+Xaktiv, und alle Eingaben werden ans Ende des Textes angehaengt.
+X
+XSollen Zeilen komplett entfernt werden, kommt der Befehl ".d" zum Einsatz.
+XWerden keine Zeilennummern angegeben, wird der gesamte Text geloescht !!!
+X
+XBeendet und gesichert wird die Eingabe mit "." !
+END_OF_FILE
+  if test 1399 -ne `wc -c <'src/bled.doc'`; then
+    echo shar: \"'src/bled.doc'\" unpacked with wrong size!
+  fi
+  # end of 'src/bled.doc'
+fi
+if test -f 'src/mbox.msg' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mbox.msg'\"
+else
+  echo shar: Extracting \"'src/mbox.msg'\" \(25229 characters\)
+  sed "s/^X//" >'src/mbox.msg' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  MBOX.MSG "deutsch"				   */
+X/*        FUNKTIONEN  Landessprachen-abhaengige Text-Zeilen		   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  23.02.1992					   */
+X/***************************************************************************/
+X
+X/* ?? SysV.getch.c */
+X
+X/* admin.c */
+X
+X#define ADM01_MSG	" Administration (Userdaten aendern) "
+X#define ADM01aMSG	" Administration (Userdaten anzeigen) "
+X#define ADM02_MSG	"UserID/Username:"
+X#define ADM03_MSG	"            User-ID:"
+X#define ADM04_MSG	"           Username:"
+X#define ADM05_MSG	"           Passwort:"
+X#define ADM06_MSG	"         SH-Account:"
+X#define ADM07_MSG	"              Alias:"
+X#define ADM08_MSG	"            Wohnort:"
+X#define ADM09_MSG	"            Strasse:"
+X#define ADM10_MSG	"    Telefon (voice):"
+X#define ADM11_MSG	"     Telefon (data):"
+X#define ADM12_MSG	"       Geburtsdatum:"
+X#define ADM13_MSG	"           Terminal:"
+X#define ADM14_MSG	"             Editor:"
+X#define ADM15_MSG	"              Level:"
+X#define ADM16_MSG	"               More:"
+X#define ADM17_MSG	"               Bell:"
+X#define ADM18_MSG	"             Prompt:"
+X#define ADM19_MSG	"              Lines:"
+X#define ADM20_MSG	"          LastLogin:"
+X#define ADM21_MSG	"           LastTime:"
+X#define ADM21aMSG	"            Account:"
+X#define ADM22_MSG	"            Bretter:"
+X#define ADM23_MSG	"                SEQ:"
+X#define ADM24_MSG	" Administration (Userdaten aendern) "	
+X#define ADM25_MSG	" Administration (Userdaten loeschen) "
+X#define ADM26_MSG	"User-ID"
+X#define ADM27_MSG	"Username"
+X#define ADM28_MSG	"[LOESCHEN] Wirklich?"
+X#define ADM29_MSG	"Welcher?"
+X#define ADM30_MSG	"[ADM] Weiter?"
+X#define ADM31_MSG	" Administration (Sysop\'s Revenge) "
+X#define ADM32_MSG	"User erfassen"
+X#define ADM33_MSG	"User aendern"
+X#define ADM34_MSG	"User loeschen"
+X#define ADM35_MSG	"User anzeigen"
+X#define ADM36_MSG	"Userliste ausgeben"
+X#define ADM37_MSG	"Zurueck zur MBox"
+X#define ADM38_MSG	" Administration (Setup) "
+X#define ADM39_MSG	"Terminal (ANSI, VT100 etc.)"
+X#define ADM40_MSG	"Editor (Texterfassungs-System)"
+X#define ADM41_MSG	"Prompt (Eingabeaufforderung)"
+X#define ADM42_MSG	"Ausgabe (Textausgabe)"
+X#define ADM43_MSG	"Anschrift (Persoenliche Daten)"
+X#define ADM44_MSG	"Passwort (Regelmaessig aendern!)"
+X#define ADM45_MSG	"Intro (Statusmeldung/Intro ausgeben?)"
+X#define ADM46_MSG	"Scanner (Datum des letzen Logins)"
+X#define ADM47_MSG	"ENDE (Setup verlassen)"
+X#define ADM48_MSG	" Administration (Terminal) "
+X#define ADM49_MSG	"List-Device"
+X#define ADM50_MSG	" Administration (Editor) "
+X#define ADM51_MSG	" Administration (Prompt) "
+X#define ADM52_MSG	"Zeit & Signal (BELL)         "
+X#define ADM53_MSG	"Zeit                         "
+X#define ADM54_MSG	"Brett & Signal (BELL)        "
+X#define ADM55_MSG	"Brett                        "
+X#define ADM56_MSG	"Einheiten & Signal (BELL)    "
+X#define ADM57_MSG	"Einheiten                    "
+X#define ADM58_MSG	" Administration (Textausgabe) "
+X#define ADM59_MSG	"Kontinuierlich ausgeben (TYPE, CAT)"
+X#define ADM60_MSG	"Seitenweise ausgeben (Seitenende markieren)"
+X#define ADM61_MSG	"Seitenweise ausgeben (Seitenende nicht markieren)"
+X#define ADM62_MSG	"Leserichtung aendern (alt <> neu)"
+X#define ADM63_MSG	"Anzahl der Zeilen (Statuszeile)"
+X#define ADM64_MSG	"Ausgabe der Artikel-\"Header\""
+X#define ADM64aMSG	"Bretter/Gruppen-Darstellung (Anzahl der Spalten)"
+X#define ADM65_MSG	"Leserichtung von ALT nach NEU"
+X#define ADM66_MSG	"Leserichtung von NEU nach ALT"
+X#define ADM67_MSG	"Anzahl der Zeilen: 24 (Statuszeile; z.B. ProComm)"
+X#define ADM68_MSG	"Anzahl der Zeilen: 25 (keine Statuszeile)"
+X#define ADM69_MSG	"Original Artikel \"Header\" (komplett)"	
+X#define ADM70_MSG	"Kurzausgabe (Autor, Betreff, Datum)"
+X#define ADM70aMSG	"Zweispaltige Ausgabe der Bretter/Gruppen"
+X#define ADM70bMSG	"Dreispaltige Ausgabe"
+X#define ADM70cMSG	"Vierspaltige Ausgabe"
+X#define ADM71_MSG	" Administration (Anschrift) "
+X#define ADM72_MSG	"ALLE persoenlichen Daten (das schliesst auch den Usernamen ein) koennen an"
+X#define ADM73_MSG	"dieser Stelle geandert werden. Um an Netz-Bretter (SUBNet-Newsgroups) senden"
+X#define ADM74_MSG	"zu duerfen, muessen zumindest der Name und die Anschrift angegeben werden."
+X#define ADM75_MSG	"Die vorgegebenen Eintraege koennen mit <ENTER> uebernommen/bestaetigt, oder"
+X#define ADM76_MSG	"durch Neueingabe ueberschrieben/korrigiert werden !"
+X#define ADM77_MSG	" Administration (Passwort) "
+X#define ADM78_MSG	"Neues Passwort:"
+X#define ADM79_MSG	"Es muessen mindestens fuenf Zeichen eingegeben werden!"
+X#define ADM80_MSG	"Nochmal bitte:"
+X#define ADM81_MSG	"<- Nicht identisch !!!"
+X#define ADM82_MSG	" Administration (Intro) "
+X#define ADM83_MSG	"Statusmeldung & Intro-Meldung"
+X#define ADM84_MSG	"Statusmeldung"
+X#define ADM85_MSG	"Intro-Meldung"
+X#define ADM86_MSG	"Keine Meldung"
+X#define ADM87_MSG	" Administration (Scanner) "
+X#define ADM88_MSG	"Datum & Uhrzeit des letzen Logins vergleichen"
+X#define ADM89_MSG	"Nur das Datum vergleichen"
+X#define ADM90_MSG	"Datum und Uhrzeit aendern"
+X#define ADM91_MSG	"Immer wenn das System angewiesen wird \"aktuelle\" Informationen anzuzeigen,"
+X#define ADM92_MSG	"wird anhand des \"Datums des letzen Logins\" ausgewaehlt. Dieses Datum koennen"
+X#define ADM93_MSG	"Sie nun aendern. Je weiter Sie zurueckdatieren, desto mehr Artikel werden"
+X#define ADM94_MSG	"angezeigt ..."
+X#define ADM95_MSG	"Neues Datum:"
+X#define ADM96_MSG	"Neue Uhrzeit:"
+X#define ADM97_MSG	"Reorganisieren"
+X
+X
+X/* ?? befehl.c */
+X
+X/* bled.c */
+X
+X#define BLD01_MSG	"Fehler bei der Zeilenangabe."
+X#define BLD02_MSG	"Uebertragung beginnt. (Beenden mit CTRL-X !)"
+X#define BLD03_MSG	"Syntax-Fehler."
+X#define BLD04_MSG	"Befehlsuebersicht"
+X#define BLD05_MSG	".l [ZEILE]|[VON,BIS]   lesen"
+X#define BLD06_MSG	".L [ZEILE]|[VON,BIS]   lesen (keine Zeilennummern)"
+X#define BLD07_MSG	".i AB                  einfuegen"
+X#define BLD08_MSG	".a                     anhaengen (beendet einfuegen)"
+X#define BLD09_MSG	".k ZEILE               korrigieren"
+X#define BLD10_MSG	".d [ZEILE]|[VON,BIS]   loeschen"	
+X#define BLD11_MSG	".u                     uebertragen (ASCII-Upload)"
+X#define BLD12_MSG	".q                     abbrechen"
+X#define BLD13_MSG	".h                     ausfuehrliche Hilfe"
+X#define BLD14_MSG	".                      sichern & beenden"
+X#define BLD15_MSG	"ZEILE, VON, BIS, AB sind gueltige Zeilennummern."
+X#define BLD16_MSG	"Angaben in [KLAMMERN] sind optional. Werden"
+X#define BLD17_MSG	"keine Angaben gemacht gilt AB=1, VON=1, BIS=32000."
+X#define BLD18_MSG	"Hilfe"
+X#define BLD19_MSG	"Abgebrochen. Datei NICHT gesichert."
+X#define BLD20_MSG	"Befehl unbekannt."
+X#define BLD21_MSG	"Prozess terminiert. Datei gesichert."
+X#define BLD22_MSG	"Keine Datei angegeben."	
+X#define BLD23_MSG	"Momentchen ..."
+X#define BLD24_MSG	"Datei"
+X#define BLD25_MSG	"enthaelt ein ausfuehrbares Programm."
+X#define BLD26_MSG	"Datei wird angelegt."
+X#define BLD27_MSG	"Datei enthaelt"
+X#define BLD28_MSG	"Zeilen"	
+X#define BLD29_MSG	"Probleme ..."
+X#define BLD30_MSG	"Und 'tschuess ..."
+X
+X
+X/* control.c */
+X
+X#define CTL01_MSG	"Fehler in der Fehlerroutine !!!"
+X
+X
+X/* ?? coreleft.c */
+X
+X/* ?? ctrlx.c */
+X
+X/* derror.c */
+X
+X#define DER01_MSG	"FEHLER:"
+X#define DER02_MSG	"Fehler:"
+X#define DER03_MSG	"abgebrochen"
+X
+X
+X/* games.c */
+X
+X#define GA01_MSG	" Online-Spiele (teilweise mit ANSI-Steuerung) "
+X#define GA02_MSG	"[Spiele] Welches?"
+X#define GA03_MSG	"<- Dann eben(d) nicht!"
+X
+X
+X/* ?? getch.c */
+X
+X/* ?? getline.c */
+X
+X/* help.c */
+X
+X#define HLP01_MSG	" Hilfsfunktion (gueltig nur fuer ix/MBox) "
+X
+X
+X/* intro.c */
+X
+X#define INT01_MSG	"Organisation:"
+X#define INT02_MSG	"BBS-Software:"
+X#define INT03_MSG	"Mailbox-Name:"
+X#define INT04_MSG	"Waehlen Sie ein Terminal aus:"
+X#define INT05_MSG	"1 - ANSI         2 - VT100         3 - VT52         4 - DUMP"
+X#define INT06_MSG	"Terminal?"
+X#define INT07_MSG	"---  Ihr Prozess wurde terminiert  ---"
+X#define INT08_MSG	"User"
+X#define INT09_MSG	"meldet sich an"
+X#define INT10_MSG	"Anmeldung"
+X#define INT11_MSG	"Initialisierung"
+X#define INT12_MSG	"Das ist Ihr"
+X#define INT13_MSG	"Anruf in dieser Box, am"
+X#define INT14_MSG	"waren Sie zuletzt aktiv"
+X#define INT15_MSG	"Es gibt"
+X#define INT16_MSG	"Bretter mit neuen Nachrichten und Ihr Postfach enthaelt"
+X#define INT17_MSG	"Briefe"
+X#define INT18_MSG	"Hey, heute ist Dein Geburtstag ... schon gemerkt ?"
+X#define INT19_MSG	"Dann man \"HERZLICHEN GLUECKWUNSCH\" !!!"
+X#define INT20_MSG	"Nur fuer den Fall das jemand fragt:"
+X#define INT21_MSG	"Heute fangen die Weihnachtsfeiertage an ... MERRY XMAS !!!"
+X#define INT22_MSG	"Wenn Dir heute so ein \"Typ in rot\" ueber den Weg laeuft ..."
+X#define INT23_MSG	"... gruess' schoen, es ist der Nikolaus !!!"
+X#define INT24_MSG	"Endlich ... das Jahr haben wir geschafft ..."
+X#define INT25_MSG	"Ein schoenes \"neues\" wuensche ich Dir !!!"
+X#define INT26_MSG	"Da haben wir Ihn endlich, den"
+X#define INT27_MSG	"sten Anrufer !!!"
+X
+X
+X/* lesen2.c */
+X
+X#define LE201_MSG	"Artikel"
+X#define LE202_MSG	"Artikel:"
+X#define LE203_MSG	"<- Den Artikel gibt's nicht!"
+X#define LE204_MSG	"<- Hier gibt's keine aktuellen Artikel!"
+X#define LE205_MSG	"Inhalt"
+X#define LE206_MSG	"Leider keine neuen Artikel ..."
+X#define LE207_MSG	"Es gibt aber noch"
+X#define LE208_MSG	"aeltere Eintraege."
+X#define LE209_MSG	"Und ausserdem gibt's auch keine aelteren Eintraege."
+X#define LE210_MSG 	"In diesem Brett gibt's noch"
+X#define LE211_MSG	"aeltere Artikel."
+X#define LE212_MSG	"In diesem Brett gibt's keine aelteren Artikel."
+X#define LE213_MSG	"<- Den Artikel gibt's nicht!"
+X#define LE214_MSG	"Keine entsprechenden Artikel gefunden ..."
+X
+X
+X/* loop.c */
+X
+X#define LOP01_MSG	"---  Abgebrochen  ---"
+X#define LOP02_MSG	"---  Ihr Prozess wurde terminiert  ---"	
+X#define LOP03_MSG	"Fuer Sie ist gerade Post angekommen ..."
+X#define LOP04_MSG	"Befehl:"
+X#define LOP05_MSG	" Befehlspuffer (1-9) "
+X#define LOP06_MSG	"Nun?"
+X#define LOP07_MSG	"<- Nein, so daemlich kann kein User sein !"
+X#define LOP08_MSG	"Befehle (Level"
+X#define LOP09_MSG	"Befehle (Gesamtuebersicht)"
+X#define LOP10_MSG	"<- Laecherlich!"
+X#define LOP11_MSG	"<- Hier muss ein Befehl angegeben werden !"
+X#define LOP12_MSG	"Keine Hilfe zum Befehl"
+X#define LOP13_MSG	"gefunden ..."
+X#define LOP14_MSG	" Protokoll der Anrufe(r) "
+X#define LOP15_MSG	"Anruf  Teilnehmer                    Standort         Terminal  Datum     Zeit"
+X#define LOP16_MSG	"Keine Schreibberechtigung !"
+X#define LOP17_MSG	"Definitionen:"
+X#define LOP18_MSG	"Datum:"
+X#define LOP19_MSG	"Uhrzeit:"	
+X#define LOP20_MSG	"Sekunden"
+X#define LOP21_MSG	"Leserichtung:"
+X#define LOP22_MSG	"Neu -> Alt"
+X#define LOP22aMSG	"Alt -> Neu"
+X#define LOP23_MSG	" Datei-Statistik (NewsSystem) "	
+X#define LOP24_MSG	"Datum     Zeit    Bretter  Zeichen (kB)   Total: Bretter  Artikel  Zeichen (kB)"	
+X#define LOP25_MSG	" Gebuehren-Statistik (UUCP-Transfer) "
+X#define LOP26_MSG	" Transfer-Statistik (Download) "
+X#define LOP27_MSG	"Datum        Datei                                        CPS     BPS  Status"   	
+X#define LOP28_MSG	"[BEENDEN] Wirklich?"
+X#define LOP29_MSG	"Momentchen"
+X#define LOP30_MSG	"<- Nicht mit Level"
+X#define LOP31_MSG	"<- Befehl nicht bekannt!"
+X#define LOP32_MSG	" Download-Statistik (Hitliste) "
+X#define LOP33_MSG	"DNLs   Datei"
+X#define LOP34_MSG	" Anrufer-Statistik (Anrufe pro Teilnehmer) " 
+X#define LOP35_MSG	"Anrufe   Teilnehmer"
+X
+X
+X/* mail.c */
+X
+X#define MAL01_MSG	"Internationale Mails duerfen erst ab LEVEL"
+X#define MAL02_MSG	"geschrieben werden ..."
+X#define MAL03_MSG	"<- Empfaenger fehlt !"
+X#define MAL04_MSG	"Externe User duerfen erst ab LEVEL"
+X#define MAL05_MSG	"angeschrieben werden ..."
+X#define MAL06_MSG	"[Frwd]"
+X#define MAL07_MSG	"<Kein Betreff verfuegbar>"
+X#define MAL08_MSG	"Anschrift des externen Users nicht gefunden !"
+X#define MAL09_MSG	"Den User"
+X#define MAL10_MSG	"gibt es auf diesem Host nicht !"
+X#define MAL11_MSG	"Brief an"
+X#define MAL12_MSG	"S, U, V"
+X#define MAL13_MSG	'S'
+X#define MAL14_MSG	'U'
+X#define MAL15_MSG	'V'
+X#define MAL16_MSG	"Schreiben, per Upload uebertragen, Verwerfen & abbrechen"
+X#define MAL17_MSG	"[Uebertragungs-Protokoll] A, X, Y, Z"
+X#define MAL17aMSG	"ASCII (Text), [X-Modem], Y-Modem (Batch), Z-Modem"
+X#define MAL18_MSG	'A'
+X#define MAL19_MSG	'X'
+X#define MAL20_MSG	'Y'
+X#define MAL21_MSG	'Z'
+X#define MAL22_MSG	"     Von:"
+X#define MAL23_MSG	"      An:"
+X#define MAL23aMSG	"Kopie an:"
+X#define MAL24_MSG	" Betreff:"
+X#define MAL25_MSG	"Binaerdateien duerfen NICHT an persoenliche Bretter geschrieben werden ..."
+X#define MAL26_MSG	"Bitte starten Sie die Uebertragung jetzt ... Beenden mit CTRL-X !"
+X#define MAL27_MSG	"Kein Brief angekommen, Vorgang beendet ..."
+X#define MAL28_MSG	"Upload liefert keine Daten !"
+X#define MAL28aMSG	"S, V, W, H"
+X#define MAL29_MSG	'S'
+X#define MAL30_MSG	'V'
+X#define MAL31_MSG	'W'
+X#define MAL31aMSG	'H'
+X#define MAL32_MSG	"Sichern & Abschicken, Verwerfen, Weiterschreiben, Header editieren"
+X#define MAL32aMSG	" Header editieren "
+X#define MAL32bMSG	"Empfaenger"
+X#define MAL32cMSG	"nicht bekannt!"
+X#define MAL33_MSG	"Ok, keine Post verschicken ..."
+X#define MAL34_MSG	"PM abgebrochen !"
+X#define MAL35_MSG	"Momentchen ..."
+X#define MAL36_MSG	"das war's !"
+X#define MAL37_MSG	"verschickt"
+X#define MAL38_MSG	"Der aktuelle Ansage-Text:"
+X#define MAL39_MSG	"[ANSAGE] aendern?"
+X#define MAL40_MSG	"Die aktuelle Unterschrift:"
+X#define MAL41_MSG	"[UNTERSCHRIFT] aendern?"
+X
+X
+X/* main.c */
+X
+X#define MAI01_MSG	"Teilnehmerdaten sichern"
+X#define MAI02_MSG	"Verbindung beendet ..."
+X#define MAI03_MSG	" Administration (Userdatenbank einrichten) "
+X#define MAI04_MSG	"Es existiert keine USERDATENBANK. Desshalb wird diese Datenbank automatisch"
+X#define MAI05_MSG	"erstellt. Die notwendigen Daten werden den Definitionen in 'mbox.h' ent-"  
+X#define MAI06_MSG	"nommen."
+X#define MAI07_MSG	"Diese neue Datenbank kann entweder mit dem Befehl 'admin' ueberarbeitet"  
+X#define MAI08_MSG	"werden, oder aber durch Entfernen erneut initialisiert werden. Naehere Infor-" 
+X#define MAI09_MSG	"mationen gibt's im TUTORIAL."
+X#define MAI10_MSG       "Die USERDATENBANK ist jetzt einsatzfaehig. \"ix/MBox\" bitte erneut starten."
+X#define MAI11_MSG	"Bye, bye, ..."
+X
+X
+X/* makro.c */
+X
+X#define MAK01_MSG	"Folgende Makros wurden vereinbart:"
+X#define MAK02_MSG	"[MAKROS] Aendern?"
+X#define MAK03_MSG	"Makro definiert."
+X#define MAK04_MSG	"<- Makro fehlerhaft!"
+X
+X
+X/* mb-daemon.c */
+X
+X#define MBD01_MSG	"Neue Artikel"
+X#define MBD02_MSG	"Bereits erfasste Artikel"
+X#define MBD03_MSG	"Heute sind's"
+X#define MBD04_MSG	"aktuelle Bretter mit"
+X#define MBD05_MSG	"kBytes"
+X#define MBD06_MSG	"In insgesamt"
+X#define MBD07_MSG	"Gruppen gibt's"
+X#define MBD08_MSG	"Artikel mit"
+X#define MBD09_MSG	"kBytes"
+X
+X/* ?? mbrsh.c */
+X
+X/* misc.c */
+X
+X#define MIS01_MSG	"<- Keine aktuellen Bretter verfuegbar."
+X#define MIS02_MSG	"ist keine NEWSGROUP !"
+X#define MIS02aMSG	"Nicht erlaubt! (Siehe \"Followup-To:\")"
+X#define MIS03_MSG	"            Von:"
+X#define MIS04_MSG	"             An:"	
+X#define MIS05_MSG	"        Betreff:"
+X#define MIS06_MSG	"   Suchbegriffe:"
+X#define MIS07_MSG	"Zusammenfassung:"
+X#define MIS08_MSG	"S, U, V"
+X#define MIS09_MSG	'S'
+X#define MIS10_MSG	'U'
+X#define MIS11_MSG	'V'
+X#define MIS12_MSG	"Schreiben, per Upload uebertragen, Verwerfen & abbrechen"
+X#define MIS13_MSG	"[Uebertragungs-Protokoll] A, [X], Y, Z"
+X#define MIS14_MSG	"ASCII (Text), [X-Modem], Y-Modem (Batch), Z-Modem"
+X#define MIS15_MSG	'A'
+X#define MIS16_MSG 	'X'
+X#define MIS17_MSG	'Y'
+X#define MIS18_MSG	'Z'
+X#define MIS19_MSG	"Bitte starten sie die Uebetragung jetzt ... beenden mit CTRL-X !"
+X#define MIS20_MSG	"Nix angekommen, kein neuer Artikel ..."
+X#define MIS21_MSG	"Upload liefert keine Daten !"
+X#define MIS22_MSG	"Binaerdatei"
+X#define MIS23_MSG	"Textdatei"
+X#define MIS24_MSG	"Bytes einer"
+X#define MIS25_MSG	"uebertragen"
+X#define MIS26_MSG	"Die effektive Uebertragungsrate betrug"
+X#define MIS27_MSG	"S, V, W, H"
+X#define MIS28_MSG	"S, V, H"
+X#define MIS29_MSG	'S'
+X#define MIS30_MSG	'V'
+X#define MIS31_MSG	'W'
+X#define MIS31aMSG	'H'
+X#define MIS32_MSG	"Sichern & Abschicken, Verwerfen, Weiterschreiben, Header editieren"	
+X#define MIS33_MSG	"Sichern & Abschicken, Verwerfen, Header editieren"
+X#define MIS34_MSG	"Sicherung laeuft ..."
+X#define MIS35_MSG	"Alles klar, kein neuer Artikel ..."
+X#define MIS36_MSG	"Artikel abgebrochen !"
+X#define MIS37_MSG	"Nachricht an"
+X#define MIS38_MSG	"verschickt"
+X#define MIS38aMSG	" Header editieren "
+X#define MIS39_MSG	"Der Artikel ist in ca. 30 Sekunden verfuegbar."
+X#define MIS40_MSG	"<- Argumente sind hier NICHT zulaessig ..."
+X#define MIS41_MSG	"<- Argument fehlt/fehlerhaft ..."
+X#define MIS42_MSG	"Message:"
+X#define MIS43_MSG	"Artikel"
+X#define MIS44_MSG	"Nachricht:"
+X#define MIS45_MSG	"Persoenliche Nachricht"
+X#define MIS46_MSG	"A, B, W, L, N, V"
+X#define MIS47_MSG	'A'
+X#define MIS48_MSG  	'B'
+X#define MIS49_MSG	'W'
+X#define MIS50_MSG	'L'
+X#define MIS51_MSG	'N'
+X#define MIS52_MSG	'V'
+X#define MIS53_MSG	"Abbrechen, Beantworten, Wiederholen, Loeschen, Naechste, Vorherige"
+X#define MIS54_MSG	"[Wirklich loeschen]"
+X#define MIS55_MSG	"In diesem Brett gibt es keine aktuelleren Artikel!"
+X#define MIS56_MSG	"Es gibt keine aelteren Artikel!"
+X#define MIS57_MSG	" Beantwortung in Bearbeitung (Pfad suchen etc. ...) "
+X#define MIS58_MSG	"Momentchen, bitte ..."
+X#define MIS59_MSG	"[Beantworten] A, B"
+X#define MIS60_MSG	"Senden an Autor oder Brett ?"
+X#define MIS61_MSG	'A'
+X#define MIS62_MSG	'B'
+X
+X
+X
+X/* misc2.c */
+X
+X#define MI201_MSG	"<- Argument fehlt/fehlerhaft ..."
+X#define MI202_MSG	"<- Nicht mit Level"
+X#define MI203_MSG	"Der Index ist in ca. 30 Sekunden wieder verfuegbar."
+X#define MI204_MSG	"Brett (Newsgroup):"
+X#define MI205_MSG	" Bretter (Level"
+X#define MI206_MSG	"Keine Bretter mit aktuellen Artikeln gefunden ..."
+X#define MI207_MSG	"Brett"	
+X#define MI208_MSG	
+X#define MI209_MSG	
+X#define MI210_MSG	"<- Kein Zugriff "
+X#define MI211_MSG	"Index wird gebildet"
+X
+X
+X/* nerror.c */
+X
+X#define NER01_MSG	"FEHLER:"
+X#define NER02_MSG	"Fehler:"
+X#define NER03_MSG	"abgebrochen"
+X
+X
+X/* pd.c */
+X
+X#define PD01_MSG	"Die Datei kann nicht gelesen werden. Sie enthaelt ein ausfuehrbares Programm."
+X#define PD02_MSG	"Inhalt der Datei:"
+X#define PD03_MSG	"[PROGRAMM] Uebertragen?"
+X#define PD04_MSG	'J'
+X#define PD05_MSG	'N'
+X#define PD06_MSG	'Q'
+X#define PD07_MSG	"Uebertragungs-Protokoll"
+X#define PD08_MSG	'A'
+X#define PD09_MSG	'X'
+X#define PD10_MSG	'Y'
+X#define PD11_MSG	'Z'
+X#define PD12_MSG	"ASCII (UUE), X-Modem, Y-Modem, Z-Modem"
+X#define PD13_MSG	"Bitte starten Sie die Uebertragung jetzt ... Beenden mit CTRL-X !"
+X#define PD14_MSG	"Uebertragung vermutlich (!) unterbrochen ..."
+X#define PD15_MSG	"Bytes uebertragen"
+X#define PD16_MSG	"Die effektive Uebertragungsrate betrug"
+X#define PD17_MSG	"ABBRUCH"
+X#define PD18_MSG	"Status (UserID"
+X#define PD19_MSG	"Anschrift                  Alias(es)         Geburtsdatum     Telefon"
+X#define PD20_MSG	"Terminal  Editor  Level  Bell  Prompt  More  Intro  Anrufe  Letzter Anruf"
+X#define PD21_MSG	"Gesamtzeit (Min. Online)    Bytes (kB Upload)         Bytes (kB Download)"
+X#define PD22_MSG	"UUCP-Adresse(n)                                       Account (gueltig bis)"
+X#define PD23_MSG	"Subnet"
+X#define PD24_MSG	"Bang"
+X#define PD25_MSG	"Lokal"
+X#define PD26_MSG	"Newsgroup(s)"
+X#define PD27_MSG	" Statistik (Anrufe) "
+X#define PD28_MSG   	"Datum    \"Normaltarif\"  \"Billigtarif\"     Total    Diagramm"
+X#define PD29_MSG	"<So>"
+X#define PD30_MSG	"<Sa>"
+X#define PD31_MSG	"Gesamt      "
+X#define PD32_MSG	"Diagramm"
+X#define PD33_MSG	"Die Zeile \"Gesamt\" bezieht sich auf die Anrufe der letzen"
+X#define PD34_MSG	"Tage"
+X#define PD35_MSG	"Transaktion beendet! Keine entsprechenden Artikel gefunden."
+X#define PD36_MSG	"Artikel werden zusammengestellt. Momentchen"
+X
+X
+X/* portinfo.c */
+X
+X#define POR01_MSG	" Portinfo (extern/intern) "
+X#define POR02_MSG	"Teilnehmer                       Terminal   Login   Prozess"
+X#define POR03_MSG	"Momentchen"
+X#define POR04_MSG	" Level (Gesamtuebersicht) "
+X#define POR05_MSG	"Option/Beschreibung     benoetigtes Level"
+X#define POR06_MSG	"Besucher (GAST) ....................."
+X#define POR07_MSG	"Schreiben (interne Post) ............"
+X#define POR08_MSG	"Schreiben (externe Post) ............"
+X#define POR09_MSG	"Schreiben (Artikel fuer NEWS) ......."
+X#define POR10_MSG	"Schreiben (internationale Post) ....."
+X#define POR11_MSG	"Freeware (Download) ................."
+X#define POR12_MSG	"Freeware (Upload) ..................."
+X#define POR13_MSG	"Betriebssystem (Shell-Zugriff) ......"
+X#define POR14_MSG	"Administration (Postmeisterei) ......"
+X#define POR15_MSG	"Und wir haben jetzt Level"
+X#define POR15aMSG	" Userliste "
+X#define POR16_MSG	"Teilnehmer                     Letzer Anruf   Anrufe   Online   Level   Account"
+X#define POR17_MSG	"Momentchen ..."
+X#define POR18_MSG	"Teilnehmer                        Upload       Download      Online"  
+X#define POR18aMSG	"Teilnehmer                         ID     Account (gueltig bis)"
+X#define POR19_MSG	"Teilnehmer mit <?> Markierung sollten unbedingt Ihre Angaben vervollstaendigen."
+X#define POR20_MSG	"Alle mit {-} gekennzeichnete Eintraege werden beim naechsten Update geloescht."
+X#define POR21_MSG	"Zur Zeit sind"
+X#define POR22_MSG	"Teilnehmer eingetragen. Davon sind"
+X#define POR23_MSG	"regelmaessig aktiv."
+X#define POR24_MSG	"Ausserdem haben sich bisher"
+X#define POR25_MSG	"Gaeste hier umgesehen."
+X#define POR25aMSG	"Informationen ueber den externen Teilnehmer"
+X#define POR25bMSG	"werden per UUCP auf"
+X#define POR25cMSG	"angefordert"
+X#define POR26_MSG	"Erwarten Sie die Antwort in den nexten Tagen in Ihrem Briefkasten!"
+X#define POR27_MSG	"Teilnehmer nicht bekannt."
+X#define POR28_MSG	"Userinformation"
+X#define POR29_MSG	"       User-ID:"
+X#define POR30_MSG	"      Username:"
+X#define POR31_MSG	" Shell-Account:"
+X#define POR32_MSG	"         Alias:"
+X#define POR33_MSG	"      Internet:"
+X#define POR34_MSG	"       Wohnort:"
+X#define POR35_MSG	"       Strasse:"
+X#define POR36_MSG	"       Telefon:"
+X#define POR37_MSG	"  Geburtsdatum:"
+X#define POR38_MSG	"Anrufe (total):"
+X#define POR39_MSG	" Letzter Anruf:"
+X#define POR40_MSG	"   Online Zeit:"
+X#define POR41_MSG	"Stunden"
+X#define POR41aMSG	" Account (bis):"
+X#define POR42_MSG       "        Upload:"
+X#define POR43_MSG	"kByte(s)"
+X#define POR44_MSG	"      Download:"
+X#define POR45_MSG	"   Nachrichten:"
+X
+X
+X/* postfach.c */
+X
+X#define POS01_MSG	"<- Ein Postfach reicht doch, oder ?"
+X#define POS02_MSG	
+X#define POS03_MSG	"Gast"
+X#define POS04_MSG	"User No.1"
+X#define POS05_MSG	"User No.2"
+X#define POS06_MSG	" Administration (POSTFACH einrichten) "
+X#define POS07_MSG	"ACHTUNG, Ihre Angaben werden zu Verwaltungszwecken gespeichert und ausgewertet."
+X#define POS08_MSG	"Der Systembetreiber uebernimmt keine Gewaehr fuer den Schutz der persoenlichen"
+X#define POS09_MSG	"Daten. Benutzer mit \"LEVEL 0\" sind nicht verpflichtet alle Daten anzugeben !"
+X#define POS10_MSG	"Vorname und Name (Username=Realname):"
+X#define POS11_MSG	"Ok, ok, kein neues Postfach ..."
+X#define POS12_MSG	"Ueberpruefung ... Momentchen, bitte ..."
+X#define POS13_MSG	"bereits eingetragen !!!"
+X#define POS14_MSG	"                            Passwort:"
+X#define POS15_MSG	"Mindestens fuenf Zeichen !!!"
+X#define POS16_MSG	"              Alias (fuer UUCP etc.):"
+X#define POS17_MSG	"                     PLZ und Wohnort:"
+X#define POS18_MSG	"              Strasse und Hausnummer:"
+X#define POS19_MSG	"                     Telefon (VOICE):"
+X#define POS20_MSG	"                      Telefon (DATA):"
+X#define POS21_MSG	"                        Geburtsdatum:"
+X#define POS22_MSG	"Fuer Sie wird jetzt ein vorlaeufiges POSTFACH eingerichtet. Sobald Ihre Angaben"
+X#define POS23_MSG	"ueberprueft worden sind, wird Ihr \"LEVEL\" erhoeht."
+X#define POS24_MSG	"Postfach wurde eingerichtet fuer"
+X#define POS25_MSG	"Reorganisieren"	
+X
+X
+X/* show.c */
+X
+X#define SHO01_MSG
+X#define SHO02_MSG
+X#define SHO03_MSG
+X#define SHO04_MSG	"WEITER"
+X#define SHO05_MSG	"Wiederholen, Abbrechen, Verlassen o. mit \"LEERTASTE\" weiterblaettern"
+X#define SHO06_MSG	'V'
+X#define SHO07_MSG	'X'
+X#define SHO08_MSG	'Q'
+X#define SHO09_MSG	'A'
+X#define SHO10_MSG	'W'
+X#define SHO11_MSG	"Wiederholung ..."
+X#define SHO12_MSG	"Seite"
+X
+X
+X/* suchen.c */
+X
+X#define SUC01_MSG	"Suchmuster:"
+X#define SUC02_MSG	"Dann eben(d) nicht!"
+X#define SUC03_MSG	"Suche nach"
+X#define SUC04_MSG	"in"
+X#define SUC05_MSG	"Momentchen"
+X#define SUC06_MSG	"Keine Artikel mit dem Suchmuster"	
+X#define SUC07_MSG	"gefunden."	
+X
+X
+X/* tools.c */
+X
+X#define TOL01_MSG	"Sonntag"
+X#define TOL02_MSG	"Montag"
+X#define TOL03_MSG	"Dienstag"
+X#define TOL04_MSG	"Mittwoch"
+X#define TOL05_MSG	"Donnerstag"
+X#define TOL06_MSG	"Freitag"
+X#define TOL07_MSG	"Samstag"
+X#define TOL08_MSG	"Momentchen"
+X
+X
+X/* weiterl.c */
+X
+X#define WEI01_MSG	"<- Keine Nachricht gespeichert."
+X#define WEI02_MSG	"Gespeicherte Nachricht(en):"
+X#define WEI03_MSG	"Betreff:"
+X#define WEI04_MSG	"<- Artikel nicht gefunden."
+X
+X
+X/* xmd.c */
+X
+X#define XMD01_MSG	"Brief von einem \"externen\" Teilnehmer"
+X#define XMD02_MSG	"---------  Nachricht folgt  ---------"
+X
+X
+X/*  G L O B A L  */
+X
+X#define GBL01_MSG	"Autor:"
+X#define GBL02_MSG	"Datum:"
+X#define GBL03_MSG	"Betreff:"
+X
+X#define GBL04_MSG	"Username:"
+X#define GBL05_MSG	"No.   Kommentar                   Autor                 Datum     Zeit   Zeilen" 
+X
+X#define GBL06_MSG	'J' 	/* JA !!!!! */
+X#define GBL07_MSG	'N'	/* NEIN !!! */
+X
+X#define GBL08_MSG	"No.   Kommentar                   Autor                 Datum     Zeit   kBytes"   
+X
+X#define GBL09_MSG	"Passwort:"
+X
+X#define GBL10_MSG	"gast"
+END_OF_FILE
+  if test 25229 -ne `wc -c <'src/mbox.msg'`; then
+    echo shar: \"'src/mbox.msg'\" unpacked with wrong size!
+  fi
+  # end of 'src/mbox.msg'
+fi
+echo shar: End of archive 2 \(of 10\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

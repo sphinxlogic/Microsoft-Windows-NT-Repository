@@ -1,0 +1,1452 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i058:  jpeg - JPEG image compression, Part04/18
+Message-ID: <1992Dec17.041632.23308@sparky.imd.sterling.com>
+X-Md4-Signature: f8daf6fd58453424059aebbbc37d87f1
+Date: Thu, 17 Dec 1992 04:16:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 58
+Archive-name: jpeg/part04
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jcsample.c jpegdata.h
+# Wrapped by kent@sparky on Wed Dec 16 20:52:25 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 18)."'
+if test -f 'jcsample.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcsample.c'\"
+else
+  echo shar: Extracting \"'jcsample.c'\" \(16472 characters\)
+  sed "s/^X//" >'jcsample.c' <<'END_OF_FILE'
+X/*
+X * jcsample.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains downsampling routines.
+X * These routines are invoked via the downsample and
+X * downsample_init/term methods.
+X *
+X * An excellent reference for image resampling is
+X *   Digital Image Warping, George Wolberg, 1990.
+X *   Pub. by IEEE Computer Society Press, Los Alamitos, CA. ISBN 0-8186-8944-7.
+X *
+X * The downsampling algorithm used here is a simple average of the source
+X * pixels covered by the output pixel.  The hi-falutin sampling literature
+X * refers to this as a "box filter".  In general the characteristics of a box
+X * filter are not very good, but for the specific cases we normally use (1:1
+X * and 2:1 ratios) the box is equivalent to a "triangle filter" which is not
+X * nearly so bad.  If you intend to use other sampling ratios, you'd be well
+X * advised to improve this code.
+X *
+X * A simple input-smoothing capability is provided.  This is mainly intended
+X * for cleaning up color-dithered GIF input files (if you find it inadequate,
+X * we suggest using an external filtering program such as pnmconvol).  When
+X * enabled, each input pixel P is replaced by a weighted sum of itself and its
+X * eight neighbors.  P's weight is 1-8*SF and each neighbor's weight is SF,
+X * where SF = (smoothing_factor / 1024).
+X * Currently, smoothing is only supported for 2h2v sampling factors.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/*
+X * Initialize for downsampling a scan.
+X */
+X
+XMETHODDEF void
+Xdownsample_init (compress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles arbitrary integral sampling ratios, without smoothing.
+X * Note that this version is not actually used for customary sampling ratios.
+X */
+X
+XMETHODDEF void
+Xint_downsample (compress_info_ptr cinfo, int which_component,
+X		long input_cols, int input_rows,
+X		long output_cols, int output_rows,
+X		JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X		JSAMPARRAY output_data)
+X{
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  int inrow, outrow, h_expand, v_expand, numpix, numpix2, h, v;
+X  long outcol, outcol_h;	/* outcol_h == outcol*h_expand */
+X  JSAMPROW inptr, outptr;
+X  INT32 outvalue;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  if (output_rows != compptr->v_samp_factor ||
+X      input_rows != cinfo->max_v_samp_factor ||
+X      (output_cols % compptr->h_samp_factor) != 0 ||
+X      (input_cols % cinfo->max_h_samp_factor) != 0 ||
+X      input_cols*compptr->h_samp_factor != output_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus downsample parameters");
+X#endif
+X
+X  h_expand = cinfo->max_h_samp_factor / compptr->h_samp_factor;
+X  v_expand = cinfo->max_v_samp_factor / compptr->v_samp_factor;
+X  numpix = h_expand * v_expand;
+X  numpix2 = numpix/2;
+X
+X  inrow = 0;
+X  for (outrow = 0; outrow < output_rows; outrow++) {
+X    outptr = output_data[outrow];
+X    for (outcol = 0, outcol_h = 0; outcol < output_cols;
+X	 outcol++, outcol_h += h_expand) {
+X      outvalue = 0;
+X      for (v = 0; v < v_expand; v++) {
+X	inptr = input_data[inrow+v] + outcol_h;
+X	for (h = 0; h < h_expand; h++) {
+X	  outvalue += (INT32) GETJSAMPLE(*inptr++);
+X	}
+X      }
+X      *outptr++ = (JSAMPLE) ((outvalue + numpix2) / numpix);
+X    }
+X    inrow += v_expand;
+X  }
+X}
+X
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles the common case of 2:1 horizontal and 1:1 vertical,
+X * without smoothing.
+X */
+X
+XMETHODDEF void
+Xh2v1_downsample (compress_info_ptr cinfo, int which_component,
+X		 long input_cols, int input_rows,
+X		 long output_cols, int output_rows,
+X		 JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X		 JSAMPARRAY output_data)
+X{
+X  int outrow;
+X  long outcol;
+X  register JSAMPROW inptr, outptr;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  if (output_rows != compptr->v_samp_factor ||
+X      input_rows != cinfo->max_v_samp_factor ||
+X      (output_cols % compptr->h_samp_factor) != 0 ||
+X      (input_cols % cinfo->max_h_samp_factor) != 0 ||
+X      input_cols*compptr->h_samp_factor != output_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus downsample parameters");
+X#endif
+X
+X  for (outrow = 0; outrow < output_rows; outrow++) {
+X    outptr = output_data[outrow];
+X    inptr = input_data[outrow];
+X    for (outcol = 0; outcol < output_cols; outcol++) {
+X      *outptr++ = (JSAMPLE) ((GETJSAMPLE(*inptr) + GETJSAMPLE(inptr[1])
+X			      + 1) >> 1);
+X      inptr += 2;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles the standard case of 2:1 horizontal and 2:1 vertical,
+X * without smoothing.
+X */
+X
+XMETHODDEF void
+Xh2v2_downsample (compress_info_ptr cinfo, int which_component,
+X		 long input_cols, int input_rows,
+X		 long output_cols, int output_rows,
+X		 JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X		 JSAMPARRAY output_data)
+X{
+X  int inrow, outrow;
+X  long outcol;
+X  register JSAMPROW inptr0, inptr1, outptr;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  if (output_rows != compptr->v_samp_factor ||
+X      input_rows != cinfo->max_v_samp_factor ||
+X      (output_cols % compptr->h_samp_factor) != 0 ||
+X      (input_cols % cinfo->max_h_samp_factor) != 0 ||
+X      input_cols*compptr->h_samp_factor != output_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus downsample parameters");
+X#endif
+X
+X  inrow = 0;
+X  for (outrow = 0; outrow < output_rows; outrow++) {
+X    outptr = output_data[outrow];
+X    inptr0 = input_data[inrow];
+X    inptr1 = input_data[inrow+1];
+X    for (outcol = 0; outcol < output_cols; outcol++) {
+X      *outptr++ = (JSAMPLE) ((GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
+X			      GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1])
+X			      + 2) >> 2);
+X      inptr0 += 2; inptr1 += 2;
+X    }
+X    inrow += 2;
+X  }
+X}
+X
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles the special case of a full-size component,
+X * without smoothing.
+X */
+X
+XMETHODDEF void
+Xfullsize_downsample (compress_info_ptr cinfo, int which_component,
+X		     long input_cols, int input_rows,
+X		     long output_cols, int output_rows,
+X		     JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X		     JSAMPARRAY output_data)
+X{
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  if (input_cols != output_cols || input_rows != output_rows)
+X    ERREXIT(cinfo->emethods, "Pipeline controller messed up");
+X#endif
+X
+X  jcopy_sample_rows(input_data, 0, output_data, 0, output_rows, output_cols);
+X}
+X
+X
+X#ifdef INPUT_SMOOTHING_SUPPORTED
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles the standard case of 2:1 horizontal and 2:1 vertical,
+X * with smoothing.
+X */
+X
+XMETHODDEF void
+Xh2v2_smooth_downsample (compress_info_ptr cinfo, int which_component,
+X			long input_cols, int input_rows,
+X			long output_cols, int output_rows,
+X			JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X			JSAMPARRAY output_data)
+X{
+X  int inrow, outrow;
+X  long colctr;
+X  register JSAMPROW inptr0, inptr1, above_ptr, below_ptr, outptr;
+X  INT32 membersum, neighsum, memberscale, neighscale;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  if (output_rows != compptr->v_samp_factor ||
+X      input_rows != cinfo->max_v_samp_factor ||
+X      (output_cols % compptr->h_samp_factor) != 0 ||
+X      (input_cols % cinfo->max_h_samp_factor) != 0 ||
+X      input_cols*compptr->h_samp_factor != output_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus downsample parameters");
+X#endif
+X
+X  /* We don't bother to form the individual "smoothed" input pixel values;
+X   * we can directly compute the output which is the average of the four
+X   * smoothed values.  Each of the four member pixels contributes a fraction
+X   * (1-8*SF) to its own smoothed image and a fraction SF to each of the three
+X   * other smoothed pixels, therefore a total fraction (1-5*SF)/4 to the final
+X   * output.  The four corner-adjacent neighbor pixels contribute a fraction
+X   * SF to just one smoothed pixel, or SF/4 to the final output; while the
+X   * eight edge-adjacent neighbors contribute SF to each of two smoothed
+X   * pixels, or SF/2 overall.  In order to use integer arithmetic, these
+X   * factors are scaled by 2^16 = 65536.
+X   * Also recall that SF = smoothing_factor / 1024.
+X   */
+X
+X  memberscale = 16384 - cinfo->smoothing_factor * 80; /* scaled (1-5*SF)/4 */
+X  neighscale = cinfo->smoothing_factor * 16; /* scaled SF/4 */
+X
+X  inrow = 0;
+X  for (outrow = 0; outrow < output_rows; outrow++) {
+X    outptr = output_data[outrow];
+X    inptr0 = input_data[inrow];
+X    inptr1 = input_data[inrow+1];
+X    if (inrow == 0)
+X      above_ptr = above[input_rows-1];
+X    else
+X      above_ptr = input_data[inrow-1];
+X    if (inrow >= input_rows-2)
+X      below_ptr = below[0];
+X    else
+X      below_ptr = input_data[inrow+2];
+X
+X    /* Special case for first column: pretend column -1 is same as column 0 */
+X    membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
+X		GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
+X    neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
+X	       GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
+X	       GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[2]) +
+X	       GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[2]);
+X    neighsum += neighsum;
+X    neighsum += GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[2]) +
+X		GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[2]);
+X    membersum = membersum * memberscale + neighsum * neighscale;
+X    *outptr++ = (JSAMPLE) ((membersum + 32768L) >> 16);
+X    inptr0 += 2; inptr1 += 2; above_ptr += 2; below_ptr += 2;
+X
+X    for (colctr = output_cols - 2; colctr > 0; colctr--) {
+X      /* sum of pixels directly mapped to this output element */
+X      membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
+X		  GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
+X      /* sum of edge-neighbor pixels */
+X      neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
+X		 GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
+X		 GETJSAMPLE(inptr0[-1]) + GETJSAMPLE(inptr0[2]) +
+X		 GETJSAMPLE(inptr1[-1]) + GETJSAMPLE(inptr1[2]);
+X      /* The edge-neighbors count twice as much as corner-neighbors */
+X      neighsum += neighsum;
+X      /* Add in the corner-neighbors */
+X      neighsum += GETJSAMPLE(above_ptr[-1]) + GETJSAMPLE(above_ptr[2]) +
+X		  GETJSAMPLE(below_ptr[-1]) + GETJSAMPLE(below_ptr[2]);
+X      /* form final output scaled up by 2^16 */
+X      membersum = membersum * memberscale + neighsum * neighscale;
+X      /* round, descale and output it */
+X      *outptr++ = (JSAMPLE) ((membersum + 32768L) >> 16);
+X      inptr0 += 2; inptr1 += 2; above_ptr += 2; below_ptr += 2;
+X    }
+X
+X    /* Special case for last column */
+X    membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
+X		GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
+X    neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
+X	       GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
+X	       GETJSAMPLE(inptr0[-1]) + GETJSAMPLE(inptr0[1]) +
+X	       GETJSAMPLE(inptr1[-1]) + GETJSAMPLE(inptr1[1]);
+X    neighsum += neighsum;
+X    neighsum += GETJSAMPLE(above_ptr[-1]) + GETJSAMPLE(above_ptr[1]) +
+X		GETJSAMPLE(below_ptr[-1]) + GETJSAMPLE(below_ptr[1]);
+X    membersum = membersum * memberscale + neighsum * neighscale;
+X    *outptr = (JSAMPLE) ((membersum + 32768L) >> 16);
+X
+X    inrow += 2;
+X  }
+X}
+X
+X
+X/*
+X * Downsample pixel values of a single component.
+X * This version handles the special case of a full-size component,
+X * with smoothing.
+X */
+X
+XMETHODDEF void
+Xfullsize_smooth_downsample (compress_info_ptr cinfo, int which_component,
+X			    long input_cols, int input_rows,
+X			    long output_cols, int output_rows,
+X			    JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X			    JSAMPARRAY output_data)
+X{
+X  int outrow;
+X  long colctr;
+X  register JSAMPROW inptr, above_ptr, below_ptr, outptr;
+X  INT32 membersum, neighsum, memberscale, neighscale;
+X  int colsum, lastcolsum, nextcolsum;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  if (input_cols != output_cols || input_rows != output_rows)
+X    ERREXIT(cinfo->emethods, "Pipeline controller messed up");
+X#endif
+X
+X  /* Each of the eight neighbor pixels contributes a fraction SF to the
+X   * smoothed pixel, while the main pixel contributes (1-8*SF).  In order
+X   * to use integer arithmetic, these factors are multiplied by 2^16 = 65536.
+X   * Also recall that SF = smoothing_factor / 1024.
+X   */
+X
+X  memberscale = 65536L - cinfo->smoothing_factor * 512L; /* scaled 1-8*SF */
+X  neighscale = cinfo->smoothing_factor * 64; /* scaled SF */
+X
+X  for (outrow = 0; outrow < output_rows; outrow++) {
+X    outptr = output_data[outrow];
+X    inptr = input_data[outrow];
+X    if (outrow == 0)
+X      above_ptr = above[input_rows-1];
+X    else
+X      above_ptr = input_data[outrow-1];
+X    if (outrow >= input_rows-1)
+X      below_ptr = below[0];
+X    else
+X      below_ptr = input_data[outrow+1];
+X
+X    /* Special case for first column */
+X    colsum = GETJSAMPLE(*above_ptr++) + GETJSAMPLE(*below_ptr++) +
+X	     GETJSAMPLE(*inptr);
+X    membersum = GETJSAMPLE(*inptr++);
+X    nextcolsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(*below_ptr) +
+X		 GETJSAMPLE(*inptr);
+X    neighsum = colsum + (colsum - membersum) + nextcolsum;
+X    membersum = membersum * memberscale + neighsum * neighscale;
+X    *outptr++ = (JSAMPLE) ((membersum + 32768L) >> 16);
+X    lastcolsum = colsum; colsum = nextcolsum;
+X
+X    for (colctr = output_cols - 2; colctr > 0; colctr--) {
+X      membersum = GETJSAMPLE(*inptr++);
+X      above_ptr++; below_ptr++;
+X      nextcolsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(*below_ptr) +
+X		   GETJSAMPLE(*inptr);
+X      neighsum = lastcolsum + (colsum - membersum) + nextcolsum;
+X      membersum = membersum * memberscale + neighsum * neighscale;
+X      *outptr++ = (JSAMPLE) ((membersum + 32768L) >> 16);
+X      lastcolsum = colsum; colsum = nextcolsum;
+X    }
+X
+X    /* Special case for last column */
+X    membersum = GETJSAMPLE(*inptr);
+X    neighsum = lastcolsum + (colsum - membersum) + colsum;
+X    membersum = membersum * memberscale + neighsum * neighscale;
+X    *outptr = (JSAMPLE) ((membersum + 32768L) >> 16);
+X
+X  }
+X}
+X
+X#endif /* INPUT_SMOOTHING_SUPPORTED */
+X
+X
+X/*
+X * Clean up after a scan.
+X */
+X
+XMETHODDEF void
+Xdownsample_term (compress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X
+X/*
+X * The method selection routine for downsampling.
+X * Note that we must select a routine for each component.
+X */
+X
+XGLOBAL void
+Xjseldownsample (compress_info_ptr cinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X  boolean smoothok = TRUE;
+X
+X  if (cinfo->CCIR601_sampling)
+X    ERREXIT(cinfo->emethods, "CCIR601 downsampling not implemented yet");
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    if (compptr->h_samp_factor == cinfo->max_h_samp_factor &&
+X	compptr->v_samp_factor == cinfo->max_v_samp_factor) {
+X#ifdef INPUT_SMOOTHING_SUPPORTED
+X      if (cinfo->smoothing_factor)
+X	cinfo->methods->downsample[ci] = fullsize_smooth_downsample;
+X      else
+X#endif
+X	cinfo->methods->downsample[ci] = fullsize_downsample;
+X    } else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
+X	     compptr->v_samp_factor == cinfo->max_v_samp_factor) {
+X      smoothok = FALSE;
+X      cinfo->methods->downsample[ci] = h2v1_downsample;
+X    } else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
+X	     compptr->v_samp_factor * 2 == cinfo->max_v_samp_factor) {
+X#ifdef INPUT_SMOOTHING_SUPPORTED
+X      if (cinfo->smoothing_factor)
+X	cinfo->methods->downsample[ci] = h2v2_smooth_downsample;
+X      else
+X#endif
+X	cinfo->methods->downsample[ci] = h2v2_downsample;
+X    } else if ((cinfo->max_h_samp_factor % compptr->h_samp_factor) == 0 &&
+X	     (cinfo->max_v_samp_factor % compptr->v_samp_factor) == 0) {
+X      smoothok = FALSE;
+X      cinfo->methods->downsample[ci] = int_downsample;
+X    } else
+X      ERREXIT(cinfo->emethods, "Fractional downsampling not implemented yet");
+X  }
+X
+X#ifdef INPUT_SMOOTHING_SUPPORTED
+X  if (cinfo->smoothing_factor && !smoothok)
+X    TRACEMS(cinfo->emethods, 0,
+X	    "Smoothing not supported with nonstandard sampling ratios");
+X#endif
+X
+X  cinfo->methods->downsample_init = downsample_init;
+X  cinfo->methods->downsample_term = downsample_term;
+X}
+END_OF_FILE
+  if test 16472 -ne `wc -c <'jcsample.c'`; then
+    echo shar: \"'jcsample.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcsample.c'
+fi
+if test -f 'jpegdata.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jpegdata.h'\"
+else
+  echo shar: Extracting \"'jpegdata.h'\" \(39469 characters\)
+  sed "s/^X//" >'jpegdata.h' <<'END_OF_FILE'
+X/*
+X * jpegdata.h
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file defines shared data structures for the various JPEG modules.
+X */
+X
+X
+X/*
+X * You might need to change some of the following declarations if you are
+X * using the JPEG software within a surrounding application program
+X * or porting it to an unusual system.
+X */
+X
+X
+X/* If the source or destination of image data is not to be stdio streams,
+X * these types may need work.  You can replace them with some kind of
+X * pointer or indicator that is useful to you, or just ignore 'em.
+X * Note that the user interface and the various jrdxxx/jwrxxx modules
+X * will also need work for non-stdio input/output.
+X */
+X
+Xtypedef FILE * JFILEREF;	/* source or dest of JPEG-compressed data */
+X
+Xtypedef FILE * IFILEREF;	/* source or dest of non-JPEG image data */
+X
+X
+X/* These defines are used in all function definitions and extern declarations.
+X * You could modify them if you need to change function linkage conventions,
+X * as is shown below for use with C++.  Another application would be to make
+X * all functions global for use with code profilers that require it.
+X * NOTE: the C++ test does the right thing if you are reading this include
+X * file in a C++ application to link to JPEG code that's been compiled with a
+X * regular C compiler.  I'm not sure it works if you try to compile the JPEG
+X * code with C++.
+X */
+X
+X#define METHODDEF static	/* a function called through method pointers */
+X#define LOCAL	  static	/* a function used only in its module */
+X#define GLOBAL			/* a function referenced thru EXTERNs */
+X#ifdef __cplusplus
+X#define EXTERN	  extern "C"	/* a reference to a GLOBAL function */
+X#else
+X#define EXTERN	  extern	/* a reference to a GLOBAL function */
+X#endif
+X
+X
+X/* Here is the pseudo-keyword for declaring pointers that must be "far"
+X * on 80x86 machines.  Most of the specialized coding for 80x86 is handled
+X * by just saying "FAR *" where such a pointer is needed.  In a few places
+X * explicit coding is needed; see uses of the NEED_FAR_POINTERS symbol.
+X */
+X
+X#ifdef NEED_FAR_POINTERS
+X#define FAR  far
+X#else
+X#define FAR
+X#endif
+X
+X
+X
+X/* The remaining declarations are not system-dependent, we hope. */
+X
+X
+X/*
+X * NOTE: if you have an ancient, strict-K&R C compiler, it may choke on the
+X * similarly-named fields in Compress_info_struct and Decompress_info_struct.
+X * If this happens, you can get around it by rearranging the two structs so
+X * that the similarly-named fields appear first and in the same order in
+X * each struct.  Since such compilers are now pretty rare, we haven't done
+X * this in the portable code, preferring to maintain a logical ordering.
+X */
+X
+X
+X
+X/* This macro is used to declare a "method", that is, a function pointer. */
+X/* We want to supply prototype parameters if the compiler can cope. */
+X/* Note that the arglist parameter must be parenthesized! */
+X
+X#ifdef PROTO
+X#define METHOD(type,methodname,arglist)  type (*methodname) arglist
+X#else
+X#define METHOD(type,methodname,arglist)  type (*methodname) ()
+X#endif
+X
+X/* Forward references to lists of method pointers */
+Xtypedef struct External_methods_struct * external_methods_ptr;
+Xtypedef struct Compress_methods_struct * compress_methods_ptr;
+Xtypedef struct Decompress_methods_struct * decompress_methods_ptr;
+X
+X
+X/* Data structures for images containing either samples or coefficients. */
+X/* Note that the topmost (leftmost) index is always color component. */
+X/* On 80x86 machines, the image arrays are too big for near pointers, */
+X/* but the pointer arrays can fit in near memory. */
+X
+Xtypedef JSAMPLE FAR *JSAMPROW;	/* ptr to one image row of pixel samples. */
+Xtypedef JSAMPROW *JSAMPARRAY;	/* ptr to some rows (a 2-D sample array) */
+Xtypedef JSAMPARRAY *JSAMPIMAGE;	/* a 3-D sample array: top index is color */
+X
+X
+X#define DCTSIZE		8	/* The basic DCT block is 8x8 samples */
+X#define DCTSIZE2	64	/* DCTSIZE squared; # of elements in a block */
+X
+Xtypedef JCOEF JBLOCK[DCTSIZE2];	/* one block of coefficients */
+Xtypedef JBLOCK FAR *JBLOCKROW;	/* pointer to one row of coefficient blocks */
+Xtypedef JBLOCKROW *JBLOCKARRAY;		/* a 2-D array of coefficient blocks */
+Xtypedef JBLOCKARRAY *JBLOCKIMAGE;	/* a 3-D array of coefficient blocks */
+X
+Xtypedef JCOEF FAR *JCOEFPTR;	/* useful in a couple of places */
+X
+X
+X/* The input and output data of the DCT transform subroutines are of
+X * the following type, which need not be the same as JCOEF.
+X * For example, on a machine with fast floating point, it might make sense
+X * to recode the DCT routines to use floating point; then DCTELEM would be
+X * 'float' or 'double'.
+X */
+X
+Xtypedef JCOEF DCTELEM;
+Xtypedef DCTELEM DCTBLOCK[DCTSIZE2];
+X
+X
+X/* Types for JPEG compression parameters and working tables. */
+X
+X
+Xtypedef enum {			/* defines known color spaces */
+X	CS_UNKNOWN,		/* error/unspecified */
+X	CS_GRAYSCALE,		/* monochrome (only 1 component) */
+X	CS_RGB,			/* red/green/blue */
+X	CS_YCbCr,		/* Y/Cb/Cr (also known as YUV) */
+X	CS_YIQ,			/* Y/I/Q */
+X	CS_CMYK			/* C/M/Y/K */
+X} COLOR_SPACE;
+X
+X
+Xtypedef struct {		/* Basic info about one component */
+X  /* These values are fixed over the whole image */
+X  /* For compression, they must be supplied by the user interface; */
+X  /* for decompression, they are read from the SOF marker. */
+X	short component_id;	/* identifier for this component (0..255) */
+X	short component_index;	/* its index in SOF or cinfo->comp_info[] */
+X	short h_samp_factor;	/* horizontal sampling factor (1..4) */
+X	short v_samp_factor;	/* vertical sampling factor (1..4) */
+X	short quant_tbl_no;	/* quantization table selector (0..3) */
+X  /* These values may vary between scans */
+X  /* For compression, they must be supplied by the user interface; */
+X  /* for decompression, they are read from the SOS marker. */
+X	short dc_tbl_no;	/* DC entropy table selector (0..3) */
+X	short ac_tbl_no;	/* AC entropy table selector (0..3) */
+X  /* These values are computed during compression or decompression startup */
+X	long true_comp_width;	/* component's image width in samples */
+X	long true_comp_height;	/* component's image height in samples */
+X	/* the above are the logical dimensions of the downsampled image */
+X  /* These values are computed before starting a scan of the component */
+X	short MCU_width;	/* number of blocks per MCU, horizontally */
+X	short MCU_height;	/* number of blocks per MCU, vertically */
+X	short MCU_blocks;	/* MCU_width * MCU_height */
+X	long downsampled_width;	/* image width in samples, after expansion */
+X	long downsampled_height; /* image height in samples, after expansion */
+X	/* the above are the true_comp_xxx values rounded up to multiples of */
+X	/* the MCU dimensions; these are the working dimensions of the array */
+X	/* as it is passed through the DCT or IDCT step.  NOTE: these values */
+X	/* differ depending on whether the component is interleaved or not!! */
+X} jpeg_component_info;
+X
+X
+X/* DCT coefficient quantization tables.
+X * For 8-bit precision, 'INT16' should be good enough for quantization values;
+X * for more precision, we go for the full 16 bits.  'INT16' provides a useful
+X * speedup on many machines (multiplication & division of JCOEFs by
+X * quantization values is a significant chunk of the runtime).
+X * Note: the values in a QUANT_TBL are always given in zigzag order.
+X */
+X#ifdef EIGHT_BIT_SAMPLES
+Xtypedef INT16 QUANT_VAL;	/* element of a quantization table */
+X#else
+Xtypedef UINT16 QUANT_VAL;	/* element of a quantization table */
+X#endif
+Xtypedef QUANT_VAL QUANT_TBL[DCTSIZE2];	/* A quantization table */
+Xtypedef QUANT_VAL * QUANT_TBL_PTR;	/* pointer to same */
+X
+X
+Xtypedef struct {		/* A Huffman coding table */
+X  /* These two fields directly represent the contents of a JPEG DHT marker */
+X	UINT8 bits[17];		/* bits[k] = # of symbols with codes of */
+X				/* length k bits; bits[0] is unused */
+X	UINT8 huffval[256];	/* The symbols, in order of incr code length */
+X  /* This field is used only during compression.  It's initialized FALSE when
+X   * the table is created, and set TRUE when it's been output to the file.
+X   */
+X	boolean sent_table;	/* TRUE when table has been output */
+X  /* The remaining fields are computed from the above to allow more efficient
+X   * coding and decoding.  These fields should be considered private to the
+X   * Huffman compression & decompression modules.
+X   */
+X	/* encoding tables: */
+X	UINT16 ehufco[256];	/* code for each symbol */
+X	char ehufsi[256];	/* length of code for each symbol */
+X	/* decoding tables: (element [0] of each array is unused) */
+X	UINT16 mincode[17];	/* smallest code of length k */
+X	INT32 maxcode[18];	/* largest code of length k (-1 if none) */
+X	/* (maxcode[17] is a sentinel to ensure huff_DECODE terminates) */
+X	short valptr[17];	/* huffval[] index of 1st symbol of length k */
+X} HUFF_TBL;
+X
+X
+X#define NUM_QUANT_TBLS      4	/* quantization tables are numbered 0..3 */
+X#define NUM_HUFF_TBLS       4	/* Huffman tables are numbered 0..3 */
+X#define NUM_ARITH_TBLS      16	/* arith-coding tables are numbered 0..15 */
+X#define MAX_COMPS_IN_SCAN   4	/* JPEG limit on # of components in one scan */
+X#define MAX_SAMP_FACTOR     4	/* JPEG limit on sampling factors */
+X#define MAX_BLOCKS_IN_MCU   10	/* JPEG limit on # of blocks in an MCU */
+X
+X
+X/* Working data for compression */
+X
+Xstruct Compress_info_struct {
+X/*
+X * All of these fields shall be established by the user interface before
+X * calling jpeg_compress, or by the input_init or c_ui_method_selection
+X * methods.
+X * Most parameters can be set to reasonable defaults by j_c_defaults.
+X * Note that the UI must supply the storage for the main methods struct,
+X * though it sets only a few of the methods there.
+X */
+X	compress_methods_ptr methods; /* Points to list of methods to use */
+X
+X	external_methods_ptr emethods; /* Points to list of methods to use */
+X
+X	IFILEREF input_file;	/* tells input routines where to read image */
+X	JFILEREF output_file;	/* tells output routines where to write JPEG */
+X
+X	long image_width;	/* input image width */
+X	long image_height;	/* input image height */
+X	short input_components;	/* # of color components in input image */
+X
+X	short data_precision;	/* bits of precision in image data */
+X
+X	COLOR_SPACE in_color_space; /* colorspace of input file */
+X	COLOR_SPACE jpeg_color_space; /* colorspace of JPEG file */
+X
+X	double input_gamma;	/* image gamma of input file */
+X
+X	boolean write_JFIF_header; /* should a JFIF marker be written? */
+X	/* These three values are not used by the JPEG code, only copied */
+X	/* into the JFIF APP0 marker.  density_unit can be 0 for unknown, */
+X	/* 1 for dots/inch, or 2 for dots/cm.  Note that the pixel aspect */
+X	/* ratio is defined by X_density/Y_density even when density_unit=0. */
+X	UINT8 density_unit;	/* JFIF code for pixel size units */
+X	UINT16 X_density;	/* Horizontal pixel density */
+X	UINT16 Y_density;	/* Vertical pixel density */
+X
+X	short num_components;	/* # of color components in JPEG image */
+X	jpeg_component_info * comp_info;
+X	/* comp_info[i] describes component that appears i'th in SOF */
+X
+X	QUANT_TBL_PTR quant_tbl_ptrs[NUM_QUANT_TBLS];
+X	/* ptrs to coefficient quantization tables, or NULL if not defined */
+X
+X	HUFF_TBL * dc_huff_tbl_ptrs[NUM_HUFF_TBLS];
+X	HUFF_TBL * ac_huff_tbl_ptrs[NUM_HUFF_TBLS];
+X	/* ptrs to Huffman coding tables, or NULL if not defined */
+X
+X	UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arithmetic-coding tables */
+X	UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arithmetic-coding tables */
+X	UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arithmetic-coding tables */
+X
+X	boolean arith_code;	/* TRUE=arithmetic coding, FALSE=Huffman */
+X	boolean interleave;	/* TRUE=interleaved output, FALSE=not */
+X	boolean optimize_coding; /* TRUE=optimize entropy encoding parms */
+X	boolean CCIR601_sampling; /* TRUE=first samples are cosited */
+X	int smoothing_factor;	/* 1..100, or 0 for no input smoothing */
+X
+X	/* The restart interval can be specified in absolute MCUs by setting
+X	 * restart_interval, or in MCU rows by setting restart_in_rows
+X	 * (in which case the correct restart_interval will be figured
+X	 * for each scan).
+X	 */
+X	UINT16 restart_interval;/* MCUs per restart interval, or 0 for no restart */
+X	int restart_in_rows;	/* if > 0, MCU rows per restart interval */
+X
+X/*
+X * These fields are computed during jpeg_compress startup
+X */
+X	short max_h_samp_factor; /* largest h_samp_factor */
+X	short max_v_samp_factor; /* largest v_samp_factor */
+X
+X/*
+X * These fields may be useful for progress monitoring
+X */
+X
+X	int total_passes;	/* number of passes expected */
+X	int completed_passes;	/* number of passes completed so far */
+X
+X/*
+X * These fields are valid during any one scan
+X */
+X	short comps_in_scan;	/* # of JPEG components output this time */
+X	jpeg_component_info * cur_comp_info[MAX_COMPS_IN_SCAN];
+X	/* *cur_comp_info[i] describes component that appears i'th in SOS */
+X
+X	long MCUs_per_row;	/* # of MCUs across the image */
+X	long MCU_rows_in_scan;	/* # of MCU rows in the image */
+X
+X	short blocks_in_MCU;	/* # of DCT blocks per MCU */
+X	short MCU_membership[MAX_BLOCKS_IN_MCU];
+X	/* MCU_membership[i] is index in cur_comp_info of component owning */
+X	/* i'th block in an MCU */
+X
+X	/* these fields are private data for the entropy encoder */
+X	JCOEF last_dc_val[MAX_COMPS_IN_SCAN]; /* last DC coef for each comp */
+X	JCOEF last_dc_diff[MAX_COMPS_IN_SCAN]; /* last DC diff for each comp */
+X	UINT16 restarts_to_go;	/* MCUs left in this restart interval */
+X	short next_restart_num;	/* # of next RSTn marker (0..7) */
+X};
+X
+Xtypedef struct Compress_info_struct * compress_info_ptr;
+X
+X
+X/* Working data for decompression */
+X
+Xstruct Decompress_info_struct {
+X/*
+X * These fields shall be established by the user interface before
+X * calling jpeg_decompress.
+X * Most parameters can be set to reasonable defaults by j_d_defaults.
+X * Note that the UI must supply the storage for the main methods struct,
+X * though it sets only a few of the methods there.
+X */
+X	decompress_methods_ptr methods; /* Points to list of methods to use */
+X
+X	external_methods_ptr emethods; /* Points to list of methods to use */
+X
+X	JFILEREF input_file;	/* tells input routines where to read JPEG */
+X	IFILEREF output_file;	/* tells output routines where to write image */
+X
+X	/* these can be set at d_ui_method_selection time: */
+X
+X	COLOR_SPACE out_color_space; /* colorspace of output */
+X
+X	double output_gamma;	/* image gamma wanted in output */
+X
+X	boolean quantize_colors; /* T if output is a colormapped format */
+X	/* the following are ignored if not quantize_colors: */
+X	boolean two_pass_quantize;	/* use two-pass color quantization? */
+X	boolean use_dithering;		/* want color dithering? */
+X	int desired_number_of_colors;	/* max number of colors to use */
+X
+X	boolean do_block_smoothing; /* T = apply cross-block smoothing */
+X	boolean do_pixel_smoothing; /* T = apply post-upsampling smoothing */
+X
+X/*
+X * These fields are used for efficient buffering of data between read_jpeg_data
+X * and the entropy decoding object.  By using a shared buffer, we avoid copying
+X * data and eliminate the need for an "unget" operation at the end of a scan.
+X * The actual source of the data is known only to read_jpeg_data; see the
+X * JGETC macro, below.
+X * Note: the user interface is expected to allocate the input_buffer and
+X * initialize bytes_in_buffer to 0.  Also, for JFIF/raw-JPEG input, the UI
+X * actually supplies the read_jpeg_data method.  This is all handled by
+X * j_d_defaults in a typical implementation.
+X */
+X	char * input_buffer;	/* start of buffer (private to input code) */
+X	char * next_input_byte;	/* => next byte to read from buffer */
+X	int bytes_in_buffer;	/* # of bytes remaining in buffer */
+X
+X/*
+X * These fields are set by read_file_header or read_scan_header
+X */
+X	long image_width;	/* overall image width */
+X	long image_height;	/* overall image height */
+X
+X	short data_precision;	/* bits of precision in image data */
+X
+X	COLOR_SPACE jpeg_color_space; /* colorspace of JPEG file */
+X
+X        /* These three values are not used by the JPEG code, merely copied */
+X	/* from the JFIF APP0 marker (if any). */
+X	UINT8 density_unit;	/* JFIF code for pixel size units */
+X	UINT16 X_density;	/* Horizontal pixel density */
+X	UINT16 Y_density;	/* Vertical pixel density */
+X
+X	short num_components;	/* # of color components in JPEG image */
+X	jpeg_component_info * comp_info;
+X	/* comp_info[i] describes component that appears i'th in SOF */
+X
+X	QUANT_TBL_PTR quant_tbl_ptrs[NUM_QUANT_TBLS];
+X	/* ptrs to coefficient quantization tables, or NULL if not defined */
+X
+X	HUFF_TBL * dc_huff_tbl_ptrs[NUM_HUFF_TBLS];
+X	HUFF_TBL * ac_huff_tbl_ptrs[NUM_HUFF_TBLS];
+X	/* ptrs to Huffman coding tables, or NULL if not defined */
+X
+X	UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arith-coding tables */
+X	UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arith-coding tables */
+X	UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arith-coding tables */
+X
+X	boolean arith_code;	/* TRUE=arithmetic coding, FALSE=Huffman */
+X	boolean CCIR601_sampling; /* TRUE=first samples are cosited */
+X
+X	UINT16 restart_interval;/* MCUs per restart interval, or 0 for no restart */
+X
+X/*
+X * These fields are computed during jpeg_decompress startup
+X */
+X	short max_h_samp_factor; /* largest h_samp_factor */
+X	short max_v_samp_factor; /* largest v_samp_factor */
+X
+X	short color_out_comps;	/* # of color components output by color_convert */
+X				/* (need not match num_components) */
+X	short final_out_comps;	/* # of color components sent to put_pixel_rows */
+X	/* (1 when quantizing colors, else same as color_out_comps) */
+X
+X	JSAMPLE * sample_range_limit; /* table for fast range-limiting */
+X
+X/*
+X * When quantizing colors, the color quantizer leaves a pointer to the output
+X * colormap in these fields.  The colormap is valid from the time put_color_map
+X * is called (must be before any put_pixel_rows calls) until shutdown (more
+X * specifically, until free_all is called to release memory).
+X */
+X	int actual_number_of_colors; /* actual number of entries */
+X	JSAMPARRAY colormap;	/* NULL if not valid */
+X	/* map has color_out_comps rows * actual_number_of_colors columns */
+X
+X/*
+X * These fields may be useful for progress monitoring
+X */
+X
+X	int total_passes;	/* number of passes expected */
+X	int completed_passes;	/* number of passes completed so far */
+X
+X/*
+X * These fields are valid during any one scan
+X */
+X	short comps_in_scan;	/* # of JPEG components input this time */
+X	jpeg_component_info * cur_comp_info[MAX_COMPS_IN_SCAN];
+X	/* *cur_comp_info[i] describes component that appears i'th in SOS */
+X
+X	long MCUs_per_row;	/* # of MCUs across the image */
+X	long MCU_rows_in_scan;	/* # of MCU rows in the image */
+X
+X	short blocks_in_MCU;	/* # of DCT blocks per MCU */
+X	short MCU_membership[MAX_BLOCKS_IN_MCU];
+X	/* MCU_membership[i] is index in cur_comp_info of component owning */
+X	/* i'th block in an MCU */
+X
+X	/* these fields are private data for the entropy encoder */
+X	JCOEF last_dc_val[MAX_COMPS_IN_SCAN]; /* last DC coef for each comp */
+X	JCOEF last_dc_diff[MAX_COMPS_IN_SCAN]; /* last DC diff for each comp */
+X	UINT16 restarts_to_go;	/* MCUs left in this restart interval */
+X	short next_restart_num;	/* # of next RSTn marker (0..7) */
+X};
+X
+Xtypedef struct Decompress_info_struct * decompress_info_ptr;
+X
+X
+X/* Macros for reading data from the decompression input buffer */
+X
+X#ifdef CHAR_IS_UNSIGNED
+X#define JGETC(cinfo)	( --(cinfo)->bytes_in_buffer < 0 ? \
+X			 (*(cinfo)->methods->read_jpeg_data) (cinfo) : \
+X			 (int) (*(cinfo)->next_input_byte++) )
+X#else
+X#define JGETC(cinfo)	( --(cinfo)->bytes_in_buffer < 0 ? \
+X			 (*(cinfo)->methods->read_jpeg_data) (cinfo) : \
+X			 (int) (*(cinfo)->next_input_byte++) & 0xFF )
+X#endif
+X
+X#define JUNGETC(ch,cinfo)  ((cinfo)->bytes_in_buffer++, \
+X			    *(--((cinfo)->next_input_byte)) = (char) (ch))
+X
+X#define MIN_UNGET	4	/* may always do at least 4 JUNGETCs */
+X
+X
+X/* A virtual image has a control block whose contents are private to the
+X * memory manager module (and may differ between managers).  The rest of the
+X * code only refers to virtual images by these pointer types, and never
+X * dereferences the pointer.
+X */
+X
+Xtypedef struct big_sarray_control * big_sarray_ptr;
+Xtypedef struct big_barray_control * big_barray_ptr;
+X
+X/* Although a real ANSI C compiler can deal perfectly well with pointers to
+X * unspecified structures (see "incomplete types" in the spec), a few pre-ANSI
+X * and pseudo-ANSI compilers get confused.  To keep one of these bozos happy,
+X * add -DINCOMPLETE_TYPES_BROKEN to CFLAGS in your Makefile.  Then we will
+X * pseudo-define the structs as containing a single "dummy" field.
+X * The memory managers #define AM_MEMORY_MANAGER before including this file,
+X * so that they can make their own definitions of the structs.
+X */
+X
+X#ifdef INCOMPLETE_TYPES_BROKEN
+X#ifndef AM_MEMORY_MANAGER
+Xstruct big_sarray_control { long dummy; };
+Xstruct big_barray_control { long dummy; };
+X#endif
+X#endif
+X
+X
+X/* Method types that need typedefs */
+X
+Xtypedef METHOD(void, MCU_output_method_ptr, (compress_info_ptr cinfo,
+X					     JBLOCK *MCU_data));
+Xtypedef METHOD(void, MCU_output_caller_ptr, (compress_info_ptr cinfo,
+X					     MCU_output_method_ptr output_method));
+Xtypedef METHOD(void, downsample_ptr, (compress_info_ptr cinfo,
+X				      int which_component,
+X				      long input_cols, int input_rows,
+X				      long output_cols, int output_rows,
+X				      JSAMPARRAY above,
+X				      JSAMPARRAY input_data,
+X				      JSAMPARRAY below,
+X				      JSAMPARRAY output_data));
+Xtypedef METHOD(void, upsample_ptr, (decompress_info_ptr cinfo,
+X				    int which_component,
+X				    long input_cols, int input_rows,
+X				    long output_cols, int output_rows,
+X				    JSAMPARRAY above,
+X				    JSAMPARRAY input_data,
+X				    JSAMPARRAY below,
+X				    JSAMPARRAY output_data));
+Xtypedef METHOD(void, quantize_method_ptr, (decompress_info_ptr cinfo,
+X					   int num_rows,
+X					   JSAMPIMAGE input_data,
+X					   JSAMPARRAY output_workspace));
+Xtypedef METHOD(void, quantize_caller_ptr, (decompress_info_ptr cinfo,
+X					   quantize_method_ptr quantize_method));
+X
+X
+X/* These structs contain function pointers for the various JPEG methods. */
+X
+X/* Routines to be provided by the surrounding application, rather than the
+X * portable JPEG code proper.  These are the same for compression and
+X * decompression.
+X */
+X
+Xstruct External_methods_struct {
+X	/* User interface: error exit and trace message routines */
+X	/* NOTE: the string msgtext parameters will eventually be replaced
+X	 * by an enumerated-type code so that non-English error messages
+X	 * can be substituted easily.  This will not be done until all the
+X	 * code is in place, so that we know what messages are needed.
+X	 */
+X	METHOD(void, error_exit, (const char *msgtext));
+X	METHOD(void, trace_message, (const char *msgtext));
+X
+X	/* Working data for error/trace facility */
+X	/* See macros below for the usage of these variables */
+X	int trace_level;	/* level of detail of tracing messages */
+X	/* Use level 0 for important warning messages (nonfatal errors) */
+X	/* Use levels 1, 2, 3 for successively more detailed trace options */
+X
+X	/* For recoverable corrupt-data errors, we emit a warning message and
+X	 * keep going.  A surrounding application can check for bad data by
+X	 * seeing if num_warnings is nonzero at the end of processing.
+X	 */
+X	long num_warnings;	/* number of corrupt-data warnings */
+X	int first_warning_level; /* trace level for first warning */
+X	int more_warning_level;	/* trace level for subsequent warnings */
+X
+X	int message_parm[8];	/* store numeric parms for messages here */
+X
+X	/* Memory management */
+X	/* NB: alloc routines never return NULL. They exit to */
+X	/* error_exit if not successful. */
+X	METHOD(void *, alloc_small, (size_t sizeofobject));
+X	METHOD(void, free_small, (void *ptr));
+X	METHOD(void FAR *, alloc_medium, (size_t sizeofobject));
+X	METHOD(void, free_medium, (void FAR *ptr));
+X	METHOD(JSAMPARRAY, alloc_small_sarray, (long samplesperrow,
+X						long numrows));
+X	METHOD(void, free_small_sarray, (JSAMPARRAY ptr));
+X	METHOD(JBLOCKARRAY, alloc_small_barray, (long blocksperrow,
+X						 long numrows));
+X	METHOD(void, free_small_barray, (JBLOCKARRAY ptr));
+X	METHOD(big_sarray_ptr, request_big_sarray, (long samplesperrow,
+X						    long numrows,
+X						    long unitheight));
+X	METHOD(big_barray_ptr, request_big_barray, (long blocksperrow,
+X						    long numrows,
+X						    long unitheight));
+X	METHOD(void, alloc_big_arrays, (long extra_small_samples,
+X					long extra_small_blocks,
+X					long extra_medium_space));
+X	METHOD(JSAMPARRAY, access_big_sarray, (big_sarray_ptr ptr,
+X					       long start_row,
+X					       boolean writable));
+X	METHOD(JBLOCKARRAY, access_big_barray, (big_barray_ptr ptr,
+X						long start_row,
+X						boolean writable));
+X	METHOD(void, free_big_sarray, (big_sarray_ptr ptr));
+X	METHOD(void, free_big_barray, (big_barray_ptr ptr));
+X	METHOD(void, free_all, (void));
+X
+X	long max_memory_to_use;	/* maximum amount of memory to use */
+X};
+X
+X/* Macros to simplify using the error and trace message stuff */
+X/* The first parameter is generally cinfo->emethods */
+X
+X/* Fatal errors (print message and exit) */
+X#define ERREXIT(emeth,msg)		((*(emeth)->error_exit) (msg))
+X#define ERREXIT1(emeth,msg,p1)		((emeth)->message_parm[0] = (p1), \
+X					 (*(emeth)->error_exit) (msg))
+X#define ERREXIT2(emeth,msg,p1,p2)	((emeth)->message_parm[0] = (p1), \
+X					 (emeth)->message_parm[1] = (p2), \
+X					 (*(emeth)->error_exit) (msg))
+X#define ERREXIT3(emeth,msg,p1,p2,p3)	((emeth)->message_parm[0] = (p1), \
+X					 (emeth)->message_parm[1] = (p2), \
+X					 (emeth)->message_parm[2] = (p3), \
+X					 (*(emeth)->error_exit) (msg))
+X#define ERREXIT4(emeth,msg,p1,p2,p3,p4) ((emeth)->message_parm[0] = (p1), \
+X					 (emeth)->message_parm[1] = (p2), \
+X					 (emeth)->message_parm[2] = (p3), \
+X					 (emeth)->message_parm[3] = (p4), \
+X					 (*(emeth)->error_exit) (msg))
+X
+X#define MAKESTMT(stuff)		do { stuff } while (0)
+X
+X/* Nonfatal errors (we'll keep going, but the data is probably corrupt) */
+X/* Note that warning count is incremented as a side-effect! */
+X#define WARNMS(emeth,msg)    \
+X  MAKESTMT( if ((emeth)->trace_level >= ((emeth)->num_warnings++ ? \
+X		(emeth)->more_warning_level : (emeth)->first_warning_level)){ \
+X		(*(emeth)->trace_message) (msg); } )
+X#define WARNMS1(emeth,msg,p1)    \
+X  MAKESTMT( if ((emeth)->trace_level >= ((emeth)->num_warnings++ ? \
+X		(emeth)->more_warning_level : (emeth)->first_warning_level)){ \
+X		(emeth)->message_parm[0] = (p1); \
+X		(*(emeth)->trace_message) (msg); } )
+X#define WARNMS2(emeth,msg,p1,p2)    \
+X  MAKESTMT( if ((emeth)->trace_level >= ((emeth)->num_warnings++ ? \
+X		(emeth)->more_warning_level : (emeth)->first_warning_level)){ \
+X		(emeth)->message_parm[0] = (p1); \
+X		(emeth)->message_parm[1] = (p2); \
+X		(*(emeth)->trace_message) (msg); } )
+X
+X/* Informational/debugging messages */
+X#define TRACEMS(emeth,lvl,msg)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		(*(emeth)->trace_message) (msg); } )
+X#define TRACEMS1(emeth,lvl,msg,p1)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		(emeth)->message_parm[0] = (p1); \
+X		(*(emeth)->trace_message) (msg); } )
+X#define TRACEMS2(emeth,lvl,msg,p1,p2)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		(emeth)->message_parm[0] = (p1); \
+X		(emeth)->message_parm[1] = (p2); \
+X		(*(emeth)->trace_message) (msg); } )
+X#define TRACEMS3(emeth,lvl,msg,p1,p2,p3)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		int * _mp = (emeth)->message_parm; \
+X		*_mp++ = (p1); *_mp++ = (p2); *_mp = (p3); \
+X		(*(emeth)->trace_message) (msg); } )
+X#define TRACEMS4(emeth,lvl,msg,p1,p2,p3,p4)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		int * _mp = (emeth)->message_parm; \
+X		*_mp++ = (p1); *_mp++ = (p2); *_mp++ = (p3); *_mp = (p4); \
+X		(*(emeth)->trace_message) (msg); } )
+X#define TRACEMS8(emeth,lvl,msg,p1,p2,p3,p4,p5,p6,p7,p8)    \
+X  MAKESTMT( if ((emeth)->trace_level >= (lvl)) { \
+X		int * _mp = (emeth)->message_parm; \
+X		*_mp++ = (p1); *_mp++ = (p2); *_mp++ = (p3); *_mp++ = (p4); \
+X		*_mp++ = (p5); *_mp++ = (p6); *_mp++ = (p7); *_mp = (p8); \
+X		(*(emeth)->trace_message) (msg); } )
+X
+X
+X/* Methods used during JPEG compression. */
+X
+Xstruct Compress_methods_struct {
+X	/* Hook for user interface to get control after input_init */
+X	METHOD(void, c_ui_method_selection, (compress_info_ptr cinfo));
+X	/* Hook for user interface to do progress monitoring */
+X	METHOD(void, progress_monitor, (compress_info_ptr cinfo,
+X					long loopcounter, long looplimit));
+X	/* Input image reading & conversion to standard form */
+X	METHOD(void, input_init, (compress_info_ptr cinfo));
+X	METHOD(void, get_input_row, (compress_info_ptr cinfo,
+X				     JSAMPARRAY pixel_row));
+X	METHOD(void, input_term, (compress_info_ptr cinfo));
+X	/* Color space and gamma conversion */
+X	METHOD(void, colorin_init, (compress_info_ptr cinfo));
+X	METHOD(void, get_sample_rows, (compress_info_ptr cinfo,
+X				       int rows_to_read,
+X				       JSAMPIMAGE image_data));
+X	METHOD(void, colorin_term, (compress_info_ptr cinfo));
+X	/* Expand picture data at edges */
+X	METHOD(void, edge_expand, (compress_info_ptr cinfo,
+X				   long input_cols, int input_rows,
+X				   long output_cols, int output_rows,
+X				   JSAMPIMAGE image_data));
+X	/* Downsample pixel values of a single component */
+X	/* There can be a different downsample method for each component */
+X	METHOD(void, downsample_init, (compress_info_ptr cinfo));
+X	downsample_ptr downsample[MAX_COMPS_IN_SCAN];
+X	METHOD(void, downsample_term, (compress_info_ptr cinfo));
+X	/* Extract samples in MCU order, process & hand off to output_method */
+X	/* The input is always exactly N MCU rows worth of data */
+X	METHOD(void, extract_init, (compress_info_ptr cinfo));
+X	METHOD(void, extract_MCUs, (compress_info_ptr cinfo,
+X				    JSAMPIMAGE image_data,
+X				    int num_mcu_rows,
+X				    MCU_output_method_ptr output_method));
+X	METHOD(void, extract_term, (compress_info_ptr cinfo));
+X	/* Entropy encoding parameter optimization */
+X	METHOD(void, entropy_optimize, (compress_info_ptr cinfo,
+X					MCU_output_caller_ptr source_method));
+X	/* Entropy encoding */
+X	METHOD(void, entropy_encode_init, (compress_info_ptr cinfo));
+X	METHOD(void, entropy_encode, (compress_info_ptr cinfo,
+X				      JBLOCK *MCU_data));
+X	METHOD(void, entropy_encode_term, (compress_info_ptr cinfo));
+X	/* JPEG file header construction */
+X	METHOD(void, write_file_header, (compress_info_ptr cinfo));
+X	METHOD(void, write_scan_header, (compress_info_ptr cinfo));
+X	METHOD(void, write_jpeg_data, (compress_info_ptr cinfo,
+X				       char *dataptr,
+X				       int datacount));
+X	METHOD(void, write_scan_trailer, (compress_info_ptr cinfo));
+X	METHOD(void, write_file_trailer, (compress_info_ptr cinfo));
+X	/* Pipeline control */
+X	METHOD(void, c_pipeline_controller, (compress_info_ptr cinfo));
+X	METHOD(void, entropy_output, (compress_info_ptr cinfo,
+X				      char *dataptr,
+X				      int datacount));
+X	/* Overall control */
+X	METHOD(void, c_per_scan_method_selection, (compress_info_ptr cinfo));
+X};
+X
+X/* Methods used during JPEG decompression. */
+X
+Xstruct Decompress_methods_struct {
+X	/* Hook for user interface to get control after reading file header */
+X	METHOD(void, d_ui_method_selection, (decompress_info_ptr cinfo));
+X	/* Hook for user interface to do progress monitoring */
+X	METHOD(void, progress_monitor, (decompress_info_ptr cinfo,
+X					long loopcounter, long looplimit));
+X	/* JPEG file scanning */
+X	METHOD(void, read_file_header, (decompress_info_ptr cinfo));
+X	METHOD(boolean, read_scan_header, (decompress_info_ptr cinfo));
+X	METHOD(int, read_jpeg_data, (decompress_info_ptr cinfo));
+X	METHOD(void, resync_to_restart, (decompress_info_ptr cinfo,
+X					 int marker));
+X	METHOD(void, read_scan_trailer, (decompress_info_ptr cinfo));
+X	METHOD(void, read_file_trailer, (decompress_info_ptr cinfo));
+X	/* Entropy decoding */
+X	METHOD(void, entropy_decode_init, (decompress_info_ptr cinfo));
+X	METHOD(void, entropy_decode, (decompress_info_ptr cinfo,
+X				      JBLOCKROW *MCU_data));
+X	METHOD(void, entropy_decode_term, (decompress_info_ptr cinfo));
+X	/* MCU disassembly: fetch MCUs from entropy_decode, build coef array */
+X	/* The reverse_DCT step is in the same module for symmetry reasons */
+X	METHOD(void, disassemble_init, (decompress_info_ptr cinfo));
+X	METHOD(void, disassemble_MCU, (decompress_info_ptr cinfo,
+X				       JBLOCKIMAGE image_data));
+X	METHOD(void, reverse_DCT, (decompress_info_ptr cinfo,
+X				   JBLOCKIMAGE coeff_data,
+X				   JSAMPIMAGE output_data, int start_row));
+X	METHOD(void, disassemble_term, (decompress_info_ptr cinfo));
+X	/* Cross-block smoothing */
+X	METHOD(void, smooth_coefficients, (decompress_info_ptr cinfo,
+X					   jpeg_component_info *compptr,
+X					   JBLOCKROW above,
+X					   JBLOCKROW currow,
+X					   JBLOCKROW below,
+X					   JBLOCKROW output));
+X	/* Upsample pixel values of a single component */
+X	/* There can be a different upsample method for each component */
+X	METHOD(void, upsample_init, (decompress_info_ptr cinfo));
+X	upsample_ptr upsample[MAX_COMPS_IN_SCAN];
+X	METHOD(void, upsample_term, (decompress_info_ptr cinfo));
+X	/* Color space and gamma conversion */
+X	METHOD(void, colorout_init, (decompress_info_ptr cinfo));
+X	METHOD(void, color_convert, (decompress_info_ptr cinfo,
+X				     int num_rows, long num_cols,
+X				     JSAMPIMAGE input_data,
+X				     JSAMPIMAGE output_data));
+X	METHOD(void, colorout_term, (decompress_info_ptr cinfo));
+X	/* Color quantization */
+X	METHOD(void, color_quant_init, (decompress_info_ptr cinfo));
+X	METHOD(void, color_quantize, (decompress_info_ptr cinfo,
+X				      int num_rows,
+X				      JSAMPIMAGE input_data,
+X				      JSAMPARRAY output_data));
+X	METHOD(void, color_quant_prescan, (decompress_info_ptr cinfo,
+X					   int num_rows,
+X					   JSAMPIMAGE image_data,
+X					   JSAMPARRAY workspace));
+X	METHOD(void, color_quant_doit, (decompress_info_ptr cinfo,
+X					quantize_caller_ptr source_method));
+X	METHOD(void, color_quant_term, (decompress_info_ptr cinfo));
+X	/* Output image writing */
+X	METHOD(void, output_init, (decompress_info_ptr cinfo));
+X	METHOD(void, put_color_map, (decompress_info_ptr cinfo,
+X				     int num_colors, JSAMPARRAY colormap));
+X	METHOD(void, put_pixel_rows, (decompress_info_ptr cinfo,
+X				      int num_rows,
+X				      JSAMPIMAGE pixel_data));
+X	METHOD(void, output_term, (decompress_info_ptr cinfo));
+X	/* Pipeline control */
+X	METHOD(void, d_pipeline_controller, (decompress_info_ptr cinfo));
+X	/* Overall control */
+X	METHOD(void, d_per_scan_method_selection, (decompress_info_ptr cinfo));
+X};
+X
+X
+X/* External declarations for routines that aren't called via method ptrs. */
+X/* Note: use "j" as first char of names to minimize namespace pollution. */
+X/* The PP macro hides prototype parameters from compilers that can't cope. */
+X
+X#ifdef PROTO
+X#define PP(arglist)	arglist
+X#else
+X#define PP(arglist)	()
+X#endif
+X
+X
+X/* main entry for compression */
+XEXTERN void jpeg_compress PP((compress_info_ptr cinfo));
+X
+X/* default parameter setup for compression */
+XEXTERN void j_c_defaults PP((compress_info_ptr cinfo, int quality,
+X			     boolean force_baseline));
+XEXTERN void j_monochrome_default PP((compress_info_ptr cinfo));
+XEXTERN void j_set_quality PP((compress_info_ptr cinfo, int quality,
+X			      boolean force_baseline));
+X/* advanced compression parameter setup aids */
+XEXTERN void j_add_quant_table PP((compress_info_ptr cinfo, int which_tbl,
+X				  const QUANT_VAL *basic_table,
+X				  int scale_factor, boolean force_baseline));
+XEXTERN int j_quality_scaling PP((int quality));
+X
+X/* main entry for decompression */
+XEXTERN void jpeg_decompress PP((decompress_info_ptr cinfo));
+X
+X/* default parameter setup for decompression */
+XEXTERN void j_d_defaults PP((decompress_info_ptr cinfo,
+X			     boolean standard_buffering));
+X
+X/* forward DCT */
+XEXTERN void j_fwd_dct PP((DCTBLOCK data));
+X/* inverse DCT */
+XEXTERN void j_rev_dct PP((DCTBLOCK data));
+X
+X/* utility routines in jutils.c */
+XEXTERN long jround_up PP((long a, long b));
+XEXTERN void jcopy_sample_rows PP((JSAMPARRAY input_array, int source_row,
+X				  JSAMPARRAY output_array, int dest_row,
+X				  int num_rows, long num_cols));
+XEXTERN void jcopy_block_row PP((JBLOCKROW input_row, JBLOCKROW output_row,
+X				long num_blocks));
+XEXTERN void jzero_far PP((void FAR * target, size_t bytestozero));
+X
+X/* method selection routines for compression modules */
+XEXTERN void jselcpipeline PP((compress_info_ptr cinfo)); /* jcpipe.c */
+XEXTERN void jselchuffman PP((compress_info_ptr cinfo)); /* jchuff.c */
+XEXTERN void jselcarithmetic PP((compress_info_ptr cinfo)); /* jcarith.c */
+XEXTERN void jselexpand PP((compress_info_ptr cinfo)); /* jcexpand.c */
+XEXTERN void jseldownsample PP((compress_info_ptr cinfo)); /* jcsample.c */
+XEXTERN void jselcmcu PP((compress_info_ptr cinfo)); /* jcmcu.c */
+XEXTERN void jselccolor PP((compress_info_ptr cinfo));	/* jccolor.c */
+X/* The user interface should call one of these to select input format: */
+XEXTERN void jselrgif PP((compress_info_ptr cinfo)); /* jrdgif.c */
+XEXTERN void jselrppm PP((compress_info_ptr cinfo)); /* jrdppm.c */
+XEXTERN void jselrrle PP((compress_info_ptr cinfo)); /* jrdrle.c */
+XEXTERN void jselrtarga PP((compress_info_ptr cinfo)); /* jrdtarga.c */
+X/* and one of these to select output header format: */
+XEXTERN void jselwjfif PP((compress_info_ptr cinfo)); /* jwrjfif.c */
+X
+X/* method selection routines for decompression modules */
+XEXTERN void jseldpipeline PP((decompress_info_ptr cinfo)); /* jdpipe.c */
+XEXTERN void jseldhuffman PP((decompress_info_ptr cinfo)); /* jdhuff.c */
+XEXTERN void jseldarithmetic PP((decompress_info_ptr cinfo)); /* jdarith.c */
+XEXTERN void jseldmcu PP((decompress_info_ptr cinfo)); /* jdmcu.c */
+XEXTERN void jselbsmooth PP((decompress_info_ptr cinfo)); /* jbsmooth.c */
+XEXTERN void jselupsample PP((decompress_info_ptr cinfo)); /* jdsample.c */
+XEXTERN void jseldcolor PP((decompress_info_ptr cinfo));	/* jdcolor.c */
+XEXTERN void jsel1quantize PP((decompress_info_ptr cinfo)); /* jquant1.c */
+XEXTERN void jsel2quantize PP((decompress_info_ptr cinfo)); /* jquant2.c */
+X/* The user interface should call one of these to select input format: */
+XEXTERN void jselrjfif PP((decompress_info_ptr cinfo)); /* jrdjfif.c */
+X/* and one of these to select output image format: */
+XEXTERN void jselwgif PP((decompress_info_ptr cinfo)); /* jwrgif.c */
+XEXTERN void jselwppm PP((decompress_info_ptr cinfo)); /* jwrppm.c */
+XEXTERN void jselwrle PP((decompress_info_ptr cinfo)); /* jwrrle.c */
+XEXTERN void jselwtarga PP((decompress_info_ptr cinfo)); /* jwrtarga.c */
+X
+X/* method selection routines for system-dependent modules */
+XEXTERN void jselerror PP((external_methods_ptr emethods)); /* jerror.c */
+XEXTERN void jselmemmgr PP((external_methods_ptr emethods)); /* jmemmgr.c */
+X
+X
+X/* We assume that right shift corresponds to signed division by 2 with
+X * rounding towards minus infinity.  This is correct for typical "arithmetic
+X * shift" instructions that shift in copies of the sign bit.  But some
+X * C compilers implement >> with an unsigned shift.  For these machines you
+X * must define RIGHT_SHIFT_IS_UNSIGNED.
+X * RIGHT_SHIFT provides a proper signed right shift of an INT32 quantity.
+X * It is only applied with constant shift counts.  SHIFT_TEMPS must be
+X * included in the variables of any routine using RIGHT_SHIFT.
+X */
+X
+X#ifdef RIGHT_SHIFT_IS_UNSIGNED
+X#define SHIFT_TEMPS	INT32 shift_temp;
+X#define RIGHT_SHIFT(x,shft)  \
+X	((shift_temp = (x)) < 0 ? \
+X	 (shift_temp >> (shft)) | ((~((INT32) 0)) << (32-(shft))) : \
+X	 (shift_temp >> (shft)))
+X#else
+X#define SHIFT_TEMPS
+X#define RIGHT_SHIFT(x,shft)	((x) >> (shft))
+X#endif
+X
+X
+X/* Miscellaneous useful macros */
+X
+X#undef MAX
+X#define MAX(a,b)	((a) > (b) ? (a) : (b))
+X#undef MIN
+X#define MIN(a,b)	((a) < (b) ? (a) : (b))
+X
+X
+X#define RST0	0xD0		/* RST0 marker code */
+END_OF_FILE
+  if test 39469 -ne `wc -c <'jpegdata.h'`; then
+    echo shar: \"'jpegdata.h'\" unpacked with wrong size!
+  fi
+  # end of 'jpegdata.h'
+fi
+echo shar: End of archive 4 \(of 18\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

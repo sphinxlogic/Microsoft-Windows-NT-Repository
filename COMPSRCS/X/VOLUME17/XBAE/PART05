@@ -1,0 +1,1643 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i032: Xbae widgets (MOTIF), Part05/12
+Message-ID: <1992Mar23.180026.16043@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i028-xbae@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 18:00:26 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 32
+Archive-name: xbae/part05
+
+Submitted-by: aw@jello
+Archive-name: Xbae/part05
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is Xbae.shar.05 (part 5 of Xbae)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Xbae/src/Caption.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Xbae/src/Caption.c'
+else
+echo 'x - continuing file Xbae/src/Caption.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Xbae/src/Caption.c' &&
+X		((int)LabelChild(cw)->core.height - cw->caption.label_offset);
+X	user_y = 0;
+X	break;
+X    }
+X
+X    /*
+X     * Position our label widget.
+X     */
+X    XtMoveWidget(LabelChild(cw), label_x, label_y);
+X
+X
+X    if (configure) {
+X	/*
+X	 * Calculate the size of the user's child widget.
+X	 */
+X	ComputeUserChildSize(cw, cw->core.width, cw->core.height,
+X			     &user_width, &user_height,
+X			     UserChild(cw)->core.border_width);
+X
+X	/*
+X	 * Position and size the user's child.
+X	 * XXX must use _XmConfigureObject instead of XtConfigureWidget
+X	 * to handle gadgets (the Motif function always calls the gadgets
+X	 * resize method)
+X	 */
+X	_XmConfigureObject((RectObj)UserChild(cw),
+X			   (int)user_x, (int)user_y,
+X			   (int)user_width, (int)user_height,
+X			   (int)UserChild(cw)->core.border_width);
+X    }
+}
+X
+static void
+Resize(cw)
+XXbaeCaptionWidget cw;
+{
+X    Layout(cw, True);
+}
+X
+/*
+X * Given a width/height for the caption widget and the border width
+X * of the user's child, compute the width and height of the user's child.
+X */
+static void
+ComputeUserChildSize(cw, cwWidth, cwHeight, childWidth, childHeight,
+X		     childBorderWidth)
+XXbaeCaptionWidget cw;
+Dimension cwWidth;
+Dimension cwHeight;
+Dimension *childWidth;
+Dimension *childHeight;
+Dimension childBorderWidth;
+{
+X    int width = cwWidth - 2 * childBorderWidth;
+X    int height = cwHeight - 2 * childBorderWidth;
+X
+X    /*
+X     * Remember, cw->caption.label_offset can be negative.
+X     * If the label width plus the offset is positive, then the label
+X     * is off the edge of the user's child, so we subtract that space
+X     * from the user's child space.  Otherwise the label is offset into
+X     * the space of the user's child widget, so the user's child gets
+X     * the full space and the label will be on top of it (or off the opposite
+X     * side).
+X     */
+X
+X    switch (cw->caption.label_position) {
+X    case XbaePositionLeft:
+X    case XbaePositionRight:
+X	if ((int)LabelChild(cw)->core.width + cw->caption.label_offset > 0)
+X	    width -= (int)LabelChild(cw)->core.width +
+X		cw->caption.label_offset;
+X	break;
+X    case XbaePositionTop:
+X    case XbaePositionBottom:
+X	if ((int)LabelChild(cw)->core.height + cw->caption.label_offset > 0)
+X	    height -= (int)LabelChild(cw)->core.height +
+X		cw->caption.label_offset;
+X	break;
+X    }
+X
+X    if (width <= 0)
+X	*childWidth = 1;
+X    else
+X	*childWidth = width;
+X
+X    if (height <= 0)
+X	*childHeight = 1;
+X    else
+X	*childHeight = height;
+}
+X
+/*
+X * Compute our size, taking into account the sizes of
+X * both of our children (the user's child size is passed in; we use the
+X * current size of the label child)
+X */
+static void
+ComputeSize(cw, cwWidth, cwHeight, childWidth, childHeight, childBorderWidth)
+XXbaeCaptionWidget cw;
+Dimension *cwWidth;
+Dimension *cwHeight;
+Dimension childWidth;
+Dimension childHeight;
+Dimension childBorderWidth;
+{
+X    childWidth += 2 * childBorderWidth;
+X    childHeight += 2 * childBorderWidth;
+X
+X    /*
+X     * Remember, cw->caption.label_offset can be negative.
+X     */
+X
+X    switch (cw->caption.label_position) {
+X    case XbaePositionRight:
+X    case XbaePositionLeft:
+X	if ((int)LabelChild(cw)->core.width + cw->caption.label_offset > 0)
+X	    *cwWidth = childWidth + LabelChild(cw)->core.width +
+X		cw->caption.label_offset;
+X	else
+X	    *cwWidth = childWidth;
+X
+X	*cwHeight = childHeight > LabelChild(cw)->core.height
+X	    		? childHeight
+X			: LabelChild(cw)->core.height;
+X	break;
+X
+X    case XbaePositionTop:
+X    case XbaePositionBottom:
+X	if ((int)LabelChild(cw)->core.height + cw->caption.label_offset > 0)
+X	    *cwHeight = childHeight + LabelChild(cw)->core.height +
+X		cw->caption.label_offset;
+X	else
+X	    *cwHeight = childHeight;
+X
+X	*cwWidth = childWidth > LabelChild(cw)->core.width
+X	    		? childWidth
+X			: LabelChild(cw)->core.width;
+X	break;
+X    }
+}
+X
+static void
+ChangeManaged(cw)
+XXbaeCaptionWidget cw;
+{
+X    Dimension width, height;
+X    XtGeometryResult result;
+X
+X    /*
+X     * Figure out what size we want to be.  If we don't have a user child,
+X     * we just want to be as big as the label.  Otherwise we must
+X     * take the label and user child into account.
+X     */
+X    if (!HaveUserChild(cw)) {
+X	width = LabelChild(cw)->core.width;
+X	height = LabelChild(cw)->core.height;
+X    }
+X    else {
+X	ComputeSize(cw, &width, &height,
+X		    UserChild(cw)->core.width, UserChild(cw)->core.height,
+X		    UserChild(cw)->core.border_width);
+X    }
+X
+X    /*
+X     * If our calculated size is not our current size,
+X     * then request our calculated size.
+X     */
+X    if (width != cw->core.width || height != cw->core.height) {
+X	do {
+X	    result = XtMakeResizeRequest((Widget)cw, width, height,
+X					 &width, &height);
+X	} while (result == XtGeometryAlmost);
+X    }
+X
+X    /*
+X     * Layout for the new configuration
+X     */
+X    Layout(cw, True);
+}
+X
+/* ARGSUSED */
+static XtGeometryResult
+GeometryManager(w, desired, allowed)
+Widget w;
+XXtWidgetGeometry *desired, *allowed;
+{
+X    XbaeCaptionWidget cw = (XbaeCaptionWidget) XtParent(w);
+X    Dimension save_width, save_height, save_border_width;
+X
+#define Wants(flag) (desired->request_mode & flag)
+X
+X    /*
+X     * If this is our label widget child, and it is querying, then return
+X     * Yes since we always grant the labels requests.
+X     */
+X    if (w == LabelChild(cw) && Wants(XtCWQueryOnly))
+X	return XtGeometryYes;
+X
+X    /*
+X     * Disallow position-only changes for the user's child.
+X     */
+X    if (w == UserChild(cw) &&
+X	!Wants(CWWidth) && !Wants(CWHeight) && !Wants(CWBorderWidth))
+X	return XtGeometryNo;
+X
+X    /*
+X     * Save the childs current geometry in case we have to back it out.
+X     */
+X    save_width = w->core.width;
+X    save_height = w->core.height;
+X    save_border_width = w->core.border_width;
+X
+X    /*
+X     * Store the childs desired geometry into it's widget record.
+X     */
+X    if (Wants(CWWidth))
+X	w->core.width = desired->width;
+X    if (Wants(CWHeight))
+X	w->core.height = desired->height;
+X    if (Wants(CWBorderWidth))
+X	w->core.border_width = desired->border_width;
+X
+X    /*
+X     * If this is our label widget child, then return Yes.  We stored the
+X     * changes into the widget above (except for position which we do now),
+X     * so Xt will reconfigure the label.
+X     * We let our label widget do whatever it wants since we control
+X     * when it requests a new size in our set_values.
+X     */
+X    if (w == LabelChild(cw)) {
+X	if (Wants(CWX))
+X	    w->core.x = desired->x;
+X	if (Wants(CWY))
+X	    w->core.y = desired->y;
+X	return XtGeometryYes;
+X    }
+X
+X    /*
+X     * Otherwise this must be our user's child widget.
+X     * We will attempt to resize to accomodate it.
+X     */
+X    else {
+X	XtWidgetGeometry request;
+X	XtGeometryResult result;
+X
+X	/*
+X	 * Compute the size we want to be based on the new geometry
+X	 * stored in the user's child above.
+X	 */
+X	ComputeSize(cw, &request.width, &request.height,
+X		    w->core.width, w->core.height, w->core.border_width);
+X
+X	/*
+X	 * If our calculated size is not our current size,
+X	 * then request our calculated size.
+X	 */
+X	if (request.width != cw->core.width ||
+X	    request.height != cw->core.height) {
+X	    request.request_mode = 0;
+X	    if (request.width != cw->core.width)
+X		request.request_mode |= CWWidth;
+X	    if (request.height != cw->core.height)
+X		request.request_mode |= CWHeight;
+X	    if (Wants(XtCWQueryOnly))
+X		request.request_mode |= XtCWQueryOnly;
+X	    do {
+X		result = XtMakeGeometryRequest((Widget)cw, &request, &request);
+X	    } while (result == XtGeometryAlmost);
+X
+X	    /*
+X	     * If our request was granted, we need to layout (we are assuming
+X	     * our parent implements an XtGeometryYes policy and not
+X	     * XtGeometryDone)
+X	     */
+X	    if (result == XtGeometryYes && !Wants(XtCWQueryOnly))
+X		Layout(cw, False);
+X	}
+X	else
+X	    result = XtGeometryYes;
+X
+X	/*
+X	 * A Yes result means we either got the size we wanted, or we agreed
+X	 * to a compromise.
+X	 */
+X	if (result == XtGeometryYes) {
+X	    Dimension childWidth, childHeight;
+X
+X	    /*
+X	     * Compute the size of the user's child given the size
+X	     * we got from our geometry negotiations above.
+X	     */
+X	    ComputeUserChildSize(cw, request.width, request.height,
+X				 &childWidth, &childHeight,
+X				 w->core.border_width);
+X
+X	    /*
+X	     * If the child wants to change it's position, or it wants
+X	     * to change it's size but our compromize size is not an
+X	     * exact fit, then we need to return Almost and the new geometry.
+X	     */
+X	    if (((Wants(CWX) || Wants(CWY)) ||
+X		 (Wants(CWWidth) && childWidth != w->core.width) ||
+X		 (Wants(CWHeight) && childHeight != w->core.height))) {
+X		result = XtGeometryAlmost;
+X		allowed->request_mode = desired->request_mode & ~(CWX | CWY);
+X		allowed->width = childWidth;
+X		allowed->height = childHeight;
+X		allowed->border_width = w->core.border_width;
+X	    }
+X	}
+X
+X	/*
+X	 * Restore the childs geometry for No or Almost or QueryOnly.
+X	 */
+X	if (result == XtGeometryNo || result == XtGeometryAlmost ||
+X	    Wants(XtCWQueryOnly)) {
+X	    w->core.width = save_width;
+X	    w->core.height = save_height;
+X	    w->core.border_width = save_border_width;
+X	}
+X
+X	return result;
+X    }
+X
+#undef Wants
+}
+X
+static XtGeometryResult
+QueryGeometry(cw, proposed, desired)
+XXbaeCaptionWidget cw;
+XXtWidgetGeometry *proposed, *desired;
+{
+#define Set(bit) (proposed->request_mode & bit)
+X
+X    /*
+X     * If we don't have a user child, we want to be the size of the label.
+X     */
+X    if (!HaveUserChild(cw)) {
+X	desired->width = LabelChild(cw)->core.width;
+X	desired->height = LabelChild(cw)->core.height;
+X	desired->request_mode = CWWidth | CWHeight;
+X
+X	if (Set(CWWidth) && proposed->width == desired->width &&
+X	    Set(CWHeight) && proposed->height == desired->height)
+X	    return XtGeometryYes;
+X
+X	if (desired->width == cw->core.width &&
+X	    desired->height == cw->core.height)
+X	    return XtGeometryNo;
+X
+X	return XtGeometryAlmost;
+X    }
+X
+X    /*
+X     * Otherwise we must take into account what size the user child wants to be
+X     */
+X    else {
+X	XtWidgetGeometry childProposed, childDesired;
+X	Dimension childWidth, childHeight, childBorderWidth;
+X	Dimension cwWidth, cwHeight;
+X	XtGeometryResult result;
+X
+X	/*
+X	 * Get our size based on the proposed size for use in computing
+X	 * the user's child size.
+X	 */
+X	if (Set(CWWidth))
+X	    cwWidth = proposed->width;
+X	else
+X	    cwWidth = cw->core.width;
+X	if (Set(CWHeight))
+X	    cwHeight = proposed->height;
+X	else
+X	    cwHeight = cw->core.height;
+X
+X	/*
+X	 * Compute the size of the user's child based on our proposed new size.
+X	 */
+X	ComputeUserChildSize(cw, cwWidth, cwHeight,
+X			     &childWidth, &childHeight,
+X			     UserChild(cw)->core.border_width);
+X
+X	/*
+X	 * Build a geometry request to query the user's child with.
+X	 */
+X	childProposed.request_mode = 0;
+X	if (Set(CWWidth)) {
+X	    childProposed.width = childWidth;
+X	    childProposed.request_mode |= CWWidth;
+X	}
+X	if (Set(CWHeight)) {
+X	    childProposed.height = childHeight;
+X	    childProposed.request_mode |= CWHeight;
+X	}
+X
+X	/*
+X	 * Query the child.
+X	 */
+X	result = XtQueryGeometry(UserChild(cw), &childProposed, &childDesired);
+X
+X	/*
+X	 * Save the childs desired geometry.
+X	 */
+X	switch (result) {
+X	case XtGeometryYes:
+X	    /* use our computed childWidth and childHeight */
+X	    childBorderWidth = UserChild(cw)->core.border_width;
+X	    break;
+X	case XtGeometryAlmost:
+X	    childWidth = childDesired.width;
+X	    childHeight = childDesired.height;
+X	    childBorderWidth = childDesired.border_width;
+X	    break;
+X	case XtGeometryNo:
+X	    childWidth = UserChild(cw)->core.width;
+X	    childHeight = UserChild(cw)->core.height;
+X	    childBorderWidth = UserChild(cw)->core.border_width;
+X	    break;
+X	}
+X
+X	/*
+X	 * Calculate what size we need to be to handle the childs
+X	 * desired geometry and store it in our own desired record.
+X	 */
+X	ComputeSize(cw, &desired->width, &desired->height,
+X		    childWidth, childHeight, childBorderWidth);
+X
+X	/*
+X	 * If the proposed geometry changed, or if the child cares about
+X	 * it's geometry, then set the flag in desired
+X	 */
+X	desired->request_mode = 0;
+X	if ((Set(CWWidth) && proposed->width != desired->width) ||
+X	    childDesired.request_mode & CWWidth)
+X	    desired->request_mode |= CWWidth;
+X	if ((Set(CWHeight) && proposed->height != desired->height) ||
+X	    childDesired.request_mode & CWHeight)
+X	    desired->request_mode |= CWHeight;
+X
+X	/*
+X	 * If our desired geometry differs from the proposed one, or if
+X	 * we care about a geometry which was not proposed, we return
+X	 * Almost.  Otherwise we return whatever our child returned.
+X	 */
+X	if ((Set(CWWidth) && proposed->width != desired->width) ||
+X	    (!Set(CWWidth) && desired->request_mode & CWWidth) ||
+X	    (Set(CWHeight) && proposed->height != desired->height) ||
+X	    (!Set(CWHeight) && desired->request_mode & CWHeight))
+X	    return XtGeometryAlmost;
+X	else
+X	    return result;
+X    }
+X
+#undef Set
+}
+X
+X
+/*
+X * Compare two strings.  The test string must be lower case
+X * and NULL terminated.  Leading and trailing whitespace in the in
+X * string is ignored.
+X */
+static Boolean
+CompareStrings(in, test)
+String in, test;
+{
+X    /*
+X     * Strip leading whitespace off the in string.
+X     */
+X    while (isspace(*in))
+X	in++;
+X
+X    for (; *test != '\0' && !isspace(*in); test++, in++) {
+X	char c = *in;
+X
+X	if (isupper(c))
+X            c = tolower(c);
+X
+X        if (c != *test)
+X            return False;
+X    }
+X
+X    if (*test == '\0' && (*in == '\0' || isspace(*in)))
+X	return True;
+X    else
+X	return False;
+}
+X
+/* ARGSUSED */
+static Boolean
+CvtStringToLabelPosition(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static XbaeLabelPosition position;
+X
+X    if (*num_args != 0)
+X        XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X                        "cvtStringToLabelPosition", "wrongParameters",
+X                        "XbaeCaption",
+X                        "String to LabelPosition conversion needs no extra arguments",
+X                        NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(XbaeLabelPosition)) {
+X        to->size = sizeof(XbaeLabelPosition);
+X        return False;
+X    }
+X
+X    if (CompareStrings(from->addr, "left"))
+X	position = XbaePositionLeft;
+X    else if (CompareStrings(from->addr, "right"))
+X	position = XbaePositionRight;
+X    else if (CompareStrings(from->addr, "top"))
+X	position = XbaePositionTop;
+X    else if (CompareStrings(from->addr, "bottom"))
+X	position = XbaePositionBottom;
+X    else {
+X	XtDisplayStringConversionWarning(dpy, from->addr, XmRLabelPosition);
+X	return False;
+X    }
+X
+X    /*
+X     * Store our return value
+X     */
+X    if (to->addr == NULL)
+X        to->addr = (caddr_t) &position;
+X    else
+X        *(XbaeLabelPosition *) to->addr = position;
+X    to->size = sizeof(XbaeLabelPosition);
+X
+X    return True;
+}
+X
+/* ARGSUSED */
+static Boolean
+CvtStringToLabelAlignment(dpy, args, num_args, from, to, data)
+Display *dpy;
+XXrmValuePtr args;
+Cardinal *num_args;
+XXrmValuePtr from, to;
+XXtPointer *data;
+{
+X    static XbaeLabelAlignment alignment;
+X
+X    if (*num_args != 0)
+X        XtAppWarningMsg(XtDisplayToApplicationContext(dpy),
+X                        "cvtStringToLabelAlignment", "wrongParameters",
+X                        "XbaeCaption",
+X                        "String to LabelAlignment conversion needs no extra arguments",
+X                        NULL, NULL);
+X
+X    /*
+X     * User didn't provide enough space
+X     */
+X    if (to->addr != NULL && to->size < sizeof(XbaeLabelAlignment)) {
+X        to->size = sizeof(XbaeLabelAlignment);
+X        return False;
+X    }
+X
+X    if (CompareStrings(from->addr, "toporleft") ||
+X	CompareStrings(from->addr, "top") ||
+X	CompareStrings(from->addr, "left"))
+X	alignment = XbaeAlignmentTopOrLeft;
+X    else if (CompareStrings(from->addr, "center"))
+X	alignment = XbaeAlignmentCenter;
+X    else if (CompareStrings(from->addr, "bottomorright") ||
+X	     CompareStrings(from->addr, "bottom") ||
+X	     CompareStrings(from->addr, "right"))
+X	alignment = XbaeAlignmentBottomOrRight;
+X    else {
+X	XtDisplayStringConversionWarning(dpy, from->addr, XmRLabelAlignment);
+X	return False;
+X    }
+X
+X    /*
+X     * Store our return value
+X     */
+X    if (to->addr == NULL)
+X        to->addr = (caddr_t) &alignment;
+X    else
+X        *(XbaeLabelAlignment *) to->addr = alignment;
+X    to->size = sizeof(XbaeLabelAlignment);
+X
+X    return True;
+}
+SHAR_EOF
+echo 'File Xbae/src/Caption.c is complete' &&
+chmod 0444 Xbae/src/Caption.c ||
+echo 'restore of Xbae/src/Caption.c failed'
+Wc_c="`wc -c < 'Xbae/src/Caption.c'`"
+test 33046 -eq "$Wc_c" ||
+	echo 'Xbae/src/Caption.c: original size 33046, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/Clip.c ==============
+if test -f 'Xbae/src/Clip.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/Clip.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/Clip.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/Clip.c' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * ClipWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+X */
+X
+/*
+X * Clip.c - private child of Matrix - used to clip Matrix's textField child
+X */
+X
+#include <X11/StringDefs.h>
+#include <Xm/XmP.h>
+#include <Xbae/ClipP.h>
+X
+#ifndef SABER
+static char sccsid[] = "@(#)Clip.c	3.3 2/18/92";
+#endif
+X
+static char defaultTranslations[] =
+X    "<FocusIn>:			FocusIn()";
+X
+static XtResource resources[] = {
+X    { XmNexposeProc, XmCFunction, XtRFunction, sizeof(XtExposeProc),
+X	  XtOffsetOf(XbaeClipRec, clip.expose_proc),
+X	  XtRFunction, (XtPointer) NULL },
+X    { XmNfocusCallback, XmCCallback, XmRCallback, sizeof(XtCallbackList),
+X	  XtOffsetOf(XbaeClipRec, clip.focus_callback),
+X	  XtRImmediate, (XtPointer) NULL },
+};
+X
+/*
+X * Declaration of methods
+X */
+static void ClassPartInitialize();
+static void Realize();
+static void Redisplay();
+static void Redraw();
+X
+/*
+X * Public convenience function
+X */
+void XbaeClipRedraw();
+X
+/*
+X * Clip actions
+X */
+static void FocusInACT();
+X
+static XtActionsRec actions[] =
+{
+X    {"FocusIn", FocusInACT},
+};
+X
+XXbaeClipClassRec xbaeClipClassRec = {
+X    {
+X    /* core_class fields */
+X	/* superclass		*/ (WidgetClass) &xmPrimitiveClassRec,
+X	/* class_name		*/ "XbaeClip",
+X	/* widget_size		*/ sizeof(XbaeClipRec),
+X	/* class_initialize	*/ NULL,
+X	/* class_part_initialize*/ ClassPartInitialize,
+X	/* class_inited		*/ False,
+X	/* initialize		*/ NULL,
+X	/* initialize_hook	*/ NULL,
+X	/* realize		*/ Realize,
+X	/* actions		*/ actions,
+X	/* num_actions		*/ XtNumber(actions),
+X	/* resources		*/ resources,
+X	/* num_resources	*/ XtNumber(resources),
+X	/* xrm_class		*/ NULLQUARK,
+X	/* compress_motion	*/ True,
+X	/* compress_exposure	*/ XtExposeCompressSeries |
+X					XtExposeGraphicsExpose |
+X					    XtExposeNoExpose,
+X	/* compress_enterleave	*/ True,
+X	/* visible_interest	*/ False,
+X	/* destroy		*/ NULL,
+X	/* resize		*/ NULL,
+X	/* expose		*/ Redisplay,
+X	/* set_values		*/ NULL,
+X	/* set_values_hook	*/ NULL,
+X	/* set_values_almost	*/ XtInheritSetValuesAlmost,
+X	/* get_values_hook	*/ NULL,
+X	/* accept_focus		*/ NULL,
+X	/* version		*/ XtVersion,
+X	/* callback_private	*/ NULL,
+X	/* tm_table		*/ defaultTranslations,
+X	/* query_geometry	*/ NULL,
+X	/* display_accelerator	*/ NULL,
+X	/* extension		*/ NULL
+X    },
+X    /* primitive_class fields */
+X    {
+X	/* border_highlight	*/ NULL,
+X	/* border_unhighlight	*/ NULL,
+X	/* translations		*/ NULL,
+X	/* arm_and_activate	*/ NULL,
+X	/* syn_resources	*/ NULL,
+X	/* num_syn_resources	*/ 0,
+X	/* extension		*/ NULL
+X    },
+X    /* clip_class fields */
+X    {
+X	/* redraw		*/ Redraw,
+X	/* extension		*/ NULL,
+X    }
+};
+X
+WidgetClass xbaeClipWidgetClass = (WidgetClass) & xbaeClipClassRec;
+X
+X
+static void
+ClassPartInitialize(cwc)
+XXbaeClipWidgetClass cwc;
+{
+X    register XbaeClipWidgetClass super =
+X	(XbaeClipWidgetClass) cwc->core_class.superclass;
+X
+X    /*
+X     * Allow subclasses to inherit our redraw method
+X     */
+X    if (cwc->clip_class.redraw == XbaeInheritRedraw)
+X	cwc->clip_class.redraw = super->clip_class.redraw;
+}
+X
+static void
+Realize(cw, valueMask, attributes)
+XXbaeClipWidget cw;
+XXtValueMask *valueMask;
+XXSetWindowAttributes *attributes;
+{
+X    /*
+X     * Don't call our superclasses realize method, because Primitive sets
+X     * bit_gravity and do_not_propagate
+X     */
+X    XtCreateWindow((Widget)cw, InputOutput, CopyFromParent,
+X		   *valueMask, attributes);
+}
+X
+/* ARGSUSED */
+static void
+Redisplay(cw, event, region)
+XXbaeClipWidget cw;
+XXEvent *event;
+Region region;
+{
+X    if (cw->clip.expose_proc)
+X	cw->clip.expose_proc((Widget)cw, event, region);
+}
+X
+/*
+X * Clip redraw method
+X */
+/* ARGSUSED */
+static void
+Redraw(cw)
+XXbaeClipWidget cw;
+{
+X    /*
+X     * Clear the window generating Expose events.
+X     * XXX It might be more efficient to fake up an Expose event
+X     * and call Redisplay directly
+X     */
+X    if (XtIsRealized(cw))
+X	XClearArea(XtDisplay(cw), XtWindow(cw),
+X		   0, 0,
+X		   0 /*Full Width*/, 0 /*Full Height*/,
+X		   True);
+}
+X
+/*
+X * Public interface to redraw method
+X */
+void
+XXbaeClipRedraw(w)
+Widget w;
+{
+X    /*
+X     * Make sure w is a Clip or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeClipWidgetClass, NULL);
+X
+X    /*
+X     * Call the redraw method
+X     */
+X    if (XtIsRealized(w))
+X	(*((XbaeClipWidgetClass) XtClass(w))->clip_class.redraw)
+X	    ((XbaeClipWidget)w);
+}
+X
+/* ARGSUSED */
+static void
+FocusInACT(cw, event, params, nparams)
+XXbaeClipWidget cw;
+XXEvent *event;
+String *params;
+Cardinal *nparams;
+{
+X    if (event->xany.type != FocusIn)
+X	return;
+X
+X    if (cw->clip.focus_callback)
+X	XtCallCallbackList((Widget)cw, cw->clip.focus_callback, NULL);
+}
+SHAR_EOF
+chmod 0444 Xbae/src/Clip.c ||
+echo 'restore of Xbae/src/Clip.c failed'
+Wc_c="`wc -c < 'Xbae/src/Clip.c'`"
+test 5586 -eq "$Wc_c" ||
+	echo 'Xbae/src/Clip.c: original size 5586, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Xbae/src/Matrix.c ==============
+if test -f 'Xbae/src/Matrix.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping Xbae/src/Matrix.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Xbae/src/Matrix.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Xbae/src/Matrix.c' &&
+/*
+X * Copyright(c) 1992 Bell Communications Research, Inc. (Bellcore)
+X *                        All rights reserved
+X * Permission to use, copy, modify and distribute this material for
+X * any purpose and without fee is hereby granted, provided that the
+X * above copyright notice and this permission notice appear in all
+X * copies, and that the name of Bellcore not be used in advertising
+X * or publicity pertaining to this material without the specific,
+X * prior written permission of an authorized representative of
+X * Bellcore.
+X *
+X * BELLCORE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES, EX-
+X * PRESS OR IMPLIED, WITH RESPECT TO THE SOFTWARE, INCLUDING, BUT
+X * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X * FITNESS FOR ANY PARTICULAR PURPOSE, AND THE WARRANTY AGAINST IN-
+X * FRINGEMENT OF PATENTS OR OTHER INTELLECTUAL PROPERTY RIGHTS.  THE
+X * SOFTWARE IS PROVIDED "AS IS", AND IN NO EVENT SHALL BELLCORE OR
+X * ANY OF ITS AFFILIATES BE LIABLE FOR ANY DAMAGES, INCLUDING ANY
+X * LOST PROFITS OR OTHER INCIDENTAL OR CONSEQUENTIAL DAMAGES RELAT-
+X * ING TO THE SOFTWARE.
+X *
+X * MatrixWidget Author: Andrew Wason, Bellcore, aw@bae.bellcore.com
+X */
+X
+/*
+X * Matrix.c - row/column editable matrix widget
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <X11/Xos.h>
+#include <X11/StringDefs.h>
+#include <Xm/XmP.h>
+#include <Xm/AtomMgr.h>
+#include <Xm/ScrollBar.h>
+#include <Xm/TextF.h>
+#include <Xbae/Clip.h>
+#include <Xbae/MatrixP.h>
+X
+#ifndef SABER
+static char sccsid[] = "@(#)Matrix.c	3.12 3/11/92";
+#endif
+X
+/*
+X * Translations for Matrix (these will also be used by the Clip child).
+X */
+static char defaultTranslations[] =
+X    ":<Btn1Down>:		EditCell(Pointer)";
+X
+/*
+X * Default translations for XmNtextTranslations resource
+X */
+#define TEXT_TRANSLATIONS \
+X    "#override\n\
+X     Shift ~Ctrl ~Meta ~Alt <Key>Tab:	EditCell(Left)\n\
+X     ~Ctrl ~Meta ~Alt <Key>Tab:		EditCell(Right)\n\
+X     <Key>osfUp:			EditCell(Up)\n\
+X     <Key>osfDown:			EditCell(Down)\n\
+X     <Key>osfActivate:			CommitEdit(False)\n\
+X     ~Shift ~Meta ~Alt <Key>Return:	CommitEdit(False)\n\
+X     <Key>osfCancel:			CancelEdit(False)\n\
+X     Shift Ctrl ~Meta ~Alt <Key>Tab:	TraversePrev()\n\
+X     Ctrl ~Meta ~Alt <Key>Tab:		TraverseNext()"
+X
+#define offset(field)	XtOffsetOf(XbaeMatrixRec, field)
+X
+static XtResource resources[] = {
+X    { XmNboldLabels, XmCBoldLabels, XmRBoolean, sizeof(Boolean),
+X	  offset(matrix.bold_labels), XmRImmediate, (XtPointer) False },
+X    { XmNcellHighlightThickness, XmCHighlightThickness, XmRHorizontalDimension,
+X	  sizeof(Dimension), offset(matrix.cell_highlight_thickness),
+X	  XmRImmediate, (XtPointer) 2 },
+X    { XmNcellMarginHeight, XmCMarginHeight, XmRVerticalDimension,
+X	  sizeof(Dimension), offset(matrix.cell_margin_height),
+X	  XmRImmediate, (XtPointer) 5 },
+X    { XmNcellMarginWidth, XmCMarginWidth, XmRHorizontalDimension,
+X	  sizeof(Dimension), offset(matrix.cell_margin_width),
+X	  XmRImmediate, (XtPointer) 5 },
+X    { XmNcells, XmCCells, XmRStringTable, sizeof(String **),
+X	  offset(matrix.cells), XmRImmediate, NULL },
+X    { XmNcellShadowThickness, XmCShadowThickness, XmRHorizontalDimension,
+X	  sizeof(Dimension), offset(matrix.cell_shadow_thickness),
+X	  XmRImmediate, (XtPointer) 2 },
+X    { XmNcolors, XmCColors, XmRPixelTable, sizeof(Pixel **),
+X	  offset(matrix.colors), XmRImmediate, (XtPointer) NULL },
+X    { XmNcolumnAlignments, XmCAlignments, XmRAlignmentArray,
+X	  sizeof(unsigned char *), offset(matrix.column_alignments),
+X	  XmRImmediate, (XtPointer) NULL },
+X    { XmNcolumnLabelAlignments, XmCAlignments, XmRAlignmentArray,
+X	  sizeof(unsigned char *), offset(matrix.column_label_alignments),
+X	  XmRImmediate, (XtPointer) NULL },
+X    { XmNcolumnLabels, XmCLabels, XmRStringArray, sizeof(String *),
+X	  offset(matrix.column_labels), XmRImmediate, NULL },
+X    { XmNcolumnMaxLengths, XmCColumnMaxLengths, XmRMaxLengthArray,
+X	  sizeof(int *), offset(matrix.column_max_lengths),
+X	  XmRImmediate, NULL },
+X    { XmNcolumnWidths, XmCColumnWidths, XmRWidthArray, sizeof(short *),
+X	  offset(matrix.column_widths), XmRImmediate, NULL },
+X    { XmNcolumns, XmCColumns, XmRInt, sizeof(int),
+X	  offset(matrix.columns), XmRImmediate, (XtPointer) 0 },
+X    { XmNenterCellCallback, XmCCallback, XmRCallback,sizeof(XtCallbackList),
+X	  offset(matrix.enter_cell_callback), XmRCallback, NULL },
+X    { XmNfixedColumns, XmCFixedColumns, XmRDimension, sizeof(Dimension),
+X	  offset(matrix.fixed_columns), XmRImmediate, (XtPointer) 0 },
+X    { XmNfixedRows, XmCFixedRows, XmRDimension, sizeof(Dimension),
+X	  offset(matrix.fixed_rows), XmRImmediate, (XtPointer) 0 },
+X    { XmNfontList, XmCFontList, XmRFontList, sizeof(XmFontList),
+X	  offset(matrix.font_list), XmRString, (XtPointer) "fixed" },
+X    { XmNleaveCellCallback, XmCCallback, XmRCallback,sizeof(XtCallbackList),
+X	  offset(matrix.leave_cell_callback), XmRCallback, NULL },
+X    { XmNmodifyVerifyCallback, XmCCallback, XmRCallback,sizeof(XtCallbackList),
+X	  offset(matrix.modify_verify_callback), XmRCallback, NULL },
+X    { XmNrowLabelAlignment, XmCAlignment, XmRAlignment, sizeof(unsigned char),
+X	  offset(matrix.row_label_alignment),
+X	  XmRImmediate, (XtPointer) XmALIGNMENT_END },
+X    { XmNrowLabelWidth, XmCRowLabelWidth, XmRShort, sizeof(short),
+X	  offset(matrix.row_label_width), XmRImmediate, (XtPointer) 0 },
+X    { XmNrowLabels, XmCLabels, XmRStringArray, sizeof(String *),
+X	  offset(matrix.row_labels), XmRImmediate, NULL },
+X    { XmNrows, XmCRows, XmRInt, sizeof(int),
+X	  offset(matrix.rows), XmRImmediate, (XtPointer) 0 },
+X    { XmNselectCellCallback, XmCCallback, XmRCallback,
+X	  sizeof(XtCallbackList), offset(matrix.select_cell_callback),
+X	  XmRCallback, NULL },
+X    { XmNselectedCells, XmCSelectedCells, XmRBooleanTable, sizeof(Boolean **),
+X	  offset(matrix.selected_cells), XmRImmediate, (XtPointer) NULL },
+X    { XmNspace, XmCSpace, XmRHorizontalDimension, sizeof(Dimension),
+X	  offset(matrix.space), XmRImmediate, (XtPointer) 6 },
+X    { XmNtextTranslations, XmCTranslations, XmRTranslationTable,
+X	  sizeof(XtTranslations), offset(matrix.text_translations),
+X	  XmRString, (XtPointer) TEXT_TRANSLATIONS },
+X    { XmNtopRow, XmCTopRow, XmRInt, sizeof(int),
+X	  offset(matrix.top_row), XmRImmediate, (XtPointer) 0 },
+X    { XmNtraverseCellCallback, XmCCallback, XmRCallback,sizeof(XtCallbackList),
+X	  offset(matrix.traverse_cell_callback), XmRCallback, NULL },
+X    { XmNvisibleColumns, XmCVisibleColumns, XmRDimension, sizeof(Dimension),
+X	  offset(matrix.visible_columns), XmRImmediate, (XtPointer) 0 },
+X    { XmNvisibleRows, XmCVisibleRows, XmRDimension, sizeof(Dimension),
+X	  offset(matrix.visible_rows), XmRImmediate, (XtPointer) 0 },
+X
+X    /* Override Manager default */
+X    { XmNshadowThickness, XmCShadowThickness, XmRHorizontalDimension,
+X	  sizeof(Dimension),
+X	  XtOffsetOf(XmManagerRec, manager.shadow_thickness),
+X	  XmRImmediate, (XtPointer) 2 },
+};
+X
+static XmSyntheticResource syn_resources[] = {
+X    { XmNcellHighlightThickness, sizeof(Dimension),
+X	  offset(matrix.cell_highlight_thickness),
+X	  _XmFromHorizontalPixels, _XmToHorizontalPixels },
+X    { XmNcellMarginHeight, sizeof(Dimension),
+X	  offset(matrix.cell_margin_height),
+X	  _XmFromVerticalPixels, _XmToVerticalPixels },
+X    { XmNcellMarginWidth, sizeof(Dimension),
+X	  offset(matrix.cell_margin_width),
+X	  _XmFromHorizontalPixels, _XmToHorizontalPixels },
+X    { XmNcellShadowThickness, sizeof(Dimension),
+X	  offset(matrix.cell_shadow_thickness),
+X	  _XmFromHorizontalPixels, _XmToHorizontalPixels },
+X    { XmNspace, sizeof(Dimension),
+X	  offset(matrix.space),
+X	  _XmFromHorizontalPixels, _XmToHorizontalPixels },
+};
+X
+/*
+X * End of array flags for the array type converters
+X */
+#define BAD_WIDTH	0
+#define BAD_MAXLENGTH	0
+#define BAD_ALIGNMENT	3	/* see Xm.h */
+X
+/*
+X * Macros to retrieve our children.  Children must be created in this order.
+X */
+#define HorizScrollChild(mw)	(mw->composite.children[0])
+#define VertScrollChild(mw)	(mw->composite.children[1])
+#define ClipChild(mw)		(mw->composite.children[2])
+#define TextChild(mw)		(mw->composite.children[3])
+/*
+X * Macros
+X */
+#define FONT_WIDTH(mw)		(mw->matrix.font->max_bounds.width)
+#define TEXT_WIDTH_OFFSET(mw)	(mw->matrix.cell_margin_width +\
+X				 mw->matrix.cell_shadow_thickness +\
+X				 mw->matrix.cell_highlight_thickness)
+#define TEXT_HEIGHT_OFFSET(mw)	(mw->matrix.cell_margin_height +\
+X				 mw->matrix.cell_shadow_thickness +\
+X				 mw->matrix.cell_highlight_thickness)
+#define COLUMN_WIDTH(mw, col)	((mw->matrix.column_widths[col] * \
+X				  FONT_WIDTH(mw)) + \
+X				 (TEXT_WIDTH_OFFSET(mw) * 2))
+#define TEXT_HEIGHT(mw)		(mw->matrix.font->descent + \
+X				 mw->matrix.font->ascent)
+#define ROW_HEIGHT(mw)		(int)((TEXT_HEIGHT_OFFSET(mw) * 2) + \
+X    					TEXT_HEIGHT(mw))
+X
+#define TEXT_X_OFFSET(mw)	(int)(TEXT_WIDTH_OFFSET(mw))
+#define TEXT_Y_OFFSET(mw)	(int)(mw->matrix.text_baseline)
+X
+#define ROW_LABEL_WIDTH(mw)	(mw->matrix.row_labels \
+X				 ? (mw->matrix.row_label_width * \
+X				    FONT_WIDTH(mw)) + \
+X					TEXT_WIDTH_OFFSET(mw) * 2 \
+X				 : 0)
+#define COLUMN_LABEL_HEIGHT(mw) (mw->matrix.column_labels \
+X				 ? TEXT_HEIGHT_OFFSET(mw) * 2 + \
+X				   mw->matrix.column_label_maxlines * \
+X				   TEXT_HEIGHT(mw) \
+X				 : 0)
+X
+#define FIXED_COLUMN_WIDTH(mw)	mw->matrix.column_positions \
+X					[mw->matrix.fixed_columns]
+#define COLUMN_LABEL_OFFSET(mw)	(ROW_LABEL_WIDTH(mw) + \
+X				 mw->manager.shadow_thickness)
+#define FIXED_COLUMN_LABEL_OFFSET(mw) (COLUMN_LABEL_OFFSET(mw) + \
+X				       FIXED_COLUMN_WIDTH(mw))
+X
+#define FIXED_ROW_HEIGHT(mw)	(mw->matrix.fixed_rows * ROW_HEIGHT(mw))
+#define ROW_LABEL_OFFSET(mw)	(COLUMN_LABEL_HEIGHT(mw) + \
+X				 mw->manager.shadow_thickness)
+#define FIXED_ROW_LABEL_OFFSET(mw) (ROW_LABEL_OFFSET(mw) + \
+X				    FIXED_ROW_HEIGHT(mw))
+X
+#define CELL_TOTAL_WIDTH(mw)	mw->matrix.cell_total_width
+#define CELL_TOTAL_HEIGHT(mw)	((mw->matrix.rows - \
+X				  (int) mw->matrix.fixed_rows) \
+X				 * ROW_HEIGHT(mw))
+X
+#define VISIBLE_WIDTH(mw)	(ClipChild(mw)->core.width)
+#define VISIBLE_HEIGHT(mw)	(ClipChild(mw)->core.height)
+X
+#define VERT_ORIGIN(mw)		(mw->matrix.top_row)
+#define HORIZ_ORIGIN(mw)	(mw->matrix.horiz_origin)
+X
+#define VSCROLL_WIDTH(mw)	(VertScrollChild(mw)->core.width + \
+X				 2 * VertScrollChild(mw)->core.border_width +\
+X				 mw->matrix.space)
+#define VSCROLL_HEIGHT(mw)	(VertScrollChild(mw)->core.height + \
+X				 2 * VertScrollChild(mw)->core.border_width)
+#define HSCROLL_WIDTH(mw)	(HorizScrollChild(mw)->core.width + \
+X				 2 * HorizScrollChild(mw)->core.border_width)
+#define HSCROLL_HEIGHT(mw)	(HorizScrollChild(mw)->core.height + \
+X				 2 * HorizScrollChild(mw)->core.border_width+\
+X				 mw->matrix.space)
+X
+#define IS_FIXED(mw, row, column) (row < mw->matrix.fixed_rows || \
+X				   column < mw->matrix.fixed_columns)
+#define CELL_WINDOW(mw, row, column) \
+X    (IS_FIXED(mw, row, column) \
+X     ? XtWindow(mw) \
+X     : XtWindow(ClipChild(mw)))
+X
+/* Inline functions */
+#define FreeColumnWidths(mw)		XtFree((XtPointer) \
+X					       mw->matrix.column_widths)
+#define FreeColumnMaxLengths(mw)	XtFree((XtPointer) \
+X					       mw->matrix.column_max_lengths)
+#define FreeColumnPositions(mw)		XtFree((XtPointer) \
+X					       mw->matrix.column_positions)
+#define FreeColumnAlignments(mw)	XtFree((XtPointer) \
+X					       mw->matrix.column_alignments)
+#define FreeColumnLabelAlignments(mw)	XtFree((XtPointer) \
+X					       mw->matrix.\
+X					       column_label_alignments)
+#define CreateColumnPositions(mw)	(int *) XtMalloc(mw->matrix.columns * \
+X							 sizeof(int))
+#define YtoRow(mw, y)			((y) / (ROW_HEIGHT(mw)))
+X
+X
+/*
+X * Macros used for Rectangle calculations.  A Rectangle is defined by it's
+X * upper left and lower right corners.
+X */
+X
+/*
+X * Set a Rectangle. (x1,y1) is upper left corner, (x2,y2) is lower right corner
+X */
+#define SETRECT(r, X1, Y1, X2, Y2) { (r).x1 = X1; (r).y1 = Y1; \
+X					 (r).x2 = X2; (r).y2 = Y2; }
+X
+/*
+X * Evaluates to 1 if two Rectangles overlap, 0 if no overlap
+X */
+#define OVERLAP(r1, r2) \
+X    ((r1).x2 > (r2).x1 && \
+X     (r1).x1 < (r2).x2 && \
+X     (r1).y2 > (r2).y1 && \
+X     (r1).y1 < (r2).y2)
+X
+/*
+X * Intersect rectangles r1 and r2, place the result in res.
+X * Result will be in r1's coord system.
+X * Max and Min are defined in Xm/XmP.h.
+X */
+#define X_INTERSECT(r1, r2, res) { (res).x1 = Max((r1).x1, (r2).x1) - (r1).x1;\
+X				   (res).x2 = Min((r1).x2, (r2).x2) - (r1).x1;}
+#define Y_INTERSECT(r1, r2, res) { (res).y1 = Max((r1).y1, (r2).y1) - (r1).y1;\
+X				   (res).y2 = Min((r1).y2, (r2).y2) - (r1).y1;}
+#define INTERSECT(r1, r2, res)	{ X_INTERSECT(r1, r2, res); \
+X				      Y_INTERSECT(r1, r2, res); }
+X
+/*
+X * Evaluates to 1 if the point is in the Rectangle, 0 if not
+X */
+#define INBOX(r, x, y) \
+X      ( ( ((r).x2 >= x)) && \
+X	( ((r).x1 <= x)) && \
+X	( ((r).y2 >= y)) && \
+X	( ((r).y1 <= y)) )
+X
+/*
+X * Rectangle struct used for internal calculations.  (x1,y1) are the upper
+X * left corner, (x2,y2) are the lower right.
+X */
+typedef struct _Rectangle {
+X    int x1, y1;
+X    int x2, y2;
+} Rectangle;
+X
+/*
+X * Enumeration for type of a cell
+X */
+typedef enum {FixedCell, NonFixedCell} CellType;
+X
+/*
+X * Declaration of methods
+X */
+static void ClassInitialize();
+static void ClassPartInitialize();
+static void Initialize();
+static void Realize();
+static void InsertChild();
+static void Redisplay();
+static Boolean SetValues();
+static void SetValuesAlmost();
+static void Destroy();
+static void Resize();
+static XtGeometryResult GeometryManager();
+static XtGeometryResult QueryGeometry();
+X
+/*
+X * Redraw function for clip widget
+X */
+static void ClipRedisplay();
+X
+/*
+X * New Matrix methods
+X */
+static void SetCell();
+static void EditCell();
+static void SelectCell();
+static void SelectRow();
+static void SelectColumn();
+static void DeselectAll();
+static void DeselectCell();
+static void DeselectRow();
+static void DeselectColumn();
+static String GetCell();
+static Boolean CommitEdit();
+static void CancelEdit();
+static void AddRows();
+static void DeleteRows();
+static void AddColumns();
+static void DeleteColumns();
+static void SetRowColors();
+static void SetColumnColors();
+static void SetCellColor();
+X
+/*
+X * Private functions unique to Matrix
+X */
+static void CreateDrawGC(), GetInverseGC(),
+X    CreateDrawClipGC(), CreateInverseClipGC(),
+X    CreateTopShadowClipGC(), CreateBottomShadowClipGC(),
+X    SetClipMask(), NewFont(),
+X    GetCellTotalWidth(), GetColumnPositions(),
+X    DrawString(), DrawColumnLabel(), DrawRowLabel(), DrawCell(),
+X    RedrawCells(), RedrawLabelsAndFixed(), ComputeSize(),
+X    FreeCells(), FreeRowLabels(), FreeColumnLabels(), FreeColors(),
+X    FreeSelectedCells(), CreateColors(), CopySelectedCells(),
+X    ResizeCells(), ResizeSelectedCells(), ResizeColors(), RowColToXY(),
+X    AddRowsToTable(), DeleteRowsFromTable(), AddColumnsToTable(),
+X    DeleteColumnsFromTable(), ClearCell(), GetVisibleRows(),
+X    GetVisibleColumns(), GetVisibleCells(),
+X    MakeRowVisible(), MakeColumnVisible(),
+X    MakeCellVisible(), AdjustTopRow();
+static Boolean IsRowVisible(), IsColumnVisible(), IsCellVisible(),
+X    XYToRowCol(), DoCommitEdit(), EventToXY();
+static short MaxRowLabel();
+static int XtoCol();
+static void CopyRowLabels(), CopyColumnLabels(), CopyCells(),
+X    CopyColumnWidths(), CopyColumnMaxLengths(),
+X    CopyColumnAlignments(), CopyColumnLabelAlignments(), CopyColors();
+static void ParseColumnLabel();
+X
+/*
+X * Scrollbar callbacks
+X */
+static void ScrollVertCB(), ScrollHorizCB();
+X
+/*
+X * TextField modifyVerifyCallback
+X */
+static void ModifyVerifyCB();
+X
+/*
+X * Clip widget focusCallback
+X */
+static void TraverseInCB();
+X
+/*
+X * ScrollMgr implementation
+X */
+static SmScrollMgr SmCreateScrollMgr();
+static void SmDestroyScrollMgr(), SmAddScroll(),
+X    SmRemoveScroll(), SmScrollEvent();
+X
+/*
+X * Public convenience functions
+X */
+void XbaeMatrixSetCell();
+void XbaeMatrixEditCell();
+void XbaeMatrixSelectCell();
+void XbaeMatrixSelectRow();
+void XbaeMatrixSelectColumn();
+void XbaeMatrixDeselectAll();
+void XbaeMatrixDeselectCell();
+void XbaeMatrixDeselectRow();
+void XbaeMatrixDeselectColumn();
+String XbaeMatrixGetCell();
+Boolean XbaeMatrixCommitEdit();
+void XbaeMatrixCancelEdit();
+void XbaeMatrixAddRows();
+void XbaeMatrixDeleteRows();
+void XbaeMatrixAddColumns();
+void XbaeMatrixDeleteColumns();
+void XbaeMatrixSetRowColors();
+void XbaeMatrixSetColumnColors();
+void XbaeMatrixSetCellColor();
+X
+/*
+X * Type converters
+X */
+Boolean CvtStringToStringArray();
+void StringArrayDestructor();
+Boolean CvtStringToWidthArray();
+void WidthArrayDestructor();
+Boolean CvtStringToMaxLengthArray();
+void MaxLengthArrayDestructor();
+Boolean StringsAreEqual();
+Boolean CvtStringToAlignmentArray();
+void AlignmentArrayDestructor();
+X
+/*
+X * Actions
+X */
+static void EditCellACT(), CancelEditACT(), CommitEditACT(),
+X    SelectCellACT(), TraverseNextACT(), TraversePrevACT();
+X
+/*
+X * Matrix actions
+X */
+static XtActionsRec actions[] = {
+X    {"EditCell",	EditCellACT},
+X    {"CancelEdit",	CancelEditACT},
+X    {"CommitEdit",	CommitEditACT},
+X    {"SelectCell",	SelectCellACT},
+X    {"TraverseNext",	TraverseNextACT},
+X    {"TraversePrev",	TraversePrevACT},
+};
+X
+X
+XXbaeMatrixClassRec xbaeMatrixClassRec = {
+X    {
+X    /* core_class fields */
+X	/* superclass			*/ (WidgetClass) &xmManagerClassRec,
+X	/* class_name			*/ "XbaeMatrix",
+X	/* widget_size			*/ sizeof(XbaeMatrixRec),
+X	/* class_initialize		*/ ClassInitialize,
+X	/* class_part_initialize	*/ ClassPartInitialize,
+X	/* class_inited			*/ False,
+X	/* initialize			*/ Initialize,
+X	/* initialize_hook		*/ NULL,
+X	/* realize			*/ Realize,
+X	/* actions			*/ actions,
+X	/* num_actions			*/ XtNumber(actions),
+X	/* resources			*/ resources,
+X	/* num_resources		*/ XtNumber(resources),
+X	/* xrm_class			*/ NULLQUARK,
+X	/* compress_motion		*/ True,
+X	/* compress_exposure		*/ XtExposeCompressSeries |
+X						XtExposeGraphicsExpose |
+X						    XtExposeNoExpose,
+X	/* compress_enterleave		*/ True,
+X	/* visible_interest		*/ False,
+X	/* destroy			*/ Destroy,
+X	/* resize			*/ Resize,
+X	/* expose			*/ Redisplay,
+X	/* set_values			*/ SetValues,
+X	/* set_values_hook		*/ NULL,
+X	/* set_values_almost		*/ SetValuesAlmost,
+X	/* get_values_hook		*/ NULL,
+X	/* accept_focus			*/ NULL,
+X	/* version			*/ XtVersion,
+X	/* callback_private		*/ NULL,
+X	/* tm_table			*/ defaultTranslations,
+X	/* query_geometry		*/ QueryGeometry,
+X	/* display_accelerator		*/ NULL,
+X	/* extension			*/ NULL
+X    },
+X
+/*
+X * XXX I should be able to use XtInheritGeometryManager &
+X * XtInheritChangeManaged but Composite defines these as NULL.
+X * (Xt seems to allow change_managed to be NULL)
+X */
+X    {
+X    /* composite_class fields */
+X	/* geometry_manager		*/ GeometryManager,
+X	/* change_managed		*/ NULL,
+X	/* insert_child			*/ InsertChild,
+X	/* delete_child			*/ XtInheritDeleteChild,
+X	/* extension			*/ NULL,
+X    },
+X    {
+X    /* constraint_class fields */
+X	/* resources			*/ NULL,
+X	/* num_resources		*/ 0,
+X	/* constraint_size		*/ 0,
+X	/* initialize			*/ NULL,
+X	/* destroy			*/ NULL,
+X	/* set_values			*/ NULL,
+X	/* extension			*/ NULL
+X    },
+X    {
+X    /* manager_class fields */
+X	/* translations			*/  XtInheritTranslations,
+X	/* syn_resources		*/  syn_resources,
+X	/* num_syn_resources		*/  XtNumber(syn_resources),
+X	/* syn_constraint_resources	*/  NULL,
+X	/* num_syn_constraint_resources */  0,
+X	/* parent_process		*/  XmInheritParentProcess,
+X	/* extension			*/  NULL
+X    },
+X    {
+X    /* matrix_class fields */
+X	/* set_cell			*/ SetCell,
+X	/* get_cell			*/ GetCell,
+X	/* edit_cell			*/ EditCell,
+X	/* select_cell			*/ SelectCell,
+X	/* select_row			*/ SelectRow,
+X	/* select_column		*/ SelectColumn,
+X	/* deselect_all			*/ DeselectAll,
+X	/* deselect_cell		*/ DeselectCell,
+X	/* deselect_row			*/ DeselectRow,
+X	/* deselect_column		*/ DeselectColumn,
+X	/* commit_edit			*/ CommitEdit,
+X	/* cancel_edit			*/ CancelEdit,
+X	/* add_rows			*/ AddRows,
+X	/* delete_rows			*/ DeleteRows,
+X	/* add_columns			*/ AddColumns,
+X	/* delete_columns		*/ DeleteColumns,
+X	/* set_row_colors		*/ SetRowColors,
+X	/* set_column_colors		*/ SetColumnColors,
+X	/* set_cell_color		*/ SetCellColor,
+X	/* extension			*/ NULL,
+X    }
+};
+X
+WidgetClass xbaeMatrixWidgetClass = (WidgetClass)&xbaeMatrixClassRec;
+X
+X
+static void
+ClassInitialize()
+{
+X    /*
+X     * String to StringArray is used for XmNrowLabels and XmNcolumnLabels
+X     * We make a private copy of this table, should we cache? XXX
+X     */
+X    XtSetTypeConverter(XmRString, XmRStringArray,
+X		       CvtStringToStringArray, NULL, 0,
+X		       XtCacheAll | XtCacheRefCount,
+X		       StringArrayDestructor);
+X
+X    /*
+X     * String to ShortArray is used for XmNcolumnWidths resource.
+X     * We make a private copy of this table, should we cache? XXX
+X     */
+X    XtSetTypeConverter(XmRString, XmRWidthArray,
+X		       CvtStringToWidthArray, NULL, 0,
+X		       XtCacheAll | XtCacheRefCount,
+X		       WidthArrayDestructor);
+X
+X    /*
+X     * String to IntArray is used for XmNcolumnMaxLengths resource.
+X     * We make a private copy of this table, should we cache? XXX
+X     */
+X    XtSetTypeConverter(XmRString, XmRMaxLengthArray,
+X		       CvtStringToMaxLengthArray, NULL, 0,
+X		       XtCacheAll | XtCacheRefCount,
+X		       MaxLengthArrayDestructor);
+X
+X    /*
+X     * String to AlignmentArray is used for XmNcolumnAlignments
+X     * and XmNcolumnLabelAlignments resources.
+X     */
+X    XtSetTypeConverter(XmRString, XmRAlignmentArray,
+X		       CvtStringToAlignmentArray, NULL, 0,
+X		       XtCacheAll | XtCacheRefCount,
+X		       AlignmentArrayDestructor);
+}
+X
+static void
+ClassPartInitialize(mwc)
+XXbaeMatrixWidgetClass mwc;
+{
+X    register XbaeMatrixWidgetClass super =
+X	(XbaeMatrixWidgetClass) mwc->core_class.superclass;
+X
+X    /*
+X     * Allow subclasses to inherit new Matrix methods
+X     */
+X    if (mwc->matrix_class.set_cell == XbaeInheritSetCell)
+X	mwc->matrix_class.set_cell = super->matrix_class.set_cell;
+X    if (mwc->matrix_class.get_cell == XbaeInheritGetCell)
+X	mwc->matrix_class.get_cell = super->matrix_class.get_cell;
+X    if (mwc->matrix_class.edit_cell == XbaeInheritEditCell)
+X	mwc->matrix_class.edit_cell = super->matrix_class.edit_cell;
+X    if (mwc->matrix_class.select_cell == XbaeInheritSelectCell)
+X	mwc->matrix_class.select_cell = super->matrix_class.select_cell;
+X    if (mwc->matrix_class.select_row == XbaeInheritSelectRow)
+X	mwc->matrix_class.select_row = super->matrix_class.select_row;
+X    if (mwc->matrix_class.select_column == XbaeInheritSelectColumn)
+X	mwc->matrix_class.select_column = super->matrix_class.select_column;
+X    if (mwc->matrix_class.deselect_all == XbaeInheritDeselectAll)
+X	mwc->matrix_class.deselect_all = super->matrix_class.deselect_all;
+X    if (mwc->matrix_class.deselect_cell == XbaeInheritDeselectCell)
+X	mwc->matrix_class.deselect_cell = super->matrix_class.deselect_cell;
+X    if (mwc->matrix_class.deselect_row == XbaeInheritDeselectRow)
+X	mwc->matrix_class.deselect_row = super->matrix_class.deselect_row;
+X    if (mwc->matrix_class.deselect_column == XbaeInheritDeselectColumn)
+X	mwc->matrix_class.deselect_column =
+X	    super->matrix_class.deselect_column;
+X    if (mwc->matrix_class.commit_edit == XbaeInheritCommitEdit)
+X	mwc->matrix_class.commit_edit = super->matrix_class.commit_edit;
+X    if (mwc->matrix_class.cancel_edit == XbaeInheritCancelEdit)
+X	mwc->matrix_class.cancel_edit = super->matrix_class.cancel_edit;
+X    if (mwc->matrix_class.add_rows == XbaeInheritAddRows)
+X	mwc->matrix_class.add_rows = super->matrix_class.add_rows;
+X    if (mwc->matrix_class.delete_rows == XbaeInheritDeleteRows)
+X	mwc->matrix_class.delete_rows = super->matrix_class.delete_rows;
+X    if (mwc->matrix_class.add_columns == XbaeInheritAddColumns)
+X	mwc->matrix_class.add_columns = super->matrix_class.add_columns;
+X    if (mwc->matrix_class.delete_columns == XbaeInheritDeleteColumns)
+X	mwc->matrix_class.delete_columns = super->matrix_class.delete_columns;
+X    if (mwc->matrix_class.set_row_colors == XbaeInheritSetRowColors)
+X	mwc->matrix_class.set_row_colors = super->matrix_class.set_row_colors;
+X    if (mwc->matrix_class.set_column_colors == XbaeInheritSetColumnColors)
+X	mwc->matrix_class.set_column_colors =
+X	    super->matrix_class.set_column_colors;
+X    if (mwc->matrix_class.set_cell_color == XbaeInheritSetCellColor)
+X	mwc->matrix_class.set_cell_color = super->matrix_class.set_cell_color;
+}
+X
+static void
+CreateDrawGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    unsigned long mask = GCForeground | GCFont;
+X
+X    /*
+X     * GC for drawing cells/labels. We create it instead of using a cached one,
+X     * since the foreground may change frequently.
+X     */
+X    values.foreground = mw->manager.foreground;
+X    values.font = mw->matrix.font->fid;
+X    mw->matrix.draw_gc = XCreateGC(XtDisplay(mw),
+X				   RootWindowOfScreen(XtScreen(mw)),
+X				   mask, &values);
+}
+X
+static void
+GetInverseGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    XtGCMask mask = GCForeground | GCFont;
+X
+X    /*
+X     * GC for drawing selected cells.
+X     */
+X    values.foreground = mw->core.background_pixel;
+X    values.font = mw->matrix.font->fid;
+X    mw->matrix.inverse_gc = XtGetGC((Widget)mw, mask, &values);
+}
+X
+static void
+CreateDrawClipGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    unsigned long mask = GCForeground | GCFont;
+X
+X    /*
+X     * GC for drawing cells/labels with clipping.
+X     */
+X    values.foreground = mw->manager.foreground;
+X    values.font = mw->matrix.font->fid;
+X    mw->matrix.draw_clip_gc = XCreateGC(XtDisplay(mw),
+X					RootWindowOfScreen(XtScreen(mw)),
+X					mask, &values);
+}
+X
+static void
+CreateInverseClipGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    XtGCMask mask = GCForeground | GCFont;
+X
+X    /*
+X     * GC for drawing selected cells with clipping.
+X     */
+X    values.foreground = mw->core.background_pixel;
+X    values.font = mw->matrix.font->fid;
+X
+X    mw->matrix.inverse_clip_gc = XCreateGC(XtDisplay(mw),
+X					   RootWindowOfScreen(XtScreen(mw)),
+X					   mask, &values);
+}
+X
+static void
+CreateTopShadowClipGC(mw)
+XXbaeMatrixWidget mw;
+{
+X    XGCValues values;
+X    XtGCMask mask = GCForeground | GCBackground;
+X
+X    /*
+X     * GC for drawing top shadow inside cells with clipping.
+SHAR_EOF
+true || echo 'restore of Xbae/src/Matrix.c failed'
+fi
+echo 'End of Xbae part 5'
+echo 'File Xbae/src/Matrix.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

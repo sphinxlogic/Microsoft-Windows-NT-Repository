@@ -1,0 +1,2447 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i005:  tin - threaded full screen newsreader v1.1 PL4, Part05/15
+Message-ID: <1992Jul7.181431.6697@sparky.imd.sterling.com>
+X-Md4-Signature: f124bfa5a160f466091f007ff4865b35
+Date: Tue, 7 Jul 1992 18:14:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 5
+Archive-name: tin/part05
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 30, Issue 1-14
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  group.c patchlev.h thread.c
+# Wrapped by kent@sparky on Mon Jun 29 23:35:11 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 15)."'
+if test -f 'group.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'group.c'\"
+else
+  echo shar: Extracting \"'group.c'\" \(29136 characters\)
+  sed "s/^X//" >'group.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : group.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 20-06-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+X#define MARK_OFFSET	8
+X
+Xextern char cvers[LEN];
+Xextern int cur_groupnum;
+Xextern int last_resp;		/* page.c */
+Xextern int this_resp;		/* page.c */
+Xextern int note_page;		/* page.c */
+X
+Xchar *glob_group;
+Xint index_point;
+Xint first_subj_on_screen;
+Xint last_subj_on_screen;
+Xstatic int len_from;
+Xstatic int len_subj;
+Xstatic char *spaces = "XXXX";
+X
+Xstatic int bld_sline();
+Xstatic int draw_sline();
+X
+X#ifndef ART_ADJUST	/* what we do here is bizarre */
+X#define ART_ADJUST(n)	(show_only_unread \
+X				? ((n) > 1 ? (n) : 0) \
+X				: ((n) > 0 ? (n) - 1 : 0))
+X#endif
+X
+X#define INDEX2SNUM(i)	((i) % NOTESLINES)
+X#define SNUM2LNUM(i)	(INDEX_TOP + (i))
+X#define INDEX2LNUM(i)	(SNUM2LNUM(INDEX2SNUM(i)))
+X
+Xvoid group_page (group)
+X	char *group;
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char group_path[LEN];
+X 	char buf[128];
+X 	char pat[128];
+X	char *p;
+X	int ch;
+X	int dummy = 0;
+X	int flag, i, n;
+X	int kill_state;
+X	int old_top = 0;
+X	int posted;
+X	int sav_groupnum;
+X	int scroll_lines;
+X	long old_artnum = 0L;
+X	int xflag = 0;
+X 	struct art_stat_t sbuf;
+X
+X	active[my_group[cur_groupnum]].attribute.read = TRUE;
+X
+X	glob_group = group;
+X	sav_groupnum = cur_groupnum;
+X	
+X	strcpy (group_path, group);			/* turn comp.unix.amiga into */
+X	for (p = group_path; *p; p++)		/* comp/unix/amiga */
+X		if (*p == '.')
+X			*p = '/';
+X
+X	last_resp = -1;
+X	this_resp = -1;
+X	index_group (group, group_path);	/* update index file */
+X	
+X	if (space_mode) {
+X		for (i = 0; i < top_base; i++) {
+X			if (new_responses (i)) {
+X				break;
+X			}
+X		}
+X		if (i < top_base) {
+X			index_point = i;
+X		} else {
+X			index_point = top_base - 1;
+X		}
+X	} else {
+X		index_point = top_base - 1;
+X	}
+X	if (index_point < 0) {
+X		index_point = 0;
+X	}
+X	
+X	clear_note_area ();
+X
+X	show_group_page (group);
+X
+X	while (TRUE) {
+X		ch = ReadCh ();
+X
+X		if (ch > '0' && ch <= '9') {	/* 0 goes to basenote */
+X			prompt_subject_num (ch, group);
+X			continue;
+X		} 
+X		switch (ch) {
+X			case ESC:	/* common arrow keys */
+X				switch (get_arrow_key ()) {
+X				case KEYMAP_UP:
+X					goto group_up;
+X
+X				case KEYMAP_DOWN:
+X					goto group_down;
+X
+X				case KEYMAP_PAGE_UP:
+X					goto group_page_up;
+X
+X				case KEYMAP_PAGE_DOWN:
+X					goto group_page_down;
+X
+X				case KEYMAP_HOME:
+X					if (! top_base) {
+X						break;
+X					}			
+X					if (index_point != 0) {
+X						if (0 < first_subj_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X							erase_subject_arrow ();
+X#endif					
+X							index_point = 0;
+X							show_group_page (group);
+X						} else {
+X							erase_subject_arrow ();
+X							index_point = 0;
+X							draw_subject_arrow ();
+X						}
+X					}
+X					break;
+X					
+X				case KEYMAP_END:
+X					goto end_of_list;
+X				}
+X				break;
+X
+X#ifndef NO_SHELL_ESCAPE
+X			case '!':
+X				shell_escape ();
+X				show_group_page (group);
+X				break;
+X#endif
+X
+X			case '$':	/* show last page of articles */
+Xend_of_list:
+X				if (! top_base) {
+X					break;
+X				}			
+X				if (index_point != top_base - 1) {
+X					if (top_base - 1 > last_subj_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X						erase_subject_arrow ();
+X#endif					
+X						index_point = top_base - 1;
+X						show_group_page (group);
+X					} else {
+X						erase_subject_arrow ();
+X						index_point = top_base - 1;
+X						draw_subject_arrow ();
+X					}
+X				}
+X				break;
+X				
+X			case '-':	/* go to last viewed article */
+X				if (this_resp < 0) {
+X					info_message (txt_no_last_message);
+X					break;
+X				}
+X				index_point = show_page (this_resp, &dummy, group, group_path);
+X				if (index_point < 0) {
+X					space_mode = FALSE;
+X					goto group_done;
+X				}
+X				clear_note_area ();
+X				show_group_page (group);
+X				break;
+X
+X			case '|':	/* pipe article/thread/tagged arts to command */
+X				if (index_point >= 0) {
+X					feed_articles (FEED_PIPE, GROUP_LEVEL, "Pipe",
+X						(int) base[index_point], group_path);
+X				}
+X				break;
+X
+X			case '/':	/* forward/backward search */
+X			case '?':
+X				i = (ch == '/');
+X				search_subject (i, group);
+X				break;
+X
+X			case '\r':
+X			case '\n':	/* read current basenote */
+X				if (index_point < 0) {
+X					info_message(txt_no_arts);
+X					break;
+X				}
+X				i = (int) base[index_point];
+X				index_point = show_page (i, &dummy, group, group_path);
+X				if (index_point < 0) {
+X					space_mode = FALSE;
+X					goto group_done;
+X				}
+X				clear_note_area ();
+X				show_group_page (group);
+X				break;
+X
+X			case '\t':
+X 				space_mode = TRUE;
+X
+X				if (index_point < 0
+X				|| (n=next_unread((int) base[index_point]))<0) {
+X					for (i = cur_groupnum+1 ; i < group_top ; i++)
+X						if (unread[i] > 0)
+X							break;
+X					if (i >= group_top)
+X						goto group_done;
+X
+X					cur_groupnum = i;
+X					index_point = -3;
+X					goto group_done;
+X				}
+X				index_point = show_page(n, &dummy, group, group_path);
+X				if (index_point < 0)
+X					goto group_done;
+X				clear_note_area ();
+X				show_group_page(group);
+X				break;
+X	
+X			case ' ':		/* page down */
+X			case ctrl('D'):
+X			case ctrl('F'):		/* vi style */
+Xgroup_page_down:
+X				if (! top_base) {
+X					break;
+X				}
+X				if (index_point == top_base - 1) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_subj_on_screen) {
+X#	ifndef USE_CLEARSCREEN
+X						erase_subject_arrow ();
+X#	endif					
+X						index_point = 0;
+X						show_group_page (group);
+X					} else {
+X						erase_subject_arrow ();
+X						index_point = 0;
+X						draw_subject_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				erase_subject_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				index_point = ((index_point + scroll_lines) / scroll_lines) * scroll_lines;
+X				if (index_point >= top_base) {
+X					index_point = (top_base / scroll_lines) * scroll_lines;
+X					if (index_point < top_base - 1) {
+X						index_point = top_base - 1;
+X					}
+X				}
+X				if (index_point < first_subj_on_screen
+X				|| index_point >= last_subj_on_screen)
+X					show_group_page (group);
+X				else
+X					draw_subject_arrow ();
+X				break;
+X
+X			case ctrl('K'):		/* kill article */
+X 				if (index_point < 0) {
+X 					info_message (txt_no_arts);
+X					break;
+X				}
+X				old_top = top;
+X				n = (int) base[index_point];
+X				old_artnum = arts[n].artnum;
+X				if (kill_art_menu (group, (int) base[index_point])) {
+X					kill_any_articles (group);
+X					make_threads (FALSE);
+X					find_base (show_only_unread);
+X					index_point = find_new_pos (old_top, old_artnum, index_point);
+X				}
+X				show_group_page (group);
+X				break;
+X
+X			case ctrl('L'):		/* redraw screen */
+X			case ctrl('R'):
+X			case ctrl('W'):
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_group_page (group);
+X				break;
+X
+X			case ctrl('N'):
+X			case 'j':		/* line down */
+Xgroup_down:
+X				if (! top_base) {
+X					break;
+X				}
+X				if (index_point + 1 >= top_base) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_subj_on_screen) {
+X						index_point = 0;
+X						show_group_page (group);
+X					} else {
+X						erase_subject_arrow ();
+X						index_point = 0;
+X						draw_subject_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				if (index_point + 1 >= last_subj_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X					erase_subject_arrow();
+X#endif					
+X					index_point++;
+X					show_group_page(group);
+X				} else {
+X					erase_subject_arrow();
+X					index_point++;
+X					draw_subject_arrow();
+X				}
+X				break;
+X
+X			case ctrl('P'):
+X			case 'k':		/* line up */
+Xgroup_up:
+X				if (! top_base) {
+X					break;
+X				}	
+X				if (index_point == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (top_base > last_subj_on_screen) {
+X						index_point = top_base - 1;
+X						show_group_page (group);
+X					} else {
+X						erase_subject_arrow ();
+X						index_point = top_base - 1;
+X						draw_subject_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				if (index_point <= first_subj_on_screen) {
+X					index_point--;
+X					show_group_page(group);
+X				} else {
+X					erase_subject_arrow();
+X					index_point--;
+X					draw_subject_arrow();
+X				}
+X				break;
+X
+X			case 'b':		/* page up */
+X			case ctrl('U'):
+X			case ctrl('B'):		/* vi style */
+Xgroup_page_up:
+X				if (! top_base) {
+X					break;
+X				}
+X				if (index_point == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (top_base > last_subj_on_screen) {
+X						index_point = top_base - 1;
+X						show_group_page (group);
+X					} else {
+X						erase_subject_arrow ();
+X						index_point = top_base - 1;
+X						draw_subject_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X#ifndef USE_CLEARSCREEN
+X				clear_message ();
+X#endif
+X				erase_subject_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				if ((n = index_point % scroll_lines) > 0) {
+X					index_point = index_point - n;
+X				} else {
+X					index_point = ((index_point - scroll_lines) / scroll_lines) * scroll_lines;
+X				}
+X				if (index_point < 0) {
+X					index_point = 0;
+X				}
+X				if (index_point < first_subj_on_screen
+X				|| index_point >= last_subj_on_screen)
+X					show_group_page (group);
+X				else
+X					draw_subject_arrow ();
+X				break;
+X
+X			case 'a':	/* author search forward */
+X			case 'A':	/* author search backward */
+X				if (index_point < 0) {
+X					info_message (txt_no_arts);
+X					break;
+X				}
+X
+X				i = (ch == 'a');
+X
+X				n = search_author(show_only_unread, (int) base[index_point], i);
+X				if (n < 0)
+X					break;
+X
+X				index_point = show_page (n, &dummy, group, group_path);
+X				if (index_point < 0) {
+X					space_mode = FALSE;
+X					goto group_done;
+X				}
+X				clear_note_area ();
+X				show_group_page (group);
+X				break;
+X
+X			case 'B':	/* bug/gripe/comment mailed to author */
+X				mail_bug_report ();
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_group_page (group);
+X				break;
+X				
+X			case 'c':	/* catchup - mark all articles as read */
+X			    if (!confirm_action || prompt_yn (LINES, txt_mark_all_read, 'y')) {
+X					for (n = 0; n < top; n++) {
+X						arts[n].unread = ART_READ;
+X					}
+X					if (cur_groupnum + 1 < group_top) {
+X						cur_groupnum++;
+X					}
+X					goto group_done;
+X			    }
+X			    break;
+X
+X			case 'd':	/* toggle display of subject & subj/author */
+X				toggle_subject_from ();
+X				show_group_page (group);
+X				break;
+X
+X			case 'g':	/* choose a new group by name */
+X				n = choose_new_group ();
+X				if (n >= 0 && n != cur_groupnum) {
+X					cur_groupnum = n;
+X					index_point = -3;
+X					goto group_done;
+X				}
+X				break;
+X
+X			case 'h':	/* help */
+X				show_info_page (HELP_INFO, help_group, txt_index_page_com);
+X				show_group_page (group);
+X				break;
+X
+X			case 'I':	/* toggle inverse video */
+X				toggle_inverse_video ();
+X				show_group_page (group);
+X				break;
+X
+X			case 'K':	/* mark rest of thread as read */
+X				if (index_point < 0) {
+X					info_message (txt_no_next_unread_art);
+X					break;
+X				}
+X				for (i = (int) base[index_point]; i >= 0; i = arts[i].thread) {
+X					arts[i].unread = ART_READ;
+X				}	
+X				bld_sline(index_point);
+X				draw_sline(index_point, FALSE);
+X				if (index_point + 1 < top_base)
+X					goto group_down;
+X				draw_subject_arrow();
+X				info_message(txt_end_of_arts);
+X				break;
+X
+X			case 'l':	/* list articles within current thread */
+X				if (index_point < 0) {
+X					info_message (txt_no_arts);
+X					break;
+X				}
+X 				space_mode = TRUE;
+X				n = show_thread ((int) base[index_point], group, group_path);
+X				if (n == -2) {
+X					index_point = n;
+X					space_mode = FALSE;
+X					goto group_done;
+X				} else {
+X					if (index_point < 0) {
+X						space_mode = FALSE;
+X						goto group_done;
+X					}
+X					clear_note_area ();
+X					show_group_page (group);
+X				}
+X				break;	
+X
+X			case 'm':	/* mail article to somebody */
+X				if (index_point >= 0) {
+X					feed_articles (FEED_MAIL, GROUP_LEVEL, "Mail",
+X						(int) base[index_point], group_path);
+X				}
+X				break;
+X
+X			case 'M':	/* options menu */
+X				if (top_base > 0) {
+X					old_top = top;
+X					n = (int) base[index_point];
+X					old_artnum = arts[n].artnum;
+X				}
+X				n = sort_art_type;
+X				kill_state = change_rcfile (group, TRUE);
+X				if (kill_state == NO_KILLING && n != sort_art_type) {
+X					make_threads (TRUE);
+X					find_base (show_only_unread);
+X				}
+X				index_point = find_new_pos (old_top, old_artnum, index_point);
+X				show_group_page (group);
+X			    break;
+X
+X			case 'n':	/* next group */
+X				clear_message();
+X				if (cur_groupnum + 1 >= group_top)
+X					info_message(txt_no_more_groups);
+X				else {
+X					cur_groupnum++;
+X					index_point = -3;
+X					space_mode = pos_first_unread;
+X					goto group_done;
+X				}
+X				break;
+X
+X			case 'N':	/* go to next unread article */
+X				if (index_point < 0) {
+X					info_message(txt_no_next_unread_art);
+X					break;
+X				}
+X
+X				n = next_unread ((int) base[index_point]);
+X				if (n == -1)
+X					info_message (txt_no_next_unread_art);
+X				else {
+X					index_point = show_page (n, &dummy, group, group_path);
+X					if (index_point < 0) {
+X						space_mode = pos_first_unread;
+X						goto group_done;
+X					}
+X					clear_note_area ();
+X					show_group_page (group);
+X				}
+X				break;
+X
+X			case 'o':	/* output art/thread/tagged arts to printer */
+X				if (index_point >= 0) {
+X					feed_articles (FEED_PRINT, GROUP_LEVEL, "Print",
+X						(int) base[index_point], group_path);
+X				}
+X				break;
+X
+X			case 'p':	/* previous group */
+X				clear_message();
+X				if (cur_groupnum <= 0)
+X					info_message(txt_no_prev_group);
+X				else {
+X					cur_groupnum--;
+X					index_point = -3;
+X					space_mode = pos_first_unread;
+X					goto group_done;
+X				}
+X				break;
+X
+X			case 'P':	/* go to previous unread article */
+X				if (index_point < 0) {
+X				    info_message(txt_no_prev_unread_art);
+X				    break;
+X				}
+X				n = prev_response ((int) base[index_point]);
+X				n = prev_unread (n);
+X				if (n == -1)
+X				    info_message(txt_no_prev_unread_art);
+X				else {
+X					index_point = show_page (n, &dummy, group, group_path);
+X					if (index_point < 0) {
+X						space_mode = pos_first_unread;
+X						goto group_done;
+X					}
+X					clear_note_area ();
+X					show_group_page (group);
+X				}
+X				break;
+X
+X			case 'q':	/* return to group selection page */
+X			case 'i':
+X				goto group_done;
+X
+X			case 'Q':		/* quit */
+X				index_point = -2;
+X				space_mode = FALSE;
+X				goto group_done;
+X
+X	 		case 'r':		
+X	 			/* 
+X	 			 * If in show_only_unread mode or there  are
+X	 			 * unread articles we know this thread  will
+X	 			 * exist after toggle. Otherwise we find the
+X	 			 * next closest 
+X	 			 */
+X 				i = -1;
+X 				if (index_point >= 0) {
+X 					if (show_only_unread || new_responses(index_point))
+X 						i = base[index_point];
+X 					else if ((n = prev_unread(base[index_point])) >= 0)
+X 						i = n;
+X 					else if ((n = next_unread(base[index_point])) >= 0)
+X 						i = n;
+X 				}
+X 				show_only_unread = (show_only_unread ? FALSE : TRUE);
+X 				auto_select_articles (group);
+X 				find_base (show_only_unread);
+X 				if (i >= 0 && (n = which_thread(i)) >= 0)
+X 					index_point = n;
+X 				else if (top_base > 0)
+X 					index_point = top_base - 1;
+X 				show_group_page (group);
+X 				break;
+X
+X			case 's':	/* save regex pattern to file/s */
+X				if (index_point >= 0) {
+X					feed_articles (FEED_SAVE, GROUP_LEVEL, "Save",
+X						(int) base[index_point], group_path);
+X				}
+X				break;
+X			
+X			case 'T':	/* tag/untag art for mailing/piping/printing/saving */
+X 				if (index_point < 0)
+X					break;
+X				n = (int) base[index_point];
+X				if (arts[n].tagged)
+X					arts[n].tagged = 0;
+X				else
+X					arts[n].tagged = ++num_of_tagged_arts;
+X				info_message (arts[n].tagged == 0 
+X					      ? txt_untagged_art 
+X					      : txt_tagged_art);
+X				bld_sline(index_point);
+X				draw_sline(index_point, FALSE);
+X				if (index_point + 1 < top_base)
+X					goto group_down;
+X				draw_subject_arrow();
+X				break;
+X
+X			case 'u':	/* unthread/thread articles */
+X 				if (index_point >= 0) {
+X					thread_arts = !thread_arts;
+X					make_threads (TRUE);
+X					find_base (show_only_unread);
+X					show_group_page (group);
+X				}
+X				break;
+X
+X			case 'U':	/* untag all articles */
+X 				if (index_point >= 0) {
+X					untag_all_articles ();
+X					update_group_page (group);
+X				}
+X				break;
+X
+X			case 'v':
+X				info_message (cvers);
+X				break;
+X
+X			case 'w':	/* post a basenote */
+X				if (! can_post) {
+X					info_message (txt_cannot_post);
+X					break;
+X				}
+X				if (post_base (group, &posted)) {
+X					show_group_page (group);
+X				}
+X				break;
+X
+X			case 'W':	/* display messages posted by user */
+X				if (user_posted_messages ()) {
+X					show_group_page (group);
+X				}
+X				break;
+X
+X			case 'x':	/* crosspost current article */
+X				if (index_point >= 0) {
+X					feed_articles (FEED_XPOST, GROUP_LEVEL, "Crosspost",
+X						(int) base[index_point], group_path);
+X				}
+X				break;
+X
+X			case 'z':	/* mark article as unread */
+X			case 'Z':	/* mark thread as unread */
+X 				if (index_point < 0) {
+X 					info_message (txt_no_arts);
+X					break;
+X				}
+X				n = 0;
+X				for (i = (int) base[index_point] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].unread = ART_UNREAD;
+X					++n;
+X					if (ch == 'z')
+X						break;
+X				}
+X				assert (n > 0);
+X				bld_sline(index_point);
+X				draw_sline(index_point, FALSE);
+X				draw_subject_arrow();
+X				if (ch == 'z')
+X					info_message (txt_art_marked_as_unread);
+X				else
+X					info_message (txt_thread_marked_as_unread);
+X				break;
+X
+X			case '*':	/* mark thread as selected */
+X			case '.':	/* toggle thread */
+X 				if (index_point < 0) {
+X 					info_message (txt_no_arts);
+X					break;
+X				}
+X				
+X				flag = 1;
+X				if (ch == '.') {
+X					stat_thread(index_point, &sbuf);
+X					if (sbuf.hot_unread == sbuf.unread)
+X						flag = 0;
+X				}
+X				n = 0;
+X				for (i = (int) base[index_point] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].hot = flag;
+X					++n;
+X				}
+X				assert (n > 0);
+X				bld_sline(index_point);
+X				draw_sline(index_point, FALSE);
+X#if 0
+X				info_message ( flag
+X					      ? txt_thread_marked_as_selected
+X					      : txt_thread_marked_as_deselected);
+X#endif
+X				if (index_point + 1 < top_base)
+X					goto group_down;
+X				draw_subject_arrow ();
+X				break;
+X
+X			case '@':	/* reverse selections */
+X				for (i=0; i<top; ++i)
+X					arts[i].hot = (arts[i].hot ? 0 : 1);
+X				update_group_page (group);
+X				break;
+X
+X  			case '~':	/* undo selections */
+X 				for (i=0; i<top; ++i) {
+X  					arts[i].hot = 0;
+X 					arts[i].zombie = 0;
+X 				}
+X 				xflag = 0;
+X  				update_group_page(group);
+X  				break;
+X  
+X 			case '=':	/* select matching patterns */
+X 				sprintf (msg, txt_select_pattern, default_select_pattern);
+X 				if (! prompt_string (msg, buf)) {
+X 					break;
+X 				}	
+X 				if (strcmp (buf, "") == 0) {
+X 					if (default_select_pattern[0] == '\0') {
+X 						info_message ("No previous expression");
+X 						break;
+X 					}
+X 					strcpy (pat, default_select_pattern);
+X 				} else if (strcmp (buf, "*") == 0) { /* all */
+X 					strcpy (pat, buf);
+X 					strcpy (default_select_pattern, pat);
+X 				} else {
+X 					make_lower (buf, buf);
+X 					strcpy (default_select_pattern, buf);
+X 					sprintf (pat, "*%s*", default_select_pattern);
+X 				}
+X 
+X 				flag = 0;
+X 				for (n=0; n < top_base; ++n) {
+X 					char sub[LEN];
+X 					make_lower (arts[base[n]].subject, sub);
+X 					if (wildmat (sub, pat) == 0)
+X 						continue;
+X 					for (i = (int) base[n] ; i != -1 ; i = arts[i].thread) {
+X 						arts[i].hot = 1;
+X 					}
+X 					bld_sline(n);
+X 					++flag;
+X 				}
+X 				if (flag)
+X 					update_group_page (group);
+X 				break;
+X
+X			case ';':	/* make all unread hot if 1 is hot */
+X				for (n=0; n<top_base; ++n) {
+X					stat_thread(n, &sbuf);
+X					if (sbuf.hot_unread == 0
+X					    || sbuf.hot_unread == sbuf.unread)
+X						continue;
+X					for (i = (int) base[n] ; i != -1 ; i = arts[i].thread) {
+X						arts[i].hot = 1;
+X					}
+X				}
+X				/* no screen update needed */
+X				break;
+X
+X			case 'X':	/* mark read all unselected arts */
+X				if (xflag)
+X					goto X_undo;
+X
+X				for (i=0; i<top; ++i) {
+X					if (arts[i].unread != ART_UNREAD)
+X						continue;
+X					if (arts[i].hot != 1) {
+X						arts[i].unread = ART_READ;
+X						arts[i].zombie = 1;
+X					}
+X				}
+X
+X				if (show_only_unread) {
+X					find_base (show_only_unread);
+X				}
+X
+X				xflag = 1;
+X				index_point = 0;
+X 				show_group_page (group);
+X
+X				break;
+X
+X			case '+':	/* perform auto-selection on group */
+X				if (auto_select_articles (group) == 0)
+X					break;
+X				update_group_page (group);
+X				break;
+X
+X			X_undo:
+X				for (i=0; i<top; ++i) {
+X					if (arts[i].unread == ART_READ
+X					    && arts[i].zombie == 1) {
+X						arts[i].unread = ART_UNREAD;
+X						arts[i].zombie = 0;
+X					}
+X				}
+X
+X				if (show_only_unread) {
+X					find_base (show_only_unread);
+X				}
+X
+X				xflag = 0;
+X				index_point = 0;	/* do we want this ? */
+X 				show_group_page (group);
+X
+X				break;
+X				
+X
+X
+X			default:
+X			    info_message (txt_bad_command);
+X		}
+X	}
+X
+Xgroup_done:
+X	fix_new_highest (sav_groupnum);
+X	update_newsrc (group, my_group[sav_groupnum], FALSE);
+X
+X	if (index_point == -2) {
+X		write_rcfile ();
+X		tin_done (0);
+X	}	
+X	clear_note_area ();
+X
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+X/*
+X *  Correct highest[] for the group selection page display since
+X *  new articles may have been read or marked unread
+X */
+X
+Xvoid fix_new_highest (groupnum)
+X	int groupnum;
+X{
+X	register int i;
+X	int sum = 0;
+X
+X	for (i = 0; i < top; i++) {
+X		if (arts[i].unread) {
+X			sum++;
+X		}
+X	}
+X	
+X	unread[groupnum] = sum;
+X}
+X
+X
+Xvoid show_group_page (group)
+X	char *group;
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char buf[LEN];
+X	int i, art_cnt = 0;
+X
+X	set_signals_group ();
+X	
+X#ifdef USE_CLEARSCREEN
+X	ClearScreen ();
+X#else
+X	MoveCursor (0, 0);
+X	CleartoEOLN ();
+X#endif
+X
+X	if (show_only_unread) {
+X		for (i = 0 ; i < top_base ; i++) {
+X			art_cnt += new_responses (i);
+X		}	
+X	} else {
+X		for (i = 0 ; i < top ; i++) {
+X			if (! IGNORE_ART(i)) {
+X				++art_cnt;
+X			}
+X		}		
+X	}
+X
+X	if (active[my_group[cur_groupnum]].attribute.thread && thread_arts) {
+X		sprintf (buf, "%s (%dT %dA %dK %dH)", group, top_base, art_cnt,
+X			num_of_killed_arts, num_of_hot_arts);
+X	} else {
+X		sprintf (buf, "%s (%dU %dK %dH)", group, art_cnt, 
+X			num_of_killed_arts, num_of_hot_arts);
+X	}
+X	show_title (buf);
+X
+X#ifndef USE_CLEARSCREEN
+X	MoveCursor (1, 0);
+X	CleartoEOLN ();
+X#endif
+X
+X	MoveCursor (INDEX_TOP, 0);
+X
+X	if (index_point >= top_base) {
+X		index_point = top_base - 1;
+X	}
+X
+X	if (NOTESLINES <= 0) {
+X		first_subj_on_screen = 0;
+X	} else {
+X		first_subj_on_screen = (index_point / NOTESLINES) * NOTESLINES;
+X		if (first_subj_on_screen < 0) {
+X			first_subj_on_screen = 0;
+X		}
+X	}
+X
+X	last_subj_on_screen = first_subj_on_screen + NOTESLINES;
+X
+X	if (last_subj_on_screen >= top_base) {
+X		last_subj_on_screen = top_base;
+X		first_subj_on_screen = (top_base / NOTESLINES) * NOTESLINES;
+X
+X		if (first_subj_on_screen == last_subj_on_screen ||
+X			first_subj_on_screen < 0) {
+X			if (first_subj_on_screen < 0) {
+X				first_subj_on_screen = 0;
+X			} else {
+X				first_subj_on_screen = last_subj_on_screen - NOTESLINES;
+X			}
+X		}
+X	}
+X
+X	if (top_base == 0) {
+X		first_subj_on_screen = 0;
+X		last_subj_on_screen = 0;
+X	}
+X
+X	if (draw_arrow_mark) {
+X		CleartoEOS ();
+X	}
+X
+X	for (i = first_subj_on_screen; i < last_subj_on_screen; ++i) {
+X		bld_sline(i);
+X		draw_sline(i, TRUE);
+X	}
+X
+X#ifndef USE_CLEARSCREEN
+X	CleartoEOS ();
+X#endif
+X
+X	if (top_base <= 0) {
+X		info_message(txt_no_arts);
+X		return;
+X	} else if (last_subj_on_screen == top_base) {
+X		info_message(txt_end_of_arts);
+X	}
+X
+X	draw_subject_arrow();
+X
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xvoid update_group_page(group)
+Xchar *group;
+X{
+X#ifndef INDEX_DAEMON
+X	register int i;
+X
+X	for (i = first_subj_on_screen; i < last_subj_on_screen; ++i) {
+X		bld_sline(i);
+X		draw_sline(i, FALSE);
+X	}
+X
+X	if (top_base <= 0)
+X		return;
+X
+X	draw_subject_arrow();
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xvoid draw_subject_arrow()
+X{
+X	MoveCursor (INDEX2LNUM(index_point), 0);
+X
+X	if (draw_arrow_mark) {
+X		fputs ("->", stdout);
+X		fflush (stdout);
+X	} else {
+X		StartInverse();
+X		draw_sline(index_point, TRUE);
+X		EndInverse();
+X	}
+X	MoveCursor (LINES, 0);
+X}
+X
+Xvoid erase_subject_arrow()
+X{
+X	MoveCursor (INDEX2LNUM(index_point), 0);
+X
+X	if (draw_arrow_mark) {
+X		fputs ("  ", stdout);
+X	} else {
+X		draw_sline(index_point, TRUE);
+X	}
+X	fflush (stdout);
+X}
+X
+X
+Xvoid prompt_subject_num (ch, group)
+X	int ch;
+X	char *group;
+X{
+X	int num;
+X
+X	if (! top_base) {
+X		return;
+X	}
+X
+X	clear_message ();
+X
+X	if ((num = prompt_num (ch, txt_read_art)) == -1) {
+X		clear_message ();
+X		return;
+X	}
+X	num--;		/* index from 0 (internal) vs. 1 (user) */
+X
+X	if (num < 0) {
+X		num = 0;
+X	}
+X	if (num >= top_base) {
+X		num = top_base - 1;
+X	}
+X
+X	if (num >= first_subj_on_screen
+X	&&  num < last_subj_on_screen) {
+X		erase_subject_arrow();
+X		index_point = num;
+X		draw_subject_arrow();
+X	} else {
+X#ifndef USE_CLEARSCREEN
+X		erase_subject_arrow();
+X#endif		
+X		index_point = num;
+X		show_group_page(group);
+X	}
+X}
+X
+X
+Xvoid clear_note_area ()
+X{
+X#ifndef USE_CLEARSCREEN
+X	MoveCursor (INDEX_TOP, 0);
+X	CleartoEOS ();
+X#endif
+X}
+X
+X/*
+X * Find new index position after a kill or unkill. Because
+X * kill can work on author it is impossible to know which,
+X * if any, articles will be left afterwards. So we make a
+X * "best attempt" to find a new index point.
+X */
+X
+Xint find_new_pos (old_top, old_artnum, cur_pos)
+X	int old_top;
+X	long old_artnum;
+X	int cur_pos;
+X{
+X	int pos;
+X	
+X 	if (top == old_top) {
+X 		return (cur_pos);
+X 	}	
+X  
+X 	if ((pos = valid_artnum (old_artnum)) >= 0) {
+X 		if ((pos = which_thread (pos)) >= 0){
+X 			return pos;
+X 		}
+X 	}		
+X 	
+X 	if (cur_pos < top_base) {
+X 		return cur_pos;
+X 	} else {
+X 		return (top_base - 1);
+X 	}	
+X}
+X
+X
+Xvoid mark_screen (level, screen_row, screen_col, value)
+X	int level;
+X	int screen_row;
+X	int screen_col;
+X	char *value;
+X{
+X	int i, len;
+X
+X	len = strlen (value);
+X	
+X	if (draw_arrow_mark) {
+X		MoveCursor(INDEX_TOP + screen_row, screen_col);
+X		fputs (value, stdout);
+X		MoveCursor (LINES, 0);
+X		fflush (stdout);
+X	} else {
+X		for (i=0 ; i < len ; i++) {
+X			screen[screen_row].col[screen_col+i] = value[i];
+X		}
+X		if (level == SELECT_LEVEL) {
+X			draw_group_arrow();
+X		} else {
+X			draw_subject_arrow();
+X		}	
+X	}
+X}
+X
+X
+Xvoid set_subj_from_size (num_cols)
+X	int num_cols;
+X{
+X	int size = 0;
+X	
+X	if (show_author == SHOW_FROM_BOTH) {
+X		max_subj = (num_cols / 2) - 2;
+X	} else {
+X		max_subj = (num_cols / 2) + 5;
+X	}
+X	max_from = (num_cols - max_subj) - 17;
+X
+X	if (show_author != SHOW_FROM_BOTH) {
+X		if (max_from > 25) {
+X			size = max_from - 25;
+X			max_from = 25;
+X			max_subj = max_subj + size;
+X		}
+X	}
+X
+X	if (show_author != SHOW_FROM_NONE) {
+X		len_from = max_from - BLANK_GROUP_COLS;
+X		len_subj = max_subj;
+X		spaces = "   ";
+X	} else {
+X		len_from = 0;
+X		len_subj = (max_subj+max_from+3) - BLANK_GROUP_COLS;
+X		spaces = "";
+X	}
+X}
+X
+X
+Xvoid toggle_subject_from ()
+X{
+X	if (default_show_author != SHOW_FROM_NONE) {
+X		if (show_author != SHOW_FROM_NONE) {
+X			show_author = SHOW_FROM_NONE;
+X		} else {
+X			show_author = default_show_author;
+X		}
+X	} else {
+X		if (show_author + 1 > SHOW_FROM_BOTH) {
+X			show_author = SHOW_FROM_NONE;
+X		} else {
+X			show_author++;
+X		}
+X	}
+X	set_subj_from_size (COLS);
+X}
+X
+X/*
+X * Build subject line given an index into base[]. 
+X *
+X * WARNING: the routine is tightly coupled with draw_sline() in the sense
+X * that draw_sline() expects bld_sline() to place the article mark
+X * (READ_ART_MARK, HOT_ART_MARK, etc) at MARK_OFFSET in the screen[].col.
+X * So, if you change the format used in this routine, be sure to check
+X * that the value of MARK_OFFSET is still correct. 
+X * Yes, this is somewhat kludgy.
+X */
+X 
+Xstatic int bld_sline (i)
+X	int i;
+X{
+X#ifndef INDEX_DAEMON
+X	int respnum;
+X	int n, j;
+X	char from[LEN];
+X	char new_resps[8];
+X	char art_cnt[8];
+X 	struct art_stat_t sbuf;
+X
+X	from[0] = '\0';
+X	respnum = (int) base[i];
+X	
+X	stat_thread(i, &sbuf);
+X	if (show_only_unread)
+X		n = sbuf.unread + sbuf.seen;
+X	else
+X		n = sbuf.total;
+X	
+X	n = ART_ADJUST(n);
+X	
+X	if (arts[respnum].tagged) {
+X		sprintf (new_resps, "%3d", arts[respnum].tagged);
+X	} else {
+X		sprintf (new_resps, "  %c", sbuf.art_mark);
+X	}
+X
+X	if (n) {
+X		sprintf (art_cnt, "%-3d", n); 
+X	} else {
+X		strcpy (art_cnt, "   ");
+X	}
+X	
+X	if (show_author != SHOW_FROM_NONE) {
+X		get_author (FALSE, respnum, from);
+X	}	
+X	
+X	j = INDEX2SNUM(i);
+X	sprintf (screen[j].col, "  %4d%3s %s%-*.*s%s%-*.*s",
+X		 i+1, new_resps, art_cnt, len_subj, len_subj, 
+X		 arts[respnum].subject, spaces, len_from, len_from, from);
+X	
+X#endif /* INDEX_DAEMON */
+X	return(0);
+X}
+X
+X/*
+X * Draw subject line given an index into base[].
+X *
+X * WARNING: this routine is tightly coupled with bld_sline(); see the warning
+X * associated with that routine for details. (C++ would be handy here.)
+X *
+X * NOTE: the 2nd argument is used to control whether the full line is 
+X * redrawn or just the the parts of it that can be changed by a
+X * command; i.e., the unread art count and the art mark. This will result
+X * in a slightly more efficient update, though at the price of increased 
+X * code complexity and readability.
+X */
+X
+Xstatic int draw_sline (i, full)
+X	int i;
+X	int full;	/* unused at moment */
+X{
+X#ifndef INDEX_DAEMON
+X	int j, tlen, x;
+X	int k = MARK_OFFSET;
+X	char *s;
+X
+X	j = INDEX2SNUM(i);
+X
+X	if (full) {
+X		tlen = strlen (screen[j].col);
+X		s = screen[j].col;
+X		x = 0;
+X	} else {
+X		tlen  = 7;
+X		s = &screen[j].col[6];
+X		x = 6;
+X	}
+X
+X	MoveCursor (INDEX2LNUM(i), x);
+X	fwrite (s, 1, tlen, stdout);
+X
+X	/* it is somewhat less efficient to go back and redo that art mark
+X	 * if hot, but it is quite readable as to what is happening 
+X	 */
+X	if (screen[j].col[k] == HOT_ART_MARK) {
+X		MoveCursor (INDEX2LNUM(i), k);
+X		ToggleInverse ();
+X		fputc (screen[j].col[k], stdout);
+X		ToggleInverse ();
+X	}
+X
+X	MoveCursor(INDEX2LNUM(i)+1, 0);
+X	
+X#endif /* INDEX_DAEMON */
+X	return(0);
+X}
+END_OF_FILE
+  if test 29136 -ne `wc -c <'group.c'`; then
+    echo shar: \"'group.c'\" unpacked with wrong size!
+  fi
+  # end of 'group.c'
+fi
+if test -f 'patchlev.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlev.h'\"
+else
+  echo shar: Extracting \"'patchlev.h'\" \(585 characters\)
+  sed "s/^X//" >'patchlev.h' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : patchlev.h
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 22-06-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#define VERSION		"1.1"		/* Beta versions are "1.n Beta" */
+X#define PATCHLEVEL	4
+END_OF_FILE
+  if test 585 -ne `wc -c <'patchlev.h'`; then
+    echo shar: \"'patchlev.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlev.h'
+fi
+if test -f 'thread.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'thread.c'\"
+else
+  echo shar: Extracting \"'thread.c'\" \(20862 characters\)
+  sed "s/^X//" >'thread.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : thread.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 20-06-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xextern int index_point;
+Xint threaded_on_subject;
+Xstatic int top_thread = 0;
+Xstatic int thread_index_point = 0;
+Xstatic int thread_basenote = 0;
+Xstatic int thread_respnum = 0;
+Xstatic int first_thread_on_screen = 0;
+Xstatic int last_thread_on_screen = 0;
+X
+X#define INDEX2TNUM(i)	((i) % NOTESLINES)
+X#define TNUM2LNUM(i)	(INDEX_TOP + (i))
+X#define INDEX2LNUM(i)	(TNUM2LNUM(INDEX2TNUM(i)))
+X
+X#define MARK_OFFSET 8
+X
+X
+Xstatic int bld_tline (l, i)
+X	int l;
+X	int i;
+X{
+X#ifndef INDEX_DAEMON
+X	int j;
+X	char mark;
+X	char new_resps[8];
+X	char from[LEN];
+X
+X	int len_from;
+X	int len_subj = 0;
+X	int off_subj = 0;
+X	int off_both = 0;
+X	char *spaces = "XXX";
+X
+X	if (! draw_arrow_mark) {
+X		off_subj = 2;
+X		off_both = 5;
+X	}	
+X
+X	if (threaded_on_subject) {
+X		len_from = max_subj+max_from+off_both;
+X		spaces = "";
+X	} else {
+X		if (show_author != SHOW_FROM_NONE) {
+X			len_from = max_from;
+X			len_subj = max_subj+off_subj;
+X			spaces = "   ";
+X		} else {
+X			len_from = 0;
+X			len_subj = max_from+max_subj+off_subj;
+X			spaces = "";
+X		}
+X	}	
+X
+X	j = INDEX2TNUM(l);
+X
+X	if (arts[i].tagged) {
+X		sprintf (new_resps, "%3d", arts[i].tagged);
+X	} else {
+X		if (arts[i].unread == ART_UNREAD) {
+X			mark = (arts[i].hot ? HOT_ART_MARK : UNREAD_ART_MARK);
+X		} else if (arts[i].unread == ART_WILL_RETURN) {
+X			mark =  RETURN_ART_MARK;
+X		} else {
+X			mark = READ_ART_MARK;
+X		}
+X		sprintf (new_resps, "  %c", mark);
+X	}
+X	
+X	from[0] = '\0';
+X	if (threaded_on_subject || show_author != SHOW_FROM_NONE)
+X		get_author (TRUE, i, from);
+X
+X	sprintf (screen[j].col, "  %4d%3s  %-*.*s%s%-*.*s",
+X		 l, new_resps, len_subj, len_subj, arts[i].subject, 
+X		 spaces, len_from, len_from, from);
+X
+X#endif
+X	return(0);
+X}
+X
+X
+Xstatic int draw_tline (i, full)
+X	int i;
+X	int full;
+X{
+X#ifndef INDEX_DAEMON
+X	int j, tlen, x;
+X	int k = MARK_OFFSET;
+X	char *s;
+X
+X	j = INDEX2TNUM(i);
+X
+X	if (full) {
+X		tlen = strlen(screen[j].col);
+X		s = screen[j].col;
+X		x = 0;
+X	} else {
+X		tlen  = 3;
+X		s = &screen[j].col[6];
+X		x = 6;
+X	}
+X
+X	MoveCursor(INDEX2LNUM(i), x);
+X	fwrite (s, 1, tlen, stdout);
+X
+X	/* it is somewhat less efficient to go back and redo that art mark
+X	 * if hot, but it is quite readable as to what is happening 
+X	 */
+X	if (screen[j].col[k] == HOT_ART_MARK) {
+X		MoveCursor (INDEX2LNUM(i), k);
+X		ToggleInverse ();
+X		fputc (screen[j].col[k], stdout);
+X		ToggleInverse ();
+X	}
+X
+X	MoveCursor(INDEX2LNUM(i)+1, 0);
+X#endif
+X	return(0);
+X}
+X/*
+X * show current thread. If threaded on Subject: show
+X *   <respnum> <name>    <respnum> <name>
+X * If threaded on Archive-name: show
+X *   <respnum> <subject> <name>
+X */
+X 
+Xint show_thread (respnum, group, group_path)
+X	int respnum;
+X	char *group;
+X	char *group_path;
+X{
+X	int ret_code = TRUE;
+X#ifndef INDEX_DAEMON
+X	int ch;
+X	int i, index, n;
+X	int scroll_lines;
+X	int flag;
+X
+X	thread_respnum = respnum;
+X	thread_basenote = which_thread (thread_respnum);
+X	top_thread = num_of_responses (thread_basenote) + 1;
+X
+X	if (top_thread <= 0) {
+X		info_message (txt_no_resps_in_thread);
+X		return FALSE;
+X	}
+X
+X	if (arts[thread_respnum].archive != (char *) 0) {
+X		threaded_on_subject = FALSE;
+X	} else {
+X		threaded_on_subject = TRUE;
+X	}
+X
+X	thread_index_point = top_thread;
+X	if (space_mode) {
+X		if (i = new_responses (thread_basenote)) {
+X			for (n=0, i = base[thread_basenote]; i >= 0 ;
+X				 i = arts[i].thread, n++) {
+X				if (arts[i].unread == ART_UNREAD) {
+X					thread_index_point = n;
+X					break;
+X				}
+X			}
+X		}
+X	}
+X
+X	if (thread_index_point < 0) {
+X		thread_index_point = 0;
+X	}
+X
+X	show_thread_page ();
+X
+X	while (TRUE) {
+X		ch = (char) ReadCh();
+X
+X		if (ch >= '0' && ch <= '9') {	/* 0 goes to basenote */
+X			prompt_thread_num (ch);
+X			continue;
+X		}
+X		switch (ch) {
+X			case ESC:	/* common arrow keys */
+X				switch (get_arrow_key ()) {
+X					case KEYMAP_UP:
+X						goto thread_up;
+X
+X					case KEYMAP_DOWN:
+X						goto thread_down;
+X
+X					case KEYMAP_PAGE_UP:
+X						goto thread_page_up;
+X
+X					case KEYMAP_PAGE_DOWN:
+X						goto thread_page_down;
+X
+X					case KEYMAP_HOME:
+X						if (thread_index_point != 0) {
+X							if (0 < first_thread_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X								erase_thread_arrow ();
+X#endif
+X								thread_index_point = 0;
+X								show_thread_page ();
+X							} else {
+X								erase_thread_arrow ();
+X								thread_index_point = 0;
+X								draw_thread_arrow ();
+X							}
+X						}
+X						break;
+X					
+X					case KEYMAP_END:
+X						goto end_of_thread;
+X				}
+X				break;
+X
+X			case '$':	/* show last page of threads */
+Xend_of_thread:			
+X				if (thread_index_point < top_thread - 1) {
+X					if (top_thread > last_thread_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X						erase_thread_arrow ();
+X#endif					
+X						thread_index_point = top_thread - 1;
+X						show_thread_page ();
+X					} else {
+X						erase_thread_arrow ();
+X						thread_index_point = top_thread - 1;
+X						draw_thread_arrow ();
+X					}
+X				}
+X				break;
+X				
+X			case '\r':
+X			case '\n':	/* read current article within thread */
+X				n = choose_response (thread_basenote, thread_index_point);
+X				n = show_page (n, &thread_index_point, group, group_path);
+X				if (n == thread_basenote) {
+X					show_thread_page ();
+X				} else {
+X					index_point = n;	
+X					goto thread_done;
+X				}
+X				break;
+X
+X			case '\t':
+X 				space_mode = TRUE;
+X				if (thread_index_point == 0) {
+X					n = thread_respnum;
+X				} else {
+X					n = choose_response (thread_basenote, thread_index_point);
+X				}
+X				index = thread_index_point;
+X				for (i = n ; i != -1 ; i = arts[i].thread) {
+X					if (arts[i].unread == ART_UNREAD) {
+X						n = show_page (i, &thread_index_point, group, group_path);
+X						break;
+X					}
+X					index++;
+X				}
+X				if (n == thread_basenote) {
+X					show_thread_page ();
+X				} else {
+X					index_point = n;	
+X					goto thread_done;
+X				}
+X				break;
+X	
+X			case ' ':		/* page down */
+X			case ctrl('D'):
+X			case ctrl('F'):		/* vi style */
+Xthread_page_down:
+X				if (thread_index_point + 1 == top_thread) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_thread_on_screen) {
+X#	ifndef USE_CLEARSCREEN
+X						erase_thread_arrow ();
+X#	endif					
+X						thread_index_point = 0;
+X						show_thread_page ();
+X					} else {
+X						erase_thread_arrow ();
+X						thread_index_point = 0;
+X						draw_thread_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				erase_thread_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				thread_index_point = ((thread_index_point + scroll_lines) /
+X							scroll_lines) * scroll_lines;
+X				if (thread_index_point >= top_thread) {
+X					thread_index_point = (top_thread / scroll_lines) * scroll_lines;
+X					if (thread_index_point < top_thread - 1) {
+X						thread_index_point = top_thread - 1;
+X					}
+X				}
+X				if (thread_index_point < first_thread_on_screen ||
+X					thread_index_point >= last_thread_on_screen) {
+X					show_thread_page ();
+X				} else {
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('L'):		/* redraw screen */
+X			case ctrl('R'):
+X			case ctrl('W'):
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_thread_page ();
+X				break;
+X
+X			case ctrl('N'):
+X			case 'j':		/* line down */
+Xthread_down:
+X				if (thread_index_point + 1 >= top_thread) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (0 < first_thread_on_screen) {
+X						thread_index_point = 0;
+X						show_thread_page ();
+X					} else {
+X						erase_thread_arrow ();
+X						thread_index_point = 0;
+X						draw_thread_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X				if (thread_index_point + 1 >= last_thread_on_screen) {
+X#ifndef USE_CLEARSCREEN
+X					erase_thread_arrow ();
+X#endif					
+X					thread_index_point++;
+X					show_thread_page ();
+X				} else {
+X					erase_thread_arrow ();
+X					thread_index_point++;
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('P'):
+X			case 'k':		/* line up */
+Xthread_up:
+X				if (thread_index_point == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (top_thread > last_thread_on_screen) {
+X						thread_index_point = top_thread - 1;
+X						show_thread_page ();
+X					} else {
+X						erase_thread_arrow ();
+X						thread_index_point = top_thread - 1;
+X						draw_thread_arrow ();
+X					}
+X					break;
+X#endif
+X				}
+X				if (thread_index_point <= first_thread_on_screen) {
+X					thread_index_point--;
+X					show_thread_page ();
+X				} else {
+X					erase_thread_arrow ();
+X					thread_index_point--;
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case 'b':		/* page up */
+X			case ctrl('U'):
+X			case ctrl('B'):		/* vi style */
+Xthread_page_up:
+X				if (thread_index_point == 0) {
+X#ifdef NO_LOOP_AROUND
+X					break;
+X#else
+X					if (top_thread > last_thread_on_screen) {
+X						thread_index_point = top_thread - 1;
+X						show_thread_page ();
+X					} else {
+X						erase_thread_arrow ();
+X						thread_index_point = top_thread - 1;
+X						draw_thread_arrow ();
+X					}
+X					break;
+X#endif					
+X				}
+X#ifndef USE_CLEARSCREEN
+X				clear_message ();
+X#endif
+X				erase_thread_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				if ((n = thread_index_point % scroll_lines) > 0) {
+X					thread_index_point = thread_index_point - n;
+X				} else {
+X					thread_index_point = ((thread_index_point - scroll_lines) / scroll_lines) * scroll_lines;
+X				}
+X				if (thread_index_point < 0) {
+X					thread_index_point = 0;
+X				}
+X				if (thread_index_point < first_thread_on_screen
+X				|| thread_index_point >= last_thread_on_screen)
+X					show_thread_page ();
+X				else
+X					draw_thread_arrow ();
+X				break;
+X
+X			case 'B':	/* bug/gripe/comment mailed to author */
+X				mail_bug_report ();
+X#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+X#endif
+X				show_thread_page ();
+X				break;
+X
+X			case 'c':	/* catchup thread but ask for confirmation */
+X			case 'K':	/* mark thread as read immediately */
+X				if (ch == 'c') {
+X					if (confirm_action && !prompt_yn (LINES, txt_mark_thread_read, 'y')) {
+X						break;
+X					}
+X				}
+X				for (i = (int) base[thread_basenote] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].unread = ART_READ;
+X				}
+X				goto thread_done;
+X				break;
+X
+X			case 'd':	/* toggle display of subject & subj/author */
+X				if (! threaded_on_subject) {
+X					toggle_subject_from ();
+X					show_thread_page ();
+X				}	
+X				break;
+X				
+X			case 'h':	/* help */
+X				show_info_page (HELP_INFO, help_thread, txt_thread_com);
+X				show_thread_page ();
+X				break;
+X
+X			case 'I':	/* toggle inverse video */
+X				toggle_inverse_video ();
+X				show_thread_page ();
+X				break;
+X
+X			case 'q':	/* return to previous level */
+X				goto thread_done;
+X
+X			case 'Q':	/* quit */
+X				ret_code = -2;
+X				goto thread_done;
+X
+X 			case 'T':	/* tag/untag art for mailing/piping/printing/saving */
+X				n = choose_response (thread_basenote, thread_index_point);
+X
+X 				if (n < 0)
+X 					break;
+X 
+X 				if (arts[n].tagged) {
+X 					arts[n].tagged = 0;
+X 					info_message (txt_untagged_art);
+X 				} else {
+X 					arts[n].tagged = ++num_of_tagged_arts;
+X					info_message (txt_tagged_art);
+X 				}
+X				bld_tline (thread_index_point, n);
+X				draw_tline (thread_index_point, FALSE);
+X				if (thread_index_point + 1 < top_thread)
+X					goto thread_down;
+X				draw_thread_arrow ();
+X				break;
+X
+X			case 'v':	/* version */
+X				info_message (cvers);
+X				break;
+X
+X			case 'z':	/* mark article as unread */
+X			case 'Z':	/* mark thread as unread */
+X				n = choose_response (thread_basenote, thread_index_point);
+X				if (ch == 'z') {
+X					arts[n].unread = ART_UNREAD;
+X				} else {
+X					for (i = (int) base[thread_basenote] ; i != -1; i = arts[i].thread) {
+X						arts[i].unread = ART_UNREAD;
+X					}
+X				}
+X				bld_tline (thread_index_point, n);
+X				draw_tline (thread_index_point, FALSE);
+X				info_message (ch == 'z' 
+X					      ? txt_art_marked_as_unread
+X					      : txt_thread_marked_as_unread);
+X				draw_thread_arrow ();
+X				break;
+X				
+X			case '*':	/* mark article as selected */
+X			case '.':	/* toggle article as selected */
+X				n = choose_response (thread_basenote, thread_index_point);
+X
+X				if (n < 0)
+X					break;
+X				if (ch == '.' && arts[n].hot == 1)
+X					flag = 0;
+X				else
+X					flag = 1;
+X				arts[n].hot = flag;
+X/*				update_thread_page (); */
+X				bld_tline (thread_index_point, n);
+X				draw_tline (thread_index_point, FALSE);
+X				if (thread_index_point + 1 < top_thread)
+X					goto thread_down;
+X				draw_thread_arrow ();
+X#if 0
+X				info_message (flag 
+X					      ? txt_art_marked_as_selected
+X					      : txt_art_marked_as_deselected)
+X#endif
+X				break;
+X
+X			case '@':	/* reverse selections */
+X				for (i = (int) base[thread_basenote] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].hot = (arts[i].hot ? 0 : 1);
+X				}
+X				update_thread_page ();
+X				break;
+X
+X			case '~':	/* undo selections */
+X				for (i = (int) base[thread_basenote] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].hot = 0;
+X				}
+X				update_thread_page ();
+X				break;
+X
+X			default:
+X			    info_message (txt_bad_command);
+X		}
+X	}
+X
+Xthread_done:
+X	clear_note_area ();
+X
+X#endif /* INDEX_DAEMON */
+X
+X	return (ret_code);
+X}
+X
+X
+Xvoid show_thread_page ()
+X{
+X#ifndef INDEX_DAEMON
+X
+X	extern int index_point;
+X	char new_resps[8];
+X	char from[LEN];
+X	int i, j;
+X	int len_from;
+X	int len_subj = 0;
+X	int off_subj = 0;
+X	int off_both = 0;
+X	static int index = 0;
+X
+X	set_signals_thread ();
+X	
+X	ClearScreen ();
+X
+X	if (threaded_on_subject) {
+X		sprintf (msg, "Thread (%.*s)", COLS-23, arts[thread_respnum].subject);
+X	} else {
+X		sprintf (msg, "List Thread (%d of %d)", index_point+1, top_base);
+X	}
+X	show_title (msg);
+X
+X	MoveCursor (INDEX_TOP, 0);
+X	if (thread_index_point > top_thread - 1) {
+X		thread_index_point = top_thread - 1;
+X	}
+X
+X	if (NOTESLINES <= 0) {
+X		first_thread_on_screen = 0;
+X	} else {
+X		first_thread_on_screen = (thread_index_point / NOTESLINES) * NOTESLINES;
+X		if (first_thread_on_screen < 0) {
+X			first_thread_on_screen = 0;
+X		}
+X	}
+X
+X	last_thread_on_screen = first_thread_on_screen + NOTESLINES;
+X
+X	if (last_thread_on_screen >= top_thread) {
+X		last_thread_on_screen = top_thread;
+X		first_thread_on_screen = (top_thread / NOTESLINES) * NOTESLINES;
+X
+X		if (first_thread_on_screen == last_thread_on_screen ||
+X			first_thread_on_screen < 0) {
+X			if (first_thread_on_screen < 0) {
+X				first_thread_on_screen = 0;
+X			} else {
+X				first_thread_on_screen = last_thread_on_screen - NOTESLINES;
+X			}
+X		}
+X	}
+X
+X	if (top_thread == 0) {
+X		first_thread_on_screen = 0;
+X		last_thread_on_screen = 0;
+X	}
+X
+X	index = choose_response (thread_basenote, first_thread_on_screen);
+X	assert(first_thread_on_screen != 0 || index == thread_respnum);
+X
+X	if (! draw_arrow_mark) {
+X		off_subj = 2;
+X		off_both = 5;
+X	}	
+X
+X	if (threaded_on_subject) {
+X		len_from = max_subj+max_from+off_both;
+X	} else {
+X		if (show_author != SHOW_FROM_NONE) {
+X			len_from = max_from;
+X			len_subj = max_subj+off_subj;
+X		} else {
+X			len_from = 0;
+X			len_subj = max_from+max_subj+off_subj;
+X		}
+X	}	
+X
+X	for (j=0, i = first_thread_on_screen; j < NOTESLINES && i < last_thread_on_screen; i++, j++) {
+X		bld_tline (i, index);
+X		draw_tline (i, TRUE);
+X		if ((index = next_response (index)) == -1) {
+X			break;
+X		}	
+X	}
+X
+X#ifndef USE_CLEARSCREEN
+X	CleartoEOS ();
+X#endif
+X
+X	if (last_thread_on_screen == top_thread) {
+X		info_message (txt_end_of_thread);
+X	}
+X
+X	draw_thread_arrow ();
+X
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xvoid update_thread_page()
+X{
+X#ifndef INDEX_DAEMON
+X	register int i, j, index;
+X
+X	index = choose_response (thread_basenote, first_thread_on_screen);
+X	assert(first_thread_on_screen != 0 || index == thread_respnum);
+X
+X	for (j=0, i = first_thread_on_screen; j < NOTESLINES && i < last_thread_on_screen; ++i, ++j) {
+X		bld_tline (i, index);
+X		draw_tline (i, FALSE);
+X		if ((index = next_response (index)) == -1) {
+X			break;
+X		}	
+X	}
+X
+X	draw_thread_arrow();
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xvoid draw_thread_arrow ()
+X{
+X	MoveCursor (INDEX2LNUM(thread_index_point), 0);
+X
+X	if (draw_arrow_mark) {
+X		fputs ("->", stdout);
+X		fflush (stdout);
+X	} else {
+X		StartInverse();
+X		draw_tline(thread_index_point, TRUE);
+X		EndInverse();
+X	}
+X	MoveCursor (LINES, 0);
+X}
+X
+X
+Xvoid erase_thread_arrow ()
+X{
+X	MoveCursor (INDEX2LNUM(thread_index_point), 0);
+X
+X	if (draw_arrow_mark) {
+X		fputs ("  ", stdout);
+X	} else {
+X		draw_tline(thread_index_point, TRUE);
+X	}
+X	fflush (stdout);
+X}
+X
+X
+Xint prompt_thread_num (ch)
+X	char ch;
+X{
+X	int num;
+X
+X	clear_message ();
+X
+X	if ((num = prompt_num (ch, txt_read_art)) == -1) {
+X		clear_message ();
+X		return FALSE;
+X	}
+X
+X	if (num >= top_thread)
+X		num = top_thread - 1;
+X
+X	if (num >= first_thread_on_screen
+X	&&  num < last_thread_on_screen) {
+X		erase_thread_arrow ();
+X		thread_index_point = num;
+X		draw_thread_arrow ();
+X	} else {
+X#ifndef USE_CLEARSCREEN
+X		erase_thread_arrow ();
+X#endif		
+X		thread_index_point = num;
+X		show_thread_page ();
+X	}
+X	return TRUE;
+X}
+X
+X/*
+X *  Return the number of unread articles there are within a thread
+X */
+X
+Xint new_responses (thread)
+X	int thread;
+X{
+X	int i;
+X	int sum = 0;
+X
+X	for (i = (int) base[thread]; i >= 0; i = arts[i].thread) {
+X		if (arts[i].unread) {
+X			sum++;
+X		}
+X	}
+X	
+X	return sum;
+X}
+X
+X/*
+X *  Which base note (an index into base[]) does a respnum
+X *  (an index into arts[]) corresponsd to?
+X *
+X *  In other words, base[] points to an entry in arts[] which is
+X *  the head of a thread, linked with arts[].thread.  For any q: arts[q],
+X *  find i such that base[i]->arts[n]->arts[o]->...->arts[q]
+X *
+X *  Note that which_thread() can return -1 if in show_read_only mode and
+X *  the article of interest has been read as well as all other articles in
+X *  the thread,  thus resulting in no base[] entry for it.
+X */
+X
+Xint which_thread (n)
+X	int n;
+X{
+X	register int i, j;
+X
+X	for (i = 0; i < top_base; i++) {
+X		for (j = (int) base[i] ; j >= 0 ; j = arts[j].thread) {
+X			if (j == n) {
+X				return i;
+X			}
+X		}
+X	}
+X
+X	sprintf (msg, "%d", n);
+X	error_message (txt_cannot_find_base_art, msg);
+X	return -1;
+X}
+X
+X/*
+X *  Find how deep in a thread a response is.  Start counting at zero
+X */
+X
+Xint which_response (n)
+X	int n;
+X{
+X	int i, j;
+X	int num = 0;
+X
+X	i = which_thread (n);
+X	assert(i >= 0);
+X
+X	for (j = (int) base[i]; j != -1; j = arts[j].thread)
+X		if (j == n)
+X			break;
+X		else
+X			num++;
+X
+X	return num;
+X}
+X
+X/*
+X *  Given an index into base[], find the number of responses for
+X *  that basenote
+X */
+X
+Xint num_of_responses (n)
+X	int n;
+X{
+X	int i;
+X	int oldi = -3;
+X	int sum = 0;
+X
+X	assert (n < top_base);
+X
+X	for (i = (int) base[n]; i != -1; i = arts[i].thread) {
+X		assert (i != -2);
+X		assert (i != oldi);
+X		oldi = i;
+X		sum++;
+X	}
+X
+X	return sum - 1;
+X}
+X
+X/*
+X * Given an index into base[], return relevant statistics
+X */
+X
+Xint stat_thread (n, sbuf)
+X	int n;
+X	struct art_stat_t *sbuf;
+X{
+X	int i;
+X
+X	sbuf->total  = 0;
+X	sbuf->unread = 0;
+X	sbuf->seen   = 0;
+X	sbuf->hot_total = 0;
+X	sbuf->hot_unread= 0;
+X	sbuf->hot_seen  = 0;
+X
+X	for (i = (int) base[n]; i != -1; i = arts[i].thread) {
+X		++sbuf->total;
+X		if (arts[i].unread == ART_UNREAD)
+X			++sbuf->unread;
+X		else if (arts[i].unread == ART_WILL_RETURN)
+X			++sbuf->seen;
+X
+X		if (arts[i].hot) {
+X			++sbuf->hot_total;
+X			if (arts[i].unread == ART_UNREAD)
+X				++sbuf->hot_unread;
+X			else if (arts[i].unread == ART_WILL_RETURN)
+X				++sbuf->hot_seen;
+X		}
+X
+X#if 0
+X		if (arts[i].killed) {
+X			++sbuf->killed;
+X		}
+X#endif
+X	}
+X
+X
+X	if (sbuf->hot_unread)
+X		sbuf->art_mark = HOT_ART_MARK;
+X	else if (sbuf->unread)
+X		sbuf->art_mark = UNREAD_ART_MARK;
+X	else if (sbuf->seen)
+X		sbuf->art_mark = RETURN_ART_MARK;
+X	else
+X		sbuf->art_mark = READ_ART_MARK;
+X
+X	return(sbuf->total);
+X}
+X
+X
+X/*
+X *  Find the next response.  Go to the next basenote if there
+X *  are no more responses in this thread
+X */
+X
+Xint next_response (n)
+X	int n;
+X{
+X	int i;
+X
+X	if (arts[n].thread >= 0)
+X		return arts[n].thread;
+X
+X	i = which_thread (n) + 1;
+X
+X	if (i >= top_base)
+X		return -1;
+X
+X	return (int) base[i];
+X}
+X
+X/*
+X *  Given a respnum (index into arts[]), find the respnum of the
+X *  next basenote
+X */
+X
+Xint next_thread (n)
+X	int n;
+X{
+X	int i;
+X
+X	i = which_thread (n) + 1;
+X	if (i >= top_base)
+X		return -1;
+X
+X	return (int) base[i];
+X}
+X
+X/*
+X *  Find the previous response.  Go to the last response in the previous
+X *  thread if we go past the beginning of this thread.
+X */
+X
+Xint prev_response (n)
+X	int n;
+X{
+X	int resp;
+X	int i;
+X
+X	resp = which_response (n);
+X
+X	if (resp > 0)
+X		return choose_response (which_thread (n), resp-1);
+X
+X	i = which_thread (n) - 1;
+X
+X	if (i < 0)
+X		return -1;
+X
+X	return choose_response (i, num_of_responses (i));
+X}
+X
+X/*
+X *  return response number n from thread i
+X */
+X
+Xint choose_response (i, n)
+X	int i;
+X	int n;
+X{
+X	int j;
+X
+X	j = (int) base[i];
+X
+X	while (n-- > 0 && arts[j].thread >= 0) {
+X		j = arts[j].thread;
+X	}
+X
+X	return j;
+X}
+X
+X/*
+X *  Find the next unread response in this group 
+X */
+X
+Xint next_unread (n)
+X	int n;
+X{
+X	while (n >= 0) {
+X		if (arts[n].unread == ART_UNREAD) {
+X			return n;
+X		}
+X		n = next_response (n);
+X	}
+X
+X	return -1;
+X}
+X
+X
+X/*
+X *  Find the previous unread response in this thread
+X */
+X
+Xint prev_unread (n)
+X	int n;
+X{
+X	while (n >= 0) {
+X		if (arts[n].unread == ART_UNREAD) {
+X			return n;
+X		}
+X		n = prev_response (n);
+X	}
+X
+X	return -1;
+X}
+END_OF_FILE
+  if test 20862 -ne `wc -c <'thread.c'`; then
+    echo shar: \"'thread.c'\" unpacked with wrong size!
+  fi
+  # end of 'thread.c'
+fi
+echo shar: End of archive 5 \(of 15\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

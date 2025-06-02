@@ -1,0 +1,1988 @@
+Newsgroups: comp.sources.misc
+From: leo@ipmce.su (Leonid A. Broukhis)
+Subject: v35i077:  freeze - Freeze/melt compression program, v2.5, Part01/03
+Message-ID: <csm-v35i077=freeze.215559@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 02948a0b5b7b526e6eadef71a02aa5b8
+Date: Mon, 22 Feb 1993 03:56:44 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 35, Issue 77
+Archive-name: freeze/part01
+Environment: ISC, Xenix, SunOS, MS-DOS
+Supersedes: freeze: Volume 25, Issue 12-13
+
+This is version 2.5 of the Freeze/melt compression program. 
+The speed of melting was somewhat increased. 
+
+Notes:
+ - to 64-bits architectures users: please test this version
+thoroughly before installing it;
+
+ - to Borland (Turbo) C users: compile with -mc -Ff options
+or define TINY in config.h (prototype in config.tur).
+
+Leonid A. Broukhis
+---------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README MANIFEST configure freeze.c lz.c
+# Wrapped by kent@sparky on Sat Feb 20 22:49:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(7052 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X		FREEZE / MELT COMPRESSION PROGRAM
+X
+XThis version is tested under SunOS 4.1.2, Xenix 2.3.2, MS-DOS.
+X
+XThe following preprocessor symbols control the compilation of Freeze
+Xpackage (these can be added by hand into config.h after running ./configure):
+X
+X	o COMPAT                Turns on backwards compatibility
+X				with Freeze 1.0 (have you ever heard
+X				about it? :-) )
+X	o FASTHASH              Uses another hash function which gives
+X				some speedup, thus reducing the compression
+X				rate (!)
+X	o TEXT_DEFAULT          (For MS-DOS only!) Define, if you
+X				freeze text files more often than binary
+X				ones. In this case don't forget to use "-i"
+X				to freeze binary files!!
+X	o TINY                  For segmented architectures -
+X				allows to build freeze in small model
+X				(data segment is less than 64K).
+X	o SMALL                 Decreases the amount of memory
+X				but without 64K restriction
+X
+X	o DEFFILE               Full name of the file with freeze's
+X				Huffman values; it is the only
+X				symbol defined in the Makefile
+X				to allow correlation with installation place.
+X
+XOther preprocessor symbols (DEBUG, GATHER_STAT) are for internal use
+Xonly.
+X
+XThe format of frozen (2.X) file is incompatible with that of frozen (1.0),
+Xbut if this package is compiled with -DCOMPAT switch, you will able to
+Xunpack frozen (1.0) files, if you have them.
+X
+X------------------- COMPILING -----------------------
+X
+XType "./configure", or "sh configure". If it runs successfully,
+Xyou will see messages "creating config.h" and "creating Makefile".
+XYou should check them and probably you may have to make some corrections.
+XAfter that simply type "make".
+X
+X------------------- LINT ----------------------------
+X
+XSome lint's complaints about `used/declared inconsistently' are (in my
+Xcase) due to inconsistencies of /usr/include/* and /usr/lib/llib*ln. It
+Xisn't dangerous.
+X
+X------------------- BUGS ----------------------------
+X
+XPlease send descriptions of found bugs, incompatibilities, etc.  to
+Xleo@ipmce.su.
+X
+X------------ SPEED & COMPRESSION RATE ---------------
+X
+XCompression rate depends somewhat of the hash table size and may vary
+Xwith different static Huffman tables.
+X
+XNote: if you see 16-bits Compress works nearly as Freeze (on some big files),
+Xthis means the maximum is gained, so LHA and ARJ won't do their job better
+Xby more than 1-1.5%. There are some files (I have one) that freeze compresses
+Xbetter than ARJ 2.20.
+X
+XPlease! If your computer supports the string operations, try to write
+X"asm" instructions (GNU style) which realize the memory comparison
+X"(s1, s2, maxlength) --> matched length" in the minimum number of clock
+Xcycles.  If a noticeable (5% or more) speedup is gained, please send
+Xme a message.
+X
+X--------------- POSSIBLE IMPROVEMENTS ---------------
+X
+XThe high-level routines (freeze, melt) are almost independent from
+Xlow-level routines (Get_Next_Match, Insert/Delete_Node,
+XEncode/Decode_Char/Position), so if you want the speed and/or compression
+Xrate `a la vogue' you may replace the low-level routines with the homebrew
+X(e. g.) ones and enjoy the results.
+X
+X(I tried to implement splay trees instead of Huffman ones and instead of
+Xstatic table for position information, but this gives nothing, alas.)
+X
+X--------- CALGARY COMPRESSION CORPUS RESULTS --------
+X
+X  41127  bib.F
+X 340447  book1.F
+X 229188  book2.F
+X  68610  geo.F
+X 155157  news.F
+X  10551  obj1.F
+X  86216  obj2.F
+X  19924  paper1.F
+X  32439  paper2.F
+X  54993  pic.F
+X  14180  progc.F
+X  17136  progl.F
+X  11771  progp.F
+X  22903  trans.F
+X
+XAverage bits/byte on the standard set (except paper3-6) =
+X	1104642 * 8 / 3141622 = 2.813
+X
+X--------------- BACKGROUND INFORMATION -----------------
+X
+X	The format of a frozen file is as follows:
+X	(version 1.0 had only 2-bytes header)
+X
+Xoffset    type      value    comment
+X  0       byte       037     2 byte magic header
+X  1       byte       0237    (version 1.0 - 0236)
+X  2       short       X      (little endian)
+X  4       byte        Y
+X
+XX = 0 e e e e e d d d d c c c b b a   \
+X				       > [a-f] are binary digits
+XY = 0 0 f f f f f f                   /
+X
+Xa - number of 1-bit static Huffman codes in the `matching positions'
+Xtable (see freeze.1)
+Xbb - number of 2-bit codes,
+X	etc.
+X
+XThe numbers of 7- and 8-bits codes are evaluated from the
+Xconditions: sum(codes) = 62(dec), max code = 1111111(bin).
+X
+XE.g. values are: 0 1 1 1 4 10 27 18, what means:
+Xno 1-bit codes,
+Xone 2-bit, 3-bit and 4-bit codes, etc., so Huffman codes are:
+X00, 010, 0110, 01110, 01111, 10000, .... , 11111111.
+X
+XGeneral format of frozen file is:
+X
+Xmagic header - table description - stream of bits
+X
+XThe stream of bits is considered as a sequence of variable length dynamic
+XHuffman codes (if their values are in the range of 0-255, they mean single
+Xbytes, special value of 256 means EOF, and further values mean the lengths
+Xof matched string.) If we have the value greater than 256, we get a static
+XHuffman code from the stream (his value is 6 higher bits of matched
+Xstring's position in the buffer), and then we get 7 bits literally.
+X
+XBecause buffer length is 8192 bytes and maximum match length is 256 bytes,
+Xthe position of matched string cannot be greater than 8192-256, that's why
+Xthere is only (8192-256)/2^7 = 62 static codes.
+X
+X			*        *       *
+X
+XThe default table is tuned for both C texts and executable files (as in
+XLHARC). If you freeze any other files (databases, images, fonts,
+Xetc.) you can calculate the matching positions distribution using the
+X`statist' program, which calculates and displays the mentioned
+Xdistribution for the given file. It is useful for large (100K or more)
+Xfiles.
+X
+XThough the built-in position table is polyvalent, the tuning can increase
+Xthe compression rate up to one additional percent.  (Or even more, if the
+Xmatching strings distribution is very bizarre!)
+X
+XUsage: statist < sample_file ; you can also see the intermediate values
+Xand watch their changes by pressing INTR key when you wish.
+X
+XNote: If you use "gensample | statist", remember that INTR influence BOTH
+Xprocesses !!
+X
+XYou may create the /etc/default/freeze (or rather /usr/local/lib/freeze.cnf,
+Xwhich is now the default, NOTE IT!) file (in MS-DOS it is FREEZE.CNF in
+Xthe directory of FREEZE.EXE), which has the following format:  name =
+X``statist's output (8 numbers)'', e.g.:
+X
+X---------- cut here -----------
+X# This is freeze's defaults file
+Xgif =   0 0 0 0 2 60 0 0        # This is NOT! optimal data
+X				# for GIF files
+Xdoc=0 0 1 2 7 16 36 0           # The sample was gcc.lp
+Xgreedy2=0,1,1,2,5,8,11,34       # Both space- and comma-separated
+X				# lists are allowed
+X
+X# End of file
+X---------- cut here -----------
+X
+XIf you find values which are better THAN DEFAULT both for text (C
+Xprograms) and binary (executable) files, please send them to me.
+X
+XImportant note: statist.c is NOT a part of freeze package, it is an
+Xadditional feature.
+X
+X!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X
+XThere is yet another additional feature since this version:
+X
+Xshowhuf - shows Huffman table in a frozen file.
+XIt can be used to find files frozen with freeze 1.0, too.
+END_OF_FILE
+  if test 7052 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(223 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XMANIFEST
+XMakefile.in
+XREADME
+Xbitio.c
+Xbitio.h
+Xcompat.h
+Xconfig.h.in
+Xconfig.msc
+Xconfig.tur
+Xconfigure
+Xdebug.c
+Xdecode.c
+Xdefault.c
+Xencode.c
+Xfreeze.1
+Xfreeze.c
+Xfreeze.h
+Xhuf.c
+Xhuf.h
+Xlz.c
+Xlz.h
+Xpatchlev.h
+Xshowhuf.c
+Xstatist.1
+Xstatist.c
+END_OF_FILE
+  if test 223 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'configure' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'configure'\"
+else
+  echo shar: Extracting \"'configure'\" \(12654 characters\)
+  sed "s/^X//" >'configure' <<'END_OF_FILE'
+X#!/bin/sh
+X# Guess values for system-dependent variables and create Makefiles.
+X# Generated automatically using autoconf.
+X# Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+X
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 2, or (at your option)
+X# any later version.
+X
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X# Usage: configure [--srcdir=DIR] [--host=HOST] [--gas] [--nfp] [--no-create]
+X#        [--prefix=PREFIX] [--exec_prefix=PREFIX] [--with-PROGRAM] [TARGET]
+X# Ignores all args except --srcdir, --prefix, --exec_prefix, and --no-create.
+X
+Xtrap 'rm -f conftest* core; exit 1' 1 3 15
+X
+Xfor arg
+Xdo
+X  # Handle --exec_prefix with a space before the argument.
+X  if test x$next_exec_prefix = xyes; then exec_prefix=$arg; next_exec_prefix=
+X  # Handle --host with a space before the argument.
+X  elif test x$next_host = xyes; then next_host=
+X  # Handle --prefix with a space before the argument.
+X  elif test x$next_prefix = xyes; then prefix=$arg; next_prefix=
+X  # Handle --srcdir with a space before the argument.
+X  elif test x$next_srcdir = xyes; then srcdir=$arg; next_srcdir=
+X  else
+X    case $arg in
+X     -exec_prefix=* | --exec_prefix=* | --exec_prefi=* | --exec_pref=* | --exec_pre=* | --exec_pr=* | --exec_p=* | --exec_=* | --exec=* | --exe=* | --ex=* | --e=*)
+X	exec_prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -exec_prefix | --exec_prefix | --exec_prefi | --exec_pref | --exec_pre | --exec_pr | --exec_p | --exec_ | --exec | --exe | --ex | --e)
+X	next_exec_prefix=yes ;;
+X
+X     -gas | --gas | --ga | --g) ;;
+X
+X     -host=* | --host=* | --hos=* | --ho=* | --h=*) ;;
+X     -host | --host | --hos | --ho | --h)
+X	next_host=yes ;;
+X
+X     -nfp | --nfp | --nf) ;;
+X
+X     -no-create | --no-create | --no-creat | --no-crea | --no-cre | --no-cr | --no-c | --no- | --no)
+X        no_create=1 ;;
+X
+X     -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+X	prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+X	next_prefix=yes ;;
+X
+X     -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=* | --s=*)
+X	srcdir=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -srcdir | --srcdir | --srcdi | --srcd | --src | --sr | --s)
+X	next_srcdir=yes ;;
+X
+X     -with-* | --with-*) ;;
+X
+X     *) ;;
+X    esac
+X  fi
+Xdone
+X
+Xrm -f conftest*
+Xcompile='${CC-cc} $DEFS conftest.c -o conftest $LIBS >/dev/null 2>&1'
+X
+X# A filename unique to this package, relative to the directory that
+X# configure is in, which we can look for to find out if srcdir is correct.
+Xunique_file=freeze.h
+X
+X# Find the source files, if location was not specified.
+Xif test -z "$srcdir"; then
+X  srcdirdefaulted=yes; srcdir=.
+X  if test ! -r $unique_file; then srcdir=..; fi
+Xfi
+Xif test ! -r $srcdir/$unique_file; then
+X  if test x$srcdirdefaulted = xyes; then
+X    echo "configure: Can not find sources in \`.' or \`..'." 1>&2
+X  else
+X    echo "configure: Can not find sources in \`${srcdir}'." 1>&2
+X  fi
+X  exit 1
+Xfi
+X# Preserve a srcdir of `.' to avoid automounter screwups with pwd.
+X# But we can't avoid them for `..', to make subdirectories work.
+Xcase $srcdir in
+X  .|/*|~*) ;;
+X  *) srcdir=`cd $srcdir; pwd` ;; # Make relative path absolute.
+Xesac
+X
+X
+Xcompile='rm -f conftest.t;
+X  mv conftest.c conftest.t;
+X  echo "$DEFS" > conftest.c;
+X  cat conftest.t >> conftest.c;
+X  rm -f conftest.t;
+X  ${CC-cc} conftest.c -o conftest $LIBS >/dev/null 2>&1'
+X
+Xif test -z "$CC"; then
+X  echo checking for gcc
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/gcc; then
+X      CC="gcc"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$CC" && CC="cc"
+X
+X# Find out if we are using GNU C, under whatever name.
+Xcat <<EOF > conftest.c
+X#ifdef __GNUC__
+X  yes
+X#endif
+XEOF
+X${CC-cc} -E conftest.c > conftest.out 2>&1
+Xif egrep yes conftest.out >/dev/null 2>&1; then
+X  GCC=1 # For later tests.
+X  CC="$CC -O"
+Xfi
+Xrm -f conftest*
+X
+Xecho checking how to run the C preprocessor
+Xif test -z "$CPP"; then
+X  CPP='${CC-cc} -E'
+X  cat <<EOF > conftest.c
+X$DEFS
+X#include <stdio.h>
+XEOF
+Xerr=`eval "$CPP conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  :
+Xelse
+X  CPP=/lib/cpp
+Xfi
+Xrm -f conftest*
+Xfi
+X
+Xecho "${DEFS}#include <signal.h>" > conftest.c
+Xeval "$CPP conftest.c > conftest.out 2>&1"
+Xif egrep "(void|sighandler_t).*signal" conftest.out >/dev/null 2>&1; then
+X  :
+Xelse 
+X  DEFS="${DEFS}#define RETSIGTYPE int
+X"
+Xfi
+Xrm -f conftest*
+X
+X
+Xecho checking for unaligned access
+Xcat <<EOF > conftest.c
+X#include <signal.h>
+XRETSIGTYPE onintr() { exit(1); }
+Xint x[2] = { 12345, 67890 };
+Xmain() { int *i;
+Xchar * p = (char*) x;
+Xsignal(SIGBUS, onintr);
+Xi = (int*) (p + 1);
+X/* invert condition, as exit(0) == true */
+Xexit(*i == x[0]); /* check for LSB mask on word access */
+X}
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest 2>/dev/null) 2>/dev/null; then
+X  DEFS="${DEFS}#define ALLOW_MISALIGN 1
+X"
+Xfi
+Xrm -f conftest*
+Xecho checking integer size
+Xcat <<EOF > conftest.c
+Xmain() { exit(!(sizeof(int) == 2)); }
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest 2>/dev/null) 2>/dev/null; then
+X  DEFS="${DEFS}#define INT_16_BITS 1
+X"
+Xfi
+Xrm -f conftest*
+Xcat <<EOF > conftest.c
+Xmain() { exit(sizeof(unsigned short) <= 2); }
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest 2>/dev/null) 2>/dev/null; then
+X  DEFS="${DEFS}#define BIGSHORTS 1
+X"
+Xfi
+Xrm -f conftest*
+Xecho checking for 64K segments
+Xcat <<EOF > conftest.c
+Xchar x[69001];
+Xmain () {
+Xx[12345] = ' ';
+Xexit(0);
+X}
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest 2>/dev/null) 2>/dev/null; then
+X  :
+Xelse
+X  DEFS="${DEFS}#define SEGMENTED 1
+X" segmented=1
+Xfi
+Xrm -f conftest*
+Xif test "$segmented"; then
+Xecho It seems that your computer supports different memory models.
+Xecho If it is so, you may wish to build freeze in small model
+Xecho in order to speed it up.
+Xecho To do that, you will need to additionally define TINY
+Xecho in config.h file you will get after the configuration.
+Xfi
+Xecho checking for long file names
+X(echo 1 > conftest9012345) 2>/dev/null
+X(echo 2 > conftest9012346) 2>/dev/null
+Xval=`cat conftest9012345 2>/dev/null`
+Xtest -f conftest9012345 && test "$val" = 1 && DEFS="${DEFS}#define HAVE_LONG_FILE_NAMES 1
+X"
+Xrm -f conftest9012345 conftest9012346
+X
+Xecho checking for directory library header
+Xecho checking for dirent.h
+Xcat <<EOF > conftest.c
+X$DEFS
+X#include <dirent.h>
+XEOF
+Xerr=`eval "$CPP conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="${DEFS}#define DIRENT 1
+X" dirheader=dirent.h
+Xfi
+Xrm -f conftest*
+X
+Xif test -z "$dirheader"; then
+Xecho checking for sys/ndir.h
+Xcat <<EOF > conftest.c
+X$DEFS
+X#include <sys/ndir.h>
+XEOF
+Xerr=`eval "$CPP conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="${DEFS}#define SYSNDIR 1
+X" dirheader=sys/ndir.h
+Xfi
+Xrm -f conftest*
+X
+Xfi
+Xif test -z "$dirheader"; then
+Xecho checking for sys/dir.h
+Xcat <<EOF > conftest.c
+X$DEFS
+X#include <sys/dir.h>
+XEOF
+Xerr=`eval "$CPP conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="${DEFS}#define SYSDIR 1
+X" dirheader=sys/dir.h
+Xfi
+Xrm -f conftest*
+X
+Xfi
+X
+Xecho checking for closedir return value
+Xcat <<EOF > conftest.c
+X#include <sys/types.h>
+X#include <$dirheader>
+Xint closedir(); main() { exit(0); }
+XEOF
+Xeval $compile
+Xif test -s conftest && (./conftest 2>/dev/null) 2>/dev/null; then
+X  :
+Xelse
+X  DEFS="${DEFS}#define VOID_CLOSEDIR 1
+X"
+Xfi
+Xrm -f conftest*
+X
+Xfor hdr in sys/stdtypes.h
+Xdo
+Xtrfrom='[a-z]./' trto='[A-Z]__'
+Xecho checking for $hdr
+Xcat <<EOF > conftest.c
+X$DEFS
+X#include <$hdr>
+XEOF
+Xerr=`eval "$CPP conftest.c 2>&1 >/dev/null"`
+Xif test -z "$err"; then
+X  DEFS="${DEFS}#define HAVE_`echo $hdr|tr "$trfrom" "$trto"` 1
+X"
+Xfi
+Xrm -f conftest*
+Xdone
+X
+Xfor func in rindex setlinebuf
+Xdo
+Xtrfrom='[a-z]' trto='[A-Z]'
+Xecho checking for ${func}
+Xecho "
+Xmain() { exit(0); } t() { 
+X/* Override any gcc2 internal prototype to avoid an error.  */
+Xextern char ${func}(); ${func}(); }" > conftest.c
+Xif eval $compile; then
+X  DEFS="${DEFS}#define HAVE_`echo $func|tr "$trfrom" "$trto"` 1
+X"
+Xfi
+Xrm -f conftest*
+Xdone
+X
+Xecho "${DEFS}#include <utime.h>" > conftest.c
+Xeval "$CPP conftest.c > conftest.out 2>&1"
+Xif egrep "utimbuf" conftest.out >/dev/null 2>&1; then
+X  DEFS="${DEFS}#define UTIME 1
+X" utimes=1
+Xfi
+Xrm -f conftest*
+X
+Xif test -z "$utimes"; then
+Xecho "${DEFS}#include <sys/utime.h>" > conftest.c
+Xeval "$CPP conftest.c > conftest.out 2>&1"
+Xif egrep "utimbuf" conftest.out >/dev/null 2>&1; then
+X  DEFS="${DEFS}#define SYSUTIME 1
+X" utimes=1
+Xfi
+Xrm -f conftest*
+X
+Xfi
+Xif test -z "$utimes"; then
+Xecho "${DEFS}#include <sys/time.h>" > conftest.c
+Xeval "$CPP conftest.c > conftest.out 2>&1"
+Xif egrep "timeval" conftest.out >/dev/null 2>&1; then
+X  DEFS="${DEFS}#define SYSTIME 1
+X"
+Xfi
+Xrm -f conftest*
+X
+Xfi
+X# Make sure to not get the incompatible SysV /etc/install and
+X# /usr/sbin/install, which might be in PATH before a BSD-like install,
+X# or the SunOS /usr/etc/install directory.
+Xif test -z "$INSTALL"; then
+X  echo checking for install
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    case $dir in
+X    /etc|/usr/sbin|/usr/etc) ;;
+X    *)
+X      if test -f $dir/install; then
+X	INSTALL="$dir/install -c"
+X	INSTALL_PROGRAM='$(INSTALL)'
+X	INSTALL_DATA='$(INSTALL) -m 644'
+X	break
+X      fi
+X      ;;
+X    esac
+X  done
+X  IFS="$saveifs"
+Xfi
+XINSTALL=${INSTALL-cp}
+XINSTALL_PROGRAM=${INSTALL_PROGRAM-'$(INSTALL)'}
+XINSTALL_DATA=${INSTALL_DATA-'$(INSTALL)'}
+X
+Xecho checking for freeze to derive installation directory prefix
+Xif test -z "$prefix"
+Xthen
+X  saveifs="$IFS"; IFS="$IFS:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test $dir != . && test -f $dir/freeze; then
+X      # Not all systems have dirname.
+X      prefix=`echo $dir|sed 's,/[^/][^/]*$,,'`
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+X
+Xif test -n "$prefix"; then
+X  test -z "$exec_prefix" && exec_prefix='$(prefix)'
+X  prsub="s,^prefix[ 	]*=.*$,prefix = $prefix,"
+Xfi
+Xif test -n "$exec_prefix"; then
+X  prsub="$prsub
+Xs,^exec_prefix[ 	]*=.*$,exec_prefix = $exec_prefix,"
+Xfi
+X
+Xtrap 'rm -f config.status; exit 1' 1 3 15
+Xecho creating config.status
+Xrm -f config.status
+Xcat <<EOF > config.status
+X#!/bin/sh
+X# Generated automatically by configure.
+X# Run this file to recreate the current configuration.
+X# This directory was configured as follows:
+X# $0 $*
+X
+Xcase "\$1" in
+X  -recheck | --recheck | --rechec | --reche | --rech | --rec | --re | --r)
+X  exec /bin/sh $0 $* ;;
+Xesac
+X
+Xtrap 'rm -f Makefile config.h; exit 1' 1 3 15
+XCC='$CC'
+XCPP='$CPP'
+XINSTALL='$INSTALL'
+XINSTALL_PROGRAM='$INSTALL_PROGRAM'
+XINSTALL_DATA='$INSTALL_DATA'
+XLIBS='$LIBS'
+Xsrcdir='$srcdir'
+XDEFS='$DEFS'
+Xprefix='$prefix'
+Xexec_prefix='$exec_prefix'
+Xprsub='$prsub'
+XEOF
+Xcat <<\EOF >> config.status
+X
+Xtop_srcdir=$srcdir
+Xfor file in Makefile; do
+X  srcdir=$top_srcdir
+X  # Remove last slash and all that follows it.  Not all systems have dirname.
+X  dir=`echo $file|sed 's,/[^/][^/]*$,,'`
+X  if test "$dir" != "$file"; then
+X    test "$top_srcdir" != . && srcdir=$top_srcdir/$dir
+X    test ! -d $dir && mkdir $dir
+X  fi
+X  echo creating $file
+X  rm -f $file
+X  echo "# Generated automatically from `basename $file`.in by configure." > $file
+X  sed -e "
+X$prsub
+Xs,@CC@,$CC,
+Xs,@CPP@,$CPP,
+Xs,@INSTALL@,$INSTALL,
+Xs,@INSTALL_PROGRAM@,$INSTALL_PROGRAM,
+Xs,@INSTALL_DATA@,$INSTALL_DATA,
+Xs,@LIBS@,$LIBS,
+Xs,@srcdir@,$srcdir,
+X" $top_srcdir/${file}.in >> $file
+Xdone
+X
+Xecho creating config.h
+X# Ultrix awk loses trailing comments from the header file, but
+X# that's not fatal.
+Xrm -f conftest.h
+Xecho "/* config.h.  Generated automatically by configure.  */" > conftest.h
+Xecho "$DEFS
+X/* END_OF_DEFS */" |
+Xawk '
+X# The escaped newlines are to work around a bug in GNU m4 0.99
+X# in quoting more than 2 arguments in a single line.
+XBEGIN { filenum = 1 }
+Xfilenum == 1 && $1 == "#define" \
+X{ defs[$2] = $3
+X  for (i = 4; i <= NF; i++)
+X    defs[$2] = defs[$2] " " $i
+X}
+X/END_OF_DEFS/ { filenum = 2; next }
+Xfilenum == 2 && $1 == "#define" && \
+Xdefs[$2] != "" {
+X  $3 = defs[$2]
+X  print; next
+X}
+Xfilenum == 2 && $1 == "#undef" && \
+Xdefs[$2] != "" {
+X  $1 = "#define"
+X  $2 = $2 " " defs[$2]
+X  print; next
+X}
+Xfilenum == 2 { print }
+X' - $top_srcdir/config.h.in >> conftest.h
+Xif cmp -s config.h conftest.h 2>/dev/null; then
+X  # The file exists and we would not be changing it.
+X  rm -f conftest.h
+Xelse
+X  rm -f config.h
+X  mv conftest.h config.h
+Xfi
+X
+XEOF
+Xchmod +x config.status
+Xtest -n "$no_create" || ./config.status
+X
+END_OF_FILE
+  if test 12654 -ne `wc -c <'configure'`; then
+    echo shar: \"'configure'\" unpacked with wrong size!
+  fi
+  chmod +x 'configure'
+  # end of 'configure'
+fi
+if test -f 'freeze.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'freeze.c'\"
+else
+  echo shar: Extracting \"'freeze.c'\" \(24625 characters\)
+  sed "s/^X//" >'freeze.c' <<'END_OF_FILE'
+X#include "freeze.h"
+X#include "lz.h"
+X#include "bitio.h"
+X#include "patchlev.h"
+X
+X/*
+X * Freeze - data freezing program
+X * Version 1.0:
+X * This program is made from GNU compress.c and Yoshizaki/Tagawa's
+X * lzhuf.c. (Thanks to all of them.)
+X * The algorithm is modified for using in pipe
+X * (added ENDOF symbol in Huffman table).
+X * Version 1.1:
+X * Check for lack of bytes in frozen file when melting.
+X * Put the GetBit routine into DecodeChar for reduce function-
+X * call overhead when melting.
+X * Version 1.2:
+X * Added delayed coding a la COMIC.
+X * Now freeze works on Intels (*NIX, Microsoft, Turbo),
+X * Sun (SunOS).
+X * Version 2.0:
+X * Buffer size is now 8192 bytes, maximum match length - 256 bytes.
+X * Improved hash function (with tuning of hash-table)
+X * Version 2.1: Noticeable speedup: Insert_Node and Get_Next_Match
+X * are now separated. (Boyer-Moore string matching)
+X * Version 2.2: Tunable static Huffman table for position information,
+X * this info may be given in the command string now.
+X * Version 2.2.3: Bug fixes, 10% freezing speedup.
+X * Version 2.3: Minor bug fixes (DOS filenames handling, backward
+X * compatibility feature improved, "bits" compression ratio display,
+X * preventive check for special files), speedups, more comments added.
+X * Version 2.3.1: Typedefs cleaned, utime bug on the m88k corrected
+X * (pa@verano.sba.ca.us, clewis@ferret.ocunix.on.ca (Chris Lewis)),
+X * "chain threshold" heuristic used for speedup (in "greedy" mode) -
+X * a la ZIP (Jean-Loup Gailly). Max. hash bits reduced to 16.
+X * Version 2.3.2: Adaptation to TOS 1.04 (fifi@hiss.han.de), UTIMES
+X * handling (jik@athena.mit.edu).
+X * Version 2.3.3: More accurate adaptation for XENIX 286.
+X * Version 2.3.4: Minor bug fixes, HP-UX (longnames w/o BSD) handling,
+X * greedy_threshold added.
+X * Version 2.3.5: Noticeable speedup (on RISCs, don't know for sure
+X * about CISCs).
+X * Version 2.4: Yet another speedup, many general changes...
+X * Version 2.4.1 (unofficial): A bug is corrected.
+X * Version 2.5: Speedup of melting, more thorough adaptation to
+X * 16-bits (and 64-bits?) processors.
+X */
+X
+Xstatic char ident[] = "@(#) freeze.c 2.5.%d %s leo@ipmce.su\n";
+X
+Xint     exit_stat = 0;
+X
+Xvoid 
+XUsage()
+X{
+X#ifdef DEBUG
+X
+X# ifdef DOS
+X  fprintf(stderr, "Usage: freeze [-cdDfitvVg] [file | +type ...]\n");
+X# else
+X  fprintf(stderr, "Usage: freeze [-cdDfvVg] [file | +type ...]\n");
+X# endif				/* DOS */
+X
+X#else
+X
+X# ifdef DOS
+X  fprintf(stderr, "Usage: freeze [-cdfitvVg] [file | +type ...]\n");
+X# else
+X  fprintf(stderr, "Usage: freeze [-cdfvVg] [file | +type ...]\n");
+X# endif				/* DOS */
+X
+X#endif				/* DEBUG */
+X}
+X
+Xvoid    (*meltfunc) ();		/* To call something for melting */
+X
+Xint     topipe = 0,             /* Write output on stdout, suppress messages */
+X        precious = 1,		/* Don't unlink output file on interrupt */
+X        quiet = 1,		/* Don't tell me about freezing */
+X        do_melt = 0,		/* freeze means "freeze" */
+X        greedy = 0,		/* GREEDY parsing */
+X        force = 0;		/* "Force" flag */
+X
+Xchar    ofname[MAXNAMLEN];
+Xstatic struct stat statbuf;	/* Used by 'main' and 'copystat' routines */
+X
+X#ifdef DOS
+Xchar   *last_sep();		/* last slash, backslash, or colon */
+Xchar    tail[3];		/* 2nd and 3rd chars of file extension */
+X# ifdef TEXT_DEFAULT
+Xunsigned        image = O_TEXT;
+X# else
+Xunsigned        image = O_BINARY;
+X# endif
+X#else
+X#  define last_sep(s) strrchr((s), '/')	/* Unix always uses slashes */
+X#  ifndef DEFFILE
+X#   define DEFFILE "/usr/local/lib/freeze.cnf"
+X#  endif
+Xchar    deffile[] = DEFFILE;
+X#endif
+X
+X#ifdef DEBUG
+Xint     debug = 0, verbose = 0;
+Xchar   *pr_char();
+X#endif				/* DEBUG */
+X
+X#if defined(GATHER_STAT) || defined(DEBUG)
+Xlong    refers_out = 0, symbols_out = 0;
+X#endif
+X
+X/* Do not sleep when freeze works :-) */
+Xlong    indc_count, indc_threshold;
+Xoff_t   file_length = 0;	/* initial length of file */
+X
+XRETSIGTYPE      (*bgnd_flag)();
+X
+Xvoid    writeerr(), copystat(), version(), tune_table();
+X
+X/*****************************************************************
+X *
+X * Usage: freeze [-cdfivV] [-t] [-g...] [-x...] [type] [file ...]
+X * Inputs:
+X *
+X *      -c:         Write output on stdout, don't remove original.
+X *
+X *      -d:         If given, melting is done instead.
+X *
+X *      -g:         Use "greedy" parsing (1.5% worse, 40% faster).
+X *                  (Means nothing when melting). May be repeated.
+X *
+X *      -f:         Forces output file to be generated, even if one already
+X *                  exists, and even if no space is saved by freezeing.
+X *                  If -f is not used, the user will be prompted if stdin is
+X *                  a tty, otherwise, the output file will not be overwritten.
+X *
+X *      -i:         Image mode (defined only under MS-DOS).  Prevents
+X *                  conversion between UNIX text representation (LF line
+X *                  termination) in frozen form and MS-DOS text
+X *                  representation (CR-LF line termination) in melted
+X *                  form.  Useful with non-text files.  Default unless
+X *                  TEXT_DEFAULT specified.
+X *
+X *      -b:         Binary mode.  Synonym for -i.  MS-DOS only.
+X *
+X *      -t:         Text mode (defined only under MS-DOS).  Treat file
+X *                  as text (CR-LF and ^Z special) in melted form.  Default
+X *                  if TEXT_DEFAULT specified.
+X *
+X *      -g:         Greedy parsing - increases speed, decreases
+X *                  compression rate. Can be repeated.
+X *
+X *      -x:         "Anti- -g".
+X *
+X *      -v:         Write freezing statistics. -vv means "draw progress
+X *                  indicator".
+X *
+X *      -V:         Write version and compilation options.
+X *
+X *      file ...:   Files to be frozen.  If none specified, stdin
+X *		    is used.
+X * Outputs:
+X *      file.F:     Frozen form of file with same mode, owner, and utimes
+X *	or stdout   (if stdin used as input)
+X *
+X * Assumptions:
+X *      When filenames are given, replaces with the frozen version
+X *      (.F suffix) only if the file decreases in size.
+X * Algorithm:
+X *      Modified Lempel-Ziv-SS method (LZSS), adaptive Huffman coding
+X *      for literal symbols and length info.
+X *      Static Huffman coding for position info. (Is it optimal ?)
+X *      Lower bits of position info are put in output
+X *      file without any coding because of their random distribution.
+X */
+X
+X/* From compress.c. Replace .Z --> .F etc */
+X
+Xvoid 
+Xmain(argc, argv)
+Xregister int argc;
+Xchar  **argv;
+X{
+X  short   overwrite = 0;	/* Do not overwrite unless given -f flag */
+X  char    tempname[100];
+X  char  **filelist, **fileptr;
+X  char   *cp;
+X
+X#ifdef TOS
+X
+X  char   *argv0 = "freeze.ttp";	/* argv[0] is not defined :-( */
+X
+X#endif
+X
+X#ifndef DOS
+X  char   *malloc();
+X#endif
+X
+X  extern RETSIGTYPE onintr();
+X
+X#ifdef DOS
+X  char   *sufp;
+X#else
+X  extern RETSIGTYPE oops();
+X#endif
+X
+X#ifndef DOS
+X  if ((bgnd_flag = signal(SIGINT, SIG_IGN)) != SIG_IGN)
+X#endif
+X  {
+X    (void) signal(SIGINT, onintr);
+X#ifdef __TURBOC__
+X
+X#ifndef TOS
+X    setcbrk(1);
+X
+X#endif
+X#endif
+X#ifndef DOS
+X    (void) signal(SIGSEGV, oops);
+X#endif
+X  }
+X  filelist = fileptr = (char **) (malloc(argc * sizeof(*argv)));
+X  *filelist = NULL;
+X
+X  if ((cp = last_sep(argv[0])) != 0) {
+X    cp++;
+X  } else {
+X
+X#ifdef TOS
+X
+X    cp = argv0;
+X
+X#else
+X    cp = argv[0];
+X
+X#endif
+X  }
+X
+X#ifdef DOS
+X/* use case-insensitive match: parent may not be command.com */
+X#ifdef MSDOS
+X  if (!stricmp(cp, "unfreeze.exe") || !stricmp(cp, "melt.exe")) {
+X#else				/* TOS */
+X  if (!stricmp(cp, "unfreeze.ttp") || !stricmp(cp, "melt.ttp")) {
+X#endif
+X#else
+X  if (!strcmp(cp, "unfreeze") || !strcmp(cp, "melt")) {
+X#endif
+X
+X    do_melt = 1;
+X
+X#ifdef DOS
+X#ifdef MSDOS
+X  } else if (stricmp(cp, "fcat.exe") == 0) {
+X#else				/* TOS */
+X  } else if (stricmp(cp, "fcat.ttp") == 0) {
+X#endif
+X#else
+X  } else if (strcmp(cp, "fcat") == 0) {
+X#endif
+X
+X    do_melt = 1;
+X    topipe = 1;
+X
+X  } else {
+X  /* Freezing */
+X
+X#ifndef DOS
+X    (void) defopen(deffile);
+X#else
+X    cp = strrchr(cp, '.');
+X    *++cp = 'C';
+X    *++cp = 'N';
+X    *++cp = 'F';
+X    *++cp = '\0';
+X
+X#ifdef TOS
+X    (void) defopen(argv0);
+X#else
+X    (void) defopen(argv[0]);
+X#endif				/* TOS */
+X#endif				/* DOS */
+X
+X  }
+X#ifdef HAVE_SETLINEBUF
+X /* 4.2BSD dependent - take it out if not */
+X  setlinebuf(stderr);
+X#endif				/* BSD */
+X
+X    /* Argument Processing
+X     * All flags are optional.
+X     * -D => debug
+X     * -V => print Version; debug verbose
+X     * -d => do_melt
+X     * -v => unquiet
+X     * -g => greedy
+X     * -f => force overwrite of output file
+X     * -c => cat all output to stdout
+X     * if a string is left, must be an input filename.
+X     */
+X
+X  for (argc--, argv++; argc > 0; argc--, argv++) {
+X    if (**argv == '-' && (*argv)[1] != '-') {        /* A flag argument */
+X      while (*++(*argv)) {	/* Process all flags in this arg */
+X	switch (**argv) {
+X#ifdef DEBUG
+X	case 'D':
+X	  debug = 1;
+X	  break;
+X	case 'V':
+X	  verbose = 1;
+X#else
+X	case 'V':
+X	  version();
+X#endif				/* DEBUG */
+X	  break;
+X#ifdef DOS
+X	case 'i':
+X	case 'b':
+X	  image = O_BINARY;	/* binary (aka image) mode */
+X	  break;
+X
+X	case 't':		/* text mode */
+X	  image = O_TEXT;
+X	  break;
+X#endif
+X	case 'v':
+X	  quiet--;
+X	  break;
+X	case 'g':
+X	  greedy++;
+X	  break;
+X	case 'x':
+X	  greedy = -1;
+X	  break;
+X	case 'd':
+X	  do_melt = 1;
+X	  break;
+X	case 'f':
+X	case 'F':
+X	  overwrite = 1;
+X	  force = 1;
+X	  break;
+X	case 'c':
+X	  topipe = 1;
+X	  break;
+X	case 'q':
+X	  quiet = 1;
+X	  break;
+X	default:
+X	  fprintf(stderr, "Unknown flag: '%c'; ", **argv);
+X	  Usage();
+X	  exit(1);
+X	}
+X      }
+X    } else {			/* Input file name */
+X      *fileptr++ = *argv;	/* Build input file list */
+X      *fileptr = NULL;
+X    }
+X  }
+X
+X#ifdef DEBUG
+X  if (verbose && !debug)
+X    version();
+X#endif
+X
+X  if (do_melt) {
+X	/* use all otherwise unused memory for I/O buffers */
+X    setvbuf(stdin, (char*) next, _IOFBF, (size_t) WINSIZE * sizeof(hash_t));
+X    setvbuf(stdout, (char*) hashtab, _IOFBF, (size_t) hash_size * sizeof(hash_t));
+X  } else {
+X	/* try to allocate all left memory for I/O buffers */
+X    size_t i = 64;      /* 512-byte blocks */
+X#ifdef SEGMENTED
+X    char * p;
+X    do {
+X      if ((p = malloc(i << 9)) != NULL)
+X	break;
+X      i--;
+X    } while (i >= 4);
+X    free(p);
+X    if (quiet < -1) fprintf(stderr, "%d blocks allocated\n", i);
+X#endif
+X    /* Don't check for failure - things cannot get worse than they were */
+X    setvbuf(stdin, NULL, _IOFBF, (i / 2) << 9);
+X    setvbuf(stdout, NULL, _IOFBF, (i - i / 2) << 9);
+X  }
+X
+X  if (*filelist != NULL) {
+X    for (fileptr = filelist; *fileptr; fileptr++) {
+X      if ((**fileptr == '+' || **fileptr == '-') && do_melt == 0) {
+X	tune_table(*fileptr + 1 + (**fileptr == '-'));
+X	/* If a file type is given and no file names, a pipe
+X	 * operation is requested, but
+X	 * we will ignore an idiotic case of setting an resetting
+X	 * tables without any filename.
+X	 */
+X	if (filelist[1] == NULL)
+X	  goto Pipe;
+X	continue;
+X      }
+X      exit_stat = 0;
+X      if (do_melt != 0) {	/* MELTING */
+X
+X#ifdef DOS
+X      /* Check for .F or XF suffix; add one if necessary */
+X	cp = *fileptr + strlen(*fileptr) - 2;
+X	tail[0] = '\0';
+X	if ((*cp != '.' && *cp != 'X' && *cp != 'x') ||
+X	  (*(++cp) != 'F' && *cp != 'f')) {
+X	  (void) strcpy(tempname, *fileptr);
+X	  if ((cp = strrchr(tempname, '.')) == NULL)
+X	    (void) strcat(tempname, ".F");
+X	  else if (*(++cp) == '\0')
+X	  /* pseudo-extension: FOOBAR. */
+X	    (void) strcat(tempname, "F");
+X	  else {
+X	  /* cp now points to file extension */
+X	    tail[0] = cp[1];	/* save two chars */
+X	    tail[1] = cp[2];
+X	    tail[2] = '\0';
+X	    *(++cp) = '\0';
+X	    (void) strcat(tempname, "XF");
+X	  }
+X	  *fileptr = tempname;
+X	}
+X#else
+X      /* Check for .F suffix */
+X	if (strcmp(*fileptr + strlen(*fileptr) - 2, ".F") != 0) {
+X	/* No .F: tack one on */
+X	  (void) strcpy(tempname, *fileptr);
+X	  (void) strcat(tempname, ".F");
+X	  *fileptr = tempname;
+X	}
+X#endif				/* DOS */
+X
+X      /* Open input file for melting */
+X
+X	if (checkstat(*fileptr))
+X	  continue;
+X
+X#ifdef DOS
+X	if ((freopen(*fileptr, "rb", stdin)) == NULL)
+X#else
+X	if ((freopen(*fileptr, "r", stdin)) == NULL)
+X#endif
+X	{
+X	  perror(*fileptr);
+X	  continue;
+X	}
+X      /* Check the magic number */
+X	if (getchar() != MAGIC1)
+X	  goto reject;
+X	switch (getchar()) {
+X#ifdef COMPAT
+X	case MAGIC2_1:
+X	  meltfunc = melt1;
+X	  break;
+X#endif
+X	case MAGIC2_2:
+X	  meltfunc = melt2;
+X	  break;
+X	default:
+X      reject:
+X	  fprintf(stderr, "%s: not in frozen format\n",
+X	    *fileptr);
+X	  continue;
+X	}
+X
+X      /* Generate output filename */
+X	precious = 1;
+X	(void) strcpy(ofname, *fileptr);
+X	ofname[strlen(ofname) - 2] = '\0';    /* Strip off .F */
+X#ifdef DOS
+X	(void) strcat(ofname, tail);
+X#endif
+X      } else {
+X
+X      /* FREEZING */
+X#ifdef DOS
+X	cp = *fileptr + strlen(*fileptr) - 2;
+X	if ((*cp == '.' || *cp == 'X' || *cp == 'x') &&
+X	  (*(++cp) == 'F' || *cp == 'f')) {
+X	  fprintf(stderr, "%s: already has %s suffix -- no change\n",
+X	    *fileptr, --cp);	/* } */
+X#else
+X	if (strcmp(*fileptr + strlen(*fileptr) - 2, ".F") == 0) {
+X	  fprintf(stderr, "%s: already has .F suffix -- no change\n",
+X	    *fileptr);
+X#endif				/* DOS */
+X
+X	  continue;
+X	}
+X      /* Open input file for freezing */
+X
+X	if (checkstat(*fileptr))
+X	  continue;
+X
+X#ifdef DOS
+X	if ((freopen(*fileptr, image == O_TEXT ? "rt" : "rb", stdin))
+X	  == NULL)
+X#else
+X	if ((freopen(*fileptr, "r", stdin)) == NULL)
+X#endif
+X	{
+X	  perror(*fileptr);
+X	  continue;
+X	}
+X      /* Generate output filename */
+X	(void) strcpy(ofname, *fileptr);
+X
+X#ifndef HAVE_LONG_FILE_NAMES
+X	if ((cp = last_sep(ofname)) != NULL)
+X	  cp++;
+X	else
+X	  cp = ofname;
+X# ifdef DOS
+X	if (topipe == 0 && (sufp = strrchr(cp, '.')) != NULL &&
+X	  strlen(sufp) > 2)
+X	  fprintf(stderr,
+X	    "%s: part of filename extension will be replaced by XF\n",
+X	    cp);
+X# else
+X	if (topipe == 0 && strlen(cp) > 12) {
+X	  fprintf(stderr, "%s: filename too long to tack on .F\n", cp);
+X	  continue;
+X	}
+X# endif				/* DOS */
+X#endif				/* LONGNAMES */
+X
+X#ifdef DOS
+X      /* There is no difference between FOOBAR and FOOBAR. names */
+X	if ((cp = strrchr(ofname, '.')) == NULL)
+X	  (void) strcat(ofname, ".F");
+X	else if (cp[1] == '\0')
+X	/* FOOBAR. case */
+X	  (void) strcat(ofname, "F");
+X	else {
+X	  cp[2] = '\0';
+X	  (void) strcat(ofname, "XF");
+X	}
+X#else
+X	(void) strcat(ofname, ".F");
+X#endif				/* DOS */
+X
+X      }
+X    /* Check for overwrite of existing file */
+X      if (overwrite == 0 && topipe == 0) {
+X	if (stat(ofname, &statbuf) == 0) {
+X	  char    response[2];
+X	  response[0] = 'n';
+X	  fprintf(stderr, "%s already exists;", ofname);
+X#ifndef DOS
+X	  if (foreground()) {
+X#endif
+X	    fprintf(stderr,
+X	      " do you wish to overwrite %s (y or n)? ", ofname);
+X	    (void) fflush(stderr);
+X	    (void) read(2, response, 2);
+X	    while (response[1] != '\n') {
+X	      if (read(2, response + 1, 1) < 0) {	/* Ack! */
+X		perror("stderr");
+X		break;
+X	      }
+X	    }
+X#ifndef DOS
+X	  }
+X#endif
+X	  if (response[0] != 'y') {
+X	    fprintf(stderr, "\tnot overwritten\n");
+X	    continue;
+X	  }
+X	}
+X      }
+X      if (topipe == 0) {	/* Open output file */
+X
+X#ifdef DEBUG
+X	if (do_melt == 0 || debug == 0) {
+X#endif
+X#ifdef DOS
+X	  if (freopen(ofname, do_melt && image == O_TEXT ? "wt" : "wb",
+X	      stdout) == NULL)
+X#else
+X	  if (freopen(ofname, "w", stdout) == NULL)
+X#endif
+X	  {
+X	    perror(ofname);
+X	    continue;
+X	  }
+X#ifdef DEBUG
+X	}
+X#endif
+X	precious = 0;
+X	if (quiet != 1) {
+X	  fprintf(stderr, "%s:", *fileptr);
+X	  indc_count = 1024;
+X	}
+X      } else {			/* output is to stdout */
+X#ifdef MSDOS
+X      /* freeze output always binary; melt output is binary if image ==
+X         O_BINARY */
+X	if (do_melt == 0 || image == O_BINARY)
+X	  setmode(fileno(stdout), O_BINARY);
+X#endif
+X      }
+X    /* Actually do the freezing/melting */
+X      if (do_melt == 0)
+X	freeze();
+X#ifndef DEBUG
+X      else
+X	(*meltfunc) ();
+X#else
+X      else if (debug && verbose)
+X	printcodes(meltfunc == (void (*) ()) melt2);
+X      else
+X	(*meltfunc) ();
+X#endif				/* DEBUG */
+X
+X    /* check output status, and close to make sure data is written */
+X      if (ferror(stdout) || (!topipe && fclose(stdout) < 0))
+X	writeerr();
+X
+X      if (topipe == 0)
+X	copystat(*fileptr);	/* Copy stats */
+X      precious = 1;
+X    }
+X  } else {			/* Standard input */
+XPipe:
+X    if (fstat(fileno(stdin), &statbuf)) {
+X      perror("stdin");
+X      exit(1);
+X    }
+X    file_length = ((statbuf.st_mode & S_IFMT) == S_IFREG) ?
+X	statbuf.st_size : 0;
+X
+X    indc_threshold = file_length / 100;
+X    if (indc_threshold < 4096)
+X      indc_threshold = 4096;
+X    if (do_melt)
+X      indc_threshold *= 3;
+X
+X    topipe = 1;
+X    if (do_melt == 0) {
+X#ifdef MSDOS
+X    /* freeze output always binary */
+X    /* freeze input controlled by -i -t -b switches */
+X      setmode(fileno(stdout), O_BINARY);
+X      setmode(fileno(stdin), image);
+X#endif
+X      freeze();
+X      if (quiet != 1)
+X	putc('\n', stderr);
+X    } else {
+X#ifdef MSDOS
+X    /* melt input always binary */
+X    /* melt output to stdout binary if so requested */
+X      setmode(fileno(stdin), O_BINARY);
+X      setmode(fileno(stdout), image);
+X#endif
+X    /* Check the magic number */
+X      if (getchar() != MAGIC1)
+X	goto badstdin;
+X      switch (getchar()) {
+X#ifdef COMPAT
+X      case MAGIC2_1:
+X	meltfunc = melt1;
+X	break;
+X#endif
+X      case MAGIC2_2:
+X	meltfunc = melt2;
+X	break;
+X      default:
+X    badstdin:
+X	fprintf(stderr, "stdin: not in frozen format\n");
+X	exit(1);
+X      }
+X
+X#ifndef DEBUG
+X      (*meltfunc) ();
+X#else
+X      if (debug && verbose)
+X	printcodes(meltfunc == (void (*) ()) melt2);
+X      else
+X	(*meltfunc) ();
+X#endif				/* DEBUG */
+X    }
+X  }
+X  exit(exit_stat);
+X /* NOTREACHED */
+X}
+X
+Xlong    in_count = 1;		/* length of input */
+X
+X/* Calculates and prints the compression ratio w/o floating point OPs */
+X
+Xvoid 
+Xprratio(stream, was, is)
+XFILE   *stream;
+Xlong    was, is;
+X{
+X  register long q;		/* This works everywhere */
+X
+X  if (!is)
+X    is++;
+X
+X  if (was > 214748L) {		/* 2147483647/10000 */
+X    q = was / (is / 10000L);
+X  } else {
+X    q = 10000L * was / is;	/* Long calculations, though */
+X  }
+X  if (q < 0) {
+X    putc('-', stream);
+X    q = -q;
+X  }
+X  fprintf(stream, "%d.%02d%%", (int) (q / 100), (int) (q % 100));
+X#ifdef GATHER_STAT
+X  fprintf(stream, "(%ld / %ld)", was, is);
+X#endif
+X}
+X/* Calculates and prints bits/byte compression ratio as above */
+X
+Xvoid 
+Xprbits(stream, was, is)
+XFILE   *stream;
+Xlong    was, is;
+X{
+X  register long q;
+X
+X  if (!was)
+X    was++;
+X
+X  if (is > 2684354L) {		/* 2147483647/800 */
+X    q = is / (was / 800L);
+X  } else {
+X    q = 800L * is / was;
+X  }
+X  fprintf(stream, " (%d.%02d bits)", (int) (q / 100), (int) (q % 100));
+X}
+X/* There was an error when reading or writing files */
+X
+Xvoid 
+Xwriteerr()
+X{
+X  if (!topipe) {
+X    perror(ofname);
+X    (void) unlink(ofname);
+X  }
+X  exit(1);
+X}
+X
+Xvoid 
+Xcopystat(ifname)
+Xchar   *ifname;
+X{
+X#ifdef __TURBOC__
+X  struct ftime utimbuf;
+X#else
+X#ifdef UTIMES
+X  struct timeval timep[2];
+X#else
+X  struct utimbuf timep;
+X#endif
+X#endif
+X
+X  int     mode;
+X
+X#ifdef MSDOS
+X  if (_osmajor < 3)
+X    freopen("CON", "at", stdout);
+X  else				/* MS-DOS 2.xx bug */
+X# endif
+X
+X    (void) fclose(stdout);
+X
+X  if (exit_stat == 2 && (!force)) {	/* No freezing: remove file.F */
+X
+X    if (quiet != 1)
+X      fprintf(stderr, "-- file unchanged\n");
+X
+X  } else {			/* ***** Successful Freezing ***** */
+X
+X    if (stat(ifname, &statbuf)) {	/* file disappeared ?! */
+X      perror(ifname);
+X      exit_stat = 1;
+X      return;
+X    }
+X    exit_stat = 0;
+X
+X#ifdef TOS
+X
+X    Fattrib(ofname, 1, Fattrib(ifname, 0, 0));
+X
+X#else
+X    mode = statbuf.st_mode & 07777;
+X    if (chmod(ofname, mode))	/* Copy modes */
+X      perror(ofname);
+X#endif
+X#ifndef DOS
+X  /* Copy ownership */
+X    (void) chown(ofname, (int) statbuf.st_uid, (int) statbuf.st_gid);
+X#endif
+X
+X#ifdef __TURBOC__
+X    getftime(fileno(stdin), &utimbuf);
+X    freopen(ofname, "rb", stdout);
+X    setftime(fileno(stdout), &utimbuf);
+X    (void) fclose(stdout);
+X#else
+X#ifdef UTIMES
+X    timep[0].tv_sec = statbuf.st_atime;
+X    timep[1].tv_sec = statbuf.st_mtime;
+X    timep[0].tv_usec = timep[1].tv_usec = 0;
+X    (void) utimes(ofname, timep);
+X#else
+X    timep.actime = statbuf.st_atime;
+X    timep.modtime = statbuf.st_mtime;
+X
+X#if defined(__m88k__)
+X    timep.acusec = statbuf.st_ausec;	/* pa@verano */
+X    timep.modusec = statbuf.st_musec;
+X#endif				/* !m88k */
+X
+X  /* Update last accessed and modified times */
+X    (void) utime(ofname, &timep);
+X#endif				/* UTIMES */
+X#endif				/* __TURBOC__ */
+X    if (unlink(ifname))		/* Remove input file */
+X      perror(ifname);
+X    if (quiet != 1)
+X      fprintf(stderr, " -- replaced with %s\n", ofname);
+X    return;			/* Successful return */
+X  }
+X
+X /* Unsuccessful return -- one of the tests failed */
+X  if (unlink(ofname))
+X    perror(ofname);
+X}
+X/* Checks status of a file, returns 0 if the file may be frozen,
+X	or 1 otherwise; assigns this value to exit_stat
+X*/
+Xint 
+Xcheckstat(ifname)
+Xchar   *ifname;
+X{
+X  if (stat(ifname, &statbuf)) {
+X    perror(ifname);
+X    return exit_stat = 1;
+X  }
+X /* Do NOT try to freeze /dev/null or /dev/tty...   */
+X /* but you may freeze or melt everything to stdout */
+X
+X#ifndef DOS
+X  if (!topipe) {
+X    if ((statbuf.st_mode & S_IFMT) != S_IFREG) {
+X      fprintf(stderr, "%s: ", ifname);
+X      fprintf(stderr, " not a regular file -- unchanged\n");
+X      return exit_stat = 1;
+X
+X    } else if (statbuf.st_nlink > 1) {
+X      fprintf(stderr, "%s: ", ifname);
+X      fprintf(stderr, " has %d other links -- unchanged\n",
+X	statbuf.st_nlink - 1);
+X      return exit_stat = 1;
+X    }
+X  }
+X#endif				/* MSDOS */
+X
+X  file_length = statbuf.st_size;
+X
+X  indc_threshold = file_length / 100;
+X  if (indc_threshold < 4096)
+X    indc_threshold = 4096;
+X  if (do_melt)
+X    indc_threshold *= 3;
+X
+X  return exit_stat = 0;
+X}
+X#ifndef DOS
+X/*
+X * This routine returns 1 if we are running in the foreground and stderr
+X * is a tty. (as in compress(1))
+X */
+Xint 
+Xforeground()
+X{
+X  if (bgnd_flag != SIG_DFL)	/* background? */
+X    return (0);
+X  else {			/* foreground */
+X    if (isatty(2)) {		/* and stderr is a tty */
+X      return (1);
+X    } else {
+X      return (0);
+X    }
+X  }
+X}
+X#endif
+X
+X/* Exception handler (SIGINT) */
+X
+XRETSIGTYPE
+Xonintr()
+X{
+X  if (!precious) {		/* topipe == 1 implies precious == 1 */
+X    (void) fclose(stdout);
+X    (void) unlink(ofname);
+X  }
+X  exit(1);
+X}
+X/* Exception handler (SIGSEGV) */
+X
+XRETSIGTYPE
+Xoops()
+X{				/* file is corrupt or internal error */
+X  (void) fflush(stdout);
+X  fprintf(stderr, "Segmentation violation occured (this shouldn't happen)\n");
+X  exit(1);
+X}
+X/* Prints version and compilation options */
+X
+Xvoid 
+Xversion()
+X{
+X  fprintf(stderr, ident, PATCHLEVEL, PATCHDATE);
+X  fprintf(stderr, "LZSS 8192/256 + Huffman coding\nOptions: ");
+X#ifdef COMPAT
+X  fprintf(stderr, "compatible with vers. 1.0, ");
+X#endif
+X#ifdef DEBUG
+X  fprintf(stderr, "DEBUG, ");
+X#endif
+X#if defined(SMALL) || defined(TINY)
+X  fprintf(stderr, "SMALL, ");
+X#endif
+X#ifdef ALLOW_MISALIGN
+X  fprintf(stderr, "ALLOW_MISALIGN, ");
+X#endif
+X#ifdef GATHER_STAT
+X  fprintf(stderr, "GATHER_STAT, ");
+X#endif
+X  fprintf(stderr, "HASH: %d bits\n", BITS);
+X  fprintf(stderr, "Static Huffman table: %d %d %d %d %d %d %d %d\n",
+X    Table2[1], Table2[2], Table2[3], Table2[4],
+X    Table2[5], Table2[6], Table2[7], Table2[8]);
+X#ifdef DOS
+X  fprintf(stderr, "Default melted mode: %s\n",
+X    image == O_BINARY ? "binary" : "text");
+X#endif
+X  exit(0);
+X}
+X/* Deals with static Huffman table parameters.
+X	Input: command line option w/o leading `+' or `--'.
+X	Output: fills the array `Table2' if OK, exit(1) otherwise.
+X*/
+X
+Xvoid 
+Xtune_table(type)
+Xchar   *type;
+X{
+X  extern char *defread();
+X  register char *s = defread(type), *t;
+X  static int v[8];
+X  int     i, is_list = 0;
+X  if (!s) {
+X  /* try to consider 'type' as a list of values: n1,n2, ... */
+X    if (strrchr(type, ','))
+X      is_list = 1;
+X    else {
+X      fprintf(stderr, "\"%s\" - no such file type\n", type);
+X      exit(1);
+X    }
+X    if (sscanf(type, "%d,%d,%d,%d,%d,%d,%d,%d",
+X	v, v + 1, v + 2, v + 3, v + 4, v + 5, v + 6, v + 7) != 8) {
+X      fprintf(stderr,
+X	"%s - a list of 8 numbers expected\n", type);
+X      exit(1);
+X    }
+X  }
+X
+X  /* both space-separated and comma-separated lists are allowed */
+X
+X  if (!is_list && (!(t = strrchr(s, '=')) ||
+X      sscanf(++t, "%d %d %d %d %d %d %d %d",
+X	v, v + 1, v + 2, v + 3, v + 4, v + 5, v + 6, v + 7) != 8 &&
+X      sscanf(t, "%d,%d,%d,%d,%d,%d,%d,%d",
+X	v, v + 1, v + 2, v + 3, v + 4, v + 5, v + 6, v + 7) != 8)) {
+X    fprintf(stderr,
+X      "\"%s\" - invalid entry\n", type);
+X    exit(1);
+X  }
+X  for (i = 0; i < 8; i++)
+X    Table2[i + 1] = v[i];
+X  if (quiet < 0) {
+X    if (!is_list) {
+X      t = s;
+X    /* make full word */
+X      while (*s != '=' && *s != ' ' && *s != '\t')
+X	s++;
+X      *s = '\0';
+X    } else
+X      t = "";
+X    fprintf(stderr, "Using \"%s%s\" type\n", type, t);
+X  }
+X}
+X#ifdef DOS
+X
+X/* MSDOS typically has ':' and '\\' separators, but some command
+X  processors (and the int 21h function handler) support '/' too.
+X  Find the last of these.
+X*/
+X
+Xchar   *
+Xlast_sep(s)
+Xregister char *s;
+X{
+X  char   *p;
+X  for (p = NULL; *s; s++)
+X    if (*s == '/' || *s == '\\' || *s == ':')
+X      p = s;
+X  return (p);
+X}
+X#endif				/* DOS */
+END_OF_FILE
+  if test 24625 -ne `wc -c <'freeze.c'`; then
+    echo shar: \"'freeze.c'\" unpacked with wrong size!
+  fi
+  # end of 'freeze.c'
+fi
+if test -f 'lz.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lz.c'\"
+else
+  echo shar: Extracting \"'lz.c'\" \(3979 characters\)
+  sed "s/^X//" >'lz.c' <<'END_OF_FILE'
+X#include "freeze.h"
+X#include "lz.h"
+X
+X/*----------------------------------------------------------------------*/
+X/*                                                                      */
+X/*                          LZSS ENCODING                               */
+X/*                                                                      */
+X/*----------------------------------------------------------------------*/
+X
+Xuc_t    text_buf[WINSIZE + LOOKAHEAD - 1];/* cyclic buffer with an overlay */
+Xint     match_position;                 /* current position of
+X						matched pattern */
+Xint     chain_length;                   /* max_chain_length ==
+X						CHAIN_THRESHOLD >> greedy */
+X
+X/*      next[N+1..] is used as hash table,
+X	the rest of next is a link down,
+X*/
+X
+Xhash_t hashtab[hash_size];      /* a VERY large array :-) */
+Xhash_t next[WINSIZE];
+X
+X#ifdef GATHER_STAT
+Xlong node_matches, node_compares, node_prolongations;
+X#endif  /* GATHER_STAT */
+X
+X/* Initialize the data structures and allocate memory, if needed.
+X	Although there is no more trees in the LZ algorithm
+X	implementation, routine name is kept intact :-)
+X*/
+X
+Xvoid InitTree ()
+X{
+X
+X	unsigned i = 0;
+X#ifdef GATHER_STAT
+X	node_matches = node_compares = node_prolongations = 0;
+X#endif  /* GATHER_STAT */
+X
+X	do {
+X		hashtab[i] = 0;
+X	} while (i++ != hash_size - 1);
+X
+X	if (greedy >= 0)
+X		chain_length = ((CHAIN_THRESHOLD - 1) >> greedy) + 1;
+X	else
+X		chain_length = LOOKAHEAD * 2;
+X}
+X
+X/* Get the longest (longer than `match_length' when entering in function)
+X	nearest match of the string beginning in text_buf[r]
+X	to the cyclic buffer. Result (length & position) is returned
+X	as the result and in global variable
+X	`match_position'). Unchanged `match_length' denotes failure and
+X	`match_position' contains garbage !!
+X	In order to achieve faster operation, `match_length' is shifted
+X	down to LOOKAHEAD. Ideas of Andrew Cadach <kadach@isi.itfs.nsk.su>
+X	have been used (lastbyte).
+X*/
+X
+Xint get_next_match (match_length, r)
+X	register hash_t r; int match_length;
+X{
+X	register hash_t p = r & WINMASK;
+X	register int m;
+X#ifdef ALLOW_MISALIGN
+X	register us_t lastbyte;
+X#else
+X	register uc_t lastbyte;
+X#endif
+X	register uc_t  *key FIX_SI, *pattern FIX_DI;
+X	int     chain_count = chain_length;
+X
+X#ifdef GATHER_STAT
+X	node_matches++;
+X#endif
+X	key = text_buf + (r & WINMASK) + LOOKAHEAD;
+X	r -= MAXDIST;           /* `r' is now a "barrier value" */
+X
+X	for(;;) {
+X		lastbyte = FETCH(key, match_length);
+X		do {
+X			if(chain_count <= 0)
+X				/* chain length exceeded, simple return */
+X				return match_length;
+X
+X			pattern = text_buf + match_length + LOOKAHEAD;
+X
+X			do {
+X				if ((p = next[p]) < r)
+X					return match_length;
+X			} while (FETCH(pattern, p &= WINMASK) != lastbyte);
+X
+X			chain_count--;  /* successful lastbyte match, cost = 1 */
+X			pattern = text_buf + p + LOOKAHEAD;
+X
+X#ifdef GATHER_STAT
+X		node_compares++;
+X#endif
+X
+X#ifdef ALLOW_MISALIGN
+X			for (m = -LOOKAHEAD;
+X			*(unsigned*)&key[m] == *(unsigned*)&pattern[m] &&
+X				(m += sizeof(unsigned)) < 0;);
+X#ifndef INT_16_BITS
+X		/* Hope that sizeof(int) > 2 ==> sizeof(int) > sizeof(short) */
+X			if (m < 0 && *(us_t*)&key[m] == *(us_t*)&pattern[m])
+X				m += sizeof(us_t);
+X#endif
+X#ifdef BIGSHORTS
+X			while
+X#else
+X			if
+X#endif
+X				(m < 0 && key[m] == pattern[m])
+X					++m;
+X#else
+X			for (m = -LOOKAHEAD; key[m] == pattern[m] && ++m < 0;);
+X#endif
+X		} while (m < match_length);
+X
+X		match_position = p;     /* remember new results */
+X		if (m == 0)
+X			return 0;
+X		match_length = m;
+X
+X#ifdef GATHER_STAT
+X		node_prolongations++;
+X#endif
+X		chain_count -= 2;       /* yet another match found, cost = 2 */
+X	}
+X}
+X
+Xhash_t
+Xrehash(r)
+Xhash_t r;
+X{
+X  unsigned i = 0;
+X  r += WINSIZE;
+X  do {
+X    /* process links; zero must remain zero */
+X    if (next[i] && (next[i] += WINSIZE) > r) {
+X	    next[i] = 0;
+X    }
+X  } while(i++ != WINSIZE - 1);
+X  i = 0;
+X  do {
+X    /* process the hash table itself; zero must remain zero */
+X    if (hashtab[i] && (hashtab[i] += WINSIZE) > r)
+X	    hashtab[i] = 0;
+X  } while (i++ != hash_size - 1);
+X  return r;
+X}
+END_OF_FILE
+  if test 3979 -ne `wc -c <'lz.c'`; then
+    echo shar: \"'lz.c'\" unpacked with wrong size!
+  fi
+  # end of 'lz.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

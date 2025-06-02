@@ -1,0 +1,235 @@
+Newsgroups: comp.sources.x
+Path: uunet!haven.umd.edu!darwin.sura.net!mips!msi!dcmartin
+From: jef@netcom.com (Jef Poskanzer)
+Subject: v17i052: xsleep - trivial X program that sleeps and exits, Part01/01
+Message-ID: <1992Apr8.163326.16302@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+Date: Wed, 8 Apr 1992 16:33:26 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: jef@netcom.com (Jef Poskanzer)
+Posting-number: Volume 17, Issue 52
+Archive-name: xsleep/part01
+
+There may be some other way to do this, but....
+
+Xsleep opens up an X connection, sleeps for the specified number of
+seconds, and then closes the connection and exits.
+
+Why do something so silly?  Well I'll tell you.  It's because many X
+servers reset themselves when they have no connections.  This is a
+pain when you're starting up a session, because you do an xset, an
+xrdb, an xmodmap, etc., and between each one the server resets itself.
+So to prevent this, do an xsleep first, then your initializations,
+then start up your real clients.
+---
+Jef
+
+           Jef Poskanzer  jef@netcom.com  jef@well.sf.ca.us
+                            INSPECTED BY #6
+
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	README
+#	Imakefile
+#	xsleep.c
+#	xsleep.man
+# This archive created: Thu Apr  2 20:59:55 1992
+# By:	Jef Poskanzer
+export PATH; PATH=/bin:$PATH
+echo shar: extracting "'README'" '(916 characters)'
+if test -f 'README'
+then
+	echo shar: will not over-write existing file "'README'"
+else
+sed 's/^X//' << \SHAR_EOF > 'README'
+X           xsleep - trivial X program that sleeps and exits
+X                         Release of 02apr92
+X                        Previous release NONE
+X
+XXsleep opens up an X connection, sleeps for the specified number of
+Xseconds, and then closes the connection and exits.
+X
+XWhy do something so silly?  Well I'll tell you.  It's because many X
+Xservers reset themselves when they have no connections.  This is a
+Xpain when you're starting up a session, because you do an xset, an
+Xxrdb, an xmodmap, etc., and between each one the server resets itself.
+XSo to prevent this, do an xsleep first, then your initializations,
+Xthen start up your real clients.
+X
+XFiles in this distribution:
+X    README		this
+X    Makefile		guess
+X    xsleep.c		source sode
+X    xsleep.man		man page
+X
+XTo install:
+X    Unpack the files.
+X    xmkmf
+X    make depend
+X    make
+X    make install
+X
+XComments to:
+X    Jef Poskanzer  jef@netcom.com  jef@well.sf.ca.us
+SHAR_EOF
+if test 916 -ne "`wc -c < 'README'`"
+then
+	echo shar: error transmitting "'README'" '(should have been 916 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'Imakefile'" '(84 characters)'
+if test -f 'Imakefile'
+then
+	echo shar: will not over-write existing file "'Imakefile'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Imakefile'
+X        DEPLIBS = $(DEPXLIB)
+XLOCAL_LIBRARIES = $(XLIB)
+X
+XSimpleProgramTarget(xsleep)
+SHAR_EOF
+if test 84 -ne "`wc -c < 'Imakefile'`"
+then
+	echo shar: error transmitting "'Imakefile'" '(should have been 84 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xsleep.c'" '(1389 characters)'
+if test -f 'xsleep.c'
+then
+	echo shar: will not over-write existing file "'xsleep.c'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xsleep.c'
+X#include <stdio.h>
+X
+X#include <X11/Xlib.h>
+X
+Xvoid
+Xmain( argc, argv )
+X    int argc;
+X    char* argv[];
+X    {
+X    int argn, seconds;
+X    char *display_name;
+X    Display *display;
+X    char* usage = "usage:  %s [-display display] seconds\n";
+X
+X    argn = 1;
+X    display_name = (char*) 0;
+X
+X    while ( argn < argc && argv[argn][0] == '-' )
+X	{
+X	if ( strcmp( argv[argn], "-display" ) == 0 ||
+X	     strcmp( argv[argn], "-displa" ) == 0 ||
+X	     strcmp( argv[argn], "-displ" ) == 0 ||
+X	     strcmp( argv[argn], "-disp" ) == 0 ||
+X	     strcmp( argv[argn], "-dis" ) == 0 ||
+X	     strcmp( argv[argn], "-di" ) == 0 ||
+X	     strcmp( argv[argn], "-d" ) == 0 )
+X	    {
+X	    ++argn;
+X	    if ( argn >= argc )
+X		{
+X		(void) fprintf( stderr, usage, argv[0] );
+X		exit( 1 );
+X		}
+X	    display_name = argv[argn];
+X	    }
+X	}
+X
+X    if ( argn >= argc )
+X	{
+X	(void) fprintf( stderr, usage, argv[0] );
+X	exit( 1 );
+X	}
+X    seconds = atoi( argv[argn] );
+X    if ( seconds <= 0 )
+X	{
+X	(void) fprintf( stderr, usage, argv[0] );
+X	exit( 1 );
+X	}
+X    ++argn;
+X
+X    if ( argn != argc )
+X	{
+X	(void) fprintf( stderr, usage, argv[0] );
+X	exit( 1 );
+X	}
+X
+X    display = XOpenDisplay( display_name );
+X    if ( display == (Display*) 0 )
+X	{
+X        fprintf(
+X	    stderr, "%s: can't open display \"%s\"\n",
+X	    argv[0], XDisplayName( display_name ) );
+X        exit(1);
+X	}
+X    
+X    sleep( seconds );
+X
+X    XCloseDisplay( display );
+X    exit( 0 );
+X    }
+SHAR_EOF
+if test 1389 -ne "`wc -c < 'xsleep.c'`"
+then
+	echo shar: error transmitting "'xsleep.c'" '(should have been 1389 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xsleep.man'" '(1109 characters)'
+if test -f 'xsleep.man'
+then
+	echo shar: will not over-write existing file "'xsleep.man'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xsleep.man'
+X.TH xsleep 1 "2 April 1992"
+X.SH NAME
+Xxsleep - trivial X program that sleeps and exits
+X.SH SYNOPSIS
+X.B xsleep
+X.RB [ -display
+X.IR display ]
+X.I seconds
+X.SH DESCRIPTION
+X.PP
+X.I Xsleep
+Xopens up an X connection, sleeps for the specified number of seconds,
+Xand then closes the connection and exits.
+X.PP
+XWhy do something so silly?
+XWell I'll tell you.
+XIt's because many X servers reset themselves when they have no
+Xconnections.
+XThis is a pain when you're starting up a session, because
+Xyou do an xset, an xrdb, an xmodmap, etc., and between each
+Xone the server resets itself.
+XSo to prevent this, do an
+X.I xsleep
+Xfirst, then your initializations, then start up your real clients.
+X.SH AUTHOR
+XCopyright (C) 1992 by Jef Poskanzer.
+X.\" Permission to use, copy, modify, and distribute this software and its
+X.\" documentation for any purpose and without fee is hereby granted, provided
+X.\" that the above copyright notice appear in all copies and that both that
+X.\" copyright notice and this permission notice appear in supporting
+X.\" documentation.  This software is provided "as is" without express or
+X.\" implied warranty.
+SHAR_EOF
+if test 1109 -ne "`wc -c < 'xsleep.man'`"
+then
+	echo shar: error transmitting "'xsleep.man'" '(should have been 1109 characters)'
+fi
+fi # end of overwriting check
+#	End of shell archive
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

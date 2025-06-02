@@ -1,0 +1,1664 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i073:  chiaro - Image Utilities, Part03/18
+Message-ID: <1993Mar25.180955.19956@sparky.imd.sterling.com>
+X-Md4-Signature: 333f4ee5e8f18c13f5e9976edf54844d
+Date: Thu, 25 Mar 1993 18:09:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 73
+Archive-name: chiaro/part03
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/fb.c src/shorten.awk src/token.c
+# Wrapped by kent@sparky on Thu Mar 25 11:20:02 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 18)."'
+if test -f 'src/fb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/fb.c'\"
+else
+  echo shar: Extracting \"'src/fb.c'\" \(45520 characters\)
+  sed "s/^X//" >'src/fb.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   FB.C                                                                   *
+X*   MODULE:  FB (File Buffer)                                              *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: fb.c,v 1.7 1993/03/02 00:50:57 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains the File Buffer module, which implements high-      *
+X*   performance read/write buffering of files.                             *
+X*                                                                          *
+X*   Functions in this file are:                                            *
+X*     fb_init          initializes file buffering package                  *
+X*     fb_open          opens a file with buffering                         *
+X*     fb_retrofit      buffers an already-open file                        *
+X*     fb_close         closes a buffered file                              *
+X*                                                                          *
+X*     fb_seek          resets the file pointer in a buffered file          *
+X*     fb_tell          returns current file pointer in buffered file       *
+X*                                                                          *
+X*     fb_read          reads from a buffered file                          *
+X*     fb_getc          reads a single character from a buffered file       *
+X*                                                                          *
+X*     fb_errstring     returns a string corresponding to an error          *
+X*                                                                          *
+X*   The following functions are available only if READONLY was not defined *
+X*   at compile time (otherwise, dummy functions):                          *
+X*                                                                          *
+X*     fb_write         writes to a buffered file                           *
+X*     fb_putc          writes a single character to a buffered file        *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifndef NO_STDLIB
+X#include <stdlib.h>
+X#else
+X#ifndef NO_MALLOCHDR
+X#include <malloc.h>
+X#endif
+X#endif
+X#ifndef NO_MEMOP
+X#include <memory.h>
+X#endif
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "fb.h"
+X
+X/*
+X** local #defines
+X*/
+X
+X/* A macro to set fb_error and return with the same value. */
+X
+X#define RETURN(x)     return(fb_error = (x))
+X
+X/* A macro to check for FB module initialization and RETURN. */
+X
+X#define INITCHECK()   if (0 == fb_isinit) RETURN(FB_NOTINIT_E)
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X**typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+XULONG fb_error;                         /* error/status storage */
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic int fb_numopen;                  /* number of files open */
+Xstatic int fb_tablesize;                /* max number of files open */
+Xstatic int fb_buflen;                   /* length of buffer */
+Xstatic int fb_isinit = 0;               /* initialization flag */
+X
+Xstatic char CONST rcsid[] = "$Id: fb.c,v 1.7 1993/03/02 00:50:57 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X/* function prototypes courtesy of the 'mkptypes' program */
+X#ifdef  __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic ULONG fb_flbuf P_((FB *filehandle));
+Xstatic int fb_bufget P_((FB *filehandle));
+X
+X#undef P_
+X
+X#ifdef NO_MALLOCHDR
+Xextern UCHAR *malloc();
+Xextern VOID free();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X/***************************************************************************
+X*   FUNCTION: fb_init                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Initializes the FB module.                                         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       tablesize  - maximum number of files that can be open at once      *
+X*       buffersize - size (in bytes) of standard buffer                    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Sets up various global variables. Sets the initialization flag     *
+X*       fb_isinit to 1.                                                    *
+X*                                                                          *
+X*       Note that tablesize does not actually affect how much memory is    *
+X*       used, since there is no static file table. However, future         *
+X*       revisions may introduce one, so it should be set accurately.       *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_init(int tablesize, int buffersize)
+X#else
+Xfb_init(tablesize, buffersize)
+Xint tablesize;
+Xint buffersize;
+X#endif
+X{
+X    /* Check for initialization already. */
+X
+X    if (fb_isinit)
+X    {
+X        RETURN(FB_REINIT_E);
+X    }
+X
+X    /* Set up global variables. */
+X
+X    if (tablesize < 0)
+X    {
+X        RETURN(FB_BADPARAM_E);
+X    }
+X    fb_tablesize = tablesize;
+X    fb_numopen = 0;
+X
+X    /* Check buffer size. */
+X
+X    if ((buffersize < FB_MINBUFFER) && (buffersize >= 0))
+X    {
+X        /* If too small, adjust to minimum buffer size. */
+X
+X        fb_buflen = FB_MINBUFFER;
+X    }
+X#ifdef INT16
+X    else if (buffersize < 0)
+X    {
+X        /* Buffer too large (wrapped to negative). Only on 16-bit machines. */
+X
+X        fb_buflen = FB_MAXBUFFER;
+X    }
+X#endif
+X    else
+X    {
+X        /* Buffer size OK. */
+X
+X        fb_buflen = buffersize;
+X    }
+X
+X    /* Set initialization flag. */
+X
+X    fb_isinit = 1;
+X
+X    RETURN(ST_SUCCESS);
+X} /* end of fb_init() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_open                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Opens a file, with buffering.                                      *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filename - ASCIIZ filespec of file to be opened                    *
+X*       filemode - mode for open: 'r' read or 'w' write                    *
+X*       length   - pointer to long for return of file length               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns a FB handle on success, NULL on failure.                   *
+X*                                                                          *
+X*       Sets the global fb_error to an error/status code.                  *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XFB *
+X#ifdef __STDC__
+Xfb_open(char *filename, char filemode, long *length)
+X#else
+Xfb_open(filename, filemode, length)
+Xchar *filename;
+Xchar filemode;
+Xlong *length;
+X#endif
+X{
+X    char *modestring;                     /* file mode string for fopen() */
+X    FB *filehandle;                       /* FB handle */
+X    char c;
+X#ifndef NO_STAT
+X    struct stat info;                     /* file info structure */
+X#endif
+X
+X    /* Check for initialization. */
+X
+X    if (0 == fb_isinit)
+X    {
+X        fb_error = FB_NOTINIT_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Check filemode. */
+X
+X    c = tolower(filemode);
+X#ifndef READONLY
+X    if ((c != 'r') && (c != 'w'))
+X#else
+X    if (c != 'r')
+X#endif
+X    {
+X        fb_error = FB_BADPARAM_E;
+X        return (FB *) NULL;
+X    }
+X    if ('r' == c)
+X    {
+X        modestring = FOPEN_READ_BINARY;
+X    }
+X#ifndef READONLY
+X    else
+X    {
+X        modestring = FOPEN_WRITE_BINARY;
+X    }  
+X#endif
+X
+X    /* Check for free handle. */
+X
+X    if (fb_numopen >= fb_tablesize)
+X    {
+X        fb_error = FB_NOHANDLE_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Allocate FB. */
+X
+X    if ((filehandle = (FB *) malloc(sizeof(FB))) == (FB *) NULL)
+X    {
+X        fb_error = FB_NOMEM_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Allocate buffer. */
+X
+X    filehandle->buffer = (UCHAR *) malloc(fb_buflen * sizeof(UCHAR));
+X    if (((UCHAR *) NULL) == filehandle->buffer)
+X    {
+X        fb_error = FB_NOMEMBUF_E;
+X        free(filehandle);
+X        return (FB *) NULL;
+X    }
+X
+X    /* Open file. */
+X
+X    if ((filehandle->rawfile = fopen(filename, modestring)) == (FILE *) NULL)
+X    {
+X        fb_error = FB_NOFILE_E;
+X        free(filehandle->buffer);
+X        free(filehandle);
+X        return (FB *) NULL;
+X    }
+X
+X    /* Get file length (if open for read). */
+X
+X#ifndef READONLY
+X    if ('r' == c)
+X    {
+X#endif
+X        if (fstat(fileno(filehandle->rawfile), &info))
+X        {
+X            fb_error = FB_FILEERR_F;
+X            fclose(filehandle->rawfile);
+X            free(filehandle->buffer);
+X            free(filehandle);
+X            return (FB *) NULL;
+X        }
+X
+X        /* Return length of file, in bytes. */
+X
+X        *length = info.st_size;
+X#ifndef READONLY
+X    }
+X#endif
+X
+X    /* Set up variables. */
+X
+X    filehandle->bufvalid = 0;
+X    filehandle->bufloc = 0;
+X    filehandle->bufoffset = 0;
+X    filehandle->filemode = c;
+X
+X    /* Adjust global variables. */
+X    fb_numopen++;
+X
+X    /* All OK. */
+X
+X    fb_error = ST_SUCCESS;
+X
+X    return filehandle;
+X} /* end of fb_open() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_retrofit                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Adds buffering to a file already opened.                           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       rawfile  - file handle of file to be buffered                      *
+X*       filemode - mode of the file: 'r' read or 'w' write                 *
+X*                  IT IS IMPERATIVE THAT THIS MODE BE ACCURATE             *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns a FB handle on success, NULL on failure.                   *
+X*                                                                          *
+X*       Sets the global fb_error to an error/status code.                  *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XFB *
+X#ifdef __STDC__
+Xfb_retrofit(FILE *rawfile, char filemode)
+X#else
+Xfb_retrofit(rawfile, filemode)
+XFILE *rawfile;
+Xchar filemode;
+X#endif
+X{
+X    char mode;                      /* file mode */
+X    FB *filehandle;                 /* FB handle */
+X
+X    /* Check for initialization. */
+X
+X    if (0 == fb_isinit)
+X    {
+X        fb_error = FB_NOTINIT_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Check filemode. */
+X
+X    mode = tolower(filemode);
+X#ifndef READONLY
+X    if ((mode != 'r') && (mode != 'w'))
+X#else
+X    if (mode != 'r')
+X#endif
+X    {
+X        fb_error = FB_BADPARAM_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Check for free handle. */
+X
+X    if (fb_numopen >= fb_tablesize)
+X    {
+X        fb_error = FB_NOHANDLE_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Allocate FB. */
+X
+X    if ((filehandle = (FB *) malloc(sizeof(FB))) == (FB *) NULL)
+X    {
+X        fb_error = FB_NOMEM_E;
+X        return (FB *) NULL;
+X    }
+X
+X    /* Allocate buffer. */
+X
+X    filehandle->buffer = (UCHAR *) malloc(fb_buflen * sizeof(UCHAR));
+X    if (((UCHAR *) NULL) == filehandle->buffer)
+X    {
+X        fb_error = FB_NOMEMBUF_E;
+X        free(filehandle);
+X        return (FB *) NULL;
+X    }
+X
+X    /* Get position in file. */
+X
+X    if ((filehandle->bufoffset = ftell(rawfile)) == -1L)
+X    {
+X        fb_error = FB_FILEERR_F;
+X        free(filehandle->buffer);
+X        free(filehandle);
+X        return (FB *) NULL;
+X    }
+X
+X    /* Set up variables. */
+X
+X    filehandle->bufvalid = 0;
+X    filehandle->bufloc = 0;
+X    filehandle->rawfile = rawfile;
+X    filehandle->filemode = mode;
+X
+X    /* Adjust global variables. */
+X
+X    fb_numopen++;
+X
+X    /* All OK. */
+X
+X    fb_error = ST_SUCCESS;
+X
+X    return filehandle;
+X} /* end of fb_retrofit() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_close                                                     *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Flushes buffers as necessary and closes a buffered file.           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - FB handle of file to be closed                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_close(FB *filehandle)
+X#else
+Xfb_close(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X    /* Check for initialization. */
+X
+X    INITCHECK();
+X
+X#ifndef READONLY
+X    /* File open for writing? */
+X
+X    if ('w' == filehandle->filemode)
+X    {
+X        /* Characters in buffer? */
+X
+X        if (filehandle->bufvalid > 0)
+X        {
+X            /* Flush buffer to disk. */
+X
+X            if (fb_flbuf(filehandle))
+X            {
+X                return fb_error;
+X            }
+X        }
+X    }
+X#endif
+X
+X    /* Close raw file. */
+X
+X    if (fclose(filehandle->rawfile))
+X    {
+X        RETURN(FB_FILEERR_F);
+X    }
+X
+X    /* Free memory. */
+X
+X    free(filehandle->buffer);
+X    free(filehandle);
+X
+X    /* Adjust global variables. */
+X
+X    fb_numopen--;
+X
+X    /* All OK. */
+X
+X    RETURN(ST_SUCCESS);
+X} /* end of fb_close() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_seek                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Repositions the file pointer in a buffered file.                   *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*       offset     - desired offset in bytes from beginning of file        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Flushes buffers to disk if file is in write mode.                  *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_seek(FB *filehandle, long offset)
+X#else
+Xfb_seek(filehandle, offset)
+XFB *filehandle;
+Xlong offset;
+X#endif
+X{
+X    /* Check for initialization. */
+X
+X    INITCHECK();
+X
+X    if (('r' == filehandle->filemode) &&
+X        ((offset >= (filehandle->bufoffset - filehandle->bufvalid)) &&
+X         (offset < filehandle->bufoffset)))
+X    {
+X        /* 
+X        ** If file is open for reading and the new position is within
+X        ** the current buffer, reset the index.
+X        */
+X
+X        filehandle->bufloc = (int) (offset - (filehandle->bufoffset -
+X                                              filehandle->bufvalid));
+X        RETURN(ST_SUCCESS);
+X    }
+X
+X#ifndef READONLY
+X    /* File open for writing? */
+X
+X    if ('w' == filehandle->filemode)
+X    {
+X        /* Is the new position within buffer? */
+X
+X        if ((offset >= filehandle->bufoffset) &&
+X            (offset < (filehandle->bufoffset + fb_buflen)))
+X        {
+X            /* Reset index. */
+X
+X            filehandle->bufloc = (int) (offset - filehandle->bufoffset);
+X            RETURN(ST_SUCCESS);
+X        }
+X
+X        /* Else, are there characters in buffer? */
+X
+X        if (filehandle->bufvalid > 0)
+X        {
+X            /* Flush buffers to disk before resetting position. */
+X
+X            if (fb_flbuf(filehandle))
+X            {
+X                return fb_error;
+X            }
+X        }
+X    }
+X#endif
+X
+X    /* Set raw file to new position. */
+X
+X    if (fseek(filehandle->rawfile, offset, SEEK_SET))
+X    {
+X        RETURN(FB_FILEERR_F);
+X    }
+X
+X    /* Reset variables. */
+X
+X    filehandle->bufvalid = 0;
+X    filehandle->bufloc = 0;
+X    filehandle->bufoffset = offset;
+X
+X    /* All OK. */
+X
+X    RETURN(ST_SUCCESS);
+X} /* end of fb_seek */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_tell                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Returns the current file pointer in a buffered file.               *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns the offset in bytes of the current position from the       *
+X*       beginning of a file, or -1L on error.                              *
+X*                                                                          *
+X*       Sets the global fb_error to an error/status code.                  *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xlong
+X#ifdef __STDC__
+Xfb_tell(FB *filehandle)
+X#else
+Xfb_tell(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X    /* Check for initialization. */
+X
+X    if (0 == fb_isinit)
+X    {
+X        fb_error = FB_NOTINIT_E;
+X        return -1L;
+X    }
+X
+X    /* All OK. */
+X
+X    fb_error = ST_SUCCESS;
+X
+X    /* Calculate offset and return. */
+X
+X    if ('r' == filehandle->filemode)
+X    {
+X        return ((long)(filehandle->bufoffset - filehandle->bufvalid +
+X                       filehandle->bufloc));
+X    }
+X    else
+X    {
+X        return ((long)(filehandle->bufoffset + filehandle->bufloc));
+X    }
+X} /* end of fb_tell() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_flush                                                     *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Flushes buffers. For files in write mode, the buffers are written  *
+X*       to disk. For files in read mode, the current buffer contents are   *
+X*       dumped and the buffers re-loaded from disk.                        *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_flush(FB *filehandle)
+X#else
+Xfb_flush(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X
+X    /* Check for initialization. */
+X
+X    INITCHECK();
+X
+X    if ('r' == filehandle->filemode)
+X    {
+X        /* File in read mode, refill buffer from disk. */
+X
+X        fb_bufget(filehandle);
+X        return fb_error;
+X    }
+X#ifndef READONLY
+X    else if ('w' == filehandle->filemode)
+X    {
+X        /* File in write mode, flush buffer to disk. */
+X
+X        fb_flbuf(filehandle);
+X        return fb_error;
+X    }
+X#endif
+X
+X    /* Else error. */
+X
+X    RETURN(FB_BADPARAM_E);
+X} /* end of fb_flush() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_read                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Reads bytes from a buffered file. Note that fb_getc() is more      *
+X*       efficient if only one byte is desired.                             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*       buffer     - buffer to read bytes into                             *
+X*       count      - number of bytes to read                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns number of bytes actually read. Short count can occur       *
+X*       on error or EOF.                                                   *
+X*                                                                          *
+X*       Sets global fb_error to an error/status code.                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint
+X#ifdef __STDC__
+Xfb_read(FB *filehandle, UCHAR *buffer, int count)
+X#else
+Xfb_read(filehandle, buffer, count)
+XFB *filehandle;
+XUCHAR *buffer;
+Xint count;
+X#endif
+X{
+X    int bufavail;                 /* bytes available in buffer */
+X    int bytesread;                /* bytes read from disk */
+X
+X    /* Check for initialization. */
+X
+X    if (0 == fb_isinit)
+X    {
+X        fb_error = FB_NOTINIT_E;
+X        return 0;
+X    }
+X
+X    /* Check parameters. */
+X
+X    if ((filehandle->filemode != 'r') || (count <= 0))
+X    {
+X        /* if file is not in read mode, or count is negative, error */
+X        fb_error = FB_BADPARAM_E;
+X        return 0;
+X    }
+X
+X    /* Get bytes remaining in buffer. */
+X
+X    bufavail = filehandle->bufvalid - filehandle->bufloc;
+X
+X    /* If enough in buffer, read from buffer. */
+X
+X    if (count <= bufavail)
+X    {
+X        /* Copy bytes from buffer to destination. */
+X
+X        memcpy(buffer, (filehandle->buffer + filehandle->bufloc),
+X               (count * sizeof(UCHAR)));
+X
+X        /* Update variables. */
+X
+X        filehandle->bufloc += count;
+X
+X        /* All OK. */
+X
+X        fb_error = ST_SUCCESS;
+X        return count;
+X    }
+X    else
+X    {
+X        /* Copy what's in buffer. */
+X
+X        memcpy(buffer, (filehandle->buffer + filehandle->bufloc),
+X               (bufavail * sizeof(UCHAR)));
+X
+X        /* Finish reading directly from disk. */
+X
+X        bytesread = fread((buffer + bufavail), sizeof(UCHAR),
+X                          (count - bufavail), filehandle->rawfile);
+X
+X
+X        if (bytesread != (count - bufavail))
+X        {
+X            /* Short read. If EOF, return FB_EOF_W; otherwise, error. */
+X
+X            fb_error = (feof(filehandle->rawfile) ? FB_EOF_W : FB_FILEERR_F);
+X
+X            /* Adjust variables. */
+X
+X            filehandle->bufvalid = 0;
+X            filehandle->bufloc = 0;
+X            filehandle->bufoffset += bytesread;
+X
+X            /* Return number of bytes actually delivered. */
+X
+X            return (bytesread + bufavail);
+X        }
+X        else
+X        {
+X            /* Full read, all OK. Update variables. */
+X
+X            filehandle->bufoffset += bytesread;
+X
+X            /* Refill buffer. */
+X
+X            fb_bufget(filehandle);
+X
+X            /* All OK. */
+X
+X            fb_error = ST_SUCCESS;
+X            return count;
+X        } /* end of if short read... else... */
+X    } /* end of if enough in buffer... else... */
+X} /* end of fb_read() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_getc                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Gets a single byte from a buffered file.                           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an integer with byte in LSB, or -1 (0xFFFF) on error.      *
+X*                                                                          *
+X*       Sets global fb_error to an error/status code.                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint
+X#ifdef __STDC__
+Xfb_getc(FB *filehandle)
+X#else
+Xfb_getc(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X    /* Check for initialization. */
+X
+X    if (0 == fb_isinit)
+X    {
+X        fb_error = FB_NOTINIT_E;
+X        return -1;
+X    }
+X
+X    /* Check filemode. */
+X
+X    if (filehandle->filemode != 'r')
+X    {
+X        fb_error = FB_BADPARAM_E;
+X        return -1;
+X    }
+X
+X    /* If buffer empty, refill. */
+X
+X    if (filehandle->bufloc >= filehandle->bufvalid)
+X    {
+X        /* If refill gets no chars, error. */
+X
+X        if (fb_bufget(filehandle) == 0)
+X        {
+X            return -1;
+X        }
+X    }
+X
+X    /* All OK. */
+X
+X    fb_error = ST_SUCCESS;
+X
+X    /* Return a character. */
+X
+X    return (((int)(filehandle->buffer[filehandle->bufloc++])) & 0x00FF);
+X} /* end of fb_getc() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_write                                                     *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Writes bytes to a buffered file. Note that fb_putc() is more       *
+X*       efficient if only a single byte is to be written.                  *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*       buffer     - bytes to write                                        *
+X*       count      - number of bytes to write                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_write(FB *filehandle, UCHAR *buffer, int count)
+X#else
+Xfb_write(filehandle, buffer, count)
+XFB *filehandle;
+XUCHAR *buffer;
+Xint count;
+X#endif
+X{
+X#ifdef READONLY
+X
+X    return FB_BADFUNC_F;
+X
+X#else
+X
+X    int buffree;                      /* free bytes in buffer */
+X
+X    /* Check for initialization. */
+X
+X    INITCHECK();
+X
+X    /* Check parameters. */
+X
+X    if ((filehandle->filemode != 'w') || (count <= 0))
+X    {
+X        /* If file is not in write mode, or count is negative, error. */
+X
+X        RETURN(FB_BADPARAM_E);
+X    }
+X
+X    /* Get free byte count in buffer. */
+X
+X    buffree = fb_buflen - filehandle->bufvalid;
+X
+X    /* If enough space in buffer, write to buffer. */
+X
+X    if (buffree > count)
+X    {
+X        /* Copy from input to buffer. */
+X
+X        memcpy((filehandle->buffer + filehandle->bufloc), buffer,
+X               (count * sizeof(UCHAR)));
+X
+X        /* Update variables. */
+X
+X        filehandle->bufloc += count;
+X        if (filehandle->bufvalid < filehandle->bufloc)
+X        {
+X            filehandle->bufvalid = filehandle->bufloc;
+X        }
+X
+X        /* All OK. */
+X
+X        RETURN(ST_SUCCESS);
+X    }
+X    else
+X    {
+X        /* Else flush buffers and write directly to disk. */
+X
+X        if (fb_flbuf(filehandle))
+X        {
+X            return fb_error;
+X        }
+X        if (fwrite(buffer, sizeof(UCHAR), count, filehandle->rawfile) != count)
+X        {
+X            RETURN(FB_FILEERR_F);
+X        }
+X
+X        /* All OK, update variables. */
+X
+X        filehandle->bufvalid = 0;
+X        filehandle->bufloc = 0;
+X        filehandle->bufoffset += count;
+X        RETURN(ST_SUCCESS);
+X    }
+X#endif /* READONLY */
+X} /* end of fb_write() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_putc                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Writes a single byte to a buffered file.                           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*       c          - byte to be written                                    *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfb_putc(FB *filehandle, UCHAR c)
+X#else
+Xfb_putc(filehandle, c)
+XFB *filehandle;
+XUCHAR c;
+X#endif
+X{
+X#ifdef READONLY
+X
+X    return FB_BADFUNC_F;
+X
+X#else
+X
+X    /* Check for initialization. */
+X
+X    INITCHECK();
+X
+X    /* Check file mode. */
+X
+X    if (filehandle->filemode != 'w')
+X    {
+X        RETURN(FB_BADPARAM_E);
+X    }
+X
+X    /* If buffer full, flush first. */
+X
+X    if (filehandle->bufvalid >= fb_buflen)
+X    {
+X        if (fb_flbuf(filehandle))
+X        {
+X            return fb_error;
+X        }
+X    }
+X
+X    /* Put character in buffer, update variables. */
+X
+X    filehandle->buffer[filehandle->bufloc++] = c;
+X    if (filehandle->bufvalid < filehandle->bufloc)
+X    {
+X        filehandle->bufvalid = filehandle->bufloc;
+X    }
+X
+X    /* All OK. */
+X
+X    RETURN(ST_SUCCESS);
+X#endif /* READONLY */
+X} /* end of fb_putc() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_errstring                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Returns a string corresponding to the given error.                 *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       errcode - error code to be translated                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns a pointer to the appropriate string, or NULL if there is   *
+X*       no appropriate string.                                             *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xfb_errstring(ULONG errcode)
+X#else
+Xfb_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If not an FB module error code, return NULL. */
+X
+X    if (MODULE(errcode) != MODULE(FB_MODULE))
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(FB_EOF_W):
+X            temp = "End of file.";
+X            break;
+X 
+X        case ERRSEV(FB_NOMEM_E):
+X            temp = "Out of memory in FB module.";
+X            break;
+X        case ERRSEV(FB_BADPARAM_E):
+X            temp = "A bad parameter was passed to FB module function.";
+X            break;
+X        case ERRSEV(FB_NOHANDLE_E):
+X            temp = "No free FB handles available.";
+X            break;
+X        case ERRSEV(FB_NOFILE_E):
+X            temp = "Cannot find named file.";
+X            break;
+X        case ERRSEV(FB_NOTINIT_E):
+X            temp = "FB module not initialized.";
+X            break;
+X        case ERRSEV(FB_REINIT_E):
+X            temp = "Attempt to reinitialize FB module.";
+X            break;
+X        case ERRSEV(FB_NOMEMBUF_E):
+X            temp = "No memory for file buffer in FB module.";
+X            break;
+X
+X        case ERRSEV(FB_FILEERR_F):
+X            temp = "Error accessing file.";
+X            break;
+X        case ERRSEV(FB_BUG_F):
+X            temp = "Internal error, should never happen.";
+X            break;
+X        case ERRSEV(FB_BADFUNC_F):
+X            temp = "Function not supported in read-only mode.";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of fb_errstring() */
+X
+X#ifndef READONLY
+X
+X/***************************************************************************
+X*   FUNCTION: fb_flbuf STATIC                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Flushes write buffers to disk.                                     *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xfb_flbuf(FB *filehandle)
+X#else
+Xfb_flbuf(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X    int byteswritten;
+X    UCHAR *src, *dest;
+X    int loop;
+X
+X    /*
+X    ** No parameter or initialization checking -- should have been done
+X    ** by caller.
+X    */
+X
+X    /* If no bytes to write, return. */
+X
+X    if (0 == filehandle->bufvalid)
+X    {
+X        RETURN(ST_SUCCESS);
+X    }
+X
+X    /* Make sure at right place in file. */
+X
+X    if (fseek(filehandle->rawfile, filehandle->bufoffset, SEEK_SET))
+X    {
+X        RETURN(FB_FILEERR_F);
+X    }
+X
+X    /* Write to disk. */
+X
+X    byteswritten = fwrite(filehandle->buffer, sizeof(UCHAR),
+X                          filehandle->bufvalid, filehandle->rawfile);
+X
+X    /* If short write, attempt some recovery. */
+X
+X    if (byteswritten != filehandle->bufvalid)
+X    {
+X        /* Copy unwritten bytes to beginning of buffer. */
+X
+X        src = (filehandle->buffer + byteswritten);
+X        dest = filehandle->buffer; 
+X        for (loop = 0; loop < (filehandle->bufvalid - byteswritten); loop++)
+X        {
+X            *(dest++) = *(src++);
+X        }
+X
+X        /* Update variables. */
+X
+X        filehandle->bufloc -= byteswritten;
+X        filehandle->bufvalid -= byteswritten;
+X        filehandle->bufoffset += byteswritten;
+X        RETURN(FB_FILEERR_F);
+X    }
+X    else
+X    {
+X        /* Else all written OK. Update variables. */
+X
+X        filehandle->bufloc = 0;
+X        filehandle->bufvalid = 0;
+X        filehandle->bufoffset += byteswritten;
+X        RETURN(ST_SUCCESS);
+X    }
+X} /* end of static fb_flbuf() */
+X
+X#endif /* !READONLY */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: fb_bufget STATIC                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Refills the buffer from disk.                                      *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filehandle - handle of file                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns number of bytes read into buffer. Short count can occur    *
+X*       on error or EOF.                                                   *
+X*                                                                          *
+X*       Sets global fb_error to an error/status code.                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic int
+X#ifdef __STDC__
+Xfb_bufget(FB *filehandle)
+X#else
+Xfb_bufget(filehandle)
+XFB *filehandle;
+X#endif
+X{
+X    int bytesread;
+X
+X    /*
+X    ** No parameter or initialization checking -- should have been done
+X    ** by caller.
+X    */
+X
+X    /* Make sure at correct position in file. */
+X
+X    if (fseek(filehandle->rawfile, filehandle->bufoffset, SEEK_SET))
+X    {
+X        fb_error = FB_FILEERR_F;
+X        return 0;
+X    }
+X
+X    /* Read into buffer. */
+X
+X    bytesread = fread(filehandle->buffer, sizeof(UCHAR), fb_buflen,
+X                      filehandle->rawfile);
+X
+X
+X    if (bytesread != fb_buflen)
+X    {
+X        /* Short read, set return. */
+X
+X        if (feof(filehandle->rawfile))
+X        {
+X            /* EOF encountered -- update variables. */
+X
+X            filehandle->bufvalid = bytesread;
+X            filehandle->bufloc = 0;
+X            filehandle->bufoffset += bytesread;
+X
+X            /* Return EOF warning. */
+X
+X            fb_error = FB_EOF_W;
+X            return bytesread;
+X        }
+X        else
+X        {
+X            /* Read error. */
+X
+X            fb_error = FB_FILEERR_F;
+X            return bytesread;
+X        }
+X    }
+X    else
+X    {
+X        /* Full read -- update variables. */
+X
+X        filehandle->bufvalid = bytesread;
+X        filehandle->bufloc = 0;
+X        filehandle->bufoffset += bytesread;
+X
+X        /* All OK. */
+X
+X        fb_error = ST_SUCCESS;
+X        return bytesread;
+X    }
+X} /* end of static fb_bufget() */
+X
+END_OF_FILE
+  if test 45520 -ne `wc -c <'src/fb.c'`; then
+    echo shar: \"'src/fb.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/fb.c'
+fi
+if test -f 'src/shorten.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/shorten.awk'\"
+else
+  echo shar: Extracting \"'src/shorten.awk'\" \(86 characters\)
+  sed "s/^X//" >'src/shorten.awk' <<'END_OF_FILE'
+XBEGIN	{ foonum = 0 }
+X
+X{	printf("s/%s/FOO%d/g\n", $1, foonum);
+X	foonum = foonum + 1;
+X}
+END_OF_FILE
+  if test 86 -ne `wc -c <'src/shorten.awk'`; then
+    echo shar: \"'src/shorten.awk'\" unpacked with wrong size!
+  fi
+  # end of 'src/shorten.awk'
+fi
+if test -f 'src/token.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/token.c'\"
+else
+  echo shar: Extracting \"'src/token.c'\" \(6386 characters\)
+  sed "s/^X//" >'src/token.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   TOKEN.C                                                                *
+X*   MODULE:  FM (Formats)                                                  *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: token.c,v 1.1 1993/02/15 01:55:24 jwbirdsa Exp $
+X*                                                                          *
+X*   Token-getting functions needed by various image format processors.     *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#ifndef NO_MALLOCHDR
+X#include <malloc.h>
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "formats.h"
+X#include "token.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/*
+X** static globals
+X*/
+X
+X/*
+X** function prototypes
+X*/
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:  fm_token                                                    *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Skips any leading whitespace in the file, collects all contiguous  *
+X*       non-whitespace characters, and skips any trailing whitespace.      *
+X*       Returns the collected characters in a malloc'ed buffer.            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - file from which to get tokens                             *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns NULL on error.                                             *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xfm_token(FILE *infile)
+X#else
+Xfm_token(infile)
+XFILE *infile;
+X#endif
+X{
+X    char *retbuf;
+X    int retcount;
+X    long startpos;
+X    int c;
+X
+X    /* Skip leading whitespace. */
+X
+X    if ((c = fgetc(infile)) == EOF)
+X    {
+X        return NULL;
+X    }
+X    /* Use isascii() to make sure isspace() will work. */
+X    while (isascii(c) && isspace(c))
+X    {
+X        if ((c = fgetc(infile)) == EOF)
+X        {
+X            return NULL;
+X        }
+X    }
+X
+X    /* Record position of first non-whitespace, initialize count.  */
+X
+X    startpos = ftell(infile) - 1;
+X    retcount = 0;
+X
+X    /* Count contiguous nonwhitespace characters. */
+X
+X    while (isascii(c) && (isspace(c) == 0))
+X    {
+X        retcount++;
+X        if ((c = fgetc(infile)) == EOF)
+X        {
+X            return NULL;
+X        }
+X    }
+X
+X    /* Go back to first non-whitespace. */
+X
+X    if (fseek(infile, startpos, SEEK_SET) == -1)
+X    {
+X        return NULL;
+X    }
+X        
+X    /* Allocate return buffer. */
+X
+X    if ((retbuf = ((char *) malloc(retcount + 1))) == NULL)
+X    {
+X        return NULL;
+X    }
+X
+X    /* Read into buffer. */
+X
+X    if (fread(retbuf, sizeof(char), retcount, infile) != retcount)
+X    {
+X        free(retbuf);
+X        return NULL;
+X    }
+X    retbuf[retcount] = '\0';
+X
+X    /* Skip trailing whitespace. */
+X
+X    if ((c = fgetc(infile)) == EOF)
+X    {
+X        free(retbuf);
+X        return NULL;
+X    }
+X    while (isascii(c) && isspace(c))
+X    {
+X        if ((c = fgetc(infile)) == EOF)
+X        {
+X            free(retbuf);
+X            return NULL;
+X        }
+X    }
+X
+X    /* Back up one position so file is positioned at next token. */
+X
+X    if (fseek(infile, -1L, SEEK_CUR) == -1)
+X    {
+X        free(retbuf);
+X        return NULL;
+X    }
+X
+X    return retbuf;
+X} /* end of fm_token() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:  fm_eol                                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Forwards the file to the end of the current line. Useful for       *
+X*       skipping comments.                                                 *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - file to be forwarded                                      *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns error/status code.                                         *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xfm_eol(FILE *infile)
+X#else
+Xfm_eol(infile)
+XFILE *infile;
+X#endif
+X{
+X    int c;
+X
+X    while (((c = fgetc(infile)) != EOF) && (c != '\n')) ;
+X
+X    if (EOF == c)
+X    {
+X        return (feof(infile) ? FM_EOF_W : FM_FILEERR_E);
+X    }
+X    
+X    return ST_SUCCESS;
+X} /* end of fm_eol() */
+X
+END_OF_FILE
+  if test 6386 -ne `wc -c <'src/token.c'`; then
+    echo shar: \"'src/token.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/token.c'
+fi
+echo shar: End of archive 3 \(of 18\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

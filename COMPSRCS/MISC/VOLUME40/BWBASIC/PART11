@@ -1,0 +1,1924 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i062:  bwbasic - Bywater BASIC interpreter version 2.10, Part11/15
+Message-ID: <1993Oct29.162735.4089@sparky.sterling.com>
+X-Md4-Signature: 4154a6babb92c2a72c627e0330b65f42
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:27:35 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 62
+Archive-name: bwbasic/part11
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_prn.c bwbasic-2.10/bwb_tcc.c
+#   bwbasic-2.10/bwbtest/abs.bas bwbasic-2.10/bwbtest/chain1.bas
+#   bwbasic-2.10/bwbtest/chain2.bas bwbasic-2.10/bwbtest/dim.bas
+#   bwbasic-2.10/bwbtest/doloop.bas bwbasic-2.10/bwbtest/err.bas
+#   bwbasic-2.10/bwbtest/ifline.bas bwbasic-2.10/bwbtest/lof.bas
+#   bwbasic-2.10/bwbtest/loopuntl.bas
+# Wrapped by kent@sparky on Thu Oct 21 10:47:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_prn.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_prn.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_prn.c'\" \(38372 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_prn.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X	bwb_prn.c       Print and Error-Handling Commands
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/* Prototypes for functions visible only to this file */
+X
+Xint prn_col = 1;
+Xstatic int prn_width = 80;	/* default width for stdout */
+X
+Xstruct prn_fmt
+X   {
+X   int type;			/* STRING, NUMBER, SINGLE, or NUMBER */
+X   int exponential;		/* TRUE = use exponential notation */
+X   int right_justified;		/* TRUE = right justified else left justified */
+X   int width;			/* width of main section */
+X   int precision;		/* width after decimal point */
+X   int commas;                  /* use commas every three steps */
+X   int sign;			/* prefix sign to number */
+X   int money;			/* prefix money sign to number */
+X   int fill;			/* ASCII value for fill character, normally ' ' */
+X   int minus;			/* postfix minus sign to number */
+X   };
+X
+X#if ANSI_C
+Xstatic int prn_cr( char *buffer, FILE *f );
+Xstatic struct prn_fmt *get_prnfmt( char *buffer, int *position, FILE *f );
+Xstatic int bwb_xerror( char *message );
+Xstatic int xxputc( FILE *f, char c );
+Xstatic int xxxputc( FILE *f, char c );
+Xstatic struct bwb_variable * bwb_esetovar( struct exp_ese *e );
+X#else
+Xstatic int prn_cr();
+Xstatic struct prn_fmt *get_prnfmt();
+Xstatic int bwb_xerror();
+Xstatic int xxputc();
+Xstatic int xxxputc();
+Xstatic struct bwb_variable * bwb_esetovar();
+X#endif
+X
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_print()
+X
+X        DESCRIPTION:    This function implements the BASIC PRINT
+X                        command.
+X
+X	SYNTAX:		PRINT [# device-number,][USING format-string$;] expressions...
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_print( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_print( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   FILE *fp;
+X   static int pos;
+X   int req_devnumber;
+X   struct exp_ese *v;
+X   static char *s_buffer;          	/* small, temporary buffer */
+X   static int init = FALSE;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_print(): enter function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* initialize buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( s_buffer = calloc( MAXSTRINGSIZE + 1, sizeof(char) ) ) == NULL )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_print(): failed to get memory for s_buffer" );
+X#else
+X         bwb_error( err_getmem );
+X#endif
+X         }
+X      }
+X
+X   /* advance beyond whitespace and check for the '#' sign */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X#if COMMON_CMDS
+X   if ( l->buffer[ l->position ] == '#' )
+X      {
+X      ++( l->position );
+X      adv_element( l->buffer, &( l->position ), s_buffer );
+X      pos = 0;
+X      v = bwb_exp( s_buffer, FALSE, &pos );
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         ++( l->position );
+X         }
+X      else
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_print(): no comma after #n" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      req_devnumber = (int) exp_getnval( v );
+X
+X      /* check the requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): Requested device number is out of range." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      if (( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED ) ||
+X         ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): Requested device number is not open." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X      if ( dev_table[ req_devnumber ].mode != DEVMODE_OUTPUT )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_print(): Requested device is not open for OUTPUT." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_print(): device number is <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* look up the requested device in the device table */
+X
+X      fp = dev_table[ req_devnumber ].cfp;
+X
+X      }
+X
+X   else
+X      {
+X      fp = stdout;
+X      }
+X
+X#else
+X   fp = stdout;
+X#endif				/* COMMON_CMDS */
+X
+X   bwb_xprint( l, fp );
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xprint()
+X
+X	DESCRIPTION:    This function implements the BASIC PRINT
+X			command, utilizing a specified file our
+X			output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwb_xprint( struct bwb_line *l, FILE *f )
+X#else
+Xint
+Xbwb_xprint( l, f )
+X   struct bwb_line *l;
+X   FILE *f;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   int loop;
+X   static int p;
+X   static int fs_pos;
+X   struct prn_fmt *format;
+X   static char *format_string;
+X   static char *output_string;
+X   static char *element;
+X   static char *prnbuf;
+X   static int init = FALSE;
+X#if INTENSIVE_DEBUG || TEST_BSTRING
+X   bstring *b;
+X#endif
+X
+X   /* initialize buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( format_string = calloc( MAXSTRINGSIZE + 1, sizeof(char) ) ) == NULL )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_xprint(): failed to get memory for format_string" );
+X#else
+X         bwb_error( err_getmem );
+X#endif
+X         }
+X      if ( ( output_string = calloc( MAXSTRINGSIZE + 1, sizeof(char) ) ) == NULL )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_xprint(): failed to get memory for output_string" );
+X#else
+X         bwb_error( err_getmem );
+X#endif
+X         }
+X      if ( ( element = calloc( MAXSTRINGSIZE + 1, sizeof(char) ) ) == NULL )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_xprint(): failed to get memory for element buffer" );
+X#else
+X         bwb_error( err_getmem );
+X#endif
+X         }
+X      if ( ( prnbuf = calloc( MAXSTRINGSIZE + 1, sizeof(char) ) ) == NULL )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_xprint(): failed to get memory for prnbuf" );
+X#else
+X         bwb_error( err_getmem );
+X#endif
+X         }
+X      }
+X
+X   /* Detect USING Here */
+X
+X   fs_pos = -1;
+X
+X   /* get "USING" in format_string */
+X
+X   p = l->position;
+X   adv_element( l->buffer, &p, format_string );
+X   bwb_strtoupper( format_string );
+X
+X#if COMMON_CMDS
+X
+X   /* check to be sure */
+X
+X   if ( strcmp( format_string, CMD_XUSING ) == 0 )
+X      {
+X      l->position = p;
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      /* now get the format string in format_string */
+X
+X      e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X      if ( e->type == STRING )
+X         {
+X
+X         /* copy the format string to buffer */
+X
+X         str_btoc( format_string, exp_getsval( e ) );
+X
+X         /* look for ';' after format string */
+X
+X         fs_pos = 0;
+X         adv_ws( l->buffer, &( l->position ) );
+X         if ( l->buffer[ l->position ] == ';' )
+X            {
+X            ++l->position;
+X            adv_ws( l->buffer, &( l->position ) );
+X            }
+X         else
+X            {
+X#if PROG_ERRORS
+X            bwb_error( "Failed to find \";\" after format string in PRINT USING" );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            return FALSE;
+X            }
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_xprint(): Found USING, format string <%s>",
+X            format_string );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         }
+X
+X      else
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "Failed to find format string after PRINT USING" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return FALSE;
+X         }
+X      }
+X
+X#endif 			/* COMMON_CMDS */
+X
+X   /* if no arguments, simply print CR and return */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         prn_xprintf( f, "\n" );
+X         return TRUE;
+X      default:
+X         break;
+X      }
+X
+X   /* LOOP THROUGH PRINT ELEMENTS */
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X
+X      /* resolve the string */
+X
+X      e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_xprint(): op <%d> type <%d>",
+X         e->operation, e->type );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* an OP_NULL probably indicates a terminating ';', but this
+X         will be detected later, so we can ignore it for now */
+X
+X      if ( e->operation != OP_NULL )
+X         {
+X#if TEST_BSTRING
+X         b = exp_getsval( e );
+X         sprintf( bwb_ebuf, "in bwb_xprint(): bstring name is <%s>",
+X            b->name );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         str_btoc( element, exp_getsval( e ) );
+X         }
+X      else
+X         {
+X         element[ 0 ] = '\0';
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_xprint(): element <%s>",
+X         element );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* print with format if there is one */
+X
+X      if (( fs_pos > -1 ) && ( strlen( element ) > 0 ))
+X         {
+X
+X#if COMMON_CMDS
+X
+X         format = get_prnfmt( format_string, &fs_pos, f );
+X
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_xprint(): format type <%d> width <%d>",
+X            format->type, format->width );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         switch( format->type )
+X            {
+X            case STRING:
+X               if ( e->type != STRING )
+X                  {
+X#if PROG_ERRORS
+X                  bwb_error( "Type mismatch in PRINT USING" );
+X#else
+X                  bwb_error( err_mismatch );
+X#endif
+X                  }
+X               sprintf( output_string, "%.*s", format->width,
+X                  element );
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_xprint(): output string <%s>",
+X                  output_string );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               prn_xprintf( f, output_string );
+X               break;
+X
+X	    case NUMBER:
+X               if ( e->type == STRING )
+X                  {
+X#if PROG_ERRORS
+X                  bwb_error( "Type mismatch in PRINT USING" );
+X#else
+X                  bwb_error( err_mismatch );
+X#endif
+X                  }
+X
+X	       if ( format->exponential == TRUE )
+X		  {
+X		  sprintf( output_string, "%e",
+X		     exp_getnval( e ) );
+X		  }
+X	       else
+X		  {
+X		  sprintf( output_string, "%*.*f",
+X		     format->width, format->precision, exp_getnval( e ) );
+X		  }
+X
+X#if INTENSIVE_DEBUG
+X	       sprintf( bwb_ebuf, "in bwb_xprint(): output number <%f> string <%s>",
+X		  exp_getnval( e ), output_string );
+X	       bwb_debug( bwb_ebuf );
+X#endif
+X
+X               prn_xprintf( f, output_string );
+X               break;
+X
+X	    default:
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in bwb_xprint(): get_prnfmt() returns unknown type <%c>",
+X                  format->type );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_mismatch );
+X#endif
+X               break;
+X            }
+X
+X#endif			/* COMMON_CMDS */
+X
+X         }
+X
+X      /* not a format string: use defaults */
+X
+X      else if ( strlen( element ) > 0 )
+X         {
+X
+X         switch( e->type )
+X            {
+X            case STRING:
+X               prn_xprintf( f, element );
+X               break;
+X            default:
+X#if NUMBER_DOUBLE
+X               sprintf( prnbuf, " %.*lf", prn_precision( bwb_esetovar( e )),
+X                  exp_getnval( e ) );
+X#else
+X               sprintf( prnbuf, " %.*f", prn_precision( bwb_esetovar( e )),
+X                  exp_getnval( e ) );
+X#endif
+X               prn_xprintf( f, prnbuf );
+X               break;
+X            }
+X         }
+X
+X      /* check the position to see if the loop should continue */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      switch( l->buffer[ l->position ] )
+X         {
+X#if OLDSTUFF
+X         case ':':		/* end of line segment */
+X	    loop = FALSE;
+X	    break;
+X         case '\0':		/* end of buffer */
+X         case '\n':
+X         case '\r':
+X	    loop = FALSE;
+X            break;
+X#endif
+X         case ',':		/* tab over */
+X            xputc( f, '\t' );
+X            ++l->position;
+X            adv_ws( l->buffer, &( l->position ) );
+X            break;
+X         case ';':		/* concatenate strings */
+X            ++l->position;
+X            adv_ws( l->buffer, &( l->position ) );
+X            break;
+X         default:
+X            loop = FALSE;
+X            break;
+X         }
+X
+X      }				/* end of loop through print elements */
+X
+X   /* call prn_cr() to print a CR if it is not overridden by a
+X      concluding ';' mark */
+X
+X   prn_cr( l->buffer, f );
+X
+X   return TRUE;
+X
+X   }                            /* end of function bwb_xprint() */
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       get_prnfmt()
+X
+X	DESCRIPTION:    This function gets the PRINT USING
+X			format string, returning a structure
+X			to the format.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct prn_fmt *
+Xget_prnfmt( char *buffer, int *position, FILE *f )
+X#else
+Xstatic struct prn_fmt *
+Xget_prnfmt( buffer, position, f )
+X   char *buffer;
+X   int *position;
+X   FILE *f;
+X#endif
+X   {
+X   static struct prn_fmt retstruct;
+X   int loop;
+X
+X   /* set some defaults */
+X
+X   retstruct.precision = 0;
+X   retstruct.type = FALSE;
+X   retstruct.exponential = FALSE;
+X   retstruct.right_justified = FALSE;
+X   retstruct.commas = FALSE;
+X   retstruct.sign = FALSE;
+X   retstruct.money = FALSE;
+X   retstruct.fill = ' ';
+X   retstruct.minus = FALSE;
+X   retstruct.width = 0;
+X
+X   /* check for negative position */
+X
+X   if ( *position < 0 )
+X      {
+X      return &retstruct;
+X      }
+X
+X   /* advance past whitespace */
+X
+X   adv_ws( buffer, position );
+X
+X   /* check first character: a lost can be decided right here */
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in get_prnfmt(): loop, buffer <%s>",
+X         &( buffer[ *position ] ) );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      switch( buffer[ *position ] )
+X         {
+X         case ' ':		/* end of this format segment */
+X            loop = FALSE;
+X            break;
+X         case '\0':		/* end of format string */
+X         case '\n':
+X         case '\r':
+X            *position = -1;
+X            return &retstruct;
+X         case '_':		/* print next character as literal */
+X            ++( *position );
+X            xputc( f, buffer[ *position ] );
+X            ++( *position );
+X            break;
+X
+X	 case '!':
+X            retstruct.type = STRING;
+X            retstruct.width = 1;
+X            return &retstruct;
+X
+X	 case '\\':
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in get_prnfmt(): found \\" );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    retstruct.type = STRING;
+X	    ++retstruct.width;
+X	    ++( *position );
+X	    for ( ; buffer[ *position ] == ' '; ++( *position ) )
+X               {
+X               ++retstruct.width;
+X               }
+X            if ( buffer[ *position ] == '\\' )
+X	       {
+X	       ++retstruct.width;
+X               ++( *position );
+X               }
+X            return &retstruct;
+X         case '$':
+X            ++( *position );
+X            retstruct.money = TRUE;
+X            if ( buffer[ *position ] == '$' )
+X               {
+X               ++( *position );
+X               }
+X            break;
+X         case '*':
+X            ++( *position );
+X            retstruct.fill = '*';
+X            if ( buffer[ *position ] == '*' )
+X               {
+X               ++( *position );
+X               }
+X            break;
+X         case '+':
+X            ++( *position );
+X            retstruct.sign = TRUE;
+X            break;
+X         case '#':
+X            retstruct.type = NUMBER;		/* for now */
+X            ++( *position );
+X            for ( retstruct.width = 1; buffer[ *position ] == '#'; ++( *position ) )
+X               {
+X               ++retstruct.width;
+X               }
+X            if ( buffer[ *position ] == ',' )
+X               {
+X               retstruct.commas = TRUE;
+X               }
+X            if ( buffer[ *position ] == '.' )
+X               {
+X	       retstruct.type = NUMBER;
+X	       ++retstruct.width;
+X               ++( *position );
+X               for ( retstruct.precision = 0; buffer[ *position ] == '#'; ++( *position ) )
+X                  {
+X		  ++retstruct.precision;
+X		  ++retstruct.width;
+X                  }
+X               }
+X            if ( buffer[ *position ] == '-' )
+X               {
+X               retstruct.minus = TRUE;
+X               ++( *position );
+X               }
+X            return &retstruct;
+X
+X	 case '^':
+X            retstruct.type = NUMBER;
+X            retstruct.exponential = TRUE;
+X            for ( retstruct.width = 1; buffer[ *position ] == '^'; ++( *position ) )
+X               {
+X               ++retstruct.width;
+X               }
+X            return &retstruct;
+X
+X         }
+X      }					/* end of loop */
+X
+X   return &retstruct;
+X   }
+X
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       prn_cr()
+X
+X	DESCRIPTION:    This function outputs a carriage-return
+X			to a specified file or output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xprn_cr( char *buffer, FILE *f )
+X#else
+Xstatic int
+Xprn_cr( buffer, f )
+X   char *buffer;
+X   FILE *f;
+X#endif
+X   {
+X   register int c;
+X   int loop;
+X
+X   /* find the end of the buffer */
+X
+X   for ( c = 0; buffer[ c ] != '\0'; ++c )
+X      {
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in prn_cr(): initial c is <%d>", c );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* back up through any whitespace */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X      switch( buffer[ c ] )
+X         {
+X         case ' ':                              /* if whitespace */
+X         case '\t':
+X         case 0:
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in prn_cr(): backup: c is <%d>, char <%c>[0x%x]",
+X               c, buffer[ c ], buffer[ c ] );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            --c;                                /* back up */
+X            if ( c < 0 )                        /* check position */
+X               {
+X               loop = FALSE;
+X               }
+X            break;
+X
+X         default:                               /* else break out */
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in prn_cr(): breakout: c is <%d>, char <%c>[0x%x]",
+X               c, buffer[ c ], buffer[ c ] );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            loop = FALSE;
+X            break;
+X         }
+X      }
+X
+X   if ( buffer[ c ] == ';' )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in prn_cr(): concluding <;> detected." );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      return FALSE;
+X      }
+X
+X   else
+X      {
+X      prn_xprintf( f, "\n" );
+X      return TRUE;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       prn_xprintf()
+X
+X	DESCRIPTION:    This function outputs a null-terminated
+X			string to a specified file or output
+X			device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xprn_xprintf( FILE *f, char *buffer )
+X#else
+Xint
+Xprn_xprintf( f, buffer )
+X   FILE *f;
+X   char *buffer;
+X#endif
+X   {
+X   char *p;
+X
+X   /* DO NOT try anything so stupid as to run bwb_debug() from
+X      here, because it will create an endless loop. And don't
+X      ask how I know. */
+X
+X   for ( p = buffer; *p != '\0'; ++p )
+X      {
+X      xputc( f, *p );
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       xputc()
+X
+X	DESCRIPTION:    This function outputs a character to a
+X			specified file or output device, expanding
+X			TABbed output approriately.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xxputc( FILE *f, char c )
+X#else
+Xint
+Xxputc( f, c )
+X   FILE *f;
+X   char c;
+X#endif
+X   {
+X   static int tab_pending = FALSE;
+X
+X   /* check for pending TAB */
+X
+X   if ( tab_pending == TRUE )
+X      {
+X      if ( (int) c < ( * prn_getcol( f ) ) )
+X         {
+X         xxputc( f, '\n' );
+X         }
+X      while( ( * prn_getcol( f )) < (int) c )
+X         {
+X         xxputc( f, ' ' );
+X         }
+X      tab_pending = FALSE;
+X      return TRUE;
+X      }
+X
+X   /* check c for specific output options */
+X
+X   switch( c )
+X      {
+X      case PRN_TAB:
+X         tab_pending = TRUE;
+X         break;
+X
+X      case '\t':
+X         while( ( (* prn_getcol( f )) % 14 ) != 0 )
+X            {
+X            xxputc( f, ' ' );
+X            }
+X         break;
+X
+X      default:
+X         xxputc( f, c );
+X         break;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       xxputc()
+X
+X	DESCRIPTION:    This function outputs a character to a
+X			specified file or output device, checking
+X			to be sure the PRINT width is within
+X			the bounds specified for that device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xxxputc( FILE *f, char c )
+X#else
+Xstatic int
+Xxxputc( f, c )
+X   FILE *f;
+X   char c;
+X#endif
+X   {
+X
+X   /* check to see if width has been exceeded */
+X
+X   if ( * prn_getcol( f ) >= prn_getwidth( f ))
+X      {
+X      xxxputc( f, '\n' );                 /* output LF */
+X      * prn_getcol( f ) = 1;		/* and reset */
+X      }
+X
+X   /* adjust the column counter */
+X
+X   if ( c == '\n' )
+X      {
+X      * prn_getcol( f ) = 1;
+X      }
+X   else
+X      {
+X      ++( * prn_getcol( f ));
+X      }
+X
+X   /* now output the character */
+X
+X   return xxxputc( f, c );
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       xxxputc()
+X
+X	DESCRIPTION:    This function sends a character to a
+X			specified file or output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xxxxputc( FILE *f, char c )
+X#else
+Xstatic int
+Xxxxputc( f, c )
+X   FILE *f;
+X   char c;
+X#endif
+X   {
+X   if (( f == stdout ) || ( f == stderr ))
+X      {
+X      return bwx_putc( c );
+X      }
+X   else
+X      {
+X      return fputc( c, f );
+X      }
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       prn_getcol()
+X
+X	DESCRIPTION:    This function returns a pointer to an
+X			integer containing the current PRINT
+X			column for a specified file or device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint *
+Xprn_getcol( FILE *f )
+X#else
+Xint *
+Xprn_getcol( f )
+X   FILE *f;
+X#endif
+X   {
+X   register int n;
+X   static int dummy_pos;
+X
+X   if (( f == stdout ) || ( f == stderr ))
+X      {
+X      return &prn_col;
+X      }
+X
+X#if COMMON_CMDS
+X   for ( n = 0; n < DEF_DEVICES; ++n )
+X      {
+X      if ( dev_table[ n ].cfp == f )
+X         {
+X         return &( dev_table[ n ].col );
+X         }
+X      }
+X#endif
+X
+X   /* search failed */
+X
+X#if PROG_ERRORS
+X   bwb_error( "in prn_getcol(): failed to find file pointer" );
+X#else
+X   bwb_error( err_devnum );
+X#endif
+X
+X   return &dummy_pos;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       prn_getwidth()
+X
+X	DESCRIPTION:    This function returns the PRINT width for
+X			a specified file or output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xprn_getwidth( FILE *f )
+X#else
+Xint
+Xprn_getwidth( f )
+X   FILE *f;
+X#endif
+X   {
+X   register int n;
+X
+X   if (( f == stdout ) || ( f == stderr ))
+X      {
+X      return prn_width;
+X      }
+X
+X#if COMMON_CMDS
+X   for ( n = 0; n < DEF_DEVICES; ++n )
+X      {
+X      if ( dev_table[ n ].cfp == f )
+X         {
+X         return dev_table[ n ].width;
+X         }
+X      }
+X#endif
+X
+X   /* search failed */
+X
+X#if PROG_ERRORS
+X   bwb_error( "in prn_getwidth(): failed to find file pointer" );
+X#else
+X   bwb_error( err_devnum );
+X#endif
+X
+X   return 1;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       prn_precision()
+X
+X	DESCRIPTION:    This function returns the level of precision
+X			required for a specified numerical value.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xprn_precision( struct bwb_variable *v )
+X#else
+Xint
+Xprn_precision( v )
+X   struct bwb_variable *v;
+X#endif
+X   {
+X   int max_precision = 6;
+X   bnumber nval, d;
+X   int r;
+X
+X   /* check for double value */
+X
+X   if ( v->type == NUMBER )
+X      {
+X      max_precision = 12;
+X      }
+X
+X   /* get the value in nval */
+X
+X   nval = (bnumber) fabs( (double) var_getnval( v ) );
+X
+X   /* cycle through until precision is found */
+X
+X   d = (bnumber) 1;
+X   for ( r = 0; r < max_precision; ++r )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in prn_precision(): fmod( %f, %f ) = %.12f",
+X         nval, d, fmod( nval, d ) );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( fmod( nval, d ) < 0.0000001 )
+X         {
+X         return r;
+X         }
+X      d /= 10;
+X      }
+X
+X   /* return */
+X
+X   return r;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_debug()
+X
+X        DESCRIPTION:    This function is called to display
+X                        debugging messages in Bywater BASIC.
+X                        It does not break out at the current
+X                        point (as bwb_error() does).
+X
+X***************************************************************/
+X
+X#if PERMANENT_DEBUG
+X
+X#if ANSI_C
+Xint
+Xbwb_debug( char *message )
+X#else
+Xint
+Xbwb_debug( message )
+X   char *message;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   fflush( stdout );
+X   fflush( errfdevice );
+X   if ( prn_col != 1 )
+X      {
+X      prn_xprintf( errfdevice, "\n" );
+X      }
+X   sprintf( tbuf, "DEBUG %s\n", message );
+X   prn_xprintf( errfdevice, tbuf );
+X
+X   return TRUE;
+X   }
+X#endif
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_lerror()
+X
+X        DESCRIPTION:    This function implements the BASIC ERROR
+X                        command.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_lerror( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_lerror( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   int n;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_lerror(): entered function " );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Check for argument */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\n':
+X      case '\r':
+X      case ':':
+X         bwb_error( err_incomplete );
+X         return bwb_zline( l );
+X      default:
+X         break;
+X      }
+X
+X   /* get the variable name or numerical constant */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   n = atoi( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_lerror(): error number is <%d> ", n );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* check the line number value */
+X
+X   if ( ( n < 0 ) || ( n >= N_ERRORS ))
+X      {
+X      sprintf( bwb_ebuf, "Error number %d is out of range", n );
+X      bwb_xerror( bwb_ebuf );
+X      return bwb_zline( l );
+X      }
+X
+X   bwb_xerror( err_table[ n ] );
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_width()
+X
+X	DESCRIPTION:    This C function implements the BASIC WIDTH
+X			command, setting the maximum output width
+X			for a specified file or output device.
+X
+X	SYNTAX:		WIDTH [# device-number,] number
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_width( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_width( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int req_devnumber;
+X   int req_width;
+X   struct exp_ese *e;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   int pos;
+X
+X   /* detect device number if present */
+X
+X   req_devnumber = -1;
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   if ( l->buffer[ l->position ] == '#' )
+X      {
+X      ++( l->position );
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      pos = 0;
+X      e = bwb_exp( tbuf, FALSE, &pos );
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         ++( l->position );
+X         }
+X      else
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_width(): no comma after#n" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      req_devnumber = (int) exp_getnval( e );
+X
+X      /* check the requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_width(): Requested device number is out of range." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_width(): device number is <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      }
+X
+X   /* read the width requested */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ));
+X   req_width = (int) exp_getnval( e );
+X
+X   /* check the width */
+X
+X   if ( ( req_width < 1 ) || ( req_width > 255 ))
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_width(): Requested width is out of range (1-255)" );
+X#else
+X      bwb_error( err_valoorange );
+X#endif
+X      }
+X
+X   /* assign the width */
+X
+X   if ( req_devnumber == -1 )
+X      {
+X      prn_width = req_width;
+X      }
+X   else
+X      {
+X      dev_table[ req_devnumber ].width = req_width;
+X      }
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif			/* COMMON_CMDS */
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_error()
+X
+X        DESCRIPTION:    This function is called to handle errors
+X                        in Bywater BASIC.  It displays the error
+X                        message, then calls the break_handler()
+X                        routine.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwb_error( char *message )
+X#else
+Xint
+Xbwb_error( message )
+X   char *message;
+X#endif
+X   {
+X   register int e;
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];	/* must be permanent */
+X   static struct bwb_line eline;
+X   int save_elevel;
+X   struct bwb_line *cur_l;
+X   int cur_mode;
+X
+X   /* try to find the error message to identify the error number */
+X
+X   err_number = -1;			/* just for now */
+X   err_line = CURTASK number;		/* set error line number */
+X
+X   for ( e = 0; e < N_ERRORS; ++e )
+X      {
+X      if ( message == err_table[ e ] )	/* set error number */
+X         {
+X         err_number = e;
+X         e = N_ERRORS;			/* break out of loop quickly */
+X         }
+X      }
+X
+X   /* set the position in the current line to the end */
+X
+X   while( is_eol( bwb_l->buffer, &( bwb_l->position ) ) != TRUE )
+X      {
+X      ++( bwb_l->position );
+X      }
+X
+X   /* if err_gosubl is not set, then use xerror routine */
+X
+X   if ( strlen( err_gosubl ) == 0 )
+X      {
+X      return bwb_xerror( message );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   fprintf( stderr, "!!!!! USER_CALLED ERROR HANDLER\n" );
+X#endif
+X
+X   /* save line and mode */
+X
+X   cur_l = bwb_l;
+X   cur_mode = CURTASK excs[ CURTASK exsc ].code;
+X
+X   /* err_gosubl is set; call user-defined error subroutine */
+X
+X   sprintf( tbuf, "%s %s", CMD_GOSUB, err_gosubl );
+X   eline.next = &CURTASK bwb_end;
+X   eline.position = 0;
+X   eline.marked = FALSE;
+X   eline.buffer = tbuf;
+X   bwb_setexec( &eline, 0, EXEC_NORM );
+X
+X   /* must be executed now */
+X
+X   save_elevel = CURTASK exsc;
+X   bwb_execline();              /* This is a call to GOSUB and will increment
+X				   the exsc counter above save_elevel */
+X
+X   while ( CURTASK exsc != save_elevel )        /* loop until return from GOSUB loop */
+X      {
+X      bwb_execline();
+X      }
+X
+X   cur_l->next->position = 0;
+X   bwb_setexec( cur_l->next, 0, cur_mode );
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xerror()
+X
+X        DESCRIPTION:    This function is called by bwb_error()
+X                        in Bywater BASIC.  It displays the error
+X                        message, then calls the break_handler()
+X                        routine.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xbwb_xerror( char *message )
+X#else
+Xstatic int
+Xbwb_xerror( message )
+X   char *message;
+X#endif
+X   {
+X
+X   bwx_errmes( message );
+X
+X   break_handler();
+X
+X   return FALSE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_esetovar()
+X
+X        DESCRIPTION:    This function converts the value in expression
+X			stack 'e' to a bwBASIC variable structure.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_variable *
+Xbwb_esetovar( struct exp_ese *e )
+X#else
+Xstatic struct bwb_variable *
+Xbwb_esetovar( e )
+X   struct exp_ese *e;
+X#endif
+X   {
+X   static struct bwb_variable b;
+X
+X   var_make( &b, e->type );
+X
+X   switch( e->type )
+X      {
+X      case STRING:
+X         str_btob( var_findsval( &b, b.array_pos ), exp_getsval( e ) );
+X         break;
+X      default:
+X         * var_findnval( &b, b.array_pos ) = e->nval;
+X         break;
+X      }
+X
+X   return &b;
+X
+X   }
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_write()
+X
+X	DESCRIPTION:    This C function implements the BASIC WRITE
+X			command.
+X
+X	SYNTAX:		WRITE [# device-number,] element [, element ]....
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_write( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_write( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   int req_devnumber;
+X   int pos;
+X   FILE *fp;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   int loop;
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X
+X   /* initialize variable if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, NUMBER );
+X      }
+X
+X   /* detect device number if present */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   if ( l->buffer[ l->position ] == '#' )
+X      {
+X      ++( l->position );
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      pos = 0;
+X      e = bwb_exp( tbuf, FALSE, &pos );
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         ++( l->position );
+X         }
+X      else
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_write(): no comma after#n" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      req_devnumber = (int) exp_getnval( e );
+X
+X      /* check the requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_write(): Requested device number is out of range." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      if (( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED ) ||
+X         ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_write(): Requested device number is not open." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X      if ( dev_table[ req_devnumber ].mode != DEVMODE_OUTPUT )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_write(): Requested device is not open for OUTPUT." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_write(): device number is <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* look up the requested device in the device table */
+X
+X      fp = dev_table[ req_devnumber ].cfp;
+X
+X      }
+X
+X   else
+X      {
+X      fp = stdout;
+X      }
+X
+X   /* be sure there is an element to print */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   loop = TRUE;
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\n':
+X      case '\r':
+X      case '\0':
+X      case ':':
+X         loop = FALSE;
+X         break;
+X      }
+X
+X   /* loop through elements */
+X
+X   while ( loop == TRUE )
+X      {
+X
+X      /* get the next element */
+X
+X      e = bwb_exp( l->buffer, FALSE, &( l->position ));
+X
+X      /* perform type-specific output */
+X
+X      switch( e->type )
+X         {
+X         case STRING:
+X            xputc( fp, '\"' );
+X            str_btoc( tbuf, exp_getsval( e ) );
+X            prn_xprintf( fp, tbuf );
+X            xputc( fp, '\"' );
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_write(): output string element <\"%s\">",
+X               tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            break;
+X         default:
+X            * var_findnval( &nvar, nvar.array_pos ) =
+X               exp_getnval( e );
+X#if NUMBER_DOUBLE
+X            sprintf( tbuf, " %.*lf", prn_precision( &nvar ),
+X               var_getnval( &nvar ) );
+X#else
+X            sprintf( tbuf, " %.*f", prn_precision( &nvar ),
+X               var_getnval( &nvar ) );
+X#endif
+X            prn_xprintf( fp, tbuf );
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_write(): output numerical element <%s>",
+X               tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            break;
+X         }				/* end of case for type-specific output */
+X
+X      /* seek a comma at end of element */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         xputc( fp, ',' );
+X         ++( l->position );
+X         }
+X
+X      /* no comma: end the loop */
+X
+X      else
+X         {
+X         loop = FALSE;
+X         }
+X
+X      }					/* end of loop through elements */
+X
+X   /* print LF */
+X
+X   xputc( fp, '\n' );
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif
+X
+END_OF_FILE
+  if test 38372 -ne `wc -c <'bwbasic-2.10/bwb_prn.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_prn.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_prn.c'
+fi
+if test -f 'bwbasic-2.10/bwb_tcc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_tcc.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_tcc.c'\" \(167 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_tcc.c' <<'END_OF_FILE'
+X/* This is for Borland Turbo C++ only: it requests the linker to
+X   establish a larger-than-usual stack of 8192 bytes for bwBASIC */
+X
+Xextern unsigned _stklen = 8192U;
+END_OF_FILE
+  if test 167 -ne `wc -c <'bwbasic-2.10/bwb_tcc.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_tcc.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_tcc.c'
+fi
+if test -f 'bwbasic-2.10/bwbtest/abs.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/abs.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/abs.bas'\" \(154 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/abs.bas' <<'END_OF_FILE'
+X10 rem ABS.BAS -- Test ABS() function
+X20 X = -1.23456789
+X30 ABSX = ABS( X )
+X40 print "The absolute value of "; X; " is"; ABSX
+X50 print "Is that correct?"
+END_OF_FILE
+  if test 154 -ne `wc -c <'bwbasic-2.10/bwbtest/abs.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/abs.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/abs.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/chain1.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/chain1.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/chain1.bas'\" \(177 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/chain1.bas' <<'END_OF_FILE'
+XREM CHAIN1.BAS
+Xprint "This is program CHAIN1.BAS"
+XX = 5.6789
+Xcommon X
+Xprint "The value of X is";X
+Xprint "We shall no pass execution to program CHAIN2.BAS..."
+Xchain "chain2.bas"
+END_OF_FILE
+  if test 177 -ne `wc -c <'bwbasic-2.10/bwbtest/chain1.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/chain1.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/chain1.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/chain2.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/chain2.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/chain2.bas'\" \(121 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/chain2.bas' <<'END_OF_FILE'
+XREM CHAIN2.BAS
+Xprint "This is program CHAIN2.BAS"
+Xprint "The value of X is now";X
+Xprint "This concludes our CHAIN test."
+END_OF_FILE
+  if test 121 -ne `wc -c <'bwbasic-2.10/bwbtest/chain2.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/chain2.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/chain2.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/dim.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/dim.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/dim.bas'\" \(121 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/dim.bas' <<'END_OF_FILE'
+X10 DIM n(5) 
+X20 FOR i = 0 to 5 
+X30 LET n(i) = i + 2 
+X40 PRINT "The value at position ";i;" is ";n(i) 
+X50 NEXT i 
+X60 END 
+END_OF_FILE
+  if test 121 -ne `wc -c <'bwbasic-2.10/bwbtest/dim.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/dim.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/dim.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/doloop.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/doloop.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/doloop.bas'\" \(95 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/doloop.bas' <<'END_OF_FILE'
+X10 i = 0
+X20 do
+X30 i = i + 1
+X40 print "i is";i
+X50 if i > 12 then exit do
+X60 loop
+X70 print "End"
+END_OF_FILE
+  if test 95 -ne `wc -c <'bwbasic-2.10/bwbtest/doloop.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/doloop.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/doloop.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/err.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/err.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/err.bas'\" \(33 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/err.bas' <<'END_OF_FILE'
+X10 dim n(5)
+X20 print n(7)
+X30 end
+END_OF_FILE
+  if test 33 -ne `wc -c <'bwbasic-2.10/bwbtest/err.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/err.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/err.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/ifline.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/ifline.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/ifline.bas'\" \(144 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/ifline.bas' <<'END_OF_FILE'
+X10 rem test if then followed by line number
+X20 if 5 = 5 then 80
+X30 print "The statement failed"
+X40 stop
+X80 print "The program succeeded"
+X90 end
+END_OF_FILE
+  if test 144 -ne `wc -c <'bwbasic-2.10/bwbtest/ifline.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/ifline.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/ifline.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/lof.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/lof.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/lof.bas'\" \(137 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/lof.bas' <<'END_OF_FILE'
+X10 print "Test LOF() Function"
+X20 input "Filename";F$
+X30 open "i", 1, F$
+X40 print "Length of file ";F$;" is ";LOF(1);" bytes"
+X50 close 1
+END_OF_FILE
+  if test 137 -ne `wc -c <'bwbasic-2.10/bwbtest/lof.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/lof.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/lof.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/loopuntl.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/loopuntl.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/loopuntl.bas'\" \(96 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/loopuntl.bas' <<'END_OF_FILE'
+X10 rem LOOPUNTL.BAS
+X20 i = 0
+X30 do
+X40 i = i + 1
+X50 print "Value of i is";i
+X60 loop until i > 12
+END_OF_FILE
+  if test 96 -ne `wc -c <'bwbasic-2.10/bwbtest/loopuntl.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/loopuntl.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/loopuntl.bas'
+fi
+echo shar: End of archive 11 \(of 15\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

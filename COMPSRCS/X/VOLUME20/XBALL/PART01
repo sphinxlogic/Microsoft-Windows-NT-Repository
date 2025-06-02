@@ -1,0 +1,2967 @@
+Newsgroups: comp.sources.x
+From: daven@ctron.com ("David N. Nedde")
+Subject: v20i001:  xball - simulate bouncing balls in a window, Part01/05
+Message-ID: <csx-v20i001=xball.152626@sparky.IMD.Sterling.COM>
+X-Md4-Signature: b4f65a61d4b1088449a4d8afb1867dd0
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Mon, 24 May 1993 20:28:09 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: daven@ctron.com ("David N. Nedde")
+Posting-number: Volume 20, Issue 1
+Archive-name: xball/part01
+Environment: X11, OSF/Motif, Athena
+
+XBall Version 3.0 - 5/93
+
+  This program simulates bouncing balls in a window.  You create the
+balls in a variety of ways, and can set the gravity, elasticity,
+whether balls collide or not, etc.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 5)."
+# Contents:  X11 X11/Xaw_d X11/Xaw_d/DrawingA.c X11/Xaw_d/DrawingA.h
+#   X11/Xaw_d/DrawingAP.h X11/Xaw_d/DrawingA.doc X11/Xaw_d/Imakefile
+#   X11/Xaw_d/Makefile.std X11/Xaw_d/Makefile X11/Xaw_d/demo.c
+#   X11/Xaw_d/README Imakefile Makefile.std Makefile items.c
+#   patchlevel.h
+# Wrapped by daven@osiris on Tue May  4 16:35:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'X11' ; then
+    echo shar: Creating directory \"'X11'\"
+    mkdir 'X11'
+fi
+if test ! -d 'X11/Xaw_d' ; then
+    echo shar: Creating directory \"'X11/Xaw_d'\"
+    mkdir 'X11/Xaw_d'
+fi
+if test -f 'X11/Xaw_d/DrawingA.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/DrawingA.c'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/DrawingA.c'\" \(5136 characters\)
+sed "s/^X//" >'X11/Xaw_d/DrawingA.c' <<'END_OF_FILE'
+X/* DrawingA.c: The DrawingArea Widget Methods */
+X
+X/* Copyright 1990, David Nedde
+X/*
+X/* Permission to use, copy, modify, and distribute this
+X/* software and its documentation for any purpose and without fee
+X/* is granted provided that the above copyright notice appears in all copies.
+X/* It is provided "as is" without express or implied warranty.
+X*/
+X
+X#include <X11/IntrinsicP.h>
+X#include <X11/StringDefs.h>
+X#include <X11/CoreP.h>
+X#include <X11/Xaw/SimpleP.h>
+X#include <X11/Xaw_d/DrawingAP.h>
+X
+Xstatic void	Initialize();
+Xstatic void	Destroy();
+Xstatic void	Redisplay();
+Xstatic void	input_draw();
+Xstatic void	motion_draw();
+Xstatic void	resize_draw();
+X
+Xstatic char defaultTranslations[] = "<BtnDown>: input() \n <BtnUp>: input() \n <KeyDown>: input() \n <KeyUp>: input() \n <Motion>: motion() \n <Configure>: resize()";
+Xstatic XtActionsRec actionsList[] = {
+X  { "input",  (XtActionProc)input_draw },
+X  { "motion", (XtActionProc)motion_draw },
+X  { "resize", (XtActionProc)resize_draw },
+X};
+X
+X/* Default instance record values */
+Xstatic XtResource resources[] = {
+X  {XtNexposeCallback, XtCCallback, XtRCallback, sizeof(caddr_t),
+X     XtOffset(DrawingAreaWidget, drawing_area.expose_callback), 
+X     XtRCallback, NULL },
+X  {XtNinputCallback, XtCCallback, XtRCallback, sizeof(caddr_t),
+X     XtOffset(DrawingAreaWidget, drawing_area.input_callback), 
+X     XtRCallback, NULL },
+X  {XtNmotionCallback, XtCCallback, XtRCallback, sizeof(caddr_t),
+X     XtOffset(DrawingAreaWidget, drawing_area.motion_callback), 
+X     XtRCallback, NULL },
+X  {XtNresizeCallback, XtCCallback, XtRCallback, sizeof(caddr_t),
+X     XtOffset(DrawingAreaWidget, drawing_area.resize_callback), 
+X     XtRCallback, NULL },
+X};
+X
+X
+XDrawingAreaClassRec drawingAreaClassRec = {
+X  /* CoreClassPart */
+X{
+X  (WidgetClass) &simpleClassRec,	/* superclass		  */	
+X    "DrawingArea",			/* class_name		  */
+X    sizeof(DrawingAreaRec),		/* size			  */
+X    NULL,				/* class_initialize	  */
+X    NULL,				/* class_part_initialize  */
+X    FALSE,				/* class_inited		  */
+X    Initialize,				/* initialize		  */
+X    NULL,				/* initialize_hook	  */
+X    XtInheritRealize,			/* realize		  */
+X    actionsList,			/* actions		  */
+X    XtNumber(actionsList),		/* num_actions		  */
+X    resources,				/* resources		  */
+X    XtNumber(resources),		/* resource_count	  */
+X    NULLQUARK,				/* xrm_class		  */
+X    FALSE,				/* compress_motion	  */
+X    FALSE,				/* compress_exposure	  */
+X    TRUE,				/* compress_enterleave    */
+X    FALSE,				/* visible_interest	  */
+X    Destroy,				/* destroy		  */
+X    NULL,				/* resize		  */
+X    Redisplay,				/* expose		  */
+X    NULL,				/* set_values		  */
+X    NULL,				/* set_values_hook	  */
+X    XtInheritSetValuesAlmost,		/* set_values_almost	  */
+X    NULL,				/* get_values_hook	  */
+X    NULL,				/* accept_focus		  */
+X    XtVersion,				/* version		  */
+X    NULL,				/* callback_private	  */
+X    defaultTranslations,		/* tm_table		  */
+X    XtInheritQueryGeometry,		/* query_geometry	  */
+X    XtInheritDisplayAccelerator,	/* display_accelerator	  */
+X    NULL				/* extension		  */
+X  },  /* CoreClass fields initialization */
+X  {
+X    /* change_sensitive		*/	XtInheritChangeSensitive
+X  },  /* SimpleClass fields initialization */
+X  {
+X    0,                                     /* field not used    */
+X  },  /* DrawingAreaClass fields initialization */
+X};
+X
+X  
+XWidgetClass drawingAreaWidgetClass = (WidgetClass)&drawingAreaClassRec;
+X
+X
+Xstatic void Initialize( request, new)
+XDrawingAreaWidget request, new;
+X{
+X  if (request->core.width == 0)
+X    new->core.width = 100;
+X  if (request->core.height == 0)
+X    new->core.height = 100;
+X}
+X
+X
+Xstatic void Destroy( w)
+XDrawingAreaWidget w;
+X{
+X  XtRemoveAllCallbacks((Widget)w, XtNexposeCallback);
+X  XtRemoveAllCallbacks((Widget)w, XtNinputCallback);
+X  XtRemoveAllCallbacks((Widget)w, XtNmotionCallback);
+X  XtRemoveAllCallbacks((Widget)w, XtNresizeCallback);
+X}
+X
+X
+X/* Invoke expose callbacks */
+Xstatic void Redisplay(w, event, region)
+XDrawingAreaWidget w;
+XXEvent		 *event;
+XRegion		  region;
+X{
+X  XawDrawingAreaCallbackStruct cb;
+X
+X  cb.reason = XawCR_EXPOSE;
+X  cb.event  = event;
+X  cb.window = XtWindow(w);
+X  XtCallCallbacks((Widget)w, XtNexposeCallback, (char *)&cb);
+X}
+X
+X/* Invoke resize callbacks */
+Xstatic void resize_draw(w, event, args, n_args)
+XDrawingAreaWidget w;
+XXEvent		 *event;
+Xchar		 *args[];
+Xint		  n_args;
+X{
+X  XawDrawingAreaCallbackStruct cb;
+X
+X  cb.reason = XawCR_RESIZE;
+X  cb.event  = event;
+X  cb.window = XtWindow(w);
+X  XtCallCallbacks((Widget)w, XtNresizeCallback, (char *)&cb);
+X}
+X
+X/* Invoke input callbacks */
+Xstatic void input_draw(w, event, args, n_args)
+XDrawingAreaWidget w;
+XXEvent		 *event;
+Xchar		 *args[];
+Xint		  n_args;
+X{
+X  XawDrawingAreaCallbackStruct cb;
+X
+X  cb.reason = XawCR_INPUT;
+X  cb.event  = event;
+X  cb.window = XtWindow(w);
+X  XtCallCallbacks((Widget)w, XtNinputCallback, (char *)&cb);
+X}
+X
+X/* Invoke motion callbacks */
+Xstatic void motion_draw(w, event, args, n_args)
+XDrawingAreaWidget w;
+XXEvent		 *event;
+Xchar		 *args[];
+Xint		  n_args;
+X{
+X  XawDrawingAreaCallbackStruct cb;
+X
+X  cb.reason = XawCR_MOTION;
+X  cb.event  = event;
+X  cb.window = XtWindow(w);
+X  XtCallCallbacks((Widget)w, XtNmotionCallback, (char *)&cb);
+X}
+END_OF_FILE
+if test 5136 -ne `wc -c <'X11/Xaw_d/DrawingA.c'`; then
+    echo shar: \"'X11/Xaw_d/DrawingA.c'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/DrawingA.c'
+fi
+if test -f 'X11/Xaw_d/DrawingA.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/DrawingA.h'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/DrawingA.h'\" \(1399 characters\)
+sed "s/^X//" >'X11/Xaw_d/DrawingA.h' <<'END_OF_FILE'
+X/* DrawingA.h - Public Header file */
+X
+X/* Copyright 1990, David Nedde
+X/*
+X/* Permission to use, copy, modify, and distribute this
+X/* software and its documentation for any purpose and without fee
+X/* is granted provided that the above copyright notice appears in all copies.
+X/* It is provided "as is" without express or implied warranty.
+X*/
+X
+X/* Define widget's class pointer and strings used to specify resources */
+X
+X#ifndef _XawDrawingArea_h
+X#define _XawDrawingArea_h
+X
+X/* Resources ADDED to label widget:
+X
+X Name		     Class		RepType		Default Value
+X ----		     -----		-------		-------------
+X exposeCallback	     Callback		Pointer		NULL
+X inputCallback	     Callback		Pointer		NULL
+X motionCallback	     Callback		Pointer		NULL
+X resizeCallback	     Callback		Pointer		NULL
+X*/
+X
+X
+Xextern WidgetClass drawingAreaWidgetClass;
+X
+Xtypedef struct _DrawingAreaClassRec *DrawingAreaWidgetClass;
+Xtypedef struct _DrawingAreaRec	    *DrawingAreaWidget;
+X
+X
+X/* Resource strings */
+X#define XtNexposeCallback	"exposeCallback"
+X#define XtNinputCallback	"inputCallback"
+X#define XtNmotionCallback	"motionCallback"
+X#define XtNresizeCallback	"resizeCallback"
+X
+X
+Xtypedef struct _XawDrawingAreaCallbackStruct {
+X  int	  reason;
+X  XEvent *event;
+X  Window  window;
+X} XawDrawingAreaCallbackStruct;
+X
+X/* Reasons */
+X#define XawCR_EXPOSE 1
+X#define XawCR_INPUT  2
+X#define XawCR_MOTION 3
+X#define XawCR_RESIZE 4
+X
+X#endif /* _XawDrawingArea_h */
+END_OF_FILE
+if test 1399 -ne `wc -c <'X11/Xaw_d/DrawingA.h'`; then
+    echo shar: \"'X11/Xaw_d/DrawingA.h'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/DrawingA.h'
+fi
+if test -f 'X11/Xaw_d/DrawingAP.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/DrawingAP.h'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/DrawingAP.h'\" \(1365 characters\)
+sed "s/^X//" >'X11/Xaw_d/DrawingAP.h' <<'END_OF_FILE'
+X/* DrawingArea Private header file */
+X
+X/* Copyright 1990, David Nedde
+X/*
+X/* Permission to use, copy, modify, and distribute this
+X/* software and its documentation for any purpose and without fee
+X/* is granted provided that the above copyright notice appears in all copies.
+X/* It is provided "as is" without express or implied warranty.
+X*/
+X
+X#ifndef _XawDrawingAreaP_h
+X#define _XawDrawingAreaP_h
+X
+X#include "DrawingA.h"
+X#ifdef X11_R3
+X#include <X11/SimpleP.h>
+X#else
+X#include <X11/Xaw/SimpleP.h>
+X#endif
+X
+X/* The drawing area's contribution to the class record */
+Xtypedef struct _DrawingAreaClassPart {
+X  int ignore;
+X} DrawingAreaClassPart;
+X
+X/* Drawing area's full class record */
+Xtypedef struct _DrawingAreaClassRec {
+X    CoreClassPart	core_class;
+X    SimpleClassPart	simple_class;
+X    DrawingAreaClassPart drawing_area;
+X} DrawingAreaClassRec;
+X
+Xextern DrawingAreaClassRec drawingAreaClassRec;
+X
+X/* Resources added and status of drawing area widget */
+Xtypedef struct _XsDrawingAreaPart {
+X  /* Resources */
+X  XtCallbackList	expose_callback;
+X  XtCallbackList	input_callback;
+X  XtCallbackList	motion_callback;
+X  XtCallbackList	resize_callback;
+X} DrawingAreaPart;
+X
+X
+X/* Drawing area's instance record */
+Xtypedef struct _DrawingAreaRec {
+X    CorePart         core;
+X    SimplePart	     simple;
+X    DrawingAreaPart  drawing_area;
+X} DrawingAreaRec;
+X
+X#endif /* _XawDrawingAreaP_h */
+END_OF_FILE
+if test 1365 -ne `wc -c <'X11/Xaw_d/DrawingAP.h'`; then
+    echo shar: \"'X11/Xaw_d/DrawingAP.h'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/DrawingAP.h'
+fi
+if test -f 'X11/Xaw_d/DrawingA.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/DrawingA.doc'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/DrawingA.doc'\" \(4190 characters\)
+sed "s/^X//" >'X11/Xaw_d/DrawingA.doc' <<'END_OF_FILE'
+XDrawingArea Widget
+X
+X
+XSYNOPSIS
+X  Application header file	<X11/Xaw_d/DrawingA.h>
+X  Class header file		<X11/Xaw_d/DrawingAP.h>
+X  Class				drawingAreaWidgetClass
+X  Class Name			DrawingArea
+X  Superclass			Simple
+X
+X
+XOVERVIEW
+X  This widget was needed to allow a drawing area in the Athena widget
+X  set that doesn't require hacking up the Label widget by adding
+X  complicated actions.  This widget follows Motif's DrawingArea widget
+X  closely, except that it follows Athena's naming conventions and there
+X  is no resize policy.  Also, Motif's Drawing area is a composite widget,
+X  while this one is a simple widget.  This widget is NOT officially
+X  part of the Athena widget set.
+X
+X
+XDESCRIPTION
+X  The DrawingArea widget is modeled after Motif's DrawingArea widget.
+X  The DrawingArea widget is an empty widget that is easily adaptable to
+X  a variety of purposes.  It does no drawing and defines no behavior
+X  except for invoking callbacks.  Callbacks notify the application when
+X  graphics need to be drawn (exposure events or widget resize) and when
+X  the widget receives input from the keyboard or mouse.  Applications
+X  are responsible for defining appearence and behavior as needed in
+X  response to DrawingArea callbacks.
+X
+X
+XClasses
+X  DrawingArea inherits behavior and resources from the Core and Simple
+X  classes.
+X  The class pointer is DrawingAreaWidgetClass.  The class name is DrawingArea.
+X
+X
+XNew Resources
+X   Name		     	Class		RepType		Default Value
+X   ----		     	-----		-------		-------------
+X   exposeCallback	Callback	Pointer		NULL
+X   inputCallback	Callback	Pointer		NULL
+X   motionCallback	Callback	Pointer		NULL
+X   resizeCallback	Callback	Pointer		NULL
+X
+X   XtNexposeCallback
+X     Specifies list of callbacks that is called when DrawingArea recieves
+X     an exposure event.  The callback reason is XawCR_EXPOSE.
+X   XtNinputCallback
+X     Specifies list of callbacks that is called when DrawingArea recieves
+X     an keyboard or mouse event (key or button, up or down).  The callback 
+X     reason is XawCR_INPUT.
+X   XtNmotionCallback   
+X     Specifies list of callbacks that is called when DrawingArea recieves
+X     a mouse motion event.  The callback reason is XawCR_MOTION.
+X   XtNresizeCallback
+X     Specifies list of callbacks that is called when the DrawingArea is
+X     resized.  The callback reason is XawCR_RESIZE.
+X
+X
+XInherited Resources, Changed defaults
+X   Name		     	Class		RepType		Default Value
+X   ----		     	-----		-------		-------------
+X   height		Height		Dimension	100
+X   width		Width		Dimension	100
+X
+X
+XCallback Information
+X  A pointer to the following structure is returned with each callback.
+X
+X  typedef struct {
+X    int	    reason;
+X    XEvent *event;
+X    Window  window;
+X  } XawDrawingAreaCallbackStruct;
+X
+X  reason: Indicates why the callback was invoked
+X  event:  Points to the XEvent that triggered the callback
+X  window: Is set to the widget window
+X
+X
+XBehavior
+X <KeyDown>,<KeyUp>,<BtnDown>,<BtnUp>:
+X   The callbacks for XtNinputCallback are called when a key or button is 
+X   pressed or released.
+X <Expose>:
+X   The callbacks for XtNexposeCallbacks are called when the widget recieves
+X   an exposure event.
+X <Configure>:
+X   The callbacks for XtNresizeCallbacks are called when the widget is resized.
+X <Motion>:
+X   The callbacks for XtNmotionCallbacks are called when the widget recieves a 
+X   pointer motion event.
+X
+X
+XDefault Translations
+X  <BtnDown>:	input()
+X  <BtnUp>:	input()
+X  <KeyDown>:	input()
+X  <KeyUp>:	input()
+X  <Motion>:	motion()
+X  <ResReq>:	resize()
+X
+X
+XSEE ALSO
+X  OSF/Motif Programmer's reference: XmDrawingArea
+X    Open Software Foundation
+X  Athena Widget Set - C Language Interface Rel 4: 3.6 Simple Widget
+X    Chris D. Peterson
+X  X Toolkit Intrinsics - C Language Interface
+X    Joel McCormack, Paul Asenta, Ralph R. Swick
+X  The X Window System, programming and Applications with Xt, OSF/Motif Edition
+X    Douglas A. Young
+X
+X
+XCOPYRIGHT
+X  Copyright 1990, David Nedde
+X 
+X  Permission to use, copy, modify, and distribute this
+X  software and its documentation for any purpose and without
+X  fee is provided that the above copyright notice appears in all copies.
+X  It is provided "as is" without express or implied warranty.
+X
+X
+XAUTHOR
+X  David Nedde, daven@maxine.wpi.edu
+END_OF_FILE
+if test 4190 -ne `wc -c <'X11/Xaw_d/DrawingA.doc'`; then
+    echo shar: \"'X11/Xaw_d/DrawingA.doc'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/DrawingA.doc'
+fi
+if test -f 'X11/Xaw_d/Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/Imakefile'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/Imakefile'\" \(820 characters\)
+sed "s/^X//" >'X11/Xaw_d/Imakefile' <<'END_OF_FILE'
+X/**/#
+X/**/#   Imakefile for Xaw_d : Dave Nedde (daven@ivy.wpi.edu)
+X/**/#
+X
+X       INCLUDES = -I../..
+X      DEMO_SRCS = demo.c
+X      DEMO_OBJS = demo.o
+XLOCAL_LIBRARIES = -lXaw_d
+X      LDOPTIONS = -L.
+X         LDLIBS = -lXaw -lXt -lXmu -lXext -lX11
+X
+XNormalLibraryTarget(Xaw_d,DrawingA.o)
+X
+XSRCS = $(DEMO_SRCS)
+XOBJS = $(DEMO_OBJS)
+X
+XComplexProgramTarget(demo)
+X
+XDIST = \
+X        X11 \
+X        X11/Xaw_d \
+X        X11/Xaw_d/DrawingA.c \
+X        X11/Xaw_d/DrawingA.h \
+X        X11/Xaw_d/DrawingAP.h \
+X        X11/Xaw_d/DrawingA.doc \
+X        X11/Xaw_d/Imakefile \
+X        X11/Xaw_d/Makefile.std \
+X        X11/Xaw_d/patchlevel.h \
+X        X11/Xaw_d/demo.c \
+X        X11/Xaw_d/README
+X
+Xshar:
+X	( cd ../.. ; makekit -s75k -p $(DIST) ; mv Part* X11/Xaw_d )
+X
+Xtar:
+X	( cd ../.. ; tar cvf - $(DIST) | compress -v > X11/Xaw_d/xball.tar.Z )
+END_OF_FILE
+if test 820 -ne `wc -c <'X11/Xaw_d/Imakefile'`; then
+    echo shar: \"'X11/Xaw_d/Imakefile'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/Imakefile'
+fi
+if test -f 'X11/Xaw_d/Makefile.std' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/Makefile.std'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/Makefile.std'\" \(10622 characters\)
+sed "s/^X//" >'X11/Xaw_d/Makefile.std' <<'END_OF_FILE'
+X# Makefile generated by imake - do not edit!
+X# $XConsortium: imake.c,v 1.51 89/12/12 12:37:30 jim Exp $
+X#
+X# The cpp used on this machine replaces all newlines and multiple tabs and
+X# spaces in a macro expansion with a single space.  Imake tries to compensate
+X# for this, but is not always successful.
+X#
+X
+X###########################################################################
+X# Makefile generated from "Imake.tmpl" and <Imakefile>
+X# $XConsortium: Imake.tmpl,v 1.77 89/12/18 17:01:37 jim Exp $
+X#
+X# Platform-specific parameters may be set in the appropriate .cf
+X# configuration files.  Site-wide parameters may be set in the file
+X# site.def.  Full rebuilds are recommended if any parameters are changed.
+X#
+X# If your C preprocessor doesn't define any unique symbols, you'll need
+X# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+X# "make Makefile", "make Makefiles", or "make World").
+X#
+X# If you absolutely can't get imake to work, you'll need to set the
+X# variables at the top of each Makefile as well as the dependencies at the
+X# bottom (makedepend will do this automatically).
+X#
+X
+X###########################################################################
+X# platform-specific configuration parameters - edit sun.cf to change
+X
+XSYSLIBS=-lXt -lX11
+XMWM_DEFINES=-DSHAPE -DOPAQUE
+XSYSLIBS=$(MTOOLKITSRC)/libXt.a $(XLIBSRC)/libX11.a
+X
+X# platform:  $XConsortium: sun.cf,v 1.38 89/12/23 16:10:10 jim Exp $
+X# operating system:  SunOS 4.1
+X
+X###########################################################################
+X# site-specific configuration parameters - edit site.def to change
+X
+X# site:  $XConsortium: site.def,v 1.21 89/12/06 11:46:50 jim Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar cq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X               RM = rm -f
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0664
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X          DESTDIR =
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -D_NO_PROTO -DSTRINGS_ALIGNED -DNO_REGEX -DNO_ISDIR -DUSE_RE_COMP -DUSE_GETWD
+X      COMPATFLAGS =
+X
+X      ALLINCLUDES = $(STD_INCLUDES) $(TOP_INCLUDES) $(INCLUDES) $(EXTRA_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(PROTO_DEFINES) $(DEFINES) $(COMPATFLAGS)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS)
+X   LDCOMBINEFLAGS = -X -r
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+X###########################################################################
+X# X Window System Build Parameters
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X###########################################################################
+X# X Window System make variables; this need to be coordinated with rules
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X          PATHSEP = /
+X        USRLIBDIR = $(DESTDIR)/usr/lib
+X           BINDIR = $(DESTDIR)/usr/bin/X11
+X          INCROOT = $(DESTDIR)/usr/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = $(DESTDIR)/usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           AWMDIR = $(LIBDIR)/awm
+X           TWMDIR = $(LIBDIR)/twm
+X           GWMDIR = $(LIBDIR)/gwm
+X          MANPATH = $(DESTDIR)/usr/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X           MANDIR = $(MANSOURCEPATH)n
+X        LIBMANDIR = $(MANSOURCEPATH)3
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X
+X        SOXLIBREV = 4.2
+X          SOXTREV = 4.0
+X         SOXAWREV = 4.0
+X        SOOLDXREV = 4.0
+X         SOXMUREV = 4.0
+X        SOXEXTREV = 4.0
+X
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X            FONTC = bdftosnf
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier.sh
+X
+X        CONFIGSRC = $(TOP)/config
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X     MKFONTDIRSRC = $(FONTSRC)/mkfontdir
+X     EXTENSIONSRC = $(TOP)/extensions
+X
+X  DEPEXTENSIONLIB = $(USRLIBDIR)/libXext.a
+X     EXTENSIONLIB =  -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X
+X        DEPXMULIB =
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB =
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB =
+X           XAWLIB = -lXaw
+X
+X LINTEXTENSIONLIB = $(USRLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(USRLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(USRLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(USRLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(USRLIBDIR)/llib-lXaw.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+X      USRINCDIR = $(DESTDIR)/usr/include
+X        TESTSRC = $(TOP)/tests
+X     TESTSRCLIB = $(TESTSRC)/lib
+X     TESTSRCBIN = $(TESTSRC)/bin
+X       COMMONPP = $(TESTSRCBIN)/Commonpp
+X
+X     TESTCOMSRC = $(TESTSRCLIB)/Common
+X    MTOOLKITSRC = $(LIBSRC)/Xt
+X     MWIDGETSRC = $(LIBSRC)/Xm
+X   MRESOURCESRC = $(LIBSRC)/Mrm
+X         UILSRC = $(CLIENTSRC)/uil
+X            UIL = $(UILSRC)/uil
+X      XMTOOLLIB = $(MTOOLKITSRC)/libXt.a
+X          XMLIB = $(MWIDGETSRC)/libXm.a
+X   MRESOURCELIB = $(MRESOURCESRC)/libMrm.a
+X         UILLIB = $(UILSRC)/libUil.a
+X     TESTCOMLIB = $(TESTCOMSRC)/libCommon.a
+X
+X  LINTMRESOURCE = $(MRESOURCESRC)/libMrm.a
+XLINTXMWIDGETLIB = $(MWIDGETSRC)/llib-l/Xm.ln
+X     LINTXMTOOL = $(MTOOLKITSRC)/llib-lXt.ln
+X     LINTUILLIB = $(UILSRC)/llib-lUil.ln
+X
+X        DEPLIBS =
+X
+X        DEPLIBS1 = $(DEPLIBS)
+X        DEPLIBS2 = $(DEPLIBS)
+X        DEPLIBS3 = $(DEPLIBS)
+X
+X###########################################################################
+X# Imake rules for building libraries, programs, scripts, and data files
+X# rules:  $XConsortium: Imake.rules,v 1.67 89/12/18 17:14:15 jim Exp $
+X
+X###########################################################################
+X# start of Imakefile
+X
+X#
+X#   Imakefile for Xaw_d : Dave Nedde (daven@ivy.wpi.edu)
+X#
+X
+X       INCLUDES = -I../..
+X      DEMO_SRCS = demo.c
+X      DEMO_OBJS = demo.o
+XLOCAL_LIBRARIES = -lXaw_d
+X      LDOPTIONS = -L.
+X         LDLIBS = -lXaw_d -lXaw -lXt -lXmu -lXext -lX11
+X
+Xall:: libXaw_d.a
+X
+XlibXaw_d.a: DrawingA.o
+X	$(RM) $@
+X	$(AR) $@ DrawingA.o
+X	$(RANLIB) $@
+X
+XSRCS = $(DEMO_SRCS)
+XOBJS = $(DEMO_OBJS)
+X
+X PROGRAM = demo
+X
+Xall:: demo
+X
+Xdemo: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+Xsaber_demo:
+X	#load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xosaber_demo:
+X	#load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xinstall:: demo
+X	$(INSTALL) -c $(INSTPGMFLAGS)   demo $(BINDIR)
+X
+Xinstall.man:: demo.man
+X	$(INSTALL) -c $(INSTMANFLAGS) demo.man $(MANDIR)/demo.n
+X
+Xdepend::
+X	$(DEPEND) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+Xlint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+Xlint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+Xclean::
+X	$(RM) $(PROGRAM)
+X
+XDIST = \
+X        X11 \
+X        X11/Xaw_d \
+X        X11/Xaw_d/DrawingA.c \
+X        X11/Xaw_d/DrawingA.h \
+X        X11/Xaw_d/DrawingAP.h \
+X        X11/Xaw_d/DrawingA.doc \
+X        X11/Xaw_d/Imakefile \
+X        X11/Xaw_d/Makefile.std \
+X        X11/Xaw_d/patchlevel.h \
+X        X11/Xaw_d/demo.c \
+X        X11/Xaw_d/README
+X
+Xshar:
+X	( cd ../.. ; makekit -s75k -p $(DIST) ; mv Part* X11/Xaw_d )
+X
+Xtar:
+X	( cd ../.. ; tar cvf - $(DIST) | compress -v > X11/Xaw_d/xball.tar.Z )
+X
+X###########################################################################
+X# common rules for all Makefiles - do not edit
+X
+Xemptyrule::
+X
+Xclean::
+X	$(RM_CMD) \#*
+X
+XMakefile::
+X	-@if [ -f Makefile ]; then \
+X	echo "	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak"; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+Xtags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+Xsaber:
+X	#load $(ALLDEFINES) $(SRCS)
+X
+Xosaber:
+X	#load $(ALLDEFINES) $(OBJS)
+X
+X###########################################################################
+X# empty rules for directories that do not have SUBDIRS - do not edit
+X
+Xinstall::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+Xinstall.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+XMakefiles::
+X
+Xincludes::
+X
+X###########################################################################
+X# dependencies generated by makedepend
+X
+END_OF_FILE
+if test 10622 -ne `wc -c <'X11/Xaw_d/Makefile.std'`; then
+    echo shar: \"'X11/Xaw_d/Makefile.std'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/Makefile.std'
+fi
+if test -f 'X11/Xaw_d/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/Makefile'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/Makefile'\" \(10622 characters\)
+sed "s/^X//" >'X11/Xaw_d/Makefile' <<'END_OF_FILE'
+X# Makefile generated by imake - do not edit!
+X# $XConsortium: imake.c,v 1.51 89/12/12 12:37:30 jim Exp $
+X#
+X# The cpp used on this machine replaces all newlines and multiple tabs and
+X# spaces in a macro expansion with a single space.  Imake tries to compensate
+X# for this, but is not always successful.
+X#
+X
+X###########################################################################
+X# Makefile generated from "Imake.tmpl" and <Imakefile>
+X# $XConsortium: Imake.tmpl,v 1.77 89/12/18 17:01:37 jim Exp $
+X#
+X# Platform-specific parameters may be set in the appropriate .cf
+X# configuration files.  Site-wide parameters may be set in the file
+X# site.def.  Full rebuilds are recommended if any parameters are changed.
+X#
+X# If your C preprocessor doesn't define any unique symbols, you'll need
+X# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+X# "make Makefile", "make Makefiles", or "make World").
+X#
+X# If you absolutely can't get imake to work, you'll need to set the
+X# variables at the top of each Makefile as well as the dependencies at the
+X# bottom (makedepend will do this automatically).
+X#
+X
+X###########################################################################
+X# platform-specific configuration parameters - edit sun.cf to change
+X
+XSYSLIBS=-lXt -lX11
+XMWM_DEFINES=-DSHAPE -DOPAQUE
+XSYSLIBS=$(MTOOLKITSRC)/libXt.a $(XLIBSRC)/libX11.a
+X
+X# platform:  $XConsortium: sun.cf,v 1.38 89/12/23 16:10:10 jim Exp $
+X# operating system:  SunOS 4.1
+X
+X###########################################################################
+X# site-specific configuration parameters - edit site.def to change
+X
+X# site:  $XConsortium: site.def,v 1.21 89/12/06 11:46:50 jim Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar cq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X               RM = rm -f
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0664
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X          DESTDIR =
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -D_NO_PROTO -DSTRINGS_ALIGNED -DNO_REGEX -DNO_ISDIR -DUSE_RE_COMP -DUSE_GETWD
+X      COMPATFLAGS =
+X
+X      ALLINCLUDES = $(STD_INCLUDES) $(TOP_INCLUDES) $(INCLUDES) $(EXTRA_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(PROTO_DEFINES) $(DEFINES) $(COMPATFLAGS)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS)
+X   LDCOMBINEFLAGS = -X -r
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+X###########################################################################
+X# X Window System Build Parameters
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X###########################################################################
+X# X Window System make variables; this need to be coordinated with rules
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X          PATHSEP = /
+X        USRLIBDIR = $(DESTDIR)/usr/lib
+X           BINDIR = $(DESTDIR)/usr/bin/X11
+X          INCROOT = $(DESTDIR)/usr/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = $(DESTDIR)/usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           AWMDIR = $(LIBDIR)/awm
+X           TWMDIR = $(LIBDIR)/twm
+X           GWMDIR = $(LIBDIR)/gwm
+X          MANPATH = $(DESTDIR)/usr/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X           MANDIR = $(MANSOURCEPATH)n
+X        LIBMANDIR = $(MANSOURCEPATH)3
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X
+X        SOXLIBREV = 4.2
+X          SOXTREV = 4.0
+X         SOXAWREV = 4.0
+X        SOOLDXREV = 4.0
+X         SOXMUREV = 4.0
+X        SOXEXTREV = 4.0
+X
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X            FONTC = bdftosnf
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier.sh
+X
+X        CONFIGSRC = $(TOP)/config
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X     MKFONTDIRSRC = $(FONTSRC)/mkfontdir
+X     EXTENSIONSRC = $(TOP)/extensions
+X
+X  DEPEXTENSIONLIB = $(USRLIBDIR)/libXext.a
+X     EXTENSIONLIB =  -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X
+X        DEPXMULIB =
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB =
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB =
+X           XAWLIB = -lXaw
+X
+X LINTEXTENSIONLIB = $(USRLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(USRLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(USRLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(USRLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(USRLIBDIR)/llib-lXaw.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+X      USRINCDIR = $(DESTDIR)/usr/include
+X        TESTSRC = $(TOP)/tests
+X     TESTSRCLIB = $(TESTSRC)/lib
+X     TESTSRCBIN = $(TESTSRC)/bin
+X       COMMONPP = $(TESTSRCBIN)/Commonpp
+X
+X     TESTCOMSRC = $(TESTSRCLIB)/Common
+X    MTOOLKITSRC = $(LIBSRC)/Xt
+X     MWIDGETSRC = $(LIBSRC)/Xm
+X   MRESOURCESRC = $(LIBSRC)/Mrm
+X         UILSRC = $(CLIENTSRC)/uil
+X            UIL = $(UILSRC)/uil
+X      XMTOOLLIB = $(MTOOLKITSRC)/libXt.a
+X          XMLIB = $(MWIDGETSRC)/libXm.a
+X   MRESOURCELIB = $(MRESOURCESRC)/libMrm.a
+X         UILLIB = $(UILSRC)/libUil.a
+X     TESTCOMLIB = $(TESTCOMSRC)/libCommon.a
+X
+X  LINTMRESOURCE = $(MRESOURCESRC)/libMrm.a
+XLINTXMWIDGETLIB = $(MWIDGETSRC)/llib-l/Xm.ln
+X     LINTXMTOOL = $(MTOOLKITSRC)/llib-lXt.ln
+X     LINTUILLIB = $(UILSRC)/llib-lUil.ln
+X
+X        DEPLIBS =
+X
+X        DEPLIBS1 = $(DEPLIBS)
+X        DEPLIBS2 = $(DEPLIBS)
+X        DEPLIBS3 = $(DEPLIBS)
+X
+X###########################################################################
+X# Imake rules for building libraries, programs, scripts, and data files
+X# rules:  $XConsortium: Imake.rules,v 1.67 89/12/18 17:14:15 jim Exp $
+X
+X###########################################################################
+X# start of Imakefile
+X
+X#
+X#   Imakefile for Xaw_d : Dave Nedde (daven@ivy.wpi.edu)
+X#
+X
+X       INCLUDES = -I../..
+X      DEMO_SRCS = demo.c
+X      DEMO_OBJS = demo.o
+XLOCAL_LIBRARIES = -lXaw_d
+X      LDOPTIONS = -L.
+X         LDLIBS = -lXaw_d -lXaw -lXt -lXmu -lXext -lX11
+X
+Xall:: libXaw_d.a
+X
+XlibXaw_d.a: DrawingA.o
+X	$(RM) $@
+X	$(AR) $@ DrawingA.o
+X	$(RANLIB) $@
+X
+XSRCS = $(DEMO_SRCS)
+XOBJS = $(DEMO_OBJS)
+X
+X PROGRAM = demo
+X
+Xall:: demo
+X
+Xdemo: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+Xsaber_demo:
+X	#load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xosaber_demo:
+X	#load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xinstall:: demo
+X	$(INSTALL) -c $(INSTPGMFLAGS)   demo $(BINDIR)
+X
+Xinstall.man:: demo.man
+X	$(INSTALL) -c $(INSTMANFLAGS) demo.man $(MANDIR)/demo.n
+X
+Xdepend::
+X	$(DEPEND) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+Xlint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+Xlint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+Xclean::
+X	$(RM) $(PROGRAM)
+X
+XDIST = \
+X        X11 \
+X        X11/Xaw_d \
+X        X11/Xaw_d/DrawingA.c \
+X        X11/Xaw_d/DrawingA.h \
+X        X11/Xaw_d/DrawingAP.h \
+X        X11/Xaw_d/DrawingA.doc \
+X        X11/Xaw_d/Imakefile \
+X        X11/Xaw_d/Makefile.std \
+X        X11/Xaw_d/patchlevel.h \
+X        X11/Xaw_d/demo.c \
+X        X11/Xaw_d/README
+X
+Xshar:
+X	( cd ../.. ; makekit -s75k -p $(DIST) ; mv Part* X11/Xaw_d )
+X
+Xtar:
+X	( cd ../.. ; tar cvf - $(DIST) | compress -v > X11/Xaw_d/xball.tar.Z )
+X
+X###########################################################################
+X# common rules for all Makefiles - do not edit
+X
+Xemptyrule::
+X
+Xclean::
+X	$(RM_CMD) \#*
+X
+XMakefile::
+X	-@if [ -f Makefile ]; then \
+X	echo "	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak"; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+Xtags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+Xsaber:
+X	#load $(ALLDEFINES) $(SRCS)
+X
+Xosaber:
+X	#load $(ALLDEFINES) $(OBJS)
+X
+X###########################################################################
+X# empty rules for directories that do not have SUBDIRS - do not edit
+X
+Xinstall::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+Xinstall.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+XMakefiles::
+X
+Xincludes::
+X
+X###########################################################################
+X# dependencies generated by makedepend
+X
+END_OF_FILE
+if test 10622 -ne `wc -c <'X11/Xaw_d/Makefile'`; then
+    echo shar: \"'X11/Xaw_d/Makefile'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/Makefile'
+fi
+if test -f 'X11/Xaw_d/demo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/demo.c'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/demo.c'\" \(2857 characters\)
+sed "s/^X//" >'X11/Xaw_d/demo.c' <<'END_OF_FILE'
+X/**********************************************************************
+X * demo.c - Demo the drawing area widget
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#include <stdio.h>
+X
+X#include <X11/StringDefs.h>
+X#include <X11/IntrinsicP.h>
+X#include <X11/CoreP.h>
+X#include "X11/Xaw_d/DrawingA.h"
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Command.h>
+X
+XGC gc = 0;
+X
+X/*** Start of main program ***/
+Xmain(argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X    XtAppContext app_context;
+X    Widget   toplevel;          /* The core widget */
+X
+X    Arg      wargs[20];         /* Used to set widget resources */
+X    int      n;
+X
+X    toplevel = XtAppInitialize(&app_context,"Demo", 
+X                               NULL, 0, 
+X                               (Cardinal *)&argc, argv,     
+X                               NULL,
+X                               /*args*/(ArgList)NULL, /*num_args*/(Cardinal)0);
+X
+X    setup_widgets( toplevel);
+X
+X    XtRealizeWidget(toplevel);
+X
+X    XtAppMainLoop(app_context);
+X}
+X
+X
+Xstatic void redisplay_cb(w, closure, call_data)
+XWidget                         w;
+XXtPointer                      closure;
+XXawDrawingAreaCallbackStruct * call_data;
+X{
+X    int x = 10;
+X    int y = 10;
+X    int width = 30;
+X    int height = 30;
+X
+X    if (gc == 0)
+X    {
+X        gc = XCreateGC(XtDisplay(w), XtWindow(w), 0, 0);
+X        XSetForeground(XtDisplay(w), gc, 
+X                       BlackPixel(XtDisplay(w),      
+X                                  DefaultScreen(XtDisplay(w))));
+X    }
+X
+X    XDrawArc(XtDisplay(w), XtWindow(w), gc, x, y, width, height, 0, 360*64);
+X    XFillArc(XtDisplay(w), XtWindow(w), gc, x, y, width, height, 0, 360*64);
+X}
+X
+X
+Xstatic void quit_cb(w, closure, call_data)
+XWidget    w;
+XXtPointer closure;
+XXtPointer call_data;
+X{
+X    exit(0);
+X}
+X
+X
+X
+Xsetup_widgets( toplevel )
+XWidget toplevel;
+X{
+X  Widget button;
+X  Widget form_widget =
+X      XtCreateManagedWidget("form", formWidgetClass, toplevel, NULL,0);
+X
+X 
+X  Widget canvas = XtVaCreateManagedWidget("canvas", drawingAreaWidgetClass, 
+X                                          form_widget, 
+X                                          XtNwidth, 200,
+X                                          XtNheight, 200,
+X                                          NULL);
+X
+X  XtAddCallback(canvas,XtNexposeCallback,redisplay_cb, NULL);
+X
+X
+X  button = XtVaCreateManagedWidget("Quit", commandWidgetClass, 
+X                                   form_widget, 
+X                                   XtNfromVert,   canvas,
+X                                   NULL);
+X  
+X  XtAddCallback(button,XtNcallback,quit_cb, NULL);
+X}
+END_OF_FILE
+if test 2857 -ne `wc -c <'X11/Xaw_d/demo.c'`; then
+    echo shar: \"'X11/Xaw_d/demo.c'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/demo.c'
+fi
+if test -f 'X11/Xaw_d/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'X11/Xaw_d/README'\"
+else
+echo shar: Extracting \"'X11/Xaw_d/README'\" \(609 characters\)
+sed "s/^X//" >'X11/Xaw_d/README' <<'END_OF_FILE'
+XDrawing Area Widget and Demo
+X
+X  The drawingArea widget is an Athena-style widget that has callbacks
+Xfor expose, input, motion and resize events.
+X
+X  Included is a demo program that uses the drawingArea widget.
+X
+X  To compile and run:
+X    xmkmf
+X    make
+X  If you do not have xmkmf:
+X    make -f Makefile.std
+X
+X
+XCopying:
+X   Copyright 1993, David Nedde
+X   Permission to use, copy, modify, and distribute this software
+X   and its documentation for any purpose and without fee is granted
+X   provided that the above copyright notice appears in all copies.
+X   It is provided "as is" without express or implied warranty.
+END_OF_FILE
+if test 609 -ne `wc -c <'X11/Xaw_d/README'`; then
+    echo shar: \"'X11/Xaw_d/README'\" unpacked with wrong size!
+fi
+# end of 'X11/Xaw_d/README'
+fi
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+echo shar: Extracting \"'Imakefile'\" \(3847 characters\)
+sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+X/**********************************************************************
+X * Imakefile - Imakefile for the xball program
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X/**/# MOTIF  -> Have Motif Widgets
+X/**/# ATHENA -> Have Athena Widgets
+X
+X#define MOTIF   
+X/**/#define ATHENA     
+X
+X
+X           DELAY = -DDELAY=100       # DELAY ranges from -18 to whatever
+X/**/#    GRAVITY = -DGRAVITY=8       # Default gravity
+X/**/# ELASTICITY = -DELASTICY=90     # Default elasticity
+X          USLEEP = -DHAVE_USLEEP      # Uncomment if usleep installed...
+X       MYDEFINES = $(DELAY) $(USLEEP)
+X     CDEBUGFLAGS = -g
+X
+X
+XM_SRCS = act_area.c
+XM_OBJS = act_area.o
+XM_INCS = act_area.h
+X
+XA_SRCS = filemenu.c
+XA_OBJS = filemenu.o
+XA_INCS =
+X
+X#ifdef MOTIF
+X
+X         DEFINES = -DMOTIF $(MYDEFINES)
+X/**/#   MYLDLIBS = -lPW    # Uncomment if you get regcmp and regex undefined
+X          LDLIBS = -lXm -lXmu -lXt -lX11 $(MYLDLIBS)
+X
+XTOOL_SRCS = $(M_SRCS)
+XTOOL_OBJS = $(M_OBJS)
+XTOOL_INCS = $(M_INCS)
+X
+X#endif
+X
+X
+X#ifdef ATHENA
+X
+X/****** For filemenu *****/
+X#if defined(SunArchitecture) && OSMajorVersion >= 4
+X        PREDEFINES = -DSUNOS4
+X#endif
+X#ifdef UltrixArchitecture
+X#ifdef MipsArchitecture
+X        PREDEFINES = -DBSD -DMIPS
+X#else
+X        PREDEFINES = -DBSD
+X#endif
+X#endif
+X
+X#define IHaveSubdirs
+X#define PassCDebugFlags 'CDEBUGFLAGS=$(CDEBUGFLAGS)'
+X
+X        SUBDIRS = X11/Xaw_d
+XLOCAL_LIBRARIES = -lXaw_d
+X        DEFINES = -DATHENA $(MYDEFINES)
+X       INCLUDES = -I.
+X      LDOPTIONS = -LX11/Xaw_d
+X         LDLIBS = -lXaw_d -lXaw -lXt -lXmu -lXext -lX11
+X
+XMakeSubdirs($(SUBDIRS))
+X
+XTOOL_SRCS = $(A_SRCS)
+XTOOL_OBJS = $(A_OBJS)
+XTOOL_INCS = $(A_INCS)
+X
+X#endif
+X
+X LINTOPTS = -abhuvz -D_NO_PROTO $(DEFINES)
+X
+X
+XCOMM_SRCS = \
+X	color_l.c \
+X	demo.c \
+X	file_sel.c \
+X	help.c \
+X	item.c \
+X	items.c \
+X	list.c \
+X	menu.c \
+X	misc.c \
+X	miscx.c \
+X	room.c \
+X	scrollbar.c \
+X	sim.c \
+X	table.c \
+X	xball.c \
+X	xball_sys.c
+X
+XCOMM_OBJS = \
+X	color_l.o \
+X	demo.o \
+X	file_sel.o \
+X	help.o \
+X	item.o \
+X	items.o \
+X	list.o \
+X	menu.o \
+X	misc.o \
+X	miscx.o \
+X	room.o \
+X	scrollbar.o \
+X	sim.o \
+X	table.o \
+X	xball.o \
+X	xball_sys.o
+X
+XCOMM_INCS = \
+X	color_l.h \
+X	demo.h \
+X	fallback.h \
+X	file_sel.h \
+X	help.h \
+X	intf.h \
+X	item.h \
+X	items.h \
+X	list.h \
+X	menu.h \
+X	misc.h \
+X	miscx.h \
+X	names.h \
+X        patchlevel.h \
+X	room.h \
+X	scrollbar.h \
+X	sim.h \
+X	table.h \
+X	xball_sys.h
+X
+XSRCS = $(COMM_SRCS) $(TOOL_SRCS)
+XOBJS = $(COMM_OBJS) $(TOOL_OBJS)
+XINCS = $(COMM_INCS) $(TOOL_INCS)
+X
+XComplexProgramTarget(xball)
+X
+XCLASS            = XBall
+XAPP_DEFAULTS_SRC = $(CLASS).ad
+X
+XInstallAppDefaults( $(CLASS))
+X
+X
+Xfallback.h: $(APP_DEFAULTS_SRC)
+X	gen_fallback $(APP_DEFAULTS_SRC) > $@
+X
+X
+XDEMOS = demo1 demo2 demo3 demo4 demo5 demo6 demo7 demo8 demo9 demo10 \
+X        demo11 demo12 demo13 demo14
+X
+XBITMAPS = \
+X	good_bitmaps \
+X	on.xbm \
+X	off.xbm \
+X	man.xbm \
+X	stipple.xbm \
+X	xball.xbm \
+X	xball-a.xbm \
+X	xball-b.xbm \
+X	xball-l.xbm \
+X	xball-x.xbm \
+X	sgi.xbm
+X
+XMISC = \
+X	gen_fallback \
+X	run_demos \
+X        xball.man \
+X	README
+X
+XDRAWING_A_DIRS = \
+X	X11 \
+X	X11/Xaw_d
+X
+XDRAWING_A = \
+X	X11/Xaw_d/DrawingA.c \
+X	X11/Xaw_d/DrawingA.h \
+X	X11/Xaw_d/DrawingAP.h \
+X	X11/Xaw_d/DrawingA.doc \
+X	X11/Xaw_d/Imakefile \
+X	X11/Xaw_d/Makefile.std \
+X	X11/Xaw_d/Makefile \
+X        X11/Xaw_d/demo.c \
+X	X11/Xaw_d/README \
+X	Imakefile \
+X	Makefile.std \
+X	Makefile \
+X	Make.motif \
+X	Make.athena
+X
+XDIST = \
+X	$(DRAWING_A) \
+X	$(COMM_SRCS) \
+X	$(COMM_INCS) \
+X	$(M_SRCS) \
+X	$(M_INCS) \
+X	$(A_SRCS) \
+X	$(A_INCS) \
+X	$(APP_DEFAULTS_SRC) \
+X	$(MISC) \
+X	$(BITMAPS) \
+X	$(DEMOS)
+X
+Xshar:
+X	makekit -s75k -p $(DRAWING_A_DIRS) $(DIST)
+X
+Xtar:
+X	tar cvf - $(DIST) | compress -v > xball.tar.Z
+END_OF_FILE
+if test 3847 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+fi
+# end of 'Imakefile'
+fi
+if test -f 'Makefile.std' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.std'\"
+else
+echo shar: Extracting \"'Makefile.std'\" \(12467 characters\)
+sed "s/^X//" >'Makefile.std' <<'END_OF_FILE'
+X# Makefile generated by imake - do not edit!
+X# $XConsortium: imake.c,v 1.51 89/12/12 12:37:30 jim Exp $
+X#
+X# The cpp used on this machine replaces all newlines and multiple tabs and
+X# spaces in a macro expansion with a single space.  Imake tries to compensate
+X# for this, but is not always successful.
+X#
+X
+X###########################################################################
+X# Makefile generated from "Imake.tmpl" and <Imakefile>
+X# $XConsortium: Imake.tmpl,v 1.77 89/12/18 17:01:37 jim Exp $
+X#
+X# Platform-specific parameters may be set in the appropriate .cf
+X# configuration files.  Site-wide parameters may be set in the file
+X# site.def.  Full rebuilds are recommended if any parameters are changed.
+X#
+X# If your C preprocessor doesn't define any unique symbols, you'll need
+X# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+X# "make Makefile", "make Makefiles", or "make World").
+X#
+X# If you absolutely can't get imake to work, you'll need to set the
+X# variables at the top of each Makefile as well as the dependencies at the
+X# bottom (makedepend will do this automatically).
+X#
+X
+X###########################################################################
+X# platform-specific configuration parameters - edit sun.cf to change
+X
+XSYSLIBS=-lXt -lX11
+XMWM_DEFINES=-DSHAPE -DOPAQUE
+XSYSLIBS=$(MTOOLKITSRC)/libXt.a $(XLIBSRC)/libX11.a
+X
+X# platform:  $XConsortium: sun.cf,v 1.38 89/12/23 16:10:10 jim Exp $
+X# operating system:  SunOS 4.1
+X
+X###########################################################################
+X# site-specific configuration parameters - edit site.def to change
+X
+X# site:  $XConsortium: site.def,v 1.21 89/12/06 11:46:50 jim Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar cq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X               RM = rm -f
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0664
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X          DESTDIR =
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -D_NO_PROTO -DSTRINGS_ALIGNED -DNO_REGEX -DNO_ISDIR -DUSE_RE_COMP -DUSE_GETWD
+X      COMPATFLAGS =
+X
+X      ALLINCLUDES = $(STD_INCLUDES) $(TOP_INCLUDES) $(INCLUDES) $(EXTRA_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(PROTO_DEFINES) $(DEFINES) $(COMPATFLAGS)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS)
+X   LDCOMBINEFLAGS = -X -r
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+X###########################################################################
+X# X Window System Build Parameters
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X###########################################################################
+X# X Window System make variables; this need to be coordinated with rules
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X          PATHSEP = /
+X        USRLIBDIR = $(DESTDIR)/usr/lib
+X           BINDIR = $(DESTDIR)/usr/bin/X11
+X          INCROOT = $(DESTDIR)/usr/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = $(DESTDIR)/usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           AWMDIR = $(LIBDIR)/awm
+X           TWMDIR = $(LIBDIR)/twm
+X           GWMDIR = $(LIBDIR)/gwm
+X          MANPATH = $(DESTDIR)/usr/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X           MANDIR = $(MANSOURCEPATH)n
+X        LIBMANDIR = $(MANSOURCEPATH)3
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X
+X        SOXLIBREV = 4.2
+X          SOXTREV = 4.0
+X         SOXAWREV = 4.0
+X        SOOLDXREV = 4.0
+X         SOXMUREV = 4.0
+X        SOXEXTREV = 4.0
+X
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X            FONTC = bdftosnf
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier.sh
+X
+X        CONFIGSRC = $(TOP)/config
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X     MKFONTDIRSRC = $(FONTSRC)/mkfontdir
+X     EXTENSIONSRC = $(TOP)/extensions
+X
+X  DEPEXTENSIONLIB = $(USRLIBDIR)/libXext.a
+X     EXTENSIONLIB =  -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X
+X        DEPXMULIB =
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB =
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB =
+X           XAWLIB = -lXaw
+X
+X LINTEXTENSIONLIB = $(USRLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(USRLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(USRLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(USRLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(USRLIBDIR)/llib-lXaw.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+X      USRINCDIR = $(DESTDIR)/usr/include
+X        TESTSRC = $(TOP)/tests
+X     TESTSRCLIB = $(TESTSRC)/lib
+X     TESTSRCBIN = $(TESTSRC)/bin
+X       COMMONPP = $(TESTSRCBIN)/Commonpp
+X
+X     TESTCOMSRC = $(TESTSRCLIB)/Common
+X    MTOOLKITSRC = $(LIBSRC)/Xt
+X     MWIDGETSRC = $(LIBSRC)/Xm
+X   MRESOURCESRC = $(LIBSRC)/Mrm
+X         UILSRC = $(CLIENTSRC)/uil
+X            UIL = $(UILSRC)/uil
+X      XMTOOLLIB = $(MTOOLKITSRC)/libXt.a
+X          XMLIB = $(MWIDGETSRC)/libXm.a
+X   MRESOURCELIB = $(MRESOURCESRC)/libMrm.a
+X         UILLIB = $(UILSRC)/libUil.a
+X     TESTCOMLIB = $(TESTCOMSRC)/libCommon.a
+X
+X  LINTMRESOURCE = $(MRESOURCESRC)/libMrm.a
+XLINTXMWIDGETLIB = $(MWIDGETSRC)/llib-l/Xm.ln
+X     LINTXMTOOL = $(MTOOLKITSRC)/llib-lXt.ln
+X     LINTUILLIB = $(UILSRC)/llib-lUil.ln
+X
+X        DEPLIBS =
+X
+X        DEPLIBS1 = $(DEPLIBS)
+X        DEPLIBS2 = $(DEPLIBS)
+X        DEPLIBS3 = $(DEPLIBS)
+X
+X###########################################################################
+X# Imake rules for building libraries, programs, scripts, and data files
+X# rules:  $XConsortium: Imake.rules,v 1.67 89/12/18 17:14:15 jim Exp $
+X
+X###########################################################################
+X# start of Imakefile
+X
+X# MOTIF  -> Have Motif Widgets
+X# ATHENA -> Have Athena Widgets
+X
+X#define ATHENA
+X
+X           DELAY = -DDELAY=100       # DELAY ranges from -18 to whatever
+X#    GRAVITY = -DGRAVITY=8       # Default gravity
+X# ELASTICITY = -DELASTICY=90     # Default elasticity
+X          USLEEP = -DHAVE_USLEEP      # Uncomment if usleep installed...
+X       MYDEFINES = $(DELAY) $(USLEEP)
+X     CDEBUGFLAGS = -g
+X
+XM_SRCS = act_area.c
+XM_OBJS = act_area.o
+XM_INCS = act_area.h
+X
+XA_SRCS = filemenu.c
+XA_OBJS = filemenu.o
+XA_INCS =
+X
+X         DEFINES = -DMOTIF $(MYDEFINES)
+X#   MYLDLIBS = -lPW    # Uncomment if you get regcmp and regex undefined
+X          LDLIBS = -lXm -lXmu -lXt -lX11 $(MYLDLIBS)
+X
+XTOOL_SRCS = $(M_SRCS)
+XTOOL_OBJS = $(M_OBJS)
+XTOOL_INCS = $(M_INCS)
+X
+X LINTOPTS = -abhuvz -D_NO_PROTO $(DEFINES)
+X
+XCOMM_SRCS = \
+X	color_l.c \
+X	demo.c \
+X	file_sel.c \
+X	help.c \
+X	item.c \
+X	items.c \
+X	list.c \
+X	menu.c \
+X	misc.c \
+X	miscx.c \
+X	room.c \
+X	scrollbar.c \
+X	sim.c \
+X	table.c \
+X	xball.c \
+X	xball_sys.c
+X
+XCOMM_OBJS = \
+X	color_l.o \
+X	demo.o \
+X	file_sel.o \
+X	help.o \
+X	item.o \
+X	items.o \
+X	list.o \
+X	menu.o \
+X	misc.o \
+X	miscx.o \
+X	room.o \
+X	scrollbar.o \
+X	sim.o \
+X	table.o \
+X	xball.o \
+X	xball_sys.o
+X
+XCOMM_INCS = \
+X	color_l.h \
+X	demo.h \
+X	fallback.h \
+X	file_sel.h \
+X	help.h \
+X	intf.h \
+X	item.h \
+X	items.h \
+X	list.h \
+X	menu.h \
+X	misc.h \
+X	miscx.h \
+X	names.h \
+X        patchlevel.h \
+X	room.h \
+X	scrollbar.h \
+X	sim.h \
+X	table.h \
+X	xball_sys.h
+X
+XSRCS = $(COMM_SRCS) $(TOOL_SRCS)
+XOBJS = $(COMM_OBJS) $(TOOL_OBJS)
+XINCS = $(COMM_INCS) $(TOOL_INCS)
+X
+X PROGRAM = xball
+X
+Xall:: xball
+X
+Xxball: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+Xsaber_xball:
+X	#load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xosaber_xball:
+X	#load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xinstall:: xball
+X	$(INSTALL) -c $(INSTPGMFLAGS)   xball $(BINDIR)
+X
+Xinstall.man:: xball.man
+X	$(INSTALL) -c $(INSTMANFLAGS) xball.man $(MANDIR)/xball.n
+X
+Xdepend::
+X	$(DEPEND) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+Xlint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+Xlint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+Xclean::
+X	$(RM) $(PROGRAM)
+X
+XCLASS            = XBall
+XAPP_DEFAULTS_SRC = $(CLASS).ad
+X
+Xinstall::  $(CLASS).ad
+X	$(INSTALL) -c $(INSTAPPFLAGS)  $(CLASS).ad $(XAPPLOADDIR)/ $(CLASS)
+X
+Xfallback.h: $(APP_DEFAULTS_SRC)
+X	gen_fallback $(APP_DEFAULTS_SRC) > $@
+X
+XDEMOS = demo1 demo2 demo3 demo4 demo5 demo6 demo7 demo8 demo9 demo10 \
+X        demo11 demo12 demo13 demo14
+X
+XBITMAPS = \
+X	good_bitmaps \
+X	on.xbm \
+X	off.xbm \
+X	man.xbm \
+X	stipple.xbm \
+X	xball.xbm \
+X	xball-a.xbm \
+X	xball-b.xbm \
+X	xball-l.xbm \
+X	xball-x.xbm \
+X	sgi.xbm
+X
+XMISC = \
+X	gen_fallback \
+X	run_demos \
+X        xball.man \
+X	README
+X
+XDRAWING_A_DIRS = \
+X	X11 \
+X	X11/Xaw_d
+X
+XDRAWING_A = \
+X	X11/Xaw_d/DrawingA.c \
+X	X11/Xaw_d/DrawingA.h \
+X	X11/Xaw_d/DrawingAP.h \
+X	X11/Xaw_d/DrawingA.doc \
+X	X11/Xaw_d/Imakefile \
+X	X11/Xaw_d/Makefile.std \
+X	X11/Xaw_d/Makefile \
+X        X11/Xaw_d/demo.c \
+X	X11/Xaw_d/README \
+X	Imakefile \
+X	Makefile.std \
+X	Makefile \
+X	Make.motif \
+X	Make.athena
+X
+XDIST = \
+X	$(DRAWING_A) \
+X	$(COMM_SRCS) \
+X	$(COMM_INCS) \
+X	$(M_SRCS) \
+X	$(M_INCS) \
+X	$(A_SRCS) \
+X	$(A_INCS) \
+X	$(APP_DEFAULTS_SRC) \
+X	$(MISC) \
+X	$(BITMAPS) \
+X	$(DEMOS)
+X
+Xshar:
+X	makekit -s75k -p $(DRAWING_A_DIRS) $(DIST)
+X
+Xtar:
+X	tar cvf - $(DIST) | compress -v > xball.tar.Z
+X
+X###########################################################################
+X# common rules for all Makefiles - do not edit
+X
+Xemptyrule::
+X
+Xclean::
+X	$(RM_CMD) \#*
+X
+XMakefile::
+X	-@if [ -f Makefile ]; then \
+X	echo "	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak"; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+Xtags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+Xsaber:
+X	#load $(ALLDEFINES) $(SRCS)
+X
+Xosaber:
+X	#load $(ALLDEFINES) $(OBJS)
+X
+X###########################################################################
+X# empty rules for directories that do not have SUBDIRS - do not edit
+X
+Xinstall::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+Xinstall.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+XMakefiles::
+X
+Xincludes::
+X
+X###########################################################################
+X# dependencies generated by makedepend
+X
+END_OF_FILE
+if test 12467 -ne `wc -c <'Makefile.std'`; then
+    echo shar: \"'Makefile.std'\" unpacked with wrong size!
+fi
+# end of 'Makefile.std'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(12467 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile generated by imake - do not edit!
+X# $XConsortium: imake.c,v 1.51 89/12/12 12:37:30 jim Exp $
+X#
+X# The cpp used on this machine replaces all newlines and multiple tabs and
+X# spaces in a macro expansion with a single space.  Imake tries to compensate
+X# for this, but is not always successful.
+X#
+X
+X###########################################################################
+X# Makefile generated from "Imake.tmpl" and <Imakefile>
+X# $XConsortium: Imake.tmpl,v 1.77 89/12/18 17:01:37 jim Exp $
+X#
+X# Platform-specific parameters may be set in the appropriate .cf
+X# configuration files.  Site-wide parameters may be set in the file
+X# site.def.  Full rebuilds are recommended if any parameters are changed.
+X#
+X# If your C preprocessor doesn't define any unique symbols, you'll need
+X# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+X# "make Makefile", "make Makefiles", or "make World").
+X#
+X# If you absolutely can't get imake to work, you'll need to set the
+X# variables at the top of each Makefile as well as the dependencies at the
+X# bottom (makedepend will do this automatically).
+X#
+X
+X###########################################################################
+X# platform-specific configuration parameters - edit sun.cf to change
+X
+XSYSLIBS=-lXt -lX11
+XMWM_DEFINES=-DSHAPE -DOPAQUE
+XSYSLIBS=$(MTOOLKITSRC)/libXt.a $(XLIBSRC)/libX11.a
+X
+X# platform:  $XConsortium: sun.cf,v 1.38 89/12/23 16:10:10 jim Exp $
+X# operating system:  SunOS 4.1
+X
+X###########################################################################
+X# site-specific configuration parameters - edit site.def to change
+X
+X# site:  $XConsortium: site.def,v 1.21 89/12/06 11:46:50 jim Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar cq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X               RM = rm -f
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0664
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X          DESTDIR =
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -D_NO_PROTO -DSTRINGS_ALIGNED -DNO_REGEX -DNO_ISDIR -DUSE_RE_COMP -DUSE_GETWD
+X      COMPATFLAGS =
+X
+X      ALLINCLUDES = $(STD_INCLUDES) $(TOP_INCLUDES) $(INCLUDES) $(EXTRA_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(PROTO_DEFINES) $(DEFINES) $(COMPATFLAGS)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS)
+X   LDCOMBINEFLAGS = -X -r
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+X###########################################################################
+X# X Window System Build Parameters
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X###########################################################################
+X# X Window System make variables; this need to be coordinated with rules
+X# $XConsortium: Project.tmpl,v 1.63 89/12/18 16:46:44 jim Exp $
+X
+X          PATHSEP = /
+X        USRLIBDIR = $(DESTDIR)/usr/lib
+X           BINDIR = $(DESTDIR)/usr/bin/X11
+X          INCROOT = $(DESTDIR)/usr/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = $(DESTDIR)/usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           AWMDIR = $(LIBDIR)/awm
+X           TWMDIR = $(LIBDIR)/twm
+X           GWMDIR = $(LIBDIR)/gwm
+X          MANPATH = $(DESTDIR)/usr/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X           MANDIR = $(MANSOURCEPATH)n
+X        LIBMANDIR = $(MANSOURCEPATH)3
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X
+X        SOXLIBREV = 4.2
+X          SOXTREV = 4.0
+X         SOXAWREV = 4.0
+X        SOOLDXREV = 4.0
+X         SOXMUREV = 4.0
+X        SOXEXTREV = 4.0
+X
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X            FONTC = bdftosnf
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier.sh
+X
+X        CONFIGSRC = $(TOP)/config
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X     MKFONTDIRSRC = $(FONTSRC)/mkfontdir
+X     EXTENSIONSRC = $(TOP)/extensions
+X
+X  DEPEXTENSIONLIB = $(USRLIBDIR)/libXext.a
+X     EXTENSIONLIB =  -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X
+X        DEPXMULIB =
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB =
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB =
+X           XAWLIB = -lXaw
+X
+X LINTEXTENSIONLIB = $(USRLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(USRLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(USRLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(USRLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(USRLIBDIR)/llib-lXaw.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+X      USRINCDIR = $(DESTDIR)/usr/include
+X        TESTSRC = $(TOP)/tests
+X     TESTSRCLIB = $(TESTSRC)/lib
+X     TESTSRCBIN = $(TESTSRC)/bin
+X       COMMONPP = $(TESTSRCBIN)/Commonpp
+X
+X     TESTCOMSRC = $(TESTSRCLIB)/Common
+X    MTOOLKITSRC = $(LIBSRC)/Xt
+X     MWIDGETSRC = $(LIBSRC)/Xm
+X   MRESOURCESRC = $(LIBSRC)/Mrm
+X         UILSRC = $(CLIENTSRC)/uil
+X            UIL = $(UILSRC)/uil
+X      XMTOOLLIB = $(MTOOLKITSRC)/libXt.a
+X          XMLIB = $(MWIDGETSRC)/libXm.a
+X   MRESOURCELIB = $(MRESOURCESRC)/libMrm.a
+X         UILLIB = $(UILSRC)/libUil.a
+X     TESTCOMLIB = $(TESTCOMSRC)/libCommon.a
+X
+X  LINTMRESOURCE = $(MRESOURCESRC)/libMrm.a
+XLINTXMWIDGETLIB = $(MWIDGETSRC)/llib-l/Xm.ln
+X     LINTXMTOOL = $(MTOOLKITSRC)/llib-lXt.ln
+X     LINTUILLIB = $(UILSRC)/llib-lUil.ln
+X
+X        DEPLIBS =
+X
+X        DEPLIBS1 = $(DEPLIBS)
+X        DEPLIBS2 = $(DEPLIBS)
+X        DEPLIBS3 = $(DEPLIBS)
+X
+X###########################################################################
+X# Imake rules for building libraries, programs, scripts, and data files
+X# rules:  $XConsortium: Imake.rules,v 1.67 89/12/18 17:14:15 jim Exp $
+X
+X###########################################################################
+X# start of Imakefile
+X
+X# MOTIF  -> Have Motif Widgets
+X# ATHENA -> Have Athena Widgets
+X
+X#define ATHENA
+X
+X           DELAY = -DDELAY=100       # DELAY ranges from -18 to whatever
+X#    GRAVITY = -DGRAVITY=8       # Default gravity
+X# ELASTICITY = -DELASTICY=90     # Default elasticity
+X          USLEEP = -DHAVE_USLEEP      # Uncomment if usleep installed...
+X       MYDEFINES = $(DELAY) $(USLEEP)
+X     CDEBUGFLAGS = -g
+X
+XM_SRCS = act_area.c
+XM_OBJS = act_area.o
+XM_INCS = act_area.h
+X
+XA_SRCS = filemenu.c
+XA_OBJS = filemenu.o
+XA_INCS =
+X
+X         DEFINES = -DMOTIF $(MYDEFINES)
+X#   MYLDLIBS = -lPW    # Uncomment if you get regcmp and regex undefined
+X          LDLIBS = -lXm -lXmu -lXt -lX11 $(MYLDLIBS)
+X
+XTOOL_SRCS = $(M_SRCS)
+XTOOL_OBJS = $(M_OBJS)
+XTOOL_INCS = $(M_INCS)
+X
+X LINTOPTS = -abhuvz -D_NO_PROTO $(DEFINES)
+X
+XCOMM_SRCS = \
+X	color_l.c \
+X	demo.c \
+X	file_sel.c \
+X	help.c \
+X	item.c \
+X	items.c \
+X	list.c \
+X	menu.c \
+X	misc.c \
+X	miscx.c \
+X	room.c \
+X	scrollbar.c \
+X	sim.c \
+X	table.c \
+X	xball.c \
+X	xball_sys.c
+X
+XCOMM_OBJS = \
+X	color_l.o \
+X	demo.o \
+X	file_sel.o \
+X	help.o \
+X	item.o \
+X	items.o \
+X	list.o \
+X	menu.o \
+X	misc.o \
+X	miscx.o \
+X	room.o \
+X	scrollbar.o \
+X	sim.o \
+X	table.o \
+X	xball.o \
+X	xball_sys.o
+X
+XCOMM_INCS = \
+X	color_l.h \
+X	demo.h \
+X	fallback.h \
+X	file_sel.h \
+X	help.h \
+X	intf.h \
+X	item.h \
+X	items.h \
+X	list.h \
+X	menu.h \
+X	misc.h \
+X	miscx.h \
+X	names.h \
+X        patchlevel.h \
+X	room.h \
+X	scrollbar.h \
+X	sim.h \
+X	table.h \
+X	xball_sys.h
+X
+XSRCS = $(COMM_SRCS) $(TOOL_SRCS)
+XOBJS = $(COMM_OBJS) $(TOOL_OBJS)
+XINCS = $(COMM_INCS) $(TOOL_INCS)
+X
+X PROGRAM = xball
+X
+Xall:: xball
+X
+Xxball: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+Xsaber_xball:
+X	#load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xosaber_xball:
+X	#load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+Xinstall:: xball
+X	$(INSTALL) -c $(INSTPGMFLAGS)   xball $(BINDIR)
+X
+Xinstall.man:: xball.man
+X	$(INSTALL) -c $(INSTMANFLAGS) xball.man $(MANDIR)/xball.n
+X
+Xdepend::
+X	$(DEPEND) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+Xlint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+Xlint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+Xclean::
+X	$(RM) $(PROGRAM)
+X
+XCLASS            = XBall
+XAPP_DEFAULTS_SRC = $(CLASS).ad
+X
+Xinstall::  $(CLASS).ad
+X	$(INSTALL) -c $(INSTAPPFLAGS)  $(CLASS).ad $(XAPPLOADDIR)/ $(CLASS)
+X
+Xfallback.h: $(APP_DEFAULTS_SRC)
+X	gen_fallback $(APP_DEFAULTS_SRC) > $@
+X
+XDEMOS = demo1 demo2 demo3 demo4 demo5 demo6 demo7 demo8 demo9 demo10 \
+X        demo11 demo12 demo13 demo14
+X
+XBITMAPS = \
+X	good_bitmaps \
+X	on.xbm \
+X	off.xbm \
+X	man.xbm \
+X	stipple.xbm \
+X	xball.xbm \
+X	xball-a.xbm \
+X	xball-b.xbm \
+X	xball-l.xbm \
+X	xball-x.xbm \
+X	sgi.xbm
+X
+XMISC = \
+X	gen_fallback \
+X	run_demos \
+X        xball.man \
+X	README
+X
+XDRAWING_A_DIRS = \
+X	X11 \
+X	X11/Xaw_d
+X
+XDRAWING_A = \
+X	X11/Xaw_d/DrawingA.c \
+X	X11/Xaw_d/DrawingA.h \
+X	X11/Xaw_d/DrawingAP.h \
+X	X11/Xaw_d/DrawingA.doc \
+X	X11/Xaw_d/Imakefile \
+X	X11/Xaw_d/Makefile.std \
+X	X11/Xaw_d/Makefile \
+X        X11/Xaw_d/demo.c \
+X	X11/Xaw_d/README \
+X	Imakefile \
+X	Makefile.std \
+X	Makefile \
+X	Make.motif \
+X	Make.athena
+X
+XDIST = \
+X	$(DRAWING_A) \
+X	$(COMM_SRCS) \
+X	$(COMM_INCS) \
+X	$(M_SRCS) \
+X	$(M_INCS) \
+X	$(A_SRCS) \
+X	$(A_INCS) \
+X	$(APP_DEFAULTS_SRC) \
+X	$(MISC) \
+X	$(BITMAPS) \
+X	$(DEMOS)
+X
+Xshar:
+X	makekit -s75k -p $(DRAWING_A_DIRS) $(DIST)
+X
+Xtar:
+X	tar cvf - $(DIST) | compress -v > xball.tar.Z
+X
+X###########################################################################
+X# common rules for all Makefiles - do not edit
+X
+Xemptyrule::
+X
+Xclean::
+X	$(RM_CMD) \#*
+X
+XMakefile::
+X	-@if [ -f Makefile ]; then \
+X	echo "	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak"; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+Xtags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+Xsaber:
+X	#load $(ALLDEFINES) $(SRCS)
+X
+Xosaber:
+X	#load $(ALLDEFINES) $(OBJS)
+X
+X###########################################################################
+X# empty rules for directories that do not have SUBDIRS - do not edit
+X
+Xinstall::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+Xinstall.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+XMakefiles::
+X
+Xincludes::
+X
+X###########################################################################
+X# dependencies generated by makedepend
+X
+END_OF_FILE
+if test 12467 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'items.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'items.c'\"
+else
+echo shar: Extracting \"'items.c'\" \(5285 characters\)
+sed "s/^X//" >'items.c' <<'END_OF_FILE'
+X/**********************************************************************
+X * items.c - definition of item list object.
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X/* System Headers */
+X#include <string.h>
+X
+X/* Local headers */
+X#include "items.h"
+X#include "room.h"
+X
+X#if 0
+X/* External variables */
+Xextern item_static_type static_data;
+X#endif
+X
+X
+X/* Create the items object */
+Xitems_type items__create()
+X{
+X    items_type items = (items_type)malloc( sizeof( items_struct_type));
+X
+X    items->list = list__create();
+X
+X    return items;
+X}
+X
+X
+X/* Destroy the items object */
+Xitems_type items__destroy(items)
+Xitems_type items;
+X{
+X    items__destroy_all( items);
+X
+X    list__destroy( items->list);
+X    
+X    free( items);
+X}
+X
+X
+X/* Return the first item in the list */
+Xitem_type items__get_first( items)
+Xitems_type items;
+X{
+X    return (item_type)list__get_first(items->list);
+X}
+X
+X
+X/* Return the next item in the list */
+Xitem_type items__get_next( items)
+Xitems_type items;
+X{
+X    return (item_type)list__get_next(items->list);
+X}
+X
+X
+X/* Add an item to the list of items */
+Xvoid items__add( items, item)
+Xitems_type      items;
+Xitem_type       item;
+X{
+X    list__add_end( items->list, (void *)item);
+X}
+X
+X
+X/* Destroy all items in the item list */
+Xvoid items__destroy_all( items)
+Xitems_type items;
+X{
+X    item_type item;
+X
+X
+X    for (item = (item_type)list__remove_last( items->list);
+X         item != (item_type)0;
+X         item = (item_type)list__remove_last( items->list))
+X    {
+X        item__destroy( item);
+X    }
+X}
+X
+X
+X/* Create a new item and add it to the item list */
+Xvoid items__new_item( items, x, y, x_vel, y_vel)
+Xitems_type items;
+Xint      x,y;
+Xint      x_vel,y_vel;
+X{
+X    list__add_end( items->list, (void *)item__create(x, y, x_vel, y_vel));
+X}
+X
+X
+X/* Perform the iterative simulation movement for all items on the list */
+X/* If an item dies, destroy it */
+Xvoid items__move_items( items, room)
+Xitems_type items;
+Xroom_type room;
+X{
+X    item_type item;
+X
+X
+X    /* Move each item on the screen */
+X    for (items->current = 0;
+X	 items->current < list__get_count( items->list); 
+X         items->current++)
+X    {
+X        item = (item_type)list__get_cell(items->list, items->current);
+X
+X        item__move( item, room, items);
+X
+X        if (item__stopped( item, room))
+X        {
+X            list__remove( items->list, items->current);
+X            items->current--;
+X            item__destroy( item);
+X        }
+X    }
+X}
+X
+X
+X
+X/* Simulate moving the items backwards count iterations */
+X/* The iterations are not shown in the screen */
+X/* Note that gravity and elastivity are not handled */
+Xvoid items__move_items_backwards( items, room, count)
+Xitems_type items;
+Xroom_type room;
+Xint count;
+X{
+X    item_type item;
+X
+X
+X    /* Reverse all items' velocities and erase them from the screen */
+X    for (items->current = 0;
+X         items->current < list__get_count( items->list); 
+X         items->current++)
+X    {
+X        item = (item_type)list__get_cell(items->list, items->current);
+X
+X        item->x_vel = -item->x_vel;
+X        item->y_vel = -item->y_vel;
+X
+X        item__erase( item);
+X    }
+X
+X    /* Move them all count iterations (they will go backwards) */
+X    while (count-- > 0)
+X    {
+X        /* Move each item on the screen */
+X        for (items->current = 0;
+X             items->current < list__get_count( items->list); 
+X             items->current++)
+X        {
+X            item = (item_type)list__get_cell(items->list, items->current);
+X
+X            item__move( item, room, items);
+X        }
+X    }
+X
+X
+X    /* Reverse all the items' velocities again and draw them */
+X    for (items->current = 0;
+X         items->current < list__get_count( items->list); 
+X         items->current++)
+X    {
+X        item = (item_type)list__get_cell(items->list, items->current);
+X
+X        item->x_vel = -item->x_vel;
+X        item->y_vel = -item->y_vel;
+X
+X        item__draw( item);
+X    }
+X
+X}
+X
+X
+X/* Make all items visible or invisible */
+Xvoid items__set_visible( items, visible)
+Xitems_type items;
+XBool       visible;
+X{
+X    if (visible)
+X        item__set_visible( True);
+X
+X    for (items->current = 0;
+X         items->current < list__get_count( items->list); 
+X         items->current++)
+X    {
+X        if (visible)
+X            item__draw( (item_type)list__get_cell(items->list,items->current));
+X        else
+X            item__erase((item_type)list__get_cell(items->list,items->current));
+X    }
+X
+X    if (!visible)
+X        item__set_visible( False);
+X}
+X
+X
+X/* Rebound the given item again all items in the item list */
+Xvoid items__rebound_items( item, items)
+Xitem_type item;
+Xitems_type items;
+X{
+X    int i;
+X
+X    for (i = items->current+1; i < list__get_count( items->list); i++)
+X    {
+X        item__rebound_item(item, 
+X                           (item_type)list__get_cell(items->list, i));
+X    }
+X}
+X
+X
+X#ifdef DEBUG
+X
+Xvoid items__print( items)
+Xitems_type items;
+X{
+X    int i;
+X
+X
+X    for (i = 0; i < list__get_count( items->list); i++)
+X    {
+X        printf("%4d: ", i);
+X        item__print( (item_type)list__get_cell(items->list, i));
+X    }
+X}  
+X
+X#endif
+END_OF_FILE
+if test 5285 -ne `wc -c <'items.c'`; then
+    echo shar: \"'items.c'\" unpacked with wrong size!
+fi
+# end of 'items.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(21 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 0
+END_OF_FILE
+if test 21 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

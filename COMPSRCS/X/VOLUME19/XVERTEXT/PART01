@@ -1,0 +1,1728 @@
+Newsgroups: comp.sources.x
+From: mppa3@syma.sussex.ac.uk (Alan Richardson)
+Subject: v19i073:  xvertext - functions for drawing text at ANY ANGLE in an X window, Part01/01
+Message-ID: <1993Apr4.003759.2031@sparky.imd.sterling.com>
+X-Md4-Signature: 46155073a9f74abae8a50ab17627deea
+Date: Sun, 4 Apr 1993 00:37:59 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: mppa3@syma.sussex.ac.uk (Alan Richardson)
+Posting-number: Volume 19, Issue 73
+Archive-name: xvertext/part01
+Environment: X11
+
+[There is no Imakefile with this submission.]
+[    Chris Olson                            ]
+# Submission to comp.sources.x
+#
+# This is part 1/1 of xvertext.3.0
+#
+# Use: functions for drawing text at ANY ANGLE in an X window
+#                                    ^^^^^^^^^
+#
+############################################################################
+
+
+# This is a shell archive.  Remove anything before this line,
+# then unpack it by saving it in a file and typing "sh file".
+#
+# Wrapped by Alan Richardson <mppa3@hp720> on Wed Mar 31 21:27:33 1993
+#
+# This archive contains:
+#	xvertext.3.0	
+#
+
+LANG=""; export LANG
+PATH=/bin:/usr/bin:$PATH; export PATH
+
+echo mkdir - xvertext.3.0
+mkdir xvertext.3.0
+
+echo x - xvertext.3.0/example.c
+cat >xvertext.3.0/example.c <<'@EOF'
+/**************************************************************************/
+/*                                                                        */
+/*                                                                        */
+/* This is an example program designed to utilise and manipulate the      */
+/* `xvertext' routines.                                                   */
+/*                                                                        */
+/* Version 3.0                                                            */
+/*                                                                        */
+/* Copyright (c) 1993 Alan Richardson (mppa3@uk.ac.sussex.syma)           */
+/*                                                                        */
+/*                                                                        */
+/* ********************************************************************** */
+
+
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <stdio.h>
+#include <math.h>
+#include "rotated.h"
+
+
+/* ---------------------------------------------------------------------- */
+
+
+extern char *getenv();
+unsigned long AllocNamedColor();
+void DrawRosette();
+void DrawAlignments();
+void DrawRandom();
+
+
+/* ---------------------------------------------------------------------- */
+
+
+GC gc;
+Display *dpy;
+Window window;
+int depth, screen;
+unsigned long white, black;
+
+#define NCOLORS 9
+
+char *colors[]={
+    "white", "red", "orange", "yellow", "green", "cyan",
+    "blue", "violet", "wheat"
+};
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Allocate a colour from the default colour map                          */
+/**************************************************************************/
+
+unsigned long AllocNamedColor(colname)  
+    char *colname;    
+{
+    XColor scrncol, excol;
+    
+    if(depth==1)
+	return white;
+    
+    if(XAllocNamedColor(dpy, DefaultColormap(dpy, screen), colname,
+			&scrncol, &excol))
+	return scrncol.pixel;
+    
+    else
+	return white;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Main routine                                                           */
+/**************************************************************************/
+
+main()
+{
+    XEvent ev;
+    char *host;
+    char buf[1];
+    int mode=0;
+    float version;
+    char copyright[100];
+    
+    /* get copyright information */
+    version=XRotVersion(copyright, 100);
+    fprintf(stderr, "%s - version %.1f\n", copyright, version);
+    
+    /* establish connection to display */
+    if((host=getenv("DISPLAY"))==NULL) {
+	fprintf(stderr,"can't connect to host\n");
+	exit(1); 
+    }
+    
+    /* open connection to display */
+    if((dpy=XOpenDisplay(host))==NULL) {
+	fprintf(stderr,"can't open display\n");
+	exit(1); 
+    }
+    
+    /* useful macros */
+    screen=DefaultScreen(dpy);
+    depth=DefaultDepth(dpy, screen);
+    
+    white=WhitePixel(dpy, screen);
+    black=BlackPixel(dpy, screen);
+
+    /* create a window */
+    window=XCreateWindow(dpy, DefaultRootWindow(dpy), 0, 0, 600, 600,
+			 0, depth, InputOutput, DefaultVisual(dpy, screen),
+			 0, NULL);
+    
+    XSelectInput(dpy, window, ExposureMask|KeyPressMask);
+    XSetWindowBackground(dpy, window, black);
+    XMapWindow(dpy, window);
+    
+    /* create a GC */
+    gc=XCreateGC(dpy, window, NULL, 0);
+
+    /* simple event loop */
+    for(;;) {
+	XNextEvent(dpy, &ev);
+	
+	/* process each event */
+	switch(ev.type) {
+	  case Expose:
+	    if(ev.xexpose.count==0) {
+		/* redraw screen on expose event */
+		XClearWindow(dpy, window);
+		if(mode==0)
+		    DrawRosette();
+		else if(mode==1)
+		    DrawAlignments();
+		else
+		    DrawRandom();
+	    }
+	    break;
+	    
+	  case KeyPress: 
+	    XLookupString(&ev.xkey, buf, 1, NULL, NULL);
+	    /* quit if `q' pressed */
+	    if(buf[0]=='q' || buf[0]=='Q')
+		exit(0);
+	    else {
+		/* go to next screen */
+		mode=(++mode)%3;
+
+		/* draw next screen */
+		XClearWindow(dpy, window);
+		if(mode==0)
+                    DrawRosette();
+                else if(mode==1)
+                    DrawAlignments();
+		else
+		    DrawRandom();
+	    }
+	    break;
+	    
+	  default:
+	    break;  
+	}
+    }
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Draw an `Adobe PostScript'-style word rosette                          */
+/**************************************************************************/
+
+void DrawRosette()
+{
+    int i;
+    XFontStruct *font;
+    char *str="Just like PostScript?";
+    char *fontname=
+	"-adobe-helvetica-medium-o-normal--24-240-75-75-p-130-iso8859-1";
+    
+    /* load the font */
+    font=XLoadQueryFont(dpy, fontname);
+    if(font==NULL) {
+        fprintf(stderr, "no font `%s'\n", fontname);
+        font=XLoadQueryFont(dpy, "fixed");
+    }
+    
+    /* loop through each angle */
+    for(i=0; i<16; i++) {
+	XSetForeground(dpy, gc, AllocNamedColor(colors[i%NCOLORS]));
+	XRotDrawAlignedString(dpy, font, (float)(360*i/16), window, 
+			      gc, 300, 270, str, MLEFT);
+    }	
+
+    XSetForeground(dpy, gc, white);
+    XSetBackground(dpy, gc, black);
+    XRotDrawAlignedImageString(dpy, font, 0., window, gc, 300, 590,
+			       "Press any key to continue...", BCENTRE);
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Demonstrate alignment of blocks of text                                */
+/**************************************************************************/
+
+void DrawAlignments()
+{
+    int i;
+    int align, x, y;
+    XFontStruct *font;
+    char *str="Many\nalignments\nare\npossible";
+    char *fontname="-adobe-times-bold-r-normal--18-180-75-75-p-99-iso8859-1";
+    
+    /* load the font */
+    font=XLoadQueryFont(dpy, fontname);
+    if(font==NULL) {
+	fprintf(stderr, "no font `%s'\n", fontname);
+	font=XLoadQueryFont(dpy, "fixed");
+    }
+    
+    if(depth==1)
+        XSetBackground(dpy, gc, black);
+    else
+        XSetBackground(dpy, gc, AllocNamedColor("red"));
+
+    /* loop through nine positions */
+    for(i=0; i<9; i++) {
+	/* alignment */
+	if(i%3==0)
+	    align=BRIGHT;
+	else if(i%3==1)
+	    align=MCENTRE;
+	else
+	    align=TLEFT;
+	
+	/* position */
+	x=(i%3)*200+100;
+	y=(i/3)*200+100;
+	
+	/* draw some crosshairs */
+	XSetForeground(dpy, gc, AllocNamedColor("yellow"));
+	XDrawLine(dpy, window, gc, x-30, y, x+30, y);
+	XDrawLine(dpy, window, gc, x, y+30, x, y-30);
+
+	/* draw the text */
+	XSetForeground(dpy, gc, AllocNamedColor("cyan"));
+	XRotDrawAlignedImageString(dpy, font, 120.*(float)(i/3),
+				   window, gc, x, y, str, align);
+    }
+
+    XSetForeground(dpy, gc, white);
+    XSetBackground(dpy, gc, black);
+    XRotDrawAlignedImageString(dpy, font, 0., window, gc, 300, 590,
+			       "Press any key to continue...",BCENTRE);
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Draw strings at random positions/orientations                          */
+/**************************************************************************/
+
+void DrawRandom()
+{
+    int i;
+    XFontStruct *font[6];
+    char *str="Rotated Text!";
+    static char *fontnames[]={
+	"-adobe-courier-bold-o-normal--18-180-75-75-m-110-iso8859-1",
+	"-adobe-courier-medium-r-normal--14-140-75-75-m-90-iso8859-1",
+	"-adobe-helvetica-bold-r-normal--24-240-75-75-p-138-iso8859-1",
+	"-adobe-helvetica-medium-r-normal--10-100-75-75-p-56-iso8859-1",
+	"-adobe-times-bold-i-normal--18-180-75-75-p-98-iso8859-1",
+	"-adobe-times-medium-r-normal--24-240-75-75-p-124-iso8859-1"
+	};
+    
+
+    /* load all fonts first */
+    for(i=0; i<6; i++) {
+	font[i]=XLoadQueryFont(dpy, fontnames[i]);
+	if(font[i]==NULL) {
+	    fprintf(stderr, "no font `%s'\n", fontnames[i]);
+	    font[i]=XLoadQueryFont(dpy, "fixed");
+	}
+    }
+
+    if(depth==1)
+        XSetBackground(dpy, gc, black);
+    else
+        XSetBackground(dpy, gc, AllocNamedColor("grey"));
+
+    /* do lots of strings */
+    for(i=0; i<75; i++) {
+	/* random color */
+	XSetForeground(dpy, gc, AllocNamedColor(colors[rand()%NCOLORS]));
+
+	/* draw string */
+	if(rand()%1000>500)
+	    XRotDrawString(dpy, font[rand()%6],
+			   (float)(rand()%100)*360./100.,
+			   window, gc, rand()%600, rand()%600, str);
+	else
+	    XRotDrawImageString(dpy, font[rand()%6], 
+				(float)(rand()%100)*360./100.,
+				window, gc, rand()%600, rand()%600, str);
+    }	
+
+    XSetForeground(dpy, gc, white);
+    XSetBackground(dpy, gc, black);
+    XRotDrawAlignedImageString(dpy, font[2], 0., window, gc, 300, 590,
+			       "Press any key to continue...", BCENTRE);
+}
+@EOF
+
+chmod 600 xvertext.3.0/example.c
+
+echo x - xvertext.3.0/Makefile
+cat >xvertext.3.0/Makefile <<'@EOF'
+#############################################################################
+
+
+# Makefile for xvertext version 3.0
+
+
+#############################################################################
+
+
+# Nuthin' fancy:
+
+
+                 CC = cc
+             CFLAGS = -O
+
+
+#############################################################################
+
+
+# This is where the library and header files will go, if you use
+#  `make install' to install them. Change as required:
+
+
+          THELIBDIR = ./lib
+          THEINCDIR = ./include
+
+
+# This is where the manual pages will go:
+# (you'll want something ending in man/man3 since the manual page
+#  for `foo' will be installed as `foo.3')
+
+
+          THEMANDIR = ./man/man3
+
+
+#############################################################################
+
+
+# On a HP9000s300 you probably need to add `-lmalloc' to the end of this,
+# or it might core dump:
+
+
+               LIBS = -lX11 -lm 
+
+
+#############################################################################
+
+# No user servicable parts below!
+
+#############################################################################
+
+
+     OBJS = rotated.o example.o
+    SHELL = /bin/sh
+
+example: $(OBJS)
+	$(CC) $(CFLAGS) -o example $(OBJS) $(LIBS)
+
+lib: rotated.o
+	rm -f libXrot.a
+	ar cq libXrot.a rotated.o 
+	ranlib libXrot.a
+
+install: example
+	rm -f libXrot.a
+	ar cq libXrot.a rotated.o
+	ranlib libXrot.a  
+	@if [ -d $(THELIBDIR) ]; then set +x; \
+	else (set -x; mkdir $(THELIBDIR)); fi
+	cp libXrot.a $(THELIBDIR)
+	@if [ -d $(THEINCDIR) ]; then set +x; \
+	else (set -x; mkdir $(THEINCDIR)); fi
+	cp rotated.h $(THEINCDIR)
+	@if [ -d $(THEMANDIR) ]; then set +x; \
+	else (set -x; mkdir $(THEMANDIR)); fi
+	cp man/XRotDrawAlignedString.3 $(THEMANDIR)/XRotDrawAlignedImageString.3
+	cp man/XRotDrawAlignedString.3 $(THEMANDIR)/XRotDrawAlignedString.3
+	cp man/XRotDrawAlignedString.3 $(THEMANDIR)/XRotDrawImageString.3
+	cp man/XRotDrawAlignedString.3 $(THEMANDIR)/XRotDrawString.3
+	cp man/XRotVersion.3 $(THEMANDIR)/XRotVersion.3
+	cp man/xvertext.3 $(THEMANDIR)/xvertext.3
+
+clean:
+	rm -f $(OBJS) example example~ libXrot.a
+
+$(OBJS): rotated.h
+
+@EOF
+
+chmod 600 xvertext.3.0/Makefile
+
+echo x - xvertext.3.0/rotated.h
+cat >xvertext.3.0/rotated.h <<'@EOF'
+/* ************************************************************************ */
+
+
+/* Header file for the `xvertext 3.0' routines.
+
+   Copyright (c) 1993 Alan Richardson (mppa3@uk.ac.sussex.syma) */
+
+
+/* ************************************************************************ */
+
+
+#ifndef _XVERTEXT_INCLUDED_ 
+#define _XVERTEXT_INCLUDED_
+
+
+#define XV_VERSION      3.0
+#define XV_COPYRIGHT    "xvertext routines Copyright (c) 1993 Alan Richardson"
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/* text alignment */
+
+#define NONE             0
+#define TLEFT            1
+#define TCENTRE          2
+#define TRIGHT           3
+#define MLEFT            4
+#define MCENTRE          5
+#define MRIGHT           6
+#define BLEFT            7
+#define BCENTRE          8
+#define BRIGHT           9
+
+
+/* ---------------------------------------------------------------------- */
+
+
+extern float              XRotVersion();
+extern int                XRotDrawString();
+extern int                XRotDrawImageString();
+extern int                XRotDrawAlignedString();
+extern int                XRotDrawAlignedImageString();
+extern int                XRotPaintAlignedString();
+
+
+/* ---------------------------------------------------------------------- */
+
+
+#endif /* _XVERTEXT_INCLUDED_ */
+
+
+
+@EOF
+
+chmod 600 xvertext.3.0/rotated.h
+
+echo x - xvertext.3.0/rotated.c
+cat >xvertext.3.0/rotated.c <<'@EOF'
+/* ********************************************************************** */
+
+/* xvertext 3.0, Copyright (c) 1993 Alan Richardson (mppa3@uk.ac.sussex.syma)
+ *
+ * Permission to use, copy, modify, and distribute this software and its
+ * documentation for any purpose and without fee is hereby granted, provided
+ * that the above copyright notice appear in all copies and that both the
+ * copyright notice and this permission notice appear in supporting
+ * documentation.  All work developed as a consequence of the use of
+ * this program should duly acknowledge such use. No representations are
+ * made about the suitability of this software for any purpose.  It is
+ * provided "as is" without express or implied warranty.
+ */
+
+/* ********************************************************************** */
+
+
+/* BETTER: xvertext now does rotation at any angle!!
+ *
+ * BEWARE: function arguments have CHANGED since version 2.0!!
+ */
+
+/* ********************************************************************** */
+
+
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <stdio.h>
+#include <math.h>
+#include "rotated.h"
+#include <malloc.h>   /* maybe your system doesn't want this */
+
+
+/* ---------------------------------------------------------------------- */
+
+
+#define ERROR 1
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+
+/* ---------------------------------------------------------------------- */
+
+
+static char  *my_strdup();
+static char  *my_strtok();
+
+float         XRotVersion();
+XImage       *MakeXImage();
+int           XRotDrawString();
+int           XRotDrawImageString();
+int           XRotDrawAlignedString();
+int           XRotDrawAlignedImageString();
+int           XRotPaintAlignedString();
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Routine to mimic `strdup()' (some machines don't have it)              */
+/**************************************************************************/
+
+static char *my_strdup(str)
+    char *str;
+{
+    char *s;
+    
+    if(str==NULL)
+	return NULL;
+    
+    s=(char *)malloc((unsigned)(strlen(str)+1));
+    if(s!=NULL) 
+	strcpy(s, str);
+    
+    return s;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Routine to replace `strtok' : this one returns a zero length string if */
+/* it encounters two consecutive delimiters                               */
+/**************************************************************************/
+
+static char *my_strtok(str1, str2)
+    char *str1, *str2;
+{
+    char *ret;
+    int i, j, stop;
+    static int start, len;
+    static char *stext;
+    
+    /* this error should never occur ... */
+    if(str2==NULL) {
+	fprintf(stderr,
+		"Fatal error: my_strtok(): recieved null delimiter string\n");
+	exit(1);
+    }
+    
+    /* initialise if str1 not NULL ... */
+    if(str1!=NULL) {
+	start=0;
+	stext=str1;
+	len=strlen(str1);
+    }
+    
+    /* run out of tokens ? ... */
+    if(start>=len)
+	return NULL;
+    
+    /* loop through characters ... */
+    for(i=start; i<len; i++) {
+	/* loop through delimiters ... */
+	stop=0;
+	for(j=0; j<strlen(str2); j++)
+	    if(stext[i]==str2[j])
+		stop=1;
+	
+	if(stop)
+	    break;
+    }
+    
+    stext[i]='\0';
+    
+    ret=stext+start;
+    
+    start=i+1;
+    
+    return ret;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/* Return version/copyright information                                   */
+/**************************************************************************/
+
+float XRotVersion(str, n)
+    char *str;
+    int n;
+{
+    if(str!=NULL)
+	strncpy(str, XV_COPYRIGHT, n);
+    return XV_VERSION;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  Create an XImage structure and allocate memory for it                 */
+/**************************************************************************/
+
+XImage *MakeXImage(dpy, w, h)
+    Display *dpy;
+    int w, h;
+{
+    XImage *I;
+    unsigned char *data;
+    
+    /* reserve memory for image */
+    data=(unsigned char *)calloc((unsigned)(((w-1)/8+1)*h), 1);
+    if(data==NULL)
+	return NULL;
+    
+    /* create the XImage */
+    I=XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)), 1, XYBitmap,
+                   0, data, w, h, 8, 0);
+    if(I==NULL)
+	return NULL;
+    
+    I->byte_order=I->bitmap_bit_order=MSBFirst;
+    return I;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  A front end to XRotPaintAlignedString:                                */
+/*      -no alignment, no background                                      */
+/**************************************************************************/
+
+int XRotDrawString(dpy, font, angle, drawable, gc, x, y, str)
+    Display *dpy;
+    XFontStruct *font;
+    float angle;
+    Drawable drawable;
+    GC gc;
+    int x, y;
+    char *str;
+{
+    return (XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+				   x, y, str, NONE, 0));
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  A front end to XRotPaintAlignedString:                                */
+/*      -no alignment, paints background                                  */
+/**************************************************************************/
+
+int XRotDrawImageString(dpy, font, angle, drawable, gc, x, y, str)
+    Display *dpy;
+    XFontStruct *font;
+    float angle;
+    Drawable drawable;
+    GC gc;
+    int x, y;
+    char *str;
+{
+    return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+				  x, y, str, NONE, 1));
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  A front end to XRotPaintAlignedString:                                */
+/*      -does alignment, no background                                    */
+/**************************************************************************/
+
+int XRotDrawAlignedString(dpy, font, angle, drawable, gc, x, y, text, align)
+    Display *dpy;
+    XFontStruct *font;
+    float angle;
+    Drawable drawable;
+    GC gc;
+    int x, y;
+    char *text;
+    int align;
+{
+    return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+				  x, y, text, align, 0));
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  A front end to XRotPaintAlignedString:                                */
+/*      -does alignment, paints background                                */
+/**************************************************************************/
+
+int XRotDrawAlignedImageString(dpy, font, angle, drawable, gc, x, y, text,
+			       align)
+    Display *dpy;
+    XFontStruct *font;
+    float angle;
+    Drawable drawable;
+    GC gc;
+    int x, y;
+    char *text;
+    int align;
+{
+    return(XRotPaintAlignedString(dpy, font, angle, drawable, gc,
+				  x, y, text, align, 1));
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+
+/**************************************************************************/
+/*  The routine which does the rotating and painting                      */
+/**************************************************************************/
+
+int XRotPaintAlignedString(dpy, font, angle, drawable, gc, x, y, text,
+			   align, bg)
+    Display *dpy;
+    XFontStruct *font;
+    float angle;
+    Drawable drawable;
+    GC gc;
+    int x, y;
+    char *text;
+    int align;
+    int bg;
+{
+    Pixmap canvas;
+    GC font_gc, my_gc;
+    XImage *I_in;
+    XImage *I_out;
+    XPoint *xpoints;
+    int nl=1;
+    int max_width;
+    register int i, j;
+    char *str1, *str2, *str3;
+    int height, ascent, descent;
+    int cols_in, rows_in;
+    int cols_out, rows_out;
+    int byte_w_in, byte_w_out;
+    int xp, yp;
+    float hot_x, hot_y;
+    float hot_xp, hot_yp;
+    float sin_angle, cos_angle;
+    float *corners_x, *corners_y;
+    int it, jt;
+    float di, dj;
+    int ic;
+    int bestw, besth;
+    Pixmap empty_stipple;
+    float xl, xr, xinc;
+    int byte_out;
+    
+    if(text==NULL)
+        return 0;
+    
+    /* manipulate angle */
+    while(angle<-360)
+        angle+=360;
+    
+    while(angle>360)
+        angle-=360;
+    
+    angle*=M_PI/180;
+    
+    /* this gc has similar properties to the user's gc */
+    my_gc=XCreateGC(dpy, drawable, NULL, 0);
+    XCopyGC(dpy, gc, GCForeground|GCBackground|GCFunction, my_gc);
+    
+    /* count number of sections in string */
+    if(align!=NONE)
+	for(i=0; i<strlen(text)-1; i++)
+	    if(text[i]=='\n')
+		nl++;
+    
+    /* ignore newline characters if not doing alignment */
+    if(align==NONE)
+	str2=my_strdup("\0");
+    else
+	str2=my_strdup("\n\0");
+    
+    if(str2==NULL)
+	return ERROR;
+    
+    /* find width of longest section */
+    str1=my_strdup(text);
+    if(str1==NULL)
+        return ERROR;
+    
+    str3=my_strtok(str1, str2);
+    max_width=XTextWidth(font, str3, strlen(str3));
+    
+    /* loop through each section */
+    do {
+        str3=my_strtok((char *)NULL, str2);
+        if(str3!=NULL)
+            if(XTextWidth(font, str3, strlen(str3))>max_width)
+                max_width=XTextWidth(font, str3, strlen(str3));
+    }
+    while(str3!=NULL);
+    
+    /* overall font info */
+    ascent=font->ascent;
+    descent=font->descent;
+    height=ascent+descent;
+    
+    /* dimensions horizontal text will have */
+    cols_in=max_width;
+    rows_in=nl*height;
+    
+    cols_in+=2;
+    
+    if(cols_in%2==0)
+	cols_in++;
+    
+    if(rows_in%2==0)
+	rows_in++;
+    
+    /* is text horizontal ... */
+    if(angle==0)
+	XSetFont(dpy, my_gc, font->fid);
+    
+    /* or vertical ? */
+    else {
+	/* bitmap for drawing on */
+	canvas=XCreatePixmap(dpy, DefaultRootWindow(dpy),
+			     cols_in, rows_in, 1);
+
+	/* create a GC for the bitmap */
+	font_gc=XCreateGC(dpy, canvas, NULL, 0);
+	XSetBackground(dpy, font_gc, 0);
+	XSetFont(dpy, font_gc, font->fid);
+	
+	/* make sure the bitmap is blank */
+	XSetForeground(dpy, font_gc, 0);
+	XFillRectangle(dpy, canvas, font_gc, 0, 0, cols_in+1, rows_in+1);
+    }
+    
+    /* alignment : which point (hot_x, hot_y) relative to bitmap centre
+       coincides with user's specified point? */
+    
+    /* y position */
+    if(align==TLEFT || align==TCENTRE || align==TRIGHT)
+        hot_y=(float)rows_in/2;
+    else if(align==MLEFT || align==MCENTRE || align==MRIGHT)
+	hot_y=0;
+    else if(align==BLEFT || align==BCENTRE || align==BRIGHT)
+	hot_y=-(float)rows_in/2;
+    else
+	hot_y=-(float)rows_in/2+(float)descent;
+    
+    /* x position */
+    if(align==TLEFT || align==MLEFT || align==BLEFT || align==NONE)
+	hot_x=-(float)max_width/2;
+    else if(align==TCENTRE || align==MCENTRE || align==BCENTRE)
+	hot_x=0;
+    else
+        hot_x=(float)max_width/2;
+    
+    /* pre-calculate sin and cos */
+    sin_angle=sin(angle);
+    cos_angle=cos(angle);
+    
+    /* rotate hot_x and hot_y around bitmap centre */
+    hot_xp= hot_x*cos_angle - hot_y*sin_angle;
+    hot_yp= hot_x*sin_angle + hot_y*cos_angle;
+    
+    /* text background will be drawn using XFillPolygon */
+    if(angle!=0) {
+	if(bg) {
+	    xpoints=(XPoint *)malloc((unsigned)(4*nl*sizeof(XPoint)));
+	    if(!xpoints)
+		return ERROR;
+	    corners_x=(float *)malloc((unsigned)(4*nl*sizeof(float)));
+	    if(!corners_x)
+		return ERROR;
+	    corners_y=(float *)malloc((unsigned)(4*nl*sizeof(float)));
+	    if(!corners_y)
+		return ERROR;
+	    
+	    ic=0;
+	}
+	XSetForeground(dpy, font_gc, 1);
+    }
+    
+    /* draw text horizontally */
+    
+    /* start at top of bitmap */
+    yp=ascent;
+    
+    str1=my_strdup(text);
+    if(str1==NULL)
+	return ERROR;
+    
+    str3=my_strtok(str1, str2);
+    
+    /* loop through each section in the string */
+    do {
+	/* where to draw section in x ? */
+	if(align==TLEFT || align==MLEFT || align==BLEFT || align==NONE)
+	    xp=0;
+	else if(align==TCENTRE || align==MCENTRE || align==BCENTRE)
+	    xp=(max_width-XTextWidth(font, str3, strlen(str3)))/2;
+	else
+	    xp=max_width-XTextWidth(font, str3, strlen(str3));
+	
+	/* if no rotation is required, draw straight to target drawable */
+	if(angle==0) {
+	    if(bg)
+		XDrawImageString(dpy, drawable, my_gc, 
+				 (int)((float)x+
+				       (float)xp-((float)cols_in/2+hot_x)),
+				 (int)((float)y-
+				       ((float)rows_in/2-hot_y-(float)yp)),
+				 str3, strlen(str3));
+	    else
+		XDrawString(dpy, drawable, my_gc, 
+			    (int)((float)x+
+				  (float)xp-((float)cols_in/2+hot_x)),
+			    (int)((float)y-
+				  ((float)rows_in/2-hot_y-(float)yp)),
+			    str3, strlen(str3));
+	    
+	}
+	/* rotation is required */
+	else {
+	    /* draw string onto bitmap */
+	    XDrawString(dpy, canvas, font_gc, xp, yp, str3, strlen(str3));
+	    
+	    /* keep a note of corner positions of this string */
+	    if(bg) {
+		corners_x[ic]=(float)xp-(float)cols_in/2-hot_x;
+		corners_y[ic]=(float)(yp-ascent)-(float)rows_in/2+hot_y;
+		corners_x[ic+1]=corners_x[ic];
+		corners_y[ic+1]=corners_y[ic]+(float)height;
+		corners_x[nl*4-1-ic]=corners_x[ic]+
+		    (float)XTextWidth(font, str3, strlen(str3));
+		corners_y[nl*4-1-ic]=corners_y[ic];
+		corners_x[nl*4-2-ic]=corners_x[nl*4-1-ic];
+		corners_y[nl*4-2-ic]=corners_y[ic+1];
+		ic+=2;
+	    }
+	}
+	/* move to next line */
+	yp+=height;
+	
+        str3=my_strtok((char *)NULL, str2);
+    }
+    while(str3!=NULL);
+    
+    /* we can leave here if no rotation is required */
+    if(angle==0)
+	return 0;
+    
+    /* create image to hold horizontal text */
+    I_in=MakeXImage(dpy, cols_in, rows_in);
+    if(I_in==NULL)
+	return ERROR;
+    
+    /* extract horizontal text */
+    XGetSubImage(dpy, canvas, 0, 0, cols_in, rows_in,
+		 1, XYPixmap, I_in, 0, 0);
+    I_in->format=XYBitmap;
+    
+    /* how big will rotated text be ? */
+    cols_out=fabs((float)rows_in*sin_angle) +
+        fabs((float)cols_in*cos_angle) +0.99999;
+    rows_out=fabs((float)rows_in*cos_angle) +
+        fabs((float)cols_in*sin_angle) +0.99999;
+    
+    if(cols_out%2==0)
+	cols_out++;
+    
+    if(rows_out%2==0)
+	rows_out++;
+    
+    /* create image to hold rotated text */
+    I_out=MakeXImage(dpy, cols_out, rows_out);
+    if(I_out==NULL)
+	return ERROR;
+    
+    byte_w_in=(cols_in-1)/8+1;
+    byte_w_out=(cols_out-1)/8+1;
+    
+    /* loop through all bits in rotated image */
+
+    /* we try to make this as fast as possible - which is why it looks
+       a bit over-the-top */
+
+    /* loop through all rows in the image */
+    for(j=0; j<rows_out; j++) {
+
+	/* distance from centre */
+	dj=(float)j+0.5-(float)rows_out/2;
+
+	/* some bits in final image don't map to bits in original -
+	   try to pre-calculate these */
+	if(j==0) {
+	    if(angle==M_PI/2 || angle==M_PI || angle==3*M_PI/2) {
+		xl=0;
+                xr=(float)cols_out;
+                xinc=0;
+            }
+	    else if(angle<M_PI) {
+		xl=(float)cols_out/2+
+		    (dj-(float)rows_in/(2*cos_angle))/tan(angle)-2;
+		xr=(float)cols_out/2+
+		    (dj+(float)rows_in/(2*cos_angle))/tan(angle)+2;
+		xinc=1./tan(angle);
+	    }
+	    else {
+		xl=(float)cols_out/2+
+		    (dj+(float)rows_in/(2*cos_angle))/tan(angle)-2;
+		xr=(float)cols_out/2+
+		    (dj-(float)rows_in/(2*cos_angle))/tan(angle)+2;
+
+		xinc=1./tan(angle);
+	    }
+	}
+	else {
+	    xl+=xinc;
+	    xr+=xinc;
+	}
+
+	/* no point re-calculating these every pass */
+	di=(float)((xl<0)?0:(int)xl)+0.5-(float)cols_out/2;
+	byte_out=(rows_out-j)*byte_w_out;
+
+	/* loop through meaningful columns */
+	for(i=((xl<0)?0:(int)xl); i<((xr>=cols_out)?cols_out:(int)xr); i++) {
+	    /* rotate coordinates */
+	    it=(float)cols_in/2 + ( di*cos_angle + dj*sin_angle);
+	    jt=(float)rows_in/2 - (-di*sin_angle + dj*cos_angle);
+	    
+	    /* set pixel if required */
+	    if(it>=0 && it<cols_in && jt>=0 && jt<rows_in) 
+		if((I_in->data[jt*byte_w_in+it/8] & 128>>(it%8))>0)
+		    I_out->data[byte_out+i/8] | = 128>>i%8;
+
+	    di+=1.;
+	}
+    }
+
+    XFreePixmap(dpy, canvas);
+    
+    /* create a new bitmap to hold rotated text */
+    canvas=XCreatePixmap(dpy, DefaultRootWindow(dpy), cols_out, rows_out, 1);
+    XPutImage(dpy, canvas, font_gc, I_out, 0, 0, 0, 0, cols_out, rows_out);
+    
+    /* fill in the background to the text, if required */
+    if(bg) {
+	/* rotate corner positions */
+	for(i=0; i<4*nl; i++) {
+	    xpoints[i].x=(float)x + ( corners_x[i]*cos_angle + 
+				     corners_y[i]*sin_angle);
+	    xpoints[i].y=(float)y + (-corners_x[i]*sin_angle + 
+				     corners_y[i]*cos_angle);
+	}
+	
+	/* we would like to swap foreground and background colors here,
+	   using XGetGCValues, but X11R3 doesn't have it */
+
+	XQueryBestStipple(dpy, drawable, 1, 1, &bestw, &besth);
+	empty_stipple=XCreatePixmap(dpy, drawable, bestw, besth, 1);
+
+	XSetForeground(dpy, font_gc, 0);
+	XFillRectangle(dpy, empty_stipple, font_gc, 0, 0, bestw+1, besth+1);
+	    
+	XSetStipple(dpy, my_gc, empty_stipple);
+	XSetFillStyle(dpy, my_gc, FillOpaqueStippled);
+	    
+	XFillPolygon(dpy, drawable, my_gc, xpoints, 4*nl, 
+		     Nonconvex, CoordModeOrigin);
+	
+	/* free our resources */
+	free((char *)xpoints);
+	free((char *)corners_x);
+	free((char *)corners_y);
+    }
+    
+    /* where should top left corner of bitmap go ? */
+    xp=(float)x-((float)cols_out/2 +hot_xp);
+    yp=(float)y-((float)rows_out/2 -hot_yp);
+    
+    /* paint text using stipple technique */
+    XSetFillStyle(dpy, my_gc, FillStippled);
+    XSetStipple(dpy, my_gc, canvas);
+    XSetTSOrigin(dpy, my_gc, xp, yp);
+    XFillRectangle(dpy, drawable, my_gc, xp, yp, cols_out, rows_out);
+    
+    /* free our resources */
+    XDestroyImage(I_in);
+    XDestroyImage(I_out);
+    XFreePixmap(dpy, canvas);
+    XFreeGC(dpy, my_gc);
+    XFreeGC(dpy, font_gc);
+    
+    /* we got to the end OK! */
+    return 0;
+}
+
+
+@EOF
+
+chmod 600 xvertext.3.0/rotated.c
+
+
+rm -f /tmp/uud$$
+(echo "begin 666 /tmp/uud$$\n#;VL*n#6%@x\n \nend" | uudecode) >/dev/null 2>&1
+if [ X"`cat /tmp/uud$$ 2>&1`" = Xok ]
+then
+	unpacker=uudecode
+else
+	echo Compiling unpacker for non-ascii files
+	pwd=`pwd`; cd /tmp
+	cat >unpack$$.c <<'EOF'
+#include <stdio.h>
+#define C (*p++ - ' ' & 077)
+main()
+{
+	int n;
+	char buf[128], *p, a,b;
+
+	scanf("begin %o ", &n);
+	gets(buf);
+
+	if (freopen(buf, "w", stdout) == NULL) {
+		perror(buf);
+		exit(1);
+	}
+
+	while (gets(p=buf) && (n=C)) {
+		while (n>0) {
+			a = C;
+			if (n-- > 0) putchar(a << 2 | (b=C) >> 4);
+			if (n-- > 0) putchar(b << 4 | (a=C) >> 2);
+			if (n-- > 0) putchar(a << 6 | C);
+		}
+	}
+	exit(0);
+}
+EOF
+	cc -o unpack$$ unpack$$.c
+	rm unpack$$.c
+	cd $pwd
+	unpacker=/tmp/unpack$$
+fi
+rm -f /tmp/uud$$
+
+echo x - xvertext.3.0/INSTALL '[non-ascii]'
+$unpacker <<'@eof'
+begin 600 xvertext.3.0/INSTALL
+M(" @2&]W('1O(&-O;7!I;&4@=&AI<R!S='5F9@H@("!^?GY^?GY^?GY^?GY^X
+M?GY^?GY^?GY^?GY^"@H@("!);F-L=61E9"!I;B!T:&ES('!A8VMA9V4@:7,@X
+M82!-86ME9FEL92!W:&EC:"!G96YE<F%T97,@86X@97AA;7!L90IP<F]G<F%MX
+M(&%N9"P@;W!T:6]N86QL>2P@;6%K97,@86YD(&EN<W1A;&QS(&$@;&EN:VENX
+M9R!L:6)R87)Y+"!H96%D97(*9FEL92!A;F0@;6%N=6%L('!A9V5S+@H*(" @X
+M0F5F;W)E('1Y<&EN9R!@;6%K92<@>6]U(&UI9VAT(&=I=F4@82!C=7)S;W)YX
+M(&=L86YC92!T;R!T:&4@36%K969I;&4N"D%L;"!Y;W4@;F5E9"!T;R!E9&ETX
+M(&%R92!T:&4@=&%R9V5T(&1I<F5C=&]R:65S(&9O<B!L:6)R87)Y+"!I;F-LX
+M=61E(&9I;&4*86YD(&UA;G5A;"!P86=E<R!I9B!Y;W4@<&QA;B!O;B!I;G-TX
+M86QL:6YG+B!9;W4@;6EG:'0@86QS;R!C;VYS:61E<@IW:&5T:&5R(&]R(&YOX
+M="!Y;W5R('-Y<W1E;2!N965D<R!@(VEN8VQU9&4@(FUA;&QO8RYH(B<@86YDX
+M(& M;&UA;&QO8R<N"@H@("!4>7!I;F<@8&UA:V4G('!R;V1U8V5S('1H92!EX
+M>&%M<&QE('!R;V=R86T@8&5X86UP;&4G+B!2=6X@:70N($1E<&5N9&EN9PIOX
+M;B!Y;W5R(&UA8VAI;F4@>6]U(&UI9VAT(&)E('!L96%S96YT;'D@.BTI(&]RX
+M('5N<&QE87-E;G1L>2 Z+2@*<W5R<')I<V5D(0H*(" @5'EP:6YG("!@;6%KX
+M92!I;G-T86QL)R!C86QL<R!@87(G('1O('!R;V1U8V4@86X@87)C:&EV92!FX
+M:6QE(&QI8EAR;W0N82P*86YD(&EN<W1A;&QS('1H:7,L(')O=&%T960N:"!AX
+M;F0@=&AE(&UA;G5A;"!P86=E<RX*"@H@("!3;VUE=&AI;F<@9V]N92!W<F]NX
+M9S\*(" @?GY^?GY^?GY^?GY^?GY^?GY^?GY^"B @($EF('1H92!C;VUP;&%IX
+M;G0@=V%S"B *(" @(" @8')O=&%T960N8SH@;&EN92 S,CH@0V%N)W0@9FENX
+M9"!I;F-L=61E(&9I;&4@;6%L;&]C+F@G"@H@(" @(" @('EO=7(@<WES=&5MX
+M(&1O97-N)W0@;F5E9"!@(VEN8VQU9&4@(FUA;&QO8RYH(B<@+2!D96QE=&4@X
+M=&AE( IO9F9E;F1I;F<@;&EN92X@22!B96QI979E('1H:7,@:7,@=')U92!OX
+M9B!$64Y)6"!M86-H:6YE<R!A="!L96%S="X*"B @($]T:&5R=VES92P@<&QEX
+M87-E(&UA:6P@;64@86YD($DG;&P@9&\@;7D@8F5S="X*"@H@("!3=6-C97-SX
+M9G5L(&-O;7!I;&%T:6]N<PH@("!^?GY^?GY^?GY^?GY^?GY^?GY^?GY^?@H*X
+M(" @5&AE('!R;V=R86US(&EN('1H:7,@<&%C:V%G92!H879E(&)E96X@<W5CX
+M8V5S<V9U;&QY(&-O;7!I;&5D(&%N9 IR=6X@;VXZ"@H@("!O($A0(#DP,#!SX
+M,S P+" Y,# P<S<P,"!A;F0@.3 P,',X,# @;6%C:&EN97,*(" @;R!3;VQBX
+M;W5R;F5S(')U;FYI;F<@4W5N3U,@-"XQ+C$*(" @;R!!(%-E<75E;G0@4WEMX
+M;65T<GD@<G5N;FEN9R!$64Y)6 H*(" @1V]O9"!L=6-K('=I=&@@86YY=&AIX
+M;F<@96QS92 Z+2D*"@H@("!!;&%N(%)I8VAA<F1S;VXL(#,Q+S,O.3,@*&UPX
+M<&$S0'5K+F%C+G-U<W-E>"YS>6UA*0H@(" M+2TM+2TM+2TM+2TM+2TM+2TMX
+?+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM                X
+                                                             X
+end
+@eof
+
+chmod 600 xvertext.3.0/INSTALL
+
+echo x - xvertext.3.0/CHANGES
+cat >xvertext.3.0/CHANGES <<'@EOF'
+   This is version 3.0 of xvertext (31/3/92)
+   -----------------------------------------
+
+   The biggest change since version 2.0 is this:
+
+                *****************************************
+
+	 	xvertext now paints strings at any angle!
+
+                *****************************************
+
+   The way xvertext works now is not to bother pre-rotating a font
+before drawing, just draw the whole string horizontally and rotate it all
+at once. Is this good or bad news?
+
+    Advantages:
+    -----------
+       o  A single function call will rotate and paint you a string.
+       o  Text looks good at any angle, particulary big fonts.
+       o  Small strings are quick to draw.
+
+    Disadvantages:
+    --------------
+       o  The arguments to the remaining functions (XRotDraw.....) are
+*different* to their counterparts in version 2.0. Thus code using the
+earlier version will need altering (which will probably mean deleting
+loads of stuff, and altering a fer arguments).
+       o  Long strings in big fonts take a while.
+       o  Speed seems more dependent now on computing power rather
+than X server speed (the maths involved in rotating big bitmaps!)
+
+
+    Alan Richardson, 31/3/93 (mppa3@uk.ac.sussex.syma)
+    --------------------------------------------------
+
+
+@EOF
+
+chmod 600 xvertext.3.0/CHANGES
+
+echo x - xvertext.3.0/README
+cat >xvertext.3.0/README <<'@EOF'
+   This is version 3.0 of xvertext (31/3/92)
+   -----------------------------------------
+
+   This package contains routines which can be used to draw text at ANY
+ANGLE in an X window or pixmap. This is done via a single call to one of
+four functions:
+
+	XRotDrawString();
+	XRotDrawImageString();
+	XRotDrawAlignedString();
+	XRotDrawAlignedImageString();
+
+   The difference between these functions is given in the manual page.
+
+
+   Why is it called xvertext?
+   --------------------------
+   Previous versions only used to be able to do vertical text. This version is
+not so limited. Unfortunately programs using version 2.0 and earlier are not
+comaptible with this release, although the changes that need making should
+be straight forward.
+
+
+   Is it fast?
+   -----------
+   Depends on your X server and processing power. In general, it's faster
+for short strings in small fonts (although bigger fonts look better).
+If you're doing a lot of vertical text, use version 2.0. If you're doing
+a lot of other-angle text, try turning your monitor on its side :-)
+   Note that in the case of text `the right way up' (ie horizontal),
+no rotation is done and theses functions are just a wrapper around Xlib's
+own XDrawText() and XDrawImageText() functions. In this way,
+XRotDrawAlignedString() provides an easy way of doing centered horizontal text
+(with no speed penalty).
+
+   Any bugs?
+   ---------
+   Some small fonts look poor at some angles. I've tried to prevent the 
+dropping of bits during rotation - if you can see a problem, please
+and tell me about it! 
+   Some machines I've tried it on have been unacceptably slow (eq HP 9000s300).
+Again, if you can see a speed up please let me know.
+
+
+   So what's in the package?
+   -------------------------
+   You get `rotated.c' and `rotated.h', the source and header files
+for the rotating routines. There's also an example program to illustrate
+their use, and a Makefile. See the file `INSTALL' to make the code.
+There are also a few cursory manual pages.
+
+
+   How do I use the functions in my own program?
+   ---------------------------------------------
+   You can either:
+
+     o Copy `rotated.c' and `rotated.h' to sit with your program's source files
+and compile them all together. Or:
+
+     o Type `make install' to create a linking library and install it
+and the header file into directories of your choice. You then specify
+`-lXrot' prior to `-lX11' when linking your program. Remember that if you
+don't install in a standard place like /usr/lib, you'll need to use the
+-L and -I compiler options.
+
+     If you want to distribute programs using these routines you're very
+welcome; all I ask is that you let me know!
+
+
+     Alan Richardson, 31/3/93 (mppa3@uk.ac.sussex.syma)
+     --------------------------------------------------  
+@EOF
+
+chmod 600 xvertext.3.0/README
+
+echo mkdir - xvertext.3.0/man
+mkdir xvertext.3.0/man
+
+echo x - xvertext.3.0/man/XRotDrawAlignedString.3
+sed 's/^@//' >xvertext.3.0/man/XRotDrawAlignedString.3 <<'@EOF'
+@.\" @(#)XRotDrawAlignedString 3.0 30/3/93; Copyright (c) 1992 Alan Richardson
+@.TH XRotDrawAlignedString 3 "30 Mar 1993" "xvertext routines"
+@.SH NAME
+XRotDrawString, XRotDrawImageString,
+XRotDrawAlignedString, XRotDrawAlignedImageString \- draw strings 
+at any angle
+@.SH SYNOPSIS
+@.B int XRotDrawString(dpy, font, angle, drawable,
+@.B gc, x, y, text)
+@.br
+@.B Display *dpy;
+@.br
+@.B XFontStruct *font;
+@.br
+@.B float angle;
+@.br
+@.B Drawable drawable;
+@.br
+@.B GC gc;
+@.br
+@.B int x, y;
+@.br
+@.B char *text;
+@.PP
+@.B int XRotDrawImageString(dpy, font, angle, drawable,
+@.B gc, x, y, text)
+@.br
+@.B Display *dpy;
+@.br
+@.B XFontStruct *font;
+@.br
+@.B float angle;
+@.br
+@.B Drawable drawable;
+@.br
+@.B GC gc;
+@.br
+@.B int x, y;
+@.br
+@.B char *text;
+@.PP
+@.B int XRotDrawAlignedString(dpy, font, angle, drawable,
+@.B gc, x, y, text, align)
+@.br
+@.B Display *dpy;
+@.br
+@.B XFontStruct *font;
+@.br
+@.B float angle;
+@.br
+@.B Drawable drawable;
+@.br
+@.B GC gc;
+@.br
+@.B int x, y;
+@.br
+@.B char *text;
+@.br
+@.B int align;
+@.PP
+@.B int XRotDrawAlignedImageString(dpy, font, angle, drawable,
+@.B gc, x, y, text, align)
+@.br
+@.B Display *dpy;
+@.br
+@.B XFontStruct *font;
+@.br
+@.B float angle;
+@.br
+@.B Drawable drawable;
+@.br
+@.B GC gc;
+@.br
+@.B int x, y;
+@.br
+@.B char *text;
+@.br
+@.B int align;
+@.SH ARGUMENTS
+@.IP \fIdisplay\fP 1i     
+Specifies the connection to the X server.
+@.IP \fIfont\fP 1i
+Pointer to an XFontStruct structure.
+@.IP \fIangle\fP 1i
+Angle in degrees between direction of text and horizontal
+(anticlockwise is positive).
+@.IP \fIdrawable\fP 1i
+The window or pixmap in which to paint the text.
+@.IP \fIgc\fP 1i
+The graphics context to use when painting text.
+@.IP \fIx\,\ y\fP 1i
+Coordinates whose relation to the postion of the painted text is given
+by \fIalign\fP.
+@.IP \fItext\fP 1i
+A character string.
+@.IP \fIalign\fP 1i
+Describes the alignment with which to draw the string.
+@.SH DESCRIPTION
+@.PP
+These four functions are used to draw text at any angle in an X window
+or pixmap. 
+All four have several arguments in common. In particular, 
+@.I font
+is an XFontStruct structure describing which font to use.
+Only the foreground and background attributes of
+@.I gc
+have any relevence. The coordinate pair
+@.I (x\,\ y)
+describes the location to place the string on the
+drawable - exactly what `location' means depends on the function
+called.
+@.PP
+The two functions
+@.I XRotDrawString
+and
+@.I XRotDrawImageString
+paint a string such that the specified point
+@.I (x\,\ y)
+coincides with the origin of the first character in the string,
+after rotation.
+No interpretation is placed on newline characters appearing in the
+string.
+@.PP
+The
+@.I XRotDrawAlignedString
+and
+@.I XRotDrawAlignedImageString
+functions interpret newline characters in the string as delimiters of
+smaller strings to appear on seperate lines. These seperate
+strings are aligned with respect to one another according to the value
+of
+@.I align,
+which can take the values
+@.I TLEFT, TCENTRE, TRIGHT, MLEFT, MCENTRE, MRIGHT,
+@.I BLEFT, BCENTRE, BRIGHT.
+Alignment is done before rotation.
+The first character corresponds to the position of the block of text
+relative to
+@.I (x\,\ y):
+@.I T
+places the top of the block at 
+@.I y,
+@.I M
+places the middle of the block there and
+@.I B
+the bottom. The remaining word indicates horizontal alignment:
+@.I LEFT
+places the left of the block at
+@.I x,
+and so on.
+Rotation of the whole block is then performed around
+@.I (x\,\ y).
+@.PP
+The two functions with `Image' in their names fill in the
+text background with the background colour of
+@.I gc
+before painting the text. The remaining two functions leave
+the background untouched.
+@.SH ALIGNMENT EXAMPLE
+Suppose the string "This\\nis\\nno\\nordinary\\ntest" were passed to
+@.I XRotDrawAlignedString()
+with an alignment of
+@.I MLEFT
+and no rotation;
+the result would be:
+@.PP
+                              |This
+                              |is
+                     ---------+no-------
+                              |ordinary
+                              |test
+@.PP
+where the cross hairs indicate the position of
+@.I (x\,\ y).
+Alignments of MCENTER and MRIGHT would result in:
+@.PP
+                 |                                   |
+                This                         This    |
+                 is                          is      |
+         --------no--------                 -no------+---------
+              ordinary                       ordinary|
+                test                         test    |
+                 |                                   |
+
+@.SH RETURN VALUE
+All four functions return 0 on success, 1 on failure. Failure is
+probably due to an unsuccessful call to malloc().
+@.SH SEE ALSO
+xvertext
+@EOF
+
+chmod 600 xvertext.3.0/man/XRotDrawAlignedString.3
+
+echo x - xvertext.3.0/man/xvertext.3
+sed 's/^@//' >xvertext.3.0/man/xvertext.3 <<'@EOF'
+@.\" @(#)xvertext 3.0 31/3/93; Copyright (c) 1992 Alan Richardson
+@.TH xvertext 3 "31 Mar 1993" "xvertext routines"
+@.SH NAME
+xvertext - a collection of functions for rendering rotated text in an
+X window
+@.SH GENERAL
+As of version 3.0 there are 5 functions in the xvertext package 
+intended for general use. These are
+@.I XRotVersion,
+@.I XRotDrawString,
+@.I XRotDrawImageString,
+@.I XRotDrawAlignedString
+and
+@.I XRotDrawAlignedImageString.
+@.SH REMARK
+Rotation at any angle is an improvement over the vertical text
+available in version 2.0. Some functions have been deleted from that
+version, and some remaining functions
+@.I have had their arguments changed.
+@.SH USAGE
+@.I XRotVersion 
+is used to obtain the current release number and a copyright string.
+@.PP
+Using the painting routines typically involves three steps: creating 
+a GC, loading a font and calling the painting function.
+For example:
+
+|
+@.br
+|
+@.br
+GC gc;
+@.br
+XFontStruct *font;
+@.br
+char *fontname=
+"lucidasans-bold-18";
+@.br
+@.PP
+font=XLoadQueryFont(dpy, fontname);
+@.br
+    if(font==NULL) {
+        fprintf(stderr, "no font `%s'\\n", fontname);
+        font=XLoadQueryFont(dpy, "fixed");
+    }
+@.PP
+gc=XCreateGC(dpy, window, NULL, 0);
+@.br
+XSetForeground(dpy, gc, WhitePixel(dpy, DefaultScreen(dpy)));
+@.br
+XSetBackground(dpy, gc, BlackPixel(dpy, DefaultScreen(dpy)));
+@.PP
+XRotDrawAlignedImageString(dpy, font, 45., 
+window, gc, 300, 300, "hello", BLEFT);
+@.br
+|
+@.br
+|
+@.PP
+Note that dpy and window are display connections and a window
+already assumed created.
+This code segment obtains an XFontStruct for the font 
+"lucidasans-bolditalic-10" if it exists, or "fixed" if not.
+A graphics context is created with white foreground and black
+background. The string "hello" is then painted at 45 degrees with
+bottom left hand corner at (300, 300).
+@.SH SEE ALSO
+XRotVersion,
+XRotDrawString,
+XRotDrawImageString,
+XRotDrawAlignedString,
+XRotDrawAlignedImageString.
+
+@EOF
+
+chmod 600 xvertext.3.0/man/xvertext.3
+
+echo x - xvertext.3.0/man/XRotVersion.3
+sed 's/^@//' >xvertext.3.0/man/XRotVersion.3 <<'@EOF'
+@.\" @(#)XRotVersion 1.3 31/3/92; Copyright (c) 1993 Alan Richardson
+@.TH XRotVersion 3 "31 Mar 1992" "xvertext routines"
+@.SH NAME
+XRotVersion \- return version number and copyright of xvertext routines
+@.SH SYNOPSIS
+@.B float XRotVersion(copyright, nmax)
+@.br
+@.B "   " char *copyright;
+@.br
+@.B "   " int nmax;
+@.SH ARGUMENTS
+@.IP \fIcopyright\fP 1i
+A character string to hold copyright information.
+@.IP \fInmax\fP 1i
+The maximum number of characters to be placed in \fIcopyright\fP.
+@.SH DESCRIPTION
+@.PP
+The
+@.I XRotVersion
+function returns the current version number of the xvertext routines.
+It also places into
+@.I copyright
+at most
+@.I nmax
+characters of a copyright string.
+@.SH SEE ALSO
+xvertext,
+XRotDrawString,
+XRotDrawImageString,
+XRotDrawAlignedString,
+XRotDrawAlignedImageString.
+
+@EOF
+
+chmod 600 xvertext.3.0/man/XRotVersion.3
+
+chmod 700 xvertext.3.0/man
+
+chmod 700 xvertext.3.0
+
+rm -f /tmp/unpack$$
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

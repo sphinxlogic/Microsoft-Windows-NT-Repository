@@ -1,0 +1,1552 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 08/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun13.234821.3677@klaava.Helsinki.FI>
+Date: 13 Jun 92 23:48:21 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1540
+
+Archieve-name: monster_helsinki_104/part08
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 08/32
+
+-+-+-+-+-+-+-+-+ START OF PART 8 -+-+-+-+-+-+-+-+
+X`009thedate: packed array`0911..11`093 of char;
+Xbegin
+X`009date(thedate);
+X`009sysdate := thedate;
+Xend;
+X
+X
+X`091global`093
+Xprocedure gethere(n: integer := 0);
+Xbegin
+X`009if (n = 0) or (n = location) then begin
+X`009`009if not(inmem) then begin
+X`009`009`009getroom;`009`123 getroom(n) okay here also `125
+X`009`009`009freeroom;
+X`009`009`009inmem := true;
+X`009`009end else if debug then
+X`009`009`009writeln('%gethere - here already in memory');
+X`009end else begin
+X`009`009getroom(n);
+X`009`009freeroom;
+X`009end;
+Xend;
+X
+X`123 allocation routines ---------------------------------------------------
+V--- `125
+X
+X`123
+XFirst procedure of form alloc_X
+XAllocates the oneliner resource using the indexrec bitmaps
+X
+XReturn the number of a one liner if one is available
+Xand remove it from the free list
+X`125
+X`091global`093 FUNCTION alloc_line(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(I_LINE);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_line := false;
+X`009`009writeln('There are no available one line descriptions.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_line := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_line; notify Monster Manager');
+X`009`009`009
+X`009`009`009alloc_line := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X`123
+Xput the line specified by n back on the free list
+Xzeroes n also, for convenience
+X`125
+X`091global`093 PROCEDURE delete_line(var n: integer);
+X
+Xbegin
+X`009if n = DEFAULT_LINE then
+X`009`009n := 0
+X`009else if n > 0 then begin
+X`009`009getindex(I_LINE);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009end;
+X`009n := 0;
+Xend;
+X
+X
+X
+X`091global`093 FUNCTION alloc_int(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(I_INT);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_int := false;
+X`009`009writeln('There are no available integer records.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_int := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_int; notify Monster Manager');
+X`009`009`009
+X`009`009`009alloc_int := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X
+X`091global`093 PROCEDURE delete_int(var n: integer);
+X
+Xbegin
+X`009if n > 0 then begin
+X`009`009getindex(I_INT);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009end;
+X`009n := 0;
+Xend;
+X
+X
+X
+X`123
+XReturn the number of a description block if available and
+Xremove it from the free list
+X`125
+X`091global`093 FUNCTION alloc_block(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009if debug then
+X`009`009writeln('%alloc_block entry');
+X`009getindex(I_BLOCK);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_block := false;
+X`009`009writeln('There are no available description blocks.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_block := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009`009if debug then
+X`009`009`009`009writeln('%alloc_block successful');
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_block; notify Monster Manager')
+V;
+X`009`009`009alloc_block := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X
+X
+X
+X`123
+Xputs a description block back on the free list
+Xzeroes n for convenience
+X`125
+X`091global`093 PROCEDURE delete_block(var n: integer);
+X
+Xbegin
+X`009if n = DEFAULT_LINE then
+X`009`009n := 0`009`009`123 no line really exists in the file `125
+X`009else if n > 0 then begin
+X`009`009getindex(I_BLOCK);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009`009n := 0;
+X`009end else if n < 0 then begin
+X`009`009n := (- n);
+X`009`009delete_line(n);
+X`009end;
+Xend;
+X
+X
+X
+X`123
+XReturn the number of a room if one is available
+Xand remove it from the free list
+X`125
+X`091global`093 FUNCTION alloc_room(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(I_ROOM);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_room := false;
+X`009`009writeln('There are no available free rooms.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_room := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_room; notify Monster Manager');
+X`009`009`009alloc_room := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X`123
+XCalled by DEL_ROOM()
+Xput the room specified by n back on the free list
+Xzeroes n also, for convenience
+X`125
+X`091global`093 PROCEDURE delete_room(var n: integer);
+X
+Xbegin
+X`009if n <> 0 then begin
+X`009`009getindex(I_ROOM);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009`009n := 0;
+X`009end;
+Xend;
+X
+X
+X
+X`091global`093 FUNCTION alloc_log(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(I_PLAYER);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_log := false;
+X`009`009writeln('There are too many monster players, you can''t find a space
+V.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_log := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_log; notify Monster Manager');
+X`009`009`009alloc_log := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X`091global`093 PROCEDURE delete_log(var n: integer);
+X
+Xbegin
+X`009if n <> 0 then begin
+X`009`009getindex(I_PLAYER);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009`009n := 0;
+X`009end;
+Xend;
+X
+X
+X`091global`093 FUNCTION alloc_obj(var n: integer):boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009getindex(I_OBJECT);
+X`009if indx.inuse = indx.top then begin
+X`009`009freeindex;
+X`009`009n := 0;
+X`009`009alloc_obj := false;
+X`009`009writeln('All of the possible objects have been made.');
+X`009end else begin
+X`009`009n := 1;
+X`009`009found := false;
+X`009`009while (not found) and (n <= indx.top) do begin
+X`009`009`009if indx.free`091n`093 then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009n := n + 1;
+X`009`009end;
+X`009`009if found then begin
+X`009`009`009indx.free`091n`093 := false;
+X`009`009`009alloc_obj := true;
+X`009`009`009indx.inuse := indx.inuse + 1;
+X`009`009`009putindex;
+X`009`009end else begin
+X`009`009`009freeindex;
+X`009`009`009writeln('%serious error in alloc_obj; notify Monster Manager');
+X`009`009`009alloc_obj := false;
+X`009`009end;
+X`009end;
+Xend;
+X
+X
+X`091global`093 PROCEDURE delete_obj(var n: integer);
+X
+Xbegin
+X`009if n <> 0 then begin
+X`009`009getindex(I_OBJECT);
+X`009`009indx.inuse := indx.inuse - 1;
+X`009`009indx.free`091n`093 := true;
+X`009`009putindex;
+X`009`009n := 0;
+X`009end;
+Xend;
+X
+X
+X`091GLOBAL`093 function alloc_detail(var n: integer;s: string): boolean;
+Xvar
+X`009found: boolean;
+X
+Xbegin
+X`009n := 1;
+X`009found := false;
+X`009while (n <= maxdetail) and (not found) do begin
+X`009`009if here.detaildesc`091n`093 = 0 then
+X`009`009`009found := true
+X`009`009else
+X`009`009`009n := n + 1;
+X`009end;
+X`009alloc_detail := found;
+X`009if not(found) then
+X`009`009n := 0
+X`009else begin
+X`009`009getroom;
+X`009`009here.detail`091n`093 := lowcase(s);
+X`009`009putroom;
+X`009end;
+Xend;
+X
+X`123 -----------------------------------------------------------------------
+V--- `125
+X
+X
+X`123
+XReturns TRUE if player is owner of room n
+XIf no n is given default will be this room (location)
+X`125
+X`091global`093 FUNCTION is_owner(n: integer := 0;surpress:boolean := false):
+V boolean;
+Xbegin
+X`009gethere(n);
+X`009if (here.owner = userid) or`032
+X`009    (owner_priv and (here.owner <> system_id)) or`032
+X`009    manager_priv then  `123 minor change by leino@finuha `125
+X`009`009`009`009`123 and hurtta@finuh `125
+X`009`009is_owner := true
+X`009else begin
+X`009`009is_owner := false;
+X`009`009if not(surpress) then begin
+X`009`009    if here.owner = system_id then
+X`009`009`009writeln('System is the owner of this room.')
+X`009`009    else
+X`009`009`009writeln('You are not the owner of this room.');
+X`009`009end;
+X`009end;
+Xend;
+X
+X`091global`093 FUNCTION room_owner(n: integer): string;
+Xbegin
+X`009if n <> 0 then begin
+X`009`009gethere(n);
+X`009`009room_owner := here.owner;
+X`009`009gethere;`009`123 restore old state! `125
+X`009end else
+X`009`009room_owner := 'no room';
+Xend;
+X
+X`123
+XReturns TRUE if player is allowed to alter the exit
+XTRUE if either this room or if target room is owned by player
+X`125
+X`091global`093 FUNCTION can_alter(dir: integer;room: integer := 0): boolean;
+Xbegin
+X`009gethere;
+X`009if (here.owner = userid) or`032
+X`009    (owner_priv and (here.owner <> system_id)) or
+X`009    manager_priv then begin  `123 minor change by leino@finuha `125
+X`009`009can_alter := true
+X`009end else begin
+X`009`009if here.exits`091dir`093.toloc > 0 then begin
+X`009`009`009if room_owner(here.exits`091dir`093.toloc) = userid then
+X`009`009`009`009can_alter := true
+X`009`009`009else can_alter := false;
+X`009`009end else can_alter := false;
+X`009end;
+Xend;
+X`091global`093 FUNCTION can_make(dir: integer;room: integer := 0): boolean;
+Xbegin
+X
+X`009gethere(room);`009`123 5 is accept door `125
+X`009if (here.exits`091dir`093.toloc <> 0) then begin
+X`009`009writeln('There is already an exit there.  Use UNLINK or RELINK.');
+X`009`009can_make := false;
+X`009end else begin
+X`009`009if (here.owner = userid) or`009`009`123 I'm the owner `125
+X`009`009   (here.exits`091dir`093.kind = 5) or`009`123 there's an accept `12
+V5
+X`009`009   (owner_priv and (here.owner <> system_id)) or`009
+X`009`009   manager_priv or `123 Monster Manager `125`032
+X`009`009   `123 minor change by leino@finuha and hurtta@finuh `125
+X`009`009   (here.owner = disowned_id)`009       `123 disowned room `125
+X`009`009`009`009`009`009`009 then
+X`009`009`009can_make := true
+X`009`009else begin
+X`009`009`009can_make := false;
+X`009`009`009writeln('You are not allowed to create an exit there.');
+X`009`009end;
+X`009end;
+Xend;
+X
+X`091global`093 PROCEDURE niceprint(var len: integer; s: string);
+Xbegin
+X`009if len + length(s) > terminal_line_len -2 then begin
+X`009`009len := length(s);
+X`009`009writeln;
+X`009end else begin
+X`009`009len := len + length(s);
+X`009end;
+X`009write(s);
+Xend;
+X`091global`093 PROCEDURE print_short(s: string; cr: boolean; var len: intege
+Vr);
+Xvar i,j: integer;
+Xbegin
+X    i := 1;
+X    for j := 1 to length(s) do begin
+X`009if s`091j`093 = ' ' then begin
+X`009    niceprint(len,substr(s,i,j-i+1));
+X`009    i := j+1;
+X`009end;
+X    end;
+X    if i <= length(s) then
+X`009niceprint(len,substr(s,i,length(s)-i+1));
+X    if cr then begin
+X`009writeln;   `032
+X`009len := 0;
+X    end;
+Xend;`032
+X
+X`123
+Xprint a one liner
+X`125
+X`091global`093 PROCEDURE print_line(n: integer);
+Xvar len: integer;
+Xbegin
+X`009len := 0;
+X`009if n = DEFAULT_LINE then
+X`009`009writeln('<default line>')
+X`009else if n > 0 then begin
+X`009`009getline(n);
+X`009`009freeline;
+X`009`009if terminal_line_len < 80 then`032
+X`009`009    print_short(oneliner.theline,true,len)
+X`009`009else
+X`009`009    writeln(oneliner.theline);
+X`009end;
+Xend;
+X
+X`091global`093 PROCEDURE print_desc(dsc: integer;default:string := '<no defa
+Vult supplied>');
+Xvar
+X`009i: integer;
+X`009len: integer;
+Xbegin
+X`009if dsc = DEFAULT_LINE then begin
+X`009`009writeln(default);
+X`009end else if dsc > 0 then begin
+X`009`009getblock(dsc);
+X`009`009freeblock;
+X`009`009i := 1;
+X`009`009len := 0;
+X`009`009while i <= block.desclen do begin
+X`009`009    if terminal_line_len < 80 then
+X`009`009`009print_short(block.lines`091i`093,i = block.desclen,len)
+X`009`009    else
+X`009`009`009writeln(block.lines`091i`093);
+X`009`009    i := i + 1;
+X`009`009end;
+X`009end else if dsc < 0 then begin
+X`009`009print_line(abs(dsc));
+X`009end;
+Xend;
+X
+X`091global`093 procedure print_global(flag: integer; noti: boolean := true;
+X`009`009`009force_read: boolean := false);
+Xvar code: integer;
+Xbegin
+X    if Gf_Types `091 flag`093 <> G_text then begin
+X`009writeln('%Error in print_global:');
+X        writeln('%Global value #',flag:1,' isn''t global desciption');
+X`009writeln('%Notify Monster Manager.');
+X`009code := 0;
+X    end else begin
+X`009if read_global or force_read then begin
+X`009    getglobal;
+X`009    freeglobal;
+X`009    read_global := false;
+X`009end;
+X`009code := global.int`091flag`093;
+X    end;
+X
+X    if code = 0 then begin
+X`009if noti then writeln('No (global) desciption.');
+X    end  else print_desc(code);
+X
+Xend; `123 print_global `125
+X `032
+X`091global`093 PROCEDURE make_line(var n: integer;prompt : string := '';limi
+Vt:integer := 79);
+Xlabel exit_label;
+Xvar
+X`009s: string;
+X`009ok: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X`009
+Xbegin
+X    if (n <> DEFAULT_LINE) and (n <> 0) then
+X`009begin
+X`009    getline(n);
+X`009    freeline;
+X`009    s := oneliner.theline;
+X`009end
+X    else s := '';
+X
+X`009writeln('Type ** to leave line unchanged, * to make `091no line`093');
+X`009repeat`032
+X`009    grab_line(prompt,s,edit_mode := true, eof_handler := leave);
+X`009until (grab_next = 0) or (grab_next = 1);
+X
+X`009if s = '**' then begin
+X`009`009writeln('No changes.');
+X`009end else if s = '***' then begin
+X`009`009n := DEFAULT_LINE;
+X`009end else if s = '*' then begin
+X`009`009if debug then
+X`009`009`009writeln('%deleting line ',n:1);
+X`009`009delete_line(n);
+X`009end else if s = '' then begin
+X`009`009if debug then
+X`009`009`009writeln('%deleting line ',n:1);
+X`009`009delete_line(n);
+X`009end else if length(s) > limit then begin
+X`009`009writeln('Please limit your string to ',limit:1,' characters.');
+X`009end else begin
+X`009`009if (n = 0) or (n = DEFAULT_LINE) then begin
+X`009`009`009if debug then
+X`009`009`009`009writeln('%make_line: allocating line');
+X`009`009`009ok := alloc_line(n);
+X`009`009end else
+X`009`009`009ok := true;
+X
+X`009`009if ok then begin
+X`009`009`009if debug then
+X`009`009`009`009writeln('%ok in make_line');
+X`009`009`009getline(n);
+X`009`009`009oneliner.theline := s;
+X`009`009`009putline;
+X
+X`009`009`009if debug then
+X`009`009`009`009writeln('%completed putline in make_line');
+X`009`009end;
+X`009end;
+X    exit_label:
+Xend;
+X
+X`091global`093 FUNCTION isnum(s: string): boolean;
+Xvar
+X`009i: integer;
+X
+Xbegin
+X    if s = '' then isnum := false
+X    else begin
+X`009readv(s,i,error := continue);
+X`009if statusv <> 0 then isnum := false
+X`009else if i < 0 then isnum := false
+X`009else isnum := true;
+X    end; `123 isnum `125
+Xend;
+X
+X`091global`093 FUNCTION number(s: string): integer;
+Xvar
+X`009i: integer;
+Xbegin
+X`009if (length(s) < 1) or not(s`0911`093 in `091'0'..'9'`093) then
+X`009`009number := 0
+X`009else begin
+X`009`009readv(s,i,error := continue);
+X`009`009if statusv <> 0 then number := 0
+X`009`009else number := i;
+X`009end;
+Xend;
+X
+X`091global`093 FUNCTION log_name: string;`009`123 myname or 'Someone' if use
+V disguise `125
+X`009`009`009`009`123 hurtta@finuh `125
+Xbegin
+X`009if mydisguise = 0 then log_name := myname
+X`009else log_name := 'Someone';
+Xend;
+X
+X`091global`093 PROCEDURE log_action(theaction,thetarget: integer);
+Xbegin
+X`009if debug then
+X`009`009writeln('%log_action(',theaction:1,',',thetarget:1,')');
+X`009getroom;
+X`009here.people`091myslot`093.act := theaction;
+X`009here.people`091myslot`093.targ := thetarget;
+X`009putroom;
+X
+X`009logged_act := true;
+X`009log_event(myslot,E_ACTION,thetarget,theaction,log_name);
+Xend;
+X
+X`091global`093
+Xfunction systime:string;
+Xvar
+X`009hourstring: string;
+X`009hours: integer;
+X`009thetime: packed array`0911..11`093 of char;
+X`009dayornite: string;
+X
+Xbegin
+X`009time(thetime);
+X`009if thetime`0911`093 = ' ' then
+X`009`009hours := ord(thetime`0912`093) - ord('0')
+X`009else
+X`009`009hours := (ord(thetime`0911`093) - ord('0'))*10 +
+X`009`009`009  (ord(thetime`0912`093) - ord('0'));
+X
+X`009if hours < 12 then
+X`009`009dayornite := 'am'
+X`009else
+X`009`009dayornite := 'pm';
+X`009if hours >= 13 then
+X`009`009hours := hours - 12;
+X`009if hours = 0 then
+X`009`009hours := 12;
+X
+X`009writev(hourstring,hours:2);
+X
+X`009systime := hourstring + ':' + thetime`0914`093 + thetime`0915`093 + dayo
+Vrnite;
+Xend;
+X
+X`091global`093 FUNCTION custom_privileges(var privs: integer;
+X`009`009authorized: unsigned): boolean;
+Xlabel exit_label;
+Xvar s: string;
+X    update: boolean;
+X    upriv,mask : unsigned;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009update := false;
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X   upriv := uint(privs);
+X   update := false;
+X   repeat
+X      grab_line('Custom privileges> ',s,eof_handler := leave);
+X      s := lowcase(s);
+X      if s > '' then case s`0911`093 of
+X         'v': begin
+X                write('Current set: ');
+X                list_privileges(upriv);
+X              end;
+X         'h','?': begin
+X`009`009    command_help('*privilege help*');
+X                 end;
+X`009 'l'    : begin
+X`009`009    write('Possible privilege set: ');
+X`009`009    list_privileges(authorized);
+X`009`009  end;
+X         '-'   : begin
+X`009           if length(s) < 3 then writeln('Type ? for help.')
+X`009`009   else if lookup_priv(mask,slead(substr(s,3,length(s)-2))) then
+X`009`009   begin
+X`009`009`009if uand(mask,upriv) > 0 then begin
+X`009`009`009    upriv := uand(upriv,unot(mask));
+X`009`009`009    write('Removed: '); list_privileges(mask);
+X`009`009`009end else writeln('Isn''t in current set.');
+X`009`009    end else writeln('Type L for list.');
+X`009`009end;
+X         '+'   : begin
+X`009           if length(s) < 3 then writeln('Type ? for help.')
+X`009`009   else if lookup_priv(mask,slead(substr(s,3,length(s)-2))) then
+X`009`009   begin
+X`009`009`009if uand(mask,authorized) <> mask then`032
+X`009`009`009    writeln('Not authorized.')
+X`009`009`009else if uand(mask,upriv) = 0 then begin
+X`009`009`009    upriv := uor(upriv,mask);
+X`009`009`009    write('Added: '); list_privileges(mask);
+X`009`009`009end else writeln('Is already in current set.');
+X`009`009    end else writeln('Type L for list.');
+X`009`009end;
+X         'q'   : update := false;
+X         'e'   : update := true;
+X         otherwise writeln ('Type ? for list.');
+X      end; `123 case `125
+X   until (s = 'q') or (s = 'e');
+X   exit_label:
+X   if update then privs := int(upriv);
+X   custom_privileges := update;
+Xend; `123 custom_privileges `125
+X
+X         `032
+X`091global`093 FUNCTION desc_allowed: boolean;
+Xbegin
+X`009if (here.owner = userid) or
+X`009   (owner_priv) then `123 minor change by leino@finuha `125
+X`009`009desc_allowed := true
+X`009else begin
+X`009`009writeln('Sorry, you are not allowed to alter the descriptions in thi
+Vs room.');
+X`009`009desc_allowed := false;
+X`009end;
+Xend;
+X
+X`123 count the number of people in this room; assumes a gethere has been don
+Ve `125
+X
+X`091global`093 function find_numpeople: integer;
+Xvar
+X`009sum,i: integer;
+Xbegin
+X`009sum := 0;
+X`009for i := 1 to maxpeople do
+X`009`009if here.people`091i`093.kind > 0 then
+X`123`009`009if here.people`091i`093.username <> '' then`009`125
+X`009`009`009sum := sum + 1;
+X`009find_numpeople := sum;
+Xend;
+X
+X
+X
+X`123 don't give them away, but make noise--maybe
+X  percent is percentage chance that they WON'T make any noise `125
+Xprocedure noisehide(percent: integer);
+Xbegin
+X`009`123 assumed gethere;  `125
+X`009if (hiding) and (find_numpeople > 1) then begin
+X`009`009if rnd100 > percent then
+X`009`009`009log_event(myslot,E_REALNOISE,rnd100,0);
+X`009`009`009`123 myslot: don't tell them they made noise `125
+X`009end;
+Xend;
+X
+X
+X`091global`093 function checkhide: boolean;
+Xbegin
+X`009if (hiding) then begin
+X`009`009checkhide := false;
+X`009`009noisehide(50);
+X`009`009writeln('You can''t do that while you''re hiding.');
+X`009end else
+X`009`009checkhide := true;
+Xend;
+X
+X`123 edit DESCRIBTION ------------------------------------------------------
+V--- `125
+X
+Xprocedure edit_replace(n: integer);
+Xlabel exit_label;
+Xvar
+X`009prompt: string;
+X`009s: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+X
+Xbegin
+X`009if (n > heredsc.desclen) or (n < 1) then
+X`009`009writeln('-- Bad line number')
+X`009else begin
+X`009`009writev(prompt,n:2,': ');
+X`009`009s := heredsc.lines`091n`093;
+X`009`009grab_line(prompt,s,edit_mode := True,eof_handler := leave);
+X`009`009if s <> '**' then
+X`009`009`009heredsc.lines`091n`093 := s;
+X`009end;
+X    exit_label:
+Xend;
+X
+Xprocedure edit_insert(n: integer);
+Xvar
+X`009i: integer;
+X
+Xbegin
+X`009if heredsc.desclen = descmax then
+X`009`009writeln('You have already used all ',descmax:1,' lines of text.')
+X`009else if (n < 1) or (n > heredsc.desclen+1) then begin
+X`009`009writeln('Invalid line #; valid lines are between 1 and ',heredsc.des
+Vclen+1:1);
+X`009`009writeln('Use A (add) to add text to the end of your description.');
+X`009end else begin
+X`009`009for i := heredsc.desclen+1 downto n + 1 do
+X`009`009`009heredsc.lines`091i`093 := heredsc.lines`091i-1`093;
+X`009`009heredsc.desclen := heredsc.desclen + 1;
+X`009`009heredsc.lines`091n`093 := '';
+X`009end;
+Xend;
+X
+Xprocedure edit_doinsert(n: integer);
+Xlabel exit_label;
+Xvar
+X`009s: string;
+X`009prompt: string;            `032
+X`009i: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+X
+Xbegin
+X`009if heredsc.desclen = descmax then
+X`009`009writeln('You have already used all ',descmax:1,' lines of text.')
+X`009else if (n < 1) or (n > heredsc.desclen+1) then begin
+X`009`009writeln('Invalid line #; valid lines are between 1 and ',heredsc.des
+Vclen:1);
+X`009`009writeln('Use A (add) to add text to the end of your description.');
+X`009end else begin
+X`009`009edit_insert(n);`032
+X`009`009repeat   `032
+X`009`009`009writev(prompt,n:2,': ');`032
+X`009`009`009s := heredsc.lines`091n`093;
+X`009`009`009grab_line(prompt,s,edit_mode := true,eof_handler := leave);
+X`009`009`009if s <> '**' then begin
+X`009`009`009`009heredsc.lines`091n`093 := s;`009`123 copy this line onto it
+V `125
+X`009   `009`009`009if (grab_next < 0) and (n > 1) then
+X`009`009`009`009`009n := n -1
+X`009`009`009`009else if (grab_next >0) and`032
+X`009`009`009`009`009(n < heredsc.desclen) then
+X`009`009`009`009`009n := n +1
+X`009`009`009`009else if (grab_next = 0) and`032
+X`009`009`009`009`009(n < descmax)then begin
+X`009`009`009`009`009n := n +1;
+X`009`009`009`009`009edit_insert(n);
+X`009`009       `009`009end
+X`009`009`009end else begin
+X`009`009   `009`009for i := n+1 to heredsc.desclen do
+X`009`009`009`009`009heredsc.lines`091i-1`093 := heredsc.lines`091i`093;
+X`009`009`009`009heredsc.desclen := heredsc.desclen -1
+X`009`009`009end;
+X`009`009until (heredsc.desclen = descmax) or (s = '**');
+X`009end;
+X`009exit_label:
+Xend;
+X                                         `032
+Xprocedure edit_show;
+Xvar
+X`009i: integer;
+X
+Xbegin
+X`009writeln;
+X`009if heredsc.desclen = 0 then
+X`009`009writeln('`091no text`093')
+X`009else begin
+X`009`009i := 1;
+X`009`009while i <= heredsc.desclen do begin
+X`009`009`009writeln(i:2,': ',heredsc.lines`091i`093);
+X`009`009`009i := i + 1;
+X`009`009end;
+X`009end;
+Xend;
+X
+Xprocedure edit_append; `009`009`123 changed by hurtta@finuh `125
+Xvar
+X`009prompt,s: string;
+X`009stilladding: boolean;`032
+X`009ln: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009stilladding := false;
+X`009grab_next := 0;
+X    end;
+X
+X
+Xbegin
+X`009stilladding := true;
+X`009writeln('Enter text.  Terminate with ** at the beginning of a line.');
+X`009writeln('You have ',descmax:1,' lines maximum.');
+X`009writeln;`032
+X`009ln := heredsc.desclen+1;
+X`009if ln > descmax then ln := descmax;
+X`009while stilladding do begin  `032
+X`009`009if ln > heredsc.desclen then heredsc.lines`091ln`093 := '';
+X`009`009s := heredsc.lines`091ln`093;
+X`009`009writev(prompt,ln:2,': ');
+X`009`009grab_line(prompt,s, edit_mode := true,eof_handler := leave);
+X`009`009if s = '**' then begin
+X`009`009`009stilladding := false;
+X`009`009`009heredsc.desclen := ln -1
+X`009`009end else begin
+X`009`009`009if heredsc.desclen < ln then heredsc.desclen := ln;
+X`009`009`009heredsc.lines`091ln`093 := s;     `032
+X`009`009`009if grab_next = 0 then begin
+X`009`009`009`009if ln < descmax then ln := ln+1
+X`009`009`009`009else stilladding := false
+X`009`009`009end else if grab_next > 0 then begin              `032
+X`009`009`009`009if ln < heredsc.desclen then ln := ln+1
+X`009`009`009end else begin
+X`009`009`009`009if ln > 1 then ln := ln -1
+X`009`009`009end;
+X`009`009end;    `032
+X`009end;
+Xend;    `123 edit_append `125
+X
+Xprocedure edit_delete(n: integer);
+Xvar
+X`009i: integer;
+X
+Xbegin
+X`009if heredsc.desclen = 0 then
+X`009`009writeln('-- No lines to delete')
+X`009else if (n > heredsc.desclen) or (n < 1) then
+X`009`009writeln('-- Bad line number')
+X`009else if (n = 1) and (heredsc.desclen = 1) then
+X`009`009heredsc.desclen := 0
+X`009else begin
+X`009`009for i := n to heredsc.desclen-1 do
+X`009`009`009heredsc.lines`091i`093 := heredsc.lines`091i + 1`093;
+X`009`009heredsc.desclen := heredsc.desclen - 1;
+X`009end;
+Xend;
+X
+Xprocedure check_subst;
+Xvar i: integer;
+Xbegin
+X`009if heredsc.desclen > 0 then begin
+X`009`009for i := 1 to heredsc.desclen do
+X`009`009`009if (index(heredsc.lines`091i`093,'#') > 0) and
+X`009`009`009   (length(heredsc.lines`091i`093) > 59) then
+X`009`009`009`009writeln('Warning: line ',i:1,' is too long for correct param
+Veter substitution.');
+X`009end;
+Xend;
+X
+X
+X`091global`093 function edit_desc(var dsc: integer):boolean;
+Xvar
+X`009cmd: char;
+X`009s: string;
+X`009done: boolean;
+X`009n: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT');
+X`009s := 'e';
+X    end;
+X
+Xbegin
+X`009if dsc = DEFAULT_LINE then begin
+X`009`009heredsc.desclen := 0;
+X`009end else if dsc > 0 then begin
+X`009`009getblock(dsc);
+X`009`009freeblock;
+X`009`009heredsc := block;
+X`009end else if dsc < 0 then begin
+X`009`009n := (- dsc);
+X`009`009getline(n);
+X`009`009freeline;
+X`009`009heredsc.lines`0911`093 := oneliner.theline;
+X`009`009heredsc.desclen := 1;
+X`009end else begin
+X`009`009heredsc.desclen := 0;
+X`009end;
+X
+X`009edit_desc := true;
+X`009done := false;
+X        edit_append;
+X`009repeat
+X`009`009writeln;
+X`009`009repeat
+X`009`009`009grab_line('* ',s,eof_handler := leave);
+X`009`009`009s := slead(s);
+X`009`009until length(s) > 0;
+X`009`009s := lowcase(s);
+X`009`009cmd := s`0911`093;
+X
+X`009`009if length(s)>1 then begin
+X`009`009`009n := number(slead(substr(s,2,length(s)-1)))
+X`009`009end else
+X`009`009`009n := 0;
+X
+X`009`009case cmd of
+X`009`009`009'h','?': command_help('*edit help*');
+X`009`009`009'a': edit_append;
+X`009`009`009'z': heredsc.desclen := 0;
+X`009`009`009'c': check_subst;
+X`009`009`009'p','l','t': edit_show;
+X`009`009`009'd': edit_delete(n);
+X`009`009`009'e': begin
+X`009`009`009`009check_subst;
+X`009`009`009`009if debug then
+X`009`009`009`009`009writeln('edit_desc: dsc is ',dsc:1);
+X
+X
+X`123 what I do here may require some explanation:
+X
+X`009dsc is a pointer to some text structure:
+X`009`009dsc = 0 :  no text
+X`009`009dsc > 0 :  dsc refers to a description block (descmax lines)
+X`009`009dsc < 0 :  dsc refers to a description "one liner".  abs(dsc)
+X`009`009`009   is the actual pointer
+X
+X`009If there are no lines of text to be written out (heredsc.desclen = 0)
+X`009then we deallocate whatever dsc is when edit_desc was invoked, if
+X`009it was pointing to something;
+X
+X`009if there is one line of text to be written out, allocate a one liner
+X`009record, assign the string to it, and return dsc as negative;
+X
+X`009if there is mmore than one line of text, allocate a description block,
+X`009store the lines in it, and return dsc as positive.
+X
+X`009In all cases if there was already a record allocated to dsc then
+X`009use it and don't reallocate a new record.
+X`125
+X
+X`123 kill the default `125`009`009if (heredsc.desclen > 0) and
+X`123 if we're gonna put real `125`009`009(dsc = DEFAULT_LINE) then
+X`123 texty in here `125`009`009`009`009dsc := 0;
+X
+X`123 no lines, delete existing `125`009if heredsc.desclen = 0 then
+X`123 desc, if any `125`009`009`009delete_block(dsc)
+X`009`009`009`009else if heredsc.desclen = 1 then begin
+X`009`009`009`009`009if (dsc = 0) then begin
+X`009`009`009`009`009`009if alloc_line(dsc) then;
+X`009`009`009`009`009`009dsc := (- dsc);
+X`009`009`009`009`009end else if dsc > 0 then begin
+X`009`009`009`009`009`009delete_block(dsc);
+X`009`009`009`009`009`009if alloc_line(dsc) then;
+X`009`009`009`009`009`009dsc := (- dsc);
+X`009`009`009`009`009end;
+X
+X`009`009`009`009`009if dsc < 0 then begin
+X`009`009`009`009`009`009getline( abs(dsc) );
+X`009`009`009`009`009`009oneliner.theline := heredsc.lines`0911`093;
+X`009`009`009`009`009`009putline;
+X`009`009`009`009`009end;
+X`123 more than 1 lines `125`009`009end else begin
+X`009`009`009`009`009if dsc = 0 then begin
+X`009`009`009`009`009`009if alloc_block(dsc) then;
+X`009`009`009`009`009end else if dsc < 0 then begin
+X`009`009`009`009`009`009dsc := (- dsc);
+X`009`009`009`009`009`009delete_line(dsc);
+X`009`009`009`009`009`009if alloc_block(dsc) then;
+X`009`009`009`009`009end;
+X
+X`009`009`009`009`009if dsc > 0 then begin
+X`009`009`009`009`009`009getblock(dsc);
+X`009`009`009`009`009`009block := heredsc;
+X`123 This is a fudge `125`009`009`009`009block.descrinum := dsc;
+X`009`009`009`009`009`009putblock;
+X`009`009`009`009`009end;
+X`009`009`009`009end;
+X`009`009`009`009done := true;
+X`009`009`009     end;
+X`009`009`009'r': edit_replace(n);
+X`009`009`009'@': begin
+X`009`009`009`009delete_block(dsc);
+X`009`009`009`009dsc := DEFAULT_LINE;
+X`009`009`009`009done := true;
+X`009`009`009     end;
+X`009`009`009'i': edit_doinsert(n);
+X`009`009`009'q': begin
+X`009`009`009`009grab_line('Throw away changes, are you sure? ',
+X`009`009`009`009    s,eof_handler := leave);
+X`009`009`009`009s := lowcase(s);
+X`009`009`009`009if (s = 'y') or (s = 'yes') then begin
+X`009`009`009`009`009done := true;
+X`009`009`009`009`009edit_desc := false; `123 signal caller not to save `125
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009`009otherwise writeln('-- Invalid command, type ? for a list.');
+X`009`009end;
+X`009until done;
+Xend;
+X
+X`123 -----------------------------------------------------------------------
+V--- `125
+X
+X`091global`093 procedure custom_global_desc(code: integer);
+Xvar val,lcv: integer;
+Xbegin
+X    if GF_Types`091code`093 <> G_text then begin
+X`009writeln('%Error in custom_global_desc:');
+X`009writeln('%Global item #',code:1,' isn''t global desciption.');
+X`009writeln('%Notify Monster Manager.');
+X    end else if not global_priv then begin
+X`009writeln('You haven''t power for this.');
+X    end else begin
+X`009case code of
+X`009    GF_NEWPLAYER: writeln('Edit new player welcome text.');
+X`009    GF_STARTGAME: Writeln('Edit welcome text.');
+X`009    otherwise writeln('Edit global descibtion #',code:1,' (unknown).');
+X`009end; `123 case `125
+X`009getglobal; freeglobal;
+X`009val := global.int`091code`093;
+X`009if edit_desc(val) then begin
+X`009    getglobal;
+X`009    global.int`091code`093 := val;
+X`009    putglobal;
+X`009    read_global := false;
+X`009    writeln('Database is updated.');
+X`009    for lcv :=1 to numevnts do
+X`009`009log_event(0,E_GLOBAL_CHANGE,0,0,'',lcv);
+X`009end else writeln('No changes.');
+X    end;
+Xend; `123 custom_global_desc `125
+X
+X
+X`123 -----------------------------------------------------------------------
+V--- `125
+X
+X`091global`093 function lookup_detail(var n: integer;s:string): boolean;
+Xvar
+X`009i,poss,maybe,num: integer;
+Xbegin
+X`009n := 0;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to maxdetail do begin
+X`009`009if s = here.detail`091i`093 then
+X`009`009`009num := i
+X`009`009else if index(here.detail`091i`093,s) = 1 then begin
+X`009`009`009maybe := maybe + 1;
+X`009`009`009poss := i;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009n := num;
+X`009`009lookup_detail := true;
+X`009end else if maybe = 1 then begin
+X`009`009n := poss;
+X`009`009lookup_detail := true;
+X`009end else if maybe > 1 then begin
+X`009`009lookup_detail := false;
+X`009end else begin
+X`009`009lookup_detail := false;
+X`009end;
+Xend;
+X
+X`123
+XUser describe procedure.  If no s then describe the room
+X
+XKnown problem: if two people edit the description to the same room one of th
+Veir
+X`009description blocks could be lost.
+XThis is unlikely to happen unless the Monster Manager tries to edit a
+Xdescription while the room's owner is also editing it.
+X`125
+X`091global`093 PROCEDURE do_describe(s: string);
+Xvar
+X`009i: integer;
+X`009newdsc: integer;
+X
+Xbegin
+X`009gethere;
+X`009if checkhide then begin
+X`009if s = '' then begin `123 describe this room `125
+X`009`009if desc_allowed then begin
+X`009`009`009log_action(desc,0);
+X`009`009`009writeln('`091 Editing the primary room description `093');
+X`009`009`009newdsc := here.primary;
+X`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009getroom;
+X`009`009`009`009here.primary := newdsc;
+X`009`009`009`009putroom;
+X`009`009`009end;
+X`009`009`009log_event(myslot,E_EDITDONE,0,0);
+X`009`009end;
+X`009end else begin`123 describe a detail of this room `125
+X`009`009if length(s) > veryshortlen then
+X`009`009`009writeln('Your detail keyword can only be ',veryshortlen:1,' char
+Vacters.')
+X`009`009else if desc_allowed then begin
+X`009`009`009if not(lookup_detail(i,s)) then
+X`009`009`009if not(alloc_detail(i,s)) then begin
+X`009`009`009`009writeln('You have used all ',maxdetail:1,' details.');
+X`009`009`009`009writeln('To delete a detail, DESCRIBE <the detail> and delet
+Ve all the text.');
+X`009`009`009end;
+X`009`009`009if i <> 0 then begin
+X`009`009`009`009log_action(e_detail,0);
+X`009`009`009`009writeln('`091 Editing detail "',here.detail`091i`093,'" of t
+Vhis room `093');
+X`009`009`009`009newdsc := here.detaildesc`091i`093;
+X`009`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.detaildesc`091i`093 := newdsc;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end;
+X`009`009`009`009log_event(myslot,E_DONEDET,0,0);
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`123`009clear_command;`009`125
+X`009end;
+Xend;
+X
+X`123 return TRUE if the player is allowed to program the object n
+X  if checkpub is true then obj_owner will return true if the object in
+X  question is public `125
+X
+X`091global`093 function obj_owner(n: integer;checkpub: boolean := FALSE):boo
+Vlean;
+Xbegin
+X`009getobjown;
+X`009freeobjown;
+X`009if (objown.idents`091n`093 = userid) or`032
+X`009    (owner_priv and (objown.idents`091n`093 <> system_id)) or
+X`009    manager_priv then begin `123 minor change by leino@finuha `125
+X`009`009`009`009    `123 and hurtta@finuh `125
+X`009`009obj_owner := true;
+X`009end else if (objown.idents`091n`093 = public_id) and (checkpub) then beg
+Vin
+X`009`009obj_owner := true;
+X`009end else begin
+X`009`009obj_owner := false;
+X`009end;
+Xend;
+X
+X`091global`093 function parse_pers(var pnum: integer;s: string): boolean;
+Xvar
+X`009persnum: integer;
+X`009i,poss,maybe,num: integer;
+X`009pname: string;
+X
+Xbegin
+X`009gethere;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to maxpeople do begin
+X`123`009`009if here.people`091i`093.username <> '' then begin`009`125
+X
+X`009`009if here.people`091i`093.kind > 0 then begin
+X`009`009`009pname := lowcase(here.people`091i`093.name);
+X
+X`009`009`009if s = pname then
+X`009`009`009`009num := i
+X`009`009`009else if index(pname,s) = 1 then begin
+X`009`009`009`009maybe := maybe + 1;
+X`009`009`009`009poss := i;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009persnum := num;
+X`009`009parse_pers := true;
+X`009end else if maybe = 1 then begin
+X`009`009persnum := poss;
+X`009`009parse_pers := true;
+X`009end else if maybe > 1 then begin
+X`009`009persnum := 0;
+X`009`009parse_pers := false;
+X`009end else begin
+X`009`009persnum := 0;
+X`009`009parse_pers := false;
+X`009end;
+X`009if persnum > 0 then begin
+X`009`009if here.people`091persnum`093.hiding > 0 then
+X`009`009`009parse_pers := false
+X`009`009else begin
+X`009`009`009parse_pers := true;
+X`009`009`009pnum := persnum;
+X`009`009end;
+X`009end;
+Xend;
+X
+X`091global`093 function lookup_level(var n: integer;s:string): boolean;
+Xvar
+X`009i,poss,maybe,num: integer;
+Xbegin
+X`009n := 0;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to levels do begin
+X`009`009if s = lowcase (leveltable`091i`093.name) then
+X`009`009`009num := i
+X`009`009else if index(lowcase (leveltable`091i`093.name),s) = 1 then begin
+X`009`009`009maybe := maybe + 1;
+X`009`009`009poss := i;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009n := num;
+X`009`009lookup_level := true;
+X`009end else if maybe = 1 then begin
+X`009`009n := poss;
+X`009`009lookup_level := true;
+X`009end else if maybe > 1 then begin
+X`009`009lookup_level := false;
+X`009end else begin
+X`009`009lookup_level := false;
+X`009end;
+Xend; `123 lookup_level `125
+X
+X
+X`123 custom ROOM -----------------------------------------------------------
+V---- `125
+X
+X
+Xfunction room_nameinuse(num: integer; newname: string): boolean;
+Xvar
+X`009dummy: integer;
+X
+Xbegin
+X`009if exact_room(dummy,newname) then begin
+X`009`009if dummy = num then
+X`009`009`009room_nameinuse := false
+X`009`009else
+X`009`009`009room_nameinuse := true;
+X`009end else
+X`009`009room_nameinuse := false;
+Xend;
+X
+X
+X
+Xprocedure do_rename(param: string);
+Xlabel exit_label;
+Xvar
+X`009dummy: integer;
+X`009newname: string;
+X`009s: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009gethere;
+X`009if param > '' then newname := param
+X`009else begin
+X`009`009writeln('This room is named ',here.nicename);
+X`009`009writeln;
+X`009`009grab_line('New name? ',newname,eof_handler := leave);
+X`009end;
+X`009if (newname = '') or (newname = '**') then
+X`009`009writeln('No changes.')
+X`009else if length(newname) > shortlen then
+X`009`009writeln('Please limit your room name to ',shortlen:1,' characters.')
+X`009else if room_nameinuse(location,newname) then
+X`009`009writeln(newname,' is not a unique room name.')
+X`009else begin
+X`009`009getroom;
+X`009`009here.nicename := newname;
+X`009`009putroom;
+X
+X`009`009getnam;
+X`009`009nam.idents`091location`093 := lowcase(newname);
+X`009`009putnam;
+X`009`009writeln('Room name updated.');
+X`009end;
+X    exit_label:
+Xend;
+X
+X
+Xfunction obj_nameinuse(objnum: integer; newname: string): boolean;
+Xvar
+X`009dummy: integer;
+X
+Xbegin
+X`009if exact_obj(dummy,newname) then begin
+X`009`009if dummy = objnum then
+X`009`009`009obj_nameinuse := false
+X`009`009else
+X`009`009`009obj_nameinuse := true;
+X`009end else
+X`009`009obj_nameinuse := false;
+Xend;
+X
+X
+Xprocedure do_objrename(objnum: integer; param: string);
+Xlabel exit_label;
+Xvar
+X`009newname: string;
+X`009s: string;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009getobj(objnum);
+X`009freeobj;
+X
+X`009if param > '' then newname := param
+X`009else begin
+X`009`009writeln('This object is named ',obj.oname);
+X`009`009writeln;
+X`009`009grab_line('New name? ',newname,eof_handler := leave);
+X`009end;
+X`009if (newname = '') or (newname = '**') then
+X`009`009writeln('No changes.')
+X`009else if length(newname) > shortlen then
+X`009`009writeln('Please limit your object name to ',shortlen:1,' characters.
+V')
+X`009else if obj_nameinuse(objnum,newname) then
+X`009`009writeln(newname,' is not a unique object name.')
+X`009else begin
+X`009`009getobj(objnum);
+X`009`009obj.oname := newname;
+X`009`009putobj;
+X
+X`009`009getobjnam;
+X`009`009objnam.idents`091objnum`093 := lowcase(newname);
+X`009`009putobjnam;
+X`009`009writeln('Object name updated.');
+X`009end;
+X    exit_label:
+Xend;
+X
+X
+X
+Xprocedure view_room;
+Xvar
+X`009s: string;
+X`009i: integer;
+X
+Xbegin
+X`009writeln;
+X`009getnam;
+X`009freenam;
+X`009getobjnam;
+X`009freeobjnam;
+X
+X`009with here do begin
+X`009`009writeln('Room:        ',nicename);
+X`009`009case nameprint of
+X`009`009`0090: writeln('Room name not printed');
+X`009`009`0091: writeln('"You''re in" precedes room name');
+X`009`009`0092: writeln('"You''re at" precedes room name');
+X`009`009`0093: writeln('"You''re in the" precedes room name');
+X`009`009`0094: writeln('"You''re at the" precedes room name');
+X`009`009`0095: writeln('"You''re in a" precedes room name');
+X`009`009`0096: writeln('"You''re at a" precedes room name');
+X`009`009`0097: writeln('"You''re in an" precedes room name');
+X`009`009`0098: writeln('"You''re at an" precedes room name');
+X`009`009`009otherwise writeln('Room name printing is damaged.');
+X`009`009end;
+X
+X`009`009writeln('Room owner:    ',class_out(owner));
+X
+X`009`009if primary = 0 then
+X`009`009`009writeln('There is no primary description')
+X`009`009else
+X`009`009`009writeln('There is a primary description');
+X
+X`009`009if secondary = 0 then
+X`009`009`009writeln('There is no secondary description')
+X`009`009else
+X`009`009`009writeln('There is a secondary description');
+X
+X`009`009case which of
++-+-+-+-+-+-+-+-  END  OF PART 8 +-+-+-+-+-+-+-+-

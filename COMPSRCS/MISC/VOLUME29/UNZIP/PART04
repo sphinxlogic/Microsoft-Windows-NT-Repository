@@ -1,0 +1,1472 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i034:  unzip - Info-ZIP's portable UnZip v4.2, Part04/12
+Message-ID: <1992Apr3.063111.28746@sparky.imd.sterling.com>
+X-Md4-Signature: 5ba03d0fba8f2b65bf1342f085188ca8
+Date: Fri, 3 Apr 1992 06:31:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 34
+Archive-name: unzip/part04
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  VMS/make_unzip_vaxc.com mapname.c unzip.h
+# Wrapped by kent@sparky on Mon Mar 30 01:45:52 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 12)."'
+if test -f 'VMS/make_unzip_vaxc.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/make_unzip_vaxc.com'\"
+else
+  echo shar: Extracting \"'VMS/make_unzip_vaxc.com'\" \(1132 characters\)
+  sed "s/^X//" >'VMS/make_unzip_vaxc.com' <<'END_OF_FILE'
+X$ !
+X$ !		"Makefile" for VMS versions of unzip and zipinfo
+X$ !			(version:  no crypt + no inflate)
+X$ !
+X$ ! Find out current disk and directory
+X$ !
+X$ my_name = f$env("procedure")
+X$ here = f$parse(my_name,,,"device") + f$parse(my_name,,,"directory")
+X$ set verify	! like "echo on", eh?
+X$ !
+X$ ! Do unzip:
+X$ !
+X$ cc unzip,extract,file_io,-
+X	mapname,match,misc,unimplod,unreduce,unshrink,vms,VMSmunch
+X$ link unzip,extract,file_io,mapname,match,misc,-
+X	unimplod,unreduce,unshrink,vms,VMSmunch, sys$input:/opt
+X sys$share:vaxcrtl.exe/shareable
+X! Next line:  put a similar line (full pathname for unzip.exe) in login.com.
+X! Remember to include leading "$" before disk name.
+X$ unzip == "$''here'unzip.exe"		! set up symbol to use unzip
+X$ !
+X$ ! Do zipinfo:
+X$ !
+X$ cc zipinfo
+X$ rename misc.c misc_.c;*
+X$ cc /def=(ZIPINFO) misc_
+X$ rename misc_.c misc.c;*
+X$ link zipinfo,match,misc_,VMSmunch,sys$input:/opt
+X sys$share:vaxcrtl.exe/shareable
+X! Next line:  put a similar line (full pathname for unzip.exe) in login.com.
+X! Remember to include leading "$" before disk name.
+X$ zipinfo == "$''here'zipinfo.exe"	! set up symbol to use zipinfo
+X$ set noverify
+END_OF_FILE
+  if test 1132 -ne `wc -c <'VMS/make_unzip_vaxc.com'`; then
+    echo shar: \"'VMS/make_unzip_vaxc.com'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/make_unzip_vaxc.com'
+fi
+if test -f 'mapname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mapname.c'\"
+else
+  echo shar: Extracting \"'mapname.c'\" \(14090 characters\)
+  sed "s/^X//" >'mapname.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  mapname.c
+X
+X  This routine changes DEC-20, VAX/VMS, and DOS-style filenames into normal
+X  Unix names (and vice versa, in some cases); it also creates any necessary 
+X  directories, if the -d switch was specified.
+X
+X  ---------------------------------------------------------------------------
+X
+X  Notes:
+X
+X     - Unix allows multiple dots in directory names; MS-DOS and OS/2 FAT
+X       allow one; VMS does not allow any.  Things are almost as bad with
+X       regular filenames (VMS allows a single dot but TOPS-20 allows two,
+X       if you count the one in front of the version number).  As of v4.04,
+X       mapname converts directory-name dots to underscores on VMS, but it
+X       otherwise leaves the dots alone.  Since it is now possible to create
+X       zipfiles under Unix, this whole routine pretty much needs to be
+X       rewritten (different routines for each output OS, and different 
+X       rules for different parts of the path name).
+X     - If each zip program stores local-format names (like the VMS one did
+X       at one time), it would probably be best to convert to an intermedi-
+X       ate format first (assuming we're not extracting under the same OS 
+X       as that under which the zipfile was created), then from that to the 
+X       current operating system's format.
+X     - The strcpy and strcat operations on both cdp and filename may over-
+X       write memory, since they don't check lengths.  With a kilobyte in
+X       which to work, this is probably not that big a deal, but it could
+X       cause problems eventually.
+X
+X  ------------------------------------------------------------------------- */
+X
+X
+X#include "unzip.h"
+X
+X
+X/*******************/
+X/* Mapname Defines */
+X/*******************/
+X
+X#ifdef VMS
+X#  define PERMS   0
+X#else
+X#  define PERMS   0777
+X#endif
+X
+X#ifndef NO_MKDIR
+X#  ifdef DOS_OS2
+X#    if (_MSC_VER >= 600)       /* have special MSC mkdir prototype */
+X#      include <direct.h>
+X#    else                       /* own prototype because dir.h conflicts? */
+X       int mkdir(const char *path);
+X#    endif /* ?(MSC 6.0 or later) */
+X#    define MKDIR(path,mode)   mkdir(path)
+X#  else /* !DOS_OS2 */
+X#    ifdef MACOS
+X#      define MKDIR(path,mode)   mkdir(path)
+X#    else /* !MACOS */
+X#      define MKDIR(path,mode)   mkdir(path,mode)
+X#    endif /* ?MACOS */
+X#  endif /* ?DOS_OS2 */
+X#endif /* !NO_MKDIR */
+X
+X
+X
+X
+X/************************/
+X/*  Function mapname()  */
+X/************************/
+X
+Xint mapname(create_dirs)   /* return 0 if no error, 1 if caution (filename */
+X    int create_dirs;       /*  truncated), 2 if warning (skip file because */
+X{                          /*  dir doesn't exist), 3 if error (skip file) */
+X#ifdef NO_MKDIR
+X    char command[FILNAMSIZ+40]; /* buffer for system() call */
+X#endif
+X#ifdef VMS
+X    int stat_val;               /* temp. holder for stat() return value */
+X    char *dp, *xp;              /* pointers to directory name */
+X#endif
+X#ifdef OS2
+X    char *last;
+X    extern int longname;        /* used also in file_io.c:  set EAs */
+X    extern char longfilename[]; /*  AFTER file created and closed */
+X#endif
+X    char name[FILNAMSIZ];       /* file name buffer */
+X    char *pp, *cp, *cdp;        /* character pointers */
+X    char delim = '\0';          /* directory delimiter */
+X    int dc = 0;                 /* counters */
+X    int quote = FALSE;          /* flags */
+X    int indir = FALSE;
+X    int done = FALSE;
+X    register int workch;        /* hold the character being tested */
+X
+X
+X/*---------------------------------------------------------------------------
+X    Initialize various pointers and counters and stuff.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef MAP_DEBUG
+X    fprintf(stderr, "%s ", filename);   /* echo name of this file */
+X#endif
+X    pp = name;                  /* Point to translation buffer */
+X    *name = '\0';               /* Initialize buffer */
+X
+X    if (!jflag) {               /* -j => junk pathnames */
+X        cdp = (char *) malloc(strlen(filename) + 3);  /* place for holding */
+X        if (cdp == NULL) {                            /*  directory name */
+X            fprintf(stderr, "mapname:  out of memory [%s]\n", filename);
+X            return 3;
+X        }
+X#ifdef VMS
+X        *cdp++ = '[';
+X        xp = cdp;               /* always points to last non-NULL char */
+X        *cdp++ = '.';
+X#endif /* VMS */
+X#ifdef MACOS
+X        *cdp = ':';             /* the Mac uses ':' as a directory separator */
+X        cdp[1] = '\0';
+X#else /* !MACOS */
+X        *cdp = '\0';
+X#endif /* ?MACOS */
+X    }
+X    dc = 0;                     /* Filename dot counter */
+X
+X/*---------------------------------------------------------------------------
+X    Begin main loop through characters in filename.
+X  ---------------------------------------------------------------------------*/
+X
+X    for (cp = filename; (workch = *cp++) != 0  &&  !done;) {
+X
+X        if (quote) {            /* If this char quoted... */
+X            *pp++ = workch;     /*  include it literally. */
+X            quote = FALSE;
+X        } else if (indir) {     /* If in directory name... */
+X            if (workch == delim)
+X                indir = FALSE;  /*  look for end delimiter. */
+X        } else
+X            switch (workch) {
+X            case '<':           /* Discard DEC-20 directory name */
+X                indir = TRUE;
+X                delim = '>';
+X                break;
+X            case '[':           /* Discard VMS directory name */
+X                indir = TRUE;
+X                delim = ']';
+X                break;
+X            case '/':           /* Discard Unix path name... */
+X            case '\\':          /*  or MS-DOS path name...
+X                                 *  IF -j flag was given. */
+X                /*
+X                 * Special processing case:  if -j flag was not specified on
+X                 * command line and create_dirs is TRUE, create any necessary
+X                 * directories included in the pathname.  Creation of dirs is
+X                 * straightforward on BSD and MS-DOS machines but requires use
+X                 * of the system() command on SysV systems (or any others which
+X                 * don't have mkdir()).  The stat() check is necessary with
+X                 * MSC because it doesn't have an EEXIST errno, and it saves
+X                 * the overhead of multiple system() calls on SysV machines.
+X                 */
+X
+X                if (!jflag) {
+X                    *pp = '\0';
+X#ifdef VMS
+X                    dp = name;
+X                    while (*++xp = *dp++)   /* copy name to cdp, while */
+X                        if (*xp == '.')     /*   changing all dots... */
+X                            *xp = '_';      /*   ...to underscores */
+X                    strcpy(xp, ".dir");    /* add extension for stat check */
+X                    stat_val = stat(cdp, &statbuf);
+X                    *xp = '\0';         /* remove extension for all else */
+X                    if (stat_val) {     /* doesn't exist, so create */
+X#else /* !VMS */
+X                    strcat(cdp, name);
+X#ifdef OS2
+X                    if (longname = !IsFileNameValid(cdp)) {
+X                        last = strrchr(cdp, '/');
+X                        strcpy(longfilename, last ? last + 1 : cdp);
+X                        fprintf(stderr, "caution:  renaming directory \"%s\"",
+X                          cdp);
+X                        ChangeNameForFAT(cdp);
+X                        fprintf(stderr, " to \"%s\"\n", cdp);
+X                    }
+X#endif /* OS2 */
+X                    if (stat(cdp, &statbuf)) {  /* doesn't exist, so create */
+X#endif /* ?VMS */
+X                        if (!create_dirs) /* told not to create (freshening) */
+X                            return 2;
+X#ifdef NO_MKDIR
+X                        sprintf(command,
+X                          "IFS=\" \t\n\" /bin/mkdir %s 2>/dev/null", cdp);
+X                        if (system(command)) {
+X#else /* !NO_MKDIR */
+X                        if (MKDIR(cdp, PERMS) == -1) {
+X#endif /* ?NO_MKDIR */
+X                            perror(cdp);
+X                            free(cdp);
+X                            fprintf(stderr, "mapame:  unable to process [%s]\n",
+X                              filename);
+X                            return 3;
+X                        }
+X#ifdef OS2
+X                        if (longname)
+X                            SetLongNameEA(cdp, longfilename);
+X#endif /* OS2 */
+X                    } else if (!(statbuf.st_mode & S_IFDIR)) {
+X                        fprintf(stderr,
+X                          "mapname:  %s exists but is not a directory\n", cdp);
+X                        free(cdp);
+X                        fprintf(stderr, "mapame:  unable to process [%s]\n",
+X                          filename);
+X                        return 3;
+X                    }
+X#ifdef VMS
+X                    *xp = '/';  /* for now... (mkdir()) */
+X#else /* !VMS */
+X#ifdef MACOS
+X                    strcat(cdp, ":");
+X#else /* !MACOS */
+X                    strcat(cdp, "/");
+X#endif /* ?MACOS */
+X#endif /* ?VMS */
+X                }
+X                pp = name;
+X                break;
+X            case ':':
+X#ifdef UNIX                       /* colon is a valid character in Unix */
+X                *pp++ = workch;   /*  filenames, so keep it; anywhere else, */
+X#else /* !UNIX */                 /*  change it to an underscore (should  */
+X                *pp++ = '_';      /*  NOT have stored drive/node names!!) */
+X#endif /* ?UNIX */
+X             /* pp = name;  (OLD) discard DEC dev: or node:: name */
+X                break;
+X            case '.':                   /* DEC-20 generation number
+X                                         * or MS-DOS type */
+X#ifdef NUKE_DOTS
+X                if (++dc == 1)          /* Keep first dot */
+X                    *pp++ = workch;
+X#else /* !NUKE_DOTS */
+X                ++dc;                   /* Not used, but what the hell. */
+X                *pp++ = workch;
+X#endif /* ?NUKE_DOTS */
+X                break;
+X            case ';':                   /* VMS generation or DEC-20 attrib */
+X                if (V_flag)             /* If requested, save VMS ";##" */
+X                    *pp++ = workch;     /*  version info; else discard */
+X                else                    /*  everything starting with */
+X                    done = TRUE;        /*  semicolon.  (Worry about */
+X                break;                  /*  DEC-20 later.) */
+X            case '\026':                /* Control-V quote for special chars */
+X                quote = TRUE;           /* Set flag for next time. */
+X                break;
+X            case ' ':
+X#if defined(VMS) || defined(MTS)
+X                *pp++ = '_';            /* change spaces to underscore */
+X#else /* !(VMS || MTS) */               /*  under VMS and MTS, and under DOS */
+X#ifdef DOS_OS2                          /*  and OS/2 if -s not specified. */
+X                if (!sflag)
+X                    *pp++ = '_';
+X                else
+X#endif /* DOS_OS2 */
+X                *pp++ = workch;         /* otherwise, leave as spaces */
+X#endif /* ?(VMS || MTS) */
+X                break;
+X            default:
+X                if (isprint(workch))    /* other printable, just keep */
+X                    *pp++ = workch;
+X            }                   /* end switch */
+X    }                           /* end for loop */
+X    *pp = '\0';                 /* done with name:  terminate it */
+X
+X/*---------------------------------------------------------------------------
+X    We COULD check for existing names right now, create a "unique" name, etc.
+X    At present, we do this in extract_or_test_files() (immediately after we
+X    return from here).  If conversion went bad, the name'll either be nulled
+X    out (in which case we'll return non-0), or following procedures won't be
+X    able to create the extracted file and other error msgs will result.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (*name == '\0') {
+X        fprintf(stderr, "mapname:  conversion of [%s] failed\n", filename);
+X        return 3;
+X    }
+X
+X#ifdef OS2   /* (if necessary, can use outbuf for temp filename holder) */
+X    if (longname = !IsFileNameValid(name)) {  /* THIS time, save for file_io */
+X        last = strrchr(name, '/');
+X        last = last ? last + 1 : name;  /* should ALWAYS be name... */
+X        strcpy(longfilename, last);
+X        fprintf(stderr, "caution:  renaming \"%s\"", name);
+X        ChangeNameForFAT(last);
+X        fprintf(stderr, " to \"%s\"\n", name);
+X    }
+X#endif /* OS2 */
+X
+X    if (!jflag) {
+X#ifdef VMS
+X        *xp++ = ']';            /* proper end-of-dir-name delimiter */
+X        if (xp == cdp) {        /* no path-name stuff, so... */
+X            strcpy(filename, name);  /* copy file name into global */
+X            cdp -= 2;           /*   prepare to free malloc'd space */
+X        } else {                /* we've added path-name stuff... */
+X            *xp = '\0';         /*   so terminate... */
+X            dp = cdp;           /*   and convert to VMS subdir separators:  */
+X            while (*++dp)       /*   (skip first char:  better not be "/") */
+X                if (*dp == '/') /*   change all slashes */
+X                    *dp = '.';  /*     to dots */
+X            cdp -= 2;           /*   include leading bracket and dot */
+X            strcpy(filename, cdp);   /* copy VMS-style path name into global */
+X            strcat(filename, name);  /* concatenate file name to global */
+X        }
+X#else /* !VMS */
+X        strcpy(filename, cdp);  /* Either "" or slash-terminated path */
+X        strcat(filename, name); /* append file name to path name */
+X#endif /* ?VMS */
+X        free(cdp);
+X    } else
+X        strcpy(filename, name); /* copy converted name into global */
+X
+X#if PATH_MAX < (FILNAMSIZ - 1)
+X    /* check the length of the file name and truncate if necessary */
+X    if (PATH_MAX < strlen(filename)) {
+X        fprintf(stderr, "caution:  truncating filename.\n");
+X        filename[PATH_MAX] = '\0';
+X        fprintf(stderr, "[ %s ]\n", filename);
+X        return 1;             /* 1:  warning error */
+X    }
+X#endif
+X
+X    return 0;
+X}
+END_OF_FILE
+  if test 14090 -ne `wc -c <'mapname.c'`; then
+    echo shar: \"'mapname.c'\" unpacked with wrong size!
+  fi
+  # end of 'mapname.c'
+fi
+if test -f 'unzip.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unzip.h'\"
+else
+  echo shar: Extracting \"'unzip.h'\" \(36246 characters\)
+  sed "s/^X//" >'unzip.h' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  unzip.h
+X
+X  This header file is used by all of the unzip source files.  Its contents
+X  are divided into seven more-or-less separate sections:  predefined macros,
+X  OS-dependent includes, (mostly) OS-independent defines, typedefs, function 
+X  prototypes (or "prototypes," in the case of non-ANSI compilers), macros, 
+X  and global-variable declarations.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X
+X/*****************************************/
+X/*  Predefined, Machine-specific Macros  */
+X/*****************************************/
+X
+X#if defined(ultrix) || defined(bsd4_2) || defined(sun)
+X#  if !defined(BSD) && !defined(__SYSTEM_FIVE)
+X#    define BSD
+X#  endif /* !BSD && !__SYSTEM_FIVE */
+X#endif /* ultrix || bsd4_2 || sun */
+X
+X/* [1992.1.21:  ALL machines now "NOTINT16"; NOTINT16 and ULONG_ removed] */
+X#if 0
+X#  if defined(mips) || defined(sun) || defined(CRAY)
+X#    ifndef NOTINT16
+X#      define NOTINT16
+X#    endif /* !NOTINT16 */
+X#  endif /* mips || sun || CRAY */
+X
+X#  if defined(vax) || defined(MSDOS) || defined(__MSDOS__)
+X#    ifdef NOTINT16
+X#      undef NOTINT16
+X#    endif /* NOTINT16 */
+X#  endif /* vax || MSDOS || __MSDOS__ */
+X#endif /* 0 */
+X
+X#ifdef CRAY
+X#  ifdef ZMEM
+X#    undef ZMEM
+X#  endif /* ZMEM */
+X#  ifndef TERMIO
+X#    define TERMIO
+X#  endif /* !TERMIO */
+X#endif /* CRAY */
+X
+X#ifdef CONVEX
+X#  ifndef TERMIO
+X#    define TERMIO
+X#  endif /* !TERMIO */
+X#endif /* CONVEX */
+X
+X/* the i386 test below is to catch SCO Unix (which has redefinition
+X * warnings if param.h is included), but it probably doesn't hurt if
+X * other 386 Unixes get nailed, too--are there any 386 BSD systems?
+X * param.h is mostly included for "BSD", I think...
+X */
+X#if defined(MINIX) || (defined(i386) && defined(unix))
+X#  define NO_PARAM_H
+X#endif /* MINIX || (i386 && unix) */
+X
+X#if defined(__IBMC__) && defined(__32BIT__) && !defined(IBMC32)
+X#  define IBMC32
+X#endif /* __IBMC__ && __32BIT__ && !IBMC32 */
+X
+X
+X
+X
+X
+X/***************************/
+X/*  OS-Dependent Includes  */
+X/***************************/
+X
+X#ifndef MINIX            /* Minix needs it after all the other includes (?) */
+X#  include <stdio.h>     /* this is your standard header for all C compiles */
+X#endif
+X#include <ctype.h>
+X#include <errno.h>       /* used in mapname() */
+X#define DECLARE_ERRNO    /* everybody except MSC 6.0 */
+X#ifdef VMS               /* sigh...you just KNEW someone had to break this.  */
+X#  include <types.h>     /*  (placed up here instead of in VMS section below */
+X#  include <stat.h>      /*   because types.h is used in some other headers) */
+X#else  /* almost everybody */
+X#  if defined(THINK_C) || defined(MPW) /* for Macs */
+X#    include <stddef.h>
+X#  else
+X#    include <sys/types.h> /* off_t, time_t, dev_t, ... */
+X#    include <sys/stat.h>  /* Everybody seems to need this. */
+X#  endif
+X#endif
+X
+X
+X/*---------------------------------------------------------------------------
+X    Next, a word from our Unix (mostly) sponsors:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef UNIX
+X#  ifdef AMIGA
+X#    include <libraries/dos.h>
+X#  else /* !AMIGA */
+X#    ifndef NO_PARAM_H
+X#if 0  /* [GRR: this is an alternate fix for SCO's redefinition bug] */
+X#      ifdef NGROUPS_MAX
+X#        undef NGROUPS_MAX     /* SCO bug:  defined again in <param.h> */
+X#      endif /* NGROUPS_MAX */
+X#endif /* 0 */
+X#      include <sys/param.h>   /* conflict with <sys/types.h>, some systems? */
+X#    endif /* !NO_PARAM_H */
+X#  endif /* ?AMIGA */
+X
+X#  ifndef BSIZE
+X#    ifdef MINIX
+X#      define BSIZE   1024
+X#    else /* !MINIX */
+X#      define BSIZE   DEV_BSIZE  /* assume common for all Unix systems */
+X#    endif /* ?MINIX */
+X#  endif
+X
+X#  ifndef BSD
+X#    if !defined(AMIGA) && !defined(MINIX)
+X#      define NO_MKDIR           /* for mapname() */
+X#    endif /* !AMIGA && !MINIX */
+X#    ifndef SKIP_TIME_H          /* temporary fix for VMS gcc and Amdahl cc */
+X#      include <time.h>          /*  in decryption version */
+X#    endif /* !SKIP_TIME_H */
+X     struct tm *gmtime(), *localtime();
+X#  else   /* BSD */
+X#    ifndef SKIP_TIME_H          /* temporary fix for Sun 3 cc, etc. */
+X#      include <sys/time.h>      /*  in decryption version */
+X#    endif /* !SKIP_TIME_H */
+X#    include <sys/timeb.h>
+X#  endif
+X
+X#else   /* !UNIX */
+X#  define BSIZE   512               /* disk block size */
+X#endif /* ?UNIX */
+X
+X#if defined(V7) || defined(BSD)
+X#  define strchr    index
+X#  define strrchr   rindex
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    And now, our MS-DOS and OS/2 corner:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef __TURBOC__
+X#  define DOS_OS2             /* Turbo C under DOS, MSC under DOS or OS2    */
+X#  include <sys/timeb.h>      /* for structure ftime                        */
+X#  ifndef __BORLANDC__        /* There appears to be a bug (?) in Borland's */
+X#    include <mem.h>          /*   MEM.H related to __STDC__ and far poin-  */
+X#  endif                      /*   ters. (dpk)  [mem.h included for memcpy] */
+X#else                         /* NOT Turbo C...                             */
+X#  ifdef MSDOS                /*   but still MS-DOS, so we'll assume it's   */
+X#    ifndef MSC               /*   Microsoft's compiler and fake the ID, if */
+X#      define MSC             /*   necessary (it is in 5.0; apparently not  */
+X#    endif                    /*   in 5.1 and 6.0)                          */
+X#    include <dos.h>          /* _dos_setftime()                            */
+X#  endif
+X#  ifdef OS2                  /* stuff for DOS and OS/2 family version */
+X#    if !defined(IBMC32) && !defined(MSC) && !defined(__BORLANDC__)
+X#      define MSC             /* assume Microsoft if not ID'd already */
+X#    endif
+X#    define INCL_BASE
+X#    define INCL_NOPM
+X#    include <os2.h>          /* DosQFileInfo(), DosSetFileInfo()? */
+X#  endif
+X#endif
+X
+X#ifdef IBMC32
+X#  define DOS_OS2
+X#  define S_IFMT 0xF000
+X#  define timezone _timezone
+X#endif
+X
+X#ifdef EMX32
+X#  define DOS_OS2
+X#  define __32BIT__
+X#  define DosGetCtryInfo   DosQueryCtryInfo
+X#  define DosQFileInfo     DosQueryFileInfo
+X#  define far
+X#endif
+X#ifdef MSC                    /* defined for all versions of MSC now         */
+X#  define DOS_OS2             /* Turbo C under DOS, MSC under DOS or OS/2    */
+X#  ifndef __STDC__            /* MSC 5.0 and 5.1 aren't truly ANSI-standard, */
+X#    define __STDC__ 1        /*   but they understand prototypes...so       */
+X#  endif                      /*   they're close enough for our purposes     */
+X#  if defined(_MSC_VER) && (_MSC_VER >= 600)      /* new with 5.1 or 6.0 ... */
+X#    undef DECLARE_ERRNO      /* errno is now a function in a dynamic link   */
+X#  endif                      /*   library (or something)--incompatible with */
+X#endif                        /*   the usual "extern int errno" declaration  */
+X
+X#ifdef DOS_OS2                /* defined for both Turbo C, MSC */
+X#  include <io.h>             /* lseek(), open(), setftime(), dup(), creat() */
+X#  ifndef SKIP_TIME_H         /* also included in crypt.c */
+X#    include <time.h>         /* localtime() */
+X#  endif /* !SKIP_TIME_H */
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    Followed by some VMS (mostly) stuff:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef VMS
+X#  ifndef SKIP_TIME_H  /* temporary bugfix for VMS gcc in decryption version */
+X#    include <time.h>           /* the usual non-BSD time functions */
+X#  endif /* !SKIP_TIME_H */
+X#  include <file.h>             /* same things as fcntl.h has */
+X#  include <rmsdef.h>           /* RMS error codes */
+X#  include "fatdef.h"           /* RMS-related things used by VMSmunch */
+X#  include "VMSmunch.h"         /* VMSmunch argument definitions */
+X#  define UNIX                  /* can share most of same code from now on */
+X#  define RETURN   return_VMS   /* VMS interprets return codes incorrectly */
+X#else /* !VMS */
+X#  define RETURN   return       /* only used in main() */
+X#  ifdef V7
+X#    define O_RDONLY  0
+X#    define O_WRONLY  1
+X#    define O_RDWR    2
+X#  else /* !V7 */
+X#    ifdef MTS
+X#      include <sys/file.h>     /* MTS uses this instead of fcntl.h */
+X#      include <timeb.h>
+X#      ifndef SKIP_TIME_H       /* also included in crypt.c */
+X#        include <time.h>
+X#      endif /* !SKIP_TIME_H */
+X#    else /* !MTS */
+X#      ifdef COHERENT           /* Coherent 3.10/Mark Williams C */
+X#        include <sys/fcntl.h>
+X#        define SHORT_NAMES
+X#        define tzset  settz
+X#      else /* !COHERENT */
+X#        include <fcntl.h>      /* #define O_BINARY 0x8000 (no CR/LF */
+X#      endif /* ?COHERENT */    /*   translation), as used in open() */
+X#    endif /* ?MTS */
+X#  endif /* ?V7 */
+X#endif /* ?VMS */
+X
+X/*---------------------------------------------------------------------------
+X    And some Mac stuff for good measure:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef THINK_C
+X#  define MACOS
+X#  ifndef __STDC__            /* If Think C hasn't defined __STDC__ ... */
+X#    define __STDC__ 1        /* make sure it's defined: it needs it */
+X#  else /* __STDC__ defined */
+X#    if !__STDC__             /* Sometimes __STDC__ is defined as 0. */
+X#      undef __STDC__         /* It needs to be 1 or required header */
+X#      define __STDC__ 1      /* files are not properly included. */
+X#    endif /* !__STDC__ */
+X#  endif /* ?defined(__STDC__) */
+X#  include <unix.h>
+X#  include "macstat.h"
+X#endif
+X
+X#ifdef MPW
+X#  define MACOS
+X#  include <Files.h>
+X#  include "macstat.h"
+X#  define CtoPstr c2pstr
+X#  define PtoCstr p2cstr
+X#  ifndef TRUE
+X#    define TRUE     1
+X#  endif
+X#  ifndef FALSE
+X#    define FALSE    0
+X#  endif
+X#  ifdef CR
+X#    undef  CR
+X#  endif
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    And finally, some random extra stuff:
+X  ---------------------------------------------------------------------------*/
+X
+X#if __STDC__
+X#  include <stdlib.h>      /* standard library prototypes, malloc(), etc. */
+X#  include <string.h>      /* defines strcpy, strcmp, memcpy, etc. */
+X#else
+X   char *malloc();
+X   char *strchr(), *strrchr();
+X   long lseek();
+X#endif
+X
+X#ifdef MINIX
+X#  include <stdio.h>
+X#endif
+X
+X#ifdef SHORT_NAMES         /* Mark Williams C, ...? */
+X#  define extract_or_test_files    xtr_or_tst_files
+X#  define extract_or_test_member   xtr_or_tst_member
+X#endif
+X
+X
+X
+X
+X
+X/*************/
+X/*  Defines  */
+X/*************/
+X
+X#define INBUFSIZ          BUFSIZ   /* same as stdio uses */
+X#define DIR_BLKSIZ        64       /* number of directory entries per block
+X                                    *  (should fit in 4096 bytes, usually) */
+X/*
+X * If <limits.h> exists on most systems, should include that, since it may
+X * define some or all of the following:  NAME_MAX, PATH_MAX, _POSIX_NAME_MAX,
+X * _POSIX_PATH_MAX.
+X */
+X#ifdef DOS_OS2
+X#  include <limits.h>
+X#endif /* ?DOS_OS2 */
+X
+X#ifdef _MAX_PATH
+X#  define FILNAMSIZ       (_MAX_PATH)
+X#else /* !_MAX_PATH */
+X#  define FILNAMSIZ       1025
+X#endif /* ?_MAX_PATH */
+X
+X#ifndef PATH_MAX
+X#  ifdef MAXPATHLEN                /* defined in <sys/param.h> some systems */
+X#    define PATH_MAX      MAXPATHLEN
+X#  else
+X#    if FILENAME_MAX > 255         /* used like PATH_MAX on some systems */
+X#      define PATH_MAX    FILENAME_MAX
+X#    else
+X#      define PATH_MAX    (FILNAMSIZ - 1)
+X#    endif
+X#  endif /* ?MAXPATHLEN */
+X#endif /* !PATH_MAX */
+X
+X#ifdef ZIPINFO
+X#  define OUTBUFSIZ       BUFSIZ   /* zipinfo needs less than unzip does    */
+X#else
+X#  define OUTBUFSIZ       0x2000   /* unImplode needs power of 2, >= 0x2000 */
+X#endif
+X
+X#define ZSUFX             ".zip"
+X#define CENTRAL_HDR_SIG   "\113\001\002"   /* the infamous "PK" signature */
+X#define LOCAL_HDR_SIG     "\113\003\004"   /*  bytes, sans "P" (so unzip not */
+X#define END_CENTRAL_SIG   "\113\005\006"   /*  mistaken for zipfile itself) */
+X
+X#define SKIP              0    /* choice of activities for do_string() */
+X#define DISPLAY           1
+X#define FILENAME          2
+X#define EXTRA_FIELD       3
+X
+X#define DOES_NOT_EXIST    -1   /* return values for check_for_newer() */
+X#define EXISTS_AND_OLDER  0
+X#define EXISTS_AND_NEWER  1
+X
+X#define DOS_OS2_FAT_      0    /* version_made_by codes (central dir) */
+X#define AMIGA_            1
+X#define VMS_              2    /* MAKE SURE THESE ARE NOT DEFINED ON */
+X#define UNIX_             3    /* THE RESPECTIVE SYSTEMS!!  (like, for */
+X#define VM_CMS_           4    /* instance, "VMS", or "UNIX":  CFLAGS = */
+X#define ATARI_            5    /*  -O -DUNIX) */
+X#define OS2_HPFS_         6
+X#define MAC_              7
+X#define Z_SYSTEM_         8
+X#define CPM_              9
+X/* #define TOPS20_   10?  (TOPS20_ is to be defined in PKZIP 2.0...)  */
+X#define NUM_HOSTS         10   /* index of last system + 1 */
+X
+X#define STORED            0    /* compression methods */
+X#define SHRUNK            1
+X#define REDUCED1          2
+X#define REDUCED2          3
+X#define REDUCED3          4
+X#define REDUCED4          5
+X#define IMPLODED          6
+X#define TOKENIZED         7
+X#define DEFLATED          8
+X#define NUM_METHODS       9    /* index of last method + 1 */
+X/* don't forget to update list_files() appropriately if NUM_METHODS changes */
+X
+X#define DF_MDY            0    /* date format 10/26/91 (USA only) */
+X#define DF_DMY            1    /* date format 26/10/91 (most of the world) */
+X#define DF_YMD            2    /* date format 91/10/26 (a few countries) */
+X
+X#define UNZIP_VERSION     20   /* compatible with PKUNZIP 2.0 */
+X#define VMS_VERSION       42   /* if OS-needed-to-extract is VMS:  can do */
+X
+X/*---------------------------------------------------------------------------
+X    True sizes of the various headers, as defined by PKWare--so it is not
+X    likely that these will ever change.  But if they do, make sure both these
+X    defines AND the typedefs below get updated accordingly.
+X  ---------------------------------------------------------------------------*/
+X
+X#define LREC_SIZE     26    /* lengths of local file headers, central */
+X#define CREC_SIZE     42    /*  directory headers, and the end-of-    */
+X#define ECREC_SIZE    18    /*  central-dir record, respectively      */
+X
+X
+X#define MAX_BITS      13                 /* used in unShrink() */
+X#define HSIZE         (1 << MAX_BITS)    /* size of global work area */
+X
+X#define LF   10   /* '\n' on ASCII machines.  Must be 10 due to EBCDIC */
+X#define CR   13   /* '\r' on ASCII machines.  Must be 13 due to EBCDIC */
+X
+X#ifdef EBCDIC
+X#  define ascii_to_native(c)   ebcdic[(c)]
+X#  define NATIVE    "EBCDIC"
+X#endif
+X
+X#ifdef AMIGA
+X#  define FFLUSH    fflush(stderr);
+X#else /* !AMIGA */
+X#  if MPW
+X#    define FFLUSH    putc('\n',stderr);
+X#  else
+X#    define FFLUSH
+X#  endif
+X#endif /* ?AMIGA */
+X
+X#ifdef CRYPT
+X#  define OF __
+X#  define PWLEN        80
+X#  define DECRYPT(b)   (update_keys(t=((b)&0xff)^decrypt_byte()),t)
+X#endif /* CRYPT */
+X
+X#ifdef QQ  /* Newtware version */
+X#  define QCOND    (quietflg < 2)    /* -xq only kills comments */
+X#  define QCOND2   (!quietflg)       /* for no file comments with -vq[q] */
+X#else      /* (original) Bill Davidsen version  */
+X#  define QCOND    (!quietflg)       /* -xq[q] both kill "extracting:" msgs */
+X#  define QCOND2   (which_hdr)       /* file comments with -v, -vq, -vqq */
+X#endif
+X
+X#ifndef TRUE
+X#  define TRUE      1   /* sort of obvious */
+X#  define FALSE     0
+X#endif
+X
+X#ifndef SEEK_SET        /* These should all be declared in stdio.h!  But   */
+X#  define SEEK_SET  0   /*  since they're not (in many cases), do so here. */
+X#  define SEEK_CUR  1
+X#  define SEEK_END  2
+X#endif
+X
+X#ifndef S_IRUSR
+X#  define S_IRWXU       00700       /* read, write, execute: owner */
+X#  define S_IRUSR       00400       /* read permission: owner */
+X#  define S_IWUSR       00200       /* write permission: owner */
+X#  define S_IXUSR       00100       /* execute permission: owner */
+X#  define S_IRWXG       00070       /* read, write, execute: group */
+X#  define S_IRGRP       00040       /* read permission: group */
+X#  define S_IWGRP       00020       /* write permission: group */
+X#  define S_IXGRP       00010       /* execute permission: group */
+X#  define S_IRWXO       00007       /* read, write, execute: other */
+X#  define S_IROTH       00004       /* read permission: other */
+X#  define S_IWOTH       00002       /* write permission: other */
+X#  define S_IXOTH       00001       /* execute permission: other */
+X#endif /* !S_IRUSR */
+X
+X#ifdef ZIPINFO      /* these are individually checked because SysV doesn't */
+X#  ifndef S_IFBLK   /*  have some of them, Microsoft C others, etc. */
+X#    define   S_IFBLK     0060000     /* block special */
+X#  endif
+X#  ifndef S_IFIFO  /* in Borland C, not MSC */
+X#    define   S_IFIFO     0010000     /* fifo */
+X#  endif
+X#  ifndef S_IFLNK  /* in BSD, not SysV */
+X#    define   S_IFLNK     0120000     /* symbolic link */
+X#  endif
+X#  ifndef S_IFSOCK  /* in BSD, not SysV */
+X#    define   S_IFSOCK    0140000     /* socket */
+X#  endif
+X#  ifndef S_ISUID
+X#    define S_ISUID       04000       /* set user id on execution */
+X#  endif
+X#  ifndef S_ISGID
+X#    define S_ISGID       02000       /* set group id on execution */
+X#  endif
+X#  ifndef S_ISVTX
+X#    define S_ISVTX       01000       /* directory permissions control */
+X#  endif
+X#  ifndef S_ENFMT
+X#    define S_ENFMT       S_ISGID     /* record locking enforcement flag */
+X#  endif
+X#endif /* ZIPINFO */
+X
+X
+X
+X
+X
+X/**************/
+X/*  Typedefs  */
+X/**************/
+X
+X#ifndef _BULL_SOURCE                /* Bull has it defined somewhere already */
+X   typedef unsigned char  byte;     /* code assumes UNSIGNED bytes */
+X#endif /* !_BULL_SOURCE */
+X
+Xtypedef char              boolean;
+Xtypedef long              longint;
+Xtypedef unsigned short    UWORD;
+X#if !defined(IBMC32) && !defined(EMX32)
+X   typedef unsigned long  ULONG;
+X#endif
+X
+Xtypedef struct min_info {
+X    unsigned unix_attr;
+X    unsigned dos_attr;
+X    int hostnum;
+X    longint offset;
+X/*  ULONG crc;  */           /* did need to check decryption (use local now) */
+X    unsigned encrypted : 1;  /* file encrypted: decrypt before uncompressing */
+X    unsigned ExtLocHdr : 1;  /* use time instead of CRC for decrypt check */
+X    unsigned text : 1;       /* file is text or binary */
+X    unsigned lcflag : 1;     /* convert filename to lowercase */
+X} min_info;
+X
+X/*---------------------------------------------------------------------------
+X    Zipfile layout declarations.  If these headers ever change, make sure the
+X    xxREC_SIZE defines (above) change with them!
+X  ---------------------------------------------------------------------------*/
+X
+X   typedef byte   local_byte_hdr[ LREC_SIZE ];
+X#      define L_VERSION_NEEDED_TO_EXTRACT_0     0
+X#      define L_VERSION_NEEDED_TO_EXTRACT_1     1
+X#      define L_GENERAL_PURPOSE_BIT_FLAG        2
+X#      define L_COMPRESSION_METHOD              4
+X#      define L_LAST_MOD_FILE_TIME              6
+X#      define L_LAST_MOD_FILE_DATE              8
+X#      define L_CRC32                           10
+X#      define L_COMPRESSED_SIZE                 14
+X#      define L_UNCOMPRESSED_SIZE               18
+X#      define L_FILENAME_LENGTH                 22
+X#      define L_EXTRA_FIELD_LENGTH              24
+X
+X   typedef byte   cdir_byte_hdr[ CREC_SIZE ];
+X#      define C_VERSION_MADE_BY_0               0
+X#      define C_VERSION_MADE_BY_1               1
+X#      define C_VERSION_NEEDED_TO_EXTRACT_0     2
+X#      define C_VERSION_NEEDED_TO_EXTRACT_1     3
+X#      define C_GENERAL_PURPOSE_BIT_FLAG        4
+X#      define C_COMPRESSION_METHOD              6
+X#      define C_LAST_MOD_FILE_TIME              8
+X#      define C_LAST_MOD_FILE_DATE              10
+X#      define C_CRC32                           12
+X#      define C_COMPRESSED_SIZE                 16
+X#      define C_UNCOMPRESSED_SIZE               20
+X#      define C_FILENAME_LENGTH                 24
+X#      define C_EXTRA_FIELD_LENGTH              26
+X#      define C_FILE_COMMENT_LENGTH             28
+X#      define C_DISK_NUMBER_START               30
+X#      define C_INTERNAL_FILE_ATTRIBUTES        32
+X#      define C_EXTERNAL_FILE_ATTRIBUTES        34
+X#      define C_RELATIVE_OFFSET_LOCAL_HEADER    38
+X
+X   typedef byte   ec_byte_rec[ ECREC_SIZE+4 ];
+X/*     define SIGNATURE                         0   space-holder only */
+X#      define NUMBER_THIS_DISK                  4
+X#      define NUM_DISK_WITH_START_CENTRAL_DIR   6
+X#      define NUM_ENTRIES_CENTRL_DIR_THS_DISK   8
+X#      define TOTAL_ENTRIES_CENTRAL_DIR         10
+X#      define SIZE_CENTRAL_DIRECTORY            12
+X#      define OFFSET_START_CENTRAL_DIRECTORY    16
+X#      define ZIPFILE_COMMENT_LENGTH            20
+X
+X
+X   typedef struct local_file_header {                 /* LOCAL */
+X       byte version_needed_to_extract[2];
+X       UWORD general_purpose_bit_flag;
+X       UWORD compression_method;
+X       UWORD last_mod_file_time;
+X       UWORD last_mod_file_date;
+X       ULONG crc32;
+X       ULONG compressed_size;
+X       ULONG uncompressed_size;
+X       UWORD filename_length;
+X       UWORD extra_field_length;
+X   } local_file_hdr;
+X
+X   typedef struct central_directory_file_header {     /* CENTRAL */
+X       byte version_made_by[2];
+X       byte version_needed_to_extract[2];
+X       UWORD general_purpose_bit_flag;
+X       UWORD compression_method;
+X       UWORD last_mod_file_time;
+X       UWORD last_mod_file_date;
+X       ULONG crc32;
+X       ULONG compressed_size;
+X       ULONG uncompressed_size;
+X       UWORD filename_length;
+X       UWORD extra_field_length;
+X       UWORD file_comment_length;
+X       UWORD disk_number_start;
+X       UWORD internal_file_attributes;
+X       ULONG external_file_attributes;
+X       ULONG relative_offset_local_header;
+X   } cdir_file_hdr;
+X
+X   typedef struct end_central_dir_record {            /* END CENTRAL */
+X       UWORD number_this_disk;
+X       UWORD num_disk_with_start_central_dir;
+X       UWORD num_entries_centrl_dir_ths_disk;
+X       UWORD total_entries_central_dir;
+X       ULONG size_central_directory;
+X       ULONG offset_start_central_directory;
+X       UWORD zipfile_comment_length;
+X   } ecdir_rec;
+X
+X
+X
+X
+X
+X/*************************/
+X/*  Function Prototypes  */
+X/*************************/
+X
+X#ifndef __              /* This is a common macro, but the name "__" was */
+X#  if __STDC__          /*  swiped from the fine folks at Cray Research, */
+X#    define __(X)   X   /*  Inc. (thanks, guys!).  Keep interior stuff   */
+X#  else                 /*  parenthesized...                             */
+X#    define __(X)   ()
+X#  endif
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    Functions in unzip.c and/or zipinfo.c:
+X  ---------------------------------------------------------------------------*/
+X
+Xint    usage                     __( (int error) );
+Xint    process_zipfile           __( (void) );
+Xint    find_end_central_dir      __( (void) );
+Xint    process_end_central_dir   __( (void) );
+Xint    list_files                __( (void) );
+Xint    process_cdir_file_hdr     __( (void) );
+Xint    process_local_file_hdr    __( (void) );
+Xint    process_central_dir       __( (void) );
+Xint    long_info                 __( (void) );
+Xint    short_info                __( (void) );
+Xchar   *zipinfo_time             __( (UWORD *datez, UWORD *timez) );
+X
+X/*---------------------------------------------------------------------------
+X    Functions in extract.c:
+X  ---------------------------------------------------------------------------*/
+X
+Xint    extract_or_test_files     __( (void) );
+X/*
+X * static int   store_info               __( (void) );
+X * static int   extract_or_test_member   __( (void) );
+X */
+X
+X/*---------------------------------------------------------------------------
+X    Functions in file_io.c and crypt.c:
+X  ---------------------------------------------------------------------------*/
+X
+Xint    open_input_file           __( (void) );
+Xint    readbuf                   __( (char *buf, register unsigned size) );
+Xint    create_output_file        __( (void) );
+Xint    FillBitBuffer             __( (void) );
+Xint    ReadByte                  __( (UWORD *x) );
+Xint    FlushOutput               __( (void) );
+X/*
+X * static int   dos2unix         __( (unsigned char *buf, int len) );
+X */
+Xvoid   set_file_time_and_close   __( (void) );
+Xchar   *getp                     __( (char *, char *, int) );
+X
+Xint    decrypt_byte              __( (void) );
+Xvoid   update_keys               __( (int) );
+Xvoid   init_keys                 __( (char *) );
+X
+X/*---------------------------------------------------------------------------
+X    Macintosh file_io functions:
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef MACOS
+X/*
+X * static int   IsHFSDisk        __( (int wAppVRefNum) );
+X */
+Xvoid   macfstest                 __( (int vrefnum) );
+Xint    mkdir                     __( (char *path) );
+X#ifndef MCH_MACINTOSH            /* The next prototype upsets Aztec C. */
+Xvoid   SetMacVol                 __( (char *pch, short wVRefNum) );
+X#endif
+X#endif
+X
+X/*---------------------------------------------------------------------------
+X    Uncompression functions (all internal compression routines, enclosed in
+X    comments below, are prototyped in their respective files and are invisi-
+X    ble to external functions):
+X  ---------------------------------------------------------------------------*/
+X
+Xvoid   inflate                  __( (void) );                  /* inflate.c */
+X/*
+X */
+X
+Xvoid   unImplode                __( (void) );                  /* unimplod.c */
+X/*
+X * static void   ReadLengths     __( (sf_tree *tree) );
+X * static void   SortLengths     __( (sf_tree *tree) );
+X * static void   GenerateTrees   __( (sf_tree *tree, sf_node *nodes) );
+X * static void   LoadTree        __( (sf_tree *tree, int treesize, sf_node *nodes) );
+X * static void   LoadTrees       __( (void) );
+X * static void   ReadTree        __( (register sf_node *nodes, int *dest) );
+X */
+X
+Xvoid   unReduce                 __( (void) );                  /* unreduce.c */
+X/*
+X * static void   LoadFollowers   __( (void) );
+X */
+X
+Xvoid   unShrink                 __( (void) );                  /* unshrink.c */
+X/*
+X * static void   partial_clear   __( (void) );
+X */
+X
+X/*---------------------------------------------------------------------------
+X    Functions in match.c, mapname.c, misc.c, etc.:
+X  ---------------------------------------------------------------------------*/
+X
+Xint      match             __( (char *string, char *pattern) );   /* match.c */
+X/*
+X * static BOOLEAN   do_list      __( (register char *string, char *pattern) );
+X * static void      list_parse   __( (char **patp, char *lowp, char *highp) );
+X * static char      nextch       __( (char **patp) );
+X */
+X
+Xint      mapname           __( (int create_dirs) );             /* mapname.c */
+X
+Xvoid     UpdateCRC         __( (register unsigned char *s, register int len) );
+Xint      do_string         __( (unsigned int len, int option) );   /* misc.c */
+Xtime_t   dos_to_unix_time  __( (unsigned ddate, unsigned dtime) ); /* misc.c */
+Xint      check_for_newer   __( (char *filename) );                 /* misc.c */
+Xint      dateformat        __( (void) );                           /* misc.c */
+XUWORD    makeword          __( (byte *b) );                        /* misc.c */
+XULONG    makelong          __( (byte *sig) );                      /* misc.c */
+Xvoid     return_VMS        __( (int zip_error) );                  /* misc.c */
+X#ifdef ZMEM
+X   char  *memset           __( (register char *buf, register char init, register unsigned int len) );
+X   char  *memcpy           __( (register char *dst, register char *src, register unsigned int len) );
+X#endif      /* These guys MUST be ifdef'd because their definition  */
+X            /*  conflicts with the standard one.  Others (makeword, */
+X            /*  makelong, return_VMS) don't matter.                 */
+X
+Xint      VMSmunch          __( (char *filename, int action, char *extra) );
+X#ifdef AMIGA
+X   int   utime             __( (char *file, time_t timep[]) );
+X#endif
+X
+X
+X
+X
+X
+X/************/
+X/*  Macros  */
+X/************/
+X
+X#ifndef min    /* MSC defines this in stdlib.h */
+X#  define min(a,b)   ((a) < (b) ? (a) : (b))
+X#endif
+X
+X
+X#define LSEEK(abs_offset) {longint request=(abs_offset)+extra_bytes,\
+X   inbuf_offset=request%INBUFSIZ, bufstart=request-inbuf_offset;\
+X   if(request<0) {fprintf(stderr, SeekMsg, ReportMsg); return(3);}\
+X   else if(bufstart!=cur_zipfile_bufstart)\
+X   {cur_zipfile_bufstart=lseek(zipfd,bufstart,SEEK_SET);\
+X   if((incnt=read(zipfd,(char *)inbuf,INBUFSIZ))<=0) return(51);\
+X   inptr=inbuf+inbuf_offset; incnt-=inbuf_offset;}\
+X   else {incnt+=(inptr-inbuf)-inbuf_offset; inptr=inbuf+inbuf_offset;}}
+X
+X/*
+X *  Seek to the block boundary of the block which includes abs_offset,
+X *  then read block into input buffer and set pointers appropriately.
+X *  If block is already in the buffer, just set the pointers.  This macro
+X *  is used by process_end_central_dir (unzip.c) and do_string (misc.c).
+X *  A slightly modified version is embedded within extract_or_test_files
+X *  (unzip.c).  ReadByte and readbuf (file_io.c) are compatible.
+X *
+X *  macro LSEEK(abs_offset)
+X *      longint   abs_offset;
+X *  {
+X *      longint   request = abs_offset + extra_bytes;
+X *      longint   inbuf_offset = request % INBUFSIZ;
+X *      longint   bufstart = request - inbuf_offset;
+X *
+X *      if (request < 0) {
+X *          fprintf(stderr, SeekMsg, ReportMsg);
+X *          return(3);             /-* 3:  severe error in zipfile *-/
+X *      } else if (bufstart != cur_zipfile_bufstart) {
+X *          cur_zipfile_bufstart = lseek(zipfd, bufstart, SEEK_SET);
+X *          if ((incnt = read(zipfd,inbuf,INBUFSIZ)) <= 0)
+X *              return(51);        /-* 51:  unexpected EOF *-/
+X *          inptr = inbuf + inbuf_offset;
+X *          incnt -= inbuf_offset;
+X *      } else {
+X *          incnt += (inptr-inbuf) - inbuf_offset;
+X *          inptr = inbuf + inbuf_offset;
+X *      }
+X *  }
+X *
+X */
+X
+X
+X#define SKIP_(length) if(length&&((error=do_string(length,SKIP))!=0))\
+X  {error_in_archive=error; if(error>1) return error;}
+X
+X/*
+X *  Skip a variable-length field, and report any errors.  Used in zipinfo.c
+X *  and unzip.c in several functions.
+X *
+X *  macro SKIP_(length)
+X *      UWORD   length;
+X *  {
+X *      if (length && ((error = do_string(length, SKIP)) != 0)) {
+X *          error_in_archive = error;   /-* might be warning *-/
+X *          if (error > 1)              /-* fatal *-/
+X *              return (error);
+X *      }
+X *  }
+X *
+X */
+X
+X
+X#define OUTB(intc) {*outptr++=intc; if (++outcnt==OUTBUFSIZ) FlushOutput();}
+X
+X/*
+X *  macro OUTB(intc)
+X *  {
+X *      *outptr++ = intc;
+X *      if (++outcnt == OUTBUFSIZ)
+X *          FlushOutput();
+X *  }
+X *
+X */
+X
+X
+X#define READBIT(nbits,zdest) {if(nbits>bits_left) FillBitBuffer();\
+X  zdest=(int)(bitbuf&mask_bits[nbits]); bitbuf>>=nbits; bits_left-=nbits;}
+X
+X/*
+X * macro READBIT(nbits,zdest)
+X *  {
+X *      if (nbits > bits_left)
+X *          FillBitBuffer();
+X *      zdest = (int)(bitbuf & mask_bits[nbits]);
+X *      bitbuf >>= nbits;
+X *      bits_left -= nbits;
+X *  }
+X *
+X */
+X
+X
+X#define PEEKBIT(nbits) ( nbits > bits_left ? (FillBitBuffer(), bitbuf & mask_bits[nbits]) : bitbuf & mask_bits[nbits] )
+X
+X
+X#define NUKE_CRs(buf,len) {register int i,j; for (i=j=0; j<len; (buf)[i++]=(buf)[j++]) if ((buf)[j]=='\r') ++j; len=i;}
+X
+X/*
+X *  Remove all the ASCII carriage returns from buffer buf (length len),
+X *  shortening as necessary (note that len gets modified in the process,
+X *  so it CANNOT be an expression).  This macro is intended to be used
+X *  BEFORE A_TO_N(); hence the check for CR instead of '\r'.  NOTE:  The
+X *  if-test gets performed one time too many, but it doesn't matter.
+X *
+X *  macro NUKE_CRs( buf, len )
+X *    {
+X *      register int   i, j;
+X *
+X *      for ( i = j = 0  ;  j < len  ;  (buf)[i++] = (buf)[j++] )
+X *        if ( (buf)[j] == CR )
+X *          ++j;
+X *      len = i;
+X *    }
+X *
+X */
+X
+X
+X#define TOLOWER(str1,str2) {char *ps1,*ps2; ps1=(str1)-1; ps2=(str2); while(*++ps1) *ps2++=(isupper(*ps1))?tolower(*ps1):*ps1; *ps2='\0';}
+X
+X/*
+X *  Copy the zero-terminated string in str1 into str2, converting any
+X *  uppercase letters to lowercase as we go.  str2 gets zero-terminated
+X *  as well, of course.  str1 and str2 may be the same character array.
+X *
+X *  macro TOLOWER( str1, str2 )
+X *    {
+X *      register char   *ps1, *ps2;
+X *
+X *      ps1 = (str1) - 1;
+X *      ps2 = (str2);
+X *      while ( *++ps1 )
+X *        *ps2++ = (isupper(*ps1)) ?  tolower(*ps1)  :  *ps1;
+X *      *ps2='\0';
+X *    }
+X *
+X *  NOTES:  This macro makes no assumptions about the characteristics of
+X *    the tolower() function or macro (beyond its existence), nor does it
+X *    make assumptions about the structure of the character set (i.e., it
+X *    should work on EBCDIC machines, too).  The fact that either or both
+X *    of isupper() and tolower() may be macros has been taken into account;
+X *    watch out for "side effects" (in the C sense) when modifying this
+X *    macro.
+X */
+X
+X
+X#ifndef ascii_to_native
+X
+X#  define ascii_to_native(c)   (c)
+X#  define A_TO_N(str1)
+X
+X#else
+X
+X#  ifndef NATIVE
+X#    define NATIVE     "native chars"
+X#  endif
+X#  define A_TO_N(str1) { register unsigned char *ps1; for (ps1 = str1; *ps1; ps1++) *ps1 = (ascii_to_native(*ps1)); }
+X
+X/*
+X *   Translate the zero-terminated string in str1 from ASCII to the native
+X *   character set. The translation is performed in-place and uses the
+X *   ascii_to_native macro to translate each character.
+X *
+X *   macro A_TO_N( str1 )
+X *     {
+X *       register unsigned char *ps1;
+X *
+X *       for ( ps1 = str1; *ps1; ps1++ )
+X *         *ps1 = ( ascii_to_native( *ps1 ) );
+X *     }
+X *
+X *   NOTE: Using the ascii_to_native macro means that is it the only part of
+X *     unzip which knows which translation table (if any) is actually in use
+X *     to produce the native character set. This makes adding new character
+X *     set translation tables easy insofar as all that is needed is an
+X *     appropriate ascii_to_native macro definition and the translation
+X *     table itself. Currently, the only non-ASCII native character set
+X *     implemented is EBCDIC but this may not always be so.
+X */
+X
+X#endif
+X
+X
+X
+X
+X
+X/*************/
+X/*  Globals  */
+X/*************/
+X
+X   extern int       aflag;
+X/* extern int       bflag;   reserved */
+X   extern int       cflag;
+X   extern int       fflag;
+X   extern int       jflag;
+X   extern int       overwrite_none;
+X   extern int       overwrite_all;
+X   extern int       force_flag;
+X   extern int       quietflg;
+X#ifdef DOS_OS2
+X   extern int       sflag;
+X#endif
+X   extern int       tflag;
+X   extern int       uflag;
+X   extern int       V_flag;
+X#ifdef VMS
+X   extern int       secinf;
+X#endif
+X#ifdef MACOS
+X   extern int       hfsflag;
+X#endif
+X   extern int       process_all_files;
+X   extern longint   csize;
+X   extern longint   ucsize;
+X   extern char      *fnames[];
+X   extern char      **fnv;
+X   extern char      sig[];
+X   extern char      answerbuf[];
+X   extern min_info  *pInfo;
+X   extern char      *key;
+X   extern ULONG     keys[];
+X
+X   extern short     prefix_of[];
+X#ifdef MACOS
+X   extern byte      *suffix_of;
+X   extern byte      *stack;
+X#else
+X   extern byte      suffix_of[];
+X   extern byte      stack[];
+X#endif
+X   extern ULONG     crc32val;
+X   extern ULONG     mask_bits[];
+X
+X   extern byte      *inbuf;
+X   extern byte      *inptr;
+X   extern int       incnt;
+X   extern ULONG     bitbuf;
+X   extern int       bits_left;
+X   extern boolean   zipeof;
+X   extern int       zipfd;
+X   extern char      zipfn[];
+X   extern longint   extra_bytes;
+X   extern longint   cur_zipfile_bufstart;
+X   extern byte      *extra_field;
+X   extern char      local_hdr_sig[];
+X   extern char      central_hdr_sig[];
+X   extern char      end_central_sig[];
+X   extern local_file_hdr  lrec;
+X   extern cdir_file_hdr   crec;
+X   extern ecdir_rec       ecrec;
+X   extern struct stat     statbuf;
+X
+X   extern byte      *outbuf;
+X   extern byte      *outptr;
+X   extern byte      *outout;
+X   extern longint   outpos;
+X   extern int       outcnt;
+X   extern int       outfd;
+X   extern int       disk_full;
+X   extern char      filename[];
+X
+X   extern char      *EndSigMsg;
+X   extern char      *CentSigMsg;
+X   extern char      *SeekMsg;
+X   extern char      *ReportMsg;
+X
+X#ifdef DECLARE_ERRNO
+X   extern int       errno;
+X#endif
+X
+X#ifdef EBCDIC
+X   extern byte      ebcdic[];
+X#endif
+END_OF_FILE
+  if test 36246 -ne `wc -c <'unzip.h'`; then
+    echo shar: \"'unzip.h'\" unpacked with wrong size!
+  fi
+  # end of 'unzip.h'
+fi
+echo shar: End of archive 4 \(of 12\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

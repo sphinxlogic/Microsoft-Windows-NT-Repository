@@ -1,0 +1,1483 @@
+Path: uunet!dtix!darwin.sura.net!mips!msi!dcmartin
+From: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Newsgroups: comp.sources.x
+Subject: v18i046: X11R5 public fix #13, Part05/05
+Message-ID: <1992Jul22.150947.18876@msi.com>
+Date: 22 Jul 92 15:09:47 GMT
+References: <csx-18i042-X11R5-fix13@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1470
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Posting-number: Volume 18, Issue 46
+Archive-name: X11R5-fix13/part05
+
+#!/bin/sh
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fix-13 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fix-13'
+else
+echo 'x - continuing file fix-13'
+sed 's/^X//' << 'SHAR_EOF' >> 'fix-13' &&
++ 		bcopy (srcp, dstp, r);
++ 		dstp += r;
++ 	    }
++ 	    else
++ 	    {
++ 		for (r = inkm->ascent + inkm->descent; r; r--)
++ 		{
++ 		    dstp += dst_left_bytes;
++ 		    srcp += src_left_bytes;
++ 		    for (w = width; w; w--)
++ 			*dstp++ = *srcp++;
++ 		    dstp += dst_extra;
++ 		    srcp += src_extra;
++ 		}
++ 	    }
++ 	}
++ 	else
++ 	{
++ 	    if (dst_off > src_off)
++ 	    {
++ 	    	rshift = dst_off - src_off;
++ 	    	lshift = 8 - rshift;
++ 	    }
++ 	    else
++ 	    {
++ 	    	lshift = src_off - dst_off;
++ 	    	rshift = 8 - lshift;
++ 		/* run the loop one fewer time if necessary */
++ 		if (src_extra <= dst_extra)
++ 		{
++ 		    dst_extra++;
++ 		    width--;
++ 		}
++ 		else
++ 		    src_extra--;
++ 	    }
++ 	    
++ 	    for (r = inkm->ascent + inkm->descent; r; r--)
++ 	    {
++ 		dstp += dst_left_bytes;
++ 		srcp += src_left_bytes;
++ 		bits2 = 0;
++ 		/* fetch first part of source when necessary */
++ 		if (dst_off < src_off)
++ 		    bits2 = *srcp++;
++ 		/*
++  		 * XXX I bet this does not work when
++ 		 * src_bit_order != src_byte_order && scanlineunit > 1
++ 		 */
++ 		for (w = width; w; w--)
++ 		{
++ 		    bits1 = *srcp++;
++ 		    if (src_bit_order == MSBFirst)
++ 		    {
++ 			*dstp++ = MSBBitRight(bits1, rshift) |
++ 				 MSBBitLeft (bits2, lshift);
++ 		    }
++ 		    else
++ 		    {
++ 			*dstp++ = LSBBitRight(bits1, rshift) |
++ 				 LSBBitLeft (bits2, lshift);
++ 		    }
++ 		    bits2 = bits1;
++ 		}
++ 		/* get the last few bits if we have a place to store them */
++ 		if (dst_extra > 0)
++ 		{
++ 		    if (src_bit_order == MSBFirst)
++ 			*dstp = MSBBitLeft (bits2, lshift);
++ 		    else
++ 			*dstp = LSBBitLeft (bits2, lshift);
++ 		}
++ 		dstp += dst_extra;
++ 		srcp += src_extra;
++ 	    }
++ 	}
++ 	/* skip the amount we just filled in */
++ 	gd += l->length;
++     }
++     
++     
++     /* now do the bit, byte, word swapping */
++     if (bitorder != src_bit_order)
++ 	BitOrderInvert(gdata, size);
++     if (byteorder != src_byte_order) 
++     {
++ 	if (scanlineunit == 2)
++ 	    TwoByteSwap(gdata, size);
++ 	else if (scanlineunit == 4)
++ 	    FourByteSwap(gdata, size);
++     }
++     fsfree (bitCharsFree);
++     fsfree (inkCharsFree);
++     *num_glyphs = nchars;
++     *data = gdata;
++     *tsize = size;
++     *offsets = lengths;
++     
++     return Successful;
++ }
++ 
++ /* ARGSUSED */
++ int
++ GetBitmaps(client, pfont, format, flags, num_ranges, range,
++ 		 size, num_glyphs, offsets, data, freeData)
++     ClientPtr     client;
++     FontPtr     pfont;
++     fsBitmapFormat format;
++     Mask        flags;
++     unsigned long num_ranges;
++     fsRange    *range;
++     int        *size;
++     unsigned long *num_glyphs;
++     fsOffset  **offsets;
++     pointer    *data;
++     int		*freeData;
++ {
++     assert(pfont);
++ 
++     *size = 0;
++     *data = (pointer) 0;
++     return packGlyphs (client, pfont, format, flags,
++ 			      num_ranges, range, size, num_glyphs,
++ 			      offsets, data, freeData);
++ }
+*** /tmp/da28303	Tue Jul 14 18:07:30 1992
+--- mit/fonts/server/include/clientstr.h	Tue Jul 14 18:07:29 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: clientstr.h,v 1.3 91/05/13 16:48:15 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: clientstr.h,v 1.4 92/05/12 18:07:58 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 20,28 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)clientstr.h	4.2	91/05/03
+-  *
+X   */
+X  
+X  #ifndef _CLIENTSTR_H_
+--- 20,25 ----
+***************
+*** 50,55 ****
+--- 47,54 ----
+X      Mask        eventmask;
+X      fsResolution *resolutions;
+X      int         num_resolutions;
++     int		major_version;	/* client-major-protocol-version */
++     int		minor_version;
+X  }           ClientRec;
+X  
+X  typedef struct _WorkQueue {
+*** /tmp/da28733	Tue Jul 14 18:08:04 1992
+--- mit/fonts/server/include/servermd.h	Tue Jul 14 18:08:04 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: servermd.h,v 1.4 91/07/25 12:15:04 keith Exp $ */
+X  /* 
+X   * Copyright 1990, 1991 Network Computing Devices; 
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the 
+--- 1,4 ----
+! /* $XConsortium: servermd.h,v 1.5 92/05/12 18:08:01 gildea Exp $ */
+X  /* 
+X   * Copyright 1990, 1991 Network Computing Devices; 
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the 
+***************
+*** 20,34 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)servermd.h	4.1	91/05/02
+-  *
+X   */
+X  #ifndef _SERVERMD_H_
+X  #define _SERVERMD_H_
+X  
+X  #ifndef VENDOR_RELEASE
+! #define VENDOR_RELEASE 5000
+X  #endif
+X  
+X  #ifndef VENDOR_STRING
+--- 20,31 ----
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   */
+X  #ifndef _SERVERMD_H_
+X  #define _SERVERMD_H_
+X  
+X  #ifndef VENDOR_RELEASE
+! #define VENDOR_RELEASE 5001
+X  #endif
+X  
+X  #ifndef VENDOR_STRING
+*** /tmp/da25067	Tue Jul 14 18:02:28 1992
+--- mit/fonts/clients/Imakefile	Tue Jul 14 18:02:28 1992
+***************
+*** 1,12 ****
+! XCOMM $XConsortium: Imakefile,v 1.3 91/07/18 15:51:59 rws Exp $
+X  #define IHaveSubdirs
+X  #define PassCDebugFlags 'CDEBUGFLAGS=$(CDEBUGFLAGS)'
+X  
+! #if BuildFonts
+! COMPDIRS = bdftopcf mkfontdir
+! #endif
+! 
+!          SUBDIRS = $(COMPDIRS) fsinfo fslsfonts fstobdf showfont
+X  
+X  MakeSubdirs($(SUBDIRS))
+X  DependSubdirs($(SUBDIRS))
+--- 1,8 ----
+! XCOMM $XConsortium: Imakefile,v 1.4 91/12/23 10:58:08 rws Exp $
+X  #define IHaveSubdirs
+X  #define PassCDebugFlags 'CDEBUGFLAGS=$(CDEBUGFLAGS)'
+X  
+!          SUBDIRS = bdftopcf mkfontdir fsinfo fslsfonts fstobdf showfont
+X  
+X  MakeSubdirs($(SUBDIRS))
+X  DependSubdirs($(SUBDIRS))
+*** /tmp/da25524	Tue Jul 14 18:03:09 1992
+--- mit/fonts/clients/showfont/showfont.c	Tue Jul 14 18:03:08 1992
+***************
+*** 1,28 ****
+! /* $XConsortium: showfont.c,v 1.2 91/05/13 16:36:36 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+!  *
+!  * @(#)showfont.c	4.1	91/05/02
+!  *
+X   */
+X  #include	<stdio.h>
+X  #include	<ctype.h>
+--- 1,25 ----
+! /* $XConsortium: showfont.c,v 1.7 92/05/19 17:10:30 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS.  IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  #include	<stdio.h>
+X  #include	<ctype.h>
+***************
+*** 44,54 ****
+--- 41,55 ----
+X              bitmap_pad = 0,
+X              scan_unit = 8;
+X  
++ /* set from bitmap_pad to ImageRect, ImageMaxWidth, or ImageMax */
++ int	    bitmap_format;	
++ 
+X  int         bitorder = MSBFirst;
+X  int         byteorder = MSBFirst;
+X  int         first_ch = 0;
+X  int         end_ch = ~0;
+X  char       *cmd;
++ Bool	    no_props = False;	/* -noprops: don't show font properties */
+X  
+X  static fsBitmapFormat make_format();
+X  static Bool extents_only = False;
+***************
+*** 56,62 ****
+X  static void
+X  usage()
+X  {
+!     fprintf(stderr, "%s: [-server servername] [-extents_only] [-l] [-m] [-L] -[M] [-unit #] [-pad #] [-bitmap_pad value] [-start first_char] [-end last_char] -fn fontname\n", cmd);
+X      exit(0);
+X  }
+X  
+--- 57,63 ----
+X  static void
+X  usage()
+X  {
+!     fprintf(stderr, "%s: [-server servername] [-extents_only] [-noprops] [-l] [-m] [-L] -[M] [-unit #] [-pad #] [-bitmap_pad value] [-start first_char] [-end last_char] -fn fontname\n", cmd);
+X      exit(0);
+X  }
+X  
+***************
+*** 89,94 ****
+--- 90,97 ----
+X  		usage();
+X  	} else if (!strncmp(argv[i], "-ext", 4)) {
+X  	    extents_only = True;
++ 	} else if (!strncmp(argv[i], "-noprops", 7)) {
++ 	    no_props = True;
+X  	} else if (!strncmp(argv[i], "-l", 2)) {
+X  	    bitorder = LSBFirst;
+X  	} else if (!strncmp(argv[i], "-m", 2)) {
+***************
+*** 151,163 ****
+X  	show_info(fid, &hdr, &first, &last);
+X  	if (first_ch != 0 &&
+X  		(first_ch >= (first.low + (first.high << 8)))) {
+! 	    first.low = first_ch % 0xff;
+X  	    first.high = first_ch >> 8;
+X  	    show_all = False;
+X  	}
+X  	if (end_ch != ~0 &&
+X  		(end_ch <= (last.low + (last.high << 8)))) {
+! 	    last.low = end_ch % 0xff;
+X  	    last.high = end_ch >> 8;
+X  	    show_all = False;
+X  	}
+--- 154,166 ----
+X  	show_info(fid, &hdr, &first, &last);
+X  	if (first_ch != 0 &&
+X  		(first_ch >= (first.low + (first.high << 8)))) {
+! 	    first.low = first_ch & 0xff;
+X  	    first.high = first_ch >> 8;
+X  	    show_all = False;
+X  	}
+X  	if (end_ch != ~0 &&
+X  		(end_ch <= (last.low + (last.high << 8)))) {
+! 	    last.low = end_ch & 0xff;
+X  	    last.high = end_ch >> 8;
+X  	    show_all = False;
+X  	}
+***************
+*** 230,270 ****
+X  	            bpr,
+X  	            charwidth;
+X  
+! 	printf("char #%d ('%c')\n", ch + start,
+! 	       (isprint(ch + start) ? (char) (ch + start) : '?'));
+X  	show_char_info(&extents[ch]);
+! 	if (!extents_only) {
+! 	    if (offset != offsets[ch].position)
+! 		fprintf(stderr, "offset mismatch 0x%x != 0x%x\n",
+! 			offset, offsets[ch].position);
+X  
+! 	    switch (bitmap_pad) {
+! 	    case BitmapFormatImageRectMin:
+! 		bottom = extents[ch].descent + extents[ch].ascent;
+! 		charwidth = extents[ch].right - extents[ch].left;
+! 		break;
+! 	    case BitmapFormatImageRectMaxWidth:
+! 		bottom = extents[ch].descent + extents[ch].ascent;
+! 		charwidth = hdr->max_bounds.right - hdr->min_bounds.left;
+! 		break;
+! 	    case BitmapFormatImageRectMax:
+! 		bottom = hdr->max_bounds.ascent +
+! 		    hdr->max_bounds.descent;
+! 		charwidth = hdr->max_bounds.right - hdr->min_bounds.left;
+! 		break;
+! 	    }
+X  
+! 	    bpr = GLWIDTHBYTESPADDED(charwidth, scanpad);
+! 	    for (r = 0; r < bottom; r++) {
+! 		unsigned char *row = glyphs + offset;
+! 
+! 		for (b = 0; b < charwidth; b++) {
+! 		    putchar((row[b >> 3] &
+! 			     (1 << (7 - (b & 7)))) ? '#' : '-');
+! 		}
+! 		putchar('\n');
+! 		offset += bpr;
+X  	    }
+X  	}
+X      }
+X      FSFree((char *) extents);
+--- 233,289 ----
+X  	            bpr,
+X  	            charwidth;
+X  
+! 	printf("char #%d", ch + start);
+! 	if (isprint(ch + start))
+! 	    printf(" '%c'\n", (char) (ch + start));
+! 	else
+! 	    printf(" '\\%03o'\n", (ch + start)&0377);
+X  	show_char_info(&extents[ch]);
+! 	if (extents_only)
+! 	    continue;
+! 	if (offset != offsets[ch].position)
+! 	    fprintf(stderr, "offset mismatch: expected %d, got %d\n",
+! 		    offset, offsets[ch].position);
+! 	switch (bitmap_format) {
+! 	case BitmapFormatImageRectMin:
+! 	    bottom = extents[ch].descent + extents[ch].ascent;
+! 	    charwidth = extents[ch].right - extents[ch].left;
+! 	    break;
+! 	case BitmapFormatImageRectMaxWidth:
+! 	    bottom = extents[ch].descent + extents[ch].ascent;
+! 	    charwidth = hdr->max_bounds.right - hdr->min_bounds.left;
+! 	    break;
+! 	case BitmapFormatImageRectMax:
+! 	    bottom = hdr->max_bounds.ascent +
+! 		hdr->max_bounds.descent;
+! 	    charwidth = hdr->max_bounds.right - hdr->min_bounds.left;
+! 	    break;
+! 	}
+X  
+! 	if (extents[ch].left == 0 &&
+! 	    extents[ch].right == 0 &&
+! 	    extents[ch].width == 0 &&
+! 	    extents[ch].ascent == 0 &&
+! 	    extents[ch].descent == 0)
+! 	{
+! 	    printf ("Nonexistent character\n");
+! 	    continue;
+! 	}
+! 	bpr = GLWIDTHBYTESPADDED(charwidth, scanpad);
+! 	if (offsets[ch].length != bottom * bpr) {
+! 	    fprintf (stderr, "length mismatch: expected %d (%dx%d), got %d\n",
+! 			 bottom * bpr, bpr, bottom, offsets[ch].length);
+! 	}
+! 	offset = offsets[ch].position;
+! 	for (r = 0; r < bottom; r++) {
+! 	    unsigned char *row = glyphs + offset;
+X  
+! 	    for (b = 0; b < charwidth; b++) {
+! 		putchar((row[b >> 3] &
+! 			 (1 << (7 - (b & 7)))) ? '#' : '-');
+X  	    }
++ 	    putchar('\n');
++ 	    offset += bpr;
+X  	}
+X      }
+X      FSFree((char *) extents);
+***************
+*** 277,284 ****
+X  show_char_info(ci)
+X      fsCharInfo *ci;
+X  {
+!     printf("Right: %d\tLeft: %d\tDescent: %d\tAscent: %d\tWidth: %d\n",
+! 	   ci->right, ci->left, ci->descent, ci->ascent, ci->width);
+X  }
+X  
+X  show_info(fid, hdr, first, last)
+--- 296,303 ----
+X  show_char_info(ci)
+X      fsCharInfo *ci;
+X  {
+!     printf("Left: %-3d    Right: %-3d    Ascent: %-3d    Descent: %-3d    Width: %d\n",
+! 	   ci->left, ci->right, ci->ascent, ci->descent, ci->width);
+X  }
+X  
+X  show_info(fid, hdr, first, last)
+***************
+*** 307,316 ****
+X      show_char_info(&hdr->min_bounds);
+X      printf("Max bounds: \n");
+X      show_char_info(&hdr->max_bounds);
+!     printf("Font Ascent: %d\tFont Descent: %d\n",
+X  	   hdr->font_ascent, hdr->font_descent);
+X  
+!     show_props(&pi, po, pd);
+X      FSFree((char *) po);
+X      FSFree((char *) pd);
+X  }
+--- 326,336 ----
+X      show_char_info(&hdr->min_bounds);
+X      printf("Max bounds: \n");
+X      show_char_info(&hdr->max_bounds);
+!     printf("Font Ascent: %d  Font Descent: %d\n",
+X  	   hdr->font_ascent, hdr->font_descent);
+X  
+!     if (!no_props)
+! 	show_props(&pi, po, pd);
+X      FSFree((char *) po);
+X      FSFree((char *) pd);
+X  }
+***************
+*** 385,405 ****
+X      }
+X      switch (bitmap_pad) {
+X      case 0:
+! 	format |= BitmapFormatImageRectMin;
+! 	bitmap_pad = BitmapFormatImageRectMin;
+X  	break;
+X      case 1:
+! 	format |= BitmapFormatImageRectMaxWidth;
+! 	bitmap_pad = BitmapFormatImageRectMaxWidth;
+X  	break;
+X      case 2:
+! 	format |= BitmapFormatImageRectMax;
+! 	bitmap_pad = BitmapFormatImageRectMax;
+X  	break;
+X      default:
+X  	fprintf(stderr, "bogus bitmap pad value: %d\n", bitmap_pad);
+X  	break;
+X      }
+X  
+X      format |= (bitorder == MSBFirst) ? BitmapFormatBitOrderMSB :
+X  	BitmapFormatBitOrderLSB;
+--- 405,423 ----
+X      }
+X      switch (bitmap_pad) {
+X      case 0:
+! 	bitmap_format = BitmapFormatImageRectMin;
+X  	break;
+X      case 1:
+! 	bitmap_format = BitmapFormatImageRectMaxWidth;
+X  	break;
+X      case 2:
+! 	bitmap_format = BitmapFormatImageRectMax;
+X  	break;
+X      default:
+X  	fprintf(stderr, "bogus bitmap pad value: %d\n", bitmap_pad);
+X  	break;
+X      }
++     format |= bitmap_format;
+X  
+X      format |= (bitorder == MSBFirst) ? BitmapFormatBitOrderMSB :
+X  	BitmapFormatBitOrderLSB;
+*** /tmp/da03287	Tue Jul 14 18:52:58 1992
+--- mit/doc/FSProtocol/protocol.ms	Thu Jul  9 18:16:48 1992
+***************
+*** 1,3 ****
+--- 1,4 ----
++ .\" $XConsortium: protocol.ms,v 1.9 92/07/09 18:16:13 gildea Exp $
+X  .\" Use tbl, -ms, and macros.t
+X  .EH ''''
+X  .OH ''''
+***************
+*** 10,16 ****
+X  .ce 50
+X  \s+3\fBThe X Font Service Protocol\fP\s-3
+X  .sp
+! \fBVersion 1.0\fP
+X  \fBMIT X Consortium Standard\fR
+X  .sp
+X  \fBX Version 11, Release 5\fR
+--- 11,17 ----
+X  .ce 50
+X  \s+3\fBThe X Font Service Protocol\fP\s-3
+X  .sp
+! \fBVersion 2.0\fP
+X  \fBMIT X Consortium Standard\fR
+X  .sp
+X  \fBX Version 11, Release 5\fR
+***************
+*** 307,313 ****
+X  .PN CreateAC ) 
+X  and switched among (with
+X  .PN SetAuthorization )
+! to represent all of these "font users" properly.
+X  .LP
+X  ALTERNATESERVER:  [ name:  STRING8, 
+X  .br
+--- 308,314 ----
+X  .PN CreateAC ) 
+X  and switched among (with
+X  .PN SetAuthorization )
+! to represent all of these ``font users'' properly.
+X  .LP
+X  ALTERNATESERVER:  [ name:  STRING8, 
+X  .br
+***************
+*** 685,691 ****
+X  linear interpretation of MAX-CHAR is less than that of MIN-CHAR,
+X  or if MIN-CHAR is less than the font's
+X  XFONTINFO.CHAR-RANGE.MIN-CHAR, or if MAX-CHAR is greater than the
+! font's XFONTINFO.CHAR-RANGE.MAX-CHAR, a Range error is returned.
+X  .LP
+X  RESOLUTION:	[ x-resolution:		CARD16,
+X  .br
+--- 686,692 ----
+X  linear interpretation of MAX-CHAR is less than that of MIN-CHAR,
+X  or if MIN-CHAR is less than the font's
+X  XFONTINFO.CHAR-RANGE.MIN-CHAR, or if MAX-CHAR is greater than the
+! font's XFONTINFO.CHAR-RANGE.MAX-CHAR, the range is invalid.
+X  .LP
+X  RESOLUTION:	[ x-resolution:		CARD16,
+X  .br
+***************
+*** 978,987 ****
+X  CLIENT-MINOR-PROTOCOL-VERSION specify which version of the
+X  font service protocol the client would like to use.  If the
+X  client can support multiple versions, the highest version
+! should be given.  The first version of the protocol has a
+! major version of 1 and a minor version of 0.
+X  .IP
+! The AUTH-PROTOCOLS contains a list of protocol names and
+X  optional initial data for which the client can provide
+X  information.  The server may use this to determine which
+X  protocol to use or as part of the initial exchange of
+--- 979,988 ----
+X  CLIENT-MINOR-PROTOCOL-VERSION specify which version of the
+X  font service protocol the client would like to use.  If the
+X  client can support multiple versions, the highest version
+! should be given.  This version of the protocol has a
+! major version of 2 and a minor version of 0.
+X  .IP
+! The AUTHORIZATION-PROTOCOLS contains a list of protocol names and
+X  optional initial data for which the client can provide
+X  information.  The server may use this to determine which
+X  protocol to use or as part of the initial exchange of
+***************
+*** 1212,1218 ****
+X  last reply, which may contain zero or more names, this field
+X  is set to zero.
+X  .LP
+! .IN "SetCatlogues" "" "@DEF@"
+X  .PN SetCatalogues
+X  .IP
+X  \fInames\fP\^:  LISTofSTRING8
+--- 1213,1219 ----
+X  last reply, which may contain zero or more names, this field
+X  is set to zero.
+X  .LP
+! .IN "SetCatalogues" "" "@DEF@"
+X  .PN SetCatalogues
+X  .IP
+X  \fInames\fP\^:  LISTofSTRING8
+***************
+*** 1243,1249 ****
+X  .LP
+X     =>
+X  .IP
+! \fInames\fP\^:  PIPLISTofSTRING8
+X  .IP
+X  Errors:  
+X  .PN Alloc
+--- 1244,1250 ----
+X  .LP
+X     =>
+X  .IP
+! \fInames\fP\^:  LISTofSTRING8
+X  .IP
+X  Errors:  
+X  .PN Alloc
+***************
+*** 1268,1274 ****
+X  \fIevent-mask\fP\^:  EVENTMASK
+X  .IP
+X  Errors:
+! .PN EventMask
+X  .IP
+X  This request specifies the set of maskable events that the
+X  extension indicated by EXTENSION-OPCODE (or zero for the core)
+--- 1269,1276 ----
+X  \fIevent-mask\fP\^:  EVENTMASK
+X  .IP
+X  Errors:
+! .PN EventMask ,
+! .PN Request
+X  .IP
+X  This request specifies the set of maskable events that the
+X  extension indicated by EXTENSION-OPCODE (or zero for the core)
+***************
+*** 1299,1310 ****
+X  .IN "GetEventMask" "" "@DEF@"
+X  .PN GetEventMask
+X  .IP
+! \fIextension-opcdoe\fP\^:  CARD8
+X  .LP
+X    =>
+X  .IP
+X  \fIevent-mask\fP\^:  EVENTMASK
+X  .IP
+X  This request returns the set of maskable core events the
+X  extension indicated by EXTENSION-OPCODE (or the core if zero)
+X  should generate for the client.  Non-maskable events are
+--- 1301,1315 ----
+X  .IN "GetEventMask" "" "@DEF@"
+X  .PN GetEventMask
+X  .IP
+! \fIextension-opcode\fP\^:  CARD8
+X  .LP
+X    =>
+X  .IP
+X  \fIevent-mask\fP\^:  EVENTMASK
+X  .IP
++ Errors:
++ .PN Request
++ .IP
+X  This request returns the set of maskable core events the
+X  extension indicated by EXTENSION-OPCODE (or the core if zero)
+X  should generate for the client.  Non-maskable events are
+***************
+*** 1322,1328 ****
+X  .IP
+X  \fIac\fP\^:  ACCESSCONTEXT
+X  .br
+! \fIauthorization-protocols\fP\^:  STofAUTH
+X  .LP
+X    =>
+X  .IP
+--- 1327,1333 ----
+X  .IP
+X  \fIac\fP\^:  ACCESSCONTEXT
+X  .br
+! \fIauthorization-protocols\fP\^:  LISTofAUTH
+X  .LP
+X    =>
+X  .IP
+***************
+*** 1330,1335 ****
+--- 1335,1343 ----
+X  	authorization-index:		CARD8
+X  	authorization-data:		LISTofBYTE
+X  .IP
++ Errors:
++ .PN IDChoice
++ .IP
+X  This request creates a new 
+X  .PN AccessContext 
+X  object within the
+***************
+*** 1544,1552 ****
+X  .IP
+X  \fIreplies-following-hint\fP\^:  CARD32
+X  .br
+- \fIname\fP\^:  STRING8
+- .br
+X  \fIinfo\fP\^:  XFONTINFO
+X  .IP
+X  Errors:  
+X  .PN Alloc
+--- 1552,1560 ----
+X  .IP
+X  \fIreplies-following-hint\fP\^:  CARD32
+X  .br
+X  \fIinfo\fP\^:  XFONTINFO
++ .br
++ \fIname\fP\^:  STRING8
+X  .IP
+X  Errors:  
+X  .PN Alloc
+***************
+*** 1792,1800 ****
+X  .sp
+X  The extents for each character code in the resulting set (which
+X  may contain duplicates) are returned in the order in
+! which the characters codes appear in the set.  If a character 
+! is not encoded within the font, zero-filled metrics are 
+! substituted.
+X  .sp
+X  If FONTID is not associated with any open fonts, a 
+X  .PN Font 
+--- 1800,1811 ----
+X  .sp
+X  The extents for each character code in the resulting set (which
+X  may contain duplicates) are returned in the order in
+! which the character codes appear in the set.
+! At least one metric for each character shall be non-zero
+! unless the character is not encoded in the font, in which case
+! all-zero metrics are returned.
+! A blank, zero-width character can be encoded
+! with non-zero but equal left and right bearings.
+X  .sp
+X  If FONTID is not associated with any open fonts, a 
+X  .PN Font 
+***************
+*** 1876,1882 ****
+X  .sp
+X  If RANGE is False, then CHARS specifies the set of character
+X  codes for which bitmaps are returned.  If CHARS is of zero
+! length, then a single reply containing a zero-length ist of
+X  offsets and bitmaps is returned.
+X  .sp
+X  If any of the resulting character ranges are invalid, a Range
+--- 1887,1893 ----
+X  .sp
+X  If RANGE is False, then CHARS specifies the set of character
+X  codes for which bitmaps are returned.  If CHARS is of zero
+! length, then a single reply containing a zero-length list of
+X  offsets and bitmaps is returned.
+X  .sp
+X  If any of the resulting character ranges are invalid, a Range
+***************
+*** 1901,1907 ****
+X  and clear bits represent inked and non-inked pixels,
+X  respectively.
+X  .sp
+! Each scanline of a glyph image, from top to bottom, is padded
+X  on the right to a multiple of the number of bits specified by
+X  FORMAT.SCANLINE-PAD.  The scanline is then divided from left
+X  to right into a sequence of FORMAT.SCANLINE-UNIT bits.  The
+--- 1912,1918 ----
+X  and clear bits represent inked and non-inked pixels,
+X  respectively.
+X  .sp
+! Each scanline of a glyph image, from top to bottom, is zero-padded
+X  on the right to a multiple of the number of bits specified by
+X  FORMAT.SCANLINE-PAD.  The scanline is then divided from left
+X  to right into a sequence of FORMAT.SCANLINE-UNIT bits.  The
+***************
+*** 2325,2332 ****
+--- 2336,2355 ----
+X  .XS
+X  \*(SN Data Types
+X  .XE
++ .sp 6p
+X  .LP
++ ACCESSCONTEXT
+X  .sp 6p
++ .TA .75i .75i .75i .75i
++ 4	CARD32	access context with at least one of the following bits set:
++ .sp 6p
++ #x1fffffff
++ .sp 6p
++ but none of the following bits set:
++ .sp 6p
++ #xe0000000		zero
++ .sp 18p
++ .LP
+X  .TS
+X  tab (@) ;
+X  l s s
+***************
+*** 2637,2645 ****
+X  1		CARD8		drawing direction
+X  .sp 6p
+X  		0		LeftToRight
+X  		1		RightToLeft
+X  .sp 6p
+! 1			unused
+X  .br
+X  2		CHAR2B		default character
+X  .br
+--- 2660,2669 ----
+X  1		CARD8		drawing direction
+X  .sp 6p
+X  		0		LeftToRight
++ .br
+X  		1		RightToLeft
+X  .sp 6p
+! 1					unused
+X  .br
+X  2		CHAR2B		default character
+X  .br
+***************
+*** 2651,2657 ****
+X  .br
+X  2		INT16		font descent
+X  .br
+! n		PROPINFO	property data
+X  .NH 2
+X  Requests
+X  .XS
+--- 2675,2681 ----
+X  .br
+X  2		INT16		font descent
+X  .br
+! n		PROPINFO		property data
+X  .NH 2
+X  Requests
+X  .XS
+***************
+*** 2668,2674 ****
+X  @#x42@Most Significant Byte first
+X  @#x6c@Least Significant Byte first
+X  1@CARD8@number of auth in auth-data
+! 2@1@client-major-protocol-version
+X  2@0@client-minor-protocol-version
+X  2@a/4@length of auth-data
+X  a@LISTofAUTH@auth-data
+--- 2692,2698 ----
+X  @#x42@Most Significant Byte first
+X  @#x6c@Least Significant Byte first
+X  1@CARD8@number of auth in auth-data
+! 2@2@client-major-protocol-version
+X  2@0@client-minor-protocol-version
+X  2@a/4@length of auth-data
+X  a@LISTofAUTH@auth-data
+***************
+*** 2678,2684 ****
+X  @1@Continue
+X  @2@Busy
+X  @3@Denied
+! 2@1@major version
+X  2@0@minor version
+X  1@CARD8@number of alternate-servers-hint
+X  1@CARD8@authorization-index
+--- 2702,2708 ----
+X  @1@Continue
+X  @2@Busy
+X  @3@Denied
+! 2@2@major version
+X  2@0@minor version
+X  1@CARD8@number of alternate-servers-hint
+X  1@CARD8@authorization-index
+***************
+*** 3056,3063 ****
+X  1@0@type reply
+X  1@BOOL@otherid-valid
+X  2@CARD16@sequence-number
+! 4@3@length
+X  4@FONTID@otherid
+X  .TE
+X  .sp 12p
+X  .TS
+--- 3080,3089 ----
+X  1@0@type reply
+X  1@BOOL@otherid-valid
+X  2@CARD16@sequence-number
+! 4@4@length
+X  4@FONTID@otherid
++ 1@BOOL@cachable
++ 3@@unused
+X  .TE
+X  .sp 12p
+X  .TS
+***************
+*** 3287,3293 ****
+X  1@5@AccessContext
+X  2@CARD16@sequence-number
+X  4@5@length
+! 4@TIMESTAMP2timestamp
+X  1@CARD8@major-opcode
+X  1@CARD8@minor-opcode
+X  2@@unused
+--- 3313,3319 ----
+X  1@5@AccessContext
+X  2@CARD16@sequence-number
+X  4@5@length
+! 4@TIMESTAMP@timestamp
+X  1@CARD8@major-opcode
+X  1@CARD8@minor-opcode
+X  2@@unused
+***************
+*** 3453,3459 ****
+X  or omissions.  The protocol presented here was primarily designed by Jim
+X  Fulton, Keith Packard, and Bob Scheifler.  Special thanks goes to Ned
+X  Batchelder, Jim Flowers, and Axel Deininger for their invigorating comments
+! which never failed to make this a better document.  Finally, David Lemke 
+X  deserves great credit for designing and coding the sample implementation.
+X  .NH 1
+X  References
+--- 3479,3487 ----
+X  or omissions.  The protocol presented here was primarily designed by Jim
+X  Fulton, Keith Packard, and Bob Scheifler.  Special thanks goes to Ned
+X  Batchelder, Jim Flowers, and Axel Deininger for their invigorating comments
+! which never failed to make this a better document.
+! Stephen Gildea edited version 2 of this document.
+! Finally, David Lemke 
+X  deserves great credit for designing and coding the sample implementation.
+X  .NH 1
+X  References
+***************
+*** 3554,3558 ****
+--- 3582,3592 ----
+X  to having the connection terminated), it should retry for an
+X  implementation-dependent length of time (see Xlib's 
+X  handling of ECONNREFUSED in XConnDis.c).
++ .\"
++ .\" print Table of Contents page
++ .EH ''''
++ .OH ''''
+X  .bp
++ .EF ''''
++ .OF ''''
+X  .PX
+*** /tmp/da01727	Tue Jul 14 18:41:17 1992
+--- mit/fonts/bdf/misc/9x15.bdf	Tue Jul 14 18:41:16 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+X  STARTFONT 2.1
++ COMMENT $XConsortium: 9x15.bdf,v 1.14 92/04/02 14:25:52 gildea Exp $
+X  COMMENT ""
+X  COMMENT "Designed and made by"
+X  COMMENT "by Thomas Bagli (pyramid!pcsbst!tom@uunet.UU.NET)"
+***************
+*** 3732,3739 ****
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 0400
+! 1800
+X  0000
+X  7f00
+X  2000
+--- 3733,3740 ----
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 1000
+! 0c00
+X  0000
+X  7f00
+X  2000
+***************
+*** 3754,3761 ****
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 1000
+! 0c00
+X  0000
+X  7f00
+X  2000
+--- 3755,3762 ----
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 0400
+! 1800
+X  0000
+X  7f00
+X  2000
+***************
+*** 3952,3959 ****
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 0400
+! 1800
+X  0000
+X  3e00
+X  4100
+--- 3953,3960 ----
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+! 1000
+! 0c00
+X  0000
+X  3e00
+X  4100
+***************
+*** 4084,4099 ****
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+- 0000
+- 0000
+X  0100
+X  3e00
+X  4500
+X  4900
+X  4900
+- 4900
+- 4900
+X  5100
+X  3e00
+X  4000
+X  0000
+--- 4085,4100 ----
+X  BBX 9 15 0 -3
+X  BITMAP
+X  0000
+X  0100
+X  3e00
++ 4300
+X  4500
++ 4500
+X  4900
+X  4900
+X  5100
++ 5100
++ 6100
+X  3e00
+X  4000
+X  0000
+***************
+*** 4767,4782 ****
+X  BITMAP
+X  0000
+X  0000
+! 0100
+! 0200
+! 0200
+! 0400
+X  0800
+X  0800
+! 1000
+! 2000
+! 2000
+! 4000
+X  0000
+X  0000
+X  0000
+--- 4768,4783 ----
+X  BITMAP
+X  0000
+X  0000
+! 0000
+X  0800
++ 1c00
+X  0800
+! 0000
+! 7f00
+! 0000
+! 0800
+! 1c00
+! 0800
+X  0000
+X  0000
+X  0000
+*** /tmp/da01749	Tue Jul 14 18:41:31 1992
+--- mit/fonts/bdf/misc/8x13.bdf	Tue Jul 14 18:41:30 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+X  STARTFONT 2.1
++ COMMENT $XConsortium: 8x13.bdf,v 1.13 92/04/02 14:25:48 gildea Exp $
+X  COMMENT ""
+X  COMMENT Characters above 127 designed and made by
+X  COMMENT by Thomas Bagli (pyramid!pcsbst!tom@uunet.UU.NET)
+***************
+*** 3716,3732 ****
+X  BBX 8 13 0 -2
+X  BITMAP
+X  0000
+- 0000
+X  0200
+! 7c00
+! 8a00
+! 9200
+! 9200
+! 9200
+! 9200
+! a200
+! 7c00
+! 8000
+X  0000
+X  ENDCHAR
+X  STARTCHAR 00d9
+--- 3717,3733 ----
+X  BBX 8 13 0 -2
+X  BITMAP
+X  0000
+X  0200
+! 3c00
+! 4600
+! 4a00
+! 4a00
+! 5200
+! 5200
+! 5200
+! 6200
+! 3c00
+! 4000
+X  0000
+X  ENDCHAR
+X  STARTCHAR 00d9
+***************
+*** 4358,4372 ****
+X  0000
+X  0000
+X  0000
+X  0200
+X  3c00
+X  4600
+X  4a00
+- 4200
+X  5200
+X  6200
+! 7c00
+! 8000
+X  0000
+X  ENDCHAR
+X  STARTCHAR 00f9
+--- 4359,4373 ----
+X  0000
+X  0000
+X  0000
++ 0000
+X  0200
+X  3c00
+X  4600
+X  4a00
+X  5200
+X  6200
+! 3c00
+! 4000
+X  0000
+X  ENDCHAR
+X  STARTCHAR 00f9
+*** /tmp/da01906	Tue Jul 14 18:41:54 1992
+--- mit/fonts/bdf/misc/6x13.bdf	Tue Jul 14 18:41:53 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+X  STARTFONT 2.1
++ COMMENT $XConsortium: 6x13.bdf,v 1.13 92/04/02 14:24:50 gildea Exp $
+X  COMMENT ""
+X  COMMENT Characters above 127 designed and made by
+X  COMMENT Thomas Bagli (pyramid!pcsbst!tom@uunet.UU.NET)
+***************
+*** 3716,3730 ****
+X  BBX 6 13 0 -2
+X  BITMAP
+X  00
+- 00
+X  08
+X  70
+X  98
+X  a8
+X  a8
+X  a8
+- a8
+X  c8
+X  70
+X  80
+X  00
+--- 3717,3731 ----
+X  BBX 6 13 0 -2
+X  BITMAP
+X  00
+X  08
+X  70
+X  98
++ 98
+X  a8
+X  a8
+X  a8
+X  c8
++ c8
+X  70
+X  80
+X  00
+***************
+*** 4358,4367 ****
+X  00
+X  00
+X  00
+X  08
+X  70
+X  98
+- a8
+X  a8
+X  a8
+X  c8
+--- 4359,4368 ----
+X  00
+X  00
+X  00
++ 00
+X  08
+X  70
+X  98
+X  a8
+X  a8
+X  c8
+*** /tmp/da01949	Tue Jul 14 18:42:07 1992
+--- mit/fonts/bdf/misc/10x20.bdf	Tue Jul 14 18:42:06 1992
+***************
+*** 1,5 ****
+--- 1,6 ----
+X  STARTFONT 2.1
+X  COMMENT ""
++ COMMENT $XConsortium: 10x20.bdf,v 1.12 92/04/02 14:25:55 gildea Exp $
+X  COMMENT "$NCDId: @(#)10x20.bdf,v 1.11 1991/07/02 14:50:48 jim Exp $"
+X  COMMENT  ""
+X  COMMENT  "Copyright 1989-1991 Network Computing Devices, Inc."
+***************
+*** 5024,5043 ****
+X  BBX 10 20 0 -5
+X  BITMAP
+X  0000
+- 0000
+- 0000
+- 0000
+X  0080
+! 1f80
+X  3300
+X  6380
+X  6580
+X  6580
+X  6980
+X  6980
+X  7180
+X  3300
+! 7e00
+X  4000
+X  0000
+X  0000
+--- 5025,5044 ----
+X  BBX 10 20 0 -5
+X  BITMAP
+X  0000
+X  0080
+! 1f00
+X  3300
+X  6380
++ 6380
+X  6580
+X  6580
++ 6580
+X  6980
+X  6980
++ 6980
+X  7180
+X  3300
+! 3e00
+X  4000
+X  0000
+X  0000
+***************
+*** 5893,5907 ****
+X  0000
+X  0000
+X  0000
+! 0000
+! 1e80
+! 3380
+! 6380
+! 6780
+! 6d80
+! 7980
+X  3300
+! 7e00
+X  4000
+X  0000
+X  0000
+--- 5894,5908 ----
+X  0000
+X  0000
+X  0000
+! 0080
+! 1f00
+X  3300
+! 6580
+! 6580
+! 6980
+! 6980
+! 3300
+! 3e00
+X  4000
+X  0000
+X  0000
+*** /tmp/da02040	Tue Jul 14 18:42:39 1992
+--- mit/fonts/bdf/misc/7x13.bdf	Tue Jul 14 18:42:37 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+X  STARTFONT 2.1
++ COMMENT $XConsortium: 7x13.bdf,v 1.11 92/04/02 14:25:38 gildea Exp $
+X  COMMENT  
+X  COMMENT  Copyright (c) 1990 Stephen Gildea
+X  COMMENT  
+***************
+*** 3731,3745 ****
+X  BBX 7 13 0 -2
+X  BITMAP
+X  00
+- 00
+X  04
+X  78
+X  94
+X  94
+- 94
+X  a4
+X  a4
+X  a4
+X  78
+X  80
+X  00
+--- 3732,3746 ----
+X  BBX 7 13 0 -2
+X  BITMAP
+X  00
+X  04
+X  78
++ 8c
+X  94
+X  94
+X  a4
+X  a4
+X  a4
++ c4
+X  78
+X  80
+X  00
+***************
+*** 4373,4383 ****
+X  00
+X  00
+X  00
+X  04
+X  78
+X  8c
+X  94
+- 84
+X  a4
+X  c4
+X  78
+--- 4374,4384 ----
+X  00
+X  00
+X  00
++ 00
+X  04
+X  78
+X  8c
+X  94
+X  a4
+X  c4
+X  78
+SHAR_EOF
+echo 'File fix-13 is complete' &&
+chmod 0644 fix-13 ||
+echo 'restore of fix-13 failed'
+Wc_c="`wc -c < 'fix-13'`"
+test 229952 -eq "$Wc_c" ||
+	echo 'fix-13: original size 229952, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

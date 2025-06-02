@@ -1,0 +1,2815 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i035:  gnuplot - interactive function plotting utility, Part23/33
+Message-ID: <1993Oct22.163838.24661@sparky.sterling.com>
+X-Md4-Signature: e0016ff963f6fc90a86f412319297dc8
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 22 Oct 1993 16:38:38 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 35
+Archive-name: gnuplot/part23
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/Makefile.in gnuplot/scanner.c
+#   gnuplot/term/atari.trm gnuplot/term/corel.trm
+#   gnuplot/term/grass.trm gnuplot/term/hp500c.trm
+#   gnuplot/win/wprinter.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:56 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 23 (of 33)."'
+if test -f 'gnuplot/Makefile.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/Makefile.in'\"
+else
+  echo shar: Extracting \"'gnuplot/Makefile.in'\" \(11003 characters\)
+  sed "s/^X//" >'gnuplot/Makefile.in' <<'END_OF_FILE'
+X############################################################
+X#
+X# GNUPLOT 3.4 Makefile (Unix X11 support)
+X# Adapted from makefile.unx by djm@gnu.ai.mit.edu
+X############################################################
+X
+X.NOEXPORT:
+XSHELL = /bin/sh
+X
+Xsrcdir = @srcdir@
+XVPATH = @srcdir@
+X
+Xprefix = /usr/local
+Xexec_prefix = $(prefix)
+Xbindir = $(exec_prefix)/bin
+Xdatadir = $(prefix)/lib
+Xmandir = $(prefix)/man/man1
+X
+XINSTALL = @INSTALL@
+XINSTALL_PROGRAM = @INSTALL_PROGRAM@
+XINSTALL_DATA = @INSTALL_DATA@
+X
+XCC     = @CC@
+XDEFS   = @DEFS@ @X_INCLUDES@
+XCFLAGS = -O2
+XLDFLAGS = -s
+X
+X# Additional devices you can add.
+X# -DAPOLLO      Apollo Graphics Primitive Resource (window resize after replot)
+X# -DGPR         Apollo Graphics Primitive Resource (fixed-size window)
+X# -DCGI         SCO CGI
+X# -DIRIS4D      IRIS4D series computer
+X# -DSUN         Sun Microsystems Workstation
+X# -DUNIXPC      unixpc (ATT 3b1 or ATT 7300)
+X# -DUNIXPLOT    unixplot
+X# -DGNUGRAPH    use GNU graphics version of UNIX plot library
+X#               This can only be used in combination with -DUNIXPLOT
+XTERMFLAGS = 
+X
+X#  -lplot if you have -DUNIXPLOT in TERMFLAGS
+X#  -lsuntool -lsunwindow -lpixrect  if you have -DSUN in TERMFLAGS
+X#  -lgl_s if -DIRIS4D in TERMFLAGS
+X#  -lccgi if -DCGI in TERMFLAGS
+XTERMLIBS = 
+X
+XLIBS = $(TERMLIBS) @X_LIBRARIES@ -lm @LIBS@
+X
+X# Where to send email about bugs and comments (locally)
+XEMAIL=bug-gnuplot@dartmouth.edu
+X
+X# Lasergnu is a handy shell script for creating a plot from the
+X# command line and sending it directly to the printer. It currently
+X# supports PostScript and imagen printers, and probably would need
+X# tailoring to your site.
+X# Use lasergnu_install to install lasergnu.
+X# Use lasergnu_noinstall to not install lasergnu (default).
+XLASERGNU = @LASERGNU@
+X
+X############################################################
+X# -DREADLINE:
+X#   If READLINE is defined, then command-line editing is supported.
+X#   Otherwise, your normal terminal editing is all you get.
+X#   Some machines will not support this, and they will turn this
+X#   option off (for example, apollos running SR10.2 or SR10.3 and
+X#   loaded with BSD4.3 instead of SYS5). Note: problems with
+X#   gnuplot prompts have been noted when this feature is selected
+X#   on IBM RS/6000 AIX, and compile errors are encountered on
+X#   Sequent Dynix 3 and Convex OS 9.0.
+X# -DNOCWDRC:
+X#   If NOCWDRC is defined, then any .gnuplot in the current directory
+X#   is not read on startup. This is a security consideration
+X#   especially for root users ( we recommend you define -DNOCWDRC ).
+X
+X# -DOLD_SELECT if you have an old 4.2 BSD OS (e.g. Sun OS 3.5) and
+X#   encounter compile error for missing FD_* macros for select
+X# -DBSD_TYPES if your system defines FD_* macros for select in
+X#   <sys/bsdtypes.h>
+X# -ISC22 to circumvent missing plots past the first on ISC 2.2
+X
+X#  -DNOVFORK if you're unix and you have don't have vfork()
+X#  -DMEMSET if you need to use memset() instead of bzero()
+X#  -DMEMCPY if your bcopy() is called memcpy()
+X#  -DNOCOPY if you don't have a memcpy() by any name
+X#  -DGAMMA=foo if your gamma function is called foo(). Apollos have
+X#    lgamma(3m). The default is -DGAMMA=gamma.
+X#  -DGETCWD if your unix uses getcwd() instead of getcd()
+X#    this is needed by HP-UX and Cray Unicos systems.
+X#  -DULTRIX_KLUDGE if you run X windows on Ultrix and experience the
+X#    "every other plot" problem.
+X#  -DCRIPPLED_SELECT if "select errors" are encountered with X. This
+X#    option is needed on SVR3 platforms with incomplete support for
+X#    the BSD select() system call
+X#  -DXPG3_LOCALE if your system uses the 'setlocale' function to
+X#    support foreign charactersets (currently only ISO8859-1).
+X#  -Dunix is required to explicitly define "unix" for SCO and IBM
+X#          RS/6000 running AIX 3.2
+X
+X#
+X# You probably don't need to change anything below here.
+X#
+X
+X####################################################################
+X# List of object files except version.o
+XOBJS = bitmap.o command.o contour.o eval.o graphics.o graph3d.o help.o \
+X       internal.o misc.o parse.o plot.o readline.o scanner.o \
+X       setshow.o specfun.o standard.o term.o util.o gnubin.o binary.o
+X
+X####################################################################
+X# List of source files
+X# Used for making shar files, lint, and some dependencies.
+XDIRS = term demo docs docs/latextut
+X
+XCSOURCE1 = bf_test.c binary.c command.c setshow.c
+XCSOURCE2 = help.c gnubin.c graphics.c graph3d.c internal.c
+XCSOURCE3 = misc.c eval.c parse.c plot.c readline.c scanner.c standard.c
+XCSOURCE4 = bitmap.c term.c util.c version.c
+XCSOURCE5 = term/ai.trm term/amiga.trm term/aed.trm term/atari.trm \
+X	term/bigfig.trm term/cgi.trm term/corel.trm \
+X	term/djsvga.trm term/dumb.trm \
+X	term/dxf.trm term/dxy.trm term/debug.trm \
+X	term/emxvga.trm term/eepic.trm term/epson.trm term/excl.trm \
+X	term/fig.trm term/grass.trm term/hp26.trm term/hp2648.trm term/hpgl.trm \
+X	term/hp500c.trm term/hpljii.trm term/metafont.trm \
+X	term/apollo.trm term/gpr.trm term/hppj.trm term/compact.c
+XCSOURCE6 = term/impcodes.h term/imagen.trm term/next.trm term/object.h \
+X	term/iris4d.trm term/kyo.trm term/latex.trm term/mif.trm \
+X	term/pbm.trm term/pslatex.trm term/gpic.trm
+XCSOURCE7 = term/post.trm term/pstricks.trm term/qms.trm term/regis.trm \
+X	term/rgip.trm term/sun.trm \
+X	term/t410x.trm term/tek.trm term/texdraw.trm term/tgif.h \
+X	term/tgif.trm term/tpic.trm \
+X	term/unixpc.trm term/unixplot.trm \
+X	term/v384.trm term/vws.trm term/x11.trm term/xlib.trm
+XCSOURCE8 = contour.c specfun.c gplt_x11.c
+XNEXTSRC  = epsviewe.m epsviewe.h
+X# not C code, but still needed
+X
+XDEMOS = demo/1.dat demo/2.dat demo/3.dat demo/contours.dem \
+X	demo/controls.dem demo/electron.dem demo/glass.dat demo/param.dem \
+X	demo/polar.dem demo/simple.dem demo/surface1.dem \
+X	demo/surface2.dem demo/using.dat demo/using.dem demo/world.cor \
+X	demo/world.dat demo/world.dem \
+X	demo/err.dat demo/poldat.dem demo/polar.dat demo/errorbar.dem \
+X	demo/antenna.dat demo/all.dem demo/animate.dem demo/bivariat.dem \
+X	demo/prob.dem demo/stat.inc demo/prob2.dem demo/random.dem \
+X	demo/discrete.dem demo/hidden.dem demo/airfoil.dem demo/gnuplot.rot\
+X	demo/binary.dem demo/spline.dem demo/steps.dem demo/steps.dat \
+X	demo/multimsh.dem demo/whale.dat demo/hemisphr.dat \
+X	demo/scatter.dem demo/scatter2.dat demo/singulr.dem demo/klein.dat
+X
+XETC = Copyright 0README README.gnu README.ami makefile.unx makefile.vms \
+X	linkopt.amg makefile.amg makefile.ami linkopt.vms buildvms.com \
+X	lasergnu makefile.r makefile.nt makefile.g 0FAQ 0BUGS\
+X	term/README History gnuplot.el intergra.x11 0INSTALL\
+X	README.3p2 README.3p3 README.3p4 README.pro README.nex README.x11 \
+X	README.3d README.mf README.win configure configure.in Makefile.in
+X
+X#BETA files (not standard distribution files)
+XBETA = BETA
+X# PC-specific files
+XPC = corgraph.asm corplot.c header.mac hrcgraph.asm lineproc.mac \
+X	linkopt.msc makefile.msc makefile.tc makefile.st makefile.djg \
+X	pcgraph.asm gnuplot.def makefile.286 gnuplot.prj makefile.emx \
+X	makefile.ztc linkopt.ztc term/fg.trm term/pc.trm
+XWINDOWS = makefile.win makefile.msw README.win win/wcommon.h \
+X	win/wgnuplib.c win/wgnuplib.def win/wgnuplib.h win/wgnuplib.rc \
+X	win/wgnuplot.def win/wgnuplot.hpj win/wgnuplot.mnu win/wgnuplot.rc \
+X	win/wgraph.c win/winmain.c win/wmenu.c win/wpause.c \
+X	win/wprinter.c win/wresourc.h win/wtext.c win/wtext.h \
+X	win/geticon.c docs/doc2rtf.c term/win.trm
+XOS2 = makefile.os2 os2/makefile os2/dialogs.c os2/dialogs.h os2/gclient.c \
+X	os2/gnuicon.uue os2/gnupmdrv.c os2/gnupmdrv.def os2/gnupmdrv.h \
+X	os2/gnupmdrv.itl os2/gnupmdrv.rc os2/print.c docs/doc2ipf.c \
+X	README.os2 term/pm.trm
+X
+X# Documentation and help files
+XDOCS1 = docs/makefile.org docs/README docs/checkdoc.c docs/doc2gih.c \
+X	docs/doc2hlp.c docs/doc2hlp.com docs/doc2ms.c docs/doc2tex.c \
+X	docs/gnuplot.1 docs/lasergnu.1 docs/toc_entr.sty docs/doc2info.pl \
+X	docs/titlepag.ms docs/titlepag.tex docs/makefile.ami \
+X	docs/doc2rtf.c docs/Makefile.in
+XDOCS2 = docs/gnuplot.doc docs/gpcard.tex
+XDOCS3 = docs/latextut/makefile.org docs/latextut/eg1.plt \
+X	docs/latextut/eg2.plt docs/latextut/eg3.dat docs/latextut/eg3.plt \
+X	docs/latextut/eg4.plt docs/latextut/eg5.plt docs/latextut/eg6.plt \
+X	docs/latextut/header.tex docs/latextut/tutorial.tex \
+X	docs/latextut/linepoin.plt docs/latextut/Makefile.in
+X
+X#########################################################################
+X
+Xall: gnuplot @PROGS@ doc
+X
+Xgnuplot: $(OBJS) version.o
+X	$(CC) -o $@ $(OBJS) version.o $(LDFLAGS) $(LIBS)
+X
+Xdoc:
+X	( cd docs; $(MAKE) $(MFLAGS) gnuplot.gih )
+X
+Xgnuplot_x11: gplt_x11.o
+X	$(CC) -o $@ gplt_x11.o $(LDFLAGS) $(LIBS)
+X
+Xcheck: all demo/binary1
+X
+Xdemo/binary1 demo/binary2 demo/binary3: bf_test
+X	( wd=`pwd`; cd $(srcdir)/demo; $$wd/bf_test )
+X
+Xbf_test: bf_test.o binary.o
+X	$(CC) -o $@ bf_test.o binary.o $(LDFLAGS) $(LIBS)
+X
+X################################################################
+X
+Xinstall: all $(LASERGNU)
+X	$(INSTALL_PROGRAM) gnuplot $(bindir)/gnuplot
+X	test ! -f gnuplot_x11 || $(INSTALL_PROGRAM) gnuplot_x11 $(bindir)/gnuplot_x11
+X	-$(INSTALL_DATA) $(srcdir)/docs/gnuplot.1 $(mandir)/gnuplot.1
+X	( cd docs; $(MAKE) $(MFLAGS) install datadir=$(datadir) )
+X
+Xlasergnu_install: lasergnu docs/lasergnu.1
+X	$(INSTALL_PROGRAM) lasergnu $(bindir)/lasergnu
+X	$(INSTALL_DATA) $(srcdir)/docs/lasergnu.1 $(mandir)/lasergnu.1
+X
+Xlasergnu_noinstall:
+X
+Xuninstall:
+X	rm -f $(bindir)/gnuplot $(bindir)/gnuplot_x11
+X	rm -f $(mandir)/gnuplot.1 $(mandir)/lasergnu.1
+X	( cd docs; $(MAKE) $(MFLAGS) uninstall datadir=$(datadir) )
+X
+X################################################################
+X# Dependencies
+X
+X.c.o:
+X	$(CC) -c $(CPPFLAGS) $(DEFS) $(CFLAGS) $<
+X
+Xterm.o: term.h term.c $(CSOURCE5) $(CSOURCE6) $(CSOURCE7)
+X	$(CC) -c -I$(srcdir)/term $(TERMFLAGS) $(CPPFLAGS) $(DEFS) $(CFLAGS) $(srcdir)/term.c
+X
+Xversion.o:
+X	$(CC) -c -DCONTACT=\"$(EMAIL)\" $(CPPFLAGS) $(DEFS) $(CFLAGS) $(srcdir)/version.c
+X
+X$(OBJS): plot.h
+X
+Xcommand.o: command.c
+X	$(CC) -c -DHELPFILE=\"$(datadir)/gnuplot.gih\" $(CPPFLAGS) $(DEFS) $(CFLAGS) $(srcdir)/command.c
+X
+Xcommand.o help.o misc.o: help.h
+X
+Xcommand.o graphics.o graph3d.o misc.o plot.o setshow.o term.o: setshow.h
+X
+Xbitmap.o term.o: bitmap.h
+X
+X################################################################
+X
+XMakefile: Makefile.in config.status
+X	$(SHELL) config.status
+Xconfig.status: configure
+X	$(SHELL) config.status --recheck
+Xconfigure: configure.in
+X	cd $(srcdir); autoconf
+X
+X################################################################
+X# Miscellaneous targets
+X
+XSOURCES=plot.h help.h setshow.h bitmap.h term.h $(CSOURCE1) $(CSOURCE2) \
+X	$(CSOURCE3) $(CSOURCE4) $(CSOURCE5) $(CSOURCE6) $(CSOURCE7)\
+X	$(CSOURCE8) $(NEXTSRC) $(WINDOWS) $(OS2)
+X
+XDOCS  = $(DOCS1) $(DOCS2) $(DOCS3)
+X
+Xclean:
+X	rm -f gnuplot gnuplot_x11 bf_test *.o core
+X	( cd docs; $(MAKE) $(MFLAGS) clean )
+X	( cd docs/latextut; $(MAKE) $(MFLAGS) clean )
+X
+Xmostlyclean: clean
+X
+Xdistclean: clean
+X	rm -f Makefile config.status
+X
+Xrealclean: distclean
+X	rm -f TAGS
+X
+Xdist: $(ETC) $(SOURCES) $(PC) $(DEMOS) $(BETA) $(DOCS)
+X	$(TAR) cvf /tmp/gnuplot.tar $(ETC) $(SOURCES) $(PC)\
+X	     $(DEMOS) $(BETA) $(DOCS)
+END_OF_FILE
+  if test 11003 -ne `wc -c <'gnuplot/Makefile.in'`; then
+    echo shar: \"'gnuplot/Makefile.in'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/Makefile.in'
+fi
+if test -f 'gnuplot/scanner.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/scanner.c'\"
+else
+  echo shar: Extracting \"'gnuplot/scanner.c'\" \(10587 characters\)
+  sed "s/^X//" >'gnuplot/scanner.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: scanner.c%v 3.50 1993/07/09 05:35:24 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - scanner.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X * 
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "plot.h"
+X
+X#ifdef AMIGA_AC_5
+X#define O_RDONLY	0
+Xint open(const char * _name, int _mode, ...);
+Xint close(int);
+X#endif
+X
+X#ifdef vms
+X
+X#include stdio
+X#include descrip
+X#include errno
+X
+X#define MAILBOX "PLOT$MAILBOX"
+X#define pclose(f) fclose(f)
+X
+X#endif /* vms */
+X
+X
+X#define isident(c) (isalnum(c) || (c) == '_')
+X
+X#ifndef STDOUT
+X#define STDOUT 1
+X#endif
+X
+X#define LBRACE '{'
+X#define RBRACE '}'
+X
+X#define APPEND_TOKEN {token[t_num].length++; current++;}
+X
+X#define SCAN_IDENTIFIER while (isident(expression[current + 1]))\
+X				APPEND_TOKEN
+X
+Xextern struct lexical_unit token[MAX_TOKENS];
+X
+Xstatic int t_num;	/* number of token I'm working on */
+X
+X#ifndef AMIGA_SC_6_1
+Xchar *strcat(), *strcpy(), *strncpy();
+X#endif /* !AMIGA_SC_6_1 */
+X
+X/*
+X * scanner() breaks expression[] into lexical units, storing them in token[].
+X *   The total number of tokens found is returned as the function value.
+X *   Scanning will stop when '\0' is found in expression[], or when token[]
+X *     is full.
+X *
+X *	 Scanning is performed by following rules:
+X *
+X *	Current char	token should contain
+X *     -------------    -----------------------
+X *	1.  alpha,_	all following alpha-numerics
+X *	2.  digit	0 or more following digits, 0 or 1 decimal point,
+X *				0 or more digits, 0 or 1 'e' or 'E',
+X *				0 or more digits.
+X *	3.  ^,+,-,/	only current char
+X *	    %,~,(,)
+X *	    [,],;,:,
+X *	    ?,comma
+X *	4.  &,|,=,*	current char; also next if next is same
+X *	5.  !,<,>	current char; also next if next is =
+X *	6.  ", '	all chars up until matching quote
+X *	7.  #		this token cuts off scanning of the line (DFK).
+X *
+X *			white space between tokens is ignored
+X */
+Xscanner(expression)
+Xchar expression[];
+X{
+Xregister int current;	/* index of current char in expression[] */
+Xregister int quote;
+Xchar brace;
+X
+X	for (current = t_num = 0;
+X	    t_num < MAX_TOKENS && expression[current] != '\0';
+X	    current++) {
+Xagain:
+X		if (isspace(expression[current]))
+X			continue;						/* skip the whitespace */
+X		token[t_num].start_index = current;
+X		token[t_num].length = 1;
+X		token[t_num].is_token = TRUE;	/* to start with...*/
+X
+X		if (expression[current] == '`') {
+X			substitute(&expression[current],MAX_LINE_LEN - current);
+X			goto again;
+X		}
+X		/* allow _ to be the first character of an identifier */
+X		if (isalpha(expression[current]) || expression[current] == '_') {
+X			SCAN_IDENTIFIER;
+X		} else if (isdigit(expression[current]) || expression[current] == '.'){
+X			token[t_num].is_token = FALSE;
+X			token[t_num].length = get_num(&expression[current]);
+X			current += (token[t_num].length - 1);
+X		} else if (expression[current] == LBRACE) {
+X			token[t_num].is_token = FALSE;
+X			token[t_num].l_val.type = CMPLX;
+X#ifdef __PUREC__
+X			{ char	l[80];
+X			if ((sscanf(&expression[++current],"%lf,%lf%[ }]s",
+X				&token[t_num].l_val.v.cmplx_val.real,
+X				&token[t_num].l_val.v.cmplx_val.imag,
+X				&l)	!= 3) || (!strchr(l, RBRACE))  )
+X					int_error("invalid complex constant",t_num);
+X			}
+X#else
+X			if ((sscanf(&expression[++current],"%lf , %lf %c",
+X				&token[t_num].l_val.v.cmplx_val.real,
+X				&token[t_num].l_val.v.cmplx_val.imag,
+X				&brace) != 3) || (brace != RBRACE))
+X					int_error("invalid complex constant",t_num);
+X#endif
+X			token[t_num].length += 2;
+X			while (expression[++current] != RBRACE) {
+X				token[t_num].length++;
+X				if (expression[current] == '\0')			/* { for vi % */
+X					int_error("no matching '}'", t_num);
+X			}
+X		} else if (expression[current] == '\'' || expression[current] == '\"'){
+X			token[t_num].length++;
+X			quote = expression[current];
+X			while (expression[++current] != quote) {
+X				if (!expression[current]) {
+X					expression[current] = quote;
+X					expression[current+1] = '\0';
+X					break;
+X				} else
+X					token[t_num].length++;
+X			}
+X		} else switch (expression[current]) {
+X		     case '#':		/* DFK: add comments to gnuplot */
+X		    	  goto endline; /* ignore the rest of the line */
+X			case '^':
+X			case '+':
+X			case '-':
+X			case '/':
+X			case '%':
+X			case '~':
+X			case '(':
+X			case ')':
+X			case '[':
+X			case ']':
+X			case ';':
+X			case ':':
+X			case '?':
+X			case ',':
+X				break;
+X			case '&':
+X			case '|':
+X			case '=':
+X			case '*':
+X				if (expression[current] == expression[current + 1])
+X					APPEND_TOKEN;
+X				break;
+X			case '!':
+X			case '<':
+X			case '>':
+X				if (expression[current + 1] == '=')
+X					APPEND_TOKEN;
+X				break;
+X			default:
+X				int_error("invalid character",t_num);
+X			}
+X		++t_num;	/* next token if not white space */
+X	}
+X
+Xendline:					/* comments jump here to ignore line */
+X
+X/* Now kludge an extra token which points to '\0' at end of expression[].
+X   This is useful so printerror() looks nice even if we've fallen off the
+X   line. */
+X
+X		token[t_num].start_index = current;
+X		token[t_num].length = 0;
+X	return(t_num);
+X}
+X
+X
+Xget_num(str)
+Xchar str[];
+X{
+Xdouble atof();
+Xregister int count = 0;
+Xlong atol();
+Xregister long lval;
+X
+X	token[t_num].is_token = FALSE;
+X	token[t_num].l_val.type = INTGR;		/* assume unless . or E found */
+X	while (isdigit(str[count]))
+X		count++;
+X	if (str[count] == '.') {
+X		token[t_num].l_val.type = CMPLX;
+X		while (isdigit(str[++count]))	/* swallow up digits until non-digit */
+X			;
+X		/* now str[count] is other than a digit */
+X	}
+X	if (str[count] == 'e' || str[count] == 'E') {
+X		token[t_num].l_val.type = CMPLX;
+X/* modified if statement to allow + sign in exponent
+X   rjl 26 July 1988 */
+X		count++;
+X		if (str[count] == '-' || str[count] == '+')
+X			count++;
+X		if (!isdigit(str[count])) {
+X			token[t_num].start_index += count;
+X			int_error("expecting exponent",t_num);
+X		}
+X		while (isdigit(str[++count]))
+X			;
+X	}
+X	if (token[t_num].l_val.type == INTGR) {
+X 		lval = atol(str);
+X		if ((token[t_num].l_val.v.int_val = lval) != lval)
+X			int_error("integer overflow; change to floating point",t_num);
+X	} else {
+X		token[t_num].l_val.v.cmplx_val.imag = 0.0;
+X		token[t_num].l_val.v.cmplx_val.real = atof(str);
+X	}
+X	return(count);
+X}
+X
+X#if defined(unix) || defined(vms) || defined(PIPES) || (defined(ATARI) && defined(__PUREC__))
+X
+Xsubstitute(str,max)			/* substitute output from ` ` */
+Xchar *str;
+Xint max;
+X{
+Xregister char *last;
+Xregister int i,c;
+Xregister FILE *f;
+X#ifdef AMIGA_AC_5
+Xint fd;
+X#else
+X#if defined(ATARI) && defined(__PUREC__)
+Xchar	*atari_tmpfile;
+Xchar	*atari_pgm[MAX_LINE_LEN+100];
+X#else
+XFILE *popen();
+X#endif /* ATARI && PUREC */
+X#endif
+Xstatic char pgm[MAX_LINE_LEN+1],output[MAX_LINE_LEN+1];
+X
+X#ifdef vms
+Xint chan;
+Xstatic $DESCRIPTOR(pgmdsc,pgm);
+Xstatic $DESCRIPTOR(lognamedsc,MAILBOX);
+X#endif /* vms */
+X
+X	i = 0;
+X	last = str;
+X	while (*(++last) != '`') {
+X		if (*last == '\0')
+X			int_error("unmatched `",t_num);
+X		pgm[i++] = *last;
+X	}
+X	pgm[i] = '\0';		/* end with null */
+X	max -= strlen(last);	/* max is now the max length of output sub. */
+X  
+X#ifdef vms
+X  	pgmdsc.dsc$w_length = i;
+X   	if (!((vaxc$errno = sys$crembx(0,&chan,0,0,0,0,&lognamedsc)) & 1))
+X   		os_error("sys$crembx failed",NO_CARET);
+X   
+X   	if (!((vaxc$errno = lib$spawn(&pgmdsc,0,&lognamedsc,&1)) & 1))
+X   		os_error("lib$spawn failed",NO_CARET);
+X   
+X   	if ((f = fopen(MAILBOX,"r")) == NULL)
+X   		os_error("mailbox open failed",NO_CARET);
+X#else /* vms */
+X#if defined(ATARI) && defined(__PUREC__)
+X		if (system(NULL) == 0)
+X			os_error("no command shell");
+X		if ((strlen(atari_tmpfile) + strlen(pgm) + 5) > MAX_LINE_LEN+100)
+X			os_error("sorry, command to long");
+X		atari_tmpfile = tmpnam(NULL);
+X		strcpy(atari_pgm, pgm);
+X		strcat(atari_pgm, " >> ");
+X		strcat(atari_pgm, atari_tmpfile);
+X		system(atari_pgm);
+X		if ((f = fopen(atari_tmpfile, "r")) == NULL)
+X#else
+X#ifdef AMIGA_AC_5
+X  	if ((fd = open(pgm,"O_RDONLY")) == -1)
+X#else
+X  	if ((f = popen(pgm,"r")) == NULL)
+X#endif
+X#endif	/* ATARI && PUREC */
+X  		os_error("popen failed",NO_CARET);
+X#endif /* vms */
+X
+X	i = 0;
+X	while ((c = getc(f)) != EOF) {
+X		output[i++] = ((c == '\n') ? ' ' : c);	/* newlines become blanks*/
+X		if (i == max) {
+X#ifdef AMIGA_AC_5
+X			(void) close(fd);
+X#else
+X#if defined(ATARI) && defined(__PUREC__)
+X			(void) fclose(f);
+X			(void) unlink(atari_tmpfile);
+X#else
+X			(void) pclose(f);
+X#endif /* ATARI && PUREC */
+X#endif
+X			int_error("substitution overflow", t_num);
+X		}
+X	}
+X#ifdef AMIGA_AC_5
+X	(void) close(fd);
+X#else
+X#if defined(ATARI) && defined(__PUREC__)
+X	(void) fclose(f);
+X	(void) unlink(atari_tmpfile);
+X#else
+X	(void) pclose(f);
+X#endif /* ATARI && PUREC */
+X#endif
+X
+X	if (i + strlen(last) > max)
+X		int_error("substitution overflowed rest of line", t_num);
+X	(void) strncpy(output+i,last+1,MAX_LINE_LEN-i);
+X									/* tack on rest of line to output */
+X	(void) strcpy(str,output);				/* now replace ` ` with output */
+X	screen_ok = FALSE;
+X}
+X
+X#else /* unix || vms || PIPES || ATARI && PUREC */
+X
+X#ifdef __ZTC__
+Xsubstitute(char *str,int max)
+X#else
+Xsubstitute()
+X#endif
+X{
+X	char line[100];
+X
+X	int_error( strcat(strcpy(line,"substitution not supported by "),OS),t_num);
+X}
+X#endif /* unix || vms || PIPES || ATARI && PUREC */
+END_OF_FILE
+  if test 10587 -ne `wc -c <'gnuplot/scanner.c'`; then
+    echo shar: \"'gnuplot/scanner.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/scanner.c'
+fi
+if test -f 'gnuplot/term/atari.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/atari.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/atari.trm'\" \(9626 characters\)
+  sed "s/^X//" >'gnuplot/term/atari.trm' <<'END_OF_FILE'
+X/*
+X * $Id: atari.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - atari.trm */
+X/*
+X * Copyright (C) 1992
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed
+X * as patches to released version.
+X *
+X * This software  is provided "as is" without express or implied warranty.
+X *
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *   Atari Screens working with the normal VDI
+X *     (this should include TT and big screens)
+X *
+X * AUTHORS
+X *  Alexander Lehmann
+X *  HE Koechling
+X *
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X *
+X * ATARI-related comments please to alexlehm@iti.informatik.th-darmstadt.de
+X *
+X */
+X
+X#ifdef __PUREC__
+X/* why did they have to change these names ??? */
+X#include <aes.h>
+X#include <vdi.h>
+X#include <tos.h>
+X#else /* !__PUREC__ i.e. __GNUC__, maybe others */
+X#include <aesbind.h>
+X#include <vdibind.h>
+X#include <osbind.h>
+X#endif
+X
+X/* default to hi-res */
+X
+X#define ATARI_XMAX 640
+X#define ATARI_YMAX 400
+X#define ATARI_VCHAR 16
+X#define ATARI_HCHAR 8
+X#define ATARI_HTIC (ATARI_XMAX/100)
+X#define ATARI_VTIC ATARI_HTIC
+X
+X#define ATARI_yc(y) (ATARI_maxycoord-(y))
+X#define ATARI_LINETYPES_MAX	11
+Xstatic int ATARI_linetypes[ATARI_LINETYPES_MAX] = {
+X        0xffff, 0x1111,
+X        0xffff, 0x5555, 0x3333, 0x7777,
+X        0x3f3f, 0x0f0f, 0x5f5f, 0xe4e4, 0x55f5};
+Xstatic int ATARI_lt;
+Xstatic int vdi_handle=-1;
+Xstatic int ATARI_maxycoord;
+Xstatic int ATARI_rotation;
+Xstatic int ATARI_numcolors;
+Xstatic int pxy[128];            /* Maximum of 64 pixels per v_pline */
+Xstatic int pxy_index;
+Xstatic int ATARI_colors[16];
+Xstatic int ATARI_savecolors[16][3];
+Xstatic int ATARI_numpalette;
+X#define ATARI_c_height_default 6 /* well, well ...               */
+Xstatic int ATARI_c_height = ATARI_c_height_default;
+X
+XATARI_options( )
+X{
+X#define ATARIHEXERROR "palette values 3 hex digits, please"
+X#define ATARIHEIGHTERROR "expecting a character height"
+X    char opt[4];
+X    int i;
+X    char *tok_end;
+X
+X    term_options[0]='\0';
+X    ATARI_c_height=ATARI_c_height_default;
+X
+X    for( i=0 ; i<17 ; i++ ) {
+X        if(END_OF_COMMAND) break;
+X        if (token[c_token].length>3) {
+X            ATARI_numpalette=0;
+X            ATARI_c_height=ATARI_c_height_default;
+X            term_options[0]='\0';
+X            int_error(ATARIHEXERROR, c_token);
+X        }
+X
+X        capture( opt, c_token, c_token );
+X        if (!i) {
+X            ATARI_c_height = strtoul( opt, &tok_end, 10 );
+X            if( *tok_end!='\0' ) {
+X                ATARI_numpalette=0;
+X                ATARI_c_height=ATARI_c_height_default;
+X                term_options[0]='\0';
+X                int_error(ATARIHEIGHTERROR, c_token);
+X            }
+X            if( ATARI_c_height>999 )
+X                ATARI_c_height=999;  /* avoid opt length overflow */
+X            sprintf( opt, "%d ", ATARI_c_height );
+X        }
+X        else {
+X            ATARI_colors[i-1]=strtoul( opt, &tok_end, 16 );
+X            if( *tok_end!='\0' ) {
+X                ATARI_numpalette=0;
+X                ATARI_c_height=ATARI_c_height_default;
+X                term_options[0]='\0';
+X                int_error(ATARIHEXERROR, c_token);
+X            }
+X
+X            sprintf( opt, "%03X ", ATARI_colors[i-1] );
+X        }
+X        strcat( term_options, opt );
+X        c_token++;
+X    }
+X    ATARI_numpalette=(i==0 ? 0 : i-1);
+X}
+X
+XATARI_init( )
+X{
+X    int work_in[11];
+X    int work_out[57];
+X    int i;
+X    int hchar, wchar, dummy;
+X    int rgb[3];
+X    int num_save;
+X    char *colors,*tok_end;
+X
+X    if( ATARI_numpalette==0 && (colors=getenv("GNUCOLORS")) && *colors ) {
+X        for( i=0 ; i<17 ; i++ ) {
+X            if (!i) {
+X                ATARI_c_height = strtoul( colors, &tok_end, 10 );
+X                 if( colors==tok_end ) {
+X                    i=0;
+X                    ATARI_c_height=ATARI_c_height_default;
+X                    break;
+X                }
+X           }
+X            else {
+X                if( *colors=='\0' ) break;
+X                ATARI_colors[i]=strtoul( colors, &tok_end, 16 );
+X                if( colors==tok_end || (unsigned)ATARI_colors[i]>0xfff ) {
+X                    i=0;
+X                    break;
+X                }
+X            }
+X            colors=tok_end;
+X
+X            while( *colors==' ' ) colors++;
+X        }
+X        ATARI_numpalette=(i==0 ? 0 : i-1);
+X    }
+X
+X    vdi_handle=graf_handle( &wchar, &hchar, &dummy, &dummy );
+X    if( !vdi_handle )
+X        int_error("Fatal error opening virtual workstation", NO_CARET);
+X
+X    for( i=0 ; i<10 ; work_in[i++]=1 );
+X        work_in[10]=2;                  /* use raster coordinates */
+X    v_opnvwk( work_in, &vdi_handle, work_out );
+X    if( !vdi_handle )
+X        int_error("Fatal error opening virtual workstation", NO_CARET);
+X
+X    vst_height(vdi_handle, ATARI_c_height, &dummy, &dummy, &wchar, &hchar);
+X
+X    vs_clip( vdi_handle, 0, work_in ); /* turn clipping off */
+X
+X    term_tbl[term].xmax=work_out[0]+1;
+X    term_tbl[term].ymax=work_out[1]+1;
+X    term_tbl[term].h_char=wchar;
+X    term_tbl[term].v_char=hchar;    /* hchar stands for height this time */
+X    term_tbl[term].h_tic=(work_out[0]+1)/100;
+X    term_tbl[term].v_tic=term_tbl[term].h_tic;
+X
+X    ATARI_maxycoord=work_out[1];
+X    ATARI_numcolors=work_out[13];
+X    pxy_index=0;
+X
+X    for( i=0 ; i<ATARI_numpalette ; i++ ) {
+X        vq_color( vdi_handle, i, 1, ATARI_savecolors[i] );
+X
+X        rgb[0]=1000*(ATARI_colors[i]>>8);
+X        rgb[0]/=15;
+X        rgb[1]=1000*((ATARI_colors[i]>>4)&15);
+X        rgb[1]/=15;
+X        rgb[2]=1000*(ATARI_colors[i]&15);
+X        rgb[2]/=15;
+X        vs_color(vdi_handle, i, rgb );
+X    }
+X#ifdef __PUREC__
+X/* currently the PureC version runs as .prg and the GCC version runs as .ttp.
+X   Let's hope that we soon figure out which way is the best */
+X    v_hide_c(vdi_handle);
+X#endif
+X}
+X
+XATARI_reset( )
+X{
+X    int i;
+X
+X    if( vdi_handle!=-1 ) {
+X        for( i=0 ; i<ATARI_numpalette ; i++ ) {
+X            vs_color(vdi_handle, i, ATARI_savecolors[i] );
+X        }
+X#ifdef __PUREC__
+X/* see above */
+X	v_show_c(vdi_handle, 0);
+X#endif
+X        v_clsvwk( vdi_handle );
+X        vdi_handle=-1;
+X    }
+X}
+X
+XATARI_graphics( )
+X{
+X    int pxy[8];
+X    MFDB mfdb;
+X
+X    fflush( stdout );
+X    fflush( stderr );
+X    Cconws( "\033f" ); /* turn cursor off */
+X/*  apparently v_clrwk doesn't work with overscan. We'll blit the screen clear.
+X    v_clrwk( vdi_handle );
+X*/
+X    mfdb.fd_addr=NULL; /* NULL means actual screen. So we don't need size etc. */
+X
+X    pxy[0]=pxy[4]=0;
+X    pxy[1]=pxy[5]=0;
+X    pxy[2]=pxy[6]=term_tbl[term].xmax-1;
+X    pxy[3]=pxy[7]=term_tbl[term].ymax-1;
+X
+X    vro_cpyfm( vdi_handle, ALL_WHITE /*0*/, pxy, &mfdb, &mfdb );
+X
+X    pxy_index=0;
+X}
+X
+Xflush_line( )
+X{
+X    int line_type;
+X    int color_index;
+X    int i;
+X
+X    if( pxy_index>=2 ) {
+X        if( ATARI_numcolors==2 ) { /* Monochrome */
+X            color_index=1;
+X            line_type=ATARI_lt;
+X            if (line_type >= 0)
+X                line_type %= (ATARI_LINETYPES_MAX - 2);
+X        } else { /* Color */
+X            if (ATARI_lt<0) {
+X                color_index=1;
+X                line_type= ATARI_lt;
+X            }
+X            else {
+X            	color_index=2+ATARI_lt%(ATARI_numcolors-2);
+X            	line_type=(ATARI_lt/(ATARI_numcolors-2)) % (ATARI_LINETYPES_MAX - 2);
+X            }
+X        }
+X
+X        vswr_mode( vdi_handle, MD_TRANS);
+X        vsl_color( vdi_handle, color_index );
+X
+X        vsl_type( vdi_handle, 7 );
+X        vsl_udsty( vdi_handle, ATARI_linetypes[line_type + 2] );
+X
+X        v_pline( vdi_handle, pxy_index, pxy );
+X    }
+X
+X    if( pxy_index>=1 ) {
+X        pxy[0]=pxy[2*(pxy_index-1)];
+X        pxy[1]=pxy[2*(pxy_index-1)+1];
+X        pxy_index=1;
+X    }
+X}
+X
+XATARI_text( )
+X{
+X    flush_line( );
+X    Cnecin();		/* wait for any char --> enable screen dump */
+X    Cconws( "\033e" );  /* turn cursor on again */
+X}
+X
+XATARI_move( int x, int y )
+X{
+X    flush_line( );
+X
+X    pxy_index=1;
+X    pxy[0]=x;
+X    pxy[1]=ATARI_yc(y);
+X}
+X
+XATARI_vector( int x, int y )
+X{
+X    pxy[2*pxy_index]=x;
+X    pxy[2*pxy_index+1]=ATARI_yc(y);
+X    pxy_index++;
+X
+X    if( pxy_index==64 ) {   /* we're all full */
+X        flush_line( );
+X    }
+X}
+X
+XATARI_linetype( int lt )
+X{
+X    flush_line( );
+X
+X    ATARI_lt=lt;
+X}
+X
+XATARI_put_text( int x, int y, char *str )
+X{
+X    int vchar=term_tbl[term].v_char;
+X    int dummy;
+X
+X    if( !strlen(str) ) return;
+X
+X    if( x<0 ) x=0;
+X    if( y<0 ) y=0;
+X
+X    /* align text left and to middle of char height */
+X    vst_alignment( vdi_handle, 0, 5, &dummy, &dummy );
+X    vst_rotation( vdi_handle, (ATARI_rotation ? 900 : 0) );
+X    if( ATARI_rotation ) 
+X        v_gtext( vdi_handle, x-vchar/2+1, ATARI_yc(y)-1, str );
+X    else
+X        v_gtext( vdi_handle, x+1, ATARI_yc(y)-vchar/2+1, str );
+X}
+X
+XTBOOLEAN ATARI_text_angle( int ang )
+X{
+X    ATARI_rotation=ang;
+X
+X    return TRUE;
+X}
+X
+XTBOOLEAN ATARI_justify_text( int mode )
+X{
+X    return FALSE;
+X}
+X
+XATARI_point( int x, int y, int number )
+X{
+X    int old_linetype;
+X
+X    if( ATARI_numcolors==2 ) {
+X        line_and_point( x, y, number ); /* monochrome */
+X    } else {
+X	/* we map colors that exceed our limit to dotted lines, but we can't do
+X	   that with the markers (sortof a generalized line_and_point) */
+X	old_linetype=ATARI_lt;
+X	if( ATARI_lt>ATARI_numcolors-2 )
+X	    ATARI_linetype(ATARI_lt%(ATARI_numcolors-2)); /* same color, but no dots */
+X        do_point( x, y, number );
+X	ATARI_linetype(old_linetype);
+X    }
+X}
+END_OF_FILE
+  if test 9626 -ne `wc -c <'gnuplot/term/atari.trm'`; then
+    echo shar: \"'gnuplot/term/atari.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/atari.trm'
+fi
+if test -f 'gnuplot/term/corel.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/corel.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/corel.trm'\" \(10937 characters\)
+  sed "s/^X//" >'gnuplot/term/corel.trm' <<'END_OF_FILE'
+X/*
+X * $Id: corel.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X */
+X
+X/*
+X   corel.trm
+X
+X   A modified ai.trm for CorelDraw import filters
+X   by Chris Parks, parks@physics.purdue.edu
+X   Import from CorelDraw with the CorelTrace filter
+X
+X   syntax: set terminal default
+X           set terminal mode "fontname" fontsize,xsize,ysize,linewidth
+X
+X           mode= color or monochrome             (default=mono)
+X           "fontname"= postscript font name      (default="SwitzerlandLight")
+X           fontsize  = size of font in points    (default=22pt)
+X           xsize     = width of page in inches   (default=8.2in)
+X           ysize     = height of page in inches  (default=10in)
+X           linewidth = width of lines in points  (default=1.2pt)
+X
+X*/
+X
+X/* plots for publication should be sans-serif (don't use TimesRoman) */
+Xchar corel_font[MAX_ID_LEN+1] = "SwitzerlandLight" ; /* name of font */
+Xint corel_fontsize = 22;                            /* size of font in pts */
+XTBOOLEAN corel_color = FALSE;
+XTBOOLEAN corel_stroke = FALSE;
+Xint corel_path_count=0;            /* count of lines in path */
+Xint corel_ang=0;                   /* text angle */
+Xenum JUSTIFY corel_justify=LEFT;   /* text is flush left */
+X
+X
+X/* default mode constants */
+X#define CORELD_XOFF  0               /* page offset in pts */
+X#define CORELD_YOFF  0
+X#define COREL_SC     (10.0)           /* scale is 1pt = 10 units */
+X#define CORELD_LW    (1.2*COREL_SC)  /* linewidth = 1.2 pts */
+X#define CORELD_XMAX  5960            /* 8.2 inches wide */
+X#define CORELD_YMAX  7200            /* 10 inches high  */
+X#define CORELD_VTIC  (CORELD_YMAX/80)
+X#define CORELD_HTIC  (CORELD_YMAX/80)
+X#define CORELD_VCHAR (22*COREL_SC)      /* default is 22 point characters */
+X#define CORELD_HCHAR (22*COREL_SC*6/10)
+X
+Xunsigned int corel_xmax=CORELD_XMAX;
+Xunsigned int corel_ymax=CORELD_YMAX;
+Xfloat corel_lw=CORELD_LW;
+X
+XCOREL_options()
+X{
+X	extern struct value *const_express();
+X	extern double real();
+X        struct value a;
+X
+X                if (!END_OF_COMMAND && almost_equals(c_token,"def$ault")) {
+X                        corel_color=FALSE;
+X                        strcpy(corel_font,"SwitzerlandLight");
+X                        corel_fontsize = 22;
+X                        corel_lw=CORELD_LW;
+X        		corel_xmax=CORELD_XMAX;
+X		        corel_ymax=CORELD_YMAX;
+X			c_token++;
+X                }
+X                if (!END_OF_COMMAND && almost_equals(c_token,"mono$chrome")) {
+X                        corel_color=FALSE;
+X			c_token++;
+X                } else
+X                if (!END_OF_COMMAND && almost_equals(c_token,"color$")) {
+X                        corel_color=TRUE;
+X			c_token++;
+X                }
+X                if (!END_OF_COMMAND && isstring(c_token)) {
+X                  quote_str(corel_font,c_token);
+X                  c_token++;
+X                }
+X                if (!END_OF_COMMAND) {
+X                  /* We have font size specified */
+X                  corel_fontsize = (int)real(const_express(&a));
+X                  c_token++;
+X                  term_tbl[term].v_char = (unsigned int)(corel_fontsize*COREL_SC);
+X                  term_tbl[term].h_char = (unsigned int)(corel_fontsize*COREL_SC*6/10);
+X                }
+X                if (!END_OF_COMMAND) {
+X                  corel_xmax=(unsigned int)(real(const_express(&a))*720);
+X                  c_token++;
+X                  if (!END_OF_COMMAND) {
+X                    corel_ymax=(unsigned int)(real(const_express(&a))*720);
+X                    c_token++;
+X                  }
+X                  term_tbl[term].xmax=corel_xmax;
+X                  term_tbl[term].ymax=corel_ymax;
+X                  term_tbl[term].v_tic=corel_ymax/80;
+X                  term_tbl[term].h_tic=corel_ymax/80;
+X                }
+X                if (!END_OF_COMMAND) {
+X                  corel_lw= real(const_express(&a))*COREL_SC;
+X                  c_token++;
+X                }
+X
+X        sprintf(term_options,"%s \"%s\" %d,%0.1f,%0.1f,%0.1f",
+X                corel_color ? "color" : "monochrome",corel_font,
+X                corel_fontsize,corel_xmax/720.0,corel_ymax/720.0,
+X                corel_lw/COREL_SC);
+X}
+X
+XCOREL_init()
+X{
+X	fprintf(outfile,"%%!PS-Adobe-2.0 EPSF-1.2\n");
+X        fprintf(outfile,"%%%%BoundingBox: %d %d %d %d\n", CORELD_XOFF,CORELD_YOFF,
+X                (int)((corel_xmax)/COREL_SC+0.5+CORELD_XOFF),
+X                (int)((corel_ymax)/COREL_SC+0.5+CORELD_YOFF) );
+X        fprintf(outfile,"%%%%TemplateBox: %d %d %d %d\n", CORELD_XOFF,CORELD_YOFF,
+X                (int)((corel_xmax)/COREL_SC+0.5+CORELD_XOFF),
+X                (int)((corel_ymax)/COREL_SC+0.5+CORELD_YOFF) );
+X	fprintf(outfile,"%%%%EndComments\n");
+X	fprintf(outfile,"%%%%EndProlog\n");
+X        fprintf(outfile,"%%%%BeginSetup\n%%%%EndSetup\n");
+X}
+X
+X
+XCOREL_graphics()
+X{
+X        corel_path_count = 0;
+X        corel_stroke = FALSE;
+X}
+X
+X
+XCOREL_text()
+X{
+X        if (corel_stroke) {
+X		fprintf(outfile,"S\n");
+X                corel_stroke = FALSE;
+X	}
+X        corel_path_count = 0;
+X}
+X
+X
+XCOREL_reset()
+X{
+X	fprintf(outfile,"%%%%Trailer\n");
+X}
+X
+X
+XCOREL_linetype(linetype)
+Xint linetype;
+X{
+X        if (corel_stroke) {
+X		fprintf(outfile,"S\n");
+X                corel_stroke = FALSE;
+X	}
+X	switch(linetype) {
+X                case -2 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 0 0 1 K\n");
+X				}
+X				else {				
+X                                        fprintf(outfile,"[] 0 d\n");
+X                                        fprintf(outfile,"0 j\n0 G\n");
+X				}
+X				break;
+X
+X                case -1 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 0 0 1 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[1 2] 0 d\n");
+X                                        fprintf(outfile,"0 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 0 :  fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"1 0 1 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 1 :  fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"1 1 0 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[4 2] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 2 :  fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 1 1 0 K\n");
+X				}
+X				else {				
+X                                        fprintf(outfile,"[2 3] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 3 :  fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 1 0 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[1 1.5] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 4 :  fprintf(outfile,"%f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"1 0 0 0 K\n");
+X                                }
+X				else {				
+X					fprintf(outfile,"[5 2 1 2] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 5 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 0 1 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[4 3 1 3] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 6 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 0 0 1 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[2 2 2 4] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 7 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0 0.7 1 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[2 2 2 2 2 4] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X				
+X                case 8 : fprintf(outfile,"%.2f w\n",corel_lw/COREL_SC);
+X                                if (corel_color) {
+X					fprintf(outfile,"0.5 0.5 0.5 0 K\n");
+X				}
+X				else {				
+X					fprintf(outfile,"[2 2 2 2 2 2 2 4] 0 d\n");
+X                                        fprintf(outfile,"2 j\n0 G\n");
+X                                }
+X				break;
+X		}
+X        corel_path_count = 0;
+X}
+X
+X
+XCOREL_move(x,y)
+Xunsigned int x,y;
+X{
+X        if (corel_stroke) fprintf(outfile,"S\n");
+X        fprintf(outfile,"%0.2f %0.2f m\n", x/COREL_SC, y/COREL_SC);
+X        corel_path_count += 1;
+X        corel_stroke = TRUE;
+X}
+X
+X
+XCOREL_vector(x,y)
+Xunsigned int x,y;
+X{
+X        fprintf(outfile,"%.2f %.2f l\n", x/COREL_SC, y/COREL_SC);
+X        corel_path_count += 1;
+X        corel_stroke = TRUE;
+X        if (corel_path_count >= 400) {
+X                fprintf(outfile,"S\n%.2f %.2f m\n",x/COREL_SC,y/COREL_SC);
+X                corel_path_count = 0;
+X	}
+X}
+X
+X
+XCOREL_put_text(x,y,str)
+Xunsigned int x, y;
+Xchar *str;
+X{
+Xchar ch;
+X        if (corel_stroke) {
+X		fprintf(outfile,"S\n");
+X                corel_stroke = FALSE;
+X	}
+X        switch(corel_justify) {
+X                case LEFT :   fprintf(outfile,"/_%s %d %d 0 0 z\n",
+X                                      corel_font,corel_fontsize,corel_fontsize);
+X			break;
+X                case CENTRE : fprintf(outfile,"/_%s %d %d 0 1 z\n",
+X                                      corel_font,corel_fontsize,corel_fontsize);
+X			break;
+X                case RIGHT :  fprintf(outfile,"/_%s %d %d 0 2 z\n",
+X                                      corel_font,corel_fontsize,corel_fontsize);
+X			break;
+X	}
+X        if (corel_ang==0) {
+X                fprintf(outfile,"[1 0 0 1 %.2f %.2f]e\n0 g\n",
+X                        x/COREL_SC,y/COREL_SC - corel_fontsize/3.0);
+X	}
+X	else {
+X                fprintf(outfile,"[0 1 -1 0 %.2f %.2f]e\n0 g\n",
+X                        x/COREL_SC - corel_fontsize/3.0,y/COREL_SC);
+X	}
+X		
+X	putc('(',outfile);
+X	ch = *str++;
+X	while(ch!='\0') {
+X		if ( (ch=='(') || (ch==')') || (ch=='\\') )
+X			putc('\\',outfile);
+X		putc(ch,outfile);
+X		ch = *str++;
+X	}
+X        fprintf(outfile,")t\nT\n");
+X        corel_path_count = 0;
+X}
+X
+Xint COREL_text_angle(ang)
+Xint ang;
+X{
+X        corel_ang=ang;
+X	return TRUE;
+X}
+X
+Xint COREL_justify_text(mode)
+Xenum JUSTIFY mode;
+X{
+X        corel_justify=mode;
+X	return TRUE;
+X}
+X
+END_OF_FILE
+  if test 10937 -ne `wc -c <'gnuplot/term/corel.trm'`; then
+    echo shar: \"'gnuplot/term/corel.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/corel.trm'
+fi
+if test -f 'gnuplot/term/grass.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/grass.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/grass.trm'\" \(10800 characters\)
+  sed "s/^X//" >'gnuplot/term/grass.trm' <<'END_OF_FILE'
+X/* GNUPLOT - grass.trm */
+X/*-
+X * Copyright (C) 1992,1993. James Darrell McCauley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed
+X * as patches to released version.
+X *
+X * This software  is provided "as is" without express or implied warranty.
+X *
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *  GRASS graphics driver
+X *
+X * AUTHOR
+X *  James Darrell McCauley
+X *
+X * send your comments or suggestions to (grassp-list@moon.cecer.army.mil).
+X *
+X */
+X#include <stdio.h>
+X/* #include "gis.h" */ /* this causes conflicts with things in term.c */
+X
+X#define GRASS_XMAX 1000
+X#define GRASS_YMAX 1000
+X#define GRASS_VCHAR 5
+X#define GRASS_HCHAR 5
+X#define GRASS_VTIC 3
+X#define GRASS_HTIC 3
+X
+X#define PNT_SIZE 3
+X#define TYPE_DOT  -1
+X#define TYPE_X  0
+X#define TYPE_PLUS   1
+X#define TYPE_BOX    2
+X#define TYPE_DIAMOND    3	/* need type 4 and 5 */
+X#define TYPE_TRIANGLE 4
+X#define TYPE_OCTO 5
+X#define TYPE_ITRIANGLE 6
+X#define TYPE_FBOX 7
+X#define TYPE_FTRIANGLE 8
+X#define TYPE_FITRIANGLE 9
+X#define TYPE_FOCTO 10
+X
+Xint R__curx, R__cury;
+X
+Xint yoffset;
+Xint xoffset;
+Xint y_max;
+Xint points_buf_x[PNT_SIZE*PNT_SIZE]; /* for filled point types */
+Xint points_buf_y[PNT_SIZE*PNT_SIZE];
+X
+XGRASS_move (x, y)
+X  int x, y;
+X{
+X  /* R_move_abs (xoffset+x, yoffset-y + y_max); */
+X  R_move_abs (xoffset+x, yoffset-y);
+X}
+X
+Xcont_abs (x, y)
+X  int x, y;
+X{
+X  /* R_cont_abs (xoffset+x, xoffset-y + y_max); */
+X  R_cont_abs (xoffset+x, yoffset-y);
+X}
+X
+XGRASS_options ()
+X{
+X  options_null ();		/* no options to begin with */
+X}
+X
+XGRASS_init ()
+X{
+X  char buff[128];
+X  char window_name[64];
+X  float size = 3.0;
+X  int backcolor;
+X  int dots_per_line;
+X  int top, b, l, r;
+X  int textcolor;
+X  struct termentry *t = &term_tbl[term];
+X
+X  G_gisinit ("g.gnuplot");
+X
+X  R_open_driver ();
+X
+X  D_setup (0); 
+X
+X  if (D_get_cur_wind (window_name))
+X    G_fatal_error ("No current window");
+X
+X  if (D_set_cur_wind (window_name))
+X    G_fatal_error ("Current window not available");
+X
+X  /* Set up the screen, conversions, and graphics */
+X  D_get_screen_window (&top, &b, &l, &r);
+X/*
+X  if (D_cell_draw_setup (top, b, l, r))
+X  {
+X    sprintf (buff, "Cannot use current window");
+X    G_fatal_error (buff);
+X  }
+X*/
+X  /* D_set_overlay_mode (1); */
+X
+X  /* Figure out where to put text */
+X
+X  R_set_window (top, b, l, r);
+X  t->xmax = r-l;
+X  t->ymax = b-top;
+X  xoffset=l;
+X  yoffset=b;
+X
+X  dots_per_line = (int) (size / 100.0 * (float) (t->ymax));
+X  t->v_char = t->h_char = (int) (.8 * (float) dots_per_line);
+X  R_text_size (t->h_char, t->v_char);
+X
+X  t->v_tic = t->h_tic = 4;
+X
+X  y_max = t->ymax; /* kludge? */
+X
+X  R__curx = R_screen_top ();
+X  R__cury = R_screen_bot () + yoffset;
+X
+X  D_erase_window();
+X/*
+Xfprintf(stderr,"**********************************************\n");
+Xfprintf(stderr,"DIAGNOSTIC TERMINAL SETUP\n");
+Xfprintf(stderr,"top = %d\tb = %d\tl = %d\tr = %d\n", top,b,l,r);
+Xfprintf(stderr,"name = %s\n", t->name);
+Xfprintf(stderr,"description = %s\n", t->description);
+Xfprintf(stderr,"xmax = %d\t", (int)t->xmax);
+Xfprintf(stderr,"ymax = %d\n", (int)t->ymax);
+Xfprintf(stderr,"v_char = %d\t", (int)t->v_char);
+Xfprintf(stderr,"h_char = %d\n", (int)t->h_char);
+Xfprintf(stderr,"v_tic = %d\t", (int)t->v_tic);
+Xfprintf(stderr,"h_tic = %d\n", (int)t->h_tic);
+Xfprintf(stderr,"**********************************************\n\n");
+X*/
+X}
+X
+XGRASS_reset ()
+X{
+X  R_standard_color (D_translate_color ("black"));
+X  /* D_erase_window(); /* don't clear after g.gnuplot is finished */ 
+X  R_flush ();
+X  R_stabilize ();
+X  R_close_driver ();
+X}
+X
+XGRASS_graphics ()
+X{
+X  R_flush ();
+X  R_stabilize ();
+X  R_standard_color (D_translate_color ("black"));
+X  D_erase_window();
+X  return;
+X}
+X
+XGRASS_text ()
+X{
+X  R_flush ();
+X  R_stabilize ();
+X  return;			/* device can't be used as a terminal */
+X}
+X
+XGRASS_vector (x, y)
+X  int x, y;
+X{
+X  cont_abs (x, y);
+X  R_flush ();
+X  R_stabilize ();
+X}
+X
+XGRASS_linetype (lt)
+X  int lt;
+X{
+X
+X  while (lt > 10) lt-=10;
+X
+X  if (lt <= -2)
+X    R_standard_color (D_translate_color ("gray"));
+X  else if (lt == -1)
+X    R_standard_color (D_translate_color ("white"));
+X  else if (lt == 0)
+X    R_standard_color (D_translate_color ("red"));
+X  else if (lt == 1)
+X    R_standard_color (D_translate_color ("green"));
+X  else if (lt == 2)
+X    R_standard_color (D_translate_color ("magenta"));
+X  else if (lt == 3)
+X    R_standard_color (D_translate_color ("brown"));
+X  else if (lt == 4)
+X    R_standard_color (D_translate_color ("orange"));
+X  else if (lt == 5)
+X    R_standard_color (D_translate_color ("yellow"));
+X  else if (lt == 6)
+X    R_standard_color (D_translate_color ("blue"));
+X  else if (lt == 7)
+X    R_standard_color (D_translate_color ("violet"));
+X  else if (lt == 8) 
+X    R_standard_color (D_translate_color ("indigo"));
+X  else if (lt == 9)
+X    R_standard_color (D_translate_color ("gray"));
+X  else /* if (lt == 10) */
+X    R_standard_color (D_translate_color ("white"));
+X  R_flush ();
+X  R_stabilize ();
+X  return;
+X}
+X
+X/* originally /usr/grass4/src/display/d.label/cmd/label.c */
+X
+XGRASS_put_text (x, y, str)
+X  int x, y;
+X  char *str;
+X{
+X
+X  if (strlen (str) == 0)
+X    return;
+X
+X  GRASS_move (x, y);
+X  /* R_standard_color (D_translate_color ("white")); */
+X  R_text (str);
+X  R_flush ();
+X  R_stabilize ();
+X}
+X
+Xint GRASS_text_angle (ang)
+X{
+X  return FALSE;			/* GRASS cannot rotate text */
+X}
+X
+Xint GRASS_justify_text (mode)
+X  int mode;
+X{
+X  return (FALSE);		/* don't mess with this now */
+X}
+X
+X
+XGRASS_point (x, y, point)
+X{
+X  switch (point)
+X  {
+X  case TYPE_DOT:
+X    draw_points_dot (x, y);
+X    break;
+X  case TYPE_X:
+X    draw_points_x (x, y);
+X    break;
+X  case TYPE_PLUS:
+X    draw_points_plus (x, y);
+X    break;
+X  case TYPE_BOX:
+X    draw_points_box (x, y);
+X    break;
+X  case TYPE_DIAMOND:
+X    draw_points_diamond (x, y);
+X    break;
+X  case TYPE_TRIANGLE:
+X    draw_points_triangle (x, y);
+X    break;
+X  case TYPE_OCTO:
+X    draw_points_octo (x, y);
+X    break;
+X  case TYPE_ITRIANGLE:
+X    draw_points_itriangle (x, y);
+X    break;
+X  case TYPE_FBOX:
+X    draw_points_fbox (x, y);
+X    break;
+X  case TYPE_FTRIANGLE:
+X    draw_points_ftriangle (x, y);
+X    break;
+X  case TYPE_FITRIANGLE:
+X    draw_points_fitriangle (x, y);
+X    break;
+X  case TYPE_FOCTO:
+X    draw_points_focto (x, y);
+X    break;
+X  }
+X}
+X
+X/* modified from /usr/grass4/src/display/d.points/cmd/main.c */
+X
+Xdraw_points_dot (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x, y);
+X  cont_abs (x, y);
+X}
+X
+Xdraw_points_diamond (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x, y + PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y);
+X  GRASS_vector (x, y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y);
+X  GRASS_vector (x, y + PNT_SIZE);
+X}
+X
+Xdraw_points_box (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x - PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y + PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y + PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y - PNT_SIZE);
+X}
+X
+Xdraw_points_fbox (x, y)
+X  int x, y;
+X{
+X  points_buf_x[0] = xoffset + x - PNT_SIZE; 
+X  points_buf_y[0]= yoffset - (y + PNT_SIZE);
+X  points_buf_x[1] = xoffset + x + PNT_SIZE; 
+X  points_buf_y[1]= yoffset - (y + PNT_SIZE);
+X  points_buf_x[2] = xoffset + x + PNT_SIZE; 
+X  points_buf_y[2]= yoffset - (y - PNT_SIZE);
+X  points_buf_x[3] = xoffset + x - PNT_SIZE; 
+X  points_buf_y[3]= yoffset - (y - PNT_SIZE);
+X  R_polygon_abs(points_buf_x, points_buf_y, 4 );
+X}
+X
+Xdraw_points_itriangle (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x - PNT_SIZE, y + PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y + PNT_SIZE);
+X  GRASS_vector (x , y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y + PNT_SIZE);
+X}
+X
+Xdraw_points_fitriangle (x, y)
+X  int x, y;
+X{
+X  points_buf_x[0] = xoffset + x + PNT_SIZE; 
+X  points_buf_y[0] = yoffset - (y + PNT_SIZE);
+X  points_buf_x[1] = xoffset + x ;           
+X  points_buf_y[1] = yoffset - (y - PNT_SIZE);
+X  points_buf_x[2] = xoffset + x - PNT_SIZE; 
+X  points_buf_y[2] = yoffset - (y + PNT_SIZE);
+X  R_polygon_abs(points_buf_x, points_buf_y, 3 );
+X}
+X
+Xdraw_points_triangle (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x - PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x , y + PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y - PNT_SIZE);
+X}
+X
+Xdraw_points_ftriangle (x, y)
+X  int x, y;
+X{
+X  points_buf_x[0] = xoffset + x;            
+X  points_buf_y[0]= yoffset - (y + PNT_SIZE);
+X  points_buf_x[1] = xoffset + x + PNT_SIZE; 
+X  points_buf_y[1]= yoffset - (y - PNT_SIZE);
+X  points_buf_x[2] = xoffset + x - PNT_SIZE; 
+X  points_buf_y[2]= yoffset - (y - PNT_SIZE);
+X  R_polygon_abs(points_buf_x, points_buf_y, 3 );
+X}
+X
+Xdraw_points_plus (x, y)
+X  int x, y;
+X{
+X  GRASS_move (x - PNT_SIZE, y);
+X  GRASS_vector (x + PNT_SIZE, y);
+X  GRASS_move (x, y - PNT_SIZE);
+X  GRASS_vector (x, y + PNT_SIZE);
+X}
+X
+X/* depends on PNT_SIZE */
+Xdraw_points_octo (x, y)
+X  int x, y;
+X{
+X  /* CCW */
+X  GRASS_move (x - (int) (PNT_SIZE/3), y - PNT_SIZE);   /* 1 */
+X  GRASS_vector (x + (int) (PNT_SIZE/3), y - PNT_SIZE); /* 2 */
+X  GRASS_vector (x + PNT_SIZE, y - (int) (PNT_SIZE/3)); /* 3 */
+X  GRASS_vector (x + PNT_SIZE, y + (int) (PNT_SIZE/3)); /* 4 */
+X  GRASS_vector (x + (int) (PNT_SIZE/3), y + PNT_SIZE); /* 5 */
+X  GRASS_vector (x - (int) (PNT_SIZE/3), y + PNT_SIZE); /* 6 */
+X  GRASS_vector (x - PNT_SIZE, y + (int) (PNT_SIZE/3)); /* 7 */
+X  GRASS_vector (x - PNT_SIZE, y - (int) (PNT_SIZE/3)); /* 8 */
+X  GRASS_vector (x - (int) (PNT_SIZE/3), y - PNT_SIZE); /* 1 */
+X}
+X
+X/* depends on PNT_SIZE */
+Xdraw_points_focto (x, y)
+X  int x, y;
+X{
+X  /* CCW */
+X  points_buf_x[0] = xoffset + x + (int) (PNT_SIZE/3);
+X  points_buf_y[0] = yoffset - (y - PNT_SIZE); 
+X  points_buf_x[1] = xoffset + x + PNT_SIZE;
+X  points_buf_y[1] = yoffset - (y - (int) (PNT_SIZE/3)); 
+X  points_buf_x[2] = xoffset + x + PNT_SIZE;
+X  points_buf_y[2] = yoffset - (y + (int) (PNT_SIZE/3));
+X  points_buf_x[3] = xoffset + x + (int) (PNT_SIZE/3);
+X  points_buf_y[3] = yoffset - (y + PNT_SIZE); 
+X  points_buf_x[4] = xoffset + x - (int) (PNT_SIZE/3);
+X  points_buf_y[4] = yoffset - (y + PNT_SIZE);
+X  points_buf_x[5] = xoffset + x - PNT_SIZE;
+X  points_buf_y[5] = yoffset - (y + (int) (PNT_SIZE/3)); 
+X  points_buf_x[6] = xoffset + x - PNT_SIZE;
+X  points_buf_y[6] = yoffset - (y - (int) (PNT_SIZE/3));
+X  points_buf_x[7] = xoffset + x - (int) (PNT_SIZE/3);
+X  points_buf_y[7] = yoffset - (y - PNT_SIZE); 
+X  R_polygon_abs(points_buf_x, points_buf_y, 8 );
+X}
+X
+Xdraw_points_x (x, y)
+X{
+X  GRASS_move (x - PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x + PNT_SIZE, y + PNT_SIZE);
+X  GRASS_move (x + PNT_SIZE, y - PNT_SIZE);
+X  GRASS_vector (x - PNT_SIZE, y + PNT_SIZE);
+X}
+X
+X
+X/* need to fix */
+XGRASS_arrow (sx, sy, ex, ey, head)
+X  int sx, sy, ex, ey, head;
+X{
+X  do_arrow (sx, sy, ex, ey, 1);
+X  return;
+X}
+X
+X
+END_OF_FILE
+  if test 10800 -ne `wc -c <'gnuplot/term/grass.trm'`; then
+    echo shar: \"'gnuplot/term/grass.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/grass.trm'
+fi
+if test -f 'gnuplot/term/hp500c.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/hp500c.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/hp500c.trm'\" \(11009 characters\)
+  sed "s/^X//" >'gnuplot/term/hp500c.trm' <<'END_OF_FILE'
+X/*
+X * $Id: hp500c.trm%v 3.50.1.11 1993/08/10 03:55:03 woo Exp $
+X *
+X */
+X/* GNUPLOT - hp500c.trm */
+X/*
+X * Copyright (C) 1993
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *  hpdj 500c
+X *
+X * AUTHORS
+X *  John Engels      -- \
+X *  Russell Lang     ----> HPLJII.trm
+X *  Maurice Castro   -- /
+X *  UdoHessenauer    ----> derived this version from the above one
+X *
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X
+X/* The following HP Deskjet500c  driver uses generic bit mapped graphics
+X   routines from bitmap.c to build up a bit map in memory.  The driver
+X   interchanges colomns and lines in order to access entire lines
+X   easily and returns the lines to get bits in the right order :
+X   (x,y) -> (y,XMAX-1-x). */
+X/* This interchange is done by calling b_makebitmap() with reversed 
+X   xmax and ymax, and then setting b_rastermode to TRUE.  b_setpixel()
+X   will then perform the interchange before each pixel is plotted */
+X/* by John Engels JENGELS@BNANDP51.BITNET, inspired by the hpljet driver
+X   of Jyrki Yli-Nokari */
+X
+X#ifdef HP500C
+X
+X/* We define 4 different print qualities : 300ppi, 150ppi, 100ppi and
+X   75ppi.  (Pixel size = 1, 2, 3, 4 dots) */
+X
+X#define HP500C_DPP (hpdj_dpp)   /* dots per pixel */
+X#define HP500C_PPI (300/HP500C_DPP) /* pixel per inch */
+X/* make XMAX and YMAX a multiple of 8 */
+X#define HP500C_XMAX (8*(unsigned int)(xsize*1920/HP500C_DPP/8.0+0.9))
+X#define HP500C_YMAX (8*(unsigned int)(ysize*1920/HP500C_DPP/8.0+0.9))
+X
+X#define HP500C_VCHAR (HP500C_PPI/6) /* Courier font with 6 lines per inch */
+X#define HP500C_HCHAR (HP500C_PPI/10) /* Courier font with 10 caracters
+Xper inch */
+X
+X/* default values for term_tbl */
+X#define HP500C_75PPI_XMAX (1920/4)
+X#define HP500C_75PPI_YMAX (1920/4)
+X#define HP500C_75PPI_HCHAR (1920/4/6)
+X#define HP500C_75PPI_VCHAR (1920/4/10)
+X#define HP500C_75PPI_VTIC 5
+X#define HP500C_75PPI_HTIC 5
+X
+X
+X#define HP500C_PUSH_CURSOR fprintf(outfile,"\033&f0S") /* Save current
+Xcursor position */
+X#define HP500C_POP_CURSOR fprintf(outfile,"\033&f1S") /* Restore
+Xcursor position */
+X#define HP500C_COURIER fprintf(outfile,"\033(0N\033(s0p10.0h12.0v0s0b3T\033&l6D")
+X/* be sure to use courier font with 6lpi and 10cpi */
+X
+Xstatic int hpdj_dpp=4;
+Xstatic int HP_COMP_MODE = 0;
+X
+X/* bm_pattern not appropriate for 300ppi graphics */
+X#ifndef HPLJII
+Xstatic unsigned int b_300ppi_pattern[] = {
+X  0xffff, 0x1111,
+X  0xffff, 0x3333, 0x0f0f, 0x3f3f, 0x0fff, 0x00ff, 0x33ff};
+X#endif
+X
+X
+XHP500Coptions()
+X{
+X  char opt[6];
+X  
+X#define HPDJCERROR "expecting dots per inch size 75, 100, 150 or 300 and/or compression method"
+X  while (!END_OF_COMMAND) {
+X    if (token[c_token].length>4)
+X      int_error(HPDJCERROR,c_token);
+X    
+X    /* almost_equals() won't accept numbers - use strcmp() instead */
+X    capture(opt,c_token,c_token);
+X    if (!strcmp(opt,"75")) {
+X      hpdj_dpp = 4;
+X      HP_COMP_MODE = 0;
+X    
+X}
+X    else if (!strcmp(opt,"100")) {
+X      hpdj_dpp = 3;
+X      HP_COMP_MODE = 0;
+X    }
+X    else if (!strcmp(opt,"150")) {
+X      hpdj_dpp = 2;
+X      HP_COMP_MODE = 0;
+X    }
+X    else if (!strcmp(opt,"300")) {
+X      hpdj_dpp = 1;
+X      HP_COMP_MODE = 0;
+X    }
+X    else if (!strcmp(opt,"rle")){
+X      HP_COMP_MODE = 1;
+X    }
+X    else if (!strcmp(opt,"tiff")){
+X      HP_COMP_MODE = 2;
+X    }
+X    c_token++;
+X  }
+X  
+X  term_tbl[term].xmax = HP500C_XMAX;
+X  term_tbl[term].ymax = HP500C_YMAX;
+X  switch(hpdj_dpp) {
+X  case 1:
+X    strcpy(term_options,"300");
+X    term_tbl[term].v_tic = 15;
+X    term_tbl[term].h_tic = 15;
+X    break;
+X  case 2:
+X    strcpy(term_options,"150");
+X    term_tbl[term].v_tic = 8;
+X    term_tbl[term].h_tic = 8;
+X    break;
+X  case 3:
+X    strcpy(term_options,"100");
+X    term_tbl[term].v_tic = 6;
+X    term_tbl[term].h_tic = 6;
+X    break;
+X  case 4:
+X    strcpy(term_options,"75");
+X    term_tbl[term].v_tic = 5;
+X    term_tbl[term].h_tic = 5;
+X    break; 
+X  }
+X  switch(HP_COMP_MODE) {
+X  case 0:
+X    strcat(term_options," no comp");
+X    break;
+X  case 1:
+X    strcat(term_options," RLE");
+X    break;
+X  case 2:
+X    strcat(term_options," TIFF");
+X    break;
+X  case 3:     /* not implemented yet */
+X    strcat(term_options," Delta Row");
+X    break;
+X  }
+X}
+X
+XHP500Cinit()
+X{
+X#ifdef vms
+X	reopen_binary();
+X#endif /* vms */
+X#ifdef PC
+X	reopen_binary();
+X#endif /* PC */
+X}
+X
+XHP500Creset()
+X{
+X#ifdef vms
+X	fflush_binary();
+X#endif
+X}
+X
+X
+X
+X/* HP DeskJet 500c routines */
+X
+XHP500Clinetype(linetype)
+Xint linetype;
+X{
+X	if (linetype < 0)
+X		linetype = 7;
+X	else if (linetype >=8){
+X		linetype %=8;
+X	}
+X	switch (linetype){
+X	case 0 :
+X		linetype = 6;
+X		break;
+X	case 1 :
+X		linetype = 5;
+X		break;
+X	case 2 :
+X		linetype = 3;
+X		break;
+X	case 3 :
+X		linetype = 2;
+X		break;
+X	case 4 :
+X		linetype = 1;
+X		break;
+X	case 5 :
+X		linetype = 4;
+X		break;
+X	case 6 :
+X		linetype = 7;
+X	}
+X	b_setvalue(linetype);
+X
+X}
+X
+X/*
+XHP500Cpoint(x,y,value)
+Xint x;
+Xint y;
+Xint value;
+X{
+X	 HP500Clinetype(value);
+X	 do_point(x,y,value);
+X}
+X*/
+X
+XHP500Cgraphics()
+X{
+X	switch(hpdj_dpp) {
+X	case 1:
+X		b_charsize(FNT13X25);
+X		term_tbl[term].v_char = FNT13X25_VCHAR;
+X		term_tbl[term].h_char = FNT13X25_HCHAR;
+X		break;
+X	case 2:
+X		b_charsize(FNT13X25);
+X		term_tbl[term].v_char = FNT13X25_VCHAR;
+X		term_tbl[term].h_char = FNT13X25_HCHAR;
+X		break;
+X	case 3:
+X		b_charsize(FNT9X17);
+X		term_tbl[term].v_char = FNT9X17_VCHAR;
+X		term_tbl[term].h_char = FNT9X17_HCHAR;
+X		break;
+X	case 4:
+X		b_charsize(FNT5X9);
+X		term_tbl[term].v_char = FNT5X9_VCHAR;
+X		term_tbl[term].h_char = FNT5X9_HCHAR;
+X		break;
+X	}
+X	/* rotate plot -90 degrees by reversing XMAX and YMAX and by 
+X	setting b_rastermode to TRUE */
+X	b_makebitmap(HP500C_YMAX,HP500C_XMAX,3);
+X	b_rastermode = TRUE;
+X}
+X/*
+X * Run-length encoding for the DeskJet. We have pairs of <count>
+X * <what>, where count goes from 0 (meaning one count) to 255
+X * this might double the size of the image.
+X */
+X
+Xstatic int  compress(op, oe, cp)
+Xunsigned char *op, *oe, *cp;
+X{
+X	unsigned char *ce = cp;
+X	while ( op < oe ) {
+X		unsigned char prevchar;
+X		unsigned char count;
+X
+X		prevchar = *op;     /* remember char */
+X		count = 1;          /* its read the first time */
+X
+X		while ( ++op < oe && *op == prevchar && count < 255){  /* set op to the next char */
+X			count++;                                             /* and count it  */
+X		}
+X		*ce++ = --count; /* were ready, so correct the count */
+X		*ce++ = prevchar; /* and store <what> */
+X	}
+X	*ce = 0;	  	/* just to be safe   */
+X	return ce - cp;    /* length of  cbufs */
+X}
+X
+Xunsigned char complement(c)
+Xint c;
+X{
+X	return (unsigned char)(256 - c);
+X}
+X
+X
+Xstatic int compress_to_TIFF(op,oe,cp)
+X     unsigned char *op;     /* original pointer */
+X     unsigned char *oe;     /* end of orig string */
+X     unsigned char *cp;     /* pointer for compressed data */
+X{
+X  unsigned char *countposition;
+X  unsigned char *ce = cp;
+X  while ( op < oe ) {
+X    unsigned char prevchar;
+X    unsigned char count;
+X    
+X    prevchar = *op;     /* gelesenes Zeichen aufbewaren */
+X    count = 1;          /* bisher wurde es einmal gelesen */
+X    
+X    while ( ++op < oe && *op == prevchar && count < 128){  
+X      count++;                                           
+X    }
+X    *ce = complement(count-1);
+X    countposition = ce++;           /* remember count for building blocks of literal bytes */
+X    *ce++ = prevchar;           
+X    
+X    if (count < 2) {      
+X      while(op < oe && (prevchar!=*op||*op != *(op + 1))){/* only use rle for at leat 3 equal bytes */
+X	
+X	*ce++ = *op;                                       
+X	count++;                                         
+X	prevchar = *op++;                              
+X	if (op > oe)
+X	  puts("FATAL op> oe!!\n");
+X      }
+X      if (op < oe && prevchar == *op){                             
+X	op--;                                           
+X	count--;                                       
+X	ce--;                                         
+X      }
+X      
+X      *countposition = count-1;                           
+X    }
+X  }
+X  return ce - cp;  
+X  
+X}
+X
+Xstatic int
+Xnocompress(op,oe,cp)
+X     unsigned char *op;
+X     unsigned char *oe;
+X     unsigned char *cp;
+X{
+X  unsigned char *ce = cp;
+X  while(op < oe)
+X    *ce++ = *op++;
+X  return ce - cp;
+X}
+X
+X/* 0 compression raster bitmap dump. Compatible with HP DeskJet 500
+X   hopefully compatible with other HP Deskjet printers */
+X
+XHP500Ctext()
+X{
+X  register int x,j,row,count;
+X  char *obuf,*oe,*cbuf,*ce;
+X  
+X  if((obuf = (char *) malloc(100*b_psize))==0)
+X    puts("FATAL!-- couldn't get enough memory for obuf");
+X  if((cbuf = (char *) malloc(400*b_psize))==0)
+X    puts("FATAL!-- couldn't get enough memory for cbuf");
+X  
+X  oe = obuf;
+X  
+X  fprintf(outfile,"\033*t%dR", HP500C_PPI);
+X  fprintf(outfile, "\033*r1A");
+X  fprintf(outfile,"\033*b%1dM",HP_COMP_MODE);
+X  fprintf(outfile, "\033*r%dS",b_ysize);
+X  fprintf(outfile,"\033*r-3U");
+X  
+X  
+X  /* dump bitmap in raster mode */
+X  for (x = b_xsize-1; x >= 0; x--) {
+X    row = (b_ysize/8)-1;
+X    for (j = row; j >= 0; j-- ) {
+X      *oe++ =  (char)(*((*b_p)[j]+x));    
+X    }
+X    switch (HP_COMP_MODE){
+X    case 2 :
+X      count = compress_to_TIFF(obuf,oe,cbuf);
+X      break;
+X    case 1 :
+X      count = compress(obuf,oe,cbuf);
+X      break;
+X    case 0 :
+X      count = nocompress(obuf,oe,cbuf);
+X      break;
+X    }
+X    fprintf(outfile, "\033*b%dV", count);
+X    ce = cbuf;
+X    while(count--)
+X      fputc(*ce++,outfile);
+X    oe = obuf;
+X    
+X    for (j = row; j >=0; j-- ) {
+X      *oe++ = (char)(*((*b_p)[j+b_psize]+x));
+X    }
+X    switch (HP_COMP_MODE){
+X    case 2 :
+X      count = compress_to_TIFF(obuf,oe,cbuf);
+X      break;
+X    case 1 :
+X      count = compress(obuf,oe,cbuf);
+X      break;
+X    case 0 :
+X      count = nocompress(obuf,oe,cbuf);
+X      break;
+X      
+X    }
+X    
+X    fprintf(outfile, "\033*b%dV", count);
+X    ce = cbuf;
+X    while(count--)
+X      fputc(*ce++,outfile);
+X    oe = obuf;
+X    
+X    for (j = row; j >=0; j-- ) {
+X      *oe++ =  (char)(*((*b_p)[j+(2*b_psize)]+x));
+X    }
+X    switch (HP_COMP_MODE){
+X    case 2 :
+X      count = compress_to_TIFF(obuf,oe,cbuf);
+X      break;
+X    case 1 :
+X      count = compress(obuf,oe,cbuf);
+X      break;
+X    case 0 :
+X      count = nocompress(obuf,oe,cbuf);
+X      break;
+X    }
+X    fprintf(outfile, "\033*b%dW", count);
+X    ce = cbuf;
+X    while(count--)
+X      fputc(*ce++,outfile);
+X    oe = obuf;
+X    
+X  }
+X  fprintf(outfile, "\033*rbC");
+X  free(cbuf);
+X  free(obuf);  
+X  b_freebitmap();
+X  
+X#ifndef vms  /* most vms spoolers add a formfeed character */
+X  fprintf(outfile,"\f");
+X#endif /* not vms */
+X}
+X
+X#define HP500Ctext_angle b_text_angle
+X#define HP500Cput_text b_put_text
+X#define HP500Cmove b_move
+X#define HP500Cvector b_vector
+X
+X#endif /* HP500C */
+X
+END_OF_FILE
+  if test 11009 -ne `wc -c <'gnuplot/term/hp500c.trm'`; then
+    echo shar: \"'gnuplot/term/hp500c.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/hp500c.trm'
+fi
+if test -f 'gnuplot/win/wprinter.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/win/wprinter.c'\"
+else
+  echo shar: Extracting \"'gnuplot/win/wprinter.c'\" \(10679 characters\)
+  sed "s/^X//" >'gnuplot/win/wprinter.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: wprinter.c%v 3.50.1.13 1993/08/19 03:21:26 woo Exp $";
+X#endif
+X
+X/* GNUPLOT - win/wprinter.c */
+X/*
+X * Copyright (C) 1992   Maurice Castro, Russell Lang
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Maurice Castro
+X *   Russell Lang
+X * 
+X * Send your comments or suggestions to 
+X *  info-gnuplot@dartmouth.edu.
+X * This is a mailing list; to join it send a note to 
+X *  info-gnuplot-request@dartmouth.edu.  
+X * Send bug reports to
+X *  bug-gnuplot@dartmouth.edu.
+X */
+X
+X/* Dump a file to the printer */
+X
+X#define STRICT
+X#include <windows.h>
+X#include <windowsx.h>
+X#if WINVER >= 0x030a
+X#include <commdlg.h>
+X#endif
+X#ifdef __MSC__
+X#include <memory.h>
+X#else
+X#include <mem.h>
+X#endif
+X#include "wgnuplib.h"
+X#include "wresourc.h"
+X#include "wcommon.h"
+X
+XLPPRINT prlist = NULL;
+X
+XBOOL CALLBACK _export PrintSizeDlgProc(HWND hdlg, UINT wmsg, WPARAM wparam, LPARAM lparam);
+X
+XBOOL CALLBACK _export
+XPrintSizeDlgProc(HWND hdlg, UINT wmsg, WPARAM wparam, LPARAM lparam)
+X{
+X	char buf[8];
+X	LPPRINT lpr;
+X	lpr = (LPPRINT)GetWindowLong(GetParent(hdlg), 4);
+X
+X	switch (wmsg) {
+X		case WM_INITDIALOG:
+X			wsprintf(buf,"%d",lpr->pdef.x);
+X			SetDlgItemText(hdlg, PSIZE_DEFX, buf);
+X			wsprintf(buf,"%d",lpr->pdef.y);
+X			SetDlgItemText(hdlg, PSIZE_DEFY, buf);
+X			wsprintf(buf,"%d",lpr->poff.x);
+X			SetDlgItemText(hdlg, PSIZE_OFFX, buf);
+X			wsprintf(buf,"%d",lpr->poff.y);
+X			SetDlgItemText(hdlg, PSIZE_OFFY, buf);
+X			wsprintf(buf,"%d",lpr->psize.x);
+X			SetDlgItemText(hdlg, PSIZE_X, buf);
+X			wsprintf(buf,"%d",lpr->psize.y);
+X			SetDlgItemText(hdlg, PSIZE_Y, buf);
+X			CheckDlgButton(hdlg, PSIZE_DEF, TRUE);
+X			EnableWindow(GetDlgItem(hdlg, PSIZE_X), FALSE);
+X			EnableWindow(GetDlgItem(hdlg, PSIZE_Y), FALSE);
+X			return TRUE;
+X		case WM_COMMAND:
+X			switch (wparam) {
+X				case PSIZE_DEF:
+X					EnableWindow(GetDlgItem(hdlg, PSIZE_X), FALSE);
+X					EnableWindow(GetDlgItem(hdlg, PSIZE_Y), FALSE);
+X					return FALSE;
+X				case PSIZE_OTHER:
+X					EnableWindow(GetDlgItem(hdlg, PSIZE_X), TRUE);
+X					EnableWindow(GetDlgItem(hdlg, PSIZE_Y), TRUE);
+X					return FALSE;
+X				case IDOK:
+X					if (SendDlgItemMessage(hdlg, PSIZE_OTHER, BM_GETCHECK, 0, 0L)) {
+X						SendDlgItemMessage(hdlg, PSIZE_X, WM_GETTEXT, 7, (LPARAM)((LPSTR)buf));
+X						GetInt(buf, &lpr->psize.x);
+X						SendDlgItemMessage(hdlg, PSIZE_Y, WM_GETTEXT, 7, (LPARAM)((LPSTR)buf));
+X						GetInt(buf, &lpr->psize.y);
+X					}
+X					else {
+X						lpr->psize.x = lpr->pdef.x;
+X						lpr->psize.y = lpr->pdef.y;
+X					}
+X					SendDlgItemMessage(hdlg, PSIZE_OFFX, WM_GETTEXT, 7, (LPARAM)((LPSTR)buf));
+X					GetInt(buf, &lpr->poff.x);
+X					SendDlgItemMessage(hdlg, PSIZE_OFFY, WM_GETTEXT, 7, (LPARAM)((LPSTR)buf));
+X					GetInt(buf, &lpr->poff.y);
+X
+X					if (lpr->psize.x <= 0)
+X						lpr->psize.x = lpr->pdef.x;
+X					if (lpr->psize.y <= 0)
+X						lpr->psize.y = lpr->pdef.y;
+X
+X					EndDialog(hdlg, IDOK);
+X					return TRUE;
+X				case IDCANCEL:
+X					EndDialog(hdlg, IDCANCEL);
+X					return TRUE;
+X			}
+X			break;
+X	}
+X	return FALSE;
+X}
+X
+X
+X
+X/* GetWindowLong(hwnd, 4) must be available for use */
+XBOOL
+XPrintSize(HDC printer, HWND hwnd, LPRECT lprect)
+X{
+XHDC hdc;
+XDLGPROC lpfnPrintSizeDlgProc ;
+XBOOL status = FALSE;
+XPRINT pr;
+X
+X	SetWindowLong(hwnd, 4, (LONG)((LPPRINT)&pr));
+X	pr.poff.x = 0;
+X	pr.poff.y = 0;
+X	pr.psize.x = GetDeviceCaps(printer, HORZSIZE);
+X	pr.psize.y = GetDeviceCaps(printer, VERTSIZE);
+X	hdc = GetDC(hwnd);
+X	GetClientRect(hwnd,lprect);
+X	pr.pdef.x = MulDiv(lprect->right-lprect->left, 254, 10*GetDeviceCaps(hdc, LOGPIXELSX));
+X	pr.pdef.y = MulDiv(lprect->bottom-lprect->top, 254, 10*GetDeviceCaps(hdc, LOGPIXELSX));
+X	ReleaseDC(hwnd,hdc);
+X#ifdef __DLL__
+X	lpfnPrintSizeDlgProc = (DLGPROC)GetProcAddress(hdllInstance, "PrintSizeDlgProc");
+X#else
+X	lpfnPrintSizeDlgProc = (DLGPROC)MakeProcInstance((FARPROC)PrintSizeDlgProc, hdllInstance);
+X#endif
+X	if (DialogBox (hdllInstance, "PrintSizeDlgBox", hwnd, lpfnPrintSizeDlgProc)
+X		== IDOK) {
+X		lprect->left = MulDiv(pr.poff.x*10, GetDeviceCaps(printer, LOGPIXELSX), 254);
+X		lprect->top = MulDiv(pr.poff.y*10, GetDeviceCaps(printer, LOGPIXELSY), 254);
+X		lprect->right = lprect->left + MulDiv(pr.psize.x*10, GetDeviceCaps(printer, LOGPIXELSX), 254);
+X		lprect->bottom = lprect->top + MulDiv(pr.psize.y*10, GetDeviceCaps(printer, LOGPIXELSY), 254);
+X		status = TRUE;
+X	}
+X#ifndef __DLL__
+X	FreeProcInstance((FARPROC)lpfnPrintSizeDlgProc);
+X#endif
+X	SetWindowLong(hwnd, 4, (LONG)(0L));
+X	return status;
+X}
+X
+Xvoid 
+XPrintRegister(LPPRINT lpr)
+X{
+X	LPPRINT next;
+X	next = prlist;
+X	prlist = lpr;
+X	lpr->next = next;
+X}
+X
+XLPPRINT
+XPrintFind(HDC hdc)
+X{
+X	LPPRINT this;
+X	this = prlist;
+X	while (this && (this->hdcPrn!=hdc)) {
+X		this = this->next;
+X	}
+X	return this;
+X}
+X
+Xvoid
+XPrintUnregister(LPPRINT lpr)
+X{
+X	LPPRINT this, prev;
+X	prev = (LPPRINT)NULL;
+X	this = prlist;
+X	while (this && (this!=lpr)) {
+X		prev = this;
+X		this = this->next;
+X	}
+X	if (this && (this == lpr)) {
+X		/* unhook it */
+X		if (prev)
+X			prev->next = this->next;
+X		else
+X			prlist = this->next;
+X	}
+X}
+X
+X
+X/* GetWindowLong(GetParent(hDlg), 4) must be available for use */
+XBOOL CALLBACK _export
+XPrintDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+X{
+X	LPPRINT lpr;
+X	lpr = (LPPRINT)GetWindowLong(GetParent(hDlg), 4);
+X
+X	switch(message) {
+X		case WM_INITDIALOG:
+X			lpr->hDlgPrint = hDlg;
+X			SetWindowText(hDlg,(LPSTR)lParam);
+X			EnableMenuItem(GetSystemMenu(hDlg,FALSE),SC_CLOSE,MF_GRAYED);
+X			return TRUE;
+X		case WM_COMMAND:
+X			lpr->bUserAbort = TRUE;
+X			lpr->hDlgPrint = 0;
+X			EnableWindow(GetParent(hDlg),TRUE);
+X			EndDialog(hDlg, FALSE);
+X			return TRUE;
+X	}
+X	return FALSE;
+X}
+X
+X	
+XBOOL CALLBACK _export
+XPrintAbortProc(HDC hdcPrn, int code)
+X{
+X    MSG msg;
+X    LPPRINT lpr;
+X    lpr = PrintFind(hdcPrn);
+X
+X    while (!lpr->bUserAbort && PeekMessage(&msg, 0, 0, 0, PM_REMOVE)) {
+X		if (!lpr->hDlgPrint || !IsDialogMessage(lpr->hDlgPrint,&msg)) {
+X        	TranslateMessage(&msg);
+X        	DispatchMessage(&msg);
+X		}
+X    }
+X    return(!lpr->bUserAbort);
+X}
+X
+X
+X
+X/* documented in Device Driver Adaptation Guide */
+X/* Prototypes taken from print.h */
+XDECLARE_HANDLE(HPJOB);
+X
+XHPJOB   WINAPI OpenJob(LPSTR, LPSTR, HPJOB);
+Xint     WINAPI StartSpoolPage(HPJOB);
+Xint     WINAPI EndSpoolPage(HPJOB);
+Xint     WINAPI WriteSpool(HPJOB, LPSTR, int);
+Xint     WINAPI CloseJob(HPJOB);
+Xint     WINAPI DeleteJob(HPJOB, int);
+Xint     WINAPI WriteDialog(HPJOB, LPSTR, int);
+Xint     WINAPI DeleteSpoolPage(HPJOB);
+X
+X
+X/* Modeless dialog box - Cancel printing */
+XBOOL CALLBACK _export
+XCancelDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+X{
+X    switch(message) {
+X	case WM_INITDIALOG:
+X	    SetWindowText(hDlg,(LPSTR)lParam);
+X	    return TRUE;
+X	case WM_COMMAND:
+X	    switch(LOWORD(wParam)) {
+X		case IDCANCEL:
+X		    DestroyWindow(hDlg);
+X		    return TRUE;
+X	    }
+X    }
+X    return FALSE;
+X}
+X
+X/* Dialog box to select printer port */
+XBOOL CALLBACK _export
+XSpoolDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+X{
+XLPSTR entry;
+X    switch(message) {
+X	case WM_INITDIALOG:
+X	    entry = (LPSTR)lParam;
+X	    while (*entry) {
+X		SendDlgItemMessage(hDlg, SPOOL_PORT, LB_ADDSTRING, 0, (LPARAM)entry);
+X		entry += lstrlen(entry)+1;
+X	    }
+X	    SendDlgItemMessage(hDlg, SPOOL_PORT, LB_SETCURSEL, 0, (LPARAM)0);
+X	    return TRUE;
+X	case WM_COMMAND:
+X	    switch(LOWORD(wParam)) {
+X		case SPOOL_PORT:
+X#ifdef WIN32
+X		    if (HIWORD(wParam)
+X#else
+X		    if (HIWORD(lParam)
+X#endif
+X			               == LBN_DBLCLK)
+X			PostMessage(hDlg, WM_COMMAND, IDOK, 0L);
+X		    return FALSE;
+X		case IDOK:
+X		    EndDialog(hDlg, 1+(int)SendDlgItemMessage(hDlg, SPOOL_PORT, LB_GETCURSEL, 0, 0L));
+X		    return TRUE;
+X		case IDCANCEL:
+X		    EndDialog(hDlg, 0);
+X		    return TRUE;
+X	    }
+X    }
+X    return FALSE;
+X}
+X
+X/* Print File to port */
+Xvoid WDPROC
+XDumpPrinter(HWND hwnd, LPSTR szAppName, LPSTR szFileName)
+X{
+X#define PRINT_BUF_SIZE 4096
+Xchar *buffer;
+Xchar *portname;
+XDLGPROC lpfnSpoolProc;
+Xint i, iport;
+XHPJOB hJob;
+XUINT count;
+XHFILE hf;
+Xint error = FALSE;
+XDLGPROC lpfnCancelProc;
+Xlong lsize;
+Xlong ldone;
+Xchar fmt[64];
+Xchar pcdone[10];
+XMSG msg;
+XHWND hDlgModeless;
+X
+X	if ((buffer = LocalAllocPtr(LHND, PRINT_BUF_SIZE)) == (char *)NULL)
+X	    return;
+X	/* get list of ports */
+X	GetProfileString("ports", NULL, "", buffer, PRINT_BUF_SIZE);
+X	/* select a port */
+X	lpfnSpoolProc = (DLGPROC)MakeProcInstance((FARPROC)SpoolDlgProc, hdllInstance);
+X	iport = DialogBoxParam(hdllInstance, "SpoolDlgBox", hwnd, lpfnSpoolProc, (LPARAM)buffer);
+X	FreeProcInstance((FARPROC)lpfnSpoolProc);
+X	if (!iport) {
+X		LocalFreePtr((void NEAR *)buffer);
+X		return;
+X	}
+X	portname = buffer;
+X	for (i=1; i<iport && lstrlen(portname)!=0; i++)
+X		portname += lstrlen(portname)+1;
+X	
+X	/* open file and get length */
+X	hf = _lopen(szFileName, READ);
+X	if (hf == HFILE_ERROR) {
+X	    LocalFreePtr((void NEAR *)buffer);
+X	    return;
+X	}
+X	lsize = _llseek(hf, 0L, 2);
+X	(void)_llseek(hf, 0L, 0);
+X	if (lsize <= 0)
+X	    lsize = 1;
+X
+X	hJob = OpenJob(portname, szFileName, (HDC)NULL);
+X	switch ((int)hJob) {
+X	    case SP_APPABORT:
+X	    case SP_ERROR:
+X	    case SP_OUTOFDISK:
+X	    case SP_OUTOFMEMORY:
+X	    case SP_USERABORT:
+X	        _lclose(hf);
+X		LocalFreePtr((void NEAR *)buffer);
+X	        return;
+X	}
+X	if (StartSpoolPage(hJob) < 0)
+X	    error = TRUE;
+X
+X	ldone = 0;
+X	lpfnCancelProc = (DLGPROC)MakeProcInstance((FARPROC)CancelDlgProc, hdllInstance);
+X	hDlgModeless = CreateDialogParam(hdllInstance, "CancelDlgBox", hwnd, lpfnCancelProc, (LPARAM)szAppName);
+X
+X	while (!error && hDlgModeless && IsWindow(hDlgModeless)
+X          && ((count = _lread(hf, buffer, PRINT_BUF_SIZE))!= 0) ) {
+X	    wsprintf(pcdone, "%d%% done", (int)(ldone * 100 / lsize));
+X	    SetWindowText(GetDlgItem(hDlgModeless, CANCEL_PCDONE), pcdone);
+X	    if (WriteSpool(hJob, buffer, count) < 0)
+X		error = TRUE;
+X	    ldone += count;
+X	    while (IsWindow(hDlgModeless) && PeekMessage(&msg, hDlgModeless, 0, 0, PM_REMOVE)) {
+X	        if (!IsDialogMessage(hDlgModeless, &msg)) {
+X		    TranslateMessage(&msg);
+X		    DispatchMessage(&msg);
+X		}
+X	    }
+X	}
+X	LocalFreePtr((void NEAR *)buffer);
+X	_lclose(hf);
+X
+X	if (!hDlgModeless || !IsWindow(hDlgModeless))
+X	    error=TRUE;
+X	if (IsWindow(hDlgModeless))
+X	    DestroyWindow(hDlgModeless);
+X	hDlgModeless = 0;
+X	FreeProcInstance((FARPROC)lpfnCancelProc);
+X	EndSpoolPage(hJob);
+X	if (error)
+X	    DeleteJob(hJob, 0);
+X	else
+X	    CloseJob(hJob);
+X}
+X
+END_OF_FILE
+  if test 10679 -ne `wc -c <'gnuplot/win/wprinter.c'`; then
+    echo shar: \"'gnuplot/win/wprinter.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/win/wprinter.c'
+fi
+echo shar: End of archive 23 \(of 33\).
+cp /dev/null ark23isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

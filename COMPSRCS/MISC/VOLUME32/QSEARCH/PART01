@@ -1,0 +1,301 @@
+Newsgroups: comp.sources.misc
+From: gg@trillian.tp1.ruhr-uni-bochum.de (Guido Gronek)
+Subject:  v32i106:  qsearch - fast substring matching in either direction, Part01/01
+Message-ID: <1992Oct16.143720.10071@sparky.imd.sterling.com>
+X-Md4-Signature: cc67e3c306ace73ce096f9d65f2e5861
+Date: Fri, 16 Oct 1992 14:37:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: gg@trillian.tp1.ruhr-uni-bochum.de (Guido Gronek)
+Posting-number: Volume 32, Issue 106
+Archive-name: qsearch/part01
+Environment: ANSI-C
+
+Recently I needed a fast substring search algorithm, scanning the
+text string from right to left. The result is an ANSI-C implementation
+of a function called qsearch(), searching for the leftmost or rightmost
+occurrance of a pattern string in a text string.
+
+The algorithm used is 'quick search' by D. M. Sunday, which is a
+simple but fast practical method. It's supposed to be even faster
+than the well known Boyer-Moore algorithm, see Sunday's original
+paper CACM V33 N8, page 132 (for several improvements of the basic
+method as well). The reversed text scanning I have realized by a
+rather simple variation of the original algorithm.
+
+-----
+#!/bin/sh
+# This is a shell archive (shar 3.21)
+# made 10/12/1992 20:25 UTC by gg@trillian
+#
+# existing files WILL be overwritten
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#   2749 -rw-r--r-- qsearch.txt
+#   3482 -rw-r--r-- qsearch.c
+#    316 -rw-r--r-- qsearch.h
+#
+if touch 2>&1 | fgrep '[-amc]' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= qsearch.txt ==============
+echo "x - extracting qsearch.txt (Text)"
+sed 's/^X//' << 'SHAR_EOF' > qsearch.txt &&
+X*
+X* qsearch: fast substring matching in forward and backward direction
+X* 9-Oct-1992, Guido Gronek
+X*
+X
+XRecently I needed a fast substring search algorithm, scanning the
+Xtext string from right to left. The result is an ANSI-C implementation
+Xof a function called qsearch(), searching for the leftmost or rightmost
+Xoccurrance of a pattern string in a text string.
+X
+XThe algorithm used is 'quick search' by D. M. Sunday, which is a
+Xsimple but fast practical method. It's supposed to be even faster
+Xthan the well known Boyer-Moore algorithm, see Sunday's original
+Xpaper CACM V33 N8, page 132 (for several improvements of the basic
+Xmethod as well). The reversed text scanning I have realized by a
+Xrather simple variation of the original algorithm.
+X
+XThe fastness of 'quick search' bases on the generation of a shift table
+X(called 'table delta 1' by Sunday) from the pattern string first. This
+Xpermits to perform the actual searching process with a minimal number of
+Xcomparisons. There are two separate functions realising these two steps,
+Xnamely mktd1() and qsearch(). The shift table has to be declared by the
+Xcaller and is passed to mktd1() and to qsearch() as well. The allows a
+Xsimultaneous searching for several patterns.
+XTypically one should generate the shift table once for a given pattern
+Xstring and then use it to search for the pattern in a number of text
+Xstrings. 
+X
+XAnother realisation of 'quick search' has been posted to comp.sources.misc
+X(v14i074) by gwyn@smoke.brl.mil (Doug Gwyn) to code the usual strstr()
+Xlibrary function. My implementation differs from Gwyn's approach as
+Xfollows:
+X1. Before initialising the shift table, the length of the pattern string
+X   is calculated first, see mktd1(). This avoids stepping through the
+X   whole shift table (having 256 elements) twice, as done by the Gwyn
+X   code. Because initialising the shift table is always rather costly,
+X   a quick search based version of the standard strstr() seems useless.
+X2. A pre-calculation of text string length is done by qsearch() before
+X   the actual matching process begins. The method given by Gwyn avoids
+X   this pre-calculation by recognizing that text characters being compared
+X   with corresponding pattern characters need not be checked against
+X   '\0' too. This results in a better best case and mid case behaviour.
+X   But: pathological combinations of text and pattern strings may produce
+X   extreme overhead. I tried
+X            text   : abcdxxxxxxxxxx
+X            pattern: yzxxxxx
+X   to find text characters being tested against '\0' 57 times with a
+X   text length of only 14 !
+X   That's why I arranged things this way: if for some reason the length 
+X   of the text string is known, you can pass it to qsearch() via
+X   parameter 'tlen', else simply pass 0.
+SHAR_EOF
+$TOUCH -am 1012144792 qsearch.txt &&
+chmod 0644 qsearch.txt ||
+echo "restore of qsearch.txt failed"
+set `wc -c qsearch.txt`;Wc_c=$1
+if test "$Wc_c" != "2749"; then
+	echo original size 2749, current size $Wc_c
+fi
+# ============= qsearch.c ==============
+echo "x - extracting qsearch.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > qsearch.c &&
+X
+X/*
+X * qsearch.c: fast substring matching in forward and backward direction
+X * 9-Oct-1992, Guido Gronek
+X */
+X
+X#include <stdlib.h>
+X#include <string.h>
+X#include <limits.h>
+X
+X#include "qsearch.h"
+X
+X#define TEST
+X
+Xstatic size_t Plen;                      /* length of pattern */
+X
+X
+X/*
+X * generate shift table from pattern string
+X * out: address of the initialised shift table
+X */
+Xsize_t *mktd1(pstr, reverse, td1)
+Xconst char *pstr;                   /* pattern string */
+Xint reverse;                        /* reverse order TRUE/FALSE */
+Xshifttab td1;                       /* the caller-supplied shift table */
+X{
+X  int c;
+X  size_t m;
+X  const char *p;
+X  size_t * shift;
+X
+X  for (p = pstr; *p; ++p)
+X    ;
+X  Plen = m = p - pstr;              /* length of pattern */
+X
+X  for( ++m, shift = td1, c = UCHAR_MAX+1; --c >=0; )
+X    *shift++ = m;         /* initialize shift table with Plen + 1 */
+X
+X  if (reverse)
+X    for (shift = td1; p>pstr; )     /* scan pattern right to left */
+X      shift[*--p] = --m;
+X  else
+X    for (shift = td1, p = pstr; *p; ) /* scan pattern left to right */
+X      shift[*p++] = --m;
+X
+X  return td1;
+X}
+X
+X
+X/* Quicksearch for a pattern in text
+X * out: address of the substring in the text or 0 if none
+X */
+Xchar *qsearch(pstr, text, td1, reverse, tlen)
+Xconst char *pstr;                 /* pattern string */
+Xconst char *text;                 /* text */
+Xconst size_t *td1;                /* shift table ASUMED INITIALISED */
+Xint reverse;                      /* reverse order TRUE/FALSE */
+Xsize_t tlen;                      /* text string length if > 0 */
+X{
+X  register const char *p, *t, *tx;
+X  const char *txe;
+X  size_t m;
+X
+X  if ( pstr==0 || text==0 )
+X    return 0;
+X
+X  m = Plen;
+X  if (tlen > 0)               /* length of text string supported */
+X    txe = text + tlen;
+X  else
+X  {
+X    tx = text;
+X    while (*tx++)
+X      ;
+X    txe = --tx;
+X  }
+X  if (reverse)
+X  {
+X    tx = txe - m;                  /* rightmost possible match */
+X    while ( tx >= text )
+X    {
+X      p = pstr; t = tx;
+X      do
+X      {
+X        if (*p == 0)               /* pattern scanned completely */
+X          return (char *)tx;
+X      } while ( *p++ == *t++ );    /* break if mismatch */
+X      if ( tx>text )
+X          tx -= td1[*(tx-1)];      /* shift to previous text location */
+X      else
+X        break;
+X    }
+X  }
+X  else
+X  {
+X    tx = text;
+X    while ( tx + m <= txe )
+X    {
+X      p = pstr; t = tx;
+X      do
+X      {
+X        if (*p == 0)               /*  pattern scanned completely */
+X          return (char *)tx;
+X      } while ( *p++ == *t++ );    /* break if mismatch */
+X      tx += td1[*(tx+m)];          /* shift to next text location */
+X    }
+X  }
+X  return 0;
+X}
+X
+X
+X#ifdef TEST
+X#include <stdio.h>
+X#include <string.h>
+X
+X#define USAGE "usage: qsearch [-r] text pattern\n"
+X
+Xchar *strsearch(const char *pstr, const char *text, int reverse);
+X
+X
+Xchar *strsearch(text, pstr, reverse)
+Xconst char *text;
+Xconst char *pstr;
+Xint reverse;
+X{
+X  static shifttab shift;
+X
+X  return qsearch( pstr, text, mktd1(pstr,reverse,shift), reverse, 0 );
+X}
+X
+X
+Xint main( argc, argv )
+Xint  argc;
+Xchar *argv[];
+X{
+X  register char *p;
+X  int reverse;
+X
+X  if ( argc < 3 )
+X  {
+X    fprintf(stderr, USAGE);
+X    exit(1);
+X  }
+X  if ( (reverse = strcmp(argv[1],"-r") ==0) !=0 && argc < 4 )
+X  {
+X    fprintf(stderr, USAGE);
+X    exit(1);
+X  }
+X
+X  p = reverse ? strsearch(argv[2], argv[3], 1) :  
+X                strsearch(argv[1], argv[2], 0);
+X  if ( p == 0 )
+X    printf("pattern not found\n");
+X  else
+X    printf("pattern start: %s\n", p);
+X  return 0;
+X}
+X
+X#endif
+SHAR_EOF
+$TOUCH -am 1012222392 qsearch.c &&
+chmod 0644 qsearch.c ||
+echo "restore of qsearch.c failed"
+set `wc -c qsearch.c`;Wc_c=$1
+if test "$Wc_c" != "3482"; then
+	echo original size 3482, current size $Wc_c
+fi
+# ============= qsearch.h ==============
+echo "x - extracting qsearch.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > qsearch.h &&
+X/*
+X * qsearch.h: header file for qsearch.c
+X * 9-Oct-1992, Guido Gronek
+X */
+X
+Xtypedef size_t shifttab[UCHAR_MAX+1];   /* shift table */
+X
+Xextern size_t qs_tlen;
+X
+Xsize_t * mktd1(const char *pstr, int reverse, shifttab td1);
+Xchar *qsearch(const char *pstr, const char *text, const size_t *td1, int reverse, size_t tlen);
+SHAR_EOF
+$TOUCH -am 1012222392 qsearch.h &&
+chmod 0644 qsearch.h ||
+echo "restore of qsearch.h failed"
+set `wc -c qsearch.h`;Wc_c=$1
+if test "$Wc_c" != "316"; then
+	echo original size 316, current size $Wc_c
+fi
+exit 0
+
+
+exit 0 # Just in case...

@@ -1,0 +1,2068 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i039:  perl - The perl programming language, Patch28
+Message-ID: <1992Jun11.180644.956@sparky.imd.sterling.com>
+X-Md4-Signature: 5d7b331e1592819455b684f9aac3f3ab
+Date: Thu, 11 Jun 1992 18:06:44 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 39
+Archive-name: perl/patch28
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 28
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 27
+1c1
+< #define PATCHLEVEL 27
+---
+> #define PATCHLEVEL 28
+
+Index: malloc.c
+*** malloc.c.old	Mon Jun  8 17:49:27 1992
+--- malloc.c	Mon Jun  8 17:49:27 1992
+***************
+*** 1,6 ****
+! /* $RCSfile: malloc.c,v $$Revision: 4.0.1.3 $$Date: 91/11/05 17:57:40 $
+   *
+   * $Log:	malloc.c,v $
+   * Revision 4.0.1.3  91/11/05  17:57:40  lwall
+   * patch11: safe malloc code now integrated into Perl's malloc when possible
+   * 
+--- 1,11 ----
+! /* $RCSfile: malloc.c,v $$Revision: 4.0.1.4 $$Date: 92/06/08 14:28:38 $
+   *
+   * $Log:	malloc.c,v $
++  * Revision 4.0.1.4  92/06/08  14:28:38  lwall
++  * patch20: removed implicit int declarations on functions
++  * patch20: hash tables now split only if the memory is available to do so
++  * patch20: realloc(0, size) now does malloc in case library routines call it
++  * 
+   * Revision 4.0.1.3  91/11/05  17:57:40  lwall
+   * patch11: safe malloc code now integrated into Perl's malloc when possible
+   * 
+***************
+*** 102,108 ****
+  
+  #ifdef debug
+  #define	ASSERT(p)   if (!(p)) botch("p"); else
+! static
+  botch(s)
+  	char *s;
+  {
+--- 107,113 ----
+  
+  #ifdef debug
+  #define	ASSERT(p)   if (!(p)) botch("p"); else
+! static void
+  botch(s)
+  	char *s;
+  {
+***************
+*** 120,139 ****
+  
+  MALLOCPTRTYPE *
+  malloc(nbytes)
+! 	register unsigned nbytes;
+  {
+    	register union overhead *p;
+    	register int bucket = 0;
+!   	register unsigned shiftr;
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! 	int size = nbytes;
+  #endif
+  
+  #ifdef MSDOS
+  	if (nbytes > 0xffff) {
+! 		fprintf(stderr, "Allocation too large: %lx\n", nbytes);
+  		exit(1);
+  	}
+  #endif /* MSDOS */
+--- 125,144 ----
+  
+  MALLOCPTRTYPE *
+  malloc(nbytes)
+! 	register MEM_SIZE nbytes;
+  {
+    	register union overhead *p;
+    	register int bucket = 0;
+!   	register MEM_SIZE shiftr;
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! 	MEM_SIZE size = nbytes;
+  #endif
+  
+  #ifdef MSDOS
+  	if (nbytes > 0xffff) {
+! 		fprintf(stderr, "Allocation too large: %lx\n", (long)nbytes);
+  		exit(1);
+  	}
+  #endif /* MSDOS */
+***************
+*** 163,170 ****
+    		morecore(bucket);
+    	if ((p = (union overhead *)nextf[bucket]) == NULL) {
+  #ifdef safemalloc
+! 		fputs("Out of memory!\n", stderr);
+! 		exit(1);
+  #else
+    		return (NULL);
+  #endif
+--- 168,177 ----
+    		morecore(bucket);
+    	if ((p = (union overhead *)nextf[bucket]) == NULL) {
+  #ifdef safemalloc
+! 		if (!nomemok) {
+! 		    fputs("Out of memory!\n", stderr);
+! 		    exit(1);
+! 		}
+  #else
+    		return (NULL);
+  #endif
+***************
+*** 172,183 ****
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  ifndef I286
+      if (debug & 128)
+!         fprintf(stderr,"0x%x: (%05d) malloc %d bytes\n",p+1,an++,size);
+  #  else
+      if (debug & 128)
+!         fprintf(stderr,"0x%lx: (%05d) malloc %d bytes\n",p+1,an++,size);
+  #  endif
+  #endif
+  #endif /* safemalloc */
+--- 179,190 ----
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+      if (debug & 128)
+!         fprintf(stderr,"0x%x: (%05d) malloc %ld bytes\n",p+1,an++,(long)size);
+  #  else
+      if (debug & 128)
+!         fprintf(stderr,"0x%lx: (%05d) malloc %ld bytes\n",p+1,an++,(long)size);
+  #  endif
+  #endif
+  #endif /* safemalloc */
+***************
+*** 185,191 ****
+  	/* remove from linked list */
+  #ifdef RCHECK
+  	if (*((int*)p) & (sizeof(union overhead) - 1))
+! #ifndef I286
+  	    fprintf(stderr,"Corrupt malloc ptr 0x%x at 0x%x\n",*((int*)p),p);
+  #else
+  	    fprintf(stderr,"Corrupt malloc ptr 0x%lx at 0x%lx\n",*((int*)p),p);
+--- 192,198 ----
+  	/* remove from linked list */
+  #ifdef RCHECK
+  	if (*((int*)p) & (sizeof(union overhead) - 1))
+! #if !(defined(I286) || defined(atarist))
+  	    fprintf(stderr,"Corrupt malloc ptr 0x%x at 0x%x\n",*((int*)p),p);
+  #else
+  	    fprintf(stderr,"Corrupt malloc ptr 0x%lx at 0x%lx\n",*((int*)p),p);
+***************
+*** 220,226 ****
+    	register union overhead *op;
+    	register int rnu;       /* 2^rnu bytes will be requested */
+    	register int nblks;     /* become nblks blocks of the desired size */
+! 	register int siz;
+  
+    	if (nextf[bucket])
+    		return;
+--- 227,233 ----
+    	register union overhead *op;
+    	register int rnu;       /* 2^rnu bytes will be requested */
+    	register int nblks;     /* become nblks blocks of the desired size */
+! 	register MEM_SIZE siz;
+  
+    	if (nextf[bucket])
+    		return;
+***************
+*** 229,234 ****
+--- 236,242 ----
+  	 * on a page boundary.  Should
+  	 * make getpageize call?
+  	 */
++ #ifndef atarist /* on the atari we dont have to worry about this */
+    	op = (union overhead *)sbrk(0);
+  #ifndef I286
+    	if ((int)op & 0x3ff)
+***************
+*** 236,254 ****
+  #else
+  	/* The sbrk(0) call on the I286 always returns the next segment */
+  #endif
+  
+! #ifndef I286
+  	/* take 2k unless the block is bigger than that */
+    	rnu = (bucket <= 8) ? 11 : bucket + 3;
+  #else
+  	/* take 16k unless the block is bigger than that 
+! 	   (80286s like large segments!)		*/
+    	rnu = (bucket <= 11) ? 14 : bucket + 3;
+  #endif
+    	nblks = 1 << (rnu - (bucket + 3));  /* how many blocks to get */
+    	if (rnu < bucket)
+  		rnu = bucket;
+! 	op = (union overhead *)sbrk(1 << rnu);
+  	/* no more room! */
+    	if ((int)op == -1)
+    		return;
+--- 244,263 ----
+  #else
+  	/* The sbrk(0) call on the I286 always returns the next segment */
+  #endif
++ #endif /* atarist */
+  
+! #if !(defined(I286) || defined(atarist))
+  	/* take 2k unless the block is bigger than that */
+    	rnu = (bucket <= 8) ? 11 : bucket + 3;
+  #else
+  	/* take 16k unless the block is bigger than that 
+! 	   (80286s like large segments!), probably good on the atari too */
+    	rnu = (bucket <= 11) ? 14 : bucket + 3;
+  #endif
+    	nblks = 1 << (rnu - (bucket + 3));  /* how many blocks to get */
+    	if (rnu < bucket)
+  		rnu = bucket;
+! 	op = (union overhead *)sbrk(1L << rnu);
+  	/* no more room! */
+    	if ((int)op == -1)
+    		return;
+***************
+*** 258,264 ****
+  	 */
+  #ifndef I286
+    	if ((int)op & 7) {
+!   		op = (union overhead *)(((int)op + 8) &~ 7);
+    		nblks--;
+    	}
+  #else
+--- 267,273 ----
+  	 */
+  #ifndef I286
+    	if ((int)op & 7) {
+!   		op = (union overhead *)(((MEM_SIZE)op + 8) &~ 7);
+    		nblks--;
+    	}
+  #else
+***************
+*** 280,292 ****
+  free(mp)
+  	MALLOCPTRTYPE *mp;
+  {   
+!   	register int size;
+  	register union overhead *op;
+  	char *cp = (char*)mp;
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  ifndef I286
+  	if (debug & 128)
+  		fprintf(stderr,"0x%x: (%05d) free\n",cp,an++);
+  #  else
+--- 289,301 ----
+  free(mp)
+  	MALLOCPTRTYPE *mp;
+  {   
+!   	register MEM_SIZE size;
+  	register union overhead *op;
+  	char *cp = (char*)mp;
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+  	if (debug & 128)
+  		fprintf(stderr,"0x%x: (%05d) free\n",cp,an++);
+  #  else
+***************
+*** 339,347 ****
+  MALLOCPTRTYPE *
+  realloc(mp, nbytes)
+  	MALLOCPTRTYPE *mp; 
+! 	unsigned nbytes;
+  {   
+!   	register u_int onb;
+  	union overhead *op;
+    	char *res;
+  	register int i;
+--- 348,356 ----
+  MALLOCPTRTYPE *
+  realloc(mp, nbytes)
+  	MALLOCPTRTYPE *mp; 
+! 	MEM_SIZE nbytes;
+  {   
+!   	register MEM_SIZE onb;
+  	union overhead *op;
+    	char *res;
+  	register int i;
+***************
+*** 350,356 ****
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! 	int size = nbytes;
+  #endif
+  
+  #ifdef MSDOS
+--- 359,365 ----
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! 	MEM_SIZE size = nbytes;
+  #endif
+  
+  #ifdef MSDOS
+***************
+*** 360,366 ****
+  	}
+  #endif /* MSDOS */
+  	if (!cp)
+! 		fatal("Null realloc");
+  #ifdef DEBUGGING
+  	if ((long)nbytes < 0)
+  		fatal("panic: realloc");
+--- 369,375 ----
+  	}
+  #endif /* MSDOS */
+  	if (!cp)
+! 		return malloc(nbytes);
+  #ifdef DEBUGGING
+  	if ((long)nbytes < 0)
+  		fatal("panic: realloc");
+***************
+*** 367,374 ****
+  #endif
+  #endif /* safemalloc */
+  
+-   	if (cp == NULL)
+-   		return (malloc(nbytes));
+  	op = (union overhead *)((caddr_t)cp - sizeof (union overhead));
+  	if (op->ov_magic == MAGIC) {
+  		was_alloced++;
+--- 376,381 ----
+***************
+*** 389,395 ****
+  		    (i = findbucket(op, reall_srchlen)) < 0)
+  			i = 0;
+  	}
+! 	onb = (1 << (i + 3)) - sizeof (*op) - RSLOP;
+  	/* avoid the copy if same size block */
+  	if (was_alloced &&
+  	    nbytes <= onb && nbytes > (onb >> 1) - sizeof(*op) - RSLOP) {
+--- 396,402 ----
+  		    (i = findbucket(op, reall_srchlen)) < 0)
+  			i = 0;
+  	}
+! 	onb = (1L << (i + 3)) - sizeof (*op) - RSLOP;
+  	/* avoid the copy if same size block */
+  	if (was_alloced &&
+  	    nbytes <= onb && nbytes > (onb >> 1) - sizeof(*op) - RSLOP) {
+***************
+*** 417,423 ****
+  		if ((res = (char*)malloc(nbytes)) == NULL)
+  			return (NULL);
+  		if (cp != res)			/* common optimization */
+! 			bcopy(cp, res, (int)(nbytes < onb ? nbytes : onb));
+  		if (was_alloced)
+  			free(cp);
+  	}
+--- 424,430 ----
+  		if ((res = (char*)malloc(nbytes)) == NULL)
+  			return (NULL);
+  		if (cp != res)			/* common optimization */
+! 			Copy(cp, res, (MEM_SIZE)(nbytes<onb?nbytes:onb), char);
+  		if (was_alloced)
+  			free(cp);
+  	}
+***************
+*** 424,438 ****
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  ifndef I286
+  	if (debug & 128) {
+  	    fprintf(stderr,"0x%x: (%05d) rfree\n",res,an++);
+! 	    fprintf(stderr,"0x%x: (%05d) realloc %d bytes\n",res,an++,size);
+  	}
+  #  else
+  	if (debug & 128) {
+  	    fprintf(stderr,"0x%lx: (%05d) rfree\n",res,an++);
+! 	    fprintf(stderr,"0x%lx: (%05d) realloc %d bytes\n",res,an++,size);
+  	}
+  #  endif
+  #endif
+--- 431,445 ----
+  
+  #ifdef safemalloc
+  #ifdef DEBUGGING
+! #  if !(defined(I286) || defined(atarist))
+  	if (debug & 128) {
+  	    fprintf(stderr,"0x%x: (%05d) rfree\n",res,an++);
+! 	    fprintf(stderr,"0x%x: (%05d) realloc %ld bytes\n",res,an++,(long)size);
+  	}
+  #  else
+  	if (debug & 128) {
+  	    fprintf(stderr,"0x%lx: (%05d) rfree\n",res,an++);
+! 	    fprintf(stderr,"0x%lx: (%05d) realloc %ld bytes\n",res,an++,(long)size);
+  	}
+  #  endif
+  #endif
+***************
+*** 445,451 ****
+   * header starts at ``freep''.  If srchlen is -1 search the whole list.
+   * Return bucket number, or -1 if not found.
+   */
+! static
+  findbucket(freep, srchlen)
+  	union overhead *freep;
+  	int srchlen;
+--- 452,458 ----
+   * header starts at ``freep''.  If srchlen is -1 search the whole list.
+   * Return bucket number, or -1 if not found.
+   */
+! static int
+  findbucket(freep, srchlen)
+  	union overhead *freep;
+  	int srchlen;
+***************
+*** 472,477 ****
+--- 479,485 ----
+   * for each size category, the second showing the number of mallocs -
+   * frees for each size category.
+   */
++ void
+  mstats(s)
+  	char *s;
+  {
+
+Index: lib/newgetopt.pl
+*** lib/newgetopt.pl.old	Mon Jun  8 17:49:01 1992
+--- lib/newgetopt.pl	Mon Jun  8 17:49:01 1992
+***************
+*** 1,11 ****
+  # newgetopt.pl -- new options parsing
+  
+! # SCCS Status     : @(#)@ newgetopt.pl	1.8
+  # Author          : Johan Vromans
+  # Created On      : Tue Sep 11 15:00:12 1990
+  # Last Modified By: Johan Vromans
+! # Last Modified On: Thu Sep 26 20:10:41 1991
+! # Update Count    : 35
+  # Status          : Okay
+  
+  # This package implements a new getopt function. This function adheres
+--- 1,11 ----
+  # newgetopt.pl -- new options parsing
+  
+! # SCCS Status     : @(#)@ newgetopt.pl	1.13
+  # Author          : Johan Vromans
+  # Created On      : Tue Sep 11 15:00:12 1990
+  # Last Modified By: Johan Vromans
+! # Last Modified On: Tue Jun  2 11:24:03 1992
+! # Update Count    : 75
+  # Status          : Okay
+  
+  # This package implements a new getopt function. This function adheres
+***************
+*** 18,23 ****
+--- 18,25 ----
+  #    for mandatory arguments or ":" for optional arguments) and an
+  #    argument type specifier: "n" or "i" for integer numbers, "f" for
+  #    real (fix) numbers or "s" for strings.
++ #    If an "@" sign is appended, the option is treated as an array.
++ #    Value(s) are not set, but pushed.
+  #
+  #  - if the first option of the list consists of non-alphanumeric
+  #    characters only, it is interpreted as a generic option starter.
+***************
+*** 25,31 ****
+  #    will be considered an option.
+  #    Likewise, a double occurrence (e.g. "--") signals end of
+  #    the options list.
+! #    The default value for the starter is "-".
+  #
+  # Upon return, the option variables, prefixed with "opt_", are defined
+  # and set to the respective option arguments, if any.
+--- 27,33 ----
+  #    will be considered an option.
+  #    Likewise, a double occurrence (e.g. "--") signals end of
+  #    the options list.
+! #    The default value for the starter is "-", "--" or "+".
+  #
+  # Upon return, the option variables, prefixed with "opt_", are defined
+  # and set to the respective option arguments, if any.
+***************
+*** 49,117 ****
+  #    -foo -bar		-> $opt_foo = '-bar'
+  #    -foo --		-> $opt_foo = '--'
+  #
+- 
+  # HISTORY 
+  # 20-Sep-1990		Johan Vromans	
+  #    Set options w/o argument to 1.
+  #    Correct the dreadful semicolon/require bug.
+  
+  
+! package newgetopt;
+  
+! $debug = 0;			# for debugging
+  
+! sub main'NGetOpt {
+!     local (@optionlist) = @_;
+      local ($[) = 0;
+!     local ($genprefix) = "-";
+      local ($error) = 0;
+!     local ($opt, $optx, $arg, $type, $mand, @hits);
+  
+      # See if the first element of the optionlist contains option
+      # starter characters.
+!     $genprefix = shift (@optionlist) if $optionlist[0] =~ /^\W+$/;
+  
+-     # Turn into regexp.
+-     $genprefix =~ s/(\W)/\\\1/g;
+-     $genprefix = "[" . $genprefix . "]";
+- 
+      # Verify correctness of optionlist.
+!     @hits = grep ($_ !~ /^\w+([=:][infse])?$/, @optionlist);
+!     if ( $#hits >= 0 ) {
+! 	foreach $opt ( @hits ) {
+  	    print STDERR ("Error in option spec: \"", $opt, "\"\n");
+  	    $error++;
+  	}
+! 	return 0;
+      }
+  
+      # Process argument list
+  
+!     while ( $#main'ARGV >= 0 ) {		#'){
+  
+  	# >>> See also the continue block <<<
+  
+  	# Get next argument
+! 	$opt = shift (@main'ARGV);		#');
+  	print STDERR ("=> option \"", $opt, "\"\n") if $debug;
+  	$arg = undef;
+  
+  	# Check for exhausted list.
+! 	if ( $opt =~ /^$genprefix/o ) {
+  	    # Double occurrence is terminator
+! 	    return ($error == 0) if $opt eq "$+$+";
+  	    $opt = $';		# option name (w/o prefix)
+  	}
+  	else {
+  	    # Apparently not an option - push back and exit.
+! 	    unshift (@main'ARGV, $opt);		#');
+  	    return ($error == 0);
+  	}
+  
+! 	# Grep in option list. Hide regexp chars from option.
+! 	($optx = $opt) =~ s/(\W)/\\\1/g;
+! 	@hits = grep (/^$optx([=:].+)?$/, @optionlist);
+! 	if ( $#hits != 0 ) {
+  	    print STDERR ("Unknown option: ", $opt, "\n");
+  	    $error++;
+  	    next;
+--- 51,165 ----
+  #    -foo -bar		-> $opt_foo = '-bar'
+  #    -foo --		-> $opt_foo = '--'
+  #
+  # HISTORY 
++ # 2-Jun-1992		Johan Vromans	
++ #    Do not use //o to allow multiple NGetOpt calls with different delimeters.
++ #    Prevent typeless option from using previous $array state.
++ #    Prevent empty option from being eaten as a (negative) number.
++ 
++ # 25-May-1992		Johan Vromans	
++ #    Add array options. "foo=s@" will return an array @opt_foo that
++ #    contains all values that were supplied. E.g. "-foo one -foo -two" will
++ #    return @opt_foo = ("one", "-two");
++ #    Correct bug in handling options that allow for a argument when followed
++ #    by another option.
++ 
++ # 4-May-1992		Johan Vromans	
++ #    Add $ignorecase to match options in either case.
++ #    Allow '' option.
++ 
++ # 19-Mar-1992		Johan Vromans	
++ #    Allow require from packages.
++ #    NGetOpt is now defined in the package that requires it.
++ #    @ARGV and $opt_... are taken from the package that calls it.
++ #    Use standard (?) option prefixes: -, -- and +.
++ 
+  # 20-Sep-1990		Johan Vromans	
+  #    Set options w/o argument to 1.
+  #    Correct the dreadful semicolon/require bug.
+  
+  
+! {   package newgetopt;
+!     $debug = 0;			# for debugging
+!     $ignorecase = 1;		# ignore case when matching options
+! }
+  
+! sub NGetOpt {
+  
+!     @newgetopt'optionlist = @_;
+!     *newgetopt'ARGV = *ARGV;
+! 
+!     package newgetopt;
+! 
+      local ($[) = 0;
+!     local ($genprefix) = "(--|-|\\+)";
+!     local ($argend) = "--";
+      local ($error) = 0;
+!     local ($opt, $optx, $arg, $type, $mand, %opctl);
+!     local ($pkg) = (caller)[0];
+  
++     print STDERR "NGetOpt 1.13 -- called from $pkg\n" if $debug;
++ 
+      # See if the first element of the optionlist contains option
+      # starter characters.
+!     if ( $optionlist[0] =~ /^\W+$/ ) {
+! 	$genprefix = shift (@optionlist);
+! 	# Turn into regexp.
+! 	$genprefix =~ s/(\W)/\\\1/g;
+! 	$genprefix = "[" . $genprefix . "]";
+! 	undef $argend;
+!     }
+  
+      # Verify correctness of optionlist.
+!     %opctl = ();
+!     foreach $opt ( @optionlist ) {
+! 	$opt =~ tr/A-Z/a-z/ if $ignorecase;
+! 	if ( $opt !~ /^(\w*)([=:][infse]@?)?$/ ) {
+  	    print STDERR ("Error in option spec: \"", $opt, "\"\n");
+  	    $error++;
++ 	    next;
+  	}
+! 	$opctl{$1} = defined $2 ? $2 : "";
+      }
+  
++     return 0 if $error;
++ 
++     if ( $debug ) {
++ 	local ($arrow, $k, $v);
++ 	$arrow = "=> ";
++ 	while ( ($k,$v) = each(%opctl) ) {
++ 	    print STDERR ($arrow, "\$opctl{\"$k\"} = \"$v\"\n");
++ 	    $arrow = "   ";
++ 	}
++     }
++ 
+      # Process argument list
+  
+!     while ( $#ARGV >= 0 ) {
+  
+  	# >>> See also the continue block <<<
+  
+  	# Get next argument
+! 	$opt = shift (@ARGV);
+  	print STDERR ("=> option \"", $opt, "\"\n") if $debug;
+  	$arg = undef;
+  
+  	# Check for exhausted list.
+! 	if ( $opt =~ /^$genprefix/ ) {
+  	    # Double occurrence is terminator
+! 	    return ($error == 0) 
+! 		if ($opt eq "$+$+") || ((defined $argend) && $opt eq $argend);
+  	    $opt = $';		# option name (w/o prefix)
+  	}
+  	else {
+  	    # Apparently not an option - push back and exit.
+! 	    unshift (@ARGV, $opt);
+  	    return ($error == 0);
+  	}
+  
+! 	# Look it up.
+! 	$opt =~ tr/A-Z/a-z/ if $ignorecase;
+! 	unless  ( defined ( $type = $opctl{$opt} ) ) {
+  	    print STDERR ("Unknown option: ", $opt, "\n");
+  	    $error++;
+  	    next;
+***************
+*** 118,138 ****
+  	}
+  
+  	# Determine argument status.
+! 	undef $type;
+! 	$type = $+ if $hits[0] =~ /[=:].+$/;
+! 	print STDERR ("=> found \"$hits[0]\" for ", $opt, "\n") if $debug;
+  
+  	# If it is an option w/o argument, we're almost finished with it.
+! 	if ( ! defined $type ) {
+  	    $arg = 1;		# supply explicit value
+  	    next;
+  	}
+  
+  	# Get mandatory status and type info.
+! 	($mand, $type) = $type =~ /^(.)(.)$/;
+  
+  	# Check if the argument list is exhausted.
+! 	if ( $#main'ARGV < 0 ) {		#'){
+  
+  	    # Complain if this option needs an argument.
+  	    if ( $mand eq "=" ) {
+--- 166,185 ----
+  	}
+  
+  	# Determine argument status.
+! 	print STDERR ("=> found \"$type\" for ", $opt, "\n") if $debug;
+  
+  	# If it is an option w/o argument, we're almost finished with it.
+! 	if ( $type eq "" ) {
+  	    $arg = 1;		# supply explicit value
++ 	    $array = 0;
+  	    next;
+  	}
+  
+  	# Get mandatory status and type info.
+! 	($mand, $type, $array) = $type =~ /^(.)(.)(@?)$/;
+  
+  	# Check if the argument list is exhausted.
+! 	if ( $#ARGV < 0 ) {
+  
+  	    # Complain if this option needs an argument.
+  	    if ( $mand eq "=" ) {
+***************
+*** 146,175 ****
+  	}
+  
+  	# Get (possibly optional) argument.
+! 	$arg = shift (@main'ARGV);		#');
+  
+  	# Check if it is a valid argument. A mandatory string takes
+!  	# anything. 
+! 	if ( "$mand$type" ne "=s" && $arg =~ /^$genprefix/o ) {
+  
+  	    # Check for option list terminator.
+! 	    if ( $arg eq "$+$+" ) {
+  		# Complain if an argument is required.
+  		if ($mand eq "=") {
+  		    print STDERR ("Option ", $opt, " requires an argument\n");
+  		    $error++;
+  		}
+! 		# Push back so the outer loop will terminate.
+! 		unshift (@main'ARGV, $arg);	#');
+! 		$arg = "";	# don't assign it
+  		next;
+  	    }
+  
+  	    # Maybe the optional argument is the next option?
+! 	    if ( $mand eq ":" && $' =~ /[a-zA-Z_]/ ) {
+  		# Yep. Push back.
+! 		unshift (@main'ARGV, $arg);	#');
+! 		$arg = "";	# don't assign it
+  		next;
+  	    }
+  	}
+--- 193,227 ----
+  	}
+  
+  	# Get (possibly optional) argument.
+! 	$arg = shift (@ARGV);
+  
+  	# Check if it is a valid argument. A mandatory string takes
+! 	# anything. 
+! 	if ( "$mand$type" ne "=s" && $arg =~ /^$genprefix/ ) {
+  
+  	    # Check for option list terminator.
+! 	    if ( $arg eq "$+$+" || 
+! 		 ((defined $argend) && $arg eq $argend)) {
+! 		# Push back so the outer loop will terminate.
+! 		unshift (@ARGV, $arg);
+  		# Complain if an argument is required.
+  		if ($mand eq "=") {
+  		    print STDERR ("Option ", $opt, " requires an argument\n");
+  		    $error++;
++ 		    undef $arg;	# don't assign it
+  		}
+! 		else {
+! 		    # Supply empty value.
+! 		    $arg = $type eq "s" ? "" : 0;
+! 		}
+  		next;
+  	    }
+  
+  	    # Maybe the optional argument is the next option?
+! 	    if ( $mand eq ":" && ($' eq "" || $' =~ /[a-zA-Z_]/) ) {
+  		# Yep. Push back.
+! 		unshift (@ARGV, $arg);
+! 		$arg = $type eq "s" ? "" : 0;
+  		next;
+  	    }
+  	}
+***************
+*** 177,184 ****
+  	if ( $type eq "n" || $type eq "i" ) { # numeric/integer
+  	    if ( $arg !~ /^-?[0-9]+$/ ) {
+  		print STDERR ("Value \"", $arg, "\" invalid for option ",
+! 			       $opt, " (numeric required)\n");
+  		$error++;
+  	    }
+  	    next;
+  	}
+--- 229,237 ----
+  	if ( $type eq "n" || $type eq "i" ) { # numeric/integer
+  	    if ( $arg !~ /^-?[0-9]+$/ ) {
+  		print STDERR ("Value \"", $arg, "\" invalid for option ",
+! 			      $opt, " (number expected)\n");
+  		$error++;
++ 		undef $arg;	# don't assign it
+  	    }
+  	    next;
+  	}
+***************
+*** 186,193 ****
+  	if ( $type eq "f" ) { # fixed real number, int is also ok
+  	    if ( $arg !~ /^-?[0-9.]+$/ ) {
+  		print STDERR ("Value \"", $arg, "\" invalid for option ",
+! 			       $opt, " (real number required)\n");
+  		$error++;
+  	    }
+  	    next;
+  	}
+--- 239,247 ----
+  	if ( $type eq "f" ) { # fixed real number, int is also ok
+  	    if ( $arg !~ /^-?[0-9.]+$/ ) {
+  		print STDERR ("Value \"", $arg, "\" invalid for option ",
+! 			      $opt, " (real number expected)\n");
+  		$error++;
++ 		undef $arg;	# don't assign it
+  	    }
+  	    next;
+  	}
+***************
+*** 198,205 ****
+  
+      }
+      continue {
+! 	print STDERR ("=> \$main'opt_$opt = $arg\n") if $debug;
+! 	eval ("\$main'opt_$opt = \$arg");
+      }
+  
+      return ($error == 0);
+--- 252,269 ----
+  
+      }
+      continue {
+! 	if ( defined $arg ) {
+! 	    if ( $array ) {
+! 		print STDERR ('=> push (@', $pkg, '\'opt_', $opt, ", \"$arg\")\n")
+! 		    if $debug;
+! 	        eval ('push(@' . $pkg . '\'opt_' . $opt . ", \$arg);");
+! 	    }
+! 	    else {
+! 		print STDERR ('=> $', $pkg, '\'opt_', $opt, " = \"$arg\"\n")
+! 		    if $debug;
+! 	        eval ('$' . $pkg . '\'opt_' . $opt . " = \$arg;");
+! 	    }
+! 	}
+      }
+  
+      return ($error == 0);
+
+Index: lib/open2.pl
+*** lib/open2.pl.old	Mon Jun  8 17:49:03 1992
+--- lib/open2.pl	Mon Jun  8 17:49:04 1992
+***************
+*** 0 ****
+--- 1,54 ----
++ # &open2: tom christiansen, <tchrist@convex.com>
++ #
++ # usage: $pid = &open2('rdr', 'wtr', 'some cmd and args');
++ #    or  $pid = &open2('rdr', 'wtr', 'some', 'cmd', 'and', 'args');
++ #
++ # spawn the given $cmd and connect $rdr for
++ # reading and $wtr for writing.  return pid
++ # of child, or 0 on failure.  
++ # 
++ # WARNING: this is dangerous, as you may block forever
++ # unless you are very careful.  
++ # 
++ # $wtr is left unbuffered.
++ # 
++ # abort program if
++ #	rdr or wtr are null
++ # 	pipe or fork or exec fails
++ 
++ package open2;
++ $fh = 'FHOPEN000';  # package static in case called more than once
++ 
++ sub main'open2 {
++     local($kidpid);
++     local($dad_rdr, $dad_wtr, @cmd) = @_;
++ 
++     $dad_rdr ne '' 		|| die "open2: rdr should not be null";
++     $dad_wtr ne '' 		|| die "open2: wtr should not be null";
++ 
++     # force unqualified filehandles into callers' package
++     local($package) = caller;
++     $dad_rdr =~ s/^[^']+$/$package'$&/;
++     $dad_wtr =~ s/^[^']+$/$package'$&/;
++ 
++     local($kid_rdr) = ++$fh;
++     local($kid_wtr) = ++$fh;
++ 
++     pipe($dad_rdr, $kid_wtr) 	|| die "open2: pipe 1 failed: $!";
++     pipe($kid_rdr, $dad_wtr) 	|| die "open2: pipe 2 failed: $!";
++ 
++     if (($kidpid = fork) < 0) {
++ 	die "open2: fork failed: $!";
++     } elsif ($kidpid == 0) {
++ 	close $dad_rdr; close $dad_wtr;
++ 	open(STDIN,  "<&$kid_rdr");
++ 	open(STDOUT, ">&$kid_wtr");
++ 	warn "execing @cmd\n" if $debug;
++ 	exec @cmd;
++ 	die "open2: exec of @cmd failed";   
++     } 
++     close $kid_rdr; close $kid_wtr;
++     select((select($dad_wtr), $| = 1)[0]); # unbuffer pipe
++     $kidpid;
++ }
++ 1; # so require is happy
+
+Index: os2/os2.c
+*** os2/os2.c.old	Mon Jun  8 17:49:59 1992
+--- os2/os2.c	Mon Jun  8 17:49:59 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: os2.c,v $$Revision: 4.0.1.1 $$Date: 91/06/07 11:23:06 $
+   *
+   *    (C) Copyright 1989, 1990 Diomidis Spinellis.
+   *
+--- 1,4 ----
+! /* $RCSfile: os2.c,v $$Revision: 4.0.1.2 $$Date: 92/06/08 14:32:30 $
+   *
+   *    (C) Copyright 1989, 1990 Diomidis Spinellis.
+   *
+***************
+*** 6,11 ****
+--- 6,14 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	os2.c,v $
++  * Revision 4.0.1.2  92/06/08  14:32:30  lwall
++  * patch20: new OS/2 support
++  * 
+   * Revision 4.0.1.1  91/06/07  11:23:06  lwall
+   * patch4: new copyright notice
+   * 
+***************
+*** 54,67 ****
+  { return -1; }
+  
+  
+! /* extendd chdir() */
+  
+  int chdir(char *path)
+  {
+    if ( path[0] != 0 && path[1] == ':' )
+!     DosSelectDisk(toupper(path[0]) - '@');
+  
+!   DosChDir(path, 0L);
+  }
+  
+  
+--- 57,71 ----
+  { return -1; }
+  
+  
+! /* extended chdir() */
+  
+  int chdir(char *path)
+  {
+    if ( path[0] != 0 && path[1] == ':' )
+!     if ( DosSelectDisk(toupper(path[0]) - '@') )
+!       return -1;
+  
+!   return DosChDir(path, 0L);
+  }
+  
+  
+***************
+*** 102,107 ****
+--- 106,122 ----
+  }
+  
+  
++ /* wait for specific pid */
++ int wait4pid(int pid, int *status, int flags)
++ {
++   RESULTCODES res;
++   int endpid, rc;
++   if ( DosCwait(DCWA_PROCESS, flags ? DCWW_NOWAIT : DCWW_WAIT,
++                 &res, &endpid, pid) )
++     return -1;
++   *status = res.codeResult;
++   return endpid;
++ }
+  /* kill */
+  
+  int kill(int pid, int sig)
+***************
+*** 251,257 ****
+  usage(char *myname)
+  {
+  #ifdef MSDOS
+!   printf("\nUsage: %s [-acdnpsSvw] [-0[octal]] [-Dnumber] [-i[extension]] [-Idirectory]"
+  #else
+    printf("\nUsage: %s [-acdnpPsSuUvw] [-Dnumber] [-i[extension]] [-Idirectory]"
+  #endif
+--- 266,272 ----
+  usage(char *myname)
+  {
+  #ifdef MSDOS
+!   printf("\nUsage: %s [-acdnpPsSvw] [-0[octal]] [-Dnumber] [-i[extension]] [-Idirectory]"
+  #else
+    printf("\nUsage: %s [-acdnpPsSuUvw] [-Dnumber] [-i[extension]] [-Idirectory]"
+  #endif
+***************
+*** 262,270 ****
+           "\n  -d  run scripts under debugger"
+           "\n  -n  assume 'while (<>) { ...script... }' loop arround your script"
+           "\n  -p  assume loop like -n but print line also like sed"
+- #ifndef MSDOS
+           "\n  -P  run script through C preprocessor befor compilation"
+- #endif
+           "\n  -s  enable some switch parsing for switches after script name"
+           "\n  -S  look for the script using PATH environment variable");
+  #ifndef MSDOS
+--- 277,283 ----
+
+Index: atarist/osbind.pl
+*** atarist/osbind.pl.old	Mon Jun  8 17:35:21 1992
+--- atarist/osbind.pl	Mon Jun  8 17:35:22 1992
+***************
+*** 0 ****
+--- 1,382 ----
++ #
++ #	gemdos/xbios/bios interface on the atari
++ #
++ #  ++jrb	bammi@cadence.com
++ #
++ 
++ # camel book pp204
++ sub enum {
++     local($_) = @_;
++     local(@specs) = split(/,/);
++     local($val);
++     for(@specs) {
++         if(/=/) {
++ 	    $val = eval $_;
++         } else {
++ 	    eval $_ . ' = ++$val';
++ 	}
++     }
++ }
++ 
++ # these must match the defines in atarist.c
++ 
++ &enum(<<'EOL');
++ $_trap_1_w=1, $_trap_1_ww, $_trap_1_wl, $_trap_1_wlw, $_trap_1_www,
++ $_trap_1_wll, $_trap_1_wwll, $_trap_1_wlww, $_trap_1_wwlll, $_trap_13_w,
++ $_trap_13_ww, $_trap_13_wl, $_trap_13_www, $_trap_13_wwl, $_trap_13_wwlwww,
++ $_trap_14_w, $_trap_14_ww, $_trap_14_wl, $_trap_14_www, $_trap_14_wwl,
++ $_trap_14_wwll, $_trap_14_wllw, $_trap_14_wlll, $_trap_14_wwwl,
++ $_trap_14_wwwwl, $_trap_14_wllww, $_trap_14_wwwwwww, $_trap_14_wllwwwww,
++ $_trap_14_wllwwwwlw, $_trap_14_wllwwwwwlw
++ EOL
++ 
++ sub Pterm0 {
++   syscall($_trap_1_w, 0x00);
++ }
++ sub Cconin {
++   syscall($_trap_1_w, 0x01);
++ }
++ sub Cconout {
++   syscall($_trap_1_ww, 0x02, @_);
++ }
++ sub Cauxin {
++   syscall($_trap_1_w, 0x03);
++ }
++ sub Cauxout {
++   syscall($_trap_1_ww, 0x04, @_);
++ }
++ sub Cprnout {
++   syscall($_trap_1_ww, 0x05, @_);
++ }
++ sub Crawio {
++   syscall($_trap_1_ww, 0x06, @_);
++ }
++ sub Crawcin {
++   syscall($_trap_1_w, 0x07);
++ }
++ sub Cnecin {
++   syscall($_trap_1_w, 0x08);
++ }
++ sub Cconws {
++   syscall($_trap_1_wl, 0x09, @_);
++ }
++ sub Cconrs {
++   syscall($_trap_1_wl, 0x0A, @_);
++ }
++ sub Cconis {
++   syscall($_trap_1_w, 0x0B);
++ }
++ sub Dsetdrv {
++   syscall($_trap_1_ww, 0x0E, @_);
++ }
++ sub Cconos {
++   syscall($_trap_1_w, 0x10);
++ }
++ sub Cprnos {
++   syscall($_trap_1_w, 0x11);
++ }
++ sub Cauxis {
++   syscall($_trap_1_w, 0x12);
++ }
++ sub Cauxos {
++   syscall($_trap_1_w, 0x13);
++ }
++ sub Dgetdrv {
++   syscall($_trap_1_w, 0x19);
++ }
++ sub Fsetdta {
++   syscall($_trap_1_wl, 0x1A, @_);
++ }
++ sub Super {
++   syscall($_trap_1_wl, 0x20, @_);
++ }
++ sub Tgetdate {
++   syscall($_trap_1_w, 0x2A);
++ }
++ sub Tsetdate {
++   syscall($_trap_1_ww, 0x2B, @_);
++ }
++ sub Tgettime {
++   syscall($_trap_1_w, 0x2C);
++ }
++ sub Tsettime {
++   syscall($_trap_1_ww, 0x2D, @_);
++ }
++ sub Fgetdta {
++   syscall($_trap_1_w, 0x2F);
++ }
++ sub Sversion {
++   syscall($_trap_1_w, 0x30);
++ }
++ sub Ptermres {
++   syscall($_trap_1_wlw, 0x31, @_);
++ }
++ sub Dfree {
++   syscall($_trap_1_wlw, 0x36, @_);
++ }
++ sub Dcreate {
++   syscall($_trap_1_wl, 0x39, @_);
++ }
++ sub Ddelete {
++   syscall($_trap_1_wl, 0x3A, @_);
++ }
++ sub Dsetpath {
++   syscall($_trap_1_wl, 0x3B, @_);
++ }
++ sub Fcreate {
++   syscall($_trap_1_wlw, 0x3C, @_);
++ }
++ sub Fopen {
++   syscall($_trap_1_wlw, 0x3D, @_);
++ }
++ sub Fclose {
++   syscall($_trap_1_ww, 0x3E, @_);
++ }
++ sub Fread {
++   syscall($_trap_1_wwll, 0x3F, @_);
++ }
++ sub Fwrite {
++   syscall($_trap_1_wwll, 0x40, @_);
++ }
++ sub Fdelete {
++   syscall($_trap_1_wl, 0x41, @_);
++ }
++ sub Fseek {
++   syscall($_trap_1_wlww, 0x42, @_);
++ }
++ sub Fattrib {
++   syscall($_trap_1_wlww, 0x43, @_);
++ }
++ sub Fdup {
++   syscall($_trap_1_ww, 0x45, @_);
++ }
++ sub Fforce {
++   syscall($_trap_1_www, 0x46, @_);
++ }
++ sub Dgetpath {
++   syscall($_trap_1_wlw, 0x47, @_);
++ }
++ sub Malloc {
++   syscall($_trap_1_wl, 0x48, @_);
++ }
++ sub Mfree {
++   syscall($_trap_1_wl, 0x49, @_);
++ }
++ sub Mshrink {
++   syscall($_trap_1_wwll, 0x4A, @_);
++ }
++ sub Pexec {
++   syscall($_trap_1_wwlll, 0x4B, @_);
++ }
++ sub Pterm {
++   syscall($_trap_1_ww, 0x4C, @_);
++ }
++ sub Fsfirst {
++   syscall($_trap_1_wlw, 0x4E, @_);
++ }
++ sub Fsnext {
++   syscall($_trap_1_w, 0x4F);
++ }
++ sub Frename {
++   syscall($_trap_1_wwll, 0x56, @_);
++ }
++ sub Fdatime {
++   syscall($_trap_1_wlww, 0x57, @_);
++ }
++ sub Getmpb {
++   syscall($_trap_13_wl, 0x00, @_);
++ }
++ sub Bconstat {
++   syscall($_trap_13_ww, 0x01, @_);
++ }
++ sub Bconin {
++   syscall($_trap_13_ww, 0x02, @_);
++ }
++ sub Bconout {
++   syscall($_trap_13_www, 0x03, @_);
++ }
++ sub Rwabs {
++   syscall($_trap_13_wwlwww, 0x04, @_);
++ }
++ sub Setexc {
++   syscall($_trap_13_wwl, 0x05, @_);
++ }
++ sub Tickcal {
++   syscall($_trap_13_w, 0x06);
++ }
++ sub Getbpb {
++   syscall($_trap_13_ww, 0x07, @_);
++ }
++ sub Bcostat {
++   syscall($_trap_13_ww, 0x08, @_);
++ }
++ sub Mediach {
++   syscall($_trap_13_ww, 0x09, @_);
++ }
++ sub Drvmap {
++   syscall($_trap_13_w, 0x0A);
++ }
++ sub Kbshift {
++   syscall($_trap_13_ww, 0x0B, @_);
++ }
++ sub Getshift {
++   &Kbshift(-1);
++ }
++ sub Initmous {
++   syscall($_trap_14_wwll, 0x00, @_);
++ }
++ sub Ssbrk {
++   syscall($_trap_14_ww, 0x01, @_);
++ }
++ sub Physbase {
++   syscall($_trap_14_w, 0x02);
++ }
++ sub Logbase {
++   syscall($_trap_14_w, 0x03);
++ }
++ sub Getrez {
++   syscall($_trap_14_w, 0x04);
++ }
++ sub Setscreen {
++   syscall($_trap_14_wllw, 0x05, @_);
++ }
++ sub Setpallete {
++   syscall($_trap_14_wl, 0x06, @_);
++ }
++ sub Setcolor {
++   syscall($_trap_14_www, 0x07, @_);
++ }
++ sub Floprd {
++   syscall($_trap_14_wllwwwww, 0x08, @_);
++ }
++ sub Flopwr {
++   syscall($_trap_14_wllwwwww, 0x09, @_);
++ }
++ sub Flopfmt {
++   syscall($_trap_14_wllwwwwwlw, 0x0A, @_);
++ }
++ sub Midiws {
++   syscall($_trap_14_wwl, 0x0C, @_);
++ }
++ sub Mfpint {
++   syscall($_trap_14_wwl, 0x0D, @_);
++ }
++ sub Iorec {
++   syscall($_trap_14_ww, 0x0E, @_);
++ }
++ sub Rsconf {
++   syscall($_trap_14_wwwwwww, 0x0F, @_);
++ }
++ sub Keytbl {
++   syscall($_trap_14_wlll, 0x10, @_);
++ }
++ sub Random {
++   syscall($_trap_14_w, 0x11);
++ }
++ sub Protobt {
++   syscall($_trap_14_wllww, 0x12, @_);
++ }
++ sub Flopver {
++   syscall($_trap_14_wllwwwww, 0x13, @_);
++ }
++ sub Scrdmp {
++   syscall($_trap_14_w, 0x14);
++ }
++ sub Cursconf {
++   syscall($_trap_14_www, 0x15, @_);
++ }
++ sub Settime {
++   syscall($_trap_14_wl, 0x16, @_);
++ }
++ sub Gettime {
++   syscall($_trap_14_w, 0x17);
++ }
++ sub Bioskeys {
++   syscall($_trap_14_w, 0x18);
++ }
++ sub Ikbdws {
++   syscall($_trap_14_wwl, 0x19, @_);
++ }
++ sub Jdisint {
++   syscall($_trap_14_ww, 0x1A, @_);
++ }
++ sub Jenabint {
++   syscall($_trap_14_ww, 0x1B, @_);
++ }
++ sub Giaccess {
++   syscall($_trap_14_www, 0x1C, @_);
++ }
++ sub Offgibit {
++   syscall($_trap_14_ww, 0x1D, @_);
++ }
++ sub Ongibit {
++   syscall($_trap_14_ww, 0x1E, @_);
++ }
++ sub Xbtimer {
++   syscall($_trap_14_wwwwl, 0x1E, @_);
++ }
++ sub Dosound {
++   syscall($_trap_14_wl, 0x20, @_);
++ }
++ sub Setprt {
++   syscall($_trap_14_ww, 0x21, @_);
++ }
++ sub Kbdvbase {
++   syscall($_trap_14_w, 0x22);
++ }
++ sub Kbrate {
++   syscall($_trap_14_www, 0x23, @_);
++ }
++ sub Prtblk {
++   syscall($_trap_14_wl, 0x24, @_);
++ }
++ sub Vsync {
++   syscall($_trap_14_w, 0x25);
++ }
++ sub Supexec {
++   syscall($_trap_14_wl, 0x26, @_);
++ }
++ sub Blitmode {
++   syscall($_trap_14_ww, 0x40, @_);
++ }
++ sub Mxalloc {
++   syscall($_trap_1_wlw, 0x44, @_);
++ }
++ sub Maddalt {
++   syscall($_trap_1_wll, 0x14, @_);
++ }
++ sub Setpalette {
++   syscall($_trap_14_wl, 0x06, @_);
++ }
++ sub EsetShift {
++   syscall($_trap_14_ww, 80, @_);
++ }
++ sub EgetShift {
++   syscall($_trap_14_w, 81);
++ }
++ sub EsetBank {
++   syscall($_trap_14_ww, 82, @_);
++ }
++ sub EsetColor {
++   syscall($_trap_14_www, 83, @_);
++ }
++ sub EsetPalette {
++   syscall($_trap_14_wwwl, 84, @_);
++ }
++ sub EgetPalette {
++   syscall($_trap_14_wwwl, 85, @_);
++ }
++ sub EsetGray {
++   syscall($_trap_14_ww, 86, @_);
++ }
++ sub EsetSmear {
++   syscall($_trap_14_ww, 87, @_);
++ }
++ sub Bconmap {
++   syscall($_trap_14_ww, 0x2b, @_);
++ }
++ sub Bconctl {
++   syscall($_trap_14_wwl, 0x2d, @_);
++ }
++ 
++ 1;
+
+Index: hints/osf1.sh
+*** hints/osf1.sh.old	Mon Jun  8 17:48:10 1992
+--- hints/osf1.sh	Mon Jun  8 17:48:11 1992
+***************
+*** 0 ****
+--- 1,25 ----
++ ccflags="$ccflags -Olimit 2900"
++ libswanted=m
++ tmp=`(uname -a) 2>/dev/null`
++ case "$tmp" in
++ OSF1*)
++     case "$tmp" in
++     *mips)
++ 	d_volatile=define
++ 	;;
++     *)
++ 	cat <<EOFM
++ You are not supposed to know about that machine...
++ EOFM
++ 	;; 
++     esac
++     ;;
++ esac
++ #eval_cflags='optimize="-g"'
++ #teval_cflags='optimize="-g"'
++ #toke_cflags='optimize="-g"'
++ #ttoke_cflags='optimize="-g"'
++ regcomp_cflags='optimize="-g -O0"'
++ tregcomp_cflags='optimize="-g -O0"'
++ regexec_cflags='optimize="-g -O0"'
++ tregexec_cflags='optimize="-g -O0"'
+
+Index: os2/perl.cs
+*** os2/perl.cs.old	Mon Jun  8 17:50:01 1992
+--- os2/perl.cs	Mon Jun  8 17:50:02 1992
+***************
+*** 1,15 ****
+  (-W1 -Od -Olt -DDEBUGGING -Gt2048
+  array.c cmd.c cons.c consarg.c doarg.c doio.c dolist.c dump.c form.c
+! hash.c perl.c perly.c regcomp.c regexec.c stab.c str.c util.c
+  )
+! (-W1 -Od -Olt -B2C2L -B3C3L -DDEBUGGING eval.c{evalargs.xc} toke.c)
+  (-W1 -Od -Olt -I. -Ios2
+! os2\os2.c os2\popen.c os2\mktemp.c os2\director.c os2\suffix.c os2\alarm.c
+  )
+  
+  ; link with this library if you have GNU gdbm for OS/2
+! ; remember to enable the NDBM symbol in config.h before compiling
+! lgdbm.lib
+  setargv.obj
+  os2\perl.def
+  os2\perl.bad
+--- 1,18 ----
+  (-W1 -Od -Olt -DDEBUGGING -Gt2048
+  array.c cmd.c cons.c consarg.c doarg.c doio.c dolist.c dump.c form.c
+! hash.c perl.c regcomp.c regexec.c stab.c str.c util.c
+  )
+! (-W1 -Od -Olt -DDEBUGGING -Gt2048 (-d perly.y))
+! (-W1 -Od -Olt -B2C2L -B3C3L -DDEBUGGING eval.c toke.c)
+  (-W1 -Od -Olt -I. -Ios2
+! os2\os2.c os2\popen.c os2\suffix.c
+! os2\director.c os2\alarm.c os2\crypt.c
+  )
+  
+  ; link with this library if you have GNU gdbm for OS/2
+! ; remember to enable the GDBM symbol in config.h before compiling
+! llibgdbm.lib
+! 
+  setargv.obj
+  os2\perl.def
+  os2\perl.bad
+
+Index: os2/perl.def
+*** os2/perl.def.old	Mon Jun  8 17:50:04 1992
+--- os2/perl.def	Mon Jun  8 17:50:04 1992
+***************
+*** 1,2 ****
+! NAME PERL WINDOWCOMPAT NEWFILES
+! DESCRIPTION 'PERL 3.0 - for MS-DOS and OS/2'
+--- 1,2 ----
+! NAME WINDOWCOMPAT NEWFILES
+! DESCRIPTION 'PERL 4.0 - for MS-DOS and OS/2'
+
+Index: perl.h
+*** perl.h.old	Mon Jun  8 17:50:29 1992
+--- perl.h	Mon Jun  8 17:50:30 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: perl.h,v $$Revision: 4.0.1.5 $$Date: 91/11/11 16:41:07 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: perl.h,v $$Revision: 4.0.1.6 $$Date: 92/06/08 14:55:10 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,17 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	perl.h,v $
++  * Revision 4.0.1.6  92/06/08  14:55:10  lwall
++  * patch20: added Atari ST portability
++  * patch20: bcopy() and memcpy() now tested for overlap safety
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * patch20: removed implicit int declarations on functions
++  * 
+   * Revision 4.0.1.5  91/11/11  16:41:07  lwall
+   * patch19: uts wrongly defines S_ISDIR() et al
+   * patch19: too many preprocessors can't expand a macro right in #if
+***************
+*** 53,59 ****
+  char Error[1];
+  #endif
+  
+! #ifdef MSDOS
+  /* This stuff now in the MS-DOS config.h file. */
+  #else /* !MSDOS */
+  
+--- 59,70 ----
+  char Error[1];
+  #endif
+  
+! /* define this once if either system, instead of cluttering up the src */
+! #if defined(MSDOS) || defined(atarist)
+! #define DOSISH 1
+! #endif
+! 
+! #ifdef DOSISH
+  /* This stuff now in the MS-DOS config.h file. */
+  #else /* !MSDOS */
+  
+***************
+*** 130,163 ****
+  /* Use all the "standard" definitions */
+  #include <stdlib.h>
+  #include <string.h>
+  #endif /* STANDARD_C */
+  
+! #if defined(HAS_MEMCMP) && defined(mips) && BYTEORDER == 0x1234
+  #undef HAS_MEMCMP
+  #endif
+  
+  #ifdef HAS_MEMCPY
+- 
+  #  ifndef STANDARD_C
+  #    ifndef memcpy
+! extern char * memcpy(), *memset();
+! extern int memcmp();
+! #    endif /* ndef memcpy */
+! #  endif /* ndef STANDARD_C */
+  
+! #   ifndef bcopy
+! #	define bcopy(s1,s2,l) memcpy(s2,s1,l)
+  #   endif
+! #   ifndef bzero
+! #	define bzero(s,l) memset(s,0,l)
+  #   endif
+! #endif /* HAS_MEMCPY */
+  
+! #ifndef HAS_BCMP		/* prefer bcmp slightly 'cuz it doesn't order */
+  #   ifndef bcmp
+  #	define bcmp(s1,s2,l) memcmp(s1,s2,l)
+  #   endif
+  #endif
+  
+  #ifndef _TYPES_		/* If types.h defines this it's easy. */
+  #ifndef major		/* Does everyone's types.h define this? */
+--- 141,218 ----
+  /* Use all the "standard" definitions */
+  #include <stdlib.h>
+  #include <string.h>
++ #define MEM_SIZE size_t
++ #else
++ typedef unsigned int MEM_SIZE;
+  #endif /* STANDARD_C */
+  
+! #if defined(HAS_MEMCMP) && defined(mips) && defined(ultrix)
+  #undef HAS_MEMCMP
+  #endif
+  
+  #ifdef HAS_MEMCPY
+  #  ifndef STANDARD_C
+  #    ifndef memcpy
+! 	extern char * memcpy();
+! #    endif
+! #  endif
+! #else
+! #   ifndef memcpy
+! #	ifdef HAS_BCOPY
+! #	    define memcpy(d,s,l) bcopy(s,d,l)
+! #	else
+! #	    define memcpy(d,s,l) my_bcopy(s,d,l)
+! #	endif
+! #   endif
+! #endif /* HAS_MEMCPY */
+  
+! #ifdef HAS_MEMSET
+! #  ifndef STANDARD_C
+! #    ifndef memset
+! 	extern char *memset();
+! #    endif
+! #  endif
+! #  define memzero(d,l) memset(d,0,l)
+! #else
+! #   ifndef memzero
+! #	ifdef HAS_BZERO
+! #	    define memzero(d,l) bzero(d,l)
+! #	else
+! #	    define memzero(d,l) my_bzero(d,l)
+! #	endif
+  #   endif
+! #endif /* HAS_MEMSET */
+! 
+! #ifdef HAS_MEMCMP
+! #  ifndef STANDARD_C
+! #    ifndef memcmp
+! 	extern int memcmp();
+! #    endif
+! #  endif
+! #else
+! #   ifndef memcmp
+! #	define memcmp(s1,s2,l) my_memcmp(s1,s2,l)
+  #   endif
+! #endif /* HAS_MEMCMP */
+  
+! /* we prefer bcmp slightly for comparisons that don't care about ordering */
+! #ifndef HAS_BCMP
+  #   ifndef bcmp
+  #	define bcmp(s1,s2,l) memcmp(s1,s2,l)
+  #   endif
++ #endif /* HAS_BCMP */
++ 
++ #ifndef HAS_MEMMOVE
++ #if defined(HAS_BCOPY) && defined(SAFE_BCOPY)
++ #define memmove(d,s,l) bcopy(s,d,l)
++ #else
++ #if defined(HAS_MEMCPY) && defined(SAFE_MEMCPY)
++ #define memmove(d,s,l) memcpy(d,s,l)
++ #else
++ #define memmove(d,s,l) my_bcopy(s,d,l)
+  #endif
++ #endif
++ #endif
+  
+  #ifndef _TYPES_		/* If types.h defines this it's easy. */
+  #ifndef major		/* Does everyone's types.h define this? */
+***************
+*** 170,176 ****
+  #endif
+  
+  #include <sys/stat.h>
+! #ifdef uts
+  #undef S_ISDIR
+  #undef S_ISCHR
+  #undef S_ISBLK
+--- 225,231 ----
+  #endif
+  
+  #include <sys/stat.h>
+! #if defined(uts) || defined(UTekV)
+  #undef S_ISDIR
+  #undef S_ISCHR
+  #undef S_ISBLK
+***************
+*** 182,189 ****
+--- 237,246 ----
+  #define S_ISBLK(P) (((P)&S_IFMT)==S_IFBLK)
+  #define S_ISREG(P) (((P)&S_IFMT)==S_IFREG)
+  #define S_ISFIFO(P) (((P)&S_IFMT)==S_IFIFO)
++ #ifdef S_IFLNK
+  #define S_ISLNK(P) (((P)&S_IFMT)==S_IFLNK)
+  #endif
++ #endif
+  
+  #ifdef I_TIME
+  #   include <time.h>
+***************
+*** 230,236 ****
+  #endif
+  #endif
+  
+! #if defined(mc300) || defined(mc500) || defined(mc700)	/* MASSCOMP */
+  #ifdef HAS_SOCKETPAIR
+  #undef HAS_SOCKETPAIR
+  #endif
+--- 287,293 ----
+  #endif
+  #endif
+  
+! #if defined(mc300) || defined(mc500) || defined(mc700) || defined(mc6000)
+  #ifdef HAS_SOCKETPAIR
+  #undef HAS_SOCKETPAIR
+  #endif
+***************
+*** 437,443 ****
+  #undef f_next
+  #endif
+  
+! #if defined(cray) || defined(gould)
+  #   define SLOPPYDIVIDE
+  #endif
+  
+--- 494,500 ----
+  #undef f_next
+  #endif
+  
+! #if defined(cray) || defined(gould) || defined(i860)
+  #   define SLOPPYDIVIDE
+  #endif
+  
+***************
+*** 457,463 ****
+  #   endif
+  #endif
+  
+! typedef unsigned int STRLEN;
+  
+  typedef struct arg ARG;
+  typedef struct cmd CMD;
+--- 514,520 ----
+  #   endif
+  #endif
+  
+! typedef MEM_SIZE STRLEN;
+  
+  typedef struct arg ARG;
+  typedef struct cmd CMD;
+***************
+*** 553,559 ****
+  
+  #define GROWSTR(pp,lp,len) if (*(lp) < (len)) growstr(pp,lp,len)
+  
+! #ifndef MSDOS
+  #define STR_GROW(str,len) if ((str)->str_len < (len)) str_grow(str,len)
+  #define Str_Grow str_grow
+  #else
+--- 610,616 ----
+  
+  #define GROWSTR(pp,lp,len) if (*(lp) < (len)) growstr(pp,lp,len)
+  
+! #ifndef DOSISH
+  #define STR_GROW(str,len) if ((str)->str_len < (len)) str_grow(str,len)
+  #define Str_Grow str_grow
+  #else
+***************
+*** 561,567 ****
+  #define STR_GROW(str,len) if ((str)->str_len < (unsigned long)len) \
+  		str_grow(str,(unsigned long)len)
+  #define Str_Grow(str,len) str_grow(str,(unsigned long)(len))
+! #endif /* MSDOS */
+  
+  #ifndef BYTEORDER
+  #define BYTEORDER 0x1234
+--- 618,624 ----
+  #define STR_GROW(str,len) if ((str)->str_len < (unsigned long)len) \
+  		str_grow(str,(unsigned long)len)
+  #define Str_Grow(str,len) str_grow(str,(unsigned long)(len))
+! #endif /* DOSISH */
+  
+  #ifndef BYTEORDER
+  #define BYTEORDER 0x1234
+***************
+*** 670,675 ****
+--- 727,733 ----
+  STR *str_new();
+  STR *stab_str();
+  
++ int apply();
+  int do_each();
+  int do_subr();
+  int do_match();
+***************
+*** 701,712 ****
+--- 759,782 ----
+  int do_subst();
+  int cando();
+  int ingroup();
++ int whichsig();
++ int userinit();
++ #ifdef CRYPTSCRIPT
++ void cryptswitch();
++ #endif
+  
+  void str_replace();
+  void str_inc();
+  void str_dec();
+  void str_free();
++ void cmd_free();
++ void arg_free();
++ void spat_free();
++ void regfree();
+  void stab_clear();
++ void do_chop();
++ void do_vop();
++ void do_write();
+  void do_join();
+  void do_sprintf();
+  void do_accept();
+***************
+*** 724,729 ****
+--- 794,817 ----
+  void savehptr();
+  void restorelist();
+  void repeatcpy();
++ void make_form();
++ void dehoist();
++ void format();
++ void my_unexec();
++ void fatal();
++ void warn();
++ #ifdef DEBUGGING
++ void dump_all();
++ void dump_cmd();
++ void dump_arg();
++ void dump_flags();
++ void dump_stab();
++ void dump_spat();
++ #endif
++ #ifdef MSTATS
++ void mstats();
++ #endif
++ 
+  HASH *savehash();
+  ARRAY *saveary();
+  
+***************
+*** 773,778 ****
+--- 861,867 ----
+  EXT STR *DBsingle INIT(Nullstr);
+  EXT STR *DBtrace INIT(Nullstr);
+  EXT STR *DBsignal INIT(Nullstr);
++ EXT STR *formfeed INIT(Nullstr);
+  
+  EXT int lastspbase;
+  EXT int lastsize;
+***************
+*** 791,796 ****
+--- 880,886 ----
+  EXT char *rs INIT("\n");
+  EXT int rschar INIT('\n');	/* final char of rs, or 0777 if none */
+  EXT int rslen INIT(1);
++ EXT bool rspara INIT(FALSE);
+  EXT char *ofs INIT(Nullch);
+  EXT int ofslen INIT(0);
+  EXT char *ors INIT(Nullch);
+***************
+*** 820,834 ****
+  EXT int maxsysfd INIT(MAXSYSFD);	/* top fd to pass to subprocesses */
+  
+  #ifdef CSH
+! char *cshname INIT(CSH);
+! int cshlen INIT(0);
+  #endif /* CSH */
+  
+  #ifdef TAINT
+  EXT bool tainted INIT(FALSE);		/* using variables controlled by $< */
+  #endif
+  
+! #ifndef MSDOS
+  #define TMPPATH "/tmp/perl-eXXXXXX"
+  #else
+  #define TMPPATH "plXXXXXX"
+--- 910,927 ----
+  EXT int maxsysfd INIT(MAXSYSFD);	/* top fd to pass to subprocesses */
+  
+  #ifdef CSH
+! EXT char *cshname INIT(CSH);
+! EXT int cshlen INIT(0);
+  #endif /* CSH */
+  
+  #ifdef TAINT
+  EXT bool tainted INIT(FALSE);		/* using variables controlled by $< */
++ EXT bool taintanyway INIT(FALSE);	/* force taint checks when !set?id */
+  #endif
+  
+! EXT bool nomemok INIT(FALSE);		/* let malloc context handle nomem */
+! 
+! #ifndef DOSISH
+  #define TMPPATH "/tmp/perl-eXXXXXX"
+  #else
+  #define TMPPATH "plXXXXXX"
+***************
+*** 858,865 ****
+  
+  EXT struct stat statbuf;
+  EXT struct stat statcache;
+! STAB *statstab INIT(Nullstab);
+! STR *statname;
+  #ifndef MSDOS
+  EXT struct tms timesbuf;
+  #endif
+--- 951,958 ----
+  
+  EXT struct stat statbuf;
+  EXT struct stat statcache;
+! EXT STAB *statstab INIT(Nullstab);
+! EXT STR *statname;
+  #ifndef MSDOS
+  EXT struct tms timesbuf;
+  #endif
+***************
+*** 928,934 ****
+  EXT short *ds;
+  
+  /* Fix these up for __STDC__ */
+! EXT long basetime INIT(0);
+  char *mktemp();
+  #ifndef STANDARD_C
+  /* All of these are in stdlib.h or time.h for ANSI C */
+--- 1021,1027 ----
+  EXT short *ds;
+  
+  /* Fix these up for __STDC__ */
+! EXT time_t basetime INIT(0);
+  char *mktemp();
+  #ifndef STANDARD_C
+  /* All of these are in stdlib.h or time.h for ANSI C */
+***************
+*** 958,960 ****
+--- 1051,1057 ----
+  #define HAS_SETREGID
+  #endif
+  #endif
++ 
++ #define SCAN_DEF 0
++ #define SCAN_TR 1
++ #define SCAN_REPL 2
+
+Index: os2/perldb.dif
+*** os2/perldb.dif.old	Mon Jun  8 17:50:07 1992
+--- os2/perldb.dif	Mon Jun  8 17:50:07 1992
+***************
+*** 1,52 ****
+- *** lib/perldb.pl	Tue Oct 23 23:14:20 1990
+- --- os2/perldb.pl	Tue Nov 06 21:13:42 1990
+- ***************
+- *** 36,43 ****
+-   #
+-   #
+- 
+- ! open(IN, "</dev/tty") || open(IN,  "<&STDIN");	# so we don't dingle stdin
+- ! open(OUT,">/dev/tty") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
+-   select(OUT);
+-   $| = 1;				# for DB'OUT
+-   select(STDOUT);
+- --- 36,43 ----
+-   #
+-   #
+- 
+- ! open(IN, "<con") || open(IN,  "<&STDIN");	# so we don't dingle stdin
+- ! open(OUT,">con") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
+-   select(OUT);
+-   $| = 1;				# for DB'OUT
+-   select(STDOUT);
+- ***************
+- *** 517,530 ****
+-       s/(.*)/'$1'/ unless /^-?[\d.]+$/;
+-   }
+- 
+- ! if (-f '.perldb') {
+- !     do './.perldb';
+-   }
+- ! elsif (-f "$ENV{'LOGDIR'}/.perldb") {
+- !     do "$ENV{'LOGDIR'}/.perldb";
+-   }
+- ! elsif (-f "$ENV{'HOME'}/.perldb") {
+- !     do "$ENV{'HOME'}/.perldb";
+-   }
+- 
+-   1;
+- --- 517,530 ----
+-       s/(.*)/'$1'/ unless /^-?[\d.]+$/;
+-   }
+- 
+- ! if (-f 'perldb.ini') {
+- !     do './perldb.ini';
+-   }
+- ! elsif (-f "$ENV{'INIT'}/perldb.ini") {
+- !     do "$ENV{'INIT'}/perldb.ini";
+-   }
+- ! elsif (-f "$ENV{'HOME'}/perldb.ini") {
+- !     do "$ENV{'HOME'}/perldb.ini";
+-   }
+- 
+-   1;
+--- 0 ----
+
+Index: os2/perlglob.bad
+*** os2/perlglob.bad.old	Mon Jun  8 17:50:09 1992
+--- os2/perlglob.bad	Mon Jun  8 17:50:09 1992
+***************
+*** 1 ****
+! DOSQFSATTACH
+--- 1 ----
+! (deprecated)
+
+*** End of Patch 28 ***
+exit 0 # Just in case...

@@ -1,0 +1,1412 @@
+Newsgroups: comp.sources.misc
+From: orel@lpuds.oea.ihep.su (Oleg Orel)
+Subject: v38i052: libftp - A C library interface for the FTP protocol, Part01/01
+Message-ID: <1993Jul13.050434.18051@sparky.sterling.com>
+X-Md4-Signature: ff9953bd777924afd5e6e8cb3da28319
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Institute of High Energy Physics
+Date: Tue, 13 Jul 1993 05:04:34 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: orel@lpuds.oea.ihep.su (Oleg Orel)
+Posting-number: Volume 38, Issue 52
+Archive-name: libftp/part01
+Environment: UNIX
+
+libftp is a simple C interface to the FTP protocol, i.e. a library with 
+routines like FtpConnect(host), FtpLogin(user, passw,acct), FtpGet(File),
+FtpDir(filespec), FtpDebug(handler), FtpFullOpen(remote or local,read or 
+write), FtpError(handler) and many other functions.
+
+ ---------------------------------------------------------------------------
+ | Oleg Orel, Russia, Protvino       |   orel@lpuds.oea.ihep.su            |
+ | Institute of High Energy Physics  |   Home Phone: 49106                 |
+ ---------------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  FtpBye.c FtpClose.c FtpCommand.c FtpConnect.c FtpData.c
+#   FtpDebug.c FtpFull.c FtpGetMessage.c FtpGetString.c FtpGood.c
+#   FtpInitMessage.c FtpLibrary.h FtpLogin.c FtpMessage.c FtpMove.c
+#   FtpNumber.c FtpOpenDir.c FtpPort.c FtpPut.c FtpPwd.c FtpRead.c
+#   FtpRetr.c FtpSendMessage.c FtpWrite.c Makefile fcp.c get.c
+#   libftp.3 test.c
+# Wrapped by kent@sparky on Sun Jul 11 18:43:44 CDT 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'FtpBye.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpBye.c'\"
+else
+  echo shar: Extracting \"'FtpBye.c'\" \(336 characters\)
+  sed "s/^X//" >'FtpBye.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpBye(FTP *sock)
+X{
+X  String S1;
+X  int i;
+X  
+X  if ( FtpSendMessage(sock,"QUIT") == QUIT )
+X    return EXIT(sock,QUIT);
+X
+X  if ( (i=FtpGetMessage(sock,S1)) == QUIT )
+X    return EXIT(sock,QUIT);
+X
+X  if ( i != 221 )
+X    return EXIT(sock,-i);
+X
+X  close(sock->sock);
+X  free(sock);
+X  return EXIT(sock,i);
+X}
+X      
+END_OF_FILE
+  if test 336 -ne `wc -c <'FtpBye.c'`; then
+    echo shar: \"'FtpBye.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpBye.c'
+fi
+if test -f 'FtpClose.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpClose.c'\"
+else
+  echo shar: Extracting \"'FtpClose.c'\" \(239 characters\)
+  sed "s/^X//" >'FtpClose.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpClose(FTP *sock)
+X{
+X  int i;
+X  String S1;
+X  
+X  fclose(sock->data);
+X
+X  if ((i=FtpGetMessage(sock,S1))==QUIT)
+X    return EXIT(sock,QUIT);
+X  if ( i != 226 )
+X    return EXIT(sock,-i);
+X  return EXIT(sock,i);
+X}
+END_OF_FILE
+  if test 239 -ne `wc -c <'FtpClose.c'`; then
+    echo shar: \"'FtpClose.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpClose.c'
+fi
+if test -f 'FtpCommand.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpCommand.c'\"
+else
+  echo shar: Extracting \"'FtpCommand.c'\" \(391 characters\)
+  sed "s/^X//" >'FtpCommand.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpCommand(FTP * con , char * command , char * param , int list)
+X{
+X  String S1;
+X  int i;
+X  
+X  sprintf(S1,command,param);
+X
+X  if ( FtpSendMessage(con,S1) == QUIT )
+X    return EXIT(con,QUIT);
+X  
+X  if  ( (i=FtpGetMessage(con,S1)) == QUIT )
+X    return EXIT(con,QUIT);
+X  
+X  if ( ! FtpGood1 ( i , &list ))
+X    return EXIT(con,-i);
+X
+X  return EXIT(con,i);
+X}
+X  
+X  
+X   
+END_OF_FILE
+  if test 391 -ne `wc -c <'FtpCommand.c'`; then
+    echo shar: \"'FtpCommand.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpCommand.c'
+fi
+if test -f 'FtpConnect.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpConnect.c'\"
+else
+  echo shar: Extracting \"'FtpConnect.c'\" \(1267 characters\)
+  sed "s/^X//" >'FtpConnect.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpConnect(FTP **con,char * hostname)
+X{
+X  struct sockaddr_in unit;
+X  register struct hostent *host;
+X  register struct servent *service;
+X  register int sock;
+X  String S1;
+X  STATUS x;
+X  
+X  *con = ( FTP * ) malloc ( sizeof (FTP));
+X  
+X  if ((host=gethostbyname(hostname))==0)
+X    return EXIT((*con),QUIT);
+X  if ((service=(struct servent *) getservbyname("ftp","tcp"))==0)
+X    return EXIT((*con),QUIT);
+X  
+X  unit.sin_family = host -> h_addrtype;
+X  
+X  bcopy(host-> h_addr_list[0],&unit.sin_addr,host->h_length);
+X  if ( ( sock = socket ( unit.sin_family , SOCK_STREAM , 0)) < 0)
+X    return EXIT((*con),QUIT);
+X
+X  unit.sin_port = service -> s_port;
+X
+X  while ( connect ( sock , &unit , sizeof unit ) < 0 )
+X    {
+X      host -> h_addr_list ++;
+X      bcopy(host -> h_addr_list[0],&unit,host->h_length);
+X      close(sock);
+X      if ( ( sock = socket ( unit.sin_family , SOCK_STREAM , 0)) < 0)
+X	return EXIT((*con),QUIT);
+X    }
+X  
+X  (*con) -> sock = sock;
+X  (*con) -> mode = 'A';
+X  (*con) -> data = 0;
+X  (*con) -> func = NULL;
+X  (*con) -> debug = NULL;
+X  
+X  if ( (x=FtpGetMessage(*con,S1)) == QUIT )
+X    return EXIT((*con),QUIT);
+X  if ( ! FtpGood(x,120,220,EOF))
+X    {
+X      close(sock);
+X      return EXIT((*con),-x);
+X    }
+X  return EXIT((*con),x);
+X}
+END_OF_FILE
+  if test 1267 -ne `wc -c <'FtpConnect.c'`; then
+    echo shar: \"'FtpConnect.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpConnect.c'
+fi
+if test -f 'FtpData.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpData.c'\"
+else
+  echo shar: Extracting \"'FtpData.c'\" \(1591 characters\)
+  sed "s/^X//" >'FtpData.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpData(FTP * con,char * command , char * file ,char * mode)
+X{
+X  struct sockaddr_in data,from;
+X  register struct hostent *host;
+X  String hostname,cmd;
+X  int NewSocket,len=sizeof(data),one=1,fromlen=sizeof(from),i;
+X  char *a,*b;
+X
+X  FREE(data);
+X  FREE(from);
+X  
+X  if ( gethostname( hostname , sizeof hostname ) == -1 )
+X    return EXIT(con,QUIT);
+X  
+X  if ((host=(struct hostent *)gethostbyname(hostname))==0)
+X    return EXIT(con,QUIT);
+X  
+X  data.sin_family = host -> h_addrtype;
+X  
+X  bcopy(host-> h_addr_list[0],&data.sin_addr,host->h_length);
+X		
+X  if ((NewSocket = socket ( AF_INET  , SOCK_STREAM , 0 ))<0)
+X    return EXIT(con,QUIT);
+X
+X  if ( setsockopt ( NewSocket , SOL_SOCKET , SO_REUSEADDR ,
+X		    &one , sizeof one ) < 0 )
+X    {
+X      close(NewSocket);
+X      return EXIT ( con,QUIT );
+X    }
+X
+X  data.sin_port = 0 ;
+X
+X  if ( bind ( NewSocket , &data , sizeof data ) < 0 )
+X    return EXIT(con,QUIT);
+X
+X  if ( getsockname ( NewSocket , &data , &len ) < 0 )
+X    return EXIT(con,QUIT);
+X
+X  if ( listen ( NewSocket , 1 ) < 0 )
+X    return EXIT(con,QUIT);
+X
+X  a = ( char * ) & data.sin_addr;
+X  b = ( char * ) & data.sin_port;
+X
+X  if ( (i=FtpPort(con,CUT(a[0]),CUT(a[1]),CUT(a[2]),
+X		  CUT(a[3]),CUT(b[0]),CUT(b[1]))) < 1 )
+X    return i;
+X  
+X  i = FtpCommand ( con , command , file , 
+X		  120 , 150 , 200 , 125 , 250 , EOF );
+X  if ( i < 1 )
+X    return i;
+X
+X  if (( NewSocket = accept (NewSocket , &from , &fromlen )) < 0)
+X    {
+X      close(NewSocket);
+X      return EXIT(con,QUIT);
+X    }
+X
+X  con -> data = fdopen ( NewSocket , mode );
+X  con -> ch = EOF;
+X  
+X  return i;
+X}
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 1591 -ne `wc -c <'FtpData.c'`; then
+    echo shar: \"'FtpData.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpData.c'
+fi
+if test -f 'FtpDebug.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpDebug.c'\"
+else
+  echo shar: Extracting \"'FtpDebug.c'\" \(400 characters\)
+  sed "s/^X//" >'FtpDebug.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpDebug(FTP *ftp)
+X{
+X  STATUS FtpDebugDebug(),
+X         FtpDebugError();
+X
+X  FtpSetDebugHandler(ftp,FtpDebugDebug);
+X  FtpSetErrorHandler(ftp,FtpDebugError);
+X}
+X
+XFtpDebugDebug(FTP *ftp,int n, char * Message)
+X{
+X  fprintf(stderr,"DEBUG:: %s\n",Message);
+X  return 1;
+X}
+X
+XFtpDebugError(FTP *ftp,int n, char * Message)
+X{
+X  fprintf(stderr,"Abort:: %s\n",Message);
+X  exit(1);
+X}
+X
+END_OF_FILE
+  if test 400 -ne `wc -c <'FtpDebug.c'`; then
+    echo shar: \"'FtpDebug.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpDebug.c'
+fi
+if test -f 'FtpFull.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpFull.c'\"
+else
+  echo shar: Extracting \"'FtpFull.c'\" \(1594 characters\)
+  sed "s/^X//" >'FtpFull.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xstatic FTP *ftp_table[256];
+Xstatic syntax();
+X
+XFILE * FtpFullOpen(char * file , char * mode )
+X{
+X  FTP *ftp;
+X  FILE *tmp;
+X  String Host,User,Passwd,RemoteFile;
+X  STATUS i;
+X
+X  if ( ! syntax (file,Host,User,Passwd,RemoteFile))
+X    {
+X      tmp=fopen(file,mode);
+X      ftp_table[fileno(tmp)] = NULL;
+X      return tmp;
+X    }
+X  if ( (i=FtpLogin(&ftp,Host,User,Passwd,NULL)) < 1 )
+X    return NULL;
+X
+X  FtpBinary(ftp);
+X
+X  switch(mode[0])
+X    {
+X    case 'r': 
+X	if (FtpOpenRead(ftp,RemoteFile)<1) 
+X	  return NULL;
+X	ftp_table[fileno(ftp->data)] = ftp;
+X	return ftp->data;
+X    case 'w':
+X	if (FtpOpenWrite(ftp,RemoteFile)<1)
+X	  return NULL;
+X	ftp_table[fileno(ftp->data)] = ftp;
+X	return ftp->data;
+X    case 'a':
+X	if (FtpOpenAppend(ftp,RemoteFile)<1)
+X	  return NULL;
+X	ftp_table[fileno(ftp->data)] = ftp;
+X	return ftp->data;
+X    }
+X}
+X
+XSTATUS   FtpFullClose(FILE *f)
+X{
+X  FTP *ftp=ftp_table[fileno(f)];
+X  if (ftp == NULL)
+X    return fclose(f);
+X  FtpClose(ftp);
+X  return FtpBye(ftp);
+X}
+X
+Xstatic syntax ( source , host , user , passwd , file)
+XString source,host,user,passwd,file;
+X{
+X  char *in,*out;
+X  host[0] = user[0] = passwd[0] = file[0] = '\0';
+X  for ( in = source , out = host;
+X       *in !='\0' && *in != '/' ;
+X       *out++ = *in++);
+X  if ( *in == '\0' ) return 0;
+X  in++;
+X  for ( out = user;
+X       *in !='\0' && *in != '/' ;
+X       *out++ = *in++);
+X  if ( *in == '\0' ) return 0;
+X  in++;
+X  for ( out = passwd;
+X       *in !='\0' && *in != ':' ;
+X       *out++ = *in++);
+X  if ( *in == '\0' ) return 0;
+X  in++;
+X  for ( out = file;
+X       *in !='\0';
+X       *out++ = *in++);
+X  return 1;
+X}
+X  
+END_OF_FILE
+  if test 1594 -ne `wc -c <'FtpFull.c'`; then
+    echo shar: \"'FtpFull.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpFull.c'
+fi
+if test -f 'FtpGetMessage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpGetMessage.c'\"
+else
+  echo shar: Extracting \"'FtpGetMessage.c'\" \(559 characters\)
+  sed "s/^X//" >'FtpGetMessage.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xextern char * FtpMessageList[];
+X
+Xint FtpGetMessage(FTP *con , char * Message )
+X{
+X  int i=0,n;
+X  
+X  while(1)
+X    {
+X      if ( read ( con -> sock , &Message[i] , 1 ) != 1 )
+X	return QUIT;
+X      if ( Message[i] == Ctrl('J') && Message[i-1] == Ctrl('M'))
+X	break;
+X      i++;
+X    }
+X  
+X  Message[i-1] = 0;
+X  FtpInitMessageList();
+X  FtpMessageList[n=FtpNumber(Message)] =
+X    ( char * ) malloc ( strlen(Message) + 1);
+X  strcpy(FtpMessageList[n] , Message );
+X  if ( con -> debug != NULL )
+X    (*con->debug)(con,n,Message);
+X  return n;
+X}
+X      
+END_OF_FILE
+  if test 559 -ne `wc -c <'FtpGetMessage.c'`; then
+    echo shar: \"'FtpGetMessage.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpGetMessage.c'
+fi
+if test -f 'FtpGetString.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpGetString.c'\"
+else
+  echo shar: Extracting \"'FtpGetString.c'\" \(254 characters\)
+  sed "s/^X//" >'FtpGetString.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpGetString(FTP *con ,char * str )
+X{
+X  int i=0;
+X  while ( (str[i]=FtpRead(con)) != '\n' && str[i] != EOF ) i++;
+X  if ( str[i] != EOF )
+X    { 
+X      str[i] = '\0';
+X      return i;
+X    }
+X  str[i] = '\0';
+X  return EOF;
+X}
+X  
+END_OF_FILE
+  if test 254 -ne `wc -c <'FtpGetString.c'`; then
+    echo shar: \"'FtpGetString.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpGetString.c'
+fi
+if test -f 'FtpGood.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpGood.c'\"
+else
+  echo shar: Extracting \"'FtpGood.c'\" \(228 characters\)
+  sed "s/^X//" >'FtpGood.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpGood(int n,int list)
+X{
+X  return FtpGood1(n,&list);
+X}
+X
+X
+XSTATUS FtpGood1(int Number,int * Answer)
+X{
+X  int i=0;
+X  while(Answer[i]!=EOF)
+X      if ( Number == Answer[i++] )
+X	return 1;
+X  return 0;
+X}
+END_OF_FILE
+  if test 228 -ne `wc -c <'FtpGood.c'`; then
+    echo shar: \"'FtpGood.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpGood.c'
+fi
+if test -f 'FtpInitMessage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpInitMessage.c'\"
+else
+  echo shar: Extracting \"'FtpInitMessage.c'\" \(215 characters\)
+  sed "s/^X//" >'FtpInitMessage.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xchar * FtpMessageList[1000];
+X
+XSTATUS FtpInitMessageList()
+X{
+X  int i;
+X  static u = 0;
+X  
+X  if ( u )
+X    return 1;
+X
+X  u = 1;
+X
+X  for (i=0;i<1000;i++)
+X    FtpMessageList[i]=NULL;
+X
+X  return 1;
+X}
+END_OF_FILE
+  if test 215 -ne `wc -c <'FtpInitMessage.c'`; then
+    echo shar: \"'FtpInitMessage.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpInitMessage.c'
+fi
+if test -f 'FtpLibrary.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpLibrary.h'\"
+else
+  echo shar: Extracting \"'FtpLibrary.h'\" \(2824 characters\)
+  sed "s/^X//" >'FtpLibrary.h' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <arpa/ftp.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X
+X#define EXIT(con,e) \
+X  ({ con -> errno = e;  \
+X     if ( (con->func != NULL) && (e < 0) ) \
+X       (*(con->func))(con,e,FtpMessage(e));\
+X     e;\
+X  })
+X   
+X#define QUIT 0
+X#define Ctrl(x) ((x) - '@')
+X#define FREE(x) memset ( &x , '\0' , sizeof x )
+X#define CUT(x) ((x)&0xff)
+X
+Xtypedef int STATUS;
+Xtypedef char String[256];
+Xtypedef int Answers[];
+X
+Xtypedef struct
+X{
+X  int sock;
+X  FILE *data;
+X  char mode;
+X  int errno;
+X  int ch;
+X  STATUS (*func)();
+X  STATUS (*debug)();
+X} FTP;
+X
+X#define FtpSetErrorHandler(con,f) con->func = f;
+X#define FtpSetDebugHandler(con,f) con->debug = f; 
+X
+X#define FtpAccount(ftp,acc)       FtpCommand(ftp,"ACCT %s",acc,230,EOF)
+X#define FtpUser(ftp,user)         FtpCommand(ftp,"USER %s",user,230,331,332,EOF)
+X#define FtpPassword(ftp,pas)      FtpCommand(ftp,"PASS %s",pas,230,332,EOF)
+X#define FtpType(ftp,type)         FtpCommand(ftp,"TYPE %c",type,200,EOF)
+X#define FtpChdir(ftp,dir)         FtpCommand(ftp,"CWD %s",dir,200,250,EOF)
+X#define FtpMkdir(ftp,dir)         FtpCommand(ftp,"MKD %s",dir,200,257,EOF)
+X#define FtpRm(ftp,dir)            FtpCommand(ftp,"DELE %s",dir,200,250,EOF)
+X#define FtpGetFile(ftp,file)      FtpCommand(ftp,"RETR %s",file,\
+X				 	   200,125,150,250,EOF)
+X#define FtpPutFile(ftp,file)      FtpCommand(ftp,"STOR %s",file,\
+X				 	  200,125,150,250,EOF)
+X#define FtpAscii(ftp)             FtpType(ftp,'A')
+X#define FtpBinary(ftp)            FtpType(ftp,'I')
+X#define FtpOpenRead(ftp,file)     FtpData(ftp,"RETR %s",file,"r")
+X#define FtpOpenWrite(ftp,file)    FtpData(ftp,"STOR %s",file,"w")
+X#define FtpOpenAppend(ftp,file)   FtpData(ftp,"APPE %s",file,"r")
+X#define FtpDirectory(ftp,pat,out) FtpRetr(ftp,"LIST %s",pat,out)
+X#define FtpDir(ftp,out)           FtpRetr(ftp,"LIST","",out)
+X#define FtpGet(ftp,in,out)        FtpRetr(ftp,"RETR %s",in,out)
+X
+X
+XFILE
+X  * FtpFullOpen(char * file,char * mode );
+XSTATUS
+X  FtpBye (FTP * con),
+X  FtpClose ( FTP *),
+X  FtpConnect ( FTP **con,char *hostname),
+X  FtpFullClose(FILE *),
+X  FtpRetr ( FTP *con , char * command , char * inp , char * out),
+X  FtpGetString ( FTP * con , char * str ),
+X  FtpDebug ( FTP * con ),
+X  FtpInitMessageList(),
+X  FtpLogin ( FTP **con, char * host , char * user , char * pass , char * acct),
+X  FtpMove ( FTP *con,char * old,char *new),
+X  FtpData( FTP * con , char * command , char * param , char * mode ),
+X  FtpPort ( FTP *con ,int ,int ,int ,int ,int ,int ),
+X  FtpPut ( FTP * con , char * inp , char * out),
+X  FtpRead ( FTP * con),
+X  FtpOpenDir( FTP * con , char * files ),
+X  FtpSendMessage( FTP * con , char * Message ),
+X  FtpWrite ( FTP * con , char c);
+X
+Xint
+X  FtpGetMessage( FTP * con , char * Message),
+X  FtpNumber ( char * Message );
+X
+Xchar 
+X  *FtpPwd(FTP *con),
+X  *FtpMessage(int Number);
+X
+X
+END_OF_FILE
+  if test 2824 -ne `wc -c <'FtpLibrary.h'`; then
+    echo shar: \"'FtpLibrary.h'\" unpacked with wrong size!
+  fi
+  # end of 'FtpLibrary.h'
+fi
+if test -f 'FtpLogin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpLogin.c'\"
+else
+  echo shar: Extracting \"'FtpLogin.c'\" \(480 characters\)
+  sed "s/^X//" >'FtpLogin.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpLogin ( FTP ** con, char * host , char * user , 
+X		  char * password , char * account)
+X{
+X  STATUS x;
+X  
+X  if ( (x=FtpConnect(con,host)) < 1)
+X    return x;
+X  if ( (x=FtpUser(*con,user)) < 1)
+X    return x;
+X  if ( x==230 )
+X    return x;
+X  if ( x==332)
+X    {
+X      if ( account == NULL )
+X	return EXIT((*con),x);
+X      if ( (x=FtpAccount( *con , account )) < 1 )
+X	return x;
+X      if ( x==230 )
+X	return x;
+X    }
+X  return FtpPassword(*con,password);
+X}
+END_OF_FILE
+  if test 480 -ne `wc -c <'FtpLogin.c'`; then
+    echo shar: \"'FtpLogin.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpLogin.c'
+fi
+if test -f 'FtpMessage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpMessage.c'\"
+else
+  echo shar: Extracting \"'FtpMessage.c'\" \(255 characters\)
+  sed "s/^X//" >'FtpMessage.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xextern char * FtpMessageList[];
+X
+Xchar *FtpMessage(int number)
+X{
+X  FtpInitMessageList();
+X  if ( number == 0 )
+X    return "I/O Error , use perror";
+X  return (FtpMessageList[abs(number)]==NULL)?
+X    "":FtpMessageList[abs(number)];
+X}
+END_OF_FILE
+  if test 255 -ne `wc -c <'FtpMessage.c'`; then
+    echo shar: \"'FtpMessage.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpMessage.c'
+fi
+if test -f 'FtpMove.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpMove.c'\"
+else
+  echo shar: Extracting \"'FtpMove.c'\" \(241 characters\)
+  sed "s/^X//" >'FtpMove.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpMove(FTP *con,char * oldname , char * newname )
+X{
+X  STATUS i;
+X
+X  if ((i=FtpCommand(con,"RNFR %s",oldname,200,350,EOF)) > 1 )
+X    return FtpCommand(con,"RNTO %s",newname,200,250,EOF);
+X  else
+X    return i;
+X}
+END_OF_FILE
+  if test 241 -ne `wc -c <'FtpMove.c'`; then
+    echo shar: \"'FtpMove.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpMove.c'
+fi
+if test -f 'FtpNumber.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpNumber.c'\"
+else
+  echo shar: Extracting \"'FtpNumber.c'\" \(153 characters\)
+  sed "s/^X//" >'FtpNumber.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xint FtpNumber(char *Message)
+X{
+X  return (Message[0] - '0') * 100 +
+X         (Message[1] - '0') * 10  +
+X	 (Message[2] - '0') ;
+X}
+END_OF_FILE
+  if test 153 -ne `wc -c <'FtpNumber.c'`; then
+    echo shar: \"'FtpNumber.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpNumber.c'
+fi
+if test -f 'FtpOpenDir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpOpenDir.c'\"
+else
+  echo shar: Extracting \"'FtpOpenDir.c'\" \(248 characters\)
+  sed "s/^X//" >'FtpOpenDir.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpOpenDir(FTP * con,char * file)
+X{
+X  char * command;
+X
+X  if ( file == NULL || *file == '\0' )
+X    command = "NLST";
+X  else
+X    sprintf(command,"NLST %s",file);
+X
+X  return FtpCommand(con,command,"",120,150,200,EOF);
+X}
+END_OF_FILE
+  if test 248 -ne `wc -c <'FtpOpenDir.c'`; then
+    echo shar: \"'FtpOpenDir.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpOpenDir.c'
+fi
+if test -f 'FtpPort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpPort.c'\"
+else
+  echo shar: Extracting \"'FtpPort.c'\" \(371 characters\)
+  sed "s/^X//" >'FtpPort.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpPort(FTP *con,int a,int b,int c,int d,int e,int f)
+X{
+X  String cmd;
+X  int i;
+X
+X  sprintf(cmd,"PORT %d,%d,%d,%d,%d,%d",a,b,c,d,e,f);
+X  if ( FtpSendMessage(con,cmd) == QUIT)
+X    return QUIT;
+X  if ( (i=FtpGetMessage(con,cmd)) == QUIT)
+X    return QUIT;
+X  
+X  if ( ! FtpGood ( i , 200 , EOF ))
+X    return EXIT(con,-i);
+X
+X  return EXIT(con,i);
+X}
+END_OF_FILE
+  if test 371 -ne `wc -c <'FtpPort.c'`; then
+    echo shar: \"'FtpPort.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpPort.c'
+fi
+if test -f 'FtpPut.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpPut.c'\"
+else
+  echo shar: Extracting \"'FtpPut.c'\" \(313 characters\)
+  sed "s/^X//" >'FtpPut.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpPut(FTP * con , char * in , char * out )
+X{
+X  FILE *o;
+X  int c;
+X  
+X  if ( FtpOpenWrite(con,out) < 1 )
+X    return con->errno;
+X
+X  if ( (o=fopen(in,"r")) == NULL )
+X    return EXIT(con,QUIT);
+X  while ( (c=getc(o)) != EOF )
+X    FtpWrite(con,c);
+X  fclose(o);
+X  return FtpClose(con);
+X}
+END_OF_FILE
+  if test 313 -ne `wc -c <'FtpPut.c'`; then
+    echo shar: \"'FtpPut.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpPut.c'
+fi
+if test -f 'FtpPwd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpPwd.c'\"
+else
+  echo shar: Extracting \"'FtpPwd.c'\" \(377 characters\)
+  sed "s/^X//" >'FtpPwd.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xchar * FtpPwd(FTP * con)
+X{
+X  String tmp,tmp1;
+X  int i;
+X  
+X  if ( FtpSendMessage(con,"PWD") == QUIT )
+X    return (char *) EXIT(con,QUIT);
+X  if ( (i=FtpGetMessage(con,tmp)) == QUIT )
+X    return (char *) EXIT(con,QUIT);
+X  
+X  if ( i != 257 )
+X    return (char *) EXIT(con,-i);
+X
+X  sscanf(tmp,"%*[^\"]%*c%[^\"]%*s",tmp1);
+X  con -> errno = i;
+X  return tmp1;
+X}
+END_OF_FILE
+  if test 377 -ne `wc -c <'FtpPwd.c'`; then
+    echo shar: \"'FtpPwd.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpPwd.c'
+fi
+if test -f 'FtpRead.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpRead.c'\"
+else
+  echo shar: Extracting \"'FtpRead.c'\" \(414 characters\)
+  sed "s/^X//" >'FtpRead.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xint FtpRead(FTP *con)
+X{
+X  int c;
+X  
+X  if ( con -> mode == 'I' )
+X    return getc(con->data);
+X  
+X  if ( con->ch != EOF )
+X    {
+X      c=con->ch;
+X      con->ch=EOF;
+X      return c;
+X    }
+X  
+X  c=getc(con->data);
+X  
+X  if ( c == Ctrl('M') )
+X    {
+X      c = getc ( con->data);
+X      
+X      if ( c == Ctrl('J') )
+X	    return '\n';
+X      con->ch = c;
+X      return Ctrl('M');
+X    }
+X  return c;
+X}
+X	  
+END_OF_FILE
+  if test 414 -ne `wc -c <'FtpRead.c'`; then
+    echo shar: \"'FtpRead.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpRead.c'
+fi
+if test -f 'FtpRetr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpRetr.c'\"
+else
+  echo shar: Extracting \"'FtpRetr.c'\" \(375 characters\)
+  sed "s/^X//" >'FtpRetr.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpRetr(FTP * con , char * command , char *in , char * out)
+X{
+X  FILE *o;
+X  int c;
+X  
+X  if ( FtpData(con,command,in,"r") < 1 )
+X    return con->errno;
+X
+X  if ( (o=fopen(out,"w")) == NULL )
+X    return EXIT(con,QUIT);
+X  while ( (c=FtpRead(con)) != EOF )
+X    putc(c,o);
+X  if ( c != EOF ) return con -> errno ;
+X  fclose(o);
+X  return FtpClose(con);
+X}
+END_OF_FILE
+  if test 375 -ne `wc -c <'FtpRetr.c'`; then
+    echo shar: \"'FtpRetr.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpRetr.c'
+fi
+if test -f 'FtpSendMessage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpSendMessage.c'\"
+else
+  echo shar: Extracting \"'FtpSendMessage.c'\" \(303 characters\)
+  sed "s/^X//" >'FtpSendMessage.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+XSTATUS FtpSendMessage(FTP *con,char * Message )
+X{
+X  if ( write ( con -> sock , Message , strlen (Message)) == -1 )
+X    return QUIT;
+X  if ( write ( con -> sock , "\015\012",2) == -1 )
+X    return QUIT;
+X  if ( con -> debug != NULL )
+X    (*con->debug)(con,0,Message);
+X  return 1;
+X}
+END_OF_FILE
+  if test 303 -ne `wc -c <'FtpSendMessage.c'`; then
+    echo shar: \"'FtpSendMessage.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpSendMessage.c'
+fi
+if test -f 'FtpWrite.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'FtpWrite.c'\"
+else
+  echo shar: Extracting \"'FtpWrite.c'\" \(279 characters\)
+  sed "s/^X//" >'FtpWrite.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xint FtpWrite(FTP *con,char c)
+X{
+X  int i;
+X  
+X  if ( con -> mode == 'I' )
+X    return putc(c,con->data);
+X  if ( c == '\n' )
+X    {
+X      putc(Ctrl('M'),con->data);
+X      i=putc(Ctrl('J'),con->data);
+X    }
+X  else
+X    i = putc ( c , con->data );
+X  return i;
+X}
+END_OF_FILE
+  if test 279 -ne `wc -c <'FtpWrite.c'`; then
+    echo shar: \"'FtpWrite.c'\" unpacked with wrong size!
+  fi
+  # end of 'FtpWrite.c'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(5838 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XDEST	      = .
+X
+XEXTHDRS	      = /usr/include/arpa/ftp.h \
+X		/usr/include/netdb.h \
+X		/usr/include/netinet/in.h \
+X		/usr/include/stdio.h \
+X		/usr/include/sys/socket.h \
+X		/usr/include/sys/types.h
+X
+XHDRS	      = FtpLibrary.h
+X
+XLDFLAGS	      =
+X
+XLIBS	      =
+X
+XLINKER	      = gcc
+X
+XCC            = gcc
+X
+XSED	      = sed
+X
+XECHO          = echo
+X
+XCFLAGS        = -I. -O -g
+X
+XMAKEFILE      = Makefile
+X
+XOBJS	      = FtpBye.o \
+X		FtpClose.o \
+X		FtpCommand.o \
+X		FtpConnect.o \
+X		FtpData.o \
+X		FtpDebug.o \
+X		FtpFull.o \
+X		FtpGetMessage.o \
+X		FtpGetString.o \
+X		FtpGood.o \
+X		FtpInitMessage.o \
+X		FtpLogin.o \
+X		FtpMessage.o \
+X		FtpMove.o \
+X		FtpNumber.o \
+X		FtpOpenDir.o \
+X		FtpPort.o \
+X		FtpPut.o \
+X		FtpPwd.o \
+X		FtpRead.o \
+X		FtpRetr.o \
+X		FtpSendMessage.o \
+X		FtpWrite.o \
+X		test.o
+X
+XPRINT	      = pr
+X
+XPROGRAM	      = a.out
+X
+XSRCS	      = FtpBye.c \
+X		FtpClose.c \
+X		FtpCommand.c \
+X		FtpConnect.c \
+X		FtpData.c \
+X		FtpDebug.c \
+X		FtpFull.c \
+X		FtpGetMessage.c \
+X		FtpGetString.c \
+X		FtpGood.c \
+X		FtpInitMessage.c \
+X		FtpLogin.c \
+X		FtpMessage.c \
+X		FtpMove.c \
+X		FtpNumber.c \
+X		FtpOpenDir.c \
+X		FtpPort.c \
+X		FtpPut.c \
+X		FtpPwd.c \
+X		FtpRead.c \
+X		FtpRetr.c \
+X		FtpSendMessage.c \
+X		FtpWrite.c \
+X		test.c
+X
+Xall:		$(PROGRAM)
+X
+Xlibftp.a:	all
+X		ar cq libftp.a `$(ECHO) $(OBJS)|$(SED) s/test.o//g`
+X		ranlib libftp.a
+X
+X$(PROGRAM):     $(OBJS) $(LIBS)
+X		@echo -n "Loading $(PROGRAM) ... "
+X		@$(LINKER) $(LDFLAGS) $(OBJS) $(LIBS) -o $(PROGRAM)
+X		@echo "done"
+X
+Xclean:;		@rm -f $(OBJS)
+X
+Xdepend:;	@mkmf -f $(MAKEFILE) PROGRAM=$(PROGRAM) DEST=$(DEST)
+X
+Xindex:;		@ctags -wx $(HDRS) $(SRCS)
+X
+Xinstall:	$(PROGRAM)
+X		@echo Installing $(PROGRAM) in $(DEST)
+X		@install -s $(PROGRAM) $(DEST)
+X
+Xprint:;		@$(PRINT) $(HDRS) $(SRCS)
+X
+Xprogram:        $(PROGRAM)
+X
+Xtags:           $(HDRS) $(SRCS); ctags $(HDRS) $(SRCS)
+X
+Xupdate:		$(DEST)/$(PROGRAM)
+X
+X
+X
+X###
+XFtpBye.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpClose.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpCommand.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpConnect.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpData.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpDebug.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpFull.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpGetMessage.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpGetString.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpGood.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpInitMessage.o: FtpLibrary.h /usr/include/stdio.h \
+X	/usr/include/sys/types.h /usr/include/sys/socket.h \
+X	/usr/include/arpa/ftp.h /usr/include/netinet/in.h \
+X	/usr/include/netdb.h
+XFtpLogin.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpMessage.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpMove.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpNumber.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpOpenDir.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpPort.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpPut.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpPwd.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpRead.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpRetr.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+XFtpSendMessage.o: FtpLibrary.h /usr/include/stdio.h \
+X	/usr/include/sys/types.h /usr/include/sys/socket.h \
+X	/usr/include/arpa/ftp.h /usr/include/netinet/in.h \
+X	/usr/include/netdb.h
+XFtpWrite.o: FtpLibrary.h /usr/include/stdio.h /usr/include/sys/types.h \
+X	/usr/include/sys/socket.h /usr/include/arpa/ftp.h \
+X	/usr/include/netinet/in.h /usr/include/netdb.h
+END_OF_FILE
+  if test 5838 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'fcp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fcp.c'\"
+else
+  echo shar: Extracting \"'fcp.c'\" \(453 characters\)
+  sed "s/^X//" >'fcp.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xmain(int a,char **b)
+X{
+X  FILE *out,*in;
+X  int c;
+X  
+X
+X  if ( a != 3 )
+X    {
+X      fprintf(stderr,
+X	      "Usage: %s node/user/pass:input-file node/user/pass:out-file\n",
+X	      b[0]);
+X      exit(1);
+X    }
+X  if ((in=FtpFullOpen(b[1],"r"))==NULL)
+X    perror(b[1]),exit(1);
+X  if ((out=FtpFullOpen(b[2],"w"))==NULL)
+X    perror(b[2]),exit(1);
+X
+X  
+X  while((c=getc(in))!=EOF)
+X    putc(c,out);
+X  FtpFullClose(in);
+X  FtpFullClose(out);
+X}
+END_OF_FILE
+  if test 453 -ne `wc -c <'fcp.c'`; then
+    echo shar: \"'fcp.c'\" unpacked with wrong size!
+  fi
+  # end of 'fcp.c'
+fi
+if test -f 'get.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'get.c'\"
+else
+  echo shar: Extracting \"'get.c'\" \(477 characters\)
+  sed "s/^X//" >'get.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xmain(int a,char **b)
+X{
+X  FILE *out,*in;
+X  String localfile;
+X  int c;
+X  
+X
+X  if ( a != 2 )
+X    {
+X      fprintf(stderr,
+X	      "Usage: %s node/user/pass:input-file\n",
+X	      b[0]);
+X      exit(1);
+X    }
+X  if ((in=FtpFullOpen(b[1],"r"))==NULL)
+X    perror(b[1]),exit(1);
+X  sscanf(b[1],"%*[^:]:%s",localfile);
+X  if ((out=fopen(localfile,"w"))==NULL)
+X    perror(b[2]),exit(1);
+X
+X  while((c=getc(in))!=EOF)
+X    putc(c,out);
+X  FtpFullClose(in);
+X  fclose(out);
+X}
+END_OF_FILE
+  if test 477 -ne `wc -c <'get.c'`; then
+    echo shar: \"'get.c'\" unpacked with wrong size!
+  fi
+  # end of 'get.c'
+fi
+if test -f 'libftp.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libftp.3'\"
+else
+  echo shar: Extracting \"'libftp.3'\" \(3074 characters\)
+  sed "s/^X//" >'libftp.3' <<'END_OF_FILE'
+X.TH libftp 3
+X.SH NAME
+Xlibftp \- introduce to FTP library.
+X.SH SYNTAX
+X #include <FtpLibrary.h>
+X 
+X FtpConnect   (FTP **ftp,char *hostname) 
+X   \- connect to remote host.
+X 
+X FtpUser      (FTP *ftp,char *username)
+X   \- send user name to remote daemon.
+X 
+X FtpPassword  (FTP *ftp,char *password)
+X   \- send password.
+X 
+X FtpAccount   (FTP *ftp,char *account)
+X   \- send account name.
+X 
+X FtpLogin     (FTP **ftp,char *user,
+X               char *pass,char *account)
+X 
+X FtpLogin     (FTP **ftp,char *user,
+X               char *pass,NULL)
+X   \- full login to remote host.
+X 
+X FtpChdir     (FTP *ftp,char *directory)
+X   \- change remote working directory.
+X  
+X FtpMkdir     (FTP *ftp,char *directory)
+X   \- change remote working directory.
+X 
+X FtpRm        (FTP *ftp,char *file)
+X   \- erase remote file.
+X 
+X FtpType      (FTP *ftp,char type)
+X   \- set file type
+X 
+X FtpAscii     (FTP *ftp)
+X   \- set file type to ASCII.
+X 
+X FtpBinary    (FTP *ftp)
+X   \- set file type to BINARY.
+X 
+X FtpPwd       (FTP *ftp)
+X   \- get working directory.
+X 
+X FtpBye       (FTP *ftp)
+X   \- Close ftp connection.
+X 
+X FtpCommand   (FTP *ftp,char *command,
+X               param,ans1,ans2,...,EOF)
+X   \- Send command to remote daemon,command for remote daemon
+Xmaking by sscanf(x,command,param).If deamon return answer but not
+Xequivalent answer lists then if set error handler ( by SetErrorHandler ) 
+Xthen call it., else return answer by negative sing.
+X FtpData     (FTP *ftp,char *command,param,mode)
+X Open data connection to remote host.command and param send to remote
+Xdaemon,mode is "r" or "w".Before call it subroutine , you can read/write
+Xby use ftp->data file structure.
+X 
+X FtpOpenRead  (FTP *ftp,char *file)
+X   \- Open file for read.
+X 
+X FtpOpenWrite (FTP *ftp,char *file)
+X   \- Open file for write.
+X 
+X FtpOpenAppend (FTP *ftp,char *file)
+X   \- Open file for append.
+X 
+X FtpOpenDir   (FTP *ftp,char *pater)
+X   \- Open directory brief list from remote host.
+X 
+X FtpClose     (FTP *ftp)
+X   \- Close file.
+X 
+X FtpGetFile   (FTP *ftp,char *file)
+X   \- Send get command to remote daemon.
+X 
+X FtpPutFile   (FTP *ftp,char *file)
+X   \- Send put command to remote daemon.
+X 
+X FtpRead      (FTP *ftp)
+X   \- Read one character from remote host.
+X 
+X FtpWrite     (FTP *ftp,char c)
+X   \- Write one character to remote host.
+X 
+X FtpGetString (FTP *ftp,char *s)
+X   \- Get String from data connection.
+X 
+X FtpGet       (FTP *ftp,char *remotefile,char *localfile)
+X FtpPut       (FTP *ftp,char *localfile,char *remotefile)
+X FtpDir       (FTP *ftp,char *outfile)
+X FtpDirectory (FTP *ftp,char *pater,char *outfile)
+X   \- Transfer file or lists.
+X 
+X FtpFullOpen  (char *filename,char *mode)
+X   \- Open file.return pointer to structure FILE. 
+X	filename: host/user/password:file
+X        mode:     "r","w" or "a".
+X 
+X FtpFullClose ( FILE * )
+X   \- Close file opened by FtpFullOpen.
+X 
+X FtpSetErrorHanler(FTP *ftp,STATUS (*handler)())
+X FtpSetDebugHanler(FTP *ftp,STATUS (*handler)())
+X   \- Set error and debug handlers.
+X 
+X FtpDebug(FTP *ftp)
+X   \- Set standard error and debug handlers.
+X 
+X.SH AUTHORS
+X  Oleg Orel 
+X  e-mail: orel@oeaix.oea.ihep.su 
+END_OF_FILE
+  if test 3074 -ne `wc -c <'libftp.3'`; then
+    echo shar: \"'libftp.3'\" unpacked with wrong size!
+  fi
+  # end of 'libftp.3'
+fi
+if test -f 'test.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.c'\"
+else
+  echo shar: Extracting \"'test.c'\" \(710 characters\)
+  sed "s/^X//" >'test.c' <<'END_OF_FILE'
+X#include "FtpLibrary.h"
+X
+Xmain(int a,char **b)
+X{
+X  FTP *ftp;
+X  STATUS deb();
+X
+X  if ( b[1]==NULL)
+X    if ( (b[1]=getenv("REMOTE_HOST"))==NULL)
+X      b[1]="localhost";
+X
+X  if (FtpConnect(&ftp,b[1])<1)
+X    {
+X      if ( ftp -> errno == 0 )
+X	perror(b[1]);
+X      else
+X	fprintf(stderr,"EXIT::%s\n",FtpMessage(ftp->errno));
+X      exit(0);
+X    }
+X  FtpSetErrorHandler(ftp,deb);
+X  if ( a < 3 || b[2][0]==0 ) b[2]=getenv("USER");
+X  FtpUser(ftp,b[2]);
+X  if ( a < 4 || b[3][0]==0 ) b[3]=getenv("PASSWORD");
+X  FtpPassword(ftp,b[3]);
+X  if ( a < 5 || b[4][0]==0 )
+X    FtpDir(ftp,"/dev/tty");
+X  else
+X    FtpDirectory(ftp,b[4],"/dev/tty");
+X  FtpBye(ftp);
+X}
+X
+XSTATUS deb(a,b,c)
+X{
+X  fprintf(stderr,"ERROR::%s\n",c);
+X  exit(0);
+X}
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 710 -ne `wc -c <'test.c'`; then
+    echo shar: \"'test.c'\" unpacked with wrong size!
+  fi
+  # end of 'test.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

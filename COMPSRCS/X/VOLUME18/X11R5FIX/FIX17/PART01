@@ -1,0 +1,1872 @@
+Path: uunet!cs.utexas.edu!swrinde!mips!msi!dcmartin
+From: rws@expo.lcs.mit.edu (Bob Scheifler)
+Newsgroups: comp.sources.x
+Subject: v18i095: X11R5 public fix #17, Part01/02
+Message-ID: <csx-18i095-X11R5-fix17@uunet.UU.NET>
+Date: 24 Aug 92 20:10:58 GMT
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1860
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Bob Scheifler <rws@expo.lcs.mit.edu>
+Posting-number: Volume 18, Issue 95
+Archive-name: X11R5-fix17/part01
+
+Fix 17 corrects the following problems:
+
+server: add -ac command line option for running test suite
+server: add support for XTEST extension (extension itself not included)
+server: connection can be slammed shut if open is right after server reset
+server: certain wide arc caps and joins misdrawn
+server: certain zero-width arcs crash server
+server: certain wide arcs crash server
+server: certain wide arcs can leak memory
+server: certain cursor changes in a window hierarchy can crash server
+server: claiming non-convex polygons are convex can crash server
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.50)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 08/24/1992 20:09 UTC by dcmartin@fascet
+# Source directory /n/merlin/u2/src/X11R5/fixes
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  55119 -rw-r--r-- fix-17
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= fix-17 ==============
+if test -f 'fix-17' -a X"$1" != X"-c"; then
+	echo 'x - skipping fix-17 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fix-17 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fix-17' &&
+X		      Release 5 Public Patch #17
+X			   MIT X Consortium
+X
+To apply this patch:
+X
+cd to the top of the source tree (to the directory containing the "mit"
+and "contrib" subdirectories) and do:
+X	patch -p -s < ThisFile
+Patch will work silently unless an error occurs.
+If you want to watch patch do its thing, leave out the "-s" argument to patch.
+X
+Finally, to rebuild after applying this patch, cd to the "mit" subdirectory
+and do:
+X	make -k >& make.log
+X
+Brief notes on what this patch fixes:
+X
+server: add -ac command line option for running test suite
+server: add support for XTEST extension (extension itself not included)
+server: connection can be slammed shut if open is right after server reset
+server: certain wide arc caps and joins misdrawn
+server: certain zero-width arcs crash server
+server: certain wide arcs crash server
+server: certain wide arcs can leak memory
+server: certain cursor changes in a window hierarchy can crash server
+server: claiming non-convex polygons are convex can crash server
+X
+Prereq: public-patch-16
+X
+*** /tmp/,RCSt1002661	Fri Aug 21 16:43:54 1992
+--- mit/bug-report	Fri Aug 21 16:43:04 1992
+***************
+*** 2,8 ****
+X  Subject: [area]: [synopsis]   [replace with actual area and short description]
+X  
+X  VERSION:
+!     R5, public-patch-16
+X      [MIT public patches will edit this line to indicate the patch level]
+X  
+X  CLIENT MACHINE and OPERATING SYSTEM:
+--- 2,8 ----
+X  Subject: [area]: [synopsis]   [replace with actual area and short description]
+X  
+X  VERSION:
+!     R5, public-patch-17
+X      [MIT public patches will edit this line to indicate the patch level]
+X  
+X  CLIENT MACHINE and OPERATING SYSTEM:
+*** /tmp/,RCSt1002016	Fri Aug 21 13:06:52 1992
+--- mit/server/os/xdmcp.c	Fri Aug 21 13:06:54 1992
+***************
+*** 1,3 ****
+--- 1,4 ----
++ /* $XConsortium: xdmcp.c,v 1.22 92/05/19 17:22:10 keith Exp $ */
+X  /*
+X   * Copyright 1989 Network Computing Devices, Inc., Mountain View, California.
+X   *
+***************
+*** 24,32 ****
+--- 25,35 ----
+X  #include "misc.h"
+X  #include "osdep.h"
+X  #include "input.h"
++ #include "dixstruct.h"
+X  #include "opaque.h"
+X  
+X  #ifdef XDMCP
++ #undef REQUEST
+X  #include "Xdmcp.h"
+X  
+X  extern int argcGlobal;
+***************
+*** 248,254 ****
+X  {
+X      int	i;
+X  
+-     XdmcpDisposeARRAY8 (AuthenticationName);
+X      for (i = 0; i < AuthenticationNames.length; i++)
+X  	if (XdmcpARRAY8Equal (&AuthenticationNames.data[i], name))
+X  	{
+--- 251,256 ----
+***************
+*** 424,437 ****
+X  XdmcpOpenDisplay(sock)
+X      int	sock;
+X  {
+-     extern void AugmentSelf();
+- 
+X      if (state != XDM_AWAIT_MANAGE_RESPONSE)
+X  	return;
+X      state = XDM_RUN_SESSION;
+X      sessionSocket = sock;
+-     /* permit access control manipulations from this host */
+-     AugmentSelf(sock);
+X  }
+X  
+X  void 
+--- 426,435 ----
+***************
+*** 659,665 ****
+X  XdmcpDeadSession (reason)
+X      char *reason;
+X  {
+!     printf ("XDM: %s, declaring session dead\n", reason);
+X      state = XDM_INIT_STATE;
+X      isItTimeToYield = TRUE;
+X      dispatchException |= DE_RESET;
+--- 657,663 ----
+X  XdmcpDeadSession (reason)
+X      char *reason;
+X  {
+!     ErrorF ("XDM: %s, declaring session dead\n", reason);
+X      state = XDM_INIT_STATE;
+X      isItTimeToYield = TRUE;
+X      dispatchException |= DE_RESET;
+***************
+*** 683,689 ****
+X      }
+X      else if (timeOutRtx >= XDM_RTX_LIMIT)
+X      {
+! 	printf("XDM: too many retransmissions\n");
+X  	state = XDM_AWAIT_USER_INPUT;
+X  	timeOutTime = 0;
+X  	timeOutRtx = 0;
+--- 681,687 ----
+X      }
+X      else if (timeOutRtx >= XDM_RTX_LIMIT)
+X      {
+! 	ErrorF("XDM: too many retransmissions\n");
+X  	state = XDM_AWAIT_USER_INPUT;
+X  	timeOutTime = 0;
+X  	timeOutRtx = 0;
+***************
+*** 925,930 ****
+--- 923,930 ----
+X  	    {
+X  		XdmcpFatal ("Authentication Failure", &AcceptAuthenticationName);
+X  	    }
++ 	    /* permit access control manipulations from this host */
++ 	    AugmentSelf (&req_sockaddr, req_socklen);
+X  	    /* if the authorization specified in the packet fails
+X  	     * to be acceptable, enable the local addresses
+X  	     */
+***************
+*** 1022,1028 ****
+X      if (XdmcpReadCARD32 (&buffer, &FailedSessionID) &&
+X  	XdmcpReadARRAY8 (&buffer, &Status))
+X      {
+!     	if (length == 5 + Status.length &&
+X  	    SessionID == FailedSessionID)
+X  	{
+X  	    XdmcpFatal ("Session failed", &Status);
+--- 1022,1028 ----
+X      if (XdmcpReadCARD32 (&buffer, &FailedSessionID) &&
+X  	XdmcpReadARRAY8 (&buffer, &Status))
+X      {
+!     	if (length == 6 + Status.length &&
+X  	    SessionID == FailedSessionID)
+X  	{
+X  	    XdmcpFatal ("Session failed", &Status);
+***************
+*** 1067,1073 ****
+X      	{
+X  	    /* backoff dormancy period */
+X  	    state = XDM_RUN_SESSION;
+! 	    if (TimeSinceLastInputEvent() > keepaliveDormancy * 1000)
+X  	    {
+X  		keepaliveDormancy <<= 1;
+X  		if (keepaliveDormancy > XDM_MAX_DORMANCY)
+--- 1067,1074 ----
+X      	{
+X  	    /* backoff dormancy period */
+X  	    state = XDM_RUN_SESSION;
+! 	    if ((GetTimeInMillis() - lastDeviceEventTime.milliseconds) >
+! 		keepaliveDormancy * 1000)
+X  	    {
+X  		keepaliveDormancy <<= 1;
+X  		if (keepaliveDormancy > XDM_MAX_DORMANCY)
+***************
+*** 1089,1095 ****
+X  {
+X      extern void AbortDDX();
+X  
+!     printf("XDMCP fatal error: %s %*.*s\n", type,
+X  	   status->length, status->length, status->data);
+X      AbortDDX ();
+X      exit (1);
+--- 1090,1096 ----
+X  {
+X      extern void AbortDDX();
+X  
+!     ErrorF ("XDMCP fatal error: %s %*.*s\n", type,
+X  	   status->length, status->length, status->data);
+X      AbortDDX ();
+X      exit (1);
+***************
+*** 1099,1105 ****
+X  XdmcpWarning(str)
+X      char *str;
+X  {
+!     printf("XDMCP warning: %s\n", str);
+X  }
+X  
+X  static
+--- 1100,1106 ----
+X  XdmcpWarning(str)
+X      char *str;
+X  {
+!     ErrorF("XDMCP warning: %s\n", str);
+X  }
+X  
+X  static
+***************
+*** 1111,1122 ****
+X  
+X      if (i == argc)
+X      {
+! 	printf("Xserver: missing host name in command line\n");
+X  	exit(1);
+X      }
+X      if (!(hep = gethostbyname(argv[i])))
+X      {
+! 	printf("Xserver: unknown host: %s\n", argv[i]);
+X  	exit(1);
+X      }
+X      if (hep->h_length == sizeof (struct in_addr))
+--- 1112,1123 ----
+X  
+X      if (i == argc)
+X      {
+! 	ErrorF("Xserver: missing host name in command line\n");
+X  	exit(1);
+X      }
+X      if (!(hep = gethostbyname(argv[i])))
+X      {
+! 	ErrorF("Xserver: unknown host: %s\n", argv[i]);
+X  	exit(1);
+X      }
+X      if (hep->h_length == sizeof (struct in_addr))
+***************
+*** 1127,1133 ****
+X      }
+X      else
+X      {
+! 	printf ("Xserver: host on strange network %s\n", argv[i]);
+X  	exit (1);
+X      }
+X  }
+--- 1128,1134 ----
+X      }
+X      else
+X      {
+! 	ErrorF ("Xserver: host on strange network %s\n", argv[i]);
+X  	exit (1);
+X      }
+X  }
+*** /tmp/,RCSt1002025	Fri Aug 21 13:08:20 1992
+--- mit/server/os/xdmauth.c	Fri Aug 21 13:08:21 1992
+***************
+*** 2,8 ****
+X   * XDM-AUTHENTICATION-1 (XDMCP authentication) and
+X   * XDM-AUTHORIZATION-1 (client authorization) protocols
+X   *
+!  * $XConsortium: xdmauth.c,v 1.5 91/07/24 18:36:20 keith Exp $
+X   *
+X   * Copyright 1988 Massachusetts Institute of Technology
+X   *
+--- 2,8 ----
+X   * XDM-AUTHENTICATION-1 (XDMCP authentication) and
+X   * XDM-AUTHORIZATION-1 (client authorization) protocols
+X   *
+!  * $XConsortium: xdmauth.c,v 1.6 92/05/19 17:24:20 keith Exp $
+X   *
+X   * Copyright 1988 Massachusetts Institute of Technology
+X   *
+***************
+*** 24,29 ****
+--- 24,31 ----
+X  
+X  #ifdef HASXDMAUTH
+X  
++ static Bool authFromXDMCP;
++ 
+X  #ifdef XDMCP
+X  #include "Xmd.h"
+X  #include "Xdmcp.h"
+***************
+*** 76,83 ****
+X      int	    name_len, data_len;
+X      char    *name, *data;
+X  {
+X      XdmcpUnwrap (data, &privateKey, data, data_len);
+!     AddAuthorization (name_len, name, data_len, data);
+X  }
+X  
+X  
+--- 78,89 ----
+X      int	    name_len, data_len;
+X      char    *name, *data;
+X  {
++     Bool    ret;
+X      XdmcpUnwrap (data, &privateKey, data, data_len);
+!     authFromXDMCP = TRUE;
+!     ret = AddAuthorization (name_len, name, data_len, data);
+!     authFromXDMCP = FALSE;
+!     return ret;
+X  }
+X  
+X  
+***************
+*** 278,285 ****
+X      switch (data_length)
+X      {
+X      case 16:		    /* auth from files is 16 bytes long */
+! 	rho_bits = (unsigned char *) data;
+! 	key_bits = (unsigned char *) (data + 8);
+X  	break;
+X      case 8:		    /* auth from XDMCP is 8 bytes long */
+X  	rho_bits = rho.data;
+--- 284,302 ----
+X      switch (data_length)
+X      {
+X      case 16:		    /* auth from files is 16 bytes long */
+! 	if (authFromXDMCP)
+! 	{
+! 	    /* R5 xdm sent bogus authorization data in the accept packet,
+! 	     * but we can recover */
+! 	    rho_bits = rho.data;
+! 	    key_bits = (unsigned char *) data;
+! 	    key_bits[0] = '\0';
+! 	}
+! 	else
+! 	{
+! 	    rho_bits = (unsigned char *) data;
+! 	    key_bits = (unsigned char *) (data + 8);
+! 	}
+X  	break;
+X      case 8:		    /* auth from XDMCP is 8 bytes long */
+X  	rho_bits = rho.data;
+*** /tmp/,RCSt1002034	Fri Aug 21 13:09:26 1992
+--- mit/server/os/access.c	Tue May 19 17:23:06 1992
+***************
+*** 22,28 ****
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: access.c,v 1.51 91/07/09 15:13:16 rws Exp $ */
+X  
+X  #include "Xos.h"
+X  #include "X.h"
+--- 22,28 ----
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: access.c,v 1.54 92/05/19 17:23:02 keith Exp $ */
+X  
+X  #include "Xos.h"
+X  #include "X.h"
+***************
+*** 63,68 ****
+--- 63,70 ----
+X  #include "dixstruct.h"
+X  #include "osdep.h"
+X  
++ Bool defeatAccessControl = FALSE;
++ 
+X  #define acmp(a1, a2, len) bcmp((char *)(a1), (char *)(a2), len)
+X  #define acopy(a1, a2, len) bcopy((char *)(a1), (char *)(a2), len)
+X  #define addrEqual(fam, address, length, host) \
+***************
+*** 266,271 ****
+--- 268,282 ----
+X  	    if (family != FamilyInternet)
+X  		continue;
+X  
++ 	    /*
++  	     * ignore 'localhost' entries as they're not useful
++ 	     * on the other end of the wire
++ 	     */
++ 	    if (len == 4 &&
++ 		addr[0] == 127 && addr[1] == 0 &&
++ 		addr[2] == 0 && addr[3] == 1)
++ 		continue;
++ 
+X  	    XdmcpRegisterConnection (family, (char *)addr, len);
+X  	    broad_addr = ifr->ifr_addr;
+X  	    ((struct sockaddr_in *) &broad_addr)->sin_addr.s_addr =
+***************
+*** 299,317 ****
+X  
+X  #ifdef XDMCP
+X  void
+! AugmentSelf(fd)
+!     int fd;
+X  {
+-     int len;
+-     struct sockaddr from;
+X      int family;
+X      pointer addr;
+X      register HOST *host;
+X  
+!     len = sizeof(from);
+!     if (getpeername(fd, &from, &len))
+! 	return;
+!     family = ConvertAddr(&from, &len, &addr);
+X      if (family == -1 || family == FamilyLocal)
+X  	return;
+X      for (host = selfhosts; host; host = host->next)
+--- 310,324 ----
+X  
+X  #ifdef XDMCP
+X  void
+! AugmentSelf(from, len)
+!     struct sockaddr *from;
+!     int		    len;
+X  {
+X      int family;
+X      pointer addr;
+X      register HOST *host;
+X  
+!     family = ConvertAddr(from, &len, &addr);
+X      if (family == -1 || family == FamilyLocal)
+X  	return;
+X      for (host = selfhosts; host; host = host->next)
+***************
+*** 365,371 ****
+X      pointer		addr;
+X      register struct hostent *hp;
+X  
+!     AccessEnabled = DEFAULT_ACCESS_CONTROL;
+X      LocalHostEnabled = FALSE;
+X      while (host = validhosts)
+X      {
+--- 372,378 ----
+X      pointer		addr;
+X      register struct hostent *hp;
+X  
+!     AccessEnabled = defeatAccessControl ? FALSE : DEFAULT_ACCESS_CONTROL;
+X      LocalHostEnabled = FALSE;
+X      while (host = validhosts)
+X      {
+***************
+*** 450,456 ****
+X      pointer		addr;
+X      register HOST	*host;
+X  
+!     if (!client)
+X  	return TRUE;
+X      alen = sizeof (from);
+X      if (!getpeername (((OsCommPtr)client->osPrivate)->fd, &from, &alen))
+--- 457,463 ----
+X      pointer		addr;
+X      register HOST	*host;
+X  
+!     if (!client || defeatAccessControl)
+X  	return TRUE;
+X      alen = sizeof (from);
+X      if (!getpeername (((OsCommPtr)client->osPrivate)->fd, &from, &alen))
+*** /tmp/,RCSt1002041	Fri Aug 21 13:10:47 1992
+--- mit/server/os/WaitFor.c	Fri Mar 13 15:48:43 1992
+***************
+*** 22,28 ****
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: WaitFor.c,v 1.55 91/06/13 08:55:43 rws Exp $ */
+X  
+X  /*****************************************************************
+X   * OS Depedent input routines:
+--- 22,28 ----
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: WaitFor.c,v 1.57 92/03/13 15:47:39 rws Exp $ */
+X  
+X  /*****************************************************************
+X   * OS Depedent input routines:
+***************
+*** 63,69 ****
+X  extern WorkQueuePtr workQueue;
+X  
+X  extern void CheckConnections();
+! extern void EstablishNewConnections();
+X  extern void SaveScreens();
+X  extern void ResetOsBuffers();
+X  extern void ProcessInputEvents();
+--- 63,69 ----
+X  extern WorkQueuePtr workQueue;
+X  
+X  extern void CheckConnections();
+! extern Bool EstablishNewConnections();
+X  extern void SaveScreens();
+X  extern void ResetOsBuffers();
+X  extern void ProcessInputEvents();
+***************
+*** 135,141 ****
+X  	}
+X  	if (ScreenSaverTime)
+X  	{
+! 	    timeout = ScreenSaverTime - TimeSinceLastInputEvent();
+X  	    if (timeout <= 0) /* may be forced by AutoResetServer() */
+X  	    {
+X  		long timeSinceSave;
+--- 135,142 ----
+X  	}
+X  	if (ScreenSaverTime)
+X  	{
+! 	    timeout = (ScreenSaverTime -
+! 		       (GetTimeInMillis() - lastDeviceEventTime.milliseconds));
+X  	    if (timeout <= 0) /* may be forced by AutoResetServer() */
+X  	    {
+X  		long timeSinceSave;
+***************
+*** 251,257 ****
+X  
+X  	    MASKANDSETBITS(clientsReadable, LastSelectMask, AllClients); 
+X  	    if (LastSelectMask[0] & WellKnownConnections) 
+! 		EstablishNewConnections();
+X  	    if (ANYSET (devicesReadable) || ANYSET (clientsReadable))
+X  		break;
+X  	}
+--- 252,259 ----
+X  
+X  	    MASKANDSETBITS(clientsReadable, LastSelectMask, AllClients); 
+X  	    if (LastSelectMask[0] & WellKnownConnections) 
+! 		QueueWorkProc(EstablishNewConnections, NULL,
+! 			      (pointer)LastSelectMask[0]);
+X  	    if (ANYSET (devicesReadable) || ANYSET (clientsReadable))
+X  		break;
+X  	}
+*** /tmp/,RCSt1009760	Mon Aug 24 09:22:03 1992
+--- mit/server/os/utils.c	Mon Aug 24 09:22:05 1992
+***************
+*** 21,27 ****
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: utils.c,v 1.105 91/07/19 23:22:14 keith Exp $ */
+X  #include "Xos.h"
+X  #include <stdio.h>
+X  #include "misc.h"
+--- 21,27 ----
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: utils.c,v 1.109 92/02/24 19:03:14 keith Exp $ */
+X  #include "Xos.h"
+X  #include <stdio.h>
+X  #include "misc.h"
+***************
+*** 64,69 ****
+--- 64,70 ----
+X  extern long ScreenSaverTime;		/* for forcing reset */
+X  extern Bool permitOldBugs;
+X  extern int monitorResolution;
++ extern Bool defeatAccessControl;
+X  
+X  Bool CoreDump;
+X  
+***************
+*** 76,82 ****
+X  #ifdef AIXV3
+X  #define AIXFILE "/tmp/aixfile"
+X  FILE *aixfd;
+- int FlushOn = 0;
+X  int SyncOn  = 0;
+X  extern int SelectWaitTime;
+X  #endif
+--- 77,82 ----
+***************
+*** 160,170 ****
+--- 160,196 ----
+X  }
+X  #endif
+X  
++ AdjustWaitForDelay (waitTime, newdelay)
++     pointer	    waitTime;
++     unsigned long   newdelay;
++ {
++     static struct timeval   delay_val;
++     struct timeval	    **wt = (struct timeval **) waitTime;
++     unsigned long	    olddelay;
++ 
++     if (*wt == NULL)
++     {
++ 	delay_val.tv_sec = newdelay / 1000;
++ 	delay_val.tv_usec = 1000 * (newdelay % 1000);
++ 	*wt = &delay_val;
++     }
++     else
++     {
++ 	olddelay = (*wt)->tv_sec * 1000 + (*wt)->tv_usec / 1000;
++ 	if (newdelay < olddelay)
++ 	{
++ 	    (*wt)->tv_sec = newdelay / 1000;
++ 	    (*wt)->tv_usec = 1000 * (newdelay % 1000);
++ 	}
++     }
++ }
++ 
+X  void UseMsg()
+X  {
+X  #if !defined(AIXrt) && !defined(AIX386)
+X      ErrorF("use: X [:<display>] [option]\n");
+X      ErrorF("-a #                   mouse acceleration (pixels)\n");
++     ErrorF("-ac                    disable access control restrictions\n");
+X  #ifdef MEMBUG
+X      ErrorF("-alloc int             chance alloc should fail\n");
+X  #endif
+***************
+*** 228,236 ****
+--- 254,267 ----
+X      int i, skip;
+X  
+X  #ifdef MEMBUG
++ #ifndef AIXV3
+X      if (!minfree)
+X  	minfree = (pointer)sbrk(0);
++ #else
++     /* segment 2 is user data space */
++     minfree = (pointer) 0x20000000;
+X  #endif
++ #endif
+X      defaultKeyboardControl.autoRepeat = TRUE;
+X  
+X  #ifdef AIXV3
+***************
+*** 256,261 ****
+--- 287,296 ----
+X  	    else
+X  		UseMsg();
+X  	}
++ 	else if ( strcmp( argv[i], "-ac") == 0)
++ 	{
++ 	    defeatAccessControl = TRUE;
++ 	}
+X  #ifdef MEMBUG
+X  	else if ( strcmp( argv[i], "-alloc") == 0)
+X  	{
+***************
+*** 481,490 ****
+X              else
+X                  UseMsg();
+X          }
+-         else if ( strcmp( argv[i], "-flush") == 0)
+-         {
+-             FlushOn++;
+-         }
+X          else if ( strcmp( argv[i], "-sync") == 0)
+X          {
+X              SyncOn++;
+--- 516,521 ----
+***************
+*** 842,849 ****
+X  {
+X  #ifdef AIXV3
+X      fprintf(aixfd, f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9);
+!     if (FlushOn || SyncOn)
+!         fflush (aixfd);
+X      if (SyncOn)
+X          sync();
+X  #else
+--- 873,880 ----
+X  {
+X  #ifdef AIXV3
+X      fprintf(aixfd, f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9);
+!     fflush (aixfd);
+! 
+X      if (SyncOn)
+X          sync();
+X  #else
+*** /tmp/,RCSt1002006	Fri Aug 21 13:05:17 1992
+--- mit/server/os/connection.c	Fri Aug 21 13:05:18 1992
+***************
+*** 21,27 ****
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: connection.c,v 1.141 91/09/09 14:27:23 rws Exp $ */
+X  /*****************************************************************
+X   *  Stuff to create connections --- OS dependent
+X   *
+--- 21,27 ----
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: connection.c,v 1.146 92/06/11 10:38:45 rws Exp $ */
+X  /*****************************************************************
+X   *  Stuff to create connections --- OS dependent
+X   *
+***************
+*** 135,141 ****
+X  static int SavedAllClients[mskcnt];
+X  static int SavedAllSockets[mskcnt];
+X  static int SavedClientsWithInput[mskcnt];
+! static int GrabInProgress = 0;
+X  
+X  int ConnectionTranslation[MAXSOCKS];
+X  extern ClientPtr NextAvailableClient();
+--- 135,141 ----
+X  static int SavedAllClients[mskcnt];
+X  static int SavedAllSockets[mskcnt];
+X  static int SavedClientsWithInput[mskcnt];
+! int GrabInProgress = 0;
+X  
+X  int ConnectionTranslation[MAXSOCKS];
+X  extern ClientPtr NextAvailableClient();
+***************
+*** 241,248 ****
+X      unsock.sun_family = AF_UNIX;
+X      oldUmask = umask (0);
+X  #ifdef X_UNIX_DIR
+!     mkdir (X_UNIX_DIR, 0777);
+!     chmod (X_UNIX_DIR, 0777);
+X  #endif
+X      strcpy (unsock.sun_path, X_UNIX_PATH);
+X      strcat (unsock.sun_path, display);
+--- 241,248 ----
+X      unsock.sun_family = AF_UNIX;
+X      oldUmask = umask (0);
+X  #ifdef X_UNIX_DIR
+!     if (!mkdir (X_UNIX_DIR, 0777))
+! 	chmod (X_UNIX_DIR, 0777);
+X  #endif
+X      strcpy (unsock.sun_path, X_UNIX_PATH);
+X      strcat (unsock.sun_path, display);
+***************
+*** 258,265 ****
+X  
+X          uname(&systemName);
+X          strcpy(oldLinkName, OLD_UNIX_DIR);
+!         mkdir(oldLinkName, 0777);
+!         chown(oldLinkName, 2, 3);
+X          strcat(oldLinkName, "/");
+X          strcat(oldLinkName, systemName.nodename);
+X          strcat(oldLinkName, display);
+--- 258,265 ----
+X  
+X          uname(&systemName);
+X          strcpy(oldLinkName, OLD_UNIX_DIR);
+!         if (!mkdir(oldLinkName, 0777))
+! 	    chown(oldLinkName, 2, 3);
+X          strcat(oldLinkName, "/");
+X          strcat(oldLinkName, systemName.nodename);
+X          strcat(oldLinkName, display);
+***************
+*** 552,557 ****
+--- 552,561 ----
+X      priv->auth_id = auth_id;
+X      priv->conn_time = 0;
+X  
++ #ifdef XDMCP
++     /* indicate to Xdmcp protocol that we've opened new client */
++     XdmcpOpenDisplay(priv->fd);
++ #endif /* XDMCP */
+X      /* At this point, if the client is authorized to change the access control
+X       * list, we should getpeername() information, and add the client to
+X       * the selfhosts list.  It's not really the host machine, but the
+***************
+*** 568,575 ****
+X   *    and AllSockets.
+X   *****************/
+X  
+! void
+! EstablishNewConnections()
+X  {
+X      long readyconnections;     /* mask of listeners that are ready */
+X      int curconn;                  /* fd of listener that's ready */
+--- 572,582 ----
+X   *    and AllSockets.
+X   *****************/
+X  
+! /*ARGSUSED*/
+! Bool
+! EstablishNewConnections(clientUnused, closure)
+!     ClientPtr clientUnused;
+!     pointer closure;
+X  {
+X      long readyconnections;     /* mask of listeners that are ready */
+X      int curconn;                  /* fd of listener that's ready */
+***************
+*** 595,603 ****
+X      int	fromlen;
+X  #endif /* TCP_NODELAY */
+X  
+!     readyconnections = (LastSelectMask[0] & WellKnownConnections);
+X      if (!readyconnections)
+! 	return;
+X      connect_time = GetTimeInMillis();
+X      /* kill off stragglers */
+X      for (i=1; i<currentMaxClients; i++)
+--- 602,610 ----
+X      int	fromlen;
+X  #endif /* TCP_NODELAY */
+X  
+!     readyconnections = (((long)closure) & WellKnownConnections);
+X      if (!readyconnections)
+! 	return TRUE;
+X      connect_time = GetTimeInMillis();
+X      /* kill off stragglers */
+X      for (i=1; i<currentMaxClients; i++)
+***************
+*** 655,661 ****
+X  	oc = (OsCommPtr)xalloc(sizeof(OsCommRec));
+X  	if (!oc)
+X  	{
+- 	    xfree(oc);
+X  	    ErrorConnMax(newconn);
+X  	    close(newconn);
+X  	    continue;
+--- 662,667 ----
+***************
+*** 684,694 ****
+X  	    ErrorConnMax(newconn);
+X  	    CloseDownFileDescriptor(oc);
+X  	}
+- #ifdef XDMCP
+- 	/* indicate to Xdmcp protocol that we've opened new client */
+- 	XdmcpOpenDisplay(newconn);
+- #endif /* XDMCP */
+X      }
+X  }
+X  
+X  #define NOROOM "Maximum number of clients reached"
+--- 690,697 ----
+X  	    ErrorConnMax(newconn);
+X  	    CloseDownFileDescriptor(oc);
+X  	}
+X      }
++     return TRUE;
+X  }
+X  
+X  #define NOROOM "Maximum number of clients reached"
+*** /tmp/,RCSt1002061	Fri Aug 21 13:13:00 1992
+--- mit/server/Xserver.man	Tue Feb 25 10:25:23 1992
+***************
+*** 1,3 ****
+--- 1,4 ----
++ .\" $XConsortium: Xserver.man,v 1.44 92/02/25 10:24:47 rws Exp $
+X  .TH XSERVER 1 "Release 5"  "X Version 11"
+X  .SH NAME
+X  Xserver \- X Window System server
+***************
+*** 49,54 ****
+--- 50,61 ----
+X  .B \-a \fInumber\fP
+X  sets pointer acceleration (i.e. the ratio of how much is reported to how much
+X  the user actually moved the pointer).
++ .TP 8
++ .B \-ac
++ disables host-based access control mechanisms.  Enables access by any host,
++ and permits any host to modify the access control list.
++ Use with extreme caution.
++ This option exists primarily for running test suites remotely.
+X  .TP 8
+X  .B \-auth \fIauthorization-file\fP
+X  Specifies a file which contains a collection of authorization records used
+*** /tmp/,RCSt1002102	Fri Aug 21 13:45:12 1992
+--- mit/server/include/dixstruct.h	Thu Aug 20 13:56:58 1992
+***************
+*** 22,28 ****
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: dixstruct.h,v 1.15 91/02/14 19:35:59 keith Exp $ */
+X  
+X  #ifndef DIXSTRUCT_H
+X  #define DIXSTRUCT_H
+--- 22,28 ----
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: dixstruct.h,v 1.16 92/03/13 15:39:45 rws Exp $ */
+X  
+X  #ifndef DIXSTRUCT_H
+X  #define DIXSTRUCT_H
+***************
+*** 83,88 ****
+--- 83,89 ----
+X  }           WorkQueueRec;
+X  
+X  extern TimeStamp currentTime;
++ extern TimeStamp lastDeviceEventTime;
+X  extern void CloseDownClient();
+X  
+X  extern TimeStamp ClientTimeToServerTime();
+*** /tmp/,RCSt1002110	Fri Aug 21 13:45:56 1992
+--- mit/server/dix/globals.c	Fri Mar 13 15:41:54 1992
+***************
+*** 22,28 ****
+X  
+X  ********************************************************/
+X  
+! /* $XConsortium: globals.c,v 1.50 91/05/14 12:25:28 rws Exp $ */
+X  
+X  #include "X.h"
+X  #include "Xmd.h"
+--- 22,28 ----
+X  
+X  ********************************************************/
+X  
+! /* $XConsortium: globals.c,v 1.51 92/03/13 15:40:57 rws Exp $ */
+X  
+X  #include "X.h"
+X  #include "Xmd.h"
+***************
+*** 86,91 ****
+--- 86,92 ----
+X  ClientPtr requestingClient;	/* XXX this should be obsolete now, remove? */
+X  
+X  TimeStamp currentTime;
++ TimeStamp lastDeviceEventTime;
+X  
+X  Bool permitOldBugs = FALSE; /* turn off some error checking, to permit certain
+X  			     * old broken clients (like R2/R3 xterms) to work
+*** /tmp/,RCSt1002164	Fri Aug 21 13:57:48 1992
+--- mit/server/dix/events.c	Fri Aug 21 13:57:53 1992
+***************
+*** 23,29 ****
+X  ********************************************************/
+X  
+X  
+! /* $XConsortium: events.c,v 5.47 91/08/21 15:38:34 keith Exp $ */
+X  
+X  #include "X.h"
+X  #include "misc.h"
+--- 23,29 ----
+X  ********************************************************/
+X  
+X  
+! /* $XConsortium: events.c,v 5.54 92/03/19 11:30:46 rws Exp $ */
+X  
+X  #include "X.h"
+X  #include "misc.h"
+***************
+*** 132,138 ****
+X  void WriteEventsToClient();
+X  Bool CheckDeviceGrabs();
+X  void NewCurrentScreen();
+! static void EnqueueEvent();
+X  
+X  extern void MaybeStopHint();
+X  
+--- 132,138 ----
+X  void WriteEventsToClient();
+X  Bool CheckDeviceGrabs();
+X  void NewCurrentScreen();
+! void EnqueueEvent();
+X  
+X  extern void MaybeStopHint();
+X  
+***************
+*** 466,475 ****
+X      return sprite.current;
+X  }
+X  
+X  #define NoticeTime(xE) { \
+X      if ((xE)->u.keyButtonPointer.time < currentTime.milliseconds) \
+! 	currentTime.months++; \
+!     currentTime.milliseconds = (xE)->u.keyButtonPointer.time; }
+X  
+X  void
+X  NoticeEventTime(xE)
+--- 466,500 ----
+X      return sprite.current;
+X  }
+X  
++ void
++ GetSpritePosition(px, py)
++     int *px, *py;
++ {
++     *px = sprite.hotPhys.x;
++     *py = sprite.hotPhys.y;
++ }
++ 
++ #define TIMESLOP (5 * 60 * 1000) /* 5 minutes */
++ 
++ static void
++ MonthChangedOrBadTime(xE)
++     register xEvent *xE;
++ {
++     /* If the ddx/OS is careless about not processing timestamped events from
++      * different sources in sorted order, then it's possible for time to go
++      * backwards when it should not.  Here we ensure a decent time.
++      */
++     if ((currentTime.milliseconds - xE->u.keyButtonPointer.time) > TIMESLOP)
++ 	currentTime.months++;
++     else
++ 	xE->u.keyButtonPointer.time = currentTime.milliseconds;
++ }
++ 
+X  #define NoticeTime(xE) { \
+X      if ((xE)->u.keyButtonPointer.time < currentTime.milliseconds) \
+! 	MonthChangedOrBadTime(xE); \
+!     currentTime.milliseconds = (xE)->u.keyButtonPointer.time; \
+!     lastDeviceEventTime = currentTime; }
+X  
+X  void
+X  NoticeEventTime(xE)
+***************
+*** 483,489 ****
+X   *            The following procedures deal with synchronous events       *
+X   **************************************************************************/
+X  
+! static void
+X  EnqueueEvent(xE, device, count)
+X      xEvent		*xE;
+X      DeviceIntPtr	device;
+--- 508,514 ----
+X   *            The following procedures deal with synchronous events       *
+X   **************************************************************************/
+X  
+! void
+X  EnqueueEvent(xE, device, count)
+X      xEvent		*xE;
+X      DeviceIntPtr	device;
+***************
+*** 567,573 ****
+X  {
+X      dev->sync.frozen = frozen;
+X      if (frozen)
+! 	dev->public.processInputProc = EnqueueEvent;
+X      else
+X  	dev->public.processInputProc = dev->public.realInputProc;
+X  }
+--- 592,598 ----
+X  {
+X      dev->sync.frozen = frozen;
+X      if (frozen)
+! 	dev->public.processInputProc = dev->public.enqueueInputProc;
+X      else
+X  	dev->public.processInputProc = dev->public.realInputProc;
+X  }
+***************
+*** 815,821 ****
+X  	    if (dev->sync.state < FROZEN)
+X  		othersFrozen = FALSE;
+X  	}
+! 	else if (!thisGrabbed || (dev->sync.other != thisDev->grab))
+X  	    othersFrozen = FALSE;
+X      }
+X      if (!((thisGrabbed && thisDev->sync.state >= FROZEN) || thisSynced))
+--- 840,846 ----
+X  	    if (dev->sync.state < FROZEN)
+X  		othersFrozen = FALSE;
+X  	}
+! 	else if (!dev->sync.other || !SameClient(dev->sync.other, client))
+X  	    othersFrozen = FALSE;
+X      }
+X      if (!((thisGrabbed && thisDev->sync.state >= FROZEN) || thisSynced))
+***************
+*** 2947,2952 ****
+--- 2972,2978 ----
+X      syncEvents.time.milliseconds = 0;	/* hardly matters */
+X      currentTime.months = 0;
+X      currentTime.milliseconds = GetTimeInMillis();
++     lastDeviceEventTime = currentTime;
+X      for (i = 0; i < DNPMCOUNT; i++)
+X      {
+X  	DontPropagateMasks[i] = 0;
+***************
+*** 3050,3060 ****
+--- 3076,3094 ----
+X      REQUEST(xUngrabKeyReq);
+X      WindowPtr pWin;
+X      GrabRec tempGrab;
++     DeviceIntPtr keybd = inputInfo.keyboard;
+X  
+X      REQUEST_SIZE_MATCH(xUngrabKeyReq);
+X      pWin = LookupWindow(stuff->grabWindow, client);
+X      if (!pWin)
+X  	return BadWindow;
++     if (((stuff->key > keybd->key->curKeySyms.maxKeyCode) ||
++ 	 (stuff->key < keybd->key->curKeySyms.minKeyCode))
++ 	&& (stuff->key != AnyKey))
++     {
++ 	client->errorValue = stuff->key;
++         return BadValue;
++     }
+X      if ((stuff->modifiers != AnyModifier) &&
+X  	(stuff->modifiers & ~AllModifiersMask))
+X      {
+***************
+*** 3063,3069 ****
+X      }
+X  
+X      tempGrab.resource = client->clientAsMask;
+!     tempGrab.device = inputInfo.keyboard;
+X      tempGrab.window = pWin;
+X      tempGrab.modifiersDetail.exact = stuff->modifiers;
+X      tempGrab.modifiersDetail.pMask = NULL;
+--- 3097,3103 ----
+X      }
+X  
+X      tempGrab.resource = client->clientAsMask;
+!     tempGrab.device = keybd;
+X      tempGrab.window = pWin;
+X      tempGrab.modifiersDetail.exact = stuff->modifiers;
+X      tempGrab.modifiersDetail.pMask = NULL;
+***************
+*** 3087,3092 ****
+--- 3121,3131 ----
+X      DeviceIntPtr keybd = inputInfo.keyboard;
+X  
+X      REQUEST_SIZE_MATCH(xGrabKeyReq);
++     if ((stuff->ownerEvents != xTrue) && (stuff->ownerEvents != xFalse))
++     {
++ 	client->errorValue = stuff->ownerEvents;
++ 	return(BadValue);
++     }
+X      if ((stuff->pointerMode != GrabModeSync) &&
+X  	(stuff->pointerMode != GrabModeAsync))
+X      {
+*** /tmp/,RCSt1002230	Fri Aug 21 14:54:47 1992
+--- mit/server/dix/devices.c	Fri Aug 21 14:54:49 1992
+***************
+*** 23,29 ****
+X  ********************************************************/
+X  
+X  
+! /* $XConsortium: devices.c,v 5.19 91/07/17 19:26:02 rws Exp $ */
+X  
+X  #include "X.h"
+X  #include "misc.h"
+--- 23,29 ----
+X  ********************************************************/
+X  
+X  
+! /* $XConsortium: devices.c,v 5.22 91/12/10 11:19:22 keith Exp $ */
+X  
+X  #include "X.h"
+X  #include "misc.h"
+***************
+*** 45,50 ****
+--- 45,51 ----
+X  extern void ActivatePointerGrab(), DeactivatePointerGrab();
+X  extern void ActivateKeyboardGrab(), DeactivateKeyboardGrab();
+X  extern Mask EventMaskForClient();
++ extern void EnqueueEvent();
+X  
+X  DevicePtr
+X  AddInputDevice(deviceProc, autoStart)
+***************
+*** 65,70 ****
+--- 66,72 ----
+X      dev->public.on = FALSE;
+X      dev->public.processInputProc = NoopDDA;
+X      dev->public.realInputProc = NoopDDA;
++     dev->public.enqueueInputProc = EnqueueEvent;
+X      dev->deviceProc = deviceProc;
+X      dev->startup = autoStart;
+X      dev->sync.frozen = FALSE;
+***************
+*** 901,915 ****
+X      if (len != (stuff->keyCodes * stuff->keySymsPerKeyCode))
+X              return BadLength;
+X      if ((stuff->firstKeyCode < curKeySyms->minKeyCode) ||
+! 	(stuff->firstKeyCode + stuff->keyCodes - 1 > curKeySyms->maxKeyCode))
+X      {
+X  	    client->errorValue = stuff->firstKeyCode;
+X  	    return BadValue;
+X      }
+!     if (stuff->keySymsPerKeyCode == 0)
+X      {
+! 	    client->errorValue = 0;
+!             return BadValue;
+X      }
+X      keysyms.minKeyCode = stuff->firstKeyCode;
+X      keysyms.maxKeyCode = stuff->firstKeyCode + stuff->keyCodes - 1;
+--- 903,918 ----
+X      if (len != (stuff->keyCodes * stuff->keySymsPerKeyCode))
+X              return BadLength;
+X      if ((stuff->firstKeyCode < curKeySyms->minKeyCode) ||
+! 	(stuff->firstKeyCode > curKeySyms->maxKeyCode))
+X      {
+X  	    client->errorValue = stuff->firstKeyCode;
+X  	    return BadValue;
+X      }
+!     if ((stuff->firstKeyCode + stuff->keyCodes - 1 > curKeySyms->maxKeyCode) ||
+! 	(stuff->keySymsPerKeyCode == 0))
+X      {
+! 	    client->errorValue = stuff->keySymsPerKeyCode;
+! 	    return BadValue;
+X      }
+X      keysyms.minKeyCode = stuff->firstKeyCode;
+X      keysyms.maxKeyCode = stuff->firstKeyCode + stuff->keyCodes - 1;
+***************
+*** 1266,1271 ****
+--- 1269,1284 ----
+X  
+X      REQUEST_SIZE_MATCH(xChangePointerControlReq);
+X      ctrl = mouse->ptrfeed->ctrl;
++     if ((stuff->doAccel != xTrue) && (stuff->doAccel != xFalse))
++     {
++ 	client->errorValue = stuff->doAccel;
++ 	return(BadValue);
++     }
++     if ((stuff->doThresh != xTrue) && (stuff->doThresh != xFalse))
++     {
++ 	client->errorValue = stuff->doThresh;
++ 	return(BadValue);
++     }
+X      if (stuff->doAccel)
+X      {
+X  	if (stuff->accelNum == -1)
+*** /tmp/,RCSt1002404	Fri Aug 21 15:12:37 1992
+--- mit/server/include/input.h	Fri Aug 21 15:09:46 1992
+***************
+*** 1,3 ****
+--- 1,4 ----
++ /* $XConsortium: input.h,v 1.12 92/08/21 15:09:38 rws Exp $ */
+X  /************************************************************
+X  Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+X  and the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+***************
+*** 58,65 ****
+X  
+X  typedef struct _DeviceRec {
+X      pointer	devicePrivate;
+!     ProcessInputProc processInputProc;
+!     ProcessInputProc realInputProc;
+X      Bool	on;			/* used by DDX to keep state */
+X  } DeviceRec, *DevicePtr;
+X  
+--- 59,67 ----
+X  
+X  typedef struct _DeviceRec {
+X      pointer	devicePrivate;
+!     ProcessInputProc processInputProc;	/* current */
+!     ProcessInputProc realInputProc;	/* deliver */
+!     ProcessInputProc enqueueInputProc;	/* enqueue */
+X      Bool	on;			/* used by DDX to keep state */
+X  } DeviceRec, *DevicePtr;
+X  
+*** /tmp/,RCSt1002574	Fri Aug 21 15:50:36 1992
+--- mit/server/dix/window.c	Fri Aug 21 15:50:47 1992
+***************
+*** 22,28 ****
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: window.c,v 5.77 91/09/17 11:02:41 keith Exp $ */
+X  
+X  #include "X.h"
+X  #define NEED_REPLIES
+--- 22,28 ----
+X  
+X  ******************************************************************/
+X  
+! /* $XConsortium: window.c,v 5.77.1.1 92/08/21 15:49:07 rws Exp $ */
+X  
+X  #include "X.h"
+X  #define NEED_REPLIES
+***************
+*** 3973,3978 ****
+--- 3973,3980 ----
+X  
+X      if (on == SCREEN_SAVER_FORCER)
+X      {
++ 	UpdateCurrentTimeIf();
++ 	lastDeviceEventTime = currentTime;
+X          if (mode == ScreenSaverReset)
+X              what = SCREEN_SAVER_OFF;
+X          else
+***************
+*** 4228,4234 ****
+X      parentOptional = FindWindowWithOptional(w)->optional;
+X      if (optional->visual != parentOptional->visual)
+X  	return;
+!     if (optional->cursor != None && optional->cursor != parentOptional->cursor)
+X  	return;
+X      if (optional->colormap != parentOptional->colormap)
+X  	return;
+--- 4230,4238 ----
+X      parentOptional = FindWindowWithOptional(w)->optional;
+X      if (optional->visual != parentOptional->visual)
+X  	return;
+!     if (optional->cursor != None &&
+! 	(optional->cursor != parentOptional->cursor ||
+! 	 w->parent->cursorIsNone))
+X  	return;
+X      if (optional->colormap != parentOptional->colormap)
+X  	return;
+*** /tmp/,RCSt1002488	Fri Aug 21 15:30:03 1992
+--- mit/server/ddx/mi/mizerarc.c	Fri May 22 18:12:05 1992
+***************
+*** 17,23 ****
+X  
+X  ********************************************************/
+X  
+! /* $XConsortium: mizerarc.c,v 5.33 92/04/21 19:05:01 rws Exp $ */
+X  
+X  /* Derived from:
+X   * "Algorithm for drawing ellipses or hyperbolae with a digital plotter"
+--- 17,23 ----
+X  
+X  ********************************************************/
+X  
+! /* $XConsortium: mizerarc.c,v 5.34 92/05/22 17:44:26 rws Exp $ */
+X  
+X  /* Derived from:
+X   * "Algorithm for drawing ellipses or hyperbolae with a digital plotter"
+***************
+*** 55,61 ****
+--- 55,65 ----
+X  #define EPSILON45 64
+X  
+X  typedef struct {
++     int skipStart;
++     int haveStart;
+X      DDXPointRec startPt;
++     int haveLast;
++     int skipLast;
+X      DDXPointRec endPt;
+X      int dashIndex;
+X      int dashOffset;
+***************
+*** 625,631 ****
+X      for (j = 4; startPts[j] == endPts[j]; j--)
+X  	;
+X      lastPt = endPts[j] - deltas[j];
+!     if ((pt->x == dinfo->endPt.x) && (pt->y == dinfo->endPt.y))
+X      {
+X  	startPts[i] += deltas[i];
+X      }
+--- 629,636 ----
+X      for (j = 4; startPts[j] == endPts[j]; j--)
+X  	;
+X      lastPt = endPts[j] - deltas[j];
+!     if (dinfo->haveLast &&
+! 	(pt->x == dinfo->endPt.x) && (pt->y == dinfo->endPt.y))
+X      {
+X  	startPts[i] += deltas[i];
+X      }
+***************
+*** 634,644 ****
+X  	dinfo->dashIndex = dinfo->dashIndexInit;
+X  	dinfo->dashOffset = dinfo->dashOffsetInit;
+X      }
+!     if ((lastPt->x == dinfo->startPt.x) && (lastPt->y == dinfo->startPt.y) &&
+! 	(lastPt != pt))
+! 	endPts[j] = pt;
+!     dinfo->startPt = *pt;
+!     dinfo->endPt = *lastPt;
+X      dashRemaining = pGC->dash[dinfo->dashIndex] - dinfo->dashOffset;
+X      for (i = 0; i < 5; i++)
+X      {
+--- 639,659 ----
+X  	dinfo->dashIndex = dinfo->dashIndexInit;
+X  	dinfo->dashOffset = dinfo->dashOffsetInit;
+X      }
+!     if (!dinfo->skipStart && (info.startAngle != info.endAngle))
+!     {
+! 	dinfo->startPt = *pt;
+! 	dinfo->haveStart = TRUE;
+!     }
+!     else if (!dinfo->skipLast && dinfo->haveStart &&
+! 	     (lastPt->x == dinfo->startPt.x) &&
+! 	     (lastPt->y == dinfo->startPt.y) &&
+! 	     (lastPt != startPts[i]))
+! 	endPts[j] = lastPt;
+!     if (info.startAngle != info.endAngle)
+!     {
+! 	dinfo->haveLast = TRUE;
+! 	dinfo->endPt = *lastPt;
+!     }
+X      dashRemaining = pGC->dash[dinfo->dashIndex] - dinfo->dashOffset;
+X      for (i = 0; i < 5; i++)
+X      {
+***************
+*** 725,733 ****
+X      if (pGC->lineStyle != LineSolid)
+X      {
+X  	numPts <<= 1;
+! 	dinfo.startPt.x = parcs->x - 1;
+! 	dinfo.startPt.y = parcs->y - 1;
+! 	dinfo.endPt = dinfo.startPt;
+X  	dinfo.dashIndexInit = 0;
+X  	dinfo.dashOffsetInit = 0;
+X  	miStepDash((int)pGC->dashOffset, &dinfo.dashIndexInit,
+--- 740,748 ----
+X      if (pGC->lineStyle != LineSolid)
+X      {
+X  	numPts <<= 1;
+! 	dinfo.haveStart = FALSE;
+! 	dinfo.skipStart = FALSE;
+! 	dinfo.haveLast = FALSE;
+X  	dinfo.dashIndexInit = 0;
+X  	dinfo.dashOffsetInit = 0;
+X  	miStepDash((int)pGC->dashOffset, &dinfo.dashIndexInit,
+***************
+*** 753,760 ****
+--- 768,777 ----
+X  	    {
+X  		pts = points;
+X  		oddPts = &points[(numPts >> 1) - 1];
++ 		dinfo.skipLast = i;
+X  		miZeroArcDashPts(pGC, arc, &dinfo,
+X  				 oddPts + 1, maxPts, &pts, &oddPts);
++ 		dinfo.skipStart = TRUE;
+X  	    }
+X  	    n = pts - points;
+X  	    if (!dospans)
+*** /tmp/,RCSt1002518	Fri Aug 21 15:36:39 1992
+--- mit/server/ddx/mi/miarc.c	Fri Aug 21 15:36:42 1992
+***************
+*** 21,27 ****
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: miarc.c,v 5.36 91/07/02 13:13:12 rws Exp $ */
+X  /* Author: Keith Packard */
+X  
+X  #include <math.h>
+--- 21,27 ----
+X  SOFTWARE.
+X  
+X  ******************************************************************/
+! /* $XConsortium: miarc.c,v 5.41 92/05/17 10:50:34 rws Exp $ */
+X  /* Author: Keith Packard */
+X  
+X  #include <math.h>
+***************
+*** 40,46 ****
+X  #if defined(SVR4) && __STDC__
+X  extern double hypot(double, double);
+X  #endif
+! double	miDsin(), miDcos(), miDasin(), miDatan2();
+X  double	cbrt(
+X  #if NeedFunctionPrototypes
+X  	     double
+--- 40,46 ----
+X  #if defined(SVR4) && __STDC__
+X  extern double hypot(double, double);
+X  #endif
+! static double miDsin(), miDcos(), miDasin(), miDatan2();
+X  double	cbrt(
+X  #if NeedFunctionPrototypes
+X  	     double
+***************
+*** 138,145 ****
+X  
+X  extern void miFillSppPoly();
+X  static void fillSpans(), span(), drawArc(), drawQuadrant(), drawZeroArc();
+! static void miFreeArcs();
+! static int computeAngleFromPath();
+X  static miPolyArcPtr miComputeArcs ();
+X  
+X  #undef max
+--- 138,145 ----
+X  
+X  extern void miFillSppPoly();
+X  static void fillSpans(), span(), drawArc(), drawQuadrant(), drawZeroArc();
+! static void miFreeArcs(), miArcJoin(), miArcCap(), miRoundCap();
+! static int computeAngleFromPath(), miGetArcPts();
+X  static miPolyArcPtr miComputeArcs ();
+X  
+X  #undef max
+***************
+*** 1077,1082 ****
+--- 1077,1083 ----
+X  	b->counterClock.y -= y + fy;
+X  }
+X  
++ static void
+X  miArcJoin (pDraw, pGC, pLeft, pRight,
+X  	   xOrgLeft, yOrgLeft, xFtransLeft, yFtransLeft,
+X  	   xOrgRight, yOrgRight, xFtransRight, yFtransRight)
+***************
+*** 1191,1196 ****
+--- 1192,1198 ----
+X  }
+X  
+X  /*ARGSUSED*/
++ static void
+X  miArcCap (pDraw, pGC, pFace, end, xOrg, yOrg, xFtrans, yFtrans)
+X  	DrawablePtr	pDraw;
+X  	GCPtr		pGC;
+***************
+*** 1241,1247 ****
+X   * NOTE:  pOtherCorner must be counter-clockwise from pCorner.
+X   */
+X  /*ARGSUSED*/
+! void
+X  miRoundCap(pDraw, pGC, pCenter, pEnd, pCorner, pOtherCorner, fLineEnd,
+X       xOrg, yOrg, xFtrans, yFtrans)
+X      DrawablePtr	pDraw;
+--- 1243,1249 ----
+X   * NOTE:  pOtherCorner must be counter-clockwise from pCorner.
+X   */
+X  /*ARGSUSED*/
+! static void
+X  miRoundCap(pDraw, pGC, pCenter, pEnd, pCorner, pOtherCorner, fLineEnd,
+X       xOrg, yOrg, xFtrans, yFtrans)
+X      DrawablePtr	pDraw;
+***************
+*** 1278,1285 ****
+X  	 * to be the corners, we assure that the cap will meet up with the
+X  	 * rest of the line */
+X  	miFillSppPoly(pDraw, pGC, cpt, pArcPts, -xOrg, -yOrg, xFtrans, yFtrans);
+- 	xfree(pArcPts);
+X      }
+X  }
+X  
+X  /*
+--- 1280,1287 ----
+X  	 * to be the corners, we assure that the cap will meet up with the
+X  	 * rest of the line */
+X  	miFillSppPoly(pDraw, pGC, cpt, pArcPts, -xOrg, -yOrg, xFtrans, yFtrans);
+X      }
++     xfree(pArcPts);
+X  }
+X  
+X  /*
+***************
+*** 1298,1304 ****
+X  # define Dcos(d)	((d) == 0.0 ? 1.0 : ((d) == 90.0 ? 0.0 : cos(d*M_PI/180.0)))
+X  # define mod(a,b)	((a) >= 0 ? (a) % (b) : (b) - (-a) % (b))
+X  
+! double
+X  miDcos (a)
+X  double	a;
+X  {
+--- 1300,1306 ----
+X  # define Dcos(d)	((d) == 0.0 ? 1.0 : ((d) == 90.0 ? 0.0 : cos(d*M_PI/180.0)))
+X  # define mod(a,b)	((a) >= 0 ? (a) % (b) : (b) - (-a) % (b))
+X  
+! static double
+X  miDcos (a)
+X  double	a;
+X  {
+***************
+*** 1316,1322 ****
+X  	return cos (a * M_PI / 180.0);
+X  }
+X  
+! double
+X  miDsin (a)
+X  double	a;
+X  {
+--- 1318,1324 ----
+X  	return cos (a * M_PI / 180.0);
+X  }
+X  
+! static double
+X  miDsin (a)
+X  double	a;
+X  {
+***************
+*** 1334,1340 ****
+X  	return sin (a * M_PI / 180.0);
+X  }
+X  
+! double
+X  miDasin (v)
+X  double	v;
+X  {
+--- 1336,1342 ----
+X  	return sin (a * M_PI / 180.0);
+X  }
+X  
+! static double
+X  miDasin (v)
+X  double	v;
+X  {
+***************
+*** 1347,1353 ****
+X      return asin(v) * (180.0 / M_PI);
+X  }
+X  
+! double
+X  miDatan2 (dy, dx)
+X  double	dy, dx;
+X  {
+--- 1349,1355 ----
+X      return asin(v) * (180.0 / M_PI);
+X  }
+X  
+! static double
+X  miDatan2 (dy, dx)
+X  double	dy, dx;
+X  {
+***************
+*** 1366,1373 ****
+X  	    return 135.0;
+X  	} else {
+X  	    if (dx > 0)
+! 		return 225.0;
+! 	    return 315.0;
+X  	}
+X      } else {
+X  	return atan2 (dy, dx) * (180.0 / M_PI);
+--- 1368,1375 ----
+X  	    return 135.0;
+X  	} else {
+X  	    if (dx > 0)
+! 		return 315.0;
+! 	    return 225.0;
+X  	}
+X      } else {
+X  	return atan2 (dy, dx) * (180.0 / M_PI);
+***************
+*** 1389,1395 ****
+X   * If there isn't an array already, we just pass in a null pointer and 
+X   * count on Xrealloc() to handle the null pointer correctly.
+X   */
+! int
+X  miGetArcPts(parc, cpt, ppPts)
+X      SppArcPtr	parc;	/* points to an arc */
+X      int		cpt;	/* number of points already in arc list */
+--- 1391,1397 ----
+X   * If there isn't an array already, we just pass in a null pointer and 
+X   * count on Xrealloc() to handle the null pointer correctly.
+X   */
+! static int
+X  miGetArcPts(parc, cpt, ppPts)
+X      SppArcPtr	parc;	/* points to an arc */
+X      int		cpt;	/* number of points already in arc list */
+***************
+*** 1786,1792 ****
+X  		j = i + 1;
+X  		if (j == narcs)
+X  			j = 0;
+! 		if (data[i].selfJoin || 
+X  		     (UNEQUAL (data[i].x1, data[j].x0) ||
+X  		      UNEQUAL (data[i].y1, data[j].y0)))
+X   		{
+--- 1788,1794 ----
+X  		j = i + 1;
+X  		if (j == narcs)
+X  			j = 0;
+! 		if (data[i].selfJoin || i == j ||
+X  		     (UNEQUAL (data[i].x1, data[j].x0) ||
+X  		      UNEQUAL (data[i].y1, data[j].y0)))
+X   		{
+***************
+*** 1943,1949 ****
+X  				dashRemaining = dashRemainingStart;
+X  			}
+X  		}
+! 		arcsJoin = narcs > 1 && 
+X  	 		    ISEQUAL (data[i].x1, data[j].x0) &&
+X  			    ISEQUAL (data[i].y1, data[j].y0) &&
+X  			    !data[i].selfJoin && !data[j].selfJoin;
+--- 1945,1951 ----
+X  				dashRemaining = dashRemainingStart;
+X  			}
+X  		}
+! 		arcsJoin = narcs > 1 && i != j &&
+X  	 		    ISEQUAL (data[i].x1, data[j].x0) &&
+X  			    ISEQUAL (data[i].y1, data[j].y0) &&
+X  			    !data[i].selfJoin && !data[j].selfJoin;
+***************
+*** 3225,3235 ****
+X  static double	arcXcenter, arcYcenter;
+X  static int	arcXoffset, arcYoffset;
+X  
+! static struct finalSpan	**finalSpans;
+! static int		finalMiny, finalMaxy;
+! static int		finalSize;
+X  
+! static int		nspans;		/* total spans, not just y coords */
+X  
+X  struct finalSpan {
+X  	struct finalSpan	*next;
+--- 3227,3237 ----
+X  static double	arcXcenter, arcYcenter;
+X  static int	arcXoffset, arcYoffset;
+X  
+! static struct finalSpan	**finalSpans = NULL;
+! static int		finalMiny = 0, finalMaxy = -1;
+! static int		finalSize = 0;
+X  
+! static int		nspans = 0;	/* total spans, not just y coords */
+X  
+X  struct finalSpan {
+X  	struct finalSpan	*next;
+***************
+*** 3314,3320 ****
+X  	{
+X  	    i = 0;
+X  	    f = finalSpans;
+! 	    for (spany = finalMiny; spany < finalMaxy; spany++, f++) {
+X  		    for (span = *f; span; span=span->next) {
+X  			    if (span->max <= span->min)
+X  				    continue;
+--- 3316,3322 ----
+X  	{
+X  	    i = 0;
+X  	    f = finalSpans;
+! 	    for (spany = finalMiny; spany <= finalMaxy; spany++, f++) {
+X  		    for (span = *f; span; span=span->next) {
+X  			    if (span->max <= span->min)
+X  				    continue;
+***************
+*** 3331,3344 ****
+X  	xfree (xSpans);
+X  	xfree (xWidths);
+X  	finalMiny = 0;
+! 	finalMaxy = 0;
+X  	finalSize = 0;
+X  	nspans = 0;
+X  }
+X  
+! # define SPAN_REALLOC	1024
+X  
+! # define findSpan(y) ((finalMiny <= (y) && (y) < finalMaxy) ? \
+X  			  &finalSpans[(y) - finalMiny] : \
+X  			  realFindSpan (y))
+X  
+--- 3333,3346 ----
+X  	xfree (xSpans);
+X  	xfree (xWidths);
+X  	finalMiny = 0;
+! 	finalMaxy = -1;
+X  	finalSize = 0;
+X  	nspans = 0;
+X  }
+X  
+! # define SPAN_REALLOC	100
+X  
+! # define findSpan(y) ((finalMiny <= (y) && (y) <= finalMaxy) ? \
+X  			  &finalSpans[(y) - finalMiny] : \
+X  			  realFindSpan (y))
+X  
+***************
+*** 3350,3361 ****
+X  	int			change;
+X  	int			i;
+X  
+! 	if (y < finalMiny || y >= finalMaxy) {
+X  		if (y < finalMiny)
+X  			change = finalMiny - y;
+X  		else
+X  			change = y - finalMaxy;
+! 		if (change >= SPAN_REALLOC)
+X  			change += SPAN_REALLOC;
+X  		else
+X  			change = SPAN_REALLOC;
+--- 3352,3367 ----
+X  	int			change;
+X  	int			i;
+X  
+! 	if (y < finalMiny || y > finalMaxy) {
+! 		if (!finalSize) {
+! 			finalMaxy = y - (SPAN_REALLOC - 1);
+! 			finalMiny = finalMaxy + 1;
+! 		}
+X  		if (y < finalMiny)
+X  			change = finalMiny - y;
+X  		else
+X  			change = y - finalMaxy;
+! 		if (change > SPAN_REALLOC)
+X  			change += SPAN_REALLOC;
+X  		else
+X  			change = SPAN_REALLOC;
+***************
+*** 3379,3385 ****
+X  		if ((i = finalMiny - newMiny) > 0)
+X  			bzero ((char *)newSpans, i * sizeof (struct finalSpan *));
+X  		if ((i = newMaxy - finalMaxy) > 0)
+! 			bzero ((char *)(newSpans + finalMaxy - newMiny),
+X  			       i * sizeof (struct finalSpan *));
+X  		finalSpans = newSpans;
+X  		finalMaxy = newMaxy;
+--- 3385,3391 ----
+X  		if ((i = finalMiny - newMiny) > 0)
+X  			bzero ((char *)newSpans, i * sizeof (struct finalSpan *));
+X  		if ((i = newMaxy - finalMaxy) > 0)
+! 			bzero ((char *)(newSpans + newSize - i),
+X  			       i * sizeof (struct finalSpan *));
+X  		finalSpans = newSpans;
+X  		finalMaxy = newMaxy;
+***************
+*** 3739,3745 ****
+X  		 * find left-most point
+X  		 */
+X  		for (i = 0; i < bandno; i++)
+! 			if (band[i].a0 < q0) {
+X  				q0 = band[i].a0;
+X  				q1 = band[i].a1;
+X  				mask = band[i].mask;
+--- 3745,3751 ----
+X  		 * find left-most point
+X  		 */
+X  		for (i = 0; i < bandno; i++)
+! 			if (band[i].a0 <= q0) {
+X  				q0 = band[i].a0;
+X  				q1 = band[i].a1;
+X  				mask = band[i].mask;
+***************
+*** 3775,3781 ****
+X  				 * check if this band is empty
+X  				 */
+X  				if (band[i].a0 == band[i].a1)
+! 					band[i].a1 = band[i].a0 = 90 * 64;
+X  			}
+X  	}
+X  	computeAcc (&def, &acc);
+--- 3781,3787 ----
+X  				 * check if this band is empty
+SHAR_EOF
+true || echo 'restore of fix-17 failed'
+fi
+echo 'End of  part 1'
+echo 'File fix-17 is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

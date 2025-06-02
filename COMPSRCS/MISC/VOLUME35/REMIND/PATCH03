@@ -1,0 +1,888 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v35i073:  remind - A replacement for calendar, Patch03
+Message-ID: <1993Feb22.033259.14231@sparky.imd.sterling.com>
+X-Md4-Signature: 81e3b98dba4c2a394624e4e381404aca
+Date: Mon, 22 Feb 1993 03:32:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 35, Issue 73
+Archive-name: remind/patch03
+Environment: UNIX, MS-DOS
+Patch-To: remind: Volume 33, Issue 58-69
+
+This is Patch 3 for remind 3.0.  It fixes bugs in Remind and Rem2PS that
+patch 2 introduced.  I strongly recommend that you apply this patch!
+
+Check the usual ftp site (ftp.doe.carleton.ca:pub/remind-3.0) for the
+patch and source distribution.
+
+The bugs are:  The RUN OFF command did not work correctly, and the
+PostScript code produced an "invalidfont" error unless ISO encoding was
+used.
+
+-------------- Cut Here ---------- Cut Here ---------- Cut Here -------------
+#!/bin/sh
+# This is Remind3.0/patch3, a shell archive (shar 3.32)
+# made 02/08/1993 19:46 UTC by <dfs@doe.carleton.ca> (David F. Skoll)
+# Source directory /enterprise/turbolift/dfs/work/.rem/Remind-3.0/tmp
+#
+# existing files WILL be overwritten
+#
+#                                                                          
+#                                                                          
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  22550 -rw------- patch.03
+#
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+if test -r shar3_seq_.tmp; then
+	echo "Must unpack archives in sequence!"
+	next=`cat shar3_seq_.tmp`; echo "Please unpack part $next next"
+	exit 1
+fi
+# ============= patch.03 ==============
+echo "x - extracting patch.03 (Text)"
+sed 's/^X//' << 'SHAR_EOF' > patch.03 &&
+XPrereq: "03.00.02"
+X*** ../patch2/version.h	Fri Jan  8 13:22:45 1993
+X--- ./version.h	Tue Feb  2 14:36:05 1993
+X***************
+X*** 9,12 ****
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! #define VERSION "03.00.02"
+X--- 9,12 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! #define VERSION "03.00.03"
+X*** ../patch2/MANIFEST.UNX	Mon Jan 25 15:39:51 1993
+X--- ./MANIFEST.UNX	Mon Feb  8 14:26:43 1993
+X***************
+X*** 23,29 ****
+X  init.c
+X  kall
+X  kall.1
+X! lanh.h
+X  lnk.msc
+X  lnk.tc
+X  main.c
+X--- 23,29 ----
+X  init.c
+X  kall
+X  kall.1
+X! lang.h
+X  lnk.msc
+X  lnk.tc
+X  main.c
+X*** ../patch2/Makefile	Mon Jan 25 15:39:39 1993
+X--- ./Makefile	Tue Feb  2 14:36:58 1993
+X***************
+X*** 45,51 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.02
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X--- 45,51 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.03
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X***************
+X*** 99,106 ****
+X  var.o: var.c $(STDHDRS) expr.h
+X  
+X  tarZ:
+X! 	tar cvf remind-3.0.2.tar $(MANIFEST)
+X! 	compress -v remind-3.0.2.tar
+X  
+X  shar:
+X  	shar -x -n"Remind $(VERSION)" -l45 -o./Shar $(MANIFEST)
+X--- 99,106 ----
+X  var.o: var.c $(STDHDRS) expr.h
+X  
+X  tarZ:
+X! 	tar cvf remind-3.0.3.tar $(MANIFEST)
+X! 	compress -v remind-3.0.3.tar
+X  
+X  shar:
+X  	shar -x -n"Remind $(VERSION)" -l45 -o./Shar $(MANIFEST)
+X*** ../patch2/WHATSNEW.30	Mon Feb  1 12:29:52 1993
+X--- ./WHATSNEW.30	Mon Feb  8 14:43:57 1993
+X***************
+X*** 5,10 ****
+X--- 5,16 ----
+X  Ottawa, Ontario K2C 0J2
+X  Canada
+X  
+X+ * Version 3.0 Patch 3
+X+ 
+X+ - Corrected bugs in Remind and Rem2PS.  No new features added.  You
+X+   should NOT use patch level 2 - either stick to 3.0.1 or upgrade to
+X+   3.0.3.
+X+ 
+X  * Version 3.0 Patch 2
+X  
+X  - Added the -u option to Remind so that root can run it as any user.
+X*** ../patch2/calendar.c	Fri Jan 22 10:26:13 1993
+X--- ./calendar.c	Fri Feb  5 14:47:40 1993
+X***************
+X*** 616,622 ****
+X     char *s;
+X  
+X     /* Parse the trigger date and time */
+X!    if (r=ParseRem(p, &trig, &tim)) return r;
+X  
+X  /* Don't include timed reminders in calendar if -a option supplied. */
+X  #ifdef HAVE_QUEUED
+X--- 616,622 ----
+X     char *s;
+X  
+X     /* Parse the trigger date and time */
+X!    if ( (r=ParseRem(p, &trig, &tim)) ) return r;
+X  
+X  /* Don't include timed reminders in calendar if -a option supplied. */
+X  #ifdef HAVE_QUEUED
+X***************
+X*** 633,639 ****
+X        s = SubstBuffer;
+X        if (DoSimpleCalendar || tim.ttime != NO_TIME)
+X           s += strlen(SimpleTime(tim.ttime, s));
+X!       if (r=DoSubst(p, s, &trig, &tim, jul, CAL_MODE)) return r;
+X        if (!*s) return OK;
+X        s = SubstBuffer;
+X        if (!DoSimpleCalendar) while (isspace(*s)) s++;
+X--- 633,639 ----
+X        s = SubstBuffer;
+X        if (DoSimpleCalendar || tim.ttime != NO_TIME)
+X           s += strlen(SimpleTime(tim.ttime, s));
+X!       if ( (r=DoSubst(p, s, &trig, &tim, jul, CAL_MODE)) ) return r;
+X        if (!*s) return OK;
+X        s = SubstBuffer;
+X        if (!DoSimpleCalendar) while (isspace(*s)) s++;
+X*** ../patch2/dorem.c	Fri Jan 22 10:25:12 1993
+X--- ./dorem.c	Fri Feb  5 14:48:35 1993
+X***************
+X*** 49,55 ****
+X     int jul;
+X  
+X     /* Parse the trigger date and time */
+X!    if (r=ParseRem(p, &trig, &tim)) return r;
+X  
+X     if (trig.typ == NO_TYPE) return E_EOLN;
+X     if (trig.typ == SAT_TYPE) return DoSatRemind(&trig, &tim, p);
+X--- 49,55 ----
+X     int jul;
+X  
+X     /* Parse the trigger date and time */
+X!    if ( (r=ParseRem(p, &trig, &tim)) ) return r;
+X  
+X     if (trig.typ == NO_TYPE) return E_EOLN;
+X     if (trig.typ == SAT_TYPE) return DoSatRemind(&trig, &tim, p);
+X***************
+X*** 70,76 ****
+X  
+X  
+X     if (ShouldTriggerReminder(&trig, &tim, jul)) {
+X!       if (r=TriggerReminder(p, &trig, &tim, jul)) return r;
+X     }
+X  
+X     return OK;
+X--- 70,76 ----
+X  
+X  
+X     if (ShouldTriggerReminder(&trig, &tim, jul)) {
+X!       if ( (r=TriggerReminder(p, &trig, &tim, jul)) ) return r;
+X     }
+X  
+X     return OK;
+X***************
+X*** 412,418 ****
+X  /* If it's NextMode, process as a CAL-type entry, and issue simple-calendar
+X     format. */
+X     if (NextMode) {
+X!       if (r=DoSubst(p, SubstBuffer, t, tim, jul, CAL_MODE)) return r;
+X        if (!*SubstBuffer) return OK;
+X        FromJulian(jul, &y, &m, &d);
+X        printf("%04d%c%02d%c%02d %s%s\n", y, DATESEP, m+1, DATESEP, d,
+X--- 412,418 ----
+X  /* If it's NextMode, process as a CAL-type entry, and issue simple-calendar
+X     format. */
+X     if (NextMode) {
+X!       if ( (r=DoSubst(p, SubstBuffer, t, tim, jul, CAL_MODE)) ) return r;
+X        if (!*SubstBuffer) return OK;
+X        FromJulian(jul, &y, &m, &d);
+X        printf("%04d%c%02d%c%02d %s%s\n", y, DATESEP, m+1, DATESEP, d,
+X***************
+X*** 422,428 ****
+X     }
+X  
+X  /* Put the substituted string into the SubstBuffer */
+X!    if (r=DoSubst(p, SubstBuffer, t, tim, jul, NORMAL_MODE)) return r;
+X  
+X  /* Go for it... */
+X     if (t->typ == MSG_TYPE) printf("%s\n", SubstBuffer);
+X--- 422,428 ----
+X     }
+X  
+X  /* Put the substituted string into the SubstBuffer */
+X!    if ( (r=DoSubst(p, SubstBuffer, t, tim, jul, NORMAL_MODE)) ) return r;
+X  
+X  /* Go for it... */
+X     if (t->typ == MSG_TYPE) printf("%s\n", SubstBuffer);
+X*** ../patch2/expr.c	Fri Jan 22 10:23:16 1993
+X--- ./expr.c	Fri Feb  5 14:51:35 1993
+X***************
+X*** 738,745 ****
+X     Value v1, v2, v3;
+X     int r;
+X     
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 738,745 ----
+X     Value v1, v2, v3;
+X     int r;
+X     
+X!    if ( (r = PopValStack(&v2)) )return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 768,778 ****
+X  
+X  /* If either is a string, coerce them both to strings and concatenate */
+X     if (v1.type == STR_TYPE || v2.type == STR_TYPE) {
+X!       if (r = DoCoerce(STR_TYPE, &v1)) {
+X        	 DestroyValue(&v1); DestroyValue(&v2);
+X           return r;
+X        }
+X!       if (r = DoCoerce(STR_TYPE, &v2)) {
+X        	 DestroyValue(&v1); DestroyValue(&v2);
+X        	 return r;
+X        }
+X--- 768,778 ----
+X  
+X  /* If either is a string, coerce them both to strings and concatenate */
+X     if (v1.type == STR_TYPE || v2.type == STR_TYPE) {
+X!       if ( (r = DoCoerce(STR_TYPE, &v1)) ) {
+X        	 DestroyValue(&v1); DestroyValue(&v2);
+X           return r;
+X        }
+X!       if ( (r = DoCoerce(STR_TYPE, &v2)) ) {
+X        	 DestroyValue(&v1); DestroyValue(&v2);
+X        	 return r;
+X        }
+X***************
+X*** 808,815 ****
+X     Value v1, v2;
+X     int r;
+X     
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 808,815 ----
+X     Value v1, v2;
+X     int r;
+X     
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 862,869 ****
+X     Value v1, v2;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 862,869 ----
+X     Value v1, v2;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 892,899 ****
+X     Value v1, v2;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 892,899 ----
+X     Value v1, v2;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 923,930 ****
+X     Value v1, v2;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 923,930 ----
+X     Value v1, v2;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 979,986 ****
+X     Value v1, v2, v3;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 979,986 ----
+X     Value v1, v2, v3;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 1038,1045 ****
+X     Value v1, v2;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 1038,1045 ----
+X     Value v1, v2;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X***************
+X*** 1068,1075 ****
+X     Value v1, v2;
+X     int r;
+X  
+X!    if (r = PopValStack(&v2)) return r;
+X!    if (r = PopValStack(&v1)) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X--- 1068,1075 ----
+X     Value v1, v2;
+X     int r;
+X  
+X!    if ( (r = PopValStack(&v2)) ) return r;
+X!    if ( (r = PopValStack(&v1)) ) {
+X        DestroyValue(&v2);
+X        return r;
+X     }
+X*** ../patch2/files.c	Fri Jan  8 13:25:39 1993
+X--- ./files.c	Fri Feb  5 14:52:12 1993
+X***************
+X*** 337,346 ****
+X      char tok[TOKSIZE];
+X      int r, e;
+X  
+X!     if(r=ParseToken(p, tok)) return r;
+X      e = VerifyEoln(p); 
+X      if (e) Eprint("%s", ErrMsg[e]);
+X!     if(r=IncludeFile(tok)) return r;
+X      NumIfs = 0;
+X      IfFlags = 0;
+X      return OK;
+X--- 337,346 ----
+X      char tok[TOKSIZE];
+X      int r, e;
+X  
+X!     if ( (r=ParseToken(p, tok)) ) return r;
+X      e = VerifyEoln(p); 
+X      if (e) Eprint("%s", ErrMsg[e]);
+X!     if ( (r=IncludeFile(tok)) ) return r;
+X      NumIfs = 0;
+X      IfFlags = 0;
+X      return OK;
+X***************
+X*** 387,393 ****
+X        return OK;
+X     }
+X     /* Ugh!  We failed!  */
+X!    if (r=PopFile()) return r;
+X     return E_CANT_OPEN;
+X  }
+X  
+X--- 387,393 ----
+X        return OK;
+X     }
+X     /* Ugh!  We failed!  */
+X!    if ( (r=PopFile()) ) return r;
+X     return E_CANT_OPEN;
+X  }
+X  
+X*** ../patch2/funcs.c	Fri Jan 22 10:03:07 1993
+X--- ./funcs.c	Fri Feb  5 14:43:14 1993
+X***************
+X*** 426,434 ****
+X     for (i=1; i<Nargs; i++) {
+X        if (ARG(i).type != type) return E_BAD_TYPE;
+X        if (type != STR_TYPE) {
+X! 	 if (ARG(i).v.val > maxptr->v.val) maxptr=&ARG(i);
+X        } else {
+X! 	 if (strcmp(ARG(i).v.str, maxptr->v.str) > 0) maxptr=&ARG(i);
+X        }
+X     }
+X     DCOPYVAL(RetVal, *maxptr);
+X--- 426,434 ----
+X     for (i=1; i<Nargs; i++) {
+X        if (ARG(i).type != type) return E_BAD_TYPE;
+X        if (type != STR_TYPE) {
+X! 	 if (ARG(i).v.val > maxptr->v.val) maxptr = &ARG(i);
+X        } else {
+X! 	 if (strcmp(ARG(i).v.str, maxptr->v.str) > 0) maxptr = &ARG(i);
+X        }
+X     }
+X     DCOPYVAL(RetVal, *maxptr);
+X***************
+X*** 456,464 ****
+X     for (i=1; i<Nargs; i++) {
+X        if (ARG(i).type != type) return E_BAD_TYPE;
+X        if (type != STR_TYPE) {
+X! 	 if (ARG(i).v.val < minptr->v.val) minptr=&ARG(i);
+X        } else {
+X! 	 if (strcmp(ARG(i).v.str, minptr->v.str) < 0) minptr=&ARG(i);
+X        }
+X     }
+X     DCOPYVAL(RetVal, *minptr);
+X--- 456,464 ----
+X     for (i=1; i<Nargs; i++) {
+X        if (ARG(i).type != type) return E_BAD_TYPE;
+X        if (type != STR_TYPE) {
+X! 	 if (ARG(i).v.val < minptr->v.val) minptr = &ARG(i);
+X        } else {
+X! 	 if (strcmp(ARG(i).v.str, minptr->v.str) < 0) minptr = &ARG(i);
+X        }
+X     }
+X     DCOPYVAL(RetVal, *minptr);
+X*** ../patch2/init.c	Mon Feb  1 15:47:17 1993
+X--- ./init.c	Mon Feb  8 14:41:06 1993
+X***************
+X*** 21,27 ****
+X--- 21,30 ----
+X  #ifdef UNIX
+X  #include <sys/types.h>
+X  #include <pwd.h>
+X+ #ifdef HAVE_UNISTD
+X+ #include <unistd.h>
+X  #endif
+X+ #endif
+X  #include <ctype.h>
+X  #include "types.h"
+X  #include "protos.h"
+X***************
+X*** 388,394 ****
+X  #endif /* HAVE_PROTOS */
+X  {
+X  #ifdef SYSV
+X!    uid_t myuid;
+X  #else
+X     int myuid;
+X  #endif
+X--- 391,398 ----
+X  #endif /* HAVE_PROTOS */
+X  {
+X  #ifdef SYSV
+X!    /* uid_t myuid; This seems to mess up on XENIX, so forget it... */ 
+X!   int myuid;
+X  #else
+X     int myuid;
+X  #endif
+X*** ../patch2/main.c	Fri Jan 22 14:22:16 1993
+X--- ./main.c	Fri Feb  5 14:55:19 1993
+X***************
+X*** 763,769 ****
+X  
+X     if (ShouldIgnoreLine()) syndrome = IF_TRUE | BEFORE_ELSE;
+X     else {
+X!       if (r = EvaluateExpr(p, &v)) {
+X           syndrome = IF_TRUE | BEFORE_ELSE;
+X  	 Eprint("%s", ErrMsg[r]);
+X        } else 
+X--- 763,769 ----
+X  
+X     if (ShouldIgnoreLine()) syndrome = IF_TRUE | BEFORE_ELSE;
+X     else {
+X!       if ( (r = EvaluateExpr(p, &v)) ) {
+X           syndrome = IF_TRUE | BEFORE_ELSE;
+X  	 Eprint("%s", ErrMsg[r]);
+X        } else 
+X***************
+X*** 847,853 ****
+X     if (NumIfs >= IF_NEST) return E_NESTED_IF;
+X     if (ShouldIgnoreLine()) syndrome = IF_TRUE | BEFORE_ELSE;
+X     else {
+X!       if (r=ParseRem(p, &trig, &tim)) return r;
+X        if (trig.typ != NO_TYPE) return E_PARSE_ERR;
+X        jul = ComputeTrigger(JulianToday, &trig, &r);
+X        if (r) syndrome = IF_TRUE | BEFORE_ELSE;
+X--- 847,853 ----
+X     if (NumIfs >= IF_NEST) return E_NESTED_IF;
+X     if (ShouldIgnoreLine()) syndrome = IF_TRUE | BEFORE_ELSE;
+X     else {
+X!       if ( (r=ParseRem(p, &trig, &tim)) ) return r;
+X        if (trig.typ != NO_TYPE) return E_PARSE_ERR;
+X        jul = ComputeTrigger(JulianToday, &trig, &r);
+X        if (r) syndrome = IF_TRUE | BEFORE_ELSE;
+X***************
+X*** 906,912 ****
+X  {
+X     int r;
+X  
+X!    if (r = ParseToken(p, TokBuffer)) return r;
+X     if (*TokBuffer && (*TokBuffer != '#') && (*TokBuffer != ';')) {
+X        Eprint("Expecting end-of-line, found '%s'", TokBuffer);
+X        return E_EXTRANEOUS_TOKEN;
+X--- 906,912 ----
+X  {
+X     int r;
+X  
+X!    if ( (r = ParseToken(p, TokBuffer)) ) return r;
+X     if (*TokBuffer && (*TokBuffer != '#') && (*TokBuffer != ';')) {
+X        Eprint("Expecting end-of-line, found '%s'", TokBuffer);
+X        return E_EXTRANEOUS_TOKEN;
+X***************
+X*** 1043,1054 ****
+X  {
+X     int r;
+X  
+X!    if (r=ParseToken(p, TokBuffer)) return r;
+X  
+X  /* Only allow RUN ON in top-level script */
+X!    if (StriEq(TokBuffer, "ON"))
+X        if (TopLevel()) RunDisabled &= ~RUN_SCRIPT;
+X! 
+X  /* But allow RUN OFF anywhere */
+X     else if (StriEq(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X--- 1043,1054 ----
+X  {
+X     int r;
+X  
+X!    if ( (r=ParseToken(p, TokBuffer)) ) return r;
+X  
+X  /* Only allow RUN ON in top-level script */
+X!    if (StriEq(TokBuffer, "ON")) {
+X        if (TopLevel()) RunDisabled &= ~RUN_SCRIPT;
+X!    }
+X  /* But allow RUN OFF anywhere */
+X     else if (StriEq(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X***************
+X*** 1078,1084 ****
+X  
+X     t.typ = MSG_TYPE;
+X     tt.ttime = SystemTime() / 60;
+X!    if (r=DoSubst(p, SubstBuffer, &t, &tt, JulianToday, NORMAL_MODE)) return r;
+X     s = SubstBuffer;
+X     while (isspace(*s)) s++;
+X     fprintf(ErrFp, "%s\n", s);
+X--- 1078,1085 ----
+X  
+X     t.typ = MSG_TYPE;
+X     tt.ttime = SystemTime() / 60;
+X!    if ( (r=DoSubst(p, SubstBuffer, &t, &tt, JulianToday, NORMAL_MODE)) ) 
+X!       return r;
+X     s = SubstBuffer;
+X     while (isspace(*s)) s++;
+X     fprintf(ErrFp, "%s\n", s);
+X*** ../patch2/makefile.os2	Mon Jan 25 15:39:23 1993
+X--- ./makefile.os2	Tue Feb  2 14:36:47 1993
+X***************
+X*** 25,31 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.02
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X--- 25,31 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.03
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X*** ../patch2/makefile.tc	Mon Jan 25 15:39:12 1993
+X--- ./makefile.tc	Tue Feb  2 14:36:38 1993
+X***************
+X*** 1,6 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.02
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X--- 1,6 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.03
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X*** ../patch2/omit.c	Fri Jan  8 13:24:53 1993
+X--- ./omit.c	Fri Feb  5 14:56:03 1993
+X***************
+X*** 300,306 ****
+X     
+X  /* Parse the OMIT.  We need a month and day; year is optional. */
+X     while(parsing) {
+X!       if (r=ParseToken(p, TokBuffer)) return r;
+X        FindToken(TokBuffer, &tok);
+X        switch (tok.type) {
+X           case T_Year:
+X--- 300,306 ----
+X     
+X  /* Parse the OMIT.  We need a month and day; year is optional. */
+X     while(parsing) {
+X!       if ( (r=ParseToken(p, TokBuffer)) ) return r;
+X        FindToken(TokBuffer, &tok);
+X        switch (tok.type) {
+X           case T_Year:
+X*** ../patch2/rem2ps.c	Fri Jan 29 13:33:44 1993
+X--- ./rem2ps.c	Mon Feb  8 14:31:59 1993
+X***************
+X*** 284,290 ****
+X     if (UseISO)
+X        isostuff = "reencodeISO";
+X     else
+X!       isostuff = "findfont definefont pop";
+X  
+X  /* Write the document structuring stuff */
+X     printf("%%!PS-Adobe-\n");
+X--- 284,290 ----
+X     if (UseISO)
+X        isostuff = "reencodeISO";
+X     else
+X!       isostuff = "copyFont";
+X  
+X  /* Write the document structuring stuff */
+X     printf("%%!PS-Adobe-\n");
+X*** ../patch2/rem2ps.h	Fri Jan 22 10:55:22 1993
+X--- ./rem2ps.h	Mon Feb  8 14:28:33 1993
+X***************
+X*** 38,43 ****
+X--- 38,48 ----
+X     "    /Encoding ISOLatin1Encoding def",
+X     "    currentdict end definefont pop",
+X     "} bind def",
+X+    "/copyFont { %def",
+X+    "    findfont dup length dict begin",
+X+    "    { 1 index /FID ne { def } { pop pop } ifelse } forall",
+X+    "    currentdict end definefont pop",
+X+    "} bind def",
+X     "",
+X     "% L - Draw a line",
+X     "/L {",
+X*** ../patch2/remind.1	Mon Feb  1 16:21:27 1993
+X--- ./remind.1	Tue Feb  2 14:36:32 1993
+X***************
+X*** 1663,1669 ****
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.02, returns "03.00.02".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X--- 1663,1669 ----
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.03, returns "03.00.03".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X*** ../patch2/test.cmp	Wed Jan  6 18:57:29 1993
+X--- ./test.cmp	Tue Feb  2 14:36:18 1993
+X***************
+X*** 349,355 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.02"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 349,355 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.03"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 453,459 ****
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.02"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X--- 453,459 ----
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.03"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X*** ../patch2/trigger.c	Fri Jan  8 13:23:30 1993
+X--- ./trigger.c	Fri Feb  5 14:56:52 1993
+X***************
+X*** 94,100 ****
+X  	 else return -1;
+X  
+X        case GOT_DAY+GOT_MON:
+X! 	 if (m > trig->m || m == trig->m && d > trig->d) y++;
+X  	 if (trig->d > MonthDays[trig->m]) {
+X  	    *err = E_BAD_DATE;
+X  	    return -1;
+X--- 94,100 ----
+X  	 else return -1;
+X  
+X        case GOT_DAY+GOT_MON:
+X! 	 if (m > trig->m || (m == trig->m && d > trig->d)) y++;
+X  	 if (trig->d > MonthDays[trig->m]) {
+X  	    *err = E_BAD_DATE;
+X  	    return -1;
+X***************
+X*** 177,183 ****
+X  	 return j;
+X  
+X        case GOT_WD+GOT_YR+GOT_DAY:
+X! 	 if (y > trig->y+1 || y > trig->y && m>0) return -1;
+X  	 if (y > trig->y) {
+X  	    j = Julian(trig->y, 11, trig->d);
+X  	    while(! (trig->wd & (1 << (j%7)))) j++;
+X--- 177,183 ----
+X  	 return j;
+X  
+X        case GOT_WD+GOT_YR+GOT_DAY:
+X! 	 if (y > trig->y+1 || (y > trig->y && m>0)) return -1;
+X  	 if (y > trig->y) {
+X  	    j = Julian(trig->y, 11, trig->d);
+X  	    while(! (trig->wd & (1 << (j%7)))) j++;
+X*** ../patch2/userfns.c	Fri Jan  8 13:23:16 1993
+X--- ./userfns.c	Fri Feb  5 14:57:30 1993
+X***************
+X*** 70,76 ****
+X     Var *v;
+X  
+X     /* Get the function name */
+X!    if(r=ParseIdentifier(p, TokBuffer)) return r;
+X  
+X     /* Should be followed by '(' */
+X     c = ParseNonSpaceChar(p, &r, 0);
+X--- 70,76 ----
+X     Var *v;
+X  
+X     /* Get the function name */
+X!    if ( (r=ParseIdentifier(p, TokBuffer)) ) return r;
+X  
+X     /* Should be followed by '(' */
+X     c = ParseNonSpaceChar(p, &r, 0);
+X***************
+X*** 97,103 ****
+X     }
+X     else {
+X        while(1) {
+X! 	 if (r=ParseIdentifier(p, TokBuffer)) return r;
+X  	 v = NEW(Var);
+X  	 func->nargs++;
+X  	 v->v.type = ERR_TYPE;
+X--- 97,103 ----
+X     }
+X     else {
+X        while(1) {
+X! 	 if ( (r=ParseIdentifier(p, TokBuffer)) ) return r;
+X  	 v = NEW(Var);
+X  	 func->nargs++;
+X  	 v->v.type = ERR_TYPE;
+X***************
+X*** 313,319 ****
+X     Var *var;
+X  
+X     for (i=0, var=f->locals; var && i<f->nargs; var=var->next, i++) {
+X!       if (r=PopValStack(&(var->v))) {
+X  	 DestroyLocalVals(f);
+X  	 return r;
+X        }
+X--- 313,319 ----
+X     Var *var;
+X  
+X     for (i=0, var=f->locals; var && i<f->nargs; var=var->next, i++) {
+X!       if ( (r=PopValStack(&(var->v))) ) {
+X  	 DestroyLocalVals(f);
+X  	 return r;
+X        }
+SHAR_EOF
+$TOUCH -am 0208144593 patch.03 &&
+chmod 0600 patch.03 ||
+echo "restore of patch.03 failed"
+set `wc -c patch.03`;Wc_c=$1
+if test "$Wc_c" != "22550"; then
+	echo original size 22550, current size $Wc_c
+fi
+exit 0
+
+
+exit 0 # Just in case...

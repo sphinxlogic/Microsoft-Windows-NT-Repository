@@ -1,0 +1,2356 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Subject:  v32i043:  ecu - ECU Asynchronous Communications v3.20, Part08/40
+Message-ID: <1992Sep11.192719.7335@sparky.imd.sterling.com>
+X-Md4-Signature: ac494d21c93c8932639e82e41ce7d0ab
+Date: Fri, 11 Sep 1992 19:27:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.mt-park.ga.us (Warren Tucker)
+Posting-number: Volume 32, Issue 43
+Archive-name: ecu/part08
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.08 (part 8 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecugrabbag.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecugrabbag.c'
+else
+echo 'x - continuing file ecugrabbag.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecugrabbag.c' &&
+X		return(-1);
+X	}
+X
+X	return(0);
+X
+X}	/* end of rename */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	send_get_response(narg,arg) - send a string, get and log response
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xvoid
+Xsend_get_response(narg,arg)
+Xint narg;
+Xchar **arg;
+X{
+X	int itmp;
+X	int mode;
+X	LRWT lr;
+X	char buf[1024];
+X	FILE *fplog;
+X	char *fname = "ecu.sgr.log";
+X	int restart_rcvr = need_rcvr_restart();
+X
+X	if(narg < 3)
+X	{
+X		fputs("   usage: sgr <mode> <cmd>\r\n",se);
+X		fputs("mode = 0 for sanitized response, 1 == raw\r\n",se);
+X		fputs("cmd = 'Send' string (see 'expresp' proc cmd in manual)\r\n",se);
+X		return;
+X	}
+X
+X	/*
+X	 * don't want receiver stealing our response
+X	 */
+X	kill_rcvr_process(SIGUSR1);
+X
+X	/*
+X	 * set up for capturing response
+X	 */
+X	mode = atoi(arg[1]) & 0x0F;;
+X	lr.to1 = 10 * 1000L;
+X	lr.to2 =  5 * 1000L;
+X	lr.raw_flag = 0x80 + mode; /* allow interrupts */
+X	lr.buffer = buf;
+X	lr.bufsize = sizeof(buf);
+X	lr.delim = (char *)0;
+X	lr.echo_flag = 0;
+X
+X	/*
+X	 * stimulus/response
+X	 */
+X	ff(se,"  ... wait ... ");
+X	respond(arg[2]);
+X	if(!sigint)
+X	{
+X		lgets_timeout(&lr);
+X		if(sigint)
+X			goto INTERRUPTED;
+X		ff(se,"done\r\n");
+X
+X		/*
+X		 * log response if possible and display on screen
+X		 */
+X		if(fplog = fopen(fname,"a"))
+X		{
+X			itmp = strlen(arg[2]);
+X			hex_dump_fp(fplog,arg[2],itmp,"Stimulus",(itmp <= 16));
+X			hex_dump_fp(fplog,buf,lr.count,"Response",(lr.count <= 16));
+X			fputs("\n",fplog);
+X			fclose(fplog);
+X		}
+X		hex_dump(buf,lr.count,"Response",(lr.count <= 16));
+X	}
+X	else
+X	{
+XINTERRUPTED:
+X		sigint = 0;
+X		ff(se,"interrupted\r\n");
+X	}
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X}	/* end of send_get_response */
+X
+X/*+-------------------------------------------------------------------------
+X	xterm_title(text,code) - experimental - watch this space
+X--------------------------------------------------------------------------*/
+X#if defined(WHT2) || defined(XTERM_FRIEND)
+Xvoid
+Xxterm_title(text,code)
+Xchar *text;
+Xint code;
+X{
+X	static char *term = (char *)0;
+X	static char usrname[L_cuserid] = "";
+X	char *getenv();
+X	char *cuserid();
+X	static char xtstr1[82] = "";
+X
+X	if(!term)
+X		term = getenv("TERM");
+X	if(!term)
+X	{
+X		term = "";
+X		return;
+X	}
+X	if(ulcmpb(term,"xterm") >= 0)
+X		return;
+X
+X	if(!usrname[0])
+X		(void)cuserid(usrname);
+X
+X	switch(code)
+X	{
+X		case 0:
+X		case 1:
+X			xtstr1[0] = 0;
+X			if(code == 1)
+X				strcpy(xtstr1,"ECU: ");
+X			strcat(xtstr1,text);
+X			if(usrname[0])
+X				sprintf(xtstr1 + strlen(xtstr1)," (%s)",usrname);
+X		case 2:
+X			fputs("\033]0;",se);
+X			fputs(xtstr1,se);
+X			fputc(7,se);
+X			break;
+X	}
+X}	/* end of xterm_title */
+X#endif
+X
+X/* end of ecugrabbag.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecugrabbag.c is complete' &&
+chmod 0644 ecugrabbag.c ||
+echo 'restore of ecugrabbag.c failed'
+Wc_c="`wc -c < 'ecugrabbag.c'`"
+test 18202 -eq "$Wc_c" ||
+	echo 'ecugrabbag.c: original size 18202, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuicmaux.c ==============
+if test -f 'ecuicmaux.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuicmaux.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuicmaux.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuicmaux.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuicmaux.c -- ecuicmd.c auxiliary functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	display_ascii_names()
+X	icmd_conversion(token,narg,arg)
+X	icmd_log(token,narg,arg)
+X	nlin_nlout_control(token,narg,arg)
+X	pcmd_rlog(param)
+X	rcvr_log_control(token,narg,arg)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-07-1992-19:19-root@n4hgf-fix incorrect log append/write notification */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-04-1991-20:03-wht@n4hgf-make pcmd_log */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "ecucmd.h"
+X#include "esd.h"
+X
+Xint rcvr_log = 0;				/* if non-zero, logging rcvd data */
+Xchar rcvr_log_file[256];		/* log filename */
+Xint rcvr_log_gen_title = 0;		/* gen log header on next open (rcvr process) */
+XFILE *rcvr_log_fp = (FILE *)0;	/* rcvr log file */
+Xint rcvr_log_append = 1;
+Xint rcvr_log_raw = 0;
+Xint rcvr_log_flusheach = 0;
+X
+X/*+-----------------------------------------------------------------------
+X	display_ascii_names()
+X------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_ascii_names()
+X{
+Xregister intval;
+X
+X	for(intval = 0; intval < 32; intval++)
+X	{
+X		ff(se,"%s %3d %03o %02x ^%c | ",hex_to_ascii_name((intval)),
+X				(intval),(intval),(intval),(intval) |0x40);
+X		ff(se,"    %3d %03o %02x  %c | ",
+X				intval+32,intval+32,intval+32,intval+32);
+X		ff(se,"    %3d %03o %02x  %c | ",
+X				intval+64,intval+64,intval+64,intval+64);
+X		if(intval != 31)
+X		{
+X			ff(se,"    %3d %03o %02x  %c\r\n",
+X					intval+96,intval+96,intval+96,intval+96);
+X		}
+X		else
+X		{
+X			ff(se,"    %3d %03o %02x  ^?\r\n",
+X					intval+96,intval+96,intval+96);
+X		}
+X	}
+X
+X}	/* end of display_ascii_names */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_conversion(token,narg,arg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xicmd_conversion(token,narg,arg)
+Xint token;
+Xint narg;
+Xchar **arg;
+X{
+Xregister itmp;
+X
+X	switch(token)
+X	{
+X	case CTxa:
+X	case CToa:
+X	case CTda:
+X		if(narg > 1)
+X		{
+X		int result;
+X		char format[4];
+X			sprintf(format,"%%%c",to_lower(*arg[0]));
+X			if(sscanf(arg[1],format,&result) == 0)
+X			{
+X				ff(se,"  invalid argument\r\n");
+X				return;
+X			}
+X			result &= 0xFF;
+X			if(result == ' ')
+X				ff(se," == ' ' 0x20\r\n",make_char_graphic(result,1));
+X			else
+X				ff(se," == %s\r\n",make_char_graphic(result,1));
+X		}
+X		else
+X		{
+X			ff(se,"\r\n");
+X			display_ascii_names();
+X		}
+X		break;
+X	case CTax:
+X		if(arg[1] == (char *)0)
+X		{
+X			ff(se,"\r\n");
+X			display_ascii_names();
+X			break;
+X		}
+X		switch(strlen(arg[1]))
+X		{
+X			case 1:
+X				ff(se," == 0x%02x\r\n",*arg[1]);
+X				break;
+X			case 2:
+X				if(*arg[1] == '^')
+X				{
+X					itmp = to_upper(*(arg[1] + 1));
+X					if((itmp < '@') || (itmp > '_'))
+X					{
+X						ff(se,"  not a valid control character\r\n");
+X						return;
+X					}
+X					itmp &= 0x1F;
+X					ff(se," == 0x%02x %s\r\n",itmp,make_char_graphic(itmp,1));
+X					break;
+X				}	/* else fall thru */
+X			case 3:
+X				if((itmp = ascii_name_to_hex(arg[1])) > -1)
+X				{
+X					ff(se," == 0x%02x %s\r\n",itmp,make_char_graphic(itmp,1));
+X					break;
+X				}	/* else fall thru */
+X			default:
+X				ff(se,"  invalid ... examples of valid parameters:\r\n");
+X				ff(se,"        ^A ETX  or  printable character\r\n");
+X				break;
+X		}
+X		break;
+X	default:
+X		ff(se,"  invalid command\r\n");
+X	}
+X}	/* end of icmd_conversion */
+X
+X/*+-------------------------------------------------------------------------
+X	rcvr_log_control(token,narg,arg)
+X--------------------------------------------------------------------------*/
+Xint
+Xrcvr_log_control(token,narg,arg)
+Xint token;
+Xint narg;
+Xchar **arg;
+X{
+Xregister itmp;
+Xregister itmp2;
+Xextern int proctrace;
+X#if defined(M_XENIX) || defined(M_UNIX)
+Xchar *lparg = "/dev/lp1";
+X#endif
+X
+X	switch(token)
+X	{
+X	case CTloff:
+X		goto LOG_OFF;
+X
+X#if defined(M_XENIX) || defined(M_UNIX)
+X	case CTllp:
+X		narg = 1;
+X		arg = &lparg;
+X		/* fall thru */
+X#endif
+X
+X	case CTlog:
+X		if(narg > 1)
+X		{
+X			if(minunique("off",arg[1],3))
+X			{
+XLOG_OFF:
+X				shmx_set_rcvr_log("",0,0,0);
+X				rcvr_log = 0;
+X				rcvr_log_file[0] = 0;
+X				return(0);
+X			}
+X/* turning logging on */
+X			itmp2 = -1;
+X			rcvr_log_append = 1;
+X			rcvr_log_raw = 0;
+X			for(itmp = 1; itmp < narg; itmp++)
+X			{
+X				if(*arg[itmp] == '-')
+X				{
+X					switch(arg[itmp][1])
+X					{
+X						case 's': rcvr_log_append = 0; break;
+X						case 'r': rcvr_log_raw = 1; break;
+X						case 'f': rcvr_log_flusheach = 1; break;
+X						default:
+X							pprintf("unrecognized switch -%c\n",arg[itmp][1]);
+X							log_cmd_usage();
+X						return(eFATAL_ALREADY);
+X					}
+X				}
+X				else
+X				{
+X					if(itmp2 > 0)
+X					{
+X						pputs("too many arguments\n");
+X						log_cmd_usage();
+X						return(eFATAL_ALREADY);
+X					}
+X					itmp2 = itmp;
+X				}
+X			}
+X			if(itmp2 < 0)
+X			{
+X				pputs("no log file name specified\n");
+X				log_cmd_usage();
+X				return(eFATAL_ALREADY);
+X			}
+X			if(arg[itmp2][0] != '/')	/* if log file not full path, ... */
+X			{							/* ... supply current directory */
+X				get_curr_dir(rcvr_log_file,
+X					sizeof(rcvr_log_file) - strlen(arg[itmp2]) - 2);
+X				strcat(rcvr_log_file,"/");
+X				strcat(rcvr_log_file,arg[itmp2]);
+X			}
+X			else
+X				strcpy(rcvr_log_file,arg[itmp2]);
+X
+X			/* try to open the file if we can */
+X			rcvr_log_fp = fopen(rcvr_log_file,"a");
+X			if(rcvr_log_fp)		/* if success */
+X			{
+X				fclose(rcvr_log_fp);
+X				rcvr_log_fp = (FILE *)0;
+X				rcvr_log = 1;
+X				shmx_set_rcvr_log(rcvr_log_file,rcvr_log_append,rcvr_log_raw,
+X					rcvr_log_flusheach);
+X			}
+X			else		/* xmtr() could not open file */
+X			{
+X				pputs("could not open ");
+X				pperror(rcvr_log_file);
+X				return(eFATAL_ALREADY);
+X			}
+X			rcvr_log_append = 1;
+X		}	/* end of if argument to command */
+X
+X		if(rcvr_log && (!proc_level || proctrace))
+X		{
+X			pprintf("\n%sing received %s text to\n%s\n",
+X				(rcvr_log_append) ? "append" : "writ",
+X				(rcvr_log_raw)    ? "raw"    : "filtered",
+X				rcvr_log_file);
+X		}
+X		else if (!proc_level || proctrace)
+X			pputs("not logging\n");
+X		break;
+X
+X	default:
+X		pputs("invalid command\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	return(0);
+X}	/* end of rcvr_log_control */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_rlog(param) - control receiver logging (script)
+X
+Xrlog [-srf] ['filename']  #  see ecuidmc.d
+Xrlog 'off'
+X
+XThis is a hack to use icmd stuff from proc language
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_rlog(param)
+XESD *param;
+X{
+Xint erc;
+Xint lnarg = 0;
+Xchar *larg[3];
+XESD *tesd = esdalloc(256);
+Xchar switches[8];
+X
+X	if(!tesd)
+X		return(eNoMemory);
+X
+X	larg[lnarg++] = "log";
+X
+X	if(!get_switches(param,switches,sizeof(switches)))
+X		larg[lnarg++] = switches;
+X
+X	if(!gstr(param,tesd,1))
+X		larg[lnarg++] = tesd->pb;
+X
+X	erc = rcvr_log_control(CTlog,lnarg,larg);
+X	esdfree(tesd);
+X	return(erc);
+X
+X}	/* end of pcmd_rlog */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_log(token,narg,arg)
+X--------------------------------------------------------------------------*/
+Xint
+Xicmd_log(token,narg,arg)
+Xint token;
+Xint narg;
+Xchar **arg;
+X{
+Xregister itmp;
+Xregister itmp2;
+X
+X	switch(token)
+X	{
+X	case CTloff:
+X		goto LOG_OFF;
+X
+X#if defined(M_XENIX) || defined(M_UNIX)
+X	case CTllp:
+X		icmd("log /dev/lp1");
+X		break;
+X#endif
+X
+X	case CTlog:
+X		if(narg > 1)
+X		{
+X			if(minunique("off",arg[1],3))
+X			{
+XLOG_OFF:
+X				if(rcvr_log == 0)	/* "off",but not logging */
+X					goto RECORD_REPORT;
+X				ff(se,"\r\nlogging concluded (file %s)\r\n",rcvr_log_file);
+X				shmx_set_rcvr_log("",0,0,0);
+X				rcvr_log = 0;
+X				rcvr_log_file[0] = 0;
+X				return(0);
+X			}
+X/* turning logging on */
+X			itmp2 = -1;
+X			rcvr_log_append = 1;
+X			rcvr_log_raw = 0;
+X			for(itmp = 1; itmp < narg; itmp++)
+X			{
+X				if(*arg[itmp] == '-')
+X				{
+X					switch(arg[itmp][1])
+X					{
+X						case 's': rcvr_log_append = 0; break;
+X						case 'r': rcvr_log_raw = 1; break;
+X						case 'f': rcvr_log_flusheach = 1; break;
+X						default:
+X							ff(se,"   unrecognized switch -%c\r\n",
+X										arg[itmp][1]);
+X							log_cmd_usage();
+X							return(eFATAL_ALREADY);
+X					}
+X				}
+X				else
+X				{
+X					if(itmp2 > 0)
+X					{
+X						ff(se,"   too many positional arguments\r\n");
+X						log_cmd_usage();
+X						return(eFATAL_ALREADY);
+X					}
+X					itmp2 = itmp;
+X				}
+X			}
+X			if(itmp2 < 0)
+X			{
+X				ff(se,"   no log file name specified\r\n");
+X				log_cmd_usage();
+X				return(eFATAL_ALREADY);
+X			}
+X			if(arg[itmp2][0] != '/')	/* if log file not full path, ... */
+X			{							/* ... supply current directory */
+X				get_curr_dir(rcvr_log_file,
+X					sizeof(rcvr_log_file) - strlen(arg[itmp2]) - 2);
+X				strcat(rcvr_log_file,"/");
+X				strcat(rcvr_log_file,arg[itmp2]);
+X			}
+X			else
+X				strcpy(rcvr_log_file,arg[itmp2]);
+X
+X			/* try to open the file if we can */
+X			rcvr_log_fp = fopen(rcvr_log_file,"a");
+X			if(rcvr_log_fp)		/* if success */
+X			{
+X				fclose(rcvr_log_fp);
+X				rcvr_log_fp = (FILE *)0;
+X				rcvr_log = 1;
+X				shmx_set_rcvr_log(rcvr_log_file,rcvr_log_append,rcvr_log_raw,
+X					rcvr_log_flusheach);
+X			}
+X			else		/* xmtr() could not open file */
+X			{
+X				ff(se,"   could not open ");
+X				perror(rcvr_log_file);
+X				ff(se,"\r\n");
+X				return(eFATAL_ALREADY);
+X			}
+X		}	/* end of if argument to command */
+X
+XRECORD_REPORT:
+X		if(rcvr_log)
+X		{
+X			ff(se,"\r\n%sing received %s text to\r\n%s\r\n",
+X				(rcvr_log_append) ? "append" : "writ",
+X				(rcvr_log_raw)    ? "raw"    : "filtered",
+X				rcvr_log_file);
+X			ff(se,"use \"HOME log off\" to stop logging\r\n");
+X		}
+X		else
+X		{
+X			ff(se,"   not logging.\r\n");
+X			ff(se,"use \"HOME slog <filename>\" to start logging\r\n");
+X		}
+X		break;
+X	default:
+X		ff(se,"  invalid command\r\n");
+X		return(eFATAL_ALREADY);
+X	}
+X	rcvr_log_append = 1;
+X	return(0);
+X}	/* end of icmd_log */
+X
+X/*+-------------------------------------------------------------------------
+X	nlin_nlout_control(token,narg,arg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xnlin_nlout_control(token,narg,arg)
+Xint token;
+Xint narg;
+Xchar **arg;
+X{
+X	switch(token)
+X	{
+X	case CTnlin:
+X		if(narg != 1)
+X			shm->Ladd_nl_incoming = yes_or_no(arg[1]);
+X		ff(se,"  %sappending NL to incoming CR\r\n",
+X			(shm->Ladd_nl_incoming) ? "" : "not ");
+X		break;
+X	case CTnlout:
+X		if(narg != 1)
+X			shm->Ladd_nl_outgoing = yes_or_no(arg[1]);
+X		ff(se,"  %sappending NL to outgoing CR\r\n",
+X			(shm->Ladd_nl_outgoing) ? "" : "not ");
+X		break;
+X	default:
+X	case CTnl:
+X		ff(se,"  incoming: %s  outgoing: %s\r\n",
+X			(shm->Ladd_nl_incoming) ? "CR/LF" : "CR",
+X			(shm->Ladd_nl_outgoing) ? "CR/LF" : "CR");
+X		break;
+X	}
+X
+X}	/* end of nlin_nlout_control */
+X
+X/* end of ecuicmaux.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuicmaux.c ||
+echo 'restore of ecuicmaux.c failed'
+Wc_c="`wc -c < 'ecuicmaux.c'`"
+test 10763 -eq "$Wc_c" ||
+	echo 'ecuicmaux.c: original size 10763, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuicmd.c ==============
+if test -f 'ecuicmd.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuicmd.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuicmd.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuicmd.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecuicmd.c - ECU interactive command handler
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	icmd(icmd_cmd)
+X	icmd_do_proc(ndoarg,doarg)
+X	search_cmd_list(cmd_list,cmd)
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-30-1992-23:15-wht@n4hgf-add fkmap */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-17-1992-18:22-wht@n4hgf-fkey command has -r reset switch */
+X/*:12-13-1991-17:14-wht@n4hgf-formalize bell notify */
+X/*:11-30-1991-13:46-wht@n4hgf-smap conditional compilation reorg */
+X/*:10-04-1991-17:23-wht@n4hgf-reset proc_interrupt before interactive pcmd */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-17-1991-18:29-wht@n4hgf-add kbdtest command */
+X/*:07-29-1991-20:56-wht@n4hgf-turn off memstat after frustrating evening */
+X/*:07-29-1991-17:57-wht@n4hgf-add memstat */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:05-21-1991-18:22-wht@n4hgf-add pushd/popd commands */
+X/*:05-21-1991-00:46-wht@n4hgf-added -3 error code to keyset_read */
+X/*:03-20-1991-05:25-root@n4hgf-experimental eto command */
+X/*:03-20-1991-04:55-root@n4hgf-Metro Link support + stat cmd changes */
+X/*:02-04-1991-19:03-wht@n4hgf-add multiscreen tag to stat */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:12-24-1990-04:31-wht@n4hgf-experimental fasi driver command */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "esd.h"
+X#include "ecufkey.h"
+X
+X#define NEED_P_CMD
+X#include "ecucmd.h"
+X
+X#if defined(FASI)
+X# include <local/fas.h>
+X#endif
+X
+X#if defined(SVR4)
+X# include <sys/termiox.h>
+Xextern int hx_flag;
+X#endif
+X
+Xchar *bell_notify_text();
+X
+Xextern KDE keyset_table[];
+Xextern char *makedate;
+Xextern char curr_dir[CURR_DIRSIZ];
+Xextern char hello_str[];
+Xextern char keyset_name[];
+Xextern char rcvr_log_file[];	/* if rcvr_log!= 0,log filename */
+Xextern int current_ttymode;
+Xextern long tty_escape_timeout;		/* timeout on waiting for char after ESC */
+Xextern int tcap_COLS;
+Xextern int tcap_LINES;
+X#if defined(METROLINK_X11R4_PTS)
+Xextern int tty_is_pts;
+X#endif /* METROLINK_X11R4_PTS */
+Xextern int errno;
+Xextern int proc_interrupt;
+Xextern int proctrace;
+Xextern int rcvr_log;			/* rcvr log active if != 0 */
+Xextern int rcvr_log_append;	/* if true, append, else scratch */
+Xextern int rcvr_log_raw;		/* if true, log all, else filter ctl chrs */
+Xextern ulong colors_current;
+Xextern FILE *plog_fp;
+Xextern ESD  *plog_name;
+Xextern char screen_dump_file_name[];
+X
+Xint protocol_log_packets = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	search_cmd_list(cmd_list,cmd)
+Xreturns -1 if cmd not found or insufficient chars for match
+Xelse token value for command
+Xproc-only commands have 'min_ch' values 0
+X--------------------------------------------------------------------------*/
+Xsearch_cmd_list(cmd_list,cmd)
+Xregister P_CMD *cmd_list;
+Xregister char *cmd;
+X{
+X	while(cmd_list->token != -1)
+X	{
+X		if(cmd_list->min_ch && minunique(cmd_list->cmd,cmd,cmd_list->min_ch))
+X			return(cmd_list->token);
+X		cmd_list++;
+X	}
+X	return(-1);
+X
+X}	/* end of search_cmd_list */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_do_proc(ndoarg,doarg)
+X--------------------------------------------------------------------------*/
+Xicmd_do_proc(ndoarg,doarg)
+Xint ndoarg;
+Xchar **doarg;
+X{
+Xregister erc;
+Xulong colors_at_entry = colors_current;
+X
+X	kill_rcvr_process(SIGUSR1);
+X	ttymode(2);
+X	erc = do_proc(ndoarg,doarg);
+X	proc_file_reset();
+X	ttymode(1);
+X	sigint = 0;
+X	setcolor(colors_notify);
+X	ff(se,"[procedure finished]");
+X	setcolor(colors_at_entry);
+X	ff(se,"\r\n");
+X	start_rcvr_process(0);
+X	return(erc);
+X}	/* end of icmd_do_proc */
+X
+X/*+-----------------------------------------------------------------------
+X	icmd(cmd)
+X This function implements the built in commands
+X It returns non-zero if program should terminate
+X------------------------------------------------------------------------*/
+Xint
+Xicmd(icmd_cmd)
+Xregister char *icmd_cmd;
+X{
+X#define ARG_MAX_QUAN 40
+X	char *arg[ARG_MAX_QUAN];
+X	char *cptr = "???";
+X	char cmd[128];
+X	int itmp,itmp2,itmp3;
+X	int token;
+X	int narg = 0;
+X	ESD *tesd;
+X	char s80[80];
+X	char *epoch_secs_to_str();
+X	long atol();
+X	char *find_procedure();
+X	char *xon_status();
+X#ifdef sun
+X	int modem_lines;
+X#endif
+X
+X	icmd_history_add(icmd_cmd);		/* add to history list */
+X	strcpy(cmd,icmd_cmd);			/* get local copy of cmd string */
+X	switch(cmd[0]) 
+X	{
+X		case '.':
+X			strcpy(cmd,"exit");
+X			break;
+X		case '!':
+X		case '$':
+X		case '>':
+X			ff(se,"\r\n");
+X			shell(cmd);
+X			return(0);
+X		case '-':
+X			ff(se,"\r\n");
+X			exec_cmd(&cmd[1]);
+X			return(0);
+X		case '^':
+X			ff(se,"\r\n");
+X			phrase_help();
+X			return(0);
+X		case '?':
+X			icmd_help(0,(char **)0);
+X			return(0);
+X		default:
+X			break;
+X	}
+X
+X/* not single character argument */
+X	build_arg_array(cmd,arg,ARG_MAX_QUAN,&narg);
+X
+X/* handle phrases */
+X	if(isdigit(*arg[0]))
+X	{
+X		phrases(narg,arg);
+X		return(0);
+X	}
+X
+X/* search command list */
+X	if((token = search_cmd_list(icmd_cmds,arg[0])) < 0)
+X	{
+X		ff(se,"\r\n");
+X		if(find_procedure(arg[0]))
+X		{
+X			icmd_do_proc(narg,arg);
+X			return(0);
+X		}
+X		ff(se,"no such command or procedure ... HOME ? for help\r\n");
+X		return(0);
+X	}
+X
+X	switch(token)
+X	{					/* keep alphabetized PLEASE */
+X		case CTrx:
+X		case CTry:
+X		case CTrz:
+X		case CTrk:
+X		case CTrs:
+X		receive_files_from_remote(narg,arg);
+X		break;
+X
+X		case CTsx:
+X		case CTsy:
+X		case CTsz:
+X		case CTsk:
+X		case CTss:
+X		send_files_to_remote(narg,arg);
+X		break;
+X
+X		case CTautorz:
+X		if(narg > 1)
+X		{
+X			shm->autorz = yes_or_no(arg[1]);
+X			shm->autorz_pos = 0;
+X		}
+X		ff(se,"  automatic ZMODEM receive %s",shm->autorz ? "on" : "off");
+X		ff(se,"\r\n");
+X		break;
+X
+X		case CTbaud:
+X		if(narg == 1)
+X			ff(se,"   baud rate is %u\r\n",shm->Lbaud);
+X		else
+X		{
+X			itmp = atoi(arg[1]);
+X			if(!lnew_baud_rate(itmp))
+X				ff(se,"   baud rate set to %u\r\n",shm->Lbaud);
+X			else
+X			{
+X				ff(se,"   invalid baud rate: %u\r\n",itmp);
+X				ff(se,"valid rates: 110,300,600,1200,2400,4800,9600,19200\r\n");
+X			}
+X		}
+X		break;
+X
+X		case CTbreak:
+X		lbreak();
+X		ff(se,"   break sent\r\n");
+X		break;
+X
+X		case CTcd:
+X		(void)change_directory(arg[1],(narg == 1) ? 0 : 1);
+X		break;
+X
+X		case CTpushd:
+X		(void)push_directory(arg[1],(narg == 1) ? 0 : 1,0);
+X		break;
+X
+X		case CTpopd:
+X		(void)pop_directory(arg[1],(narg == 1) ? 0 : 1,0);
+X		break;
+X
+X		case CTclrx:
+X		lclear_xmtr_xoff();
+X		ff(se,"  output xoff cleared\r\n");
+X		break;
+X
+X		case CTdial:
+X		if(narg < 2)
+X			phdir_manager();
+X		else
+X		{
+X			extern char errmsg[];
+X			ff(se,"\r\n");
+X			if(call_logical_telno(arg[1]))
+X			{
+X				ff(se,"\r\n%s",errmsg);
+X				ff(se,"Try 'dial' with no arguments or 'help dial'\r\n");
+X			}
+X		}
+X		break;
+X
+X		case CTdo:
+X		ff(se,"\r\n");
+X		icmd_do_proc(narg - 1,&arg[1]);
+X		break;
+X
+X		case CTptrace:
+X		if(narg > 1)
+X			proctrace = yes_or_no(arg[1]);
+X		ff(se,"  procedure trace %s",proctrace ? "on" : "off");
+X		if(proctrace > 1)
+X			ff(se," (%d)",proctrace);
+X		ff(se,"\r\n");
+X		break;
+X
+X		case CTpcmd:
+X		itmp = strlen(arg[0]);
+X		if(!(tesd = esdalloc(256)))
+X		{
+X			ff(se,"  no memory?!\r\n");
+X			break;
+X		}
+X		strcpy(tesd->pb,icmd_cmd + itmp + 1);
+X		tesd->cb = strlen(tesd->pb);
+X		ff(se,"\r\n");
+X		kill_rcvr_process(SIGUSR1);
+X		ttymode(2);
+X		proc_interrupt = 0; /* in case last proc was sigint-ed */
+X		if(itmp = execute_esd(tesd))
+X		{
+X			proc_error(itmp);
+X			esdshow(tesd,"");
+X		}
+X		esdfree(tesd);
+X		ttymode(1);
+X		start_rcvr_process(0);
+X		break;
+X
+X		case CTplog:
+X		fputs("  ",se);
+X		if(narg > 1)
+X		{
+X			if(!strcmp(arg[1],"off"))
+X				plog_control((char *)0);
+X			else
+X				plog_control(arg[1]);
+X		}
+X		
+X		if(plog_fp)
+X			ff(se,"procedure logging: %s\r\n",plog_name->pb);
+X		else
+X			fputs("procedure logging off\r\n",se);
+X		break;
+X
+X		case CTduplex:
+X		if(narg > 1)
+X		{
+X			switch(to_lower(*arg[1]))
+X			{
+X				case 'f': shm->Lfull_duplex = 1; ff(se,"  now "); break;
+X				case 'h': shm->Lfull_duplex = 0; ff(se,"  now "); break;
+X				default: ff(se,
+X"\r\nfirst argument character must be F or H for full or half duplex\r\n");
+X					break;
+X			}
+X		}
+X		else		/* no argument */
+X			ff(se,"  currently ");
+X
+X		ff(se,"%s duplex\r\n",(shm->Lfull_duplex) ? "full" : "half");
+X		break;
+X
+X		case CTexit:
+X		ff(se,"  disconnecting from line %s\r\n",shm->Lline);
+X		return(1);
+X
+X		case CTfi:
+X		file_insert_to_line(narg,arg);
+X		break;
+X
+X		case CThangup:
+X		ff(se,"  hanging up ...\r\n");
+X		DCE_hangup();
+X#if defined(FASI)
+X		{
+X			uchar msr = fasi_msr();
+X			ff(se,"hangup complete ... DCD is %s\r\n",
+X				(msr & MS_DCD_PRESENT) ? "STILL HIGH" : "low");
+X		}
+X#else
+X		ff(se,"hangup complete\r\n");
+X#endif
+X		break;
+X
+X		case CThelp:
+X		icmd_help(narg,arg);
+X		break;
+X
+X		case CTsdname:
+X		if(narg > 1)
+X		{
+X		char *new_file_name;
+X
+X			itmp = 0;	/* do not need to free(new_file_name) */
+X			if(find_shell_chars(arg[1]))
+X			{
+X
+X				if(expand_wildcard_list(arg[1],&new_file_name))
+X				{
+X					ff(se,"  %s\r\n",new_file_name);
+X					break;
+X				}
+X				itmp = 1;	/* need to free(new_file_name) */
+X			}
+X			else
+X				new_file_name = arg[1];
+X
+X			screen_dump_file_name[0] = 0;
+X			if(*new_file_name != '/')
+X			{
+X				strcpy(screen_dump_file_name,curr_dir);
+X				strcat(screen_dump_file_name,"/");
+X			}
+X			strcat(screen_dump_file_name,arg[1]);
+X			if(itmp)
+X				free(new_file_name);
+X		}
+X		ff(se,"\r\nscreen dump name: %s\r\n",screen_dump_file_name);
+X		break;
+X
+X		case CTlog:
+X		case CTloff:
+X		case CTllp:
+X		icmd_log(token,narg,arg);
+X		break;
+X
+X		case CTnl:
+X		case CTnlin:
+X		case CTnlout:
+X		nlin_nlout_control(token,narg,arg);
+X		break;
+X
+X		case CTparity:
+X		if(narg > 1)
+X		{
+X			switch(to_lower(*arg[1]))
+X			{
+X				case 'n':
+X					shm->Lparity = 0; break;
+X				case 'e':
+X				case 'o':
+X					shm->Lparity = to_lower(*arg[1]); break;
+X				default:
+X					ff(se,"   unrecognized parity: %c\r\n",*arg[1]);
+X					goto PARITY_DONE;
+X			}
+X			lset_parity(1);
+X		}
+X		ff(se,"   parity set to %c\r\n",
+X			(shm->Lparity) ? to_upper(shm->Lparity) : 'N');
+XPARITY_DONE: ;
+X		break;
+X
+X		case CTpid:
+X		ff(se,": xmtr %d, rcvr: %d, parent: %d, group: %d\r\n",
+X			xmtr_pid,rcvr_pid,shm->xmtr_ppid,shm->xmtr_pgrp);
+X		break;
+X
+X		case CTpwd:
+X		ff(se," %s\r\n",curr_dir);
+X		break;
+X
+X		case CTredial:
+X		(void)DCE_redial(arg,narg);
+X		break;
+X
+X		case CTrev:
+X		fputs("\r\n",se);
+X		fputs(hello_str,se);
+X		fputs("\r\n",se);
+X		ff(se,"%s\r\n",makedate);
+X#if defined(MEMCHECK)
+X		_dump_malloc();
+X#endif
+X		break;
+X
+X		case CTtime:
+X		get_tod(4,cmd);
+X		ff(se,": %s\r\n",cmd);
+X		break;
+X
+X		case CTdcdwatch:
+X		if(narg > 1)
+X		{
+X			if(ldcdwatch_str(arg[1]))
+X				ff(se," ... argument error; remains set to ");
+X			else
+X				ff(se," ... set to ");
+X		}
+X		else
+X			ff(se," is ");
+X		cptr = "???";
+X		switch(shm->Ldcdwatch)
+X		{
+X			case DCDW_OFF:			cptr = "off"; break;
+X			case DCDW_ON:			cptr = "on"; break;
+X			case DCDW_TERMINATE:	cptr = "TERMINATE"; break;
+X		}
+X		ff(se,"%s\r\n",cptr);
+X		break;
+X
+X		case CTts:
+X		ff(se,"\r\n");
+X		sprintf(s80,"TTYIN %s (ttymode=%d)",get_ttyname(),current_ttymode);
+X		disp_line_termio(TTYIN,s80);
+X		ff(se,"\r\n");
+X		sprintf(s80,"comm line %s",shm->Lline);
+X		disp_line_termio(shm->Liofd,s80);
+X#ifdef sun
+X		ioctl(shm->Liofd,TIOCMGET,(char *)&modem_lines);
+X		ff(se,"Current modem signals:   RTS:%c   CTS:%c   DCD:%c\r\n",
+X			(modem_lines & TIOCM_RTS) ? '1' : '0',
+X			(modem_lines & TIOCM_CTS) ? '1' : '0',
+X			(modem_lines & TIOCM_CD)  ? '1' : '0');
+X#endif
+X		break;
+X
+X#if	defined(FASI)
+X		case CTfasi:
+X		icmd_fasi(narg,arg);
+X		break;
+X#endif
+X		case CTtty:
+X		ff(se,"   %s\r\n",get_ttyname());
+X		break;
+X
+X		case CTda:
+X		case CToa:
+X		case CTxa:
+X		case CTax:
+X		icmd_conversion(token,narg,arg);
+X		break;
+X
+X		case CTbn:
+X		if(narg < 2)
+X			ff(se,"  is ");
+X		else
+X		{
+X			if((itmp = parse_bell_notify_argument(arg[1])) < 0)
+X				ff(se,"\r\nbad argument (try help bn); remains set to ");
+X			else
+X			{
+X				shm->bell_notify_state = itmp;
+X				ff(se,"  set to ");
+X			}
+X		}
+X		ff(se,"%s\r\n",bell_notify_text(shm->bell_notify_state));
+X		break;
+X
+X		case CTrtscts:
+X#if defined(HW_FLOW_CONTROL) /* see ecu.h */
+X		if(narg > 1)
+X		{
+X			lRTSCTS_control(yes_or_no(arg[1]));
+X			pputs("\nNew c");
+X		}
+X		else
+X			pputs("\nC");
+X		pputs("onfiguration:  ");
+X		display_hw_flow_config();
+X#else /* !HW_FLOW_CONTROL */
+X		ff(se,"\r\nhardware flow control not available\r\n");
+X#endif /* HW_FLOW_CONTROL */
+X		break;
+X
+X		case CTeto:
+X		if(narg > 1)
+X		{
+X			itmp = atoi(arg[1]);
+X			if((itmp < 20) || (itmp > 1000))
+X			{
+X				ff(se," invalid\r\n");
+X			}
+X			tty_escape_timeout = (long)itmp;
+X			ff(se," set to");
+X		}
+X		ff(se," %ld msec\r\n",tty_escape_timeout);
+X		break;
+X
+X		case CTnice:
+X		itmp = nice(0) + 20;
+X		if(narg > 1)
+X		{
+X			kill_rcvr_process(SIGUSR1);
+X			itmp2 = atoi(arg[1]);
+X			itmp3 = nice(-itmp + itmp2);
+X			ff(se," -> desired=%d, was %d, ",itmp2,itmp);
+X			if(itmp3 < 0)
+X				ff(se,"nice failed: %s\r\n",errno_text(errno));
+X			else
+X				ff(se,"set to %d\r\n",itmp3);
+X			start_rcvr_process(0);
+X		}
+X		else
+X			ff(se," is %d\r\n",itmp);
+X		break;
+X
+X		case CTfkey:
+X		if(narg < 2)
+X			keyset_display();
+X		else if(!strcmp(arg[1],"-r"))
+X		{
+X			keyset_init();
+X			keyset_read("default");
+X			ff(se,"  keyboard reset done ...\r\n");
+X		}
+X		else
+X		{
+X			switch(keyset_read(arg[1]))
+X			{
+X				case  0: keyset_display(); break;
+X				case -1: ff(se," cannot find ~/.ecu/keys\r\n"); break;
+X				case -2: ff(se," not found in ~/.ecu/keys\r\n"); break;
+X				case -3: ff(se," syntax error ... default restored\r\n");
+X				default:
+X					keyset_init();
+X					keyset_read("default");
+X					break; 
+X			}
+X		}
+X		break;
+X
+X		case CTfkmap:
+X		ff(se,"\r\n");
+X		fkmap_command(narg,arg);
+X		break;
+X
+X		case CTstat:
+X		get_tod(4,s80);
+X		ff(se,"\r\nDate: %s\r\n",s80);
+X
+X		ff(se,"Communications line: %s %u-%c-1  ",
+X			shm->Lline, shm->Lbaud,
+X			(shm->Lparity) ? to_upper(shm->Lparity) : 'N');
+X
+X		lget_xon_xoff(&itmp2,&itmp3);
+X		ff(se,"XON/XOFF input %s output %s\r\n",
+X			(itmp2) ? "on" : "off",		/* IXON */
+X			(itmp3) ? "on" : "off");	/* IXOFF */
+X		
+X#if defined(HW_FLOW_CONTROL) /* see ecu.h */
+X		ff(se,"Hardware flow control configuration: ");
+X		display_hw_flow_config();
+X#else
+X		ff(se,"no hardware flow control available\n");
+X#endif
+X
+X		if(!shm->Lconnected)
+X			ff(se,"Not connected to a remote\r\n");
+X		else
+X		{
+X			ff(se,"Connected to %s: %s (%s)\r\n",
+X				shm->Lrname,shm->Ldescr,shm->Ltelno);
+X			ff(se,"at %s (elapsed %s)\r\n",
+X				epoch_secs_to_str(shm->Loff_hook_time,1,s80),
+X				get_elapsed_time(time((long *)0) - shm->Loff_hook_time));
+X		}
+X
+X		ff(se,"Duplex: %s  ",(shm->Lfull_duplex) ? "full" : "half");
+X		cptr = "???";
+X		switch(shm->Ldcdwatch)
+X		{
+X			case DCDW_OFF:			cptr = "off"; break;
+X			case DCDW_ON:			cptr = "on"; break;
+X			case DCDW_TERMINATE:	cptr = "TERMINATE"; break;
+X		}
+X		ff(se,"DCD watcher: %s\r\n",cptr);
+X
+X		ff(se,"Console: %s %dx%d ",get_ttyname(),tcap_COLS,tcap_LINES);
+X		if(tty_is_multiscreen)
+X			ff(se,"<multiscreen> ");
+X		if(tty_is_pty)
+X			ff(se,"<pty> ");
+X#if defined(METROLINK_X11R4_PTS)
+X		if(tty_is_pts)
+X			ff(se,"<pts> ");
+X#endif /* METROLINK_X11R4_PTS */
+X		ff(se,"\r\n");
+X
+X#if defined(USE_ECUUNGETTY)
+X		display_ungetty_list();
+X#endif
+X		ff(se,"Current directory: %s\r\n",curr_dir);
+X		ff(se,"Total chars transmitted: %ld",shm->xmit_chars);
+X		if(shm->Lconnected)
+X			ff(se," (since CONNECT %ld)\r\n",
+X				shm->xmit_chars_this_connect);
+X		else
+X			fputs("\r\n",se);
+X		ff(se,"Total chars received:    %ld",shm->rcvd_chars);
+X		if(shm->Lconnected)
+X			ff(se," (since CONNECT %ld)\r\n",shm->rcvd_chars_this_connect);
+X		else
+X			fputs("\r\n",se);
+X
+X		if(keyset_name[0])
+X			ff(se,"Function key set '%s' loaded\r\n",keyset_name);
+X		else
+X			ff(se,"No function key set loaded\r\n");
+X
+X		if(rcvr_log)
+X		{
+X			ff(se,"Session log open: %s (%s mode)\r\n",
+X				rcvr_log_file,(rcvr_log_raw) ? "raw" : "filtered");
+X		}
+X		else
+X			ff(se,"Session logging not active\r\n");
+X
+X		ff(se,"Bell notify is %s\r\n",
+X			bell_notify_text(shm->bell_notify_state));
+X
+X		ff(se,"CR conversion:  incoming %s  outgoing %s\r\n",
+X			(shm->Ladd_nl_incoming) ? "CR/LF" : "CR",
+X			(shm->Ladd_nl_outgoing) ? "CR/LF" : "CR");
+X
+X		ff(se,"Keyboard ESC/funckey time constant = %ld msec\r\n",
+X			tty_escape_timeout);
+X
+X		ff(se,"Pids: xmtr=%d rcvr=%d parent=%d pgrp=%d\r\n",
+X			xmtr_pid,
+X			rcvr_pid,
+X			shm->xmtr_pgrp,
+X			shm->xmtr_ppid);
+X		fputs("\r\n",se);
+X		break;
+X
+X		case CTxon:
+X		if(narg > 1)
+X		{
+X			if(set_xon_xoff_by_arg(arg[1]))
+X				ff(se,"  argument error\r\n");
+X			else
+X				ff(se,"\r\n");
+X			break;
+X		}
+X		ff(se,"  xon/xoff flow control: %s\r\n",xon_status());
+X		break;
+X
+X		case CTsgr:
+X		send_get_response(narg,arg);
+X		break;
+X
+X/*
+X		case CTmkdir:
+X		if(narg < 2)
+X			ff(se,"  no argument\r\n");
+X		if(mkdir(arg[2],0755))
+X		{
+X			ff(se,"  ");
+X			pperror(arg[2]);
+X		}
+X		else
+X			ff(se,"  made directory %s\r\n",arg[2]);
+X		break;
+X*/
+X
+X		case CTmemstat:
+X#if defined(MALLOC_3X)
+X	{
+X		struct mallinfo minfo;
+X		extern char *startbrk;
+X		extern char *startsp;
+X		char *sbrk();
+X		minfo = mallinfo();
+X		pputs("\n"); /* all this casting for 16- vs 32- bit ints */
+X		pprintf("%10lu total space in arena\n",(ulong)minfo.arena);
+X		pprintf("%10lu number of ordinary blocks\n",(ulong)minfo.ordblks);
+X		pprintf("%10lu number of small blocks\n",(ulong)minfo.smblks);
+X		pprintf("%10lu number of holding blocks\n",(ulong)minfo.hblks);
+X		pprintf("%10lu space in holding block headers\n",(ulong)minfo.hblkhd);
+X		pprintf("%10lu space in small blocks in use\n",(ulong)minfo.usmblks);
+X		pprintf("%10lu space in free small blocks\n",(ulong)minfo.fsmblks);
+X		pprintf("%10lu space in ordinary blocks in use\n",
+X			(ulong)minfo.uordblks);
+X		pprintf("%10lu space in free ordinary blocks\n",(ulong)minfo.fordblks);
+X		pprintf("%10lu cost of enabling keep option\n",(ulong)minfo.keepcost);
+X		pprintf("  %08lx startbrk\n",startbrk);
+X		pprintf("  %08lx sbrk(0)  ",sbrk(0));
+X		pprintf("  (break delta %10ld)\n",sbrk(0) - startbrk);
+X		pprintf("  %08lx startsp\n",startsp);
+X		pprintf("  %08lx sp       ",&minfo);
+X		pprintf("  (stack size  %10ld)\n",(long)(startsp - (char *)&minfo));
+X	}
+X#else
+X		ff(se,"  not available\r\n");
+X#endif
+X		break;
+X
+X		case CTkbdtest:
+X		ff(se,"\r\n");
+X		kbd_test();
+X		break;
+X
+X		case 0:
+X		ff(se,"   procedure command not allowed in interactive mode\r\n");
+X		break;
+X
+X		default:
+X		do_proc(narg,arg);
+X		sigint = 0;
+X		break;
+X
+X	}
+X	return(0);		/* 0 == do not end program */
+X
+X}	/* end of icmd */
+X
+X/* end of ecuicmd.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuicmd.c ||
+echo 'restore of ecuicmd.c failed'
+Wc_c="`wc -c < 'ecuicmd.c'`"
+test 18096 -eq "$Wc_c" ||
+	echo 'ecuicmd.c: original size 18096, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuicmhelp.c ==============
+if test -f 'ecuicmhelp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuicmhelp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuicmhelp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuicmhelp.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuicmhelp.c -- help for interactive commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	help_category_menu()
+X	help_choose_cmd()
+X	help_cmd_line_setup(prompt)
+X	help_display_on_stderr(cmd)
+X	help_interactively()
+X	help_right_column()
+X	help_search_pcmds(cmd)
+X	help_show_category(category)
+X	icmd_help(narg,arg)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:01-11-1992-16:01-wht@n4hgf-bug in help + F1 reverts to cat menu */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-01-1991-03:52-wht@n4hgf-when editing string, set cursor to end */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X#define OMIT_TERMIO_REFERENCES
+X#define STDIO_H_INCLUDED
+X#include "ecu.h"
+X#define NEED_P_CMD
+X#include "ecucmd.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "pc_scr.h"
+X
+X#define PDAT	"ecuhelp.data"
+X
+Xvoid help_right_column();
+X
+Xstatic long start_pos[TOKEN_QUAN];
+Xstatic int start_pos_has_been_read = 0;
+Xstatic char ecuhelpdata_name[256] = "";
+Xstatic FILE *fpdat;		/* help data file */
+Xstatic int right_column = 0;	/* right column for help_interactively */
+Xstatic int longest_cmd = 0;
+Xstatic int longest_descr = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	help_search_pcmds(cmd)
+X--------------------------------------------------------------------------*/
+XP_CMD *
+Xhelp_search_pcmds(cmd)
+Xregister char *cmd;
+X{
+Xregister P_CMD *cmd_list = icmd_cmds;
+X
+X	while(cmd_list->token != -1)
+X	{
+X		if(minunique(cmd_list->cmd,cmd,cmd_list->min_ch))
+X			break;
+X		cmd_list++;
+X	}
+X	if(cmd_list->token == -1)
+X		return((P_CMD *)0);
+X	else
+X		return(cmd_list);
+X
+X}	/* end of help_search_pcmds */
+X
+X/*+-------------------------------------------------------------------------
+X	help_display_on_stderr(cmd)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhelp_display_on_stderr(cmd)
+Xchar *cmd;
+X{
+Xregister itmp;
+XP_CMD *pcmd;
+Xchar buf[128];
+X
+X	if(! (pcmd = help_search_pcmds(cmd)))
+X	{
+X		ff(se,"'%s' is not a valid command\r\n",cmd);
+X		return;
+X	}
+X
+X	if(!start_pos[pcmd->token])
+X	{
+X		ff(se,"no help available for '%s'\r\n",cmd);
+X		return;
+X	}
+X
+X	fseek(fpdat,start_pos[pcmd->token],0);
+X	ff(se,"\r\n");
+X	while(fgets(buf,sizeof(buf),fpdat))
+X	{
+X		itmp = strlen(buf);
+X		buf[--itmp] = 0;
+X		if(itmp == 0)
+X			break;
+X		ff(se,"%s\r\n",buf);
+X	}
+X
+X}	/* end of help_display_on_stderr */
+X
+X/*+-------------------------------------------------------------------------
+X	help_right_column()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhelp_right_column()
+X{
+Xregister itmp;
+Xregister P_CMD *pcmd = icmd_cmds;
+X
+X	if(right_column)	/* already bee thru here? */
+X		return;			/* ... seems so */
+X
+X	while(pcmd->token != -1)
+X	{
+X		if(!*pcmd->descr)
+X		{
+X			pcmd++;
+X			continue;
+X		}
+X		itmp = strlen(pcmd->cmd);
+X		if(itmp > longest_cmd)
+X			longest_cmd = itmp;
+X		itmp = strlen(pcmd->descr);
+X		if(itmp > longest_descr)
+X			longest_descr = itmp;
+X		pcmd++;
+X	}
+X	right_column = 1 + longest_cmd + 2 + longest_descr + 3;
+X
+X}	/* end of help_right_column */
+X
+X/*+-------------------------------------------------------------------------
+X	help_cmd_line_setup(prompt)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhelp_cmd_line_setup(prompt)
+Xchar *prompt;
+X{
+Xregister icol;
+Xint y;
+Xint x;
+X
+X	touchwin(stdscr);
+X	wmove(stdscr,LINES - 1,0);
+X	wstandout(stdscr);
+X	waddstr(stdscr,prompt);
+X	getyx(stdscr,y,x);
+X	for(icol = x; icol < COLS-1; icol++)
+X		waddch(stdscr,' ');
+X	wmove(stdscr,y,x);
+X	wstandend(stdscr);
+X	wrefresh(stdscr);
+X}	/* end of help_cmd_line_setup */
+X
+X/*+-------------------------------------------------------------------------
+X	help_choose_cmd() - choose command from category
+X--------------------------------------------------------------------------*/
+Xchar *
+Xhelp_choose_cmd()
+X{
+Xregister y;
+Xregister x;
+Xstatic char cmd[15];
+Xuchar delim = 0;
+Xint wgpos = -1;
+Xint edit = 0;
+X
+X	help_cmd_line_setup(
+X		"Enter command name (F1 for category menu, ESC to exit):  ");
+X	getyx(stdscr,y,x);
+X	wstandout(stdscr);
+X	while((delim != ESC) && (delim != XF1) && (delim != NL))
+X	{
+X		wingets(stdscr,y,x,cmd,sizeof(cmd) - 1,&delim,edit,&wgpos);
+X		edit = 1;
+X	}
+X	wstandend(stdscr);
+X	if(delim == XF1)
+X		return("");
+X	else if((delim == ESC) || (!cmd[0]))
+X		return((char *)0);
+X	else
+X		return(cmd);
+X
+X}	/* end of help_choose_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	help_category_menu() - get user command category choice
+X--------------------------------------------------------------------------*/
+Xint
+Xhelp_category_menu()
+X{
+Xregister itmp;
+Xint y;
+Xint x;
+Xchar **cpptr;
+Xstatic char keylist[] = {'g','c','t','p',ESC,0};
+Xstatic char *list[] = {
+X	"g   - general commands",
+X	"c   - communications-related commands",
+X	"t   - transfer-related commands",
+X	"p   - procedure-related commands",
+X    "Esc - exit help",
+X	(char *)0
+X};
+X
+X	tcap_clear_screen();
+X	wclear(stdscr);
+X	wmove(stdscr,0,0);
+X	wstandout(stdscr);
+X	waddstr(stdscr,"-- Interactive Command Help Menu ");
+X	getyx(stdscr,y,x);
+X	for(itmp = x; itmp < COLS-1; itmp++)
+X		waddch(stdscr,'-');
+X	wstandend(stdscr);
+X
+X	itmp = 2;
+X	cpptr = list;
+X	while(*cpptr)
+X	{
+X		wmove(stdscr,itmp++,4);
+X		waddstr(stdscr,*cpptr++);
+X	}
+X	wmove(stdscr,9,4);
+X	waddstr(stdscr,"---- choose a category -------");
+X	return(winget_single(stdscr,"",keylist));
+X
+X}	/* end of help_category_menu */
+X
+X/*+-------------------------------------------------------------------------
+X	help_show_category(category) - display category and let user choose
+X--------------------------------------------------------------------------*/
+Xint
+Xhelp_show_category(category)
+Xint category;
+X{
+Xregister itmp;
+Xregister P_CMD *pcmd;
+Xregister y = 1;
+Xregister x = 0;
+Xshort cmdclass = 0;
+Xchar s80[80];
+Xchar *class_descr = "?";
+X
+X	switch(category)
+X	{
+X		case 'g': 
+X			cmdclass = ccG; 
+X			class_descr = "General";
+X			break;
+X		case 'c': 
+X			cmdclass = ccC; 
+X			class_descr = "Communications";
+X			break;
+X		case 't': 
+X			cmdclass = ccT; 
+X			class_descr = "File Transfer";
+X			break;
+X		case 'p': 
+X			cmdclass = ccP; 
+X			class_descr = "Procedure Related";
+X			break;
+X	}
+X
+X	tcap_clear_screen();
+X	wclear(stdscr);
+X	wmove(stdscr,0,0);
+X	wstandout(stdscr);
+X	waddstr(stdscr,"-- ");
+X	waddstr(stdscr,class_descr);
+X	waddstr(stdscr," Commands ");
+X	getyx(stdscr,y,x);
+X	for(itmp = x; itmp < COLS-1; itmp++)
+X		waddch(stdscr,'-');
+X	wstandend(stdscr);
+X
+X	pcmd = icmd_cmds;
+X	y = 2;
+X	x = 0;
+X	wmove(stdscr,y,x);
+X	while(pcmd->token != -1)
+X	{
+X		if(!*pcmd->descr || (pcmd->cmdclass != cmdclass))
+X		{
+X			pcmd++;
+X			continue;
+X		}
+X		wmove(stdscr,y,x);
+X		strcpy(s80,pcmd->cmd);
+X		pad_zstr_to_len(s80,longest_cmd + 2);
+X		for(itmp = 0; itmp < pcmd->min_ch; itmp++)
+X			s80[itmp] = to_upper(s80[itmp]);
+X		waddstr(stdscr,s80);
+X
+X		strcpy(s80,pcmd->descr);
+X		if(!x)
+X			pad_zstr_to_len(s80,longest_descr + 1);
+X		waddstr(stdscr,s80);
+X
+X		if(!x)
+X		{
+X#if defined(SVR4)
+X			wvline(stdscr,sVR & 0x00ff, 1); 
+X#else
+X			waddch(stdscr,sVR);
+X#endif
+X		}
+X		y++;
+X		if(y >= LINES - 3)
+X		{
+X			y = 2;
+X			x = right_column;
+X		}
+X		pcmd++;
+X	}
+X	wmove(stdscr,LINES - 2,0);
+X	wstandout(stdscr);
+X	waddstr(stdscr,
+X"Capitalized portion of listed command sufficient for command recognition");
+X	getyx(stdscr,y,x);
+X	for(itmp = x; itmp < COLS-1; itmp++)
+X		waddch(stdscr,' ');
+X	wstandend(stdscr);
+X	return(0);
+X
+X}	/* end of help_show_category */
+X
+X/*+-------------------------------------------------------------------------
+X	help_interactively()
+Xcommands with null descriptions are "undocumented"
+X--------------------------------------------------------------------------*/
+Xvoid
+Xhelp_interactively()
+X{
+Xregister char *cptr;
+Xint restart_rcvr = need_rcvr_restart();
+Xchar category;
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	windows_start();
+X	help_right_column();
+X
+XDISPLAY_MENU:
+X	if((category = help_category_menu()) != ESC)
+X	{
+X		help_show_category(category);
+X		while(cptr = help_choose_cmd())
+X		{
+X			if(!*cptr)
+X				goto DISPLAY_MENU;
+X			wmove(stdscr,LINES - 1,0);
+X			wclrtoeol(stdscr);
+X			wrefresh(stdscr);
+X			help_display_on_stderr(cptr);
+X			ff(se,"\r\npress return:  ");
+X			ttygetc(1);
+X			help_show_category(category);
+X		}
+X	}
+X	wrefresh(stdscr);
+X	windows_end(1);
+X	redisplay_rcvr_screen();
+X	if(restart_rcvr)
+X		start_rcvr_process(0);
+X
+X}	/* end of help_interactively */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_help(narg,arg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xicmd_help(narg,arg)
+Xint narg;
+Xchar **arg;
+X{
+Xregister char *cptr;
+Xchar *getenv();
+X
+X	ff(se,"\r\n");
+X	if(!ecuhelpdata_name[0])
+X	{
+X		if(!(cptr = getenv("ECUHELP")))
+X			sprintf(ecuhelpdata_name,"%s/%s",ECULIBDIR,PDAT);
+X		else
+X			strcpy(ecuhelpdata_name,cptr);
+X	}
+X
+X	if(!(fpdat = fopen(ecuhelpdata_name,"r")))
+X	{
+X		pperror(ecuhelpdata_name);
+X		return;
+X	}
+X
+X	if(!start_pos_has_been_read)
+X	{
+X		fread((char *)start_pos,sizeof(long),TOKEN_QUAN,fpdat);
+X		start_pos_has_been_read = 1;
+X	}
+X
+X	if(narg > 1)
+X		help_display_on_stderr(arg[1]);
+X	else
+X		help_interactively();
+X
+X	fclose(fpdat);
+X}	/* end of icmd_help */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuicmhelp.c ||
+echo 'restore of ecuicmhelp.c failed'
+Wc_c="`wc -c < 'ecuicmhelp.c'`"
+test 9270 -eq "$Wc_c" ||
+	echo 'ecuicmhelp.c: original size 9270, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuicmhist.c ==============
+if test -f 'ecuicmhist.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuicmhist.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuicmhist.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuicmhist.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuicmhist.c - ECU interactive command history handler
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	icmd_history_add(icmd_buf)
+X	icmd_history_manager(func,newicmd,icmdsize)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-11-1991-14:58-wht@n4hgf-new ttygets botched command history handler */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X
+X#define STDIO_H_INCLUDED
+X#define OMIT_TERMIO_REFERENCES
+X#include "ecu.h"
+X
+X#include "pc_scr.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "ecutty.h"
+X
+Xchar *strdup();
+X
+X#define ICMDH_MAXCNT	50
+X#define ICMDH_MAXLEN	72
+X
+Xtypedef struct icmd_hist
+X{
+X	struct icmd_hist *prev;
+X	struct icmd_hist *next;
+X	uchar *icmd;
+X} ICMDH;
+X
+XICMDH *icmdh_head = (ICMDH *)0;
+XICMDH *icmdh_tail = (ICMDH *)0;
+Xint icmdh_count = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_history_add(icmd_buf)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xicmd_history_add(icmd_buf)
+Xchar *icmd_buf;
+X{
+XICMDH *icmdh = (ICMDH *)malloc(sizeof(ICMDH));
+Xchar *strdup();
+X
+X	if(!icmdh)
+X		return;
+X	if(!(icmdh->icmd = (uchar *)strdup(icmd_buf)))
+X	{
+X		free((char *)icmdh);
+X		return;
+X	}
+X	if(strlen((char *)icmdh->icmd) > (unsigned)ICMDH_MAXLEN)
+X		icmdh->icmd[ICMDH_MAXLEN] = 0;
+X	if(icmdh_tail)
+X	{
+X		icmdh_tail->next = icmdh;
+X		icmdh->prev = icmdh_tail;
+X		icmdh->next = (ICMDH *)0;
+X		icmdh_tail = icmdh;
+X	}
+X	else
+X	{
+X		icmdh->prev = (ICMDH *)0;
+X		icmdh->next = (ICMDH *)0;
+X		icmdh_head = icmdh;
+X		icmdh_tail = icmdh;
+X	}
+X	if(++icmdh_count > ICMDH_MAXCNT)
+X	{
+X		icmdh = icmdh_head;
+X		icmdh_head = icmdh->next;
+X		icmdh_head->prev = (ICMDH *)0;
+X		free((char *)icmdh->icmd);
+X		free((char *)icmdh);
+X		icmdh_count--;
+X	}
+X		
+X}	/* end of icmd_history_add */
+X
+X/*+-------------------------------------------------------------------------
+X	icmd_history_manager(func,newicmd,icmdsize) - entered by Home Xkey
+X
+Xreturn new icmd string to execute
+Xreturns 0 if ok to exce new cmd, else 1 if not
+X(returns 0 if null or ESC, so caller can handle exit condition)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xicmd_history_manager(func,newicmd,icmdsize)
+Xuchar func;
+Xuchar *newicmd;
+Xint icmdsize;
+X{
+Xregister itmp;
+Xregister ICMDH *icmdh = icmdh_tail;
+Xuchar delim;
+X
+X	if(!icmdh)
+X	{
+X		ff(se,"  no interactive commands saved\r\n");
+X		return(1);
+X	}
+X	while(1)
+X	{
+X		strncpy((char *)newicmd,(char *)icmdh->icmd,icmdsize - 1);
+X		*(newicmd + icmdsize - 1) = 0;
+X
+X		ttygets(newicmd,icmdsize,TG_XDELIM | TG_EDIT,&delim,(int *)0);
+X		if(!newicmd[0])
+X			return(0);
+X
+X		switch(delim)
+X		{
+X			case ESC:
+X				*newicmd = 0;
+X				return(0);
+X
+X			case XFhome:
+X				icmdh = icmdh_head;
+X				break;
+X
+X			case XFend:
+X				icmdh = icmdh_tail;
+X				break;
+X
+X			case XFpgup:
+X			case XFpgdn:
+X				ring_bell();
+X				break;
+X
+X			case XFcurup:
+X				if(icmdh->prev)
+X					icmdh = icmdh->prev;
+X				break;
+X
+X			case XFcurdn:
+X				if(icmdh->next)
+X					icmdh = icmdh->next;
+X				break;
+X
+X			default:
+X				return(0);
+X		}
+X
+X		itmp = strlen((char *)newicmd);
+X		while(itmp--)
+X			fputc(BS,se);
+X		itmp = strlen((char *)newicmd);
+X		while(itmp--)
+X			fputc(' ',se);
+X		itmp = strlen((char *)newicmd);
+X		while(itmp--)
+X			fputc(BS,se);
+X	}
+X}	/* end of icmd_history_manager */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuicmhist.c */
+SHAR_EOF
+chmod 0644 ecuicmhist.c ||
+echo 'restore of ecuicmhist.c failed'
+Wc_c="`wc -c < 'ecuicmhist.c'`"
+test 3695 -eq "$Wc_c" ||
+	echo 'ecuicmhist.c: original size 3695, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecukey.h ==============
+if test -f 'ecukey.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecukey.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecukey.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecukey.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecukey.h -- single key (ASCII) defines
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecukey_h
+X#define _ecukey_h
+X
+X#define CTL_B       0x02
+X#define CTL_C       0x03
+X#define CTL_D       0x04
+X#define ENQ         0x05
+X#define ACK         0x06
+X#define BEL         0x07
+X#define BS          0x08
+X#define NL          0x0A
+X#define TAB         0x09
+X#define CTL_L       0x0C
+X#define CRET        0x0D  /* @#$#*& termcap curses uses CR as pointer */
+X#define XON         0x11
+X#define CTL_R       0x12
+X#define XOFF        0x13
+X#define CTL_U       0x15
+X#define SUB			0x18
+X#define ESC         0x1B
+X#define CTL_BSLASH  0x1C
+X#define CTL_Z       0x1A
+X#define SPACE       0x20
+X#define DEL         0x7F
+X
+X#endif /* _ecukey_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecukey.h */
+SHAR_EOF
+chmod 0644 ecukey.h ||
+echo 'restore of ecukey.h failed'
+Wc_c="`wc -c < 'ecukey.h'`"
+test 1213 -eq "$Wc_c" ||
+	echo 'ecukey.h: original size 1213, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= eculine.c ==============
+if test -f 'eculine.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping eculine.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting eculine.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'eculine.c' &&
+X/*+-----------------------------------------------------------------------
+X	eculine.c -- ECU line handler
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	display_hw_flow_config()
+X	lCLOCAL(flag)
+X	lRTSCTS_control(flag)
+X	lbreak()
+X	lclear_xmtr_xoff()
+X	lclose()
+X	lclose_failed(sig)
+X	ldcdwatch(flag)
+X	ldcdwatch_str(flagstr)
+X	ldraino(inflush_flag)
+X	lflash_dtr()
+X	lflush(flush_type)
+X	lget_xon_xoff(ixon,ixoff)
+X	lgetc_timeout(msec)
+X	lgetc_xmtr()
+X	lgets_timeout(lrwt)
+X	llookfor(lookfor,msecs,echo_flag)
+X	lnew_baud_rate(new_baud)
+X	lopen()
+X	lopen_failed(sig)
+X	lputc(lchar)
+X	lputc_paced(pace_msec,lchar)
+X	lputs(string)
+X	lputs_paced(pace_msec,string)
+X	lquiet(msecs,echo_flag)
+X	lrdchk_xmtr()
+X	lreset_ksr()
+X	lset_baud_rate(ioctl_flag)
+X	lset_parity(ioctl_flag)
+X	linst_err_text(lerr)
+X	lxon_xoff(flag)
+X	lzero_length_read_detected()
+X	process_xmtr_rcvd_char(rchar,echo)
+X	set_xon_xoff_by_arg(arg)
+X	valid_baud_rate(baud)
+X	xon_status()
+X
+XNote: On the Sun or with -DUSE_TERMIOS, termios is used in lieu of
+Xtermio.  See ecu.h and search for USE_TERMIOS for vague illumination.
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X/*:08-19-1992-14:03-wht@n4hgf-2nd open in lflash_dtr needs O_NDELAY on SVR4 */
+X/*:08-16-1992-02:52-wht@n4hgf-some vendors use SCO naming but ttyaa/ttyaA */
+X/*:07-27-1992-05:49-wht@n4hgf-lopen SCO modem line to make CLOCAL effective */
+X/*:07-24-1992-14:25-wht@n4hgf-more valiant efforts on lclose failure */
+X/*:07-19-1992-09:19-wht@n4hgf-lopen validation for char special */
+X/*:05-11-1992-16:35-wht@gyro-speed up lflash_DTR on sun */
+X/*:05-04-1992-04:43-kortcs!tim-fix EAGAIN on line open with SVR4 */
+X/*:04-27-1992-19:57-wht@n4hgf-add LINST_ECUUNGETTY error text */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:04-24-1992-21:44-wht@n4hgf-add SCO_direct_tty */
+X/*:04-12-1992-06:31-wht@gyro-was not canceling alarm on lopen error */
+X/*:03-29-1992-16:27-wht@n4hgf-put three second timer on lopen */
+X/*:03-17-1992-18:26-wht@n4hgf-optimize parameter 1 to select() */
+X/*:12-12-1991-05:14-wht@n4hgf-lgetc_timeout can now return a null character */
+X/*:11-26-1991-19:47-wht@n4hgf-add ldcdwatch_str */
+X/*:11-11-1991-22:28-wht@n4hgf-ldcdwatch and lCLOCAL code */
+X/*:11-11-1991-14:38-wht@n4hgf-lzero_length_read_detected code */
+X/*:09-01-1991-14:18-wht@n4hgf2-on sun, use termios and improve ldraino */
+X/*:09-01-1991-02:51-wht@n4hgf2-sun CRTSCTS turn on bug fixed */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-11-1991-18:06-wht@n4hgf-SCO_TTY_NAMING considerations */
+X/*:08-06-1991-14:18-wht@n4hgf-baud rates below 300 get two stop bits */
+X/*:07-29-1991-01:55-wht@n4hgf-remove unused externs */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:04-09-1991-16:11-wht@n4hgf-use B0 in lflash_DTR */
+X/*:02-07-1991-01:00-wht@n4hgf-fix code in for lclose retry on remote XOFF */
+X/*:01-29-1991-14:54-wht@n4hgf-put code in for lclose retry on remote XOFF */
+X/*:01-25-1991-05:57-wht@n4hgf-cringe - lflush was flushing console not line */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:01-09-1991-21:26-wht@n4hgf-don't prototype nap() (ISC port) */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#define DECLARE_LINEVARS_PUBLIC
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "termecu.h"
+X#include <setjmp.h>
+X#include <pwd.h>
+X
+Xextern int errno;
+X#if defined(SVR4)
+X# include <sys/termios.h>
+X# include <sys/termiox.h>
+Xint hx_flag;
+X#endif
+X
+Xvoid lzero_length_read_detected();
+Xvoid lCLOCAL();
+X
+Xint lgetc_count;
+Xchar lopen_err_str[64] = "";
+Xint zero_length_read_detected = 0;
+Xint dcdwatch_set = 0;	/* if true, ldcdwatch() has been called */
+Xstatic jmp_buf _insurance_jmpbuf;
+X
+X/*
+X * with SCO UNIX, nap doesn't work as advertized; param MUST be > granularity
+X * or nap will return immediately; not a problem with XENIX
+X */
+X#define LPUTS_NAP_COUNT	(min((hzmsec * 2),20L))
+X
+X/*+-------------------------------------------------------------------------
+X	process_xmtr_rcvd_char(rchar,echo) - feed xmtr-rcvd char to rcvr code
+X
+Xecho: 0 no echo
+X      1 echo literally
+X      2 "make printable"
+X--------------------------------------------------------------------------*/
+Xvoid
+Xprocess_xmtr_rcvd_char(rchar,echo)
+Xuint rchar;
+Xregister int echo;
+X{
+X	if(process_rcvd_char(rchar))
+X		return;
+X
+X	if(echo == 1)
+X	{
+X		if(rchar == NL)
+X			fputc(CRET,se);
+X		fputc(rchar,se);
+X		if(rchar != CRET)
+X			plogc(rchar);
+X	}
+X	else if(echo == 2)
+X	{
+X	char *make_char_graphic();
+X		pputs(make_char_graphic(rchar,0));
+X		if(rchar == 0x0A)
+X			pputs("\n");
+X	}
+X
+X}	/* end of process_xmtr_rcvd_char */
+X
+X/*+-------------------------------------------------------------------------
+X	lgetc_xmtr() -- xmtr version of get char from line
+Xalso called by rcvr code when lgetc_buf empty and vmin == 1
+X
+Xzero_length_read_detected is a public that will set if the
+XDCD watcher is turned on and DCD is lost
+X--------------------------------------------------------------------------*/
+Xuchar
+Xlgetc_xmtr()
+X{
+X	int itmp;
+X	uchar char_rtnd;
+X
+XREAD_AGAIN:
+X	if((itmp = read(shm->Liofd,(char *)&char_rtnd,1)) < 1)
+X	{
+X		if(!itmp)
+X		{
+X			if(shm->Ldcdwatch)
+X			{
+X				lzero_length_read_detected();
+X				return(0);
+X			}
+X			errno = EIO;	/* for termecu processing */
+X			termecu(TERMECU_LINE_READ_ERROR);
+X		}
+X		if(errno == EINTR)			/* if signal interrupted, ... */
+X		{
+X			if(sigint)
+X				return(0);
+X			goto READ_AGAIN;
+X		}
+X		termecu(TERMECU_LINE_READ_ERROR);
+X	}
+X	shm->rcvd_chars++;
+X	shm->rcvd_chars_this_connect++;
+X	if(shm->Lparity)
+X		char_rtnd &= 0x7F;
+X	return(char_rtnd);
+X
+X}	/* end of lgetc_xmtr */
+X
+X/*+-------------------------------------------------------------------------
+X	lrdchk_xmtr() -- rdchk(shm->Liofd) for xmtr
+X--------------------------------------------------------------------------*/
+Xint
+Xlrdchk_xmtr()
+X{
+X	return(rdchk(shm->Liofd));
+X}	/* end of lrdchk_xmtr */
+X
+X/*+-------------------------------------------------------------------------
+SHAR_EOF
+true || echo 'restore of eculine.c failed'
+fi
+echo 'End of ecu320 part 8'
+echo 'File eculine.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

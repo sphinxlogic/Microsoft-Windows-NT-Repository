@@ -1,0 +1,1046 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject: v36i094:  cmdline - C++ Library for parsing command-line arguments, Patch01b/2
+Message-ID: <1993Apr4.175913.10214@sparky.imd.sterling.com>
+X-Md4-Signature: 692efde6dd35fd51bafa4d0e544bf21d
+Date: Sun, 4 Apr 1993 17:59:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 36, Issue 94
+Archive-name: cmdline/patch01b
+Environment: C++
+Patch-To: cmdline: Volume 31, Issue 47-54
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  PATCH01.B
+# Wrapped by kent@sparky on Sun Apr  4 12:46:49 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'PATCH01.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PATCH01.B'\"
+else
+  echo shar: Extracting \"'PATCH01.B'\" \(31550 characters\)
+  sed "s/^X//" >'PATCH01.B' <<'END_OF_FILE'
+X*** src/lib/cmdline.h.OLD	Fri Mar 26 10:50:26 1993
+X--- src/lib/cmdline.h	Tue Mar 23 17:02:47 1993
+X***************
+X*** 9,14 ****
+X--- 9,21 ----
+X  //
+X  // ^HISTORY:
+X  //    03/19/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added arg_sequence field to CmdArg
+X+ //    - Added cmd_nargs_parsed field to CmdLine
+X+ //    - Added cmd_description field to CmdLine
+X+ //    - Added exit_handler() and quit() member-functions to CmdLine
+X+ //    - Added ALLOW_PLUS to list of CmdLine configuration flags
+X  //-^^---------------------------------------------------------------------
+X  
+X  #ifndef _usr_include_cmdline_h
+X***************
+X*** 68,78 ****
+X--- 75,93 ----
+X        isLIST      = 0x20,  // argument is a list
+X        isPOS       = 0x40,  // argument is positional
+X        isHIDDEN    = 0x80,  // argument is not to be printed in usage
+X+ #ifndef __gplusplus
+X        isVALTAKEN  = (isVALREQ | isVALOPT),    // argument takes a value
+X        isOPTVALOPT = (isOPT | isVALOPT),
+X        isOPTVALREQ = (isOPT | isVALREQ),
+X        isPOSVALOPT = (isPOS | isVALOPT),
+X        isPOSVALREQ = (isPOS | isVALREQ),
+X+ #else
+X+       isVALTAKEN  = 0x06,     // g++ doesnt seem to recognize enums that
+X+       isOPTVALOPT = 0x02,     // are defined in terms of previous values
+X+       isOPTVALREQ = 0x04,     // so I have to hard code the values instead.
+X+       isPOSVALOPT = 0x42,     //
+X+       isPOSVALREQ = 0x44,     // If this ever changes -- remove this stuff!
+X+ #endif
+X     } ;
+X  
+X       // Flags that say how the argument was specied on the command-line
+X***************
+X*** 204,209 ****
+X--- 219,234 ----
+X     unsigned
+X     flags(void) const  { return  arg_flags; }
+X  
+X+       // Get the sequence number corresponding to the last
+X+       // time this argument was matched on the command-line.
+X+       //
+X+       // If this argument was not matched, the sequence number
+X+       // will be zero, otherwise it will be 'N' where the last
+X+       // time this argument was matched, it was the 'N'th argument
+X+       // encountered.
+X+    unsigned
+X+    sequence(void) const { return arg_sequence; }
+X+ 
+X        // Get the character (short-option) name of this argument.
+X        // Returns '\0' if there isnt one.
+X     char
+X***************
+X*** 248,253 ****
+X--- 273,281 ----
+X     void
+X     clear(unsigned flags =~0)  { arg_flags &= ~flags; }
+X  
+X+       // set sequence number
+X+    void
+X+    sequence(unsigned  num) { arg_sequence = num; }
+X  
+X     // Private data members
+X  
+X***************
+X*** 256,261 ****
+X--- 284,291 ----
+X     unsigned     arg_flags : 8 ;
+X     unsigned     arg_syntax : 8 ;
+X  
+X+    unsigned     arg_sequence;
+X+ 
+X     char         arg_char_name;
+X     const char * arg_keyword_name;
+X     const char * arg_value_name;
+X***************
+X*** 309,314 ****
+X--- 339,345 ----
+X     virtual const char *
+X     operator()(void);
+X  
+X+       // is_temporary returns 0 for CmdArgvIter
+X     virtual int
+X     is_temporary(void) const;
+X  
+X***************
+X*** 361,366 ****
+X--- 392,398 ----
+X     void
+X     delimiters(const char * new_delimiters)  { seps = new_delimiters; }
+X  
+X+       // is_temporary returns 1 for CmdStrTokIter
+X     virtual int
+X     is_temporary(void) const;
+X  
+X***************
+X*** 387,392 ****
+X--- 419,432 ----
+X     //
+X  class  CmdIstreamIter : public CmdLineArgIter {
+X  public:
+X+    static const unsigned  MAX_LINE_LEN ;
+X+ 
+X+ #ifdef vms
+X+    enum { c_COMMENT = '!' } ;
+X+ #else
+X+    enum { c_COMMENT = '#' } ;
+X+ #endif
+X+ 
+X     CmdIstreamIter(istream & input);
+X  
+X     virtual ~CmdIstreamIter(void);
+X***************
+X*** 394,399 ****
+X--- 434,440 ----
+X     virtual const char *
+X     operator()(void);
+X  
+X+       // is_temporary returns 1 for CmdIstreamIter
+X     virtual int
+X     is_temporary(void) const;
+X  
+X***************
+X*** 420,426 ****
+X     enum CmdFlags {
+X        ANY_CASE_OPTS = 0x001, // Ignore character-case for short-options
+X        PROMPT_USER   = 0x002, // Prompt the user for missing required args
+X!       NO_ABORT      = 0x004, // Dont exit upon syntax error
+X        OPTS_FIRST    = 0x008, // No options after positional parameters
+X        OPTS_ONLY     = 0x010, // Dont accept short-options
+X        KWDS_ONLY     = 0x020, // Dont accept long-options
+X--- 461,467 ----
+X     enum CmdFlags {
+X        ANY_CASE_OPTS = 0x001, // Ignore character-case for short-options
+X        PROMPT_USER   = 0x002, // Prompt the user for missing required args
+X!       NO_ABORT      = 0x004, // Dont quit upon syntax error
+X        OPTS_FIRST    = 0x008, // No options after positional parameters
+X        OPTS_ONLY     = 0x010, // Dont accept short-options
+X        KWDS_ONLY     = 0x020, // Dont accept long-options
+X***************
+X*** 431,436 ****
+X--- 472,479 ----
+X                                  // when we see an unmatched option,
+X                                  // we will try to see if it matches
+X                                  // a keyword (and vice-versa).
+X+       ALLOW_PLUS    = 0x200, // Allow "+" (as well as "--") as a prefix
+X+                                 // indicating long-options.
+X     } ;
+X  
+X        // Flags to convey parsing-status
+X***************
+X*** 477,482 ****
+X--- 520,535 ----
+X     void
+X     name(const char * progname);
+X  
+X+       // Get the command description.
+X+    const char *
+X+    description(void)  const  { return  cmd_description; }
+X+ 
+X+       // Specify a command description.
+X+    void
+X+    description(const char * the_description) {
+X+       cmd_description = the_description;
+X+    }
+X+ 
+X        // Append an argument
+X     CmdLine &
+X     append(CmdArg * cmdarg);
+X***************
+X*** 615,620 ****
+X--- 668,708 ----
+X     epilogue(void) ;
+X  
+X     //
+X+    // Find out the number of arguments parsed so far
+X+    //
+X+ 
+X+    unsigned
+X+    nargs_parsed(void) const { return cmd_nargs_parsed; }
+X+ 
+X+    //
+X+    // Exception handling (well -- not really)
+X+    //
+X+ 
+X+    typedef  void (* quit_func_t)(int);
+X+ 
+X+       // When a fatal error is encounteredi or when parsing needs to
+X+       // terminate immediately, the quit() member function is called.
+X+       // If the programmer has used quit_handler() to setup his own
+X+       // handler-function, that that function is called; otherwise
+X+       // exit() is called with the given status.
+X+       // 
+X+    void
+X+    quit(int status);
+X+ 
+X+       // Set the quit-handler. The quit-handler is a pointer to
+X+       // a function that has no return value and takes a single
+X+       // integer parameter.
+X+       //
+X+    void
+X+    quit_handler(quit_func_t  quit_func) { cmd_quit_handler = quit_func ; }
+X+ 
+X+       // Get the current quit-handler (returns NULL if there isnt one)
+X+       //
+X+    quit_func_t
+X+    quit_handler(void) const { return  cmd_quit_handler; }
+X+ 
+X+ 
+X+    //
+X     // Retrieve a specific argument
+X     //
+X  
+X***************
+X*** 704,713 ****
+X--- 792,804 ----
+X     unsigned          cmd_state  : 8 ;
+X     unsigned          cmd_flags  : 16 ;
+X     unsigned          cmd_status : 16 ;
+X+    unsigned          cmd_nargs_parsed ;
+X     const char      * cmd_name ;
+X+    const char      * cmd_description ;
+X     CmdArg          * cmd_matched_arg ;
+X     CmdArgListList  * cmd_args ;
+X     ostream         * cmd_err ;
+X+    quit_func_t       cmd_quit_handler ;
+X  
+X        // Disallow copying and assignment
+X     CmdLine(const CmdLine & );
+X*** src/lib/cmdtest.c.OLD	Fri Mar 26 10:50:31 1993
+X--- src/lib/cmdtest.c	Wed Mar  3 14:11:57 1993
+X***************
+X*** 6,11 ****
+X--- 6,14 ----
+X  //
+X  // ^HISTORY:
+X  //    03/18/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Attached a description to the command.
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include <stdlib.h>
+X***************
+X*** 74,79 ****
+X--- 77,84 ----
+X  
+X           case 'g' : new_flags |= CmdLine::NO_GUESSING;    break;
+X  
+X+          case '+' : new_flags |= CmdLine::ALLOW_PLUS;     break;
+X+ 
+X           default  : break;
+X        } //switch
+X     } //for
+X***************
+X*** 100,105 ****
+X--- 105,111 ----
+X     't' = Temporary-args\n\
+X     'q' = Quiet!\n\
+X     'g' = no-Guessing\n\
+X+    '+' = allow-plus\n\
+X  This-is-a-very-long-line-containing-no-whitespace-\
+X  characters-and-I-just-want-to-see-if-it-gets-\
+X  formatted-appropriately!"
+X***************
+X*** 200,207 ****
+X--- 206,219 ----
+X                  & name,
+X                  & files,
+X                  NULL);
+X+ 
+X     CmdArgvIter  argv_iter(--argc, ++argv);
+X  
+X+    cmd.description(
+X+ "This program is intended to statically and dynamically test \
+X+ the CmdLine(3C++) class library."
+X+    );
+X+ 
+X     cout << "Test of " << CmdLine::ident() << endl ;
+X  
+X     xflag = 0;
+X***************
+X*** 226,232 ****
+X     int  parse_cin = infile;
+X  
+X     // Parse arguments from a string
+X!    if (str) {
+X        CmdStrTokIter  tok_iter(str);
+X  
+X        xflag = 0;
+X--- 238,244 ----
+X     int  parse_cin = infile;
+X  
+X     // Parse arguments from a string
+X!    if (! str.isNULL()) {
+X        CmdStrTokIter  tok_iter(str);
+X  
+X        xflag = 0;
+X*** src/lib/dump.c.OLD	Fri Mar 26 10:50:35 1993
+X--- src/lib/dump.c	Mon Mar  1 11:01:33 1993
+X***************
+X*** 8,13 ****
+X--- 8,18 ----
+X  //
+X  // ^HISTORY:
+X  //    04/01/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added arg_sequence field to CmdArg
+X+ //    - Added cmd_nargs_parsed field to CmdLine
+X+ //    - Added cmd_description field to CmdLine
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include  "cmdline.h"
+X***************
+X*** 295,300 ****
+X--- 300,307 ----
+X     ::indent(os, level + 1) << "flags=" ;
+X     dump_arg_flags(os, arg_flags) << "\n";
+X  
+X+    ::indent(os, level + 1) << "sequence=" << arg_sequence << "\n";
+X+ 
+X     ::indent(os, level) << "}" << endl;
+X  #endif
+X  }
+X***************
+X*** 309,314 ****
+X--- 316,323 ----
+X  
+X     ::indent(os, level + 1) << "name=\"" << cmd_name << "\"\n";
+X  
+X+    ::indent(os, level + 1) << "description=\"" << cmd_description << "\"\n";
+X+ 
+X     ::indent(os, level + 1) << "flags=" ;
+X     dump_cmd_flags(os, cmd_flags) << "\n";
+X  
+X***************
+X*** 327,332 ****
+X--- 336,344 ----
+X     } else {
+X        os << "matched_arg=" << (void *)cmd_matched_arg << "\n";
+X     }
+X+ 
+X+    ::indent(os, level + 1) << "# valid-args-parsed="
+X+                            << cmd_nargs_parsed << "\n" ;
+X  
+X     ::indent(os, level) << "}" << endl;
+X  #endif
+X*** src/lib/parse.c.OLD	Fri Mar 26 10:50:41 1993
+X--- src/lib/parse.c	Wed Mar  3 10:02:21 1993
+X***************
+X*** 10,15 ****
+X--- 10,19 ----
+X  //
+X  // ^HISTORY:
+X  //    12/05/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added cmd_nargs_parsed field to CmdLine
+X+ //    - Added exit_handler() and quit() member-functions to CmdLine
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include <stdlib.h>
+X***************
+X*** 58,63 ****
+X--- 62,68 ----
+X     cmd_parse_state = cmd_START_STATE ;
+X     cmd_state = 0 ;
+X     cmd_status = NO_ERROR ;
+X+    cmd_nargs_parsed = 0 ;
+X  
+X     // reset parse-specific attributes for each argument
+X     CmdArgListListIter  list_iter(cmd_args);
+X***************
+X*** 94,100 ****
+X  //
+X  //    Prints a usage message if there were syntax error.
+X  //
+X! //    Terminates program execution by calling ::exit(e_SYNTAX) if
+X  //    (NO_ABORT is NOT set and the command-status is NOT NO_ERROR).
+X  //
+X  // ^RETURN-VALUE:
+X--- 99,105 ----
+X  //
+X  //    Prints a usage message if there were syntax error.
+X  //
+X! //    Terminates program execution by calling quit(e_SYNTAX) if
+X  //    (NO_ABORT is NOT set and the command-status is NOT NO_ERROR).
+X  //
+X  // ^RETURN-VALUE:
+X***************
+X*** 121,130 ****
+X     // print usage if necessary
+X     if (cmd_status & ARG_MISSING) {
+X        usage();
+X!       ::exit(e_SYNTAX);
+X     } else if (cmd_status && (! (cmd_flags & NO_ABORT))) {
+X        usage();
+X!       ::exit(e_SYNTAX);
+X     }
+X  
+X     return  cmd_status ;
+X--- 126,135 ----
+X     // print usage if necessary
+X     if (cmd_status & ARG_MISSING) {
+X        usage();
+X!       quit(e_SYNTAX);
+X     } else if (cmd_status && (! (cmd_flags & NO_ABORT))) {
+X        usage();
+X!       quit(e_SYNTAX);
+X     }
+X  
+X     return  cmd_status ;
+X*** src/lib/patchlevel.c.OLD	Fri Mar 26 10:50:46 1993
+X--- src/lib/patchlevel.c	Wed Mar  3 14:41:41 1993
+X***************
+X*** 9,14 ****
+X--- 9,17 ----
+X  //
+X  // ^HISTORY:
+X  //    04/03/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/03/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Modified for patch 1
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include "cmdline.h"
+X***************
+X*** 21,33 ****
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.00" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  0
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.00"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+X--- 24,36 ----
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.01" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  1
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.01"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+X*** src/lib/private.c.OLD	Fri Mar 26 10:50:51 1993
+X--- src/lib/private.c	Wed Mar  3 10:03:01 1993
+X***************
+X*** 15,20 ****
+X--- 15,23 ----
+X  //
+X  // ^HISTORY:
+X  //    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/03/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added exit_handler() and quit() member-functions to CmdLine
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include <iostream.h>
+X***************
+X*** 96,102 ****
+X  //    with the argument "cmdarg".
+X  //
+X  // ^ALGORITHM:
+X! //    - if this is a cmdargUsage argument then print usage and call exit(3C)
+X  //    - call the operator() of "cmdarg" and save the result.
+X  //    - if the above call returned SUCCESS then set the GIVEN and VALGIVEN
+X  //      flags of the argument.
+X--- 99,105 ----
+X  //    with the argument "cmdarg".
+X  //
+X  // ^ALGORITHM:
+X! //    - if this is a cmdargUsage argument then print usage and call quit()
+X  //    - call the operator() of "cmdarg" and save the result.
+X  //    - if the above call returned SUCCESS then set the GIVEN and VALGIVEN
+X  //      flags of the argument.
+X***************
+X*** 107,119 ****
+X  int
+X  CmdLine::handle_arg(CmdArg * cmdarg, const char * & arg)
+X  {
+X!    int  bad_val ;
+X  
+X     // call the argument compiler
+X     const char * save_arg = arg ;  // just in case someone forgets to set it
+X!    bad_val = (*cmdarg)(arg, *this);
+X     if (! bad_val) {
+X        cmdarg->set(CmdArg::GIVEN) ;
+X        if (arg != save_arg) {
+X           cmdarg->set(CmdArg::VALGIVEN) ;
+X        }
+X--- 110,123 ----
+X  int
+X  CmdLine::handle_arg(CmdArg * cmdarg, const char * & arg)
+X  {
+X!    ++cmd_nargs_parsed;  // update the number of parsed args
+X  
+X     // call the argument compiler
+X     const char * save_arg = arg ;  // just in case someone forgets to set it
+X!    int  bad_val = (*cmdarg)(arg, *this);
+X     if (! bad_val) {
+X        cmdarg->set(CmdArg::GIVEN) ;
+X+       cmdarg->sequence(cmd_nargs_parsed) ;
+X        if (arg != save_arg) {
+X           cmdarg->set(CmdArg::VALGIVEN) ;
+X        }
+X***************
+X*** 397,403 ****
+X  //
+X  // ^SIDE-EFFECTS:
+X  //    - modifies the status of "cmd".
+X! //    - terminates execution by calling exit(3C) if cmd_NOABORT is NOT
+X  //      set and a required argument (that was not properly supplied by
+X  //      the user) is not given.
+X  //    - prints on stderr if an argument is missing and cmd_QUIET is NOT set.
+X--- 401,407 ----
+X  //
+X  // ^SIDE-EFFECTS:
+X  //    - modifies the status of "cmd".
+X! //    - terminates execution by calling quit() if cmd_NOABORT is NOT
+X  //      set and a required argument (that was not properly supplied by
+X  //      the user) is not given.
+X  //    - prints on stderr if an argument is missing and cmd_QUIET is NOT set.
+X*** src/lib/states.h.OLD	Fri Mar 26 10:50:57 1993
+X--- src/lib/states.h	Mon Feb 22 14:24:12 1993
+X***************
+X*** 56,69 ****
+X--- 56,81 ----
+X     cmd_TOK_REQUIRED = 0x01,  // is the "wanted" token required?
+X  
+X     cmd_WANT_VAL     = 0x02,  // are we expecting a value?
+X+ #ifndef __gplusplus
+X     cmd_NEED_VAL     = (cmd_WANT_VAL | cmd_TOK_REQUIRED),
+X+ #else
+X+    cmd_NEED_VAL     = 0x03,
+X+ #endif
+X  
+X  #ifdef vms_style
+X     cmd_WANT_VALSEP  = 0x04,  // are we expecting ':' or '='
+X+ # ifndef __gplusplus
+X     cmd_NEED_VALSEP  = (cmd_WANT_VALSEP | cmd_TOK_REQUIRED),
+X+ # else
+X+    cmd_NEED_VALSEP  = 0x05,
+X+ # endif
+X  
+X     cmd_WANT_LISTSEP = 0x08,  // are we expecting ',' or '+'
+X+ # ifndef __gplusplus
+X     cmd_NEED_LISTSEP = (cmd_WANT_LISTSEP | cmd_TOK_REQUIRED),
+X+ # else
+X+    cmd_NEED_LISTSEP = 0x09,
+X+ # endif
+X  #endif
+X  } ;
+X  
+X*** src/lib/unix.c.OLD	Fri Mar 26 10:51:03 1993
+X--- src/lib/unix.c	Wed Mar  3 14:20:20 1993
+X***************
+X*** 16,21 ****
+X--- 16,24 ----
+X  //
+X  // ^HISTORY:
+X  //    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added ALLOW_PLUS to list of CmdLine configuration flags
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include <iostream.h>
+X***************
+X*** 27,34 ****
+X  #include "cmdline.h"
+X  #include "states.h"
+X  
+X!   // Prefix string used for short options
+X! static const char OPT_PFX[] = "-" ;
+X  
+X    // Function to tell us if an argument looks like an option
+X  inline static int
+X--- 30,38 ----
+X  #include "cmdline.h"
+X  #include "states.h"
+X  
+X! //
+X! // Some Helper function for getting and recognizing prefixes
+X! //
+X  
+X    // Function to tell us if an argument looks like an option
+X  inline static int
+X***************
+X*** 36,60 ****
+X     return  ((*(s) == '-') && ((*((s)+1) != '-')) && ((*((s)+1) != '\0'))) ;
+X  }
+X  
+X!   // Need a prefix string for a long-option and a function to tell us
+X!   // if an argument looks like a long-option as well.
+X!   //
+X! #ifdef  USE_PLUS
+X!    static const char KWD_PFX[] = "+" ;
+X  
+X-    inline static int
+X-    isKEYWORD(const char *s) {
+X-       return   ((*(s) == '+') && ((*((s)+1) != '\0'))) ;
+X-    }
+X- #else
+X-    static const char KWD_PFX[] = "--" ;
+X  
+X!    inline static int
+X!    isKEYWORD(const char *s) {
+X!       return  ((*(s) == '-') && (*((s)+1) == '-')  && (*((s)+2) != '\0')) ;
+X!    }
+X! #endif
+X  
+X     // Need to know when an argument means "end-of-options"
+X  inline static int
+X  isENDOPTIONS(const char *s) {
+X--- 40,64 ----
+X     return  ((*(s) == '-') && ((*((s)+1) != '-')) && ((*((s)+1) != '\0'))) ;
+X  }
+X  
+X!    // Function to return the option-prefix
+X! inline static const char *
+X! OptionPrefix(void) { return  "-" ; }
+X  
+X  
+X!    // Function to tell us if an argument looks like a long-option.
+X!    //
+X!    // NOTE: allowing "+" does not preclude the use of "--"
+X!    //
+X! inline static int
+X! isKEYWORD(const char *s, int allow_plus) {
+X!    return  (((*(s) == '-') && (*((s)+1) == '-')  && (*((s)+2) != '\0')) ||
+X!             (allow_plus && (*(s) == '+') && ((*((s)+1) != '\0')))) ;
+X! }
+X  
+X+    // Function to return the long-option prefix
+X+ inline static const char *
+X+ KeywordPrefix(int allow_plus) { return  (allow_plus) ? "+" : "--" ; }
+X+ 
+X     // Need to know when an argument means "end-of-options"
+X  inline static int
+X  isENDOPTIONS(const char *s) {
+X***************
+X*** 61,67 ****
+X--- 65,75 ----
+X     return  ((*(s) == '-') && (*((s)+1) == '-')  && (*((s)+2) == '\0')) ;
+X  }
+X  
+X+    // Function to return the "end-of-options" string
+X+ inline static const char *
+X+ EndOptions(void) { return "--" ; }
+X  
+X+ 
+X  //-------
+X  // ^FUNCTION: CmdLine::parse_option - parse a Unix option
+X  //
+X***************
+X*** 140,146 ****
+X              }
+X           }
+X           if (! (cmd_flags & QUIET)) {
+X!             error() << "unknown option \"" << OPT_PFX << char(*arg)
+X                      << "\"." << endl ;
+X           }
+X           rc |= BAD_OPTION ;
+X--- 148,154 ----
+X              }
+X           }
+X           if (! (cmd_flags & QUIET)) {
+X!             error() << "unknown option \"" << OptionPrefix() << char(*arg)
+X                      << "\"." << endl ;
+X           }
+X           rc |= BAD_OPTION ;
+X***************
+X*** 164,170 ****
+X              if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X                 if (! (cmd_flags & QUIET)) {
+X                    error() << "value required in same argument for "
+X!                           << OPT_PFX << char(cmdarg->char_name())
+X                            << " option." << endl;
+X                 }
+X                 rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X--- 172,178 ----
+X              if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X                 if (! (cmd_flags & QUIET)) {
+X                    error() << "value required in same argument for "
+X!                           << OptionPrefix() << char(cmdarg->char_name())
+X                            << " option." << endl;
+X                 }
+X                 rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X***************
+X*** 204,210 ****
+X            (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X           if (! (cmd_flags & QUIET)) {
+X              error() << "value required in separate argument for "
+X!                     << OPT_PFX << char(cmdarg->char_name())
+X                      << " option." << endl;
+X           }
+X           rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X--- 212,218 ----
+X            (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X           if (! (cmd_flags & QUIET)) {
+X              error() << "value required in separate argument for "
+X!                     << OptionPrefix() << char(cmdarg->char_name())
+X                      << " option." << endl;
+X           }
+X           rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X***************
+X*** 285,290 ****
+X--- 293,300 ----
+X     int  ambiguous = 0, len = -1, bad_val;
+X     const char * val = NULL ;
+X  
+X+    int  plus = (cmd_flags & ALLOW_PLUS) ;  // Can we use "+"?
+X+ 
+X     // see if we left an argument dangling without a value
+X     ck_need_val() ;
+X  
+X***************
+X*** 312,318 ****
+X        }
+X        if (! (cmd_flags & QUIET)) {
+X           error() << ((ambiguous) ? "ambiguous" : "unknown") << " option "
+X!                  << "\"" << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                   << arg << "\"." << endl ;
+X        }
+X        rc |= ((ambiguous) ? KWD_AMBIGUOUS : BAD_KEYWORD) ;
+X--- 322,329 ----
+X        }
+X        if (! (cmd_flags & QUIET)) {
+X           error() << ((ambiguous) ? "ambiguous" : "unknown") << " option "
+X!                  << "\"" << ((cmd_flags & KWDS_ONLY) ? OptionPrefix()
+X!                                                      : KeywordPrefix(plus))
+X                   << arg << "\"." << endl ;
+X        }
+X        rc |= ((ambiguous) ? KWD_AMBIGUOUS : BAD_KEYWORD) ;
+X***************
+X*** 334,340 ****
+X           if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X              if (! (cmd_flags & QUIET)) {
+X                 error() << "value required in same argument for "
+X!                        << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                         << cmdarg->keyword_name() << " option." << endl;
+X              }
+X              rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X--- 345,352 ----
+X           if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X              if (! (cmd_flags & QUIET)) {
+X                 error() << "value required in same argument for "
+X!                        << ((cmd_flags & KWDS_ONLY) ? OptionPrefix()
+X!                                                    : KeywordPrefix(plus))
+X                         << cmdarg->keyword_name() << " option." << endl;
+X              }
+X              rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X***************
+X*** 374,380 ****
+X         (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X        if (! (cmd_flags & QUIET)) {
+X           error() << "value required in separate argument for "
+X!                  << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                   << cmdarg->keyword_name() << " option." << endl;
+X        }
+X        rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X--- 386,393 ----
+X         (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X        if (! (cmd_flags & QUIET)) {
+X           error() << "value required in separate argument for "
+X!                  << ((cmd_flags & KWDS_ONLY) ? OptionPrefix()
+X!                                              : KeywordPrefix(plus))
+X                   << cmdarg->keyword_name() << " option." << endl;
+X        }
+X        rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X***************
+X*** 544,549 ****
+X--- 557,564 ----
+X  {
+X     if (arg == NULL)  return  cmd_status ;
+X  
+X+    int  plus = (cmd_flags & ALLOW_PLUS) ;  // Can we use "+"?
+X+ 
+X     if (cmd_parse_state & cmd_TOK_REQUIRED) {
+X        // If a required value is expected, then this argument MUST be
+X        // the value (even if it looks like an option
+X***************
+X*** 559,570 ****
+X           cmd_status |=  parse_option(arg) ;
+X        }
+X     } else if ((! (cmd_flags & OPTS_ONLY))
+X!               && isKEYWORD(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X        cmd_state |= cmd_KEYWORDS_USED ;
+X!       ++arg ;  // skip over '+' keyword prefix
+X! #ifndef USE_PLUS
+X!       ++arg ;  // skip over '--' keyword prefix
+X! #endif
+X        cmd_status |= parse_keyword(arg) ;
+X     } else if (isENDOPTIONS(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X        cmd_state |= cmd_END_OF_OPTIONS ;
+X--- 574,586 ----
+X           cmd_status |=  parse_option(arg) ;
+X        }
+X     } else if ((! (cmd_flags & OPTS_ONLY))
+X!               && isKEYWORD(arg, plus) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X        cmd_state |= cmd_KEYWORDS_USED ;
+X!       if (*arg == '+') {
+X!          ++arg ;  // skip over '+' keyword prefix
+X!       } else {
+X!          arg += 2 ;  // skip over '--' keyword prefix
+X!       }
+X        cmd_status |= parse_keyword(arg) ;
+X     } else if (isENDOPTIONS(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X        cmd_state |= cmd_END_OF_OPTIONS ;
+X***************
+X*** 611,624 ****
+X  ostream &
+X  CmdLine::arg_error(const char * error_str, const CmdArg * cmdarg) const
+X  {
+X     ostream & os = error() << error_str << char(' ') ;
+X  
+X     if (cmdarg->flags() & CmdArg::GIVEN) {
+X         if (cmdarg->flags() & CmdArg::KEYWORD) {
+X!           os << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X               << cmdarg->keyword_name() << " option" ;
+X         } else if (cmdarg->flags() & CmdArg::OPTION) {
+X!           os << OPT_PFX << (char)cmdarg->char_name() << " option" ;
+X         } else {
+X            os << cmdarg->value_name() << " argument" ;
+X         }
+X--- 627,643 ----
+X  ostream &
+X  CmdLine::arg_error(const char * error_str, const CmdArg * cmdarg) const
+X  {
+X+    int  plus = (cmd_flags & ALLOW_PLUS) ;  // Can we use "+"?
+X+ 
+X     ostream & os = error() << error_str << char(' ') ;
+X  
+X     if (cmdarg->flags() & CmdArg::GIVEN) {
+X         if (cmdarg->flags() & CmdArg::KEYWORD) {
+X!           os << ((cmd_flags & KWDS_ONLY) ? OptionPrefix()
+X!                                          : KeywordPrefix(plus))
+X               << cmdarg->keyword_name() << " option" ;
+X         } else if (cmdarg->flags() & CmdArg::OPTION) {
+X!           os << OptionPrefix() << (char)cmdarg->char_name() << " option" ;
+X         } else {
+X            os << cmdarg->value_name() << " argument" ;
+X         }
+X***************
+X*** 627,635 ****
+X            os << cmdarg->value_name() << " argument" ;
+X         } else {
+X            if (cmd_flags & KWDS_ONLY) {
+X!              os << OPT_PFX << cmdarg->keyword_name() << " option" ;
+X            } else {
+X!              os << OPT_PFX << (char)cmdarg->char_name() << " option" ;
+X            }
+X         }
+X     }
+X--- 646,654 ----
+X            os << cmdarg->value_name() << " argument" ;
+X         } else {
+X            if (cmd_flags & KWDS_ONLY) {
+X!              os << OptionPrefix() << cmdarg->keyword_name() << " option" ;
+X            } else {
+X!              os << OptionPrefix() << (char)cmdarg->char_name() << " option" ;
+X            }
+X         }
+X     }
+X***************
+X*** 686,691 ****
+X--- 705,711 ----
+X     ostrstream  oss(buf, bufsize);
+X     *buf = '\0';
+X  
+X+    int  plus = (cmd_flags & ALLOW_PLUS) ;  // Can we use "+"?
+X     char optchar = cmdarg->char_name();
+X     const char * keyword = cmdarg->keyword_name();
+X  
+X***************
+X*** 723,734 ****
+X         (cmdarg->syntax() & CmdArg::isVALSTICKY))
+X     {
+X        if (cmdarg->syntax() & CmdArg::isVALOPT) {
+X!          oss << OPT_PFX << char(optchar) << char('[') << cmdarg->value_name()
+X!              << "]|" << KWD_PFX << keyword << "[=" << cmdarg->value_name()
+X!              << char(']') ;
+X        } else {
+X!          oss << OPT_PFX << optchar << cmdarg->value_name() << char('|')
+X!              << KWD_PFX << keyword << char('=') << cmdarg->value_name() ;
+X        }
+X        if ((level == VERBOSE_USAGE) && (cmdarg->syntax() & CmdArg::isLIST)) {
+X           oss << " ..." ;
+X--- 743,755 ----
+X         (cmdarg->syntax() & CmdArg::isVALSTICKY))
+X     {
+X        if (cmdarg->syntax() & CmdArg::isVALOPT) {
+X!          oss << OptionPrefix() << char(optchar) << char('[')
+X!              << cmdarg->value_name() << "]|" << KeywordPrefix(plus)
+X!              << keyword << "[=" << cmdarg->value_name() << char(']') ;
+X        } else {
+X!          oss << OptionPrefix() << optchar << cmdarg->value_name()
+X!              << char('|') << KeywordPrefix(plus) << keyword << char('=')
+X!              << cmdarg->value_name() ;
+X        }
+X        if ((level == VERBOSE_USAGE) && (cmdarg->syntax() & CmdArg::isLIST)) {
+X           oss << " ..." ;
+X***************
+X*** 743,758 ****
+X     if (! (cmdarg->syntax() & CmdArg::isPOS)) {
+X        switch(syntax) {
+X           case cmd_OPTS_ONLY :
+X!             oss << OPT_PFX << char(optchar) ;
+X              break ;
+X  
+X           case cmd_KWDS_ONLY :
+X!             oss << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX) << keyword ;
+X              break ;
+X  
+X           case cmd_BOTH :
+X!             oss << OPT_PFX << char(optchar) << char('|')
+X!                 << KWD_PFX << keyword ;
+X              break ;
+X  
+X           default :
+X--- 764,780 ----
+X     if (! (cmdarg->syntax() & CmdArg::isPOS)) {
+X        switch(syntax) {
+X           case cmd_OPTS_ONLY :
+X!             oss << OptionPrefix() << char(optchar) ;
+X              break ;
+X  
+X           case cmd_KWDS_ONLY :
+X!             oss << ((cmd_flags & KWDS_ONLY) ? OptionPrefix()
+X!                                             : KeywordPrefix(plus)) << keyword ;
+X              break ;
+X  
+X           case cmd_BOTH :
+X!             oss << OptionPrefix() << char(optchar) << char('|')
+X!                 << KeywordPrefix(plus) << keyword ;
+X              break ;
+X  
+X           default :
+X*** src/lib/usage.c.OLD	Fri Mar 26 10:51:13 1993
+X--- src/lib/usage.c	Mon Mar  1 10:48:48 1993
+X***************
+X*** 8,13 ****
+X--- 8,16 ----
+X  //
+X  // ^HISTORY:
+X  //    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X+ //
+X+ //    03/01/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Added cmd_description field to CmdLine
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include <iostream.h>
+X***************
+X*** 304,309 ****
+X--- 307,319 ----
+X     // now print argument descriptions
+X     os << "\n" ;
+X     print_descriptions(cmd_syntax, os, max_cols, longest) ;
+X+ 
+X+    // now print the command-description if there is one
+X+    if (cmd_description && *cmd_description) {
+X+       os << "\nDescription:" << endl;
+X+       strindent(os, max_cols, 8, "", 0, cmd_description);
+X+    }
+X+ 
+X     return  os;
+X  }
+X  
+END_OF_FILE
+  if test 31550 -ne `wc -c <'PATCH01.B'`; then
+    echo shar: \"'PATCH01.B'\" unpacked with wrong size!
+  elif test -f 'PATCH01.A' ; then
+    echo shar: Combining  \"'PATCH01'\" \(68045 characters\)
+    cat 'PATCH01.A' 'PATCH01.B' > 'PATCH01'
+    if test 68045 -ne `wc -c <'PATCH01'`; then
+      echo shar: \"'PATCH01'\" combined with wrong size!
+    else 
+      rm PATCH01.A PATCH01.B 
+    fi 
+  fi 
+  # end of 'PATCH01.B'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

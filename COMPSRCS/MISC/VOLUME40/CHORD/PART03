@@ -1,0 +1,1512 @@
+Newsgroups: comp.sources.misc
+From: martin@canada.sun.com (Martin Leclerc - Sun Montreal SE)
+Subject: v40i086:  chord - self-descriptive music sheet from text files, Part03/05
+Message-ID: <1993Nov6.171650.8673@sparky.sterling.com>
+X-Md4-Signature: 0245e52c93f1789af08e6d6d29faf959
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 6 Nov 1993 17:16:50 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: martin@canada.sun.com (Martin Leclerc - Sun Montreal SE)
+Posting-number: Volume 40, Issue 86
+Archive-name: chord/part03
+Environment: UNIX, DOS, VMS, Amiga
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile chord.h chord.man grid.c
+# Wrapped by kent@sparky on Tue Nov  2 17:49:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1430 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# if you are compiling under DOS, you may have to replace all the ".o" extension
+X# by ".obj"
+X# Select the required paper size for your printer
+XPAPERSIZE = US
+X#PAPERSIZE = A4
+X
+X# If your system does not have a getopt fonction, uncomment the next line
+X#GETOPT = getopt.o
+X
+X# Use a ansi or K&R compiler
+XCC = cc 
+XCFLAGS = -D$(PAPERSIZE)
+X
+X# where to put the resulting program
+XBINDIR = /usr/local/bin
+X
+X# where to put the man page
+XMANDIR = /usr/man
+XMANEXT = l
+X
+X# You should not have to change anything below this line
+X
+X# name of the program
+XPROGRAMS = chord 
+X
+XINCL = chord.h getopt.h
+XSRC = common.c xpose.c iso.c chord.c grid.c getopt.c chord.man Makefile  
+XOBJ = common.o xpose.o iso.o chord.o grid.o  ${GETOPT}
+XSONGS = songs/space-oddity songs/heaven songs/everybody-hurts
+XDOCS = README chord_guide.ps license.txt
+XRELNAME = chord35
+X
+Xall: $(PROGRAMS)
+X
+Xchord : $(OBJ) Makefile
+X	$(CC) $(CFLAGS) -o $@ $(OBJ)
+Xchord.o    : chord.h
+Xcommon.o   : chord.h
+Xgrid.o     : chord.h
+Xxpose.o	   : chord.h
+Xgetopt.o   : getopt.h
+X
+Xinstall : all
+X	cp $(PROGRAMS) $(BINDIR)
+X	rm -f $(MANDIR)/cat$(MANEXT)/chord.$(MANEXT)
+X	cp chord.man $(MANDIR)/man$(MANEXT)/chord.$(MANEXT)
+X	chmod 666 $(MANDIR)/man$(MANEXT)/chord.$(MANEXT)
+X	
+Xshar : $(SRC)
+X	shar -F -L 60 -o $(RELNAME).part $(SRC) $(INCL) $(SONGS) $(DOCS)
+X
+Xtar : $(SRC)
+X	tar cvf $(RELNAME).tar $(SRC) $(INCL) $(SONGS) $(DOCS)
+X	compress $(RELNAME).tar
+X
+Xlint : $(SRC)
+X	lint $(SRC)
+X
+Xclean:
+X	rm -f core *.o chord 
+END_OF_FILE
+  if test 1430 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'chord.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chord.h'\"
+else
+  echo shar: Extracting \"'chord.h'\" \(4307 characters\)
+  sed "s/^X//" >'chord.h' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X
+X#define VERSION "3.5"
+X#define PATCH_LEVEL "0"
+X
+X#define TRUE 1
+X#define FALSE 0
+X
+X#define MAXLINE 256
+X#define MAXFONTS 16   /* Maximum number of different fonts in one execution */
+X#define MAXTOKEN 256
+X#define MAX_CHORD 1024
+X#define CHORD_NAME_SZ   10
+X#define MAXNOTE 8
+X
+X#define LONG_FINGERS	4
+X#define FRET_NONE_STR	"-"		/* fret value for unplayed strings */
+X#define FRET_NONE	-2		/* internal numeric value */
+X#define FRET_X_STR	"X"		/* fret value for muted strings */
+X#define FRET_X		-1		/* internal value (must be -1) */
+X#define NO_CHORD_STR	"N.C."		/* Indicates No-Chord */
+X#define BASE_FRET_STR	"base-fret"
+X#define FRETS_STR	"frets"
+X
+X#ifdef US
+X#define TOP 756         /* 10.5 inches in points */
+X#define BOTTOM 36        /* 0.5 inch in points */
+X#define L_MARGIN 72      /* 1 inch in points */
+X#define WIDTH 612        /* 8.5 inches in points */
+X#else
+X	/* Note: Not having access to an actual A4 PostScript printer
+X		 the CHORD authors had to rely on input from beta-testers
+X		 on what were the proper values to use for these fields.
+X		 We though 813 was the right value for TOP.
+X		 Some beta testers agreed, some thought it was better
+X		 to leave the US value (756). We left 756 in and commented
+X		 out the 813 entry. If the A4 page does not look to good for
+X		 your taste, you may want to recompile with the other value.
+X		 Thanks for your co-operation ... The authors */
+X
+X#define TOP 756         /* 10.5 inches in points */
+X/* #define TOP 813 */        /* 28.7 cm or 11.30 inches in points */
+X#define BOTTOM 36      /* 1.25 cm or 0.5 inch in points */
+X#define L_MARGIN 72     /* 2.5 cm or 1 inch in points */
+X#define WIDTH 595       /* 21 cm or 8.27 inches in points */
+X
+X#endif /* US */
+X
+X#define DELIM_STR       ": \t"
+X
+X#define DEF_TEXT_SIZE 12
+X#define DEF_CHORD_SIZE 9
+X#define DEF_GRID_SIZE 30
+X#define DEF_TEXT_FONT "Times-Roman"
+X#define DEF_CHORD_FONT "Helvetica-Oblique"
+X#define MONOSPACED_FONT "Courier"
+X
+X#define CHORD_BUILTIN	0
+X#define CHORD_DEFINED	1
+X#define CHORD_IN_CHORDRC	2
+X
+X#define CHORD_EASY	0
+X#define CHORD_HARD	1
+X
+X#ifdef US
+X#define scale2 .75 	/* 8.5" / 11" - margin */
+X#define scale4 .475	/* 1/2 - margin */
+X#else
+X#define scale2 .69	/* 21(cm) / 29.7(cm) - margin */
+X#define scale4 .475	/* 1/2 - margin */
+X#endif /* US */
+X
+Xstruct chord_struct {
+X	int  next_ptr;
+X	char chord_name[CHORD_NAME_SZ];
+X	};
+X
+X
+Xint do_define_chord();
+Xvoid build_ps_toc();
+Xvoid do_chorus_line();
+Xvoid do_end_of_page();
+Xvoid do_end_of_phys_page();
+Xvoid do_end_of_song();
+Xvoid do_init_grid_ps();
+Xvoid do_new_song();
+Xvoid do_start_of_page();
+Xvoid do_subtitle();
+Xvoid do_title();
+Xvoid draw_chords();
+Xvoid dump_chords();
+Xvoid init_known_chords();
+Xvoid init_ps();
+Xvoid print_chord_line ();
+Xvoid print_re_encode();
+Xvoid print_text_line();
+Xvoid print_version();
+Xvoid read_chordrc();
+Xvoid set_chord_font();
+Xvoid use_chord_font();
+Xvoid use_text_font();
+X
+X#ifdef  __STDC__
+Xint add_to_chordtab(char *chord);
+Xint do_transpose(char *chord);
+Xint is_chord_known (char *chord);
+Xvoid advance(int amount);
+Xvoid debug(char *dbg_str);
+Xvoid do_chord (int i_text, char *chord);
+Xvoid do_comment(char *comment, int style);
+Xvoid do_directive(char *directive);
+Xvoid do_help (char *command) ;
+Xvoid dump_fret(int fretnum);
+Xvoid error(char *error);
+Xvoid error_rt(char *error);
+Xvoid moveto(int new_hpos, int new_vpos);
+Xvoid process_file(FILE *source_fd);
+Xvoid ps_fputc(FILE *fd, int c);
+Xvoid ps_fputs(FILE *fd, char *string);
+Xvoid ps_puts(char *string);
+Xvoid put_in_string(char array[], int *p_index, int c, int max_index, int *p_ov_flag);
+Xvoid re_encode(char *font);
+Xvoid read_input_file(char source[], FILE *source_fd);
+Xvoid set_text_font(int size);
+Xchar *tolower_str(char *string);
+Xchar *toupper_str(char *string);
+Xextern      char *strtok(char *s1, const char *s2);
+X#else /* __STDC__ */
+Xint add_to_chordtab();
+Xint do_transpose();
+Xint is_chord_known ();
+Xvoid advance();
+Xvoid debug();
+Xvoid do_chord ();
+Xvoid do_comment();
+Xvoid do_directive();
+Xvoid do_help ();
+Xvoid do_translate();
+Xvoid dump_fret();
+Xvoid error();
+Xvoid error_rt();
+Xvoid moveto();
+Xvoid process_file();
+Xvoid ps_fputc();
+Xvoid ps_fputs();
+Xvoid ps_puts();
+Xvoid put_in_string();
+Xvoid re_encode();
+Xvoid read_input_file();
+Xvoid set_text_font();
+Xchar *tolower_str();
+Xchar *toupper_str();
+Xextern char *strtok();
+X
+X#endif /* ANSI_C */
+END_OF_FILE
+  if test 4307 -ne `wc -c <'chord.h'`; then
+    echo shar: \"'chord.h'\" unpacked with wrong size!
+  fi
+  # end of 'chord.h'
+fi
+if test -f 'chord.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chord.man'\"
+else
+  echo shar: Extracting \"'chord.man'\" \(9779 characters\)
+  sed "s/^X//" >'chord.man' <<'END_OF_FILE'
+X.TH chord l "September 1993" "Utilities"
+X.SH NAME
+Xchord \- Produce a professional looking PostScript sheet-music from an ascii file containing lyrics and chords information.
+X.SH SYNOPSIS
+X.B chord
+X[ option ...] [ filename... ]
+X.SH DESCRIPTION
+X.I chord
+Xproduces a postscript document from a lyrics file containing chord
+Xindications and chorus delimiters. The document produced contains the
+Xlyrics of a song, with the guitar chords appearing above the right
+Xwords. A representation of all chords used in the song is printed at
+Xthe bottom of the last page.
+X
+X.SH OPTIONS
+X.TP 8
+X.B \-A
+XWill print the "About CHORD..." message.
+X.TP 8
+X.B \-a 
+XAutomatically single spaces lines that have no chords.
+X.TP 8
+X.B \-c \fIchord_font size\fB
+XSets the size, in points, of the font used to display chords to the specified
+Xinteger value.
+X.TP 8
+X.B \-C \fIChord_font\fB
+XSets the font used to print chords to the specified name. That name must be
+Xknown to your PostScript Interpreter.
+X.TP 8
+X.B \-d
+XGenerates a text chord chart of all internally known chords as well as
+Xchords defined in the $HOME/.chordrc file. Chords defined in the .chordrc file
+Xare identified with the "(local)" caption. The printout is suitable for input
+Xto the .chordrc file.
+X.TP 8
+X.B \-D
+XGenerates a PostScript chord chart of all internally known chords as well as
+Xchords defined in the $HOME/.chordrc file. Chords defined in the .chordrc file
+Xare identified with a small asterisk after the chord grid.
+X.TP 8
+X.B \-G
+XDisable printing of the chord grids for the whole input file(s). The effect can
+Xbe disable for any particular song by the usage of the \fBgrid\fR or \fBg\fR
+Xdirective.
+X.TP 8
+X.B \-g
+XDisable printing of grids for "easy" chords. Whether a builtin chord is easy
+Xor not has been arbitrarily decided by the authors. The general rule was that
+Xany chord in its major, minor, 7th or minor 7th was "easy" while everything
+Xelse (maj7, aug, dim, sus, etc...) was "difficult". All chords defined in the
+X$HOME/.chordrc file or in the input file are defined as "difficult".
+X.TP 8
+X.B \-h
+XPrints a short options summary.
+X.TP
+X.BI \-i
+XGenerates a table of contents with the song titles and page numbers.
+XIt implies page numbering through the document. Index pages
+Xare not numbered.
+X.TP 8
+X.TP 8
+X.B \-l
+XPrints only the lyrics of the song.
+X.TP 8
+X.B \-L
+XPlaces the odd and even page numbers in the lower right and left
+Xcorners respectively (for two-sided output).  The default is all page
+Xnumbers on the right.
+X.TP 8
+X.B \-o \fIfilename\fB
+XSends PostScript output to \fIfilename\fB
+X.TP 8
+X.BI \-p " first_page" 
+XNumbers the pages consecutively starting with \fIfirst_page\fR (e.g.
+X1).  Without this option, each song restarts the page numbering at 1,
+Xand page numbers are only put on subsequent pages of multiple page
+Xsongs.
+X.TP 8
+X.B \-s \fIgrid_size\fB
+XSets the size of the chord grids.
+X.TP 8
+X.B \-t \fItext_font size\fB
+XSets the size, in points, of the font used to display the lyrics to the
+Xspecified integer value. The title line is displayed using that point
+Xsize + 5. The sub-tiltle is displayed using that point size -2. The
+X\fItablature\fB is displayed using this point-size -2.
+X.TP 8
+X.B \-T \fIText_font\fB
+XSets the font used to print text to the specified name. That name must be
+Xknown to your PostScript Interpreter.
+X.TP 8
+X.B \-V
+XPrints version and patch level.
+X.TP 8
+X.B \-x \fIhalf-tones\fB
+XSets up transposition to that number of half-tones. Can not be zero. All
+Xchord names must be build in the following way in order to be recognized:
+X
+X{note-name}[#|b][^/]* [ '/' {note-name}[#|b][^/]* ]
+X
+XThat is, a valid note name, possibly followed by '#' or 'b', followed by
+Xother modifier ('7', 'm', etc...). Many such construct can make up a chord
+Xname, as long as they are separated by '/'.
+X
+X{note-name} must appear in the list 'A','B','C','D','E','F','G'.
+X.TP 8
+X.B \-2
+XPrints two logical pages per physical page.
+X.TP 8
+X.B \-4
+XPrints four logical pages per physical page.
+X
+X.SH KEYWORDS
+XA line starting with a '#' is interpreted as a comment, and generates no output.
+X(although all your comments are automatically mailed to the authors, and we read them
+Xat parties...)
+X
+XDirectives that  appear between french brackets ('{' and '}') have a
+Xspecial meaning. They must be alone on a line. Blanks before the
+Xopening bracket and after the closing bracket are not significant.
+X
+XBlanks inside a directive are not significant (except inside one of the \fIcomments\fB directives).
+X
+XSupported directives are:
+X.TP 8
+X.B \fBstart_of_chorus\fR or \fBsoc\fR
+Xwhich indicates the start of a chorus (yep). The complete chorus will
+Xbe highlighted by a change bar, to be easily located by the player.
+X.TP 8
+X.B \fBend_of_chorus\fR or \fBeoc\fR
+Xmarks the end of the chorus
+X.TP 8
+X.B \fBcomment:\fR or \fBc:\fR
+Xwill call the printing of the rest of the line, highlighted by a grey box
+X(Useful to call a chorus, for example)
+X.TP 8
+X.B \fBcomment_italic:\fR or \fBci:\fR
+Xwill print the comment in an italic font ... well not really. It will print the comment in the font used for printing the CHORD names (which is normally italic unless you specified a different chord_font).
+X.TP 8
+X.B \fBcomment_box:\fR or \fBcb:\fR
+Xwill print the comment inside a bounding box.
+X.TP 8
+X.B \fBnew_song\fR or \fBns\fR
+Xmarks the beginning of a new song. It enables you to put multiple songs
+Xin one file. It is not required at the beginning of the file.
+X.TP 8
+X.B \fBtitle:\fR or \fBt:\fR
+Xspecifies the title of the song. It will appear centered at the top of the first
+Xpage, and at the bottom of every other page, accompanied there by the
+Xpage number, within the current song.
+X.TP 8
+X.B \fBsubtitle:\fR or \fBst:\fR
+Xspecifies a string to be printed right below the title. Many subtitles can be
+Xspecified
+X.TP 8
+X.B \fBdefine: \fRname \fBbase-fret \fRoffset \fBfrets \fRstr1...str6\f
+Xdefines a new chord called "name". The keyword "base-fret"
+Xindicates that the number that follows ("offset") is the first
+Xfret that is to be displayed when representing the way this chord is played.
+X
+XThe keyword "frets" then appears and is followed by 6 values. 
+XThese values are the fret number [ 1 to n ] for each string
+X[str1 to str6] and are RELATIVE to the offset.  A value of "-", "X" or
+X"x" indicates a string that is not played.
+X
+XKeywords \fBbase-fret\fR and \fBfrets\fR are mandatory.
+X
+XA value of 0 for a given string means it is to be played open, and will be marked
+Xby a small
+Xopen circle above the string in the grid.  The strings are numbered in ascending
+Xorder of tonality, starting on the low E (the top string).  On
+Xoutput, a chord defined in the user's .chordrc file will have a small
+Xasterisk near its grid, a chord defined in a song will have two small
+Xasterixes.
+X
+XAt the beginning of every song, the default chords are re-loaded and the
+Xuser's .chordrc file is re-read. Chord definition of new chords inside
+Xthe text of a song are only valid for that song.
+X
+XThe syntax of a {define} directive has been modified in CHORD 3.5.
+XCHORD will attempt to recognize an old-formar {define} and will accept
+Xit. It will, though, print a warning inviting you to modify your input
+Xfile to use the new syntax (the exact {define} entry to use is provided
+Xas an example).
+X.TP 8
+X.B textfont: postscript_font
+Xsame as -T command option
+X.TP 8
+X.B textsize: n
+Xsame as -t command option
+X.TP 8
+X.B chordfont: postscript_font
+Xsame as -C command option
+X.TP 8
+X.B chordsize: n
+Xsame as -c command option
+X.TP 8
+X.B \fBno_grid\fR or \fBng\fR
+Xwill disable printing of the chord grids for the current song.
+X.TP 8
+X.B \fBgrid\fR or \fBg\fR
+Xwill enable the printing of the chord grids for the current song (subject to
+Xthe limitation caused by the usage of the \fB-g\fR option). This
+Xdirective will overide the runtime \fB-G\fR option for the current song.
+X.TP 8
+X.B \fBnew_page\fR or \fBnp\fR
+Xwill force a logical page break (which will obviously turn out to be a physical
+Xpage break if you are not in either 2-up or 4-up mode.
+X.TP 8
+X.B \fBnew_physical_page\fR or \fBnpp\fR
+Xwill force a physical page break (in any mode).
+X.TP 8
+X.B \fBstart_of_tab\fR or \fBsot\fR
+Xwill cause chord to use a monospace (ie: non-proportional) font for the
+Xprinting of text. This can be used to enter 'tab' information where character
+Xpositioning is crucial. The \fBCourier\fR font is used with a smaller point-size
+Xthan the rest of the text.
+X.TP 8
+X.B \fBend_of_tab\fR or \fBeot\fR
+Xwill stop using monospace font. The effect is implicit at the end of a song.
+X.SH FILES
+X.TP 8
+X.B $HOME/.chordrc
+XInitial directives re-read after each song.
+X.SH NOTES
+XRun time options override settings from your .chordrc file. So the assignement sequence
+Xto, let's say, the text size will be: system default, .chordrc, run-time
+Xoption, and finally from within the song itself.
+X
+XAll keywords are case independent.
+X.SH BUGS
+XCHORD will not wrap long lines around the right margin.
+X.br
+XWhite space is not inserted inside the text line, even if white space
+Xis inserted in the "chord" line above the text. The net effect is that 
+Xchord names can appear further down the line than what was intended. This is
+Xa side effect from fixing an old "bug" that caused the chord names to overlap.
+XThis bug will only manifest itself if you have lots of chord but little text.
+XInserting white space in the text is a good workaround.
+X.br
+XIn 2-up mode, if page-numbering is invoked on a document that has an
+Xodd number of page, the page number for the last page will be printed
+Xat the bottom right of the virtual page instead of the bottom right of
+Xthe physical page.
+X.SH COPYRIGHT
+XCopyright 1990-91-92-93 by Martin Leclerc and Mario Dorion
+X.SH AUTHORS
+XMartin Leclerc (Martin.Leclerc@Sun.COM)
+X.br
+Xand Mario Dorion (Mario.Dorion@Sun.COM)
+X
+X.SH CONTRIBUTORS
+XSteve Putz (putz@parc.xerox.com)
+X.br
+XJim Gerland (GERLAND@ubvms.cc.buffalo.edu)
+X.br
+XLeo Bicknell (ab147@freenet.acsu.buffalo.edu)
+END_OF_FILE
+  if test 9779 -ne `wc -c <'chord.man'`; then
+    echo shar: \"'chord.man'\" unpacked with wrong size!
+  fi
+  # end of 'chord.man'
+fi
+if test -f 'grid.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'grid.c'\"
+else
+  echo shar: Extracting \"'grid.c'\" \(41124 characters\)
+  sed "s/^X//" >'grid.c' <<'END_OF_FILE'
+Xstatic char copyright[] = "Copyright 1991-1993 by Martin Leclerc & Mario Dorion";
+X
+X#include "chord.h"
+X
+Xstruct chord_struct chordtab[MAX_CHORD];
+Xint    nb_chord = 0;
+Xint	first_ptr = 0;
+X
+X/* char	known_chords[256][CHORD_NAME_SZ]; */
+Xstruct kcs {
+X	char	chord_name[CHORD_NAME_SZ];
+X	int	displ;
+X	int	s1,s2,s3,s4,s5,s6;
+X	int	origin;
+X	int	difficult;
+X} known_chords[MAX_CHORD];
+X
+X
+Xint	nb_known_chord = 0;
+X
+Xextern int hpos,vpos;
+Xextern int grid_size, no_easy_grids, n_pages;
+Xextern int first_time_in_chordrc;
+Xextern char *mesg;
+Xextern int in_chordrc;
+Xextern int sort_type;
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid do_init_grid_ps()
+X{
+X	printf("%% routines for the drawing of the chords\n");
+X	printf("/grid { \n");
+X	printf("	gsave currentpoint\n");
+X	printf("	6 { 0 cagesizeX rlineto incr cagesize neg incr add rmoveto } repeat\n");
+X	printf("	moveto\n");
+X	printf("	5 { cagesize 0 rlineto 0 cagesize sub incr rmoveto } repeat\n");
+X	printf("	1 setlinewidth stroke grestore\n");
+X	printf("	gsave\n");
+X	printf("	0 cagesizeX rmoveto cagesize 0 rlineto\n");
+X	printf("	cagesize 30 div setlinewidth stroke\n");
+X	printf("	grestore	\n");
+X	printf("} def\n");
+X	printf("\n");
+X	printf("/dot {\n");
+X	printf("	gsave\n");
+X	printf("	/fret exch def /str exch def\n");
+X	printf("	/x 5  fret abs sub incr mul half-incr sub def\n");
+X	printf("	/y 6 str sub incr mul def\n");
+X	printf("	y x rmoveto\n");
+X	printf("	0 setgray\n");
+X	printf("	fret -1 eq\n");
+X	printf("	  {\n");
+X	printf("	  0 incr rmoveto\n");
+X	printf("	  check neg  check neg rmoveto\n");
+X	printf("	  check check rlineto check check rlineto\n");
+X	printf("	  check neg check neg rmoveto check neg check rmoveto\n");
+X	printf("  	  check check neg rlineto check check neg rlineto\n");
+X	printf("	  cagesize 50 div setlinewidth stroke\n");
+X	printf("	  }\n");
+X	printf("	  {  fret 0 ne\n");
+X	printf("	    { currentpoint dot-size 0 360 arc fill}\n");
+X	printf("	    { currentpoint\n");
+X	printf("	      check 0 360 newpath arc\n");
+X	printf("	      cagesize 50 div setlinewidth\n");
+X	printf("	    }\n");
+X	printf("	    ifelse \n");
+X	printf("	    stroke \n");
+X	printf("	  }\n");
+X	printf("	  ifelse\n");
+X	printf("	grestore\n");
+X	printf("} def	\n");
+X	printf("\n");
+X	printf("/dots {\n");
+X	printf("	grid\n");
+X	printf("	/origin exch def\n");
+X	printf("	/fret-displ exch def\n");
+X	printf("	  1 1 6\n");
+X	printf("	  {\n");
+X	printf("	    /str exch def\n");
+X	printf("	    /fret exch def\n");
+X	printf("	    fret %d ne {str fret dot} if\n", FRET_NONE);
+X	printf("	  } for\n");
+X	printf("\n");
+X	printf("	fret-displ 1 ne\n");
+X	printf("	{\n");
+X	printf("    	  gsave displ-font setfont\n");
+X/*	printf("    	  0 cagesize 3 div sub cagesizeX incr sub rmoveto\n"); */
+X	printf("    	  0 cagesize fret-displ 10 ge {1.75} {3} ifelse div sub\n");
+X	printf("	  cagesizeX incr sub rmoveto\n");
+X	printf("    	  /char 6 string def fret-displ char cvs show grestore \n");
+X	printf("	} if\n");
+X	printf("\n");
+X	printf("	/chord-name exch def\n");
+X	printf("	gsave displ-font setfont\n");
+X	printf("	0 cagesizeX cagesizeX 15 div add dot-size 3 mul add rmoveto\n");
+X	printf("	chord-name stringwidth pop 2 div cagesize 2 div exch sub 0 rmoveto\n");
+X	printf("	chord-name show\n");
+X	printf("	0 cagesize 10 div rmoveto\n");
+X	printf("	origin 1 eq { (*) show} if\n");	
+X	printf("	origin 2 eq { (**) show} if\n");	
+X	printf("	chord-font setfont grestore\n");
+X	printf("} def\n");
+X	printf("\n");
+X	printf("/cagesize %d def\n",grid_size);
+X	printf("/incr cagesize 5 div def\n");
+X	printf("/cagesizeX incr 4 mul def\n");
+X	printf("/half-incr incr 2 div def\n");
+X	printf("/dot-size cagesize 15 div def\n");
+X	printf("/check cagesize 20 div def\n");
+X	printf("\n");
+X	printf("/chord-font /Times-Roman findfont cagesize 5 div scalefont def\n");
+X	printf("/displ-font /Times-Roman findfont cagesize 3 div scalefont def\n");
+X	printf("%% end of the routines for the drawing of the chords\n");
+X	printf("\n");
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+X
+Xint add_to_chordtab(chord)
+Xchar *chord;
+X{
+X	int i, prev_i;
+X	int n;
+X	char chord1[CHORD_NAME_SZ],chord2[CHORD_NAME_SZ];
+X
+X  	/* printf(mesg, "attempting to add (%s)\n",chord);
+X	debug (mesg); */
+X
+X	i= first_ptr; prev_i = -1;
+X	while (TRUE)
+X	{
+X		if (nb_chord > 0 && i != -1) {
+X			
+X			strcpy(chord1, chord);
+X			strcpy(chord2, chordtab[i].chord_name);
+X			n= chordcompare(chord1, chord2);
+X			if (n == 0)
+X				return(i);
+X			else if (n>0) {
+X				prev_i= i;
+X				i= chordtab[i].next_ptr;
+X				continue;
+X				}
+X			}
+X 		/* sprintf(mesg, "inserting between %d and %d\n",prev_i,i); 
+X		debug(mesg); */
+X
+X		strcpy(chordtab[nb_chord].chord_name,      chord);
+X		if (nb_chord != 0)
+X			chordtab[nb_chord].next_ptr= i;
+X		else
+X			chordtab[nb_chord].next_ptr = -1;
+X		if (prev_i != -1)
+X			chordtab[prev_i].next_ptr = nb_chord;
+X		if (i== first_ptr)
+X			first_ptr= nb_chord;
+X                if (nb_chord >= MAX_CHORD-1) {
+X		    fprintf(stderr, "too many chords, bumping %s\n",
+X			chordtab[nb_chord-1].chord_name);
+X		    return(nb_chord - 1);
+X		}
+X		nb_chord++;
+X
+X		return(nb_chord - 1);
+X	}
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+X/* ChordCompare - provided by Leo Bicknell (ab147@freenet.acsu.buffalo.edu) */
+Xint chordcompare(chord1, chord2)
+Xchar *chord1, *chord2;
+X{
+X    chord1[0]=tolower(chord1[0]);
+X    chord2[0]=tolower(chord2[0]);
+X
+X    if (chord1[0] != chord2[0])
+X    {
+X        return(chord1[0] - chord2[0]);
+X    }
+X    else
+X    {
+X        switch (chord1[1]) {
+X            case 'b':
+X                switch (chord2[1]) {
+X                    case 'b':
+X                        return (chordcompare(&chord1[1], &chord2[1]));
+X                    case '#':
+X                        return (-1);
+X                    case 'm':
+X                        return (-1);
+X                    default:
+X                        return (-1);
+X                    }
+X            case '#':
+X                switch (chord2[1]) {
+X                    case 'b':
+X                        return (1);
+X                    case '#':
+X                        return (chordcompare(&chord1[1], &chord2[1]));
+X                    case 'm':
+X                        return (1);
+X                    default:
+X                        return (1);
+X                    }
+X            case 'm':
+X                switch (chord2[1]) {
+X                    case 'b':
+X                        return (1);
+X                    case '#':
+X                        return (-1);
+X                    case 'm':
+X                        return (chordcompare(&chord1[1], &chord2[1]));
+X                    default:
+X                        return (1);
+X                    }
+X            default:
+X                switch(chord2[1]) {
+X                    case 'b':
+X                        return (1);
+X                    case '#':
+X                        return (-1);
+X                    case 'm':
+X                        return (-1);
+X                    default:
+X                        return (strcmp(chord1, chord2));
+X                    }
+X            }
+X    }
+X}
+X
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid moveto(new_hpos,new_vpos)
+Xint	new_hpos,new_vpos;
+X{
+X	if (new_hpos + grid_size + L_MARGIN > WIDTH)
+X		{
+X		new_hpos = L_MARGIN;
+X		new_vpos -= 2*grid_size;
+X		}
+X
+X	if (new_vpos < BOTTOM)
+X		{
+X		do_end_of_page(FALSE);
+X		do_start_of_page();
+X		new_vpos= TOP-2*grid_size;
+X		}
+X
+X	printf ("%d %d moveto\n", new_hpos, new_vpos);
+X	hpos= new_hpos;vpos = new_vpos;
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid draw_chords()
+X	{
+X	int ptr;
+X	int idx;
+X
+X	moveto(WIDTH - grid_size - grid_size - L_MARGIN, vpos); 
+X
+X	ptr= first_ptr;
+X	if (nb_chord != 0)
+X		{
+X		while (ptr != -1) 
+X			{
+X			if ((idx= is_chord_known(chordtab[ptr].chord_name))== -1)
+X				{
+X				moveto(hpos + 2 * grid_size, vpos);
+X				sprintf (mesg, "chord \'%s\' has never been defined",
+X					chordtab[ptr].chord_name);
+X				error(mesg);
+X	
+X				printf("(%s) -2 -2 -2 -2 -2 -2 1 0 dots\n",
+X					 chordtab[ptr].chord_name);
+X				}
+X			else if (!no_easy_grids || no_easy_grids && known_chords[idx].difficult) 
+X				{
+X				moveto(hpos + 2 * grid_size, vpos);
+X				printf("(");
+X				ps_puts(known_chords[idx].chord_name);
+X				printf(") %d %d %d %d %d %d %d %d dots\n",
+X					known_chords[idx].s1,
+X					known_chords[idx].s2,
+X					known_chords[idx].s3,
+X					known_chords[idx].s4,
+X					known_chords[idx].s5,
+X					known_chords[idx].s6,
+X					known_chords[idx].displ,
+X					known_chords[idx].origin);
+X				}
+X			ptr = chordtab[ptr].next_ptr;
+X			}
+X		}
+X	}
+X
+X/*--------------------------------------------------------------------------------*/
+Xlearn_chord(chord, s1, s2, s3, s4, s5, s6, displ, origin, difficult)
+Xchar 	*chord;
+Xint	displ;
+Xint	s1,s2,s3,s4,s5,s6;
+Xint	origin, difficult;
+X{
+X        int i,not_found;
+X
+X        not_found= TRUE;
+X        for (i= 0;i < nb_known_chord && not_found; i++) {
+X                not_found= strcmp(chord,known_chords[i].chord_name);
+X        };
+X
+X        if (not_found) {
+X                if (nb_known_chord >= MAX_CHORD-1) {
+X		    fprintf(stderr, "too many chords, can't learn %s\n", chord);
+X		    return(0);
+X		}
+X                nb_known_chord++;
+X		} else {
+X		i--;
+X		} 
+X
+X	if (displ == 0) displ = 1;
+X        strcpy(known_chords[i].chord_name,chord);
+X	known_chords[i].displ= displ;
+X	known_chords[i].s1= s1;
+X	known_chords[i].s2= s2;
+X	known_chords[i].s3= s3;
+X	known_chords[i].s4= s4;
+X	known_chords[i].s5= s5;
+X	known_chords[i].s6= s6;
+X	known_chords[i].origin= origin;
+X	known_chords[i].difficult= difficult;
+X	
+X	return(0);
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+Xint check_old_define_syntax(temp_str, chord_name)
+Xchar 	*temp_str;
+Xchar	*chord_name;
+X{
+X	char 	*str;
+X	int 	n;
+X	int 	ok = TRUE;
+X	int	fret_displ;
+X	int	dot_array[6];
+X	int 	i;
+X	char 	error_str[MAXLINE];
+X
+X	fret_displ=atoi(temp_str);
+X
+X	for (n=0; n<=5; n++) {
+X		str=toupper_str(strtok(NULL, DELIM_STR));
+X		if (!strcmp(str,FRET_NONE_STR) || !strcmp(str, FRET_X_STR))
+X			dot_array[n]=FRET_X;
+X		else
+X			dot_array[n]=atoi(str);
+X
+X		ok = ok && (str);
+X		}
+X
+X	if (strtok(NULL, DELIM_STR))
+X		ok=FALSE;
+X
+X	if (ok ) {
+X		if (!in_chordrc || first_time_in_chordrc) {
+X			sprintf(error_str,
+X				"definition of chord '%s' uses obsolete format",
+X				chord_name);
+X			error(error_str);
+X			fprintf(stderr,
+X				"   Please edit your input file and replace its %s",
+X				"definition by the following:\n");
+X			fprintf(stderr, "   {define: %s base-fret %d frets ",
+X			   chord_name, fret_displ);
+X			for (i=5; i>=0; i--)
+X				if (dot_array[i] < 0)
+X					fprintf (stderr, "x ");
+X				else
+X					fprintf (stderr, "%d ", dot_array[i]);
+X			fprintf (stderr, "}\n\n");
+X			}
+X
+X
+X		learn_chord(chord_name,
+X			dot_array[5],dot_array[4],dot_array[3],
+X			dot_array[2],dot_array[1],dot_array[0],
+X			fret_displ, in_chordrc ? CHORD_DEFINED : CHORD_IN_CHORDRC,
+X			CHORD_HARD);
+X		}
+X
+X	return(ok);
+X}
+X	
+X
+X/*--------------------------------------------------------------------------------*/
+Xint do_define_chord()
+X{
+X	int dot_array[6];
+X	char *chord_name;
+X	char *temp_str;
+X	int fret_displ;
+X	int n;
+X	int hardtoplay = 0;
+X
+X	for ( n= 0; n<6; n++)
+X		dot_array[n] = 0;
+X
+X	chord_name= strtok(NULL, DELIM_STR);
+X	if (chord_name== NULL) {
+X		error("syntax error in chord definition: no chord name");
+X		return(0);
+X	}
+X
+X	temp_str= tolower_str(strtok(NULL, DELIM_STR));
+X	if (strcmp(temp_str, BASE_FRET_STR)) {
+X		if (!check_old_define_syntax(temp_str,chord_name)) 
+X	 		error("syntax error in chord definition: keyword <base-fret> missing");
+X		return(0); 
+X	}
+X
+X	temp_str= strtok(NULL, DELIM_STR);
+X	if (temp_str== NULL) {
+X		error("syntax error in chord definition: no base fret value");
+X		return(0);
+X	}
+X	fret_displ= atoi(temp_str);
+X	if (fret_displ == 0) fret_displ = 1;
+X
+X	temp_str= tolower_str(strtok(NULL, DELIM_STR));
+X	if (strcmp(temp_str, FRETS_STR)) {
+X		error("syntax error in chord definition: keyword <frets> missing");
+X		return(0);
+X	}
+X
+X	for (n= 0; n< 6; n++)
+X		{
+X		strcpy(temp_str, toupper_str(strtok(NULL, DELIM_STR)));
+X
+X		if (temp_str!= NULL) {
+X			if (!strcmp(temp_str, FRET_NONE_STR) ||
+X			    !strcmp(temp_str, FRET_X_STR))
+X				dot_array[n]= FRET_X;
+X			else {
+X				dot_array[n]= atoi(temp_str);
+X				if (dot_array[n] < 0) dot_array[n]= FRET_X;
+X			}
+X			hardtoplay= hardtoplay||(dot_array[n]>LONG_FINGERS);
+X			}
+X		else 
+X			{
+X			error("syntax error in chord definition : too few arguments");
+X			return(0);
+X			}
+X		}
+X
+X	temp_str= strtok(NULL, DELIM_STR);
+X	if (temp_str!=NULL) {
+X		error("syntax error in chord definition: too many arguments");
+X		return(0);
+X	}
+X
+X	/* CHORD is OK */
+X	if (hardtoplay)
+X		{
+X		sprintf(mesg,
+X		  "Warning: You'll need long fingers to play \"%s\" this way!", chord_name);
+X		error (mesg);
+X		}
+X
+X	learn_chord(chord_name,
+X			dot_array[0],dot_array[1],dot_array[2],
+X			dot_array[3],dot_array[4],dot_array[5],
+X			fret_displ, in_chordrc ? CHORD_DEFINED : CHORD_IN_CHORDRC,
+X			CHORD_HARD);
+X
+X	return(0);
+X}
+X
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid init_known_chords()
+X{
+X	nb_known_chord= 0;
+X
+X#define N FRET_X
+X
+X	learn_chord("Ab",	 1, 3, 3, 2, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ab+",	 N, N, 2, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ab4",	 N, N, 1, 1, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ab7",	 N, N, 1, 1, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ab11",	 1, 3, 1, 3, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Absus",	 N, N, 1, 1, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Absus4",	 N, N, 1, 1, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abdim",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abmaj",	 1, 3, 3, 2, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abmaj7",	 N, N, 1, 1, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abmin",	 1, 3, 3, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abm",	 1, 3, 3, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Abm7",	 N, N, 1, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("A",	 N, 0, 2, 2, 2, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("A+",	 N, 0, 3, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A4",	 0, 0, 2, 2, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A6",	 N, N, 2, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A7",	 N, 0, 2, 0, 2, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("A7+",	 N, N, 3, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A7(9+)",	 N, 2, 2, 2, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A9",	 N, 0, 2, 1, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A11",	 N, 4, 2, 4, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A13",	 N, 0, 1, 2, 3, 1,	 5, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A7sus4",	 0, 0, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A9sus",	 N, 0, 2, 1, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Asus",	 N, N, 2, 2, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Asus2",	 0, 0, 2, 2, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Asus4",	 N, N, 2, 2, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Adim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Amaj",	 N, 0, 2, 2, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Amaj7",	 N, 0, 2, 1, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Adim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Amin",	 N, 0, 2, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A/D",	 N, N, 0, 0, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A/F#",	 2, 0, 2, 2, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A/G#",	 4, 0, 2, 2, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Am",	 N, 0, 2, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Am#7",	 N, N, 2, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am(7#)",	 N, 0, 2, 2, 1, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am6",	 N, 0, 2, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am7",	 N, 0, 2, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Am7sus4",	 0, 0, 0, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am9",	 N, 0, 1, 1, 1, 3,	 5, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am/G",	 3, 0, 2, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Amadd9",	 0, 2, 2, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Am(add9)",	 0, 2, 2, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("A#",	 N, 1, 3, 3, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#+",	 N, N, 0, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#4",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#7",	 N, N, 1, 1, 1, 2,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#sus",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#sus4",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#maj",	 N, 1, 3, 3, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#maj7",	 N, 1, 3, 2, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#dim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#min",	 N, 1, 3, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#m",	 N, 1, 3, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("A#m7",	 N, 1, 3, 1, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Bb",	 N, 1, 3, 3, 3, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Bb+",	 N, N, 0, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bb4",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bb6",	 N, N, 3, 3, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bb7",	 N, N, 1, 1, 1, 2,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bb9",	 1, 3, 1, 2, 1, 3,	 6, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bb11",	 1, 3, 1, 3, 4, 1,	 6, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbsus",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbsus4",	 N, N, 3, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbmaj",	 N, 1, 3, 3, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbmaj7",	 N, 1, 3, 2, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbdim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbmin",	 N, 1, 3, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Bbm",	 N, 1, 3, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbm7",	 N, 1, 3, 1, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bbm9",	 N, N, N, 1, 1, 3,	 6, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("B",	 N, 2, 4, 4, 4, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("B+",	 N, N, 1, 0, 0, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B4",	 N, N, 3, 3, 4, 1,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B7",	 0, 2, 1, 2, 0, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("B7+",	 N, 2, 1, 2, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B7+5",	 N, 2, 1, 2, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B7#9",	 N, 2, 1, 2, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B7(#9)",	 N, 2, 1, 2, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B9",	 1, 3, 1, 2, 1, 3,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B11",	 1, 3, 3, 2, 0, 0,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B11/13",	 N, 1, 1, 1, 1, 3,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B13",	 N, 2, 1, 2, 0, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bsus",	 N, N, 3, 3, 4, 1,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bsus4",	 N, N, 3, 3, 4, 1,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bmaj",	 N, 2, 4, 3, 4, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bmaj7",	 N, 2, 4, 3, 4, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bdim",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bmin",	 N, 2, 4, 4, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B/F#",	 0, 2, 2, 2, 0, 0,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("BaddE",	 N, 2, 4, 4, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("B(addE)",	 N, 2, 4, 4, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("BaddE/F#",	 2, N, 4, 4, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Bm",	 N, 2, 4, 4, 3, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Bm6",	 N, N, 4, 4, 3, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bm7",	 N, 1, 3, 1, 2, 1,	 2, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Bmmaj7",	 N, 1, 4, 4, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bm(maj7)",	 N, 1, 4, 4, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bmsus9",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bm(sus9)",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Bm7b5",	 1, 2, 4, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("C",	 N, 3, 2, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("C+",	 N, N, 2, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C4",	 N, N, 3, 0, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C6",	 N, 0, 2, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C7",	 0, 3, 2, 3, 1, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("C9",	 1, 3, 1, 2, 1, 3,	 8, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C9(11)",	 N, 3, 3, 3, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C11",	 N, 1, 3, 1, 4, 1,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Csus",	 N, N, 3, 0, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Csus2",	 N, 3, 0, 0, 1, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Csus4",	 N, N, 3, 0, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Csus9",	 N, N, 4, 1, 2, 4,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cmaj",	 0, 3, 2, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cmaj7",	 N, 3, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cmin",	 N, 1, 3, 3, 2, 1,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cdim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C/B",	 N, 2, 2, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cadd2/B",	 N, 2, 0, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("CaddD",	 N, 3, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C(addD)",	 N, 3, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Cadd9",	 N, 3, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C(add9)",	 N, 3, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Cm",	 N, 1, 3, 3, 2, 1,	 3, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Cm7",	 N, 1, 3, 1, 2, 1,	 3, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Cm11",	 N, 1, 3, 1, 4, N,	 3, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("C#",	 N, N, 3, 1, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#+",	 N, N, 3, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#4",	 N, N, 3, 3, 4, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#7",	 N, N, 3, 4, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#7(b5)",	 N, 2, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#sus",	 N, N, 3, 3, 4, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#sus4",	 N, N, 3, 3, 4, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#maj",	 N, 4, 3, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#maj7",	 N, 4, 3, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#dim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#min",	 N, N, 2, 1, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#add9",	 N, 1, 3, 3, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#(add9)",	 N, 1, 3, 3, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#m",	 N, N, 2, 1, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("C#m7",	 N, N, 2, 4, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Db",	 N, N, 3, 1, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Db+",	 N, N, 3, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Db7",	 N, N, 3, 4, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbsus",	 N, N, 3, 3, 4, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbsus4",	 N, N, 3, 3, 4, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbmaj",	 N, N, 3, 1, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbmaj7",	 N, 4, 3, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbdim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbmin",	 N, N, 2, 1, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbm",	 N, N, 2, 1, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dbm7",	 N, N, 2, 4, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("D",	 N, N, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("D+",	 N, N, 0, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D4",	 N, N, 0, 2, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D6",	 N, 0, 0, 2, 0, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D7",	 N, N, 0, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("D7#9",	 N, 2, 1, 2, 3, 3,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D7(#9)",	 N, 2, 1, 2, 3, 3,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D9",	 1, 3, 1, 2, 1, 3,	10, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D11",	 3, 0, 0, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dsus",	 N, N, 0, 2, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dsus2",	 0, 0, 0, 2, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dsus4",	 N, N, 0, 2, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D7sus2",	 N, 0, 0, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D7sus4",	 N, 0, 0, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dmaj",	 N, N, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dmaj7",	 N, N, 0, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ddim",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dmin",	 N, N, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("D/A",	 N, 0, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D/B",	 N, 2, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D/C",	 N, 3, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D/C#",	 N, 4, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D/E",	 N, 1, 1, 1, 1, N,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D/G",	 3, N, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D5/E",	 0, 1, 1, 1, N, N,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dadd9",	 0, 0, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D(add9)",	 0, 0, 0, 2, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D9add6",	 1, 3, 3, 2, 0, 0,	10, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D9(add6)",	 1, 3, 3, 2, 0, 0,	10, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Dm",	 N, N, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Dm6(5b)",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm7",	 N, N, 0, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Dm#5",	 N, N, 0, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm(#5)",	 N, N, 0, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm#7",	 N, N, 0, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm(#7)",	 N, N, 0, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm/A",	 N, 0, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm/B",	 N, 2, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm/C",	 N, 3, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm/C#",	 N, 4, 0, 2, 3, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Dm9",	 N, N, 3, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("D#",	 N, N, 3, 1, 2, 1,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#+",	 N, N, 1, 0, 0, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#4",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#7",	 N, N, 1, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#sus",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#sus4",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#maj",	 N, N, 3, 1, 2, 1,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#maj7",	 N, N, 1, 3, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#dim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#min",	 N, N, 4, 3, 4, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#m",	 N, N, 4, 3, 4, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("D#m7",	 N, N, 1, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Eb",	 N, N, 3, 1, 2, 1,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Eb+",	 N, N, 1, 0, 0, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Eb4",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Eb7",	 N, N, 1, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebsus",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebsus4",	 N, N, 1, 3, 4, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebmaj",	 N, N, 1, 3, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebmaj7",	 N, N, 1, 3, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebdim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebadd9",	 N, 1, 1, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Eb(add9)",	 N, 1, 1, 3, 4, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebmin",	 N, N, 4, 3, 4, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebm",	 N, N, 4, 3, 4, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Ebm7",	 N, N, 1, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("E",	 0, 2, 2, 1, 0, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("E+",	 N, N, 2, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E5",	 0, 1, 3, 3, N, N,	 7, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E6",	 N, N, 3, 3, 3, 3,	 9, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7",	 0, 2, 2, 1, 3, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("E7#9",	 0, 2, 2, 1, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7(#9)",	 0, 2, 2, 1, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7(5b)",	 N, 1, 0, 1, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7b9",	 0, 2, 0, 1, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7(b9)",	 0, 2, 0, 1, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E7(11)",	 0, 2, 2, 2, 3, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E9",	 1, 3, 1, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("E11",	 1, 1, 1, 1, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Esus",	 0, 2, 2, 2, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Esus4",	 0, 2, 2, 2, 0, 0,	 0, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Emaj",	 0, 2, 2, 1, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Emaj7",	 0, 2, 1, 1, 0, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Edim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Emin",	 0, 2, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Em",	 0, 2, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Em6",	 0, 2, 2, 0, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Em7",	 0, 2, 2, 0, 3, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Em/B",	 N, 2, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Em/D",	 N, N, 0, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Em7/D",	 N, N, 0, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Emsus4",	 0, 0, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Em(sus4)",	 0, 0, 2, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Emadd9",	 0, 2, 4, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Em(add9)",	 0, 2, 4, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("F",	 1, 3, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F+",	 N, N, 3, 2, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F+7+11",	 1, 3, 3, 2, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F4",	 N, N, 3, 3, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F6",	 N, 3, 3, 2, 3, N,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F7",	 1, 3, 1, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F9",	 2, 4, 2, 3, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F11",	 1, 3, 1, 3, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fsus",	 N, N, 3, 3, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fsus4",	 N, N, 3, 3, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmaj",	 1, 3, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmaj7",	 N, 3, 3, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fdim",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmin",	 1, 3, 3, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F/A",	 N, 0, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F/C",	 N, N, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F/D",	 N, N, 0, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F/G",	 3, 3, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F7/A",	 N, 0, 3, 0, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmaj7/A",	 N, 0, 3, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmaj7/C",	 N, 3, 3, 2, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fmaj7(+5)", N, N, 3, 2, 2, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fadd9",	 3, 0, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F(add9)",	 3, 0, 3, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("FaddG",	 1, N, 3, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("FaddG",	 1, N, 3, 2, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Fm",	 1, 3, 3, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Fm6",	 N, N, 0, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Fm7",	 1, 3, 1, 1, 1, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Fmmaj7",	 N, 3, 3, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("F#",	 2, 4, 4, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F#+",	 N, N, 4, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#7",	 N, N, 4, 3, 2, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F#9",	 N, 1, 2, 1, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#11",	 2, 4, 2, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#sus",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#sus4",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#maj",	 2, 4, 4, 3, 2, 2,	 0, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#maj7",	 N, N, 4, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#dim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#min",	 2, 4, 4, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F#/E",	 0, 4, 4, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#4",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#m",	 2, 4, 4, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F#m6",	 N, N, 1, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#m7",	 N, N, 2, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("F#m7-5",	 1, 0, 2, 3, 3, 3,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("F#m/C#m",	 N, N, 4, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Gb",	 2, 4, 4, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gb+",	 N, N, 4, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gb7",	 N, N, 4, 3, 2, 0,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gb9",	 N, 1, 2, 1, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbsus",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbsus4",	 N, N, 4, 4, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbmaj",	 2, 4, 4, 3, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbmaj7",	 N, N, 4, 3, 2, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbdim",	 N, N, 1, 2, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbmin",	 2, 4, 4, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gbm",	 2, 4, 4, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gbm7",	 N, N, 2, 2, 2, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("G",	 3, 2, 0, 0, 0, 3,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G+",	 N, N, 1, 0, 0, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G4",	 N, N, 0, 0, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G6",	 3, N, 0, 0, 0, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7",	 3, 2, 0, 0, 0, 1,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G7+",	 N, N, 4, 3, 3, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7b9",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7(b9)",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7#9",	 1, 3, N, 2, 4, 4,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7(#9)",	 1, 3, N, 2, 4, 4,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G9",	 3, N, 0, 2, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G9(11)",	 1, 3, 1, 3, 1, 3,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G11",	 3, N, 0, 2, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gsus",	 N, N, 0, 0, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gsus4",	 N, N, 0, 0, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G6sus4",	 0, 2, 0, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G6(sus4)",	 0, 2, 0, 0, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7sus4",	 3, 3, 0, 0, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G7(sus4)",	 3, 3, 0, 0, 1, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gmaj",	 3, 2, 0, 0, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gmaj7",	 N, N, 1, 2, 3, 4,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gmaj7sus4", N, N, 0, 0, 1, 2,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gmaj9",	 1, 1, 4, 1, 2, 1,	 2, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gmin",	 1, 3, 3, 1, 1, 1,	 3, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gdim",	 N, N, 2, 3, 2, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gadd9",	 1, 3, N, 2, 1, 3,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G(add9)",	 1, 3, N, 2, 1, 3,	 3, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G/A",	 N, 0, 0, 0, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G/B",	 N, 2, 0, 0, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G/D",	 N, 2, 2, 1, 0, 0,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G/F#",	 2, 2, 0, 0, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("Gm",	 1, 3, 3, 1, 1, 1,	 3, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gm6",	 N, N, 2, 3, 3, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("Gm7",	 1, 3, 1, 1, 1, 1,	 3, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("Gm/Bb",	 3, 2, 2, 1, N, N,	 4, CHORD_BUILTIN, CHORD_HARD);
+X
+X	learn_chord("G#",	 1, 3, 3, 2, 1, 1,	 4, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G#+",	 N, N, 2, 1, 1, 0,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#4",	 1, 3, 3, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#7",	 N, N, 1, 1, 1, 2,	 1, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G#sus",	 N, N, 1, 1, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#sus4",	 N, N, 1, 1, 2, 4,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#maj",	 1, 3, 3, 2, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#maj7",	 N, N, 1, 1, 1, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#dim",	 N, N, 0, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#min",	 1, 3, 3, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#m",	 1, 3, 3, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G#m6",	 N, N, 1, 1, 0, 1,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#m7",	 N, N, 1, 1, 1, 1,	 4, CHORD_BUILTIN, CHORD_EASY);
+X	learn_chord("G#m9maj7",	 N, N, 1, 3, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X	learn_chord("G#m9(maj7)",N, N, 1, 3, 0, 3,	 1, CHORD_BUILTIN, CHORD_HARD);
+X
+X#undef N
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+Xint is_chord_known(chord)
+Xchar *chord;
+X{
+X        int i;
+X
+X        for (i= 0;i < nb_known_chord;i++)
+X                if (!strcmp(chord,known_chords[i].chord_name))
+X			return (i);
+X	return(-1);
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid dump_fret(fretnum)
+Xint fretnum;
+X{
+X	if (fretnum == FRET_X) printf("  %2s", FRET_X_STR);
+X	else printf("  %2d", fretnum);
+X}
+X
+X/*--------------------------------------------------------------------------------*/
+Xvoid dump_chords(PostScript)
+Xint	PostScript;
+X{
+X	int i;
+X	int ptr,idx;
+X
+X	if (PostScript)
+X	{
+X		init_values();
+X		init_ps();
+X		init_known_chords();
+X		do_title("CHORD CHART");
+X		do_subtitle("Generated with the CHORD program");
+X		do_subtitle("Copyright Martin.Leclerc@Sun.COM and Mario.Dorion@Sun.COM 1992-1993");
+X	}
+X	else
+X	{
+X		init_known_chords();
+X		printf("#	CHORD CHART\n");
+X		printf("#	Generated with the CHORD program\n");
+X		printf("#	Copyright Martin.Leclerc@Sun.COM and Mario.Dorion@Sun.COM 1992-1993\n");
+X		printf("#\n");
+X		printf("#\t\t\t\t\t       '------ strings ------`\n");
+X		printf("#Chord\t\t\t\t\t        E   A   D   G   B   E\n");
+X	}
+X
+X	read_chordrc();
+X	for (i= 0;i < nb_known_chord;i++) {
+X		add_to_chordtab(known_chords[i].chord_name);
+X	}
+X
+X	if (PostScript) 
+X		{
+X		draw_chords();
+X		do_end_of_page(TRUE);
+X        	printf ("%%%%Trailer\n");
+X        	printf ("%%%%Pages: %d 1\n", n_pages);
+X        	printf ("%%%%EOF\n");
+X		}
+X	else {
+X		ptr= first_ptr;
+X		while (ptr != -1) {
+X			idx= is_chord_known(chordtab[ptr].chord_name);
+X			printf("{define %s:\t\tbase-fret %2d\tfrets",
+X				known_chords[idx].chord_name, known_chords[idx].displ);
+X			dump_fret(known_chords[idx].s1);
+X			dump_fret(known_chords[idx].s2);
+X			dump_fret(known_chords[idx].s3);
+X			dump_fret(known_chords[idx].s4);
+X			dump_fret(known_chords[idx].s5);
+X			dump_fret(known_chords[idx].s6);
+X			printf("}");
+X			printf("\t%s\n",
+X				known_chords[idx].origin== CHORD_BUILTIN ? "" : "(local)");
+X			ptr = chordtab[ptr].next_ptr;
+X			}
+X		}
+X}
+END_OF_FILE
+  if test 41124 -ne `wc -c <'grid.c'`; then
+    echo shar: \"'grid.c'\" unpacked with wrong size!
+  fi
+  # end of 'grid.c'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

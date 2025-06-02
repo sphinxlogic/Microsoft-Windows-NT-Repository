@@ -1,0 +1,1863 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i010:  xvi - portable multi-window vi-like editor, Part01/18
+Message-ID: <csm-v33i010=xvi.130853@sparky.IMD.Sterling.COM>
+X-Md4-Signature: db12b2eefb14a48da0af9ee0bebc6ed3
+Date: Fri, 23 Oct 1992 18:10:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 10
+Archive-name: xvi/part01
+Environment: Unix, MS-DOS, OS/2, QNX
+
+This is a source release of the Xvi editor (derived from "STEVIE"), a
+clone of the UNIX editor `vi'. The program was originally developed
+for the Atari ST, but has been ported to UNIX, MS-DOS, OS/2 and QNX as
+well.
+
+Xvi is a portable multi-window version of `vi'. In spite of its name,
+there is, as yet, no X-Windows-specific version of it, but work is
+still in progress. Existing versions use text windows separated by
+horizontal status lines on character mode displays.  The windows may
+represent different files being edited, or different views on to the
+same file.
+
+Unix, MS-DOS and QNX versions have now been in regular use by the
+authors, and many of our colleagues, for about three and a half years,
+and the editor's behaviour seems fairly satisfactory.
+
+This source code is not in the public domain, but is provided for free,
+subject to the license conditions set out in the COPYING file.
+
+The files included in the `doc' directory are:
+
+README
+	What you're reading.
+
+COPYING
+	The license under which xvi is provided. Please read and
+	understand this license if you are going to re-distribute xvi.
+
+help
+	The help file used by xvi.
+
+source.ms
+source.lst
+	A guide to the Xvi source code, including information about
+	how to port Xvi to different systems. Provided in [nt]roff -ms
+	source & nroff output formats. A PostScript version may follow
+	later.
+
+summary.ms
+summary.lst
+	A document describing the differences between vi and xvi.
+	Same formats.
+
+xvi.1
+xvi.lst
+	A Unix-style manual page, in [nt]roff -man & nroff output
+	formats.
+
+Chances are, if you're on UNIX, MS-DOS or QNX, you'll be able
+to compile xvi without changing anything. Change directory
+into `src', pick a makefile and go for it.
+
+If that doesn't work, read doc/source.ms.
+
+Chris & John Downey
+October 1992
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi xvi/doc xvi/doc/source.ms xvi/src xvi/src/tags.c
+# Wrapped by kent@sparky on Thu Oct 22 09:03:40 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 18)."'
+if test ! -d 'xvi' ; then
+    echo shar: Creating directory \"'xvi'\"
+    mkdir 'xvi'
+fi
+if test ! -d 'xvi/doc' ; then
+    echo shar: Creating directory \"'xvi/doc'\"
+    mkdir 'xvi/doc'
+fi
+if test -f 'xvi/doc/source.ms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/doc/source.ms'\"
+else
+  echo shar: Extracting \"'xvi/doc/source.ms'\" \(44132 characters\)
+  sed "s/^X//" >'xvi/doc/source.ms' <<'END_OF_FILE'
+X.\"========== Redefine NH to avoid widowing
+X.rn NH Nh
+X.nr nH 0
+X.de NH
+X.br
+X.if \\n(nH=\\$1 .sp 0.3i
+X.nr nH 1
+X.ne 1i
+X.Nh \\$1 \\$2
+X..
+X.\"========== Example macros
+X.de Ex
+X.br
+X.ne 0.75i
+X.IP "\fB\\$1\fP\ \ \ " \\$2
+X..
+X.de Ey
+X.sp -0.3v
+X.IP "\fB\\$1\fP\ \ \ " \\$2
+X..
+X.\"========== Put string in boldface & surround with quotes
+X.de qB
+X\%\*Q\fB\\$1\fP\*U\\$2
+X..
+X.\"========== 11 on 13 looks so much better than 10 on 12
+X.nr PS 11
+X.nr VS 13
+X.ps 11
+X.vs 13p
+X.nr PI 0.5i
+X.nr HM 0.9i
+X.nr FM 0.9i
+X.if n .nr PO 0.5i
+X.if n .nr LL 6.5i
+X.\"========== Turn hyphenation off, and make sure it stays off
+X.nh
+X.rm hy
+X.\"========== Headers in italics helps them to stand out from the text
+X.OH '\fIXvi Source Code Notes\fP''\fI%\fP'
+X.EH '\fI%\fP''\fIXvi Source Code Notes\fP'
+X.OF '\fI25th September 1992\fP''\fIPage %\fP'
+X.EF '\fIPage %\fP''\fI25th September 1992\fP'
+X.\"===========================================================================
+X.TL
+XNotes on the Xvi Source Code
+X.AU
+XChris Downey
+XJohn Downey
+X.AB no
+X\fBXvi\fP (pronounced \fIecks-vee-eye\fP)
+Xis a free, portable, multi-window implementation of the popular
+X.UX
+Xeditor \fBvi\fP.
+X.LP
+XThis document contains information on how
+Xto port \fBxvi\fP to systems not currently supported.
+XIt also explains
+Xhow the \fBxvi\fP source code is arranged into modules,
+Xand explains some of the data structures which are used,
+Xso that modifications may be made if and when necessary
+Xto the editor itself.
+X.AE
+X.\"===========================================================================
+X.NH 1
+XINTRODUCTION
+X.LP
+X\fBXvi\fP is intended to be portable to just about any system.
+XThis is one of the central reasons for its existence; the
+Xauthors wish to be able to use the same editor everywhere.
+X.LP
+XThe main body of the editor is (supposedly) fully portable,
+Xrelying only on standard facilities defined by the White
+XBook, and on a set of \fIprimitives\fP which are provided by a set
+Xof one or more modules for each operating system.
+XIf
+X.B __STDC__
+Xis defined, certain ANSI C facilities will be used,
+Xbut the editor will compile with non-ANSI compilers.
+X.LP
+XTherefore, in order to port \fBxvi\fP to a new system, all that is
+Xnecessary is to provide the defined set of \fIprimitives\fP, and
+Xthen build the editor.
+XOr at least, that's the idea; we have refined the set of primitives
+Xas we port the editor to new environments, and it's getting pretty easy now.
+X.LP
+XThe rest of this document is divided into sections as follows:
+X.IP "\fISection 2: System-Specific Modules\fP"
+XThis section deals with the layout of source files and makefiles
+Xwhich you will have to deal with when porting \fBxvi\fP.
+X.IP "\fISection 3: Primitives Provided by xvi\fP"
+XDiscusses what primitives are provided by the main body of the editor source
+Xcode for use by the system interface code.
+X.IP "\fISection 4: System Interface\fP"
+XExplains the primitives which need to be provided
+Xin order to make \fBxvi\fP work.
+X.IP "\fISection 5: Data Structures\fP"
+XDetails the internal data types used in the editor,
+Xand any functions available for operating on those types.
+X.IP "\fISection 6: Source Files\fP"
+XLists the source files comprising the editor,
+Xand explains what functionality is provided by each one.
+X.\"===========================================================================
+X.NH 1
+XSYSTEM-SPECIFIC MODULES
+X.LP
+XThe system-specific code normally consists of three (or more) files;
+Xa
+X.qB .c
+Xfile, a
+X.qB .h
+Xfile, and a makefile.
+XFor example:
+X.DS
+X.B
+Xqnx.c
+Xqnx.h
+Xmakefile.qnx
+X.R
+X.DE
+Xcomprise the system-specific module for the QNX operating system.
+X.LP
+XIn most cases, the system-specific code is divided into two
+Xor more modules, where one (called the \fIsystem interface module\fP)
+Xis concerned with general interactions with the operating system
+Xand the other (called the \fIterminal interface module\fP)
+Xis designed for a specific interface to a display and keyboard
+X(and possibly, a mouse).
+X.LP
+XFor example, the generic
+X.UX
+Ximplementation has
+X.B unix.c
+Xand
+X.B unix.h
+Xfor the system interface module, and
+X.B termcap.c
+Xand
+X.B termcap.h
+Xfor the terminal interface module; this should
+Xwork reasonably with any full-duplex terminal that can be
+Xdescribed in the
+X.B termcap
+Xdatabase.
+XOn consoles with memory-mapped displays, or systems with graphic user
+Xinterfaces, however, it may be possible to achieve faster
+Xdisplay updating, and perhaps other benefits, by replacing
+Xthe
+X.B termcap
+Xmodule with another one that makes better use of
+Xwhatever facilities are available.
+XFor instance, there is an experimental version for SunView,
+Xwhich allows mouse input on Sun workstations running the SunView window system.
+X.LP
+XOn the other hand, the
+X.B termcap -specific
+Xroutines might
+Xconceivably be useful on some other operating systems (such
+Xas VMS), so in general it seemed a good idea to make the
+X.B termcap -specific
+Xroutines a separate module.
+X.LP
+XThe current \%MS-DOS implementation has a separate terminal
+Xinterface module, which is designed specifically for IBM PC
+Xcompatible computers.
+XThis is in the files
+X.DS
+X.B
+Xibmpc_a.asm
+Xibmpc_c.c
+Xibmpc.h
+X.R
+X.DE
+XThe first of these is written in assembly language because
+Xthere are not enough routines common to the various \%MS-DOS
+XC compilers which reliably access the display and keyboard at
+Xa low enough level.
+X.LP
+XThe hardware-independent system interface module for \%MS-DOS is in
+X.DS
+X.B
+Xmsdos_a.asm
+Xmsdos_c.c
+Xmsdos.h
+X.R
+X.DE
+XThe first of these is written in assembly
+Xlanguage for the same reason as is
+X.B ibmpc_a.asm .
+X.LP
+XTheoretically, different terminal interface modules could be
+Xwritten for \%MS-DOS systems running on hardware which is not
+XIBM-compatible but, unfortunately, such systems seem to be
+Xvirtually extinct nowadays.
+X.LP
+XSometimes more than one makefile is provided, as in the case of
+X.UX ,
+Xwhere different versions work in slightly different ways.
+X.LP
+XIt is, of couse, not necessary to provide all \(em or any \(em
+Xof these files for a particular implementation; this is just a convention.
+XThe makefile(s) for each system determine what
+Xfiles are used in the compilation of the editor.
+X.LP
+XThe following porting modules are available at present:
+X.\" ----------------------------------------------------------
+X.\" Note: this table does not fit very well with nroff output,
+X.\" so please try to avoid widening it if you add anything.
+X.TS
+Xcenter, box;
+Xc|c|c
+Xl|l|l.
+XSystem	Makefile	Source Files
+X_
+X.sp 0.5v
+XUNIX
+X  BSD	\fBmakefile.bsd\fP	\fBunix.[ch] termcap.[ch]\fP
+X  System V \fB\(dg\fP	\fBmakefile.usg\fP	\fBunix.[ch] termcap.[ch]\fP
+X  AIX	\fBmakefile.aix\fP	\fBunix.[ch] termcap.[ch]\fP
+X  ULTRIX	\fBmakefile.ult\fP	\fBunix.[ch] termcap.[ch]\fP
+X  Xenix \fB\(dg\fP	\fBmakefile.xen\fP	\fBunix.[ch] termcap.[ch]\fP
+X  POSIX (e.g. BSDI)	\fBmakefile.pos\fP	\fBunix.[ch] termcap.[ch]\fP
+X  SunOS	\fBmakefile.sun\fP	\fBunix.[ch] termcap.[ch]\fP
+X  SunView	\fBmakefile.sv\fP	\fBunix.[ch] sunview.h\fP
+X		\fBsunfront.c sunback.c\fP
+X		\fBxvi.icn\fP
+X.sp 0.5v
+X_
+X.sp 0.5v
+X\%MS-DOS		\fBmsdos_c.c msdos.h\fP
+X		\fBibmpc_c.c ibmpc.h\fP
+X.sp 0.5v
+X  Microsoft C 5.*	\fBmakefile.msc\fP	\fB8086mm.inc ibmpc_a.asm\fP
+X  & MASM 5.*		\fBmsdos_a.asm\fP
+X.sp 0.5v
+X  Microsoft Quick C	\fBmakefile.qc\fP	\fB8086mm.inc ibmpc_a.asm\fP
+X  & MASM 5.*		\fBmsdos_a.asm\fP
+X.sp 0.5v
+X  Zortech C++ 2.*	\fBmakefile.zc2\fP	\fB8086mm.inc ibmpc_a.asm\fP
+X  & MASM 5.*		\fBmsdos_a.asm\fP
+X.sp 0.5v
+X  Zortech C++ 3.*	\fBmakefile.zc3\fP	\fB8086mm.inc ibmpc_a.asm\fP
+X  & MASM 5.*		\fBmsdos_a.asm\fP
+X.sp 0.5v
+X  Zortech C++ 3.*
+X  386 protected mode	\fBmakefile.386\fP	\fBpc386.[ch]\fP
+X.sp 0.5v
+X_
+X.sp 0.5v
+XOS/2 \fB\(dg\fP
+X  Version 1, text mode
+X  Microsoft C 5.1	\fBmakefile.os2\fP	\fBos2vio.[ch]\fP
+X  & MASM 5.1		\fBi286.asm\fP
+X.sp 0.5v
+X_
+X.sp 0.5v
+XQNX
+X  Version 2/3 (CII)	\fBmakefile.qnx\fP	\fBqnx.[ch]\fP
+X  Version 4 (Watcom C)	\fBmakefile.qn4\fP	\fBunix.[ch] termcap.[ch]\fP
+X.sp 0.5v
+X_
+X.sp 0.5v
+XTOS \fB\(dg\fP
+X  Lattice C	\fBmakefile.tos\fP	\fBtos.[ch] tos.lnk\fP
+X.sp 0.5v
+X.TE
+X.IP \fB\(dg\fP 2
+XVersions marked with
+X.B \(dg
+Xprobably do not work, as systems
+Xhave not been recently available to the authors for testing.
+X.\"===========================================================================
+X.NH 1
+XPRIMITIVES PROVIDED BY XVI
+X.NH 2
+XGeneral Definitions
+X.LP
+XThe file
+X.B xvi.h
+Xshould be included by all system-specific modules;
+Xthis file should also be edited
+Xso that a system-specific header
+Xfile (or files), as determined by a predefined keyword,
+Xwill be included.
+X.LP
+XFor instance, under
+X.UX ,
+Xthe word
+X.B UNIX
+Xis defined by passing the
+X.B -DUNIX
+Xflag to the C compiler
+Xfrom the makefile, and
+X.B xvi.h
+Xcontains the following lines:
+X.DS
+X.B
+X#ifdef UNIX
+X#   include "unix.h"
+X#endif
+X.R
+X.DE
+Xin order to obtain the
+X.UX -related
+Xdefinitions from that header file.
+X.LP
+XAmong the definitions in
+X.B xvi.h
+Xare the following:
+X.Ex bool_t
+XA Boolean type having values
+X.B TRUE
+Xor
+X.B FALSE .
+X.Ex const
+X.Ey volatile
+XThese are defined out when
+X.B __STDC__
+Xis not defined,
+Xso that it is always safe to use them.
+X.LP
+X.B xvi.h
+Xalso includes various other header files which are needed.
+XThe following system header files are always included:
+X.DS
+X.B
+Xstdio.h
+Xctype.h
+Xsignal.h
+Xstring.h
+X.R
+X.DE
+XThese files are included if
+X.B __STDC__
+Xis defined:
+X.DS
+X.B
+Xstddef.h
+Xstdlib.h
+Xlimits.h
+X.R
+X.DE
+Xand if
+X.B __STDC__
+Xis not defined,
+X.B xvi.h
+Xwill provide its own
+Xdefinitions for the following:
+X.DS
+X.B
+XINT_MAX
+XINT_MIN
+XULONG_MAX
+X
+XFILE	*fopen();
+Xchar	*malloc();
+Xchar	*getenv();
+X.R
+X.DE
+XFinally, one of the following header files will be included:
+X.DS
+X.B
+Xstdarg.h
+Xvarargs.h
+X.R
+X.DE
+Xdepending on whether
+X.B __STDC__
+Xis defined or not.
+XIn order to make coding of
+X.B varargs
+Xfunctions easier, a macro
+X.B VA_START ()
+Xis defined, which takes the same arguments as the
+XANSI-style
+X.B va_start (),
+Xbut which is also available in non-ANSI
+Xenvironments (e.g. BSD).
+X.LP
+XIn order to make it possible to use ANSI-style prototypes
+Xfor function declarations, but still allow compilation under
+Xnon-ANSI environments, the following macro is provided:
+X.DS
+X.B
+X#ifdef __STDC__
+X#   define  P(args) args
+X#else
+X#   define  P()     ()
+X#endif
+X.R
+X.DE
+Xso that function declarations may be specified thus:
+X.DS
+X.B
+Xextern FILE *fopen P((const char *, const char *));
+X.R
+X.DE
+XPlease use this facility when you provide declarations for
+Xyour system primitives, unless your system always uses an
+XANSI compiler.
+X.\"===========================================================================
+X.NH 2
+XParameters
+X.LP
+XAn important facility provided for use by system-specific
+Xmodules is access to the editor's parameter table.
+XThis is achieved by means of some apparent functions,
+Xand a set of
+X.B #define d
+Xtoken values.
+XThe functions are:
+X.Ex "void set_param(int n, val)"
+XThis function sets the indicated parameter to the
+Xpassed value, which must be of an appropriate type.
+XParameter values may be obtained by means of the following
+Xfunctions (actually macros):
+X.Ex "char *Ps(int n)"
+Xreturn value of string parameter
+X.Ex "int Pn(int n)"
+Xreturn value of numeric parameter
+X.Ex "bool_t Pb(int n)"
+Xreturn value of boolean parameter
+X.Ex "char **Pl(int n)"
+Xreturn value of list parameter (a
+X\fBNULL\fP-terminated array of character pointers)
+X.Ex "int Pen(int n)"
+Xreturn numeric value (index) of enumerated parameter
+X.Ex "char **Pes(int n)"
+Xreturn string value of enumerated parameter
+X.LP
+XIn all cases, the \fBint n\fP argument is the index of the parameter
+Xin the table; a set of
+X.B #define s
+Xis provided, of the form:
+X.DS
+X.B P_name
+X.DE
+Xwhich map the parameter names into integral values.
+XThus, for example, we might obtain the value of the
+X.B colour
+Xparameter:
+X.DS
+X.B
+Xcolour = Pn(P_colour);
+X.R
+X.DE
+Xor set the value of the
+X.B helpfile
+Xparameter:
+X.DS
+X.B
+Xset_param(P_helpfile, "/usr/lib/xvi/help");
+X.R
+X.DE
+X.\"===========================================================================
+X.NH 1
+XSYSTEM INTERFACE
+X.NH 2
+XIntroduction
+X.LP
+XThere follows a list of the primitives which must be provided
+Xeither by the system interface module or by the underlying OS.
+XNote that it is perfectly acceptable to implement functions or external
+Xvariables as
+Xmacros
+Xso long as they \*Qlook the same\*U as the definitions
+Xbelow.
+XAs a guideline, anything which is (a) in capitals, or (b) is a
+X\fBconst\fP variable, will be implemented as a
+X.B #define
+Xfor most
+Xsystems.
+X.LP
+XWhen you want to actually do the port, it is highly
+Xrecommended that you copy the system-specific files for the
+Xsystem which seems closest to your own, and modify those
+Xfiles, rather than starting from scratch.
+X.LP
+XAll the following symbols should be defined in the system
+Xinterface module, or by standard header files already included
+Xby
+X.B xvi.h ,
+Xor by other header files explicitly included by
+Xthe system-specific header file:
+X.\" ----- Standard items, not always available -----
+X.Ex "const unsigned int MAXPATHLEN"
+XThe maximum number of characters in a pathname.
+X.Ex "const unsigned int MAXNAMLEN"
+XThe maximum number of characters in a filename.
+X.Ex "int remove(char *filename)"
+XRemove the named file as per ANSI.
+X.Ex "int rename(char *old, char *new)"
+XRename the file \fBold\fP to \fBnew\fP as per ANSI.
+X.Ex "void sleep(unsigned int seconds)"
+XPut the process to sleep for the given number of seconds.
+X.\" ----- xvi specials -----
+X.Ex "const char * const DIRSEPS"
+XThe pathname separators supported for system calls (e.g.
+X\fB"\e\e\|/"\fP
+Xfor \%MS-DOS).
+X.Ex "FILE *fopenrb(char *file)"
+X.Ey "FILE *fopenwb(char *file)"
+XLike the standard
+X.B fopen()
+Xlibrary call,
+Xbut they both open files in \*Qbinary\*U mode
+X(i.e. no conversion of cr/lf/crlf is done),
+Xfor reading and writing respectively.
+X.Ex "bool_t exists(char *filename)"
+XReturns
+X.B TRUE
+Xif the named file exists.
+X.Ex "bool_t can_write(char *filename)"
+XReturns
+X.B TRUE
+Xif the named file can be written,
+Xi.e. if a \fBfopenwb(filename)\fP will succeed.
+X.Ex "char *fexpand(char *filename)"
+XReturns a filename-expanded version of the passed filename.
+X.Ex "#define SETVBUF_AVAIL"
+X.Ey "const unsigned int READBUFSIZ"
+X.Ey "const unsigned int WRTBUFSIZ"
+XIf
+X.B SETVBUF_AVAIL
+X(or
+X.B __STDC__ )
+Xis defined, these constant values
+Xare used to set I/O buffer sizes (using the \fBsetvbuf()\fP function)
+Xfor reading and writing files.
+XNote that if buffers of these sizes are unavailable at runtime,
+Xthe editor will try to allocate smaller buffers by iteratively
+Xhalving the buffer size until the allocation succeeds.
+XIt is therefore acceptable for these values to be quite large.
+X.Ex "char *tempfname(const char *filename)"
+XCreate a unique name for a temporary file,
+Xpossibly using \fBfilename\fP as a base
+X(this will be used by
+X.B do_preserve()
+Xto create a backup file
+Xfor the file named by
+X.B filename ).
+XThe string returned must have been allocated using
+X.B malloc() ;
+X.B NULL
+Xcan be returned if there is no more memory available.
+X.Ex "int call_system(char *command)"
+XInvoke the given command in a subshell.
+XThis is used for shell escapes from \fBxvi\fP.
+XThe command string may contain metacharacters
+Xwhich are expected to be expanded
+Xby a command interpreter, e.g.
+X.UX
+X.B /bin/sh ,
+X\%MS-DOS
+X.B command.com .
+XReturn value is 0 for success.
+XIn many environments, this call may safely be
+X.B #define d
+Xas
+X.B system(command) .
+X.Ex "int call_shell(char *shell)"
+XInvoke the named shell.
+XThis is used for the
+X.B :shell
+Xcommand.
+XIt may be mapped into
+X.B call_system() ,
+Xbut is separate on some systems for
+Xefficiency reasons (i.e. not invoking two shells to get one).
+XReturn value is 0 for success.
+X.Ex "bool_t"
+X.Ey "sys_pipe(char *cmd, int (*wf)(FILE *), long (*rf)(FILE *))"
+XUsed for the
+X.B !
+Xcommand.
+XThe first parameter is the command to invoke, while the second and third
+Xare functions which should be called with an open file pointer in order
+Xto
+Xwrite out old,
+Xor read in new
+Xlines (respectively).
+XNote that if \*Qreal\*U pipes are not available, it is acceptable
+Xto implement this function using temporary files, but the \fBwf\fP
+Xfunction must obviously be called before \fBrf\fP.
+X.Ex "void sys_exit(int code)"
+XExit with given exit status.
+XThis routine must not return.
+XThe editor is considered \*Qdead\*U once it has been called, and no
+Xfurther calls to editor functions should be made.
+X.Ex "void delay(void)"
+XDelay for a short time, about a fifth of a second.
+XThis is used for showing matching brackets when \fBshowmatch\fP is set.
+XIt is acceptable to just return if implementing this is not easy.
+X.\"===========================================================================
+X.NH 2
+XScreen Control
+X.LP
+XAn instance of the following structure must be defined
+Xin order to allow screen output to take place:
+X.DS L
+X.ta 1.3i 3i
+X.B
+X  typedef struct virtscr {
+X    genptr	*pv_window;
+X    int	pv_rows;
+X    int	pv_cols;
+X/* public: */
+X    VirtScr	*(*v_new)(VirtScr *);
+X    void	(*v_close)(VirtScr *);
+X
+X    int	(*v_rows)(VirtScr *);
+X    int	(*v_cols)(VirtScr *);
+X
+X    void	(*v_clear_all)(VirtScr *);
+X    void	(*v_clear_line)(VirtScr *);
+X
+X    void	(*v_goto)(VirtScr *, int row, int col);
+X    void	(*v_advise)(VirtScr *, int row, int col,
+X		int index, char *str);
+X
+X    void	(*v_write)(VirtScr *, int row, int col, char *str);
+X    void	(*v_putc)(VirtScr *, int row, int col, int ch);
+X
+X    void	(*v_set_colour)(VirtScr *, int colour);
+X    int	(*v_colour_cost)(VirtScr *);
+X
+X    void	(*v_flush)(VirtScr *);
+X
+X    void	(*v_beep)(VirtScr *);
+X
+X/* optional: not used if NULL */
+X    void	(*v_insert)(VirtScr *, int row, int col, char *str);
+X
+X    int	(*v_scroll)(VirtScr *, int start, int end, int nlines);
+X  } VirtScr;
+X.R
+X.DE
+X.LP
+XThe first three fields in this structure are \*Qprivate\*U, for use only
+Xwithin the implementation of the \*Qpublic\*U functions.
+XThe remaining fields are all function pointers, and are described below.
+XNote that all functions have at least one parameter, which is a pointer
+Xto the instance of the \fBVirtScr\fP in question.
+XThis is always referred to as \fBvs\fP below.
+XNote also that the top-left-hand corner of the window is taken to be (0,0).
+X.Ex "v_new(vs)"
+XObtain a new \fBVirtScr\fP, and return a pointer to it.
+XThis is not used at present, and should return
+X.B NULL .
+X.Ex "v_close(vs)"
+XClose the window to which \fBvs\fP refers.
+X.Ex "v_rows(vs)"
+XReturn the number of rows in \fBvs\fP.
+X.Ex "v_cols(vs)"
+XReturn the number of columns in \fBvs\fP.
+X.Ex "v_clear_all(vs)"
+XClear the window completely.
+X.Ex "v_clear_line(vs, int row, int col)"
+XClear the specified line, from the given column to the right hand edge
+Xof the window, inclusive.
+X.Ex "v_goto(vs, int row, int col)"
+XMove the cursor to the specified row and column.
+X.Ex "v_advise(vs, int row, int col, int index, char *str)"
+XThis function is called when the editor is about to produce some
+Xoutput on the same line as the last output, but separate from it
+Xby one or more characters.
+XThe destination position is the coordinate pair \fB(row, col + index)\fP,
+Xand \fBstr\fP contains the string of characters which are in the window
+Xstarting at position \fB(row, col)\fP.
+XWhere there is a cost incurred
+Xby moving the cursor to a specific screen position,
+Xthe terminal interface module may decide to write the intervening characters
+Xto the screen rather than using a specific \*Qmove cursor\*U sequence,
+Xin order to minimise the number of characters written to the terminal.
+X.Ex
+XNote that for many environments, the cost of re-positioning the cursor is
+Xnil, and under these circumstances this function need not do anything.
+X.Ex "v_write(vs, int row, int col, char *str)"
+XWrite the specified string of characters into the window, starting at
+Xthe specified row and column.
+XThe parameters will be such that the string will always fit into
+Xa single line of the window, i.e. no line-wrapping is necessary;
+Xhowever, it is quite possible for the string to end on the last character
+Xof a line, and some implementations will need to take special
+Xprecautions to handle this correctly.
+X.Ex "v_putc(vs, int row, int col, int ch)"
+XThis is like \fBv_write\fP but for a single character.
+X.Ex "v_set_colour(vs, int colour)"
+XSet the colour for all subsequent output (including clearing of
+Xlines or the whole window) to the specified colour.
+XThe meaning of the value is system-specific.
+X.Ex "v_colour_cost(vs)"
+XReturn the number of extra characters which are taken up in the window
+Xby a colour change.
+XThis is almost always 0,
+Xbut there exist some terminals for which it is not
+X(see the
+X.qB sg
+X.B termcap
+Xcapability).
+X.Ex "v_flush(vs)"
+XFlush all screen output, and move the cursor on the screen to the correct
+Xposition.
+XThe screen need not actually be updated until either this function is called,
+Xor \fBxvi_handle_event()\fP returns.
+X.Ex "v_beep(vs)"
+XBeep.
+XIt is acceptable to flash the screen or window if no audio facility
+Xis available.
+X.Ex "v_insert(vs, int row, int col, char *str)"
+XThis function inserts the given string at the given position,
+Xpushing any other characters on the same row to the right.
+XIf such a facility is not available,
+Xthe function pointer should be set to
+X.B NULL .
+X.Ex "v_scroll(vs, int start, int end, int nlines)"
+XThis function scrolls the set of lines between \fBstart\fP and \fBend\fP
+X(inclusive) by \fBnlines\fP lines.
+XIf \fBnlines\fP is positive, \fInormal\fP scrolling should be done,
+Xi.e. the lines should be moved upwards with respect to the window.
+XIf \fBnlines\fP is negative, scrolling should be in the reverse direction.
+XThe lines which are left by the scrolling should be cleared.
+XThe function should return non-zero if the scrolling was successful,
+Xotherwise 0.
+X.Ex
+XIf scrolling is not available, the function pointer should be set to
+X.B NULL .
+X.\"===========================================================================
+X.NH 2
+XParameters
+X.LP
+XDefault values should be
+X.B #define d
+Xfor certain parameters
+Xas follows:
+X.TS
+Xcenter, box;
+Xc|c|c
+Xl|c|l.
+XParameter Name	Type	\fB#define\fP name
+X_
+X\fBsyscolour\fP	numeric	\fBDEF_SYSCOLOUR\fP
+X\fBcolour\fP	numeric	\fBDEF_COLOUR\fP
+X\fBstatuscolour\fP	numeric	\fBDEF_STCOLOUR\fP
+X\fBroscolour\fP	numeric	\fBDEF_ROSCOLOUR\fP
+X\fBhelpfile\fP	string	\fBHELPFILE\fP
+X\fBformat\fP	string	\fBDEF_TFF\fP
+X.TE
+X.\===========================================================================
+X.NH 2
+XFile Formats
+X.LP
+XThe functions in \fBxvi\fP which read and write text
+Xfiles are aware of several different newline conventions
+X(for example,
+X\fB"\e\^n"\fP on
+X.UX ,
+X\fB"\e\^r\^\e\^n"\fP on \%MS-DOS, and so on), so
+Xthat any version of the editor can read and write any of the
+Xsupported formats.
+XThe value of the \fBformat\fP parameter
+X(which can be set to
+X.qB unix ,
+X.qB msdos ,
+X.qB macintosh ,
+Xetc.)
+Xdetermines which format is currently being used.
+XIf you are porting \fBxvi\fP to a system with a newline convention which
+Xisn't one of those currently supported (see the table called
+X.B tftable
+Xin
+X.B fileio.c )
+Xyou may have to add a new entry to the table.
+X.LP
+XUnfortunately, the current design is not as general as it ought to be.
+XIf you happen to be porting to VMS,
+Xor some other system which doesn't use either
+Xa single character
+Xor a consecutive pair of characters
+Xto represent a newline,
+Xyou will have quite a lot of work to do
+Xif you want to retain the facility for
+Xconverting between file formats within the editor.
+X.LP
+XIn any case, your system interface module should define
+X.B DEF_TFF
+Xto be the index of the entry in \fBtftable\fP
+Xwhich represents the default format for your system.
+XThis is the value for
+X.B Pen(P_format)
+Xwhich will be
+Xcompiled into the parameter table.
+X.\"===========================================================================
+X.NH 2
+XNotes on Termcap Implementation
+X.LP
+XThere exists a \fBtermcap\fP implementation of the terminal interface,
+Xcurrently only used for the
+X.UX
+Xport.
+XThis module could quite easily be re-used for other systems if desired;
+Xthe following routines would need to be defined by the system module:
+X.Ex "void foutch(int c)"
+XOutput a single character to the terminal.
+XThis must be implemented as a function, not a macro, because it is passed
+Xas a parameter into the
+X.B termcap
+Xlibrary.
+X.Ex "void moutch(int c)"
+XSame as
+X.B foutch()
+Xexcept that it can be implemented as a macro.
+XThis will be used by the
+X.B termcap
+Xinterface module to write characters to
+Xthe screen.
+X.Ex "void oflush(void)"
+XFlush buffered output to the terminal.
+X.\"===========================================================================
+X.NH 2
+XEntering/Leaving Visual Mode
+X.LP
+XSome facility is commonly necessary for the system interface module
+Xto be able to tell the terminal interface module to enter or exit
+X\fIvisual\fP mode.
+XThis might mean changing the terminal state between \*Qraw\*U and \*Qcooked\*U
+Xmodes, or switching display pages.
+XNo specific interface for this is defined,
+Xalthough the standard
+X.UX
+Xand \%MS-DOS implementations do use such a facility,
+Xand the interface functions for both systems are identically defined.
+X.\"===========================================================================
+X.NH 2
+XFunction Keys\|\|/\|\|Mouse Handling
+X.LP
+XFunction key values are coded into a set of
+X.B #define d
+Xconstants in the file
+X.B ascii.h ;
+Xe.g. the value
+X.B K_UARROW
+Xmight be given as input when the keyboard up-arrow key has been pressed.
+X.LP
+XIf the global variable
+X.B State
+Xis not equal to
+X.B NORMAL ,
+Xall
+Xfunction keys except for a backspace key are invalid input.
+XIf an invalid key is pressed, the safest strategy may be to
+Xbeep and wait for another key to be pressed.
+X.B NORMAL
+Xis defined in
+X.B xvi.h .
+X.LP
+XAnother facility which may be provided
+Xis handling mouse input on systems where it is available.
+XThe strategy for interpreting mouse input is controlled
+Xby the
+X.B mouseclick()
+Xfunction (in
+X.B mouse.c );
+Xthe idea is
+Xto make the strategy independent of any specific device interface.
+XIf a mouse button is pressed before a keyboard key is pressed,
+Xthe following routine should be called:
+X.DS
+X.B "mouseclick(int row, int column);"
+X.DE
+Xwhere row and column are the current co-ordinates, counted
+Xin character positions, of the mouse pointer within the
+Xscreen or editing window.
+XIf the mouse is moved while a button is held down, the routine
+X.DS
+X.B "mousedrag(int startrow, int endrow, int startcolumn, int endcolumn);"
+X.DE
+Xshould be called with co-ordinates describing the movement.
+XIf the global variable
+X.B State
+Xis not equal to
+X.B NORMAL ,
+Xmouse input can be ignored altogether.
+X.LP
+XAll this will be considerably tidied up at a later stage, when we have
+Xproper
+X.B xvEvent
+Xtypes for function keys and mouse actions.
+X.\"===========================================================================
+X.NH 2
+XMain
+X.LP
+XFinally, the system interface module must provide a \fBmain()\fP function.
+XThis function must call \fBxvi_startup(vs, argc, argv, env)\fP at startup,
+Xwith parameters as follows:
+X.Ex "VirstScr *vs;"
+XThis is a pointer to the \fBVirtScr\fP structure for the first window,
+Xor for the terminal screen.
+X.Ex "int argc, char **argv;"
+XThese are as for a \fBmain()\fP function.
+X.Ex "char *env;"
+XThis is an environment string, normally the return value from
+X\fBgetenv("XVINIT")\fP.
+XIf the concept of environment variables does not exist,
+Xa string of the form \fB"source\ \fIfilename\fB"\fR may be passed instead,
+Xso as to allow users to localise their usage of the editor.
+X.LP
+XThe return value from \fBxvi_startup()\fP is a pointer, which will
+Xbe used in future to identify the window for input events.
+XFor now, it should be stored in the \fBVirtScr\fP's \fBpv_window\fP field.
+X.LP
+XHaving called \fBxvi_startup()\fP, input events may then be passed
+Xto the editor by calling \fBxvi_handle_event\fP with a pointer to
+Xan \fBxvEvent\fP structure as the sole argument.
+XThis structure is defined as follows:
+X.DS
+X.B
+Xtypedef struct event {
+X    enum {
+X        Ev_char,
+X        Ev_timeout
+X    }                   ev_type;
+X    union {
+X        /* Ev_char: */
+X        int evu_inchar;
+X
+X        /* Ev_timeout: */
+X    }                   ev_u;
+X} xvEvent;
+X
+X#define	ev_inchar	ev_u.evu_inchar
+X.R
+X.DE
+X.LP
+XThe \fBev_type\fP field is a tag which identifies the type of event
+Xwhich has occurred.
+XAt present, only two events are supported: an input character from
+Xthe user, and a timeout.
+XThe union which follows contains data associated with each event type;
+Xcurrently only the type \fBEv_char\fP requires data, as may be seen.
+XThe
+X.B #define
+Xfor \fBev_inchar\fP is provided purely for convenience.
+X.LP
+XThe return value from \fBxvi_handle_event()\fP is a long integer value
+Xwhich is the time in milliseconds for which the editor is prepared
+Xto wait for more input.
+XIf no input arrives within that time, the function should be called
+Xagain with an event of type \fBEv_timeout\fP.
+XThe timeout value returned may be 0L, indicating that no timeout is necessary.
+XIt is very important that timeouts should actually be implemented because
+Xthey are needed for the
+X.B preserve
+Xfacility.
+X.LP
+XCurrently, if a keyboard interrupt is received,
+X.B xvi_handle_event()
+Xneed not be called
+X(it should,
+Xin any case,
+Xnever be called from an asynchronous interrupt
+Xor signal
+Xhandler)
+Xbut the global variable
+X.B kbdintr
+Xshould be set to a non-zero value.
+X.\"===========================================================================
+X.NH 1
+XDATA STRUCTURES
+X.LP
+XStructures used in \fBxvi\fP are all typedef'd,
+Xand all begin with a capital letter.
+XThey are defined in
+X.B xvi.h .
+XThe following data structures are defined:
+X.NH 2
+XLine
+X.LP
+XThis structure is used to hold a single text line.
+XIt contains forward and backward pointers which are connected together
+Xto form a two-way linked list.
+XIt also contains a pointer to an allocated text buffer,
+Xan integer recording the number of bytes allocated for the text,
+Xand the line number (an unsigned long).
+XThe text is null-terminated, and the space allocated for it may be
+Xgrown but is never shrunk.
+XThe maximum size of this space is given by
+X.B MAX_LINE_LENGTH .
+X.LP
+XThe line number is used when showing line numbers on screen, but this
+Xis secondary to its main purpose of providing an ordering on lines;
+Xthe ordering of two lines in a list may be established by simply
+Xcomparing their line numbers
+X(macros are available for this purpose; see later for details).
+X.NH 2
+XBuffer
+X.LP
+XThis structure holds the internal representation of a file.
+XIt contains pointers to the
+Xlinked list of lines which comprise the actual text.
+XWe always allocate an extra line at the beginning and the end,
+Xwith line numbers 0 and
+X.B MAX_LINENO
+Xrespectively,
+Xin order to make the code which deals with this structure easier.
+XThe line numbers of \fBLine\fP structures in a \fBBuffer\fP
+Xare always maintained by code in \fBundo.c\fP,
+Xwhich is the only module which ever changes the text of a \fBBuffer\fP.
+X.LP
+XThe \fBBuffer\fP structure also contains:
+X.IP \(bu
+Xflags, including readonly and modified
+X.IP \(bu
+Xcurrent filename associated with the buffer
+X.IP \(bu
+Xtemporary filename for buffer preservation
+X.IP \(bu
+Xspace for the
+X.B mark
+Xmodule to store information about marked lines
+X.IP \(bu
+Xspace for the
+X.B undo
+Xmodule to store information about the last change
+X.IP \(bu
+Xnumber of windows associated with the buffer
+X.LP
+XThe following macros are used to find out certain information
+Xabout \fBLine\fPs within \fBBuffers\fP:
+X.Ex "lineno(Buffer *b, Line *l)"
+XReturns the line number of the specified \fBLine\fP,
+Xwhich belongs to the specified \fBBuffer\fP.
+X.Ex "earlier(Line *l1, Line *l2)"
+XReturns
+X.B TRUE
+Xif \fBl1\fP is earlier in the buffer than \fBl2\fP.
+X.Ex "later(Line *l1, Line *l2)"
+XReturns
+X.B TRUE
+Xif \fBl1\fP is later in the buffer than \fBl2\fP.
+X.Ex "is_lastline(Line *l1)"
+XReturns
+X.B TRUE
+Xif \fBl1\fP is the last line (i.e. the extra line
+Xat the end, not the last text line) of the buffer.
+X.Ex "is_line0(Line *l1)"
+XReturns
+X.B TRUE
+Xif \fBl1\fP is the 0th line (i.e. the extra line
+Xat the start, not the first text line) of the buffer.
+X.NH 2
+XPosn
+X.LP
+XThis structure is very simple; it contains a \fBLine\fP pointer and an integer
+Xindex into the line's text, and is used to record a position within a buffer,
+Xe.g. the current cursor position.
+X.LP
+XThese functions are available for operating on \fBPosn\fP structures:
+X.Ex "gchar(Posn *)"
+XReturns the character which is at the given position.
+X.Ex "inc(Posn *)"
+XIncrements the given position, moving past
+Xend-of-line to the next line if necessary.
+XThe following type is returned:
+X.DS L
+X.B
+X.ta 2i
+X  enum mvtype {
+X      mv_NOMOVE,	/* at beginning or end of buffer */
+X      mv_SAMELINE,	/* still within same line */
+X      mv_CHLINE,	/* changed to different line */
+X      mv_EOL,	/* at terminating '\e0' */
+X  };
+X.R
+X.DE
+X.Ex "dec(Posn *)"
+XAs for \fBinc()\fP but decrements the position.
+X.Ex "lt(Posn *p1, Posn *p2)"
+XReturns
+X.B TRUE
+Xif the position specified by \fBp1\fP is earlier in the buffer
+Xthan that specified by \fBp2\fP.
+X.NH 2
+XXviwin
+X.LP
+XThis structure maps a screen window onto a \fBBuffer\fP.
+XIt contains:
+X.IP \(bu
+Xa pointer to the \fBBuffer\fP structure which it is mapped onto
+X.IP \(bu
+Xthe cursor's \fIlogical\fP position in the buffer (a \fBPosn\fP structure)
+X.IP \(bu
+Xthe cursor's \fIphysical\fP position in the window (row and column)
+X.IP \(bu
+Xinformation about size and location of screen window
+X.IP \(bu
+Xcurrent text of status line
+X.IP \(bu
+Xforward and backward pointers to other windows
+X.LP
+XNote that there is at least one \fBXviwin\fP for every \fBBuffer\fP.
+X.LP
+XWhen the editor was modified to support buffer windows, many
+Xglobal variables were moved into the \fBBuffer\fP and \fBXviwin\fP structures;
+Xsome were left as globals.
+XFor instance, the
+X.I undo
+Xand
+X.I mark
+Xfacilities are obviously buffer-related,
+Xbut
+X.I yank
+Xis useful if it is global
+X(actually static within its own module);
+Xit was decided that
+X.I search
+Xand
+X.I redo
+Xshould also be global.
+X.LP
+XSome modules have their own internal static data structures;
+Xfor instance, the
+X.B search
+Xmodule remembers the last pattern
+Xsearched for.
+XAlso, certain modules use data structures which are included
+Xin more global ones; e.g. each \fBBuffer\fP structure contains some
+Xdata used only within
+X.B undo.c .
+XThis is not very well structured, but in practice it's quite
+Xclean because we simply ensure that references to such structures
+Xare kept local to the module which \*Qowns\*U them.
+X.NH 2
+XMark
+X.LP
+XThis data structure records a mark (defined by the \fBm\fP command).
+XIt contains a \fBPosn\fP and a character field to hold the letter
+Xwhich defines the mark.
+XEach \fBBuffer\fP contains an array of these structures for holding
+Xalphabetic marks, plus one for the previous context mark
+X(as used by the
+X.B ''
+Xand
+X.B ``
+Xcommands).
+XThe file
+X.B mark.c
+Xdeals with marks.
+X.NH 2
+XChange
+X.LP
+XThis structure records a single change which has been made to a buffer.
+XIt also contains a pointer, so that it may be formed into a list.
+XSee the discussion of
+X.B undo.c
+Xbelow for further details.
+X.NH 2
+XFlexbuf
+X.LP
+XThis structure is used to store text strings for which the length is unknown.
+XThe following operations are defined for this type.
+XAll functions take a Flexbuf pointer as a parameter.
+X.Ex "flexnew(f)"
+XInitialise a Flexbuf; not needed for static Flexbufs.
+X.Ex "flexclear(f)"
+XTruncate a Flexbuf to zero length, but don't free its storage.
+X.Ex "flexdelete(f)"
+XFree all storage belonging to a Flexbuf.
+X.Ex "flexempty(f)"
+XReturn
+X.B TRUE
+Xif the Flexbuf is empty.
+X.Ex "flexlen(f)"
+XReturn the number of characters in the Flexbuf.
+X.Ex "flexrmchar(f)"
+XRemove the last character from a Flexbuf.
+X.Ex "flexpopch(f)"
+XRemove the first character from a Flexbuf and return it.
+X.Ex "flexgetstr(f)"
+XReturn a pointer to the string contained in the Flexbuf.
+X.Ex "flexaddch(f, c)"
+XAdd the character \fBc\fP to the end of the Flexbuf.
+X.Ex "lformat(f, fmt, ...)"
+XA subset of \fBsprintf()\fP but for Flexbufs.
+X.Ex "vformat(f, fmt, va_list)"
+XA subset of \fBvsprintf()\fP but for Flexbufs.
+X.LP
+XThe last two functions are especially useful, since they avoid
+Xthe usual problems with the lack of bounds-checking in \fBsprintf()\fP.
+XAll code in the editor itself now uses Flexbufs to avoid the possibility
+Xof buffer overruns, and to reduce the size of the executable.
+XSome OS-specific modules, however, may still use the \fBprintf()\fP family.
+XThe subset of \fBprintf\fP-like format specifiers implemented includes
+Xthose for integers and strings, but not for floating-point numbers.
+X.NH 2
+Xbool_t
+X.LP
+XA simple Boolean type; has values
+X.B TRUE
+Xand
+X.B FALSE ,
+Xwhich are defined as
+X1 and 0 so as to be compatible with C comparison operators.
+X.NH 2
+XxvEvent
+X.LP
+XThis type is defined in the previous section,
+Xsince it forms part of the porting interface.
+X.NH 2
+XVirtScr
+X.LP
+XThis type represents a virtual screen, and
+Xis constructed in a similar way to a \fIclass\fP.
+XIt contains some function pointers which may be used to manipulate the
+Xscreen in various ways, and some private data which is used by the
+Ximplementation of the class.
+X.LP
+XThe old terminal interface, which consisted of a set of disparate functions,
+Xis being replaced by the \fBVirtScr\fP interface;
+Xthe first step in this process has been accomplished
+Xby the provision of a default \fBVirtScr\fP implementation
+Xusing the old primitive functions.
+XNew, native, \fBVirtScr\fP implementations may now be coded,
+Xwhich will increase the efficiency of screen output.
+X.LP
+XAs the final stage, a windowing implementation of the \fBVirtScr\fP class
+Xwill be provided, using the underlying \fBVirtScr\fP implementations,
+Xand the window-handling code in the editor will be modified to
+Xthat each occurrence of an \fBXviwin\fP references its own \fBVirtScr\fP.
+XIt will then be possible to build a version of the editor which operates in a
+Xtrue windowing environment by using a separate screen window for each buffer,
+Xinstead of the current vertical-split method.
+X.LP
+XA full definition of the \fBVirtScr\fP type will be found
+Xin the previous section.
+X.\"===========================================================================
+X.NH 2
+XGlobal Variables
+X.LP
+XThere are only a few global variables in the editor.
+XThese are the important ones:
+X.Ex curbuf 0.7i
+Xpointer to the current \fBBuffer\fP
+X.Ex curwin 0.7i
+Xpointer to the current \fBXviwin\fP
+X.Ex State 0.7i
+Xthe current \fIstate\fP of the editor;
+Xcontrols what we do with input characters.
+XThe value is one of the following:
+X.RS
+X.Ex NORMAL 1i
+XThe default state; \fBvi\fP-mode commands may be executed
+X.Ex INSERT 1i
+XInsert mode, i.e. characters typed get inserted into the current buffer
+X.Ex REPLACE 1i
+XReplace mode, characters in the buffer get overwritten by what is typed
+X.Ex CMDLINE 1i
+XReading a colon-command, regular expression or pipe command
+X.Ex DISPLAY 1i
+XDisplaying text, i.e. \fB:p\fP command, or \fB:set\fP or \fB:map\fP with no argument
+X.RE
+X.Ex echo 0.7i
+XThis variable controls what output is currently displayable.
+XIt is used at various points within the editor to stop certain
+Xoutput which is either undesirable or sub-optimal.
+XIt must always
+Xbe restored to its previous value after the code which changed it
+Xhas finished what it is doing.
+X.Ex kbdintr 0.7i
+XThis can be set to a non-zero value to indicate that an asynchronous
+Xuser-generated interrupt (such as a keyboard interrupt) has occurred.
+XSee the discussion of event handling in the previous section.
+X.\"===========================================================================
+X.nr PI 1i	\" Extra indentation for filenames
+X.NH 1
+XSOURCE FILES
+X.LP
+XThe header file
+X.B xvi.h
+Xcontains all the type definitions
+Xused within the editor, as well as function declarations etc.
+X.LP
+XThe following source files form the primary interface to the editor:
+X.Ex startup.c
+XEntry point for the editor.
+XDeals with argument
+Xand option parsing and initial setup, calling
+Xmodule initialisation functions as necessary.
+X.Ex events.c
+XContains the routine \fBxvi_handle_event()\fP, which is
+Xthe entry point for handling input to the editor;
+Xinput is passed to different routines according to the
+X\fBState\fP variable.
+XTimeouts on input are also handled here, by calling appropriate
+Xroutines in \fBmap.c\fP or \fBpreserve.c\fP.
+X.Ex edit.c
+XDeals with insert and replace modes.
+X.Ex normal.c
+XHandles normal-mode commands.
+X.Ex map.c
+XThis file is responsible for all input mapping (both set up by the
+X\fB:map\fP command and internally for function-key mappings;
+Xit also implements a stuff-characters-into-the-input-stream
+Xfunction for use within the editor.
+XThis is used, for example, to implement command redo
+X(but \fInot\fP to implement \*Qundo\*U and \*Qput\*U as in STEVIE).
+X.\"-----------------------------------------------------------------
+X.sp
+X.LP
+XColon (\fBex\fP-type) commands are handled by this group:
+X.Ex cmdline.c
+XDecodes and executes colon commands.
+X.Ex ex_cmds1.c
+XFile-, \fBBuffer\fP- and \fBXviwin\fP-related colon commands.
+X.Ex ex_cmds2.c
+XOther colon commands (e.g. shell escape).
+X.\"-----------------------------------------------------------------
+X.sp
+X.LP
+XScreen updating is done within the following files:
+X.Ex screen.c
+XScreen updating code, including handling of line-based entry
+X(for colon commands, searches etc) as they are typed in,
+Xand display-mode stuff (for parameter displaying,
+X.B :g/re/p
+Xetc).
+X.Ex cursor.c
+XThis file contains the single function \fBcursupdate()\fP,
+Xwhich is responsible for deciding where the physical screen cursor
+Xshould be, according to the position of the logical cursor in the
+Xbuffer and the position of the window onto that buffer.
+XThis routine is not very optimal, and will probably disappear in due course.
+X.Ex defscr.c
+XThis file contains the default implementation of the \fBVirtScr\fP class,
+Xon top of the old terminal/system interface.
+X.Ex status.c
+XFunctions to update the status line of a window; there are different
+Xfunctions to display file information (name, position etc.)
+Xand error/information messages.
+X.\"-----------------------------------------------------------------
+X.sp
+X.LP
+XThese files deal with specific areas of functionality:
+X.Ex find.c
+XSearch functions: all kinds of searches, including character-based
+Xand word-based commands, sections, paragraphs, and the interface to
+X\*Qreal\*U searching (which is actually done in
+X.B search.c ).
+X.Ex mark.c
+XProvides primitives to record marks within a \fBBuffer\fP,
+Xand to find the marks again.
+X.Ex mouse.c
+XCode to handle mice moving the cursor around and resizing windows.
+X.Ex param.[ch]
+XCode to handle setting of, and access to, parameters.
+X(These are things like \fBtabstops\fP, \fBautoindent\fP, etc.)
+X.Ex pipe.c
+XHandles piping through system commands.
+X.Ex preserve.c
+XFile preservation routines.
+X.Ex search.c
+XCode for pattern-searching in a buffer, and for substitutions
+Xand global execution.
+XUses \fBregexp.[ch]\fP for the actual regular expression stuff.
+X.Ex tags.c
+XRoutines to handle tags \(em for \fB:tag\fP, \fB-t\fP and \fB^]\fP.
+X.Ex undo.c
+XCode to deal with doing and undoing; i.e. making and unmaking
+Xchanges to a buffer.
+XThis is one of the more complex and delicate files.
+X.Ex yankput.c
+XCode to deal with yanking and putting text, including named buffers.
+X.\"-----------------------------------------------------------------
+X.sp
+X.LP
+Xwhile these files provide lower-level functions:
+X.Ex alloc.c
+XMemory allocation routines.
+X.Ex ascii.[ch]
+XDeals with the visual representation of special
+Xcharacters on the display (e.g. tabs, control chars).
+X.Ex buffers.c
+XRoutines dealing with the allocation and freeing of \fBBuffers\fP.
+X.Ex fileio.c
+XFile I/O routines; reading, writing, re-editing files.
+XAlso handling of the \fBformat\fP parameter.
+X.Ex flexbuf.c
+XFlexible-length character-buffer routines.
+X.Ex misccmds.c
+XMiscellaneous functions.
+X.Ex movement.c
+XCode to deal with moving the cursor around in the buffer,
+Xand scrolling the screen etc.
+X.Ex ptrfunc.[ch]
+XPrimitives to handle \fBPosn\fP structures; including various
+Xoperators to compare positions in a text buffer.
+X.Ex "regexp.[ch], regmagic.h"
+XRegular-expression stuff, originally written by Henry Spencer
+X(thanks Henry) and slightly hacked for use within \fBxvi\fP.
+X.Ex signal.c
+XHandling of terminal-generated signals in an ANSI environment.
+X.Ex virtscr.h
+XVirtual Screen interface definition.
+XThis is a new part of \fBxvi\fP, and is not yet fully completed.
+XWhen it is finished, it will provide the ability to implement
+X\*Qnative\*U versions of \fBxvi\fP under various windowing systems,
+Xin a clean and wholesome way.
+XCurrently there is a single instance of the \fBVirtScr\fP class, which
+Xis defined on top of the old system/terminal interface.
+X.Ex windows.c
+XCode to deal with creating, deleting, resizing windows.
+X.Ex version.c
+XContains only the version string.
+X.\"-----------------------------------------------------------------
+END_OF_FILE
+  if test 44132 -ne `wc -c <'xvi/doc/source.ms'`; then
+    echo shar: \"'xvi/doc/source.ms'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/doc/source.ms'
+fi
+if test ! -d 'xvi/src' ; then
+    echo shar: Creating directory \"'xvi/src'\"
+    mkdir 'xvi/src'
+fi
+if test -f 'xvi/src/tags.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/tags.c'\"
+else
+  echo shar: Extracting \"'xvi/src/tags.c'\" \(6968 characters\)
+  sed "s/^X//" >'xvi/src/tags.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)tags.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    tags.c
+X* module function:
+X    Handle tags.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#define	LSIZE		512	/* max. size of a line in the tags file */
+X
+X/*
+X * Macro evaluates true if char 'c' is a valid identifier character.
+X * Used by tagword().
+X */
+X#define IDCHAR(c)	(is_alnum(c) || (c) == '_')
+X
+X/*
+X * Return values for find_tag().
+X */
+X#define	FT_SUCCESS	0		/* found tag */
+X#define	FT_CANT_OPEN	1		/* can't open given file */
+X#define	FT_NO_MATCH	2		/* no such tag in file */
+X#define	FT_ERROR	3		/* error in tags file */
+X
+Xstatic	int	find_tag P((char *, char *, char **, char **));
+X
+X/*
+X * Tag to the word under the cursor.
+X */
+Xvoid
+Xtagword()
+X{
+X    char	ch;
+X    Posn	pos;
+X    char	tagbuf[50];
+X    char	*tp = tagbuf;
+X
+X    pos = *curwin->w_cursor;
+X
+X    ch = gchar(&pos);
+X    if (!IDCHAR(ch))
+X	return;
+X
+X    /*
+X     * Now grab the chars in the identifier.
+X     */
+X    while (IDCHAR(ch) && tp < tagbuf + sizeof(tagbuf)) {
+X	*tp++ = ch;
+X	if (inc(&pos) != mv_SAMELINE)
+X	    break;
+X	ch = gchar(&pos);
+X    }
+X
+X    /*
+X     * If the identifier is too long, just beep.
+X     */
+X    if (tp >= tagbuf + sizeof(tagbuf)) {
+X	beep(curwin);
+X	return;
+X    }
+X
+X    *tp = '\0';
+X
+X    (void) do_tag(curwin, tagbuf, FALSE, TRUE, TRUE);
+X}
+X
+X/*
+X * do_tag(window, tag, force, interactive) - goto tag
+X */
+Xbool_t
+Xdo_tag(window, tag, force, interactive, split)
+XXviwin	*window;
+Xchar	*tag;			/* function to search for */
+Xbool_t	force;			/* if true, force re-edit */
+Xbool_t	interactive;		/* true if reading from tty */
+Xbool_t	split;			/* true if want to split */
+X{
+X    char	*fname;		/* file name to edit (2nd field) */
+X    char	*field3;	/* 3rd field - pattern or line number */
+X    bool_t	edited;		/* TRUE if we have edited the file */
+X    Xviwin	*tagwindow;	/* tmp window pointer */
+X    int		status;		/* return value from find_tag() */
+X    int		count;
+X    char	**tagfiles;
+X
+X    if (tag == NULL || tag[0] == '\0') {
+X	if (interactive) {
+X	    show_error(window, "Usage: :tag <identifier>");
+X	} else {
+X	    beep(window);
+X	}
+X	return(FALSE);
+X    }
+X
+X    tagfiles = Pl(P_tags);
+X    if (tagfiles == NULL || tagfiles[0] == NULL) {
+X	if (interactive) {
+X	    show_error(window, "No tags parameter set!");
+X	    return(FALSE);
+X	}
+X    }
+X
+X    gotocmd(window, FALSE);
+X
+X    for (count = 0; tagfiles[count] != NULL; count++) {
+X	status = find_tag(tag, tagfiles[count], &fname, &field3);
+X	if (status == FT_SUCCESS) {
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * Either:
+X     *	we have found the tag in tagfiles[count]
+X     * or:
+X     *	we have failed to find it, and tagfiles[count - 1]
+X     *	contains the name of the last tags file tried.
+X     */
+X
+X    switch (status) {
+X    case FT_CANT_OPEN:
+X	if (interactive) {
+X	    show_error(window, "Can't open tags file \"%s\"",
+X			    tagfiles[count - 1]);
+X	}
+X	return(FALSE);
+X
+X    case FT_ERROR:
+X	if (interactive) {
+X	    show_error(window, "Format error in tags file \"%s\"",
+X			    tagfiles[count - 1]);
+X	}
+X	return(FALSE);
+X
+X    case FT_NO_MATCH:
+X	if (interactive) {
+X	    show_error(window, "Tag not found");
+X	}
+X	return(FALSE);
+X    }
+X
+X    /*
+X     * If we are already editing the file, just do the search.
+X     *
+X     * If "autosplit" is set, create a new buffer window and
+X     * edit the file in it.
+X     *
+X     * Else just edit it in the current window.
+X     */
+X    tagwindow = find_window(window, fname);
+X    if (tagwindow != NULL) {
+X	curwin = tagwindow;
+X	curbuf = curwin->w_buffer;
+X	edited = TRUE;
+X
+X    } else if (split && can_split() && do_buffer(window, fname)) {
+X	edited = TRUE;
+X
+X    } else if (do_edit(window, force, fname)) {
+X	edited = TRUE;
+X
+X    } else {
+X	/*
+X	 * If the re-edit failed, abort here.
+X	 */
+X	edited = FALSE;
+X    }
+X
+X    /*
+X     * Finally, search for the given pattern in the file,
+X     * but only if we successfully edited it. Note that we
+X     * always use curwin at this stage because it is not
+X     * necessarily the same as our "window" parameter.
+X     */
+X    if (edited) {
+X	char	*cp;
+X
+X	/*
+X	 * Remove trailing newline if present.
+X	 */
+X	cp = field3 + strlen(field3) - 1;
+X	if (*cp == '\n') {
+X	    *cp-- = '\0';
+X	}
+X
+X	if (*field3 == '/' || *field3 == '?') {
+X	    int	old_rxtype;
+X
+X	    /*
+X	     * Remove leading and trailing '/'s or '?'s
+X	     * from the search pattern.
+X	     */
+X	    field3++;
+X	    if (*cp == '/' || *cp == '?') {
+X		*cp = '\0';
+X	    }
+X
+X	    /*
+X	     * Set the regular expression type to rt_TAGS
+X	     * so that only ^ and $ have a special meaning;
+X	     * this is like nomagic in "real" vi.
+X	     */
+X	    old_rxtype = Pn(P_regextype);
+X	    set_param(P_regextype, rt_TAGS, (char **) NULL);
+X
+X	    if (dosearch(curwin, field3, '/')) {
+X		show_file_info(curwin);
+X	    } else {
+X		beep(curwin);
+X	    }
+X	    set_param(P_regextype, old_rxtype, (char **) NULL);
+X	} else if (is_digit(*field3)) {
+X	    /*
+X	     * Not a search pattern; a line number.
+X	     */
+X	    do_goto(atol(field3));
+X	} else {
+X	    show_error(curwin, "Ill-formed tag pattern \"%s\"", field3);
+X	}
+X	move_window_to_cursor(curwin);
+X	update_all();
+X    }
+X
+X    return(TRUE);
+X}
+X
+Xstatic int
+Xfind_tag(tag, file, fnamep, pattern)
+Xchar	*tag;
+Xchar	*file;
+Xchar	**fnamep;
+Xchar	**pattern;
+X{
+X    register char	*str;		/* used for scanning strings */
+X    FILE		*tp;		/* file pointer for tags file */
+X    static char		lbuf[LSIZE];	/* input line from tags file */
+X    bool_t		found;
+X    int			max_chars;
+X
+X    max_chars = Pn(P_taglength);
+X    if (max_chars == 0) {
+X	max_chars = INT_MAX;
+X    }
+X
+X    tp = fopen(file, "r");
+X    if (tp == NULL) {
+X	return(FT_CANT_OPEN);
+X    }
+X
+X    found = FALSE;
+X    while (fgets(lbuf, LSIZE, tp) != NULL) {
+X	register char	*tagptr;
+X	register int	nchars;
+X
+X	for (str = lbuf, tagptr = tag, nchars = 0;
+X		*str == *tagptr && nchars < max_chars;
+X		str++, tagptr++, nchars++) {
+X	    ;
+X	}
+X	if ((*tagptr == '\0' && *str == '\t') || nchars == max_chars) {
+X	    found = TRUE;
+X	    break;
+X	}
+X
+X    }
+X
+X    (void) fclose(tp);
+X
+X    if (!found) {
+X	return(FT_NO_MATCH);
+X    }
+X
+X    /*
+X     * Okay, we have found the right line.
+X     * Now extract the second and third fields.
+X     *
+X     * If we get here, str points at the tab after the first field,
+X     * or at part of the tag if we have matched up to taglength.
+X     * So first move to the start of the second field.
+X     */
+X    while (!is_space(*str)) {
+X	str++;
+X    }
+X    while (is_space(*str)) {
+X	str++;
+X    }
+X    *fnamep = str;
+X
+X    /*
+X     * Find third field and null-terminate second field.
+X     */
+X    str = strchr(str, '\t');
+X    if (str == NULL) {
+X	(void) fclose(tp);
+X	return(FT_ERROR);
+X    }
+X    while (is_space(*str)) {
+X	*str++ = '\0';
+X    }
+X    *pattern = str;
+X
+X    return(FT_SUCCESS);
+X}
+END_OF_FILE
+  if test 6968 -ne `wc -c <'xvi/src/tags.c'`; then
+    echo shar: \"'xvi/src/tags.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/tags.c'
+fi
+echo shar: End of archive 1 \(of 18\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

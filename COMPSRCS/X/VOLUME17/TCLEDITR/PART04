@@ -1,0 +1,1926 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i005: point text editor (TCL and TK), Part04/16
+Message-ID: <1992Mar18.141358.26648@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:13:58 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 5
+Archive-name: tcl-editor/part04
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 15)."
+# Contents:  Changes.doc ana.h cmdTable.c cursor.c pt.h spans.c
+#   tclLib/textMenu.tcl
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Changes.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Changes.doc'\"
+else
+echo shar: Extracting \"'Changes.doc'\" \(6474 characters\)
+sed "s/^X//" >'Changes.doc' <<'END_OF_FILE'
+X	Changes to Point
+X
+X        *** Chages in Version 1.2 ***
+X
+X*** Searching ***
+X
+Most searches are the same as before, that is, no regular expressions and
+no special characters are recognized in searches.  This includes the 
+searches from the ">>" and "<<" buttons in text window menus, the searches
+from F3 and F4 and most of the seaches in the GOTO/Search for String
+menu.  But there are four new entries on that menu ">> for selected RE",
+X"<< for selected RE", ">> for last RE" and "<< for last RE" that use
+a regular expression search.  In addition the search dialog box 
+X(available from the "For string ..." menu item or by clicking the middle
+mosue button on either the ">>" or "<<" buttons) has a switch labelled
+X"Regular expression search" which determined whether the search from
+the dialog box is a regular expression search or not.
+X
+In a regular expression search certain characters are treated specially.
+The format of the regular expressions is the same as found in the Unix
+programs: ed, ex, vi, sed and grep, that is, limited regular expressions
+where you can only the the Kleene star on a single character.  The form
+of the legal regular expressions is:
+X
+X[1]     char    matches itself, unless it is a special
+X                character (metachar): . \ [ ] * + ^ $
+X
+X[2]     .       matches any character.
+X
+X[3]     \       matches the character following it, except
+X		when followed by a left or right round bracket,
+X		a digit 1 to 9 or a left or right angle bracket. 
+X		(see [7], [8] and [9])
+X		It is used as an escape character for all 
+X		other meta-characters, and itself. When used
+X		in a set ([4]), it is treated as an ordinary
+X		character.
+X
+X[4]     [set]   matches one of the characters in the set.
+X                If the first character in the set is "^",
+X                it matches a character NOT in the set, i.e. 
+X		complements the set. A shorthand S-E is 
+X		used to specify a set of characters S upto 
+X		E, inclusive. The special characters "]" and 
+X		"-" have no special meaning if they appear 
+X		as the first chars in the set.
+X                examples:        match:
+X
+X                        [a-z]    any lowercase alpha
+X
+X                        [^]-]    any char except ] and -
+X
+X                        [^A-Z]   any char except uppercase
+X                                 alpha
+X
+X                        [a-zA-Z] any alpha
+X
+X[5]     *	any regular expression form [1] to [4], followed by
+X                closure char (*) matches zero or more matches of
+X                that form.
+X
+X[6]     +       same as [5], except it matches one or more.
+X
+X[7]     \(      a regular expression in the form [1] to [10], enclosed
+X        \)      as \(form\) matches what form matches. The enclosure
+X                creates a set of tags, used for [8] and for
+X                pattern substution. The tagged forms are numbered
+X		starting from 1.
+X
+X[8]     \N      a \ followed by a digit 1 to 9 matches whatever a
+X                previously tagged regular expression ([7]) matched.
+X
+X[9]	\<	a regular expression starting with a \< construct
+X	\>	and/or ending with a \> construct, restricts the
+X		pattern matching to the beginning of a word, and/or
+X		the end of a word. A word is defined to be a character
+X		string beginning and/or ending with the characters
+X		A-Z a-z 0-9 and _. It must also be preceded and/or
+X		followed by any character outside those mentioned.
+X
+X[10]            a composite regular expression xy where x and y
+X                are in the form [1] to [10] matches the longest
+X                match of x followed by a match for y.
+X
+X[11]	^	a regular expression starting with a ^ character
+X	$	and/or ending with a $ character, restricts the
+X                pattern matching to the beginning of the line,
+X                or the end of line. [anchors] Elsewhere in the
+X		pattern, ^ and $ are treated as ordinary characters.
+X
+X
+X*** replacing ***
+X
+Once a string matching a regular expression has been found it can be
+replaced with another string that is made up of text and pieces of the
+string found.  The replacement expression is used to construct a string
+to replace as follows:
+X
+X[1]     char    puts itself into the replacement string, unless it is a
+X		special character (metachar): \ or &.
+X
+X[2]     &       puts the entire matched string into the replacement string.
+X
+X[3]     \N      Puts the Nth substring (defined by \( and \) in the 
+X		regular expression) into the replacement string.
+X
+Regular expression replace is accessed with the "Re Search and Replace ..."
+item on the EDIT menu.
+X
+X	*** Changes in Version 1.3 ***
+X
+X* The cursor keys for left and right motion now work more correctly
+X     and don't mess up the display.
+X
+X* Various bugs fixes as described in "Changes.log"
+X
+X* Triple clicking (to select a whole line) now prints the line number in
+X    the message area in the browsers.
+X
+X* Several of the menus have be rearranged
+X
+X*** Macintosh style select and replace ***
+X
+X* In the Macintosh, selected text is replaced by newly typed characters.
+X     This style is handy if you are used to it.  This cannot be easily
+X     implemented in Point since zero width selections are not allowed.
+X     But I added an option "insertReplaces" (default is False) which
+X     when True causes this Macintosh-like behavior if the selection
+X     contains two or more characters.
+X
+X*** User specified window and icon titles ***
+X
+X* You can now specify the contents of the title and icon name of point
+X     text windows.  There are two new options "titleFormat" and 
+X     "iconFormat" which are printf-like strings that specify the
+X     formats of these two strings.  The Changes file gives the exact
+X     specifications for the format strings.  The default title format is:
+X         Option set titleFormat "%n%r. readOnly. [%l-%L]%c. (modified)."
+X     which prints the name of the file (%n), " readOnly" if the file is
+X     read only (else nothing), fir line number of the first line (%l)
+X     and the last line (%L) in the window and " (modified)" if the
+X     file has been changed but not saved (else nothing).  The default
+X     icon name format is:
+X     	 Option set iconFormat "pt: %n"
+X     which prints the string "pt: " then the file name.
+X
+X* The pt program now uses the locationN geometries (see Changes).  It also
+X    uses its current directory for file names (rather than point's).
+X
+X* The global "lineNumbers" option has been eliminated and replaced
+X    with a line numbers flag for each window and a command to
+X    set, unset or toggle this flag (see Changes).
+X
+X*
+X
+END_OF_FILE
+if test 6474 -ne `wc -c <'Changes.doc'`; then
+    echo shar: \"'Changes.doc'\" unpacked with wrong size!
+fi
+# end of 'Changes.doc'
+fi
+if test -f 'ana.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ana.h'\"
+else
+echo shar: Extracting \"'ana.h'\" \(6324 characters\)
+sed "s/^X//" >'ana.h' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/ana.h,v 1.2 1992/02/19 16:43:42 crowley Exp crowley $ */
+X
+X#ifdef HYPERTEXT
+X#include <ndbm.h>
+X#endif
+X
+X/************************************************************************/
+X/*  Format Characters							*/
+X/*  -- these are used in block and link map format strings		*/
+X/************************************************************************/
+X#define FormatMarker		'$'
+X#define PutBlockContents	'b'
+X#define PutBlockID		'i'
+X#define PutBlockName		'n'
+X#define PutAttributeName	'a'
+X
+X/************************************************************************/
+X/*  Constants								*/
+X/*  -- many of these will change as the system develops			*/
+X/************************************************************************/
+X#define NAME_SIZE	80
+X#define MAX_LINKS	5
+X#define MAX_ATTRIBUTES	5
+X#define MAP_SIZE	7
+X
+X#define NullObject 0
+X
+typedef enum {
+X	OBJECT_MARKER = (0x34343434)
+X} ObjectMarker;
+X
+X/************************************************************************/
+X/*  A DOCUMENT is a collection of text pieces, their hypertext links,	*/
+X/*  -- and views (ways of looking at the text pieces).			*/
+X/*  A VIEW is a display of some part of the document.			*/
+X/*  -- A view starts with a block and includes mappings to determine	*/
+X/*       how to handle the blocks and links it encounters.		*/
+X/*  A VIEW STREAM is the stream of characters that constitute the view.	*/
+X/*  -- A view stream is generated starting with the initial bloc of the	*/
+X/*       view and expanding blocks and links as sources.		*/
+X/*  A LOCATION is a source and an offset into that source.		*/
+X/*  -- A location marks a place in a view stream			*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*  Allocation codes							*/
+X/************************************************************************/
+typedef enum {
+X	NO_ALLOCATE,
+X	ALLOCATE
+X} AllocationMode;
+X
+typedef enum {
+X	NO_RELEASE,
+X	RELEASE
+X} ReleaseMode;
+X
+X/************************************************************************/
+X/*  Typedefs for the ID types (all int in the end)			*/
+X/************************************************************************/
+typedef int Offset;
+typedef unsigned int ID;
+typedef unsigned int BlockID;
+typedef unsigned int AttributeID;
+typedef unsigned int MapID;
+typedef unsigned int FileID;
+typedef unsigned int LinkID;
+typedef unsigned int TextID;
+typedef unsigned int ViewID;
+typedef unsigned int DocumentID;
+X
+X/* magic numbers for error checking */
+typedef enum {
+X	AttributeMagic = 1,
+X	BlockMagic = 2,
+X	DocumentMagic = 3,
+X	FileMagic = 4,
+X	LinkMagic = 5,
+X	MapMagic = 6,
+X	TextMagic = 7,
+X	ViewMagic = 8
+X} MagicNumber;
+X
+X/*
+X * All objects have a `magic' number as their first field.  This is strictly
+X *    for error checking and will be removed later.
+X * All objects contain their ID number in the `this_one' field.
+X *    This is for error checking.
+X * All items have a `next' field which is used to link together all items
+X *    of a particular type.  I know we need this for BlockTypes and LinkTypes
+X *    and we will probably want it for all types.
+X * Most items have a `name' field.  For now it is a fixed length string.
+X *    Later we will make it s TextID and allows strings of any length.
+X *    Later will will also add a longName.
+X */
+X
+typedef struct {
+X	ObjectMarker marker;	/* to verify that this is an object */
+X	int magic, this_one;
+X	ID next;
+X	char name[NAME_SIZE];
+X} AnaObjectStruct, *AnaObject;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	LinkID this_one, next;
+X	char name[NAME_SIZE];
+X	/* Link specific data */
+X	AttributeID attribute[MAX_ATTRIBUTES];
+X	LinkID nextFromLink;
+X	BlockID from;	
+X	LinkID nextToLink;
+X	BlockID to;
+X		/* a link can only be on one from list and one to list */
+X		/* from and to fields link to the beginning of these lists */
+X} LinkStruct, *Link;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	BlockID this_one, next;
+X	char name[NAME_SIZE];
+X	/* Block specific data */
+X	AttributeID attribute[MAX_ATTRIBUTES];
+X	Offset hint;
+X	FileID file;
+X	int numLinks;
+X	LinkID firstFromLink;
+X	LinkID firstToLink;
+X		/* these are linked lists of links. The `links' in the */
+X		/* linked list are object IDs not memory addresses */
+X} BlockStruct, *Block;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	AttributeID this_one, next;
+X	char name[NAME_SIZE];
+X} AttributeStruct, *Attribute;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	FileID this_one, next;
+X	char name[NAME_SIZE];
+X} FileStruct, *File;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	TextID this_one, next;
+X	/* Text specific data */
+X	char s[NAME_SIZE];
+X} TextStruct, *Text;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	MapID this_one, next;
+X	char name[NAME_SIZE];
+X	/* Map specific data */
+X	ID domain[MAP_SIZE];
+X	char range[MAP_SIZE][NAME_SIZE];
+X	char defaultRange[NAME_SIZE];
+X} MapStruct, *Map;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	ViewID this_one, next;
+X	char name[NAME_SIZE];
+X	/* View specific data */
+X	BlockID blockID;
+X	MapID fromLinkMap;
+X	MapID toLinkMap;
+X	MapID blockMap;
+X} ViewStruct, *View;
+X
+typedef struct {
+X	/* things in every object */
+X	ObjectMarker marker;
+X	MagicNumber magic;
+X	DocumentID this_one, next;
+X	char name[NAME_SIZE];
+X	/* Document specific data */
+X	ID nextFreeID;
+X	ViewID initialView;
+X	/* beginning of chains for each type of object */
+X	BlockID firstBlock;
+X	AttributeID firstAttribute;
+X	LinkID firstLink;
+X	FileID firstFile;
+X	ViewID firstView;
+X	MapID firstMap;
+X	TextID firstText;
+X} DocumentStruct, *Document;
+X
+X#define MARKER_SIZE	10
+X#define DEFAULT_MARKER	0xFF
+X#define BeginBlockFlag	'1'
+X#define EndBlockFlag	'9'
+X
+typedef struct {
+X	char begin_marker;	/* always 0xFF */
+X	char blockNumber[6];
+X	char comma;	/* always ',' */
+X	char flags;	/* various type information */
+X		/* '1' --> begin block */
+X		/* '9' --> end block */
+X	char end_marker;	/* always 0xFF */
+X} BlockMarkerStruct, *BlockMarker;
+X
+typedef struct PickListItem_tag {
+X	ID id;
+X	char * name;
+X	struct PickListItem_tag * next;
+X} PickListItem;
+X
+X
+END_OF_FILE
+if test 6324 -ne `wc -c <'ana.h'`; then
+    echo shar: \"'ana.h'\" unpacked with wrong size!
+fi
+# end of 'ana.h'
+fi
+if test -f 'cmdTable.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmdTable.c'\"
+else
+echo shar: Extracting \"'cmdTable.c'\" \(5691 characters\)
+sed "s/^X//" >'cmdTable.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/cmdTable.c,v 1.12 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <stdlib.h>
+X#include "pt.h"
+X
+int commandTableSize;
+X
+struct commandTableEntry commandTable[] = {
+X
+X/* Editing commands */
+X	{"Barrier",			FBARRIER},
+X	{"InsertFromScrap",		FINSERT},
+X	{"ChangeCaseOfSel",		FCHANGECASE},
+X	{"JustifySel",			FJUSTIFY},
+X	{"DeleteToScrap",		FDELETE},
+X	{"ExchangeWithScrap",		FEXCHSCRAP},
+X	{"CopySelToScrap",		FCOPYSCRAP},
+X	{"CopySelToMouse",		FCOPYTO},
+X	{"MoveSelToMouse",		FMOVETO},
+X	{"CopyToHereMode",		FCOPYFROM},
+X	{"MoveToHereMode",		FMOVEFROM},
+X/* Undo, Redo, Again commands */
+X	{"Again",			FAGAIN},
+X	{"Redo",			FREDO},
+X	{"Undo",			FUNDO},
+X/* Search commands */
+X	{"Search",			FSEARCHFORS},
+X	{"RegexSearch",			FREGEXSEARCH},
+X	{"CTag",			FCTAG},
+X	{"RepeatSearch",		FREPEATSEARCH},
+X	{"RepeatRegexSearch",		FREPEATREGEXSEARCH},
+X	{"Replace",			FREPLACE},
+X	{"RegexReplaceOne",		FREGEXREPLACEONE},
+X	{"RegexReplaceAll",		FREGEXREPLACEALL},
+X	{"FindMatchingBracket",		FMATCHCHAR},
+X	{"SearchCharacter",		FSEARCHLETTER},
+X/* File positioning commands */
+X	{"MoveToEndFile",		FBOTFILE},
+X	{"ShowSelection",		FGOTOSELECTION},
+X	{"MoveToLastPlace",		FGOBACKTO},
+X	{"GotoLine",			FGOTOLINE},
+X	{"GotoDigit",			FGOTODIGIT},
+X/* Cursor positioning command */
+X	{"MoveSel",			FMOVESEL},
+X/* Window management commands */
+X	{"SetTextColor",		FSETTEXTCOLOR},
+X	{"Browser",			FBROWSER},
+X	{"TextFont",			FWINDOWFONT},
+X	{"BrowserFont",			FBROWSERFONT},
+X	{"RaiseWindow",			FRAISE},
+X	{"LowerWindow",			FLOWER},
+X	{"CD",				FCD},
+X	{"OpenWindow",			FOPENWINDOW},
+X	{"CloseWindow",			FCLOSEWINDOW},
+X	{"RaiseListWindow",		FRAISELISTWINDOW},
+X	{"CloseBrowser",		FCLOSEBROWSER},
+X	{"SaveAs",			FWRITEFILE},
+X	{"SaveFile",			FSAVEFILE},
+X	{"SaveAllFiles",		FSAVEALL},
+X	{"Zoom",			FZOOM},
+X/* Other commands */
+X	{"ShowUndoStack",		FSHOWUNDOS},
+X	{"DoNothing",			FDONOTHING},
+X	{"Help",			FHELP},
+X	{"Redraw",			FREDRAW},
+X	{"ToggleReadOnly",		FREADONLY},
+X	{"SetLineNumbers",		FLINENUMBERS},
+X	{"CancelModes",			FCANCEL},
+X	{"SendOnClose",			FINFORMONCLOSE},
+X	{"QuitPoint",			FQUITPOINT},
+X	{"PrintStats",			FPRINTSTATS},
+X	{"Option",			FOPTION},
+X/* Commands for use by event handlers */
+X	{"Configure",			FCONFIGURE},
+X	{"EnterText",			FENTERTEXT},
+X	{"EnterBrowser",		FENTERBROWSER},
+X	{"Expose",			FEXPOSE},
+X	{"HScroll",			FHSCROLL},
+X	{"Key",				FKEY},
+X	{"Mouse",			FMOUSE},
+X	{"VScroll",			FVSCROLL},
+X/* Commands primarily for use in macros */
+X	{"WaitForReturnString",		FWAITFORRETURNSTRING},
+X	{"Sel",				FPOINTSELECTION},
+X	{"GetFileChars",		FGETFILECHARS},
+X	{"ScrollWindow",		FSCROLLWINDOW},
+X	{"GetRowCol",			FGETROWCOL},
+X	{"WindowName",			FWINDOWNAME},
+X	{"GetWindowInfo",		FGETWINDOWINFO},
+X	{"GetFileInfo",			FGETFILEINFO},
+X	{"InsertString",		FINSERTSTRING},
+X/* Ana commands */
+X	{"InsertBlock",			FINSBLOCK},
+X	{"CreateBlock",			FCREATEBLOCK},
+X	{"CreateAttribute",		FCREATEATTRIBUTE},
+X	{"CreateLink",			FCREATELINK},
+X	{"CreateMap",			FCREATEMAP},
+X	{"CreateDocument",		FCREATEDOCUMENT},
+X	{"CreateView",			FCREATEVIEW},
+X	{"AddFileToDocument",		FADDFILETODOCUMENT},
+X	{"ShowAttributes",		FSHOWATTRIBUTES},
+X	{"ShowBlocks",			FSHOWBLOCKS},
+X	{"ShowDocuments",		FSHOWDOCUMENTS},
+X	{"ShowFiles",			FSHOWFILES},
+X	{"ShowLinks",			FSHOWLINKS},
+X	{"ShowMaps",			FSHOWMAPS},
+X	{"ShowTexts",			FSHOWTEXTS},
+X	{"ShowViews",			FSHOWVIEWS},
+X	{"ChangeMap",			FCHANGEMAP},
+X	{"CloseDocument",		FCLOSEDOCUMENT},
+X	{"zzzzzzzzz",			-2},
+X};
+X
+int
+XFindCommandInTable( s )
+X	char *s;
+X{
+X	extern struct commandTableEntry commandTable[];
+X	extern int commandTableSize;
+X
+X	int i, low, high, mid;
+X
+X	/* use a binary search on the command table */
+X	low = 0;
+X	high = commandTableSize - 1;
+X	while( low <= high ) {
+X		/* item in range low..high or not in commandTable */
+X		mid = (high+low)/2;
+X		i = striccmp( commandTable[mid].command_name, s );
+X		if( i == 0 )
+X			return mid;
+X		if( i < 0 )
+X			low = mid + 1;
+X		else
+X			high = mid - 1;
+X	}
+X	return -1;	/* failure return */
+X}
+X
+int
+GetCommandNumber( s )
+X	char *s;
+X{
+X	extern struct commandTableEntry commandTable[];
+X	extern int commandTableSize;
+X	
+X	int i;
+X	
+X	if( isdigit(s[0]) )
+X		return atoi(s);
+X	i = FindCommandInTable( s );
+X	if( i == -1 ) {
+X		i = 0;
+X		printf("Could not find command `%s' in command table\n", s);
+X	}
+X	return commandTable[i].command_number;
+X}
+X
+void
+AddPointCommands( interp )
+X	Tcl_Interp * interp;
+X{
+X        extern struct commandTableEntry commandTable[];
+X        extern int commandTableSize;
+X
+X	int i;
+X
+X	for( i = 0; i < commandTableSize; ++i )
+X		Tcl_CreateCommand(
+X			interp,
+X			commandTable[i].command_name,
+X			doPtCommand,
+X			(ClientData)(commandTable[i].command_number),
+X			NULL
+X		);
+X}
+X
+char *
+CommandNumberToName( command_number )
+X	int command_number;
+X{
+X	extern struct commandTableEntry commandTable[];
+X	extern int commandTableSize;
+X	int n;
+X
+X	for( n = 0; n < commandTableSize; ++n )
+X		if( commandTable[n].command_number == command_number )
+X			return commandTable[n].command_name;
+X	return "<unknown command number>";
+X}
+X
+static int
+commandTableCompare( i, j )
+X        char *i, *j;
+X{
+X        return striccmp( ((struct commandTableEntry *)i)->command_name,
+X        		 ((struct commandTableEntry *)j)->command_name );
+X}
+X
+X/*SUPPRESS 544*/ /*SUPPRESS 68*/
+X
+void InitCommands()
+X{
+X        extern struct commandTableEntry commandTable[];
+X        extern int commandTableSize;
+X        
+X        int n;
+X
+X        /* sort the command table for easy lookup */
+X        /* first see how big it is */
+X        for( n = 0; commandTable[n].command_number != -2; ++n)
+X        	/*EMPTY*/
+X        	;
+X        commandTableSize = n;
+X
+X        /* then sort it with qsort */
+X        qsort( (char *)commandTable, commandTableSize,
+X        	sizeof(struct commandTableEntry), commandTableCompare);
+X
+X}
+END_OF_FILE
+if test 5691 -ne `wc -c <'cmdTable.c'`; then
+    echo shar: \"'cmdTable.c'\" unpacked with wrong size!
+fi
+# end of 'cmdTable.c'
+fi
+if test -f 'cursor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cursor.c'\"
+else
+echo shar: Extracting \"'cursor.c'\" \(7098 characters\)
+sed "s/^X//" >'cursor.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/cursor.c,v 1.6 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include "pt.h"
+X
+X/* keep records so we can move cursor consistently in vertical direction */
+int lastColumn = -1;
+int lastFn = 0;
+X
+X#define FSELUP		1
+X#define FSELDOWN	2
+X#define FSELRIGHT	3
+X#define FSELLEFT	4
+X#define FWORDRIGHT	5
+X#define FWORDLEFT	6
+X#define FLINERIGHT	7
+X#define FLINELEFT	8
+X
+int
+cursor( how, direction, update )
+X	char * how;
+X	char * direction;
+X	int update;
+X{
+X	extern struct window *windowList;
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern int debug;
+X	extern int lastColumn;
+X	extern int lastFn;
+X
+X	Offset cp;
+X	char ch;
+X	int uch;
+X	int row, col;
+X	int alphaNumeric;
+X	struct window *w = selWindow;
+X	int n;
+X	int fid = selWindow->fileId;
+X	int fn;
+X
+X	/* first erase the current selection since the cursor motion */
+X	/* will move the selection */
+X	drawSelection( 1 );
+X
+X	if( selWindow == NULL ) {
+X		/* get the mouse cursor position */
+X		printf("No selection\n");
+X		return 0;
+X	}
+X
+X	/* find the position of the current selection */
+X	cp = selBegin;
+X	OffsetToXY( selWindow, cp, &row, &col );
+X
+X	/* special case so that cursor up and down move */
+X	/* down the page in a straight line so as is */
+X	/* possible */
+X	if( (lastColumn != -1) && (lastFn==FSELUP || lastFn==FSELDOWN) )
+X			col = lastColumn;
+X
+X	/* adjust it according to the function invoked */
+X	if( strcmp(how,"char")==0 ) {
+X		if( strcmp(direction,"left")==0 ) {
+X			fn = FSELLEFT;
+X			switch( selMode ) {
+X				default:
+X				case SELCHAR:
+X					break;
+X				case SELWORD:
+X					goto doWordLeft;
+X				case SELLINE:
+X					goto doCurUp;
+X			}
+X			if( col > 0 )
+X				--col;
+X			else if( row > 0 || selWindow->numTopline>1 ) {
+X				--row;
+X				col = selWindow->nCols - 1;
+X			}
+X		} else if( strcmp(direction,"right")==0 ) {
+X			fn = FSELRIGHT;
+X			switch( selMode ) {
+X				default:
+X				case SELCHAR:
+X					break;
+X				case SELWORD:
+X					goto doWordRight;
+X				case SELLINE:
+X					goto doCurDown;
+X			}
+X			ch = getFileByte( fid, selBegin );
+X			if( ch != '\n' ) {
+X				if( col < selWindow->nCols )
+X					++col;
+X			} else {
+X				++row;
+X				col = 0;
+X			}
+X		} else if( strcmp(direction,"up")==0 ) {
+doCurUp:
+X			fn = FSELUP;
+X			if( row > 0 || selWindow->numTopline>1 )
+X				--row;
+X		} else {	/* down */
+doCurDown:
+X			fn = FSELDOWN;
+X			if( row < selWindow->nRows )
+X				++row;
+X		}
+X	} else if( strcmp(how,"word")==0 ) {
+X		if( strcmp(direction,"left")==0 ) {
+doWordLeft:
+X			fn = FWORDLEFT;
+X			cp = xyToOffset( w, row, col );
+X	
+X			/* skip the white space between words */
+X			uch = getFileByte( fid, cp );
+X			while( uch != BLOCK_EOF ) {
+X				uch = getFileByte( fid, --cp );
+X				if( !isspace(uch) )
+X					break;
+X			}
+X	
+X			alphaNumeric = isalnum(uch);
+X			/* skip the characters in the word */
+X			while( 1 ) {
+X				ch = getFileByte( fid, --cp );
+X				/****** OLD VERSION.  vi "big" words *******/
+X				/*if(ch==' '||ch=='\t'||ch=='\n'||ch=='\0')*/
+X				/*******************************************/
+X				/* if we have switched from alphanumeric to */
+X				/* not alphanumeric or the reverse, then quit */
+X				if( alphaNumeric ) {
+X					if( !isalnum(ch) && ch != '_' ) {
+X						++cp;
+X						break;
+X					}
+X				} else if(isalnum(ch)||isspace(ch)||ch=='_'){
+X					++cp;
+X					break;
+X				}
+X			}
+finishUp:
+X			OffsetToXY( w, cp, &row, &col );
+X			selBegin = cp;
+X			selEnd = selBegin;
+X			n = -1;
+X			cp = prevLine( selWindow->fileId, selBegin, &n );
+X			modeExtend( selWindow, selBegin, row, col, cp );
+X			if( indentToShowSelection(-1) ) {
+X				OffsetToXY( w, cp, &row, &col );
+X			}
+X		} else {	/* "right" */
+doWordRight:
+X			fn = FWORDRIGHT;
+X			cp = xyToOffset( w, row, col );
+X	
+X			ch = (char)getFileByte( fid, cp );
+X			alphaNumeric = isalnum(ch);
+X	
+X			/* skip the characters in the word */
+X			while( 1 ) {
+X				ch = (char)getFileByte( fid, ++cp );
+X				/****** OLD VERSION.  vi "big" words *******/
+X				/***if( ch==' ' || ch=='\n' || ch=='\0' )***/
+X				/*******************************************/
+X				/* if we have switched from alphanumeric to */
+X				/* not alphanumeric or the reverse, then quit */
+X				if( alphaNumeric ) {
+X					if( !isalnum(ch) && ch != '_' )
+X						break;
+X				} else if( isalnum(ch)||isspace(ch)||ch=='_' )
+X					break;
+X			}
+X	
+X			/* skip the white space between words */
+X			while( isspace(ch) )
+X				ch = (char)getFileByte( fid, ++cp );
+X	
+X			goto finishUp;
+X		}
+X	} else if( strcmp(how,"line")==0 ) {
+X		if( strcmp(direction,"right")==0 ) {
+X			fn = FLINERIGHT;
+X			cp = xyToOffset( w, row, col );
+X			while( 1 ) {
+X				ch = getFileByte( fid, cp++ );
+X				if( ch == '\n' || ch == '\0' )
+X					break;
+X			}
+X			--cp;	/* we went one past the NL */
+X			goto finishUp;
+X		} else {
+X			fn = FLINELEFT;
+X			cp = xyToOffset( w, row, col );
+X			uch = getFileByte( fid, cp-- );
+X			while( uch != BLOCK_EOF ) {
+X				uch = getFileByte( fid, cp-- );
+X				if( (char)uch == '\n' )
+X					break;
+X			}
+X			/* Move up to the first character of the line. */
+X			/* This is the first character past the '\n' */
+X			cp += 2;
+X			if( strcmp(direction,"left")==0 ) {
+X				/* skip tabs and blanks */
+X				while( 1 ) {
+X					ch = getFileByte( fid, cp++ );
+X					if( ch != ' ' && ch != '\t' )
+X						break;
+X				}
+X				/* undo last increment scanning white space */
+X				--cp;
+X			} /* else "left0" */
+X			goto finishUp;
+X		}
+X	} else {
+X		printf("Unrecognized selection movement: %s\n", how);
+X		return 0;
+X	}
+X
+X	if( update )
+X		doScreenUpdate( fn, col, row );
+X	else {
+X		switch( fn ) {
+X			case FSELRIGHT:
+X			case FSELLEFT:
+X			case FSELUP:
+X			case FSELDOWN:
+X				selBegin = cp;
+X				selEnd = cp;
+X				break;
+X		}
+X	}
+X	return 0;
+X}
+X
+X
+void
+doScreenUpdate( fn, col, row )
+X	int fn, col, row;
+X{
+X	extern struct window *selWindow;
+X	extern struct window *windowList;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern int debug;
+X	extern int lastColumn;
+X	extern int scrollDown;
+X	extern int intervalRows;
+X	extern struct window * scroll_window;
+X
+X	Offset cp;
+X	int n, y;
+X	register struct window *w = selWindow;
+X	struct fontDataStruct *font = &(w->font);
+X	int fid = selWindow->fileId;
+X	char ch;
+X
+X	lastFn = fn;
+X	lastColumn = col;
+X	cp = xyToOffset( w, row, col );
+X
+X	/* This is to prevent the right cursor movement from */
+X	/* getting stuck on a tab.  It should happen only when */
+X	/* the selection is on a tab. */
+X	ch = getFileByte( fid, cp );
+X	if( ch=='\t' && selBegin==cp && selEnd==cp && fn==FSELRIGHT )
+X		++cp;
+X
+X	/* see if we scrolled off an edge of the window */
+X	if( row >= w->nRows ) {
+X		intervalRows = w->nRows/3;
+X		scrollDown = 1;
+X		scroll_window = w;
+X		n = DoOneVScroll();
+X		row -= n;
+X		cp = xyToOffset( w, row, col );
+X	} else if( row < 0 ) {
+X		intervalRows = w->nRows/3;
+X		scrollDown = 0;
+X		scroll_window = w;
+X		n = DoOneVScroll();
+X		row += n;
+X		cp = xyToOffset( w, row, col );
+X	}
+X
+X	switch( fn ) {
+X	case FSELRIGHT:
+X	case FSELLEFT:
+X	case FSELUP:
+X	case FSELDOWN:
+X		selBegin = cp;
+X		selEnd = cp;
+X		break;
+X	}
+X	n = -1;		/* find the beginning of the line */
+X	cp = prevLine( fid, cp, &n );
+X
+X	/* figure out where to write line 'row' */
+X	y = w->topMargin + font->ascent + row*font->height;
+X	(void) fillLine( w, cp, row, 0, w->nCols, y, 0 );
+X}
+X
+END_OF_FILE
+if test 7098 -ne `wc -c <'cursor.c'`; then
+    echo shar: \"'cursor.c'\" unpacked with wrong size!
+fi
+# end of 'cursor.c'
+fi
+if test -f 'pt.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pt.h'\"
+else
+echo shar: Extracting \"'pt.h'\" \(6107 characters\)
+sed "s/^X//" >'pt.h' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/pt.h,v 1.8 1992/02/19 16:43:42 crowley Exp crowley $ */
+X
+X#include "ana.h"
+X#include "command.h"
+X#include "tcl.h"
+X#include "tk.h"
+X/**** #include "Intrinsic.h" -- just use a few typedefs ****/
+typedef short Position;
+typedef unsigned short  Dimension;
+typedef char * String;
+typedef unsigned long   Pixel;
+typedef unsigned int	Cardinal;
+X/* "file.h" is included about 20 lines down */
+X/* "funcdecl.h" is included at the end of this file (pt.h) */
+X
+X#define SCROLLBAR_LIMIT 10000
+X
+X#define BLOCK_EOF	256
+X
+X/******* parameters -- can be changed *****/
+X#define NBUFFERS      300  /* buffers for file blocks (in address space) */
+X#define NHISTORY      300  /* history kept in memory */
+X#define NBUFHASH      512  /* buffer hash chains */
+X#define MSGBUFFERSIZE 1024  /* size of two generally used buffers */
+X#define STRINGSIZE    256  /* size of input strings for search */
+X
+X/****** constants that are rarely changed */
+X#define BUFFERSIZE	1024	/* size of a buffer in bytes */
+X#define BUFFERSHIFT	10	/* shift to convert: bytes<-->buffers */
+X#define MAXCOLS		1024	/* max number of columns on the display */
+X#define FILENAMESIZE	512
+X
+X#include "file.h"
+X
+X/* mouse menu data to keep */
+struct mmData {
+X	Cursor cursor;
+X	char * tcl_command;
+X	char * label;
+X	int length;
+X};
+X
+X/* browser related typedefs */
+typedef struct {
+X	char *name;
+X	struct window *w;
+X} OpenWindowStruct;
+X
+X#define SHOW_SIZES_FLAG		0x1
+X#define SHOW_DIR_SLASHES_FLAG	0x2
+X
+X#define T_END_OF_TABLE	0
+X#define T_INTEGER	1
+X#define T_BOOLEAN	2
+X#define T_STRING	3
+X#define T_GEOMETRY	4
+X
+struct optionTableEntry {
+X	char * option_name;
+X	char * option_address;
+X	int option_type;
+X};
+X
+typedef struct {
+X	char *fileNames;
+X	char **listOfFilesShowing;
+X	int numberOfFilesShowing;
+X	int longestname;
+X	int showSizes;
+X	ino_t ino;
+X	time_t mtime;
+X	char *directoryName;
+X	int age;
+X	int use_count;
+X	char filePattern[512];
+X	char flags;
+X} FileListData;
+X
+struct fontDataStruct {
+X	int height, width, ascent;
+X	char *name;
+X	Font font;
+X	GC gc_normal, gc_selected, gc_underline;
+X};
+X
+X/* messageBits contains message producing flags */
+X/* 0 => no messages */
+X/* 1 => popup message windows */
+X/* 2 => message line (if there is one) */
+X/* 4 => on window headers */
+X/* 8 => on the xterm that started Point */
+X#define POPUP_MSGS	1
+X#define LINE_MSGS	2
+X#define WINDOW_MSGS	4
+X#define PRINTF_MSGS	8
+X
+typedef struct browser_data {
+X
+X	/* Tk stuff */
+X	Tk_Window tk_toplevel;
+X	Tk_Uid tk_pathname;
+X
+X	struct fontDataStruct browserFont;
+X
+X	/* filename list data */
+X	FileListData *fileListData;
+X	char cwd[FILENAMESIZE];
+X	struct browser_data *nextBrowser;
+X	struct browser_data *prevBrowser;
+X
+X} BrowserData;
+X
+X/* string names */
+typedef enum {
+X	HANDLEMSG,
+X	FULLMSG,
+X	MENUSPMSG,
+X	NOSPACEMSG,
+X	LOWSPACEMSG,
+X	OUTOFWINDOWS,
+X	NOBUFFERMEMORY,
+X	OUTOFFILESTRUCT,
+X	CANNOTOPEN,
+X	READONLYFILE,
+X	WRITINGFILE,
+X	CLOSEFAILED,
+X	RENAMEFAILED,
+X	DELETEFAILED,
+X	RENAMEFAILED2,
+X	WRITECANCELLED,
+X	FILEEXISTS,
+X	FILEWRITTEN,
+X	WRITEFAILED,
+X	CREATEFAILED,
+X	WRITEPROGRESS,
+X	WASREADONLY,
+X	YTOSAVE,
+X	CLOSECANCELLED,
+X	NOTOPEN,
+X	CLOSEFAILED2,
+X	REANMEFAILED2,
+X	DELETEFAILED2,
+X	RENAMEFAILED3
+X} StringNames;
+X
+X/* used in the piece table -- original or new characters file */
+typedef enum {
+X	ORIGFILE,
+X	ADDFILE
+X} WhichFile;
+X
+X/* deleteSelection update type */
+typedef enum {
+X	NOUPDATE,
+X	UPDATEWINDOWS
+X} DoUpdate;
+X
+X/* directions */
+typedef enum {
+X	FORWARD,
+X	REVERSED
+X} Direction;
+X
+X/* copyMove modes */
+typedef enum {
+X	COPY,
+X	MOVE,
+X	AGAIN
+X} CopyMoveMode;
+X
+X/* selection modes */
+typedef enum {
+X	SELCHAR,
+X	SELWORD,
+X	SELLINE,
+X	SELBLOCK
+X} SelectionMode;
+X
+struct keyTableEntry {
+X	char *key_name;
+X	int key_sym_value;
+X};
+X
+X/* change types */
+enum ChangeType {
+X	CNULL,
+X	CINSERT,
+X	CDELETE,
+X	CMOVE,
+X	CCOPY,
+X	CMOTION,
+X	CREPLACE
+X};
+X
+X/* flags constants */
+X#define	CHANGE_WAS_UNDONE	0x1
+X#define FILE_WAS_CLOSED		0x2
+X#define BLOCK_UNDO_BEGIN	0x4
+X#define BLOCK_UNDO_END		0x8
+X
+X/* change history */
+struct changeItem {
+X	int fileId;
+X	struct window *w;
+X	Offset position;
+X	int  lineNumber;
+X	Offset length;
+X	struct piece *firstPiece;
+X	char type;
+X	char flags;
+X	struct changeItem * next;
+X	struct changeItem * prev;
+X};
+X
+X/* option type values */
+typedef enum {
+X	OBOOLEAN,
+X	OINTEGER,
+X	OOTHERS,
+X	UBOOLEAN,
+X	UINTEGER,
+X	UOTHERS,
+X	OSTRING,
+X	USTRING
+X} OptionType;
+X
+X/* option index values */
+typedef enum {
+X	OFILESORT,
+X	OMSGCOLORS,
+X	ONBUFFERS,
+X	OTEXTCOLORS,
+X	OBORDERCOLORS,
+X	OFSDIRS,
+X	OUNDOSIZE,
+X	O43LINES,
+X	OFSPATTERNS,
+X	OBACKUPDEPTH,
+X	OREDEFINE,
+X	OLASTITEM
+X} OptionIndex;
+X
+X/* the window structure */
+struct window {
+X	/* linked list of active windows */
+X	struct window *nextWindow;
+X	struct window *prevWindow;
+X
+X	/* cursor position and line number */
+X	/* of the top and bottom lines in the window */
+X	Offset posTopline, posBotline;
+X	int numTopline, numBotline;
+X	
+X	/* display options */
+X	int lineNumbers;
+X
+X	/* remember the line we last jumped from */
+X	int rowLastline;
+X	
+X	/* remember the last line the found the mouse cursor on */
+X	int rowCurLast;
+X	Offset posCurLast, lastPosTop;
+X
+X	/* indent of the first character in each line visible */
+X	int indent;
+X	
+X	/* name and internal (to this program) identifier */
+X	/* of the file the window is displaying */
+X	int fileId;	/* of the file or view in the window */
+X	int realFileId;	/* of the file underlying the view */
+X	int nameOffset;	/* into the file name in the backing file */
+X
+X	/* layout variables */
+X	int topMargin;		/* space to leave before the first line */
+X	int leftMargin;		/* space to leave left of each line */
+X	int nRows, nCols;	/* number of rows and columns */
+X	Position oldX, oldY;	/* before zooming */
+X	Dimension oldWidth, oldHeight, oldBorderWidth;
+X	
+X	/* X stuff */
+X	Window x_window_id;
+X	
+X	/* keep an image of the contents of the screen */
+X	char * screen_image;
+X
+X	/* font information */
+X	struct fontDataStruct font;
+X
+X	/* Tk and Tcl stuff */
+X	Tk_Window tk_toplevel;
+X	Tk_Window tk_text;
+X	Tk_Uid tk_pathname;	/* interpreter name of the window */
+X	char * closeInform;	/* 'send $closeInform on close */
+X
+X#ifdef HYPERTEXT
+X	/* Anasazi stuff */
+X	DBM *db;
+X	Document document;
+X	View view;
+X	Block block;
+X	Map blockMap;
+X	Map fromLinkMap;
+X	Map toLinkMap;
+X	File file;
+X#endif
+X};
+X
+X#include "funcdecl.h"
+END_OF_FILE
+if test 6107 -ne `wc -c <'pt.h'`; then
+    echo shar: \"'pt.h'\" unpacked with wrong size!
+fi
+# end of 'pt.h'
+fi
+if test -f 'spans.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'spans.c'\"
+else
+echo shar: Extracting \"'spans.c'\" \(7629 characters\)
+sed "s/^X//" >'spans.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/spans.c,v 1.1 1991/07/05 16:34:41 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include "pt.h"
+X
+Offset
+searchSpans( fileId, startCp, stopCp, patString, patLength, linesPassed )
+X	int fileId, patLength, *linesPassed;
+X	Offset startCp, stopCp;
+X	char *patString;
+X{
+X	extern char msgBuffer[];
+X	extern int ignoreCase;
+X	extern int findWholeWords;
+X	extern int getSpanSize;
+X	extern int debug;
+X
+X	char *pat;
+X	unsigned char *firstChar;
+X	unsigned char *lastChar;
+X	unsigned char *p;
+X	char ch1, ch2, ch3;
+X	int matched, len, nLines;
+X	Offset cp, plen;
+X
+X	/* find the upper and lower case character */
+X	ch1 = *patString;
+X	if( !ignoreCase )
+X		ch2 = ch1;
+X	else if( 'a' <= ch1 && ch1 <= 'z' )
+X		ch2 = ch1 - 'a' + 'A';
+X	else if( 'A' <= ch1 && ch1 <= 'Z' )
+X		ch2 = ch1 - 'A' + 'a';
+X	else
+X		ch2 = ch1;
+X
+X	/* set up a long version of patLength-1 for comparisons */
+X	plen = patLength - 1;
+X	
+X	nLines = 0;
+X	
+X	/* set things up so getSpan is called right away */
+X	firstChar = (unsigned char *)1;
+X	lastChar = (unsigned char *)0;
+X
+X	/* each iteration of this loop scans one span */
+X	while( 1 ) {
+X		/* see if there are enough characters left in the */
+X		/* area we are searching to match the pattern */
+X		if( (stopCp - startCp) < plen )
+X			break;
+X
+X		/* find the first character of the string */
+X		if( firstChar > lastChar ) {
+X			if( getSpan(fileId, startCp, &firstChar, &lastChar, 0) )
+X				/* getSpan says startCp at EOF */
+X				break;
+X			/* check to see if the span is longer than the */
+X			/* area we are supposed to search */
+X			if( (lastChar-firstChar) > (stopCp-startCp) ) {
+X				/* if it is too long then adjust lastChar */
+X				lastChar = firstChar + (stopCp - startCp);
+X			}
+X		}
+X		len = (int)(lastChar - firstChar) + 1;
+getSpanSize += len;
+X		if( ch1 == ch2 )
+X			p = match2dn(firstChar, len, ch1);
+X		else
+X			p = match1dn(firstChar, len, ch1, ch2);
+X		if( p == NULL ) {
+X			startCp += len;
+X			nLines += countnl(firstChar, len);
+X			firstChar = (unsigned char *)1;
+X			lastChar = (unsigned char *)0;
+X			continue;
+X		}
+X		/* move startCp up past the matched character */
+X		len = p - firstChar;
+X		nLines += countnl(firstChar, len);
+X		startCp += len;
+X		
+X		firstChar = p;
+X
+X		/* start looking at the second character of the pattern */
+X		pat = patString + 1;
+X		matched = 1;	/* 1 character matched so far */
+X		
+X		/* search for a match at startCp */
+X		cp = startCp;
+X		while( matched < patLength ) {
+X			/* see if we are still in the span */
+X			if( firstChar > lastChar ) {
+X				if(getSpan(fileId,cp,&firstChar,&lastChar,0))
+X					/* at EOF so not found */
+X					break;
+X			}
+X			/* stop at a mismatch */
+X			ch3 = *firstChar++;
+X++getSpanSize;
+X			++cp;
+X			if( ignoreCase && 'A' <= ch3 && ch3 <= 'Z' )
+X				ch3 = ch3 - 'A' + 'a';
+X			if( *pat++ != ch3 )
+X				break;
+X			if( ch3 == '\n' )
+X				++nLines;
+X			++matched;
+X		}
+X		if( matched == patLength ) {
+X			/* we found the string */
+X			/* now does it have to be a whole word? */
+X			if( findWholeWords ) {
+X				/* make sure the character before it is */
+X				/* not alphanumeric or "_" */
+X				ch3 = (char)getFileByte(fileId, startCp-2);
+X				matched = !isalnum(ch3) && ch3 != '_';
+X				if( matched ) {
+X					/* and the char after it also */
+X					ch3 = (char)getFileByte(fileId,
+X						startCp+patLength-1);
+X					matched = !isalnum(ch3) && ch3 != '_';
+X				}
+X			} else
+X				matched = 1;
+X			if( matched ) {
+X				*linesPassed = nLines;
+X				return startCp - 1;
+X			}
+X		}
+X		firstChar = (unsigned char *)1;
+X		lastChar = (unsigned char *)0;
+X	}
+X	*linesPassed = nLines;
+X	return (Offset)(-1);
+X}
+X
+Offset
+searchReverseSpans(fileId, startCp, stopCp, patString, patLength, linesPassed)
+X	int fileId, patLength, *linesPassed;
+X	Offset startCp, stopCp;
+X	char *patString;
+X{
+X	extern char msgBuffer[];
+X	extern int ignoreCase;
+X	extern int debug;
+X	extern int findWholeWords;
+X	extern int getSpanSize;
+X
+X	char *pat;
+X	unsigned char *firstChar;
+X	unsigned char *lastChar;
+X	unsigned char *p;
+X	char ch1, ch2, ch3;
+X	int matched, len, nLines;
+X	Offset cp;
+X
+X	/* find the upper and lower case character */
+X	ch1 = *patString;
+X	if( !ignoreCase )
+X		ch2 = ch1;
+X	else if( 'a' <= ch1 && ch1 <= 'z' )
+X		ch2 = ch1 - 'a' + 'A';
+X	else if( 'A' <= ch1 && ch1 <= 'Z' )
+X		ch2 = ch1 - 'A' + 'a';
+X	else
+X		ch2 = ch1;
+X
+X	/* set up nLines correctly */
+X	nLines = 0;
+X	len = patLength - 1;
+X
+X	/* set things up so getSpan is called right away */
+X	firstChar = (unsigned char *)1;
+X	lastChar = (unsigned char *)0;
+X
+X	/* each iteration of this loop scans one span */
+X	while( stopCp >= startCp ) {
+X
+X		/* find the first character of the string */
+X		if( firstChar > lastChar ) {
+X			/* '1' (last argument) means get a reversed span */
+X			if(getSpan(fileId, stopCp, &firstChar, &lastChar, 1))
+X				/* at EOF */
+X				break;
+X		}
+X		len = (int)(lastChar - firstChar) + 1;
+getSpanSize += len;
+X		p = match1up(lastChar, len, ch1, ch2);
+X		if( p == NULL ) {
+X			stopCp -= len;
+X			nLines += countnl(firstChar, len);
+X			firstChar = (unsigned char *)1;
+X			lastChar = (unsigned char *)0;
+X			continue;
+X		}
+X		/* move stopCp up past the matched character */
+X		/* (remember that match1up returns a pointer to the */
+X		/* character BEFORE the one matched) */
+X		len = lastChar - p;
+X		stopCp -= len;
+X
+X		/* p is one before the found character */
+X		/* we want to match starting one character after */
+X		/* the found character, so we add 2 */
+X		firstChar = p + 2;
+X		nLines += countnl(firstChar, len);
+X		firstChar = (unsigned char *)1;
+X		lastChar = (unsigned char *)0;
+X
+X		/* start looking at the second character of the pattern */
+X		pat = patString + 1;
+X		matched = 1;	/* 1 matched character so */
+X		
+X		/* search for a match at startCp */
+X		cp = stopCp + 2;
+X		while( matched < patLength ) {
+X			/* see if we are still in the span */
+X			if( firstChar > lastChar ) {
+X				if(getSpan(fileId,cp,&firstChar,&lastChar,0))
+X					/* at EOF so not found */
+X					break;
+X			}
+X			/* stop at a mismatch */
+X			ch3 = *firstChar++;
+X++getSpanSize;
+X			++cp;
+X			if( ignoreCase && 'A' <= ch3 && ch3 <= 'Z' )
+X				ch3 = ch3 - 'A' + 'a';
+X			if( *pat++ != ch3 )
+X				break;
+X			++matched;
+X		}
+X		if( matched == patLength ) {
+X			/* we found the string */
+X			/* now does it have to be a whole word? */
+X			if( findWholeWords ) {
+X				/* make sure the character before it is */
+X				/* not alphanumeric or "_" */
+X				ch3 = (char)getFileByte(fileId, stopCp);
+X				matched = !isalnum(ch3) && ch3 != '_';
+X				if( matched ) {
+X					/* and the char after it also */
+X					ch3 = (char)getFileByte(fileId,
+X						stopCp+patLength+1);
+X					matched =
+X						!isalnum(ch3) && ch3 != '_';
+X				}
+X			} else
+X				matched = 1;
+X			if( matched ) {
+X				*linesPassed = nLines;
+X				return stopCp + 1;
+X			}
+X		}
+X		firstChar = (unsigned char *)1;
+X		lastChar = (unsigned char *)0;
+X	}
+X	*linesPassed = nLines;
+X	return (Offset)(-1);
+X}
+X
+unsigned char *
+match1up( start, len, ch1, ch2 )
+X	unsigned char *start;
+X	int len;
+X	int ch1, ch2;
+X{
+X	unsigned char ch;
+X
+X	while( len-- > 0 ) {
+X		ch = *start--;
+X		if( ch == ch1 || ch == ch2 )
+X			return start;
+X	}
+X	return (unsigned char *)NULL;
+X}
+X
+unsigned char *
+match1dn( start, len, ch1, ch2 )
+X	unsigned char *start;
+X	int len;
+X	int ch1, ch2;
+X{
+X	unsigned char ch;
+X
+X	while( len-- > 0 ) {
+X		ch = *start++;
+X		if( ch == (unsigned char)ch1 || ch == (unsigned char)ch2 )
+X			return start;
+X	}
+X	return (unsigned char *)NULL;
+X}
+X
+unsigned char *
+match2dn( start, len, ch1 )
+X	unsigned char *start;
+X	int len;
+X	int ch1;
+X{
+X	unsigned char ch;
+X
+X	while( len-- > 0 ) {
+X		ch = *start++;
+X		if( ch == (unsigned char)ch1 )
+X			return start;
+X	}
+X	return (unsigned char *)NULL;
+X}
+X
+int
+countnl( start, len )
+X	unsigned char *start;
+X	int len;
+X{
+X	unsigned char ch;
+X	int count = 0;
+X
+X	while( len-- > 0 ) {
+X		ch = *start++;
+X		if( ch == '\n' )
+X			++count;
+X	}
+X	return count;
+X}
+END_OF_FILE
+if test 7629 -ne `wc -c <'spans.c'`; then
+    echo shar: \"'spans.c'\" unpacked with wrong size!
+fi
+# end of 'spans.c'
+fi
+if test -f 'tclLib/textMenu.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/textMenu.tcl'\"
+else
+echo shar: Extracting \"'tclLib/textMenu.tcl'\" \(7815 characters\)
+sed "s/^X//" >'tclLib/textMenu.tcl' <<'END_OF_FILE'
+X#
+X#
+X# The text menu bar specification
+X#
+X#
+X
+set QuitMenu {
+X	{command "And save all" {QuitPoint save}}
+X	{command "And ask" {MakeQuitBox}}
+X	{command "And discard edits" {QuitPoint discard}}
+X}
+X
+set HelpMenu {
+X	{command "Function keys" {HelpWindow "function keys"}}
+X	{command "General" {HelpWindow general}}
+X	{command "Mouse menus" {HelpWindow "mouse menus"}}
+X	{command "Scrolling" {HelpWindow scroll}}
+X	{command "Options" {HelpWindow options}}
+X}
+X
+set FileMenu {
+X	{command "Select text colors ..." {MakeColorBox}}
+X	{cascade "Select text font =>" {
+X		{command "6x13" {TextFont "6x13"}}
+X		{command "6x10" {TextFont "6x10"}}
+X		{command "5x8" {TextFont "5x8"}}
+X		{command "*clean-medium-r*6*50*"
+X				{TextFont "*clean-medium-r*6*50*"}}
+X		{command "7x13" {TextFont "7x13"}}
+X		{command "8x13" {TextFont "8x13"}}
+X		{command "9x15" {TextFont "9x15"}}
+X		{command "10x20" {TextFont "10x20"}}
+X		{command "6x13bold" {TextFont "6x13bold"}}
+X		{command "7x13bold" {TextFont "7x13bold"}}
+X		{command "8x13bold" {TextFont "8x13bold"}}
+X	}}
+X	{cascade "PREFS" PREFS}
+X	{separator}
+X	{command "Zoom vertical" {Zoom}}
+X	{command "Zoom full" {Zoom {} full}}
+X	{cascade "Move Window =>" {
+X		{command "Move to NW" {MoveWindow 502x410+0+0}}
+X		{command "Move to NE" {MoveWindow 502x390+530+0}}
+X		{command "Move to SE" {MoveWindow 502x390+530+415}}
+X		{command "Move to SW" {MoveWindow 502x390+0+415}}
+X	}}
+X	{separator}
+X	{command "Save file" {SaveFile}}
+X	{command "Save as ..." {SaveAs}}
+X	{separator}
+X	{command "Open selection" {OpenWindow [selection get]}}
+X	{command "Open ..." {Browser 490x415+656+0}}
+X	{cascade "Close window =>" {
+X		{command "and save" {CloseWindow save}}
+X		{command "and ask" {CloseWindow ask}}
+X		{command "and discard edits" {CloseWindow nosave}}
+X	}}
+X	{command "About Point ..." {MakeAboutBox}}
+X	{cascade "Quit Point =>" {
+X		{command "And save all" {QuitPoint save}}
+X		{command "And ask" {MakeQuitBox}}
+X		{command "And discard edits" {QuitPoint discard}}
+X	}}
+X}
+X
+set EditMenu {
+X	{command "Insert X selection" {InsertSelectedString}}
+X	{command "Cancel copy mode" {CancelModes}}
+X	{separator}
+X	{command "Indent selected lines" {IndentSelection}}
+X	{command "Outdent selected lines" {IndentSelection 1}}
+X	{separator}
+X	{command "Search and Replace..." {MakeReplaceBox}}
+X	{command "RE Search and Replace..." {MakeRegexReplaceBox}}
+X	{separator}
+X	{command "Define Selected Macro" {DefineMacro}}
+X	{command "Execute Macro" {ExecMacro}}
+X	{command "Execute Selection as Tcl" {ExecSel}}
+X	{separator}
+X	{cascade "Scrap =>" {
+X		{command "Insert from" {InsertFromScrap}}
+X		{command "Delete sel to" {DeleteToScrap}}
+X		{command "Copy sel to" {CopySelToScrap}}
+X		{command "Exchange sel with" {ExchangeWithScrap}}
+X	}}
+X	{cascade "Copy =>" {
+X		{command "Note destination" {CopyToHereMode}}
+X		{command "Sel to destination" {CopyToHereMode}}
+X		{command "Cancel copy mode" {CancelModes}}
+X	}}
+X	{cascade "Change Case =>" {
+X		{command "To upper" {ChangeCaseOfSel toupper}}
+X		{command "To lower" {ChangeCaseOfSel tolower}}
+X		{command "Toggle case" {ChangeCaseOfSel toggle}}
+X	}}
+X	{cascade "Undo/Again/Redo =>" {
+X		{command "Repeat last edit" {Again mostrecent}}
+X		{command "Last edit (this file)" {Again thisfile}}
+X		{command "Undo one edit" {Undo 1}}
+X		{command "Redo one edit" {Redo 1}}
+X		{command "Begin block undo" {Undo begin}}
+X		{command "End block undo" {Undo end}}
+X		{command "Show command history" {ShowUndoStack}}
+X	}}
+X	{command "Redraw window" {Redraw}}
+X}
+X
+set GotoMenu {
+X	{command "Goto Selected Line #" {GotoLine [selection get] lof}}
+X	{command "Goto Line # ..." {MakeGotoBox}}
+X	{command "Goto Selection" {ShowSelection}}
+X	{separator}
+X	{command "Find Selected Ctag" {CTag [selection get]}}
+X	{command "Find Ctag ..." {MakeCtagBox}}
+X	{command "Find Selected Keyword" {GetSelectedKeyword}}
+X	{command "Find Keyword ..." {MakeKeywordBox}}
+X	{command "Find Matching bracket" {FindMatchingBracket}}
+X	{separator}
+X	{cascade "Search for string =>" {
+X		{command ">> for selected RE" {SearchForSel 1 forward}}
+X		{command "<< for selected RE" {SearchForSel 1 backward}}
+X		{command ">> for last RE" {RegexSearch \{\} forward}}
+X		{command "<< for last RE" {RegexSearch \{\} backward}}
+X		{command ">> for last string" {RepeatSearch forward}}
+X		{command "<< for last string" {RepeatSearch backward}}
+X		{command ">> for selection" {SearchForSel 0 forward}}
+X		{command "<< for selection" {SearchForSel 0 backward}}
+X		{command "For string ..." {MakeSearchBox normal}}
+X	}}
+X	{cascade "Move in file to =>" {
+X		{command "Beginning" {GotoLine 1 top}}
+X		{command "End" {MoveToEndFile}}
+X		{command "Last place" {MoveToLastPlace}}
+X	}}
+X}
+X
+set TextMenuSpec {
+X	{menu   FILE  "FILE"   FileMenu}
+X	{menu   EDIT  "EDIT"   EditMenu}
+X	{menu   GOTO  "GOTO"   GotoMenu}
+X	{button << " << "   {
+X		{SearchForSel 0 backward} 
+X		{MakeSearchBox normal}
+X		{RepeatSearch backward}
+X	}}
+X	{button >> " >> "   {
+X		{SearchForSel 0 forward} 
+X		{MakeSearchBox regex}
+X		{RepeatSearch forward}
+X	}}
+X	{button Close "Close"   {
+X		{CloseWindow save}
+X		{CloseWindow ask}
+X		{CloseWindow nosave}
+X	}}
+X	{button Save " Sv "   {
+X		{SaveFile}
+X		{SaveAs}
+X		Redraw
+X	}}
+X	{button Jump "Jump"   {
+X		{GotoLine 1 top}
+X		MoveToLastPlace
+X		MoveToEndFile
+X	}}
+X	{button Tag " Tag "    {
+X		{CTag [selection get]}
+X		MakeKeywordBox
+X		GetSelectedKeyword
+X	}}
+X	{button Dos "+Do-"    {
+X		{Redo 1}
+X		{Again}
+X		{Undo 1}
+X	}}
+X	{button Zz " Zz "   {
+X		{ChangeCaseOfSel toupper}
+X		{ChangeCaseOfSel toggle}
+X		{ChangeCaseOfSel tolower}
+X	}}
+X	{button MoveW "MoveW"   {
+X		{MoveWindow 502x410+0+0}
+X		{MoveWindow 502x390+530+0}
+X		{MoveWindow 502x390+530+415}
+X	}}
+X	{button Line "Line#"   {
+X		{GotoLine [selection get] lof}
+X		MakeGotoBox
+X		{SetLineNumbers}
+X	}}
+X	{menu   HELP  "HELP"   HelpMenu}
+X}
+X
+X#	{button InsDel "insDel"   {
+X#		{InsertFromScrap} 
+X#		{InsertSelectedString}
+X#		{DeleteToScrap}
+X#	}}
+X#
+X#
+X# The text menu bindings
+X#
+X#
+proc TextMenuBindings {w} {
+X	bind $w.<<     <Any-Key>   {+SearchCharacter %N %s}
+X	bind $w.>>     <Any-Key>   {+SearchCharacter %N %s}
+X	bind $w.GOTO   <Key>       {+GotoDigit %A}
+X	bind $w.Line   <Key>       {+GotoDigit %A}
+X}
+X
+proc TextBindings {w name} {
+X	bind $w <Expose>		"Expose $name %x %y %w %h %c"
+X	bind $w <Configure>		"Configure $name"
+X
+X	bind $w <Any-ButtonPress-1>	 "Mouse $name BeginSelection %x %y"
+X	bind $w <Any-B1-Motion>		 "Mouse $name ExtendSelection %x %y"
+X	bind $w <Any-ButtonRelease-1>	 "Mouse $name EndExtending %x %y"
+X
+X	bind $w <Any-ButtonPress-2>	 "Mouse $name BeginMouseMenu2 %x %y"
+X	bind $w <Any-B2-Motion>		 "Mouse $name ContinueMouseMenu %x %y"
+X	bind $w <Any-ButtonRelease-2>	 "Mouse $name EndMouseMenu %x %y"
+X	bind $w <Any-B2-ButtonRelease-1> "Mouse $name CancelMouseMenu %x %y"
+X	bind $w <Any-B2-ButtonRelease-3> "Mouse $name CancelMouseMenu %x %y"
+X
+X	bind $w <Any-ButtonPress-3>	 "Mouse $name BeginMouseMenu1 %x %y"
+X	bind $w <Any-B3-Motion>		 "Mouse $name ContinueMouseMenu %x %y"
+X	bind $w <Any-ButtonRelease-3>	 "Mouse $name EndMouseMenu %x %y"
+X	bind $w <Any-B3-ButtonRelease-1> "Mouse $name CancelMouseMenu %x %y"
+X	bind $w <Any-B3-ButtonRelease-2> "Mouse $name CancelMouseMenu %x %y"
+X
+X	bind $w <F1>		{DeleteToScrap}
+X	bind $w <F2>		{InsertFromScrap}
+X	bind $w <F3>		{RepeatSearch backward}
+X	bind $w <F4>		{RepeatSearch forward}
+X	bind $w <F5>		{Again}
+X	bind $w <F6>		{Redo 1}
+X	bind $w <F7>		{ScrollWindow up page}
+X	bind $w <F8>		{ScrollWindow down page}
+X	bind $w <F9>		{Undo 1}
+X	
+X	bind $w <Up>		{MoveSel char up}
+X	bind $w <Down>		{MoveSel char down}
+X	bind $w <Left>		{MoveSel char left}
+X	bind $w <Shift-Left>	{MoveSel word left}
+X	bind $w <Control-Left>	{MoveSel word left}
+X	bind $w <Right>		{MoveSel char right}
+X	bind $w <Shift-Right>	{MoveSel word right}
+X	bind $w <Control-Right>	{MoveSel word right}
+X
+X	bind $w <Home>		{MoveSel line left}
+X	bind $w <End>		{MoveSel line right}
+X	bind $w <Prior>		{ScrollWindow up page}
+X	bind $w <Next>		{ScrollWindow down page}
+X	bind $w <Any-Key>       {Key %N %s}
+X}
+X
+END_OF_FILE
+if test 7815 -ne `wc -c <'tclLib/textMenu.tcl'`; then
+    echo shar: \"'tclLib/textMenu.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/textMenu.tcl'
+fi
+echo shar: End of archive 3 \(of 15\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

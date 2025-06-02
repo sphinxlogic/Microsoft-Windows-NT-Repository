@@ -1,0 +1,1225 @@
+From: jloup@chorus.fr (Jean-loup Gailly)
+Newsgroups: comp.sources.misc
+Subject: v31i128: zcrypt19 - Info-zip portable zip/unzip (encryption code), Part01/01
+Message-ID: <1992Aug28.130023.10695@aber.ac.uk>
+Date: 28 Aug 92 13:00:23 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: ee93897e7d384163fcb1c9df64a0654a
+
+Submitted-by: Jean-loup Gailly <jloup@chorus.fr>
+Posting-number: Volume 31, Issue 128
+Archive-name: zcrypt19/part01
+Environment: UNIX, VMS, MS-DOS, OS/2
+
+The files described below contain the encryption code for zip 1.9 and
+unzip 5.0.  They constitute only an add-on to the exportable versions
+(generally named zip19.zip or zip19.tar.Z, and unzip50.tar.Z)
+and cannot be used without the complete zip package.
+
+The encryption code is a direct transcription of the algorithm from
+Roger Schlafly, described by Phil Katz in the file appnote.txt. This
+file is distributed with the PKZIP program (even in the version
+without encryption capabilities). Note that the encryption will
+probably resist attacks by amateurs if the password is well chosen and
+long enough (at least 8 characters) but it will probably not resist
+attacks by experts.  Short passwords consisting of lower case letters
+only can be recovered in a few hours on any workstation. But for casual
+cryptography designed to keep your mother from reading your mail, it's
+OK.
+
+All bug reports should go to zip-bugs@cs.ucla.edu, and suggestions for
+new features can be sent to info-zip@cs.ucla.edu.
+
+Jean-loup Gailly
+jloup@chorus.fr
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Readme Where crypt.c msdos unzpatch vms zipcloak.c
+#   zippatch msdos/zip_cr.prj msdos/zipcloak.prj vms/descrip.mms
+#   vms/make_gcc.com vms/make_vaxc.com
+# Wrapped by jloup@nocturne on Fri Aug 21 16:18:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Readme'\"
+else
+echo shar: Extracting \"'Readme'\" \(4437 characters\)
+sed "s/^X//" >'Readme' <<'END_OF_FILE'
+XThe files described below contain the encryption code for zip 1.9 and
+Xunzip 5.0.  They constitute only an add-on to the exportable versions
+X(generally named zip19.zip or zip19.tar.Z, and unzip50.tar.Z)
+Xand cannot be used without the complete zip package.
+X
+XThis encryption code is not copyrighted and is put in the public domain. It
+Xwas originally written in Europe and can be freely distributed from
+Xany country except the U.S.A. If this code is imported in the U.S.A,
+Xit cannot be re-exported from the U.S.A to another country. (This
+Xrestriction might seem curious but this is what US law requires.)
+XHowever, Phil Katz has said that he got an export license for his
+Xalgorithm, so this hassle of separate distribution may cease one day.
+X
+XLIKE ANYTHING ELSE THAT'S FREE, ZIP AND ITS ASSOCIATED UTILITIES ARE
+XPROVIDED AS IS AND COME WITH NO WARRANTY OF ANY KIND, EITHER EXPRESSED OR
+XIMPLIED. IN NO EVENT WILL THE AUTHORS BE LIABLE FOR ANY DAMAGES
+XRESULTING FROM THE USE OF THIS SOFTWARE.
+X
+XThe encryption code is a direct transcription of the algorithm from
+XRoger Schlafly, described by Phil Katz in the file appnote.txt. This
+Xfile is distributed with the PKZIP program (even in the version
+Xwithout encryption capabilities). Note that the encryption will
+Xprobably resist attacks by amateurs if the password is well chosen and
+Xlong enough (at least 8 characters) but it will probably not resist
+Xattacks by experts.  Short passwords consisting of lower case letters
+Xonly can be recovered in a few hours on any workstation. But for casual
+Xcryptography designed to keep your mother from reading your mail, it's
+XOK.
+X
+XIMPORTANT NOTES:
+X
+X- zip 1.9 is is compatible with pkzip 1.93a, except when two features
+X  are used: encryption or zip file created in a pipe or on a non
+X  seekable device. pkzip versions of 2.0 will support such files, and
+X  unzip 5.0 already supports them. (Thanks to Phil Katz for accepting
+X  our suggested minor changes to the zip file format.)
+X
+X- zip files produced by zip 1.9 must not be *updated* by zip 1.0 or
+X  pkzip 1.10 or pkzip 1.93a, if they contain encrypted members, or if
+X  they have been produced in a pipe or on a non seekable device. The
+X  old versions of zip or pkzip would destroy the zip structure. The
+X  old versions can list the contents of the zip file but cannot
+X  extract it anyway (because of the new compression algorithm).  If
+X  you do not use encryption and use regular disk files, you do not
+X  have to care about this problem.
+X
+X
+XContents:
+X
+Xfile               what it is
+X----               ----------
+XReadme             This file.
+XWhere              where Zip/UnZip can be found
+Xcrypt.c            Code for encryption and decryption
+Xzippatch           Patch to zip 1.9 makefile
+Xunzpatch           Patch to unzip 5.0 Makefile
+Xzipcloak.c         Main routine for ZipCloak.
+Xmsdos/zipcloak.prj Project file for Borland (Turbo) C++.
+Xmsdos/zip_cr.prj   Project file for Borland (Turbo) C++ (zip with encryption)
+Xvms/descrip.mms    VMS makefile
+Xvms/make_vaxc.com  VMS command file for compilation with Vax C.
+Xvms/make_gcc.com   VMS command file for compilation with gcc.
+X
+XThe makefiles not given here should be taken from the original zip 1.9
+Xand unzip 5.0 distributions. They require only minor modifications.
+XFollow the instructions given at the beginning of the makefiles. For
+Xexample, for the zip 1.9 Unix makefile, remove the comment symbol (#) in:
+X
+X# MAKE = make CRYPTO="crypt.o" CLOAK="zipcloak" CRFLAG="-DCRYPT"
+X
+Xto get:
+X
+XMAKE = make CRYPTO="crypt.o" CLOAK="zipcloak" CRFLAG="-DCRYPT"
+X
+Xor for the MSDOS makefiles, replace:
+X
+X#CRYPTO=crypt.obj
+X#CLOAK=zipcloak.exe
+X#CRFLAG=-DCRYPT
+X
+Xwith:
+X
+XCRYPTO=crypt.obj
+XCLOAK=zipcloak.exe
+XCRFLAG=-DCRYPT
+X
+XIf you have the 'patch' utility, you can just do: patch < zippatch
+XSimilar changes must be made for the unzip Makefile.
+X
+XIf you are using the Turbo C integrated environment, you must add
+XCRYPT to the compilation flags and use the project file zip_cr.prj.
+X
+XAll of the files are in Unix (LF only) format. On MSDOS systems, you
+Xcan use the -a option of unzip to convert the source files to CRLF
+Xformat.  This is only necessary if you wish to edit the files -- they
+Xwill compile as is with Microsoft C and Turbo/Borland C++ 1.0 or
+Xlater.  However, you will have to convert the files (using unzip -a)
+Xto the CRLF format to compile with the older Turbo C 1.0 or 2.0.  You
+Xshould be able to find unzip the same place you found this (see the file
+XWhere for details).
+END_OF_FILE
+if test 4437 -ne `wc -c <'Readme'`; then
+    echo shar: \"'Readme'\" unpacked with wrong size!
+fi
+# end of 'Readme'
+fi
+if test -f 'Where' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Where'\"
+else
+echo shar: Extracting \"'Where'\" \(4412 characters\)
+sed "s/^X//" >'Where' <<'END_OF_FILE'
+X__________________________________________________________________________
+X
+X  This is the Info-ZIP file ``Where,'' last updated on 20 August 1992.
+X__________________________________________________________________________
+X
+X
+X  SITE OWNERS:  If you're listed in here but the information is not
+X  correct (or if you're a big site but aren't listed at all), please
+X  let us know!  E-mail to zip-bugs at the address given in Readme
+X  and we'll update this file.
+X
+XBasic source-archive names for Info-ZIP's portable Zip, UnZip, and related
+Xutilities (on some ftp sites, the .zip files may have a .zoo equivalent
+Xin zoo 2.10 format):
+X
+X	zip19.zip	Zip 1.9 (includes zipnote and zipsplit)
+X	zip19.tar.Z	ditto, compress'd tar format
+X
+X	unzip50.zip	UnZip 5.0 (includes zipinfo and funzip)
+X	unzip50.tar.Z	ditto, compress'd tar format
+X
+X	wunz12sr.zip	WizUnZip 1.2 support files for Windows 3.1, UnZip 5.0
+X
+X	zcrypt19.zip	encryption/decryption support (includes zipcloak)
+X
+XRelated archives and files:
+X
+X	UnzpHist.zip	changes history of UnZip, back to 2.0
+X
+X	zip19x.zip      MSDOS executables and docs for zip, zipnote, zipsplit
+X	unzip50.exe     MSDOS executable for unzip
+X
+X	zip19_16.zip	OS/2 1.x 16-bit executables and docs
+X	zip19_32.zip	OS/2 2.x 32-bit executables and docs
+X	unz50_16.exe	OS/2 1.x 16-bit executable
+X	unz50_32.exe	OS/2 2.x 32-bit executable
+X
+X	zip19vms.zip	VMS executables and docs for zip, zipnote, zipsplit
+X	unz50vms.exe	VMS executable for unzip
+X
+X	zip_unzip.hqx   Macinstosh executables (zip 1.0 only, 1.9 not ready)
+X
+X	winunz12.zip    Windows 3.1 executables (zip 1.0 only, 1.9 not ready)
+X
+X	pkz110eu.exe	MS-DOS PKZIP/PKUNZIP 1.1 (self-extracting archive)
+X	pkz193a.exe	MS-DOS PKZIP/PKUNZIP beta 1.93 (self-extracting)
+X	pkz102-2.exe	OS/2 PKZIP/PKUNZIP 1.02 (self-extracting)
+X
+Xftp sites for the US-exportable sources and executables.  Look for
+Xthe file names given above in the following directories.  Some sites
+Xlike to use slightly different names, such as zip-1.9.tar-z instead
+Xof zip19.tar.Z.
+X
+X	wuarchive.wustl.edu:/packages/compression/...
+X	wuarchive.wustl.edu:/mirrors/misc/unix/...
+X	wuarchive.wustl.edu:/mirrors/misc/vaxvms/...
+X	wuarchive.wustl.edu:/mirrors/msdos/zip/...
+X	wuarchive.wustl.edu:/mirrors/msdos/windows3/...
+X
+X	ftp.uu.net:/pub/zip/...
+X
+X	ftp-os2.nmsu.edu:/pub/os2/2.0/archivers/...
+X	ftp-os2.nmsu.edu:/pub/os2/all/archivers/...
+X
+X	Zip 1.9 and UnZip 5.0 will also be available at any comp.sources.misc
+X	archive site as soon as they are posted.
+X
+X	wuarchive.wustl.edu:/mirrors/msdos/zip/pkz110eu.exe
+X	ux1.cso.uiuc.edu:/pc/exec-pc/pkz193a.exe	[128.174.5.59]
+X
+Xftp sites for the encryption and decryption sources:
+X
+X	NOTE:  Non-US users, please do NOT ftp from the US site (US
+X	regulations and all that).  Likewise, US users, please do not
+X	ftp from the European sites (it's not illegal, but it sure is
+X	a waste of expensive bandwidth).
+X
+X	From the US:
+X	   wuarchive.wustl.edu:/mirrors3/garbo.uwasa.fi/arcutil/zcrypt19.zip
+X
+X	Outside the US:
+X	   garbo.uwasa.fi:/pc/arcutil/zcrypt19.zip
+X	   ftp.win.tue.nl:/pub/compression/zip/zcrypt19.zip
+X	   ftp.inria.fr:/system/arch-compr/zcrypt19.zip
+X	   ftp.informatik.tu-muenchen.de:/pub/utils/archiver/zcrypt19.zip
+X	     (mail server at ftp-mailer@ftp.informatik.tu-muenchen.de)
+X
+XTo find other ftp sites:
+X
+X	The "archie" ftp database utility can be used to find an ftp site
+X	near you.  If you don't know how to use it, DON'T ASK US--check the
+X	Usenet groups news.newusers.questions or news.answers or some such,
+X	or ask your system administrator.
+X
+XUUCP sites:
+X
+X	uunet!~/pub/zip/ ...
+X
+XMail servers:
+X
+X	If you don't have anonymous FTP capability, you can mail one
+X	of the following commands (in the body of an e-mail message) to
+X	listserv@vm1.nodak.edu or listserv@vm.ecs.rpi.edu in order to
+X	get a copy via e-mail:
+X
+X	/pdget mail pd:<misc.unix>unzip50.tar-z uuencode
+X	/pdget mail pd:<misc.unix>zip19.zip uuencode
+X   or:	/pdget mail pd:<misc.unix>zip19.tar-z uuencode
+X
+X	To get the encryption source by email, send the following commands
+X	to ftp-mailer@ftp.informatik.tu-muenchen.de:
+X
+X	get /pub/utils/archiver/zcrypt19.zip
+X        quit
+X
+X__________________________________________________________________________
+X
+XAgain, if someone repackages any of the source or executable archives in
+XVMS-, Mac- or Atari-specific formats, please let us know (send e-mail to 
+Xzip-bugs at the address listed in README).
+X__________________________________________________________________________
+X
+END_OF_FILE
+if test 4412 -ne `wc -c <'Where'`; then
+    echo shar: \"'Where'\" unpacked with wrong size!
+fi
+# end of 'Where'
+fi
+if test -f 'crypt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'crypt.c'\"
+else
+echo shar: Extracting \"'crypt.c'\" \(9271 characters\)
+sed "s/^X//" >'crypt.c' <<'END_OF_FILE'
+X/*
+X   This code is not copyrighted and is put in the public domain. It
+X   was originally written in Europe and can be freely distributed from
+X   any country except the U.S.A. If this code is imported in the U.S.A,
+X   it cannot be re-exported from the U.S.A to another country. (This
+X   restriction might seem curious but this is what US law requires.)
+X */
+X
+X/* This encryption code is a direct transcription of the algorithm from
+X   Roger Schlafly, described by Phil Katz in the file appnote.txt. This
+X   file is distributed with the PKZIP program (even in the version without
+X   encryption capabilities).
+X */
+X
+X#include "zip.h"
+X
+X#ifndef SKIP_TIME_H   /* time.h already included in UnZip version */
+X#  include <time.h>
+X#endif /* !SKIP_TIME_H */
+X
+X#if ((defined(MSDOS) || defined(__MSDOS__) || defined(WIN32)) && !defined(__GO32__))
+X#  include <process.h>
+X#else
+X   int  getpid OF((void));
+X#endif
+X
+X#ifndef __GNUC__
+Xvoid srand  OF((unsigned int));
+X#endif
+Xint  rand   OF((void));
+X
+Xint  decrypt_byte OF((void));
+Xvoid update_keys OF((int c));
+Xvoid init_keys OF((char *passwd));
+Xint  zencode OF((int c));
+Xint  zdecode OF((int c));
+X
+Xlocal ulg keys[3]; /* keys defining the pseudo random sequence */
+X
+X/***********************************************************************
+X * Return the next byte in the pseudo-random sequence
+X */
+Xint decrypt_byte()
+X{
+X   ush temp;
+X
+X   temp = (ush)keys[2] | 2;
+X   return (int)(((ush)(temp * (temp ^ 1)) >> 8) & 0xff);
+X}
+X
+X/***********************************************************************
+X * Update the encryption keys with the next byte of plain text
+X */
+Xvoid update_keys(c)
+X    int c;                  /* byte of plain text */
+X{
+X    keys[0] = crc32(keys[0], c);
+X    keys[1] += keys[0] & 0xff;
+X    keys[1] = keys[1] * 134775813L + 1;
+X    keys[2] = crc32(keys[2], (int)(keys[1] >> 24));
+X}
+X
+X
+X/***********************************************************************
+X * Initialize the encryption keys and the random header according to
+X * the given password.
+X */
+Xvoid init_keys(passwd)
+X    char *passwd;             /* password string to modify keys with */
+X{
+X    keys[0] = 305419896L;
+X    keys[1] = 591751049L;
+X    keys[2] = 878082192L;
+X    while (*passwd != '\0') {
+X        update_keys((int)*passwd);
+X        passwd++;
+X    }
+X}
+X
+X/***********************************************************************
+X * Return the encoded value of the byte c of the plain text
+X */
+Xint zencode(c)
+X    int c;
+X{
+X    int temp = decrypt_byte();
+X
+X    update_keys(c);
+X    return temp ^ c;
+X}
+X
+X/***********************************************************************
+X * Return the decoded value of the byte c of the cypher text
+X */
+Xint zdecode(c)
+X    int c;
+X{
+X    int temp = c ^ decrypt_byte();
+X
+X    update_keys(temp);
+X    return temp;
+X}
+X
+X
+X/***********************************************************************
+X * Write encryption header to file zfile using the password passwd
+X * and the cyclic redundancy check crc. Note: we use the rand() library
+X * function, which is quite bad on many systems. But since we only
+X * need 10 values, this is not important.
+X */
+Xvoid crypthead(passwd, crc, zfile)
+X    char *passwd;             /* password string */
+X    ulg crc;                  /* crc of file being encrypted */
+X    FILE *zfile;              /* where to write header to */
+X{
+X    int n = 10;               /* size of random header */
+X
+X    init_keys(passwd);
+X
+X    /* Encrypt random header (last two bytes is high word of crc) */
+X
+X    srand((unsigned int)time(NULL) ^ getpid()); /* initialize generator */
+X    while (n--) {
+X        putc(zencode(rand() >> 7), zfile);
+X    }
+X    putc(zencode((int)(crc >> 16) & 0xff), zfile);
+X    putc(zencode((int)(crc >> 24)), zfile);
+X}
+X
+X
+X#ifdef UTIL
+X
+X/***********************************************************************
+X * Encrypt the zip entry described by z from file source to file dest
+X * using the password passwd.  Return an error code in the ZE_ class.
+X */
+Xint zipcloak(z, source, dest, passwd)
+X    struct zlist far *z;    /* zip entry to encrypt */
+X    FILE *source, *dest;    /* source and destination files */
+X    char *passwd;           /* password string */
+X{
+X    int c;                  /* input byte */
+X    int res;                /* result code */
+X    ulg n;                  /* holds offset and counts size */
+X    ush flag;               /* previous flags */
+X
+X    /* Set encrypted bit, clear extended local header bit and write local
+X       header to output file */
+X    if ((n = ftell(dest)) == -1L) return ZE_TEMP;
+X    z->off = n;
+X    flag = z->flg;
+X    z->flg |= 1,  z->flg &= ~8;
+X    z->lflg |= 1, z->lflg &= ~8;
+X    z->siz += 12;
+X    if ((res = putlocal(z, dest)) != ZE_OK) return res;
+X
+X    /* Initialize keys with password and write random header */
+X    crypthead(passwd, z->crc, dest);
+X
+X    /* Skip local header in input file */
+X    if (fseek(source, (long)(4 + LOCHEAD + (ulg)z->nam + (ulg)z->ext),
+X              SEEK_CUR)) {
+X        return ferror(source) ? ZE_READ : ZE_EOF;
+X    }
+X
+X    /* Encrypt data */
+X    for (n = z->siz - 12; n; n--) {
+X        if ((c = getc(source)) == EOF) {
+X            return ferror(source) ? ZE_READ : ZE_EOF;
+X        }
+X        putc(zencode(c), dest);
+X    }
+X    /* Skip extended local header in input file if there is one */
+X    if ((flag & 8) != 0 && fseek(source, 16L, SEEK_CUR)) {
+X        return ferror(source) ? ZE_READ : ZE_EOF;
+X    }
+X    if (fflush(dest) == EOF) return ZE_TEMP;
+X    return ZE_OK;
+X}
+X
+X/***********************************************************************
+X * Decrypt the zip entry described by z from file source to file dest
+X * using the password passwd.  Return an error code in the ZE_ class.
+X */
+Xint zipbare(z, source, dest, passwd)
+X    struct zlist far *z;  /* zip entry to encrypt */
+X    FILE *source, *dest;  /* source and destination files */
+X    char *passwd;         /* password string */
+X{
+X    int c0, c1;           /* last two input bytes */
+X    ulg offset;           /* used for file offsets */
+X    ulg size;             /* size of input data */
+X    int r;                /* size of encryption header */
+X    int res;              /* return code */
+X    ush flag;             /* previous flags */
+X
+X    /* Save position and skip local header in input file */
+X    if ((offset = ftell(source)) == -1L ||
+X        fseek(source, (long)(4 + LOCHEAD + (ulg)z->nam + (ulg)z->ext),
+X              SEEK_CUR)) {
+X        return ferror(source) ? ZE_READ : ZE_EOF;
+X    }
+X    /* Initialize keys with password */
+X    init_keys(passwd);
+X
+X    /* Decrypt encryption header, save last two bytes */
+X    c1 = 0;
+X    for (r = 12; r; r--) {
+X        c0 = c1;
+X        if ((c1 = zdecode(getc(source))) == EOF) {
+X            return ferror(source) ? ZE_READ : ZE_EOF;
+X        }
+X    }
+X
+X    /* If last two bytes of header don't match crc (or file time in the
+X       case of an extended local header), back up and just copy */
+X    if ((ush)(c0 | (c1<<8)) !=
+X        (z->flg & 8 ? (ush) z->tim & 0xffff : (ush)(z->crc >> 16))) {
+X        if (fseek(source, offset, SEEK_SET)) {
+X            return ferror(source) ? ZE_READ : ZE_EOF;
+X        }
+X        if ((res = zipcopy(z, source, dest)) != ZE_OK) return res;
+X        return ZE_MISS;
+X    }
+X
+X    /* Clear encrypted bit and local header bit, and write local header to
+X       output file */
+X    if ((offset = ftell(dest)) == -1L) return ZE_TEMP;
+X    z->off = offset;
+X    flag = z->flg;
+X    z->flg &= ~9;
+X    z->lflg &= ~9;
+X    z->siz -= 12;
+X    if ((res = putlocal(z, dest)) != ZE_OK) return res;
+X
+X    /* Decrypt data */
+X    for (size = z->siz; size; size--) {
+X        if ((c1 = getc(source)) == EOF) {
+X            return ferror(source) ? ZE_READ : ZE_EOF;
+X        }
+X        putc(zdecode(c1), dest);
+X    }
+X    /* Skip extended local header in input file if there is one */
+X    if ((flag & 8) != 0 && fseek(source, 16L, SEEK_CUR)) {
+X        return ferror(source) ? ZE_READ : ZE_EOF;
+X    }
+X    if (fflush(dest) == EOF) return ZE_TEMP;
+X
+X    return ZE_OK;
+X}
+X
+X
+X#else /* !UTIL */
+X
+X/***********************************************************************
+X * If requested, encrypt the data in buf, and in any case call fwrite()
+X * with the arguments to zfwrite().  Return what fwrite() returns.
+X */
+Xunsigned zfwrite(buf, item_size, nb, f)
+X    voidp *buf;                /* data buffer */
+X    extent item_size;          /* size of each item in bytes */
+X    extent nb;                 /* number of items */
+X    FILE *f;                   /* file to write to */
+X{
+X    if (key != (char *)NULL) { /* key is the global password pointer */
+X        ulg size;              /* buffer size */
+X        char *p = (char*)buf;  /* steps through buffer */
+X
+X        /* Encrypt data in buffer */
+X        for (size = item_size*(ulg)nb; size != 0; p++, size--) {
+X            *p = (char)zencode(*p);
+X        }
+X    }
+X    /* Write the buffer out */
+X    return fwrite(buf, item_size, nb, f);
+X}
+X
+X/***********************************************************************
+X * Encrypt the byte c and then do a putc().  The macro zputc defined in
+X * crypt.h checks keys and calls zfputc if needed.  Return what putc()
+X * returns. This function is only provided for compatibility with zip 1.0.
+X */
+Xint zfputc(c, f)
+X    int c;                  /* character to write */
+X    FILE *f;                /* file to write it to */
+X{
+X    return putc(zencode(c), f);
+X}
+X
+X#endif /* ?UTIL */
+END_OF_FILE
+if test 9271 -ne `wc -c <'crypt.c'`; then
+    echo shar: \"'crypt.c'\" unpacked with wrong size!
+fi
+# end of 'crypt.c'
+fi
+if test ! -d 'msdos' ; then
+    echo shar: Creating directory \"'msdos'\"
+    mkdir 'msdos'
+fi
+if test -f 'unzpatch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unzpatch'\"
+else
+echo shar: Extracting \"'unzpatch'\" \(540 characters\)
+sed "s/^X//" >'unzpatch' <<'END_OF_FILE'
+X*** old/Makefile	Thu Aug 20 11:09:22 1992
+X--- new/Makefile	Thu Aug 20 11:09:39 1992
+X***************
+X*** 60,67 ****
+X  CRYPTF =
+X  CRYPTO =
+X  # Uncomment next two lines for decryption version:
+X! #CRYPTF = -DCRYPT
+X! #CRYPTO = crypt$O
+X  
+X  # UnZip flags
+X  CC = cc#	try using "gcc" target rather than changing this (if you do,
+X--- 60,67 ----
+X  CRYPTF =
+X  CRYPTO =
+X  # Uncomment next two lines for decryption version:
+X! CRYPTF = -DCRYPT
+X! CRYPTO = crypt$O
+X  
+X  # UnZip flags
+X  CC = cc#	try using "gcc" target rather than changing this (if you do,
+END_OF_FILE
+if test 540 -ne `wc -c <'unzpatch'`; then
+    echo shar: \"'unzpatch'\" unpacked with wrong size!
+fi
+# end of 'unzpatch'
+fi
+if test ! -d 'vms' ; then
+    echo shar: Creating directory \"'vms'\"
+    mkdir 'vms'
+fi
+if test -f 'zipcloak.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipcloak.c'\"
+else
+echo shar: Extracting \"'zipcloak.c'\" \(9746 characters\)
+sed "s/^X//" >'zipcloak.c' <<'END_OF_FILE'
+X/*
+X   This code is not copyrighted and is put in the public domain. It
+X   was originally written in Europe and can be freely distributed from
+X   any country except the U.S.A. If this code is imported in the U.S.A,
+X   it cannot be re-exported from the U.S.A to another country. (This
+X   restriction might seem curious but this is what US law requires.)
+X */
+X
+X#define UTIL
+X#include "revision.h"
+X#include "zip.h"
+X#include <signal.h>
+X
+X#define PWLEN 80        /* Input buffer size for reading encryption key */
+X
+X#ifdef VMS
+X#  define echon() echo(1)
+X#endif
+X
+X
+X/* Temporary zip file name and file pointer */
+Xlocal char *tempzip;
+Xlocal FILE *tempzf;
+X
+X
+X/* Local functions */
+Xvoid err OF((int code, char *msg));
+Xlocal void handler OF((int sig));
+Xlocal void license OF((void));
+Xlocal void help OF((void));
+Xvoid main OF((int argc, char **argv));
+X
+X
+X
+X/***********************************************************************
+X * Issue a message for the error, clean up files and memory, and exit.
+X */
+Xvoid err(code, msg)
+X    int code;               /* error code from the ZE_ class */
+X    char *msg;              /* message about how it happened */
+X{
+X    if (PERR(code)) perror("zipcloak error");
+X    fprintf(stderr, "zipcloak error: %s (%s)\n", errors[code-1], msg);
+X    if (tempzf != NULL) fclose(tempzf);
+X    if (tempzip != NULL) {
+X        destroy(tempzip);
+X        free((voidp *)tempzip);
+X    }
+X    if (zipfile != NULL) free((voidp *)zipfile);
+X#ifdef VMS
+X    exit(0);
+X#else
+X    exit(code);
+X#endif
+X}
+X
+X
+X/***********************************************************************
+X * Upon getting a user interrupt, turn echo back on for tty and abort
+X * cleanly using err().
+X */
+Xlocal void handler(sig)
+X    int sig;                  /* signal number (ignored) */
+X{
+X#ifndef MSDOS
+X    echon();
+X    putc('\n', stderr);
+X#endif
+X    err(ZE_ABORT +sig-sig, "aborting");
+X    /* dummy usage of sig to avoid compiler warnings */
+X}
+X
+X
+X/***********************************************************************
+X * Print a warning message to stderr and return.
+X */
+Xvoid warn(msg1, msg2)
+X    char *msg1, *msg2;        /* message strings juxtaposed in output */
+X{
+X    fprintf(stderr, "zipcloak warning: %s%s\n", msg1, msg2);
+X}
+X
+X
+Xstatic char *public[] = {
+X"The encryption code of this program is not copyrighted and is put in the",
+X"public domain. It was originally written in Europe and can be freely",
+X"distributed from any country except the U.S.A. If this program is imported",
+X"in the U.S.A, it cannot be re-exported from the U.S.A to another country.",
+X"The copyright notice of the zip program applies to the rest of the code."
+X};
+X
+X/***********************************************************************
+X * Print license information to stdout.
+X */
+Xlocal void license()
+X{
+X    extent i;             /* counter for copyright array */
+X
+X    for (i = 0; i < sizeof(public)/sizeof(char *); i++) {
+X        puts(public[i]);
+X    }
+X    for (i = 0; i < sizeof(disclaimer)/sizeof(char *); i++) {
+X        puts(disclaimer[i]);
+X    }
+X}
+X
+X
+Xstatic char *help_info[] = {
+X"",
+X"ZipCloak %d.%d (%s)",
+X"Usage:  zipcloak [-d] [-b path] zipfile",
+X"  the default action is to encrypt all unencrypted entries in the zip file",
+X"  -d   decrypt--decrypt encrypted entries (copy if given wrong password)",
+X"  -b   use \"path\" for the temporary zip file",
+X"  -h   show this help               -l   show software license"
+X  };
+X
+X/***********************************************************************
+X * Print help (along with license info) to stdout.
+X */
+Xlocal void help()
+X{
+X    extent i;             /* counter for help array */
+X
+X    for (i = 0; i < sizeof(public)/sizeof(char *); i++) {
+X        puts(public[i]);
+X    }
+X    for (i = 0; i < sizeof(help_info)/sizeof(char *); i++) {
+X        printf(help_info[i], REVISION / 10, REVISION % 10, REVDATE);
+X        putchar('\n');
+X    }
+X}
+X
+X/***********************************************************************
+X * Encrypt or decrypt all of the entries in a zip file.  See the command
+X * help in help() above.
+X */
+X
+Xvoid main(argc, argv)
+X    int argc;             /* number of tokens in command line */
+X    char **argv;          /* command line tokens */
+X{
+X    int attr;             /* attributes of zip file */
+X    ulg start_offset;     /* start of central directory */
+X    int decrypt;          /* decryption flag */
+X    int temp_path;        /* 1 if next argument is path for temp files */
+X    char passwd[PWLEN+1]; /* password for encryption or decryption */
+X    char *q;              /* steps through option arguments */
+X    int r;                /* arg counter */
+X    int res;              /* result code */
+X    ulg length;           /* length of central directory */
+X    FILE *inzip, *outzip; /* input and output zip files */
+X    struct zlist far *z;  /* steps through zfiles linked list */
+X
+X
+X    /* If no args, show help */
+X    if (argc == 1) {
+X        help();
+X        exit(0);
+X    }
+X
+X    init_upper();           /* build case map table */
+X
+X    /* Go through args */
+X    zipfile = tempzip = NULL;
+X    tempzf = NULL;
+X    signal(SIGINT, handler);
+X    signal(SIGTERM, handler);
+X    temp_path = decrypt = 0;
+X    for (r = 1; r < argc; r++) {
+X        if (*argv[r] == '-') {
+X            if (!argv[r][1]) err(ZE_PARMS, "zip file cannot be stdin");
+X            for (q = argv[r]+1; *q; q++) {
+X                switch(*q) {
+X                case 'b':   /* Specify path for temporary file */
+X                    if (temp_path) {
+X                        err(ZE_PARMS, "use -b before zip file name");
+X                    }
+X                    temp_path = 1;          /* Next non-option is path */
+X                    break;
+X                case 'd':
+X                    decrypt = 1;  break;
+X                case 'h':   /* Show help */
+X                    help();
+X                    exit(0);
+X                case 'l': case 'L':  /* Show copyright and disclaimer */
+X                    license();
+X                    exit(0);
+X                default:
+X                    err(ZE_PARMS, "unknown option");
+X                } /* switch */
+X            } /* for */
+X
+X        } else if (temp_path == 0) {
+X            if (zipfile != NULL) {
+X                err(ZE_PARMS, "can only specify one zip file");
+X
+X            } else if ((zipfile = ziptyp(argv[r])) == NULL) {
+X                err(ZE_MEM, "was processing arguments");
+X            }
+X        } else {
+X            tempath = argv[r];
+X            temp_path = 0;
+X        } /* if */
+X    } /* for */
+X
+X    if (zipfile == NULL) err(ZE_PARMS, "need to specify zip file");
+X
+X    /* Read zip file */
+X    if ((res = readzipfile()) != ZE_OK) err(res, zipfile);
+X    if (zfiles == NULL) err(ZE_NAME, zipfile);
+X
+X    /* Check for something to do */
+X    for (z = zfiles; z != NULL; z = z->nxt) {
+X        if (decrypt ? z->flg & 1 : !(z->flg & 1)) break;
+X    }
+X    if (z == NULL) {
+X        err(ZE_NONE, decrypt ? "no encrypted files"
+X                       : "all files encrypted already");
+X    }
+X
+X    /* Before we get carried away, make sure zip file is writeable */
+X    if ((inzip = fopen(zipfile, "a")) == NULL) err(ZE_CREAT, zipfile);
+X    fclose(inzip);
+X    attr = getfileattr(zipfile);
+X
+X    /* Open output zip file for writing */
+X    if ((tempzf = outzip = fopen(tempzip = tempname(zipfile), FOPW)) == NULL) {
+X        err(ZE_TEMP, tempzip);
+X    }
+X
+X    /* Get password */
+X    if (getp("Enter password: ", passwd, PWLEN+1) == NULL) {
+X        err(ZE_PARMS, "stderr is not a tty (you may never see this message!)");
+X    }
+X
+X    /* Open input zip file again, copy preamble if any */
+X    if ((inzip = fopen(zipfile, FOPR)) == NULL) err(ZE_NAME, zipfile);
+X
+X    if (zipbeg && (res = fcopy(inzip, outzip, zipbeg)) != ZE_OK) {
+X        err(res, res == ZE_TEMP ? tempzip : zipfile);
+X    }
+X    /* Go through local entries, copying, encrypting, or decrypting */
+X    for (z = zfiles; z != NULL; z = z->nxt) {
+X        if (decrypt && (z->flg & 1)) {
+X            printf("decrypting %s", z->zname);
+X            fflush(stdout);
+X            if ((res = zipbare(z, inzip, outzip, passwd)) != ZE_OK) {
+X                if (res != ZE_MISS) err(res, "was decrypting an entry");
+X                printf(" (wrong password--just copying)");
+X            }
+X            putchar('\n');
+X
+X        } else if ((!decrypt) && !(z->flg & 1)) {
+X            printf("encrypting %s\n", z->zname);
+X            fflush(stdout);
+X            if ((res = zipcloak(z, inzip, outzip, passwd)) != ZE_OK) {
+X                err(res, "was encrypting an entry");
+X            }
+X        } else {
+X            printf("copying %s\n", z->zname);
+X            fflush(stdout);
+X            if ((res = zipcopy(z, inzip, outzip)) != ZE_OK) {
+X                err(res, "was copying an entry");
+X            }
+X        } /* if */
+X    } /* for */
+X    fclose(inzip);
+X
+X    /* Write central directory and end of central directory */
+X
+X    /* get start of central */
+X    if ((start_offset = ftell(outzip)) == -1L) err(ZE_TEMP, tempzip);
+X
+X    for (z = zfiles; z != NULL; z = z->nxt) {
+X        if ((res = putcentral(z, outzip)) != ZE_OK) err(res, tempzip);
+X    }
+X
+X    /* get end of central */
+X    if ((length = ftell(outzip)) == -1L) err(ZE_TEMP, tempzip);
+X
+X    length -= start_offset;               /* compute length of central */
+X    if ((res = putend((int)zcount, length, start_offset, zcomlen,
+X                       zcomment, outzip)) != ZE_OK) {
+X        err(res, tempzip);
+X    }
+X    tempzf = NULL;
+X    if (fclose(outzip)) err(ZE_TEMP, tempzip);
+X    if ((res = replace(zipfile, tempzip)) != ZE_OK) {
+X        warn("new zip file left as: ", tempzip);
+X        free((voidp *)tempzip);
+X        tempzip = NULL;
+X        err(res, "was replacing the original zip file");
+X    }
+X    free((voidp *)tempzip);
+X    tempzip = NULL;
+X    setfileattr(zipfile, attr);
+X    free((voidp *)zipfile);
+X    zipfile = NULL;
+X
+X    /* Done! */
+X    exit(0);
+X}
+END_OF_FILE
+if test 9746 -ne `wc -c <'zipcloak.c'`; then
+    echo shar: \"'zipcloak.c'\" unpacked with wrong size!
+fi
+# end of 'zipcloak.c'
+fi
+if test -f 'zippatch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zippatch'\"
+else
+echo shar: Extracting \"'zippatch'\" \(812 characters\)
+sed "s/^X//" >'zippatch' <<'END_OF_FILE'
+X*** old/makefile	Wed Aug 19 18:17:38 1992
+X--- new/makefile	Thu Aug 20 19:27:20 1992
+X***************
+X*** 14,23 ****
+X  CRYPTO =
+X  CLOAK =
+X  CRFLAG =
+X! MAKE = make
+X  #  **********************************************************************
+X  #  *** For encryption version, remove the # at the front of next line ***
+X! # MAKE = make CRYPTO="crypt.o" CLOAK="zipcloak" CRFLAG="-DCRYPT"
+X  
+X  # (to use the Gnu compiler, change cc to gcc in CC and BIND)
+X  CC = cc
+X--- 14,23 ----
+X  CRYPTO =
+X  CLOAK =
+X  CRFLAG =
+X! # MAKE = make
+X  #  **********************************************************************
+X  #  *** For encryption version, remove the # at the front of next line ***
+X! MAKE = make CRYPTO="crypt.o" CLOAK="zipcloak" CRFLAG="-DCRYPT"
+X  
+X  # (to use the Gnu compiler, change cc to gcc in CC and BIND)
+X  CC = cc
+END_OF_FILE
+if test 812 -ne `wc -c <'zippatch'`; then
+    echo shar: \"'zippatch'\" unpacked with wrong size!
+fi
+# end of 'zippatch'
+fi
+if test -f 'msdos/zip_cr.prj' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/zip_cr.prj'\"
+else
+echo shar: Extracting \"'msdos/zip_cr.prj'\" \(433 characters\)
+sed "s/^X//" >'msdos/zip_cr.prj' <<'END_OF_FILE'
+Xzip.c        (zip.h ziperr.h tailor.h revision.h)
+Xzipfile.c    (zip.h ziperr.h tailor.h)
+Xzipup.c      (zip.h ziperr.h tailor.h revision.h)
+Xfileio.c     (zip.h ziperr.h tailor.h)
+Xutil.c       (zip.h ziperr.h tailor.h)
+Xglobals.c    (zip.h ziperr.h tailor.h)
+Xdeflate.c    (zip.h ziperr.h tailor.h)
+Xbits.c       (zip.h ziperr.h tailor.h)
+Xtrees.c      (zip.h ziperr.h tailor.h)
+Xcrypt.c      (zip.h ziperr.h tailor.h)
+Xmatch.obj
+END_OF_FILE
+if test 433 -ne `wc -c <'msdos/zip_cr.prj'`; then
+    echo shar: \"'msdos/zip_cr.prj'\" unpacked with wrong size!
+fi
+# end of 'msdos/zip_cr.prj'
+fi
+if test -f 'msdos/zipcloak.prj' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/zipcloak.prj'\"
+else
+echo shar: Extracting \"'msdos/zipcloak.prj'\" \(266 characters\)
+sed "s/^X//" >'msdos/zipcloak.prj' <<'END_OF_FILE'
+Xzipcloak.c	(zip.h ziperr.h tailor.h revision.h)
+Xzipfile.c	(zip.h ziperr.h tailor.h)
+Xzipup.c		(zip.h ziperr.h tailor.h)
+Xfileio.c	(zip.h ziperr.h tailor.h)
+Xcrypt.c 	(zip.h ziperr.h tailor.h)
+Xutil.c		(zip.h ziperr.h tailor.h)
+Xglobals.c	(zip.h ziperr.h tailor.h)
+END_OF_FILE
+if test 266 -ne `wc -c <'msdos/zipcloak.prj'`; then
+    echo shar: \"'msdos/zipcloak.prj'\" unpacked with wrong size!
+fi
+# end of 'msdos/zipcloak.prj'
+fi
+if test -f 'vms/descrip.mms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/descrip.mms'\"
+else
+echo shar: Extracting \"'vms/descrip.mms'\" \(1605 characters\)
+sed "s/^X//" >'vms/descrip.mms' <<'END_OF_FILE'
+X# VMS Makefile for Zip, ZipNote, ZipCloak and ZipSplit
+X
+XCDEB = !	/DEBUG/NOOPT
+XLDEB = !	/DEBUG
+X
+XOBJZ = zip.obj,zipfile.obj,zipup.obj,fileio.obj,util.obj,globals.obj,-
+X	crypt.obj,vms.obj,VMSmunch.obj
+XOBJI = deflate.obj,trees.obj,bits.obj
+XOBJN = zipnote.obj,zipfile.obj_,zipup.obj_,fileio.obj_,globals.obj,-
+X	util_.obj_,vmsmunch.obj
+XOBJS = zipsplit.obj,zipfile.obj_,zipup.obj_,fileio.obj_,globals.obj,-
+X	util_.obj_,vmsmunch.obj
+XOBJC = zipcloak.obj,zipfile.obj_,zipup.obj_,fileio.OBJ_,util_.obj,-
+X		crypt.obj_,globals.obj,vmsmunch.obj
+X
+XCC	=	cc $(CDEB)
+X
+XLINK	=	link $(LDEB)
+X
+X.suffixes
+X.suffixes : .obj .obj_ .c .exe
+X
+X.c.obj_ :
+X	$(CC)/define=("CRYPT","UTIL")/OBJ=$(mms$target) $(mms$source)
+X.c.obj :
+X	$(cc)/define="CRYPT"/OBJ=$(mms$target) $(mms$source)
+X.obj.exe :
+X	$(LINK)/exe=$(mms$target) vaxclib.opt/opt,$(mms$source)
+X
+X# rules for zip, zipnote, zipsplit, and zip.doc.
+X
+Xdefautl :	zip.exe,zipnote.exe,zipsplit.exe,zipcloak.exe
+X @ !
+X
+Xzipfile.obj_ :	zipfile.c
+Xzipup.obj_   :	zipup.c
+Xfileio.obj_  :	fileio.c
+Xutil.obj_    :	util.c
+Xcrypt.obj_   :	crypt.c
+X
+X$(OBJZ) : zip.h,ziperr.h,tailor.h
+X$(OBJI) : zip.h,ziperr.h,tailor.h
+X$(OBJN) : zip.h,ziperr.h,tailor.h
+X$(OBJS) : zip.h,ziperr.h,tailor.h
+X
+Xzip.obj,zipcloak.obj,zipup.obj,zipnote.obj,zipsplit.obj : revision.h
+X
+Xzipfile.obj, fileio.obj, VMSmunch.obj : VMSmunch.h
+X
+Xzip.exe : $(OBJZ),$(OBJI)
+X	$(LINK)/exe=zip.exe vaxclib.opt/opt,$(OBJZ),$(OBJI)
+X
+Xzipnote.exe : $(OBJN)
+X	$(LINK)/exe=zipnote.exe vaxclib.opt/opt,$(OBJN)
+X
+Xzipsplit.exe : $(OBJS)
+X	$(LINK)/exe=zipsplit.exe vaxclib.opt/opt,$(OBJS)
+X
+Xzipcloak.exe : $(OBJC)
+X	$(LINK)/exe=zipcloak.exe vaxclib.opt/opt,$(OBJC)
+END_OF_FILE
+if test 1605 -ne `wc -c <'vms/descrip.mms'`; then
+    echo shar: \"'vms/descrip.mms'\" unpacked with wrong size!
+fi
+# end of 'vms/descrip.mms'
+fi
+if test -f 'vms/make_gcc.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/make_gcc.com'\"
+else
+echo shar: Extracting \"'vms/make_gcc.com'\" \(2175 characters\)
+sed "s/^X//" >'vms/make_gcc.com' <<'END_OF_FILE'
+X$ !
+X$ !     "Makefile" for VMS versions of Zip, ZipCloak, ZipNote,
+X$ !      and ZipSplit (stolen from Unzip)
+X$ !
+X$ !      IMPORTANT NOTE: do not forget to set the symbols as said below
+X$ !                      in the Symbols section.
+X$ !
+X$ set verify    ! like "echo on", eh?
+X$ !
+X$ !------------------------------- Zip section --------------------------------
+X$ !
+X$ gcc /def=CRYPT zip
+X$ gcc /def=CRYPT crypt
+X$ gcc /def=CRYPT zipfile
+X$ gcc /def=CRYPT zipup
+X$ gcc /def=CRYPT fileio
+X$ gcc /def=CRYPT util
+X$ gcc /def=CRYPT deflate
+X$ gcc /def=CRYPT globals
+X$ gcc /def=CRYPT trees
+X$ gcc /def=CRYPT bits
+X$ gcc /def=CRYPT vms
+X$ gcc /def=CRYPT VMSmunch
+X$ ! add /def=CRYPT and crypt for crypt version
+X$ link zip,crypt,zipfile,zipup,fileio,util,deflate,globals,trees,bits, -
+X   vms,VMSmunch, gnu_cc:[000000]gcclib.olb/lib, sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ !
+X$ !-------------------------- Zip utilities section ---------------------------
+X$ !
+X$ gcc /def=(CRYPT,UTIL) zipnote
+X$ gcc /def=(CRYPT,UTIL) zipsplit
+X$ gcc /def=(CRYPT,UTIL) /obj=zipfile_.obj zipfile
+X$ gcc /def=(CRYPT,UTIL) /obj=zipup_.obj zipup
+X$ gcc /def=(CRYPT,UTIL) /obj=fileio_.obj fileio
+X$ gcc /def=(CRYPT,UTIL) /obj=util_.obj util
+X$ ! uncomment crypt and zipcloak lines for crypt version
+X$ gcc /def=(CRYPT,UTIL) zipcloak
+X$ gcc /def=(CRYPT,UTIL) /obj=crypt_.obj crypt
+X$ link zipcloak, zipfile_, zipup_, fileio_, util, crypt_, globals, -
+X   VMSmunch, gnu_cc:[000000]gcclib.olb/lib, sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ link zipnote, zipfile_, zipup_, fileio_, util_, globals, VMSmunch, -
+X   sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ link zipsplit, zipfile_, zipup_, fileio_, util_, globals, VMSmunch, -
+X   gnu_cc:[000000]gcclib.olb/lib, sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ !
+X$ !----------------------------- Symbols section ------------------------------
+X$ !
+X$ ! Set up symbols for the various executables.  Edit the example below,
+X$ ! changing "disk:[directory]" as appropriate.
+X$ !
+X$ zip		== "$disk:[directory]zip.exe"
+X$ zipcloak	== "$disk:[directory]zipcloak.exe"
+X$ zipnote	== "$disk:[directory]zipnote.exe"
+X$ zipsplit	== "$disk:[directory]zipsplit.exe"
+X$ !
+X$ set noverify
+END_OF_FILE
+if test 2175 -ne `wc -c <'vms/make_gcc.com'`; then
+    echo shar: \"'vms/make_gcc.com'\" unpacked with wrong size!
+fi
+# end of 'vms/make_gcc.com'
+fi
+if test -f 'vms/make_vaxc.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/make_vaxc.com'\"
+else
+echo shar: Extracting \"'vms/make_vaxc.com'\" \(1744 characters\)
+sed "s/^X//" >'vms/make_vaxc.com' <<'END_OF_FILE'
+X$ !
+X$ !     "Makefile" for VMS versions of Zip, ZipCloak, ZipNote,
+X$ !     and ZipSplit (stolen from Unzip)
+X$ !
+X$ !      IMPORTANT NOTE: do not forget to set the symbols as said below
+X$ !                      in the Symbols section.
+X$ !
+X$ set verify    ! like "echo on", eh?
+X$ !
+X$ !------------------------------- Zip section --------------------------------
+X$ !
+X$ cc/def=CRYPT zip, zipfile, zipup, crypt, fileio, util, deflate, globals,-
+X	trees, bits, vms, VMSmunch
+X$ link zip, zipfile, zipup, crypt, fileio, util, deflate, globals,-
+X	trees, bits, vms, VMSmunch, sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ !
+X$ !-------------------------- Zip utilities section ---------------------------
+X$ !
+X$ cc /def=(UTIL,CRYPT) /obj=zipfile_.obj zipfile.c
+X$ cc /def=(UTIL,CRYPT) /obj=zipup_.obj zipup.c
+X$ cc /def=(UTIL,CRYPT) /obj=fileio_.obj fileio.c
+X$ cc /def=(UTIL,CRYPT) /obj=util_.obj util.c
+X$ cc /def=(UTIL,CRYPT) /obj=crypt_.obj crypt.c
+X$ cc zipcloak
+X$ cc zipnote, zipsplit
+X$ link zipcloak, zipfile_, zipup_, fileio_, util, crypt_, globals, -
+X	VMSmunch, sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ link zipnote, zipfile_, zipup_, fileio_, util_, globals, VMSmunch,-
+X	sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ link zipsplit, zipfile_, zipup_, fileio_, util_, globals, VMSmunch,-
+X	sys$input:/opt
+Xsys$share:vaxcrtl.exe/shareable
+X$ !
+X$ !----------------------------- Symbols section ------------------------------
+X$ !
+X$ ! Set up symbols for the various executables.  Edit the example below,
+X$ ! changing "disk:[directory]" as appropriate.
+X$ !
+X$ zip		== "$disk:[directory]zip.exe"
+X$ zipcloak	== "$disk:[directory]zipcloak.exe"
+X$ zipnote	== "$disk:[directory]zipnote.exe"
+X$ zipsplit	== "$disk:[directory]zipsplit.exe"
+X$ !
+X$ set noverify
+END_OF_FILE
+if test 1744 -ne `wc -c <'vms/make_vaxc.com'`; then
+    echo shar: \"'vms/make_vaxc.com'\" unpacked with wrong size!
+fi
+# end of 'vms/make_vaxc.com'
+fi
+echo shar: End of shell archive.
+exit 0
+exit 0 # Just in case...

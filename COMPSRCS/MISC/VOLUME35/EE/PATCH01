@@ -1,0 +1,300 @@
+Newsgroups: comp.sources.misc
+From: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Subject: v35i123:  ee - Easy Editor, a simple editor for UNIX, Patch01
+Message-ID: <1993Mar4.204613.13052@sparky.imd.sterling.com>
+Date: Thu, 4 Mar 1993 20:46:13 GMT
+Approved: kent@sparky.imd.sterling.com
+X-Md4-Signature: 298c5ab95e39a9af84ff88a0f9330c45
+
+Submitted-by: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Posting-number: Volume 35, Issue 123
+Archive-name: ee/patch01
+Environment: SYSV, SunOS, Curses
+Patch-To: ee: Volume 35, Issue 80-84
+
+Some defects were reported by people who built EasyEdit ("ee").  It also 
+became clear that other things could be done to make ee easier to build.
+
+Known defects:
+
+	1. ee core dumped on exit or write of file when no file name given 
+	   when starting ee
+	2. ee core dumped when 'ispell' was chosen in spell menu
+	3. ee could core dump during format of a paragraph
+	4. ee could read a file twice after an error occurred when 
+	   multiple files given on command line
+
+The curses alternative, new_curse.c was modified to remove dependence on 
+-DSUN for some platforms.
+
+The Makefile was modified to provide information in an easier to 
+understand way.
+
+The following patch fixes the known deficiencies.
+
+To use the patch, unpack it from the shar file, then use the 'patch' 
+utility, avaliable from many ftp archive sites (such as wuarchive.wustl.edu) 
+if you don't already have it.  It is a valuable tool to have.
+
+Hugh Mahon              |__|     
+h_mahon@fc.hp.com       |  |     
+                           |\  /|
+                           | \/ |
+-----------
+diff -cr ../ee.old/Makefile ./Makefile
+*** ../ee.old/Makefile	Thu Mar  4 14:38:33 1993
+--- ./Makefile	Thu Mar  4 14:36:56 1993
+***************
+*** 11,33 ****
+  # The "clean" target ("make clean") will remove the ee and new_curse.o 
+  # object files, and the ee binary.
+  #
+- # If compiling on Sun, include -DSUN in the DEFINES line, and -I/usr/5include 
+- # and -L/usr/5lib in the CFLAGS (this may be useful for other systems as well).
+- #
+  # If the system does not have localization routines, use the -DNO_CATGETS
+  # define.  If the system supports setlocale(), catopen(), and catgets() and 
+  # localization is desired, do not use -DNO_CATGETS.
+  #
+  
+  # for System V, using new_curse with terminfo
+! DEFINES =	-DSYS5 -DNCURSE -DNO_CATGETS
+! #DEFINES =	-DSYS5 
+  
+! # for BSD, using new_curse with tremcap
+  #DEFINES = 	-DCAP -DNCURSE
+  
+  # flags for compilation
+! CFLAGS = -s
+  
+  all :	ee
+  
+--- 11,34 ----
+  # The "clean" target ("make clean") will remove the ee and new_curse.o 
+  # object files, and the ee binary.
+  #
+  # If the system does not have localization routines, use the -DNO_CATGETS
+  # define.  If the system supports setlocale(), catopen(), and catgets() and 
+  # localization is desired, do not use -DNO_CATGETS.
+  #
++ #
+  
+  # for System V, using new_curse with terminfo
+! DEFINES =	-DSYS5 -DNCURSE 
+  
+! # for BSD, using new_curse with termcap
+  #DEFINES = 	-DCAP -DNCURSE
+  
+  # flags for compilation
+! CFLAGS = -s -DNO_CATGETS
+! 
+! # For Sun systems, remove the '#' from the front of the next two lines:
+! #DEFINES = -DSYS5 -DNCURSE 
+! #CFLAGS  = -I/usr/5include -L/usr/5lib -DNO_CATGETS -s
+  
+  all :	ee
+  
+diff -cr ../ee.old/README.ee ./README.ee
+*** ../ee.old/README.ee	Thu Mar  4 14:38:18 1993
+--- ./README.ee	Thu Mar  4 14:36:56 1993
+***************
+*** 84,90 ****
+  
+  Both ee and new_curse were developed using K&R C (also known as "classic 
+  C").  Some tweaks may be required to make ee and new_curse compile on 
+! some platforms.
+  
+  ee is the result of several conflicting design goals.  While I know that it 
+  solves the problems of some users, I also have no doubt that some will decry 
+--- 84,91 ----
+  
+  Both ee and new_curse were developed using K&R C (also known as "classic 
+  C").  Some tweaks may be required to make ee and new_curse compile on 
+! some platforms.  Please read the Makefile for information on building ee for 
+! your platform.
+  
+  ee is the result of several conflicting design goals.  While I know that it 
+  solves the problems of some users, I also have no doubt that some will decry 
+diff -cr ../ee.old/ee.c ./ee.c
+*** ../ee.old/ee.c	Thu Mar  4 14:38:26 1993
+--- ./ee.c	Thu Mar  4 14:36:58 1993
+***************
+*** 51,57 ****
+   |	proprietary information which is protected by
+   |	copyright.  All rights are reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/ee.c,v 1.65 1993/02/19 05:00:07 hugh Exp $
+   |
+   */
+  
+--- 51,57 ----
+   |	proprietary information which is protected by
+   |	copyright.  All rights are reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/ee.c,v 1.66 1993/02/28 01:00:54 hugh Exp $
+   |
+   */
+  
+***************
+*** 64,70 ****
+  	"copyright.  All rights are reserved."
+  	};
+  
+! char *version = "@(#) ee, version 1.2.2 $Revision: 1.65 $";
+  
+  #ifdef NCURSE
+  #include "new_curse.h"
+--- 64,70 ----
+  	"copyright.  All rights are reserved."
+  	};
+  
+! char *version = "@(#) ee, version 1.2.2 pl 1 $Revision: 1.66 $";
+  
+  #ifdef NCURSE
+  #include "new_curse.h"
+***************
+*** 1811,1817 ****
+--- 1811,1820 ----
+  		wprintw(com_win, file_is_dir_msg, tmp_file);
+  		wrefresh(com_win);
+  		if (input_file)
++ 		{
+  			quit(0);
++ 			return;
++ 		}
+  		else
+  			return;
+  	}
+***************
+*** 2102,2108 ****
+  		free(curr_line->next_line);
+  	}
+  	curr_line->next_line = NULL;
+! 	curr_line->line = NULL;
+  	curr_line->line_length = 1;
+  	curr_line->line_number = 1;
+  	point = curr_line->line;
+--- 2105,2111 ----
+  		free(curr_line->next_line);
+  	}
+  	curr_line->next_line = NULL;
+! 	*curr_line->line = NULL;
+  	curr_line->line_length = 1;
+  	curr_line->line_number = 1;
+  	point = curr_line->line;
+***************
+*** 2121,2127 ****
+  	int write_flag = TRUE;
+  
+  	charac = lines = 0;
+! 	if (strcmp(in_file_name, file_name))
+  	{
+  		if (temp_fp = fopen(file_name, "r"))
+  		{
+--- 2124,2130 ----
+  	int write_flag = TRUE;
+  
+  	charac = lines = 0;
+! 	if ((in_file_name == NULL) || strcmp(in_file_name, file_name))
+  	{
+  		if (temp_fp = fopen(file_name, "r"))
+  		{
+***************
+*** 3791,3797 ****
+  		 |	in the line without crossing the margin
+  		 */
+  
+! 		while (((word_len = first_word_len(curr_line->next_line)) > 0) 
+  			&& ((scr_pos + word_len) < right_margin))
+  		{
+  			adv_line();
+--- 3794,3801 ----
+  		 |	in the line without crossing the margin
+  		 */
+  
+! 		while ((curr_line->next_line != NULL) && 
+! 		       ((word_len = first_word_len(curr_line->next_line)) > 0) 
+  			&& ((scr_pos + word_len) < right_margin))
+  		{
+  			adv_line();
+diff -cr ../ee.old/new_curse.c ./new_curse.c
+*** ../ee.old/new_curse.c	Thu Mar  4 14:38:31 1993
+--- ./new_curse.c	Thu Mar  4 14:37:00 1993
+***************
+*** 39,45 ****
+   |	Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon
+   |	All are rights reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/new_curse.c,v 1.20 1992/12/18 05:04:39 hugh Exp $
+   |
+   */
+  
+--- 39,45 ----
+   |	Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon
+   |	All are rights reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/new_curse.c,v 1.21 1993/02/28 21:50:21 hugh Exp $
+   |
+   */
+  
+***************
+*** 49,55 ****
+  char *copyright_message[] = { "Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon",
+  				"All rights are reserved."};
+  
+! char * new_curse_name= "@(#) new_curse.c $Revision: 1.20 $";
+  
+  WINDOW *curscr;
+  static WINDOW *virtual_scr;
+--- 49,55 ----
+  char *copyright_message[] = { "Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon",
+  				"All rights are reserved."};
+  
+! char * new_curse_name= "@(#) new_curse.c $Revision: 1.21 $";
+  
+  WINDOW *curscr;
+  static WINDOW *virtual_scr;
+***************
+*** 1967,1973 ****
+  	{
+  		while (Count > 1)
+  		{
+! 			if ((string[--Count] != -1) && (string[Count] != 255))
+  			{
+  #ifdef DIAG
+  fprintf(stderr, "ungetting character %d\n", string[Count]);fflush(stdout);
+--- 1967,1974 ----
+  	{
+  		while (Count > 1)
+  		{
+! 			if ((string[--Count] != -1) && 
+! 					((unsigned) string[Count] != 255))
+  			{
+  #ifdef DIAG
+  fprintf(stderr, "ungetting character %d\n", string[Count]);fflush(stdout);
+***************
+*** 2234,2242 ****
+  	Intr = Terminal.c_cc[VINTR];	/* get the interrupt character	*/
+  	Terminal.c_lflag &= ~ICANON;	/* disable canonical operation	*/
+  	Terminal.c_lflag &= ~ISIG;	/* disable signal checking	*/
+! #ifdef SUN
+  	Terminal.c_lflag &= ~FLUSHO;
+  	Terminal.c_lflag &= ~PENDIN;
+  	Terminal.c_lflag &= ~IEXTEN;
+  #endif
+  	Terminal.c_cc[VMIN] = 1;		/* minimum of one character */
+--- 2235,2247 ----
+  	Intr = Terminal.c_cc[VINTR];	/* get the interrupt character	*/
+  	Terminal.c_lflag &= ~ICANON;	/* disable canonical operation	*/
+  	Terminal.c_lflag &= ~ISIG;	/* disable signal checking	*/
+! #ifdef FLUSHO
+  	Terminal.c_lflag &= ~FLUSHO;
++ #endif
++ #ifdef PENDIN
+  	Terminal.c_lflag &= ~PENDIN;
++ #endif
++ #ifdef IEXTEN
+  	Terminal.c_lflag &= ~IEXTEN;
+  #endif
+  	Terminal.c_cc[VMIN] = 1;		/* minimum of one character */
+exit 0 # Just in case...

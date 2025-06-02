@@ -1,0 +1,1415 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i114:  u386mon - SVR3 performance/status monitor v2.60, Part05/09
+Message-ID: <1992Nov22.020208.24247@sparky.imd.sterling.com>
+X-Md4-Signature: 34ee97d65286ed8f8ae233cd77991b9e
+Date: Sun, 22 Nov 1992 02:02:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 114
+Archive-name: u386mon/part05
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 05 of u386mon.2.60
+# ============= det_stream.c ==============
+if test -f 'det_stream.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping det_stream.c (File already exists)'
+else
+echo 'x - extracting det_stream.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'det_stream.c' &&
+X/* CHK=0x88E9 */
+X/*+-------------------------------------------------------------------------
+X	det_stream.c - UNIX V/386 system monitor stream usage detail
+X	martin@hppcmart.grenoble.hp.com
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XResource             Config Alloc Fail -- (% of resource used) -----------------
+X#################### ###### ##### #### ######################################### 
+X  Defined functions:
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:05-15-1991-17:22-wht@n4hgf-2.3 patches for SVR31 from nba@sysware.dk */
+X/*:02-07-1991-13:30-martin@hppcmart-creation */
+X
+X#include "config.h"
+X
+X#if defined(DPT_STREAMS)
+X
+X#include <curses.h>
+X#include "libpanel.h"
+X#include <string.h>
+X#include <nlist.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/var.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/stream.h>
+X#include <sys/strstat.h>
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern struct var v;
+Xunsigned stream_size[NCLASS+4];
+Xushort rbsize[NCLASS];
+Xstruct strstat strst;
+X
+X#define _NDX_STREAMS	0
+X#define _NDX_QUEUES		1
+X#define _NDX_MESSAGES	2
+X#define	_NDX_NBLK		3
+X#define _NDX_NBLK4		4
+X#define _NDX_NBLK16		5
+X#define _NDX_NBLK64		6
+X#define _NDX_NBLK128	7
+X#define _NDX_NBLK256	8
+X#define _NDX_NBLK512	9
+X#define _NDX_NBLK1024	10
+X#define _NDX_NBLK2048	11
+X#define _NDX_NBLK4096	12
+X
+X/*+----------------------------------------------------------------------------
+X	init_stream()
+X-----------------------------------------------------------------------------*/
+Xvoid
+Xinit_stream()
+X{
+X	int nmblock, i;
+X
+X	kread((caddr_t) rbsize, rbsizeaddr, sizeof(ushort) * NCLASS);
+X	stream_size[_NDX_STREAMS]=v.v_nstream;
+X	stream_size[_NDX_QUEUES]=v.v_nqueue;
+X	kread((caddr_t) &nmblock, nmblockaddr, sizeof(int));
+X	stream_size[_NDX_MESSAGES]=nmblock;
+X	stream_size[_NDX_NBLK4]=v.v_nblk4;	
+X	stream_size[_NDX_NBLK16]=v.v_nblk16;	
+X	stream_size[_NDX_NBLK64]=v.v_nblk64;	
+X	stream_size[_NDX_NBLK128]=v.v_nblk128;	
+X	stream_size[_NDX_NBLK256]=v.v_nblk256;	
+X	stream_size[_NDX_NBLK512]=v.v_nblk512;	
+X	stream_size[_NDX_NBLK1024]=v.v_nblk1024;	
+X	stream_size[_NDX_NBLK2048]=v.v_nblk2048;	
+X	stream_size[_NDX_NBLK4096]=v.v_nblk4096;	
+X	stream_size[_NDX_NBLK]=0;
+X    for(i=_NDX_NBLK4; i<=_NDX_NBLK4096; i++)
+X		stream_size[_NDX_NBLK]+=stream_size[i];
+X}
+X
+X/*+----------------------------------------------------------------------------
+X	draw_streamscale_literals(win, y, x);
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XResource             Config Alloc Fail -- (% of resource used) -----------------
+XStreams              ###### ##### #### #########################################
+XQueues
+XMessage blocks
+XData blocks
+XData block size ####
+X-----------------------------------------------------------------------------*/
+X
+Xvoid
+Xdraw_streamscale_literals(win, y, x)
+XWINDOW *win;
+Xint y, x;
+X
+X{
+X	static char *header = 
+X"Resource            Config Alloc  Fail -- (% of resource used) ";
+X	int x2, i;
+X
+X	wmove(win, y, x);
+X	use_cp(win, cpBANNER);
+X	waddstr(win, header);
+X	getyx(win,y,x2);
+X	while (x2++ <= COLS)
+X		waddch(win, (chtype)'-');
+X	use_cp(win,cpLIT);
+X	clear_area(win,getmaxy(win)-1,0,getmaxx(win));
+X	mvwaddstr(win, y + 1, x, "Streams");
+X	mvwaddstr(win, y + 2, x, "Queues");
+X	mvwaddstr(win, y + 3, x, "Message blocks");
+X	mvwaddstr(win, y + 4, x, "Data blocks");
+X	for (i=0; i<NCLASS; i++)
+X		mvwprintw(win, (y+i+5), x, "Data block size %4lu", rbsize[i]);
+X} 
+X
+X/*+----------------------------------------------------------------------------
+X	update_streamscale(win, y, x, width);
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XConf  Alloc Fail  -- (% of resource used) -----------------
+X##### ##### ##### #########################################
+X-----------------------------------------------------------------------------*/
+X#define _STREAM_CO	0
+X#define _STREAM_AL	6
+X#define _STREAM_FA	12
+X#define _STREAM_SX	18
+X
+Xvoid
+Xupdate_streamscale(win, y, x, width)
+XWINDOW *win;
+Xint y, x;
+Xint width;
+X
+X{
+X	int percent_used, percent_max;
+X	int i, itmp, max;
+X	alcdat	*strdat;
+X
+X	kread((caddr_t)&strst, strstaddr, sizeof(struct strstat));
+X	strdat=(alcdat *)&strst;
+X	for (i=0; i<NCLASS+4; i++) {
+X		percent_used=stream_size[i] ? (strdat->use*100/stream_size[i]) : 0;
+X		percent_max=stream_size[i] ? (strdat->max*100/stream_size[i]) : 0;
+X		use_cp(win, cpINFO);
+X		mvwprintw(win, y+i, _STREAM_CO+x, "%5i", stream_size[i]);
+X		mvwprintw(win, y+i, _STREAM_AL+x, "%5i", strdat->use);
+X		if (strdat->fail)
+X			use_cp(win, cpHIGH);
+X		else
+X			use_cp(win, cpINFO);
+X		mvwprintw(win, y+i, _STREAM_FA+x, "%5i", strdat->fail);
+X		wmove(win, y+i, _STREAM_SX+x);
+X
+X		if (percent_used < 70)
+X			use_cp(win, cpLOW);
+X		else if (percent_used < 90)
+X			use_cp(win, cpMED);
+X		else
+X			use_cp(win, cpHIGH);
+X
+X		itmp=(width * percent_used) / 100;
+X		max=(width * percent_max) / 100;
+X		while (-1) {
+X			itmp--;max--;
+X			if (max<1) {
+X				use_cp(win, cpHIGH);
+X				waddch(win, (chtype)'M');
+X				break;
+X			}
+X			if (itmp>-1)
+X				waddch(win, (chtype)'-');
+X			else
+X				waddch(win, (chtype)' ');
+X		}
+X
+X		wclrtoeol(win);
+X		strdat++;
+X	}
+X}
+X
+X#endif /* DPT_STREAMS */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of det_stream.c */
+SHAR_EOF
+chmod 0644 det_stream.c ||
+echo 'restore of det_stream.c failed'
+Wc_c="`wc -c < 'det_stream.c'`"
+test 5746 -eq "$Wc_c" ||
+	echo 'det_stream.c: original size 5746, current size' "$Wc_c"
+fi
+# ============= det_table.c ==============
+if test -f 'det_table.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping det_table.c (File already exists)'
+else
+echo 'x - extracting det_table.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'det_table.c' &&
+X/* CHK=0x7B68 */
+X/*+-------------------------------------------------------------------------
+X	det_table.c - UNIX V/386 system monitor table usage detail
+X	martin@hppcmart.grenoble.hp.com
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XResource     actual total ovfl %used -------------------------------------------
+X#################### ###### ##### #### ######################################### 
+X  Defined functions:
+Xfiles_in_use()
+Xinodes_in_use()
+Xupdate_table_line(win, y, x, width, num_item, max_item, conf_item, percent_item)
+Xinit_table()
+Xdraw_table_literals(win,y,x)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:05-15-1991-17:22-wht@n4hgf-2.3 patches for SVR31 from nba@sysware.dk */
+X/*:02-07-1991-13:30-martin@hppcmart-creation */
+X
+X#include "config.h"
+X
+X#if defined(DPT_TABLE)
+X
+X#include <curses.h>
+X#include "libpanel.h"
+X#include <string.h>
+X#include <nlist.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/var.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/inode.h>
+X#include <sys/file.h>
+X#include <sys/fcntl.h>
+X#include <sys/flock.h>
+X#include <sys/sysinfo.h>
+X#include <sys/immu.h>
+X#include <sys/region.h>
+X#include <sys/callo.h>
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern struct var v;
+Xextern int procs_alive;
+Xstruct file *fpbase;
+Xstruct inode *ipbase;
+Xstruct flckinfo flckinfo;
+Xstruct syserr syserr;
+Xstruct region *rgbase;
+Xstruct callo *callbase;
+Xint max_files=0;
+Xint max_inodes=0;
+Xint max_locks=0;
+Xint max_regions=0;
+Xint max_callouts=0;
+Xint max_procs=0;
+X
+X/*+-------------------------------------------------------------------------
+X	files_in_use()
+X
+X	Returns the number of files in use or -1 if the free list
+X	pointers were munged when read which happens every now and then.
+X--------------------------------------------------------------------------*/
+Xstatic int
+Xfiles_in_use()
+X{
+X	struct file *fp, *fflist;
+X	register int cnt=0;
+X	unsigned int ndx;
+X
+X	kread((caddr_t) fpbase, fileaddr, sizeof(struct file)*v.v_file);
+X	kread((caddr_t) &fflist, ffreelistaddr, sizeof(struct file *));
+X	fp=fpbase + (fflist - (struct file *)fileaddr);
+X	while (1) {
+X		cnt++;
+X		if (fp->f_next == 0) break;
+X		ndx=fp->f_next - (struct file *)fileaddr;
+X		if ((ndx >= v.v_file) || (ndx < 0) || (cnt > v.v_file)) return(-1);
+X		fp=fpbase + ndx;
+X			
+X	}
+X	return(v.v_file-cnt);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	inodes_in_use()
+X
+X	Returns the number of inodes used or -1 if the free list
+X	pointers were munged when read which happens every now and then.
+X--------------------------------------------------------------------------*/
+X
+Xstatic int
+Xinodes_in_use()
+X{
+X	struct inode *ip, *iflistend;
+X	struct ifreelist iflist;
+X	register int cnt=0;
+X	int ndx;
+X
+X	kread((caddr_t) ipbase, inodeaddr, sizeof(struct inode)*v.v_inode);
+X	kread((caddr_t) &iflist, ifreelistaddr, sizeof(struct ifreelist));
+X	ip=ipbase + (iflist.av_forw - (struct inode *)inodeaddr);
+X	iflistend=ipbase + (iflist.av_back - (struct inode *)inodeaddr);
+X	while (1) {
+X		cnt++;
+X		if (ip==iflistend) break;
+X		ndx=ip->av_forw - (struct inode *)inodeaddr;
+X		if ((ndx >= v.v_inode) || (ndx < 0) || (cnt > v.v_inode)) return(-1);
+X		ip=ipbase + ndx;
+X	}
+X	return(v.v_inode-cnt);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	regions_in_use()
+X
+X	Returns the number of regions used or -1 if the free list
+X	pointers were munged when read which happens every now and then.
+X--------------------------------------------------------------------------*/
+X
+Xstatic int
+Xregions_in_use()
+X{
+X	struct region *rg, ractive;
+X	register int cnt=0;
+X	int ndx;
+X
+X	kread((caddr_t) rgbase, regionaddr, sizeof(struct region)*v.v_region);
+X	kread((caddr_t) &ractive, ractiveaddr, sizeof(struct region));
+X	rg=rgbase + (ractive.r_forw - (struct region *)regionaddr);
+X	while (1) {
+X		cnt++;
+X		if (rg->r_forw==(struct region *)ractiveaddr) break;
+X		ndx=rg->r_forw - (struct region *)regionaddr;
+X		if ((ndx >= v.v_region) || (ndx < 0) || (cnt > v.v_region)) return(-1);
+X		rg=rgbase + ndx;
+X	}
+X	return(cnt);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	callouts_in_use()
+X
+X	Returns the number of callouts used.
+X--------------------------------------------------------------------------*/
+X
+Xstatic int
+Xcallouts_in_use()
+X{
+X	struct callo *call;
+X	register int cnt=0;
+X	register int ndx=0;
+X
+X	kread((caddr_t) callbase, calloutaddr, sizeof(struct callo)*v.v_call);
+X	call=callbase;
+X	while (ndx<v.v_call) {
+X		ndx++; call++;
+X				/* This is a guess - I'm checking it with SCO */
+X		if (call->c_id>0) cnt++;
+X	}
+X	return(cnt);
+X}
+X
+X
+X
+X/*+-------------------------------------------------------------------------
+X	update_table_line(win)
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+Xtual total ovfl %used ------------------------------------------------
+X####  ####  ###   ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X--------------------------------------------------------------------------*/
+X
+X#define _TABLESCALE_AC	0
+X#define _TABLESCALE_TO	6
+X#define _TABLESCALE_OV	12
+X#define _TABLESCALE_PE	18
+X#define _TABLESCALE_SX	22
+X
+Xstatic void
+Xupdate_table_line(win, y, x, width, num_item, max_item, conf_item, percent_item, ovfl_item)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint width;
+Xint num_item;
+Xint max_item;
+Xint conf_item;
+Xint percent_item;
+Xint ovfl_item;
+X
+X{
+X	int itmp, max;
+X
+X	if (num_item<0) {
+X
+X		wmove(win, y, x + _TABLESCALE_AC);
+X		use_cp(win, cpHIGH);
+X		waddstr(win, "OVER");
+X
+X	} else {
+X
+X		wmove(win,y, x + _TABLESCALE_AC);
+X		use_cp(win,cpINFO);
+X		wprintw(win,"%4ld",num_item);
+X
+X		wmove(win,y, x + _TABLESCALE_TO);
+X		use_cp(win,cpINFO);
+X		wprintw(win,"%4ld",conf_item);
+X
+X		if (ovfl_item != -1) {
+X			wmove(win,y, x + _TABLESCALE_OV);
+X			use_cp(win,cpINFO);
+X			wprintw(win,"%3ld",ovfl_item);
+X        }
+X
+X		wmove(win,y, x + _TABLESCALE_PE);
+X		if(percent_item < 70)
+X			use_cp(win,cpLOW);
+X		else if(percent_item < 90)
+X			use_cp(win,cpMED);
+X		else
+X			use_cp(win,cpHIGH);
+X		wprintw(win,"%3ld", percent_item);
+X
+X		wmove(win,y, x + _TABLESCALE_SX);
+X
+X		itmp = (width * percent_item) / 100;
+X		max = (width * max_item) / 100;
+X		while(-1) {
+X			itmp--; max--;
+X			if (max<1) {
+X				use_cp(win,cpHIGH);
+X				waddch(win,(chtype)'M');
+X				break;
+X			}
+X			if (itmp>-1)
+X				waddch(win,(chtype)'-');
+X			else
+X				waddch(win,(chtype)' ');
+X		}
+X		wclrtoeol(win);
+X	}
+X}
+X			
+X
+X
+X/*+-------------------------------------------------------------------------
+X	init_table()
+X
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xinit_table()
+X
+X{
+X	if (!(fpbase = (struct file *) malloc(sizeof(struct file)*v.v_file)))
+X		leave_text("cannot alloc memory for file table",1);
+X	if (!(ipbase = (struct inode *) malloc(sizeof(struct inode)*v.v_inode)))
+X		leave_text("cannot alloc memory for inode table",1);
+X	if (!(rgbase = (struct region *) malloc(sizeof(struct region)*v.v_region)))
+X		leave_text("cannot alloc memory for region table",1);
+X	if (!(callbase = (struct callo *) malloc(sizeof(struct callo)*v.v_call)))
+X		leave_text("cannot alloc memory for region table",1);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	update_table(win,y,x)
+X
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xupdate_table(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+X	int num_files;
+X	int num_inodes;
+X	int num_regions;
+X	int num_callouts;
+X	int percent_files;
+X	int percent_inodes;
+X	int percent_locks;
+X	int percent_regions;
+X	int percent_callouts;
+X	int percent_procs;
+X	register width;
+X
+X	x += 15; /* skip literals */
+X	width = COLS - _TABLESCALE_SX - x;
+X
+X	num_files=files_in_use();
+X	num_inodes=inodes_in_use();
+X	num_regions=regions_in_use();
+X	num_callouts=callouts_in_use();
+X	kread((caddr_t)&flckinfo, flckinfoaddr, sizeof(struct flckinfo));
+X	grok_proc ();
+X	kread((caddr_t)&syserr, syserraddr, sizeof (struct syserr));
+X
+X	percent_files=(num_files * 100 / v.v_file);
+X	percent_inodes=(num_inodes * 100 / v.v_inode);
+X	percent_regions=(num_regions * 100 / v.v_region);
+X	percent_locks=flckinfo.recs ? (flckinfo.reccnt * 100 / flckinfo.recs) : 0;
+X	percent_callouts=( num_callouts * 100 / v.v_call);
+X	percent_procs=(procs_alive * 100 / v.v_proc);
+X	if(percent_files > max_files) max_files=percent_files;
+X	if(percent_inodes > max_inodes) max_inodes=percent_inodes;
+X	if(percent_locks > max_locks) max_locks=percent_locks;
+X	if(percent_regions > max_regions) max_regions=percent_regions;
+X	if(percent_callouts > max_callouts) max_callouts=percent_callouts;
+X	if(percent_procs > max_procs) max_procs=percent_procs;
+X
+X	update_table_line(win, y, x, width,
+X			num_files, max_files, v.v_file, percent_files, syserr.fileovf);
+X	update_table_line(win, y + 1, x, width,
+X			num_inodes, max_inodes, v.v_inode, percent_inodes, syserr.inodeovf);
+X	update_table_line(win, y + 2, x, width,
+X			flckinfo.reccnt, max_locks, flckinfo.recs, percent_locks, flckinfo.recovf);
+X	update_table_line(win, y + 3, x, width,
+X			num_regions, max_regions, v.v_region, percent_regions, -1);
+X	update_table_line(win, y + 4, x, width,
+X			num_callouts, max_callouts, v.v_call, percent_callouts, -1);
+X	update_table_line(win, y + 5, x, width,
+X			procs_alive, max_procs, v.v_proc, percent_procs, syserr.procovf);
+X	return;
+X}	/* end of update_table */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	draw_table_literals(win)
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XResource     actual total ovfl %used -------------------------------------------
+X############   ####  ####  ###   ### xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdraw_table_literals(win,y,x)
+XWINDOW *win;
+Xint y;
+Xint x;
+X{
+Xint x2 = x;
+X
+X	wmove(win,y,x);
+X	use_cp(win,cpBANNER);
+X	waddstr(win,"Resource     actual total ovfl %used ");
+X	getyx(win,y,x2);
+X	while(x2 < COLS)
+X		waddch(win,(chtype)'-'),x2++;
+X	use_cp(win,cpLIT);
+X	wmove(win,y + 1,x);
+X  	waddstr(win,"File table ");
+X	wmove(win,y + 2,x);
+X  	waddstr(win,"Inode table");
+X	wmove(win,y + 3,x);
+X	waddstr(win,"Lock table ");
+X	wmove(win,y + 4,x);
+X	waddstr(win,"Region table ");
+X	wmove(win,y + 5,x);
+X	waddstr(win,"Callout table ");
+X	wmove(win,y + 6,x);
+X	waddstr(win,"Proc table ");
+X
+X}	/* end of draw_table_literals */
+X
+X#endif /* DPT_TABLE */
+SHAR_EOF
+chmod 0644 det_table.c ||
+echo 'restore of det_table.c failed'
+Wc_c="`wc -c < 'det_table.c'`"
+test 10833 -eq "$Wc_c" ||
+	echo 'det_table.c: original size 10833, current size' "$Wc_c"
+fi
+# ============= det_wd.c ==============
+if test -f 'det_wd.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping det_wd.c (File already exists)'
+else
+echo 'x - extracting det_wd.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'det_wd.c' &&
+X/* CHK=0x7811 */
+X/*+-------------------------------------------------------------------------
+X	det_wd.c - UNIX V/386 system monitor WD disk controller usage detail
+X	martin@hppcmart.grenoble.hp.com
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XDevice  Av Q  r+w/s Blks/s -- (% Utilization) ----------------------------------
+X######  ##### ##### #####  ##################################################### 
+X  Defined functions:
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:02-07-1991-13:30-martin@hppcmart-creation */
+X
+X#include "config.h"
+X
+X#if defined(DPT_WD)
+X
+X#include <curses.h>
+X#include "libpanel.h"
+X#include <string.h>
+X#include <nlist.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/ascii.h>
+X#include <sys/var.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/elog.h>
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern struct var v;
+X
+X/* WD Driver */
+X#define NCTLR		2
+X#define NWD			2
+X#define NWDTOTAL	NCTLR*NWD
+X/* Floppy drives */
+X#define NDRIVES		4
+X	
+Xstatic int max_util[NWDTOTAL+NDRIVES];
+Xstatic struct 	iotime	ia[NWDTOTAL+NDRIVES],ialast[NWDTOTAL+NDRIVES];
+Xstatic time_t 	timelast,now;
+X/*+----------------------------------------------------------------------------
+X	init_wd();
+X	Get initial drive stats.
+X-----------------------------------------------------------------------------*/
+Xvoid
+Xinit_wd()
+X{
+X	register i;
+X
+X	(void)time(&timelast);
+X	for(i=0;i<(NWDTOTAL+NDRIVES);i++)
+X		max_util[i]=0;
+X	kread((caddr_t) ialast,wd1010statsaddr,sizeof(struct iotime) * NCTLR * NWD);
+X	kread((caddr_t) &ialast[NWDTOTAL],flstatsaddr,sizeof(struct iotime) * NDRIVES);
+X}
+X
+X/*+----------------------------------------------------------------------------
+X	draw_wd_literals(win, y, x);
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XDevice  Jobs/s r+w/s Blks/s -- (% Utilization) ---------------------------------
+X######   ##### ##### #####  ####################################################
+X%wd##
+X%fd##
+X-----------------------------------------------------------------------------*/
+X
+Xvoid
+Xdraw_wd_literals(win,y,x)
+XWINDOW *win;
+Xint y,x;
+X
+X{
+X	static char *header = 
+X"Device  Jobs/s r+w/s Blks/s -- (% Utilization) ";
+X	int x2,ctlr,drive;
+X
+X	wmove(win,y,x);
+X	use_cp(win,cpBANNER);
+X	waddstr(win,header);
+X	getyx(win,y,x2);
+X	while(x2++ <= COLS)
+X		waddch(win,(chtype)'-');
+X	use_cp(win,cpLIT);
+X	clear_area(win,getmaxy(win)-1,0,getmaxx(win));
+X	for(ctlr=0; ctlr<NCTLR; ctlr++) {
+X		for(drive=0; drive<NWD; drive++) {
+X			mvwprintw(win,(y+(ctlr*NWD)+drive+1),x,"wd%1d%1d",ctlr,drive);
+X		}
+X	}
+X	getyx(win,y,x2);
+X	for(drive=0; drive<NDRIVES; drive++)
+X		mvwprintw(win,(y+drive+1),x,"fd%1d",drive);
+X} 
+X
+X/*+----------------------------------------------------------------------------
+X	update_wd(win, y, x, width);
+X
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+Xobs/s r+w/s Blks/s -- (% Utilization) ---------------------------------
+X##### ##### #####  ####################################################
+X-----------------------------------------------------------------------------*/
+X#define _WD_AQ	0
+X#define _WD_RW	6
+X#define _WD_BK	12
+X#define _WD_UT	19
+X
+Xvoid
+Xupdate_wd(win,y,x,width)
+XWINDOW *win;
+Xint y,x;
+Xint width;
+X
+X{
+X	register i;
+X	time_t elapsed_secs;
+X	int itmp;
+X	int percent_used;
+X/*
+X	int max;
+X*/
+X
+X	(void)time(&now);
+X	elapsed_secs=now-timelast;
+X	kread((caddr_t) ia,wd1010statsaddr,sizeof(struct iotime) * NCTLR * NWD);
+X	kread((caddr_t) &ia[NWDTOTAL],flstatsaddr,
+X			sizeof(struct iotime) * NDRIVES);
+X	for(i=0; i<(NWDTOTAL+NDRIVES);i++) {
+X		use_cp(win,cpINFO);
+X		mvwprintw(win,y+i,_WD_AQ+x,"%5i",
+X			(ia[i].io_qc-ialast[i].io_qc));
+X		mvwprintw(win,y+i,_WD_RW+x,"%5i",
+X			(ia[i].io_cnt-ialast[i].io_cnt));
+X		itmp = ia[i].io_bcnt-ialast[i].io_bcnt;
+X		mvwprintw(win,y+i,_WD_BK+x,"%5i",
+X			(itmp > 99999) ? 99999 : itmp);	/* protect transient overflow */
+X		wmove(win,y+i,_WD_UT+x);
+X		percent_used=(ia[i].io_act-ialast[i].io_act);
+X		wprintw(win,"%5i",(percent_used > 99999) ? 99999 : percent_used);
+X/*
+X		max_util[i]=max_util[i]<percent_used ? percent_used : max_util[i];
+X		if(percent_used < 70)
+X			use_cp(win, cpLOW);
+X		else if (percent_used < 90)
+X			use_cp(win, cpMED);
+X		else
+X			use_cp(win, cpHIGH);
+X
+X		itmp = (width * percent_used) / 100;
+X		max = (width * max_util[i]) / 100;
+X		while(-1) {
+X			itmp--;max--;
+X			if (max<1) {
+X				use_cp(win, cpHIGH);
+X				waddch(win, (chtype)'M');
+X				break;
+X			}
+X			if (itmp>-1)
+X				waddch(win, (chtype)'-');
+X			else
+X				waddch(win, (chtype)' ');
+X		}
+X
+X		wclrtoeol(win);
+X*/
+X	}
+X	memcpy((char *)ialast,(char *)ia,
+X		sizeof(struct iotime) * (NWDTOTAL + NDRIVES));
+X	timelast=now;
+X}
+X
+X#endif /* DPT_WD */
+SHAR_EOF
+chmod 0644 det_wd.c ||
+echo 'restore of det_wd.c failed'
+Wc_c="`wc -c < 'det_wd.c'`"
+test 5222 -eq "$Wc_c" ||
+	echo 'det_wd.c: original size 5222, current size' "$Wc_c"
+fi
+# ============= disputil.c ==============
+if test -f 'disputil.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping disputil.c (File already exists)'
+else
+echo 'x - extracting disputil.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'disputil.c' &&
+X/* CHK=0x4203 */
+X/*+-------------------------------------------------------------------------
+X	disputil.c - u386mon display utilities
+X
+X  Defined functions:
+X	clear_area(win,y,x,len)
+X	clear_area_char(win,y,x,len,fillchar)
+X	disp_info_int(win,label,fmt,value)
+X	disp_info_long(win,label,fmt,value)
+X	disp_msg(cp,msg)
+X	disp_static_int(win,label,fmt,value)
+X	disp_static_long(win,label,fmt,value)
+X	mkpanel(rows,cols,tly,tlx,userp)
+X	pflush()
+X	wperror(win,desc)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-10-1990-19:06-root@n4hgf-redesign attributes/color pairs */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-17-1990-15:15-wht-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef timeout
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <sys/types.h>
+X#include "u386mon.h"
+X
+X#ifdef COLOR_PAIR
+Xlong color_attr[] =
+X{
+X	COLOR_PAIR(0),
+X	COLOR_PAIR(cpINFO),
+X	COLOR_PAIR(cpREVERSE),
+X	COLOR_PAIR(cpBANWARN),
+X	COLOR_PAIR(cpLOW) | A_BOLD,
+X	COLOR_PAIR(cpMED) | A_BOLD,
+X	COLOR_PAIR(cpHIGH),
+X	COLOR_PAIR(cpBANNER),
+X	COLOR_PAIR(cpLIT),
+X	0
+X};
+X#endif
+X
+Xlong mono_attr[] =
+X{
+X	0,						/* 0 */
+X	0,						/* cpINFO */
+X	A_REVERSE,				/* cpREVERSE */
+X	A_BOLD,			 		/* cpBANWARN */
+X	0,						/* cpLOW */
+X	A_UNDERLINE,			/* cpMED */
+X	A_BLINK,				/* cpHIGH */
+X	A_REVERSE,				/* cpBANNER */
+X	A_DIM,					/* cpLIT */
+X};
+X
+Xextern WINDOW *wdet, *wscr;
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area_char(win,y,x,len,fillchar)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xclear_area_char(win,y,x,len,fillchar)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint len;
+Xu_char fillchar;
+X{
+X	wmove(win,y,x);
+X	while(len-- > 0)
+X		waddch(win,(chtype)fillchar);
+X	wmove(win,y,x);
+X
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area(win,y,x,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xclear_area(win,y,x,len)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint len;
+X{
+X	clear_area_char(win,y,x,len,' ');
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	pflush() - do update_panels() and doupdate()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpflush()
+X{
+X	update_panels();
+X	curs_set(0);
+X	doupdate();
+X	curs_set(1);
+X}	/* end of pflush */
+X
+X/*+-------------------------------------------------------------------------
+X	wperror(win,desc)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwperror(win,desc)
+XWINDOW *win;
+Xchar *desc;
+X{
+Xextern int errno;
+Xextern int sys_nerr;
+Xextern char *sys_errlist[];
+X
+X	waddstr(win,desc);
+X	waddstr(win,": ");
+X	if(errno < sys_nerr)
+X		waddstr(win,sys_errlist[errno]);
+X	else
+X		wprintw(win,"error %u",errno);
+X
+X}	/* end of wperror */
+X
+X/*+-------------------------------------------------------------------------
+X	mkpanel(rows,cols,tly,tlx,userp) - alloc win and pan and associate them
+X--------------------------------------------------------------------------*/
+XPANEL *
+Xmkpanel(rows,cols,tly,tlx,userp)
+Xint rows;
+Xint cols;
+Xint tly;
+Xint tlx;
+Xchar *userp;
+X{
+XWINDOW *win = newwin(rows,cols,tly,tlx);
+XPANEL *pan;
+X
+X	if(!win)
+X		return((PANEL *)0);
+X	if(pan = new_panel(win))
+X	{
+X		set_panel_userptr(pan,userp);
+X		return(pan);
+X	}
+X	delwin(win);
+X	return((PANEL *)0);
+X}	/* end of mkpanel */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_info_long(win,label,fmt,value)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_info_long(win,label,fmt,value)
+XWINDOW *win;
+Xchar *label;
+Xchar *fmt;
+Xlong value;
+X{
+X	use_cp(win,cpLIT);
+X	waddstr(win,label);
+X	use_cp(win,cpINFO);
+X	wprintw(win,fmt,value);
+X}	/* end of disp_info_long */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_info_int(win,label,fmt,value)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_info_int(win,label,fmt,value)
+XWINDOW *win;
+Xchar *label;
+Xchar *fmt;
+Xint value;
+X{
+X	use_cp(win,cpLIT);
+X	waddstr(win,label);
+X	use_cp(win,cpINFO);
+X	wprintw(win,fmt,value);
+X}	/* end of disp_info_int */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_static_long(win,label,fmt,value)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_static_long(win,label,fmt,value)
+XWINDOW *win;
+Xchar *label;
+Xchar *fmt;
+Xlong value;
+X{
+X	use_cp(win,cpLIT);
+X	waddstr(win,label);
+X	wprintw(win,fmt,value);
+X}	/* end of disp_static_long */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_static_int(win,label,fmt,value)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_static_int(win,label,fmt,value)
+XWINDOW *win;
+Xchar *label;
+Xchar *fmt;
+Xint value;
+X{
+X	use_cp(win,cpLIT);
+X	waddstr(win,label);
+X	wprintw(win,fmt,value);
+X}	/* end of disp_static_int */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_msg(cp,msg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_msg(cp,msg)
+Xchtype cp;
+Xchar *msg;
+X{
+Xextern WINDOW *wscr;
+Xint y;
+Xregister int x;
+X
+X	wmove(wscr,MSG_TLY,0);
+X	use_cp(wscr,cp);
+X	waddstr(wscr,msg);
+X	getyx(wscr,y,x);
+X	while(x < getmaxx(wscr))
+X		waddch(wscr,(chtype)' '),x++;
+X}	/* end of disp_msg */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of disputil.c */
+SHAR_EOF
+chmod 0644 disputil.c ||
+echo 'restore of disputil.c failed'
+Wc_c="`wc -c < 'disputil.c'`"
+test 6172 -eq "$Wc_c" ||
+	echo 'disputil.c: original size 6172, current size' "$Wc_c"
+fi
+# ============= kludge.c ==============
+if test -f 'kludge.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping kludge.c (File already exists)'
+else
+echo 'x - extracting kludge.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'kludge.c' &&
+X/* CHK=0xC28D */
+X
+X/*+-------------------------------------------------------------------------
+X	kludge.c - u386mon KLUDGE
+X
+XWe want S5R3 curses #define PERFORMANCE because it has several macro
+Xreplacements for functions, but one of the macros has a bug in it.  The
+Xmacro has_colors() refers to an undefined 'max_pairs' ...  in the interest
+Xof speed, we do the has_colors() call here and get the function
+Xhas_colors() without the bogus extern reference.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-03-1990-05:04-wht-creation */
+X
+X#define M_TERMINFO
+X#include <curses.h>
+X
+X/*+-------------------------------------------------------------------------
+X	has_colors_kludge() - don't ask
+X--------------------------------------------------------------------------*/
+X#if defined(COLOR_PAIR)
+Xvoid
+Xhas_colors_kludge()
+X{
+Xextern int color_avail;
+X	color_avail = has_colors();
+X}	/* end of has_colors_kludge */
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of kludge.c */
+SHAR_EOF
+chmod 0644 kludge.c ||
+echo 'restore of kludge.c failed'
+Wc_c="`wc -c < 'kludge.c'`"
+test 1282 -eq "$Wc_c" ||
+	echo 'kludge.c: original size 1282, current size' "$Wc_c"
+fi
+# ============= libkmem.c ==============
+if test -f 'libkmem.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping libkmem.c (File already exists)'
+else
+echo 'x - extracting libkmem.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libkmem.c' &&
+X/* CHK=0x1C11 */
+X/*LINTLIBRARY*/
+X/*+-------------------------------------------------------------------------
+X	libkmem.c -- /dev/kmem routines for SCO UNIX/386 (maybe other *NIX)
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	kinit(write_needed)
+X	kread(caddr,kaddr,len)
+X	kwrite(kaddr,caddr,len)
+X
+X routines were originally written by Mike "Ford" Ditto: kudos!!!
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:08-01-1990-19:33-jdc@dell.com-add more error text */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:12-07-1988-22:06-wht-put in test for initialized fdkmem */
+X/*:10-27-1988-22:44-wht-creation of file */
+X
+X#include <sys/types.h>
+X#include <sys/errno.h>
+X#include <fcntl.h>
+X#include "libkmem.h"
+X
+Xvoid leave_text();
+X
+Xextern int errno;
+X
+Xstatic int fdkmem = -2;
+Xdaddr_t lseek();
+X
+X/*+-------------------------------------------------------------------------
+X	kinit(write_needed)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xkinit(write_needed)
+Xint write_needed;
+X{
+X	if(fdkmem >= 0)
+X		return;
+X	if((fdkmem=open("/dev/kmem",(write_needed) ? O_RDWR : O_RDONLY,0)) < 0)
+X	{
+X		if (write_needed)
+X		{
+X			leave_text("can't open /dev/kmem for read/write access",255);
+X		}
+X		else
+X		{
+X			leave_text("can't open /dev/kmem for read access",255);
+X		}
+X	}
+X
+X}	/* end of kinit */
+X
+X/*+-------------------------------------------------------------------------
+X	kread(caddr,kaddr,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xkread(caddr,kaddr,len)
+Xcaddr_t caddr;
+Xdaddr_t kaddr;
+Xint len;
+X{
+Xchar s80[80];
+Xextern daddr_t myreadlen;
+Xextern int myreadcnt;
+X
+X#if defined(M_I286)
+X	kaddr &= 0xFFFFL;
+X#endif
+X#if defined(mips)
+X	kaddr &= 0x7FFFFFFFL;
+X#endif
+X
+X	if(fdkmem == -2)
+X		leave_text("kinit() not called",1);
+X
+X	if(lseek(fdkmem,kaddr,0) == -1L)
+X	{
+X		(void)sprintf(s80,"kmem read seek error addr %08lx",kaddr);
+X		leave_text(s80,255);
+X	}
+X
+X	if(read(fdkmem,caddr,len) != len)
+X	{
+X		(void)sprintf(s80,"kmem read error len %d addr %08lx",len,kaddr);
+X		leave_text(s80,255);
+X	}
+X	myreadlen += len;
+X	myreadcnt++;
+X}	/* end of kread */
+X
+X/*+-------------------------------------------------------------------------
+X	kwrite(kaddr,caddr,len)
+X--------------------------------------------------------------------------*/
+X#ifdef KWRITE_NEEDED
+Xvoid
+Xkwrite(kaddr,caddr,len)
+Xdaddr_t kaddr;
+Xcaddr_t caddr;
+Xint len;
+X{
+Xchar s80[80];
+X
+X#if defined(M_I286)
+X	kaddr &= 0xFFFFL;
+X#endif
+X
+X	if(fdkmem == -2)
+X		leave_text("kinit() not called",1);
+X
+X	if(lseek(fdkmem,kaddr,0) == -1L)
+X	{
+X		(void)sprintf(s80,
+X			"/dev/kmem write seek error addr %08lx",kaddr);
+X		leave_text(s80,255);
+X	}
+X	if(write(fdkmem,caddr,len) != len)
+X	{
+X		(void)sprintf(s80,
+X			"/dev/kmem write error addr %08lx len %08lx",kaddr,len);
+X		leave_text(s80,255);
+X	}
+X}	/* end of kwrite */
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 libkmem.c ||
+echo 'restore of libkmem.c failed'
+Wc_c="`wc -c < 'libkmem.c'`"
+test 3495 -eq "$Wc_c" ||
+	echo 'libkmem.c: original size 3495, current size' "$Wc_c"
+fi
+# ============= libmem.c ==============
+if test -f 'libmem.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping libmem.c (File already exists)'
+else
+echo 'x - extracting libmem.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'libmem.c' &&
+X/* CHK=0x271E */
+X/*LINTLIBRARY*/
+X/*+-------------------------------------------------------------------------
+X	libmem.c -- /dev/mem routines for SCO UNIX/386 (maybe other *NIX)
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	minit(write_needed)
+X	mread(caddr,maddr,len)
+X	mwrite(maddr,caddr,len)
+X
+X routines were originally written by Mike "Ford" Ditto: kudos!!!
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:12-07-1988-22:06-wht-put in test for initialized fdmem */
+X/*:10-27-1988-22:44-wht-creation of file */
+X
+X#include <sys/types.h>
+X#include <fcntl.h>
+X#include "libmem.h"
+X
+Xvoid leave_text();
+X
+Xextern int errno;
+X
+Xstatic int fdmem = -2;
+Xdaddr_t lseek();
+X
+X/*+-------------------------------------------------------------------------
+X	minit(write_needed)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xminit(write_needed)
+Xint write_needed;
+X{
+X	if(fdmem >= 0)
+X		return;
+X	if((fdmem=open("/dev/mem",(write_needed) ? O_RDWR : O_RDONLY,0)) < 0)
+X		leave_text("can't open /dev/mem",255);
+X
+X}	/* end of minit */
+X
+X/*+-------------------------------------------------------------------------
+X	mread(caddr,maddr,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmread(caddr,maddr,len)
+Xcaddr_t caddr;
+Xdaddr_t maddr;
+Xint len;
+X{
+Xchar s80[80];
+Xextern daddr_t myreadlen;
+Xextern int myreadcnt;
+X
+X#if defined(M_I286)
+X	maddr &= 0xFFFFL;
+X#endif
+X
+X	if(fdmem == -2)
+X		leave_text("minit() not called",1);
+X
+X	if(lseek(fdmem,maddr,0) == -1L)
+X	{
+X		(void)sprintf(s80,"mem seek err (%08lx)",maddr);
+X		leave_text(s80,1);
+X	}
+X
+X	if(read(fdmem,caddr,len) != len)
+X	{
+X		(void)sprintf(s80,
+X			"mem read errno %d len %d addr %08lx",errno,len,maddr);
+X		leave_text(s80,1);
+X	}
+X	myreadlen += len;
+X	myreadcnt++;
+X}	/* end of mread */
+X
+X/*+-------------------------------------------------------------------------
+X	mwrite(maddr,caddr,len)
+X--------------------------------------------------------------------------*/
+X#ifdef MWRITE_NEEDED
+Xvoid
+Xmwrite(maddr,caddr,len)
+Xdaddr_t maddr;
+Xcaddr_t caddr;
+Xint len;
+X{
+Xchar s80[80];
+X
+X#if defined(M_I286)
+X	maddr &= 0xFFFFL;
+X#endif
+X
+X	if(fdmem == -2)
+X		leave_text("minit() not called",1);
+X
+X	if(lseek(fdkmem,kaddr,0) == -1L)
+X	{
+X		(void)sprintf(s80,
+X			"/dev/kmem seek error addr %08lx",kaddr);
+X		leave_text(s80,255);
+X	}
+X	if(write(fdkmem,caddr,len) != len)
+X	{
+X		(void)sprintf(s80,
+X			"/dev/kmem write error addr %08lx len %08lx",kaddr,len);
+X		leave_text(s80,255);
+X	}
+X}	/* end of mwrite */
+X#endif /* MWRITE_NEEDED */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 libmem.c ||
+echo 'restore of libmem.c failed'
+Wc_c="`wc -c < 'libmem.c'`"
+test 3235 -eq "$Wc_c" ||
+	echo 'libmem.c: original size 3235, current size' "$Wc_c"
+fi
+true || echo 'restore of libpanel.c failed'
+echo End of part 5, continue with part 6
+exit 0
+
+exit 0 # Just in case...

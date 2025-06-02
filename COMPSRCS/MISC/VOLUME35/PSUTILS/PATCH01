@@ -1,0 +1,712 @@
+Newsgroups: comp.sources.misc
+From: Angus Duggan <ajcd@dcs.ed.ac.uk>
+Subject: v35i110:  psutils - Postscript document manipulation tools, Patch01
+Message-ID: <1993Mar3.181729.18729@sparky.imd.sterling.com>
+X-Md4-Signature: ee9ed060392a49a0851a5fb845238872
+Date: Wed, 3 Mar 1993 18:17:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Angus Duggan <ajcd@dcs.ed.ac.uk>
+Posting-number: Volume 35, Issue 110
+Archive-name: psutils/patch01
+Environment: UNIX
+Patch-To: psutils: Volume 35, Issue 8-11
+
+This is an update to psutils 1.7 bringing it to version 1.8. It fixes 
+some of the bugs which crept in, and should provide easier configuration 
+and better scaling for American letter size paper.  
+
+Note that the file "psnup" has disappeared, and the file "psnup.sh" has 
+appeared in its place. There is another new file, "epsffit.1".
+
+To apply this patch, cd into the psutils source directory and unshar this
+file.   It will create a patchfile Patch1.7-1.8.  Apply the patch by
+	patch < Patch1.7-1.8
+
+Angus Duggan, Department of Computer Science,	| I'm pink, therefore I'm Spam.
+University of Edinburgh, The King's Buildings,  | PHONE: +44(0)31 650 5126
+Mayfield Road, Edinburgh EH9 3JZ, Scotland.	| INET: ajcd@dcs.ed.ac.uk
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Patch1.7-1.8
+# Wrapped by kent@sparky on Wed Mar  3 11:54:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'Patch1.7-1.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Patch1.7-1.8'\"
+else
+  echo shar: Extracting \"'Patch1.7-1.8'\" \(18589 characters\)
+  sed "s/^X//" >'Patch1.7-1.8' <<'END_OF_FILE'
+Xdiff -c -r +new-file psutils-dist/LICENSE psutils/LICENSE
+X*** psutils-dist/LICENSE	Mon Feb  8 11:33:39 1993
+X--- psutils/LICENSE	Wed Feb 10 13:59:08 1993
+X***************
+X*** 1,13 ****
+X  
+X                          PS Utilities Package
+X  
+X! The constituent files of this package listed below are copyright (C) 1991,1992
+X! Angus J. C. Duggan.
+X  
+X! Makefile        README          buffer.c        epsffit.c       fixfmps
+X! fixmacps        fixpspps        getafm          magic.c         psbook.1
+X! psbook.c        psnup           psnup.1         psselect.1      psselect.c
+X! pstops.1        pstops.c        psutil.c        psutil.h        showchar
+X  
+X  They may be copied and used for any purpose (including distribution as part of
+X  a for-profit product), provided:
+X--- 1,14 ----
+X  
+X                          PS Utilities Package
+X  
+X! The constituent files of this package listed below are copyright (C) 1991,
+X! 1992, 1993 Angus J. C. Duggan.
+X  
+X! LICENSE         Makefile        README          epsffit.c       fixfmps
+X! fixmacps        fixpsditps      fixpspps        fixwfwps        fixwpps
+X! getafm          patchlevel.h    psbook.1        psbook.c        psnup.1
+X! psnup.sh        psselect.1      psselect.c      pstops.1        pstops.c
+X! psutil.c        psutil.h        showchar
+X  
+X  They may be copied and used for any purpose (including distribution as part of
+X  a for-profit product), provided:
+X***************
+X*** 33,36 ****
+X  The included files appledict.ps, md68.0.ps and md71.0.ps are (to the best of my
+X  knowledge) copyright Apple Computer, Inc.
+X  
+X!                                                                 AJCD 25/3/92
+X--- 34,37 ----
+X  The included files appledict.ps, md68.0.ps and md71.0.ps are (to the best of my
+X  knowledge) copyright Apple Computer, Inc.
+X  
+X!                                                                 AJCD 10/1/93
+Xdiff -c -r +new-file psutils-dist/Makefile psutils/Makefile
+X*** psutils-dist/Makefile	Mon Feb  8 11:33:32 1993
+X--- psutils/Makefile	Wed Feb 10 14:49:22 1993
+X***************
+X*** 1,6 ****
+X  # Makefile for PS utilities
+X  
+X! CFLAGS=-O
+X  
+X  # epsffit fits an epsf file to a given bounding box
+X  # psbook rearranges pages into signatures
+X--- 1,12 ----
+X  # Makefile for PS utilities
+X  
+X! CFLAGS=-g
+X! INSTALL=install -c -m 0755 
+X! INSTALLMAN=install -c -m 0644 
+X! BINDIR=/usr/local/bin
+X! MANDIR=/usr/local/share/man/man1
+X! MANEXT=1
+X! PAPER=a4
+X  
+X  # epsffit fits an epsf file to a given bounding box
+X  # psbook rearranges pages into signatures
+X***************
+X*** 7,14 ****
+X  # psselect selects page ranges
+X  # pstops performs general page rearrangement and merging
+X  
+X! all: psbook psselect pstops epsffit
+X  
+X  epsffit: epsffit.c
+X  	$(CC) $(CFLAGS) -o epsffit epsffit.c
+X  
+X--- 13,23 ----
+X  # psselect selects page ranges
+X  # pstops performs general page rearrangement and merging
+X  
+X! ALL = psbook psselect pstops epsffit psnup
+X! ALLPLUS = $(ALL) fixfmps fixmacps fixpsditps fixpspps fixwfwps fixwpps
+X  
+X+ all: $(ALL)
+X+ 
+X  epsffit: epsffit.c
+X  	$(CC) $(CFLAGS) -o epsffit epsffit.c
+X  
+X***************
+X*** 29,33 ****
+X  
+X  psselect.c: psutil.h patchlevel.h
+X  
+X  clean:
+X! 	rm -f *.o psbook psselect pstops epsffit
+X--- 38,64 ----
+X  
+X  psselect.c: psutil.h patchlevel.h
+X  
+X+ psnup: psnup.sh patchlevel.h
+X+ 	r=`sed -n -e "s/^#define RELEASE \([0-9][0-9]*\)/\1/p" <patchlevel.h`; \
+X+ 	p=`sed -n -e "s/^#define PATCHLEVEL \([0-9][0-9]*\)/\1/p" <patchlevel.h`; \
+X+ 	sed -e "s/@PATCHLEVEL@/$$p/" -e "s/@RELEASE@/$$r/" -e "s/@PAPER@/$(PAPER)/" psnup.sh >psnup; \
+X+ 	chmod 755 psnup
+X+ 
+X  clean:
+X! 	rm -f *.o
+X! 
+X! veryclean: clean
+X! 	rm -f $(ALL)
+X! 
+X! install:
+X! 	@for i in $(ALLPLUS); do \
+X! 		echo Installing $$i; \
+X! 		$(INSTALL) $$i $(BINDIR); \
+X! 	done
+X! 
+X! installman:
+X! 	@for i in $(ALL); do \
+X! 		echo Installing manual page for $$i; \
+X! 		$(INSTALLMAN) $$i.1 $(MANDIR)/$$i.$(MANEXT); \
+X! 	done
+X! 
+Xdiff -c -r +new-file psutils-dist/Manifest psutils/Manifest
+X*** psutils-dist/Manifest	Mon Feb  8 11:33:40 1993
+X--- psutils/Manifest	Wed Feb 10 12:52:15 1993
+X***************
+X*** 2,9 ****
+X  Makefile
+X  Manifest
+X  README
+X! patchlevel.h
+X! appledict.ps
+X  epsffit.c
+X  fixfmps
+X  fixmacps
+X--- 2,8 ----
+X  Makefile
+X  Manifest
+X  README
+X! epsffit.1
+X  epsffit.c
+X  fixfmps
+X  fixmacps
+X***************
+X*** 14,23 ****
+X  getafm
+X  md68.0.ps
+X  md71.0.ps
+X  psbook.1
+X  psbook.c
+X- psnup
+X  psnup.1
+X  psselect.1
+X  psselect.c
+X  pstops.1
+X--- 13,23 ----
+X  getafm
+X  md68.0.ps
+X  md71.0.ps
+X+ patchlevel.h
+X  psbook.1
+X  psbook.c
+X  psnup.1
+X+ psnup.sh
+X  psselect.1
+X  psselect.c
+X  pstops.1
+Xdiff -c -r +new-file psutils-dist/README psutils/README
+X*** psutils-dist/README	Mon Feb  8 11:33:18 1993
+X--- psutils/README	Thu Feb 11 09:27:14 1993
+X***************
+X*** 59,65 ****
+X  showchar (sh)   outputs PostScript to draw a character with metric info
+X  fixfmps  (perl) filter to fix framemaker documents so that psselect etc. work
+X  fixwpps  (perl) filter to fix WordPerfect documents so that psselect etc. work
+X! fixwpps  (perl) filter to fix Word for Windows documents for psutils
+X  fixmacps (perl) filter to fix Macintosh documents with saner version of md
+X  fixpsditps (perl) filter to fix Transcript psdit documents to work with psutils
+X  fixpspps (perl) filter to fix PSPrint PostScript so that psselect etc. work
+X--- 59,65 ----
+X  showchar (sh)   outputs PostScript to draw a character with metric info
+X  fixfmps  (perl) filter to fix framemaker documents so that psselect etc. work
+X  fixwpps  (perl) filter to fix WordPerfect documents so that psselect etc. work
+X! fixwfwps (perl) filter to fix Word for Windows documents for psutils
+X  fixmacps (perl) filter to fix Macintosh documents with saner version of md
+X  fixpsditps (perl) filter to fix Transcript psdit documents to work with psutils
+X  fixpspps (perl) filter to fix PSPrint PostScript so that psselect etc. work
+X***************
+X*** 83,86 ****
+X--- 83,103 ----
+X  This is an interim release; these utilities are currently being re-written
+X  from scratch, with a full DSC-3.0 parser and more extraction, merging, and
+X  inclusion options included.
+X+ 
+X+ ACKNOWLEDGEMENTS
+X+ 
+X+ Bug fixes and suggestions for improvements to PSUtils have come from many
+X+ people, including:
+X+ 
+X+         Brian Colfer            brianc@labmed.ucsf.edu
+X+         Charles A. Finnell      finnell@org.mitre.lear
+X+         Conrad Kimball          cek@com.boeing.sdc
+X+         J.W.Hawtin              
+X+         Jochen Schwarze         schwarze@de.isa
+X+         Ken Carpenter           khc@edu.ksu.eece
+X+         Kristian Jorg           etxkrjg@se.ericsson.solsta
+X+         Larry Weissman          larryw@nsr.bioeng.washington.edu 
+X+         Michael L. Brown        brown%uucp.vidiot@edu.wisc.cs
+X+         
+X+ (Apologies to anyone who I have left out.)
+X  
+Xdiff -c -r +new-file psutils-dist/epsffit.1 psutils/epsffit.1
+X*** psutils-dist/epsffit.1
+X--- psutils/epsffit.1	Mon Feb  8 10:35:42 1993
+X***************
+X*** 0 ****
+X--- 1,47 ----
+X+ .TH EPSFFIT 1
+X+ .SH NAME
+X+ epsffit \- fit encapsulated PostScript file (EPSF) into constrained size
+X+ .SH SYNOPSIS
+X+ .B epsffit
+X+ [
+X+ .B \-c
+X+ ]
+X+ [
+X+ .B \-r
+X+ ]
+X+ [
+X+ .B \-a
+X+ ]
+X+ [
+X+ .B \-s
+X+ ]
+X+ .I "llx lly urx ury"
+X+ [
+X+ .B file
+X+ ]
+X+ .SH DESCRIPTION
+X+ .I Epsffit
+X+ fits an EPSF file (encapsulated PostScript) to a given bounding box.
+X+ The coordinates of the box are given by \fB(llx,lly)\fR for the lower
+X+ left, and \fB(urx,ury)\fR for the upper right, in PostScript units (points).
+X+ .PP
+X+ If no file is specified,
+X+ .I epsffit
+X+ uses the standard input. Output is always to the standard output.
+X+ .SH OPTIONS
+X+ .IP \fB\-c\fP 1i
+X+ Center the image in the given bounding box.
+X+ .IP \fB\-r\fP 1i
+X+ Rotate the image by 90 degrees counter-clockwise.
+X+ .IP \fB\-a\fP 1i
+X+ Adjust the aspect ratio to fit the bounding box. The default is to preserve
+X+ the aspect ratio.
+X+ .IP \fB\-s\fP 1i
+X+ Add a \fIshowpage\fP at the end of the file to force the image to print.
+X+ .SH AUTHOR
+X+ Angus Duggan
+X+ .SH "SEE ALSO"
+X+ psbook(1), psselect(1)
+X+ .SH TRADEMARKS
+X+ .B PostScript
+X+ is a trademark of Adobe Systems Incorporated.
+Xdiff -c -r +new-file psutils-dist/epsffit.c psutils/epsffit.c
+X*** psutils-dist/epsffit.c	Mon Feb  8 11:33:40 1993
+X--- psutils/epsffit.c	Wed Feb 10 12:47:28 1993
+X***************
+X*** 2,12 ****
+X   * AJCD 6 Dec 90
+X   * fit epsf file into constrained size
+X   * Usage:
+X!  *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury
+X   *               -c centres the image in the bounding box given
+X   *               -r rotates the image by 90 degrees anti-clockwise
+X   *               -a alters the aspect ratio to fit the bounding box
+X   *               -s adds a showpage at the end of the image
+X   */
+X  
+X  #include <stdio.h>
+X--- 2,14 ----
+X   * AJCD 6 Dec 90
+X   * fit epsf file into constrained size
+X   * Usage:
+X!  *       epsffit [-c] [-r] [-a] [-s] llx lly urx ury [file]
+X   *               -c centres the image in the bounding box given
+X   *               -r rotates the image by 90 degrees anti-clockwise
+X   *               -a alters the aspect ratio to fit the bounding box
+X   *               -s adds a showpage at the end of the image
+X+  *
+X+  * Added filename spec (from Larry Weissman) 5 Feb 93
+X   */
+X  
+X  #include <stdio.h>
+X***************
+X*** 21,27 ****
+X  usage()
+X  {
+X     fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X!    fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury\n", prog);
+X     exit(1);
+X  }
+X  
+X--- 23,30 ----
+X  usage()
+X  {
+X     fprintf(stderr, "%s release %d patchlevel %d\n", prog, RELEASE, PATCHLEVEL);
+X!    fprintf(stderr, "Usage: %s [-c] [-r] [-a] [-s] llx lly urx ury [file]\n",
+X! 	   prog);
+X     exit(1);
+X  }
+X  
+X***************
+X*** 29,40 ****
+X       int argc;
+X       char **argv;
+X  {
+X-    int fit[4], i;
+X     int bbfound = 0;              /* %%BoundingBox: found */
+X     int urx, ury, llx, lly;
+X     int furx, fury, fllx, flly, fwidth, fheight;
+X     int showpage = 0, centre = 0, rotate = 0, aspect = 0;
+X     char buf[BUFSIZ];
+X  
+X     prog = *argv++; argc--;
+X  
+X--- 32,43 ----
+X       int argc;
+X       char **argv;
+X  {
+X     int bbfound = 0;              /* %%BoundingBox: found */
+X     int urx, ury, llx, lly;
+X     int furx, fury, fllx, flly, fwidth, fheight;
+X     int showpage = 0, centre = 0, rotate = 0, aspect = 0;
+X     char buf[BUFSIZ];
+X+    FILE *input = stdin;
+X  
+X     prog = *argv++; argc--;
+X  
+X***************
+X*** 51,57 ****
+X        argv++;
+X     }
+X  
+X!    if (argc != 4) usage();
+X     fllx = atoi(argv[0]);
+X     flly = atoi(argv[1]);
+X     furx = atoi(argv[2]);
+X--- 54,60 ----
+X        argv++;
+X     }
+X  
+X!    if (argc < 4) usage();
+X     fllx = atoi(argv[0]);
+X     flly = atoi(argv[1]);
+X     furx = atoi(argv[2]);
+X***************
+X*** 63,70 ****
+X        fwidth = furx - fllx;
+X        fheight = fury - flly;
+X     }
+X  
+X!    while (fgets(buf, BUFSIZ, stdin)) {
+X        if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+X  	 /* still in comment section */
+X  	 if (!strncmp(buf, "%%BoundingBox:", 14)) {
+X--- 66,79 ----
+X        fwidth = furx - fllx;
+X        fheight = fury - flly;
+X     }
+X+    if (argc > 4) {
+X+       if(!(input = fopen(argv[4],"r"))) {
+X+ 	 fprintf(stderr, "%s: Cannot open %s\n", prog, argv[4]);
+X+ 	 exit(1);
+X+       }
+X+    }
+X  
+X!    while (fgets(buf, BUFSIZ, input)) {
+X        if (buf[0] == '%' && (buf[1] == '%' || buf[1] == '!')) {
+X  	 /* still in comment section */
+X  	 if (!strncmp(buf, "%%BoundingBox:", 14)) {
+X***************
+X*** 120,126 ****
+X     }
+X     do {
+X        fputs(buf,stdout);
+X!    } while (fgets(buf, BUFSIZ, stdin));
+X     if (bbfound) {
+X        puts("grestore");
+X        if (showpage)
+X--- 129,135 ----
+X     }
+X     do {
+X        fputs(buf,stdout);
+X!    } while (fgets(buf, BUFSIZ, input));
+X     if (bbfound) {
+X        puts("grestore");
+X        if (showpage)
+Xdiff -c -r +new-file psutils-dist/fixfmps psutils/fixfmps
+X*** psutils-dist/fixfmps	Mon Feb  8 11:33:41 1993
+X--- psutils/fixfmps	Wed Feb 10 14:38:18 1993
+X***************
+X*** 2,7 ****
+X--- 2,11 ----
+X  # fixfmps: get conforming PostScript out of FrameMaker file
+X  # move all FMDEFINEFONTs to start of pages
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  %fonts=();
+X  
+X  while (<>) {
+Xdiff -c -r +new-file psutils-dist/fixmacps psutils/fixmacps
+X*** psutils-dist/fixmacps	Mon Feb  8 11:33:41 1993
+X--- psutils/fixmacps	Wed Feb 10 14:38:06 1993
+X***************
+X*** 1,6 ****
+X--- 1,10 ----
+X  #!/usr/local/bin/perl
+X  # fixmacps: swap to sanitised appledict
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  $line = 0;			# keep line count
+X  $dir = "/usr/local/share/tex/dvips";
+X  $prefix = "md";
+X***************
+X*** 15,20 ****
+X--- 19,26 ----
+X     }
+X  }
+X  
+X+ %fonts = ();
+X+ 
+X  while (<>) {
+X     if (/^%!/) {
+X        if (! $line) {
+X***************
+X*** 52,61 ****
+X  	 print "%!\n" if !$line;
+X  	 print;
+X        }
+X     } else {
+X        if (! $ignore) {
+X! 	 print "%!\n" if !$line;
+X! 	 print;
+X        }
+X     }
+X     $line++;
+X--- 58,75 ----
+X  	 print "%!\n" if !$line;
+X  	 print;
+X        }
+X+    } elsif (/^%%Page:/) {
+X+       print $_;
+X+       print values(%fonts);
+X     } else {
+X        if (! $ignore) {
+X! 	 if (/^\{\}mark .*rf$/) {
+X! 	    $fonts{$_} = $_;
+X! 	    print;
+X! 	 } else {
+X! 	    print "%!\n" if !$line;
+X! 	    print;
+X! 	 }
+X        }
+X     }
+X     $line++;
+Xdiff -c -r +new-file psutils-dist/fixpsditps psutils/fixpsditps
+X*** psutils-dist/fixpsditps	Mon Feb  8 11:33:42 1993
+X--- psutils/fixpsditps	Wed Feb 10 14:38:26 1993
+X***************
+X*** 1,6 ****
+X--- 1,10 ----
+X  #!/usr/local/bin/perl
+X  # fixpsditps: fix psdit output for use in psutils
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  while (<>) {
+X     if (/^\/p{pop showpage pagesave restore \/pagesave save def}def$/) {
+X        print STDOUT "/p{pop showpage pagesave restore}def\n";
+Xdiff -c -r +new-file psutils-dist/fixpspps psutils/fixpspps
+X*** psutils-dist/fixpspps	Mon Feb  8 11:33:42 1993
+X--- psutils/fixpspps	Wed Feb 10 14:38:35 1993
+X***************
+X*** 1,6 ****
+X--- 1,10 ----
+X  #!/usr/local/bin/perl
+X  # mangle PostScript produced by PSPrint to make it almost conforming
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  $header = 1; $ignore = 0;
+X  $verbose = 0;
+X  @body = ();
+Xdiff -c -r +new-file psutils-dist/fixwfwps psutils/fixwfwps
+X*** psutils-dist/fixwfwps	Mon Feb  8 11:33:43 1993
+X--- psutils/fixwfwps	Wed Feb 10 14:38:45 1993
+X***************
+X*** 1,6 ****
+X--- 1,10 ----
+X  #!/usr/local/bin/perl
+X  # fixwfwps: fix Word for windows PostScript for printing.
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  while (<>) {
+X     tr/\000-\011\013-\037//d;
+X     if (/^(%!PS-Adobe-[0-9]*\.[0-9]*) EPSF-/) {
+Xdiff -c -r +new-file psutils-dist/fixwpps psutils/fixwpps
+X*** psutils-dist/fixwpps	Mon Feb  8 11:33:26 1993
+X--- psutils/fixwpps	Wed Feb 10 14:38:53 1993
+X***************
+X*** 1,6 ****
+X--- 1,10 ----
+X  #!/usr/local/bin/perl
+X  # fixwpps: get semi-conforming PostScript out of WordPerfect 5.0 file
+X  
+X+ # feed this into perl
+X+ eval 'exec perl -S $0 "$@"'
+X+    if $running_under_some_shell;
+X+ 
+X  $page = 1;
+X  while (<>) {
+X     s/(_[a-zA-Z]+)([0-9]+)/\1 \2/g;
+Xdiff -c -r +new-file psutils-dist/patchlevel.h psutils/patchlevel.h
+X*** psutils-dist/patchlevel.h	Mon Feb  8 11:33:44 1993
+X--- psutils/patchlevel.h	Wed Feb 10 12:47:18 1993
+X***************
+X*** 1,2 ****
+X  #define RELEASE 1
+X! #define PATCHLEVEL 7
+X--- 1,2 ----
+X  #define RELEASE 1
+X! #define PATCHLEVEL 8
+Xdiff -c -r +new-file psutils-dist/psnup.sh psutils/psnup.sh
+X*** psutils-dist/psnup.sh
+X--- psutils/psnup.sh	Wed Feb 10 14:14:49 1993
+X***************
+X*** 0 ****
+X--- 1,93 ----
+X+ #!/bin/sh
+X+ # psnup: put multiple pages onto one physical sheet of paper.
+X+ # usage:
+X+ #       psnup [-w<dim>] [-h<dim>] [-ppaper] [-l] [-2|-4|-8|-9] [file...]
+X+ #               -w<dim> sets the paper width
+X+ #               -h<dim> sets the paper height
+X+ #               -ppaper sets the paper size (width and height) by name
+X+ #               -l      is used if the pages are in landscape orientation
+X+ 
+X+ io= landscape=0 nup=1 width= height= paper=@PAPER@
+X+ 
+X+ while test $# != 0
+X+ do      case "$1" in
+X+         -w*)    width=$1 ; paper= ;;
+X+         -h*)    height=$1 ; paper= ;;
+X+         -p*)    paper=`echo "$1" | sed "s/^-.//"` ;;
+X+         -m*)    margins=`echo "$1" | sed "s/^-.//"` ;; # not implemented yet
+X+         -l)     landscape=1 ;;
+X+         -2)     nup=2 ;;
+X+         -4)     nup=4 ;;
+X+         -8)     nup=8 ;;
+X+         -9)     nup=9 ;;
+X+         -s*)    xscale=`echo "$1" | sed "s/^-./@/"` ;;
+X+         -v)     echo "psnup release @RELEASE@ patchlevel @PATCHLEVEL@" ; exit 1 ;;
+X+         *)      io="$io $1"
+X+         esac
+X+         shift
+X+ done
+X+ 
+X+ tscale=@.707     # scale for twoup
+X+ fscale=@.5       # scale for fourup
+X+ escale=@.3536    # scale for eightup
+X+ nscale=@.333     # scale for nineup
+X+ 
+X+ case "$paper" in
+X+ a3|A3)  width=-w29.7cm height=-h42cm ;;
+X+ a4|A4)  width=-w21cm height=-h29.7cm ;;
+X+ a5|A5)  width=-w14.85cm height=-h21cm ;;
+X+ letter) width=-w8.5in height=-h11in tscale=@.648 escale=@.324 ;;
+X+ esac
+X+ 
+X+ scale= offset=
+X+ case "$nup" in
+X+ 2)      scale=$tscale
+X+         if [ $landscape = 0 ]
+X+         then offset="(1w,0) (1w,.5h)"
+X+         else offset="(0,.5h) (0,0)"
+X+         fi
+X+         landscape=`expr 1 - $landscape` ;;
+X+ 4)      scale=$fscale
+X+         if [ $landscape = 0 ]
+X+         then offset="(0,.5h) (.5w,.5h) (0,0) (.5w,0)"
+X+         else offset="(.5w,0) (.5w,.5h) (1w,0) (1w,.5h)"
+X+         fi ;;
+X+ 8)      scale=$escale
+X+         if [ $landscape = 0 ]
+X+         then offset="(.5w,0) (.5w,.25h) (.5w,.5h) (.5w,.75h)\
+X+                      (1w,0) (1w,.25h) (1w,.5h) (1w,.75h)"
+X+         else offset="(0,.75h) (.5w,.75h) (0,.5h) (.5w,.5h)\
+X+                      (0,.25h) (.5w,.25h) (0,0) (.5w,0)"
+X+         fi
+X+         landscape=`expr 1 - $landscape` ;;
+X+ 9)      scale=$nscale
+X+         if [ $landscape = 0 ]
+X+         then offset="(0,.666h) (.333w,.666h) (.666w,.666h)\
+X+                      (0,.333h) (.333w,.333h) (.666w,.333h)\
+X+                      (0,0) (.333w,0) (.666w,0)"
+X+         else offset="(.333w,0) (.333w,.333h) (.333w,.666h)\
+X+                      (.666w,0) (.666w,.333h) (.666w,.666h)\
+X+                      (1w,0) (1w,.333h) (1w,.666h)"
+X+         fi ;;
+X+ esac
+X+ 
+X+ if [ "X$xscale" != "X" ]
+X+ then scale=$xscale
+X+ fi
+X+ 
+X+ if [ $landscape = 0 ]
+X+ then rotate=
+X+ else rotate=L
+X+ fi
+X+ 
+X+ options= sep= page=0
+X+ 
+X+ set ""${offset}
+X+ while [ $page -lt $nup ]
+X+ do      options="$options${sep}$page$rotate$scale$1"
+X+         sep=+
+X+         page=`expr $page + 1`
+X+         shift
+X+ done
+X+ 
+X+ pstops $width $height "$nup:$options" $io
+X
+END_OF_FILE
+  if test 18589 -ne `wc -c <'Patch1.7-1.8'`; then
+    echo shar: \"'Patch1.7-1.8'\" unpacked with wrong size!
+  fi
+  # end of 'Patch1.7-1.8'
+fi
+echo shar: End of archive.
+#
+# cleanup obsoleted psnup, replaced by psnup.sh
+#
+if test -f psnup ; then
+    echo shar: Removing obsoleted \"'psnup'\"
+    rm -f psnup
+elif test -f psutils/psnup ; then
+    echo shar: Removing obsoleted \"'psnup'\"
+    rm -f psutils/psnup
+fi
+echo shar: Done
+exit 0
+exit 0 # Just in case...

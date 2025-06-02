@@ -1,0 +1,1499 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i051:  xarchie - An X browser interface to Archie, v2.0.6, Part23/24
+Message-ID: <1993Jun15.223557.2048@sparky.imd.sterling.com>
+X-Md4-Signature: 52b76dace6363cd82b3f45f3b536168b
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:35:57 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 51
+Archive-name: xarchie/part23
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part23
+
+#!/bin/sh
+# this is Part.23 (part 23 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/FWF/MultiList/MultiList.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 23; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/FWF/MultiList/MultiList.c'
+else
+echo 'x - continuing file xarchie-2.0.6/FWF/MultiList/MultiList.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/FWF/MultiList/MultiList.c' &&
+X
+X	values.foreground = MultiListHighlightFG(mlw);
+X	values.background = MultiListHighlightBG(mlw);
+X	MultiListHighlightForeGC(mlw) = XtGetGC((Widget)mlw,attribs,&values);
+X
+X	values.foreground = MultiListHighlightBG(mlw);
+X	values.background = MultiListHighlightBG(mlw);
+X	MultiListHighlightBackGC(mlw) = XtGetGC((Widget)mlw,attribs,&values);
+X
+X	attribs |= GCTile | GCFillStyle;
+X	values.foreground = MultiListFG(mlw);
+X	values.background = MultiListBG(mlw);
+X	values.fill_style = FillTiled;
+X	values.tile = XmuCreateStippledPixmap(XtScreen(mlw),MultiListFG(mlw),
+X					      MultiListBG(mlw),MultiListDepth(mlw));
+X	MultiListGrayGC(mlw) = XtGetGC((Widget)mlw,attribs,&values);
+} /* End CreateNewGCs */
+X
+/*===========================================================================*
+X
+X        L A Y O U T    A N D    G E O M E T R Y    M A N A G E M E N T
+X
+X *===========================================================================*/
+X
+/*---------------------------------------------------------------------------*
+X
+X        RecalcCoords(mlw,width_changeable,height_changeable)
+X
+X	This routine takes a MultiList widget <mlw> and recalculates
+X	the coordinates, and item placement based on the current
+X	width, height, and list of items.  The <width_changeable> and
+X	<height_changeable> indicate if the width and/or height can
+X	be arbitrarily set.
+X
+X	This routine requires that the internal list data be initialized.
+X
+X *---------------------------------------------------------------------------*/
+X
+#if NeedFunctionPrototypes
+static void
+RecalcCoords(XfwfMultiListWidget mlw,
+X	     Boolean width_changeable, Boolean height_changeable)
+#else
+static void
+RecalcCoords(mlw,width_changeable,height_changeable)
+XXfwfMultiListWidget mlw;
+Boolean width_changeable,height_changeable;
+#endif
+{
+X	String str;
+X	Dimension width,height;
+X	register int i,text_width;
+X
+X	width = MultiListWidth(mlw);
+X	height = MultiListHeight(mlw);
+X	if (MultiListNumItems(mlw) != 0 && MultiListLongest(mlw) == 0)
+X	{
+X		for (i = 0; i < MultiListNumItems(mlw); i++)
+X		{
+X			str = MultiListItemString(MultiListNthItem(mlw,i));
+X			text_width = FontW(MultiListFont(mlw),str);
+X			MultiListLongest(mlw) = max(MultiListLongest(mlw),
+X						    text_width);
+X		}
+X	}
+X	if (Layout(mlw,width_changeable,height_changeable,&width,&height))
+X	{
+X		NegotiateSizeChange(mlw,width,height);
+X	}
+} /* End RecalcCoords */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X        NegotiateSizeChange(mlw,width,height)
+X
+X	This routine tries to change the MultiList widget <mlw> to have the
+X	new size <width> by <height>.  A negotiation will takes place
+X	to try to change the size.  The resulting size is not necessarily
+X	the requested size.
+X
+X *---------------------------------------------------------------------------*/
+X
+#if NeedFunctionPrototypes
+static void
+NegotiateSizeChange(XfwfMultiListWidget mlw, Dimension width, Dimension height)
+#else
+static void
+NegotiateSizeChange(mlw,width,height)
+XXfwfMultiListWidget mlw;
+Dimension width,height;
+#endif
+{
+X	int attempt_number;
+X	Boolean w_fixed,h_fixed;
+X	Dimension *w_ptr,*h_ptr;
+X	
+X	XtWidgetGeometry request,reply;
+X
+X	request.request_mode = CWWidth | CWHeight;
+X	request.width = width;
+X	request.height = height;
+X    
+X	for (attempt_number = 1; attempt_number <= 3; attempt_number++)
+X	{
+X		switch (XtMakeGeometryRequest((Widget)mlw,&request,&reply))
+X		{
+X		    case XtGeometryYes:
+X		    case XtGeometryNo:
+X			return;
+X		    case XtGeometryAlmost:
+X			switch (attempt_number)
+X			{
+X			    case 1:
+X				w_fixed = (request.width != reply.width);
+X				h_fixed = (request.height != reply.height);
+X				w_ptr = &(reply.width);
+X				h_ptr = &(reply.height);
+X				Layout(mlw,!w_fixed,!h_fixed,w_ptr,h_ptr);
+X				break;
+X			    case 2:
+X				w_ptr = &(reply.width);
+X				h_ptr = &(reply.height);
+X				Layout(mlw,False,False,w_ptr,h_ptr);
+X				break;
+X			    case 3:
+X				return;
+X			}
+X			break;
+X		    default:
+X			XtAppWarning(XtWidgetToApplicationContext((Widget)mlw),
+X				"MultiList Widget: Unknown geometry return.");
+X			break;
+X		}
+X		request = reply;
+X	}
+} /* End NegotiateSizeChange */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean Layout(mlw,w_changeable,h_changeable,w_ptr,h_ptr)
+X
+X	This routine tries to generate a layout for the MultiList widget
+X	<mlw>.  The Layout routine is free to arbitrarily set the width
+X	or height if the corresponding variables <w_changeable> and
+X	<h_changeable> are set True.  Otherwise the original width or
+X	height in <w_ptr> and <h_ptr> are used as fixed values.  The
+X	resulting new width and height are stored back through the
+X	<w_ptr> and <h_ptr> pointers.  False is returned if no size
+X	change was done, True is returned otherwise.
+X
+X *---------------------------------------------------------------------------*/
+X
+#if NeedFunctionPrototypes
+static Boolean
+Layout(XfwfMultiListWidget mlw, Boolean w_changeable, Boolean h_changeable,
+X       Dimension *w_ptr, Dimension *h_ptr)
+#else
+static Boolean
+Layout(mlw,w_changeable,h_changeable,w_ptr,h_ptr)
+XXfwfMultiListWidget mlw;
+Boolean w_changeable,h_changeable;
+Dimension *w_ptr,*h_ptr;
+#endif
+{
+X	Boolean size_changed = False;
+X
+X	/*
+X	 * If force columns is set, then always use the number
+X	 * of columns specified by default_cols.
+X	 */
+X
+X	MultiListColWidth(mlw) = MultiListLongest(mlw) +
+X		MultiListColumnSpace(mlw);
+X	MultiListRowHeight(mlw) = FontH(MultiListFont(mlw)) +
+X		MultiListRowSpace(mlw);
+X	if (MultiListForceCols(mlw))
+X	{
+X		MultiListNumCols(mlw) = max(MultiListDefaultCols(mlw),1);
+X		if (MultiListNumItems(mlw) == 0)
+X			MultiListNumRows(mlw) = 1;
+X		    else
+X			MultiListNumRows(mlw) = (MultiListNumItems(mlw) - 1) /
+X				MultiListNumCols(mlw) + 1;
+X		if (w_changeable)
+X		{
+X			*w_ptr = MultiListNumCols(mlw) *
+X				MultiListColWidth(mlw);
+X			size_changed = True;
+X		}
+X		    else
+X		{
+X			MultiListColWidth(mlw) = *w_ptr /
+X				(Dimension)MultiListNumCols(mlw);
+X		}
+X		if (h_changeable)
+X		{
+X			*h_ptr = MultiListNumRows(mlw) *
+X				MultiListRowHeight(mlw);
+X			size_changed = True;
+X		}
+X		return(size_changed);
+X	}
+X
+X	/*
+X	 * If both width and height are free to change then use
+X	 * default_cols to determine the number of columns and set
+X	 * the new width and height to just fit the window.
+X	 */
+X
+X	if (w_changeable && h_changeable)
+X	{
+X		MultiListNumCols(mlw) = max(MultiListDefaultCols(mlw),1);
+X		if (MultiListNumItems(mlw) == 0)
+X			MultiListNumRows(mlw) = 1;
+X		    else
+X			MultiListNumRows(mlw) = (MultiListNumItems(mlw) - 1) /
+X				MultiListNumCols(mlw) + 1;
+X		*w_ptr = MultiListNumCols(mlw) * MultiListColWidth(mlw);
+X		*h_ptr = MultiListNumRows(mlw) * MultiListRowHeight(mlw);
+X		return(True);
+X	}
+X
+X	/*
+X	 * If the width is fixed then use it to determine the
+X	 * number of columns.  If the height is free to move
+X	 * (width still fixed) then resize the height of the
+X	 * widget to fit the current MultiList exactly.
+X	 */
+X
+X	if (!w_changeable)
+X	{
+X		MultiListNumCols(mlw) = *w_ptr / MultiListColWidth(mlw);
+X		MultiListNumCols(mlw) = max(MultiListNumCols(mlw),1);
+X		MultiListNumRows(mlw) = (MultiListNumItems(mlw) - 1) /
+X			MultiListNumCols(mlw) + 1;
+X		MultiListColWidth(mlw) = *w_ptr / (Dimension)MultiListNumCols(mlw);
+X		if (h_changeable)
+X		{
+X			*h_ptr = MultiListNumRows(mlw) * MultiListRowHeight(mlw);
+X			size_changed = True;
+X		}
+X		return(size_changed);
+X	}
+X
+X	/*
+X	 * The last case is xfree and !yfree we use the height to
+X	 * determine the number of rows and then set the width to
+X	 * just fit the resulting number of columns.
+X	 */
+X
+X	MultiListNumRows(mlw) = *h_ptr / MultiListRowHeight(mlw);
+X	MultiListNumRows(mlw) = max(MultiListNumRows(mlw),1);
+X	MultiListNumCols(mlw) = (MultiListNumItems(mlw) - 1) /
+X		MultiListNumRows(mlw) + 1;
+X	*w_ptr = MultiListNumCols(mlw) * MultiListColWidth(mlw);
+X	return(True);
+} /* End Layout */
+X
+/*===========================================================================*
+X
+X                    R E D R A W    R O U T I N E S
+X
+X *===========================================================================*/
+X
+/*---------------------------------------------------------------------------*
+X
+X	RedrawAll(mlw)
+X
+X	This routine simple calls Redisplay to redraw the entire
+X	MultiList widget <mlw>.
+X
+X *---------------------------------------------------------------------------*/
+X
+static void RedrawAll(mlw)
+XXfwfMultiListWidget mlw;
+{
+X	Redisplay(mlw,NULL,NULL);
+} /* End RedrawAll */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	RedrawItem(mlw,item_index)
+X
+X	This routine redraws the item with index <item_index> in the
+X	MultiList widget <mlw>.  If the item number is bad, nothing is drawn.
+X
+X *---------------------------------------------------------------------------*/
+X
+static void RedrawItem(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+{
+X	int row,column;
+X
+X	if (ItemToRowColumn(mlw,item_index,&row,&column))
+X	{
+X		RedrawRowColumn(mlw,row,column);
+X	}
+} /* End RedrawItem */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	RedrawRowColumn(mlw,row,column)
+X
+X	This routine paints the item in row/column position <row>,<column>
+X	on the MultiList widget <mlw>.  If the row/column coordinates are
+X	outside the widget, nothing is drawn.  If the position is empty,
+X	blank space is drawn.
+X
+X *---------------------------------------------------------------------------*/
+X
+static void RedrawRowColumn(mlw,row,column)
+XXfwfMultiListWidget mlw;
+int row,column;
+{
+X	GC bg_gc,fg_gc;
+X	XfwfMultiListItem *item;
+X	int ul_x,ul_y,str_x,str_y,w,h,item_index,has_item,text_h;
+X
+X	if (!XtIsRealized((Widget)mlw)) return;
+X	has_item = RowColumnToItem(mlw,row,column,&item_index);
+X	RowColumnToPixels(mlw,row,column,&ul_x,&ul_y,&w,&h);
+X
+X	if (has_item == False)					/* No Item */
+X	{
+X		if (MultiListShadeSurplus(mlw))
+X			bg_gc = MultiListGrayGC(mlw);
+X		    else
+X			bg_gc = MultiListEraseGC(mlw);
+X	}
+X	    else
+X	{
+X		item = MultiListNthItem(mlw,item_index);
+X		if ((!MultiListSensitive(mlw)) ||
+X		    (!MultiListItemSensitive(item)))	/* Insensitive */
+X		{
+X		        if (MultiListItemHighlighted(item))	/* Selected */
+X			{
+X				bg_gc = MultiListGrayGC(mlw);
+X				fg_gc = MultiListEraseGC(mlw);
+X			}
+X			    else				/* !Selected */
+X			{
+X				bg_gc = MultiListEraseGC(mlw);
+X				fg_gc = MultiListGrayGC(mlw);
+X			}
+X		}
+X		    else				/* Sensitive */
+X		{
+X		        if (MultiListItemHighlighted(item))	/* Selected */
+X			{
+X				bg_gc = MultiListHighlightBackGC(mlw);
+X				fg_gc = MultiListHighlightForeGC(mlw);
+X			}
+X			    else				/* !Selected */
+X			{
+X				bg_gc = MultiListEraseGC(mlw);
+X				fg_gc = MultiListDrawGC(mlw);
+X			}
+X		}
+X	}
+X	XFillRectangle(XtDisplay(mlw),XtWindow(mlw),bg_gc,ul_x,ul_y,w,h);
+X	if (has_item == True)
+X	{
+X		text_h = min(FontH(MultiListFont(mlw)) +
+X			     (int)MultiListRowSpace(mlw),(int)MultiListRowHeight(mlw));
+X		str_x = ul_x + MultiListColumnSpace(mlw) / 2;
+X		str_y = ul_y + FontAscent(MultiListFont(mlw)) +
+X			((int)MultiListRowHeight(mlw) - text_h) / 2;
+X		XDrawString(XtDisplay(mlw),XtWindow(mlw),fg_gc,
+X			    str_x,str_y,MultiListItemString(item),
+X			    strlen(MultiListItemString(item)));
+X	}
+} /* End RedrawRowColumn */
+X	
+/*===========================================================================*
+X
+X               I T E M    L O C A T I O N    R O U T I N E S
+X
+X *===========================================================================*/
+X
+/*---------------------------------------------------------------------------*
+X
+X	void PixelToRowColumn(mlw,x,y,row_ptr,column_ptr)
+X
+X	This routine takes pixel coordinates <x>, <y> and converts
+X	the pixel coordinate into a row/column coordinate.  This row/column
+X	coordinate can then easily be converted into the specific item
+X	in the list via the function RowColumnToItem().
+X
+X	If the pixel lies in blank space outside of the items, the
+X	row & column numbers will be outside of the range of normal
+X	row & columns numbers, but will correspond to the row & column
+X	of the item, if an item was actually there.
+X
+X *---------------------------------------------------------------------------*/
+X
+static void PixelToRowColumn(mlw,x,y,row_ptr,column_ptr)
+XXfwfMultiListWidget mlw;
+int x,y,*row_ptr,*column_ptr;
+{
+X	*row_ptr = y / (int)MultiListRowHeight(mlw);
+X	*column_ptr = x / (int)MultiListColWidth(mlw);
+} /* End PixelToRowColumn */
+X
+/*---------------------------------------------------------------------------*
+X
+X	void RowColumnToPixels(mlw,row,col,x_ptr,y_ptr,w_ptr,h_ptr)
+X
+X	This routine takes a row/column coordinate <row>,<col> and
+X	converts it into the bounding pixel rectangle which is returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+static void RowColumnToPixels(mlw,row,col,x_ptr,y_ptr,w_ptr,h_ptr)
+XXfwfMultiListWidget mlw;
+int row,col,*x_ptr,*y_ptr,*w_ptr,*h_ptr;
+{
+X	*x_ptr = col * MultiListColWidth(mlw);
+X	*y_ptr = row * MultiListRowHeight(mlw);
+X	*w_ptr = MultiListColWidth(mlw);
+X	*h_ptr = MultiListRowHeight(mlw);
+} /* End RowColumnToPixels */
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean RowColumnToItem(mlw,row,column,item_ptr)
+X
+X	This routine takes a row number <row> and a column number <column>
+X	and tries to resolve this row and column into the index of the
+X	item in this position of the MultiList widget <mlw>.  The resulting
+X	item index is placed through <item_ptr>.  If there is no item at
+X	this location, False is returned, else True is returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+static Boolean RowColumnToItem(mlw,row,column,item_ptr)
+XXfwfMultiListWidget mlw;
+int row,column,*item_ptr;
+{
+X	register int x_stride,y_stride;
+X
+X	if (row < 0 || row >= MultiListNumRows(mlw) ||
+X	    column < 0 || column >= MultiListNumCols(mlw))
+X	{
+X		return(False);
+X	}
+X	if (MultiListRowMajor(mlw))
+X	{
+X		x_stride = 1;
+X		y_stride = MultiListNumCols(mlw);
+X	}
+X	    else
+X	{
+X		x_stride = MultiListNumRows(mlw);
+X		y_stride = 1;
+X	}
+X	*item_ptr = row * y_stride + column * x_stride;
+X	if (*item_ptr >= MultiListNumItems(mlw))
+X		return(False);
+X	    else
+X		return(True);
+} /* End RowColumnToItem */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean ItemToRowColumn(mlw,item_index,row_ptr,column_ptr)
+X
+X	This routine takes an item number <item_index> and attempts
+X	to convert the index into row and column numbers stored through
+X	<row_ptr> and <column_ptr>.  If the item number does not
+X	corespond to a valid item, False is returned, else True is
+X	returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+static Boolean ItemToRowColumn(mlw,item_index,row_ptr,column_ptr)
+XXfwfMultiListWidget mlw;
+int item_index,*row_ptr,*column_ptr;
+{
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw))
+X	{
+X		return(False);
+X	}
+X	if (MultiListRowMajor(mlw))
+X	{
+X		*row_ptr = item_index / MultiListNumCols(mlw);
+X		*column_ptr = item_index % MultiListNumCols(mlw);
+X	}
+X	    else
+X	{
+X		*row_ptr = item_index % MultiListNumRows(mlw);
+X		*column_ptr = item_index / MultiListNumRows(mlw);
+X	}
+X	return(True);
+} /* End ItemToRowColumn */
+X
+/*===========================================================================*
+X
+X                E V E N T    A C T I O N    H A N D L E R S
+X
+X *===========================================================================*/
+X
+/*---------------------------------------------------------------------------*
+X
+X	Select(mlw,event,params,num_params)
+X
+X	This action handler is called when a user selects an item in the
+X	MultiList.  This action first unselects all previously selected
+X	items, then selects the item under the mouse, if it is not a
+X	background gap, and if it is sensitive.
+X
+X	The MultiListMostRecentItem(mlw) variable will be set to the
+X	item clicked on, or -1 if the item is background or insensitive.
+X	The MultiListMostRecentAct(mlw) variable will be set to
+X	XfwfMultiListActionHighlight, in case the selection region is extended.
+X
+X *---------------------------------------------------------------------------*/
+X
+/* ARGSUSED */
+static void Select(mlw,event,params,num_params)
+XXfwfMultiListWidget mlw;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	int click_x,click_y;
+X	int status,item_index,row,column;
+X
+X	click_x = event->xbutton.x;
+X	click_y = event->xbutton.y;
+X	PixelToRowColumn(mlw,click_x,click_y,&row,&column);
+X	XfwfMultiListUnhighlightAll(mlw);
+X	MultiListMostRecentAct(mlw) = XfwfMultiListActionHighlight;
+X	status = RowColumnToItem(mlw,row,column,&item_index);
+X	if ((status == False) ||
+X	    (!MultiListItemSensitive(MultiListNthItem(mlw,item_index))))
+X	{
+X		MultiListMostRecentItem(mlw) = -1;
+X	}
+X	    else
+X	{
+X		MultiListMostRecentItem(mlw) = item_index;
+X		XfwfMultiListHighlightItem(mlw,item_index);
+X	}
+} /* End Select */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Unselect(mlw,event,params,num_params)
+X
+X	This function unselects the single text item pointed to by the
+X	mouse, if any.  Any remaining selected entries are left selected.
+X
+X	The MultiListMostRecentItem(mlw) variable will be set to -1, and
+X	the MultiListMostRecentAct(mlw) variable will be set to
+X	XfwfMultiListActionUnhighlight, in case the deselection region is
+X	extended.
+X	
+X *---------------------------------------------------------------------------*/
+X
+/* ARGSUSED */
+static void Unselect(mlw,event,params,num_params)
+XXfwfMultiListWidget mlw;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	int click_x,click_y;
+X	int status,item_index,row,column;
+X
+X	click_x = event->xbutton.x;
+X	click_y = event->xbutton.y;
+X	PixelToRowColumn(mlw,click_x,click_y,&row,&column);
+X	MultiListMostRecentItem(mlw) = -1;
+X	MultiListMostRecentAct(mlw) = XfwfMultiListActionUnhighlight;
+X	status = RowColumnToItem(mlw,row,column,&item_index);
+X	if ((status == True) &&
+X	    (MultiListItemSensitive(MultiListNthItem(mlw,item_index))))
+X		XfwfMultiListHighlightItem(mlw,item_index);
+} /* End Unselect */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Toggle(mlw,event,params,num_params)
+X
+X	This action handler implements the toggling of selection status
+X	for a single item.  Any remaining selected entries are left selected.
+X
+X	If the mouse is not over a selectable text item, the
+X	MultiListMostRecentAct(mlw) variable is set to
+X	XfwfMultiListActionHighlight, in case the region is extended into
+X	selectable items later.  MultiListMostRecentItem(mlw) is set to -1.
+X
+X	If the mouse is over a selectable text item, the item highlight is
+X	toggled.  If the item is currently selected, it becomes deselected.
+X	If unselected, the item becomes selected.  At the same time, the
+X	MultiListMostRecentAct(mlw) variable is set to
+X	XfwfMultiListActionHighlight if the item was not previously selected,
+X	or XfwfMultiListActionUnhighlight if the item was previously selected.
+X	MultiListMostRecentItem(mlw) is set to the index of the item clicked
+X	on if the item is selected, or -1 if it is unselected.
+X
+X *---------------------------------------------------------------------------*/
+X
+/* ARGSUSED */
+static void Toggle(mlw,event,params,num_params)
+XXfwfMultiListWidget mlw;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	int click_x,click_y;
+X	int status,item_index,row,column;
+X
+X	click_x = event->xbutton.x;
+X	click_y = event->xbutton.y;
+X	PixelToRowColumn(mlw,click_x,click_y,&row,&column);
+X	status = RowColumnToItem(mlw,row,column,&item_index);
+X	if ((status == False) ||
+X	    (!MultiListItemSensitive(MultiListNthItem(mlw,item_index))))
+X	{
+X		MultiListMostRecentAct(mlw) = XfwfMultiListActionHighlight;
+X		MultiListMostRecentItem(mlw) = -1;
+X	}
+X	    else
+X	{
+X		MultiListMostRecentAct(mlw) =
+X			XfwfMultiListToggleItem(mlw,item_index);
+X		MultiListMostRecentItem(mlw) = item_index;
+X	}
+} /* End Toggle */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Extend(mlw,event,params,num_params)
+X
+X	This action handler implements the extension of a selection/
+X	deselection region.
+X
+X	The MultiListMostRecentAct(mlw) variable is used to determine
+X	if items are to be selected or unselected.  This routine performs
+X	select or unselect actions on each item it is called on.
+X
+X *---------------------------------------------------------------------------*/
+X
+/* ARGSUSED */
+static void Extend(mlw,event,params,num_params)
+XXfwfMultiListWidget mlw;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	int click_x,click_y;
+X	int status,item_index,row,column;
+X
+X	click_x = ((XMotionEvent*)event)->x;
+X	click_y = ((XMotionEvent*)event)->y;
+X	PixelToRowColumn(mlw,click_x,click_y,&row,&column);
+X	status = RowColumnToItem(mlw,row,column,&item_index);
+X	if ((status == True) &&
+X	    (MultiListItemSensitive(MultiListNthItem(mlw,item_index))))
+X	{
+X		MultiListMostRecentItem(mlw) = item_index;
+X		if (MultiListMostRecentAct(mlw) == XfwfMultiListActionHighlight)
+X			XfwfMultiListHighlightItem(mlw,item_index);
+X		    else
+X			XfwfMultiListUnhighlightItem(mlw,item_index);
+X	}
+} /* End Extend */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Notify(mlw,event,params,num_params)
+X
+X	This function performs the Notify action, which issues a callback
+X	after a selection/unselection has completed.  All callbacks on the
+X	callback list are invoked, and a XfxfMultiListReturnStruct describing
+X	the selection state is returned.
+X
+X	In addition, if the XtNpasteBuffer resource is true and at least one
+X	text item is selected, all the selected items are placed in the X
+X	cut buffer (buf(0)) separated by newlines.
+X
+X *---------------------------------------------------------------------------*/
+X
+/* ARGSUSED */
+static void Notify(mlw,event,params,num_params)
+XXfwfMultiListWidget mlw;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	char *buffer;
+X	String string;
+X	int i,byte_count,item_index;
+X	XfwfMultiListReturnStruct ret_value;
+X
+X	if ((MultiListNumSelected(mlw) != 0) && MultiListPaste(mlw))
+X	{
+X		byte_count = 0;
+X		for (i = 0; i < MultiListNumSelected(mlw); i++)
+X		{
+X			item_index = MultiListSelArray(mlw)[i];
+X			string = MultiListItemString(MultiListNthItem(mlw,
+X				item_index));
+X			byte_count = byte_count + strlen(string) + 1;
+X		}
+X		buffer = (char *)malloc(byte_count);
+X		buffer[0] = '\0';
+X		for (i = 0; i < MultiListNumSelected(mlw); i++)
+X		{
+X			if (i != 0) strcat(buffer,"\n");
+X			item_index = MultiListSelArray(mlw)[i];
+X			string = MultiListItemString(MultiListNthItem(mlw,
+X				item_index));
+X			strcat(buffer,string);
+X		}
+X		XStoreBytes(XtDisplay(mlw),buffer,byte_count);
+X		free(buffer);
+X	}
+X
+X	ret_value.action = MultiListMostRecentAct(mlw);
+X	ret_value.item = MultiListMostRecentItem(mlw);
+X	if (ret_value.item == -1)
+X		ret_value.string = NULL;
+X	    else
+X		ret_value.string = MultiListItemString(MultiListNthItem(mlw,
+X			ret_value.item));
+X	ret_value.num_selected = MultiListNumSelected(mlw);
+X	ret_value.selected_items = MultiListSelArray(mlw);
+X	XtCallCallbacks((Widget)mlw,XtNcallback,(caddr_t)&ret_value);
+} /* End Notify */
+X
+/*===========================================================================*
+X
+X        U S E R    C A L L A B L E    U T I L I T Y    R O U T I N E S
+X
+X *===========================================================================*/
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean XfwfMultiListHighlightItem(mlw,item_index)
+X
+X	This routine selects an item with index <item_index> in the
+X	MultiList widget <mlw>.  If a maximum number of selections is specified
+X	and exceeded, the earliest selection will be unselected.  If
+X	<item_index> doesn't correspond to an item the most recently
+X	clicked item will be set to -1 and this routine will immediately
+X	return, otherwise the most recently clicked item will be set to the
+X	current item.  If the clicked on item is not sensitive, or if the
+X	click is not on an item, False is returned, else True is returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+Boolean XfwfMultiListHighlightItem(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+{
+X	XfwfMultiListItem *item;
+X
+X	if (MultiListMaxSelectable(mlw) == 0) return(False);
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw))
+X	{
+X		MultiListMostRecentItem(mlw) = -1;
+X		return(False);
+X	}
+X	item = MultiListNthItem(mlw,item_index);
+X	if (MultiListItemSensitive(item) == False) return(False);
+X	MultiListMostRecentItem(mlw) = item_index;
+X	if (MultiListItemHighlighted(item) == True) return(True);
+X	if (MultiListNumSelected(mlw) == MultiListMaxSelectable(mlw))
+X	{
+X		XfwfMultiListUnhighlightItem(mlw,MultiListSelArray(mlw)[0]);
+X	}
+X	MultiListItemHighlighted(item) = True;
+X	MultiListSelArray(mlw)[MultiListNumSelected(mlw)] = item_index;
+X	++ MultiListNumSelected(mlw);
+X	RedrawItem(mlw,item_index);
+X	return(True);
+} /* End XfwfMultiListHighlightItem */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	XfwfMultiListHighlightAll(mlw)
+X
+X	This routine highlights all highlightable items in the MultiList
+X	widget <mlw>, up to the maximum number of allowed highlightable
+X	items;
+X
+X *---------------------------------------------------------------------------*/
+X
+void XfwfMultiListHighlightAll(mlw)
+XXfwfMultiListWidget mlw;
+{
+X	int i;
+X	XfwfMultiListItem *item;
+X
+X	MultiListNumSelected(mlw) = 0;
+X	for (i = 0; i < MultiListNumItems(mlw); i++)
+X	{
+X		item = MultiListNthItem(mlw,i);
+X		MultiListItemHighlighted(item) = False;
+X	}
+X	for (i = 0; i < MultiListNumItems(mlw); i++)
+X	{
+X		if (MultiListNumSelected(mlw) == MultiListMaxSelectable(mlw))
+X			break;
+X		item = MultiListNthItem(mlw,i);
+X		if (MultiListItemSensitive(item) == False) continue;
+X		MultiListItemHighlighted(item) = True;
+X		MultiListSelArray(mlw)[MultiListNumSelected(mlw)] = i;
+X		++ MultiListNumSelected(mlw);
+X	}
+X	RedrawAll(mlw);
+} /* End XfwfMultiListHighlightAll */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	XfwfMultiListUnhighlightItem(mlw,item_index)
+X
+X	This routine unselects the item with index <item_index> in the
+X	MultiList widget <mlw>.  If <item_index> doesn't correspond to a
+X	selected item, then nothing will happen.  Otherwise, the item
+X	is unselected and the selection array and count are updated.
+X
+X *---------------------------------------------------------------------------*/
+X
+void XfwfMultiListUnhighlightItem(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+{
+X	int i;
+X	XfwfMultiListItem *item;
+X
+X	if (MultiListMaxSelectable(mlw) == 0) return;
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw)) return;
+X	item = MultiListNthItem(mlw,item_index);
+X	if (MultiListItemHighlighted(item) == False) return;
+X	MultiListItemHighlighted(item) = False;
+X
+X	for (i = 0; i < MultiListNumSelected(mlw); i++)
+X		if (MultiListSelArray(mlw)[i] == item_index) break;
+X	for (i = i + 1; i < MultiListNumSelected(mlw); i++)
+X		MultiListSelArray(mlw)[i - 1] = MultiListSelArray(mlw)[i];
+X	-- MultiListNumSelected(mlw);
+X
+X	RedrawItem(mlw,item_index);
+} /* End XfwfMultiListUnhighlightItem */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	XfwfMultiListUnhighlightAll(mlw)
+X
+X	This routine unhighlights all items in the MultiList widget <mlw>.
+X
+X *---------------------------------------------------------------------------*/
+X
+void XfwfMultiListUnhighlightAll(mlw)
+XXfwfMultiListWidget mlw;
+{
+X	int i;
+X	XfwfMultiListItem *item;
+X
+X	for (i = 0; i < MultiListNumItems(mlw); i++)
+X	{
+X		item = MultiListNthItem(mlw,i);
+X		if (MultiListItemHighlighted(item))
+X			XfwfMultiListUnhighlightItem(mlw,i);
+X	}
+X	MultiListNumSelected(mlw) = 0;
+} /* End XfwfMultiListUnhighlightAll */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	int XfwfMultiListToggleItem(mlw,item_index)
+X
+X	This routine highlights the item with index <item_index>
+X	if it is unhighlighted and unhighlights it if it is already
+X	highlighted.  The action performed by the toggle is returned
+X	(XfwfMultiListActionHighlight or XfwfMultiListActionUnhighlight).
+X
+X *---------------------------------------------------------------------------*/
+X
+int XfwfMultiListToggleItem(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+{
+X	XfwfMultiListItem *item;
+X
+X	if (MultiListMaxSelectable(mlw) == 0)
+X		return(XfwfMultiListActionNothing);
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw))
+X		return(XfwfMultiListActionNothing);
+X	item = MultiListNthItem(mlw,item_index);
+X	if (MultiListItemSensitive(item) == False)
+X		return(XfwfMultiListActionNothing);
+X	if (MultiListItemHighlighted(item))
+X	{
+X		XfwfMultiListUnhighlightItem(mlw,item_index);
+X		return(XfwfMultiListActionUnhighlight);
+X	}
+X	    else
+X	{
+X		XfwfMultiListHighlightItem(mlw,item_index);
+X		return(XfwfMultiListActionHighlight);
+X	}
+} /* End XfwfMultiListToggleItem */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	XfwfMultiListReturnStruct *XfwfMultiListGetHighlighted(mlw)
+X
+X	This routine takes a MultiList widget <mlw> and returns a
+X	XfwfMultiListReturnStruct whose num_selected and selected_items
+X	fields contain the highlight information.  The action field
+X	is set to MULTILIST_ACTION_STATUS, and the item_index and string
+X	fields are invalid.
+X
+X *---------------------------------------------------------------------------*/
+X
+XXfwfMultiListReturnStruct *XfwfMultiListGetHighlighted(mlw)
+XXfwfMultiListWidget mlw;
+{
+X	XfwfMultiListItem *item;
+X	static XfwfMultiListReturnStruct ret_value;
+X
+X	ret_value.action = XfwfMultiListActionStatus;
+X	if (MultiListNumSelected(mlw) == 0)
+X	{
+X		ret_value.item = -1;
+X		ret_value.string = NULL;
+X	}
+X	    else
+X	{
+X		ret_value.item = MultiListSelArray(mlw)
+X			[MultiListNumSelected(mlw) - 1];
+X		item = MultiListNthItem(mlw,ret_value.item);
+X		ret_value.string = MultiListItemString(item);
+X	}
+X	ret_value.num_selected = MultiListNumSelected(mlw);
+X	ret_value.selected_items = MultiListSelArray(mlw);
+X	return(&ret_value);
+} /* End XfwfMultiListGetHighlighted */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean XfwfMultiListIsHighlighted(mlw,item_index)
+X
+X	This routine checks if the item with index <item_index>
+X	is highlighted and returns True or False depending.  If
+X	<item_index> is invalid, False is returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+Boolean XfwfMultiListIsHighlighted(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+{
+X	XfwfMultiListItem *item;
+X
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw))
+X		return(False);
+X	item = MultiListNthItem(mlw,item_index);
+X	return(MultiListItemHighlighted(item));
+} /* End XfwfMultiListIsHighlighted */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	Boolean XfwfMultiListGetItemInfo(mlw,item_index,str_ptr,h_ptr,s_ptr)
+X
+X	This routine returns the string, highlight status and
+X	sensitivity information for the item with index <item_index>
+X	via the pointers <str_ptr>, <h_ptr> and <s_ptr>.  If the item
+X	index is invalid, False is returned, else True is returned.
+X
+X *---------------------------------------------------------------------------*/
+X
+Boolean XfwfMultiListGetItemInfo(mlw,item_index,str_ptr,h_ptr,s_ptr)
+XXfwfMultiListWidget mlw;
+int item_index;
+String *str_ptr;
+Boolean *h_ptr,*s_ptr;
+{
+X	XfwfMultiListItem *item;
+X
+X	if (item_index < 0 || item_index >= MultiListNumItems(mlw))
+X		return(False);
+X	item = MultiListNthItem(mlw,item_index);
+X	*str_ptr = MultiListItemString(item);
+X	*h_ptr = MultiListItemHighlighted(item);
+X	*s_ptr = MultiListItemSensitive(item);
+X	return(True);
+} /* End XfwfMultiListGetItemInfo */
+X
+X
+/*---------------------------------------------------------------------------*
+X
+X	XfwfMultiListSetNewData(mlw,list,nitems,longest,resize,
+X		sensitivity_array)
+X
+X	This routine will set a new set of strings <list> into the
+X	MultiList widget <mlw>.  If <resize> is True, the MultiList widget will
+X	try to resize itself.
+X
+X *---------------------------------------------------------------------------*/
+X
+#if NeedFunctionPrototypes
+void
+XXfwfMultiListSetNewData(XfwfMultiListWidget mlw, String *list,
+X			int nitems, int longest, Boolean resize,
+X			Boolean *sensitivity_array)
+#else
+void
+XXfwfMultiListSetNewData(mlw,list,nitems,longest,resize,sensitivity_array)
+XXfwfMultiListWidget mlw;
+String *list;
+int nitems,longest;
+Boolean resize;
+Boolean *sensitivity_array;
+#endif
+{
+X	DestroyOldData(mlw);
+X	MultiListList(mlw) = list;
+X	MultiListNumItems(mlw) = max(nitems,0);
+X	MultiListLongest(mlw) = max(longest,0);
+X	MultiListSensitiveArray(mlw) = sensitivity_array;
+X	InitializeNewData(mlw);
+X	RecalcCoords(mlw,resize,resize);
+X	if (XtIsRealized((Widget)mlw)) Redisplay(mlw,NULL,NULL);
+} /* End XfwfMultiListSetNewData */
+X
+X
+SHAR_EOF
+echo 'File xarchie-2.0.6/FWF/MultiList/MultiList.c is complete' &&
+chmod 0644 xarchie-2.0.6/FWF/MultiList/MultiList.c ||
+echo 'restore of xarchie-2.0.6/FWF/MultiList/MultiList.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/FWF/MultiList/MultiList.c'`"
+test 55449 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/FWF/MultiList/MultiList.c: original size 55449, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/FWF/MultiList/MultiList.h ==============
+if test -f 'xarchie-2.0.6/FWF/MultiList/MultiList.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/FWF/MultiList/MultiList.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/FWF/MultiList/MultiList.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/FWF/MultiList/MultiList.h' &&
+/****************************************************************************
+X
+X	MultiList.h
+X
+X	This file is the public header file for the MultiList widget, an
+X	extension to the Athena List widget.
+X
+X	This code is loosely based on the Athena List source which
+X	is why the MIT copyright notice appears below.
+X
+X	The code was changed substantially in V3.4 to change the
+X	action/callback interface which was unnecessarily ugly.  Code
+X	using some features of the old interface may need to be changed.
+X	Hope the changes don't make people's lives too miserable.
+X
+X ****************************************************************************/
+X
+/*
+X * Author:
+X * 	Brian Totty
+X * 	Department of Computer Science
+X * 	University Of Illinois at Urbana-Champaign
+X *	1304 West Springfield Avenue
+X * 	Urbana, IL 61801
+X * 
+X * 	totty@cs.uiuc.edu
+X * 	
+X */ 
+X
+/*
+X * Copyright 1989 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Original Athena Author:  Chris D. Peterson, MIT X Consortium
+X */
+X
+#ifndef _MULTILIST_H_
+#define _MULTILIST_H_
+X
+#include <X11/Xaw/Simple.h>
+X
+/*---------------------------------------------------------------------------*
+X
+X      R E S O U R C E    D E S C R I P T I O N S    A N D    N O T E S
+X
+X *---------------------------------------------------------------------------*/
+X
+/*
+X
+X Name		     Class		RepType		Default Value
+X ----		     -----		-------		-------------
+X background	     Background		Pixel		XtDefaultBackground
+X border		     BorderColor	Pixel		XtDefaultForeground
+X borderWidth	     BorderWidth	Dimension	1
+X callback            Callback           XtCallbackList  NULL                *1
+X columnWidth         Width              Dimension       0                   *9
+X columnSpacing       Spacing            Dimension       8
+X cursor		     Cursor		Cursor		left_ptr
+X defaultColumns      Columns            int             1                   *2
+X destroyCallback     Callback		Pointer		NULL 
+X font		     Font		XFontStruct*	XtDefaultFont
+X forceColumns        Columns            Boolean         False               *2
+X foreground	     Foreground		Pixel		XtDefaultForeground
+X height		     Height		Dimension	0                   *3
+X highlightBackground HBackground	Pixel		XtDefaultForeground *4
+X highlightForeground HForeground	Pixel		XtDefaultBackground *4
+X insensitiveBorder   Insensitive	Pixmap		Gray
+X list                List               String *        NULL                *5
+X longest             Longest            int             0                   *6
+X mappedWhenManaged   MappedWhenManaged	Boolean		True
+X maxSelectable       Value              int             1                   *7
+X numberStrings       NumberStrings      int             0                   *5
+X pasteBuffer         Boolean            Boolean         False
+X rowHeight           Height             Dimension       0                   *9
+X rowSpacing          Spacing            Dimension       2
+X sensitive	     Sensitive		Boolean		True
+X sensitiveArray      List               Boolean *       NULL                *8
+X shadeSurplus	     Boolean		Boolean		True		    *10
+X verticalList        Boolean            Boolean         False
+X width		     Width		Dimension	0
+X x		     Position		Position	0
+X y		     Position		Position	0
+X
+X *1 -  The callback functions are called whenever a highlight or unhighlight
+X       takes place.  More precisely, a callback occurs whenever the Notify()
+X       action is triggered.  By default, this occurs when the mouse button is
+X       lifted after a selection or deselection occurred.  The callback returns
+X       an XfwfMultiListReturnStruct data structure which contains numerous
+X       fields describing the selection state.  The most important fields
+X       indicate the total number of items selected, and a list of those items.
+X
+X *2 -  The defaultColumns resource is used in two cases.  If forceColumns
+X       is true, the widget will set the number of columns to the value of
+X       default columns.  If the widget width is unconstrained by the parent
+X       widgets, the defaultColumns is also used to determine the number of
+X       columns and the resulting width.  Otherwise, the number of columns
+X       will be calcultaed based on the current width and will be changed to
+X       an appropriate value.
+X
+X *3 -  If the width or height is set to zero (0), which is the default case,
+X       then the widget will calculate the size of that dimension to be just
+X       large enough to hold the contents of the widget.
+X
+X *4 -  The highlightForeground and highlightBackground colors specify the
+X       colors used to highlight the text (foreground) and the surrounding
+X       background space of a list item when it is selected (highlighted).
+X       The default is the reverse of the default foreground and background
+X       colors.
+X
+X *5 -  The list resource is an array of strings (char * array) which tell
+X       the names of each item of the list.  The number of elements of this
+X       array are indicated by the resource numberStrings.  If numberStrings
+X       is set to 0 (the default), then the MultiList widget will count the
+X       number of strings in the list.  This requires that the list be
+X       NULL terminated.  If list is NULL, then the widget treats it as an
+X       empty list.  Once the list is set the list resource is set to NULL,
+X       so you won't be able to read back the list after it has been set.  The
+X       widgets copies the strings internally, so the user can free the list
+X       storage after setting it.
+X
+X *6 -  This resource represent the longest string in pixels.  If this
+X       resource is zero (0), which is the default and probably the value
+X       most people should use, the longest string length is calculated
+X       and the resource is updated.
+X
+X *7 -  The maxSelectable resource indicates the maximum number of items
+X       which can be selected at any one time.  In the original Athena
+X       widget, you could have at most one item selected at a time.  In
+X       this widget, you can choose how many will be selected at a time.
+X
+X *8 -  Each item in the MultiList can be made insensitive, so it is printed in
+X       gray shading and can not be highlighted.  This can be done by
+X       setting the sensitivity list, which is an array of Booleans which
+X       indicate whether or not the corresponding item is sensitive (can be
+X       selected).  If sensitivity list is NULL, all items are sensitive.  The
+X       widget copies the sensitivity information, so the user can delete the
+X       sensitivity array storage after setting it.  The widget sets the
+X       resource to NULL after it has been set, so the user cannot read the
+X       old list back.
+X
+X *9 -  These values are intended for reading only.  They indicate the pixel
+X       width/height of the column/row.
+X
+X *10 - If the list height is made larger than the sum of the list entry
+X       heights, the surplus space is shaded in the background color if
+X       shadeSurplus is False, or in a gray stipple pattern if shadeSurplus
+X       is True.       
+X
+*/
+X
+/*---------------------------------------------------------------------------*
+X
+X                    S T R I N G    D E F I N I T I O N S
+X
+X *---------------------------------------------------------------------------*/
+X
+#define XtCList			"List"
+#define XtCSpacing		"Spacing"
+#define XtCColumns		"Columns"
+#define XtCLongest		"Longest"
+#define XtCNumberStrings	"NumberStrings"
+#define	XtCHForeground		"HForeground"
+#define	XtCHBackground		"HBackground"
+X
+#ifndef XtNcursor
+#define XtNcursor		"cursor"
+#endif
+X
+#define	XtNhighlightForeground	"highlightForeground"
+#define	XtNhighlightBackground	"highlightBackground"
+#define XtNcolumnSpacing	"columnSpacing"
+#define XtNrowSpacing		"rowSpacing"
+#define XtNdefaultColumns	"defaultColumns"
+#define XtNforceColumns		"forceColumns"
+#define XtNpasteBuffer		"pasteBuffer"
+#define XtNverticalList		"verticalList"
+#define XtNlongest		"longest"
+#define XtNnumberStrings	"numberStrings"
+#define XtNlist			"list"
+#define	XtNsensitiveArray	"sensitiveArray"
+#define	XtNmaxSelectable	"maxSelectable"
+#define	XtNshadeSurplus		"shadeSurplus"
+X
+#ifndef XtNrowHeight
+#define	XtNrowHeight		"rowHeight"
+#endif
+#ifndef XtNcolumnWidth
+#define	XtNcolumnWidth		"columnWidth"
+#endif
+X
+X	/* Class Record Constants */
+X
+extern WidgetClass xfwfMultiListWidgetClass;
+X
+typedef struct _XfwfMultiListClassRec *XfwfMultiListWidgetClass;
+typedef struct _XfwfMultiListRec      *XfwfMultiListWidget;
+X
+/*---------------------------------------------------------------------------*
+X
+X                     R E T U R N    S T R U C T U R E
+X
+X *---------------------------------------------------------------------------*/
+X
+#define	XfwfMultiListActionNothing		0
+#define	XfwfMultiListActionHighlight		1
+#define	XfwfMultiListActionUnhighlight		2
+#define	XfwfMultiListActionStatus		3
+X
+typedef struct _XfwfMultiListReturnStruct
+{
+X	int num_selected;		/* Number Of Items Now Selected */
+X	int *selected_items;		/* Indexes Of Selected Items */
+X
+X	int action;			/* Last Action Performed */
+X	int item;			/* Last Item Index Modified */
+X	String string;			/* String Of Last Index Modified */
+} XfwfMultiListReturnStruct;
+X
+/*---------------------------------------------------------------------------*
+X
+X                     U T I L I T Y    R O U T I N E S
+X
+X *---------------------------------------------------------------------------*/
+X
+#if (!NeedFunctionPrototypes)
+X
+extern Boolean		XfwfMultiListHighlightItem();
+extern void		XfwfMultiListHighlightAll();
+extern void		XfwfMultiListUnhighlightItem();
+extern void		XfwfMultiListUnhighlightAll();
+extern int		XfwfMultiListToggleItem();
+extern XfwfMultiListReturnStruct *
+X			XfwfMultiListGetHighlighted();
+extern Boolean		XfwfMultiListIsHighlighted();
+extern Boolean		XfwfMultiListGetItemInfo();
+extern void		XfwfMultiListSetNewData();
+X
+#else
+X
+extern Boolean		XfwfMultiListHighlightItem(XfwfMultiListWidget mlw,
+X				int item_index);
+extern void		XfwfMultiListHighlightAll(XfwfMultiListWidget mlw);
+extern void		XfwfMultiListUnhighlightItem(XfwfMultiListWidget mlw,
+X				int item_index);
+extern void		XfwfMultiListUnhighlightAll(XfwfMultiListWidget mlw);
+extern int		XfwfMultiListToggleItem(XfwfMultiListWidget mlw,
+X				int item_index);
+extern XfwfMultiListReturnStruct *
+X			XfwfMultiListGetHighlighted(XfwfMultiListWidget mlw);
+extern Boolean		XfwfMultiListIsHighlighted(XfwfMultiListWidget mlw,
+X				int item_index);
+extern Boolean		XfwfMultiListGetItemInfo(XfwfMultiListWidget mlw,
+X				int item_index, String *str_ptr,
+X				Boolean *h_ptr, Boolean *s_ptr);
+extern void		XfwfMultiListSetNewData(XfwfMultiListWidget mlw,
+X				String *list, int nitems, int longest,
+X				Boolean resize, Boolean *sensitivity_array);
+X
+#endif
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/FWF/MultiList/MultiList.h ||
+echo 'restore of xarchie-2.0.6/FWF/MultiList/MultiList.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/FWF/MultiList/MultiList.h'`"
+test 11706 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/FWF/MultiList/MultiList.h: original size 11706, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/FWF/MultiList/MultiList.man ==============
+if test -f 'xarchie-2.0.6/FWF/MultiList/MultiList.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/FWF/MultiList/MultiList.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/FWF/MultiList/MultiList.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/FWF/MultiList/MultiList.man' &&
+'\" t
+.TH "MultiList" "3" "19 May 1992" "Version 3.4" "Free Widget Foundation"
+.SH Name
+MultiList \- list from which multiple entries can be selected
+.SH Synopsis
+#include <X11/Intrinsic.h>
+#include <X11/MultiList.h>
+X
+widget = XtCreateManagedWidget(name, multiListWidgetClass, ...);
+.SH Class Hierarchy
+Core-->Simple-->MultiList
+.SH Description
+X
+MultiList is a replacement for the Athena List widget, which allows
+multiple selections to be made.  The aesthetics have also been
+slightly improved: the highlight colors can now be selected, and the
+selection extends across the entire width of the column rather than
+just the length of the string.
+X
+The maximum number of multiple selections can be specified.  Items are
+selected and unselected by an action interface.  By default, mouse
+button 1 is used to select, unselect, and toggle items.  When the
+mouse button is lifted, any callbacks in the callback list are called
+with a data structure which describes the count of select items, and
+lists the indices of the selected items.  The return structure
+contains some additional information describing the last item modified
+and the last action performed, which will probably not be of general
+use, and I'd love to delete if I was sure that people didn't use them.
+(The behavior of these fields has changed slightly in V3.4).
+X
+.SH Resources
+In addition to the resources defined by superclasses, this widget
+defines the following:
+.TS
+tab(/) ;
+lB lB lB lB.
+Name/Class/Type/Default
+.T&
+lB l l l.
+XXtNbackground/Background/Pixel/XtDefaultBackground
+XXtNborder/BorderColor/Pixel/XtDefaultForeground
+XXtNborderWidth/BorderWidth/Dimension/1
+XXtNcallback/Callback/XtCallbackList/NULL
+XXtNcolumnWidth/Width/Dimension/0
+XXtNcolumnSpacing/Spacing/Dimension/8
+XXtNcursor/Cursor/Cursor/left_ptr
+XXtNdefaultColumns/Columns/int/1
+XXtNdestroyCallback/Callback/Pointer/NULL 
+XXtNfont/Font/XFontStruct/XtDefaultFont
+XXtNforceColumns/Columns/Boolean/False
+XXtNforeground/Foreground/Pixel/XtDefaultForeground
+XXtNheight/Height/Dimension/0
+XXtNhighlightBackground/HBackground/Pixel/XtDefaultForeground
+XXtNhighlightForeground/HForeground/Pixel/XtDefaultBackground
+XXtNinsensitiveBorder/Insensitive/Pixmap/Gray
+XXtNlist/List/String/NULL
+XXtNlongest/Longest/int/0
+XXtNmappedWhenManaged/MappedWhenManaged/Boolean/True
+XXtNmaxSelectable/Value/int/1
+XXtNnumberStrings/NumberStrings/int/0
+XXtNpasteBuffer/Boolean/Boolean/False
+XXtNrowHeight/Height/Dimension/0
+XXtNrowSpacing/Spacing/Dimension/2
+XXtNsensitive/Sensitive/Boolean/True
+XXtNsensitiveArray/List/Boolean/NULL
+XXtNverticalList/Boolean/Boolean/False
+XXtNwidth/Width/Dimension/0
+XXtNx/Position/Position/0
+XXtNy/Position/Position/0
+.TE
+.ne 4
+.SH Public Functions
+.nf
+.ta 3i
+void XfwfMultiListHighlightItem(mlw,item_index)
+XXfwfMultiListWidget mlw;
+int item_index;
+.fi
+.sp
+.RS 5
+This routine selects an item with index <item_index> in the MultiList
+widget <mlw>.  If a maximum number of selections is specified and
+exceeded, the earliest selection will be unselected.  If <item_index>
+doesn't correspond to an item the most recently clicked item will be
+set to -1 and this routine will immediately return, otherwise the most
+recently clicked item will be set to the current item.
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/FWF/MultiList/MultiList.man failed'
+fi
+echo 'End of xarchie-2.0.6 part 23'
+echo 'File xarchie-2.0.6/FWF/MultiList/MultiList.man is continued in part 24'
+echo 24 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

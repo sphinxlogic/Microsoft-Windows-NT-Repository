@@ -1,0 +1,2511 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i131:  shadow - Shadow Password Suite, v3.3, Part12/14
+Message-ID: <1993Aug14.192639.9904@sparky.sterling.com>
+X-Md4-Signature: 9748911e35054f7bb36d3df1730aeea4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:26:39 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 131
+Archive-name: shadow/part12
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dialup.c encrypt.c faillog.8 groups.c grpck.1 gsdbm.c
+#   gspack.c lastlog.c log.c login.c passwd.4 pwck.1 pwd.h.m4 pwdbm.c
+#   pwpack.c pwunconv.c shell.c sppack.c valid.c
+# Wrapped by kent@sparky on Sat Aug 14 14:11:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 14)."'
+if test -f 'dialup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dialup.c'\"
+else
+  echo shar: Extracting \"'dialup.c'\" \(2702 characters\)
+  sed "s/^X//" >'dialup.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <stdio.h>
+X#ifndef	BSD
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include "dialup.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)dialup.c	3.5	17:31:19	04 Aug 1991";
+X#endif
+X
+Xstatic	FILE	*dialpwd;
+X
+Xvoid
+Xsetduent ()
+X{
+X	if (dialpwd)
+X		rewind (dialpwd);
+X	else
+X		dialpwd = fopen (DIALPWD, "r");
+X}
+X
+Xvoid
+Xendduent ()
+X{
+X	if (dialpwd)
+X		fclose (dialpwd);
+X
+X	dialpwd = (FILE *) 0;
+X}
+X
+Xstruct dialup *
+Xfgetduent (fp)
+XFILE	*fp;
+X{
+X	static	struct	dialup	dialup;	/* static structure to point to */
+X	static	char	shell[128];	/* some space for a login shell */
+X	static	char	passwd[128];	/* some space for dialup password */
+X	char	buf[BUFSIZ];
+X	char	*cp;
+X	char	*cp2;
+X
+X	if (! fp)
+X		return 0;
+X
+X	if (! fp || feof (fp))
+X		return ((struct dialup *) 0);
+X
+X	while (fgets (buf, BUFSIZ, fp) == buf && buf[0] == '#')
+X		;
+X
+X	if (feof (fp))
+X		return ((struct dialup *) 0);
+X
+X	if (cp = strchr (buf, '\n'))
+X		*cp = '\0';
+X
+X	if (! (cp = strchr (buf, ':')))
+X		return ((struct dialup *) 0);
+X
+X	if (cp - buf > sizeof shell)	/* something is fishy ... */
+X		return ((struct dialup *) 0);
+X
+X	*cp++ = '\0';
+X	(void) strcpy (shell, buf);
+X	shell[cp - buf] = '\0';
+X
+X	if (cp2 = strchr (cp, ':'))
+X		*cp2 = '\0';
+X
+X	if (strlen (cp) + 1 > sizeof passwd) /* something is REALLY fishy */
+X		return ((struct dialup *) 0);
+X
+X	(void) strcpy (passwd, cp);
+X
+X	dialup.du_shell = shell;
+X	dialup.du_passwd = passwd;
+X
+X	return (&dialup);
+X}
+X
+Xstruct dialup *
+Xgetduent ()
+X{
+X	if (! dialpwd)
+X		setduent ();
+X
+X	return fgetduent (dialpwd);
+X}
+X
+Xstruct	dialup	*getdushell (shell)
+Xchar	*shell;
+X{
+X	struct	dialup	*dialup;
+X
+X	while (dialup = getduent ()) {
+X		if (strcmp (shell, dialup->du_shell) == 0)
+X			return (dialup);
+X
+X		if (strcmp (dialup->du_shell, "*") == 0)
+X			return (dialup);
+X	}
+X	return ((struct dialup *) 0);
+X}
+X
+Xint	isadialup (tty)
+Xchar	*tty;
+X{
+X	FILE	*fp;
+X	char	buf[BUFSIZ];
+X	int	dialup = 0;
+X
+X	if (! (fp = fopen (DIALUPS, "r")))
+X		return (0);
+X
+X	while (fgets (buf, BUFSIZ, fp) == buf) {
+X		if (buf[0] == '#')
+X			continue;
+X
+X		buf[strlen (buf) - 1] = '\0';
+X
+X		if (strcmp (buf, tty) == 0) {
+X			dialup = 1;
+X			break;
+X		}
+X	}
+X	fclose (fp);
+X
+X	return (dialup);
+X}
+X
+Xint
+Xputduent (dial, fp)
+Xstruct	dialup	*dial;
+XFILE	*fp;
+X{
+X	if (! fp || ! dial)
+X		return -1;
+X
+X	if (fprintf (fp, "%s:%s\n", dial->du_shell, dial->du_passwd) == EOF)
+X		return -1;
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 2702 -ne `wc -c <'dialup.c'`; then
+    echo shar: \"'dialup.c'\" unpacked with wrong size!
+  fi
+  # end of 'dialup.c'
+fi
+if test -f 'encrypt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'encrypt.c'\"
+else
+  echo shar: Extracting \"'encrypt.c'\" \(2196 characters\)
+  sed "s/^X//" >'encrypt.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <string.h>
+X#include "config.h"
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)encrypt.c	3.5	07:45:28	22 Apr 1993";
+X#endif
+X
+Xextern	char	*crypt();
+X
+Xchar *
+Xpw_encrypt (clear, salt)
+Xchar	*clear;
+Xchar	*salt;
+X{
+X#ifdef	SW_CRYPT
+X	static	char	cipher[128];
+X#else
+X	static	char	cipher[32];
+X#endif
+X	static	int	count;
+X	char	newsalt[2];
+X	char	*cp;
+X	long	now;
+X
+X	/*
+X	 * See if a new salt is needed and get a few random
+X	 * bits of information.  The amount of randomness is
+X	 * probably not all that crucial since the salt only
+X	 * serves to thwart a dictionary attack.
+X	 */
+X
+X	if (salt == (char *) 0) {
+X		now = time ((long *) 0) + count++;
+X		now ^= clock ();
+X		now ^= getpid ();
+X		now = ((now >> 12) ^ (now)) & 07777;
+X		newsalt[0] = i64c ((now >> 6) & 077);
+X		newsalt[1] = i64c (now & 077);
+X		salt = newsalt;
+X	}
+X#ifdef	SW_CRYPT
+X	/*
+X	 * Copy over the salt.  It is always the first two
+X	 * characters of the string.
+X	 */
+X
+X	cipher[0] = salt[0];
+X	cipher[1] = salt[1];
+X	cipher[2] = '\0';
+X
+X	/*
+X	 * Loop up to ten times on the cleartext password.
+X	 * This is because the input limit for passwords is
+X	 * 80 characters.
+X	 *
+X	 * The initial salt is that provided by the user, or the
+X	 * one generated above.  The subsequent salts are gotten
+X	 * from the first two characters of the previous encrypted
+X	 * block of characters.
+X	 */
+X
+X	for (count = 0;count < 10;count++) {
+X		cp = crypt (clear, salt);
+X		strcat (cipher, cp + 2);
+X		salt = cipher + 11 * count + 2;
+X
+X		if (strlen (clear) > 8)
+X			clear += 8;
+X		else
+X			break;
+X	}
+X#else
+X	cp = crypt (clear, salt);
+X	strcpy (cipher, cp);
+X
+X#ifdef	DOUBLESIZE
+X	if (strlen (clear) > 8) {
+X		cp = crypt (clear + 8, salt);
+X		strcat (cipher, cp + 2);
+X	}
+X#endif	/* DOUBLESIZE */
+X#endif	/* SW_CRYPT */
+X	return cipher;
+X}
+END_OF_FILE
+  if test 2196 -ne `wc -c <'encrypt.c'`; then
+    echo shar: \"'encrypt.c'\" unpacked with wrong size!
+  fi
+  # end of 'encrypt.c'
+fi
+if test -f 'faillog.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'faillog.8'\"
+else
+  echo shar: Extracting \"'faillog.8'\" \(2516 characters\)
+  sed "s/^X//" >'faillog.8' <<'END_OF_FILE'
+X.\" Copyright 1989, 1990, 1992, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Use, duplication, and disclosure prohibited without
+X.\" the express written permission of the author.
+X.\"
+X.\"	@(#)faillog.8	3.2	20:36:19	07 Mar 1992
+X.\"
+X.TH FAILLOG 8
+X.SH NAME
+Xfaillog \- examine faillog and set login failure limits
+X.SH SYNOPSIS
+X/etc/faillog [ -u uid ] [ -a ] [ -t days ] [ -m max ] [ -pr ] 
+X.SH DESCRIPTION
+X\fIfaillog\fR formats the contents of the failure log,
+X\fI/usr/adm/faillog\fR, and maintains failure counts and
+Xlimits.
+XThe order of the arguments to \fIfaillog\fR is significant.
+XEach argument is processed immediately in the order given.
+X.PP
+XThe \fB-p\fR flag causes failure entries to be printed in UID
+Xorder.
+XEntering \fB-u login-name\fR flag will
+Xcause the failure record for \fBlogin-name\fR only to be printed.
+XEntering \fB-t days\fR will cause only the
+Xfailures more recent than \fBdays\fR to be printed.
+XThe \fB-t\fR flag overrides the use of \fB-u\fR.
+XThe \fB-a\fR flag causes all users to be selected.
+XWhen used with the \fB-p\fR flag, this option selects all users
+Xwho have ever had a login failure.
+XIt is meaningless with the \fB-r\fR flag.
+X.PP
+XThe \fB-r\fR flag is used to reset the count of login failures.
+XWrite access to \fI/usr/adm/faillog\fR is required for
+Xthis option.
+XEntering \fB-u login-name\fR will cause only the failure count
+Xfor \fBlogin-name\fR to be reset.
+X.PP
+XThe \fB-m\fR flag is used to set the maximum number of login
+Xfailures before the account is disabled.
+XWrite access to \fB/usr/adm/faillog\fR is required for this
+Xoption.
+XEntering \fB-m max\fR will cause all accounts to be disabled
+Xafter \fBmax\fR failed logins occur.
+XThis may be modified with \fB-u login-name\fR to limit this
+Xfunction to \fBlogin-name\fR only.
+XSelecting a \fBmax\fR value of 0 has the effect of not placing
+Xa limit on the number of failed logins.
+XThe maximum failure count
+Xshould always be 0 for \fBroot\fR to prevent
+Xa denial of services attack against the system.
+X.PP
+XOptions may be combined in virtually any fashion.
+XEach \fB-p\fR, \fB-r\fR, and \fB-m\fR option will cause
+Ximmediate execution using any \fB-u\fR or \fB-t\fR modifier.
+X.SH Bugs
+X\fIfaillog\fR only prints out users with no successful login since
+Xthe last failure.
+XTo print out a user who has had a successful login since their last
+Xfailure, you must explicitly request the user with the \fB-u\fR flag,
+Xor print out all users with the \fB-a\fR flag.
+X.SH Files
+X/usr/adm/faillog \- failure logging file
+X.SH See Also
+Xlogin(1),
+Xfaillog(4)
+END_OF_FILE
+  if test 2516 -ne `wc -c <'faillog.8'`; then
+    echo shar: \"'faillog.8'\" unpacked with wrong size!
+  fi
+  # end of 'faillog.8'
+fi
+if test -f 'groups.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'groups.c'\"
+else
+  echo shar: Extracting \"'groups.c'\" \(2582 characters\)
+  sed "s/^X//" >'groups.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+Xstatic	char	sccsid[] = "@(#)groups.c	3.2	09:47:19	25 Nov 1991";
+X
+X#include "stdio.h"
+X#include "pwd.h"
+X#include "grp.h"
+X
+X/*
+X * print_groups - print the groups which the named user is a member of
+X *
+X *	print_groups() scans the groups file for the list of groups
+X *	which the user is listed as being a member of.
+X */
+X
+Xprint_groups (member)
+Xchar	*member;
+X{
+X	int	i, groups = 0;
+X	struct	group	*grp;
+X	struct	group	*getgrent();
+X
+X	setgrent ();
+X
+X	while (grp = getgrent ()) {
+X		for (i = 0;grp->gr_mem[i];i++) {
+X			if (strcmp (grp->gr_mem[i], member) == 0) {
+X				if (groups++)
+X					putchar (' ');
+X
+X				printf ("%s", grp->gr_name);
+X			}
+X		}
+X	}
+X	if (groups)
+X		putchar ('\n');
+X}
+X
+X/*
+X * groups - print out the groups a process is a member of
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	int	ngroups;
+X#if NGROUPS > 0
+X#if NGROUPS > 100
+X	gid_t	*groups;
+X#else
+X	gid_t	groups[NGROUPS];
+X#endif
+X	int	i;
+X#else
+X	char	*logname;
+X	char	*getlogin();
+X#endif
+X	struct	group	*gr;
+X	struct	group	*getgrgid();
+X
+X	if (argc == 1) {
+X
+X		/*
+X		 * Called with no arguments - give the group set
+X		 * for the current user.
+X		 */
+X
+X#if NGROUPS > 0
+X		/*
+X		 * This system supports concurrent group sets, so
+X		 * I can ask the system to tell me which groups are
+X		 * currently set for this process.
+X		 */
+X
+X		ngroups = getgroups (0, 0);
+X#if NGROUPS > 100
+X		groups = (gid_t *) malloc (ngroups * sizeof (int *));
+X#endif
+X		getgroups (ngroups, groups);
+X
+X		/*
+X		 * Print out the name of every group in the current
+X		 * group set.  Unknown groups are printed as their
+X		 * decimal group ID values.
+X		 */
+X
+X		for (i = 0;i < ngroups;i++) {
+X			if (i)
+X				putchar (' ');
+X
+X			if (gr = getgrgid (groups[i]))
+X				printf ("%s", gr->gr_name);
+X			else
+X				printf ("%d", groups[i]);
+X		}
+X		putchar ('\n');
+X#else
+X		/*
+X		 * This system does not have the getgroups() system
+X		 * call, so I must check the groups file directly.
+X		 */
+X
+X		if (logname = getlogin ())
+X			print_groups (logname);
+X		else
+X			exit (1);
+X#endif
+X	} else {
+X
+X		/*
+X		 * The invoker wanted to know about some other
+X		 * user.  Use that name to look up the groups instead.
+X		 */
+X
+X		if (getpwnam (argv[1]) == 0) {
+X			fprintf (stderr, "unknown user %s\n", argv[1]);
+X			exit (1);
+X		}
+X		print_groups (argv[1]);
+X	}
+X	exit (0);
+X}
+END_OF_FILE
+  if test 2582 -ne `wc -c <'groups.c'`; then
+    echo shar: \"'groups.c'\" unpacked with wrong size!
+  fi
+  # end of 'groups.c'
+fi
+if test -f 'grpck.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'grpck.1'\"
+else
+  echo shar: Extracting \"'grpck.1'\" \(2692 characters\)
+  sed "s/^X//" >'grpck.1' <<'END_OF_FILE'
+X.\" Copyright 1992, 1993, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\" This software is provided on an AS-IS basis and the author makes
+X.\" no warrantee of any kind.
+X.\"
+X.\"	@(#)grpck.1	3.2	08:47:26	29 Apr 1993
+X.\"
+X.TH GRPCK 1
+X.SH NAME
+Xgrpck \- verify integrity of group files
+X.SH SYNOPSIS
+X\fBgrpck\fR [ \fB-r\fR ] [ \fIgroup\fR \fIshadow\fR ]
+X.SH DESCRIPTION
+X\fBgrpck\fR verifies the integrity of the system authentication information.
+XAll entries in the \fB/etc/group\fR and \fB/etc/gshadow\fR are checked to
+Xsee that the entry has the proper format and valid data in each field.
+XThe user is prompted to delete entries that are improperly formatted or
+Xwhich have other incorrectable errors.
+X.P
+XChecks are made to verify that each entry has
+X.sp
+X.in +.5i
+X- the correct number of fields
+X.br
+X- a unique group name
+X.br
+X- a valid list of members and administrators
+X.in -.5i
+X.sp
+X.P
+XThe checks for correct number of fields and unique group name are fatal.
+XIf the entry has the wrong number of fields, the user will be prompted to
+Xdelete the entire line.
+XIf the user does not answer affirmatively, all further checks are bypassed.
+XAn entry with a duplicated group name is prompted for deletion, but the
+Xremaining checks will still be made.
+XAll other errors are warnings and the user is encouraged to run the
+X\fBgroupmod\fR command to correct the error.
+X.P
+XThe commands which operate on the \fB/etc/group\fR file are not able to
+Xalter corrupted or duplicated entries.
+X\fBgrpck\fR should be used in those circumstances to remove the offending
+Xentry.
+X.SH OPTIONS
+XBy default, \fBgrpck\fR operates on the files \fB/etc/group\fR and
+X\fB/etc/gshadow\fR.
+XThe user may select alternate files with the \fIgroup\fR and \fIshadow\fR
+Xparameters.
+XAdditionally, the user may execute the command in read-only mode by
+Xspecifying the \fB-r\fR flag.
+XThis causes all questions regarding changes to be answered \fBno\fR
+Xwithout user intervention.
+X.SH FILES
+X/etc/group \- group account information
+X.br
+X/etc/gshadow \- encrypted passwords and group administrator information
+X.br
+X/etc/passwd \- user information
+X.SH SEE ALSO
+Xgroupmod(1), group(4), passwd(4), shadow(4)
+X.SH DIAGNOSTICS
+XThe \fIgrpck\fR command exits with the following values:
+X.IP 0 5
+XSuccess
+X.IP 1 5
+XSyntax Error
+X.IP 2 5
+XOne or more bad group entries
+X.IP 3 5
+XCannot open group files
+X.IP 4 5
+XCannot lock group files
+X.IP 5 5
+XCannot update group files
+END_OF_FILE
+  if test 2692 -ne `wc -c <'grpck.1'`; then
+    echo shar: \"'grpck.1'\" unpacked with wrong size!
+  fi
+  # end of 'grpck.1'
+fi
+if test -f 'gsdbm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gsdbm.c'\"
+else
+  echo shar: Extracting \"'gsdbm.c'\" \(2795 characters\)
+  sed "s/^X//" >'gsdbm.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)gsdbm.c	3.6	11:32:14	28 Jul 1992";
+X#endif
+X
+X#include <string.h>
+X#include <stdio.h>
+X#include "shadow.h"
+X#include "config.h"
+X
+X#ifdef	NDBM
+X#include <ndbm.h>
+XDBM	*sg_dbm;
+X
+X#define	GRP_FRAG	256
+X
+X/*
+X * sg_dbm_update
+X *
+X * Updates the DBM password files, if they exist.
+X */
+X
+Xint
+Xsg_dbm_update (sgr)
+Xstruct	sgrp	*sgr;
+X{
+X	datum	key;
+X	datum	content;
+X	char	data[BUFSIZ*8];
+X	char	sgrpkey[60];
+X	char	*cp;
+X	int	len;
+X	int	i;
+X	int	cnt;
+X	static	int	once;
+X
+X	if (! once) {
+X		if (! sg_dbm)
+X			setsgent ();
+X
+X		once++;
+X	}
+X	if (! sg_dbm)
+X		return 0;
+X
+X	len = sgr_pack (sgr, data);
+X
+X	if (len <= GRP_FRAG) {
+X		content.dsize = len;
+X		content.dptr = data;
+X
+X		key.dsize = strlen (sgr->sg_name);
+X		key.dptr = sgr->sg_name;
+X		if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+X			return 0;
+X	} else {
+X		content.dsize = sizeof cnt;
+X		content.dptr = (char *) &cnt;
+X		cnt = (len + (GRP_FRAG-1)) / GRP_FRAG;
+X
+X		key.dsize = strlen (sgr->sg_name);
+X		key.dptr = sgr->sg_name;
+X		if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+X			return 0;
+X
+X		for (cp = data, i = 0;i < cnt;i++) {
+X			content.dsize = len > GRP_FRAG ? GRP_FRAG:len;
+X			len -= content.dsize;
+X			content.dptr = cp;
+X			cp += content.dsize;
+X
+X			key.dsize = sizeof i + strlen (sgr->sg_name);
+X			key.dptr = sgrpkey;
+X			memcpy (sgrpkey, (char *) &i, sizeof i);
+X			strcpy (sgrpkey + sizeof i, sgr->sg_name);
+X			if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+X				return 0;
+X		}
+X	}
+X	return 1;
+X}
+X
+X/*
+X * sg_dbm_remove
+X *
+X * Deletes the DBM shadow group file entries, if they exist.
+X */
+X
+Xint
+Xsg_dbm_remove (name)
+Xchar	*name;
+X{
+X	datum	key;
+X	datum	content;
+X	char	grpkey[60];
+X	int	i;
+X	int	cnt;
+X	int	errors = 0;
+X	static	int	once;
+X
+X	if (! once) {
+X		if (! sg_dbm)
+X			setsgent ();
+X
+X		once++;
+X	}
+X	if (! sg_dbm)
+X		return 0;
+X
+X	key.dsize = strlen (name);
+X	key.dptr = name;
+X	content = dbm_fetch (sg_dbm, key);
+X	if (content.dptr == 0)
+X		++errors;
+X	else {
+X		if (content.dsize == sizeof (int)) {
+X			memcpy ((char *) &cnt, content.dptr, sizeof cnt);
+X
+X			for (i = 0;i < cnt;i++) {
+X				key.dsize = sizeof i + strlen (name);
+X				key.dptr = grpkey;
+X				memcpy (grpkey, (char *) &i, sizeof i);
+X				strcpy (grpkey + sizeof i, name);
+X				if (dbm_delete (sg_dbm, key))
+X					++errors;
+X			}
+X		} else {
+X			if (dbm_delete (sg_dbm, key))
+X				++errors;
+X		}
+X	}
+X	return errors ? 0:1;
+X}
+X#endif
+END_OF_FILE
+  if test 2795 -ne `wc -c <'gsdbm.c'`; then
+    echo shar: \"'gsdbm.c'\" unpacked with wrong size!
+  fi
+  # end of 'gsdbm.c'
+fi
+if test -f 'gspack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gspack.c'\"
+else
+  echo shar: Extracting \"'gspack.c'\" \(2893 characters\)
+  sed "s/^X//" >'gspack.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <stdio.h>
+X#include "shadow.h"
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)gspack.c	3.1	09:13:50	13 Dec 1990";
+X#endif
+X
+X/*
+X * sgr_pack - convert a shadow group structure to a packed
+X *	      shadow group record
+X *
+X *	sgr_pack takes the shadow group structure and packs
+X *	the components in a record.  this record will be
+X *	unpacked later by sgr_unpack.
+X */
+X
+Xint
+Xsgr_pack (sgrp, buf)
+Xstruct	sgrp	*sgrp;
+Xchar	*buf;
+X{
+X	char	*cp;
+X	int	i;
+X
+X	/*
+X	 * The name and password are both easy - append each string
+X	 * to the buffer.  These are always the first two strings
+X	 * in a record.
+X	 */
+X
+X	cp = buf;
+X	strcpy (cp, sgrp->sg_name);
+X	cp += strlen (cp) + 1;
+X
+X	strcpy (cp, sgrp->sg_passwd);
+X	cp += strlen (cp) + 1;
+X
+X	/*
+X	 * The arrays of administrators and members are slightly
+X	 * harder.  Each element is appended as a string, with a
+X	 * final '\0' appended to serve as a blank string.  The
+X	 * number of elements is not known in advance, so the
+X	 * entire collection of administrators must be scanned to
+X	 * find the start of the members.
+X	 */
+X
+X	for (i = 0;sgrp->sg_adm[i];i++) {
+X		strcpy (cp, sgrp->sg_adm[i]);
+X		cp += strlen (cp) + 1;
+X	}
+X	*cp++ = '\0';
+X
+X	for (i = 0;sgrp->sg_mem[i];i++) {
+X		strcpy (cp, sgrp->sg_mem[i]);
+X		cp += strlen (cp) + 1;
+X	}
+X	*cp++ = '\0';
+X
+X	return cp - buf;
+X}
+X
+X/*
+X * sgr_unpack - convert a packed shadow group record to an
+X *	        unpacked record
+X *
+X *	sgr_unpack converts a record which was packed by sgr_pack
+X *	into the normal shadow group structure format.
+X */
+X
+Xint
+Xsgr_unpack (buf, len, sgrp)
+Xchar	*buf;
+Xint	len;
+Xstruct	sgrp	*sgrp;
+X{
+X	char	*org = buf;
+X	int	i;
+X
+X	/*
+X	 * The name and password are both easy - they are the first
+X	 * two strings in the record.
+X	 */
+X
+X	sgrp->sg_name = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	sgrp->sg_passwd = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	/*
+X	 * The administrators and members are slightly more difficult.
+X	 * The arrays are lists of strings.  Each list is terminated
+X	 * by a string of length zero.  This string is detected by
+X	 * looking for an initial character of '\0'.
+X	 */
+X
+X	for (i = 0;*buf && i < 1024;i++) {
+X		sgrp->sg_adm[i] = buf;
+X		buf += strlen (buf) + 1;
+X
+X		if (buf - org > len)
+X			return -1;
+X	}
+X	sgrp->sg_adm[i] = (char *) 0;
+X	if (! *buf)
+X		buf++;
+X
+X	for (i = 0;*buf && i < 1024;i++) {
+X		sgrp->sg_mem[i] = buf;
+X		buf += strlen (buf) + 1;
+X
+X		if (buf - org > len)
+X			return -1;
+X	}
+X	sgrp->sg_mem[i] = (char *) 0;
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 2893 -ne `wc -c <'gspack.c'`; then
+    echo shar: \"'gspack.c'\" unpacked with wrong size!
+  fi
+  # end of 'gspack.c'
+fi
+if test -f 'lastlog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lastlog.c'\"
+else
+  echo shar: Extracting \"'lastlog.c'\" \(3128 characters\)
+  sed "s/^X//" >'lastlog.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1992, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * Modified from faillog.c by Philip Street
+X * Installation:  Maine National Guard
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include "pwd.h"
+X#include <time.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X
+X#define LASTFILE "/usr/adm/lastlog"
+X
+X#include "config.h"
+X#include "lastlog.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)lastlog.c	3.2	10:30:33	18 Jul 1993";
+X#endif
+X
+XFILE	*lastlogfile;	/* lastlog file stream */
+Xoff_t	user;		/* one single user, specified on command line */
+Xint	days;		/* number of days to consider for print command */
+Xtime_t	seconds;	/* that number of days in seconds */
+X
+Xint	uflg;		/* set if user is a valid user id */
+Xint	tflg;		/* print is restricted to most recent days */
+Xstruct	lastlog	lastlog; /* scratch structure to play with ... */
+Xstruct	stat	statbuf; /* fstat buffer for file size */
+X
+Xint freadcode;
+X
+Xextern	int	optind;
+Xextern	char	*optarg;
+Xextern	char	*asctime ();
+Xextern	struct	passwd	*getpwuid ();
+Xextern	struct	passwd	*getpwnam ();
+Xextern	struct	passwd	*getpwent ();
+Xextern	struct	tm	*localtime ();
+X
+X#define	DAY	(24L*3600L)
+X#define	NOW	(time ((time_t *) 0))
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	int	c;
+X	struct	passwd	*pwent;
+X
+X	if ((lastlogfile = fopen (LASTFILE,"r")) == (FILE *) 0) {
+X		perror (LASTFILE);
+X		exit (1);
+X	}
+X	while ((c = getopt (argc, argv, "u:t:")) != EOF) {
+X		switch (c) {
+X			case 'u':
+X				pwent = getpwnam (optarg);
+X				if (! pwent) {
+X					fprintf (stderr, "Unknown User: %s\n", optarg);
+X					exit (1);
+X				}
+X				uflg++;
+X				user = pwent->pw_uid;
+X				break;
+X			case 't':
+X				days = atoi (optarg);
+X				seconds = days * DAY;
+X				tflg++;
+X				break;
+X		}
+X	}
+X	print ();
+X	fclose (lastlogfile);
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+X
+Xprint ()
+X{
+X	int	uid;
+X	off_t	offset;
+X
+X	if (uflg) {
+X		offset = user * sizeof lastlog;
+X		fstat (fileno (lastlogfile), &statbuf);
+X		if (offset >= statbuf.st_size)
+X			return;
+X
+X		fseek (lastlogfile, (off_t) user * sizeof lastlog, 0);
+X		if (fread ((char *) &lastlog, sizeof lastlog, 1, lastlogfile) == 1)
+X			print_one (user);
+X		else
+X			perror (LASTFILE);
+X	} else {
+X		for (uid = 0;
+X			fread ((char *) &lastlog, sizeof lastlog, 1, lastlogfile) == 1;
+X				uid++) {
+X
+X			if (tflg && NOW - lastlog.ll_time > seconds)
+X				continue;
+X
+X			print_one (uid);
+X		}
+X	}
+X}
+X
+Xprint_one (uid)
+Xint	uid;
+X{
+X	static	int	once;
+X	char	*cp;
+X	struct	tm	*tm;
+X	struct	passwd	*pwent;
+X
+X	if (! once) {
+X		printf ("Username\t\tPort\tLatest\n");
+X		once++;
+X	}
+X	pwent = getpwuid (uid);
+X	tm = localtime (&lastlog.ll_time);
+X	cp = asctime (tm);
+X	cp[24] = '\0';
+X
+X	if(lastlog.ll_time == (time_t) 0)
+X		cp = "**Never logged in**\0";
+X
+X	if (pwent) {
+X		printf ("%-16s\t%s\t%s\n",pwent->pw_name,lastlog.ll_line,cp);
+X	}
+X}
+END_OF_FILE
+  if test 3128 -ne `wc -c <'lastlog.c'`; then
+    echo shar: \"'lastlog.c'\" unpacked with wrong size!
+  fi
+  # end of 'lastlog.c'
+fi
+if test -f 'log.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'log.c'\"
+else
+  echo shar: Extracting \"'log.c'\" \(2569 characters\)
+  sed "s/^X//" >'log.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <utmp.h>
+X#ifdef	SVR4
+X#include <utmpx.h>
+X#endif
+X#include "pwd.h"
+X#include <fcntl.h>
+X#include <time.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include "config.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)log.c	3.7	08:07:11	19 Jul 1993";
+X#endif
+X
+X#include "lastlog.h"
+X
+X#ifndef	LASTLOG_FILE
+X#ifdef	SVR4
+X#define	LASTLOG_FILE	"/var/adm/lastlog"
+X#else
+X#define	LASTLOG_FILE	"/usr/adm/lastlog"
+X#endif	/* SVR4 */
+X#endif	/* LASTLOG_FILE */
+X
+Xextern	struct	utmp	utent;
+X#ifdef	SVR4
+Xextern	struct	utmpx	utxent;
+X#endif
+Xextern	struct	passwd	pwent;
+Xextern	struct	lastlog	lastlog;
+Xextern	char	**environ;
+X
+Xlong	lseek ();
+Xtime_t	time ();
+X
+X/* 
+X * log - create lastlog entry
+X *
+X *	A "last login" entry is created for the user being logged in.  The
+X *	UID is extracted from the global (struct passwd) entry and the
+X *	TTY information is gotten from the (struct utmp).
+X */
+X
+Xvoid	log ()
+X{
+X	int	fd;
+X	off_t	offset;
+X	struct	lastlog	newlog;
+X
+X	/*
+X	 * If the file does not exist, don't create it.
+X	 */
+X
+X	if ((fd = open (LASTLOG_FILE, O_RDWR)) == -1)
+X		return;
+X
+X	/*
+X	 * The file is indexed by UID number.  Seek to the record
+X	 * for this UID.  Negaive UID's will create problems, but ...
+X	 */
+X
+X	offset = pwent.pw_uid * sizeof lastlog;
+X
+X	if (lseek (fd, offset, 0) != offset) {
+X		(void) close (fd);
+X		return;
+X	}
+X
+X	/*
+X	 * Read the old entry so we can tell the user when they last
+X	 * logged in.  Then construct the new entry and write it out
+X	 * the way we read the old one in.
+X	 */
+X
+X	if (read (fd, (char *) &lastlog, sizeof lastlog) != sizeof lastlog)
+X#ifndef	BSD
+X		memset ((char *) &lastlog, sizeof lastlog, 0);
+X#else
+X		bzero ((char *) &lastlog, sizeof lastlog);
+X#endif
+X	newlog = lastlog;
+X
+X	(void) time (&newlog.ll_time);
+X	(void) strncpy (newlog.ll_line, utent.ut_line, sizeof newlog.ll_line);
+X#ifdef	SVR4
+X	(void) strncpy (newlog.ll_host, utxent.ut_host, sizeof newlog.ll_host);
+X#endif
+X	(void) lseek (fd, offset, 0);
+X	(void) write (fd, (char *) &newlog, sizeof newlog);
+X	(void) close (fd);
+X}
+END_OF_FILE
+  if test 2569 -ne `wc -c <'log.c'`; then
+    echo shar: \"'log.c'\" unpacked with wrong size!
+  fi
+  # end of 'log.c'
+fi
+if test -f 'login.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'login.c'\"
+else
+  echo shar: Extracting \"'login.c'\" \(3264 characters\)
+  sed "s/^X//" >'login.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <ctype.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include "config.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)login.c	3.4	12:21:53	01 May 1993";
+X#endif
+X
+Xvoid	setenv ();
+X
+X/*
+X * login - prompt the user for their login name
+X *
+X * login() displays the standard login prompt.  If the option
+X * ISSUE_FILE_ENAB is set, the file /etc/issue is displayed
+X * before the prompt.
+X */
+X
+Xvoid
+Xlogin (name, prompt)
+Xchar	*name;
+Xchar	*prompt;
+X{
+X	char	buf[BUFSIZ];
+X	char	*envp[32];
+X	int	envc;
+X	char	*cp;
+X	int	i;
+X	FILE	*fp;
+X	SIGTYPE	(*sigquit)();
+X#ifdef	SIGTSTP
+X	SIGTYPE	(*sigtstp)();
+X#endif
+X	extern	void	exit();
+X
+X	/*
+X	 * There is a small chance that a QUIT character will be part of
+X	 * some random noise during a prompt.  Deal with this by exiting
+X	 * instead of core dumping.  If SIGTSTP is defined, do the same
+X	 * thing for that signal.
+X	 */
+X
+X	sigquit = signal (SIGQUIT, exit);
+X#ifdef	SIGTSTP
+X	sigtstp = signal (SIGTSTP, exit);
+X#endif
+X
+X	/*
+X	 * See if the user has configured the /etc/issue file to
+X	 * be displayed and display it before the prompt.
+X	 */
+X
+X	if (prompt) {
+X		if (getdef_bool ("ISSUE_FILE_ENAB")) {
+X			if (fp = fopen ("/etc/issue", "r")) {
+X				while ((i = getc (fp)) != EOF)
+X					putc (i, stdout);
+X
+X				fflush (stdout);
+X				fclose (fp);
+X			}
+X		}
+X		fputs (prompt, stdout);
+X	}
+X
+X	/* 
+X	 * Read the user's response.  The trailing newline will be
+X	 * removed.
+X	 */
+X
+X#ifndef	BSD
+X	(void) memset (buf, '\0', sizeof buf);
+X#else
+X	bzero (buf, sizeof buf);
+X#endif
+X	if (fgets (buf, BUFSIZ, stdin) != buf)
+X		exit (1);
+X
+X	buf[strlen (buf) - 1] = '\0';	/* remove \n [ must be there ] */
+X
+X	/*
+X	 * Skip leading whitespace.  This makes "  username" work right.
+X	 * Then copy the rest (up to the end or the first "non-graphic"
+X	 * character into the username.
+X	 */
+X
+X	for (cp = buf;*cp == ' ' || *cp == '\t';cp++)
+X		;
+X
+X	for (i = 0;i < BUFSIZ - 1 && isgraph (*cp);name[i++] = *cp++)
+X		;
+X
+X	if (*cp)
+X		cp++;
+X
+X	name[i] = '\0';
+X
+X	/*
+X	 * This is a disaster, at best.  The user may have entered extra
+X	 * environmental variables at the prompt.  There are several ways
+X	 * to do this, and I just take the easy way out.
+X	 */
+X
+X	if (*cp != '\0') {		/* process new variables */
+X		static	int	count;
+X		char	var[BUFSIZ];
+X
+X		for (envc = 0;envc < 32;envc++) {
+X			envp[envc] = strtok (envc == 0 ? cp:(char *) 0, " \t,");
+X			if (envp[envc] == (char *) 0)
+X				break;
+X
+X			if (! strchr (envp[envc], '=')) {
+X				sprintf (var, "L%d=%s", count++, envp[envc]);
+X				envp[envc] = strdup (var);
+X			}
+X		}
+X		setenv (envc, envp);
+X	}
+X
+X	/*
+X	 * Set the SIGQUIT handler back to its original value
+X	 */
+X
+X	(void) signal (SIGQUIT, sigquit);
+X#ifdef	SIGTSTP
+X	(void) signal (SIGTSTP, sigtstp);
+X#endif
+X}
+END_OF_FILE
+  if test 3264 -ne `wc -c <'login.c'`; then
+    echo shar: \"'login.c'\" unpacked with wrong size!
+  fi
+  # end of 'login.c'
+fi
+if test -f 'passwd.4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'passwd.4'\"
+else
+  echo shar: Extracting \"'passwd.4'\" \(2523 characters\)
+  sed "s/^X//" >'passwd.4' <<'END_OF_FILE'
+X.\" Copyright 1989, 1990, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Use, duplication, and disclosure prohibited without
+X.\" the express written permission of the author.
+X.\"
+X.\"	@(#)passwd.4	3.1	09:34:24	21 Nov 1990
+X.\"
+X.TH PASSWD 4
+X.SH NAME
+Xpasswd \- The password file
+X.SH DESCRIPTION
+X.I passwd
+Xcontains various pieces of information for each user account.
+XIncluded is
+X.IP "" .5i
+XLogin name
+X.IP "" .5i
+XOptional encrypted password
+X.IP "" .5i
+XNumerical user ID
+X.IP "" .5i
+XNumerical group ID
+X.IP "" .5i
+XUser name or comment field
+X.IP "" .5i
+XUser home directory
+X.IP "" .5i
+XUser command interpreter
+X.PP
+XThe password field may not be filled if shadow passwords
+Xhave been enabled.
+XIf shadow passwords are being used, the encrypted password will
+Xbe found in \fB/etc/shadow\fR.
+XThe encryped password consists of 13 characters from the
+X64 character alphabet
+Xa thru z, A thru Z, 0 thru 9, \. and /.
+XRefer to \fIcrypt(3)\fR for details on how this string is
+Xinterpreted.
+X.PP
+XAn optional password age string may follow the encrypted
+Xpassword, separated by a comma, from the same alphabet
+Xas the password itself.
+XThe first character gives the number of weeks during which the
+Xpassword is valid.
+XThe second character gives the number of weeks which must pass
+Xbefore the user is permitted to change the password.
+XThe last two characters give the week since Jan 1970 when the
+Xpassword was last changed.
+XWhen the number of weeks during which the password is valid
+Xhave passed, the user will be required to provide a new
+Xpassword.
+X.PP
+XThe comment field is used by various system utilities, such as
+X\fIfinger(1)\fR.
+XThree additional values may be present in the comment field.
+XThey are
+X.IP "" .5i
+Xpri= \- set initial value of nice
+X.IP "" .5i
+Xumask= \- set initial value of umask
+X.IP "" .5i
+Xulimit= \- set initial value of ulimit
+X.PP
+XThese fields are separated from each other and from any other
+Xcomment field by a comma.
+X.PP
+XThe home directory field provides the name of the initial
+Xworking directory.
+X\fILogin\fR uses this information to set the value of
+Xthe \fBHOME\fR environmental variable.
+X.PP
+XThe command interpreter field provides the name of the user's
+Xcommand language interpreter, or the name of the initial program
+Xto execute.
+X\fILogin\fR uses this information to set the value of the
+X\fBSHELL\fR environmental variable.
+XIf this field is empty, it defaults to the value \fB/bin/sh\fR.
+X.SH Files
+X/etc/passwd \- user account information
+X.SH See Also
+Xlogin(1),
+Xpasswd(1),
+Xsu(1),
+Xsulogin(1M),
+Xshadow(4),
+Xpwconv(8),
+Xpwunconv(8)
+END_OF_FILE
+  if test 2523 -ne `wc -c <'passwd.4'`; then
+    echo shar: \"'passwd.4'\" unpacked with wrong size!
+  fi
+  # end of 'passwd.4'
+fi
+if test -f 'pwck.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwck.1'\"
+else
+  echo shar: Extracting \"'pwck.1'\" \(2738 characters\)
+  sed "s/^X//" >'pwck.1' <<'END_OF_FILE'
+X.\" Copyright 1992, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\" This software is provided on an AS-IS basis and the author makes
+X.\" no warrantee of any kind.
+X.\"
+X.\"	@(#)pwck.1	3.2	17:43:54	01 May 1993
+X.\"
+X.TH PWCK 1
+X.SH NAME
+Xpwck \- verify integrity of password files
+X.SH SYNOPSIS
+X\fBpwck\fR [ \fB-r\fR ] [ \fIpasswd\fR \fIshadow\fR ]
+X.SH DESCRIPTION
+X\fBpwck\fR verifies the integrity of the system authentication information.
+XAll entries in the \fB/etc/passwd\fR and \fB/etc/shadow\fR are checked to
+Xsee that the entry has the proper format and valid data in each field.
+XThe user is prompted to delete entries that are improperly formatted or
+Xwhich have other incorrectable errors.
+X.P
+XChecks are made to verify that each entry has
+X.sp
+X.in +.5i
+X- the correct number of fields
+X.br
+X- a unique user name
+X.br
+X- a valid user and group identifier
+X.br
+X- a valid primary group
+X.br
+X- a valid home directory
+X.br
+X- a valid login shell
+X.in -.5i
+X.sp
+X.P
+XThe checks for correct number of fields and unique user name are fatal.
+XIf the entry has the wrong number of fields, the user will be prompted to
+Xdelete the entire line.
+XIf the user does not answer affirmatively, all further checks are bypassed.
+XAn entry with a duplicated user name is prompted for deletion, but the
+Xremaining checks will still be made.
+XAll other errors are warning and the user is encouraged to run the
+X\fBusermod\fR command to correct the error.
+X.P
+XThe commands which operate on the \fB/etc/passwd\fR file are not able to
+Xalter corrupted or duplicated entries.
+X\fBpwck\fR should be used in those circumstances to remove the offending
+Xentry.
+X.SH OPTIONS
+XBy default, \fBpwck\fR operates on the files \fB/etc/passwd\fR and
+X\fB/etc/shadow\fR.
+XThe user may select alternate files with the \fIpasswd\fR and \fIshadow\fR
+Xparameters.
+XAdditionally, the user may execute the command in read-only mode by
+Xspecifying the \fB-r\fR flag.
+XThis causes all questions regarding changes to be answered \fBno\fR
+Xwithout user intervention.
+X.SH FILES
+X/etc/passwd \- user account information
+X.br
+X/etc/shadow \- encrypted password information
+X.br
+X/etc/group \- group information
+X.SH SEE ALSO
+Xusermod(1), group(4), passwd(4), shadow(4)
+X.SH DIAGNOSTICS
+XThe \fIpwck\fR command exits with the following values:
+X.IP 0 5
+XSuccess
+X.IP 1 5
+XSyntax Error
+X.IP 2 5
+XOne or more bad password entries
+X.IP 3 5
+XCannot open password files
+X.IP 4 5
+XCannot lock password files
+X.IP 5 5
+XCannot update password files
+END_OF_FILE
+  if test 2738 -ne `wc -c <'pwck.1'`; then
+    echo shar: \"'pwck.1'\" unpacked with wrong size!
+  fi
+  # end of 'pwck.1'
+fi
+if test -f 'pwd.h.m4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwd.h.m4'\"
+else
+  echo shar: Extracting \"'pwd.h.m4'\" \(2897 characters\)
+  sed "s/^X//" >'pwd.h.m4' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, 1992, John F. Haugh II and Steve Simmons
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X/*
+X * Standard definitions for password files.  This is an independant
+X * reimplementation of the definitions used by AT&T, BSD, and POSIX.
+X * It is not derived from any of those sources.  Note that it can be
+X * site-defined to have non-POSIX features as well.  Ideally this file
+X * is simply replaced by the standard system supplied /usr/include/pwd.h
+X * file.
+X *
+X *	@(#)pwd.h.m4	3.4.1.2	08:07:12	19 Jul 1993
+X */
+X
+X#ifndef	PWD_H
+X#define	PWD_H
+X
+X#ifdef	M_XENIX
+Xtypedef int uid_t;
+Xtypedef int gid_t;
+X#endif
+X
+X#if defined(SUN) || defined(SUN4)
+X#include <sys/types.h>
+X#endif
+X
+X#ifdef	SVR4
+X#include <sys/types.h>
+X#ifndef	_POSIX_SOURCE
+X#define	_POSIX_SOURCE
+X#include <limits.h>
+X#undef	_POSIX_SOURCE
+X#else	/* _POSIX_SOURCE */
+X#include <limits.h>
+X#endif	/* !_POSIX_SOURCE */
+X#define NGROUPS NGROUPS_MAX
+X#endif	/* SVR4 */
+X
+Xifdef(`SUN4', `#define	ATT_AGE')
+Xifdef(`SUN4', `#define  ATT_COMMENT')
+Xifdef(`SUN', `#define	BSD_QUOTAS')
+Xifdef(`BSD', `#define	BSD_QUOTAS')
+Xifdef(`USG', `#define	ATT_AGE')
+Xifdef(`USG', `#define	ATT_COMMENT')
+X
+X/*
+X * This is the data structure returned by the getpw* functions.  The
+X * names of the elements and the structure are taken from traditional
+X * usage.
+X */
+X
+Xstruct passwd	{
+X	char	*pw_name ;	/* User login name */
+X	char	*pw_passwd ;	/* Encrypted passwd or dummy field */
+X	uid_t	pw_uid ;	/* User uid number */
+X	gid_t	pw_gid ;	/* User group id number */
+X#ifdef	BSD_QUOTAS
+X	/* Most BSD systems have quotas, most USG ones don't	*/
+X	int	pw_quota ;	/* The BSD magic doodah */
+X#endif
+X#ifdef	ATT_AGE
+X	/* Use ATT-style password aging	*/
+X	char	*pw_age ;	/* ATT radix-64 encoded data */
+X#endif
+X#ifdef	ATT_COMMENT
+X	/* Provide the unused comment field */
+X	char	*pw_comment;	/* Unused comment field */
+X#endif
+X	char	*pw_gecos ;	/* ASCII user name, other data */
+X	char	*pw_dir ;	/* User home directory */
+X	char	*pw_shell ;	/* User startup shell */
+X} ;
+X
+X#ifdef	ATT_COMMENT
+X/* Provide the unused comment structure */
+Xstruct comment {
+X	char	*c_dept;
+X	char	*c_name;
+X	char	*c_acct;
+X	char	*c_bin;
+X};
+X#endif
+X
+X#if	__STDC__
+X
+Xextern	struct	passwd	*getpwent( void ) ;
+Xextern	struct	passwd	*getpwuid( uid_t user_uid ) ;
+Xextern	struct	passwd	*getpwnam( char *name ) ;
+Xint	setpwent( void );
+Xint	endpwent( void );
+X
+X#else
+X
+Xextern	struct	passwd	*getpwent();
+Xextern	struct	passwd	*getpwuid();
+Xextern	struct	passwd	*getpwnam();
+Xint	setpwent();
+Xint	endpwent();
+X
+X#endif	/* of if __STDC__ */
+X
+X#endif	/* of ifdef PWD_H */
+END_OF_FILE
+  if test 2897 -ne `wc -c <'pwd.h.m4'`; then
+    echo shar: \"'pwd.h.m4'\" unpacked with wrong size!
+  fi
+  # end of 'pwd.h.m4'
+fi
+if test -f 'pwdbm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwdbm.c'\"
+else
+  echo shar: Extracting \"'pwdbm.c'\" \(2514 characters\)
+  sed "s/^X//" >'pwdbm.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)pwdbm.c	3.6	12:10:31	28 Dec 1991";
+X#endif
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#endif
+X#include <stdio.h>
+X#include "pwd.h"
+X#include "config.h"
+X
+X#if defined(DBM) || defined(NDBM) /*{*/
+X
+X#ifdef	DBM
+X#include <dbm.h>
+X#endif
+X#ifdef	NDBM
+X#include <ndbm.h>
+XDBM	*pw_dbm;
+X#endif
+X
+X/*
+X * pw_dbm_update
+X *
+X * Updates the DBM password files, if they exist.
+X */
+X
+Xint
+Xpw_dbm_update (pw)
+Xstruct	passwd	*pw;
+X{
+X	datum	key;
+X	datum	content;
+X	char	data[BUFSIZ];
+X	int	len;
+X	static	int	once;
+X
+X	if (! once) {
+X#ifdef	NDBM
+X		if (! pw_dbm)
+X			setpwent ();
+X#else
+X		setpwent ();
+X#endif
+X		once++;
+X	}
+X#ifdef	DBM
+X	strcpy (data, PWDFILE);
+X	strcat (data, ".pag");
+X	if (access (data, 0))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (! pw_dbm)
+X		return 0;
+X#endif
+X	len = pw_pack (pw, data);
+X	content.dsize = len;
+X	content.dptr = data;
+X
+X	key.dsize = strlen (pw->pw_name);
+X	key.dptr = pw->pw_name;
+X#ifdef	DBM
+X	if (store (key, content))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (dbm_store (pw_dbm, key, content, DBM_REPLACE))
+X		return 0;
+X#endif
+X
+X	key.dsize = sizeof pw->pw_uid;
+X	key.dptr = (char *) &pw->pw_uid;
+X#ifdef	DBM
+X	if (store (key, content))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (dbm_store (pw_dbm, key, content, DBM_REPLACE))
+X		return 0;
+X#endif
+X	return 1;
+X}
+X
+X/*
+X * pw_dbm_remove
+X *
+X * Removes the DBM password entry, if it exists.
+X */
+X
+Xint
+Xpw_dbm_remove (pw)
+Xstruct	passwd	*pw;
+X{
+X	datum	key;
+X	static	int	once;
+X	char	data[BUFSIZ];
+X
+X	if (! once) {
+X#ifdef	NDBM
+X		if (! pw_dbm)
+X			setpwent ();
+X#else
+X		setpwent ();
+X#endif
+X		once++;
+X	}
+X#ifdef	DBM
+X	strcpy (data, PWDFILE);
+X	strcat (data, ".pag");
+X	if (access (data, 0))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (! pw_dbm)
+X		return 0;
+X#endif
+X	key.dsize = strlen (pw->pw_name);
+X	key.dptr = pw->pw_name;
+X#ifdef	DBM
+X	if (delete (key))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (dbm_delete (pw_dbm, key))
+X		return 0;
+X#endif
+X	key.dsize = sizeof pw->pw_uid;
+X	key.dptr = (char *) &pw->pw_uid;
+X#ifdef	DBM
+X	if (delete (key))
+X		return 0;
+X#endif
+X#ifdef	NDBM
+X	if (dbm_delete (pw_dbm, key))
+X		return 0;
+X#endif
+X	return 1;
+X}
+X
+X#endif	/*} defined(NDBM) || defined(DBM) */
+END_OF_FILE
+  if test 2514 -ne `wc -c <'pwdbm.c'`; then
+    echo shar: \"'pwdbm.c'\" unpacked with wrong size!
+  fi
+  # end of 'pwdbm.c'
+fi
+if test -f 'pwpack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwpack.c'\"
+else
+  echo shar: Extracting \"'pwpack.c'\" \(3003 characters\)
+  sed "s/^X//" >'pwpack.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include "pwd.h"
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)pwpack.c	3.4	11:50:31	28 Dec 1991";
+X#endif
+X
+X/*
+X * pw_pack - convert a (struct pwd) to a packed record
+X */
+X
+Xint
+Xpw_pack (passwd, buf)
+Xstruct	passwd	*passwd;
+Xchar	*buf;
+X{
+X	char	*cp;
+X
+X	cp = buf;
+X	strcpy (cp, passwd->pw_name);
+X	cp += strlen (cp) + 1;
+X
+X	strcpy (cp, passwd->pw_passwd);
+X#ifdef	ATT_AGE
+X	if (passwd->pw_age[0]) {
+X		*cp++ = ',';
+X		strcat (cp, passwd->pw_age);
+X	}
+X#endif
+X	cp += strlen (cp) + 1;
+X
+X	memcpy (cp, (void *) &passwd->pw_uid, sizeof passwd->pw_uid);
+X	cp += sizeof passwd->pw_uid;
+X
+X	memcpy (cp, (void *) &passwd->pw_gid, sizeof passwd->pw_gid);
+X	cp += sizeof passwd->pw_gid;
+X#ifdef	BSD_QUOTAS
+X	memcpy (cp, (void *) &passwd->pw_quota, sizeof passwd->pw_quota);
+X	cp += sizeof passwd->pw_quota;
+X#endif
+X#ifdef	ATT_COMMENT
+X	if (passwd->pw_comment) {
+X		strcpy (cp, passwd->pw_comment);
+X		cp += strlen (cp) + 1;
+X	} else
+X		*cp++ = '\0';
+X#endif
+X	strcpy (cp, passwd->pw_gecos);
+X	cp += strlen (cp) + 1;
+X
+X	strcpy (cp, passwd->pw_dir);
+X	cp += strlen (cp) + 1;
+X
+X	strcpy (cp, passwd->pw_shell);
+X		cp += strlen (cp) + 1;
+X
+X	return cp - buf;
+X}
+X
+X/*
+X * pw_unpack - convert a packed (struct pwd) record to a (struct pwd)
+X */
+X
+Xint
+Xpw_unpack (buf, len, passwd)
+Xchar	*buf;
+Xint	len;
+Xstruct	passwd	*passwd;
+X{
+X	char	*org = buf;
+X	char	*cp;
+X
+X	memset ((void *) passwd, 0, sizeof *passwd);
+X
+X	passwd->pw_name = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	passwd->pw_passwd = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X#ifdef	ATT_AGE
+X	if (cp = strchr (passwd->pw_passwd, ',')) {
+X		*cp++ = '\0';
+X		passwd->pw_age = cp;
+X	} else
+X		passwd->pw_age = "";
+X#endif
+X
+X	memcpy ((void *) &passwd->pw_uid, (void *) buf, sizeof passwd->pw_uid);
+X	buf += sizeof passwd->pw_uid;
+X	if (buf - org > len)
+X		return -1;
+X
+X	memcpy ((void *) &passwd->pw_gid, (void *) buf, sizeof passwd->pw_gid);
+X	buf += sizeof passwd->pw_gid;
+X	if (buf - org > len)
+X		return -1;
+X
+X#ifdef	BSD_QUOTAS
+X	memcpy ((void *) &passwd->pw_quota, (void *) buf,
+X		sizeof passwd->pw_quota);
+X	buf += sizeof passwd->pw_quota;
+X	if (buf - org > len)
+X		return -1;
+X#endif
+X#ifdef	ATT_COMMENT
+X	passwd->pw_comment = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X#endif
+X	passwd->pw_gecos = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	passwd->pw_dir = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	passwd->pw_shell = buf;
+X	buf += strlen (buf) + 1;
+X	if (buf - org > len)
+X		return -1;
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 3003 -ne `wc -c <'pwpack.c'`; then
+    echo shar: \"'pwpack.c'\" unpacked with wrong size!
+  fi
+  # end of 'pwpack.c'
+fi
+if test -f 'pwunconv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwunconv.c'\"
+else
+  echo shar: Extracting \"'pwunconv.c'\" \(3163 characters\)
+  sed "s/^X//" >'pwunconv.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * pwunconv - restore old password file from shadow password file.
+X *
+X *	Pwunconv copies the password file information from the shadow
+X *	password file, merging entries from an optional existing shadow
+X *	file.
+X *
+X *	The new password file is left in npasswd.  There is no new
+X *	shadow file.  Password aging information is translated where
+X *	possible.
+X */
+X
+X#include "config.h"
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include "pwd.h"
+X#include "shadow.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)pwunconv.c	3.4	11:59:24	28 Dec 1991";
+X#endif
+X
+X#ifdef	ITI_AGING
+X#define	WEEK	(7L*24L*3600L)
+X#else
+X#define	WEEK	(7)
+X#endif
+X
+Xchar	buf[BUFSIZ];
+Xchar	*l64a ();
+X
+Xint	main ()
+X{
+X	struct	passwd	*pw;
+X	struct	passwd	*sgetpwent ();
+X	FILE	*pwd;
+X	FILE	*npwd;
+X	struct	spwd	*spwd;
+X	int	fd;
+X	char	newage[5];
+X
+X	if (! (pwd = fopen (PWDFILE, "r"))) {
+X		perror (PWDFILE);
+X		return (1);
+X	}
+X	unlink ("npasswd");
+X	if ((fd = open ("npasswd", O_WRONLY|O_CREAT|O_EXCL, 0600)) < 0 ||
+X			! (npwd = fdopen (fd, "w"))) {
+X		perror ("npasswd");
+X		return (1);
+X	}
+X	while (fgets (buf, BUFSIZ, pwd) == buf) {
+X		buf[strlen (buf) - 1] = '\0'; /* remove '\n' character */
+X
+X		if (buf[0] == '#') {	/* comment line */
+X			(void) fprintf (npwd, "%s\n", buf);
+X			continue;
+X		}
+X		if (! (pw = sgetpwent (buf))) { /* copy bad lines verbatim */
+X			(void) fprintf (npwd, "%s\n", buf);
+X			continue;
+X		}
+X		setspent ();		/* rewind shadow file */
+X
+X		if (! (spwd = getspnam (pw->pw_name))) {
+X			(void) fprintf (npwd, "%s\n", buf);
+X			continue;
+X		}
+X		pw->pw_passwd = spwd->sp_pwdp;
+X
+X	/*
+X	 * Password aging works differently in the two different systems.
+X	 * With shadow password files you apparently must have some aging
+X	 * information.  The maxweeks or minweeks may not map exactly.
+X	 * In pwconv we set max == 10000, which is about 30 years.  Here
+X	 * we have to undo that kludge.  So, if maxdays == 10000, no aging
+X	 * information is put into the new file.  Otherwise, the days are
+X	 * converted to weeks and so on.
+X	 */
+X
+X#ifdef	ATT_AGE
+X		if (spwd->sp_max > (63*WEEK) && spwd->sp_max < 10000)
+X			spwd->sp_max = (63*WEEK); /* 10000 is infinity */
+X
+X		if (spwd->sp_min >= 0 && spwd->sp_min <= 63*7 &&
+X				spwd->sp_max >= 0 && spwd->sp_max <= 63*7) {
+X			if (spwd->sp_lstchg == -1)
+X				spwd->sp_lstchg = 0;
+X
+X			spwd->sp_max /= WEEK;	/* turn it into weeks */
+X			spwd->sp_min /= WEEK;
+X			spwd->sp_lstchg /= WEEK;
+X
+X			strncpy (newage, l64a (spwd->sp_lstchg * (64L*64L) +
+X				  spwd->sp_min * (64L) + spwd->sp_max), 5);
+X			pw->pw_age = newage;
+X		} else
+X			pw->pw_age = "";
+X#endif	/* ATT_AGE */
+X		if (putpwent (pw, npwd)) {
+X			perror ("pwunconv: write error");
+X			exit (1);
+X		}
+X	}
+X	endspent ();
+X
+X	if (ferror (npwd)) {
+X		perror ("pwunconv");
+X		(void) unlink ("npasswd");
+X	}
+X	(void) fclose (npwd);
+X	(void) fclose (pwd);
+X	return (0);
+X}
+END_OF_FILE
+  if test 3163 -ne `wc -c <'pwunconv.c'`; then
+    echo shar: \"'pwunconv.c'\" unpacked with wrong size!
+  fi
+  # end of 'pwunconv.c'
+fi
+if test -f 'shell.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shell.c'\"
+else
+  echo shar: Extracting \"'shell.c'\" \(2532 characters\)
+  sed "s/^X//" >'shell.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Use, duplication, and disclosure prohibited without
+X * the express written permission of the author.
+X */
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X#include "config.h"
+X
+X#ifndef	lint
+Xstatic	char	_sccsid[] = "@(#)shell.c	3.2	07:55:08	06 Feb 1991";
+X#endif
+X
+Xextern	char	*newenvp[];
+X
+X/*
+X * shell - execute the named program
+X *
+X *	shell begins by trying to figure out what argv[0] is going to
+X *	be for the named process.  The user may pass in that argument,
+X *	or it will be the last pathname component of the file with a
+X *	'-' prepended.  The first attempt is to just execute the named
+X *	file.  If the errno comes back "ENOEXEC", the file is assumed
+X *	at first glance to be a shell script.  The first two characters
+X *	must be "#!", in which case "/bin/sh" is executed to process
+X *	the file.  If all that fails, give up in disgust ...
+X */
+X
+Xvoid	shell (file, arg)
+Xchar	*file;
+Xchar	*arg;
+X{
+X	char	arg0[BUFSIZ];
+X	FILE	*fp;
+X	char	*path;
+X	int	err;
+X
+X	if (file == (char *) 0)
+X		exit (1);
+X
+X	/*
+X	 * The argv[0]'th entry is usually the path name, but
+X	 * for various reasons the invoker may want to override
+X	 * that.  So, we determine the 0'th entry only if they
+X	 * don't want to tell us what it is themselves.
+X	 */
+X
+X	if (arg == (char *) 0) {
+X		if (path = strrchr (file, '/'))
+X			path++;
+X		else
+X			path = file;
+X
+X		(void) strcpy (arg0 + 1, path);
+X		arg0[0] = '-';
+X		arg = arg0;
+X	}
+X#ifndef	NDEBUG
+X	printf ("Executing shell %s\n", file);
+X#endif
+X
+X	/*
+X	 * First we try the direct approach.  The system should be
+X	 * able to figure out what we are up to without too much
+X	 * grief.
+X	 */
+X
+X	execle (file, arg, (char *) 0, newenvp);
+X	err = errno;
+X
+X	/*
+X	 * It is perfectly OK to have a shell script for a login
+X	 * shell, and this code attempts to support that.  It
+X	 * relies on the standard shell being able to make sense
+X	 * of the "#!" magic number.
+X	 */
+X
+X	if (err == ENOEXEC) {
+X		if (fp = fopen (file, "r")) {
+X			if (getc (fp) == '#' && getc (fp) == '!') {
+X				fclose (fp);
+X				execle ("/bin/sh", "sh",
+X					file, (char *) 0, newenvp);
+X				err = errno;
+X			} else {
+X				fclose (fp);
+X			}
+X		}
+X	}
+X
+X	/*
+X	 * Obviously something is really wrong - I can't figure out
+X	 * how to execute this stupid shell, so I might as well give
+X	 * up in disgust ...
+X	 */
+X
+X	sprintf (arg0, "Cannot execute %s", file);
+X	errno = err;
+X	perror (arg0);
+X	exit (err);
+X}
+END_OF_FILE
+  if test 2532 -ne `wc -c <'shell.c'`; then
+    echo shar: \"'shell.c'\" unpacked with wrong size!
+  fi
+  # end of 'shell.c'
+fi
+if test -f 'sppack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sppack.c'\"
+else
+  echo shar: Extracting \"'sppack.c'\" \(2190 characters\)
+  sed "s/^X//" >'sppack.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1990, 1991, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X */
+X
+X#include <stdio.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#include "shadow.h"
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)sppack.c	3.2	08:46:24	12 Sep 1991";
+X#endif
+X
+Xint	spw_pack (spwd, buf)
+Xstruct	spwd	*spwd;
+Xchar	*buf;
+X{
+X	char	*cp;
+X
+X	cp = buf;
+X	strcpy (cp, spwd->sp_namp);
+X	cp += strlen (cp) + 1;
+X
+X	strcpy (cp, spwd->sp_pwdp);
+X	cp += strlen (cp) + 1;
+X
+X	memcpy (cp, &spwd->sp_min, sizeof spwd->sp_min);
+X	cp += sizeof spwd->sp_min;
+X
+X	memcpy (cp, &spwd->sp_max, sizeof spwd->sp_max);
+X	cp += sizeof spwd->sp_max;
+X
+X	memcpy (cp, &spwd->sp_lstchg, sizeof spwd->sp_lstchg);
+X	cp += sizeof spwd->sp_lstchg;
+X
+X	memcpy (cp, &spwd->sp_warn, sizeof spwd->sp_warn);
+X	cp += sizeof spwd->sp_warn;
+X
+X	memcpy (cp, &spwd->sp_inact, sizeof spwd->sp_inact);
+X	cp += sizeof spwd->sp_inact;
+X
+X	memcpy (cp, &spwd->sp_expire, sizeof spwd->sp_expire);
+X	cp += sizeof spwd->sp_expire;
+X
+X	memcpy (cp, &spwd->sp_flag, sizeof spwd->sp_flag);
+X	cp += sizeof spwd->sp_flag;
+X
+X	return cp - buf;
+X}
+X
+Xint	spw_unpack (buf, len, spwd)
+Xchar	*buf;
+Xint	len;
+Xstruct	spwd	*spwd;
+X{
+X	char	*org = buf;
+X
+X	spwd->sp_namp = buf;
+X	buf += strlen (buf) + 1;
+X
+X	spwd->sp_pwdp = buf;
+X	buf += strlen (buf) + 1;
+X
+X	memcpy (&spwd->sp_min, buf, sizeof spwd->sp_min);
+X	buf += sizeof spwd->sp_min;
+X
+X	memcpy (&spwd->sp_max, buf, sizeof spwd->sp_max);
+X	buf += sizeof spwd->sp_max;
+X
+X	memcpy (&spwd->sp_lstchg, buf, sizeof spwd->sp_lstchg);
+X	buf += sizeof spwd->sp_lstchg;
+X
+X	memcpy (&spwd->sp_warn, buf, sizeof spwd->sp_warn);
+X	buf += sizeof spwd->sp_warn;
+X
+X	memcpy (&spwd->sp_inact, buf, sizeof spwd->sp_inact);
+X	buf += sizeof spwd->sp_inact;
+X
+X	memcpy (&spwd->sp_expire, buf, sizeof spwd->sp_expire);
+X	buf += sizeof spwd->sp_expire;
+X
+X	memcpy (&spwd->sp_flag, buf, sizeof spwd->sp_flag);
+X	buf += sizeof spwd->sp_flag;
+X
+X	if (buf - org > len)
+X		return -1;
+X
+X	return 0;
+X}
+END_OF_FILE
+  if test 2190 -ne `wc -c <'sppack.c'`; then
+    echo shar: \"'sppack.c'\" unpacked with wrong size!
+  fi
+  # end of 'sppack.c'
+fi
+if test -f 'valid.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'valid.c'\"
+else
+  echo shar: Extracting \"'valid.c'\" \(2456 characters\)
+  sed "s/^X//" >'valid.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#ifdef	BSD
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#else
+X#include <string.h>
+X#include <memory.h>
+X#endif
+X#include "config.h"
+X#include "pwd.h"
+X
+X#ifndef	lint
+Xstatic	char	_sccsid[] = "@(#)valid.c	3.5	22:04:54	02 Jun 1993";
+X#endif
+X
+X/*
+X * valid - compare encrypted passwords
+X *
+X *	Valid() compares the DES encrypted password from the password file
+X *	against the password which the user has entered after it has been
+X *	encrypted using the same salt as the original.  Entries which do
+X *	not have a password file entry have a NULL pw_name field and this
+X *	is used to indicate that a dummy salt must be used to encrypt the
+X *	password anyway.
+X */
+X
+Xint
+Xvalid (password, entry)
+Xchar	*password;
+Xstruct	passwd	*entry;
+X{
+X	char	*encrypt;
+X	char	*salt;
+X	char	*pw_encrypt ();
+X
+X	/*
+X	 * Start with blank or empty password entries.  Always encrypt
+X	 * a password if no such user exists.  Only if the ID exists and
+X	 * the password is really empty do you return quickly.  This
+X	 * routine is meant to waste CPU time.
+X	 */
+X
+X	if (entry->pw_name && ! entry->pw_passwd[0]) {
+X		if (! password[0])
+X			return (1);	/* user entered nothing */
+X		else
+X			return (0);	/* user entered something! */
+X	}
+X
+X	/*
+X	 * If there is no entry then we need a salt to use.
+X	 */
+X
+X	if (entry->pw_name == (char *) 0 || entry->pw_passwd[0] == '\0')
+X		salt = "xx";
+X	else
+X		salt = entry->pw_passwd;
+X
+X	/*
+X	 * Now, perform the encryption using the salt from before on
+X	 * the users input.  Since we always encrypt the string, it
+X	 * should be very difficult to determine if the user exists by
+X	 * looking at execution time.
+X	 */
+X
+X	encrypt = pw_encrypt (password, salt);
+X
+X	/*
+X	 * One last time we must deal with there being no password file
+X	 * entry for the user.  We use the pw_passwd == NULL idiom to
+X	 * cause non-existent users to not be validated.
+X	 */
+X
+X	if (entry->pw_name && strcmp (encrypt, entry->pw_passwd) == 0)
+X		return (1);
+X	else
+X		return (0);
+X}
+END_OF_FILE
+  if test 2456 -ne `wc -c <'valid.c'`; then
+    echo shar: \"'valid.c'\" unpacked with wrong size!
+  fi
+  # end of 'valid.c'
+fi
+echo shar: End of archive 12 \(of 14\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

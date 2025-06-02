@@ -1,0 +1,1964 @@
+From: Peter Jannesen <peter@ncs.nl>
+Subject: v02i026: ncompress - (Ver. 4.2.3) an improved file compressor, Part02/02
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Peter Jannesen <peter@ncs.nl>
+Posting-number: Volume 2, Issue 26
+Archive-name: ncompress/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  compress42.c
+# Wrapped by csr@calvin.dgbt.doc.ca on Wed Aug  5 18:27:12 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'compress42.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'compress42.c'\"
+else
+echo shar: Extracting \"'compress42.c'\" \(48463 characters\)
+sed "s/^X//" >'compress42.c' <<'END_OF_FILE'
+X/* (N)compress42.c - File compression ala IEEE Computer, Mar 1992.
+X *
+X * Authors:
+X *   Spencer W. Thomas   (decvax!harpo!utah-cs!utah-gr!thomas)
+X *   Jim McKie           (decvax!mcvax!jim)
+X *   Steve Davies        (decvax!vax135!petsd!peora!srd)
+X *   Ken Turkowski       (decvax!decwrl!turtlevax!ken)
+X *   James A. Woods      (decvax!ihnp4!ames!jaw)
+X *   Joe Orost           (decvax!vax135!petsd!joe)
+X *   Dave Mack           (csu@alembic.acs.com)
+X *   Peter Jannesen, Network Communication Systems
+X *                       (peter@ncs.nl)
+X *
+X * Revision 4.2.3  92/03/14 peter@ncs.nl
+X *   Optimise compress and decompress function and a lot of cleanups.
+X *   New fast hash algoritme added (if more than 800Kb available).
+X *
+X * Revision 4.1  91/05/26 csu@alembic.acs.com
+X *   Modified to recursively compress directories ('r' flag). As a side
+X *   effect, compress will no longer attempt to compress things that
+X *   aren't "regular" files. See Changes.
+X *
+X * Revision 4.0  85/07/30  12:50:00  joe
+X *   Removed ferror() calls in output routine on every output except first.
+X *   Prepared for release to the world.
+X * 
+X * Revision 3.6  85/07/04  01:22:21  joe
+X *   Remove much wasted storage by overlaying hash table with the tables
+X *   used by decompress: tab_suffix[1<<BITS], stack[8000].  Updated USERMEM
+X *   computations.  Fixed dump_tab() DEBUG routine.
+X *
+X * Revision 3.5  85/06/30  20:47:21  jaw
+X *   Change hash function to use exclusive-or.  Rip out hash cache.  These
+X *   speedups render the megamemory version defunct, for now.  Make decoder
+X *   stack global.  Parts of the RCS trunks 2.7, 2.6, and 2.1 no longer apply.
+X *
+X * Revision 3.4  85/06/27  12:00:00  ken
+X *   Get rid of all floating-point calculations by doing all compression ratio
+X *   calculations in fixed point.
+X *
+X * Revision 3.3  85/06/24  21:53:24  joe
+X *   Incorporate portability suggestion for M_XENIX.  Got rid of text on #else
+X *   and #endif lines.  Cleaned up #ifdefs for vax and interdata.
+X *
+X * Revision 3.2  85/06/06  21:53:24  jaw
+X *   Incorporate portability suggestions for Z8000, IBM PC/XT from mailing list.
+X *   Default to "quiet" output (no compression statistics).
+X *
+X * Revision 3.1  85/05/12  18:56:13  jaw
+X *   Integrate decompress() stack speedups (from early pointer mods by McKie).
+X *   Repair multi-file USERMEM gaffe.  Unify 'force' flags to mimic semantics
+X *   of SVR2 'pack'.  Streamline block-compress table clear logic.  Increase 
+X *   output byte count by magic number size.
+X * 
+X * Revision 3.0   84/11/27  11:50:00  petsd!joe
+X *   Set HSIZE depending on BITS.  Set BITS depending on USERMEM.  Unrolled
+X *   loops in clear routines.  Added "-C" flag for 2.0 compatibility.  Used
+X *   unsigned compares on Perkin-Elmer.  Fixed foreground check.
+X *
+X * Revision 2.7   84/11/16  19:35:39  ames!jaw
+X *   Cache common hash codes based on input statistics; this improves
+X *   performance for low-density raster images.  Pass on #ifdef bundle
+X *   from Turkowski.
+X *
+X * Revision 2.6   84/11/05  19:18:21  ames!jaw
+X *   Vary size of hash tables to reduce time for small files.
+X *   Tune PDP-11 hash function.
+X *
+X * Revision 2.5   84/10/30  20:15:14  ames!jaw
+X *   Junk chaining; replace with the simpler (and, on the VAX, faster)
+X *   double hashing, discussed within.  Make block compression standard.
+X *
+X * Revision 2.4   84/10/16  11:11:11  ames!jaw
+X *   Introduce adaptive reset for block compression, to boost the rate
+X *   another several percent.  (See mailing list notes.)
+X *
+X * Revision 2.3   84/09/22  22:00:00  petsd!joe
+X *   Implemented "-B" block compress.  Implemented REVERSE sorting of tab_next.
+X *   Bug fix for last bits.  Changed fwrite to putchar loop everywhere.
+X *
+X * Revision 2.2   84/09/18  14:12:21  ames!jaw
+X *   Fold in news changes, small machine typedef from thomas,
+X *   #ifdef interdata from joe.
+X *
+X * Revision 2.1   84/09/10  12:34:56  ames!jaw
+X *   Configured fast table lookup for 32-bit machines.
+X *   This cuts user time in half for b <= FBITS, and is useful for news batching
+X *   from VAX to PDP sites.  Also sped up decompress() [fwrite->putc] and
+X *   added signal catcher [plus beef in write_error()] to delete effluvia.
+X *
+X * Revision 2.0   84/08/28  22:00:00  petsd!joe
+X *   Add check for foreground before prompting user.  Insert maxbits into
+X *   compressed file.  Force file being uncompressed to end with ".Z".
+X *   Added "-c" flag and "zcat".  Prepared for release.
+X *
+X * Revision 1.10  84/08/24  18:28:00  turtlevax!ken
+X *   Will only compress regular files (no directories), added a magic number
+X *   header (plus an undocumented -n flag to handle old files without headers),
+X *   added -f flag to force overwriting of possibly existing destination file,
+X *   otherwise the user is prompted for a response.  Will tack on a .Z to a
+X *   filename if it doesn't have one when decompressing.  Will only replace
+X *   file if it was compressed.
+X *
+X * Revision 1.9  84/08/16  17:28:00  turtlevax!ken
+X *   Removed scanargs(), getopt(), added .Z extension and unlimited number of
+X *   filenames to compress.  Flags may be clustered (-Ddvb12) or separated
+X *   (-D -d -v -b 12), or combination thereof.  Modes and other status is
+X *   copied with copystat().  -O bug for 4.2 seems to have disappeared with
+X *   1.8.
+X *
+X * Revision 1.8  84/08/09  23:15:00  joe
+X *   Made it compatible with vax version, installed jim's fixes/enhancements
+X *
+X * Revision 1.6  84/08/01  22:08:00  joe
+X *   Sped up algorithm significantly by sorting the compress chain.
+X *
+X * Revision 1.5  84/07/13  13:11:00  srd
+X *   Added C version of vax asm routines.  Changed structure to arrays to
+X *   save much memory.  Do unsigned compares where possible (faster on
+X *   Perkin-Elmer)
+X *
+X * Revision 1.4  84/07/05  03:11:11  thomas
+X *   Clean up the code a little and lint it.  (Lint complains about all
+X *   the regs used in the asm, but I'm not going to "fix" this.)
+X *
+X * Revision 1.3  84/07/05  02:06:54  thomas
+X *   Minor fixes.
+X *
+X * Revision 1.2  84/07/05  00:27:27  thomas
+X *   Add variable bit length output.
+X *
+X */
+X#include	<stdio.h>
+X#include	<fcntl.h>
+X#include	<ctype.h>
+X#include	<signal.h>
+X#include	<sys/types.h>
+X#include	<sys/stat.h>
+X#include	<errno.h>
+X
+X#ifdef DIRENT
+X#	include	<dirent.h>
+X#	define	RECURSIVE		1
+X#	undef	SYSDIR
+X#endif
+X#ifdef SYSDIR
+X#	include	<sys/dir.h>
+X#	define	RECURSIVE		1
+X#endif
+X#ifdef UTIME_H
+X#	include	<utime.h>
+X#else
+X	struct utimbuf {
+X		time_t actime;
+X		time_t modtime;
+X	};
+X#endif
+X
+X#ifdef	__STDC__
+X#	define	ARGS(a)				a
+X#else
+X#	define	ARGS(a)				()
+X#endif
+X
+X#define	LARGS(a)	()	/* Relay on include files for libary func defs. */
+X
+X#ifndef SIG_TYPE
+X#	define	SIG_TYPE	void (*)()
+X#endif
+X
+X#ifndef NOFUNCDEF
+X	extern	void	*malloc	LARGS((int));
+X	extern	void	free	LARGS((void *));
+X#ifndef _IBMR2
+X	extern	int		open	LARGS((char const *,int,...));
+X#endif
+X	extern	int		close	LARGS((int));
+X	extern	int		read	LARGS((int,void *,int));
+X	extern	int		write	LARGS((int,void const *,int));
+X	extern	int		chmod	LARGS((char const *,int));
+X	extern	int		unlink	LARGS((char const *));
+X	extern	int		chown	LARGS((char const *,int,int));
+X	extern	int		utime	LARGS((char const *,struct utimbuf const *));
+X	extern	char	*strcpy	LARGS((char *,char const *));
+X	extern	char	*strcat	LARGS((char *,char const *));
+X	extern	int		strcmp	LARGS((char const *,char const *));
+X	extern	unsigned strlen	LARGS((char const *));
+X	extern	void	*memset	LARGS((void *,char,unsigned int));
+X	extern	void	*memcpy	LARGS((void *,void const *,unsigned int));
+X	extern	int		atoi	LARGS((char const *));
+X	extern	void	exit	LARGS((int));
+X	extern	int		isatty	LARGS((int));
+X#endif
+X	
+X#define	MARK(a)	{ asm(" .globl M.a"); asm("M.a:"); }
+X
+X#ifdef	DEF_ERRNO
+X	extern int	errno;
+X#endif
+X
+X#include "patchlevel.h"
+X
+X#undef	min
+X#define	min(a,b)	((a>b) ? b : a)
+X
+X#ifndef	IBUFSIZ
+X#	define	IBUFSIZ	BUFSIZ	/* Defailt input buffer size							*/
+X#endif
+X#ifndef	OBUFSIZ
+X#	define	OBUFSIZ	BUFSIZ	/* Default output buffer size							*/
+X#endif
+X
+X#define MAXPATHLEN 1024		/* MAXPATHLEN - maximum length of a pathname we allow 	*/
+X#define	SIZE_INNER_LOOP		256	/* Size of the inter (fast) compress loop			*/
+X
+X							/* Defines for third byte of header 					*/
+X#define	MAGIC_1		(char_type)'\037'/* First byte of compressed file				*/
+X#define	MAGIC_2		(char_type)'\235'/* Second byte of compressed file				*/
+X#define BIT_MASK	0x1f			/* Mask for 'number of compresssion bits'		*/
+X									/* Masks 0x20 and 0x40 are free.  				*/
+X									/* I think 0x20 should mean that there is		*/
+X									/* a fourth header byte (for expansion).    	*/
+X#define BLOCK_MODE	0x80			/* Block compresssion if table is full and		*/
+X									/* compression rate is dropping flush tables	*/
+X
+X			/* the next two codes should not be changed lightly, as they must not	*/
+X			/* lie within the contiguous general code space.						*/
+X#define FIRST	257					/* first free entry 							*/
+X#define	CLEAR	256					/* table clear output code 						*/
+X
+X#define INIT_BITS 9			/* initial number of bits/code */
+X
+X#ifndef SACREDMEM
+X	/*
+X 	 * SACREDMEM is the amount of physical memory saved for others; compress
+X 	 * will hog the rest.
+X 	 */
+X#	define SACREDMEM	0
+X#endif
+X
+X#ifndef USERMEM
+X	/*
+X 	 * Set USERMEM to the maximum amount of physical user memory available
+X 	 * in bytes.  USERMEM is used to determine the maximum BITS that can be used
+X 	 * for compression.
+X	 */
+X#	define USERMEM 	450000	/* default user memory */
+X#endif
+X
+X#ifndef	BYTEORDER
+X#	define	BYTEORDER	0000
+X#endif
+X
+X#ifndef	NOALLIGN
+X#	define	NOALLIGN	0
+X#endif
+X
+X/*
+X * machine variants which require cc -Dmachine:  pdp11, z8000, DOS
+X */
+X
+X#ifdef interdata	/* Perkin-Elmer													*/
+X#	define SIGNED_COMPARE_SLOW	/* signed compare is slower than unsigned 			*/
+X#endif
+X
+X#ifdef pdp11	 	/* PDP11: don't forget to compile with -i 						*/
+X#	define	BITS 		12	/* max bits/code for 16-bit machine 					*/
+X#	define	NO_UCHAR		/* also if "unsigned char" functions as signed char 	*/
+X#endif /* pdp11 */
+X
+X#ifdef z8000		/* Z8000: 														*/
+X#	define	BITS 	12	/* 16-bits processor max 12 bits							*/
+X#	undef	vax			/* weird preprocessor 										*/
+X#endif /* z8000 */
+X
+X#ifdef	DOS			/* PC/XT/AT (8088) processor									*/
+X#	define	BITS   16	/* 16-bits processor max 12 bits							*/
+X#	if BITS == 16
+X#		define	MAXSEG_64K
+X#	endif
+X#	undef	BYTEORDER
+X#	define	BYTEORDER 	4321
+X#	undef	NOALLIGN
+X#	define	NOALLIGN	1
+X#	define	COMPILE_DATE	__DATE__
+X#endif /* DOS */
+X
+X#ifndef	O_BINARY
+X#	define	O_BINARY	0	/* System has no binary mode							*/
+X#endif
+X
+X#ifdef M_XENIX			/* Stupid compiler can't handle arrays with */
+X#	if BITS == 16 		/* more than 65535 bytes - so we fake it */
+X# 		define MAXSEG_64K
+X#	else
+X#	if BITS > 13			/* Code only handles BITS = 12, 13, or 16 */
+X#		define BITS	13
+X#	endif
+X#	endif
+X#endif
+X
+X#ifndef BITS		/* General processor calculate BITS								*/
+X#	if USERMEM >= (800000+SACREDMEM)
+X#		define FAST
+X#	else
+X#	if USERMEM >= (433484+SACREDMEM)
+X#		define BITS	16
+X#	else
+X#	if USERMEM >= (229600+SACREDMEM)
+X#		define BITS	15
+X#	else
+X#	if USERMEM >= (127536+SACREDMEM)
+X#		define BITS	14
+X#   else
+X#	if USERMEM >= (73464+SACREDMEM)
+X#		define BITS	13
+X#	else
+X#		define BITS	12
+X#	endif
+X#	endif
+X#   endif
+X#	endif
+X#	endif
+X#endif /* BITS */
+X
+X#ifdef FAST
+X#	define	HBITS		17			/* 50% occupancy */
+X#	define	HSIZE	   (1<<HBITS)
+X#	define	HMASK	   (HSIZE-1)
+X#	define	HPRIME		 9941
+X#	define	BITS		   16
+X#	undef	MAXSEG_64K
+X#else
+X#	if BITS == 16
+X#		define HSIZE	69001		/* 95% occupancy */
+X#	endif
+X#	if BITS == 15
+X#		define HSIZE	35023		/* 94% occupancy */
+X#	endif
+X#	if BITS == 14
+X#		define HSIZE	18013		/* 91% occupancy */
+X#	endif
+X#	if BITS == 13
+X#		define HSIZE	9001		/* 91% occupancy */
+X#	endif
+X#	if BITS <= 12
+X#		define HSIZE	5003		/* 80% occupancy */
+X#	endif
+X#endif
+X
+X#define CHECK_GAP 10000
+X
+Xtypedef long int			code_int;
+X
+X#ifdef SIGNED_COMPARE_SLOW
+X	typedef unsigned long int	count_int;
+X	typedef unsigned short int	count_short;
+X	typedef unsigned long int	cmp_code_int;	/* Cast to make compare faster	*/
+X#else
+X	typedef long int	 		count_int;
+X	typedef long int			cmp_code_int;
+X#endif
+X
+Xtypedef	unsigned char	char_type;
+X
+X#define ARGVAL() (*++(*argv) || (--argc && *++argv))
+X
+X#define MAXCODE(n)	(1L << (n))
+X
+X#ifndef	REGISTERS
+X#	define	REGISTERS	2
+X#endif
+X#define	REG1	
+X#define	REG2	
+X#define	REG3	
+X#define	REG4	
+X#define	REG5	
+X#define	REG6	
+X#define	REG7	
+X#define	REG8	
+X#define	REG9	
+X#define	REG10
+X#define	REG11	
+X#define	REG12	
+X#define	REG13
+X#define	REG14
+X#define	REG15
+X#define	REG16
+X#if REGISTERS >= 1
+X#	undef	REG1
+X#	define	REG1	register
+X#endif
+X#if REGISTERS >= 2
+X#	undef	REG2
+X#	define	REG2	register
+X#endif
+X#if REGISTERS >= 3
+X#	undef	REG3
+X#	define	REG3	register
+X#endif
+X#if REGISTERS >= 4
+X#	undef	REG4
+X#	define	REG4	register
+X#endif
+X#if REGISTERS >= 5
+X#	undef	REG5
+X#	define	REG5	register
+X#endif
+X#if REGISTERS >= 6
+X#	undef	REG6
+X#	define	REG6	register
+X#endif
+X#if REGISTERS >= 7
+X#	undef	REG7
+X#	define	REG7	register
+X#endif
+X#if REGISTERS >= 8
+X#	undef	REG8
+X#	define	REG8	register
+X#endif
+X#if REGISTERS >= 9
+X#	undef	REG9
+X#	define	REG9	register
+X#endif
+X#if REGISTERS >= 10
+X#	undef	REG10
+X#	define	REG10	register
+X#endif
+X#if REGISTERS >= 11
+X#	undef	REG11
+X#	define	REG11	register
+X#endif
+X#if REGISTERS >= 12
+X#	undef	REG12
+X#	define	REG12	register
+X#endif
+X#if REGISTERS >= 13
+X#	undef	REG13
+X#	define	REG13	register
+X#endif
+X#if REGISTERS >= 14
+X#	undef	REG14
+X#	define	REG14	register
+X#endif
+X#if REGISTERS >= 15
+X#	undef	REG15
+X#	define	REG15	register
+X#endif
+X#if REGISTERS >= 16
+X#	undef	REG16
+X#	define	REG16	register
+X#endif
+X
+X
+Xunion	bytes
+X{
+X	long	word;
+X	struct
+X	{
+X#if BYTEORDER == 4321
+X		char_type	b1;
+X		char_type	b2;
+X		char_type	b3;
+X		char_type	b4;
+X#else
+X#if BYTEORDER == 1234
+X		char_type	b4;
+X		char_type	b3;
+X		char_type	b2;
+X		char_type	b1;
+X#else
+X#	undef	BYTEORDER
+X		int				dummy;
+X#endif
+X#endif
+X	} bytes;
+X} ;
+X#if BYTEORDER == 4321 && NOALLIGN == 1
+X#define	output(b,o,c,n)	{													\
+X							*(long *)&((b)[(o)>>3]) |= ((long)(c))<<((o)&0x7);\
+X							(o) += (n);										\
+X						}
+X#else
+X#ifdef BYTEORDER
+X#define	output(b,o,c,n)	{	REG1 char_type	*p = &(b)[(o)>>3];				\
+X							union bytes i;									\
+X							i.word = ((long)(c))<<((o)&0x7);				\
+X							p[0] |= i.bytes.b1;								\
+X							p[1] |= i.bytes.b2;								\
+X							p[2] |= i.bytes.b3;								\
+X							(o) += (n);										\
+X						}
+X#else
+X#define	output(b,o,c,n)	{	REG1 char_type	*p = &(b)[(o)>>3];				\
+X							REG2 long		 i = ((long)(c))<<((o)&0x7);	\
+X							p[0] |= (char_type)(i);							\
+X							p[1] |= (char_type)(i>>8);						\
+X							p[2] |= (char_type)(i>>16);						\
+X							(o) += (n);										\
+X						}
+X#endif
+X#endif
+X#if BYTEORDER == 4321 && NOALLIGN == 1
+X#define	input(b,o,c,n,m){													\
+X							(c) = (*(long *)(&(b)[(o)>>3])>>((o)&0x7))&(m);	\
+X							(o) += (n);										\
+X						}
+X#else
+X#define	input(b,o,c,n,m){	REG1 char_type 		*p = &(b)[(o)>>3];			\
+X							(c) = ((((long)(p[0]))|((long)(p[1])<<8)|		\
+X									 ((long)(p[2])<<16))>>((o)&0x7))&(m);	\
+X							(o) += (n);										\
+X						}
+X#endif
+X
+Xchar			*progname;			/* Program name									*/
+Xint 			silent = 0;			/* don't tell me about errors					*/
+Xint 			quiet = 1;			/* don't tell me about compression 				*/
+Xint				do_decomp = 0;		/* Decompress mode								*/
+Xint				force = 0;			/* Force overwrite of files and links			*/
+Xint				nomagic = 0;		/* Use a 3-byte magic number header,			*/
+X									/* unless old file 								*/
+Xint				block_mode = BLOCK_MODE;/* Block compress mode -C compatible with 2.0*/
+Xint				maxbits = BITS;		/* user settable max # bits/code 				*/
+Xint 			zcat_flg = 0;		/* Write output on stdout, suppress messages 	*/
+Xint				recursive = 0;  	/* compress directories 						*/
+Xint				exit_code = -1;		/* Exitcode of compress (-1 no file compressed)	*/
+X
+Xchar_type		inbuf[IBUFSIZ+64];	/* Input buffer									*/
+Xchar_type		outbuf[OBUFSIZ+2048];/* Output buffer								*/
+X
+Xstruct stat		infstat;			/* Input file status							*/
+Xchar			*ifname;			/* Input filename								*/
+Xint				remove_ofname = 0;	/* Remove output file on a error				*/
+Xchar 			ofname[MAXPATHLEN];	/* Output filename								*/
+Xint				fgnd_flag = 0;		/* Running in background (SIGINT=SIGIGN)		*/
+X
+Xlong 			bytes_in;			/* Total number of byte from input				*/
+Xlong 			bytes_out;			/* Total number of byte to output				*/
+X
+X/*
+X * 8086 & 80286 Has a problem with array bigger than 64K so fake the array
+X * For processors with a limited address space and segments.
+X */
+X/*
+X * To save much memory, we overlay the table used by compress() with those
+X * used by decompress().  The tab_prefix table is the same size and type
+X * as the codetab.  The tab_suffix table needs 2**BITS characters.  We
+X * get this from the beginning of htab.  The output stack uses the rest
+X * of htab, and contains characters.  There is plenty of room for any
+X * possible stack (stack used to be 8000 characters).
+X */
+X#ifdef MAXSEG_64K
+X	count_int htab0[8192];
+X	count_int htab1[8192];
+X	count_int htab2[8192];
+X	count_int htab3[8192];
+X	count_int htab4[8192];
+X	count_int htab5[8192];
+X	count_int htab6[8192];
+X	count_int htab7[8192];
+X	count_int htab8[HSIZE-65536];
+X	count_int * htab[9] = {htab0,htab1,htab2,htab3,htab4,htab5,htab6,htab7,htab8};
+X
+X	unsigned short code0tab[16384];
+X	unsigned short code1tab[16384];
+X	unsigned short code2tab[16384];
+X	unsigned short code3tab[16384];
+X	unsigned short code4tab[16384];
+X	unsigned short * codetab[5] = {code0tab,code1tab,code2tab,code3tab,code4tab};
+X
+X#	define	htabof(i)			(htab[(i) >> 13][(i) & 0x1fff])
+X#	define	codetabof(i)		(codetab[(i) >> 14][(i) & 0x3fff])
+X#	define	tab_prefixof(i)		codetabof(i)
+X#	define	tab_suffixof(i)		((char_type *)htab[(i)>>15])[(i) & 0x7fff]
+X#	define	de_stack			((char_type *)(&htab2[8191]))
+X	void	clear_htab()
+X	{
+X		memset(htab0, -1, sizeof(htab0));
+X		memset(htab1, -1, sizeof(htab1));
+X		memset(htab2, -1, sizeof(htab2));
+X		memset(htab3, -1, sizeof(htab3));
+X		memset(htab4, -1, sizeof(htab4));
+X		memset(htab5, -1, sizeof(htab5));
+X		memset(htab6, -1, sizeof(htab6));
+X		memset(htab7, -1, sizeof(htab7));
+X		memset(htab8, -1, sizeof(htab8));
+X	 }
+X#	define	clear_tab_prefixof()	memset(code0tab, 0, 256);
+X#else	/* Normal machine */
+X	count_int		htab[HSIZE];
+X	unsigned short	codetab[HSIZE];
+X
+X#	define	htabof(i)				htab[i]
+X#	define	codetabof(i)			codetab[i]
+X#	define	tab_prefixof(i)			codetabof(i)
+X#	define	tab_suffixof(i)			((char_type *)(htab))[i]
+X#	define	de_stack				((char_type *)&(htab[HSIZE-1]))
+X#	define	clear_htab()			memset(htab, -1, sizeof(htab))
+X#	define	clear_tab_prefixof()	memset(codetab, 0, 256);
+X#endif	/* MAXSEG_64K */
+X
+X#ifdef FAST
+X	int primetab[256] =		/* Special secudary hash table.		*/
+X	{
+X    	 1013, -1061, 1109, -1181, 1231, -1291, 1361, -1429,
+X    	 1481, -1531, 1583, -1627, 1699, -1759, 1831, -1889,
+X    	 1973, -2017, 2083, -2137, 2213, -2273, 2339, -2383,
+X    	 2441, -2531, 2593, -2663, 2707, -2753, 2819, -2887,
+X    	 2957, -3023, 3089, -3181, 3251, -3313, 3361, -3449,
+X    	 3511, -3557, 3617, -3677, 3739, -3821, 3881, -3931,
+X    	 4013, -4079, 4139, -4219, 4271, -4349, 4423, -4493,
+X    	 4561, -4639, 4691, -4783, 4831, -4931, 4973, -5023,
+X    	 5101, -5179, 5261, -5333, 5413, -5471, 5521, -5591,
+X    	 5659, -5737, 5807, -5857, 5923, -6029, 6089, -6151,
+X    	 6221, -6287, 6343, -6397, 6491, -6571, 6659, -6709,
+X    	 6791, -6857, 6917, -6983, 7043, -7129, 7213, -7297,
+X    	 7369, -7477, 7529, -7577, 7643, -7703, 7789, -7873,
+X    	 7933, -8017, 8093, -8171, 8237, -8297, 8387, -8461,
+X    	 8543, -8627, 8689, -8741, 8819, -8867, 8963, -9029,
+X    	 9109, -9181, 9241, -9323, 9397, -9439, 9511, -9613,
+X    	 9677, -9743, 9811, -9871, 9941,-10061,10111,-10177,
+X   		10259,-10321,10399,-10477,10567,-10639,10711,-10789,
+X   		10867,-10949,11047,-11113,11173,-11261,11329,-11423,
+X   		11491,-11587,11681,-11777,11827,-11903,11959,-12041,
+X   		12109,-12197,12263,-12343,12413,-12487,12541,-12611,
+X   		12671,-12757,12829,-12917,12979,-13043,13127,-13187,
+X   		13291,-13367,13451,-13523,13619,-13691,13751,-13829,
+X   		13901,-13967,14057,-14153,14249,-14341,14419,-14489,
+X   		14557,-14633,14717,-14767,14831,-14897,14983,-15083,
+X   		15149,-15233,15289,-15359,15427,-15497,15583,-15649,
+X   		15733,-15791,15881,-15937,16057,-16097,16189,-16267,
+X   		16363,-16447,16529,-16619,16691,-16763,16879,-16937,
+X   		17021,-17093,17183,-17257,17341,-17401,17477,-17551,
+X   		17623,-17713,17791,-17891,17957,-18041,18097,-18169,
+X   		18233,-18307,18379,-18451,18523,-18637,18731,-18803,
+X   		18919,-19031,19121,-19211,19273,-19381,19429,-19477
+X	} ;
+X#endif
+X
+Xvoid  	main			ARGS((int,char **));
+Xvoid  	Usage			ARGS((void));
+Xvoid  	comprexx		ARGS((char **));
+Xvoid  	compdir			ARGS((char *));
+Xvoid  	compress		ARGS((int,int));
+Xvoid  	decompress		ARGS((int,int));
+Xchar  	*rindex			ARGS((char *,int));
+Xvoid  	read_error		ARGS((void));
+Xvoid  	write_error		ARGS((void));
+Xvoid 	abort_compress	ARGS((void));
+Xvoid  	prratio			ARGS((FILE *,long,long));
+Xvoid  	about			ARGS((void));
+X
+X/*****************************************************************
+X * TAG( main )
+X *
+X * Algorithm from "A Technique for High Performance Data Compression",
+X * Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
+X *
+X * Usage: compress [-dfvc] [-b bits] [file ...]
+X * Inputs:
+X *   -d:     If given, decompression is done instead.
+X *
+X *   -c:     Write output on stdout, don't remove original.
+X *
+X *   -b:     Parameter limits the max number of bits/code.
+X *
+X *   -f:     Forces output file to be generated, even if one already
+X *           exists, and even if no space is saved by compressing.
+X *           If -f is not used, the user will be prompted if stdin is
+X *           a tty, otherwise, the output file will not be overwritten.
+X *
+X *   -v:     Write compression statistics
+X *
+X *   -r:     Recursive. If a filename is a directory, descend
+X *           into it and compress everything in it.
+X *
+X * file ...:
+X *           Files to be compressed.  If none specified, stdin is used.
+X * Outputs:
+X *   file.Z:     Compressed form of file with same mode, owner, and utimes
+X *   or stdout   (if stdin used as input)
+X *
+X * Assumptions:
+X *   When filenames are given, replaces with the compressed version
+X *   (.Z suffix) only if the file decreases in size.
+X *
+X * Algorithm:
+X *   Modified Lempel-Ziv method (LZW).  Basically finds common
+X *   substrings and replaces them with a variable size code.  This is
+X *   deterministic, and can be done on the fly.  Thus, the decompression
+X *   procedure needs no input table, but tracks the way the table was built.
+X */ 
+Xvoid
+Xmain(argc, argv)
+X	REG1	int 	 argc;
+X	REG2	char	*argv[];
+X	{
+X    	REG3	char		**filelist;
+X		REG4	char		**fileptr;
+X
+X    	if (fgnd_flag = (signal(SIGINT, SIG_IGN) != SIG_IGN))
+X			signal(SIGINT, (SIG_TYPE)abort_compress);
+X
+X		signal(SIGTERM, (SIG_TYPE)abort_compress);
+X#ifndef DOS
+X		signal(SIGHUP, (SIG_TYPE)abort_compress);
+X#endif
+X
+X#ifdef COMPATIBLE
+X    	nomagic = 1;	/* Original didn't have a magic number */
+X#endif
+X
+X    	filelist = fileptr = (char **)malloc(argc*sizeof(char *));
+X    	*filelist = NULL;
+X
+X    	if((progname = rindex(argv[0], '/')) != 0)
+X			progname++;
+X		else
+X			progname = argv[0];
+X
+X    	if (strcmp(progname, "uncompress") == 0)
+X			do_decomp = 1;
+X		else
+X		if (strcmp(progname, "zcat") == 0)
+X			do_decomp = zcat_flg = 1;
+X
+X    	/* Argument Processing
+X     	 * All flags are optional.
+X     	 * -V => print Version; debug verbose
+X     	 * -d => do_decomp
+X     	 * -v => unquiet
+X     	 * -f => force overwrite of output file
+X     	 * -n => no header: useful to uncompress old files
+X     	 * -b maxbits => maxbits.  If -b is specified, then maxbits MUST be given also.
+X     	 * -c => cat all output to stdout
+X     	 * -C => generate output compatible with compress 2.0.
+X     	 * -r => recursively compress directories
+X     	 * if a string is left, must be an input filename.
+X     	 */
+X
+X    	for (argc--, argv++; argc > 0; argc--, argv++)
+X		{
+X			if (**argv == '-')
+X			{/* A flag argument */
+X		    	while (*++(*argv))
+X				{/* Process all flags in this arg */
+X					switch (**argv)
+X					{
+X			    	case 'V':
+X						about();
+X						break;
+X
+X					case 's':
+X						silent = 1;
+X						quiet = 1;
+X						break;
+X
+X			    	case 'v':
+X						silent = 0;
+X						quiet = 0;
+X						break;
+X
+X			    	case 'd':
+X						do_decomp = 1;
+X						break;
+X
+X			    	case 'f':
+X			    	case 'F':
+X						force = 1;
+X						break;
+X
+X			    	case 'n':
+X						nomagic = 1;
+X						break;
+X
+X			    	case 'C':
+X						block_mode = 0;
+X						break;
+X
+X			    	case 'b':
+X						if (!ARGVAL())
+X						{
+X					    	fprintf(stderr, "Missing maxbits\n");
+X					    	Usage();
+X						}
+X
+X						maxbits = atoi(*argv);
+X						goto nextarg;
+X
+X		    		case 'c':
+X						do_decomp = zcat_flg = 1;
+X						break;
+X
+X			    	case 'q':
+X						quiet = 1;
+X						break;
+X			    	case 'r':
+X			    	case 'R':
+X#ifdef	RECURSIVE
+X						recursive = 1;
+X#else
+X						fprintf(stderr, "%s -r not availble (du to missing directory functions)\n", **argv);
+X#endif
+X						break;
+X
+X			    	default:
+X						fprintf(stderr, "Unknown flag: '%c'; ", **argv);
+X						Usage();
+X					}
+X		    	}
+X			}
+X			else
+X			{
+X		    	*fileptr++ = *argv;	/* Build input file list */
+X		    	*fileptr = NULL;
+X			}
+X
+Xnextarg:	continue;
+X    	}
+X
+X    	if (maxbits < INIT_BITS)	maxbits = INIT_BITS;
+X    	if (maxbits > BITS) 		maxbits = BITS;
+X
+X    	if (*filelist != NULL)
+X		{
+X      		for (fileptr = filelist; *fileptr; fileptr++)
+X				comprexx(fileptr);
+X    	}
+X		else
+X		{/* Standard input */
+X			ifname = "";
+X			exit_code = 0;
+X			remove_ofname = 0;
+X
+X			if (do_decomp == 0)
+X			{
+X				compress(0, 1);
+X
+X				if (zcat_flg == 0 && !quiet)
+X				{
+X					fprintf(stderr, "Compression: ");
+X					prratio(stderr, bytes_in-bytes_out, bytes_in);
+X					fprintf(stderr, "\n");
+X				}
+X
+X				if (bytes_out >= bytes_in && !(force))
+X					exit_code = 2;
+X			}
+X			else
+X				decompress(0, 1);
+X		}
+X
+X		exit((exit_code== -1) ? 1:exit_code);
+X	}
+X
+Xvoid
+XUsage()
+X	{
+X		fprintf(stderr, "\
+XUsage: %s [-dfvcVr] [-b maxbits] [file ...]\n\
+X       -d   If given, decompression is done instead.\n\
+X       -c   Write output on stdout, don't remove original.\n\
+X       -b   Parameter limits the max number of bits/code.\n", progname);
+X		fprintf(stderr, "\
+X       -f   Forces output file to be generated, even if one already.\n\
+X            exists, and even if no space is saved by compressing.\n\
+X            If -f is not used, the user will be prompted if stdin is.\n\
+X            a tty, otherwise, the output file will not be overwritten.\n\
+X       -v   Write compression statistics.\n\
+X       -V   Output vesion and compile options.\n\
+X       -r   Recursive. If a filename is a directory, descend\n\
+X            into it and compress everything in it.\n");
+X
+X    		exit(1);
+X	}
+X
+Xvoid
+Xcomprexx(fileptr)
+X	char	**fileptr;
+X	{
+X		int		fdin;
+X		int		fdout;
+X		char	tempname[MAXPATHLEN];
+X
+X		strcpy(tempname,*fileptr);
+X		errno = 0;
+X
+X#ifdef	LSTAT
+X		if (lstat(tempname,&infstat) == -1)
+X#else
+X		if (stat(tempname,&infstat) == -1)
+X#endif
+X		{
+X		  	if (do_decomp)
+X			{
+X	    		switch (errno)
+X				{
+X		    	case ENOENT:	/* file doesn't exist */
+X	      			/*
+X	      			** if the given name doesn't end with .Z, try appending one
+X	      			** This is obviously the wrong thing to do if it's a 
+X	      			** directory, but it shouldn't do any harm.
+X	      			*/
+X		      		if (strcmp(tempname + strlen(tempname) - 2, ".Z") != 0)
+X					{
+X						strcat(tempname,".Z");
+X						errno = 0;
+X#ifdef	LSTAT
+X						if (lstat(tempname,&infstat) == -1)
+X#else
+X						if (stat(tempname,&infstat) == -1)
+X#endif
+X						{
+X						  	perror(tempname);
+X							exit_code = 1;
+X						  	return;
+X						}
+X
+X						if ((infstat.st_mode & S_IFMT) != S_IFREG)
+X						{
+X							fprintf(stderr, "%s: Not a regular file.\n", tempname);
+X							exit_code = 1;
+X							return ;
+X						}
+X		      		}
+X		      		else
+X					{
+X						perror(tempname);
+X						exit_code = 1;
+X						return;
+X		      		}
+X
+X		      		break;
+X
+X	    		default:
+X		      		perror(tempname);
+X					exit_code = 1;
+X		      		return;
+X	    		}
+X	  		}
+X	  		else
+X			{
+X	      		perror(tempname);
+X				exit_code = 1;
+X	      		return;
+X	  		}
+X		}
+X
+X		switch (infstat.st_mode & S_IFMT)
+X		{
+X		case S_IFDIR:	/* directory */
+X#ifdef	RECURSIVE
+X		  	if (recursive)
+X		    	compdir(tempname);
+X		  	else
+X#endif
+X			if (!quiet)
+X		    	fprintf(stderr,"%s is a directory -- ignored\n", tempname);
+X		  	break;
+X
+X		case S_IFREG:	/* regular file */
+X		  	if (do_decomp != 0)
+X			{/* DECOMPRESSION */
+X		    	if (!zcat_flg)
+X				{
+X			      	if (strcmp(tempname + strlen(tempname) - 2, ".Z") != 0)
+X					{
+X						if (!quiet)
+X		  					fprintf(stderr,"%s - no .Z suffix\n",tempname);
+X
+X						return;
+X	      			}
+X		    	}
+X
+X				strcpy(ofname, tempname);
+X
+X				/* Strip of .Z suffix */
+X
+X				if (strcmp(tempname + strlen(tempname) - 2, ".Z") == 0)
+X			  		ofname[strlen(tempname) - 2] = '\0';
+X	   		}
+X	   		else
+X			{/* COMPRESSION */
+X				if (strcmp(tempname + strlen(tempname) - 2, ".Z") == 0)
+X				{
+X		 	 		fprintf(stderr, "%s: already has .Z suffix -- no change\n", tempname);
+X			  		return;
+X				}
+X
+X				if (infstat.st_nlink > 1 && (!force))
+X				{
+X			  		fprintf(stderr, "%s has %d other links: unchanged\n",
+X									tempname, infstat.st_nlink - 1);
+X					exit_code = 1;
+X			  		return;
+X				}
+X
+X				strcpy(ofname, tempname);
+X				strcat(ofname, ".Z");
+X    		}
+X
+X	    	if ((fdin = open(ifname = tempname, O_RDONLY|O_BINARY)) == -1)
+X			{
+X		      	perror(tempname);
+X				exit_code = 1;
+X				return;
+X	    	}
+X
+X    		if (zcat_flg == 0)
+X			{
+X				int				c;
+X				int				s;
+X				struct stat		statbuf;
+X				struct stat		statbuf2;
+X
+X				if (stat(ofname, &statbuf) == 0)
+X				{
+X					if ((s = strlen(ofname)) > 8)
+X					{
+X						c = ofname[s-1];
+X						ofname[s-1] = '\0';
+X
+X						statbuf2 = statbuf;
+X
+X						if (!stat(ofname, &statbuf2) &&
+X							statbuf.st_mode  == statbuf2.st_mode &&
+X							statbuf.st_ino   == statbuf2.st_ino &&
+X							statbuf.st_dev   == statbuf2.st_dev &&
+X							statbuf.st_uid   == statbuf2.st_uid &&
+X							statbuf.st_gid   == statbuf2.st_gid &&
+X							statbuf.st_size  == statbuf2.st_size &&
+X							statbuf.st_atime == statbuf2.st_atime &&
+X							statbuf.st_mtime == statbuf2.st_mtime &&
+X							statbuf.st_ctime == statbuf2.st_ctime)
+X						{
+X							fprintf(stderr, "%s: filename too long to tack on .Z\n", tempname);
+X							exit_code = 1;
+X							return;
+X						}
+X
+X						ofname[s-1] = (char)c;
+X					}
+X
+X					if (!force)
+X					{
+X		    			inbuf[0] = 'n';
+X
+X		    			fprintf(stderr, "%s already exists.\n", ofname);
+X
+X		    			if (fgnd_flag && isatty(0))
+X						{
+X							fprintf(stderr, "Do you wish to overwrite %s (y or n)? ", ofname);
+X							fflush(stderr);
+X	
+X			    			if (read(0, inbuf, 1) > 0)
+X							{
+X								if (inbuf[0] != '\n')
+X								{
+X									do
+X									{
+X										if (read(0, inbuf+1, 1) <= 0)
+X										{
+X											perror("stdin");
+X											break;
+X										}
+X									}
+X									while (inbuf[1] != '\n');
+X								}
+X							}
+X							else
+X								perror("stdin");
+X		    			}
+X
+X		    			if (inbuf[0] != 'y')
+X						{
+X							fprintf(stderr, "%s not overwritten\n", ofname);
+X							exit_code = 1;
+X							return;
+X		    			}
+X					}
+X
+X					if (unlink(ofname))
+X					{
+X						fprintf(stderr, "Can't remove old output file\n");
+X						perror(ofname);
+X						exit_code = 1;
+X						return ;
+X					}
+X				}
+X
+X		    	if ((fdout = open(ofname, O_WRONLY|O_CREAT|O_EXCL|O_BINARY,0600)) == -1)
+X				{
+X			      	perror(tempname);
+X					return;
+X		    	}
+X
+X				if ((s = strlen(ofname)) > 8)
+X				{
+X					if (fstat(fdout, &statbuf))
+X					{
+X						fprintf(stderr, "Can't get status op output file\n");
+X						perror(ofname);
+X						exit_code = 1;
+X						return ;
+X					}
+X
+X					c = ofname[s-1];
+X					ofname[s-1] = '\0';
+X					statbuf2 = statbuf;
+X
+X					if (!stat(ofname, &statbuf2) &&
+X						statbuf.st_mode  == statbuf2.st_mode &&
+X						statbuf.st_ino   == statbuf2.st_ino &&
+X						statbuf.st_dev   == statbuf2.st_dev &&
+X						statbuf.st_uid   == statbuf2.st_uid &&
+X						statbuf.st_gid   == statbuf2.st_gid &&
+X						statbuf.st_size  == statbuf2.st_size &&
+X						statbuf.st_atime == statbuf2.st_atime &&
+X						statbuf.st_mtime == statbuf2.st_mtime &&
+X						statbuf.st_ctime == statbuf2.st_ctime)
+X					{
+X						fprintf(stderr, "%s: filename too long to tack on .Z\n", tempname);
+X
+X						if (unlink(ofname))
+X						{
+X							fprintf(stderr, "can't remove bad output file\n");
+X							perror(ofname);
+X						}
+X						exit_code = 1;
+X						return;
+X					}
+X
+X					ofname[s-1] = (char)c;
+X				}
+X
+X				if(!quiet)
+X					fprintf(stderr, "%s: ", tempname);
+X
+X				remove_ofname = 1;
+X    		}
+X			else
+X			{
+X				fdout = 1;
+X				ofname[0] = '\0';
+X				remove_ofname = 0;
+X			}
+X
+X    		if (do_decomp == 0)
+X				compress(fdin, fdout);
+X    		else
+X				decompress(fdin, fdout);
+X
+X			close(fdin);
+X
+X			if (fdout != 1 && close(fdout))
+X				write_error();
+X
+X			if (bytes_in == 0)
+X			{
+X				if (remove_ofname)
+X				{
+X					if (unlink(ofname))	/* Remove input file */
+X					{
+X						fprintf(stderr, "\nunlink error (ignored) ");
+X	    				perror(ofname);
+X						exit_code = 1;
+X					}
+X		
+X					remove_ofname = 0;
+X				}
+X			}
+X			else
+X    		if (zcat_flg == 0)
+X			{
+X		    	struct utimbuf	timep;
+X
+X		    	if (!do_decomp && bytes_out >= bytes_in && (!force))
+X				{/* No compression: remove file.Z */
+X					if(!quiet)
+X						fprintf(stderr, "No compression -- %s unchanged\n", ifname);
+X
+X			    	if (unlink(ofname))
+X					{
+X						fprintf(stderr, "unlink error (ignored) ");
+X						perror(ofname);
+X					}
+X
+X					remove_ofname = 0;
+X					exit_code = 2;
+X		    	}
+X				else
+X				{/* ***** Successful Compression ***** */
+X					if(!quiet)
+X					{
+X						fprintf(stderr, " -- replaced with %s",ofname);
+X
+X						if (!do_decomp)
+X						{
+X							fprintf(stderr, " Compression: ");
+X							prratio(stderr, bytes_in-bytes_out, bytes_in);
+X						}
+X
+X						fprintf(stderr, "\n");
+X					}
+X
+X					if (chmod(ofname, infstat.st_mode & 07777))		/* Copy modes */
+X					{
+X						fprintf(stderr, "\nchmod error (ignored) ");
+X				    	perror(ofname);
+X						exit_code = 1;
+X					}
+X#ifndef	DOS
+X					chown(ofname, infstat.st_uid, infstat.st_gid);	/* Copy ownership */
+X#endif
+X
+X					timep.actime = infstat.st_atime;
+X					timep.modtime = infstat.st_mtime;
+X
+X					if (utime(ofname, &timep))
+X					{
+X						fprintf(stderr, "\nutime error (ignored) ");
+X				    	perror(ofname);
+X						exit_code = 1;
+X					}
+X
+X					remove_ofname = 0;
+X
+X					if (unlink(ifname))	/* Remove input file */
+X					{
+X						fprintf(stderr, "\nunlink error (ignored) ");
+X	    				perror(ifname);
+X						exit_code = 1;
+X					}
+X    			}
+X    		}
+X
+X			if (exit_code == -1)
+X				exit_code = 0;
+X
+X	  		break;
+X
+X		default:
+X	  		fprintf(stderr,"%s is not a directory or a regular file - ignored\n",
+X			  		tempname);
+X	  		break;
+X		}
+X	}
+X
+X#ifdef	RECURSIVE
+Xvoid
+Xcompdir(dir)
+X	REG3	char	*dir;
+X	{
+X#ifndef	DIRENT
+X		REG1 	struct direct	*dp;
+X#else
+X		REG1 	struct dirent	*dp;
+X#endif
+X		REG2	DIR				*dirp;
+X		char					 nbuf[MAXPATHLEN];
+X		char					*nptr = nbuf;
+X
+X		dirp = opendir(dir);
+X
+X		if (dirp == NULL)
+X		{
+X			printf("%s unreadable\n", dir);		/* not stderr! */
+X			return ;
+X		}
+X		/*
+X		** WARNING: the following algorithm will occasionally cause
+X		** compress to produce error warnings of the form "<filename>.Z
+X		** already has .Z suffix - ignored". This occurs when the
+X		** .Z output file is inserted into the directory below
+X		** readdir's current pointer.
+X		** These warnings are harmless but annoying. The alternative
+X		** to allowing this would be to store the entire directory
+X		** list in memory, then compress the entries in the stored
+X		** list. Given the depth-first recursive algorithm used here,
+X		** this could use up a tremendous amount of memory. I don't
+X		** think it's worth it. -- Dave Mack
+X		*/
+X
+X		while (dp = readdir(dirp))
+X		{
+X			if (dp->d_ino == 0)
+X				continue;
+X
+X			if (strcmp(dp->d_name,".") == 0 || strcmp(dp->d_name,"..") == 0)
+X				continue;
+X
+X			if ((strlen(dir)+strlen(dp->d_name)+1) < (MAXPATHLEN - 1))
+X			{
+X			  	strcpy(nbuf,dir);
+X			  	strcat(nbuf,"/");
+X			  	strcat(nbuf,dp->d_name);
+X		  		comprexx(&nptr);
+X			}
+X			else
+X		  		fprintf(stderr,"Pathname too long: %s/%s\n", dir, dp->d_name);
+X  		}
+X
+X		closedir(dirp);
+X
+X		return;
+X	}
+X#endif
+X/*
+X * compress fdin to fdout
+X *
+X * Algorithm:  use open addressing double hashing (no chaining) on the 
+X * prefix code / next character combination.  We do a variant of Knuth's
+X * algorithm D (vol. 3, sec. 6.4) along with G. Knott's relatively-prime
+X * secondary probe.  Here, the modular division first probe is gives way
+X * to a faster exclusive-or manipulation.  Also do block compression with
+X * an adaptive reset, whereby the code table is cleared when the compression
+X * ratio decreases, but after the table fills.  The variable-length output
+X * codes are re-sized at this point, and a special CLEAR code is generated
+X * for the decompressor.  Late addition:  construct the table according to
+X * file size for noticeable speed improvement on small files.  Please direct
+X * questions about this implementation to ames!jaw.
+X */
+Xvoid
+Xcompress(fdin, fdout)
+X	int		fdin;
+X	int		fdout;
+X	{
+X		REG2	long		hp;
+X		REG3	int			rpos;
+X#if REGISTERS >= 5
+X		REG5	long		fc;
+X#endif
+X		REG6	int			outbits;
+X		REG7    int			rlop;
+X		REG8	int			rsize;
+X		REG9	int			stcode;
+X		REG10	code_int	free_ent;
+X		REG11	int			boff;
+X		REG12	int			n_bits;
+X		REG13	int			ratio;
+X		REG14	long		checkpoint;
+X		REG15	code_int	extcode;
+X		union
+X		{
+X			long			code;
+X			struct
+X			{
+X				char_type		c;
+X				unsigned short	ent;
+X			} e;
+X		} fcode;
+X
+X		ratio = 0;
+X		checkpoint = CHECK_GAP;
+X		extcode = MAXCODE(n_bits = INIT_BITS)+1;
+X		stcode = 1;
+X		free_ent = FIRST;
+X
+X		memset(outbuf, 0, sizeof(outbuf));
+X		bytes_out = 0; bytes_in = 0;
+X		outbuf[0] = MAGIC_1;
+X		outbuf[1] = MAGIC_2;
+X		outbuf[2] = (char)(maxbits | block_mode);
+X		boff = outbits = (3<<3);
+X		fcode.code = 0;
+X
+X		clear_htab();
+X
+X		while ((rsize = read(fdin, inbuf, IBUFSIZ)) > 0)
+X		{
+X			if (bytes_in == 0)
+X			{
+X				fcode.e.ent = inbuf[0];
+X				rpos = 1;
+X			}
+X			else
+X				rpos = 0;
+X
+X			rlop = 0;
+X
+X			do
+X			{
+X				if (free_ent >= extcode && fcode.e.ent < FIRST)
+X				{
+X					if (n_bits < maxbits)
+X					{
+X						boff = outbits = (outbits-1)+((n_bits<<3)-
+X								  	((outbits-boff-1+(n_bits<<3))%(n_bits<<3)));
+X						if (++n_bits < maxbits)
+X							extcode = MAXCODE(n_bits)+1;
+X						else
+X							extcode = MAXCODE(n_bits);
+X					}
+X					else
+X					{
+X						extcode = MAXCODE(16)+OBUFSIZ;
+X						stcode = 0;
+X					}
+X				}
+X
+X				if (!stcode && bytes_in >= checkpoint && fcode.e.ent < FIRST)
+X				{
+X					REG1 long int rat;
+X
+X					checkpoint = bytes_in + CHECK_GAP;
+X
+X					if (bytes_in > 0x007fffff)
+X					{							/* shift will overflow */
+X						rat = (bytes_out+(outbits>>3)) >> 8;
+X
+X						if (rat == 0)				/* Don't divide by zero */
+X							rat = 0x7fffffff;
+X						else
+X							rat = bytes_in / rat;
+X					}
+X					else
+X						rat = (bytes_in << 8) / (bytes_out+(outbits>>3));	/* 8 fractional bits */
+X					if (rat >= ratio)
+X						ratio = (int)rat;
+X					else
+X					{
+X						ratio = 0;
+X						clear_htab();
+X						output(outbuf,outbits,CLEAR,n_bits);
+X						boff = outbits = (outbits-1)+((n_bits<<3)-
+X								  	((outbits-boff-1+(n_bits<<3))%(n_bits<<3)));
+X						extcode = MAXCODE(n_bits = INIT_BITS)+1;
+X						free_ent = FIRST;
+X						stcode = 1;
+X					}
+X				}
+X
+X				if (outbits >= (OBUFSIZ<<3))
+X				{
+X					if (write(fdout, outbuf, OBUFSIZ) != OBUFSIZ)
+X						write_error();
+X
+X					outbits -= (OBUFSIZ<<3);
+X					boff = -(((OBUFSIZ<<3)-boff)%(n_bits<<3));
+X					bytes_out += OBUFSIZ;
+X
+X					memcpy(outbuf, outbuf+OBUFSIZ, (outbits>>3)+1);
+X					memset(outbuf+(outbits>>3)+1, '\0', OBUFSIZ);
+X				}
+X
+X				{
+X					REG1	int		i;
+X
+X					i = rsize-rlop;
+X
+X					if ((code_int)i > extcode-free_ent)	i = (int)(extcode-free_ent);
+X					if (i > ((sizeof(outbuf) - 32)*8 - outbits)/n_bits)
+X						i = ((sizeof(outbuf) - 32)*8 - outbits)/n_bits;
+X					
+X					if (!stcode && (long)i > checkpoint-bytes_in)
+X						i = (int)(checkpoint-bytes_in);
+X
+X					rlop += i;
+X					bytes_in += i;
+X				}
+X
+X				goto next;
+Xhfound:			fcode.e.ent = codetabof(hp);
+Xnext:  			if (rpos >= rlop)
+X	   				goto endlop;
+Xnext2: 			fcode.e.c = inbuf[rpos++];
+X#ifndef FAST
+X				{
+X					REG1 	code_int	i;
+X#if REGISTERS >= 5
+X					fc = fcode.code;
+X#else
+X#	define			fc fcode.code
+X#endif
+X					hp = (((long)(fcode.e.c)) << (BITS-8)) ^ (long)(fcode.e.ent);
+X
+X					if ((i = htabof(hp)) == fc)
+X						goto hfound;
+X
+X					if (i != -1)
+X					{
+X						REG4 long		disp;
+X
+X						disp = (HSIZE - hp)-1;	/* secondary hash (after G. Knott) */
+X
+X						do
+X						{
+X							if ((hp -= disp) < 0)	hp += HSIZE;
+X
+X							if ((i = htabof(hp)) == fc)
+X								goto hfound;
+X						}
+X						while (i != -1);
+X					}
+X				}
+X#else
+X				{
+X					REG1 long	i;
+X					REG4 long	p;
+X#if REGISTERS >= 5
+X					fc = fcode.code;
+X#else
+X#	define			fc fcode.code
+X#endif
+X					hp = ((((long)(fcode.e.c)) << (HBITS-8)) ^ (long)(fcode.e.ent));
+X
+X					if ((i = htabof(hp)) == fc)	goto hfound;
+X					if (i == -1)				goto out;
+X
+X					p = primetab[fcode.e.c];
+Xlookup:				hp = (hp+p)&HMASK;
+X					if ((i = htabof(hp)) == fc)	goto hfound;
+X					if (i == -1)				goto out;
+X					hp = (hp+p)&HMASK;
+X					if ((i = htabof(hp)) == fc)	goto hfound;
+X					if (i == -1)				goto out;
+X					hp = (hp+p)&HMASK;
+X					if ((i = htabof(hp)) == fc)	goto hfound;
+X					if (i == -1)				goto out;
+X					goto lookup;
+X				}
+Xout:			;
+X#endif
+X				output(outbuf,outbits,fcode.e.ent,n_bits);
+X
+X				{
+X#if REGISTERS < 5
+X#	undef	fc
+X					REG1 long	fc;
+X					fc = fcode.code;
+X#endif
+X					fcode.e.ent = fcode.e.c;
+X
+X
+X					if (stcode)
+X					{
+X						codetabof(hp) = (unsigned short)free_ent++;
+X						htabof(hp) = fc;
+X					}
+X				} 
+X
+X				goto next;
+X
+Xendlop:			if (fcode.e.ent >= FIRST && rpos < rsize)
+X					goto next2;
+X
+X				if (rpos > rlop)
+X				{
+X					bytes_in += rpos-rlop;
+X					rlop = rpos;
+X				}
+X			}
+X			while (rlop < rsize);
+X		}
+X
+X		if (rsize < 0)
+X			read_error();
+X
+X		if (bytes_in > 0)
+X			output(outbuf,outbits,fcode.e.ent,n_bits);
+X
+X		if (write(fdout, outbuf, (outbits+7)>>3) != (outbits+7)>>3)
+X			write_error();
+X
+X		bytes_out += (outbits+7)>>3;
+X
+X		return;
+X	}
+X
+X/*
+X * Decompress stdin to stdout.  This routine adapts to the codes in the
+X * file building the "string" table on-the-fly; requiring no table to
+X * be stored in the compressed file.  The tables used herein are shared
+X * with those of the compress() routine.  See the definitions above.
+X */
+X
+Xvoid
+Xdecompress(fdin, fdout)
+X	int		fdin;
+X	int		fdout;
+X	{
+X	    REG2 	char_type 		*stackp;
+X	    REG3	code_int		 code;
+X    	REG4	int				 finchar;
+X		REG5	code_int		 oldcode;
+X		REG6	code_int		 incode;
+X		REG7	int				 inbits;
+X		REG8	int				 posbits;
+X		REG9	int				 outpos;
+X		REG10	int				 insize;
+X		REG11	int				 bitmask;
+X		REG12	code_int		 free_ent;
+X		REG13	code_int		 maxcode;
+X		REG14	code_int		 maxmaxcode;
+X		REG15	int				 n_bits;
+X		REG16	int				 rsize;
+X
+X		bytes_in = 0;
+X		bytes_out = 0;
+X		insize = 0;
+X
+X		while (insize < 3 && (rsize = read(fdin, inbuf+insize, IBUFSIZ)) > 0)
+X			insize += rsize;
+X
+X		if (insize < 3 || inbuf[0] != MAGIC_1 || inbuf[1] != MAGIC_2)
+X		{
+X			if (rsize < 0)
+X				read_error();
+X
+X			if (insize > 0)
+X			{
+X				fprintf(stderr, "%s: not in compressed format\n",
+X									(ifname[0] != '\0'? ifname : "stdin"));
+X				exit_code = 1;
+X			}
+X
+X			return ;
+X		}
+X
+X		maxbits = inbuf[2] & BIT_MASK;
+X		block_mode = inbuf[2] & BLOCK_MODE;
+X		maxmaxcode = MAXCODE(maxbits);
+X
+X		if (maxbits > BITS)
+X		{
+X			fprintf(stderr,
+X					"%s: compressed with %d bits, can only handle %d bits\n",
+X					(*ifname != '\0' ? ifname : "stdin"), maxbits, BITS);
+X			exit_code = 4;
+X			return;
+X		}
+X
+X		bytes_in = insize;
+X	    maxcode = MAXCODE(n_bits = INIT_BITS)-1;
+X		bitmask = (1<<n_bits)-1;
+X		oldcode = -1;
+X		finchar = 0;
+X		outpos = 0;
+X		posbits = 3<<3;
+X
+X	    free_ent = ((block_mode) ? FIRST : 256);
+X
+X		clear_tab_prefixof();	/* As above, initialize the first
+X								   256 entries in the table. */
+X
+X	    for (code = 255 ; code >= 0 ; --code)
+X			tab_suffixof(code) = (char_type)code;
+X
+X		do
+X		{
+Xresetbuf:	;
+X			{
+X				REG1	 int	i;
+X				int				e;
+X				int				o;
+X
+X				e = insize-(o = (posbits>>3));
+X
+X				for (i = 0 ; i < e ; ++i)
+X					inbuf[i] = inbuf[i+o];
+X
+X				insize = e;
+X				posbits = 0;
+X			}
+X
+X			if (insize < sizeof(inbuf)-IBUFSIZ)
+X			{
+X				if ((rsize = read(fdin, inbuf+insize, IBUFSIZ)) < 0)
+X					read_error();
+X
+X				insize += rsize;
+X			}
+X
+X			inbits = ((rsize > 0) ? (insize - insize%n_bits)<<3 : 
+X									(insize<<3)-(n_bits-1));
+X
+X			while (inbits > posbits)
+X			{
+X				if (free_ent > maxcode)
+X				{
+X					posbits = ((posbits-1) + ((n_bits<<3) -
+X									 (posbits-1+(n_bits<<3))%(n_bits<<3)));
+X
+X					++n_bits;
+X					if (n_bits == maxbits)
+X						maxcode = maxmaxcode;
+X					else
+X					    maxcode = MAXCODE(n_bits)-1;
+X
+X					bitmask = (1<<n_bits)-1;
+X					goto resetbuf;
+X				}
+X
+X				input(inbuf,posbits,code,n_bits,bitmask);
+X
+X				if (oldcode == -1)
+X				{
+X					outbuf[outpos++] = (char_type)(finchar = (int)(oldcode = code));
+X					continue;
+X				}
+X
+X				if (code == CLEAR && block_mode)
+X				{
+X					clear_tab_prefixof();
+X	    			free_ent = FIRST - 1;
+X					posbits = ((posbits-1) + ((n_bits<<3) -
+X								(posbits-1+(n_bits<<3))%(n_bits<<3)));
+X				    maxcode = MAXCODE(n_bits = INIT_BITS)-1;
+X					bitmask = (1<<n_bits)-1;
+X					goto resetbuf;
+X				}
+X
+X				incode = code;
+X			    stackp = de_stack;
+X
+X				if (code >= free_ent)	/* Special case for KwKwK string.	*/
+X				{
+X					if (code > free_ent)
+X					{
+X						REG1 char_type 		*p;
+X
+X						posbits -= n_bits;
+X						p = &inbuf[posbits>>3];
+X
+X						fprintf(stderr, "insize:%d posbits:%d inbuf:%02X %02X %02X %02X %02X (%d)\n", insize, posbits,
+X								p[-1],p[0],p[1],p[2],p[3], (posbits&07));
+X			    		fprintf(stderr, "uncompress: corrupt input\n");
+X						abort_compress();
+X					}
+X
+X        	    	*--stackp = (char_type)finchar;
+X		    		code = oldcode;
+X				}
+X
+X				while ((cmp_code_int)code >= (cmp_code_int)256)
+X				{ /* Generate output characters in reverse order */
+X			    	*--stackp = tab_suffixof(code);
+X			    	code = tab_prefixof(code);
+X				}
+X
+X				*--stackp =	(char_type)(finchar = tab_suffixof(code));
+X
+X			/* And put them out in forward order */
+X
+X				{
+X					REG1 int	i;
+X
+X					if (outpos+(i = (de_stack-stackp)) >= OBUFSIZ)
+X					{
+X						do
+X						{
+X							if (i > OBUFSIZ-outpos) i = OBUFSIZ-outpos;
+X
+X							if (i > 0)
+X							{
+X								memcpy(outbuf+outpos, stackp, i);
+X								outpos += i;
+X							}
+X
+X							if (outpos >= OBUFSIZ)
+X							{
+X								if (write(fdout, outbuf, outpos) != outpos)
+X									write_error();
+X
+X								outpos = 0;
+X							}
+X							stackp+= i;
+X						}
+X						while ((i = (de_stack-stackp)) > 0);
+X					}
+X					else
+X					{
+X						memcpy(outbuf+outpos, stackp, i);
+X						outpos += i;
+X					}
+X				}
+X
+X				if ((code = free_ent) < maxmaxcode) /* Generate the new entry. */
+X				{
+X			    	tab_prefixof(code) = (unsigned short)oldcode;
+X			    	tab_suffixof(code) = (char_type)finchar;
+X	    			free_ent = code+1;
+X				} 
+X
+X				oldcode = incode;	/* Remember previous code.	*/
+X			}
+X
+X			bytes_in += rsize;
+X	    }
+X		while (rsize > 0);
+X
+X		if (outpos > 0 && write(fdout, outbuf, outpos) != outpos)
+X			write_error();
+X	}
+X
+Xchar *
+Xrindex(s, c)		/* For those who don't have it in libc.a */
+X	REG1 char	*s;
+X	REG2 int	 c;
+X	{
+X		char *p;
+X
+X		for (p = NULL; *s; s++)
+X		    if (*s == (char)c)
+X				p = s;
+X
+X		return(p);
+X	}
+X
+Xvoid
+Xread_error()
+X	{
+X		fprintf(stderr, "\nread error on");
+X	    perror((ifname[0] != '\0') ? ifname : "stdin");
+X		abort_compress();
+X	}
+X
+Xvoid
+Xwrite_error()
+X	{
+X		fprintf(stderr, "\nwrite error on");
+X	    perror((ofname[0] != '\0') ? ofname : "stdout");
+X		abort_compress();
+X	}
+X
+Xvoid
+Xabort_compress()
+X	{
+X		if (remove_ofname)
+X	    	unlink(ofname);
+X
+X		exit(1);
+X	}
+X
+Xvoid
+Xprratio(stream, num, den)
+X	FILE		*stream;
+X	long int	 num;
+X	long int	 den;
+X	{
+X		REG1 int q;			/* Doesn't need to be long */
+X
+X		if (den > 0)
+X		{
+X			if (num > 214748L) 
+X				q = (int)(num/(den/10000L));	/* 2147483647/10000 */
+X			else
+X				q = (int)(10000L*num/den);		/* Long calculations, though */
+X		}
+X		else
+X			q = 10000;
+X
+X		if (q < 0)
+X		{
+X			putc('-', stream);
+X			q = -q;
+X		}
+X
+X		fprintf(stream, "%d.%02d%%", q / 100, q % 100);
+X	}
+X
+Xvoid
+Xabout()
+X	{
+X		fprintf(stderr, "Compress version: %s, compiled: %s\n", version_id, COMPILE_DATE);
+X		fprintf(stderr, "Compile options:\n        ");
+X#if BYTEORDER == 4321 && NOALLIGN == 1
+X		fprintf(stderr, "USE_BYTEORDER, ");
+X#endif
+X#ifdef FAST
+X		fprintf(stderr, "FAST, ");
+X#endif
+X#ifdef vax
+X		fprintf(stderr, "vax, ");
+X#endif
+X#ifdef DIRENT
+X		fprintf(stderr,"DIRENT, ");
+X#endif
+X#ifdef SYSDIR
+X		fprintf(stderr,"SYSDIR, ");
+X#endif
+X#ifdef NO_UCHAR
+X		fprintf(stderr, "NO_UCHAR, ");
+X#endif
+X#ifdef SIGNED_COMPARE_SLOW
+X		fprintf(stderr, "SIGNED_COMPARE_SLOW, ");
+X#endif
+X#ifdef MAXSEG_64K
+X		fprintf(stderr, "MAXSEG_64K, ");
+X#endif
+X#ifdef DOS
+X		fprintf(stderr, "DOS, ");
+X#endif
+X#ifdef DEBUG
+X		fprintf(stderr, "DEBUG, ");
+X#endif
+X#ifdef LSTAT
+X		fprintf(stderr, "LSTAT, ");
+X#endif
+X		fprintf(stderr, "\n        REGISTERS=%d IBUFSIZ=%d, OBUFSIZ=%d, BITS=%d\n", 
+X			REGISTERS, IBUFSIZ, OBUFSIZ, BITS);
+X
+X		fprintf(stderr, "\n\
+XAuthor version 4.2 (Speed improvement & source cleanup):\n\
+X     Peter Jannesen  (peter@ncs.nl)\n\
+X\n\
+XAuthor version 4.1 (Added recursive directory compress):\n\
+X     Dave Mack  (csu@alembic.acs.com)\n\
+X\n\
+XAuthors version 4.0 (World release in 1985):\n\
+X     Spencer W. Thomas, Jim McKie, Steve Davies,\n\
+X     Ken Turkowski, James A. Woods, Joe Orost\n");
+X
+X		exit(0);
+X	}
+END_OF_FILE
+if test 48463 -ne `wc -c <'compress42.c'`; then
+    echo shar: \"'compress42.c'\" unpacked with wrong size!
+fi
+# end of 'compress42.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1025 @@
+Newsgroups: comp.sources.x
+Path: uunet!gatech!paladin.american.edu!darwin.sura.net!mips!msi!dcmartin
+From: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Subject: v18i051: olvwm 3.0, Patch2, Part04/04
+Message-ID: <1992Jul22.153010.19354@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i048-olvwm-3.0@uunet.UU.NET>
+Date: Wed, 22 Jul 1992 15:30:10 GMT
+Approved: dcmartin@msi.com
+Lines: 1012
+
+Submitted-by: sdo@soliado.East.Sun.COM (Scott Oaks - Sun Consulting NYC)
+Posting-number: Volume 18, Issue 51
+Archive-name: olvwm-3.0/patch2.04
+Patch-To: olvwm-3.0: Volume 15, Issue 167
+
+#!/bin/sh
+# this is part.04 (part 4 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file olvwm3.Patch02 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping olvwm3.Patch02'
+else
+echo 'x - continuing file olvwm3.Patch02'
+sed 's/^X//' << 'SHAR_EOF' >> 'olvwm3.Patch02' &&
+X      if (GRV.VirtualRaiseVDM)
+! 	RaiseWindow(vdm->client->framewin);
+X  }
+X  
+X  /*
++  * There's another cmpButton in olvwmrc.y, but that comparison checks for
++  * the icon flag and is case insensitive.  We need a simple case sensitive
++  * check here
++  */
++ static int
++ cmpButton(b1, b2)
++     Button	**b1, **b2;
++ 
++ {
++     return strcmp(gettext((*b1)->label[0].string),
++ 		  gettext((*b2)->label[0].string));
++ }
++ 
++ /*
+X   * Menu generation function for DIRMENU
+X   *
+X   */
+***************
+*** 1797,1803 ****
+X  DIR	*dir;
+X  struct dirent	*ent;
+X  Button	*b;
+! char	s[256], *dirname;
+X  extern int AppMenuFunc();
+X  
+X      MenuInfoDestroy(menuInfo->buttons[bindex].subMenu);
+--- 1826,1833 ----
+X  DIR	*dir;
+X  struct dirent	*ent;
+X  Button	*b;
+! char	s[MAXNAMLEN], dirname[MAXPATHLEN - MAXNAMLEN], *newname, *ExpandPath();
+! char	tmp[MAXPATHLEN - MAXNAMLEN], pattern[MAXNAMLEN];
+X  extern int AppMenuFunc();
+X  
+X      MenuInfoDestroy(menuInfo->buttons[bindex].subMenu);
+***************
+*** 1811,1825 ****
+X      menu->maxLabWidth = 0;
+X      menu->prefColSize = 0;
+X  
+!     dirname = (char *) menuInfo->menu->buttons[bindex]->generate_args;
+!     if (!(dir = opendir(dirname))) {
+! 	menuInfo->buttons[bindex].subMenu =
+! 				MenuInfoCreate(cache, winInfo, menu, depth);
+! 	return;
+X      }
+X      while (ent = readdir(dir)) {
+X  	if (ent->d_name[0] == '.')
+X  	    continue;
+X  	b = (Button *) MemAlloc(sizeof(Button));
+X  	if (!menu->buttonCount++)
+X  	    menu->buttons = (Button **) MemAlloc(sizeof(Button *));
+--- 1841,1873 ----
+X      menu->maxLabWidth = 0;
+X      menu->prefColSize = 0;
+X  
+!     pattern[0] = '\0';
+!     if ((newname = ExpandPath(menuInfo->menu->buttons[bindex]->generate_args,
+! 				True)) == NULL)
+! 	strcpy(dirname, (char *) menuInfo->menu->buttons[bindex]->generate_args);
+!     else {
+! 	strcpy(dirname, newname);
+! 	MemFree(newname);
+X      }
++     if ((dir = opendir(dirname)) == NULL) {
++ 	if (newname = strrchr(dirname, '/')) {
++ 	    strcpy(pattern, newname + 1);
++ 	    dirname[strlen(dirname) - strlen(pattern) - 1] = '\0';
++ 	    rexInit(pattern);
++ 	}
++ 	if ((newname == NULL) || ((dir = opendir(dirname)) == NULL)) {
++ 	    ErrorWarning(gettext("An invalid directory was named for DIRMENU"));
++ 	    menuInfo->buttons[bindex].subMenu =
++ 			MenuInfoCreate(cache, winInfo, menu, depth);
++ 	    return;
++ 	}
++     }
+X      while (ent = readdir(dir)) {
+X  	if (ent->d_name[0] == '.')
+X  	    continue;
++ 	if (pattern[0] && !rexMatch(ent->d_name))
++ 	    continue;
++ 
+X  	b = (Button *) MemAlloc(sizeof(Button));
+X  	if (!menu->buttonCount++)
+X  	    menu->buttons = (Button **) MemAlloc(sizeof(Button *));
+***************
+*** 1841,1846 ****
+--- 1889,1994 ----
+X  	b->generate_func = NULL;
+X      }
+X      closedir(dir);
++     if (GRV.VirtualDirSort == SortAlpha)
++ 	qsort(menu->buttons, menu->buttonCount, sizeof(Button *), cmpButton);
+X      menuInfo->buttons[bindex].subMenu =
+X  				MenuInfoCreate(cache, winInfo, menu, depth);
++ }
++ 
++ #define INIT   register char *sp = instring;
++ #define GETC() (*sp++)
++ #define PEEKC()     (*sp)
++ #define UNGETC(c)   (--sp)
++ #define RETURN(c)   return;
++ #define ERROR(val)  regerr(val)
++ #define TRUE 1
++ #define FALSE 0
++ #include <regexp.h>
++ 
++ static
++ regerr(val)
++ int val;
++ {
++     switch(val) {
++ 	case 11:
++ 	    ErrorWarning("DIRMENU: Range endpoint too large.\n");
++ 	    break;
++ 	case 16:
++ 	    ErrorWarning("DIRMENU: Bad number.\n");
++ 	    break;
++ 	case 25:
++ 	    ErrorWarning("DIRMENU: ``\\ digit'' out of range.\n");
++ 	    break;
++ 	case 36:
++ 	    ErrorWarning("DIRMENU: Illegal or missing delimiter.\n");
++ 	    break;
++ 	case 41:
++ 	    ErrorWarning("DIRMENU: No remembered search string.\n");
++ 	    break;
++ 	case 42:
++ 	    ErrorWarning("DIRMENU: \\( \\) imbalance.\n");
++ 	    break;
++ 	case 43:
++ 	    ErrorWarning("DIRMENU: Too many \\(.\n");
++ 	    break;
++ 	case 44:
++ 	    ErrorWarning("DIRMENU: More than 2 numbers given in \\{ \\}.\n");
++ 	    break;
++ 	case 45:
++ 	    /* { gratutitous brace to match next line for vi */
++ 	    ErrorWarning("DIRMENU: } expected after \\.\n");
++ 	    break;
++ 	case 46:
++ 	    ErrorWarning("DIRMENU: First number exceeds second in \\{ \\}.\n");
++ 	    break;
++ 	case 49:
++ 	    ErrorWarning("DIRMENU: [] imbalance.\n");
++ 	    break;
++ 	case 50:
++ 	    ErrorWarning("DIRMENU: Regular expression too long.\n");
++ 	    break;
++ 	default:
++ 	    ErrorWarning("DIRMENU: Error code %d returned\n",val);
++ 	    break;
++     }
++ }
++ 
++ static char expbuf[256];
++ 
++ static
++ rexMatch(string)
++     char *string;
++ {
++     return step(string,expbuf);
++ }
++ 
++ static
++ rexInit(pattern)
++     char *pattern;
++ {
++ int i, j, n;
++ char newPattern[256],tmp[256];
++ 
++     strcpy(newPattern,"");
++     n = strlen(pattern);
++     newPattern[0] = '^';
++     for(i = 0, j = 1; i < n; i++) {
++ 	switch(pattern[i]) {
++ 	    case '?':
++ 		newPattern[j++] = '.';
++ 		break;
++ 	    case '*':
++ 		newPattern[j++] = '.';
++ 		newPattern[j++] = '*';
++ 		break;
++ 	    case '.':
++ 		newPattern[j++] = '\\';
++ 		newPattern[j++] = '.';
++ 		break;
++ 	    default:
++ 		newPattern[j++] = pattern[i];
++ 	}
++     }
++     newPattern[j++] = '$';
++     compile(newPattern, expbuf, &expbuf[256], '\0');
+X  }
+*** BUILD/win.h	Sat Jun 13 15:50:19 1992
+--- src/win.h	Sat Jun 13 15:43:29 1992
+***************
+*** 7,13 ****
+X  #ifndef _OLWM_WIN_H
+X  #define _OLWM_WIN_H
+X  
+! #ident  "@(#)win.h	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 7,13 ----
+X  #ifndef _OLWM_WIN_H
+X  #define _OLWM_WIN_H
+X  
+! #ident  "@(#)win.h	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 23,30 ****
+X      MENU_FULL,     /* Close, Zoom, Props, Scale, Back, Refresh, Quit */
+X      MENU_LIMITED,  /* Dismiss, Scale, Refresh */
+X      MENU_NONE,
+-     MENU_ROOT,	   /* used only by usermenu.c */
+X      MENU_VDM,	   /* used in virtual.c */
+X      NUM_MENUS
+X  } MenuIndex;
+X  
+--- 23,33 ----
+X      MENU_FULL,     /* Close, Zoom, Props, Scale, Back, Refresh, Quit */
+X      MENU_LIMITED,  /* Dismiss, Scale, Refresh */
+X      MENU_NONE,
+X      MENU_VDM,	   /* used in virtual.c */
++     MENU_ROOT,	   /* used only by usermenu.c */
++ 		   /* because of rereading menu file, MENU_ROOT must be last
++ 		    * since it has to clear out all menu caches after it
++ 		    */
+X      NUM_MENUS
+X  } MenuIndex;
+X  
+***************
+*** 467,472 ****
+--- 470,476 ----
+X  typedef struct _winvirtual {
+X  	ClassVirtualPane   *class;
+X  	WinCore		    core;
++ 	WinPaneCore	    pcore;
+X  } WinVirtual;
+X  
+X  typedef enum {upleft, upright, lowleft, lowright, keyevent} WhichResize;
+*** BUILD/winbutton.c	Sat Jun 13 15:50:10 1992
+--- src/winbutton.c	Sat Jun 13 15:43:29 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winbutton.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winbutton.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 103,109 ****
+X  	    XGrabPointer(dpy, winInfo->core.self, False,
+X  		 (ButtonReleaseMask | ButtonPressMask | PointerMotionMask),
+X  		 GrabModeAsync, GrabModeAsync, None,
+! 		 GRV.MovePointer, CurrentTime);
+X  	    buttonActive = True;
+X  	    currentAction = a;
+X  	    break;
+--- 103,109 ----
+X  	    XGrabPointer(dpy, winInfo->core.self, False,
+X  		 (ButtonReleaseMask | ButtonPressMask | PointerMotionMask),
+X  		 GrabModeAsync, GrabModeAsync, None,
+! 		 GRV.CloseDownPointer, CurrentTime);
+X  	    buttonActive = True;
+X  	    currentAction = a;
+X  	    break;
+***************
+*** 174,180 ****
+X  
+X  	if (cli->isFocus)
+X  	    gis = WinGI(winInfo, INPUTFOCUS_GINFO);
+! 	else gis == WinGI(winInfo,NORMAL_GINFO);
+X  
+X  	if (!event->xmotion.same_screen || currentAction != ACTION_SELECT)
+X  		return;
+--- 174,180 ----
+X  
+X  	if (cli->isFocus)
+X  	    gis = WinGI(winInfo, INPUTFOCUS_GINFO);
+! 	else gis = WinGI(winInfo,NORMAL_GINFO);
+X  
+X  	if (!event->xmotion.same_screen || currentAction != ACTION_SELECT)
+X  		return;
+***************
+*** 325,331 ****
+X  
+X          attributes.event_mask =
+X  	    ButtonReleaseMask | ButtonPressMask | ExposureMask;
+! 	attributes.cursor = GRV.IconPointer;
+X          valuemask = CWEventMask | CWCursor;
+X  
+X          win = XCreateWindow(dpy, par->core.self,
+--- 325,331 ----
+X  
+X          attributes.event_mask =
+X  	    ButtonReleaseMask | ButtonPressMask | ExposureMask;
+! 	attributes.cursor = GRV.CloseUpPointer;
+X          valuemask = CWEventMask | CWCursor;
+X  
+X          win = XCreateWindow(dpy, par->core.self,
+*** BUILD/winframe.c	Sat Jun 13 15:51:10 1992
+--- src/winframe.c	Sat Jun 13 15:43:30 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winframe.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winframe.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 812,819 ****
+X  	int fy = h-heightBottomFrame(win);
+X  	int baseline;
+X  	int margin;
+! 	int footwidth = w - 2*margin;
+! 	int qfootwidth = footwidth / 4;
+X  	int gutter;
+X  	int rstart, lmaxwidth, rmaxwidth;
+X  	Graphics_info	*gis;
+--- 812,819 ----
+X  	int fy = h-heightBottomFrame(win);
+X  	int baseline;
+X  	int margin;
+! 	int footwidth;
+! 	int qfootwidth;
+X  	int gutter;
+X  	int rstart, lmaxwidth, rmaxwidth;
+X  	Graphics_info	*gis;
+***************
+*** 834,839 ****
+--- 834,841 ----
+X  	armh = ResizeArm_Height(gis);
+X  	gutter = ptSize(gis);
+X  	margin = FRAME_OUTLINE_WIDTH + ptSize(gis);
++ 	footwidth = w - 2*margin;
++ 	qfootwidth = footwidth / 4;
+X  
+X  	XFillRectangle(dpy, self, gc,
+X  		widthLeftFrame(win), fy,
+***************
+*** 1532,1538 ****
+X  	attributes.cursor = GRV.TargetPointer;
+X  	attributes.border_pixel = 0;
+X  	attributes.colormap = cli->scrInfo->colormap;
+! 	if (GRV.PointerWorkspace)
+X  	    valuemask = CWEventMask | CWSaveUnder | CWBackPixmap |
+X  			CWBorderPixel | CWColormap;
+X  	else valuemask = CWEventMask | CWSaveUnder | CWBackPixmap | CWCursor |
+--- 1534,1540 ----
+X  	attributes.cursor = GRV.TargetPointer;
+X  	attributes.border_pixel = 0;
+X  	attributes.colormap = cli->scrInfo->colormap;
+! 	if (!GRV.PointerWorkspace)
+X  	    valuemask = CWEventMask | CWSaveUnder | CWBackPixmap |
+X  			CWBorderPixel | CWColormap;
+X  	else valuemask = CWEventMask | CWSaveUnder | CWBackPixmap | CWCursor |
+*** BUILD/winicon.c	Sat Jun 13 15:50:26 1992
+--- src/winicon.c	Sat Jun 13 15:43:30 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winicon.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winicon.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 731,741 ****
+X  {
+X      WinIconPane *pane = (WinIconPane *)winIcon->fcore.panewin;
+X  
+X      XReparentWindow(cli->dpy, pane->core.self, winIcon->core.self,
+! 			pane->core.x, pane->core.y);
+!     XMapWindow(cli->dpy, pane->core.self);
+X      if (pane->iconClientWindow && !(cli->flags & CLOlwmOwned))
+X          XChangeSaveSet(cli->dpy, pane->core.self, SetModeInsert);
+X      MapWindow(winIcon);
+X  }
+X  
+--- 731,744 ----
+X  {
+X      WinIconPane *pane = (WinIconPane *)winIcon->fcore.panewin;
+X  
++ #ifdef notdef
++     /* see winipane.c */
+X      XReparentWindow(cli->dpy, pane->core.self, winIcon->core.self,
+! 			pane->core.x, pane->core.y); see winipane.c
+X      if (pane->iconClientWindow && !(cli->flags & CLOlwmOwned))
+X          XChangeSaveSet(cli->dpy, pane->core.self, SetModeInsert);
++ #endif
++     XMapWindow(cli->dpy, pane->core.self);
+X      MapWindow(winIcon);
+X  }
+X  
+***************
+*** 752,757 ****
+--- 755,778 ----
+X      WinIconPane *pane = (WinIconPane *)winIcon->fcore.panewin;
+X  
+X      UnmapWindow(winIcon);
++     XUnmapWindow(cli->dpy, pane->core.self);
++ #ifdef notdef
++     /* see winipane.c */
++     XReparentWindow(cli->dpy, pane->core.self, cli->scrInfo->rootid,
++ 			winIcon->core.x + pane->core.x,
++ 			winIcon->core.y + pane->core.y);
++     if (pane->iconClientWindow && !(cli->flags & CLOlwmOwned))
++         XChangeSaveSet(cli->dpy, pane->core.self, SetModeDelete);
++ #endif
++ }
++ 
++ void
++ IconUnparent(cli, winIcon)
++     Client *cli;
++     WinIconFrame *winIcon;
++ {
++ WinIconPane *pane = (WinIconPane *)winIcon->fcore.panewin;
++ 
+X      XUnmapWindow(cli->dpy, pane->core.self);
+X      XReparentWindow(cli->dpy, pane->core.self, cli->scrInfo->rootid,
+X  			winIcon->core.x + pane->core.x,
+*** BUILD/winipane.c	Sat Jun 13 15:51:11 1992
+--- src/winipane.c	Sat Jun 13 15:43:30 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winipane.c	1.2 olvwm version 1/27/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winipane.c	1.3 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 439,444 ****
+--- 439,454 ----
+X  
+X  	/* register the window */
+X  	WIInstallInfo(w);
++ 
++ 	/* Reparent the pane.  olwm didn't do this; since it never moved the
++ 	 * icon while it was in StateNorm, it could afford to unparent the
++ 	 * icon everytime it went to StateNorm.  We can't do that, or the
++ 	 * icon misses ConfigureNotify events when its not visible
++ 	 */
++ 	XReparentWindow(cli->dpy, iconPane, par->core.self,
++ 		    w->core.x, w->core.y);
++ 	if (w->iconClientWindow && !(cli->flags & CLOlwmOwned))
++ 	    XChangeSaveSet(cli->dpy, w->core.self, SetModeInsert);
+X  
+X  	return w;
+X  }
+*** BUILD/winresize.c	Sat Jun 13 15:50:11 1992
+--- src/winresize.c	Sat Jun 13 15:43:31 1992
+***************
+*** 4,10 ****
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winresize.c	1.1 olvwm version 1/3/92"
+X  
+X  /*
+X   * Based on
+--- 4,10 ----
+X   *      file for terms of the license.
+X   */
+X  
+! #ident	"@(#)winresize.c	1.2 olvwm version 6/13/92"
+X  
+X  /*
+X   * Based on
+***************
+*** 240,246 ****
+X  	    ButtonPressMask | ButtonMotionMask | ButtonReleaseMask
+X  		| ExposureMask | OwnerGrabButtonMask;
+X          attributes.win_gravity = whichgrav[which];
+! 	attributes.cursor = GRV.ResizePointer;
+X          valuemask = CWEventMask | CWWinGravity | CWCursor;
+X  
+X          win = XCreateWindow(dpy, par->core.self,
+--- 240,248 ----
+X  	    ButtonPressMask | ButtonMotionMask | ButtonReleaseMask
+X  		| ExposureMask | OwnerGrabButtonMask;
+X          attributes.win_gravity = whichgrav[which];
+! 	if (GRV.SpecialResizePointers)
+! 	    attributes.cursor = GRV.CornerPointers[which];
+! 	else attributes.cursor = GRV.ResizePointer;
+X          valuemask = CWEventMask | CWWinGravity | CWCursor;
+X  
+X          win = XCreateWindow(dpy, par->core.self,
+*** BUILD/cursors.c	Sat Jun 13 15:55:20 1992
+--- src/cursors.c	Sat Jun 13 15:48:00 1992
+***************
+*** 0 ****
+--- 1,412 ----
++ #include <stdio.h>
++ #include <memory.h>
++ #include <X11/Xos.h>
++ #include <X11/Xlib.h>
++ #include <X11/Xutil.h>
++ #include <X11/Xresource.h>
++ #include <X11/keysym.h>
++ #include <X11/cursorfont.h>
++ 
++ #include "olcursor.h"
++ #include "ollocale.h"
++ #include "mem.h"
++ #include "olwm.h"
++ #include "win.h"
++ #include "menu.h"
++ #include "globals.h"
++ #include "screen.h"
++ #include "cursors.h"
++ #include "i18n.h"
++ #include "st.h"
++ 
++ #ident "@(#)cursors.c	1.1 olvwm version 6/13/92"
++ 
++ static st_table	*cursorTable;
++ static st_table *fontTable;
++ 
++ typedef struct _cursor_data {
++     char *name;
++     int num;
++ };
++ 
++ static struct _cursor_data cursor_names[] = {
++     { "XC_num_glyphs", XC_num_glyphs },
++     { "XC_X_cursor", XC_X_cursor },
++     { "XC_arrow", XC_arrow },
++     { "XC_based_arrow_down", XC_based_arrow_down },
++     { "XC_based_arrow_up", XC_based_arrow_up },
++     { "XC_boat", XC_boat },
++     { "XC_bogosity", XC_bogosity },
++     { "XC_bottom_left_corner", XC_bottom_left_corner },
++     { "XC_bottom_right_corner", XC_bottom_right_corner },
++     { "XC_bottom_side", XC_bottom_side },
++     { "XC_bottom_tee", XC_bottom_tee },
++     { "XC_box_spiral", XC_box_spiral },
++     { "XC_center_ptr", XC_center_ptr },
++     { "XC_circle", XC_circle },
++     { "XC_clock", XC_clock },
++     { "XC_coffee_mug", XC_coffee_mug },
++     { "XC_cross", XC_cross },
++     { "XC_cross_reverse", XC_cross_reverse },
++     { "XC_crosshair", XC_crosshair },
++     { "XC_diamond_cross", XC_diamond_cross },
++     { "XC_dot", XC_dot },
++     { "XC_dotbox", XC_dotbox },
++     { "XC_double_arrow", XC_double_arrow },
++     { "XC_draft_large", XC_draft_large },
++     { "XC_draft_small", XC_draft_small },
++     { "XC_draped_box", XC_draped_box },
++     { "XC_exchange", XC_exchange },
++     { "XC_fleur", XC_fleur },
++     { "XC_gobbler", XC_gobbler },
++     { "XC_gumby", XC_gumby },
++     { "XC_hand1", XC_hand1 },
++     { "XC_hand2", XC_hand2 },
++     { "XC_heart", XC_heart },
++     { "XC_icon", XC_icon },
++     { "XC_iron_cross", XC_iron_cross },
++     { "XC_left_ptr", XC_left_ptr },
++     { "XC_left_side", XC_left_side },
++     { "XC_left_tee", XC_left_tee },
++     { "XC_leftbutton", XC_leftbutton },
++     { "XC_ll_angle", XC_ll_angle },
++     { "XC_lr_angle", XC_lr_angle },
++     { "XC_man", XC_man },
++     { "XC_middlebutton", XC_middlebutton },
++     { "XC_mouse", XC_mouse },
++     { "XC_pencil", XC_pencil },
++     { "XC_pirate", XC_pirate },
++     { "XC_plus", XC_plus },
++     { "XC_question_arrow", XC_question_arrow },
++     { "XC_right_ptr", XC_right_ptr },
++     { "XC_right_side", XC_right_side },
++     { "XC_right_tee", XC_right_tee },
++     { "XC_rightbutton", XC_rightbutton },
++     { "XC_rtl_logo", XC_rtl_logo },
++     { "XC_sailboat", XC_sailboat },
++     { "XC_sb_down_arrow", XC_sb_down_arrow },
++     { "XC_sb_h_double_arrow", XC_sb_h_double_arrow },
++     { "XC_sb_left_arrow", XC_sb_left_arrow },
++     { "XC_sb_right_arrow", XC_sb_right_arrow },
++     { "XC_sb_up_arrow", XC_sb_up_arrow },
++     { "XC_sb_v_double_arrow", XC_sb_v_double_arrow },
++     { "XC_shuttle", XC_shuttle },
++     { "XC_sizing", XC_sizing },
++     { "XC_spider", XC_spider },
++     { "XC_spraycan", XC_spraycan },
++     { "XC_star", XC_star },
++     { "XC_target", XC_target },
++     { "XC_tcross", XC_tcross },
++     { "XC_top_left_arrow", XC_top_left_arrow },
++     { "XC_top_left_corner", XC_top_left_corner },
++     { "XC_top_right_corner", XC_top_right_corner },
++     { "XC_top_side", XC_top_side },
++     { "XC_top_tee", XC_top_tee },
++     { "XC_trek", XC_trek },
++     { "XC_ul_angle", XC_ul_angle },
++     { "XC_umbrella", XC_umbrella },
++     { "XC_ur_angle", XC_ur_angle },
++     { "XC_watch", XC_watch },
++     { "XC_xterm", XC_xterm },
++     { "OLC_basic", OLC_basic },
++     { "OLC_move", OLC_move },
++     { "OLC_copy", OLC_copy },
++     { "OLC_busy", OLC_busy },
++     { "OLC_stop", OLC_stop },
++     { "OLC_panning", OLC_panning },
++     { "OLC_target", OLC_target },
++     { "OLC_nouse", OLC_nouse },
++     { "OLC_ptr", OLC_ptr },
++     { "OLC_beye", OLC_beye },
++     { "OLC_rtarr", OLC_rtarr },
++     { "OLC_xhair", OLC_xhair },
++     { "OLC_xcurs", OLC_xcurs },
++     { "OLC_hourg", OLC_hourg },
++     { NULL, -1 }
++ };
++ 
++ static int
++ cursorHash(a, modulus)
++     register char	*a;
++     register int	modulus;
++ {
++ int	sum = 0;
++ 
++     while (*a)
++ 	sum += *a++;
++     return sum % modulus;
++ }
++ 
++ #define DEFAULT_CURSOR	XC_left_ptr
++ 
++ static Font
++ resLoadFont(dpy, file)
++     Display *dpy;
++     char *file;
++ {
++     Font fid;
++ 
++     if (!fontTable)
++ 	fontTable = st_init_table(strcmp, cursorHash);
++     
++     if (!st_lookup(fontTable, file, &fid)) {
++ 	if ((fid = XLoadFont(dpy, file)) == 0)
++ 	    fid = (Font) 0;
++ 	else st_insert(fontTable, file, (char *) fid);
++     }
++     return fid;
++ }
++ 
++ static Bool
++ findNextColor(dpy, ptr, xcolor, cmap)
++     Display *dpy;
++     char **ptr;
++     XColor *xcolor;
++     Colormap cmap;
++ {
++ char *color, tmp;
++ Bool return_flag = True;
++ 
++     for ( ; **ptr && isspace(**ptr); ++(*ptr))
++ 	;	/* read to next space */
++ 
++     if (**ptr == '\0')
++ 	return_flag = False;
++     else {
++ 	color = *ptr;
++ 
++ 	for ( ; **ptr && !isspace( **ptr ); ++(*ptr) )
++ 	    ;	/* read to next space */
++ 	tmp = **ptr;
++ 	**ptr = '\0';
++ 
++ 	if (!XParseColor(dpy, cmap, color, xcolor) ||
++ 	    !XAllocColor(dpy, cmap, xcolor))
++ 	    return_flag = False;
++ 	**ptr = tmp;
++     }
++     return return_flag;
++ }
++ 
++ static void
++ createCursor(dpy, cmap, pointer, cursor_id, font_file, no_colors, colors_p)
++     Display *dpy;
++     Colormap cmap;
++     Cursor *pointer;
++     int cursor_id;
++     char *font_file;
++     Bool no_colors;
++     char *colors_p;
++ {
++     static XColor def_bg, def_fg;
++     static Bool def_cols_set = False;
++     XColor fg, bg;
++     Font fid;
++     Bool use_default = False;
++ 
++     if (!def_cols_set) {
++ 	def_fg.pixel = BlackPixel(dpy, DefaultScreen(dpy));
++ 	XQueryColor(dpy, cmap, &def_fg);
++ 	def_bg.pixel = WhitePixel(dpy, DefaultScreen(dpy));
++ 	XQueryColor(dpy, cmap, &def_bg);
++ 	def_cols_set = True;
++     }
++ 
++     if (no_colors) {
++ 	fg = def_fg;
++ 	bg = def_bg;
++     }
++     else {
++ 	char *p = colors_p;
++ 
++ 	if (findNextColor(dpy, (++p, &p), &fg, cmap)) {
++ 	    if (!*p || !findNextColor(dpy, (++p, &p), &bg, cmap))
++ 		bg = def_bg;
++ 	}
++ 	else {
++ 	    fg = def_fg;
++ 	    bg = def_bg;
++ 	}
++     }
++ 
++     if (font_file == NULL || (fid = resLoadFont(dpy, font_file)) == 0)
++ 	use_default = True;
++     else {
++ 	if ((*pointer = XCreateGlyphCursor(dpy, fid, fid, cursor_id,
++ 	  				   cursor_id+1, &fg, &bg )) == NULL)
++ 	    use_default = True;
++     }
++ 
++     if (use_default) {
++ 	*pointer = XCreateFontCursor(dpy, DEFAULT_CURSOR);
++ 	XRecolorCursor(dpy, *pointer, &def_fg, &def_bg);
++     }
++ }
++ 
++ static void
++ initPointer(dpy, cmap, data, pointer)
++     Display *dpy;
++     Colormap cmap;
++     char *data;
++     Cursor *pointer;
++ {
++     char *our_copy, *ptr;
++     Bool end = False;
++     int cursor_id;
++     char *font_file = NULL;
++     char *cursor_id_p;
++ 
++     if (data) {
++ 	our_copy = MemNewString(data);
++ 
++ 	for (ptr = our_copy; *ptr && !isspace( *ptr ); ++ptr)
++ 		;
++ 	if ( *ptr == '\0' )
++ 	    end = True;
++ 	else *ptr = '\0';
++ 	    
++ 	if (st_lookup(cursorTable, our_copy, &cursor_id)) {
++ 	    if (our_copy[0] == 'X')
++ 		font_file = "cursor";
++ 	    else if (our_copy[0] == 'O')
++ 		font_file = "olcursor";
++ 	    createCursor(dpy, cmap, pointer, cursor_id, font_file, end, ptr);
++ 	}
++ 	else {
++ 	    if (end)
++ 		createCursor(dpy, cmap, pointer, 0, NULL, end, ptr);
++ 	    
++ 	    font_file = our_copy;
++ 	    for (++ptr; *ptr && isspace( *ptr ); ++ptr)
++ 		;
++ 	    cursor_id_p = ptr;
++ 	    for (; *ptr && !isspace( *ptr ); ++ptr )
++ 		;
++ 	    if ( *ptr == '\0' )
++ 		end = True;
++ 	    else *ptr = '\0';
++ 	    
++ 	    cursor_id = atoi(cursor_id_p);
++ 	    createCursor(dpy, cmap, pointer, cursor_id, font_file, end, ptr);
++ 	}
++ 	MemFree( our_copy );
++     }
++ }
++ 
++ static void
++ initOtherPointers(dpy, cmap)
++     Display *dpy;
++     Colormap cmap;
++ {
++     initPointer(dpy, cmap, GRV.BasicPointerData, &GRV.BasicPointer);
++     initPointer(dpy, cmap, GRV.MovePointerData, &GRV.MovePointer);
++     initPointer(dpy, cmap, GRV.BusyPointerData, &GRV.BusyPointer);
++     initPointer(dpy, cmap, GRV.IconPointerData, &GRV.IconPointer);
++     initPointer(dpy, cmap, GRV.ResizePointerData, &GRV.ResizePointer);
++     initPointer(dpy, cmap, GRV.MenuPointerData, &GRV.MenuPointer);
++     initPointer(dpy, cmap, GRV.QuestionPointerData, &GRV.QuestionPointer);
++     initPointer(dpy, cmap, GRV.TargetPointerData, &GRV.TargetPointer);
++     initPointer(dpy, cmap, GRV.PanPointerData, &GRV.PanPointer);
++     initPointer(dpy, cmap, GRV.CloseUpPointerData, &GRV.CloseUpPointer);
++     initPointer(dpy, cmap, GRV.CloseDownPointerData, &GRV.CloseDownPointer);
++ }
++ 
++ static Bool
++ initResizePointers(dpy, cmap)
++     Display *dpy;
++     Colormap cmap;
++ {
++ char *ptr;
++ Bool colorsIncluded = False;
++ char *our_copy;
++ XColor colFGC, colBGC, colFGM, colBGM;
++ int i;
++ 
++     if (GRV.SpecialResizePointerData) {
++ 	our_copy = MemNewString( GRV.SpecialResizePointerData );
++ 	for (ptr = our_copy; *ptr && !isspace(*ptr); ++ptr)
++ 		;	/* get the first space in ptr */
++ 
++ 	if (*ptr) {
++ 	    colorsIncluded = True;
++ 	    *ptr = '\0';
++ 	}
++ 
++ 	if (matchBool(our_copy, &GRV.SpecialResizePointers) == True ) {
++ 	    /* Turn on cursors */
++ 
++ 	    /* Arrays are in order of enum WhichResize, defined in win.h */
++ 	    GRV.CornerPointers[0] = XCreateFontCursor(dpy, XC_ul_angle);
++ 	    GRV.CornerPointers[1] = XCreateFontCursor(dpy, XC_ur_angle);
++ 	    GRV.CornerPointers[2] = XCreateFontCursor(dpy, XC_ll_angle);
++ 	    GRV.CornerPointers[3] = XCreateFontCursor(dpy, XC_lr_angle);
++ 
++ 	    GRV.ResizePointers[0] =
++ 	      		XCreateFontCursor(dpy, XC_top_left_corner);
++ 	    GRV.ResizePointers[1] =
++ 	      		XCreateFontCursor(dpy, XC_top_right_corner);
++ 	    GRV.ResizePointers[2] =
++ 	      		XCreateFontCursor(dpy, XC_bottom_left_corner);
++ 	    GRV.ResizePointers[3] =
++ 	      		XCreateFontCursor(dpy, XC_bottom_right_corner);
++ 	    
++ 	    if (colorsIncluded) {
++ 		if (!findNextColor(dpy, (++ptr, &ptr), &colFGC, cmap) ||
++ 		   !*ptr || !findNextColor(dpy, (++ptr, &ptr), &colBGC, cmap) ||
++ 		   !*ptr || !findNextColor(dpy, (++ptr, &ptr), &colFGM, cmap) ||
++ 		   !*ptr || !findNextColor(dpy, (++ptr, &ptr), &colBGM, cmap)) {
++ 			ErrorWarning(gettext("Bad color specification for special resize cursor"));
++ 			colorsIncluded = False;
++ 		}
++ 	    }
++ 
++ 	    if (!colorsIncluded) {
++ 		/* if not included, get default colors */
++ 		colFGC.pixel = BlackPixel(dpy, DefaultScreen(dpy));
++ 		XQueryColor(dpy, cmap, &colFGC);
++ 
++ 		colBGC.pixel = WhitePixel(dpy, DefaultScreen(dpy));
++ 		XQueryColor(dpy, cmap, &colBGC);
++ 
++ 		colFGM = colFGC;
++ 		colBGM = colBGC;
++ 	    }
++ 
++ 	    for (i = 0; i < 4; ++i) {
++ 		XRecolorCursor(dpy, GRV.CornerPointers[i], &colFGC, &colBGC);
++ 		XRecolorCursor(dpy, GRV.ResizePointers[i], &colFGM, &colBGM);
++ 	    }
++ 	}
++ 
++ 	MemFree(our_copy);
++     }
++     else return False;
++     return True;
++ }
++ 
++ /*
++  *
++  * ============================================================================
++  * Entry Points
++  */
++ 
++ void
++ InitCursors(dpy, scrInfo)
++     Display *dpy;
++     ScreenInfo *scrInfo;
++ {
++ Colormap cmap;
++ struct _cursor_data	*p;
++ 
++     cmap = scrInfo->colormap;
++ 
++     cursorTable = st_init_table(strcmp, cursorHash);
++ 
++     for (p = cursor_names; p->name; p++)
++ 	st_insert(cursorTable, (int) p->name, (char *) p->num);
++ 
++     if (!initResizePointers(dpy, cmap))
++ 	GRV.SpecialResizePointers = False;
++ 
++     initOtherPointers(dpy, cmap);
++ }
+*** BUILD/cursors.h	Sat Jun 13 15:55:23 1992
+--- src/cursors.h	Sat Jun 13 15:48:00 1992
+***************
+*** 0 ****
+--- 1,9 ----
++ #ifndef _OLWM_LBL_CURSORS_H
++ #define _OLWM_LBL_CURSORS_H
++ 
++ #ident "@(#)cursors.h	1.1 olvwm version 6/13/92"
++ 
++ extern void InitCursors( /* Display *,  ScreenInfo * */ );
++ extern void updateCursors( /* Display *, char * */ );
++ 
++ #endif
+SHAR_EOF
+echo 'File olvwm3.Patch02 is complete' &&
+chmod 0644 olvwm3.Patch02 ||
+echo 'restore of olvwm3.Patch02 failed'
+Wc_c="`wc -c < 'olvwm3.Patch02'`"
+test 174178 -eq "$Wc_c" ||
+	echo 'olvwm3.Patch02: original size 174178, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

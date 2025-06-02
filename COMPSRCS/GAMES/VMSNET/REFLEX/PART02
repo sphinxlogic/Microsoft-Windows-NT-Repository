@@ -1,0 +1,740 @@
+Path: uunet!decwrl!waikato.ac.nz!cguthrey
+From: cguthrey@waikato.ac.nz
+Newsgroups: vmsnet.sources.games
+Subject: Reflex - Test your, [2/2]
+Message-ID: <1993Apr9.211422.15379@waikato.ac.nz>
+Date: 9 Apr 93 21:14:22 +1200
+Organization: University of Waikato, Hamilton, New Zealand
+Lines: 730
+Xref: uunet vmsnet.sources.games:679
+
+-+-+-+-+-+-+-+-+ START OF PART 2 -+-+-+-+-+-+-+-+
+X          current_state.games`5Bj`5D := old_games;
+X          me := j;
+X        END;
+X      current_state.score`5Bme`5D := this_score;
+X      IF present(newname) then
+X        current_state.name`5Bme`5D := newname;
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  increment_game_count;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (newfile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(newfile) of
+X      PAS$K_SUCCESS,
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : ;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL (status(newfile)=PAS$K_SUCCESS) or
+X        (status(newfile)=PAS$K_FILNOTFOU) or
+X        (status(newfile)=PAS$K_ACCMETINC) or
+X        (status(newfile)=PAS$K_RECLENINC);
+X
+X  IF status(newfile)=PAS$K_SUCCESS THEN
+X    BEGIN
+X      reset (newfile);
+X      current_state := newfile`5E;
+X      date_time := Get_Date_time;`20
+X      update_topten (current_state,date_time,username,-maxint-1,me,last_scor
+Ve);
+X      rewrite (newfile);
+X      newfile`5E := current_state;
+X      Put (newfile);
+X      Close (newfile);
+X      game_count_incremented := true;
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  read_top_ten;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  reset_screen;
+X  clear;
+X  posn (1,1);
+X
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU : BEGIN
+X            qio_writeln ('Can''t find file '+gamename+'.ACN Creating New Fil
+Ve ...');
+X            date_time := Get_Date_time;`20
+X            create_new_score_file(directory,gamename,date_time);
+X          END;
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Error in file format of '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL status(infile)=PAS$K_SUCCESS;
+X  reset (infile);
+X  current_state := infile`5E;
+X  close (infile);
+X
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,-maxint-1,me,last_score);
+X  Display_screen (current_state,date_time,me,gamename,last_score);
+XEND;
+X
+X`5BGLOBAL`5D
+XFUNCTION  read_last_score : integer;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS,
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : last_score := -maxint-1;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL (status(infile)=PAS$K_SUCCESS) or
+X        (status(infile)=PAS$K_FILNOTFOU) or
+X        (status(infile)=PAS$K_ACCMETINC) or
+X        (status(infile)=PAS$K_RECLENINC);
+X `20
+X  IF status(infile)=PAS$K_SUCCESS THEN
+X    BEGIN
+X      reset (infile);
+X      current_state := infile`5E;
+X      close (infile);
+X      date_time := Get_Date_time;`20
+X      update_topten (current_state,date_time,username,-maxint-1,me,last_scor
+Ve);
+X    END;
+X  read_last_score := last_score;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  top_ten ( this_score : integer );
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  v_name : v_array;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  reset_screen;
+X  clear;
+X  posn (1,1);
+X
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU : BEGIN
+X            qio_writeln ('Can''t find file '+gamename+'.ACN Creating New Fil
+Ve ...');
+X            date_time := Get_Date_time;`20
+X            create_new_score_file(directory,gamename,date_time);
+X          END;
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Error in file format of '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL status(infile)=PAS$K_SUCCESS;
+X  reset (infile);
+X  current_state := infile`5E;
+X  close (infile);
+X
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,this_score,me,last_score);
+X  Display_screen (current_state,date_time,me,gamename,last_score);
+X  Display_current_score (last_score,this_score);
+X  Display_update_prompts(me,last_score,this_score);
+X
+X  newname := current_state.name`5Bme`5D;
+X  IF (( last_score < this_score ) or ( last_score = -maxint-1 )) AND ( me <
+V 12 ) THEN
+X    BEGIN
+X      Formated_read (v_name,'XXXXXXXXXXXX',55,5+me,newname);
+X      newname := v_name;
+X    END;
+X
+X  REPEAT
+X    OPEN (newfile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(newfile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Unknown File Error in '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE
+X          BEGIN
+X            sleep (1);
+X            clear;
+X            Posn(1,1);
+X            qio_writeln (trim(Username)+', Updating Please Wait ...');
+X          END;
+X    END;
+X  UNTIL status(newfile)=PAS$K_SUCCESS;
+X  reset (newfile);
+X  current_state := newfile`5E;
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,this_score,me,last_score,n
+Vewname);
+X  rewrite (newfile);
+X  newfile`5E := current_state;
+X  Put (newfile);
+X  Close (newfile);
+X  posn (1,23);
+XEND;
+X
+X
+XEND.
+$ CALL UNPACK MISC.PAS;19 2069850872
+$ create 'f'
+X(***************************************************************************
+V*
+X ***************************************************************************
+V*
+X **
+X **  Reflex.  Written By Chris Guthrey, 1991.`20
+X **  This code copyright, University Of Waikato.`20
+X **  No warranty of any kind is supplied.
+X **
+X **  Based on an old CP/M game. I don't know who created original concept.
+X **
+X **  email: CGUTHREY@WAIKATO.AC.NZ
+X **
+X ** This was written specifically for the Waikato University games library.
+X ** It may or may not work on any other VAX system without modification.
+X **)
+X
+X`5BINHERIT('misc')`5D
+XPROGRAM Reflex;
+X
+X(*****************************
+X * Display Characters
+X *)
+XCONST          `20
+X  player_C = 'O';
+X  enemy_C  = '@';
+X  target_C = '$';
+X  mines_C  = '+';
+X  hyper_C  = 'H';
+X  left_deflect_C  = '/';
+X  right_deflect_C = '\';
+X  carriage_return = CHR(13);
+X(********************
+X * keyboard control characters
+X *)
+X  kbd_left = '4';
+X  kbd_right= '6';
+X  kbd_delete='5';
+X  kbd_quit = 'Q';
+X  kbd_redraw = 'R';
+X
+X(*******************
+X * game constants
+X *)
+X  x_ofs = 1;
+X  y_ofs = 1;
+X  pf_width = 38;
+X  pf_length = 21;
+X  start_delay = 0.160;
+X  delay_decrement = 0.02;
+X(********************
+X * type decls
+X *)
+XTYPE
+X  directions  = (up,down,left,right);
+X  game_states = (_playing, _quit, _dead, _hit_target, _hit_mine, _hit_hyper,
+V`20
+X                 _hit_enemy, _hit_left, _hit_right );
+X
+X  player_type = RECORD
+X                  c      : CHAR;
+X                  x, y   : INTEGER;
+X                  _x,_y  : INTEGER;
+X                  state  : game_states;
+X                  dir    : directions;
+X                  score  : INTEGER;
+X                  level  : INTEGER;`20
+X                  delete : BOOLEAN;
+X                  delay  : REAL;
+X                  moving : BOOLEAN;
+X               END;
+X
+X  enemy_type  = RECORD
+X                  active : BOOLEAN;
+X                  c      : CHAR;
+X                  state  : game_states;
+X                  x, y   : INTEGER;
+X                  _x,_y  : INTEGER;
+X                  dir    : directions;
+X                  speed  : INTEGER;
+X                END;`20
+X
+X  target_type = RECORD
+X                  c        : CHAR;`20
+X                  x, y     : INTEGER;
+X                  timeleft : REAL;
+X                END;                `20
+X(*******************
+X * Game Global Vars
+X *)
+XVAR
+X  PlayField : ARRAY`5B0..pf_width,0..pf_length`5D OF CHAR := ZERO;
+X  sp_init : BOOLEAN := TRUE;
+X  player  : player_type;
+X  enemy   : enemy_type;
+X  target  : target_type;  `20
+X  mines   : INTEGER := 0;
+X  cx,cy   : INTEGER := 0; (* Global current x and y pos *)
+X  level_jump : INTEGER := 10;
+X
+XPROCEDURE WriteScoreBoard;
+XBEGIN
+X  `20
+X  QIO_Write( Get_Posn( 7,24 )+ UDEC( player.score,6 ) );
+X  QIO_Write( Get_Posn( 22,24 )+ UDEC( player.level,2 ) );
+X  QIO_Write( Get_Posn( 37,24 ) + UDEC( TRUNC(target.timeleft),3 ) );
+XEND;
+X
+XPROCEDURE RepositionTarget;
+XVAR x,y,i : INTEGER;
+XBEGIN
+X  REPEAT
+X    target.x := Rnd(1, pf_width ); target.y := Rnd( 1,pf_length );
+X  UNTIL (player.x <> target.x) AND (player.y<>target.y);
+X  target.timeleft := 200.0;
+X  PlayField`5Btarget.x,target.y`5D := target_C;
+X  qio_write( Get_Posn( x_ofs+target.x, y_ofs+target.y ) + target.c );`20
+X  FOR i := 1 TO mines DO BEGIN
+X    REPEAT
+X      x := Rnd( 1,pf_width )-1; y := Rnd( 1,pf_length );
+X    UNTIL PlayField`5Bx,y`5D = ' ';
+X    PlayField`5Bx,y`5D := mines_C;
+X    Qio_Write( Get_Posn( x_ofs+x, y_ofs+y ) + mines_C );`20
+X  END;
+XEND;
+X
+XPROCEDURE Draw_Screen;
+XVAR x,y : INTEGER;
+XBEGIN
+X  Clear;
+X  FOR y := 1 TO 24 DO BEGIN
+X    QIO_Write( Get_Posn( 1,y ) + VT100_wide );
+X  END;
+X  Square( 1,1, pf_width +2, pf_length+2 );
+X  QIO_Write( Get_Posn( 1,24 ) + 'SCORE:         LEVEL:     TIME LEFT:');
+X  WriteScoreBoard;
+XEND;
+X
+XPROCEDURE ReDraw_PlayField;
+XVAR x,y : INTEGER;
+X    s   : VARYING`5B80`5D OF CHAR;
+XBEGIN
+X  Draw_Screen;
+X  FOR y := 1 TO pf_length DO BEGIN
+X    s := '';
+X    FOR x := 1 TO pf_width DO`20
+X      s := s + PlayField`5Bx,y`5D;
+X    QIO_Write( Get_Posn( x_ofs+1,y_ofs+y)+s );
+X  END;
+XEND;
+X
+XPROCEDURE ReDraw_Screen;
+XBEGIN
+X  Draw_Screen;
+X  ReDraw_PlayField;
+XEND;
+X
+XPROCEDURE Clear_PlayField;
+XVAR x,y :INTEGER;
+XBEGIN
+X  FOR y := 1 TO pf_length DO
+X    FOR x := 1 TO pf_width DO
+X      PlayField`5Bx,y`5D := ' ';
+X  ReDraw_PlayField;
+X  player.x := pf_width DIV 2;  player.y := pf_length DIV 2;
+X  player.c := Player_C;
+X  player.moving := false;
+X  player.state := _playing;
+X  player._x := player.x;  player._y := player.y;
+X  qio_write( Get_Posn( x_ofs+player.x, y_ofs+player.y ) + player.c );
+X  target.c := Target_C;
+X  RepositionTarget;
+XEND;
+X
+XPROCEDURE SetUp_PlayField_Players;
+XVAR x,y :INTEGER;
+XBEGIN
+X  Draw_Screen;
+X  sp_init := TRUE;
+X  FOR y := 1 TO pf_length DO
+X    FOR x := 1 TO pf_width DO
+X      PlayField`5Bx,y`5D := ' ';
+X  Seed_Initialize;
+X  player.x := pf_width DIV 2;  player.y := pf_length DIV 2;
+X  player.c := Player_C;
+X  player.state := _playing;
+X  player.moving := false;
+X  player._x := player.x;  player._y := player.y;
+X  qio_write(Get_Posn( x_ofs+player.x, y_ofs+player.y ) +  player.c );
+X  target.c := Target_C;
+X  RepositionTarget;
+XEND;
+X
+XPROCEDURE UpDatePlayerDisplay;
+XBEGIN
+X  IF player.moving THEN BEGIN
+X    CASE player.dir OF
+X    right: IF player.x > 1 THEN BEGIN
+X             QIO_Write( Get_Posn( x_ofs+player._x, y_ofs+player._y ) +`20
+X                PlayField`5Bplayer._x, player._y`5D+player.c );
+X           END;
+X    left : IF player.x < pf_width THEN BEGIN
+X             QIO_Write( Get_Posn( x_ofs+player.x, y_ofs+player.y ) +`20
+X                player.c+PlayField`5Bplayer._x, player._y`5D );
+X           END;
+X    OTHERWISE`20
+X      BEGIN
+X        QIO_Write( Get_Posn( x_ofs+player.x, y_ofs+player.y ) + player.c );
+X        QIO_Write( Get_Posn( x_ofs+player._x, y_ofs+player._y ) +`20
+X            PlayField`5Bplayer._x, player._y`5D);
+X      END;
+X    END;
+X    QIO_Write( Carriage_Return );
+X    player._x := player.x; player._y := player.y;
+X  END;
+XEND;`20
+X
+XPROCEDURE NormalMovePlayer;
+XBEGIN
+X  IF player.moving THEN
+X    CASE player.dir OF
+X    up    : IF player.y > 1 THEN
+X              player.y := player.y -1
+X            ELSE BEGIN
+X              player.dir := down;
+X            END;
+X    down  : IF player.y < pf_length THEN
+X              player.y := player.y +1
+X            ELSE BEGIN
+X              player.dir := up;
+X            END;
+X    left  : IF player.x > 1 THEN
+X              player.x := player.x -1
+X            ELSE BEGIN
+X              player.dir := right;
+X            END;
+X    right : IF player.x < pf_width THEN
+X              player.x := player.x +1
+X            ELSE BEGIN
+X              player.dir := left;
+X            END;
+X    END;
+XEND; `7BNormalMovePlayer`7D
+X
+XPROCEDURE ReflexLeft;  `7B/`7D
+XBEGIN
+X  IF player.delete THEN BEGIN`20
+X
+X    PlayField`5Bplayer.x,player.y`5D := ' ';
+X    player.delete := FALSE;
+X    player.score := player.score - 100;
+X    IF player.score < 0 THEN player.score :=0;
+X    END
+X  ELSE BEGIN   `20
+X    CASE player.dir OF
+X      up   : player.dir := right;
+X      down : player.dir := left;
+X      left : player.dir := down;
+X      right: player.dir := up;
+X    END;
+X  END;
+X  player.state := _playing;
+X  NormalMovePlayer;
+X  UpdatePlayerDisplay;
+XEND;   `20
+X
+XPROCEDURE ReflexRight; `7B\`7D
+XBEGIN
+X  IF player.delete THEN BEGIN
+X    PlayField`5Bplayer.x,player.y`5D := ' ';
+X    player.delete := FALSE;
+X    player.score := player.score - 100;
+X    IF player.score < 0 THEN player.score :=0;
+X    END
+X  ELSE BEGIN   `20
+X    CASE player.dir OF
+X      up   : player.dir := left;
+X      down : player.dir := right;
+X      left : player.dir := up;
+X      right: player.dir := down;
+X    END;
+X  END;
+X  player.state := _playing;
+X  NormalMovePlayer;
+X  UpdatePlayerDisplay;
+XEND;
+X
+XPROCEDURE NextLevel;
+XVAR i : INTEGER;
+XBEGIN
+X  player.level := player.level + 1;
+X  IF player.level mod level_jump = 0 THEN BEGIN (* clear screen, inc. speed
+V *)
+X    IF player.delay > 0.0 THEN         `20
+X      player.delay := player.delay - delay_decrement;
+X      if player.delay < 0.0 then player.delay := 0.0;
+X    mines := player.level div level_jump;
+X    Clear_PlayField;
+X  END ELSE BEGIN
+X    (*mines := mines + 1;*)
+X    PlayField`5Btarget.x,target.y`5D := ' ';
+X    RepositionTarget;
+X  END;
+X  player.state := _playing;
+X  FOR i := 1 TO (TRUNC(target.timeleft) DIV 10) DO BEGIN
+X    player.score := player.score + 10+player.level;
+X    WriteScoreBoard;
+X    sleep(0,0.025);
+X  END;
+XEND;
+X
+XPROCEDURE DieFool;
+XVAR i  : INTEGER;
+XBEGIN
+X  player.state := _dead;
+X  FOR i := 32 TO 96 DO BEGIN
+X    Posn( x_ofs+player.x, y_ofs+player.y);
+X    Qio_Write( CHR(i) );
+X  END;
+X  FOR i := 95 DOWNTO 32 DO BEGIN
+X    Posn( x_ofs+player.x, y_ofs+player.y);
+X    Qio_Write( CHR(i) );
+X  END;
+XEND; `20
+X
+XPROCEDURE GameLoop;
+XVAR ch : CHAR;
+X    oldtime : INTEGER;
+XBEGIN
+X  WHILE (player.state = _playing) DO BEGIN
+X    (* check player space *)
+X    CASE PlayField`5Bplayer.x,player.y`5D OF
+X      enemy_C : player.state := _hit_enemy;
+X      target_C: player.state := _hit_target;
+X      mines_C : player.state := _hit_mine;
+X      hyper_C : player.state := _hit_hyper;
+X      left_deflect_C : player.state := _hit_left;
+X      right_deflect_C : player.state := _hit_right;
+X    END;  `20
+X
+X    IF (player.moving) THEN BEGIN
+X      oldtime := TRUNC( target.timeleft );
+X      target.timeleft := target.timeleft - player.delay;
+X      IF oldtime <> TRUNC( target.timeleft ) THEN
+X        WriteScoreBoard;
+X      IF target.timeleft <= 0 THEN player.state := _dead;
+X    END;
+X
+X      (* get player input *)
+X    ch := Upper_Case( QIO_1_Char_Now );
+X    IF (player.state = _playing) OR (player.state= _hit_right)
+X       OR (player.state = _hit_left) THEN BEGIN   `20
+X      CASE ch OF
+X        kbd_left : BEGIN
+X                     PlayField`5Bplayer.x,player.y`5D := left_deflect_C;
+X                     player.state := _hit_left;
+X                     if not player.moving then player.moving := true;
+X                   END;
+X        kbd_right: BEGIN`20
+X                     PlayField`5Bplayer.x,player.y`5D := right_deflect_C;
+X                     player.state := _hit_right;
+X                     if not player.moving then player.moving := true;
+X                   END;
+X      END;`7Bcase`7D
+X    END;`7Bif`7D
+X
+X    CASE ch OF
+X      kbd_delete: IF player.moving THEN player.delete:= TRUE;
+X      kbd_quit : player.state := _quit;
+X      kbd_redraw : Redraw_Screen;
+X    END;
+X `20
+X    CASE player.state OF
+X      _playing    : BEGIN
+X                      NormalMovePlayer;
+X                      UpDatePlayerDisplay;
+X                      Sleep( 0, player.delay );
+X                    END;
+X      _hit_target : NextLevel;
+X      _hit_mine   : DieFool;
+X      _hit_hyper  : `7BHyperJump`7D;
+X      _hit_enemy  : DieFool;
+X      _hit_left   : ReflexLeft;
+X      _hit_right  : ReflexRight;
+X    END;
+X  END;
+X  Top_Ten( player.score );
+XEND;
+X
+X
+XPROCEDURE ExitHandler;
+XBEGIN
+X  Reset_Screen;
+X  Posn( 1,21 );
+XEND;
+X
+XBEGIN`20
+X  Initialize_Channel;
+X  Setup_Handler( iaddress( ExitHandler ) );
+X  Force;
+X  mines := 0;
+X  player.delay := start_delay;
+X  player.score := 0;
+X  enemy.active := FALSE; (* no enemies yet *)
+X  Show_graphedt( 'REFLEX.PIC', true );
+X  Increment_Game_Count;
+X  SetUp_PlayField_Players;
+X  GameLoop;
+XEND.
+$ CALL UNPACK REFLEX.PAS;39 370274486
+$ create 'f'
+X`1B`5BH`1B`5BJ`1B(B`1B`5B0m
+X`1B`5B1;1H`1B#6       `1B(0lqqqqqqqqqqqqqqqqqqqqqqqqk
+X`1B`5B2;1H`1B#3lqqqqqqu`1B(B* ** *** REFLEX *** ** *`1B(0tqqqqqqk
+X`1B`5B3;1H`1B#4l      u`1B(B* ** *** REFLEX *** ** *`1B(0t      k
+X`1B`5B4;1H`1B#6x      mqqqqqqqqqqqqqqqqqqqqqqqqj      x
+X`1B`5B5;1H`1B#6x`1B(B   Chris Guthrey, Waikato University `1B`5B5;40H`1B(0x
+X`1B`5B6;1H`1B#6x`1B(B         Hamilton, New Zealand       `1B`5B6;40H`1B(0x
+X`1B`5B7;1H`1B#6tqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqu
+X`1B`5B8;1H`1B#6x
+X`1B`5B8;12Hlqk   lqk
+X`1B`5B8;40Hx`1B`5B9;1H`1B#6x  U`1B(Bse the `1B(0x4x `1B(B& `1B(0x6x`20
+X`1B`5B9;22H`1B(Bkeys to deflect   `1B(0x
+X`1B`5B10;1H`1B#6x
+X`1B`5B10;12Hmqj   mqj
+X`1B`5B10;40Hx`1B`5B11;1H`1B#6x     `1B(Byourself towards the target.  `20
+X`1B`5B11;38H  `1B(0x
+X`1B`5B12;1H`1B#6x`1B`5B12;11Hlqk`1B`5B12;40Hx
+X`1B`5B13;1H`1B#6x U`1B(Bse the `1B(0x5x `1B(Bkey to destroy the next  `1B(0x
+X`1B`5B14;1H`1B#6x`1B`5B14;11Hmqj`1B`5B14;40Hx
+X`1B`5B15;1H`1B#6x  `1B(Bdeflector you hit. (Costs points)   `1B(0x
+X`1B`5B16;1H`1B#6x`1B`5B16;40Hx`1B`5B17;1H`1B#6tqqqqqqqqqqqqqqqqqqqqqq
+X`1B`5B17;24Hqqqqqqqqqqqqqqqqu
+X`1B`5B18;1H`1B#6x  Y`1B(Bou - O    Target - $    Mines - +  `1B(0x
+X`1B`5B19;1H`1B#6x`1B`5B19;40Hx
+X`1B`5B20;1H`1B#6x
+X`1B`5B20;12HD`1B(Beflectors - /  \`1B`5B20;40H`1B(0x
+X`1B`5B21;1H`1B#6x`1B`5B21;40Hx
+X`1B`5B22;1H`1B#6mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj`1B`5B1;1H`1B(B`1B*
+$ CALL UNPACK REFLEX.PIC;9 1919887789
+$ create 'f'
+X(* DIGITAL VT100 Terminal Control Codes.`20
+X *
+X * * This file is a component of the INTERACT Pascal Games Library * *
+X *       ** from Waikato University, Hamilton, NEW ZEALAND **
+X *
+X *  Written by Paul Denize (PDENIZE@WAIKATO.AC.NZ)`20
+X *
+X *  Contributing authors: Rex Croft (CCC_REX@WAIKATO.AC.NZ)
+X *                        Lawrence D'Oliviero (LDO@WAIKATO.AC.NZ)
+X *                        Chris Guthrey (CGUTHREY@WAIKATO.AC.NZ)
+X *)
+XCONST
+X  VT100_ESC  = chr(27);
+X
+X  VT100_top      = ''(27)'#3';
+X  VT100_bottom   = ''(27)'#4';
+X  VT100_wide     = ''(27)'#6';
+X
+X  VT100_normal   = ''(27)'`5Bm';
+X  VT100_bright   = ''(27)'`5B1m';
+X  VT100_flash    = ''(27)'`5B5m';
+X  VT100_inverse  = ''(27)'`5B7m';
+X
+X  VT100_bright_only  = ''(27)'`5B0;1m';
+X  VT100_flash_only   = ''(27)'`5B0;5m';
+X  VT100_inverse_only = ''(27)'`5B0;7m';
+X
+X  VT100_store    = ''(27)'7';
+X  VT100_restore  = ''(27)'8';
+X
+X  VT100_graphics_on  = ''(27)'(0';
+X  VT100_graphics_off = ''(27)'(B';
+X  VT100_Alternate_graphics = ''(27)')0';
+X
+X  VT100_normal_scroll = ''(27)'`5B0;24r';
+X  VT100               = ''(27)'<';
+X
+X  VT100_application_keypad    = ''(27)'=';
+X  VT100_no_application_keypad = ''(27)'>';
+X
+X  VT100_bell = chr(7);
+X  VT100_bs   = chr(8);
+X  VT100_lf   = chr(10);
+X  VT100_cr   = chr(13);
+X  VT100_si   = chr(14);
+X  VT100_so   = chr(15);
+X
+X  (* VT320 Specific Codes added by Chris Guthrey (10 March 93) *)
+X
+X  VT320_G1_Char_Set = chr( 14 );
+X  VT320_G0_Char_Set = chr( 15 );
+X
+X  VT320_VT100_Mode = ''(27)'`5B61"p';
+X  VT320_8bit_Mode = ''(27)'`5B62"p';
+X  VT320_7bit_Mode = ''(27)'`5B63;1"p';   (* default Vt320 mode *)
+$ CALL UNPACK VT100_ESC_SEQS.PAS;12 1666029369
+$ v=f$verify(v)
+$ EXIT

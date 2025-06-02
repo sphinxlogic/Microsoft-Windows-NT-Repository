@@ -1,0 +1,1913 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i033:  perl - The perl programming language, Patch22
+Message-ID: <1992Jun11.180156.29879@sparky.imd.sterling.com>
+X-Md4-Signature: a4f9af2c555f881298a086024a338c39
+Date: Thu, 11 Jun 1992 18:01:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 33
+Archive-name: perl/patch22
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 22
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 21
+1c1
+< #define PATCHLEVEL 21
+---
+> #define PATCHLEVEL 22
+
+Index: atarist/atarist.c
+*** atarist/atarist.c.old	Mon Jun  8 17:35:03 1992
+--- atarist/atarist.c	Mon Jun  8 17:35:05 1992
+***************
+*** 0 ****
+--- 1,282 ----
++ /*
++  * random stuff for atariST
++  */
++ 
++ #include "EXTERN.h"
++ #include "perl.h"
++ 
++ /* call back stuff, atari specific stuff below */
++ /* Be sure to refetch the stack pointer after calling these routines. */
++ 
++ int
++ callback(subname, sp, gimme, hasargs, numargs)
++ char *subname;
++ int sp;			/* stack pointer after args are pushed */
++ int gimme;		/* called in array or scalar context */
++ int hasargs;		/* whether to create a @_ array for routine */
++ int numargs;		/* how many args are pushed on the stack */
++ {
++     static ARG myarg[3];	/* fake syntax tree node */
++     int arglast[3];
++     
++     arglast[2] = sp;
++     sp -= numargs;
++     arglast[1] = sp--;
++     arglast[0] = sp;
++ 
++     if (!myarg[0].arg_ptr.arg_str)
++ 	myarg[0].arg_ptr.arg_str = str_make("",0);
++ 
++     myarg[1].arg_type = A_WORD;
++     myarg[1].arg_ptr.arg_stab = stabent(subname, FALSE);
++ 
++     myarg[2].arg_type = hasargs ? A_EXPR : A_NULL;
++ 
++     return do_subr(myarg, gimme, arglast);
++ }
++ 
++ int
++ callv(subname, sp, gimme, argv)
++ char *subname;
++ register int sp;	/* current stack pointer */
++ int gimme;		/* called in array or scalar context */
++ register char **argv;	/* null terminated arg list, NULL for no arglist */
++ {
++     register int items = 0;
++     int hasargs = (argv != 0);
++ 
++     astore(stack, ++sp, Nullstr);	/* reserve spot for 1st return arg */
++     if (hasargs) {
++ 	while (*argv) {
++ 	    astore(stack, ++sp, str_2mortal(str_make(*argv,0)));
++ 	    items++;
++ 	    argv++;
++ 	}
++     }
++     return callback(subname, sp, gimme, hasargs, items);
++ }
++ 
++ #include <process.h>
++ #include <stdio.h>
++ 
++ long _stksize = 64*1024L;
++ unsigned long __DEFAULT_BUFSIZ__ = 4 * 1024L;
++ 
++ /*
++  * The following code is based on the do_exec and do_aexec functions
++  * in file doio.c
++  */
++ int
++ do_aspawn(really,arglast)
++ STR *really;
++ int *arglast;
++ {
++     register STR **st = stack->ary_array;
++     register int sp = arglast[1];
++     register int items = arglast[2] - sp;
++     register char **a;
++     char **argv;
++     char *tmps;
++     int status;
++ 
++     if (items) {
++ 	New(1101,argv, items+1, char*);
++ 	a = argv;
++ 	for (st += ++sp; items > 0; items--,st++) {
++ 	    if (*st)
++ 		*a++ = str_get(*st);
++ 	    else
++ 		*a++ = "";
++ 	}
++ 	*a = Nullch;
++ 	if (really && *(tmps = str_get(really)))
++ 	    status = spawnvp(-P_WAIT,tmps,argv); /* -P_WAIT is a hack, see spawnvp.c in the lib */
++ 	else
++ 	    status = spawnvp(-P_WAIT,argv[0],argv);
++ 	Safefree(argv);
++     }
++     return status;
++ }
++ 
++ 
++ int
++ do_spawn(cmd)
++ char *cmd;
++ {
++     return system(cmd);
++ }
++ 
++ #if 0 /* patchlevel 79 onwards we can */
++ /*
++  * we unfortunately cannot use the super efficient fread/write from the lib
++  */
++ size_t fread(void *data, size_t size, size_t count, FILE *fp)
++ {
++     size_t i, j;
++     unsigned char *buf = (unsigned char *)data;
++     int c;
++ 
++     for(i = 0; i < count; i++)
++     {
++ 	for(j = 0; j < size; j++)
++ 	{
++ 	    if((c = getc(fp)) == EOF)
++ 	       return 0;
++ 	    *buf++ = c;
++         }
++     }
++     return i;
++ }
++ 
++ size_t fwrite(const void *data, size_t size, size_t count, FILE *fp)
++ {
++     size_t i, j;
++     const unsigned char *buf = (const unsigned char *)data;
++ 
++     for(i = 0; i < count; i++)
++     {
++ 	for(j = 0; j < size; j++)
++ 	{
++ 	    if(fputc(*buf++, fp) == EOF)
++ 	       return 0;
++         }
++     }
++     return i;
++ }
++ #endif
++ 
++ #ifdef HAS_SYSCALL
++ #define __NO_INLINE__
++ #include <osbind.h> /* must include this for proper protos */
++ 
++ /* these must match osbind.pl */
++ #define TRAP_1_W		1
++ #define TRAP_1_WW		2
++ #define TRAP_1_WL		3
++ #define TRAP_1_WLW		4
++ #define TRAP_1_WWW		5
++ #define TRAP_1_WLL		6
++ #define TRAP_1_WWLL		7
++ #define TRAP_1_WLWW		8
++ #define TRAP_1_WWLLL		9
++ #define TRAP_13_W		10
++ #define TRAP_13_WW		11
++ #define TRAP_13_WL		12
++ #define TRAP_13_WWW		13
++ #define TRAP_13_WWL		14
++ #define TRAP_13_WWLWWW		15
++ #define TRAP_14_W		16
++ #define TRAP_14_WW		17
++ #define TRAP_14_WL		18
++ #define TRAP_14_WWW		19
++ #define TRAP_14_WWL		20
++ #define TRAP_14_WWLL		21
++ #define TRAP_14_WLLW		22
++ #define TRAP_14_WLLL		23
++ #define TRAP_14_WWWL		24
++ #define TRAP_14_WWWWL		25
++ #define TRAP_14_WLLWW		26
++ #define TRAP_14_WWWWWWW		27
++ #define TRAP_14_WLLWWWWW	28
++ #define TRAP_14_WLLWWWWLW	29
++ #define TRAP_14_WLLWWWWWLW	30
++ 
++ int syscall(trap, fn, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 )
++ unsigned long trap, fn, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12;
++ {
++   /* for now */
++   switch(trap)
++   {
++     case TRAP_1_W:
++       return trap_1_w(fn);
++       
++     case TRAP_1_WW:
++       return trap_1_ww(fn, a1);
++       
++     case TRAP_1_WL:
++       return trap_1_wl(fn, a1);
++       
++     case TRAP_1_WLW:
++       return trap_1_wlw(fn, a1, a2);
++       
++     case TRAP_1_WWW:
++       return trap_1_www(fn, a1, a2);
++       
++     case TRAP_1_WLL:
++       return trap_1_wll(fn, a1, a2);
++       
++     case TRAP_1_WWLL:
++       return trap_1_wwll(fn, a1, a2, a3);
++       
++     case TRAP_1_WLWW:
++       return trap_1_wlww(fn, a1, a2, a3);
++       
++     case TRAP_1_WWLLL:
++       return trap_1_wwlll(fn, a1, a2, a3, a4);
++       
++     case TRAP_13_W:
++       return trap_13_w(fn);
++       
++     case TRAP_13_WW:
++       return trap_13_ww(fn, a1);
++       
++     case TRAP_13_WL:
++       return trap_13_wl(fn, a1);
++       
++     case TRAP_13_WWW:
++       return trap_13_www(fn, a1, a2);
++       
++     case TRAP_13_WWL:
++       return trap_13_wwl(fn, a1, a2);
++       
++     case TRAP_13_WWLWWW:
++       return trap_13_wwlwww(fn, a1, a2, a3, a4, a5);
++       
++     case TRAP_14_W:
++       return trap_14_w(fn);
++       
++     case TRAP_14_WW:
++       return trap_14_ww(fn, a1);
++       
++     case TRAP_14_WL:
++       return trap_14_wl(fn, a1);
++       
++     case TRAP_14_WWW:
++       return trap_14_www(fn, a1, a2);
++       
++     case TRAP_14_WWL:
++       return trap_14_wwl(fn, a1, a2);
++       
++     case TRAP_14_WWLL:
++       return trap_14_wwll(fn, a1, a2, a3);
++       
++     case TRAP_14_WLLW:
++       return trap_14_wllw(fn, a1, a2, a3);
++       
++     case TRAP_14_WLLL:
++       return trap_14_wlll(fn, a1, a2, a3);
++       
++     case TRAP_14_WWWL:
++       return trap_14_wwwl(fn, a1, a2, a3);
++       
++     case TRAP_14_WWWWL:
++       return trap_14_wwwwl(fn, a1, a2, a3, a4);
++       
++     case TRAP_14_WLLWW:
++       return trap_14_wllww(fn, a1, a2, a3, a4);
++       
++     case TRAP_14_WWWWWWW:
++       return trap_14_wwwwwww(fn, a1, a2, a3, a4, a5, a6);
++       
++     case TRAP_14_WLLWWWWW:
++       return trap_14_wllwwwww(fn, a1, a2, a3, a4, a5, a6, a7);
++       
++     case TRAP_14_WLLWWWWLW:
++       return trap_14_wllwwwwlw(fn, a1, a2, a3, a4, a5, a6, a7, a8);
++       
++     case TRAP_14_WLLWWWWWLW:
++       return trap_14_wllwwwwwlw(fn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
++   }      
++ }
++ #endif
++ 
+
+Index: lib/bigfloat.pl
+*** lib/bigfloat.pl.old	Mon Jun  8 17:48:39 1992
+--- lib/bigfloat.pl	Mon Jun  8 17:48:39 1992
+***************
+*** 1,8 ****
+  package bigfloat;
+  require "bigint.pl";
+- 
+  # Arbitrary length float math package
+  #
+  # number format
+  #   canonical strings have the form /[+-]\d+E[+-]\d+/
+  #   Input values can have inbedded whitespace
+--- 1,9 ----
+  package bigfloat;
+  require "bigint.pl";
+  # Arbitrary length float math package
+  #
++ # by Mark Biggar
++ #
+  # number format
+  #   canonical strings have the form /[+-]\d+E[+-]\d+/
+  #   Input values can have inbedded whitespace
+***************
+*** 66,72 ****
+  # negation
+  sub main'fneg { #(fnum_str) return fnum_str
+      local($_) = &'fnorm($_[0]);
+!     substr($_,0,1) =~ tr/+-/-+/ if ($_ ne '+0E+0'); # flip sign
+      $_;
+  }
+  
+--- 67,74 ----
+  # negation
+  sub main'fneg { #(fnum_str) return fnum_str
+      local($_) = &'fnorm($_[0]);
+!     vec($_,0,8) =^ ord('+') ^ ord('-') unless $_ eq '+0E+0'; # flip sign
+!     s/^H/N/;
+      $_;
+  }
+  
+***************
+*** 73,79 ****
+  # absolute value
+  sub main'fabs { #(fnum_str) return fnum_str
+      local($_) = &'fnorm($_[0]);
+!     substr($_,0,1) = '+' unless $_ eq 'NaN';                       # mash sign
+      $_;
+  }
+  
+--- 75,81 ----
+  # absolute value
+  sub main'fabs { #(fnum_str) return fnum_str
+      local($_) = &'fnorm($_[0]);
+!     s/^-/+/;		                       # mash sign
+      $_;
+  }
+  
+***************
+*** 198,215 ****
+      local($x, $y) = (&'fnorm($_[0]),&'fnorm($_[1]));
+      if ($x eq "NaN" || $y eq "NaN") {
+  	undef;
+-     } elsif ($x eq $y) {
+- 	0;
+-     } elsif (ord($x) != ord($y)) {
+- 	(ord($y) - ord($x));                # based on signs
+      } else {
+! 	local($xm,$xe) = split('E',$x);
+! 	local($ym,$ye) = split('E',$y);
+! 	if ($xe ne $ye) {
+! 	    ($xe - $ye) * (substr($x,0,1).'1');
+! 	} else {
+! 	    &bigint'cmp($xm,$ym);           # based on value
+! 	}
+      }
+  }
+  
+--- 200,212 ----
+      local($x, $y) = (&'fnorm($_[0]),&'fnorm($_[1]));
+      if ($x eq "NaN" || $y eq "NaN") {
+  	undef;
+      } else {
+! 	ord($y) <=> ord($x)
+! 	||
+! 	(  local($xm,$xe,$ym,$ye) = split('E', $x."E$y"),
+! 	     (($xe <=> $ye) * (substr($x,0,1).'1')
+!              || &bigint'cmp($xm,$ym))
+! 	);
+      }
+  }
+  
+
+Index: lib/bigint.pl
+*** lib/bigint.pl.old	Mon Jun  8 17:48:42 1992
+--- lib/bigint.pl	Mon Jun  8 17:48:42 1992
+***************
+*** 138,156 ****
+  # GCD -- Euclids algorithm Knuth Vol 2 pg 296
+  sub main'bgcd { #(num_str, num_str) return num_str
+      local($x,$y) = (&'bnorm($_[0]),&'bnorm($_[1]));
+!     if ($x eq 'NaN') {
+  	'NaN';
+!     }
+!     elsif ($y eq 'NaN') {
+! 	'NaN';
+!     }
+!     else {
+  	($x, $y) = ($y,&'bmod($x,$y)) while $y ne '+0';
+  	$x;
+      }
+  }
+  
+! # routine to add two base 100000 numbers
+  #   stolen from Knuth Vol 2 Algorithm A pg 231
+  #   there are separate routines to add and sub as per Kunth pg 233
+  sub add { #(int_num_array, int_num_array) return int_num_array
+--- 138,152 ----
+  # GCD -- Euclids algorithm Knuth Vol 2 pg 296
+  sub main'bgcd { #(num_str, num_str) return num_str
+      local($x,$y) = (&'bnorm($_[0]),&'bnorm($_[1]));
+!     if ($x eq 'NaN' || $y eq 'NaN') {
+  	'NaN';
+!     } else {
+  	($x, $y) = ($y,&'bmod($x,$y)) while $y ne '+0';
+  	$x;
+      }
+  }
+  
+! # routine to add two base 1e5 numbers
+  #   stolen from Knuth Vol 2 Algorithm A pg 231
+  #   there are separate routines to add and sub as per Kunth pg 233
+  sub add { #(int_num_array, int_num_array) return int_num_array
+***************
+*** 158,179 ****
+      $car = 0;
+      for $x (@x) {
+  	last unless @y || $car;
+! 	$x -= 100000 if $car = (($x += shift @y + $car) >= 100000);
+      }
+      for $y (@y) {
+  	last unless $car;
+! 	$y -= 100000 if $car = (($y += $car) >= 100000);
+      }
+      (@x, @y, $car);
+  }
+  
+! # subtract base 100000 numbers -- stolen from Knuth Vol 2 pg 232, $x > $y
+  sub sub { #(int_num_array, int_num_array) return int_num_array
+      local(*sx, *sy) = @_;
+      $bar = 0;
+      for $sx (@sx) {
+  	last unless @y || $bar;
+! 	$sx += 100000 if $bar = (($sx -= shift @sy + $bar) < 0);
+      }
+      @sx;
+  }
+--- 154,175 ----
+      $car = 0;
+      for $x (@x) {
+  	last unless @y || $car;
+! 	$x -= 1e5 if $car = (($x += shift @y + $car) >= 1e5);
+      }
+      for $y (@y) {
+  	last unless $car;
+! 	$y -= 1e5 if $car = (($y += $car) >= 1e5);
+      }
+      (@x, @y, $car);
+  }
+  
+! # subtract base 1e5 numbers -- stolen from Knuth Vol 2 pg 232, $x > $y
+  sub sub { #(int_num_array, int_num_array) return int_num_array
+      local(*sx, *sy) = @_;
+      $bar = 0;
+      for $sx (@sx) {
+  	last unless @y || $bar;
+! 	$sx += 1e5 if $bar = (($sx -= shift @sy + $bar) < 0);
+      }
+      @sx;
+  }
+***************
+*** 195,201 ****
+  	    for $y (@y) {
+  		$prod = $x * $y + $prod[$cty] + $car;
+  		$prod[$cty++] =
+! 		    $prod - ($car = int($prod * (1/100000))) * 100000;
+  	    }
+  	    $prod[$cty] += $car if $car;
+  	    $x = shift @prod;
+--- 191,197 ----
+  	    for $y (@y) {
+  		$prod = $x * $y + $prod[$cty] + $car;
+  		$prod[$cty++] =
+! 		    $prod - ($car = int($prod * 1e-5)) * 1e5;
+  	    }
+  	    $prod[$cty] += $car if $car;
+  	    $x = shift @prod;
+***************
+*** 218,232 ****
+      $srem = $y[0];
+      $sr = (shift @x ne shift @y) ? '-' : '+';
+      $car = $bar = $prd = 0;
+!     if (($dd = int(100000/($y[$#y]+1))) != 1) {
+  	for $x (@x) {
+  	    $x = $x * $dd + $car;
+! 	    $x -= ($car = int($x * (1/100000))) * 100000;
+  	}
+  	push(@x, $car); $car = 0;
+  	for $y (@y) {
+  	    $y = $y * $dd + $car;
+! 	    $y -= ($car = int($y * (1/100000))) * 100000;
+  	}
+      }
+      else {
+--- 214,228 ----
+      $srem = $y[0];
+      $sr = (shift @x ne shift @y) ? '-' : '+';
+      $car = $bar = $prd = 0;
+!     if (($dd = int(1e5/($y[$#y]+1))) != 1) {
+  	for $x (@x) {
+  	    $x = $x * $dd + $car;
+! 	    $x -= ($car = int($x * 1e-5)) * 1e5;
+  	}
+  	push(@x, $car); $car = 0;
+  	for $y (@y) {
+  	    $y = $y * $dd + $car;
+! 	    $y -= ($car = int($y * 1e-5)) * 1e5;
+  	}
+      }
+      else {
+***************
+*** 235,254 ****
+      @q = (); ($v2,$v1) = @y[$#y-1,$#y];
+      while ($#x > $#y) {
+  	($u2,$u1,$u0) = @x[($#x-2)..$#x];
+! 	$q = (($u0 == $v1) ? 99999 : int(($u0*100000+$u1)/$v1));
+! 	--$q while ($v2*$q > ($u0*100000+$u1-$q*$v1)*100000+$u2);
+  	if ($q) {
+  	    ($car, $bar) = (0,0);
+  	    for ($y = 0, $x = $#x-$#y-1; $y <= $#y; ++$y,++$x) {
+  		$prd = $q * $y[$y] + $car;
+! 		$prd -= ($car = int($prd * (1/100000))) * 100000;
+! 		$x[$x] += 100000 if ($bar = (($x[$x] -= $prd + $bar) < 0));
+  	    }
+  	    if ($x[$#x] < $car + $bar) {
+  		$car = 0; --$q;
+  		for ($y = 0, $x = $#x-$#y-1; $y <= $#y; ++$y,++$x) {
+! 		    $x[$x] -= 100000
+! 			if ($car = (($x[$x] += $y[$y] + $car) > 100000));
+  		}
+  	    }   
+  	}
+--- 231,250 ----
+      @q = (); ($v2,$v1) = @y[$#y-1,$#y];
+      while ($#x > $#y) {
+  	($u2,$u1,$u0) = @x[($#x-2)..$#x];
+! 	$q = (($u0 == $v1) ? 99999 : int(($u0*1e5+$u1)/$v1));
+! 	--$q while ($v2*$q > ($u0*1e5+$u1-$q*$v1)*1e5+$u2);
+  	if ($q) {
+  	    ($car, $bar) = (0,0);
+  	    for ($y = 0, $x = $#x-$#y-1; $y <= $#y; ++$y,++$x) {
+  		$prd = $q * $y[$y] + $car;
+! 		$prd -= ($car = int($prd * 1e-5)) * 1e5;
+! 		$x[$x] += 1e5 if ($bar = (($x[$x] -= $prd + $bar) < 0));
+  	    }
+  	    if ($x[$#x] < $car + $bar) {
+  		$car = 0; --$q;
+  		for ($y = 0, $x = $#x-$#y-1; $y <= $#y; ++$y,++$x) {
+! 		    $x[$x] -= 1e5
+! 			if ($car = (($x[$x] += $y[$y] + $car) > 1e5));
+  		}
+  	    }   
+  	}
+***************
+*** 259,265 ****
+  	if ($dd != 1) {
+  	    $car = 0;
+  	    for $x (reverse @x) {
+! 		$prd = $car * 100000 + $x;
+  		$car = $prd - ($tmp = int($prd / $dd)) * $dd;
+  		unshift(@d, $tmp);
+  	    }
+--- 255,261 ----
+  	if ($dd != 1) {
+  	    $car = 0;
+  	    for $x (reverse @x) {
+! 		$prd = $car * 1e5 + $x;
+  		$car = $prd - ($tmp = int($prd / $dd)) * $dd;
+  		unshift(@d, $tmp);
+  	    }
+
+Index: usub/bsdcurses.mus
+*** usub/bsdcurses.mus.old	Mon Jun  8 17:52:25 1992
+--- usub/bsdcurses.mus	Mon Jun  8 17:52:26 1992
+***************
+*** 1,6 ****
+! /* $RCSfile: bsdcurses.mus,v $$Revision: 4.0.1.1 $$Date: 91/11/05 19:04:53 $
+   *
+   * $Log:	bsdcurses.mus,v $
+   * Revision 4.0.1.1  91/11/05  19:04:53  lwall
+   * initial checkin
+   * 
+--- 1,9 ----
+! /* $RCSfile: bsdcurses.mus,v $$Revision: 4.0.1.2 $$Date: 92/06/08 16:05:28 $
+   *
+   * $Log:	bsdcurses.mus,v $
++  * Revision 4.0.1.2  92/06/08  16:05:28  lwall
++  * patch20: &getcap eventually dumped core in bsdcurses
++  * 
+   * Revision 4.0.1.1  91/11/05  19:04:53  lwall
+   * initial checkin
+   * 
+***************
+*** 476,484 ****
+  CASE int erasechar
+  END
+  
+! CASE char* getcap
+! I	char*		str
+! END
+  
+      case US_getyx:
+  	if (items != 3)
+--- 479,496 ----
+  CASE int erasechar
+  END
+  
+!     case US_getcap:
+! 	if (items != 1)
+! 	    fatal("Usage: &getcap($str)");
+! 	else {
+! 	    char* retval;
+! 	    char*	str =		(char*)		str_get(st[1]);
+! 	    char output[50], *outputp = output;
+! 
+! 	    retval = tgetstr(str, &outputp);
+! 	    str_set(st[0], (char*) retval);
+! 	}
+! 	return sp;
+  
+      case US_getyx:
+  	if (items != 3)
+
+Index: c2ph.SH
+*** c2ph.SH.old	Mon Jun  8 17:45:44 1992
+--- c2ph.SH	Mon Jun  8 17:45:45 1992
+***************
+*** 19,24 ****
+--- 19,25 ----
+  : Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+  : Protect any dollar signs and backticks that you do not want interpreted
+  : by putting a backslash in front.  You may delete these comments.
++ rm -f c2ph
+  $spitshell >c2ph <<!GROK!THIS!
+  #!$bin/perl
+  #
+***************
+*** 36,42 ****
+  #   See the usage message for more.  If this isn't enough, read the code.
+  #
+  
+! $RCSID = '$RCSfile: c2ph.SH,v $$Revision: 4.0.1.1 $$Date: 91/11/05 16:02:29 $';
+  
+  
+  ######################################################################
+--- 37,43 ----
+  #   See the usage message for more.  If this isn't enough, read the code.
+  #
+  
+! $RCSID = '$RCSfile: c2ph.SH,v $$Revision: 4.0.1.2 $$Date: 92/06/08 11:56:08 $';
+  
+  
+  ######################################################################
+
+Index: atarist/test/ccon
+*** atarist/test/ccon.old	Mon Jun  8 17:44:56 1992
+--- atarist/test/ccon	Mon Jun  8 17:44:56 1992
+***************
+*** 0 ****
+--- 1,5 ----
++ require 'osbind.pl';
++ 
++  &Cconws("Hello World\r\n");
++  $str = "This is a string being printed by Fwrite Gemdos trap\r\n";
++  &Fwrite(1, length($str), $str);
+
+Index: cflags.SH
+*** cflags.SH.old	Mon Jun  8 17:45:49 1992
+--- cflags.SH	Mon Jun  8 17:45:50 1992
+***************
+*** 19,24 ****
+--- 19,25 ----
+  : Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+  : Protect any dollar signs and backticks that you do not want interpreted
+  : by putting a backslash in front.  You may delete these comments.
++ rm -f cflags
+  $spitshell >cflags <<!GROK!THIS!
+  !GROK!THIS!
+  
+
+Index: x2p/cflags.SH
+*** x2p/cflags.SH.old	Mon Jun  8 17:52:53 1992
+--- x2p/cflags.SH	Mon Jun  8 17:52:53 1992
+***************
+*** 19,24 ****
+--- 19,25 ----
+  : Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+  : Protect any dollar signs and backticks that you do not want interpreted
+  : by putting a backslash in front.  You may delete these comments.
++ rm -f cflags
+  $spitshell >cflags <<!GROK!THIS!
+  !GROK!THIS!
+  
+
+Index: lib/chat2.pl
+*** lib/chat2.pl.old	Mon Jun  8 17:48:49 1992
+--- lib/chat2.pl	Mon Jun  8 17:48:49 1992
+***************
+*** 108,113 ****
+--- 108,114 ----
+  		die "Cannot exec @cmd: $!";
+  	}
+  	close(TTY);
++ 	$PID{$next} = $pid;
+  	$next; # return symbol for switcharound
+  }
+  
+***************
+*** 258,267 ****
+--- 259,273 ----
+  ## like close $handle
+  
+  sub close { ## public
++ 	local($pid);
+  	if ($_[0] =~ /$nextpat/) {
++ 		$pid = $PID{$_[0]};
+  	 	*S = shift;
++ 	} else {
++ 		$pid = $PID{$next};
+  	}
+  	close(S);
++ 	waitpid($pid,0);
+  	if (defined $S{"needs_close"}) { # is it a listen socket?
+  		local(*NS) = $S{"needs_close"};
+  		delete $S{"needs_close"};
+
+Index: cmd.c
+*** cmd.c.old	Mon Jun  8 17:45:54 1992
+--- cmd.c	Mon Jun  8 17:45:55 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: cmd.c,v $$Revision: 4.0.1.4 $$Date: 91/11/11 16:29:33 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: cmd.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 12:00:39 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,15 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	cmd.c,v $
++  * Revision 4.0.1.5  92/06/08  12:00:39  lwall
++  * patch20: the switch optimizer didn't do anything in subroutines
++  * patch20: removed implicit int declarations on funcions
++  * 
+   * Revision 4.0.1.4  91/11/11  16:29:33  lwall
+   * patch19: do {$foo ne "bar";} returned wrong value
+   * patch19: some earlier patches weren't propagated to alternate 286 code
+***************
+*** 34,40 ****
+  #  include <varargs.h>
+  #endif
+  
+! static STR str_chop;
+  
+  void grow_dlevel();
+  
+--- 38,44 ----
+  #  include <varargs.h>
+  #endif
+  
+! static STR strchop;
+  
+  void grow_dlevel();
+  
+***************
+*** 81,86 ****
+--- 85,94 ----
+  tail_recursion_entry:
+  #ifdef DEBUGGING
+      dlevel = entdlevel;
++     if (debug & 4)
++ 	deb("mortals = (%d/%d) stack, = (%d/%d)\n",
++ 	    tmps_max, tmps_base,
++ 	    savestack->ary_fill, firstsave);
+  #endif
+  #ifdef TAINT
+      tainted = 0;	/* Each statement is presumed innocent */
+***************
+*** 575,586 ****
+  	    match = (retstr->str_cur != 0);
+  	    tmps = str_get(retstr);
+  	    tmps += retstr->str_cur - match;
+! 	    str_nset(&str_chop,tmps,match);
+  	    *tmps = '\0';
+  	    retstr->str_nok = 0;
+  	    retstr->str_cur = tmps - retstr->str_ptr;
+  	    STABSET(retstr);
+! 	    retstr = &str_chop;
+  	    goto flipmaybe;
+  	case CFT_ARRAY:
+  	    match = cmd->c_short->str_u.str_useful; /* just to get register */
+--- 583,594 ----
+  	    match = (retstr->str_cur != 0);
+  	    tmps = str_get(retstr);
+  	    tmps += retstr->str_cur - match;
+! 	    str_nset(&strchop,tmps,match);
+  	    *tmps = '\0';
+  	    retstr->str_nok = 0;
+  	    retstr->str_cur = tmps - retstr->str_ptr;
+  	    STABSET(retstr);
+! 	    retstr = &strchop;
+  	    goto flipmaybe;
+  	case CFT_ARRAY:
+  	    match = cmd->c_short->str_u.str_useful; /* just to get register */
+***************
+*** 728,733 ****
+--- 736,745 ----
+  	}
+  	goto doswitch;
+      case C_CSWITCH:
++ 	if (multiline) {
++ 	    cmd = cmd->c_next;			/* can't assume anything */
++ 	    goto tail_recursion_entry;
++ 	}
+  	match = *(str_get(STAB_STR(cmd->c_stab))) & 255;
+        doswitch:
+  	match -= cmd->ucmd.scmd.sc_offset;
+***************
+*** 942,948 ****
+  #ifdef DEBUGGING
+  #  ifndef I_VARARGS
+  /*VARARGS1*/
+! deb(pat,a1,a2,a3,a4,a5,a6,a7,a8)
+  char *pat;
+  {
+      register int i;
+--- 954,960 ----
+  #ifdef DEBUGGING
+  #  ifndef I_VARARGS
+  /*VARARGS1*/
+! void deb(pat,a1,a2,a3,a4,a5,a6,a7,a8)
+  char *pat;
+  {
+      register int i;
+***************
+*** 954,960 ****
+  }
+  #  else
+  /*VARARGS1*/
+! deb(va_alist)
+  va_dcl
+  {
+      va_list args;
+--- 966,972 ----
+  }
+  #  else
+  /*VARARGS1*/
+! void deb(va_alist)
+  va_dcl
+  {
+      va_list args;
+***************
+*** 973,978 ****
+--- 985,991 ----
+  #  endif
+  #endif
+  
++ int
+  copyopt(cmd,which)
+  register CMD *cmd;
+  register CMD *which;
+
+Index: cmd.h
+*** cmd.h.old	Mon Jun  8 17:46:02 1992
+--- cmd.h	Mon Jun  8 17:46:02 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: cmd.h,v $$Revision: 4.0.1.1 $$Date: 91/06/07 10:28:50 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: cmd.h,v $$Revision: 4.0.1.2 $$Date: 92/06/08 12:01:02 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,14 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	cmd.h,v $
++  * Revision 4.0.1.2  92/06/08  12:01:02  lwall
++  * patch20: removed implicit int declarations on funcions
++  * 
+   * Revision 4.0.1.1  91/06/07  10:28:50  lwall
+   * patch4: new copyright notice
+   * patch4: length($`), length($&), length($') now optimized to avoid string copy
+***************
+*** 167,169 ****
+--- 170,176 ----
+  void opt_arg();
+  ARG* evalstatic();
+  int cmd_exec();
++ #ifdef DEBUGGING
++ void deb();
++ #endif
++ int copyopt();
+
+Index: config.H
+*** config.H.old	Mon Jun  8 17:46:07 1992
+--- config.H	Mon Jun  8 17:46:07 1992
+***************
+*** 9,14 ****
+--- 9,15 ----
+   * that running config.h.SH again will wipe out any changes you've made.
+   * For a more permanent change edit config.sh and rerun config.h.SH.
+   */
++  /*SUPPRESS 460*/
+  
+  
+  /* EUNICE
+***************
+*** 25,35 ****
+  /*#undef	EUNICE		/**/
+  /*#undef	VMS		/**/
+  
+  /* ALIGNBYTES
+   *	This symbol contains the number of bytes required to align a double.
+   *	Usual values are 2, 4, and 8.
+   */
+! #define ALIGNBYTES 2		/**/
+  
+  /* BIN
+   *	This symbol holds the name of the directory in which the user wants
+--- 26,41 ----
+  /*#undef	EUNICE		/**/
+  /*#undef	VMS		/**/
+  
++ /* LOC_SED
++  *     This symbol holds the complete pathname to the sed program.
++  */
++ #define LOC_SED "/bin/sed"             /**/
++ 
+  /* ALIGNBYTES
+   *	This symbol contains the number of bytes required to align a double.
+   *	Usual values are 2, 4, and 8.
+   */
+! #define ALIGNBYTES 8		/**/
+  
+  /* BIN
+   *	This symbol holds the name of the directory in which the user wants
+***************
+*** 40,46 ****
+  
+  /* BYTEORDER
+   *	This symbol contains an encoding of the order of bytes in a long.
+!  *	Usual values (in octal) are 01234, 04321, 02143, 03412...
+   */
+  #define BYTEORDER 0x4321		/**/
+  
+--- 46,52 ----
+  
+  /* BYTEORDER
+   *	This symbol contains an encoding of the order of bytes in a long.
+!  *	Usual values (in hex) are 0x1234, 0x4321, 0x2143, 0x3412...
+   */
+  #define BYTEORDER 0x4321		/**/
+  
+***************
+*** 68,75 ****
+--- 74,89 ----
+  /* HAS_BCOPY
+   *	This symbol, if defined, indicates that the bcopy routine is available
+   *	to copy blocks of memory.  Otherwise you should probably use memcpy().
++  *	If neither is defined, roll your own.
+   */
++ /* SAFE_BCOPY
++  *	This symbol, if defined, indicates that the bcopy routine is available
++  *	to copy potentially overlapping copy blocks of bcopy.  Otherwise you
++  *	should probably use memmove() or memcpy().  If neither is defined,
++  *	roll your own.
++  */
+  #define	HAS_BCOPY		/**/
++ #define	SAFE_BCOPY		/**/
+  
+  /* HAS_BZERO
+   *	This symbol, if defined, indicates that the bzero routine is available
+***************
+*** 89,96 ****
+   *		1 = couldn't cast < 0
+   *		2 = couldn't cast >= 0x80000000
+   */
+! /*#undef	CASTNEGFLOAT	/**/
+! #define	CASTFLAGS 1	/**/
+  
+  /* CHARSPRINTF
+   *	This symbol is defined if this system declares "char *sprintf()" in
+--- 103,110 ----
+   *		1 = couldn't cast < 0
+   *		2 = couldn't cast >= 0x80000000
+   */
+! #define	CASTNEGFLOAT	/**/
+! #define	CASTFLAGS 0	/**/
+  
+  /* CHARSPRINTF
+   *	This symbol is defined if this system declares "char *sprintf()" in
+***************
+*** 180,186 ****
+   *	This symbol, if defined, indicates that the gethostent() routine is
+   *	available to lookup host names in some data base or other.
+   */
+! /*#undef	HAS_GETHOSTENT		/**/
+  
+  /* HAS_GETPGRP
+   *	This symbol, if defined, indicates that the getpgrp() routine is
+--- 194,200 ----
+   *	This symbol, if defined, indicates that the gethostent() routine is
+   *	available to lookup host names in some data base or other.
+   */
+! #define	HAS_GETHOSTENT		/**/
+  
+  /* HAS_GETPGRP
+   *	This symbol, if defined, indicates that the getpgrp() routine is
+***************
+*** 232,237 ****
+--- 246,257 ----
+  /*#undef	index strchr	/* cultural */
+  /*#undef	rindex strrchr	/*  differences? */
+  
++ /* HAS_ISASCII
++  *	This symbol, if defined, indicates that the isascii routine is available
++  *	to test characters for asciiness.
++  */
++ #define	HAS_ISASCII		/**/
++ 
+  /* HAS_KILLPG
+   *	This symbol, if defined, indicates that the killpg routine is available
+   *	to kill process groups.  If unavailable, you probably should use kill
+***************
+*** 256,263 ****
+--- 276,303 ----
+   *	to copy blocks of memory.  Otherwise you should probably use bcopy().
+   *	If neither is defined, roll your own.
+   */
++ /* SAFE_MEMCPY
++  *	This symbol, if defined, indicates that the memcpy routine is available
++  *	to copy potentially overlapping copy blocks of memory.  Otherwise you
++  *	should probably use memmove() or bcopy().  If neither is defined,
++  *	roll your own.
++  */
+  #define	HAS_MEMCPY		/**/
++ /*#undef	SAFE_MEMCPY		/**/
+  
++ /* HAS_MEMMOVE
++  *	This symbol, if defined, indicates that the memmove routine is available
++  *	to move potentially overlapping blocks of memory.  Otherwise you
++  *	should use bcopy() or roll your own.
++  */
++ /*#undef	HAS_MEMMOVE		/**/
++ 
++ /* HAS_MEMSET
++  *	This symbol, if defined, indicates that the memset routine is available
++  *	to set a block of memory to a character.  If undefined, roll your own.
++  */
++ #define	HAS_MEMSET		/**/
++ 
+  /* HAS_MKDIR
+   *	This symbol, if defined, indicates that the mkdir routine is available
+   *	to create directories.  Otherwise you should fork off a new process to
+***************
+*** 273,297 ****
+  
+  /* HAS_MSGCTL
+   *	This symbol, if defined, indicates that the msgctl() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_MSGCTL		/**/
+  
+  /* HAS_MSGGET
+   *	This symbol, if defined, indicates that the msgget() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_MSGGET		/**/
+  
+  /* HAS_MSGRCV
+   *	This symbol, if defined, indicates that the msgrcv() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_MSGRCV		/**/
+  
+  /* HAS_MSGSND
+   *	This symbol, if defined, indicates that the msgsnd() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_MSGSND		/**/
+  
+--- 313,337 ----
+  
+  /* HAS_MSGCTL
+   *	This symbol, if defined, indicates that the msgctl() routine is
+!  *	available to control message passing.
+   */
+  #define	HAS_MSGCTL		/**/
+  
+  /* HAS_MSGGET
+   *	This symbol, if defined, indicates that the msgget() routine is
+!  *	available to get messages.
+   */
+  #define	HAS_MSGGET		/**/
+  
+  /* HAS_MSGRCV
+   *	This symbol, if defined, indicates that the msgrcv() routine is
+!  *	available to receive messages.
+   */
+  #define	HAS_MSGRCV		/**/
+  
+  /* HAS_MSGSND
+   *	This symbol, if defined, indicates that the msgsnd() routine is
+!  *	available to send messages.
+   */
+  #define	HAS_MSGSND		/**/
+  
+***************
+*** 326,331 ****
+--- 366,377 ----
+   */
+  #define	HAS_RENAME		/**/
+  
++ /* HAS_REWINDDIR
++  *	This symbol, if defined, indicates that the rewindir routine is
++  *	available to rewind directories.
++  */
++ #define	HAS_REWINDDIR		/**/
++ 
+  /* HAS_RMDIR
+   *	This symbol, if defined, indicates that the rmdir routine is available
+   *	to remove directories.  Otherwise you should fork off a new process to
+***************
+*** 333,338 ****
+--- 379,390 ----
+   */
+  #define	HAS_RMDIR		/**/
+  
++ /* HAS_SEEKDIR
++  *	This symbol, if defined, indicates that the seekdir routine is
++  *	available to seek into directories.
++  */
++ #define	HAS_SEEKDIR		/**/
++ 
+  /* HAS_SELECT
+   *	This symbol, if defined, indicates that the select() subroutine
+   *	exists.
+***************
+*** 347,365 ****
+  
+  /* HAS_SEMCTL
+   *	This symbol, if defined, indicates that the semctl() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SEMCTL		/**/
+  
+  /* HAS_SEMGET
+   *	This symbol, if defined, indicates that the semget() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SEMGET		/**/
+  
+  /* HAS_SEMOP
+   *	This symbol, if defined, indicates that the semop() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SEMOP		/**/
+  
+--- 399,417 ----
+  
+  /* HAS_SEMCTL
+   *	This symbol, if defined, indicates that the semctl() routine is
+!  *	available to control semaphores.
+   */
+  #define	HAS_SEMCTL		/**/
+  
+  /* HAS_SEMGET
+   *	This symbol, if defined, indicates that the semget() routine is
+!  *	available to get semaphores ids.
+   */
+  #define	HAS_SEMGET		/**/
+  
+  /* HAS_SEMOP
+   *	This symbol, if defined, indicates that the semop() routine is
+!  *	available to perform semaphore operations.
+   */
+  #define	HAS_SEMOP		/**/
+  
+***************
+*** 437,443 ****
+  
+  /* HAS_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine is
+!  *	available to stat symbolic links.
+   */
+  /* VOID_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine
+--- 489,495 ----
+  
+  /* HAS_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine is
+!  *	available to attach a shared memory segment.
+   */
+  /* VOID_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine
+***************
+*** 449,467 ****
+  
+  /* HAS_SHMCTL
+   *	This symbol, if defined, indicates that the shmctl() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SHMCTL		/**/
+  
+  /* HAS_SHMDT
+   *	This symbol, if defined, indicates that the shmdt() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SHMDT		/**/
+  
+  /* HAS_SHMGET
+   *	This symbol, if defined, indicates that the shmget() routine is
+!  *	available to stat symbolic links.
+   */
+  #define	HAS_SHMGET		/**/
+  
+--- 501,519 ----
+  
+  /* HAS_SHMCTL
+   *	This symbol, if defined, indicates that the shmctl() routine is
+!  *	available to control a shared memory segment.
+   */
+  #define	HAS_SHMCTL		/**/
+  
+  /* HAS_SHMDT
+   *	This symbol, if defined, indicates that the shmdt() routine is
+!  *	available to detach a shared memory segment.
+   */
+  #define	HAS_SHMDT		/**/
+  
+  /* HAS_SHMGET
+   *	This symbol, if defined, indicates that the shmget() routine is
+!  *	available to get a shared memory segment id.
+   */
+  #define	HAS_SHMGET		/**/
+  
+***************
+*** 520,525 ****
+--- 572,583 ----
+   */
+  #define	HAS_SYSCALL		/**/
+  
++ /* HAS_TELLDIR
++  *	This symbol, if defined, indicates that the telldir routine is
++  *	available to tell your location in directories.
++  */
++ #define	HAS_TELLDIR		/**/
++ 
+  /* HAS_TRUNCATE
+   *	This symbol, if defined, indicates that the truncate routine is
+   *	available to truncate files.
+***************
+*** 737,745 ****
+--- 795,808 ----
+  /*#undef	I_MY_DIR	/**/
+  /*#undef	DIRNAMLEN	/**/
+  
++ /* MYMALLOC
++  *	This symbol, if defined, indicates that we're using our own malloc.
++  */
+  /* MALLOCPTRTYPE
+   *	This symbol defines the kind of ptr returned by malloc and realloc.
+   */
++ #define MYMALLOC			/**/
++ 
+  #define MALLOCPTRTYPE char         /**/
+  
+  
+
+Index: msdos/config.h
+*** msdos/config.h.old	Mon Jun  8 17:49:30 1992
+--- msdos/config.h	Mon Jun  8 17:49:31 1992
+***************
+*** 79,86 ****
+--- 79,94 ----
+  /* HAS_BCOPY
+   *	This symbol, if defined, indicates that the bcopy routine is available
+   *	to copy blocks of memory.  Otherwise you should probably use memcpy().
++  *	If neither is defined, roll your own.
+   */
++ /* SAFE_BCOPY
++  *	This symbol, if defined, indicates that the bcopy routine is available
++  *	to copy potentially overlapping copy blocks of bcopy.  Otherwise you
++  *	should probably use memmove() or memcpy().  If neither is defined,
++  *	roll your own.
++  */
+  /*#undef	HAS_BCOPY		/**/
++ /*#undef	SAFE_BCOPY		/**/
+  
+  /* HAS_BZERO
+   *	This symbol, if defined, indicates that the bzero routine is available
+***************
+*** 243,248 ****
+--- 251,262 ----
+  #define	index strchr	/* cultural */
+  #define	rindex strrchr	/*  differences? */
+  
++ /* HAS_ISASCII
++  *	This symbol, if defined, indicates that the isascii routine is available
++  *	to test characters for asciiness.
++  */
++ #define	HAS_ISASCII		/**/
++ 
+  /* HAS_KILLPG
+   *	This symbol, if defined, indicates that the killpg routine is available
+   *	to kill process groups.  If unavailable, you probably should use kill
+***************
+*** 267,274 ****
+--- 281,308 ----
+   *	to copy blocks of memory.  Otherwise you should probably use bcopy().
+   *	If neither is defined, roll your own.
+   */
++ /* SAFE_MEMCPY
++  *	This symbol, if defined, indicates that the memcpy routine is available
++  *	to copy potentially overlapping copy blocks of memory.  Otherwise you
++  *	should probably use memmove() or bcopy().  If neither is defined,
++  *	roll your own.
++  */
+  #define	HAS_MEMCPY		/**/
++ /*#undef	SAFE_MEMCPY		/**/
+  
++ /* HAS_MEMMOVE
++  *	This symbol, if defined, indicates that the memmove routine is available
++  *	to move potentially overlapping blocks of memory.  Otherwise you
++  *	should use bcopy() or roll your own.
++  */
++ /*#undef	HAS_MEMMOVE		/**/
++ 
++ /* HAS_MEMSET
++  *	This symbol, if defined, indicates that the memset routine is available
++  *	to set a block of memory to a character.  If undefined, roll your own.
++  */
++ #define	HAS_MEMSET		/**/
++ 
+  /* HAS_MKDIR
+   *	This symbol, if defined, indicates that the mkdir routine is available
+   *	to create directories.  Otherwise you should fork off a new process to
+***************
+*** 284,308 ****
+  
+  /* HAS_MSGCTL
+   *	This symbol, if defined, indicates that the msgctl() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_MSGCTL		/**/
+  
+  /* HAS_MSGGET
+   *	This symbol, if defined, indicates that the msgget() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_MSGGET		/**/
+  
+  /* HAS_MSGRCV
+   *	This symbol, if defined, indicates that the msgrcv() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_MSGRCV		/**/
+  
+  /* HAS_MSGSND
+   *	This symbol, if defined, indicates that the msgsnd() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_MSGSND		/**/
+  
+--- 318,342 ----
+  
+  /* HAS_MSGCTL
+   *	This symbol, if defined, indicates that the msgctl() routine is
+!  *	available to control message passing.
+   */
+  /*#undef	HAS_MSGCTL		/**/
+  
+  /* HAS_MSGGET
+   *	This symbol, if defined, indicates that the msgget() routine is
+!  *	available to get messages.
+   */
+  /*#undef	HAS_MSGGET		/**/
+  
+  /* HAS_MSGRCV
+   *	This symbol, if defined, indicates that the msgrcv() routine is
+!  *	available to receive messages.
+   */
+  /*#undef	HAS_MSGRCV		/**/
+  
+  /* HAS_MSGSND
+   *	This symbol, if defined, indicates that the msgsnd() routine is
+!  *	available to send messages.
+   */
+  /*#undef	HAS_MSGSND		/**/
+  
+***************
+*** 337,342 ****
+--- 371,382 ----
+   */
+  #define	HAS_RENAME		/**/
+  
++ /* HAS_REWINDDIR
++  *	This symbol, if defined, indicates that the rewindir routine is
++  *	available to rewind directories.
++  */
++ #define	HAS_REWINDDIR		/**/
++ 
+  /* HAS_RMDIR
+   *	This symbol, if defined, indicates that the rmdir routine is available
+   *	to remove directories.  Otherwise you should fork off a new process to
+***************
+*** 344,349 ****
+--- 384,395 ----
+   */
+  #define	HAS_RMDIR		/**/
+  
++ /* HAS_SEEKDIR
++  *	This symbol, if defined, indicates that the seekdir routine is
++  *	available to seek into directories.
++  */
++ #define	HAS_SEEKDIR		/**/
++ 
+  /* HAS_SELECT
+   *	This symbol, if defined, indicates that the select() subroutine
+   *	exists.
+***************
+*** 358,376 ****
+  
+  /* HAS_SEMCTL
+   *	This symbol, if defined, indicates that the semctl() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SEMCTL		/**/
+  
+  /* HAS_SEMGET
+   *	This symbol, if defined, indicates that the semget() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SEMGET		/**/
+  
+  /* HAS_SEMOP
+   *	This symbol, if defined, indicates that the semop() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SEMOP		/**/
+  
+--- 404,422 ----
+  
+  /* HAS_SEMCTL
+   *	This symbol, if defined, indicates that the semctl() routine is
+!  *	available to control semaphores.
+   */
+  /*#undef	HAS_SEMCTL		/**/
+  
+  /* HAS_SEMGET
+   *	This symbol, if defined, indicates that the semget() routine is
+!  *	available to get semaphores ids.
+   */
+  /*#undef	HAS_SEMGET		/**/
+  
+  /* HAS_SEMOP
+   *	This symbol, if defined, indicates that the semop() routine is
+!  *	available to perform semaphore operations.
+   */
+  /*#undef	HAS_SEMOP		/**/
+  
+***************
+*** 448,472 ****
+  
+  /* HAS_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SHMAT		/**/
+  
+  /* HAS_SHMCTL
+   *	This symbol, if defined, indicates that the shmctl() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SHMCTL		/**/
+  
+  /* HAS_SHMDT
+   *	This symbol, if defined, indicates that the shmdt() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SHMDT		/**/
+  
+  /* HAS_SHMGET
+   *	This symbol, if defined, indicates that the shmget() routine is
+!  *	available to stat symbolic links.
+   */
+  /*#undef	HAS_SHMGET		/**/
+  
+--- 494,524 ----
+  
+  /* HAS_SHMAT
+   *	This symbol, if defined, indicates that the shmat() routine is
+!  *	available to attach a shared memory segment.
+   */
++ /* VOID_SHMAT
++  *	This symbol, if defined, indicates that the shmat() routine
++  *	returns a pointer of type void*.
++  */
+  /*#undef	HAS_SHMAT		/**/
+  
++ /*#undef	VOIDSHMAT		/**/
++ 
+  /* HAS_SHMCTL
+   *	This symbol, if defined, indicates that the shmctl() routine is
+!  *	available to control a shared memory segment.
+   */
+  /*#undef	HAS_SHMCTL		/**/
+  
+  /* HAS_SHMDT
+   *	This symbol, if defined, indicates that the shmdt() routine is
+!  *	available to detach a shared memory segment.
+   */
+  /*#undef	HAS_SHMDT		/**/
+  
+  /* HAS_SHMGET
+   *	This symbol, if defined, indicates that the shmget() routine is
+!  *	available to get a shared memory segment id.
+   */
+  /*#undef	HAS_SHMGET		/**/
+  
+***************
+*** 528,533 ****
+--- 580,591 ----
+   */
+  /*#undef	HAS_SYSCALL		/**/
+  
++ /* HAS_TELLDIR
++  *	This symbol, if defined, indicates that the telldir routine is
++  *	available to tell your location in directories.
++  */
++ #define	HAS_TELLDIR		/**/
++ 
+  /* HAS_TRUNCATE
+   *	This symbol, if defined, indicates that the truncate routine is
+   *	available to truncate files.
+***************
+*** 745,755 ****
+--- 803,819 ----
+  /*#undef	I_MY_DIR	/**/
+  /*#undef	DIRNAMLEN	/**/
+  
++ /* MYMALLOC
++  *	This symbol, if defined, indicates that we're using our own malloc.
++  */
+  /* MALLOCPTRTYPE
+   *	This symbol defines the kind of ptr returned by malloc and realloc.
+   */
++ #define MYMALLOC			/**/
++ 
+  #define MALLOCPTRTYPE void         /**/
+  
++ 
+  /* RANDBITS
+   *	This symbol contains the number of bits of random number the rand()
+   *	function produces.  Usual values are 15, 16, and 31.
+***************
+*** 758,764 ****
+  
+  /* SCRIPTDIR
+   *	This symbol holds the name of the directory in which the user wants
+!  *	to put publicly executable scripts for the package in question.  It
+   *	is often a directory that is mounted across diverse architectures.
+   */
+  #define SCRIPTDIR "C:/bin/perl"             /**/
+--- 822,828 ----
+  
+  /* SCRIPTDIR
+   *	This symbol holds the name of the directory in which the user wants
+!  *	to keep publicly executable scripts for the package in question.  It
+   *	is often a directory that is mounted across diverse architectures.
+   */
+  #define SCRIPTDIR "C:/bin/perl"             /**/
+
+Index: consarg.c
+*** consarg.c.old	Mon Jun  8 17:46:26 1992
+--- consarg.c	Mon Jun  8 17:46:28 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: consarg.c,v $$Revision: 4.0.1.3 $$Date: 91/11/05 16:21:16 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: consarg.c,v $$Revision: 4.0.1.4 $$Date: 92/06/08 12:26:27 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,17 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	consarg.c,v $
++  * Revision 4.0.1.4  92/06/08  12:26:27  lwall
++  * patch20: new warning for use of x with non-numeric right operand
++  * patch20: modulus with highest bit in left operand set didn't always work
++  * patch20: illegal lvalue message could be followed by core dump
++  * patch20: deleted some minor memory leaks
++  * 
+   * Revision 4.0.1.3  91/11/05  16:21:16  lwall
+   * patch11: random cleanup
+   * patch11: added eval {}
+***************
+*** 57,62 ****
+--- 63,69 ----
+  	}
+  	else {
+  	    arg[3].arg_flags = 0;
++ 	    arg[3].arg_len = 0;
+  	    arg[3].arg_type = A_EXPR;
+  	    arg[3].arg_ptr.arg_arg = limarg;
+  	}
+***************
+*** 63,68 ****
+--- 70,76 ----
+      }
+      else {
+  	arg[3].arg_flags = 0;
++ 	arg[3].arg_len = 0;
+  	arg[3].arg_type = A_NULL;
+  	arg[3].arg_ptr.arg_arg = Nullarg;
+      }
+***************
+*** 344,350 ****
+  	str_scat(str,s2);
+  	break;
+      case O_REPEAT:
+! 	CHECK12;
+  	i = (int)str_gnum(s2);
+  	tmps = str_get(s1);
+  	str_nset(str,"",0);
+--- 352,361 ----
+  	str_scat(str,s2);
+  	break;
+      case O_REPEAT:
+! 	CHECK2;
+! 	if (dowarn && !s2->str_nok && !looks_like_number(s2))
+! 	    warn("Right operand of x is not numeric");
+! 	CHECK1;
+  	i = (int)str_gnum(s2);
+  	tmps = str_get(s1);
+  	str_nset(str,"",0);
+***************
+*** 392,403 ****
+  	    yyerror("Illegal modulus of constant zero");
+  	    return arg;
+  	}
+! 	tmp2 = (long)str_gnum(s1);
+  #ifndef lint
+! 	if (tmp2 >= 0)
+! 	    str_numset(str,(double)(tmp2 % tmplong));
+! 	else
+  	    str_numset(str,(double)((tmplong-((-tmp2 - 1) % tmplong)) - 1));
+  #else
+  	tmp2 = tmp2;
+  #endif
+--- 403,416 ----
+  	    yyerror("Illegal modulus of constant zero");
+  	    return arg;
+  	}
+! 	value = str_gnum(s1);
+  #ifndef lint
+! 	if (value >= 0.0)
+! 	    str_numset(str,(double)(((unsigned long)value) % tmplong));
+! 	else {
+! 	    tmp2 = (long)value;
+  	    str_numset(str,(double)((tmplong-((-tmp2 - 1) % tmplong)) - 1));
++ 	}
+  #else
+  	tmp2 = tmp2;
+  #endif
+***************
+*** 847,852 ****
+--- 860,866 ----
+  	    (void)sprintf(tokenbuf,
+  	      "Illegal expression (%s) as lvalue",opname[arg1->arg_type]);
+  	    yyerror(tokenbuf);
++ 	    return arg;
+  	}
+  	arg[1].arg_type = A_LEXPR | (arg[1].arg_type & A_DONT);
+  	if (arg->arg_type == O_ASSIGN && (arg1[1].arg_flags & AF_ARYOK)) {
+***************
+*** 871,876 ****
+--- 885,891 ----
+  	(void)sprintf(tokenbuf,
+  	  "Illegal item (%s) as lvalue",argname[arg[1].arg_type&A_MASK]);
+  	yyerror(tokenbuf);
++ 	return arg;
+      }
+      arg[1].arg_type = A_LVAL | (arg[1].arg_type & A_DONT);
+  #ifdef DEBUGGING
+***************
+*** 897,902 ****
+--- 912,918 ----
+      return arg;
+  }
+  
++ void
+  dehoist(arg,i)
+  ARG *arg;
+  {
+***************
+*** 976,1001 ****
+  	node = arg;
+  	arg = op_new(i);
+  	tmpstr = arg->arg_ptr.arg_str;
+! #ifdef STRUCTCOPY
+! 	*arg = *node;		/* copy everything except the STR */
+! #else
+! 	(void)bcopy((char *)node, (char *)arg, sizeof(ARG));
+! #endif
+  	arg->arg_ptr.arg_str = tmpstr;
+  	for (j = i; ; ) {
+! #ifdef STRUCTCOPY
+! 	    arg[j] = node[2];
+! #else
+! 	    (void)bcopy((char *)(node+2), (char *)(arg+j), sizeof(ARG));
+! #endif
+  	    arg[j].arg_flags |= AF_ARYOK;
+  	    --j;		/* Bug in Xenix compiler */
+  	    if (j < 2) {
+! #ifdef STRUCTCOPY
+! 		arg[1] = node[1];
+! #else
+! 		(void)bcopy((char *)(node+1), (char *)(arg+1), sizeof(ARG));
+! #endif
+  		free_arg(node);
+  		break;
+  	    }
+--- 992,1005 ----
+  	node = arg;
+  	arg = op_new(i);
+  	tmpstr = arg->arg_ptr.arg_str;
+! 	StructCopy(node, arg, ARG);	/* copy everything except the STR */
+  	arg->arg_ptr.arg_str = tmpstr;
+  	for (j = i; ; ) {
+! 	    StructCopy(node+2, arg+j, ARG);
+  	    arg[j].arg_flags |= AF_ARYOK;
+  	    --j;		/* Bug in Xenix compiler */
+  	    if (j < 2) {
+! 		StructCopy(node+1, arg+1, ARG);
+  		free_arg(node);
+  		break;
+  	    }
+***************
+*** 1008,1013 ****
+--- 1012,1019 ----
+      arg[2].arg_flags |= AF_ARYOK;
+      arg->arg_type = O_LIST;
+      arg->arg_len = i;
++     str_free(arg->arg_ptr.arg_str);
++     arg->arg_ptr.arg_str = Nullstr;
+      return arg;
+  }
+  
+
+Index: t/comp/cpp.t
+Prereq: 4.0
+*** t/comp/cpp.t.old	Mon Jun  8 17:52:01 1992
+--- t/comp/cpp.t	Mon Jun  8 17:52:02 1992
+***************
+*** 1,6 ****
+  #!./perl -P
+  
+! # $Header: cpp.t,v 4.0 91/03/20 01:50:05 lwall Locked $
+  
+  print "1..3\n";
+  
+--- 1,18 ----
+  #!./perl -P
+  
+! # $RCSfile: cpp.t,v $$Revision: 4.0.1.1 $$Date: 92/06/08 15:42:08 $
+! 
+! open(CONFIG,"../config.sh") || die;
+! while (<CONFIG>) {
+!     if (/^cppstdin/) {
+! 	if (/^cppstdin='(.*cppstdin)'/ && ! -e $1) {
+! 	    print "1..0\n";
+! 	    exit; 		# Can't test till after install, alas.
+! 	}
+! 	last;
+!     }
+! }
+! close CONFIG;
+  
+  print "1..3\n";
+  
+
+Index: hints/cray.sh
+*** hints/cray.sh.old	Mon Jun  8 17:47:47 1992
+--- hints/cray.sh	Mon Jun  8 17:47:48 1992
+***************
+*** 0 ****
+--- 1,3 ----
++ case `uname -r` in
++ 6.1*) shellflags="-m+65536" ;;
++ esac
+
+Index: lib/ctime.pl
+Prereq: 4.0
+*** lib/ctime.pl.old	Mon Jun  8 17:48:52 1992
+--- lib/ctime.pl	Mon Jun  8 17:48:52 1992
+***************
+*** 3,9 ****
+  ;# Waldemar Kebsch, Federal Republic of Germany, November 1988
+  ;# kebsch.pad@nixpbe.UUCP
+  ;# Modified March 1990, Feb 1991 to properly handle timezones
+! ;#  $Id: ctime.pl,v 1.8 91/02/04 18:28:12 hakanson Exp $
+  ;#   Marion Hakanson (hakanson@cse.ogi.edu)
+  ;#   Oregon Graduate Institute of Science and Technology
+  ;#
+--- 3,9 ----
+  ;# Waldemar Kebsch, Federal Republic of Germany, November 1988
+  ;# kebsch.pad@nixpbe.UUCP
+  ;# Modified March 1990, Feb 1991 to properly handle timezones
+! ;#  $RCSfile: ctime.pl,v $$Revision: 4.0.1.1 $$Date: 92/06/08 13:38:06 $
+  ;#   Marion Hakanson (hakanson@cse.ogi.edu)
+  ;#   Oregon Graduate Institute of Science and Technology
+  ;#
+***************
+*** 24,29 ****
+--- 24,30 ----
+      package ctime;
+  
+      local($time) = @_;
++     local($[) = 0;
+      local($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst);
+  
+      # Determine what time zone is in effect.
+
+*** End of Patch 22 ***
+exit 0 # Just in case...

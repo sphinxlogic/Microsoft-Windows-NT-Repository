@@ -1,0 +1,2560 @@
+Newsgroups: comp.sources.misc
+From: jjc@jclark.com (James Clark)
+Subject:  v31i078:  lprps - interface lpr to a PostScript printer, Part02/02
+Message-ID: <1992Aug14.183713.21218@sparky.imd.sterling.com>
+X-Md4-Signature: aa87aad60cbd3c037340da1254ef0f93
+Date: Fri, 14 Aug 1992 18:37:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jjc@jclark.com (James Clark)
+Posting-number: Volume 31, Issue 78
+Archive-name: lprps/part02
+Environment: BSD, SUNOS
+Supersedes: lprps: Volume 21, Issue 25
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  psrev.c lprps.c psif.c textps.c psof.c
+# Wrapped by jjc@jclark on Fri Aug 14 17:43:04 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'psrev.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psrev.c'\"
+else
+echo shar: Extracting \"'psrev.c'\" \(7543 characters\)
+sed "s/^X//" >'psrev.c' <<'END_OF_FILE'
+X/* psrev.c */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: psrev.c,v 1.3 1991/07/14 14:11:01 jjc Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X
+Xchar *malloc();
+Xchar *realloc();
+X
+Xchar *xmalloc();
+Xchar *xrealloc();
+Xchar *prog;
+X
+Xvoid sys_error(message, arg)
+Xchar *message, *arg;
+X{
+X  extern char *sys_errlist[];
+X  extern int sys_nerr;
+X  int en;
+X
+X  en = errno;
+X  fprintf(stderr, "%s: ", prog);
+X  fprintf(stderr, message, arg);
+X  if (en > 0 && en < sys_nerr)
+X    fprintf(stderr, ": %s\n", sys_errlist[en]);
+X  else
+X    putc('\n', stderr);
+X  exit(1);
+X}
+X
+Xtypedef struct line_buf {
+X  char *buf;
+X  int len;
+X  int size;
+X} line_buf;
+X
+Xint get_line(lb, fp)
+Xline_buf *lb;
+XFILE *fp;
+X{
+X  int left;
+X  char *ptr;
+X  if (lb->buf == NULL) {
+X    lb->size = 16;
+X    lb->buf = xmalloc(16);
+X  }
+X  ptr = lb->buf;
+X  left = lb->size - 1;
+X  for (;;) {
+X    int c = getc(fp);
+X    if (c == EOF) {
+X      if (ferror(fp))
+X	sys_error("read error", (char *)0);
+X      if (ptr == lb->buf)
+X	return 0;
+X      lb->len = ptr - lb->buf;
+X      *ptr++ = '\0';
+X      return 1;
+X    }
+X    if (left <= 0) {
+X      int n = ptr - lb->buf;
+X      lb->size *= 2;
+X      lb->buf = xrealloc(lb->buf, lb->size);
+X      left = lb->size - n - 1;
+X      ptr = lb->buf + n;
+X    }
+X    *ptr++ = c;
+X    left -= 1;
+X    if (c == '\n') {
+X      lb->len = ptr - lb->buf;
+X      *ptr++ = '\0';
+X      return 1;
+X    }
+X  }
+X}
+X
+Xvoid put_line(lb, fp)
+Xline_buf *lb;
+XFILE *fp;
+X{
+X  if (fwrite(lb->buf, 1, lb->len, fp) != lb->len)
+X    sys_error("write error", (char *)0);
+X}
+X
+X/* is s2 a prefix of s1? */
+Xint strprefix(s1, s2)
+Xchar *s1, *s2;
+X{
+X  for (; *s1 != '\0' && *s1 == *s2; s1++, s2++)
+X    ;
+X  return *s2 == '\0';
+X}
+X
+Xvoid copy_and_exit(fp)
+XFILE *fp;
+X{
+X  int c;
+X  while ((c = getc(fp)) != EOF)
+X    if (putchar(c) == EOF)
+X      sys_error("write error", (char *)0);
+X  exit(0);
+X}
+X
+Xtypedef struct page_list {
+X  long pos;
+X  struct page_list *next;
+X} page_list;
+X
+Xvoid usage()
+X{
+X  fprintf(stderr, "usage: %s [file]\n", prog);
+X  exit(1);
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  int dont_reverse = 0;
+X  int pageno;
+X  int pending_line = 0;
+X  int had_page_order = 0;
+X  int page_order_atend = 0;
+X  FILE *tempfp = NULL;
+X  page_list *pl = 0;
+X  long trailer_pos = -1;
+X  long prev_pos;
+X  int level = 0;
+X  line_buf lb;
+X  struct stat sb;
+X
+X  prog = argv[0];
+X  lb.buf = 0;
+X  if (argc > 2)
+X    usage();
+X  if (argc == 2) {
+X    errno = 0;
+X    if (!freopen(argv[1], "r", stdin))
+X      sys_error("can't open `%s'", argv[1]);
+X  }
+X  if (!get_line(&lb, stdin))
+X    exit(0);
+X  put_line(&lb, stdout);
+X  if (!strprefix(lb.buf, "%!PS-Adobe-"))
+X    copy_and_exit(stdin);
+X
+X  /* process the header section */
+X  while (get_line(&lb, stdin)) {
+X    int suppress = 0;
+X    if (!strprefix(lb.buf, "%%")) {
+X      pending_line = 1;
+X      break;
+X    }
+X    else if (strprefix(lb.buf, "%%PageOrder:")) {
+X      /* the first %%PageOrder comment is the significant one */
+X      if (had_page_order) 
+X	suppress = 1;
+X      else {
+X	char *ptr = lb.buf + sizeof("%%PageOrder:") - 1;
+X
+X	had_page_order = 1;
+X	while (*ptr == ' ')
+X	  ptr++;
+X	if (strprefix(ptr, "(atend)"))
+X	  page_order_atend = 1;
+X	else if (strprefix(ptr, "Ascend")) {
+X	  fputs("%%PageOrder: Descend\n", stdout);
+X	  suppress = 1;
+X	}
+X	else
+X	  dont_reverse = 1;
+X      }
+X    }
+X    if (strprefix(lb.buf, "%%EndComments"))
+X      break;
+X    if (!suppress)
+X      put_line(&lb, stdout);
+X  }
+X
+X  if (!had_page_order)
+X    fputs("%%PageOrder: Descend\n", stdout);
+X  
+X  printf("%%%%EndComments\n");
+X
+X  if (dont_reverse)
+X    copy_and_exit(stdin);
+X
+X  /* process the prologue */
+X  while (pending_line || get_line(&lb, stdin)) {
+X    pending_line = 0;
+X    if (strprefix(lb.buf, "%%BeginDocument:"))
+X      ++level;
+X    else if (strprefix(lb.buf, "%%EndDocument")) {
+X      if (level > 0)
+X	--level;
+X    }
+X    else if (level == 0 && strprefix(lb.buf, "%%Page:")) {
+X      pending_line = 1;
+X      break;
+X    }
+X    put_line(&lb, stdout);
+X  }
+X
+X  /* if we didn't find any %%Page comments, we're done */
+X  if (!pending_line)
+X    exit(0);
+X
+X  /* open a temporary file if necessary */
+X  if (fstat(fileno(stdin), &sb) < 0)
+X    sys_error("cannot stat stdin", (char *)0);
+X  if ((sb.st_mode & S_IFMT) != S_IFREG) {
+X    tempfp = tmpfile();
+X    if (!tempfp)
+X      sys_error("can't open temporary file", (char *)0);
+X  }
+X
+X  /* process the body */
+X  while (pending_line || get_line(&lb, stdin)) {
+X    pending_line = 0;
+X    if (strprefix(lb.buf, "%%BeginDocument:"))
+X      ++level;
+X    else if (strprefix(lb.buf, "%%EndDocument")) {
+X      if (level > 0)
+X	--level;
+X    }
+X    else if (level == 0) {
+X      if (strprefix(lb.buf, "%%Page:")) {
+X	page_list *tem = (page_list *)xmalloc(sizeof(page_list));
+X	tem->next = pl;
+X	tem->pos = tempfp ? ftell(tempfp) : ftell(stdin) - lb.len;
+X	pl = tem;
+X      }
+X      else if (strprefix(lb.buf, "%%Trailer")) {
+X	pending_line = 1;
+X	break;
+X      }
+X    }
+X    if (tempfp != NULL)
+X      put_line(&lb, tempfp);
+X  }
+X
+X  /* process the trailer */
+X  if (pending_line) {
+X    trailer_pos = tempfp ? ftell(tempfp) : ftell(stdin) - lb.len;
+X    while (pending_line || get_line(&lb, stdin)) {
+X      pending_line = 0;
+X      if (page_order_atend && strprefix(lb.buf, "%%PageOrder:")) {
+X	char *p = lb.buf + sizeof("%%PageOrder:") - 1;
+X	while (*p == ' ')
+X	  p++;
+X	dont_reverse = !strprefix(p, "Ascend");
+X      }
+X      if (tempfp != NULL)
+X	put_line(&lb, tempfp);
+X    }
+X  }
+X
+X  if (tempfp == NULL)
+X    tempfp = stdin;
+X
+X  if (dont_reverse) {
+X    long first_page_pos;
+X    if (pl == NULL)
+X      abort();
+X    /* find the position of the first page */
+X    while (pl != NULL) {
+X      page_list *tem = pl;
+X      first_page_pos = pl->pos;
+X      pl = pl->next;
+X      free((char *)tem);
+X    }
+X    if (fseek(tempfp, first_page_pos, 0) < 0)
+X      sys_error("seek error", (char *)0);
+X    copy_and_exit(tempfp);
+X  }
+X
+X  /* output each page */
+X  prev_pos = trailer_pos == -1 ? ftell(tempfp) : trailer_pos;
+X  pageno = 1;
+X  while (pl != NULL) {
+X    char *ptr, *label;
+X    int count = prev_pos - pl->pos;
+X    if (fseek(tempfp, pl->pos, 0) < 0)
+X      sys_error("seek error", (char *)0);
+X    if (!get_line(&lb, tempfp))
+X      abort();
+X    if (!strprefix(lb.buf, "%%Page:"))
+X      abort();
+X    ptr = lb.buf + 7;
+X    while (*ptr == ' ')
+X      ptr++;
+X    label = ptr;
+X    while (*ptr != '\0' && !(isascii(*ptr) && isspace(*ptr)))
+X      ptr++;
+X    *ptr = '\0';
+X    if (*label == '\0')
+X      label = "?";
+X    printf("%%%%Page: %s %d\n", label, pageno);
+X    pageno += 1;
+X    count -= lb.len;
+X    while (--count >= 0) {
+X      int c = getc(tempfp);
+X      if (c == EOF)
+X	abort();
+X      if (putc(c, stdout) == EOF)
+X	sys_error("write error", (char *)0);
+X    }
+X    prev_pos = pl->pos;
+X    pl = pl->next;
+X  }
+X
+X  /* output the trailer if there is one */
+X  if (trailer_pos != -1) {
+X    if (fseek(tempfp, trailer_pos, 0) < 0)
+X      sys_error("seek error", (char *)0);
+X    if (page_order_atend) {
+X      /* we need to change the %%PageOrder comment */
+X      while (get_line(&lb, tempfp)) {
+X	if (page_order_atend && strprefix(lb.buf, "%%PageOrder:"))
+X	  fputs("%%PageOrder: Descend\n", stdout);
+X	else
+X	  put_line(&lb, stdout);
+X      }
+X    }
+X    else
+X      copy_and_exit(tempfp);
+X  }
+X
+X  if (ferror(stdout))
+X    sys_error("write error", (char *)0);
+X
+X  exit(0);
+X}
+X
+Xchar *xmalloc(size)
+Xint size;
+X{
+X  char *tem;
+X  if ((tem = malloc(size)) == NULL) {
+X    fprintf(stderr, "%s: out of memory\n", prog);
+X    exit(1);
+X  }
+X  return tem;
+X}
+X
+Xchar *xrealloc(ptr, size)
+Xchar *ptr;
+Xint size;
+X{
+X  char *tem;
+X  if ((tem = realloc(ptr, size)) == NULL) {
+X    fprintf(stderr, "%s: out of memory\n", prog);
+X    exit(1);
+X  }
+X  return tem;
+X}
+END_OF_FILE
+if test 7543 -ne `wc -c <'psrev.c'`; then
+    echo shar: \"'psrev.c'\" unpacked with wrong size!
+fi
+# end of 'psrev.c'
+fi
+if test -f 'lprps.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lprps.c'\"
+else
+echo shar: Extracting \"'lprps.c'\" \(20480 characters\)
+sed "s/^X//" >'lprps.c' <<'END_OF_FILE'
+X/* lprps.c */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: lprps.c,v 1.16 1992/03/09 16:07:05 jjc Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <strings.h>
+X#include <sys/types.h>
+X#include <sys/ioctl.h>
+X#include <sys/file.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#include <sys/time.h>
+X#include <signal.h>
+X#include <syslog.h>
+X#include <errno.h>
+X
+X#define SENDMAIL "/usr/lib/sendmail"
+X
+X#define EXIT_SUCCESS 0
+X#define EXIT_REPRINT 1
+X#define EXIT_THROW_AWAY 2
+X
+X#define OBSIZE 1024
+X#define IBSIZE 1024
+X
+Xchar ctrl_d = '\004';
+Xchar ctrl_t = '\024';
+X
+Xchar *malloc();
+X
+X/* user's login name */
+Xchar *login = 0;
+X/* user's host */
+Xchar *host = 0;
+X/* name of accounting file */
+Xchar *accounting_file = 0;
+X/* stream to mailer process or log file */
+XFILE *mailfp = 0;
+X/* pid of the mailer process */
+Xint mail_pid = -1;
+X/* set to non-zero on interrupt */
+Xint interrupt_flag = 0;
+X/* set to non-zero on timeout */
+Xint timeout_flag = 0;
+X/* descriptor of printer device */
+Xint psfd = 1;
+X/* number of ^D's received from printer */
+Xint eof_count = 0;
+X/* if non-zero ignore all input from printer other than 004s */
+Xint ignore_input = 0;
+X/* are we currently printing the users job */
+Xint in_job = 0;
+X/* the contents of the status file at the beginning of the job */
+Xchar *status_file_contents = NULL;
+X/* name of the printer, or NULL if unknown */
+Xchar *printer_name = NULL;
+X/* non-zero if the contents of the status file are not status_file_contents */
+Xint status_file_changed = 0;
+X/* non-zero if we need to ask the printer for its status, so that we can tell
+Xwhen a printer error has been corrected */
+Xint want_status = 0;
+X/* name of the status file */
+Xchar *status_filename = "status";
+X/* name of the job, or NULL if unknown */
+Xchar *job_name = NULL;
+X/* non-zero if errors from the printer should be mailed back to the user */
+Xint mail_flag = 1;
+X
+Xenum {
+X  NORMAL,
+X  HAD_ONE_PERCENT,
+X  HAD_TWO_PERCENT,
+X  IN_MESSAGE,
+X  HAD_RIGHT_BRACKET,
+X  HAD_RIGHT_BRACKET_AND_PERCENT
+X  } parse_state;
+X
+Xenum {
+X  INVALID,
+X  UNKNOWN,
+X  IDLE,
+X  BUSY,
+X  WAITING,
+X  PRINTING
+X  } status = INVALID;
+X
+Xint start_pagecount = -1;
+Xint end_pagecount = -1;
+X
+Xstruct {
+X  char *ptr;
+X  int count;
+X  char buf[OBSIZE];
+X} out = { out.buf, OBSIZE };
+X
+X#define MBSIZE 1024
+X
+Xchar message_buf[MBSIZE];
+Xint message_buf_i;
+X
+Xstatic char pagecount_string[] = "(%%[ pagecount: ) print \
+Xstatusdict begin pagecount end 20 string cvs print \
+X( ]%%) print flush\n";
+X
+Xvoid process_input_char();
+Xvoid printer_flushing();
+Xvoid handle_interrupt();
+Xvoid do_exit();
+Xvoid print_status_file();
+Xvoid write_status_file();
+Xvoid restore_status_file();
+Xchar *xmalloc();
+Xchar *strsignal();
+X
+X
+Xvoid handle_timeout()
+X{
+X  syslog(LOG_ERR, "%s is not responding",
+X	 printer_name ? printer_name : "printer");
+X  print_status_file("%s is not responding",
+X		    printer_name ? printer_name : "printer");
+X  sleep(60);		/* it will take at least this long to warm up */
+X  do_exit(EXIT_REPRINT);
+X}
+X
+X/*VARARGS1*/
+Xvoid sys_error(s, a1, a2)
+Xchar *s;
+Xchar *a1, a2;
+X{
+X  char buf[BUFSIZ];
+X
+X  (void)sprintf(buf, s, a1, a2);
+X  if (printer_name)
+X    syslog(LOG_ERR, "%s: %s: %m", printer_name, buf);
+X  else
+X    syslog(LOG_ERR, "%s: %m", buf);
+X  exit(EXIT_THROW_AWAY);
+X}
+X
+X/*VARARGS1*/
+Xvoid error(s, a1, a2)
+Xchar *s;
+Xchar *a1, a2;
+X{
+X  char buf[BUFSIZ];
+X
+X  (void)sprintf(buf, s, a1, a2);
+X  if (printer_name)
+X    syslog(LOG_ERR, "%s: %s", printer_name, buf);
+X  else
+X    syslog(LOG_ERR, "%s", buf);
+X  exit(EXIT_THROW_AWAY);
+X}
+X
+Xint blocking_flag = 1;
+X
+Xvoid set_blocking()
+X{
+X  if (!blocking_flag) {
+X    if (fcntl(psfd, F_SETFL, 0) < 0)
+X      sys_error("fcntl");
+X    blocking_flag = 1;
+X  }
+X}
+X
+Xvoid set_non_blocking()
+X{
+X  if (blocking_flag) {
+X    if (fcntl(psfd, F_SETFL, FNDELAY) < 0)
+X      sys_error("fcntl");
+X    blocking_flag = 0;
+X  }
+X}
+X
+Xvoid blocking_write(s, n)
+Xchar *s;
+Xint n;
+X{
+X  set_blocking();
+X  if (write(psfd, s, n) < 0)
+X    sys_error("write");
+X}
+X
+Xvoid ioflush()
+X{
+X  int rw = FREAD|FWRITE;
+X  if (ioctl(psfd, TIOCFLUSH, (char *)&rw) < 0)
+X    sys_error("ioctl(TIOCFLUSH)");
+X}
+X
+Xvoid open_mailfp()
+X{
+X  if (mailfp == 0) {
+X    if (!login || !host || !mail_flag)
+X      mailfp = stderr;
+X    else {
+X      int fd[2];
+X      if (pipe(fd) < 0)
+X	sys_error("pipe");
+X      if ((mail_pid = fork()) == 0) {
+X	/* child */
+X	char buf[1024], *cp;
+X
+X	if (close(fd[1]) < 0)
+X	  sys_error("close");
+X	if (dup2(fd[0], 0) < 0)
+X	  sys_error("dup2");
+X	if (close(fd[0]) < 0)
+X	  sys_error("close");
+X	/* don't leave stdout connected to the printer */
+X	if (close(1) < 0)
+X	  sys_error("close");
+X	if (open("/dev/null", O_WRONLY) < 0)
+X	  sys_error("can't open /dev/null");
+X	/* the parent catches SIGINT */
+X	if (signal(SIGINT, SIG_IGN) == BADSIG)
+X	  sys_error("signal");
+X	(void)sprintf(buf, "%s@%s", login, host);
+X	if ((cp = rindex(SENDMAIL, '/')) != NULL)
+X	  cp++;
+X	else
+X	  cp = SENDMAIL;
+X	(void)execl(SENDMAIL, cp, buf, (char *)NULL);
+X	sys_error("can't exec %s", SENDMAIL);
+X      }
+X      else if (mail_pid < 0)
+X	sys_error("fork");
+X      /* parent */
+X      if (close(fd[0]) < 0)
+X	sys_error("close");
+X      mailfp = fdopen(fd[1], "w");
+X      if (!mailfp)
+X	sys_error("fdopen");
+X      (void)fprintf(mailfp, "To: %s@%s\nSubject: printer job\n\n", login, host);
+X    }
+X  }
+X}
+X
+Xvoid user_char(c)
+Xchar c;
+X{
+X  static int done_intro = 0;
+X  if (in_job && (done_intro || c != '\n')) {
+X    if (mailfp == 0)
+X      open_mailfp();
+X    if (!done_intro) {
+X      (void)fputs("Your printer job ", mailfp);
+X      if (job_name && *job_name)
+X	(void)fprintf(mailfp, "(%s) ", job_name);
+X      (void)fputs("produced the following output:\n", mailfp);
+X      done_intro = 1;
+X    }
+X    (void)putc(c, mailfp);
+X  }
+X}
+X
+X#if 0
+Xvoid init_tty()
+X{
+X  struct termios t;
+X  psfd = open("/dev/ttya", O_RDWR);
+X  if (psfd < 0)
+X    sys_error("open");
+X  if (ioctl(psfd, TCGETS, &t) < 0)
+X    sys_error("ioctl(TCGETS)");
+X  t.c_cflag = B38400|CS7|CSTOPB|CREAD|CLOCAL|PARENB;
+X  t.c_oflag &= ~OPOST;
+X  t.c_iflag = IXON|IXOFF|IGNBRK|ISTRIP|IGNCR;
+X  t.c_lflag = 0;
+X  t.c_cc[VMIN] = 1;
+X  t.c_cc[VTIME] = 0;
+X  if (ioctl(psfd, TCSETS, &t) < 0)
+X    sys_error("ioctl(TCSETS)");
+X}
+X#endif
+X
+X#if 0
+X#include <sys/termios.h>
+Xvoid debug_tty()
+X{
+X  struct termios t;
+X  if (ioctl(psfd, TCGETS, &t) < 0)
+X    sys_error("ioctl(TCGETS)");
+X  syslog(LOG_ERR, "cflag = %o", t.c_cflag);
+X  syslog(LOG_ERR, "oflag = %o", t.c_oflag);
+X  syslog(LOG_ERR, "lflag = %o", t.c_lflag);
+X  syslog(LOG_ERR, "iflag = %o", t.c_iflag);
+X}
+X#endif
+X
+Xvoid do_exit(exit_code)
+Xint exit_code;
+X{
+X  if (mailfp && mailfp != stderr) {
+X    int status;
+X    int ret;
+X
+X    if (fclose(mailfp) == EOF)
+X      sys_error("fclose");
+X    while ((ret = wait(&status)) != mail_pid)
+X      if (ret < 0)
+X	sys_error("wait");
+X    if ((status & 0377) == 0177)
+X      syslog(LOG_ERR, "%s stopped", SENDMAIL);
+X    else if ((status & 0377) != 0)
+X      syslog(LOG_ERR, "%s: %s%s", SENDMAIL, strsignal(status & 0177),
+X	     (status & 0200) ? " (core dumped)" : "");
+X    else {
+X      int exit_code = (status >> 8) & 0377;
+X      if (exit_code != 0)
+X	syslog(LOG_ERR, "%s exited with status %d", SENDMAIL, exit_code);
+X    }
+X  }
+X  restore_status_file();
+X  exit(exit_code);
+X}
+X
+Xchar *strsignal(n)
+Xint n;
+X{
+X  extern char *sys_siglist[];
+X  static char buf[32];
+X  if (n >= 0 && n < NSIG)
+X    return sys_siglist[n];
+X  (void)sprintf(buf, "Signal %d", n);
+X  return buf;
+X}
+X
+Xvoid flush_output()
+X{
+X  char ibuf[IBSIZE];
+X  char *p = out.buf;
+X  int n = out.ptr - p;
+X  /* we daren't block on writes */
+X  set_non_blocking();
+X  while (n > 0) {
+X    fd_set rfds, wfds;
+X    FD_ZERO(&wfds);
+X    FD_ZERO(&rfds);
+X    FD_SET(psfd, &wfds);
+X    FD_SET(psfd, &rfds);
+X    if (interrupt_flag)
+X      handle_interrupt();
+X    while (select(psfd + 1, &rfds, &wfds, (fd_set *)NULL, (struct timeval *)NULL)
+X	   < 0)
+X      if (errno == EINTR) {
+X	if (interrupt_flag)
+X	  handle_interrupt();
+X      }
+X      else
+X	sys_error("select");
+X    if (FD_ISSET(psfd, &rfds)) {
+X      char *q = ibuf;
+X      int nread = read(psfd, ibuf, IBSIZE);
+X      if (nread < 0)
+X	sys_error("read");
+X      while (--nread >= 0)
+X	process_input_char(*q++);
+X    }
+X    else if (FD_ISSET(psfd, &wfds)) {
+X      if (want_status) {
+X	switch (write(psfd, &ctrl_t, 1)) {
+X	case 0:
+X	  break;
+X	case 1:
+X	  want_status = 0;
+X	  break;
+X	case -1:
+X	  sys_error("write");
+X	}
+X      }
+X      else {
+X	int nwritten = write(psfd, p, n);
+X	if (nwritten < 0)
+X	  sys_error("write");
+X	n -= nwritten;
+X	p += nwritten;
+X      }
+X    }
+X  }
+X  out.ptr = out.buf;
+X  out.count = OBSIZE;
+X}
+X
+X  
+Xvoid output_char(c)
+Xchar c;
+X{
+X  if (out.count <= 0)
+X    flush_output();
+X  *out.ptr = c;
+X  out.ptr += 1;
+X  out.count -= 1;
+X}
+X
+Xvoid message_char(c)
+Xchar c;
+X{
+X  if (c != '\0' && message_buf_i < MBSIZE - 1)
+X    message_buf[message_buf_i++] = c;
+X}
+X
+Xvoid process_message()
+X{
+X  char *p = message_buf;
+X  message_buf[message_buf_i] = 0;
+X  
+X  while (*p != '\0') {
+X    char *key;
+X    char *nextp;
+X
+X    for (nextp = p; *nextp != '\0'; nextp++)
+X      if (*nextp == ';') {
+X	*nextp++ = '\0';
+X	break;
+X      }
+X    while (isspace(*p))
+X      p++;
+X    key = p;
+X    p = index(p, ':');
+X    if (p != NULL) {
+X      char *q;
+X      *p++ = '\0';
+X      while (isspace(*p))
+X	p++;
+X      q = index(p, '\0');
+X      while (q > p && isspace(q[-1]))
+X	--q;
+X      *q = '\0';
+X      if (strcmp(key, "Flushing") == 0)
+X	printer_flushing();
+X      else if (strcmp(key, "PrinterError") == 0) {
+X	syslog(LOG_ERR, "%s: %s",
+X	       printer_name ? printer_name : "printer error",
+X	       p);
+X	print_status_file("%s: %s",
+X			  printer_name ? printer_name : "printer error",
+X			  p);
+X	want_status = 1;
+X      }
+X      else if (strcmp(key, "exitserver") == 0) {
+X      }
+X      else if (strcmp(key, "Error") == 0) {
+X	if (in_job) {
+X	  if (mailfp == NULL)
+X	    open_mailfp();
+X	  (void)fputs("Your printer job ", mailfp);
+X	  if (job_name && *job_name)
+X	    (void)fprintf(mailfp, "(%s) ", job_name);
+X	  (void)fprintf(mailfp, "produced the PostScript error `%s'.\n", p);
+X	}
+X      }
+X      else if (strcmp(key, "status") == 0) {
+X	if (strcmp(p, "idle") == 0)
+X	  status = IDLE;
+X	else if (strcmp(p, "busy") == 0)
+X	  status = BUSY;
+X	else if (strcmp(p, "waiting") == 0)
+X	  status = WAITING;
+X	else if (strcmp(p, "printing") == 0)
+X	  status = PRINTING;
+X	else
+X	  status = UNKNOWN;
+X	switch (status) {
+X	case BUSY:
+X	case WAITING:
+X	case PRINTING:
+X	  restore_status_file();
+X	  break;
+X	default:
+X	  want_status = 1;
+X	  break;
+X	}
+X      }
+X      else if (strcmp(key, "OffendingCommand") == 0) {
+X	if (in_job) {
+X	  if (mailfp == NULL)
+X	    open_mailfp();
+X	  (void)fprintf(mailfp, "The offending command was `%s'.\n", p);
+X	}
+X      }
+X      else if (strcmp(key, "pagecount") == 0) {
+X	int n;
+X	if (sscanf(p, "%d", &n) == 1 && n >= 0) {
+X	  if (start_pagecount < 0)
+X	    start_pagecount = n;
+X	  else
+X	    end_pagecount = n;
+X	}
+X      }
+X    }
+X    p = nextp;
+X  }
+X}
+X
+X
+Xvoid process_input_char(c)
+Xchar c;
+X{
+X  if (c == '\004')
+X    ++eof_count;
+X  else if (ignore_input || c == '\r')
+X    ;
+X  else {
+X    switch (parse_state) {
+X    case NORMAL:
+X      if (c == '%')
+X	parse_state = HAD_ONE_PERCENT;
+X      else
+X	user_char(c);
+X      break;
+X    case HAD_ONE_PERCENT:
+X      if (c == '%')
+X	parse_state = HAD_TWO_PERCENT;
+X      else {
+X	user_char('%');
+X	user_char(c);
+X	parse_state = NORMAL;
+X      }
+X      break;
+X    case HAD_TWO_PERCENT:
+X      if (c == '[') {
+X	message_buf_i = 0;
+X	parse_state = IN_MESSAGE;
+X      }
+X      else {
+X	user_char('%');
+X	user_char('%');
+X	user_char(c);
+X	parse_state = NORMAL;
+X      }
+X      break;
+X    case IN_MESSAGE:
+X      if (c == ']')
+X	parse_state = HAD_RIGHT_BRACKET;
+X      else
+X	message_char(c);
+X      break;
+X    case HAD_RIGHT_BRACKET:
+X      if (c == '%')
+X	parse_state = HAD_RIGHT_BRACKET_AND_PERCENT;
+X      else {
+X	message_char(']');
+X	message_char(c);
+X	parse_state = IN_MESSAGE;
+X      }
+X      break;
+X    case HAD_RIGHT_BRACKET_AND_PERCENT:
+X      if (c == '%') {
+X	parse_state = NORMAL;
+X	process_message();
+X      }
+X      else {
+X	message_char(']');
+X	message_char('%');
+X	message_char(c);
+X	parse_state = IN_MESSAGE;
+X      }
+X      break;
+X    default:
+X      abort();
+X    }
+X  }
+X}
+X
+Xvoid process_some_input()
+X{
+X  char ibuf[IBSIZE];
+X  char *p = ibuf;
+X  int nread;
+X  fd_set rfds, wfds;
+X  set_non_blocking();
+X  FD_ZERO(&wfds);
+X  FD_ZERO(&rfds);
+X  FD_SET(psfd, &rfds);
+X  if (want_status)
+X    FD_SET(psfd, &wfds);
+X  if (interrupt_flag)
+X    handle_interrupt();
+X  if (timeout_flag)
+X    handle_timeout();
+X  while (select(psfd + 1, &rfds, &wfds, (fd_set *)NULL, (struct timeval *)NULL) 
+X	 < 0)
+X    if (errno == EINTR) {
+X      if (timeout_flag)
+X	handle_timeout();
+X      else if (interrupt_flag)
+X	handle_interrupt();
+X    }
+X    else
+X      sys_error("select");
+X  if (FD_ISSET(psfd, &wfds)) {
+X    switch (write(psfd, &ctrl_t, 1)) {
+X    case 0:
+X      break;
+X    case 1:
+X      want_status = 0;
+X      break;
+X    case -1:
+X      sys_error("write");
+X    }
+X    return;
+X  }
+X  nread = read(psfd, ibuf, IBSIZE);
+X  if (nread < 0)
+X    sys_error("read");
+X  if (nread == 0)
+X    sys_error("read returned 0");
+X  while (--nread >= 0)
+X    process_input_char(*p++);
+X}
+X
+X
+Xvoid do_accounting()
+X{
+X  FILE *fp;
+X  if (end_pagecount > start_pagecount
+X      && host != NULL
+X      && login != NULL
+X      && accounting_file != NULL
+X      && (fp = fopen(accounting_file, "a")) != NULL) {
+X    (void)fprintf(fp,
+X		  "%7.2f %s:%s\n", 
+X		  (double)(end_pagecount - start_pagecount),
+X		  host,
+X		  login);
+X    if (fclose(fp) == EOF)
+X      sys_error("fclose %s", accounting_file);
+X  }
+X}
+X
+Xvoid set_timeout_flag()
+X{
+X  timeout_flag = 1;
+X}
+X
+Xvoid get_end_pagecount()
+X{
+X  int ec;
+X  if (signal(SIGALRM, set_timeout_flag) == BADSIG)
+X    sys_error("signal");
+X  (void)alarm(30);
+X  ioflush();
+X  blocking_write(pagecount_string, sizeof(pagecount_string) - 1);
+X  end_pagecount = -1;
+X  ignore_input = 0;
+X  in_job = 0;
+X  parse_state = NORMAL;
+X  while (end_pagecount < 0)
+X    process_some_input();
+X  blocking_write(&ctrl_d, 1);
+X  ec = eof_count;
+X  while (ec == eof_count)
+X    process_some_input();
+X  if (signal(SIGALRM, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X}
+X
+Xvoid get_start_pagecount()
+X{
+X  int ec;
+X  if (signal(SIGALRM, set_timeout_flag) == BADSIG)
+X    sys_error("signal");
+X  (void)alarm(30);
+X  ioflush();
+X  blocking_write(pagecount_string, sizeof(pagecount_string) - 1);
+X  start_pagecount = -1;
+X  parse_state = NORMAL;
+X  in_job = 0;
+X  ignore_input = 0;
+X  while (start_pagecount < 0)
+X    process_some_input();
+X  blocking_write(&ctrl_d, 1);
+X  ec = eof_count;
+X  while (ec == eof_count)
+X    process_some_input();
+X  if (signal(SIGALRM, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X}
+X
+Xvoid set_interrupt_flag()
+X{
+X  interrupt_flag = 1;
+X}
+X
+Xvoid handle_interrupt()
+X{
+X  static char interrupt_string[] = "\003\004";
+X  int ec;
+X  interrupt_flag = 0;
+X  if (signal(SIGINT, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X  if (signal(SIGALRM, set_timeout_flag) == BADSIG)
+X    sys_error("signal");
+X  (void)alarm(30);
+X  ioflush();
+X  blocking_write(interrupt_string, sizeof(interrupt_string)-1);
+X  ignore_input = 1;
+X  ec = eof_count;
+X  while (eof_count == ec)
+X    process_some_input();
+X  if (signal(SIGALRM, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X  get_end_pagecount();
+X  do_accounting();
+X  do_exit(EXIT_SUCCESS);
+X}
+X
+Xvoid printer_flushing()
+X{
+X  int ec;
+X  if (signal(SIGINT, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X  ioflush();
+X  blocking_write(&ctrl_d, 1);
+X  ignore_input = 1;
+X  ec = eof_count;
+X  while (eof_count == ec)
+X    process_some_input();
+X  get_end_pagecount();
+X  do_accounting();
+X  do_exit(EXIT_SUCCESS);
+X}
+X
+Xvoid send_file()
+X{
+X  int ec;
+X  int c;
+X
+X  in_job = 1;
+X  parse_state = NORMAL;
+X  ignore_input = 0;
+X  if (signal(SIGINT, set_interrupt_flag) == BADSIG)
+X    sys_error("signal");
+X  while ((c = getchar()) != EOF)
+X    if (c != '\004')
+X      output_char(c);
+X  flush_output();
+X#ifdef IIg
+X  /* rauletta@sitevax.gmu.edu says this works around the bug in the
+X     serial driver of the Laserwriter IIf and IIg. */
+X  (void)tcdrain(psfd);
+X#endif
+X  blocking_write(&ctrl_d, 1);
+X  ec = eof_count;
+X  while (ec == eof_count)
+X    process_some_input();
+X  restore_status_file();
+X}
+X
+Xvoid get_status()
+X{
+X  if (signal(SIGALRM, set_timeout_flag) == BADSIG)
+X    sys_error("signal");
+X  ioflush();
+X  (void)alarm(5);
+X  blocking_write(&ctrl_t, 1);
+X  in_job = 0;
+X  parse_state = NORMAL;
+X  ignore_input = 0;
+X  while (status == INVALID)
+X    process_some_input();
+X  switch (status) {
+X  case IDLE:
+X    break;
+X  case WAITING:
+X    blocking_write(&ctrl_d, 1);
+X    sleep(5);
+X    exit(EXIT_REPRINT);
+X  case BUSY:
+X  case PRINTING:
+X  case UNKNOWN:
+X    sleep(15);
+X    exit(EXIT_REPRINT);
+X  }
+X  if (signal(SIGALRM, SIG_IGN) == BADSIG)
+X    sys_error("signal");
+X}
+X
+X/* I know we ought to use varargs, but 4.3 doesn't have vsprintf. */
+X
+X/*VARARGS1*/
+Xvoid print_status_file(s, a1, a2)
+Xchar *s;
+Xchar *a1, *a2;
+X{
+X  char buf[BUFSIZ];
+X
+X  (void)sprintf(buf, s, a1, a2);
+X  (void)strcat(buf, "\n");
+X  write_status_file(buf);
+X  status_file_changed = 1;
+X}
+X
+Xvoid restore_status_file()
+X{
+X  if (status_file_contents && status_file_changed) {
+X    write_status_file(status_file_contents);
+X    status_file_changed = 0;
+X  }
+X}
+X
+Xvoid write_status_file(s)
+Xchar *s;
+X{
+X  int fd;
+X
+X  (void)umask(0);
+X  fd = open(status_filename, O_WRONLY|O_CREAT, 0664);
+X  if (fd < 0)
+X    sys_error("can't open %s", status_filename);
+X  if (flock(fd, LOCK_EX) < 0)
+X    sys_error("flock %s", status_filename);
+X  if (ftruncate(fd, (off_t)0) < 0)
+X    sys_error("ftruncate %s", status_filename);
+X  if (write(fd, s, strlen(s)) < 0)
+X    sys_error("write %s", status_filename);
+X  if (close(fd) < 0)
+X    sys_error("close %s", status_filename);
+X}
+X
+Xvoid read_status_file()
+X{
+X  struct stat sb;
+X  int count;
+X  char *ptr;
+X
+X  int fd = open(status_filename, O_RDONLY);
+X  if (fd < 0)
+X    sys_error("can't open %s", status_filename);
+X  if (flock(fd, LOCK_SH) < 0)
+X    sys_error("flock %s", status_filename);
+X  if (fstat(fd, &sb) < 0)
+X    sys_error("fstat %s", status_filename);
+X  if ((sb.st_mode & S_IFMT) != S_IFREG)
+X    error("%s is not a regular file", status_filename);
+X  status_file_contents = xmalloc((int)sb.st_size + 1);
+X  count = sb.st_size;
+X  ptr = status_file_contents;
+X  while (count > 0) {
+X    int nread = read(fd, ptr, count);
+X    if (nread < 0)
+X      sys_error("read %s", status_file_contents);
+X    if (nread == 0)
+X      error("%s changed size (locking problem?)", status_filename);
+X    count -= nread;
+X    ptr += nread;
+X  }
+X  
+X  if (close(fd) < 0)
+X    sys_error("close %s", status_filename);
+X  status_file_contents[sb.st_size] = '\0';
+X
+X  /* This is a grungy hack. */
+X#define MESSAGE " is ready and printing\n"
+X#define MESSAGE_LEN (sizeof(MESSAGE) - 1)
+X  if (!printer_name
+X      && sb.st_size > sizeof(MESSAGE)
+X      && strcmp(status_file_contents + sb.st_size - MESSAGE_LEN, MESSAGE) == 0) {
+X    int plen = sb.st_size - MESSAGE_LEN;
+X    printer_name = xmalloc(plen + 1);
+X    bcopy(status_file_contents, printer_name, plen);
+X    printer_name[plen] = '\0';
+X  }
+X}
+X
+Xchar *xmalloc(n)
+X     int n;
+X{
+X  char *p = malloc((unsigned)n);
+X  if (!p)
+X    error("out of memory");
+X  return p;
+X}
+X
+X#define usage() error("invalid arguments")    
+X
+Xint main(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  char *prog;
+X  int i = 1;
+X  int Uflag = 0;
+X
+X  if (argc > 0) {
+X    prog = rindex(argv[0], '/');
+X    if (prog)
+X      prog++;
+X    else
+X      prog = argv[0];
+X  }
+X  else
+X    prog = "lprps";
+X  openlog(prog, LOG_PID, LOG_LPR);
+X
+X  for (i = 1; i < argc && argv[i][0] == '-'; i++)
+X    switch (argv[i][1]) {
+X    case 'c':
+X      break;
+X    case 'M':
+X      /* don't mail errors back to user */
+X      mail_flag = 0;
+X      break;
+X    case 'U':
+X      /* argument is not a real user (eg daemon) */
+X      Uflag++;
+X      break;
+X    case 'x':
+X    case 'y':
+X    case 'w':
+X    case 'l':
+X    case 'i':
+X      /* not interested in these */
+X      break;
+X    case 'n':
+X      if (++i == argc)
+X	usage();
+X      else
+X	login = argv[i];
+X      break;
+X    case 'h':
+X      if (++i == argc)
+X	usage();
+X      else
+X	host = argv[i];
+X      break;
+X      /* 'j', 'p', and 's' are non-standard */
+X    case 'j':
+X      if (++i == argc)
+X	usage();
+X      else
+X	job_name = argv[i];
+X      break;
+X    case 'p':
+X      if (++i == argc)
+X	usage();
+X      else
+X	printer_name = argv[i];
+X      break;
+X    case 's':
+X      if (++i == argc)
+X	usage();
+X      else
+X	status_filename = argv[i];
+X      break;
+X    default:
+X      usage();
+X    }
+X  if (argc - i > 1)
+X    usage();
+X  if (i < argc)
+X    accounting_file = argv[i];
+X  if (Uflag && mail_flag && login) {
+X    for (i = 1; i < argc && argv[i][0] == '-'; i++)
+X      switch(argv[i][1]) {
+X      case 'U':
+X	if (strcmp(argv[i] + 2, login) == 0)
+X	  mail_flag = 0;
+X	break;
+X      case 'h':
+X      case 'n':
+X      case 'j':
+X      case 'p':
+X      case 's':
+X	i++;
+X	break;
+X      }
+X  }
+X  read_status_file();
+X  get_status();
+X  get_start_pagecount();
+X  send_file();
+X  get_end_pagecount();
+X  do_accounting();
+X  do_exit(EXIT_SUCCESS);
+X  /*NOTREACHED*/
+X}
+END_OF_FILE
+if test 20480 -ne `wc -c <'lprps.c'`; then
+    echo shar: \"'lprps.c'\" unpacked with wrong size!
+fi
+# end of 'lprps.c'
+fi
+if test -f 'psif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psif.c'\"
+else
+echo shar: Extracting \"'psif.c'\" \(2326 characters\)
+sed "s/^X//" >'psif.c' <<'END_OF_FILE'
+X/* psif.c */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: psif.c,v 1.7 1992/02/01 12:40:34 jjc Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+Xoff_t lseek();
+X
+X#ifndef TEXT_FILTER
+X#define TEXT_FILTER "/usr/local/lib/psif-text"
+X#endif /* not TEXT_FILTER */
+X
+X#ifndef PS_FILTER
+X#define PS_FILTER "/usr/local/lib/psif-ps"
+X#endif /* not PS_FILTER */
+X
+X#define EXIT_SUCCESS 0
+X#define EXIT_REPRINT 1
+X#define EXIT_THROW_AWAY 2
+X
+Xchar *prog;
+X
+Xvoid sys_error(s)
+Xchar *s;
+X{
+X  if (prog)
+X    (void)fprintf(stderr, "%s: ", prog);
+X  perror(s);
+X  exit(EXIT_THROW_AWAY);
+X}
+X
+X
+X/* ARGSUSED */
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  char buf[BUFSIZ];
+X  char *command;
+X  int nread = 0;
+X  int eof = 0;
+X  struct stat statb;
+X  prog = argv[0];
+X
+X  /* Read the first block. */
+X  while (nread < BUFSIZ) {
+X    int ret = read(0, buf + nread, BUFSIZ - nread);
+X    if (ret < 0)
+X      sys_error("read");
+X    if (ret == 0) {
+X      eof = 1;
+X      break;
+X    }
+X    nread += ret;
+X  }
+X  /* Assume a file is binary if it contains a NUL in the first block. */
+X  if (memchr(buf, '\0', nread)) {
+X    fprintf(stderr, "%s: binary file rejected\n", prog);
+X    exit(EXIT_THROW_AWAY);
+X  }
+X  if (nread < 2 || buf[0] != '%' || buf[1] != '!')
+X    command = TEXT_FILTER;
+X  else
+X    command = PS_FILTER;
+X  if (fstat(0, &statb) < 0)
+X    sys_error("fstat");
+X  if ((statb.st_mode & S_IFMT) != S_IFREG) {
+X    /* this happens with lpr -p */
+X    int pid;
+X    int fd[2];
+X    if (pipe(fd) < 0)
+X      sys_error("pipe");
+X    if ((pid = fork()) < 0)
+X      sys_error("fork");
+X    else if (pid == 0) {
+X      /* in the child */
+X      int d;
+X      if (close(fd[0]) < 0)
+X	sys_error("close");
+X      d = fd[1];
+X      if (nread != 0) {
+X	if (write(d, buf, nread) < 0)
+X	  sys_error("write");
+X	if (!eof) {
+X	  while ((nread = read(0, buf, sizeof(buf))) > 0)
+X	    if (write(d, buf, nread) < 0)
+X	      sys_error("write");
+X	  if (nread < 0)
+X	    sys_error("read");
+X	}
+X      }
+X      if (close(d) < 0)
+X	sys_error("close");
+X      exit(0);
+X    }
+X    if (close(fd[1]) < 0)
+X      sys_error("close");
+X    if (close(0) < 0)
+X      sys_error("close");
+X    if (dup(fd[0]) < 0)
+X      sys_error("dup");
+X    if (close(fd[0]) < 0)
+X      sys_error("close");
+X  }
+X  else {
+X    if (lseek(0, (off_t)-nread, 1) < 0)
+X      sys_error("lseek");
+X  }
+X  execv(command, argv);
+X  sys_error("execv");
+X}
+END_OF_FILE
+if test 2326 -ne `wc -c <'psif.c'`; then
+    echo shar: \"'psif.c'\" unpacked with wrong size!
+fi
+# end of 'psif.c'
+fi
+if test -f 'textps.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'textps.c'\"
+else
+echo shar: Extracting \"'textps.c'\" \(12111 characters\)
+sed "s/^X//" >'textps.c' <<'END_OF_FILE'
+X/* textps.c */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: textps.c,v 1.8 1992/08/12 11:35:31 jjc Exp $";
+X#endif
+X
+X#ifndef TAB_WIDTH
+X#define TAB_WIDTH 8
+X#endif /* not TAB_WIDTH */
+X
+X#ifndef LINES_PER_PAGE
+X#define LINES_PER_PAGE 66
+X#endif /* not LINES_PER_PAGE */
+X
+X#ifndef PAGE_LENGTH
+X#ifdef A4
+X#define PAGE_LENGTH 842.0
+X#else /* not A4 */
+X#define PAGE_LENGTH 792.0
+X#endif /* not A4 */
+X#endif /* not PAGE_LENGTH */
+X
+X#ifndef BASELINE_OFFSET
+X#define BASELINE_OFFSET 8.0
+X#endif /* not BASELINE_OFFSET */
+X
+X#ifndef VERTICAL_SPACING
+X#define VERTICAL_SPACING 12.0
+X#endif /* not VERTICAL_SPACING */
+X
+X#ifndef LEFT_MARGIN
+X#define LEFT_MARGIN 18.0
+X#endif /* not LEFT_MARGIN */
+X
+X#ifndef FONT
+X#define FONT "Courier"
+X#endif /* not FONT */
+X
+X#ifndef BOLD_FONT
+X#define BOLD_FONT "Courier-Bold"
+X#endif /* not BOLD_FONT */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+Xextern char *malloc();
+Xextern char *optarg;
+Xextern int optind;
+X
+Xtypedef struct output_char {
+X  struct output_char *next;
+X  char c;
+X  char is_bold;
+X  int pos;
+X} output_char;
+X
+Xoutput_char *free_output_char_list = 0;
+X
+Xint tab_width = TAB_WIDTH;
+Xint lines_per_page = LINES_PER_PAGE;
+Xdouble page_length = PAGE_LENGTH; /* in points */
+X/* distance in points from top of page to first baseline */
+Xdouble baseline_offset = BASELINE_OFFSET;
+Xdouble vertical_spacing = VERTICAL_SPACING; /* in points */
+Xdouble left_margin = LEFT_MARGIN; /* in points */
+Xchar *font = FONT;
+Xchar *bold_font = BOLD_FONT;
+X
+Xdouble char_width;
+X
+Xint pageno = 0;
+X
+Xenum { NONE, ROMAN, BOLD } current_font;
+X
+Xvoid do_file();
+Xvoid prologue();
+Xvoid trailer();
+Xchar *prog;
+X
+Xvoid usage()
+X{
+X  fprintf(stderr,
+X	  "usage: %s [-c n] [-l n] [-m n] [-t n] [-v n] [files ...]\n",
+X	  prog);
+X  exit(1);
+X}
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  int bad_files = 0;
+X  double cpi = 12.0;			/* characters per inch */
+X  int opt;
+X
+X  prog = argv[0];
+X
+X  while ((opt = getopt(argc, argv, "c:l:m:t:v:")) != EOF)
+X    switch (opt) {
+X    case 'c':
+X      if (sscanf(optarg, "%lf", &cpi) != 1)
+X	usage();
+X      break;
+X    case 'l':
+X      if (sscanf(optarg, "%d", &lines_per_page) != 1)
+X	usage();
+X      break;
+X    case 'm':
+X      if (sscanf(optarg, "%lf", &left_margin) != 1)
+X	usage();
+X      break;
+X    case 't':
+X      if (sscanf(optarg, "%lf", &baseline_offset) != 1)
+X	usage();
+X      break;
+X    case 'v':
+X      if (sscanf(optarg, "%lf", &vertical_spacing) != 1)
+X	usage();
+X      break;
+X    case '?':
+X      usage();
+X    default:
+X      abort();
+X    }
+X
+X  char_width = 72.0/cpi;
+X  prologue();
+X  if (optind >= argc)
+X    do_file(stdin);
+X  else {
+X    int i;
+X    for (i = optind; i < argc; i++)
+X      if (strcmp(argv[i], "-") != 0
+X	  && freopen(argv[i], "r", stdin) == NULL) {
+X	perror(argv[i]);
+X	bad_files++;
+X      }
+X      else
+X	do_file();
+X  }
+X  trailer();
+X  exit(bad_files);
+X}
+X
+X
+Xoutput_char *new_output_char()
+X{
+X  if (free_output_char_list) {
+X    output_char *tem = free_output_char_list;
+X    free_output_char_list = free_output_char_list->next;
+X    return tem;
+X  }
+X  else {
+X    output_char *tem;
+X    if ((tem = (output_char *)malloc(sizeof(output_char))) == NULL) {
+X      fprintf(stderr, "%s: out of memory\n", prog);
+X      exit(1);
+X    }
+X    return tem;
+X  }
+X}
+X
+Xvoid delete_output_char(p)
+Xoutput_char *p;
+X{
+X  p->next = free_output_char_list;
+X  free_output_char_list = p;
+X}
+X
+Xvoid pschar(c)
+Xint c;
+X{
+X  if (!isascii(c) || iscntrl(c))
+X    printf("\\%03o", c & 0377);
+X  else if (c == '(' || c == ')' || c == '\\') {
+X    putchar('\\');
+X    putchar(c);
+X  }
+X  else
+X    putchar(c);
+X}
+X
+Xvoid psnum(f)
+Xdouble f;
+X{
+X  static char buf[100];
+X  char *p;
+X  sprintf(buf, "%f", f);
+X  for (p = buf + strlen(buf) - 1; *p != '.';  --p)
+X    if (*p != '0') {
+X      p++;
+X      break;
+X    }
+X  *p = '\0';
+X  fputs(buf, stdout);
+X}
+X
+X/* output_line is ordered greatest position first */
+X
+Xvoid print_line(output_line, vpos)
+Xoutput_char *output_line;
+Xint vpos;
+X{
+X  output_char *rev = output_line;
+X  output_line = 0;
+X  while (rev != 0) {
+X    output_char *tem = rev;
+X    rev = rev->next;
+X    tem->next = output_line;
+X    output_line = tem;
+X  }
+X  while (output_line != NULL) {
+X    output_char *tem;
+X    output_char **p = &output_line;
+X    int start_pos = output_line->pos;
+X    int is_bold = output_line->is_bold;
+X    int pos;
+X    if (is_bold) {
+X      if (current_font != BOLD) {
+X	printf("B");
+X	current_font = BOLD;
+X      }
+X    }
+X    else {
+X      if (current_font != ROMAN) {
+X	printf("R");
+X	current_font = ROMAN;
+X      }
+X    }
+X    putchar('(');
+X    pschar(output_line->c);
+X    pos = output_line->pos + 1;
+X    tem = output_line;
+X    output_line = output_line->next;
+X    delete_output_char(tem);
+X    for (;;) {
+X      while (*p != NULL
+X	     && ((*p)->pos < pos || (*p)->is_bold != is_bold))
+X	p = &(*p)->next;
+X      if (*p == NULL)
+X	break;
+X      while (pos < (*p)->pos) {
+X	pschar(' ');
+X	pos++;
+X      }
+X      pschar((*p)->c);
+X      pos++;
+X      tem = *p;
+X      *p = tem->next;
+X      delete_output_char(tem);
+X    }
+X    putchar(')');
+X    psnum(left_margin + start_pos*char_width);
+X    putchar(' ');
+X    psnum(page_length - baseline_offset - vpos*vertical_spacing);
+X    fputs(" L\n", stdout);
+X  }
+X}
+X
+Xvoid page_start()
+X{
+X  printf("%%%%Page: ? %d\n%%%%BeginPageSetup\nPS\n%%%%EndPageSetup\n",
+X	 ++pageno);
+X  current_font = NONE;
+X}
+X
+Xvoid page_end()
+X{
+X  printf("PE\n");
+X}
+X
+Xchar *defs[] = {
+X  "/L { moveto show } bind def",
+X  "/PS { /level0 save def } bind def",
+X  "/PE { level0 restore showpage } bind def",
+X  "/RE {",
+X  "\tfindfont",
+X  "\tdup maxlength dict begin",
+X  "\t{",
+X  "\t\t1 index /FID ne { def } { pop pop } ifelse",
+X  "\t} forall",
+X  "\t/Encoding exch def",
+X  "\tdup /FontName exch def",
+X  "\tcurrentdict end definefont pop",
+X  "} bind def",
+X};
+X
+Xchar *latin1[] = {
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  "space",
+X  "exclam",
+X  "quotedbl",
+X  "numbersign",
+X  "dollar",
+X  "percent",
+X  "ampersand",
+X  "quoteright",
+X  "parenleft",
+X  "parenright",
+X  "asterisk",
+X  "plus",
+X  "comma",
+X  "hyphen",  /* this should be `minus', but not all PS printers have it */
+X  "period",
+X  "slash",
+X  "zero",
+X  "one",
+X  "two",
+X  "three",
+X  "four",
+X  "five",
+X  "six",
+X  "seven",
+X  "eight",
+X  "nine",
+X  "colon",
+X  "semicolon",
+X  "less",
+X  "equal",
+X  "greater",
+X  "question",
+X  "at",
+X  "A",
+X  "B",
+X  "C",
+X  "D",
+X  "E",
+X  "F",
+X  "G",
+X  "H",
+X  "I",
+X  "J",
+X  "K",
+X  "L",
+X  "M",
+X  "N",
+X  "O",
+X  "P",
+X  "Q",
+X  "R",
+X  "S",
+X  "T",
+X  "U",
+X  "V",
+X  "W",
+X  "X",
+X  "Y",
+X  "Z",
+X  "bracketleft",
+X  "backslash",
+X  "bracketright",
+X  "asciicircum",
+X  "underscore",
+X  "quoteleft",
+X  "a",
+X  "b",
+X  "c",
+X  "d",
+X  "e",
+X  "f",
+X  "g",
+X  "h",
+X  "i",
+X  "j",
+X  "k",
+X  "l",
+X  "m",
+X  "n",
+X  "o",
+X  "p",
+X  "q",
+X  "r",
+X  "s",
+X  "t",
+X  "u",
+X  "v",
+X  "w",
+X  "x",
+X  "y",
+X  "z",
+X  "braceleft",
+X  "bar",
+X  "braceright",
+X  "asciitilde",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  ".notdef",
+X  "dotlessi",
+X  "grave",
+X  "acute",
+X  "circumflex",
+X  "tilde",
+X  "macron",
+X  "breve",
+X  "dotaccent",
+X  "dieresis",
+X  ".notdef",
+X  "ring",
+X  "cedilla",
+X  ".notdef",
+X  "hungarumlaut",
+X  "ogonek",
+X  "caron",
+X  ".notdef",
+X  "exclamdown",
+X  "cent",
+X  "sterling",
+X  "currency",
+X  "yen",
+X  "brokenbar",
+X  "section",
+X  "dieresis",
+X  "copyright",
+X  "ordfeminine",
+X  "guilsinglleft",
+X  "logicalnot",
+X  "hyphen",
+X  "registered",
+X  "macron",
+X  "degree",
+X  "plusminus",
+X  "twosuperior",
+X  "threesuperior",
+X  "acute",
+X  "mu",
+X  "paragraph",
+X  "periodcentered",
+X  "cedilla",
+X  "onesuperior",
+X  "ordmasculine",
+X  "guilsinglright",
+X  "onequarter",
+X  "onehalf",
+X  "threequarters",
+X  "questiondown",
+X  "Agrave",
+X  "Aacute",
+X  "Acircumflex",
+X  "Atilde",
+X  "Adieresis",
+X  "Aring",
+X  "AE",
+X  "Ccedilla",
+X  "Egrave",
+X  "Eacute",
+X  "Ecircumflex",
+X  "Edieresis",
+X  "Igrave",
+X  "Iacute",
+X  "Icircumflex",
+X  "Idieresis",
+X  "Eth",
+X  "Ntilde",
+X  "Ograve",
+X  "Oacute",
+X  "Ocircumflex",
+X  "Otilde",
+X  "Odieresis",
+X  "multiply",
+X  "Oslash",
+X  "Ugrave",
+X  "Uacute",
+X  "Ucircumflex",
+X  "Udieresis",
+X  "Yacute",
+X  "Thorn",
+X  "germandbls",
+X  "agrave",
+X  "aacute",
+X  "acircumflex",
+X  "atilde",
+X  "adieresis",
+X  "aring",
+X  "ae",
+X  "ccedilla",
+X  "egrave",
+X  "eacute",
+X  "ecircumflex",
+X  "edieresis",
+X  "igrave",
+X  "iacute",
+X  "icircumflex",
+X  "idieresis",
+X  "eth",
+X  "ntilde",
+X  "ograve",
+X  "oacute",
+X  "ocircumflex",
+X  "otilde",
+X  "odieresis",
+X  "divide",
+X  "oslash",
+X  "ugrave",
+X  "uacute",
+X  "ucircumflex",
+X  "udieresis",
+X  "yacute",
+X  "thorn",
+X  "ydieresis",
+X};
+X  
+Xvoid prologue()
+X{
+X  int col, i;
+X
+X  printf("%%!PS-Adobe-3.0\n");
+X  printf("%%%%DocumentNeededResources: font %s\n", font);
+X  printf("%%%%+ font %s\n", bold_font);
+X  printf("%%%%Pages: (atend)\n");
+X  printf("%%%%EndComments\n");
+X  printf("%%%%BeginProlog\n");
+X  printf("/textps 10 dict def textps begin\n");
+X  for (i = 0; i < sizeof(defs)/sizeof(defs[0]); i++)
+X    printf("%s\n", defs[i]);
+X  printf("/ISOLatin1Encoding where{pop}{/ISOLatin1Encoding[\n");
+X
+X  col = 0;
+X  for (i = 0; i < 256; i++) {
+X    int len = strlen(latin1[i]) + 1;
+X    col += len;
+X    if (col > 79) {
+X      putchar('\n');
+X      col = len;
+X    }
+X    printf("/%s", latin1[i]);
+X  }
+X  printf("\n] def}ifelse\nend\n");
+X  printf("%%%%BeginSetup\n");
+X  printf("%%%%IncludeResource: font %s\n", font);
+X  printf("%%%%IncludeResource: font %s\n", bold_font);
+X  printf("textps begin\n");
+X  printf("/__%s ISOLatin1Encoding /%s RE\n", font, font);
+X  printf("/R [ /__%s findfont %f scalefont /setfont load ] cvx def\n",
+X	 font, char_width/.6);
+X  printf("/__%s ISOLatin1Encoding /%s RE\n", bold_font, bold_font);
+X  printf("/B [ /__%s findfont %f scalefont /setfont load ] cvx def\n", 
+X	 bold_font, char_width/.6);
+X  printf("%%%%EndSetup\n");
+X  printf("%%%%EndProlog\n");
+X}
+X
+Xvoid trailer()
+X{
+X  printf("%%%%Trailer\nend\n%%%%Pages: %d\n", pageno);
+X}
+X
+X/* p is ordered greatest position first */
+X
+Xvoid add_char(c, pos, p)
+Xint c;
+Xint pos;
+Xoutput_char **p;
+X{
+X  for (;; p = &(*p)->next) {
+X    if (*p == NULL || (*p)->pos < pos) {
+X      output_char *tem = new_output_char();
+X      tem->next = *p;
+X      *p = tem;
+X      tem->c = c;
+X      tem->is_bold = 0;
+X      tem->pos = pos;
+X      break;
+X    }
+X    else if ((*p)->pos == pos) {
+X      if (c == (*p)->c) {
+X	(*p)->is_bold = 1;
+X	break;
+X      }
+X    }
+X  }
+X}
+X
+Xvoid do_file()
+X{
+X  int c;
+X  int vpos = 0;
+X  int hpos = 0;
+X  int page_started = 0;
+X  int esced = 0;
+X  output_char *output_line = 0;
+X  while ((c = getchar()) != EOF)
+X    if (esced)
+X      switch(c) {
+X      case '7':
+X	if (vpos > 0) {
+X	  if (output_line != NULL) {
+X	    if (!page_started) {
+X	      page_started = 1;
+X	      page_start();
+X	    }
+X	    print_line(output_line, vpos);
+X	    output_line = 0;
+X	  }
+X	  vpos -= 1;
+X	}
+X	/* hpos = 0; */
+X	esced = 0;
+X	break;
+X      default:
+X	/* silently ignore */
+X	esced = 0;
+X	break;
+X      }
+X    else
+X      switch (c) {
+X      case '\033':
+X	esced = 1;
+X	break;
+X      case '\b':
+X	if (hpos > 0)
+X	  hpos--;
+X	break;
+X      case '\f':
+X	if (!page_started)
+X	  page_start();
+X	print_line(output_line, vpos);
+X	output_line = 0;
+X	page_end();
+X	hpos = 0;		/* ?? */
+X	vpos = 0;
+X	page_started = 0;
+X	break;
+X      case '\r':
+X	hpos = 0;
+X	break;
+X      case '\n':
+X	if (output_line != NULL) {
+X	  if (!page_started) {
+X	    page_started = 1;
+X	    page_start();
+X	  }
+X	  print_line(output_line, vpos);
+X	  output_line = 0;
+X	}
+X	vpos += 1;
+X	if (vpos >= lines_per_page) {
+X	  if (!page_started)
+X	    page_start();
+X	  page_end();
+X	  page_started = 0;
+X	  vpos = 0;
+X	}
+X	hpos = 0;
+X	break;
+X      case ' ':
+X	hpos++;
+X	break;
+X      case '\t':
+X	hpos = ((hpos + tab_width)/tab_width)*tab_width;
+X	break;
+X      default:
+X	if (!(isascii(c) && iscntrl(c))) {
+X	  add_char(c, hpos, &output_line);
+X	  hpos++;
+X	}
+X	break;
+X      }
+X  if (output_line != NULL) {
+X    if (!page_started) {
+X      page_started = 1;
+X      page_start();
+X    }
+X    print_line(output_line, vpos);
+X    output_line = 0;
+X  }
+X  if (page_started)
+X    page_end();
+X}
+END_OF_FILE
+if test 12111 -ne `wc -c <'textps.c'`; then
+    echo shar: \"'textps.c'\" unpacked with wrong size!
+fi
+# end of 'textps.c'
+fi
+if test -f 'psof.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'psof.c'\"
+else
+echo shar: Extracting \"'psof.c'\" \(5933 characters\)
+sed "s/^X//" >'psof.c' <<'END_OF_FILE'
+X/* psof.c - lprps `of' filter for banner printing */
+X
+X/* Assumes sb is set, sh is not set, and that there is also an if
+Xfilter. */
+X
+X/* TODO: parse height and width command line arguments and pass them
+Xas definitions to banner prog */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: psof.c,v 1.1 1992/02/01 12:36:01 jjc Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include <strings.h>
+X#include <signal.h>
+X#include <syslog.h>
+X#include <errno.h>
+X#include <ctype.h>
+X
+X#ifndef LPRPS
+X#define LPRPS "/usr/local/lib/lprps"
+X#endif /* not LPRPS */
+X
+X#ifndef BANNER
+X#define BANNER "/usr/local/lib/banner.ps"
+X#endif /* not BANNER */
+X
+X#define JOB_PREFIX "  Job: "
+X#define DATE_PREFIX "  Date: "
+X#define LINE_MAX 1024
+X
+Xstatic char class[32];
+Xstatic char user[32];
+Xstatic char job[100];
+Xstatic char date[100];
+X
+Xstatic void sys_error();
+Xstatic void error();
+Xstatic int parse_banner();
+Xstatic int define_string();
+Xstatic int do_banner();
+Xstatic void print_banner();
+X
+Xstatic char *xstrstr();
+X
+Xint main(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  char buf[LINE_MAX];
+X  char *prog;
+X
+X  if (argc > 0) {
+X    if ((prog = rindex(argv[0], '/')) == 0)
+X      prog = argv[0];
+X    else
+X      prog++;
+X  }
+X  else
+X    prog = "psof";
+X  openlog(prog, LOG_PID, LOG_LPR);
+X  for (;;) {
+X    int i = 0;
+X    int c = getchar();
+X    if (c == EOF)
+X      break;
+X    for (;;) {
+X      if (c == '\n')
+X	break;
+X      if (i >= LINE_MAX - 1 || c == '\0' || c == EOF || c == '\031')
+X	error("bad banner line");
+X      buf[i++] = c;
+X      c = getchar();
+X    }
+X    buf[i++] = '\0';
+X    if (!parse_banner(buf))
+X      error("bad banner line");
+X    print_banner();
+X    c = getchar();
+X    if (c == EOF)
+X      break;
+X    if (c != '\031' || getchar() != '\001')
+X      error("more than one banner line");
+X    if (kill(getpid(), SIGSTOP) < 0)
+X      sys_error("kill");
+X  }
+X  exit(0);
+X  /*NOTREACHED*/
+X}
+X
+Xstatic int parse_banner(s)
+X     char *s;
+X{
+X  char *p, *q;
+X
+X  class[0] = date[0] = user[0] = job[0] = '\0';
+X  
+X  p = xstrstr(s, JOB_PREFIX);
+X  if (!p)
+X    return 0;
+X  *p = 0;
+X  q = index(s, ':');
+X  if (q == 0) {
+X    if (strlen(s) + 1 > sizeof(user))
+X      return 0;
+X    (void)strcpy(user, s);
+X  }
+X  else {
+X    if (strlen(q + 1) + 1 > sizeof(user))
+X      return 0;
+X    (void)strcpy(user, q + 1);
+X    if (q - s + 1 > sizeof(class))
+X      return 0;
+X    bcopy(s, class, q - s);
+X    class[q - s] = '\0';
+X  }
+X  p += sizeof(JOB_PREFIX) - 1;
+X  q = xstrstr(p, DATE_PREFIX);
+X  if (!q)
+X    return 0;
+X  if (q - p + 1 > sizeof(job))
+X    return 0;
+X  bcopy(p, job, q - p);
+X  job[q - p] = '\0';
+X  q += sizeof(DATE_PREFIX) - 1;
+X  if (strlen(q) + 1 > sizeof(date))
+X    return 0;
+X  (void)strcpy(date, q);
+X  return 1;
+X}
+X
+Xstatic void print_banner()
+X{
+X  int fd[2];
+X  FILE *psfp;
+X  int status;
+X  int pid;
+X  int ret;
+X  int write_error = 0;
+X
+X  if (signal(SIGPIPE, SIG_IGN) == BADSIG) /* in case lprps dies */
+X    sys_error("signal");
+X  for (;;) {
+X    if (pipe(fd) < 0)
+X      sys_error("pipe");
+X    if ((pid = fork()) < 0)
+X      sys_error("fork");
+X    else if (pid == 0) {
+X      /* child */
+X      if (close(fd[1]) < 0)
+X	sys_error("close");
+X      if (dup2(fd[0], 0) < 0)
+X	sys_error("dup2");
+X      if (close(fd[0]) < 0)
+X	sys_error("close");
+X      (void)execl(LPRPS, LPRPS, (char *)0);
+X      sys_error("exec");
+X    }
+X    /* parent */
+X    if (close(fd[0]) < 0)
+X      sys_error("close");
+X    if ((psfp = fdopen(fd[1], "w")) == NULL)
+X      sys_error("fdopen");
+X    if (do_banner(psfp) < 0) {
+X      if (errno != EPIPE)
+X	sys_error("write");
+X      write_error = 1;
+X      clearerr(psfp);
+X      (void)fclose(psfp);
+X    }
+X    if (fclose(psfp) < 0) {
+X      if (errno != EPIPE)
+X	sys_error("fclose");
+X      write_error = 1;
+X    }
+X    while ((ret = wait(&status)) != pid)
+X      if (ret < 0)
+X	sys_error("wait");
+X    status &= 0xffff;		/* anal */
+X    if ((status & 0xff) != 0) {
+X      int sig = status & 0x7f;
+X      if (sig < NSIG) {
+X	extern char *sys_siglist[];
+X	syslog(LOG_ERR, "%s: %s%s", LPRPS, sys_siglist[sig],
+X	       (status & 0x80) ? " (core dumped)" : "");
+X      }
+X      else
+X	syslog(LOG_ERR, "%s: signal %d%s", LPRPS, sig,
+X	      (status & 0x80) ? " (core dumped)" : "");
+X      return;
+X    }
+X    else {
+X      int exit_status = (status >> 8) & 0xff;
+X      switch (exit_status) {
+X      case 0:
+X	if (write_error)
+X	  syslog(LOG_ERR, "got EPIPE but exit status was 0");
+X	return;
+X      case 1:
+X	/* this will happen if the printer's not turned on */
+X	continue;
+X      case 2:
+X	return;
+X      default:
+X	syslog(LOG_ERR, "`%s' exited with status %d", LPRPS, exit_status);
+X	return;
+X      }
+X    }
+X  }
+X}
+X
+X/* Return -1 for a write error, 0 otherwise. */
+X
+Xstatic int do_banner(psfp)
+X     FILE *psfp;
+X{
+X  FILE *infp;
+X  int c;
+X
+X  infp = fopen(BANNER, "r");
+X  if (!infp)
+X    sys_error(BANNER);
+X  if (fputs("%!\n", psfp) < 0)
+X    return -1;
+X  if (define_string("Job", job, psfp) < 0
+X      || define_string("Class", class, psfp) < 0
+X      || define_string("User", user, psfp) < 0
+X      || define_string("Date", date, psfp) < 0)
+X    return -1;
+X  
+X  while ((c = getc(infp)) != EOF)
+X    if (putc(c, psfp) < 0)
+X      return -1;
+X  return 0;
+X}
+X
+X/* Return -1 for a write error, 0 otherwise. */
+X
+Xstatic int define_string(name, str, psfp)
+X     char *name, *str;
+X     FILE *psfp;
+X{
+X  if (fprintf(psfp, "/%s (", name) < 0)
+X    return -1; 
+X  for (; *str; str++) {
+X    if (*str == ')' || *str == '(' || *str == '\\') {
+X      if (fprintf(psfp, "\\%c", *str) < 0)
+X	return -1;
+X    }
+X    else if (isascii(*str) && isprint(*str)) {
+X      if (putc(*str, psfp) < 0)
+X	return -1;
+X    }
+X    else  {
+X      if (fprintf(psfp, "\\%03o", (unsigned char)*str) < 0)
+X	return -1;
+X    }
+X  }
+X  if (fprintf(psfp, ") def\n") < 0)
+X    return -1;
+X  return 0;
+X}
+X
+Xstatic void sys_error(s)
+Xchar *s;
+X{
+X  syslog(LOG_ERR, "%s: %m", s);
+X  exit(1);
+X}
+X
+Xstatic void error(s)
+Xchar *s;
+X{
+X  syslog(LOG_ERR, "%s", s);
+X  exit(1);
+X}
+X
+X/* same as ANSI strstr */
+X
+Xstatic char *xstrstr(p, q)
+X     char *p, *q;
+X{
+X  int len = strlen(q);
+X  do {
+X    if (strncmp(p, q, len) == 0)
+X      return p;
+X  } while (*p++ != '\0');
+X  return 0;
+X}
+END_OF_FILE
+if test 5933 -ne `wc -c <'psof.c'`; then
+    echo shar: \"'psof.c'\" unpacked with wrong size!
+fi
+# end of 'psof.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

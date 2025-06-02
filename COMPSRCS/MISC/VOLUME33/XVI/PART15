@@ -1,0 +1,2499 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i024:  xvi - portable multi-window vi-like editor, Part15/18
+Message-ID: <1992Oct24.172519.2379@sparky.imd.sterling.com>
+X-Md4-Signature: a49b6e529fd93a656d0342c3d5f2c022
+Date: Sat, 24 Oct 1992 17:25:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 24
+Archive-name: xvi/part15
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/alloc.c xvi/src/defscr.c xvi/src/ex_cmds2.c
+#   xvi/src/flexbuf.c xvi/src/msdos_a.asm xvi/src/startup.c
+#   xvi/src/sunfront.c
+# Wrapped by kent@sparky on Thu Oct 22 09:03:44 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 18)."'
+if test -f 'xvi/src/alloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/alloc.c'\"
+else
+  echo shar: Extracting \"'xvi/src/alloc.c'\" \(6314 characters\)
+  sed "s/^X//" >'xvi/src/alloc.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)alloc.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    alloc.c
+X* module function:
+X    Various routines dealing with allocation
+X    and deallocation of data structures.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * We use a special strategy for the allocation & freeing of Change
+X * structures to make these operations as fast as possible (since we
+X * have to allocate one for each input character in INSERT & REPLACE
+X * states).
+X *
+X * So we have a linked list of reusable Change structures; freeing a
+X * Change means just adding it to this list.
+X */
+Xstatic Change	*chlist = NULL;
+X
+X/*
+X * Free a Change structure. This just means adding it to our list of
+X * reusable structures, so a later request for an allocation of a
+X * Change can be satisfied very quickly from the front of the list.
+X */
+Xvoid
+Xchfree(ch)
+X    Change *ch;
+X{
+X    ch->c_next = chlist;
+X    chlist = ch;
+X}
+X
+XChange *
+Xchalloc()
+X{
+X    if (chlist) {
+X	Change	*ch;
+X
+X	ch = chlist;
+X	chlist = chlist->c_next;
+X	return ch;
+X    }
+X    return (Change *) alloc(sizeof (Change));
+X}
+X
+X/*
+X * We also use a similar strategy for Line structures.
+X */
+Xstatic Line	*lnlist = NULL;
+X
+Xchar *
+Xalloc(size)
+Xunsigned size;
+X{
+X    char *p;		/* pointer to new storage space */
+X
+X    while ((p = malloc(size)) == NULL) {
+X	/*
+X	 * No more memory in the heap, but we may be able to
+X	 * satisfy the request by recycling entries in one of
+X	 * our lists of reusable structures.
+X	 */
+X	if (lnlist) {
+X	    p = (char *) lnlist;
+X	    lnlist = lnlist->l_next;
+X	    free(p);
+X	} else if (chlist) {
+X	    p = (char *) chlist;
+X	    chlist = chlist->c_next;
+X	    free(p);
+X	} else {
+X	    /*
+X	     * No: we're out.
+X	     */
+X	    show_error(curwin, "Not enough memory!");
+X	    break;
+X	}
+X    }
+X    return(p);
+X}
+X
+Xchar *
+Xstrsave(string)
+Xconst char *string;
+X{
+X    char	*space;
+X
+X    space = alloc((unsigned) strlen(string) + 1);
+X    if (space != NULL)
+X	(void) strcpy(space, string);
+X    return(space);
+X}
+X
+X/*
+X * Allocate and initialize a new line structure with room for
+X * 'nchars' characters.
+X */
+XLine *
+Xnewline(nchars)
+Xint	nchars;
+X{
+X    register Line	*l;
+X    char		*ltp;
+X
+X    if (lnlist == NULL) {
+X	register unsigned n;
+X
+X	/*
+X	 * To avoid memory fragmentation, we try to allocate a
+X	 * contiguous block of 100 Line structures if we
+X	 * haven't already got any.
+X	 *
+X	 * This means that, for every 100 lines of a file we
+X	 * read in, there should be a block of Line
+X	 * structures, which may never be freed, followed by
+X	 * a large arena for the lines' text and other sundry
+X	 * dynamically allocated objects, which generally will
+X	 * be.
+X	 *
+X	 * If we can't even get one structure, alloc() should
+X	 * print an error message. For subsequent ones, we use
+X	 * malloc() instead because it isn't necessarily a
+X	 * serious error if we can't get any more space than
+X	 * we've actually been asked for.
+X	 */
+X	if ((lnlist = (Line *) alloc(sizeof(Line))) == NULL) {
+X	    return(NULL);
+X	}
+X	lnlist->l_next = NULL;
+X	for (n = 99; n != 0; n--) {
+X	    if ((l = (Line *) malloc(sizeof(Line))) == NULL) {
+X		break;
+X	    }
+X	    l->l_next = lnlist;
+X	    lnlist = l;
+X	}
+X    }
+X
+X    /*
+X     * Assertion: lnlist != NULL.
+X     */
+X    l = lnlist;
+X    lnlist = l->l_next;
+X
+X    /*
+X     * It is okay for newline() to be called with a 0
+X     * parameter - but we must never call malloc(0) as
+X     * this will break on many systems.
+X     */
+X    if (nchars == 0)
+X	nchars = 1;
+X    ltp = alloc((unsigned) nchars);
+X    if (ltp == NULL) {
+X	free((char *) l);
+X	return(NULL);
+X    }
+X    ltp[0] = '\0';
+X    l->l_text = ltp;
+X    l->l_size = nchars;
+X    l->l_prev = NULL;
+X    l->l_next = NULL;
+X
+X    return(l);
+X}
+X
+X/*
+X * bufempty() - return TRUE if the buffer is empty
+X */
+Xbool_t
+Xbufempty(b)
+XBuffer	*b;
+X{
+X    return(buf1line(b) && b->b_file->l_text[0] == '\0');
+X}
+X
+X/*
+X * buf1line() - return TRUE if there is only one line
+X */
+Xbool_t
+Xbuf1line(b)
+XBuffer	*b;
+X{
+X    return(b->b_file->l_next == b->b_lastline);
+X}
+X
+X/*
+X * endofline() - return TRUE if the given position is at end of line
+X *
+X * This routine will probably never be called with a position resting
+X * on the zero byte, but handle it correctly in case it happens.
+X */
+Xbool_t
+Xendofline(p)
+XPosn	*p;
+X{
+X    register char	*endtext = p->p_line->l_text + p->p_index;
+X
+X    return(*endtext == '\0' || *(endtext + 1) == '\0');
+X}
+X
+X/*
+X * grow_line(lp, n)
+X *	- increase the size of the space allocated for the line by n bytes.
+X *
+X * This routine returns TRUE immediately if the requested space is available.
+X * If not, it attempts to allocate the space and adjust the data structures
+X * accordingly, and returns TRUE if this worked.
+X * If everything fails it returns FALSE.
+X */
+Xbool_t
+Xgrow_line(lp, n)
+XLine	*lp;
+Xregister int	n;
+X{
+X    register int	nsize;
+X    register char	*s;		/* pointer to new space */
+X
+X    nsize = strlen(lp->l_text) + 1 + n;	/* size required */
+X
+X    if (nsize <= lp->l_size)
+X	return(TRUE);
+X
+X    /*
+X     * Need to allocate more space for the string. Allow some extra
+X     * space on the assumption that we may need it soon. This avoids
+X     * excessive numbers of calls to malloc while entering new text.
+X     */
+X    s = alloc((unsigned) nsize + SLOP);
+X    if (s == NULL) {
+X	return(FALSE);
+X    }
+X
+X    lp->l_size = nsize + SLOP;
+X    (void) strcpy(s, lp->l_text);
+X    free(lp->l_text);
+X    lp->l_text = s;
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * Free up space used by the given list of lines.
+X *
+X * Note that the Line structures themselves are just added to the list
+X * of reusable ones.
+X */
+Xvoid
+Xthrow(lineptr)
+XLine	*lineptr;
+X{
+X    if (lineptr != NULL) {
+X	Line	*newlist;
+X
+X	newlist = lineptr;
+X	for (;;) {
+X	    Line	*nextline;
+X
+X	    if (lineptr->l_text != NULL)
+X		free(lineptr->l_text);
+X	    if ((nextline = lineptr->l_next) == NULL) {
+X		/*
+X		 * We've reached the end of this list;
+X		 * join it on to lnlist ...
+X		 */
+X		lineptr->l_next = lnlist;
+X		/*
+X		 * ... & point lnlist at the beginning
+X		 * of this list.
+X		 */
+X		lnlist = newlist;
+X		return;
+X	    } else {
+X		lineptr = nextline;
+X	    }
+X	}
+X    }
+X}
+END_OF_FILE
+  if test 6314 -ne `wc -c <'xvi/src/alloc.c'`; then
+    echo shar: \"'xvi/src/alloc.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/alloc.c'
+fi
+if test -f 'xvi/src/defscr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/defscr.c'\"
+else
+  echo shar: Extracting \"'xvi/src/defscr.c'\" \(5901 characters\)
+  sed "s/^X//" >'xvi/src/defscr.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)defscr.c	2.4 (Chris & John Downey) 9/4/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    defscr.c
+X* module function:
+X    VirtScr interface using old style porting functions.
+X    We assume newscr() is only called once; it is an
+X    error for it to be called more than once.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	VirtScr	*newscr P((VirtScr *));
+Xstatic	void	closescr P((VirtScr *));
+Xstatic	int	getrows P((VirtScr *));
+Xstatic	int	getcols P((VirtScr *));
+Xstatic	void	clear_all P((VirtScr *));
+Xstatic	void	clear_line P((VirtScr *, int, int));
+Xstatic	void	xygoto P((VirtScr *, int, int));
+Xstatic	void	xyadvise P((VirtScr *, int, int, int, char *));
+Xstatic	void	put_char P((VirtScr *, int, int, int));
+Xstatic	void	put_str P((VirtScr *, int, int, char *));
+Xstatic	void	ins_str P((VirtScr *, int, int, char *));
+Xstatic	void	pset_colour P((VirtScr *, int));
+Xstatic	int	colour_cost P((VirtScr *));
+Xstatic	int	scroll P((VirtScr *, int, int, int));
+Xstatic	void	flushout P((VirtScr *));
+Xstatic	void	pbeep P((VirtScr *));
+X
+XVirtScr	defscr = {
+X    NULL,		/* pv_window	    */
+X    0,			/* pv_rows	    */
+X    0,			/* pv_cols	    */
+X
+X    newscr,		/* v_new	    */
+X    closescr,		/* v_close	    */
+X    getrows,		/* v_rows	    */
+X    getcols,		/* v_cols	    */
+X    clear_all,		/* v_clear_all	    */
+X    clear_line,		/* v_clear_line	    */
+X    xygoto,		/* v_goto	    */
+X    xyadvise,		/* v_advise	    */
+X    put_str,		/* v_write	    */
+X    put_char,		/* v_putc	    */
+X    pset_colour,	/* v_set_colour	    */
+X    colour_cost,	/* v_colour_cost    */
+X    flushout,		/* v_flush	    */
+X    pbeep,		/* v_beep	    */
+X
+X    ins_str,		/* v_insert	    */
+X    scroll,		/* v_scroll	    */
+X    NULL,		/* v_flash	    */
+X    NULL,		/* v_status	    */
+X    NULL,		/* v_activate	    */
+X};
+X
+Xint
+Xmain(argc, argv)
+Xint	argc;
+Xchar	*argv[];
+X{
+X    xvEvent	event;
+X    long	timeout = 0;
+X
+X    /*
+X     * Set up the system and terminal interfaces. This establishes
+X     * the window size, changes to raw mode and does whatever else
+X     * is needed for the system we're running on.
+X     */
+X    sys_init();
+X
+X    if (!can_inschar) {
+X	defscr.v_insert = NULL;
+X    }
+X    if (!can_scroll_area && !can_ins_line && !can_del_line) {
+X	defscr.v_scroll = NULL;
+X    }
+X    defscr.pv_rows = Rows;
+X    defscr.pv_cols = Columns;
+X
+X    defscr.pv_window = (genptr *) xvi_startup(&defscr, argc, argv,
+X    						getenv("XVINIT"));
+X
+X    while (1) {
+X	register int	r;
+X
+X	r = inchar(timeout);
+X	if (r == EOF) {
+X	    event.ev_type = Ev_timeout;
+X	} else {
+X	    event.ev_type = Ev_char;
+X	    event.ev_inchar = r;
+X	}
+X	timeout = xvi_handle_event(&event);
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xstatic VirtScr *
+Xnewscr(scr)
+XVirtScr	*scr;
+X{
+X    return(NULL);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xclosescr(scr)
+XVirtScr	*scr;
+X{
+X}
+X
+X/*ARGSUSED*/
+Xstatic int
+Xgetrows(scr)
+XVirtScr	*scr;
+X{
+X    return(scr->pv_rows);
+X}
+X
+X/*ARGSUSED*/
+Xstatic int
+Xgetcols(scr)
+XVirtScr	*scr;
+X{
+X    return(scr->pv_cols);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xclear_all(scr)
+XVirtScr	*scr;
+X{
+X    erase_display();
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xclear_line(scr, row, col)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+X{
+X    tty_goto(row, col);
+X    erase_line();
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xxygoto(scr, row, col)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+X{
+X    tty_goto(row, col);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xxyadvise(scr, row, col, index, str)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+Xint	index;
+Xchar	*str;
+X{
+X    if (index > cost_goto) {
+X	tty_goto(row, col + index);
+X    } else {
+X	tty_goto(row, col);
+X	while (--index > 0) {
+X	    outchar(*str++);
+X	}
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xput_str(scr, row, col, str)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+Xchar	*str;
+X{
+X    tty_goto(row, col);
+X    outstr(str);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xput_char(scr, row, col, c)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+Xint	c;
+X{
+X    tty_goto(row, col);
+X    outchar(c);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xins_str(scr, row, col, str)
+XVirtScr	*scr;
+Xint	row;
+Xint	col;
+Xchar	*str;
+X{
+X    /*
+X     * If we are called, can_inschar is TRUE,
+X     * so we know it is safe to use inschar().
+X     */
+X    tty_goto(row, col);
+X    for ( ; *str != '\0'; str++) {
+X	inschar(*str);
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xpset_colour(scr, colour)
+XVirtScr	*scr;
+Xint	colour;
+X{
+X    set_colour(colour);
+X}
+X
+X/*ARGSUSED*/
+Xstatic int
+Xcolour_cost(scr)
+XVirtScr	*scr;
+X{
+X#ifdef	SLINE_GLITCH
+X    return(SLINE_GLITCH);
+X#else
+X    return(0);
+X#endif
+X}
+X
+X/*ARGSUSED*/
+Xstatic int
+Xscroll(scr, start_row, end_row, nlines)
+XVirtScr	*scr;
+Xint	start_row;
+Xint	end_row;
+Xint	nlines;
+X{
+X    if (nlines < 0) {
+X	/*
+X	 * nlines negative means scroll reverse - i.e. move
+X	 * the text downwards with respect to the terminal.
+X	 */
+X	nlines = -nlines;
+X
+X	if (can_scroll_area) {
+X	    scroll_down(start_row, end_row, nlines);
+X	} else if (can_ins_line && end_row == Rows - 1) {
+X	    int	line;
+X
+X	    for (line = 0; line < nlines; line++) {
+X		tty_goto(start_row, 0);
+X		insert_line();
+X	    }
+X	} else {
+X	    return(0);
+X	}
+X    } else if (nlines > 0) {
+X	/*
+X	 * Whereas nlines positive is "normal" scrolling.
+X	 */
+X	if (can_scroll_area) {
+X	    scroll_up(start_row, end_row, nlines);
+X	} else if (end_row == Rows - 1) {
+X	    int	line;
+X
+X	    if (can_del_line) {
+X		for (line = 0; line < nlines; line++) {
+X		    tty_goto(start_row, 0);
+X		    delete_line();
+X		}
+X	    } else if (start_row == 0) {
+X		tty_goto(start_row, 0);
+X		for (line = 0; line < nlines; line++) {
+X		    delete_line();
+X		}
+X	    } else {
+X		return(0);
+X	    }
+X	} else {
+X	    return(0);
+X	}
+X    }
+X    return(1);
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xflushout(scr)
+XVirtScr	*scr;
+X{
+X    flush_output();
+X}
+X
+X/*ARGSUSED*/
+Xstatic void
+Xpbeep(scr)
+XVirtScr	*scr;
+X{
+X    alert();
+X    flush_output();
+X}
+END_OF_FILE
+  if test 5901 -ne `wc -c <'xvi/src/defscr.c'`; then
+    echo shar: \"'xvi/src/defscr.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/defscr.c'
+fi
+if test -f 'xvi/src/ex_cmds2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/ex_cmds2.c'\"
+else
+  echo shar: Extracting \"'xvi/src/ex_cmds2.c'\" \(7175 characters\)
+  sed "s/^X//" >'xvi/src/ex_cmds2.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)ex_cmds2.c	2.2 (Chris & John Downey) 8/3/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    ex_cmds2.c
+X* module function:
+X    Command functions for miscellaneous ex (colon) commands.
+X    See ex_cmds1.c for file- and buffer-related colon commands.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#ifdef	MEGAMAX
+Xoverlay "ex_cmds2"
+X#endif
+X
+X/*
+X * Run shell command.
+X *
+X * You might think it would be easier to do this as
+X *
+X *	sys_endv();
+X *	system(command);
+X *	sys_startv();
+X *	prompt("[Hit return to continue] ");
+X *	...
+X *
+X * but the trouble is that, with some systems, sys_startv() can be
+X * used to swap display pages, which would mean that the user would
+X * never have time to see the output from the command. (This applies
+X * to some terminals, as well as machines with memory-mappped video;
+X * cmdtool windows on Sun workstations also do the same thing.)
+X *
+X * This means we have to display the prompt before calling
+X * sys_startv(), so we just use good old fputs(). (We're trying not to
+X * use printf()).
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdo_shcmd(window, command)
+XXviwin	*window;
+Xchar	*command;
+X{
+X    int	c;
+X
+X    sys_endv();
+X
+X    (void) fputs(command, stdout);
+X    (void) fputs("\r\n", stdout);
+X    (void) fflush(stdout);
+X    (void) call_system(command);
+X    (void) fputs("[Hit return to continue] ", stdout);
+X    (void) fflush(stdout);
+X    while ((c = getc(stdin)) != '\n' && c != '\r' && c != EOF)
+X	;
+X
+X    sys_startv();
+X    redraw_screen();
+X}
+X
+Xvoid
+Xdo_shell(window)
+XXviwin	*window;
+X{
+X    char	*sh = NULL;
+X    int	sysret;
+X
+X    sh = Ps(P_shell);
+X    if (sh == NULL) {
+X	show_error(window, "SHELL variable not set");
+X	return;
+X    }
+X
+X    sys_endv();
+X
+X    sysret = call_shell(sh);
+X
+X    sys_startv();
+X    redraw_screen();
+X
+X    if (sysret != 0) {
+X#ifdef STRERROR_AVAIL
+X	show_error(window, "Can't execute %s [%s]", sh,
+X			(errno > 0 ? strerror(errno) : "Unknown Error"));
+X#else	/* strerror() not available */
+X	show_error(window, "Can't execute %s", sh);
+X#endif	/* strerror() not available */
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xvoid
+Xdo_suspend(window)
+XXviwin	*window;
+X{
+X    if (State == NORMAL) {
+X#	ifdef	SIGSTOP
+X	extern	int	kill P((int, int));
+X	extern	int	getpid P((void));
+X
+X	sys_endv();
+X
+X	(void) kill(getpid(), SIGSTOP);
+X
+X	sys_startv();
+X	redraw_screen();
+X
+X#	else /* SIGSTOP */
+X
+X	/*
+X	 * Can't suspend unless we're on a BSD UNIX system;
+X	 * just pretend by invoking a shell instead.
+X	 */
+X	do_shell(window);
+X
+X#	endif /* SIGSTOP */
+X    }
+X}
+X
+Xvoid
+Xdo_equals(window, line)
+XXviwin	*window;
+XLine	*line;
+X{
+X    if (line == NULL) {
+X	/*
+X	 * Default position is ".".
+X	 */
+X	line = window->w_cursor->p_line;
+X    }
+X
+X    show_message(window, "Line %ld", lineno(window->w_buffer, line));
+X}
+X
+Xvoid
+Xdo_help(window)
+XXviwin	*window;
+X{
+X    unsigned	savecho;
+X
+X    savecho = echo;
+X    echo &= ~(e_SCROLL | e_REPORT | e_SHOWINFO);
+X    if (Ps(P_helpfile) != NULL && do_buffer(window, Ps(P_helpfile))) {
+X	/*
+X	 * We use "curbuf" here because the new buffer will
+X	 * have been made the current one by do_buffer().
+X	 */
+X	curbuf->b_flags |= FL_READONLY | FL_NOEDIT;
+X	move_window_to_cursor(curwin);
+X	show_file_info(curwin);
+X	update_window(curwin);
+X    }
+X    echo = savecho;
+X}
+X
+Xbool_t
+Xdo_source(interactive, file)
+Xbool_t	interactive;
+Xchar	*file;
+X{
+X    static char		cmdbuf[256];
+X    FILE		*fp;
+X    register int	c;
+X    register char	*bufp;
+X    bool_t		literal;
+X
+X    fp = fopen(file, "r");
+X    if (fp == NULL) {
+X	if (interactive) {
+X	    show_error(curwin, "Can't open \"%s\"", file);
+X	}
+X	return(FALSE);
+X    }
+X
+X    bufp = cmdbuf;
+X    literal = FALSE;
+X    while ((c = getc(fp)) != EOF) {
+X	if (!literal && (c == CTRL('V') || c == '\n')) {
+X	    switch (c) {
+X	    case CTRL('V'):
+X		literal = TRUE;
+X		break;
+X
+X	    case '\n':
+X		if (kbdintr) {
+X		    imessage = TRUE;
+X		    break;
+X		}
+X		if (bufp > cmdbuf) {
+X		    *bufp = '\0';
+X		    do_colon(cmdbuf, FALSE);
+X		}
+X		bufp = cmdbuf;
+X		break;
+X	    }
+X	} else {
+X	    literal = FALSE;
+X	    if (bufp < &cmdbuf[sizeof(cmdbuf) - 1]) {
+X		*bufp++ = c;
+X	    }
+X	}
+X    }
+X    (void) fclose(fp);
+X    return(TRUE);
+X}
+X
+X/*
+X * Change directory.
+X *
+X * With a NULL argument, change to the directory given by the HOME
+X * environment variable if it is defined; with an argument of "-",
+X * change back to the previous directory (like ksh).
+X *
+X * Return NULL pointer if OK, otherwise error message to say
+X * what went wrong.
+X */
+Xchar *
+Xdo_chdir(dir)
+X    char	*dir;
+X{
+X    static char	*homedir = NULL;
+X    static char	*prevdir = NULL;
+X    char	*ret;
+X    char	*curdir;
+X
+X    if (dir == NULL && homedir == NULL &&
+X    				(homedir = getenv("HOME")) == NULL) {
+X	return("HOME environment variable not set");
+X    }
+X
+X    if (dir == NULL) {
+X	dir = homedir;
+X    } else if (*dir == '-' && dir[1] == '\0') {
+X	if (prevdir == NULL) {
+X	    return("No previous directory");
+X	} else {
+X	    dir = prevdir;
+X	}
+X    }
+X
+X    curdir = malloc(MAXPATHLEN + 2);
+X    if (curdir != NULL && getcwd(curdir, MAXPATHLEN + 2) == NULL) {
+X	free(curdir);
+X	curdir = NULL;
+X    }
+X    ret = (chdir(dir) == 0 ? NULL : "Invalid directory");
+X    if (prevdir) {
+X	free(prevdir);
+X	prevdir = NULL;
+X    }
+X    if (curdir) {
+X	prevdir = realloc(curdir, (unsigned) strlen(curdir) + 1);
+X    }
+X    return(ret);
+X}
+X
+Xvoid
+Xdo_cdmy(type, l1, l2, destline)
+Xint	type;			/* one of [cdmy] */
+XLine	*l1, *l2;		/* start and end (inclusive) of range */
+XLine	*destline;		/* destination line for copy/move */
+X{
+X    Posn	p1, p2;
+X    Posn	destpos;
+X
+X    p1.p_line = (l1 != NULL) ? l1 : curwin->w_cursor->p_line;
+X    p2.p_line = (l2 != NULL) ? l2 : p1.p_line;
+X    p1.p_index = p2.p_index = 0;
+X
+X    if (type == 'c' || type == 'm') {
+X	if (destline == NULL) {
+X	    show_error(curwin, "No destination specified");
+X	    return;
+X	}
+X    }
+X
+X    /*
+X     * Check that the destination is not inside
+X     * the source range for "move" operations.
+X     */
+X    if (type == 'm') {
+X	unsigned long	destlineno;
+X
+X	destlineno = lineno(curbuf, destline);
+X	if (destlineno >= lineno(curbuf, p1.p_line) &&
+X			    destlineno <= lineno(curbuf, p2.p_line)) {
+X	    show_error(curwin, "Source conflicts with destination of move");
+X	    return;
+X	}
+X    }
+X
+X    /*
+X     * Yank the text to be copied.
+X     */
+X    if (do_yank(curbuf, &p1, &p2, FALSE, '@') == FALSE) {
+X	show_error(curwin, "Not enough memory to yank text");
+X	return;
+X    }
+X
+X    if (!start_command(curwin)) {
+X	return;
+X    }
+X
+X    switch (type) {
+X    case 'd':			/* delete */
+X    case 'm':			/* move */
+X	move_cursor(curwin, p1.p_line, 0);
+X	repllines(curwin, p1.p_line, cntllines(p1.p_line, p2.p_line),
+X						(Line *) NULL);
+X	update_buffer(curbuf);
+X	cursupdate(curwin);
+X	begin_line(curwin, TRUE);
+X    }
+X
+X    switch (type) {
+X    case 'c':			/* copy */
+X    case 'm':			/* move */
+X	/*
+X	 * And put it back at the destination point.
+X	 */
+X	destpos.p_line = destline;
+X	destpos.p_index = 0;
+X	do_put(curwin, &destpos, FORWARD, '@');
+X
+X	update_buffer(curbuf);
+X	cursupdate(curwin);
+X    }
+X
+X    end_command(curwin);
+X}
+END_OF_FILE
+  if test 7175 -ne `wc -c <'xvi/src/ex_cmds2.c'`; then
+    echo shar: \"'xvi/src/ex_cmds2.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/ex_cmds2.c'
+fi
+if test -f 'xvi/src/flexbuf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/flexbuf.c'\"
+else
+  echo shar: Extracting \"'xvi/src/flexbuf.c'\" \(7093 characters\)
+  sed "s/^X//" >'xvi/src/flexbuf.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)flexbuf.c	2.2 (Chris & John Downey) 8/27/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    flexbuf.c
+X* module function:
+X    Routines for Flexbufs (variable-length FIFO queues).
+X
+X    Some of the access routines are implemented as macros in xvi.h.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#define FLEXEXTRA	64
+X
+X/*
+X * Append a single character to a Flexbuf. Return FALSE if we've run
+X * out of space.
+X *
+X * Note that the f->fxb_chars array is not necessarily null-terminated.
+X */
+Xbool_t
+Xflexaddch(f, ch)
+Xregister Flexbuf	*f;
+Xint	ch;
+X{
+X    if (flexempty(f))
+X	f->fxb_rcnt = f->fxb_wcnt = 0;
+X    if (f->fxb_wcnt >= f->fxb_max) {
+X	if (f->fxb_max == 0) {
+X	    if ((f->fxb_chars = alloc(FLEXEXTRA)) == NULL) {
+X		return FALSE;
+X	    } else {
+X		f->fxb_max = FLEXEXTRA;
+X	    }
+X	} else {
+X	    unsigned newsize = f->fxb_wcnt + FLEXEXTRA;
+X
+X	    if ((f->fxb_chars = realloc(f->fxb_chars, newsize)) == NULL) {
+X		f->fxb_wcnt = f->fxb_max = 0;
+X		return FALSE;
+X	    } else {
+X		f->fxb_max = newsize;
+X	    }
+X	}
+X    }
+X    f->fxb_chars[f->fxb_wcnt++] = ch;
+X    return TRUE;
+X}
+X
+X/*
+X * Return contents of a Flexbuf as a null-terminated string.
+X */
+Xchar *
+Xflexgetstr(f)
+XFlexbuf	*f;
+X{
+X    if (!flexempty(f) && flexaddch(f, '\0')) {
+X	--f->fxb_wcnt;
+X	return &f->fxb_chars[f->fxb_rcnt];
+X    } else {
+X	return "";
+X    }
+X}
+X
+X/*
+X * Remove the first character from a Flexbuf and return it.
+X */
+Xint
+Xflexpopch(f)
+XFlexbuf	*f;
+X{
+X    return flexempty(f) ?
+X	0 : (unsigned char) f->fxb_chars[f->fxb_rcnt++];
+X}
+X
+X/*
+X * Free storage belonging to a Flexbuf.
+X */
+Xvoid
+Xflexdelete(f)
+XFlexbuf	*f;
+X{
+X    if (f->fxb_max > 0) {
+X	(void) free(f->fxb_chars);
+X	f->fxb_wcnt = f->fxb_max = 0;
+X    }
+X}
+X
+X/*
+X * The following routines provide for appending formatted data to a
+X * Flexbuf using a subset of the format specifiers accepted by
+X * printf(3). The specifiers we understand are currently
+X *
+X *	%c %d %ld %lu %s %u
+X *
+X * Field width, precision & left justification can also be specified
+X * as for printf().
+X *
+X * The main advantage of this is that we don't have to worry about the
+X * end of the destination array being overwritten, as we do with
+X * sprintf(3).
+X */
+X
+Xstatic	unsigned    width;
+Xstatic	unsigned    prec;
+Xstatic	bool_t	    ljust;
+X
+X/*
+X * Append a string to a Flexbuf, truncating the string & adding filler
+X * characters as specified by the width, prec & ljust variables.
+X *
+X * The precision specifier gives the maximum field width.
+X */
+Xstatic bool_t
+Xstrformat(f, p)
+XFlexbuf *f;
+Xregister char *p;
+X{
+X    register int c;
+X
+X    if (width != 0 && !ljust) {
+X	register unsigned len;
+X
+X	len = strlen(p);
+X	if (prec != 0 && prec < len)
+X	    len = prec;
+X	while (width > len) {
+X	    if (!flexaddch(f, ' '))
+X		return FALSE;
+X	    --width;
+X	}
+X    }
+X
+X    while ((c = *p++) != '\0') {
+X	if (!flexaddch(f, c))
+X	    return FALSE;
+X	if (width != 0)
+X	    --width;
+X	if (prec != 0) {
+X	    if (--prec == 0) {
+X		break;
+X	    }
+X	}
+X    }
+X    while (width != 0) {
+X	if (!flexaddch(f, ' '))
+X	    return FALSE;
+X	--width;
+X    }
+X    return TRUE;
+X}
+X
+X/*
+X * Given a binary long integer, convert it to a decimal number &
+X * append it to the end of a Flexbuf.
+X *
+X * The precision specifier gives the minimum number of decimal digits.
+X */
+Xstatic bool_t
+Xnumformat(f, n, uflag)
+XFlexbuf	*f;
+Xlong	n;
+Xbool_t	uflag;
+X{
+X    register char *s;
+X    register unsigned len;
+X
+X    if (n == 0) {
+X	/*
+X	 * Special case.
+X	 */
+X	s = "0";
+X	len = 1;
+X    } else {
+X	static char dstr[sizeof (long) * 3 + 2];
+X	register unsigned long un;
+X	int neg;
+X
+X	* (s = &dstr[sizeof dstr - 1]) = '\0';
+X
+X	if (!uflag && n < 0) {
+X	    neg = 1;
+X	    un = -n;
+X	} else {
+X	    neg = 0;
+X	    un = n;
+X	}
+X
+X	while (un > 0 && s > &dstr[1]) {
+X	    *--s = (un % 10) + '0';
+X	    un /= 10;
+X	}
+X
+X	if (neg)
+X	    *--s = '-';
+X	len = &dstr[sizeof dstr - 1] - s;
+X    }
+X
+X    while (width > len && width > prec) {
+X	if (!flexaddch(f, ' '))
+X	    return FALSE;
+X	--width;
+X    }
+X
+X    while (prec > len) {
+X	if (!flexaddch(f, '0'))
+X	    return FALSE;
+X	--prec;
+X	if (width > 0)
+X	    --width;
+X    }
+X    prec = 0;
+X    return strformat(f, s);
+X}
+X
+X/*
+X * Main formatting routine.
+X */
+Xbool_t
+Xvformat
+X#ifdef __STDC__
+X    (Flexbuf *f, register char *format, register va_list argp)
+X#else
+X    (f, format, argp)
+X    Flexbuf		*f;
+X    register char	*format;
+X    register va_list	argp;
+X#endif
+X{
+X    register int c;
+X
+X    while ((c = *format++) != '\0') {
+X	if (c == '%') {
+X	    static char cstr[2];
+X	    bool_t lnflag;
+X	    bool_t zflag;
+X
+X	    lnflag = FALSE;
+X	    ljust = FALSE;
+X	    width = 0;
+X	    prec = 0;
+X	    zflag = FALSE;
+X	    if ((c = *format++) == '-') {
+X		ljust = TRUE;
+X		c = *format++;
+X	    }
+X
+X	    /*
+X	     * Get width specifier.
+X	     */
+X	    if (c == '0') {
+X		if (ljust)
+X		    /*
+X		     * It doesn't make sense to
+X		     * have a left-justified
+X		     * numeric field with zero
+X		     * padding.
+X		     */
+X		    return FALSE;
+X		zflag = TRUE;
+X		c = *format++;
+X	    }
+X
+X	    while (c && is_digit(c)) {
+X		if (width != 0)
+X		    width *= 10;
+X		width += (c - '0');
+X		c = *format++;
+X	    }
+X
+X	    if (c == '.') {
+X		/*
+X		 * Get precision specifier.
+X		 */
+X		while ((c = *format++) != '\0' && is_digit(c)) {
+X		    if (prec != 0)
+X			prec *= 10;
+X		    prec += (c - '0');
+X		}
+X	    }
+X
+X	    switch (c) {
+X	    case '%':
+X		cstr[0] = c;
+X		if (!strformat(f, cstr))
+X		    return FALSE;
+X		continue;
+X
+X	    case 'c':
+X		cstr[0] = va_arg(argp, int);
+X		if (!strformat(f, cstr))
+X		    return FALSE;
+X		continue;
+X
+X	    case 'l':
+X		switch (c = *format++) {
+X		case 'd':
+X		case 'u':
+X		    lnflag = TRUE;
+X		    break;
+X		default:
+X		    /*
+X		     * Syntax error.
+X		     */
+X		    return FALSE;
+X		}
+X		/* fall through ... */
+X
+X	    case 'd':
+X	    case 'u':
+X	    {
+X		long n;
+X
+X		if (lnflag)
+X		{
+X		    n = (c == 'u' ?
+X		    		(long) va_arg(argp, unsigned long) :
+X				va_arg(argp, long));
+X		} else {
+X		    n = (c == 'u' ?
+X				(long) va_arg(argp, unsigned int) :
+X				(long) va_arg(argp, int));
+X		}
+X
+X		/*
+X		 * For integers, the precision
+X		 * specifier gives the minimum number
+X		 * of decimal digits.
+X		 */
+X		if (zflag && prec < width) {
+X		    prec = width;
+X		    width = 0;
+X		}
+X		if (!numformat(f, n, (c == 'u')))
+X		    return FALSE;
+X		continue;
+X	    }
+X
+X	    case 's':
+X	    {
+X		char *sp;
+X
+X		if ((sp = va_arg(argp, char *)) == NULL ||
+X						!strformat(f, sp)) {
+X		    return FALSE;
+X		}
+X		continue;
+X	    }
+X
+X	    default:
+X		/*
+X		 * Syntax error.
+X		 */
+X		return FALSE;
+X	    }
+X	} else if (!flexaddch(f, c)) {
+X	    return FALSE;
+X	}
+X    }
+X    return TRUE;
+X}
+X
+X/*
+X * Front end callable with a variable number of arguments.
+X */
+X/*VARARGS2*/
+Xbool_t
+Xlformat
+X#ifdef __STDC__
+X    (Flexbuf *f, char *format, ...)
+X#else
+X    (f, format, va_alist)
+X    Flexbuf	*f;
+X    char	*format;
+X    va_dcl
+X#endif
+X{
+X    va_list argp;
+X    bool_t retval;
+X
+X    VA_START(argp, format);
+X    retval = vformat(f, format, argp);
+X    va_end(argp);
+X    return retval;
+X}
+END_OF_FILE
+  if test 7093 -ne `wc -c <'xvi/src/flexbuf.c'`; then
+    echo shar: \"'xvi/src/flexbuf.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/flexbuf.c'
+fi
+if test -f 'xvi/src/msdos_a.asm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/msdos_a.asm'\"
+else
+  echo shar: Extracting \"'xvi/src/msdos_a.asm'\" \(6169 characters\)
+  sed "s/^X//" >'xvi/src/msdos_a.asm' <<'END_OF_FILE'
+X; Copyright (c) 1990,1991,1992 Chris and John Downey
+X_TEXT	segment word public 'CODE'
+X	db	"@(#)msdos_a.asm	2.1 (Chris & John Downey) 7/29/92"
+X	db	0
+X_TEXT	ends
+X
+X;***
+X;
+X; program name:
+X;	xvi
+X; function:
+X;	PD version of UNIX "vi" editor, with extensions.
+X; module name:
+X;	msdos_a.asm
+X; module function:
+X;	Assembly language part of system interface module for MS-DOS.
+X;
+X;	This code has been assembled with Microsoft's Macro Assembler
+X;	(MASM) version 5.1, & is compatible with code generated by
+X;	MS-DOS C compilers using the normal large memory model calling
+X;	conventions. This includes the Microsoft & Zortech compilers.
+X;
+X;	The ignore_signals() routine installs handlers for keyboard &
+X;	critical error interrupts. Critical error interrupts are
+X;	generated for events like trying to access a diskette when
+X;	there isn't one in the drive, or it isn't formatted, etc. The
+X;	system's default interrupt handler just displays a message
+X;	followed by "Abort, Retry, Fail?", which destroys our editing
+X;	screen, & if the user presses 'a', the current process gets
+X;	killed without further warning. We don't want this to happen
+X;	to xvi, so we install our own handler, which just pretends the
+X;	user chose the "Ignore" option (or "Fail" on MS-DOS 3.0 or
+X;	later) by returning 0 (for "Ignore") or 3 (for "Fail") in the
+X;	AL register.
+X;
+X;	Note that most MS-DOS system calls, if issued from within a
+X;	critical error handler, will cause the system to crash
+X;	(because the system itself isn't re-entrant). 
+X; history:
+X;
+X;	STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X;	Originally by Tim Thompson (twitch!tjt)
+X;	Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X;	Heavily modified by Chris & John Downey
+X;***
+X
+Xinclude 8086mm.inc
+X
+X		public	_msdsignal
+X		public	_catch_signals
+X		public	_getchnw
+X		public	_dup
+X		public	_dup2
+X
+X_TEXT		segment word public 'CODE'
+X		even
+X;
+X; Address of interrupt flag.
+X;
+Xiflagaddr	label	dword
+Xiflagoff	dw	?
+Xiflagseg	dw	?
+X
+X;
+X; Major MS-DOS version number.
+X;
+Xsysversion	db	?
+X
+X		assume	nothing
+X		assume	cs:_TEXT
+X_msdsignal:
+X		;
+X		; void msdsignal(unsigned char *flagp);
+X		;
+X		; Install interrupt handlers.
+X		;
+X		; This routine is called by ignore_signals() with the
+X		; address of the interrupt flag in flagp.
+X		;
+X		mov	bx, sp
+X		push	ds
+X		;
+X		; Store address of interrupt flag.
+X		;
+X	if DPTRSIZE eq 4
+X		lds	ax, ss:[bx + CPTRSIZE]
+X	else
+X		mov	ax, [bx + CPTRSIZE]
+X	endif
+X		mov	dx, ds
+X		mov	cx, cs
+X		mov	ds, cx
+X		assume	ds: _TEXT
+X		mov	iflagoff, ax
+X		mov	iflagseg, dx
+X		;
+X		; Get MS-DOS major version number.
+X		;
+X		mov	ah, 30h
+X		int	21h
+X		mov	sysversion, al
+X		;
+X		; Install keyboard interrupt handler.
+X		;
+X		mov	dx, offset kbd
+X		mov	ax, 2523h	; Keyboard interrupt is 23h.
+X		int	21h
+X		;
+X		; Install critical error handler.
+X		;
+X		mov	dx, offset criterr
+X		mov	ax, 2524h	; Critical error interrupt is 24h.
+X		int	21h
+X		pop	ds
+X		assume	ds: nothing
+X		C_ret
+X
+X_catch_signals:
+X		;
+X		; void catch_signals(void);
+X		;
+X		; Set console break flag so that we can be interrupted
+X		; even when we're not waiting for console input.
+X		;
+X		mov	ax, 3301h
+X		mov	dl, 1
+X		int	21h
+X		C_ret
+X
+X		assume	nothing
+X		assume	cs: _TEXT
+X
+Xcriterr:			; Entry point for critical error interrupts.
+X		pushf
+X		sti
+X		clear	al
+X		cmp	sysversion, 3
+X		jb	ignore
+X		mov	al, 3
+Xignore:
+X		popf
+X		iret
+Xkbd:				; Entry point for keyboard interrupts.
+X		push	ds
+X		push	bx
+X		;
+X		; Increment interrupt flag.
+X		;
+X		lds	bx, iflagaddr
+X		mov	byte ptr [bx], 1
+X		pop	bx
+X		pop	ds
+X		iret
+X
+X		assume	nothing
+X		assume	cs: _TEXT
+X_getchnw:
+X		;
+X		; int getchnw();
+X		;
+X		; Return a character from standard input if one is
+X		; immediately available, otherwise -1.
+X		;
+X		mov	dl, 0ffh
+X		mov	ah, 6
+X		int	21h
+X		jz	notavail
+X		clear	ah
+X		C_ret
+Xnotavail:
+X		mov	ax, -1
+X		C_ret
+X
+X_dup:
+X		;
+X		; int dup(int fd);
+X		;
+X		; Duplicate file descriptor.
+X		;
+X		push	bp
+X		mov	bp, sp
+X		mov	bx, [bp + CPTRSIZE + 2]
+X		mov	ah, 45h
+X		int	21h
+X		;
+X		; Return -1 if CF is set, otherwise new descriptor.
+X		;
+X		sbb	bx, bx
+X		or	ax, bx	; New descriptor is in AX.
+X		pop	bp
+X		C_ret
+X
+X_dup2:
+X		;
+X		; int dup2(int fd1, int fd2);
+X		;
+X		; Duplicate file descriptor with specified new value.
+X		;
+X		push	bp
+X		mov	bp, sp
+X		mov	bx, [bp + CPTRSIZE + 2] ; Existing descriptor.
+X		mov	cx, [bp + CPTRSIZE + 4] ; New descriptor.
+X		mov	ah, 46h
+X		int	21h
+X		;
+X		; Return -1 if CF is set, otherwise 0.
+X		;
+X		sbb	ax, ax
+X		pop	bp
+X		C_ret
+X
+X;
+X; The following code is untested because neither of us has access to
+X; an MS-DOS development system at the moment.
+X;
+X;			assume	nothing
+X;			assume	cs: _TEXT
+X;
+X;	setdta		proc	near
+X;			;
+X;			; Set DOS's Disk Transfer Address to the address
+X;			; pointed to by ss:bx. This is either a near or far
+X;			; pointer, depending on what C memory model we're
+X;			; using.
+X;			;
+X;			mov	ah, 1ah
+X;		if DPTRSIZE eq 2		; Small or medium memory model.
+X;			mov	dx, [bx]
+X;			int	21h
+X;		else
+X;			push	ds
+X;			lds	dx, ss:[bx]
+X;			int	21h
+X;			pop	ds
+X;		endif
+X;			ret
+X;	setdta		endp
+X;
+X;	_statfirst:
+X;			;
+X;			; int statfirst(char * name, struct dstat * info,
+X;			;		int attribute);
+X;			;
+X;			; Return information on a named file or the first file
+X;			; matching a given specification.
+X;			;
+X;			; This is like stat(2) on Unix except that it does
+X;			; pattern matching with '*' & '?' (in the base name
+X;			; only, not in any directory names). If there are
+X;			; multiple matches, statfirst() only returns
+X;			; information on the first one & statnext() can be
+X;			; called successively for subsequent ones.
+X;			;
+X;			; The base name is returned, in capital letters, in
+X;			; the dstat structure, together with some other
+X;			; information.
+X;			;
+X;			mov	bx, sp
+X;			add	bx, CPTRSIZE + DPTRSIZE
+X;			;
+X;			; ss:bx now points to our struct dstat pointer.
+X;			;
+X;			call	setdta
+X;		if DPTRSIZE eq 2
+X;			mov	dx, [bx - DPTRSIZE]
+X;			mov	cx, [bx + DPTRSIZE]
+X;		else
+X;			lds	dx, ss:[bx - DPTRSIZE]
+X;			mov	cx, ss:[bx + DPTRSIZE]
+X;		endif
+X;			mov	ah, 4eh
+X;			int	21h
+X;			sbb	ax, ax
+X;			C_ret
+X;
+X;	_statnext:
+X;			;
+X;			; int statnext(struct dstat *info);
+X;			;
+X;			; See above.
+X;			;
+X;			mov	bx, sp
+X;			add	bx, CPTRSIZE
+X;			;
+X;			; ss:bx now points to our struct dstat pointer.
+X;			;
+X;			call	setdta
+X;			mov	ah, 4fh
+X;			int	21h
+X;			sbb	ax, ax
+X;			C_ret
+X_TEXT		ends
+X		end
+END_OF_FILE
+  if test 6169 -ne `wc -c <'xvi/src/msdos_a.asm'`; then
+    echo shar: \"'xvi/src/msdos_a.asm'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/msdos_a.asm'
+fi
+if test -f 'xvi/src/startup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/startup.c'\"
+else
+  echo shar: Extracting \"'xvi/src/startup.c'\" \(9907 characters\)
+  sed "s/^X//" >'xvi/src/startup.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)startup.c	2.3 (Chris & John Downey) 9/4/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    main.c
+X* module function:
+X    Entry point for xvi; setup, argument parsing and signal handling.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * References to the current cursor position, and the window
+X * and buffer into which it references. These make the code a
+X * lot simpler, but we have to be a bit careful to update them
+X * whenever necessary.
+X */
+XBuffer	*curbuf;
+XXviwin	*curwin;
+X
+X/*
+X * Global variables.
+X */
+Xstate_t		State = NORMAL;	/* This is the current state of the command */
+X				/* interpreter. */
+X
+Xunsigned	echo;		/*
+X				 * bitmap controlling the verbosity of
+X				 * screen output (see xvi.h for details).
+X				 */
+X
+Xint		indentchars;	/* number of chars indented on current line */
+X
+Xvolatile unsigned char
+X		kbdintr;	/*
+X				 * global flag set when a keyboard interrupt
+X				 * is received
+X				 */
+X
+Xbool_t		imessage;	/*
+X				 * global flag to indicate whether we should
+X				 * display the "Interrupted" message
+X				 */
+X
+X/*
+X * Internal routines.
+X */
+Xstatic	void	usage P((void));
+X
+XXviwin *
+Xxvi_startup(vs, argc, argv, envp)
+XVirtScr	*vs;
+Xint	argc;
+Xchar	*argv[];
+Xchar	*envp;				/* init string from the environment */
+X{
+X    char	*tag = NULL;		/* tag from command line */
+X    char	*pat = NULL;		/* pattern from command line */
+X    long	line = -1;		/* line number from command line */
+X    char	**files;
+X    int		numfiles = 0;
+X    int		count;
+X    char	*env;
+X
+X    ignore_signals();
+X
+X    /*
+X     * Initialise parameter module.
+X     */
+X    init_params();
+X
+X    /*
+X     * Initialise yank/put module.
+X     */
+X    init_yankput();
+X
+X    /*
+X     * The critical path this code has to follow is quite tricky.
+X     * We can't really run the "env" string until after we've set
+X     * up the first screen window because we don't know what the
+X     * commands in "env" might do: they might, for all we know,
+X     * want to display something. And we can't set up the first
+X     * screen window until we've set up the terminal interface.
+X     *
+X     * Also, we can't read the command line arguments until after
+X     * we've run the "env" string because a "-s param=value" argument
+X     * should override any setting of that parameter in the environment.
+X     *
+X     * All this means that the usage() function, which tells the
+X     * user that the command line syntax was wrong, can only be
+X     * called after the display interface has already been set up,
+X     * which means we must be in visual mode. So usage() has to
+X     * switch back to system mode (otherwise, on systems where
+X     * sys_startv() & sys_endv() switch display pages,
+X     * the user will never see the output of usage()). So ...
+X     */
+X
+X    /*
+X     * Set up the first buffer and screen window.
+X     * Must call sys_init first.
+X     */
+X    curbuf = new_buffer();
+X    if (curbuf == NULL) {
+X	sys_endv();
+X	(void) fputs("Can't allocate buffer memory.\n", stderr);
+X	sys_exit(2);
+X    }
+X    curwin = init_window(vs);
+X    if (curwin == NULL) {
+X	sys_endv();
+X	(void) fputs("Can't allocate buffer memory.\n", stderr);
+X	sys_exit(2);
+X    }
+X
+X    /*
+X     * Connect the two together.
+X     */
+X    map_window_onto_buffer(curwin, curbuf);
+X
+X    init_sline(curwin);
+X
+X    /*
+X     * Save a copy of the passed environment string in case it was
+X     * obtained from getenv(), so that the subsequent call we make
+X     * to get the SHELL parameter value does not overwrite it.
+X     */
+X    if (envp != NULL) {
+X	env = strsave(envp);
+X    } else {
+X    	env = NULL;
+X    }
+X
+X    /*
+X     * Try to obtain a value for the "shell" parameter from the
+X     * environment variable SHELL. If this is NULL, do not override
+X     * any existing value. The system interface code (sys_init()) is
+X     * free to set up a default value, and the initialisation string
+X     * in the next part of the startup is free to override both that
+X     * value and the one from the environment.
+X     */
+X    {
+X	char	*sh;
+X
+X	sh = getenv("SHELL");
+X	if (sh != NULL) {
+X	    set_param(P_shell, sh);
+X	}
+X    }
+X
+X    /*
+X     * Run any initialisation string passed to us.
+X     *
+X     * We can't really do this until we have set up the terminal
+X     * because we don't know what the initialisation string might do.
+X     */
+X    if (env != NULL) {
+X	register char	*ep;
+X	register bool_t	escaped = FALSE;
+X
+X	/*
+X	 * Commands in the initialization string can be
+X	 * separated by '|' (or '\n'), but a literal '|' or
+X	 * '\n' can be escaped by a preceding '\\', so we have
+X	 * to process the string, looking for all three
+X	 * characters.
+X	 */
+X	for (ep = env; *ep;) {
+X	    switch (*ep++) {
+X	    case '\\':
+X		escaped = TRUE;
+X		continue;
+X	    case '|':
+X	    case '\n':
+X		if (escaped) {
+X		    register char *s, *d;
+X
+X		    for (d = (s = --ep) - 1; (*d++ = *s++) != '\0'; )
+X			;
+X		} else {
+X		    ep[-1] = '\0';
+X		    do_colon(env, FALSE);
+X		    env = ep;
+X		}
+X		/* fall through ... */
+X	    default:
+X		escaped = FALSE;
+X	    }
+X	}
+X	if (ep > env) {
+X	    do_colon(env, FALSE);
+X	}
+X    }
+X
+X    /*
+X     * Process the command line arguments.
+X     *
+X     * We can't really do this until we have run the "env" string,
+X     * because "-s param=value" on the command line should override
+X     * parameter setting in the environment.
+X     *
+X     * This is a bit awkward because it means usage() is called
+X     * when we're already in vi mode (which means, among other
+X     * things, that display pages may have been swapped).
+X     */
+X    for (count = 1;
+X	 count < argc && (argv[count][0] == '-' || argv[count][0] == '+');
+X								count++) {
+X
+X	if (argv[count][0] == '-') {
+X	    switch (argv[count][1]) {
+X	    case 't':
+X		/*
+X		 * -t tag or -ttag
+X		 */
+X		if (numfiles != 0)
+X		    usage();
+X		if (argv[count][2] != '\0') {
+X		    tag = &(argv[count][2]);
+X		} else if (count < (argc - 1)) {
+X		    count += 1;
+X		    tag = argv[count];
+X		} else {
+X		    usage();
+X		}
+X		break;
+X
+X	    case 's':
+X		/*
+X		 * -s param=value or
+X		 * -sparam=value
+X		 */
+X		if (argv[count][2] != '\0') {
+X		    argv[count] += 2;
+X		} else if (count < (argc - 1)) {
+X		    count += 1;
+X		} else {
+X		    usage();
+X		}
+X		do_set(curwin, 1, &argv[count], FALSE);
+X		break;
+X
+X	    default:
+X		usage();
+X	    }
+X
+X	} else /* argv[count][0] == '+' */ {
+X	    char	nc;
+X
+X	    /*
+X	     * "+n file" or "+/pat file"
+X	     */
+X	    if (count >= (argc - 1))
+X		usage();
+X
+X	    nc = argv[count][1];
+X	    if (nc == '/') {
+X		pat = &(argv[count][2]);
+X	    } else if (is_digit(nc)) {
+X		line = atol(&(argv[count][1]));
+X	    } else if (nc == '\0') {
+X		line = 0;
+X	    } else {
+X		usage();
+X	    }
+X	    count += 1;
+X	    files = &argv[count];
+X	    numfiles = 1;
+X	}
+X    }
+X    if (numfiles != 0 || tag != NULL) {
+X	/*
+X	 * If we found "-t tag", "+n file" or "+/pat file" on
+X	 * the command line, we don't want to see any more
+X	 * file names.
+X	 */
+X	if (count < argc)
+X	    usage();
+X    } else {
+X	/*
+X	 * Otherwise, file names are valid.
+X	 */
+X	numfiles = argc - count;
+X	if (numfiles > 0) {
+X	    files = &(argv[count]);
+X	}
+X    }
+X
+X    /*
+X     * Initialise the cursor and top of screen pointers
+X     * to the start of the first buffer. Note that the
+X     * bottom of screen pointer is also set up, as some
+X     * code (e.g. move_window_to_cursor) depends on it.
+X     */
+X    curwin->w_topline = curbuf->b_file;
+X    curwin->w_botline = curbuf->b_file->l_next;
+X    move_cursor(curwin, curbuf->b_file, 0);
+X    curwin->w_col = 0;
+X    curwin->w_row = 0;
+X
+X    /*
+X     * Clear the window.
+X     *
+X     * It doesn't make sense to do this until we have a value for
+X     * Pn(P_colour).
+X     */
+X    clear(curwin);
+X
+X    if (numfiles != 0) {
+X	if (line < 0 && pat == NULL)
+X	    echo = e_CHARUPDATE | e_SHOWINFO;
+X
+X	do_next(curwin, numfiles, files, FALSE);
+X
+X	if (pat != NULL) {
+X	    echo = e_CHARUPDATE | e_SHOWINFO | e_REGERR | e_NOMATCH;
+X	    (void) dosearch(curwin, pat, '/');
+X	} else if (line >= 0) {
+X	    echo = e_CHARUPDATE | e_SHOWINFO;
+X	    do_goto((line > 0) ? line : MAX_LINENO);
+X	}
+X
+X    } else if (tag != NULL) {
+X	echo = e_CHARUPDATE | e_SHOWINFO | e_REGERR | e_NOMATCH;
+X	if (do_tag(curwin, tag, FALSE, TRUE, FALSE) == FALSE) {
+X	    /*
+X	     * Failed to find tag - wait for a while
+X	     * to allow user to read tags error and then
+X	     * display the "no file" message.
+X	     */
+X	    sleep(2);
+X	    show_file_info(curwin);
+X	}
+X    } else {
+X	echo = e_CHARUPDATE | e_SHOWINFO;
+X	show_file_info(curwin);
+X    }
+X
+X    setpcmark(curwin);
+X
+X    echo = e_CHARUPDATE;
+X
+X    /*
+X     * Ensure we are at the right screen position.
+X     */
+X    move_window_to_cursor(curwin);
+X
+X    /*
+X     * Draw the screen.
+X     */
+X    update_all();
+X
+X    /*
+X     * Update the cursor position on the screen, and go there.
+X     */
+X    cursupdate(curwin);
+X    wind_goto(curwin);
+X
+X    /*
+X     * Allow everything.
+X     */
+X    echo = e_ANY;
+X
+X    catch_signals();
+X
+X    if (env != NULL) {
+X	free(env);
+X    }
+X
+X    return(curwin);
+X}
+X
+X/*
+X * Print usage message and die.
+X *
+X * This function is only called after we have set the terminal to vi
+X * mode.
+X *
+X * The system interface functions have to ensure that it's safe to
+X * call sys_exit() when sys_endv() has already been called (& there
+X * hasn't necessarily been any intervening sys_startv()).
+X */
+Xstatic void
+Xusage()
+X{
+X    sys_endv();
+X    (void) fputs("Usage: xvi { options } [ file ... ]\n", stderr);
+X    (void) fputs("       xvi { options } -t tag\n", stderr);
+X    (void) fputs("       xvi { options } +[num] file\n", stderr);
+X    (void) fputs("       xvi { options } +/pat  file\n", stderr);
+X    (void) fputs("\nOptions are:\n", stderr);
+X    (void) fputs("       -s [no]boolean-parameter\n", stderr);
+X    (void) fputs("       -s parameter=value\n", stderr);
+X    sys_exit(1);
+X}
+END_OF_FILE
+  if test 9907 -ne `wc -c <'xvi/src/startup.c'`; then
+    echo shar: \"'xvi/src/startup.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/startup.c'
+fi
+if test -f 'xvi/src/sunfront.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/sunfront.c'\"
+else
+  echo shar: Extracting \"'xvi/src/sunfront.c'\" \(7353 characters\)
+  sed "s/^X//" >'xvi/src/sunfront.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *sccsid = "@(#)sunfront.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    sunfront.c
+X* module function:
+X    Terminal interface module for SunView: front end program.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X***/
+X
+X#include "xvi.h"
+X
+X#include <suntool/sunview.h>
+X#include <suntool/panel.h>
+X#include <suntool/icon.h>
+X#include <suntool/canvas.h>
+X#include <suntool/tty.h>
+X#include <sys/filio.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <vfork.h>
+X
+Xstatic short icon_image[] =
+X{
+X#   include "xvi.icn"
+X};
+X
+Xmpr_static(iconpr, 64, 64, 1, icon_image);
+X
+Xstatic Frame frame;
+Xstatic Tty xviwin;
+X
+X/*
+X * Handle keyboard or mouse input.
+X */
+Xstatic Notify_value
+Xttyproc(win, event, na, type)
+XTty			win;
+XEvent			*event;
+XNotify_arg		na;
+XNotify_event_type	type;
+X{
+X    static Pixfont	*deffont = (Pixfont *) 0; /* default font */
+X    register int	evtcode;
+X    static char		seqbuf[(sizeof (unsigned int) * 12) + 7] =
+X						{ PREFIXCHAR };
+X    int			nchars;
+X    bool_t		done;
+X    static unsigned	buttonstate, prevx, prevy;
+X    unsigned		mx, my;
+X
+X#define	BUTTONMASK(e)		(1 << ((e) - BUT(1)))
+X
+X    if (deffont == NULL) {
+X	/*
+X	 * Get default font.
+X	 */
+X	deffont = pf_default();
+X    }
+X
+X    evtcode = event_action(event);
+X    mx = event_x(event) / deffont->pf_defaultsize.x;
+X    my = event_y(event) / deffont->pf_defaultsize.y;
+X    nchars = 0;
+X    done = FALSE;
+X    if (evtcode == LOC_DRAG && buttonstate == BUTTONMASK(MS_MIDDLE)) {
+X	if (mx != prevx || my != prevy) {
+X	    /*
+X	     * Mouse drag event. Send a PREFIXCHAR,
+X	     * followed by 'm', followed by the starting
+X	     * row, finishing row, starting column &
+X	     * finishing column, in that order.
+X	     */
+X	    sprintf(&seqbuf[1], "m%x;%x;%x;%x;", prevy, my, prevx, mx);
+X	    nchars = strlen(seqbuf);
+X	    done = TRUE;
+X	    prevx = mx;
+X	    prevy = my;
+X	}
+X    } else if (event_is_down(event)) {
+X	if (event_is_button(event)) {
+X	    switch (evtcode) {
+X	    case MS_MIDDLE:
+X		prevx = mx;
+X		prevy = my;
+X		break;
+X	    case MS_RIGHT:
+X		/*
+X		 * Right button pressed. We have to
+X		 * send a PREFIXCHAR, followed by 'p',
+X		 * followed by the position of the
+X		 * mouse cursor in character
+X		 * co-ordinates: y first, then x.
+X		 */
+X		sprintf(&seqbuf[1], "p%x;%x;", my, mx);
+X		nchars = strlen(seqbuf);
+X		done = TRUE;
+X	    }
+X	    buttonstate |= BUTTONMASK(evtcode);
+X	} else {
+X	    /*
+X	     * nchars is the number of characters we have
+X	     * to send to xvi.main. In most of the cases
+X	     * we have to deal with here, this will be 2.
+X	     */
+X	    nchars = 2;
+X	    done = TRUE;
+X	    switch (evtcode) {
+X	    case PREFIXCHAR:
+X		seqbuf[1] = PREFIXCHAR;
+X		break;
+X	    case KEY_RIGHT(7):
+X		seqbuf[1] = 'H';
+X		break;
+X	    case KEY_RIGHT(8):
+X		seqbuf[1] = 'k';
+X		break;
+X	    case KEY_RIGHT(9):
+X		seqbuf[1] = CTRL('B');
+X		break;
+X	    case KEY_RIGHT(10):
+X		seqbuf[1] = '\b';
+X		break;
+X	    case KEY_RIGHT(12):
+X		seqbuf[1] = ' ';
+X		break;
+X	    case KEY_RIGHT(13):
+X		seqbuf[1] = 'L';
+X		break;
+X	    case KEY_RIGHT(14):
+X		seqbuf[1] = 'j';
+X		break;
+X	    case KEY_RIGHT(15):
+X		seqbuf[1] = CTRL('F');
+X		break;
+X	    default:
+X		nchars = 0;
+X		done = FALSE;
+X	    }
+X	}
+X    } else if (event_is_up(event) && event_is_button(event)) {
+X	if (evtcode == MS_RIGHT)
+X	    done = TRUE;
+X	buttonstate &= ~BUTTONMASK(evtcode);
+X    }
+X    if (nchars > 0) {
+X	ttysw_input(xviwin, seqbuf, nchars);
+X    }
+X    return done ?
+X	   NOTIFY_DONE :
+X	   notify_next_event_func(win, event, na, type);
+X}
+X
+X/*
+X * Read messages coming from back-end process.
+X */
+Xstatic Notify_value
+Xreadsocket(client, fd)
+XNotify_client	client;
+Xint		fd;
+X{
+X    char c;
+X
+X    while (read(fd, &c, 1) == 1) {
+X	if (c == 'q') {
+X	    (void) notify_set_input_func(client, NOTIFY_FUNC_NULL, fd);
+X	    window_set(frame, FRAME_NO_CONFIRM, TRUE, 0);
+X	    window_destroy(frame);
+X	    return NOTIFY_DONE;
+X	}
+X
+X    }
+X    return NOTIFY_DONE;
+X}
+X
+Xstatic Notify_value
+Xsigign(client, signum, when)
+XNotify_client		client;
+Xint			signum;
+XNotify_signal_mode	when;
+X{
+X    return NOTIFY_IGNORED;
+X}
+X
+X/*
+X * Start up our back-end process and connect its standard input,
+X * output & error files to the tty subwindow we've created for it.
+X *
+X * We use a pair of connected stream sockets to communicate with it:
+X * it can reference its socket as file descriptor 3. Currently, this
+X * is only used by the back-end process to tell us when to exit (by
+X * sending the single character 'q').
+X */
+Xstatic void
+Xforkmain(argv)
+Xchar	**argv;
+X{
+X    int		winfd;
+X    int		commsock[2];
+X    int		savefd[4];
+X    int		nbflag;
+X    int		i;
+X    char	*progname;
+X
+X
+X    for (i = 0; i <= 3; i++) {
+X	while ((savefd[i] = dup(i)) <= 3) {
+X	    ;
+X	}
+X    }
+X    if (socketpair(AF_UNIX, SOCK_STREAM, 0, commsock) != 0) {
+X	fprintf(stderr, "%s: can't create socket\n", argv[0]);
+X	exit(1);
+X    }
+X    winfd = (int) window_get(xviwin, TTY_TTY_FD);
+X    if ((progname = strdup(argv[0])) == NULL) {
+X	progname = "xvi.sunview";
+X    }
+X    argv[0] = XVI_MAINPROG;
+X    switch (vfork()) {
+X    case 0:		/* This is the child process. */
+X	for (i = 0; i <= 2; i++) {
+X	    dup2(winfd, i);
+X	}
+X	dup2(commsock[1], 3);
+X	ioctl(winfd, FIOCLEX, 0);
+X	ioctl(commsock[0], FIOCLEX, 0);
+X	ioctl(commsock[1], FIOCLEX, 0);
+X	for (i = 0; i <= 3; i++) {
+X	    ioctl(savefd[i], FIOCLEX, 0);
+X	}
+X	execvp(argv[0], argv);
+X	fprintf(stderr, "%s: can't execute %s\n", progname, argv[0]);
+X	fflush(stderr);
+X	_exit(1);
+X
+X    case -1:
+X	fprintf(stderr, "%s: vfork() failed\n", progname);
+X	fflush(stderr);
+X	_exit(1);
+X
+X    default:	/* This is the parent process. */
+X	/*
+X	 * We should only reach this point after the
+X	 * child has called execvp() (or died).
+X	 */
+X	for (i = 0; i <= 3; i++) {
+X	    dup2(savefd[i], i);
+X	    close(savefd[i]);
+X	}
+X	close(commsock[1]);
+X	/*
+X	 * commsock[0] is our end of the socketpair.
+X	 * We have to make it non-blocking & register
+X	 * an input handler for it.
+X	 */
+X	nbflag = 1;
+X	ioctl(commsock[0], FIONBIO, &nbflag);
+X	(void) notify_set_input_func((Notify_client) xviwin,
+X					readsocket, commsock[0]);
+X    }
+X}
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X    Icon	xvicon;
+X    char	*label;
+X
+X    if ((label = strrchr(argv[0], '/')) == NULL) {
+X	label = argv[0];
+X    } else {
+X	label++;
+X    }
+X    xvicon = icon_create(ICON_IMAGE, &iconpr, 0);
+X    frame = window_create(NULL,				FRAME,
+X			    FRAME_LABEL,		label,
+X			    FRAME_ICON,			xvicon,
+X			    FRAME_ARGC_PTR_ARGV,	&argc, argv,
+X			    WIN_ERROR_MSG,		"Can't create window",
+X			    FRAME_NO_CONFIRM,		TRUE,
+X			    FRAME_SUBWINDOWS_ADJUSTABLE,
+X			    FALSE,
+X			    0);
+X    xviwin = window_create(frame,			TTY,
+X			    TTY_ARGV,			TTY_ARGV_DO_NOT_FORK,
+X			    WIN_CONSUME_KBD_EVENTS,	WIN_RIGHT_KEYS,
+X			    0,
+X			    WIN_CONSUME_PICK_EVENTS,	WIN_MOUSE_BUTTONS,
+X			    WIN_UP_EVENTS,
+X			    LOC_DRAG,
+X			    0,
+X			    0);
+X    (void) notify_set_signal_func((Notify_client) xviwin, sigign,
+X		      SIGHUP, NOTIFY_ASYNC);
+X    (void) notify_set_signal_func((Notify_client) xviwin, sigign,
+X		      SIGINT, NOTIFY_ASYNC);
+X    (void) notify_set_signal_func((Notify_client) xviwin, sigign,
+X		      SIGQUIT, NOTIFY_ASYNC);
+X    forkmain(argv);
+X    notify_interpose_event_func(xviwin, ttyproc, NOTIFY_SAFE);
+X    window_main_loop(frame);
+X}
+END_OF_FILE
+  if test 7353 -ne `wc -c <'xvi/src/sunfront.c'`; then
+    echo shar: \"'xvi/src/sunfront.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/sunfront.c'
+fi
+echo shar: End of archive 15 \(of 18\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

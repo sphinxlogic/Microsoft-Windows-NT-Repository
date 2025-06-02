@@ -1,0 +1,2112 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v39i080:  remind - A replacement for calendar, Patch08b/3
+Message-ID: <1993Sep8.123029.22076@sparky.sterling.com>
+X-Md4-Signature: 33bf37acbbe6b92f515c94fea201b8af
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 8 Sep 1993 12:30:29 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 39, Issue 80
+Archive-name: remind/patch08b
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.08.C
+# Wrapped by kent@sparky on Wed Sep  8 07:12:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'patch.08.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.08.C'\"
+else
+  echo shar: Extracting \"'patch.08.C'\" \(60678 characters\)
+  sed "s/^X//" >'patch.08.C' <<'END_OF_FILE'
+X*** ../prev/init.c	Mon Jun 28 12:29:50 1993
+X--- ./init.c	Fri Aug 20 11:46:29 1993
+X***************
+X*** 10,15 ****
+X--- 10,16 ----
+X  /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X+ #define L_IN_INIT 1
+X  #include "config.h"
+X  #include <stdio.h>
+X  #ifdef HAVE_STDLIB_H
+X***************
+X*** 29,37 ****
+X  #include "types.h"
+X  #include "protos.h"
+X  #include "expr.h"
+X- #include "globals.h"
+X  #include "err.h"
+X  #include "version.h"
+X  
+X  /***************************************************************
+X   *
+X--- 30,38 ----
+X  #include "types.h"
+X  #include "protos.h"
+X  #include "expr.h"
+X  #include "err.h"
+X  #include "version.h"
+X+ #include "globals.h"
+X  
+X  /***************************************************************
+X   *
+X***************
+X*** 65,70 ****
+X--- 66,72 ----
+X   *             by non-root, changes environment but not effective uid.
+X   *  -kcmd    = Run 'cmd' for MSG-type reminders instead of printing to stdout
+X   *  -iVAR=EXPR = Initialize and preserve VAR.
+X+  *  A minus sign alone indicates to take input from stdin
+X   *
+X   **************************************************************/
+X  
+X***************
+X*** 111,117 ****
+X  
+X     RealToday = SystemDate(&CurYear, &CurMon, &CurDay);
+X     if (RealToday < 0) {
+X!       fprintf(ErrFp, "Illegal system date: Year is less than %d\n", BASE);
+X        exit(1);
+X     }
+X     JulianToday = RealToday;
+X--- 113,119 ----
+X  
+X     RealToday = SystemDate(&CurYear, &CurMon, &CurDay);
+X     if (RealToday < 0) {
+X!       fprintf(ErrFp, ErrMsg[M_BAD_SYS_DATE], BASE);
+X        exit(1);
+X     }
+X     JulianToday = RealToday;
+X***************
+X*** 129,140 ****
+X     i = 1;
+X     while (i < argc) {
+X        arg = argv[i];
+X!       if (*arg != '-') break;  /* Exit the loop if it's not an option */
+X        i++;
+X        arg++;
+X! 
+X        while (*arg) {
+X           switch(*arg++) {
+X              case 'i':
+X  	    case 'I':
+X  	       InitializeVar(arg);
+X--- 131,148 ----
+X     i = 1;
+X     while (i < argc) {
+X        arg = argv[i];
+X!       if (*arg != '-') break; /* Exit the loop if it's not an option */
+X        i++;
+X        arg++;
+X!       if (!*arg) {
+X!          UseStdin = 1;
+X! 	 IgnoreOnce = 1;
+X! 	 i--;
+X! 	 break;
+X!       }
+X        while (*arg) {
+X           switch(*arg++) {
+X+ 
+X              case 'i':
+X  	    case 'I':
+X  	       InitializeVar(arg);
+X***************
+X*** 286,292 ****
+X  		     case 'v': case 'V': DebugFlag |= DB_DUMP_VARS; break;
+X  		     case 'l': case 'L': DebugFlag |= DB_PRTLINE;   break;
+X  		     default:
+X! 		        fprintf(ErrFp, "Unknown debug flag '%c'\n", *(arg-1));
+X  		  }
+X                 }
+X  	       break;
+X--- 294,300 ----
+X  		     case 'v': case 'V': DebugFlag |= DB_DUMP_VARS; break;
+X  		     case 'l': case 'L': DebugFlag |= DB_PRTLINE;   break;
+X  		     default:
+X! 		        fprintf(ErrFp, ErrMsg[M_BAD_DB_FLAG], *(arg-1));
+X  		  }
+X                 }
+X  	       break;
+X***************
+X*** 316,335 ****
+X  	       break;
+X  
+X  	    default:
+X! 	       fprintf(ErrFp, "Unknown option '%c'\n", *(arg-1));
+X  	 }
+X  
+X        }
+X     }
+X  
+X- 
+X     /* Get the filename. */
+X     if (i >= argc) {
+X        Usage();
+X        exit(1);
+X     }
+X!    InitialFile = argv[i];
+X!    i++;
+X  
+X     /* Get the date, if any */
+X     if (i < argc) {
+X--- 324,341 ----
+X  	       break;
+X  
+X  	    default:
+X! 	       fprintf(ErrFp, ErrMsg[M_BAD_OPTION], *(arg-1));
+X  	 }
+X  
+X        }
+X     }
+X  
+X     /* Get the filename. */
+X     if (i >= argc) {
+X        Usage();
+X        exit(1);
+X     }
+X!    InitialFile = argv[i++];
+X  
+X     /* Get the date, if any */
+X     if (i < argc) {
+X***************
+X*** 387,402 ****
+X  /*  Print the usage info.                                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X  PUBLIC void Usage(void)
+X  #else
+X  void Usage()
+X! #endif
+X  {
+X     fprintf(ErrFp, "\nREMIND %s (%s version) Copyright 1992, 1993 by David F. Skoll\n", VERSION, L_LANGNAME);
+X  #ifdef BETA
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X! #endif   
+X     fprintf(ErrFp, "Usage: remind [options] filename [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X--- 393,409 ----
+X  /*  Print the usage info.                                      */
+X  /*                                                             */
+X  /***************************************************************/
+X+ #ifndef L_USAGE_OVERRIDE
+X  #ifdef HAVE_PROTOS
+X  PUBLIC void Usage(void)
+X  #else
+X  void Usage()
+X! #endif /* HAVE_PROTOS */
+X  {
+X     fprintf(ErrFp, "\nREMIND %s (%s version) Copyright 1992, 1993 by David F. Skoll\n", VERSION, L_LANGNAME);
+X  #ifdef BETA
+X     fprintf(ErrFp, ">>>> BETA VERSION <<<<\n");
+X! #endif
+X     fprintf(ErrFp, "Usage: remind [options] filename [date]\n");
+X     fprintf(ErrFp, "Options:\n");
+X     fprintf(ErrFp, " -n     Output next occurrence of reminders in simple format\n");
+X***************
+X*** 425,431 ****
+X     fprintf(ErrFp, " -ivar=val Initialize var to val and preserve var\n");
+X     exit(1);
+X  }
+X! 
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  ChgUser                                                    */
+X--- 432,438 ----
+X     fprintf(ErrFp, " -ivar=val Initialize var to val and preserve var\n");
+X     exit(1);
+X  }
+X! #endif /* L_USAGE_OVERRIDE */
+X  /***************************************************************/
+X  /*                                                             */
+X  /*  ChgUser                                                    */
+X***************
+X*** 451,457 ****
+X     int myuid;
+X  #endif
+X  
+X-    static char *NoEnvMem = "Remind: Out of memory for environment\n";
+X     struct passwd *pwent;
+X     static char *home, *shell, *username, *logname;
+X  
+X--- 458,463 ----
+X***************
+X*** 460,482 ****
+X     pwent = getpwnam(user);
+X  
+X     if (!pwent) {
+X!       fprintf(ErrFp, "Remind: Unknown user '%s'\n", user);
+X        exit(1);
+X     }
+X  
+X     if (!myuid && setgid(pwent->pw_gid)) {
+X!       fprintf(ErrFp, "Remind: Could not change gid to %d\n", pwent->pw_gid);
+X        exit(1);
+X     }
+X  
+X     if (!myuid && setuid(pwent->pw_uid)) {
+X!       fprintf(ErrFp, "Remind: Could not change uid to %d\n", pwent->pw_uid);
+X        exit(1);
+X     }
+X  
+X     home = malloc(strlen(pwent->pw_dir) + 6);
+X     if (!home) {
+X!       fprintf(ErrFp, NoEnvMem);
+X        exit(1);
+X     }
+X     sprintf(home, "HOME=%s", pwent->pw_dir);
+X--- 466,488 ----
+X     pwent = getpwnam(user);
+X  
+X     if (!pwent) {
+X!       fprintf(ErrFp, ErrMsg[M_BAD_USER], user);
+X        exit(1);
+X     }
+X  
+X     if (!myuid && setgid(pwent->pw_gid)) {
+X!       fprintf(ErrFp, ErrMsg[M_NO_CHG_GID], pwent->pw_gid);
+X        exit(1);
+X     }
+X  
+X     if (!myuid && setuid(pwent->pw_uid)) {
+X!       fprintf(ErrFp, ErrMsg[M_NO_CHG_UID], pwent->pw_uid);
+X        exit(1);
+X     }
+X  
+X     home = malloc(strlen(pwent->pw_dir) + 6);
+X     if (!home) {
+X!       fprintf(ErrFp, ErrMsg[M_NOMEM_ENV]);
+X        exit(1);
+X     }
+X     sprintf(home, "HOME=%s", pwent->pw_dir);
+X***************
+X*** 484,490 ****
+X  
+X     shell = malloc(strlen(pwent->pw_shell) + 7);
+X     if (!shell) {
+X!       fprintf(ErrFp, NoEnvMem);
+X        exit(1);
+X     }
+X     sprintf(shell, "SHELL=%s", pwent->pw_shell);
+X--- 490,496 ----
+X  
+X     shell = malloc(strlen(pwent->pw_shell) + 7);
+X     if (!shell) {
+X!       fprintf(ErrFp, ErrMsg[M_NOMEM_ENV]);
+X        exit(1);
+X     }
+X     sprintf(shell, "SHELL=%s", pwent->pw_shell);
+X***************
+X*** 493,499 ****
+X     if (pwent->pw_uid) {
+X        username = malloc(strlen(pwent->pw_name) + 6);
+X        if (!username) {
+X!          fprintf(ErrFp, NoEnvMem);
+X           exit(1);
+X        }
+X        sprintf(username, "USER=%s", pwent->pw_name);
+X--- 499,505 ----
+X     if (pwent->pw_uid) {
+X        username = malloc(strlen(pwent->pw_name) + 6);
+X        if (!username) {
+X!          fprintf(ErrFp, ErrMsg[M_NOMEM_ENV]);
+X           exit(1);
+X        }
+X        sprintf(username, "USER=%s", pwent->pw_name);
+X***************
+X*** 500,506 ****
+X        putenv(username);
+X        logname= malloc(strlen(pwent->pw_name) + 9);
+X        if (!logname) {
+X!          fprintf(ErrFp, NoEnvMem);
+X           exit(1);
+X        }
+X        sprintf(logname, "LOGNAME=%s", pwent->pw_name);
+X--- 506,512 ----
+X        putenv(username);
+X        logname= malloc(strlen(pwent->pw_name) + 9);
+X        if (!logname) {
+X!          fprintf(ErrFp, ErrMsg[M_NOMEM_ENV]);
+X           exit(1);
+X        }
+X        sprintf(logname, "LOGNAME=%s", pwent->pw_name);
+X***************
+X*** 524,530 ****
+X  #endif
+X  {
+X     char *varname, *expr;
+X-    static char Err[] = "Remind: -i option: %s\n";
+X  
+X     Value val;
+X  
+X--- 530,535 ----
+X***************
+X*** 534,576 ****
+X     varname = str;
+X     while (*str && *str != '=') str++;
+X     if (!*str) {
+X!       fprintf(ErrFp, Err, "Missing '=' sign");
+X        return;
+X     }
+X     *str = 0;
+X     if (!*varname) {
+X!       fprintf(ErrFp, Err, "Missing varname");
+X        return;
+X     }
+X     expr = str+1;
+X     if (!*expr) {
+X!       fprintf(ErrFp, Err, "Missing expr");
+X        return;
+X     }
+X  
+X     r=EvalExpr(&expr, &val);
+X     if (r) {
+X!       fprintf(ErrFp, Err, ErrMsg[r]);
+X        return;
+X     }
+X  
+X     if (*varname == '$') {
+X        if (val.type != INT_TYPE) {
+X!          fprintf(ErrFp, Err, ErrMsg[E_BAD_TYPE]);
+X  	 return;
+X        }
+X        r=SetSysVar(varname+1, val.v.val);
+X!       if (r) fprintf(ErrFp, Err, ErrMsg[r]);
+X        return;
+X     }
+X  
+X     r=SetVar(varname, &val);
+X     if (r) {
+X!       fprintf(ErrFp, Err, ErrMsg[r]);
+X        return;
+X     }
+X     r=PreserveVar(varname);
+X!    if (r) fprintf(ErrFp, Err, ErrMsg[r]);
+X     return;
+X  }
+X  
+X--- 539,581 ----
+X     varname = str;
+X     while (*str && *str != '=') str++;
+X     if (!*str) {
+X!       fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[E_MISS_EQ]);
+X        return;
+X     }
+X     *str = 0;
+X     if (!*varname) {
+X!       fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[E_MISS_VAR]);
+X        return;
+X     }
+X     expr = str+1;
+X     if (!*expr) {
+X!       fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[E_MISS_EXPR]);
+X        return;
+X     }
+X  
+X     r=EvalExpr(&expr, &val);
+X     if (r) {
+X!       fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X        return;
+X     }
+X  
+X     if (*varname == '$') {
+X        if (val.type != INT_TYPE) {
+X!          fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[E_BAD_TYPE]);
+X  	 return;
+X        }
+X        r=SetSysVar(varname+1, val.v.val);
+X!       if (r) fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X        return;
+X     }
+X  
+X     r=SetVar(varname, &val);
+X     if (r) {
+X!       fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X        return;
+X     }
+X     r=PreserveVar(varname);
+X!    if (r) fprintf(ErrFp, ErrMsg[M_I_OPTION], ErrMsg[r]);
+X     return;
+X  }
+X  
+X*** ../prev/lang.h	Mon Jun 28 12:29:33 1993
+X--- ./lang.h	Wed Aug 18 11:11:53 1993
+X***************
+X*** 13,20 ****
+X  
+X  #define ENGLISH    0 /* original by David Skoll */
+X  #define GERMAN     1 /* translated by Wolfgang Thronicke */
+X! #define DUTCH      2 /* translated by Willem Kasdorp */
+X  #define FINNISH    3 /* translated by Mikko Silvonen */
+X  
+X  /* Add more languages here - but please e-mail dfs@doe.carleton.ca
+X     to have your favorite language assigned a number.  If you add a
+X--- 13,22 ----
+X  
+X  #define ENGLISH    0 /* original by David Skoll */
+X  #define GERMAN     1 /* translated by Wolfgang Thronicke */
+X! #define DUTCH      2 /* translated by Willem Kasdorp and Erik-Jan Vens */
+X  #define FINNISH    3 /* translated by Mikko Silvonen */
+X+ #define FRENCH	   4 /* translated by Laurent Duperval */
+X+ #define NORWEGIAN  5 /* translated by Trygve Randen */
+X  
+X  /* Add more languages here - but please e-mail dfs@doe.carleton.ca
+X     to have your favorite language assigned a number.  If you add a
+X***************
+X*** 48,53 ****
+X--- 50,59 ----
+X  #include "dutch.h"
+X  #elif LANG == FINNISH
+X  #include "finnish.h"
+X+ #elif LANG == FRENCH
+X+ #include "french.h"
+X+ #elif LANG == NORWEGIAN
+X+ #include "norwgian.h"
+X  
+X  /* If no sensible language, choose English.  I intended to use
+X     the #error directive here, but some C compilers barf. */
+X*** ../prev/main.c	Mon Jun 28 12:39:37 1993
+X--- ./main.c	Wed Aug 25 13:06:26 1993
+X***************
+X*** 27,44 ****
+X  #include <varargs.h>
+X  #endif
+X  #include <ctype.h>
+X  
+X  #ifdef __MSDOS__
+X  #include <dos.h>
+X- #include <time.h>
+X  #endif
+X  
+X  
+X  #ifndef __MSDOS__
+X  #include <sys/types.h>
+X! #ifdef SYSV
+X! #include <time.h>
+X! #else
+X  #include <sys/time.h>
+X  #endif
+X  #endif /* ifndef __MSDOS__ */
+X--- 27,42 ----
+X  #include <varargs.h>
+X  #endif
+X  #include <ctype.h>
+X+ #include <time.h>
+X  
+X  #ifdef __MSDOS__
+X  #include <dos.h>
+X  #endif
+X  
+X  
+X  #ifndef __MSDOS__
+X  #include <sys/types.h>
+X! #ifndef SYSV
+X  #include <sys/time.h>
+X  #endif
+X  #endif /* ifndef __MSDOS__ */
+X***************
+X*** 51,56 ****
+X--- 49,60 ----
+X  
+X  PRIVATE void DoReminders ARGS ((void));
+X  
+X+ #if defined(NEED_TIMEGM) && !defined(HAVE_MKTIME)
+X+ PRIVATE long time_cheat ARGS ((int year, int month));
+X+ long timegm ARGS((struct tm *tm));
+X+ long timelocal ARGS((struct tm *tm));
+X+ #endif
+X+ 
+X  static char TPushBuffer[TOKSIZE+1]; /* Buffer for pushing back a token. */
+X  static char *TokenPushed = NULL;
+X  
+X***************
+X*** 97,116 ****
+X  
+X     if (!Hush) {
+X        if (DestroyOmitContexts())
+X! 	Eprint("Warning: PUSH-OMIT-CONTEXT without matching POP-OMIT-CONTEXT.");
+X  #ifdef HAVE_QUEUED
+X!       if (!Daemon && !NextMode && !NumTriggered && !NumQueued) printf("No reminders.\n");
+X     else
+X!       if (!Daemon && !NextMode && !NumTriggered) printf("%d reminder%s queued for later today.\n",
+X!          NumQueued, (NumQueued == 1) ? "" : "s");
+X  #else
+X!       if (!NextMode && !NumTriggered) printf("No reminders.\n");
+X  #endif
+X     }
+X  
+X     /* If it's MS-DOS or OS2, reset the file access date */
+X  #if defined(__MSDOS__) || defined(OS2)
+X!    if (RealToday == JulianToday) SetAccessDate(InitialFile, RealToday);
+X  #endif
+X  
+X     /* If there are sorted reminders, handle them */
+X--- 101,121 ----
+X  
+X     if (!Hush) {
+X        if (DestroyOmitContexts())
+X! 	Eprint("%s", E_PUSH_NOPOP);
+X  #ifdef HAVE_QUEUED
+X!       if (!Daemon && !NextMode && !NumTriggered && !NumQueued) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X     else
+X!       if (!Daemon && !NextMode && !NumTriggered) printf(ErrMsg[M_QUEUED],
+X!          NumQueued);
+X  #else
+X!       if (!NextMode && !NumTriggered) printf("%s\n", ErrMsg[E_NOREMINDERS]);
+X  #endif
+X     }
+X  
+X     /* If it's MS-DOS or OS2, reset the file access date */
+X  #if defined(__MSDOS__) || defined(OS2)
+X!    if (!UseStdin && (RealToday == JulianToday))
+X!       SetAccessDate(InitialFile, RealToday);
+X  #endif
+X  
+X     /* If there are sorted reminders, handle them */
+X***************
+X*** 130,136 ****
+X  	    return 0;
+X  	 }
+X  	 if (pid == -1) {
+X! 	    fprintf(ErrFp, "Couldn't fork to do queued reminders.\n");
+X  	    return 1;
+X  	 }
+X        }
+X--- 135,141 ----
+X  	    return 0;
+X  	 }
+X  	 if (pid == -1) {
+X! 	    fprintf(ErrFp, "%s", ErrMsg[E_CANTFORK]);
+X  	    return 1;
+X  	 }
+X        }
+X***************
+X*** 158,173 ****
+X     char *s;
+X     Parser p;
+X  
+X!    FileAccessDate = GetAccessDate(InitialFile);
+X  
+X     if (FileAccessDate < 0) {
+X!       fprintf(ErrFp, "remind: Can't access file '%s'.\n", InitialFile);
+X        exit(1);
+X     }
+X  
+X     r=OpenFile(InitialFile);
+X     if (r) {
+X!       fprintf(ErrFp, "Can't read %s: %s\n", InitialFile, ErrMsg[r]);
+X        exit(1);
+X     }
+X  
+X--- 163,180 ----
+X     char *s;
+X     Parser p;
+X  
+X!    if (!UseStdin) FileAccessDate = GetAccessDate(InitialFile);
+X!    else		  FileAccessDate = JulianToday;
+X  
+X     if (FileAccessDate < 0) {
+X!       fprintf(ErrFp, "%s: '%s'.\n", ErrMsg[E_CANTACCESS], InitialFile);
+X        exit(1);
+X     }
+X  
+X     r=OpenFile(InitialFile);
+X     if (r) {
+X!       fprintf(ErrFp, "%s %s: %s\n", ErrMsg[E_ERR_READING],
+X!                                     InitialFile, ErrMsg[r]);
+X        exit(1);
+X     }
+X  
+X***************
+X*** 175,181 ****
+X        r = ReadLine();
+X        if (r == E_EOF) return;
+X        if (r) {
+X! 	 Eprint("Error reading file: %s", ErrMsg[r]);
+X  	 exit(1);
+X        }
+X        s = FindInitialToken(&tok, CurLine);
+X--- 182,188 ----
+X        r = ReadLine();
+X        if (r == E_EOF) return;
+X        if (r) {
+X! 	 Eprint("%s: %s", ErrMsg[E_ERR_READING], ErrMsg[r]);
+X  	 exit(1);
+X        }
+X        s = FindInitialToken(&tok, CurLine);
+X***************
+X*** 565,571 ****
+X  
+X     if (FreshLine) {
+X        FreshLine = 0;
+X!       (void) fprintf(ErrFp, "%s(%d): ", FileName, LineNo);
+X        if (DebugFlag & DB_PRTLINE) OutputLine(ErrFp);
+X     } else fprintf(ErrFp, "       ");
+X  
+X--- 572,581 ----
+X  
+X     if (FreshLine) {
+X        FreshLine = 0;
+X!       if (strcmp(FileName, "-"))
+X!          (void) fprintf(ErrFp, "%s(%d): ", FileName, LineNo);
+X!       else
+X!          (void) fprintf(ErrFp, "-stdin-(%d): ", LineNo);
+X        if (DebugFlag & DB_PRTLINE) OutputLine(ErrFp);
+X     } else fprintf(ErrFp, "       ");
+X  
+X***************
+X*** 911,917 ****
+X  
+X     if ( (r = ParseToken(p, TokBuffer)) ) return r;
+X     if (*TokBuffer && (*TokBuffer != '#') && (*TokBuffer != ';')) {
+X!       Eprint("Expecting end-of-line, found '%s'", TokBuffer);
+X        return E_EXTRANEOUS_TOKEN;
+X     }
+X     return OK;
+X--- 921,927 ----
+X  
+X     if ( (r = ParseToken(p, TokBuffer)) ) return r;
+X     if (*TokBuffer && (*TokBuffer != '#') && (*TokBuffer != ';')) {
+X!       Eprint("%s: '%s'", ErrMsg[E_EXPECTING_EOL], TokBuffer);
+X        return E_EXTRANEOUS_TOKEN;
+X     }
+X     return OK;
+X***************
+X*** 1162,1164 ****
+X--- 1172,1325 ----
+X     if (isdst) *isdst = temp->tm_isdst;
+X     return 0;
+X  }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FillParagraph                                              */
+X+ /*                                                             */
+X+ /*  Write a string to standard output, formatting it as a      */
+X+ /*  paragraph according to the FirstIndent, FormWidth and      */
+X+ /*  SubsIndent variables.  Spaces are gobbled.  Double-spaces  */
+X+ /*  are inserted after periods.  As a special case, if the     */
+X+ /*  last char in s is '\n', an extra newline is emitted.       */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC void FillParagraph(char *s)
+X+ #else
+X+ void FillParagraph(s)
+X+ char *s;
+X+ #endif
+X+ {
+X+ 
+X+    int line = 0;
+X+    int i, j;
+X+    int pendspace;
+X+    int len;
+X+    char *t;
+X+ 
+X+    int roomleft;
+X+ 
+X+    if (!s || !*s) return;
+X+ 
+X+    /* Skip leading spaces */
+X+    while(isspace(*s)) s++;
+X+ 
+X+    /* Start formatting */
+X+    while(1) {
+X+       if (!*s) {
+X+          if (*(s-1) == '\n') putchar('\n');
+X+          return;
+X+       }
+X+       /* Over here, we're at the beginning of a line.  Emit the correct
+X+          number of spaces */
+X+       j = line ? SubsIndent : FirstIndent;
+X+       for (i=0; i<j; i++) putchar(' ');
+X+ 
+X+       /* Calculate the amount of room left on this line */
+X+       roomleft = FormWidth - j;
+X+       pendspace = 0;
+X+ 
+X+       /* Emit words until the next one won't fit */
+X+       while(1) {
+X+          while(isspace(*s)) s++;
+X+          t = s;
+X+          while(*s && !isspace(*s)) s++;
+X+ 	 len = s - t;
+X+ 	 if (!len) {
+X+ 	    putchar('\n');
+X+             if (*(s-1) == '\n') putchar('\n');
+X+ 	    return;
+X+          }
+X+ 	 if (!pendspace || len+pendspace <= roomleft) {
+X+             for (i=0; i<pendspace; i++) putchar(' ');
+X+    	    while(t < s) {
+X+ 	       putchar(*t);
+X+ 	       t++;
+X+             }
+X+          } else {
+X+ 	    s = t;
+X+ 	    putchar('\n');
+X+ 	    line++;
+X+ 	    break;
+X+          }
+X+ 	 pendspace = (*(t-1) == '.') ? 2 : 1;
+X+ 	 roomleft -= len+pendspace;
+X+       }
+X+    }
+X+ }
+X+ 
+X+ #if defined(NEED_TIMEGM) && !defined(HAVE_MKTIME)
+X+ #define		TGM_SEC		(1)
+X+ #define		TGM_MIN		(60 * TGM_SEC)
+X+ #define		TGM_HR		(60 * TGM_MIN)
+X+ #define		TGM_DAY		(24 * TGM_HR)
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE long time_cheat(int year, int month)
+X+ #else
+X+ static long time_cheat (year, month)
+X+ int year;
+X+ int month;
+X+ #endif
+X+ {
+X+ 	long guess = time((long *) NULL);
+X+ 	struct tm g;
+X+ 	int diff;
+X+ 	
+X+ 	g = *gmtime (&guess);
+X+ 	while ((diff = year - g.tm_year) > 0)
+X+ 	{
+X+ 		guess += diff * (363 - TGM_DAY);
+X+ 		g = *gmtime (&guess);
+X+ 	}
+X+ 	g.tm_mday--;
+X+ 	guess -= g.tm_sec * TGM_SEC + g.tm_min * TGM_MIN +
+X+ 		 g.tm_hour * TGM_HR + g.tm_mday * TGM_DAY;
+X+ 	return (guess);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC long timegm (struct tm *tm)
+X+ #else
+X+ long timegm(tm)
+X+ struct tm *tm;
+X+ #endif
+X+ {
+X+ 	long clock = time_cheat (tm->tm_year, tm->tm_mon);
+X+ 
+X+ 	return (clock + tm->tm_sec * TGM_SEC +
+X+ 			tm->tm_min * TGM_MIN +
+X+ 			tm->tm_hour * TGM_HR +
+X+ 			(tm->tm_mday - 1) * TGM_DAY);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC long timelocal (struct tm *tm)
+X+ #else
+X+ long timelocal (tm)
+X+ struct tm *tm;
+X+ #endif
+X+ {
+X+ 	long zero = 0;
+X+ 	struct tm epoch;
+X+ 	int tzmin;
+X+ 	long clock;
+X+ 	struct tm test;
+X+ 
+X+ 	epoch = *localtime (&zero);
+X+ 	tzmin = epoch.tm_hour * 60 + epoch.tm_min;
+X+ 	if (tzmin > 0)
+X+ 	{
+X+ 		tzmin = 24 * 60 - tzmin;
+X+ 		if (epoch.tm_year == 70)
+X+ 			tzmin -= 24 * 60;
+X+ 	}
+X+ 	clock = timegm (tm) + tzmin * TGM_MIN;
+X+ 	test = *localtime (&clock);
+X+ 
+X+ 	if (test.tm_hour != tm->tm_hour)
+X+ 		clock -= TGM_HR;
+X+ 	return (clock);
+X+ }
+X+ #endif /* NEED_TIMEGM */
+X*** ../prev/makefile.os2	Mon Jun 28 12:30:19 1993
+X--- ./makefile.os2	Wed Aug 18 11:13:19 1993
+X***************
+X*** 25,37 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.07
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finish.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X--- 25,39 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.08
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finish.h french.h norwgian.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X+ LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X+ 
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X***************
+X*** 68,74 ****
+X  rem2ps$O: rem2ps.c rem2ps.h config.h
+X  calendar$O: calendar.c $(STDHDRS) expr.h
+X  dorem$O: dorem.c $(STDHDRS) expr.h
+X! dosubst$O: dosubst.c $(STDHDRS)
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X--- 70,76 ----
+X  rem2ps$O: rem2ps.c rem2ps.h config.h
+X  calendar$O: calendar.c $(STDHDRS) expr.h
+X  dorem$O: dorem.c $(STDHDRS) expr.h
+X! dosubst$O: dosubst.c $(STDHDRS) $(LANGHDRS)
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X*** ../prev/makefile.tc	Mon Jun 28 12:30:09 1993
+X--- ./makefile.tc	Wed Aug 18 11:13:06 1993
+X***************
+X*** 1,12 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.07
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finnish.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X--- 1,14 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.08
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X! lang.h english.h german.h dutch.h finnish.h french.h norwgian.h
+X  
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X+ LANGHDRS= english.h german.h dutch.h finnish.h french.h norwgian.h
+X+ 
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X***************
+X*** 37,43 ****
+X  
+X  dorem.obj: dorem.c $(STDHDRS) expr.h
+X  
+X! dosubst.obj: dosubst.c $(STDHDRS)
+X  
+X  expr.obj: expr.c $(STDHDRS) expr.h
+X  
+X--- 39,45 ----
+X  
+X  dorem.obj: dorem.c $(STDHDRS) expr.h
+X  
+X! dosubst.obj: dosubst.c $(STDHDRS) $(LANGHDRS)
+X  
+X  expr.obj: expr.c $(STDHDRS) expr.h
+X  
+X*** ../prev/omit.c	Mon Jun 28 12:29:53 1993
+X--- ./omit.c	Thu Aug 19 16:16:33 1993
+X***************
+X*** 304,329 ****
+X        FindToken(TokBuffer, &tok);
+X        switch (tok.type) {
+X           case T_Year:
+X! 	    if (y != NO_YR) {
+X! 	       Eprint("Year specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    y = tok.val;
+X  	    break;
+X  
+X           case T_Month:
+X! 	    if (m != NO_MON) {
+X! 	       Eprint("Month specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    m = tok.val;
+X  	    break;
+X  
+X           case T_Day:
+X! 	    if (d != NO_DAY) {
+X! 	       Eprint("Day specified twice");
+X! 	       return E_PARSE_ERR;
+X! 	    }
+X  	    d = tok.val;
+X  	    break;
+X  	 
+X--- 304,320 ----
+X        FindToken(TokBuffer, &tok);
+X        switch (tok.type) {
+X           case T_Year:
+X! 	    if (y != NO_YR) return E_YR_TWICE;
+X  	    y = tok.val;
+X  	    break;
+X  
+X           case T_Month:
+X! 	    if (m != NO_MON) return E_MON_TWICE;
+X  	    m = tok.val;
+X  	    break;
+X  
+X           case T_Day:
+X! 	    if (d != NO_DAY) return E_DAY_TWICE;
+X  	    d = tok.val;
+X  	    break;
+X  	 
+X***************
+X*** 337,355 ****
+X  	    break;
+X  
+X  	 default:
+X! 	    Eprint("Unknown token '%s' in OMIT command", TokBuffer);
+X! 	    return E_PARSE_ERR;
+X        }
+X     }
+X!    if (m == NO_MON || d == NO_DAY) {
+X!       Eprint("Must specify month and day in OMIT command");
+X!       return E_PARSE_ERR;
+X!    }
+X     if (y == NO_YR) {
+X!       if (NumPartialOmits == MAX_PARTIAL_OMITS) {
+X!          Eprint("Too many partial OMITs");
+X! 	 return E_NO_MEM;
+X!       }
+X        if (d > MonthDays[m]) return E_BAD_DATE;
+X        syndrome = (m<<5) + d;
+X        if (!BexistsIntArray(PartialOmitArray, NumPartialOmits, syndrome)) {
+X--- 328,342 ----
+X  	    break;
+X  
+X  	 default:
+X! 	    Eprint("%s: '%s' (OMIT)", ErrMsg[E_UNKNOWN_TOKEN], TokBuffer);
+X! 	    return E_UNKNOWN_TOKEN;
+X        }
+X     }
+X!    if (m == NO_MON || d == NO_DAY) return E_SPEC_MON_DAY;
+X! 
+X     if (y == NO_YR) {
+X!       if (NumPartialOmits == MAX_PARTIAL_OMITS) return E_2MANY_PART;
+X! 
+X        if (d > MonthDays[m]) return E_BAD_DATE;
+X        syndrome = (m<<5) + d;
+X        if (!BexistsIntArray(PartialOmitArray, NumPartialOmits, syndrome)) {
+X***************
+X*** 357,366 ****
+X           NumPartialOmits++;
+X        }
+X     } else {
+X!       if (NumFullOmits == MAX_FULL_OMITS) {
+X!          Eprint("Too many full OMITs");
+X! 	 return E_NO_MEM;
+X!       }
+X        if (d > DaysInMonth(m, y)) return E_BAD_DATE;
+X        syndrome = Julian(y, m, d);
+X        if (!BexistsIntArray(FullOmitArray, NumFullOmits, syndrome)) {
+X--- 344,351 ----
+X           NumPartialOmits++;
+X        }
+X     } else {
+X!       if (NumFullOmits == MAX_FULL_OMITS) return E_2MANY_FULL;
+X! 
+X        if (d > DaysInMonth(m, y)) return E_BAD_DATE;
+X        syndrome = Julian(y, m, d);
+X        if (!BexistsIntArray(FullOmitArray, NumFullOmits, syndrome)) {
+X*** ../prev/protos.h	Mon Jun 28 12:37:30 1993
+X--- ./protos.h	Wed Aug 18 12:52:08 1993
+X***************
+X*** 108,114 ****
+X  int DoPreserve  ARGS ((Parser *p));
+X  int DoSatRemind ARGS ((Trigger *trig, TimeTrig *tim, ParsePtr p));
+X  int ParseNonSpaceChar ARGS ((ParsePtr p, int *err, int peek));
+X! int HashVal ARGS ((const char *str));
+X  int DateOK ARGS ((int y, int m, int d));
+X  Operator *FindFunc ARGS ((char *name, Operator where[], int num));
+X  int InsertIntoSortBuffer ARGS ((int jul, int tim, char *body, int typ));
+X--- 108,114 ----
+X  int DoPreserve  ARGS ((Parser *p));
+X  int DoSatRemind ARGS ((Trigger *trig, TimeTrig *tim, ParsePtr p));
+X  int ParseNonSpaceChar ARGS ((ParsePtr p, int *err, int peek));
+X! unsigned int HashVal ARGS ((const char *str));
+X  int DateOK ARGS ((int y, int m, int d));
+X  Operator *FindFunc ARGS ((char *name, Operator where[], int num));
+X  int InsertIntoSortBuffer ARGS ((int jul, int tim, char *body, int typ));
+X***************
+X*** 129,131 ****
+X--- 129,132 ----
+X  int SetSysVar ARGS ((const char *name, int value));
+X  void DumpSysVarByName ARGS ((const char *name));
+X  int CalcMinsFromUTC ARGS ((int jul, int tim, int *mins, int *isdst));
+X+ void FillParagraph ARGS ((char *s));
+X*** ../prev/queue.c	Mon Jun 28 12:29:55 1993
+X--- ./queue.c	Thu Aug 19 16:12:20 1993
+X***************
+X*** 74,86 ****
+X  
+X     qelem = NEW(QueuedRem);
+X     if (!qelem) {
+X-       Eprint("No memory to queue reminder.");
+X        return E_NO_MEM;
+X     }
+X     qelem->text = StrDup(p->pos);  /* Guaranteed that parser is not nested. */
+X     if (!qelem->text) {
+X        free(qelem);
+X-       Eprint("No memory to queue reminder.");
+X        return E_NO_MEM;
+X     }
+X     qelem->typ = typ;
+X--- 74,84 ----
+X***************
+X*** 275,281 ****
+X                   q->tt.ttime / 60, TIMESEP, q->tt.ttime % 60,
+X                   q->tt.nexttime / 60, TIMESEP, q->tt.nexttime % 60,
+X                   q->tt.rep, q->tt.delta, NL);
+X!          printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" : "RUN"),
+X                   q->text,
+X                   NL, NL);
+X        }
+X--- 273,280 ----
+X                   q->tt.ttime / 60, TIMESEP, q->tt.ttime % 60,
+X                   q->tt.nexttime / 60, TIMESEP, q->tt.nexttime % 60,
+X                   q->tt.rep, q->tt.delta, NL);
+X!                  printf("Text: %s %s%s%s", ((q->typ == MSG_TYPE) ? "MSG" :
+X! 		                           ((q->typ == MSF_TYPE) ? "MSF" :"RUN")),
+X                   q->text,
+X                   NL, NL);
+X        }
+X*** ../prev/rem2ps.1	Mon Jun 28 12:30:23 1993
+X--- ./rem2ps.1	Wed Jul 28 10:22:25 1993
+X***************
+X*** 29,34 ****
+X--- 29,43 ----
+X  Use ISO 8859-1 standard encoding for the PostScript fonts.  If you do
+X  not use this option, the default encoding is used.
+X  .TP
+X+ .B \-e
+X+ Make the calendar fill the entire page.  By default, the calendar is
+X+ slightly smaller than the page.  This allows days with many reminders
+X+ to "expand" as needed.  However, if you don't have days which expand,
+X+ you can use this option to make all of the boxes slightly bigger.  
+X+ One caveat: If you do use the \fB\-e\fR option and one day has many
+X+ reminders, the calendar may expand off the page, losing some information.
+X+ Experiment!
+X+ .TP
+X  .B \-m media
+X  Set the page size.  If you use the \-m option, you must specify the
+X  media type, which can be one of the
+X*** ../prev/rem2ps.c	Mon Jun 28 12:30:22 1993
+X--- ./rem2ps.c	Wed Jul 28 10:15:11 1993
+X***************
+X*** 98,103 ****
+X--- 98,104 ----
+X  int WkDayNum;
+X  
+X  int LeftMarg, RightMarg, TopMarg, BotMarg;
+X+ int FillPage;
+X  
+X  void Init ARGS ((int argc, char *argv[]));
+X  void Usage ARGS ((char *s));
+X***************
+X*** 185,191 ****
+X     printf("(%s %s) doheading\n", month, year);
+X  
+X  /* Calculate the minimum box size */
+X!    printf("/MinBoxSize ytop MinY sub 7 div def\n");
+X  
+X  /* If wkday >= 2, then do the small calendars at the top. */
+X     if (wkday >=2 && !NoSmallCal) {
+X--- 186,201 ----
+X     printf("(%s %s) doheading\n", month, year);
+X  
+X  /* Calculate the minimum box size */
+X!    if (!FillPage) {
+X!       printf("/MinBoxSize ytop MinY sub 7 div def\n");
+X!    } else {
+X!       if ((days == 31 && wkday >= 5) || (days == 30 && wkday == 6))
+X!          printf("/MinBoxSize ytop MinY sub 6 div def\n");
+X!       else if (days == 28 && wkday == 0 && NoSmallCal)
+X!          printf("/MinBoxSize ytop MinY sub 4 div def\n");
+X!       else
+X!          printf("/MinBoxSize ytop MinY sub 5 div def\n");
+X!    }
+X  
+X  /* If wkday >= 2, then do the small calendars at the top. */
+X     if (wkday >=2 && !NoSmallCal) {
+X***************
+X*** 522,527 ****
+X--- 532,538 ----
+X     TopMarg = 36;
+X     BotMarg = 36;
+X     UseISO = 0;
+X+    FillPage = 0;
+X  
+X     for(j=0; j<32; j++) PsEntries[i] = NULL;
+X  
+X***************
+X*** 618,623 ****
+X--- 629,636 ----
+X  
+X  	 case 'c': NoSmallCal = 1; break;
+X  
+X+ 	 case 'e': FillPage = 1; break;
+X+ 
+X  	 default: Usage("Unrecognized option");
+X        }
+X     }
+X***************
+X*** 651,656 ****
+X--- 664,670 ----
+X     fprintf(stderr, "-s[hed] size  Set size for header, calendar entries and/or day numbers\n");
+X     fprintf(stderr, "-b size       Set border size for calendar entries\n");
+X     fprintf(stderr, "-t size       Set line thickness\n");
+X+    fprintf(stderr, "-e            Make calendar fill entire page\n");
+X     fprintf(stderr, "-o[lrtb] marg Specify left, right, top and bottom margins\n");
+X     exit(1);
+X  }
+X*** ../prev/remind-all.sh	Mon Jun 28 12:30:06 1993
+X--- ./remind-all.sh	Thu Aug 19 17:28:47 1993
+X***************
+X*** 1,5 ****
+X--- 1,10 ----
+X  # Shell script to mail all users reminders.
+X  
+X+ # This file is part of REMIND
+X+ #
+X+ # REMIND is Copyright (C) 1992, 1993 by David F. Skoll
+X+ # This file is Copyright (C) 1990 by Bill Aten
+X+ 
+X  # Thanks to Bill Aten for this script.
+X  
+X  # Run it AFTER MIDNIGHT so that date is correct!
+X*** ../prev/remind.1	Mon Jul 19 11:31:13 1993
+X--- ./remind.1	Thu Aug 26 10:58:39 1993
+X***************
+X*** 9,14 ****
+X--- 9,18 ----
+X  found in it.  The commands are used to issue reminders and alarms.  Each
+X  reminder or alarm can consist of a message sent to standard output, or
+X  a program to be executed.
+X+ .PP
+X+ If \fIfilename\fR is specified as a single dash '-', then \fBRemind\fR
+X+ takes its input from standard input.  This also implicitly enables
+X+ the \fB\-o\fR option, described below.
+X  .SH OPTIONS
+X  .TP
+X  .B \-n
+X***************
+X*** 245,251 ****
+X  [\fBAT\fR \fItime\fR [\fItdelta\fR] [\fItrepeat\fR]]
+X  [\fBUNTIL\fR \fIexpiry_date\fR]
+X  [\fBSCANFROM\fR \fIscan_date\fR]
+X! \fBMSG\fR | \fBRUN\fR | \fBCAL\fR | \fBSATISFY\fR | \fBPS\fR | \fBPSFILE\fR
+X  .I body
+X  .RE
+X  .PP
+X--- 249,256 ----
+X  [\fBAT\fR \fItime\fR [\fItdelta\fR] [\fItrepeat\fR]]
+X  [\fBUNTIL\fR \fIexpiry_date\fR]
+X  [\fBSCANFROM\fR \fIscan_date\fR]
+X! \fBMSG\fR | \fBMSF\fR | \fBRUN\fR | \fBCAL\fR | \fBSATISFY\fR |
+X! \fBPS\fR | \fBPSFILE\fR
+X  .I body
+X  .RE
+X  .PP
+X***************
+X*** 256,265 ****
+X  The \fBREM\fR token is optional, providing that the remainder
+X  of the command cannot be mistaken for another \fBRemind\fR command
+X  such as \fBOMIT\fR or \fBRUN\fR.  The portion of the \fBREM\fR command
+X! before the \fBMSG\fR, \fBRUN\fR, \fBCAL\fR or \fBSATISFY\fR clause
+X  is called a \fItrigger\fR.
+X  .PP
+X! .B MSG, RUN, CAL, PS and PSFILE
+X  .PP
+X  These keywords denote the \fItype\fR
+X  of the reminder.  (\fBSATISFY\fR is more complicated and will be explained
+X--- 261,270 ----
+X  The \fBREM\fR token is optional, providing that the remainder
+X  of the command cannot be mistaken for another \fBRemind\fR command
+X  such as \fBOMIT\fR or \fBRUN\fR.  The portion of the \fBREM\fR command
+X! before the \fBMSG\fR, \fBMSF\fR \fBRUN\fR, \fBCAL\fR or \fBSATISFY\fR clause
+X  is called a \fItrigger\fR.
+X  .PP
+X! .B "MSG, MSF, RUN, CAL, PS and PSFILE"
+X  .PP
+X  These keywords denote the \fItype\fR
+X  of the reminder.  (\fBSATISFY\fR is more complicated and will be explained
+X***************
+X*** 270,275 ****
+X--- 275,288 ----
+X  passed to the appropriate program.  Note that the options \fB\-c\fR,
+X  \fB\-s\fR, \fB\-p\fR and \fB\-n\fR disable the \fB\-k\fR option.
+X  .PP
+X+ The \fBMSF\fR keyword is almost the same as the \fBMSG\fR keyword,
+X+ except that the reminder is formatted to fit into a paragraph-like
+X+ format.  Three system variables control the formatting of \fBMSF\fR-type
+X+ reminders - they are \fB$FirstIndent\fR, \fB$SubsIndent\fR and
+X+ \fB$FormWidth\fR.  They are discussed in the section "System Variables."
+X+ The \fBMSF\fR keyword causes the spacing of your reminder to be altered -
+X+ extra spaces are discarded, and two spaces are placed after periods.
+X+ .PP
+X  A \fBRUN\fR-type
+X  reminder also passes the \fIbody\fR through the substitution filter, but
+X  then executes the result as a system command.  A \fBCAL\fR-type reminder
+X***************
+X*** 1106,1111 ****
+X--- 1119,1126 ----
+X  .PP
+X  \fBINCLUDE\fR files can be nested up to a depth of 8.
+X  .PP
+X+ If you specify a filename of "-" in the \fBINCLUDE\fR command, \fBRemind\fR
+X+ will begin reading from standard input.
+X  .SH THE RUN COMMAND
+X  .PP
+X  If you include other files in your reminder script, you may not always
+X***************
+X*** 1491,1496 ****
+X--- 1506,1515 ----
+X  If non-zero, then the \fB\-q\fR option was supplied on the command line.
+X  For the MS-DOS version, always contains 1.
+X  .TP
+X+ .B $FirstIndent
+X+ The number of spaces by which to indent the first line of a \fBMSF\fR-type
+X+ reminder.  The default is 0.
+X+ .TP
+X  .B $FoldYear
+X  The standard Unix library functions may have difficulty dealing with dates
+X  later than 2037.  If this variable is set to 1, then the UTC calculations
+X***************
+X*** 1503,1508 ****
+X--- 1522,1533 ----
+X  this variable is 0.  Set it to 1 if the sun or UTC functions misbehave
+X  for years greater than 2037.
+X  .TP
+X+ .B $FormWidth
+X+ The maximum width of each line of text for formatting \fBMSF\fR-type
+X+ reminders.  The default is 72.  If an \fBMSF\fR-type reminder contains
+X+ a word too long to fit in this width, it will not be truncated - the
+X+ width limit will be ignored.
+X+ .TP
+X  .B $HushMode (read-only)
+X  If non-zero, then the \fB\-h\fR option was supplied on the command line.
+X  .TP
+X***************
+X*** 1563,1568 ****
+X--- 1588,1599 ----
+X  block is greater than the saved value, then at least one holiday
+X  was triggered, and you can execute the command to shade in the
+X  calendar box.  (See the section "Calendar Mode".)
+X+ .PP
+X+ .RS
+X+ Note that \fB$NumTrig\fR is affected \fIonly\fR
+X+ by \fBREM\fR commands; triggers in \fBIFTRIG\fR commands do
+X+ not affect it.  
+X+ .RE
+X  .TP
+X  .B $PSCal (read-only)
+X  If non-zero, then the \fB\-p\fR option was supplied on the command line.
+X***************
+X*** 1573,1578 ****
+X--- 1604,1613 ----
+X  .B $SimpleCal (read-only)
+X  Set to a non-zero value if \fIeither\fR of the \fB\-p\fR or \fB\-s\fR
+X  command-line options was supplied.
+X+ .TP
+X+ .B $SubsIndent
+X+ The number of spaces by which all lines (except the first) of an
+X+ \fBMSF\fR-type reminder should be indented.  The default is 0.
+X  .PP
+X  Note:  If any of the calendar modes are in effect, then the
+X  values of $Daemon, $DontFork, $DontTrigAts, $DontQueue, $HushMode,
+X***************
+X*** 1741,1746 ****
+X--- 1776,1786 ----
+X  for the specified year.  If \fIarg\fR is a \fBDATE\fR, then returns the
+X  date of the next Easter Sunday on or after \fIarg\fR.
+X  .TP
+X+ .B filedate(s_filename)
+X+ Returns the modification date of \fIfilename\fR.  If \fIfilename\fR
+X+ does not exist, or its modification date is before the year
+X+ \fBbaseyr()\fR, then 1 January of \fBbaseyr()\fR is returned.
+X+ .TP
+X  .B filedir()
+X  Returns the directory which contains the current file being
+X  processed.  It may be a relative or absolute pathname, but
+X***************
+X*** 2510,2515 ****
+X--- 2550,2558 ----
+X  initialized has remained defined.  Thus, time-consuming operations which
+X  do not depend on the value of \fBtoday()\fR are done only once.
+X  .PP
+X+ System variables (those whose names start with '$') are automatically
+X+ preserved between calendar iterations.
+X+ .PP
+X  Note that for efficiency, \fBRemind\fR caches the reminder script
+X  (and any \fBINCLUDE\fRd files) in memory when producing a calendar.
+X  .PP
+X***************
+X*** 2723,2734 ****
+X  .SH FOREIGN LANGUAGE SUPPORT
+X  .PP
+X  Your version of \fBRemind\fR may have been compiled to support a
+X! language other than English.  This support is not complete - for
+X! example, all error and usage messages, as well as documentation, are
+X! still in English.  However, foreign-language versions of \fBRemind\fR
+X! will output names of months and weekdays in the foreign language.
+X! Also, the substitution mechanism may substitute constructs suitable
+X! for the foreign language rather than for English.
+X  .PP
+X  A foreign-language version of \fBRemind\fR will accept either the English
+X  or foreign-language names of weekdays and months in a reminder script.
+X--- 2766,2777 ----
+X  .SH FOREIGN LANGUAGE SUPPORT
+X  .PP
+X  Your version of \fBRemind\fR may have been compiled to support a
+X! language other than English.  This support may or may not be complete -
+X! for example, all error and usage messages may still be in English.
+X! However, at a minimum, foreign-language versions of \fBRemind\fR will
+X! output names of months and weekdays in the foreign language.  Also,
+X! the substitution mechanism will substitute constructs suitable for the
+X! foreign language rather than for English.
+X  .PP
+X  A foreign-language version of \fBRemind\fR will accept either the English
+X  or foreign-language names of weekdays and months in a reminder script.
+X*** ../prev/sort.c	Mon Jun 28 12:29:54 1993
+X--- ./sort.c	Thu Aug 19 16:12:01 1993
+X***************
+X*** 95,101 ****
+X     int ShouldGoAfter;
+X  
+X     if (!new) {
+X!       Eprint("Out of memory for sorting.");
+X        IssueSortedReminders();
+X        SortByDate = 0;
+X        SortByTime = 0;
+X--- 95,101 ----
+X     int ShouldGoAfter;
+X  
+X     if (!new) {
+X!       Eprint("%s", ErrMsg[E_NO_MEM]);
+X        IssueSortedReminders();
+X        SortByDate = 0;
+X        SortByTime = 0;
+X***************
+X*** 160,172 ****
+X  
+X     while (cur) {
+X        next = cur->next;
+X!       if (cur->typ == MSG_TYPE) {
+X  	if (!MsgCommand) {
+X              if (cur->trigdate != olddate) {
+X                 IssueSortBanner(cur->trigdate);
+X  	       olddate = cur->trigdate;
+X              }
+X!             printf("%s\n", cur->text);
+X           } else {
+X              char buf[LINELEN+TOKSIZE];
+X              sprintf(buf, MsgCommand, cur->text);
+X--- 160,175 ----
+X  
+X     while (cur) {
+X        next = cur->next;
+X!       if (cur->typ == MSG_TYPE || cur->typ == MSF_TYPE) {
+X  	if (!MsgCommand) {
+X              if (cur->trigdate != olddate) {
+X                 IssueSortBanner(cur->trigdate);
+X  	       olddate = cur->trigdate;
+X              }
+X! 	    if (cur->typ == MSG_TYPE)
+X!                printf("%s\n", cur->text);
+X!             else
+X! 	       FillParagraph(cur->text);
+X           } else {
+X              char buf[LINELEN+TOKSIZE];
+X              sprintf(buf, MsgCommand, cur->text);
+X*** ../prev/test.cmp	Mon Jun 28 12:30:09 1993
+X--- ./test.cmp	Thu Aug 19 17:06:48 1993
+X***************
+X*** 187,195 ****
+X  y => "Heshvan"
+X  z => 1991/02/16
+X  a => 5761
+X! hebdate(30, "Heshvan", 1991/02/16, 5761) => ./test.rem(33): No 30 Heshvan 5761
+X! Bad date specification
+X! Leaving UserFN _i() => Bad date specification
+X  
+X  [_i(30, "Kislev", today(), 5759)] MSG Complete-Complete
+X  today() => 1991/02/16
+X--- 187,195 ----
+X  y => "Heshvan"
+X  z => 1991/02/16
+X  a => 5761
+X! hebdate(30, "Heshvan", 1991/02/16, 5761) => ./test.rem(33): 30 Heshvan 5761: Invalid Hebrew date
+X! Invalid Hebrew date
+X! Leaving UserFN _i() => Invalid Hebrew date
+X  
+X  [_i(30, "Kislev", today(), 5759)] MSG Complete-Complete
+X  today() => 1991/02/16
+X***************
+X*** 220,228 ****
+X  y => "Kislev"
+X  z => 1991/02/16
+X  a => 5761
+X! hebdate(30, "Kislev", 1991/02/16, 5761) => ./test.rem(37): No 30 Kislev 5761
+X! Bad date specification
+X! Leaving UserFN _i() => Bad date specification
+X  
+X  [_i(30, "Adar A", today(), 5755)] MSG Leap
+X  today() => 1991/02/16
+X--- 220,228 ----
+X  y => "Kislev"
+X  z => 1991/02/16
+X  a => 5761
+X! hebdate(30, "Kislev", 1991/02/16, 5761) => ./test.rem(37): 30 Kislev 5761: Invalid Hebrew date
+X! Invalid Hebrew date
+X! Leaving UserFN _i() => Invalid Hebrew date
+X  
+X  [_i(30, "Adar A", today(), 5755)] MSG Leap
+X  today() => 1991/02/16
+X***************
+X*** 243,250 ****
+X  z => 1991/02/16
+X  a => 5756
+X  hebdate(30, "Adar A", 1991/02/16, 5756) => ./test.rem(40): No Adar A in 5756
+X! Bad date specification
+X! Leaving UserFN _i() => Bad date specification
+X  [_i(29, "Adar A", today(), 5755)] MSG Leap
+X  today() => 1991/02/16
+X  Entering UserFN _i(29, "Adar A", 1991/02/16, 5755)
+X--- 243,250 ----
+X  z => 1991/02/16
+X  a => 5756
+X  hebdate(30, "Adar A", 1991/02/16, 5756) => ./test.rem(40): No Adar A in 5756
+X! Invalid Hebrew date
+X! Leaving UserFN _i() => Invalid Hebrew date
+X  [_i(29, "Adar A", today(), 5755)] MSG Leap
+X  today() => 1991/02/16
+X  Entering UserFN _i(29, "Adar A", 1991/02/16, 5755)
+X***************
+X*** 264,271 ****
+X  z => 1991/02/16
+X  a => 5756
+X  hebdate(29, "Adar A", 1991/02/16, 5756) => ./test.rem(42): No Adar A in 5756
+X! Bad date specification
+X! Leaving UserFN _i() => Bad date specification
+X  
+X  # Test each possible case of the basic reminders.
+X  
+X--- 264,271 ----
+X  z => 1991/02/16
+X  a => 5756
+X  hebdate(29, "Adar A", 1991/02/16, 5756) => ./test.rem(42): No Adar A in 5756
+X! Invalid Hebrew date
+X! Leaving UserFN _i() => Invalid Hebrew date
+X  
+X  # Test each possible case of the basic reminders.
+X  
+X***************
+X*** 631,637 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.07"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 631,637 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.08"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 710,716 ****
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(240): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  set a074 dosubst("%a %b %c %d %e %f %g %h", '1992/5/5')
+X  dosubst("%a %b %c %d %e %f %g %h", 1992/05/05) => "on Tuesday, 5 May, 1992 in 444 days' tim"...
+X--- 710,716 ----
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(240): '*': Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  set a074 dosubst("%a %b %c %d %e %f %g %h", '1992/5/5')
+X  dosubst("%a %b %c %d %e %f %g %h", 1992/05/05) => "on Tuesday, 5 May, 1992 in 444 days' tim"...
+X***************
+X*** 772,778 ****
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.07"
+X          a077  "1992 92
+X  "
+X          a049  21
+X--- 772,778 ----
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.08"
+X          a077  "1992 92
+X  "
+X          a049  21
+X*** ../prev/token.c	Mon Jun 28 12:29:56 1993
+X--- ./token.c	Tue Aug  3 12:29:05 1993
+X***************
+X*** 68,73 ****
+X--- 68,74 ----
+X     { "march",		3,	T_Month,	2 },
+X     { "may",		3, 	T_Month, 	4 },
+X     { "monday", 		3,	T_WkDay,	0 },
+X+    { "msf",		3,	T_RemType,	MSF_TYPE },
+X     { "msg", 		3, 	T_RemType, 	MSG_TYPE },
+X     { "november", 	3, 	T_Month,	10 },
+X     { "october",		3, 	T_Month,	9 },
+X*** ../prev/trigger.c	Mon Jun 28 12:29:57 1993
+X--- ./trigger.c	Thu Aug 19 16:44:15 1993
+X***************
+X*** 246,252 ****
+X  	 return j;
+X  
+X        default:
+X! 	Eprint("NextSimpleTrig: Bad type %d", typ);
+X  	*err = E_SWERR;
+X  	return -1;
+X     }
+X--- 246,252 ----
+X  	 return j;
+X  
+X        default:
+X! 	Eprint("NextSimpleTrig %s %d", ErrMsg[E_SWERR], typ);
+X  	*err = E_SWERR;
+X  	return -1;
+X     }
+X***************
+X*** 395,402 ****
+X         (trig->d == NO_DAY ||
+X  	trig->m == NO_MON ||
+X  	trig->y == NO_YR)) {
+X!       Eprint("Must fully specify date to use repeat.");
+X!       *err = E_PARSE_ERR;
+X        return -1;
+X     }
+X         
+X--- 395,402 ----
+X         (trig->d == NO_DAY ||
+X  	trig->m == NO_MON ||
+X  	trig->y == NO_YR)) {
+X!       Eprint("%s", ErrMsg[E_REP_FULSPEC]);
+X!       *err = E_REP_FULSPEC;
+X        return -1;
+X     }
+X         
+X***************
+X*** 408,415 ****
+X        if (*err) return -1;
+X        if (result == -1) {
+X           if (DebugFlag & DB_PRTTRIG) {
+X! 	    fprintf(ErrFp, "%s(%d): Expired\n",
+X! 	       FileName, LineNo);
+X  	 }
+X           return -1;
+X        }
+X--- 408,415 ----
+X        if (*err) return -1;
+X        if (result == -1) {
+X           if (DebugFlag & DB_PRTTRIG) {
+X! 	    fprintf(ErrFp, "%s(%d): %s\n",
+X! 	       FileName, LineNo, ErrMsg[E_EXPIRED]);
+X  	 }
+X           return -1;
+X        }
+X***************
+X*** 436,443 ****
+X            trig->skip == NO_SKIP &&
+X  	  trig->rep == NO_REP) {
+X            if (DebugFlag & DB_PRTTRIG) {
+X! 	     fprintf(ErrFp, "%s(%d): Expired\n",
+X! 	             FileName, LineNo);
+X  	     }
+X  	     if (result != -1) {
+X  	        LastTriggerDate = result;
+X--- 436,443 ----
+X            trig->skip == NO_SKIP &&
+X  	  trig->rep == NO_REP) {
+X            if (DebugFlag & DB_PRTTRIG) {
+X! 	     fprintf(ErrFp, "%s(%d): %s\n",
+X! 	             FileName, LineNo, ErrMsg[E_EXPIRED]);
+X  	     }
+X  	     if (result != -1) {
+X  	        LastTriggerDate = result;
+X***************
+X*** 452,459 ****
+X  	    LastTrigValid = 1;
+X  	 }
+X           if (DebugFlag & DB_PRTTRIG) {
+X! 	    fprintf(ErrFp, "%s(%d): Expired\n",
+X! 	              FileName, LineNo);
+X           }
+X  	 return -1;
+X        }
+X--- 452,459 ----
+X  	    LastTrigValid = 1;
+X  	 }
+X           if (DebugFlag & DB_PRTTRIG) {
+X! 	    fprintf(ErrFp, "%s(%d): %s\n",
+X! 	              FileName, LineNo, ErrMsg[E_EXPIRED]);
+X           }
+X  	 return -1;
+X        }
+X*** ../prev/tstlang.rem	Mon Jun 28 12:30:24 1993
+X--- ./tstlang.rem	Thu Aug 19 16:01:52 1993
+X***************
+X*** 15,23 ****
+X  #
+X  # ---------------------------------------------------------------------------
+X  
+X! if version()<"03.00.02"
+X     errmsg %
+X!    errmsg This file only works with Remind version 03.00.02 and later - aborting
+X     exit
+X  endif
+X  
+X--- 15,30 ----
+X  #
+X  # ---------------------------------------------------------------------------
+X  
+X! if version()<"03.00.08"
+X     errmsg %
+X!    errmsg This file only works with Remind version 03.00.08 and later - aborting
+X!    exit
+X! endif
+X! 
+X! if !$RunOff || !$DontQueue || $DontTrigAts
+X!    errmsg %
+X!    errmsg Please run [filename()] with the -q and -r options, but%
+X!    errmsg not the -a option.
+X     exit
+X  endif
+X  
+X*** ../prev/types.h	Mon Jun 28 12:29:32 1993
+X--- ./types.h	Tue Aug  3 12:28:45 1993
+X***************
+X*** 100,105 ****
+X--- 100,106 ----
+X  #define SAT_TYPE 4
+X  #define PS_TYPE  5
+X  #define PSF_TYPE 6
+X+ #define MSF_TYPE 7
+X  
+X  /* DEFINES for debugging flags */
+X  #define DB_PRTLINE   1
+X*** ../prev/userfns.c	Mon Jun 28 12:38:47 1993
+X--- ./userfns.c	Thu Aug 19 16:43:05 1993
+X***************
+X*** 87,93 ****
+X     StrnCpy(func->name, TokBuffer, VAR_NAME_LEN);
+X     if (!Hush) {
+X        if (FindFunc(TokBuffer, Func, NumFuncs)) {
+X!          Eprint("Warning:  Attempt to redefine built-in function '%s'",
+X  	         TokBuffer);
+X        }
+X     }
+X--- 87,93 ----
+X     StrnCpy(func->name, TokBuffer, VAR_NAME_LEN);
+X     if (!Hush) {
+X        if (FindFunc(TokBuffer, Func, NumFuncs)) {
+X!          Eprint("%s: '%s'", ErrMsg[E_REDEF_FUNC],
+X  	         TokBuffer);
+X        }
+X     }
+X***************
+X*** 131,137 ****
+X  
+X     /* Copy the text over */
+X     if (p->isnested) {
+X!       Eprint ("Can't nest function definition in expression.");
+X        DestroyUserFunc(func);
+X        return E_PARSE_ERR;
+X     }
+X--- 131,137 ----
+X  
+X     /* Copy the text over */
+X     if (p->isnested) {
+X!       Eprint("%s", ErrMsg[E_CANTNEST_FDEF]);
+X        DestroyUserFunc(func);
+X        return E_PARSE_ERR;
+X     }
+X***************
+X*** 265,276 ****
+X     f = FuncHash[h];
+X     while (f && StrinCmp(name, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) {
+X!       Eprint("Undefined function '%s'", name);
+X        return E_UNDEF_FUNC;
+X     }
+X     /* Debugging stuff */
+X     if (DebugFlag & DB_PRTEXPR) {
+X!       fprintf(ErrFp, "Entering UserFN %s(", f->name);
+X        for (i=0; i<nargs; i++) {
+X           PrintValue(&ValStack[ValStackPtr - nargs + i], ErrFp);
+X           if (i<nargs-1) fprintf(ErrFp, ", ");
+X--- 265,276 ----
+X     f = FuncHash[h];
+X     while (f && StrinCmp(name, f->name, VAR_NAME_LEN)) f = f->next;
+X     if (!f) {
+X!       Eprint("%s: '%s'", ErrMsg[E_UNDEF_FUNC], name);
+X        return E_UNDEF_FUNC;
+X     }
+X     /* Debugging stuff */
+X     if (DebugFlag & DB_PRTEXPR) {
+X!       fprintf(ErrFp, "%s %s(", ErrMsg[E_ENTER_FUN], f->name);
+X        for (i=0; i<nargs; i++) {
+X           PrintValue(&ValStack[ValStackPtr - nargs + i], ErrFp);
+X           if (i<nargs-1) fprintf(ErrFp, ", ");
+X***************
+X*** 280,286 ****
+X     /* Detect illegal recursive call */
+X     if (f->IsActive) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X           fprintf(ErrFp, "%s\n", ErrMsg[E_RECURSIVE]);
+X        }
+X        return E_RECURSIVE;
+X--- 280,286 ----
+X     /* Detect illegal recursive call */
+X     if (f->IsActive) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "%s %s() => ", ErrMsg[E_LEAVE_FUN], name);
+X           fprintf(ErrFp, "%s\n", ErrMsg[E_RECURSIVE]);
+X        }
+X        return E_RECURSIVE;
+X***************
+X*** 289,295 ****
+X     /* Check number of args */
+X     if (nargs != f->nargs) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X           fprintf(ErrFp, "%s\n",
+X  	    ErrMsg[(nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS]);
+X        }
+X--- 289,295 ----
+X     /* Check number of args */
+X     if (nargs != f->nargs) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "%s %s() => ", ErrMsg[E_LEAVE_FUN], name);
+X           fprintf(ErrFp, "%s\n",
+X  	    ErrMsg[(nargs < f->nargs) ? E_2FEW_ARGS : E_2MANY_ARGS]);
+X        }
+X***************
+X*** 299,305 ****
+X     h = SetUpLocalVars(f);
+X     if (h) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X           fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X        }
+X        return h;
+X--- 299,305 ----
+X     h = SetUpLocalVars(f);
+X     if (h) {
+X        if (DebugFlag &DB_PRTEXPR) {
+X!          fprintf(ErrFp, "%s %s() => ", ErrMsg[E_LEAVE_FUN], name);
+X           fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X        }
+X        return h;
+X***************
+X*** 316,322 ****
+X     f->IsActive = 0;
+X     DestroyLocalVals(f);
+X     if (DebugFlag &DB_PRTEXPR) {
+X!       fprintf(ErrFp, "Leaving UserFN %s() => ", name);
+X        if (h) fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X        else {
+X           PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X--- 316,322 ----
+X     f->IsActive = 0;
+X     DestroyLocalVals(f);
+X     if (DebugFlag &DB_PRTEXPR) {
+X!       fprintf(ErrFp, "%s %s() => ", ErrMsg[E_LEAVE_FUN], name);
+X        if (h) fprintf(ErrFp, "%s\n", ErrMsg[h]);
+X        else {
+X           PrintValue(&ValStack[ValStackPtr-1], ErrFp);
+X*** ../prev/utils.c	Mon Jun 28 12:37:05 1993
+X--- ./utils.c	Wed Aug 25 14:49:21 1993
+X***************
+X*** 19,25 ****
+X--- 19,27 ----
+X  #include <malloc.h>
+X  #endif
+X  #include <ctype.h>
+X+ #include "types.h"
+X  #include "globals.h"
+X+ #include "protos.h"
+X  
+X  #define UPPER(c) (islower(c) ? toupper(c) : c)
+X  
+X*** ../prev/var.c	Mon Jul 19 10:58:54 1993
+X--- ./var.c	Thu Aug 19 16:40:40 1993
+X***************
+X*** 29,34 ****
+X--- 29,38 ----
+X  
+X  /* The variable hash table */
+X  #define VAR_HASH_SIZE 64
+X+ #define VARIABLE ErrMsg[E_VAR]
+X+ #define VALUE    ErrMsg[E_VAL]
+X+ #define UNDEF	 ErrMsg[E_UNDEF]
+X+ 
+X  static Var *VHashTbl[VAR_HASH_SIZE];
+X  
+X  /***************************************************************/
+X***************
+X*** 38,55 ****
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int HashVal(const char *str)
+X  #else
+X! int HashVal(str)
+X  char *str;
+X  #endif
+X  {
+X!    register int i = 0;
+X!    register int j=1;
+X!    register int len=0;
+X  
+X     while(*str && len < VAR_NAME_LEN) {
+X!       i += j * UPPER(*str);
+X        str++;
+X        len++;
+X        j = 3-j;
+X--- 42,59 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC unsigned int HashVal(const char *str)
+X  #else
+X! unsigned int HashVal(str)
+X  char *str;
+X  #endif
+X  {
+X!    register unsigned int i=0;
+X!    register unsigned int j=1;
+X!    register unsigned int len=0;
+X  
+X     while(*str && len < VAR_NAME_LEN) {
+X!       i += j * (unsigned int) UPPER(*str);
+X        str++;
+X        len++;
+X        j = 3-j;
+X***************
+X*** 187,193 ****
+X     v=FindVar(str, 0);
+X  
+X     if (!v) {
+X!      Eprint("Undefined variable: %s", str);
+X       return E_NOSUCH_VAR;
+X     }
+X     return CopyValue(val, &v->v);
+X--- 191,197 ----
+X     v=FindVar(str, 0);
+X  
+X     if (!v) {
+X!      Eprint("%s: %s", ErrMsg[E_NOSUCH_VAR], str);
+X       return E_NOSUCH_VAR;
+X     }
+X     return CopyValue(val, &v->v);
+X***************
+X*** 273,279 ****
+X        DumpVarTable();
+X        return OK;
+X     }
+X!    fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X     while(1) {
+X        if (*TokBuffer == '$') {
+X           DumpSysVarByName(TokBuffer+1);
+X--- 277,283 ----
+X        DumpVarTable();
+X        return OK;
+X     }
+X!    fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, VARIABLE, VALUE);
+X     while(1) {
+X        if (*TokBuffer == '$') {
+X           DumpSysVarByName(TokBuffer+1);
+X***************
+X*** 280,286 ****
+X        } else {
+X           v = FindVar(TokBuffer, 0);
+X           TokBuffer[VAR_NAME_LEN] = 0;
+X!          if (!v) fprintf(ErrFp, "%*s  *UNDEFINED*\n", VAR_NAME_LEN, TokBuffer);
+X           else {
+X              fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X              PrintValue(&(v->v), ErrFp);
+X--- 284,290 ----
+X        } else {
+X           v = FindVar(TokBuffer, 0);
+X           TokBuffer[VAR_NAME_LEN] = 0;
+X!          if (!v) fprintf(ErrFp, "%*s  %s\n", VAR_NAME_LEN, TokBuffer, UNDEF);
+X           else {
+X              fprintf(ErrFp, "%*s  ", VAR_NAME_LEN, v->name);
+X              PrintValue(&(v->v), ErrFp);
+X***************
+X*** 309,315 ****
+X     register Var *v;
+X     register int i;
+X  
+X!    fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, "Variable", "Value");
+X  
+X     for (i=0; i<VAR_HASH_SIZE; i++) {
+X        v = VHashTbl[i];
+X--- 313,319 ----
+X     register Var *v;
+X     register int i;
+X  
+X!    fprintf(ErrFp, "%*s  %s\n\n", VAR_NAME_LEN, VARIABLE, VALUE);
+X  
+X     for (i=0; i<VAR_HASH_SIZE; i++) {
+X        v = VHashTbl[i];
+X***************
+X*** 442,448 ****
+X--- 446,454 ----
+X     {   "DontFork",	  0,		&DontFork,	0,	0   },
+X     {   "DontQueue",	  0,		&DontQueue,	0,	0   },
+X     {   "DontTrigAts",	  0,		&DontIssueAts,	0,	0   },
+X+    {   "FirstIndent",	  1,		&FirstIndent,	0,	132 },
+X     {   "FoldYear",	  1,		&FoldYear,	0,	1   },
+X+    {   "FormWidth",	  1,		&FormWidth,	20,	132 },
+X     {   "HushMode",	  0,		&Hush,		0,	0   },
+X     {   "IgnoreOnce",	  0,		&IgnoreOnce,	0,	0   },
+X     {   "InfDelta",	  0,		&InfiniteDelta,	0,	0   },
+X***************
+X*** 459,465 ****
+X     {   "NumTrig",	  0,		&NumTriggered,	0,	0   },
+X     {   "PSCal",		  0,		&PsCal,		0,	0   },
+X     {   "RunOff",	  0,		&RunDisabled,	0,	0   },
+X!    {   "SimpleCal",	  0,		&DoSimpleCalendar,	0,  0 }
+X  };
+X  
+X  #define NUMSYSVARS ( sizeof(SysVarArr) / sizeof(SysVar) )
+X--- 465,472 ----
+X     {   "NumTrig",	  0,		&NumTriggered,	0,	0   },
+X     {   "PSCal",		  0,		&PsCal,		0,	0   },
+X     {   "RunOff",	  0,		&RunDisabled,	0,	0   },
+X!    {   "SimpleCal",	  0,		&DoSimpleCalendar,	0,  0 },
+X!    {   "SubsIndent",	  1,		&SubsIndent,	0,	132}
+X  };
+X  
+X  #define NUMSYSVARS ( sizeof(SysVarArr) / sizeof(SysVar) )
+X***************
+X*** 483,489 ****
+X     SysVar *v = FindSysVar(name);
+X     if (!v) return E_NOSUCH_VAR;
+X     if (!v->modifiable) {
+X!       Eprint("Cannot modify system variable '$%s'", name);
+X        return E_CANT_MODIFY;
+X     }
+X     if (v->max != NO_CONSTRAINT && value > v->max) return E_2HIGH;
+X--- 490,496 ----
+X     SysVar *v = FindSysVar(name);
+X     if (!v) return E_NOSUCH_VAR;
+X     if (!v->modifiable) {
+X!       Eprint("%s: '$%s'", ErrMsg[E_CANT_MODIFY], name);
+X        return E_CANT_MODIFY;
+X     }
+X     if (v->max != NO_CONSTRAINT && value > v->max) return E_2HIGH;
+X***************
+X*** 598,610 ****
+X     if (v) {
+X        if (!v->modifiable) fprintf(ErrFp, "%d\n", *v->value);
+X        else {
+X!          fprintf(ErrFp, "%-10d  Allowed range: ", *v->value);
+X  	 if (v->min == NO_CONSTRAINT) fprintf(ErrFp, "(-Inf, ");
+X  	 else                         fprintf(ErrFp, "[%d, ", v->min);
+X  	 if (v->max == NO_CONSTRAINT) fprintf(ErrFp, "Inf)\n");
+X  	 else                         fprintf(ErrFp, "%d]\n", v->max);
+X        }
+X!    } else   fprintf(ErrFp, "*UNDEFINED*\n");
+X  
+X     return;
+X  }
+X--- 605,617 ----
+X     if (v) {
+X        if (!v->modifiable) fprintf(ErrFp, "%d\n", *v->value);
+X        else {
+X!          fprintf(ErrFp, "%-10d  ", *v->value);
+X  	 if (v->min == NO_CONSTRAINT) fprintf(ErrFp, "(-Inf, ");
+X  	 else                         fprintf(ErrFp, "[%d, ", v->min);
+X  	 if (v->max == NO_CONSTRAINT) fprintf(ErrFp, "Inf)\n");
+X  	 else                         fprintf(ErrFp, "%d]\n", v->max);
+X        }
+X!    } else   fprintf(ErrFp, "%s\n", UNDEF);
+X  
+X     return;
+X  }
+END_OF_FILE
+  if test 60678 -ne `wc -c <'patch.08.C'`; then
+    echo shar: \"'patch.08.C'\" unpacked with wrong size!
+  elif test -f 'patch.08.A' && test -f 'patch.08.B'; then
+    echo shar: Combining  \"'patch.08'\" \(120124 characters\)
+    cat 'patch.08.A' 'patch.08.B' 'patch.08.C' > 'patch.08'
+    if test 120124 -ne `wc -c <'patch.08'`; then
+      echo shar: \"'patch.08'\" combined with wrong size!
+    else
+      rm patch.08.A patch.08.B patch.08.C
+    fi
+  fi
+  # end of 'patch.08.C'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

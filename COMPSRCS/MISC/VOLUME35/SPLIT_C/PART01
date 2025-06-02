@@ -1,0 +1,229 @@
+Newsgroups: comp.sources.misc
+From: ian@cs.man.ac.uk (Ian Cottam)
+Subject: v35i113:  split.c - A version of split.c for non-UNIX systems, Part01/01
+Message-ID: <1993Mar3.190752.20209@sparky.imd.sterling.com>
+X-Md4-Signature: b2294018c061498955362c4b9ae4e788
+Date: Wed, 3 Mar 1993 19:07:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ian@cs.man.ac.uk (Ian Cottam)
+Posting-number: Volume 35, Issue 113
+Archive-name: split.c/part01
+Environment: C
+
+Here is a public domain version of the UNIX split command targeted at
+non-UNIX systems.
+
+Ian Cottam, Room IT101, Department of Computer Science,
+University of Manchester, Oxford Road, Manchester, M13 9PL, U.K.
+TEL (+44) 61-275 6273 FAX (+44) 61-275-6236 EMAIL ian@cs.man.ac.uk
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  split.c
+# Wrapped by kent@sparky on Wed Mar  3 12:59:58 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'split.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'split.c'\"
+else
+  echo shar: Extracting \"'split.c'\" \(4761 characters\)
+  sed "s/^X//" >'split.c' <<'END_OF_FILE'
+X/*
+X * Donated to the Public Domain by Ian D. Cottam on 93/2/19.
+X *       ********* NO WARRANTY OF ANY KIND ************
+X *
+X * This is IDC's reimplementation of UNIX split.
+X * I have never seen the AT&T original and have no idea how it works.
+X * This version is for PCs, and other non-UNIX machines, that
+X * have trouble editing big files.
+X *
+X * A conforming Standard C compiler, headers and library is required.
+X *
+X * 25 Feb.'93
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#include <stdarg.h>
+X#include <limits.h>
+X
+X/* Change these if you like , but they are what the manual says! */
+Xenum {        DEFAULT_PIECE_SIZE           = 1000 };
+Xstatic char * const DEFAULT_FILE_PREFIX    = "x";
+Xstatic FILE * const DEFAULT_INPUT_FILE     = stdin;
+X
+X
+X/* here be prototypes of static/local functions */
+Xstatic void split(unsigned long int, FILE *, char *);
+Xstatic char *makenewfile(char *);
+Xstatic int  copyline(FILE*, FILE*, char*);
+Xstatic void AbortIf(int, char *fmt, ...);
+X
+Xstatic char *prog__name;		/* for use by AbortIf() */
+X
+X
+Xint main(int argc, char *argv[])
+X{
+X    unsigned long int piecesize= DEFAULT_PIECE_SIZE;
+X    FILE *infile= DEFAULT_INPUT_FILE;
+X    char *outfilename= DEFAULT_FILE_PREFIX;
+X    int status;			/* general return status code */
+X
+X    prog__name= argv[0];
+X
+X     /* check args */
+X    AbortIf(argc > 4, "usage: [-positivenumber] [infile[outfile]]");
+X    if (argc == 4)		/* -num infile outfilename */
+X	outfilename= argv[3];
+X    if (argc >= 3)		/* -num infile */
+X	if (strcmp(argv[2], "-") != 0) {
+X	    infile= fopen(argv[2], "r");
+X	    AbortIf(infile == NULL, "can't open: %s", argv[2]);
+X	}
+X    if (argc >= 2) {		/* -num */
+X	AbortIf(argv[1][0] != '-',
+X		"usage: [-positivenumber] [infile[outfile]]");
+X	status= sscanf(&argv[1][1], "%lu", &piecesize);
+X	AbortIf(status != 1 || piecesize == 0 || piecesize == ULONG_MAX,
+X		"usage: [-positivenumber] [infile[outfile]]");
+X    }
+X    split(piecesize, infile, outfilename);
+X    return 0;
+X}
+X
+X
+X/*
+X * This function follows main validation
+X * and does all the hard work
+X */
+Xstatic void split(unsigned long int piecesize, FILE *infile, char *outfilename)
+X{
+X    unsigned long int lno= 1;	/* 0 <= lno <= piecesize */
+X    int status;	/* general result status code */
+X    char *nextfilename= makenewfile(outfilename);
+X    FILE *outfile= fopen(nextfilename, "w");
+X
+X    AbortIf(outfile == NULL, "can't open output file: %s", nextfilename);
+X
+X    while (status= copyline(infile, outfile, nextfilename), status != EOF) {
+X	++lno;
+X	if (lno > piecesize) {
+X	    /* need to close current output, and open next */
+X	    lno= 1;
+X	    status= fclose(outfile);
+X	    AbortIf(status == EOF,
+X		    "error detected closing: %s", nextfilename);
+X	    free(nextfilename);
+X	    nextfilename= makenewfile(outfilename);
+X	    outfile= fopen(nextfilename, "w");
+X	    AbortIf(outfile == NULL,
+X		    "can't open output file: %s", nextfilename);
+X	}
+X    }
+X    AbortIf(ferror(infile), "error detected reading input file");
+X    status= fclose(outfile);
+X    AbortIf(status == EOF, "error detected closing: %s", nextfilename);
+X    free(nextfilename);
+X}
+X
+X
+X/*
+X * Generates a new name of the form xab, xac, xad, etc.
+X */
+Xstatic char *makenewfile(char *prefix)
+X{
+X    static char *letters[]=
+X	{"", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
+X	 "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
+X         "u", "v", "w", "x", "y", "z", NULL};
+X    static unsigned int first= 1, second= 0;
+X    char *filestring= malloc(strlen(prefix) + 3);
+X
+X    AbortIf(filestring == NULL, "out of space");
+X    ++second;
+X    if (letters[second] == NULL) {
+X	second= 1;
+X	++first;
+X	AbortIf(letters[first] == NULL,
+X		"more than %saa-zz files needed, aborting", prefix);
+X
+X    }
+X    return
+X      strcat(strcat(strcpy(filestring,prefix),letters[first]),letters[second]);
+X}
+X
+X
+X/*
+X * Copies next line from infile to outfile
+X * EOF returned on input error or genuine EOF.
+X * Aborts if can't write.
+X */
+Xstatic int copyline(FILE *infile, FILE *outfile, char *nextfilename)
+X{
+X	int ch, status;
+X
+X	while (ch= getc(infile), ch != '\n' && ch != EOF) {
+X		status= putc(ch, outfile);
+X		AbortIf(status == EOF, "error writing: %s", nextfilename);
+X	}
+X	if (ch == '\n') {
+X		status= putc('\n', outfile);
+X		AbortIf(status == EOF, "error writing: %s", nextfilename);
+X		/* check to see if now at EOF */
+X		ch= getc(infile);
+X		if (ch != EOF) {
+X			status= ungetc(ch, infile);
+X			AbortIf(status == EOF, "input file buffer problem");
+X			ch= '\n';
+X		}
+X	}
+X	return ch;
+X
+X}
+X
+X
+X/*
+X * Error handler (uses prog__name)
+X */
+Xstatic void AbortIf(int failure, char *fmt, ...)
+X{
+X	va_list args;
+X	
+X	if (failure) {
+X	  va_start(args, fmt);
+X	  fprintf(stderr, "%s: ", prog__name ? prog__name : "<application>");
+X	  vfprintf(stderr, fmt, args);
+X	  fprintf(stderr, "\n");
+X	  va_end(args);
+X	  exit(EXIT_FAILURE);
+X	}
+X}
+X
+END_OF_FILE
+  if test 4761 -ne `wc -c <'split.c'`; then
+    echo shar: \"'split.c'\" unpacked with wrong size!
+  fi
+  # end of 'split.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

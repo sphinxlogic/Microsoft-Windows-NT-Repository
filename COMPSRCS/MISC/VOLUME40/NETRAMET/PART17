@@ -1,0 +1,2268 @@
+Newsgroups: comp.sources.misc
+From: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Subject: v40i105:  netramet - Network Traffic Accounting Meter, Part17/25
+Message-ID: <1993Nov7.221324.12419@sparky.sterling.com>
+X-Md4-Signature: 9de66b4a21948c06149e434851bd3fb5
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 7 Nov 1993 22:13:24 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Posting-number: Volume 40, Issue 105
+Archive-name: netramet/part17
+Environment: INET, UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netramet/src/meter/flowhash.c netramet/src/snmplib/parse.c
+# Wrapped by kent@sparky on Tue Nov  2 18:17:10 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 25)."'
+if test -f 'netramet/src/meter/flowhash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/meter/flowhash.c'\"
+else
+  echo shar: Extracting \"'netramet/src/meter/flowhash.c'\" \(38647 characters\)
+  sed "s/^X//" >'netramet/src/meter/flowhash.c' <<'END_OF_FILE'
+X/* 1807, Mon 4 Oct 93
+X
+X   FLOWHASH.C:  AU Meter, using hash tables for tallies
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X#define DEBUG  /* Required if any of the following are set */
+X
+X#define STACK_CHECK
+X#define noGC_DEBUG
+X#define noTESTING
+X#define noGC_TEST1
+X#define noGC_TEST
+X#define noH_TEST
+X
+X#define noDECNET
+X
+X#include <stdio.h>
+X
+X#ifdef AU_MSDOS
+X#include <alloc.h>
+X#include <mem.h>
+X#ifdef DEBUG
+X#include <dos.h>
+X#endif
+X#endif
+X
+X#include "ausnmp.h"
+X
+X#ifdef SUNOS
+X#include <sys/types.h>
+X#include <malloc.h>
+X#include <string.h>
+X#endif
+X
+X#include "pktsnap.h"
+X
+X#define EXTFLOW
+X#include "flowhash.h"
+X#include "decnet.h"
+X
+X#ifdef DEBUG
+Xvoid paddr(unsigned char far *a);
+Xvoid daddr(unsigned char far *a);
+Xvoid pkey(char *msg,struct flow far *n);
+X#endif
+X
+XFILE *log;
+X
+X#define FBLKSZ 425
+X
+Xstruct flow far *fl INIT(NULL);
+Xstruct flow far *fa;  int nf_flows INIT(0);
+X
+Xstruct flow far *get_flow(void)  /* Get an unused flow */
+X{
+X   struct flow far *q;
+X   if (fl != NULL) {
+X      q = fl;  fl = fl->link.next;
+X      }
+X   else {
+X      if (nf_flows == 0) {
+X	 fa = (struct flow far *)farmalloc(sizeof(struct flow)*FBLKSZ);
+X	 if (fa == NULL) {
+X	    scpos(0,24);  printf("No memory for new flows!");
+X	    return NULL;
+X	    }
+X	 nf_flows = FBLKSZ-1;
+X	 }
+X      else {
+X	 ++fa;  --nf_flows;
+X	 }
+X#ifdef GC_DEBUG
+Xscpos(0,24);  printf("\nfa=%Fp, nff=%d, empty_ix=%u\n",fa,nf_flows,empty_ix);
+X#endif
+X      q = fa;
+X      }
+X   return q;
+X   }
+X
+Xvoid free_flow(struct flow far *q)  /* Return a flow to free list */
+X{
+X#ifdef GC_DEBUG
+Xscpos(0,24);  printf("\nfree_flow(%Fp), empty_ix=%u\n", q,empty_ix);
+X#endif
+X   q->link.next = fl;
+X   fl = q;
+X   }
+X
+X#ifdef DEBUG
+Xint log_nbr = 1;
+X
+Xvoid open_log()
+X{
+X   char fn[30];
+X   sprintf(fn,"flows.%03d",log_nbr++);
+X   log = fopen(fn, "w");
+X   }
+X
+Xvoid paddr(a)
+Xunsigned char far *a;
+X{
+X   fprintf(log,"%u.%u.%u.%u", a[0],a[1],a[2],a[3]);
+X   }
+X
+Xvoid daddr(a)
+Xunsigned char far *a;
+X{
+X/*   printf("%u.%u.%u.%u", a[0],a[1],a[2],a[3]);  @@@ */
+X   printf("%02x-%02x-%02x-%02x-%02x-%02x", a[0],a[1],a[2],a[3],a[4],a[5]);
+X   }
+X
+Xvoid pkey(msg,f)
+Xchar *msg;
+Xstruct flow far *f;
+X{
+X   if (!log) open_log();
+X   fprintf(log,"%s: %Fp  %u %u\n   {", msg,f, f->FlowType,f->PeerAddrType);
+X   paddr(f->Low.PeerAddress); fprintf(log," & ");
+X   paddr(f->Low.PeerMask); fprintf(log,"} -> {");
+X   paddr(f->High.PeerAddress); fprintf(log," & ");
+X   paddr(f->High.PeerMask); fprintf(log,"}\n");
+X   }
+X#endif
+X
+X#define DRT_SIZE  5
+Xstruct rule default_rule_table[DRT_SIZE] = {
+X/* Selector,        Mask,          Value,                Action, JumpIndex */
+X   {FTLOWPEERTYPE, 255,0,0,0,0,0, AT_IP,0,0,0,0,0,        RA_AGGREGATE, 1},  /* 1 */
+X   {FTLOWPEERTYPE, 255,0,0,0,0,0, AT_NOVELL,0,0,0,0,0,    RA_AGGREGATE, 2},  /* 2 */
+X   {FTLOWPEERTYPE, 255,0,0,0,0,0, AT_DECNET,0,0,0,0,0,    RA_AGGREGATE, 3},  /* 3 */
+X   {FTLOWPEERTYPE, 255,0,0,0,0,0, AT_ETHERTALK,0,0,0,0,0, RA_AGGREGATE, 4},  /* 4 */
+X   {FTLOWPEERADDRESS, 0,0,0,0,0,0,   0,0,0,0,0,0,         RA_SUCCEED,   0} };
+X
+X#define DAT_SIZE  4
+Xstruct flow default_action_table[DAT_SIZE] = {
+X   {NULL, 0L,0L,0L,0L, 0L,0L, 1,FT_AGGREGATE,  AT_IP,255, 0,0,        /* 1 */
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 11,12,0,0, 255,255,0,0, 0,0, 0,0},
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 13,14,0,0, 255,255,0,0, 0,0, 0,0} },
+X   {NULL, 0L,0L,0L,0L, 0L,0L, 1,FT_AGGREGATE,  AT_NOVELL,255, 0,0,    /* 2 */
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 21,22,0,0, 255,255,0,0, 0,0, 0,0},
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 23,24,0,0, 255,255,0,0, 0,0, 0,0} },
+X   {NULL, 0L,0L,0L,0L, 0L,0L, 1,FT_AGGREGATE,  AT_DECNET,255, 0,0,    /* 3 */
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 31,32,0,0, 255,255,0,0, 0,0, 0,0},
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 33,34,0,0, 255,255,0,0, 0,0, 0,0} },
+X   {NULL, 0L,0L,0L,0L, 0L,0L, 1,FT_AGGREGATE,  AT_ETHERTALK,255, 0,0, /* 4 */
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 41,42,0,0, 255,255,0,0, 0,0, 0,0},
+X      {0,0,0,0,0,0, 0,0,0,0,0,0, 43,34,0,0, 255,255,0,0, 0,0, 0,0} } };
+X
+Xvoid init_flow(struct flow far *f, unsigned char type)
+X{
+X   f->UpOctets = f->UpPDUs = f->DownOctets = f->DownPDUs = f->LastTime = 0L;
+X   f->FirstTime = s_uptime;  /* Initialise flow */
+X   f->FlowType = type;  f->FlowRuleSet = CurrentRuleSet;
+X   f->link.next = NULL;
+X   }
+X
+Xvoid optimise_rule_table()
+X{
+X   unsigned int j, k, g, h, x, l,
+X      nht,  /* Nbr of rule_hash_tbls */
+X      ths,  /* Sum of rule_hash_tbl sizes */
+X      rhss;  /* Total rule_hash sequence size */
+X   struct rule far *rp, far *hp;
+X   struct rule_hash_tbl far *c_rh;
+X   unsigned char hash;
+X
+X   hp = &c_rt[0];  hp->hash_tbl_index = 1;
+X   for (j = 1;  j != c_rsz;  ++j) {  /* Mark match break points */
+X      rp = &c_rt[j];
+X      rp->hash_tbl_index = rp->RuleSelector != hp->RuleSelector ||
+X	    qcmp(rp->RuleMask,hp->RuleMask,RULE_ADDR_LEN) != 0;
+X      hp = rp;
+X      }
+X   for (j = 0;  j != c_rsz;  ++j) {  /* Mark goto break points */
+X      rp = &c_rt[j];  rp->hash_link = 0;
+X      k = rp->RuleAction;
+X      if (k == RA_PUSHTO || k == RA_POPTO || k == RA_GOTO) {
+X	 hp = &c_rt[rp->RuleJumpIndex-1];
+X	 hp->hash_tbl_index = 2;
+X	 }
+X      }
+X#ifdef H_TEST
+X   scpos(0,24);  printf("rule  index  link  MARKED\n");
+X   for (j = 0;  j != c_rsz;  ++j) {
+X      rp = &c_rt[j];
+X      printf("%3d %5d %5d\n", j, rp->hash_tbl_index,rp->hash_link);
+X      }
+X#endif
+X   nht = ths = 0;
+X   hp = &c_rt[0];  k = 1;
+X   for (j = 1;  j != c_rsz;  ++j) {  /* Find compare groups */
+X      rp = &c_rt[j];
+X      if ((g = rp->hash_tbl_index) == 0) ++k;  /* Same group */
+X      if (g != 0 || j == c_rsz-1) {  /* End of a group */
+X	 if (k >= MNCGRPSZ && hp->RuleSelector != RS_NULL) {
+X	    for (h = 2; h <= k; h <<= 1) ;  /* h = next power of 2 */
+X	    if (h > 256) h = 256;
+X	    hp->hash_tbl_index = k;  /* Remember group and */
+X	    hp->hash_link = h;       /*   hash table sizes */
+X	    ++nht;  ths += h;
+X	    }
+X	 else hp->hash_tbl_index = 0;
+X	 hp = rp;  k = 1;
+X	 }
+X      rp->hash_tbl_index = 0;  /* Last row can't start a group */
+X      }
+X   rhss = 1 + nht*2 + ths;  /* rule_hash set size (ints) */
+X   if (rh_size < rhss) rule_hash =
+X      (int far *)farmalloc(sizeof(int)*(rh_size = rhss));
+X#ifdef H_TEST
+X   printf("rule  index  link  GROUPED\n");
+X   for (j = 0;  j != c_rsz;  ++j) {
+X      rp = &c_rt[j];
+X      printf("%3d %5d %5d\n", j, rp->hash_tbl_index,rp->hash_link);
+X      }
+X#endif
+X   rule_hash[0] = 0;  k = 1;  rp = &c_rt[j = 0];
+X   for ( ; nht != 0; --nht, k += 2+h) {
+X      c_rh = (struct rule_hash_tbl far *)&rule_hash[k];
+X      while (rp->hash_tbl_index == 0) {
+X	 ++rp; ++j;
+X	 }
+X      g = rp->hash_tbl_index;  /* Group size */
+X      h = rp->hash_link;  /* Hash table size */
+X      rp->hash_tbl_index = k;  /* Index of hash_tbl in rule_hash */
+X      rp->hash_link = 0;
+X      c_rh->group_last = j+g;
+X      c_rh->hash_mask = h-1;
+X      for (x = 0; x != h; ++x) c_rh->hash_ent[x] = 0;
+X      for ( ; g != 0; --g) {
+X	 for (hash = x = 0; x != RULE_ADDR_LEN; ++x)
+X	    hash += rp->RuleMatchedValue[x] & rp->RuleMask[x];
+X	 hash &= h-1;
+X	 if ((l = c_rh->hash_ent[hash]) == 0)
+X	    c_rh->hash_ent[hash] = j+1;  /* First rule with this hash */
+X	 else {
+X	    do {
+X	       hp = &c_rt[l-1];  l = hp->hash_link;
+X	       } while (l != 0);
+X	    hp->hash_link = j+1;  /* Add to end of hash chain */
+X	    }
+X	 ++rp; ++j;
+X	 }
+X      }
+X#ifdef H_TEST
+X   printf("rule  index  link  HASHED\n");
+X   for (j = 0;  j != c_rsz;  ++j) {
+X      rp = &c_rt[j];
+X      printf("%3d %5d %5d\n", j, rp->hash_tbl_index,rp->hash_link);
+X      }
+X   printf("rule_hash . . .\n");
+X   for (j = 0;  j != rhss;  ++j) printf("%d ",rule_hash[j]);
+X   printf("\n");
+X#endif
+X   }
+X
+Xint open_rule_set(unsigned char doSet, unsigned char n)
+X{
+X   unsigned int j;
+X   struct rule far *rp;
+X   if (rt_size[n-1] == 0) return 0;  /* Incomplete tables */
+X   if (doSet) {
+X      c_rt = rule_table[n-1];  c_rsz = rt_size[n-1];
+X      for (j = 0; j != c_rsz; ++j) {
+X	 rp = &c_rt[j];
+X	 if (rp->RuleAction == RA_COUNT) rp->RuleJumpIndex = 0;
+X	 }
+X      c_at = action_table[n-1];  c_asz = at_size[n-1];
+X      CurrentRuleSet = n;
+X      for (j = 0; j != c_asz; ++j) init_flow(&c_at[j],FT_RULE);
+X      optimise_rule_table();
+X      }
+X
+X   return 1;
+X   }
+X
+Xvoid close_rule_set(void)
+X{
+X   unsigned int j,k;
+X   struct rule far *rp;
+X   struct flow far *fp, far *ap, far *lfp;
+X   struct hash_tbl far *ht;
+X   struct flow far * far *sf;
+X   for (j = 0; j != c_rsz; ++j) {
+X      rp = &c_rt[j];
+X      switch (rp->RuleAction) {
+X      case RA_COUNT:
+X	 if (rp->RuleJumpIndex != 0) {
+X	    fp = find_flow(rp->RuleJumpIndex);
+X	    fp->link.count = NULL;
+X	    }
+X	 rp->RuleJumpIndex = 0;
+X	 break;
+X      case RA_TALLY:
+X	 ap = &c_at[rp->RuleJumpIndex-1];
+X	 if ((ht = ap->link.hash) != NULL) {
+X	    for (k = 0; k != HASHMOD; ++k) {
+X	       sf = &ht->hash_ent[k];  /* Address of hash table entry */
+X	       if ((fp = sf[0]) != NULL) {
+X		  do {
+X		     lfp = fp;  fp = lfp->link.next;
+X		     lfp->link.next = NULL;
+X		     } while (fp != (struct flow far *)sf);
+X		  --n_hash_ents;
+X		  }
+X	       }
+X	    farfree(ht);
+X	    --n_hash_tables;  t_hash_size -= HASHMOD;
+X	    ap->link.hash = NULL;
+X	    }
+X	 break;
+X      case RA_AGGREGATE:
+X	 ap = &c_at[rp->RuleJumpIndex-1];
+X	 if ((fp = ap->link.action) != NULL) {
+X	    fp->link.action = NULL;
+X	    ap->link.action = NULL;
+X	    }
+X	 break;
+X	 }
+X      }
+X   }
+X
+X#ifdef GC_DEBUG
+Xint dup_flow(struct flow far *f, char *msg)
+X{
+X   int x;
+X   for (x = 253; x <= mxflowsp1; ++x)
+X      if (flow_ix[x-1] != NULL) {
+X	 scpos(0,24);
+X	 printf("   flow_ix[%d]=%Fp !!\n", x,flow_ix[x-1]);
+X	 }
+X   for (x = 2; x <= mxflowsp1; ++x)
+X      if (flow_ix[x-1] == f) {
+X	 scpos(0,24);
+X	 printf("Flow %Fp is flow_ix[%d], msg=%s\n", f,x, msg);
+X	 exit(0);
+X	 }
+X   return 0;
+X   }
+X#endif
+X
+Xunsigned int number_flow(struct flow far *fp)  /* Allocate a flow_nbr */
+X{
+X   unsigned int start_ix = empty_ix;
+X   do {
+X      if (++empty_ix > mxflowsp1)  /* empty_ix goes from 2 to MXFLOWS+1 */
+X	 empty_ix = 2;  /* Flow 1 is a dummy for snmp */
+X      if (flow_ix[empty_ix-1] == NULL) {
+X	 ++nflows;  /* Nbr of active accounting flows */
+X	 flow_ix[empty_ix-1] = fp;
+X#ifdef GC_DEBUG
+X	 printf("nbr_flow(%Fp) -> %u\n", fp,empty_ix);
+X#endif
+X	 return empty_ix;  /* 1-org */
+X	 }
+X      } while (empty_ix != start_ix);
+X   scpos(0,24);  printf("Too many flows");
+X   bkgi = 1;  /* Kick background process: get busy on garbage collecting! */
+X   return NULL;
+X   }
+X
+Xstruct flow far *find_flow(int x)  /* Find flow with flow_nbr x */
+X{
+X   if (x > mxflowsp1 || x < 2) {
+X      display_msg(1,"Invalid flow number!");
+X      return NULL;
+X      }
+X   return flow_ix[x-1];
+X   }
+X
+Xvoid garbage_collect()
+X{
+X   unsigned char e = gc_e, f = gc_f;   
+X   struct rule far *rp;
+X   struct flow far *fp, far *np, far *tp, far *ltp;
+X#ifdef GC_DEBUG
+X   int k;
+X#endif
+X#ifdef GC_TEST1
+X   scpos(0,24);
+X   printf("GC: gctime=%lu, gcf_ix=%u, e=%d, f=%d\n",
+X      GarbageCollectTime,gcf_ix,e,f);
+X#endif
+X   for (;;) {
+X      if (++gcf_ix > mxflowsp1)  /* gcf_ix goes from 2 to MXFLOWS+1 */
+X	 gcf_ix = 2;  /* Flow 1 is a dummy for snmp */
+X      if ((fp = flow_ix[gcf_ix-1]) == NULL) {  /* Unused flow index */
+X         if (--e == 0) return;
+X         continue;
+X         }
+X      if (fp->LastTime <= GarbageCollectTime) {  /* OK, recover it */
+X#ifdef GC_TEST1
+X      printf("   f=%d, gcf_ix=%d, LastTime=%lu\n",
+X	 f,gcf_ix,fp->LastTime);
+X#endif
+X	 if (fp->link.next != NULL) {  /* Not an orphaned flow */
+X#ifdef GC_DEBUG
+X	    scpos(0,24);
+X	    printf("GC: typ=%u, set=%u, ix=%u, fp=%Fp, np=%Fp\n",
+X	       fp->FlowType,fp->FlowRuleSet,gcf_ix, fp,fp->link.next);
+X	    k = 0;
+X#endif
+X	    switch(fp->FlowType) {
+X	    case FT_COUNT:
+X	       rp = fp->link.count;
+X	       rp->RuleJumpIndex = 0;
+X	       break;
+X	    case FT_TALLY:
+X	       np = fp->link.next;
+X	       tp = fp;  do {
+X		  ltp = tp;
+X#ifdef GC_DEBUG
+Xprintf("   k=%d, ltp=%Fp, tp=%Fp\n", ++k, ltp,ltp->link.next);
+Xif (tp->link.next == NULL || k > 10) exit(0);  /* Infinite loop - stop */
+X#endif
+X		  } while ((tp = tp->link.next) != fp);
+X	       ltp->link.next = ltp == np ? NULL : np;
+X	       break;
+X	    case FT_AGGREGATE:
+X	       tp = fp->link.action;
+X	       tp->link.action = NULL;
+X	       break;
+X               }
+X	    }
+X	 flow_ix[gcf_ix-1] = NULL;
+X#ifdef GC_DEBUG
+X      printf("\ngarbage_collect ..\n");
+X#endif
+X	 free_flow(fp);
+X	 --nflows;
+X	 ++FlowsRecovered;
+X#ifdef GC_TEST
+X      scpos(0,24);
+X      printf("Flow %d (type %d) recovered\n", gcf_ix,fp->FlowType);
+X#endif
+X	 }
+X      if (--f == 0) return;
+X      }
+X   }
+X
+Xstruct flow far *data;  /* Work space for building target flows */
+Xstruct flow far *tally;
+X
+Xunsigned int p_stack[RSTKSIZ];  /* Pattern stack */
+Xint p_s_depth;
+X
+X#ifdef GC_DEBUG
+Xvoid print_chain(struct hash_tbl far *t, unsigned char hash, char *msg)
+X{
+X   struct flow far * far *sf;
+X   struct flow far *f, far *lf;
+X   sf = &t->hash_ent[hash];  /* Address of hash table entry */
+X   scpos(0,24);  printf("Chain: t=%Fp, hash=%u, sf=%Fp, msg=%s\n",
+X      t,hash,sf, msg);
+X   lf = f = sf[0];
+X   do {
+X      printf("   f=%Fp\n", f);
+X      if ((lf = f) == NULL) return;
+X      } while ((f = lf->link.next) != (struct flow far *)sf);
+X   }
+X#endif
+X
+Xstruct flow far *search_hash_table(
+X   struct hash_tbl far *t,  /* Table to search */
+X   struct key far *Low,  /* Target keys */
+X   struct key far *High,
+X   struct flow far *pdu,
+X   struct flow far *ap,  /* Action with table's masks */
+X   unsigned char OK_to_add  /* 1 = add new flow if not found */
+X   )
+X{
+X   struct flow far * far *sf;
+X   struct flow far *f, far *lf;
+X   struct rule far *rp;
+X   unsigned char hash, k, t_PeerType, t_DetailType,
+X      t_LowAdj,t_HighAdj, t_LowPeer,t_HighPeer, t_LowDetail,t_HighDetail;
+X   t_PeerType = t_DetailType = t_LowAdj = t_HighAdj = 
+X      t_LowPeer = t_HighPeer = t_LowDetail = t_HighDetail = hash = 0;
+X   ++n_hash_searches;
+X   bcopy((unsigned char far *)Key(ap),  /* Copy action entry into tally */
+X      (unsigned char far *)Key(tally), sizeof(struct flow_key));
+X   if (qcmp(tally->Low.PeerMask,null_flow->Low.PeerMask,PEER_ADDR_LEN) != 0) {
+X      t_LowPeer = 1;  /* Tally this field */
+X      for (k = 0; k != PEER_ADDR_LEN; ++k)
+X	 hash += (tally->Low.PeerAddress[k] =
+X	    Low->PeerAddress[k] & tally->Low.PeerMask[k]);
+X      }
+X   if (qcmp(tally->High.PeerMask,null_flow->High.PeerMask,PEER_ADDR_LEN) != 0) {
+X      t_HighPeer = 1;  /* Tally this field */
+X      for (k = 0; k != PEER_ADDR_LEN; ++k)
+X	 hash += (tally->High.PeerAddress[k] =
+X	    High->PeerAddress[k] & tally->High.PeerMask[k]);
+X      }
+X   if (tally->DetailTypeMask != 0) {
+X      t_DetailType = 1;  /* Tally this field */
+X      hash += (tally->DetailAddrType =
+X	 pdu->DetailAddrType & tally->DetailTypeMask);
+X      }
+X   if (qcmp(tally->Low.DetailMask,null_flow->Low.DetailMask,DETAIL_ADDR_LEN) != 0) {
+X      t_LowDetail = 1;  /* Tally this field */
+X      for (k = 0; k != DETAIL_ADDR_LEN; ++k)
+X	 hash += (tally->Low.DetailAddress[k] =
+X	    Low->DetailAddress[k] & tally->Low.DetailMask[k]);
+X      }
+X   if (qcmp(tally->High.DetailMask,null_flow->High.DetailMask,DETAIL_ADDR_LEN) != 0) {
+X      t_HighDetail = 1;  /* Tally this field */
+X      for (k = 0; k != DETAIL_ADDR_LEN; ++k)
+X	 hash += (tally->High.DetailAddress[k] =
+X	    High->DetailAddress[k] & tally->High.DetailMask[k]);
+X      }
+X   if (qcmp(tally->Low.AdjMask,null_flow->Low.AdjMask,MAC_ADDR_LEN) != 0) {
+X      t_LowAdj = 1;  /* Tally this field */
+X      for (k = 0; k != MAC_ADDR_LEN; ++k)
+X	 hash += (tally->Low.AdjAddress[k] =
+X	    Low->AdjAddress[k] & tally->Low.AdjMask[k]);
+X      }
+X   if (qcmp(tally->High.AdjMask,null_flow->High.AdjMask,MAC_ADDR_LEN) != 0) {
+X      t_HighAdj = 1;  /* Tally this field */
+X      for (k = 0; k != MAC_ADDR_LEN; ++k)
+X	 hash += (tally->High.AdjAddress[k] =
+X	    High->AdjAddress[k] & tally->High.AdjMask[k]);
+X      }
+X   if (tally->PeerTypeMask != 0) {
+X      t_PeerType = 1;  /* Tally this field */
+X      hash += (tally->PeerAddrType =
+X	 pdu->PeerAddrType & tally->PeerTypeMask);
+X      }
+X
+X   sf = &t->hash_ent[hash];  /* Address of hash table entry */
+X#ifdef TESTING
+Xif (!log) open_log();
+Xfprintf(log,"Search_hash(): add=%d, lo=%d, hi=%d, hash=%d\n   LowPeer=",
+X   OK_to_add, t_LowPeer,t_HighPeer, hash);
+Xpaddr(tally->Low.PeerAddress); fprintf(log,", HighPeer=");
+Xpaddr(tally->High.PeerAddress);
+Xfprintf(log,"\n   sf=%Fp, sf[0]=%Fp\n", sf,sf[0]);
+X#endif
+X   if ((f = sf[0]) == NULL) {
+X      lf = NULL;  /* Empty hash chain */
+X      ++n_hash_compares;  /* Make sure compares >= searches! */
+X      }
+X   else {
+X      do {
+X#ifdef GC_DEBUG
+X	 if (f == NULL) {
+X	    print_chain(t,hash,"existing");
+X	    exit(0);
+X	    }
+X#endif
+X	 ++n_hash_compares;
+X	 for (;;) {
+X	    if (t_LowPeer && qcmp(tally->Low.PeerAddress,
+X	       f->Low.PeerAddress,PEER_ADDR_LEN) != 0) break;
+X	    if (t_HighPeer && qcmp(tally->High.PeerAddress,
+X	       f->High.PeerAddress,PEER_ADDR_LEN) != 0) break;
+X	    if (t_DetailType && 
+X	       tally->DetailAddrType != f->DetailAddrType) break;
+X	    if (t_LowDetail && qcmp(tally->Low.DetailAddress,
+X	       f->Low.DetailAddress,DETAIL_ADDR_LEN) != 0) break;
+X	    if (t_HighDetail && qcmp(tally->High.DetailAddress,
+X	       f->High.DetailAddress,DETAIL_ADDR_LEN) != 0) break;
+X 	    if (t_LowAdj && qcmp(tally->Low.AdjAddress,
+X	       f->Low.AdjAddress,MAC_ADDR_LEN) != 0) break;
+X	    if (t_HighAdj && qcmp(tally->High.AdjAddress,
+X	       f->High.AdjAddress,MAC_ADDR_LEN) != 0) break;
+X	    if (t_PeerType && 
+X	       tally->PeerAddrType != f->PeerAddrType) break;
+X	    return f;  /* Matched */
+X	    }
+X	 lf = f;
+X	 } while ((f = lf->link.next) != (struct flow far *)sf);
+X      f = NULL;  /* Loop stops with lf -> last flow in chain */
+X      }
+X#ifdef TESTING
+Xfprintf(log,"   after search: f=%Fp, lf=%Fp, sf=%Fp, sf[0]=%Fp\n",
+X   f, lf, sf, sf[0]);
+X#endif
+X   if (OK_to_add) {
+X      if ((f = get_flow()) == NULL)  /* Build new tally flow */
+X	 return NULL;  /* Out of memory */
+X      bcopy((unsigned char far *)Key(tally),  /* bcopy (s,d,n) */
+X	 (unsigned char far *)Key(f), sizeof(struct flow_key));
+X      init_flow(f,FT_TALLY);
+X      if (number_flow(f) == NULL) {  /* No room in flow_index */
+X	 free_flow(f);  return NULL;
+X	 }
+X      f->link.next = (struct flow far *)sf;
+X#ifdef GC_DEBUG
+X      if (f->link.next == NULL) {
+X	 print_chain(t,hash,"adding new flow");
+X	 exit(0);
+X	 }
+X#endif
+X      if (lf == NULL) {  /* Empty hash chain */
+X	 sf[0] = f;  ++n_hash_ents;
+X	 }
+X      else lf->link.next = f;
+X#ifdef TESTING
+Xfprintf(log,"   flow %d added, addr=%Fp\n", empty_ix,f);
+X#endif
+X      }
+X   return f;
+X   }
+X
+Xunsigned char masked_value[RULE_ADDR_LEN];
+X
+Xunsigned char mk_hash(
+X   unsigned char far *vp, unsigned char far *mp, unsigned char n)
+X{
+X   unsigned char hash,j;
+X   for (hash = j = 0;  j != n;  ++j)
+X      hash += (masked_value[j] = vp[j] & mp[j]);
+X   return hash;
+X   }
+X
+Xint pkt_match(  /* 0 = failed to match, 1 = matched, */
+X		/*    2 = matched but flow not yet in tally */
+X   unsigned char forward,  /* 0 => from & to have been swapped */
+X   unsigned char OK_to_add,
+X   int len,  /* Octets in PDU */
+X   struct flow far *pdu, struct key far *from, struct key far *to)
+X{
+X   unsigned int rx, j, f;
+X   struct rule far *rp;
+X   unsigned char match, hash;
+X   struct flow far *fp, far *ap;
+X   struct rule_hash_tbl far *c_rh;
+X   struct hash_tbl far *ht;
+X
+X   p_s_depth = 0;
+X   for (rx = 1; rx <= c_rsz; ) {  /* Search the rule table */
+X      rp = &c_rt[rx-1];
+X      ++n_matches;
+X      if (rp->hash_tbl_index == 0) {  /* Simple compare */
+X	 switch (rp->RuleSelector) {
+X	 case FTLOWPEERADDRESS:
+X	    for (j = 0;  j != PEER_ADDR_LEN;  ++j) {
+X	       if ((from->PeerAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == PEER_ADDR_LEN;
+X	    break;
+X	 case FTHIPEERADDRESS:
+X	    for (j = 0;  j != PEER_ADDR_LEN;  ++j) {
+X	       if ((to->PeerAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == PEER_ADDR_LEN;
+X	    break;
+X	 case FTLOWPEERTYPE:
+X	 case FTHIPEERTYPE:
+X	    match = pdu->PeerAddrType == rp->RuleMatchedValue[0];
+X	    break;
+X	 case FTLOWDETAILADDRESS:
+X	    for (j = 0;  j != DETAIL_ADDR_LEN;  ++j) {
+X	       if ((from->DetailAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == DETAIL_ADDR_LEN;
+X	    break;
+X	 case FTHIDETAILADDRESS:
+X	    for (j = 0;  j != DETAIL_ADDR_LEN;  ++j) {
+X	       if ((to->DetailAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == DETAIL_ADDR_LEN;
+X	    break;
+X	 case FTLOWDETAILTYPE:
+X	 case FTHIDETAILTYPE:
+X	    match = pdu->DetailAddrType == rp->RuleMatchedValue[0];
+X	    break;
+X	 case FTLOWADJACENTADDRESS:
+X	    for (j = 0;  j != MAC_ADDR_LEN;  ++j) {
+X	       if ((from->AdjAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == MAC_ADDR_LEN;
+X	    break;
+X	 case FTHIADJACENTADDRESS:
+X	    for (j = 0;  j != MAC_ADDR_LEN;  ++j) {
+X	       if ((to->AdjAddress[j] & rp->RuleMask[j]) !=
+X		  rp->RuleMatchedValue[j]) break;
+X	       }
+X	    match = j == MAC_ADDR_LEN;
+X	    break;
+X	 case RS_NULL:
+X	    match = 1;  /* Don't test anything */
+X	    break;
+X	 default:
+X	    match = 0;
+X	    }
+X	 }
+X      else {  /* Hashed compare */
+X	 switch (rp->RuleSelector) {
+X	 case FTLOWPEERADDRESS:
+X	    hash = mk_hash(from->PeerAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTHIPEERADDRESS:
+X	    hash = mk_hash(to->PeerAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTLOWPEERTYPE:
+X	 case FTHIPEERTYPE:
+X	    hash = mk_hash(&pdu->PeerAddrType,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTLOWDETAILADDRESS:
+X	    hash = mk_hash(from->DetailAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTHIDETAILADDRESS:
+X	    hash = mk_hash(to->DetailAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTLOWDETAILTYPE:
+X	 case FTHIDETAILTYPE:
+X	    hash = mk_hash(&pdu->DetailAddrType,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTLOWADJACENTADDRESS:
+X	    hash = mk_hash(from->AdjAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	 case FTHIADJACENTADDRESS:
+X	    hash = mk_hash(to->AdjAddress,rp->RuleMask,RULE_ADDR_LEN);
+X	    break;
+X	    }
+X	 c_rh = (struct rule_hash_tbl far *)&rule_hash[rp->hash_tbl_index];
+X	 hash &= c_rh->hash_mask;  match = 0;
+X	 if ((rx = c_rh->hash_ent[hash]) != 0) {
+X	    do {
+X	       rp = &c_rt[rx-1];
+X	       if (qcmp((unsigned char far *)masked_value,
+X		     rp->RuleMatchedValue, RULE_ADDR_LEN) == 0) {
+X		  match = 1;  break;  /* Matched */
+X		  }
+X	       } while ((rx = rp->hash_link) != 0);
+X	    }
+X	 if (match == 0) rx = c_rh->group_last;  /* Not in group */
+X	 }
+X      if (match) {
+X	 switch (rp->RuleAction) {
+X	 case RA_COUNT:
+X	    p_stack[p_s_depth++] = rx;  /* Remember last matched rule */
+X	    if ((j = rp->RuleJumpIndex) == 0) {
+X	       if ((fp = get_flow()) == NULL)
+X		  return 1;  /* Out of memory: don't try match again */
+X	       bcopy((unsigned char far *)Key(null_flow),  /* bcopy (s,d,n) */
+X		  (unsigned char far *)Key(fp), sizeof(struct flow_key));
+X	       for (j = 0; j != p_s_depth; ++j) {
+X		  rp = &c_rt[p_stack[j]-1];
+X		  switch (rp->RuleSelector) {
+X		  case FTLOWPEERADDRESS:
+X		     addrcpy(fp->Low.PeerAddress,
+X			rp->RuleMatchedValue, PEER_ADDR_LEN);
+X		     addrcpy(fp->Low.PeerMask, rp->RuleMask, PEER_ADDR_LEN);
+X		     break;
+X		  case FTHIPEERADDRESS:
+X		     addrcpy(fp->High.PeerAddress,
+X			rp->RuleMatchedValue, PEER_ADDR_LEN);
+X		     addrcpy(fp->High.PeerMask, rp->RuleMask, PEER_ADDR_LEN);
+X		     break;
+X		  case FTLOWPEERTYPE:
+X		  case FTHIPEERTYPE:
+X		     fp->PeerAddrType = rp->RuleMatchedValue[0];
+X		     fp->PeerTypeMask = rp->RuleMask[0];
+X		     break;
+X		  case FTLOWDETAILADDRESS:
+X		     addrcpy(fp->Low.DetailAddress,
+X			rp->RuleMatchedValue, DETAIL_ADDR_LEN);
+X		     addrcpy(fp->Low.DetailMask, rp->RuleMask, DETAIL_ADDR_LEN);
+X		     break;
+X		  case FTHIDETAILADDRESS:
+X		     addrcpy(fp->High.DetailAddress,
+X			rp->RuleMatchedValue, DETAIL_ADDR_LEN);
+X		     addrcpy(fp->High.DetailMask, rp->RuleMask, DETAIL_ADDR_LEN);
+X		     break;
+X		  case FTLOWDETAILTYPE:
+X		  case FTHIDETAILTYPE:
+X		     fp->DetailAddrType = rp->RuleMatchedValue[0];
+X		     fp->DetailTypeMask = rp->RuleMask[0];
+X		     break;
+X		  case FTLOWADJACENTADDRESS:
+X		     addrcpy(fp->Low.AdjAddress,
+X			rp->RuleMatchedValue, MAC_ADDR_LEN);
+X		     addrcpy(fp->Low.AdjMask, rp->RuleMask, MAC_ADDR_LEN);
+X		     break;
+X		  case FTHIADJACENTADDRESS:
+X		     addrcpy(fp->High.AdjAddress,
+X			rp->RuleMatchedValue, MAC_ADDR_LEN);
+X		     addrcpy(fp->High.AdjMask, rp->RuleMask, MAC_ADDR_LEN);
+X		     break;
+X		     }
+X                  }
+X	       init_flow(fp,FT_COUNT);
+X#ifdef GC_DEBUG
+X	       dup_flow(fp, "adding count");
+X#endif
+X	       if ((f = number_flow(fp)) == NULL) {
+X#ifdef GC_DEBUG
+X      printf("\nno room for count ..\n");
+X#endif
+X		  free_flow(fp);  /* No room in flow_index */
+X		  return 1;  /* Succeed: don't try to match again */
+X		  }
+X	       fp->link.count = rp;
+X	       rp->RuleJumpIndex = f;
+X	       }
+X	    else fp = find_flow(j);
+X#ifdef COUNT_TRACE
+Xscpos(0,24);
+Xprintf("count ");  daddr(from->PeerAddress);
+Xprintf(" -> ");  daddr(to->PeerAddress);
+Xprintf("\n");
+X#endif
+X	    break;  /* Count this PDU */
+X	 case RA_TALLY:
+X	    ap = &c_at[rp->RuleJumpIndex-1];
+X	    if ((ht = ap->link.hash) == NULL) {  /* No hash table yet */
+X	       ht = (struct hash_tbl far *)farmalloc(sizeof(struct hash_tbl));
+X	       for (j = 0; j != HASHMOD; ++j) ht->hash_ent[j] = NULL;
+X	       ap->link.hash = ht;
+X	       ++n_hash_tables;  t_hash_size += HASHMOD;
+X	       }
+X	    if ((fp = search_hash_table(ht, from,to,pdu,
+X		  ap, OK_to_add)) == NULL)
+X	       return 2;  /* Not OK to add */
+X	    break;  /* Count this PDU */
+X	 case RA_AGGREGATE:
+X	    ap = &c_at[rp->RuleJumpIndex-1];
+X	    if ((fp = ap->link.action) == NULL) {
+X	       if ((fp = get_flow()) == NULL)
+X		  return 1;  /* Out of memory: don't try match again */
+X	       bcopy((unsigned char far *)Key(ap),  /* bcopy (s,d,n) */
+X		  (unsigned char far *)Key(fp), sizeof(struct flow_key));
+X               init_flow(fp,FT_AGGREGATE);
+X#ifdef GC_DEBUG
+X	       dup_flow(fp, "adding aggregate");
+X#endif
+X	       if (number_flow(fp) == NULL) {
+X#ifdef GC_DEBUG
+X      printf("\nno room for aggregate ..\n");
+X#endif
+X		  free_flow(fp);  /* No room in flow_index */
+X		  return 1;  /* Succeed: don't try to match again */
+X		  }
+X	       fp->link.action = ap;
+X	       ap->link.action = fp;
+X	       }
+X	    break;  /* Count this PDU */
+X	 case RA_SUCCEED:
+X	    return 1;
+X	 case RA_FAIL:
+X	    return 0;
+X	 case RA_PUSHTO:
+X	    p_stack[p_s_depth++] = rx;  /* Remember which rules matched */
+X	    rx = rp->RuleJumpIndex;
+X#ifdef STACK_CHECK
+X	    if (p_s_depth >= RSTKSIZ) {
+X	       scpos(0,24);
+X	       printf("match oflo: depth=%d, stk=", p_s_depth);
+X	       for (j = 0; j != p_s_depth; ++j) printf("%d,", p_stack[j]);
+X	       printf("\n   LowPeer=");  daddr(from->PeerAddress);
+X	       printf(", HighPeer=");  daddr(to->PeerAddress);
+X	       printf("\n");
+X	       return 0;
+X	       }
+X#endif
+X	    continue;
+X	 case RA_POPTO:
+X	    --p_s_depth;  /* Forget last matched rule */
+X	    rx = rp->RuleJumpIndex;
+X#ifdef STACK_CHECK
+X	    if (p_s_depth < 0) {
+X	       scpos(0,24);
+X	       printf("match uflo: stk=");
+X	       for (j = 0; j != RSTKSIZ; ++j) printf("%d,", p_stack[j]);
+X	       printf("\n   LowPeer=");  daddr(tally->Low.PeerAddress);
+X	       printf(", HighPeer=");  daddr(tally->High.PeerAddress);
+X	       printf("\n");
+X	       return 0;
+X	       }
+X#endif
+X	    continue;
+X	 case RA_GOTO:
+X	    rx = rp->RuleJumpIndex;
+X#ifdef TESTING
+Xscpos(0,24);
+Xprintf("   GOTO %d\n", rx);
+X#endif
+X	    continue;
+X	    }
+X	 if (forward) {
+X	    fp->UpOctets += len;  fp->UpPDUs += 1;
+X	    }
+X	 else {
+X	    fp->DownOctets += len;  fp->DownPDUs += 1;
+X	    }
+X	 fp->LastTime = s_uptime;
+X	 return 1;
+X	 }
+X      else ++rx;
+X      }
+X   return 0;  /* Not matched */
+X   }
+X
+X
+X#define MAXPKTLEN  1526
+X
+X#ifdef DECNET
+Xint dn_node(dn_addr)
+Xunsigned char far *dn_addr;
+X{
+X   return dn_addr[1]<<8 | dn_addr[0];
+X   }
+X
+X#define dn_area(node) (node >> 10)
+X#define dn_host(node) (node & 0x3FF)
+X#endif
+X
+Xvoid unpack_dn_node(ap, dn_addr)
+Xunsigned char far *ap;
+Xunsigned char far *dn_addr;
+X{
+X   unsigned char dl = dn_addr[1];
+X   ap[0] = dl >> 2;    /* DECnet area */
+X   ap[1] = dl & 0x03;  ap[2] = dn_addr[0];  /* DECnet host */
+X   ap[3] = 0;
+X   }
+X
+Xvoid unpack_at_node(ap, at_net,at_node)
+Xunsigned char far *ap;
+Xunsigned char far *at_net;
+Xunsigned char at_node;
+X{
+X   ap[0] = at_net[0];  ap[1] = at_net[1];
+X   ap[2] = at_node;
+X   ap[3] = 0;
+X   }
+X
+Xvoid pkt_monitor(unsigned char far *pp, int len, unsigned char type)
+X{
+X   unsigned char j, dtype, dx;
+X   union decnet far *dp;
+X   struct rule far *r;
+X#ifdef DECNET
+X   unsigned int dlen, snode, dnode, area, host;
+X#endif
+X
+X   addrcpy(data->Low.AdjAddress,&pp[6-SNAPFROM],MAC_ADDR_LEN);  /* Ethernet source */
+X   addrcpy(data->High.AdjAddress,&pp[0-SNAPFROM],MAC_ADDR_LEN);  /* Ethernet dest */
+X
+X   if (type == AT_IP) {
+X      data->PeerAddrType = AT_IP;
+X      addrcpy(data->Low.PeerAddress,&pp[26-SNAPFROM],PEER_ADDR_LEN);  /* IP source */
+X      addrcpy(data->High.PeerAddress,&pp[30-SNAPFROM],PEER_ADDR_LEN);  /* IP dest */
+X      j = data->DetailAddrType = pp[23-SNAPFROM];  /* IP Protocol Type */
+X      dx = 14 + ((pp[14-SNAPFROM] & 0x0F) << 2) - SNAPFROM;  /* HLEN */
+X	 /* Data offset.  HLEN = IP header length in 32-bit units */
+X      if (j == PT_ICMP) {
+X	 data->Low.DetailAddress[0] = data->High.DetailAddress[0] = 0;
+X	 data->Low.DetailAddress[1] = pp[dx];  /* Type field */
+X	 data->High.DetailAddress[1] = pp[dx+1];  /* Code field */
+X	 }
+X      else {
+X	 data->Low.DetailAddress[0] = pp[dx];  /* Source port */
+X	 data->Low.DetailAddress[1] = pp[dx+1];
+X	 data->High.DetailAddress[0] = pp[dx+2];  /* Dest port */
+X	 data->High.DetailAddress[1] = pp[dx+3];
+X	 }
+X      }
+X   else if (type == AT_NOVELL) {
+X      data->PeerAddrType = AT_NOVELL;
+X      addrcpy(data->Low.PeerAddress,&pp[20-SNAPFROM],PEER_ADDR_LEN);  /* IPX soure net */
+X      addrcpy(data->High.PeerAddress,&pp[32-SNAPFROM],PEER_ADDR_LEN);  /* IPX dest net */
+X      data->DetailAddrType = pp[19-SNAPFROM];  /* XNS packet type */
+X      data->Low.DetailAddress[0] = pp[42-SNAPFROM];
+X      data->Low.DetailAddress[1] = pp[43-SNAPFROM];  /* IPX source socket */
+X      data->High.DetailAddress[0] = pp[30-SNAPFROM];
+X      data->High.DetailAddress[1] = pp[31-SNAPFROM];  /* IPX dest socket */
+X      }
+X   else if (type == AT_ETHERTALK) {
+X      data->PeerAddrType = AT_ETHERTALK;
+X      unpack_at_node(data->Low.PeerAddress, &pp[28-SNAPFROM],pp[31-SNAPFROM]);  /* AT source */
+X      unpack_at_node(data->High.PeerAddress, &pp[26-SNAPFROM],pp[30-SNAPFROM]);  /* AT source */
+X      data->DetailAddrType = pp[34-SNAPFROM];  /* AT DDP protocol type */
+X      data->Low.DetailAddress[0] = data->High.DetailAddress[0] = 0;
+X      data->Low.DetailAddress[1] = pp[33-SNAPFROM];  /* AT source socket */
+X      data->High.DetailAddress[1] = pp[32-SNAPFROM];  /* AT dest socket */
+X      }
+X   else if (type == AT_DECNET) {
+X      data->PeerAddrType = AT_DECNET;
+X      addrcpy(data->High.PeerAddress,null_flow->High.PeerAddress,PEER_ADDR_LEN);
+X      dtype = pp[16-SNAPFROM];  /* DECnet packet type */
+X      if (dtype != 0x81) dp = (union decnet far *)&pp[17-SNAPFROM];
+X      else {
+X	 dtype = pp[17-SNAPFROM];
+X	 dp = (union decnet far *)&pp[18-SNAPFROM];
+X	 }
+X      data->Low.DetailAddress[0] = data->High.DetailAddress[0] =
+X	 data->Low.DetailAddress[1] = data->High.DetailAddress[1] = 0;
+X      switch (data->DetailAddrType = dtype & 0x0F) {
+X      case 0x06:  /* Data */
+X      case 0x0E:  /* Data + discard flag */
+X	 unpack_dn_node(data->Low.PeerAddress, dp->d.src_dn_addr);
+X	 unpack_dn_node(data->High.PeerAddress, dp->d.dest_dn_addr);
+X#ifdef DECNET
+X	 dnode = dn_node(dp->d.dest_dn_addr);
+X	 snode = dn_node(dp->d.src_dn_addr);
+X	 fprintf(log,"Data to %d.%d from %d.%d\n",
+X	    dn_area(dnode),dn_host(dnode),
+X	    dn_area(snode),dn_host(snode) );
+X#endif
+X	 break;
+X      case 0x07:  /* Level 1 routing */
+X	 unpack_dn_node(data->Low.PeerAddress, dp->l1r.src_dn_addr);
+X#ifdef DECNET
+X	 snode = dn_node(dp->l1r.src_dn_addr);
+X	 fprintf(log,"Level 1 routing from %d.%d\n",
+X	    dn_area(snode),dn_host(snode));
+X#endif
+X	 break;
+X      case 0x09:  /* Level 2 routing */
+X	 unpack_dn_node(data->Low.PeerAddress, dp->l2r.src_dn_addr);
+X#ifdef DECNET
+X	 snode = dn_node(dp->l2r.src_dn_addr);
+X	 fprintf(log,"Level 2 routing from %d.%d\n",
+X	    dn_area(snode),dn_host(snode));
+X#endif
+X	 break;
+X      case 0x0B:  /* Router hello */
+X	 unpack_dn_node(data->Low.PeerAddress, dp->rh.src_dn_addr);
+X#ifdef DECNET
+X	 snode = dn_node(dp->rh.src_dn_addr);
+X	 dnode = dn_node(dp->rh.rtr_dn_addr);
+X	 fprintf(log,"Router hello from %d.%d, other router %d.%d\n",
+X	    dn_area(snode),dn_host(snode),
+X	    dn_area(dnode),dn_host(dnode) );
+X#endif
+X	 break;
+X      case 0x0D:  /* Endnode hello */
+X	 unpack_dn_node(data->Low.PeerAddress, dp->eh.src_dn_addr);
+X#ifdef DECNET
+X	 snode = dn_node(dp->eh.src_dn_addr);
+X	 dnode = dn_node(dp->eh.rtr_dn_addr);
+X	 fprintf(log,"Endnode hello from %d.%d, designated router %d.%d\n",
+X	    dn_area(snode),dn_host(snode),
+X	    dn_area(dnode),dn_host(dnode) );
+X#endif
+X	 break;
+X      default:  /* Unknown DECnet type */
+X	 scpos(0,24);
+X	 printf("\nDN pkt type %02x: ", dtype);
+X	 for (j=0; j != 16; ++j) printf(" %02x",pp[j-SNAPFROM]);
+X	 printf("\n");
+X	 for (j=16; j != 34; ++j) printf(" %02x",pp[j-SNAPFROM]);
+X	 printf("\n");
+X#ifdef TESTING
+X	 if (!log) open_log();
+X	 fprintf(log, "\nDN pkt type %02x: ", dtype);
+X	 for (j=17; j != 34; ++j) fprintf(log," %02x",pp[j-SNAPFROM]);
+X	 fprintf(log, "\n");
+X#endif
+X	 return;  /* Ignore it */
+X	 }
+X      }
+X   else if (type == AT_DUMMY) {
+X      if (++dummypackets == 1000) {
+X	 ++kilodummypackets;  dummypackets = 0;
+X	 }
+X      ++dummypacketrate;
+X      return;  /* Don't try to match the dummy packets! */
+X      }
+X
+X#ifdef TESTING
+X   j = pkt_match(1,0, len, data, &data->Low, &data->High);
+Xfprintf(log,"pkt_match(1,0) returned %d\n", j);
+Xswitch (j) {
+X#else
+X   switch (pkt_match(1,0, len, data, &data->Low, &data->High)) {
+X#endif
+X   case 0:  /* Failed */
+X      pkt_match(0,1, len, data, &data->High, &data->Low);
+X      return;
+X   case 1:  /* Matched */
+X      return;
+X   case 2:  /* Matched but not yet in tally  */
+X      if (pkt_match(0,1, len, data, &data->High, &data->Low) == 1)
+X	 return;  /* Matched */
+X      pkt_match(1,1, len, data, &data->Low, &data->High);
+X      return;
+X      }
+X   }
+X
+X#ifdef AU_MSDOS
+Xvoid save_time()
+X{
+X   s_tod_h = tod_h;  s_tod_m = tod_m;  s_tod_s = tod_s;
+X   elapsed_sec = 0;
+X   }
+X#endif
+X
+X#ifdef DEBUG
+Xvoid write_flows()
+X{
+X   int x;
+X   char msg[40];
+X   struct flow far *t;
+X   if (!log) open_log();
+X   for (x = 1; x <= nflows; ++x) {
+X      if ((t = find_flow(x)) == NULL) continue;
+X      sprintf(msg,"flow %d:  ",x);  pkey(msg,t);
+X      fprintf(log,"   Up: %8lu %6lu Down: %8lu %6lu Time: %8lu %8lu\n",
+X	 t->UpOctets,t->UpPDUs, t->DownOctets,t->DownPDUs,
+X	 t->FirstTime, t->LastTime);
+X      }
+X   fclose(log);  log = NULL;
+X   }
+X#endif
+X
+Xvoid zero_stats(void)
+X{
+X   FlowsRecovered = n_matches = n_hash_compares = n_hash_searches = 0L;
+X   clear_pkt_stats = 1;
+X   display_msg(1,"Statistics Zeroed");
+X   }
+X
+Xvoid show_stats(void)
+X{
+X   unsigned int i,j;
+X   unsigned long aps,apb, kdp;
+X   char msg[60];
+X#ifdef AU_MSDOS
+X   if (stats_time == 0 || npackets == 0 ||
+X	 kilodummypackets == 0 || mindummyrate == 0)
+X#else
+X   if (stats_time == 0 || npackets == 0)
+X#endif
+X      return;  /* Avoid divides by zero */
+X
+X   display_msg(1,"Meter Statistics ..");
+X   aps = (npackets*10+5L)/(stats_time*10L);
+X#ifdef AU_MSDOS
+X   apb = (t_backlog*10+5L)/(stats_time*10L);
+X   sprintf(msg,"Av pkt/s %lu, av pkt backlog %lu", aps,apb);
+X   display_msg(0,msg);
+X   sprintf(msg,"Max pkt/s %u, max pkt backlog %u",
+X      max_pkt_rate,max_pkt_backlog);
+X   display_msg(0,msg);
+X#else
+X   sprintf(msg,"Av pkt/s %lu, max pkt/s %u", aps,max_pkt_rate);
+X   display_msg(0,msg);
+X#endif
+X   if (kilodummypackets != 0) {
+X      if (dummypackets >= 500) ++kilodummypackets;
+X      i = kilodummypackets*1000L/(kilodummypackets+npackets/1000L);
+X      j = (mindummyrate*10000L+5L)/((mindummyrate+mdpacketrate)*10L);
+X      sprintf(msg,"Idle time av %u.%u, min %u.%u %", i/10,i%10, j/10,j%10);
+X      display_msg(0,msg);
+X      }
+X   sprintf(msg,"%u flows in use (max %u)",nflows,mxflowsp1-1);
+X   display_msg(0,msg);
+X   sprintf(msg,"%lu flows recovered (GC: %u  %u %u)",
+X      FlowsRecovered, gc_interval,gc_f,gc_e);
+X   display_msg(0,msg);
+X   i = (n_matches*100L+5L)/(npackets*10L);
+X   j = (n_hash_searches*100L+5L)/(npackets*10L);
+X   sprintf(msg,"%u.%u rules/pkt, %u.%u tallies/pkt",
+X      i/10,i%10, j/10,j%10);
+X   display_msg(0,msg);
+X   if (n_hash_searches != 0) {
+X      i = (n_hash_compares*100L+5L)/(n_hash_searches*10L);
+X      sprintf(msg,"%u.%u compares/tally", i/10,i%10);
+X      display_msg(0,msg);
+X      sprintf(msg,"%u hash slots, %u in use, ", t_hash_size,n_hash_ents);
+X      }
+X   }
+X
+Xvoid init_monitor()
+X{
+X   int j;
+X   unsigned char far *fp;
+X   unsigned char *np;
+X#ifdef AU_MSDOS
+X   set_tod();
+X   save_time();  /* For screen display */
+X   start_uptime_clock();  /* Starts 1 tick early; flows have CreateTime > 1 */
+X#else
+X   boot_time = 0;
+X#endif
+X   data = get_flow();  null_flow = get_flow();  tally = get_flow();
+X   fp = (unsigned char far *)null_flow;
+X   for (j = 0; j != sizeof(struct flow); ++j) *fp++ = 0;
+X   rule_hash = (int far *)farmalloc(sizeof(int)*(rh_size = INITHSZ));
+X   flow_ix = (struct flow far **)malloc(sizeof(struct flow far *)*(mxflowsp1));
+X   for (j = 0; j != mxflowsp1; ++j) flow_ix[j] = NULL;
+X   nflows = 0;  /* No accounting flows in use yet */
+X   gcf_ix = empty_ix = mxflowsp1;  /* Flow 2 will be the first allocated */
+X   np = (unsigned char *)CTi;
+X   for (j = 0; j != sizeof(CTi); ++j) *np++ = 0;
+X   n_collectors = 0;
+X   s_uptime = uptime();
+X
+X   /* Start with default rule and action tables */
+X
+X   rule_table[0] = (struct rule far *)default_rule_table;
+X   rt_size[0] = DRT_SIZE;
+X   action_table[0] = (struct flow far *)default_action_table;
+X   at_size[0] = DAT_SIZE;
+X   for (j = 1; j != MXNRTBLS; ++j) {
+X      rule_table[j] = NULL;  action_table[j] = NULL;
+X      rt_size[j] = at_size[j] = 0;
+X      }
+X   open_rule_set(1, 1); /* Open set 1 */
+X   }
+X
+Xvoid show_help()
+X{
+X   display_msg(0,"Copyright (C) 1992,1993 by Nevil Brownlee");
+X   display_msg(0,"Computer Centre, University of Auckland");
+X   display_msg(0,"");
+X   display_msg(0,"Keyboard commands ..");
+X   display_msg(0,"");
+X#ifdef AU_MSDOS
+X   display_msg(0,"  b: show Bad packet counts");
+X   display_msg(0,"  m: show Memory usage");
+X#endif
+X   display_msg(0,"  s: show Statistics");
+X   display_msg(0,"  v: show meter Version");
+X   display_msg(0,"  z: Zero statistics");
+X   if (kb_enabled) {
+X      display_msg(0,"");
+X      display_msg(0,"Esc: stop metering, exit NeTraMet");
+X      }
+X   }
+X
+Xvoid handle_kb(ch)
+Xint ch;
+X{
+X   switch (tolower(ch)) {
+X   case 's':
+X      show_stats();
+X      break;
+X   case 't':
+X      show_meter_time();
+X      break;
+X#ifdef DEBUG
+X   case 'x':
+X      if (kb_enabled) write_flows();
+X      break;
+X#endif
+X   case 'z':
+X      zero_stats();
+X      break;
+X   case '?':
+X      show_help();
+X      break;
+X   default:
+X      break;
+X      }
+X   }
+END_OF_FILE
+  if test 38647 -ne `wc -c <'netramet/src/meter/flowhash.c'`; then
+    echo shar: \"'netramet/src/meter/flowhash.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/meter/flowhash.c'
+fi
+if test -f 'netramet/src/snmplib/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/snmplib/parse.c'\"
+else
+  echo shar: Extracting \"'netramet/src/snmplib/parse.c'\" \(22322 characters\)
+  sed "s/^X//" >'netramet/src/snmplib/parse.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * parse.c
+X */
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include "parse.h"
+X
+X/*
+X * This is one element of an object identifier with either an integer subidentifier,
+X * or a textual string label, or both.
+X * The subid is -1 if not present, and label is NULL if not present.
+X */
+Xstruct subid {
+X    int subid;
+X    char *label;
+X};
+X
+Xint Line = 1;
+X
+X/* types of tokens */
+X#define	CONTINUE    -1
+X#define LABEL	    1
+X#define SUBTREE	    2
+X#define SYNTAX	    3
+X#define OBJID	    4
+X#define OCTETSTR    5
+X#define INTEGER	    6
+X#define NETADDR	    7
+X#define	IPADDR	    8
+X#define COUNTER	    9
+X#define GAUGE	    10
+X#define TIMETICKS   11
+X#define OPAQUE	    12
+X#define NUL	    13
+X#define SEQUENCE    14
+X#define OF	    15	/* SEQUENCE OF */
+X#define OBJTYPE	    16
+X#define ACCESS	    17
+X#define READONLY    18
+X#define READWRITE   19
+X#define	WRITEONLY   20
+X#define NOACCESS    21
+X#define STATUS	    22
+X#define MANDATORY   23
+X#define OPTIONAL    24
+X#define OBSOLETE    25
+X#define RECOMMENDED 26
+X#define PUNCT	    27
+X#define EQUALS	    28
+X
+Xstruct tok {
+X	char *name;			/* token name */
+X	int len;			/* length not counting nul */
+X	int token;			/* value */
+X	int hash;			/* hash of name */
+X	struct tok *next;		/* pointer to next in hash table */
+X};
+X
+X
+Xstruct tok tokens[] = {
+X	{ "obsolete", sizeof ("obsolete")-1, OBSOLETE },
+X	{ "Opaque", sizeof ("Opaque")-1, OPAQUE },
+X	{ "recommended", sizeof("recommended")-1, RECOMMENDED }, 
+X	{ "optional", sizeof ("optional")-1, OPTIONAL },
+X	{ "mandatory", sizeof ("mandatory")-1, MANDATORY },
+X	{ "not-accessible", sizeof ("not-accessible")-1, NOACCESS },
+X	{ "write-only", sizeof ("write-only")-1, WRITEONLY },
+X	{ "read-write", sizeof ("read-write")-1, READWRITE },
+X	{ "TimeTicks", sizeof ("TimeTicks")-1, TIMETICKS },
+X	{ "OBJECTIDENTIFIER", sizeof ("OBJECTIDENTIFIER")-1, OBJID },
+X	/*
+X	 * This CONTINUE appends the next word onto OBJECT,
+X	 * hopefully matching OBJECTIDENTIFIER above.
+X	 */
+X	{ "OBJECT", sizeof ("OBJECT")-1, CONTINUE },
+X	{ "NetworkAddress", sizeof ("NetworkAddress")-1, NETADDR },
+X	{ "Gauge", sizeof ("Gauge")-1, GAUGE },
+X	{ "OCTETSTRING", sizeof ("OCTETSTRING")-1, OCTETSTR },
+X	{ "OCTET", sizeof ("OCTET")-1, -1 },
+X	{ "OF", sizeof ("OF")-1, OF },
+X	{ "SEQUENCE", sizeof ("SEQUENCE")-1, SEQUENCE },
+X	{ "NULL", sizeof ("NULL")-1, NUL },
+X	{ "IpAddress", sizeof ("IpAddress")-1, IPADDR },
+X	{ "INTEGER", sizeof ("INTEGER")-1, INTEGER },
+X	{ "Counter", sizeof ("Counter")-1, COUNTER },
+X	{ "read-only", sizeof ("read-only")-1, READONLY },
+X	{ "ACCESS", sizeof ("ACCESS")-1, ACCESS },
+X	{ "STATUS", sizeof ("STATUS")-1, STATUS },
+X	{ "SYNTAX", sizeof ("SYNTAX")-1, SYNTAX },
+X	{ "OBJECT-TYPE", sizeof ("OBJECT-TYPE")-1, OBJTYPE },
+X	{ "{", sizeof ("{")-1, PUNCT },
+X	{ "}", sizeof ("}")-1, PUNCT },
+X	{ "::=", sizeof ("::=")-1, EQUALS },
+X	{ NULL }
+X};
+X
+X#define	HASHSIZE	32
+X#define	BUCKET(x)	(x & 0x01F)
+X
+Xstruct tok	*buckets[HASHSIZE];
+X
+Xstatic
+Xhash_init()
+X{
+X	register struct tok	*tp;
+X	register char	*cp;
+X	register int	h;
+X	register int	b;
+X
+X	for (tp = tokens; tp->name; tp++) {
+X		for (h = 0, cp = tp->name; *cp; cp++)
+X			h += *cp;
+X		tp->hash = h;
+X		b = BUCKET(h);
+X		if (buckets[b])
+X			tp->next = buckets[b];
+X		buckets[b] = tp;
+X	}
+X}
+X
+X
+Xstatic char *
+XMalloc(num)
+X    unsigned num;
+X{
+X    char *cp;
+X    char *malloc();
+X    
+X    /* this is to fix (what seems to be) a problem with the IBM RT C library malloc */
+X    if (num < 16)
+X	num = 16;
+X    cp = malloc(num);
+X    return cp;
+X}
+X
+Xstatic
+Xprint_error(string, token)
+X    char *string;
+X    char *token;
+X{
+X    if (token)
+X	fprintf(stderr, "%s(%s): On or around line %d\n", string, token, Line);
+X    else
+X	fprintf(stderr, "%s: On or around line %d\n", string, Line);
+X}
+X
+X#ifdef TEST
+Xprint_subtree(tree, count)
+X    struct tree *tree;
+X    int count;
+X{
+X    struct tree *tp;
+X    int i;
+X
+X    for(i = 0; i < count; i++)
+X	printf("  ");
+X    printf("Children of %s:\n", tree->label);
+X    count++;
+X    for(tp = tree->child_list; tp; tp = tp->next_peer){
+X	for(i = 0; i < count; i++)
+X	    printf("  ");
+X	printf("%s\n", tp->label);
+X    }
+X    for(tp = tree->child_list; tp; tp = tp->next_peer){
+X	print_subtree(tp, count);
+X    }
+X}
+X#endif /* TEST */
+X
+X
+Xstatic struct tree *
+Xbuild_tree(nodes)
+X    struct node *nodes;
+X{
+X    struct node *np;
+X    struct tree *tp;
+X    
+X    /* build root node */
+X    tp = (struct tree *)Malloc(sizeof(struct tree));
+X    tp->parent = NULL;
+X    tp->next_peer = NULL;
+X    tp->child_list = NULL;
+X    tp->enums = NULL;
+X    strcpy(tp->label, "iso");
+X    tp->subid = 1;
+X    tp->type = 0;
+X    /* grow tree from this root node */
+X    do_subtree(tp, &nodes);
+X#ifdef TEST
+X    print_subtree(tp, 0);
+X#endif /* TEST */
+X    /* If any nodes are left, the tree is probably inconsistent */
+X    if (nodes){
+X	fprintf(stderr, "The mib description doesn't seem to be consistent.\n");
+X	fprintf(stderr, "Some nodes couldn't be linked under the \"iso\" tree.\n");
+X	fprintf(stderr, "these nodes are left:\n");
+X	for(np = nodes; np; np = np->next)
+X	    fprintf(stderr, "%s ::= { %s %d } (%d)\n", np->label, np->parent, np->subid,
+X		    np->type);
+X    }
+X    return tp;
+X}
+X
+X
+X/*
+X * Find all the children of root in the list of nodes.  Link them into the
+X * tree and out of the nodes list.
+X */
+Xstatic
+Xdo_subtree(root, nodes)
+X    struct tree *root;
+X    struct node **nodes;
+X{
+X    register struct tree *tp;
+X    struct tree *peer = NULL;
+X    register struct node *np;
+X    struct node *oldnp = NULL, *child_list = NULL, *childp = NULL;
+X    
+X    tp = root;
+X    /*
+X     * Search each of the nodes for one whose parent is root, and
+X     * move each into a separate list.
+X     */
+X    for(np = *nodes; np; np = np->next){
+X	if ((tp->label[0] == np->parent[0]) && !strcmp(tp->label, np->parent)){
+X	    if (child_list == NULL){
+X		child_list = childp = np;   /* first entry in child list */
+X	    } else {
+X		childp->next = np;
+X		childp = np;
+X	    }
+X	    /* take this node out of the node list */
+X	    if (oldnp == NULL){
+X		*nodes = np->next;  /* fix root of node list */
+X	    } else {
+X		oldnp->next = np->next;	/* link around this node */
+X	    }
+X	} else {
+X	    oldnp = np;
+X	}
+X    }
+X    if (childp)
+X	childp->next = 0;	/* re-terminate list */
+X    /*
+X     * Take each element in the child list and place it into the tree.
+X     */
+X    for(np = child_list; np; np = np->next){
+X	tp = (struct tree *)Malloc(sizeof(struct tree));
+X	tp->parent = root;
+X	tp->next_peer = NULL;
+X	tp->child_list = NULL;
+X	strcpy(tp->label, np->label);
+X	tp->subid = np->subid;
+X	switch(np->type){
+X	    case OBJID:
+X		tp->type = TYPE_OBJID;
+X		break;
+X	    case OCTETSTR:
+X		tp->type = TYPE_OCTETSTR;
+X		break;
+X	    case INTEGER:
+X		tp->type = TYPE_INTEGER;
+X		break;
+X	    case NETADDR:
+X		tp->type = TYPE_IPADDR;
+X		break;
+X	    case IPADDR:
+X		tp->type = TYPE_IPADDR;
+X		break;
+X	    case COUNTER:
+X		tp->type = TYPE_COUNTER;
+X		break;
+X	    case GAUGE:
+X		tp->type = TYPE_GAUGE;
+X		break;
+X	    case TIMETICKS:
+X		tp->type = TYPE_TIMETICKS;
+X		break;
+X	    case OPAQUE:
+X		tp->type = TYPE_OPAQUE;
+X		break;
+X	    case NUL:
+X		tp->type = TYPE_NULL;
+X		break;
+X	    default:
+X		tp->type = TYPE_OTHER;
+X		break;
+X	}
+X	tp->enums = np->enums;
+X	np->enums = NULL;	/* so we don't free them later */
+X	if (root->child_list == NULL){
+X	    root->child_list = tp;
+X	} else {
+X	    peer->next_peer = tp;
+X	}
+X	peer = tp;
+X	do_subtree(tp, nodes);	/* recurse on this child */
+X    }
+X    /* free all nodes that were copied into tree */
+X    for(np = child_list; np;){
+X	oldnp = np;
+X	np = np->next;
+X	free_node(oldnp);
+X    }
+X}
+X
+X
+X/*
+X * Takes a list of the form:
+X * { iso org(3) dod(6) 1 }
+X * and creates several nodes, one for each parent-child pair.
+X * Returns NULL on error.
+X */
+Xstatic int
+Xgetoid(fp, oid,  length)
+X    register FILE *fp;
+X    register struct subid *oid;	/* an array of subids */
+X    int length;	    /* the length of the array */
+X{
+X    register int count;
+X    int type;
+X    char token[64], label[32];
+X    register char *cp, *tp;
+X
+X    if ((type = get_token(fp, token)) != PUNCT){
+X	if (type == -1)
+X	    print_error("Unexpected EOF", (char *)NULL);
+X	else
+X	    print_error("Unexpected", token);
+X	return NULL;
+X    }
+X    if (*token != '{'){
+X	print_error("Unexpected", token);
+X	return NULL;
+X    }
+X    for(count = 0; count < length; count++, oid++){
+X	oid->label = 0;
+X	oid->subid = -1;
+X	if ((type = get_token(fp, token)) != LABEL){
+X	    if (type == -1){
+X		print_error("Unexpected EOF", (char *)NULL);
+X		return NULL;
+X	    }
+X	    else if (type == PUNCT && *token == '}'){
+X		return count;
+X	    } else {
+X		print_error("Unexpected", token);
+X		return NULL;
+X	    }
+X	}
+X	tp = token;
+X	if (!isdigit(*tp)){
+X	    /* this entry has a label */
+X	    cp = label;
+X	    while(*tp && *tp != '(')
+X		*cp++ = *tp++;
+X	    *cp = 0;
+X	    cp = (char *)Malloc((unsigned)strlen(label));
+X	    strcpy(cp, label);
+X	    oid->label = cp;
+X	    if (*tp == '('){
+X		/* this entry has a label-integer pair in the form label(integer). */
+X		cp = ++tp;
+X		while(*cp && *cp != ')')
+X		    cp++;
+X		if (*cp == ')')
+X		    *cp = 0;
+X		else {
+X		    print_error("No terminating parenthesis", (char *)NULL);
+X		    return NULL;
+X		}
+X		oid->subid = atoi(tp);
+X	    }
+X	} else {
+X	    /* this entry  has just an integer sub-identifier */
+X	    oid->subid = atoi(tp);
+X	}
+X    }
+X    return count;
+X
+X
+X}
+X
+Xstatic
+Xfree_node(np)
+X    struct node *np;
+X{
+X    struct enum_list *ep, *tep;
+X
+X    ep = np->enums;
+X    while(ep){
+X	tep = ep;
+X	ep = ep->next;
+X	free((char *)tep);
+X    }
+X    free((char *)np);
+X}
+X
+X/*
+X * Parse an entry of the form:
+X * label OBJECT IDENTIFIER ::= { parent 2 }
+X * The "label OBJECT IDENTIFIER" portion has already been parsed.
+X * Returns 0 on error.
+X */
+Xstatic struct node *
+Xparse_objectid(fp, name)
+X    FILE *fp;
+X    char *name;
+X{
+X    int type;
+X    char token[64];
+X    register int count;
+X    register struct subid *op, *nop;
+X    int length;
+X    struct subid oid[16];
+X    struct node *np, *root, *oldnp = NULL;
+X
+X    type = get_token(fp, token);
+X    if (type != EQUALS){
+X	print_error("Bad format", token);
+X	return 0;
+X    }
+X    if (length = getoid(fp, oid, 16)){
+X	np = root = (struct node *)Malloc(sizeof(struct node));
+X	/*
+X	 * For each parent-child subid pair in the subid array,
+X	 * create a node and link it into the node list.
+X	 */
+X	for(count = 0, op = oid, nop=oid+1; count < (length - 2); count++,
+X	    op++, nop++){
+X	    /* every node must have parent's name and child's name or number */
+X	    if (op->label && (nop->label || (nop->subid != -1))){
+X		strcpy(np->parent, op->label);
+X		if (nop->label)
+X		    strcpy(np->label, nop->label);
+X		if (nop->subid != -1)
+X		    np->subid = nop->subid;
+X		np ->type = 0;
+X		np->enums = 0;
+X		/* set up next entry */
+X		np->next = (struct node *)Malloc(sizeof(*np->next));
+X		oldnp = np;
+X		np = np->next;
+X	    }
+X	}
+X	np->next = (struct node *)NULL;
+X	/*
+X	 * The above loop took care of all but the last pair.  This pair is taken
+X	 * care of here.  The name for this node is taken from the label for this
+X	 * entry.
+X	 * np still points to an unused entry.
+X	 */
+X	if (count == (length - 2)){
+X	    if (op->label){
+X		strcpy(np->parent, op->label);
+X		strcpy(np->label, name);
+X		if (nop->subid != -1)
+X		    np->subid = nop->subid;
+X		else
+X		    print_error("Warning: This entry is pretty silly", token);
+X	    } else {
+X		free_node(np);
+X		if (oldnp)
+X		    oldnp->next = NULL;
+X		else
+X		    return NULL;
+X	    }
+X	} else {
+X	    print_error("Missing end of oid", (char *)NULL);
+X	    free_node(np);   /* the last node allocated wasn't used */
+X	    if (oldnp)
+X		oldnp->next = NULL;
+X	    return NULL;
+X	}
+X	/* free the oid array */
+X	for(count = 0, op = oid; count < length; count++, op++){
+X	    if (op->label)
+X		free(oid->label);
+X	    op->label = 0;
+X	}
+X	return root;
+X    } else {
+X	print_error("Bad object identifier", (char *)NULL);
+X	return 0;
+X    }
+X}
+X
+X/*
+X * Parses an asn type.  This structure is ignored by this parser.
+X * Returns NULL on error.
+X */
+Xstatic int
+Xparse_asntype(fp)
+X    FILE *fp;
+X{
+X    int type;
+X    char token[64];
+X
+X    type = get_token(fp, token);
+X    if (type != SEQUENCE){
+X	print_error("Not a sequence", (char *)NULL); /* should we handle this */
+X	return NULL;
+X    }
+X    while((type = get_token(fp, token)) != NULL){
+X	if (type == -1)
+X	    return NULL;
+X	if (type == PUNCT && (token[0] == '}' && token[1] == '\0'))
+X	    return -1;
+X    }
+X    print_error("Premature end of file", (char *)NULL);
+X    return NULL;
+X}
+X
+X/*
+X * Parses an OBJECT TYPE macro.
+X * Returns 0 on error.
+X */
+Xstatic struct node *
+Xparse_objecttype(fp, name)
+X    register FILE *fp;
+X    char *name;
+X{
+X    register int type;
+X    char token[64];
+X    int count, length;
+X    struct subid oid[16];
+X    char syntax[32];
+X    int nexttype;
+X    char nexttoken[64];
+X    register struct node *np;
+X    register struct enum_list *ep;
+X    register char *cp;
+X    register char *tp;
+X
+X    type = get_token(fp, token);
+X    if (type != SYNTAX){
+X	print_error("Bad format for OBJECT TYPE", token);
+X	return 0;
+X    }
+X    np = (struct node *)Malloc(sizeof(struct node));
+X    np->next = 0;
+X    np->enums = 0;
+X    type = get_token(fp, token);
+X    nexttype = get_token(fp, nexttoken);
+X    np->type = type;
+X    switch(type){
+X	case SEQUENCE:
+X	    strcpy(syntax, token);
+X	    if (nexttype == OF){
+X		strcat(syntax, " ");
+X		strcat(syntax, nexttoken);
+X		nexttype = get_token(fp, nexttoken);
+X		strcat(syntax, " ");
+X		strcat(syntax, nexttoken);
+X		nexttype = get_token(fp, nexttoken);
+X	    }
+X	    break;
+X	case INTEGER:
+X	    strcpy(syntax, token);
+X	    if (nexttype == PUNCT &&
+X		(nexttoken[0] == '{' && nexttoken[1] == '\0')) {
+X		/* if there is an enumeration list, parse it */
+X		while((type = get_token(fp, token)) != NULL){
+X		    if (type == -1){
+X			free_node(np);
+X			return 0;
+X		    }
+X		    if (type == PUNCT &&
+X			(token[0] == '}' && token[1] == '\0'))
+X			break;
+X		    if (type == 1){
+X			/* this is an enumerated label */
+X			if (np->enums == 0){
+X			    ep = np->enums = (struct enum_list *)
+X					Malloc(sizeof(struct enum_list));
+X			} else {
+X			    ep->next = (struct enum_list *)
+X					Malloc(sizeof(struct enum_list));
+X			    ep = ep->next;
+X			}
+X			ep->next = 0;
+X			/* a reasonable approximation for the length */
+X			ep->label = (char *)Malloc((unsigned)strlen(token));
+X			cp = ep->label;
+X			tp = token;
+X			while(*tp != '(' && *tp != 0)
+X			    *cp++ = *tp++;
+X			*cp = 0;
+X			if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL){
+X				print_error("Expected \"(\"", (char *)NULL);
+X				free_node(np);
+X				return 0;
+X			    }
+X			    tp = token;
+X			}
+X			if (*tp == '('){
+X			    tp++;
+X			} else {
+X			    print_error("Expected \"(\"", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL){
+X				print_error("Expected integer", token);
+X				free_node(np);
+X				return 0;
+X			    }
+X			    tp = token;
+X			}
+X
+X			cp = tp;
+X			if (!isdigit(*cp)){
+X			    print_error("Expected integer", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			while(isdigit(*tp) && *tp != 0)
+X			    tp++;
+X			if (*tp == ')')
+X			    *tp = '\0';	/* terminate number */
+X			else if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL || *token != ')'){
+X				print_error("Expected \")\"", token);
+X				free_node(np);
+X				return 0;
+X			    }
+X			} else {
+X			    print_error("Expected \")\"", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			ep->value = atoi(cp);
+X		    }
+X		}
+X		if (type == NULL){
+X		    print_error("Premature end of file", (char *)NULL);
+X		    free_node(np);
+X		    return 0;
+X		}
+X		nexttype = get_token(fp, nexttoken);
+X	    } else if (nexttype == LABEL && *nexttoken == '('){
+X		/* ignore the "constrained integer" for now */
+X		nexttype = get_token(fp, nexttoken);
+X	    }
+X	    break;
+X	case OBJID:
+X	case OCTETSTR:
+X	case NETADDR:
+X	case IPADDR:
+X	case COUNTER:
+X	case GAUGE:
+X	case TIMETICKS:
+X	case OPAQUE:
+X	case NUL:
+X	case LABEL:
+X	    strcpy(syntax, token);
+X	    break;
+X	default:
+X	    print_error("Bad syntax", token);
+X	    free_node(np);
+X	    return 0;
+X    }
+X    if (nexttype != ACCESS){
+X	print_error("Should be ACCESS", nexttoken);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != READONLY && type != READWRITE && type != WRITEONLY
+X	&& type != NOACCESS){
+X	print_error("Bad access type", nexttoken);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != STATUS){
+X	print_error("Should be STATUS", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != MANDATORY && type != OPTIONAL && type != OBSOLETE && type != RECOMMENDED){
+X	print_error("Bad status", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != EQUALS){
+X	print_error("Bad format", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    length = getoid(fp, oid, 16);
+X    if (length > 1 && length <= 16){
+X	/* just take the last pair in the oid list */
+X	if (oid[length - 2].label)
+X	    strncpy(np->parent, oid[length - 2].label, 32);
+X	strcpy(np->label, name);
+X	if (oid[length - 1].subid != -1)
+X	    np->subid = oid[length - 1].subid;
+X	else
+X	    print_error("Warning: This entry is pretty silly", (char *)NULL);
+X    } else {
+X	print_error("No end to oid", (char *)NULL);
+X	free_node(np);
+X	np = 0;
+X    }
+X    /* free oid array */
+X    for(count = 0; count < length; count++){
+X	if (oid[count].label)
+X	    free(oid[count].label);
+X	oid[count].label = 0;
+X    }
+X    return np;
+X}
+X
+X
+X/*
+X * Parses a mib file and returns a linked list of nodes found in the file.
+X * Returns NULL on error.
+X */
+Xstatic struct node *
+Xparse(fp)
+X    FILE *fp;
+X{
+X    char token[64];
+X    char name[32];
+X    int	type = 1;
+X    struct node *np, *root = NULL;
+X
+X    hash_init();
+X
+X    while(type != NULL){
+X	type = get_token(fp, token);
+X	if (type != LABEL){
+X	    if (type == NULL){
+X		return root;
+X	    }
+X	    print_error(token, "is a reserved word");
+X	    return NULL;
+X	}
+X	strncpy(name, token, 32);
+X	type = get_token(fp, token);
+X	if (type == OBJTYPE){
+X	    if (root == NULL){
+X		/* first link in chain */
+X		np = root = parse_objecttype(fp, name);
+X		if (np == NULL){
+X		    print_error("Bad parse of object type", (char *)NULL);
+X		    return NULL;
+X		}
+X	    } else {
+X		np->next = parse_objecttype(fp, name);
+X		if (np->next == NULL){
+X		    print_error("Bad parse of objecttype", (char *)NULL);
+X		    return NULL;
+X		}
+X	    }
+X	    /* now find end of chain */
+X	    while(np->next)
+X		np = np->next;
+X	} else if (type == OBJID){
+X	    if (root == NULL){
+X		/* first link in chain */
+X		np = root = parse_objectid(fp, name);
+X		if (np == NULL){
+X		    print_error("Bad parse of object id", (char *)NULL);
+X		    return NULL;
+X		}
+X	    } else {
+X		np->next = parse_objectid(fp, name);
+X		if (np->next == NULL){
+X		    print_error("Bad parse of object type", (char *)NULL);
+X		    return NULL;
+X		}
+X	    }
+X	    /* now find end of chain */
+X	    while(np->next)
+X		np = np->next;
+X	} else if (type == EQUALS){
+X	    type = parse_asntype(fp);
+X	} else if (type == NULL){
+X	    break;
+X	} else {
+X	    print_error("Bad operator", (char *)NULL);
+X	    return NULL;
+X	}
+X    }
+X#ifdef TEST
+X{
+X    struct enum_list *ep;
+X    
+X    for(np = root; np; np = np->next){
+X	printf("%s ::= { %s %d } (%d)\n", np->label, np->parent, np->subid,
+X		np->type);
+X	if (np->enums){
+X	    printf("Enums: \n");
+X	    for(ep = np->enums; ep; ep = ep->next){
+X		printf("%s(%d)\n", ep->label, ep->value);
+X	    }
+X	}
+X    }
+X}
+X#endif /* TEST */
+X    return root;
+X}
+X
+X/*
+X * Parses a token from the file.  The type of the token parsed is returned,
+X * and the text is placed in the string pointed to by token.
+X */
+Xstatic int
+Xget_token(fp, token)
+X    register FILE *fp;
+X    register char *token;
+X{
+X    static char last = ' ';
+X    register int ch;
+X    register char *cp = token;
+X    register int hash = 0;
+X    register struct tok *tp;
+X
+X    *cp = 0;
+X    ch = last;
+X    /* skip all white space */
+X    while(isspace(ch) && ch != -1){
+X	ch = getc(fp);
+X	if (ch == '\n')
+X	    Line++;
+X    }
+X    if (ch == -1)
+X	return NULL;
+X
+X    /*
+X     * Accumulate characters until white space is found.  Then attempt to match this
+X     * token as a reserved word.  If a match is found, return the type.  Else it is
+X     * a label.
+X     */
+X    do {
+X	if (!isspace(ch)){
+X	    hash += ch;
+X	    *cp++ = ch;
+X	    if (ch == '\n')
+X		Line++;
+X	} else {
+X	    last = ch;
+X	    *cp = '\0';
+X
+X	    for (tp = buckets[BUCKET(hash)]; tp; tp = tp->next) {
+X		if ((tp->hash == hash) && (strcmp(tp->name, token) == 0))
+X			break;
+X	    }
+X	    if (tp){
+X		if (tp->token == CONTINUE)
+X		    continue;
+X		return (tp->token);
+X	    }
+X
+X	    if (token[0] == '-' && token[1] == '-'){
+X		/* strip comment */
+X		while ((ch = getc(fp)) != -1)
+X		    if (ch == '\n'){
+X			Line++;
+X			break;
+X		    }
+X		if (ch == -1)
+X		    return NULL;
+X		last = ch;
+X		return get_token(fp, token);		
+X	    }
+X	    return LABEL;
+X	}
+X    
+X    } while ((ch = getc(fp)) != -1);
+X    return NULL;
+X}
+X
+Xstruct tree *
+Xread_mib(filename)
+X    char *filename;
+X{
+X    FILE *fp;
+X    struct node *nodes;
+X    struct tree *tree;
+X    struct node *parse();
+X
+X    fp = fopen(filename, "r");
+X    if (fp == NULL)
+X	return NULL;
+X    nodes = parse(fp);
+X    if (!nodes){
+X	fprintf(stderr, "Mib table is bad.  Exiting\n");
+X	exit(1);
+X    }
+X    tree = build_tree(nodes);
+X    fclose(fp);
+X    return tree;
+X}
+X
+X
+X#ifdef TEST
+Xmain(argc, argv)
+X    int argc;
+X    char *argv[];
+X{
+X    FILE *fp;
+X    struct node *nodes;
+X    struct tree *tp;
+X
+X    fp = fopen("mib.txt", "r");
+X    if (fp == NULL){
+X	fprintf(stderr, "open failed\n");
+X	return 1;
+X    }
+X    nodes = parse(fp);
+X    tp = build_tree(nodes);
+X    print_subtree(tp, 0);
+X    fclose(fp);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 22322 -ne `wc -c <'netramet/src/snmplib/parse.c'`; then
+    echo shar: \"'netramet/src/snmplib/parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/snmplib/parse.c'
+fi
+echo shar: End of archive 17 \(of 25\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

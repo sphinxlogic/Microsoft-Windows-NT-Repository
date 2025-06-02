@@ -1,0 +1,2142 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i048:  ecu - ECU Asynchronous Communications v3.20, Part13/40
+Message-ID: <1992Sep13.153452.5353@sparky.imd.sterling.com>
+X-Md4-Signature: 61397c70bb6cc28ee0912cfb15916d90
+Date: Sun, 13 Sep 1992 15:34:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 48
+Archive-name: ecu/part13
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.13 (part 13 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecutcap.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 13; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecutcap.c'
+else
+echo 'x - continuing file ecutcap.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecutcap.c' &&
+Xvoid
+Xtcap_bold_off()
+X{
+X	if(*tc_bold_off)
+X		tputs(tc_bold_off,1,tcap_putc);
+X	else if(*tc_standend) /* && (tc_standout_width == 0)) */
+X		tputs(tc_standend,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_bold_off */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_underscore_on()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_underscore_on()
+X{
+X	if(*tc_underscore_on)
+X		tputs(tc_underscore_on,1,tcap_putc);
+X	else if(*tc_standout) /*  && (tc_standout_width == 0)) */
+X		tputs(tc_standout,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_underscore_on */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_underscore_off()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_underscore_off()
+X{
+X	if(*tc_underscore_off)
+X		tputs(tc_underscore_off,1,tcap_putc);
+X	else if(*tc_standend) /* && (tc_standout_width == 0)) */
+X		tputs(tc_standend,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_underscore_off */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_blink_on()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_blink_on()
+X{
+X	if(*tc_blink_on)
+X		tputs(tc_blink_on,1,tcap_putc);
+X	else if(*tc_standout) /*  && (tc_standout_width == 0)) */
+X		tputs(tc_standout,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_blink_on */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_blink_off()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_blink_off()
+X{
+X	if(*tc_blink_off)
+X		tputs(tc_blink_off,1,tcap_putc);
+X	else if(*tc_standend) /* && (tc_standout_width == 0)) */
+X		tputs(tc_standend,1,tcap_putc);
+X	rcvrdisp_actual2();
+X}	/* end of tcap_blink_off */
+X
+X/*+-------------------------------------------------------------------------
+X	tcap_clear_area_char(count,clrch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtcap_clear_area_char(count,clrch)
+Xregister count;
+Xregister clrch;
+X{
+X	register itmp = count;
+X
+X	while(itmp--)
+X		tcap_putc(clrch);
+X	itmp = count;
+X	while(itmp--)
+X		tputs(tc_curleft);
+X	rcvrdisp_actual2();
+X
+X}	/* end of tcap_clear_area_char */
+X
+X/* end of ecutcap.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecutcap.c is complete' &&
+chmod 0644 ecutcap.c ||
+echo 'restore of ecutcap.c failed'
+Wc_c="`wc -c < 'ecutcap.c'`"
+test 14572 -eq "$Wc_c" ||
+	echo 'ecutcap.c: original size 14572, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecutime.c ==============
+if test -f 'ecutime.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecutime.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecutime.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecutime.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecutime.c -- ecu time-related functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	epoch_secs_to_str(epoch_secs,type,buf)
+X	get_day(zflag)
+X	get_elapsed_time(elapsed_seconds)
+X	get_month(zflag)
+X	get_tod(type,buf)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu_types.h"
+X#include <time.h>
+X#include <sys/timeb.h>
+X
+Xstruct tm *gmtime();
+Xstruct tm *localtime();
+X
+X/*+-------------------------------------------------------------------------
+X	get_month(zflag) - month 1-12 - zflag true for UTC (Z)), else local time
+X--------------------------------------------------------------------------*/
+Xint
+Xget_month(zflag)
+Xint zflag;
+X{
+X	long epoch_secs = time((long *)0);
+X	struct tm *tod = (zflag) ? gmtime(&epoch_secs) : localtime(&epoch_secs);
+X	return(tod->tm_mon + 1);
+X
+X}	/* end of get_month */
+X
+X/*+-------------------------------------------------------------------------
+X	get_day(zflag) - day 0-6 - zflag true for UTC (Z)), else local time
+X--------------------------------------------------------------------------*/
+Xint
+Xget_day(zflag)
+Xint zflag;
+X{
+X	long epoch_secs = time((long *)0);
+X	struct tm *tod = (zflag) ? gmtime(&epoch_secs) : localtime(&epoch_secs);
+X	return(tod->tm_wday);
+X
+X}	/* end of get_day */
+X
+X/*+-----------------------------------------------------------------------
+X	char *epoch_secs_to_str(epoch_secs,type,buf)
+X
+X  time of day types:
+X	0		hh:mm
+X	1		hh:mm:ss
+X	2		mm-dd-yyyy hh:mm
+X	3		mm-dd-yyyy hh:mm:ss
+X	4		mm-dd-yyyy hh:mm:ss (UTC hh:mm)
+X	5		mm-dd-yyyy
+X	6		hh:mmZ
+X	7		hh:mm:ssZ
+X	8		mm-dd-yyyy (UTC date)
+X
+X	returns 'buf' address
+X
+X------------------------------------------------------------------------*/
+Xchar *
+Xepoch_secs_to_str(epoch_secs,type,buf)
+Xlong epoch_secs;
+Xint type;
+Xchar *buf;
+X{
+X	struct tm *tod;
+X
+X	if(type < 6)
+X		tod = localtime(&epoch_secs);
+X	else
+X		tod = gmtime(&epoch_secs);
+X
+X	switch(type)
+X	{
+X		default:
+X		case 6:
+X		case 0:
+X			sprintf(buf,"%02d:%02d",tod->tm_hour,tod->tm_min);
+X			if(type == 6)
+X				strcat(buf,"Z");
+X			break;
+X
+X		case 7:
+X		case 1:
+X			sprintf(buf,"%02d:%02d:%02d",tod->tm_hour,tod->tm_min,tod->tm_sec);
+X			if(type == 7)
+X				strcat(buf,"Z");
+X			break;
+X
+X		case 2:
+X			sprintf(buf,"%02d-%02d-%04d %02d:%02d",
+X				tod->tm_mon + 1,tod->tm_mday,tod->tm_year + 1900,
+X				tod->tm_hour,tod->tm_min);
+X			break;
+X
+X		case 3:
+X			sprintf(buf,"%02d-%02d-%04d %02d:%02d:%02d",
+X				tod->tm_mon + 1,tod->tm_mday,tod->tm_year + 1900,
+X				tod->tm_hour,tod->tm_min,tod->tm_sec);
+X			break;
+X
+X		case 4:
+X			sprintf(buf,"%02d-%02d-%04d %02d:%02d:%02d",
+X				tod->tm_mon + 1,tod->tm_mday,tod->tm_year + 1900,
+X				tod->tm_hour,tod->tm_min,tod->tm_sec);
+X			tod = gmtime(&epoch_secs);
+X			sprintf(&buf[strlen(buf) ]," (UTC %02d:%02d)",
+X				tod->tm_hour,tod->tm_min);
+X			break;
+X
+X		case 8:
+X		case 5:
+X			sprintf(buf,"%02d-%02d-%04d",
+X				tod->tm_mon + 1,tod->tm_mday,tod->tm_year + 1900);
+X			break;
+X
+X	}
+X
+X	return(buf);
+X}	/* end of epoch_secs_to_str */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_tod(type,buf)
+X
+X  time of day types:
+X	0		hh:mm
+X	1		hh:mm:ss
+X	2		mm-dd-yyyy hh:mm
+X	3		mm-dd-yyyy hh:mm:ss
+X	4		mm-dd-yyyy hh:mm:ss (UTC hh:mm)
+X	5		mm-dd-yyyy
+X	6		hh:mmZ
+X	7		hh:mm:ssZ
+X	8		mm-dd-yyyy (UTC date)
+X
+X	returns 'buf' address
+X
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_tod(type,buf)
+Xint type;
+Xchar *buf;
+X{
+X	return(epoch_secs_to_str(time((long *)0),type,buf));
+X}	/* end of get_tod */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_elapsed_time(elapsed_seconds)
+X	"hh:mm:ss" returned
+X  static string address is returned
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_elapsed_time(elapsed_seconds)
+Xlong elapsed_seconds;
+X{
+X	static char elapsed_time_str[40];
+X	long hh,mm,ss;
+X
+X	hh = elapsed_seconds / 3600;
+X	elapsed_seconds -= hh * 3600;
+X	mm = elapsed_seconds / 60L;
+X	elapsed_seconds -= mm * 60L;
+X	ss = elapsed_seconds;
+X
+X	sprintf(elapsed_time_str,"%02ld:%02ld:%02ld",hh,mm,ss);
+X	return(elapsed_time_str);
+X}	/* end of get_elapsed_time */
+X
+X/* end of ecutime.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecutime.c ||
+echo 'restore of ecutime.c failed'
+Wc_c="`wc -c < 'ecutime.c'`"
+test 4411 -eq "$Wc_c" ||
+	echo 'ecutime.c: original size 4411, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecutty.c ==============
+if test -f 'ecutty.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecutty.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecutty.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecutty.c' &&
+X#ifndef USE_COLOR
+X#   ifdef M_SYSV			/* SCO family */
+X#	   define USE_COLOR
+X#   endif
+X#   ifdef ISC				/* not yet */
+X#   endif
+X#   ifdef sun				/* not yet */
+X#   endif
+X#   ifdef ISCSVR4			/* last I heard from lothar, this worked */
+X#	   define USE_COLOR
+X#   endif
+X#   ifdef ESIXSVR4			/* I heard this does not work */
+X#   endif
+X#endif /* USE_COLOR */
+X
+X/*+-------------------------------------------------------------------------
+X	ecutty.c - local tty (console) functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	B_to_timeout_msec(c_cflag,st_rdev)
+X	_setcolor(clrs)
+X	color_name_to_num(cname)
+X	get_initial_colors()
+X	get_ttymode()
+X	get_ttyname()
+X	kbd_test()
+X	read_colors_file()
+X	restore_initial_colors()
+X	ring_bell()
+X	setcolor(new_colors)
+X	setcolor_internal(ntokens,tokens)
+X	termio_to_kbd_chars()
+X	ttyflush(flush_type)
+X	ttygetc(xkey_ok)
+X	ttygets(str,maxsize,flags,delim,pstrpos)
+X	ttygets(str,maxsize,flags,delim,pstrpos)
+X	ttygets_esd(tesd,flags,append_flag)
+X	ttyinit(param)
+X	ttymode(arg)
+X	ttyrdchk()
+X
+X    In SCO versions, ECU keeps the the state of the normal and
+X    reverse video foreground and background colors in a 32-bit value:
+X
+X     00000000001111111111222222222233
+X     01234567890123456789012345678901
+X     0000|--|0000|--|0000|--|0000|--|
+X          fg      bk      fg      bk
+X           reverse      normal
+X
+X    The color values are per the SCO extended color definitons:
+X
+X    black    0     gray         8
+X    blue     1     lt_blue      9
+X    green    2     lt_green    10
+X    cyan     3     lt_cyan     11
+X    red      4     lt_red      12
+X    magenta  5     lt_magenta  13
+X    brown    6     yellow      14
+X    white    7     hi_white    15
+X
+X    With Lothar's ISC SVR4, the format is
+X
+X     00000000001111111111222222222233
+X     01234567890123456789012345678901
+X     00000000000000000011????0100????
+X       0   0   0   0   3   f   4  o b
+X    where f is the foreground color
+X    and   b is the background color
+X
+X    (I dont have one, so I'm guessing these colors are chosen from
+X    the ISO colors):
+X
+X     BLACK       0
+X     RED         1
+X     GREEN       2
+X     YELLOW      3
+X     BLUE        4
+X     MAGENTA     5
+X     CYAN        6
+X     WHITE       7
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-30-1992-07:42-wht@n4hgf-implement USE_COLOR+turn off ESIX color for now */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-03:43-wht@n4hgf-add -F funckeytype */
+X/*:06-20-1992-21:13-wht@n4hgf-eculibdir was overwritten if no home dir colors */
+X/*:06-16-1992-11:20-wht@n4hgf-ECUFUNCKEY */
+X/*:05-05-1992-17:42-wht@n4hgf-repair underscore always on on sun */
+X/*:04-24-1992-16:55-wht@n4hgf-dont flunk on >43 lines but use only 43 */
+X/*:04-20-1992-20:31-wht@n4hgf-ttymode now no-op until ttyinit called */
+X/*:04-20-1992-19:42-wht@n4hgf-kbdtest code in ttygetc messed up-str too short */
+X/*:04-19-1992-03:21-jhpb@sarto.budd-lake.nj.us-3.18.37 has ESIX SVR4 */
+X/*:04-19-1992-02:00-wht@n4hgf-if TERM=ansi with WINDOWID, assume scoterm */
+X/*:08-31-1991-13:29-wht@n4hgf2-look for colors in ECULIBDIR too */
+X/*:08-30-1991-04:12-wht@n4hgf2-restore colors wrong to do now if not SCO */
+X/*:08-30-1991-02:49-aega84!lh-use at_ansi.h/kd.h/CONS_GET under ISC SVR4 */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-17-1991-18:29-wht@n4hgf-add kbdtest command */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:07-10-1991-16:19-wht@n4hgf-improve multi-char func key read timeout */
+X/*:03-20-1991-03:07-root@n4hgf-pts driver returns -1 on rdchk success! */
+X/*:03-19-1991-21:24-root@n4hgf-METROLINK_X11R4_PTS mods */
+X/*:01-29-1991-14:03-wht@n4hgf-more time for ESC vs fkey discrimination */
+X/*:01-29-1991-13:44-wht@n4hgf-load colors_normal w/ioctl GIO_ATTR if M_UNIX */
+X/*:12-01-1990-14:33-wht@n4hgf-more non-ansi - fkey mapping with nonansi.c */
+X/*:11-28-1990-15:56-wht@n4hgf-add non-ansi terminal support */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "esd.h"
+X#include "ecufkey.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "ecuerror.h"
+X#include "termecu.h"
+X
+X/*
+X * This is how we determine whether we are on a color terminal or not.
+X * We handle SCO XENIX, SCO UNIX, ISC 2.2 and ISC SVR4.
+X * If you have trouble with this add some kind of thing instead of MYSYS
+X * and mail me the full details.  Search for MYSYS throughout here.
+X */
+X#if defined(M_SYSV)
+X#   include <sys/machdep.h>
+X/*
+X * Thanks for the G2, er GIO_ATTR, to staceyc@sco.COM (Stacey Campbell)
+X * GIO_ATTR was not defined in header files as of this writing
+X */
+X#if !defined(GIO_ATTR)
+X#define GIO_ATTR  ('a' << 8) | 0	/* Ioctl call for current attribute */
+X#endif
+X#else
+X#if defined(ISC) || defined(ISCSVR4) || defined(ESIXSVR4) /*&&!defined(MYSYS)*/
+X#  include <sys/at_ansi.h>
+X#  include <sys/kd.h>
+X#endif /* ISC || ISCSVR4 || ESIXSVR4 */
+X#endif /* M_SYSV */
+X
+X#define DEFINE_TTY_DATA
+X#include "ecutty.h"
+X
+Xextern uint tcap_LINES;
+Xextern uint tcap_COLS;
+Xextern int LINES;
+Xextern int COLS;
+Xextern char screen_dump_file_name[];
+Xextern char *dash_f_funckeytype;
+X
+Xchar *kde_text();
+X
+Xuint LINESxCOLS;
+Xint current_ttymode = 0;
+Xint ttymode_termecu_on_sigint = 0;
+X#if defined(METROLINK_X11R4_PTS)
+Xint tty_is_pts;
+X#endif
+Xint tty_is_pty;
+Xint tty_is_multiscreen;
+Xint tty_not_char_special;
+Xint use_colors = 0;		/* set by ttyinit, but default no */
+Xchar *ttype;			/* getenv("TERM") */
+X
+Xstatic int kbd_test_active = 0;
+Xstatic int ttyinit_has_been_called = 0;
+Xstatic int got_original_colors = 0;
+X
+Xstruct termio tty_termio_at_entry;
+Xstruct termio tty_termio_current;
+Xstruct stat tty_stat;
+Xstruct stat dn;
+Xstruct stat tty01;
+Xstruct stat ttyp0;
+X#if defined(METROLINK_X11R4_PTS)
+Xstruct stat pts000;
+X#endif /* METROLINK_X11R4_PTS */
+Xstruct stat console;
+X
+Xuchar kbdeof;			/* current input EOF */
+Xuchar kbdeol2;			/* current secondary input EOL */
+Xuchar kbdeol;			/* current input EOL */
+Xuchar kbderase;			/* current input ERASE */
+Xuchar kbdintr;			/* current input INTR */
+Xuchar kbdkill;			/* current input KILL */
+Xuchar kbdquit;			/* current input QUIT */
+Xint echo_erase_char;	/* save users ECHOE bit */
+Xint echo_kill_char;		/* save users ECHOK bit */
+Xchar kbd_is_7bit;		/* keyboard has parity */
+Xlong tty_escape_timeout = 40L;		/* timeout on waiting for char after ESC */
+X
+Xuchar *dole_out_tgc_accum = (uchar *)0;
+Xint dole_out_tgc_accum_count = 0;
+X
+X/*
+X * color definitions per format described at top of source
+X * we handle SCO XENIX and UNIX and ISC SVR4 but not "MYSYS"
+X * (search for MYSYS near top of source for clue what MYSYS means)
+X *
+X * As of this writing, I don't know about colors on ISC 2.2.
+X * but they might be the same as for SVR4.
+X *
+X */
+X#ifdef M_SYSV /* SCO */
+Xulong colors_current = 0x04070A00L;
+Xulong colors_normal = 0x04070A00L;	/* default lt_green/black red/white */
+Xulong colors_initial = 0x04070A00L;	/* default initial colors */
+Xulong colors_success = 0x07000A00L;	/* lt_green/black red/white */
+Xulong colors_alert = 0x0E000E00L;	/* yellow */
+Xulong colors_error = 0x04000400L;	/* red */
+Xulong colors_notify = 0x08000800L;	/* gray */
+X#define COLORS_DEFINED
+X#endif /* M_SYSV */
+X
+X#if defined(ISCSVR4)
+Xulong colors_current = 0x00003740L;
+Xulong colors_normal = 0x00003740L;	/* */
+Xulong colors_initial = 0x00003740L;	/* */
+Xulong colors_success = 0x00003740L;	/* */
+Xulong colors_alert = 0x00003740L;	/* */
+Xulong colors_error = 0x00003140L;	/* */
+Xulong colors_notify = 0x00003340L;	/* */
+X#define COLORS_DEFINED
+X#endif /* ISCSVR4 */
+X
+X#if defined(ESIXSVR4)
+Xulong colors_current = 0x00003740L;
+Xulong colors_normal = 0x00003740L;	/* not correct - THESE NEED FIXING */
+Xulong colors_initial = 0x00003740L;	/* not correct - THESE NEED FIXING */
+Xulong colors_success = 0x00003740L;	/* not correct - THESE NEED FIXING */
+Xulong colors_alert = 0x00003740LL;	/* not correct - THESE NEED FIXING */
+Xulong colors_error = 0x00003140L;	/* not correct - THESE NEED FIXING */
+Xulong colors_notify = 0x00003340L;	/* not correct - THESE NEED FIXING */
+X#define COLORS_DEFINED
+X
+Xstatic struct color_remapping {
+X  char *name;
+X  char ecu_val;
+X  char svr4_val;
+X} color_remapping[] =  {
+X	{ "black",		0,		0x00 },
+X	{ "blue",		1,		0x04 },
+X	{ "brown",		6,		0x03 },
+X	{ "cyan",		3,		0x06 },
+X	{ "gray",		8,		0x10 },
+X	{ "green",		2,		0x02 },
+X	{ "hi_white",	15,		0x17 },
+X	{ "lt_blue",	9,		0x14 },
+X	{ "lt_cyan",	11,		0x16 },
+X	{ "lt_green",	10,		0x12 },
+X	{ "lt_magenta",	13,		0x15 },
+X	{ "lt_red",		12,		0x11 },
+X	{ "magenta",	5,		0x05 },
+X	{ "red",		4,		0x01 },
+X	{ "white",		7,		0x07 },
+X	{ "yellow",		14,		0x13 },
+X	0, 0, 0,
+X};
+X#endif /* ESIXSVR4 */
+X
+X#if !defined(COLORS_DEFINED)
+Xulong colors_current = 1; /* dummy */
+Xulong colors_normal = 2; /* dummy */
+Xulong colors_initial = 3; /* dummy */
+Xulong colors_success = 4; /* dummy */
+Xulong colors_alert = 5; /* dummy */
+Xulong colors_error = 6; /* dummy */
+Xulong colors_notify = 7; /* dummy */
+X#define COLORS_DEFINED
+X#endif /* !COLORS_DEFINED */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	B_to_timeout_msec(c_cflag,st_rdev) - CBAUD code to ESC timeout msec
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xulong
+XB_to_timeout_msec(c_cflag,st_rdev)
+Xushort c_cflag;
+Xushort st_rdev;
+X{
+X	long ms = 300L;
+X
+X	/* make pts sweat, but don't make as many mistakes */
+X#if defined(METROLINK_X11R4_PTS)
+X	if(tty_is_pts)
+X		return(ms);
+X#endif /* METROLINK_X11R4_PTS */
+X
+X	/* make network/xterm/pty sweat, but don't make as many mistakes */
+X	if(tty_is_pty)
+X		return(ms);
+X
+X	/* if multiscreen, 3 ticks is pu-lenty */
+X	if(tty_is_multiscreen)
+X		return((long)(1000/hz * 3));
+X
+X	/* baud rate fiddling */
+X	switch(c_cflag & CBAUD)
+X	{
+X		/*       char times * time/char */
+X		case B110:	ms = 10 * 100;
+X		case B300:	ms = 10 * 33;
+X		case B600:	ms = 10 * 16;
+X		case B1200:	ms = 10 * 8;
+X		case B2400:	ms = 10 * 4;
+X		default:		/* many character times for packetized ... */
+X			ms = 400L;	/* ... modems used for console */
+X	}
+X	return(ms);
+X
+X}	/* end of B_to_timeout_msec */
+X
+X/*+-------------------------------------------------------------------------
+X	color_name_to_num(cname)
+X--------------------------------------------------------------------------*/
+Xint
+Xcolor_name_to_num(cname)
+Xchar *cname;
+X{
+X	register COLOR *color = colors;
+X	register itmp;
+X
+X	while(color->name)
+X	{
+X		if((itmp = strcmp(color->name,cname)) > 0)
+X			return(-1);
+X		if(!itmp)
+X			return(color->num);
+X		color++;
+X	}
+X	return(-1);
+X
+X}	/* end of color_name_to_num */
+X
+X/*+-------------------------------------------------------------------------
+X	_setcolor(clrs)
+X--------------------------------------------------------------------------*/
+Xvoid
+X_setcolor(clrs)
+Xulong clrs;
+X{
+X#if defined(SVR4)
+X#if defined(ESIXSVR4)
+X	struct color_remapping *cr;
+X	char fgcolor;
+X	char bgcolor;
+X#else
+X	char fg[4], bg[4];
+X#endif
+X#endif
+X
+X	if(!use_colors || tty_not_char_special)
+X		return;
+X
+X#if defined(SVR4)
+X#if defined(ESIXSVR4)
+X	/* set foreground color */
+X	fgcolor = (clrs >> 8) & 0xff;
+X	for (cr=color_remapping; cr->name; ++cr) {
+X	  if (fgcolor == cr->ecu_val) {
+X		fgcolor = cr->svr4_val;
+X		break;
+X	  }
+X	}
+X	if (!cr->name) {
+X	  fgcolor = 0x07; /* white */
+X	}
+X	if (fgcolor & 0x10) {
+X	  fgcolor &= ~0x10;
+X	  ff(se, "\033[1;3%d;m", fgcolor);
+X	} else {
+X	  ff(se, "\033[0;3%d;m", fgcolor);
+X	}
+X
+X	/* set background color */
+X	bgcolor = clrs & 0xff;
+X	for (cr=color_remapping; cr->name; ++cr) {
+X	  if (bgcolor == cr->ecu_val) {
+X		bgcolor = cr->svr4_val;
+X		break;
+X	  }
+X	}
+X	if (!cr->name) {
+X	  bgcolor = 0x00; /* black */
+X	}
+X	if (bgcolor & 0x10) {
+X	  bgcolor &= ~0x10;
+X	  ff(se, "\033[5;3%d;m", bgcolor);
+X	} else {
+X	  ff(se, "\033[0;3%d;m", bgcolor);
+X	}
+X#else	/* ISC SVR4 */
+X	/* normal */
+X	sprintf(fg,"%d", (clrs >> 8) & 0xFF);
+X	sprintf(bg,"%d", clrs & 0xFF);
+X	ff(se,"\033[%sm", fg);
+X	ff(se,"\033[%sm", bg);
+X#endif	/* ESIXSVR4 */
+X#else	/* not any SVR4 */
+X#ifdef M_SYSV /* SCO */
+X	/* normal */
+X	ff(se,"\033[=%ldF\033[=%ldG",(clrs >> 8) & 0xFF,clrs & 0xFF);
+X
+X	/* reverse */
+X	ff(se,"\033[=%ldH\033[=%ldI",(clrs >> 24) & 0xFF,(clrs >> 16) & 0xFF);
+X#endif /* M_SYSV */
+X#endif /* SVR4 */
+X	colors_current = clrs;
+X}	/* end of _setcolor */
+X
+X/*+-------------------------------------------------------------------------
+X	setcolor(new_colors)
+X
+Xrequires termcap init to have been done
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsetcolor(new_colors)
+Xulong new_colors;
+X{
+X	if(tty_not_char_special)
+X		return;
+X
+X	if(!use_colors)
+X	{
+X		if(new_colors == colors_notify)
+X			tcap_underscore_on();
+X		else if(new_colors == colors_alert)
+X			tcap_bold_on();
+X		else if(new_colors == colors_error)
+X			tcap_stand_out();
+X		else
+X		{
+X			tcap_underscore_on();
+X			tcap_bold_on();
+X			tcap_stand_end();
+X		}
+X		return;
+X	}
+X	_setcolor(new_colors);
+X	tcap_stand_end();
+X}	/* end of setcolor */
+X
+X/*+-------------------------------------------------------------------------
+X	setcolor_internal(ntokens,tokens)
+X
+Xreturns 0 on success, else token number in error + 1
+X--------------------------------------------------------------------------*/
+Xint
+Xsetcolor_internal(ntokens,tokens)
+Xint ntokens;
+Xchar **tokens;
+X{
+X	ulong fgnd;
+X	ulong bgnd;
+X
+X	if(tty_not_char_special || !use_colors)
+X		return(0);
+X
+X	if(ntokens == 2)
+X		tokens[2] = "black";
+X
+X	if((fgnd = (ulong)color_name_to_num(tokens[1])) > 15)
+X		return(2);
+X	if((bgnd = (ulong)color_name_to_num(tokens[2])) > 15) 
+X		return(3);
+X
+X	if(!strcmp(tokens[0],"normal"))
+X	{
+X		colors_normal &= 0xFFFF0000L;
+X		colors_normal |= (fgnd << 8) | bgnd;
+X		setcolor(colors_normal);
+X	}
+X	else if(!strcmp(tokens[0],"reverse"))
+X	{
+X		colors_normal &= 0x0000FFFFL;
+X		colors_normal |= (fgnd << 24) | (bgnd << 16);
+X		setcolor(colors_normal);
+X	}
+X	else if(!strcmp(tokens[0],"notify"))
+X		colors_notify = (fgnd << 24) | (bgnd << 16) | (fgnd << 8) | bgnd;
+X	else if(!strcmp(tokens[0],"success"))
+X		colors_success = (fgnd << 24) | (bgnd << 16) | (fgnd << 8) | bgnd;
+X	else if(!strcmp(tokens[0],"alert"))
+X		colors_alert = (fgnd << 24) | (bgnd << 16) | (fgnd << 8) | bgnd;
+X	else if(!strcmp(tokens[0],"error"))
+X		colors_error = (fgnd << 24) | (bgnd << 16) | (fgnd << 8) | bgnd;
+X	else
+X		return(1);
+X
+X	return(0);
+X
+X}	/* end of setcolor_internal */
+X
+X/*+-------------------------------------------------------------------------
+X	restore_initial_colors() - make screen safe
+X
+XOn SCO, restore color choices at execution time if we successfully
+Xgot them from the driver; in other situations, use tcap to reset.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrestore_initial_colors()
+X{
+X#if defined(M_SYSV) || defined(SVR4)
+X	if(use_colors && got_original_colors)
+X		setcolor(colors_initial);
+X	else
+X#endif
+X	{
+X		tcap_blink_off();
+X		tcap_bold_off();
+X		tcap_underscore_off();
+X	}
+X}	/* end of restore_initial_colors */
+X
+X/*+-------------------------------------------------------------------------
+X	get_initial_colors() - read colors at time of execution from driver
+X
+X     00000000001111111111222222222233
+X     01234567890123456789012345678901
+X     0000|--|0000|--|0000|--|0000|--|
+X          fg      bk      fg      bk
+X           reverse      normal
+X
+X--------------------------------------------------------------------------*/
+X#if defined(M_SYSV)
+Xvoid
+Xget_initial_colors()
+X{
+X	uint cur_attr;
+X	ulong fgnd;
+X	ulong bgnd;
+X
+X	colors_initial = colors_normal;	 /* scoterm can use color but ... */
+X	if(ioctl(TTYIN, GIO_ATTR, 0) == -1) /* ... GIO_ATTR won't work */
+X		return;
+X	colors_normal = 0L;
+X
+X/*
+X * first, reverse, so we can end up with normal colors selected
+X */
+X	write(1,"\033[7m",4);		/* select reverse */
+X	cur_attr = (uint)ioctl(TTYIN, GIO_ATTR, 0);
+X	fgnd = (ulong)cur_attr & 0x0F;
+X	bgnd = (ulong) (cur_attr >> 4) & 0x0F;
+X	colors_normal |= (fgnd << 24) | (bgnd << 16);
+X
+X/*
+X * now, normal
+X */
+X	write(1,"\033[m",3);		/* select normal */
+X	cur_attr = (uint)ioctl(TTYIN, GIO_ATTR, 0);
+X	fgnd = (ulong)cur_attr & 0x0F;
+X	bgnd = (ulong) (cur_attr >> 4) & 0x0F;
+X	colors_normal |= (fgnd << 8) | bgnd;
+X
+X	colors_initial = colors_normal;		/* save for restore_initial_colors */
+X	got_original_colors = 1;
+X
+X}	/* end of get_initial_colors */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	read_colors_file() - read color definition if present
+X--------------------------------------------------------------------------*/
+Xvoid
+Xread_colors_file()
+X{
+X	FILE *fp;
+X	char s128[128];
+X#define MAX_COLOR_TOKENS 6
+X	char *tokens[MAX_COLOR_TOKENS];
+X	int ntokens;
+X	char *cptr;
+X	int itmp;
+X
+X	if(tty_not_char_special)
+X		return;
+X
+X#if defined(M_SYSV)
+X	get_initial_colors();
+X#endif
+X
+X	get_home_dir(s128);
+X	strcat(s128,"/.ecu/colors");
+X	if(access(s128,4))
+X		return;
+X
+X	if(!(fp = fopen(s128,"r")))
+X	{
+X		strcpy(s128,eculibdir);
+X		strcat(s128,"/colors");
+X		if(!(fp = fopen(s128,"r")))
+X			return;
+X	}
+X
+X	while(fgets(s128,sizeof(s128),fp))
+X	{
+X		if(s128[0] == '#')			/* comment? */
+X			continue;
+X		if(itmp = strlen(s128))		/* itmp = len; if > 0 ... */
+X		{
+X			itmp--;
+X			s128[itmp] = 0;			/* ... strip trailing NL */
+X		}
+X		cptr = s128;				/* first call to str_token, -> buff */
+X		while((*cptr == 0x20) || (*cptr == TAB))
+X			cptr++;				/* strip leading spaces */
+X		if(*cptr == 0)				/* if line all blank, skip it */
+X			continue;
+X
+X		build_str_array(s128,tokens,MAX_COLOR_TOKENS,&ntokens);
+X		if(ntokens < 2)
+X			continue;
+X
+X		setcolor_internal(ntokens,tokens);
+X
+X	}			/* while records left to ready */
+X
+X#if defined(M_SYSV)
+X	if(ioctl(TTYIN, GIO_ATTR, 0) == -1)
+X		colors_initial = colors_normal; /* hack for scoterm */
+X#endif
+X
+X	fclose(fp);
+X}	/* end of read_colors_file */
+X
+X/*+-------------------------------------------------------------------------
+X	ring_bell()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xring_bell()
+X{
+X	char b = BEL;
+X
+X	if(tty_not_char_special)
+X		return;
+X	write(TTYOUT,&b,1);
+X
+X}	/* end of ring_bell */
+X
+X/*+-------------------------------------------------------------------------
+X	termio_to_kbd_chars()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtermio_to_kbd_chars()
+X{
+X	kbdintr =  (tty_termio_at_entry.c_cc[VINTR])
+X		? (tty_termio_at_entry.c_cc[VINTR]  & 0x7F) : '\377';
+X	kbdquit =  (tty_termio_at_entry.c_cc[VQUIT])
+X		? (tty_termio_at_entry.c_cc[VQUIT]  & 0x7F) : '\377';
+X	kbderase = (tty_termio_at_entry.c_cc[VERASE])
+X		? (tty_termio_at_entry.c_cc[VERASE] & 0x7F) : '\377';
+X	kbdkill =  (tty_termio_at_entry.c_cc[VKILL])
+X		? (tty_termio_at_entry.c_cc[VKILL]  & 0x7F) : '\377';
+X	kbdeof =   (tty_termio_at_entry.c_cc[VEOF])
+X		? (tty_termio_at_entry.c_cc[VEOF]   & 0x7F) : '\04';
+X	kbdeol2 =  (tty_termio_at_entry.c_cc[VEOL])
+X		? (tty_termio_at_entry.c_cc[VEOL]   & 0x7F) : '\377';
+X	kbdeol =   (tty_termio_at_entry.c_iflag & ICRNL)
+X		? '\r' : '\n';
+X
+X	kbd_is_7bit = ((tty_termio_at_entry.c_cflag & PARENB) != 0);
+X	echo_erase_char = tty_termio_at_entry.c_lflag & ECHOE;
+X	echo_kill_char = tty_termio_at_entry.c_lflag & ECHOK;
+X
+X}	/* end of termio_to_kbd_chars */
+X
+X/*+-------------------------------------------------------------------------
+X	ttyinit(param)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xttyinit(param)
+Xuchar param;
+X{
+X	int fddevtty;
+X	int itmp;
+X	char *ftype;
+X#if defined(CONS_GET) && defined(MONO) && defined(USE_COLOR)
+X	int monitor_type;
+X	int cons_get_err;
+X#endif
+X
+X	ttype = getenv("TERM");	/* must do this first */
+X
+X	/*
+X	 * get control tty control chars in case stdin not tty
+X	 */
+X	if((fddevtty = open("/dev/tty",O_RDONLY,0)) >= 0)
+X	{
+X		ioctl(fddevtty,TCGETA,(char *)&tty_termio_at_entry);
+X		close(fddevtty);
+X		termio_to_kbd_chars();
+X	}
+X
+X	sigint = 0;			/* see xmtr signal handlers */
+X
+X	memset((char *)&tty_stat,0xFF,sizeof(struct stat));
+X	memset((char *)&ttyp0,0xFF,sizeof(struct stat));
+X	memset((char *)&console,0xFF,sizeof(struct stat));
+X	stat("/dev/console",&console);
+X	stat("/dev/null",&dn);
+X	stat("/dev/tty01",&tty01);
+X	stat("/dev/ttyp0",&ttyp0);
+X
+X	/*
+X	 * if stdin not open or is /dev/null or is non-character-device
+X	 */
+X
+X	itmp = fstat(TTYIN,&tty_stat);
+X	if(itmp || ((tty_stat.st_mode & S_IFMT) != S_IFCHR) ||
+X		((dn.st_ino == tty_stat.st_ino) && (dn.st_rdev == tty_stat.st_rdev)))
+X	{
+X		tcap_LINES = LINES = 25;	/* fake necessary termcap/curses vars */
+X		tcap_COLS = COLS = 80;
+X		LINESxCOLS = tcap_LINES * tcap_COLS;
+X		shm->scr_lines = tcap_LINES;
+X		shm->scr_cols = tcap_COLS;
+X		shm->scr_size = LINESxCOLS;
+X
+X		tty_not_char_special = 1;
+X		tty_is_multiscreen = 0;
+X		return;
+X	}
+X
+X	/*
+X	 * if pty
+X	 */
+X	if((tty_stat.st_rdev & 0xFF00) == (ttyp0.st_rdev & 0xFF00))
+X		tty_is_pty = 1;
+X
+X	/*
+X	 * if pts
+X	 */
+X#if defined(METROLINK_X11R4_PTS)
+X	memset((char *)&pts000,0xFF,sizeof(struct stat));
+X	stat("/dev/pts000",&pts000);
+X	if((tty_stat.st_rdev & 0xFF00) == (pts000.st_rdev & 0xFF00))
+X		tty_is_pts = 1;
+X#endif /* METROLINK_X11R4_PTS */
+X
+X	/*
+X	 * use color if we are on a display that supports it and we know how :-|
+X	 */
+X	use_colors = 0;
+X
+X#if defined(CONS_GET) && defined(MONO) && defined(USE_COLOR)
+X	if( ((cons_get_err = ioctl(TTYIN,CONS_GET,&monitor_type)) >= 0) &&
+X		(use_colors = (monitor_type != MONO)))
+X	{
+X		read_colors_file();
+X		setcolor(colors_normal);
+X	}
+X
+X#endif /* CONS_GET && MONO && USE_COLOR */
+X
+X#if defined(M_SYSV) /* for multiscreen and scoterm */
+X
+X	/*
+X	 * remember whether or not we are on a multiscreen
+X	 */
+X	tty_is_multiscreen = !(cons_get_err < 0);
+X
+X	/*
+X	 * a fuzzy heuristic for scoterm:
+X	 * 1. presence of WINDOWID and
+X	 * 2. first four characters of $TERM == "ansi"
+X	 */
+X	if(getenv("WINDOWID") && ttype && !strncmp(ttype,"ansi",4))
+X	{
+X		use_colors = 1;
+X		read_colors_file();
+X		setcolor(colors_normal);
+X	}
+X#endif /* M_SYSV multiscreen and scoterm */
+X
+X	/*
+X	 * save initial tty state
+X	 */
+X	ioctl(TTYIN,TCGETA,(char *)&tty_termio_at_entry);
+X	tty_escape_timeout =
+X		B_to_timeout_msec(tty_termio_at_entry.c_cflag,tty_stat.st_rdev);
+X
+X	termio_to_kbd_chars();
+X
+X	tty_termio_current = tty_termio_at_entry;
+X	current_ttymode = 0;
+X
+X	get_home_dir(screen_dump_file_name);
+X	strcat(screen_dump_file_name,"/.ecu/screen.dump");
+X
+X	ftype = 0;
+X	if(dash_f_funckeytype)
+X		ftype =	dash_f_funckeytype;
+X	else
+X		ftype = getenv("ECUFUNCKEY");
+X	if(ttype || ftype)
+X		funckeymap_read((ftype) ? ftype : ttype);
+X
+X	/* initialize termcap */
+X	tcap_init();			/* read termcap strings */
+X
+X	/* yetch - magic number gretching for lines and columns */
+X	if(tcap_LINES < 20)
+X	{
+X		ff(se,"\7screen height must be >= 20 lines (found %dx%d).\r\n",
+X			tcap_COLS,tcap_LINES);
+X		termecu(TERMECU_GEOMETRY);
+X	}
+X	if(tcap_LINES > SCREEN_LINES_MAX)
+X	{
+X		ff(se,"\7screen height limited to %d lines (found %dx%d).\r\n",
+X			SCREEN_LINES_MAX,tcap_COLS,tcap_LINES);
+X		termecu(TERMECU_GEOMETRY);
+X	}
+X	if(tcap_COLS != SCREEN_COLS_MAX)
+X	{
+X		ff(se,"\7terminal width must be %d columns (found %dx%d).\r\n",
+X			SCREEN_COLS_MAX,tcap_COLS,tcap_LINES);
+X		termecu(TERMECU_GEOMETRY);
+X	}
+X	LINESxCOLS = tcap_LINES * tcap_COLS;
+X	shm->scr_lines = tcap_LINES;
+X	shm->scr_cols = tcap_COLS;
+X	shm->scr_size = LINESxCOLS;
+X	ttyinit_has_been_called = 1;
+X
+X}	/* end of ttyinit */
+X
+X/*+-----------------------------------------------------------------------
+X	ttymode(arg) -- control user console (kbd/screen)
+X
+X  Where arg ==
+X	0 restore attributes saved at start of execution
+X	1 raw mode (send xon/xoff, but do not respond to it, no ISIG/SIGINT)
+X	2 raw mode (same as 1 but allow keyboard interrupts)
+X	3 same as 2 but terminate program on SIGINT
+X    4 terminate ecu on sigint
+X
+X------------------------------------------------------------------------*/
+Xvoid
+Xttymode(arg)
+Xint arg;
+X{
+X
+X	/*
+X	 * ignore if no keyboard involved
+X	 */
+X	if(tty_not_char_special)
+X		return;
+X
+X	/*
+X	 * usage()->termecu()->ttymode() is possible before ttyinit()
+X	 */
+X	if(!ttyinit_has_been_called)
+X		return;
+X
+X	switch(arg)
+X	{
+X	case 0:
+X		ioctl(TTYIN,TCSETAW,(char *)&tty_termio_at_entry);
+X		tty_termio_current = tty_termio_at_entry;
+X		current_ttymode = 0;
+X		break;
+X
+X	case 4:
+X		ttymode_termecu_on_sigint = 1;
+X		/* fall thru */
+X	case 1:
+X	case 2:
+X	case 3:
+X		tty_termio_current = tty_termio_at_entry;
+X
+X		tty_termio_current.c_cflag &= ~(PARENB | PARODD);
+X		tty_termio_current.c_cflag |= CS8;
+X
+X		/* don't want to honor tty xon/xoff, but pass to other end */
+X		tty_termio_current.c_iflag &=
+X			~(INLCR | ICRNL | IGNCR | IUCLC | ISTRIP);
+X		tty_termio_current.c_iflag |= IXON | IXOFF;	/* both ends xon/xoff */
+X
+X		tty_termio_current.c_oflag |= OPOST;
+X		tty_termio_current.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONOCR | ONLRET);
+X
+X		tty_termio_current.c_lflag &= ~(ICANON | ISIG | ECHO);
+X		if(arg > 1)
+X			tty_termio_current.c_lflag |= ISIG;
+X
+X		tty_termio_current.c_cc[VMIN] = 1;
+X		tty_termio_current.c_cc[VTIME] = 0;
+X
+X		ioctl(TTYIN,TCSETAW,(char *)&tty_termio_current);
+X		current_ttymode = arg;
+X		break;
+X
+X	default:
+X		ff(se,"\r\nttymode: invalid argument %d\r\n",arg);
+X		break;
+X	}
+X}	/* end of ttymode */
+X
+X/*+-------------------------------------------------------------------------
+X	int	get_ttymode()
+X--------------------------------------------------------------------------*/
+Xint
+Xget_ttymode()
+X{
+X	return(current_ttymode);
+X}	/* end of get_ttymode */
+X
+X/*+-----------------------------------------------------------------------
+X	ttyflush(flush_type) -- flush tty driver input &/or output buffers
+X
+X0 == input buffer
+X1 == output buffer
+X2 == both buffers
+X------------------------------------------------------------------------*/
+Xvoid
+Xttyflush(flush_type)
+Xint flush_type;
+X{
+X	if(tty_not_char_special)
+X		return;
+X
+X	ioctl(TTYIN,TCXONC,(char *)0); /* stop tty output */
+X
+X#if !defined(M_I286)
+X	ioctl(TTYIN,TCFLSH,(char *)flush_type);
+X#else
+X	/* avoid 286 compiler warning of cast int to far ptr */
+X	switch(flush_type)
+X	{
+X		case 0:
+X			ioctl(TTYIN,TCFLSH,(char *)0); break;
+X		case 1:
+X			ioctl(TTYIN,TCFLSH,(char *)1); break;
+X		case 2:
+X			ioctl(TTYIN,TCFLSH,(char *)2); break;
+X	}
+X#endif
+X
+X	ioctl(TTYIN,TCXONC,(char *)1);	/* restart tty output */
+X
+X	if(flush_type != 1)
+X	{
+X		dole_out_tgc_accum = (uchar *)0;
+X		dole_out_tgc_accum_count = 0;
+X	}
+X
+X}	/* end of ttyflush */
+X
+X/*+-------------------------------------------------------------------------
+X	ttyrdchk() - see if key pressed and not read
+X--------------------------------------------------------------------------*/
+Xint
+Xttyrdchk()
+X{
+X	return(rdchk(TTYIN) || dole_out_tgc_accum_count);
+X}	/* end of ttyrdchk */
+X
+X/*+-------------------------------------------------------------------------
+X	ttygetc(xkey_ok) -- get a key from the keyboard
+Xif UNIX or XENIX, map extended keys to sign-bit-set special value
+Xif xkey_ok is 0, disallow extended keys
+X--------------------------------------------------------------------------*/
+Xuint
+Xttygetc(xkey_ok)
+Xint xkey_ok;
+X{
+X	uchar ctmp;
+X	extern int errno;
+X	register uint itmp = 0;
+X	long timeout_remaining;
+X	static uchar tgc_accum[16];
+X	uchar funckeymap();
+X
+X	if(tty_not_char_special)	/* this really is unexplored territory */
+X	{
+X		ctmp = 255;
+X		read(TTYIN,(char *)&ctmp,1);
+X		return((uint)ctmp);
+X	}
+X
+X	if(dole_out_tgc_accum_count)
+X	{
+X		ctmp = *dole_out_tgc_accum++;
+X		dole_out_tgc_accum_count--;
+X		if(kbd_is_7bit)
+X			ctmp &= 0x7F;
+X		return((uint)ctmp);
+X	}
+X
+XGET_KEY:
+X	errno = 0;
+X	if(read(TTYIN,(char *)&ctmp,1) < 0)
+X	{
+X		if(errno == EINTR)
+X			goto GET_KEY;
+X		perror_errmsg("keyboard");
+X		termecu(TERMECU_TTYIN_READ_ERROR);
+X	}
+X
+X	if(	((ctmp >= 0x01) && (ctmp <= 0x1F) ||
+X		 (ctmp >= 0x81) && (ctmp <= 0x9F)) &&
+X		(ctmp != kbderase) && (ctmp != kbdkill) &&
+X		(ctmp != kbdeol) && (ctmp != kbdeol2) &&
+X		(ctmp != kbdintr) && (ctmp != kbdeof) )
+X	{
+X		tgc_accum[0] = ctmp;
+X		tgc_accum[itmp = 1] = 0;
+X		timeout_remaining = tty_escape_timeout;
+X#if defined(NAP_DEBUG)
+X		ff(se,"timeout_remaining = %ld hzmsec=%ld\r\n",
+X			timeout_remaining,hzmsec);
+X#endif
+X		while(((ctmp = funckeymap(tgc_accum,itmp)) >= XF_no_way) &&
+X			(timeout_remaining > 0))
+X		{
+X			timeout_remaining -= Nap(hzmsec);
+X#if defined(NAP_DEBUG)
+X			ff(se,"timeout_remaining = %ld\r\n",timeout_remaining);
+X#endif
+X			if(!rdchk(TTYIN))
+X				continue;
+X			read(TTYIN,(char *)&ctmp,1);
+X			if(itmp == (sizeof(tgc_accum) - 1))	/* do not allow overflow */
+X			{
+X				ctmp = XF_no_way;
+X				break;
+X			}
+X			timeout_remaining = tty_escape_timeout;
+X			tgc_accum[itmp++] = ctmp;
+X		}
+X		tgc_accum[itmp] = 0;
+X		if((ctmp == XF_not_yet) && (itmp == 1))
+X		{
+X			if(kbd_is_7bit)
+X				tgc_accum[0] &= 0x7F;
+X			return((uint)tgc_accum[0]);
+X		}
+X		else if(ctmp < XF_no_way)	/* if we got a map */
+X		{
+X			if(kbd_test_active)
+X			{
+X				char title[128];
+X				sprintf(title,"--> func key '%s' (%d key codes received)",
+X					kde_text(ctmp),itmp);
+X				hex_dump(tgc_accum,-itmp,title,1);
+X			}
+X			if(!xkey_ok)
+X			{
+X				ring_bell();
+X				goto GET_KEY;
+X			}
+X			switch(ctmp)
+X			{
+X				case IKDE_CU5:
+X					screen_dump(screen_dump_file_name);
+X					goto GET_KEY;
+X				default:
+X					return((uint)ikde_to_xf(ctmp));
+X			}
+X			/*NOTREACHED*/
+X		}
+X		/* not func key -- must be typamatic control key */
+X		if(kbd_test_active)
+X		{
+X			char title[128];
+X			if(itmp > 1)
+X			{
+X				sprintf(title,
+X					"--> no func key recognized (%d key codes received)",itmp);
+X				hex_dump(tgc_accum,-itmp,title,1);
+X			}
+X		}
+X		dole_out_tgc_accum_count = itmp - 1;
+X		dole_out_tgc_accum = tgc_accum + 1;
+X		if(kbd_is_7bit)
+X			tgc_accum[0] &= 0x7F;
+X		return((uint)tgc_accum[0]);
+X	}
+X
+X	/*
+X	 * simple key, not special
+X	 */
+X	if(kbd_is_7bit)
+X		ctmp &= 0x7F;
+X	return((uint)ctmp);
+X}	/* end if ttygetc */
+X
+X/*+-----------------------------------------------------------------------
+X	ttygets(str,maxsize,flags,delim,pstrpos)
+X
+Xflags & TG_CRLF   - echo cr/lf terminator
+Xflags & TG_XDELIM - extended delimiter set
+X                    (Home, End, PgUp, PgDn, CurUp, CurDn)
+Xflags & TG_EDIT   - redisplay/edit current string
+Xflags & TG_IPOS   - if edit, use initial string pos
+X------------------------------------------------------------------------*/
+Xvoid
+Xttygets(str,maxsize,flags,delim,pstrpos)
+Xregister char *str;
+Xint maxsize;
+Xint flags;
+Xuchar *delim;
+Xint *pstrpos;
+X{
+X	register inch;
+X	char ch;
+X	register strcount = 0;
+X	register strpos = 0;
+X	int insert_mode = 0;
+X	char *bs_str = "\010 \010";
+X	extern int rcvrdisp_actual2_xmtr_buffer;
+X
+X	rcvrdisp_actual2_xmtr_buffer = 1; /* let tcap_ rtns buffer */
+X
+X	--maxsize;		/* decrement for safety */
+X
+X	if(flags & TG_EDIT)
+X	{
+X		strpos = strcount = strlen(str);
+X		write(TTYOUT,str,strcount);
+X		if(pstrpos && (*pstrpos > 0) && (*pstrpos <= strcount))
+X			strpos = *pstrpos;
+X		tcap_curleft(strcount - strpos);
+X	}
+X
+X	while(1)
+X	{
+X		rcvrdisp_actual2_xmtr_buffer = 0; /* disallow tcap_ rtns buffer */
+X		rcvrdisp_actual2_xmtr_buffer = 1; /* let tcap_ rtns buffer */
+X		inch = ttygetc(1);
+X		*delim = (uchar)inch;	/* last char will always be the delimiter */
+X		if((inch == kbdintr) || (inch == ESC))
+X		{
+X			tcap_curright(strcount - strpos);
+X			while(strcount)
+X			{
+X				write(TTYOUT,bs_str,strlen(bs_str));
+X				strcount--;
+X			}
+X			str[strcount] = 0;
+X			*delim = ESC;
+X			goto RETURN;
+X		}
+X		else if(inch == kbdkill)
+X		{
+X			tcap_curright(strcount - strpos);
+X			while(strcount)
+X			{
+X				write(TTYOUT,bs_str,strlen(bs_str));
+X				strcount--;
+X			}
+X			strpos = 0;
+X			*str = 0;
+X			continue;
+X		}
+X		else if(inch == kbderase)
+X		{
+X			if(strcount)
+X			{
+X				if(strcount == strpos)
+X				{
+X					write(TTYOUT,bs_str,strlen(bs_str));
+X					strcount--,strpos--;
+X				}
+X				else
+X				{
+X					if(!strpos)
+X						continue;
+X					mem_cpy(str + strpos - 1,str + strpos,strcount - strpos);
+X					write(TTYOUT,"\010",1);
+X					str[--strcount] = 0;
+X					strpos--;
+X					write(TTYOUT,str + strpos,strlen(str + strpos));
+X					write(TTYOUT," ",1);
+X					tcap_curleft(strcount - strpos + 1);
+X				}
+X			}
+X			str[strcount] = 0;
+X			continue;
+X		}
+X		else if(inch == XFins)
+X		{
+X			insert_mode = !insert_mode;
+X			continue;
+X		}
+X		else if(inch == XFcurlf)
+X		{
+X			if(strpos)
+X			{
+X				strpos--;
+X				tcap_curleft(1);
+X			}
+X			continue;
+X		}
+X		else if(inch == XFcurrt)
+X		{
+X			if(strpos < strcount)
+X			{
+X				strpos++;
+X				tcap_curright(1);
+X			}
+X			continue;
+X		}
+X
+X		if(flags & TG_XDELIM)	/* extended delimiter */
+X		{
+X			switch(inch)
+X			{
+X				case XFhome:
+X				case XFend:
+X				case XFpgup:
+X				case XFpgdn:
+X				case XFcurup:
+X				case XFcurdn:
+X#ifdef notdef
+X					tcap_curright(strcount - strpos);
+X					while(strcount)
+X					{
+X						write(TTYOUT,bs_str,strlen(bs_str));
+X						strcount--;
+X					}
+X#endif
+X					str[strcount] = 0;
+X					goto RETURN;
+X			}
+X		}
+X
+X		switch(inch)
+X		{
+X			case CRET:
+X				*delim = NL;
+X			case NL:
+X				str[strcount] = 0;
+X				tcap_curright(strcount - strpos);
+X				if((flags & TG_CRLF))
+X					ff(se,"\r\n");
+X				goto RETURN;
+X
+X			case CTL_L:
+X			case CTL_R:
+X				tcap_curright(strcount - strpos);
+X				ff(se,"%s (insert mode %s)\r\n",make_char_graphic(inch,0),
+X					(insert_mode) ? "ON" : "OFF");
+X				tcap_eeol();
+X				write(TTYOUT,str,strcount);
+X				tcap_curleft(strcount - strpos);
+X				break;
+X
+X			default:
+X				if((inch < SPACE) || (inch >= 0x7F))
+X				{
+X					ring_bell();
+X					break;
+X				}
+X				if(strpos == strcount)
+X				{
+X					if(strcount == maxsize)
+X					{
+X						ring_bell();
+X						continue;
+X					}
+X					str[strcount++] = inch;
+X					strpos++;
+X					ch = (char)inch;
+X					write(TTYOUT,&ch,1);
+X				}
+X				else
+X				{
+X					if(insert_mode)
+X					{
+X						if(strcount == maxsize)
+X						{
+X							ring_bell();
+X							continue;
+X						}
+X						mem_cpy(str+strpos+1,str+strpos,strcount-strpos);
+X						str[strpos] = inch;
+X						strcount++;
+X						str[strcount] = 0;
+X						write(TTYOUT,str + strpos,strcount - strpos);
+X						strpos++;
+X						tcap_curleft(strcount - strpos);
+X					}
+X					else
+X					{
+X						str[strpos++] = inch;
+X						ch = (char)inch;
+X						write(TTYOUT,&ch,1);
+X					}
+X				}
+X				str[strcount] = 0;
+X				continue;
+X		}
+X	}
+X
+XRETURN:
+X	rcvrdisp_actual2_xmtr_buffer = 0; /* disallow tcap_ rtns buffer */
+X	if(pstrpos)
+X		*pstrpos = strpos;
+X
+X}	/* end of ttygets() */
+X
+X/*+-------------------------------------------------------------------------
+X	ttygets_esd(tesd,flags,append_flag)
+X--------------------------------------------------------------------------*/
+Xttygets_esd(tesd,flags,append_flag)
+XESD *tesd;
+Xint flags;
+Xint append_flag;
+X{
+X	char *pb = tesd->pb;
+X	int maxcb = tesd->maxcb;
+X	uchar delim;
+X
+X	if(append_flag)
+X	{
+X		pb += tesd->cb;
+X		maxcb -= tesd->cb;
+X	}
+X	else
+X	{
+X		pb = tesd->pb;
+X		maxcb = tesd->maxcb;
+X		tesd->cb = 0;
+X	}
+X
+X	ttygets(pb,maxcb,flags,&delim,(int *)0);
+X
+X	if(delim == ESC)
+X	{
+X		if(!append_flag)
+X			esdzero(tesd);
+X		return(eProcAttn_ESCAPE);
+X	}
+X
+X	tesd->cb = strlen(tesd->pb);
+X	plogs(pb);
+X	if(flags & 1)
+X		plogc(NL);
+X	return(0);
+X
+X}	/* end of ttygets_esd */
+X
+X/*+-------------------------------------------------------------------------
+X	kbd_test() - test keyboard handler
+X--------------------------------------------------------------------------*/
+Xvoid
+Xkbd_test()
+X{
+X	uint ctmp = 0;
+X
+X	pputs("Press keys to test (ESCape to exit)\n");
+X	kbd_test_active = 1;
+X	while(ctmp != ESC)
+X	{
+X		ctmp = ttygetc(1);
+X		
+X		if((ctmp < 0x80) && dole_out_tgc_accum_count)
+X		{
+X			pprintf("    got %d key sequence %s ",
+X				dole_out_tgc_accum_count + 1,hex_to_ascii_name(ctmp));
+X			while(dole_out_tgc_accum_count)
+X			{
+X				pprintf("%s ",hex_to_ascii_name(*dole_out_tgc_accum++));
+X				dole_out_tgc_accum_count--;
+X			}
+X			pputs("\n");
+X			ctmp = 0;
+X			continue;
+X		}
+X		pputs("    got ");
+X		if(ctmp >= 0x80)
+X			pprintf("fkey '%s'\n",xf_text(ctmp));
+X		else
+X			pprintf("key  '%s'\n",hex_to_ascii_name(ctmp));
+X	}
+X	kbd_test_active = 0;
+X	ttyflush(0);
+X	pputs("keyboard test complete\n\n");
+X	dole_out_tgc_accum = (uchar *)0;
+X	dole_out_tgc_accum_count = 0;
+X	
+X}	/* end of kbd_test */
+X
+X/*+-------------------------------------------------------------------------
+X	char *get_ttyname() - return pointer to static string
+X
+XThis routine is largely a crock and is likely to explode at any rev or twist
+X--------------------------------------------------------------------------*/
+Xchar *
+Xget_ttyname()
+X{
+X#ifndef OLD_WAY
+X	char *ttyname();
+X	return(ttyname(TTYIN));
+X#else
+X	static char ttname[64];
+X	register unsigned int rdev;
+X	register char *cptr;
+X
+X	if(tty_not_char_special)
+X		return("stdin");
+X	else if(!tty_is_multiscreen)
+X		return("non-multiscreen");
+X
+X	rdev = (unsigned)tty_stat.st_rdev;
+X	if(rdev == 0x0301)
+X		strcpy(ttname,"/dev/console");
+X#if defined(M_UNIX)
+X	else if(rdev == 0x0000)
+X		strcpy(ttname,"/dev/syscon");
+X#endif
+X	else
+X	{
+X		strcpy(ttname,"/dev/tty");
+X		cptr = ttname + 8;
+X
+X		if(rdev < 0x000C)
+X		{
+X			*cptr++ = '0' + ((rdev + 1) / 10);
+X			*cptr++ = '0' + ((rdev + 1) % 10);
+X		}
+X		else if(!(rdev & ~0x58F))
+X		{
+X			*cptr++ = (rdev & 0x0008) ? '2' : '1';
+X			*cptr++ = ((rdev & 0x0080) ? 'A' : 'a') + (rdev & 0x0007);
+X		}
+X		else
+X		{
+X			*cptr++ = '?';
+X			*cptr++ = '?';
+X		}
+X		*cptr = 0;
+X	}
+X
+X	return(ttname);
+X#endif
+X}	/* end of get_ttyname */
+X
+X/* end of ecutty.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecutty.c ||
+echo 'restore of ecutty.c failed'
+Wc_c="`wc -c < 'ecutty.c'`"
+test 36216 -eq "$Wc_c" ||
+	echo 'ecutty.c: original size 36216, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecutty.h ==============
+if test -f 'ecutty.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecutty.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecutty.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecutty.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecutty.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:07-14-1991-18:19-wht@n4hgf-new ttygets functions */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecutty_h
+X#define _ecutty_h
+X
+Xtypedef struct color_type
+X{
+X	char *name;
+X	int num;
+X} COLOR;
+X
+X#ifdef DEFINE_TTY_DATA
+XCOLOR colors[] =
+X{
+X	{ "black",		0 },
+X	{ "blue",		1 },
+X	{ "brown",		6 },
+X	{ "cyan",		3 },
+X	{ "gray",		8 },
+X	{ "green",		2 },
+X	{ "hi_white",	15 },
+X	{ "lt_blue",	9 },
+X	{ "lt_cyan",	11 },
+X	{ "lt_green",	10 },
+X	{ "lt_magenta",	13 },
+X	{ "lt_red",		12 },
+X	{ "magenta",	5 },
+X	{ "red",		4 },
+X	{ "white",		7 },
+X	{ "yellow",		14 },
+X	{(char *)0,-1}
+X};
+X#else
+Xextern COLOR colors[];
+X#endif
+X
+X/* color words are ulong:
+X   MSB:  reverse video foreground
+X         reverse video background
+X         normal  video foreground
+X   LSB:  normal  video background
+X*/
+X
+X/*
+X * ttygets flag bits
+X */
+X#define TG_CRLF		1	/* echo cr/lf terminator */
+X#define TG_XDELIM	2	/* extended delimiter set */
+X#define TG_EDIT		4	/* redisplay/edit current string */
+X
+X#endif /* _ecutty_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecutty.h */
+SHAR_EOF
+chmod 0644 ecutty.h ||
+echo 'restore of ecutty.h failed'
+Wc_c="`wc -c < 'ecutty.h'`"
+test 1477 -eq "$Wc_c" ||
+	echo 'ecutty.h: original size 1477, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuuclc.c ==============
+if test -f 'ecuuclc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuuclc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuuclc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuuclc.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecuuclc.c - uuper/lower-case string functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	minunique(str1,str2,minquan)
+X	ulcmpb(str1,str2)
+X	ulindex(str1,str2)
+X	ulrindex(str1,str2)
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+Xchar to_upper();
+Xchar to_lower();
+X/*+----------------------------------------------------------------------------
+X    ulcmpb(str1,str) -- Upper/Lower [case insensitive] Compare Bytes
+X
+X Returns -1 if strings are equal, else failing character position
+X If the second strings terminates with a null and both strings have matched
+X character for character until that point, then -1 is returned.
+X NOTE:  this is not a test for complete equality of two strings, but allows
+X discovery of a string as a substring in a larger containing string.
+X-----------------------------------------------------------------------------*/
+Xint
+Xulcmpb(str1,str2)
+Xregister unsigned char *str1;
+Xregister unsigned char *str2;
+X{
+Xregister istr;
+X
+X    for( istr=0 ; ;  ++istr )
+X    {
+X        if(str2[istr] == '\0')          /* if second string exhausts, match! */
+X            return(-1);
+X        if((str1[istr] == '\0' ) ||
+X			( to_upper(str1[istr]) != to_upper(str2[istr]) ))
+X            return(istr);
+X    }
+X	/*NOTREACHED*/
+X} /* end of ulcmpb */
+X
+X/*+-------------------------------------------------------------------------
+X    ulindex:  Upper/Lower [case insensitive] Index function
+X
+X  Returns position of 'str2' in 'str1' if found
+X  If 'str2' is null, then 0 is returned (null matches anything)
+X  Returns -1 if not found
+X
+X  uses 'ulcmpb'
+X--------------------------------------------------------------------------*/
+Xint
+Xulindex(str1,str2)
+Xregister char *str1;	/* the (target) string to search */
+Xregister char *str2;	/* the (comparand) string to search for */
+X{
+Xregister istr1 = 0;		/* moving index into str1 */
+Xregister char *mstr = str1;	/* moving string pointer */
+X
+X    if(str2[0] == '\0')             /* null string matches anything */
+X        return(0);
+X	if(strlen(str2) > strlen(str1))
+X		return(-1);
+X	while(1)
+X    {
+X        if(*mstr == '\0')           /* if we exhaust target string, flunk */
+X            return(-1);
+X        /* Can we find either case of first comparand char in target? */
+X        if( to_upper(*mstr) == to_upper(str2[0]) )
+X        {
+X            /* we have a first char match... does rest of string match? */
+X            if(ulcmpb(mstr,str2) == -1)         /* if the rest matches, ... */
+X                break;
+X        }
+X        /* we did not match this time... increment istr1, mstr and try again */
+X        ++istr1;
+X        ++mstr;
+X    }
+X	return(istr1);                  /* return match position */
+X}	/* end of ulindex */
+X
+X/*+-------------------------------------------------------------------------
+X    ulrindex:  Upper/Lower [case insensitive] Right Index function
+X
+X  Returns position of 'str2' in 'str1' if found
+X  Returns -1 if not found
+X  If 'str2' is null, then -1 is returned
+X
+X  uses 'ulcmpb'
+X--------------------------------------------------------------------------*/
+Xint
+Xulrindex(str1,str2)
+Xregister char *str1;	/* the (target) string to search */
+Xregister char *str2;	/* the (comparand) string to search for */
+X{
+Xregister char *mstr;
+Xregister istr1;
+X
+X    if(!str2[0])             /* null string matches anything */
+X        return(-1);
+X	if(strlen(str2) > strlen(str1))
+X		return(-1);
+X
+X	mstr = str1 + strlen(str1) - strlen(str2);	/* moving string pointer */
+X	istr1 = mstr - str1;		/* moving index into str1 */
+X
+X	while(mstr >= str1)
+X    {
+X        /* Can we find either case of first comparand char in target? */
+X        if( to_upper(*mstr) == to_upper(str2[0]) )
+X        {
+X            /* we have a first char match... does rest of string match? */
+X            if(ulcmpb(mstr,str2) == -1)         /* if the rest matches, ... */
+X                return(istr1);                  /* ... return match position */
+X        }
+X        /* we did not match this time... increment istr1, mstr and try again */
+X        --istr1;
+X        --mstr;
+X    }
+X	return(-1);
+X}	/* end of ulrindex */
+X
+X/*+----------------------------------------------------------------
+X    minunique(str1,str2,minquan)
+X
+X  Returns 1 if at least 'minquan' chars of str2 match
+X  str1 and there are no chars after the minimum unique
+X  chars which do not match str1.  Returns 0 on failure.
+X-----------------------------------------------------------------*/
+Xint
+Xminunique(str1,str2,minquan)
+Xregister char *str1;
+Xregister char *str2;
+Xregister minquan;
+X{
+Xregister index;
+X
+X    if(strlen(str2) < minquan)
+X        return(0);
+X
+X    index = ulcmpb(str1,str2);
+X    if(index < 0)
+X        return(1);
+X
+X    if(index < minquan)
+X        return(0);
+X	if(index < strlen(str2))
+X		return(0);
+X    
+X    return(1);
+X    
+X}   /* end of minunique */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuuclc.c ||
+echo 'restore of ecuuclc.c failed'
+Wc_c="`wc -c < 'ecuuclc.c'`"
+test 5082 -eq "$Wc_c" ||
+	echo 'ecuuclc.c: original size 5082, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuungetty.h ==============
+if test -f 'ecuungetty.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuungetty.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuungetty.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuungetty.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecuungetty.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-27-1992-18:49-wht@n4hgf-ecuungetty grows up to chown ttys */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecuungetty_h
+X#define _ecuungetty_h
+X
+X/* ungetty definitions */
+X#define	UG_NOTENAB		0	/* on no-switch exec, line not enabled */
+X#define	UG_RESTART		1	/* on -t exec, restart needed */
+X#define	UG_FAIL			2	/* on no switch exec, line in use */
+X
+X/* extended ecuungetty codes */
+X#define UGE_T_LOGIN		200 /* -t found utmp status US_LOGIN */
+X#define UGE_T_LOGGEDIN	201 /* -t found utmp status US_LOGGGEDIN */
+X#define UGE_T_NOTFOUND	202 /* not found */
+X#define UGE_BADARGC		230	/* usage: bad arg count */
+X#define UGE_BADSWITCH	231	/* usage: bad switch */
+X#define UGE_BADARGV		232	/* usage: bad argument */
+X#define UGE_NOTROOT		233	/* ecuungetty found it had no root privileges */
+X#define UGE_NOUUCP		234 /* cannot find uucp passwd entry */
+X#define UGE_LOGIC		235 /* logic error */
+X#define UGE_CALLER		236	/* caller is not ecu or root */
+X#define UGE_BOMB		254 /* ungetty core dumped or killed */
+X#define UGE_DNE			255 /* ungetty did not execute */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuungetty.h */
+X
+X#endif /* _ecuungetty_h */
+SHAR_EOF
+chmod 0644 ecuungetty.h ||
+echo 'restore of ecuungetty.h failed'
+Wc_c="`wc -c < 'ecuungetty.h'`"
+test 1603 -eq "$Wc_c" ||
+	echo 'ecuungetty.h: original size 1603, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuusage.c ==============
+if test -f 'ecuusage.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuusage.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuusage.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuusage.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecuusage.c - user admonishment
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	general_usage(uptr)
+X	log_cmd_usage()
+X	usage()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-24-1992-21:07-wht@n4hgf-put defaults back into cmd line usage */
+X/*:04-24-1992-06:30-wht@n4hgf-rll usage fixes */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:04-27-1991-01:52-wht@n4hgf-overhaul revision numbers */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include "termecu.h"
+X#define pf printf
+X
+X#if defined(BUILDING_PROTOTYPES) || defined(lint)
+X#define DEFAULT_TTY "/dev/tty1"
+X#define DEFAULT_BAUD_RATE 2400
+X#define DEFAULT_PARITY 'n'
+X#endif
+X
+Xextern char *makedate;			/* temporary make date */
+Xextern char *revstr;			/* ecunumrev.c */
+SHAR_EOF
+true || echo 'restore of ecuusage.c failed'
+fi
+echo 'End of ecu320 part 13'
+echo 'File ecuusage.c is continued in part 14'
+echo 14 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

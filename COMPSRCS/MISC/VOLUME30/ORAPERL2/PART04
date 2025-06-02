@@ -1,0 +1,2260 @@
+Newsgroups: comp.sources.misc
+From: Kevin Stock <kstock@encore.com>
+Subject:  v30i090:  oraperl-v2 - Extensions to Perl to access Oracle database, Part04/05
+Message-ID: <1992Jun29.184321.11893@sparky.imd.sterling.com>
+X-Md4-Signature: c5765854ca24cfe24d4fb475ea813fc3
+Date: Mon, 29 Jun 1992 18:43:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Kevin Stock <kstock@encore.com>
+Posting-number: Volume 30, Issue 90
+Archive-name: oraperl-v2/part04
+Environment: Perl, Oracle with OCI, optionally Curses
+Supersedes: oraperl: Volume 18, Issue 10
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Changes Debugging Hints Makefile Readme Row_cache debug.c
+#   doc/oraperl.ref examples/commit.pl examples/mkdb.pl
+#   examples/oradump.pl examples/sql install.pl orafns.h strtoul.c
+#   testdir/commit.pl testdir/mkdb.pl usersub.c
+# Wrapped by kent@sparky on Mon Jun 29 13:23:38 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 5)."'
+if test -f 'Changes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Changes'\"
+else
+  echo shar: Extracting \"'Changes'\" \(2902 characters\)
+  sed "s/^X//" >'Changes' <<'END_OF_FILE'
+XChanges to the Oraperl package.
+X
+X
+XVersion 2
+X=========
+X
+XPatchlevel 0:
+X=============
+XReplaced my debugging code with Fred Fish' DBUG package
+XAdded fetched row caching ($ora_cache variable, &ora_open third parameter)
+XAdded the &ora_lengths function
+XAdded the &ora_types function
+XAdded the &ora_autocommit function
+XAdded the $ora_verno variable
+XAdded some support for LONG and LONGRAW data types ($ora_long, $ora_trunc)
+XAdded a warning (with -w) on use of $ora_debug if debugging is not available
+XAdded targets "test" and "install" to the Makefile
+XChanged ora_login() to use $ORACLE_SID if the first parameter is empty
+XChanged ora_login() to use Perl's my_setenv function
+XChanged ora_bind() to pad short variables
+XChanged ora_version() to report compile-time options
+XChanged set_sid() to use Perl's my_setenv() function
+XFixed a bug in ora_open() where a cursor was not released if oopen failed
+XFixed a bug in getcursor(), which wasn't initialising all fields
+XFixed a bug in dropcursor(), which wasn't dropping all fields
+XMerged the Oracle-v5 file into the Hints file
+XReorganised the files into subdirectories
+XRewrote the documentation
+X
+X
+XVersion 1:
+X==========
+X
+XPatch 05
+X========
+XAdded functions for commit and rollback, plus commit.pl to demonstrate them
+XAdded a function to get the column titles, modified sql command to use it
+XAdded the bind.pl script
+XImproved error handling for ora_close and ora_logoff
+X
+XPatch 04
+X========
+XAdded "coraperl" - Perl with Oracle and Curses
+XModified mkdb.pl to use the curses functions if they're available
+XAdded sql, a script which executes SQL statements from the command line
+XAdded a note about dual-universe machines to the Hints file
+XAdded a strtoul() function
+XSeparated the clean and realclean/clobber targets
+XCleaned up a few bits and pieces - shouldn't make any difference
+X
+XPatch 03
+X========
+XFixed a bug in allocating the data buffers, notably affecting DATE fields
+XFixed a bug in not freeing the space for ora_bind parameters
+XFixed a bug in creating a "debug" variable when it wasn't needed
+XImproved debugging output, added support for flag 32 (string/numeric conversion)
+XImproved handling of $ora_errstr
+XAdded configuration flags for various things to the Makefile
+XAdded targets listing and docs to the Makefile
+XAdded the &ora_version() function, analogous to Perl's -v flag.
+XAdded the &ora_do() function, equivalent to &ora_close(&ora_open(...))
+XAdded handling of NULL values returned from the database
+XAdded an 'oraperl.ph' file
+X
+XPatch 02
+X========
+XAdded support for dynamically modifiable SQL statements
+XAdded a Hints file
+XCorrected an error in the quick-reference sheet
+X
+XPatch 01
+X========
+XFixed a bug in Makefile - $(LIBS) was not used
+XAdded the file Oracle-v5 - hints for building under Oracle v5
+XChanged copyright notices to allow copying under Larry's Artistic License
+XAdded network addresses to the manual pages
+XAdded a PATCHLEVEL file
+XNo functional changes
+END_OF_FILE
+  if test 2902 -ne `wc -c <'Changes'`; then
+    echo shar: \"'Changes'\" unpacked with wrong size!
+  fi
+  # end of 'Changes'
+fi
+if test -f 'Debugging' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Debugging'\"
+else
+  echo shar: Extracting \"'Debugging'\" \(3154 characters\)
+  sed "s/^X//" >'Debugging' <<'END_OF_FILE'
+X
+XStarting with version 2, Oraperl incorporates Fred Fish' excellent
+Xdebugging package, DBUG. The entire package (including documentation)
+Xis included in the dbug/ subdirectory, so you can install it separately
+Xto use with other programs. DBUG is in the public domain.
+X
+XRead dbug/dbug.p for full details on the package, but briefly you need
+Xto assign debugging control strings to $ora_debug to indicate the level
+Xof debugging required. A list of the debugging controls is on pages 18
+Xand 19 of the documentation. For example, if you want to trace allocation
+Xand freeing of memory in the functions ora_open and ora_close, writing
+Xthe output to a file called trace, numbering the lines, you could say:
+X
+X         $ora_debug = 'd,malloc,free:f,ora_open,ora_close:o,trace:N';
+X                       ^             ^                    ^       ^
+X                       |             |                    |       |
+X    debugging keys ----+             |                    |       |
+X    functions to be traced ----------+                    |       |
+X    where to write output --------------------------------+       |
+X    number output lines ------------------------------------------+
+X
+XThe debugging keywords (for the 'd' parameter) used are the following:
+X
+X     conv    report string/double conversions (only for addresses)
+X     entry   report function entry, with parameters
+X     exit    report function exit, with return values
+X     free    report memory freeing
+X     info    report other information of interest
+X     malloc  report memory allocation, success or failure
+X
+XDebugging is turned off by assigning an empty string to $ora_debug.
+X
+XIt is still possible to assign a numeric value to $ora_debug, for
+Xcompatibility with existing programs and to allow continued use of
+XPerl's -D flag. Values are translated according to the following table:
+X
+X      value    keywords
+X      -----    --------
+X         8     entry exit info
+X        32     conv
+X       128     malloc free
+X
+XThese values may combined, so that $ora_debug = 168 turns on all debugging.
+XIf the resulting value contains no valid flags, debugging is turned off;
+Xthus "$ora_debug = 0" still works. When a numerical value is used, the
+Xcontrols ':t:N' are appended to show the function nesting and number the
+Xoutput lines.
+X
+XIf your uperl.o was built with -DDEBUGGING, you can define PERL_DEBUGGING
+Xat compilation and the oraperl debugging will be initialiased from the -D
+Xflag. If not, you can still define DEBUGGING, but you will have to set
+Xora_debug from within your program.
+X
+XOne idea would be to include a flag in all your programs which would allow
+Xa debugging string to be entered on the command line. The author of the
+XDBUG package recommends -# (and so the routines will remove a leading -#
+Xfrom the control string if there is one). For example, I use this line:
+X
+X	$ora_debug = shift if $ARGV[0] =~ /-#/;
+X
+XIf you want to trace something else, you can add your own DBUG_PRINT
+Xstatements to the code wherever you want. I would recommend that you use
+Xa keyword that isn't specified here (possibly beginning with your initials)
+Xso that you can easily distinguish between my debugging and yours.
+END_OF_FILE
+  if test 3154 -ne `wc -c <'Debugging'`; then
+    echo shar: \"'Debugging'\" unpacked with wrong size!
+  fi
+  # end of 'Debugging'
+fi
+if test -f 'Hints' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Hints'\"
+else
+  echo shar: Extracting \"'Hints'\" \(4579 characters\)
+  sed "s/^X//" >'Hints' <<'END_OF_FILE'
+XThis file contains hints and tips about Oraperl, dealing with problems which
+Xhave arisen in the past.
+X
+XThe topics dealt with are the following:
+X
+X	Memory Usage
+X	Building on a Convex machine
+X	Building on Dual Universe machines
+X	Building with Perl v3
+X	Using Bind Variables
+X	Building with Oracle v5
+X
+X
+XMemory Usage
+X============
+X
+XWith versions of Perl prior to 4.034, there is a memory leak when
+Xrepeated calls to &ora_fetch() are made within a while() loop.
+X
+XThe correct solution is to upgrade to 4.034. However, if that is
+Xnot possible for some reason, there is a workaround.
+X
+XCreate a Perl subroutine which returns a row from a database and
+Xcall this instead. So instead of
+X
+X	while (@data = &ora_fetch($csr))
+X	{
+X	    ...
+X	}
+X
+Xyou should use something like this:
+X
+X	sub getrow
+X	{
+X	    local($csr) = @_;
+X	    local(@data);
+X
+X	    @data = &ora_fetch($csr);
+X	}
+X
+X	...
+X
+X	while (@data = &getrow($csr))
+X	{
+X	    ...
+X	}
+X
+X
+XBuilding on a Convex machine
+X============================
+X
+XComment out the definition of STRTOUL in the Makefile.
+X
+X
+XBuilding on Dual Universe machines
+X==================================
+X
+XThis was reported on a Pyramid machine, but I think it applies to most (if
+Xnot all) dual-universe systems (Sequent, Gould, etc).  Although packages
+Xbuilt in one universe will run correctly in the other, hybrids (packages
+Xbuilt partly in one universe and partly in the other) will not work
+Xproperly in either. On the Pyramid, the symptom was that output was being
+Xlost, although a debugging trace showed that the program was working
+Xproperly.
+X
+XSince Oracle specifies that it is to be installed in the ATT universe, you
+Xmust also compile Perl and Oraperl (and the curses usersubs, if you are
+Xbuilding Coraperl) in the ATT universe to allow them to be linked together.
+X
+X
+XBuilding with Perl v3
+X=====================
+X
+XIdeally, get hold of v4. However, if you have to work with v3, uncomment
+Xthe definition of STR_2MORTAL in the Makefile. Note also the section on
+Xmemory usage above.
+X
+X
+XUsing Bind Variables
+X====================
+X
+XThe support for bind variables does not reflect the full potential of Pro*C.
+X
+XFirstly, bind variables may only be numeric; named bind variables are not
+Xsupported. They must run in sequence from 1. (This is to make it easy for
+X&ora_bind() to check that it has received the correct number of parameters.)
+X
+XSecondly, they may only be used to modify values within the SQL statement,
+Xnot field or table names. Thus
+X
+X	insert into telno values (:1, :2)
+X
+Xis valid, but
+X
+X	select * from telno order by :1
+X
+Xis not. This made the interaction between &ora_open() and &ora_bind() simpler,
+Xbut if it's a serious restriction for you let me know, and I'll look into
+Xextending it. (Of course, there's nothing to stop you doing:
+X
+X	$order_by = "name";
+X	&ora_open($lda, "select * from telno order by $order_by");
+X
+Xso I don't think it should be too big a problem.)
+X
+X
+XBuilding with Oracle v5
+X=======================
+X
+X[ This information was originally in a separate file, Oracle-v5)    ]
+X[ You will have to adapt this slightly as the Makefile has changed. ]
+X
+XThe Makefile includes library definitions which are suitable for Oracle v6
+Xon an Encore Multimax running UMAX V. I do not have access to any other
+Xconfiguration to test Oraperl.
+X
+XOraperl just links to the Oracle Pro*C libraries in the same way as any
+Xother Pro*C program, so give it the same libraries as you would give one
+Xof your own programs. See your Pro*C manual or example programs for details.
+X
+XHowever, two people sent me their modified Makefiles for Oracle v5. Since
+Xthey are different in effect, not only in presentation, I assume that the
+Xdirectory structure of Oracle varies between systems. The two setups I was
+Xsent are reproduced below. Maybe one of them will be suitable for your
+Xsystem if mine isn't.
+X
+XFirst method - this assumes that the libraries live under $ORACLE_HOME/c/libs
+Xand $ORACLE_HOME/rdbms/libs, as well as requiring an additional .o file.
+X
+X> ORALIBS	= -locic -loracle -lupi -losd -losn -loracle \
+X>	$(ORACLE_HOME)/rdbms/libs/osntab.o -lutt -losd -losn -lclib0
+X>
+X> LDFLAGS	= -L$(ORACLE_HOME)/c/libs -L$(ORACLE_HOME)/rdbms/libs
+X>
+X> oraperl: $(SRC)/uperl.o $(OBJS)
+X> 	$(CC) -o oraperl $(LDFLAGS) $(SRC)/uperl.o $(OBJS) $(ORALIBS) $(LIBS)
+X
+XSecond method - much simpler. Only seems to require the first two libraries
+X(libocic and liboracle) of the previous method, but this time they live under
+X$ORACLE_HOME/pro.
+X
+X> OTHERLIBS	=
+X> CLIBS		= $(OTHERLIBS)
+X> OCILIB	= $(ORACLE_HOME)/pro/libocic.a
+X> NETLIBS	=
+X> ORALIBS	= $(ORACLE_HOME)/pro/liboracle.a
+X
+XThanks to Mark Adams and Norman Frech for their help.
+END_OF_FILE
+  if test 4579 -ne `wc -c <'Hints'`; then
+    echo shar: \"'Hints'\" unpacked with wrong size!
+  fi
+  # end of 'Hints'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(4077 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile for Oraperl and Coraperl
+X
+X# Change these to your ORACLE installation directory and Perl source directory
+X#
+XORACLE_HOME	= /usr/soft/oracle
+XSRC		= /usr/soft/public/perl
+X
+X# Oracle Definitions, copied from $(ORACLE_HOME)/c/demo/proc.mk
+X# ALL_ORA_LIBS is the only entry that the Makefile actually uses;
+X# change it to whatever you need to link Pro*C programs
+X#
+XOTHERLIBS	= `cat $(ORACLE_HOME)/rdbms/lib/sysliblist`
+XCLIBS		= $(OTHERLIBS)
+XOCILIB		= $(ORACLE_HOME)/rdbms/lib/libocic.a
+XNETLIBS		= $(ORACLE_HOME)/rdbms/lib/osntab.o \
+X			$(ORACLE_HOME)/rdbms/lib/libsqlnet.a 
+XORALIBS		= $(ORACLE_HOME)/rdbms/lib/libora.a
+X
+XALL_ORA_LIBS	= $(CLIBS) $(OCILIB) $(NETLIBS) $(ORALIBS)
+X
+X# Perl Definitions, taken from $SRC/usub/Makefile
+X# Don't include the curses libraries here - they go in CURSELIB
+X#
+XGLOBINCS	= 
+XLOCINCS		= 
+XLIBS		= `. $(SRC)/config.sh; echo $$libs`
+X
+X# Oraperl Definitions
+X
+X# Set DEBUG to -DDEBUGGING, -DPERL_DEBUGGING or leave blank (see orafns.h)
+X# If it is not blank, uncomment the definition of DBUG_O
+X#
+XDEBUG		= -DPERL_DEBUGGING
+XDBUG_O		= dbug/dbug.o
+X
+X# Curses libraries, only required if you want to build Coraperl
+X# You may also need -ltermlib or -ltermcap
+X#
+XCURSELIB	= -lcurses
+X
+X# Row cache size for SELECT statements.
+X# If you want to change the default, uncomment this and set the value you want
+X#
+X#CACHE		= -DCACHE_SIZE=5
+X
+X# Bind variable padding.
+X# If you want binding an empty string to provoke an error, uncomment this line.
+X#
+X#BIND		= -DNO_BIND_PADDING
+X
+X# Some system-specific things
+X#
+X# If your system library does not include strtoul, uncomment the next line
+XSTRTOUL	= strtoul.o
+X#
+X# If you are using Perl v3 instead of v4, uncomment the next line
+X# STR_2MORTAL	= -Dstr_2mortal=str_2static
+X
+X# Database, username and password to use for testing
+X#
+XTESTDATA	= t scott tiger
+X
+X
+X#
+X#	Leave these blank lines so that patches to what is below
+X#	won't be upset by your changes to the setups above.
+X#
+X
+X
+X# From here on, you shouldn't need to change anything. If you do, let me know.
+X
+XSRCS		= oracle.mus orafns.c getcursor.c colons.c usersub.c \
+X		  debug.c strtoul.c
+XOBJS		= oracle.o orafns.o getcursor.o colons.o debug.o $(STRTOUL)
+XOOBJS		= $(OBJS) usersub.o $(DBUG_O)
+XCOBJS		= $(OBJS) cusersub.o $(DBUG_O)
+XHDRS		= patchlevel.h orafns.h
+XDEFS		= $(STRTOL) $(PUTENV) $(STR_2MORTAL) $(DEBUG) $(CACHE) $(BIND)
+X
+XCFLAGS		= -Idbug -I$(SRC) $(GLOBINCS) $(LOCINCS) $(DEFS)
+X
+Xoraperl: $(SRC)/uperl.o $(OOBJS)
+X	$(CC) -o oraperl $(SRC)/uperl.o $(OOBJS)			\
+X	      -lm $(ALL_ORA_LIBS) $(LIBS)
+X
+Xcoraperl: $(SRC)/uperl.o $(COBJS) $(SRC)/usub/curses.o
+X	$(CC) -o coraperl $(SRC)/uperl.o $(COBJS) $(SRC)/usub/curses.o	\
+X	      -lm $(ALL_ORA_LIBS) $(LIBS) $(CURSELIB)
+X
+Xall:	oraperl coraperl
+X
+Xtest:	oraperl
+X	@oraperl -e '&ora_version'
+X	@(cd testdir ;							      \
+X	  rm -f My-Results ;						      \
+X	  echo "Testing oraperl, please wait ..." ;			      \
+X	  for i in *.pl	; do ../oraperl $$i $(TESTDATA) ; done > My-Results ; \
+X	  if cmp -s Standard-Results My-Results ;			      \
+X	  then echo "Test successful" ;					      \
+X	  else echo "Test failed - compare My-Results with Standard-Results" ;\
+X	  fi; echo)
+X
+X# We use oraperl although perl would suffice, because we know where it is!
+X
+Xinstall:	oraperl install.pl
+X	@./oraperl ./install.pl ${SRC}
+X
+Xcusersub.c:	usersub.c
+X	@rm -f cusersub.c
+X	ln usersub.c cusersub.c
+X
+Xcusersub.o:	cusersub.c
+X	$(CC) -c $(CFLAGS) -DCURSES cusersub.c
+X
+Xoracle.c: $(SRC)/usub/mus oracle.mus
+X	$(SRC)/usub/mus oracle.mus >oracle.c
+X
+X$(OOBJS) $(COBJS):	$(HDRS)
+X
+Xdbug/dbug.o:
+X	(cd dbug ; $(MAKE) dbug.o)
+X	@echo "	(back to main directory)"
+X
+Xclean:
+X	(cd dbug ; $(MAKE) clean)
+X	@echo "	(back to main directory)"
+X	rm -f nohup.out *.o oracle.c cusersub.c
+X	rm -f testdir/My-Results listing tags core
+X
+Xrealclean clobber:	clean
+X	(cd dbug ; $(MAKE) clobber)
+X	(cd doc ; $(MAKE) clobber)
+X	@echo "	(back to main directory)"
+X	rm -f oraperl coraperl
+X
+Xlisting:
+X	pr -fn Makefile $(HDRS) $(SRCS) >listing
+X
+Xdocs:
+X	(cd doc ; $(MAKE) docs)
+X	@echo "	(back to main directory)"
+X
+Xshar:	clean
+X	shar -n oraperl-v2 -a -s kstock@encore.com -F -o :Part -l 64	\
+X		Readme [C-Q]* Row* [S-z]*
+END_OF_FILE
+  if test 4077 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Readme'\"
+else
+  echo shar: Extracting \"'Readme'\" \(5485 characters\)
+  sed "s/^X//" >'Readme' <<'END_OF_FILE'
+XThis is an instant-mix package (just add Perl) to create Oraperl,
+Xa version of Perl which is capable of accessing Oracle databases,
+Xand Coraperl, a version of Oraperl which also includes Curses.
+XTo use it, you must have the Oracle Pro*C product and a version of
+XPerl which supports Usersubs (v3.0.27 or later).
+X
+XUnshar it somewhere convenient, and edit Makefile. You may need
+Xto change the definitions below:
+X
+X	ORACLE_HOME	your Oracle installation directory
+X	SRC		your Perl source directory (with the usub directory)
+X	OTHERLIBS	\ 
+X	CLIBS		 |
+X	OCILIB		 +- copy these from $ORACLE_HOME/c/demo/proc.mk
+X	NETLIBS		 |  (or whatever you use to link OCI programs)
+X	ORALIBS		/
+X	ALL_ORA_LIBS	summary of Oracle libraries.
+X			This is the one that the Makefile actually uses
+X	GLOBINCS	\ 
+X	LOCINCS		 +- copy these from $SRC/usub/Makefile
+X	LIBS		/
+X	CURSELIB	your curses library, if you're building Coraperl
+X	DEBUG		-DDEBUGGING, -DPERL_DEBUGGING or leave blank;
+X			see the file Debugging for an explanation
+X	DBUG_O		the debugging library, if debugging is required
+X	CACHE		default fetch cache size, if you want to change it
+X	BIND		if defined, do not pad empty bind values
+X	STRTOUL		\_ system dependent - see Makefile for details
+X	STR_2MORTAL	/
+X	TESTDATA	database, username and password for testing Oraperl
+X
+XAs well as oraperl, you can also type "make coraperl" to create a version
+Xof Oraperl which incorporates curses. You must first compile curseperl (in
+X$(SRC)/usub), and leave the curses.o file there. You may need Perl v4.0.19
+Xor later for this to work, as that was the first version to support System V
+Xcurses. Typing "make all" will make both oraperl and coraperl.
+X
+XAfter building oraperl, type "make test" to run some rudimentary tests.
+XThese are anything but exhaustive, but if anything goes wrong, you need
+Xto check it. At present, the tests are just hacked from a couple of the
+Xexample scripts; if you have some better tests, please send them to me.
+X
+XAfter testing oraperl (and optionally building coraperl) type "make install"
+Xto install the binaries and the manual pages. They will be put in the same
+Xdirectories as you specified for Perl, so the config.sh script must still
+Xexist in your Perl source directory. The sample script example/sql will
+Xalso be installed, as it is a useful program in its own right.
+X
+XI've only tested this on an Encore Multimax 520 running UMAX V (Sys Vr3.2),
+Xusing whichever version of Perl was current at the time that I completed
+Xeach release (covers the range 3.0.34 to 4.0.35, excluding 4.0.33) with
+XOracle version 6, as I don't have access to any other system with Pro*C.
+XHowever, other people have compiled and used it on a range of different
+Xsystems including Convex, Cray, NeXT, Pyramid, Sun and Ultrix, using Oracle
+Xversions 5 and 6. I'd appreciate any comments, bug-reports, improvements, etc.
+X
+XIn addition to this README, the package contains the following files:
+X
+XSource Code:
+X	Makefile	building instructions
+X	colons.c	counts substitution variables in a statement
+X	debug.c		translates numeric debugging codes to string
+X	getcursor.c	functions to deal with the cursor pool
+X	oracle.mus	function interface description
+X	orafns.c	oracle interface functions
+X	orafns.h	common declarations
+X	patchlevel.h	Oraperl version number and patch level
+X	strtoul.c	for systems which don't have strtoul(3)
+X	usersub.c	initialisation routine
+X
+XFred Fish' Debugging library (in the dbug/ directory):
+X	Makefile	makefile for the debugging library
+X	Readme		readme for the debugging library
+X	dbug.c		library code
+X	dbug.h		debugging header
+X	dbug.p		documentation for the debugging library
+X	dbug.qr		quick reference list
+X	fact.c		sample program (taken from the manual)
+X
+XExamples (in the examples/ directory):
+X	Readme		introduction to the examples
+X	bind.pl		use of ora_bind and ora_fetch for table lookup
+X	ckdebug.pl	tests to see if debugging is available
+X	commit.pl	using commit and rollback
+X	ex.pl		simple example of Oraperl functions
+X	mkdb.pl		more extensive example, using curses if available
+X			you can run this with either Oraperl or Coraperl
+X	oradump.pl	dump an Oracle table into a set of insert statements
+X	sql		execute an SQL statement from the command line
+X			(this one is worth installing)
+X	tabinfo.pl	display the structure of a database table
+X
+XDocumentation (in the doc/ directory):
+X	oraperl.ref	quick reference - glue it into the perl reference guide
+X	oraperl.1	manual page
+X
+XTesting information (in the testdir/ directory)
+X	Readme		 test information
+X	Standard-Results correct results for a test run
+X	commit.pl	 test script
+X	mkdb.pl		 test script
+X
+XMiscellaneous:
+X	Changes		Summary of changes to Oraperl
+X	Debugging	Details of the built-in debugging routines
+X	Hints		notes concerning problems which have arisen in the past
+X	Long		information about LONG and LONGRAW support
+X	Makefile	builds (c)oraperl and documentation, cleans up
+X	Row_cache	describes the speed improvements due to caching
+X	install.pl	Perl script to install Oraperl
+X	oraperl.ph	definitions of Oraperl error and debugging codes
+X
+XMany thanks to Larry for Perl.
+X
+X	Kevin Stock
+X	kstock@encore.com
+X
+X
+X		 IMPORTANT NOTICE - Warranty and Copyright
+X
+XOraperl is not a product of either Encore Computer Corporation or Oracle
+XCorporation or any of their subsidiaries. There is no warranty, and no
+Xofficial support is available.
+X
+XIt is Copyright 1991, 1992 Kevin Stock, but may be freely distributed
+Xunder the same terms as Perl itself, that is, under the terms of either
+Xthe GNU Public License or the Artistic License.
+END_OF_FILE
+  if test 5485 -ne `wc -c <'Readme'`; then
+    echo shar: \"'Readme'\" unpacked with wrong size!
+  fi
+  # end of 'Readme'
+fi
+if test -f 'Row_cache' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Row_cache'\"
+else
+  echo shar: Extracting \"'Row_cache'\" \(2114 characters\)
+  sed "s/^X//" >'Row_cache' <<'END_OF_FILE'
+X
+XOraperl version 2 supports a multi-row cache for SELECT statements.
+XThe user interface is not changed, except that the user may (but is
+Xnot required to) specify the size of the cache in the &ora_open()
+Xcall. It is not possible to go back to an entry which has already been
+Xreturned, even if it is still in the cache.
+X
+XI timed the caching code using the following Oraperl script:
+X
+X	$lda = &ora_login('ipl', 'name', 'pass') || die $ora_errstr;
+X	$query = "select * from ipl where modelnum like 'F%001'";
+X
+X	if ($ora_verno >= 2)
+X	{
+X	    $ora_cache = (shift || 0);
+X	}
+X
+X	$csr = &ora_open($lda, $query) || die ora_errstr;
+X
+X	while (@data = &ora_fetch($csr))
+X	{
+X	    ++$count;
+X	}
+X	warn "($ora_errno) $ora_errstr" if $ora_errno;
+X
+X	print "Selected $count lines\n";
+X
+X	&ora_close($csr);
+X	&ora_logoff($lda);
+X
+X(I do not claim that this is a good test; it was simply a convenient one!)
+X
+XThe select statement matched 360 rows of 22 fields out a database of 43000
+Xrecords. The script was run ten times with Oraperl version 1, and ten times
+Xeach using cache sizes of 1, 2, 3, 4, 5, 10, 20, 100, 200, 300 and 400. Note
+Xthat the size of 400 is greater than the number of rows selected, so they
+Xwere all collected in a single fetch. Totaling the figures for each group,
+XI got the following results:
+X
+X			 percentage speedup
+X	cache		   compared to v1
+X	 size		real	user	sys
+X
+X	   1		  0	 -2	  1
+X	   2		  8	  6	 24
+X	   3		 10	  8	 24
+X	   4		 12	 12	 27
+X	   5		 15	 12	 36
+X	  10		 16	 13	 37
+X	  20		 18	 13	 39
+X	 100		 25	 16	 40
+X	 200		 26	 16	 40
+X	 300		 26	 16	 40
+X	 400		 25	 14	 40
+X
+XObviously, the larger the cache, the more memory is required. Considering
+Xthe relatively small performance improvement obtained by using a large cache
+Xcompared with a small one, the default cache size is set to 5 rows.
+X
+XIf you want a different cache size, you can modify the default at compile
+Xtime, you can set $ora_cache to the default for your program, or you can
+Xspecify the cache size to apply to a particular &ora_open() call by
+Xsupplying the number of rows to cache as the third parameter.
+X
+XFor information on caching, see OFEN in the OCI manual.
+END_OF_FILE
+  if test 2114 -ne `wc -c <'Row_cache'`; then
+    echo shar: \"'Row_cache'\" unpacked with wrong size!
+  fi
+  # end of 'Row_cache'
+fi
+if test -f 'debug.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'debug.c'\"
+else
+  echo shar: Extracting \"'debug.c'\" \(1281 characters\)
+  sed "s/^X//" >'debug.c' <<'END_OF_FILE'
+X/* debug.c
+X * 
+X * Translate numeric debugging codes to strings, for Oraperl.
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X#include "EXTERN.h"
+X#include "perl.h"
+X#include "orafns.h"
+X
+X
+X/* rules for translating numeric debugging states into strings */
+X
+Xstruct	debug_state
+X{
+X	int	 level;
+X	char	*keys;
+X} debug_states[] =
+X{
+X	  8,	",entry,exit,info",
+X	 32,	",conv",
+X	128,	",malloc,free",
+X};
+X
+X#define	N_DEBUG_STATES	(sizeof(debug_states) / sizeof(*debug_states))
+X
+X
+Xchar *
+Xconvert_debug(d)
+Xint d;
+X{
+X	int i;
+X	static char state[128];
+X
+X	DBUG_ENTER("convert_debug");
+X	DBUG_PRINT("entry", ("convert_debug(%d)", d));
+X
+X	*state = 'd';
+X	state[1] = '\0';
+X
+X	for (i = 0 ; i < N_DEBUG_STATES ; i++)
+X	{
+X		if (d & debug_states[i].level)
+X		{
+X			strcat(state, debug_states[i].keys);
+X			DBUG_PRINT("info", ("adding states %s for %d",
+X				debug_states[i].keys, debug_states[i].level));
+X		}
+X	}
+X
+X	if (state[1] == '\0')
+X	{
+X		DBUG_PRINT("exit", ("no debugging states, returning NULL"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		strcat(state, ":t:N");		/* nesting and line numbers */
+X		DBUG_PRINT("exit", ("returning: %s", state));
+X		DBUG_RETURN(state);
+X	}
+X}
+END_OF_FILE
+  if test 1281 -ne `wc -c <'debug.c'`; then
+    echo shar: \"'debug.c'\" unpacked with wrong size!
+  fi
+  # end of 'debug.c'
+fi
+if test -f 'doc/oraperl.ref' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/oraperl.ref'\"
+else
+  echo shar: Extracting \"'doc/oraperl.ref'\" \(3024 characters\)
+  sed "s/^X//" >'doc/oraperl.ref' <<'END_OF_FILE'
+X.\"	Quick reference sheet for Oraperl
+X.\"
+X.nf
+X.\"
+X.vs 8
+X.ps 10
+X\fBOraperl Quick Reference\fP
+X.sp 2
+X\fBPrincipal Functions\fP
+X.ps 8
+X.in +2m
+X
+X.ti -2m
+X\fB$lda = &ora_login($database, $name, $password)\fP
+XLogs into the specified database with the name and password given.
+XDefault for $database is $ENV{'ORACLE_SID'}
+XReturns an \fIlda\fP for use with \fIora_open()\fP.
+X
+X.ti -2m
+X\fB$csr = &ora_open($lda, $statement [, $cache])\fP
+XAssociates the given SQL statement with the database identified by $lda.
+XExecutes it if it contains no substitution variables.
+XCreates a fetched row cache of the given size (default \fI$ora_cache\fP)
+XReturns a \fIcsr\fP for use with \fIora_fetch()\fP.
+X
+X.ti -2m
+X\fB&ora_bind($csr, $var, ...)\fP
+XBinds the given values to the substition variables in the SQL statement
+Xassociated with $csr, and executes the resulting statement.
+X
+X.ti -2m
+X\fB$n = &ora_fetch($csr)\fP    \fI(NB: Scalar context)\fP
+XReturns the number of fields available from the query.
+X
+X.ti -2m
+X\fB@ary = &ora_fetch($csr[, $trunc])\fP    \fI(NB: Array context)\fP
+XRetrieves the (next) output data from the statement identified by $csr.
+X\fBLONG\fP data may be truncated if \fI$trunc\fP is non\-zero.
+X
+X.ti -2m
+X\fB&ora_close($csr)\fP
+XReleases the cursor identified by $csr.
+X
+X.ti -2m
+X\fB&ora_logoff($lda)\fP
+XLogs out of the database identified by $lda.
+X
+X.ti -2m
+X\fB&ora_do($lda, $stmt)\fP
+XEquivalent to \fI&ora_close\fP(\fI&ora_open(...))\fP
+X.in -2m
+X.ps 10
+X.sp 2
+X\fBAncillary Functions\fP
+X.ps 8
+X.in +2m
+X
+X.ti -2m
+X\fB@ary = &ora_titles($csr)\fP
+XReturns the column names associated with the query.
+X
+X.ti -2m
+X\fB@ary = &ora_lengths($csr)\fP
+XReturns the column lengths associated with the query.
+X
+X.ti -2m
+X\fB@ary = &ora_types($csr)\fP
+XReturns the column datatypes associated with the query.
+X
+X.ti -2m
+X\fB&ora_commit($lda)\fP
+XCommits the work performed under the login identified by $lda.
+X
+X.ti -2m
+X\fB&ora_rollback($lda)\fP
+XRolls back the work performed under the login identified by $lda.
+X
+X.ti -2m
+X\fB&ora_autocommit($lda, $on_or_off)\fP
+XSets autocommit on (non\-zero) or off (zero) for the given lda.
+X
+X.ti -2m
+X\fB&ora_version\fP
+XDisplays version and copyright information for Oraperl.
+X.bp
+X.in -2m
+X.ps 10
+X\fBOraperl Quick Reference\fP
+X.sp 2
+X\fBVariables\fP
+X.ps 8
+X.in +2m
+X
+X.ti -2m
+X\fB$ora_cache\fP
+XDefault fetch row cache size.
+X
+X.ti -2m
+X\fB$ora_long\fP
+XAmount of space to allocate to \fBLONG\fP data fields
+X
+X.ti -2m
+X\fB$ora_trunc\fP
+XDefault value for the \fI$trunc\fP parameter to \fI&ora_fetch()\fP
+X
+X.ti -2m
+X\fB$ora_errno\fP  (read only)
+XThe error code from the last function call.
+X
+X.ti -2m
+X\fB$ora_errstr\fP  (read only)
+XThe error message corresponding to $ora_errno.
+X
+X.ti -2m
+X\fB$ora_verno\fP (read only)
+XContains the \fIOraperl\fP version number as \fIv\fB.\fIppp\fR.
+Xwhere \fIv\fP is the major version number and \fIppp\fP is the patch level.
+X
+X.ti -2m
+X\fB$ora_debug\fP  (if debugging is enabled)
+XContains the debugging flags for \fIOraperl\fP, initialised from Perl's -D flag.
+XMay be set by a program to debug only certain parts of the script.
+END_OF_FILE
+  if test 3024 -ne `wc -c <'doc/oraperl.ref'`; then
+    echo shar: \"'doc/oraperl.ref'\" unpacked with wrong size!
+  fi
+  # end of 'doc/oraperl.ref'
+fi
+if test -f 'examples/commit.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'examples/commit.pl'\"
+else
+  echo shar: Extracting \"'examples/commit.pl'\" \(1321 characters\)
+  sed "s/^X//" >'examples/commit.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/oraperl
+X#
+X# commit.pl
+X#
+X# Simple example of using commit and rollback.
+X
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X$lda = &ora_login('t', 'kstock', 'kstock') || die "$ora_errstr\n";
+X&ora_do($lda, 'create table primes (prime number)') || die "$ora_errstr\n";
+X
+X$csr = &ora_open($lda, 'insert into primes values(:1)') || die "$ora_errstr\n";
+Xprint 'creating table';
+Xwhile (<DATA>)
+X{
+X	chop;
+X	print " $_";
+X	&ora_bind($csr, $_) || die "$_: $ora_errstr\n";
+X	(print ' committing ', &ora_commit($lda)) if $_ == 11;
+X}
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+Xprint "\n\nReading table for the first time\n\n";
+X$csr = &ora_open($lda, 'select prime from primes') || die "$ora_errstr\n";
+Xwhile (($prime) = &ora_fetch($csr))
+X{
+X	print "$prime ";
+X}
+Xdie "$ora_errstr\n" if $ora_errno;
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+Xprint "\n\nRolling back ", &ora_rollback($lda), "\n\n";
+X
+Xprint "Attempting to read data for the second time.\n";
+Xprint "Only values up to 11 should appear.\n\n";
+X$csr = &ora_open($lda, 'select prime from primes') || die "$ora_errstr\n";
+Xwhile (($prime) = &ora_fetch($csr))
+X{
+X	print "$prime ";
+X}
+Xdie "$ora_errstr\n" if $ora_errno;
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+X&ora_do($lda, 'drop table primes') || die "$ora_errstr\n";
+X&ora_logoff($lda);
+Xprint "\n"
+X__END__
+X2
+X3
+X5
+X7
+X11
+X13
+X17
+X19
+X23
+X29
+END_OF_FILE
+  if test 1321 -ne `wc -c <'examples/commit.pl'`; then
+    echo shar: \"'examples/commit.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'examples/commit.pl'
+  # end of 'examples/commit.pl'
+fi
+if test -f 'examples/mkdb.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'examples/mkdb.pl'\"
+else
+  echo shar: Extracting \"'examples/mkdb.pl'\" \(3148 characters\)
+  sed "s/^X//" >'examples/mkdb.pl' <<'END_OF_FILE'
+X# mkdb.pl
+X#
+X# Sample (c)oraperl program to create a new database and load data into it.
+X#
+X# Author:	Kevin Stock
+X# Date:		5th August 1991
+X#
+X# Modified to use curses functions if present.
+X#
+X# Date:		15th November 1991
+X#
+X
+X# First make sure that we are running under some form of perl.
+X
+Xeval "echo 'You must specify oraperl or coraperl.' ; exit"
+X	if 0;
+X
+X# make sure that we really are running (c)oraperl
+Xdie ("You should use oraperl, not perl\n") unless defined &ora_login;
+X
+X# Set up debugging (hope the user has redirected this if we're
+X# going into curses!)
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X# get error codes
+Xrequire('oraperl.ph');
+X
+X# Arrange to use curses functions if they're available.
+X# (This is just showing off)
+X
+Xif (defined(&initscr) && &initscr())
+X{
+X    eval <<'____END_OF_CURSES_STUFF';
+X
+X	$curses = 1;
+X
+X	# functions used by the list function
+X
+X	sub before
+X	{
+X		&erase();
+X		&standout();
+X		&addstr("Num  Name           Ext\n\n");
+X		&standend();
+X		$lineno = 1;
+X	}
+X
+X	sub during
+X	{
+X		&addstr(sprintf("%2d   %-15s%3d\n", $lineno++, $name, $ext));
+X	}
+X
+X	sub after
+X	{
+X		&standout();
+X		&move($LINES - 1, 0);
+X		&addstr("Press RETURN to continue.");
+X		&standend();
+X		&refresh();
+X		&getstr($dummy);
+X		&move($LINES - 1, 0);
+X		&addstr("                         ");
+X		&move($LINES - 1, 0);
+X		&refresh();
+X	}
+X
+X____END_OF_CURSES_STUFF
+X}
+Xelse
+X{
+X    eval <<'____END_OF_PLAIN_STUFF';
+X
+X	$curses = 0;
+X
+X	format STDOUT_TOP =
+X	       Name         Ext
+X	       ====         ===
+X.
+X
+X	format STDOUT =
+X	       @<<<<<<<<<   @>>
+X	       $name,       $ext
+X.
+X
+X	# functions used by the list function
+X
+X	sub before	{ $- = 0; }
+X	sub during	{ write; }
+X	sub after	{ 1; }
+X
+X____END_OF_PLAIN_STUFF
+X}
+X
+X# function to list the database
+X
+Xsub list
+X{
+X	local($csr, $name, $ext);
+X
+X	do before();
+X
+X	$csr = &ora_open($lda, $LIST)			|| die $ora_errstr;
+X	while (($name, $ext) = &ora_fetch($csr))
+X	{
+X		do during();
+X	}
+X	die $ora_errstr if ($ora_errno != 0);
+X	do ora_close($csr)				|| die $ora_errstr;
+X
+X	do after();
+X}
+X
+X# set these as strings to make the code more readable
+X$CREATE = "create table tryit (name char(10), ext number(3))";
+X$INSERT = "insert into tryit values (:1, :2)";
+X$LIST	= "select * from tryit order by name";
+X$DELETE	= "delete from tryit where name = :1";
+X$DROP	= "drop table tryit";
+X
+X# create the database
+X
+X$lda = &ora_login('t', 'kstock', 'kstock')	|| die $ora_errstr;
+X&ora_do($lda, $CREATE)				|| die $ora_errstr;
+X
+X# put some data into it
+X
+X$csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+Xwhile (<DATA>)
+X{
+X	m/([a-z]+):([0-9]+)/;
+X	do ora_bind($csr, $1, $2);
+X}
+Xdo ora_close($csr)				|| die $ora_errstr;
+X
+X# check the result
+Xdo list();
+X
+X# remove a few lines
+X
+X$csr = &ora_open($lda, $DELETE)			|| die $ora_errstr;
+Xforeach $name ('catherine', 'angela', 'arnold', 'julia')
+X{
+X	&ora_bind($csr, $name)			|| die $ora_errstr;
+X}
+X&ora_close($csr)				|| die $ora_errstr;
+X
+X# check the result
+Xdo list();
+X
+X# remove the database and log out
+Xdo ora_do($lda, $DROP)				|| die $ora_errstr;
+Xdo ora_logoff($lda)				|| die $ora_errstr;
+X
+Xdo endwin() if $curses == 1;
+X
+X# This is the data which will go into the database
+X__END__
+Xjulia:292
+Xangela:208
+Xlarry:424
+Xcatherine:201
+Xrandal:306
+Xarnold:305
+END_OF_FILE
+  if test 3148 -ne `wc -c <'examples/mkdb.pl'`; then
+    echo shar: \"'examples/mkdb.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'examples/mkdb.pl'
+  # end of 'examples/mkdb.pl'
+fi
+if test -f 'examples/oradump.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'examples/oradump.pl'\"
+else
+  echo shar: Extracting \"'examples/oradump.pl'\" \(713 characters\)
+  sed "s/^X//" >'examples/oradump.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/oraperl
+X#
+X# oradump.pl
+X#
+X# Dump the contents of an Oracle table into a set of insert statements.
+X# Usage:	oradump <base> <table> <user/password>
+X#
+X# Author:	Kevin Stock
+X# Date:		28th February 1992
+X#
+X
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X(($base  = shift) &&
+X ($table = shift) &&
+X ($user  = shift)) || die "Usage: $0 base table user/password\n";
+X
+X$lda = &ora_login($base, $user, '')		|| die $ora_errstr;
+X$csr = &ora_open($lda, "select * from $table")	|| die $ora_errstr;
+X
+Xwhile (@data = &ora_fetch($csr))
+X{
+X    print "insert into $table values('" . join("', '", @data) . "');\n";
+X}
+Xwarn "$ora_errstr" if $ora_errno;
+X
+X&ora_close($csr)	|| die $ora_errstr;
+X&ora_logoff($lda)	|| die $ora_errstr;
+END_OF_FILE
+  if test 713 -ne `wc -c <'examples/oradump.pl'`; then
+    echo shar: \"'examples/oradump.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'examples/oradump.pl'
+  # end of 'examples/oradump.pl'
+fi
+if test -f 'examples/sql' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'examples/sql'\"
+else
+  echo shar: Extracting \"'examples/sql'\" \(5428 characters\)
+  sed "s/^X//" >'examples/sql' <<'END_OF_FILE'
+X#!/usr/local/bin/oraperl
+X'di';
+X'ig00';
+X#
+X# sql
+X#
+X# Script to run an Oracle statement from the command line.
+X# Written in response to <nirad.690285085@newdelphi> in alt.sources.wanted.
+X#
+X# Usage:
+X#	sql [-#debug] [-bbase] [-ddelim] [-f|-h] [-lpage_len] name/pass stmt
+X#
+X#	-#debug			debugging control string
+X#				MUST be first argument
+X#	-b base			database to use (default $ENV{'ORACLE_SID'})
+X#	-d delim		specifies the field delimiter (default TAB)
+X#	-f			formatted output, similar to sqlplus
+X#	-h			add headers, no formatting
+X#	-l page_len		lines per page, only used by -f (default 60)
+X#	name/pass		Oracle username and password
+X#	stmt			Oracle statement to be executed
+X#
+X# Author:	Kevin Stock
+X# Date:		18th November 1991
+X#
+X
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X$USAGE = "[-bbase] [-ddelim] [-f|-h] [-lpage_len] username/password statement";
+X$, = "\t";			# default delimiter is a tab
+X$\ = "\n";			# each record terminated with newline
+X
+Xrequire 'getopts.pl';		# option parsing
+Xdo Getopts('b:d:fhl:');
+Xdie "$0: only one of -f and -h may be specified\n" if ($opt_f && $opt_h);
+X
+X$USER = shift;			# get the user name and password
+Xdie "Usage: $0 $USAGE\n" unless $#ARGV >= 0;		# must have a statement
+X
+X$, = $opt_d if defined($opt_d);				# set column delimiter
+X$= = $opt_l if defined($opt_l);				# set page length
+X$ENV{'ORACLE_SID'} = $opt_b if defined($opt_b);		# set database
+X
+Xdie "ORACLE_SID not set\n" unless defined($ENV{'ORACLE_SID'});
+X
+X# log into the database and execute the statement
+X
+X$lda = &ora_login('', $USER, '') || die "$ora_errstr\n";
+X$csr = &ora_open($lda, "@ARGV") || die "$ora_errstr\n";
+X
+X# print out any information which comes back
+X
+Xif (($nfields = &ora_fetch($csr)) > 0)	# does the statement return data?
+X{
+X	if ($opt_f)			# formatted output
+X	{
+X		@titles = &ora_titles($csr);
+X		$format .= "format STDOUT_TOP =\n" . join($,, @titles) . "\n";
+X		grep(tr//-/c, @titles);
+X		$format .= join($,, @titles) . "\n.\n";
+X
+X		grep((s/^-/@/, tr/-/</), @titles);
+X		$format .= "format STDOUT =\n" . join($,, @titles) . "\n";
+X		foreach $i (0 .. $nfields - 1)
+X		{
+X			$format .= "\$result[$i],";
+X		}
+X		chop $format;		# remove extraneous comma
+X		$format .= "\n.\n";
+X
+X		eval($format);
+X	}
+X	elsif ($opt_h)
+X	{
+X		@titles = &ora_titles($csr);
+X		grep(s/  *$//, @titles);
+X		print @titles;
+X		grep(tr//-/c, @titles);
+X		print @titles;
+X	}
+X
+X	while (@result = &ora_fetch($csr))
+X	{
+X		($opt_f) ? (write) : (print @result);
+X	}
+X	warn "$ora_errstr\n" if ($ora_errno != 0);
+X}
+X
+X# finish off neatly
+X
+Xdo ora_close($csr);
+Xdo ora_logoff($lda);
+X
+X__END__		# no need for perl even to scan the rest
+X
+X##############################################################################
+X
+X	# These next few lines are legal in both Perl and nroff.
+X
+X.00;			# finish .ig
+X 
+X'di			\" finish diversion--previous line must be blank
+X.nr nl 0-1		\" fake up transition to first page again
+X.nr % 0			\" start at page 1
+X';<<'.ex'; ############## From here on it's a standard manual page ############
+X.ll 80
+X.TH SQL L "18th November 1991"
+X.ad
+X.nh
+X.SH NAME
+Xsql \- execute an Oracle SQL statement from the command line
+X.SH SYNOPSIS
+X\fBsql\fP
+X[\fB\-b\fP\fIbase\fP]
+X[\fB\-d\fP\fIdelim\fP]
+X[\fB\-f\fP|\fB\-h\fP]
+X[\fB\-l\fP\fIpage_len\fP]
+X\fIname\fP\fB/\fP\fIpassword\fP
+X\fIstatement\fP
+X.SH DESCRIPTION
+X.I Sql
+Xconnects to an Oracle database
+Xusing the \fIname/password\fP supplied
+Xand executes the given SQL \fIstatement\fP
+Xdisplaying the result
+Xon its standard output.
+X
+XThe \fB\-b\fP\fIbase\fP flag may be supplied to specify the database to be used.
+XIf it is not given, the database specified by the environment variable
+X\fBORACLE_SID\fP is used.
+X
+XThe \fB\-f\fP and \fB\-h\fP flags may be used to modify the form of the output.
+XWithout either flag, no field headers are printed
+Xand fields are not padded.
+XWith the \fB\-h\fP flag,
+Xfield headers are added to the top of the output,
+Xbut the format is otherwise unchanged.
+XWith the \fB\-f\fP flag,
+Xthe output is formatted in a fashion similar to that used by \fIsqlplus\fP,
+Xexcept that all fields are left\-justified, regardless of their data type.
+XColumn headers are printed at the top of each page;
+Xa page is assumed to be 60 lines long,
+Xbut this may be overridden with the \fB\-l\fP\fIpage_len\fP flag.
+X
+XNormally, fields are separated with tabs;
+Xthis may be changed to any desired string (\fIdelim\fP)
+Xusing the \fB\-d\fP flag.
+X.SH ENVIRONMENT
+XThe environment variable \fBORACLE_SID\fP
+Xdetermines the Oracle database to be used.
+X.SH DIAGNOSTICS
+X.in +5
+X.ti -5
+X\fBonly one of \-f and \-h may be specified\fP
+X.br
+Xthe \fB\-f\fP and \fB\-h\fP options are mutually exclusive,
+Xbut both were specified
+X
+X.ti -5
+X\fBORACLE_SID not set\fP
+X.br
+Xthe \fB\-b\fP\fIbase\fP option was not supplied,
+Xand the \fBORACLE_SID\fP environment variable was not set,
+Xso \fIsql\fP cannot work out which database to open
+X
+X.in -5
+XThe only other diagnostics generated by \fIsql\fP are usage messages,
+Xwhich should be self\-explanatory.
+XHowever, you may also encounter
+Xerror messages from Oraperl (unlikely) or from Oracle (more common).
+XSee the \fIOracle Error Messages and Codes Manual\fP for details.
+X.SH NOTES
+XThis program is only intended for use from the command line.
+XIf you use it within a shell script
+Xthen you should consider rewriting your script in Oraperl
+Xto use Perl's text manipulation and formatting commands.
+X.SH "SEE ALSO"
+X\fISQL Language Reference Manual\fP
+X.br
+Xperl(1),
+Xoraperl(1)
+X.SH AUTHOR
+XKevin Stock,
+X.if t .ft C
+X<kstock@encore.com>
+X.if t .ft P
+X.ex
+END_OF_FILE
+  if test 5428 -ne `wc -c <'examples/sql'`; then
+    echo shar: \"'examples/sql'\" unpacked with wrong size!
+  fi
+  chmod +x 'examples/sql'
+  # end of 'examples/sql'
+fi
+if test -f 'install.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install.pl'\"
+else
+  echo shar: Extracting \"'install.pl'\" \(2844 characters\)
+  sed "s/^X//" >'install.pl' <<'END_OF_FILE'
+X#!./oraperl
+X#
+X# install.pl
+X#
+X# Perl script to install Oraperl, Coraperl (if present) and sql.
+X# Hacked from Larry's installperl script in the Perl distribution.
+X
+X($nonono = 1, shift) if $ARGV[0] eq '-n';
+X$SRC = shift || die "Usage: $0 [-n] perl_source_directory";
+X
+Xumask 022;
+X
+X@scripts = ('examples/sql');
+X
+X# Read in the config file.
+X
+Xopen(CONFIG, "${SRC}/config.sh") || die "Can't find Perl's config.sh\n";
+Xwhile (<CONFIG>) {
+X    if (s/^(\w+=)/\$$1/) {
+X	$accum =~ s/'undef'/undef/g;
+X	eval $accum;
+X	$accum = '';
+X    }
+X    $accum .= $_;
+X}
+X
+X# Do some quick sanity checks.
+X
+X   $installbin		|| die "No installbin directory in config.sh\n";
+X-d $installbin		|| die "$installbin is not a directory\n";
+X-w $installbin		|| die "$installbin is not writable by you\n"
+X	unless $installbin =~ m#^/afs/#;
+X
+X-x 'oraperl'		|| die "oraperl isn't executable!\n";
+X-f 'coraperl' && ! -x 'coraperl' && die "coraperl isn't executable!\n";
+X
+X# Install oraperl (and coraperl if it exists)
+X
+X&unlink("$installbin/oraperl");
+X&cmd("cp oraperl $installbin/oraperl");
+X
+Xif (-f 'coraperl')
+X{
+X	&unlink("$installbin/coraperl");
+X	&cmd("cp coraperl $installbin/coraperl");
+X}
+X
+X
+X# Install scripts.
+X
+X&makedir($installscr);
+X
+Xfor (@scripts) {
+X    &cmd("cp $_ $installscr");
+X    s#.*/##; &chmod(0755, "$installscr/$_");
+X}
+X
+X
+X# Install man pages.
+X
+Xif ($mansrc ne '') {
+X    &makedir($mansrc);
+X
+X    ($mdev,$mino) = stat($mansrc);
+X    if ($mdev != $ddev || $mino != $dino) {
+X	&cmd("cp doc/oraperl.1 $mansrc/oraperl.$manext");
+X	if (-f 'coraperl')
+X	{
+X	    &unlink("$mansrc/coraperl.$manext") if (-f 'coraperl');
+X	    &link("$mansrc/oraperl.$manext", "$mansrc/coraperl.$manext");
+X	}
+X	&cmd("cp examples/sql $mansrc/sql.$manext");
+X    }
+X}
+X
+X
+X# Install library files.
+X
+X&makedir($installprivlib);
+X&cmd("cp oraperl.ph $installprivlib");
+X
+Xprint STDERR "  Installation complete\n";
+X
+Xexit 0;
+X
+X###############################################################################
+X
+Xsub unlink {
+X    local(@names) = @_;
+X
+X    foreach $name (@names) {
+X	next unless -e $name;
+X	print STDERR "  unlink $name\n";
+X	unlink($name) || warn "Couldn't unlink $name: $!\n" unless $nonono;
+X    }
+X}
+X
+Xsub cmd {
+X    local($cmd) = @_;
+X    print STDERR "  $cmd\n";
+X    unless ($nonono) {
+X	system $cmd;
+X	warn "Command failed!!!\n" if $?;
+X    }
+X}
+X
+Xsub link {
+X    local($from,$to) = @_;
+X
+X    print STDERR "  ln $from $to\n";
+X    link($from,$to) || warn "Couldn't link $from to $to: $!\n" unless $nonono;
+X}
+X
+Xsub chmod {
+X    local($mode,$name) = @_;
+X
+X    printf STDERR "  chmod %o %s\n", $mode, $name;
+X    chmod($mode,$name) || warn "Couldn't chmod $mode $name: $!\n"
+X	unless $nonono;
+X}
+X
+Xsub makedir {
+X    local($dir) = @_;
+X    unless (-d $dir) {
+X	local($shortdir) = $dir;
+X
+X	$shortdir =~ s#(.*)/.*#$1#;
+X	&makedir($shortdir);
+X
+X	print STDERR "  mkdir $dir\n";
+X	mkdir($dir, 0777) || warn "Couldn't create $dir: $!\n" unless $nonono;
+X    }
+X}
+END_OF_FILE
+  if test 2844 -ne `wc -c <'install.pl'`; then
+    echo shar: \"'install.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'install.pl'
+  # end of 'install.pl'
+fi
+if test -f 'orafns.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'orafns.h'\"
+else
+  echo shar: Extracting \"'orafns.h'\" \(4854 characters\)
+  sed "s/^X//" >'orafns.h' <<'END_OF_FILE'
+X/* orafns.h
+X *
+X * Common declarations for the Oraperl functions
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X
+X/* public functions to be called by Perl programs */
+X
+Xvoid		ora_version();
+X
+Xint		ora_bind(),
+X		ora_fetch(),
+X		ora_titles();
+X
+Xchar		*ora_login(),
+X		*ora_open(),
+X		*ora_close(),
+X		*ora_do(),
+X		*ora_logoff(),
+X		*ora_commit(),
+X		*ora_rollback(),
+X		*ora_autocommit();
+X
+X
+X/* These functions are internal to the system, not for public consumption */
+X
+Xint		ora_dropcursor(),
+X		ora_droplda();
+X
+Xchar		*convert_debug();
+X
+Xstruct	cursor	*ora_getcursor(),
+X		*ora_getlda();
+X
+X
+X/* definition of the csrdef structure - taken from the oracle sample program */
+X
+Xstruct csrdef
+X{
+X   short	  csrrc;				  /* return code */
+X   short	  csrft;				/* function type */
+X   unsigned long  csrrpc;			 /* rows processed count */
+X   short	  csrpeo;			   /* parse error offset */
+X   unsigned char  csrfc;				/* function code */
+X   unsigned char  csrfil;				      /* filler  */
+X   unsigned short csrarc;			    /* reserved, private */
+X   unsigned char  csrwrn;				/* warning flags */
+X   unsigned char  csrflg;				  /* error flags */
+X   /*		     *** Operating system dependent *** 		 */
+X   unsigned int   csrcn;				/* cursor number */
+X   struct {					      /* rowid structure */
+X     struct {
+X	unsigned long	tidtrba;	   /* rba of first blockof table */
+X	unsigned short	tidpid; 		/* partition id of table */
+X	unsigned char	tidtbl; 		    /* table id of table */
+X	}		ridtid;
+X     unsigned long   ridbrba;			     /* rba of datablock */
+X     unsigned short  ridsqn;	      /* sequence number of row in block */
+X     } csrrid;
+X   unsigned int   csrose;		      /* os dependent error code */
+X   unsigned char  csrchk;				   /* check byte */
+X   unsigned char  crsfill[26];		       /* private, reserved fill */
+X};
+X
+X
+X/* data structure for the pool of cursors */
+X
+Xstruct	cursor
+X{
+X	struct	csrdef	*csr;
+X	char		*hda,		/* used if this cursor is an lda     */
+X			**data;		/* used to receive database contents */
+X	short		**rcode,	/* used to receive fetch error codes */
+X			*type,		/* used to receive data types	     */
+X			*len;		/* used to receive field lengths     */
+X	int		cache_size,	/* how many rows to cache	     */
+X			end_of_data,	/* reached end of data?		     */
+X			in_cache,	/* how many rows actually cached     */
+X			next_entry,	/* next valid cache entry	     */
+X			nfields,	/* number of fields to retrieve	     */
+X			varfields;	/* number of modifiable variables    */
+X	struct	cursor	*next;		/* list pointer			     */
+X};
+X
+X
+X/* functions that we use */
+X
+Xint		count_colons();
+Xunsigned long	strtoul();
+Xchar		*getenv(), *malloc();
+Xvoid		my_setenv();
+X
+X
+X/* variables accesible to the outside world */
+X
+XEXT	int	ora_errno	INIT(0),	/* latest error code	     */
+X		ora_long	INIT(80),	/* length of LONG fields     */
+X		ora_nfields	INIT(0),	/* size of ora_result array  */
+X		ora_trunc	INIT(0);	/* allow LONG truncation?    */
+X
+XEXT	char	*ora_debug	INIT(NULL),	/* debugging state	     */
+X		**ora_result	INIT(NULL);	/* data return		     */
+X
+X
+X/* How many rows should we cache for a SELECT statement?
+X * I think that 5 is a good tradeoff between speed and memory use.
+X * If you want a different figure, change it in Makefile, not here.
+X */
+X
+X#ifndef	CACHE_SIZE
+X#	define CACHE_SIZE	5
+X#endif
+X
+XEXT	int	ora_cache	INIT(CACHE_SIZE);	/* default row cache */
+X
+X
+X/* I've tried to give debugging some compatibility with Larry's -D flag,
+X * but allowing the flexibility to debug the oracle functions without
+X * debugging perl as well.
+X *
+X * Look at the file Debugging for details.
+X */
+X
+X#ifdef	PERL_DEBUGGING
+X#	ifndef	DEBUGGING
+X#		define	DEBUGGING	/* PERL_DEBUGGING implies DEBUGGING */
+X#	endif
+X
+X	extern	int	debug;		/* -D flag from uperl.o	*/
+X	extern	char	*origfilename;	/* script name		*/
+X#endif
+X
+X#ifdef	DEBUGGING
+X#	ifdef	DBUG_OFF
+X#		undef	DBUG_OFF
+X#	endif
+X#else
+X#	define	DBUG_OFF
+XEXT	int	warn_on_debug;
+X#endif
+X
+X#include "dbug.h"	/* Yes, this is _outside_ the #ifdef ... #endif */
+X
+X
+X/* error codes for ORAPERL
+X *
+X * These are higher than any possible ORACLE error code,
+X * so that they can be distinguished
+X */
+X
+X#define	ORAP_ERRMIN	100000	/* lowest value allowed for an oraperl error */
+X#define	ORAP_ERR(n)	(ORAP_ERRMIN + (n))
+X
+X#define	ORAP_NOMEM	ORAP_ERR(1)	/* out of memory		    */
+X#define	ORAP_INVCSR	ORAP_ERR(2)	/* invalid cursor supplied	    */
+X#define	ORAP_INVLDA	ORAP_ERR(3)	/* invalid lda supplied		    */
+X#define	ORAP_NOSID	ORAP_ERR(4)	/* couldn't set ORACLE_SID	    */
+X#define	ORAP_BADVAR	ORAP_ERR(5)	/* bad colon variable sequence	    */
+X#define	ORAP_NUMVARS	ORAP_ERR(6)	/* wrong number of colon variables  */
+X#define	ORAP_NODATA	ORAP_ERR(7)	/* statement does not return data   */
+X
+X#define	ORAP_ERRMAX	ORAP_NODATA	/* highest value actually used	    */
+END_OF_FILE
+  if test 4854 -ne `wc -c <'orafns.h'`; then
+    echo shar: \"'orafns.h'\" unpacked with wrong size!
+  fi
+  # end of 'orafns.h'
+fi
+if test -f 'strtoul.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strtoul.c'\"
+else
+  echo shar: Extracting \"'strtoul.c'\" \(4318 characters\)
+  sed "s/^X//" >'strtoul.c' <<'END_OF_FILE'
+X/* 
+X * strtoul.c --
+X *
+X *	Source code for the "strtoul" library procedure.
+X *
+X * Copyright 1988 Regents of the University of California
+X * Permission to use, copy, modify, and distribute this
+X * software and its documentation for any purpose and without
+X * fee is hereby granted, provided that the above copyright
+X * notice appear in all copies.  The University of California
+X * makes no representations about the suitability of this
+X * software for any purpose.  It is provided "as is" without
+X * express or implied warranty.
+X */
+X
+X#ifndef lint
+Xstatic char rcsid[] = "$Header: /sprite/src/lib/tcl/compat/RCS/strtoul.c,v 1.2 91/09/22 14:04:43 ouster Exp $ SPRITE (Berkeley)";
+X#endif /* not lint */
+X
+X#include <ctype.h>
+X
+X/*
+X * The table below is used to convert from ASCII digits to a
+X * numerical equivalent.  It maps from '0' through 'z' to integers
+X * (100 for non-digit characters).
+X */
+X
+Xstatic char cvtIn[] = {
+X    0, 1, 2, 3, 4, 5, 6, 7, 8, 9,		/* '0' - '9' */
+X    100, 100, 100, 100, 100, 100, 100,		/* punctuation */
+X    10, 11, 12, 13, 14, 15, 16, 17, 18, 19,	/* 'A' - 'Z' */
+X    20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+X    30, 31, 32, 33, 34, 35,
+X    100, 100, 100, 100, 100, 100,		/* punctuation */
+X    10, 11, 12, 13, 14, 15, 16, 17, 18, 19,	/* 'a' - 'z' */
+X    20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+X    30, 31, 32, 33, 34, 35};
+X
+X/*
+X *----------------------------------------------------------------------
+X *
+X * strtoul --
+X *
+X *	Convert an ASCII string into an integer.
+X *
+X * Results:
+X *	The return value is the integer equivalent of string.  If endPtr
+X *	is non-NULL, then *endPtr is filled in with the character
+X *	after the last one that was part of the integer.  If string
+X *	doesn't contain a valid integer value, then zero is returned
+X *	and *endPtr is set to string.
+X *
+X * Side effects:
+X *	None.
+X *
+X *----------------------------------------------------------------------
+X */
+X
+Xunsigned long int
+Xstrtoul(string, endPtr, base)
+X    char *string;		/* String of ASCII digits, possibly
+X				 * preceded by white space.  For bases
+X				 * greater than 10, either lower- or
+X				 * upper-case digits may be used.
+X				 */
+X    char **endPtr;		/* Where to store address of terminating
+X				 * character, or NULL. */
+X    int base;			/* Base for conversion.  Must be less
+X				 * than 37.  If 0, then the base is chosen
+X				 * from the leading characters of string:
+X				 * "0x" means hex, "0" means octal, anything
+X				 * else means decimal.
+X				 */
+X{
+X    register char *p;
+X    register unsigned long int result = 0;
+X    register unsigned digit;
+X    int anyDigits = 0;
+X
+X    /*
+X     * Skip any leading blanks.
+X     */
+X
+X    p = string;
+X    while (isspace(*p)) {
+X	p += 1;
+X    }
+X
+X    /*
+X     * If no base was provided, pick one from the leading characters
+X     * of the string.
+X     */
+X    
+X    if (base == 0)
+X    {
+X	if (*p == '0') {
+X	    p += 1;
+X	    if (*p == 'x') {
+X		p += 1;
+X		base = 16;
+X	    } else {
+X
+X		/*
+X		 * Must set anyDigits here, otherwise "0" produces a
+X		 * "no digits" error.
+X		 */
+X
+X		anyDigits = 1;
+X		base = 8;
+X	    }
+X	}
+X	else base = 10;
+X    } else if (base == 16) {
+X
+X	/*
+X	 * Skip a leading "0x" from hex numbers.
+X	 */
+X
+X	if ((p[0] == '0') && (p[1] == 'x')) {
+X	    p += 2;
+X	}
+X    }
+X
+X    /*
+X     * Sorry this code is so messy, but speed seems important.  Do
+X     * different things for base 8, 10, 16, and other.
+X     */
+X
+X    if (base == 8) {
+X	for ( ; ; p += 1) {
+X	    digit = *p - '0';
+X	    if (digit > 7) {
+X		break;
+X	    }
+X	    result = (result << 3) + digit;
+X	    anyDigits = 1;
+X	}
+X    } else if (base == 10) {
+X	for ( ; ; p += 1) {
+X	    digit = *p - '0';
+X	    if (digit > 9) {
+X		break;
+X	    }
+X	    result = (10*result) + digit;
+X	    anyDigits = 1;
+X	}
+X    } else if (base == 16) {
+X	for ( ; ; p += 1) {
+X	    digit = *p - '0';
+X	    if (digit > ('z' - '0')) {
+X		break;
+X	    }
+X	    digit = cvtIn[digit];
+X	    if (digit > 15) {
+X		break;
+X	    }
+X	    result = (result << 4) + digit;
+X	    anyDigits = 1;
+X	}
+X    } else {
+X	for ( ; ; p += 1) {
+X	    digit = *p - '0';
+X	    if (digit > ('z' - '0')) {
+X		break;
+X	    }
+X	    digit = cvtIn[digit];
+X	    if (digit >= base) {
+X		break;
+X	    }
+X	    result = result*base + digit;
+X	    anyDigits = 1;
+X	}
+X    }
+X
+X    /*
+X     * See if there were any digits at all.
+X     */
+X
+X    if (!anyDigits) {
+X	p = string;
+X    }
+X
+X    if (endPtr != 0) {
+X	*endPtr = p;
+X    }
+X
+X    return result;
+X}
+END_OF_FILE
+  if test 4318 -ne `wc -c <'strtoul.c'`; then
+    echo shar: \"'strtoul.c'\" unpacked with wrong size!
+  fi
+  # end of 'strtoul.c'
+fi
+if test -f 'testdir/commit.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testdir/commit.pl'\"
+else
+  echo shar: Extracting \"'testdir/commit.pl'\" \(1324 characters\)
+  sed "s/^X//" >'testdir/commit.pl' <<'END_OF_FILE'
+X$ora_debug = shift if $ARGV[0] =~ /-#/;
+X
+X(($base = shift) &&
+X ($user = shift) &&
+X ($pass = shift)) || die "Usage: $0 base user pass\n";
+X
+X$lda = &ora_login($base, $user, $pass) || die "$ora_errstr\n";
+X
+X&ora_do($lda, 'create table primes (prime number)') || die "$ora_errstr\n";
+X
+X$csr = &ora_open($lda, 'insert into primes values(:1)') || die "$ora_errstr\n";
+Xprint 'creating table';
+Xwhile (<DATA>)
+X{
+X	chop;
+X	print " $_";
+X	&ora_bind($csr, $_) || die "$_: $ora_errstr\n";
+X	(print ' committing ', &ora_commit($lda)) if $_ == 11;
+X}
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+Xprint "\n\nReading table for the first time\n\n";
+X$csr = &ora_open($lda, 'select prime from primes') || die "$ora_errstr\n";
+Xwhile (($prime) = &ora_fetch($csr))
+X{
+X	print "$prime ";
+X}
+Xdie "$ora_errstr\n" if $ora_errno;
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+Xprint "\n\nRolling back ", &ora_rollback($lda), "\n\n";
+X
+Xprint "Attempting to read data for the second time.\n";
+Xprint "Only values up to 11 should appear.\n\n";
+X$csr = &ora_open($lda, 'select prime from primes') || die "$ora_errstr\n";
+Xwhile (($prime) = &ora_fetch($csr))
+X{
+X	print "$prime ";
+X}
+Xdie "$ora_errstr\n" if $ora_errno;
+X&ora_close($csr) || die "$ora_errstr\n";
+X
+X&ora_do($lda, 'drop table primes') || die "$ora_errstr\n";
+X&ora_logoff($lda);
+Xprint "\n"
+X__END__
+X2
+X3
+X5
+X7
+X11
+X13
+X17
+X19
+X23
+X29
+END_OF_FILE
+  if test 1324 -ne `wc -c <'testdir/commit.pl'`; then
+    echo shar: \"'testdir/commit.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'testdir/commit.pl'
+  # end of 'testdir/commit.pl'
+fi
+if test -f 'testdir/mkdb.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testdir/mkdb.pl'\"
+else
+  echo shar: Extracting \"'testdir/mkdb.pl'\" \(1944 characters\)
+  sed "s/^X//" >'testdir/mkdb.pl' <<'END_OF_FILE'
+X$ora_debug = shift if $ARGV[0] =~ /-#/;
+X
+X(($base = shift) &&
+X ($user = shift) &&
+X ($pass = shift)) || die "Usage: $0 base user pass\n";
+X
+X$lda = &ora_login($base, $user, $pass) || die "$ora_errstr\n";
+X
+Xformat STDOUT_TOP =
+X       Name         Ext
+X       ====         ===
+X.
+X
+Xformat STDOUT =
+X       @<<<<<<<<<   @>>
+X       $name,       $ext
+X.
+X
+X# function to list the database
+X
+Xsub list
+X{
+X	local($csr, $name, $ext);
+X
+X	$- = 0;
+X
+X	$csr = &ora_open($lda, $LIST)			|| die $ora_errstr;
+X	$nfields = &ora_fetch($csr)			|| die $ora_errstr;
+X	print "$nfields fields, lengths ", join(', ', &ora_lengths($csr)), "\n";
+X	print "\ttypes ", join(', ', &ora_types($csr)), "\n";
+X
+X	while (($name, $ext) = &ora_fetch($csr))
+X	{
+X		write;
+X	}
+X	die $ora_errstr if ($ora_errno != 0);
+X	do ora_close($csr)				|| die $ora_errstr;
+X}
+X
+X# set these as strings to make the code more readable
+X$CREATE = "create table tryit (name char(10), ext number(3))";
+X$INSERT = "insert into tryit values (:1, :2)";
+X$LIST	= "select * from tryit order by name";
+X$DELETE	= "delete from tryit where name = :1";
+X$DROP	= "drop table tryit";
+X
+X# create the database
+X
+X$lda = &ora_login('t', 'kstock', 'kstock')	|| die $ora_errstr;
+X&ora_do($lda, $CREATE)				|| die $ora_errstr;
+X
+X# put some data into it
+X
+X$csr = &ora_open($lda, $INSERT)			|| die $ora_errstr;
+Xwhile (<DATA>)
+X{
+X	m/([a-z]+):([0-9]+)/;
+X	do ora_bind($csr, $1, $2);
+X}
+Xdo ora_close($csr)				|| die $ora_errstr;
+X
+X# check the result
+Xdo list();
+X
+X# remove a few lines
+X
+X$csr = &ora_open($lda, $DELETE)			|| die $ora_errstr;
+Xforeach $name ('catherine', 'angela', 'arnold', 'julia')
+X{
+X	&ora_bind($csr, $name)			|| die $ora_errstr;
+X}
+X&ora_close($csr)				|| die $ora_errstr;
+X
+X# check the result
+Xdo list();
+X
+X# remove the database and log out
+Xdo ora_do($lda, $DROP)				|| die $ora_errstr;
+Xdo ora_logoff($lda)				|| die $ora_errstr;
+X
+X# This is the data which will go into the database
+X__END__
+Xjulia:292
+Xangela:208
+Xlarry:424
+Xcatherine:201
+Xrandal:306
+Xarnold:305
+END_OF_FILE
+  if test 1944 -ne `wc -c <'testdir/mkdb.pl'`; then
+    echo shar: \"'testdir/mkdb.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'testdir/mkdb.pl'
+  # end of 'testdir/mkdb.pl'
+fi
+if test -f 'usersub.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'usersub.c'\"
+else
+  echo shar: Extracting \"'usersub.c'\" \(2339 characters\)
+  sed "s/^X//" >'usersub.c' <<'END_OF_FILE'
+X/* usersub.c
+X * 
+X * Initialisation for Oraperl.
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X#include "EXTERN.h"
+X#include "perl.h"
+X#include "orafns.h"
+X#include "patchlevel.h"
+X
+X
+Xint
+Xuserinit()
+X{
+X#ifdef	PERL_DEBUGGING
+X    char *s;
+X#endif
+X
+X    DBUG_ENTER("userinit");
+X    DBUG_PROCESS(origfilename);
+X    DBUG_PRINT("entry", ("userinit(void)"));
+X
+X    init_oracle();
+X#ifdef CURSES
+X    init_curses();
+X#endif
+X
+X#ifdef DEBUGGING
+X#   ifdef PERL_DEBUGGING
+X	if (debug)
+X	{
+X		if ((s = convert_debug(debug)) != NULL)
+X		{
+X			DBUG_PUSH(s);
+X			if ((ora_debug = malloc(strlen(s) + 1)) == NULL)
+X			{
+X				DBUG_PRINT("malloc",
+X				    ("insufficient memory for ora_debug"));
+X				fatal("insufficient memory for ora_debug");
+X			}
+X			DBUG_PRINT("malloc", ("got ora_debug %d bytes at %lx",
+X				strlen(s) + 1, (long) ora_debug));
+X			strcpy(ora_debug, s);
+X		}
+X	}
+X	else
+X	{
+X		ora_debug = NULL;
+X	}
+X#   else
+X	ora_debug = NULL;
+X#   endif
+X#else
+X	warn_on_debug = dowarn;
+X#endif
+X
+X    ora_errno = 0;
+X    DBUG_VOID_RETURN;
+X}
+X
+X
+X/* void	ora_version()
+X *
+X * Print out information about Oraperl.
+X * This function is here so that we only recompile one file for curses.
+X * Messy, isn't it!
+X */
+X
+X#ifdef	CURSES
+X#	define	Prog	"Coraperl"
+X#	define	prog	"coraperl"
+X#else
+X#	define	Prog	"Oraperl"
+X#	define	prog	"oraperl"
+X#endif
+X
+Xvoid	ora_version()
+X{
+X	DBUG_ENTER("ora_version");
+X
+X	/* Identify the program and its version */
+X
+X	printf("\nThis is %s, version %d, patch level %d.\n\n",
+X		Prog, VERSION, PATCHLEVEL);
+X
+X	/* Show the compilation-time options */
+X
+X	printf("Debugging is%s available%s%s.\n",
+X#ifdef	DEBUGGING
+X		"",
+X#	ifdef	PERL_DEBUGGING
+X		", including ",
+X#	else
+X		", without ",
+X#	endif
+X		"the -D flag"
+X#else
+X		" not", "", ""
+X#endif
+X	);
+X	printf("Default fetch row cache size is %d.\n", CACHE_SIZE);
+X	printf("Empty bind values %s.\n",
+X#ifdef	NO_BIND_PADDING
+X		"cause an error"
+X#else
+X		"are replaced by a space"
+X#endif
+X	);
+X
+X	/* Display the copyright information */
+X
+X	printf("\nPerl is copyright by Larry Wall; type %s -v for details.\n",
+X		prog);
+X	printf("Additions for %s: Copyright 1991, 1992, Kevin Stock.\n", prog);
+X
+X	printf("\n%s may be distributed under the same conditions as Perl.\n\n",
+X		Prog);
+X
+X	DBUG_VOID_RETURN;
+X}
+END_OF_FILE
+  if test 2339 -ne `wc -c <'usersub.c'`; then
+    echo shar: \"'usersub.c'\" unpacked with wrong size!
+  fi
+  # end of 'usersub.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

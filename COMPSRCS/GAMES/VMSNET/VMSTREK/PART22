@@ -1,0 +1,476 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!stanford.edu!agate!usenet.ins.cwru.edu!magnus.acs.ohio-state.edu!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 22/47
+Message-ID: <1992Nov13.135428.1@acad2.alaska.edu>
+Lines: 464
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Fri, 13 Nov 1992 17:54:28 GMT
+Xref: uunet vmsnet.sources.games:508
+
+-+-+-+-+-+-+-+-+ START OF PART 22 -+-+-+-+-+-+-+-+
+X`009`009    displayStartup(defname);
+X`009`009`125 else `123
+X`009`009    adjustString(ch, tempname, defname);
+X`009`009`125
+X`009`009break;
+X`009    case ST_GETPASS:
+X`009`009if (ch == 13) `123
+X`009`009    checkpassword();
+X`009`009    displayStartup(defname);
+X`009`009`125 else `123
+X`009`009    adjustString(ch, password1, defname);
+X`009`009`125
+X`009`009break;
+X`009    case ST_MAKEPASS1:
+X`009`009if (ch == 13) `123
+X`009`009    state=ST_MAKEPASS2;
+X`009`009    displayStartup(defname);
+X`009`009`125 else `123
+X`009`009    adjustString(ch, password1, defname);
+X`009`009`125
+X`009`009break;
+X`009    case ST_MAKEPASS2:
+X`009`009if (ch == 13) `123
+X`009`009    makeNewGuy();
+X`009`009    displayStartup(defname);
+X`009`009`125 else `123
+X`009`009    adjustString(ch, password2, defname);
+X`009`009`125
+X`009`009break;
+X`009    `125
+X`009`125
+X    `125
+X`125
+X
+Xloaddude()
+X/* Query dude.
+X */
+X`123
+X    if (strcmp(tempname, "Guest")==0 `124`124 strcmp(tempname, "guest")==0)
+V `123
+X`009loginAccept= -1;
+X`009sendLoginReq(tempname, "", passwd->pw_name, 0);
+X`009state = ST_DONE;
+X`009me->p_pos = -1;
+X`009me->p_stats.st_tticks = 1;`009/* prevent overflow */
+X`009strcpy(me->p_name, tempname);
+X`009while (loginAccept== -1) `123
+X`009    socketPause();
+X`009    readFromServer();
+X`009    if (isServerDead()) `123
+X`009`009printf("Server is dead!\n");
+X`009`009exit(0);
+X`009    `125
+X`009`125
+X`009if (loginAccept==0) `123
+X`009    printf("Hmmm... The SOB server won't let me log in as guest!\n");
+X`009    exit(0);
+X`009`125
+X`009return;
+X    `125
+X    /* Ask about the user */
+X    loginAccept= -1;
+X    sendLoginReq(tempname, "", passwd->pw_name, 1);
+X    while (loginAccept== -1) `123
+X`009socketPause();
+X`009readFromServer();
+X`009if (isServerDead()) `123
+X`009    printf("Server is dead!\n");
+X`009    exit(0);
+X`009`125
+X    `125
+X    *password1= *password2= 0;
+X    if (loginAccept==0) `123
+X`009state = ST_MAKEPASS1;
+X    `125 else `123
+X`009state = ST_GETPASS;
+X    `125
+X`125
+X
+Xcheckpassword()
+X/* Check dude's password.
+X * If he is ok, move to state ST_DONE.
+X */
+X`123
+X    char *s;
+X
+X    sendLoginReq(tempname, password1, passwd->pw_name, 0);
+X    loginAccept= -1;
+X    while (loginAccept== -1) `123
+X`009socketPause();
+X`009readFromServer();
+X`009if (isServerDead()) `123
+X`009    printf("Server is dead!\n");
+X`009    exit(0);
+X`009`125
+X    `125
+X    if (loginAccept==0) `123
+X`009s = "Bad password!";
+X`009W_WriteText(w, 100, 100, textColor, s, strlen(s), W_BoldFont);
+X`009(void) W_EventsPending();
+X`009sleep(3);
+X`009W_ClearWindow(w);
+X`009*tempname=0;
+X`009state=ST_GETNAME;
+X`009return;
+X    `125
+X    strcpy(me->p_name, tempname);
+X    showShields = (me->p_stats.st_flags / ST_SHOWSHIELDS) & 1;`032
+X    mapmode = (me->p_stats.st_flags / ST_MAPMODE) & 1;
+X    namemode = (me->p_stats.st_flags / ST_NAMEMODE) & 1;
+X    keeppeace = (me->p_stats.st_flags / ST_KEEPPEACE) & 1;
+X    showlocal = (me->p_stats.st_flags / ST_SHOWLOCAL) & 3;
+X    showgalactic = (me->p_stats.st_flags / ST_SHOWGLOBAL) & 3;
+X    state = ST_DONE;
+X`125
+X
+XmakeNewGuy()
+X/* Make the dude with name tempname and password password1.
+X * Move to state ST_DONE.
+X */
+X`123
+X    char *s;
+X
+X    if (strcmp(password1, password2) != 0) `123
+X`009s = "Passwords do not match";
+X`009W_WriteText(w, 100, 120, textColor, s, strlen(s), W_BoldFont);
+X`009(void) W_EventsPending();
+X`009sleep(3);
+X`009W_ClearWindow(w);
+X`009*tempname=0;
+X`009state=ST_GETNAME;
+X`009return;
+X    `125
+X   `032
+X    /* same routine! */
+X    checkpassword();
+X`125
+X
+XadjustString(ch, str, defname)
+Xchar ch, *str;
+Xchar *defname;
+X`123
+X    if (ch == 21) `123
+X`009*str='\0';
+X`009if (state==ST_GETNAME) displayStartup(defname);
+X    `125 else if (ch == 8 `124`124 ch=='\177') `123
+X`009if (strlen(str)>0) `123
+X`009    str`091strlen(str)-1`093='\0';
+X`009    if (state==ST_GETNAME) displayStartup(defname);
+X`009`125
+X    `125 else `123
+X`009if (strlen(str)==15) return;
+X`009str`091strlen(str)+1`093='\0';
+X`009str`091strlen(str)`093= ch;
+X`009if (state==ST_GETNAME) displayStartup(defname);
+X    `125
+X`125
+X
+XdisplayStartup(defname)
+Xchar *defname;
+X/* Draws entry screen based upon state. */
+X`123
+X    char s`091100`093;
+X    char *t;
+X
+X    if (state == ST_DONE) return;
+X    t = "Enter your name.  Use the name 'guest' to remain anonymous.";
+X    W_WriteText(w, 100, 30, textColor, t, strlen(t), W_BoldFont);
+X    t = "Type `094D (Ctrl - D) to quit.";
+X    W_WriteText(w, 100, 40, textColor, t, strlen(t), W_BoldFont);
+X    sprintf(s, "Your name (default = %s): %s               ", defname, tempn
+Vame);
+X    W_WriteText(w, 100, 50, textColor, s, strlen(s), W_BoldFont);
+X    if (state==ST_GETPASS) `123
+X`009t = "Enter password: ";
+X`009W_WriteText(w, 100, 60, textColor, t, strlen(t), W_BoldFont);
+X    `125
+X    if (state>ST_GETPASS) `123
+X`009t = "You need to make a password.";
+X`009W_WriteText(w, 100, 70, textColor, t, strlen(t), W_BoldFont);
+X`009t = "So think of a password you can remember, and enter it.";
+X`009W_WriteText(w, 100, 80, textColor, t, strlen(t), W_BoldFont);
+X`009t = "What is your password? :";
+X`009W_WriteText(w, 100, 90, textColor, t, strlen(t), W_BoldFont);
+X    `125
+X    if (state==ST_MAKEPASS2) `123
+X`009t = "Enter it again to make sure you typed it right.";
+X`009W_WriteText(w, 100, 100, textColor, t, strlen(t), W_BoldFont);
+X`009t = "Your password? :";
+X`009W_WriteText(w, 100, 110, textColor, t, strlen(t), W_BoldFont);
+X    `125
+X`125
+X
+$ CALL UNPACK GETNAME.C;1 710794459
+$ create/nolog 'f'
+X/*
+X * getship.c for client of socket protocol.
+X *
+X * This file has been mangled so it only sets the ship characteristics neede
+Vd.
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <types.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+X/* fill in ship characteristics */
+X
+Xgetship(shipp, s_type)
+Xstruct ship *shipp;
+Xint s_type;
+X`123
+X    switch (s_type) `123
+X    case SCOUT:
+X`009    shipp->s_type = SCOUT;
+X`009    shipp->s_torpspeed = 16;
+X`009    shipp->s_phaserdamage = 75;
+X`009    shipp->s_maxspeed = 12;
+X`009    shipp->s_maxfuel = 5000;
+X`009    shipp->s_maxarmies = 2;
+X`009    shipp->s_maxshield = 75;`032
+X`009    shipp->s_maxdamage = 75;
+X`009    shipp->s_maxwpntemp = 1000;
+X`009    shipp->s_maxegntemp = 1200;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    case DESTROYER:
+X`009    shipp->s_type = DESTROYER;
+X`009    shipp->s_torpspeed = 14;
+X`009    shipp->s_phaserdamage = 85;
+X`009    shipp->s_maxspeed = 10;
+X`009    shipp->s_maxfuel = 7000;
+X`009    shipp->s_maxarmies = 5;
+X`009    shipp->s_maxshield = 85;
+X`009    shipp->s_maxdamage = 85;
+X`009    shipp->s_maxwpntemp = 1000;
+X`009    shipp->s_maxegntemp = 1000;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    case BATTLESHIP:`032
+X`009    shipp->s_type = BATTLESHIP;
+X`009    shipp->s_torpspeed = 12;
+X`009    shipp->s_phaserdamage = 105;
+X`009    shipp->s_maxspeed = 8;
+X`009    shipp->s_maxfuel = 14000;
+X`009    shipp->s_maxarmies = 6;
+X`009    shipp->s_maxshield = 130;
+X`009    shipp->s_maxdamage = 130;
+X`009    shipp->s_maxwpntemp = 1000;
+X`009    shipp->s_maxegntemp = 1000;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    case ASSAULT:
+X`009    shipp->s_type = ASSAULT;
+X`009    shipp->s_torpspeed = 16;
+X`009    shipp->s_phaserdamage = 80;
+X`009    shipp->s_maxspeed = 8;
+X`009    shipp->s_maxfuel = 6000;
+X`009    shipp->s_maxarmies = 20;
+X`009    shipp->s_maxshield = 80;
+X`009    shipp->s_maxdamage = 200;
+X`009    shipp->s_maxwpntemp = 1000;
+X`009    shipp->s_maxegntemp = 1200;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    case STARBASE:
+X`009    shipp->s_type = STARBASE;
+X`009    shipp->s_torpspeed = 14;
+X`009    shipp->s_phaserdamage = 120;
+X`009    shipp->s_maxspeed = 2;
+X`009    shipp->s_maxfuel = 60000;
+X`009    shipp->s_maxarmies = 25;
+X`009    shipp->s_maxshield = 500;
+X`009    shipp->s_maxdamage = 600;
+X`009    shipp->s_maxwpntemp = 1300;
+X`009    shipp->s_maxegntemp = 1000;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    case GALAXY:`009/* ATM - Galaxy */
+X            shipp->s_type = GALAXY;
+X            shipp->s_torpspeed = 13;
+X            shipp->s_phaserdamage = 100;
+X            shipp->s_maxspeed = 9;
+X            shipp->s_maxfuel = 12000;
+X            shipp->s_maxarmies = 12;
+X            shipp->s_maxshield = 120;`009/* ATM: was 140 */
+X            shipp->s_maxdamage = 120;
+X            shipp->s_maxwpntemp = 1000;
+X            shipp->s_maxegntemp = 1000;
+X            shipp->s_width = 20;
+X            shipp->s_height = 20;
+X            break;  `032
+X    case ATT:`009`009/* ATM */
+X            shipp->s_type = ATT;
+X            shipp->s_torpspeed = 30;
+X            shipp->s_phaserdamage = 10000;
+X            shipp->s_maxspeed = 60;
+X            shipp->s_maxfuel = 60000;
+X            shipp->s_maxarmies = 999;`009`009/* 1000 */
+X            shipp->s_maxshield = 999;`009`009/* 30000 */
+X            shipp->s_maxdamage = 999;`009`009/* 30000 */
+X            shipp->s_maxwpntemp = 9999;`009`009/* 10000 */
+X            shipp->s_maxegntemp = 9999;`009`009/* 10000 */
+X            shipp->s_width = 20;
+X            shipp->s_height = 20;
+X`009    break;
+X    case CRUISER:
+X    default:
+X`009    shipp->s_type = CRUISER;
+X`009    shipp->s_torpspeed = 12;
+X`009    shipp->s_phaserdamage = 100;
+X`009    shipp->s_maxspeed = 9;
+X`009    shipp->s_maxfuel = 10000;
+X`009    shipp->s_maxarmies = 10;
+X`009    shipp->s_maxshield = 100;
+X`009    shipp->s_maxdamage = 100;
+X`009    shipp->s_maxwpntemp = 1000;
+X`009    shipp->s_maxegntemp = 1000;
+X`009    shipp->s_width = 20;
+X`009    shipp->s_height = 20;
+X`009    break;
+X    `125
+X`125
+X
+$ CALL UNPACK GETSHIP.C;1 561114538
+$ create/nolog 'f'
+X/*
+X * inform.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <signal.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+X/* Display information about the nearest object to mouse */
+X
+X/*
+X** When the player asks for info, this routine finds the object
+X** nearest the mouse, either player or planet, and pop up a window
+X** with the desired information in it.
+X**`032
+X** We intentionally provide less information than is actually
+X** available.  Keeps the fog of war up.
+X**
+X** There is a different sized window for each type player/planet
+X** and we take care to keep it from extending beyond the main
+X** window boundaries.
+X*/
+X
+Xstatic char *classes`091NUM_TYPES`093 = `123
+X    "SC", "DD", "CA", "BB", "AS", "SB", "GA", "??"`009/* ATM - Galaxy */
+X   `125;
+X
+Xinform(ww, x, y, key)
+XW_Window ww;
+Xint x, y;
+Xchar key;
+X`123
+X    char buf`091BUFSIZ`093;
+X    int line = 0;
+X    register struct player *j;
+X    register struct planet *k;
+X    int mx, my;
+X    double dist;
+X    struct obtype *gettarget(), *target;
+X    int windowWidth, windowHeight;
+X
+X    mx=x;
+X    my=y;
+X    infomapped = 1;
+X    if (key == 'i') `123
+X`009target = gettarget(ww, x, y, TARG_PLAYER`124TARG_PLANET);
+X    `125 else `123
+X`009target = gettarget(ww, x, y, TARG_PLAYER`124TARG_SELF);
+X    `125
+X
+X    /* This is pretty lame.  We make a graphics window for the info window
+X     *  so we can accurately space the thing to barely fit into the galactic
+X     *  map or whatever.
+X     */
+X
+X    windowWidth=W_WindowWidth(ww);
+X    windowHeight=W_WindowHeight(ww);
+X    if (target->o_type == PLAYERTYPE) `123
+X`009/* Too close to the edge? */
+X`009if (mx + 23 * W_Textwidth + 2 > windowWidth)
+X`009    mx = windowWidth - 23 * W_Textwidth - 2;
+X`009if (my + 8 * W_Textheight + 2 > windowHeight)
+X`009    my = windowHeight - 8 * W_Textheight - 2;
+X
+X`009infow = W_MakeWindow("info", mx, my, 23*W_Textwidth, 8*W_Textheight,`032
+X`009    ww, 2,foreColor);
+X`009W_MapWindow(infow);
+X`009j = &players`091target->o_num`093;
+X`009(void) sprintf(buf, "%s (%c%c):", j->p_name, teamlet`091j->p_team`093, s
+Vhipnos`091j->p_no`093);
+X`009W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j), buf
+V, strlen(buf), shipFont(j));
+X`009if (key == 'i') `123
+X`009    dist = hypot((double) (me->p_x - j->p_x),
+X`009`009(double) (me->p_y - j->p_y));
+X`009    (void) sprintf(buf, "Login   %-s", j->p_login);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009    (void) sprintf(buf, "Display %-s", j->p_monitor);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009    (void) sprintf(buf, "Speed   %-d", j->p_speed);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X
+X`009    (void) sprintf(buf, "kills   %-4.2f", j->p_kills);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009    (void) sprintf(buf, "dist    %-d", (int) dist);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009    (void) sprintf(buf, "S-Class %-s", classes`091j->p_ship.s_type`093);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009   `032
+X`009    if (j->p_swar & me->p_team)
+X`009`009W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V "WAR", 3,
+X`009`009    W_RegularFont);
+X`009    else if (j->p_hostile & me->p_team)
+X`009`009W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V "HOSTILE", 7,
+X`009`009    W_RegularFont);
+X`009    else
+X`009`009W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V "PEACEFUL", 8,
+X`009`009    W_RegularFont);
+X`009`125 else `123`009/* New information window! */
+X`009    strcpy(buf, "        Rating Total");
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
+V buf, strlen(buf),
+X`009`009W_RegularFont);
+X`009    sprintf(buf, "Bombing: %5.2f  %5d",`032
+X`009`009bombingRating(j),
+X`009`009j->p_stats.st_armsbomb + j->p_stats.st_tarmsbomb);
+X`009    W_WriteText(infow, W_Textwidth, W_Textheight*line++, playerColor(j),
++-+-+-+-+-+-+-+-  END  OF PART 22 +-+-+-+-+-+-+-+-

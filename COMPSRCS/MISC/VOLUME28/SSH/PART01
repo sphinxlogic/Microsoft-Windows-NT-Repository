@@ -1,0 +1,275 @@
+Newsgroups: comp.sources.misc
+From: etxerus@james.ericsson.se (Hans Beckerus LG/TH)
+Subject:  v28i080:  ssh - Split & Strip appended shell archives, Part01/01
+Message-ID: <1992Mar6.031430.5439@sparky.imd.sterling.com>
+X-Md4-Signature: cf0a365127771ff87b8e3d93e2b06e78
+Date: Fri, 6 Mar 1992 03:14:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: etxerus@james.ericsson.se (Hans Beckerus LG/TH)
+Posting-number: Volume 28, Issue 80
+Archive-name: ssh/part01
+Environment: UNIX
+
+This small program strips and splits multiple/single part 
+shell archives and stores the result in 'partXX' files
+
+Hans C. Beckerus
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README Makefile ssh.c
+# Wrapped by kent@sparky on Thu Mar  5 21:09:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(356 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+X* If you find any faults while using this program please
+X  notify me. Read the sourcecode for more information.
+X
+X* The Makefile is not really needed but I made a simple 
+X  one anyway. To compile type 'make install'.
+X
+X* This program has been tested on the SUN/SPARC and 
+X  the HP9000/700 series.
+X
+X
+X  Cheers!
+X
+X--
+XHans C. Beckerus
+Xetxerus@james.ericsson.se
+X
+END_OF_FILE
+  if test 356 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(521 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Simple makefile for ssh 1.10
+X#
+X
+X# Destination directory for binary
+XBINDIR= /usr/local/bin
+X
+XCC= cc
+XFLAGS= -O
+XPROG= ssh
+XSOURCES= ssh.c
+XOBJS= ssh.o
+X
+X# SUN:
+X# This should work for all SUN:s using malloc.h
+X# together with malloc(3V).
+XDEFINES= -DSUN
+X 
+X# HP:
+X# This should work for all HP:s using stdlib.h
+X# together with malloc(3C).
+X#DEFINES= -DHP
+X
+XCFLAGS= $(FLAGS) $(DEFINES)
+X
+X$(PROG): $(OBJS)
+X	$(CC) $(CFLAGS) -o $(PROG) $(OBJS) 
+X
+Xclean:
+X	rm -f core $(PROG) $(OBJS)
+X
+Xinstall: $(PROG)
+X	strip $(PROG)
+X	mv $(PROG) $(BINDIR)
+END_OF_FILE
+  if test 521 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'ssh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ssh.c'\"
+else
+  echo shar: Extracting \"'ssh.c'\" \(3598 characters\)
+  sed "s/^X//" >'ssh.c' <<'END_OF_FILE'
+X/* @(#)ssh.c 1.12 92/03/05 (HaB)
+X *
+X * NAME:
+X *    ssh
+X *
+X * SYNTAX:
+X *    ssh < filename
+X * 
+X * DESCRIPTION:
+X *    Splits and strips appended shell archives and
+X *    stores the result in 'partXX' files.
+X *    
+X * NOTES:
+X *    The program should work on all archives created
+X *    using 'shar' (or equals) provided that they have
+X *    not been changed since they were first generated.  
+X *
+X * DATE:
+X *    1992-03-05
+X *
+X * AUTHOR:
+X *    Hans C. Beckerus
+X *    etxerus@james.ericsson.se
+X *
+X * DISCLAIMER:
+X *    This program is free to distribute to anyone aslong 
+X *    as the code is not changed in anyway without me
+X *    knowing about it.  
+X *
+X *                                            /HaB :-)
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#define SEARCH   0
+X#define START    1
+X#define INSIDE   2
+X#define MSTEP    80     /* Allocation steps       */
+X#define SEARCHP  5      /* No. of search patterns */ 
+X
+X#ifdef HP     /* Can be used for Turbo C/C++ */
+X#include <stdlib.h>
+Xsize_t msize;
+X#endif
+X
+X#ifdef SUN
+X#include <malloc.h>
+Xunsigned int msize;
+X#endif
+X
+Xchar sccsid[] = "@(#)ssh.c 1.12  92/03/05 (HaB)  etxerus@james.ericsson.se";
+X
+Xchar *pattern[] = {                 /* Add more patterns here if needed.   */ 
+X    "# This is a shell archive",    /* NOTE! Remember to increase SEARCHP. */ 
+X    "# This is part",
+X    "#!/bin/sh",
+X    "# !/bin/sh",
+X    "#! /bin/sh"
+X};
+X
+X/*  ssearchp:
+X *
+X *  Searches string s for pattern p.
+X *  Returns index on success else -1.
+X *
+X */
+X
+Xint ssearchp (s, p)
+X
+Xchar *s;     /* String to search      */
+Xchar *p;     /* Pattern to search for */
+X
+X{
+X    register i, j, k;     /* Counters */
+X
+X    for (i = 0; s[i] != '\0'; i++) {
+X	for (j = i, k = 0; p[k] != '\0' && s[j] == p[k]; j++, k++)
+X            ;
+X	if (k > 0 && p[k] == '\0')     /* Pattern found */
+X	    return i;
+X    }
+X    return -1;    /* Pattern not found */
+X}
+X
+Xmain ()
+X{
+X    FILE     *fr = stdin;         /* Input filepointer  */
+X    FILE     *fw;                 /* Output filepointer */
+X    int       state = SEARCH;     /* The current state  */
+X    int       fc = 0;             /* File part counter  */
+X    char     *s;                  /* Read line          */
+X    char      fout[7];            /* Output filenames   */
+X    register  j = 0;              /* Counter            */
+X    register  c;                  /* Read character     */
+X
+X    msize = MSTEP;
+X    s = malloc (msize);     /* Allocate buffer */
+X
+X    while ((c = getc (fr)) != EOF) {
+X	if (c != '\n') {     /* Check for EOL */
+X	    s[j++] = c;
+X            if (j == msize) {
+X                msize += MSTEP;
+X                if ((s = realloc (s, msize)) == NULL) {
+X                    puts ("ssh: Allocation error, cannot continue.");
+X                    exit (1);
+X                }
+X            }
+X        }
+X	else {
+X	    s[j] = '\0';     /* One line has been read */
+X	    switch (state) {
+X		case SEARCH:
+X		    for (j = 0; j < SEARCHP;) {
+X			if (ssearchp (s, pattern[j++]) != -1) {
+X			    state = START;
+X			    continue;
+X			}
+X		    }
+X		    if (state != START)
+X			break;
+X
+X		case START:     /* Start writing to file */
+X		    sprintf (fout, "part%.2d", ++fc);
+X		    fw = fopen (fout, "w");
+X		    fprintf (fw, "%s\n", s);
+X                    state = INSIDE;
+X		    break;
+X
+X                case INSIDE:
+X		    if (!(strcmp (s, "exit 0"))) {     /* Look for end */
+X                        fprintf (fw, "%s\n", s);
+X                        fclose (fw);
+X                        state = SEARCH;
+X                    }
+X                    else
+X			fprintf (fw, "%s\n", s);
+X		    break;
+X            }
+X            j = 0;    /* Reset counter */
+X        }
+X    }
+X}
+X
+END_OF_FILE
+  if test 3598 -ne `wc -c <'ssh.c'`; then
+    echo shar: \"'ssh.c'\" unpacked with wrong size!
+  fi
+  # end of 'ssh.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

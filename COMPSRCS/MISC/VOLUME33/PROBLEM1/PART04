@@ -1,0 +1,1830 @@
+Newsgroups: comp.sources.misc
+From: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Subject:  v33i075:  problem1.1 - A Problem Database Manager, Part04/07
+Message-ID: <1992Nov12.195512.29070@sparky.imd.sterling.com>
+X-Md4-Signature: 4414af38530aebc6e260744d4c4fc810
+Date: Thu, 12 Nov 1992 19:55:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Posting-number: Volume 33, Issue 75
+Archive-name: problem1.1/part04
+Environment: UNIX, C++, GDBM, Termcap
+Supersedes: problem: Volume 33, Issue 2-9
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 7)."
+# Contents:  classes.C lister.C
+# Wrapped by lijewski@xtesoc2 on Wed Nov 11 16:20:10 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'classes.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'classes.C'\"
+else
+echo shar: Extracting \"'classes.C'\" \(7537 characters\)
+sed "s/^X//" >'classes.C' <<'END_OF_FILE'
+X/*
+X** classes.C - contains definitions of the member functions which
+X**             aren\'t defined in the relevant class declarations.
+X**
+X** classes.C classes.C 1.11   Delta\'d: 12:59:54 10/31/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#include <new.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "classes.h"
+X#include "utilities.h"
+X
+Xtypedef void (*PEHF)();
+X
+XStringRep::StringRep()
+X{
+X    rep = ::new char[1];
+X    len = 0;
+X    *rep = '\0';
+X    count = 1;
+X}
+X
+XStringRep::StringRep(const char *s)
+X{
+X    len = ::strlen(s);
+X    rep = ::new char[len + 1];
+X    ::strcpy(rep, s);
+X    count = 1;
+X}
+X
+XStringRep::StringRep(const char *s, int slen)
+X{
+X    rep = ::new char[slen + 1];
+X    ::strncpy(rep, s, slen);
+X    rep[slen] = 0;  // force stringification
+X    len = ::strlen(s);
+X    count = 1;
+X}
+X
+XString StringRep::operator+(const String& s) const
+X{
+X    size_t slen  = s.length() + length();
+X    char *buf    = ::new char[slen + 1];
+X    ::strcpy(buf, rep);
+X    ::strcat(buf, s.p->rep);
+X    return String(&buf, slen);
+X}
+X
+X/*
+X** The definition of the head of the freelist that StringRep::operator new\(\)
+X** uses to dole out StringReps efficiently.
+X*/
+X
+XStringRep *StringRep::freeList;
+X
+Xvoid* StringRep::operator new(size_t size)
+X{
+X    if (size != sizeof(StringRep)) return ::new char[size];
+X    StringRep *s = freeList;
+X    if (s)
+X        freeList = s->next;
+X    else
+X    {
+X        StringRep *block = (StringRep*)::new char[chunksize*sizeof(StringRep)];
+X        if (block == 0)
+X        {
+X            PEHF newHandler = set_new_handler(0);
+X            set_new_handler(newHandler);
+X            if (newHandler)
+X                newHandler();
+X            else
+X                return 0;
+X        }
+X        for (int i = 0; i < chunksize - 1; i++)
+X            block[i].next = (StringRep *)&block[i + 1];
+X        block[chunksize - 1].next = 0;
+X        s = block;
+X        freeList = &block[1];
+X    }
+X    return s;
+X}
+X
+Xvoid StringRep::operator delete(void *object)
+X{
+X    StringRep *s = (StringRep *)object;
+X    s->next = freeList;
+X    freeList = s;
+X}
+X
+XString::~String() { if (--p->count <= 0) delete p; }
+X
+XString& String::operator=(const String& rhs)
+X{
+X    rhs.p->count++;
+X    if (--p->count <= 0) delete p;
+X    p = rhs.p;
+X    return *this;
+X}
+X
+Xvoid String::operator+=(const String& rhs)
+X{
+X    size_t slen = p->length() + rhs.length();
+X    char *buf   = ::new char[slen + 1];
+X    (void)strcpy(buf, p->rep);
+X    (void)strcat(buf, rhs.p->rep);
+X    if (p->count == 1)
+X    {
+X        DELETE p->rep;
+X        p->rep = buf;
+X        p->len = slen;
+X    }
+X    else
+X        operator=(String(&buf, slen));
+X}
+X
+Xvoid String::operator+=(const char *rhs)
+X{
+X    size_t slen = p->length() + ::strlen(rhs);
+X    char *buf = ::new char[slen + 1];
+X    ::strcpy(buf, p->rep);
+X    ::strcat(buf, rhs);
+X    if (p->count == 1)
+X    {
+X        DELETE p->rep;
+X        p->rep = buf;
+X        p->len = slen;
+X    }
+X    else
+X        operator=(String(&buf, slen));
+X}
+X
+Xvoid String::range_error(int index)
+X{
+X    ::error("range error: %d out of bounds", index);
+X    exit(1);
+X}
+X
+XSBHelper String::operator[](int index)
+X{
+X    if (index < 0 || index >= length()) range_error(index);
+X    return SBHelper(*this, index);
+X}
+X
+Xchar SBHelper::operator=(char c)
+X{
+X    if (str.p->count == 1)
+X        //
+X        // Only one reference to our String.  Just assign the character to
+X        // the appropriate place.  Note that String::operator\[\] does the
+X        // range checking.
+X        //
+X        str.p->rep[index] = c;
+X    else
+X    {
+X        // We have to uniquify our str.
+X        str = String(str.p->rep);
+X        str.p->rep[index] = c;
+X    }
+X    return c;
+X}
+X
+XDLink::DLink(char **line) : _line(line) { _next = _prev = 0; }
+X
+X//
+X// Update the line in DLink with a new version.  The new
+X// line should have been been allocated via new\(\).
+X// 
+Xvoid DLink::update(char **new_line) { _line = String(new_line); }
+X
+XDList::DList()
+X{
+X    _head   = _tail = 0;
+X    _next   = _prev = 0;
+X    _firstLine = _lastLine = _currLine = 0;
+X    _nelems    = _saved_x  = _saved_y  = 0;
+X}
+X
+X//
+X// Adds the DLink to the listing maintained by DList.
+X//
+X
+Xvoid DList::add(DLink *link)
+X{
+X    if (nelems())
+X    {
+X        _tail->_next = link;
+X        _tail->_next->_prev = tail();
+X        _tail = link;
+X        _nelems++;
+X    }
+X    else
+X    {
+X        _head = _tail = link;
+X        _nelems = 1;
+X    }
+X}
+X
+X//
+X// Delete the current listing line in the window
+X// and update our view.  The width of our view
+X// always decreases by one.  If the calling procedure
+X// adds more lines to the screen, they\'ll have to reset
+X// lastLine\(\) and/or firstLine\(\), but currLine doesn\'t need to change.
+X//
+X
+Xvoid DList::deleteLine()
+X{
+X    DLink *line = currLine();
+X
+X    if (atBegOfList())
+X    {
+X        //
+X        // that is, firstLine\(\) == head\(\)
+X        //
+X        _head = _firstLine = _currLine = head()->next();
+X        _head->_prev = 0;
+X    }
+X    else if (atWindowTop())
+X    {
+X        //
+X        // but firstLine\(\) != head\(\)
+X        //
+X        _firstLine = _currLine = line->next();
+X        line->_next->_prev = line->prev();
+X        line->_prev->_next = line->next();
+X    }
+X    else if (atEndOfList())
+X    {
+X        //
+X        // lastLine\(\) == tail\(\)
+X        //
+X        _tail = _lastLine = _currLine = line->prev();
+X        _tail->_next = 0;
+X    }
+X    else
+X    {
+X        _currLine = line->next();
+X        line->_next->_prev = line->prev();
+X        line->_prev->_next = line->next();
+X    }
+X
+X    _nelems--;
+X    delete line;
+X}
+X
+XDList::~DList()
+X{
+X    if (nelems())
+X    {
+X        DLink *tmp = tail(), *prev = tail()->prev();
+X        while(tmp)
+X        {
+X            delete tmp;
+X            if ((tmp = prev) != 0) prev = tmp->prev();
+X        }
+X        delete tmp;
+X    }
+X}
+X
+X//
+X// The definition of the head of the freelist that DLink::operator new\(\)
+X// uses to dole out dirLines efficiently.
+X//
+XDLink *DLink::freeList;
+X
+Xvoid *DLink::operator new(size_t)
+X{
+X    DLink *line = freeList;
+X    if (line)
+X        freeList = line->next();
+X    else
+X    {
+X        DLink *block = (DLink *) ::new char[chunksize * sizeof(DLink)];
+X        if (block == 0)
+X        {
+X            PEHF newHandler = set_new_handler(0);
+X            set_new_handler(newHandler);
+X            if (newHandler)
+X                newHandler();
+X            else
+X                return 0;
+X        }
+X        for (int i = 0; i < chunksize - 1; i++)
+X            block[i]._next = (DLink *)&block[i + 1];
+X        block[chunksize - 1]._next = 0;
+X        line = block;
+X        freeList = &block[1];
+X    }
+X    return line;
+X}
+X
+Xvoid DLink::operator delete(void *object)
+X{
+X    DLink *line = (DLink *)object;
+X    line->_next = freeList;
+X    freeList = line;
+X}
+X
+X
+END_OF_FILE
+if test 7537 -ne `wc -c <'classes.C'`; then
+    echo shar: \"'classes.C'\" unpacked with wrong size!
+fi
+# end of 'classes.C'
+fi
+if test -f 'lister.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lister.C'\"
+else
+echo shar: Extracting \"'lister.C'\" \(39159 characters\)
+sed "s/^X//" >'lister.C' <<'END_OF_FILE'
+X/*
+X** lister.C - a very simple line lister which manages its own screen
+X**            and provides functions which can be executed on the line
+X**            the cursor is on -- the "current" line.
+X**
+X** lister.C 1.38   Delta\'d: 08:25:56 11/10/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X
+X#include <ctype.h>
+X
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif
+X
+X#include <osfcn.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#ifdef ESIX
+Xtypedef int pid_t;
+X#endif /*ESIX*/
+X#include <sys/wait.h>
+X#include <unistd.h>
+X
+X#include "classes.h"
+X#include "display.h"
+X#include "help.h"
+X#include "keys.h"
+X#include "lister.h"
+X#include "problem.h"
+X#include "utilities.h"
+X#include "version.h"
+X
+X// our screen
+Xstatic DList *screen;
+X
+X/*
+X** initialize_lister - initialize the lister.  This is so we can
+X**                     call redisplay with no arguments.
+X*/
+X
+Xvoid initialize_lister(DList *dl) { screen = dl; }
+X
+X/*
+X** redisplay - this routine redisplays the DList which is our screen.
+X**             It assumes that the physical screen has become corrupted,
+X**             clearing each line before writing to it.
+X*/
+X
+Xstatic void redisplay()
+X{
+X    DLink *ln = screen->firstLine();
+X
+X    clear_display_area();
+X    
+X    for (int i = 0; i < rows() - 2 && ln; i++, ln = ln->next())
+X        display_string(ln->line(), ln->length());
+X
+X    update_modeline();
+X    clear_message_line();
+X
+X    if (screen->currLine()->length() > columns())
+X        leftshift_current_line(screen);
+X    else
+X        move_cursor(screen->savedYPos(), screen->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** scroll_up_one_line - Scroll the listing up one line.
+X**                      We only call this routine when we KNOW that
+X**                      there is at least one line below the window
+X**                      which can be scrolled into it and the cursor
+X**                      is on the last line of the screen.
+X*/
+X
+Xstatic void scroll_up_one_line(DList *dl)
+X{
+X    dl->setFirst(dl->firstLine()->next());
+X    dl->setLast(dl->lastLine()->next());
+X    dl->setCurrLine(dl->lastLine());
+X
+X    if (CS)
+X    {
+X        scroll_listing_up_one();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else if (DL || SF)
+X    {
+X        clear_modeline();
+X        scroll_screen_up_one();
+X        update_modeline();
+X        move_cursor(rows()-3, 0);
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else
+X        redisplay();
+X
+X    dl->saveYXPos(rows()-3, goal_column(dl));
+X    move_cursor(rows()-3, dl->savedXPos());
+X}
+X
+X/*
+X** scroll_down_one_line - Scroll the listing down one line.
+X**                        We only call this routine when we KNOW
+X**                        that the head of the listing is not visible
+X**                        and the cursor is on the first line in the window.
+X*/
+X
+Xstatic void scroll_down_one_line(DList *dl)
+X{
+X    if (lines_displayed(dl) == rows() - 2)
+X        //
+X        // Must update lastLine.  We previously had a screenfull of lines.
+X        //
+X        dl->setLast(dl->lastLine()->prev());
+X
+X    dl->setFirst(dl->firstLine()->prev());
+X    dl->setCurrLine(dl->firstLine());
+X
+X    if (CS)
+X    {
+X        scroll_listing_down_one();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else if (AL || SR)
+X    {
+X        clear_modeline();
+X        scroll_screen_down_one();
+X        update_modeline();
+X        cursor_home();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else
+X        redisplay();
+X
+X    dl->saveYXPos(0, goal_column(dl));
+X    move_cursor(0, dl->savedXPos());
+X}
+X
+X/*
+X** scroll_up_full_window - scroll listing up one full window,
+X**                         leaving one line of overlap.  This routine
+X**                         is only called when we know that the tail
+X**                         of the listing is not currently displayed.
+X*/
+X
+Xstatic void scroll_up_full_window(DList *dl)
+X{
+X    DLink *ln = dl->lastLine();
+X    dl->setFirst(ln);
+X    dl->setCurrLine(ln);
+X
+X    clear_display_area();
+X
+X    for (int i = 0; i < rows() - 2 && ln; i++, ln = ln->next())
+X        display_string(ln->line(), ln->length());
+X    
+X    ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X    dl->saveYXPos(0, goal_column(dl));
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(0, dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_down_full_window - try to scroll listing down one full window,
+X**                           with one line of overlap.  This routine is
+X**                           only called when we KNOW that there is at
+X**                           least one line "above" the current listing.
+X**                           Only change the current line if it flows off
+X**                           the "bottom" of the screen.  This routine is
+X**                           only called when we know that the head of the
+X**                           listing is not currently displayed.
+X*/
+X
+Xstatic void scroll_down_full_window(DList *dl)
+X{
+X    DLink *ln = dl->firstLine();
+X    for (int y = 0; y < rows() - 3 && ln != dl->head(); y++, ln = ln->prev());
+X    //
+X    // y == # of lines preceding firstLine to add to screen
+X    //
+X    dl->setFirst(ln);
+X
+X    clear_display_area();
+X    
+X    for (int j = 0; j < rows()-2 && ln; j++, ln = ln->next())
+X        display_string(ln->line(), ln->length());
+X    
+X    if (ln) dl->setLast(ln->prev());
+X    
+X    if (dl->savedYPos()+y >= rows()-2)
+X    {
+X        dl->setCurrLine(dl->lastLine());
+X        dl->saveYXPos(rows()-3, goal_column(dl));
+X    }
+X    else
+X        dl->saveYXPos(dl->savedYPos()+y, dl->savedXPos());
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_up_half_window - scroll listing up half a window.  This routine
+X**                         is only called when the tail of the listing
+X**                         is not being displayed.  We try to leave the
+X**                         cursor on the file it was on previously,
+X**                         otherwise it is left on the first file in
+X**                         the screen.
+X*/
+X
+Xstatic void scroll_up_half_window(DList *dl, int y)
+X{
+X    if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X
+X    DLink *ln = dl->firstLine();
+X    for (int i = 0; i < (rows() - 2)/2; i++, ln = ln->next()) ;
+X    dl->setFirst(ln);
+X    
+X    if (CS || DL || SF || DLN)
+X    {
+X        if (CS)
+X            scroll_listing_up_N((rows()-2)/2);
+X        else
+X        {
+X            clear_modeline();
+X            scroll_screen_up_N((rows()-2)/2);
+X            update_modeline();
+X        }
+X        move_cursor(rows() - 2 -((rows()-2)/2), 0);
+X        ln = dl->lastLine()->next();
+X        for (i = 0; i < (rows() - 2)/2 && ln; i++, ln = ln->next())
+X            display_string(ln->line(), ln->length());
+X        ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X    }
+X    else
+X    {
+X        clear_display_area();
+X        
+X        for (i = 0; i < rows() - 2 && ln->next(); i++, ln = ln->next())
+X            display_string(ln->line(), ln->length());
+X        
+X        if (i != rows()-2)
+X        {
+X            //
+X            // We hit last line before outputing all that we could.
+X            // Must output lastLine == tail.
+X            //
+X            display_string(ln->line(), ln->length());
+X            dl->setLast(ln);
+X            i++;  // so we know how many lines have been written
+X        }
+X        else
+X            dl->setLast(ln->prev());
+X    }
+X
+X    int pos = y - (rows()-2)/2;
+X    if (pos < 0) { pos = 0; dl->setCurrLine(dl->firstLine()); }
+X    
+X    dl->saveYXPos(pos, goal_column(dl));
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(pos, dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_down_half_window - try to scroll listing down half a window.
+X**                           If freshen is true, which is the default,
+X**                           the screen is refreshed.  It is important
+X**                           to note that we may not be able to scroll
+X**                           down a complete half window, since we
+X**                           always anchor the head of the listing to
+X**                           the first line in the screen.  This routine
+X**                           is only called when the head of the
+X**                           listing is not being displayed.
+X*/
+X
+Xstatic void scroll_down_half_window(DList *dl, int y, int freshen = 1)
+X{
+X    if (dl->firstLine() != dl->head())
+X    {
+X        //
+X        // We can scroll down.  Try to leave the cursor on the file
+X        // it started out on.  Otherwise, leave it on the
+X        // \(rows\(\)-2\)/2 line, which was the previous firstLine.
+X        //
+X        DLink *ln = dl->firstLine();
+X        for (int i = 0; i < (rows()-2)/2 && ln->prev(); i++, ln = ln->prev()) ;
+X        dl->setFirst(ln);
+X
+X        if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X
+X        if (CS || AL || ALN || SR)
+X        {
+X            if (CS)
+X                scroll_listing_down_N(i);
+X            else
+X            {
+X                clear_modeline();
+X                scroll_screen_down_N(i);
+X                update_modeline();
+X                clear_message_line();
+X            }
+X            cursor_home();
+X            for (int j = 0; j < i; j++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            ln = dl->firstLine();
+X            for (int i = 0; i < rows()-2 && ln->next(); i++, ln = ln->next()) ;
+X            dl->setLast(ln);
+X        }
+X        else
+X        {
+X            clear_display_area();
+X            
+X            for (int i = 0; i < rows()-2 && ln->next(); i++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            
+X            if (i != rows() - 2)
+X            {
+X                //
+X                // We hit last line before outputing all that we could.
+X                // Must output lastLine == tail.
+X                //
+X                display_string(ln->line(), ln->length());
+X                dl->setLast(ln);
+X                i++;  // so we know how many lines have been written
+X            }
+X            else
+X                dl->setLast(ln->prev());
+X        }
+X
+X        int pos = i + y;
+X        if (pos > rows() - 3)
+X        {
+X            pos = rows() - 3;
+X            dl->setCurrLine(dl->lastLine());
+X        }
+X
+X        dl->saveYXPos(pos, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(pos, dl->savedXPos());
+X
+X        if (freshen) synch_display();
+X    }
+X}
+X
+X/*
+X** goto_first - position cursor on first line in listing.  This routine
+X**              is not called if atBegOfList is true.
+X*/
+X
+Xstatic void goto_first(DList *dl)
+X{
+X    if (dl->head() != dl->firstLine())
+X        initial_listing(dl);
+X    else
+X    {
+X        if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X        dl->setCurrLine(dl->head());
+X    }
+X
+X    dl->saveYXPos(0, goal_column(dl));
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(0, dl->savedXPos());
+X
+X    synch_display();
+X}
+X
+X/*
+X** goto_last - position cursor on last file in listing.  This routine is
+X**             not called if atEndOfList is true.
+X*/
+X
+Xstatic void goto_last(DList *dl)
+X{
+X    if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X
+X    dl->setCurrLine(dl->tail());
+X
+X    if (dl->tail() == dl->lastLine())
+X    {
+X        //
+X        // Only need to reposition the cursor.
+X        //
+X        dl->saveYXPos(lines_displayed(dl) - 1, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    else
+X    {
+X        //
+X        // Redisplay end of listing & update our view.
+X        //
+X        DLink *ln = dl->tail();
+X        dl->setLast(ln);
+X
+X        clear_display_area();
+X        
+X        for (int i = 0; i < rows() - 2; i++, ln = ln->prev())
+X        {
+X            move_cursor(rows() - 3 - i, 0);
+X            display_string(ln->line(), ln->length());
+X        }
+X        dl->setFirst(ln->next());
+X        dl->saveYXPos(rows() - 3,goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(rows() -3 , dl->savedXPos());
+X    }
+X    synch_display();
+X}
+X
+X
+X/*
+X** type_any_key_to_continue - ask user to type any key to continue.
+X**                            Done in standout mode.
+X*/
+X
+Xstatic inline void type_any_key_to_continue()
+X{
+X    (void)yes_or_no("Press Any Key to Continue", redisplay, Yes, 1);
+X}
+X
+X/*
+X** examine_current_problem - attempt to examine the current problem.
+X*/
+X
+Xstatic void examine_current_problem(const DList *dl)
+X{
+X    if (examine_problem(get_problem_number(dl)))
+X        redisplay();
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X/*
+X** update_problem_listing - updates the current line in the listing.
+X**                          number is the number of the problem
+X**                          in the current line.
+X*/
+X
+Xstatic void update_problem_listing(DList *dl, const char *number)
+X{
+X    datum key;
+X    key.dptr  = (char *) number;
+X    key.dsize = (int)strlen(key.dptr) + 1;
+X    open_database(GDBM_READER);
+X    datum data = gdbm_fetch(GdbmFile, key);
+X    gdbm_close(GdbmFile);
+X    if (data.dptr)
+X    {
+X        char *newline = summary_info(data);
+X        dl->currLine()->update(&newline);
+X        free(data.dptr);
+X    }
+X}
+X
+X/*
+X** append_current_problem - attempt to append to the current problem.
+X**                          If successful, updates the listing line.
+X*/
+X
+Xstatic void append_current_problem(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    if (append_to_problem(number))
+X    {
+X        //
+X        // Replace old listing line with new.
+X        //
+X        update_problem_listing(dl, number);
+X        redisplay();
+X    }
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X/*
+X** close_current_problem - attempt to close the current problem
+X*/
+X
+Xstatic void close_current_problem(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    if (close_problem(number))
+X    {
+X        //
+X        // Replace old listing line with new.
+X        //
+X        update_problem_listing(dl, number);
+X        redisplay();
+X    }
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X/*
+X** reopen_current_problem - attempt to reopen the current problem
+X*/
+X
+Xstatic void reopen_current_problem(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    if (reopen_problem(number))
+X    {
+X        //
+X        // Replace old listing line with new.
+X        //
+X        update_problem_listing(dl, number);
+X        redisplay();
+X    }
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X/*
+X** modify_current_keywords - attempt to modify the keywords of the
+X**                           current problem
+X*/
+X
+Xstatic void modify_current_keywords(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    if (modify_keywords(number))
+X    {
+X        //
+X        // Replace old listing line with new.
+X        //
+X        update_problem_listing(dl, number);
+X        redisplay();
+X    }
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X/*
+X** modify_current_severity - attempt to modify the severity of the
+X**                           current problem.
+X*/
+X
+Xstatic void modify_current_severity(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    if (modify_severity(number))
+X    {
+X        //
+X        // Replace old listing line with new.
+X        //
+X        update_problem_listing(dl, number);
+X        redisplay();
+X    }
+X    else
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X}
+X
+X
+X/*
+X** remove_listing_line - delete the current line in the DList
+X**                       and update both the screen and data
+X**                       structures appropriately.  y is the position
+X**                       in the window of the current line.  Returns 0
+X**                       if we have removed the last line in the listing,
+X**                       otherwise returns 1.
+X*/
+X
+Xstatic int remove_listing_line(DList *dl, int y)
+X{
+X    if (dl->lastLine() != dl->tail())
+X    {
+X        //
+X        // Last line in listing is not in window - scroll up one line.
+X        //
+X        dl->setLast(dl->lastLine()->next());
+X        dl->deleteLine();
+X
+X        if (CS || DL)
+X        {
+X            if (CS)
+X                delete_listing_line(y);
+X            else
+X            {
+X                clear_modeline();
+X                delete_screen_line(y);
+X                update_modeline();
+X            }
+X            move_cursor(rows()-3, 0);
+X            display_string(dl->lastLine()->line(), dl->lastLine()->length());
+X        }
+X        else
+X        {
+X            clear_to_end_of_screen(y);
+X            move_cursor(y, 0);
+X            DLink *ln = dl->currLine();
+X            for (int i = y; i < rows()-2; i++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            update_modeline();
+X        }
+X        dl->saveYXPos(y, goal_column(dl));
+X    } else
+X    {
+X        //
+X        // Last line of listing is visible in window.
+X        //
+X        if (dl->atWindowTop() && dl->atWindowBot())
+X        {
+X            //
+X            // The last line in the window is also the first line.
+X            //
+X            if (dl->nelems() == 1)
+X            {
+X                cursor_home();
+X                clear_to_end_of_line();
+X                return 0;
+X            }
+X            scroll_down_half_window(dl, y, 0);
+X            dl->deleteLine();
+X            DLink *ln = dl->firstLine();
+X            for (int pos = 0; ln != dl->tail(); pos++, ln = ln->next()) ;
+X            dl->saveYXPos(pos, goal_column(dl));
+X            move_cursor(pos + 1, 0);
+X            clear_to_end_of_line();
+X            move_cursor(pos, dl->savedXPos());
+X        }
+X        else if (dl->atWindowBot())
+X        {
+X            //
+X            // We want to delete the last line in the window.
+X            //
+X            dl->deleteLine();
+X            move_cursor(y, 0);
+X            clear_to_end_of_line();
+X            dl->saveYXPos(y-1, goal_column(dl));
+X            move_cursor(y-1, dl->savedXPos());
+X        }
+X        else
+X        {
+X            //
+X            // We are in the middle of the listing.
+X            //
+X            dl->deleteLine();
+X            if (CS || DL)
+X            {
+X                if (CS)
+X                    delete_listing_line(y);
+X                else
+X                {
+X                    clear_modeline();
+X                    delete_screen_line(y);
+X                    update_modeline();
+X                }
+X            } else
+X            {
+X                clear_to_end_of_screen(y);
+X                move_cursor(y, 0);
+X                for (DLink *ln = dl->currLine(); ln; ln = ln->next())
+X                    display_string(ln->line(), ln->length());
+X                update_modeline();
+X            }
+X            dl->saveYXPos(y, goal_column(dl));
+X         }
+X    }
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    return 1;
+X}
+X
+X/*
+X** transfer_current_problem - attempt to transfer the current problem
+X**                            from the given area to another.
+X*/
+X
+Xstatic int transfer_current_problem(DList *dl)
+X{
+X    const char *number = get_problem_number(dl);
+X
+X    char *area = prompt("New Area --> ", redisplay);
+X
+X    //
+X    // Before calling transfer_problem we must guarantee that area
+X    // is a valid area and it is distict from the current area.
+X    //
+X
+X    if (!is_area(area))
+X    {
+X        ding();
+X        message("`%' isn't a valid problem area", area);
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        DELETE area;
+X        return 1;
+X    }
+X
+X    if (strcmp(area, CurrentArea()) == 0)
+X    {
+X        ding();
+X        message("`%' is the same as the current area", area);
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        DELETE area;
+X        return 1;
+X    }
+X
+X    //
+X    // We have now guaranteed that this will either work, or we will
+X    // exit due to some unforeseen error.
+X    //
+X    (void)transfer_problem(number, area);
+X    DELETE area;
+X
+X    //
+X    // Delete listing line.
+X    //
+X    if (remove_listing_line(dl, dl->savedYPos()) == 0)
+X        //
+X        // No more lines to view.
+X        //
+X        return 0;
+X    
+X    //
+X    // Replace old listing line with new.
+X    //
+X    update_problem_listing(dl, number);
+X    redisplay();
+X
+X    return 1;
+X}
+X
+X/*
+X** delete_current_problem - attempt to delete the current problem.  Returns
+X**                          0 if there are no more problems to view.
+X*/
+X
+Xstatic int delete_current_problem(DList *dl)
+X{
+X    if (delete_problem(get_problem_number(dl)))
+X        if (remove_listing_line(dl, dl->savedYPos()) == 0)
+X            return 0;
+X
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X    return 1;
+X}
+X
+X/*
+X** save_problem_listing - saves problem listing to a file of the users choice.
+X**                        If the first character of the filename is ~, the
+X**                        tilde is replaced by the users home directory.
+X*/
+X
+Xstatic void save_problem_listing(const DList *dl)
+X{
+X    message_window_dirty = 1; // force message window dirty
+X    int status;
+X
+X    char *file = prompt("Filename --> ", redisplay);
+X
+X    const char *fullname;
+X    fullname = *file == '~' ? expand_tilde(file) : file;
+X    pid_t pid = fork();
+X    switch(pid)
+X    {
+X      case -1:
+X        //
+X        // error
+X        //
+X        message("Sorry, can't write, fork() failed");
+X        break;
+X      case 0:
+X        //
+X        // In the child.
+X        //
+X        if (setuid(getuid()) < 0)
+X            exit(1);
+X        else
+X        {
+X            FILE *fp = fopen(fullname, "w");
+X            if (!fp)
+X                exit(1);
+X            else
+X            {
+X                //
+X                // Try to write the file.
+X                //
+X                for (DLink *ln = dl->head(); ln; ln = ln->next())
+X                    (void)fprintf(fp, "%s\n", ln->line());
+X                if (ferror(fp)) exit(1);
+X            }
+X            (void)fclose(fp);
+X        }
+X        exit(0);
+X      default:
+X        //
+X        // In the parent.
+X        //
+X#ifdef NOWAITPID
+X        while (wait(&status) != pid) ;
+X#else
+X        waitpid(pid, &status, 0);
+X#endif
+X
+X        if (!status)
+X            message("listing saved to file `%'", fullname);
+X        else
+X            message("problem saving listing, sorry");
+X
+X        DELETE file;
+X        break;
+X    }
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();        
+X}
+X
+X/*
+X** help - give some help.  Deal with SIGWINCH and SIGTSTP.
+X*/
+X
+Xstatic void help()
+X{
+X    String old_modeline(current_modeline);
+X    update_modeline("----- HELP");
+X    
+X    int position = 0;
+X    char key;
+X    do {
+X        clear_display_area();
+X        for (int i = 0; i < rows() - 2 && i + position < HELP_FILE_DIM; i++)
+X            display_string(help_file[position + i]);
+X
+X        clear_message_line();
+X
+X        if (position + rows() -2 >= HELP_FILE_DIM)
+X            // the tail of the help message
+X            (void)fputs(HELP_MSG[2], stdout);
+X        else if (position == 0)
+X            // the head of the help message
+X            (void)fputs(HELP_MSG[0], stdout);
+X        else
+X            //  somewhere in between
+X            (void)fputs(HELP_MSG[1], stdout);
+X        synch_display();
+X
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0 // assume fails only when errno == EINTR
+X            )
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged) { windowSizeChanged = 0; adjust_window(); }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X        }
+X        else if (key == KEY_SPC)
+X        {
+X            if (position >= HELP_FILE_DIM - 1) break;
+X            position += rows() - 2;
+X        }
+X        else if (key == *BC)
+X        {
+X            if (position == 0) break;
+X            position -= rows() - 2;
+X        }
+X        else 
+X            break;  // return to the listing
+X    }
+X    while (position < HELP_FILE_DIM - 1);
+X
+X    update_modeline(old_modeline);
+X    redisplay();
+X}
+X
+X/*
+X** shell_command - execute a shell command.
+X**                 If *cmd == 0, start up a shell.
+X**                 If *cmd == !, reexecute most recent shell command.
+X*/
+X
+Xstatic void shell_command(DList *dl)
+X{
+X    static String saved_cmd;
+X    static String saved_shell;
+X
+X    char *cmd  = prompt("!", redisplay);
+X
+X    if (*cmd == 0)
+X    {
+X        //
+X        // Start up a shell.
+X        //
+X        if (saved_shell == "") saved_shell = getenv("SHELL");
+X        if (saved_shell == "") saved_shell = "sh";
+X
+X        saved_cmd = saved_shell;
+X
+X        const char *args[2];
+X        args[0] = saved_shell;
+X        args[1] = 0;
+X
+X        message("Starting interactive shell ...");
+X        cursor_wrap();
+X
+X        execute(saved_shell, args);
+X    }
+X    else if (*cmd == '!')
+X    {
+X        //
+X        //  Re-execute previously saved command.
+X        //
+X        if (saved_cmd != "")
+X        {
+X            message(saved_cmd);
+X            cursor_wrap();
+X
+X            const char **args = tokenize(saved_cmd, " \t");
+X
+X            execute(args[0], args, 1);
+X        }
+X        else
+X        {
+X            ding();
+X            message("No previous shell command");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            DELETE cmd;
+X            return;
+X        }
+X    } else
+X    {
+X        //
+X        // Execute command.
+X        //
+X        saved_cmd = cmd;
+X        message(saved_cmd);
+X        cursor_wrap();
+X
+X        const char **args = tokenize(saved_cmd, " \t");
+X
+X        execute(args[0], args, 1);
+X    }
+X
+X    DELETE cmd;
+X    redisplay();
+X}
+X
+X/*
+X** read_from_keybd - read a key from the keyboard, taking care
+X**                   of SIGTSTPs and SIGWINCHs.  If the read fails,
+X**                   we assume it is because we caught a SIGTSTP
+X**                   or SIGWINCH.  In that case we redraw the screen
+X**                   with redisplay.
+X*/
+X
+Xstatic int read_from_keybd()
+X{
+X    char key;
+X    while (1)
+X    {
+X        if (resumingAfterSuspension ||
+X#ifdef SIGWINCH
+X            windowSizeChanged       ||
+X#endif
+X            read(0, &key, 1) < 0)  // assume only fails when errno==EINTR
+X        {
+X#ifdef SIGWINCH
+X            if (windowSizeChanged)
+X            {
+X                windowSizeChanged = 0;
+X                adjust_window();
+X            }
+X#endif
+X            resumingAfterSuspension = 0;
+X            redisplay();
+X            continue;
+X        }
+X        return key;
+X    }
+X}
+X
+X/*
+X** get_key - reads a key and then clears the message window,
+X**           if it needs to be cleared. Used only by read_commands in the
+X**           main switch statement so that message does not need to sleep
+X**           and clear on the messages that get written.  This way, the
+X**           message window is cleared after each keypress within the main
+X**           loop, when necessary.  We also check for and deal with window
+X**           size changes and the UP and DOWN arrow keys here.
+X*/
+X
+Xstruct arrow_key {
+X    int len;
+X    int *seq;
+X    arrow_key(const char *);
+X};
+X
+Xarrow_key::arrow_key(const char *str)
+X{
+X    if (str == 0)
+X    {
+X        //
+X        // The capability is not defined.
+X        //
+X        len = 0;
+X        seq = 0;
+X        return;
+X    }
+X
+X    seq = new int[12]; // should be ample
+X
+X    int i = 0;
+X    do
+X    {
+X        switch (*str)
+X        {
+X          case '\\':
+X          {
+X              int c = *++str;
+X              switch (c)
+X              {
+X                case 'E':  seq[i++] = 0x1b; break;
+X                case 'b':  seq[i++] = '\b'; break;
+X                case 'f':  seq[i++] = '\f'; break;
+X                case 'n':  seq[i++] = '\n'; break;
+X                case 'r':  seq[i++] = '\r'; break;
+X                case 't':  seq[i++] = '\t'; break;
+X                case 'v':  seq[i++] = '\v'; break;
+X                case '\\': seq[i++] = '\\'; break;
+X                case '\'': seq[i++] = '\''; break;
+X                case '\"': seq[i++] = '\"'; break;
+X                case '^':  seq[i++] = '^';  break;
+X                default:
+X                    error("invalid escape in /etc/termcap for arrow key: \\%c", c);
+X                    break;
+X              }
+X              break;
+X          }
+X          case '^':
+X          {
+X              int c = *++str;
+X              if (isalpha(c))
+X              {
+X                  seq[i] = (c > 'a' ? c - 'a' : c - 'A') + 1;
+X                  i++;  // g++ 2.2.2 chokes if I write seq\[i++\] = ...
+X              }
+X              else
+X                  switch(c)
+X                  {
+X                    case '[':  seq[i++] = 0x1b; break;
+X                    case '\\': seq[i++] = 0x1c; break;
+X                    case ']':  seq[i++] = 0x1d; break;
+X                    case '^':  seq[i++] = 0x1e; break;
+X                    case '_':  seq[i++] = 0x1f; break;
+X                    default:
+X                        error("invalid control sequence for arrow key: ^%c", c);
+X                        break;
+X                  }
+X              }
+X              break;
+X          default: seq[i++] = *str; break;
+X        }
+X    } while (*++str);
+X    len = i;
+X}
+X
+Xstatic int get_key(DList *dl)
+X{
+X    int key, index = 0;
+X    static arrow_key up(KU), down(KD);
+X    static int *keys;
+X    static int remaining = 0;
+X
+X    if (keys ==0) keys = new int[max(up.len, down.len)];
+X
+X    if (remaining)
+X    {
+X        //
+X        // We have some characters left over from a partial match
+X        // of an arrow key; use them up.
+X        //
+X        key = keys[0];
+X        remaining--;
+X        for (int i = 0; i < remaining; i++) keys[i] = keys[i+1];
+X        return key;
+X    }
+X    else
+X        key = read_from_keybd();
+X
+X    if (message_window_dirty)
+X    {
+X        clear_message_line();
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        message_window_dirty = 0;
+X    }
+X
+X    //
+X    // Now deal with potential arrow keys.
+X    //
+X    if (KU || KD)
+X    {
+X        for (index = 0; (index < up.len && up.seq[index] == key) ||
+X             (index < down.len && down.seq[index] == key); index++)
+X        {
+X            if ((up.len - 1) == index && up.seq[index] == key)
+X                return KEY_ARROW_UP;
+X            if ((down.len - 1) == index && down.seq[index] == key)
+X                return KEY_ARROW_DOWN;
+X            if (index == (max(up.len, down.len) - 1)) break;
+X            keys[index] = key;
+X            key = read_from_keybd();
+X        }
+X        if (index == 0)
+X            return key; // no initial match -- the most usual case
+X        else
+X        {
+X            //
+X            // We had a partial match, but not a complete one.
+X            // We must return the characters which we have read in
+X            // the proper order so that the main command loop can
+X            // check for matches.  The problem here is the potential
+X            // ambiguity between what the terminal claims to be arrow
+X            // keys and what has been hardcoded as commands.
+X            //
+X            keys[index] = key;
+X            key = keys[0];  // what we will return to the command loop
+X            for (int i = 0; i < index; i++) keys[i] = keys[i+1];
+X            remaining = index;
+X            return key;
+X        }
+X    }
+X    else
+X        return key;
+X}
+X
+X/*
+X** read_commands - the command loop
+X*/
+X
+Xvoid lister_cmd_loop(DList *dl)
+X{
+X    int key;
+X    for (;;)
+X    {
+X        switch (key = get_key(dl))
+X        {
+X          case KEY_j:
+X          case KEY_n:
+X          case KEY_CTL_N:
+X          case KEY_SPC:
+X          case KEY_CR:
+X          case KEY_ARROW_DOWN:
+X            if (dl->atEndOfList())
+X            {
+X                ding();
+X                break;
+X            }
+X            if (dl->currLine()->length() > columns()) 
+X                rightshift_current_line(dl);
+X            if (dl->savedYPos() < rows() - 3)
+X            {
+X                // There are still more lines below us in the window
+X                // so we just move the cursor down one line.
+X                dl->setCurrLine(dl->currLine()->next());
+X                int x = goal_column(dl);
+X                if (x == dl->savedXPos())
+X                    cursor_down();
+X                else
+X                    move_cursor(dl->savedYPos() + 1, x);
+X                dl->saveYXPos(dl->savedYPos() + 1, x);
+X            }
+X            else
+X                //
+X                // We are on the last line on the screen and there
+X                // are more lines to display.  Scroll up one line
+X                // and leave the cursor on the next logical line.
+X                //
+X                scroll_up_one_line(dl);
+X            if (dl->currLine()->length() > columns())
+X                leftshift_current_line(dl);
+X            synch_display();
+X            break;
+X
+X          case KEY_k:
+X          case KEY_p:
+X          case KEY_CTL_P:
+X          case KEY_CTL_Y:
+X          case KEY_ARROW_UP:
+X            if (dl->atBegOfList())
+X            {
+X                ding();
+X                break;
+X            }
+X            if (dl->currLine()->length() > columns())
+X                rightshift_current_line(dl);
+X            if (dl->savedYPos() != 0)
+X            {
+X                //
+X                // We are not at the top of the window so can move up.
+X                //
+X                dl->setCurrLine(dl->currLine()->prev());
+X                int x = goal_column(dl);
+X                if (x == dl->savedXPos() && UP)
+X                    cursor_up();
+X                else
+X                    move_cursor(dl->savedYPos() - 1, x);
+X                dl->saveYXPos(dl->savedYPos() - 1, x);
+X            }
+X           else
+X               //
+X               // We are on the first line of the window and there are
+X               // lines preceding us in the directory listing.
+X               //
+X               scroll_down_one_line(dl);
+X            if (dl->currLine()->length() > columns())
+X                leftshift_current_line(dl);
+X            synch_display();
+X            break;
+X
+X          case KEY_CTL_F:
+X          case KEY_CTL_V:
+X            if (dl->lastLine() == dl->tail())
+X            {
+X                ding();
+X                break;
+X            }
+X            scroll_up_full_window(dl);
+X            break;
+X
+X          case KEY_b:
+X          case KEY_CTL_B:
+X            if (dl->firstLine() == dl->head())
+X            {
+X                ding();
+X                break;
+X            }
+X            scroll_down_full_window(dl);
+X            break;
+X
+X          case KEY_CTL_D:
+X            if (dl->lastLine() == dl->tail())
+X            {
+X                ding();
+X                break;
+X            }
+X            scroll_up_half_window(dl, dl->savedYPos());
+X            break;
+X
+X          case KEY_CTL_U:
+X            if (dl->firstLine() == dl->head())
+X            {
+X                ding();
+X                break;
+X            }
+X            scroll_down_half_window(dl, dl->savedYPos());
+X            break;
+X
+X          case KEY_TOP:
+X            if (dl->atBegOfList())
+X            {
+X                ding();
+X                break;
+X            }
+X            goto_first(dl);
+X            break;
+X
+X          case KEY_BOT:
+X            if (dl->atEndOfList())
+X            {
+X                ding();
+X                break;
+X            }
+X            goto_last(dl);
+X            break;
+X
+X          case KEY_e:
+X          case KEY_m:
+X          case KEY_v:
+X            examine_current_problem(dl); break;
+X
+X          case KEY_a:
+X            append_current_problem(dl); break;
+X
+X          case KEY_c:
+X            close_current_problem(dl); break;
+X
+X          case KEY_d:
+X            if (delete_current_problem(dl) == 0)
+X                //
+X                // No more problems to view.
+X                //
+X                return;
+X            break;
+X
+X          case KEY_r:
+X            reorganize_database(0);
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            break;
+X
+X          case KEY_M:
+X            modify_current_keywords(dl); break;
+X
+X          case KEY_P:
+X            modify_current_severity(dl); break;
+X
+X          case KEY_R:
+X            reopen_current_problem(dl); break;
+X
+X          case KEY_S:
+X            save_problem_listing(dl); break;
+X
+X          case KEY_T:
+X            if (transfer_current_problem(dl) == 0)
+X                //
+X                // No more problems to view.
+X                //
+X                return;
+X            break;
+X
+X          case KEY_QM: case KEY_H:
+X            help(); break;
+X
+X          case KEY_BANG:
+X            shell_command(dl); break;
+X
+X          case KEY_V:
+X            message(Version);
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            break;
+X
+X          case KEY_CTL_L:
+X            redisplay(); break;
+X
+X          case KEY_q:
+X            return;
+X
+X          case KEY_ESC:
+X            //
+X            // Some Emacs ESC key bindings.
+X            //
+X            switch(get_key(dl))
+X            {
+X              case KEY_v:
+X                if (dl->firstLine() == dl->head())
+X                {
+X                    ding();
+X                    break;
+X                }
+X                scroll_down_full_window(dl);
+X                break;
+X
+X              case KEY_TOP:
+X                if (dl->atBegOfList())
+X                {
+X                    ding();
+X                    break;
+X                }
+X                goto_first(dl);
+X                break;
+X
+X              case KEY_BOT:
+X                if (dl->atEndOfList())
+X                {
+X                    ding();
+X                    break;
+X                }
+X                goto_last(dl);
+X                break;
+X
+X              default:
+X                ding();
+X                break;
+X            }
+X            break;
+X
+X          default: ding(); break;
+X        }
+X    }
+X}
+END_OF_FILE
+if test 39159 -ne `wc -c <'lister.C'`; then
+    echo shar: \"'lister.C'\" unpacked with wrong size!
+fi
+# end of 'lister.C'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

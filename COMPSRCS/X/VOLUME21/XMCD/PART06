@@ -1,0 +1,2871 @@
+Newsgroups: comp.sources.x
+From: ti@bazooka.amb.org (Ti Kan)
+Subject: v21i068:  xmcd - X11/Motif CD audio player, Part06/13
+Message-ID: <1993Dec19.193917.24240@sparky.sterling.com>
+X-Md4-Signature: 3d70787591fb8cce078e19cc63267b5c
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 19:39:17 GMT
+Approved: chris@sterling.com
+
+Submitted-by: ti@bazooka.amb.org (Ti Kan)
+Posting-number: Volume 21, Issue 68
+Archive-name: xmcd/part06
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 13)."
+# Contents:  dbprog.c
+# Wrapped by ti@bazooka on Mon Nov  8 10:35:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'dbprog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbprog.c'\"
+else
+echo shar: Extracting \"'dbprog.c'\" \(58201 characters\)
+sed "s/^X//" >'dbprog.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_dbprog_c_ident_ = "@(#)dbprog.c	1.91 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include <Xm/Text.h>
+X#include <Xm/List.h>
+X#include <X11/Xatom.h>
+X#include "xmcd.h"
+X#include "widget.h"
+X#include "cdlib.h"
+X#include "cdfunc.h"
+X#include "util.h"
+X#include "patchlevel.h"
+X#include "dbprog.h"
+X
+X
+Xtypedef struct database {
+X	word32_t	discid;			/* Magic disc ID */
+X	byte_t		ntrk;			/* Number of disc tracks */
+X	char		*dbfile;		/* Path to database file */
+X	char		*dtitle;		/* Disc title */
+X	char		*trklist[MAXTRACK];	/* Track title list */
+X	char		*extd;			/* Extended disc info */
+X	char		*extt[MAXTRACK];	/* Extended track info */
+X	char		*sav_extt[MAXTRACK];	/* Bkup extended track info */
+X	char		*playorder;		/* Track play order */
+X} database_t;
+X
+X
+Xtypedef struct linkopts {
+X	char		*dtitle;		/* Disc title */
+X	char		idstr[9];		/* Disc id string */
+X	struct linkopts	*next;			/* Link to next item */
+X} linkopts_t;
+X
+X
+Xextern widgets_t	widgets;
+Xextern AppData		app_data;
+Xextern uid_t		ouid;
+Xextern char		**dbdirs;
+X
+XSTATIC char		timemode = TIME_TOTAL;	/* Time display mode flag */
+XSTATIC int		sel_pos = -1,		/* Track list select position */
+X			osel_pos = -1,		/* Old track list select pos */
+X			linksel_pos = -1,	/* Link select position */
+X			extt_pos = -1,		/* Ext track info position */
+X			dirsel_mode = DIRSEL_SAVE;
+X						/* Directory selector mode */
+XSTATIC bool_t		title_edited = FALSE,	/* Track title edited flag */
+X			extt_setup = FALSE,	/* Ext track info setup */
+X			pgmseq_editing = FALSE,	/* Pgm seq edited flag */
+X			dbprog_changed = FALSE,	/* Flag to indicate change */
+X			extd_manage = FALSE,	/* Whether to manage extd */
+X			extt_manage = FALSE;	/* Whether to manage extt */
+XSTATIC database_t	cur_db;			/* Database entry of CD */
+XSTATIC linkopts_t	*linkhead = NULL;	/* Link options list head */
+X
+X#define MIN(a,b)	(((a) > (b)) ? (b) : (a))
+X#define MAX(a,b)	(((a) > (b)) ? (a) : (b))
+X
+X
+X/*
+X * dbprog_strcat
+X *	Concatenate two text strings with special handling for newline
+X *	and tab character translations.
+X *
+X * Args:
+X *	s1 - The first text string and destination string.
+X *	s2 - The second text string.
+X *
+X * Return:
+X *	Pointer to the resultant string, or NULL if failed.
+X */
+XSTATIC char *
+Xdbprog_strcat(char *s1, char *s2)
+X{
+X	char	*cp = s1;
+X
+X	if (s1 == NULL || s2 == NULL)
+X		return(NULL);
+X
+X	/* Concatenate two strings, with special handling for newline
+X	 * and tab characters.
+X	 */
+X	for (s1 += strlen(s1); *s2 != '\0'; s1++, s2++) {
+X		if (*s2 == '\\') {
+X			switch (*(s2 + 1)) {
+X			case 'n':
+X				*s1 = '\n';
+X				s2++;
+X				break;
+X			case 't':
+X				*s1 = '\t';
+X				s2++;
+X				break;
+X			default:
+X				*s1 = *s2;
+X				break;
+X			}
+X		}
+X		else
+X			*s1 = *s2;
+X	}
+X	*s1 = '\0';
+X
+X	return(cp);
+X}
+X
+X
+X/*
+X * dbprog_sum
+X *	Convert an integer to its text string representation, and
+X *	compute its checksum.  Used by dbprog_discid to derive the
+X *	disc ID.
+X *
+X * Args:
+X *	n - The integer value.
+X *
+X * Return:
+X *	The integer checksum.
+X */
+XSTATIC int
+Xdbprog_sum(int n)
+X{
+X	char	buf[12],
+X		*p;
+X	int	ret = 0;
+X
+X	/* For backward compatibility this algorithm must not change */
+X	sprintf(buf, "%lu", n);
+X	for (p = buf; *p != '\0'; p++)
+X		ret += (*p - '0');
+X
+X	return(ret);
+X}
+X
+X
+X/*
+X * dbprog_discid
+X *	Compute a magic disc ID based on the number of tracks,
+X *	the length of each track, and a checksum of the string
+X *	that represents the offset of each track.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	The integer disc ID.
+X */
+XSTATIC word32_t
+Xdbprog_discid(curstat_t *s)
+X{
+X	int	i,
+X		t = 0,
+X		n = 0;
+X
+X	/* For backward compatibility this algorithm must not change */
+X	for (i = 0; i < (int) s->tot_trks; i++) {
+X		n += dbprog_sum((s->trkinfo[i].min * 60) + s->trkinfo[i].sec);
+X
+X		t += ((s->trkinfo[i+1].min * 60) + s->trkinfo[i+1].sec) -
+X		     ((s->trkinfo[i].min * 60) + s->trkinfo[i].sec);
+X	}
+X
+X	return((n % 0xff) << 24 | t << 8 | s->tot_trks);
+X}
+X
+X
+X/*
+X * dbprog_parse
+X *	Parse the shuffle/program mode play sequence text string, and
+X *	update the playorder table in the curstat_t structure.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	TRUE=success, FALSE=error.
+X */
+XSTATIC bool_t
+Xdbprog_parse(curstat_t *s)
+X{
+X	int	i,
+X		j,
+X		n;
+X	char	*p,
+X		*q,
+X		*tmpbuf;
+X	bool_t	last = FALSE;
+X
+X	if (cur_db.playorder == NULL)
+X		return(FALSE);
+X
+X	n = strlen(cur_db.playorder) + 1;
+X	if ((tmpbuf = (char *) MEM_ALLOC(n)) == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return(FALSE);
+X	}
+X
+X	strcpy(tmpbuf, cur_db.playorder);
+X
+X	s->prog_tot = 0;
+X
+X	for (i = 0, p = q = tmpbuf; i < MAXTRACK; i++, p = ++q) {
+X		/* Skip p to the next digit */
+X		for (; !isdigit(*p) && *p != '\0'; p++)
+X			;
+X
+X		if (*p == '\0')
+X			/* No more to do */
+X			break;
+X
+X		/* Skip q to the next non-digit */
+X		for (q = p; isdigit(*q); q++)
+X			;
+X
+X		if (*q == PGM_SEPCHAR)
+X			*q = '\0';
+X		else if (*q == '\0')
+X			last = TRUE;
+X		else {
+X			MEM_FREE(tmpbuf);
+X			return(FALSE);
+X		}
+X
+X		if (q > p) {
+X			/* Update play sequence */
+X			for (j = 0; j < MAXTRACK; j++) {
+X				if (s->trkinfo[j].trkno == atoi(p)) {
+X					s->playorder[i] = j;
+X					s->prog_tot++;
+X					break;
+X				}
+X			}
+X
+X			if (j >= MAXTRACK) {
+X				MEM_FREE(tmpbuf);
+X				return(FALSE);
+X			}
+X		}
+X
+X		if (last)
+X			break;
+X	}
+X
+X	if (s->prog_tot > 0)
+X		s->program = TRUE;
+X
+X	MEM_FREE(tmpbuf);
+X	return(TRUE);
+X}
+X
+X
+X/*
+X * dbprog_listupd
+X *	Update the track list display to reflect the contents of
+X *	the trkinfo table in the curstat_t structure.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_listupd(curstat_t *s)
+X{
+X	int		i,
+X			n,
+X			secs;
+X	char		*str;
+X	byte_t		min,
+X			sec;
+X	XmString	xs;
+X
+X
+X	for (i = 0; i < (int) s->tot_trks; i++) {
+X		if (timemode == TIME_TOTAL) {
+X			min = (byte_t) s->trkinfo[i].min;
+X			sec = (byte_t) s->trkinfo[i].sec;
+X		}
+X		else {
+X			secs = ((s->trkinfo[i+1].min * 60 +
+X				s->trkinfo[i+1].sec) - 
+X			        (s->trkinfo[i].min * 60 +
+X				s->trkinfo[i].sec));
+X			min = (byte_t) (secs / 60);
+X			sec = (byte_t) (secs % 60);
+X		}
+X
+X		n = strlen((cur_db.trklist[i] == NULL) ?
+X			   UNDEF_STR : cur_db.trklist[i]) + TRKLIST_PFLEN;
+X
+X		if ((str = (char *) MEM_ALLOC(n)) == NULL) {
+X			cd_fatal_popup(
+X				app_data.str_fatal,
+X				app_data.str_nomemory
+X			);
+X			return;
+X		}
+X
+X		if (cur_db.trklist[i] != NULL)
+X			sprintf(str, TRKLIST_FMT, s->trkinfo[i].trkno,
+X				min, sec, cur_db.trklist[i]);
+X		else
+X			sprintf(str, TRKLIST_FMT, s->trkinfo[i].trkno,
+X				min, sec, UNDEF_STR);
+X
+X		if (s->mode != M_NODISC && s->cur_trk >= 0 &&
+X		    curtrk_pos(s) == i)
+X			xs = XmStringCreate(str, CHSET2);
+X		else
+X			xs = XmStringCreate(str, CHSET1);
+X
+X		XmListAddItemUnselected(widgets.dbprog.trk_list, xs, i + 1);
+X
+X		XmStringFree(xs);
+X		MEM_FREE(str);
+X	}
+X
+X	if (sel_pos > 0)
+X		/* This item is previously selected */
+X		XmListSelectPos(widgets.dbprog.trk_list, sel_pos, False);
+X}
+X
+X
+X/*
+X * dbprog_structupd
+X *	Update the cur_db structure to match the state of the various
+X *	input fields in the database/program window.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_structupd(curstat_t *s)
+X{
+X	/* Disc title */
+X	if (cur_db.dtitle != NULL) {
+X		XmTextSetString(widgets.dbprog.dtitle_txt, cur_db.dtitle);
+X		XmTextSetInsertionPosition(
+X			widgets.dbprog.dtitle_txt,
+X			strlen(cur_db.dtitle)
+X		);
+X	}
+X	else {
+X		XmTextSetString(widgets.dbprog.dtitle_txt, UNDEF_STR);
+X		XmTextSetInsertionPosition(widgets.dbprog.dtitle_txt, 2);
+X	}
+X
+X
+X	/* Disc extended info popup */
+X	if (cur_db.extd != NULL)
+X		XmTextSetString(widgets.dbextd.disc_txt, cur_db.extd);
+X	else
+X		XmTextSetString(widgets.dbextd.disc_txt, "");
+X
+X	/* Number of tracks */
+X	cur_db.ntrk = s->tot_trks;
+X
+X	/* Track title list */
+X	sel_pos = -1;
+X	dbprog_listupd(s);
+X
+X	/* Track extended info popup: This is loaded when the user
+X	 * pops it up.
+X	 */
+X	XmTextSetString(widgets.dbextt.trk_txt, "");
+X
+X	/* Program sequence */
+X	if (cur_db.playorder != NULL) {
+X		XmTextSetString(widgets.dbprog.pgmseq_txt, cur_db.playorder);
+X		XmTextSetInsertionPosition(
+X			widgets.dbprog.pgmseq_txt,
+X			strlen(cur_db.playorder)
+X		);
+X
+X		XtSetSensitive(widgets.dbprog.clrpgm_btn, True);
+X		XtSetSensitive(widgets.dbprog.playpgm_btn, True);
+X	}
+X	else {
+X		XmTextSetString(widgets.dbprog.pgmseq_txt, "");
+X
+X		XtSetSensitive(widgets.dbprog.clrpgm_btn, False);
+X		XtSetSensitive(widgets.dbprog.playpgm_btn, False);
+X	}
+X
+X	dbprog_changed = FALSE;
+X	XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.savedb_btn, False);
+X	XtSetSensitive(widgets.dbprog.extd_btn, True);
+X	XtSetSensitive(widgets.dbprog.extt_btn, False);
+X
+X	/* Update display */
+X	dpy_dbmode(s);
+X
+X	if (cur_db.dbfile == NULL && dbdirs[0] != NULL && dbdirs[1] == NULL) {
+X		/* Only one possible database directory: Set
+X		 * database file path.
+X		 */
+X
+X		cur_db.dbfile = (char *) MEM_ALLOC(strlen(dbdirs[0]) + 10);
+X		if (cur_db.dbfile == NULL) {
+X			cd_fatal_popup(
+X				app_data.str_fatal,
+X				app_data.str_nomemory
+X			);
+X			return;
+X		}
+X		sprintf(cur_db.dbfile, "%s/%08x", dbdirs[0], cur_db.discid);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_extdupd
+X *	Update the Extended disc info text field in the cur_db structure
+X *	to match the contents shown in the text widget.
+X *
+X * Args:
+X *	Nothing
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_extdupd(void)
+X{
+X	/* Update in-core database structure */
+X	if (cur_db.extd != NULL)
+X		MEM_FREE(cur_db.extd);
+X
+X	if ((cur_db.extd = XmTextGetString(widgets.dbextd.disc_txt)) == NULL)
+X		return;
+X
+X	if (cur_db.extd[0] == '\0') {
+X		MEM_FREE(cur_db.extd);
+X		cur_db.extd = NULL;
+X	}
+X
+X	if (dbprog_changed)
+X		XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X}
+X
+X
+X/*
+X * dbprog_exttupd
+X *	Update the Extended track info text field in the cur_db structure
+X *	to match the contents shown in the text widget.
+X *
+X * Args:
+X *	Nothing
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_exttupd(void)
+X{
+X	if (extt_pos < 0)
+X		return;
+X
+X	/* Update in-core database structure */
+X	if (cur_db.extt[extt_pos] != NULL)
+X		MEM_FREE(cur_db.extt[extt_pos]);
+X
+X	if ((cur_db.extt[extt_pos] =
+X		XmTextGetString(widgets.dbextt.trk_txt)) == NULL) {
+X		extt_pos = -1;
+X		return;
+X	}
+X
+X	if (cur_db.extt[extt_pos][0] == '\0') {
+X		MEM_FREE(cur_db.extt[extt_pos]);
+X		cur_db.extt[extt_pos] = NULL;
+X	}
+X
+X	extt_pos = -1;
+X
+X	if (dbprog_changed)
+X		XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X}
+X
+X
+X/*
+X * dbprog_curtrkupd
+X *	Update the track list display to show the current playing
+X *	track entry in bold font.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xdbprog_curtrkupd(curstat_t *s)
+X{
+X	int			n,
+X				pos,
+X				secs;
+X	char			*str;
+X	XmString		xs;
+X	static int		sav_pos = -1;
+X	static sword32_t	sav_trkno;
+X	static byte_t		sav_tot_min,
+X				sav_tot_sec,
+X				sav_trk_min,
+X				sav_trk_sec;
+X
+X	if (sav_pos >= 0) {
+X		n = strlen((cur_db.trklist[sav_pos] == NULL) ?
+X			   UNDEF_STR : cur_db.trklist[sav_pos]) + TRKLIST_PFLEN;
+X
+X		if ((str = (char *) MEM_ALLOC(n)) == NULL) {
+X			cd_fatal_popup(
+X				app_data.str_fatal,
+X				app_data.str_nomemory
+X			);
+X			return;
+X		}
+X
+X		if (cur_db.trklist[sav_pos] != NULL) {
+X			sprintf(str, TRKLIST_FMT,
+X				sav_trkno,
+X				(timemode == TIME_TOTAL) ?
+X					sav_tot_min : sav_trk_min,
+X				(timemode == TIME_TOTAL) ?
+X					sav_tot_sec : sav_trk_sec,
+X				cur_db.trklist[sav_pos]);
+X		}
+X		else {
+X			sprintf(str, TRKLIST_FMT,
+X				sav_trkno,
+X				(timemode == TIME_TOTAL) ?
+X					sav_tot_min : sav_trk_min,
+X				(timemode == TIME_TOTAL) ?
+X					sav_tot_sec : sav_trk_sec,
+X				UNDEF_STR);
+X		}
+X
+X		/* Restore previous playing track to original font */
+X
+X		xs = XmStringCreate(str, CHSET1);
+X
+X		XmListReplaceItemsPos(widgets.dbprog.trk_list, &xs,
+X				      1, sav_pos + 1);
+X
+X		XmStringFree(xs);
+X		MEM_FREE(str);
+X
+X		if (sel_pos == sav_pos + 1)
+X			/* This item is previously selected */
+X			XmListSelectPos(widgets.dbprog.trk_list,
+X					sel_pos, False);
+X	}
+X
+X	if (s->cur_trk <= 0 || s->mode == M_NODISC) {
+X		sav_pos = -1;
+X		return;
+X	}
+X
+X	sav_pos = pos = curtrk_pos(s);
+X
+X	secs = ((s->trkinfo[pos+1].min * 60 +
+X		s->trkinfo[pos+1].sec) - 
+X	        (s->trkinfo[pos].min * 60 +
+X		s->trkinfo[pos].sec));
+X
+X	sav_trkno = s->trkinfo[pos].trkno;
+X
+X	sav_tot_min = s->trkinfo[pos].min;
+X	sav_tot_sec = s->trkinfo[pos].sec;
+X	sav_trk_min = (byte_t) (secs / 60);
+X	sav_trk_sec = (byte_t) (secs % 60);
+X
+X	n = strlen((cur_db.trklist[pos] == NULL) ?
+X		   UNDEF_STR : cur_db.trklist[pos]) + TRKLIST_PFLEN;
+X
+X	if ((str = (char *) MEM_ALLOC(n)) == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X
+X	if (cur_db.trklist[pos] != NULL) {
+X		sprintf(str, TRKLIST_FMT,
+X			sav_trkno,
+X			(timemode == TIME_TOTAL) ? sav_tot_min : sav_trk_min,
+X			(timemode == TIME_TOTAL) ? sav_tot_sec : sav_trk_sec,
+X			cur_db.trklist[pos]);
+X	}
+X	else {
+X		sprintf(str, TRKLIST_FMT,
+X			sav_trkno,
+X			(timemode == TIME_TOTAL) ? sav_tot_min : sav_trk_min,
+X			(timemode == TIME_TOTAL) ? sav_tot_sec : sav_trk_sec,
+X			UNDEF_STR);
+X	}
+X
+X	/* Change current playing track to new font */
+X
+X	xs = XmStringCreate(str, CHSET2);
+X
+X	XmListReplaceItemsPos(widgets.dbprog.trk_list, &xs, 1, pos + 1);
+X
+X	XmStringFree(xs);
+X	MEM_FREE(str);
+X
+X	if (sel_pos == pos + 1)
+X		/* This item is previously selected */
+X		XmListSelectPos(widgets.dbprog.trk_list, sel_pos, False);
+X}
+X
+X
+X/*
+X * dbprog_dbclear
+X *	Clear in-core CD database entry.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xdbprog_dbclear(curstat_t *s)
+X{
+X	int		i;
+X
+X
+X	/* Pop down the extd and extt popups if necessary */
+X	if (XtIsManaged(widgets.dbextd.form))
+X		dbprog_extd_cancel(
+X			widgets.dbextd.cancel_btn,
+X			(XtPointer) s,
+X			(XtPointer) NULL
+X		);
+X	if (XtIsManaged(widgets.dbextt.form))
+X		dbprog_extt_cancel(
+X			widgets.dbextt.cancel_btn,
+X			(XtPointer) s,
+X			(XtPointer) NULL
+X		);
+X
+X
+X	if (cur_db.discid == 0)
+X		/* Already cleared */
+X		return;
+X
+X	/* Clear database entry structure */
+X
+X	if (cur_db.dbfile != NULL) {
+X		MEM_FREE(cur_db.dbfile);
+X		cur_db.dbfile = NULL;
+X	}
+X
+X	if (cur_db.dtitle != NULL) {
+X		MEM_FREE(cur_db.dtitle);
+X		cur_db.dtitle = NULL;
+X	}
+X
+X	if (cur_db.extd != NULL) {
+X		MEM_FREE(cur_db.extd);
+X		cur_db.extd = NULL;
+X	}
+X
+X	for (i = MAXTRACK-1; i >= 0; i--) {
+X		if (cur_db.trklist[i] != NULL) {
+X			MEM_FREE(cur_db.trklist[i]);
+X			cur_db.trklist[i] = NULL;
+X		}
+X
+X		if (cur_db.extt[i] != NULL) {
+X			MEM_FREE(cur_db.extt[i]);
+X			cur_db.extt[i] = NULL;
+X		}
+X
+X		if (cur_db.sav_extt[i] != NULL) {
+X			MEM_FREE(cur_db.sav_extt[i]);
+X			cur_db.sav_extt[i] = NULL;
+X		}
+X	}
+X
+X	if (cur_db.playorder != NULL) {
+X		MEM_FREE(cur_db.playorder);
+X		cur_db.playorder = NULL;
+X	}
+X
+X	cur_db.ntrk = 0;
+X	cur_db.discid = 0;
+X
+X	/* Update database/program display */
+X
+X	XmTextSetString(widgets.dbprog.dtitle_txt, "");
+X	XmListDeleteAllItems(widgets.dbprog.trk_list);
+X	XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X	XmTextSetString(widgets.dbprog.pgmseq_txt, "");
+X	XmTextSetString(widgets.dbextd.disc_txt, "");
+X	XmTextSetString(widgets.dbextt.trk_txt, "");
+X
+X	/* Clear database flag */
+X
+X	s->cddb = FALSE;
+X	dbprog_changed = FALSE;
+X	osel_pos = -1;
+X
+X	/* Make some buttons insensitive */
+X	XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.clrpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.playpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.savedb_btn, False);
+X	XtSetSensitive(widgets.dbprog.linkdb_btn, True);
+X	XtSetSensitive(widgets.dbprog.extd_btn, False);
+X	XtSetSensitive(widgets.dbprog.extt_btn, False);
+X}
+X
+X
+X/*
+X * dbprog_dbget
+X *	Read in the CD database file entry pertaining to the
+X *	currently loaded disc, if available.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xdbprog_dbget(curstat_t *s)
+X{
+X	int		i,
+X			pos,
+X			lineno;
+X	word32_t	discid;
+X	FILE		*fp = NULL;
+X	char		dbfile[FILE_PATH_SZ],
+X			buf[STR_BUF_SZ + 16],
+X			tmpbuf[STR_BUF_SZ + 16];
+X
+X	/* Get magic disc identifier */
+X	if ((discid = dbprog_discid(s)) == 0)
+X		/* Invalid identifier */
+X		return;
+X
+X	if (cur_db.discid == discid)
+X		/* Database entry already loaded: just return. */
+X		return;
+X
+X	cur_db.discid = discid;
+X
+X	/* Loop through all the database directories
+X	 * and try to open the matching file for reading.
+X	 */
+X	for (fp = NULL, i = 0; i < app_data.max_dbdirs; i++) {
+X		if (dbdirs[i] == NULL)
+X			break;
+X
+X		sprintf(dbfile, "%s/%08x", dbdirs[i], discid);
+X
+X		if ((fp = fopen(dbfile, "r")) != NULL)
+X			break;
+X	}
+X
+X	if (fp == NULL) {
+X		/* File does not exist or not readable */
+X
+X		/* Update list widget */
+X		dbprog_structupd(s);
+X
+X		return;
+X	}
+X
+X	/* Record the path to the database file. */
+X	cur_db.dbfile = (char *) MEM_ALLOC(strlen(dbfile) + 1);
+X	if (cur_db.dbfile == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X	strcpy(cur_db.dbfile, dbfile);
+X
+X	/* Read first line of database file */
+X	if (fgets(buf, sizeof(buf), fp) == NULL) {
+X		fclose(fp);
+X		return;
+X	}
+X
+X	/* Database file signature check */
+X	if (strncmp(buf, "# xmcd ", 7) != 0) {
+X		/* Not a supported database file */
+X		fclose(fp);
+X		return;
+X	}
+X
+X	/* Read the rest of the database file */
+X	for (lineno = 0; fgets(buf, sizeof(buf), fp) != NULL; lineno++) {
+X		/* Comment line */
+X		if (buf[0] == '#') {
+X			lineno--;
+X			continue;
+X		}
+X
+X		buf[strlen(buf)-1] = '\n';
+X
+X		/* Disk ID sanity check */
+X		if (lineno == 0) {
+X			if (strncmp(buf, "DISCID=", 7) == 0)
+X				/* Okay */
+X				continue;
+X
+X			/* Sanity check failed */
+X			fclose(fp);
+X			return;
+X		}
+X
+X		/* Disk title */
+X		if (sscanf(buf, "DTITLE=%[^\n]\n", tmpbuf) > 0) {
+X			if (cur_db.dtitle == NULL) {
+X				cur_db.dtitle = (char *)
+X					MEM_ALLOC(strlen(tmpbuf) + 1);
+X
+X				if (cur_db.dtitle != NULL)
+X					cur_db.dtitle[0] = '\0';
+X			}
+X			else {
+X				cur_db.dtitle = (char *)
+X					MEM_REALLOC(cur_db.dtitle,
+X						strlen(cur_db.dtitle) +
+X						strlen(tmpbuf) + 1);
+X			}
+X
+X			if (cur_db.dtitle == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				break;
+X			}
+X
+X			dbprog_strcat(cur_db.dtitle, tmpbuf);
+X			continue;
+X		}
+X
+X		/* Track title */
+X		if (sscanf(buf, "TTITLE%u=%[^\n]\n", &pos, tmpbuf) >= 2) {
+X			if (pos >= (int) s->tot_trks)
+X				continue;
+X
+X			if (cur_db.trklist[pos] == NULL) {
+X				cur_db.trklist[pos] = (char *)
+X					MEM_ALLOC(strlen(tmpbuf) + 1);
+X
+X				if (cur_db.trklist[pos] != NULL)
+X					cur_db.trklist[pos][0] = '\0';
+X				
+X			}
+X			else {
+X				cur_db.trklist[pos] = (char *)
+X					MEM_REALLOC(cur_db.trklist[pos],
+X						strlen(cur_db.trklist[pos]) +
+X						strlen(tmpbuf) + 1);
+X			}
+X
+X			if (cur_db.trklist[pos] == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				break;
+X			}
+X
+X			dbprog_strcat(cur_db.trklist[pos], tmpbuf);
+X			continue;
+X		}
+X
+X		/* Disk extended info */
+X		if (sscanf(buf, "EXTD=%[^\n]\n", tmpbuf) > 0) {
+X			if (cur_db.extd == NULL) {
+X				cur_db.extd = (char *)
+X					MEM_ALLOC(strlen(tmpbuf) + 1);
+X
+X				if (cur_db.extd != NULL)
+X					cur_db.extd[0] = '\0';
+X			}
+X			else {
+X				cur_db.extd = (char *)
+X					MEM_REALLOC(cur_db.extd,
+X						strlen(cur_db.extd) +
+X						strlen(tmpbuf) + 1);
+X			}
+X
+X			if (cur_db.extd == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				break;
+X			}
+X
+X			dbprog_strcat(cur_db.extd, tmpbuf);
+X			continue;
+X		}
+X
+X		/* Track extended info */
+X		if (sscanf(buf, "EXTT%u=%[^\n]\n", &pos, tmpbuf) >= 2) {
+X			if (pos >= (int) s->tot_trks)
+X				continue;
+X
+X			if (cur_db.extt[pos] == NULL) {
+X				cur_db.extt[pos] = (char *)
+X					MEM_ALLOC(strlen(tmpbuf) + 1);
+X
+X				if (cur_db.extt[pos] != NULL)
+X					cur_db.extt[pos][0] = '\0';
+X			}
+X			else {
+X				cur_db.extt[pos] = (char *)
+X					MEM_REALLOC(cur_db.extt[pos],
+X						strlen(cur_db.extt[pos]) +
+X						strlen(tmpbuf) + 1);
+X			}
+X
+X			if (cur_db.extt[pos] == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				break;
+X			}
+X
+X			dbprog_strcat(cur_db.extt[pos], tmpbuf);
+X			continue;
+X		}
+X
+X		/* Play order */
+X		if (sscanf(buf, "PLAYORDER=%[^\n]\n", tmpbuf) > 0) {
+X			if (cur_db.playorder == NULL) {
+X				cur_db.playorder = (char *)
+X					MEM_ALLOC(strlen(tmpbuf) + 1);
+X
+X				if (cur_db.playorder != NULL)
+X					cur_db.playorder[0] = '\0';
+X					
+X			}
+X			else {
+X				cur_db.playorder = (char *)
+X					MEM_REALLOC(cur_db.playorder,
+X						strlen(cur_db.playorder) +
+X						strlen(tmpbuf) + 1);
+X			}
+X
+X			if (cur_db.playorder == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				break;
+X			}
+X
+X			dbprog_strcat(cur_db.playorder, tmpbuf);
+X			continue;
+X		}
+X	}
+X
+X	fclose(fp);
+X
+X	s->cddb = TRUE;
+X	XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X	XtSetSensitive(widgets.dbprog.linkdb_btn, False);
+X
+X	/* Update list widget */
+X	dbprog_structupd(s);
+X}
+X
+X
+X/*
+X * dbprog_putentry
+X *	Write one information item into a database file.  Used by
+X *	dbprog_dbput to update the CD database file.
+X *
+X * Args:
+X *	fp - file stream handle
+X *	idstr - The information identifier keyword text string
+X *	entry - The information text string
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_putentry(FILE *fp, char *idstr, char *entry)
+X{
+X	int	i,
+X		n;
+X	char	*cp;
+X
+X	if (fp == NULL || idstr == NULL)
+X		/* Paranoia */
+X		return;
+X
+X	if (entry == NULL)
+X		/* Null entry */
+X		fprintf(fp, "%s=\n", idstr);
+X	else {
+X		/* Write entry to file, splitting into multiple lines
+X		 * if necessary.  Special handling for newline and tab
+X		 * characters.
+X		 */
+X		cp = entry;
+X
+X		do {
+X			fprintf(fp, "%s=", idstr);
+X
+X			n = MIN((int) strlen(cp), STR_BUF_SZ);
+X
+X			for (i = 0; i < n; i++, cp++) {
+X				switch (*cp) {
+X				case '\n':
+X					fprintf(fp, "\\n");
+X					break;
+X				case '\t':
+X					fprintf(fp, "\\t");
+X					break;
+X				default:
+X					fprintf(fp, "%c", *cp);
+X					break;
+X				}
+X			}
+X
+X			fprintf(fp, "\n");
+X
+X		} while (n == STR_BUF_SZ);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_dbput
+X *	Write in-core CD database entry to disc file.  This routine
+X *	forks a child to do the actual file I/O.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_dbput(curstat_t *s)
+X{
+X	char		idstr[12],
+X			errstr[STR_BUF_SZ];
+X	int		i,
+X			stat_val;
+X	word32_t	trkaddr;
+X	mode_t		dbfile_mode;
+X	pid_t		cpid;
+X	FILE		*fp;
+X
+X	if (cur_db.dbfile == NULL)
+X		/* Output file undefined */
+X		return;
+X
+X	/* Update structures if necessary */
+X	if (XtIsManaged(widgets.dbextd.form))
+X		dbprog_extdupd();
+X	if (XtIsManaged(widgets.dbextt.form))
+X		dbprog_exttupd();
+X
+X	switch (cpid = fork()) {
+X	case 0:
+X		break;
+X	case -1:
+X		sprintf(errstr, app_data.str_saverr_fork, errno);
+X		cd_warning_popup(app_data.str_warning, errstr);
+X		return;
+X	default:
+X		/* parent process: wait for child to exit */
+X		while (waitpid(cpid, &stat_val, 0) != cpid)
+X			;
+X
+X		if (WIFEXITED(stat_val)) {
+X			switch (WEXITSTATUS(stat_val)) {
+X			case SETUID_ERR:
+X				sprintf(errstr, app_data.str_saverr_suid, ouid);
+X				cd_warning_popup(app_data.str_warning, errstr);
+X				return;
+X
+X			case OPEN_ERR:
+X				sprintf(errstr, app_data.str_saverr_open);
+X				cd_warning_popup(app_data.str_warning, errstr);
+X				return;
+X
+X			default:
+X				break;
+X			}
+X		}
+X		else if (WIFSIGNALED(stat_val)) {
+X			sprintf(errstr, app_data.str_saverr_killed,
+X				WTERMSIG(stat_val));
+X			cd_warning_popup(app_data.str_warning, errstr);
+X			return;
+X		}
+X
+X		/* Database mode is on */
+X		s->cddb = TRUE;
+X
+X		/* All edits have been saved, so clear flag */
+X		dbprog_changed = FALSE;
+X
+X		/* Update display */
+X		dpy_dbmode(s);
+X
+X		XtSetSensitive(widgets.dbprog.linkdb_btn, False);
+X		return;
+X	}
+X
+X	if (getuid() == 0 && setuid(ouid) < 0)
+X		exit(SETUID_ERR);
+X
+X	if ((fp = fopen(cur_db.dbfile, "w")) == NULL)
+X		exit(OPEN_ERR);
+X
+X	/* File header */
+X	fprintf(fp, "# xmcd %s CD database file\n", VERSION);
+X	fprintf(fp, "# Copyright (C) 1993 Ti Kan\n");
+X
+X	fprintf(fp, "#\n# Track frame offsets:\n");
+X	for (i = 0; i < (int) cur_db.ntrk; i++) {
+X		msftoblk(
+X			s->trkinfo[i].min,
+X			s->trkinfo[i].sec,
+X			s->trkinfo[i].frame,
+X			&trkaddr,
+X			0
+X		);
+X		fprintf(fp, "#\t%u\n", trkaddr);
+X	}
+X
+X	fprintf(fp, "#\n# Disc length: %u seconds\n#\n",
+X		s->trkinfo[(int) cur_db.ntrk].min * 60 +
+X		s->trkinfo[(int) cur_db.ntrk].sec);
+X
+X	/* Disc ID magic number */
+X	fprintf(fp, "DISCID=%08x\n", cur_db.discid);
+X
+X	/* Disc artist/title */
+X	dbprog_putentry(fp, "DTITLE", cur_db.dtitle);
+X
+X	/* Track titles */
+X	for (i = 0; i < (int) cur_db.ntrk; i++) {
+X		sprintf(idstr, "TTITLE%u", i);
+X		dbprog_putentry(fp, idstr, cur_db.trklist[i]);
+X	}
+X
+X	/* Extended disc information */
+X	dbprog_putentry(fp, "EXTD", cur_db.extd);
+X
+X	/* Extended track information */
+X	for (i = 0; i < (int) cur_db.ntrk; i++) {
+X		sprintf(idstr, "EXTT%u", i);
+X		dbprog_putentry(fp, idstr, cur_db.extt[i]);
+X	}
+X
+X	/* Track program sequence */
+X	dbprog_putentry(fp, "PLAYORDER", cur_db.playorder);
+X
+X	fclose(fp);
+X
+X	/* Set the database file permissions */
+X	sscanf(app_data.dbfile_mode, "%o", &dbfile_mode);
+X	chmod(cur_db.dbfile, dbfile_mode);
+X
+X	/* Child exits here. */
+X	exit(0);
+X}
+X
+X
+X/*
+X * dbprog_add_linkent
+X *	Add an entry to the link-search list in sorted order.  Used
+X *	by dbprog_bld_linkopts.
+X *
+X * Args:
+X *	dtitle - Disc artist/title text string
+X *	idstr - A text string representation of the magic number
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_add_linkent(char *dtitle, char *idstr)
+X{
+X	linkopts_t	*p,
+X			*q,
+X			*r;
+X
+X	if (dtitle == NULL || idstr == NULL)
+X		/* Paranoia */
+X		return;
+X
+X	if ((p = (linkopts_t *)(void *)
+X		 MEM_ALLOC(sizeof(linkopts_t))) == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X	if ((p->dtitle = (char *) MEM_ALLOC(strlen(dtitle) + 1)) == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X
+X	strcpy(p->idstr, idstr);
+X	strcpy(p->dtitle, dtitle);
+X
+X	if (linkhead == NULL) {
+X		/* This is the first element */
+X		linkhead = p;
+X		p->next = NULL;
+X	}
+X	else {
+X		/* Add to list in sorted order */
+X		for (q = linkhead, r = NULL; q != NULL; q = q->next) {
+X			if (strcmp(dtitle, q->dtitle) < 0)
+X				break;
+X			r = q;
+X		}
+X		if (r == NULL) {
+X			p->next = linkhead;
+X			linkhead = p;
+X		}
+X		else {
+X			p->next = r->next;
+X			r->next = p;
+X		}
+X	}
+X}
+X
+X
+X/*
+X * dbprog_bld_linkopts
+X *	Build a sorted linked list of track titles which are to be
+X *	used to present to the user for database search-link.
+X *
+X * Args:
+X *	Norhing.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC linkopts_t *
+Xdbprog_bld_linkopts(void)
+X{
+X	int		n;
+X	char		*dbdir,
+X			*bname,
+X			tmppath[FILE_PATH_SZ],
+X			buf[STR_BUF_SZ + 16];
+X	FILE		*fp;
+X	DIR		*dp;
+X	struct dirent	*de;
+X
+X	/* Warning: This code is SYSV-ish.  Porting to other
+X	 * environment may require some modification here.
+X	 */
+X
+X	if (cur_db.dbfile == NULL)
+X		/* Error */
+X		return(NULL);
+X
+X	dbdir = dirname(cur_db.dbfile);
+X	bname = basename(cur_db.dbfile);
+X
+X	if ((dp = opendir(dbdir)) == NULL)
+X		return(NULL);
+X
+X	while ((de = readdir(dp)) != NULL) {
+X		/* Find all entries in this directory with the same
+X		 * number of tracks as this disc.
+X		 */
+X		if (strncmp(de->d_name + 6, bname + 6, 2) != 0)
+X			continue;
+X
+X		sprintf(tmppath, "%s/%s", dbdir, de->d_name);
+X		if ((fp = fopen(tmppath, "r")) == NULL)
+X			continue;
+X		
+X		/* Read first line of database file */
+X		if (fgets(buf, sizeof(buf), fp) == NULL) {
+X			fclose(fp);
+X			continue;
+X		}
+X
+X		/* Database file signature check */
+X		if (strncmp(buf, "# xmcd ", 7) != 0) {
+X			/* Not a supported database file */
+X			fclose(fp);
+X			continue;
+X		}
+X
+X		while (fgets(buf, sizeof(buf), fp) != NULL) {
+X			/* Look for disk title */
+X			if (strncmp(buf, "DTITLE=", 7) == 0) {
+X				/* Eat newline */
+X				n = strlen(buf) - 1;
+X				if (buf[n] == '\n')
+X					buf[n] = '\0';
+X				
+X				/* Add to list in sorted order */
+X				dbprog_add_linkent(buf + 7, de->d_name);
+X
+X				break;
+X			}
+X		}
+X
+X		fclose(fp);
+X	}
+X	closedir(dp);
+X
+X	return(linkhead);
+X}
+X
+X
+X/*
+X * dbprog_free_linkopts
+X *	Dismantle the sorted linked list of track titles created by
+X *	dbprog_bld_linkopts.
+X *
+X * Args:
+X *	Nothing.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xdbprog_free_linkopts(void)
+X{
+X	linkopts_t	*p,
+X			*q;
+X
+X	for (p = q = linkhead; p != NULL; p = q) {
+X		q = p->next;
+X		if (p->dtitle != NULL)
+X			MEM_FREE(p->dtitle);
+X		MEM_FREE((char *) p);
+X	}
+X	linkhead = NULL;
+X}
+X
+X
+X/*
+X * dbprog_dblink
+X *	Pop up the search-link popup window, to let the user pick
+X *	an existing CD database file entry to link the current disc to.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xdbprog_dblink(curstat_t *s)
+X{
+X	int		i;
+X	XmString	xs;
+X	linkopts_t	*p;
+X
+X	if (cur_db.dbfile == NULL)
+X		/* Output file undefined */
+X		return;
+X
+X	/* Search directory for possible alternatives, and allow
+X	 * user to select a file to link to.
+X	 */
+X
+X	XmListDeleteAllItems(widgets.linksel.link_list);
+X
+X	linkhead = dbprog_bld_linkopts();
+X
+X	for (i = 0, p = linkhead; p != NULL; i++, p = p->next) {
+X		xs = XmStringCreateSimple(p->dtitle);
+X		XmListAddItemUnselected(widgets.linksel.link_list, xs, i + 1);
+X		XmStringFree(xs);
+X	}
+X
+X	if (i == 0) {
+X		cd_info_popup(app_data.str_info, app_data.str_nolink);
+X	}
+X	else if (!XtIsManaged(widgets.linksel.form)) {
+X		linksel_pos = 0;
+X
+X		/* Pop up the link selector window */
+X		XtManageChild(widgets.linksel.form);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_init
+X *	Initialize the CD database/program subsystem.
+X *
+X * Args:
+X *	s - Pointer to the curstat_t structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xdbprog_init(curstat_t *s)
+X{
+X	/* Clear the in-core structure */
+X	dbprog_dbclear(s);
+X}
+X
+X
+X/**************** vv Callback routines vv ****************/
+X
+X/*
+X * dbprog_popup
+X *	Pop up the database/program subsystem window.
+X */
+Xvoid
+Xdbprog_popup(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	if (!XtIsManaged(widgets.dbprog.form)) {
+X		/* Pop up the dbprog window */
+X		XtManageChild(widgets.dbprog.form);
+X
+X		/* Pop up the extd/extt windows if necessary */
+X		if (extd_manage)
+X			dbprog_extd(w, client_data, call_data);
+X
+X		if (extt_manage)
+X			dbprog_extt(w, (XtPointer) FALSE, call_data);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_dtitle_new
+X *	Disc title editor text widget callback function.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_dtitle_new(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmAnyCallbackStruct	*p = (XmAnyCallbackStruct *)(void *) call_data;
+X	char			*str;
+X	XmString		xs;
+X
+X	if (p->reason != XmCR_ACTIVATE && p->reason != XmCR_VALUE_CHANGED)
+X		return;
+X
+X	if ((str = XmTextGetString(w)) == NULL)
+X		return;
+X
+X	if (strcmp(str, UNDEF_STR) == 0) {
+X		if (cur_db.dtitle != NULL) {
+X			MEM_FREE(cur_db.dtitle);
+X			cur_db.dtitle = NULL;
+X		}
+X		XtFree(str);
+X		return;
+X	}
+X
+X	dbprog_changed = TRUE;
+X	XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X
+X	if (cur_db.dtitle != NULL)
+X		MEM_FREE(cur_db.dtitle);
+X
+X	if (str[0] == '\0') {
+X		XtFree(str);
+X		cur_db.dtitle = NULL;
+X	}
+X	else
+X		cur_db.dtitle = str;
+X
+X	/* Update the extd window if necessary */
+X	if (XtIsManaged(widgets.dbextd.form)) {
+X		if (cur_db.dtitle == NULL)
+X			xs = XmStringCreateSimple("Untitled");
+X		else
+X			xs = XmStringCreateSimple(cur_db.dtitle);
+X
+X		XtVaSetValues(widgets.dbextd.disc_lbl,
+X			XmNlabelString, xs,
+X			NULL
+X		);
+X
+X		XmStringFree(xs);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_trklist_play
+X *	Track list entry selection default action callback.
+X */
+Xvoid
+Xdbprog_trklist_play(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmListCallbackStruct	*p = (XmListCallbackStruct *)(void *) call_data;
+X	curstat_t		*s = (curstat_t *)(void *) client_data;
+X
+X	if (p->reason != XmCR_DEFAULT_ACTION)
+X		return;
+X
+X	sel_pos = osel_pos = p->item_position;
+X
+X	dbprog_clrpgm(widgets.dbprog.clrpgm_btn, (XtPointer) s, (XtPointer) p);
+X
+X	/* Set this again because dbprog_clrprog() changes it */
+X	sel_pos = p->item_position;
+X
+X	dbprog_addpgm(widgets.dbprog.addpgm_btn, (XtPointer) s, (XtPointer) p);
+X	dbprog_playpgm(
+X		widgets.dbprog.playpgm_btn,
+X		(XtPointer) s,
+X		(XtPointer) p
+X	);
+X
+X	sel_pos = -1;
+X	XmListDeselectAllItems(w);
+X	XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X	XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.extt_btn, False);
+X}
+X
+X
+X/*
+X * dbprog_trklist_select
+X *	Track list entry selection callback.
+X */
+Xvoid
+Xdbprog_trklist_select(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmListCallbackStruct	*p = (XmListCallbackStruct *)(void *) call_data;
+X	curstat_t		*s = (curstat_t *)(void *) client_data;
+X	int			n,
+X				secs;
+X	char			*cp,
+X				*str;
+X	byte_t			min,
+X				sec;
+X	XmString		xs;
+X
+X	if (p->reason != XmCR_BROWSE_SELECT)
+X		return;
+X
+X	if (!cdlib_check_disc(s) || s->mode == M_NODISC)
+X		return;
+X
+X	if (title_edited) {
+X		title_edited = FALSE;
+X		osel_pos = p->item_position;
+X
+X		if ((cp = XmTextGetString(widgets.dbprog.ttitle_txt)) == NULL)
+X			return;
+X
+X		if (timemode == TIME_TOTAL) {
+X			min = s->trkinfo[p->item_position-1].min;
+X			sec = s->trkinfo[p->item_position-1].sec;
+X		}
+X		else {
+X			secs = ((s->trkinfo[p->item_position].min * 60 +
+X				s->trkinfo[p->item_position].sec) - 
+X				(s->trkinfo[p->item_position-1].min * 60 +
+X				s->trkinfo[p->item_position-1].sec));
+X			min = (byte_t) (secs / 60);
+X			sec = (byte_t) (secs % 60);
+X		}
+X
+X		n = strlen(cp) + TRKLIST_PFLEN;
+X		if ((str = (char *) MEM_ALLOC(n)) == NULL) {
+X			cd_fatal_popup(
+X				app_data.str_fatal,
+X				app_data.str_nomemory
+X			);
+X			return;
+X		}
+X
+X		sprintf(str, TRKLIST_FMT,
+X			s->trkinfo[p->item_position-1].trkno,
+X			min, sec, cp);
+X
+X		if (s->mode != M_NODISC && s->cur_trk >= 0 &&
+X		    curtrk_pos(s) == p->item_position-1)
+X			xs = XmStringCreate(str, CHSET2);
+X		else
+X			xs = XmStringCreate(str, CHSET1);
+X
+X		XmListReplaceItemsPos(w, &xs, 1, p->item_position);
+X
+X		XmStringFree(xs);
+X		MEM_FREE(str);
+X
+X		sel_pos = -1;
+X		XmListDeselectAllItems(widgets.dbprog.trk_list);
+X		XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X		if (cur_db.trklist[p->item_position-1] != NULL)
+X			MEM_FREE(cur_db.trklist[p->item_position-1]);
+X
+X		cur_db.trklist[p->item_position-1] = cp;
+X
+X		dbprog_changed = TRUE;
+X		XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X		XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X		XtSetSensitive(widgets.dbprog.extt_btn, False);
+X
+X		/* Update the extt window if necessary */
+X		if (extt_pos == p->item_position-1 &&
+X		    XtIsManaged(widgets.dbextt.form)) {
+X			if (cur_db.trklist[p->item_position-1] == NULL)
+X				xs = XmStringCreateSimple("Untitled");
+X			else
+X				xs = XmStringCreateSimple(
+X					cur_db.trklist[p->item_position-1]
+X				);
+X
+X			XtVaSetValues(widgets.dbextt.trk_lbl,
+X				XmNlabelString, xs,
+X				NULL
+X			);
+X
+X			XmStringFree(xs);
+X		}
+X
+X		/* Return the input focus to the track title editor */
+X		XmProcessTraversal(
+X			widgets.dbprog.ttitle_txt,
+X			XmTRAVERSE_CURRENT
+X		);
+X	}
+X	else if (sel_pos == p->item_position) {
+X		/* This item is already selected: deselect it */
+X
+X		sel_pos = -1;
+X		XmListDeselectAllItems(w);
+X		XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X		XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X		XtSetSensitive(widgets.dbprog.extt_btn, False);
+X	}
+X	else {
+X		sel_pos = osel_pos = p->item_position;
+X
+X		if (cur_db.trklist[p->item_position-1] == NULL) {
+X			XmTextSetString(widgets.dbprog.ttitle_txt, UNDEF_STR);
+X			XmTextSetInsertionPosition(
+X				widgets.dbprog.ttitle_txt,
+X				strlen(UNDEF_STR)
+X			);
+X		}
+X		else {
+X			XmTextSetString(widgets.dbprog.ttitle_txt,
+X					cur_db.trklist[p->item_position-1]);
+X			XmTextSetInsertionPosition(
+X				widgets.dbprog.ttitle_txt,
+X				strlen(cur_db.trklist[p->item_position-1])
+X			);
+X		}
+X
+X		XtSetSensitive(widgets.dbprog.addpgm_btn, True);
+X		XtSetSensitive(widgets.dbprog.extt_btn, True);
+X
+X		/* Warp the extt window to the new selected track, if
+X		 * it is popped up.
+X		 */
+X		if (XtIsManaged(widgets.dbextt.form))
+X			dbprog_extt(w, (XtPointer) FALSE, call_data);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_ttitle_new
+X *	Track title editor text widget callback function.
+X */
+Xvoid
+Xdbprog_ttitle_new(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmAnyCallbackStruct	*p = (XmAnyCallbackStruct *)(void *) call_data;
+X	curstat_t		*s = (curstat_t *)(void *) client_data;
+X	char			*cp,
+X				*str;
+X	int			*pos,
+X				secs,
+X				i,
+X				n;
+X	byte_t			min,
+X				sec;
+X	XmString		xs;
+X	XmListCallbackStruct	cb;
+X
+X	if (p->reason == XmCR_VALUE_CHANGED) {
+X		if ((cp = XmTextGetString(w)) == NULL)
+X			return;
+X
+X		if (cp[0] == '\0')
+X			title_edited = FALSE;
+X		else if (sel_pos < 0)
+X			title_edited = TRUE;
+X
+X		XtFree(cp);
+X		return;
+X	}
+X	else if (p->reason != XmCR_ACTIVATE)
+X		return;
+X
+X	if (sel_pos >= 0 &&
+X	    XmListGetSelectedPos(widgets.dbprog.trk_list, &pos, &i)) {
+X		if ((cp = XmTextGetString(w)) == NULL)
+X			return;
+X
+X		if (pos == NULL) {
+X			XtFree(cp);
+X			return;
+X		}
+X
+X		if (i == 1) {
+X			if (timemode == TIME_TOTAL) {
+X				min = s->trkinfo[(*pos)-1].min;
+X				sec = s->trkinfo[(*pos)-1].sec;
+X			}
+X			else {
+X				secs = ((s->trkinfo[*pos].min * 60 +
+X					s->trkinfo[*pos].sec) - 
+X					(s->trkinfo[(*pos)-1].min * 60 +
+X					s->trkinfo[(*pos)-1].sec));
+X				min = (byte_t) (secs / 60);
+X				sec = (byte_t) (secs % 60);
+X			}
+X
+X			n = strlen(cp) + TRKLIST_PFLEN;
+X			if ((str = (char *) MEM_ALLOC(n)) == NULL) {
+X				cd_fatal_popup(
+X					app_data.str_fatal,
+X					app_data.str_nomemory
+X				);
+X				return;
+X			}
+X
+X			sprintf(str, TRKLIST_FMT,
+X				s->trkinfo[(*pos)-1].trkno,
+X				min, sec, cp);
+X
+X			if (s->mode != M_NODISC && s->cur_trk >= 0 &&
+X			    curtrk_pos(s) == ((*pos)-1))
+X				xs = XmStringCreate(str, CHSET2);
+X			else
+X				xs = XmStringCreate(str, CHSET1);
+X
+X			XmListReplaceItemsPos(widgets.dbprog.trk_list,
+X					      &xs, 1, *pos);
+X			XmStringFree(xs);
+X			MEM_FREE(str);
+X
+X			sel_pos = -1;
+X			XmListDeselectAllItems(widgets.dbprog.trk_list);
+X
+X			if (cur_db.trklist[(*pos)-1] != NULL)
+X				MEM_FREE(cur_db.trklist[(*pos)-1]);
+X
+X			cur_db.trklist[(*pos)-1] = cp;
+X
+X			dbprog_changed = TRUE;
+X			XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X			XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X			XtSetSensitive(widgets.dbprog.extt_btn, False);
+X
+X			/* Update the extt window if necessary */
+X			if (extt_pos == (*pos)-1 &&
+X			    XtIsManaged(widgets.dbextt.form)) {
+X				if (cur_db.trklist[(*pos)-1] == NULL)
+X					xs = XmStringCreateSimple("Untitled");
+X				else
+X					xs = XmStringCreateSimple(
+X						cur_db.trklist[(*pos)-1]
+X					);
+X
+X				XtVaSetValues(widgets.dbextt.trk_lbl,
+X					XmNlabelString, xs,
+X					NULL
+X				);
+X
+X				XmStringFree(xs);
+X			}
+X		}
+X
+X		XmTextSetString(w, "");
+X
+X		XtFree((XtPointer) pos);
+X	}
+X	else {
+X		/* Pressing Return in this case is equivalent to clicking
+X		 * on the next title-less track on the track list.
+X		 */
+X		if (osel_pos <= 0)
+X			i = 0;
+X		else
+X			i = osel_pos - 1;
+X
+X		for (; i < (int) s->tot_trks; i++) {
+X			if (cur_db.trklist[i] == NULL) {
+X				cb.item_position = i + 1;
+X				cb.reason = XmCR_BROWSE_SELECT;
+X				cb.event = p->event;
+X
+X				dbprog_trklist_select(
+X					widgets.dbprog.trk_list,
+X					(XtPointer) s,
+X					(XtPointer) &cb
+X				);
+X
+X				break;
+X			}
+X		}
+X
+X	}
+X}
+X
+X
+X/*
+X * dbprog_pgmseq_verify
+X *	Play sequence editor text widget user-input verification callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_pgmseq_verify(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmTextVerifyCallbackStruct
+X		*p = (XmTextVerifyCallbackStruct *)(void *) call_data;
+X	int	i;
+X
+X	if (p->reason != XmCR_MODIFYING_TEXT_VALUE)
+X		return;
+X
+X	p->doit = True;
+X
+X	/* If not changing via direct edit in the text widget,
+X	 * then there is nothing to do here.
+X	 */
+X	if (!pgmseq_editing)
+X		return;
+X
+X	if (p->startPos != p->endPos)
+X		return;
+X
+X	switch (p->text->format) {
+X	case FMT8BIT:
+X		if (p->text->length != 1) {
+X			p->doit = False;
+X			return;
+X		}
+X
+X		if (p->text->ptr[0] == PGM_SEPCHAR) {
+X			if (cur_db.playorder == NULL ||
+X			    (i = strlen(cur_db.playorder)) == 0 ||
+X			    cur_db.playorder[i-1] == PGM_SEPCHAR ||
+X			    p->currInsert != p->newInsert)
+X				p->doit = False;
+X		}
+X		else if (!isdigit(p->text->ptr[0]))
+X			p->doit = False;
+X		break;
+X
+X	case FMT16BIT:
+X		/* Don't know how to handle 16-bit character sets yet */
+X		p->doit = False;
+X		return;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_pgmseq_txtchg
+X *	Play sequence editor text widget text changed callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_pgmseq_txtchg(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmAnyCallbackStruct	*p = (XmAnyCallbackStruct *)(void *) call_data;
+X
+X	if (p->reason != XmCR_VALUE_CHANGED)
+X		return;
+X
+X	/* If not changing via direct edit in the text widget,
+X	 * then there is nothing to do here.
+X	 */
+X	if (!pgmseq_editing)
+X		return;
+X
+X	if (cur_db.playorder != NULL)
+X		MEM_FREE(cur_db.playorder);
+X
+X	cur_db.playorder = XmTextGetString(w);
+X
+X	dbprog_changed = TRUE;
+X	XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X	XtSetSensitive(widgets.dbprog.playpgm_btn, True);
+X	XtSetSensitive(widgets.dbprog.clrpgm_btn, True);
+X}
+X
+X
+X/*
+X * dbprog_pgmseq_focuschg
+X *	Play sequence editor text widget keyboard focus change callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_pgmseq_focuschg(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmAnyCallbackStruct	*p = (XmAnyCallbackStruct *)(void *) call_data;
+X
+X	if (p->reason == XmCR_FOCUS)
+X		pgmseq_editing = TRUE;
+X	else if (p->reason == XmCR_LOSING_FOCUS)
+X		pgmseq_editing = FALSE;
+X}
+X
+X
+X/*
+X * dbprog_addpgm
+X *	Program Add button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_addpgm(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X	char		*cp,
+X			tmpbuf[6];
+X
+X	if (sel_pos < 0 || !cdlib_check_disc(s) || s->mode == M_NODISC) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	if (cur_db.playorder == NULL) {
+X		sprintf(tmpbuf, "%u", s->trkinfo[sel_pos-1].trkno);
+X		cp = (char *) MEM_ALLOC(strlen(tmpbuf) + 1);
+X	}
+X	else {
+X		sprintf(tmpbuf, "%c%u",
+X			PGM_SEPCHAR, s->trkinfo[sel_pos-1].trkno);
+X		cp = (char *) MEM_ALLOC(
+X			strlen(cur_db.playorder) + strlen(tmpbuf) + 1
+X		);
+X	}
+X
+X	if (cp == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X
+X	sprintf(cp, "%s%s",
+X		(cur_db.playorder == NULL) ? "" : cur_db.playorder,
+X		tmpbuf);
+X
+X	MEM_FREE(cur_db.playorder);
+X	cur_db.playorder = cp;
+X
+X	XmTextSetString(widgets.dbprog.pgmseq_txt, cur_db.playorder);
+X	XmTextSetInsertionPosition(
+X		widgets.dbprog.pgmseq_txt,
+X		strlen(cur_db.playorder)
+X	);
+X
+X	dbprog_changed = TRUE;
+X	XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X	XtSetSensitive(widgets.dbprog.playpgm_btn, True);
+X	XtSetSensitive(widgets.dbprog.clrpgm_btn, True);
+X}
+X
+X
+X/*
+X * dbprog_clrpgm
+X *	Program Clear button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_clrpgm(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	if (cur_db.playorder != NULL) {
+X		MEM_FREE(cur_db.playorder);
+X		cur_db.playorder = NULL;
+X
+X		XmTextSetString(widgets.dbprog.pgmseq_txt, "");
+X	}
+X
+X	sel_pos = -1;
+X	XmListDeselectAllItems(widgets.dbprog.trk_list);
+X	XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X	dbprog_changed = TRUE;
+X	XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X	XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.playpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.clrpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.extt_btn, False);
+X}
+X
+X
+X/*
+X * dbprog_playpgm
+X *	Program Play button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_playpgm(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X
+X	if (!cdlib_check_disc(s) || s->mode == M_NODISC) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	sel_pos = -1;
+X	XmListDeselectAllItems(widgets.dbprog.trk_list);
+X	XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X	XtSetSensitive(widgets.dbprog.addpgm_btn, False);
+X	XtSetSensitive(widgets.dbprog.extt_btn, False);
+X
+X	/* Parse play order string and set the play order */
+X	if (s->mode != M_NODISC && !dbprog_parse(s)) {
+X		cd_warning_popup(app_data.str_warning, app_data.str_seqfmterr);
+X		return;
+X	}
+X
+X	if (s->prog_tot == 0)
+X		/* No program to run: just return */
+X		return;
+X
+X	if (s->shuffle) {
+X		/* Cancel shuffle mode */
+X		s->shuffle = FALSE;
+X		set_shuffle_btn(False);
+X	}
+X
+X	/* Play the program */
+X	cd_playprog(s);
+X}
+X
+X
+X/*
+X * dbprog_savedb
+X *	In-core CD database SAVE button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_savedb(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X	static bool_t	first = TRUE;
+X
+X	if (cur_db.discid == 0) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	if (dbdirs[0] == NULL) {
+X		/* No database directory */
+X		cd_info_popup(app_data.str_info, app_data.str_nodb);
+X		return;
+X	}
+X
+X	dirsel_mode = DIRSEL_SAVE;
+X
+X	if (cur_db.dbfile == NULL) {
+X		/* Pop up the database directory selection popup */
+X		sel_pos = -1;
+X		XmListDeselectAllItems(widgets.dirsel.dir_list);
+X		XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X		XtManageChild(widgets.dirsel.form);
+X
+X		if (first) {
+X			first = FALSE;
+X			XmProcessTraversal(
+X				widgets.dirsel.ok_btn,
+X				XmTRAVERSE_CURRENT
+X			);
+X		}
+X	}
+X	else
+X		/* Save to file directly */
+X		dbprog_dbput(s);
+X}
+X
+X
+X/*
+X * dbprog_loaddb
+X *	CD database file LOAD button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_loaddb(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X
+X	if (!cdlib_check_disc(s) || s->mode == M_NODISC) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	/* Clear the in-core entry */
+X	dbprog_dbclear(s);
+X
+X	/* Re-load from database file */
+X	dbprog_dbget(s);
+X}
+X
+X
+X/*
+X * dbprog_link
+X *	CD Database file search-link button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_link(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X	static bool_t	first = TRUE;
+X
+X	if (cur_db.discid == 0) {
+X		cd_beep();
+X		return;
+X	}
+X
+X	dirsel_mode = DIRSEL_LINK;
+X
+X	if (cur_db.dbfile != NULL) {
+X		MEM_FREE(cur_db.dbfile);
+X		cur_db.dbfile = NULL;
+X	}
+X
+X	if (dbdirs[0] == NULL) {
+X		/* No database directory */
+X		cd_info_popup(app_data.str_info, app_data.str_nodb);
+X		return;
+X	}
+X
+X	if (dbdirs[1] == NULL) {
+X		/* Only one possible database directory: Set
+X		 * database file path.
+X		 */
+X
+X		cur_db.dbfile = (char *) MEM_ALLOC(strlen(dbdirs[0]) + 10);
+X		if (cur_db.dbfile == NULL) {
+X			cd_fatal_popup(
+X				app_data.str_fatal,
+X				app_data.str_nomemory
+X			);
+X			return;
+X		}
+X		sprintf(cur_db.dbfile, "%s/%08x", dbdirs[0], cur_db.discid);
+X
+X		dbprog_dblink(s);
+X		return;
+X	}
+X
+X	/* Pop up the database directory selection popup */
+X	sel_pos = -1;
+X	XmListDeselectAllItems(widgets.dirsel.dir_list);
+X	XmTextSetString(widgets.dbprog.ttitle_txt, "");
+X
+X	if (first) {
+X		first = FALSE;
+X		XmProcessTraversal(
+X			widgets.dirsel.ok_btn,
+X			XmTRAVERSE_CURRENT
+X		);
+X	}
+X
+X	XtManageChild(widgets.dirsel.form);
+X}
+X
+X
+X/*
+X * dbprog_cancel
+X *	Pop down CD database/program window.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_cancel(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmPushButtonCallbackStruct
+X			*p = (XmPushButtonCallbackStruct *)(void *) call_data;
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X
+X	if (XtIsManaged(widgets.dbextd.form)) {
+X		/* Force a popdown of the extd window */
+X		dbprog_extd_cancel(
+X			widgets.dbextd.cancel_btn,
+X			(XtPointer) s,
+X			(XtPointer) p
+X		);
+X
+X		extd_manage = TRUE;
+X	}
+X	if (XtIsManaged(widgets.dbextt.form)) {
+X		/* Force a popdown of the extt window */
+X		dbprog_extt_cancel(
+X			widgets.dbextt.cancel_btn,
+X			(XtPointer) s,
+X			(XtPointer) p
+X		);
+X
+X		extt_manage = TRUE;
+X	}
+X
+X	/* Pop down the database/program dialog */
+X	XtUnmanageChild(widgets.dbprog.form);
+X}
+X
+X
+X/*
+X * dbprog_timedpy
+X *	Toggle the time display mode in the track list.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_timedpy(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmRowColumnCallbackStruct
+X			*p = (XmRowColumnCallbackStruct *)(void *) call_data;
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X	static bool_t	btn0set = TRUE,
+X			btn1set = FALSE;
+X	static int	seq = 0;
+X
+X	if (p->widget == widgets.dbprog.tottime_btn)
+X		btn0set = !btn0set;
+X	else if (p->widget == widgets.dbprog.trktime_btn)
+X		btn1set = !btn1set;
+X	else
+X		return;	/* Error: invalid widget */
+X
+X	switch (seq) {
+X	case 0:
+X		seq++;
+X		break;
+X	case 1:
+X		if (btn0set && !btn1set)
+X			timemode = TIME_TOTAL;
+X		else if (!btn0set && btn1set)
+X			timemode = TIME_TRACK;
+X
+X		if (cdlib_check_disc(s) && s->mode != M_NODISC) {
+X			XmListDeleteAllItems(widgets.dbprog.trk_list);
+X			dbprog_listupd(s);
+X		}
+X
+X		seq = 0;
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_extd
+X *	Pop up/down the disc extended info window.
+X */
+Xvoid
+Xdbprog_extd(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmString	xs;
+X	static bool_t	first = TRUE;
+X
+X	if (XtIsManaged(widgets.dbextd.form)) {
+X		/* Pop down the Disc Extended Info window */
+X		dbprog_extd_ok(w, client_data, call_data);
+X		return;
+X	}
+X
+X	if (cur_db.dtitle == NULL)
+X		xs = XmStringCreateSimple("Untitled");
+X	else
+X		xs = XmStringCreateSimple(cur_db.dtitle);
+X
+X	XtVaSetValues(widgets.dbextd.disc_lbl,
+X		XmNlabelString, xs,
+X		NULL
+X	);
+X
+X	XmStringFree(xs);
+X
+X	/* Pop up the Disc Extended Info window */
+X	XtManageChild(widgets.dbextd.form);
+X
+X	if (first) {
+X		first = FALSE;
+X		XmProcessTraversal(
+X			widgets.dbextd.ok_btn,
+X			XmTRAVERSE_CURRENT
+X		);
+X	}
+X
+X	extd_manage = FALSE;
+X}
+X
+X
+X/*
+X * dbprog_extt
+X *	Pop up/down the track extended info window.
+X */
+Xvoid
+Xdbprog_extt(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	int		i,
+X			n,
+X			*pos;
+X	XmString	xs;
+X	bool_t		from_main = (bool_t)(int) client_data;
+X	static bool_t	first = TRUE;
+X
+X	if (XtIsManaged(widgets.dbextt.form)) {
+X		if (from_main) {
+X			/* Pop down the Track Extended Info window */
+X			dbprog_extt_ok(w, client_data, call_data);
+X
+X			return;
+X		}
+X		else {
+X			/* Update structures */
+X			dbprog_exttupd();
+X		}
+X	}
+X
+X	if (sel_pos >= 0 &&
+X	    XmListGetSelectedPos(widgets.dbprog.trk_list, &pos, &n)) {
+X
+X		/* Enter extt setup mode */
+X		extt_setup = TRUE;
+X
+X		if (n != 1) {
+X			/* This shouldn't happen error */
+X			cd_beep();
+X			return;
+X		}
+X
+X		if (cur_db.trklist[(*pos)-1] == NULL)
+X			xs = XmStringCreateSimple("Untitled");
+X		else
+X			xs = XmStringCreateSimple(cur_db.trklist[(*pos)-1]);
+X
+X		XtVaSetValues(widgets.dbextt.trk_lbl,
+X			XmNlabelString, xs,
+X			NULL
+X		);
+X
+X		XmStringFree(xs);
+X
+X		/* Track extended info text */
+X		if (cur_db.extt[(*pos)-1] != NULL)
+X			XmTextSetString(widgets.dbextt.trk_txt,
+X				        cur_db.extt[(*pos)-1]);
+X		else
+X			XmTextSetString(widgets.dbextt.trk_txt, "");
+X
+X		extt_pos = (*pos)-1;
+X
+X		if (from_main) {
+X			/* Save a backup copy of the text in case the user
+X			 * wants to abort.  This code will ensure that the
+X			 * data is not saved twice while the extended track
+X			 * info window is popped up.
+X			 */
+X			for (i = 0; i < MAXTRACK; i++) {
+X				if (cur_db.sav_extt[i] == NULL &&
+X				    cur_db.extt[i] != NULL) {
+X					cur_db.sav_extt[i] = (char *)
+X						MEM_ALLOC(
+X						    strlen(cur_db.extt[i]) + 1
+X						);
+X					if (cur_db.sav_extt[i] == NULL) {
+X						cd_fatal_popup(
+X							app_data.str_fatal,
+X							app_data.str_nomemory
+X						);
+X						return;
+X					}
+X					strcpy(
+X						cur_db.sav_extt[i],
+X						cur_db.extt[i]
+X					);
+X				}
+X			}
+X		}
+X
+X		/* Pop up the Track Extended Info popup */
+X		XtManageChild(widgets.dbextt.form);
+X
+X		if (first) {
+X			first = FALSE;
+X			XmProcessTraversal(
+X				widgets.dbextt.ok_btn,
+X				XmTRAVERSE_CURRENT
+X			);
+X		}
+X
+X		extt_manage = FALSE;
+X
+X		/* Exit extt setup mode */
+X		extt_setup = FALSE;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_set_changed
+X *	Set the flag indicating that the user has made changes to the
+X *	in-core CD database entry.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_set_changed(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmAnyCallbackStruct	*p = (XmAnyCallbackStruct *)(void *) call_data;
+X
+X	if (p->reason != XmCR_VALUE_CHANGED)
+X		return;
+X
+X	/* Setup of the extt window is not a user change */
+X	if (!extt_setup) {
+X		dbprog_changed = TRUE;
+X
+X		if (!XtIsSensitive(widgets.dbprog.savedb_btn))
+X			XtSetSensitive(widgets.dbprog.savedb_btn, True);
+X	}
+X}
+X
+X
+X/*
+X * dbprog_extd_ok
+X *	Extended disc info window OK button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extd_ok(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	/* Pop down the Disc Extended Info popup */
+X	XtUnmanageChild(widgets.dbextd.form);
+X
+X	/* Update structures */
+X	dbprog_extdupd();
+X}
+X
+X
+X/*
+X * dbprog_extd_clear
+X *	Extended disc info window Clear button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extd_clear(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmTextSetString(widgets.dbextd.disc_txt, "");
+X}
+X
+X
+X/*
+X * dbprog_extd_cancel
+X *	Extended disc info window Cancel button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extd_cancel(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	/* Pop down the Disc Extended Info popup */
+X	XtUnmanageChild(widgets.dbextd.form);
+X
+X	/* Restore original text */
+X	if (cur_db.extd == NULL)
+X		XmTextSetString(widgets.dbextd.disc_txt, "");
+X	else
+X		XmTextSetString(widgets.dbextd.disc_txt, cur_db.extd);
+X}
+X
+X
+X/*
+X * dbprog_extt_ok
+X *	Extended track info window OK button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extt_ok(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	int	i;
+X
+X	/* Pop down the Track Extended Info popup */
+X	XtUnmanageChild(widgets.dbextt.form);
+X
+X	/* Update structures */
+X	dbprog_exttupd();
+X
+X	/* Delete backup text */
+X	for (i = 0; i < MAXTRACK; i++) {
+X		if (cur_db.sav_extt[i] != NULL) {
+X			MEM_FREE(cur_db.sav_extt[i]);
+X			cur_db.sav_extt[i] = NULL;
+X		}
+X	}
+X}
+X
+X
+X/*
+X * dbprog_extt_clear
+X *	Extended track info window Clear button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extt_clear(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmTextSetString(widgets.dbextt.trk_txt, "");
+X}
+X
+X
+X/*
+X * dbprog_extt_cancel
+X *	Extended track info window Cancel button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_extt_cancel(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	int	i;
+X
+X	/* Pop down the Track Extended Info popup */
+X	XtUnmanageChild(widgets.dbextt.form);
+X
+X	/* Restore backup text */
+X	for (i = 0; i < MAXTRACK; i++) {
+X		if (cur_db.extt[i] != NULL)
+X			MEM_FREE(cur_db.extt[i]);
+X
+X		cur_db.extt[i] = cur_db.sav_extt[i];
+X		cur_db.sav_extt[i] = NULL;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_dirsel_select
+X *	CD Database directory selection list callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_dirsel_select(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmListCallbackStruct	*p = (XmListCallbackStruct *)(void *) call_data;
+X
+X	if (p->reason != XmCR_BROWSE_SELECT)
+X		return;
+X
+X	if (cur_db.dbfile != NULL)
+X		MEM_FREE(cur_db.dbfile);
+X
+X	cur_db.dbfile = (char *)
+X		MEM_ALLOC(strlen(dbdirs[p->item_position-1]) + 10);
+X
+X	if (cur_db.dbfile == NULL) {
+X		cd_fatal_popup(app_data.str_fatal, app_data.str_nomemory);
+X		return;
+X	}
+X
+X	sprintf(cur_db.dbfile, "%s/%08x",
+X		dbdirs[p->item_position-1], cur_db.discid);
+X}
+X
+X
+X/*
+X * dbprog_dirsel_ok
+X *	CD Database directory selection window OK button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_dirsel_ok(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X
+X	if (cur_db.dbfile == NULL) {
+X		/* User has not selected a directory yet */
+X		cd_beep();
+X		return;
+X	}
+X
+X	/* Pop down the database directory selector popup dialog */
+X	XtUnmanageChild(widgets.dirsel.form);
+X
+X	switch (dirsel_mode) {
+X	case DIRSEL_SAVE:
+X		/* Save the database entry to output file */
+X		dbprog_dbput(s);
+X		break;
+X
+X	case DIRSEL_LINK:
+X		/* Link the database entry to another file */
+X		dbprog_dblink(s);
+X		break;
+X
+X	default:
+X		/* Shouldn't get here */
+X		break;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_dirsel_cancel
+X *	CD Database directory selection window Cancel button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_dirsel_cancel(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	/* Pop down the database directory selector popup dialog */
+X	XtUnmanageChild(widgets.dirsel.form);
+X
+X	/* Clear database file path */
+X	if (cur_db.dbfile != NULL) {
+X		MEM_FREE(cur_db.dbfile);
+X		cur_db.dbfile = NULL;
+X	}
+X}
+X
+X
+X/*
+X * dbprog_linksel_select
+X *	Search-link selector list user-selection callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_linksel_select(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	XmListCallbackStruct	*p = (XmListCallbackStruct *)(void *) call_data;
+X
+X	if (p->reason != XmCR_BROWSE_SELECT)
+X		return;
+X
+X	linksel_pos = p->item_position;
+X}
+X
+X
+X/*
+X * dbprog_linksel_ok
+X *	Search-link selector window OK button callback.
+X */
+Xvoid
+Xdbprog_linksel_ok(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	curstat_t	*s = (curstat_t *)(void *) client_data;
+X	char		errstr[STR_BUF_SZ],
+X			ltarget[FILE_PATH_SZ];
+X	int		i,
+X			stat_val;
+X	linkopts_t	*q;
+X	pid_t		cpid;
+X
+X	if (linksel_pos <= 0) {
+X		/* User has not selected a link target yet */
+X		cd_beep();
+X		return;
+X	}
+X
+X	/* Pop down the link selector popup dialog */
+X	XtUnmanageChild(widgets.linksel.form);
+X
+X	/* Do the link */
+X	switch (cpid = fork()) {
+X	case 0:
+X		break;
+X	case -1:
+X		sprintf(errstr, app_data.str_saverr_fork, errno);
+X		cd_warning_popup(app_data.str_warning, errstr);
+X		return;
+X	default:
+X		/* parent process: wait for child to exit */
+X		while (waitpid(cpid, &stat_val, 0) != cpid)
+X			;
+X
+X		/* Free link options list */
+X		dbprog_free_linkopts();
+X
+X		if (WIFEXITED(stat_val)) {
+X			switch (WEXITSTATUS(stat_val)) {
+X			case SETUID_ERR:
+X				sprintf(errstr, app_data.str_lnkerr_suid, ouid);
+X				cd_warning_popup(app_data.str_warning, errstr);
+X				return;
+X
+X			case LINK_ERR:
+X				sprintf(errstr, app_data.str_lnkerr_link);
+X				cd_warning_popup(app_data.str_warning, errstr);
+X				return;
+X
+X			default:
+X				break;
+X			}
+X		}
+X		else if (WIFSIGNALED(stat_val)) {
+X			sprintf(errstr, app_data.str_saverr_killed,
+X				WTERMSIG(stat_val));
+X			cd_warning_popup(app_data.str_warning, errstr);
+X			return;
+X		}
+X
+X		/* Load new database entry */
+X		dbprog_loaddb(w, client_data, call_data);
+X
+X		/* Database mode is now on */
+X		s->cddb = TRUE;
+X
+X		/* All edits have been saved, so clear flag */
+X		dbprog_changed = FALSE;
+X
+X		/* Update display */
+X		dpy_dbmode(s);
+X
+X		XtSetSensitive(widgets.dbprog.linkdb_btn, False);
+X		return;
+X	}
+X
+X	if (getuid() == 0 && setuid(ouid) < 0)
+X		exit(SETUID_ERR);
+X
+X	for (i = 0, q = linkhead; q != NULL; i++, q = q->next)
+X		if (i == linksel_pos - 1)
+X			break;
+X
+X	if (q == NULL)
+X		/* This should not happen */
+X		exit(LINK_ERR);
+X
+X	sprintf(ltarget, "%s/%s", dirname(cur_db.dbfile), q->idstr);
+X
+X#ifdef USE_SYMLINK
+X	if (symlink(ltarget, cur_db.dbfile) < 0)
+X#else
+X	if (link(ltarget, cur_db.dbfile) < 0)
+X#endif
+X		exit(LINK_ERR);
+X
+X	/* Child exits here. */
+X	exit(0);
+X}
+X
+X
+X/*
+X * dbprog_linksel_cancel
+X *	Search-link selector window Cancel button callback.
+X */
+X/*ARGSUSED*/
+Xvoid
+Xdbprog_linksel_cancel(Widget w, XtPointer client_data, XtPointer call_data)
+X{
+X	/* Pop down the link selector popup dialog */
+X	XtUnmanageChild(widgets.linksel.form);
+X
+X	/* Free link options list */
+X	dbprog_free_linkopts();
+X
+X	/* Clear database file path */
+X	if (cur_db.dbfile != NULL) {
+X		MEM_FREE(cur_db.dbfile);
+X		cur_db.dbfile = NULL;
+X	}
+X}
+X
+X/**************** ^^ Callback routines ^^ ****************/
+X
+END_OF_FILE
+if test 58201 -ne `wc -c <'dbprog.c'`; then
+    echo shar: \"'dbprog.c'\" unpacked with wrong size!
+fi
+# end of 'dbprog.c'
+fi
+echo shar: End of archive 6 \(of 13\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 13 archives.
+    echo "Now read the README and INSTALL files for further instructions."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+    ///  Ti Kan                vorsprung durch technik
+   ///   AMB Research Laboratories, Sunnyvale, CA. USA
+  ///    ti@amb.org
+ //////  ...!{decwrl,synopsys,tandem,tsoft,ultra}!sgiblab!bazooka!ti
+///      ...!uunet!bazooka!ti
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

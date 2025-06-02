@@ -1,0 +1,2148 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i120:  xfig - Draw amd manipulate objects in an X-Window, Part08/27
+Message-ID: <1993May21.021345.5484@sparky.imd.sterling.com>
+X-Md4-Signature: dc06da6051ded3fa1a8738bc56266f09
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:13:45 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 120
+Archive-name: xfig/part08
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 27)."
+# Contents:  Doc/FORMAT1.4 Doc/FORMAT2.0 Doc/TODO Examples/logic.fig.uu
+#   e_arrow.c e_glue.c w_fontpanel.c
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:05:51 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Doc/FORMAT1.4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/FORMAT1.4'\"
+else
+echo shar: Extracting \"'Doc/FORMAT1.4'\" \(9377 characters\)
+sed "s/^X//" >'Doc/FORMAT1.4' <<'END_OF_FILE'
+X****** This is the old format 1.4. ******
+X
+XThe following is the format of fig output (fig 1.4).
+X
+X(1) The very first line is a comment line containing the name and version:
+X	#FIG 1.4
+X
+X    The character # at the first column of a line indicates that the line
+X    is a comment line which will be ignored.
+X
+X(2) The first non-comment line consists of two numbers :
+X
+X	int	fig_resolution		(pixels/inch)
+X	int	coordinate_system	(1 : origin is at the lower left corner
+X					 2 : Upper left)
+X
+X    Fig_resolution is the resolution fig is using for the current file.
+X    It may not be the same as screen resolution (which can be higher or
+X    lower).  I assume that a pixel is square, therefore this number
+X    represents drawing resolution in both direction.  I've experimented
+X    with fig automatically changing this number according to the resolution
+X    of the monitor it is running on (The screen resolution, width and height
+X    in pixels, not pixel/inch, can be done by doing a ioctl on the /dev/fb).
+X    I've found that for monitors with higher resolution but same size
+X    (19" diagonal), I preferred using the pixels for other things than
+X    having fig occupying most of the screen.  Thus I opted for a fixed
+X    pixel-per-inch number which make fig window smaller on higher resolution
+X    monitor (than the standard sun monitor).  This however may change in
+X    the future version.
+X
+X(3) The rest of the file contains various objects.  An object can be one
+X    of six classes (or types).
+X
+X	  i)	Arc.
+X	 ii)	Ellipse which is a generalization of circle.
+X	iii)	Polyline which includes polygon and box.
+X	 iv)	Spline which includes closed/open control/interpolated spline.
+X	  v)	Text.
+X	 vi)	Compound object which is composed of one or more objects.
+X
+X    In the following elaboration on object formats, every value of fig
+X    output are separated by blank characters or new line ('\n').  The
+X    value of the not-used parameters will be -1.
+X
+X    A number of values are described as unused or not applicable to some
+X    object even though they are defined for those objects.  These value
+X    will (hopefully) be used in the future version of fig.  The intention
+X    of their uses are the following.
+X
+X	Value			Usage
+X	-----			-----
+X	area_fill	The stipple pattern (which will be align) for
+X			filling object internals.  For example, an filled
+X			arc will look like a piece of pie.
+X
+X	pen		This will be a structure defining the shape of
+X			pen used in drawing objects.  It also includes
+X			the the stipple pattern for line filling.
+X			The default pen is a circular pen with black
+X			filling.
+X
+X	thickness	Every pen has the thickness of one.
+X			Thickness scales the size of a pen. 
+X
+X	depth		This value adds a half dimension to fig.
+X			It is useful when we have overlapping filled
+X			objects and we want one to obliterate another.
+X			An object can have only one depth (including
+X			compound object).  An object that is in less
+X			depth can obscure the one with greater depth
+X			if they overlap.
+X	
+X	line_style	Only polyline (including polygon and box) can
+X			be rendered with dashed line.  However the
+X			objects created when the dash-line mode was on
+X			will be recorded as such.  Currently the filter
+X			f2ps (1) is able to render the desired line style
+X			effect on hard copy.  Three line styles are defined.
+X
+X				0 : SOLID_LINE
+X				1 : DASH_LINE
+X				2 : DOTTED_LINE
+X
+X	style_val	For dash style, it is the length of a dash.
+X			For dotted line it indicates the approximated
+X			gap of consecutive dots. 
+X
+X    (3.1) ARC
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 5)
+X	int	sub_type		(always	1)
+X	int	line_style		(See the end of this section)
+X	int	line_thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	direction		(0 : clockwise, 1 : counterclockwise)
+X	int	forward_arrow		(0: no forward arrow, 1: on)
+X	int	backward_arrow		(0: no forward arrow, 1: on)
+X	float	center_x, center_y	(center of the arc)
+X	int	x1, y1			(pixels, the 1st point the user entered)
+X	int	x2, y2			(pixels, the 2nd point)
+X	int	x3, y3			(pixels, the last point)
+X
+X    Forward arrow line (Optional; absent if forward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	int	arrow_thickness		(not used)
+X	int	arrow_width		(pixels)
+X	int	arrow_height		(pixels)
+X
+X    Backward arrow line (Optional; absent if backward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	int	arrow_thickness		(not used)
+X	int	arrow_width		(pixels)
+X	int	arrow_height		(pixels)
+X
+X    (3.2) COMPOUND
+X
+X    A line with object code 6 signifies the start of a compound.
+X    There are four more numbers on this line which indicate the
+X    upper right corner and the lower left corner of the bounding
+X    box of this compound.  A line with object code -6 signifies
+X    the end of the compound.  Compound may be nested.
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 6)
+X	int	upperright_corner_x	(pixels)
+X	int	upperright_corner_y	(pixels)
+X	int	lowerleft_corner_x	(pixels)
+X	int	lowerleft_corner_y	(pixels)
+X
+X    Subsequent lines :
+X	objects
+X	.
+X	.
+X
+X    Last line :
+X	-6
+X
+X    (3.3) ELLIPSE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : ellipse defined by radiuses
+X					 2 : ellipse defined by diameters
+X					 3 : circle defined by radius
+X					 4 : circle defined by diameter)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	direction		(always 1)
+X	float	angle			(radian, the angle of the x-axis)
+X	int	center_x, center_y	(pixels)
+X	int	radius_x, radius_y	(pixels)
+X	int	start_x, start_y	(pixels; the 1st point entered)
+X	int	end_x, end_y		(pixels; the last point entered)
+X
+X    (3.4) POLYLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : polyline, 2 : box, 3 : polygon)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	x1, y1			(pixels)
+X	int	x2, y2			(pixels)
+X	  .
+X	  .
+X	int	xn, yn			(this will be the same as the 1st
+X					point for polygon and box)
+X	int	x, y			(always 9999, 9999; marks the end of
+X					point for polygon and box)
+X
+X    (3.5) SPLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : open spline
+X					 2 : closed spline
+X					 3 : open interpolated spline
+X					 4 : closed interpolated spline)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line : same as POLYLINE object
+X
+X    Control points line (absent if sub_type is 1 or 2) :
+X	Control points of interpolated spline.  There are two control
+X	points for each knots.  A section i, of the spline is drawn
+X	using Bezier cubic with the following four points:
+X		(x ,y ), (rx ,ry ), (lx	  , ly   ), (x   , y   ).
+X		  i  i	    i	i      i+1    i+1     i+1   i+1
+X	For closed interpolated spline the last pair of control points,
+X	(lxn,lyn) and (rxn,ryn) (which can be ignored), are the same as
+X	(lx1,ly1) and (rx1,ry1) respectively.
+X
+X	type	name			(brief description)
+X	----	----			-------------------
+X	float	lx1, ly1		(pixels)
+X	float	rx1, ry1		(pixels)
+X	float	lx2, ly2		(pixels)
+X	float	rx2, ry2		(pixels)
+X	  .
+X	  .
+X	float	lxn, lyn		(pixels)
+X	float	rxn, ryn		(pixels)
+X
+X    (3.6) TEXT
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object 			(always 4)
+X	int	sub_type		(0 : Left justified
+X					 1 : Center justified
+X					 2 : Right justified)
+X	int	font 			(not used)
+X	int	font_size 		(not used)
+X	int	pen			(not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	angle			(radian, not used, the angle of the
+X					the base line of the string)
+X	int	font_style		(not used)
+X	int	height			(pixels)
+X	int	length			(pixels)
+X	int	x, y			(pixels, coordinate of the origin
+X					 of the string.  If sub_type = 0, it is
+X					 the lower left corner of the string.
+X					 If sub_type = 1, it is the lower
+X					 center.  Otherwise it is the lower
+X					 right corner of the string.)
+X	char	string[]		(ascii characters; starts after a blank
+X					character following the last number and
+X					ends before the character '\1'.  This
+X					character is not part of the string.
+X					Note that the string may contain '\n'.)
+END_OF_FILE
+if test 9377 -ne `wc -c <'Doc/FORMAT1.4'`; then
+    echo shar: \"'Doc/FORMAT1.4'\" unpacked with wrong size!
+fi
+# end of 'Doc/FORMAT1.4'
+fi
+if test -f 'Doc/FORMAT2.0' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/FORMAT2.0'\"
+else
+echo shar: Extracting \"'Doc/FORMAT2.0'\" \(9404 characters\)
+sed "s/^X//" >'Doc/FORMAT2.0' <<'END_OF_FILE'
+XThe following is the format of fig output for Protocol version 2.0:
+X
+X(1) The very first line is a comment line containing the name and version:
+X	#FIG 2.0
+X
+X    The character # at the first column of a line indicates that the line
+X    is a comment line which will be ignored.
+X
+X(2) The first non-comment line consists of two numbers :
+X
+X	int	fig_resolution		(pixels/inch)
+X	int	coordinate_system	(1 : origin is at the lower left corner
+X					 2 : Upper left)
+X
+X    Fig_resolution is the resolution fig is using for the current file.
+X    It may not be the same as screen resolution (which can be higher or
+X    lower).  I assume that a pixel is square, therefore this number
+X    represents drawing resolution in both direction.  I've experimented
+X    with fig automatically changing this number according to the resolution
+X    of the monitor it is running on (The screen resolution, width and height
+X    in pixels, not pixel/inch, can be done by doing a ioctl on the /dev/fb).
+X    I've found that for monitors with higher resolution but same size
+X    (19" diagonal), I preferred using the pixels for other things than
+X    having fig occupying most of the screen.  Thus I opted for a fixed
+X    pixel-per-inch number which make fig window smaller on higher resolution
+X    monitor (than the standard sun monitor).  This however may change in
+X    the future version.
+X
+X(3) The rest of the file contains various objects.  An object can be one
+X    of six classes (or types).
+X
+X	  i)	Ellipse which is a generalization of circle.
+X	 ii)	Polyline which includes polygon and box.
+X	iii)	Spline which includes closed/open control/interpolated spline.
+X	 iv)	Text.
+X	  v)	Arc.
+X	 vi)	Compound object which is composed of one or more objects.
+X
+X    In the following elaboration on object formats, every value of fig
+X    output are separated by blank characters or new line ('\n').  The
+X    value of the not-used parameters will be -1.
+X
+X    A number of values are described as unused or not applicable to some
+X    object even though they are defined for those objects.  These value
+X    will (hopefully) be used in the future version of fig.  The intention
+X    of their uses are the following.
+X
+X	Value			Usage
+X	-----			-----
+X	area_fill	The gray color for filling object internals.
+X			Non-TFX:(gray color; 0=no fill,1=white,21=black)
+X			TFX:	(gray color; 0=no fill,1=black, 5=white)
+X
+X	pen		This will be a structure defining the shape of
+X			pen used in drawing objects.  It also includes
+X			the the stipple pattern for line filling.
+X			The default pen is a circular pen with black
+X			filling.
+X
+X	thickness	Every pen has the thickness of one.
+X			Thickness scales the size of a pen. 
+X
+X	depth		This value adds a half dimension to fig.
+X			It is useful when we have overlapping filled
+X			objects and we want one to obliterate another.
+X			An object can have only one depth (including
+X			compound object).  An object that is in less
+X			depth can obscure the one with greater depth
+X			if they overlap.
+X	
+X	style		Three line styles are defined.
+X
+X				0 : SOLID_LINE
+X				1 : DASH_LINE
+X				2 : DOTTED_LINE
+X
+X	style_val	For dash style, it is the length of a dash.
+X			For dotted line it indicates the approximated
+X			gap of consecutive dots. 
+X	
+X	radius		For rounded-corner boxes, this is the radius of
+X			the corners.
+X
+X    (3.1) ELLIPSE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : ellipse defined by radiuses
+X					 2 : ellipse defined by diameters
+X					 3 : circle defined by radius
+X					 4 : circle defined by diameter)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	direction		(always 1)
+X	float	angle			(radian, the angle of the x-axis)
+X	int	center_x, center_y	(pixels)
+X	int	radius_x, radius_y	(pixels)
+X	int	start_x, start_y	(pixels; the 1st point entered)
+X	int	end_x, end_y		(pixels; the last point entered)
+X
+X    (3.2) POLYLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 2)
+X	int	sub_type		(1 : polyline, 2 : box, 
+X					 3 : polygon, 4 : rounded-corner box)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill	*	(gray color)
+X	float	style_val		(pixels)
+X	int	radius		**	(pixels, radius of rounded-corner boxes)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X*  Fill only available for box, polygon and rounded-corner box, not polyline.
+X** This component exists only in rounded-corner box object.
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	x1, y1			(pixels)
+X	int	x2, y2			(pixels)
+X	  .
+X	  .
+X	int	xn, yn			(this will be the same as the 1st
+X					point for polygon and box)
+X	int	x, y			(always 9999, 9999; marks the end of
+X					point for polygon and box)
+X
+X    (3.3) SPLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 3)
+X	int	sub_type		(0 : open spline
+X					 1 : closed spline
+X					 2 : open interpolated spline
+X					 3 : closed interpolated spline)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line : same as POLYLINE object
+X
+X    Control points line (absent if sub_type is 1 or 2) :
+X	Control points of interpolated spline.  There are two control
+X	points for each knots.  A section i, of the spline is drawn
+X	using Bezier cubic with the following four points:
+X		(x ,y ), (rx ,ry ), (lx	  , ly   ), (x   , y   ).
+X		  i  i	    i	i      i+1    i+1     i+1   i+1
+X	For closed interpolated spline the last pair of control points,
+X	(lxn,lyn) and (rxn,ryn) (which can be ignored), are the same as
+X	(lx1,ly1) and (rx1,ry1) respectively.
+X
+X	type	name			(brief description)
+X	----	----			-------------------
+X	float	lx1, ly1		(pixels)
+X	float	rx1, ry1		(pixels)
+X	float	lx2, ly2		(pixels)
+X	float	rx2, ry2		(pixels)
+X	  .
+X	  .
+X	float	lxn, lyn		(pixels)
+X	float	rxn, ryn		(pixels)
+X
+X    (3.4) TEXT
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object 			(always 4)
+X	int	sub_type		(0 : Left justified
+X					 1 : Center justified
+X					 2 : Right justified)
+X	int	font 			(font number 0-...)
+X	int	font_size 		(point size)
+X	int	pen			(not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	float	angle			(radian, not used, the angle of the
+X					the base line of the string)
+X	int	font_style		(not used)
+X	int	height			(pixels)
+X	int	length			(pixels)
+X	int	x, y			(pixels, coordinate of the origin
+X					 of the string.  If sub_type = 0, it is
+X					 the lower left corner of the string.
+X					 If sub_type = 1, it is the lower
+X					 center.  Otherwise it is the lower
+X					 right corner of the string.)
+X	char	string[]		(ascii characters; starts after a blank
+X					character following the last number and
+X					ends before the character '\1'.  This
+X					character is not part of the string.
+X					Note that the string may contain '\n'.)
+X    (3.5) ARC
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 5)
+X	int	sub_type		(always	1)
+X	int	style			(See the end of this section)
+X	int	line_thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	direction		(0 : clockwise, 1 : counterclockwise)
+X	int	forward_arrow		(0: no forward arrow, 1: on)
+X	int	backward_arrow		(0: no forward arrow, 1: on)
+X	float	center_x, center_y	(center of the arc)
+X	int	x1, y1			(pixels, the 1st point the user entered)
+X	int	x2, y2			(pixels, the 2nd point)
+X	int	x3, y3			(pixels, the last point)
+X
+X    Forward arrow line (Optional; absent if forward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	float	arrow_thickness		(not used)
+X	float	arrow_width		(pixels)
+X	float	arrow_height		(pixels)
+X
+X    Backward arrow line (Optional; absent if backward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	float	arrow_thickness		(not used)
+X	float	arrow_width		(pixels)
+X	float	arrow_height		(pixels)
+X
+X    (3.6) COMPOUND
+X
+X    A line with object code 6 signifies the start of a compound.
+X    There are four more numbers on this line which indicate the
+X    upper right corner and the lower left corner of the bounding
+X    box of this compound.  A line with object code -6 signifies
+X    the end of the compound.  Compound may be nested.
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 6)
+X	int	upperright_corner_x	(pixels)
+X	int	upperright_corner_y	(pixels)
+X	int	lowerleft_corner_x	(pixels)
+X	int	lowerleft_corner_y	(pixels)
+X
+X    Subsequent lines :
+X	objects
+X	.
+X	.
+X
+X    Last line :
+X	-6
+X
+X
+END_OF_FILE
+if test 9404 -ne `wc -c <'Doc/FORMAT2.0'`; then
+    echo shar: \"'Doc/FORMAT2.0'\" unpacked with wrong size!
+fi
+# end of 'Doc/FORMAT2.0'
+fi
+if test -f 'Doc/TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/TODO'\"
+else
+echo shar: Extracting \"'Doc/TODO'\" \(9507 characters\)
+sed "s/^X//" >'Doc/TODO' <<'END_OF_FILE'
+XThis file contains some possible things to do in future versions of xfig.
+X
+Xallow rotated boxes (not just polygons)
+Xreduce number of grid lines (if necessary) when zooming < 1.0
+Xfix grid rounding problems at 0.75 zoom factor
+Xallow printing of grid in figure
+Xmake the rulers understand the real screen resolution according to the server
+Xadd the concept of "layers" for each depth.  That way a user may work on 
+X	certain layers at one time, masking out or overlaying the other layers
+X	as desired.
+Xmake <Shift>middle mouse button DELETE previous points just created during
+X	create POLYobject/ARC/Ellipse etc.  That way, one may backup when
+X	creating objects.
+Xcreate resource for "print" command (e.g. lp, lpr, whatever) which uses meta-
+X	notation to place filename (e.g.  print_command: "lpr -P%p %f" where %p
+X	is the printer string and %f is the filename)
+Xmake line counter update correctly when reading multiple-line POLYLINES and
+X	SPLINES from input file
+Xallow vertically-aligned text
+X  "top" would mean the insertion point specifies the line over the top of the
+X        text
+X  "middle" would mean that it specifies the midline of the text (I'm not
+X        sure how this is defined, perhaps the average of top and base
+X        or top and bottom.
+X  "base" would mean the line under all letters which do not hang down.
+X        For example, g and j extend below the baseline.
+X  "bottom" would mean the time under the bottom of the text including
+X        descenders.
+Xhave arc sub-type 2 for pie wedge-type arcs
+Xhave common edit popup for all four splines to allow conversion between all
+Xsave modified_flag before file operations and restore if undo used
+XShould arrow size change in update mode when linewidth changes?
+Xinvestigate whether eps objects that don't have a preview bitmap
+X	are scaled correctly
+Xchange eps_bitmaps so that background is transparent (needs to work
+X	in normal and reverse-video modes).
+XMake popup windows come up so that they don't overlap the figure (if possible).
+X	An edit popup window should at least not overlap the
+X	object being edited (again only if possible).
+XUse fill pattern (grey-shading) to mimic color objects on monochrome systems.
+XExtend smart links to work for SCALE, MOVEPT and perhaps EDIT, UPDATE.
+X	Could also extend them to work for arc-type links and for
+X	ellipse/circle objects and objects inside compound objects.  
+X	Also, at the moment smart-links
+X	only work for one end of a link if both ends of the link
+X	happen to touch the object being operated on.  To fix this would
+X	require changing the F_linkinfo structure to have left_endpt,
+X	left_prevpt, right_endpt, right_prevpt fields instead of the current
+X	endpt, prevpt and two_pts fields.
+XMake xfig resources more consistent with normal use of resources in X clients.
+X	e.g. provide support to allow each command button (say) to be
+X	a different color.  Ditto for mode buttons, etc.
+Xinvestigate if we should be setting initialResourcesPersistent to false for
+X	widgets that are created and destroyed as required.
+XStill need to think about how point positioning should be utilized with
+X	many of the editing commands, e.g. if point positioning is set to
+X	large grid and you are trying to move an object, should:
+X	a) it be ignored, b) you can pick up an object anywhere but
+X	you must put the 'pick-up' point back on a grid posn,
+X	c) you have to pick up and put down objects at grid posns,
+X	d) you can pick up and place an object anywhere but when you
+X	place it, the point on the object closest the pickup point is
+X	automatically rounded to the nearest grid posn, e) you can
+X	pick up objects anywhere and movement is multiples of the grid size.
+X	The current behaviour is c) and b) can be mimicked by changing the
+X	point posn indicator mid-move.  It has the disadvantage that you
+X	may not be able to pick up an object which isn't on the grid points.
+X	I think e) is the next best but it won't let you mimick b).
+XUse clipping rectangles in more places:
+X	use the redisplay_* routines as necessary.
+Xallow popup menus to be pinned?
+Xhave a resource which can be set to keep backups during a save, instead of
+X	prompting the user about overwrite etc.
+Xmake a keypad label:
+X	This should popup in the mousefun window whenever a panel for
+X	entering text is entered.  The kbd_ic icon is already there.
+Xzooming of text is still a kludge. (It doesn't work properly yet)
+Xmake arcs use pw_curve to speed them up.
+Xadd bounding box to every F_object definition, useful for:
+X	1) faster drawing of rubber objects
+X	2) handling the selective redrawing of figures better after they become
+X	   the innocent victim during an expose or erasure of another object
+Xthings like pan/zoom/resize/iconify will still leave junk on the screen
+X	or mess up the figure if you are in the middle of drawing it:
+X	One solution is to call canvas_rightbut_proc whenever the
+X	action_on flag is set and one of the above functions is called.
+X	This forces the operation being performed to be cancelled - probably
+X	not a good idea for panning - we might be trying to pan a little
+X	bit to place the last point in a large object.
+X	Another solution is to have a big case statement which performs
+X	a single elastic draw of whatever object is being drawn/moved etc.
+X	The function would need to be called before an iconify (or
+X	whatever) and again after the operation was completed.  This
+X	would allow drawing operations to be continued after window functions
+X	had been performed.
+X	A third solution is to use a canvas_elasticdraw_save parameter
+X	instead of using a case statement - it would need to be set
+X	prior to every elastic draw operation.
+XGeneralize align mode (like glue mode) to allow arbitrary tagged objects to be
+X	aligned rather than just compounds.
+XAdditional align mode options for distributing objects evenly within a compound
+X	or abutting them together: abutT, abutB, abutL, abutR, distH, distV
+XSome facility to provide better support for small screens.
+X	e.g. scrollable mode button list or automatic resizing
+X	to have several rows as needed.  A good test is to limit the total 
+X	space to 640x480 so that it is still useable on an IBM-PC VGA screen.
+XMake a raise/lower depth feature:
+X	the raise_ic icon is already in w_icons.c
+XMake xfig understand depth better:
+X	If you set the depth using the object edit panels, xfig will redraw
+X	them correctly, however it would be nice if as you entered new filled
+X	objects that they were automatically given an appropriate depth.
+X	This would involve finding the depth of all overlapping (filled?)
+X	objects and setting the depth to be one less.
+X	What about support for negative depth values?
+X
+X--------------------------------------------------------------------
+XThe following items would require a change to the Fig file protocol:
+X--------------------------------------------------------------------
+X
+Xextend color model to include 24-bit color
+Xuse floating point coordinates for objects (at least internally to xfig if not
+X	in the figure file)
+Xsuper/subscripts for text objects
+Xallow background color for figure and store in fig file - also requires that
+X	fig2dev knows about this background color
+Xallow fractional text sizes (float)
+Xpossibly make extension to Fig protocol to handle several line 
+X	cap/join styles (e.g. round, butt, miter)
+X
+X--------------------------------------------------------------------
+XWhat really needs to be done is a major rework of the list structures used
+X	to store xfig objects.  Here are some comments involving the change.
+X
+X-------- note about restructuring xfig data structures -------------
+XRather than having a depth attribute for objects, you can use the order
+Xin which objects are entered to determine their depth:  later objects
+Xappear on the top.  A raise/lower depth operation would allow you to
+Xchange the ordering.
+X
+XThe consequences to the current implementation of converting totally to this
+Xscheme are non-trivial.  Instead of having separate lists for each object
+Xtype, you need to have a single list which has a union of all the different
+Xobjects as its type.  This will require changes in many places in the code.
+XAt the moment there are many places where each of the lists are traversed
+Xseparately.  In many cases the code can be simplified dramatically if there
+Xwas only a single list.  For example, to perform a move on an object there
+Xare separate routines (one for each object type) to start/cancel/place the
+Xobject.  You could replace this by a single routine for start/cancel and
+Xplace which worked no matter what type you had.  (Who says you can't use
+Xobject-orientation in C :-)).  Another advantage is that the current caching
+Xscheme for redrawing would no longer be needed (i.e. redrawing would be
+Xgreatly simplified).  Also undo would become simpler (I think).
+X
+XIf we want to make a smooth transition from the current scheme to the
+Xone described above (and I do), here is how I propose we do it:
+X
+XWe need to change every direct access to the current lists to use functions.
+Xi.e. something like
+X        for (a=objects.arc; a!=NULL; a=a->next) ...
+Xto be something like
+X        for (a=first_arc(); a!=NULL; a=next_arc(a)) ...
+X
+XAt the moment these routines would be simple to implement.
+XOnce all occurrences had been changed, it would simply be a matter
+Xof changing the underlying list structure and changing the first_arc,
+Xnext_arc routines.  Then as we had time we could replace whichever
+Xsets of six loops by a single loop which did
+X        for (o=first_obj(); o!=NULL; o=next_obj(o)) ...
+X-------- end of note about restructuring xfig data structures -------------
+X
+END_OF_FILE
+if test 9507 -ne `wc -c <'Doc/TODO'`; then
+    echo shar: \"'Doc/TODO'\" unpacked with wrong size!
+fi
+# end of 'Doc/TODO'
+fi
+if test -f 'Examples/logic.fig.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Examples/logic.fig.uu'\"
+else
+echo shar: Extracting \"'Examples/logic.fig.uu'\" \(9760 characters\)
+sed "s/^X//" >'Examples/logic.fig.uu' <<'END_OF_FILE'
+Xbegin 444 logic.fig
+XM(T9)1R`R+C$*.#`@,@HQ(#0@,"`Q("TQ(#`@,"`R,2`P+C`P,"`Q(#`N,#`P
+XM(#(R-"`W.2`S(#,@,C(R(#<Y(#(R-R`W.0HQ(#,@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#$@,"XP,#`@,C$Y(#(T(#$P(#$P(#(Q.2`R-"`R,CD@,C0*,2`S(#`@
+XM,2`M,2`P(#`@,"`P+C`P,"`Q(#`N,#`P(#4S-"`Q,#0@-2`U(#4S-"`Q,#0@
+XM-3,Y(#$P-`HQ(#,@,"`Q("TQ(#`@,"`P(#`N,#`P(#$@,"XP,#`@-#,T(#0T
+XM(#$P(#$P(#0S-"`T-"`T-#0@-#0*,2`T(#`@,2`M,2`P(#`@,C$@,"XP,#`@
+XM,2`P+C`P,"`T-SD@-SD@,R`S(#0W-R`W.2`T.#(@-SD*,2`T(#`@,2`M,2`P
+XM(#`@,C$@,"XP,#`@,2`P+C`P,"`V.#D@-SD@,R`S(#8X-R`W.2`V.3(@-SD*
+XM,2`S(#`@,2`M,2`P(#`@,"`P+C`P,"`Q(#`N,#`P(#,V-"`R-#D@,3`@,3`@
+XM,S8T(#(T.2`S-S0@,C0Y"C$@-"`P(#$@+3$@,"`P(#(Q(#`N,#`P(#$@,"XP
+XM,#`@-#$Y(#(R-"`S(#,@-#$W(#(R-"`T,C(@,C(T"C$@-"`P(#$@+3$@,"`P
+XM(#(Q(#`N,#`P(#$@,"XP,#`@-#$Y(#,T.2`S(#,@-#$W(#,T.2`T,C(@,S0Y
+XM"C$@-"`P(#$@+3$@,"`P(#(Q(#`N,#`P(#$@,"XP,#`@-#0Y(#,T.2`S(#,@
+XM-#0W(#,T.2`T-3(@,S0Y"C$@,R`P(#$@+3$@,"`P(#`@,"XP,#`@,2`P+C`P
+XM,"`V-"`R-S@@,3`@,3`@-C0@,C<X(#<T(#(W.`HQ(#0@,"`Q("TQ(#`@,"`R
+XM,2`P+C`P,"`Q(#`N,#`P(#$Q.2`R-SD@,R`S(#$Q-R`R-SD@,3(R(#(W.0HQ
+XM(#0@,"`Q("TQ(#`@,"`R,2`P+C`P,"`Q(#`N,#`P(#(U.2`R-SD@,R`S(#(U
+XM-R`R-SD@,C8R(#(W.0HQ(#,@,"`Q("TQ(#`@,"`P(#`N,#`P(#$@,"XP,#`@
+XM,C(T(#(V-"`Q,"`Q,"`R,C0@,C8T(#(S-"`R-C0*,2`T(#`@,2`M,2`P(#`@
+XM,C$@,"XP,#`@,2`P+C`P,"`U.3D@,SDT(#,@,R`U.3<@,SDT(#8P,B`S.30*
+XM,2`T(#`@,2`M,2`P(#`@,C$@,"XP,#`@,2`P+C`P,"`V,CD@,SDT(#,@,R`V
+XM,C<@,SDT(#8S,B`S.30*,2`T(#`@,2`M,2`P(#`@,C$@,"XP,#`@,2`P+C`P
+XM,"`U.3D@,C(T(#,@,R`U.3<@,C(T(#8P,B`R,C0*,2`S(#`@,2`M,2`P(#`@
+XM,"`P+C`P,"`Q(#`N,#`P(#4V-"`R,#,@,3`@,3`@-38T(#(P,R`U-S0@,C`S
+XM"C$@,R`P(#$@+3$@,"`P(#`@,"XP,#`@,2`P+C`P,"`Q-#0@-3,Y(#0@-"`Q
+XM-#0@-3,Y(#$T."`U,SD*,2`S(#`@,2`M,2`P(#`@,"`P+C`P,"`Q(#`N,#`P
+XM(#$U.2`U,S0@-2`U(#$U.2`U,S0@,38T(#4S-`HQ(#,@,"`Q("TQ(#`@,"`P
+XM(#`N,#`P(#$@,"XP,#`@,3<T(#4S.2`T(#0@,3<T(#4S.2`Q-S@@-3,Y"C(@
+XM,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`Q,C0@-3D@,34T(#4Y(#$X
+XM-"`T.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)
+XM(#$R-"`Y.2`Q-30@.3D@,3@T(#@Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@
+XM,"`P(#`N,#`P(#`@,"`P"@D@,3@T(#4Y(#(R-"`U.2`R,C0@.3D@,3@T(#DY
+XM(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C(T
+XM(#<Y(#(U-"`W.2`R.#0@-CD@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@
+XM,"XP,#`@,"`P(#`*"2`R.#0@-SD@,S$Y(#<Y(#DY.3D@.3DY.0HR(#,@,"`Q
+XM("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-3`T(#@Y(#4P-"`Q,3D@-3(Y(#$P
+XM-"`U,#0@.#D@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P
+XM(#`*"2`U,#0@,3`T(#0W.2`Q,#0@-#<Y(#4T(#4X-"`U-"`V,30@-#0@.3DY
+XM.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`U,SD@,3`T
+XM(#4X-"`Q,#0@-C$T(#DT(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`P"@D@-C$T(#4T(#8X.2`U-"`V.#D@,3`T(#8Q-"`Q,#0@.3DY
+XM.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`V.#D@-SD@
+XM-S(Y(#<Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P
+XM"@D@-#<Y(#<Y(#0T.2`W.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P
+XM+C`P,"`P(#`@,`H)(#4Y-R`X,B`V,#8@.#(@.3DY.2`Y.3DY"C(@,2`P(#$@
+XM+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`T-#D@,S0Y(#0T.2`S,#0@-#4Y(#(W
+XM-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#,X
+XM.2`S-#D@,S@Y(#,P-"`S.3D@,C<T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@
+XM,"`P(#`N,#`P(#`@,"`P"@D@,S@Y(#(W-"`S.#D@,C(T(#0T.2`R,C0@-#0Y
+XM(#(W-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)
+XM(#0R-R`Q.3,@-#$R(#(P,R`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P
+XM+C`P,"`P(#`@,`H)(#0Q.2`Q.3D@-#$Y(#(R-"`Y.3DY(#DY.3D*,B`Q(#`@
+XM,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#0P.2`T,CD@-#(Y(#0R.2`Y.3DY
+XM(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#0Q-"`T,S0@
+XM-#(T(#0S-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@
+XM,`H)(#0Q-B`T,SD@-#(Q(#0S.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@
+XM,"`P+C`P,"`P(#$@,`H),"`P(#$N,#`P(#0N,#`P(#@N,#`P"@D@,S@Y(#,T
+XM.2`T.30@,S0Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@
+XM,"`P"@D@-#$Y(#,T.2`T,3D@,S8Y(#0Q-"`S-S0@-#(T(#,W.2`T,30@,S@T
+XM(#0R-"`S.#D@-#$T(#,Y-"`T,C0@,SDY"@D@-#$T(#0P-"`T,C0@-#`Y(#0Q
+XM.2`T,30@-#$Y(#0R.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P
+XM,"`P(#`@,`H)(#$Q.2`T,CD@,3$Y(#,X-"`Q,CD@,S4T(#DY.3D@.3DY.0HR
+XM(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,3$Y(#,U-"`Q,3D@,S(T
+XM(#$R.2`R.30@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P
+XM(#`*"2`Q,38@-#,Y(#$R,2`T,SD@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P
+XM(#`@,"XP,#`@,"`P(#`*"2`Q,30@-#,T(#$R-"`T,S0@.3DY.2`Y.3DY"C(@
+XM,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`Q,#D@-#(Y(#$R.2`T,CD@
+XM.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`Q(#`*"3`@,"`Q
+XM+C`P,"`T+C`P,"`X+C`P,`H)(#$Q.2`R-SD@,34Y(#(W.2`Y.3DY(#DY.3D*
+XM,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#$R-R`Q.3,@,3$R(#(P
+XM,R`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#$Q
+XM.2`Q.3D@,3$Y(#(Q-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P
+XM,"`P(#`@,`H)(#$Q.2`R,30@,3$Y(#(R-"`Q,30@,C(Y(#$R-"`R,S0@,3$T
+XM(#(S.2`Q,C0@,C0T(#$Q-"`R-#D@,3(T(#(U-`H)(#$Q-"`R-3D@,3(T(#(V
+XM-"`Q,3D@,C8Y(#$Q.2`R.30@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@
+XM,"XP,#`@,"`P(#`*"2`R-#D@-#0Y(#(V.2`T-#D@.3DY.2`Y.3DY"C(@,2`P
+XM(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`R-30@-#4T(#(V-"`T-30@.3DY
+XM.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`R-38@-#4Y
+XM(#(V,2`T-3D@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P
+XM(#`*"2`R-3D@,CDT(#(S-"`S,3D@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P
+XM(#`@,"XP,#`@,"`P(#`*"2`R,C8@,S$R(#(Q.2`S,S0@,3DY(#,U-"`Y.3DY
+XM(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#(R-B`S.38@
+XM,C$Y(#,W-"`Q.3D@,S4T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`P"@D@,C4Y(#0Q-"`R,S0@,S@Y(#DY.3D@.3DY.0HR(#$@,"`Q
+XM("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C4Y(#0Q-"`R.#0@,S@Y(#DY.3D@
+XM.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,CDR(#,Y-B`R
+XM.3D@,S<T(#,Q.2`S-30@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP
+XM,#`@,"`P(#`*"2`R.3(@,S$R(#(Y.2`S,S0@,S$Y(#,U-"`Y.3DY(#DY.3D*
+XM,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#(U.2`R.30@,C@T(#,Q
+XM.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#$@,`H),"`P
+XM(#$N,#`P(#0N,#`P(#@N,#`P"@D@,C4Y(#(W.2`R.3D@,C<Y(#DY.3D@.3DY
+XM.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C8W(#$Y,R`R-3(@
+XM,C`S(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM,C4Y(#$Y.2`R-3D@,C$T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N
+XM,#`P(#`@,"`P"@D@,C4Y(#(Q-"`R-3D@,C(T(#(U-"`R,CD@,C8T(#(S-"`R
+XM-30@,C,Y(#(V-"`R-#0@,C4T(#(T.2`R-C0@,C4T"@D@,C4T(#(U.2`R-C0@
+XM,C8T(#(U.2`R-CD@,C4Y(#(Y-"`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@
+XM,"`P+C`P,"`P(#`@,`H)(#$Y.2`S-30@,C0T(#,U-"`R-S0@,S0T(#DY.3D@
+XM.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,C<T(#,U-"`S
+XM,3D@,S4T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P
+XM"@D@,C4Y(#0Q-"`R-3D@-#0Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P
+XM(#`N,#`P(#`@,"`P"@D@-3@Y(#0W-"`V,#D@-#<T(#DY.3D@.3DY.0HR(#$@
+XM,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-3DT(#0W.2`V,#0@-#<Y(#DY
+XM.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-3DV(#0X
+XM-"`V,#$@-#@T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@
+XM,2`P"@DP(#`@,2XP,#`@-"XP,#`@."XP,#`*"2`U-CD@,SDT(#8W-"`S.30@
+XM.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`U.3D@
+XM,SDT(#4Y.2`T,30@-3DT(#0Q.2`V,#0@-#(T(#4Y-"`T,CD@-C`T(#0S-"`U
+XM.30@-#,Y(#8P-"`T-#0*"2`U.30@-#0Y(#8P-"`T-30@-3DY(#0U.2`U.3D@
+XM-#<T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@
+XM-C(Y(#,S-"`V,CD@,S`T(#8Q.2`R-S0@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@
+XM,"`P(#`@,"XP,#`@,"`P(#`*"2`V,CD@,SDT(#8R.2`S-C0@-C$Y(#,S-"`Y
+XM.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#4V.2`S
+XM.30@-38Y(#,V-"`U-3D@,S,T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P
+XM(#`N,#`P(#`@,"`P"@D@-38Y(#,S-"`U-CD@,S`T(#4U.2`R-S0@.3DY.2`Y
+XM.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`U-CD@,C<T(#4V
+XM.2`R,C0@-C(Y(#(R-"`V,CD@,C<T(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@
+XM,"`P(#`N,#`P(#`@,"`P"@D@-3DY(#$Y.2`U.3D@,C(T(#DY.3D@.3DY.0HR
+XM(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@-C`W(#$Y-"`U.3(@,C`T
+XM(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@.3D@
+XM-3,Y(#$T-"`U,SD@,3<T(#4R.2`Y.3DY(#DY.3D*,B`Q(#`@,2`M,2`P(#`@
+XM,"`P+C`P,"`P(#`@,`H)(#$W-"`U,SD@,C$Q(#4S.2`Y.3DY(#DY.3D*,B`Q
+XM(#`@,2`M,2`P(#`@,"`P+C`P,"`P(#`@,`H)(#(V-"`U,SD@,S`Y(#4S.2`S
+XM,SD@-3(Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P
+XM"@D@,S,Y(#4S.2`S-S8@-3,Y(#DY.3D@.3DY.0HR(#$@,"`Q("TQ(#`@,"`P
+XM(#`N,#`P(#`@,"`P"@D@,34Y(#4S-"`Q-3D@-34T(#DY.3D@.3DY.0HR(#$@
+XM,"`Q("TQ(#`@,"`P(#`N,#`P(#`@,"`P"@D@,34T(#4U.2`Q-3D@-34T(#$V
+XM-"`U-3D@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*
+XM"2`R,S0@-30T(#(T.2`U-#0@.3DY.2`Y.3DY"C(@,2`P(#$@+3$@,"`P(#`@
+XM,"XP,#`@,"`P(#`*"2`R,S0@-3,T(#(T.2`U,S0@.3DY.2`Y.3DY"C(@,2`P
+XM(#$@+3$@,"`P(#`@,"XP,#`@,"`P(#`*"2`R,S0@-3,Y(#(T.2`U,SD@.3DY
+XM.2`Y.3DY"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@.2`Q,#D@-C0@00$*
+XM-"`P(#`@,3(@,"`M,2`P(#`N,#`P(#0@.2`X(#$V-"`T-"!#`0HT(#`@,"`Q
+XM,B`P("TQ(#`@,"XP,#`@-"`Y(#D@,38Y(#@T($0!"C0@,"`P(#$R(#`@+3$@
+XM,"`P+C`P,"`T(#D@."`Q,#D@,3`T($(!"C0@,"`P(#$R(#`@+3$@,"`P+C`P
+XM,"`T(#D@."`R-CD@-C0@10$*-"`P(#`@,3(@,"`M,2`P(#`N,#`P(#0@-B`U
+XM(#(Q-B`R-R!C`0HT(#`@,"`Q,B`P("TQ(#`@,"XP,#`@-"`Y(#D@-#,T(#@T
+XM($$!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@,R`T,S(@-#@@9@$*-"`P
+XM(#`@,3(@,"`M,2`P(#`N,#`P(#0@.2`X(#4Y-"`S-"!"`0HT(#`@,"`Q,B`P
+XM("TQ(#`@,"XP,#`@-"`Y(#@@-3DY(#DT($(!"C0@,"`P(#$R(#`@+3$@,"`P
+XM+C`P,"`T(#D@-B`S-C(@,C4S(&(!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T
+XM(#D@."`T-C0@,CDT($(!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@.2`S
+XM-CD@,CDT($$!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#8@-B`V,2`R.#$@
+XM80$*-"`P(#`@,3(@,"`M,2`P(#`N,#`P(#0@.2`X(#DY(#,V.2!"`0HT(#`@
+XM,"`Q,B`P("TQ(#`@,"XP,#`@-"`Y(#D@.3D@,S$T($$!"C0@,"`P(#$R(#`@
+XM+3$@,"`P+C`P,"`T(#8@-B`R,C$@,C8W(&4!"C0@,"`P(#$R(#`@+3$@,"`P
+XM+C`P,"`T(#D@.2`R,#0@,S(T($$!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T
+XM(#D@."`S,#0@,S(T($(!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@."`R
+XM-30@,S,Y($4!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@."`R,#D@,SDT
+XM($,!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@.2`S,#0@,SDT($0!"C0@
+XM,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@-B`U-C`@,C`W(&0!"C0@,"`P(#$R
+XM(#`@+3$@,"`P+C`P,"`T(#D@.2`U-#0@,CDT($$!"C0@,"`P(#$R(#`@+3$@
+XM,"`P+C`P,"`T(#D@."`V,#0@,CDT($,!"C0@,"`P(#$R(#`@+3$@,"`P+C`P
+XM,"`T(#D@."`U-#0@,S4Y($(!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#D@
+XM.2`V,#0@,S4Y($0!"C0@,"`P(#$R(#`@+3$@,"`P+C`P,"`T(#<@,C4@.3D@
+XM-3$Y(&YO=&4Z`0HT(#`@,"`Q,B`P("TQ(#`@,"XP,#`@-"`Y(#D@,34T(#4V
+XL.2!!`0HT(#`@,"`Q,B`P("TQ(#`@,"XP,#`@-"`Y(#D@,S$T(#4R.2!!`0HV
+X`
+Xend
+END_OF_FILE
+if test 9760 -ne `wc -c <'Examples/logic.fig.uu'`; then
+    echo shar: \"'Examples/logic.fig.uu'\" unpacked with wrong size!
+fi
+# end of 'Examples/logic.fig.uu'
+fi
+if test -f 'e_arrow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_arrow.c'\"
+else
+echo shar: Extracting \"'e_arrow.c'\" \(9407 characters\)
+sed "s/^X//" >'e_arrow.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_search.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+Xstatic		add_arrow_head();
+Xstatic		delete_arrow_head();
+X
+Xarrow_head_selected()
+X{
+X    set_mousefun("add arrow", "delete arrow", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(add_arrow_head);
+X    init_searchproc_middle(delete_arrow_head);
+X    canvas_leftbut_proc = point_search_left;
+X    canvas_middlebut_proc = point_search_middle;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick9_cursor);
+X}
+X
+Xstatic
+Xadd_arrow_head(obj, type, x, y, p, q)
+X    char	   *obj;
+X    int		    type, x, y;
+X    F_point	   *p, *q;
+X{
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	add_linearrow(cur_l, p, q);
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) obj;
+X	add_splinearrow(cur_s, p, q);
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) obj;
+X	/* dirty trick - arc point number is stored in p */
+X	add_arcarrow(cur_a, (int) p);
+X	break;
+X    }
+X}
+X
+Xstatic
+Xdelete_arrow_head(obj, type, x, y, p, q)
+X    char	   *obj;
+X    int		    type, x, y;
+X    F_point	   *p, *q;
+X{
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	delete_linearrow(cur_l, p, q);
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) obj;
+X	delete_splinearrow(cur_s, p, q);
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) obj;
+X	/* dirty trick - arc point number is stored in p */
+X	delete_arcarrow(cur_a, (int) p);
+X	break;
+X    }
+X}
+X
+Xadd_linearrow(line, prev_point, selected_point)
+X    F_line	   *line;
+X    F_point	   *prev_point, *selected_point;
+X{
+X    if (line->points->next == NULL)
+X	return;			/* A single point line */
+X
+X    if (prev_point == NULL) {	/* selected_point is the first point */
+X	if (line->back_arrow)
+X	    return;
+X	line->back_arrow = backward_arrow();
+X	mask_toggle_linemarker(line);
+X	draw_arrow(selected_point->next->x, selected_point->next->y,
+X		   selected_point->x, selected_point->y, line->back_arrow,
+X		   PAINT, line->color);
+X	mask_toggle_linemarker(line);
+X    } else if (selected_point->next == NULL) {	/* forward arrow */
+X	if (line->for_arrow)
+X	    return;
+X	line->for_arrow = forward_arrow();
+X	mask_toggle_linemarker(line);
+X	draw_arrow(prev_point->x, prev_point->y, selected_point->x,
+X		   selected_point->y, line->for_arrow, PAINT, line->color);
+X	mask_toggle_linemarker(line);
+X    } else
+X	return;
+X    clean_up();
+X    set_last_prevpoint(prev_point);
+X    set_last_selectedpoint(selected_point);
+X    set_latestline(line);
+X    set_action_object(F_ADD_ARROW_HEAD, O_POLYLINE);
+X    set_modifiedflag();
+X}
+X
+Xadd_arcarrow(arc, point_num)
+X    F_arc	   *arc;
+X    int		    point_num;
+X{
+X
+X    if (point_num == 0) {	/* backward arrow  */
+X	if (arc->back_arrow)
+X	    return;
+X	arc->back_arrow = backward_arrow();
+X	mask_toggle_arcmarker(arc);
+X	draw_arcarrows(arc, PAINT);
+X	mask_toggle_arcmarker(arc);
+X    } else if (point_num == 2) {/* for_arrow  */
+X	if (arc->for_arrow)
+X	    return;
+X	arc->for_arrow = forward_arrow();
+X	mask_toggle_arcmarker(arc);
+X	draw_arcarrows(arc, PAINT);
+X	mask_toggle_arcmarker(arc);
+X    } else
+X	return;
+X    clean_up();
+X    set_last_arcpointnum(point_num);
+X    set_latestarc(arc);
+X    set_action_object(F_ADD_ARROW_HEAD, O_ARC);
+X    set_modifiedflag();
+X}
+X
+Xadd_splinearrow(spline, prev_point, selected_point)
+X    F_spline	   *spline;
+X    F_point	   *prev_point, *selected_point;
+X{
+X    F_point	   *p;
+X    F_control	   *c;
+X
+X    if (prev_point == NULL) {	/* add backward arrow */
+X	if (spline->back_arrow)
+X	    return;
+X	p = selected_point->next;
+X	spline->back_arrow = backward_arrow();
+X	mask_toggle_splinemarker(spline);
+X	if (normal_spline(spline)) {
+X	    draw_arrow(p->x, p->y, selected_point->x,
+X		       selected_point->y, spline->back_arrow, PAINT,
+X		       spline->color);
+X	} else {
+X	    c = spline->controls;
+X	    draw_arrow(round(c->rx), round(c->ry), selected_point->x,
+X		       selected_point->y, spline->back_arrow, PAINT,
+X		       spline->color);
+X	}
+X	mask_toggle_splinemarker(spline);
+X    } else if (selected_point->next == NULL) {	/* add forward arrow */
+X	if (spline->for_arrow)
+X	    return;
+X	spline->for_arrow = forward_arrow();
+X	mask_toggle_splinemarker(spline);
+X	if (normal_spline(spline)) {
+X	    draw_arrow(prev_point->x, prev_point->y,
+X		       selected_point->x, selected_point->y,
+X		       spline->for_arrow, PAINT,
+X		       spline->color);
+X	} else {
+X	    for (c = spline->controls; c->next != NULL; c = c->next);
+X	    draw_arrow(round(c->lx), round(c->ly), selected_point->x,
+X		       selected_point->y, spline->for_arrow, PAINT,
+X		       spline->color);
+X	}
+X	mask_toggle_splinemarker(spline);
+X    }
+X    clean_up();
+X    set_last_prevpoint(prev_point);
+X    set_last_selectedpoint(selected_point);
+X    set_latestspline(spline);
+X    set_action_object(F_ADD_ARROW_HEAD, O_SPLINE);
+X    set_modifiedflag();
+X}
+X
+Xdelete_linearrow(line, prev_point, selected_point)
+X    F_line	   *line;
+X    F_point	   *prev_point, *selected_point;
+X{
+X    if (line->points->next == NULL)
+X	return;			/* A single point line */
+X
+X    if (prev_point == NULL) {	/* selected_point is the first point */
+X	if (!line->back_arrow)
+X	    return;
+X	mask_toggle_linemarker(line);
+X	draw_arrow(selected_point->next->x, selected_point->next->y,
+X	      selected_point->x, selected_point->y, line->back_arrow, ERASE,
+X		   line->color);
+X	free((char *) line->back_arrow);
+X	line->back_arrow = NULL;
+X	draw_line(line, PAINT);
+X	mask_toggle_linemarker(line);
+X    } else if (selected_point->next == NULL) {	/* forward arrow */
+X	if (!line->for_arrow)
+X	    return;
+X	mask_toggle_linemarker(line);
+X	draw_arrow(prev_point->x, prev_point->y, selected_point->x,
+X		   selected_point->y, line->for_arrow, ERASE,
+X		   line->color);
+X	free((char *) line->for_arrow);
+X	line->for_arrow = NULL;
+X	draw_line(line, PAINT);
+X	mask_toggle_linemarker(line);
+X    } else
+X	return;
+X    clean_up();
+X    set_last_prevpoint(prev_point);
+X    set_last_selectedpoint(selected_point);
+X    set_latestline(line);
+X    set_action_object(F_DELETE_ARROW_HEAD, O_POLYLINE);
+X    set_modifiedflag();
+X}
+X
+Xdelete_arcarrow(arc, point_num)
+X    F_arc	   *arc;
+X    int		    point_num;
+X{
+X    if (point_num == 0) {	/* backward arrow  */
+X	if (!arc->back_arrow)
+X	    return;
+X	mask_toggle_arcmarker(arc);
+X	draw_arcarrows(arc, ERASE);
+X	free((char *) arc->back_arrow);
+X	arc->back_arrow = NULL;
+X	draw_arc(arc, PAINT);
+X	mask_toggle_arcmarker(arc);
+X    } else if (point_num == 2) {/* for_arrow  */
+X	if (!arc->for_arrow)
+X	    return;
+X	mask_toggle_arcmarker(arc);
+X	draw_arcarrows(arc, ERASE);
+X	free((char *) arc->for_arrow);
+X	arc->for_arrow = NULL;
+X	draw_arc(arc, PAINT);
+X	mask_toggle_arcmarker(arc);
+X    } else
+X	return;
+X    clean_up();
+X    set_last_arcpointnum(point_num);
+X    set_latestarc(arc);
+X    set_action_object(F_DELETE_ARROW_HEAD, O_ARC);
+X    set_modifiedflag();
+X}
+X
+Xdelete_splinearrow(spline, prev_point, selected_point)
+X    F_spline	   *spline;
+X    F_point	   *prev_point, *selected_point;
+X{
+X    F_point	   *p;
+X
+X    if (closed_spline(spline))
+X	return;
+X    if (prev_point == NULL) {	/* selected_point is the first point */
+X	if (!spline->back_arrow)
+X	    return;
+X	mask_toggle_splinemarker(spline);
+X	p = selected_point->next;
+X	if (normal_spline(spline)) {
+X	    draw_arrow(p->x, p->y, selected_point->x,
+X		       selected_point->y, spline->back_arrow, ERASE,
+X		       spline->color);
+X	    free((char *) spline->back_arrow);
+X	    spline->back_arrow = NULL;
+X	    draw_spline(spline, PAINT);
+X	} else {
+X	    F_control	   *a;
+X
+X	    a = spline->controls;
+X	    draw_arrow(round(a->rx), round(a->ry), selected_point->x,
+X		       selected_point->y, spline->back_arrow, ERASE,
+X		       spline->color);
+X	    free((char *) spline->back_arrow);
+X	    spline->back_arrow = NULL;
+X	    draw_spline(spline, PAINT);
+X	}
+X	mask_toggle_splinemarker(spline);
+X    } else if (selected_point->next == NULL) {	/* forward arrow */
+X	if (!spline->for_arrow)
+X	    return;
+X	mask_toggle_splinemarker(spline);
+X	if (normal_spline(spline)) {
+X	    draw_arrow(prev_point->x, prev_point->y,
+X		       selected_point->x, selected_point->y,
+X		       spline->for_arrow, ERASE,
+X		       spline->color);
+X	    free((char *) spline->for_arrow);
+X	    spline->for_arrow = NULL;
+X	    draw_spline(spline, PAINT);
+X	} else {
+X	    F_control	   *a, *b;
+X
+X	    a = spline->controls;
+X	    for (b = a->next; b->next != NULL; a = b, b = b->next);
+X	    draw_arrow(round(b->lx), round(b->ly), selected_point->x,
+X		       selected_point->y, spline->for_arrow, ERASE,
+X		       spline->color);
+X	    free((char *) spline->for_arrow);
+X	    spline->for_arrow = NULL;
+X	    draw_spline(spline, PAINT);
+X	}
+X	mask_toggle_splinemarker(spline);
+X    } else
+X	return;
+X    clean_up();
+X    set_last_prevpoint(prev_point);
+X    set_last_selectedpoint(selected_point);
+X    set_latestspline(spline);
+X    set_action_object(F_DELETE_ARROW_HEAD, O_SPLINE);
+X    set_modifiedflag();
+X}
+END_OF_FILE
+if test 9407 -ne `wc -c <'e_arrow.c'`; then
+    echo shar: \"'e_arrow.c'\" unpacked with wrong size!
+fi
+# end of 'e_arrow.c'
+fi
+if test -f 'e_glue.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_glue.c'\"
+else
+echo shar: Extracting \"'e_glue.c'\" \(10253 characters\)
+sed "s/^X//" >'e_glue.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_list.h"
+X#include "u_search.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+Xstatic		create_compoundobject(), cancel_tag_region(),
+X		init_tag_region(), tag_region(), tag_object();
+Xstatic		get_arc(), sel_arc();
+Xstatic		get_compound(), sel_compound();
+Xstatic		get_ellipse(), sel_ellipse();
+Xstatic		get_line(), sel_line();
+Xstatic		get_spline(), sel_spline();
+Xstatic		get_text(), sel_text();
+X
+Xcompound_selected()
+X{
+X    set_mousefun("tag object", "tag region", "compound tagged");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(tag_object);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_middlebut_proc = init_tag_region;
+X    canvas_rightbut_proc = create_compoundobject;
+X    set_cursor(pick9_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xtag_object(p, type, x, y, px, py)
+X    char           *p;
+X    int             type;
+X    int             x, y;
+X    int             px, py;
+X{
+X    switch (type) {
+X    case O_COMPOUND:
+X        cur_c = (F_compound *) p;
+X        toggle_compoundhighlight(cur_c);
+X	cur_c->tagged = 1 - cur_c->tagged;
+X        break;
+X    case O_POLYLINE:
+X        cur_l = (F_line *) p;
+X        toggle_linehighlight(cur_l);
+X	cur_l->tagged = 1 - cur_l->tagged;
+X        break;
+X    case O_TEXT:
+X        cur_t = (F_text *) p;
+X        toggle_texthighlight(cur_t);
+X	cur_t->tagged = 1 - cur_t->tagged;
+X        break;
+X    case O_ELLIPSE:
+X        cur_e = (F_ellipse *) p;
+X        toggle_ellipsehighlight(cur_e);
+X	cur_e->tagged = 1 - cur_e->tagged;
+X        break;
+X    case O_ARC:
+X        cur_a = (F_arc *) p;
+X        toggle_archighlight(cur_a);
+X	cur_a->tagged = 1 - cur_a->tagged;
+X        break;
+X    case O_SPLINE:
+X        cur_s = (F_spline *) p;
+X        toggle_splinehighlight(cur_s);
+X	cur_s->tagged = 1 - cur_s->tagged;
+X        break;
+X    default:
+X        return;
+X    }
+X}
+X
+Xstatic
+Xinit_tag_region(x, y)
+X    int		    x, y;
+X{
+X    init_box_drawing(x, y);
+X    set_mousefun("", "final corner", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_leftbut_proc = null_proc;
+X    canvas_middlebut_proc = tag_region;
+X    canvas_rightbut_proc = cancel_tag_region;
+X}
+X
+Xstatic
+Xcancel_tag_region()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    compound_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xtag_region(x, y)
+X    int		    x, y;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    xmin = min2(fix_x, x);
+X    ymin = min2(fix_y, y);
+X    xmax = max2(fix_x, x);
+X    ymax = max2(fix_y, y);
+X    tag_obj_in_region(xmin, ymin, xmax, ymax);
+X    compound_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcreate_compoundobject(x, y)
+X    int		    x, y;
+X{
+X    F_compound	   *c;
+X
+X    if ((c = create_compound()) == NULL)
+X	return;
+X
+X    if (compose_compound(c) == 0) {
+X	free((char *) c);
+X	compound_selected();
+X	draw_mousefun_canvas();
+X	put_msg("Empty compound, ignored");
+X	return;
+X    }
+X    /*
+X     * Make the bounding box exactly match the dimensions of the compound.
+X     */
+X    compound_bound(c, &c->nwcorner.x, &c->nwcorner.y,
+X		   &c->secorner.x, &c->secorner.y);
+X
+X    c->next = NULL;
+X    clean_up();
+X    set_action(F_GLUE);
+X    toggle_markers_in_compound(c);
+X    list_add_compound(&objects.compounds, c);
+X    mask_toggle_compoundmarker(c);
+X    set_latestcompound(c);
+X    set_modifiedflag();
+X    compound_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xtag_obj_in_region(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    sel_ellipse(xmin, ymin, xmax, ymax);
+X    sel_line(xmin, ymin, xmax, ymax);
+X    sel_spline(xmin, ymin, xmax, ymax);
+X    sel_text(xmin, ymin, xmax, ymax);
+X    sel_arc(xmin, ymin, xmax, ymax);
+X    sel_compound(xmin, ymin, xmax, ymax);
+X}
+X
+X
+Xcompose_compound(c)
+X    F_compound	   *c;
+X{
+X    c->ellipses = NULL;
+X    c->lines = NULL;
+X    c->texts = NULL;
+X    c->splines = NULL;
+X    c->arcs = NULL;
+X    c->compounds = NULL;
+X    get_ellipse(&c->ellipses);
+X    get_line(&c->lines);
+X    get_spline(&c->splines);
+X    get_text(&c->texts);
+X    get_arc(&c->arcs);
+X    get_compound(&c->compounds);
+X    if (c->ellipses != NULL)
+X	return (1);
+X    if (c->splines != NULL)
+X	return (1);
+X    if (c->lines != NULL)
+X	return (1);
+X    if (c->texts != NULL)
+X	return (1);
+X    if (c->arcs != NULL)
+X	return (1);
+X    if (c->compounds != NULL)
+X	return (1);
+X    return (0);
+X}
+X
+Xstatic
+Xsel_ellipse(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_ellipse	   *e;
+X
+X    for (e = objects.ellipses; e != NULL; e = e->next) {
+X	if (xmin > e->center.x - e->radiuses.x)
+X	    continue;
+X	if (xmax < e->center.x + e->radiuses.x)
+X	    continue;
+X	if (ymin > e->center.y - e->radiuses.y)
+X	    continue;
+X	if (ymax < e->center.y + e->radiuses.y)
+X	    continue;
+X	e->tagged = 1 - e->tagged;
+X	toggle_ellipsehighlight(e);
+X    }
+X}
+X
+Xstatic
+Xget_ellipse(list)
+X    F_ellipse	  **list;
+X{
+X    F_ellipse	   *e, *ee, *ellipse;
+X
+X    for (e = objects.ellipses; e != NULL;) {
+X	if (!e->tagged) {
+X	    ee = e;
+X	    e = e->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = e;
+X	else
+X	    ellipse->next = e;
+X	ellipse = e;
+X	if (e == objects.ellipses)
+X	    e = objects.ellipses = objects.ellipses->next;
+X	else {
+X	    e = ee->next = e->next;
+X	}
+X	ellipse->next = NULL;
+X    }
+X}
+X
+Xstatic
+Xsel_arc(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_arc	   *a;
+X    int		    urx, ury, llx, lly;
+X
+X    for (a = objects.arcs; a != NULL; a = a->next) {
+X	arc_bound(a, &llx, &lly, &urx, &ury);
+X	if (xmin > llx)
+X	    continue;
+X	if (xmax < urx)
+X	    continue;
+X	if (ymin > lly)
+X	    continue;
+X	if (ymax < ury)
+X	    continue;
+X	a->tagged = 1 - a->tagged;
+X	toggle_archighlight(a);
+X    }
+X}
+X
+Xstatic
+Xget_arc(list)
+X    F_arc	  **list;
+X{
+X    F_arc	   *a, *arc, *aa;
+X
+X    for (a = objects.arcs; a != NULL;) {
+X	if (!a->tagged) {
+X	    aa = a;
+X	    a = a->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = a;
+X	else
+X	    arc->next = a;
+X	arc = a;
+X	if (a == objects.arcs)
+X	    a = objects.arcs = objects.arcs->next;
+X	else
+X	    a = aa->next = a->next;
+X	arc->next = NULL;
+X    }
+X}
+X
+Xstatic
+Xsel_line(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_line	   *l;
+X    F_point	   *p;
+X    int		    inbound;
+X
+X    for (l = objects.lines; l != NULL; l = l->next) {
+X	for (inbound = 1, p = l->points; p != NULL && inbound;
+X	     p = p->next) {
+X	    inbound = 0;
+X	    if (xmin > p->x)
+X		continue;
+X	    if (xmax < p->x)
+X		continue;
+X	    if (ymin > p->y)
+X		continue;
+X	    if (ymax < p->y)
+X		continue;
+X	    inbound = 1;
+X	}
+X	if (!inbound)
+X	    continue;
+X	l->tagged = 1 - l->tagged;
+X	toggle_linehighlight(l);
+X    }
+X}
+X
+Xstatic
+Xget_line(list)
+X    F_line	  **list;
+X{
+X    F_line	   *line, *l, *ll;
+X
+X    for (l = objects.lines; l != NULL;) {
+X	if (!l->tagged) {
+X	    ll = l;
+X	    l = l->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = l;
+X	else
+X	    line->next = l;
+X	line = l;
+X	if (l == objects.lines)
+X	    l = objects.lines = objects.lines->next;
+X	else
+X	    l = ll->next = l->next;
+X	line->next = NULL;
+X    }
+X}
+X
+Xstatic
+Xsel_spline(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_spline	   *s;
+X    int		    urx, ury, llx, lly;
+X
+X    for (s = objects.splines; s != NULL; s = s->next) {
+X	spline_bound(s, &llx, &lly, &urx, &ury);
+X	if (xmin > llx)
+X	    continue;
+X	if (xmax < urx)
+X	    continue;
+X	if (ymin > lly)
+X	    continue;
+X	if (ymax < ury)
+X	    continue;
+X	s->tagged = 1 - s->tagged;
+X	toggle_splinehighlight(s);
+X    }
+X}
+X
+Xstatic
+Xget_spline(list)
+X    F_spline	  **list;
+X{
+X    F_spline	   *spline, *s, *ss;
+X
+X    for (s = objects.splines; s != NULL;) {
+X	if (!s->tagged) {
+X	    ss = s;
+X	    s = s->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = s;
+X	else
+X	    spline->next = s;
+X	spline = s;
+X	if (s == objects.splines)
+X	    s = objects.splines = objects.splines->next;
+X	else
+X	    s = ss->next = s->next;
+X	spline->next = NULL;
+X    }
+X}
+X
+Xstatic
+Xsel_text(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_text	   *t;
+X    int		    txmin, txmax, tymin, tymax;
+X    int		    dum;
+X
+X    for (t = objects.texts; t != NULL; t = t->next) {
+X	if (appres.textoutline) {
+X		text_bound_actual(t, t->angle, &txmin, &tymin, &txmax, &tymax,
+X				&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X	} else {
+X		text_bound(t, &txmin, &tymin, &txmax, &tymax);
+X	}
+X	if (xmin > txmin || xmax < txmax ||
+X	    ymin > tymin || ymax < tymax)
+X		continue;
+X	t->tagged = 1 - t->tagged;
+X	toggle_texthighlight(t);
+X    }
+X}
+X
+Xstatic
+Xget_text(list)
+X    F_text	  **list;
+X{
+X    F_text	   *text, *t, *tt;
+X
+X    for (t = objects.texts; t != NULL;) {
+X	if (!t->tagged) {
+X	    tt = t;
+X	    t = t->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = t;
+X	else
+X	    text->next = t;
+X	text = t;
+X	if (t == objects.texts)
+X	    t = objects.texts = objects.texts->next;
+X	else
+X	    t = tt->next = t->next;
+X	text->next = NULL;
+X    }
+X}
+X
+Xstatic
+Xsel_compound(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    F_compound	   *c;
+X
+X    for (c = objects.compounds; c != NULL; c = c->next) {
+X	if (xmin > c->nwcorner.x)
+X	    continue;
+X	if (xmax < c->secorner.x)
+X	    continue;
+X	if (ymin > c->nwcorner.y)
+X	    continue;
+X	if (ymax < c->secorner.y)
+X	    continue;
+X	c->tagged = 1 - c->tagged;
+X	toggle_compoundhighlight(c);
+X    }
+X}
+X
+Xstatic
+Xget_compound(list)
+X    F_compound	  **list;
+X{
+X    F_compound	   *compd, *c, *cc;
+X
+X    for (c = objects.compounds; c != NULL;) {
+X	if (!c->tagged) {
+X	    cc = c;
+X	    c = c->next;
+X	    continue;
+X	}
+X	if (*list == NULL)
+X	    *list = c;
+X	else
+X	    compd->next = c;
+X	compd = c;
+X	if (c == objects.compounds)
+X	    c = objects.compounds = objects.compounds->next;
+X	else
+X	    c = cc->next = c->next;
+X	compd->next = NULL;
+X    }
+X}
+END_OF_FILE
+if test 10253 -ne `wc -c <'e_glue.c'`; then
+    echo shar: \"'e_glue.c'\" unpacked with wrong size!
+fi
+# end of 'e_glue.c'
+fi
+if test -f 'w_fontpanel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_fontpanel.c'\"
+else
+echo shar: Extracting \"'w_fontpanel.c'\" \(10064 characters\)
+sed "s/^X//" >'w_fontpanel.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Brian V. Smith
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "figx.h"
+X#include "resources.h"
+X#include "u_fonts.h"		/* printer font names */
+X#include "w_setup.h"
+X#include "w_util.h"
+X
+X/********************  global variables	 ***************************/
+X
+Xextern char    *psfont_menu_bits[];
+Xextern char    *latexfont_menu_bits[];
+Xextern Pixmap	psfont_menu_bitmaps[];
+Xextern Pixmap	latexfont_menu_bitmaps[];
+Xextern Atom	wm_delete_window;
+Xextern struct _fstruct ps_fontinfo[];	/* font names */
+Xextern struct _fstruct latex_fontinfo[];	/* font names */
+X
+X/* LOCAL VARIABLES */
+X
+Xstatic int     *font_ps_sel;	/* ptr to store selected ps font in */
+Xstatic int     *font_latex_sel; /* ptr to store selected latex font */
+Xstatic int     *flag_sel;	/* pointer to store ps/latex flag */
+Xstatic TOOL	font_widget;	/* widget adr to store font image in */
+Xstatic int	(*font_setimage) ();
+X
+X/********************  local variables	***************************/
+X
+Xstatic MenuItemRec ps_fontmenu_items[NUM_PS_FONTS + 1];
+Xstatic MenuItemRec latex_fontmenu_items[NUM_LATEX_FONTS];
+X
+Xstatic void	fontpane_select();
+Xstatic void	fontpane_cancel();
+Xstatic void	fontpane_swap();
+X
+Xstatic XtCallbackRec pane_callbacks[] =
+X{
+X    {fontpane_select, NULL},
+X    {NULL, NULL},
+X};
+X
+Xstatic String	fontpane_translations =
+X	"<Message>WM_PROTOCOLS: FontPaneCancel()\n";
+Xstatic XtActionsRec	fontpane_actions[] =
+X{
+X    {"FontPaneCancel", (XtActionProc) fontpane_cancel},
+X};
+X
+Xstatic TOOL	ps_fontpanes, ps_buttons;
+Xstatic TOOL	latex_fontpanes, latex_buttons;
+Xstatic TOOL	ps_fontpane[NUM_PS_FONTS + 1];
+Xstatic TOOL	latex_fontpane[NUM_LATEX_FONTS];
+X
+Xinit_fontmenu(tool)
+X    TOOL	    tool;
+X{
+X    TOOL	    tmp_but;
+X    register int    i;
+X    register MenuItemRec *mi;
+X    XtTranslations  pane_actions;
+X
+X    DeclareArgs(8);
+X
+X    FirstArg(XtNborderWidth, POPUP_BW);
+X    NextArg(XtNmappedWhenManaged, False);
+X    NextArg(XtNtitle, "Xfig: Font menu");
+X
+X    ps_fontmenu = XtCreatePopupShell("xfig_ps_font_menu",
+X				     transientShellWidgetClass, tool,
+X				     Args, ArgCount);
+X    XtOverrideTranslations(ps_fontmenu,
+X			XtParseTranslationTable(fontpane_translations));
+X    latex_fontmenu = XtCreatePopupShell("xfig_latex_font_menu",
+X					transientShellWidgetClass, tool,
+X					Args, ArgCount);
+X    XtOverrideTranslations(latex_fontmenu,
+X			XtParseTranslationTable(fontpane_translations));
+X    XtAppAddActions(tool_app, fontpane_actions, XtNumber(fontpane_actions));
+X
+X    FirstArg(XtNvSpace, -INTERNAL_BW);
+X    NextArg(XtNhSpace, 0);
+X
+X    ps_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X					 ps_fontmenu, Args, ArgCount);
+X    latex_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X					    latex_fontmenu, Args, ArgCount);
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X	ps_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X							 * menu */
+X	ps_fontmenu_items[i].label = ps_fontinfo[i].name;
+X	ps_fontmenu_items[i].info = (caddr_t) i - 1;	/* index for font # */
+X    }
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; i++) {
+X	latex_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X								 * menu */
+X	latex_fontmenu_items[i].label = latex_fontinfo[i].name;
+X	latex_fontmenu_items[i].info = (caddr_t) i;	/* index for font # */
+X    }
+X
+X    FirstArg(XtNwidth, PS_FONTPANE_WD);
+X    NextArg(XtNdefaultDistance, INTERNAL_BW);
+X    NextArg(XtNborderWidth, 0);
+X    ps_buttons = XtCreateManagedWidget("buttons", formWidgetClass,
+X				       ps_fontpanes, Args, ArgCount);
+X    latex_buttons = XtCreateManagedWidget("buttons", formWidgetClass,
+X					  latex_fontpanes, Args, ArgCount);
+X
+X    i = (int) ((PS_FONTPANE_WD - INTERNAL_BW) / 3);
+X    FirstArg(XtNwidth, i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				    ps_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNfromHoriz, tmp_but);
+X    NextArg(XtNwidth, PS_FONTPANE_WD - INTERNAL_BW - i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("use_latex_fonts", commandWidgetClass,
+X				    ps_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_swap, (XtPointer) NULL);
+X
+X    FirstArg(XtNwidth, i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				    latex_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNfromHoriz, tmp_but);
+X    NextArg(XtNwidth, PS_FONTPANE_WD - INTERNAL_BW - i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("use_postscript_fonts", commandWidgetClass,
+X				    latex_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_swap, (XtPointer) NULL);
+X
+X    pane_actions = XtParseTranslationTable("<EnterWindow>:set()\n\
+X		<Btn1Up>:notify()unset()\n");
+X
+X    FirstArg(XtNwidth, PS_FONTPANE_WD);
+X    NextArg(XtNheight, PS_FONTPANE_HT);
+X    NextArg(XtNcallback, pane_callbacks);
+X    NextArg(XtNbitmap, NULL);
+X    NextArg(XtNinternalWidth, 0);	/* space between pixmap and edge */
+X    NextArg(XtNinternalHeight, 0);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    NextArg(XtNresize, False);	/* don't allow resize */
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; ++i) {
+X	mi = &ps_fontmenu_items[i];
+X	pane_callbacks[0].closure = (caddr_t) mi;
+X	ps_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X					       ps_fontpanes, Args, ArgCount);
+X	XtOverrideTranslations(ps_fontpane[i], pane_actions);
+X    }
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; ++i) {
+X	mi = &latex_fontmenu_items[i];
+X	pane_callbacks[0].closure = (caddr_t) mi;
+X	latex_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X					   latex_fontpanes, Args, ArgCount);
+X	XtOverrideTranslations(latex_fontpane[i], pane_actions);
+X    }
+X
+X    return (1);
+X}
+X
+X/* create the bitmaps for the font menu */
+X
+Xsetup_fontmenu()
+X{
+X    register int    i;
+X
+X    DeclareArgs(2);
+X
+X    Pixel	    bg, fg;
+X
+X    /* get the foreground/background of the widget */
+X    FirstArg(XtNforeground, &fg);
+X    NextArg(XtNbackground, &bg);
+X    GetValues(ps_fontpane[0]);
+X
+X    /* Create the bitmaps */
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++)
+X	psfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X				   XtWindow(ind_panel), (char *) psfont_menu_bits[i],
+X				     PS_FONTPANE_WD, PS_FONTPANE_HT, fg, bg,
+X				      XDefaultDepthOfScreen(tool_s));
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; i++)
+X	latexfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X				     XtWindow(ind_panel), (char *) latexfont_menu_bits[i],
+X				      LATEX_FONTPANE_WD, LATEX_FONTPANE_HT, fg, bg,
+X				       XDefaultDepthOfScreen(tool_s));
+X
+X    /* Store the bitmaps in the menu panes */
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X	FirstArg(XtNbitmap, psfont_menu_bitmaps[i]);
+X	SetValues(ps_fontpane[i]);
+X    }
+X    for (i = 0; i < NUM_LATEX_FONTS; i++) {
+X	FirstArg(XtNbitmap, latexfont_menu_bitmaps[i]);
+X	SetValues(latex_fontpane[i]);
+X    }
+X
+X    FirstArg(XtNbackground, BlackPixelOfScreen(tool_s));
+X    SetValues(ps_buttons);
+X    SetValues(latex_buttons);
+X
+X    XtRealizeWidget(ps_fontmenu);
+X    XtRealizeWidget(latex_fontmenu);
+X    /* at this point the windows are realized but not drawn */
+X    XDefineCursor(tool_d, XtWindow(ps_fontpanes), arrow_cursor);
+X    XDefineCursor(tool_d, XtWindow(latex_fontpanes), arrow_cursor);
+X}
+X
+Xvoid
+Xfontpane_popup(psfont_adr, latexfont_adr, psflag_adr, showfont_fn, show_widget)
+X    int		   *psfont_adr, *latexfont_adr, *psflag_adr;
+X    int		    (*showfont_fn) ();
+X    Widget	    show_widget;
+X
+X{
+X    DeclareArgs(2);
+X    Position	    xposn, yposn, dummy;
+X
+X    font_ps_sel = psfont_adr;
+X    font_latex_sel = latexfont_adr;
+X    flag_sel = psflag_adr;
+X    font_setimage = showfont_fn;
+X    font_widget = show_widget;
+X    XtTranslateCoords(show_widget, (Position) 0, (Position) 0, &xposn, &dummy);
+X    XtTranslateCoords(tool, (Position) 0, (Position) 0, &dummy, &yposn);
+X    FirstArg(XtNx, xposn);
+X    NextArg(XtNy, yposn - 20);	/* up a little bit from top of tool */
+X    SetValues(ps_fontmenu);
+X    SetValues(latex_fontmenu);
+X    XtPopup(*flag_sel ? ps_fontmenu : latex_fontmenu, XtGrabExclusive);
+X    XSetWMProtocols(XtDisplay(*flag_sel ? ps_fontmenu : latex_fontmenu),
+X    		    XtWindow(*flag_sel ? ps_fontmenu : latex_fontmenu),
+X		    &wm_delete_window, 1);
+X}
+X
+Xstatic void
+Xfontpane_select(w, closure, call_data)
+X    Widget    w;
+X    XtPointer closure;
+X    XtPointer call_data;
+X{
+X    TOOL	    widget = (TOOL) w;
+X    MenuItemRec	   *mi = (MenuItemRec *) closure;
+X    char	   *font_name = mi->label;
+X
+X    if (*flag_sel)
+X	*font_ps_sel = (int) mi->info;	/* set ps font to one selected */
+X    else
+X	*font_latex_sel = (int) mi->info;	/* set latex font to one
+X						 * selected */
+X    put_msg("Font: %s", font_name);
+X    /* put image of font in indicator window */
+X    (*font_setimage) (font_widget);
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X}
+X
+Xstatic void
+Xfontpane_cancel()
+X{
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X}
+X
+Xstatic void
+Xfontpane_swap()
+X{
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X    *flag_sel = 1 - *flag_sel;
+X    /* put image of font in indicator window */
+X    (*font_setimage) (font_widget);
+X    XtPopup(*flag_sel ? ps_fontmenu : latex_fontmenu, XtGrabExclusive);
+X    XSetWMProtocols(XtDisplay(*flag_sel ? ps_fontmenu : latex_fontmenu),
+X    		    XtWindow(*flag_sel ? ps_fontmenu : latex_fontmenu),
+X		    &wm_delete_window, 1);
+X}
+END_OF_FILE
+if test 10064 -ne `wc -c <'w_fontpanel.c'`; then
+    echo shar: \"'w_fontpanel.c'\" unpacked with wrong size!
+fi
+# end of 'w_fontpanel.c'
+fi
+echo shar: End of archive 8 \(of 27\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

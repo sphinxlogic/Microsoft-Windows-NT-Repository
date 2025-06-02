@@ -1,0 +1,2791 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i106:  xephem - astronomical ephemeris program, Part18/21
+Message-ID: <1993May10.221306.9578@sparky.imd.sterling.com>
+X-Md4-Signature: 2bb8b9ba0ca65d6e5b331f6d6a740967
+Date: Mon, 10 May 1993 22:13:06 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 106
+Archive-name: xephem/part18
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  circum.c misc.c precess.c preferences.c skyviewmenu.c.3
+# Wrapped by chris@nova on Mon May 10 16:41:53 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 18 (of 21)."'
+if test -f 'circum.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'circum.c'\"
+else
+  echo shar: Extracting \"'circum.c'\" \(20008 characters\)
+  sed "s/^X//" >'circum.c' <<'END_OF_FILE'
+X/* given a Now and an Obj with the object definition portion filled in,
+X * fill in the sky position (s_*) portions.
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void anomaly P_((double ma, double s, double *nu, double *ea));
+Xextern void comet P_((double Mjd, double ep, double inc, double ap, double qp, double om, double *lpd, double *psi, double *rp, double *rho, double *lam, double *bet));
+Xextern void ecl_eq P_((double Mjd, double lati, double lngi, double *ra, double *dec));
+Xextern void eq_ecl P_((double Mjd, double ra, double dec, double *lati, double *lngi));
+Xextern void gk_mag P_((double g, double k, double rp, double rho, double *mp));
+Xextern void hadec_aa P_((double lati, double ha, double dec, double *alt, double *az));
+Xextern void hg_mag P_((double h, double g, double rp, double rho, double rsn, double *mp));
+Xextern void moon P_((double Mjd, double *lam, double *bet, double *hp));
+Xextern void now_lst P_((Now *np, double *lst));
+Xextern void nutation P_((double Mjd, double *deps, double *dpsi));
+Xextern void plans P_((double Mjd, int p, double *lpd0, double *psi0, double *rp0, double *rho0, double *lam, double *bet, double *dia, double *mag));
+Xextern void precess P_((double mjd1, double mjd2, double *ra, double *dec));
+Xextern void range P_((double *v, double r));
+Xextern void reduce_elements P_((double mjd0, double Mjd, double inc0, double ap0, double om0, double *inc, double *ap, double *om));
+Xextern void refract P_((double pr, double tr, double ta, double *aa));
+Xextern void sunpos P_((double Mjd, double *lsn, double *rsn));
+Xextern void ta_par P_((double tha, double tdec, double phi, double ht, double ehp, double *aha, double *adec));
+X
+Xint obj_cir P_((Now *np, Obj *op));
+Xstatic obj_planet P_((Now *np, Obj *op));
+Xstatic obj_fixed P_((Now *np, Obj *op));
+Xstatic obj_elliptical P_((Now *np, Obj *op));
+Xstatic obj_hyperbolic P_((Now *np, Obj *op));
+Xstatic obj_parabolic P_((Now *np, Obj *op));
+Xstatic sun_cir P_((Now *np, Obj *op));
+Xstatic moon_cir P_((Now *np, Obj *op));
+Xstatic void cir_sky P_((Now *np, double lpd, double psi, double rp, double rho, double lam, double bet, double lsn, double rsn, Obj *op));
+Xstatic void elongation P_((double lam, double bet, double lsn, double *el));
+X
+X#undef P_
+X
+X/* given a Now and an Obj, fill in the approprirate s_* fields within Obj.
+X * return 0 if all ok, else -1.
+X */
+Xobj_cir (np, op)
+XNow *np;
+XObj *op;
+X{
+X	switch (op->type) {
+X	case FIXED:	 return (obj_fixed (np, op));
+X	case ELLIPTICAL: return (obj_elliptical (np, op));
+X	case HYPERBOLIC: return (obj_hyperbolic (np, op));
+X	case PARABOLIC:  return (obj_parabolic (np, op));
+X	case PLANET:     return (obj_planet (np, op));
+X	default:
+X	    printf ("obj_cir() called with type %d\n", op->type);
+X	    exit(1);
+X	    return (-1);	/* just for lint */
+X	}
+X}
+X
+Xstatic
+Xobj_planet (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double lpd, psi;	/* heliocentric ecliptic long and lat */
+X	double rp;		/* dist from sun */
+X	double rho;		/* dist from earth */
+X	double lam, bet;	/* geocentric ecliptic long and lat */
+X	double dia, mag;	/* angular diameter at 1 AU and magnitude */
+X	double f;		/* fractional phase from earth */
+X	int p;
+X
+X	/* validate code and check for a few special cases */
+X	p = op->pl.code;
+X	if (p < 0 || p > MOON) {
+X	    printf ("unknown planet code: %d \n", p);
+X	    exit(1);
+X	}
+X	else if (p == SUN)
+X	    return (sun_cir (np, op));
+X	else if (p == MOON)
+X	    return (moon_cir (np, op));
+X
+X
+X	/* find solar ecliptical longitude and distance to sun from earth */
+X	sunpos (mjd, &lsn, &rsn);
+X
+X	/* find helio long/lat; sun/planet and earth/plant dist; ecliptic
+X	 * long/lat; diameter and mag.
+X	 */
+X	plans(mjd, p, &lpd, &psi, &rp, &rho, &lam, &bet, &dia, &mag);
+X
+X	/* fill in all of op->s_* stuff except s_size and s_mag */
+X	cir_sky (np, lpd, psi, rp, rho, lam, bet, lsn, rsn, op);
+X
+X	/* compute magnitude and angular size */
+X	f = 0.25 * (((rp+rho)*(rp+rho) - rsn*rsn)/(rp*rho));
+X	op->s_mag = MAGSCALE * (mag + 5.0*log(rp*rho/sqrt(f))/log(10.0));
+X	op->s_size = dia/rho + 0.5;
+X
+X	return (0);
+X}
+X
+Xstatic
+Xobj_fixed (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun, dist from sn to earth*/
+X	double lam, bet;	/* geocentric ecliptic long and lat */
+X	double lst;		/* local sidereal time */
+X	double ha;		/* local hour angle */
+X	double el;		/* elongation */
+X	double alt, az;		/* current alt, az */
+X	double ra, dec;		/* ra and dec at epoch of date */
+X
+X	/* set ra/dec to their values at epoch of date */
+X	ra = op->f_RA;
+X	dec = op->f_dec;
+X	precess (op->f_epoch, mjd, &ra, &dec);
+X
+X	/* set s_ra/dec at desired epoch.  */
+X	if (epoch == EOD) {
+X	    op->s_ra = ra;
+X	    op->s_dec = dec;
+X	} else {
+X	    /* want a certain epoch -- if it's not what the database is at
+X	     * we change the original to save time next time assuming the
+X	     * user is likely to stick with this for a while.
+X	     */
+X	    if ((float)epoch != op->f_epoch) {
+X		double tra = op->f_RA, tdec = op->f_dec;
+X		float tepoch = epoch;	/* compare to float precision */
+X		precess (op->f_epoch, tepoch, &tra, &tdec);
+X		op->f_epoch = tepoch;
+X		op->f_RA = tra;
+X		op->f_dec = tdec;
+X	    }
+X	    op->s_ra = op->f_RA;
+X	    op->s_dec = op->f_dec;
+X	}
+X
+X	/* convert equitorial ra/dec to geocentric ecliptic lat/long */
+X	eq_ecl (mjd, ra, dec, &bet, &lam);
+X
+X	/* find solar ecliptical longitude and distance to sun from earth */
+X	sunpos (mjd, &lsn, &rsn);
+X
+X	/* compute elongation from ecliptic long/lat and sun geocentric long */
+X	elongation (lam, bet, lsn, &el);
+X	el = raddeg(el);
+X	op->s_elong = el;
+X
+X	/* these are really the same fields ...
+X	op->s_mag = op->f_mag;
+X	op->s_size = op->f_size;
+X	*/
+X
+X	/* alt, az: correct for refraction; use eod ra/dec. */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - ra;
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	op->s_alt = alt;
+X	op->s_az = az;
+X
+X	return (0);
+X}
+X
+X/* compute sky circumstances of an object in heliocentric elliptic orbit at *np.
+X */
+Xstatic
+Xobj_elliptical (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double dt;		/* light travel time to object */
+X	double lg;		/* helio long of earth */
+X	double nu, ea;		/* true anomaly and eccentric anomaly */
+X	double ma;		/* mean anomaly */
+X	double rp;		/* distance from the sun */
+X	double lo, slo, clo;	/* angle from ascending node */
+X	double inc;		/* inclination */
+X	double psi, spsi, cpsi;	/* heliocentric latitude */
+X	double lpd; 		/* heliocentric longitude */
+X	double rho;		/* distance from the Earth */
+X	double om;		/* arg of perihelion */
+X	double Om;		/* long of ascending node. */
+X	double lam;    		/* geocentric ecliptic longitude */
+X	double bet;    		/* geocentric ecliptic latitude */
+X	double e;		/* fast eccentricity */
+X	double ll, sll, cll;	/* helio angle between object and earth */
+X	double mag;		/* magnitude */
+X	double rpd;
+X	double y;
+X	int pass;
+X
+X	/* find location of earth from sun now */
+X	sunpos (mjd, &lsn, &rsn);
+X	lg = lsn + PI;
+X
+X	/* faster access to eccentricty */
+X	e = op->e_e;
+X
+X	/* mean daily motion is optional -- fill in from period if 0 */
+X	if (op->e_n == 0.0) {
+X	    double a = op->e_a;
+X	    op->e_n = 0.9856076686/sqrt(a*a*a);
+X	}
+X
+X	/* correct for light time by computing position at time mjd, then
+X	 *   again at mjd-dt, where
+X	 *   dt = time it takes light to travel earth-object distance.
+X	 * this is basically the same code as pelement() and plans()
+X	 *   combined and simplified for the special case of osculating
+X	 *   (unperturbed) elements. we have added reduction of elements using
+X	 *   reduce_elements().
+X	 */
+X	dt = 0;
+X	for (pass = pref_get(PREF_ALGO)==PREF_ACCURATE ? 0 : 1; pass<2; pass++){
+X
+X	    reduce_elements (op->e_epoch, mjd-dt, degrad(op->e_inc),
+X			    degrad (op->e_om), degrad (op->e_Om),
+X			    &inc, &om, &Om);
+X
+X	    ma = degrad (op->e_M + (mjd - op->e_cepoch - dt) * op->e_n);
+X	    anomaly (ma, e, &nu, &ea);
+X	    rp = op->e_a * (1-e*e) / (1+e*cos(nu));
+X	    lo = nu + om;
+X	    slo = sin(lo);
+X	    clo = cos(lo);
+X	    spsi = slo*sin(inc);
+X	    y = slo*cos(inc);
+X	    psi = asin(spsi);
+X	    lpd = atan(y/clo)+Om;
+X	    if (clo<0) lpd += PI;
+X	    range (&lpd, 2*PI);
+X	    cpsi = cos(psi);
+X	    rpd = rp*cpsi;
+X	    ll = lpd-lg;
+X	    rho = sqrt(rsn*rsn+rp*rp-2*rsn*rp*cpsi*cos(ll));
+X
+X	    dt = rho*LTAU/3600.0/24.0;	/* light travel time, in days / AU */
+X	}
+X
+X	/* compute sin and cos of ll */
+X	sll = sin(ll);
+X	cll = cos(ll);
+X
+X	/* find geocentric ecliptic longitude and latitude */
+X	if (rpd < rsn)
+X	    lam = atan(-1*rpd*sll/(rsn-rpd*cll))+lg+PI;
+X	else
+X	    lam = atan(rsn*sll/(rpd-rsn*cll))+lpd;
+X	range (&lam, 2*PI);
+X	bet = atan(rpd*spsi*sin(lam-lpd)/(cpsi*rsn*sll));
+X
+X	/* fill in all of op->s_* stuff except s_size and s_mag */
+X	cir_sky (np, lpd, psi, rp, rho, lam, bet, lsn, rsn, op);
+X
+X	/* compute magnitude and size */
+X	if (op->e_mag.whichm == MAG_HG) {
+X	    /* the H and G parameters from the Astro. Almanac.
+X	     */
+X	    hg_mag (op->e_mag.m1, op->e_mag.m2, rp, rho, rsn, &mag);
+X	} else {
+X	    /* the g/k model of comets */
+X	    gk_mag (op->e_mag.m1, op->e_mag.m2, rp, rho, &mag);
+X	}
+X	op->s_mag = mag * MAGSCALE;
+X	op->s_size = op->e_size / rho;
+X
+X	return (0);
+X}
+X
+X/* compute sky circumstances of an object in heliocentric hyperbolic orbit.
+X */
+Xstatic
+Xobj_hyperbolic (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double dt;		/* light travel time to object */
+X	double lg;		/* helio long of earth */
+X	double nu, ea;		/* true anomaly and eccentric anomaly */
+X	double ma;		/* mean anomaly */
+X	double rp;		/* distance from the sun */
+X	double lo, slo, clo;	/* angle from ascending node */
+X	double inc;		/* inclination */
+X	double psi, spsi, cpsi;	/* heliocentric latitude */
+X	double lpd; 		/* heliocentric longitude */
+X	double rho;		/* distance from the Earth */
+X	double om;		/* arg of perihelion */
+X	double Om;		/* long of ascending node. */
+X	double lam;    		/* geocentric ecliptic longitude */
+X	double bet;    		/* geocentric ecliptic latitude */
+X	double e;		/* fast eccentricity */
+X	double ll, sll, cll;	/* helio angle between object and earth */
+X	double n;		/* mean daily motion */
+X	double mag;		/* magnitude */
+X	double a;		/* mean distance */
+X	double rpd;
+X	double y;
+X	int pass;
+X
+X	/* find solar ecliptical longitude and distance to sun from earth */
+X	sunpos (mjd, &lsn, &rsn);
+X
+X	lg = lsn + PI;
+X	e = op->h_e;
+X	a = op->h_qp/(e - 1.0);
+X	n = .98563/sqrt(a*a*a);
+X
+X	/* correct for light time by computing position at time mjd, then
+X	 *   again at mjd-dt, where
+X	 *   dt = time it takes light to travel earth-object distance.
+X	 */
+X	dt = 0;
+X	for (pass = pref_get(PREF_ALGO)==PREF_ACCURATE ? 0 : 1; pass<2; pass++){
+X
+X	    reduce_elements (op->h_epoch, mjd-dt, degrad(op->h_inc),
+X			    degrad (op->h_om), degrad (op->h_Om),
+X			    &inc, &om, &Om);
+X
+X	    ma = degrad ((mjd - op->h_ep - dt) * n);
+X	    anomaly (ma, e, &nu, &ea);
+X	    rp = a * (e*e-1.0) / (1.0+e*cos(nu));
+X	    lo = nu + om;
+X	    slo = sin(lo);
+X	    clo = cos(lo);
+X	    spsi = slo*sin(inc);
+X	    y = slo*cos(inc);
+X	    psi = asin(spsi);
+X	    lpd = atan(y/clo)+Om;
+X	    if (clo<0) lpd += PI;
+X	    range (&lpd, 2*PI);
+X	    cpsi = cos(psi);
+X	    rpd = rp*cpsi;
+X	    ll = lpd-lg;
+X	    rho = sqrt(rsn*rsn+rp*rp-2*rsn*rp*cpsi*cos(ll));
+X
+X	    dt = rho*5.775518e-3;	/* light travel time, in days */
+X	}
+X
+X	/* compute sin and cos of ll */
+X	sll = sin(ll);
+X	cll = cos(ll);
+X
+X	/* find geocentric ecliptic longitude and latitude */
+X	if (rpd < rsn)
+X	    lam = atan(-1*rpd*sll/(rsn-rpd*cll))+lg+PI;
+X	else
+X	    lam = atan(rsn*sll/(rpd-rsn*cll))+lpd;
+X	range (&lam, 2*PI);
+X	bet = atan(rpd*spsi*sin(lam-lpd)/(cpsi*rsn*sll));
+X
+X	/* fill in all of op->s_* stuff except s_size and s_mag */
+X	cir_sky (np, lpd, psi, rp, rho, lam, bet, lsn, rsn, op);
+X
+X	/* compute magnitude and size */
+X	gk_mag (op->h_g, op->h_k, rp, rho, &mag);
+X	op->s_mag = mag * MAGSCALE;
+X	op->s_size = op->h_size / rho;
+X
+X	return (0);
+X}
+X
+X/* compute sky circumstances of an object in heliocentric hyperbolic orbit.
+X */
+Xstatic
+Xobj_parabolic (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double lam;    		/* geocentric ecliptic longitude */
+X	double bet;    		/* geocentric ecliptic latitude */
+X	double mag;		/* magnitude */
+X	double inc, om, Om;
+X	double lpd, psi, rp, rho;
+X	double dt;
+X	int pass;
+X
+X	/* find solar ecliptical longitude and distance to sun from earth */
+X	sunpos (mjd, &lsn, &rsn);
+X
+X	/* two passes to correct lam and bet for light travel time.e_ */
+X	dt = 0.0;
+X	for (pass = pref_get(PREF_ALGO)==PREF_ACCURATE ? 0 : 1; pass<2; pass++){
+X	    reduce_elements (op->p_epoch, mjd-dt, degrad(op->p_inc),
+X		degrad(op->p_om), degrad(op->p_Om), &inc, &om, &Om);
+X	    comet (mjd-dt, op->p_ep, inc, om, op->p_qp, Om,
+X				    &lpd, &psi, &rp, &rho, &lam, &bet);
+X	    dt = rho*LTAU/3600.0/24.0;	/* light travel time, in days / AU */
+X	}
+X
+X	/* fill in all of op->s_* stuff except s_size and s_mag */
+X	cir_sky (np, lpd, psi, rp, rho, lam, bet, lsn, rsn, op);
+X
+X	/* compute magnitude and size */
+X	gk_mag (op->p_g, op->p_k, rp, rho, &mag);
+X	op->s_mag = mag * MAGSCALE;
+X	op->s_size = op->p_size / rho;
+X
+X	return (0);
+X}
+X
+X/* find sun's circumstances now.
+X */
+Xstatic
+Xsun_cir (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double deps, dpsi;	/* nutation on obliquity and longitude */
+X	double lst;		/* local sidereal time */
+X	double ehp;		/* angular diamter of earth from object */
+X	double ha;		/* hour angle */
+X	double ra, dec;		/* ra and dec now */
+X	double alt, az;		/* alt and az */
+X	double dhlong;
+X
+X	sunpos (mjd, &lsn, &rsn);	/* sun's true ecliptic long and dist */
+X	nutation (mjd, &deps, &dpsi);	/* correct for nutation ... */
+X	lsn += dpsi;
+X	lsn -= degrad(20.4/3600);	/* and aberation */
+X
+X	op->s_edist = rsn;
+X	op->s_sdist = 0.0;
+X	op->s_elong = 0.0;
+X	op->s_phase = 100.0;
+X	op->s_size = raddeg(4.65242e-3/rsn)*3600*2;
+X	op->s_mag = MAGSCALE * -26.8;	/* TODO */
+X	dhlong = lsn-PI;	/* geo- to helio- centric */
+X	range (&dhlong, 2*PI);
+X	op->s_hlong = dhlong;
+X	op->s_hlat = 0.0;
+X
+X
+X	/* convert geocentric ecliptic lat/long to equitorial ra/dec of date */
+X	ecl_eq (mjd, 0.0, lsn, &ra, &dec);
+X
+X	/* find s_ra/dec at desired epoch */
+X	if (epoch == EOD) {
+X	    op->s_ra = ra;
+X	    op->s_dec = dec;
+X	} else {
+X	    double tra = ra, tdec = dec;
+X	    precess (mjd, epoch, &tra, &tdec);
+X	    op->s_ra = tra;
+X	    op->s_dec = tdec;
+X	}
+X
+X	/* find alt/az based on unprecessed ra/dec */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - ra;
+X	ehp = (2.0 * 6378.0 / 146.0e6) / op->s_edist;
+X	ta_par (ha, dec, lat, elev, ehp, &ha, &dec);
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	op->s_alt = alt;
+X	op->s_az = az;
+X	return (0);
+X}
+X
+X/* find moon's circumstances now.
+X */
+Xstatic
+Xmoon_cir (np, op)
+XNow *np;
+XObj *op;
+X{
+X	double lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+X	double deps, dpsi;	/* nutation on obliquity and longitude */
+X	double lst;		/* local sidereal time */
+X	double ehp;		/* angular diamter of earth from object */
+X	double ha;		/* hour angle */
+X	double ra, dec;		/* ra and dec now */
+X	double alt, az;		/* alt and az */
+X	double lam;    		/* geocentric ecliptic longitude */
+X	double bet;    		/* geocentric ecliptic latitude */
+X	double edistau;		/* earth-moon dist, in au */
+X	double el;		/* elongation, rads east */
+X
+X	moon (mjd, &lam, &bet, &ehp);	/* moon's true ecliptic loc */
+X	nutation (mjd, &deps, &dpsi);	/* correct for nutation */
+X	lam += dpsi;
+X	range (&lam, 2*PI);
+X
+X	op->s_edist = 6378.14/sin(ehp);	/* earth-moon dist, want km */
+X	op->s_size = 3600*31.22512*sin(ehp);/* moon angular dia, seconds */
+X	op->s_hlong = lam;		/* save geo in helio fields */
+X	op->s_hlat = bet;
+X
+X	/* convert geocentric ecliptic lat/long to equitorial ra/dec of date */
+X	ecl_eq (mjd, bet, lam, &ra, &dec);
+X
+X	/* find s_ra/dec at desired epoch */
+X	if (epoch == EOD) {
+X	    op->s_ra = ra;
+X	    op->s_dec = dec;
+X	} else {
+X	    double tra = ra, tdec = dec;
+X	    precess (mjd, epoch, &tra, &tdec);
+X	    op->s_ra = tra;
+X	    op->s_dec = tdec;
+X	}
+X
+X	sunpos (mjd, &lsn, &rsn);
+X	range (&lsn, 2*PI);
+X	elongation (lam, bet, lsn, &el);
+X
+X	/* solve triangle of earth, sun, and elongation for moon-sun dist */
+X	edistau = op->s_edist/1.495979e8;	/* km -> au */
+X	op->s_sdist= sqrt (edistau*edistau + rsn*rsn - 2.0*edistau*rsn*cos(el));
+X
+X	/* TODO: improve mag; this is based on a flat moon model. */
+X	op->s_mag = MAGSCALE * 
+X	    (-12.7 + 2.5*(log10(PI) - log10(PI/2*(1+1.e-6-cos(el)))));
+X
+X	op->s_elong = raddeg(el);		/* want degrees */
+X	op->s_phase = fabs(el)/PI*100.0;	/* want non-negative % */
+X
+X	/* show topocentric alt/az by correcting ra/dec for parallax 
+X	 * as well as refraction.
+X	 * use unprecessed ra/dec.
+X	 */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - ra;
+X	ta_par (ha, dec, lat, elev, ehp, &ha, &dec);
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	op->s_alt = alt;
+X	op->s_az = az;
+X
+X	return (0);
+X}
+X
+X/* fill in all of op->s_* stuff except s_size and s_mag */
+Xstatic void
+Xcir_sky (np, lpd, psi, rp, rho, lam, bet, lsn, rsn, op)
+XNow *np;
+Xdouble lpd, psi;	/* heliocentric ecliptic long and lat */
+Xdouble rp;		/* dist from sun */
+Xdouble rho;		/* dist from earth */
+Xdouble lam, bet;	/* true geocentric ecliptic long and lat */
+Xdouble lsn, rsn;	/* true geoc lng of sun; dist from sn to earth*/
+XObj *op;
+X{
+X	double a;		/* geoc angle between object and sun */
+X	double ra, dec;		/* ra and dec at epoch of date */
+X	double el;		/* elongation */
+X	double lst;		/* local sidereal time */
+X	double ehp;		/* ehp: angular dia of earth from body */
+X	double ha;		/* local hour angle */
+X	double f;		/* fractional phase from earth */
+X	double alt, az;		/* current alt, az */
+X	double deps, dpsi;	/* nutation on obliquity and longitude */
+X
+X	/* correct for nutation ... */
+X	nutation (mjd, &deps, &dpsi);
+X	lam += dpsi;
+X
+X	/* and correct for 20.4" aberation */
+X	a = lsn - lam;
+X	lam -= degrad(20.4/3600)*cos(a)/cos(bet);
+X	bet -= degrad(20.4/3600)*sin(a)*sin(bet);
+X
+X	/* convert geocentric ecliptic lat/long to equitorial ra/dec of date */
+X	ecl_eq (mjd, bet, lam, &ra, &dec);
+X
+X	/* set s_ra/s_dec to that of desired display epoch. */
+X	if (epoch == EOD) {
+X	    op->s_ra = ra;
+X	    op->s_dec = dec;
+X	} else {
+X	    double tra = ra, tdec = dec;
+X	    precess (mjd, epoch, &tra, &tdec);
+X	    op->s_ra = tra;
+X	    op->s_dec = tdec;
+X	}
+X
+X	/* set earth/planet and sun/planet distance */
+X	op->s_edist = rho;
+X	op->s_sdist = rp;
+X
+X	/* compute elongation and phase */
+X	elongation (lam, bet, lsn, &el);
+X	el = raddeg(el);
+X	op->s_elong = el;
+X	f = 0.25 * ((rp+rho)*(rp+rho) - rsn*rsn)/(rp*rho);
+X	op->s_phase = f*100.0; /* percent */
+X
+X	/* set heliocentric long/lat */
+X	op->s_hlong = lpd;
+X	op->s_hlat = psi;
+X
+X	/* alt, az: correct for parallax and refraction; use eod ra/dec. */
+X	now_lst (np, &lst);
+X	ha = hrrad(lst) - ra;
+X	ehp = (2.0*6378.0/146.0e6) / rho;
+X	ta_par (ha, dec, lat, elev, ehp, &ha, &dec);
+X	hadec_aa (lat, ha, dec, &alt, &az);
+X	refract (pressure, temp, alt, &alt);
+X	op->s_alt = alt;
+X	op->s_az = az;
+X}
+X
+X/* given geocentric ecliptic longitude and latitude, lam and bet, of some object
+X * and the longitude of the sun, lsn, find the elongation, el. this is the
+X * actual angular separation of the object from the sun, not just the difference
+X * in the longitude. the sign, however, IS set simply as a test on longitude
+X * such that el will be >0 for an evening object <0 for a morning object.
+X * to understand the test for el sign, draw a graph with lam going from 0-2*PI
+X *   down the vertical axis, lsn going from 0-2*PI across the hor axis. then
+X *   define the diagonal regions bounded by the lines lam=lsn+PI, lam=lsn and
+X *   lam=lsn-PI. the "morning" regions are any values to the lower left of the
+X *   first line and bounded within the second pair of lines.
+X * all angles in radians.
+X */
+Xstatic void
+Xelongation (lam, bet, lsn, el)
+Xdouble lam, bet, lsn;
+Xdouble *el;
+X{
+X	*el = acos(cos(bet)*cos(lam-lsn));
+X	if (lam>lsn+PI || lam>lsn-PI && lam<lsn) *el = - *el;
+X}
+END_OF_FILE
+  if test 20008 -ne `wc -c <'circum.c'`; then
+    echo shar: \"'circum.c'\" unpacked with wrong size!
+  fi
+  # end of 'circum.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(19567 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/* misc handy functions.
+X * every system has such, no?
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <X11/cursorfont.h>
+X#include <Xm/Xm.h>
+X#include <Xm/PushB.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern int listing_ison P_((void));
+Xextern int plot_ison P_((void));
+Xextern int srch_ison P_((void));
+Xextern void dm_newobj P_((int dbidx));
+Xextern void dm_selection_mode P_((int whether));
+Xextern void dm_update P_((Now *np, int how_much));
+Xextern void e_cursor P_((Cursor c));
+Xextern void e_selection_mode P_((int whether));
+Xextern void e_update P_((Now *np, int force));
+Xextern void f_showit P_((Widget w, char *s));
+Xextern void fs_date P_((char out[], double jd));
+Xextern void fs_time P_((char out[], double t));
+Xextern void jm_selection_mode P_((int whether));
+Xextern void jm_update P_((Now *np, int how_much));
+Xextern void lst_log P_((char *name, char *str));
+Xextern void lst_selection P_((char *name));
+Xextern void m_update P_((Now *np, int how_much));
+Xextern void mars_cursor P_((Cursor c));
+Xextern void mars_selection_mode P_((int whether));
+Xextern void mars_update P_((Now *np, int force));
+Xextern void mm_selection_mode P_((int whether));
+Xextern void obj_newdb P_((int appended));
+Xextern void obj_update P_((Now *np, int howmuch));
+Xextern void plt_log P_((char *name, double value));
+Xextern void plt_selection P_((char *name));
+Xextern void sm_selection_mode P_((int whether));
+Xextern void sm_update P_((Now *np, int how_much));
+Xextern void srch_log P_((char *name, double value));
+Xextern void srch_selection P_((char *name));
+Xextern void srch_selection_mode P_((int whether));
+Xextern void ss_newobj P_((int dbidx));
+Xextern void ss_update P_((Now *np, int how_much));
+Xextern void sv_newdb P_((int appended));
+Xextern void sv_newobj P_((int dbidx));
+Xextern void sv_update P_((Now *np, int how_much));
+Xextern void utc_gst P_((double Mjd, double utc, double *gst));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid set_something P_((Widget w, char *resource, char *value));
+Xvoid get_something P_((Widget w, char *resource, char *value));
+Xvoid get_xmstring P_((Widget w, char *resource, char **txtp));
+Xvoid set_xmstring P_((Widget w, char *resource, char *txt));
+Xvoid range P_((double *v, double r));
+Xvoid now_lst P_((Now *np, double *lst));
+Xvoid rnd_second P_((double *t));
+Xdouble mjd_day P_((double jd));
+Xdouble mjd_hr P_((double jd));
+Xvoid zero_mem P_((char *loc, unsigned len));
+Xvoid watch_cursor P_((int want));
+Xvoid all_update P_((Now *np, int how_much));
+Xvoid all_newobj P_((int dbidx));
+Xvoid all_newdb P_((int appended));
+Xvoid all_selection_mode P_((int whether));
+Xvoid register_selection P_((char *name));
+Xvoid field_log P_((Widget w, double value, int logv, char *str));
+Xvoid prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void get_color_resource P_((Widget w, char *cname, Pixel *p));
+Xstatic get_views_font P_((Display *dsp, Font *fp));
+Xvoid obj_pickgc P_((Obj *op, Widget w, GC *gcp));
+Xint tickmarks P_((double min, double max, int numdiv, double ticks[]));
+Xchar *obj_description P_((Obj *op));
+Xvoid timestamp P_((Now *np, Widget w));
+Xint any_ison P_((void));
+Xint lc P_((int cx, int cy, int cw, int x1, int y1, int x2, int y2, int *sx1, int *sy1, int *sx2, int *sy2));
+Xvoid hg_mag P_((double h, double g, double rp, double rho, double rsn, double *mp));
+Xvoid gk_mag P_((double g, double k, double rp, double rho, double *mp));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+Xextern char *myclass;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+X/* handy way to set one resource for a widget.
+X * shouldn't use this if you have several things to set for the same widget.
+X */
+Xvoid
+Xset_something (w, resource, value)
+XWidget w;
+Xchar *resource;
+Xchar *value;
+X{
+X	Arg a[1];
+X
+X	if (!w) {
+X	    printf ("set_something (%s) called with w==0\n", resource);
+X	    exit(1);
+X	}
+X
+X	XtSetArg (a[0], resource, value);
+X	XtSetValues (w, a, 1);
+X}
+X
+X/* handy way to get one resource for a widget.
+X * shouldn't use this if you have several things to get for the same widget.
+X */
+Xvoid
+Xget_something (w, resource, value)
+XWidget w;
+Xchar *resource;
+Xchar *value;
+X{
+X	Arg a[1];
+X
+X	if (!w) {
+X	    printf ("get_something (%s) called with w==0\n", resource);
+X	    exit(1);
+X	}
+X
+X	XtSetArg (a[0], resource, value);
+X	XtGetValues (w, a, 1);
+X}
+X
+X/* return the given XmString resource from the given widget as a char *.
+X * N.B. based on a sample in Heller, pg 178, the string back from
+X *   XmStringGetLtoR should be XtFree'd. Therefore, OUR caller should always
+X *   XtFree (*txtp).
+X */
+Xvoid
+Xget_xmstring (w, resource, txtp)
+XWidget w;
+Xchar *resource;
+Xchar **txtp;
+X{
+X	static char me[] = "get_xmstring()";
+X	static char hah[] = "??";
+X
+X	if (!w) {
+X	    printf ("%s: called for %s with w==0\n", me, resource);
+X	    exit(1);
+X	} else {
+X	    XmString str;
+X	    get_something(w, resource, (char *)&str); 
+X	    if (!XmStringGetLtoR (str, XmSTRING_DEFAULT_CHARSET, txtp)) {
+X		/*
+X		fprintf (stderr, "%s: can't get string resource %s\n", me,
+X								resource);
+X		exit (1);
+X		*/
+X		(void) strcpy (*txtp = XtMalloc(sizeof(hah)), hah);
+X	    }
+X	    XmStringFree (str);
+X	}
+X}
+X
+Xvoid
+Xset_xmstring (w, resource, txt)
+XWidget w;
+Xchar *resource;
+Xchar *txt;
+X{
+X	XmString str;
+X
+X	if (!w) {
+X	    printf ("set_xmstring called for %s with w==0\n", resource);
+X	    return;
+X	}
+X
+X	str = XmStringCreateLtoR (txt, XmSTRING_DEFAULT_CHARSET);
+X	set_something (w, resource, (char *)str);
+X	XmStringFree (str);
+X}
+X
+X/* insure 0 <= *v < r.
+X */
+Xvoid
+Xrange (v, r)
+Xdouble *v, r;
+X{
+X	*v -= r*floor(*v/r);
+X}
+X
+Xvoid
+Xnow_lst (np, lst)
+XNow *np;
+Xdouble *lst;
+X{
+X	utc_gst (mjd_day(mjd), mjd_hr(mjd), lst);
+X	*lst += radhr(lng);
+X	range (lst, 24.0);
+X}
+X
+X/* round a time in days, *t, to the nearest second, IN PLACE. */
+Xvoid
+Xrnd_second (t)
+Xdouble *t;
+X{
+X	*t = floor(*t*SPD+0.5)/SPD;
+X}
+X	
+Xdouble
+Xmjd_day(jd)
+Xdouble jd;
+X{
+X	return (floor(jd-0.5)+0.5);
+X}
+X
+Xdouble
+Xmjd_hr(jd)
+Xdouble jd;
+X{
+X	return ((jd-mjd_day(jd))*24.0);
+X}
+X
+X/* zero from loc for len bytes */
+Xvoid
+Xzero_mem (loc, len)
+Xchar *loc;
+Xunsigned len;
+X{
+X	(void) memset (loc, 0, len);
+X}
+X
+X/* called to set or unset the watch cursor on all menus.
+X * allow for nested requests.
+X */
+Xvoid
+Xwatch_cursor(want)
+Xint want;
+X{
+X	extern void dm_cursor();
+X	extern void db_cursor();
+X	extern void jm_cursor();
+X	extern void lst_cursor();
+X	extern void main_cursor();
+X	extern void m_cursor();
+X	extern void msg_cursor();
+X	extern void obj_cursor();
+X	extern void plt_cursor();
+X	extern void sm_cursor();
+X	extern void sv_cursor();
+X	extern void svf_cursor();
+X	extern void ss_cursor();
+X	extern void srch_cursor();
+X	extern void v_cursor();
+X	static Cursor wc;
+X	static nreqs;
+X	Cursor c;
+X
+X	if (!wc)
+X	    wc = XCreateFontCursor (XtD, XC_watch);
+X
+X	if (want) {
+X	    if (nreqs++ > 0)
+X		return;
+X	    c = wc;
+X	} else {
+X	    if (--nreqs > 0)
+X		return;
+X	    c = (Cursor)0;
+X	}
+X
+X	dm_cursor(c);
+X	db_cursor(c);
+X	jm_cursor(c);
+X	mars_cursor(c);
+X	e_cursor(c);
+X	lst_cursor(c);
+X	main_cursor(c);
+X	m_cursor(c);
+X	msg_cursor(c);
+X	obj_cursor(c);
+X	plt_cursor(c);
+X	sm_cursor(c);
+X	sv_cursor(c);
+X	svf_cursor(c);
+X	ss_cursor(c);
+X	srch_cursor(c);
+X	v_cursor(c);
+X
+X	XSync (XtD, 0);
+X}
+X
+X/* print stuff on other menus */
+Xvoid
+Xall_update(np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	dm_update (np, how_much);
+X	mars_update (np, how_much);
+X	e_update (np, how_much);
+X	jm_update (np, how_much);
+X	sm_update (np, how_much);
+X	ss_update (np, how_much);
+X	sv_update (np, how_much);
+X	m_update  (np, how_much);
+X	obj_update (np, how_much);
+X}
+X
+X/* tell everyone who might care that a user-defined object has changed
+X * then recompute and redisplay new values.
+X */
+Xvoid
+Xall_newobj(dbidx)
+Xint dbidx;
+X{
+X	watch_cursor (1);
+X
+X	dm_newobj(dbidx);
+X	ss_newobj(dbidx);
+X	sv_newobj(dbidx);
+X	all_update (mm_get_now(), 1);
+X
+X	watch_cursor (0);
+X}
+X
+X/* tell everyone who might care that the db (beyond NOBJ) has changed.
+X * appended is true if it grew; else it was replaced.
+X */
+Xvoid
+Xall_newdb(appended)
+Xint appended;
+X{
+X	watch_cursor (1);
+X
+X	obj_newdb(appended);
+X	sv_newdb(appended);
+X
+X	watch_cursor (0);
+X}
+X
+X/* inform all menus that have something selectable for plotting/listing/srching
+X * wether we are now in a mode that they should report when those fields are
+X * selected.
+X */
+Xvoid
+Xall_selection_mode(whether)
+Xint whether;
+X{
+X	dm_selection_mode(whether);
+X	mm_selection_mode(whether);
+X	jm_selection_mode(whether);
+X	mars_selection_mode(whether);
+X	e_selection_mode(whether);
+X	sm_selection_mode(whether);
+X	srch_selection_mode(whether);
+X}
+X
+X/* inform all potentially interested parties of the name of a field that
+X * it might want to use for latter.
+X * this is just to collect in one place all the modules that gather care.
+X */
+Xvoid
+Xregister_selection (name)
+Xchar *name;
+X{
+X	plt_selection (name);
+X	lst_selection (name);
+X	srch_selection (name);
+X}
+X
+X/* if we are plotting/listing/searching, send the current field info to them.
+X * N.B. only send `value' to plot and search if logv is not 0.
+X */
+Xvoid
+Xfield_log (w, value, logv, str)
+XWidget w;
+Xdouble value;
+Xint logv;
+Xchar *str;
+X{
+X	char *name;
+X
+X	if (!any_ison())
+X	    return;
+X
+X	get_something (w, XmNuserData, (char *)&name);
+X	if (name) {
+X	    if (logv) {
+X		plt_log (name, value);
+X		srch_log (name, value);
+X	    }
+X	    lst_log (name, str);
+X	}
+X}
+X
+X/* may be connected as the mapCallback to any convenience Dialog to
+X * position it centered the cursor (allowing for the screen edges).
+X */
+X/* ARGSUSED */
+Xvoid
+Xprompt_map_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Window root, child;
+X	int rx, ry, wx, wy;	/* rx/y: cursor loc on root window */
+X	unsigned sw, sh;	/* screen width/height */
+X	Dimension ww, wh;	/* this widget's width/height */
+X	Position x, y;		/* final location */
+X	unsigned mask;
+X	Arg args[20];
+X	int n;
+X
+X	XQueryPointer (XtDisplay(w), XtWindow(w),
+X				&root, &child, &rx, &ry, &wx, &wy, &mask);
+X	sw = WidthOfScreen (XtScreen(w));
+X	sh = HeightOfScreen(XtScreen(w));
+X	n = 0;
+X	XtSetArg (args[n], XmNwidth, &ww); n++;
+X	XtSetArg (args[n], XmNheight, &wh); n++;
+X	XtGetValues (w, args, n);
+X
+X	x = rx - ww/2;
+X	if (x < 0)
+X	    x = 0;
+X	else if (x + ww >= sw)
+X	    x = sw - ww;
+X	y = ry - wh/2;
+X	if (y < 0)
+X	    y = 0;
+X	else if (y + wh >= sh)
+X	    y = sh - wh;
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNx, x); n++;
+X	XtSetArg (args[n], XmNy, y); n++;
+X	XtSetValues (w, args, n);
+X}
+X
+X/* get the named color in *p, else set to w's XmNforeground.
+X */
+Xstatic void
+Xget_color_resource (w, cname, p)
+XWidget w;
+Xchar *cname;
+XPixel *p;
+X{
+X	Display *dsp = XtDisplay(w);
+X	Colormap def_cm = DefaultColormap (dsp, 0);
+X	XColor defxc, dbxc;
+X	char *cval;
+X
+X	cval = XGetDefault (dsp, myclass, cname);
+X
+X	if (!cval || !XAllocNamedColor (dsp, def_cm, cval, &defxc, &dbxc)) {
+X	    char msg[128];
+X	    if (!cval)
+X		(void) sprintf (msg, "Can't find resource `%.80s'", cname);
+X	    else
+X		(void) sprintf (msg, "Can't Alloc color `%.80s'", cval);
+X	    (void) strcat (msg, "... so using *foreground.\n");
+X	    xe_msg(msg, 0);
+X	    get_something (w, XmNforeground, (char *)p);
+X	} else
+X	    *p = defxc.pixel;
+X}
+X
+X/* get the Font we want to use when drawing text for the display views.
+X * return 0 if ok, else -1.
+X */
+Xstatic
+Xget_views_font (dsp, fp)
+XDisplay *dsp;
+XFont *fp;
+X{
+X	static char resname[] = "viewsFont";
+X	char *fname;
+X	XFontStruct *fsp;
+X
+X	fname = XGetDefault (dsp, myclass, resname);
+X
+X	/* use XLoadQueryFont because it returns gracefully if font is not
+X	 * found; XloadFont calls the default X error handler.
+X	 */
+X	if (!fname || !(fsp = XLoadQueryFont (dsp, fname))) {
+X	    char msg[256];
+X
+X	    if (!fname)
+X		(void) sprintf (msg, "Can't find resource `%.180s'", resname);
+X	    else
+X		(void) sprintf (msg, "Can't load font `%.180s'", fname);
+X	    (void) strcat (msg, "... using default server font");
+X	    xe_msg(msg, 0);
+X	    return (-1);
+X	}
+X	
+X	*fp = fsp->fid;
+X	return (0);
+X}
+X
+X/* given an object, return a GC for it.
+X * Use the colors defined in the X resoucres, else use the foreground of the
+X * given widget.
+X */
+Xvoid
+Xobj_pickgc(op, w, gcp)
+XObj *op;
+XWidget w;
+XGC *gcp;
+X{
+X	/* names of resource colors for the planets.
+X	 * N.B. should be in the same order as the defines in astro.h
+X	 */
+X	static char *objcolnames[NOBJ-2] = {
+X	    "mercuryColor", "venusColor", "marsColor", "jupiterColor",
+X	    "saturnColor", "uranusColor", "neptuneColor", "plutoColor",
+X	    "sunColor", "moonColor"
+X	};
+X	/* names of resource colors for stellar types.
+X	 */
+X	static char *starcolnames[] = {
+X	    "hotStarColor", "mediumStarColor", "coolStarColor"
+X	};
+X	static GC objgcs[XtNumber(objcolnames)];
+X	static GC stargcs[XtNumber(starcolnames)];
+X	static GC other_gc;
+X
+X	/* make all the gcs the first time through */
+X	if (!other_gc) {
+X	    Display *dsp = XtDisplay(w);
+X	    Window win = XtWindow(w);
+X	    unsigned gcm = GCForeground;
+X	    Font f;
+X	    XGCValues gcv;
+X	    Pixel p;
+X	    int i;
+X
+X	    if (get_views_font (dsp, &f) == 0) {
+X		gcm |= GCFont;
+X		gcv.font = f;
+X	    }
+X
+X	    /* make the planet gcs */
+X	    for (i = 0; i < XtNumber(objgcs); i++) {
+X		get_color_resource (w, objcolnames[i], &p);
+X		gcv.foreground = p;
+X		objgcs[i] = XCreateGC (dsp, win, gcm, &gcv);
+X	    }
+X
+X	    /* make the star color gcs */
+X	    for (i = 0; i < XtNumber(stargcs); i++) {
+X		get_color_resource (w, starcolnames[i], &p);
+X		gcv.foreground = p;
+X		stargcs[i] = XCreateGC (dsp, win, gcm, &gcv);
+X	    }
+X
+X	    /* make the gc for everything else */
+X	    get_something (w, XmNforeground, (char *)&p);
+X	    gcv.foreground = p;
+X	    other_gc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	if (op->type == PLANET && op->pl.code < XtNumber(objgcs))
+X	    *gcp = objgcs[op->pl.code];
+X	else if (op->type == FIXED && op->f_spect[0])
+X	    switch (op->f_spect[0]) {
+X	    case 'O': case 'B': case 'A': case 'W':
+X		*gcp = stargcs[0];
+X		break;
+X	    case 'F': case 'G':
+X		*gcp = stargcs[1];
+X		break;
+X	    case 'K': case 'M': case 'N': case 'R': case 'S':
+X		*gcp = stargcs[2];
+X		break;
+X	    default:
+X		*gcp = other_gc;
+X		break;
+X	    }
+X	else
+X	    *gcp = other_gc;
+X}
+X
+X/* given min and max and an approximate number of divisions desired,
+X * fill in ticks[] with nicely spaced values and return how many.
+X * N.B. return value, and hence number of entries to ticks[], might be as
+X *   much as 2 more than numdiv.
+X */
+Xint
+Xtickmarks (min, max, numdiv, ticks)
+Xdouble min, max;
+Xint numdiv;
+Xdouble ticks[];
+X{
+X        static int factor[] = { 1, 2, 5 };
+X        double minscale;
+X        double delta;
+X	double lo;
+X        double v;
+X        int n;
+X
+X        minscale = fabs(max - min);
+X        delta = minscale/numdiv;
+X        for (n=0; n < sizeof(factor)/sizeof(factor[0]); n++) {
+X	    double scale;
+X	    double x = delta/factor[n];
+X            if ((scale = (pow(10.0, ceil(log10(x)))*factor[n])) < minscale)
+X		minscale = scale;
+X	}
+X        delta = minscale;
+X
+X        lo = floor(min/delta);
+X        for (n = 0; (v = delta*(lo+n)) < max+delta; )
+X	    ticks[n++] = v;
+X
+X	return (n);
+X}
+X
+X/* given an Obj *, return its type as a descriptive string.
+X * if it's of type fixed then return its class description.
+X * N.B. we return the address of static storage -- do not free or change.
+X */
+Xchar *
+Xobj_description (op)
+XObj *op;
+X{
+X	static struct {
+X	    char class;
+X	    char *desc;
+X	} fixed_class_map[] = {
+X	    {'C', "Globular Cluster"},
+X	    {'U', "Cluster, with nebulosity"},
+X	    {'O', "Open Cluster"},
+X	    {'G', "Spiral Galaxy"},
+X	    {'H', "Spherical Galaxy"},
+X	    {'A', "Cluster of Galaxies"},
+X	    {'N', "Bright Nebula"},
+X	    {'F', "Diffuse Nebula"},
+X	    {'K', "Dark Nebula"},
+X	    {'P', "Planetary Nebula"},
+X	    {'Q', "Quasar"},
+X	    {'T', "Stellar Object"},
+X	    {'B', "Binary Star"},
+X	    {'D', "Double Star"},
+X	    {'M', "Multiple Star"},
+X	    {'S', "Star"},
+X	    {'V', "Variable Star"},
+X	};
+X
+X	switch (op->type) {
+X	case FIXED:
+X	    if (op->f_class) {
+X		int i;
+X		for (i = 0; i < XtNumber(fixed_class_map); i++)
+X		    if (fixed_class_map[i].class == op->f_class)
+X			return (fixed_class_map[i].desc);
+X	    }
+X	    return ("Fixed");
+X	case PARABOLIC:
+X	    return ("Solar - Parabolic");
+X	case HYPERBOLIC:
+X	    return ("Solar - Hyperbolic");
+X	case ELLIPTICAL:
+X	    return ("Solar - Elliptical");
+X	case PLANET:
+X	    return ("Planet");
+X	default:
+X	    printf ("obj_description: unknown type: 0x%x\n", op->type);
+X	    exit (1);
+X	    return (NULL);	/* for lint */
+X	}
+X}
+X
+X/* set the XmNlabelString resource of the given widget to the date and time 
+X * as given in the Now struct at *np.
+X * avoid unnecessary blinking by using f_showit().
+X */
+Xvoid
+Xtimestamp (np, w)
+XNow *np;
+XWidget w;
+X{
+X	char d[32], t[32], out[64];
+X	double lmjd = mjd - tz/24.0;
+X	char timezonename[32];
+X
+X	fs_date (d, mjd_day(lmjd));
+X	fs_time (t, mjd_hr(lmjd));
+X	if (tznm[0] == '\0') {
+X	    if (tz == 0)
+X		(void) strcpy(timezonename, "UTC");
+X	    else
+X		(void) sprintf(timezonename, "UTC%c%g", tz<0?'+':'-', fabs(tz));
+X	} else
+X	    (void) strcpy (timezonename, tznm);
+X	(void) sprintf (out, "%s %s %s", d, t, timezonename);
+X	f_showit (w, out);
+X}
+X
+X/* return !0 if any of the button/data capture tools are active, else 0.
+X */
+Xany_ison()
+X{
+X	return (srch_ison() || plot_ison() || listing_ison());
+X}
+X
+X/* given a circle and a line segment, find a segment of the line inside the 
+X *   circle.
+X * return 0 and the segment end points if one exists, else 0.
+X * We use a parametric representation of the line:
+X *   x = x1 + (x2-x1)*t and y = y1 + (y2-y1)*t, 0 < t < 1
+X * and a centered representation of the circle:
+X *   (x - xc)**2 + (y - yc)**2 = r**2
+X * and solve for the t's that work, checking for usual conditions.
+X */
+Xlc (cx, cy, cw, x1, y1, x2, y2, sx1, sy1, sx2, sy2)
+Xint cx, cy, cw;			/* circle bounding box corner and width */
+Xint x1, y1, x2, y2;		/* line segment endpoints */
+Xint *sx1, *sy1, *sx2, *sy2;	/* segment inside the circle */
+X{
+X	int dx = x2 - x1;
+X	int dy = y2 - y1;
+X	int r = cw/2;
+X	int xc = cx + r;
+X	int yc = cy + r;
+X	int A = x1 - xc;
+X	int B = y1 - yc;
+X	double a = dx*dx + dy*dy;	/* O(2 * 2**16 * 2**16) */
+X	double b = 2*(dx*A + dy*B);	/* O(4 * 2**16 * 2**16) */
+X	double c = A*A + B*B - r*r;	/* O(2 * 2**16 * 2**16) */
+X	double d = b*b - 4*a*c;		/* O(2**32 * 2**32) */
+X	double sqrtd;
+X	double t1, t2;
+X
+X	if (d <= 0)
+X	    return (-1);	/* containing line is purely outside circle */
+X
+X	sqrtd = sqrt(d);
+X	t1 = (-b - sqrtd)/(2.0*a);
+X	t2 = (-b + sqrtd)/(2.0*a);
+X
+X	if (t1 >= 1.0 || t2 <= 0.0)
+X	    return (-1);	/* segment is purely outside circle */
+X
+X	/* we know now that some part of the segment is inside,
+X	 * ie, t1 < 1 && t2 > 0
+X	 */
+X
+X	if (t1 <= 0.0) {
+X	    /* (x1,y1) is inside circle */
+X	    *sx1 = x1;
+X	    *sy1 = y1;
+X	} else {
+X	    *sx1 = x1 + dx*t1;
+X	    *sy1 = y1 + dy*t1;
+X	}
+X
+X	if (t2 >= 1.0) {
+X	    /* (x2,y2) is inside circle */
+X	    *sx2 = x2;
+X	    *sy2 = y2;
+X	} else {
+X	    *sx2 = x1 + dx*t2;
+X	    *sy2 = y1 + dy*t2;
+X	}
+X
+X	return (0);
+X}
+X
+X/* compute visual magnitude using the H/G parameters used in the Astro Almanac.
+X * these are commonly used for asteroids.
+X */
+Xvoid
+Xhg_mag (h, g, rp, rho, rsn, mp)
+Xdouble h, g;
+Xdouble rp;	/* sun-obj dist, AU */
+Xdouble rho;	/* earth-obj dist, AU */
+Xdouble rsn;	/* sun-earth dist, AU */
+Xdouble *mp;
+X{
+X	double psi_t, Psi_1, Psi_2, beta;
+X	double tb2;
+X
+X	beta = acos((rp*rp + rho*rho - rsn*rsn)/ (2*rp*rho));
+X	tb2 = tan(beta/2.0);
+X	/* psi_t = exp(log(tan(beta/2.0))*0.63); */
+X	psi_t = pow (tb2, 0.63);
+X	Psi_1 = exp(-3.33*psi_t);
+X	/* psi_t = exp(log(tan(beta/2.0))*1.22); */
+X	psi_t = pow (tb2, 1.22);
+X	Psi_2 = exp(-1.87*psi_t);
+X	*mp = h + 5.0*log10(rp*rho) - 2.5*log10((1-g)*Psi_1 + g*Psi_2);
+X}
+X
+X/* computer visual magnitude using the g/k parameters commonly used for comets.
+X */
+Xvoid
+Xgk_mag (g, k, rp, rho, mp)
+Xdouble g, k;
+Xdouble rp;	/* sun-obj dist, AU */
+Xdouble rho;	/* earth-obj dist, AU */
+Xdouble *mp;
+X{
+X	*mp = g + 5.0*log10(rho) + 2.5*k*log10(rp);
+X}
+END_OF_FILE
+  if test 19567 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+if test -f 'precess.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'precess.c'\"
+else
+  echo shar: Extracting \"'precess.c'\" \(4390 characters\)
+  sed "s/^X//" >'precess.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X#include "preferences.h"
+X
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void mjd_year P_((double Mjd, double *yr));
+Xextern void range P_((double *v, double r));
+X
+Xvoid precess P_((double mjd1, double mjd2, double *ra, double *dec));
+Xstatic void precess_hiprec P_((double mjd1, double mjd2, double *ra, double *dec));
+Xstatic void precess_fast P_((double mjd1, double mjd2, double *ra, double *dec));
+X
+X#undef P_
+X
+X#define	DCOS(x)		cos(degrad(x))
+X#define	DSIN(x)		sin(degrad(x))
+X#define	DASIN(x)	raddeg(asin(x))
+X#define	DATAN2(y,x)	raddeg(atan2((y),(x)))
+X
+X/* corrects ra and dec, both in radians, for precession from epoch 1 to epoch 2.
+X * the epochs are given by their modified JDs, mjd1 and mjd2, respectively.
+X * N.B. ra and dec are modifed IN PLACE.
+X */
+Xvoid
+Xprecess (mjd1, mjd2, ra, dec)
+Xdouble mjd1, mjd2;	/* initial and final epoch modified JDs */
+Xdouble *ra, *dec;	/* ra/dec for mjd1 in, for mjd2 out */
+X{
+X	if (pref_get(PREF_ALGO) == PREF_ACCURATE)
+X	    precess_hiprec (mjd1, mjd2, ra, dec);
+X	else
+X	    precess_fast (mjd1, mjd2, ra, dec);
+X}
+X
+X/*
+X * Copyright (c) 1990 by Craig Counterman. All rights reserved.
+X *
+X * This software may be redistributed freely, not sold.
+X * This copyright notice and disclaimer of warranty must remain
+X *    unchanged. 
+X *
+X * No representation is made about the suitability of this
+X * software for any purpose.  It is provided "as is" without express or
+X * implied warranty, to the extent permitted by applicable law.
+X *
+X * Rigorous precession. From Astronomical Ephemeris 1989, p. B18
+X */
+Xstatic void
+Xprecess_hiprec (mjd1, mjd2, ra, dec)
+Xdouble mjd1, mjd2;	/* initial and final epoch modified JDs */
+Xdouble *ra, *dec;	/* ra/dec for mjd1 in, for mjd2 out */
+X{
+X	double zeta_A, z_A, theta_A;
+X	double T;
+X	double A, B, C;
+X	double alpha, delta;
+X	double alpha_in, delta_in;
+X	double from_equinox, to_equinox;
+X	double alpha2000, delta2000;
+X
+X	mjd_year (mjd1, &from_equinox);
+X	mjd_year (mjd2, &to_equinox);
+X	alpha_in = raddeg(*ra);
+X	delta_in = raddeg(*dec);
+X
+X	/* From from_equinox to 2000.0 */
+X	if (from_equinox != 2000.0) {
+X	    T = (from_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha_in - z_A) * DCOS(delta_in);
+X	    B = DCOS(alpha_in - z_A) * DCOS(theta_A) * DCOS(delta_in)
+X	      + DSIN(theta_A) * DSIN(delta_in);
+X	    C = -DCOS(alpha_in - z_A) * DSIN(theta_A) * DCOS(delta_in)
+X	      + DCOS(theta_A) * DSIN(delta_in);
+X
+X	    alpha2000 = DATAN2(A,B) - zeta_A;
+X	    range (&alpha2000, 360.0);
+X	    delta2000 = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha2000 = alpha_in;
+X	    delta2000 = delta_in;
+X	};
+X
+X
+X	/* From 2000.0 to to_equinox */
+X	if (to_equinox != 2000.0) {
+X	    T = (to_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha2000 + zeta_A) * DCOS(delta2000);
+X	    B = DCOS(alpha2000 + zeta_A) * DCOS(theta_A) * DCOS(delta2000)
+X	      - DSIN(theta_A) * DSIN(delta2000);
+X	    C = DCOS(alpha2000 + zeta_A) * DSIN(theta_A) * DCOS(delta2000)
+X	      + DCOS(theta_A) * DSIN(delta2000);
+X
+X	    alpha = DATAN2(A,B) + z_A;
+X	    range(&alpha, 360.0);
+X	    delta = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha = alpha2000;
+X	    delta = delta2000;
+X	};
+X
+X	*ra = degrad(alpha);
+X	*dec = degrad(delta);
+X}
+X
+Xstatic void
+Xprecess_fast (mjd1, mjd2, ra, dec)
+Xdouble mjd1, mjd2;	/* initial and final epoch modified JDs */
+Xdouble *ra, *dec;	/* ra/dec for mjd1 in, for mjd2 out */
+X{
+X	double nyrs;
+X	double t1, t2;
+X	double na, nb;
+X	double ma, mb;
+X	double n, m;
+X	double ddec, dra;
+X
+X	nyrs = (mjd2 - mjd1)/365.2425;
+X	t2 = mjd2/36525.0;
+X	t1 = mjd1/36525.0;
+X	nb = 20.0468 - (8.5e-3 * t2);
+X	na = 20.0468 - (8.5e-3 * t1);
+X	mb = 3.07234 + (1.86e-3 * t2);
+X	ma = 3.07234 + (1.86e-3 * t1);
+X	n = (na + nb)/2.0;
+X	m = (ma + mb)/2.0;
+X
+X	ddec = n*cos(*ra) * 4.848137e-6 * nyrs;
+X	dra  = (m + (n * sin(*ra) * tan(*dec)/15.0)) * 7.272205e-5 * nyrs;
+X
+X	*dec += ddec;
+X	*ra += dra;
+X	range (ra, 2.0*PI);
+X}
+END_OF_FILE
+  if test 4390 -ne `wc -c <'precess.c'`; then
+    echo shar: \"'precess.c'\" unpacked with wrong size!
+  fi
+  # end of 'precess.c'
+fi
+if test -f 'preferences.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'preferences.c'\"
+else
+  echo shar: Extracting \"'preferences.c'\" \(7270 characters\)
+  sed "s/^X//" >'preferences.c' <<'END_OF_FILE'
+X/* code to support the preferences facility.
+X * not much now, but expected to grow.
+X * not all of these are necessarily settable in the Preferences mainmenu
+X *   pulldown yet.
+X */
+X
+X#include <Xm/Xm.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/CascadeB.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void redraw_screen P_((int how_much));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid pref_create_pulldown P_((Widget menu_bar));
+Xint pref_get P_((int pref));
+Xstatic void pref_algo_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void pref_date_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void pref_units_cb P_((Widget w, XtPointer client, XtPointer call));
+X
+X#undef P_
+X
+Xextern char *myclass;
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+X/* record of preferences values */
+Xstatic int prefs[NPREFS];
+X
+X/* Create "Preferences" PulldownMenu.
+X * use the given menu_bar widget as a base.
+X * this is called early when the main menu bar is being built..
+X * initialize the prefs[] array from the initial state of the toggle buttons.
+X */
+Xvoid
+Xpref_create_pulldown (menu_bar)
+XWidget menu_bar;
+X{
+X	Widget tb1, tb2, tb3;
+X	Widget cascade, menu_pane, pull_right;
+X	Arg args[20];
+X	int n;
+X
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "Preferences", args, n);
+X
+X	    /* create the algorithms pullright menu */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNradioBehavior, True); n++;
+X	    pull_right = XmCreatePulldownMenu (menu_pane, "Algorithms", args,n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'A'); n++;
+X	    tb1 = XmCreateToggleButton (pull_right, "Accurate", args, n);
+X	    XtAddCallback (tb1, XmNvalueChangedCallback, pref_algo_cb,
+X						    (XtPointer)PREF_ACCURATE);
+X	    XtManageChild (tb1);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'F'); n++;
+X	    tb2 = XmCreateToggleButton (pull_right, "Fast", args, n);
+X	    XtAddCallback (tb2, XmNvalueChangedCallback, pref_algo_cb,
+X							(XtPointer)PREF_FAST);
+X	    XtManageChild (tb2);
+X
+X	    if (XmToggleButtonGetState(tb1))
+X		prefs[PREF_ALGO] = PREF_ACCURATE;
+X	    else if (XmToggleButtonGetState(tb2))
+X		prefs[PREF_ALGO] = PREF_FAST;
+X	    else {
+X		xe_msg ("Neither Alogirthms preference is set -- defaulting to Accurate\n", 0);
+X		XmToggleButtonSetState (tb1, True, False);
+X		prefs[PREF_ALGO] = PREF_ACCURATE;
+X	    }
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNsubMenuId, pull_right);  n++;
+X	    XtSetArg (args[n], XmNmnemonic, 'A'); n++;
+X	    cascade = XmCreateCascadeButton (menu_pane, "AlgorithmsCB",args,n);
+X	    XtManageChild (cascade);
+X	    set_xmstring (cascade, XmNlabelString, "Algorithms");
+X
+X	    /* create the date formats pullright menu */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNradioBehavior, True); n++;
+X	    pull_right = XmCreatePulldownMenu (menu_pane, "DateFormat",args,n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'm'); n++;
+X	    tb1 = XmCreateToggleButton (pull_right, "MDY", args, n);
+X	    XtManageChild (tb1);
+X	    XtAddCallback (tb1, XmNvalueChangedCallback, pref_date_cb,
+X							(XtPointer)PREF_MDY);
+X	    set_xmstring (tb1, XmNlabelString, "M/D/Y");
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'y'); n++;
+X	    tb2 = XmCreateToggleButton (pull_right, "YMD", args, n);
+X	    XtAddCallback (tb2, XmNvalueChangedCallback, pref_date_cb,
+X							(XtPointer)PREF_YMD);
+X	    XtManageChild (tb2);
+X	    set_xmstring (tb2, XmNlabelString, "Y/M/D");
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'd'); n++;
+X	    tb3 = XmCreateToggleButton (pull_right, "DMY", args, n);
+X	    XtAddCallback (tb3, XmNvalueChangedCallback, pref_date_cb,
+X							(XtPointer)PREF_DMY);
+X	    XtManageChild (tb3);
+X	    set_xmstring (tb3, XmNlabelString, "D/M/Y");
+X
+X	    if (XmToggleButtonGetState(tb1))
+X		prefs[PREF_DATE_FORMAT] = PREF_MDY;
+X	    else if (XmToggleButtonGetState(tb2))
+X		prefs[PREF_DATE_FORMAT] = PREF_YMD;
+X	    else if (XmToggleButtonGetState(tb3))
+X		prefs[PREF_DATE_FORMAT] = PREF_DMY;
+X	    else {
+X		xe_msg ("No DateFormat preference is set -- defaulting to MDY\n", 0);
+X		XmToggleButtonSetState (tb1, True, False);
+X		prefs[PREF_DATE_FORMAT] = PREF_MDY;
+X	    }
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNsubMenuId, pull_right);  n++;
+X	    XtSetArg (args[n], XmNmnemonic, 'D'); n++;
+X	    cascade = XmCreateCascadeButton (menu_pane, "DateFormatCB",args, n);
+X	    XtManageChild (cascade);
+X	    set_xmstring (cascade, XmNlabelString, "Date formats");
+X
+X	    /* create the units pullright menu */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNradioBehavior, True); n++;
+X	    pull_right = XmCreatePulldownMenu (menu_pane, "Units", args,n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'E'); n++;
+X	    tb1 = XmCreateToggleButton (pull_right, "English", args, n);
+X	    XtAddCallback (tb1, XmNvalueChangedCallback, pref_units_cb,
+X						    (XtPointer)PREF_ENGLISH);
+X	    XtManageChild (tb1);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmnemonic, 'M'); n++;
+X	    tb2 = XmCreateToggleButton (pull_right, "Metric", args, n);
+X	    XtAddCallback (tb2, XmNvalueChangedCallback, pref_units_cb,
+X						    (XtPointer)PREF_METRIC);
+X	    XtManageChild (tb2);
+X
+X	    if (XmToggleButtonGetState(tb1))
+X		prefs[PREF_UNITS] = PREF_ENGLISH;
+X	    else if (XmToggleButtonGetState(tb2))
+X		prefs[PREF_UNITS] = PREF_METRIC;
+X	    else {
+X		xe_msg ("Neither Units preference is set -- defaulting to English\n", 0);
+X		XmToggleButtonSetState (tb1, True, False);
+X		prefs[PREF_UNITS] = PREF_ENGLISH;
+X	    }
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNsubMenuId, pull_right);  n++;
+X	    XtSetArg (args[n], XmNmnemonic, 'U'); n++;
+X	    cascade = XmCreateCascadeButton (menu_pane, "UnitsCB", args, n);
+X	    XtManageChild (cascade);
+X	    set_xmstring (cascade, XmNlabelString, "Units");
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'P'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "PreferencesCB", args, n);
+X	set_xmstring (cascade, XmNlabelString, "Preferences");
+X	XtManageChild (cascade);
+X}
+X
+X/* called anytime we want to know a preference.
+X */
+Xint
+Xpref_get(pref)
+Xint pref;
+X{
+X	return (prefs[pref]);
+X}
+X
+X/* called when a PREF_ALGO preference changes.
+X * the new value is in client.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xpref_algo_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *s = (XmToggleButtonCallbackStruct *)call;
+X
+X	if (s->set) {
+X	    prefs[PREF_ALGO] = (int)client;
+X	    redraw_screen (1);
+X	}
+X}
+X
+X/* called when a PREF_DATE_FORMAT preference changes.
+X * the new value is in client.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xpref_date_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *s = (XmToggleButtonCallbackStruct *)call;
+X
+X	if (s->set) {
+X	    prefs[PREF_DATE_FORMAT] = (int)client;
+X	    redraw_screen (1);
+X	}
+X}
+X
+X/* called when a PREF_UNITS preference changes.
+X * the new value is in client.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xpref_units_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *s = (XmToggleButtonCallbackStruct *)call;
+X
+X	if (s->set) {
+X	    prefs[PREF_UNITS] = (int)client;
+X	    redraw_screen (1);
+X	}
+X}
+END_OF_FILE
+  if test 7270 -ne `wc -c <'preferences.c'`; then
+    echo shar: \"'preferences.c'\" unpacked with wrong size!
+  fi
+  # end of 'preferences.c'
+fi
+if test -f 'skyviewmenu.c.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'skyviewmenu.c.3'\"
+else
+  echo shar: Extracting \"'skyviewmenu.c.3'\" \(21068 characters\)
+  sed "s/^X//" >'skyviewmenu.c.3' <<'END_OF_FILE'
+X	} else {
+X	    label = (pu.op->o_flags ^= OBJF_LABEL) & OBJF_LABEL;
+X	    if (label) {
+X		sv_getcircle (&w, &h, &r, &xb, &yb);
+X		(void) sv_dbobjloc (pu.op, r, &x, &y);
+X		name = pu.op->o_name;
+X	    }
+X	}
+X
+X	if (label) {
+X	    /* label is being turned on so draw it */
+X	    Display *dsp = XtDisplay(svda_w);
+X	    Window win = sv_pm;
+X	    GC gc;
+X	    x += xb;
+X	    y += yb;
+X	    obj_pickgc (pu.op, svda_w, &gc);
+X	    draw_label (dsp, win, gc, name, x, y);
+X	    sv_copy_sky();
+X	} else {
+X	    /* label is being turned off so redraw */
+X	    sv_all (mm_get_now(), 1);
+X	}
+X}
+X
+X/* remove trails no longer wanted. */
+Xstatic void
+Xtobj_rmoff()
+X{
+X	TrailObj **topp;	/* address to be changed if we decide to 
+X				 * remove *topp
+X				 */
+X	TrailObj *top;		/* handy *topp */
+X
+X	for (topp = &trailobj; (top = *topp) != NULL; ) {
+X	    if (top->on) {
+X		topp = &top->ntop;
+X	    } else {
+X		*topp = top->ntop;
+X		XtFree ((char *)top);
+X	    }
+X	}
+X}
+X
+X/* remove the trailobj list that contains the given pointer.
+X * we have to search each trail list to find the one with this pointer.
+X * it might be the one on TrailObj itself or one of the older ones on
+X *    the TSky list.
+X */
+Xstatic void
+Xtobj_rmobj (op)
+XObj *op;
+X{
+X	TrailObj **topp;	/* address to be changed if we decide to 
+X				 * remove *topp
+X				 */
+X	TrailObj *top;		/* handy *topp */
+X
+X	for (topp = &trailobj; (top = *topp) != NULL; ) {
+X	    int i;
+X	    if (top->op == op)
+X		goto out;
+X	    for (i = 0; i < top->nsky; i++)
+X		if (&top->sky[i].o == op)
+X		    goto out;
+X	    topp = &top->ntop;
+X	}
+X
+X    out:
+X
+X	if (!top)
+X	    return;	/* oh well */
+X
+X	*topp = top->ntop;
+X	XtFree ((char *)top);
+X}
+X
+X/* add a new empty entry to the trailobj list for db object op.
+X * return a pointer to the new TrailObj.
+X */
+Xstatic TrailObj *
+Xtobj_addobj (op)
+XObj *op;
+X{
+X	TrailObj *top;
+X
+X	/* don't forget there is inherently room for one TSky in a TrailObj */
+X	top = (TrailObj *)
+X	    XtMalloc (sizeof(TrailObj) + (TRAILCHUNKS-1)*sizeof(TSky));
+X	top->nskymem = TRAILCHUNKS; /* there is room for TRAILCHUNKS TSkys .. */
+X	top->nsky = 0;	  /* though none are in use in our new one */
+X	top->op = op;
+X	top->on = 1;
+X
+X	/* link directly off trailobj -- order is unimportant */
+X	top->ntop = trailobj;
+X	trailobj = top;
+X
+X	return (top);
+X}
+X
+X/* increase the number of Sky's top can hold.
+X * since we may have to move top to do it, return the new pointer.
+X */
+Xstatic TrailObj *
+Xtobj_growsky (top)
+XTrailObj *top;
+X{
+X	TrailObj *ltop;
+X	TrailObj *newtop;
+X	int newn;
+X
+X	/* set ltop to the TrailObj in the list just before top */
+X	if (trailobj == top)
+X	    ltop = NULL;
+X	else {
+X	    for (ltop=trailobj; ltop; ltop=ltop->ntop)
+X		if (ltop->ntop == top)
+X		    break;
+X	    if (!ltop) {
+X		printf ("tobj_growsky(): top not found!\n");
+X		exit (1);
+X	    }
+X	}
+X
+X	/* don't forget there is already one TSky within a TrailObj. */
+X	newn = top->nskymem + TRAILCHUNKS;
+X	newtop = (TrailObj *) XtRealloc ((char *)top,
+X				sizeof(TrailObj) + (newn-1)*sizeof(TSky));
+X	if (ltop)
+X	    ltop->ntop = newtop;
+X	else
+X	    trailobj = newtop;
+X	newtop->nskymem = newn;
+X	return (newtop);
+X}
+X
+X/* empty the trailobj list and reclaim all space.
+X */
+Xstatic void
+Xtobj_reset()
+X{
+X	TrailObj *top, *ntop;
+X
+X	for (top = trailobj; top; top = ntop) {
+X	    ntop = top->ntop;
+X	    XtFree ((char *)top);
+X	}
+X
+X	trailobj = NULL;
+X}
+X
+X/* find the TrailObj that contains op */
+Xstatic TrailObj *
+Xtobj_find (op)
+XObj *op;
+X{
+X	TrailObj *top;
+X
+X	for (top = trailobj; top; top = top->ntop) {
+X	    int i;
+X	    if (top->op == op)
+X		return (top);
+X	    for (i = 0; i < top->nsky; i++)
+X		if (&top->sky[i].o == op)
+X		    return (top);
+X	}
+X
+X	return (NULL);
+X}
+X
+X/* add an Obj to the given trailobj, top.
+X * mark it as being valid as of jd (which is really an mjd).
+X * these are maintained in increasing order of time, ie, the first is the
+X * earliest. we take care not to add one for an identical time already in
+X * the list. since we might have to move top to grow it, we return a (possibly
+X * different) pointer.
+X */
+Xstatic TrailObj *
+Xtobj_addsky (top, jd, op)
+XTrailObj *top;
+Xdouble jd;
+XObj *op;
+X{
+X	int i;
+X
+X	/* make sure there is room for one more */
+X	if (top->nsky == top->nskymem)
+X	    top = tobj_growsky (top);
+X
+X	/* add op to top->sky in ascending time order.
+X	 * exit loop with i as the index of the cell to use.
+X	 */
+X	for (i = top->nsky; i > 0; --i)
+X	    if (top->sky[i-1].ts_mjd < jd)
+X		break;
+X	    else if (top->sky[i-1].ts_mjd == jd)
+X		return (top);	/* don't add a dup */
+X	    else
+X		top->sky[i] = top->sky[i-1];
+X
+X	top->sky[i].flags = 0;
+X	top->sky[i].ts_mjd = jd;
+X	top->sky[i].o = *op;
+X	top->nsky++;
+X
+X	return (top);
+X}
+X
+X/* display everything in the trailobj list that is marked on onto sv_pm
+X * clipped to a circle of radius r, offset by xb and yb borders.
+X */
+Xstatic void
+Xtobj_display_all(r, xb, yb)
+Xunsigned r, xb, yb;
+X{
+X	Display *dsp = XtDisplay(svda_w);
+X	Window win = sv_pm;
+X	TrailObj *top;
+X
+X	for (top = trailobj; top; top = top->ntop) {
+X	    int x1, y1, x2, y2;
+X	    int before;
+X	    Obj *op;
+X	    GC gc;
+X	    int i;
+X
+X	    if (!top->on)
+X		continue;
+X
+X	    obj_pickgc(top->op, svda_w, &gc);
+X	    before = 0;
+X
+X	    for (i = 0; i < top->nsky; i++) {
+X		op = &top->sky[i].o;
+X		if (sv_trailobjloc (&top->sky[i], r, &x2, &y2)) {
+X		    sv_draw_obj (dsp, win, gc, op, x2+xb, y2+yb,
+X				magdiam(op->s_mag/MAGSCALE), justdots);
+X		    if (all_labels || (top->sky[i].flags & OBJF_LABEL))
+X			draw_label (dsp, win, gc, op->o_name, x2+xb, y2+yb);
+X		}
+X		if (before++) {
+X		    int sx1, sy1, sx2, sy2;
+X		    if (lc(0,0,r*2,x1,y1,x2,y2,&sx1,&sy1,&sx2,&sy2) == 0)
+X			XDrawLine (dsp, win, gc, sx1+xb, sy1+yb, sx2+xb,sy2+yb);
+X		}
+X		x1 = x2;
+X		y1 = y2;
+X	    }
+X
+X	}
+X
+X	sv_draw_obj (dsp, win, (GC)0, NULL, 0, 0, 0, 0);	/* flush */
+X}
+X
+X/* determine if the given object is visible and within a circle of radius r
+X * pixels. if so, return 1 and compute the location in *xp/*yp, else return 0.
+X * N.B. only call this for bona fide db objects -- *not* for objects in the
+X *   TrailObj lists -- it will destroy their history.
+X */
+Xstatic
+Xsv_dbobjloc (op, r, xp, yp)
+XObj *op;
+Xint r;
+Xint *xp, *yp;
+X{
+X	double altdec, azra;
+X
+X	if (!sv_precheck(op))
+X	    return (0);
+X
+X	/* remaining things need accurate s_* fields */
+X	db_update(op);
+X
+X	if (aa_mode && op->s_alt < 0.0)
+X	    return(0);	/* it's below horizon and we're in alt-az mode */
+X
+X	if (op->s_mag/MAGSCALE > fmag || op->s_mag/MAGSCALE < bmag)
+X	    return(0);	/* it's not within mag range after all */
+X
+X	altdec = aa_mode ? op->s_alt : op->s_dec;
+X	azra   = aa_mode ? op->s_az  : op->s_ra;
+X	if (!sv_loc (r, altdec, azra, xp, yp))
+X	    return(0); 	/* it's outside the fov after all */
+X
+X	return (1);	/* yup, really within r */
+X}
+X
+X/* given a TSky find its location in a circle of radius r, all in pixels.
+X * return 1 if the resulting x/y is in fact within the circle, else 0 if it is
+X *   outside or otherwise should not be shown now (but return the x/y anyway).
+X * N.B. we take care to not change the tsp->o in any way.
+X */
+Xstatic
+Xsv_trailobjloc (tsp, r, xp, yp)
+XTSky *tsp;
+Xint r;
+Xint *xp, *yp;
+X{
+X	Obj *op = &tsp->o;
+X	double altdec, azra;
+X	int infov;
+X
+X	altdec = aa_mode ? op->s_alt : op->s_dec;
+X	azra   = aa_mode ? op->s_az  : op->s_ra;
+X	infov = sv_loc (r, altdec, azra, xp, yp);
+X	return (infov && (!aa_mode || op->s_alt >= 0.0) && sv_precheck(op)?1:0);
+X}
+X
+X/* do as much as possible to pre-check whether op is on screen now
+X * WITHOUT computing it's actual coordinates. put another way, we are not to
+X * use and s_* fields in these tests.
+X * return 0 if we know it's definitely not on screen, or 1 if it might be.
+X */
+Xstatic
+Xsv_precheck (op)
+XObj *op;
+X{
+X	if (op->type == UNDEFOBJ)
+X	    return(0);
+X
+X	if (!svf_filter_ok(op) || !sv_bright_ok(op) || !sv_infov(op))
+X	    return(0);	/* wrong type, wrong brightness or outside for sure */
+X	
+X	return (1);
+X}
+X
+X/* return 1 if db object is ever possibly within the fmag/bmag range; else 0.
+X */
+Xstatic
+Xsv_bright_ok(op)
+XObj *op;
+X{
+X	switch (op->type) {
+X	case PLANET:
+X	    /* always go for the planets for now but ..
+X	     * TODO: work up a table of extreme planet magnitudes.
+X	     */
+X	    return (1);
+X	    /* break; */
+X	case HYPERBOLIC: return (1);	/* and interlopers */
+X	case PARABOLIC: return (1);
+X	case ELLIPTICAL: {
+X	    double mag;		/* magnitude */
+X	    double per, aph;	/* perihelion and aphelion distance */
+X
+X	    per = op->e_a*(1.0 - op->e_e);
+X	    aph = op->e_a*(1.0 + op->e_e);
+X	    if (per <= 1.1 && aph >= 0.9)
+X		return (1); /* might be blazing in the back yard some day */
+X	    if (op->e_mag.whichm == MAG_HG)
+X		 mag = op->e_mag.m1 + 5*log10(per*fabs(per-1.0));
+X	    else
+X		 gk_mag(op->e_mag.m1, op->e_mag.m2,
+X						per, fabs(per-1.0), &mag);
+X	    return (mag <= fmag && mag >= bmag);
+X	    /* break; */
+X	    }
+X	case FIXED:
+X	    return (op->f_mag/MAGSCALE <= fmag && op->f_mag/MAGSCALE >= bmag);
+X	    /* break; */
+X	default: 
+X	    printf ("sv_bright_ok(): bad type: %d\n", op->type);
+X	    exit (1);
+X	    return (0);	/* for lint */
+X	}
+X}
+X
+X/* return 1 if the object can potentially be within the current sv_fov, else 0.
+X * N.B. this is meant to be cheap - we only do fixed objects and we don't
+X *      precess. most importantly, we don't use any s_* fields.
+X */
+Xstatic
+Xsv_infov (op)
+XObj *op;
+X{
+X#define	DELEP	100		/* maximum epoch difference we dare go without
+X				 * precessing, years
+X				 */
+X#define	MARGIN	degrad(3.0)	/* border around fov still considered "in"
+X				 * in spite of having not precessed.
+X				 */
+X	double ra0, dec0;	/* ra/dec of our center of view */
+X	double a, sa, ca;	/* angle from viewpoint to pole */
+X	double b, sb, cb;	/* angle from object to pole */
+X	double c, cc;		/* diff of polar angles of obj and viewpoint */
+X	double d;		/* angular separation of object and viewpoint */
+X	Now *np = mm_get_now();
+X
+X	if (op->type != FIXED)
+X	    return (1);
+X	if (fabs (mjd - op->f_epoch) > DELEP)
+X	    return (1);
+X
+X	if (aa_mode) {
+X	    /* TODO: cache this -- it's the same for each obj! */
+X	    double ha, lst;
+X	    aa_hadec (lat, sv_altdec, sv_azra, &ha, &dec0);
+X	    now_lst (np, &lst);
+X	    ra0 = hrrad(lst) - ha;
+X	    range (&ra0, 2*PI);
+X	} else {
+X	    ra0 = sv_azra;
+X	    dec0 = sv_altdec;
+X	}
+X
+X	a = PI/2 - dec0;
+X	sa = sin(a);
+X	ca = cos(a);
+X	b = PI/2 - op->f_dec;
+X	sb = sin(b);
+X	cb = cos(b);
+X	c = ra0 - op->f_RA;
+X	cc = cos(c);
+X	d = acos(ca*cb + sa*sb*cc);
+X	return (d < sv_fov/2 + MARGIN);
+X}
+X
+X/* compute x/y loc of a point at azra/altdec on a circle of radius rad pixels
+X *   as viewed from sv_azra/sv_altdec with sv_fov.
+X * return 1 if fits on screen, else 0 (but still return x/y).
+X */
+Xstatic
+Xsv_loc (rad, altdec, azra, xp, yp)
+Xint rad;	/* radius of target display, pixels */
+Xdouble altdec;	/* angle up from spherical equator, such as alt or dec; rad */
+Xdouble azra;	/* angle around spherical pole, such as az or ra; rad */
+Xint *xp, *yp;	/* return X coords within circle */
+X{
+X#define	LOCEPS	(1e-5)	/* an angle too small to see on screen, rads */
+X	double a,sa,ca;	/* angle from viewpoint to pole */
+X	double b,sb,cb;	/* angle from object to pole */
+X	double c,sc,cc;	/* difference in polar angles of obj and viewpoint */
+X	double d,sd,cd;	/* angular separation of object and viewpoint */
+X	double r;	/* proportion of d to desired field of view */
+X	double se, ce;	/* angle between (viewpoint,pole) and (viewpoint,obj) */
+X
+X	a = PI/2 - sv_altdec;
+X	sa = sin(a);
+X	ca = cos(a);
+X	b = PI/2 - altdec;
+X	sb = sin(b);
+X	cb = cos(b);
+X	if (aa_mode)
+X	    c = azra - sv_azra;
+X	else
+X	    c = sv_azra - azra;
+X	cc = cos(c);
+X	d = acos(ca*cb + sa*sb*cc);
+X	if (d < LOCEPS) {
+X	    *xp = *yp = rad;
+X	    return (1);
+X	}
+X
+X	r = d/(sv_fov/2.0);
+X
+X	sc = sin(c);
+X	sd = sin(d);
+X	se = sc*sb/sd;
+X	*xp = rad*(1 + r*se) + 0.5;
+X	if (a < LOCEPS) {
+X	    /* as viewpoint approaches N pole, e approaches PI - c */
+X	    ce = -cc;
+X	} else if (a > PI - LOCEPS) {
+X	    /* as viewpoint approaches S pole, e approaches c */
+X	    ce = cc;
+X	} else {
+X	    cd = cos(d);
+X	    ce = (cb - cd*ca)/(sd*sa);
+X	}
+X	*yp = rad*(1 - r*ce) + 0.5;
+X
+X	return (r >= 1.0 ? 0 : 1);
+X}
+X
+X/* compute azra/altdec loc of a point at x/y on a circle of radius rad pixels
+X *   as viewed from sv_azra/sv_altdec with sv_fov.
+X * return 1 if x/y are within the circle, else 0.
+X */
+Xstatic
+Xsv_unloc (rad, x, y, altdecp, azrap)
+Xint rad;	/* radius of target display, pixels */
+Xint x, y;	/* X coords within circle */
+Xdouble *altdecp;/* angle up from spherical equator, such as alt or dec; rad */
+Xdouble *azrap;	/* angle around spherical pole, such as az or ra; rad */
+X{
+X#define	UNLOCEPS (1e-4)	/* sufficiently close to pole to not know az/ra; rads */
+X	double a,sa,ca;	/* angle from viewpoint to pole */
+X	double r;	/* distance from center to object, pixels */
+X	double d,sd,cd;	/* angular separation of object and viewpoint */
+X	double e,se,ce;	/* angle between (viewpoint,pole) and (viewpoint,obj) */
+X	double b,sb,cb;	/* angle from object to pole */
+X	double c,sc,cc;	/* difference in polar angles of obj and viewpoint */
+X
+X	if (x == rad && y == rad) {
+X	    /* at the center -- avoids cases where r == 0 */
+X	    *altdecp = sv_altdec;
+X	    *azrap = sv_azra;
+X	    return (1);
+X	}
+X
+X	a = PI/2 - sv_altdec;
+X	sa = sin(a);
+X	ca = cos(a);
+X
+X	r = sqrt ((double)((x-rad)*(x-rad) + (y-rad)*(y-rad)));
+X	if (r > rad)
+X	    return(0); /* outside the circle */
+X
+X	d = r/rad*(sv_fov/2.0);
+X	sd = sin(d);
+X	cd = cos(d);
+X	ce = (rad - y)/r;
+X	se = (x - rad)/r;
+X	cb = ca*cd + sa*sd*ce;
+X	b = acos(cb);
+X	*altdecp = PI/2 - b;
+X
+X	/* find c, the polar angle between viewpoint and object */
+X	if (a < UNLOCEPS) {
+X	    /* as viewpoint approaches N pole, c approaches PI - e */
+X	    c = acos(-ce);
+X	} else if (a > PI - UNLOCEPS) {
+X	    /* as viewpoint approaches S pole, c approaches e */
+X	    c = acos(ce);
+X	} else if (b < UNLOCEPS || b > PI - UNLOCEPS) {
+X	    /* as object approaches either pole, c becomes arbitary */
+X	    c = 0.0;
+X	} else {
+X	    sb = sin(b);
+X	    cc = (cd - ca*cb)/(sa*sb);
+X	    if (cc < -1.0) cc = -1.0;	/* heh, it happens ... */
+X	    if (cc >  1.0) cc =  1.0;	/* heh, it happens ... */
+X	    c = acos (cc);		/* 0 .. PI; next step checks if c
+X					 * should be > PI
+X					 */
+X	}
+X	if (se < 0.0) 		/* if e > PI */
+X	    c = PI + (PI - c);	/*     so is c */
+X
+X	if (aa_mode)
+X	    *azrap = sv_azra + c;
+X	else
+X	    *azrap = sv_azra - c;
+X	range (azrap, 2*PI);
+X
+X	return (1);
+X}
+X
+X/* draw a nice grid on a circle of radius r, x and y borders xb and yb.
+X */
+Xstatic void
+Xdraw_grid(dsp, win, gc, r, xb, yb)
+XDisplay *dsp;
+XWindow win;
+XGC gc;
+Xunsigned int r;
+Xunsigned int xb, yb;
+X{
+X	double vticks[NGRID], hticks[NGRID];
+X	double vmin, vmax, hmin, hmax;
+X	XSegment xsegments[NGRID*NSEGS], *xs;
+X	char msg[64];
+X	int nvt, nht;
+X	int i, j;
+X	int pole;
+X
+X	/* set vertical min and max, and detect whether pole is within fov.
+X	 * since display is in degrees, use that unit for finding ticks.
+X	 */
+X	pole = 0;
+X	vmin = sv_altdec-sv_fov/2;
+X	if (vmin < 0 && aa_mode)
+X	    vmin = 0.0;
+X	if (vmin <= -PI/2) {
+X	    /* clamp at pole */
+X	    vmin = -PI/2;
+X	    pole = 1;
+X	}
+X	vmax = sv_altdec+sv_fov/2;
+X	if (vmax >= PI/2) {
+X	    /* clamp at pole */
+X	    vmax = PI/2;
+X	    pole = 1;
+X	}
+X	vmin = raddeg(vmin);
+X	vmax = raddeg(vmax);
+X
+X	/* set horizontal min and max.
+X	 * if pole is visible, we go all the way around.
+X	 * else compute spherical angle spanned by fov "del" from pole.
+X	 * again, compute ticks in the units we display in.
+X	 */
+X	if (pole) {
+X	    /* pole is visible */
+X	    hmin = 0.0;
+X	    hmax = 2*PI;
+X	} else {
+X	    double del = PI/2 - fabs(sv_altdec);
+X	    double a= acos((cos(sv_fov) - cos(del)*cos(del))/sin(del)/sin(del));
+X	    hmin = sv_azra-a/2;
+X	    hmax = sv_azra+a/2;
+X	}
+X	hmin = aa_mode ? raddeg(hmin) : radhr(hmin);
+X	hmax = aa_mode ? raddeg(hmax) : radhr(hmax);
+X
+X	/* find tick marks.
+X	 * generally get less than half the max, so insure it to be consistent.
+X	 * N.B. remember that tickmarks() can return up to 2 more than asked.
+X	 */
+X	nvt = tickmarks(vmin, vmax, NGRID-2, vticks);
+X	nht = tickmarks(hmin, hmax, NGRID-2, hticks);
+X
+X	/* report the spacing */
+X	(void) sprintf (msg, "%s: %g Degs", aa_mode ? "Alt" : "Dec",
+X					    (vticks[nvt-1]-vticks[0])/(nvt-1));
+X	f_showit (vgrid_w, msg);
+X	(void) sprintf (msg, " %s: %g %s", aa_mode ? "Az" : "RA",
+X		(hticks[nht-1]-hticks[0])/(nht-1), aa_mode ? "Degs" : "Hrs");
+X	f_showit (hgrid_w, msg);
+X
+X	/* convert back to rads */
+X	for (i = 0; i < nvt; i++)
+X	    vticks[i] = degrad(vticks[i]);
+X	for (i = 0; i < nht; i++)
+X	    hticks[i] = aa_mode ? degrad(hticks[i]) : hrrad(hticks[i]);
+X
+X	/* for each horizontal tick mark
+X	 *   for each vertical tick mark
+X	 *     compute coord on screen
+X	 *     if we've at least 2 pts now
+X	 *       connect the points with what is visible within the circle.
+X	 */
+X	for (i = 0; i < nht; i += 1) {
+X	    double h = hticks[i];
+X	    int before = 0;
+X	    int vis1, vis2;
+X	    int x1, y1, x2, y2;
+X	    xs = xsegments;
+X	    for (j = 0; j < nvt; j++) {
+X		double v = vticks[j];
+X		vis2 = sv_loc(r, v, h, &x2, &y2);
+X		if (before++ && (vis1 || vis2)) {
+X		    int sx1, sy1, sx2, sy2;
+X		    if (lc(0,0,r*2,x1,y1,x2,y2,&sx1,&sy1,&sx2,&sy2) == 0) {
+X			xs->x1 = sx1+xb; xs->y1 = sy1+yb;
+X			xs->x2 = sx2+xb; xs->y2 = sy2+yb;
+X			xs++;
+X		    }
+X		}
+X		x1 = x2;
+X		y1 = y2;
+X		vis1 = vis2;
+X	    }
+X	    XDrawSegments (dsp, win, gc, xsegments, xs - xsegments);
+X	}
+X
+X	/* for each vertical tick mark
+X	 *   for each horizontal tick mark
+X	 *     compute coord on screen
+X	 *     if we've at least 2 pts now
+X	 *       connect the points with what is visible within the circle.
+X	 *	 (break into smaller pieces because these lines tend to curve)
+X	 */
+X	for (i = 0; i < nvt; i+=1) {
+X	    double v = vticks[i];
+X	    double h1;
+X	    int before = 0;
+X	    int vis1, vis2;
+X	    int x1, y1, x2, y2;
+X	    xs = xsegments;
+X	    for (j = 0; j < nht; j++) {
+X		double h = hticks[j];
+X		vis2 = sv_loc(r, v, h, &x2, &y2);
+X		if (before++ && (vis1 || vis2)) {
+X		    /* last point is at (x1,y1) == (h1,v);
+X		     * this point is at (x2,y2) == (h, v);
+X		     * connect with NSEGS segments.
+X		     */
+X		    int sx1, sy1, sx2, sy2;
+X		    int xt, yt;
+X		    int vist, k;
+X		    for (k = 1; k <= NSEGS; k++) {
+X			if (k == NSEGS) {
+X			    xt = x2;
+X			    yt = y2;
+X			    vist = vis2;
+X			} else
+X			    vist = sv_loc(r, v, h1+k*(h-h1)/NSEGS, &xt, &yt);
+X			if ((vis1 || vist) &&
+X				lc(0,0,r*2,x1,y1,xt,yt,&sx1,&sy1,&sx2,&sy2)==0){
+X			    xs->x1 = sx1+xb; xs->y1 = sy1+yb;
+X			    xs->x2 = sx2+xb; xs->y2 = sy2+yb;
+X			    xs++;
+X			}
+X			x1 = xt;
+X			y1 = yt;
+X			vis1 = vist;
+X		    }
+X		}
+X		x1 = x2;
+X		y1 = y2;
+X		h1 = h;
+X		vis1 = vis2;
+X	    }
+X	    XDrawSegments (dsp, win, gc, xsegments, xs - xsegments);
+X	}
+X}
+X
+X
+X/* draw the ecliptic on a circle of radius r, x and y borders xb and yb.
+X * special thanks to Uwe Bonnes <bon@LTE.E-TECHNIK.uni-erlangen.de>
+X */
+Xstatic void
+Xdraw_ecliptic(dsp, win, gc, r, xb, yb)
+XDisplay *dsp;
+XWindow win;
+XGC gc;
+Xunsigned int r;
+Xunsigned int xb, yb;
+X{
+X#define	ECL_CACHE_SZ	100
+X	XPoint point_cache[ECL_CACHE_SZ];
+X	double elat0, elng0;	/* ecliptic lat and long at center of fov */
+X	double elngmin, elngmax;/* ecliptic long limits */
+X	double ra, dec;
+X	double elng;
+X	double lst;
+X	int ncache;
+X	Now *np;
+X
+X	np = mm_get_now();
+X	now_lst (np, &lst);
+X
+X	/* find ecliptic coords of center of view */
+X	if (aa_mode) {
+X	    double ha0;		/* local hour angle */
+X	    aa_hadec (lat, sv_altdec, sv_azra, &ha0, &dec);
+X	    ra = hrrad(lst) - ha0;
+X	} else {
+X	    ra = sv_azra;
+X	    dec = sv_altdec;
+X	}
+X	eq_ecl (mjd, ra, dec, &elat0, &elng0);
+X
+X	/* no ecliptic visible if ecliptic latitude at center of view 
+X	 * is not less than fov/2
+X	 */
+X	if (fabs(elat0) >= sv_fov/2.0)
+X	    return;
+X
+X	/* worst-case elong limits is center elong += half fov */
+X	elngmin = elng0 - sv_fov/2.0;
+X	elngmax = elng0 + sv_fov/2.0;
+X
+X	/* put a mark at every ECL_TICS pixels */
+X	ncache = 0;
+X	for (elng = elngmin; elng <= elngmax; elng += sv_fov/(2.0*r/ECL_TICS)) {
+X	    int x, y;
+X	    double altdec, azra;
+X
+X	    /* convert longitude along the ecliptic to ra/dec */
+X	    ecl_eq (mjd, 0.0, elng, &azra, &altdec);
+X
+X	    /* if in aa mode, we need it in alt/az */
+X	    if (aa_mode) {
+X		hadec_aa (lat, hrrad(lst) - azra, altdec, &altdec, &azra);
+X		refract (pressure, temp, altdec, &altdec);
+X	    }
+X
+X	    /* if visible, display point */
+X	    if ((!aa_mode || altdec >= 0) && sv_loc (r, altdec, azra, &x, &y)) {
+X		XPoint *xp = &point_cache[ncache++];
+X		xp->x = x + xb;
+X		xp->y = y + yb;
+X		if (ncache == XtNumber(point_cache)) {
+X		    XDrawPoints (dsp,win,gc,point_cache,ncache,CoordModeOrigin);
+X		    ncache = 0;
+X		}
+X	    }
+X	}
+X
+X	if (ncache > 0)
+X	    XDrawPoints (dsp, win, gc, point_cache, ncache, CoordModeOrigin);
+X}
+X
+X/* given the magnitude of an object, return its desired diameter, in pixels.
+X * N.B. we assume it is at least as bright as fmag.
+X */
+Xstatic
+Xmagdiam(m)
+Xdouble m;
+X{
+X	return (((int)(fmag-m)+3)/2);
+X}
+X
+X/* make the general purpose sv_gc and learn the three colors.
+X */
+Xstatic void
+Xsv_mk_gcs(dsp, win)
+XDisplay *dsp;
+XWindow win;
+X{
+X	XGCValues gcv;
+X	unsigned gcm = 0;
+X
+X	get_something (svda_w, XmNforeground, (char *)&fg_p);
+X	get_something (svda_w, XmNbackground, (char *)&sky_p);
+X	get_something (svform_w, XmNbackground, (char *)&bg_p);
+X	set_something (svda_w, XmNbackground, (char *)bg_p);
+X
+X	sv_gc = XCreateGC (dsp, win, gcm, &gcv);
+X}
+X
+X/* draw a label for an object that is located at [x,y]
+X */
+Xstatic void
+Xdraw_label (dsp, win, gc, label, x, y)
+XDisplay *dsp;
+XWindow win;
+XGC gc;
+Xchar label[];
+Xint x, y;
+X{
+X	XDrawString (dsp, win, gc, x+4, y-4, label, strlen(label));
+X}
+END_OF_FILE
+  if test 21068 -ne `wc -c <'skyviewmenu.c.3'`; then
+    echo shar: \"'skyviewmenu.c.3'\" unpacked with wrong size!
+  fi
+  # end of 'skyviewmenu.c.3'
+fi
+echo shar: End of archive 18 \(of 21\).
+cp /dev/null ark18isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

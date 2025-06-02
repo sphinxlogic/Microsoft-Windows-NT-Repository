@@ -1,0 +1,1764 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: Chuck Musciano <chuck@trantor.harris-atd.com>
+Subject: v16i101: contool 3.2A (Final Release), Part02/07
+Message-ID: <1992Mar5.214735.9479@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i100-contool-3.2a@uunet.UU.NET>
+Date: Thu, 5 Mar 1992 21:47:35 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Chuck Musciano <chuck@trantor.harris-atd.com>
+Posting-number: Volume 16, Issue 101
+Archive-name: contool-3.2a/part02
+
+#!/bin/sh
+# this is Part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file contool.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping contool.c'
+else
+echo 'x - continuing file contool.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'contool.c' &&
+X
+/************************************************************************/
+PRIVATE	do_insertion(buf, len)
+X
+char	*buf;
+int	len;
+X
+{	int	sw_len;
+X	Textsw_index	first, last;
+X	char	*temp;
+X
+X	while ((int) xv_get(contool_base->display, TEXTSW_LENGTH) + len > defaults.max_size) {
+X	   sw_len = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	   first = 1;
+X	   last = TEXTSW_INFINITY;
+X	   if (textsw_find_bytes(contool_base->display, &first, &last, "\n<<<", 4, 0) == -1 || first == 0)
+X	      if (textsw_find_bytes(contool_base->display, &first, &last, "\n", 1, 0) == -1 || first == 0)
+X	         first = (defaults.delete_amount < sw_len)? defaults.delete_amount : sw_len;
+X	   temp = (char *) malloc((unsigned) sw_len);
+X	   xv_get(contool_base->display, TEXTSW_CONTENTS, 0, temp, sw_len);
+X	   textsw_reset(contool_base->display, 0, 0);
+X	   textsw_insert(contool_base->display, temp + first, sw_len - first);
+X	   free(temp);
+X	   }
+X	xv_set(contool_base->display, TEXTSW_INSERTION_POINT, TEXTSW_INFINITY, 0);
+X	textsw_insert(contool_base->display, buf, len);
+}
+X
+/************************************************************************/
+PRIVATE	time_stamp()
+X
+{	int	t, pos;
+X	char	buf[5];
+X
+X	   t = time(0);
+X	   if (t - old_time >= defaults.stamp_resolution) {
+X	      xv_set(contool_base->display, TEXTSW_INSERTION_POINT, TEXTSW_INFINITY, 0);
+X	      pos = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	      if (pos != 0) {
+X	         xv_get(contool_base->display, TEXTSW_CONTENTS, pos - 1, buf, 1);
+X	         if (buf[0] != '\n')
+X	            do_insertion("\n", 1);
+X	         }
+X	      do_insertion("\n<<< ", 5);
+X	      do_insertion(ctime(&t), 24);
+X	      do_insertion(" >>>\n", 5);
+X	      old_time = t;
+X	      }
+}
+X
+/************************************************************************/
+PRIVATE	Notify_value	input_func(me, fd)
+X
+int	*me;
+int	fd;
+X
+{	char	old_c, *s, *t, buf[1024];
+X	Filter	*f;
+X	int	count, do_blink = FALSE, do_open = FALSE;
+X	static	char	in_buf[INPUT_BUFFER_SIZE + 2];
+X	static	int	leftover = 0;
+X
+X	while ((count = read(fileno(master), in_buf + leftover, INPUT_BUFFER_SIZE - leftover)) >= 0) {
+X	   if (count == 0 && slave == NULL)
+X	      abend("%s: input source has reached EOF, exiting", program);
+X	   in_buf[count + leftover] = '\0';
+X	   leftover = 0;
+X	   while (s = index(in_buf, '\015'))
+X	      strcpy(s, s + 1);
+X	   for (t = in_buf; *t; *s = old_c, t = s) {
+X	      if (s = index(t, '\n')) {
+X	         old_c = *++s;
+X	         *s = '\0';
+X	         }
+X	      else {
+X	         leftover = strlen(t);
+X	         strcpy(in_buf, t);
+X	         break;
+X	         }
+X	      if (!defaults.log_after)
+X	         write_log(t);
+X	      if (curr_filter == NULL) {
+X	         load_filters();
+X	         for (f = filters; f; f = f->next)
+X	            if (f->start_re && match_exp(f->start_re, f->start_circf, t)) {
+X	               if (f->save) {
+X	                  update_value(do_blink, f->flash);
+X	                  update_value(beep_count, f->beep);
+X	                  update_value(do_open, f->open);
+X	                  if (f->stamp)
+X	                     time_stamp();
+X	                  do_insertion(t, strlen(t));
+X	                  if (f->command) {
+X	                     start_command(f->command);
+X	                     continue_command(t);
+X	                     if (f->stop == NULL)
+X	                        end_command();
+X	                     }
+X	                  if (defaults.log_after && f->log)
+X			     write_log(t);
+X	                  }
+X	               if (f->stop) {
+X	                  curr_filter = f;
+X	                  filter_timeout = f->timeout * 2;
+X	                  sprintf(buf, "Filtering \"%s\"...", f->start);
+X	                  xv_set(contool_base->base, FRAME_LEFT_FOOTER, buf, NULL);
+X	                  }
+X	               break;
+X	               }
+X	         if (f == NULL) {
+X	            if (defaults.stamp)
+X	               time_stamp();
+X	            if (defaults.command) {
+X	               start_command(defaults.command);
+X	               continue_command(t);
+X	               end_command();
+X	               }
+X		    if (defaults.log_after && defaults.log)
+X	               write_log(t);
+X	            do_insertion(t, strlen(t));
+X	            update_value(do_blink, defaults.flash);
+X	            update_value(do_open, defaults.open);
+X	            update_value(beep_count, defaults.beep);
+X	            }
+X	         }
+X	      else {
+X	         if (curr_filter->save) {
+X	            if (curr_filter->stamp)
+X	               time_stamp();
+X		    if (defaults.log_after && curr_filter->log)
+X	               write_log(t);
+X		    do_insertion(t, strlen(t));
+X		    if (curr_filter->command)
+X		       continue_command(t);
+X	            }
+X	         if (match_exp(curr_filter->stop_re, curr_filter->stop_circf, t)) {
+X	            xv_set(contool_base->base, FRAME_LEFT_FOOTER, "", NULL);
+X	            if (curr_filter->command)
+X	               end_command();
+X	            curr_filter = NULL;
+X	            }
+X	         }
+X	      }
+X	   }
+X	xv_set(contool_base->display, TEXTSW_UPDATE_SCROLLBAR, 0);
+X	if (do_open)
+X	   xv_set(contool_base->base, FRAME_CLOSED, FALSE, 0);
+X	if (do_blink)
+X	   if (xv_get(contool_base->base, FRAME_CLOSED) && !blinking) {
+X	      change_icon(bad, bad == default_bad_icon);
+X	      xv_set(contool_base->base, WIN_SHOW, TRUE, 0);
+X	      blinking = TRUE;
+X	      bad_is_up = TRUE;
+X	      notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, &timer, NULL);
+X	      }
+X	if (beep_count > 0 || blinking || filter_timeout > 0)
+X	   notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, &timer, NULL);
+X	return(NOTIFY_DONE);
+}
+X
+/************************************************************************/
+/*	Routines which parse options, create windows, and main()	*/
+/************************************************************************/
+X
+/************************************************************************/
+PRIVATE	parse_options(argc, argv)
+X
+int	*argc;
+char	**argv;
+X
+{	char	*s, c, path[1024], *log_file = NULL, *p;
+X	int	log = FALSE, fd;
+X	static	char	cmdline[MAXPATHLEN + 10];
+X	struct	stat	sb;
+X
+X	sprintf(path, "%s/.contool", getenv("HOME"));
+X	filter_file = strsave(path);
+X
+X	cmdline[0] = NULL;
+X
+X	while ((c = getopt(argc, argv, "c:fi:lL:n?", &s)) != EOF)
+X	   switch (c) {
+X	      case 'c' : filter_file = expand_tilde(s);
+X	      		 explicit_filters = TRUE;
+X		         strcat(cmdline, " -c ");
+X			 strcat(cmdline, s);
+X	      		 break;
+X	      case 'f' : fork_into_background = TRUE;
+X	      		 strcat(cmdline, " -f");
+X	      		 break;
+X	      case 'i' : fclose(master);
+X	      		 fclose(slave);
+X	      		 slave = NULL;
+X	      		 if (strcmp(s, "-") == 0)
+X	      		    master = stdin;
+X	      		 else {
+X	      		    p = expand_tilde(s);
+X	      		    if (stat(p, &sb) != 0)
+X	      		       abend("%s: cannot stat %s: %s", program, s, sys_errlist[errno]);
+X	      		    else if ((sb.st_mode & S_IFMT) != S_IFCHR && (sb.st_mode & S_IFMT) != S_IFIFO)
+X	      		       abend("%s: %s is not a FIFO or character special device", program, s);
+X	      		    else if ((fd = open(p, O_RDONLY | O_NDELAY)) < 0)
+X	      		       abend("%s: cannot open %s for reading: %s", program, s, sys_errlist[errno]);
+X	      		    else if ((master = fdopen(fd, "r")) == NULL)
+X	      		       abend("%s: cannot convert descriptor for %s to stream: %s", program, s, sys_errlist[errno]);
+X	      		    }
+X	      		 strcat(cmdline, " -i ");
+X	      		 strcat(cmdline, s);
+X	      		 break;
+X	      case 'l' : log = TRUE;
+X		         strcat(cmdline, " -l");
+X	      		 break;
+X	      case 'L' : log_file = expand_tilde(s);
+X		         strcat(cmdline, " -L ");
+X			 strcat(cmdline, s);
+X	      		 break;
+X	      case 'n' : no_console = TRUE;
+X		         strcat(cmdline, " -n");
+X	      		 break;
+X	      case '?' : fprintf(stderr, ct_usage);
+X	      		 exit(0);
+X	      		 break;
+X	      default  : fprintf(stderr, ct_usage);
+X	                 exit(1);
+X	      }
+X
+X	if (strlen(cmdline) > 0)
+X	    xv_set(contool_base->base, WIN_CMD_LINE, cmdline, NULL);
+X
+X	if (lex_init(filter_file)) {
+X	   yyparse();
+X	   if (parsed_defaults)
+X	      defaults = *parsed_defaults;
+X	   if (log_file)
+X	      defaults.log_file = log_file;
+X	   if (log)
+X	      enable_logging();
+X	   adjust_window_limit();
+X	   }
+X	else if (explicit_filters)
+X	   error("Could not read configuration file %s", filter_file);
+}
+X
+/************************************************************************/
+main(argc, argv)
+X
+int	argc;
+char	**argv;
+X
+{	char	buf[1024], *p, *path, *open_psuedo_tty();
+X	int	i;
+X	XWindowAttributes	attr;
+X	XClassHint	hints;
+X
+X	program = strsave(argv[0]);
+X
+X	path = open_psuedo_tty(&master, "r", &slave, "w");
+X	if (master == NULL)
+X	   abend("%s: couldn't open any psuedo-tty", program);
+X	if (slave == NULL)
+X	   abend("%s: couldn't open slave side of %s", program, path);
+X
+X	xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, 0);
+X	INSTANCE = xv_unique_key();
+X
+X	contool_base = contool_base_objects_initialize(NULL, NULL);
+X	default_good_icon  = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, good_bits,
+X						      NULL);
+X	default_bad_icon   = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, bad_bits,
+X						      NULL);
+X	default_flash_icon = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, flash_bits,
+X						      NULL);
+X	icon_mask          = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, mask_bits,
+X						      NULL);
+X	disable_logging(contool_base);
+X
+X	XGetWindowAttributes(xv_get(contool_base->base, XV_DISPLAY), xv_get(xv_get(contool_base->base, XV_ROOT), XV_XID), &attr);
+X	masking_works = (attr.depth > 1);
+X
+X	hints.res_class = "Contool";
+X	hints.res_name = (p = rindex(program, '/'))? p + 1 : program;
+X	XSetClassHint(xv_get(contool_base->base, XV_DISPLAY), xv_get(contool_base->base, XV_XID), &hints);
+X
+X	parse_options(&argc, argv);
+X
+X	i = fcntl(fileno(master), F_GETFL, 0);
+X	i |= FNDELAY;
+X	if (fcntl(fileno(master), F_SETFL, i) == -1)
+X	   abend("%s: could not force %s to non-blocking i/o", program);
+X
+X	load_filters();
+X	update_icons();
+X	if (!no_console)
+X	   acquire_console();
+X	if (fork_into_background)
+X	   if (fork() != 0)
+X	      exit(0);
+X
+X	notify_set_input_func(contool_base->base, input_func, fileno(master));
+X	notify_interpose_destroy_func(contool_base->base, destroy_proc);
+X	notify_interpose_event_func(contool_base->base, close_proc, NOTIFY_SAFE);
+X	notify_set_signal_func(contool_base->base, signal_proc, SIGUSR1, NOTIFY_SYNC);
+X	notify_set_signal_func(contool_base->base, signal_proc, SIGHUP, NOTIFY_SYNC);
+X
+X	xv_main_loop(contool_base->base);
+X	exit(0);
+}
+SHAR_EOF
+echo 'File contool.c is complete' &&
+chmod 0644 contool.c ||
+echo 'restore of contool.c failed'
+Wc_c="`wc -c < 'contool.c'`"
+test 23859 -eq "$Wc_c" ||
+	echo 'contool.c: original size 23859, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= contool_ui.c ==============
+if test -f 'contool_ui.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping contool_ui.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting contool_ui.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'contool_ui.c' &&
+/*
+X * contool_ui.c - User interface object initialization functions.
+X * This file was generated by `gxv' from `contool.G'.
+X * DO NOT EDIT BY HAND.
+X */
+X
+#include <stdio.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <xview/xview.h>
+#include <xview/canvas.h>
+#include <xview/panel.h>
+#include <xview/scrollbar.h>
+#include <xview/svrimage.h>
+#include <xview/termsw.h>
+#include <xview/text.h>
+#include <xview/tty.h>
+#include <xview/xv_xrect.h>
+#include "contool_ui.h"
+X
+/*
+X * Create object `file_menu' in the specified instance.
+X */
+XXv_opaque
+contool_file_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu_item	popup_load_config();
+X	extern Menu_item	popup_save_config();
+X	extern Menu_item	start_logging();
+X	extern Menu_item	stop_logging();
+X	extern Menu_item	print_messages();
+X	extern Menu_item	popup_about_contool();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_TITLE_ITEM, "File",
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Load Configuration...",
+X			MENU_GEN_PROC, popup_load_config,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Save Configuration...",
+X			MENU_GEN_PROC, popup_save_config,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Start Logging",
+X			MENU_GEN_PROC, start_logging,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Stop Logging",
+X			MENU_GEN_PROC, stop_logging,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Print",
+X			MENU_GEN_PROC, print_messages,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "About Contool...",
+X			MENU_GEN_PROC, popup_about_contool,
+X			NULL,
+X		MENU_DEFAULT, 2,
+X		MENU_GEN_PIN_WINDOW, (Xv_opaque) ip[0], "File",
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `view_menu' in the specified instance.
+X */
+XXv_opaque
+contool_view_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu_item	popup_archive();
+X	extern Menu_item	save_to_archive();
+X	extern Menu_item	become_console();
+X	extern Menu_item	clear_messages();
+X	extern Menu_item	reset_filter();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_TITLE_ITEM, "View",
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Archive...",
+X			MENU_GEN_PROC, popup_archive,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Archive Messages",
+X			MENU_GEN_PROC, save_to_archive,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Become Console",
+X			MENU_GEN_PROC, become_console,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Clear Messages",
+X			MENU_GEN_PROC, clear_messages,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Reset Filter",
+X			MENU_GEN_PROC, reset_filter,
+X			NULL,
+X		MENU_DEFAULT, 4,
+X		MENU_GEN_PIN_WINDOW, (Xv_opaque) ip[0], "View",
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `edit_menu' in the specified instance.
+X */
+XXv_opaque
+contool_edit_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu_item	edit_filters();
+X	extern Menu_item	edit_properties();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_TITLE_ITEM, "Edit",
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Filters...",
+X			MENU_GEN_PROC, edit_filters,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Properties...",
+X			MENU_GEN_PROC, edit_properties,
+X			NULL,
+X		MENU_DEFAULT, 2,
+X		MENU_GEN_PIN_WINDOW, (Xv_opaque) ip[0], "Edit",
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_insert_menu' in the specified instance.
+X */
+XXv_opaque
+contool_filter_insert_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu		filter_insert_handler();
+X	extern Menu_item	insert_at_top();
+X	extern Menu_item	insert_above();
+X	extern Menu_item	insert_below();
+X	extern Menu_item	insert_at_bottom();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_GEN_PROC, filter_insert_handler,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "At top",
+X			MENU_GEN_PROC, insert_at_top,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Above selection",
+X			MENU_GEN_PROC, insert_above,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Below selection",
+X			MENU_GEN_PROC, insert_below,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "At bottom",
+X			MENU_GEN_PROC, insert_at_bottom,
+X			NULL,
+X		MENU_DEFAULT, 4,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_paste_menu' in the specified instance.
+X */
+XXv_opaque
+contool_filter_paste_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu_item	paste_at_top();
+X	extern Menu_item	paste_above();
+X	extern Menu_item	paste_below();
+X	extern Menu_item	paste_at_bottom();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "At top",
+X			MENU_GEN_PROC, paste_at_top,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Above selection",
+X			MENU_GEN_PROC, paste_above,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Below selection",
+X			MENU_GEN_PROC, paste_below,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "At bottom",
+X			MENU_GEN_PROC, paste_at_bottom,
+X			NULL,
+X		MENU_DEFAULT, 4,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_edit_menu' in the specified instance.
+X */
+XXv_opaque
+contool_filter_edit_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu		filter_edit_handler();
+X	extern Menu_item	filter_cut();
+X	extern Menu_item	filter_copy();
+X	extern Menu_item	filter_paste();
+X	extern Menu_item	filter_delete();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_GEN_PROC, filter_edit_handler,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Cut",
+X			MENU_GEN_PROC, filter_cut,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Copy",
+X			MENU_GEN_PROC, filter_copy,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Paste",
+X			MENU_GEN_PROC, filter_paste,
+X			MENU_PULLRIGHT, contool_filter_paste_menu_create(ip, NULL),
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Delete",
+X			MENU_GEN_PROC, filter_delete,
+X			NULL,
+X		MENU_DEFAULT, 1,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `address_menu' in the specified instance.
+X */
+XXv_opaque
+contool_address_menu_create(ip, owner)
+X	caddr_t		*ip;
+X	Xv_opaque		owner;
+{
+X	extern Menu_item	handle_address();
+X	extern Menu_item	handle_address();
+X	extern Menu_item	handle_address();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(XV_NULL, MENU_CHOICE_MENU,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "chuck@trantor.harris-atd.com",
+X			MENU_GEN_PROC, handle_address,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "uunet!trantor.harris-atd.com!chuck",
+X			MENU_GEN_PROC, handle_address,
+X			NULL,
+X		MENU_ITEM,
+X			XV_KEY_DATA, INSTANCE, ip,
+X			MENU_STRING, "Other:",
+X			MENU_GEN_PROC, handle_address,
+X			NULL,
+X		MENU_DEFAULT, 1,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Initialize an instance of object `base'.
+X */
+contool_base_objects *
+contool_base_objects_initialize(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	if (!ip && !(ip = (contool_base_objects *) calloc(1, sizeof (contool_base_objects))))
+X		return (contool_base_objects *) NULL;
+X	if (!ip->base)
+X		ip->base = contool_base_base_create(ip, owner);
+X	if (!ip->contool_controls)
+X		ip->contool_controls = contool_base_contool_controls_create(ip, ip->base);
+X	if (!ip->file)
+X		ip->file = contool_base_file_create(ip, ip->contool_controls);
+X	if (!ip->view)
+X		ip->view = contool_base_view_create(ip, ip->contool_controls);
+X	if (!ip->edit)
+X		ip->edit = contool_base_edit_create(ip, ip->contool_controls);
+X	if (!ip->display)
+X		ip->display = contool_base_display_create(ip, ip->base);
+X	return ip;
+}
+X
+/*
+X * Create object `base' in the specified instance.
+X */
+XXv_opaque
+contool_base_base_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, FRAME,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_WIDTH, 575,
+X		XV_HEIGHT, 246,
+X		XV_LABEL, "Contool 3.2a",
+X		FRAME_SHOW_FOOTER, TRUE,
+X		FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `contool_controls' in the specified instance.
+X */
+XXv_opaque
+contool_base_contool_controls_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:contool_controls",
+X		XV_X, 0,
+X		XV_Y, 0,
+X		XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X		XV_HEIGHT, 32,
+X		WIN_BORDER, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `file' in the specified instance.
+X */
+XXv_opaque
+contool_base_file_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:file",
+X		XV_X, 4,
+X		XV_Y, 4,
+X		PANEL_LABEL_STRING, "File",
+X		PANEL_ITEM_MENU, contool_file_menu_create((caddr_t *) ip, NULL),
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `view' in the specified instance.
+X */
+XXv_opaque
+contool_base_view_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:view",
+X		XV_X, 67,
+X		XV_Y, 4,
+X		PANEL_LABEL_STRING, "View",
+X		PANEL_ITEM_MENU, contool_view_menu_create((caddr_t *) ip, NULL),
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `edit' in the specified instance.
+X */
+XXv_opaque
+contool_base_edit_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:edit",
+X		XV_X, 138,
+X		XV_Y, 4,
+X		PANEL_LABEL_STRING, "Edit",
+X		PANEL_ITEM_MENU, contool_edit_menu_create((caddr_t *) ip, NULL),
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `display' in the specified instance.
+X */
+XXv_opaque
+contool_base_display_create(ip, owner)
+X	contool_base_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, TEXTSW,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:display",
+X		XV_X, 0,
+X		XV_Y, 27,
+X		XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X		XV_HEIGHT, WIN_EXTEND_TO_EDGE,
+X		OPENWIN_SHOW_BORDERS, TRUE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Initialize an instance of object `props'.
+X */
+contool_props_objects *
+contool_props_objects_initialize(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	if (!ip && !(ip = (contool_props_objects *) calloc(1, sizeof (contool_props_objects))))
+X		return (contool_props_objects *) NULL;
+X	if (!ip->props)
+X		ip->props = contool_props_props_create(ip, owner);
+X	if (!ip->prop_controls)
+X		ip->prop_controls = contool_props_prop_controls_create(ip, ip->props);
+X	if (!ip->default_action)
+X		ip->default_action = contool_props_default_action_create(ip, ip->prop_controls);
+X	if (!ip->default_beep_count)
+X		ip->default_beep_count = contool_props_default_beep_count_create(ip, ip->prop_controls);
+X	if (!ip->default_beep_times)
+X		ip->default_beep_times = contool_props_default_beep_times_create(ip, ip->prop_controls);
+X	if (!ip->default_command)
+X		ip->default_command = contool_props_default_command_create(ip, ip->prop_controls);
+X	if (!ip->log_file)
+X		ip->log_file = contool_props_log_file_create(ip, ip->prop_controls);
+X	if (!ip->log_style)
+X		ip->log_style = contool_props_log_style_create(ip, ip->prop_controls);
+X	if (!ip->archive_style)
+X		ip->archive_style = contool_props_archive_style_create(ip, ip->prop_controls);
+X	if (!ip->print_filter)
+X		ip->print_filter = contool_props_print_filter_create(ip, ip->prop_controls);
+X	if (!ip->good_icon)
+X		ip->good_icon = contool_props_good_icon_create(ip, ip->prop_controls);
+X	if (!ip->bad_icon)
+X		ip->bad_icon = contool_props_bad_icon_create(ip, ip->prop_controls);
+X	if (!ip->flash_icon)
+X		ip->flash_icon = contool_props_flash_icon_create(ip, ip->prop_controls);
+X	if (!ip->stamp_resolution)
+X		ip->stamp_resolution = contool_props_stamp_resolution_create(ip, ip->prop_controls);
+X	if (!ip->message2)
+X		ip->message2 = contool_props_message2_create(ip, ip->prop_controls);
+X	if (!ip->max_message)
+X		ip->max_message = contool_props_max_message_create(ip, ip->prop_controls);
+X	if (!ip->message3)
+X		ip->message3 = contool_props_message3_create(ip, ip->prop_controls);
+X	if (!ip->delete_amount)
+X		ip->delete_amount = contool_props_delete_amount_create(ip, ip->prop_controls);
+X	if (!ip->message4)
+X		ip->message4 = contool_props_message4_create(ip, ip->prop_controls);
+X	if (!ip->props_apply)
+X		ip->props_apply = contool_props_props_apply_create(ip, ip->prop_controls);
+X	if (!ip->props_reset)
+X		ip->props_reset = contool_props_props_reset_create(ip, ip->prop_controls);
+X	return ip;
+}
+X
+/*
+X * Create object `props' in the specified instance.
+X */
+XXv_opaque
+contool_props_props_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, FRAME_CMD,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_WIDTH, 500,
+X		XV_HEIGHT, 553,
+X		XV_LABEL, "Contool: Properties",
+X		XV_SHOW, FALSE,
+X		FRAME_SHOW_FOOTER, FALSE,
+X		FRAME_SHOW_RESIZE_CORNER, FALSE,
+X		FRAME_CMD_PUSHPIN_IN, FALSE,
+X		NULL);
+X	xv_set(xv_get(obj, FRAME_CMD_PANEL), WIN_SHOW, FALSE, NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `prop_controls' in the specified instance.
+X */
+XXv_opaque
+contool_props_prop_controls_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:prop_controls",
+X		XV_X, 0,
+X		XV_Y, 0,
+X		XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X		XV_HEIGHT, WIN_EXTEND_TO_EDGE,
+X		WIN_BORDER, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `default_action' in the specified instance.
+X */
+XXv_opaque
+contool_props_default_action_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void		default_action();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TOGGLE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:default_action",
+X		XV_X, 96,
+X		XV_Y, 14,
+X		PANEL_CHOICE_NCOLS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_LABEL_STRING, "Default action:",
+X		PANEL_NOTIFY_PROC, default_action,
+X		PANEL_CHOICE_STRINGS,
+X			"Beep",
+X			"Command",
+X			"Flash icon",
+X			"Log message",
+X			"Open window",
+X			"Timestamp",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `default_beep_count' in the specified instance.
+X */
+XXv_opaque
+contool_props_default_beep_count_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:default_beep_count",
+X		XV_X, 315,
+X		XV_Y, 19,
+X		PANEL_VALUE_DISPLAY_LENGTH, 2,
+X		PANEL_VALUE_STORED_LENGTH, 2,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 99,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `default_beep_times' in the specified instance.
+X */
+XXv_opaque
+contool_props_default_beep_times_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_MESSAGE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:default_beep_times",
+X		XV_X, 403,
+X		XV_Y, 19,
+X		PANEL_LABEL_STRING, "times",
+X		PANEL_LABEL_BOLD, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `default_command' in the specified instance.
+X */
+XXv_opaque
+contool_props_default_command_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:default_command",
+X		XV_X, 315,
+X		XV_Y, 48,
+X		PANEL_VALUE_DISPLAY_LENGTH, 21,
+X		PANEL_VALUE_STORED_LENGTH, 1024,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `log_file' in the specified instance.
+X */
+XXv_opaque
+contool_props_log_file_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern Panel_setting	filename_completion();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:log_file",
+X		XV_X, 141,
+X		XV_Y, 203,
+X		PANEL_VALUE_DISPLAY_LENGTH, 35,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "Log file:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_PROC, filename_completion,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `log_style' in the specified instance.
+X */
+XXv_opaque
+contool_props_log_style_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_CHOICE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:log_style",
+X		XV_X, 96,
+X		XV_Y, 223,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_LABEL_STRING, "Log messages:",
+X		PANEL_CHOICE_STRINGS,
+X			"Before filtering",
+X			"After filtering",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `archive_style' in the specified instance.
+X */
+XXv_opaque
+contool_props_archive_style_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_CHOICE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:archive_style",
+X		XV_X, 68,
+X		XV_Y, 267,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_LABEL_STRING, "Archive messages:",
+X		PANEL_CHOICE_STRINGS,
+X			"Manually",
+X			"When closing contool",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `print_filter' in the specified instance.
+X */
+XXv_opaque
+contool_props_print_filter_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:print_filter",
+X		XV_X, 121,
+X		XV_Y, 311,
+X		PANEL_VALUE_DISPLAY_LENGTH, 35,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "Print filter:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `good_icon' in the specified instance.
+X */
+XXv_opaque
+contool_props_good_icon_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern Panel_setting	filename_completion();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:good_icon",
+X		XV_X, 79,
+X		XV_Y, 348,
+X		PANEL_VALUE_DISPLAY_LENGTH, 35,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "\"All is well\" icon:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_PROC, filename_completion,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `bad_icon' in the specified instance.
+X */
+XXv_opaque
+contool_props_bad_icon_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern Panel_setting	filename_completion();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:bad_icon",
+X		XV_X, 50,
+X		XV_Y, 368,
+X		PANEL_VALUE_DISPLAY_LENGTH, 35,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "\"Check console\" icon:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_PROC, filename_completion,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `flash_icon' in the specified instance.
+X */
+XXv_opaque
+contool_props_flash_icon_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern Panel_setting	filename_completion();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:flash_icon",
+X		XV_X, 111,
+X		XV_Y, 388,
+X		PANEL_VALUE_DISPLAY_LENGTH, 35,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "\"Flash\" icon:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_PROC, filename_completion,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `stamp_resolution' in the specified instance.
+X */
+XXv_opaque
+contool_props_stamp_resolution_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:stamp_resolution",
+X		XV_X, 40,
+X		XV_Y, 424,
+X		PANEL_VALUE_DISPLAY_LENGTH, 6,
+X		PANEL_VALUE_STORED_LENGTH, 6,
+X		PANEL_LABEL_STRING, "Timestamp resolution:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 999,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `message2' in the specified instance.
+X */
+XXv_opaque
+contool_props_message2_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_MESSAGE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:message2",
+X		XV_X, 296,
+X		XV_Y, 424,
+X		PANEL_LABEL_STRING, "seconds",
+X		PANEL_LABEL_BOLD, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `max_message' in the specified instance.
+X */
+XXv_opaque
+contool_props_max_message_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:max_message",
+X		XV_X, 32,
+X		XV_Y, 460,
+X		PANEL_VALUE_DISPLAY_LENGTH, 6,
+X		PANEL_VALUE_STORED_LENGTH, 6,
+X		PANEL_LABEL_STRING, "Maximum message text:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 999999,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `message3' in the specified instance.
+X */
+XXv_opaque
+contool_props_message3_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_MESSAGE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:message3",
+X		XV_X, 295,
+X		XV_Y, 460,
+X		PANEL_LABEL_STRING, "bytes",
+X		PANEL_LABEL_BOLD, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `delete_amount' in the specified instance.
+X */
+XXv_opaque
+contool_props_delete_amount_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:delete_amount",
+X		XV_X, 14,
+X		XV_Y, 480,
+X		PANEL_VALUE_DISPLAY_LENGTH, 6,
+X		PANEL_VALUE_STORED_LENGTH, 6,
+X		PANEL_LABEL_STRING, "Overflow deletion amount:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 999999,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `message4' in the specified instance.
+X */
+XXv_opaque
+contool_props_message4_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_MESSAGE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:message4",
+X		XV_X, 295,
+X		XV_Y, 480,
+X		PANEL_LABEL_STRING, "bytes",
+X		PANEL_LABEL_BOLD, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `props_apply' in the specified instance.
+X */
+XXv_opaque
+contool_props_props_apply_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void		accept_properties();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:props_apply",
+X		XV_X, 191,
+X		XV_Y, 516,
+X		PANEL_LABEL_STRING, "Apply",
+X		PANEL_NOTIFY_PROC, accept_properties,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `props_reset' in the specified instance.
+X */
+XXv_opaque
+contool_props_props_reset_create(ip, owner)
+X	contool_props_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void		reset_properties();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:props_reset",
+X		XV_X, 256,
+X		XV_Y, 516,
+X		PANEL_LABEL_STRING, "Reset",
+X		PANEL_NOTIFY_PROC, reset_properties,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Initialize an instance of object `filters'.
+X */
+contool_filters_objects *
+contool_filters_objects_initialize(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque	owner;
+{
+X	if (!ip && !(ip = (contool_filters_objects *) calloc(1, sizeof (contool_filters_objects))))
+X		return (contool_filters_objects *) NULL;
+X	if (!ip->filters)
+X		ip->filters = contool_filters_filters_create(ip, owner);
+X	if (!ip->filter_controls)
+X		ip->filter_controls = contool_filters_filter_controls_create(ip, ip->filters);
+X	if (!ip->filter_list)
+X		ip->filter_list = contool_filters_filter_list_create(ip, ip->filter_controls);
+X	if (!ip->filter_insert)
+X		ip->filter_insert = contool_filters_filter_insert_create(ip, ip->filter_controls);
+X	if (!ip->filter_edit)
+X		ip->filter_edit = contool_filters_filter_edit_create(ip, ip->filter_controls);
+X	if (!ip->filter_update)
+X		ip->filter_update = contool_filters_filter_update_create(ip, ip->filter_controls);
+X	if (!ip->filter_type)
+X		ip->filter_type = contool_filters_filter_type_create(ip, ip->filter_controls);
+X	if (!ip->start)
+X		ip->start = contool_filters_start_create(ip, ip->filter_controls);
+X	if (!ip->stop)
+X		ip->stop = contool_filters_stop_create(ip, ip->filter_controls);
+X	if (!ip->filter_timeout)
+X		ip->filter_timeout = contool_filters_filter_timeout_create(ip, ip->filter_controls);
+X	if (!ip->filter_timeout_units)
+X		ip->filter_timeout_units = contool_filters_filter_timeout_units_create(ip, ip->filter_controls);
+X	if (!ip->comment)
+X		ip->comment = contool_filters_comment_create(ip, ip->filter_controls);
+X	if (!ip->ignore)
+X		ip->ignore = contool_filters_ignore_create(ip, ip->filter_controls);
+X	if (!ip->action)
+X		ip->action = contool_filters_action_create(ip, ip->filter_controls);
+X	if (!ip->filter_beep_count)
+X		ip->filter_beep_count = contool_filters_filter_beep_count_create(ip, ip->filter_controls);
+X	if (!ip->filter_beep_times)
+X		ip->filter_beep_times = contool_filters_filter_beep_times_create(ip, ip->filter_controls);
+X	if (!ip->filter_command)
+X		ip->filter_command = contool_filters_filter_command_create(ip, ip->filter_controls);
+X	if (!ip->filters_apply)
+X		ip->filters_apply = contool_filters_filters_apply_create(ip, ip->filter_controls);
+X	if (!ip->filters_apply_and_save)
+X		ip->filters_apply_and_save = contool_filters_filters_apply_and_save_create(ip, ip->filter_controls);
+X	if (!ip->filters_reset)
+X		ip->filters_reset = contool_filters_filters_reset_create(ip, ip->filter_controls);
+X	return ip;
+}
+X
+/*
+X * Create object `filters' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filters_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void	filter_done();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, FRAME_CMD,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_WIDTH, 510,
+X		XV_HEIGHT, 685,
+X		XV_LABEL, "Contool: Filters",
+X		XV_SHOW, FALSE,
+X		FRAME_SHOW_FOOTER, FALSE,
+X		FRAME_SHOW_RESIZE_CORNER, FALSE,
+X		FRAME_CMD_PUSHPIN_IN, FALSE,
+X		FRAME_DONE_PROC, filter_done,
+X		NULL);
+X	xv_set(xv_get(obj, FRAME_CMD_PANEL), WIN_SHOW, FALSE, NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_controls' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_controls_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_controls",
+X		XV_X, 0,
+X		XV_Y, 0,
+X		XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X		XV_HEIGHT, WIN_EXTEND_TO_EDGE,
+X		WIN_BORDER, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_list' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_list_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern int		filter_notify();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_LIST,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_list",
+X		XV_X, 70,
+X		XV_Y, 14,
+X		PANEL_LIST_WIDTH, 350,
+X		PANEL_LIST_DISPLAY_ROWS, 10,
+X		PANEL_LABEL_STRING, "Filters:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, TRUE,
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_NOTIFY_PROC, filter_notify,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_insert' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_insert_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_insert",
+X		XV_X, 126,
+X		XV_Y, 218,
+X		PANEL_LABEL_STRING, "Insert",
+X		PANEL_ITEM_MENU, contool_filter_insert_menu_create((caddr_t *) ip, NULL),
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_edit' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_edit_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_edit",
+X		XV_X, 202,
+X		XV_Y, 218,
+X		PANEL_LABEL_STRING, "Edit",
+X		PANEL_ITEM_MENU, contool_filter_edit_menu_create((caddr_t *) ip, NULL),
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_update' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_update_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void		filter_update();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_BUTTON,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_update",
+X		XV_X, 267,
+X		XV_Y, 218,
+X		PANEL_LABEL_STRING, "Update",
+X		PANEL_NOTIFY_PROC, filter_update,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_type' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_type_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	extern void		set_filter_type();
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_CHOICE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_type",
+X		XV_X, 80,
+X		XV_Y, 259,
+X		PANEL_CHOICE_NROWS, 1,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_LABEL_STRING, "Type:",
+X		PANEL_NOTIFY_PROC, set_filter_type,
+X		PANEL_CHOICE_STRINGS,
+X			"Single line filter",
+X			"Multi-line filter",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `start' in the specified instance.
+X */
+XXv_opaque
+contool_filters_start_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:start",
+X		XV_X, 65,
+X		XV_Y, 303,
+X		PANEL_VALUE_DISPLAY_LENGTH, 46,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "Pattern:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `stop' in the specified instance.
+X */
+XXv_opaque
+contool_filters_stop_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:stop",
+X		XV_X, 35,
+X		XV_Y, 323,
+X		PANEL_VALUE_DISPLAY_LENGTH, 46,
+X		PANEL_VALUE_STORED_LENGTH, 256,
+X		PANEL_LABEL_STRING, "End pattern:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_timeout' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_timeout_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_NUMERIC_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_timeout",
+X		XV_X, 57,
+X		XV_Y, 359,
+X		PANEL_VALUE_DISPLAY_LENGTH, 3,
+X		PANEL_VALUE_STORED_LENGTH, 3,
+X		PANEL_LABEL_STRING, "Timeout:",
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_MAX_VALUE, 999,
+X		PANEL_MIN_VALUE, 0,
+X		PANEL_VALUE, 0,
+X		PANEL_READ_ONLY, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `filter_timeout_units' in the specified instance.
+X */
+XXv_opaque
+contool_filters_filter_timeout_units_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_MESSAGE,
+X		XV_KEY_DATA, INSTANCE, ip,
+X		XV_HELP_DATA, "contool:filter_timeout_units",
+X		XV_X, 213,
+X		XV_Y, 359,
+X		PANEL_LABEL_STRING, "seconds",
+X		PANEL_LABEL_BOLD, FALSE,
+X		NULL);
+X	return obj;
+}
+X
+/*
+X * Create object `comment' in the specified instance.
+X */
+XXv_opaque
+contool_filters_comment_create(ip, owner)
+X	contool_filters_objects	*ip;
+X	Xv_opaque		owner;
+{
+X	Xv_opaque	obj;
+X	
+X	obj = xv_create(owner, PANEL_TEXT,
+X		XV_KEY_DATA, INSTANCE, ip,
+SHAR_EOF
+true || echo 'restore of contool_ui.c failed'
+fi
+echo 'End of  part 2'
+echo 'File contool_ui.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

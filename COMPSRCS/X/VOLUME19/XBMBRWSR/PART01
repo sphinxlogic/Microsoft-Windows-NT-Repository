@@ -1,0 +1,1464 @@
+Newsgroups: comp.sources.x
+From: aroll@gucis.cit.gu.edu.au (Ashley Roll)
+Subject: v19i003:  xbmbrowser - browse bitmaps in a directory V1.0, Part01/01
+Message-ID: <1993Mar5.230603.9648@sparky.imd.sterling.com>
+X-Md4-Signature: ec03f207d9dc320f3294a5aa8c36be57
+Date: Fri, 5 Mar 1993 23:06:03 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: aroll@gucis.cit.gu.edu.au (Ashley Roll)
+Posting-number: Volume 19, Issue 3
+Archive-name: xbmbrowser/part01
+Environment: X11
+
+This is a program that will display all the bitmaps in a directory. 
+
+It make bitmap management eaiser as it will allow you to copy, rename, delete,
+and edit bitmaps as well as setting them as the root window decoration.
+
+Cheers,
+Ashley Roll.
+
+-----------8<-----------8<-----------8<-----------8<-----------8<-----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Imakefile Makefile.std README callbacks.c icon.xbm misc.c
+#   patchlevel.h xbmbrowser.c xbmbrowser.h xbmbrowser.help
+#   xbmbrowser.man
+# Wrapped by aroll@gucis on Tue Aug  4 12:19:27 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+echo shar: Extracting \"'Imakefile'\" \(345 characters\)
+sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+XHELPFILE = -DHELPFILE=\"$(LIBDIR)$(PATHSEP)xbmbrowser.help\"
+X
+X        DEFINES = $(HELPFILE)
+X        DEPLIBS = XawClientDepLibs
+XLOCAL_LIBRARIES = XawClientLibs
+X  SYS_LIBRARIES = -lm
+X           SRCS = xbmbrowser.c callbacks.c misc.c
+X           OBJS = $(SRCS:.c=.o)
+X
+XComplexProgramTarget(xbmbrowser)
+XInstallNonExecFile(xbmbrowser.help,$(LIBDIR))
+X
+X
+END_OF_FILE
+if test 345 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+fi
+# end of 'Imakefile'
+fi
+if test -f 'Makefile.std' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.std'\"
+else
+echo shar: Extracting \"'Makefile.std'\" \(324 characters\)
+sed "s/^X//" >'Makefile.std' <<'END_OF_FILE'
+X#
+X# This is the Makefile for xbmbrowser.
+X# 
+X
+XCFLAGS         = -O $(DEFS)
+XCC             = cc
+XLIBS = -lX11 -lXaw -lXt -lXmu -lXext
+XOBJS = xbmbrowser.o misc.o callbacks.o
+XSRCS = xbmbrowser.c misc.c callbakcs.c
+X
+Xxbmbrowser: $(OBJS)
+X	$(CC) -o xbmbrowser $(OBJS) $(DEFS) $(LIBS)
+X	strip xbmbrowser
+X
+Xclean:
+X	rm -f core  *.o *~ #*
+X
+END_OF_FILE
+if test 324 -ne `wc -c <'Makefile.std'`; then
+    echo shar: \"'Makefile.std'\" unpacked with wrong size!
+fi
+# end of 'Makefile.std'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(3159 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XREADME file for xbmbrowser, By Ashley Roll                          Version 1.0
+X
+Xxbmbrowser is a program to let you easily manipulate Bitmap files.
+X
+XThis program has only been tested on Suns.
+X
+X******************************************************************************
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on
+X** the condition that this and all other copyright notices remain unchanged in
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may
+X** cause.
+X******************************************************************************
+X
+XFILES:  README           - this file.
+X        Imakefile
+X        Makefile.std     - the standard make file.
+X        xbmbrowser.c     \ 
+X        xbmbrowser.h      -
+X        callbacks.c      - the 'C' code.
+X        misc.c          /
+X        xbmbrowser.man    - a simple manual page.
+X        xbmbrowser.help   - the help file that the program uses - see below.
+X
+X
+XThere are three things that you must setup for your site:
+X
+XEDITOR constant:
+XIn the file 'xbmbrowser.h' you must set the name (and possibly the full path 
+Xif it is not in the normal path) of the bitmap editor you wish to use.
+XThe editor MUST accept the command line of:
+X
+Xbitmapeditor <bitmap file to edit>
+X
+Xwhere bitmapeditor is the editor you select and <bitmap file to edit>
+Xis a bitmap file name (passed to it by xbmbrowser)
+X
+XNOTE: If you wish to pass arguments to the editor, then put them into this
+X      define, and the filename will be appended to the end.
+X
+XSETROOT constant:
+XAnd also in the file 'xbmbrowser.h' you must set the name (and possibly the 
+Xfull path if it is not in the normal path) of the program to set a bitmap 
+Xas the decoration for the root window. The default is 'xsetroot' and all
+Xthe things that you can do to the EDITOR setting apply to this.
+X
+XSETROOTINV constant:
+XThis is the name and options of the program to set a bitmap as the root window
+Xdecoration inverted (colors inverted).
+X
+X
+XIf you put and empty set of quotes ("") for any of these variables, then the
+Xcorresponding selection in the menu will be insensitive so it won't run. 
+X
+XThis is already setup to use 'bitmap' when it is in the path that the 
+Xprogram gets.
+X
+XInstallation:
+X
+XWith Imake:
+X
+X   type:
+X     xmkmf
+X     make
+X     make install
+X     make instal.man
+X
+XWith normal make:
+X
+X   type:
+X     mv Makefile.std Makefile
+X     make
+X   then you will have to manually move the executable and man page to where
+X   you want to put them.
+X
+XFor information on how to use xbmbrowser, look at xbmbrowser.help, or press the 
+X[Help] button when it is running.
+X
+XIf you wish to change the program, then please feel free. However You must
+Xleave the copyright notices unchanged but add one detailing your changes, you
+Xshould also not just increment the version number, but add something unique
+Xto it (like your name or something).
+X
+XIf you have any problems, then please feel free to drop me a line, my E-mail
+Xaddress (internet) is aroll@gucis.cit.gu.edu.au
+X
+END_OF_FILE
+if test 3159 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'callbacks.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'callbacks.c'\"
+else
+echo shar: Extracting \"'callbacks.c'\" \(9410 characters\)
+sed "s/^X//" >'callbacks.c' <<'END_OF_FILE'
+X/*
+X*****************************************************************************
+X** xbmbrowser version 1.0  (c) Copyright Ashley Roll, 1992.
+X** FILE: callbacks.c
+X**
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on 
+X** the condition that this and all other copyright notices remain unchanged in 
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may 
+X** cause.
+X*****************************************************************************
+X*/
+X
+X#include "xbmbrowser.h"
+X#include <pwd.h>
+X
+Xextern FileList *get_files();
+Xint mv;
+Xchar trans[] = 
+X  "<Key>Return:  Ok() \n\
+X   Ctrl<Key>M:   Ok() ";
+X
+XWidget delete,delete_q,getname,query;
+X
+X/*
+X** expand a tilder in situ
+X** This was sent to me by:
+X_______________________________________________________________________________
+XChris McDonald.            _--_|\
+X                          /      \
+X                          X_.--._/
+X                                v
+XDepartment of Computer Science,   AARNet: chris@budgie.cs.uwa.edu.au
+XUniversity of Western Australia,  FTP:    bilby.cs.uwa.edu.au,  130.95.1.11
+XCrawley, Western Australia, 6009. SCUD:   (31.97 +/-10% S, 115.81 +/-10% E)
+XPHONE:       +61 9 380 2533       FAX:    +61 9 380 1089
+X**
+X** and I have modified it slightly
+X*/
+Xstatic void expand_twiddle(text)                /* expand in-situ in twiddle */
+Xchar *text;
+X{
+X    static char buf[255];
+X    char *s, *t, *t1;
+X    struct passwd *p, *getpwnam();
+X
+X    s = text;
+X    s++;                                        /* skip leading twiddle */
+X    t = buf;
+X    while (*s && *s != '/')
+X        *t++ = *s++;
+X    *t = NULL;
+X    if(*buf && (p = getpwnam(buf)) == NULL)
+X        return;
+X    t1 = *buf ? p->pw_dir : (char *) getenv("HOME");
+X    t = buf;
+X    while( *t++ = *t1++ );                      /* buf <- home_dir */
+X    t--;
+X    while( *t++ = *s++ );                       /* buf += rest_of_a */
+X    t  = text;
+X    t1 = buf;
+X    while( *t++ = *t1++ );                      /* s   <- buf */
+X}
+X
+X/*
+X** callback for the cancel button
+X*/
+Xvoid Cancel(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  XtPopdown(query);
+X}
+X
+X/*
+X** callback for the cancel button in the delete requester */
+Xvoid Cancel_del(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  XtPopdown(delete_q);
+X}
+X
+X/*
+X** callback for the ok button in the delete requester
+X*/
+Xvoid Del(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  unlink(bname);
+X
+X  XtPopdown(delete_q);
+X
+Xsetup();
+X}
+X
+X/*
+X** callback for the OK button in the rename and copy requesters
+X*/
+Xvoid Ok(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+Xchar text[255];
+Xchar cmd[255];
+Xint i;
+X
+X  /* link the filename in the text part of the dialog widget, to the 
+X     filename in bname, and if client_data is TRUE, then unlink the 
+X     name in bname (this is a rename, a copy if the original is left) */
+X
+X  strcpy(text, XawDialogGetValueString(getname));
+X 
+X/* search for the first non-space char */
+X  i = 0;
+X  while(isspace(text[i])) i++;
+X
+X  if(text[i] == '~') expand_twiddle(&text[i]);
+X
+X  if(strcmp(bname,text) != 0) {
+X      sprintf(cmd,"%s %s %s",(mv)?"mv":"cp",bname,text);
+X      system(cmd);
+X  }
+X  XtPopdown(query);
+X
+Xsetup();
+X}
+X
+X/*
+X** setup the dialog window
+X*/
+Xvoid setup_dialog()
+X{
+X
+X  Position    x, y;
+X  Dimension   height,width;
+X
+X/* create and position an transsient window to put the stuff in */
+X  XtVaGetValues(toplevel,XtNwidth, &width,XtNheight, &height,NULL);
+X  XtTranslateCoords(toplevel,(Position)(width/2)-175,
+X                    (Position)(height/2),&x, &y);
+X
+X  query = XtVaCreatePopupShell("Query",transientShellWidgetClass,mainpw,
+X                       XtNx,(XtArgVal)x,XtNy,(XtArgVal)y,NULL);
+X
+X  getname = XtVaCreateManagedWidget("GetName",dialogWidgetClass,query,
+X                       XtNvalue,(XtArgVal)"",
+X                       NULL);
+X  XtOverrideTranslations(XtNameToWidget (getname, "value"),
+X              XtParseTranslationTable(trans));
+X
+X  XawDialogAddButton(getname,"Ok",Ok,NULL);
+X  XawDialogAddButton(getname,"Cancel",Cancel,NULL);
+X
+X/* set things up so that if we change the info in a widget, the dialog
+X   widget will allow it's children to resize */
+X
+X/* create the delete query */
+X delete_q = XtVaCreatePopupShell("DeleteQuery",transientShellWidgetClass,mainpw,
+X                       XtNx,(XtArgVal)x,XtNy,(XtArgVal)y, NULL);
+X
+X  delete =  XtVaCreateManagedWidget("DelYesNo",dialogWidgetClass,delete_q,
+X                       XtNlabel,(XtArgVal)"",NULL);
+X  XawDialogAddButton(delete,"Yes",Del,NULL);
+X  XawDialogAddButton(delete,"No",Cancel_del,NULL);
+X
+X}
+X
+X
+X/*
+X** sets up the rename requester 
+X*/
+Xvoid rename_bitmap(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  Position    x, y;
+X  Dimension   height,width;
+X  Widget a;
+X
+X/* check if the dialogs are made yet.. */
+Xif(!dialogs_made) setup_dialog();
+X
+X/* set the global so the system call will be 'mv' */
+X  mv = TRUE;
+X
+X/* create a dialog widget with the an 'ok' button */
+X  XtVaSetValues(getname,XtNlabel,(XtArgVal)"Rename to:",NULL);
+X  XtVaSetValues(getname,XtNvalue,(XtArgVal)bname,NULL); 
+X
+X  XtPopup(query,XtGrabExclusive);
+X}
+X
+X/*
+X** sets up the delete requester
+X*/
+Xvoid delete_bitmap(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  Position    x, y;
+X  Dimension   height,width;
+X  Widget a;
+X  char str[255];
+X
+X/* check if the dialogs are made yet.. */
+Xif(!dialogs_made) setup_dialog();
+X
+X  sprintf(str,"Do You Realy wish to delete:\n%s",bname);
+X  XtVaSetValues(delete,XtNlabel,(XtArgVal)str,NULL); 
+X  XtPopup(delete_q,XtGrabExclusive); 
+X
+X}
+X
+X/*
+X** sets up the copy requester
+X*/
+Xvoid copy_bitmap(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  Position    x, y;
+X  Dimension   height,width;
+X  Widget a;
+X
+X/* check if the dialogs are made yet.. */
+Xif(!dialogs_made) setup_dialog();
+X
+X/* set the global so that the system call will use 'cp' */
+X  mv = FALSE;
+X
+X/* create a dialog widget with the an 'ok' button */
+X
+X  XtVaSetValues(getname,XtNlabel,(XtArgVal)"Copy to:",NULL);
+X  XtVaSetValues(getname,XtNvalue,(XtArgVal)bname,NULL);
+X
+X  XtPopup(query,XtGrabExclusive); 
+X
+X}
+X
+X/*
+X** this function is added to the notify callback on all the 
+X** menuButtons so that the global 'bname' contains the most 
+X** reciently selected bitmap name
+X*/
+Xvoid set_name(widget,event)
+XWidget widget;
+XXButtonEvent *event;
+X{
+Xchar str[255],*t;
+XDimension iw,ih,w,h;
+X 
+X  bname = XtName(widget);
+X  XtVaGetValues(widget,
+X                XtNinternalHeight,&ih,
+X                XtNinternalWidth,&iw,
+X                XtNheight,&h,
+X                XtNwidth,&w,
+X                NULL);
+X  w -= 2 * iw;
+X  h -= 2 * ih;
+X
+X  if ((t = strrchr(bname,'/')) == NULL)
+X    t = bname;
+X  else
+X    t++;
+X  sprintf(str,"%s (%dx%d)",t,(int)w,(int)h);
+X  XtVaSetValues(lw,XtNlabel,(XtArgVal)str,NULL);
+X}
+X
+X/*
+X** this function runs (with a system() call) the editor
+X** with arguments to edit the file in bname
+X*/
+Xvoid edit_bitmap(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+Xchar command[255],tmp[255];
+X
+XXtPopdown(menu);
+X  if(bname[0] != '\0') {
+X    sprintf(command,"%s %s &",EDITOR,bname);
+X    system(command);
+X  }
+X}
+X
+X/*
+X** this function runs (with a system() call) the program specified in
+X** SETROOT with arguments of the file in bname
+X*/
+Xvoid set_root(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+Xchar command[255],tmp[255];
+X
+XXtPopdown(menu);
+X  if(bname[0] != '\0') {
+X    sprintf(command,"%s \"%s\" &",SETROOT,bname);
+X    system(command);
+X  }
+X}
+X
+X/*
+X** this function runs (with a system() call) the program specified in
+X** SETROOTINV with arguments of the file in bname
+X*/
+Xvoid set_root_inv(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+Xchar command[255],tmp[255];
+X
+XXtPopdown(menu);
+X  if(bname[0] != '\0') {
+X    sprintf(command,"%s \"%s\" &",SETROOTINV,bname);
+X    system(command);
+X  }
+X}
+X
+X/*
+X** this is used as a destroyCallback in all the menuButtons
+X** it destroys the Pixmap that they used. This is done so that we
+X** don't fill the Xterm memory with unused bitmaps!!
+X*/
+Xvoid destroy_Callback(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+XXFreePixmap(XtDisplay(toplevel),(Pixmap)client_data);
+X}
+X
+X/*
+X** this is the callback for the Rescan button
+X** it just calls setup()
+X*/
+Xvoid rescan(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+Xsetup();
+X}
+X
+X/*
+X** this is the callback for the directory name asciiTextWidget
+X*/
+Xvoid change_dir(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+XWidget t;
+Xchar *text;
+X
+X/* get the new directory from the widget and only continue if it is 
+X   not the same and is a VALID directory. */
+X
+X  text = XawDialogGetValueString(atw);
+X  if(strcmp(dname,text) == 0) return; /* nothing to do */ 
+X
+X/* check if it contains a '~' as the first char and substute the correct dir */ 
+X   if (text[0] == '~') expand_twiddle(text);
+X
+X
+X/* change the current directory to the new directory */
+X  if(chdir(text) != 0) {
+X    XtVaSetValues(atw,XtNvalue,(XtArgVal)dname,NULL);
+X    return;
+X  } 
+X    (void) getcwd(dname,253);
+X    XtVaSetValues(atw,XtNvalue,(XtArgVal)dname,NULL);
+X    XtVaSetValues(lw,XtNlabel,(XtArgVal)"No Bitmap Selected",NULL);
+X
+X/* reset the bitmaps */
+Xsetup();
+X}
+X
+END_OF_FILE
+if test 9410 -ne `wc -c <'callbacks.c'`; then
+    echo shar: \"'callbacks.c'\" unpacked with wrong size!
+fi
+# end of 'callbacks.c'
+fi
+if test -f 'icon.xbm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'icon.xbm'\"
+else
+echo shar: Extracting \"'icon.xbm'\" \(2774 characters\)
+sed "s/^X//" >'icon.xbm' <<'END_OF_FILE'
+X#define icon_width 64
+X#define icon_height 54
+Xstatic char icon_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xfc, 0xff, 0xff, 0xcf, 0x7f, 0x9e, 0xcf, 0xff,
+X   0x34, 0x06, 0x00, 0x48, 0x49, 0x92, 0x48, 0x92, 0x0c, 0x08, 0x4e, 0xc8,
+X   0x7f, 0x9e, 0xca, 0xa4, 0x0c, 0x78, 0x31, 0x08, 0x00, 0x80, 0x48, 0xc9,
+X   0x04, 0xd8, 0x20, 0x0a, 0x00, 0x80, 0x4f, 0x92, 0xc4, 0xbb, 0x63, 0x0a,
+X   0x00, 0x00, 0xc0, 0xa4, 0x04, 0x9c, 0x24, 0x0a, 0x00, 0x00, 0x40, 0xc9,
+X   0x0c, 0xfc, 0xbd, 0x09, 0x00, 0x00, 0xc0, 0xff, 0x0c, 0xdf, 0xcf, 0x09,
+X   0x00, 0x00, 0x00, 0x00, 0x34, 0xdf, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00,
+X   0xc4, 0xcd, 0x87, 0x08, 0x00, 0x00, 0x00, 0x00, 0xc4, 0xdb, 0x87, 0x08,
+X   0x00, 0x00, 0x00, 0x00, 0x04, 0xfb, 0x47, 0x08, 0x00, 0x00, 0x00, 0x00,
+X   0xc4, 0xfe, 0x3b, 0x09, 0x00, 0x00, 0x00, 0x00, 0xc4, 0x47, 0x00, 0x08,
+X   0x00, 0x00, 0x00, 0x00, 0x84, 0x03, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+X   0xfc, 0xff, 0xff, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xfc, 0xf3, 0xff, 0xff, 0xf9, 0xf9, 0xff, 0x1f, 0xac, 0x12, 0x00, 0x00,
+X   0x09, 0xf9, 0xff, 0x1f, 0x54, 0x13, 0x00, 0x00, 0x69, 0xf9, 0xff, 0x1f,
+X   0xac, 0x12, 0xc0, 0x01, 0x69, 0xf9, 0xff, 0x1f, 0x54, 0x13, 0x60, 0x02,
+X   0x69, 0xf9, 0xff, 0x1f, 0xac, 0xd2, 0x9f, 0x04, 0x69, 0xf9, 0xff, 0x1f,
+X   0xfc, 0x13, 0x90, 0x04, 0x69, 0xf9, 0xff, 0x1f, 0x00, 0x10, 0x92, 0x04,
+X   0x69, 0xf9, 0xff, 0x1f, 0x00, 0xd0, 0xa3, 0x02, 0x69, 0x01, 0x00, 0x00,
+X   0x00, 0x10, 0xc8, 0x07, 0x69, 0x01, 0x00, 0x00, 0x00, 0x10, 0x25, 0x0c,
+X   0x69, 0x01, 0x00, 0x00, 0x00, 0x50, 0x22, 0x18, 0x69, 0x01, 0x00, 0x00,
+X   0x00, 0x10, 0x20, 0x10, 0x69, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+X   0x69, 0x01, 0x00, 0x00, 0x00, 0xf0, 0xff, 0xff, 0x09, 0x01, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xf8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x00,
+X   0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0xa4, 0xbb, 0x24, 0x75,
+X   0x91, 0xee, 0x08, 0x00, 0xa4, 0xa8, 0x25, 0x35, 0x99, 0x26, 0x09, 0x00,
+X   0xa4, 0xa8, 0xc6, 0x14, 0x66, 0xe2, 0x08, 0x00, 0xa4, 0xbb, 0x44, 0x74,
+X   0x22, 0x2e, 0x09, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00,
+X   0xfc, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+END_OF_FILE
+if test 2774 -ne `wc -c <'icon.xbm'`; then
+    echo shar: \"'icon.xbm'\" unpacked with wrong size!
+fi
+# end of 'icon.xbm'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+echo shar: Extracting \"'misc.c'\" \(4951 characters\)
+sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*
+X*****************************************************************************
+X** xbmbrowser version 1.0  (c) Copyright Ashley Roll, 1992.
+X** FILE: misc.c
+X**
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on 
+X** the condition that this and all other copyright notices remain unchanged in 
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may 
+X** cause.
+X*****************************************************************************
+X*/
+X
+X#include "xbmbrowser.h"
+X
+X
+X/* 
+X** This function is called by the widgets and Windowmanager to quit the 
+X** program
+X*/
+Xvoid DoQuit(w, event, params, num_params)
+XWidget w;
+XXEvent *event;
+XString *params;
+XCardinal *num_params;
+X{
+X  exit(0);
+X}
+X
+X/*
+X** Create a new menu - and put a line under the lable
+X*/
+XWidget MakeMenu(parent,name,label)
+XWidget parent;
+Xchar *name,*label;
+X{
+XWidget w;
+X
+X
+X   w = XtVaCreatePopupShell(name,simpleMenuWidgetClass,parent,
+X                     XtNlabel,(XtArgVal)label,NULL);
+X
+X   if (label != NULL)
+X   (void) XtVaCreateManagedWidget("line",smeLineObjectClass,w,NULL);
+X
+Xreturn(w);
+X}
+X
+X
+X/* 
+X** add an smeBSBObjectClass object to a menu (widget)
+X** callback is the procedure that it calls or NULL
+X*/
+XWidget AddMenuItem(menu,label,callback,cbdata,sensitive)
+XWidget menu;
+Xchar *label;
+XXtCallbackProc callback;
+XXtPointer cbdata;
+Xint sensitive;
+X{
+XWidget w;
+X
+X  w = XtVaCreateManagedWidget(
+X             label,smeBSBObjectClass,menu,
+X             XtNlabel,(XtArgVal)label,XtNjustify,XtJustifyCenter,NULL);
+X
+X  if(!sensitive)
+X    XtVaSetValues(w,XtNsensitive,(XtArgVal)False,NULL);
+X
+X  if(callback != NULL)
+X  XtAddCallback( w, "callback",callback, cbdata);
+X
+Xreturn (w);
+X}
+X
+X/*
+X** these two procedures handle the help window 
+X**
+X** the first is the callback for the 'Done' button the other created the 
+X** window and puts the stuff in it.
+X*/
+XWidget h_shell;
+X
+Xvoid Quit_Help(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+X  XtDestroyWidget(h_shell);
+X}
+X
+Xvoid Show_Help(w,client_data,call_data )
+XWidget w;
+XXtPointer client_data,call_data;
+X{
+XWidget button,about,form;
+X
+X   /* create the popup shell to put the about into */
+X   h_shell = XtVaCreatePopupShell("Help_Window",shellWidgetClass,bfw,NULL);
+X
+X   form = XtVaCreateManagedWidget("Help_fw",formWidgetClass,h_shell,NULL);
+X
+X  /* create the widget to put the about into */
+X  about = XtVaCreateManagedWidget("text",asciiTextWidgetClass,form,
+X          XtNdisplayCaret,(XtArgVal)False,
+X          XtNscrollVertical,(XtArgVal)XawtextScrollWhenNeeded,
+X          XtNscrollHorizontal,(XtArgVal)XawtextScrollWhenNeeded,
+X          XtNwidth,(XtArgVal)575,
+X          XtNheight,(XtArgVal)200,
+X          XtNtype,(XtArgVal)XawAsciiFile,
+X          XtNstring,(XtArgVal)HELPFILE,NULL);
+X
+X
+X button =  XtVaCreateManagedWidget(
+X           "Done",commandWidgetClass,form,XtNlabel,(XtArgVal)"Done",
+X           XtNfromVert,(XtArgVal)about,NULL);
+X XtAddCallback(button,"callback",Quit_Help,NULL);
+X
+X XtPopup(h_shell,XtGrabNone);
+X XStoreName(XtDisplay(h_shell),XtWindow(h_shell),"xbmbrowser Help");
+X XSetIconName(XtDisplay(h_shell),XtWindow(h_shell),"xbmbrowser Help");
+X}
+X
+X/* 
+X** sort a linked list 
+X*/
+XFileList *r; /* global - pointer to the first element in the list 2 b sorted */
+X
+XFileList *merge(a,b)
+XFileList *a,*b;
+X{
+XFileList *temp;
+XFileList aux;
+X
+X  temp = &aux;
+X  while(b != NULL)
+X    if(a == NULL) { 
+X      a = b; 
+X      break;
+X    }
+X    else if(strcmp(b->fname,a->fname) > 0) {
+X      temp = temp->next = a; 
+X      a = a->next;
+X    } else {
+X      temp = temp->next = b;
+X      b = b->next;
+X    }
+X
+X  temp->next = a;
+Xreturn(aux.next);
+X}
+X
+XFileList *sort(n)
+Xint n;
+X{
+XFileList *fi,*la,*temp;
+X
+X  if(r == NULL) return(NULL);
+X  else if(n > 1)
+X    return(merge(sort(n/2),sort((n+1)/2)));
+X  else {
+X    fi = r;
+X    la = r;
+X    /* build list as long as possible */
+X    for(r = r->next; r != NULL;)
+X      if(strcmp(r->fname,la->fname) >= 0) {
+X        la->next = r;
+X        la = r;
+X        r = r->next;
+X      }
+X      else if(strcmp(r->fname,fi->fname) <= 0) {
+X        temp = r;
+X        r = r->next;
+X        temp->next = fi;
+X        fi = temp;
+X      }
+X      else break;
+X    
+X  la->next = NULL;
+X  return(fi);
+X  }
+X}
+X
+X
+X/*
+X** gets all the file names from the directory 'dir'
+X** and puts then into a FileList linked list.
+X*/
+XFileList *get_files(dir)
+Xchar *dir;
+X{
+XDIR *dirp;
+Xstruct dirent *dp;
+XFileList *start=NULL,*t;
+Xint count;
+X
+X  dirp = opendir(dir);
+X  for(dp = readdir(dirp),count = 1; dp != NULL; dp = readdir(dirp),count++) {
+X    if(start == NULL) {
+X      start = (FileList *) malloc(sizeof(FileList));
+X      t = start; t->next = NULL;
+X    } else {
+X      t->next = (FileList *) malloc(sizeof(FileList));
+X      t = t->next;
+X      t->next = NULL;
+X    }
+X    strcpy(t->fname,dp->d_name);
+X  }
+X  closedir(dirp);
+X  r = start;
+Xreturn(sort(count));
+X}
+X
+X
+END_OF_FILE
+if test 4951 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+fi
+# end of 'misc.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(263 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/*
+X** this is reserved for official patches released by me (the author - 
+X** Ashley Roll). If you have a patch then please release it via me - you 
+X** will be credited with creating it. You can E-Mail me at:
+X** aroll@gucis.cit.gu.edu.au
+X*/
+X#define PATCHLEVEL ""
+X
+END_OF_FILE
+if test 263 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'xbmbrowser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xbmbrowser.c'\"
+else
+echo shar: Extracting \"'xbmbrowser.c'\" \(9101 characters\)
+sed "s/^X//" >'xbmbrowser.c' <<'END_OF_FILE'
+Xchar copyright[]="xbmbrowser Version 1.0  (c) Copyright Ashley Roll, 1992.";
+X/*
+X*****************************************************************************
+X** xbmbrowser version 1.0  (c) Copyright Ashley Roll, 1992.
+X** FILE: xbmbrowser.c
+X**
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on 
+X** the condition that this and all other copyright notices remain unchanged in 
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may 
+X** cause.
+X*****************************************************************************
+X*/
+X
+X#define MAIN
+X#include "xbmbrowser.h"
+X#include "patchlevel.h"
+X#include "icon.xbm"
+X
+X
+Xextern void DoQuit();
+Xextern void Ok();
+Xextern Widget MakeMenu();
+Xextern Widget AddMenuItem();
+Xextern void Show_Help();
+Xextern void Inform_User();
+Xextern void SetWindowIcon();
+Xextern void rename_bitmap();
+Xextern void move_bitmap();
+Xextern void copy_bitmap();
+Xextern void delete_bitmap();
+Xextern void edit_bitmap();
+Xextern void set_root();
+Xextern void set_root_inv();
+Xextern void set_name();
+Xextern void destroy_Callback();
+Xextern void rescan();
+Xextern FileList *get_files();
+Xextern void change_dir();
+Xextern void setup_dialog();
+X
+X/* -------------------------- */
+Xstatic Atom  wm_delete_window;      /* insure that delete window works */
+X
+Xstatic XtActionsRec  actions[] = {  /* declare possible actions */
+X/* action_name, routine */
+X  { "quit",   DoQuit  },
+X  { "CD", change_dir },
+X  { "Set_Name", set_name },
+X  { "Ok", Ok },
+X};
+X
+X/* translation table for label widgets for the bitmaps */
+Xstatic char Translations[] = 
+X  "<EnterWindow>:      Set_Name() \n\
+X   <BtnDown>:    XawPositionSimpleMenu(bitmapMenu) MenuPopup(bitmapMenu) \n\
+X   <BtnUp>:      MenuPopdown(bitmapMenu)";
+X
+X/* translation table for the dialogWidget (directory name) */
+Xstatic char text_trans[] = 
+X  "<Key>Return:  CD() \n\
+X   Ctrl<Key>M:   CD() ";
+X
+X/* fallback resources  */
+Xstatic char *fall_back[] = {
+X   ".xbmbrowser.width: 450", 
+X   ".xbmbrowser.height: 500", 
+X   ".xbmbrowser.iconName: browser",
+X   ".xbmbrowser.?.TransientShell.width: 350",
+X   ".xbmbrowser.main.buttons.Command.width: 70",
+X   NULL
+X}; 
+X
+X/* -------------------------- */
+X
+X/*
+X** this creates all the menubuttons that contain the bitmaps
+X*/
+Xvoid fill_bw()
+X{
+XFileList *x;
+XWidget w;
+Xchar b_name[255];
+XPixmap bitmap = NULL;
+Xint show = TRUE;
+X
+X    /* create a menu */
+X    menu = MakeMenu(bw,"bitmapMenu",NULL);
+X
+X    /* fill the menu */
+X  (void) AddMenuItem(menu,"Rename",rename_bitmap,NULL,show);
+X  (void) AddMenuItem(menu,"Copy",copy_bitmap,NULL,show);
+X  (void) AddMenuItem(menu,"Delete",delete_bitmap,NULL,show);
+X  if(EDITOR[0] == '\0')
+X    show = FALSE;
+X  (void) AddMenuItem(menu,"Edit",edit_bitmap,NULL,show);
+X
+X  show = TRUE;
+X  if(SETROOT[0] == '\0')
+X    show = FALSE;
+X  (void) AddMenuItem(menu,"SetRoot",set_root,NULL,show);
+X  show = TRUE;
+X  if(SETROOTINV[0] == '\0')
+X    show = FALSE;
+X  (void) AddMenuItem(menu,"SetRoot Inv",set_root_inv,NULL,show);
+X
+X
+X  for(x = file_list; x != NULL; x = x->next)
+X  {
+X  int t;  
+X  char *name;
+X
+X    name = x->fname; 
+X    if(XReadBitmapFile(XtDisplay(toplevel),
+X       DefaultRootWindow(XtDisplay(toplevel)),name,
+X       &t,&t,&bitmap,&t,&t) == BitmapSuccess) {
+X
+X
+X      /* create the menuButton for it */
+X      w = XtVaCreateManagedWidget(name,labelWidgetClass,bw,
+X             XtNbitmap,(XtArgVal)bitmap,
+X             NULL);
+X
+X      XtOverrideTranslations(w,XtParseTranslationTable(Translations));
+X      XtAddCallback(w,"destroyCallback",destroy_Callback,(XtPointer)bitmap);
+X    }
+X  }
+X}
+X
+Xmain(argc, argv)
+X  int argc;
+X  char **argv;
+X{
+XXtAppContext appcon;
+Xchar wname[100];
+X
+Xac = argc;
+Xav = argv;
+Xbw = NULL;
+Xbname = NULL;
+Xdialogs_made = FALSE;
+Xfile_list = NULL;
+X
+X
+X  sprintf(wname,"XbmBrowser Version 1.0 %s",PATCHLEVEL);
+X  toplevel = XtVaAppInitialize(
+X                 &appcon, "XbmBrowser",    /* app context, ClassName */
+X                 NULL, 0,                  /* app command line options */
+X                 &argc, argv,              /* command line */
+X                 fall_back,                /* Fall back resources */
+X                 XtNtitle,(XtArgVal)wname,
+X                 NULL);                    /* End Va resource list */
+X  XtAppAddActions(appcon, actions, XtNumber(actions));
+X
+X  if( argc > 2 )  useage();
+X  if(argc == 2) {
+X    if(chdir(argv[1]) != 0) {
+X      fprintf(stderr,"xbmbrowser: couldn't chdir to '%s'\n",argv[1]);
+X      exit(0);
+X    }
+X  }
+X
+X  (void) getcwd(dname,253);
+X 
+X/* create a paned widget to put everything into */
+X  mainpw  = XtVaCreateManagedWidget("main",panedWidgetClass,toplevel,
+X            NULL);
+X
+X/* create the form widget to put the buttons in */
+X  bfw = XtVaCreateManagedWidget("buttons",formWidgetClass,mainpw,
+X              XtNshowGrip,(XtArgVal)False,
+X              XtNskipAdjust,(XtArgVal)True,NULL);
+X
+X{
+XWidget button;
+X/* create the Buttons */
+X  button = XtVaCreateManagedWidget("quit",commandWidgetClass,bfw,
+X                  XtNlabel,(XtArgVal)"Quit",NULL);
+X  XtAddCallback(button,"callback",DoQuit,NULL);
+X  button = XtVaCreateManagedWidget("help",commandWidgetClass,bfw,
+X                  XtNfromHoriz,(XtArgVal)button,
+X                  XtNlabel,(XtArgVal)"Help",NULL);
+X  XtAddCallback(button,"callback",Show_Help,NULL);
+X  button = XtVaCreateManagedWidget("rescan",commandWidgetClass,bfw,
+X                  XtNfromHoriz,(XtArgVal)button,
+X                  XtNlabel,(XtArgVal)"Rescan",NULL);
+X  XtAddCallback(button,"callback",rescan,NULL);
+X}
+X/* dialogWidget to hold and get the directory to read from */
+X
+X  atw = XtVaCreateManagedWidget("directory", dialogWidgetClass, mainpw,
+X           XtNlabel,(XtArgVal)"Current Directory",
+X           XtNvalue,(XtArgVal)dname,
+X           XtNshowGrip,(XtArgVal)False,
+X           XtNskipAdjust,(XtArgVal)True,
+X           NULL);
+X
+X  XtOverrideTranslations(XtNameToWidget(atw,"value"),
+X                         XtParseTranslationTable(text_trans));
+X
+X/* label widget to hold the name of the current bitmap */
+X  lw = XtVaCreateManagedWidget("label",labelWidgetClass,mainpw,
+X                  XtNlabel,(XtArgVal)"No Bitmap Selected",
+X                  XtNshowGrip,(XtArgVal)False,
+X                  XtNskipAdjust,(XtArgVal)True,NULL);
+X
+X/* create a viewport widget to stick the bitmaps in */
+X{
+Xint width;
+X
+X  XtVaGetValues(toplevel,XtNwidth,&width,NULL);
+X
+X  phw = XtVaCreateManagedWidget("viewport",viewportWidgetClass,mainpw,
+X                  XtNwidth,(XtArgVal)width,
+X                  XtNallowHoriz,(XtArgVal)False,
+X                  XtNallowVert,(XtArgVal)True,
+X                  XtNshowGrip,(XtArgVal)False,
+X                  XtNskipAdjust,(XtArgVal)True,NULL);
+X}
+X setup();
+X XtRealizeWidget(toplevel);
+X
+X/* set up the icon */
+X{
+XPixmap  icon;
+XXWMHints *wmhints;
+XDisplay *display;
+XWindow  window;
+X
+X   display = XtDisplay(toplevel);
+X   window = XtWindow(toplevel);
+X
+X   wmhints = XGetWMHints( display, window );
+X
+X   if ( wmhints == (XWMHints *) NULL )
+X   {
+X      wmhints = (XWMHints *) malloc( sizeof(XWMHints) );
+X      if ( wmhints == (XWMHints *) NULL )
+X
+X      wmhints->flags = 0;
+X   }
+X
+X   icon = XCreateBitmapFromData(display,DefaultRootWindow(display),
+X               icon_bits, icon_width, icon_height);
+X
+X   wmhints->flags |= IconPixmapHint;
+X
+X   wmhints->icon_pixmap = icon;
+X
+X   XSetWMHints( display, window, wmhints );
+X
+X   XFree( wmhints );
+X}
+X
+X
+X  /* Set the window to call quit() action if `deleted' */
+X  XtOverrideTranslations(toplevel,     
+X          XtParseTranslationTable("<Message>WM_PROTOCOLS:quit()") );
+X  wm_delete_window = XInternAtom(XtDisplay(toplevel),"WM_DELETE_WINDOW",False);
+X  (void) XSetWMProtocols(XtDisplay(toplevel), XtWindow(toplevel),
+X                                                 &wm_delete_window, 1);
+X  XtAppMainLoop(appcon);
+Xexit(0);
+X}
+X
+X/*
+X** this (re)initializes the boxWidget that contains the menubuttons
+X** by calling the fillbw() function
+X*/
+Xsetup()
+X{
+Xint width,fore,back,depth;
+X
+X  if(bw != NULL)
+X    XtDestroyWidget(bw);
+X
+X  XtVaGetValues(toplevel,XtNwidth,&width,NULL);
+X  XtVaSetValues(lw,XtNlabel,(XtArgVal)"No Bitmap Selected",NULL);
+X 
+X/* create the box widget to put all the bitmaps in */
+X  bw = XtVaCreateManagedWidget("bitmaps",boxWidgetClass,phw,
+X                  XtNwidth,width,
+X                  XtNorientation,(XtArgVal)XtorientVertical,
+X                  XtNfromVert,(XtArgVal)lw,
+X                  NULL);
+X
+X  XtVaGetValues(bw, XtNborderColor, &fore,
+X                    XtNbackground,  &back,
+X                    XtNdepth,       &depth, NULL);
+X
+X  XtVaSetValues(bw, XtNbackgroundPixmap,
+X        (XtArgVal)XmuCreateStippledPixmap(XtScreen(phw), fore, back, depth),
+X                  NULL);
+X
+X/* create all the bitmaps (each in a menubutton) */
+X  while(file_list != NULL) {
+X    FileList *t;
+X    t = file_list->next;
+X    free(file_list);
+X    file_list = t;
+X  }
+X  file_list = get_files(".");
+X  fill_bw();
+X}
+X
+X
+Xuseage()
+X{
+Xfprintf(stderr,"\nxbmbrowser: Useage: \nxbmbrowser [toolkit options] [<Dir>]\n");
+Xfprintf(stderr,"\nWhere <Dir> is a directory name. \n");
+Xexit(1);
+X}
+X
+END_OF_FILE
+if test 9101 -ne `wc -c <'xbmbrowser.c'`; then
+    echo shar: \"'xbmbrowser.c'\" unpacked with wrong size!
+fi
+# end of 'xbmbrowser.c'
+fi
+if test -f 'xbmbrowser.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xbmbrowser.h'\"
+else
+echo shar: Extracting \"'xbmbrowser.h'\" \(2579 characters\)
+sed "s/^X//" >'xbmbrowser.h' <<'END_OF_FILE'
+X/*
+X*****************************************************************************
+X** xbmbrowser version 1.0  (c) Copyright Ashley Roll, 1992.
+X** FILE: xbmbrowser.h 
+X**
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on 
+X** the condition that this and all other copyright notices remain unchanged in 
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may 
+X** cause.
+X*****************************************************************************
+X*/
+X
+X#include <X11/Xlib.h>  /* Xt programming includes */
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X
+X#include <stdio.h>
+X#include <strings.h>
+X#include <dirent.h> 
+X#include <X11/cursorfont.h>
+X#include <X11/Intrinsic.h>      
+X#include <X11/StringDefs.h>
+X
+X#include <X11/Xaw/Form.h>      /* widget includes */
+X#include <X11/Xaw/Box.h>
+X#include <X11/Xaw/Dialog.h> 
+X#include <X11/Xaw/MenuButton.h>
+X#include <X11/Xaw/SimpleMenu.h>
+X#include <X11/Xaw/SmeBSB.h>
+X#include <X11/Xaw/SmeLine.h>
+X#include <X11/Xaw/AsciiText.h>
+X#include <X11/Xaw/Paned.h>
+X#include <X11/Xaw/Viewport.h>
+X
+X
+X/***************************************************************************
+X    SITE SPECIFIC STUFF - EDIT TO MATCH YOUR SETUP
+X ***************************************************************************/
+X/*
+X** The full path to the Help file.
+X*/
+X#ifndef HELPFILE
+X#define HELPFILE "/usr/lib/X11/xbmbrowser.help"
+X#endif
+X
+X/*
+X** the editor that will be called from the Edit selection of the 
+X** Menu. If this is NULL ("") then the selection will not be selectable.
+X** A system() call will be made with this string with the filename of the 
+X** selected bitmap, and an & appended to it.
+X*/
+X#define EDITOR "bitmap"
+X
+X/*
+X** This is the program that can be used to set the bitmap as the root
+X** window decoration. the same things apply as above in EDITOR.
+X*/
+X#define SETROOT "xsetroot -bitmap"
+X#define SETROOTINV "xsetroot -rv -bitmap"
+X
+X
+X
+X/***************************************************************************
+X    PROGRAM STUFF - CHANGE IT AT YOUR OWN RISK
+X ***************************************************************************/
+X
+Xtypedef struct _file_lst {
+X  char fname[255];
+X  struct _file_lst *next;
+X} FileList;
+X
+X#ifdef MAIN
+X#define ext
+X#else
+X#define ext extern
+X#endif
+X
+Xext char *bname;
+Xext char dname[255];
+Xext FileList *file_list;
+Xext Widget toplevel,mainpw,bfw,bw,lw,phw,atw,menu;
+Xext int ac;
+Xext char **av;
+Xext int dialogs_made;
+END_OF_FILE
+if test 2579 -ne `wc -c <'xbmbrowser.h'`; then
+    echo shar: \"'xbmbrowser.h'\" unpacked with wrong size!
+fi
+# end of 'xbmbrowser.h'
+fi
+if test -f 'xbmbrowser.help' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xbmbrowser.help'\"
+else
+echo shar: Extracting \"'xbmbrowser.help'\" \(4063 characters\)
+sed "s/^X//" >'xbmbrowser.help' <<'END_OF_FILE'
+XHelp For xbmbrowser, By Ashley Roll                                 Version 1.0
+X
+Xxbmbrowser is a program to let you easily manipulate Bitmap files.
+X
+XAs you can see (on the window that you called this from), the window is 
+Xdivided into four areas, one with the three buttons, the next contains a text
+Xbox that contains the current directory, you can use this to change the
+Xdirectory that is searched for bitmaps. The next one down contains the
+Xname of the last selected Bitmap, and the last contains any Bitmap files
+Xthat the program found from the command line arguments. 
+X
+XThe fourth section is the most important. If you press and hold mouse button
+Xthree down over one of the Bitmap images, then a small menu will popup with
+Xthe following items:
+X
+X Rename -  Use this to rename / move a Bitmap, you will get a requester asking
+X           for the new name, once you have typed the new name click on the 
+X           [Ok] button, or [Cancel] to cancel the rename.
+X
+X Copy -    Use this to copy a Bitmap, you will get a requester asking for the
+X           name to copy to, once you have typed the new name click on the
+X           [Ok] button, or [Cancel] to cancel the copy.
+X
+X Delete -  Use this to Delete a Bitmap, USE WITH CAUTION!!!, you will get a 
+X           requester asking if you wish to delete the Bitmap or not, click on
+X           the [Ok] button and the Bitmap will be removed, or [Cancel] to 
+X           cancel the Delete.
+X
+X Edit -    This will fire up a copy of your local Bitmap editor to edit the
+X           selected Bitmap. (If this is not selectable, then you can not 
+X           do this - ask your system admin to fix it if you REALY want to use
+X           this feature).
+X
+X SetRoot - This will fire up a copy of the program to set the bitmap as the
+X           root window decoration.
+X
+X SetRoot Inv - Same as SetRoot, except that the bitmap is inverted (black = 
+X               white, etc).
+X
+XIf all the Bitmaps cannot fit into the bottom window, or you resize the 
+Xwindow, a scroll bar will appear vertically on the left side of this section
+Xand you can use this to see the hidden Bitmaps.
+X
+XYou can (of course) quit the program by pressing the [Quit] button. The 
+X[Rescan] button will rescan all the bitmaps in the current directory (as 
+Xindicated by the text box), redrawing them, this can be used after you have
+Xedited a bitmap to show what it now looks like.
+X
+XChanging Directories:
+X
+XAll that you have to do to change the current directory that the program 
+Xsearches, so to type the name of the new directory in the text box, and then 
+Xpress <Return>. If the directory doesn't exist or you can't access it, then 
+Xthe directory will remain unchanged. 
+X
+XNOTE: you can use '.' and '..' and '~' in your path as the program changes 
+Xdirectory relative to the current directory, also note that the window will 
+Xalways contain the FULL path of the current directory.
+X
+XCommand line arguments:
+X
+Xxbmbrowser [Toolkit Options] [Directory]
+X
+XToolkit Options are normal Athena Widget set options like '-geometry'.
+X
+XDirectory is a directory that you wish to look at. If it doesn't exit or
+Xyou can't access it, then the program will default to the current directory.
+X
+X******************************************************************************
+X** (c) Copyright Ashley Roll, 1992.
+X** xbmbrowser is Public Domain. However it, and all the code still belong to me.
+X** I do, however grant permission for you to freely copy and distribute it on 
+X** the condition that this and all other copyright notices remain unchanged in 
+X** all distributions.
+X**
+X** This software comes with NO warranty whatsoever. I therefore take no
+X** responsibility for any damages, losses or problems that the program may
+X** cause.
+X******************************************************************************
+X
+XI must thank Anthony Thyssen for beta testing XbmBrowser and comming up with
+Xthe original idea for it.
+X
+XI must also thank Chris McDonald of the University of Western Australia's 
+XDepartment of Computer Science, who provided me with a procedure to expand
+X~'s in a directory name.
+END_OF_FILE
+if test 4063 -ne `wc -c <'xbmbrowser.help'`; then
+    echo shar: \"'xbmbrowser.help'\" unpacked with wrong size!
+fi
+# end of 'xbmbrowser.help'
+fi
+if test -f 'xbmbrowser.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xbmbrowser.man'\"
+else
+echo shar: Extracting \"'xbmbrowser.man'\" \(890 characters\)
+sed "s/^X//" >'xbmbrowser.man' <<'END_OF_FILE'
+X.TH XBMBROWSER 1 "23 July 1992"
+X.SH NAME
+Xxbmbrowser \- view and manage bitmap files.
+X.SH SYNOPSIS
+X.B xbmbrowser
+X[
+X.I toolkit options
+X]
+X[
+X.I directory
+X]
+X.SH DESCRIPTION
+X.LP
+X.B xbmbrowser 
+Xwill show you all the bitmaps in the 
+X.I directory
+Xif it is specified otherwise it will look in the current directory.
+XNote that if the program can not change directory to the 
+X.I directory
+Xin the command line it will exit and print an error message.
+X
+XYou can then select any bitmap that is displayed and you will be able to 
+XRename, Copy, Delete, Edit and Set it as the root window bitmap. (Edit and SetRoot may not work on your installation \- you will have to try it to find out).
+X
+X.B xbmbrowser
+Xwill take all the normal Athena Widget 
+X.I toolkit options
+Xit is given. 
+X
+XFor instructions on how to use it, start it and press the
+X.I Help
+XButton.
+X.SH AUTHOR
+X.B Ashley Roll
+X-- aroll@gucis.cit.gu.edu.au
+X
+END_OF_FILE
+if test 890 -ne `wc -c <'xbmbrowser.man'`; then
+    echo shar: \"'xbmbrowser.man'\" unpacked with wrong size!
+fi
+# end of 'xbmbrowser.man'
+fi
+echo shar: End of shell archive.
+exit 0
+-----------8<-----------8<-----------8<-----------8<-----------8<-----------
+
+
+-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+  Ashley Roll - aroll@gucis.cit.gu.edu.au   Griffith University, Australia
+-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+     Kernal PANIC: Unable to mount /dev/coffie.machine -- Operator Halted.
+
+                        - - - - - - - - - - - - - -
+  The thoughts, ideas and opinions expressed herein are my own and as such  
+    are completly correct, I will however respect your right to be wrong. 
+-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

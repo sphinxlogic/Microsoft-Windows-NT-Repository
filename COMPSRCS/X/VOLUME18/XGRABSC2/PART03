@@ -1,0 +1,1695 @@
+Newsgroups: comp.sources.x
+Path: uunet!decwrl!mips!msi!dcmartin
+From: bruce@SLC.COM (Bruce Schuchardt)
+Subject: v18i054: xgrabsc v2.1 - grab screen dump, Part03/05
+Message-ID: <1992Jul23.140208.27062@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i052-xgrabsc-2.1@uunet.UU.NET>
+Date: Thu, 23 Jul 1992 14:02:08 GMT
+Approved: dcmartin@msi.com
+Lines: 1682
+
+Submitted-by: bruce@SLC.COM (Bruce Schuchardt)
+Posting-number: Volume 18, Issue 54
+Archive-name: xgrabsc-2.1/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file process.hc continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping process.hc'
+else
+echo 'x - continuing file process.hc'
+sed 's/^X//' << 'SHAR_EOF' >> 'process.hc' &&
+X  XImage *ximage;
+X  int map[2];
+X
+X  if (verbose) {
+X    fprintf(stderr, "%s: reversing colors...", programName);
+X    fflush(stderr);
+X  }
+X
+X
+X  if (image->ximage->depth <= 1) {
+X    /* for black and white images, just reverse the bits */
+X    ximage = image->ximage;
+X    data = (unsigned char *)ximage->data;
+X    size = ximage->bytes_per_line * ximage->height;
+X    for (idx=0; idx<size; idx++, data++)
+X      *data = ~(*data);
+X  }
+X  else {
+X    /* for other images, reverse the color values in the color table */
+X    nc = image->numcells;
+X    for (cidx=0; cidx<nc; cidx++) {
+X      image->red[cidx]   = (unsigned short)~((unsigned short)(image->red[cidx]));
+X      image->blue[cidx]  = (unsigned short)~((unsigned short)(image->blue[cidx]));
+X      image->green[cidx] = (unsigned short)~((unsigned short)(image->green[cidx]));
+X    }
+X  }
+}
+X
+X
+X
+X
+X
+/*
+X * Compress the colors used in an XImage so that all pixel values are
+X * adjacent.  Alters the rgb color tables and the XImage data values.
+X */
+compressColormap(image)
+X  imageInfo *image;
+{
+X  XImage *ximage = image->ximage;
+X  long map[MAX_CELLS];
+X  int  ncolors, w, h, m;
+X  long p;
+X
+X  if (ximage->depth <= 1  ||  image->numcells > MAX_CELLS)
+X    return;
+X
+X  if (verbose) {
+X    fprintf(stderr, "%s: compressing colormap...", programName);
+X    fflush(stderr);
+X  }
+X  ncolors = 0;
+X  /* map[] is indexed by old pixel values.  It delivers new, compressed,
+X   * pixel values. */
+X  for (m=0; m<MAX_CELLS; m++) map[m] = MAX_CELLS+1;
+X  /* bludgeon through the whole image and remap each pixel value */
+X  for (h=0; h<ximage->height; h++) {
+X    for (w=0; w<ximage->width; w++) {
+X      /* Get the pixel index and see if it has been used or not.
+X       * Then remap the pixel */
+X      p = XGetPixel(ximage, w, h);
+X      if (map[p] == MAX_CELLS+1) {
+X        map[p] = ncolors;
+X        ncolors++;
+X      }
+X      if (p != map[p])
+X        XPutPixel(ximage, w, h, map[p]);
+X    }
+X  }
+X  /* now compress the color table */
+X  memset((char *)image->used, 0, MAX_CELLS);
+X  for (m=0; m<MAX_CELLS; m++) {
+X    if (map[m] != MAX_CELLS+1) {
+X      p = map[m];
+X      nr[p] = image->red[m];
+X      ng[p] = image->green[m];
+X      nb[p] = image->blue[m];
+X      image->used[p] = TRUE;
+X    }
+X  }
+X  memcpy((char *)image->red,   (char *)nr, ncolors*sizeof(word));
+X  memcpy((char *)image->green, (char *)ng, ncolors*sizeof(word));
+X  memcpy((char *)image->blue,  (char *)nb, ncolors*sizeof(word));
+X  image->numcells = ncolors;
+X  if (verbose)
+X    fprintf(stderr, "  %d colors used\n", ncolors);
+}
+X
+SHAR_EOF
+echo 'File process.hc is complete' &&
+chmod 0644 process.hc ||
+echo 'restore of process.hc failed'
+Wc_c="`wc -c < 'process.hc'`"
+test 7579 -eq "$Wc_c" ||
+	echo 'process.hc: original size 7579, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ps_color.h ==============
+if test -f 'ps_color.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ps_color.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ps_color.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ps_color.h' &&
+/*
+X * Name - ps_color.h
+X *
+X * Version:	1.4
+X *
+X * ccsid:	@(#)ps_color.h	1.4 - 7/9/92 12:48:57
+X * from: 	ccs/s.ps_color.h
+X * date: 	7/9/92 13:35:28
+X *
+X * description:  a program to print a color image
+X *               on an old printer that does not
+X *               support color PostScript
+X *
+X *               This file comes to xgrabsc via the excellent utility
+X *               xwd2ps.  The comments have been moved from the postscript
+X *               strings to C comments in the interest of saving space in
+X *               the user's files.
+X */
+X
+X
+char *ColorImage[] = {
+X  "%%Title: colorimage.ps",
+/*-------
+X  "% Written 11-4-88 by Bob Tatar",
+X  "% U.S. Mail: GE-CRD, PO Box 8, KW-C214, Schenectady, NY 12301",
+X  "%    E-Mail: tatar@crd.ge.com",
+X  "% colorimage procedure to be used on monochrome printers",
+X  "% or when the colorimage procedure is not available",
+X  "% NOTE: Only 1 color mode is supported: single proc. & RGB",
+---------*/
+X  "",
+X  "systemdict /colorimage known userdict /colorimage known or not {",
+X  "  %% create if not in systemdict",
+/*--------------
+X  "  % Utility procedure for colorimage operator.  This procedure takes a",
+X  "  % string of rgb encoded values and creates a string 1/3 as long with",
+X  "  % monochrome values.  This procedure assumes 8 bits/color (i.e. ",
+X  "  % 1 character/color)",
+X  "  % storage format for input string:  (r1 g1 b1  r2 g2 b2  r3 g3 b3  ... )",
+X  "  % storage format for output string: (g1  g2  g3 ... )",
+X  "  ",
+----------------*/
+X  "  /colortograyscale { %def",              /*  % (string),                    */
+X  "    dup /rgbdata exch store",             /*  % (string)",                   */
+X  "    length 3 idiv",                       /*  % Ns/3 ",                      */
+X  "    /npixls exch store",                  /*  % ; npixls => Ns/3",           */
+X  "    /indx 0 store",                       /*  % ; indx => 0",                */
+X  "    /pixls npixls string store",          /*  % ; pixls => (....)",          */
+X  "    0 1 npixls -1 add {",                 /*  % counter ",                   */
+X  "      pixls exch",                        /*  % pixls counter",              */
+X  "      rgbdata indx get .3 mul",           /*  % pixls counter .3*rgbdata(ind)",    */
+X  "      rgbdata indx 1 add get .59 mul add",/*  % pixls counter .3*rgbdata(ind) + ", */
+X  /* "",				     /*  %          .59*rgbdata(ind+1)",      */
+X  "      rgbdata indx 2 add get .11 mul add",/*  % pixls counter .3*rgbdata(ind) + .59", */
+X  /* "",				     /*  %  *rgbdata(ind+1)+.11*rgbdata(ind+2)", */
+X  "      cvi",                               /*  % pixls counter <grayscale value>",  */
+X  "      put",                               /*  %",                            */
+X  "      /indx indx 3 add store",            /*  % ; /ind => ind+3",            */
+X  "    } for",                               /*  % repeat for each rgb value",  */
+X  "    pixls",                               /*  % (pixls)",                    */
+X  "  } bind def",                            /*  % ; /colortograyscale -> dictionary", */
+X  "",
+X  "  % Utility procedure for colorimage operator.  This procedure takes two",
+X  "  % procedures off the stack and merges them into a single procedure.",
+X  "  ",
+X  "  /mergeprocs { %def",    /*  % {proc1} {proc2}", */
+X  "    dup length",          /*  % {proc1} {proc2} N2", */
+X  "    3 -1 roll",           /*  % {proc2} N2 {proc1}", */
+X  "    dup",                 /*  % {proc2} N2 {proc1} {proc1}", */
+X  "    length",              /*  % {proc2} N2 {proc1} N1", */
+X  "    dup",                 /*  % {proc2} N2 {proc1} N1 N1", */
+X  "    5 1 roll",            /*  % N1 {proc2} N2 {proc1} N1", */
+X  "    3 -1 roll",           /*  % N1 {proc2} {proc1} N1 N2", */
+X  "    add",                 /*  % N1 {proc2} {proc1} N1+N2", */
+X  "    array cvx",           /*  % N1 {proc2} {proc1} { ... }", */
+X  "    dup",                 /*  % N1 {proc2} {proc1} { ... } { ... }", */
+X  "    3 -1 roll",           /*  % N1 {proc2} { ... } { ... } {proc1}", */
+X  "    0 exch",              /*  % N1 {proc2} { ... } { ... } 0 {proc1}", */
+X  "    putinterval",         /*  % N1 {proc2} { <<{proc1}>> ... }", */
+X  "    dup",                 /*  % N1 {proc2} { <<{proc1}>> ... } { <<{proc1}>> ... }", */
+X  "    4 2 roll",            /*  % { <<{proc1}>> ... } { <<{proc1}>> ... } N1 {proc2}", */
+X  "    putinterval",         /*  % { <<{proc1}>> <<{proc2}>> }", */
+X  "  } bind def",            /*  % ; /mergeprocs => dictionary", */
+X  "",
+X  "  /colorimage { %def",    /*  % {imageproc} multiproc ncolors", */
+X  "     pop",                /*  % {imageproc} multiproc ; assume 3 colors", */
+X  "     pop",                /*  % {imageproc}           ; assume false", */
+X  "     {colortograyscale}", /*  % {imageproc} {colortograyscale}", */
+X  "     mergeprocs",         /*  % {imageproc colortograyscale}", */
+X  "     image",              /*  % construct monochrome image", */
+X  "  } bind def",            /*  % ; /colorimage => dictionary", */
+X  "} if",                    /*  % only create if it doesn't already exist", */
+X  0
+X  };
+SHAR_EOF
+chmod 0644 ps_color.h ||
+echo 'restore of ps_color.h failed'
+Wc_c="`wc -c < 'ps_color.h'`"
+test 5078 -eq "$Wc_c" ||
+	echo 'ps_color.h: original size 5078, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xgrab.man ==============
+if test -f 'xgrab.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xgrab.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xgrab.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xgrab.man' &&
+.\"========================================================================
+.\"
+.\" Name - xgrab.man
+.\"
+.\" ccs version: 1.5
+.\"
+.\" ccsid:	@(#)xgrab.man	1.5 - 7/9/92 12:49:21
+.\" from: 	ccs/s.xgrab.man
+.\" date: 	7/9/92 13:35:30
+.\"
+.\" Copyright (C) 1990-92 Bruce Schuchardt
+.\" See the end of this document for full copyright information.
+.\"
+.\" Description:  Man page for xgrab
+.\"
+.\"========================================================================
+.\"
+.TH XGRAB 1X
+.\"
+.SH NAME
+xgrab \- interactive front for xgrabsc, an X-Windows image grabber
+.\"
+.SH SYNOPSIS
+.in +8n
+.ti -8n
+\fIxgrab\fR
+.in -8n
+.\"
+.SH DESCRIPTION
+\fIxgrab\fR lets you grab arbitrary rectangular images from an
+XX server and writes them to files or commands (such as lpr) in
+a variety of formats.
+.PP
+\fIxgrab\fR is a front for the xgrabsc program.
+Read the man page for \fIxgrabsc\fR for a description of the options
+presented by xgrab.
+.PP
+After selecting options from the various categories presented, press
+the \fIOK\fR button to have xgrab run xgrabsc to let you grab an image
+from the screen.  After you press \fIOK\fP, xgrab's window will disappear
+and xgrabsc will gain control until the grabbing process is finished.
+Afterwards, the xgrab window will reappear.
+.sp 2
+.SH OPTIONS
+XXgrab responds to the standard application options, such as \fI-display\fP.
+See the man page for \fIX\fP for a complete list.
+.sp
+You can also override the default xgrab settings in your .Xdefaults.  See
+the examples section below for instructions.
+.sp 2
+.SH RESOURCES
+The XGrab resource file, XGrab.ad, contains a complete specification of the
+resources of all the widgets used in the xgrab window.  Global resources,
+such as default font and color, are at the bottom of the file.
+.sp 2
+.SH EXAMPLES
+The \fITo Command\fR output option may be used to pipe xgrabsc output
+to programs.  The most common commands are \fIlpr\fR for Postscript
+output, and \fIxwud\fR for X-Window Dump output.  Programs that do not
+accept piped input should not be used in \fITo Command\fR.
+.sp
+You can also get fancy and pipe the output through more than one command,
+such as \fItee screen.dmp | xwud\fP, to store the grabbed image and get
+a preview window.
+.sp 2
+Default settings for xgrab can be made in your .Xdefaults file.  Toggle
+buttons can be set/unset through their \fI.state\fP attribute, and text
+field strings can be set through their \fI*string\fP attribute.  For
+example, to set the default paper size for postscript output, put these
+lines in your .Xdefaults (and use xrdb to load them into the server!):
+.sp
+XXGrab*.pageWidthText*string:   8.5
+XXGrab*.pageHeightText*string: 11.0
+.sp
+To set the default output type to \fIXWD\fP, put these lines in your
+.Xdefaults:
+.sp
+XXGrab*.ps.state:  0
+XXGrab*.xwd.state: 1
+.sp 2
+.SH LIMITATIONS
+See the limitations listed in the xgrabsc man page.
+.sp 2
+.SH AUTHOR
+.nf
+X     Bruce Schuchardt
+X    Servio Corporation
+X      bruce@slc.com
+.fi
+.sp 2
+.SH ACKNOWLEGEMENTS
+.PP
+George Ferguson wrote the ad2c program.
+.sp 2
+.SH COPYRIGHT
+Copyright (c) 1991-92 Bruce Schuchardt
+.PP
+\fIXgrab\fR is copywritten material with a very loose copyright
+allowing unlimited modification and distribution if the copyright
+notices are left intact.  Various portions are copywritten by various
+people, but all use a modification of the MIT copyright notice.
+Please check the source for complete copyright information.  The
+intent is to keep the source free, not to stifle its distribution, so
+please write to me if you have any questions.
+.PP
+THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+USE OR PERFORMANCE OF THIS SOFTWARE.
+.s 2
+.SH SEE ALSO
+XX(1X), xgrabsc(1X), xhost(1), xwd(1X), xwud(1X), xloadimage(1X), xpm(1X),
+xpr(1X), ad2c(1)
+SHAR_EOF
+chmod 0644 xgrab.man ||
+echo 'restore of xgrab.man failed'
+Wc_c="`wc -c < 'xgrab.man'`"
+test 4071 -eq "$Wc_c" ||
+	echo 'xgrab.man: original size 4071, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Acks ==============
+if test -f 'Acks' -a X"$1" != X"-c"; then
+	echo 'x - skipping Acks (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Acks (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Acks' &&
+/*========================================================================
+*
+* Name - Acks
+*
+* Version:	1.6
+*
+* ccsid:	@(#)Acks	1.6 - 7/9/92 12:47:33
+* from: 	ccs/s.Acks
+* date: 	7/9/92 13:35:23
+*
+* Description: Thanks to the people listed below for their help in this
+*              project
+*
+*========================================================================
+X
+X
+X    David Lawrence for the memcpy() and memset() functions
+X
+X    Alan Kent for help with 4-plane problems, encapsulated postscript
+X    suggestions, and for testing the patch kit
+X
+X    Brian C. Smith for YIQ greyscale and Floyd-Steinberg algorithms
+X
+X    Johan Garpendal for the initial color-postscript work
+X
+X    Bob Tatar for the colorimage Postscript operator
+X
+X    Martin Birgmeier for the initial virtual window manager support
+X
+X    Vasco Lopes Paulo for his suggestion for the post-selection sleep
+X    option.
+X
+X    Hal R. Brand for binary Postscript output
+X
+X    Yves Arrouye for Encapsulated Postscript Preview (EPSI), and page
+X    configuration contributions.
+X
+X    George Ferguson for ad2c.sed and help in getting rid of title bars
+SHAR_EOF
+chmod 0644 Acks ||
+echo 'restore of Acks failed'
+Wc_c="`wc -c < 'Acks'`"
+test 1104 -eq "$Wc_c" ||
+	echo 'Acks: original size 1104, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Imakefile ==============
+if test -f 'Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Imakefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Imakefile' &&
+/*========================================================================
+X *
+X * Name - Imakefile
+X *
+X * Version:	1.9
+X *
+X * ccsid:	@(#)Imakefile	1.9 - 7/9/92 12:47:42
+X * from: 	ccs/s.Imakefile
+X * date: 	7/9/92 13:35:24
+X *
+X * Description: imake file to build xgrabsc.  Use simple.mak if you
+X *              don't have imake.
+X *
+X *========================================================================
+X */
+X
+OBJS1 = xgrabsc.o
+OBJS2 = xgrab.o
+PROGRAMS = xgrabsc xgrab
+X
+AllTarget($(PROGRAMS))
+X
+NormalProgramTarget(xgrabsc, $(OBJS1), , , $(XMULIB) $(XLIB))
+NormalProgramTarget(xgrab, $(OBJS2), , , $(XAWLIB) $(XTOOLLIB) $(XMULIB) $(XLIB))
+X
+xgrabsc.o:: process.hc get.hc mem.hc convert.hc write.hc checkvm.h cmdopts.h
+X
+xgrab.o:: xgrab_ad.h
+X
+xgrab_ad.h: XGrab.ad
+X	rm -f xgrab_ad.h
+X	sed -n '1,/! ====/p' XGrab.ad | sed -n -f ad2c.sed >xgrab_ad.h
+X
+X
+InstallMultiple(xgrabsc xgrab, $(BINDIR))
+InstallManPage(xgrabsc, $(MANDIR))
+InstallManPage(xgrab, $(MANDIR))
+InstallAppDefaults(XGrab)
+SHAR_EOF
+chmod 0644 Imakefile ||
+echo 'restore of Imakefile failed'
+Wc_c="`wc -c < 'Imakefile'`"
+test 976 -eq "$Wc_c" ||
+	echo 'Imakefile: original size 976, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= checkvm.h ==============
+if test -f 'checkvm.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping checkvm.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting checkvm.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'checkvm.h' &&
+/*
+X * Name - checkvm.h
+X *
+X * Version:	1.1
+X *
+X * ccsid:	@(#)checkvm.h	1.1 - 7/6/92 10:53:31
+X * from: 	ccs/s.checkvm.h
+X * date: 	7/9/92 13:35:26
+X *
+X * description:  a routine to check resource availability before attempting
+X *               to display a stand-alone image
+X */
+X
+X
+char *CheckVM[] = {
+X  "/checkvm { %% bytesNeeded checkvm -",
+X  "  /needed exch store",
+X  "  /used  0 store",
+X  "  /max   0 store",
+X  "  vmstatus /max exch store /used exch store pop",
+X  "  /avail max used sub store  %% amount of vm available",
+X  "  avail needed lt {",
+X  "    /str 10 string store",
+X  "    gsave",
+X  "    0 inch 8.0 inch translate",
+X  "    1.0 1.0 scale",
+X  "    /Courier findfont 18 scalefont setfont",
+X  "    20 20 moveto",
+X  "    (There is not enough printer memory for this image.) show",
+X  "    20 -5 moveto",
+X  "    needed avail sub 10 str cvrs show",
+X  "    ( more bytes are needed.) show",
+X  "    showpage",
+X  "    grestore",
+X  "  } if",
+X  "} def",
+X  0
+X  };
+X
+X
+SHAR_EOF
+chmod 0644 checkvm.h ||
+echo 'restore of checkvm.h failed'
+Wc_c="`wc -c < 'checkvm.h'`"
+test 960 -eq "$Wc_c" ||
+	echo 'checkvm.h: original size 960, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= cpyright.h ==============
+if test -f 'cpyright.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping cpyright.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting cpyright.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'cpyright.h' &&
+#ifndef _COPYRIGHT_
+#define _COPYRIGHT_
+/*========================================================================
+*
+* Name - cpyright.h
+*
+* Version:	1.4
+*
+* ccsid:	@(#)cpyright.h	1.4 - 7/6/92 10:52:41
+* from: 	ccs/s.cpyright.h
+* date: 	7/9/92 13:35:27
+*
+* Description: copyright information for xgrabsc
+*
+*========================================================================
+*
+* Copyright (C) 1990-92 Bruce Schuchardt, Servio Corp.
+*
+* Permission to use, copy, modify, distribute, and sell this software
+* and its documentation for any purpose is hereby granted without fee,
+* provided that the above copyright notice appear in all copies, and
+* that both that copyright notice and this permission notice appear
+* in supporting documentation.  The author makes no representations
+* about the suitability of this software for any purpose.  It is
+* provided "as is" without express or implied warranty.
+*
+* THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+* INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+* NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+* CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+* OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+* OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+* USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+X
+static char *Copyright = "Copyright (C) 1990-92 Bruce Schuchardt";
+#endif
+X
+X
+SHAR_EOF
+chmod 0644 cpyright.h ||
+echo 'restore of cpyright.h failed'
+Wc_c="`wc -c < 'cpyright.h'`"
+test 1443 -eq "$Wc_c" ||
+	echo 'cpyright.h: original size 1443, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mem.hc ==============
+if test -f 'mem.hc' -a X"$1" != X"-c"; then
+	echo 'x - skipping mem.hc (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mem.hc (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mem.hc' &&
+/*========================================================================
+X *
+X * Name - mem.hc
+X *
+X * ccs version:	1.2
+X *
+X * ccsid:	@(#)mem.hc	1.2 - 7/6/92 10:52:47
+X * from: 	ccs/s.mem.hc
+X * date: 	7/9/92 13:35:27
+X *
+X * Description:  memcpy/set functions for xgrabsc
+X *
+X *
+X *========================================================================
+X */
+X
+#ifdef MEMCPY
+X
+/* memcpy and memset routines from C News */
+X
+X
+/*
+X * memcpy - copy bytes
+X */
+X
+char *
+memcpy(dst, src, size)
+char * dst;
+X char * src;
+int size;
+{
+X        register char *d;
+X        register  char *s;
+X        register int n;
+X
+X        if (size <= 0)
+X                return(dst);
+X
+X        s = src;
+X        d = dst;
+X        if (s <= d && s + (size-1) >= d) {
+X                /* Overlap, must copy right-to-left. */
+X                s += size-1;
+X                d += size-1;
+X                for (n = size; n > 0; n--)
+X                        *d-- = *s--;
+X        } else
+X                for (n = size; n > 0; n--)
+X                        *d++ = *s++;
+X
+X        return(dst);
+}
+X
+/*
+X * memset - set bytes
+X *
+X * CHARBITS should be defined only if the compiler lacks "unsigned char".
+X * It should be a mask, e.g. 0377 for an 8-bit machine.
+X */
+X
+#ifndef CHARBITS
+#       define  UNSCHAR(c)      ((unsigned char)(c))
+#else
+#       define  UNSCHAR(c)      ((c)&CHARBITS)
+#endif
+X
+char *
+memset(s, ucharfill, size)
+X char * s;
+register int ucharfill;
+int size;
+{
+X        register  char *scan;
+X        register int n;
+X        register int uc;
+X
+X        scan = s;
+X        uc = UNSCHAR(ucharfill);
+X        for (n = size; n > 0; n--)
+X                *scan++ = uc;
+X
+X        return(s);
+}
+#endif /* MEMCPY */
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 mem.hc ||
+echo 'restore of mem.hc failed'
+Wc_c="`wc -c < 'mem.hc'`"
+test 1651 -eq "$Wc_c" ||
+	echo 'mem.hc: original size 1651, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+#ifndef PATCHLEVEL_H
+#define PATCHLEVEL_H
+/*========================================================================
+*
+* Name - patchlevel.h
+*
+* Version:	1.10
+*
+* ccsid:	@(#)patchlevel.h	1.10 - 7/9/92 12:48:44
+* from: 	ccs/s.patchlevel.h
+* date: 	7/9/92 13:35:28
+*
+* Copyright (C), 1990-92 Bruce Schuchardt
+* See cpyright.h for full copyright information.
+*  
+* Description: patch level for xgrabsc
+*
+*========================================================================*/
+X
+/* XGRABSC_PATCHLEVEL has no bearing on the patch level for individual
+X * versions.  Starting with v2.0, version minor numbers indicate the
+X * patch level for a particular version.  XGRABSC_PATCHLEVEL indicates
+X * the number of released patches/versions since v1.0 was released in
+X * 1990.
+X */
+X
+#define XGRABSC_PATCHLEVEL 8
+X
+#define XGRABSC_VERSION "2.1 7/9/92 13:35:28"
+#endif
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 856 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 856, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= showvm.ps ==============
+if test -f 'showvm.ps' -a X"$1" != X"-c"; then
+	echo 'x - skipping showvm.ps (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting showvm.ps (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'showvm.ps' &&
+%!
+%%Creator: Bruce_Schuchardt
+%%Title: showvm.ps
+%%Version:       1.3
+%%
+%% ccsid:         @(#)showvm.ps	1.3 - 7/6/92 10:52:55
+%% from:          ccs/s.showvm.ps
+%% CreationDate:  7/9/92 13:35:28
+%%
+%% Description: a Postscript function to display vmstatus.
+%%              Send this file to your printer to see how much vm is
+%%              available for print jobs.
+%%              Copy the dispvm function into xgrabsc postscript output
+%%              and put
+%%                    20 20 dispvm showpage
+%%              after the xgrabsc showpage to see how much is left after
+%%              printing your image
+%%
+%%EndComments
+gsave
+X
+/inch {72 mul} def
+X
+/dispvm {   %% x y dispvm -
+X  gsave
+X  /level 0 store
+X  /used  0 store
+X  /maximum 0 store
+X  /str 10 string store
+X
+X  vmstatus /maximum exch store /used exch store /level exch store
+X  level 10 str cvrs /slevel exch store
+X  used  10 str cvrs /sused exch store
+X  maximum 10 str cvrs /smaximum exch store
+X
+X  0.0 inch 8.0 inch translate
+X
+X  /Courier findfont 18 scalefont setfont          %% get a known font
+X  2 copy moveto                                   %% x y -> x y x y
+X  (Here are the current VM statistics:) show
+X  2 copy 20 sub moveto
+X  (level: ) show level 10 str cvrs show ( (level of 'save' nesting)) show
+X  2 copy 40 sub moveto
+X  (used:  ) show  used  10 str cvrs show ( (bytes)) show
+X  60 sub moveto
+X  (max:   ) show  maximum 10 str cvrs show ( (bytes)) show
+X  grestore
+} bind def
+X
+20 20 dispvm
+X
+grestore
+showpage
+%%Trailer
+SHAR_EOF
+chmod 0644 showvm.ps ||
+echo 'restore of showvm.ps failed'
+Wc_c="`wc -c < 'showvm.ps'`"
+test 1493 -eq "$Wc_c" ||
+	echo 'showvm.ps: original size 1493, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= virtual.h ==============
+if test -f 'virtual.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping virtual.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting virtual.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'virtual.h' &&
+/*
+X * Name - virtual.h
+X *
+X * ccs version:	1.3
+X *
+X * ccsid:	@(#)virtual.h	1.3 - 7/6/92 10:52:59
+X * from: 	ccs/s.virtual.h
+X * date: 	7/9/92 13:35:29
+X *
+X *--- original header:
+X *
+X * vroot.h -- Virtual Root Window handling header file
+X *
+X * This header file redefines the X11 macros RootWindow and DefaultRootWindow,
+X * making them look for a virtual root window as provided by certain `virtual'
+X * window managers like swm and tvtwm. If none is found, the ordinary root
+X * window is returned, thus retaining backward compatibility with standard
+X * window managers.
+X * The function implementing the virtual root lookup remembers the result of
+X * its last invocation to avoid overhead in the case of repeated calls
+X * on the same display and screen arguments.
+X * The lookup code itself is taken from Tom LaStrange's ssetroot program.
+X *
+X * Most simple root window changing X programs can be converted to using
+X * virtual roots by just including
+X *
+X * #include "vroot.h"
+X *
+X * after all the X11 header files.  It has been tested on such popular
+X * X clients as xphoon, xfroot, xloadimage, and xaqua.
+X *
+X * Andreas Stolcke (stolcke@ICSI.Berkeley.EDU), 9/7/90
+X */
+X
+static Window
+VirtualRootWindow(dpy, screen)
+Display *dpy;
+{
+X	static Display *save_dpy = (Display *)0;
+X	static int save_screen = -1;
+X	static Window root = (Window)0;
+X
+X	Atom __SWM_VROOT = None;
+X	int i;
+X	Window rootReturn, parentReturn, *children;
+X	unsigned int numChildren;
+X
+X	if ( dpy != save_dpy || screen != save_screen ) {
+X		root = RootWindow(dpy, screen);
+X
+X		/* go look for a virtual root */
+X		__SWM_VROOT = XInternAtom(dpy, "__SWM_VROOT", False);
+X		XQueryTree(dpy, root, &rootReturn, &parentReturn,
+X				 &children, &numChildren);
+X		for (i = 0; i < numChildren; i++) {
+X			Atom actual_type;
+X			int actual_format;
+X			long nitems, bytesafter;
+X			Window *newRoot = (Window *)0;
+X
+X			if (XGetWindowProperty(dpy, children[i], __SWM_VROOT,
+X				0, 1, False, XA_WINDOW,
+X				&actual_type, &actual_format,
+X				&nitems, &bytesafter,
+X				(unsigned char **) &newRoot) == Success
+X			    && newRoot) {
+X			    root = *newRoot;
+X			    break;
+X			}
+X		}
+X
+X		save_dpy = dpy;
+X		save_screen = screen;
+X	}
+X
+X	return root;
+}
+X
+/*********************
+#undef DefaultRootWindow
+#define DefaultRootWindow(dpy) RootWindow(dpy, DefaultScreen(dpy))
+X
+#undef RootWindow
+#define RootWindow(dpy,screen) VirtualRootWindow(dpy,screen)
+**********************/
+SHAR_EOF
+chmod 0644 virtual.h ||
+echo 'restore of virtual.h failed'
+Wc_c="`wc -c < 'virtual.h'`"
+test 2375 -eq "$Wc_c" ||
+	echo 'virtual.h: original size 2375, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= XGrab.ad ==============
+if test -f 'XGrab.ad' -a X"$1" != X"-c"; then
+	echo 'x - skipping XGrab.ad (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting XGrab.ad (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'XGrab.ad' &&
+XXGrab*.title.label: X-Windows Screen Grabber
+XXGrab*.title.font:   *-helvetica-medium-r-normal--24-*
+XXGrab*.title.horizDistance: 70
+X
+!----------------------------box 1
+X
+XXGrab*.box1.horizDistance: 0
+XXGrab*.box1.vertDistance:  55
+X
+XXGrab*.inputLbl.horizDistance:     5
+XXGrab*.inputLbl.vertDistance:      0
+XXGrab*.inputLbl.font: *-helvetica-medium-o-normal--14-*
+XXGrab*.inputLbl.label: Input Options---------------------------------------
+X
+XXGrab*.click.horizDistance:   10
+XXGrab*.click.vertDistance:    30
+XXGrab*.click.label: Click on Window
+X
+XXGrab*.stretch.horizDistance:   135
+XXGrab*.stretch.vertDistance:     30
+XXGrab*.stretch.label: Stretch Rectangle
+XXGrab*.stretch.state: 1
+X
+XXGrab*.key.horizDistance:   265
+XXGrab*.key.vertDistance:     30
+XXGrab*.key.label: Wait for Control key
+X
+XXGrab*.root.horizDistance: 10
+XXGrab*.root.vertDistance:  60
+XXGrab*.root.label: Grab Whole Screen
+X
+XXGrab*.sleeplbl.horizDistance: 10
+XXGrab*.sleeplbl.vertDistance:  90
+XXGrab*.sleeplbl.label: Sleep before starting
+X
+XXGrab*.sleeptime.horizDistance:   145
+XXGrab*.sleeptime.vertDistance:     90
+XXGrab*.sleeptime.width:            30
+XXGrab*.sleeptime*string: 3
+X
+XXGrab*.psleeplbl.horizDistance:  185
+XXGrab*.psleeplbl.vertDistance:    90
+XXGrab*.psleeplbl.label: Sleep after selecting
+X
+XXGrab*.psleeptime.horizDistance:   320
+XXGrab*.psleeptime.vertDistance:     90
+XXGrab*.psleeptime.width:            30
+XXGrab*.psleeptime*string: 0
+X
+XXGrab*.host.horizDistance:   10
+XXGrab*.host.vertDistance:   120
+XXGrab*.host.label: Use Alternate Display:
+XXGrab*.host.shapeStyle: oval
+XXGrab*.host.width:	    140
+XXGrab*.host.state: 0
+X
+XXGrab*.hostText.horizDistance:   160
+XXGrab*.hostText.vertDistance:    120
+! xgrab sets DISPLAY value into this field
+! XGrab*.hostText*string: :0
+X
+X
+!----------------------------box 2
+XXGrab*.box2.horizDistance:   0
+XXGrab*.box2.vertDistance:  205
+X
+XXGrab*.outputFormat.horizDistance:   5
+XXGrab*.outputFormat.vertDistance:    0
+XXGrab*.outputFormat.font: *-helvetica-medium-o-normal--14-*
+XXGrab*.outputFormat.label: Output Format--------------------------------------
+X
+XXGrab*.xwd.horizDistance:   10
+XXGrab*.xwd.vertDistance:    30
+XXGrab*.xwd.label: X Window Dump
+X
+XXGrab*.ps.horizDistance:   120
+XXGrab*.ps.vertDistance:     30
+XXGrab*.ps.label: PostScript
+XXGrab*.ps.state: 1
+X
+XXGrab*.puzzle.horizDistance:   197
+XXGrab*.puzzle.vertDistance:     30
+XXGrab*.puzzle.label: Puzzle
+X
+XXGrab*.xpm.horizDistance:    10
+XXGrab*.xpm.vertDistance:     60
+XXGrab*.xpm.label: Bitmap/XPM
+X
+XXGrab*.xpm2.horizDistance:   100
+XXGrab*.xpm2.vertDistance:     60
+XXGrab*.xpm2.label: Bm/XPM2
+X
+XXGrab*.xpm3.horizDistance:   175
+XXGrab*.xpm3.vertDistance:     60
+XXGrab*.xpm3.label: Bm/XPM3
+X
+!----------------------------box 3
+XXGrab*.box3.horizDistance:   0
+XXGrab*.box3.vertDistance:  300
+X
+XXGrab*.psOptions.horizDistance:   5
+XXGrab*.psOptions.vertDistance:    0
+XXGrab*.psOptions.font: *-helvetica-medium-o-normal--14-*
+XXGrab*.psOptions.label: PostScript Options-----------------------------------
+X
+XXGrab*.compress.horizDistance:   10
+XXGrab*.compress.vertDistance:    30
+XXGrab*.compress.shapeStyle: oval
+XXGrab*.compress.label: Compress
+X
+XXGrab*.color.horizDistance:    80
+XXGrab*.color.vertDistance:     30
+XXGrab*.color.shapeStyle: oval
+XXGrab*.color.label: Color Output
+X
+XXGrab*.binary.horizDistance: 170
+XXGrab*.binary.vertDistance: 30
+XXGrab*.binary.shapeStyle: oval
+XXGrab*.binary.label: Binary
+X
+XXGrab*.landscape.horizDistance: 10
+XXGrab*.landscape.vertDistance: 60
+XXGrab*.landscape.width: 80
+XXGrab*.landscape.label: Landscape
+X
+XXGrab*.encap.horizDistance:   100
+XXGrab*.encap.vertDistance:     60
+XXGrab*.encap.width: 90
+XXGrab*.encap.label: Encapsulated
+X
+XXGrab*.epsi.horizDistance:   200
+XXGrab*.epsi.vertDistance:     60
+XXGrab*.epsi.label: Encapsulated+Preview
+X
+XXGrab*.pageWidth.horizDistance: 10
+XXGrab*.pageWidth.vertDistance:  90
+XXGrab*.pageWidth.label: Paper Width
+X
+XXGrab*.pageWidthText.horizDistance: 90
+XXGrab*.pageWidthText.vertDistance:  90
+XXGrab*.pageWidthText.width: 35
+XXGrab*.pageWidthText*string: 8.5
+X
+XXGrab*.pageHeight.horizDistance: 130
+XXGrab*.pageHeight.vertDistance:  90
+XXGrab*.pageHeight.label: Height
+X
+XXGrab*.pageHeightText.horizDistance: 175
+XXGrab*.pageHeightText.vertDistance:  90
+XXGrab*.pageHeightText.width: 35
+XXGrab*.pageHeightText*string: 11.0
+X
+XXGrab*.horizMargin.horizDistance: 230
+XXGrab*.horizMargin.vertDistance:  90
+XXGrab*.horizMargin.label: Margin Width
+X
+XXGrab*.horizMarginText.horizDistance: 315
+XXGrab*.horizMarginText.vertDistance:  90
+XXGrab*.horizMarginText.width: 35
+XXGrab*.horizMarginText*string: 0.5
+X
+XXGrab*.vertMargin.horizDistance: 355
+XXGrab*.vertMargin.vertDistance:  90
+XXGrab*.vertMargin.label:  Height
+X
+XXGrab*.vertMarginText.horizDistance: 400
+XXGrab*.vertMarginText.vertDistance:  90
+XXGrab*.vertMarginText.width: 35
+XXGrab*.vertMarginText*string: 0.5
+X
+!----------------------------box 4
+XXGrab*.box4.horizDistance: 0
+XXGrab*.box4.vertDistance: 420
+X
+XXGrab*.prOptions.horizDistance:   5
+XXGrab*.prOptions.vertDistance:    0
+XXGrab*.prOptions.font: *-helvetica-medium-o-normal--14-*
+XXGrab*.prOptions.label: Image Processing Options-----
+X
+XXGrab*.borders.horizDistance:   10
+XXGrab*.borders.vertDistance:    30
+XXGrab*.borders.shapeStyle: oval
+XXGrab*.borders.label: Include Borders
+XXGrab*.borders.width:          105
+XXGrab*.borders.state:            1
+X
+XXGrab*.reverse.horizDistance:   10
+XXGrab*.reverse.vertDistance:    60
+XXGrab*.reverse.shapeStyle: oval
+XXGrab*.reverse.label: Reverse Colors
+XXGrab*.reverse.width:           105
+X
+XXGrab*.brightnessLbl.horizDistance:   10
+XXGrab*.brightnessLbl.vertDistance:    90
+XXGrab*.brightnessLbl.label: Brightness
+X
+XXGrab*.brightnessText.horizDistance:   85
+XXGrab*.brightnessText.vertDistance:    90
+XXGrab*.brightnessText.width:           30
+XXGrab*.brightnessText*string: 100
+X
+XXGrab*.dither.horizDistance:   10
+XXGrab*.dither.vertDistance:   120
+XXGrab*.dither.label: Dither
+X
+XXGrab*.halftone.horizDistance:   67
+XXGrab*.halftone.vertDistance:   120
+XXGrab*.halftone.label: Halftone
+X
+XXGrab*.mapbw.horizDistance:   135
+XXGrab*.mapbw.vertDistance:    120
+XXGrab*.mapbw.label: Map to B/W
+X
+X
+!----------------------------box 5
+XXGrab*.box5.horizDistance: 245
+XXGrab*.box5.vertDistance:  420
+X
+XXGrab*.outputLbl.horizDistance:     5
+XXGrab*.outputLbl.vertDistance:      0
+XXGrab*.outputLbl.font: *-helvetica-medium-o-normal--14-*
+XXGrab*.outputLbl.label: Output Options----------
+X
+XXGrab*.file.horizDistance:   10
+XXGrab*.file.vertDistance:    30
+XXGrab*.file.label: To File:
+XXGrab*.file.state: 1
+X
+XXGrab*.fileText.horizDistance:   100
+XXGrab*.fileText.vertDistance:    30
+XXGrab*.fileText*string: screen.dmp
+X
+XXGrab*.printer.horizDistance:    10
+XXGrab*.printer.vertDistance:     60
+XXGrab*.printer.label: To Command:
+X
+XXGrab*.printerText.horizDistance:    100
+XXGrab*.printerText.vertDistance:     60
+XXGrab*.printerText*string: lpr -l
+X
+X
+!----------------------------box 6
+XXGrab*.box6.horizDistance:   0
+XXGrab*.box6.vertDistance:  565
+X
+XXGrab*.splat.label: -------------------------------------------------------
+X
+XXGrab*.OK.horizDistance:   110
+XXGrab*.OK.vertDistance:     25
+XXGrab*.OK.width:            80
+XXGrab*.OK.font: *-helvetica-medium-r-normal--18-*
+XXGrab*.OK.label: OK
+X
+XXGrab*.Dismiss.horizDistance:   265
+XXGrab*.Dismiss.vertDistance:     25
+XXGrab*.Dismiss.width:            80
+XXGrab*.Dismiss.font: *-helvetica-medium-r-normal--18-*
+XXGrab*.Dismiss.label: Dismiss
+X
+X
+!----------------------------- pervasive resources
+XXGrab*font: *-helvetica-medium-r-normal--12-*
+XXGrab*Form.Form.*.left: chainLeft
+XXGrab*Form.Form.*.right: chainRight
+XXGrab*Form.Form.*.top: chainTop
+XXGrab*Form.Form.*.bottom: chainTop
+XXGrab*Label.borderWidth: 0
+XXGrab*Toggle.borderWidth: 1
+XXGrab*Form.borderWidth: 0
+XXGrab*Toggle.shapeStyle: rectangle
+XXGrab*Command.shapeStyle: oval
+XXGrab*Text.editType: edit
+X
+XXGrab*Form.background: #a3d1f2
+XXGrab*Label.background: #a3d1f2
+!XGrab*Text*background: #d3f1ff
+XXGrab*Toggle.background: ivory
+!XGrab*Command.background: #d3f1ff
+X
+XXGrab*selstyle.foreground: navy
+XXGrab*outputFormat.foreground: navy
+XXGrab*psOptions.foreground: navy
+XXGrab*prOptions.foreground: navy
+XXGrab*outputLbl.foreground: navy
+X
+! ========================================================================
+! *
+! * Name - XGrab.ad
+! *
+! * Version:	1.6
+! *
+! * ccsid:	@(#)XGrab.ad	1.6 - 7/9/92 13:30:15
+! * from: 	ccs/s.XGrab.ad
+! * date: 	7/9/92 13:35:25
+! *
+! * Copyright (c) 1991-2 Bruce Schuchardt.
+! * Read the file cpyright.h for full copyright information.
+! *
+! *
+! * Description: Application Defaults file for xgrab
+! *
+! *========================================================================
+X
+SHAR_EOF
+chmod 0644 XGrab.ad ||
+echo 'restore of XGrab.ad failed'
+Wc_c="`wc -c < 'XGrab.ad'`"
+test 8449 -eq "$Wc_c" ||
+	echo 'XGrab.ad: original size 8449, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= convert.hc ==============
+if test -f 'convert.hc' -a X"$1" != X"-c"; then
+	echo 'x - skipping convert.hc (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting convert.hc (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'convert.hc' &&
+/*========================================================================
+X *
+X * Name - convert.hc
+X *
+X * ccs version:	1.3
+X *
+X * ccsid:	@(#)convert.hc	1.3 - 7/9/92 12:48:34
+X * from: 	ccs/s.convert.hc
+X * date: 	7/9/92 13:35:27
+X *
+X * Description:  color->black&white conversions for xgrabsc
+X *
+X *               see cpyright.h for copyright information
+X *
+X *
+X *========================================================================
+X */
+X
+X
+/*
+X * convert a pixmap image into a bitmap image
+X */
+pixmap2bitmap(image)
+X  imageInfo *image;
+{
+X  XImage *ximage = image->ximage;
+X  int x, y;
+X  word v, black, mid;
+X  dw total, blackrgb, midrgb, lowDelta, l;
+X  XImage *newImage;
+X  byte *newBytes;
+X  int usedCount;
+X  int blackp, whitep;
+X
+X  if (ximage->bits_per_pixel == 1  ||  image->numcells < 1)
+X    return;
+X
+X
+X  blackp = BlackPixel(hDisplay,hScreen);
+X  whitep = WhitePixel(hDisplay,hScreen);
+X
+X  /* get the darkest color */
+X  blackrgb = 0x2FFFD;  /* 3 * 0xFFFF == white */
+X  usedCount = total = 0;
+X  for (x=0; x<image->numcells; x++) {
+X    if (image->used[x]) {
+X      l = (unsigned)image->red[x]
+X          +(unsigned)image->green[x]
+X          +(unsigned)image->blue[x];
+X      if (l <= blackrgb) {
+X        black = x;
+X        blackrgb = l;
+X      }
+X      total += l;
+X      usedCount++;
+X    }
+X  }
+X  /* now find the mid color and use it as the cut-off for black */
+X  midrgb = total / usedCount;
+X  lowDelta = 0x2FFFD;
+X  for (x=0; x<image->numcells; x++) {
+X    if (image->used[x]) {
+X      l = (unsigned)image->red[x]
+X          +(unsigned)image->green[x]
+X          +(unsigned)image->blue[x];
+X      l -= midrgb;
+X      if (l < lowDelta) {
+X        mid = x;
+X        lowDelta = l;
+X      }
+X    }
+X  }
+X  midrgb = (unsigned)image->red[mid]
+X           +(unsigned)image->green[mid]
+X           +(unsigned)image->blue[mid];
+X
+X  /* create a bitmap image */
+X  x = (ximage->width + 7) / 8;
+X  newBytes = (byte *)malloc(x * ximage->height);
+X  memset(newBytes, 0, x * ximage->height);
+X  newImage = XCreateImage(hDisplay, DefaultVisual(hDisplay, hScreen),
+X                1, XYBitmap, 0, newBytes, ximage->width, ximage->height,
+X                8, x);
+X  if (!newImage) {
+X    fprintf(stderr, "%s: unable to create bitmap for conversion\n",
+X      programName);
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X  /* pound the pixels into it */
+X  for (y = 0; y < ximage->height; y++) {
+X    for (x = 0; x < ximage->width; x++) {
+X      v = XGetPixel(ximage, x, y);
+X      l = (dw)image->red[v]+(dw)image->green[v]+(dw)image->blue[v];
+X      XPutPixel(newImage, x, y, l<midrgb? blackp : whitep);
+X    }
+X  }
+X  free(ximage->data);
+X  memcpy((char *)ximage, (char *)newImage, sizeof(XImage));
+X  free(newImage);
+X
+X  memset((char *)image->used, 0, MAX_CELLS);
+X  image->used[whitep] = 1;
+X  image->used[blackp] = 1;
+X  image->numcells = 2;
+}
+X
+X
+X
+X
+X
+X
+X
+#define GRAYS    17 /* ((4 * 4) + 1) patterns for a good dither */
+#define GRAYSTEP ((dw)(65536 / GRAYS))
+X
+static byte DitherBits[GRAYS][4] = {
+X  0xf, 0xf, 0xf, 0xf,
+X  0xe, 0xf, 0xf, 0xf,
+X  0xe, 0xf, 0xb, 0xf,
+X  0xa, 0xf, 0xb, 0xf,
+X  0xa, 0xf, 0xa, 0xf,
+X  0xa, 0xd, 0xa, 0xf,
+X  0xa, 0xd, 0xa, 0x7,
+X  0xa, 0x5, 0xa, 0x7,
+X  0xa, 0x5, 0xa, 0x5,
+X  0x8, 0x5, 0xa, 0x5,
+X  0x8, 0x5, 0x2, 0x5,
+X  0x0, 0x5, 0x2, 0x5,
+X  0x0, 0x5, 0x0, 0x5,
+X  0x0, 0x4, 0x0, 0x5,
+X  0x0, 0x4, 0x0, 0x1,
+X  0x0, 0x0, 0x0, 0x1,
+X  0x0, 0x0, 0x0, 0x0
+X  };
+X
+/* halftone or dither a color image, changing it into a monochrome
+X * image
+X */
+pixmap2halftone(image, dither)
+X  imageInfo *image;
+X  ditherType dither;    /* type of dithering to perform */
+{
+X  XImage *ximage = image->ximage;
+X  XImage *newImage;
+X  byte   *newBytes, *ditherBits;
+X  word   dindex;  /* index into dither array */
+X  dw     color;   /* pixel color */
+X  word  *index;   /* index into dither array for a given pixel */
+X  word   x, y;    /* random counters */
+X  word   x4, y4;
+X  register word   w, h;
+X  register byte  bits;
+X  char  *str;
+X  dw    intensity;
+X  int   maxIntensity, threshold;
+X  word  *fsIndex;
+X  int   err, i;
+X  int   *row1, *row2;
+X  int blackp = BlackPixel(hDisplay,hScreen);
+X  int whitep = WhitePixel(hDisplay,hScreen);
+X
+X  if (ximage->depth <= 1  ||  dither == NO_DITHER)
+X    return;
+X
+X  if (verbose) {
+X    switch (dither) {
+X      case MATRIX_HALFTONE:
+X        str = "Matrix halfton";
+X        break;
+X      case MATRIX_DITHER:
+X        str = "Matrix dither";
+X        break;
+X      case FS_DITHER:
+X        str = "Floyd-Steinberg dither";
+X        break;
+X      default:
+X        fprintf(stderr, "%s: unknown type of dithering requested.  Exiting...\n",
+X            programName);
+X        exit(3);
+X    }
+X    fprintf(stderr, "%s: %sing image...", programName, str);
+X    fflush(stderr);
+X  }
+X
+X  /* create a bitmap image */
+X  x = (dither == MATRIX_HALFTONE)? 4 : 1;
+X  w = ((ximage->width + 7) / 8) * x;
+X  h = ximage->height * x;
+X  newBytes = (byte *)malloc(w * h);
+X  memset((char *)newBytes, 0, w * h);
+X  newImage = XCreateImage(hDisplay, DefaultVisual(hDisplay, hScreen),
+X                1, XYBitmap, 0, newBytes,
+X                ximage->width * x,
+X                h,
+X                8, w);
+X  if (!newImage) {
+X    fprintf(stderr, "%s: unable to create bitmap for conversion\n",
+X      programName);
+X    XCloseDisplay(hDisplay);
+X    exit(3);
+X  }
+X
+X  /* if the number of possible pixels isn't very large, build an array
+X   * which we index by the pixel value to find the dither array index
+X   * by color brightness.  we do this in advance so we don't have to do
+X   * it for each pixel.  things will break if a pixel value is greater
+X   * than (1 << depth), which is bogus anyway.  this calculation is done
+X   * on a per-pixel basis if the colormap is too big.
+X   */
+X
+X  if (ximage->depth <= 16) {
+X    index= (word *)malloc(sizeof(word) * MAX_CELLS);
+X    fsIndex= (word *)malloc(sizeof(word) * MAX_CELLS);
+X    if (index)
+X      for (x= 0; x < image->numcells; x++) {
+X        fsIndex[x] = (word)(0.30 * image->red[x] +
+X                          0.59 * image->green[x] +
+X                          0.11 * image->blue[x]);
+X        index[x] = fsIndex[x]/GRAYSTEP;
+X        if (index[x] >= GRAYS)
+X          index[x] = GRAYS - 1;
+X      }
+X  }
+X  else
+X    index = fsIndex = NULL;
+X
+X  if (dither == FS_DITHER) {
+X    maxIntensity = 65535;
+X    threshold = maxIntensity/2;
+X    row1 = (int *)malloc(ximage->width*sizeof(int));
+X    row2 = (int *)malloc(ximage->width*sizeof(int));
+X    /* initialize row2 */
+X    for (x= 0; x < ximage->width; x++) {
+X      color = XGetPixel(ximage, x, 0);
+X      row2[x] = fsIndex? fsIndex[color] :
+X                  (dw)(0.30*image->red[color] +
+X                   0.59*image->green[color] +
+X                   0.11*image->blue[color]);
+X    }
+X    for (y= 0; y < ximage->height; y++) {
+X      /* row1 := row2 */
+X      memcpy((char *)row1, (char *)row2, ximage->width*sizeof(int));
+X      /* Fill in next row */
+X      if (y != ximage->height-1)
+X        for (x= 0; x < ximage->width; x++) {
+X          color = XGetPixel(ximage, x, y+1);
+X          row2[x] = fsIndex? fsIndex[color] :
+X                      (dw)(0.30*image->red[color] +
+X                       0.59*image->green[color] +
+X                       0.11*image->blue[color]);
+X        }
+X      for (x= 0; x < ximage->width; x++) {
+X        color = XGetPixel(ximage, x, y);
+X        if ((i = row1[x]) > threshold)
+X          err = i - maxIntensity;
+X        else {
+X          XPutPixel(newImage, x, y, blackp);
+X          err = i;
+X        }
+X        /* Diagonal gets 1/4 of error. */
+X        row2[x+1] += err/4;
+X
+X        /* Right and below get 3/8 of error */
+X        err = err*3/8;
+X        row2[x] += err;
+X        row1[x+1] += err;
+X      }
+X    }
+X    if (row1)  free(row1);
+X    if (row2)  free(row2);
+X  }
+X
+X
+X  else {  /* matrix dither or halftone */
+X
+X    for (y= 0; y < ximage->height; y++) {
+X      for (x= 0; x < ximage->width; x++) {
+X        color = XGetPixel(ximage, x, y);
+X        dindex = index? index[color] :
+X                    (dw)(0.30*image->red[color] +
+X                     0.59*image->green[color] +
+X                     0.11*image->blue[color])/GRAYSTEP;
+X        if (dindex >= GRAYS)  /* catch rounding errors */
+X          dindex= GRAYS - 1;
+X        if (dither == MATRIX_DITHER) {
+X          if (DitherBits[dindex][y & 3] & (1 << (x & 3)))
+X             XPutPixel(newImage, x, y, blackp);
+X        }
+X        else { /* halftone */
+X          /* loop for the four Y bits in the dither pattern, putting all
+X           * four X bits in at once.  if you think this would be hard to
+X           * change to be an NxN dithering array, you're right, since we're
+X           * banking on the fact that we need only shift the mask based on
+X           * whether x is odd or not.  an 8x8 array wouldn't even need that,
+X           * but blowing an image up by 64x is probably not a feature.
+X           */
+X          ditherBits = &(DitherBits[dindex][0]);
+X          x4 = x * 4;
+X          y4 = y * 4;
+X          for (h= 0; h < 4; h++) {
+X            bits = ditherBits[h];
+X            for (w=0; w < 4; w++) {
+X              XPutPixel(newImage, x4+w, y4+h, bits & 1 ? blackp : whitep);
+X              bits /= 2;
+X            }
+X          }
+X        }
+X      }
+X    }
+X  }
+X
+X  if (verbose)
+X    fputc('\n', stderr);
+X
+X  free(ximage->data);
+X  memcpy((char *)ximage, (char *)newImage, sizeof(XImage));
+X  free(newImage);
+X  if (index) free(index);
+X  if (fsIndex) free(fsIndex);
+X
+X  image->numcells = 0;
+}
+X
+SHAR_EOF
+chmod 0644 convert.hc ||
+echo 'restore of convert.hc failed'
+Wc_c="`wc -c < 'convert.hc'`"
+test 9241 -eq "$Wc_c" ||
+	echo 'convert.hc: original size 9241, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= simple.mak ==============
+if test -f 'simple.mak' -a X"$1" != X"-c"; then
+	echo 'x - skipping simple.mak (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting simple.mak (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'simple.mak' &&
+#=============================================================================
+#
+# Name - simple.mak
+#
+# Version:	1.10
+#
+# ccsid:	@(#)simple.mak	1.10 - 7/9/92 12:49:09
+# from: 	ccs/s.simple.mak
+# date: 	7/9/92 13:35:28
+#
+# Description: make file for xgrabsc.  Use "make -f simple.mak"
+#
+#=============================================================================
+X
+#CC=gcc
+#CFLAGS = -g -DNO_RLE_CHECKS -DMEMCPY
+#CFLAGS = -g
+CFLAGS = -O
+X
+#LDFLAGS = -Bstatic
+LDFLAGS =
+X
+# change INSTALL_PATH to the directory in which you want xgrabsc installed
+INSTALL_PATH    = /usr/bin/X11
+X
+# change XAPPLOADDIR to the directory in which your want xgrab app-defaults
+# installed
+XXAPPLOADDIR = /usr/lib/X11/app-defaults
+X
+# change MAN_PATH to point to your man page top directory
+MAN_PATH        = /usr/man
+# change MAN_EXT to the section for xgrabsc
+MAN_EXT         = n
+X
+PROGRAMS = xgrabsc xgrab
+X
+all: $(PROGRAMS)
+X
+xgrabsc: xgrabsc.o
+X	rm -f xgrabsc
+X	$(CC) $(LDFLAGS) $(CFLAGS) -o xgrabsc xgrabsc.o -lXmu -lX11
+X
+xgrabsc.o: xgrabsc.c ps_color.h checkvm.h patchlevel.h cpyright.h \
+X  process.hc get.hc mem.hc convert.hc write.hc cmdopts.h
+X
+xgrab: xgrab.o
+X	rm -f xgrab
+X	$(CC) $(LDFLAGS) $(CFLAGS) -o xgrab xgrab.o -lXaw -lXt -lXmu -lXext -lX11
+X
+X
+xgrab.o: xgrab.c xgrab_ad.h
+X
+xgrab_ad.h: XGrab.ad
+X	rm -f xgrab_ad.h
+X	sed -n '1,/! ====/p' XGrab.ad | sed -n -f ad2c.sed >xgrab_ad.h
+X
+install::
+X	install -c -s xgrabsc $(INSTALL_PATH)
+X	install -c -s xgrab $(INSTALL_PATH)
+X	install -c -s XGrab.ad $(XAPPLOADDIR)/XGrab
+X
+install.man::
+X	install -c -m 644 xgrabsc.man \
+X		$(MAN_PATH)/man$(MAN_EXT)/xgrabsc.$(MAN_EXT)
+X	install -c -m 644 xgrab.man \
+X		$(MAN_PATH)/man$(MAN_EXT)/xgrab.$(MAN_EXT)
+X
+clean::
+X	rm -f core *.o xgrabsc xgrab *.log xgrab_ad.h test*
+X
+SHAR_EOF
+chmod 0644 simple.mak ||
+echo 'restore of simple.mak failed'
+Wc_c="`wc -c < 'simple.mak'`"
+test 1725 -eq "$Wc_c" ||
+	echo 'simple.mak: original size 1725, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xgrab.c ==============
+if test -f 'xgrab.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xgrab.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xgrab.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xgrab.c' &&
+/*========================================================================
+X *
+X * Name - xgrab.c
+X *
+X * Version:	1.6
+X *
+X * ccsid:	@(#)xgrab.c	1.6 - 7/9/92 12:49:18
+X * from: 	ccs/s.xgrab.c
+X * date: 	7/9/92 13:35:29
+X *
+X * Copyright (c) 1990-92 Bruce Schuchardt.
+X * Read the file cpyright.h for full copyright information.
+SHAR_EOF
+true || echo 'restore of xgrab.c failed'
+fi
+echo 'End of  part 3'
+echo 'File xgrab.c is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

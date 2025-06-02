@@ -1,0 +1,1651 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i107:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part04/14
+Message-ID: <1992Aug24.025313.24292@sparky.imd.sterling.com>
+X-Md4-Signature: 87248553aaab76344f978a59780729b7
+Date: Mon, 24 Aug 1992 02:53:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 107
+Archive-name: unzip50/part04
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile inflate.c
+# Wrapped by kent@sparky on Sun Aug 23 21:09:32 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 14)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(22919 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#==============================================================================
+X# Makefile for UnZip, ZipInfo & FUnZip:  Unix, OS/2, MS-DOS ("real" makes only)
+X# Version:  5.0 (inflate,explode)                                20 August 1992
+X#==============================================================================
+X#
+X#
+X# INSTRUCTIONS (such as they are):
+X#
+X# "make vax"	-- makes UnZip on a VAX 11-780 BSD 4.3 in current directory
+X#		   (or a SysV VAX, or an 8600 running Ultrix, or...)
+X# "make"	-- uses environment variable SYSTEM to set the type
+X#		   system to compile for.  This doesn't work for some
+X#		   particularly brain-damaged versions of make (VAX BSD,
+X#		   Gould, and SCO Unix are in this group).  If SYSTEM not
+X#		   set, gives instructions on what to try instead.
+X# "make list"	-- lists all supported systems (targets), including related
+X#		   utilities' targets
+X# "make wombat" -- Chokes and dies if you haven't added the specifics
+X#		   for your Wombat 68000 (or whatever) to the systems list.
+X#
+X# CF are flags for the C compiler.  LF are flags for the loader.  LF2 are
+X# more flags for the loader, if they need to be at the end of the line
+X# instead of at the beginning (for example, some libraries).  LOCAL_UNZIP
+X# is an environment variable that can be used to add default C flags to
+X# your compile without editing the Makefile (e.g., -DDEBUG_STRUC, or -FPi87
+X# on PCs).
+X#
+X# My host (a VAX 11-780 running BSD 4.3) is hereafter referred to as "my host."
+X#
+X# My host's /usr/include/sys/param.h defines BSD for me.  You may have to add
+X# "-DBSD" to the list of CF for your system.
+X#
+X# Some versions of make do not define the macro "$(MAKE)" (my host did not).
+X# The makefile should now handle such systems correctly, more or less; the
+X# possible exception to this is if you've used a make command-line option
+X# (for example, the one which displays the commands which WOULD be executed,
+X# but doesn't actually execute them).  It probably needs some more tinkering.
+X# If things still don't work, use "make" instead of "$(MAKE)" in your system's
+X# makerule.  Or try adding the following line to your .login file:
+X#   setenv MAKE "make"
+X# (It didn't help on my host.)
+X#
+X# Memcpy and memset are provided for those systems that don't have them;
+X# they're found in misc.c and will be used if -DZMEM is included in the list
+X# of CF.  These days *almost* all systems have them (they're mandated by
+X# ANSI), but older systems might be lacking.  And at least one machine's
+X# version results in some serious performance degradation...
+X#
+X# Be sure to test your nice new UnZip; successful compilation does not always
+X# imply a working program.
+X
+X
+X#####################
+X# MACRO DEFINITIONS #
+X#####################
+X
+X# Defaults most systems use (use LOCAL_UNZIP in environment to add flags, 
+X# such as -DNOMEMCPY).
+X
+XCRYPTF =
+XCRYPTO =
+X# Uncomment next two lines for decryption version:
+X#CRYPTF = -DCRYPT
+X#CRYPTO = crypt$O
+X
+X# UnZip flags
+XCC = cc#	try using "gcc" target rather than changing this (if you do,
+XLD = cc#	you MUST change LD, too--else "unresolved symbol:  ___main")
+XLOC = $(LOCAL_UNZIP) $(CRYPTF)
+XCF = -O $(LOC)
+XLF = -o unzip
+XLF2 = -s
+X
+X# ZipInfo flags
+XZC = -DZIPINFO
+XZL = -o zipinfo
+XZL2 = -s
+X
+X# FUnZip flags
+XFC = # not used
+XFL = -o funzip
+XFL2 = -s
+X
+X# general-purpose stuff
+XLN = rm -f misc_.c; ln
+XRM = rm -f
+XE =
+XO = .o
+XSHELL = /bin/sh
+XINSTALL = cp#	 	   probably can change this to 'install' if you have it
+XBINDIR = /usr/local/bin#   target directory - where to install executables
+X
+X# object files
+XOBJS1 = unzip$O $(CRYPTO) envargs$O explode$O extract$O file_io$O inflate$O
+XOBJS2 = mapname$O match$O misc$O unreduce$O unshrink$O
+XOBJS = $(OBJS1) $(OBJS2)
+XLOBJS = $(OBJS)
+XOS2_OBJS = $(OBJS:.o=.obj) os2unzip.obj
+XOBJZ = zipinfo$O envargs$O match$O misc_$O
+XOS2_OBJZ = $(OBJZ:.o=.obj) os2zinfo.obj
+XOBJF = funzip$O $(CRYPTO) inflate$O
+XOS2_OBJF = # not yet supported
+XUNZIPS = unzip$E # zipinfo$E funzip$E	# zipinfo, funzip not fully supported
+X#					#  yet (next release)
+X
+X# list of supported systems/targets in this version
+XSYSTEMS1 = 386i 3Bx 7300 amdahl apollo aviion bsd bull c120 c210 coherent
+XSYSTEMS2 = convex cray cray_cc cray_v3 cyber_sgi dec dnix encore eta
+XSYSTEMS3 = gcc gcc_dos generic generic2 gould hk68 hp indigo linux
+XSYSTEMS4 = minix mips msc_dos next osf1 p_iris pyramid rs6000 rtaix
+XSYSTEMS5 = sco sco_dos sco_x286 sequent sgi stellar sun sysv sysv6300
+XSYSTEMS6 = tahoe ultrix vax wombat xos
+X
+XSYS_UTIL1 = zi_dos zi_gcc zi_indigo zipinfo fu_gcc funzip
+X# SYS_UTIL2 = ship ship_dos ship_sysv
+X
+X
+X####################
+X# DEFAULT HANDLING #
+X####################
+X
+X# The below will try to use your shell variable "SYSTEM" as the type system
+X# to use (e.g., if you type "make" with no parameters at the command line).
+X# The test for $(MAKE) is necessary for VAX BSD make (and Gould, apparently),
+X# as is the "goober" (else stupid makes see an "else ;" statement, which they
+X# don't like).  "goober" must then be made into a valid target for machines
+X# which DO define MAKE properly (and have SYSTEM set).  Quel kludge, non?
+X# And to top it all off, it appears that the VAX, at least, can't pick SYSTEM
+X# out of the environment either (which, I suppose, should not be surprising).
+X# [Btw, if the empty "goober" target causes someone else's make to barf, just
+X# add an "@echo > /dev/null" command (or whatever).  Works OK on the Amdahl
+X# and Crays, though.]
+X
+Xdefault:
+X	@if test -z "$(MAKE)"; then\
+X		if test -z "$(SYSTEM)";\
+X		then make help;\
+X		else make $(SYSTEM) MAKE="make";\
+X		fi;\
+X	else\
+X		if test -z "$(SYSTEM)";\
+X		then $(MAKE) help;\
+X		else $(MAKE) $(SYSTEM) goober;\
+X		fi;\
+X	fi
+X
+Xgoober:
+X
+Xhelp:
+X	@echo
+X	@echo\
+X "  If you're not sure about the characteristics of your system, try typing"
+X	@echo\
+X '  "make generic".  If the compiler barfs and says something unpleasant about'
+X	@echo\
+X '  "timezone redefined," try typing "make clean" followed by "make generic2".'
+X	@echo\
+X '  One of these actions should produce a working copy of unzip on most Unix'
+X	@echo\
+X '  systems.  If you know a bit more about the machine on which you work, you'
+X	@echo\
+X '  might try "make list" for a list of the specific systems supported herein.'
+X	@echo\
+X '  And as a last resort, feel free to read the numerous comments within the'
+X	@echo\
+X '  Makefile itself.  Note that to compile the decryption version of UnZip,'
+X	@echo\
+X '  you must obtain crypt.c separately, in addition to uncommenting two lines'
+X	@echo\
+X '  in Makefile (see the main Contents file for ftp and mail-server sites).'
+X	@echo\
+X '  Have an excruciatingly pleasant day.'
+X	@echo
+X
+Xlist:
+X	@echo
+X	@echo\
+X 'Type "make <system>", where <system> is one of the following:'
+X	@echo
+X	@echo  "	$(SYSTEMS1)"
+X	@echo  "	$(SYSTEMS2)"
+X	@echo  "	$(SYSTEMS3)"
+X	@echo  "	$(SYSTEMS4)"
+X	@echo  "	$(SYSTEMS5)"
+X	@echo  "	$(SYSTEMS6)"
+X	@echo
+X	@echo\
+X 'Otherwise set the shell variable SYSTEM to one of these and just type "make".'
+X	@echo\
+X 'Targets for related utilities (ZipInfo) include:'
+X	@echo
+X	@echo  "	$(SYS_UTIL1)"
+X#	@echo  "	$(SYS_UTIL2)"
+X	@echo
+X	@echo\
+X 'For further (very useful) information, please read the comments in Makefile.'
+X	@echo
+X
+X
+X###############################################
+X# BASIC COMPILE INSTRUCTIONS AND DEPENDENCIES #
+X###############################################
+X
+X.c$O :
+X	$(CC) -c $(CF) $*.c
+X
+Xunzips:		$(UNZIPS)
+X
+Xunzip$E:	$(OBJS)
+X	$(LD) $(LF) $(LOBJS) $(LF2)
+X
+Xcrypt$O:        crypt.c unzip.h zip.h	# may or may not be in distribution
+Xenvargs$O:      envargs.c unzip.h
+Xexplode$O:      explode.c unzip.h
+Xextract$O:      extract.c unzip.h
+Xfile_io$O:      file_io.c unzip.h
+Xfunzip$O:       funzip.c unzip.h
+Xinflate$O:      inflate.c unzip.h
+Xmapname$O:      mapname.c unzip.h
+Xmatch$O:        match.c unzip.h
+Xmisc$O:         misc.c unzip.h
+Xos2unzip$O:     os2unzip.c unzip.h	# for OS/2 only
+Xos2zinfo$O:     os2unzip.c unzip.h	# for OS/2 only
+Xunreduce$O:     unreduce.c unzip.h
+Xunshrink$O:     unshrink.c unzip.h
+Xunzip$O:        unzip.c unzip.h
+X
+Xall:	generic_msg generic zipinfo
+X
+Xgeneric_msg:
+X	@echo
+X	@echo\
+X '  Attempting "make generic" and "make zipinfo" now.  If this fails for some'
+X	@echo\
+X '  reason, type "make help" and/or "make list" for suggestions.'
+X	@echo
+X
+Xinstall:	$(UNZIPS)
+X	$(INSTALL) $(UNZIPS) $(BINDIR)
+X
+Xclean:
+X	rm -f $(OBJS) unzip$E $(OBJZ) zipinfo$E
+X
+X
+X################################
+X# INDIVIDUAL MACHINE MAKERULES #
+X################################
+X
+X# these are the makerules for various systems
+X# TABS ARE REQUIRED FOR MANY VERSIONS OF "MAKE"!
+X
+X
+X# ---------------------------------------------------------------------------
+X#   Generic targets (can't assume make utility groks "$(MAKE)")
+X# ---------------------------------------------------------------------------
+X
+Xgeneric:	unzip	# first try if unknown
+X
+Xgeneric2:		# second try if unknown:  hope make is called "make"...
+X	make unzip CF="$(CF) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   "Normal" group (both big- and little-endian, structure-padding or not):
+X# ---------------------------------------------------------------------------
+X
+X386i:		unzip	# sun386i, SunOS 4.0.2
+X3Bx:		unzip	# AT&T 3B2/1000-80; should work on any WE32XXX machine
+X7300:		unzip	# AT&T 7300 (M68000/SysV)
+Xapollo:		unzip	# Apollo Domain/OS machines
+Xbull:		unzip	# Bull DPX/2, BOS 2.00.45 (doesn't require -Xk switch)
+Xcoherent:	unzip	# Coherent 3.10, Mark Williams C
+Xcray_cc:	unzip	# Cray-2 and Y-MP, using default (possibly old) compiler
+Xdec:		unzip	# DEC 5820 (MIPS RISC), test version of Ultrix v4.0
+Xencore:		unzip	# Multimax
+Xeta:		unzip	# ETA-10P*, hybrid SysV with BSD 4.3 enhancements
+Xgould:		unzip	# Gould PN9000 running UTX/32 2.1Bu01
+Xhp:		unzip	# HP 9000 series (68020), 4.3BSD or HP-UX A.B3.10 Ver D
+Xhp_ux:		unzip	# (to match zip's makefile entry)
+Xmips:		unzip	# MIPS M120-5(?), SysV.3 [error in sys/param.h file?]
+Xpyramid:	unzip	# Pyramid 90X, prob. all, under >= OSx4.1, BSD universe
+Xrtaix:		unzip	# IBM RT 6150 under AIX 2.2.1
+Xsco:		unzip	# Xenix/386 (tested on 2.3.1); SCO Unix 3.2.0.
+Xstellar:	unzip	# gs-2000
+Xsun:		unzip	# Sun 3, 4; SunOS 4.x (SOME SYSTEMS ARE SYSTEM V!)
+Xtahoe:		unzip	# tahoe (CCI Power6/32), 4.3BSD
+Xultrix:		unzip	# VAXen, DEC 58x0 (MIPS guts), DECstation 2100; v4.x
+Xvax:		unzip	# general-purpose VAX target (not counting VMS)
+X
+X# ---------------------------------------------------------------------------
+X#   BSD group (for timezone structs [struct timeb]):
+X# ---------------------------------------------------------------------------
+X
+Xbsd:		_bsd	# generic BSD (BSD 4.2 & Ultrix handled in unzip.h)
+X
+X_bsd:
+X	$(MAKE) unzip CF="$(CF) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   SysV group (for extern long timezone and ioctl.h instead of sgtty.h):
+X# ---------------------------------------------------------------------------
+X
+Xamdahl:		_sysv	# Amdahl (IBM) mainframe, UTS (SysV) 1.2.4 and 2.0.1
+Xaviion:         _sysv	# Data General AViiONs, DG/UX 4.3x
+Xsgi:		_sysv	# Silicon Graphics Iris 4D, Irix SysV rel. 3.3.2
+Xsysv:		_sysv	# generic System V Unix
+Xxos:		_sysv	# Olivetti LSX-3005..3045, X/OS 2.3 and 2.4
+X
+X_sysv:
+X	$(MAKE) unzip CF="$(CF) -DSYSV -DTERMIO"
+X
+X# ---------------------------------------------------------------------------
+X#   "Unique" group (require non-standard options):
+X# ---------------------------------------------------------------------------
+X
+X# Apparently the C-120 has an optimization bug, and possibly another
+X# bug in the (SysV?) time routines which adds 11 years to the date.
+X# -DCONVEX not needed?  [RZM:  The remark above the C-120 entry 
+X# about a bug may not be true.  I think it is rather time procedures
+X# uncompatibility between unixes.] [GRR:  So is -O2 ok for c120?]
+X#
+Xc120:			# Convex C-120, OS 9.0, with non-vectorizing cc 4.0
+X	$(MAKE) unzip CF="-O1 $(LOC) -Dunix -DBSD"
+X
+Xc210:			# Convex C-210, OS 9.0, cc 4.0
+X	$(MAKE) unzip CF="-O2 $(LOC) -Dunix -DBSD"
+X
+X# Enclosed you'll find a context diff for the unzip41 makefile
+X# which enhances compilation on a convex.  The previous version
+X# probably worked great a couple of years ago, and would still do
+X# so if one compiles in our "backward compatible" pcc mode.   The
+X# following allows it to work better in a modern convexian environment.
+X# [This target results in the following error on various Convex's, 
+X# however:  "cc: Error on line 79 of file_io.c: 'ioctl' redeclared:
+X# incompatible types."]
+X#
+Xconvex:			# previous target was tested on C200/C400
+X	$(MAKE) unzip CF="$(CF) -Dunix -DCONVEX -ext" LF="$(LF) -ext"
+X
+X# Cray-2 and Y-MP, running Unicos 5.1 to 6.1 (SysV + BSD enhancements)
+X# and Standard (ANSI) C compiler 1.5, 2.0 or 3.0.
+Xcray:
+X	$(MAKE) unzip CC="scc" LD="scc"
+X
+X# Ditto, for Cray Standard C 3.0 or later.
+Xcray_v3:
+X	$(MAKE) unzip CC="scc" LD="scc" CF="$(CF) -h scalar3 -h vector3"
+X
+X# The unzip41 build on a Cyber 910/SGI running Irix v3.3.3 was successful
+X# with the following change to Makefile:
+Xcyber_sgi:
+X	$(MAKE) unzip CF="$(CF) -I/usr/include/bsd"\
+X	 LF="-lbsd $(LF)"
+X
+X# The DIAB dnix 5.3 compiler does not define __STDC__ but understands
+X# prototypes, void, etc., anyway.  It also does not provide any predefined
+X# macros to detect this (aside from "unix" and the four file, line, time
+X# and date macros).  Thus we must define MODERN and PROTO by hand.
+X#
+Xdnix:		# 680X0, DIAB dnix 5.2/5.3 (a Swedish System V clone)
+X	$(MAKE) unzip CF="$(CF) -DPROTO -DMODERN"
+X
+X# Generic BSDish Unix gcc.  ``The -O2 only works with the latest version of
+X# gcc; you may have to use -O only for earlier versions.  I have no idea why
+X# -s causes this bug in gcc.''  [Bug:  "nm: unzip: no name list", "collect:
+X# /usr/bin/nm returned 1 exit status".]  If you don't have strip, don't
+X# worry about it (it just makes the executable smaller).
+X#
+Xgcc:
+X	$(MAKE) unzip CC=gcc LD=gcc CF="-O2 $(LOC)" LF2=""
+X	strip unzip
+X
+X# MS-DOS with D.J. Delorie's djgcc 1.06.  Note that go32 doesn't support
+X# dos function 0x38 (yet); to fix, append to line 400 of exphdlr.c (go32)
+X# the following:  "case 0x38:".
+X#
+Xgcc_dos:	# may need to add -Uunix to CF
+X	$(MAKE) unzip CC=gcc LD=gcc CF="-O2 -Wall $(LOC)"\
+X	 LF="-s" LF2="-o unzip"
+X	aout2exe unzip
+X
+X# Heurikon HK68 (68010), UniPlus+ System V 5.0, Green Hills C-68000
+Xhk68:
+X	$(MAKE) unzip CC="gcc" LD="gcc" LF="-n $(LF)" \
+X	CF="-ga -X138 $(LOC) -Dlocaltime=localti -Dtimezone=timezon"
+X
+X# Rules needed to build the unzip program for an Iris Indigo running
+X# Irix Version 4.0.1
+Xindigo:
+X	$(MAKE) unzip CF="-cckr $(CF) -DTERMIO"
+X
+X# Linux is almost sysv but not quite
+Xlinux:                # Linux pre-0.96 with gcc 2.1
+X	$(MAKE) unzip CF="$(CF) -DTERMIO -DLINUX" CC=gcc LD=gcc
+X
+X# Minix 1.5 PC for the 386 with gcc or bcc
+Xminix:
+X	$(MAKE) unzip CC=gcc CF="$(CF) -DMINIX"
+X
+X# PCs (IBM-type), running MS-DOS, Microsoft C 6.0 and NMAKE.  Can't use
+X# SYSTEM environment variable:  "default" target is > 200 characters.
+X# "nmake msc_dos" works fine, aside from (possibly) an irrelevant message
+X# about the creation of a temporary file.  Environment variable LOCAL_UNZIP
+X# should be set via "SET LOCAL_UNZIP=-FPi87" if you use the 80x87 library;
+X# also add -G2 or -G3 if using a 286/386/486 system.
+X#
+X#msc_dos:
+X#	$(MAKE) unzip.exe\
+X#	 CF="-Ox $(LOC) -nologo -G2" CC=cl LD=link E=.exe O=.obj\
+X#	 LF="/noi/nol" LF2=",unzip;"
+X
+Xmsc_dos:	rsp
+X	$(MAKE) unzip.exe CF="-Ox $(LOC) -nologo" CC=cl LD=link E=.exe\
+X	 O=.obj LOBJS="" LF="@rsp" LF2=""
+X	del rsp
+X
+Xrsp:
+X	echo $(OBJS1:.o=.obj)+ > rsp
+X	echo $(OBJS2:.o=.obj)/noi/e/st:0x1000; >> rsp
+X
+X# $(LOCAL_UNZIP):  math libraries and/or any other personal or debugging
+X#                  definitions:  e.g., SET LOCAL_UNZIP=-FPi87 -DDEBUG_STRUC
+X# $(NOD):  intended to be used as   SET NOD=-link /nod:slibcep   to allow the
+X#          use of default library names (slibce.lib) instead of protected-mode
+X#          names (slibcep.lib), but it fails:  MSC adds its own /nod qualifier,
+X#          and there seems to be no way to override this.  Typical...
+X#
+Xmsc_os2:		# 16-bit OS/2 (1.x) with MSC 6.00 (use makefile.os2)
+X	$(MAKE) -nologo unzip.exe zipinfo.exe CC=cl LD=cl E=.exe O=.obj\
+X	 OBJS="$(OS2_OBJS)" OBJZ="$(OS2_OBJZ)"\
+X	 CF="-nologo -AC -Ocegit -G2s -DOS2 -DMSC $(LOC)"\
+X	 LF="-nologo -AC $(LOC) -Lp -F 2000"\
+X	 LF2="unzip.def -o unzip.exe $(NOD)" LN="copy" RM="del"\
+X	 ZL="-nologo -AC $(LOC) -Lp -Fb" ZL2="zipinfo.def -o zipinfo.exe"
+X
+X# NeXT 2.x: make the executable smaller.
+Xnext:			# 68030 BSD 4.3+Mach
+X	$(MAKE) unzip LF2="-object -s"
+X
+X# Rules to build the unzip program on a DecStation running DEC OSF/1 V1.0.
+X# This machine hasn't got ftime(3) in the standard C library.
+Xosf1:
+X	$(MAKE) unzip LF2="-lbsd"
+X
+X# I successfully compiled and tested the unzip program (v30) for the
+X# Silicon Graphics environment (Personal Iris 4D20/G with IRIX v3.2.2)
+Xp_iris:
+X	$(MAKE) unzip CF="$(CF) -I/usr/include/bsd -DBSD"\
+X	 LF="-lbsd $(LF)"
+X
+X# I have finished porting unzip 3.0 to the Pyramid 90X under OSX4.1.
+X# The biggest problem was the default structure alignment yielding two
+X# extra bytes.  The compiler has the -q option to pack structures, and
+X# this was all that was needed.  To avoid needing ZMEMS we could compile
+X# in the AT&T universe, but it runs more slowly!
+X#
+X#UnZip 5.0f:  moved to regular targets as test
+X#pyramid:	# Pyramid 90X, probably all, under >= OSx4.1, BSD universe
+X#	make unzip CF="$(CF) -q"
+X
+X# IBM RS/6000 under AIX 3.2
+Xrs6000:
+X	$(MAKE) unzip CF="$(CF) -DBSD -D_BSD -DUNIX" LF="-lbsd $(LF)"
+X
+X# SCO cross compile from unix to DOS. Tested with Xenix/386 and OpenDeskTop.
+X# Should work with xenix/286 as well. (davidsen)  Note that you *must* remove
+X# the unix objects and executable before doing this!  (Piet Plomp:  gcc won't
+X# recognize the -M0 flag which forces 8086 code.)
+X#
+Xsco_dos:	# uncomment zipinfo in UNZIPS if desired
+X	$(MAKE) unzips CF="-O $(LOC) -DNO_ERRNO -dos -M0" LF="-dos -F 2000"\
+X	 LF2="-o unzip.exe" ZL="-dos" ZL2="-o zipinfo.exe"
+X
+X# SCO Xenix/286 2.2.1
+Xsco_x286:
+X	$(MAKE) unzip CF="$(CF) -Ml2" LF="$(LF) -Ml2"
+X
+X# Sequent Symmetry is a 386 but needs -DZMEM
+X# This should also work on Balance but I can't test it just yet.
+Xsequent:	# Sequent w/Dynix
+X	$(MAKE) unzip CF="$(CF) -DBSD -DZMEM"
+X
+X# AT&T 6300+, running System V.? Unix:  out-of-memory error if don't use -Ml
+Xsysv6300:
+X	$(MAKE) unzip CF="$(CF) -Ml -DTERMIO" LF="$(LF) -Ml"
+X
+X# I didn't do this.  I swear.  No, really.
+Xwombat:		# Wombat 68000 (or whatever)
+X	@echo
+X	@echo  '	Ha ha!  Just kidding.'
+X	@echo
+X
+X
+X#####################
+X# ZIPINFO MAKERULES #
+X#####################
+X
+X# ZipInfo section:  less hand-holding here, but it should be pretty
+X# straightforward by now.
+X
+Xzipinfo$O:	zipinfo.c unzip.h
+X	$(CC) -c $(CF) zipinfo.c
+X
+Xmisc_$O:	misc.c unzip.h
+X	$(LN) misc.c misc_.c
+X	$(CC) -c $(CF) $(ZC) misc_.c
+X	$(RM) misc_.c
+X
+Xos2zinfo$O:	os2unzip.c unzip.h
+X	$(LN) os2unzip.c os2zinfo.c
+X	$(CC) -c $(CF) $(ZC) os2zinfo.c
+X	$(RM) os2zinfo.c
+X
+Xzipinfo$E:	$(OBJZ)
+X	$(LD) $(ZL) $(OBJZ) $(ZL2)
+X
+Xzi_gcc:			# GNU gcc under Unix (if no strip, don't worry)
+X	$(MAKE) zipinfo CC=gcc LD=gcc ZL2=""
+X	strip zipinfo
+X
+Xzi_indigo:		# SGI Iris Indigo
+X	$(MAKE) zipinfo CF="-cckr -O -DUNIX $(LOC)"
+X
+Xzi_dos:			# MSC 6.0 + nmake, MS-DOS
+X	$(MAKE) zipinfo.exe CF="-Ox -nologo $(LOC) -G2" CC=cl\
+X	 LD=link E=.exe O=.obj ZL="/noi /nol" ZL2=",zipinfo;"\
+X	 LN="copy" RM="DEL"
+X
+X
+X####################
+X# FUNZIP MAKERULES #
+X####################
+X
+X# FUnZip section:  FUnZip (Filter UnZip) is a last-minute addition to the
+X# UnZip suite and is still VERY raw.  Its purpose is to take a zipfile from 
+X# stdin and decompress the first entry to stdout.  Only non-encrypted, stored
+X# or deflated files are allowed at present.  FUnZip may be absorbed into
+X# regular UnZip in a subsequent release.  This target should work for some
+X# Unix systems but is not guaranteed to work for all (or even most).
+X
+Xfunzip$E:	$(OBJF)
+X	$(LD) $(FL) $(OBJF) $(FL2)
+X
+Xfu_gcc:			# GNU gcc under Unix (if no strip, don't worry)
+X	$(MAKE) funzip CC=gcc LD=gcc FL2=""
+X	strip funzip
+X
+X
+X################
+X# ATTRIBUTIONS #
+X################
+X
+X# Thanks to the following people for their help in testing and/or porting
+X# to various machines (and thanks to the many others who aren't listed
+X# here but should be):
+X#
+X#  (original Unix port:  Carl Mascott <cmascott@world.std.com>)
+X#  386i:	Richard Stephen <stephen@corp.telecom.co.nz>
+X#  3Bx:		Bob Kemp <hrrca!bobc@cbnewse.att.com>
+X#  7300:	Richard H. Gumpertz <rhg@cpsolv.CPS.COM>
+X#		Greg Roelofs <roelofs@amelia.nas.nasa.gov>
+X#  amdahl:	Kim DeVaughn <ked01@juts.ccc.amdahl.com>, Greg Roelofs
+X#  apollo:	Tim Geibelhaus
+X#  aviion:	Bruce Kahn <bkahn@archive.webo.dg.com>
+X#  bull:	Matt D'Errico <doc@magna.com>
+X#  c120:	Rafal Maszkowski <sgumk%pltumk11.bitnet>
+X#  coherent:	David Fenyes <dfenyes@thesis1.med.uth.tmc.edu>
+X#  convex:	Randy Wright <rwright@convex.com>
+X#  cray:	Greg Roelofs, Paul Borman <prb@cray.com>
+X#  cray_cc:	Greg Roelofs
+X#  cray_v3:	Greg Roelofs
+X#  cyber_sgi:	Clint Pulley <u001@cs910.cciw.ca>
+X#  dec:		"Moby" Dick O'Connor <djo7613@u.washington.edu>
+X#  dnix:	Bo Kullmar <bk@kullmar.se>
+X#  eta:		Greg Flint <afc@klaatu.cc.purdue.edu>
+X#  gcc:		Jean-loup Gailly <jloup@chorus.fr>
+X#  gcc_dos:	Onno van der Linden <linden@fwi.uva.nl>
+X#  gcc_os2:	Kai Uwe Rommel <rommel@informatik.tu-muenchen.de>
+X#  gould:	Onno van der Linden
+X#  hk68:	John Limpert <gronk!johnl@uunet.UU.NET>
+X#  hp:		Randy McCaskile <rmccask@seas.gwu.edu> (HP-UX)
+X#		Gershon Elber <gershon@cs.utah.edu> (HP BSD 4.3)
+X#  icc_os2:	Kai Uwe Rommel
+X#  indigo:	Kjetil Wiekhorst J|rgensen <jorgens@lise.unit.no>
+X#  linux:	Humberto Ortiz-Zuazaga <zuazaga@ucunix.san.uc.edu>
+X#  minix:	Kai Uwe Rommel (Minix 1.5)
+X#  mips:	Peter Jones <jones@mips1.uqam.ca>
+X#  msc_dos:	Greg Roelofs <roe2@ellis.uchicago.edu>
+X#		Piet W. Plomp <piet@icce.rug.nl>
+X#  msc_os2:	Wim Bonner <wbonner@yoda.eecs.wsu.edu>
+X#		Kai Uwe Rommel, Greg Roelofs
+X#  next:	Mark Adler <madler@piglet.caltech.edu>
+X#  osf1:	Kjetil Wiekhorst J{\o}rgensen
+X#  p_iris:	Valter V. Cavecchia <root@itnsg1.cineca.it>
+X#  pyramid:	James Dugal <jpd@usl.edu>
+X#  rs6000:	Filip Gieszczykiewicz <fmg@smi.med.pitt.edu>
+X#		Trevor Paquette <tpaquett@ita.lgc.com>
+X#  rtaix:	Erik-Jan Vens
+X#  sco:		Onno van der Linden (SCO Unix 3.2.0)
+X#   		Bill Davidsen <davidsen@crdos1.crd.ge.com> (Xenix/386)
+X#  sco_dos:	Bill Davidsen, Piet W. Plomp
+X#  sco_x286:	Ricky Mobley <ddi1!lrark!rick@uunet.UU.NET>
+X#  sequent:	Phil Howard <phil@ux1.cso.uiuc.edu>
+X#  sgi:		Greg Roelofs (Iris 4D/380?)
+X#  sun:		Onno van der Linden (Sun 4), Greg Roelofs (Sun 3, 4)
+X#  sysv:	Greg Roelofs
+X#  sysv6300:	Peter Mauzey <ptm@mtdcc.att.com>
+X#  tahoe:	Mark Edwards <mce%sdcc10@ucsd.edu>
+X#  ultrix:	Greg Flint (VAX)
+X#		Michael Graff <explorer@iastate.edu> (DECstation 2100?)
+X#		Greg Roelofs (DEC 5810)
+X#		Alex A Sergejew <aas@brain.wph.uq.oz.au>
+X#  vax:		Forrest Gehrke <feg@dodger.att.com> (SysV)
+X#		David Kirschbaum <kirsch@usasoc.soc.mil> (BSD 4.3)
+X#		Jim Steiner <steiner@pica.army.mil> (8600+Ultrix)
+X#  wombat:	Joe Isuzu <joe@trustme.isuzu.com>
+X#  xos:		Fulvio Marino <fulvio@iconet.ico.olivetti.com>
+X#  zi_dos:	Greg Roelofs
+X#  zi_icc:	Kai Uwe Rommel
+X#  zi_os2:	Greg Roelofs, Kai Uwe Rommel
+X#  zipinfo:	Greg Roelofs
+END_OF_FILE
+  if test 22919 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'inflate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inflate.c'\"
+else
+  echo shar: Extracting \"'inflate.c'\" \(32972 characters\)
+  sed "s/^X//" >'inflate.c' <<'END_OF_FILE'
+X/* inflate.c -- Not copyrighted 1992 by Mark Adler
+X   version c7, 27 June 1992 */
+X
+X
+X/* You can do whatever you like with this source file, though I would
+X   prefer that if you modify it and redistribute it that you include
+X   comments to that effect with your name and the date.  Thank you.
+X
+X   History:
+X   vers    date          who           what
+X   ----  ---------  --------------  ------------------------------------
+X    a    ~~ Feb 92  M. Adler        used full (large, one-step) lookup table
+X    b1   21 Mar 92  M. Adler        first version with partial lookup tables
+X    b2   21 Mar 92  M. Adler        fixed bug in fixed-code blocks
+X    b3   22 Mar 92  M. Adler        sped up match copies, cleaned up some
+X    b4   25 Mar 92  M. Adler        added prototypes; removed window[] (now
+X                                    is the responsibility of unzip.h--also
+X                                    changed name to slide[]), so needs diffs
+X                                    for unzip.c and unzip.h (this allows
+X                                    compiling in the small model on MSDOS);
+X                                    fixed cast of q in huft_build();
+X    b5   26 Mar 92  M. Adler        got rid of unintended macro recursion.
+X    b6   27 Mar 92  M. Adler        got rid of nextbyte() routine.  fixed
+X                                    bug in inflate_fixed().
+X    c1   30 Mar 92  M. Adler        removed lbits, dbits environment variables.
+X                                    changed BMAX to 16 for explode.  Removed
+X                                    OUTB usage, and replaced it with flush()--
+X                                    this was a 20% speed improvement!  Added
+X                                    an explode.c (to replace unimplode.c) that
+X                                    uses the huft routines here.  Removed
+X                                    register union.
+X    c2    4 Apr 92  M. Adler        fixed bug for file sizes a multiple of 32k.
+X    c3   10 Apr 92  M. Adler        reduced memory of code tables made by
+X                                    huft_build significantly (factor of two to
+X                                    three).
+X    c4   15 Apr 92  M. Adler        added NOMEMCPY do kill use of memcpy().
+X                                    worked around a Turbo C optimization bug.
+X    c5   21 Apr 92  M. Adler        added the WSIZE #define to allow reducing
+X                                    the 32K window size for specialized
+X                                    applications.
+X    c6   31 May 92  M. Adler        added some typecasts to eliminate warnings
+X    c7   27 Jun 92  G. Roelofs      added some more typecasts (439:  MSC bug)
+X */
+X
+X
+X/*
+X   Inflate deflated (PKZIP's method 8 compressed) data.  The compression
+X   method searches for as much of the current string of bytes (up to a
+X   length of 258) in the previous 32K bytes.  If it doesn't find any
+X   matches (of at least length 3), it codes the next byte.  Otherwise, it
+X   codes the length of the matched string and its distance backwards from
+X   the current position.  There is a single Huffman code that codes both
+X   single bytes (called "literals") and match lengths.  A second Huffman
+X   code codes the distance information, which follows a length code.  Each
+X   length or distance code actually represents a base value and a number
+X   of "extra" (sometimes zero) bits to get to add to the base value.  At
+X   the end of each deflated block is a special end-of-block (EOB) literal/
+X   length code.  The decoding process is basically: get a literal/length
+X   code; if EOB then done; if a literal, emit the decoded byte; if a
+X   length then get the distance and emit the referred-to bytes from the
+X   sliding window of previously emitted data.
+X
+X   There are (currently) three kinds of inflate blocks: stored, fixed, and
+X   dynamic.  The compressor deals with some chunk of data at a time, and
+X   decides which method to use on a chunk-by-chunk basis.  A chunk might
+X   typically be 32K or 64K.  If the chunk is uncompressible, then the
+X   "stored" method is used.  In this case, the bytes are simply stored as
+X   is, eight bits per byte, with none of the above coding.  The bytes are
+X   preceded by a count, since there is no longer an EOB code.
+X
+X   If the data is compressible, then either the fixed or dynamic methods
+X   are used.  In the dynamic method, the compressed data is preceded by
+X   an encoding of the literal/length and distance Huffman codes that are
+X   to be used to decode this block.  The representation is itself Huffman
+X   coded, and so is preceded by a description of that code.  These code
+X   descriptions take up a little space, and so for small blocks, there is
+X   a predefined set of codes, called the fixed codes.  The fixed method is
+X   used if the block codes up smaller that way (usually for quite small
+X   chunks), otherwise the dynamic method is used.  In the latter case, the
+X   codes are customized to the probabilities in the current block, and so
+X   can code it much better than the pre-determined fixed codes.
+X 
+X   The Huffman codes themselves are decoded using a mutli-level table
+X   lookup, in order to maximize the speed of decoding plus the speed of
+X   building the decoding tables.  See the comments below that precede the
+X   lbits and dbits tuning parameters.
+X */
+X
+X
+X/*
+X   Notes beyond the 1.93a appnote.txt:
+X
+X   1. Distance pointers never point before the beginning of the output
+X      stream.
+X   2. Distance pointers can point back across blocks, up to 32k away.
+X   3. There is an implied maximum of 7 bits for the bit length table and
+X      15 bits for the actual data.
+X   4. If only one code exists, then it is encoded using one bit.  (Zero
+X      would be more efficient, but perhaps a little confusing.)  If two
+X      codes exist, they are coded using one bit each (0 and 1).
+X   5. There is no way of sending zero distance codes--a dummy must be
+X      sent if there are none.  (History: a pre 2.0 version of PKZIP would
+X      store blocks with no distance codes, but this was discovered to be
+X      too harsh a criterion.)
+X   6. There are up to 286 literal/length codes.  Code 256 represents the
+X      end-of-block.  Note however that the static length tree defines
+X      288 codes just to fill out the Huffman codes.  Codes 286 and 287
+X      cannot be used though, since there is no length base or extra bits
+X      defined for them.  Similarily, there are up to 30 distance codes.
+X      However, static trees define 32 codes (all 5 bits) to fill out the
+X      Huffman codes, but the last two had better not show up in the data.
+X   7. Unzip can check dynamic Huffman blocks for complete code sets.
+X      The exception is that a single code would not be complete (see #4).
+X   8. The five bits following the block type is really the number of
+X      literal codes sent minus 257.
+X   9. Length codes 8,16,16 are interpreted as 13 length codes of 8 bits
+X      (1+6+6).  Therefore, to output three times the length, you output
+X      three codes (1+1+1), whereas to output four times the same length,
+X      you only need two codes (1+3).  Hmm.
+X  10. In the tree reconstruction algorithm, Code = Code + Increment
+X      only if BitLength(i) is not zero.  (Pretty obvious.)
+X  11. Correction: 4 Bits: # of Bit Length codes - 4     (4 - 19)
+X  12. Note: length code 284 can represent 227-258, but length code 285
+X      really is 258.  The last length deserves its own, short code
+X      since it gets used a lot in very redundant files.  The length
+X      258 is special since 258 - 3 (the min match length) is 255.
+X  13. The literal/length and distance code bit lengths are read as a
+X      single stream of lengths.  It is possible (and advantageous) for
+X      a repeat code (16, 17, or 18) to go across the boundary between
+X      the two sets of lengths.
+X */
+X
+X#include "unzip.h"      /* this must supply the slide[] (byte) array */
+X
+X#ifndef WSIZE
+X#  define WSIZE 0x8000  /* window size--must be a power of two, and at least
+X                           32K for zip's deflate method */
+X#endif /* !WSIZE */
+X
+X
+X/* Huffman code lookup table entry--this entry is four bytes for machines
+X   that have 16-bit pointers (e.g. PC's in the small or medium model).
+X   Valid extra bits are 0..13.  e == 15 is EOB (end of block), e == 16
+X   means that v is a literal, 16 < e < 32 means that v is a pointer to
+X   the next table, which codes e - 16 bits, and lastly e == 99 indicates
+X   an unused code.  If a code with e == 99 is looked up, this implies an
+X   error in the data. */
+Xstruct huft {
+X  byte e;               /* number of extra bits or operation */
+X  byte b;               /* number of bits in this code or subcode */
+X  union {
+X    UWORD n;            /* literal, length base, or distance base */
+X    struct huft *t;     /* pointer to next level of table */
+X  } v;
+X};
+X
+X
+X/* Function prototypes */
+Xint huft_build OF((unsigned *, unsigned, unsigned, UWORD *, UWORD *,
+X                   struct huft **, int *));
+Xint huft_free OF((struct huft *));
+Xvoid flush OF((unsigned));
+Xint inflate_codes OF((struct huft *, struct huft *, int, int));
+Xint inflate_stored OF((void));
+Xint inflate_fixed OF((void));
+Xint inflate_dynamic OF((void));
+Xint inflate_block OF((int *));
+Xint inflate_entry OF((void));
+Xvoid inflate OF((void));
+X
+X
+X/* The inflate algorithm uses a sliding 32K byte window on the uncompressed
+X   stream to find repeated byte strings.  This is implemented here as a
+X   circular buffer.  The index is updated simply by incrementing and then
+X   and'ing with 0x7fff (32K-1). */
+X/* It is left to other modules to supply the 32K area.  It is assumed
+X   to be usable as if it were declared "byte slide[32768];" or as just
+X   "byte *slide;" and then malloc'ed in the latter case.  The definition
+X   must be in unzip.h, included above. */
+Xunsigned wp;            /* current position in slide */
+X
+X
+X/* Tables for deflate from PKZIP's appnote.txt. */
+Xstatic unsigned border[] = {    /* Order of the bit length code lengths */
+X        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+Xstatic UWORD cplens[] = {       /* Copy lengths for literal codes 257..285 */
+X        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+X        35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0, 0};
+X        /* note: see note #13 above about the 258 in this list. */
+Xstatic UWORD cplext[] = {       /* Extra bits for literal codes 257..285 */
+X        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+X        3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 99, 99}; /* 99==invalid */
+Xstatic UWORD cpdist[] = {       /* Copy offsets for distance codes 0..29 */
+X        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+X        257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+X        8193, 12289, 16385, 24577};
+Xstatic UWORD cpdext[] = {       /* Extra bits for distance codes */
+X        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+X        7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+X        12, 12, 13, 13};
+X
+X
+X
+X/* Macros for inflate() bit peeking and grabbing.
+X   The usage is:
+X   
+X        NEEDBITS(j)
+X        x = b & mask_bits[j];
+X        DUMPBITS(j)
+X
+X   where NEEDBITS makes sure that b has at least j bits in it, and
+X   DUMPBITS removes the bits from b.  The macros use the variable k
+X   for the number of bits in b.  Normally, b and k are register
+X   variables for speed, and are initialized at the begining of a
+X   routine that uses these macros from a global bit buffer and count.
+X
+X   If we assume that EOB will be the longest code, then we will never
+X   ask for bits with NEEDBITS that are beyond the end of the stream.
+X   So, NEEDBITS should not read any more bytes than are needed to
+X   meet the request.  Then no bytes need to be "returned" to the buffer
+X   at the end of the last block.
+X
+X   However, this assumption is not true for fixed blocks--the EOB code
+X   is 7 bits, but the other literal/length codes can be 8 or 9 bits.
+X   (Why PK made the EOB code, which can only occur once in a block,
+X   the *shortest* code in the set, I'll never know.)  However, by
+X   making the first table have a lookup of seven bits, the EOB code
+X   will be found in that first lookup, and so will not require that too
+X   many bits be pulled from the stream.
+X */
+X
+XULONG bb;                       /* bit buffer */
+Xunsigned bk;                    /* bits in bit buffer */
+X
+XUWORD bytebuf;
+X#define NEXTBYTE    (ReadByte(&bytebuf), bytebuf)
+X#define NEEDBITS(n) {while(k<(n)){b|=((ULONG)NEXTBYTE)<<k;k+=8;}}
+X#define DUMPBITS(n) {b>>=(n);k-=(n);}
+X
+X
+X/*
+X   Huffman code decoding is performed using a multi-level table lookup.
+X   The fastest way to decode is to simply build a lookup table whose
+X   size is determined by the longest code.  However, the time it takes
+X   to build this table can also be a factor if the data being decoded
+X   is not very long.  The most common codes are necessarily the
+X   shortest codes, so those codes dominate the decoding time, and hence
+X   the speed.  The idea is you can have a shorter table that decodes the
+X   shorter, more probable codes, and then point to subsidiary tables for
+X   the longer codes.  The time it costs to decode the longer codes is
+X   then traded against the time it takes to make longer tables.
+X
+X   This results of this trade are in the variables lbits and dbits
+X   below.  lbits is the number of bits the first level table for literal/
+X   length codes can decode in one step, and dbits is the same thing for
+X   the distance codes.  Subsequent tables are also less than or equal to
+X   those sizes.  These values may be adjusted either when all of the
+X   codes are shorter than that, in which case the longest code length in
+X   bits is used, or when the shortest code is *longer* than the requested
+X   table size, in which case the length of the shortest code in bits is
+X   used.
+X
+X   There are two different values for the two tables, since they code a
+X   different number of possibilities each.  The literal/length table
+X   codes 286 possible values, or in a flat code, a little over eight
+X   bits.  The distance table codes 30 possible values, or a little less
+X   than five bits, flat.  The optimum values for speed end up being
+X   about one bit more than those, so lbits is 8+1 and dbits is 5+1.
+X   The optimum values may differ though from machine to machine, and
+X   possibly even between compilers.  Your mileage may vary.
+X */
+X
+X
+Xint lbits = 9;          /* bits in base literal/length lookup table */
+Xint dbits = 6;          /* bits in base distance lookup table */
+X
+X
+X/* If BMAX needs to be larger than 16, then h and x[] should be ULONG. */
+X#define BMAX 16         /* maximum bit length of any code (16 for explode) */
+X#define N_MAX 288       /* maximum number of codes in any set */
+X
+X
+Xunsigned hufts;         /* track memory usage */
+X
+X
+Xint huft_build(b, n, s, d, e, t, m)
+Xunsigned *b;            /* code lengths in bits (all assumed <= BMAX) */
+Xunsigned n;             /* number of codes (assumed <= N_MAX) */
+Xunsigned s;             /* number of simple-valued codes (0..s-1) */
+XUWORD *d;               /* list of base values for non-simple codes */
+XUWORD *e;               /* list of extra bits for non-simple codes */
+Xstruct huft **t;        /* result: starting table */
+Xint *m;                 /* maximum lookup bits, returns actual */
+X/* Given a list of code lengths and a maximum table size, make a set of
+X   tables to decode that set of codes.  Return zero on success, one if
+X   the given code set is incomplete (the tables are still built in this
+X   case), two if the input is invalid (all zero length codes or an
+X   oversubscribed set of lengths), and three if not enough memory. */
+X{
+X  unsigned a;                   /* counter for codes of length k */
+X  unsigned c[BMAX+1];           /* bit length count table */
+X  unsigned f;                   /* i repeats in table every f entries */
+X  int g;                        /* maximum code length */
+X  int h;                        /* table level */
+X  register unsigned i;          /* counter, current code */
+X  register unsigned j;          /* counter */
+X  register int k;               /* number of bits in current code */
+X  int l;                        /* bits per table (returned in m) */
+X  register unsigned *p;         /* pointer into c[], b[], or v[] */
+X  register struct huft *q;      /* points to current table */
+X  struct huft r;                /* table entry for structure assignment */
+X  struct huft *u[BMAX];         /* table stack */
+X  unsigned v[N_MAX];            /* values in order of bit length */
+X  register int w;               /* bits before this table == (l * h) */
+X  unsigned x[BMAX+1];           /* bit offsets, then code stack */
+X  unsigned *xp;                 /* pointer into x */
+X  int y;                        /* number of dummy codes added */
+X  unsigned z;                   /* number of entries in current table */
+X
+X
+X  /* Generate counts for each bit length */
+X  memset(c, 0, sizeof(c));
+X  p = b;  i = n;
+X  do {
+X    c[*p++]++;                  /* assume all entries <= BMAX */
+X  } while (--i);
+X  if (c[0] == n)
+X    return 2;                   /* bad input--all zero length codes */
+X
+X
+X  /* Find minimum and maximum length, bound *m by those */
+X  l = *m;
+X  for (j = 1; j <= BMAX; j++)
+X    if (c[j])
+X      break;
+X  k = j;                        /* minimum code length */
+X  if ((unsigned)l < j)
+X    l = j;
+X  for (i = BMAX; i; i--)
+X    if (c[i])
+X      break;
+X  g = i;                        /* maximum code length */
+X  if ((unsigned)l > i)
+X    l = i;
+X  *m = l;
+X
+X
+X  /* Adjust last length count to fill out codes, if needed */
+X  for (y = 1 << j; j < i; j++, y <<= 1)
+X    if ((y -= c[j]) < 0)
+X      return 2;                 /* bad input: more codes than bits */
+X  if ((y -= c[i]) < 0)
+X    return 2;
+X  c[i] += y;
+X
+X
+X  /* Generate starting offsets into the value table for each length */
+X  x[1] = j = 0;
+X  p = c + 1;  xp = x + 2;
+X  while (--i) {                 /* note that i == g from above */
+X    *xp++ = (j += *p++);
+X  }
+X
+X
+X  /* Make a table of values in order of bit lengths */
+X  p = b;  i = 0;
+X  do {
+X    if ((j = *p++) != 0)
+X      v[x[j]++] = i;
+X  } while (++i < n);
+X
+X
+X  /* Generate the Huffman codes and for each, make the table entries */
+X  x[0] = i = 0;                 /* first Huffman code is zero */
+X  p = v;                        /* grab values in bit order */
+X  h = -1;                       /* no tables yet--level -1 */
+X  w = -l;                       /* bits decoded == (l * h) */
+X  u[0] = (struct huft *)NULL;   /* just to keep compilers happy */
+X  q = (struct huft *)NULL;      /* ditto */
+X  z = 0;                        /* ditto */
+X
+X  /* go through the bit lengths (k already is bits in shortest code) */
+X  for (; k <= g; k++)
+X  {
+X    a = c[k];
+X    while (a--)
+X    {
+X      /* here i is the Huffman code of length k bits for value *p */
+X      /* make tables up to required level */
+X      while (k > w + l)
+X      {
+X        h++;
+X        w += l;                 /* previous table always l bits */
+X
+X        /* compute minimum size table less than or equal to l bits */
+X        z = (z = g - w) > (unsigned)l ? l : z;  /* upper limit on table size */
+X        if ((f = 1 << (j = k - w)) > a + 1)     /* try a k-w bit table */
+X        {                       /* too few codes for k-w bit table */
+X          f -= a + 1;           /* deduct codes from patterns left */
+X          xp = c + k;
+X          while (++j < z)       /* try smaller tables up to z bits */
+X          {
+X            if ((f <<= 1) <= *++xp)
+X              break;            /* enough codes to use up j bits */
+X            f -= *xp;           /* else deduct codes from patterns */
+X          }
+X        }
+X        z = 1 << j;             /* table entries for j-bit table */
+X
+X        /* allocate and link in new table */
+X        if ((q = (struct huft *)malloc((z + 1)*sizeof(struct huft))) ==
+X            (struct huft *)NULL)
+X        {
+X          if (h)
+X            huft_free(u[0]);
+X          fprintf(stderr, "\n*** inflate out of memory *** ");
+X          return 3;             /* not enough memory */
+X        }
+X        hufts += z + 1;         /* track memory usage */
+X        *t = q + 1;             /* link to list for huft_free() */
+X        *(t = &(q->v.t)) = (struct huft *)NULL;
+X        u[h] = ++q;             /* table starts after link */
+X
+X        /* connect to last table, if there is one */
+X        if (h)
+X        {
+X          x[h] = i;             /* save pattern for backing up */
+X          r.b = (byte)l;        /* bits to dump before this table */
+X          r.e = (byte)(16 + j); /* bits in this table */
+X          r.v.t = q;            /* pointer to this table */
+X          j = i >> (w - l);     /* (get around Turbo C bug) */
+X          u[h-1][j] = r;        /* connect to last table */
+X        }
+X      }
+X
+X      /* set up table entry in r */
+X      r.b = (byte)(k - w);
+X      if (p >= v + n)
+X        r.e = 99;               /* out of values--invalid code */
+X      else if (*p < s)
+X      {
+X        r.e = (byte)(*p < 256 ? 16 : 15);    /* 256 is end-of-block code */
+X        r.v.n = *p++;           /* simple code is just the value */
+X      }
+X      else
+X      {
+X        r.e = (byte)e[*p - s];  /* non-simple--look up in lists */
+X        r.v.n = d[*p++ - s];
+X      }
+X
+X      /* fill code-like entries with r */
+X      f = 1 << (k - w);
+X      for (j = i >> w; j < z; j += f)
+X        q[j] = r;
+X
+X      /* backwards increment the k-bit code i */
+X      for (j = 1 << (k - 1); i & j; j >>= 1)
+X        i ^= j;
+X      i ^= j;
+X
+X      /* backup over finished tables */
+X      while ((i & ((1 << w) - 1)) != x[h])
+X      {
+X        h--;                    /* don't need to update q */
+X        w -= l;
+X      }
+X    }
+X  }
+X
+X
+X  /* Return true (1) if we were given an incomplete table */
+X  return y != 0 && n != 1;
+X}
+X
+X
+X
+Xint huft_free(t)
+Xstruct huft *t;         /* table to free */
+X/* Free the malloc'ed tables built by huft_build(), which makes a linked
+X   list of the tables it made, with the links in a dummy first entry of
+X   each table. */
+X{
+X  register struct huft *p, *q;
+X
+X
+X  /* Go through linked list, freeing from the malloced (t[-1]) address. */
+X  p = t;
+X  while (p != (struct huft *)NULL)
+X  {
+X    q = (--p)->v.t;
+X    free(p);
+X    p = q;
+X  } 
+X  return 0;
+X}
+X
+X
+X
+Xvoid flush(w)
+Xunsigned w;             /* number of bytes to flush */
+X/* Do the equivalent of OUTB for the bytes slide[0..w-1]. */
+X{
+X  unsigned n;
+X  byte *p;
+X
+X  p = slide;
+X  while (w)
+X  {
+X    n = (n = OUTBUFSIZ - outcnt) < w ? n : w;
+X    memcpy(outptr, p, n);       /* try to fill up buffer */
+X    outptr += n;
+X    if ((outcnt += n) == OUTBUFSIZ)
+X      FlushOutput();            /* if full, empty */
+X    p += n;
+X    w -= n;
+X  }
+X}
+X
+X
+X
+Xint inflate_codes(tl, td, bl, bd)
+Xstruct huft *tl, *td;   /* literal/length and distance decoder tables */
+Xint bl, bd;             /* number of bits decoded by tl[] and td[] */
+X/* inflate (decompress) the codes in a deflated (compressed) block.
+X   Return an error code or zero if it all goes ok. */
+X{
+X  register unsigned e;  /* table entry flag/number of extra bits */
+X  unsigned n, d;        /* length and index for copy */
+X  unsigned w;           /* current window position */
+X  struct huft *t;       /* pointer to table entry */
+X  unsigned ml, md;      /* masks for bl and bd bits */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X
+X
+X  /* make local copies of globals */
+X  b = bb;                       /* initialize bit buffer */
+X  k = bk;
+X  w = wp;                       /* initialize window position */
+X
+X
+X  /* inflate the coded data */
+X  ml = mask_bits[bl];           /* precompute masks for speed */
+X  md = mask_bits[bd];
+X  while (1)                     /* do until end of block */
+X  {
+X    NEEDBITS((unsigned)bl)
+X    if ((e = (t = tl + ((unsigned)b & ml))->e) > 16)
+X      do {
+X        if (e == 99)
+X          return 1;
+X        DUMPBITS(t->b)
+X        e -= 16;
+X        NEEDBITS(e)
+X      } while ((e = (t = t->v.t + ((unsigned)b & mask_bits[e]))->e) > 16);
+X    DUMPBITS(t->b)
+X    if (e == 16)                /* then it's a literal */
+X    {
+X      slide[w++] = (byte)t->v.n;
+X      if (w == WSIZE)
+X      {
+X        flush(w);
+X        w = 0;
+X      }
+X    }
+X    else                        /* it's an EOB or a length */
+X    {
+X      /* exit if end of block */
+X      if (e == 15)
+X        break;
+X
+X      /* get length of block to copy */
+X      NEEDBITS(e)
+X      n = t->v.n + ((unsigned)b & mask_bits[e]);
+X      DUMPBITS(e);
+X
+X      /* decode distance of block to copy */
+X      NEEDBITS((unsigned)bd)
+X      if ((e = (t = td + ((unsigned)b & md))->e) > 16)
+X        do {
+X          if (e == 99)
+X            return 1;
+X          DUMPBITS(t->b)
+X          e -= 16;
+X          NEEDBITS(e)
+X        } while ((e = (t = t->v.t + ((unsigned)b & mask_bits[e]))->e) > 16);
+X      DUMPBITS(t->b)
+X      NEEDBITS(e)
+X      d = w - t->v.n - ((unsigned)b & mask_bits[e]);
+X      DUMPBITS(e)
+X
+X      /* do the copy */
+X      do {
+X        n -= (e = (e = WSIZE - ((d &= WSIZE-1) > w ? d : w)) > n ? n : e);
+X#ifndef NOMEMCPY
+X        if (w - d >= e)         /* (this test assumes unsigned comparison) */
+X        {
+X          memcpy(slide + w, slide + d, e);
+X          w += e;
+X          d += e;
+X        }
+X        else                      /* do it slow to avoid memcpy() overlap */
+X#endif /* !NOMEMCPY */
+X          do {
+X            slide[w++] = slide[d++];
+X          } while (--e);
+X        if (w == WSIZE)
+X        {
+X          flush(w);
+X          w = 0;
+X        }
+X      } while (n);
+X    }
+X  }
+X
+X
+X  /* restore the globals from the locals */
+X  wp = w;                       /* restore global window pointer */
+X  bb = b;                       /* restore global bit buffer */
+X  bk = k;
+X
+X
+X  /* done */
+X  return 0;
+X}
+X
+X
+X
+Xint inflate_stored()
+X/* "decompress" an inflated type 0 (stored) block. */
+X{
+X  unsigned n;           /* number of bytes in block */
+X  unsigned w;           /* current window position */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X
+X
+X  /* make local copies of globals */
+X  b = bb;                       /* initialize bit buffer */
+X  k = bk;
+X  w = wp;                       /* initialize window position */
+X
+X
+X  /* go to byte boundary */
+X  n = k & 7;
+X  DUMPBITS(n);
+X
+X
+X  /* get the length and its complement */
+X  NEEDBITS(16)
+X  n = ((unsigned)b & 0xffff);
+X  DUMPBITS(16)
+X  NEEDBITS(16)
+X  if (n != (unsigned)((~b) & 0xffff))
+X    return 1;                   /* error in compressed data */
+X  DUMPBITS(16)
+X
+X
+X  /* read and output the compressed data */
+X  while (n--)
+X  {
+X    NEEDBITS(8)
+X    slide[w++] = (byte)b;
+X    if (w == WSIZE)
+X    {
+X      flush(w);
+X      w = 0;
+X    }
+X    DUMPBITS(8)
+X  }
+X
+X
+X  /* restore the globals from the locals */
+X  wp = w;                       /* restore global window pointer */
+X  bb = b;                       /* restore global bit buffer */
+X  bk = k;
+X  return 0;
+X}
+X
+X
+X
+Xint inflate_fixed()
+X/* decompress an inflated type 1 (fixed Huffman codes) block.  We should
+X   either replace this with a custom decoder, or at least precompute the
+X   Huffman tables. */
+X{
+X  int i;                /* temporary variable */
+X  struct huft *tl;      /* literal/length code table */
+X  struct huft *td;      /* distance code table */
+X  int bl;               /* lookup bits for tl */
+X  int bd;               /* lookup bits for td */
+X  unsigned l[288];      /* length list for huft_build */
+X
+X
+X  /* set up literal table */
+X  for (i = 0; i < 144; i++)
+X    l[i] = 8;
+X  for (; i < 256; i++)
+X    l[i] = 9;
+X  for (; i < 280; i++)
+X    l[i] = 7;
+X  for (; i < 288; i++)          /* make a complete, but wrong code set */
+X    l[i] = 8;
+X  bl = 7;
+X  if ((i = huft_build(l, 288, 257, cplens, cplext, &tl, &bl)) != 0)
+X    return i;
+X
+X
+X  /* set up distance table */
+X  for (i = 0; i < 30; i++)      /* make an incomplete code set */
+X    l[i] = 5;
+X  bd = 5;
+X  if ((i = huft_build(l, 30, 0, cpdist, cpdext, &td, &bd)) > 1)
+X  {
+X    huft_free(tl);
+X    return i;
+X  }
+X
+X
+X  /* decompress until an end-of-block code */
+X  if (inflate_codes(tl, td, bl, bd))
+X    return 1;
+X
+X
+X  /* free the decoding tables, return */
+X  huft_free(tl);
+X  huft_free(td);
+X  return 0;
+X}
+X
+X
+X
+Xint inflate_dynamic()
+X/* decompress an inflated type 2 (dynamic Huffman codes) block. */
+X{
+X  int i;                /* temporary variables */
+X  unsigned j;
+X  unsigned l;           /* last length */
+X  unsigned m;           /* mask for bit lengths table */
+X  unsigned n;           /* number of lengths to get */
+X  struct huft *tl;      /* literal/length code table */
+X  struct huft *td;      /* distance code table */
+X  int bl;               /* lookup bits for tl */
+X  int bd;               /* lookup bits for td */
+X  unsigned nb;          /* number of bit length codes */
+X  unsigned nl;          /* number of literal/length codes */
+X  unsigned nd;          /* number of distance codes */
+X  unsigned ll[286+30];  /* literal/length and distance code lengths */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X
+X
+X  /* make local bit buffer */
+X  b = bb;
+X  k = bk;
+X
+X
+X  /* read in table lengths */
+X  NEEDBITS(5)
+X  nl = 257 + ((unsigned)b & 0x1f);      /* number of literal/length codes */
+X  DUMPBITS(5)
+X  NEEDBITS(5)
+X  nd = 1 + ((unsigned)b & 0x1f);        /* number of distance codes */
+X  DUMPBITS(5)
+X  NEEDBITS(4)
+X  nb = 4 + ((unsigned)b & 0xf);         /* number of bit length codes */
+X  DUMPBITS(4)
+X  if (nl > 286 || nd > 30)
+X    return 1;                   /* bad lengths */
+X
+X
+X  /* read in bit-length-code lengths */
+X  for (j = 0; j < nb; j++)
+X  {
+X    NEEDBITS(3)
+X    ll[border[j]] = (unsigned)b & 7;
+X    DUMPBITS(3)
+X  }
+X  for (; j < 19; j++)
+X    ll[border[j]] = 0;
+X
+X
+X  /* build decoding table for trees--single level, 7 bit lookup */
+X  bl = 7;
+X  if ((i = huft_build(ll, 19, 19, NULL, NULL, &tl, &bl)) != 0)
+X  {
+X    if (i == 1)
+X      huft_free(tl);
+X    return i;                   /* incomplete code set */
+X  }
+X
+X
+X  /* read in literal and distance code lengths */
+X  n = nl + nd;
+X  m = mask_bits[bl];
+X  i = l = 0;
+X  while ((unsigned)i < n)
+X  {
+X    NEEDBITS((unsigned)bl)
+X    j = (td = tl + ((unsigned)b & m))->b;
+X    DUMPBITS(j)
+X    j = td->v.n;
+X    if (j < 16)                 /* length of code in bits (0..15) */
+X      ll[i++] = l = j;          /* save last length in l */
+X    else if (j == 16)           /* repeat last length 3 to 6 times */
+X    {
+X      NEEDBITS(2)
+X      j = 3 + ((unsigned)b & 3);
+X      DUMPBITS(2)
+X      if ((unsigned)i + j > n)
+X        return 1;
+X      while (j--)
+X        ll[i++] = l;
+X    }
+X    else if (j == 17)           /* 3 to 10 zero length codes */
+X    {
+X      NEEDBITS(3)
+X      j = 3 + ((unsigned)b & 7);
+X      DUMPBITS(3)
+X      if ((unsigned)i + j > n)
+X        return 1;
+X      while (j--)
+X        ll[i++] = 0;
+X      l = 0;
+X    }
+X    else                        /* j == 18: 11 to 138 zero length codes */
+X    {
+X      NEEDBITS(7)
+X      j = 11 + ((unsigned)b & 0x7f);
+X      DUMPBITS(7)
+X      if ((unsigned)i + j > n)
+X        return 1;
+X      while (j--)
+X        ll[i++] = 0;
+X      l = 0;
+X    }
+X  }
+X
+X
+X  /* free decoding table for trees */
+X  huft_free(tl);
+X
+X
+X  /* restore the global bit buffer */
+X  bb = b;
+X  bk = k;
+X
+X
+X  /* build the decoding tables for literal/length and distance codes */
+X  bl = lbits;
+X  if ((i = huft_build(ll, nl, 257, cplens, cplext, &tl, &bl)) != 0)
+X  {
+X    if (i == 1)
+X      huft_free(tl);
+X    return i;                   /* incomplete code set */
+X  }
+X  bd = dbits;
+X  if ((i = huft_build(ll + nl, nd, 0, cpdist, cpdext, &td, &bd)) != 0)
+X  {
+X    if (i == 1)
+X      huft_free(td);
+X    huft_free(tl);
+X    return i;                   /* incomplete code set */
+X  }
+X
+X
+X  /* decompress until an end-of-block code */
+X  if (inflate_codes(tl, td, bl, bd))
+X    return 1;
+X
+X
+X  /* free the decoding tables, return */
+X  huft_free(tl);
+X  huft_free(td);
+X  return 0;
+X}
+X
+X
+X
+Xint inflate_block(e)
+Xint *e;                 /* last block flag */
+X/* decompress an inflated block */
+X{
+X  unsigned t;           /* block type */
+X  register ULONG b;     /* bit buffer */
+X  register unsigned k;  /* number of bits in bit buffer */
+X
+X
+X  /* make local bit buffer */
+X  b = bb;
+X  k = bk;
+X
+X
+X  /* read in last block bit */
+X  NEEDBITS(1)
+X  *e = (int)b & 1;
+X  DUMPBITS(1)
+X
+X
+X  /* read in block type */
+X  NEEDBITS(2)
+X  t = (unsigned)b & 3;
+X  DUMPBITS(2)
+X
+X
+X  /* restore the global bit buffer */
+X  bb = b;
+X  bk = k;
+X
+X
+X  /* inflate that block type */
+X  if (t == 2)
+X    return inflate_dynamic();
+X  if (t == 0)
+X    return inflate_stored();
+X  if (t == 1)
+X    return inflate_fixed();
+X
+X
+X  /* bad block type */
+X  return 2;
+X}
+X
+X
+X
+Xint inflate_entry()
+X/* decompress an inflated entry */
+X{
+X  int e;                /* last block flag */
+X  int r;                /* result code */
+X  unsigned h;           /* maximum struct huft's malloc'ed */
+X
+X
+X  /* initialize window, bit buffer */
+X  wp = 0;
+X  bk = 0;
+X  bb = 0;
+X
+X
+X  /* decompress until the last block */
+X  h = 0;
+X  do {
+X    hufts = 0;
+X    if ((r = inflate_block(&e)) != 0)
+X      return r;
+X    if (hufts > h)
+X      h = hufts;
+X  } while (!e);
+X
+X
+X  /* flush out slide */
+X  flush(wp);
+X
+X
+X  /* return success */
+X#ifdef DEBUG
+X  fprintf(stderr, "<%u> ", h);
+X#endif /* DEBUG */
+X  return 0;
+X}
+X
+X
+Xvoid inflate()
+X/* ignore the return code for now ... */
+X{
+X  inflate_entry();
+X}
+END_OF_FILE
+  if test 32972 -ne `wc -c <'inflate.c'`; then
+    echo shar: \"'inflate.c'\" unpacked with wrong size!
+  fi
+  # end of 'inflate.c'
+fi
+echo shar: End of archive 4 \(of 14\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

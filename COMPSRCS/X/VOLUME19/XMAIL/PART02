@@ -1,0 +1,1644 @@
+Newsgroups: comp.sources.x
+From: markham@cadence.com (Jeff Markham)
+Subject: v19i027:  xmail - X Window System interface to the mail program, Part02/10
+Message-ID: <1993Mar10.202514.10113@sparky.imd.sterling.com>
+X-Md4-Signature: 04471a1a7b019193563255af4c116e2b
+Date: Wed, 10 Mar 1993 20:25:14 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: markham@cadence.com (Jeff Markham)
+Posting-number: Volume 19, Issue 27
+Archive-name: xmail/part02
+Environment: X11
+Supersedes: xmail: Volume 15, Issue 18-26
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  callbacks.c patchlevel.h
+# Wrapped by chris@sparky on Wed Mar 10 14:17:44 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 10)."'
+if test -f 'callbacks.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'callbacks.c'\"
+else
+  echo shar: Extracting \"'callbacks.c'\" \(54803 characters\)
+  sed "s/^X//" >'callbacks.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X
+X#include "global.h"
+X#include "MailwatchP.h"
+X#include "xmailregexp.h"
+X#include <sys/wait.h>
+X#include <sys/stat.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <pwd.h>
+X
+X#ifdef vms
+Xextern int	noshare errno;
+Xextern int	noshare sys_nerr;
+Xextern char	noshare *sys_errlist[];
+X#else
+Xextern int	errno;
+Xextern int	sys_nerr;
+Xextern char	*sys_errlist[];
+X#endif
+X
+Xextern	char	otherBuf[BUFSIZ];
+X
+X#if ! defined(SIGCHLD) && defined(SIGCLD)
+X#define	SIGCHLD		SIGCLD
+X#endif
+X
+X/*
+X** @(#)Autograph() - Add user's Sign or sign autograph to outgoing mail
+X**                   Then make button insensitive, to prevent multiple calls.
+X**                   If requested autograph signature does not exist, tell user.
+X**		     Because we can now be called by a translation table entry,
+X**		     check to see if already insensitive before proceeding.
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XAutograph(w, C, call_data)
+XWidget	w;
+Xcaddr_t	C;
+Xcaddr_t	call_data;		/* unused */
+X{
+X int		n;
+X String		cp, autograph;
+X char		tmp[BUFSIZ];
+X FILE		*fp;
+X struct stat	st_buf;
+X
+X
+X if (XtIsSensitive(w)) {	 /* if okay to proceed... */
+X    (void) strcpy(tmp, "Sign");  /* Default action is to use Sign autograph */
+X    if (*C == 'a') tmp[0] = 's';
+X    autograph = GetMailEnv(tmp); /* First, see if an autograph entry exists */
+X
+X    if (! autograph) {
+X       /*
+X       ** If no Sign or sign, see if the user has created a .signature file
+X       */
+X       st_buf.st_size = 0;
+X       (void) sprintf(tmp, "%s/.Signature", HOME);
+X       if (*C == 'a')
+X          (void) sprintf(tmp, "%s/.signature", HOME);
+X       if (stat(tmp, &st_buf) != -1 &&
+X           st_buf.st_size < BUFSIZ &&
+X          (fp = fopen(tmp, "r")) != NULL) {
+X          autograph = (String) XtMalloc((unsigned) st_buf.st_size + 1);
+X          n = fread(autograph, sizeof(char), (int) st_buf.st_size, fp);
+X          autograph[n] = '\0';
+X          (void) fclose(fp);
+X         } else {
+X          (void) strcpy(tmp, "Cannot find a 'Sign'ature to append\n");
+X          if (*C == 'a') tmp[15] = 's';
+X          if (st_buf.st_size) {
+X             (void) sprintf(tmp,"Cannot append your .Signature (exceeds %d characters)\n",
+X                    BUFSIZ - 1);
+X             if (*C == 'a') tmp[20] = 's';
+X            }
+X          Bell(tmp);
+X          return;
+X         }
+X      } else {
+X       if (strlen(autograph) >= BUFSIZ) {
+X          (void) sprintf(tmp,"Cannot append your Signature (exceeds %d characters)\n",
+X                    BUFSIZ - 1);
+X          if (*C == 'a') tmp[19] = 's';
+X          Bell(tmp);
+X          XtFree((String) autograph);
+X          return;
+X         }
+X      }
+X
+X    XtSetSensitive(w, False);	/* Don't let us be pressed more than once */
+X    if (*C == 'A')		/* also make other sign button inoperative */
+X       XtSetSensitive(XtNameToWidget(XtParent(w), "autograph"), False);
+X    else			/* if this was a request for lowercase sign */
+X       XtSetSensitive(XtNameToWidget(XtParent(w), "Autograph"), False);
+X
+X    for (cp = autograph, n = 0; n < BUFSIZ - 1 && *cp; cp++)
+X        if (*cp == '\\' && *(cp + 1) == 'n') {
+X           tmp[n++] = '\n';	/* Replace newline strings with a character */
+X           cp++;
+X          } else tmp[n++] = *cp;
+X
+X    if (tmp[n - 1] != '\n')	/* make sure msg ends with a newline */
+X       tmp[n++] = '\n';
+X    tmp[n] = '\0';
+X
+X    if ((fp = fopen(tmpName, "a")) != NULL) {
+X       if (*tmp != '-' || *(tmp + 1) != '-')	/* add a signature separator */
+X          (void) fwrite("-- \n", sizeof(char), 4, fp);
+X       (void) fwrite(tmp, sizeof(* tmp), strlen(tmp), fp);
+X       (void) fclose(fp);
+X      }
+X    XtFree((String) autograph);
+X   } /* end - if we were currently sensitive */
+X} /* Autograph */
+X
+X
+X/*
+X** @(#)endDelivery() - catch the signal when the delivery child finishes
+X*/
+Xint
+XendDelivery(signum)
+Xint	signum;
+X{
+X int	status;
+X
+X
+X if (signum == SIGCHLD &&
+X     mailpid != wait(&status))		/* in case mail child was what died */
+X (void) signal(SIGCHLD, SIG_DFL);	/* turn off the endDelivery hook */
+X
+X return 1;
+X} /* endDelivery */
+X
+X
+X/*
+X** @(#)DoCopy() - send a copy of the message to the indicated folder file
+X*/
+XDoCopy(file, to, subject, inreply, cc, bcc, outfolder, edits, add_face)
+Xchar	*file, *to, *subject, *inreply, *cc, *bcc;
+Xint	outfolder, edits, add_face;
+X{
+X int		len, n;
+X time_t		clock;
+X char		*m, tmp[BUFSIZ], From[BUFSIZ], Copy[BUFSIZ];
+X MailwatchWidget mb = (MailwatchWidget) XtNameToWidget(toplevel,"icon.mailbox");
+X FILE		*fp, *xf;
+X struct stat	st_buf;
+X
+X
+X if (file[0]) {
+X    st_buf.st_size = 0;			/* (in case msg file does not exist) */
+X    (void) stat(tmpName, &st_buf);
+X
+X    (void) time(&clock);
+X    (void) sprintf(From, "From %s %24.24s\n", mb->mailbox.username, (char *) ctime(&clock));
+X
+X    switch (file[0]) {
+X       case '|':			/* accomodate alias with Sun pipe cmd */
+X       (void) sprintf(Copy, "%s.pipe", tmpName);
+X                break;
+X       case '~':			/* file with a tilde expansion name */
+X          if (file[1] == '/')
+X             (void) sprintf(Copy, "%s%s", HOME, &file[1]);
+X          else {
+X             struct passwd *pw;
+X
+X             for (len = 0, n = 1; file[n] && file[n] != '/';)
+X                 tmp[len++] = file[n++];
+X             tmp[len] = '\0';
+X
+X             if (pw = getpwnam(tmp))
+X                (void) sprintf(Copy, "%s%s", pw->pw_dir, &file[n]);
+X             else (void) strcpy(Copy, file);
+X            }
+X                break;
+X       case '/':			/* file with an absolute path name */
+X                (void) strcpy(Copy, file);
+X                break;
+X       case '+':			/* file with a folder relative name */
+X                if (! foldir[0])
+X                   (void) strcpy(Copy, file);
+X                else
+X                   (void) sprintf(Copy, "%s%s", foldir, &file[1]);
+X                break;
+X
+X        default:
+X                if (file[0] == '.' && file[1] == '/')
+X                   (void) strcpy(Copy, file);
+X                else if (outfolder == 0 || ! foldir[0]) {
+X                   if (strchr(file, '/') == NULL)	/* no dir reference */
+X                      (void) strcpy(Copy, file);
+X                   else		/* assume file with dir is relative to home */
+X                      (void) sprintf(Copy, "%s/%s", HOME, file);
+X                  } else {	/* if outfolder (and folder name is included) */
+X                      (void) sprintf(Copy, "%s%s", foldir, file);
+X                  }
+X                break;
+X      }
+X
+X    if ((fp = fopen(Copy, "a")) == NULL) {
+X       /*
+X       ** Can't use the Bell routine internally, because we're a child.
+X       ** So, just pump the message to stderr and let user deal with it.
+X       */
+X       (void) sprintf(tmp, "Could not write file %s - %s\n", Copy,
+X              (errno < sys_nerr)? sys_errlist[errno]:"Unknown error");
+X       (void) fprintf(stderr, tmp);
+X      } else {
+X                     (void) fprintf(fp, From);
+X       if (*to)      (void) fprintf(fp, "To: %s\n", to);
+X       if (*subject) (void) fprintf(fp, "Subject: %s\n", subject);
+X       if (*inreply) (void) fprintf(fp, "%s\n", inreply);
+X       /*
+X       ** Add support for custom header information as a resource
+X       ** and for editheaders mail option.  If editheaders, find
+X       ** custom header information in message text.
+X       */
+X       if (edits) {
+X          int	skip;
+X
+X
+X          if (st_buf.st_size) {
+X             xf = fopen(tmpName, "r");
+X             while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                if (tmp[0] == '\n') break;
+X                if (tmp[0] != ' ' && tmp[0] != '\t') skip = 0;
+X                if (strncmp(tmp,"To: ", 4) == 0) { skip = 1; continue; }
+X                if (strncmp(tmp,"Subject: ", 9) == 0) { skip = 1; continue; }
+X                if (strncmp(tmp,"In-Reply-To: ",13)==0) { skip = 1; continue; }
+X                if (strncmp(tmp,"Forwarding: ",12)==0) { skip = 1; continue; }
+X                if (strncmp(tmp,"Cc: ", 4) == 0) { skip = 1; continue; }
+X                if (strncmp(tmp,"Bcc: ", 5) == 0) { skip = 1; continue; }
+X                if (! skip) (void) fprintf(fp, "%s", tmp);
+X               }
+X             (void) fclose(xf);
+X            } else
+X             if (m = XGetDefault(XtDisplay(toplevel), "XMail", "customHeader"))
+X               {
+X                if (m[0] == '"' || m[0] == "'"[0]) {
+X                   bcopy(m + 1, m, strlen(m) - 1);
+X                   while (LASTCH(m) == '"' || LASTCH(m) == "'"[0])
+X                         LASTCH(m) = '\0';
+X                  }
+X                if (LASTCH(m) != '\n')
+X                   (void) fprintf(fp, "%s\n", m);
+X                else
+X                   (void) fprintf(fp, "%s", m);
+X               }
+X         } else
+X       if (m = XGetDefault(XtDisplay(toplevel), "XMail", "customHeader")) {
+X           if (m[0] == '"' || m[0] == "'"[0]) {
+X              bcopy(m + 1, m, strlen(m) - 1);
+X              while (LASTCH(m) == '"' || LASTCH(m) == "'"[0])
+X                    LASTCH(m) = '\0';
+X             }
+X          if (LASTCH(m) != '\n')
+X                     (void) fprintf(fp, "%s\n", m);
+X          else
+X                     (void) fprintf(fp, "%s", m);
+X         }
+X       if (*cc)      (void) fprintf(fp, "Cc: %s\n", cc);
+X       if (*bcc)     (void) fprintf(fp, "Bcc: %s\n", bcc);
+X#ifdef X_FACE
+X       if (add_face) {
+X          (void) sprintf(tmp, "%s/.face", HOME);
+X          if (xf = fopen(tmp, "r")) {
+X             n = 1;
+X             while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                   if (n) {
+X                      n = 0;
+X                      if (strncmp(tmp, "X-Face:", 7) != 0)
+X                           (void) fprintf(fp, "X-Face:");
+X                     }
+X                   (void) fprintf(fp, "%s", tmp);
+X                  }
+X             (void) fclose(xf);
+X            }
+X         }
+X#endif /* X_FACE */
+X       (void) fprintf(fp, "\n");
+X       if (st_buf.st_size) {
+X          xf = fopen(tmpName, "r");
+X          while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                if (edits) {	/* if headers edited, drop them now */
+X                   if (tmp[0] == '\n') edits = 0;
+X                   continue;
+X                  }
+X                if (strncmp(tmp,"From ",5) == 0) (void)fprintf(fp,">");
+X                (void) fprintf(fp, "%s", tmp);
+X               }
+X          (void) fclose(xf);
+X          if (*tmp != '\n')
+X             (void) fprintf(fp, "\n");
+X         }
+X       (void) fclose(fp);
+X       if (file[0] == '|') {
+X          (void) sprintf(tmp, "/bin/cat %s %s", Copy, file);
+X          (void) system(tmp);
+X          (void) unlink(Copy);
+X         }
+X      } /* end - if we opened the target file successfully */
+X   } /* end - if passed file variable is not null */
+X} /* end - DoCopy */
+X
+X
+X/*
+X** @(#)Done() - Send composed message - if closure data says "Deliver"
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XDone(w, closure, call_data)
+XWidget w;
+Xcaddr_t closure;
+Xcaddr_t call_data;
+X{
+X int		outfolder, n, len, edit_headers;
+X int		add_face = 1;		/* Are we using faces.sendmail script */
+X String		m, q, z, strchr();
+X char		record[BUFSIZ], Copy[BUFSIZ], tmp[BUFSIZ], addressees[BUFSIZ];
+X char		To[BUFSIZ], Subject[BUFSIZ], Cc[BUFSIZ], Bcc[BUFSIZ];
+X Widget		popup;
+X Arg		args[1];
+X FILE		*fp, *xf, *popen();
+X struct stat	st_buf;
+X struct passwd	*pw;
+X
+X
+X Bell(Default_Status_Info);
+X
+X popup = XtNameToWidget(toplevel, "topBox.commandPanel.Send.popup");
+X if (! popup) return;			/* SOMEthing would be VERY wrong here */
+X
+X XtPopdown(popup);			/* remove from view but don't destroy */
+X XWarpPointer(XtDisplay(toplevel), None,
+X              XtWindow(XtNameToWidget(toplevel, "topBox.textWindow.text")),
+X              0,0,0,0, XMail.helpX * 2, XMail.helpY);
+X
+X st_buf.st_size = 0;			/* (in case msg file does not exist) */
+X (void) stat(tmpName, &st_buf);
+X record[0] = Copy[0] = tmp[0] = addressees[0] = '\0';
+X To[0] = Subject[0] = Cc[0] = Bcc[0] = '\0';
+X
+X if (strcmp(closure, "Deliver") != 0) {
+X    /*
+X    ** Restore sensitivity of the Autograph, Send, and reply for next time
+X    */
+X    XtSetSensitive(XtNameToWidget(XtParent(w), "Autograph"), True);
+X    XtSetSensitive(XtNameToWidget(XtParent(w), "autograph"), True);
+X    XtSetSensitive(XtParent(popup), True);
+X    XtSetSensitive(XtNameToWidget(toplevel, "topBox.commandPanel.reply"), True);
+X    n = st_buf.st_size;		/* the number of bytes in the message text */
+X    if (n == 0 && *closure == 'c')
+X       Bell("No text to save in your dead letter file\n");
+X    else {
+X       if (n && (*closure == 'c' || ! Confirm("REALLY discard this text"))) {
+X          if (! (m = GetMailEnv("DEAD")))
+X             (void) sprintf(Copy, "%s/dead.letter", HOME);
+X          else {
+X             (void) strcpy(record, m);
+X             XtFree((String) m);
+X             if (record[0] != '~')
+X                (void) strcpy(Copy, record);	/* take whatever is given */
+X             else {
+X                if (record[1] == '/')
+X                   (void) sprintf(Copy, "%s%s", HOME, &record[1]);
+X                else {
+X                   for (len = 0, n = 1; record[n] && record[n] != '/';)
+X                       tmp[len++] = record[n++];
+X                   tmp[len] = '\0';
+X
+X                   if (pw = getpwnam(tmp))
+X                      (void) sprintf(Copy, "%s%s", pw->pw_dir, &record[n]);
+X                   else (void) strcpy(Copy, record);
+X                  }
+X               }
+X            }
+X          st_buf.st_size = -1;		/* see if our target exists */
+X          (void) stat(Copy, &st_buf);
+X          if (fp = fopen(Copy, "a")) {
+X             xf = fopen(tmpName, "r");
+X             while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                   if (strncmp(tmp, "From ", 5) == 0) (void) fprintf(fp, ">");
+X                   (void) fprintf(fp, "%s", tmp);
+X                  }
+X             (void) fclose(xf);
+X             if (*tmp != '\n')
+X                (void) fprintf(fp, "\n");
+X             (void) fclose(fp);
+X
+X             (void) sprintf(tmp, "\"%s\" [%s] (%d bytes)\n", Copy,
+X                 (st_buf.st_size >= 0) ? "Appended" : "New file", n);
+X             Bell(tmp);
+X            } else {
+X             (void) sprintf(tmp, "Could not write file %s - %s\n", Copy,
+X                    (errno < sys_nerr)? sys_errlist[errno] : "Unknown error");
+X             Bell(tmp); 
+X            }
+X         }
+X      }					/* end - if some message text exists */
+X    (void) unlink(tmpName);		/* remove the message text file */
+X   } else {				/* Deliver this message text */
+X    /*
+X    ** Call the alias() routine recursively, to de-alias the user's To:, Cc:,
+X    ** and Bcc: fields.
+X    */
+X    To[0] = Subject[0] = Cc[0] = Bcc[0] = otherBuf[0] = '\0';
+X    /*
+X    ** Retrieve current values from the header buffers
+X    */
+X    m = NULL;
+X    XtSetArg(args[0], XtNstring, &m);
+X    XtGetValues(XtNameToWidget(popup, "*SubjCc*To"), args, 1);
+X    if (m && *m) {
+X       (void) strncpy(addressees, m, BUFSIZ);
+X       (void) strncpy(To, m, BUFSIZ);	/* in case there's no user recipient */
+X       /*
+X       ** alias() adds filenames to a list and returns just user addresses
+X       ** (it also automatically wraps long header lines)
+X       */
+X       for (m = alias(addressees); strcmp(m, addressees); m = alias(addressees))
+X           (void) strncpy(addressees, m, BUFSIZ);
+X       if (addressees[0])		/* if some real users are named... */
+X          (void) strncpy(To, addressees, BUFSIZ);
+X      }
+X    
+X    m = NULL;
+X    XtSetArg(args[0], XtNstring, &m);
+X    XtGetValues(XtNameToWidget(popup, "*SubjCc*Subject"), args, 1);
+X
+X    if ((! addressees[0] && ! otherBuf[0]) || (! *m && st_buf.st_size == 0)) {
+X       if (! addressees[0])
+X          Bell("No recipient specified\n"); 
+X       else
+X          Bell("No subject and no message body\n"); 
+X       Waiting = TRUE;		/* so popup's EnterNotify won't overwrite msg */
+X       /*
+X       ** FORCE the user to either complete the message or abort delivery
+X       */
+X       XtPopup(popup, XtGrabNone);
+X
+X       XSync(XtDisplay(toplevel), False);
+X
+X       XtAddEventHandler(popup, StructureNotifyMask, False, warp_handler, NULL);
+X      } else {			/* if there is a message to be delivered... */
+X       /*
+X       ** Restore the sensitivity of the Autograph, Send, and reply buttons
+X       */
+X       XtSetSensitive(XtNameToWidget(XtParent(w), "Autograph"), True);
+X       XtSetSensitive(XtNameToWidget(XtParent(w), "autograph"), True);
+X       XtSetSensitive(XtParent(popup), True);
+X       XtSetSensitive(XtNameToWidget(toplevel, "topBox.commandPanel.reply"), True);
+X
+X       if (*m) {
+X          /*
+X          ** Format the subject line to wrap on ~70 characters.  In case the
+X          ** user didn't install the xmail default resources file, also look
+X          ** for imbedded newlines in the Subject text.
+X          */
+X          for (n = 0, len = 9; *m && n < BUFSIZ; n++, len++) {
+X              Subject[n] = *m++;
+X              if (Subject[n] == '\n') {
+X                 if (! *m) Subject[n] = '\0';
+X                 else if (len < 35) Subject[n] = ' ';
+X                      else { Subject[++n] = '\t'; len = 8; }
+X                } else if (len % 70 == 0)
+X                          if (Subject[n] == ' ') {
+X                             Subject[++n] = '\n';
+X                             Subject[++n] = '\t';
+X                             len = 8;
+X                            } else len--;	/* break at a word boundary */
+X             }
+X          Subject[n] = '\0';
+X         }
+X    
+X       m = NULL;
+X       XtSetArg(args[0], XtNstring, &m);
+X       XtGetValues(XtNameToWidget(popup, "*SubjCc*Cc"), args, 1);
+X       if (m && *m) {
+X          (void) strncpy(tmp, m, BUFSIZ);
+X          for (m = alias(tmp); strcmp(m, tmp); m = alias(tmp))
+X              (void) strncpy(tmp, m, BUFSIZ);
+X
+X          if (*m) {
+X             if (addressees[0]) (void) strcat(addressees, ", ");
+X             (void) strcat(addressees, m);
+X             (void) strncpy(Cc, m, BUFSIZ);
+X            }
+X         }
+X
+X       m = NULL;
+X       XtSetArg(args[0], XtNstring, &m);
+X       XtGetValues(XtNameToWidget(popup, "*SubjCc*Bcc"), args, 1);
+X       if (m && *m) {
+X          (void) strncpy(tmp, m, BUFSIZ);
+X          for (m = alias(tmp); strcmp(m, tmp); m = alias(tmp))
+X              (void) strncpy(tmp, m, BUFSIZ);
+X
+X          if (*m) {
+X             if (addressees[0]) (void) strcat(addressees, ", ");
+X             (void) strcat(addressees, m);
+X             (void) strncpy(Bcc, m, BUFSIZ);
+X            }
+X         }
+X       /*
+X       ** To avoid a bug in Sun's sendmail (for occasionally not being able to
+X       ** find the name of the real author of the message), strip commas from
+X       ** the address list and pass the recipient names to sendmail on the
+X       ** command line, ala Mail.  Also, strip all but the actual address from
+X       ** any compound addresses present in the list.
+X       */
+X       for (q = addressees; *q; q++) {
+X           if (*q == ',') {		/* remove any commas */
+X              if (q[1] == ' ') {	/* if comma is followed by a space */
+X                 for (m = q, z = q + 1; *z;) *m++ = *z++;
+X                 *m = '\0';		/* then shift string left by one */
+X                }
+X              else *q = ' ';		/* else substitute space for comma */
+X              q++;
+X             }
+X           if (*q == '\n' && *(q+1) == '\t') {	/* drop any newline tabs */
+X              for (m = q, z = q + 2; *z;) *m++ = *z++;
+X              *m = '\0';
+X             }
+X           if (z = strchr(q, ',')) {	/* find the end of next alias in list */
+X              n = (int) (z - q);
+X              for (m = tmp, z = q; *z && n--;) *m++ = *z++;
+X              *m = '\0';		/* shorten our search to just this */
+X              if ((m = strchr(tmp, '<')) || (m = strchr(tmp, '('))) {
+X                 if (*m == '<') {	/* if its a chevroned address type */
+X                    (void) sscanf(m, "<%[^>]>", Copy);
+X                    len = strlen(Copy);	/* save the address part of this only */
+X                    for (m = Copy; *m && len--;) *q++ = *m++;
+X                    for (m = q; *z;) *m++ = *z++;
+X                    *m = '\0';		/* shift rest of addressees left */
+X                    for (; *q && *q != ','; q++);
+X                    if (*q) q--;
+X                   } else {		/* must be a parenthetical style */
+X                    for (n = 0; tmp[n] && strchr(" \n\t", tmp[n]); n++);
+X                    if (1 == sscanf(&tmp[n], "%*[^)]) %s", Copy)) {
+X                       bcopy(Copy, q, strlen(Copy));
+X                       m = q + strlen(Copy);
+X                       bcopy(z, m, strlen(z) + 1);
+X                       if (q = strchr(q, ',')) q--;
+X                      } else {
+X                       (void) sscanf(&tmp[n], "%s", Copy);	/* address preceeds */
+X                       m = q + strlen(Copy);
+X                       bcopy(z, m, strlen(z) + 1);
+X                       if (q = strchr(q, ',')) q--;
+X                      }
+X                   }
+X                } else q = z - 1;	/* skip to alias end if not compound */
+X             } else {			/* last (or only) alias in the list */
+X              if ((m = strchr(q, '<')) || (m = strchr(q, '('))) {
+X                 if (*m == '<') {
+X                    if (! sscanf(q, "%*[^<]<%[^>]>", Copy))
+X                         (void) sscanf(q, "<%[^>]>", Copy);
+X                    bcopy(Copy, q, strlen(Copy) + 1);
+X                   } else {
+X                    for (z = q; strchr(" \n\t", *z); z++);
+X                    if (1 == sscanf(z, "%*[^)]) %s", Copy)) {
+X                       bcopy(Copy, q, strlen(Copy) + 1);
+X                      } else {
+X                       (void) sscanf(z, "%s", Copy);
+X                       z[strlen(Copy) + 1] = '\0';
+X                      }
+X                   }
+X                }
+X              break;			/* no more commas to be replaced */
+X             }
+X          }
+X
+X       if (! (m = GetMailEnv("sendmail")))
+X            m = XtNewString("/usr/lib/sendmail");
+X#ifdef X_FACE
+X       else {
+X          add_face = (strcmp(&m[strlen(m)-14], "faces.sendmail") != 0) ? 1 : 0;
+X         }
+X#endif /* X_FACE */
+X       /*
+X       ** The following arguments are passed to the sendmail command:
+X       **
+X       ** -oi	don't accept a dot on a line by itself as message termination
+X       **
+X       ** -om	send to "me" too, if I am a member of an alias expansion
+X       */
+X       (void) sprintf(tmp, "exec %s -oi -om %s\n", m, addressees);
+X       XtFree((String) m);
+X
+X       initfoldir();
+X
+X       if (m = GetMailEnv("outfolder")) {
+X          outfolder = 1;
+X          XtFree((String) m);
+X         } else outfolder = 0;
+X
+X       if (m = GetMailEnv("record")) {
+X          (void) strncpy(record, m, BUFSIZ);
+X          XtFree((String) m);
+X         } else record[0] = '\0';
+X
+X       if (m = GetMailEnv("editheaders")) {
+X          XtFree((String) m);
+X          edit_headers = 1;
+X         } else edit_headers = 0;
+X
+X       /*
+X       ** Fork a child process to effect the message delivery functions.
+X       */
+X       if ((n = fork()) != 0) {			/* if we are not the child */
+X          if (n == -1) {			/* delivery fork failed ... */
+X             if (errno == ENOMEM)
+X                Bell("Not enough core for message delivery child\n");
+X             else
+X                Bell("No more processes - no message delivery!?!\n");
+X            } else				/* parent sets delivery hook */
+X             (void) signal(SIGCHLD, endDelivery);
+X
+X          return;
+X         }
+X       /*
+X       ** Use this child process to effect our message delivery function.
+X       */
+X       (void) close(ConnectionNumber(XtDisplay(toplevel)));
+X
+X       if (addressees[0]) {		/* if there are primary addresses... */
+X          /*
+X          ** First, mail the header information and message text (in temporary
+X          ** file) using sendmail.  If we fail, we can't use the Bell routine
+X          ** because we are a child process, so write any complaints to stderr.
+X          */
+X          if (! (fp = popen(tmp, "w")))
+X             (void) fprintf(stderr, "xmail: Couldn't connect to sendmail.\n"); 
+X          else {
+X             if (To[0])      (void) fprintf(fp, "To: %s\n", To);
+X             if (Subject[0]) (void) fprintf(fp, "Subject: %s\n", Subject);
+X             if (InReply[0]) (void) fprintf(fp, "%s\n", InReply);
+X             /*
+X             ** Add support for custom header information as a resource
+X             ** and for editheaders mail option.  If editheaders, find
+X             ** custom header information in message text.
+X             */
+X             if (edit_headers) {
+X                int	skip;
+X
+X                if (st_buf.st_size) {
+X                   xf = fopen(tmpName, "r");
+X                   while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                      if (tmp[0] == '\n') break;
+X                      if (tmp[0] != ' ' && tmp[0] != '\t') skip = 0;
+X                      if (strncmp(tmp,"To: ", 4) == 0) {skip = 1; continue;}
+X                      if (strncmp(tmp,"Subject: ", 9) == 0) {skip=1;continue;}
+X                      if (strncmp(tmp,"In-Reply-To: ",13)==0) {skip=1;continue;}
+X                      if (strncmp(tmp,"Forwarding: ",12)==0) {skip=1;continue;}
+X                      if (strncmp(tmp,"Cc: ", 4) == 0) {skip = 1; continue;}
+X                      if (strncmp(tmp,"Bcc: ", 5) == 0) {skip = 1; continue;}
+X                      if (! skip) (void) fprintf(fp, "%s", tmp);
+X                     }
+X                   (void) fclose(xf);
+X                  } else
+X                   if (m = XGetDefault(XtDisplay(toplevel), "XMail", "customHeader"))
+X                     {
+X                      if (m[0] == '"' || m[0] == "'"[0]) {
+X                         bcopy(m + 1, m, strlen(m) - 1);
+X                         while (LASTCH(m) == '"' || LASTCH(m) == "'"[0])
+X                               LASTCH(m) = '\0';
+X                        }
+X                      if (LASTCH(m) != '\n')
+X                         (void) fprintf(fp, "%s\n", m);
+X                      else
+X                         (void) fprintf(fp, "%s", m);
+X                     }
+X               } else
+X             if (m = XGetDefault(XtDisplay(toplevel), "XMail", "customHeader"))
+X               {
+X                if (m[0] == '"' || m[0] == "'"[0]) {
+X                   bcopy(m + 1, m, strlen(m) - 1);
+X                   while (LASTCH(m) == '"' || LASTCH(m) == "'"[0])
+X                         LASTCH(m) = '\0';
+X                  }
+X                if (LASTCH(m) != '\n')
+X                   (void) fprintf(fp, "%s\n", m);
+X                else
+X                   (void) fprintf(fp, "%s", m);
+X               }
+X
+X             if (Cc[0])      (void) fprintf(fp, "Cc: %s\n", Cc);
+X             if (Bcc[0])     (void) fprintf(fp, "Bcc: %s\n", Bcc);
+X#ifdef X_FACE
+X             /*
+X             ** Look for, and add contents of, user's ~/.face file unless
+X             ** user is already invoking the faces.sendmail script, which
+X             ** does the job itself.  In that case, don't add info here.
+X             ** To accomodate both cases, look for and add header if none. 
+X             */
+X             if (add_face) {
+X                (void) sprintf(tmp, "%s/.face", HOME);
+X                if (xf = fopen(tmp, "r")) {
+X                   n = 1;
+X                   while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                         if (n) {
+X                            n = 0;
+X                            if (strncmp(tmp, "X-Face:", 7) != 0)
+X                                 (void) fprintf(fp, "X-Face:");
+X                           }
+X                         (void) fprintf(fp, "%s", tmp);
+X                        }
+X                   (void) fclose(xf);
+X                  }
+X               }
+X#endif /* X_FACE */
+X             (void) fprintf(fp, "\n");	/* separate the header from any text */
+X             /*
+X             ** Now write message text (if any) to the sendmail process.  ANY
+X             ** line which begins with the keyword ``From '' gets prepended
+X             ** with a greater than (>) symbol.
+X             */
+X             if (st_buf.st_size) {
+X                xf = fopen(tmpName, "r");
+X                len = edit_headers;
+X                while (fgets(tmp, BUFSIZ, xf) != NULL) {
+X                      if (len) {	/* if headers edited, drop them now */
+X                         if (tmp[0] == '\n') len = 0;
+X                         continue;
+X                        }
+X                      if (strncmp(tmp,"From ",5) == 0) (void) fprintf(fp, ">");
+X                      (void) fprintf(fp, "%s", tmp);
+X                     }
+X                (void) fclose(xf);
+X
+X                if (tmp[0] != '\n')
+X                   (void) fprintf(fp, "\n");	/* ensure a blank last line */
+X               }
+X             (void) pclose(fp);		/* this concludes sendmail delivery */
+X            }
+X          /*
+X          ** If user has set ``record'' in their .mailrc,
+X          ** add a message copy to that record file.
+X          */
+X          (void) DoCopy(record, To, Subject, InReply, Cc, Bcc,
+X                        outfolder, edit_headers, add_face);
+X
+X         }			/* end - if there are any primary addresses */
+X       /*
+X       ** If other addresses exist, send copies to those files or folders.
+X       */
+X       if (*otherBuf) {
+X          for (m = otherBuf; *m;) {
+X              for (q = m; *q && *q != ','; q++);
+X              if (*q == ',') {
+X                 *q = '\0';
+X                 n = 1;
+X                } else n = 0;
+X
+X              (void) DoCopy(m, To, Subject, InReply, Cc, Bcc,
+X                            outfolder, edit_headers, add_face);
+X
+X              q += n;
+X              m = q;
+X             }			/* end - for each record in otherBuf */
+X         }			/* end - if there were records in otherBuf */
+X       (void) unlink(tmpName);	/* remove any message text */
+X       exit(1);			/* the delivery child sub-process */
+X       /* NOTREACHED */
+X      }				/* end - if there was something to deliver */
+X   }				/* end - if we wanted to deliver a message */
+X} /* Done */
+X
+X
+X/*
+X** @(#)DoIt() - send command - passed via client_data argument - to mail
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XDoIt(w, closure, call_data)
+XWidget		w;
+Xcaddr_t		closure;
+Xcaddr_t		call_data;
+X{
+X int		n;
+X Arg		args[1];
+X String		c, buf;
+X
+X
+X SetCursor(NORMAL);
+X (void) sprintf(Command, "%s\n", closure);
+X if (mailpid) {				/* If connections are okay,... */
+X    if ((n = match(command_pattern, Command)) != XM_C_FILE && n != XM_C_NEWMAIL) {
+X       SetCursor(WATCH);		/* will be reset by parser routine */
+X       writeMail(Command);
+X      } else {				/* check for commit of any changes */
+X       buf = NULL;
+X       XtSetArg(args[0], XtNlabel, &buf);
+X       XtGetValues(XtNameToWidget(toplevel, "topBox.titleBar.title"), args, 1);
+X
+X       c = strrchr(buf, 'l');  if (c) c -= 2;
+X       if (! c || strncmp(c, "deleted", 7) != 0 ||
+X           strcmp(closure, "inc") == 0 ||
+X           Confirm("COMMIT all changes to this folder")) {
+X          writeMail(Command);
+X          SetCursor(WATCH);
+X          (void) strcpy(lastFolder, buf);	/* save for utimes update */
+X         }
+X      }
+X   } else if (XM_C_NEWMAIL != match(command_pattern, Command))
+X         Bell("No current mail connection\n");		/* if not 'Newmail' */
+X     else {
+X         SetCursor(WATCH);		/* will be reset by parser routine */
+X         if (mailargc > 2 && strcmp(mailargv[mailargc - 2], "-f") == 0) {
+X            mailargc -= 2;		/* throw away any folder argument */
+X            mailargv[mailargc] = NULL;	/* and NULL end of argument list */
+X           }
+X         callMail(mailargv);		/* restart the mail connections */
+X         (void) strcpy(Command, "Start"); /* Let em know we've re-started */
+X         UnsetNewmail(w, (caddr_t) NULL, (caddr_t) NULL);
+X         In_Bogus_Mail_File = False;	/* reset this so titleBar will chg */
+X        }
+X} /* DoIt */
+X
+X
+X/*
+X** @(#)DoPrint() - Call the PrintMsg action routine from a callback
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XDoPrint(w, closure, call_data)
+XWidget	w;
+Xcaddr_t closure;
+Xcaddr_t	call_data;
+X{
+X PrintMsg(w, NULL, NULL, NULL);
+X} /* DoPrint */
+X
+X
+X/*
+X** @(#)DoQuit() - Terminate xmail after first closing mail connection
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XDoQuit(w, closure, call_data)
+XWidget w;
+Xcaddr_t closure;
+Xcaddr_t call_data;
+X{
+X Arg		args[1];
+X String		c, buf;
+X
+X
+X if (mailpid) {				/* check for commit of any changes */
+X    buf = NULL;
+X    XtSetArg(args[0], XtNlabel, &buf);
+X    XtGetValues(XtNameToWidget(toplevel, "topBox.titleBar.title"), args, 1);
+X
+X    c = strrchr(buf, 'l');  if (c) c -= 2;
+X    if (*closure != 'q' || ! c || strncmp(c, "deleted", 7) != 0 ||
+X        Confirm("Changes in folder.  REALLY quit")) {
+X       (void) sprintf(Command, "%s\n", closure);
+X       writeMail(Command);
+X      } else return;
+X   }
+X
+X XCloseDisplay(XtDisplay(toplevel));
+X
+X _exit(0);
+X} /* DoQuit */
+X
+X
+X/*
+X** @(#)DoSet() - send specified set request to mail and destroy current menu.
+X**		 To accommodate those systems where mail cannot handle the
+X**		 'set no' commands, convert 'set no's to unsets.
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XDoSet(w, closure, call_data)
+XWidget	w;
+Xcaddr_t	closure;
+Xcaddr_t	call_data;
+X{
+X char	*c, buf[32];
+X
+X
+X if (! mailpid)
+X    Bell("No current mail connection\n");
+X else {
+X    SetCursor(WATCH);
+X    c = w->core.name;
+X    if (strlen(c) > 5 && strcmp(&c[strlen(c) - 6], "expert") == 0)
+X       if (*c == 'n')
+X            XMail.expert = (Boolean) 0;
+X       else XMail.expert = (Boolean) 1;
+X    else {
+X       if (*c == 'n')
+X          (void) sprintf(buf, "unset %s", &c[2]);
+X       else
+X          (void) sprintf(buf, "set %s", c);
+X
+X       c = QueryMail(buf);
+X      }
+X
+X    XtDestroyWidget(XtParent(XtParent(w)));
+X    SetCursor(NORMAL);
+X   }
+X} /* DoSet */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DoWith() - send client_data command to mail with selected msg number
+X*/
+XXtCallbackProc
+XDoWith(w, client_data, call_data)
+XWidget	w;
+Xcaddr_t	client_data;
+Xcaddr_t	call_data;
+X{
+X int	num = 1;
+X
+X
+X Waiting = TRUE;		/* so popup's EnterNotify won't overwrite msg */
+X if (*client_data == 'n' || *client_data == '-')
+X    DoSelected(w, (XEvent *)NULL, &client_data, &num);
+X else if (! mailpid) Bell("No current mail connection\n");
+X else {
+X    SetCursor(WATCH);
+X    num = SelectionNumber(*client_data == 'u');
+X
+X    if (num) (void) sprintf(Command, "%s %d\n", client_data, num);
+X    else (void) sprintf(Command, "%s \n", client_data);
+X
+X    writeMail(Command);
+X   }
+X} /* DoWith */
+X
+X
+X/* ARGSUSED */
+X/*
+X** @(#)DropIt() - callback to destroy the current folder popup list(s)
+X*/
+XXtCallbackProc
+XDropIt(w, client_data, call_data)
+XWidget w;
+Xcaddr_t client_data;
+Xcaddr_t call_data;
+X{
+X Widget	popup = XtNameToWidget(toplevel,"topBox.commandPanel.Folder.popupList");
+X if (popup)
+X    XtDestroyWidget(popup);
+X SetCursor(NORMAL);
+X} /* DropIt */
+X
+X
+X/*
+X** @(#)GetAliasName() - retrieve alias name from button label
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XGetAliasName(w, shell, call_data)
+XWidget		w;
+XWidget		shell;
+Xcaddr_t		call_data;		/* unused */
+X{
+X Arg		args[1];
+X String		alias_name;
+X
+X
+X XtSetArg(args[0], XtNlabel, &alias_name);
+X XtGetValues(w, (ArgList) args, 1);	/* get this entry's label value */
+X
+X XtPopdown(XtParent(XtParent(w)));	/* aliasList<-table<-entry */
+X
+X if (TextGetLastPos(shell))		/* if some alias is already in there */
+X    writeTo(shell, ", ", APPEND);	/* add comma separator between names */
+X
+X writeTo(shell, alias_name, APPEND);
+X} /* GetAliasName */
+X
+X
+X/*
+X** @(#)GetFolderName() - retrieve full folder name from button labels
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XGetFolderName(w, client_data, call_data)
+XWidget	w;
+Xcaddr_t	client_data, call_data;
+X{
+X Arg		args[1];
+X int		k, n, x;
+X String		folder_name;
+X Widget		shell;
+X char		tmp[BUFSIZ], buf[BUFSIZ];
+X
+X
+X XtSetArg(args[0], XtNlabel, &folder_name);
+X XtGetValues(w, (ArgList) args, 1);
+X
+X if (! call_data)				/* just a simple label name */
+X    (void) sprintf(buf, "File: %s", folder_name);
+X else {						/* multiple stack of names */
+X    tmp[0] = '\0';
+X    shell = w;
+X    (void) sscanf(call_data, "%d", &n);		/* using the nesting depth */
+X
+X    for (x = 1, k = (n * 2) + n - 1; k; k--) {
+X        shell = shell->core.parent;		/* travel up the widget tree */
+X        if (++x == 3) {				/* when we get to a label... */
+X           x = 0;
+X           (void) strcpy(buf, shell->core.name); /* stuff label name in */
+X           (void) strcat(buf, tmp);		/* front of previous labels */
+X           (void) strcpy(tmp, buf);		/* to build a complete path */
+X          }
+X       }
+X    (void) sprintf(buf, "File: +%s%s", tmp, folder_name);
+X   }
+X writeTo(XtNameToWidget(toplevel, "topBox.commandPanel.fileWindow"),
+X         buf, REPLACE);
+X} /* GetFolderName */
+X
+X
+X/*
+X** @(#)ReEdit() - Call the editMail routine to re-edit a message
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XReEdit(w, closure, call_data)
+XWidget	w;		/* unused */
+Xcaddr_t closure;	/* unused */
+Xcaddr_t	call_data;	/* unused */
+X{
+X Widget	Popup = XtNameToWidget(toplevel, "topBox.commandPanel.Send.popup");
+X
+X
+X if (! Popup) {
+X    XBell(XtDisplay(toplevel), 33);
+X    return;				/* SOMEthing must be VERY wrong here */
+X   }
+X
+X XtPopdown(Popup);			/* pop down the send popup */
+X
+X editMail();				/* re-edit the message file */
+X} /* ReEdit */
+X
+X
+X/*
+X** @(#)Reply() - send a reply to the author of the selected message
+X**               include its text and/or copy the other recipients, if asked.
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XReply(w, client_data, call_data)
+XWidget w;
+Xcaddr_t client_data;
+Xcaddr_t call_data;
+X{
+X int		n, fd, alwaysIgnore, edit_headers, erasable = 0;
+X String		p, q, r, txt;
+X char		*us, *getlogin();
+X char		oldFrom[BUFSIZ], author[BUFSIZ], returnPath[BUFSIZ];
+X char		toList[BUFSIZ], date[BUFSIZ], subject[BUFSIZ], ccList[BUFSIZ];
+X char		Recipient[BUFSIZ];
+X Widget		sb = XtNameToWidget(toplevel, "topBox.commandPanel.Send");
+X 
+X#if defined(SIGACTION)
+X struct sigaction *ovec; 
+X 
+X (void) sigaction(SIGCHLD, NULL, &ovec);
+X if (ovec.sa_handler != SIG_DFL)
+X#else
+X struct	sigvec	ovec;
+X
+X (void) sigvec(SIGCHLD, NULL, &ovec);
+X if (ovec.sv_handler != SIG_DFL)
+X#endif
+X   {
+X    Bell("Still delivering your previous message.  Please try again later.\n");
+X    return;
+X   }
+X
+X XtSetSensitive(sb, False);	/* Don't start more than one composition */
+X XtSetSensitive(XtNameToWidget(toplevel, "topBox.commandPanel.reply"), False);
+X
+X oldFrom[0] = author[0] = returnPath[0] = date[0] = subject[0] = '\0';
+X ccList[0] = toList[0] = '\0';
+X
+X if (p = GetMailEnv("editheaders")) {
+X    XtFree((String) p);
+X    edit_headers = 1;
+X   } else edit_headers = 0;
+X
+X if (*client_data != 's' || edit_headers) {
+X    if ((fd = open(tmpName, O_WRONLY | O_CREAT, 0600)) == -1) {
+X       Bell("xmail: Cannot open the temp file\n");
+X       return;
+X      }
+X
+X    if (p = GetMailEnv("alwaysignore")) {
+X       XtFree((String) p);
+X       alwaysIgnore = (strchr("SRA", *client_data)) ? 1 : 0;
+X      } else alwaysIgnore = 0;
+X
+X    if (alwaysIgnore)		/* do we need to include a limited copy? */
+X       (void) sprintf(Command, "p %d", SelectionNumber(False));
+X    else
+X       (void) sprintf(Command, "P %d", SelectionNumber(False));
+X
+X    if ((p = GetMailEnv("indentprefix")) != NULL)
+X       erasable = 1;
+X    else
+X       p = "\t";
+X
+X    txt = QueryMail(Command);
+X
+X    switch (*client_data) {
+X       case 'S':
+X            (void) write(fd, "---------- Begin Forwarded Message ----------\n", 46);
+X            /*
+X            ** Any lines that begin with keyword 'From ' get a leading symbol
+X            */
+X            for (q = r = txt; *r;) {
+X                for (; *r && *r != '\n'; r++);
+X                    if (*r == '\n') {		/* For each line of text */
+X                       if (strncmp(q, "From ", 5) == 0)
+X                          (void) write(fd, ">", 1);
+X                       (void) write(fd, q, r - q + 1);
+X                       q = ++r;
+X                      }
+X               }
+X            if (*q) {				/* should never happen, but. */
+X               if (strncmp(q, "From ", 5) == 0)
+X                  (void) write(fd, ">", 1);
+X               (void) write(fd, q, strlen(q));	/* write last line of text */
+X               if (LASTCH(q) != '\n')
+X                  (void) write(fd, "\n", 1);
+X              }
+X            (void) write(fd, "----------- End Forwarded Message -----------\n", 46);
+X            break;
+X       case 'R':
+X       case 'A':
+X            n = strlen(p);
+X            for (q = r = txt; *r;) {
+X                for (; *r && *r != '\n'; r++);
+X                    if (*r == '\n') {		/* For each line of insert */
+X                       (void) write(fd, p, n);	/* write indent prefix, */
+X                       (void) write(fd, q, r - q + 1);	/* followed by text */
+X                       q = ++r;
+X                      }
+X               }
+X            if (*q) {				/* should never happen, but. */
+X               (void) write(fd, p, n);		/* write the indent prefix, */
+X               (void) write(fd, q, strlen(q));	/* this last line of text, */
+X               if (LASTCH(q) != '\n')
+X                  (void) write(fd, "\n", 1);	/* and an ending newline. */
+X              }
+X            if (erasable)
+X               XtFree((String) p);
+X            break;
+X      } /* end - switch on client_data */
+X
+X    (void) close(fd);
+X
+X    if (alwaysIgnore) {		/* get full headers for data (top 100 lines) */
+X       txt = QueryMail("unset alwaysignore");
+X       (void) sprintf(Command, "top %d", SelectionNumber(False));
+X       txt = QueryMail(Command);
+X      }
+X    /*
+X    ** strip header information from the original message
+X    */
+X    for (p = txt; *p; p++) {
+X        if (*p == '\n' || strncmp(p, "Status:", 7) == 0) break;
+X
+X        if (strncmp(p, "From ", 5) == 0 ) {
+X           bzero(oldFrom, BUFSIZ);
+X           p += 5;
+X           for (q = p; *q && *q != ' ' && *q != '\n'; q++);
+X           (void) strncpy(oldFrom, p, q - p);	/* drop the date portion now */
+X           for (; *q && *q != '\n'; q++);	/* skip to end of this line */
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "Return-Path:", 12) == 0) {
+X           bzero(returnPath, BUFSIZ);
+X           p += 13;
+X           for (q = p; *q && *q != '\n'; q++);
+X           (void) strncpy(returnPath, p, q - p); /* drop trailing newline */	
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "Date:", 5) == 0) {
+X           bzero(date, BUFSIZ);
+X           p += 6;
+X           for (q = p; *q && *q != '\n'; q++);
+X           (void) strncpy(date, p, q - p);
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "From:", 5) == 0) {
+X           bzero(author, BUFSIZ);
+X           p += 6;
+X           for (q = p; *q && *q != '\n'; q++);
+X           while (*(q+1) && strchr(" \t", *(q+1))) {
+X                 *q = ' ';		/* change this newline to a space */
+X                 *(q+1) = ' ';		/* change possible tab to a space */
+X                 for (q++; *q && *q != '\n'; q++);
+X                }
+X           (void) strncpy(author, p, q - p);
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "To:", 3) == 0) {
+X           bzero(toList, BUFSIZ);
+X           p += 4;
+X           for (q = p; *q && *q != '\n'; q++);
+X           while (*(q+1) && strchr(" \t", *(q+1))) {
+X                 *q = ' ';		/* change this newline to a space */
+X                 *(q+1) = ' ';		/* change possible tab to a space */
+X                 for (q++; *q && *q != '\n'; q++);
+X                }
+X           if (*client_data == 'a' || *client_data == 'A')
+X              (void) strncpy(toList, p, q - p);
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "Subject:", 8) == 0) {
+X           bzero(subject, BUFSIZ);
+X           p += 9;
+X           for (q = p; *q && *q != '\n'; q++);
+X           while (*(q+1) && strchr(" \t", *(q+1))) {
+X                 *q = ' ';		/* change this newline to a space */
+X                 *(q+1) = ' ';		/* change possible tab to a space */
+X                 for (q++; *q && *q != '\n'; q++);
+X                }
+X           (void) strncpy(subject, p, q - p);
+X           p = q;
+X          }
+X
+X        else if (strncmp(p, "Cc:", 3) == 0) {
+X           bzero(ccList, BUFSIZ);
+X           p += 4;
+X           for (q = p; *q && *q != '\n'; q++);
+X           while (*(q+1) && strchr(" \t", *(q+1))) {
+X                 *q = ' ';		/* change this newline to a space */
+X                 *(q+1) = ' ';		/* change possible tab to a space */
+X                 for (q++; *q && *q != '\n'; q++);
+X                }
+X           if (*client_data == 'a' || *client_data == 'A')
+X              (void) strncpy(ccList, p, q - p);
+X           p = q;
+X          }
+X        else for (; *p && *p != '\n'; p++);
+X       } /* end - for all of message body */
+X
+X    if (alwaysIgnore)			/* restore this if originally set */
+X       p = QueryMail("set alwaysignore");
+X
+X    if (toList[0] != '\0') {		/* remove ourself from the list */
+X       if (! (us = getlogin())) {
+X          struct passwd *pw = getpwuid((uid_t) getuid());
+X
+X          if (pw)
+X             us = pw->pw_name;
+X          else
+X             us = "no_name";
+X         }
+X       for (p = toList; *us && *p; p++) {
+X           if (strncmp(p, us, strlen(us)) == 0) {
+X              for (q = p + strlen(us); *q && *q != ',' && *q != ' '; q++);
+X              for (; *q && (*q == ',' || *q == ' '); q++);
+X              bcopy(q, p, strlen(q) + 1);
+X              continue;
+X             }
+X           while (*p && *p != ',' && *p != ' ') p++;
+X           while (*p && (*p == ',' || *p == ' ')) p++;
+X           p--;
+X          }
+X      }
+X   } /* end - if client_data does not equal 's' */
+X
+X InReply[0] = Recipient[0] = '\0';
+X/*
+X** If message did not have a 'From:', use 'Return-Path:' for reply recipient.
+X** If message also did not have a 'Return-Path', use the older style 'From '.
+X*/
+X if (*client_data != 'S' && *client_data != 's') {
+X    p = author;
+X    if (! *p && returnPath[0]) 
+X       p = returnPath;
+X    if (! *p && oldFrom[0])
+X       p = oldFrom;
+X
+X    (void) strcpy(Recipient, p);
+X/*
+X** If author's name consists of a compound address (i.e. name <address>,
+X** (Name) address, or equivalents...) strip off the real address portion
+X** (i.e. that portion not in parens, but possibly between chevrons).
+X*/
+X    if ((p = strchr(Recipient, '<')) || (p = strchr(Recipient, '(')))
+X       switch (*p) {
+X          case '<': q = strchr(p++, '>');
+X                    *q = '\0';	/* '<address> Name' or 'Name <address>' */
+X                    bcopy(p, Recipient, strlen(p) + 1);
+X                    break;
+X
+X          case '(': q = strchr(p, ')');		/* skipping past the parens */
+X                    if (p == Recipient) {	/* '(Name) address' format */
+X                       for (q++; *q && (*q == ' ' || *q == '\t'); q++);
+X                       bcopy(p, Recipient, strlen(p) + 1);
+X                      } else {			/* 'address (Name)' format */
+X                       for (; (p-1) > Recipient &&
+X                              (*(p-1) == ' ' || *(p-1) == '\t'); p--);
+X                       *p = '\0';
+X                      }
+X                    break;
+X         }
+X/*
+X** If this sender wishes to include all recipients of the original message in
+X** this response, include all others except this sender in that address list.
+X*/
+X    if (toList[0] && (*client_data == 'a' || *client_data == 'A')) {
+X       if (LASTCH(Recipient) && LASTCH(Recipient) != ',' &&
+X           strlen(Recipient) + 2 < BUFSIZ)
+X          (void) strcat(Recipient, ", ");
+X       if (strlen(Recipient) + strlen(toList) < BUFSIZ)
+X          (void) strcat(Recipient, toList);
+X       for (p = Recipient + strlen(Recipient) - 1; *p == ' ' || *p == ','; p--);
+X       *++p = '\0';			/* drop any trailing ", " garbage */
+X      }
+X   }
+X
+X if (*client_data != 's' && author[0] && date[0]) {
+X    r = (*client_data == 'S') ? "Forwarding" : "In-Reply-To";
+X    (void) sprintf(InReply, "%s: Mail from '%s'\n%*sdated: %s", r, author,
+X                   strlen(r) - 5, " ", date);
+X   }
+X
+X sendMail(sb);
+X
+X fd = -1;
+X if (edit_headers) {
+X    (void) sprintf(Command, "%s_", tmpName);
+X    if (rename(tmpName, Command))
+X       Bell("xmail: Cannot rename edit file for editheaders\n");
+X    else if ((fd = open(tmpName, O_WRONLY | O_CREAT, 0600)) < 0) {
+X       Bell("xmail: Cannot reopen the edit file for editheaders\n");
+X       return;
+X      }
+X   }
+X
+X if (! Recipient[0]) {
+X    writeTo(XtNameToWidget(sb, "*To"), "", REPLACE);
+X    if (fd >= 0) (void) write(fd, "To: \n", 5);
+X   } else {
+X    writeTo(XtNameToWidget(sb, "*To"), Recipient, REPLACE);
+X    if (fd >= 0) {
+X       if (*client_data == 's' && edit_headers)
+X          (void) write(fd, "To: \n", 5);
+X       else {
+X          (void) write(fd, "To: ", 4);
+X          (void) write(fd, Recipient, strlen(Recipient));
+X          (void) write(fd, "\n", 1);
+X         }
+X      }
+X   }
+X
+X if (! subject[0]) {
+X    writeTo(XtNameToWidget(sb, "*Subject"), "", REPLACE);
+X    if (fd >= 0) (void) write(fd, "Subject: \n", 10);
+X   } else {
+X    n = ((strchr("Rr", subject[0]) != NULL) &&
+X         (strchr("Ee", subject[1]) != NULL) &&
+X         (strchr(":;", subject[2]) != NULL));
+X
+X    if (n)
+X       writeTo(XtNameToWidget(sb, "*Subject"), subject, REPLACE);
+X    else {
+X       writeTo(XtNameToWidget(sb, "*Subject"), "Re: ", REPLACE);
+X       writeTo(XtNameToWidget(sb, "*Subject"), subject, APPEND);
+X      }
+X    if (fd >= 0) {
+X       if (*client_data == 's' && edit_headers)
+X          (void) write(fd, "Subject: \n", 10);
+X       else {
+X          (void) write(fd, "Subject: ", 9);
+X          if (! n) (void) write(fd, "Re: ", 4);
+X          (void) write(fd, subject, strlen(subject));
+X          (void) write(fd, "\n", 1);
+X
+X          if (InReply[0]) {
+X             (void) write(fd, InReply, strlen(InReply));
+X             (void) write(fd, "\n", 1);
+X            }
+X         }
+X
+X       if (p = XGetDefault(XtDisplay(toplevel), "XMail", "customHeader")) {
+X          if (p[0] == '"' || p[0] == "'"[0]) {
+X             bcopy(p + 1, p, strlen(p) - 1);
+X             while (LASTCH(p) == '"' || LASTCH(p) == "'"[0])
+X                   LASTCH(p) = '\0';
+X            }
+X          (void) write(fd, p, strlen(p));
+X          if (LASTCH(p) != '\n')
+X             (void) write(fd, "\n", 1);
+X         }
+X      }
+X   }
+X
+X if (! ccList[0]) {
+X    writeTo(XtNameToWidget(sb, "*Cc"), "", REPLACE);
+X    if (fd >= 0 && edit_headers)
+X       (void) write(fd, "Cc: \n", 5);
+X   } else {
+X    writeTo(XtNameToWidget(sb, "*Cc"), ccList, REPLACE);
+X    if (fd >= 0) {
+X       (void) write(fd, "Cc: ", 4);
+X       (void) write(fd, ccList, strlen(ccList));
+X       (void) write(fd, "\n", 1);
+X      }
+X   }
+X
+X    writeTo(XtNameToWidget(sb, "*Bcc"), "", REPLACE);
+X if (fd >= 0 && edit_headers)
+X    (void) write(fd, "Bcc: \n", 6);
+X
+X if (fd >= 0) {
+X    (void) write(fd, "\n", 1);
+X    if ((erasable = open(Command, O_RDONLY)) < 0) {
+X       Bell("xmail: Cannot reread the edit file for editheaders\n");
+X       return;
+X      }
+X    (void) unlink(Command);
+X    while (n = read(erasable, Command, BUFSIZ))
+X          (void) write(fd, Command, n);
+X    (void) close(erasable);
+X    (void) close(fd);
+X   }
+X
+X editMail();
+X} /* Reply */
+X
+X
+X/*
+X** @(#)Save() - (or copy) a message to specified folder or mbox
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XSave(w, cmd, call_data)
+XWidget w;
+Xcaddr_t cmd;
+Xcaddr_t call_data;
+X{
+X int			num;
+X String			p, r, FBuf;
+X XawTextPosition	pos;
+X Arg			args[1];
+X Widget			fileWindow;
+X
+X
+X if (! mailpid) Bell("No current mail connection\n");
+X else {
+X    SetCursor(WATCH);			/* reset by parser routines */
+X    num = SelectionNumber(False);	/* no current message returns zero */
+X    if (*cmd == 'C' || *cmd == 'S' || num == 0) {
+X       if (num) {
+X          (void) sprintf(Command, "%s %d\n", cmd, num);
+X          Bell("");			/* Reset bell worthyness flag */
+X         } else {
+X          (void) sprintf(Command, "%s \n", cmd);
+X         }
+X      } else {
+X       fileWindow = XtNameToWidget(toplevel, "topBox.commandPanel.fileWindow");
+X       pos = TextGetLastPos(fileWindow);
+X       if (pos - StartPos > 0) {
+X          XtSetArg(args[0], XtNstring, &FBuf);
+X          XtGetValues(fileWindow, args, 1);
+X
+X          if (FBuf[pos] != '\0') FBuf[pos] = '\0';
+X          p = XtNewString(&FBuf[StartPos]);
+X          (void) sprintf(Command, "%s %d %s\n", cmd, num, p);
+X          XtFree((String) p);
+X         } else {
+X          /*
+X          ** If no specified filename, use the mbox pointer.  We MUST include
+X          ** it here, because specifying the message number for the action
+X          ** would be interpreted as a filename, if we didn't append one.
+X          */
+X          if (! (p = GetMailEnv("MBOX")))
+X             (void) sprintf(Command, "%s %d %s/mbox\n", cmd, num, HOME);
+X          else {
+X             initfoldir();
+X             if (*p != '+' && (*p == '/' || (*p == '.' && *(p+1) == '/') ||
+X                  foldir[0] == NULL)) {
+X                (void) sprintf(Command, "%s %d %s\n", cmd, num, p);
+X               } else {
+X                (void) sprintf(Command, "%s %d %s%s\n", cmd, num, foldir, (*p == '+') ? &p[1] : p);
+X               }
+X             XtFree((String) p);
+X            }
+X         }
+X      }
+X    writeMail(Command);
+X   }
+X} /* Save */
+X
+X
+X/*
+X** @(#)SetNewmail - Highlight Newmail button to attract user attention
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XSetNewmail(w, client_data, call_data)
+XWidget	w;			/* unused */
+Xcaddr_t	client_data;		/* unused */
+Xcaddr_t	call_data;		/* unused */
+X{
+X Widget	cw;
+X
+X if (! Highlighted) {
+X    cw = XtNameToWidget(toplevel, "topBox.commandPanel.Newmail");
+X    XSetWindowBackgroundPixmap(XtDisplay(toplevel), XtWindow(cw), hatch);
+X    XtUnmapWidget(cw);
+X    XtMapWidget(cw);
+X    Highlighted = 1;
+X    reset_mailbox(XtNameToWidget(toplevel, "icon.mailbox"), 0);
+X   }
+X} /* SetNewmail */
+X
+X
+X/*
+X** @(#)UnsetNewmail - Remove Newmail button highlighting
+X*/
+X/* ARGSUSED */
+XXtCallbackProc
+XUnsetNewmail(w, client_data, call_data)
+XWidget	w;			/* unused */
+Xcaddr_t	client_data;		/* unused */
+Xcaddr_t	call_data;		/* unused */
+X{
+X Widget	cw = XtNameToWidget(toplevel, "topBox.commandPanel.Newmail");
+X
+X if (Highlighted) {
+X    XSetWindowBackground(XtDisplay(toplevel), XtWindow(cw), cw->core.background_pixel);
+X    XtUnmapWidget(cw);
+X    XtMapWidget(cw);
+X    Highlighted = 0;
+X    reset_mailbox(XtNameToWidget(toplevel, "icon.mailbox"), 1);
+X   }
+X} /* UnsetNewmail */
+END_OF_FILE
+  if test 54803 -ne `wc -c <'callbacks.c'`; then
+    echo shar: \"'callbacks.c'\" unpacked with wrong size!
+  fi
+  # end of 'callbacks.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(21 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 5
+END_OF_FILE
+  if test 21 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+echo shar: End of archive 2 \(of 10\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

@@ -1,0 +1,1776 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!news
+From: chuck@trantor.harris-atd.com (Chuck Musciano)
+Subject: v16i089: Contool 3.2, Part04/05
+Message-ID: <1992Mar5.190333.2611@msi.com>
+Originator: news@sun4
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i086-contool-3.2@uunet.UU.NET>
+Date: Thu, 5 Mar 1992 19:03:33 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: chuck@trantor.harris-atd.com (Chuck Musciano)
+Posting-number: Volume 16, Issue 89
+Archive-name: contool-3.2/part04
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 4 (of 5)."
+# Contents:  archive.c contool_ui.h load.c misc.c parse.y props.c
+#   send_mail.c store.c
+# Wrapped by dcmartin@fascet on Sat Feb 22 10:11:10 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'archive.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archive.c'\"
+else
+echo shar: Extracting \"'archive.c'\" \(5379 characters\)
+sed "s/^X//" >'archive.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	archive.c	contool message archive manager			*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<sys/param.h>
+X#include	<sys/types.h>
+X#include	<xview/xview.h>
+X#include	<xview/panel.h>
+X#include	<xview/textsw.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X#include	"contool_ui.h"
+X
+XPUBLIC	contool_base_objects	*contool_base;
+X
+XPRIVATE	contool_message_archive_objects	*dialog = NULL;
+X
+X/************************************************************************/
+XPRIVATE	void	stamp_archive(s)
+X
+Xchar	*s;
+X
+X{	int	t;
+X	char	msg[128];
+X
+X	t = time(0);
+X	sprintf(msg, "%s %.25s", s, ctime(&t));
+X	xv_set(dialog->message_archive, FRAME_LEFT_FOOTER, msg, NULL);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	reset_archive_size()
+X
+X{	int	sw_len;
+X	char	*temp;
+X
+X	if (dialog) {
+X	   sw_len = (int) xv_get(dialog->archive, TEXTSW_LENGTH);
+X	   temp = (char *) malloc((unsigned) sw_len);
+X	   xv_get(dialog->archive, TEXTSW_CONTENTS, 0, temp, sw_len);
+X	   xv_set(dialog->archive, TEXTSW_MEMORY_MAXIMUM, defaults.max_size * 11, NULL);
+X	   textsw_reset(dialog->archive, 0, 0);
+X	   if (sw_len > defaults.max_size * 10)
+X	      textsw_insert(dialog->archive, temp + sw_len - defaults.max_size * 10, defaults.max_size * 10);
+X	   else
+X	      textsw_insert(dialog->archive, temp, sw_len);
+X	   free(temp);
+X	   }
+X}
+X
+X/************************************************************************/
+XEXPORT	void	create_archive()
+X
+X{
+X	if (dialog == NULL) {
+X	   dialog = contool_message_archive_objects_initialize(NULL, contool_base->base);
+X	   place_dialog(contool_base->base, dialog->message_archive);
+X	   reset_archive_size();
+X	   }
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	popup_archive(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{
+X	if (op == MENU_NOTIFY) {
+X	   create_archive();
+X	   xv_set(dialog->message_archive, XV_SHOW, TRUE, NULL);
+X	   }
+X	return(item);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	clear_archive()
+X
+X{
+X	textsw_reset(dialog->archive, 0, 0);
+X	stamp_archive("Archive cleared");
+X}
+X
+X/************************************************************************/
+XEXPORT	void	print_archive()
+X
+X{	int	size;
+X	char	*buf;
+X	FILE	*cmd;
+X
+X	if (is_empty(defaults.print_filter))
+X	   error("You must specify a printer command in the Properties dialog");
+X	else if ((cmd = popen(defaults.print_filter, "w")) == NULL)
+X	   error("Could not execute %s", defaults.print_filter);
+X	else {
+X	   lets_get_busy(contool_base->base, TRUE, NULL);
+X	   size = (int) xv_get(dialog->archive, TEXTSW_LENGTH);
+X	   buf = (char *) malloc(size);
+X	   xv_get(dialog->archive, TEXTSW_CONTENTS, 0, buf, size);
+X	   if (fwrite(buf, 1, size, cmd) != size)
+X	      error("Could not write console contents to printer");
+X	   pclose(cmd);
+X	   free(buf);
+X	   lets_get_busy(contool_base->base, FALSE, NULL);
+X	   }
+X}
+X
+X/************************************************************************/
+XEXPORT	void	archive_messages()
+X
+X{	int	size, first, last, sw_len;
+X	char	*temp, *buf;
+X
+X	create_archive();
+X	size = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	buf = (char *) malloc(size);
+X	xv_get(contool_base->display, TEXTSW_CONTENTS, 0, buf, size);
+X	while ((int) xv_get(dialog->archive, TEXTSW_LENGTH) + size > defaults.max_size * 10) {
+X	   sw_len = (int) xv_get(dialog->archive, TEXTSW_LENGTH);
+X	   first = 1;
+X	   last = TEXTSW_INFINITY;
+X	   if (textsw_find_bytes(dialog->archive, &first, &last, "\n<<<", 4, 0) == -1 || first == 0)
+X	      if (textsw_find_bytes(dialog->archive, &first, &last, "\n", 1, 0) == -1 || first == 0)
+X	         first = (defaults.delete_amount < sw_len)? defaults.delete_amount : sw_len;
+X	   temp = (char *) malloc((unsigned) sw_len);
+X	   xv_get(dialog->archive, TEXTSW_CONTENTS, 0, temp, sw_len);
+X	   textsw_reset(dialog->archive, 0, 0);
+X	   textsw_insert(dialog->archive, temp + first, sw_len - first);
+X	   free(temp);
+X	   }
+X	xv_set(dialog->archive, TEXTSW_INSERTION_POINT, TEXTSW_INFINITY, NULL);
+X	textsw_insert(dialog->archive, buf, size);
+X	free(buf);
+X	stamp_archive("Messages last archived");
+X	textsw_reset(contool_base->display, 0, 0);
+X}
+END_OF_FILE
+if test 5379 -ne `wc -c <'archive.c'`; then
+    echo shar: \"'archive.c'\" unpacked with wrong size!
+fi
+# end of 'archive.c'
+fi
+if test -f 'contool_ui.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'contool_ui.h'\"
+else
+echo shar: Extracting \"'contool_ui.h'\" \(8425 characters\)
+sed "s/^X//" >'contool_ui.h' <<'END_OF_FILE'
+X#ifndef	contool_HEADER
+X#define	contool_HEADER
+X
+X/*
+X * contool_ui.h - User interface object and function declarations.
+X * This file was generated by `gxv' from `contool.G'.
+X * DO NOT EDIT BY HAND.
+X */
+X
+Xextern Attr_attribute	INSTANCE;
+X
+Xextern Xv_opaque	contool_file_menu_create();
+Xextern Xv_opaque	contool_view_menu_create();
+Xextern Xv_opaque	contool_edit_menu_create();
+Xextern Xv_opaque	contool_filter_insert_menu_create();
+Xextern Xv_opaque	contool_filter_paste_menu_create();
+Xextern Xv_opaque	contool_filter_edit_menu_create();
+Xextern Xv_opaque	contool_address_menu_create();
+X
+Xtypedef struct {
+X	Xv_opaque	base;
+X	Xv_opaque	contool_controls;
+X	Xv_opaque	file;
+X	Xv_opaque	view;
+X	Xv_opaque	edit;
+X	Xv_opaque	display;
+X} contool_base_objects;
+X
+Xextern contool_base_objects	*contool_base_objects_initialize();
+X
+Xextern Xv_opaque	contool_base_base_create();
+Xextern Xv_opaque	contool_base_contool_controls_create();
+Xextern Xv_opaque	contool_base_file_create();
+Xextern Xv_opaque	contool_base_view_create();
+Xextern Xv_opaque	contool_base_edit_create();
+Xextern Xv_opaque	contool_base_display_create();
+X
+Xtypedef struct {
+X	Xv_opaque	props;
+X	Xv_opaque	prop_controls;
+X	Xv_opaque	default_action;
+X	Xv_opaque	default_beep_count;
+X	Xv_opaque	default_beep_times;
+X	Xv_opaque	default_command;
+X	Xv_opaque	log_file;
+X	Xv_opaque	log_style;
+X	Xv_opaque	archive_style;
+X	Xv_opaque	print_filter;
+X	Xv_opaque	good_icon;
+X	Xv_opaque	bad_icon;
+X	Xv_opaque	flash_icon;
+X	Xv_opaque	stamp_resolution;
+X	Xv_opaque	message2;
+X	Xv_opaque	max_message;
+X	Xv_opaque	message3;
+X	Xv_opaque	delete_amount;
+X	Xv_opaque	message4;
+X	Xv_opaque	props_apply;
+X	Xv_opaque	props_reset;
+X} contool_props_objects;
+X
+Xextern contool_props_objects	*contool_props_objects_initialize();
+X
+Xextern Xv_opaque	contool_props_props_create();
+Xextern Xv_opaque	contool_props_prop_controls_create();
+Xextern Xv_opaque	contool_props_default_action_create();
+Xextern Xv_opaque	contool_props_default_beep_count_create();
+Xextern Xv_opaque	contool_props_default_beep_times_create();
+Xextern Xv_opaque	contool_props_default_command_create();
+Xextern Xv_opaque	contool_props_log_file_create();
+Xextern Xv_opaque	contool_props_log_style_create();
+Xextern Xv_opaque	contool_props_archive_style_create();
+Xextern Xv_opaque	contool_props_print_filter_create();
+Xextern Xv_opaque	contool_props_good_icon_create();
+Xextern Xv_opaque	contool_props_bad_icon_create();
+Xextern Xv_opaque	contool_props_flash_icon_create();
+Xextern Xv_opaque	contool_props_stamp_resolution_create();
+Xextern Xv_opaque	contool_props_message2_create();
+Xextern Xv_opaque	contool_props_max_message_create();
+Xextern Xv_opaque	contool_props_message3_create();
+Xextern Xv_opaque	contool_props_delete_amount_create();
+Xextern Xv_opaque	contool_props_message4_create();
+Xextern Xv_opaque	contool_props_props_apply_create();
+Xextern Xv_opaque	contool_props_props_reset_create();
+X
+Xtypedef struct {
+X	Xv_opaque	filters;
+X	Xv_opaque	filter_controls;
+X	Xv_opaque	filter_list;
+X	Xv_opaque	filter_insert;
+X	Xv_opaque	filter_edit;
+X	Xv_opaque	filter_update;
+X	Xv_opaque	filter_type;
+X	Xv_opaque	start;
+X	Xv_opaque	stop;
+X	Xv_opaque	filter_timeout;
+X	Xv_opaque	filter_timeout_units;
+X	Xv_opaque	comment;
+X	Xv_opaque	ignore;
+X	Xv_opaque	action;
+X	Xv_opaque	filter_beep_count;
+X	Xv_opaque	filter_beep_times;
+X	Xv_opaque	filter_command;
+X	Xv_opaque	filters_apply;
+X	Xv_opaque	filters_apply_and_save;
+X	Xv_opaque	filters_reset;
+X} contool_filters_objects;
+X
+Xextern contool_filters_objects	*contool_filters_objects_initialize();
+X
+Xextern Xv_opaque	contool_filters_filters_create();
+Xextern Xv_opaque	contool_filters_filter_controls_create();
+Xextern Xv_opaque	contool_filters_filter_list_create();
+Xextern Xv_opaque	contool_filters_filter_insert_create();
+Xextern Xv_opaque	contool_filters_filter_edit_create();
+Xextern Xv_opaque	contool_filters_filter_update_create();
+Xextern Xv_opaque	contool_filters_filter_type_create();
+Xextern Xv_opaque	contool_filters_start_create();
+Xextern Xv_opaque	contool_filters_stop_create();
+Xextern Xv_opaque	contool_filters_filter_timeout_create();
+Xextern Xv_opaque	contool_filters_filter_timeout_units_create();
+Xextern Xv_opaque	contool_filters_comment_create();
+Xextern Xv_opaque	contool_filters_ignore_create();
+Xextern Xv_opaque	contool_filters_action_create();
+Xextern Xv_opaque	contool_filters_filter_beep_count_create();
+Xextern Xv_opaque	contool_filters_filter_beep_times_create();
+Xextern Xv_opaque	contool_filters_filter_command_create();
+Xextern Xv_opaque	contool_filters_filters_apply_create();
+Xextern Xv_opaque	contool_filters_filters_apply_and_save_create();
+Xextern Xv_opaque	contool_filters_filters_reset_create();
+X
+Xtypedef struct {
+X	Xv_opaque	load;
+X	Xv_opaque	load_controls;
+X	Xv_opaque	load_type;
+X	Xv_opaque	load_file;
+X	Xv_opaque	accept_load;
+X} contool_load_objects;
+X
+Xextern contool_load_objects	*contool_load_objects_initialize();
+X
+Xextern Xv_opaque	contool_load_load_create();
+Xextern Xv_opaque	contool_load_load_controls_create();
+Xextern Xv_opaque	contool_load_load_type_create();
+Xextern Xv_opaque	contool_load_load_file_create();
+Xextern Xv_opaque	contool_load_accept_load_create();
+X
+Xtypedef struct {
+X	Xv_opaque	store;
+X	Xv_opaque	store_controls;
+X	Xv_opaque	store_type;
+X	Xv_opaque	store_file;
+X	Xv_opaque	accept_store;
+X} contool_store_objects;
+X
+Xextern contool_store_objects	*contool_store_objects_initialize();
+X
+Xextern Xv_opaque	contool_store_store_create();
+Xextern Xv_opaque	contool_store_store_controls_create();
+Xextern Xv_opaque	contool_store_store_type_create();
+Xextern Xv_opaque	contool_store_store_file_create();
+Xextern Xv_opaque	contool_store_accept_store_create();
+X
+Xtypedef struct {
+X	Xv_opaque	about;
+X	Xv_opaque	about_controls;
+X	Xv_opaque	message1;
+X	Xv_opaque	message5;
+X	Xv_opaque	message6;
+X	Xv_opaque	message7;
+X	Xv_opaque	message8;
+X	Xv_opaque	message9;
+X	Xv_opaque	message10;
+X	Xv_opaque	message11;
+X	Xv_opaque	message12;
+X	Xv_opaque	message13;
+X	Xv_opaque	message14;
+X	Xv_opaque	message16;
+X	Xv_opaque	message17;
+X	Xv_opaque	message18;
+X	Xv_opaque	message19;
+X	Xv_opaque	message20;
+X	Xv_opaque	send_mail;
+X} contool_about_objects;
+X
+Xextern contool_about_objects	*contool_about_objects_initialize();
+X
+Xextern Xv_opaque	contool_about_about_create();
+Xextern Xv_opaque	contool_about_about_controls_create();
+Xextern Xv_opaque	contool_about_message1_create();
+Xextern Xv_opaque	contool_about_message5_create();
+Xextern Xv_opaque	contool_about_message6_create();
+Xextern Xv_opaque	contool_about_message7_create();
+Xextern Xv_opaque	contool_about_message8_create();
+Xextern Xv_opaque	contool_about_message9_create();
+Xextern Xv_opaque	contool_about_message10_create();
+Xextern Xv_opaque	contool_about_message11_create();
+Xextern Xv_opaque	contool_about_message12_create();
+Xextern Xv_opaque	contool_about_message13_create();
+Xextern Xv_opaque	contool_about_message14_create();
+Xextern Xv_opaque	contool_about_message16_create();
+Xextern Xv_opaque	contool_about_message17_create();
+Xextern Xv_opaque	contool_about_message18_create();
+Xextern Xv_opaque	contool_about_message19_create();
+Xextern Xv_opaque	contool_about_message20_create();
+Xextern Xv_opaque	contool_about_send_mail_create();
+X
+Xtypedef struct {
+X	Xv_opaque	mail;
+X	Xv_opaque	mail_controls;
+X	Xv_opaque	message21;
+X	Xv_opaque	message22;
+X	Xv_opaque	address;
+X	Xv_opaque	fixed_address;
+X	Xv_opaque	other_address;
+X	Xv_opaque	message;
+X	Xv_opaque	mail_controls1;
+X	Xv_opaque	accept_send;
+X} contool_mail_objects;
+X
+Xextern contool_mail_objects	*contool_mail_objects_initialize();
+X
+Xextern Xv_opaque	contool_mail_mail_create();
+Xextern Xv_opaque	contool_mail_mail_controls_create();
+Xextern Xv_opaque	contool_mail_message21_create();
+Xextern Xv_opaque	contool_mail_message22_create();
+Xextern Xv_opaque	contool_mail_address_create();
+Xextern Xv_opaque	contool_mail_fixed_address_create();
+Xextern Xv_opaque	contool_mail_other_address_create();
+Xextern Xv_opaque	contool_mail_message_create();
+Xextern Xv_opaque	contool_mail_mail_controls1_create();
+Xextern Xv_opaque	contool_mail_accept_send_create();
+X
+Xtypedef struct {
+X	Xv_opaque	message_archive;
+X	Xv_opaque	archive_controls;
+X	Xv_opaque	clear;
+X	Xv_opaque	print;
+X	Xv_opaque	archive;
+X} contool_message_archive_objects;
+X
+Xextern contool_message_archive_objects	*contool_message_archive_objects_initialize();
+X
+Xextern Xv_opaque	contool_message_archive_message_archive_create();
+Xextern Xv_opaque	contool_message_archive_archive_controls_create();
+Xextern Xv_opaque	contool_message_archive_clear_create();
+Xextern Xv_opaque	contool_message_archive_print_create();
+Xextern Xv_opaque	contool_message_archive_archive_create();
+X#endif
+END_OF_FILE
+if test 8425 -ne `wc -c <'contool_ui.h'`; then
+    echo shar: \"'contool_ui.h'\" unpacked with wrong size!
+fi
+# end of 'contool_ui.h'
+fi
+if test -f 'load.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'load.c'\"
+else
+echo shar: Extracting \"'load.c'\" \(3392 characters\)
+sed "s/^X//" >'load.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	load.c		contool load dialog manager			*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<sys/param.h>
+X#include	<sys/types.h>
+X#include	<xview/xview.h>
+X#include	<xview/panel.h>
+X#include	<xview/xv_xrect.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X#include	"contool_ui.h"
+X
+XPRIVATE	contool_load_objects	*contool_load = NULL;
+X
+X/************************************************************************/
+XEXPORT	Menu_item	popup_load_config(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{	contool_base_objects * ip = (contool_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X
+X	if (op == MENU_NOTIFY) {
+X	   if (contool_load == NULL) {
+X	      contool_load = contool_load_objects_initialize(NULL, ip->base);
+X	      xv_set(contool_load->load_file,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r ",
+X	      	     NULL);
+X	      xv_set(contool_load->load_type, PANEL_VALUE, 3, NULL);
+X	      place_dialog(ip->base, contool_load->load);
+X	      }
+X	   xv_set(contool_load->load_file, PANEL_VALUE, filter_file, NULL);
+X	   xv_set(contool_load->load, XV_SHOW, TRUE, NULL);
+X	   }
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	void	load_filters(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{	contool_load_objects	*ip = (contool_load_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	int	kind;
+X	char	*path;
+X
+X	path = expand_tilde(xv_get(ip->load_file, PANEL_VALUE));
+X	if (lex_init(path)) {
+X	   yyparse();
+X	   if (parse_errors_occured) {
+X	      error("Error in configuration file.  Configuration not loaded");
+X	      xv_set(ip->accept_load, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	      }
+X	   else {
+X	      kind = (int) xv_get(ip->load_type, PANEL_VALUE);
+X	      if (kind & 1 && parsed_defaults) {
+X	         defaults = *parsed_defaults;
+X	         adjust_window_limit();
+X	         }
+X	      if (kind & 2)
+X	         filters = parsed_filters;
+X	      free(parsed_defaults);
+X	      filter_file = path;
+X	      }
+X	   }
+X	else {
+X	   error("Unable to read configuration file");
+X	   xv_set(ip->accept_load, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	   free(path);
+X	   }
+X}
+END_OF_FILE
+if test 3392 -ne `wc -c <'load.c'`; then
+    echo shar: \"'load.c'\" unpacked with wrong size!
+fi
+# end of 'load.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+echo shar: Extracting \"'misc.c'\" \(5391 characters\)
+sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<ctype.h>
+X#include	<pwd.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X
+XPUBLIC	char	*index();
+X
+X/************************************************************************/
+XEXPORT	int	getline(stream, string, max)
+X
+XFILE	*stream;
+Xchar	*string;
+Xint	max;
+X
+X{	register	int	i, j;
+X
+X	i = (int) fgets(string, max, stream);
+X	if (i == NULL)
+X	   return(EOF);
+X	j = strlen(string);
+X	if (j > 0 && string[j - 1] == '\n')
+X	   string[--j] = '\0';
+X	return(j);
+X}
+X
+X/************************************************************************/
+XEXPORT	int	verify(source, valid)
+X
+Xchar	*source;
+Xchar	*valid;
+X
+X{	register	char	*s;
+X
+X	for ( ; *source; source++) {
+X	   for (s = valid; *s && *s != *source; s++)
+X	      ;
+X	   if (*s == '\0')
+X	      return(0);
+X	   }
+X	return(1);
+X}
+X
+X/************************************************************************/
+XEXPORT	char	**saveargs(argc, argv)
+X
+Xint	argc;
+Xchar	**argv;
+X
+X{	int	i;
+X	char	**copy;
+X
+X	copy = (char **) malloc((argc + 1) * sizeof(char *));
+X	for (i = 0; i < argc; i++)
+X	   strcpy(copy[i] = (char *) malloc(strlen(argv[i]) + 1), argv[i]);
+X	copy[i] = (char *) 0;
+X	return(copy);
+X}
+X
+X#define		SIZE_INCREMENT		8
+X
+X/************************************************************************/
+XEXPORT	char	**tokenize(line, argc)
+X
+Xchar	*line;
+Xint	*argc;
+X
+X{	char	match, **argv, *buf, *p;
+X	int	limit;
+X
+X	buf = (char *) malloc(strlen(line) + 1);
+X	*argc = 0;
+X	argv = (char **) malloc((limit = SIZE_INCREMENT) * sizeof(char *));
+X	while (*line) {
+X	   while (isspace(*line))
+X	      line++;
+X	   switch (*line) {
+X	      case '"'  :
+X	      case '\'' : match = *line++; /* remove the quote mark */
+X	      		  for (p = buf; *line && (*line != match); ) {
+X	      		     if (*line == '\\')
+X	      		        line++;
+X	      		     if (*line)
+X	      		        *p++ = *line++;
+X	      		     }
+X	      		  if (*line)
+X	      		     line++; /* wipe out quote mark */
+X	      		  break;
+X	      default   : for (p = buf; *line && !isspace(*line) && (*line != '"') && (*line != '\''); )
+X	      		     *p++ = *line++;
+X	      		  break;
+X	      }
+X	   *p = '\0';
+X	   if (*buf) {
+X	      argv[(*argc)++] = strsave(buf);
+X	      if (*argc == limit)
+X	         argv = (char **) realloc(argv, (limit += SIZE_INCREMENT) * sizeof(char *));
+X	      }
+X	   }
+X	free(buf);
+X	argv[*argc] = (char *) 0;
+X	return(argv);
+X}
+X
+X#define		P_POS		5
+X#define		L_POS		8
+X#define		D_POS		9
+X
+X#define		PATH		"/dev/ptyp0"
+X#define		LETTERS		"pqr"
+X#define		DIGITS		"0123456789abcdef"
+X
+XPRIVATE	char	path[12];
+X
+X/************************************************************************/
+XEXPORT	char	*open_psuedo_tty(master, m_mode, slave, s_mode)
+X
+XFILE	**master;
+Xchar	*m_mode;
+XFILE	**slave;
+Xchar	*s_mode;
+X
+X{	char	*s, *t;
+X
+X	strcpy(path, PATH);
+X	for (s = LETTERS; *s && *master == NULL; s++) {
+X	   path[L_POS] = *s;
+X	   for (t = DIGITS; *t && *master == NULL; t++) {
+X	      path[D_POS] = *t;
+X	      *master = fopen(path, m_mode);
+X	      }
+X	   }
+X	if (*master != NULL) {
+X	   path[P_POS] = 't';
+X	   *slave = fopen(path, s_mode);
+X	   path[P_POS] = 'p';
+X	   }
+X	return(path);
+X}
+X
+X/************************************************************************/
+XEXPORT	char	*expand_tilde(path)
+X
+Xchar	*path;
+X
+X{	char	s[1024], *p;
+X	struct	passwd	*pw;
+X
+X	if (*path == '~') {
+X	   if (path[1] == '/' || path[1] == '\0') {
+X	      strcpy(s, getenv("HOME"));
+X	      strcat(s, path + 1);
+X	      }
+X	   else {
+X	      if ((p = index(path, '/')) != NULL)
+X	         *p = '\0';
+X	      if ((pw = getpwnam(path + 1)) != NULL) {
+X	         strcpy(s, pw->pw_dir);
+X	         if (p != NULL) {
+X	            strcat(s, "/");
+X	            strcat(s, p + 1);
+X	            }
+X	         }
+X	      else {
+X	         if (p != NULL)
+X	            *p = '/';
+X	         strcpy(s, path);
+X	         }
+X	      }
+X	   return(strsave(s));
+X	   }
+X	else
+X	   return(strsave(path));
+X}
+X
+X/************************************************************************/
+XEXPORT	int	is_empty(s)
+X
+Xchar	*s;
+X
+X{
+X	if (s == NULL)
+X	   return(TRUE);
+X	for (; *s; s++)
+X	   if (!isspace(*s))
+X	      return(FALSE); 
+X	return(TRUE);
+X}
+X
+X/************************************************************************/
+XEXPORT	char	*check_escapes(s)
+X
+Xchar	*s;
+X
+X{	static	char	buf[1024];
+X	char	*p;
+X
+X	for (p = buf; *s; s++, p++)
+X	   if (*s == '"') {
+X	      *p++ = '"';
+X	      *p = *s;
+X	      }
+X	   else
+X	      *p = *s;
+X	*p = '\0';
+X	return(buf);
+X}
+END_OF_FILE
+if test 5391 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+fi
+# end of 'misc.c'
+fi
+if test -f 'parse.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parse.y'\"
+else
+echo shar: Extracting \"'parse.y'\" \(8184 characters\)
+sed "s/^X//" >'parse.y' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X%{
+X
+X#include	<stdio.h>
+X#include	<ctype.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X
+XEXPORT	Props	*parsed_defaults;
+XEXPORT	Filter	*parsed_filters;
+XEXPORT	int	filter_version = 0;
+X
+XEXPORT	int	parse_errors_occured;
+X
+XPRIVATE	char	*get_last_token();
+X
+XPRIVATE	Filter	*curr;
+XPRIVATE	char	*curr_file;
+XPRIVATE	int	line_count = 1;
+XPRIVATE	char	ungetc = -1;
+X
+X%}
+X
+X%start	configuration
+X
+X%union	{char	*cpval;
+X	 int	ival;
+X	 Filter	*fval;
+X	 Props	*pval;
+X	}
+X
+X%token	<cpval>	STRING
+X%token	<ival>	INTEGER
+X
+X%token		LBRACE RBRACE
+X
+X%token		ARCHIVE BEEP CHECK_ICON COMMAND COMMENT DEFAULTS DELETE DISPLAY FILTERS
+X		FLASH FLASH_ICON GOOD_ICON IGNORE LOG LOG_BEFORE_FILTERING LOG_FILE
+X		MATCH NO NOFLASH NOOPEN NOSTAMP OPEN PRINT QUIET SAVE STAMP TIMEOUT
+X		TIMESTAMP TO VERSION YES
+X
+X%type	<ival>	beep flash log old_flash old_open old_stamp open stamp yes_no
+X%type	<cpval>	command old_end_string string
+X%type	<fval>	filter filter_list old_filter old_filter_list old_ignore old_quiet old_save
+X
+X%%
+X
+Xconfiguration	:	empty
+X		|	old_style
+X		|	new_style
+X		;
+X
+Xold_style	:	old_filter_list
+X					{ parsed_defaults = NULL;
+X					  parsed_filters = $1;
+X					}
+X		;
+X
+Xold_filter_list	:	old_filter
+X					{ $$ = $1; }
+X		|	old_filter_list old_filter
+X					{ Filter	*f;
+X					
+X					  for (f = $1; f->next; f = f->next)
+X					     ;
+X					  f->next = $2;
+X					  $$ = $1;
+X					}
+X		;
+X
+Xold_filter	:	old_save
+X		|	old_ignore
+X		|	old_quiet
+X		;
+X
+Xold_save	:	SAVE beep old_flash old_open old_stamp STRING old_end_string
+X					{ Filter	*f;
+X					  char		*msg;
+X
+X					  f = (Filter *) malloc(sizeof(Filter));
+X					  f->save     = TRUE;
+X					  f->beep     = $2;
+X					  f->flash    = $3;
+X					  f->open     = $4;
+X					  f->stamp    = $5;
+X					  f->timeout  = 0;
+X					  f->log      = TRUE;
+X					  f->start    = $6;
+X					  f->stop     = $7;
+X					  f->start_re = NULL;
+X					  f->stop_re  = NULL;
+X					  f->command  = NULL;
+X					  f->comment  = NULL;
+X					  f->next     = NULL;
+X					  if (msg = compile_exp(f, f->start, f->stop))
+X					     yyerror(msg);
+X					  $$ = f;
+X					}
+X		;
+X
+Xold_ignore	:	IGNORE STRING old_end_string
+X					{ Filter	*f;
+X					  char		*msg;
+X					
+X					  f = (Filter *) malloc(sizeof(Filter));
+X					  f->save     = FALSE;
+X					  f->beep     = 0;
+X					  f->flash    = FALSE;
+X					  f->open     = FALSE;
+X					  f->stamp    = FALSE;
+X					  f->timeout  = 0;
+X					  f->log      = TRUE;
+X					  f->start    = $2;
+X					  f->stop     = $3;
+X					  f->start_re = NULL;
+X					  f->stop_re  = NULL;
+X					  f->command  = NULL;
+X					  f->comment  = NULL;
+X					  f->next     = NULL;
+X					  if (msg = compile_exp(f, f->start, f->stop))
+X					     yyerror(msg);
+X					  $$ = f;
+X					}
+X		;
+X
+Xold_quiet	:	QUIET STRING old_end_string
+X					{ Filter	*f;
+X					  char		*msg;
+X					
+X					  f = (Filter *) malloc(sizeof(Filter));
+X					  f->save     = TRUE;
+X					  f->beep     = 0;
+X					  f->flash    = FALSE;
+X					  f->open     = FALSE;
+X					  f->stamp    = TRUE;
+X					  f->timeout  = 0;
+X					  f->log      = TRUE;
+X					  f->start    = $2;
+X					  f->stop     = $3;
+X					  f->start_re = NULL;
+X					  f->stop_re  = NULL;
+X					  f->command  = NULL;
+X					  f->comment  = NULL;
+X					  f->next     = NULL;
+X					  if (msg = compile_exp(f, f->start, f->stop))
+X					     yyerror(msg);
+X					  $$ = f;
+X					}
+X		;
+X
+Xold_flash	:	FLASH
+X					{ $$ = TRUE; }
+X		|	NOFLASH
+X					{ $$ = FALSE; }
+X		;
+X
+Xold_open	:	OPEN
+X					{ $$ = TRUE; }
+X		|	NOOPEN
+X					{ $$ = FALSE; }
+X		;
+X
+Xold_stamp	:	STAMP
+X					{ $$ = TRUE; }
+X		|	NOSTAMP
+X					{ $$ = FALSE; }
+X		;
+X
+Xold_end_string	:	empty
+X					{ $$ = NULL; }
+X		|	TO STRING
+X					{ $$ = $2; }
+X		;
+X
+Xnew_style	:	version defaults
+X		|	version filters
+X		|	version defaults filters
+X		;
+X
+Xversion		:	empty
+X					{ filter_version = 0; }
+X		|	VERSION INTEGER
+X					{ filter_version = $2; }
+X		;
+X
+Xdefaults	:	DEFAULTS
+X					{ parsed_defaults = (Props *) malloc(sizeof(Props));
+X					  *parsed_defaults = defaults;
+X					}
+X			LBRACE default_list RBRACE
+X		;
+X
+Xfilters		:	FILTERS LBRACE filter_list RBRACE
+X					{ parsed_filters = $3; }
+X		;
+X
+Xdefault_list	:	empty
+X		|	default_list default
+X		;
+X
+Xdefault		:	beep
+X					{ parsed_defaults->beep = $1; }
+X		|	command
+X					{ parsed_defaults->command = $1; }
+X		|	flash
+X					{ parsed_defaults->flash = $1; }
+X		|	log
+X					{ parsed_defaults->log = $1; }
+X		|	open
+X					{ parsed_defaults->open = $1; }
+X		|	stamp
+X					{ parsed_defaults->stamp = $1; }
+X		|	ARCHIVE INTEGER
+X					{ parsed_defaults->archive_style = $2; }
+X		|	CHECK_ICON string
+X					{ parsed_defaults->bad_icon = $2; }
+X		|	DELETE INTEGER
+X					{ parsed_defaults->delete_amount = $2; }
+X		|	DISPLAY INTEGER
+X					{ parsed_defaults->max_size = $2; }
+X		|	FLASH_ICON string
+X					{ parsed_defaults->flash_icon = $2; }
+X		|	GOOD_ICON string
+X					{ parsed_defaults->good_icon = $2; }
+X		|	LOG_BEFORE_FILTERING yes_no
+X					{ parsed_defaults->log_after = !$2; }
+X		|	LOG_FILE string
+X					{ parsed_defaults->log_file = $2; }
+X		|	PRINT STRING
+X					{ parsed_defaults->print_filter = $2; }
+X		|	TIMESTAMP INTEGER
+X					{ parsed_defaults->stamp_resolution = $2; }
+X		;
+X
+Xfilter_list	:	empty
+X					{ $$ = NULL; }
+X		|	filter_list filter
+X					{ Filter	*f;
+X					
+X					  if ($1 == NULL)
+X					     $$ = $2;
+X					  else {
+X					     for (f = $1; f->next; f = f->next)
+X					        ;
+X					     f->next = $2;
+X					     $$ = $1;
+X					     }
+X					}
+X		;
+X
+Xfilter		:	LBRACE
+X					{ curr = (Filter *) malloc(sizeof(Filter));
+X					  bzero(curr, sizeof(Filter));
+X					  if (filter_version < 310)
+X					     curr->log = TRUE;
+X					}
+X			filter_attr_list RBRACE
+X					{ char	*msg;
+X					
+X					  if (curr->start == NULL)
+X					     yyerror("no filter pattern specified");
+X					  if (msg = compile_exp(curr, curr->start, curr->stop))
+X					     yyerror(msg);
+X					  $$ = curr;
+X					}
+X		;
+X
+Xfilter_attr_list:	empty
+X		|	filter_attr_list filter_attr
+X		;
+X
+Xfilter_attr	:	beep
+X					{ curr->beep = $1; }
+X		|	command
+X					{ curr->command = $1; }
+X		|	flash
+X					{ curr->flash = $1; }
+X		|	log
+X					{ curr->log = $1; }
+X		|	open
+X					{ curr->open = $1; }
+X		|	stamp
+X					{ curr->stamp = $1; }
+X		|	COMMENT string
+X					{ curr->comment = $2; }
+X		|	IGNORE yes_no
+X					{ curr->save = !$2; }
+X		|	MATCH string
+X					{ curr->start = $2; }
+X		|	TIMEOUT INTEGER
+X					{ curr->timeout = $2; }
+X		|	TO string
+X					{ curr->stop = $2; }
+X		;
+X
+Xbeep		:	BEEP INTEGER
+X					{ $$ = $2; }
+X		;
+X
+Xcommand		:	COMMAND string
+X					{ $$ = $2; }
+X		;
+Xflash		:	FLASH yes_no
+X					{ $$ = $2; }
+X		;
+X
+Xlog		:	LOG yes_no
+X					{ $$ = $2; }
+X		;
+X
+Xopen		:	OPEN yes_no
+X					{ $$ = $2; }
+X		;
+X
+Xstamp		:	STAMP yes_no
+X					{ $$ = $2; }
+X		;
+X
+Xyes_no		:	YES
+X					{ $$ = TRUE; }
+X		|	NO
+X					{ $$ = FALSE; }
+X		;
+X
+Xstring		:	STRING
+X					{ $$ = (*$1 == '\0')? NULL : $1; }
+X		;
+X
+Xempty		: ;
+X
+X%%
+X
+X/************************************************************************/
+XPRIVATE	yyerror(s1, s2, s3, s4, s5, s6, s7)
+X
+Xchar	*s1, *s2, *s3, *s4, *s5, *s6, *s7;
+X
+X{	char	buf1[1024], buf2[1024];
+X
+X	sprintf(buf1, "%s: line %d: ", curr_file, line_count - ((ungetc == '\n')? 1 : 0));
+X	sprintf(buf2, s1, s2, s3, s4, s5, s6, s7);
+X	strcat(buf1, buf2);
+X	if (strcmp(s1, "syntax error") == 0) {
+X	   strcat(buf1, " at or near ");
+X	   strcat(buf1, get_last_token());
+X	   }
+X	error(buf1);
+X	yyclearin;
+X	parse_errors_occured++;
+X}
+X
+X#include "lex.c"
+END_OF_FILE
+if test 8184 -ne `wc -c <'parse.y'`; then
+    echo shar: \"'parse.y'\" unpacked with wrong size!
+fi
+# end of 'parse.y'
+fi
+if test -f 'props.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'props.c'\"
+else
+echo shar: Extracting \"'props.c'\" \(9038 characters\)
+sed "s/^X//" >'props.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	props.c		contool properties dialog manager		*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<sys/param.h>
+X#include	<sys/types.h>
+X#include	<xview/xview.h>
+X#include	<xview/panel.h>
+X#include	<xview/rect.h>
+X#include	<xview/screen.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X#include	"contool_ui.h"
+X
+XEXPORT	Props	defaults = {3,			/* beeps			 */
+X			    TRUE,		/* flash the icon		 */
+X			    TRUE,		/* write the message to the log	 */
+X			    FALSE,		/* don't pop the window		 */
+X			    TRUE,		/* timestamp the message	 */
+X			    NULL,		/* no command to run		 */
+X			    NULL,		/* default good icon		 */
+X			    NULL,		/* default bad icon		 */
+X			    NULL,		/* default flash icon		 */
+X			    "lpr",		/* default print filter		 */
+X			    NULL,		/* no log file			 */
+X			    TRUE,		/* log after filtering		 */
+X			    ARCHIVE_MANUALLY,	/* archive only at user request  */
+X			    60,			/* timestamp every 60 seconds	 */
+X			    32768,		/* save 32K of messages		 */
+X			    1024		/* remove 1K when we get full	 */
+X			   };
+X
+XPRIVATE	contool_props_objects	*contool_props = NULL;
+X
+X/************************************************************************/
+XPRIVATE	init_props(ip)
+X
+Xcontool_props_objects	*ip;
+X
+X{	int	val;
+X
+X	val = 0;
+X	if (defaults.beep > 0)
+X	   val |= BEEP_BIT;
+X	if (defaults.command != NULL)
+X	   val |= COMMAND_BIT;
+X	if (defaults.flash)
+X	   val |= FLASH_BIT;
+X	if (defaults.log)
+X	   val |= LOG_BIT;
+X	if (defaults.open)
+X	   val |= OPEN_BIT;
+X	if (defaults.stamp > 0)
+X	   val |= STAMP_BIT;
+X	xv_set(ip->default_action,     PANEL_VALUE,    val,                       NULL);
+X	xv_set(ip->default_beep_count, PANEL_VALUE,    defaults.beep,
+X				       PANEL_INACTIVE, defaults.beep == 0,        NULL);
+X	xv_set(ip->default_beep_times, PANEL_INACTIVE, defaults.beep == 0,        NULL);
+X	xv_set(ip->default_command,    PANEL_VALUE,    is_null(defaults.command),
+X				       PANEL_INACTIVE, defaults.command == NULL,  NULL);
+X	xv_set(ip->log_file,           PANEL_VALUE,    defaults.log_file,         NULL);
+X	xv_set(ip->log_style,          PANEL_VALUE,    defaults.log_after,        NULL);
+X	xv_set(ip->archive_style,      PANEL_VALUE,    defaults.archive_style,    NULL);
+X	xv_set(ip->good_icon,          PANEL_VALUE,    defaults.good_icon,        NULL);
+X	xv_set(ip->bad_icon,           PANEL_VALUE,    defaults.bad_icon,         NULL);
+X	xv_set(ip->flash_icon,         PANEL_VALUE,    defaults.flash_icon,       NULL);
+X	xv_set(ip->print_filter,       PANEL_VALUE,    defaults.print_filter,     NULL);
+X	xv_set(ip->max_message,        PANEL_VALUE,    defaults.max_size,         NULL);
+X	xv_set(ip->stamp_resolution,   PANEL_VALUE,    defaults.stamp_resolution, NULL);
+X	xv_set(ip->delete_amount,      PANEL_VALUE,    defaults.delete_amount,    NULL);
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	edit_properties(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{	contool_base_objects	*ip = (contool_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X
+X	if (op == MENU_NOTIFY) {
+X	   xv_set(ip->base, FRAME_BUSY, TRUE, NULL);
+X	   if (contool_props == NULL) {
+X	      contool_props = contool_props_objects_initialize(NULL, ip->base);
+X	      xv_set(contool_props->log_file,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r\t ",
+X	      	     NULL);
+X	      xv_set(contool_props->good_icon,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r\t ",
+X	      	     NULL);
+X	      xv_set(contool_props->bad_icon,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r\t ",
+X	      	     NULL);
+X	      xv_set(contool_props->flash_icon,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r\t ",
+X	      	     NULL);
+X	      place_dialog(ip->base, contool_props->props);
+X	      }
+X	   init_props(contool_props);
+X	   xv_set(contool_props->props, XV_SHOW, TRUE, NULL);
+X	   xv_set(ip->base, FRAME_BUSY, FALSE, NULL);
+X	   }
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	void	default_action(item, value, event)
+X
+XPanel_item	item;
+Xunsigned int	value;
+XEvent		*event;
+X
+X{	contool_props_objects	*ip = (contool_props_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	
+X	xv_set(ip->default_beep_count, PANEL_INACTIVE, !(value & BEEP_BIT), NULL);
+X	xv_set(ip->default_beep_times, PANEL_INACTIVE, !(value & BEEP_BIT), NULL);
+X	xv_set(ip->default_command,    PANEL_INACTIVE, !(value & COMMAND_BIT), NULL);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	accept_properties(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{	contool_props_objects	*ip = (contool_props_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	Props	new;
+X	int	val;
+X	Server_image	icon = NULL, load_icon();
+X	char	msg[1024];
+X
+X	val = (int) xv_get(ip->default_action, PANEL_VALUE);
+X
+X	if (val & BEEP_BIT)
+X	   new.beep = (int) xv_get(ip->default_beep_count, PANEL_VALUE);
+X	else
+X	   new.beep = 0;
+X
+X	if (val & COMMAND_BIT) {
+X	   new.command = (char *) xv_get(ip->default_command, PANEL_VALUE);
+X	   if (is_empty(new.command)) {
+X	      error("You must specify a command to be executed");
+X	      xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	      return;
+X	      }
+X	   }
+X	else
+X	   new.command = NULL;
+X
+X	new.flash            = (val & FLASH_BIT)? TRUE : FALSE;
+X	new.log              = (val & LOG_BIT)? TRUE : FALSE;
+X	new.open             = (val & OPEN_BIT)? TRUE : FALSE;
+X	new.stamp            = (val & STAMP_BIT)? TRUE : FALSE;
+X	new.log_file         = (char *) xv_get(ip->log_file,         PANEL_VALUE);
+X	new.log_after        = (int)    xv_get(ip->log_style,        PANEL_VALUE);
+X	new.archive_style    = (int)    xv_get(ip->archive_style,    PANEL_VALUE);
+X	new.good_icon        = (char *) xv_get(ip->good_icon,        PANEL_VALUE);
+X	new.bad_icon         = (char *) xv_get(ip->bad_icon,         PANEL_VALUE);
+X	new.flash_icon       = (char *) xv_get(ip->flash_icon,       PANEL_VALUE);
+X	new.print_filter     = (char *) xv_get(ip->print_filter,     PANEL_VALUE);
+X	new.max_size         = (int)    xv_get(ip->max_message,      PANEL_VALUE);
+X	new.stamp_resolution = (int)    xv_get(ip->stamp_resolution, PANEL_VALUE);
+X	new.delete_amount    = (int)    xv_get(ip->delete_amount,    PANEL_VALUE);
+X
+X	new.good_icon = is_empty(new.good_icon)? NULL : expand_tilde(new.good_icon);
+X	new.bad_icon = is_empty(new.bad_icon)? NULL : expand_tilde(new.bad_icon);
+X	new.flash_icon = is_empty(new.flash_icon)? NULL : expand_tilde(new.flash_icon);
+X
+X	if (new.good_icon && (icon = load_icon(new.good_icon, msg)) == NULL) {
+X	   error("Invalid \"All is well\" icon: %s", msg);
+X	   xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	   return;
+X	   }
+X	if (icon)
+X	   xv_destroy(icon);
+X	if (new.bad_icon && (icon = load_icon(new.bad_icon, msg)) == NULL) {
+X	   error("Invalid \"Check console\" icon: %s", msg);
+X	   xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	   return;
+X	   }
+X	if (icon)
+X	   xv_destroy(icon);
+X	if (new.flash_icon && (icon = load_icon(new.flash_icon, msg)) == NULL) {
+X	   error("Invalid \"Flash\" icon: %s", msg);
+X	   xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	   return;
+X	   }
+X	if (icon)
+X	   xv_destroy(icon);
+X
+X	new.log_file = is_empty(new.log_file)? NULL : expand_tilde(new.log_file);
+X	new.print_filter = strsave(new.print_filter);
+X	new.command = strsave(new.command);
+X	defaults = new;
+X
+X	adjust_window_limit();
+X	update_icons();
+X	update_logging();
+X}
+X
+X/************************************************************************/
+XEXPORT	void	reset_properties(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{	contool_props_objects	*ip = (contool_props_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	
+X	init_props(ip);
+X	xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X}
+END_OF_FILE
+if test 9038 -ne `wc -c <'props.c'`; then
+    echo shar: \"'props.c'\" unpacked with wrong size!
+fi
+# end of 'props.c'
+fi
+if test -f 'send_mail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'send_mail.c'\"
+else
+echo shar: Extracting \"'send_mail.c'\" \(4315 characters\)
+sed "s/^X//" >'send_mail.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	send_mail.c	display a little information window		*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<sys/param.h>
+X#include	<sys/types.h>
+X#include	<xview/xview.h>
+X#include	<xview/panel.h>
+X#include	<xview/textsw.h>
+X#include	"contool_ui.h"
+X
+X#include	"manifest.h"
+X
+X#define		VERSION			"3.2"
+X
+XPUBLIC	contool_base_objects	*contool_base;
+X
+XPRIVATE	contool_mail_objects	*dialog = NULL;
+X
+X/************************************************************************/
+XEXPORT	popup_send_mail(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{
+X	if (dialog == NULL) {
+X	   dialog = contool_mail_objects_initialize(NULL, contool_base->base);
+X	   place_dialog(contool_base->base, dialog->mail);
+X	   xv_set(dialog->other_address, WIN_SHOW, FALSE, NULL);
+X	   }
+X	xv_set(dialog->mail, XV_SHOW, TRUE, NULL);
+X	xv_set(item, PANEL_NOTIFY_STATUS, XV_OK, 0);
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu	handle_address(menu, op)
+X
+XMenu_item	menu;
+XMenu_generate	op;
+X
+X{	char	*addr;
+X
+X	if (op == MENU_NOTIFY) {
+X	   addr = (char *) xv_get(menu, MENU_STRING);
+X	   xv_set(dialog->other_address, WIN_SHOW, strcmp(addr, "Other:") == 0, NULL);
+X	   xv_set(dialog->fixed_address, PANEL_LABEL_STRING, addr, NULL);
+X	   panel_paint(dialog->other_address, PANEL_CLEAR);
+X	   panel_paint(dialog->fixed_address, PANEL_CLEAR);
+X	   }
+X	xv_set(menu, MENU_NOTIFY_STATUS, XV_ERROR, NULL);
+X	xv_set(xv_get(menu, MENU_PARENT), MENU_NOTIFY_STATUS, XV_ERROR, NULL);
+X	return(menu);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	done_mail(frame)
+X
+XFrame		frame;
+X
+X{
+X	textsw_reset(dialog->message, 0, 0);
+X	xv_set(frame, XV_SHOW, FALSE, 0);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	send_mail(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{	char	cmd[1024], *buf;
+X	int	val, size;
+X	FILE	*pipe;
+X
+X	xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, 0);
+X	buf = (char *) xv_get(dialog->fixed_address, PANEL_LABEL_STRING);
+X	if (strcmp(buf, "Other:") != 0)
+X	   sprintf(cmd, "%s %s", MAILER, buf);
+X	else {
+X	   buf = (char *) xv_get(dialog->other_address, PANEL_VALUE);
+X	   if (is_empty(buf)) {
+X	      error("You must specify an alternate address before sending your message");
+X	      return;
+X	      }
+X	   else
+X	      sprintf(cmd, "%s %s", MAILER, buf);
+X	   }
+X	size = (int) xv_get(dialog->message, TEXTSW_LENGTH);
+X	if (size == 0) {
+X	   error("Please type a message before sending the mail");
+X	   return;
+X	   }
+X	if ((pipe = popen(cmd, "w")) == NULL) {
+X	   error("Could not invoke \"%s\" to send mail", cmd);
+X	   return;
+X	   }
+X	lets_get_busy(contool_base->base, TRUE, NULL);
+X	buf = (char *) malloc(size);
+X	xv_get(dialog->message, TEXTSW_CONTENTS, 0, buf, size);
+X	fprintf(pipe, "Subject: Contool %s comment\n\n", VERSION);
+X	if (fwrite(buf, 1, size, pipe) != size) {
+X	   error("Could not write message to the mailer");
+X	   free(buf);
+X	   return;
+X	   }
+X	pclose(pipe);
+X	free(buf);
+X	textsw_reset(dialog->message, 0, 0);
+X	lets_get_busy(contool_base->base, FALSE, NULL);
+X	xv_set(item, PANEL_NOTIFY_STATUS, XV_OK, 0);
+X}
+END_OF_FILE
+if test 4315 -ne `wc -c <'send_mail.c'`; then
+    echo shar: \"'send_mail.c'\" unpacked with wrong size!
+fi
+# end of 'send_mail.c'
+fi
+if test -f 'store.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'store.c'\"
+else
+echo shar: Extracting \"'store.c'\" \(6340 characters\)
+sed "s/^X//" >'store.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	store.c		contool store dialog manager			*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<ctype.h>
+X#include	<sys/param.h>
+X#include	<sys/types.h>
+X#include	<sys/file.h>
+X#include	<xview/xview.h>
+X#include	<xview/panel.h>
+X#include	<xview/notice.h>
+X#include	<xview/xv_xrect.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X#include	"contool_ui.h"
+X
+X#define		yes_no(x)		((x)? "yes" : "no")
+X
+X#define		FILTER_VERSION		320
+X
+XPUBLIC	contool_base_objects	*contool_base;
+X
+XPRIVATE	contool_store_objects	*contool_store = NULL;
+X
+X/************************************************************************/
+XEXPORT	Menu_item	popup_save_config(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{	contool_base_objects * ip = (contool_base_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X
+X	if (op == MENU_NOTIFY) {
+X	   if (contool_store == NULL) {
+X	      contool_store = contool_store_objects_initialize(NULL, ip->base);
+X	      xv_set(contool_store->store_file,
+X	      	        PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X	      	        PANEL_NOTIFY_STRING, "\n\r ",
+X	      	     NULL);
+X	      xv_set(contool_store->store_type, PANEL_VALUE, 3, NULL);
+X	      place_dialog(ip->base, contool_store->store);
+X	      }
+X	   xv_set(contool_store->store_file, PANEL_VALUE, filter_file, NULL);
+X	   xv_set(contool_store->store, XV_SHOW, TRUE, NULL);
+X	   }
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	int	store_filters_to_file(path, save_filters, save_props)
+X
+Xchar		*path;
+Xint		save_filters;
+Xint		save_props;
+X
+X{	char	buf[1024];
+X	int	answer;
+X	FILE	*f;
+X	Filter	*filt;
+X
+X	if (access(path, W_OK) == 0) {
+X	   sprintf(buf, "File \"%s\" exists.  You can:", path);
+X	   answer = notice_prompt(contool_base->base, NULL,
+X	   			     NOTICE_MESSAGE_STRINGS, buf, NULL,
+X	   			     NOTICE_BUTTON_YES, "Overwrite",
+X	   			     NOTICE_BUTTON_NO, "Cancel",
+X	   			  NULL);
+X	   if (answer == 0)
+X	      return(FALSE);
+X	   }
+X	if ((f = fopen(path, "w")) == NULL) {
+X	   error("Cannot write to %s: %s", path, sys_errlist[errno]);
+X	   return(FALSE);
+X	   }
+X	fprintf(f, "version %d\n", FILTER_VERSION);
+X	if (save_props) {
+X	   fprintf(f, "defaults {\n");
+X	   fprintf(f, "   beep                 %d\n", defaults.beep);
+X	   fprintf(f, "   command              \"%s\"\n", check_escapes(is_null(defaults.command)));
+X	   fprintf(f, "   flash                %s\n", yes_no(defaults.flash));
+X	   fprintf(f, "   log                  %s\n", yes_no(defaults.log));
+X	   fprintf(f, "   open                 %s\n", yes_no(defaults.open));
+X	   fprintf(f, "   stamp                %s\n", yes_no(defaults.stamp));
+X	   fprintf(f, "   archive              %d\n", defaults.archive_style);
+X	   fprintf(f, "   good_icon            \"%s\"\n", is_null(defaults.good_icon));
+X	   fprintf(f, "   check_icon           \"%s\"\n", is_null(defaults.bad_icon));
+X	   fprintf(f, "   flash_icon           \"%s\"\n", is_null(defaults.flash_icon));
+X	   fprintf(f, "   print                \"%s\"\n", defaults.print_filter);
+X	   fprintf(f, "   log_file             \"%s\"\n", is_null(defaults.log_file));
+X	   fprintf(f, "   log_before_filtering %s\n", yes_no(!defaults.log_after));
+X	   fprintf(f, "   timestamp            %d\n", defaults.stamp_resolution);
+X	   fprintf(f, "   display              %d\n", defaults.max_size);
+X	   fprintf(f, "   delete               %d\n", defaults.delete_amount);
+X	   fprintf(f, "}\n");
+X	   }
+X	if (save_filters) {
+X	   fprintf(f, "filters {\n");
+X	   for (filt = filters; filt; filt = filt->next) {
+X	      fprintf(f, "   {\n");
+X	      fprintf(f, "      match   \"%s\"\n", check_escapes(filt->start));
+X	      if (filt->stop) {
+X	         fprintf(f, "      to      \"%s\"\n", check_escapes(filt->stop));
+X	         fprintf(f, "      timeout %d\n", filt->timeout);
+X	         }
+X	      if (filt->comment)
+X	         fprintf(f, "      comment \"%s\"\n", check_escapes(filt->comment));
+X	      if (filt->save) {
+X	         fprintf(f, "      ignore  no\n");
+X	         fprintf(f, "      beep    %d\n", filt->beep);
+X	         fprintf(f, "      command \"%s\"\n", check_escapes(is_null(filt->command)));
+X	         fprintf(f, "      flash   %s\n", yes_no(filt->flash));
+X	         fprintf(f, "      log     %s\n", yes_no(filt->log));
+X	         fprintf(f, "      open    %s\n", yes_no(filt->open));
+X	         fprintf(f, "      stamp   %s\n", yes_no(filt->stamp));
+X	         }
+X	      else
+X	         fprintf(f, "      ignore  yes\n");
+X	      fprintf(f, "   }\n");
+X	      }
+X	   fprintf(f, "}\n");
+X	   }
+X	fclose(f);
+X	return(TRUE);
+X}
+X
+X/************************************************************************/
+XEXPORT	void	store_filters(item, event)
+X
+XPanel_item	item;
+XEvent		*event;
+X
+X{	contool_store_objects	*ip = (contool_store_objects *) xv_get(item, XV_KEY_DATA, INSTANCE);
+X	char	*path;
+X	int	kind;
+X
+X	path = expand_tilde(xv_get(ip->store_file, PANEL_VALUE));
+X	kind = (int) xv_get(ip->store_type, PANEL_VALUE);
+X	if (store_filters_to_file(path, kind & 2, kind & 1)) {
+X	   xv_set(item, PANEL_NOTIFY_STATUS, XV_OK, NULL);
+X	   filter_file = path;
+X	   }
+X	else {
+X	   free(path);
+X	   xv_set(item, PANEL_NOTIFY_STATUS, XV_ERROR, NULL);
+X	   }
+X}
+END_OF_FILE
+if test 6340 -ne `wc -c <'store.c'`; then
+    echo shar: \"'store.c'\" unpacked with wrong size!
+fi
+# end of 'store.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0

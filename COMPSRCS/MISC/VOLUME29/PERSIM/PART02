@@ -1,0 +1,1834 @@
+Newsgroups: comp.sources.misc
+From: stein.wbst129@xerox.com (Adam Stein)
+Subject:  v29i055:  persim - Single-Layer Perceptron Simulator, Part02/03
+Message-ID: <1992Apr5.025036.28360@sparky.imd.sterling.com>
+X-Md4-Signature: fc709629782e70bd08fd2d6d91564d31
+Date: Sun, 5 Apr 1992 02:50:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: stein.wbst129@xerox.com (Adam Stein)
+Posting-number: Volume 29, Issue 55
+Archive-name: persim/part02
+Environment: BSD
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MANIFEST Makefile TODO alloc.c commands.h error.c
+#   example1/README example1/output2 example1/output3 example1/output5
+#   example1/runit example2/README example2/output1 example2/output2
+#   example2/output3 example2/output4 example2/output5 example2/runit
+#   funcs.h grammar.y help.c lexical.l load.c math.c persim.c range.c
+#   resize.c save.c startup.c toggle.c
+# Wrapped by kent@sparky on Sat Apr  4 20:29:30 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(1310 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name            Shar #       	Description
+X-----------------------------------------------------------
+XMANIFEST		   1		  This list of files
+XMakefile		   1		  Makefile for persim
+XREADME			   1	          Details about program
+XTODO			   1		  List of possible future enhancements
+Xalloc.c			   1		  Memory allocation routines
+Xcommands.h		   1		  Available commands arrays
+Xerror.c			   1		  Error printing routine
+Xexample1.tar		   1		  10 Random points example
+Xexample2.tar		   1		  Another 10 Random points example
+Xfuncs.h			   1		  Which function for which command
+Xgrammar.y		   1		  Persim grammar syntax
+Xhelp.c			   1		  'Help' command
+Xis.c			   1		  Which command was typed in
+Xlexical.l		   1		  Lexical input
+Xload.c			   1		  'Load' command
+Xmath.c			   1		  Output node math routines
+Xpersim.1		   1		  Man page
+Xpersim.c		   1		  The persim program
+Xpersim.h		   1		  Common definitions
+Xrange.c			   1		  'Range' command
+Xread.c			   1		  Read input files routines
+Xresize.c		   1		  Resize memory allocations routines
+Xrun.c			   1		  'Run' command
+Xsave.c			   1		  'Save' command
+Xset.c			   1		  Routines to set values to variables
+Xshow.c			   1		  'Show' command
+Xstartup.c		   1		  Starup lex & yacc processing
+Xtoggle.c		   1		  Routines for toggle commands
+Xwrite.c			   1		  Write output files routines
+X
+END_OF_FILE
+  if test 1310 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(889 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X.KEEP_STATE:
+X
+XBINDIR=/usr/local/bin
+XMANDIR=/usr/local/man/man1
+X
+X.y.o:
+X	${YACC} ${YFLAGS} $<
+X	sh -c 'cmp -s y.tab.h $< || cp y.tab.h $*.h'
+X	rm -f y.tab.h
+X	${CC} -c ${CFLAGS} y.tab.c
+X	mv y.tab.o $*.o
+X	rm y.tab.c
+X
+XOBJS		= alloc.o error.o help.o grammar.o is.o lexical.o load.o math.o\
+X		  persim.o range.o read.o resize.o run.o save.o set.o show.o\
+X		  startup.o toggle.o write.o
+XCFLAGS		=
+XYFLAGS		= -d
+XTARGET		= persim
+X
+X${TARGET}: date.h ${OBJS}
+X	${CC} -o ${TARGET} ${OBJS} -lm
+X	@rm date.h
+X
+Xinstall: ${TARGET}
+X	@strip ${TARGET}
+X	mv ${TARGET} ${BINDIR}
+X	cp ${TARGET}.1 ${MANDIR}
+X
+Xclean:
+X	rm -f core makelog ${TARGET} ${OBJS} grammar.h lexical.c
+X
+Xdate.h:
+X	@echo "#define DATE \"`date +%D`\"" > date.h
+X	@echo "#define TIME \"`date +%r`\"" >> date.h
+X
+Xshar:
+X	(cd .. ; shar -n ${TARGET} -a -s stein.wbst129@xerox.com -c -o ${TARGET} -L 50 -p -T persim/[A-Z]* persim/*.[hcly1] -B persim/example*)
+X
+END_OF_FILE
+  if test 889 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'TODO'\"
+else
+  echo shar: Extracting \"'TODO'\" \(529 characters\)
+  sed "s/^X//" >'TODO' <<'END_OF_FILE'
+XPossible Future Enhancements:
+X
+X1.  Adjust input, output, desired, wts., node_attr when changing inodes,
+X    onodes, load state
+X
+X2.  Have routine read rest of line to print out for batch mode errors
+X
+X3.  Multilayer support
+X
+X4.  Various types of learning algorithms besides Rosenblatt's
+X
+X5.  More output node functions
+X
+X6.  Graphical front-end
+X
+X7.  History list (remember what commands user ran), be able to save/load the
+X    history list
+X
+X8.  Ability to read/write image/graphic formats (for pattern & image perceptron
+X    work)
+X
+END_OF_FILE
+  if test 529 -ne `wc -c <'TODO'`; then
+    echo shar: \"'TODO'\" unpacked with wrong size!
+  fi
+  # end of 'TODO'
+fi
+if test -f 'alloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alloc.c'\"
+else
+  echo shar: Extracting \"'alloc.c'\" \(2495 characters\)
+  sed "s/^X//" >'alloc.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained.
+X
+X  A fee may be charged for this program ONLY to recover costs
+X  for distribution (i.e. media costs).  No profit can be made
+X  on this program.
+X
+X  The author assumes no responsibility for disasters (natural
+X  or otherwise) as a consequence of use of this software.
+X
+X  Adam Stein (stein.wbst129@xerox.com)
+X*/
+X
+X#include <stdio.h>
+X#include "persim.h"
+X
+Xchar *calloc();
+X
+X/*This routine allocates data for 1D arrays of double numbers.
+X
+X  Inputs:  array    - pointer to array allocate (and deallocate if necessary)
+X	   numnodes - number of elements to allocate for
+X  Outputs: array    - pointer to new array
+X  Locals:  none
+X  Globals: NULL     - 0
+X*/
+Xalloc_data(numnodes,array)
+Xregister int numnodes;
+Xregister double **array;
+X{
+X	/*Deallocate previous array if there is one*/
+X	if(*array) free((char *) *array);
+X
+X	/*Allocate space for new array*/
+X	if((*array = (double *) calloc(numnodes,sizeof(double))) == NULL)
+X	  error();
+X}
+X
+X/*This routine allocates data for 2D arrays of double numbers (i.e. the
+X  weights).
+X
+X  Inputs:  array    - pointer to array allocate (and deallocate if necessary)
+X	   inodes   - number of input nodes
+X	   onodes   - number of output nodes
+X  Outputs: none
+X  Locals:  loop     - number of input nodes (1st deminsion of 2D array)
+X  Globals: none
+X*/
+Xalloc_wts(array,inodes,onodes)
+Xregister int inodes,onodes;
+Xregister double ***array;
+X{
+X	register int loop;
+X
+X	/*Deallocate array if there is one*/
+X	if(*array) {
+X	  for(loop = 0;loop < inodes;++loop)
+X	    free((char *) (*array)[loop]);
+X
+X	  free((char *) *array);
+X	}
+X
+X	/*Allocate new array*/
+X	if((*array = (double **) calloc(inodes,sizeof(double *)))== NULL)
+X	  error();
+X	for(loop = 0;loop < inodes;++loop)
+X	  if(((*array)[loop] = (double *) calloc(onodes,sizeof(double))) == NULL)
+X	    error();
+X}
+X
+X/*This routine will deallocate the space taken up by the perceptron weights
+X  arrays.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  loop    - loop through weights array
+X  Globals: state   - system variables
+X	   weights - percetron weights
+X	   NULL    - 0
+X*/
+Xdeallocwts()
+X{
+X	register int loop;
+X	extern double **weights;
+X	extern STATE state;
+X
+X	for(loop = 0;loop < state.inodes;++loop)
+X	  free((char *) weights[loop]);
+X
+X	free((char *) weights);
+X
+X	weights = (double **) NULL;
+X}
+X
+END_OF_FILE
+  if test 2495 -ne `wc -c <'alloc.c'`; then
+    echo shar: \"'alloc.c'\" unpacked with wrong size!
+  fi
+  # end of 'alloc.c'
+fi
+if test -f 'commands.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'commands.h'\"
+else
+  echo shar: Extracting \"'commands.h'\" \(2111 characters\)
+  sed "s/^X//" >'commands.h' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved. 
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is
+X  retained. 
+X 
+X  A fee may be charged for this program ONLY to recover costs 
+X  for distribution (i.e. media costs).  No profit can be made    
+X  on this program. 
+X 
+X  The author assumes no responsibility for disasters (natural 
+X  or otherwise) as a consequence of use of this software.  
+X 
+X  Adam Stein (stein.wbst129@xerox.com)   
+X*/
+X
+X/*Command names and the number of arguments to issue the command.  A -1
+X  indicates that the value isn't used for that command.*/
+XCMD cmd[NUM_CMDS] = {
+X		      {2,"alpha"},
+X		      {-1,"exit"},
+X		      {-1,"help"},
+X		      {2,"inodes"},
+X		      {3,"load"},
+X		      {3,"node"},
+X		      {2,"onodes"},
+X		      {4,"range"},
+X		      {-1,"run"},
+X		      {3,"save"},
+X		      {-1,"show"},
+X		      {1,"training"},
+X		      {0,"version"}
+X		    };
+X
+X/*Qualifiers*/
+Xchar *qual[NUM_QUALIFIERS] = {
+X			       "ascii","binary","desired","function","input",
+X			       "output","random", "stdin","state","threshold",
+X			       "verbose", "weights"
+X			     };
+X
+X/*Description of each command for the help function*/
+Xchar *desc[NUM_CMDS] = {
+X"set alpha\n\
+X\n\
+Xsyntax: alpha = #",
+X
+X"exit program\n\
+X\n\
+Xsyntax: exit",
+X
+X"print local help information\n\
+X\n\
+Xsyntax: help <command>",
+X
+X"set the number of input nodes\n\
+X\n\
+Xsyntax: inodes = #",
+X
+X"load variables from a file or stdin\n\
+X\n\
+Xsyntax: load <var> \"filename\"[, type]  (file)\n\
+X	load <var> stdin               (keyboard)",
+X
+X"set output node information\n\
+X\n\
+Xsyntax: node[#] attr value",
+X
+X"set the number of output nodes\n\
+X\n\
+Xsyntax: onodes = #",
+X
+X"set a range\n\
+X\n\
+Xsyntax: range <obj> min max",
+X
+X"run the simulator\n\
+X\n\
+Xsyntax: run [verbose]",
+X
+X"save variables to a file\n\
+X\n\
+Xsyntax: save <var> \"filename\"[, type]",
+X
+X"show the value of a variable\n\
+X\n\
+Xsyntax: show <var>",
+X
+X"toggle training mode\n\
+X\n\
+Xsyntax: training",
+X
+X"print current version\n\
+X\n\
+Xsyntax: version"
+X};
+X
+END_OF_FILE
+  if test 2111 -ne `wc -c <'commands.h'`; then
+    echo shar: \"'commands.h'\" unpacked with wrong size!
+  fi
+  # end of 'commands.h'
+fi
+if test -f 'error.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'error.c'\"
+else
+  echo shar: Extracting \"'error.c'\" \(1057 characters\)
+  sed "s/^X//" >'error.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.  
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is 
+X  retained.  
+X 
+X  A fee may be charged for this program ONLY to recover costs  
+X  for distribution (i.e. media costs).  No profit can be made        
+X  on this program.  
+X  
+X  The author assumes no responsibility for disasters (natural  
+X  or otherwise) as a consequence of use of this software.    
+X  
+X  Adam Stein (stein.wbst129@xerox.com)      
+X*/ 
+X 
+X#include <stdio.h>
+X
+Xextern int errno;
+Xextern char *program;
+X
+X/*This routines uses the standard UNIX error routine, perror(), to report any
+X  system errors.  This routine then exits with the an error code equal to the
+X  last error encountered.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  none
+X  Globals: errno   - number of last system error encountered
+X	   program - name of currently executing program
+X*/
+Xerror()
+X{
+X	perror(program);
+X	exit(errno);
+X}
+X
+END_OF_FILE
+  if test 1057 -ne `wc -c <'error.c'`; then
+    echo shar: \"'error.c'\" unpacked with wrong size!
+  fi
+  # end of 'error.c'
+fi
+if test -f 'example1/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example1/README'\"
+else
+  echo shar: Extracting \"'example1/README'\" \(1121 characters\)
+  sed "s/^X//" >'example1/README' <<'END_OF_FILE'
+XThis is an example of perceptron learning and testing.  The idea is to have
+XPersim be able to tell which side of a line a particular point is.
+X
+XThe only difference between example1 (this directory) and example2 is the
+Xrandom X & Y coordinates for the ten points (and the alpha used).
+X
+XThe boundary line used is:
+X
+X	y = -1/2X + 1
+X
+XTen random points were generated (input1.asc - input10.asc).  An extra input
+Xnode of value 1 was added to each input set instead of having an output
+Xnode threshold.
+X
+XDesired1.asc - desired10.asc is the expected answer for each corresponding
+Xinput set (input1.asc with expected output desired1.asc).
+X
+XWeights.asc is the file containing the weights.  This file get updated during
+Xtraining and used during testing.  This file is initially created by the
+Xfirst training session with Persim.
+X
+XOutput1 - output10 is the output for each session with Persim.
+X
+XRunit is a shell script to automate the training and testing of Persim.  It
+Xconsists of 2 FOR loops.  The first FOR loop creates batch files and runs
+XPersim to train and the second FOR loop creates batch files and runs Persim
+Xfor testing.
+X
+END_OF_FILE
+  if test 1121 -ne `wc -c <'example1/README'`; then
+    echo shar: \"'example1/README'\" unpacked with wrong size!
+  fi
+  # end of 'example1/README'
+fi
+if test -f 'example1/output2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example1/output2'\"
+else
+  echo shar: Extracting \"'example1/output2'\" \(440 characters\)
+  sed "s/^X//" >'example1/output2' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.01
+Xpersim> node function step
+Xpersim> load input "input2.asc",asc
+Xpersim> load desired "desired2.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = 0.396465
+X  [New] From #2, To #1, Weight = 0.840485
+X  [New] From #3, To #1, Weight = 0.353336
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 440 -ne `wc -c <'example1/output2'`; then
+    echo shar: \"'example1/output2'\" unpacked with wrong size!
+  fi
+  # end of 'example1/output2'
+fi
+if test -f 'example1/output3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example1/output3'\"
+else
+  echo shar: Extracting \"'example1/output3'\" \(440 characters\)
+  sed "s/^X//" >'example1/output3' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.01
+Xpersim> node function step
+Xpersim> load input "input3.asc",asc
+Xpersim> load desired "desired3.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = 0.396465
+X  [New] From #2, To #1, Weight = 0.840485
+X  [New] From #3, To #1, Weight = 0.353336
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 440 -ne `wc -c <'example1/output3'`; then
+    echo shar: \"'example1/output3'\" unpacked with wrong size!
+  fi
+  # end of 'example1/output3'
+fi
+if test -f 'example1/output5' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example1/output5'\"
+else
+  echo shar: Extracting \"'example1/output5'\" \(441 characters\)
+  sed "s/^X//" >'example1/output5' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.01
+Xpersim> node function step
+Xpersim> load input "input5.asc",asc
+Xpersim> load desired "desired5.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.143535
+X  [New] From #2, To #1, Weight = 0.079450
+X  [New] From #3, To #1, Weight = 0.339017
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 441 -ne `wc -c <'example1/output5'`; then
+    echo shar: \"'example1/output5'\" unpacked with wrong size!
+  fi
+  # end of 'example1/output5'
+fi
+if test -f 'example1/runit' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example1/runit'\"
+else
+  echo shar: Extracting \"'example1/runit'\" \(1326 characters\)
+  sed "s/^X//" >'example1/runit' <<'END_OF_FILE'
+X#!/bin/sh
+X
+Xfor loop in 1 2 3 4 5
+Xdo
+X  echo "inodes=3" > /tmp/persim.$$
+X  echo "onodes=1" >> /tmp/persim.$$
+X  echo "alpha=0.01" >> /tmp/persim.$$
+X  echo "node function step" >> /tmp/persim.$$
+X  echo "load input \"input$loop.asc\",asc" >> /tmp/persim.$$
+X  echo "load desired \"desired$loop.asc\",asc" >> /tmp/persim.$$
+X  if [ $loop -eq 1 ]
+X  then
+X    echo "load weights random" >> /tmp/persim.$$
+X  else
+X    echo "load weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  fi
+X  echo "run verbose" >> /tmp/persim.$$
+X  echo "save weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  echo "exit" >> /tmp/persim.$$
+X
+X  echo -n "Training with input file #$loop ... "
+X  persim /tmp/persim.$$ > output$loop
+X  echo "done"
+Xdone
+X
+Xecho ""
+X
+Xfor loop in 6 7 8 9 10
+Xdo
+X  echo "training" > /tmp/persim.$$
+X  echo "inodes=3" >> /tmp/persim.$$
+X  echo "onodes=1" >> /tmp/persim.$$
+X  echo "node function step" >> /tmp/persim.$$
+X  echo "load input \"input$loop.asc\",asc" >> /tmp/persim.$$
+X  echo "load weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  echo "run" >> /tmp/persim.$$
+X  echo "# Expecting `cat desired$loop.asc` for output value" >> /tmp/persim.$$
+X  echo "show output" >> /tmp/persim.$$
+X  echo "exit" >> /tmp/persim.$$
+X
+X  echo -n "Testing with input file #$loop ... "
+X  persim /tmp/persim.$$ > output$loop
+X  echo "done"
+Xdone
+X
+Xrm -f /tmp/persim.$$
+X
+END_OF_FILE
+  if test 1326 -ne `wc -c <'example1/runit'`; then
+    echo shar: \"'example1/runit'\" unpacked with wrong size!
+  fi
+  chmod +x 'example1/runit'
+  # end of 'example1/runit'
+fi
+if test -f 'example2/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/README'\"
+else
+  echo shar: Extracting \"'example2/README'\" \(1121 characters\)
+  sed "s/^X//" >'example2/README' <<'END_OF_FILE'
+XThis is an example of perceptron learning and testing.  The idea is to have
+XPersim be able to tell which side of a line a particular point is.
+X
+XThe only difference between example2 (this directory) and example1 is the
+Xrandom X & Y coordinates for the ten points (and the alpha used).
+X
+XThe boundary line used is:
+X
+X	y = -1/2X + 1
+X
+XTen random points were generated (input1.asc - input10.asc).  An extra input
+Xnode of value 1 was added to each input set instead of having an output
+Xnode threshold.
+X
+XDesired1.asc - desired10.asc is the expected answer for each corresponding
+Xinput set (input1.asc with expected output desired1.asc).
+X
+XWeights.asc is the file containing the weights.  This file get updated during
+Xtraining and used during testing.  This file is initially created by the
+Xfirst training session with Persim.
+X
+XOutput1 - output10 is the output for each session with Persim.
+X
+XRunit is a shell script to automate the training and testing of Persim.  It
+Xconsists of 2 FOR loops.  The first FOR loop creates batch files and runs
+XPersim to train and the second FOR loop creates batch files and runs Persim
+Xfor testing.
+X
+END_OF_FILE
+  if test 1121 -ne `wc -c <'example2/README'`; then
+    echo shar: \"'example2/README'\" unpacked with wrong size!
+  fi
+  # end of 'example2/README'
+fi
+if test -f 'example2/output1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/output1'\"
+else
+  echo shar: Extracting \"'example2/output1'\" \(429 characters\)
+  sed "s/^X//" >'example2/output1' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.08
+Xpersim> node function step
+Xpersim> load input "input1.asc",asc
+Xpersim> load desired "desired1.asc",asc
+Xpersim> load weights random
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = 0.396465
+X  [New] From #2, To #1, Weight = 0.840485
+X  [New] From #3, To #1, Weight = 0.353336
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 429 -ne `wc -c <'example2/output1'`; then
+    echo shar: \"'example2/output1'\" unpacked with wrong size!
+  fi
+  # end of 'example2/output1'
+fi
+if test -f 'example2/output2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/output2'\"
+else
+  echo shar: Extracting \"'example2/output2'\" \(1312 characters\)
+  sed "s/^X//" >'example2/output2' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.08
+Xpersim> node function step
+Xpersim> load input "input2.asc",asc
+Xpersim> load desired "desired2.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = 0.236465
+X  [New] From #2, To #1, Weight = 0.707865
+X  [New] From #3, To #1, Weight = 0.272974
+X
+XEpoch #2:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = 0.076465
+X  [New] From #2, To #1, Weight = 0.575245
+X  [New] From #3, To #1, Weight = 0.192612
+X
+XEpoch #3:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.083535
+X  [New] From #2, To #1, Weight = 0.442625
+X  [New] From #3, To #1, Weight = 0.112250
+X
+XEpoch #4:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.243535
+X  [New] From #2, To #1, Weight = 0.310004
+X  [New] From #3, To #1, Weight = 0.031888
+X
+XEpoch #5:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.403535
+X  [New] From #2, To #1, Weight = 0.177384
+X  [New] From #3, To #1, Weight = -0.048474
+X
+XEpoch #6:
+X  Actual Output Node #1 = -1.000000
+X
+X  [New] From #1, To #1, Weight = -0.403535
+X  [New] From #2, To #1, Weight = 0.177384
+X  [New] From #3, To #1, Weight = -0.048474
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 1312 -ne `wc -c <'example2/output2'`; then
+    echo shar: \"'example2/output2'\" unpacked with wrong size!
+  fi
+  # end of 'example2/output2'
+fi
+if test -f 'example2/output3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/output3'\"
+else
+  echo shar: Extracting \"'example2/output3'\" \(616 characters\)
+  sed "s/^X//" >'example2/output3' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.08
+Xpersim> node function step
+Xpersim> load input "input3.asc",asc
+Xpersim> load desired "desired3.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = -1.000000
+X
+X  [New] From #1, To #1, Weight = -0.243535
+X  [New] From #2, To #1, Weight = 0.207843
+X  [New] From #3, To #1, Weight = 0.188877
+X
+XEpoch #2:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.243535
+X  [New] From #2, To #1, Weight = 0.207843
+X  [New] From #3, To #1, Weight = 0.188877
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 616 -ne `wc -c <'example2/output3'`; then
+    echo shar: \"'example2/output3'\" unpacked with wrong size!
+  fi
+  # end of 'example2/output3'
+fi
+if test -f 'example2/output4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/output4'\"
+else
+  echo shar: Extracting \"'example2/output4'\" \(441 characters\)
+  sed "s/^X//" >'example2/output4' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.08
+Xpersim> node function step
+Xpersim> load input "input4.asc",asc
+Xpersim> load desired "desired4.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = 1.000000
+X
+X  [New] From #1, To #1, Weight = -0.243535
+X  [New] From #2, To #1, Weight = 0.207843
+X  [New] From #3, To #1, Weight = 0.188877
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 441 -ne `wc -c <'example2/output4'`; then
+    echo shar: \"'example2/output4'\" unpacked with wrong size!
+  fi
+  # end of 'example2/output4'
+fi
+if test -f 'example2/output5' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/output5'\"
+else
+  echo shar: Extracting \"'example2/output5'\" \(442 characters\)
+  sed "s/^X//" >'example2/output5' <<'END_OF_FILE'
+Xpersim> inodes=3
+Xpersim> onodes=1
+Xpersim> alpha=0.08
+Xpersim> node function step
+Xpersim> load input "input5.asc",asc
+Xpersim> load desired "desired5.asc",asc
+Xpersim> load weights "weights.asc",asc
+Xpersim> run verbose
+XEpoch #1:
+X  Actual Output Node #1 = -1.000000
+X
+X  [New] From #1, To #1, Weight = -0.243535
+X  [New] From #2, To #1, Weight = 0.207843
+X  [New] From #3, To #1, Weight = 0.188877
+X
+Xpersim> save weights "weights.asc",asc
+Xpersim> exit
+END_OF_FILE
+  if test 442 -ne `wc -c <'example2/output5'`; then
+    echo shar: \"'example2/output5'\" unpacked with wrong size!
+  fi
+  # end of 'example2/output5'
+fi
+if test -f 'example2/runit' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example2/runit'\"
+else
+  echo shar: Extracting \"'example2/runit'\" \(1326 characters\)
+  sed "s/^X//" >'example2/runit' <<'END_OF_FILE'
+X#!/bin/sh
+X
+Xfor loop in 1 2 3 4 5
+Xdo
+X  echo "inodes=3" > /tmp/persim.$$
+X  echo "onodes=1" >> /tmp/persim.$$
+X  echo "alpha=0.08" >> /tmp/persim.$$
+X  echo "node function step" >> /tmp/persim.$$
+X  echo "load input \"input$loop.asc\",asc" >> /tmp/persim.$$
+X  echo "load desired \"desired$loop.asc\",asc" >> /tmp/persim.$$
+X  if [ $loop -eq 1 ]
+X  then
+X    echo "load weights random" >> /tmp/persim.$$
+X  else
+X    echo "load weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  fi
+X  echo "run verbose" >> /tmp/persim.$$
+X  echo "save weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  echo "exit" >> /tmp/persim.$$
+X
+X  echo -n "Training with input file #$loop ... "
+X  persim /tmp/persim.$$ > output$loop
+X  echo "done"
+Xdone
+X
+Xecho ""
+X
+Xfor loop in 6 7 8 9 10
+Xdo
+X  echo "training" > /tmp/persim.$$
+X  echo "inodes=3" >> /tmp/persim.$$
+X  echo "onodes=1" >> /tmp/persim.$$
+X  echo "node function step" >> /tmp/persim.$$
+X  echo "load input \"input$loop.asc\",asc" >> /tmp/persim.$$
+X  echo "load weights \"weights.asc\",asc" >> /tmp/persim.$$
+X  echo "run" >> /tmp/persim.$$
+X  echo "# Expecting `cat desired$loop.asc` for output value" >> /tmp/persim.$$
+X  echo "show output" >> /tmp/persim.$$
+X  echo "exit" >> /tmp/persim.$$
+X
+X  echo -n "Testing with input file #$loop ... "
+X  persim /tmp/persim.$$ > output$loop
+X  echo "done"
+Xdone
+X
+Xrm -f /tmp/persim.$$
+X
+END_OF_FILE
+  if test 1326 -ne `wc -c <'example2/runit'`; then
+    echo shar: \"'example2/runit'\" unpacked with wrong size!
+  fi
+  chmod +x 'example2/runit'
+  # end of 'example2/runit'
+fi
+if test -f 'funcs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'funcs.h'\"
+else
+  echo shar: Extracting \"'funcs.h'\" \(963 characters\)
+  sed "s/^X//" >'funcs.h' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+Xvoid fpset(),help(),iset(),load(),range(),run(),save(),show(),toggle();
+Xvoid version();
+X
+X/*Array of functions to execute for keywords.  Index into the array is
+X  determined by which keyword was found.*/
+Xvoid (*execute[NUM_CMDS])() = {
+X			 	fpset, NULL, help, iset, load, NULL, iset,
+X				range, run, save, show, toggle, version
+X			      };
+X
+END_OF_FILE
+  if test 963 -ne `wc -c <'funcs.h'`; then
+    echo shar: \"'funcs.h'\" unpacked with wrong size!
+  fi
+  # end of 'funcs.h'
+fi
+if test -f 'grammar.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'grammar.y'\"
+else
+  echo shar: Extracting \"'grammar.y'\" \(3578 characters\)
+  sed "s/^X//" >'grammar.y' <<'END_OF_FILE'
+X%{
+X#include <stdio.h>
+X#include "persim.h"
+X#include "funcs.h"
+X
+Xextern int linenum,inhelp,inamb,print_line;
+Xextern char *program,*yacc_filename;
+X%}
+X
+X%union
+X{
+X	int inum;
+X	double dnum;
+X	char *string;
+X}
+X
+X%token AMBIGUOUS_KEYWORD EXIT_CMD HELP_CMD SHOW_CMD
+X%token FUNC_ATTR THRESHOLD_ATTR RUN_CMD VERBOSE_ATTR
+X%token <inum> DATA FILETYPE INT KEYWORD0 KEYWORD1 KEYWORD2 KEYWORD3
+X%token <inum> NODE_CMD KEYWORD4 NOTFILE
+X%token <dnum> FP
+X%token <string> STRING
+X
+X%type <inum> help run show
+X
+X%%
+Xline:
+X		| line '\n'			{ wrapup_line(1); }
+X		| line command			{ wrapup_line(0); }
+X		;
+Xcommand:	  error '\n' 			{ yyerrok; }
+X		| EXIT_CMD '\n'			{ YYACCEPT; }
+X		| ambiguous '\n'		{ yyerror(); }
+X		| help '\n'			{ help($1); }
+X		| KEYWORD0 '\n'			{ execute[$1](); }
+X		| KEYWORD1 '\n'			{ execute[$1](); }
+X		| KEYWORD2 '=' INT '\n'		{ execute[$1]($1,$3); }
+X		| KEYWORD2 '=' FP '\n'		{ execute[$1]($1,$3); }
+X		| KEYWORD3 DATA '"' STRING '"' '\n'
+X						{ execute[$1]($2,$4,UNKNOWN); }
+X		| KEYWORD3 DATA '"' STRING '"' ',' FILETYPE '\n'
+X						{ execute[$1]($2,$4,$7); }
+X		| KEYWORD3 DATA NOTFILE '\n' 	{ execute[$1]($2,NULL,$3); }
+X		| KEYWORD4 STRING FP FP '\n'	{ execute[$1]($2,$3,$4); }
+X		| NODE_CMD FUNC_ATTR STRING '\n'
+X						{ set_func($1,$3); }
+X		| NODE_CMD THRESHOLD_ATTR INT '\n'
+X						{ set_threshold($1,(double) $3); }
+X		| NODE_CMD THRESHOLD_ATTR FP '\n'
+X						{ set_threshold($1,$3); }
+X		| SHOW_CMD NODE_CMD '\n'	{ show(NODE,$2); }
+X		| run '\n'			{ run($1); }
+X		| show '\n'			{ show($1,0); }
+X		;
+Xambiguous:	  AMBIGUOUS_KEYWORD		{ }
+X		| AMBIGUOUS_KEYWORD '"' STRING '"'
+X						{ }
+X		| AMBIGUOUS_KEYWORD '=' INT 	{ }
+X		| AMBIGUOUS_KEYWORD '=' '"' STRING '"'
+X						{ }
+X		| AMBIGUOUS_KEYWORD '=' '"' STRING '"' ',' FILETYPE
+X						{ }
+X		| AMBIGUOUS_KEYWORD '=' NOTFILE
+X						{ }
+X		| AMBIGUOUS_KEYWORD FUNC_ATTR STRING
+X						{ }
+X		| AMBIGUOUS_KEYWORD THRESHOLD_ATTR INT
+X						{ }
+X		| AMBIGUOUS_KEYWORD THRESHOLD_ATTR FP
+X						{ }
+X		| AMBIGUOUS_KEYWORD VERBOSE_ATTR
+X						{ }
+X		| AMBIGUOUS_KEYWORD STRING FP FP
+X						{ }
+X		;
+Xhelp:		  HELP_CMD 			{ $$ = -1; }
+X		| HELP_CMD EXIT_CMD		{ $$ = EXIT; }
+X		| HELP_CMD HELP_CMD		{ $$ = HELP; }
+X		| HELP_CMD KEYWORD0		{ $$ = $2; }
+X		| HELP_CMD KEYWORD1		{ $$ = $2; }
+X		| HELP_CMD KEYWORD2		{ $$ = $2; }
+X		| HELP_CMD KEYWORD3		{ $$ = $2; }
+X		| HELP_CMD KEYWORD4		{ $$ = $2; }
+X		| HELP_CMD NODE_CMD		{ $$ = NODE; }
+X		| HELP_CMD RUN_CMD		{ $$ = RUN; }
+X		| HELP_CMD SHOW_CMD		{ $$ = SHOW; }
+X		| HELP_CMD AMBIGUOUS_KEYWORD	{ $$ = AMBIGUOUS; }
+X		;
+Xrun:		  RUN_CMD			{ $$ = 0; }
+X		| RUN_CMD VERBOSE_ATTR		{ $$ = 1; }
+X		;
+Xshow:		  SHOW_CMD DATA			{ $$ = $2; }
+X		| SHOW_CMD KEYWORD1		{ $$ = $2; }
+X		| SHOW_CMD KEYWORD2		{ $$ = $2; }
+X		| SHOW_CMD KEYWORD3		{ $$ = $2; }
+X		| SHOW_CMD KEYWORD4		{ $$ = $2; }
+X		| SHOW_CMD AMBIGUOUS_KEYWORD	{ $$ = AMBIGUOUS; }
+X		;
+X%%  
+X
+X/*This function is called when yacc has an error in parsing.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  none
+X  Globals: linenum       - current line number in file that yacc is reading
+X	   print_line    -
+X	   program       - name of program
+X	   stderr	 - standard error
+X	   NULL		 - 0
+X*/
+Xyyerror()
+X{
+X	if(print_line)
+X	  if(inhelp) printf("\ninvalid command to ask for help");
+X	  else if(inamb)
+X		 printf("%s: ambiguous command on line %d\n",program,linenum);
+X	       else printf("\n%s: syntax error on line %d",program,linenum);
+X	else 
+X	  if(inhelp) puts("invalid command to ask for help");
+X	  else if(inamb) fputs("*** ambiguous command ***\n",stderr);
+X	       else fputs("*** syntax error ***\n",stderr);
+X}
+X
+Xwrapup_line(blank)
+Xregister int blank;
+X{
+X	++linenum;
+X	inhelp = 0;
+X	inamb = 0;
+X
+X	prompt();
+X}
+X
+END_OF_FILE
+  if test 3578 -ne `wc -c <'grammar.y'`; then
+    echo shar: \"'grammar.y'\" unpacked with wrong size!
+  fi
+  # end of 'grammar.y'
+fi
+if test -f 'help.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help.c'\"
+else
+  echo shar: Extracting \"'help.c'\" \(1462 characters\)
+  sed "s/^X//" >'help.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include "persim.h"
+X
+X/*This routine prints information and the syntax for a specified command or
+X  a list of all commands if no special commands is specified.
+X
+X  Inputs:  subject - subject to provide help on
+X  Outputs: none
+X  Locals:  none
+X  Globals: cmd     - name of command to print information about
+X	   desc    - help description to print
+X*/
+Xvoid help(subject)
+Xregister int subject;
+X{
+X	extern char *desc[];
+X	extern CMD cmd[];
+X
+X	if(subject == UNKNOWN) {
+X	  puts("Commands may be abbreviated.  The following commands are available:");
+X	  puts("");
+X	  puts("alpha\t\tinodes\t\tonodes\t\tsave\t\ttraining");
+X	  puts("exit\t\tload\t\trange\t\tshow\t\tversion");
+X	  puts("help\t\tnode\t\trun");
+X	} else if(subject == AMBIGUOUS)
+X		 puts("*** ambiguous help subject ***");
+X	       else printf("%s - %s\n",cmd[subject].name,desc[subject]);
+X}
+X
+END_OF_FILE
+  if test 1462 -ne `wc -c <'help.c'`; then
+    echo shar: \"'help.c'\" unpacked with wrong size!
+  fi
+  # end of 'help.c'
+fi
+if test -f 'lexical.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lexical.l'\"
+else
+  echo shar: Extracting \"'lexical.l'\" \(2174 characters\)
+  sed "s/^X//" >'lexical.l' <<'END_OF_FILE'
+X%{
+X#include "grammar.h"
+X#include "persim.h"
+X
+Xint linenum = 1,inhelp = 0,inamb = 0,quotes = 0;
+Xextern int print_line;
+Xdouble atof();
+Xchar *strdup();
+X%}
+XCOMMENT		(#.*\n)
+XMATCH_STRING	([a-zA-Z/][a-zA-Z0-9_\./]*)
+XNODE		(node[0-9]+)
+XNUMBER		([-+]?[0-9]+\.?[0-9]*)
+X%%
+X{COMMENT}	{ ++linenum; if(print_line) ECHO; prompt(); }
+X{NODE}		{ ECHO; yylval.inum = atoi(yytext+4); return(NODE_CMD); }
+X{MATCH_STRING}	{
+X		  int info;
+X
+X		  if(print_line) ECHO;
+X
+X		  if(quotes)
+X		    if((yylval.string = strdup(yytext)) == NULL) {
+X		      error();
+X		      exit(1);
+X		    } else return(STRING);
+X
+X		  switch(yylval.inum = iskeyword(yytext,&info)) {
+X		    case EXIT:
+X			return(EXIT_CMD);
+X		    case HELP:
+X			inhelp = 1;
+X			return(HELP_CMD);
+X		    case NODE:
+X			yylval.inum = -1;
+X			return(NODE_CMD);
+X		    case RUN:
+X			return(RUN_CMD);
+X		    case SHOW:
+X			return(SHOW_CMD);
+X		    case UNKNOWN:
+X			if((yylval.inum = isqualifier(yytext,&info)) == UNKNOWN)
+X			  if((yylval.string = strdup(yytext)) == NULL) {
+X			    error();
+X			    exit(1);
+X			  } else return(STRING);
+X			else if(yylval.inum == AMBIGUOUS)
+X			       return(AMBIGUOUS_KEYWORD);
+X			     else return(info);
+X		    case AMBIGUOUS:
+X			inamb = 1;
+X			return(AMBIGUOUS_KEYWORD);
+X		    default:
+X			switch(info) {
+X			  case 0:	return(KEYWORD0);
+X			  case 1:	return(KEYWORD1);
+X			  case 2:	return(KEYWORD2);
+X			  case 3:	return(KEYWORD3);
+X			  case 4:	return(KEYWORD4);
+X			}
+X		  }
+X		}
+X{NUMBER}	{
+X		  if(print_line) ECHO;
+X
+X		  if(index(yytext,'.')) {
+X		    yylval.dnum = atof(yytext);
+X		    return(FP);
+X		  } else {
+X		           yylval.inum = atoi(yytext);
+X		           return(INT);
+X			 }
+X		}
+X\?		{ if(print_line) putchar('?'); yylval.inum = HELP;
+X		  inhelp = 1; return(HELP_CMD); }
+X\"		{ if(print_line) ECHO; quotes ^= 1; return('\"'); }
+X\n		{ if(print_line) ECHO; return('\n'); }
+X[^ \t]		{ if(print_line) putchar(yytext[0]); return(yytext[0]); }
+X[= \t]          { if(print_line) putchar(yytext[0]); }
+X%%
+X
+X/*This function is called when lex reaches EOF.  A value of 1 is returned
+X  to tell lex to finish up normally.
+X
+X  Inputs:  none
+X  Outputs: 1 - tells lex to finish normally
+X  Locals:  none
+X  Globals: none
+X*/
+Xint yywrap()
+X{
+X    return(1);
+X}
+X
+END_OF_FILE
+  if test 2174 -ne `wc -c <'lexical.l'`; then
+    echo shar: \"'lexical.l'\" unpacked with wrong size!
+  fi
+  # end of 'lexical.l'
+fi
+if test -f 'load.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'load.c'\"
+else
+  echo shar: Extracting \"'load.c'\" \(3399 characters\)
+  sed "s/^X//" >'load.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include <stdio.h>
+X#include "persim.h"
+X
+X/*This routine will load values into the different variables.
+X
+X  Inputs:  filename - name of the file containing the values
+X	   filetype - what type this file it is
+X	   var      - what variable to load
+X  Outputs: none
+X  Locals:  none
+X  Globals: desired  - desired output value array
+X	   input    - input value array
+X	   output   - output value array
+X	   state    - system variables
+X	   weights  - perceptron weights
+X	   DESIRED  - load desired output values
+X	   INPUT    - load input values
+X	   NULL     - 0
+X	   OUTPUT   - load output values
+X	   RANDOM   - load variable with random numbers
+X	   SYS_VARS - load system variables
+X	   UNKNOWN  - variable isn't set
+X	   WEIGHTS  - load perceptron weights
+X*/
+Xvoid load(var,filename,filetype)
+Xregister int var,filetype;
+Xregister char *filename;
+X{
+X	char *calloc();
+X	extern double *input,*output,*desired,**weights;
+X	extern STATE state;
+X
+X	switch(var) {
+X	  case DESIRED:
+X		if(filetype == RANDOM)
+X		  puts("can't assign random values to desired output");
+X		else if(state.onodes == UNKNOWN)
+X		       puts("the number of output nodes has not been set");
+X		     else {
+X			    /*Allocate space*/
+X		            alloc_data(state.onodes,&desired);
+X
+X			    /*Read in values from file or keyboard*/
+X		            if(!readdata(desired,state.onodes,filename,
+X					 filetype)) {
+X			      /*If the read failed, deallocate unused space*/
+X			      free((char *) desired);
+X			      desired = (double *) NULL;
+X		            }
+X		          }
+X		break;
+X	  case INPUT:
+X		if(filetype == RANDOM)
+X		  puts("can't assign random values for input");
+X		else if(state.inodes == UNKNOWN)
+X		       puts("the number of input nodes has not been set");
+X		     else {
+X			    /*Allocate space*/
+X			    alloc_data(state.inodes,&input);
+X
+X			    /*Read in values from file or keyboard*/
+X		            if(!readdata(input,state.inodes,filename,
+X					 filetype)) {
+X			      /*If read failed, deallocate unused space*/
+X			      free((char *) input);
+X			      input = (double *) NULL;
+X		            }
+X		          }
+X		break;
+X	  case OUTPUT:
+X		puts("can't load output values (must be generated)");
+X		break;
+X	  case SYS_VARS:
+X		readstate(filename);
+X		break;
+X	  case WEIGHTS:
+X		if(state.inodes == UNKNOWN)
+X		  puts("the number of input nodes has not been set");
+X		else if(state.onodes == UNKNOWN)
+X		       puts("the number of output nodes has not been set");
+X		     else {
+X			    if(filetype != RANDOM) {
+X			      /*Allocate space*/
+X			      alloc_wts(&weights,state.inodes,state.onodes);
+X
+X			      /*Read in values from file or keyboard*/
+X		              if(!readwts(weights,state.inodes,state.onodes,
+X					  filename,filetype))
+X				/*If read failed, deallocate unused space*/
+X				deallocwts();
+X			    } else randomize();
+X			  }
+X		break;
+X	}
+X}
+X
+END_OF_FILE
+  if test 3399 -ne `wc -c <'load.c'`; then
+    echo shar: \"'load.c'\" unpacked with wrong size!
+  fi
+  # end of 'load.c'
+fi
+if test -f 'math.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'math.c'\"
+else
+  echo shar: Extracting \"'math.c'\" \(1047 characters\)
+  sed "s/^X//" >'math.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+Xextern double ranges[1][2];
+X
+X/*This routine is a step (i.e. sgn) function.  Any value greater than or equal
+X  to 0 outputs 1 value, less than 0 outputs another value.
+X
+X  Inputs:  value  - value to act upon
+X  Outputs: max range if value >=0, min range if < 0
+X  Locals:  none
+X  Globals: ranges - max and min values to return
+X*/
+Xdouble step(value)
+Xregister double value;
+X{
+X	return((value >= 0.0)?ranges[0][1]:ranges[0][0]);
+X}
+X
+END_OF_FILE
+  if test 1047 -ne `wc -c <'math.c'`; then
+    echo shar: \"'math.c'\" unpacked with wrong size!
+  fi
+  # end of 'math.c'
+fi
+if test -f 'persim.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'persim.c'\"
+else
+  echo shar: Extracting \"'persim.c'\" \(2510 characters\)
+  sed "s/^X//" >'persim.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include <stdio.h>
+X#include "persim.h"
+X#include "date.h"
+X
+Xchar *program;
+Xdouble *input,*output,*desired,**weights,ranges[1][2];
+XNODE_ATTR *node_attr;
+XSTATE state;
+X
+X/*This program simulates a single layer perceptron.
+X
+X  Inputs:  argc      - number of command line arguments
+X	   argv      - command line arguments
+X  Outputs: 0 (no error status)
+X  Locals:  none
+X  Globals: desired   - array of desired output values
+X	   input     - array of input values
+X	   node_attr - node attributes (function, threshold)
+X	   output    - array of output values
+X	   program   - name of currently executing program
+X	   ranges    - max and min values (only for step function right now)
+X	   state     - system variables
+X	   weights   - perceptron weights
+X	   NULL	     - 0
+X*/
+Xmain(argc,argv)
+Xregister int argc;
+Xregister char *argv[];
+X{
+X	/*Initialize*/
+X	program = argv[0];
+X
+X	state.alpha = 0.1;
+X	state.inodes = UNKNOWN;
+X	state.onodes = UNKNOWN;
+X	state.training = 1;
+X
+X	ranges[0][0] = -1.0;
+X	ranges[0][1] = 1.0;
+X
+X	input = output = desired = (double *) NULL;
+X	weights = (double **) NULL;
+X	node_attr = (NODE_ATTR *) NULL;
+X
+X	/*Start up the parser*/
+X	if(argc > 1) startup(argv[1]);
+X	else startup(NULL);
+X
+X	if(input != (double *) NULL) free(input);
+X	if(output != (double *) NULL) free(output);
+X	if(desired != (double *) NULL) free(desired);
+X	if(weights != (double **) NULL) deallocwts();
+X
+X	exit(0);
+X}
+X
+X/*This routine prints out the interactive prompt.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  none
+X  Globals: program - name of currently executing program
+X*/
+Xprompt()
+X{
+X	printf("%s> ",program);
+X}
+X
+X/*This routine prints the current version of this program.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  none
+X  Globals: DATE        - compilation date
+X	   TIME        - compilation time
+X	   VERSION_STR - current version and author
+X*/
+Xvoid version()
+X{
+X	printf("%s  (Last Compiled: %s @ %s)\n",VERSION_STR,DATE,TIME);
+X}
+X
+END_OF_FILE
+  if test 2510 -ne `wc -c <'persim.c'`; then
+    echo shar: \"'persim.c'\" unpacked with wrong size!
+  fi
+  # end of 'persim.c'
+fi
+if test -f 'range.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'range.c'\"
+else
+  echo shar: Extracting \"'range.c'\" \(1172 characters\)
+  sed "s/^X//" >'range.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X/*This function assigned max and min values for an object (right now, only
+X  the range of the step function can be set).
+X
+X  Inputs:  max    - maximum value to set
+X	   min    - minimum value to set
+X	   string - object to set range for
+X  Outputs: none
+X  Locals:  none
+X  Globals: ranges - max and min values of objects
+X*/
+Xvoid range(string,min,max)
+Xregister double min,max;
+Xregister char *string;
+X{
+X	extern double ranges[1][2];
+X
+X	if(!strcmp(string,"step")) {
+X	  ranges[0][0] = min;
+X	  ranges[0][1] = max;
+X	} else puts("illegal object for a range");
+X}
+X
+END_OF_FILE
+  if test 1172 -ne `wc -c <'range.c'`; then
+    echo shar: \"'range.c'\" unpacked with wrong size!
+  fi
+  # end of 'range.c'
+fi
+if test -f 'resize.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'resize.c'\"
+else
+  echo shar: Extracting \"'resize.c'\" \(1350 characters\)
+  sed "s/^X//" >'resize.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include <stdio.h>
+X#include "persim.h"
+X
+Xchar *realloc();
+X
+X/*This routine will resize the 1D arrays.
+X
+X  Inputs:  array - array to resize
+X	   size  - number of nodes to resize to
+X  Outputs: none
+X  Locals:  none
+X  Globals: NULL  - 0
+X*/
+Xresize_io(array,size)
+Xregister int size;
+Xdouble **array;
+X{
+X	if((*array = (double *) realloc(*array,size*sizeof(double))) == NULL)
+X	  error();
+X}
+X
+X/*This routine will resize an array of node attributes.
+X
+X  Inputs:  array - array to resize
+X	   size  - number of nodes to resize to
+X  Outputs: none
+X  Locals:  none
+X  Globals: NULL  - 0
+X*/
+Xresize_attr(array,size)
+Xregister int size;
+XNODE_ATTR **array;
+X{
+X	if((*array = (NODE_ATTR *) realloc(*array,size*sizeof(NODE_ATTR)))
+X	   == NULL)
+X	  error();
+X}
+X
+END_OF_FILE
+  if test 1350 -ne `wc -c <'resize.c'`; then
+    echo shar: \"'resize.c'\" unpacked with wrong size!
+  fi
+  # end of 'resize.c'
+fi
+if test -f 'save.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'save.c'\"
+else
+  echo shar: Extracting \"'save.c'\" \(2244 characters\)
+  sed "s/^X//" >'save.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include <stdio.h>
+X#include "persim.h"
+X
+X/*This function will save values from the different variables.
+X
+X  Inputs:  filename - name of the file to save values to
+X	   filetype - what type this file it is
+X	   var      - what variable to save
+X  Outputs: none
+X  Locals:  none
+X  Globals: desired  - desired output value array
+X	   input    - input value array
+X	   output   - output value array
+X	   state    - system variables
+X	   weights  - perceptron weights
+X	   DESIRED  - save desired output values
+X	   INPUT    - save input values
+X	   NULL     - 0
+X	   OUTPUT   - save output values
+X	   SYS_VARS - save system variables
+X	   WEIGHTS  - save perceptron weights
+X*/
+Xsave(var,filename,filetype)
+Xregister int var,filetype;
+Xregister char *filename;
+X{
+X	extern double *input,*output,*desired,**weights;
+X	extern STATE state;
+X
+X	if(!filename) {
+X	  puts("no filename given");
+X	  return;
+X	}
+X
+X	switch(var) {
+X	  case DESIRED:
+X		if(desired == (double *) NULL)
+X		  puts("there are no desired output values to save");
+X		else writedata(desired,state.onodes,filename,filetype);
+X		break;
+X	  case INPUT:
+X		if(input == (double *) NULL)
+X		  puts("there are no input values to save");
+X		else writedata(input,state.inodes,filename,filetype);
+X		break;
+X	  case OUTPUT:
+X		if(output == (double *) NULL)
+X		  puts("there are no output values to save");
+X		else writedata(output,state.onodes,filename,filetype);
+X		break;
+X	  case SYS_VARS:
+X		writestate(filename);
+X		break;
+X	  case WEIGHTS:
+X		if(weights == (double **) NULL)
+X		  puts("there are no weights to save");
+X		else writewts(weights,state.inodes,state.onodes,filename,
+X			      filetype);
+X		break;
+X	}
+X}
+X
+END_OF_FILE
+  if test 2244 -ne `wc -c <'save.c'`; then
+    echo shar: \"'save.c'\" unpacked with wrong size!
+  fi
+  # end of 'save.c'
+fi
+if test -f 'startup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'startup.c'\"
+else
+  echo shar: Extracting \"'startup.c'\" \(1423 characters\)
+  sed "s/^X//" >'startup.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include <stdio.h>
+X
+Xint print_line;
+X
+Xextern FILE *yyin;
+X
+X/*This routine will open the file containing commands to execute
+X  (for batch processing).  If no filename is passed in, commands are
+X  assumed to come from stdin.  Finally the function to startup yacc
+X  is called.
+X
+X  Inputs:  filename      - name of file containing PERSIM commands
+X  Outputs: none
+X  Locals:  none
+X  Globals: errno	 - number of last error
+X	   print_line    - flag indicating if commands are from a batch file
+X	   stdin	 - standard input
+X	   yyin          - file pointer used by lex
+X	   NULL          - 0
+X*/
+Xstartup(filename)
+Xregister char *filename;
+X{
+X	if(filename == NULL) {
+X	  yyin = stdin;
+X	  print_line = 0;
+X	} else if((yyin = fopen(filename,"r")) == NULL) error();
+X	       else print_line = 1;
+X
+X	prompt();
+X	yyparse();
+X}
+X
+END_OF_FILE
+  if test 1423 -ne `wc -c <'startup.c'`; then
+    echo shar: \"'startup.c'\" unpacked with wrong size!
+  fi
+  # end of 'startup.c'
+fi
+if test -f 'toggle.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'toggle.c'\"
+else
+  echo shar: Extracting \"'toggle.c'\" \(956 characters\)
+  sed "s/^X//" >'toggle.c' <<'END_OF_FILE'
+X/*Copyright  (c)   1992  Adam  Stein.   All  Rights Reserved.   
+X
+X  Permission to use,  copy,  modify  and  distribute  without
+X  charge this software, documentation, images, etc. is grant-
+X  ed, provided that this copyright and the author's  name  is  
+X  retained.   
+X  
+X  A fee may be charged for this program ONLY to recover costs   
+X  for distribution (i.e. media costs).  No profit can be made            
+X  on this program.   
+X   
+X  The author assumes no responsibility for disasters (natural   
+X  or otherwise) as a consequence of use of this software.      
+X   
+X  Adam Stein (stein.wbst129@xerox.com)         
+X*/ 
+X
+X#include "persim.h"
+X
+X/*This routine will toggle the value of a variable.
+X
+X  Inputs:  none
+X  Outputs: none
+X  Locals:  none
+X  Globals: state - system variables
+X*/
+Xvoid toggle()
+X{
+X	extern STATE state;
+X
+X	state.training ^= 1;
+X	if(state.training) puts("training mode is now turned on");
+X	else puts("training mode has been turned off");
+X}
+X
+END_OF_FILE
+  if test 956 -ne `wc -c <'toggle.c'`; then
+    echo shar: \"'toggle.c'\" unpacked with wrong size!
+  fi
+  # end of 'toggle.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

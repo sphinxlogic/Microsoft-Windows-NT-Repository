@@ -1,0 +1,653 @@
+Path: comp-sources-3b1
+From: kdc5072@ultb.isc.rit.edu (K.D. Colagio)
+Subject:  v02i040:  Format version 2.1 -- Floppy disk formatter, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: c60c9efc 28e16687 0029101f 184e3993
+
+Submitted-by: kdc5072@ultb.isc.rit.edu (K.D. Colagio)
+Posting-number: Volume 2, Issue 40
+Archive-name: format21/part01
+
+[ Sorry for taking so long to get this out but I had some serious problems ]
+[ with flakey power supplies, disk crashes, and memory parity faults.  All ]
+[ is well now but for about three weeks it was pretty shakey.    -- Dave   ]
+
+Enclosed you will find the shared sources for format ver 2.1, the floppy
+disk formatter for the 3b1 (obviously 8*) ).  WIth it, you will find a
+readme file that let's you know of changes over the past few versions.
+To hilight what you can do...:
+  1) specify either on the command line, or you will be prompted.
+  2) multiple formatting of the same type.
+  3) either 10 or 8 sector
+  3) either a file system or not
+  4) type of loader to put on the flpooy (silent-, verbose-, no-)
+  5) number of blocks to use in the mkfs command 
+  6) number of i-nodes to use in the mkfs command
+
+Any problems should be directed to me....
+
+    -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        Kevin Colagio aka KDC5072@ultb.isc.rit.edu   KiLar on IRC
+     Bear code? You think I know what that is?   B2/4 w g++ K s- h+ r 
+     Finger kdc5072@ultb.isc.rit.edu public pgp key and misc stuff...
+        Make it "Equal Rights" and I'll agree.    Silence ~= Death
+    -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+                                   _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+- - - - - - - - - - - S N I P - - >8  - - - - - - - S N I P - - - - - 
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  format/Makefile format/Readme format/error.c
+#   format/format.c format/options.c format/run.c format/sector_08.c
+#   format/sector_10.c
+# Wrapped by root@colagio on Thu Apr 22 09:39:20 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin ; export PATH
+mkdir format
+if test -f 'format/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/Makefile'\"
+else
+echo shar: Extracting \"'format/Makefile'\" \(518 characters\)
+sed "s/^X//" >'format/Makefile' <<'END_OF_FILE'
+X# Makefile for 'format version 2.0' by Kevin Colagio
+X
+XCC = cc
+XBIN = /usr/local/bin
+XMAN = /usr/man/man1
+XPROG = format
+XCFLAGS = -g
+X
+XOBJS = format.o options.o error.o run.o sector_08.o sector_10.o
+X
+X$(PROG): $(OBJS)
+X	$(CC) -o $(PROG) $(OBJS) $(LIBS)
+X
+Xinstall: $(PROG)
+X	cp $(PROG) $(BIN)
+X	chmod a+rx $(BIN)/$(PROG)
+X
+Xremove:
+X	rm -f $(BIN)/$(PROG)
+X
+Xclean:
+X	rm -f $(OBJS)
+X
+Xsterile:
+X	rm -f $(PROG) $(OBJS)
+X
+Xerror.o: error.c
+Xformat.o: format.c
+Xoptions.o: options.c
+Xrun.o: run.c
+Xsector_08.o: sector_08.c
+Xsector_10.o: sector_10.c
+END_OF_FILE
+if test 518 -ne `wc -c <'format/Makefile'`; then
+    echo shar: \"'format/Makefile'\" unpacked with wrong size!
+fi
+# end of 'format/Makefile'
+fi
+if test -f 'format/Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/Readme'\"
+else
+echo shar: Extracting \"'format/Readme'\" \(3582 characters\)
+sed "s/^X//" >'format/Readme' <<'END_OF_FILE'
+XFormat :  Written by Kevin Colagio (kdc5072@ultb.isc.rit.edu)
+XDate   :  April 6, 1993
+XVersion: 1.0
+X
+XHistory:  Basically, I got sick of using the UA script to format floppies,
+Xand I also thought that there should be a more automated way to do it (so
+Xthat you just let it know when there is a new floppy), so I wrote 'format'.
+X
+Xformat:  format will format any number of disks the same way, only
+Xprompting you to change disks.  The only time this is not so is when a disk
+Xdoes not format or cannot have a file system put on the disk, then it will
+Xexit.
+X
+XFormats:  Format is called in this notation:
+X  format x y z
+X    where x is the number of disks to format,
+X    y is the number of sectors (presently only 8 or 10),
+X    and z is a 'y' or an 'n' to signify putting a file system on the disk.
+X
+Xformat requires that the 'iv' and 'mkfs' files be in /etc and that the
+X'FD8nl' and 'FD10nl' files be in /usr/lib/iv.  NOTE: make a copy of FDnl to
+XFD8nl because this is not a default (cp FDnl FD8nl).  I did it this way 
+Xbecause upgrade later will make more sense this way.  If you don't like it,
+Xedit the format.c file so that it looks for FDnl in stead.
+X
+XIf you make any changes, want to see anything different, etc, let me know.
+XI will integrate useful and/or logical additions and keep releases for a
+Xfew years at least.
+X
+XIf you have any questions, let me know and I will try and answer them...
+X 
+X
+X				  Kevin Colagio
+X
+XDate: April 11, 1993
+XUpdate for version 2.0
+X
+XWell, after having a few problems with some of my disks not having loaders
+X(and me needing them to boot my second system...), I decided that I needed
+Xto upgrade the format program a bit.  Here is a list of what is new.
+X
+X   o  you can enter just format on the command line and you will be
+X      prompted for the command line arguments.
+X   o  you can choose between a (v)erbose, (s)ilent, or (n)o loader.
+X   o  you do not need to rename the files for the 8 sector copy as stated
+X      above...they are fine the way they are.
+X
+XI hope this help everyone a little more than the last one.  The reason for
+Xthe HUGE version increase is (if you compare the two) that there is very
+Xlittle that is reused.  I copied a few of the old things, but not many.
+X
+XOK, I guess that is all for now...enjoy!
+X
+X 
+X				  Kevin Colagio
+X
+XDate: April 22, 1993
+XUpdate for version 2.1
+X
+XWell, for this update, there weren't that many changes...about the only
+Xthing that was done was that you can now specify they number of blocks
+Xavailable, and the number of i-nodes that you want....
+X
+XThis can (as in 2.0) either be done on the command line, or by answering
+Xquestions.
+X
+XAs a restriction, the block count and i-node count are restricted to what
+Xmkfs will normally allow (since that is what is being called).
+X
+XNotes/Suggestions:  If using the disks for backing up of ARCHIVED files
+X(using tar, ar, etc...) where NOT MANY FILES will be on the floppy, use a
+Xlarge number for the block count and a low number for the i-node count. If
+Xyou are going to be putting regular files on it, don't specify anything and
+Xthe default will be used.  If you have a bunch of small files, use an
+Xaverage number of blocks and a large number of i-nodes.
+X
+X			8 sector			10 sector
+X		blocks		i-nodes		blocks		i-nodes
+Xmany small 
+Xfiles             616              ?             780               ?
+X
+Xmedium size
+Xfiles             624              ?             785               ?
+X
+Xfew large 
+Xfiles             630              10            795               10
+X
+XNote: the (?) mark means either guess at it, or put in nothing (or a 0).
+X
+X				  As always, enjoy!
+X
+X				  Kevin Colagio
+END_OF_FILE
+if test 3582 -ne `wc -c <'format/Readme'`; then
+    echo shar: \"'format/Readme'\" unpacked with wrong size!
+fi
+# end of 'format/Readme'
+fi
+if test -f 'format/error.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/error.c'\"
+else
+echo shar: Extracting \"'format/error.c'\" \(990 characters\)
+sed "s/^X//" >'format/error.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+X/* usage()  Tells someone how to use the program if they don't know how.
+X** I think I have all possible occurances in here when this will be 
+X** called...but I could be wrong.
+X */
+X
+Xusage() 
+X	{
+X	printf("Usage:  format [n [x  [y|n [v/s/n]]]] \n");
+X	printf("\t\t n = number of disks \n");
+X	printf("\t\t x = number of sectors \n\t\t ");
+X	printf("\t\t y|n = yes or no to putting a file system on the disk\n");
+X	printf("\t\t v/s/n  = verbose, silent, or no loader \n\n");
+X	}
+X
+X/* out_of_range()  This tells the user that the number of sectors that they
+X** want to format to is not 8 or 10.  This is incorrect if you happen to
+X** a configureation that this is wrong on, but hey, I am working from a
+X** stock machine. 8*)
+X */
+X
+Xout_of_range() 
+X	{
+X	usage();
+X	printf(" The number of sectors that you would like to format");
+X	printf("\n to is not available.  You can only format to either");
+X	printf("\n 8 or 10 sectors.\n");
+X	printf("\n   Format will now exit. \n\n");
+X	exit(1);
+X	}
+END_OF_FILE
+if test 990 -ne `wc -c <'format/error.c'`; then
+    echo shar: \"'format/error.c'\" unpacked with wrong size!
+fi
+# end of 'format/error.c'
+fi
+if test -f 'format/format.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/format.c'\"
+else
+echo shar: Extracting \"'format/format.c'\" \(1533 characters\)
+sed "s/^X//" >'format/format.c' <<'END_OF_FILE'
+X/* This is the main part of the program.  All the other things are called
+X** from here...  The only changes that may ever need to be made from here
+X** deal with the number of sectors...if you have something that can handle
+X** more than 8 or 10...
+X */
+X
+X#include <stdio.h>
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X	{
+X	int nd, ns, filesys, x;
+X	int opts = 0;
+X	char loader, ch;
+X	char **arg;
+X	int bc, ic;
+X
+X	arg = argv;
+X	bc = ic = 1;
+X	nd = ns = filesys = x = 0;
+X
+X	printf("\n\n\n\n                                 Format");
+X	printf("\n                                ver. 2.1");
+X	switch (argc)
+X		{
+X		case 1:
+X			options(&nd, &ns, &filesys, &loader, &bc, &ic);
+X			break;
+X		case 5:
+X			bc = 0;
+X			ic = 0;
+X			my_parsef(&nd, &ns, &filesys, &loader, &bc, &ic, arg);
+X			break;
+X		case 7:
+X			my_parsef(&nd, &ns, &filesys, &loader, &bc, &ic, arg);
+X			break;
+X		default:
+X			usage();
+X			exit(1);
+X			break;
+X		}
+X	/* at this point, all the variables should have a value in them */
+X
+X	for (x = 0; x < nd; x++)
+X		{
+X		printf("\n\n Ready to format disk number %d.", (x+1));
+X		printf("\n Please insert the disk and ");
+X		printf(" --- Press the return key to continue ---  ");
+X		getc(stdin);
+X		fflush(stdin);
+X		printf("\n Formating disk number %d out of %d ", (x+1), nd);
+X		fflush(stdout);
+X		switch(ns)
+X			{
+X			case 8:
+X				sector_08(filesys, loader, bc, ic);
+X				break;
+X			case 10:
+X				sector_10(filesys, loader, bc, ic);
+X				break;
+X			}
+X		}
+X	if (nd == 1)
+X		printf("\n\n Done formating %d disk.\n\n", nd);
+X	else
+X		printf("\n\n Done formating %d disk.\n\n", nd);
+X	}
+END_OF_FILE
+if test 1533 -ne `wc -c <'format/format.c'`; then
+    echo shar: \"'format/format.c'\" unpacked with wrong size!
+fi
+# end of 'format/format.c'
+fi
+if test -f 'format/options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/options.c'\"
+else
+echo shar: Extracting \"'format/options.c'\" \(3711 characters\)
+sed "s/^X//" >'format/options.c' <<'END_OF_FILE'
+X#include <stdio.h> 
+X
+X/* my_parsef() is the function that breaks down a complete command line 
+X** that the program is called with.  This is where all the error checking
+X** on the arguments is done.
+X */
+X
+Xmy_parsef(nd, ns, fs, ld, bc, ic, argv)
+Xint *nd, *ns, *fs;
+Xchar *ld;
+Xint *bc, *ic;
+Xchar **argv;
+X	{
+X	*nd = atoi(*++argv);
+X	*ns = atoi(*++argv);
+X	while ((*ns != 8) && (*ns != 10))
+X		{
+X		printf("\n ERROR:  You can only format to 8 or 10 ");
+X		printf("sectors.");
+X		printf("\n   Do you want an 8 or 10 sector format?  ");
+X		scanf("%d", ns);
+X		fflush(stdin);
+X		}
+X	++argv;
+X	if (( *argv[0] == 'n' ) || (*argv[0] == 'N'))
+X		*fs = 0;
+X	else
+X		*fs = 1;
+X	++argv;
+X	if (( *argv[0] == 'v' ) || (*argv[0] == 's'))
+X		*ld = *argv[0];
+X	else
+X		*ld = 'n';
+X	if (*bc != 0)
+X		*bc = atoi(*++argv);
+X	if (*ic != 0)
+X		*ic = atoi(*++argv);
+X	}
+X
+X
+X/* options() calls all the sub-funtions needed to get all the data together
+X** when 'format' is given on the command line alone.
+X */
+X  
+Xoptions( nd, ns, fs, ld, bc, ic )
+Xint *nd, *ns, *fs;
+Xchar *ld;
+Xint *bc, *ic;
+X	{
+X
+X	*nd = how_many_disks();
+X	*ns = how_many_sects();
+X	*fs = fsys();
+X	*ld = loaderf();
+X	if (*fs != 0)
+X		{
+X		*bc = block_count();
+X		*ic = inode_count();
+X		}
+X	}
+X
+Xblock_count()
+X	{
+X	int bc;
+X
+X	printf("\n Number of blocks on the floppy...");
+X	printf("\n  (recommended values: 790 for 10 sector disks,");
+X	printf("\n                       624 for 8  sector disks.");
+X	printf("\n                       0 for the default value.)");
+X	printf("\n Enter the number of blocks wanted available:");
+X	scanf("%d", &bc);
+X	fflush(stdin);
+X	return(bc);
+X	}
+X
+Xinode_count()
+X	{
+X	int ic;
+X
+X	printf("\n Number of inodes to be put on the floppy...");
+X	printf("\n  (recommended values: 20 for backup disks,");
+X	printf("\n                       0 for the default value.)");
+X	printf("\n Enter the number of inodes to be placed on floppy:");
+X	scanf("%d", &ic);
+X	fflush(stdin);
+X	return(ic);
+X	}
+X
+X/* how_many_disks() checks to see how many disks are to be formatted.
+X** It is called only by options()
+X */
+X
+Xhow_many_disks()
+X	{
+X	int count;
+X
+X	printf("\n\n How many disks did you want formatted? ");
+X	scanf("%d", &count);
+X	fflush(stdin);
+X	while (count <= 0)
+X		{
+X		printf("\n ERROR:  that is not a proper number of disks. ");
+X		printf("\n   How many disks would you like formatted?  ");
+X		scanf("%d", &count);
+X		fflush(stdin);
+X		}
+X	return(count);
+X	}
+X
+X/* how_many_sects() gets the data to format the number of sectors to the
+X** operators preference.  It is called only by options()
+X */
+X
+Xhow_many_sects()
+X	{
+X	int count;
+X
+X	printf("\n Did you want a 8 sector or a 10 sector format?  ");
+X	scanf("%d", &count);
+X	fflush(stdin);
+X	while ((count != 8) && (count != 10))
+X		{
+X		printf("\n ERROR:  You can only format to 8 or 10 ");
+X		printf("sectors.");
+X		printf("\n   Do you want an 8 or 10 sector format?  ");
+X		scanf("%d", &count);
+X		fflush(stdin);
+X		}
+X	return(count);
+X	}
+X
+X/* fsys() finds out if the user wants a files system put on the floppy
+X */
+X
+Xfsys()
+X	{
+X	char ch;
+X	int fs;
+X
+X	printf("\n Would you like a file system put on the disks?  ");
+X	printf("\n     (default is yes): ");
+X	scanf("%c", &ch);
+X	fflush(stdin);
+X	switch(ch)
+X		{
+X		case 'n': 
+X			fs = 0;
+X			break;
+X		default: 
+X			fs = 1;
+X			break;
+X		}
+X	return(fs);
+X	}
+X
+X/* loaderf() finds out what type of loader the user wants put on the disk.
+X** either a (v)erbose, (s)ilent, or (n)o loader are valid options.
+X */
+X
+Xloaderf()
+X	{
+X	char ld;
+X	char ch;
+X
+X	printf("\n Would you like either a (v)erbose loader, a (s)ilent ");
+X	printf("loader,\n   or (n)o loader?");
+X	printf("\n     (default is no loader): ");
+X	scanf("%c", &ch );
+X	fflush(stdin);
+X	switch (ch)
+X		{
+X		case 'v':
+X			ld = 'v';
+X			break;
+X		case 's':
+X			ld = 's';
+X			break;
+X		default:
+X			ld = 'n';
+X			break;
+X		}
+X	return(ld);
+X	}
+END_OF_FILE
+if test 3711 -ne `wc -c <'format/options.c'`; then
+    echo shar: \"'format/options.c'\" unpacked with wrong size!
+fi
+# end of 'format/options.c'
+fi
+if test -f 'format/run.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/run.c'\"
+else
+echo shar: Extracting \"'format/run.c'\" \(702 characters\)
+sed "s/^X//" >'format/run.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+X/* run(commandline)  This function brings in the pointer to characters
+X** that make up the command line that is executed but the execl() call.
+X** any errors that are created by the shell call are sent to perror() 
+X** and format exits.  fork() is used tocreat a child process with a 
+X** different process number so that when the child process is done, format
+X** doesn't exit.  Wait() just waits...I am not sure how this works exactly
+X** but if anyone want to tell me, I am all ears 8*)
+X */
+X
+Xrun(commandline) 
+Xchar *commandline; 
+X	{
+X	int status;
+X
+X	if (fork() == 0)
+X		{
+X		execl( "/bin/sh", "sh", "-c", commandline, NULL);
+X		perror(commandline); 
+X		exit(1); 
+X		}
+X	wait(&status) 
+X		;
+X	}
+END_OF_FILE
+if test 702 -ne `wc -c <'format/run.c'`; then
+    echo shar: \"'format/run.c'\" unpacked with wrong size!
+fi
+# end of 'format/run.c'
+fi
+if test -f 'format/sector_08.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/sector_08.c'\"
+else
+echo shar: Extracting \"'format/sector_08.c'\" \(745 characters\)
+sed "s/^X//" >'format/sector_08.c' <<'END_OF_FILE'
+X#include <string.h>
+X#include <stdio.h>
+X
+X/* sector_08()  This is what sets up the command line for 
+X** the execl() call...
+X */
+X
+Xsector_08(filesys, loader, bc, ic) 
+Xint filesys;
+Xchar loader;
+Xint bc, ic;
+X	{
+X	char commandline[100]; 
+X	char tmp[5];
+X
+X	strcpy(commandline, "/etc/iv -i "); 
+X	strcat(commandline, "/dev/rfp020 /usr/lib/iv/FD"); 
+X	sprintf(tmp, "%cl ", loader);
+X	strcat(commandline, tmp);
+X	run(commandline); 
+X	if (filesys == 1)
+X		{
+X		strcpy(commandline, "mkfs "); 
+X		strcat(commandline, "/dev/rfp021 ");
+X		if ( bc != 0)
+X			{
+X			sprintf(tmp, "%d", bc);
+X			strcat(commandline, tmp);
+X			if ( ic != 0)
+X				{
+X				sprintf(tmp, ":%d ", ic);
+X				strcat(commandline, tmp);
+X				}
+X			}
+X		strcat(commandline, "> /dev/null"); 
+X		run(commandline);
+X		}
+X	}
+END_OF_FILE
+if test 745 -ne `wc -c <'format/sector_08.c'`; then
+    echo shar: \"'format/sector_08.c'\" unpacked with wrong size!
+fi
+# end of 'format/sector_08.c'
+fi
+if test -f 'format/sector_10.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'format/sector_10.c'\"
+else
+echo shar: Extracting \"'format/sector_10.c'\" \(760 characters\)
+sed "s/^X//" >'format/sector_10.c' <<'END_OF_FILE'
+X#include <string.h>
+X#include <stdio.h>
+X
+X/* sector_10()  This is what sets up the command line for the execl()
+X** funtion call later...
+X */
+X
+Xsector_10(filesys, loader, bc, ic) 
+Xint filesys;
+Xchar loader;
+Xint bc, ic;
+X	{
+X	char commandline[100]; 
+X	char tmp[5];
+X
+X	strcpy(commandline, "/etc/iv -i "); 
+X	strcat(commandline, "/dev/rfp020 /usr/lib/iv/FD10"); 
+X	sprintf(tmp, "%cl ", loader);
+X	strcat(commandline, tmp);
+X	run(commandline); 
+X	if (filesys == 1)
+X		{
+X		strcpy(commandline, "mkfs "); 
+X		strcat(commandline, "/dev/rfp021 ");
+X		if ( bc != 0)
+X			{
+X			sprintf(tmp, "%d", bc);
+X			strcat(commandline, tmp);
+X			if ( ic != 0)
+X				{
+X				sprintf(tmp, ":%d ", ic);
+X				strcat(commandline, tmp);
+X				}
+X			}
+X		strcat(commandline, "> /dev/null"); 
+X		run(commandline);
+X		}
+X	}
+END_OF_FILE
+if test 760 -ne `wc -c <'format/sector_10.c'`; then
+    echo shar: \"'format/sector_10.c'\" unpacked with wrong size!
+fi
+# end of 'format/sector_10.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+-- 
+David H. Brierley                            Work: dhb@ssd.ray.com
+3B1 Hacker Extraordinaire                    Home: dave@galaxia.network23.com

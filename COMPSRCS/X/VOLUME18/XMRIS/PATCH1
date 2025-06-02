@@ -1,0 +1,517 @@
+Path: uunet!ogicse!uwm.edu!caen!sdd.hp.com!mips!msi!dcmartin
+From: fred@gna.axis-design.fr (Frederic Cirera)
+Newsgroups: comp.sources.x
+Subject: v18i059: Xmris, Patch1, Part01/01
+Message-ID: <1992Jul23.150715.27775@msi.com>
+Date: 23 Jul 92 15:07:15 GMT
+Article-I.D.: msi.1992Jul23.150715.27775
+References: <csx-18i059-xmris@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 503
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: fred@gna.axis-design.fr (Frederic Cirera)
+Posting-number: Volume 18, Issue 59
+Archive-name: xmris/patch1
+Patch-To: xmris: Volume 18, Issue 22-30
+
+	patch01 for Xrmis game.
+	replace z x ' / keys by arrows
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.50)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 07/23/1992 15:05 UTC by dcmartin@fascet
+# Source directory /home/fascet/dcmartin/csx/src
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+#                                                                          
+#                                                                          
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  12010 -rw-r--r-- patch-1
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= patch-1 ==============
+if test -f 'patch-1' -a X"$1" != X"-c"; then
+	echo 'x - skipping patch-1 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patch-1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patch-1' &&
+*** create.c	Tue Jul 21 14:40:28 1992
+--- ../create.c	Tue Jul 21 14:23:01 1992
+***************
+*** 18,23 ****
+--- 18,24 ----
+X  /*}}}*/
+X  #define EXTERN
+X  #include "xmris.h"
++ #include <X11/keysym.h>
+X  /*{{{  bitmaps*/
+X  /*{{{  bitmaps/icon/.*/
+X  #include "bitmaps/icon/mris.h"
+***************
+*** 599,605 ****
+X      /*}}}*/
+X    };
+X  /*}}}*/
+! char keystrokes[5] = {'\'', '/', 'z', 'x', ' '};
+X  /*{{{  COORD const ball_hold[16] =*/
+X  /*{{{  held ball offsets*/
+X  #define PLAYER_RIGHT1_BALL_X   (plyrrt1_x_hot - CELL_WIDTH / 2)
+--- 600,607 ----
+X      /*}}}*/
+X    };
+X  /*}}}*/
+! /* char keystrokes[5] = {'\'', '/', 'z', 'x', ' '}; */
+! KeySym keystrokes[5] = { XK_Up, XK_Down, XK_Left, XK_Right, XK_space};
+X  /*{{{  COORD const ball_hold[16] =*/
+X  /*{{{  held ball offsets*/
+X  #define PLAYER_RIGHT1_BALL_X   (plyrrt1_x_hot - CELL_WIDTH / 2)
+***************
+*** 671,677 ****
+X  #else
+X      "                           ", /* should be enough space */
+X  #endif
+!     "Z - Left", "X - Right", "' - Up", "/ - Down", "Space - Throw",
+X      "Or use the mouse", "P - Pause", "Q - Quit",
+X      "Press a key or button to start", NULL
+X    };
+--- 673,679 ----
+X  #else
+X      "                           ", /* should be enough space */
+X  #endif
+!     "Left arrow - Left", "Right arrow - Right", "Up arrow - Up", "Down arrow - Down", "Space - Throw",
+X      "Or use the mouse", "P - Pause", "Q - Quit",
+X      "Press a key or button to start", NULL
+X    };
+No differences encountered
+No differences encountered
+No differences encountered
+No differences encountered
+No differences encountered
+No differences encountered
+*** timer.c	Tue Jul 21 14:40:33 1992
+--- ../timer.c	Mon Jul 20 14:51:20 1992
+***************
+*** 20,25 ****
+--- 20,26 ----
+X  #include <time.h>
+X  #include <sys/time.h>
+X  #include <signal.h>
++ #define	sigmask(n)		((unsigned long)1 << ((n) - 1))
+X  /*{{{  timer*/
+X  static struct
+X  {
+*** xmris.c	Tue Jul 21 14:40:34 1992
+--- ../xmris.c	Tue Jul 21 14:27:51 1992
+***************
+*** 609,778 ****
+X  extern int process_xevents FUNCARGLIST((pausable))
+X  int     pausable  FUNCARGTERM
+X  {
+!   int       quit;
+!   int       paused;
+! 
+!   player.motionevent = 0;
+!   quit = 0;
+!   paused = 0;
+!   /*{{{  read the events*/
+!   while(QLength(display.display) || paused)
+!     {
+!       XEvent    event;
+X  	
+!       XNextEvent(display.display, &event);
+!       if(event.xany.window != display.window)
+! 	continue;
+!       switch (event.type)
+!       {
+! 	/*{{{  case KeyPress:*/
+! 	case KeyPress:
+! 	/*
+! 	 * When a key is pressed, we check to see if it is
+! 	 * a control key. If so, then we set the relevant pressed bit.
+! 	 */
+! 	{
+! 	  char      chr;
+! 	  KeySym    symbol;
+! 	  XComposeStatus status;
+! 					  
+! 	  XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	  if(isupper(chr))
+! 	    chr = tolower(chr);
+! 	  if(chr == 'p' && pausable)
+! 	    paused++;
+! 	  else if(paused && chr == ' ')
+! 	    player.motionevent = paused = 0;
+! 	  else if((paused || !pausable) && chr == 'q')
+! 	    {
+! 	      paused = 0;
+! 	      quit = 1;
+! 	    }
+! 	  else if(global.state > 5)
+! 	    player.keyboard = player.button = 1;
+! 	  else if(!paused && player.keyboard)
+! 	    {
+! 	      int       index;
+X  					
+! 	      for(index = 5; index--;)
+! 		if(chr == keystrokes[index])
+! 		  {
+! 		    if(index == 4)
+! 		      player.button = 1;
+! 		    else
+! 		      player.pressed |= 1 << index;
+! 		    break;
+! 		  }
+! 	    }
+! 	  break;
+! 	}
+X  	/*}}}*/
+! 	/*{{{  case KeyRelease:*/
+! 	case KeyRelease:
+! 	/*
+! 	 * when a key is released, we check to see if it is
+! 	 * the controlling direction key. If so, then we stop
+! 	 */
+! 	{
+! 	  if(player.keyboard)
+! 	    {
+! 	      char      chr;
+! 	      KeySym    symbol;
+! 	      XComposeStatus status;
+! 	      unsigned  index;
+! 					    
+! 	      XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	      if(isupper(chr))
+! 		chr = tolower(chr);
+! 	      for(index = 5; index--;)
+! 		if(chr == keystrokes[index])
+! 		  {
+! 		    if(index == 4)
+! 		      player.button = 0;
+! 		    else
+! 		      player.pressed &= ~(1 << index);
+! 		    break;
+! 		  }
+! 	      break;
+! 	    }
+! 	}
+! 	/*}}}*/
+! 	/*{{{  case MotionNotify:*/
+! 	case MotionNotify:
+! 	/*
+! 	 * for mouse motion, we save the coordinate and process the
+! 	 * final one only
+! 	 */
+! 	{
+! 	  player.raw_mouse.x = event.xmotion.x;
+! 	  player.raw_mouse.y = event.xmotion.y;
+! 	  player.motionevent = 1;
+! 	  break;
+! 	}
+! 	/*}}}*/
+! 	/*{{{  case ButtonPress:*/
+! 	case ButtonPress:
+! 	  if(!player.keyboard)
+! 	    player.button = 1;
+! 	  break;
+! 	/*}}}*/
+! 	/*{{{  case ButtonRelease:*/
+! 	case ButtonRelease:
+! 	  if(!player.keyboard && player.throw)
+! 	    player.button = 0;
+! 	  break;
+! 	/*}}}*/
+! 	/*{{{  case Expose:*/
+! 	case Expose:
+! 	  refresh_window();
+! 	  break;
+! 	/*}}}*/
+! 	/*{{{  case UnmapNotify:*/
+! 	case UnmapNotify:
+! 	  paused++;
+! 	  break;
+! 	/*}}}*/
+! 	/*{{{  case MapNotify:*/
+! 	case MapNotify:
+! 	  if(!pausable)
+! 	    paused = 0;
+! 	  break;
+! 	/*}}}*/
+! 	/*{{{  case PropertyNotify:*/
+! 	case PropertyNotify:
+! 	  if(event.xproperty.atom == display.DEC_icon_atom)
+! 	    paused++;
+! 	  break;
+! 	/*}}}*/
+! 	default:
+! 	  break;
+!       }
+!       /*{{{  started to pause?*/
+!       if(paused == 1)
+! 	{
+! 	  char const *text = "Space to continue, Q to quit";
+! 	  TEXT      info;
+! 	  unsigned  length;
+! 		
+! 	  paused++;
+! 	  length = strlen(text);
+! 	  text_size(text, length, &info);
+! 	  add_background(0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+! 	  XFillRectangle(display.display, display.copy, GCN(GC_CLEAR),
+! 	      0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+! 	  XDrawImageString(display.display, display.copy, GCN(GC_TEXT),
+! 	      WINDOW_WIDTH / 2 - info.width / 2,
+! 	      PIXELY(CELLS_DOWN, CELL_HEIGHT / 2) +
+! 	      (info.ascent - info.descent) / 2, text, length);
+! 	  XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 	      0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT,
+! 	      0, PIXELY(CELLS_DOWN, 0));
+! 	  XSync(display.display, False);
+! 	}
+!       /*}}}*/
+!     }
+!   /*}}}*/
+!   return quit;
+X  }
+X  /*}}}*/
+X  /*{{{  unsigned random()*/
+--- 609,778 ----
+X  extern int process_xevents FUNCARGLIST((pausable))
+X  int     pausable  FUNCARGTERM
+X  {
+! 	int       quit;
+! 	int       paused;
+X  	
+! 	player.motionevent = 0;
+! 	quit = 0;
+! 	paused = 0;
+! 	/*{{{  read the events*/
+! 	while(QLength(display.display) || paused)
+! 		{
+! 			XEvent    event;
+! 			
+! 			XNextEvent(display.display, &event);
+! 			if(event.xany.window != display.window)
+! 				continue;
+! 			switch (event.type)
+! 				{
+! 					/*{{{  case KeyPress:*/
+! 				  case KeyPress:
+! 					/*
+! 					 * When a key is pressed, we check to see if it is
+! 					 * a control key. If so, then we set the relevant pressed bit.
+! 					 */
+! 					{
+! 						char      chr;
+! 						KeySym    symbol;
+! 						XComposeStatus status;
+! 						
+! 						XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 						if(isupper(chr))
+! 							chr = tolower(chr);
+! 						if(chr == 'p' && pausable)
+! 							paused++;
+! 						else if(paused && chr == ' ')
+! 							player.motionevent = paused = 0;
+! 						else if((paused || !pausable) && chr == 'q')
+! 							{
+! 								paused = 0;
+! 								quit = 1;
+! 							}
+! 						else if(global.state > 5)
+! 							player.keyboard = player.button = 1;
+! 						else if(!paused && player.keyboard)
+! 							{
+! 								int       index;
+! 								
+! 								for(index = 5; index--;)
+! 									if(symbol == keystrokes[index])
+! 										{
+! 											if(index == 4)
+! 												player.button = 1;
+! 											else
+! 												player.pressed |= 1 << index;
+! 											break;
+! 										}
+! 							}
+! 						break;
+! 					}
+! 					/*}}}*/
+! 					/*{{{  case KeyRelease:*/
+! 				  case KeyRelease:
+! 					/*
+! 					 * when a key is released, we check to see if it is
+! 					 * the controlling direction key. If so, then we stop
+! 					 */
+! 					{
+! 						if(player.keyboard)
+! 							{
+! 								char      chr;
+! 								KeySym    symbol;
+! 								XComposeStatus status;
+! 								unsigned  index;
+! 								
+! 								XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 								if(isupper(chr))
+! 									chr = tolower(chr);
+! 								for(index = 5; index--;)
+! 									if(symbol == keystrokes[index])
+! 										{
+! 											if(index == 4)
+! 												player.button = 0;
+! 											else
+! 												player.pressed &= ~(1 << index);
+! 											break;
+! 										}
+! 								break;
+! 							}
+! 					}
+! 					/*}}}*/
+! 					/*{{{  case MotionNotify:*/
+! 				  case MotionNotify:
+! 					/*
+! 					 * for mouse motion, we save the coordinate and process the
+! 					 * final one only
+! 					 */
+! 					{
+! 						player.raw_mouse.x = event.xmotion.x;
+! 						player.raw_mouse.y = event.xmotion.y;
+! 						player.motionevent = 1;
+! 						break;
+! 					}
+! 					/*}}}*/
+! 					/*{{{  case ButtonPress:*/
+! 				  case ButtonPress:
+! 					if(!player.keyboard)
+! 						player.button = 1;
+! 					break;
+! 					/*}}}*/
+! 					/*{{{  case ButtonRelease:*/
+! 				  case ButtonRelease:
+! 					if(!player.keyboard && player.throw)
+! 						player.button = 0;
+! 					break;
+! 					/*}}}*/
+! 					/*{{{  case Expose:*/
+! 				  case Expose:
+! 					refresh_window();
+! 					break;
+! 					/*}}}*/
+! 					/*{{{  case UnmapNotify:*/
+! 				  case UnmapNotify:
+! 					paused++;
+! 					break;
+! 					/*}}}*/
+! 					/*{{{  case MapNotify:*/
+! 				  case MapNotify:
+! 					if(!pausable)
+! 						paused = 0;
+! 					break;
+! 					/*}}}*/
+! 					/*{{{  case PropertyNotify:*/
+! 				  case PropertyNotify:
+! 					if(event.xproperty.atom == display.DEC_icon_atom)
+! 						paused++;
+! 					break;
+! 					/*}}}*/
+! 				  default:
+! 					break;
+! 				}
+! 			/*{{{  started to pause?*/
+! 			if(paused == 1)
+! 				{
+! 					char const *text = "Space to continue, Q to quit";
+! 					TEXT      info;
+! 					unsigned  length;
+X  					
+! 					paused++;
+! 					length = strlen(text);
+! 					text_size(text, length, &info);
+! 					add_background(0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+! 					XFillRectangle(display.display, display.copy, GCN(GC_CLEAR),
+! 								   0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+! 					XDrawImageString(display.display, display.copy, GCN(GC_TEXT),
+! 									 WINDOW_WIDTH / 2 - info.width / 2,
+! 									 PIXELY(CELLS_DOWN, CELL_HEIGHT / 2) +
+! 									 (info.ascent - info.descent) / 2, text, length);
+! 					XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+! 							  0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT,
+! 							  0, PIXELY(CELLS_DOWN, 0));
+! 					XSync(display.display, False);
+! 				}
+! 			/*}}}*/
+! 		}
+X  	/*}}}*/
+! 	return quit;
+X  }
+X  /*}}}*/
+X  /*{{{  unsigned random()*/
+*** xmris.h	Tue Jul 21 14:40:26 1992
+--- ../xmris.h	Tue Jul 21 10:57:40 1992
+***************
+*** 568,574 ****
+X  extern APPLE_SIZE const apple_sizes[6];
+X  #define BOARDS 10
+X  extern BOARD const boards[BOARDS];
+! extern char keystrokes[5];
+X  extern COORD const ball_hold[16];
+X  extern COORD const ball_throw[8];
+X  extern int const ball_dir[8];
+--- 568,574 ----
+X  extern APPLE_SIZE const apple_sizes[6];
+X  #define BOARDS 10
+X  extern BOARD const boards[BOARDS];
+! extern KeySym keystrokes[5];
+X  extern COORD const ball_hold[16];
+X  extern COORD const ball_throw[8];
+X  extern int const ball_dir[8];
+*** Imakefile	Tue Jul 21 14:40:24 1992
+--- ../Imakefile	Tue Jul 21 14:39:52 1992
+***************
+*** 10,16 ****
+X  /**/# frame rate in microseconds
+X  /**/#FRAME = -DFRAME_RATE=37000
+X  /**/# font name
+! /**/#FONT = -DFONT_NAME="-*-courier-*-r-*-*-18-*-*-*-*-*-*-*"
+X  /**/# do you trust the code?
+X  /**/# NDEBUG = -DNDEBUG
+X  /**/# K&R doesn't have __DATE__ so we supply it here
+--- 10,16 ----
+X  /**/# frame rate in microseconds
+X  /**/#FRAME = -DFRAME_RATE=37000
+X  /**/# font name
+! /**/# FONT = -DFONT_NAME="\"-*-courier-*-r-*-*-18-*-*-*-*-*-*-*\""
+X  /**/# do you trust the code?
+X  /**/# NDEBUG = -DNDEBUG
+X  /**/# K&R doesn't have __DATE__ so we supply it here
+X
+-- 
+SHAR_EOF
+chmod 0644 patch-1 ||
+echo 'restore of patch-1 failed'
+Wc_c="`wc -c < 'patch-1'`"
+test 12010 -eq "$Wc_c" ||
+	echo 'patch-1: original size 12010, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

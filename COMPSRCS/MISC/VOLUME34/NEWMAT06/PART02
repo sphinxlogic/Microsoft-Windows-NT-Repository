@@ -1,0 +1,1646 @@
+Newsgroups: comp.sources.misc
+From: robertd@kauri.vuw.ac.nz (Robert Davies)
+Subject:  v34i008:  newmat06 - A matrix package in C++, Part02/07
+Message-ID: <1992Dec6.045217.3864@sparky.imd.sterling.com>
+X-Md4-Signature: 21b07b56422f7a7a111c04e57779191a
+Date: Sun, 6 Dec 1992 04:52:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: robertd@kauri.vuw.ac.nz (Robert Davies)
+Posting-number: Volume 34, Issue 8
+Archive-name: newmat06/part02
+Environment: C++
+Supersedes: newmat04: Volume 26, Issue 87-91
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 7)."
+# Contents:  boolean.h controlw.h except.h include.h newmatap.h
+#   newmatb.txt newmatio.h newmatrc.h newmatrm.h precisio.h
+# Wrapped by robert@kea on Thu Dec  3 22:36:38 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'boolean.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'boolean.h'\"
+else
+echo shar: Extracting \"'boolean.h'\" \(478 characters\)
+sed "s/^X//" >'boolean.h' <<'END_OF_FILE'
+X//$$ boolean.h                       Boolean class
+X
+X#ifndef Boolean_LIB
+X#define Boolean_LIB 0
+X
+Xclass Boolean
+X{
+X   int value;
+Xpublic:
+X   Boolean(const int b) { value = b ? 1 : 0; }
+X   Boolean(const void* b) { value = b ? 1 : 0; }
+X   Boolean() {}
+X   operator int() const { return value; }
+X   int operator!() const { return !value; }
+X   FREE_CHECK(Boolean);
+X};
+X
+X#ifndef GXX
+X   const Boolean TRUE = 1;
+X   const Boolean FALSE = 0;
+X#else
+X#define FALSE 0
+X#define TRUE 1
+X#endif
+X
+X#endif
+END_OF_FILE
+if test 478 -ne `wc -c <'boolean.h'`; then
+    echo shar: \"'boolean.h'\" unpacked with wrong size!
+fi
+# end of 'boolean.h'
+fi
+if test -f 'controlw.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'controlw.h'\"
+else
+echo shar: Extracting \"'controlw.h'\" \(1475 characters\)
+sed "s/^X//" >'controlw.h' <<'END_OF_FILE'
+X//$$ controlw.h                Control word class
+X
+X#ifndef CONTROL_WORD_LIB
+X#define CONTROL_WORD_LIB 0
+X
+X// for organising an int as a series of bits which indicate whether an
+X// option is on or off.
+X
+Xclass ControlWord
+X{
+Xprotected:
+X   int cw;                                      // the control word
+Xpublic:
+X   ControlWord() : cw(0) {}                     // do nothing
+X   ControlWord(int i) : cw(i) {}                // load an integer
+X
+X      // select specific bits (for testing at least one set)
+X   ControlWord operator*(const ControlWord& i) const { return cw & i.cw; }
+X   void operator*=(const ControlWord& i)  { cw &= i.cw; }
+X
+X      // set bits
+X   ControlWord operator+(const ControlWord& i) const { return cw | i.cw; }
+X   void operator+=(const ControlWord& i)  { cw |= i.cw; }
+X
+X      // reset bits
+X   ControlWord operator-(const ControlWord& i) const
+X      { return cw - (cw & i.cw); }
+X   void operator-=(const ControlWord& i) { cw -= (cw & i.cw); }
+X
+X      // check if all of selected bits set or reset
+X   Boolean operator>=(const ControlWord& i) const { return (cw & i.cw) == i.cw; }
+X   Boolean operator<=(const ControlWord& i) const { return (cw & i.cw) == cw; }
+X
+X      // flip selected bits
+X   ControlWord operator^(const ControlWord& i) const { return cw ^ i.cw; }
+X   ControlWord operator~() const { return ~cw; }
+X
+X      // convert to integer
+X   int operator+() const { return cw; }
+X   int operator!() const { return cw==0; }
+X   FREE_CHECK(ControlWord)
+X};
+X
+X
+X#endif
+END_OF_FILE
+if test 1475 -ne `wc -c <'controlw.h'`; then
+    echo shar: \"'controlw.h'\" unpacked with wrong size!
+fi
+# end of 'controlw.h'
+fi
+if test -f 'except.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'except.h'\"
+else
+echo shar: Extracting \"'except.h'\" \(7378 characters\)
+sed "s/^X//" >'except.h' <<'END_OF_FILE'
+X//$$ except.h                          Exception handling classes
+X
+X// A set of classes to simulate exceptions in C++
+X//
+X//   Partially copied from Carlos Vidal's article in the C users' journal
+X//   September 1992, pp 19-28
+X//
+X//   Operations defined
+X//      Try {     }
+X//      Throw ( exception object )
+X//      Catch ( exception class ) {      }
+X//      CatchAll {      }
+X//      CatchAndThrow
+X//
+X//   All catch lists must end with a CatchAll or CatchAndThrow statement
+X//   but not both.
+X//
+X//   When exceptions are finally implemented replace Try, Throw, Catch,
+X//   CatchAll, CatchAndThrow by try, throw, catch, catch(...), and {}.
+X//
+X//   All exception classes must be derived from Exception, have no non-static
+X//   variables and must include functions
+X//
+X//      static long st_type()  { return 2; }
+X//      long type() const { return 2; }
+X//
+X//   where 2 is replaced by a prime number unique to the exception class.
+X//   See notes for use with levels of exceptions.
+X//
+X
+X#ifndef EXCEPTION_LIB
+X#define EXCEPTION_LIB
+X
+X#include <setjmp.h>
+X
+Xvoid Terminate();
+X
+X/*********** classes for setting up exceptions and reporting ***************/
+X
+Xclass Exception;
+X
+Xclass Tracer                                    // linked list showing how
+X{                                               // we got here
+X   char* entry;
+X   Tracer* previous;
+Xpublic:
+X   Tracer(char*);
+X   ~Tracer();
+X   void ReName(char*);
+X   friend Exception;
+X};
+X
+X
+Xclass Exception                                 // The base exception class
+X{
+Xpublic:
+X   static Tracer* last;                         // points to Tracer list
+X   static long st_type() { return 1; }
+X   virtual long type() const { return 1; }
+X   static void PrintTrace(Boolean=FALSE);       // for printing trace
+X   friend Tracer;
+X   Exception(int action);
+X};
+X
+X
+Xinline Tracer::Tracer(char* e)
+X   : entry(e), previous(Exception::last) { Exception::last = this; }
+X
+Xinline Tracer::~Tracer() { Exception::last = previous; }
+X
+Xinline void Tracer::ReName(char* e) { entry=e; }
+X
+X
+X
+X
+X
+X/************** the definitions of Try, Throw and Catch *******************/
+X
+X
+Xclass JumpItem;
+Xclass Janitor;
+X
+Xclass JumpBase         // pointer to a linked list of jmp_buf s
+X{
+Xpublic:
+X   static JumpItem *jl;
+X   static long type;                    // type id. of last exception
+X   static jmp_buf env;
+X};
+X
+Xclass JumpItem         // an item in a linked list of jmp_buf s
+X{
+Xpublic:
+X   JumpItem *ji;
+X   jmp_buf env;
+X   Tracer* trace;                     // to keep check on Tracer items
+X   Janitor* janitor;                  // list of items for cleanup
+X   JumpItem() : trace(0), janitor(0), ji(JumpBase::jl)
+X      { JumpBase::jl = this; }
+X   ~JumpItem() { JumpBase::jl = ji; }
+X};
+X
+Xvoid Throw(const Exception& exc);
+X
+Xvoid Throw();
+X
+X#define Try                                             \
+X      if (!setjmp( JumpBase::jl->env )) {               \
+X      JumpBase::jl->trace = Exception::last;            \
+X      JumpItem JI387256156;
+X
+X#define Catch(EXCEPTION)                                \
+X   } else if (JumpBase::type % EXCEPTION::st_type() == 0) {
+X
+X
+X#define CatchAll } else
+X
+X#define CatchAndThrow  } else Throw();
+X
+X
+X
+X/******************* cleanup heap following Throw ************************/
+X
+Xclass Janitor
+X{
+Xprotected:
+X   static Boolean do_not_link;                  // set when new is called
+X   Boolean OnStack;                             // false if created by new
+Xpublic:
+X   Janitor* NextJanitor;
+X   virtual void CleanUp() {}
+X   Janitor();
+X   ~Janitor();
+X};
+X
+X
+X
+X
+X#ifdef DO_FREE_CHECK
+X// Routines for tracing whether new and delete calls are balanced
+X
+Xclass FreeCheck;
+X
+Xclass FreeCheckLink
+X{
+Xprotected:
+X   FreeCheckLink* next;
+X   void* ClassStore;
+X   FreeCheckLink();
+X   virtual void Report()=0;                   // print details of link
+X   friend FreeCheck;
+X};
+X
+Xclass FCLClass : public FreeCheckLink         // for registering objects
+X{
+X   char* ClassName;
+X   FCLClass(void* t, char* name);
+X   void Report();
+X   friend FreeCheck;
+X};
+X
+Xclass FCLRealArray : public FreeCheckLink     // for registering real arrays
+X{
+X   char* Operation;
+X   int size;
+X   FCLRealArray(void* t, char* o, int s);
+X   void Report();
+X   friend FreeCheck;
+X};
+X
+Xclass FCLIntArray : public FreeCheckLink     // for registering int arrays
+X{
+X   char* Operation;
+X   int size;
+X   FCLIntArray(void* t, char* o, int s);
+X   void Report();
+X   friend FreeCheck;
+X};
+X
+X
+Xclass FreeCheck
+X{
+X   static FreeCheckLink* next;
+Xpublic:
+X   static void Register(void*, char*);
+X   static void DeRegister(void*, char*);
+X   static void RegisterR(void*, char*, int);
+X   static void DeRegisterR(void*, char*, int);
+X   static void RegisterI(void*, char*, int);
+X   static void DeRegisterI(void*, char*, int);
+X   static void Status();
+X   friend FreeCheckLink;
+X   friend FCLClass;
+X   friend FCLRealArray;
+X   friend FCLIntArray;
+X};
+X
+X#define FREE_CHECK(Class)                                                  \
+Xpublic:                                                                    \
+X   void* operator new(size_t size)                                         \
+X   {                                                                       \
+X      void* t = ::operator new(size); FreeCheck::Register(t,#Class);       \
+X      return t;                                                            \
+X   }                                                                       \
+X   void operator delete(void* t)                                           \
+X   { FreeCheck::DeRegister(t,#Class); ::operator delete(t); }
+X
+X#define NEW_DELETE(Class)                                                  \
+Xpublic:                                                                    \
+X   void* operator new(size_t size)                                         \
+X   {                                                                       \
+X      do_not_link=TRUE;                                                    \
+X      void* t = ::operator new(size); FreeCheck::Register(t,#Class);       \
+X      return t;                                                            \
+X   }                                                                       \
+X   void operator delete(void* t)                                           \
+X   { FreeCheck::DeRegister(t,#Class); ::operator delete(t); }
+X
+X#define MONITOR_REAL_NEW(Operation, Size, Pointer)                         \
+X   FreeCheck::RegisterR(Pointer, Operation, Size);
+X#define MONITOR_INT_NEW(Operation, Size, Pointer)                          \
+X   FreeCheck::RegisterI(Pointer, Operation, Size);
+X#define MONITOR_REAL_DELETE(Operation, Size, Pointer)                      \
+X   FreeCheck::DeRegisterR(Pointer, Operation, Size);
+X#define MONITOR_INT_DELETE(Operation, Size, Pointer)                       \
+X   FreeCheck::DeRegisterI(Pointer, Operation, Size);
+X#else
+X#define FREE_CHECK(Class) public:
+X#define MONITOR_REAL_NEW(Operation, Size, Pointer) {}
+X#define MONITOR_INT_NEW(Operation, Size, Pointer) {}
+X#define MONITOR_REAL_DELETE(Operation, Size, Pointer) {}
+X#define MONITOR_INT_DELETE(Operation, Size, Pointer) {}
+X
+X
+X#define NEW_DELETE(Class)                                                  \
+Xpublic:                                                                    \
+X   void* operator new(size_t size)                                         \
+X   { do_not_link=TRUE; void* t = ::operator new(size); return t; }         \
+X   void operator delete(void* t) { ::operator delete(t); }
+X
+X#endif
+X
+X
+X
+X
+X#endif
+X
+X
+X
+X
+END_OF_FILE
+if test 7378 -ne `wc -c <'except.h'`; then
+    echo shar: \"'except.h'\" unpacked with wrong size!
+fi
+# end of 'except.h'
+fi
+if test -f 'include.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'include.h'\"
+else
+echo shar: Extracting \"'include.h'\" \(3020 characters\)
+sed "s/^X//" >'include.h' <<'END_OF_FILE'
+X//$$ include.h           include files required by various versions of C++
+X
+X//#define Glock                         // for Glockenspiel on the PC
+X//#define ATandT                        // for AT&T C++ on a Sun
+X
+X#ifdef __GNUG__
+X#define GXX                             // for Gnu C++
+X#endif
+X
+X#define TEMPS_DESTROYED_QUICKLY         // for compiler that delete
+X					// temporaries too quickly
+X
+X//#define DO_FREE_CHECK                   // check news and deletes balance
+X
+X#define USING_DOUBLE                    // elements of type double
+X//#define USING_FLOAT                   // elements of type float
+X
+X#define Version21                       // version 2.1 or later
+X
+X
+X#ifdef __ZTC__                          // Zortech
+X   #include <stdlib.h>
+X   #ifdef WANT_STREAM
+X      #include <stream.hpp>
+X      #define flush ""                  // doesn't have io manipulators
+X   #endif
+X   #ifdef WANT_MATH
+X      #include <math.h>
+X      #include <float.h>
+X   #endif
+X#endif
+X
+X#ifdef __BCPLUSPLUS__                   // Borland
+X   #include <stdlib.h>
+X   #ifdef WANT_STREAM
+X      #include <iostream.h>
+X      #include <iomanip.h>
+X   #endif
+X   #ifdef WANT_MATH
+X      #include <math.h>
+X      #define SystemV                   // optional in Borland
+X      #include <values.h>               // Borland has both float and values
+X   #endif
+X   #undef __TURBOC__                    // also defined in Borland
+X#endif
+X
+X#ifdef __TURBOC__                       // Turbo
+X   #include <stdlib.h>
+X   #ifdef WANT_STREAM
+X      #include <iostream.h>
+X      #include <iomanip.h>
+X   #endif
+X   #ifdef WANT_MATH
+X      #include <math.h>
+X      #define SystemV                   // optional in Turbo
+X      #include <values.h>
+X   #endif
+X#endif
+X
+X#ifdef ATandT                           // AT&T
+X#include <stdlib.h>
+X#ifdef WANT_STREAM
+X#include <iostream.h>
+X#include <iomanip.h>
+X#endif
+X#ifdef WANT_MATH
+X#include <math.h>
+X#define SystemV                         // must use System V on my Sun
+X#include <values.h>                     //    as float.h is not present
+X#endif
+X#endif
+X
+X#ifdef GXX                              // Gnu C++
+X   #include <stdlib.h>
+X   #ifdef WANT_STREAM
+X      #include <stream.h>               // no iomanip in G++
+X      #define flush ""
+X   #endif
+X   #ifdef WANT_MATH
+X      #include <math.h>
+X      #include <float.h>
+X   #endif
+X   #ifndef TEMPS_DESTROYED_QUICKLY
+X      #define TEMPS_DESTROYED_QUICKLY
+X   #endif
+X#endif
+X
+X#ifdef Glock                            // Glockenspiel
+X   extern "C" { #include <stdlib.h> }
+X   #ifdef WANT_STREAM
+X      #include <stream.hxx>
+X      #include <iomanip.hxx>
+X   #endif
+X   #ifdef WANT_MATH
+X      extern "C" { #include <math.h> }
+X      extern "C" { #include <float.h> }
+X   #endif
+X   #define NO_LONG_NAMES                // very long names don't work
+X#endif
+X
+X
+X
+X#ifdef USING_FLOAT                      // set precision type to float
+Xtypedef float Real;
+Xtypedef double long_Real;
+X#endif
+X
+X#ifdef USING_DOUBLE                     // set precision type to double
+Xtypedef double Real;
+Xtypedef long double long_Real;
+X#endif
+X
+X
+END_OF_FILE
+if test 3020 -ne `wc -c <'include.h'`; then
+    echo shar: \"'include.h'\" unpacked with wrong size!
+fi
+# end of 'include.h'
+fi
+if test -f 'newmatap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatap.h'\"
+else
+echo shar: Extracting \"'newmatap.h'\" \(2631 characters\)
+sed "s/^X//" >'newmatap.h' <<'END_OF_FILE'
+X//$$ newmatap.h           definition file for matrix package applications
+X
+X// Copyright (C) 1991,2: R B Davies
+X
+X#ifndef MATRIXAP_LIB
+X#define MATRIXAP_LIB 0
+X
+X#include "newmat.h"
+X
+X
+X/**************************** applications *****************************/
+X
+X
+Xvoid HHDecompose(Matrix&, LowerTriangularMatrix&);
+X
+Xvoid HHDecompose(const Matrix&, Matrix&, Matrix&);
+X
+XReturnMatrix Cholesky(const SymmetricMatrix&);
+X
+XReturnMatrix Cholesky(const SymmetricBandMatrix&);
+X
+X#ifndef GXX
+Xvoid SVD(const Matrix&, DiagonalMatrix&, Matrix&, Matrix&,
+X    Boolean=TRUE, Boolean=TRUE);
+X#else
+Xvoid SVD(const Matrix&, DiagonalMatrix&, Matrix&, Matrix&,
+X    Boolean=(Boolean)TRUE, Boolean=(Boolean)TRUE);
+X#endif
+X
+X
+Xvoid SVD(const Matrix&, DiagonalMatrix&);
+X
+X#ifndef GXX
+Xinline void SVD(const Matrix& A, DiagonalMatrix& D, Matrix& U,
+X   Boolean withU = TRUE) { SVD(A, D, U, U, withU, FALSE); }
+X#else
+Xinline void SVD(const Matrix& A, DiagonalMatrix& D, Matrix& U,
+X   Boolean withU = (Boolean)TRUE) { SVD(A, D, U, U, withU, FALSE); }
+X#endif
+X
+Xvoid Jacobi(const SymmetricMatrix&, DiagonalMatrix&);
+X
+Xvoid Jacobi(const SymmetricMatrix&, DiagonalMatrix&, SymmetricMatrix&);
+X
+Xvoid Jacobi(const SymmetricMatrix&, DiagonalMatrix&, Matrix&);
+X
+X#ifndef GXX
+Xvoid Jacobi(const SymmetricMatrix&, DiagonalMatrix&, SymmetricMatrix&,
+X   Matrix&, Boolean=TRUE);
+X#else
+Xvoid Jacobi(const SymmetricMatrix&, DiagonalMatrix&, SymmetricMatrix&,
+X   Matrix&, Boolean=(Boolean)TRUE);
+X#endif
+X
+Xvoid EigenValues(const SymmetricMatrix&, DiagonalMatrix&);
+X
+Xvoid EigenValues(const SymmetricMatrix&, DiagonalMatrix&, SymmetricMatrix&);
+X
+Xvoid EigenValues(const SymmetricMatrix&, DiagonalMatrix&, Matrix&);
+X
+Xclass SymmetricEigenAnalysis
+X// not implemented yet
+X{
+Xpublic:
+X   SymmetricEigenAnalysis(const SymmetricMatrix&);
+Xprivate:
+X   DiagonalMatrix diag;
+X   DiagonalMatrix offdiag;
+X   SymmetricMatrix backtransform;
+X   FREE_CHECK(SymmetricEigenAnalysis)
+X};
+X
+Xvoid SortAscending(GeneralMatrix&);
+X
+Xvoid SortDescending(GeneralMatrix&);
+X
+X
+Xvoid FFT(const ColumnVector&, const ColumnVector&,
+X   ColumnVector&, ColumnVector&);
+X
+X
+X/********************** linear equation solving ****************************/
+X
+Xclass LinearEquationSolver : public BaseMatrix
+X{
+X   GeneralMatrix* gm;
+X   int search(const BaseMatrix*) const { return 0; }
+X   MatrixType Type() const { return gm->Type(); }
+X   friend BaseMatrix;
+Xpublic:
+X   LinearEquationSolver(const BaseMatrix& bm);
+X   ~LinearEquationSolver() { delete gm; }
+X   void CleanUp() { delete gm; } 
+X   GeneralMatrix* Evaluate(MatrixType) { return gm; }
+X   // probably should have an error message if MatrixType != UnSp
+X   NEW_DELETE(LinearEquationSolver)
+X};
+X
+X
+X
+X
+X
+X#endif
+END_OF_FILE
+if test 2631 -ne `wc -c <'newmatap.h'`; then
+    echo shar: \"'newmatap.h'\" unpacked with wrong size!
+fi
+# end of 'newmatap.h'
+fi
+if test -f 'newmatb.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatb.txt'\"
+else
+echo shar: Extracting \"'newmatb.txt'\" \(24232 characters\)
+sed "s/^X//" >'newmatb.txt' <<'END_OF_FILE'
+X//$$ newmatb.txt                                   Design
+X
+X
+XCopyright (C) 1991,2: R B Davies
+X
+XPlease treat this as an academic publication. You can use the ideas but
+Xplease acknowledge in any publication.
+X
+X
+X
+X                      Notes on the design of the package
+X                      ==================================
+X
+XContents
+X========
+X
+XWhat this is package for
+XWhat size of matrices?
+XAllow matrix expressions?
+XWhich matrix types?
+XWhat element types?
+XNaming convention
+XRow and Column index ranges
+XStructure of matrix objects
+XData storage - one block or several
+XData storage - by row or by column or other
+XStorage of symmetric matrices
+XElement access - method and checking
+XUse iterators?
+XMemory management - reference counting or status variable?
+XEvaluation of expressions - use two stage method?
+XHow to overcome an explosion in number of operations
+XDestruction of temporaries
+XA calculus of matrix types
+XError handling
+XSparse matrices
+XComplex matrices
+X
+X
+XI describe some of the ideas behind this package, some of the decisions
+Xthat I needed to make and give some details about the way it works. You
+Xdon't need to read this file in order to use the package.
+X
+XI don't think it is obvious what is the best way of going about
+Xstructuring a matrix package. And I don't think you can figure this
+Xout with "thought" experiments. Different people have to try out
+Xdifferent approaches. And someone else may have to figure out which is
+Xbest. Or, more likely, the ultimate packages will lift some ideas from
+Xeach of a variety of trial packages. So, I don't claim my package is an
+X"ultimate" package, but simply a trial of a number of ideas.
+X
+XBut I do hope it will meet the immediate requirements of some people who
+Xneed to carry out matrix calculations.
+X
+X
+XWhat this is package for
+X------------------------
+X
+XThe package is used for the manipulation of matrices, including the
+Xstandard operations such as multiplication as understood by numerical
+Xanalysts, engineers and mathematicians. A matrix is a two dimensional
+Xarray of numbers. However, very special operations such as matrix
+Xmultiplication are defined specifically for matrices. This means that a
+X"matrix" package tends to be different from a general "array" package.
+X
+XI see a matrix package as providing the following
+X
+X1.   Evaluation of matrix expressions in a form familiar to
+X     scientists and engineers. For example  A = B * (C + D.t());
+X2.   Access to the elements of a matrix;
+X3.   Access to submatrices;
+X4.   Common elementary matrix functions such as determinant and trace;
+X5.   A platform for developing advanced matrix functions such as eigen-
+X     value analysis;
+X6.   Good efficiency and storage management;
+X7.   Graceful exit from errors (I don't provide this yet).
+X
+XIt may also provide
+X
+X8.   A variety of types of elements (eg real and complex);
+X9.   A variety of types of matrices (eg rectangular and symmetric).
+X
+XIn contrast an array package should provide
+X
+X1'.  Arrays can be copied with a single instruction; may have some
+X     arithmetic operations, say + - and scalar + - * /, it may provide
+X     matrix multiplication as a function;
+X2'.  High speed access to elements directly and with iterators;
+X3'.  Access to subarrays and rows (and columns?);
+X6'.  Good efficiency and storage management;
+X7'.  Graceful exit from errors;
+X8'.  A variety of types of elements (eg real and complex);
+X9'.  One, two and three dimensional arrays, at least, with starting
+X     points of the indices set by user; may have arrays with ragged
+X     rows.
+X
+XIt may be possible to amalgamate these two sets of requirements to some
+Xextent. However my package is definitely oriented towards the first set.
+X
+XEven within the bounds set by the first set of requirements there is a
+Xsubstantial opportunity for variation between what different matrix
+Xpackages might provide.
+X
+XIt is not possible to build a matrix package that will meet everyone's
+Xrequirements. In many cases if you put in one facility, you impose
+Xoverheads on everyone using the package. This both is storage required
+Xfor the program and in efficiency. Likewise a package that is optimised
+Xtowards handling large matrices is likely to become less efficient for
+Xvery small matrices where the administration time for the matrix may
+Xbecome significant compared with the time to carry out the operations.
+X
+XIt is better to provide a variety of packages (hopefully compatible) so
+Xthat most users can find one that meets their requirements. This package
+Xis intended to be one of these packages; but not all of them.
+X
+XSince my background is in statistical methods, this package is oriented
+Xtowards the kinds things you need for statistical analyses.
+X
+X
+XWhat size of matrices?
+X----------------------
+X
+XA matrix package may target small matrices (say 3 x 3), or medium sized
+Xmatrices, or very large matrices. A package targeting very small
+Xmatrices will seek to minimise administration. A package for medium
+Xsized or very large matrices can spend more time on administration in
+Xorder to conserve space or optimise the evaluation of expressions. A
+Xpackage for very large matrices will need to pay special attention to
+Xstorage and numerical properties.
+X
+XThis package is designed for medium sized matrices. This means it is
+Xworth introducing some optimisations, but I don't have to worry about
+Xthe 64K limit that some compilers impose.
+X
+X
+XAllow matrix expressions?
+X-------------------------
+X
+XI want to be able to write matrix expressions the way I would on paper.
+XSo if I want to multiply two matrices and then add the transpose of a
+Xthird one I can write something like
+X
+X   X = A * B + C.t();
+X
+XI want this expression to be evaluated with close to the same efficiency
+Xas a hand-coded version. This is not so much of a problem with
+Xexpressions including a multiply since the multiply will dominate the
+Xtime. However, it is not so easy to achieve with expressions with just +
+Xand - .
+X
+XA second requirement is that temporary matrices generated during the
+Xevaluation of an expression are destroyed as quickly as possible.
+X
+XA desirable feature is that a certain amount of "intelligence" be
+Xdisplayed in the evaluation of an expression. For example, in the
+Xexpression
+X
+X   X = A.i() * B;
+X
+Xwhere i() denotes inverse, it would be desirable if the inverse wasn't
+Xexplicitly calculated.
+X
+X
+XWhich matrix types?
+X-------------------
+X
+XAs well as the usual rectangular matrices, matrices occuring repeatedly
+Xin numerical calculations are upper and lower triangular matrices,
+Xsymmetric matrices and diagonal matrices. This is particularly the case
+Xin calculations involving least squares and eigenvalue calculations. So
+Xas a first stage these were the types I decided to include.
+X
+XIt is also necessary to have types row vector and column vector. In a
+X"matrix" package, in contrast to an "array" package, it is necessary to
+Xhave both these types since they behave differently in matrix
+Xexpressions. The vector types can be derived for the rectangular matrix
+Xtype, so having them does not greatly increase the complexity of the
+Xpackage.
+X
+XThe problem with having several matrix types is the number of versions
+Xof the binary operators one needs. If one has 5 distinct matrix types
+Xthen a simple package will need 25 versions of each of the binary
+Xoperators. In fact, we can evade this problem, but at the cost of some
+Xcomplexity.
+X
+X
+XWhat element types?
+X-------------------
+X
+XIdeally we would allow element types double, float, complex and int, at
+Xleast. It would be reasonably easy, using templates or equivalent, to
+Xprovide a package which could handle a variety of element types.
+XHowever, as soon as one starts implementing the binary operators between
+Xmatrices with different element types, again one gets an explosion in
+Xthe number of operations one needs to consider. Hence I decided to
+Ximplement only one element type. But the user can decide whether this is
+Xfloat or double. The package assumes elements are of type Real. The user
+Xtypedefs Real to float or double.
+X
+XIn retrospect, it would not be too hard to include matrices with complex
+Xmatrix type.
+X
+XIt might also be worth including symmetric and triangular matrices with
+Xextra precision elements (double or long double) to be used for storage
+Xonly and with a minimum of operations defined. These would be used for
+Xaccumulating the results of sums of squares and product matrices or
+Xmultistage Householder triangularisations.
+X
+X
+XNaming convention
+X-----------------
+X
+XHow are classes and public member functions to be named? As a general
+Xrule I have spelt identifiers out in full with individual words being
+Xcapitalised. For example "UpperTriangularMatrix". If you don't like this
+Xyou can #define or typedef shorter names. This convention means you can
+Xselect an abbreviation scheme that makes sense to you.
+X
+XThe convention causes problems for Glockenspiel C++ on a PC feeding into
+XMicrosoft C. The names Glockenspiel generates exceed the the 32
+Xcharacters recognised by Microsoft C and ambiguities result. So it is
+Xnecessary to #define shorter names.
+X
+XExceptions to the general rule are the functions for transpose and
+Xinverse. To make matrix expressions more like the corresponding
+Xmathematical formulae, I have used the single letter abbreviations, t()
+Xand i() .
+X
+X
+XRow and Column index ranges
+X---------------------------
+X
+XIn mathematical work matrix subscripts usually start at one. In C, array
+Xsubscripts start at zero. In Fortran, they start at one. Possibilities
+Xfor this package were to make them start at 0 or 1 or be arbitrary.
+XAlternatively one could specify an "index set" for indexing the rows and
+Xcolumns of a matrix. One would be able to add or multiply matrices only
+Xif the appropriate row and column index sets were identical.
+X
+XIn fact, I adopted the simpler convention of making the rows and columns
+Xof a matrix be indexed by an integer starting at one, following the
+Xtraditional convention. In an earlier version of the package I had them
+Xstarting at zero, but even I was getting mixed up when trying to use
+Xthis earlier package. So I reverted to the more usual notation.
+X
+X
+XStructure of matrix objects
+X---------------------------
+X
+XEach matrix object contains the basic information such as the number of
+Xrows and columns and a status variable plus a pointer to the data
+Xarray which is on the heap.
+X
+X
+XData storage - one block or several
+X-----------------------------------
+X
+XIn this package the elements of the matrix are stored as a single array.
+XAlternatives would have been to store each row as a separate array or a
+Xset of adjacent rows as a separate array. The present solution
+Xsimplifies the program but limits the size of matrices in systems that
+Xhave a 64k byte (or other) limit on the size of arrays. The large arrays
+Xmay also cause problems for memory management in smaller machines.
+X
+X
+XData storage - by row or by column or other
+X-------------------------------------------
+X
+XIn Fortran two dimensional arrays are stored by column. In most other
+Xsystems they are stored by row. I have followed this later convention.
+XThis makes it easier to interface with other packages written in C but
+Xharder to interface with those written in Fortran.
+X
+XAn alternative would be to store the elements by mid-sized rectangular
+Xblocks. This might impose less strain on memory management when one
+Xneeds to access both rows and columns.
+X
+X
+XStorage of symmetric matrices
+X-----------------------------
+X
+XSymmetric matrices are stored as lower triangular matrices. The decision
+Xwas pretty arbitrary, but it does slightly simplify the Cholesky
+Xdecomposition program.
+X
+X
+XElement access - method and checking
+X------------------------------------
+X
+XWe want to be able to use the notation A(i,j) to specify the (i,j)-th
+Xelement of a matrix. This is the way mathematicians expect to address
+Xthe elements of matrices. I consider the notation A[i][j] totally alien.
+XHowever I may include it in a later version to help people converting
+Xfrom C. There are two ways of working out the address of A(i,j). One is
+Xusing a "dope" vector which contains the first address of each row.
+XAlternatively you can calculate the address using the formula
+Xappropriate for the structure of A. I use this second approach. It is
+Xprobably slower, but saves worrying about an extra bit of storage. The
+Xother question is whether to check for i and j being in range. I do
+Xcarry out this check following years of experience with both systems
+Xthat do and systems that don't do this check.
+X
+XI would hope that the routines I supply with this package will reduce
+Xyour need to access elements of matrices so speed of access is not a
+Xhigh priority.
+X
+X
+XUse iterators?
+X--------------
+X
+XIterators are an alternative way of providing fast access to the
+Xelements of an array or matrix when they are to be accessed
+Xsequentially. They need to be customised for each type of matrix. I have
+Xnot implemented iterators in this package, although some iterator like
+Xfunctions are used for some row and column functions.
+X
+X
+XMemory management - reference counting or status variable?
+X----------------------------------------------------------
+X
+XConsider the instruction
+X
+X   X = A + B + C;
+X
+XTo evaluate this a simple program will add A to B putting the total in a
+Xtemporary T1. Then it will add T1 to C creating another temporary T2
+Xwhich will be copied into X. T1 and T2 will sit around till the end of
+Xthe block. It would be faster if the program recognised that T1 was
+Xtemporary and stored the sum of T1 and C back into T1 instead of
+Xcreating T2 and then avoided the final copy by just assigning the
+Xcontents of T1 to X rather than copying. In this case there will be no
+Xtemporaries requiring deletion. (More precisely there will be a header
+Xto be deleted but no contents).
+X
+XFor an instruction like
+X
+X   X = (A * B) + (C * D);
+X
+Xwe can't easily avoid one temporary being left over, so we would like
+Xthis temporary deleted as quickly as possible.
+X
+XI provide the functionality for doing this by attaching a status
+Xvariable to each matrix. This indicates if the matrix is temporary so
+Xthat its memory is available for recycling or deleting. Any matrix
+Xoperation checks the status variables of the matrices it is working with
+Xand recycles or deletes any temporary memory.
+X
+XAn alternative or additional approach would be to use delayed copying.
+XIf a program requests a matrix to be copied, the copy is delayed until
+Xan instruction is executed which modifies the memory of either the
+Xoriginal matrix or the copy. This saves the unnecessary copying in the
+Xprevious examples. However, it does not provide the additional
+Xfunctionality of my approach.
+X
+XIt would be possible to have both delayed copy and tagging temporaries,
+Xbut this seemed an unnecessary complexity. In particular delayed copy
+Xmechanisms seem to require two calls to the heap manager, using extra
+Xtime and making building a memory compacting mechanism more difficult.
+X
+X
+XEvaluation of expressions - use two stage method?
+X-------------------------------------------------
+X
+XConsider the instruction
+X
+X   X = B - X;
+X
+XThe simple program will subtract X from B, store the result in a
+Xtemporary T1 and copy T1 into X. It would be faster if the program
+Xrecognised that the result could be stored directly into X. This would
+Xhappen automatically if the program could look at the instruction first
+Xand mark X as temporary.
+X
+XC programmers would expect to avoid the same problem with
+X
+X   X = X - B;
+X
+Xby using an operator -= (which I haven't provided, yet)
+X
+X   X -= B;
+X
+XHowever this is an unnatural notation for non C users and it is much
+Xnicer to write
+X
+X   X = X - B;
+X
+Xand know that the program will carry out the simplification.
+X
+XAnother example where this intelligent analysis of an instruction is
+Xhelpful is in
+X
+X   X = A.i() * B;
+X
+Xwhere i() denotes inverse. Numerical analysts know it is inefficient to
+Xevaluate this expression by carrying out the inverse operation and then
+Xthe multiply. Yet it is a convenient way of writing the instruction. It
+Xwould be helpful if the program recognised this expression and carried
+Xout the more appropriate approach.
+X
+XTo carry out this "intelligent" analysis of an instruction  matrix
+Xexpressions are evaluated in two stages. In the the first stage a tree
+Xrepresentation of the expression is formed.
+X
+XFor example (A+B)*C is represented by a tree
+X
+X                    *
+X                   / \
+X                  +   C
+X                 / \
+X                A   B
+X
+XRather than adding A and B the + operator yields an object of a class
+X"AddedMatrix" which is just a pair of pointers to A and B. Then the *
+Xoperator yields a "MultipliedMatrix" which is a pair of pointers to the
+X"AddedMatrix" and C. The tree is examined for any simplifications and
+Xthen evaluated recursively.
+X
+XFurther possibilities not yet included are to recognise A.t()*A and
+XA.t()+A as symmetric or to improve the efficiency of evaluation of
+Xexpressions like A+B+C, A*B*C, A*B.t()  [t() denotes transpose].
+X
+XOne of the disadvantages of the two-stage approach is that the types of
+Xmatrix expressions are determined at run-time. So the compiler will not
+Xdetect errors of the type
+X
+X   Matrix M; DiagonalMatrix D; ....; D = M;
+X
+XWe don't allow conversions using = when information would be lost. Such
+Xerrors will be detected when the statement is executed.
+X
+X
+XHow to overcome an explosion in number of operations
+X----------------------------------------------------
+X
+XThe package attempts to solve the problem of the large number of
+Xversions of the binary operations required when one has a variety of
+Xtypes. With n types of matrices the binary operations will each require
+Xn-squared separate algorithms. Some reduction in the number may be
+Xpossible by carrying out conversions. However the situation rapidly
+Xbecomes impossible with more than 4 or 5 types.
+X
+XDoug Lea told me that it was possible to avoid this problem. I don't
+Xknow what his solution is. Here's mine.
+X
+XEach matrix type includes routines for extracting individual rows or
+Xcolumns. I assume a row or column consists of a sequence of zeros, a
+Xsequence of stored values and then another sequence of zeros. Only a
+Xsingle algorithm is then required for each binary operation. The rows
+Xcan be located very quickly since most of the matrices are stored row by
+Xrow. Columns must be copied and so the access is somewhat slower. As far
+Xas possible my algorithms access the matrices by row.
+X
+XAn alternative approach of using iterators will be slower since the
+Xiterators will involve a virtual function access at each step.
+X
+XThere is another approach. Each of the matrix types defined in this
+Xpackage can be set up so both rows and columns have their elements at
+Xequal intervals provided we are prepared to store the rows and columns
+Xin up to three chunks. With such an approach one could write a single
+X"generic" algorithm for each of multiply and add. This would be a
+Xreasonable alternative to my approach.
+X
+XI provide several algorithms for operations like + . If one is adding
+Xtwo matrices of the same type then there is no need to access the
+Xindividual rows or columns and a faster general algorithm is
+Xappropriate.
+X
+XGenerally the method works well. However symmetric matrices are not
+Xalways handled very efficiently (yet) since complete rows are not stored
+Xexplicitly.
+X
+XThe original version of the package did not use this access by row or
+Xcolumn method and provided the multitude of algorithms for the
+Xcombination of different matrix types. The code file length turned out
+Xto be just a little longer than the present one when providing the same
+Xfacilities with 5 distinct types of matrices. It would have been very
+Xdifficult to increase the number of matrix types in the original
+Xversion. Apparently 4 to 5 types is about the break even point for
+Xswitching to the approach adopted in the present package.
+X
+X
+XDestruction of temporaries
+X--------------------------
+X
+XVersions before version 5 of newmat did not work correctly with Gnu C++.
+XThis was because the tree structure used to represent a matrix
+Xexpression was set up on the stack. This was fine for AT&T, Borland and
+XZortech C++. However Gnu C++ destroys temporary structures as soon as
+Xthe function that accesses them finishes. The other compilers wait until
+Xthe end of the current block. (It would be good enough for them to wait
+Xtill the end of the expression.) To overcome this problem, there is now
+Xan option to store the temporaries forming the tree structure on the
+Xheap (created with new) and to delete them explicitly. Activate the
+Xdefinition of TEMPS_DESTROYED_QUICKLY to set this option. In fact, I
+Xsuggest this be the default option as, with it, the package uses less
+Xstorage and runs faster.
+X
+XThere still exist situations Gnu C++ will go wrong. These include
+Xstatements like
+X
+XA = X * Matrix(P * Q); Real r = (A*B)(3,4);
+X
+XNeither of these kinds of statements will occur often in practice.
+X
+X
+XA calculus of matrix types
+X--------------------------
+X
+XThe program needs to be able to work out the class of the result of a
+Xmatrix expression. This is to check that a conversion is legal or to
+Xdetermine the class of a temporary. To assist with this, a class
+XMatrixType is defined. Operators +, -, *, >= are defined to calculate
+Xthe types of the results of expressions or to check that conversions are
+Xlegal.
+X
+X
+XError handling
+X--------------
+X
+XThe package now does have a moderately graceful exit from errors.
+XOriginally I thought I would wait until exceptions became available in
+XC++. Trying to set up an error handling scheme that did not involve an
+Xexception-like facility was just too complicated. Version 5 of this
+Xpackage included the beginnings of such a facility. The approach in the
+Xpresent package, attempting to implement C++ exceptions, is not
+Xcompletely satisfactory, but seems a good interim solution.
+X
+XThe exception mechanism cannot clean-up objects explicitly created by
+Xnew. This must be explicitly carried out by the package writer or the
+Xpackage user. I have not yet done this with the present package so
+Xoccasionally a little garbage may be left behind after an exception. I
+Xdon't think this is a big problem, but it is one that needs fixing.
+X
+XI identify five categories of errors:
+X
+X   Programming error - eg illegal conversion of a matrix, subscript out
+X   of bounds, matrix dimensions don't match;
+X
+X   Illegal data error - eg Cholesky of a non-positive definite matrix;
+X
+X   Out of space error - "new" returns a null pointer;
+X
+X   Convergence failure - an iterative operation fails to converge;
+X
+X   Internal error - failure of an internal check.
+X
+XSome of these have subcategories, which are nicely represented by
+Xderived exception classes. But I don't think it is a good idea for
+Xpackage users to refer to these as they may change in the next release
+Xof the package.
+X
+X
+XSparse matrices
+X---------------
+X
+XThe package does not yet support sparse matrices.
+X
+XFor sparse matrices there is going to be some kind of structure vector.
+XIt is going to have to be calculated for the results of expressions in
+Xmuch the same way that types are calculated. In addition, a whole new
+Xset of row and column operations would have to be written.
+X
+XSparse matrices are important for people solving large sets of
+Xdifferential equations as well as being important for statistical and
+Xoperational research applications. I think comprehensive matrix package
+Xneeds to implement sparse matrices.
+X
+X
+XComplex matrices
+X----------------
+X
+XThe package does not yet support matrices with complex elements. There
+Xare at least two approaches to including these. One is to have matrices
+Xwith complex elements. This probably means making new versions of the
+Xbasic row and column operations for Real*Complex, Complex*Complex,
+XComplex*Real and similarly for + and -. This would be OK, except that I
+Xam also going to have to also do this for sparse and when you put these
+Xtogether, the whole thing will get out of hand.
+X
+XThe alternative is to represent a Complex matrix by a pair of Real
+Xmatrices. One probably needs another level of decoding expressions but I
+Xthink it might still be simpler than the first approach. There is going
+Xto be a problem with accessing elements and the final package may be a
+Xlittle less efficient that one using the previous representation.
+XNeverthless, this is the approach I favour.
+X
+XComplex matrices are used extensively by electrical engineers and really
+Xshould be fully supported in a comprehensive package.
+END_OF_FILE
+if test 24232 -ne `wc -c <'newmatb.txt'`; then
+    echo shar: \"'newmatb.txt'\" unpacked with wrong size!
+fi
+# end of 'newmatb.txt'
+fi
+if test -f 'newmatio.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatio.h'\"
+else
+echo shar: Extracting \"'newmatio.h'\" \(366 characters\)
+sed "s/^X//" >'newmatio.h' <<'END_OF_FILE'
+X//$$ newmatio.h           definition file for matrix package input/output
+X
+X// Copyright (C) 1991,2: R B Davies
+X
+X#ifndef MATRIXIO_LIB
+X#define MATRIXIO_LIB 0
+X
+X#include "newmat.h"
+X
+X/**************************** input/output *****************************/
+X
+Xostream& operator<<(ostream&, const BaseMatrix&);
+X
+Xostream& operator<<(ostream&, const GeneralMatrix&);
+X
+X
+X#endif
+END_OF_FILE
+if test 366 -ne `wc -c <'newmatio.h'`; then
+    echo shar: \"'newmatio.h'\" unpacked with wrong size!
+fi
+# end of 'newmatio.h'
+fi
+if test -f 'newmatrc.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatrc.h'\"
+else
+echo shar: Extracting \"'newmatrc.h'\" \(4899 characters\)
+sed "s/^X//" >'newmatrc.h' <<'END_OF_FILE'
+X//$$ newmatrc.h              definition file for row/column classes
+X
+X// Copyright (C) 1991,2: R B Davies
+X
+X#ifndef MATRIXRC_LIB
+X#define MATRIXRC_LIB 0
+X
+X#include "controlw.h"
+X
+X
+X
+X/************** classes MatrixRowCol, MatrixRow, MatrixCol *****************/
+X
+X// Used for accessing the rows and columns of matrices
+X// All matrix classes must provide routines for calculating matrix rows and
+X// columns. Assume rows can be found very efficiently.
+X
+Xenum LSF { LoadOnEntry=1,StoreOnExit=2,IsACopy=4,DirectPart=8,StoreHere=16 };
+X
+X
+Xclass LoadAndStoreFlag : public ControlWord
+X{
+Xpublic:
+X   LoadAndStoreFlag() {}
+X   LoadAndStoreFlag(int i) : ControlWord(i) {}
+X   LoadAndStoreFlag(LSF lsf) : ControlWord(lsf) {}
+X   LoadAndStoreFlag(const ControlWord& cwx) : ControlWord(cwx) {}
+X   FREE_CHECK(LoadAndStoreFlag)
+X};
+X
+Xclass MatrixRowCol
+X// the row or column of a matrix
+X{
+Xpublic:                                        // these are public to avoid
+X					       // numerous friend statements
+X   int length;                                 // row or column length
+X   int skip;                                   // initial number of zeros
+X   int storage;                                // number of stored elements
+X   int rowcol;                                 // row or column number
+X   GeneralMatrix* gm;                          // pointer to parent matrix
+X   Real* store;                                // pointer to local storage
+X					       //    less skip
+X   LoadAndStoreFlag cw;                        // Load? Store? Is a Copy?
+X   void IncrMat() { rowcol++; store += storage; }
+X					       // used by NextRow
+X   void IncrDiag() { rowcol++; skip++; }
+X   void IncrUT() { rowcol++; storage--; store += storage; skip++; }
+X   void IncrLT() { rowcol++; store += storage; storage++; }
+X
+Xpublic:
+X   void Add(const MatrixRowCol&);              // add a row/col
+X   void AddScaled(const MatrixRowCol&, Real);  // add a multiple of a row/col
+X   void Add(const MatrixRowCol&, const MatrixRowCol&);
+X					       // add two rows/cols
+X   void Add(const MatrixRowCol&, Real);        // add a row/col
+X   void Sub(const MatrixRowCol&);              // subtract a row/col
+X   void Sub(const MatrixRowCol&, const MatrixRowCol&);
+X					       // sub a row/col from another
+X   void RevSub(const MatrixRowCol&);           // subtract from a row/col
+X   void Copy(const MatrixRowCol&);             // copy a row/col
+X   void Copy(const Real*&);                    // copy from an array
+X   void Copy(Real);                            // copy from constant
+X   Real SumAbsoluteValue();                    // sum of absolute values
+X   void Inject(const MatrixRowCol&);           // copy stored els of a row/col
+X   void Negate(const MatrixRowCol&);           // change sign of a row/col
+X   void Multiply(const MatrixRowCol&, Real);   // scale a row/col
+X   friend Real DotProd(const MatrixRowCol&, const MatrixRowCol&);
+X					       // sum of pairwise product
+X   Real* operator()() { return store+skip; }   // pointer to first element
+X   Real* Store() { return store; }
+X   int Skip() { return skip; }                 // number of elements skipped
+X   int Storage() { return storage; }           // number of elements stored
+X   void Skip(int i) { skip=i; }
+X   void Storage(int i) { storage=i; }
+X   void SubRowCol(MatrixRowCol&, int, int) const;
+X					       // get part of a row or column
+X   MatrixRowCol() {}                           // to stop warning messages
+X   virtual ~MatrixRowCol();
+X   FREE_CHECK(MatrixRowCol)
+X};
+X
+Xclass MatrixRow : public MatrixRowCol
+X{
+Xpublic:
+X   // bodies for these are inline at the end of this .h file
+X   MatrixRow(GeneralMatrix*, LoadAndStoreFlag, int=0);
+X                                               // extract a row
+X   ~MatrixRow();
+X   void Next();                                // get next row
+X   FREE_CHECK(MatrixRow)
+X};
+X
+Xclass MatrixCol : public MatrixRowCol
+X{
+Xpublic:
+X   // bodies for these are inline at the end of this .h file
+X   MatrixCol(GeneralMatrix*, LoadAndStoreFlag, int=0);
+X                                               // extract a col
+X   MatrixCol(GeneralMatrix*, Real*, LoadAndStoreFlag, int=0);
+X                                               // store/retrieve a col
+X   ~MatrixCol();
+X   void Next();                                // get next row
+X   FREE_CHECK(MatrixCol)
+X};
+X
+X
+X/**************************** inline bodies ****************************/
+X
+Xinline MatrixRow::MatrixRow(GeneralMatrix* gmx, LoadAndStoreFlag cwx, int row)
+X{ gm=gmx; cw=cwx; rowcol=row; gm->GetRow(*this); } 
+X
+Xinline void MatrixRow::Next() { gm->NextRow(*this); }
+X
+Xinline MatrixCol::MatrixCol(GeneralMatrix* gmx, LoadAndStoreFlag cwx, int col)
+X{ gm=gmx; cw=cwx; rowcol=col; gm->GetCol(*this); } 
+X
+Xinline MatrixCol::MatrixCol(GeneralMatrix* gmx, Real* r,
+X   LoadAndStoreFlag cwx, int col)
+X{ gm=gmx; store=r; cw=cwx+StoreHere; rowcol=col; gm->GetCol(*this); } 
+X
+Xinline void MatrixCol::Next() { gm->NextCol(*this); }
+X
+X#endif
+END_OF_FILE
+if test 4899 -ne `wc -c <'newmatrc.h'`; then
+    echo shar: \"'newmatrc.h'\" unpacked with wrong size!
+fi
+# end of 'newmatrc.h'
+fi
+if test -f 'newmatrm.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatrm.h'\"
+else
+echo shar: Extracting \"'newmatrm.h'\" \(3747 characters\)
+sed "s/^X//" >'newmatrm.h' <<'END_OF_FILE'
+X//$$newmatrm.h                            rectangular matrix operations
+X
+X// Copyright (C) 1991,2: R B Davies
+X
+X#ifndef MATRIXRM_LIB
+X#define MATRIXRM_LIB 0
+X
+X
+X// operations on rectangular matrices
+X
+Xclass RectMatrixCol;
+X
+Xclass RectMatrixRowCol
+X// a class for accessing rows and columns of rectangular matrices
+X{
+Xprotected:
+X   Real* store;                   // pointer to storage
+X   int n;                         // number of elements
+X   int spacing;                   // space between elements
+X   int shift;                     // space between cols or rows
+X   RectMatrixRowCol(Real* st, int nx, int sp, int sh)
+X      : store(st), n(nx), spacing(sp), shift(sh) {}
+X   void Reset(Real* st, int nx, int sp, int sh)
+X      { store=st; n=nx; spacing=sp; shift=sh; }
+Xpublic:
+X   Real operator*(const RectMatrixRowCol&) const;         // dot product
+X   void AddScaled(const RectMatrixRowCol&, Real);         // add scaled
+X   void Divide(const RectMatrixRowCol&, Real);            // scaling
+X   void Divide(Real);                                     // scaling
+X   void Negate();                                         // change sign
+X   void Zero();                                           // zero row col
+X   Real& operator[](int i) { return *(store+i*spacing); } // element
+X   Real SumSquare() const;                                // sum of squares
+X   Real& First() { return *store; }                       // get first element
+X   void DownDiag() { store += (shift+spacing); n--; }
+X   void UpDiag() { store -= (shift+spacing); n++; }
+X   friend void ComplexScale(RectMatrixCol&, RectMatrixCol&, Real, Real);
+X   friend void Rotate(RectMatrixCol&, RectMatrixCol&, Real, Real);
+X   FREE_CHECK(RectMatrixRowCol)
+X};
+X
+Xclass RectMatrixRow : public RectMatrixRowCol
+X{
+Xpublic:
+X   RectMatrixRow(const Matrix&, int, int, int);
+X   RectMatrixRow(const Matrix&, int);
+X   void Reset(const Matrix&, int, int, int);
+X   void Reset(const Matrix&, int);
+X   Real& operator[](int i) { return *(store+i); }
+X   void Down() { store += shift; }
+X   void Right() { store++; n--; }
+X   void Up() { store -= shift; }
+X   void Left() { store--; n++; }
+X   FREE_CHECK(RectMatrixRow)
+X};
+X
+Xclass RectMatrixCol : public RectMatrixRowCol
+X{
+Xpublic:
+X   RectMatrixCol(const Matrix&, int, int, int);
+X   RectMatrixCol(const Matrix&, int);
+X   void Reset(const Matrix&, int, int, int);
+X   void Reset(const Matrix&, int);
+X   void Down() { store += spacing; n--; }
+X   void Right() { store++; }
+X   void Up() { store -= spacing; n++; }
+X   void Left() { store--; }
+X   friend void ComplexScale(RectMatrixCol&, RectMatrixCol&, Real, Real);
+X   friend void Rotate(RectMatrixCol&, RectMatrixCol&, Real, Real);
+X   FREE_CHECK(RectMatrixCol)
+X};
+X
+Xclass RectMatrixDiag : public RectMatrixRowCol
+X{
+Xpublic:
+X   RectMatrixDiag(const DiagonalMatrix& D)
+X      : RectMatrixRowCol(D.Store(), D.Nrows(), 1, 1) {}
+X   Real& operator[](int i) { return *(store+i); }
+X   void DownDiag() { store++; n--; }
+X   void UpDiag() { store--; n++; }
+X   FREE_CHECK(RectMatrixDiag)
+X};
+X
+X
+Xinline RectMatrixRow::RectMatrixRow
+X   (const Matrix& M, int row, int skip, int length)
+X   : RectMatrixRowCol( M.Store()+row*M.Ncols()+skip, length, 1, M.Ncols() ) {}
+X
+Xinline RectMatrixRow::RectMatrixRow (const Matrix& M, int row)
+X   : RectMatrixRowCol( M.Store()+row*M.Ncols(), M.Ncols(), 1, M.Ncols() ) {}
+X
+Xinline RectMatrixCol::RectMatrixCol
+X   (const Matrix& M, int skip, int col, int length)
+X   : RectMatrixRowCol( M.Store()+col+skip*M.Ncols(), length, M.Ncols(), 1 ) {}
+X
+Xinline RectMatrixCol::RectMatrixCol (const Matrix& M, int col)
+X   : RectMatrixRowCol( M.Store()+col, M.Nrows(), M.Ncols(), 1 ) {}
+X
+Xinline Real square(Real x) { return x*x; }
+Xinline Real sign(Real x, Real y)
+X   { return (y>=0) ? x : -x; }                    // assume x >=0
+X
+X
+X#endif
+END_OF_FILE
+if test 3747 -ne `wc -c <'newmatrm.h'`; then
+    echo shar: \"'newmatrm.h'\" unpacked with wrong size!
+fi
+# end of 'newmatrm.h'
+fi
+if test -f 'precisio.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'precisio.h'\"
+else
+echo shar: Extracting \"'precisio.h'\" \(3227 characters\)
+sed "s/^X//" >'precisio.h' <<'END_OF_FILE'
+X//$$ precisio.h                          floating point constants
+X
+X#ifndef PRECISION_LIB
+X#define PRECISION_LIB 0
+X
+X#ifndef SystemV                    // if there is float.h
+X
+X
+X#ifdef USING_FLOAT
+X
+X
+Xclass FloatingPointPrecision
+X{
+Xpublic:
+X   static int Dig()
+X      { return FLT_DIG; }        // number of decimal digits or precision
+X   static Real Epsilon()
+X      { return FLT_EPSILON; }    // smallest number such that 1+Eps!=Eps
+X   static int Mantissa()
+X      { return FLT_MANT_DIG; }   // bits in mantisa
+X   static Real Maximum()
+X      { return FLT_MAX; }        // maximum value
+X   static int MaximumDecimalExponent()
+X      { return FLT_MAX_10_EXP; } // maximum decimal exponent
+X   static int MaximumExponent()
+X      { return FLT_MAX_EXP; }    // maximum binary exponent
+X   static Real Minimum()
+X      { return FLT_MIN; }        // minimum positive value
+X   static int MinimumDecimalExponent()
+X      { return FLT_MIN_10_EXP; } // minimum decimal exponent
+X   static int MinimumExponent()
+X      { return FLT_MIN_EXP; }    // minimum binary exponent
+X   static int Radix()
+X      { return FLT_RADIX; }      // exponent radix
+X   static int Rounds()
+X      { return FLT_ROUNDS; }     // addition rounding (1 = does round)
+X   FREE_CHECK(FloatingPointPrecision)
+X};
+X
+X#endif
+X
+X
+X#ifdef USING_DOUBLE
+X
+Xclass FloatingPointPrecision
+X{
+Xpublic:
+X   static int Dig()
+X      { return DBL_DIG; }        // number of decimal digits or precision
+X   static Real Epsilon()
+X      { return DBL_EPSILON; }    // smallest number such that 1+Eps!=Eps
+X   static int Mantissa()
+X      { return DBL_MANT_DIG; }   // bits in mantisa
+X   static Real Maximum()
+X      { return DBL_MAX; }        // maximum value
+X   static int MaximumDecimalExponent()
+X      { return DBL_MAX_10_EXP; } // maximum decimal exponent
+X   static int MaximumExponent()
+X      { return DBL_MAX_EXP; }    // maximum binary exponent
+X   static Real Minimum()
+X   {
+X#ifdef __BCPLUSPLUS__
+X       return 2.225074e-308;     // minimum positive value
+X#else
+X       return DBL_MIN;
+X#endif
+X   }
+X   static int MinimumDecimalExponent()
+X      { return DBL_MIN_10_EXP; } // minimum decimal exponent
+X   static int MinimumExponent()
+X      { return DBL_MIN_EXP; }    // minimum binary exponent
+X   static int Radix()
+X      { return FLT_RADIX; }      // exponent radix
+X   static int Rounds()
+X      { return FLT_ROUNDS; }     // addition rounding (1 = does round)
+X   FREE_CHECK(FloatingPointPrecision)
+X};
+X
+X#endif
+X
+X#endif
+X
+X#ifdef SystemV                    // if there is no float.h
+X
+X#ifdef USING_FLOAT
+X
+Xclass FloatingPointPrecision
+X{
+Xpublic:
+X   static Real Epsilon()
+X      { return pow(2.0,1-FSIGNIF); }  // smallest number such that 1+Eps!=Eps
+X   static Real Maximum()
+X      { return MAXFLOAT; }        // maximum value
+X   static Real Minimum()
+X      { return MINFLOAT; }        // minimum positive value
+X   FREE_CHECK(FloatingPointPrecision)
+X};
+X
+X#endif
+X
+X
+X#ifdef USING_DOUBLE
+X
+Xclass FloatingPointPrecision
+X{
+Xpublic:
+X   static Real Epsilon()
+X      { return pow(2.0,1-DSIGNIF); }  // smallest number such that 1+Eps!=Eps
+X   static Real Maximum()
+X      { return MAXDOUBLE; }          // maximum value
+X   static Real Minimum()
+X      { return MINDOUBLE; }
+X   FREE_CHECK(FloatingPointPrecision)
+X};
+X
+X#endif
+X
+X#endif
+X
+X
+X
+X
+X#endif
+END_OF_FILE
+if test 3227 -ne `wc -c <'precisio.h'`; then
+    echo shar: \"'precisio.h'\" unpacked with wrong size!
+fi
+# end of 'precisio.h'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

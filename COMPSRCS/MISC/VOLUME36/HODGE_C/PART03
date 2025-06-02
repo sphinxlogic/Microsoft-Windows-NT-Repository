@@ -1,0 +1,2475 @@
+Newsgroups: comp.sources.misc
+From: heitkoet@lusty.informatik.uni-dortmund.de (Joerg Heitkoetter)
+Subject: v36i037:  hodge-c - An implementation of Gerhard & Schuster's hodge-podge machine, Part03/33
+Message-ID: <1993Mar23.060847.2794@sparky.imd.sterling.com>
+X-Md4-Signature: ba039a09ecf0594ac038824ff414a303
+Date: Tue, 23 Mar 1993 06:08:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: heitkoet@lusty.informatik.uni-dortmund.de (Joerg Heitkoetter)
+Posting-number: Volume 36, Issue 37
+Archive-name: hodge-c/part03
+Environment: ImageMagick, KHOROS
+
+#!/bin/sh
+# this is Part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file hodge-c-0.98j/getopt.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping hodge-c-0.98j/getopt.c'
+else
+echo 'x - continuing file hodge-c-0.98j/getopt.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'hodge-c-0.98j/getopt.c' &&
+X     Start processing options with ARGV-element 1 (since ARGV-element 0
+X     is the program name); the sequence of previously skipped
+X     non-option ARGV-elements is empty.  */
+X
+X    if (optind == 0) {
+X	first_nonopt = last_nonopt = optind = 1;
+X
+X	nextchar = NULL;
+X
+X       /* Determine how to handle the ordering of options and nonoptions.  */
+X
+X	if (optstring[0] == '-') {
+X	    ordering = RETURN_IN_ORDER;
+X	    ++optstring;
+X	} else if (optstring[0] == '+') {
+X	    ordering = REQUIRE_ORDER;
+X	    ++optstring;
+X	} else if (getenv ("POSIXLY_CORRECT") != NULL)
+X	    ordering = REQUIRE_ORDER;
+X	else
+X	    ordering = PERMUTE;
+X    }
+X    if (nextchar == NULL || *nextchar == '\0') {
+X	if (ordering == PERMUTE) {
+X	   /* If we have just processed some options following some non-options,
+X	     exchange them so that the options come first.  */
+X
+X	    if (first_nonopt != last_nonopt && last_nonopt != optind)
+X		exchange ((char **) argv);
+X	    else if (last_nonopt != optind)
+X		first_nonopt = optind;
+X
+X	   /* Now skip any additional non-options
+X	     and extend the range of non-options previously skipped.  */
+X
+X	    while (optind < argc
+X		    && (argv[optind][0] != '-' || argv[optind][1] == '\0')
+X
+#ifdef GETOPT_COMPAT
+X		    && (longopts == NULL
+X			|| argv[optind][0] != '+' || argv[optind][1] == '\0')
+#endif /* GETOPT_COMPAT */
+X
+X		)
+X		optind++;
+X	    last_nonopt = optind;
+X	}
+X       /* Special ARGV-element `--' means premature end of options.
+X	 Skip it like a null option,
+X	 then exchange with previous non-options as if it were an option,
+X	 then skip everything else like a non-option.  */
+X
+X	if (optind != argc && !strcmp (argv[optind], "--")) {
+X	    optind++;
+X
+X	    if (first_nonopt != last_nonopt && last_nonopt != optind)
+X		exchange ((char **) argv);
+X	    else if (first_nonopt == last_nonopt)
+X		first_nonopt = optind;
+X	    last_nonopt = argc;
+X
+X	    optind = argc;
+X	}
+X       /* If we have done all the ARGV-elements, stop the scan
+X	 and back over any non-options that we skipped and permuted.  */
+X
+X	if (optind == argc) {
+X	   /* Set the next-arg-index to point at the non-options
+X	     that we previously skipped, so the caller will digest them.  */
+X	    if (first_nonopt != last_nonopt)
+X		optind = first_nonopt;
+X	    return EOF;
+X	}
+X       /* If we have come to a non-option and did not permute it,
+X	 either stop the scan or describe it to the caller and pass it by.  */
+X
+X	if ((argv[optind][0] != '-' || argv[optind][1] == '\0')
+X
+#ifdef GETOPT_COMPAT
+X		&& (longopts == NULL
+X		    || argv[optind][0] != '+' || argv[optind][1] == '\0')
+#endif /* GETOPT_COMPAT */
+X
+X	    ) {
+X	    if (ordering == REQUIRE_ORDER)
+X		return EOF;
+X	    optarg = argv[optind++];
+X	    return 1;
+X	}
+X       /* We have found another option-ARGV-element.
+X	 Start decoding its characters.  */
+X
+X	nextchar = (argv[optind] + 1
+X		    + (longopts != NULL && argv[optind][1] == '-'));
+X    }
+X    if (longopts != NULL
+X	    && ((argv[optind][0] == '-'
+X		 && (argv[optind][1] == '-' || long_only))
+X
+#ifdef GETOPT_COMPAT
+X		|| argv[optind][0] == '+'
+#endif /* GETOPT_COMPAT */
+X
+X	    )) {
+X	const struct option *p;
+X	char *s = nextchar;
+X	int exact = 0;
+X	int ambig = 0;
+X	const struct option *pfound = NULL;
+X	int indfound = 0;
+X
+X	while (*s && *s != '=')
+X	    s++;
+X
+X       /* Test all options for either exact match or abbreviated matches.  */
+X	for (p = longopts, option_index = 0; p -> name;
+X		p++, option_index++)
+X	    if (!strncmp (p -> name, nextchar, s - nextchar)) {
+X		if (s - nextchar == strlen (p -> name)) {
+X		   /* Exact match found.  */
+X		    pfound = p;
+X		    indfound = option_index;
+X		    exact = 1;
+X		    break;
+X		} else if (pfound == NULL) {
+X		   /* First nonexact match found.  */
+X		    pfound = p;
+X		    indfound = option_index;
+X		} else
+X		   /* Second nonexact match found.  */
+X		    ambig = 1;
+X	    }
+X	if (ambig && !exact) {
+X	    if (opterr)
+X		fprintf (stderr, "%s: option `%s' is ambiguous\n",
+X			 argv[0], argv[optind]);
+X	    nextchar += strlen (nextchar);
+X	    optind++;
+X	    return '?';
+X	}
+X	if (pfound != NULL) {
+X	    option_index = indfound;
+X	    optind++;
+X	    if (*s) {
+X	       /* Don't test has_arg with >, because some C compilers don't
+X		 allow it to be used on enums. */
+X		if (pfound -> has_arg)
+X		    optarg = s + 1;
+X		else {
+X		    if (opterr) {
+X			if (argv[optind - 1][1] == '-')
+X			   /* --option */
+X			    fprintf (stderr,
+X				     "%s: option `--%s' doesn't allow an argument\n",
+X				     argv[0], pfound -> name);
+X			else
+X			   /* +option or -option */
+X			    fprintf (stderr,
+X				     "%s: option `%c%s' doesn't allow an argument\n",
+X				     argv[0], argv[optind - 1][0], pfound -> name);
+X		    }
+X		    nextchar += strlen (nextchar);
+X		    return '?';
+X		}
+X	    } else if (pfound -> has_arg == 1) {
+X		if (optind < argc)
+X		    optarg = argv[optind++];
+X		else {
+X		    if (opterr)
+X			fprintf (stderr, "%s: option `%s' requires an argument\n",
+X				 argv[0], argv[optind - 1]);
+X		    nextchar += strlen (nextchar);
+X		    return '?';
+X		}
+X	    }
+X	    nextchar += strlen (nextchar);
+X	    if (longind != NULL)
+X		*longind = option_index;
+X	    if (pfound -> flag) {
+X		*(pfound -> flag) = pfound -> val;
+X		return 0;
+X	    }
+X	    return pfound -> val;
+X	}
+X       /* Can't find it as a long option.  If this is not getopt_long_only,
+X	 or the option starts with '--' or is not a valid short
+X	 option, then it's an error.
+X	 Otherwise interpret it as a short option. */
+X	if (!long_only || argv[optind][1] == '-'
+X
+#ifdef GETOPT_COMPAT
+X		|| argv[optind][0] == '+'
+#endif /* GETOPT_COMPAT */
+X
+X		|| my_index (optstring, *nextchar) == NULL) {
+X	    if (opterr) {
+X		if (argv[optind][1] == '-')
+X		   /* --option */
+X		    fprintf (stderr, "%s: unrecognized option `--%s'\n",
+X			     argv[0], nextchar);
+X		else
+X		   /* +option or -option */
+X		    fprintf (stderr, "%s: unrecognized option `%c%s'\n",
+X			     argv[0], argv[optind][0], nextchar);
+X	    }
+X	    nextchar += strlen (nextchar);
+X	    optind++;
+X	    return '?';
+X	}
+X    }
+X   /* Look at and handle the next option-character.  */
+X
+X    {
+X	char c = *nextchar++;
+X	char *temp = my_index (optstring, c);
+X
+X       /* Increment `optind' when we start to process its last character.  */
+X	if (*nextchar == '\0')
+X	    optind++;
+X
+X	if (temp == NULL || c == ':') {
+X	    if (opterr) {
+X		if (c < 040 || c >= 0177)
+X		    fprintf (stderr, "%s: unrecognized option, character code 0%o\n",
+X			     argv[0], c);
+X		else
+X		    fprintf (stderr, "%s: unrecognized option `-%c'\n", argv[0], c);
+X	    }
+X	    return '?';
+X	}
+X	if (temp[1] == ':') {
+X	    if (temp[2] == ':') {
+X	       /* This is an option that accepts an argument optionally.  */
+X		if (*nextchar != '\0') {
+X		    optarg = nextchar;
+X		    optind++;
+X		} else
+X		    optarg = 0;
+X		nextchar = NULL;
+X	    } else {
+X	       /* This is an option that requires an argument.  */
+X		if (*nextchar != 0) {
+X		    optarg = nextchar;
+X		   /* If we end this ARGV-element by taking the rest as an arg,
+X		   we must advance to the next element now.  */
+X		    optind++;
+X		} else if (optind == argc) {
+X		    if (opterr)
+X			fprintf (stderr, "%s: option `-%c' requires an argument\n",
+X				 argv[0], c);
+X		    c = '?';
+X		} else
+X		   /* We already incremented `optind' once;
+X		 increment it again when taking next ARGV-elt as argument.  */
+X		    optarg = argv[optind++];
+X		nextchar = NULL;
+X	    }
+X	}
+X	return c;
+X    }
+}
+X
+int
+getopt (argc, argv, optstring)
+X    int argc;
+X    char *const *argv;
+X    const char *optstring;
+{
+X    return _getopt_internal (argc, argv, optstring,
+X			     (const struct option *) 0,
+X			     (int *) 0,
+X			     0);
+}
+X
+#ifdef TEST
+/* Compile with -DTEST to make an executable for use in testing
+X   the above definition of `getopt'.  */
+X
+int
+main (argc, argv)
+X    int argc;
+X    char **argv;
+{
+X    int c;
+X    int digit_optind = 0;
+X
+X    while (1) {
+X	int this_option_optind = optind ? optind : 1;
+X
+X	c = getopt (argc, argv, "abc:d:0123456789");
+X	if (c == EOF)
+X	    break;
+X
+X	switch (c) {
+X	 case '0':
+X	 case '1':
+X	 case '2':
+X	 case '3':
+X	 case '4':
+X	 case '5':
+X	 case '6':
+X	 case '7':
+X	 case '8':
+X	 case '9':
+X	     if (digit_optind != 0 && digit_optind != this_option_optind)
+X		 printf ("digits occur in two different argv-elements.\n");
+X	     digit_optind = this_option_optind;
+X	     printf ("option %c\n", c);
+X	     break;
+X
+X	 case 'a':
+X	     printf ("option a\n");
+X	     break;
+X
+X	 case 'b':
+X	     printf ("option b\n");
+X	     break;
+X
+X	 case 'c':
+X	     printf ("option c with value `%s'\n", optarg);
+X	     break;
+X
+X	 case '?':
+X	     break;
+X
+X	 default:
+X	     printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X    if (optind < argc) {
+X	printf ("non-option ARGV-elements: ");
+X	while (optind < argc)
+X	    printf ("%s ", argv[optind++]);
+X	printf ("\n");
+X    }
+X    exit (0);
+}
+X
+#endif /* TEST */
+SHAR_EOF
+echo 'File hodge-c-0.98j/getopt.c is complete' &&
+chmod 0640 hodge-c-0.98j/getopt.c ||
+echo 'restore of hodge-c-0.98j/getopt.c failed'
+Wc_c="`wc -c < 'hodge-c-0.98j/getopt.c'`"
+test 18860 -eq "$Wc_c" ||
+	echo 'hodge-c-0.98j/getopt.c: original size 18860, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hodge-c-0.98j/getopt.h ==============
+if test -f 'hodge-c-0.98j/getopt.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping hodge-c-0.98j/getopt.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hodge-c-0.98j/getopt.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hodge-c-0.98j/getopt.h' &&
+X
+/* Declarations for getopt.
+X   Copyright (C) 1989, 1990, 1991, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+#ifndef _GETOPT_H_
+#define _GETOPT_H_
+X
+/* For communication from `getopt' to the caller.
+X   When `getopt' finds an option that takes an argument,
+X   the argument value is returned here.
+X   Also, when `ordering' is RETURN_IN_ORDER,
+X   each non-option ARGV-element is returned here.  */
+X
+extern char *optarg;
+X
+/* Index in ARGV of the next element to be scanned.
+X   This is used for communication to and from the caller
+X   and for communication between successive calls to `getopt'.
+X
+X   On entry to `getopt', zero means this is the first call; initialize.
+X
+X   When `getopt' returns EOF, this is the index of the first of the
+X   non-option elements that the caller should itself scan.
+X
+X   Otherwise, `optind' communicates from one call to the next
+X   how much of ARGV has been scanned so far.  */
+X
+extern int optind;
+X
+/* Callers store zero here to inhibit the error message `getopt' prints
+X   for unrecognized options.  */
+X
+extern int opterr;
+X
+/* Describe the long-named options requested by the application.
+X   The LONG_OPTIONS argument to getopt_long or getopt_long_only is a vector
+X   of `struct option' terminated by an element containing a name which is
+X   zero.
+X
+X   The field `has_arg' is:
+X   no_argument		(or 0) if the option does not take an argument,
+X   required_argument	(or 1) if the option requires an argument,
+X   optional_argument 	(or 2) if the option takes an optional argument.
+X
+X   If the field `flag' is not NULL, it points to a variable that is set
+X   to the value given in the field `val' when the option is found, but
+X   left unchanged if the option is not found.
+X
+X   To have a long-named option do something other than set an `int' to
+X   a compiled-in constant, such as set a value from `optarg', set the
+X   option's `flag' field to zero and its `val' field to a nonzero
+X   value (the equivalent single-letter option character, if there is
+X   one).  For long options that have a zero `flag' field, `getopt'
+X   returns the contents of the `val' field.  */
+X
+struct option {
+X
+#ifdef	__STDC__
+X    const char *name;
+#else
+X    char *name;
+#endif
+X
+X   /* has_arg can't be an enum because some compilers complain about
+X     type mismatches in all the code that assumes it is an int.  */
+X    int has_arg;
+X    int *flag;
+X    int val;
+};
+X
+/* Names for the values of the `has_arg' field of `struct option'.  */
+X
+enum _argtype {
+X    no_argument,
+X    required_argument,
+X    optional_argument
+};
+X
+#ifdef __STDC__
+extern int getopt (int argc, char *const *argv, const char *shortopts);
+extern int getopt_long (int argc, char *const *argv, const char *shortopts,
+X			const struct option *longopts, int *longind);
+extern int getopt_long_only (int argc, char *const *argv,
+X			     const char *shortopts,
+X			     const struct option *longopts, int *longind);
+X
+/* Internal only.  Users should not call this directly.  */
+extern int _getopt_internal (int argc, char *const *argv,
+X			     const char *shortopts,
+X			     const struct option *longopts, int *longind,
+X			     int long_only);
+#else /* not __STDC__ */
+extern int getopt ();
+extern int getopt_long ();
+extern int getopt_long_only ();
+X
+extern int _getopt_internal ();
+#endif /* not __STDC__ */
+X
+#endif /* _GETOPT_H_ */
+SHAR_EOF
+chmod 0640 hodge-c-0.98j/getopt.h ||
+echo 'restore of hodge-c-0.98j/getopt.h failed'
+Wc_c="`wc -c < 'hodge-c-0.98j/getopt.h'`"
+test 3956 -eq "$Wc_c" ||
+	echo 'hodge-c-0.98j/getopt.h: original size 3956, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hodge-c-0.98j/getopt1.c ==============
+if test -f 'hodge-c-0.98j/getopt1.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping hodge-c-0.98j/getopt1.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hodge-c-0.98j/getopt1.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hodge-c-0.98j/getopt1.c' &&
+X
+/* Getopt for GNU.
+X   Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+#ifdef	LIBC
+/* For when compiled as part of the GNU C library.  */
+#include <ansidecl.h>
+#endif
+X
+#include "getopt.h"
+X
+#ifndef __STDC__
+#define const
+#endif
+X
+#if defined(STDC_HEADERS) || defined(__GNU_LIBRARY__) || defined (LIBC)
+#include <stdlib.h>
+#else /* STDC_HEADERS or __GNU_LIBRARY__ */
+char *getenv ();
+#endif /* STDC_HEADERS or __GNU_LIBRARY__ */
+X
+#if !defined (NULL)
+#define NULL 0
+#endif
+X
+int
+getopt_long (argc, argv, options, long_options, opt_index)
+X    int argc;
+X    char *const *argv;
+X    const char *options;
+X    const struct option *long_options;
+X    int *opt_index;
+{
+X    return _getopt_internal (argc, argv, options, long_options, opt_index, 0);
+}
+X
+/* Like getopt_long, but '-' as well as '--' can indicate a long option.
+X   If an option that starts with '-' (not '--') doesn't match a long option,
+X   but does match a short option, it is parsed as a short option
+X   instead. */
+X
+int
+getopt_long_only (argc, argv, options, long_options, opt_index)
+X    int argc;
+X    char *const *argv;
+X    const char *options;
+X    const struct option *long_options;
+X    int *opt_index;
+{
+X    return _getopt_internal (argc, argv, options, long_options, opt_index, 1);
+}
+X
+#ifdef TEST
+#include <stdio.h>
+X
+int
+main (argc, argv)
+X    int argc;
+X    char **argv;
+{
+X    int c;
+X    int digit_optind = 0;
+X
+X    while (1) {
+X	int this_option_optind = optind ? optind : 1;
+X	int option_index = 0;
+X	static struct option long_options[] =
+X	{
+X	    {"add", 1, 0, 0},
+X	    {"append", 0, 0, 0},
+X	    {"delete", 1, 0, 0},
+X	    {"verbose", 0, 0, 0},
+X	    {"create", 0, 0, 0},
+X	    {"file", 1, 0, 0},
+X	    {0, 0, 0, 0}
+X	};
+X
+X	c = getopt_long (argc, argv, "abc:d:0123456789",
+X			 long_options, &option_index);
+X	if (c == EOF)
+X	    break;
+X
+X	switch (c) {
+X	 case 0:
+X	     printf ("option %s", long_options[option_index].name);
+X	     if (optarg)
+X		 printf (" with arg %s", optarg);
+X	     printf ("\n");
+X	     break;
+X
+X	 case '0':
+X	 case '1':
+X	 case '2':
+X	 case '3':
+X	 case '4':
+X	 case '5':
+X	 case '6':
+X	 case '7':
+X	 case '8':
+X	 case '9':
+X	     if (digit_optind != 0 && digit_optind != this_option_optind)
+X		 printf ("digits occur in two different argv-elements.\n");
+X	     digit_optind = this_option_optind;
+X	     printf ("option %c\n", c);
+X	     break;
+X
+X	 case 'a':
+X	     printf ("option a\n");
+X	     break;
+X
+X	 case 'b':
+X	     printf ("option b\n");
+X	     break;
+X
+X	 case 'c':
+X	     printf ("option c with value `%s'\n", optarg);
+X	     break;
+X
+X	 case 'd':
+X	     printf ("option d with value `%s'\n", optarg);
+X	     break;
+X
+X	 case '?':
+X	     break;
+X
+X	 default:
+X	     printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X    if (optind < argc) {
+X	printf ("non-option ARGV-elements: ");
+X	while (optind < argc)
+X	    printf ("%s ", argv[optind++]);
+X	printf ("\n");
+X    }
+X    exit (0);
+}
+X
+#endif /* TEST */
+SHAR_EOF
+chmod 0640 hodge-c-0.98j/getopt1.c ||
+echo 'restore of hodge-c-0.98j/getopt1.c failed'
+Wc_c="`wc -c < 'hodge-c-0.98j/getopt1.c'`"
+test 3564 -eq "$Wc_c" ||
+	echo 'hodge-c-0.98j/getopt1.c: original size 3564, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hodge-c-0.98j/hodge.1 ==============
+if test -f 'hodge-c-0.98j/hodge.1' -a X"$1" != X"-c"; then
+	echo 'x - skipping hodge-c-0.98j/hodge.1 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hodge-c-0.98j/hodge.1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hodge-c-0.98j/hodge.1' &&
+.\" $Id: hodge.1,v 1.1 1993/03/16 10:35:58 joke Exp $
+.TH HODGE-C 1 "9 March 1993" "Version 0.98j"
+X
+\" this noise gets my name right!
+.nr 99 \n(.s
+.nr 98 \n(.f
+.ds 11 "\fRo
+.nr 11 \w'\s10\*(11'
+.nr 10 0u
+.if \n(ct>1 .nr 10 \n(10+\s10.25m\s0
+.nr 13 \s10.1m\s0
+.if \n(ct>1 .nr 13 \s10.15m\s0
+.ds 12 \s10\v'-.67m'..\v'.67m\s0'
+.nr 12 \w'\s10\*(12'
+.as 11 \h'-\n(11u-\n(12u/2u+\n(13u'\v'0-\n(10u'\*(12\v'\n(10u'\h'-\n(12u+\n(11u/2u-\n(13u'
+.ds o \x'0'\f1\s10\*(11\s\n(99\f\n(98
+X
+.SH NAME
+.B hodge
+\- an implementation of Gerhard & Schuster's hodge-podge machine
+X
+.SH SYNOPSIS
+.LP
+.B hodge
+[
+.I options
+]
+.TP
+X        [\fB-A, --animation-file-name \fI<name>\fR]
+.TP
+X        [\fB-C, --color-map-file-name \fI<name>\fR]
+.TP
+X        [\fB-D, --dump-data-file-name \fI<name>\fR]
+.TP
+X        [\fB-F, --number-of-frames \fI<number>\fR]
+.TP
+X        [\fB-G, --groth-rate \fI<number>\fR]
+.TP
+X        [\fB-J, --ill-cells-denominator \fI<number>\fR]
+.TP
+X        [\fB-K, --infected-cells-denominator \fI<number>\fR]
+.TP
+X        [\fB-M, --monitor-process \fI<process>\fR]
+.TP
+X        [\fB-N, --number-of-cell-states \fI<number>\fR]
+.TP
+X        [\fB-P, --plot-file-name \fI<name>\fR]
+.TP
+X        [\fB-S, --size-of-grid \fI<size>\fR]
+.TP
+X        [\fB-T, --time-steps \fI<number>\fR]
+.TP
+X        [\fB-X, --start-of-film \fI<timestep>\fR]
+.TP
+X        [\fB-Y, --skip-between-takes \fI<number>\fR]
+.TP
+X        [\fB-b, --batch\fR]
+.TP
+X        [\fB-d, --no-dump\fR]
+.TP
+X        [\fB-f, --number-of-dumps \fI<number>\fR]
+.TP
+X        [\fB-g, --gnuplot-data-format\fR]
+.TP
+X        [\fB-h, --help\fR]
+.TP
+X        [\fB-i, --idl-data-format\fR]
+.TP
+X        [\fB-m, --moore-neighbourhood\fR]
+.TP
+X        [\fB-n, --no-film\fR]
+.TP
+X        [\fB-o, --on-line-visualization\fR]
+.TP
+X        [\fB-s, --seed-for-random \fI<seedvalue>\fR]
+.TP
+X        [\fB-t, --torus\fR]
+.TP
+X        [\fB-v, --version\fR]
+.TP
+X        [\fB-w, --warranty\fR]
+.TP
+X        [\fB-x, --start-of-dump \fI<timestep>\fR]
+.TP
+X        [\fB-y, --skip-between-dumps \fI<number>\fR]
+X
+.SH DESCRIPTION
+.B hodge
+implements a class of cellular automata (CA), that are also known as
+.B hodge-podge machines.
+They have caught great attention when being discussed in A.K. Dewdney's
+``Computer Recreations'' column in
+.I Scientific American.
+.BR hodge ,
+resembles the currently closest to reality simulation of the
+Belousov-Zhabotinskii (BZ) reaction, the most complex anorganic,
+oscillating reaction; but hasn't been invented for this special
+purpose though
+(refer to the
+.SM BIBLIOGRAPHY
+section below).
+X
+.BR hodge 's
+input and output streams, and all of it's default parameters
+may be changed using various options (see the 
+.SM OPTIONS
+section below).
+X
+By default
+.B hodge
+generates 3 types of data files:
+.TP \w'\(bu'u+2n
+\(bu
+a single
+.I plot file,
+containing a per line statistical shapshot of the CA's internal state
+.TP
+\(bu
+one or more
+.I dump file(s),
+each containing a snapshot of all cell values of the CA, in either
+.B Gnuplot 
+(line-oriented) or
+.B IDL
+(block-oriented) format, and
+.TP
+\(bu
+one or more
+.I animation data file(s),
+each containing a snapshot of all cell values of the CA, written
+in
+.I portable pixmap format,
+using as much colors, as specified with the
+`--number-of-cell-states' option.
+.PP
+Please, refer to the
+.SM FORMATS
+section below.
+X
+.SH ANIMATION
+.BR hodge 's
+main purpose is to generate the previously mentioned shapshot files
+for `making movies'.
+All you need is, eg. E. I. du Pont de Nemours & Company's
+.B ImageMagick
+PD software (available via
+.I anonymous ftp
+from
+.B export.lcs.mit.edu,
+as file `contrib/ImageMagick.tar.Z.') using the package's
+.BR animate (1)
+command you'll soon see BZ waves move across the grid.
+An example for this is given in the
+.B hodge/movie
+folder of the
+.SM HODGE-C
+distribution.
+X
+A different approach is to use IDL from Research Systems, Inc.
+Boulder, CO, USA. An example for this purpose is given in
+the 
+.B hodge/idl
+folder of the
+.SM HODGE-C
+distribution.
+X
+An animation companion to
+.BR pixmon (1)
+called
+.BR playmate (1)
+is also in the making, and will be distributed in near future
+(refer to the
+.SM AVAILABILITY
+section below).
+Its application is rather simple: all there is to do is to
+include a ``tee-log'' in the `--monitor-process' eg.:
+.TP
+.B --monitor-process 'tee >pmdata.pix | pixmon ...'
+.PP
+to collect
+.BR pixmon (1)
+data, that is later turned into animated pixmaps by
+.BR playmate (1).
+X
+A final, powerful and low cost solution for animation is to
+install the
+.SM KHOROS
+visualization package on your system. It comes for free from
+the University of New Mexico, and is better than most
+commercial products.
+.SM KHOROS
+also features an easy to use
+.I graphical programming interface
+called
+.SM CANTATA
+and is very easy to learn for beginners in
+.I scientific visualization.
+.SM KHOROS
+features a bunch of converters to it's internal
+.BR VIFF (5)
+format, that is easily generated from
+.BR hodge 's
+dump (eg. \fBasc2viff\fR(1)) and animation data files
+(eg. \fBpbm2viff\fR(1), \fBrast2viff\fR, \fBraw2viff\fR(1), etc.)
+X
+.SH OPTIONS
+.TP
+.B \-A, \-\-animation-file-name \fIfilename\fR
+Set the animation data file name pattern. (Defaults to
+\fIhodge-%0003d.ppm\fR.)
+.TP
+.B \-C, \-\-color-map-file-name \fIfilename\fR
+Set the color map file name. (Defaults to
+\fIhodge.map\fR.)
+.TP
+.B \-D, \-\-dump-data-file-name \fIfilename\fR
+Set the data file name pattern. (Defaults to
+\fIhodge-%0003d.dmp\fR.)
+.TP
+.B \-F, \-\-number-of-frames \fInumber\fR
+Set the number of frames, ie. the number of animation data files
+to write.
+.TP
+.B \-G, \-\-groth-rate \fInumber\fR
+The rate the value of an infected cell increases;
+described as parameter
+.B g
+in A.K. Dewdney's article (defaults to 25).
+.TP
+.B \-J, \-\-ill-cells-denominator \fInumber\fR
+This parameter is used in the equation A/k1 + B/k2,
+where A is the count of all
+.SM ILL
+neighbour cells and B is a counter of all
+.SM INFECTED
+neighbour cells; this is parameter
+.B k1
+(k2) in A.K. Dewdney's article (defaults to 2).
+.TP
+.B \-K, \-\-infected-cells-denominator \fInumber\fR
+This parameter is used in the equation A/k1 + B/k2,
+where A is the count of all 
+.SM ILL
+neighbour cells and B is a counter of all
+.SM INFECTED
+neighbour cells; this is parameter
+.B k2
+(k1) in A.K. Dewdney's article (defaults to 3).
+.TP
+.B \-M, \-\-monitor-process \fIprocess\fR
+Set a monitor process;
+.B hodge
+opens a pipe to the given process and writes it's CA's contents
+to this pipe, enabling the process to visualize the
+incoming data.
+Defining a monitor process, implies the `--on-line-visualization'
+option. (See the
+.SM OPTION SUMMARY
+for the process default.)
+.TP
+.B \-N, \-\-number-of-cell-states \fInumber\fR
+Set the number of states a
+.SM SANE
+cell has to go through, being
+.SM INFECTED
+to finally become an
+.SM ILL
+cell (defaults to 100).
+.TP
+.B \-P, \-\-plot-file \fIfilename\fR
+Plot data will go to \fIfilename\fR
+(defaults to \fIhodge.plt\fR).
+.TP
+.B \-S, \-\-size-of-grid \fIsize\fR
+Set the CA's grid size, ie. the grid's
+.I x
+and
+.I y
+dimensions (\fIx=y\fR).
+.TP
+.B \-T, \-\-time-steps \fInumber\fR
+Run the simulation for
+.I number
+of timesteps.
+.TP
+.B \-X, \-\-start-of-film \fItimestep\fR
+Set the time step, when to start writing animation data.
+.TP
+.B \-Y, \-\-skip-between-takes \fInumber\fR
+Set the amount of timesteps to pass between successive animation
+data takes.
+.TP
+.B \-b, \-\-batch
+Run
+.B hodge
+in batch mode, ie. don't prompt the user for any input; and
+don't produce any user notification output.
+.TP
+.B \-d, \-\-no-dump
+Don't write any dump files.
+.TP
+.B \-f, \-\-number-of-dumps \fInumber\fR
+Set the number of dump files to write.
+.TP
+.B \-g, \-\-gnuplot-data-format
+Set the
+.I dump file format
+to
+.B Gnuplot
+(default).
+.TP
+.B \-h, \-\-help
+Print a usage message containing all options.
+.TP
+.B \-i, \-\-idl-data-format
+Set the
+.I dump file format
+to
+.B IDL.
+.TP
+.B \-m, \-\-moore-neighbourhood
+Use a
+.I Moore neighbourhood,
+during computation of the CA's next state,
+by default a
+.I Von-Neumann neighbourhood
+is used, ie. to North, East, South and
+West, North-East, South-East, South-West and North-West are added,
+when using this flag.
+.TP
+.B \-n, \-\-no-film
+Don't write any animation data files.
+.TP
+.B \-o, \-\-on-line-visualization
+Start the process given with the `--monitor-process' option,
+and display the CA's contents on each time step.
+(Note: you need either the
+.BR pixmon (1)
+facility, or an appropriate double.)
+.TP
+.B \-s, \-\-seed-for-random \fIseed value\fR
+Set the random number generator's seed with the integer
+.I seed value.
+.TP
+.B \-t, \-\-torus
+Make the 2D space of the CA grid borderless, ie. the 2D grid
+is folded to a 3D torus.
+.TP
+.B \-v, \-\-version
+Print a version and copyright message.
+.TP
+.B \-w, \-\-warranty
+Print a warranty information message.
+.TP
+.B \-x, \-\-start-of-dump \fItimestep\fR
+Set the time step, when to start dumping.
+.TP
+.B \-y, \-\-skip-between-dumps \fInumber\fR
+Set the amount of timesteps to pass between successive dumps.
+X
+.SH OPTION SUMMARY
+To give no option at all is the same as to give the following options:
+.TP
+--monitor-process		'pixmon -dx 128 -dy 128 -scale 5 -cmap hodge.map'
+.TP
+--animation-file-name	hodge-%0003d.ppm
+.TP
+--color-map-file-name	hodge.map
+.TP
+--number-of-frames	1
+.TP
+--start-of-film		1
+.TP
+--skip-between-takes	1
+.TP
+--dump-data-file-name	hodge-%0003d.dmp
+.TP
+--gnuplot-data-format
+.TP
+--start-of-dump		1
+.TP
+--skip-between-dumps	1
+.TP
+--time-steps		1000
+.TP
+--grid-size		128
+.TP
+--number-of-cell-states	100
+.TP
+--ill-cells-denominator	2
+.TP
+--infected-cells-denominator	3
+.TP
+--groth-rate		25
+.TP
+--plot-file-name		hodge.plt
+.TP
+--seed-for-random	12345678
+X
+.SH FORMATS
+The only
+.SM INPUT FORMAT
+.B hodge
+acknowledges, is a
+.I color map file,
+using 256 colors with the following
+.B RGB
+format:
+.LP
+.nf
+.DT
+.ft B
+X	# 	File:		demo.map
+X	#	Creator:	joke
+X	# <- this is a comment line: '#' in the 1st column
+X	<red intensity 0>	<green intensity 0>	<blue intensity 0>
+X	<red intensity 1>	<green intensity 1>	<blue intensity 1>
+X	<red intensity 2>	<green intensity 2>	<blue intensity 2>
+X				\&.\&.\&.
+X	<red intensity 255>	<green intensity 255>	<blue intensity 255>
+.ft R
+.fi
+X
+Thus a non-commented color map file consist of 256 lines each one
+containing such a color description. Eg. to get a greyscale `color'
+map, simply use the same intensities for all colors.
+X
+The
+.SM OUTPUT FORMATS
+are as follows:
+.TP \w'\(bu'u+2n
+\(bu
+The
+.I plot file format
+is precisely specified as:
+.LP
+.nf
+.DT
+.ft B
+X	<timestep 0> <# sane> <# infected> <# ill> <percentage of infected cells>
+X	<timestep 1> <# sane> <# infected> <# ill> <percentage of infected cells>
+X	<timestep 2> <# sane> <# infected> <# ill> <percentage of infected cells>
+X					\&.\&.\&.
+X	<timestep n> <# sane> <# infected> <# ill> <percentage of infected cells>
+.ft R
+.fi
+X
+on a per line base, with
+.B <timestep 0>
+running from 1 to n, the latter being specified by the
+`--time-steps' option.
+.TP \w'\(bu'u+2n
+\(bu
+The
+.I dump file format
+depends on whether the
+.B Gnuplot
+data file format, or the
+.B IDL
+data file format has been chosen, with the first being the default,
+when no user-specification via run-time option has taken place.
+.RS
+.TP \w'\(bu'u+2n
+\(bu
+The
+.B Gnuplot
+(line-oriented) data file format:
+.LP
+.nf
+.DT
+.ft B
+X	<xcell index 0> <ycell index 0> <xycell value 0,0>
+X	<xcell index 1> <ycell index 0> <xycell value 1,0>
+X	<xcell index 2> <ycell index 0> <xycell value 2,0>
+X			\&.\&.\&.
+X	<xcell index n> <ycell index 0> <xycell value n,0>
+X
+X	<xcell index 0> <ycell index 1> <xycell value 0,0>
+X	<xcell index 1> <ycell index 1> <xycell value 1,1>
+X	<xcell index 2> <ycell index 1> <xycell value 2,1>
+X			\&.\&.\&.
+X	<xcell index n> <ycell index 1> <xycell value n,1>
+X
+X			\&.\&.\&.
+X	<xcell index n> <ycell index n> <xycell value n,n>
+.ft R
+.fi
+.TP \w'\(bu'u+2n
+\(bu
+The
+.B IDL
+(block-oriented) data file format:
+.LP
+.nf
+.DT
+.ft B
+X	<xcell-index 0>
+X	<xcell-index 1>
+X	<xcell-index 2>
+X	\&.\&.\&.
+X
+X	<ycell-index 0>
+X	<ycell-index 1>
+X	<ycell-index 2>
+X	\&.\&.\&.
+X
+X	<xycell value 0,0>
+X	<xycell value 1,0>
+X	<xycell value n,0>
+X	\&.\&.\&.
+X	<xycell value n,n>
+.ft R
+.fi
+.RE
+.TP \w'\(bu'u+2n
+\(bu
+The
+.I animation file format
+is the portable pixmap format, as defined by
+.I Jeff Poskanzer
+for his bitmap conversion collection
+.B pbmplus.
+I thus direct the reader to the appropriate manual page(s) of
+that package, ie.
+.BR pbmplus (1),
+and
+.BR ppm (5).
+X
+.SH EXAMPLES
+The following are two examples displaying the dumps of a
+.I 2x2
+grid:
+.PP
+The
+.B Gnuplot
+data file format:
+.LP
+.nf
+.DT
+.ft R
+X	1	1	0
+X	1	2	10
+X
+X	2	1	37
+X	2	2	100
+.fi
+.PP
+The
+.B IDL
+data file format:
+.LP
+.nf
+.DT
+X	1
+X	2
+X	1
+X	2
+X
+X	1
+X	2
+X	1
+X	2
+X
+X	0
+X	10
+X	37
+X	100
+.ft R
+.fi
+X
+.SH FILES
+Unless specified otherwise
+.B hodge
+reads in the first, and writes the following files at run-time:
+.LP
+.nf
+.DT
+.ft R
+hodge.map		\fIdefault color map\fR
+.PP
+hodge.plt		\fIplot data file\fR
+hodge-xyz.ppm		\fIanimation data file(s) in ppm format\fR
+hodge-xyz.dmp		\fIdump data file(s) in either Gnuplot or IDL format\fR
+.ft R
+.fi
+.PP
+The distribution of
+.SM HODGE-C
+contains, besides the usual source and makefiles, the following files:
+.LP
+.nf
+.DT
+.ft R
+INSTALL		\fIhints for installation of \fBhodge\fI on your system\fR
+configure		\fIC shell script to configure \fBhodge\fI for your system\fR
+config/*.cf		\fIvarious system's configuration files\fR
+.PP
+contrib/infekt2.c		\fIMartin Gerhard's original source\fR
+.PP
+cmaps/*.map		\fIvarious color maps\fR
+.PP
+khoros/README	\fIhints for making movies with \fBKHOROS\fR
+khoros/movie		\fIC shell script to run \fBhodge\fR
+khoros/bz-*.vif		\fIdemo animation data\fR
+.PP
+magick/README	\fIhints for making movies with \fBIMAGEMAGICK\fR
+magick/movie		\fIC shell script to run \fBhodge\fR
+magick/bz-*.gif		\fIdemo animation data\fR
+magick/gif2vif		\fIshell script converting GIF to VIFF files\fR
+.PP
+idl/README		\fIhints for making movies with \fBIDL\fR
+idl/idemo		\fIC shell script to run \fBhodge\fR
+idl/iload			\fIshell script that uncompresses and loads idata.Z\fR
+idl/idata.Z		\fIdemo animation data\fR
+.PP
+typ?			\fIdemo C shell script to produce type #? (1-4) plot files\fR
+typ?.gnu			\fBgnuplot\fR(1) \fIcommand file to produce 2D and 3D plots\fR
+.ft R
+.fi
+X
+.SH BUGS
+.B hodge
+has even more options than
+.B ls.
+.PP
+The pseudo code given in the
+.I Scientific American
+article contains a subtle bug: Dewdney confused the meaning of
+A and B, ie. he says ``A counts the infected neighbours and B the ill ones,''
+but it's the other way round. For the interested,
+.I Martin Gerhard's
+original 
+.SM ATART ST
+version of the hodge-podge machine is included in this distribution.
+X
+.SH ALGORITHM
+Due to this confusion I give here the correct algorithm core in pseudo code:
+.LP
+.nf
+.DT
+.ft B
+X	foreach cell do
+X		A := count of ill neighbour cells			// range: [0..8]
+X		B := count of infected neighbour cells		// range: [0..8]
+X		S := value of all neighbour cells + value of cell	// range: [0..8*n]
+X
+X		case state(cell) of
+X			SANE:
+X				begin
+X					newval := A/k1 + B/k2
+X				end
+X
+X			INFECTED:
+X				begin
+X					B := B + 1		// count self (sic!)
+X					newval := S/B + g	// ...else B could be zero 
+X				end
+X
+X			ILL:
+X				begin
+X					newval := 0		// 0 means SANE
+X				end
+X		esac
+X
+X		if newval > MAXVALUE			// number-of-cell-states option (=n)
+X			value(cell) := 0
+X		else
+X			value(cell) := newval
+X	od
+.ft R
+.fi
+X
+.SH BIBLIOGRAPHY
+.PP
+.B BZ specific publications:
+.PP
+A.K. Dewdney,
+Computer Recreations,
+.I Scientific American,
+August, 1988.
+.PP
+Stefan C. Mueller, Theo Plesser and Benno Hess,
+The Structure of the Core of
+the Spiral Wave in the
+Belousov-Zhabotinskii Reaction,
+.I Science,
+230(4726), November, 1985.
+.PP
+Stefan C. Mueller, Theo Plesser and Benno Hess,
+Three-dimensional Representation of Chemical Gradients,
+.I Biophysical Chemistry,
+February, 1987.
+.PP
+.B Cellular automata theory and practice:
+.PP
+D. Farmer, T. Toffoli and S. Wolfram,
+.I Cellular Automata,
+North-Holland, Amsterdam, 1984.
+.PP
+S. Wolfram,
+.I Theory and Applications of Cellular Automata,
+World Scientific Publishing, Singapore, 1986.
+.PP
+Christopher G. Langton,
+.I Artificial Life,
+Addison-Wesley, Redwood City, CA, 1989.
+(The Proceedings of an Interdisciplinary Workshop on
+the Synthesis and Simulation of Living Systems
+held September, 1987 in Los Alamos, New Mexico.)
+.PP
+Christopher G. Langton, et al.,
+.I Artificial Life II,
+.I A proceedings volume in the
+.I Santa Fe Institute Studies
+.I in the Science of Complexity,
+Addison-Wesley, Reading, MA, 1990.
+(Proceedings of the Workshop on Artificial Life
+held February, 1990 in Santa Fe, New Mexico.)
+.PP
+.B Introductory books:
+.PP
+Paul Davies,
+.I Cosmic Blueprint,
+Heinemann, London, UK, 1988.
+.PP
+John Briggs and F. David Peat,
+.I An Illustrated Guide to Chaos Theory
+.I and the Science of Wholeness,
+Harper & Row, New York, NY 1989.
+X
+.SH SEE ALSO
+.BR gnuplot (1),
+.BR imagemagick (1),
+.BR khoros (1),
+.BR pbmplus (1),
+.BR pixmon (1),
+.BR playmate (1),
+.BR xv (1),
+.BR ppm (5)
+X
+.SH AUTHOR
+Copyright 
+.if t \(co 
+.if n (C)
+1993 by
+.if n Joerg Heitkoetter
+.if t J\*org Heitk\*otter
+.nf
+Systems Analysis Group, University of Dortmund, Germany.
+.nf
+Send bugs, comments, etc., to (joke@ls11.informatik.uni-dortmund.de).
+.fi
+X
+.SH CREDITS
+I'd like to thank
+.I Joachim Sprave,
+of the Systems Analysis Group for lending and extending his
+.BR pixmon (1)
+visualization package, to suit my needs; moreover
+.I Uli Hermes
+and
+.I Frank Kursawe
+for help with
+.B IDL.
+I am also greatfully indepted to
+.I Heike Schuster
+and
+.I Martin Gerhard
+for their enthusiasm and friendly explanations, when we met at the
+Biomathematics Research Group, at the former Max-Planck-Institute
+for Nutrition Physiology, in 1988, which has been renamed to MPI for
+Molecular Physiology, in February 1993.
+More thanks go to
+.I Jenna W. Dea,
+currently at UCSC, for lots of questions on CAs, and giving me
+an opportunity; to once again spend my time on things, I do not have time
+for.
+X
+.SH AVAILABILITY
+.LP
+This work is protected by the terms of the
+.SM GNU
+General Public License. Please refer to the
+.SM LICENSE
+file accompanying the sources of this software package for a lengthy, boring,
+but absolute complete description.
+X
+The sources come from
+.SM MAGPIE
+\-\- The European Free Software Factory Project.
+For more information on
+.SM MAGPIE
+send email to (joke@ls11.informatik.uni-dortmund.de).
+X
+.SM HODGE-C
+is available via anonymous ftp from the group's server
+.B lumpi.informatik.uni-dortmunde.de
+(129.217.36.140)
+as file `hodge-c-0.98j.tar.Z' in /pub/CA/src.
+X
+.SH WARRANTY
+.LP
+This program is free software; you can redistribute it and/or modify
+it under the terms of the
+.SM GNU
+General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+X
+This program is distributed in the hope that it will be useful,
+but
+.SM WITHOUT ANY WARRANTY;
+without even the implied warranty of
+.SM MERCHANTABILITY
+or
+.SM FITNESS FOR A PARTICULAR PURPOSE.
+See the
+.SM GNU
+General Public License for more details.
+X
+You should have received a copy of the
+.SM GNU
+General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+SHAR_EOF
+chmod 0640 hodge-c-0.98j/hodge.1 ||
+echo 'restore of hodge-c-0.98j/hodge.1 failed'
+Wc_c="`wc -c < 'hodge-c-0.98j/hodge.1'`"
+test 19077 -eq "$Wc_c" ||
+	echo 'hodge-c-0.98j/hodge.1: original size 19077, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hodge-c-0.98j/hodge.c ==============
+if test -f 'hodge-c-0.98j/hodge.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping hodge-c-0.98j/hodge.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hodge-c-0.98j/hodge.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hodge-c-0.98j/hodge.c' &&
+X
+/* HODGE-C -- A C implementation of Gerhard & Schuster's hodge-podge machine */
+X
+/* hodge.c -- main program
+X
+X   Copyright (C) 1993 Joerg Heitkoetter
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA. */
+X
+#ifndef lint
+static char *rcsid = "$Id: hodge.c,v 1.2 1993/03/19 11:28:28 heitkoet Exp heitkoet $";
+#endif
+X
+#include "hodge.h"
+#include "getopt.h"
+#include "version.h"
+X
+/* flags */
+bool moore = FALSE;			/* von-Neumann default */
+bool torus = FALSE;			/* bounded by default */
+bool film = TRUE;			/* generate a film by default */
+bool moni = FALSE;			/* generate online visualisation */
+bool batch = FALSE;			/* generate no user feedback */
+bool dump = TRUE;			/* generate any dump file */
+bool idl = FALSE;			/* generate IDL data file */
+bool gnuplot = TRUE;			/* generated Gnuplot data file */
+X
+int n = 100;				/* number of states from SANE to ILL */
+int ncells = 128;			/* number of each side of grid */
+int nticks = 1000;			/* timer ticks to computer */
+X
+int random_seed = 12345678;		/* seed for random number generator */
+X
+int nsane;				/* number of sane cells */
+int ninfected;				/* number of infected cells */
+int nill;				/* number of ill cells */
+X
+int nframes = 1;			/* number of frames to write */
+int startoffilm = 0;			/* time step to start film */
+int skipbetweentakes = 1;		/* take every new state */
+int framestotake;			/* frames left to take (= nframes) */
+X
+int ndumps = 1;				/* number of dumps to write */
+int startofdump = 0;			/* time step to start dump */
+int skipbetweendumps = 1;		/* dump every new state */
+int dumpstomake;			/* dumps left to make (= ndumps) */
+X
+int k1 = 2;				/* G&S's default */
+int k2 = 3;				/* G&S's default */
+int g = 25;				/* some nice waves */
+X
+char *afilename = "hodge-%0003d.ppm";	/* default frame prefix file */
+char *cfilename = "hodge.col";		/* default color map file */
+char *dfilename = "hodge-%0003d.dmp";	/* default dump data file */
+char *pfilename = "hodge.plt";		/* default plot data file */
+X
+X					/* default monitor process */
+char *mfilename = "pixmon -dx 128 -dy 128 -scale 4 -cmap hodge.col";
+X
+X
+/* global stuff */
+char *program_name;			/* who am i? */
+X
+FILE *rep;				/* pointer to report file */
+FILE *mon;				/* pointer to monitor process */
+X
+grid_t cell, ncell;			/* the CA storage */
+X
+cmap_t cmap;				/* color map */
+X
+X
+/* program options */
+static struct option opts[] =
+{
+X    {
+X	"animation-file-name", 1, 0, 'A'
+X    },
+X    {
+X	"color-map-file-name", 1, 0, 'C'
+X    },
+X    {
+X	"dump-data-file-name", 1, 0, 'D'
+X    },
+X    {
+X	"number-of-frames", 1, 0, 'F'
+X    },
+X    {
+X	"groth-rate", 1, 0, 'G'
+X    },
+X    {
+X	"ill-cells-denominator", 1, 0, 'J'
+X    },
+X    {
+X	"infected-cells-denominator", 1, 0, 'K'
+X    },
+X    {
+X	"number-of-cell-states", 1, 0, 'N'
+X    },
+X    {
+X	"monitor-process", 1, 0, 'M'
+X    },
+X    {
+X	"plot-file-name", 1, 0, 'P'
+X    },
+X    {
+X	"size-of-grid", 1, 0, 'S'
+X    },
+X    {
+X	"time-steps", 1, 0, 'T'
+X    },
+X    {
+X	"start-of-film", 1, 0, 'X'
+X    },
+X    {
+X	"skip-between-takes", 1, 0, 'Y'
+X    },
+X    {
+X	"batch", 0, 0, 'b'
+X    },
+X    {
+X	"no-dump", 0, 0, 'd'
+X    },
+X    {
+X	"number-of-dumps", 1, 0, 'f'
+X    },
+X    {
+X	"gnuplot-data-format", 0, 0, 'g'
+X    },
+X    {
+X	"help", 0, 0, 'h'
+X    },
+X    {
+X	"idl-data-format", 0, 0, 'i'
+X    },
+X    {
+X	"moore-neighbourhood", 0, 0, 'm'
+X    },
+X    {
+X	"no-film", 0, 0, 'n'
+X    },
+X    {
+X	"on-line-visualization", 0, 0, 'o'
+X    },
+X    {
+X	"seed-for-random", 1, 0, 's'
+X    },
+X    {
+X	"torus", 0, 0, 't'
+X    },
+X    {
+X	"version", 0, 0, 'v'
+X    },
+X    {
+X	"warranty", 0, 0, 'w'
+X    },
+X    {
+X	"start-of-dump", 1, 0, 'x'
+X    },
+X    {
+X	"skip-between-dumps", 1, 0, 'y'
+X    },
+X    {
+X	0, 0, 0, 0
+X    }
+};
+X
+main (argc, argv)
+X    int argc;
+X    char **argv;
+{
+X    int c, index;
+X
+X   /* whoami? */
+X    program_name = *argv;
+X
+X   /* parse args */
+X    while ((c = getopt_long (argc, argv, "A:C:D:F:G:J:K:M:N:P:S:T:X:Y:bdghimnos:tvwx:y:", opts, &index)) != EOF) {
+X
+X       /* long option? */
+X	if (c == 0) {
+X	    c = opts[index].val;
+X	}
+X
+X       /* setup program parameters */
+X	switch (c) {
+X
+X	    /* set animation data name format */
+X	 case 'A':
+X	     afilename = optarg;
+X	     break;
+X
+X	    /* set color map file name */
+X	 case 'C':
+X	     cfilename = optarg;
+X	     break;
+X
+X	    /* set dump data file name format */
+X	 case 'D':
+X	     dfilename = optarg;
+X	     break;
+X
+X	    /* set number of frames included in the film */
+X	 case 'F':
+X	     nframes = atoi (optarg);
+X	     break;
+X
+X	    /* set groth rate of INFECTion */
+X	 case 'G':
+X	     g = atoi (optarg);
+X	     break;
+X
+X	    /* set ILL cells denominator */
+X	 case 'J':
+X	     k1 = atoi (optarg);
+X	     break;
+X
+X	    /* set INFECTED cells denominator */
+X	 case 'K':
+X	     k2 = atoi (optarg);
+X	     break;
+X
+X	    /* set monitor process for online visualization */
+X	 case 'M':
+X	     mfilename = optarg;
+X	     moni = TRUE;
+X	     break;
+X
+X	    /* set number of states from SANE to ILL */
+X	 case 'N':
+X	     n = atoi (optarg);
+X	     break;
+X
+X	    /* set plot file name format */
+X	 case 'P':
+X	     pfilename = optarg;
+X	     break;
+X
+X	    /* set size of grid */
+X	 case 'S':
+X	     ncells = atoi (optarg);
+X	     break;
+X
+X	    /* set time steps to compute */
+X	 case 'T':
+X	     nticks = atoi (optarg);
+X	     break;
+X
+X	    /* when shall the film begin? */
+X	 case 'X':
+X	     startoffilm = atoi (optarg);
+X	     break;
+X
+X	    /* how many time steps to skip for next frame? */
+X	 case 'Y':
+X	     skipbetweentakes = atoi (optarg);
+X	     break;
+X
+X	    /* set mode to batch */
+X	 case 'b':
+X	     batch = TRUE;
+X	     break;
+X
+X	    /* turn off data logging */
+X	 case 'd':
+X	     dump = FALSE;
+X	     break;
+X
+X	    /* set number of dumps */
+X	 case 'f':
+X	     ndumps = atoi (optarg);
+X	     break;
+X
+X	    /* set data logging attribute to Gnuplot */
+X	 case 'g':
+X	     gnuplot = TRUE;
+X	     idl = FALSE;
+X	     break;
+X
+X	    /* print help info */
+X	 case 'h':
+X	     usage (0);
+X	     break;
+X
+X	    /* set data logging attribute to IDL(TM) */
+X	 case 'i':
+X	     idl = TRUE;
+X	     gnuplot = FALSE;
+X	     break;
+X
+X	    /* set computation attribute */
+X	 case 'm':
+X	     moore = TRUE;
+X	     break;
+X
+X	    /* generate a film? */
+X	 case 'n':
+X	     film = FALSE;
+X	     break;
+X
+X	    /* generate an online-visualization? */
+X	 case 'o':
+X	     moni = TRUE;
+X	     break;
+X
+X	    /* set seed for random number generator */
+X	 case 's':
+X	     random_seed = atoi (optarg);
+X	     break;
+X
+X	    /* set grid attribute */
+X	 case 't':
+X	     torus = TRUE;
+X	     break;
+X
+X	    /* print version info */
+X	 case 'v':
+X	     version (0);
+X	     break;
+X
+X	    /* print version info */
+X	 case 'w':
+X	     warranty (0);
+X	     break;
+X
+X	    /* when shall the dump begin? */
+X	 case 'x':
+X	     startofdump = atoi (optarg);
+X	     break;
+X
+X	    /* how many time steps to skip for next dump? */
+X	 case 'y':
+X	     skipbetweendumps = atoi (optarg);
+X	     break;
+X
+X	    /* print usage info */
+X	 default:
+X	     usage (1);
+X	}
+X    }
+X
+X   /* open output(s) */
+X    if ((rep = fopen (pfilename, "w")) == NULL)
+X	panic (E_FATAL, "hodge", "can't open file %s", pfilename);
+X
+X    if (moni)
+X	if ((mon = popen (mfilename, "w")) == NULL)
+X	    panic (E_FATAL, "hodge", "can't open pipe %s", mfilename);
+X
+X   /* open color map, etc. */
+X    if (film) {
+X	loadcmap (cfilename);
+X        framestotake = nframes;
+X    }
+X
+X   /* init dumping, etc. */
+X    if (dump) {
+X        dumpstomake = ndumps;
+X    }
+X
+X   /* hodge-podge */
+X    hodge (rep);
+X
+X   /* clean-up*/
+X    fclose (rep);
+X    fclose (mon);
+X
+X    return 0;
+}
+X
+/*
+X *	usage -- print usage information
+X */
+void
+usage (code)
+X    int code;
+{
+X    fprintf (stderr, "usage: %s [options]\n\
+X	[-A, --animation-file-name <name>]\n\
+X	[-C, --color-map-file-name <name>]\n\
+X	[-D, --dump-data-file-name <name>]\n\
+X	[-F, --number-of-frames <number>]\n\
+X	[-G, --groth-rate <number>]\n\
+X	[-J, --ill-cells-denominator <number>]\n\
+X	[-K, --infected-cells-denominator <number>]\n\
+X	[-M, --monitor-process <process>]\n\
+X	[-N, --number-of-cell-states <number>]\n\
+X	[-P, --plot-file-name <name>]\n\
+X	[-S, --size-of-grid <size>]\n\
+X	[-T, --time-steps <number>]\n\
+X	[-X, --start-of-film <time step>]\n\
+X	[-Y, --skip-between-takes <number>]\n\
+X	[-b, --batch]\n\
+X	[-d, --no-dump]\n\
+X	[-f, --number-of-dumps <number>]\n\
+X	[-g, --gnuplot-data-format]\n\
+X	[-h, --help]\n\
+X	[-i, --idl-data-format]\n\
+X	[-m, --moore-neighbourhood]\n\
+X	[-n, --no-film]\n\
+X	[-o, --on-line-visualization]\n\
+X	[-s, --seed-for-random <seed value>]\n\
+X	[-t, --torus]\n\
+X	[-v, --version]\n\
+X	[-w, --warranty]\n\
+X	[-x, --start-of-dump <timestep>]\n\
+X	[-y, --skip-between-dumps <number>]\n\
+X	\n", program_name);
+X
+X    exit (code);
+}
+X
+/*
+X *	version -- print version information
+X */
+void
+version (code)
+X    int code;
+{
+X    fprintf (stderr, "This is %s %s version %d.%d%c (%003d)\n",
+X	     V_NAME, V_OSTYPE, V_MAJOR, V_MINOR, V_MAGIC, V_MODF);
+X
+X    fprintf (stderr, "Copyright (C) 1993 by Joerg Heitkoetter.");
+X    fprintf (stderr, "Type `%s -w' for WARRANTY.\n", program_name);
+X
+#ifndef LOCAL_MAINTAINER
+X    fprintf (stderr, "Send bugs, comments, etc., to %s.\n", V_EMAIL);
+#else
+X    fprintf (stderr, "Last modification by %s, on %s\n", V_MAINTAINER, V_DATE);
+X    fprintf (stderr, "Send bugs, comments, etc., to %s.\n", V_EMAIL);
+#endif
+X
+X    exit (code);
+}
+X
+/*
+X *	warranty -- print warranty information
+X */
+void
+warranty (code)
+X    int code;
+{
+X    fprintf (stderr, "\
+X    HODGE-C  --  Copyright (C) 1993 by Joerg Heitkoetter\n\
+\n\
+X    Gerhard & Schuster's Hodge-Podge machine in C\n\
+X    See also Computer Recreations in Scientific American, October 1988.\n\
+\n\
+X    This program is free software; you can redistribute it and/or modify\n\
+X    it under the terms of the GNU General Public License as published by\n\
+X    the Free Software Foundation; either version 2 of the License, or\n\
+X    (at your option) any later version.\n\
+\n\
+X    This program is distributed in the hope that it will be useful,\n\
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of\n\
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n\
+X    GNU General Public License for more details.\n\
+\n\
+X    You should have received a copy of the GNU General Public License\n\
+X    along with this program; if not, write to the Free Software\n\
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n");
+X
+X    exit (code);
+}
+X
+/*
+X *	hodge -- main loop
+X */
+void
+hodge (rep)
+X    FILE *rep;
+{
+X    int A, B, S;
+X    int i, j;
+X    int t = 0;
+X    int nval;				/* range: [0..8*n + n] */
+X
+X    initialize (random_seed);
+X
+X    while (t++ < nticks) {
+X	nsane = ninfected = nill = 0;
+X
+X	for (i = 0; i < ncells; i++)
+X	    for (j = 0; j < ncells; j++) {
+X		A = scount (i, j, ILL);
+X		B = scount (i, j, INFECTED);
+X		S = vsum (i, j) + cell[i][j].value;
+X
+X		switch (cell[i][j].state) {
+X		 case SANE:
+X		     nsane++;
+X		     nval = (cell_v) (A / k1 + B / k2);
+X		     break;
+X
+X		 case INFECTED:
+X		     ninfected++;
+X		     B++;		/* add self to INFECTED */
+X		     nval = (cell_v) (S / B + g);
+X		     break;
+X
+X		 case ILL:
+X		     nill++;
+X		     nval = V_SANE;
+X		     break;
+X		}
+X
+X	       /* set state & value */
+X		ncell[i][j].state = get_state (&nval);
+X		ncell[i][j].value = (cell_v) nval;
+X	    }
+X
+X       /* report statistics, etc. */
+X	report (rep, t);
+X
+X       /* write animation data, etc. */
+X	if (film && t >= startoffilm && framestotake > 0)
+X	    grid2ppm (t, cell);
+X
+X       /* dumping data file, etc. */
+X	if (dump && t >= startofdump && dumpstomake > 0)
+X	    grid2dump (t, cell);
+X
+X       /* online visualization, etc. */
+X	if (moni)
+X	    pixmon (cell);
+X
+X       /* copy new cells to old */
+X	memcpy (cell, ncell, sizeof (grid_t));
+X    }
+}
+X
+/*
+X *	initialize -- init the global data structures
+X */
+void
+initialize (seed)
+X    int seed;
+{
+X    int i, j;
+X
+X    srand (seed);
+X
+X    for (i = 0; i < ncells; i++)
+X	for (j = 0; j < ncells; j++) {
+X	    cell[i][j].state = (cell_s) (random () % MAXSTATES);
+X
+X	    if (cell[i][j].state == SANE)
+X		cell[i][j].value = V_SANE;
+X	    else if (cell[i][j].state == INFECTED)
+X		cell[i][j].value = (cell_v) (rand () % (n - 1) + 1);
+X	    else
+X		cell[i][j].value = V_ILL;
+X
+X	    ncell[i][j].state = SANE;
+X	    ncell[i][j].value = V_SANE;
+X	}
+}
+X
+/*
+X *	get_state -- compute the state from a cell's value
+X */
+cell_s
+get_state (val)
+X    int *val;
+{
+X    if (*val <= V_SANE) {
+X	*val = V_SANE;
+X	return (SANE);
+X    } else {
+X	if (*val >= V_ILL) {
+X	    *val = V_ILL;
+X	    return (ILL);
+X	} else {
+X	    return (INFECTED);
+X	}
+X    }
+}
+X
+/*
+X *	report -- report statistics
+X */
+void
+report (rep, t)
+X    FILE *rep;
+X    int t;
+{
+X    fprintf (rep, "%d\t%d\t%d\t%d\t%lf\n",
+X	     t, nsane, ninfected, nill, (double) ninfected / (double) (ncells * ncells));
+}
+X
+/*
+X *	map -- map index to grid structure
+X */
+int
+map (i)
+X    int i;
+{
+X    if (!torus) {
+X	if (i < 0)
+X	    return (0);
+X	else if (i == ncells)
+X	    return (ncells - 1);
+X	else
+X	    return (i);
+X    } else {
+X	if (i < 0)
+X	    return (ncells - 1);
+X	else if (i == ncells)
+X	    return (0);
+X	else
+X	    return (i);
+X    }
+}
+X
+/*
+X *	scount -- count cells in specified state
+X */
+int
+scount (i, j, state)
+X    int i, j;
+X    cell_s state;
+{
+X    int count = 0;
+X
+X   /* always count von-Neumann cells */
+X    if (cell[map (i - 1)][j].state == state)
+X	++count;
+X    if (cell[i][map (j - 1)].state == state)
+X	++count;
+X    if (cell[i][map (j + 1)].state == state)
+X	++count;
+X    if (cell[map (i + 1)][j].state == state)
+X	++count;
+X
+X   /* sometimes count Moore cells */
+X    if (moore) {
+X	if (cell[map (i - 1)][map (j - 1)].state == state)
+X	    ++count;
+X	if (cell[map (i + 1)][map (j - 1)].state == state)
+X	    ++count;
+X	if (cell[map (i - 1)][map (j + 1)].state == state)
+X	    ++count;
+X	if (cell[map (i + 1)][map (j + 1)].state == state)
+X	    ++count;
+X    }
+X    return (count);
+}
+X
+/*
+X *	vsum -- sum up all neighbour cells' values
+X */
+int
+vsum (i, j)
+X    int i, j;
+{
+X    int sum = 0;
+X
+X   /* always sum von-Neumann cells */
+X    sum = cell[map (i - 1)][j].value
+X	+ cell[i][map (j - 1)].value
+X	+ cell[i][map (j + 1)].value
+X	+ cell[map (i + 1)][j].value;
+X
+X   /* sometimes sum Moore cells */
+X    if (moore) {
+X	sum += cell[map (i - 1)][map (j - 1)].value
+X	     + cell[map (i + 1)][map (j - 1)].value
+X	     + cell[map (i - 1)][map (j + 1)].value
+X	     + cell[map (i + 1)][map (j + 1)].value;
+X    }
+X    return (sum);
+}
+X
+/*
+X *	rgb_color -- turn value into an RGB string
+X */
+color_t *
+rgb_color (val)
+X    int val;
+{
+X    color_t rgb;
+X
+X    rgb[0] = cmap[val].red;
+X    rgb[1] = cmap[val].green;
+X    rgb[2] = cmap[val].blue;
+X
+X    return ((color_t *) rgb);
+}
+X
+/*
+X *	grid2ppm -- write out the grid converted to a color portable pixmap
+X */
+void
+grid2ppm (t, grid)
+X    int t;
+X    grid_t grid;
+{
+X    FILE *fp;
+X    int i, j;
+X    static fcount = 0;
+X    char s[MAXFILELEN];
+X
+X    if ((t - startoffilm) % skipbetweentakes == 0) {
+X
+X       /* generate the frame's file name */
+X	sprintf (s, afilename, fcount++);
+X	if ((fp = fopen (s, "w")) == NULL)
+X	    panic (E_FATAL, "grid2ppm", "can't open file %s", s);
+X
+X       /* write raw ppm(5) header */
+X	fprintf (fp, "P6\n");
+X	fprintf (fp, "# File:    %s\n", s);
+X	fprintf (fp, "# Creator: %s %s version %d.%d%c (%003d) (C) 1993 by Joerg Heitkoetter\n",
+X	     V_NAME, V_OSTYPE, V_MAJOR, V_MINOR, V_MAGIC, V_MODF);
+X	fprintf (fp, "%d %d\n", ncells, ncells);
+X	fprintf (fp, "%d\n", n);
+X
+X       /* turn bitimage into RGB colors */
+X	for (i = 0; i < ncells; i++)
+X	    for (j = 0; j < ncells; j++)
+X		fwrite (rgb_color (cell[i][j].value), sizeof (color_t), 1, fp);
+X
+X       /* clean up */
+X	fclose (fp);
+X
+X       /* give some feedback */
+X	if (!batch)
+X	    fprintf (stderr, "%s: successfully wrote (%dx%d) file `%s' (%d colors)\n",
+X		     program_name, ncells, ncells, s, n+1);
+X
+X       /* adjust frame counter */
+X	--framestotake;
+X    }
+}
+X
+/*
+X *	grid2dump -- write out the grid converted to an IDL(TM) 3D/Gnuplot 3D data file
+X */
+void
+grid2dump (t, grid)
+X    int t;
+X    grid_t grid;
+{
+X    FILE *fp;
+X    int i, j;
+X    char s[MAXFILELEN];
+X
+X    if ((t - startofdump) % skipbetweendumps == 0) {
+X
+X       /* generate the frame's file name */
+X	sprintf (s, dfilename, t);
+X	if ((fp = fopen (s, "w")) == NULL)
+X	    panic (E_FATAL, "grid2dump", "can't open file %s", s);
+X
+X       /* write dump header */
+X	fprintf (fp, "# File:    %s\n", s);
+X	fprintf (fp, "# Creator: %s %s version %d.%d%c (%003d) (C) 1993 by Joerg Heitkoetter\n",
+X	     V_NAME, V_OSTYPE, V_MAJOR, V_MINOR, V_MAGIC, V_MODF);
+X	fprintf (fp, "# Grid:    %dx%d\n", ncells, ncells);
+X	fprintf (fp, "# Colors:  %d\n", n);
+X
+X	if (idl) {
+X	   /* write X axis */
+X	    for (i = 0; i < ncells; i++)
+X		fprintf (fp, "%d\n", i+1);
+X
+X	   /* write Y axis */
+X	    for (i = 0; i < ncells; i++)
+X		fprintf (fp, "%d\n", i+1);
+X
+X	   /* write Z axis */
+X	    for (i = 0; i < ncells; i++)
+X		for (j = 0; j < ncells; j++)
+X		    fprintf (fp, "%d\n", cell[i][j].value);
+X	}
+X
+X	if (gnuplot) {
+X	   /* write X, Y, Z axis */
+X	    for (i = 0; i < ncells; i++) {
+X		for (j = 0; j < ncells; j++)
+X		    fprintf (fp, "%d\t%d\t%d\n", i+1, j+1, cell[i][j].value);
+X		fprintf (fp, "\n");
+X	    }
+X	}
+X       /* clean up */
+X	fclose (fp);
+X
+X       /* give some feedback */
+X	if (!batch)
+X	    fprintf (stderr, "%s: successfully wrote (%dx%d) dump file `%s' (%d colors)\n",
+X		     program_name, ncells, ncells, s, n+1);
+X
+X       /* adjust dump counter */
+X	--dumpstomake;
+X    }
+}
+X
+/*
+X *	loadcmap -- load a color map
+X */
+void
+loadcmap (s)
+X    char *s;
+{
+X    FILE *fp;
+X    char line[MAXLINELEN];
+X    int i, r, g, b;
+X
+X    if ((fp = fopen (s, "r")) == NULL)
+X	panic (E_FATAL, "loadcmap", "can't load color map `%s'", s);
+X
+X    for (i = 0; i < MAXCOLORS; i++) {
+X	if (fgets (line, MAXLINELEN, fp) == NULL)
+X	    panic (E_FATAL, "loadcmap", "not enough colors in color map file `%s'", s);
+X
+X	/* comment line? */
+X	if (*line == COMMENTCHAR)
+X		continue;
+X
+X	sscanf (line, " %d %d %d", &r, &g, &b);
+X	cmap[i].red = r & 0xff;
+X	cmap[i].green = g & 0xff;
+X	cmap[i].blue = b & 0xff;
+X    }
+X    if (!batch)
+X	fprintf (stderr, "%s: successfully read in color map `%s'\n",
+X		 program_name, cfilename);
+}
+X
+/*
+X *	pixmon -- online visualization using pixmon(1)
+X */
+void
+pixmon (grid)
+X    grid_t grid;
+{
+X    ImgHdr head;
+X    int i, j, bytes;
+X
+X    INIT_IMGHDR (head);
+X
+X    head.dx = ncells;
+X    head.dy = ncells;
+X    head.sizelo = PIX_LO (ncells * ncells);
+X    head.sizehi = PIX_HI (ncells * ncells);
+X
+X    if ((bytes = fwrite (head, 1, sizeof (ImgHdr), mon)) != sizeof (ImgHdr))
+X	panic (E_FATAL, "pixmon", "failed to write header (%d out of %d)", bytes, sizeof (ImgHdr));
+X
+X    for (i = 0; i < ncells; i++)
+X	for (j = 0; j < ncells; j++)
+X	    if ((bytes = fwrite (&grid[i][j].value, sizeof (cell_v), 1, mon)) != 1)
+X		    panic (E_FATAL, "pixmon", "failed to write grid point (%d, %d)", i, j);
+X
+X    EXIT_IMGHDR (head);
+X    if ((bytes = fwrite (head, 1, sizeof (ImgHdr), mon)) != sizeof (ImgHdr))
+X	panic (E_FATAL, "pixmon", "failed to write kill package (%d out of %d)", bytes, sizeof (ImgHdr));
+}
+SHAR_EOF
+chmod 0640 hodge-c-0.98j/hodge.c ||
+echo 'restore of hodge-c-0.98j/hodge.c failed'
+Wc_c="`wc -c < 'hodge-c-0.98j/hodge.c'`"
+test 19168 -eq "$Wc_c" ||
+	echo 'hodge-c-0.98j/hodge.c: original size 19168, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= hodge-c-0.98j/hodge.h ==============
+if test -f 'hodge-c-0.98j/hodge.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping hodge-c-0.98j/hodge.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting hodge-c-0.98j/hodge.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'hodge-c-0.98j/hodge.h' &&
+X
+/* HODGE-C -- A C implementation of Gerhard & Schuster's hodge-podge machine */
+X
+/* hodge.h -- program rountine interfaces
+X
+X   Copyright (C) 1993 Joerg Heitkoetter
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA. */
+X
+/* $Id: hodge.h,v 1.2 1993/03/19 11:28:30 heitkoet Exp heitkoet $ */
+X
+#ifndef __HODGE_H__
+#define __HODGE_H__
+X
+#define MAXCELLS	500
+#define MAXCOLORS	256
+#define MAXTICKS	10000
+#define MAXSTATES	3
+#define MAXFILELEN	256
+#define MAXLINELEN	1024
+X
+#define S_SANE		0
+#define S_INFECTED	1
+#define S_ILL		2
+X
+#define V_SANE		0
+#define V_ILL		n
+X
+#define bool		int
+#define TRUE		1
+#define FALSE		0
+X
+#define COMMENTCHAR	'#'
+X
+X
+typedef enum {
+X      SANE = S_SANE, INFECTED = S_INFECTED, ILL = S_ILL
+SHAR_EOF
+true || echo 'restore of hodge-c-0.98j/hodge.h failed'
+fi
+echo 'End of  part 3'
+echo 'File hodge-c-0.98j/hodge.h is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

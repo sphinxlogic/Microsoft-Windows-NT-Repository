@@ -1,0 +1,1806 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i039:  imagemagick - X11 image processing and display v2.2, Part11/26
+Message-ID: <1992Dec15.035050.21467@sparky.imd.sterling.com>
+X-Md4-Signature: b792d10602d944a256778af349aeed98
+Date: Tue, 15 Dec 1992 03:50:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 39
+Archive-name: imagemagick/part11
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.11 (part 11 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/display.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 11; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/display.c'
+else
+echo 'x - continuing file ImageMagick/display.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/display.c' &&
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Display is a machine architecture independent image processing
+%  and display program.  It can display any image in the MIFF format on
+%  any workstation display running X.  Display first determines the
+%  hardware capabilities of the workstation.  If the number of unique
+%  colors in the image is less than or equal to the number the workstation
+%  can support, the image is displayed in an X window.  Otherwise the
+%  number of colors in the image is first reduced to match the color
+%  resolution of the workstation before it is displayed.
+%
+%  This means that a continuous-tone 24 bits-per-pixel image can display on a
+%  8 bit pseudo-color device or monochrome device.  In most instances the
+%  reduced color image closely resembles the original.  Alternatively, a
+%  monochrome or pseudo-color image can display on a continuous-tone 24
+%  bits-per-pixel device.
+%
+%  The Display program command syntax is:
+%
+%  Usage: display [options ...] file [ [options ...] file ...]
+%
+%  Where options include:
+%    -backdrop           display image centered on a backdrop
+%    -clip geometry      preferred size and location of the clipped image
+%    -colormap type      Shared or Private
+%    -colors value       preferred number of colors in the image
+%    -colorspace type    GRAY, RGB, XYZ, YIQ, or YUV
+%    -compress type      RunlengthEncoded or QEncoded
+%    -delay seconds      display the next image after pausing
+%    -density geometry   vertical and horizonal density of the image
+%    -display server     display image to this X server
+%    -dither             apply Floyd/Steinberg error diffusion to image
+%    -enhance            apply a digital filter to enhance a noisy image
+%    -gamma value        level of gamma correction
+%    -geometry geometry  preferred size and location of the image window
+%    -inverse            apply color inversion to image
+%    -map type           display image using this Standard Colormap
+%    -monochrome         transform image to black and white
+%    -noise              reduce noise with a noise peak elimination filter
+%    -normalize          tranform image to span the full the range of colors
+%    -print filename     write image as Postscript to a file
+%    -reflect            reverse image scanlines
+%    -rotate degrees     apply Paeth rotation to the image
+%    -scale geometry     preferred size factors of the image
+%    -scene value        image scene number
+%    -treedepth value    depth of the color classification tree
+%    -verbose            print detailed information about the image
+%    -visual type        display image using this visual type
+%    -window id          display image to background of this window
+%    -write filename     write image to a file
+%
+%  In addition to those listed above, you can specify these standard X
+%  resources as command line options:  -background, -bordercolor,
+%  -borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or
+%  -title.
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example, specify +compress to store the image as uncompressed.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. mtv:image) or specify the
+%  image type as the filename suffix (i.e. image.mtv).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%  Buttons:
+%    1    press and drag to select a command from a pop-up menu
+%    2    press and drag to define a region of the image to clip
+%    3    press and drag to define a region of the image to magnify
+%
+%  Keyboard accelerators:
+%    i    display information about the image
+%    r    reflect the image scanlines
+%    /    rotate the image 90 degrees clockwise
+%    \    rotate the image 90 degrees counter-clockwise
+%    <    half the image size
+%    >    double the image size
+%    o    restore the image to its original size
+%    a    annotate the image with text
+%    c    composite image with another
+%    w    write the image to a file
+%    p    print the image to a file
+%    n    display the next image
+%    l    display the last image
+%    q    discard all images and exit program
+%    1-9  change the level of magnification
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "alien.h"
+#include "X.h"
+X
+/*
+X  State declarations.
+*/
+#define ControlState  0x0001
+#define DefaultState  0x0000
+#define EscapeState  0x0002
+#define ExitState  0x0004
+#define ImageMappedState  0x0008
+#define InfoMappedState  0x0010
+#define LastImageState  0x0020
+#define MagnifyMappedState  0x0040
+#define NextImageState  0x0080
+#define PanIconMappedState  0x0100
+#define ReconfigureImageState  0x0200
+#define TileImageState  0x0400
+#define UpdateColormapState  0x0800
+#define UpdateConfigurationState  0x1000
+X
+/*
+X  Global declarations.
+*/
+char
+X  *application_name;
+X
+/*
+X  Forward declarations.
+*/
+static Cursor
+X  XMakeCursor _Declare((Display *,Colormap,Window,char *,char *));
+X
+static Image
+X  *XTileImageWindow _Declare((Display *,XResourceInfo *,XWindows *,Image *,
+X    XEvent *));
+X
+static unsigned int
+X  XAnnotateImageWindow _Declare((Display *,XResourceInfo *,XWindows *,Image *)),
+X  XCompositeImageWindow _Declare((Display *,XResourceInfo *,XWindows *,
+X    Image **)),
+X  XConfigureImageWindow _Declare((Display *,XResourceInfo *,XWindows *,
+X    unsigned int,unsigned int,Image *)),
+X  XReflectImageWindow _Declare((Display *,XWindows *,Image **)),
+X  XRotateImageWindow _Declare((Display *,XWindows *,unsigned int,Image **));
+X
+static void
+X  XDrawPanRectangle _Declare((Display *,XWindows *)),
+X  XMagnifyImageWindow _Declare((Display *,XResourceInfo *,XWindows *,XEvent *)),
+X  XMakeMagnifyImage _Declare((Display *,XResourceInfo *,XWindows *)),
+X  XPanImageWindow _Declare((Display *,XWindows *,XEvent *));
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",application_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Usage displays the program command syntax.
+%
+%  The format of the Usage routine is:
+%
+%      Usage(terminate)
+%
+%  A description of each parameter follows:
+%
+%    o terminate: A value other than zero is returned if the program is to
+%      terminate immediately.
+%
+*/
+static void Usage(terminate)
+unsigned int
+X  terminate;
+{
+X  char
+X    **p;
+X
+X  static char
+X    *buttons[]=
+X    {
+X      "1    press and drag to select a command from a pop-up menu",
+X      "2    press and drag to define a region of the image to clip",
+X      "3    press and drag to define a region of the image to magnify",
+X      (char *) NULL
+X    },
+X    *keys[]=
+X    {
+X      "i    display information about the image",
+X      "r    reflect the image scanlines",
+X      "/    rotate the image 90 degrees clockwise",
+X      "\\    rotate the image 90 degrees counter-clockwise",
+X      "<    half the image size",
+X      ">    double the image size",
+X      "o    restore the image to its original size",
+X      "a    annotate the image with text",
+X      "c    composite image with another",
+X      "w    write the image to a file",
+X      "p    print the image to a file",
+X      "n    display the next image",
+X      "l    display the last image",
+X      "q    discard all images and exit program",
+X      "1-9  change the level of magnification",
+X      (char *) NULL
+X    },
+X    *options[]=
+X    {
+X      "-backdrop           display image centered on a backdrop",
+X      "-clip geometry      preferred size and location of the clipped image",
+X      "-colormap type      Shared or Private",
+X      "-colors value       preferred number of colors in the image",
+X      "-colorspace type    GRAY, RGB, XYZ, YIQ, or YUV",
+X      "-compress type      RunlengthEncoded or QEncoded",
+X      "-delay seconds      display the next image after pausing",
+X      "-density geometry   vertical and horizonal density of the image",
+X      "-display server     display image to this X server",
+X      "-dither             apply Floyd/Steinberg error diffusion to image",
+X      "-enhance            apply a digital filter to enhance a noisy image",
+X      "-gamma value        level of gamma correction",
+X      "-geometry geometry  preferred size and location of the image window",
+X      "-inverse            apply color inversion to image",
+X      "-map type           display image using this Standard Colormap",
+X      "-monochrome         transform image to black and white",
+X      "-noise              reduce noise with a noise peak elimination filter",
+X      "-normalize          tranform image to span the full range of colors",
+X      "-print filename     write image as Postscript to a file",
+X      "-reflect            reflect the image scanlines",
+X      "-rotate degrees     apply Paeth rotation to the image",
+X      "-scale geometry     preferred size factors of the image",
+X      "-scene value        image scene number",
+X      "-treedepth value    depth of the color classification tree",
+X      "-verbose            print detailed information about the image",
+X      "-visual type        display image using this visual type",
+X      "-window id          display image to background of this window",
+X      "-write filename     write image to a file",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,
+X    "Usage: %s [-options ...] file [ [-options ...] file ...]\n",
+X    application_name);
+X  (void) fprintf(stderr,"\nWhere options include: \n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nIn addition to those listed above, you can specify these standard X\n");
+X  (void) fprintf(stderr,
+X    "resources as command line options:  -background, -bordercolor,\n");
+X  (void) fprintf(stderr,
+X    "-borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or\n");
+X  (void) fprintf(stderr,"-title.\n");
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.  For\n");
+X  (void) fprintf(stderr,
+X    "example, specify +compress to store the image as uncompressed.\n");
+X  (void) fprintf(stderr,
+X    "\nBy default, the image format of `file' is determined by its magic\n");
+X  (void) fprintf(stderr,
+X    "number.  To specify a particular image format, precede the filename\n");
+X  (void) fprintf(stderr,
+X    "with an image format name and a colon (i.e. mtv:image) or specify the\n");
+X  (void) fprintf(stderr,
+X    "image type as the filename suffix (i.e. image.mtv).  Specify 'file' as\n");
+X  (void) fprintf(stderr,"'-' for standard input or output.\n");
+X  (void) fprintf(stderr,"\nButtons: \n");
+X  for (p=buttons; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,"\nKeyboard accelerators: \n");
+X  for (p=keys; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  if (terminate)
+X    exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s e r C o m m a n d                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UserCommand makes a transform to the image or image window as
+%  specified by a user menu button or keyboard command.
+%
+%  The format of the UserCommand routine is:
+%
+%    UserCommand(display,resource_info,window,command,image,state)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o command: Specifies a command to perform.
+%
+%    o image: Specifies a pointer to a Image structure;  UserCommand
+%      may transform the image and return a new image pointer.
+%
+%    o state: Specifies an unsigned int;  UserCommand may return a
+%      modified state.
+%
+%
+*/
+static void UserCommand(display,resource_info,window,command,image,state)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+char
+X  command;
+X
+Image
+X  **image;
+X
+unsigned long int
+X  *state;
+{
+X  char
+X    text[2048];
+X
+X  unsigned int
+X    height,
+X    status,
+X    width;
+X
+X  XEvent
+X    event;
+X
+X  if (*state & InfoMappedState)
+X    XWithdrawWindow(display,window->info.id,window->info.screen);
+X  XSync(display,False);
+X  while (XCheckTypedWindowEvent(display,window->image.id,Expose,&event))
+X    XRefreshWindow(display,&window->image,&event);
+X  /*
+X    Process user command.
+X  */
+X  width=0;
+X  height=0;
+X  switch (command)
+X  {
+X    case ' ':
+X    case '\0':
+X      break;
+X    case '<':
+X    {
+X      /*
+X        Half image size.
+X      */
+X      width=window->image.ximage->width >> 1;
+X      height=window->image.ximage->height >> 1;
+X      break;
+X    }
+X    case '>':
+X    {
+X      /*
+X        Double the image size.
+X      */
+X      width=window->image.ximage->width << 1;
+X      height=window->image.ximage->height << 1;
+X      break;
+X    }
+X    case '/':
+X    case '\\':
+X    {
+X      /*
+X        Rotate image 90 degrees to clockwise or counter-clockwise.
+X      */
+X      status=XRotateImageWindow(display,window,(unsigned int)
+X        (command == '/' ? 90 : 270),image);
+X      if (status == False)
+X        {
+X          XPopupAlert(display,&window->popup,"unable to rotate X image",
+X            window->image.name);
+X          break;
+X        }
+X      width=window->image.ximage->height;
+X      height=window->image.ximage->width;
+X      break;
+X    }
+X    case 'a':
+X    {
+X      /*
+X        Annotate the image with text.
+X      */
+X      status=XAnnotateImageWindow(display,resource_info,window,*image);
+X      if (status == False)
+X        {
+X          XPopupAlert(display,&window->popup,"unable to annotate X image",
+X            window->image.name);
+X          break;
+X        }
+X      width=window->image.ximage->width;
+X      height=window->image.ximage->height;
+X      break;
+X    }
+X    case 'c':
+X    {
+X      /*
+X        Composite image.
+X      */
+X      status=XCompositeImageWindow(display,resource_info,window,image);
+X      if (status == False)
+X        {
+X          XPopupAlert(display,&window->popup,"unable to composite X image",
+X            window->image.name);
+X          break;
+X        }
+X      XMakeStandardColormap(display,window->image.visual_info,resource_info,
+X        window->image.pixel_info,*image,window->image.map_info);
+X      width=window->image.ximage->width;
+X      height=window->image.ximage->height;
+X      *state|=UpdateColormapState;
+X      break;
+X    }
+X    case 'i':
+X    {
+X      /*
+X        Display information about the image in the info window.
+X      */
+X      (void) sprintf(text," [%u] %s %dx%d %s \0",(*image)->scene,
+X        (*image)->filename,window->image.ximage->width,
+X        window->image.ximage->height,
+X        XVisualClassName(window->info.visual_info));
+X      if ((*image)->colors > 0)
+X        (void) sprintf(text,"%s%uc \0",text,(*image)->colors);
+X      (void) strcat(text,(*image)->magick);
+X      XSetWindowExtents(window->info,text,2);
+X      XMapWindow(display,window->info.id);
+X      XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X        window->info.font_info->ascent+2,text,strlen(text));
+X      break;
+X    }
+X    case 'l':
+X    case '\b':
+X    {
+X      /*
+X        Display last image.
+X      */
+X      *state|=LastImageState | ExitState;
+X      break;
+X    }
+X    case 'n':
+X    case '\r':
+X    {
+X      /*
+X        Display next image.
+X      */
+X      *state|=NextImageState | ExitState;
+X      break;
+X    }
+X    case 'o':
+X    {
+X      /*
+X        Restore image window to its original size.
+X      */
+X      if (window->image.clip_geometry != (char *) NULL)
+X        {
+X          (void) free((char *) window->image.clip_geometry);
+X          window->image.clip_geometry=(char *) NULL;
+X          window->image.x=0;
+X          window->image.y=0;
+X        }
+X      width=(*image)->columns;
+X      height=(*image)->rows;
+X      break;
+X    }
+X    case 'p':
+X    case 'w':
+X    {
+X      char
+X        filename[2048];
+X
+X      Image
+X        *output_image;
+X
+X      /*
+X        Write or print image to file.
+X      */
+X      (void) strcpy(filename,(*image)->filename);
+X      if (command == 'p')
+X        {
+X          (void) strcpy(text," Printing image... ");
+X          if (resource_info->print_filename != (char *) NULL)
+X            (void) strcpy(filename,resource_info->print_filename);
+X        }
+X      else
+X        {
+X          (void) strcpy(text," Writing image... ");
+X          if (resource_info->write_filename != (char *) NULL)
+X            (void) strcpy(filename,resource_info->write_filename);
+X        }
+X      XPopupQuery(display,&window->popup,"File name:",filename);
+X      if (*filename == '\0')
+X        break;
+X      /*
+X        Alert user we are busy.
+X      */
+X      XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X      XSetWindowExtents(window->info,text,2);
+X      XMapWindow(display,window->info.id);
+X      XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X        window->info.font_info->ascent+2,text,strlen(text));
+X      XFlush(display);
+X      /*
+X        Copy image before applying image transforms.
+X      */
+X      output_image=CopyImage(*image,(*image)->columns,(*image)->rows,True);
+X      if (output_image == (Image *) NULL)
+X        {
+X          XPopupAlert(display,&window->popup,"unable to output image",
+X            window->image.name);
+X          break;
+X        }
+X      if ((window->image.clip_geometry != (char *) NULL) ||
+X         (output_image->columns != window->image.ximage->width) ||
+X         (output_image->rows != window->image.ximage->height))
+X        {
+X          char
+X            image_geometry[2048];
+X
+X          /*
+X            Clip and/or scale image.
+X          */
+X          (void) sprintf(image_geometry,"%dx%d\0",window->image.ximage->width,
+X            window->image.ximage->height);
+X          TransformImage(&output_image,window->image.clip_geometry,
+X            image_geometry,(char *) NULL);
+X        }
+X      if (resource_info->colorspace == GRAYColorspace)
+X        QuantizeImage(output_image,256,8,resource_info->dither,GRAYColorspace,
+X          True);
+X      if (resource_info->monochrome)
+X        QuantizeImage(output_image,2,8,resource_info->dither,GRAYColorspace,
+X          True);
+X      if (resource_info->number_colors > 0)
+X        if ((output_image->class == DirectClass) ||
+X            (output_image->colors > resource_info->number_colors))
+X          QuantizeImage(output_image,resource_info->number_colors,
+X            resource_info->tree_depth,resource_info->dither,
+X            resource_info->colorspace,True);
+X      (void) strcpy(output_image->filename,filename);
+X      if (command == 'p')
+X        (void) PrintImage(output_image,resource_info->image_geometry);
+X      else
+X        (void) WriteAlienImage(output_image);
+X      DestroyImage(output_image);
+X      XDefineCursor(display,window->image.id,window->image.cursor);
+X      XWithdrawWindow(display,window->info.id,window->info.screen);
+X      break;
+X    }
+X    case 'q':
+X    {
+X      /*
+X        Exit program
+X      */
+X      *state|=ExitState;  /* exit program */
+X      break;
+X    }
+X    case 'r':
+X    {
+X      /*
+X        Reflect image scanlines.
+X      */
+X      status=XReflectImageWindow(display,window,image);
+X      if (status == False)
+X        {
+X          XPopupAlert(display,&window->popup,"unable to reflect X image",
+X            window->image.name);
+X          break;
+X        }
+X      width=window->image.ximage->width;
+X      height=window->image.ximage->height;
+X      break;
+X    }
+X    default:
+X    {
+X      XBell(display,0);
+X      break;
+X    }
+X  }
+X  if ((width > 0) && (height > 0))
+X    {
+X      unsigned int
+X        mask;
+X
+X      XWindowChanges
+X        window_changes;
+X
+X      /*
+X        Image configuration has changed.
+X      */
+X      status=XConfigureImageWindow(display,resource_info,window,width,height,
+X        *image);
+X      if (status == False)
+X        XPopupAlert(display,&window->popup,"unable to configure X image",
+X          window->image.name);
+X      /*
+X        Window size must not exceed that of the X server screen.
+X      */
+X      if (width > XDisplayWidth(display,window->image.screen))
+X        width=(XDisplayWidth(display,window->image.screen)*7) >> 3;
+X      if (height > XDisplayHeight(display,window->image.screen))
+X        height=(XDisplayHeight(display,window->image.screen)*7) >> 3;
+X      if ((width == window->image.width) && (height == window->image.height))
+X        {
+X          *state|=UpdateConfigurationState;
+X          return;
+X        }
+X      /*
+X        Notify window manager of the new configuration.
+X      */
+X      window_changes.width=width;
+X      window_changes.height=height;
+X      mask=CWWidth | CWHeight;
+X      if (resource_info->backdrop)
+X        {
+X          window_changes.x=
+X            XDisplayWidth(display,window->image.screen)/2-width/2;
+X          window_changes.y=
+X            XDisplayHeight(display,window->image.screen)/2-height/2;
+X          mask|=CWX | CWY;
+X        }
+X      XReconfigureWMWindow(display,window->image.id,window->image.screen,mask,
+X        &window_changes);
+X      *state|=ReconfigureImageState;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X A n n o t a t e I m a g e W i n d o w                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XAnnotateImageWindow annotates the image with text.
+%
+%  The format of the XAnnotateImageWindow routine is:
+%
+%    XAnnotateImageWindow(display,resource_info,window,image)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+*/
+static unsigned int XAnnotateImageWindow(display,resource_info,window,image)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+Image
+X  *image;
+{
+X  char
+X    *p,
+X    text[2048];
+X
+X  Cursor
+X    cursor;
+X
+X  GC
+X    graphic_context;
+X
+X  int
+X    i,
+X    x,
+X    y;
+X
+X  static unsigned int
+X    font_id=0,
+X    pen_id=0;
+X
+X  unsigned int
+X    height,
+X    mask,
+X    status,
+X    width;
+X
+X  unsigned long int
+X    state,
+X    x_factor,
+X    y_factor;
+X
+X  Window
+X    xwindow;
+X
+X  XAnnotateInfo
+X    *annotate_info,
+X    *previous_info;
+X
+X  XColor
+X    pen_color;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  XEvent
+X    event,
+X    text_event;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  /*
+X    Map info window.
+X  */
+X  state=DefaultState;
+X  (void) sprintf(text," %+u%+u  \0",window->image.width,window->image.height);
+X  XSetWindowExtents(window->info,text,2);
+X  XMapWindow(display,window->info.id);
+X  state|=InfoMappedState;
+X  /*
+X    Track pointer until button 1 is pressed.
+X  */
+X  XQueryPointer(display,window->image.id,&xwindow,&xwindow,&i,&i,&x,&y,&mask);
+X  XSelectInput(display,window->image.id,window->image.attributes.event_mask |
+X    PointerMotionMask);
+X  do
+X  {
+X    if (state & InfoMappedState)
+X      {
+X        /*
+X          Display pointer position.
+X        */
+X        (void) sprintf(text," %+d%+d \0",x-window->image.x,y-window->image.y);
+X        XClearWindow(display,window->info.id);
+X        XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X          window->info.font_info->ascent+2,text,strlen(text));
+X      }
+X    /*
+X      Wait for next event.
+X    */
+X    XWindowEvent(display,window->image.id,ButtonPressMask | ButtonReleaseMask |
+X      ExposureMask | KeyPressMask | PointerMotionMask,&event);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        if ((event.xbutton.button == Button3) &&
+X            (event.xbutton.state & Mod1Mask))
+X          {
+X            /* 
+X              Convert Alt-Button3 to Button2.
+X            */
+X            event.xbutton.button=Button2;
+X            event.xbutton.state&=(~Mod1Mask);
+X          }
+X        switch (event.xbutton.button)
+X        {
+X          case Button1:
+X          {
+X            /*
+X              Change to text entering mode.
+X            */
+X            x=event.xbutton.x;
+X            y=event.xbutton.y;
+X            state|=ExitState;
+X            break;
+X          }
+X          case Button2:
+X          {
+X            char
+X              font_name[2048],
+X              *MenuSelections[MaxNumberFonts];
+X
+X            int
+X              font_number;
+X
+X            /*
+X              Initialize menu selections.
+X            */
+X            for (i=0; i < MaxNumberFonts; i++)
+X              MenuSelections[i]=resource_info->font_name[i];
+X            /*
+X              Select a font name from the pop-up menu.
+X            */
+X            font_number=XPopupMenu(display,&window->popup,event.xbutton.x_root,
+X              event.xbutton.y_root,"Pen Fonts",MenuSelections,MaxNumberFonts,
+X              font_name);
+X            if (*font_name != '\0')
+X              {
+X                /*
+X                  Initialize font info.
+X                */
+X                font_info=XLoadQueryFont(display,font_name);
+X                if (font_info == (XFontStruct *) NULL)
+X                  XPopupAlert(display,&window->popup,"unable to load font",
+X                    font_name);
+X                else
+X                  {
+X                    font_id=font_number;
+X                    XFreeFont(display,font_info);
+X                  }
+X              }
+X            break;
+X          }
+X          case Button3:
+X          {
+X            char
+X              color_name[2048],
+X              *MenuSelections[MaxNumberPens];
+X
+X            int
+X              pen_number;
+X
+X            /*
+X              Initialize menu selections.
+X            */
+X            for (i=0; i < MaxNumberPens; i++)
+X              MenuSelections[i]=resource_info->pen_color[i];
+X            /*
+X              Select a font color from the pop-up menu.
+X            */
+X            pen_number=XPopupMenu(display,&window->popup,event.xbutton.x_root,
+X              event.xbutton.y_root,"Pen Colors",MenuSelections,MaxNumberPens,
+X              color_name);
+X            if (*color_name != '\0')
+X              pen_id=pen_number;
+X            break;
+X          }
+X        }
+X        break;
+X      }
+X      case KeyPress:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key press.
+X        */
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Escape)
+X          {
+X            /*
+X              Prematurely exit.
+X            */
+X            state|=EscapeState;
+X            state|=ExitState;
+X            break;
+X          }
+X        break;
+X      }
+X      case Expose:
+X      {
+X        /*
+X          Refresh image window.
+X        */
+X        XRefreshWindow(display,&window->image,&event);
+X        break;
+X      }
+X      case MotionNotify:
+X      {
+X        /*
+X          Discard pending pointer motion events.
+X        */
+X        while (XCheckMaskEvent(display,PointerMotionMask,&event));
+X        x=event.xmotion.x;
+X        y=event.xmotion.y;
+X        /*
+X          Map and unmap info window as cursor crosses its boundaries.
+X        */
+X        if (state & InfoMappedState)
+X          {
+X            if ((x < (window->info.x+window->info.width)) &&
+X                (y < (window->info.y+window->info.height)))
+X              {
+X                XWithdrawWindow(display,window->info.id,window->info.screen);
+X                state&=(~InfoMappedState);
+X              }
+X          }
+X        else
+X          if ((x > (window->info.x+window->info.width)) ||
+X              (y > (window->info.y+window->info.height)))
+X            {
+X              XMapWindow(display,window->info.id);
+X              state|=InfoMappedState;
+X            }
+X        break;
+X      }
+X      default:
+X        break;
+X    }
+X  } while (!(state & ExitState));
+X  XSelectInput(display,window->image.id,window->image.attributes.event_mask);
+X  if (state & InfoMappedState)
+X    XWithdrawWindow(display,window->info.id,window->info.screen);
+X  XFlush(display);
+X  if (state & EscapeState)
+X    return(True);
+X  /*
+X    Set font info and pen color.
+X  */
+X  font_info=XLoadQueryFont(display,resource_info->font_name[font_id]);
+X  if (font_info == (XFontStruct *) NULL)
+X    {
+X      XPopupAlert(display,&window->popup,"unable to load font",
+X        resource_info->font_name[font_id]);
+X      font_info=window->image.font_info;
+X    }
+X  /*
+X    Initialize graphic context.
+X  */
+X  pen_color=window->image.pixel_info->pen_color[pen_id];
+X  graphic_context_value.background=
+X    window->image.pixel_info->background_color.pixel;
+X  graphic_context_value.foreground=pen_color.pixel;
+X  graphic_context_value.font=font_info->fid;
+X  graphic_context_value.function=GXcopy;
+X  graphic_context_value.line_width=WindowBorderWidth;
+X  graphic_context_value.plane_mask=AllPlanes;
+X  graphic_context=XCreateGC(display,window->image.id,GCBackground |
+X    GCFont | GCForeground | GCFunction | GCLineWidth | GCPlaneMask,
+X    &graphic_context_value);
+X  if (graphic_context == (GC) NULL)
+X    return(False);
+X  /*
+X    Check boundary conditions.
+X  */
+X  if ((x+font_info->max_bounds.width) >= window->image.width)
+X    x=window->image.width-font_info->max_bounds.width;
+X  if (y < (font_info->ascent+font_info->descent))
+X    y=font_info->ascent+font_info->descent;
+X  if ((font_info->max_bounds.width > window->image.width) ||
+X      ((font_info->ascent+font_info->descent) >= window->image.height))
+X    return(False);
+X  /*
+X    Initialize annotate structure.
+X  */
+X  annotate_info=(XAnnotateInfo *) malloc(sizeof(XAnnotateInfo));
+X  if (annotate_info == (XAnnotateInfo *) NULL)
+X    return(False);
+X  XGetAnnotateInfo(annotate_info);
+X  annotate_info->x=x;
+X  annotate_info->y=y;
+X  annotate_info->height=font_info->ascent+font_info->descent;
+X  annotate_info->font_info=font_info;
+X  annotate_info->text=(char *) malloc(
+X    (window->image.width/Max(font_info->min_bounds.width,1)+2)*sizeof(char));
+X  if (annotate_info->text == (char *) NULL)
+X    return(False);
+X  /*
+X    Begin annotating the image with text.
+X  */
+X  state=DefaultState;
+X  cursor=XCreateFontCursor(display,XC_pencil);
+X  XRecolorCursor(display,cursor,&window->image.pixel_info->background_color,
+X    &window->image.pixel_info->foreground_color);
+X  XDefineCursor(display,window->image.id,cursor);
+X  XDrawString(display,window->image.id,graphic_context,x,y,"_",1);
+X  text_event.xexpose.width=(unsigned int) font_info->max_bounds.width;
+X  text_event.xexpose.height=annotate_info->height;
+X  p=annotate_info->text;
+X  *p='\0';
+X  do
+X  {
+X    /*
+X      Wait for next event.
+X    */
+X    XWindowEvent(display,window->image.id,ExposureMask | KeyPressMask,&event);
+X    switch (event.type)
+X    {
+X      case Expose:
+X      {
+X        if (event.xexpose.count == 0)
+X          {
+X            /*
+X              Refresh image window.
+X            */
+X            XRefreshWindow(display,&window->image,(XEvent *) NULL);
+X            XDrawString(display,window->image.id,graphic_context,
+X              annotate_info->x,annotate_info->y,annotate_info->text,
+X              strlen(annotate_info->text));
+X            XDrawString(display,window->image.id,graphic_context,x,y,"_",1);
+X          }
+X        break;
+X      }
+X      case KeyPress:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Erase text cursor.
+X        */
+X        text_event.xexpose.x=x;
+X        text_event.xexpose.y=y-font_info->max_bounds.ascent;
+X        XRefreshWindow(display,&window->image,&text_event);
+X        /*
+X          Respond to a user key press.
+X        */
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Control_L)
+X          {
+X            state|=ControlState;
+X            break;
+X          }
+X        if (state & ControlState)
+X          switch (key_symbol)
+X          {
+X            case XK_u:
+X            case XK_U:
+X            {
+X              key_symbol=XK_Delete;
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        switch (key_symbol)
+X        {
+X          case XK_BackSpace:
+X          {
+X            /*
+X              Erase one character.
+X            */
+X            if (p == annotate_info->text)
+X              if (annotate_info->previous == (XAnnotateInfo *) NULL)
+X                break;
+X              else
+X                {
+X                  /*
+X                    Go to end of the previous line of text.
+X                  */
+X                  annotate_info=annotate_info->previous;
+X                  p=annotate_info->text;
+X                  x=annotate_info->x+annotate_info->width;
+X                  y=annotate_info->y;
+X                  if (annotate_info->width > 0)
+X                    p+=strlen(annotate_info->text);
+X                  break;
+X                }
+X            p--;
+X            x-=XTextWidth(font_info,p,1);
+X            text_event.xexpose.x=x;
+X            text_event.xexpose.y=y-font_info->max_bounds.ascent;
+X            XRefreshWindow(display,&window->image,&text_event);
+X            break;
+X          }
+X          case XK_Delete:
+X          {
+X            /*
+X              Erase the entire line of text.
+X            */
+X            while (p != annotate_info->text)
+X            {
+X              p--;
+X              x-=XTextWidth(font_info,p,1);
+X              text_event.xexpose.x=x;
+X              XRefreshWindow(display,&window->image,&text_event);
+X            }
+X            break;
+X          }
+X          case XK_Escape:
+X          {
+X            /*
+X              Finished annotating.
+X            */
+X            annotate_info->width=XTextWidth(font_info,annotate_info->text,
+X              strlen(annotate_info->text));
+X            XRefreshWindow(display,&window->image,&text_event);
+X            state|=ExitState;
+X            break;
+X          }
+X          default:
+X          {
+X            /*
+X              Draw a single character on the image window.
+X            */
+X            if (*command == '\0')
+X              break;
+X            *p=(*command);
+X            XDrawString(display,window->image.id,graphic_context,x,y,p,1);
+X            x+=XTextWidth(font_info,p,1);
+X            p++;
+X            if ((x+font_info->max_bounds.width) < window->image.width)
+X              break;
+X          }
+X          case XK_Return:
+X          {
+X            /*
+X              Advance to the next line of text.
+X            */
+X            *p='\0';
+X            annotate_info->width=XTextWidth(font_info,annotate_info->text,
+X              strlen(annotate_info->text));
+X            if (annotate_info->next != (XAnnotateInfo *) NULL)
+X              {
+X                /*
+X                  Line of text already exists.
+X                */
+X                annotate_info=annotate_info->next;
+X                x=annotate_info->x;
+X                y=annotate_info->y;
+X                p=annotate_info->text;
+X                break;
+X              }
+X            annotate_info->next=(XAnnotateInfo *) malloc(sizeof(XAnnotateInfo));
+X            if (annotate_info->next == (XAnnotateInfo *) NULL)
+X              return(False);
+X            *annotate_info->next=(*annotate_info);
+X            annotate_info->next->previous=annotate_info;
+X            annotate_info=annotate_info->next;
+X            annotate_info->text=(char *) malloc((window->image.width/
+X              Max(font_info->min_bounds.width,1)+2)*sizeof(char));
+X            if (annotate_info->text == (char *) NULL)
+X              return(False);
+X            annotate_info->y+=annotate_info->height;
+X            if (annotate_info->y > window->image.height)
+X              annotate_info->y=annotate_info->height;
+X            annotate_info->next=(XAnnotateInfo *) NULL;
+X            x=annotate_info->x;
+X            y=annotate_info->y;
+X            p=annotate_info->text;
+X            break;
+X          }
+X        }
+X        /*
+X          Display text cursor.
+X        */
+X        *p='\0';
+X        XDrawString(display,window->image.id,graphic_context,x,y,"_",1);
+X        break;
+X      }
+X      case KeyRelease:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key release.
+X        */
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Control_L)
+X          state&=(~ControlState);
+X        break;
+X      }
+X      default:
+X        break;
+X    }
+X  } while (!(state & ExitState));
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  XFreeCursor(display,cursor);
+X  XFlush(display);
+X  /*
+X    Annotation is relative to image configuration.
+X  */
+X  x=0;
+X  y=0;
+X  width=image->columns;
+X  height=image->rows;
+X  if (window->image.clip_geometry != (char *) NULL)
+X    (void) XParseGeometry(window->image.clip_geometry,&x,&y,&width,&height);
+X  /*
+X    Initialize annotated image.
+X  */
+X  while (annotate_info != (XAnnotateInfo *) NULL)
+X  {
+X    if (annotate_info->width == 0)
+X      {
+X        /*
+X          No text on this line--  go to the next line of text.
+X        */
+X        previous_info=annotate_info->previous;
+X        (void) free((char *) annotate_info->text);
+X        (void) free((char *) annotate_info);
+X        annotate_info=previous_info;
+X        continue;
+X      }
+X    /*
+X      Determine foreground pixel index for font color.
+X    */
+X    window->image.pixel_info->annotate_color=pen_color;
+X    window->image.pixel_info->annotate_index=0;
+X    if (window->image.pixel_info->colors > 0)
+X      for (i=0; i < window->image.pixel_info->colors; i++)
+X        if (window->image.pixel_info->pixels[i] == pen_color.pixel)
+X          {
+X            window->image.pixel_info->annotate_index=i;
+X            break;
+X          }
+X    /*
+X      Define the annotate geometry string.
+X    */
+X    x_factor=UpShift(width)/window->image.ximage->width;
+X    annotate_info->x+=window->image.x;
+X    annotate_info->x=DownShift(annotate_info->x*x_factor);
+X    y_factor=UpShift(height)/window->image.ximage->height;
+X    annotate_info->y+=(window->image.y-font_info->ascent);
+X    annotate_info->y=DownShift(annotate_info->y*y_factor);
+X    (void) sprintf(annotate_info->geometry,"%ux%u%+d%+d\0",
+X      (unsigned int) DownShift(annotate_info->width*x_factor),
+X      (unsigned int) DownShift(annotate_info->height*y_factor),
+X      annotate_info->x+x,annotate_info->y+y);
+X    /*
+X      Annotate image with text.
+X    */
+X    status=XAnnotateImage(display,&window->image,annotate_info,False,image);
+X    if (status == 0)
+X      return(False);
+X    /*
+X      Free up memory.
+X    */
+X    previous_info=annotate_info->previous;
+X    (void) free((char *) annotate_info->text);
+X    (void) free((char *) annotate_info);
+X    annotate_info=previous_info;
+X  }
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  /*
+X    Free up memory.
+X  */
+X  if (font_info != window->image.font_info)
+X    XFreeFont(display,font_info);
+X  XFreeGC(display,graphic_context);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X C l i p I m a g e W i n d o w                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XClipImageWindow displays a rectangle whose sizes changes as the
+%  pointer moves.  When the mouse button is released, the geometry of the image
+%  region defined within the rectangle is returned.
+%
+%  The format of the XClipImageWindow routine is:
+%
+%    XClipImageWindow(display,resource_info,window,event,image,state)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o event: Specifies a pointer to a XEvent structure.  If it is NULL,
+%      the entire image is refreshed.
+%
+%    o image: Specifies a pointer to a Image structure.
+%
+%    o state: Specifies an unsigned int;  XClipImageWindow may return a
+%      modified state.
+%
+%
+*/
+static void XClipImageWindow(display,resource_info,window,event,image,state)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+XXEvent
+X  *event;
+X
+Image
+X  *image;
+X
+unsigned long int
+X  *state;
+{
+#define ClipRectangle(clip_info)  \
+{  \
+X  if ((clip_info.width*clip_info.height) >= MinimumClipArea) \
+X    {  \
+X      XSetFunction(display,window->image.graphic_context,GXinvert);  \
+X      XDrawRectangle(display,window->image.id,window->image.graphic_context,  \
+X        clip_info.x,clip_info.y,clip_info.width-1,clip_info.height-1);  \
+X      XSetFunction(display,window->image.graphic_context,GXcopy);  \
+X    }  \
+}
+#define MinimumClipArea  (unsigned int) 9
+X
+X  char
+X    text[2048];
+X
+X  int
+X    x_offset,
+X    y_offset;
+X
+X  XRectangle
+X    clip_info;
+X
+X  unsigned int
+X    status;
+X
+X  /*
+X    Set the width of info window.
+X  */
+X  (void) sprintf(text," %ux%u%+u%+u \0",window->image.width,
+X    window->image.height,window->image.width,window->image.height);
+X  XSetWindowExtents(window->info,text,2);
+X  /*
+X    Size rectangle as pointer moves until the mouse button is released.
+X  */
+X  x_offset=event->xbutton.x;
+X  y_offset=event->xbutton.y;
+X  clip_info.x=x_offset;
+X  clip_info.y=y_offset;
+X  clip_info.width=0;
+X  clip_info.height=0;
+X  do
+X  {
+X    if ((clip_info.width*clip_info.height) >= MinimumClipArea)
+X      {
+X        /*
+X          Display info and draw clipping rectangle.
+X        */
+X        if (!(*state & InfoMappedState))
+X          {
+X            XMapWindow(display,window->info.id);
+X            *state|=InfoMappedState;
+X          }
+X        (void) sprintf(text," %ux%u%+d%+d\0",clip_info.width,clip_info.height,
+X          clip_info.x,clip_info.y);
+X        XClearWindow(display,window->info.id);
+X        XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X          window->info.font_info->ascent+2,text,strlen(text));
+X        ClipRectangle(clip_info);
+X      }
+X    else
+X      if (*state & InfoMappedState)
+X        {
+X          /*
+X            Clipping rectangle is too small;  withdraw info window.
+X          */
+X          XWithdrawWindow(display,window->info.id,window->info.screen);
+X          *state&=(~InfoMappedState);
+X        }
+X    /*
+X      Wait for next event.
+X    */
+X    XWindowEvent(display,window->image.id,ButtonPressMask | ButtonMotionMask |
+X      ButtonReleaseMask | ExposureMask,event);
+X    ClipRectangle(clip_info);
+X    switch (event->type)
+X    {
+X      case ButtonPress:
+X        break;
+X      case ButtonRelease:
+X      {
+X        /*
+X          User has committed to clipping rectangle.
+X        */
+X        clip_info.x=event->xbutton.x;
+X        clip_info.y=event->xbutton.y;
+X        *state|=ExitState;
+X        break;
+X      }
+X      case Expose:
+X      {
+X        /*
+X          Refresh image window.
+X        */
+X        XRefreshWindow(display,&window->image,event);
+X        break;
+X      }
+X      case MotionNotify:
+X      {
+X        /*
+X          Discard pending button motion events.
+X        */
+X        while (XCheckMaskEvent(display,ButtonMotionMask,event));
+X        clip_info.x=event->xmotion.x;
+X        clip_info.y=event->xmotion.y;
+X      }
+X      default:
+X        break;
+X    }
+X    /*
+X      Check boundary conditions.
+X    */
+X    if (clip_info.x < 0)
+X      clip_info.x=0;
+X    else
+X      if (clip_info.x > window->image.width)
+X        clip_info.x=window->image.width-1;
+X    if (clip_info.x < x_offset)
+X      clip_info.width=(unsigned int) (x_offset-clip_info.x);
+X    else
+X      {
+X        clip_info.width=(unsigned int) (clip_info.x-x_offset);
+X        clip_info.x=x_offset;
+X      }
+X    if (clip_info.y < 0)
+X      clip_info.y=0;
+X    else
+X      if (clip_info.y > window->image.height)
+X        clip_info.y=window->image.height-1;
+X    if (clip_info.y < y_offset)
+X      clip_info.height=(unsigned int) (y_offset-clip_info.y);
+X    else
+X      {
+X        clip_info.height=(unsigned int) (clip_info.y-y_offset);
+X        clip_info.y=y_offset;
+X      }
+X  } while (!(*state & ExitState));
+X  *state&=(~ExitState);
+X  ClipRectangle(clip_info);
+X  ClipRectangle(clip_info);
+X  if (*state & InfoMappedState)
+X    XWithdrawWindow(display,window->info.id,window->info.screen);
+X  if ((clip_info.width*clip_info.height) >= MinimumClipArea)
+X    {
+X      int
+X        x,
+X        y;
+X
+X      unsigned int
+X        height,
+X        width;
+X
+X      unsigned long
+X        scale_factor;
+X
+X      XWindowChanges
+X        window_changes;
+X
+X      /*
+X        Clipping geometry is relative to any previous clip geometry.
+X      */
+X      x=0;
+X      y=0;
+X      width=image->columns;
+X      height=image->rows;
+X      if (window->image.clip_geometry != (char *) NULL)
+X        (void) XParseGeometry(window->image.clip_geometry,&x,&y,&width,&height);
+X      else
+X        {
+X          /*
+X            Allocate clip geometry string.
+X          */
+X          window->image.clip_geometry=(char *) malloc(2048*sizeof(char));
+X          if (window->image.clip_geometry == (char *) NULL)
+X            Error("unable to clip X image",window->image.name);
+X        }
+X      /*
+X        Define the clip geometry string from the clipping rectangle.
+X      */
+X      scale_factor=UpShift(width)/window->image.ximage->width;
+X      clip_info.x+=window->image.x;
+X      if (clip_info.x > 0)
+X        x+=DownShift(clip_info.x*scale_factor);
+X      width=DownShift(clip_info.width*scale_factor);
+X      if (width == 0)
+X        width=1;
+X      scale_factor=UpShift(height)/window->image.ximage->height;
+X      clip_info.y+=window->image.y;
+X      if (clip_info.y > 0)
+X        y+=DownShift(clip_info.y*scale_factor);
+X      height=DownShift(clip_info.height*scale_factor);
+X      if (height == 0)
+X        height=1;
+X      (void) sprintf(window->image.clip_geometry,"%ux%u%+d%+d\0",width,height,
+X        x,y);
+X      /*
+X        Image configuration has changed.
+X      */
+X      status=XConfigureImageWindow(display,resource_info,window,clip_info.width,
+X        clip_info.height,image);
+X      if (status == False)
+X        XPopupAlert(display,&window->popup,"unable to configure X image",
+X          window->image.name);
+X      /*
+X        Reconfigure image window as defined by clipping rectangle.
+X      */
+X      window_changes.width=clip_info.width;
+X      window_changes.height=clip_info.height;
+X      XReconfigureWMWindow(display,window->image.id,window->image.screen,
+X        CWWidth | CWHeight,&window_changes);
+X      *state|=ReconfigureImageState;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X C o m p o s i t e I m a g e W i n d o w                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XCompositeImageWindow requests an image name from the user, reads
+%  the image and composites it with the X window image at a location the user
+%  chooses with the pointer.
+%
+%  The format of the XCompositeImageWindow routine is:
+%
+%    XCompositeImageWindow(display,resource_info,window,image)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+*/
+static unsigned int XCompositeImageWindow(display,resource_info,window,image)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+Image
+X  **image;
+{
+#define CompositeRectangle(composite_info)  \
+{  \
+X  if ((composite_info.width*composite_info.height) > (unsigned int) 0) \
+X    {  \
+X      XSetFunction(display,window->image.graphic_context,GXinvert);  \
+X      XDrawRectangle(display,window->image.id,window->image.graphic_context,  \
+X        composite_info.x,composite_info.y,composite_info.width-1,  \
+X        composite_info.height-1);  \
+X      XSetFunction(display,window->image.graphic_context,GXcopy);  \
+X    }  \
+}
+X
+X  AlienInfo
+X    alien_info;
+X
+X  char
+X    filename[2048],
+X    text[2048];
+X
+X  Cursor
+X    cursor;
+X
+X  Image
+X    *composite_image;
+X
+X  int
+X    i,
+X    x,
+X    y;
+X
+X  static unsigned int
+X    operator = OverCompositeOp;
+X
+X  unsigned int
+X    height,
+X    mask,
+X    width;
+X
+X  unsigned long int
+X    scale_factor,
+X    state;
+X
+X  Window
+X    xwindow;
+X
+X  XEvent
+X    event;
+X
+X  XRectangle
+X    composite_info;
+X
+X  /*
+X    Request image file name from user.
+X  */
+X  *filename='\0';
+X  XPopupQuery(display,&window->popup,"File name:",filename);
+X  XFlush(display);
+X  if (*filename == '\0')
+X    return(True);
+X  /*
+X    Read image.
+X  */
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  XFlush(display);
+X  GetAlienInfo(&alien_info);
+X  (void) strcpy(alien_info.filename,filename);
+X  alien_info.server_name=resource_info->server_name;
+X  alien_info.font=resource_info->font;
+X  composite_image=ReadAlienImage(&alien_info);
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  if (composite_image == (Image *) NULL)
+X    {
+X      XPopupAlert(display,&window->popup,"unable to read image",filename);
+X      return(False);
+X    }
+X  /*
+X    Map info window.
+X  */
+X  state=DefaultState;
+X  (void) sprintf(text," %+u%+u  \0",window->image.width,window->image.height);
+X  XSetWindowExtents(window->info,text,2);
+X  XMapWindow(display,window->info.id);
+X  state|=InfoMappedState;
+X  /*
+X    Track pointer until button 1 is pressed.
+X  */
+X  XQueryPointer(display,window->image.id,&xwindow,&xwindow,&i,&i,&x,&y,&mask);
+X  composite_info.x=x;
+X  composite_info.y=y;
+X  composite_info.width=0;
+X  composite_info.height=0;
+X  XSelectInput(display,window->image.id,window->image.attributes.event_mask |
+X    PointerMotionMask);
+X  do
+X  {
+X    if (state & InfoMappedState)
+X      {
+X        /*
+X          Display pointer position.
+X        */
+X        (void) sprintf(text," %+d%+d \0",x-window->image.x,y-window->image.y);
+X        XClearWindow(display,window->info.id);
+X        XDrawImageString(display,window->info.id,window->info.graphic_context,2,
+X          window->info.font_info->ascent+2,text,strlen(text));
+X      }
+X    CompositeRectangle(composite_info);
+X    /*
+X      Wait for next event.
+X    */
+X    XWindowEvent(display,window->image.id,ButtonPressMask | ButtonReleaseMask |
+X      ExposureMask | KeyPressMask | PointerMotionMask,&event);
+X    CompositeRectangle(composite_info);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        if ((event.xbutton.button == Button3) &&
+X            (event.xbutton.state & Mod1Mask))
+X          {
+X            /* 
+X              Convert Alt-Button3 to Button2.
+X            */
+X            event.xbutton.button=Button2;
+X            event.xbutton.state&=(~Mod1Mask);
+X          }
+X        switch (event.xbutton.button)
+X        {
+X          case Button1:
+X          {
+X            composite_info.width=composite_image->columns;
+SHAR_EOF
+true || echo 'restore of ImageMagick/display.c failed'
+fi
+echo 'End of  part 11'
+echo 'File ImageMagick/display.c is continued in part 12'
+echo 12 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

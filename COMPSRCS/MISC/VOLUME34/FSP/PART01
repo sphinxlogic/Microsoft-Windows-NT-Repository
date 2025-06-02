@@ -1,0 +1,1670 @@
+Newsgroups: comp.sources.misc
+From: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Subject:  v34i075:  fsp - Internet archive server and client software, Part01/04
+Message-ID: <csm-v34i075=fsp.103634@sparky.IMD.Sterling.COM>
+X-Md4-Signature: e53f6328197817d4cfab9d251250eef6
+Date: Fri, 18 Dec 1992 16:38:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wen-king@vlsi.cs.caltech.edu (Wen-King Su)
+Posting-number: Volume 34, Issue 75
+Archive-name: fsp/part01
+Environment: UNIX, Sockets
+
+This is version 2.6.4 of FSP.  This supersedes the version previously
+posted in comp.sources.unix.
+
+FSP is a set of programs that implements a public-access archive
+similar to an anonymous-FTP archive.  It is not meant to be a
+replacement for ftp; it is only meant to do what anonymous-ftp
+does, but in a manner more acceptible to the provider of the
+service and more friendly to the clients. 
+
+Providing anonymous-FTP service can be costly --- each active
+session consumes one process slot in the OS and one stream socket
+entry in the network sub-system.  The servers can also run
+concurrently, adding to the system load.  A popular archive site
+can easily be overwhelmed as a result.
+
+FSP seeks to overcome the problem using a single server that
+handles an arbitrary number of concurrent transactions while
+keeping the load added to the server machine to one or below.
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  INFO Makefile bsd_src server_file.c server_lib.c
+# Wrapped by kent@sparky on Fri Dec 18 10:21:24 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 4)."'
+if test -f 'INFO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INFO'\"
+else
+  echo shar: Extracting \"'INFO'\" \(16037 characters\)
+  sed "s/^X//" >'INFO' <<'END_OF_FILE'
+X						Interested party please email
+X						wen-king@vlsi.cs.caltech.edu
+X    What is the purpose of FSP (V2.6):
+X
+X	FSP is a set of programs that implements a public-access archive
+X	similar to an anonymous-FTP archive.  It is not meant to be a
+X	replacement for ftp; it is only meant to do what anonymous-ftp
+X	does, but in a manner more acceptible to the provider of the
+X	service and more friendly to the clients. 
+X
+X	Providing anonymous-FTP service can be costly --- each active
+X	session consumes one process slot in the OS and one stream socket
+X	entry in the network sub-system.  The servers can also run
+X	concurrently, adding to the system load.  A popular archive site
+X	can easily be overwhelmed as a result.  Some were forced to
+X	shutdown or and some impose inconvienent access restrictions. 
+X
+X	Unlike FTP, FSP is connection-less and virtually state-less.  One
+X	server handles requests from all clients machines.  Each active
+X	client machine takes up 16-bytes in a dynamically extensible
+X	table.  Since only one server exists on a server machine at any
+X	time, the load added to the server machine is no more than one. 
+X
+X	In exchange for allowing site operators to keep their sites open
+X	and do away with cumbersome access restrictions, this is what the
+X	clients accept with FSP: 
+X
+X	 1) Lower transfer rate.  The maximum rate is 1 kbyte per UDP
+X	    message round-trip time between the client and the server.
+X	
+X	In addition to the potential for more abundant sites and more
+X	accessible sites, this is what the clients gain with FSP:
+X
+X	 1) Robustness.  Since FSP is connectionless, flucturations in
+X	    the network will not abort a FSP transaction.  Furthermore,
+X	    the 16-bytes of data for each client can be regenerated at
+X	    any point during any transaction.  Thus, if the server goes
+X	    down at any point during a transaction, the transaction will
+X	    resume when the server is restarted.  (like NFS) 
+X
+X	 2) Friendlier user interface.  FSP does not have its own command
+X	    interpretor like FTP.  Since it is connectionless, there is
+X	    no reason to carry much information from one command to the
+X	    next, and the commands can all be made into individual unix
+X	    programs.  For instance, there is one program you run to list
+X	    the directory and another you run to download a file. 
+X
+X	 3) Client protection.  FSP oversees a directory structure similar
+X	    to that of an anonymous-FTP.  However, a directory created
+X	    via FSP transaction is owned by the client machine that issued
+X	    the creation request.  The client can create and delete files
+X	    and subdirectories in that directory.  In addition, the client
+X	    can enable any of the two attributes for that directory: 
+X
+X		A) Give all other clients the permission to create files
+X		   and subdirectries.
+X
+X		B) Give all other clients the permission to delete files
+X		   and subdirectories.
+X
+X	    Note: A subdirectory can be deleted if it is empty and the
+X		  client owns the subdirectory.
+X
+X	 4) Server protection.  FSP server does not spawn sub-programs.
+X	    It will accept only paths that are downward relative to its
+X	    designated working directory.  On systems with symbolic links,
+X	    the server will follow symbolic links, but it does not follow
+X	    uplinks ("..").  Clients cannot create symbolic links and
+X	    care should be taken so that other users on the server machine
+X	    cannot create symbolic links in the server's work space. 
+X
+X	    It is also fairly difficult to formuate an attack to force a
+X	    shutdown of a FSP site by actions of a rogue site.  About the
+X	    only way to distrupt a FSP service is to flood the FSP site
+X	    with network packets.  FSP server prevents itself from
+X	    'counter-flooding' by filtering for legitimate requests using
+X	    the following method:
+X
+X		A) Each request message contains a key.  For each client,
+X		   server database contains the keys to be used for the
+X		   next client request and for the previous client request.
+X
+X		B) If the next request does not contain a key that matches
+X		   either of the two keys, it is accepted only if at least
+X		   one minute has elapsed since the last time a request
+X		   is accepted.  If the key does match the old key
+X		   (retransmit by client) it is accepted if the elapse time
+X		   is greater than 3 seconds.
+X
+X		C) Every request message accepted is acknowledged with
+X		   one reply message.  The reply message contains a new
+X		   key to used for the next request.  The new key is
+X		   computed by the server with a pseudo-random number
+X		   generator. 
+X
+X	    Flooding is a ballant violation of network etiquette because
+X	    a site can be subjected to flooding attack whether it has FSP
+X	    running or not, and flooding congests every link and gateway
+X	    between the rogue client and the server.  As a further measure
+X	    of protection, the server loads a table of rogue clients on
+X	    startup.  The server will not respond to requests from any of
+X	    those clients.
+X
+X    The software set:
+X
+X	common_def.h	This C header file contains definitions common to
+X			both the server code and the client code.
+X
+X	client_def.h	This C header file contains definitions for the
+X			client code.
+X
+X	server_def.h	This C header file contains definitions for the
+X			server code.
+X
+X	udp_io.c	This file contains the lowest level routines that
+X			deal with the unix inet sockets.  This file is
+X			used by both the server code and the client code.
+X
+X	server_main.c	Main routine and dispatch loop for the server.
+X	server_host.c	Routines for maintaining client database.
+X	server_file.c	Routines for file i/o.
+X	server_lib.c	Routines for inet socket i/o.
+X
+X	client_lib.c	Core routines of the client library.
+X	client_util.c	Supplementry routines of the client library.
+X	client_lock.c	udp packet multiplexing mechanism.
+X
+X	bsd_src/	Directory containing additional sources derived
+X			from those in public archive on uunet.uu.net.  It
+X			contains a BSD random/srandom routine, a modified
+X			BSD globbing routine, a modified "ls" source.
+X
+X	fcdcmd.c	These compiles into individual client utilities.
+X	fgetcmd.c	Those with a "cmd" in their name will do their
+X	flscmd.c	own globbing on their argv base on directory
+X	fprocmd.c	information obtained from the server.
+X	frmcmd.c
+X	frmdircmd.c
+X	fcatcmd.c
+X	fmkdir.c
+X	fput.c
+X	fver.c
+X	fgrab.c
+X
+X	merge.c		This file is used to call the other client programs
+X			when program merging option is used.  Rather than
+X			compiling into individual client utility programs,
+X			users may opt to build a single program which
+X			contains all client funtionalities, which are to
+X			be distinguished at run time by the name used to
+X			activate the program.  Significant space saving can
+X			be achieved on some machines. 
+X
+X    Compilation:
+X
+X	FSP has been compiled and tested by me on a SS-2 running SunOs
+X	4.1.1, a HP-9000 running HP UNIX, a VAX-780 running 4.3-tahoe,
+X	and a 386 box running system-V UNIX with old Excelan ethernet
+X	interface.  It has also been compiled on a variety of machines
+X	by over hundreds users all over the world. 
+X
+X	To compile the software, you must first successfully complete a
+X	"make" in the bsd_src directory.  You may have to change a few
+X	files.  In particular, you may have to edit "Makefile" and "tweak.h"
+X	in bsd_src directory. 
+X
+X	When that is done, you can edit the Makefile on the top directory
+X	and run "make" in the top directory, or "make merge" if you want
+X	to combine all client programs into one single file.  You may wish
+X	to read through the rest of this document first before making
+X	changes to the Makefile. 
+X
+X	After "make" or "make merge" finished, you may use "make install"
+X	or "make install-merge" to install the programs.  Man pages may be
+X	installed by "make installm".
+X
+X	IMPORTANT NOTE: You do not need to run the fspd process if you only
+X	want to access existing fsp archives.  fspd processs is needed only
+X	if you want to setup and archive for public access.
+X
+X    Server Administration:
+X
+X	The only things you need for setting up a FSP server is a work
+X	directory for the service and and the FSP server itself (fspd).
+X	fspd can run independently or it can be run under inetd.  When
+X	running independently, fspd waits for messages through a UDP
+X	socket whoes port number is defined in the Makefile.  When running
+X	under inetd, fspd is involked as in.fspd.  inetd will spawn fspd
+X	when a message arrives for the FSP socket.  The fspd process will
+X	take over and stick around to wait on additional messages.  After
+X	it has become idle for 2 minutes, fspd will exit and return control
+X	to inetd. 
+X
+X	Sample setup for inetd operation:
+X
+X	    In /etc/services file:
+X
+X		fsp             21/udp          fspd
+X
+X	    In /etc/inetd.conf file:
+X
+X		fsp dgram   udp wait ftp /usr/etc/fspd in.fspd
+X
+X	    In this sample, the same port number for ftp is used for the
+X	    fsp socket.  There will not be a conflict because ftp uses
+X	    stream protocol, and fsp uses UDP protocol.  The fspd program
+X	    in this example is ran under user 'ftp'. 
+X
+X	In addition, fspd will accept these flags:
+X
+X	    -h absolute_path    Set fsp work directory.  Overrides the
+X				compiled-in default.
+X
+X	    -p udp_port_number  Set UDP port number.  Overrides the
+X				compiled-in default.
+X
+X	    -u uid_number       Assume this uid after startup.  If present,
+X				fspd will attempt a setuid() to this uid
+X				number.  It will exit if setuid() fails.
+X
+X	    -d                  Turn on debug mode.  The stdio files will
+X				remain open in debugging mode.
+X
+X	When fspd starts, it chdir to its work directory where it looks
+X	for (and reads in if found) a list of internet numbers in the
+X	standard 4-part form: ddd.ddd.ddd.ddd in the file ".ROGUE_HOSTS".
+X	This file is prepared by the FSP maintainer, and is used to
+X	indicate that fspd should not respond to any requests from these
+X	machines.   After that, it begins to service any requests it gets
+X	on the UDP socket.
+X
+X	If a file .OWN.XXXXXXXX, where XXXXXXXX is an 8-digit hex number,
+X	exists in a directory in fspd's work space, the directory is owned
+X	by the machine whoes inet number is XXXXXXXX (an integer stored
+X	in the network byte order), where the number is printed as a
+X	hexadecimal number.  If no such file exists, the directory has
+X	no owner.  (Note, the 'dot' files are hidden from clients). 
+X
+X	If the file .FSP_OK_DEL does not exists in a directory, only the
+X	owner is allowed to remove items from that directory. 
+X
+X	If the file .FSP_OK_ADD does not exists in a directory, only the
+X	owner is allowed to add items into that directory. 
+X
+X	Thus, you typically want to protect the top directory by leaving
+X	out the .FSP_OK_DEL, .FSP_OK_ADD files, and .OWN.XXXXXXXX files
+X	in the top directory. 
+X
+X	Clients do not get to read the directory information directly.
+X	Instead, fspd maintains a directory listing for each directory
+X	in a cache file.  If the directory is writable by fspd, or if a
+X	writable file in it is prepared beforehand, fspd will store the
+X	directory information in .FSP_CONTENT file in that directory.
+X	Otherwise, it will store the information in a pair of files (with
+X	hashed names) in a special directory specified by the variable
+X	DEF_DIRECTORY_CACHE in Makefile.  The later allows read-only
+X	directories to be exported. 
+X
+X	When a client requests information for a directory, the cache
+X	file is created if it doesn't exist, and it is rebuilt if it is
+X	out of date.  The information is accessed by having the client
+X	read the directory listing file. Care is taken so that the client
+X	will not get corrupted entries when the directory is changed while
+X	the listing is being read.
+X
+X	Files being uploaded are first written to a temporary file in the
+X	work directory: .TXXXXXXXXYYYY where XXXXXXXX is the inet number
+X	of the client, and YYYY is the port number of the client program.
+X	When upload is compelete, the file is moved into the intended
+X	location. 
+X
+X	Sending it an 'alarm' signal will cause fspd to dump its current
+X	client database into the file .HTAB_DUMP in the work directory.
+X	This can be useful for debugging and for catching rogue clients.
+X
+X    Client utilities:
+X
+X	All inter-command states are kept in these three shell environment
+X	variables.
+X
+X	    FSP_PORT		Port number of the fspd you wish to contact.
+X	    FSP_HOST		Host name or number of the fspd.
+X	    FSP_DIR		Your current working directory in the archive.
+X
+X	When multiple client utilities are run at the same time on the
+X	same client machine, packet multiplexing mechanisms can be used
+X	to enable concurrent access to the same fsp database.  If none
+X	of the mechanisms are selected at compile time, FSP_LOCALPORT
+X	can be used to ensure that only once client utility can run at
+X	any time.  In this case, FSP_LOCALPORT can be set to any port
+X	number not current used on the client machine.
+X
+X	FSP_TRACE can be set if you want status reports be printed while
+X	files are being transferred.  FSP_DELAY variable can be used to
+X	set the retransmit interval for client utilities (in thousandth
+X	of a second).  The retransmit rate is adjusted in an exponential
+X	manner, until the retry rate reaches 5 mintes per retry.
+X
+X	FSP_BUF_SIZE can be set to a positive number less than or equal
+X	to 1024.  When set, it determines the size of data to be send for
+X	each request during file and directory information transfer.  The
+X	default is 1024.  Some sites are connected via links that cannot
+X	transmit buffers containing 1024 bytes of data in addition to the
+X	header information.  Setting FSP_BUF_SIZE to a lower value will
+X	allow these sites to access fsp archives.
+X
+X	A typical setup looks like this:
+X
+X	    setenv FSP_PORT	 21
+X	    setenv FSP_HOST	 131.215.131.97
+X	    setenv FSP_DIR	 /
+X	    setenv FSP_TRACE
+X	    setenv FSP_DELAY	 3000
+X	    setenv FSP_BUF_SIZE  1024
+X
+X	(All examples will be in csh.  However, it is assumed that similar
+X	 things can be done with other shells)
+X
+X	For commands that do globbing using remote directory info, normal
+X	shell globbing needs to be turned off.  In csh, it can be done
+X	with a set of aliases: 
+X
+X	    alias fcd setenv FSP_DIR \`\(set noglob\; exec fcdcmd \!\*\)\`
+X	    alias fls    \(set noglob\; exec flscmd    \!\*\)
+X	    alias fget   \(set noglob\; exec fgetcmd   \!\*\)
+X	    alias fgrab  \(set noglob\; exec fgrabcmd  \!\*\)
+X	    alias fcat   \(set noglob\; exec fcatcmd   \!\*\)
+X	    alias frm    \(set noglob\; exec frmcmd    \!\*\)
+X	    alias frmdir \(set noglob\; exec frmdircmd \!\*\)
+X	    alias fpro   \(set noglob\; exec fprocmd   \!\*\)
+X	
+X	In addtion, these alias are useful:
+X
+X	    alias fpwd echo \$FSP_DIR on \$FSP_HOST port \$FSP_PORT
+X	    alias fsethost setenv FSP_DIR \/\; setenv FSP_HOST \!\:1\; \
+X					       setenv FSP_PORT \!\:2
+X
+X	    The second one is a user contribution.  It allows one to set
+X	    the FSP_HOST, FSP_PORT, and to initialize FSP_DIR in one command.
+X
+X	Commands:
+X
+X	    fver	display server's version number.
+X	    fcd		change current remote directory, like cd.
+X	    fls		list directory.  works like ls.
+X	    fget	get the named files.
+X	    fgrab	get the named file and delete it from remote directory.
+X	    fput	put the named files.
+X	    fcat	get the named files and send them to stdout.
+X	    fmkdir	make named directories.
+X	    frm		delete named files.
+X	    frmdir	delete named directories.
+X
+X	    fpro	no arg: display directory protection modes.
+X			    +c: give others permission to create new items.
+X			    -c: deny others permission to create new items.
+X			    +d: give others permission to delete old items.
+X			    -d: deny others permission to delete old items.
+X
+X    ***********************************************************************
+X
+X    This is a free software.  Be creative; make your own macros and tools
+X    and let me know of any bugs and suggestions.
+X
+X    A mailing list for the discussion of the FSP software is now available
+X    (started Oct 2, 1992.)  To get on the list, send an email stating
+X    that you want to be on the FSP list to the following address:
+X
+X        listmaster@Germany.EU.net
+X
+X    Articles to be distributed to the subscribers should be sent to the
+X    following email address:
+X
+X        fsp-discussion@Germany.EU.net
+END_OF_FILE
+  if test 16037 -ne `wc -c <'INFO'`; then
+    echo shar: \"'INFO'\" unpacked with wrong size!
+  fi
+  # end of 'INFO'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(13388 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#############################################################################
+X# You need to do a successful 'make' in the bsd_src directory first before
+X# trying to run 'make' in this directory.  The bsd_src directory contains
+X# several files derived from those found in the ftp.uu.net archive.
+X# Run "make install" to install binaries.
+X# Run "make installm" to install man pages.
+X# Run "make de-install" to remove installed binaries and man pages.
+X
+X#############################################################################
+X# This is where you want to install the binary
+X#
+XBIN=/usr/local/bin
+X
+X#############################################################################
+X# This is where you want to install the man pages, don't worry about it if
+X# you don't plan to install man pages.
+X#
+XMAN=/usr/local/man/man1
+X
+X#############################################################################
+X# If you want to provide FSP service, this should be set to the working
+X# directory of the FSP server.  Don't worry about it and other server-related
+X# definitions if you do not plan to start a FSP server.
+X#
+XDEF_FSP_HOME=/usr/tmp/fsp_home
+X
+X#############################################################################
+X# If the server is to run on a machine with file name length limit, set the
+X# following variable to the length.  Otherwise, set it to something big.
+X#
+XFILE_NAME_LIMIT=99999
+X
+X#############################################################################
+X# If you want to provide FSP service, this should be set to the UDP socket
+X# port number the FSP server should use.
+X#
+XDEF_FSP_PORT=21
+X
+X#############################################################################
+X# FSP servers normally keep a directory listing file in each directory it
+X# exports.  In situation where this is not appropriate, FSP can store the
+X# listing in another directory instead.  DEF_DIRECTORY_CACHE should contain
+X# a directory where such a listing is to be placed.  The path is relative
+X# to DEF_FSP_HOME unless it starts with a '/'.  FSP server also uses this
+X# directory to hold temporary files during upload, so this variable must
+X# refer to a valid directory even if all subdirectories are writable by
+X# the fspd process.
+X
+XDEF_DIRECTORY_CACHE=.
+X
+X# MAX_DIR_CACHE_COUNT should contain the number of listings to be cached in
+X# DEF_DIRECTORY_CACHE.  The number should be a power of 2.
+X
+XMAX_DIR_CACHE_COUNT=16
+X
+X# ALWAYS_USE_CACHE_DIR should be 1 if you want it used as the default way to
+X# store directory listing files.  (Note, .FSP_CONTENT files will still be
+X# used if they alreay exist.
+X
+XALWAYS_USE_CACHE_DIR=0
+X
+X#############################################################################
+X# This is where the version number string comes from:
+X#
+XVERSION_STR="Original Caltech version 2.6.4, December 1992"
+X
+X#############################################################################
+X# FSP uses BSD random/srandom functions.  If your system does not have
+X# them, include them from the bsd_src directory.
+X#
+X#RANDOM=bsd_src/random.o
+X
+X#############################################################################
+X# Below are definitions related to the client utilities.
+X#############################################################################
+X# If your machine has either lockf or flock functions, you may be able to
+X# compile the client codes so that multiple client commands can be run
+X# concurrently.  Uncomment one of the following and set the LOCK_PREFIX
+X# string appropriately.  In most cases, they are prefixes used to create 
+X# a lock file in your file system.  There are some restrictions, for example
+X# on SunOS, lock files may not be on a file system of type tmp.  The most
+X# efficient locking choice is the one that uses SysV shared memory plus lockf.
+X# Note, it is possible for some UNIX to have hooks for the locking mechanism
+X# exist in the C library but unsupported in the kernel.  In such a case,
+X# compilation will complete normally, but you will get run time errors.
+X#
+X#LOCK_FLAGS= -DUSE_SHAREMEM_AND_LOCKF -DKEY_PREFIX=\"/usr/tmp/.FL\"
+X#LOCK_FLAGS= -DUSE_FLOCK -DKEY_PREFIX=\"/usr/tmp/.FL\"
+X#LOCK_FLAGS= -DUSE_LOCKF -DKEY_PREFIX=\"/usr/tmp/.FL\"
+XLOCK_FLAGS= -DNOLOCKING
+X
+X#############################################################################
+X# The following variable defines the compiler to use in your compilation.
+XCC=cc
+X
+X#############################################################################
+X# Include -DDIRENT in CFLAGS if you have /usr/include/dirent.h.
+X# Remove  -DDIRENT if you do not.
+XCFLAGS=-g -DDIRENT
+X
+X#############################################################################
+X# If you need to link in any additional libraries, do it here.
+X# AT&T 3B2/600G + AT&T Unix Sys V R 3.2.3 + WIN/TCP R 3.2 use -lnet -lnsl_s 
+XLIB=
+X
+XSHELL=/bin/sh
+X
+XPROGS=	flscmd fcdcmd fgetcmd frmcmd frmdircmd fprocmd \
+X	fmkdir fput fver fcatcmd fgrabcmd
+X
+XIPROGS=	${BIN}/flscmd ${BIN}/fcdcmd \
+X	${BIN}/fgetcmd ${BIN}/frmcmd ${BIN}/frmdircmd ${BIN}/fprocmd \
+X	${BIN}/fmkdir ${BIN}/fput ${BIN}/fver ${BIN}/fcatcmd ${BIN}/fgrabcmd
+X
+XIMANS=	${MAN}/fcatcmd.1 ${MAN}/fcat.1 ${MAN}/fcdcmd.1 ${MAN}/fcd.1 \
+X	${MAN}/fgetcmd.1 ${MAN}/fget.1 ${MAN}/flscmd.1 ${MAN}/fls.1 \
+X	${MAN}/fmkdir.1 ${MAN}/fprocmd.1 ${MAN}/fpro.1 ${MAN}/fput.1 \
+X	${MAN}/frmcmd.1 ${MAN}/frm.1 ${MAN}/frmdircmd.1 ${MAN}/frmdir.1 \
+X	${MAN}/fspd.1 ${MAN}/fver.1 ${MAN}/fgrab.1 ${MAN}/fgrabcmd.1
+X
+Xall:
+X	@ cd bsd_src; make CC="${CC}" CFLAGS="${CFLAGS}"
+X	@ make all1
+X
+Xmerge:
+X	@ cd bsd_src; make
+X	@ make fspd fsp_client_merge
+X
+Xall1:	  ${PROGS} fspd
+Xinstall:  ${IPROGS} ${BIN}/fspd
+Xinstallm: ${IMANS}
+X
+Xinstall-merge: ${BIN}/fspd fsp_client_merge
+X	- rm -f ${IPROGS} ${BIN}/fsp_client_merge
+X	cp fsp_client_merge ${BIN}/fsp_client_merge
+X	for A in ${IPROGS} ; do ln ${BIN}/fsp_client_merge $$A; done
+X	rm -f ${BIN}/fsp_client_merge
+X
+XSERVER_OBJ= server_main.o server_lib.o server_host.o udp_io.o server_file.o
+XCLIENT_OBJ= client_lib.o udp_io.o client_util.o client_lock.o
+XGLOB_OBJ= bsd_src/glob.o
+XUTIL_LS_OBJ= bsd_src/cmp.o bsd_src/ls.o bsd_src/print.o bsd_src/util.o \
+X		${GLOB_OBJ}
+X
+X#############################################################################
+X
+Xfspd: ${SERVER_OBJ} ${RANDOM}
+X	${CC} ${CFLAGS} -o fspd ${SERVER_OBJ} ${RANDOM} ${LIB}
+X
+Xfgetcmd: fgetcmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o fgetcmd fgetcmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xfgrabcmd: fgrabcmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o fgrabcmd fgrabcmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xfcatcmd: fcatcmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o fcatcmd fcatcmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xfput: fput.o ${CLIENT_OBJ}
+X	${CC} ${CFLAGS} -o fput fput.o ${CLIENT_OBJ} ${LIB}
+X
+Xfrmcmd: frmcmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o frmcmd frmcmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xflscmd: flscmd.o ${CLIENT_OBJ} ${UTIL_LS_OBJ}
+X	${CC} ${CFLAGS} -o flscmd flscmd.o ${CLIENT_OBJ} ${UTIL_LS_OBJ} ${LIB}
+X
+Xfcdcmd: fcdcmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o fcdcmd fcdcmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xfrmdircmd: frmdircmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o frmdircmd frmdircmd.o ${CLIENT_OBJ} ${GLOB_OBJ} \
+X									${LIB}
+X
+Xfprocmd: fprocmd.o ${CLIENT_OBJ} ${GLOB_OBJ}
+X	${CC} ${CFLAGS} -o fprocmd fprocmd.o ${CLIENT_OBJ} ${GLOB_OBJ} ${LIB}
+X
+Xfmkdir: fmkdir.o ${CLIENT_OBJ}
+X	${CC} ${CFLAGS} -o fmkdir fmkdir.o ${CLIENT_OBJ} ${LIB}
+X
+Xfver: fver.o ${CLIENT_OBJ}
+X	${CC} ${CFLAGS} -o fver fver.o ${CLIENT_OBJ} ${LIB}
+X
+Xfver.o: fver.c client_def.h common_def.h Makefile
+X	${CC} ${CFLAGS} -c -DVERSION_STR=\"${VERSION_STR}\" fver.c
+X
+X#############################################################################
+X
+XMERGE_OBJ = fcatcmd_merge.o fcdcmd_merge.o fgetcmd_merge.o fgrabcmd_merge.o \
+X	    flscmd_merge.o fmkdir_merge.o fprocmd_merge.o fput_merge.o \
+X	    frmcmd_merge.o frmdircmd_merge.o fver_merge.o
+X
+Xfgetcmd_merge.o: fgetcmd.o
+X	echo '#include "fgetcmd.c"' > fgetcmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fgetcmd_main fgetcmd_merge.c
+X	rm -f fgetcmd_merge.c
+X
+Xfgrabcmd_merge.o: fgrabcmd.o
+X	echo '#include "fgrabcmd.c"' > fgrabcmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fgrabcmd_main fgrabcmd_merge.c
+X	rm -f fgrabcmd_merge.c
+X
+Xfcatcmd_merge.o: fcatcmd.o
+X	echo '#include "fcatcmd.c"' > fcatcmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fcatcmd_main fcatcmd_merge.c
+X	rm -f fcatcmd_merge.c
+X
+Xfput_merge.o: fput.o
+X	echo '#include "fput.c"' > fput_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fput_main fput_merge.c
+X	rm -f fput_merge.c
+X
+Xfrmcmd_merge.o: frmcmd.o
+X	echo '#include "frmcmd.c"' > frmcmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=frmcmd_main frmcmd_merge.c
+X	rm -f frmcmd_merge.c
+X
+Xflscmd_merge.o: flscmd.o
+X	echo '#include "flscmd.c"' > flscmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=flscmd_main flscmd_merge.c
+X	rm -f flscmd_merge.c
+X
+Xfcdcmd_merge.o: fcdcmd.o
+X	echo '#include "fcdcmd.c"' > fcdcmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fcdcmd_main fcdcmd_merge.c
+X	rm -f fcdcmd_merge.c
+X
+Xfrmdircmd_merge.o: frmdircmd.o
+X	echo '#include "frmdircmd.c"' > frmdircmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=frmdircmd_main frmdircmd_merge.c
+X	rm -f frmdircmd_merge.c
+X
+Xfprocmd_merge.o: fprocmd.o
+X	echo '#include "fprocmd.c"' > fprocmd_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fprocmd_main fprocmd_merge.c
+X	rm -f fprocmd_merge.c
+X
+Xfmkdir_merge.o: fmkdir.o
+X	echo '#include "fmkdir.c"' > fmkdir_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fmkdir_main fmkdir_merge.c
+X	rm -f fmkdir_merge.c
+X
+Xfver_merge.o: fver.o Makefile
+X	echo '#include "fver.c"' > fver_merge.c
+X	${CC} ${CFLAGS} -c -Dmain=fver_main -DVERSION_STR=\"${VERSION_STR}\" \
+X				fver_merge.c
+X	rm -f fver_merge.c
+X
+Xfsp_client_merge: merge.o ${MERGE_OBJ} ${CLIENT_OBJ} ${UTIL_LS_OBJ}
+X	${CC} -o fsp_client_merge merge.o ${MERGE_OBJ} \
+X				${CLIENT_OBJ} ${UTIL_LS_OBJ} ${LIB}
+X
+X#############################################################################
+X
+X
+X${BIN}/fspd     : fspd      ; cp fspd      ${BIN}/fspd
+X${BIN}/fgetcmd  : fgetcmd   ; cp fgetcmd   ${BIN}/fgetcmd
+X${BIN}/fgrabcmd : fgrabcmd  ; cp fgrabcmd  ${BIN}/fgrabcmd
+X${BIN}/fcatcmd  : fcatcmd   ; cp fcatcmd   ${BIN}/fcatcmd
+X${BIN}/fput     : fput      ; cp fput      ${BIN}/fput
+X${BIN}/frmcmd   : frmcmd    ; cp frmcmd    ${BIN}/frmcmd
+X${BIN}/flscmd   : flscmd    ; cp flscmd    ${BIN}/flscmd
+X${BIN}/fcdcmd   : fcdcmd    ; cp fcdcmd    ${BIN}/fcdcmd
+X${BIN}/frmdircmd: frmdircmd ; cp frmdircmd ${BIN}/frmdircmd
+X${BIN}/fprocmd  : fprocmd   ; cp fprocmd   ${BIN}/fprocmd
+X${BIN}/fmkdir   : fmkdir    ; cp fmkdir    ${BIN}/fmkdir
+X${BIN}/fver     : fver      ; cp fver      ${BIN}/fver
+X
+X#############################################################################
+X
+X${MAN}/fcat.1     : fcatcmd.1  ; cp fcat.1      ${MAN}/fcat.1
+X${MAN}/fcatcmd.1  : fcatcmd.1  ; cp fcatcmd.1   ${MAN}/fcatcmd.1
+X${MAN}/fcd.1      : fcdcmd.1   ; cp fcd.1       ${MAN}/fcd.1
+X${MAN}/fcdcmd.1   : fcdcmd.1   ; cp fcdcmd.1    ${MAN}/fcdcmd.1
+X${MAN}/fget.1     : fgetcmd.1  ; cp fget.1      ${MAN}/fget.1
+X${MAN}/fgetcmd.1  : fgetcmd.1  ; cp fgetcmd.1   ${MAN}/fgetcmd.1
+X${MAN}/fgrab.1    : fgrabcmd.1 ; cp fgrab.1     ${MAN}/fgrab.1
+X${MAN}/fgrabcmd.1 : fgrabcmd.1 ; cp fgrabcmd.1  ${MAN}/fgrabcmd.1
+X${MAN}/fls.1      : flscmd.1   ; cp fls.1       ${MAN}/fls.1
+X${MAN}/flscmd.1   : flscmd.1   ; cp flscmd.1    ${MAN}/flscmd.1
+X${MAN}/fmkdir.1   : fmkdir.1   ; cp fmkdir.1    ${MAN}/fmkdir.1
+X${MAN}/fpro.1     : fprocmd.1  ; cp fpro.1      ${MAN}/fpro.1
+X${MAN}/fprocmd.1  : fprocmd.1  ; cp fprocmd.1   ${MAN}/fprocmd.1
+X${MAN}/fput.1     : fput.1     ; cp fput.1      ${MAN}/fput.1
+X${MAN}/frm.1      : frmcmd.1   ; cp frm.1       ${MAN}/frm.1
+X${MAN}/frmcmd.1   : frmcmd.1   ; cp frmcmd.1    ${MAN}/frmcmd.1
+X${MAN}/frmdir.1   : frmdircmd.1; cp frmdir.1    ${MAN}/frmdir.1
+X${MAN}/frmdircmd.1: frmdircmd.1; cp frmdircmd.1 ${MAN}/frmdircmd.1
+X${MAN}/fspd.1     : fspd.1     ; cp fspd.1      ${MAN}/fspd.1
+X${MAN}/fver.1     : fver.1     ; cp fver.1      ${MAN}/fver.1
+X
+X#############################################################################
+X
+Xserver_main.o: server_main.c server_def.h common_def.h Makefile
+X	${CC} ${CFLAGS} -DDEF_FSP_PORT=${DEF_FSP_PORT}	\
+X		     -DDEF_FSP_HOME=\"${DEF_FSP_HOME}\"	\
+X		     -DVERSION_STR=\"${VERSION_STR}\"	\
+X		     -DFILE_NAME_LIMIT=${FILE_NAME_LIMIT} \
+X		     -DALWAYS_USE_CACHE_DIR=${ALWAYS_USE_CACHE_DIR} \
+X		     -DMAX_DIR_CACHE_COUNT=${MAX_DIR_CACHE_COUNT} \
+X		     -DDEF_DIRECTORY_CACHE=\"${DEF_DIRECTORY_CACHE}\"	\
+X		     -c server_main.c
+X
+Xclient_lock.o: client_lock.c client_def.h common_def.h Makefile
+X	${CC} ${CFLAGS} ${LOCK_FLAGS} -c client_lock.c
+X
+Xclient_lib.o: client_lib.c client_def.h common_def.h
+Xclient_util.o: client_util.c client_def.h common_def.h
+Xfcatcmd.o: fcatcmd.c client_def.h common_def.h
+Xfcdcmd.o: fcdcmd.c client_def.h common_def.h
+Xfgetcmd.o: fgetcmd.c client_def.h common_def.h
+Xfgrabcmd.o: fgrabcmd.c client_def.h common_def.h
+Xflscmd.o: flscmd.c client_def.h common_def.h
+Xfmkdir.o: fmkdir.c client_def.h common_def.h
+Xfprocmd.o: fprocmd.c client_def.h common_def.h
+Xfput.o: fput.c client_def.h common_def.h
+Xfrmcmd.o: frmcmd.c client_def.h common_def.h
+Xfver.o: fver.c client_def.h common_def.h
+Xfrmdircmd.o: frmdircmd.c client_def.h common_def.h
+Xserver_host.o: server_host.c server_def.h common_def.h
+Xserver_file.o: server_file.c server_def.h common_def.h
+Xserver_lib.o: server_lib.c server_def.h common_def.h
+Xserver_main.o: server_main.c server_def.h common_def.h
+Xudp_io.o: udp_io.c common_def.h
+X
+Xclean:
+X	rm -f *.o fspd fsp_client_merge ${PROGS}
+X	@ cd bsd_src; make clean
+X
+Xde-install:
+X	rm -f ${BIN}/fspd ${IPROGS} ${IMANS}
+END_OF_FILE
+  if test 13388 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test ! -d 'bsd_src' ; then
+    echo shar: Creating directory \"'bsd_src'\"
+    mkdir 'bsd_src'
+fi
+if test -f 'server_file.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server_file.c'\"
+else
+  echo shar: Extracting \"'server_file.c'\" \(17362 characters\)
+  sed "s/^X//" >'server_file.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "server_def.h"
+X
+X/*****************************************************************************
+X* This is a modified server_file that hash file names.			     *
+X*****************************************************************************/
+X
+X#define NBSIZE (2*sizeof(UBUF))
+X
+Xextern *malloc();
+X
+X#define fexist(A) (!access(A,0))
+X#define touch(A) close(open(A,O_CREAT,0777))
+X#define LF_PFX '&'
+X#define LP_PFX '\\'
+X
+X/*****************************************************************************
+X* Routine to check a path string given by the client.
+X* Will replace null string by ".".
+X* In case of error, returns the error string.
+X*****************************************************************************/
+X
+X/*****************************************************************************
+X*  The PPATH structure is filled in by the function check_path when given a
+X*  path string.  The elements are filled in as such:
+X* 
+X*	fullp      pointer to a string containing the full path name
+X*	f_ptr      pointer to begining of the last component of the path
+X*       f_len      length of the last component of the path
+X*	d_ptr      pointer to begining of the directory part of path
+X*       d_len      length of the directory part of the path
+X*
+X*  fullp is a null-terminated full path string.
+X*  f_ptr is always a null-terminated sub-string of fullp.
+X*  p_ptr is generally not null-terminated.
+X*****************************************************************************/
+X
+Xchar *check_path(fullp,len,pp)
+X    char *fullp;
+X    int   len;
+X    PPATH *pp;
+X{
+X    char *s;
+X    int state;
+X
+X    if(len < 1) return("Path must have non-zero length");
+X    if(fullp[len-1]) return("Path not null terminated");
+X
+X    pp->d_ptr = "."; pp->d_len = 1;	/* initial dir part ---> root */
+X
+X    if(len == 1 && fullp[0] == 0)	/* null path --> root */
+X    {
+X	pp->fullp = pp->f_ptr = ".";
+X	pp->f_len = 1;
+X	return(NULLP);
+X    }
+X
+X    for(s = pp->fullp = pp->f_ptr = fullp, state = 0; *s; s++)
+X    {
+X	if(*s <= ' ' || *s >= '~') return("Path contains illegal chars");
+X
+X	switch(*s)
+X	{
+X	    case LF_PFX:
+X	    case LP_PFX:
+X	    case    '.': if(!state) return("Path can't begin with '.'");
+X			 break;
+X
+X	    case    '/': if(!state) return("Path can't contain '//'");
+X			 pp->d_ptr = fullp;
+X			 pp->d_len = s - fullp;
+X			 pp->f_ptr = s+1;
+X			 state = 0;
+X			 break;
+X
+X	    default    : state = 1;
+X			 break;
+X	}
+X    }
+X
+X    pp->f_len = s - pp->f_ptr;
+X    return(NULLP);
+X}
+X
+X/*****************************************************************************
+X* Put the directory part of the path pp into dbuf.
+X* return pointer to the null character.
+X*****************************************************************************/
+X
+Xchar *copy_dir(dbuf,pp)
+X    char *dbuf;
+X    PPATH *pp;
+X{
+X    char *p1,*p2;
+X    int cnt;
+X
+X    for(p1 = dbuf, p2 = pp->d_ptr, cnt = pp->d_len; cnt--; *p1++ = *p2++);
+X    *p1 = 0; return(p1);
+X}
+X
+X/*****************************************************************************
+X* Reads directory and write directory listing file.
+X*****************************************************************************/
+X
+Xstatic build_dir_file(fp)
+X    FILE *fp;
+X{
+X    int nlen, skip, rem;
+X    DIR *dir_f;
+X#ifdef DIRENT
+X    struct dirent *dp;
+X#else
+X    struct direct *dp;
+X#endif
+X    struct stat    sb;
+X    register char  *s;
+X    RDIRENT rdb;
+X    static char marker[] = "******************";
+X    char longname[UBUF_SPACE];
+X    FILE *lfp;
+X
+X    if(!(dir_f = opendir(".")))	/* assume I have cd to path already */
+X	{ fprintf(stderr,"Can't open dir during initialization\n"); exit(1); }
+X
+X    for(rem = UBUF_SPACE; dp = readdir(dir_f); )
+X    {
+X	if (dp->d_ino == 0) continue;
+X	s = dp->d_name;
+X
+X	if(s[0] == LF_PFX)
+X	{
+X	    s[0] = LP_PFX;
+X	    if(!(lfp = fopen(s,"r"))) { unlink(s); *s = LF_PFX; unlink(s); }
+X	    fgets(longname,UBUF_SPACE,lfp);  fclose(lfp);
+X	    s[0] = LF_PFX; s = longname; longname[UBUF_SPACE-1] = 0;
+X	}
+X
+X	if(s[0] == LP_PFX) continue;
+X						/* hide dot files */
+X	if((s[0] == '.') && ((s[1] !=  0 ) &&
+X			     (s[1] != '.' || s[2] != 0))) continue;
+X
+X	if(stat(dp->d_name,&sb)) continue;
+X
+X	nlen = strlen(s)+1;
+X
+X	if(rem < RDHSIZE + nlen)
+X	{
+X	    rdb.type = RDTYPE_SKIP;
+X	    if(rem <= RDHSIZE) { fwrite(marker,1,rem    ,fp); }
+X			  else { fwrite(marker,1,RDHSIZE,fp);
+X				 fwrite(s, 1,rem-RDHSIZE,fp); }
+X	    rem = UBUF_SPACE;
+X	}
+X
+X	rdb.type = ((S_IFDIR & sb.st_mode)) ? RDTYPE_DIR : RDTYPE_FILE;
+X	rdb.size = htonl(sb.st_size);
+X	rdb.time = htonl(sb.st_mtime);
+X
+X	fwrite((char *) &rdb,1,RDHSIZE,fp);
+X	fwrite(s,1,nlen,fp);
+X	rem -= (nlen + RDHSIZE);
+X
+X	if((skip = (nlen + RDHSIZE) & 0x3))
+X		{ fwrite((char *) &rdb,1,4-skip,fp); rem -= (4-skip); }
+X
+X	if(!rem) rem = UBUF_SPACE;
+X    }
+X
+X    rdb.type = RDTYPE_END;
+X    fwrite((char *) &rdb,1,RDHSIZE,fp);
+X
+X    fflush(fp);
+X    closedir(dir_f);
+X}
+X
+X/***************************************************************************/
+X
+Xchar *server_get_dir(pp,fp)
+X    PPATH *pp;			/* returned file may not point at BOF */
+X    FILE **fp;
+X{
+X    char *server_get_dir_2();
+X    struct stat sd, sf;
+X    char   list_p[NBSIZE];
+X    int    fsp_content_exists;
+X
+X    if(stat(pp->fullp,&sd)) return("Can't find directory");
+X    if(!(S_IFDIR & sd.st_mode)) return("Not a directory");
+X
+X    sprintf(list_p,"%s/.FSP_CONTENT",pp->fullp);
+X
+X    if(fsp_content_exists = !stat(list_p,&sf))
+X    {
+X	if(sf.st_mtime >= sd.st_mtime)
+X	{
+X	    *fp = fopen(list_p,"r");
+X	    if(!*fp) return("Can't read directory listing");
+X	    return((char *)0);
+X	}
+X    }
+X
+X    if(!fsp_content_exists &&
+X	always_use_cache_dir) return(server_get_dir_2(pp,fp,&sd));
+X
+X    if(!(*fp = fopen(list_p,"w+")))
+X    {
+X	if(!fsp_content_exists &&
+X	   !always_use_cache_dir) return(server_get_dir_2(pp,fp,&sd));
+X	return("directory unreadable");
+X    }
+X    if(chdir(pp->fullp)) return("Can't cd to directory");
+X    build_dir_file(*fp);
+X    if(chdir(home_dir) == -1) { perror("chdir2"); exit(1); }
+X    return(NULLP);
+X}
+X
+Xchar *server_get_dir_2(pp,fp,sd)
+X    PPATH *pp;
+X    FILE **fp;
+X    struct stat *sd;
+X{
+X    struct stat sf;
+X    char   name_p[NBSIZE], list_p[NBSIZE], tmp[UBUF_SPACE];
+X    unsigned int hash, i, mask, new_namefile;
+X    unsigned char *p;
+X    FILE *np;
+X
+X    mask = dir_cache_limit << 8;
+X
+X    for(hash = 0, p = (unsigned char *) pp->fullp; *p; p++)
+X    {
+X	hash = (hash << 1) ^ *p;
+X	if(hash & mask) hash ^= (mask+1);
+X    }
+X
+X    for(i = 8; i--; )
+X    {
+X	hash <<= 1;
+X	if(hash & mask) hash ^= (mask+1);
+X    }
+X
+X    hash = (hash >> 8) & (mask-1);
+X
+X    sprintf(name_p,"%s/.N%x",dir_cache_dir,hash);
+X    sprintf(list_p,"%s/.L%x",dir_cache_dir,hash);
+X
+X    if(!(np = fopen(name_p,"r"))) new_namefile = 1; else
+X    {
+X	fgets(tmp,UBUF_SPACE,np); fclose(np);
+X
+X	if(strcmp(tmp,pp->fullp)) new_namefile = 1; else
+X	{
+X	    if(!stat(list_p,&sf) && (sf.st_mtime >= sd->st_mtime))
+X	    {
+X		*fp = fopen(list_p,"r");
+X		if(!*fp) return("Can't read directory listing");
+X		return((char *)0);
+X	    }
+X	    new_namefile = 0;
+X	}
+X    }
+X
+X    if(new_namefile)
+X    {
+X	if(!(np = fopen(name_p,"w")))
+X	    return("Can't write directory listing name file");
+X	fputs(pp->fullp,np); fclose(np);
+X    }
+X
+X    if(!(*fp = fopen(list_p,"w+"))) return("directory unreadable");
+X    if(chdir(pp->fullp)) return("Can't cd to directory");
+X    build_dir_file(*fp);
+X    if(chdir(home_dir) == -1) { perror("chdir2"); exit(1); }
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_del_file(pp,inet_num)		/* assume path is validated */
+X    PPATH *pp;
+X    unsigned long inet_num;
+X{
+X    int is_long;
+X    struct stat sb;
+X    char   ok_del_p[NBSIZE], owner_p[NBSIZE];
+X
+X    if(is_long = (pp->f_len > max_nlen)) fold_path(pp);
+X
+X    if(stat(pp->fullp,&sb)) return("unlink: file not accessible");
+X    if(!(S_IFREG & sb.st_mode)) return("unlink: not an ordinary file");
+X
+X    sprintf(copy_dir( owner_p,pp),"/.OWN.%08X"  ,inet_num);
+X     strcpy(copy_dir(ok_del_p,pp),"/.FSP_OK_DEL"         );
+X
+X    if(!fexist(owner_p) && !fexist(ok_del_p))
+X			return("no permission for removing this file");
+X
+X    if(unlink(pp->fullp) == -1) return("unlink: cannot unlink");
+X
+X    if(is_long) { *pp->f_ptr = LP_PFX; unlink(pp->fullp); }
+X
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_del_dir(pp,inet_num)
+X    PPATH *pp;
+X    unsigned long inet_num;
+X{
+X    struct stat sb;
+X    char   list_p[NBSIZE], ok_del_p[NBSIZE], ok_add_p[NBSIZE], owner_p[NBSIZE];
+X    int    has_ok_del_p, has_ok_add_p;
+X
+X    if(stat(pp->fullp,&sb)) return("rmdir: directory not accessible");
+X    if(!(S_IFDIR & sb.st_mode)) return("rmdir: not an ordinary directory");
+X
+X    sprintf( owner_p,"%s/.OWN.%08X"   ,pp->fullp,inet_num);
+X    sprintf(  list_p,"%s/.FSP_CONTENT",pp->fullp         );
+X    sprintf(ok_del_p,"%s/.FSP_OK_DEL" ,pp->fullp         );
+X    sprintf(ok_add_p,"%s/.FSP_OK_ADD" ,pp->fullp         );
+X
+X    if(!fexist(owner_p)) return("no permission for removing this directory");
+X
+X    unlink(owner_p); unlink( list_p);
+X    has_ok_del_p = !unlink(ok_del_p);
+X    has_ok_add_p = !unlink(ok_add_p);
+X
+X    if(rmdir(pp->fullp) != 0)
+X    {
+X	if(has_ok_del_p) touch(ok_del_p);
+X	if(has_ok_add_p) touch(ok_add_p);
+X	if(     owner_p) touch( owner_p);
+X	return("rmdir: cannot unlink");
+X    }
+X
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_make_dir(pp,inet_num)
+X    PPATH *pp;
+X    unsigned long inet_num;
+X{
+X    char ok_add_p[NBSIZE], owner_p[NBSIZE];
+X
+X    sprintf(copy_dir( owner_p,pp),"/.OWN.%08X"  ,inet_num);
+X     strcpy(copy_dir(ok_add_p,pp),"/.FSP_OK_ADD"         );
+X
+X    if(!fexist(owner_p) && !fexist(ok_add_p))
+X			return("no permission for directory creation");
+X
+X    sprintf(owner_p,"%s/.OWN.%08X",pp->fullp,inet_num);
+X
+X    if(mkdir(pp->fullp,0777) != 0) return("Can't create directory");
+X
+X    touch(owner_p);
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_get_file(pp,fp)
+X    PPATH *pp;
+X    FILE **fp;
+X{
+X    struct stat sb;
+X
+X    if(pp->f_len > max_nlen) fold_path(pp);
+X
+X    if(stat(pp->fullp,&sb)) return("Can't find file");
+X    if(!(S_IFREG & sb.st_mode)) return("Not a file");
+X    if(!(*fp = fopen(pp->fullp,"r"))) return("Can't open file");
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_get_pro(pp,result,inet_num) /* result and pp->fullp may overlap */
+X    PPATH *pp;
+X    char *result;
+X    unsigned long inet_num;
+X{
+X    struct stat sb;
+X    char   buf[NBSIZE];
+X    char  *owner_s, *del_s, *add_s;
+X
+X    if(stat(pp->fullp,&sb)) return("getpro: directory not accessible");
+X    if(!(S_IFDIR & sb.st_mode)) return("getpro: not an ordinary directory");
+X
+X    sprintf(buf,"%s/.OWN.%08X",pp->fullp,inet_num);
+X    owner_s = ( fexist(buf)) ? "your" : "some other";
+X    sprintf(buf,"%s/.FSP_OK_DEL" ,pp->fullp);
+X    del_s   = (!fexist(buf)) ? "NO" : "YES";
+X    sprintf(buf,"%s/.FSP_OK_ADD" ,pp->fullp);
+X    add_s   = (!fexist(buf)) ? "NO" : "YES";
+X
+X    sprintf(result,"(owner: %s machine)(delete: %s)(create: %s)",
+X						owner_s, del_s, add_s);
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_set_pro(pp,key,inet_num)
+X    PPATH *pp;
+X    char *key;
+X    unsigned long inet_num;
+X{
+X    struct stat sb;
+X    char   buf[NBSIZE];
+X
+X    if(stat(pp->fullp,&sb)) return("getpro: directory not accessible");
+X    if(!(S_IFDIR & sb.st_mode)) return("getpro: not an ordinary directory");
+X
+X    sprintf(buf,"%s/.OWN.%08X",pp->fullp,inet_num);
+X    if(!fexist(buf)) return("no permission for changing the protection-mode");
+X
+X    switch(key[1])
+X    {
+X	case 'c': sprintf(buf,"%s/.FSP_OK_ADD",pp->fullp); break;
+X	case 'd': sprintf(buf,"%s/.FSP_OK_DEL",pp->fullp); break;
+X	default : return("bad flag");
+X    }
+X
+X    switch(key[0])
+X    {
+X	case '+':  touch(buf); break;
+X	case '-': unlink(buf); break;
+X	default : return("bad flag");
+X    }
+X
+X    return(NULLP);
+X}
+X
+X/**********************************************************************
+X*  These two are used for file uploading.
+X**********************************************************************/
+X
+Xchar *server_up_load(data,len,pos,inet_num,port_num)
+X    char *data;
+X    int    len;
+X    unsigned long pos, inet_num;
+X    unsigned short port_num;
+X{
+X    FILE *fp;
+X    char  tname[NBSIZE];
+X
+X    sprintf(tname,"%s/.T%08X%04X",dir_cache_dir,inet_num,port_num);
+X
+X    if(pos) {		     fp = fopen(tname,"a"); }
+X       else { unlink(tname); fp = fopen(tname,"w"); }
+X
+X    if(!fp) return("Cannot open temporary file");
+X
+X    fwrite(data, 1, len, fp);
+X    fclose(fp);
+X
+X    return(NULLP);
+X}
+X
+Xchar *server_install(pp,inet_num,port_num)
+X    PPATH *pp;
+X    unsigned long inet_num;
+X    unsigned short port_num;
+X{
+X    FILE *ft, *fp;
+X    char      tname[NBSIZE],  owner_p[NBSIZE], save_p[NBSIZE], buf[512];
+X    char   ok_del_p[NBSIZE], ok_add_p[NBSIZE];
+X    int bytes, is_long;
+X
+X    if(is_long = (pp->f_len > max_nlen))
+X			{ strcpy(save_p,pp->f_ptr); fold_path(pp); }
+X
+X    sprintf(copy_dir(owner_p,pp),"/.OWN.%08X",inet_num);
+X    sprintf(tname,"%s/.T%08X%04X",dir_cache_dir,inet_num,port_num);
+X
+X    if(!fexist(owner_p))
+X    {
+X	strcpy(copy_dir(ok_add_p,pp),"/.FSP_OK_ADD");
+X	strcpy(copy_dir(ok_del_p,pp),"/.FSP_OK_DEL");
+X
+X	if(!fexist(ok_add_p))
+X	{
+X	    unlink(tname);
+X	    return("no permission for creating that file");
+X	}
+X
+X	if(!fexist(ok_del_p) && fexist(pp->fullp))
+X	{
+X	    unlink(tname);
+X	    return("no permission for replacing that file");
+X	}
+X    }
+X
+X    unlink(pp->fullp);
+X    if(link(tname,pp->fullp) == 0) { unlink(tname); goto done; }
+X
+X    if(!(ft = fopen(tname,"r"))) { unlink(tname);
+X				   return("Can't open temporary file"); }
+X
+X    if(!(fp = fopen(pp->fullp ,"w"))) { unlink(tname); fclose(ft);
+X				   return("Can't open file for output"); }
+X
+X    while(bytes = fread(buf,1,sizeof(buf),ft)) fwrite(buf,1,bytes,fp);
+X
+X    fclose(ft); fclose(fp); unlink(tname);
+X
+X  done:
+X
+X    if(is_long)
+X    {
+X	*pp->f_ptr = LP_PFX;
+X	if(!(fp = fopen(pp->fullp,"w")))
+X	{
+X	    *pp->f_ptr = LF_PFX; unlink(tname);
+X	    return("Can't create long named file for output");
+X	}
+X	fputs(save_p,fp); fclose(fp);
+X    }
+X
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xchar *server_secure_file(pp,inet_num,port_num)	/* assume path is validated */
+X    PPATH *pp;
+X    unsigned long  inet_num;
+X    unsigned short port_num;
+X{
+X    int is_long;
+X    struct stat sb;
+X    char   ok_del_p[NBSIZE], owner_p[NBSIZE], temp_p[NBSIZE];
+X
+X    if(is_long = (pp->f_len > max_nlen)) fold_path(pp);
+X
+X    if(stat(pp->fullp,&sb)) return("grab: file not accessible");
+X    if(!(S_IFREG & sb.st_mode)) return("grab: not an ordinary file");
+X
+X    sprintf(copy_dir( owner_p,pp),"/.OWN.%08X"  ,inet_num         );
+X     strcpy(copy_dir(ok_del_p,pp),"/.FSP_OK_DEL"                  );
+X    sprintf(copy_dir(  temp_p,pp),"/.G%08X%04X" ,inet_num,port_num);
+X
+X    if(!fexist(owner_p) && !fexist(ok_del_p))
+X			return("grab: no permission for grabbing this file");
+X
+X    unlink(temp_p);
+X    if(link(pp->fullp,temp_p) == -1) return("grab: cannot make link");
+X    if(unlink(pp->fullp) == -1) { unlink(temp_p);
+X				  return("grab: cannot unlink"); }
+X
+X    if(is_long) { *pp->f_ptr = LP_PFX; unlink(pp->fullp); }
+X
+X    return(NULLP);
+X}
+X
+Xchar *server_grab_file(pp,fp,inet_num,port_num)
+X    PPATH *pp;
+X    FILE **fp;
+X    unsigned long  inet_num;
+X    unsigned short port_num;
+X{
+X    struct stat sb;
+X    char temp_p[NBSIZE];
+X
+X    sprintf(copy_dir(temp_p,pp),"/.G%08X%04X",inet_num,port_num);
+X
+X    if(stat(temp_p,&sb)) return("grab: can't find file");
+X    if(!(S_IFREG & sb.st_mode)) return("grab: Not a file");
+X    if(!(*fp = fopen(temp_p,"r"))) return("grab: can't open file");
+X    return(NULLP);
+X}
+X
+Xchar *server_grab_done(pp,inet_num,port_num)
+X    PPATH *pp;
+X    unsigned long  inet_num;
+X    unsigned short port_num;
+X{
+X    struct stat sb;
+X    char temp_p[NBSIZE];
+X
+X    sprintf(copy_dir(temp_p,pp),"/.G%08X%04X",inet_num,port_num);
+X
+X    if(stat(temp_p,&sb)) return("grab: can't find temporary file");
+X    if(unlink(temp_p) == -1) return("grab: can't delete temporary file");
+X    return(NULLP);
+X}
+X
+X/**********************************************************************/
+X
+Xfold_path(pp)
+X    PPATH *pp;
+X{
+X    unsigned char *p;
+X    unsigned long v1, v2;
+X
+X    p = (unsigned char *) pp->f_ptr;
+X
+X    for(v1 = 0; v2 = *p++; )
+X    {
+X	if(v1 & 0x80000000) { v1 = (v1 << 1) ^ v2 ^ 1; }
+X		       else { v1 = (v1 << 1) ^ v2    ; }
+X    }
+X
+X    sprintf(pp->f_ptr,"%c%08X",LF_PFX,v1);
+X    pp->f_len = 9;
+X}
+X
+X/**********************************************************************/
+X
+Xinit_home_dir()
+X{
+X    if(*home_dir != '/') { fprintf(stderr,"[%s] does not start with a /\n");
+X			   exit(1); }
+X
+X    if(chdir(home_dir) == -1) { perror("chdir"); exit(1); }
+X
+X    if(dbug) { fprintf(stderr,"home on %s\n",home_dir); fflush(stderr); }
+X}
+X
+X/***************************************************************************/
+END_OF_FILE
+  if test 17362 -ne `wc -c <'server_file.c'`; then
+    echo shar: \"'server_file.c'\" unpacked with wrong size!
+  fi
+  # end of 'server_file.c'
+fi
+if test -f 'server_lib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server_lib.c'\"
+else
+  echo shar: Extracting \"'server_lib.c'\" \(6386 characters\)
+  sed "s/^X//" >'server_lib.c' <<'END_OF_FILE'
+X    /*********************************************************************\
+X    *  Copyright (c) 1991 by Wen-King Su (wen-king@vlsi.cs.caltech.edu)   *
+X    *                                                                     *
+X    *  You may copy or modify this file in any manner you wish, provided  *
+X    *  that this notice is always included, and that you hold the author  *
+X    *  harmless for any loss or damage resulting from the installation or *
+X    *  use of this software.                                              *
+X    \*********************************************************************/
+X
+X#include "server_def.h"
+X
+Xextern int errno;
+X
+Xstatic int myport = 0;
+Xstatic int myfd;
+Xstatic int interrupted = 0;
+X
+Xvoid server_interrupt()
+X{
+X    interrupted = 1;
+X    signal(SIGALRM,server_interrupt);
+X}
+X
+X/****************************************************************************
+X*  This is the message filter.  It is called by main with a timeout value.
+X*  If timeout is -1, it will never time out.  Otherwise, it waits for a
+X*  message.  If timed out, it returns.  Otherwise it pass it through checks.
+X*  Those message that passed get sent to the dispatch loop.
+X****************************************************************************/
+X
+Xserver_loop(timeout)
+X    unsigned long timeout;
+X{
+X    unsigned long cur_time;
+X    HTAB *hp;
+X    UBUF rbuf;
+X    struct sockaddr_in from;
+X    unsigned u, sum, mask;
+X    int retval, bytes, old;
+X    unsigned char *s, *d, *t;
+X
+X    while(1)
+X    {
+X	mask = 1 << myfd;
+X	if(interrupted) { dump_htab(); interrupted = 0; }
+X	retval = _x_select(&mask, timeout);
+X
+X	if(retval == -1) { if(errno == EINTR) continue;
+X			   perror("select"); exit(1); }
+X
+X	if(retval == 1)    /* an incoming message is waiting */
+X	{
+X	    bytes = sizeof(from);
+X	    if((bytes = recvfrom(myfd,(char*)&rbuf,sizeof(rbuf),0,
+X				    &from,&bytes)) < UBUF_HSIZE) continue;
+X
+X	    rbuf.len = ntohs(rbuf.len);
+X	    if(rbuf.len+UBUF_HSIZE > bytes) continue;	/* truncated.  */
+X
+X	    if(!(hp = find_host(from.sin_addr.s_addr)))
+X			{ fputs("find host failed\n",stderr); exit(0); }
+X
+X	    if(hp->inhibit) continue;
+X
+X	    old = 0;
+X	    cur_time = time((time_t *) 0);
+X
+X	    if(hp->next_key != rbuf.key)
+X	    {
+X		if(!hp->active)
+X		{
+X		    hp->last_key = hp->next_key = rbuf.key;
+X
+X		} else
+X		{
+X		    if(hp->last_key == rbuf.key)
+X		    {
+X			if(cur_time < hp->last_acc + 3) continue;
+X			old = 1;
+X
+X		    } else
+X		    {
+X			if(cur_time < hp->last_acc + 60) continue;
+X		    }
+X		}
+X	    }
+X
+X	    hp->active   =        1;
+X	    hp->last_acc = cur_time;
+X
+X	    s = (unsigned char *) &rbuf;
+X	    d = s + bytes;
+X	    u = rbuf.sum; rbuf.sum = 0;
+X	    for(t = s, sum = bytes; t < d; sum += *t++);
+X	    sum = (sum + (sum >> 8)) & 0xff;
+X	    if(sum != u) continue;			/* wrong check sum */
+X
+X	    rbuf.pos = ntohl(rbuf.pos);
+X	    server_get_packet(bytes,&rbuf,old,hp,&from);
+X
+X	} else return(0);				/* got a timeout */
+X    }
+X}
+X
+X/****************************************************************************
+X* Routine to return a 16-bit key with random number in the first 8-bits and
+X* zero in the second 8-bits.
+X****************************************************************************/
+X
+Xget_next_key()
+X{
+X    unsigned long k;
+X
+X    k = random();
+X    k = k ^ (k >> 8) ^ (k >> 16) ^ (k << 8);
+X
+X    return(k & 0xff00);
+X}
+X
+X/****************************************************************************
+X* Generic routine for sending reply back to clients.
+X*        from: client address structure.
+X*          ub: pointer to the message buffer.
+X*  len1, len2: lengths of the two data regions in the message buffer.
+X****************************************************************************/
+X
+Xserver_reply(from,ub,len1,len2)
+X    struct sockaddr_in *from;
+X    UBUF *ub;
+X    int   len1, len2;
+X{
+X    unsigned char *s, *t, *d;
+X    unsigned sum;
+X
+X    if(dbug) fprintf(stderr,"snd (%c,%d,%d,%lu) ---> %d.%d.%d.%d\n",
+X                ub->cmd, len1, len2, ub->pos,
+X                ((unsigned char *)(&(from->sin_addr.s_addr)))[0],
+X                ((unsigned char *)(&(from->sin_addr.s_addr)))[1],
+X                ((unsigned char *)(&(from->sin_addr.s_addr)))[2],
+X                ((unsigned char *)(&(from->sin_addr.s_addr)))[3]);
+X
+X    ub->len = htons(len1);
+X    ub->pos = htonl(ub->pos);
+X
+X    ub->sum = 0;
+X    s = (unsigned char *) ub;
+X    d = s + (len1 + len2 + UBUF_HSIZE);
+X    for(t = s, sum = 0; t < d; sum += *t++);
+X    ub->sum = sum + (sum >> 8);
+X
+X    if(sendto(myfd,(char *)ub,(len1 + len2 + UBUF_HSIZE),0,
+X			from,sizeof(struct sockaddr_in)) == -1)
+X						{ perror("sendto"); exit(1); }
+X}
+X
+X/****************************************************************************
+X* Send an error string.
+X****************************************************************************/
+X
+Xsend_error(from,ub,msg)
+X    struct sockaddr_in *from;
+X    UBUF *ub;
+X    char *msg;
+X{
+X    char *d;
+X
+X    for(d = ub->buf; *d++ = *msg++; );
+X    ub->cmd = CC_ERR;
+X
+X    server_reply(from,ub,d-ub->buf,0);
+X}
+X
+X/****************************************************************************
+X* Send a block of data read from the file 'fp'.  Offset information is
+X* contained in the input ub message buffer, which also doubles as the output
+X* message buffer.
+X****************************************************************************/
+X
+Xsend_file(from,ub,fp,has_len,lp)
+X    struct sockaddr_in *from;
+X    UBUF *ub;
+X    FILE *fp;
+X    int has_len;
+X    char *lp;
+X{
+X    int bytes, len;
+X
+X    if(has_len == 2)	/* recover length field if it exists */
+X    {
+X	len  = ((unsigned char *) lp)[0]; len <<= 8;
+X	len += ((unsigned char *) lp)[1];
+X	if(len > UBUF_SPACE || len < 0) len = UBUF_SPACE;
+X
+X    } else { len  = UBUF_SPACE; }	/* use default if it doesn't exist */
+X
+X    fseek(fp,ub->pos,0);
+X    bytes = fread(ub->buf, 1, len, fp);
+X    server_reply(from,ub,bytes,0);
+X}
+X
+X/****************************************************************************
+X* The two UDP socket initialization routines.  One for running alone.
+X* The other for running under inetd.
+X****************************************************************************/
+X
+Xinit_network(port)
+X    int port;
+X{
+X    myport = port;
+X
+X    if((myfd = _x_udp(&myport)) == -1) { perror("socket open"); exit(1); }
+X
+X    if(dbug)
+X    {
+X	fprintf(stderr,"listening on port %d\n",myport);
+X	fflush(stderr);
+X    }
+X
+X    signal(SIGALRM,server_interrupt);
+X}
+X
+Xinit_inetd()
+X{
+X    myfd = dup(0);
+X
+X    signal(SIGALRM,server_interrupt);
+X}
+END_OF_FILE
+  if test 6386 -ne `wc -c <'server_lib.c'`; then
+    echo shar: \"'server_lib.c'\" unpacked with wrong size!
+  fi
+  # end of 'server_lib.c'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

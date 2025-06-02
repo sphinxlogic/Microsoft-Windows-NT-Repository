@@ -1,0 +1,2483 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i103:  xephem - astronomical ephemeris program, Part15/21
+Message-ID: <1993May10.221205.9291@sparky.imd.sterling.com>
+X-Md4-Signature: f810dcf9e2ead43098fc57f606a7f115
+Date: Mon, 10 May 1993 22:12:05 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 103
+Archive-name: xephem/part15
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  parallax.c plotmenu.c riset_cir.c skyviewmenu.c.1
+# Wrapped by chris@nova on Mon May 10 16:41:51 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 21)."'
+if test -f 'parallax.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parallax.c'\"
+else
+  echo shar: Extracting \"'parallax.c'\" \(2603 characters\)
+  sed "s/^X//" >'parallax.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void range P_((double *v, double r));
+X
+X/* parallax.c */
+Xvoid ta_par P_((double tha, double tdec, double phi, double ht, double ehp, double *aha, double *adec));
+X
+X#undef P_
+X
+X/* given true ha and dec, tha and tdec, the geographical latitude, phi, the
+X * height above sea-level (as a fraction of the earths radius, 6378.16km),
+X * ht, and the equatorial horizontal parallax, ehp, find the apparent
+X * ha and dec, aha and adec allowing for parallax.
+X * all angles in radians. ehp is the angle subtended at the body by the
+X * earth's equator.
+X */
+Xvoid
+Xta_par (tha, tdec, phi, ht, ehp, aha, adec)
+Xdouble tha, tdec, phi, ht, ehp;
+Xdouble *aha, *adec;
+X{
+X	static double last_phi = 1000.0, last_ht = -1000.0, rsp, rcp;
+X	double rp;	/* distance to object in Earth radii */
+X	double ctha;
+X	double stdec, ctdec;
+X	double tdtha, dtha;
+X	double caha;
+X
+X	/* avoid calcs involving the same phi and ht */
+X	if (phi != last_phi || ht != last_ht) {
+X	    double cphi, sphi, u;
+X	    cphi = cos(phi);
+X	    sphi = sin(phi);
+X	    u = atan(9.96647e-1*sphi/cphi);
+X	    rsp = (9.96647e-1*sin(u))+(ht*sphi);
+X	    rcp = cos(u)+(ht*cphi);
+X	    last_phi  =  phi;
+X	    last_ht  =  ht;
+X	}
+X
+X        rp = 1/sin(ehp);
+X
+X        ctha = cos(tha);
+X	stdec = sin(tdec);
+X	ctdec = cos(tdec);
+X        tdtha = (rcp*sin(tha))/((rp*ctdec)-(rcp*ctha));
+X        dtha = atan(tdtha);
+X	*aha = tha+dtha;
+X	caha = cos(*aha);
+X	range (aha, 2*PI);
+X        *adec = atan(caha*(rp*stdec-rsp)/(rp*ctdec*ctha-rcp));
+X}
+X
+X#ifdef NEEDIT
+X/* given the apparent ha and dec, aha and adec, the geographical latitude, phi,
+X * the height above sea-level (as a fraction of the earths radius, 6378.16km),
+X * ht, and the equatorial horizontal parallax, ehp, find the true ha and dec,
+X * tha and tdec allowing for parallax.
+X * all angles in radians. ehp is the angle subtended at the body by the
+X * earth's equator.
+X * uses ta_par() iteratively: find a set of true ha/dec that converts back
+X  *  to the given apparent ha/dec.
+X */
+Xvoid
+Xat_par (aha, adec, phi, ht, ehp, tha, tdec)
+Xdouble aha, adec, phi, ht, ehp;
+Xdouble *tha, *tdec;
+X{
+X	double nha, ndec;	/* ha/dec corres. to current true guesses */
+X	double eha, edec;	/* error in ha/dec */
+X
+X	/* first guess for true is just the apparent */
+X	*tha = aha;
+X	*tdec = adec;
+X
+X	while (1) {
+X	    ta_par (*tha, *tdec, phi, ht, ehp, &nha, &ndec);
+X	    eha = aha - nha;
+X	    edec = adec - ndec;
+X	    if (fabs(eha)<1e-6 && fabs(edec)<1e-6)
+X		break;
+X	    *tha += eha;
+X	    *tdec += edec;
+X	}
+X}
+X#endif
+END_OF_FILE
+  if test 2603 -ne `wc -c <'parallax.c'`; then
+    echo shar: \"'parallax.c'\" unpacked with wrong size!
+  fi
+  # end of 'parallax.c'
+fi
+if test -f 'plotmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plotmenu.c'\"
+else
+  echo shar: Extracting \"'plotmenu.c'\" \(30247 characters\)
+  sed "s/^X//" >'plotmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "plot" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/Separator.h>
+X#include <Xm/Text.h>
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern int plot_cartesian P_((FILE *pfp, Widget widget, unsigned int nx, unsigned int ny, int flipx, int flipy, int grid));
+Xextern void all_selection_mode P_((int whether));
+Xextern void f_string P_((Widget w, char *s));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void query P_((Widget tw, char *msg, char *label1, char *label2, char *label3, void (*func1)(), void (*func2)(), void (*func3)()));
+Xextern void set_something P_((Widget w, char *resource, char *value));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid plot_manage P_((void));
+Xvoid plt_selection P_((char *name));
+Xvoid plt_log P_((char *name, double value));
+Xvoid plot P_((void));
+Xint plot_ison P_((void));
+Xvoid plt_cursor P_((Cursor c));
+Xstatic void plt_select P_((int whether));
+Xstatic void plot_create_form P_((void));
+Xstatic void plt_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_help_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_reset P_((void));
+Xstatic void plt_stop_selecting P_((void));
+Xstatic void plt_turn_off P_((void));
+Xstatic void init_next_tag P_((void));
+Xstatic void plt_try_append P_((void));
+Xstatic void plt_try_overwrite P_((void));
+Xstatic void plt_try_cancel P_((void));
+Xstatic void plt_try_turn_on P_((void));
+Xstatic void plt_turn_on P_((char *how));
+Xstatic void plt_da_manage P_((void));
+Xstatic void plt_da_destroy P_((Widget daform_w));
+Xstatic void plt_daform_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_da_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_da_flipx_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_da_flipy_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_da_grid_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void plt_da_exp_cb P_((Widget da_w, XtPointer client, XtPointer call));
+X
+X#undef P_
+X
+Xextern int access();
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+X#ifdef VMS
+X#include <perror.h>
+X#include <errno.h>
+X#else
+Xextern char *sys_errlist[];
+Xextern errno;
+X#endif
+X
+X#define	errsys	(sys_errlist[errno])
+X
+X/* max number of things we can keep track of at once to plot */
+X#define	MAXPLTLINES	10
+X#define	MAXFLDNAM	32	/* longest allowed field name */
+X
+Xstatic Widget plotform_w;
+Xstatic Widget select_w, active_w, prompt_w;
+Xstatic Widget title_w, filename_w;
+Xstatic Widget table_w[MAXPLTLINES][3];	/* column indeces follow.. */
+Xstatic int selecting_xy;		/* also one of ... */
+X#define	T	0
+X#define	X	1
+X#define	Y	2
+X
+X#define	DEF_PLTFN	"ephem.plt"	/* default plot file name */
+Xstatic FILE *plt_fp;            /* the plot file; == 0 means don't plot */
+X
+X
+X/* plt_activate_cb client values. */
+Xenum { SELECT, ACTIVE, SHOW};
+X
+X/* store the name of each x and y line to track and their values.
+X * we get the label straight from the Text widget in the table as needed.
+X */
+Xtypedef struct {
+X    char pl_xn[MAXFLDNAM];	/* name of x field, or 0 if none */
+X    double pl_xv;		/* last known value of x field */
+X    char pl_yn[MAXFLDNAM];	/* name of y field, or 0 if none */
+X    double pl_yv;		/* last known value of x field */
+X} PltLine;
+Xstatic PltLine pltlines[MAXPLTLINES];
+Xstatic int npltlines;		/* number of pltlines[] in actual use */
+X
+X/* one of these gets malloced and passed to the drawing area expose callback via
+X * its client parameter. be sure to free it when the parent FormDialog goes
+X * away too.
+X * by doing this, we can have lots of different plots up at once and yet we
+X * don't have to keep track of them - they track themselves.
+X */
+Xtypedef struct {
+X    char *filename;	/* name of file being plotted (also malloced) */
+X    FILE *fp;		/* FILE pointer for the file */
+X    int flipx, flipy;	/* flip state for this instance */
+X    int grid;		/* whether to include a grid */
+X} DrawInfo;
+X
+X/* called when the plot menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xplot_manage ()
+X{
+X	if (!plotform_w)
+X	    plot_create_form();
+X	
+X	if (XtIsManaged(plotform_w))
+X	    XtUnmanageChild (plotform_w);
+X	else
+X	    XtManageChild (plotform_w);
+X}
+X
+X/* called by the other menus (data, etc) as their buttons are
+X * selected to inform us that that button is to be included in a plot.
+X */
+Xvoid
+Xplt_selection (name)
+Xchar *name;
+X{
+X	Widget tw;
+X
+X	if (!plotform_w
+X		|| !XtIsManaged(plotform_w)
+X		|| !XmToggleButtonGetState(select_w))
+X	    return;
+X
+X	tw = table_w[npltlines][selecting_xy];
+X	set_xmstring (tw, XmNlabelString, name);
+X	XtManageChild (tw);
+X
+X	if (selecting_xy == X) {
+X	    (void) strncpy (pltlines[npltlines].pl_xn, name, MAXFLDNAM-1);
+X	    selecting_xy = Y;
+X	    XtManageChild (prompt_w);
+X	    f_string (prompt_w, "Select quantity for Y..");
+X	} else {
+X	    (void) strncpy (pltlines[npltlines].pl_yn, name, MAXFLDNAM-1);
+X	    if (++npltlines == MAXPLTLINES)
+X		plt_stop_selecting();
+X	    else {
+X		selecting_xy = X;
+X		init_next_tag();
+X	    }
+X	}
+X}
+X
+X/* called as each different field is written -- just save in pltlines[]
+X * if we are interested in it.
+X * might have the same field listed more than once so can't stop if find one.
+X */
+Xvoid
+Xplt_log (name, value)
+Xchar *name;
+Xdouble value;
+X{
+X	if (plt_fp) {
+X	    PltLine *plp;
+X	    for (plp = pltlines; plp < &pltlines[npltlines]; plp++) {
+X		if (strcmp (name, plp->pl_xn) == 0)
+X		    plp->pl_xv = value;
+X		if (strcmp (name, plp->pl_yn) == 0)
+X		    plp->pl_yv = value;
+X	    }
+X	}
+X}
+X
+X/* called when all fields have been updated and it's time to
+X * write the active plotfields to the current plot file, if one is open.
+X */
+Xvoid
+Xplot()
+X{
+X	if (plt_fp) {
+X	    /* plot in order of original selection */
+X	    PltLine *plp;
+X	    for (plp = pltlines; plp < &pltlines[npltlines]; plp++) {
+X		char *lbl = XmTextGetString (table_w[plp-pltlines][T]);
+X		(void) fprintf (plt_fp, "%c,%.12g,%.12g\n", lbl[0],
+X						    plp->pl_xv, plp->pl_yv);
+X		XtFree (lbl);
+X	    }
+X	}
+X}
+X
+Xplot_ison()
+X{
+X	return (plt_fp != 0);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xplt_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (plotform_w && (win = XtWindow(plotform_w))) {
+X	    Display *dsp = XtDisplay(plotform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* inform the other menues whether we are setting up for them to tell us
+X * what fields to plot.
+X */
+Xstatic void
+Xplt_select(whether)
+Xint whether;
+X{
+X	all_selection_mode(whether);
+X}
+X
+Xstatic void
+Xplot_create_form()
+X{
+X	static struct {
+X	    char *title;
+X	    int cb_data;
+X	    Widget *wp;
+X	} tbs[] = {
+X	    {"Select fields", SELECT, &select_w},
+X	    {"Plot to file", ACTIVE, &active_w},
+X	    {"Show plot file", SHOW, NULL},
+X	};
+X	XmString str;
+X	Widget f_w, rc_w;
+X	Widget w;
+X	char *deffn;
+X	Arg args[20];
+X	int i, n;
+X
+X	/* create the main dialog */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	plotform_w = XmCreateFormDialog (toplevel_w, "Plot", args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Plot Control"); n++;
+X	XtSetValues (XtParent(plotform_w), args, n);
+X
+X	/* make a RowColumn to hold everything */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	rc_w = XmCreateRowColumn(plotform_w, "PlotRC", args, n);
+X	XtManageChild (rc_w);
+X
+X	/* make the control toggle buttons */
+X
+X	for (i = 0; i < XtNumber(tbs); i++) {
+X	    str = XmStringCreate(tbs[i].title, XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton(rc_w, "PlotTB", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (w);
+X	    XtAddCallback(w, XmNvalueChangedCallback, plt_activate_cb,
+X						    (XtPointer)tbs[i].cb_data);
+X	    if (tbs[i].wp)
+X		*tbs[i].wp = w;
+X	}
+X
+X	/* create filename text area and its label */
+X
+X	n = 0;
+X	str = XmStringCreate("File name:", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (rc_w, "PlotFnL", args, n);
+X	XmStringFree (str);
+X	XtManageChild (w);
+X
+X	n = 0;
+X	filename_w = XmCreateText (rc_w, "Filename", args, n);
+X	deffn = XmTextGetString (filename_w);
+X	if (strlen(deffn) == 0)
+X	    XmTextSetString (filename_w, DEF_PLTFN);
+X	XtFree (deffn);
+X	XtManageChild (filename_w);
+X
+X	/* create title text area and its label */
+X
+X	n = 0;
+X	str = XmStringCreate("Title:", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (rc_w, "PlotTL", args, n);
+X	XtManageChild (w);
+X	XmStringFree (str);
+X
+X	n = 0;
+X	title_w = XmCreateText (rc_w, "PlotTitle", args, n);
+X	XtManageChild (title_w);
+X
+X	/* create prompt line -- it will be managed as necessary */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	prompt_w = XmCreateLabel (rc_w, "PlotPrompt", args, n);
+X
+X	/* create the table.
+X	 * each row is in a form to control its shape.
+X	 * loop index of -1 is used to make the column headings.
+X	 * the table entries are not managed at this time.
+X	 */
+X
+X	for (i = -1; i < MAXPLTLINES; i++) {
+X	    n = 0;
+X	    XtSetArg (args[n], XmNfractionBase, 9); n++;
+X	    f_w = XmCreateForm (rc_w, "PlotTF", args, n);
+X	    XtManageChild (f_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 1); n++;
+X	    if (i == -1) {
+X		w = XmCreateLabel (f_w, "Tag", args, n);
+X		XtManageChild (w);
+X	    } else {
+X		XtSetArg (args[n], XmNmaxLength, 1); n++;
+X		XtSetArg (args[n], XmNcolumns, 1); n++;
+X		table_w[i][T] = XmCreateText (f_w, "PlotTag", args, n);
+X	    }
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 2); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 5); n++;
+X	    if (i == -1) {
+X		w = XmCreateLabel (f_w, "X", args, n);
+X		XtManageChild (w);
+X	    } else {
+X		table_w[i][X] = XmCreateLabel (f_w, "PlotX", args, n);
+X	    }
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 6); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 9); n++;
+X	    if (i == -1) {
+X		w = XmCreateLabel (f_w, "Y", args, n);
+X		XtManageChild (w);
+X	    } else {
+X		table_w[i][Y] = XmCreateLabel (f_w, "PlotY", args, n);
+X	    }
+X	}
+X
+X	/* create a separator */
+X
+X	n = 0;
+X	w = XmCreateSeparator (rc_w, "Sep", args, n);
+X	XtManageChild (w);
+X
+X	/* make a form to hold the close and help buttons evenly */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 7); n++;
+X	f_w = XmCreateForm (rc_w, "PlotCF", args, n);
+X	XtManageChild(f_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 3); n++;
+X	    w = XmCreatePushButton (f_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, plt_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 4); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 6); n++;
+X	    w = XmCreatePushButton (f_w, "Help", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, plt_help_cb, 0);
+X	    XtManageChild (w);
+X}
+X
+X/* callback from any of the plot menu toggle buttons being activated.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int what = (int) client;
+X
+X	switch (what) {
+X	case SELECT:
+X	    if (t->set) {
+X		/* first turn off plotting, if on, while we change things */
+X		if (XmToggleButtonGetState(active_w))
+X		    XmToggleButtonSetState(active_w, False, True);
+X		plt_reset();	/* reset pltlines array and unmanage the table*/
+X		plt_select(1);	/* inform other menus to inform us of fields */
+X		init_next_tag();/* set first tag to something and show it */
+X		selecting_xy = X;
+X	    } else
+X		plt_stop_selecting();
+X	    break;
+X	case ACTIVE:
+X	    if (t->set) {
+X		/* first turn off selecting, if on */
+X		if (XmToggleButtonGetState(select_w))
+X		    XmToggleButtonSetState(select_w, False, True);
+X		plt_try_turn_on();
+X	    } else
+X		plt_turn_off();
+X	    break;
+X	case SHOW:
+X	    /* turn off plotting, if on, to make sure file is complete. */
+X	    if (XmToggleButtonGetState(active_w))
+X		XmToggleButtonSetState(active_w, False, True);
+X	    plt_da_manage();
+X	    /* we want this to work like it was a pushbutton, really */
+X	    XmToggleButtonSetState(w, False, False);
+X	    break;
+X	}
+X}
+X
+X/* callback from the Close button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (plotform_w);
+X}
+X
+X/* callback from the Help button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_help_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+Xstatic char *help_msg[] = {
+X"This menu controls the plot generation and display functionality of xephem.",
+X"Select fields to form x/y pairs, enable plotting to write them to a file on",
+X"each xephem iteration step, then view. Each file may be titled, as desired."
+X};
+X	hlp_dialog ("Plot", help_msg, sizeof(help_msg)/sizeof(help_msg[0]));
+X}
+X
+X/* forget our list, and unmanage the table.
+X */
+Xstatic void
+Xplt_reset()
+X{
+X	int i;
+X
+X	for (i = 0; i < npltlines; i++) {
+X	    XtUnmanageChild (table_w[i][T]);
+X	    XtUnmanageChild (table_w[i][X]);
+X	    XtUnmanageChild (table_w[i][Y]);
+X	}
+X
+X	npltlines = 0;
+X}
+X
+X/* stop selecting: unmanage a partitially filled in line specs; tell
+X * everybody else to drop their buttons, make sure toggle is off.
+X */
+Xstatic void
+Xplt_stop_selecting()
+X{
+X	/* harmless to unmanage something already unmanaged so do them all */
+X	if (npltlines < MAXPLTLINES) {
+X	    XtUnmanageChild (table_w[npltlines][T]);
+X	    XtUnmanageChild (table_w[npltlines][X]);
+X	    XtUnmanageChild (table_w[npltlines][Y]);
+X	}
+X
+X	XmToggleButtonSetState (select_w, False, False);
+X	plt_select(0);
+X	XtUnmanageChild (prompt_w);
+X}
+X
+Xstatic void
+Xplt_turn_off ()
+X{
+X	if (plt_fp) {
+X	    (void) fclose (plt_fp);
+X	    plt_fp = 0;
+X	}
+X}
+X
+Xstatic void
+Xinit_next_tag()
+X{
+X	char buf[100];
+X	Widget w = table_w[npltlines][T];
+X
+X	XtManageChild (prompt_w);
+X	f_string (prompt_w, "Select quantity for X..");
+X	(void) sprintf (buf, "%c", 'A' + npltlines);
+X	XmTextSetString (w, buf);
+X	XtManageChild (w);
+X}
+X
+X/* called from the query routine when want to append to an existing plot file.*/
+Xstatic void
+Xplt_try_append()
+X{
+X	plt_turn_on("a");
+X}
+X
+X/* called from the query routine when want to overwrite to an existing plot
+X * file.
+X */
+Xstatic void
+Xplt_try_overwrite()
+X{
+X	plt_turn_on("w");
+X}
+X
+X/* called from the query routine when want decided not to make a plot file.  */
+Xstatic void
+Xplt_try_cancel()
+X{
+X	XmToggleButtonSetState (active_w, False, False);
+X}
+X
+X/* attempt to open file for use as a plot file.
+X * if it doesn't exist, then go ahead and make it.
+X * but if it does, first ask wheher to append or overwrite.
+X */
+Xstatic void
+Xplt_try_turn_on()
+X{
+X	char *txt = XmTextGetString (filename_w);
+X	if (access (txt, 0) == 0) {
+X	    char *buf;
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "%s exists: Append or Overwrite?", txt);
+X	    query (toplevel_w, buf, "Append", "Overwrite", "Cancel",
+X			    plt_try_append, plt_try_overwrite, plt_try_cancel);
+X	    XtFree (buf);
+X	} else
+X	    plt_turn_on("w");
+X	XtFree (txt);
+X}
+X
+X/* turn on plotting.
+X * establish a file to use (and thereby set plt_fp, the plotting_is_on flag).
+X */
+Xstatic void
+Xplt_turn_on (how)
+Xchar *how;	/* fopen how argument */
+X{
+X	char *txt;
+X
+X	/* plotting is on if file opens ok */
+X	txt = XmTextGetString (filename_w);
+X	plt_fp = fopen (txt, how);
+X	if (!plt_fp) {
+X	    char *buf;
+X	    XmToggleButtonSetState (active_w, False, False);
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "Can not open %s: %s", txt, errsys);
+X	    xe_msg (buf, 1);
+X	    XtFree (buf);
+X	}
+X	XtFree (txt);
+X	
+X	if (plt_fp) {
+X	    /* add a title if it's not null */
+X	    txt = XmTextGetString (title_w);
+X	    if (txt[0] != '\0')
+X		(void) fprintf (plt_fp, "* %s\n", txt);
+X	    XtFree (txt);
+X	}
+X}
+X
+X/* make a new drawing area widget and manage it. it's unmanaged and destroyed
+X *   from the Close button or if something goes wrong during plotting.
+X * open the plot file and save it, the current state of the flipx/flipy/grid
+X *   buttons and the filename in a DrawInfo struct in the userData resource
+X *   for the FormDialog where the drawingarea callback can get at it each time.
+X * this way, we can have lots of different plots up at once yet we don't
+X *   have to keep track of them.
+X * by leaving the file open, we gain some protection against it being removed
+X *   or renamed.
+X */
+Xstatic void
+Xplt_da_manage()
+X{
+X	Widget daform_w;
+X	Widget da_w, w;
+X	Widget ctl_w;
+X	Widget fr_w;
+X	XmString str;
+X	Arg args[20];
+X	char titlebuf[64];
+X	int n;
+X	DrawInfo *di;
+X	FILE *fp;
+X	char *fn;
+X
+X	/* first make sure we can open the plot file */
+X	fn = XmTextGetString (filename_w);
+X	fp = fopen (fn, "r");
+X	if (!fp) {
+X	    char *buf;
+X	    buf = XtMalloc (strlen(fn)+100);
+X	    (void) sprintf (buf, "Can not open %s: %s", fn, errsys);
+X	    xe_msg (buf, 1);
+X	    XtFree (buf);
+X	    XtFree (fn);
+X	    return;
+X	}
+X
+X	/* create the form dialog parent.
+X	 * arrange for it to be square when it first comes up.
+X	 */
+X	n = 0;
+X	daform_w = XmCreateFormDialog (toplevel_w, "PlotD", args, n);
+X	XtAddCallback (daform_w, XmNmapCallback, plt_daform_map_cb, NULL);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	(void) sprintf (titlebuf, "xephem Plot of `%.*s'", sizeof(titlebuf)-20,
+X									    fn);
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, titlebuf); n++;
+X	XtSetValues (XtParent(daform_w), args, n);
+X
+X	/* make the DrawInfo structure and save it in the userData of the Form.
+X	 * the memory gets freed when the the dialog is closed/unmanaged.
+X	 */
+X	di = (DrawInfo *) XtMalloc (sizeof(DrawInfo));
+X	di->filename = fn;
+X	di->fp = fp;
+X	di->flipx = 0;
+X	di->flipy = 0;
+X	di->grid = 0;
+X	set_something (daform_w, XmNuserData, (char *)di);
+X
+X	/* make a form for the bottom controls */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	XtSetArg (args[n], XmNfractionBase, 17); n++;
+X	ctl_w = XmCreateForm (daform_w, "CtlF", args, n);
+X	XtManageChild (ctl_w);
+X
+X	/* create the drawing area and connect plt_da_exp_cb().
+X	 * N.B. be sure this guys parent is the FormDialog so exp_cb can find
+X	 *   the DrawInfo by looking there at its userData.
+X	 * make this as high as it is wide when it is first mapped.
+X	 * N.B. if ever want this is a frame beware that other functions
+X	 *   assume that the daform_w is the parent of the DrawingArea.
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctl_w); n++;
+X	XtSetArg (args[n], XmNbottomOffset, 2); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNmarginWidth, 0); n++;
+X	XtSetArg (args[n], XmNmarginHeight, 0); n++;
+X	da_w = XmCreateDrawingArea (daform_w, "PlotDA", args, n);
+X	XtAddCallback (da_w, XmNexposeCallback, plt_da_exp_cb, NULL);
+X	XtManageChild (da_w);
+X
+X	    /* make the flipx/y and grid toggle buttons (within frames) and the
+X	     * close button in the control form
+X	     */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 4); n++;
+X	    fr_w = XmCreateFrame (ctl_w, "FlipXF", args, n);
+X	    XtManageChild (fr_w);
+X	    str = XmStringCreate("Flip X", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNset, di->flipx); n++;
+X	    w = XmCreateToggleButton(fr_w, "FlipX", args, n);
+X	    XmStringFree (str);
+X	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_flipx_cb, da_w);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 5); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 8); n++;
+X	    fr_w = XmCreateFrame (ctl_w, "FlipYF", args, n);
+X	    XtManageChild (fr_w);
+X	    str = XmStringCreate("Flip Y", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNset, di->flipy); n++;
+X	    w = XmCreateToggleButton(fr_w, "FlipY", args, n);
+X	    XmStringFree (str);
+X	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_flipy_cb, da_w);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 9); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 12); n++;
+X	    fr_w = XmCreateFrame (ctl_w, "GridF", args, n);
+X	    XtManageChild (fr_w);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, di->grid); n++;
+X	    w = XmCreateToggleButton(fr_w, "Grid", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_grid_cb, da_w);
+X	    XtManageChild (w);
+X
+X	    /* create a "Close" button.
+X	     * it destroys the dialog and frees the DrawInfo struct.
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 13); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 16); n++;
+X	    w = XmCreatePushButton (ctl_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, plt_da_close_cb, daform_w);
+X	    XtManageChild (w);
+X	
+X	/* go. the expose will do the actual plotting */
+X	XtManageChild (daform_w);
+X}
+X
+X/* called when finished with a plot with its FormDialog widget.
+X * reclaim all memory in the userData DrawInfo and destroy it.
+X * N.B. caller's daform_w is useless when this returns.
+X */
+Xstatic void
+Xplt_da_destroy (daform_w)
+XWidget daform_w;
+X{
+X	DrawInfo *di;
+X
+X	get_something (daform_w, XmNuserData, (char *)&di);
+X	(void) fclose (di->fp);
+X	XtFree(di->filename);
+X	XtFree((char *)di);
+X	XtDestroyWidget(daform_w);
+X}
+X
+X/* called when a plot dialog is mapped.
+X * set the height equal to the width.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_daform_map_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Widget shell_w = XtParent(w);
+X	Dimension width;
+X	int iwidth;
+X
+X	get_something (shell_w, XmNwidth, (char *)&width);
+X	iwidth = width;
+X	set_something (shell_w, XmNheight, (char *)iwidth);
+X}
+X
+X
+X/* called when the Close button is pushed on a plot.
+X * free the DrawInfo and destroy the dialog (passed as client).
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_da_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	plt_da_destroy ((Widget)client);
+X}
+X
+X/* callback from the Flip X toggle button within the drawing FormDiag itself.
+X * toggle the x bit in the parent's DrawInfo structure and fake an expose.
+X * client is the DrawingArea widget.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_da_flipx_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	Widget da_w = (Widget) client;
+X	Widget daform_w = XtParent(da_w);
+X	Display *dsp = XtDisplay(da_w);
+X	Window win = XtWindow(da_w);
+X	DrawInfo *di;
+X	XExposeEvent ev;
+X	Window root;
+X	int x, y;
+X	unsigned int nx, ny, bw, d;
+X
+X	get_something (daform_w, XmNuserData, (char *)&di);
+X	di->flipx = t->set;
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X
+X	ev.type = Expose;
+X	ev.send_event = 1;	/* gets set anyways */
+X	ev.display = dsp;
+X	ev.window = win;
+X	ev.x = ev.y = 0;
+X	ev.width = nx;
+X	ev.height = ny;
+X	ev.count = 0;
+X
+X	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+X}
+X
+X/* callback from the Flip Y toggle button within the drawing FormDiag itself.
+X * toggle the y bit in the parent's DrawInfo structure and fake an expose.
+X * client is the DrawingArea widget.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_da_flipy_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	Widget da_w = (Widget) client;
+X	Widget daform_w = XtParent(da_w);
+X	Display *dsp = XtDisplay(da_w);
+X	Window win = XtWindow(da_w);
+X	DrawInfo *di;
+X	XExposeEvent ev;
+X	Window root;
+X	int x, y;
+X	unsigned int nx, ny, bw, d;
+X
+X	get_something (daform_w, XmNuserData, (char *)&di);
+X	di->flipy = t->set;
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X
+X	ev.type = Expose;
+X	ev.send_event = 1;	/* gets set anyways */
+X	ev.display = dsp;
+X	ev.window = win;
+X	ev.x = ev.y = 0;
+X	ev.width = nx;
+X	ev.height = ny;
+X	ev.count = 0;
+X
+X	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+X}
+X
+X/* callback from the grid toggle button within the drawing FormDiag itself.
+X * toggle the grid flag in the parent's DrawInfo structure and fake an expose.
+X * client is the DrawingArea widget.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_da_grid_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	Widget da_w = (Widget) client;
+X	Widget daform_w = XtParent(da_w);
+X	Display *dsp = XtDisplay(da_w);
+X	Window win = XtWindow(da_w);
+X	DrawInfo *di;
+X	XExposeEvent ev;
+X	Window root;
+X	int x, y;
+X	unsigned int nx, ny, bw, d;
+X
+X	get_something (daform_w, XmNuserData, (char *)&di);
+X	di->grid = t->set;
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X
+X	ev.type = Expose;
+X	ev.send_event = 1;	/* gets set anyways */
+X	ev.display = dsp;
+X	ev.window = win;
+X	ev.x = ev.y = 0;
+X	ev.width = nx;
+X	ev.height = ny;
+X	ev.count = 0;
+X
+X	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+X}
+X
+X/* plot drawing area's expose callback.
+X * redraw the graph to the (new?) size.
+X * get a DrawInfo from our parent's userData.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xplt_da_exp_cb (da_w, client, call)
+XWidget da_w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X	DrawInfo *di;
+X	Widget daform_w;
+X	XWindowAttributes xwa;
+X
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand if we have never seen this window before.
+X	     */
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X
+X	    XGetWindowAttributes (e->display, e->window, &xwa);
+X	    if (xwa.bit_gravity != ForgetGravity) {
+X		/* first expose for this window -- set no gravity */
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window,
+X							    CWBitGravity, &swa);
+X	    }
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected da_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	/* use xwa for the drawing area window size.
+X	 * get di from the FormDiaglog parent and plot fresh.
+X	 */
+X
+X	daform_w = XtParent(da_w);
+X	get_something (daform_w, XmNuserData, (char *)&di);
+X	XClearWindow (XtDisplay(da_w), XtWindow(da_w));
+X	rewind (di->fp);
+X	if (plot_cartesian (di->fp, da_w, xwa.width, xwa.height,
+X					di->flipx, di->flipy, di->grid) < 0) {
+X	    /* had trouble, so done with this FormDialog.
+X	     */
+X	    char buf[128];
+X	    (void) sprintf (buf, "Error plotting `%.*s'\n", sizeof(buf)-20,
+X								di->filename);
+X	    xe_msg (buf, 0);
+X	    plt_da_destroy (daform_w);
+X	}
+X}
+END_OF_FILE
+  if test 30247 -ne `wc -c <'plotmenu.c'`; then
+    echo shar: \"'plotmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'plotmenu.c'
+fi
+if test -f 'riset_cir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'riset_cir.c'\"
+else
+  echo shar: Extracting \"'riset_cir.c'\" \(7897 characters\)
+  sed "s/^X//" >'riset_cir.c' <<'END_OF_FILE'
+X/* find rise and set circumstances, ie, riset_cir() and related functions. */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include "astro.h"
+X#include "circum.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern double mjd_day P_((double jd));
+Xextern int obj_cir P_((Now *np, Obj *op));
+Xextern void now_lst P_((Now *np, double *lst));
+Xextern void range P_((double *v, double r));
+Xextern void refract P_((double pr, double tr, double ta, double *aa));
+Xextern void riset P_((double ra, double dec, double lati, double dis, double *lstr, double *lsts, double *azr, double *azs, int *status));
+Xextern void riset_cir P_((Now *np, Obj *op, double dis, RiseSet *rp));
+Xextern void ta_par P_((double tha, double tdec, double phi, double ht, double ehp, double *aha, double *adec));
+Xextern void unrefract P_((double pr, double tr, double aa, double *ta));
+X
+Xvoid riset_cir P_((Now *np, Obj *op, double dis, RiseSet *rp));
+Xvoid twilight_cir P_((Now *np, double dis, double *dawn, double *dusk, int *status));
+Xstatic void stationary_riset P_((Obj *op, Now *np, double dis, double *lstr, double *lsts, double *lstt, double *azr, double *azs, double *altt, int *status));
+Xstatic void transit P_((double r, double d, Now *np, double *lstt, double *altt));
+X
+X#undef P_
+X
+X
+X#define	TMACC	(15./3600.)	/* convergence accuracy, hours */
+X
+X/* find where and when an object, op, will rise and set and
+X *   it's transit circumstances. all times are local, angles rads e of n.
+X * dis is the angle down from an ideal horizon, in rads (see riset()).
+X */
+Xvoid
+Xriset_cir (np, op, dis, rp)
+XNow *np;
+XObj *op;
+Xdouble dis;
+XRiseSet *rp;
+X{
+X#define	MAXPASSES	6
+X	double lstr, lsts, lstt; /* local sidereal times of rising/setting */
+X	double lnoon;		/* mjd of local noon */
+X	double x;		/* discarded tmp value */
+X	Now n;			/* copy to move time around */
+X	Obj o;			/* copy to get circumstances at n */
+X	double lst;		/* lst at local noon */
+X	double diff, lastdiff;	/* iterative improvement to mjd0 */
+X	int pass;
+X	int rss;
+X
+X	/* find mjd of local noon -- all iterations start then */
+X	lnoon = mjd_day(mjd - tz/24.0) + (12.0 + tz)/24.0;
+X
+X	/* work with local copies so we can move the time around */
+X	n = *np;
+X	o = *op;
+X
+X	/* assume no problems initially */
+X	rp->rs_flags = 0;
+X
+X	/* first approximation is to find rise/set times of a fixed object
+X	 * at the current epoch in its position at local noon.
+X	 */
+X	n.n_mjd = lnoon;
+X	n.n_epoch = EOD;
+X	now_lst (&n, &lst);	/* lst at local noon */
+X	stationary_riset (&o, &n, dis, &lstr, &lsts, &lstt, &x, &x, &x, &rss);
+X
+X    chkrss:	/* come here to check rss status and control next step */
+X	switch (rss) {
+X	case  0:  break;
+X	case  1: rp->rs_flags = RS_NEVERUP; return;
+X	case -1: rp->rs_flags = RS_CIRCUMPOLAR; goto dotransit;
+X	default: rp->rs_flags = RS_ERROR; return;
+X	}
+X
+X	/* find a better approximation to the rising circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the rise time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lstr - lst)*SIDRATE; /* next guess at rise time wrt noon */
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    n.n_mjd = lnoon + diff/24.0;	/* next guess at mjd of rise */
+X	    stationary_riset (&o, &n, dis, &lstr, &x, &x, &rp->rs_riseaz,
+X								&x, &x, &rss);
+X	    if (rss != 0) goto chkrss;
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    rp->rs_flags |= RS_NORISE;	/* didn't converge - no rise today */
+X	else {
+X	    rp->rs_risetm = 12.0 + diff;
+X	    if (!is_planet(op, MOON) &&
+X		    (rp->rs_risetm <= 24.0*(1.0-SIDRATE)
+X			|| rp->rs_risetm >= 24.0*SIDRATE))
+X		rp->rs_flags |= RS_2RISES;
+X	}
+X
+X	/* find a better approximation to the setting circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the set time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lsts - lst)*SIDRATE; /* next guess at set time wrt noon */
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    n.n_mjd = lnoon + diff/24.0;	/* next guess at mjd of set */
+X	    stationary_riset (&o, &n, dis, &x, &lsts, &x, &x,
+X						    &rp->rs_setaz, &x, &rss);
+X	    if (rss != 0) goto chkrss;
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    rp->rs_flags |= RS_NOSET;	/* didn't converge - no set today */
+X	else {
+X	    rp->rs_settm = 12.0 + diff;
+X	    if (!is_planet(op, MOON) &&
+X		    (rp->rs_settm <= 24.0*(1.0-SIDRATE)
+X			|| rp->rs_settm >= 24.0*SIDRATE))
+X		rp->rs_flags |= RS_2SETS;
+X	}
+X
+X    dotransit:
+X	/* find a better approximation to the transit circumstances based on
+X	 * more passes, each using a "fixed" object at the location at
+X	 * previous approximation of the transit time.
+X	 */
+X	lastdiff = 1000.0;
+X	for (pass = 1; pass < MAXPASSES; pass++) {
+X	    diff = (lstt - lst)*SIDRATE; /*next guess at transit time wrt noon*/
+X	    if (diff > 12.0)
+X		diff -= 24.0*SIDRATE;	/* not tomorrow, today */
+X	    else if (diff < -12.0)
+X		diff += 24.0*SIDRATE;	/* not yesterday, today */
+X	    n.n_mjd = lnoon + diff/24.0; /* next guess at mjd of transit */
+X	    stationary_riset (&o, &n, dis, &x, &x, &lstt, &x, &x,
+X							&rp->rs_tranalt, &rss);
+X	    if (fabs (diff - lastdiff) < TMACC)
+X		break;
+X	    lastdiff = diff;
+X	}
+X	if (pass == MAXPASSES)
+X	    rp->rs_flags |= RS_NOTRANS;	/* didn't converge - no transit today */
+X	else {
+X	    rp->rs_trantm = 12.0 + diff;
+X	    if (!is_planet(op, MOON) &&
+X		    (rp->rs_trantm <= 24.0*(1.0-SIDRATE)
+X			|| rp->rs_trantm >= 24.0*SIDRATE))
+X		rp->rs_flags |= RS_2TRANS;
+X	}
+X}
+X
+X/* find local times when sun is dis rads below horizon.
+X */
+Xvoid
+Xtwilight_cir (np, dis, dawn, dusk, status)
+XNow *np;
+Xdouble dis;
+Xdouble *dawn, *dusk;
+Xint *status;
+X{
+X	RiseSet rs;
+X	Obj o;
+X
+X	o.type = PLANET;
+X	o.pl.code = SUN;
+X	riset_cir (np, &o, dis, &rs);
+X	*dawn = rs.rs_risetm;
+X	*dusk = rs.rs_settm;
+X	*status = rs.rs_flags;
+X}
+X
+X/* find the local rise/set/transit circumstances of a fixed object, *op.
+X * use lp to decide the day and the location circumstances.
+X * fill *status is have any problems.
+X */
+Xstatic void
+Xstationary_riset (op, np, dis, lstr, lsts, lstt, azr, azs, altt, status)
+XObj *op;
+XNow *np;
+Xdouble dis;
+Xdouble *lstr, *lsts, *lstt;
+Xdouble *azr, *azs, *altt;
+Xint *status;
+X{
+X	/* find object op's topocentric ra/dec at np..
+X	 * (this must include parallax if it's in the solar system).
+X	 */
+X	if (obj_cir (np, op) < 0) {
+X	    printf ("stationary_riset: can't get object loc\n");
+X	    exit (1);
+X	}
+X	
+X	if (is_ssobj(op)) {
+X	    /* obj_cir() gives geocentric ra/dec; we need to account for
+X	     * parallax in solar system objects to get topocentric ra/dec.
+X	     */
+X	    double tra, tdec;
+X	    double ehp, lst, ha;
+X	    if (is_planet(op, MOON))
+X		ehp = asin (6378.14/op->s_edist);
+X	    else
+X		ehp = (2.*6378./146e6)/op->s_edist;
+X	    now_lst (np, &lst);
+X	    ha = hrrad(lst) - op->s_ra;
+X	    ta_par (ha, op->s_dec, lat, elev, ehp, &ha, &tdec);
+X	    tra = hrrad(lst) - ha;
+X	    range (&tra, 2*PI);
+X	    op->s_ra = tra;
+X	    op->s_dec = tdec;
+X	}
+X
+X	riset (op->s_ra, op->s_dec, lat, dis, lstr, lsts, azr, azs, status);
+X	transit (op->s_ra, op->s_dec, np, lstt, altt);
+X}
+X
+X
+X/* find when and how hi object at (r,d) is when it transits. */
+Xstatic void
+Xtransit (r, d, np, lstt, altt)
+Xdouble r, d;	/* ra and dec, rads */
+XNow *np;	/* for refraction info */
+Xdouble *lstt;	/* local sidereal time of transit */
+Xdouble *altt;	/* local, refracted, altitude at time of transit */
+X{
+X	*lstt = radhr(r);
+X	*altt = PI/2 - lat + d;
+X	if (*altt > PI/2)
+X	    *altt = PI - *altt;
+X	refract (pressure, temp, *altt, altt);
+X}
+END_OF_FILE
+  if test 7897 -ne `wc -c <'riset_cir.c'`; then
+    echo shar: \"'riset_cir.c'\" unpacked with wrong size!
+  fi
+  # end of 'riset_cir.c'
+fi
+if test -f 'skyviewmenu.c.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'skyviewmenu.c.1'\"
+else
+  echo shar: Extracting \"'skyviewmenu.c.1'\" \(31658 characters\)
+  sed "s/^X//" >'skyviewmenu.c.1' <<'END_OF_FILE'
+X/* code to manage the stuff on the sky view display.
+X * the filter menu is in filtermenu.c.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/CascadeB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Text.h>
+X#include <Xm/Scale.h>
+X#include <Xm/Separator.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X/* we keep a linked-list of Objects we want trails for. these in turn "contain"
+X * a variable-length array of TSkys for each location in the trail. The TSkys
+X * are kept in increasing-time order as they are inserted for later plotting.
+X * an item is added when the popup says so; it is removed if we are told the
+X * object has been changed via sv_newobj(); all are removed if the whole db
+X * changes.
+X * also, we add to sky[] in multiples of TRAILCHUNKS for memory efficiency.
+X */
+Xtypedef struct {
+X    unsigned flags;	/* OBJF_ things for this particular point */
+X    double ts_mjd;	/* mjd when this Obj was valid */
+X    Obj o;		/* copy of the object at ts_mjd */
+X} TSky;
+Xstruct trailObj {
+X    struct trailObj *ntop;	/* pointer to next, or NULL */
+X    int on;		/* use to mark on/off; actually remved on next update */
+X    Obj *op;		/* object being trailed */
+X    int nsky;		/* number of items in use within sky[] */
+X    int nskymem;	/* total space of sky[] */
+X    TSky sky[1];	/* basicaly a variable-length array of Objs */
+X};
+Xtypedef struct trailObj TrailObj;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern Obj *db_basic P_((int id));
+Xextern Obj *db_next P_((Obj *op, HowNext how));
+Xextern char *obj_description P_((Obj *op));
+Xextern double mjd_hr P_((double jd));
+Xextern int f_ison P_((void));
+Xextern int lc P_((int cx, int cy, int cw, int x1, int y1, int x2, int y2, int *sx1, int *sy1, int *sx2, int *sy2));
+Xextern int svf_filter_ok P_((Obj *op));
+Xextern int tickmarks P_((double min, double max, int numdiv, double ticks[]));
+Xextern void aa_hadec P_((double lati, double alt, double az, double *ha, double *dec));
+Xextern void db_update P_((Obj *op));
+Xextern void ecl_eq P_((double Mjd, double Lat, double Lng, double *ra, double *dec));
+Xextern void eq_ecl P_((double Mjd, double ra, double dec, double *Lat, double *Lng));
+Xextern void f_showit P_((Widget w, char *s));
+Xextern void fs_angle P_((char out[], double a));
+Xextern void fs_date P_((char out[], double jd));
+Xextern void fs_ra P_((char out[], double ra));
+Xextern void fs_time P_((char out[], double t));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void gk_mag P_((double g, double k, double rp, double rho, double *mp));
+Xextern void hadec_aa P_((double lati, double ha, double dec, double *alt, double *az));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void now_lst P_((Now *np, double *lst));
+Xextern void obj_pickgc P_((Obj *op, Widget w, GC *gcp));
+Xextern void obj_set P_((Obj *op));
+Xextern void precess P_((double mjd1, double mjd2, double *ra, double *dec));
+Xextern void range P_((double *v, double r));
+Xextern void refract P_((double pr, double tr, double ta, double *aa));
+Xextern void set_something P_((Widget w, char *resource, char *value));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void svf_create P_((void));
+Xextern void svf_manage P_((void));
+Xextern void svf_manage_toggle P_((void));
+Xextern void svf_unmanage P_((void));
+Xextern void timestamp P_((Now *np, Widget w));
+Xextern void unrefract P_((double pr, double tr, double aa, double *ta));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid sv_manage P_((void));
+Xint sv_ison P_((void));
+Xvoid sv_newobj P_((int dbidx));
+Xvoid sv_newdb P_((int appended));
+Xvoid sv_update P_((Now *np, int how_much));
+Xvoid sv_point P_((Obj *op));
+Xint sv_id P_((Obj *op));
+Xvoid sv_cursor P_((Cursor c));
+Xvoid sv_all P_((Now *np, int preclr));
+Xvoid sv_draw_obj P_((Display *dsp, Drawable win, GC gc, Obj *op, int x, int y, int diam, int dotsonly));
+Xstatic void sv_copy_sky P_((void));
+Xstatic void sv_create_svform P_((void));
+Xstatic void sv_create_find P_((Widget parent));
+Xstatic void sv_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_help_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_aa_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_all_labels_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_filter_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_grid_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_set_scales P_((void));
+Xstatic void sv_da_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_da_input_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_da_motion_cb P_((Widget w, XtPointer client, XEvent *ev, Boolean *continue_to_dispatch));
+Xstatic void sv_changed_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_ecliptic_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_justdots_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_finding_cb P_((Widget wid, XtPointer client, XtPointer call));
+Xstatic void sv_find_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_magdrag_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_set_view P_((void));
+Xstatic void sv_getcircle P_((unsigned int *wp, unsigned int *hp, unsigned int *rp, unsigned int *xbp, unsigned int *ybp));
+Xstatic void sv_popup P_((XEvent *ev, Obj *op, TSky *tsp));
+Xstatic void sv_create_popup P_((void));
+Xstatic void sv_pu_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sv_pu_trail_cb P_((Widget wid, XtPointer client, XtPointer call));
+Xstatic void sv_pu_label_cb P_((Widget wid, XtPointer client, XtPointer call));
+Xstatic void tobj_rmoff P_((void));
+Xstatic void tobj_rmobj P_((Obj *op));
+Xstatic TrailObj *tobj_addobj P_((Obj *op));
+Xstatic TrailObj *tobj_growsky P_((TrailObj *top));
+Xstatic void tobj_reset P_((void));
+Xstatic TrailObj *tobj_find P_((Obj *op));
+Xstatic TrailObj *tobj_addsky P_((TrailObj *top, double jd, Obj *op));
+Xstatic void tobj_display_all P_((unsigned r, unsigned xb, unsigned yb));
+Xstatic sv_dbobjloc P_((Obj *op, int r, int *xp, int *yp));
+Xstatic sv_trailobjloc P_((TSky *tsp, int r, int *xp, int *yp));
+Xstatic sv_precheck P_((Obj *op));
+Xstatic sv_bright_ok P_((Obj *op));
+Xstatic sv_infov P_((Obj *op));
+Xstatic sv_loc P_((int rad, double altdec, double azra, int *xp, int *yp));
+Xstatic sv_unloc P_((int rad, int x, int y, double *altdecp, double *azrap));
+Xstatic void draw_ecliptic P_((Display *dsp, Window win, GC gc, unsigned int r, unsigned int xb, unsigned int yb));
+Xstatic void draw_grid P_((Display *dsp, Window win, GC gc, unsigned int r, unsigned int xb, unsigned int yb));
+Xstatic magdiam P_((double m));
+Xstatic void sv_mk_gcs P_((Display *dsp, Window win));
+Xstatic void draw_label P_((Display *dsp, Window win, GC gc, char label[], int x, int y));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+X
+X#define	NGRID	20		/* max grid lines each dimension */
+X#define	NSEGS	5		/* piecewise segments per arc */
+X#define	ECL_TICS	2	/* period of points for ecliptic, pixels */
+X
+X#define	MARKER	20		/* pointer marker half-width, pixels */
+X
+X#define	BMAGLIMIT	(-28)	/* brightest setting for the Mag scales */
+X#define	FMAGLIMIT	20	/* faintest setting for the Mag scales */
+X#define	TRAILCHUNKS	50	/* we malloc these many at a time */
+X
+Xstatic Widget svform_w;			/* main sky view form dialog */
+Xstatic Widget svda_w;			/* sky view drawing area */
+Xstatic Widget fov_w, altdec_w, azra_w;	/* scale widgets */
+Xstatic Widget fmag_w, bmag_w;		/* magnitude scale widgets */
+Xstatic Widget hgrid_w, vgrid_w;		/* h and v grid spacing labels */
+Xstatic Widget aa_w, rad_w;		/* altaz/radec toggle buttons */
+Xstatic Widget dt_w;			/* the date/time stamp label widget */
+Xstatic Widget find_w[2];		/* cascade buttons for "find" objx/y */
+Xstatic Pixmap sv_pm;			/* off-screen pixmap we *really* draw */
+Xstatic Widget talt_w, taz_w;		/* tracking alt/az report widgets */
+Xstatic Widget tra_w, tdec_w;		/* tracking ra/dec report widgets */
+X
+X/* pixels and GCs
+X */
+Xstatic Pixel fg_p, bg_p, sky_p;	/* default fg, background, and sky colors */
+Xstatic GC sv_gc;		/* the default GC */
+X
+Xstatic int aa_mode = -1;	/* 1 for alt/az or 0 for ra/dec */
+Xstatic double sv_altdec;	/* view center alt or dec, rads */
+Xstatic double sv_azra;		/* view center az or ra, rads */
+Xstatic double sv_fov;		/* field of view, rads */
+Xstatic int fmag, bmag;		/* faintest/brightest magnitude to display */
+Xstatic int justdots;		/* set when only want to use dots on the map */
+Xstatic int want_ecliptic;	/* set when want to see the ecliptic */
+Xstatic TrailObj *trailobj;	/* head of a malloced linked-list -- 0 when
+X				 * empty
+X				 */
+Xstatic int want_grid;		/* set when we want to draw the coord grid */
+Xstatic all_labels;		/* !0 when want to display all labels */
+Xstatic int sv_ournewobj;	/* used to inhibit useless redrawing */
+X
+Xstatic char null_grid_str[] = "             ";
+X
+X/* info about the popup widget.
+X * we make one once and keep reusing it -- seems to be a bit faster that way.
+X */
+Xtypedef struct {
+X    Widget pu_w;
+X    Widget name_w;
+X    Widget desc_w;
+X    Widget spect_w;
+X    Widget ud_w;
+X    Widget ut_w;
+X    Widget ra_w;
+X    Widget dec_w;
+X    Widget alt_w;
+X    Widget az_w;
+X    Widget mag_w;
+X    Widget trail_w;
+X    Widget label_w;
+X    Obj *op;
+X    TSky *tsp;	/* this is used if we are displaying a trailed object */
+X} Popup;
+Xstatic Popup pu;
+X
+Xenum {AIM, MK_OBJX};		/* popup button activate codes */
+X
+X/* Obj.flags or TSky flags values */
+X#define	OBJF_ONSCREEN	0x1	/* bit set if obj is on screen */
+X#define	OBJF_LABEL	0x2	/* set if label is to be on */
+X
+X/* called when the sky view is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X * also manage the corresponding filter dialog along with.
+X * freeing the pixmap will force a fresh update on the next expose.
+X */
+Xvoid
+Xsv_manage ()
+X{
+X	if (!svform_w)
+X	    sv_create_svform(); /* also creates the filter */
+X	
+X	if (XtIsManaged(svform_w)) {
+X	    XtUnmanageChild (svform_w);
+X	    svf_unmanage();
+X	    if (sv_pm) {
+X		XFreePixmap (XtDisplay(svda_w), sv_pm);
+X		sv_pm = (Pixmap) NULL;
+X	    }
+X	} else {
+X	    XtManageChild (svform_w);
+X	    /* rely on expose to a fresh update */
+X	}
+X}
+X
+Xsv_ison()
+X{
+X	return (svform_w && XtIsManaged(svform_w));
+X}
+X
+X/* called when a user-defined object has changed.
+X * take it off the trailobj list, if it's there (it's ok if it's not).
+X * then since we rely on knowing our update will be called we need do nothing
+X *   more to redisplay without the object.
+X */
+Xvoid
+Xsv_newobj(dbidx)
+Xint dbidx;		/* OBJX or OBJY */
+X{
+X	Obj *op = db_basic(dbidx);
+X
+X	tobj_rmobj (op);
+X
+X}
+X
+X/* called when the db (beyond NOBJ) has changed.
+X * if it was appended to we can just redraw; if it was changed we need to
+X * discard any trails we are keeping first.
+X */
+Xvoid
+Xsv_newdb(appended)
+Xint appended;
+X{
+X	if (!appended)
+X	    tobj_reset();
+X	sv_update (mm_get_now(), 1);
+X}
+X
+X/* called when we are to update our view.
+X * don't bother if we are unmanaged unless there are trails to be saved.
+X * add any objects in the trails list then redraw the screen if we are up.
+X * also don't bother if we are the reason for an all_newobj() or if fields are
+X *   off.
+X * we also remove any trails that have been turned off.
+X */
+X/* ARGSUSED */
+Xvoid
+Xsv_update (np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	TrailObj *top;
+X	int up;
+X
+X	if (sv_ournewobj)
+X	    return;
+X
+X	up = svform_w && XtIsManaged(svform_w);
+X	if (!up && !trailobj)
+X	    return;
+X
+X	/* remove trails no longer wanted. */
+X	tobj_rmoff();
+X
+X	/* add an entry to each trailed object for this time. */
+X	for (top = trailobj; top; top = top->ntop) {
+X	    db_update (top->op);
+X	    top = tobj_addsky (top, mjd, top->op);
+X	}
+X
+X	if (up && f_ison())
+X	    sv_all(np, 1);
+X}
+X
+X/* point at the given object and mark it.
+X * N.B. we do *not* update the s_ fields of op.
+X */
+Xvoid
+Xsv_point (op)
+XObj *op;
+X{
+X	double d;
+X
+X	if (!svform_w || !op || op->type == UNDEFOBJ)
+X	    return;
+X
+X	if (aa_mode && op->s_alt < 0.0) {
+X	    xe_msg ("Object is below the horizon", 1);
+X	    return;
+X	}
+X
+X	d = raddeg(aa_mode ? op->s_alt : op->s_dec);
+X	XmScaleSetValue (altdec_w, (int)floor(d + 0.5));
+X	d = aa_mode ? raddeg(op->s_az) : 10.0*radhr(op->s_ra);
+X	XmScaleSetValue (azra_w, (int)floor(d + 0.5));
+X	sv_set_view();
+X	sv_all(mm_get_now(), 1);
+X
+X	switch (sv_id(op)) {
+X	case -1: xe_msg ("sv_point: object is below horizon", 0); break;
+X	case -2: xe_msg ("sv_point: object is outside FOV", 0); break;
+X	}
+X}
+X
+X/* show a marker at the location of the given object.
+X * return 0 if object was in fact in the field of view;
+X *       -1 if in alt/az mode and op is below the horizon now;
+X *       -2 if object is otherwise outside the field of view now.
+X * N.B. we do *not* update the s_ fields of op.
+X */
+Xsv_id (op)
+XObj *op;
+X{
+X	Display *dsp = XtDisplay (svda_w);
+X	Window win = XtWindow (svda_w);
+X	unsigned int wide, h, r, xb, yb;
+X	double altdec, azra;
+X	int x, y;
+X
+X	if (!svform_w || !XtIsManaged(svform_w) || !op || op->type == UNDEFOBJ)
+X	    return (-2);
+X
+X	sv_getcircle (&wide, &h, &r, &xb, &yb);
+X
+X	altdec = aa_mode ? op->s_alt : op->s_dec;
+X	azra   = aa_mode ? op->s_az  : op->s_ra;
+X	if (!sv_loc (r, altdec, azra, &x, &y))
+X	    return (aa_mode && op->s_alt < 0.0 ? -1 : -2);
+X
+X	x += xb;
+X	y += yb;
+X
+X	XSetForeground (dsp, sv_gc, fg_p);
+X	XDrawLine (dsp, win, sv_gc, x-MARKER, y-MARKER, x+MARKER, y+MARKER);
+X	XDrawLine (dsp, win, sv_gc, x+MARKER, y-MARKER, x-MARKER, y+MARKER);
+X
+X	return (0);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xsv_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (svform_w && (win = XtWindow(svform_w))) {
+X	    Display *dsp = XtDisplay(svform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* draw everything subject to any filtering.
+X */
+X/* ARGSUSED */
+Xvoid
+Xsv_all(np, preclr)
+XNow *np;
+Xint preclr;
+X{
+X	Display *dsp = XtDisplay(svda_w);
+X	Window win = sv_pm;
+X	unsigned int w, h, r, xb, yb;
+X	Obj *op;
+X
+X	watch_cursor(1);
+X
+X	/* put up the timestamp */
+X	timestamp (np, dt_w);
+X
+X	sv_getcircle (&w, &h, &r, &xb, &yb);
+X
+X	/* rebuild the clean circle */
+X	XSetForeground (dsp, sv_gc, bg_p);
+X	XFillRectangle (dsp, win, sv_gc, 0, 0, w, h);
+X	XSetForeground (dsp, sv_gc, sky_p);
+X	XFillArc (dsp, win, sv_gc, xb+1, yb+1, 2*r-2, 2*r-2, 0, 360*64);
+X	XSetForeground (dsp, sv_gc, fg_p);
+X	XDrawArc (dsp, win, sv_gc, xb, yb, 2*r-1, 2*r-1, 0, 360*64);
+X
+X	/* go through the database and display what we want */
+X	for (op = db_next(NULL, OBJS_ALL); op; op = db_next(op, OBJS_ALL)) {
+X	    GC gc;
+X	    int x, y;
+X	    obj_pickgc(op, svda_w, &gc);
+X	    if (!sv_dbobjloc(op, r, &x, &y))
+X		op->o_flags &= ~OBJF_ONSCREEN;
+X	    else {
+X		/* yup, it's really supposed to be on the screen */
+X		db_update (op);
+X		x += xb;
+X		y += yb;
+X		sv_draw_obj (dsp, win, gc, op, x, y,
+X				    magdiam(op->s_mag/MAGSCALE), justdots);
+X		op->o_flags |= OBJF_ONSCREEN;
+X		if (all_labels || (op->o_flags & OBJF_LABEL))
+X		    draw_label (dsp, win, gc, op->o_name, x, y);
+X	    }
+X	}
+X
+X	sv_draw_obj (dsp, win, (GC)0, NULL, 0, 0, 0, 0);	/* flush */
+X
+X	/* go through the trailobj list and display that stuff too. */
+X	tobj_display_all(r, xb, yb);
+X
+X	/* draw a grid on top if desired */
+X	if (want_grid) {
+X	    XSetForeground (dsp, sv_gc, fg_p);
+X	    draw_grid(dsp, win, sv_gc, r, xb, yb);
+X	}
+X
+X	/* and finally draw the ecliptic on top if desired */
+X	if (want_ecliptic) {
+X	    XSetForeground (dsp, sv_gc, fg_p);
+X	    draw_ecliptic (dsp, win, sv_gc, r, xb, yb);
+X	}
+X
+X	/* and we're done */
+X	sv_copy_sky();
+X
+X	watch_cursor(0);
+X}
+X
+X/* draw the given object so it has a nominal diameter of diam pixels.
+X * we maintain a static cache of common X drawing objects for efficiency.
+X * (mallocing seemed to keep the memory arena too fragmented).
+X * to force a flush, call with op == NULL.
+X */
+Xvoid
+Xsv_draw_obj (dsp, win, gc, op, x, y, diam, dotsonly)
+XDisplay *dsp;
+XDrawable win;
+XGC gc;
+XObj *op;
+Xint x, y;
+Xint diam;
+Xint dotsonly;
+X{
+X#define	CACHE_SZ	100
+X#define	CACHE_PAD	10	/* most we ever need in one call */
+X#define	CACHE_HWM	(CACHE_SZ - CACHE_PAD)	/* hi water mark */
+X	static XPoint   xpoints[CACHE_SZ],   *xp  = xpoints;
+X	static XArc     xdrawarcs[CACHE_SZ], *xda = xdrawarcs;
+X	static XArc     xfillarcs[CACHE_SZ], *xfa = xfillarcs;
+X	static XSegment xsegments[CACHE_SZ], *xs  = xsegments;
+X	static GC cache_gc;
+X	int force;
+X	int t;
+X
+X	/* for sure if no op or different gc */
+X	force = !op || gc != cache_gc;
+X
+X	if (force || xp >= xpoints + CACHE_HWM) {
+X	    int n;
+X	    if ((n = xp - xpoints) > 0) {
+X		XDrawPoints (dsp, win, cache_gc, xpoints, n, CoordModeOrigin);
+X		xp = xpoints;
+X#ifdef SVTRACE
+X		printf ("points=%d\n", n);
+X#endif
+X	    }
+X	}
+X	if (force || xda >= xdrawarcs + CACHE_HWM) {
+X	    int n;
+X	    if ((n = xda - xdrawarcs) > 0) {
+X		XDrawArcs (dsp, win, cache_gc, xdrawarcs, n);
+X		xda = xdrawarcs;
+X#ifdef SVTRACE
+X		printf ("drawarcs=%d\n", n);
+X#endif
+X	    }
+X	}
+X	if (force || xfa >= xfillarcs + CACHE_HWM) {
+X	    int n;
+X	    if ((n = xfa - xfillarcs) > 0) {
+X		XFillArcs (dsp, win, cache_gc, xfillarcs, n);
+X		xfa = xfillarcs;
+X#ifdef SVTRACE
+X		printf ("fillarcs=%d\b", n);
+X#endif
+X	    }
+X	}
+X	if (force || xs >= xsegments + CACHE_HWM) {
+X	    int n;
+X	    if ((n = xs - xsegments) > 0) {
+X		XDrawSegments (dsp, win, cache_gc, xsegments, n);
+X		xs = xsegments;
+X#ifdef SVTRACE
+X		printf ("segments=%d\n", n);
+X#endif
+X	    }
+X	}
+X
+X	cache_gc = gc;
+X
+X	if (!op)
+X	    return;	/* just flushing, thanks */
+X
+X	/* one-pixel wide anything is just a dot */
+X	if (diam <= 1) {
+X	    xp->x = x;
+X	    xp->y = y;
+X	    xp++;
+X	    return;
+X	}
+X
+X	/* if dotsonly is on don't use the fancy symbols, just use dots */
+X	if (dotsonly) {
+X	    xfa->x = x - diam/2;
+X	    xfa->y = y - diam/2;
+X	    xfa->width = diam;
+X	    xfa->height = diam;
+X	    xfa->angle1 = 0;
+X	    xfa->angle2 = 360*64;
+X	    xfa++;
+X	    return;
+X	}
+X
+X	switch (op->type) {
+X	case PLANET:
+X	    /* filled circle */
+X	    xfa->x = x - diam/2;
+X	    xfa->y = y - diam/2;
+X	    xfa->width = diam;
+X	    xfa->height = diam;
+X	    xfa->angle1 = 0;
+X	    xfa->angle2 = 360*64;
+X	    xfa++;
+X	    break;
+X	case FIXED:
+X	    switch (op->f_class) {
+X	    case 'G': case 'H': case 'A': /* galaxy */
+X		/* filled ellipse */
+X		xfa->x = x - diam/2;
+X		xfa->y = y - diam/4;
+X		xfa->width = diam;
+X		xfa->height = diam/2;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		break;
+X	    case 'C': case 'U': /* globular clusters */
+X		/* same as cluster but with a central dot */
+X		xfa->x = x - 1;
+X		xfa->y = y - 1;
+X		xfa->width = 3;
+X		xfa->height = 3;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		/* fall through */
+X	    case 'O': /* open cluster */
+X		/* open circle of dots */
+X		xp->x = x;	xp->y = y-3;	xp++;
+X		xp->x = x+3;	xp->y = y-1;	xp++;
+X		xp->x = x+3;	xp->y = y+1;	xp++;
+X		xp->x = x;	xp->y = y+3;	xp++;
+X		xp->x = x-3;	xp->y = y+1;	xp++;
+X		xp->x = x-3;	xp->y = y-1;	xp++;
+X		break;
+X	    case 'P': /* planetary nebula */
+X		/* open ellipse */
+X		xda->x = x - diam/2;
+X		xda->y = y - diam/4;
+X		xda->width = diam;
+X		xda->height = diam/2;
+X		xda->angle1 = 0;
+X		xda->angle2 = 360*64;
+X		xda++;
+X		break;
+X	    case 'S': /* stars */
+X		/* filled circle */
+X		xfa->x = x - diam/2;
+X		xfa->y = y - diam/2;
+X		xfa->width = diam;
+X		xfa->height = diam;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		break;
+X	    case 'B': case 'D': /* binary and double stars */
+X		/* filled circle with one horizontal line through it */
+X		xfa->x = x - diam/2;
+X		xfa->y = y - diam/2;
+X		xfa->width = diam;
+X		xfa->height = diam;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		t = 3*diam/4;
+X		xs->x1 = x - t;
+X		xs->y1 = y;
+X		xs->x2 = x + t;
+X		xs->y2 = y;
+X		xs++;
+X		break;
+X	    case 'M': /* multiple stars */
+X		/* filled circle with two horizontal lines through it */
+X		xfa->x = x - diam/2;
+X		xfa->y = y - diam/2;
+X		xfa->width = diam;
+X		xfa->height = diam;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		t = 3*diam/4;
+X		xs->x1 = x - t;
+X		xs->y1 = y - diam/6;
+X		xs->x2 = x + t;
+X		xs->y2 = y - diam/6;
+X		xs++;
+X		xs->x1 = x - t;
+X		xs->y1 = y + diam/6;
+X		xs->x2 = x + t;
+X		xs->y2 = y + diam/6;
+X		xs++;
+X		break;
+X	    case 'V': /* variable star */
+X		/* central dot with concentric circle */
+X		xfa->x = x - diam/4;
+X		xfa->y = y - diam/4;
+X		xfa->width = diam/2;
+X		xfa->height = diam/2;
+X		xfa->angle1 = 0;
+X		xfa->angle2 = 360*64;
+X		xfa++;
+X		xda->x = x - diam/2;
+X		xda->y = y - diam/2;
+X		xda->width = diam;
+X		xda->height = diam;
+X		xda->angle1 = 0;
+X		xda->angle2 = 360*64;
+X		xda++;
+X		break;
+X	    case 'F': case 'K': /* diffuse and dark nebulea */
+X		/* open diamond */
+X		xs->x1 = x-diam/2;	xs->y1 = y;
+X		    xs->x2 = x;		    xs->y2 = y-diam/2;	xs++;
+X		xs->x1 = x;		xs->y1 = y-diam/2;
+X		    xs->x2 = x+diam/2;	    xs->y2 = y;		xs++;
+X		xs->x1 = x+diam/2;	xs->y1 = y;
+X		    xs->x2 = x;		    xs->y2 = y+diam/2;	xs++;
+X		xs->x1 = x;		xs->y1 = y+diam/2;
+X		    xs->x2 = x-diam/2;	    xs->y2 = y;		xs++;
+X		break;
+X	    case 'N': /* bright nebulea */
+X		/* filled diamond */
+X		{   XPoint p[5];
+X		    p[0].x = x-diam/2;	p[0].y = y;
+X		    p[1].x = x;		p[1].y = y-diam/2;
+X		    p[2].x = x+diam/2;	p[2].y = y;
+X		    p[3].x = x;		p[3].y = y+diam/2;
+X		    p[4].x = x-diam/2;	p[4].y = y;
+X		    XFillPolygon (dsp, win, gc, p, 5, Convex, CoordModeOrigin);
+X		}
+X		break;
+X	    case 'Q': /* Quasar */
+X		/* plus sign */
+X		xs->x1 = x-diam/2;	xs->y1 = y;
+X		    xs->x2 = x+diam/2;	    xs->y2 = y;		xs++;
+X		xs->x1 = x;		xs->y1 = y-diam/2;
+X		    xs->x2 = x;		    xs->y2 = y+diam/2;	xs++;
+X		break;
+X	    case 'T':	/* stellar object */
+X	    case '\0':	/* undefined type */
+X	    default:	/* unknown type */
+X		/* an X */
+X		xs->x1 = x-diam/3;	xs->y1 = y-diam/3;
+X		    xs->x2 = x+diam/3;	    xs->y2 = y+diam/3;	xs++;
+X		xs->x1 = x-diam/3;	xs->y1 = y+diam/3;
+X		    xs->x2 = x+diam/3;    	xs->y2 = y-diam/3;	xs++;
+X		break;
+X	    }
+X	    break;
+X	case HYPERBOLIC:
+X	case PARABOLIC:
+X	    /* usually cometose -- draw a filled circle with tail */
+X	    t = 3*diam/4;
+X	    xfa->x = x - diam/4;
+X	    xfa->y = y - diam/4;
+X	    xfa->width = diam/2;
+X	    xfa->height = diam/2;
+X	    xfa->angle1 = 0;
+X	    xfa->angle2 = 360*64;
+X	    xfa++;
+X	    xfa->x = x - t;
+X	    xfa->y = y - t;
+X	    xfa->width = 2*t;
+X	    xfa->height = 2*t;
+X	    xfa->angle1 = 120*64;
+X	    xfa->angle2 = 30*64;
+X	    xfa++;
+X	    break;
+X	case ELLIPTICAL:
+X	    /* filled square */
+X	    XFillRectangle (dsp, win, gc, x-diam/2, y-diam/2, diam, diam);
+X	    break;
+X	}
+X}
+X
+X/* create the main skyview form */
+Xstatic void
+Xsv_create_svform()
+X{
+X	static struct {
+X	    char *name;
+X	    void (*cb)();
+X	} cbs[] = {
+X	    {"Filter", sv_filter_cb},
+X	    {"Close", sv_close_cb},
+X	    {"Help", sv_help_cb},
+X	};
+X	Widget rc_w;
+X	Widget w;
+X	Widget rb_w;
+X	Widget sep_w;
+X	Widget ctlfr_w, ctl_w;
+X	XmString str;
+X	Arg args[20];
+X	EventMask mask;
+X	int i, n;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	svform_w = XmCreateFormDialog (toplevel_w, "SkyView", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Sky view"); n++;
+X	XtSetValues (XtParent(svform_w), args, n);
+X
+X	/* make a form across the bottom in a frame for the control buttons */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	ctlfr_w = XmCreateFrame (svform_w, "CtlFr", args, n);
+X	XtManageChild (ctlfr_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 10); n++;
+X	ctl_w = XmCreateForm (ctlfr_w, "CtlF", args, n);
+X	XtManageChild (ctl_w);
+X
+X	    /* make the control buttons */
+X
+X	    for (i = 0; i < XtNumber(cbs); i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNtopOffset, 10); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomOffset, 10); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, 1+i*3); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, 3+i*3); n++;
+X		w = XmCreatePushButton (ctl_w, cbs[i].name, args, n);
+X		XtAddCallback (w, XmNactivateCallback, cbs[i].cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make a RowColumn down the left side for the misc controls */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlfr_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	rc_w = XmCreateRowColumn (svform_w, "SVRC", args, n);
+X	XtManageChild (rc_w);
+X
+X	    /* make the radio box for alt/az vs ra/dec */
+X
+X	    n = 0;
+X	    rb_w = XmCreateRadioBox (rc_w, "SVModeRB", args, n);
+X	    XtManageChild (rb_w);
+X
+X		str = XmStringCreate ("Alt-Az", XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		aa_w = XmCreateToggleButton (rb_w, "AltAzMode", args, n);
+X		XtAddCallback (aa_w, XmNvalueChangedCallback, sv_aa_cb, NULL);
+X		XtManageChild (aa_w);
+X		XmStringFree (str);
+X
+X		str = XmStringCreate ("RA-Dec", XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		rad_w = XmCreateToggleButton(rb_w, "RADecMode", args, n);
+X		XtManageChild (rad_w);
+X		XmStringFree (str);
+X
+X		if(XmToggleButtonGetState(aa_w)==XmToggleButtonGetState(rad_w)){
+X		    xe_msg("Sky View display mode conflicts -- using Alt/Az",0);
+X		    aa_mode = 1;	/* default to aa if they conflict */
+X		    XmToggleButtonSetState (aa_w, aa_mode, False); 
+X		    XmToggleButtonSetState (rad_w, !aa_mode, False); 
+X		}
+X		aa_mode = XmToggleButtonGetState(aa_w);
+X
+X	    n = 0;
+X	    w = XmCreateSeparator (rc_w, "RCSep1", args, n);
+X	    XtManageChild (w);
+X
+X	    /* make the "grid" toggle button and calibration labels */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    w = XmCreateToggleButton (rc_w, "Grid", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, sv_grid_cb, 0);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    vgrid_w = XmCreateLabel (rc_w, "SVGridV", args, n);
+X	    set_xmstring (vgrid_w, XmNlabelString, null_grid_str);
+X	    XtManageChild (vgrid_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    hgrid_w = XmCreateLabel (rc_w, "SVGridH", args, n);
+X	    set_xmstring (hgrid_w, XmNlabelString, null_grid_str);
+X	    XtManageChild (hgrid_w);
+X
+X	    n = 0;
+X	    w = XmCreateSeparator (rc_w, "RCSep2", args, n);
+X	    XtManageChild (w);
+X
+X	    /* make the faint magnitude slider scale */
+X
+X	    str = XmStringCreate ("Faintest Mag", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    XtSetArg (args[n], XmNminimum, BMAGLIMIT); n++;
+X	    XtSetArg (args[n], XmNmaximum, FMAGLIMIT); n++;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_LEFT); n++;
+X	    XtSetArg (args[n], XmNscaleMultiple, 1); n++;
+X	    XtSetArg (args[n], XmNshowValue, True); n++;
+X	    XtSetArg (args[n], XmNtitleString, str); n++;
+X	    fmag_w = XmCreateScale (rc_w, "FaintMagScale", args, n);
+X	    XtAddCallback(fmag_w, XmNvalueChangedCallback, sv_changed_cb, NULL);
+X	    XtAddCallback(fmag_w, XmNdragCallback, sv_magdrag_cb, NULL);
+X	    XtManageChild (fmag_w);
+X	    XmStringFree (str);
+X
+X	    /* make the bright magnitude slider scale */
+X
+X	    str = XmStringCreate ("Brightest Mag", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    XtSetArg (args[n], XmNminimum, BMAGLIMIT); n++;
+X	    XtSetArg (args[n], XmNmaximum, FMAGLIMIT); n++;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_LEFT); n++;
+X	    XtSetArg (args[n], XmNscaleMultiple, 1); n++;
+X	    XtSetArg (args[n], XmNshowValue, True); n++;
+X	    XtSetArg (args[n], XmNtitleString, str); n++;
+X	    bmag_w = XmCreateScale (rc_w, "BrightMagScale", args, n);
+X	    XtAddCallback(bmag_w, XmNvalueChangedCallback, sv_changed_cb, NULL);
+X	    XtAddCallback(bmag_w, XmNdragCallback, sv_magdrag_cb, NULL);
+X	    XtManageChild (bmag_w);
+X	    XmStringFree (str);
+X
+X	    n = 0;
+X	    w = XmCreateSeparator (rc_w, "RCSep3", args, n);
+X	    XtManageChild (w);
+X
+X	    /* make the "just dots" toggle button */
+X
+X	    str = XmStringCreate ("Just Dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton (rc_w, "JustDots", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, sv_justdots_cb, NULL);
+X	    XtManageChild (w);
+X	    justdots = XmToggleButtonGetState (w);
+X	    XmStringFree(str);
+X
+X	    /* make the "ecliptic" toggle button */
+X
+X	    str = XmStringCreate ("Ecliptic", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton (rc_w, "Ecliptic", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, sv_ecliptic_cb, NULL);
+X	    XtManageChild (w);
+X	    want_ecliptic = XmToggleButtonGetState (w);
+X	    XmStringFree(str);
+X
+X	    /* make the "All labels" toggle button */
+X
+X	    str = XmStringCreate ("All labels", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton (rc_w, "AllLabels", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, sv_all_labels_cb, NULL);
+X	    XtManageChild (w);
+X	    all_labels = XmToggleButtonGetState (w);
+X	    XmStringFree(str);
+X
+X	    n = 0;
+X	    w = XmCreateSeparator (rc_w, "RCSep4", args, n);
+X	    XtManageChild (w);
+X
+X	    /* make the "find" cascade button */
+X	    sv_create_find (rc_w);
+X
+X	/* make a vertical sep to the right of the left row/col */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlfr_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, rc_w); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	sep_w = XmCreateSeparator (svform_w, "Sep1", args, n);
+X	XtManageChild(sep_w);
+X
+X	/* make a timestamp label just above the control panel's frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlfr_w); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	dt_w = XmCreateLabel (svform_w, "TimeStamp", args, n);
+X	XtManageChild(dt_w);
+X
+X	/* make the bottom scale above the time stamp */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+END_OF_FILE
+  if test 31658 -ne `wc -c <'skyviewmenu.c.1'`; then
+    echo shar: \"'skyviewmenu.c.1'\" unpacked with wrong size!
+  fi
+  # end of 'skyviewmenu.c.1'
+fi
+echo shar: End of archive 15 \(of 21\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

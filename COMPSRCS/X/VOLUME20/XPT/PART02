@@ -1,0 +1,764 @@
+Newsgroups: comp.sources.x
+From: lordj@rpi.edu (lordj@rpi.edu )
+Subject: v20i099:  xpt - An X Periodic Table, Part02/02
+Message-ID: <1993Aug4.170000.7405@sparky.sterling.com>
+X-Md4-Signature: c3752e8d1a45a1da748f2c1d76dc351f
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 4 Aug 1993 17:00:00 GMT
+Approved: chris@sterling.com
+
+Submitted-by: lordj@rpi.edu (lordj@rpi.edu )
+Posting-number: Volume 20, Issue 99
+Archive-name: xpt/part02
+Environment: X11
+Supersedes: xpt: Volume 19, Issue 69
+
+[ This should have been in part 1, but slipped my mind... ]
+[     Chris                                               ]
+
+This software displays an X periodic table.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Imakefile Xprogs.c Xprogs.h init.c table.c version.h xpt.c
+# Wrapped by chris@sparky on Wed Aug  4 11:54:22 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+  echo shar: Extracting \"'Imakefile'\" \(331 characters\)
+  sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+X# @(#)Imakefile 23.7 91/06/11
+X# Imakefile - xlock
+X#
+XTARGETS = xpt
+X
+XSRCS = xpt.c init.c Xprogs.c table.c
+X
+XOBJS = xpt.o init.o Xprogs.o table.o
+X
+XLCL_LIB = XawClientLibs
+XDEPLIBS = XawClientDepLibs
+XSYS_LIBRARIES = -lm
+X
+XAllTarget($(TARGETS))
+X
+XNormalProgramTarget($(TARGETS), $(OBJS), $(DEPLIBS), $(LCL_LIB), $(SYS_LIB))
+X
+XDependTarget()
+END_OF_FILE
+  if test 331 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+  fi
+  # end of 'Imakefile'
+fi
+if test -f 'Xprogs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Xprogs.c'\"
+else
+  echo shar: Extracting \"'Xprogs.c'\" \(1678 characters\)
+  sed "s/^X//" >'Xprogs.c' <<'END_OF_FILE'
+X/**
+X *
+X * xpt -- An X Periodic Table
+X *
+X *  Modularized X Windows functions
+X *
+X * GetColors(name, cmap, def)
+X *  Allocates color "name", or uses color "def" if "name" is unavailable
+X *  char *name		name of color to be allocated
+X *  Colormap cmap	colormap to get "name" from
+X *  unsigned long def	default color to use if "name" is unavailable
+X *		  	  probably the output from a function like "BlackPixel"
+X *
+X * XFontStruct *GetFont(fontname)
+X *  Load a font for use in X Windows
+X *  char *fontname	name of font to load
+X *
+X * GC CreateGC(window, font, fgcolor, bgcolor)
+X *  Create a Graphics Context for a window
+X *  Window window;		the window to create the graphics context for
+X *  XFontStruct font;		The default font for the window
+X *  unsigned long fgcolor, bgcolor;
+X *
+X *  Joel P. Lord 03/05/93
+X *
+X**/
+X
+X#define Xprogs
+X#include "Xprogs.h"
+X
+Xunsigned long GetColors(name, cmap, def)
+Xchar *name;
+XColormap cmap;
+Xunsigned long def;
+X{
+X  XColor color;
+X  unsigned long retval;
+X
+X  if (XParseColor(p_disp, cmap, name, &color) == 0 || 
+X      XAllocColor(p_disp, cmap, &color) == 0)
+X    retval = def;
+X  else
+X    retval = color.pixel;
+X  return retval;
+X}
+X
+XXFontStruct *GetFont(fname)
+Xchar *fname;
+X{
+X  XFontStruct *tempfont;
+X
+X  if ((tempfont = XLoadQueryFont(p_disp,fname)) == NULL)
+X    {
+X      fputs("Can't open font",stderr);
+X      fputs(fname,stderr);
+X      exit(1);
+X    }
+X  return tempfont;
+X}
+X
+XGC CreateGC(wind, fntstruct, fgpix, bgpix)
+XWindow wind;
+XXFontStruct *fntstruct;
+Xunsigned long fgpix, bgpix;
+X{
+X  XGCValues gcv;
+X
+X  gcv.font = fntstruct->fid;
+X  gcv.foreground = fgpix;
+X  gcv.background = bgpix;
+X
+X  return(XCreateGC(p_disp, wind, (GCFont | GCForeground | GCBackground), &gcv));
+X}
+END_OF_FILE
+  if test 1678 -ne `wc -c <'Xprogs.c'`; then
+    echo shar: \"'Xprogs.c'\" unpacked with wrong size!
+  fi
+  # end of 'Xprogs.c'
+fi
+if test -f 'Xprogs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Xprogs.h'\"
+else
+  echo shar: Extracting \"'Xprogs.h'\" \(1242 characters\)
+  sed "s/^X//" >'Xprogs.h' <<'END_OF_FILE'
+X/**
+X *
+X *  Definitions of some useful data types for Xlib programming,
+X *    as well as a few necessary variables (display name, etc)
+X *
+X *
+X *  Joel P. Lord 2/6/93
+X *
+X**/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xresource.h>
+X#include <X11/cursorfont.h>
+X#include <X11/keysym.h>
+X#include "fontlist.h"
+X
+X#define WP	WhitePixel(p_disp, DefaultScreen(p_disp))
+X#define BP	BlackPixel(p_disp, DefaultScreen(p_disp))
+X
+Xtypedef struct XWIN
+X{
+X  Window	xid;
+X  Window	parent;
+X  void		*data;
+X  void		(*event_handler)();
+X  GC		button_gc;
+X} XWIN;
+X
+Xtypedef struct Pix
+X{
+X  Pixmap	image;
+X  unsigned	width;
+X  unsigned	height;
+X} Pix;
+X
+Xtypedef struct D_BUTTON
+X{
+X  char		*label;
+X  int		(*action)();
+X  caddr_t	action_args;
+X  Pix		*pix;
+X} D_BUTTON;
+X
+X#ifdef MAIN
+X
+XXFontStruct *mfontstruct;
+Xunsigned mfontheight;
+XDisplay *p_disp;
+XWindow Main;
+XGC theGC;
+XXEvent theEvent;
+Xchar default_geometry[80];
+Xunsigned long mbgpix, mfgpix;
+XXContext xwin_context;
+X
+X#else
+X
+Xextern XFontStruct *mfontstruct;
+Xextern unsigned mfontheight;
+Xextern Display *p_disp;
+Xextern Window Main;
+Xextern GC theGC;
+Xextern XEvent theEvent;
+Xextern char default_geometry[80];
+Xextern unsigned long mbgpix, mfgpix;
+Xextern XContext xwin_context;
+X
+X#endif
+END_OF_FILE
+  if test 1242 -ne `wc -c <'Xprogs.h'`; then
+    echo shar: \"'Xprogs.h'\" unpacked with wrong size!
+  fi
+  # end of 'Xprogs.h'
+fi
+if test -f 'init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'init.c'\"
+else
+  echo shar: Extracting \"'init.c'\" \(1047 characters\)
+  sed "s/^X//" >'init.c' <<'END_OF_FILE'
+X/**
+X *
+X * xpt -- An X Periodic Table
+X *
+X * init.c -- initialize the colors needed
+X *
+X * Written by Joel P. Lord 03/05/93
+X *
+X *    This software is available for free distribution,
+X * under the condition that this not be removed from the
+X * source code.
+X *
+X**/
+X
+X
+X#include "xpt.h"
+X
+Xunsigned long GetNumColor();
+X
+Xinit_colors()
+X{
+X  default_cmap = DefaultColormap(p_disp, DefaultScreen(p_disp));
+X
+X  mbgpix = GetColors("NavyBlue", default_cmap, BP);
+X  mfgpix = GetColors("white", default_cmap, WP);
+X  red = GetColors("red", default_cmap, WP);
+X  white = mfgpix;
+X  slate_grey = GetColors("slategrey", default_cmap, BP);
+X}
+X
+Xunsigned long GetNumColor(num, cmap, def)
+Xunsigned long num;
+XColormap cmap;
+Xunsigned long def;
+X{
+X  XColor color;
+X  unsigned long retval;
+X
+X  color.pixel = num;
+X  color.red = ((num >> 16) * 256);
+X  color.green = ((num >> 8) & 0xFF) * 256;
+X  color.blue = (num & 0xFF) * 256;
+X  color.flags = DoBlue | DoGreen | DoRed;
+X
+X  if (XAllocColor(p_disp, cmap, &color) == 0)
+X    retval = def;
+X  else
+X    retval = color.pixel;
+X
+X  return retval;
+X}
+END_OF_FILE
+  if test 1047 -ne `wc -c <'init.c'`; then
+    echo shar: \"'init.c'\" unpacked with wrong size!
+  fi
+  # end of 'init.c'
+fi
+if test -f 'table.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'table.c'\"
+else
+  echo shar: Extracting \"'table.c'\" \(9996 characters\)
+  sed "s/^X//" >'table.c' <<'END_OF_FILE'
+X/**
+X *
+X * xpt -- An X Periodic Table
+X *
+X * table.c - Create the periodic table, and handle data requests
+X *
+X * Written bu Joel P. Lord 03/05/93
+X *
+X *    This software is available for free distribution,
+X * under the condition that this not be removed from the
+X * source code.
+X *
+X**/
+X
+X#include "xpt.h"
+X#include <X11/Xaw/AsciiText.h>
+X
+Xvoid init_table()
+X{
+X  Widget elements[104];
+X  Widget quit_button;
+X  int n = 0, i = 0, j = 0, k = 0, horiz_offset = 5;
+X  Arg args[20];
+X  char title[3];
+X  void element_choice(), quit();
+X  XEvent tevent;
+X  static char *table[] = {
+X"H                                 He",
+X"LiBe                    B C N O F Ne",
+X"NaMg                    AlSiP S ClAr",
+X"K CaScTiV CrMnFeCoNiCuZnGaGeAsSeBrKr",
+X"RbSrY ZrNbMoTcRuRhPdAgCdInSnSbTeI Xe",
+X"CsBaLaHfTaW ReOsIrPtAuHgTlPbBiPoAtRn",
+X"FrRaAc                              ",
+X"                                    ",
+X"        CePrNdPmSmEuGdTbDyHoErTmYbLu",
+X"        ThPaU NpPuAmCmBkCfEsFmMdNoLr"
+X};
+X
+X  n = 0;
+X  XtSetArg(args[n], XtNfromHoriz, NULL);
+X  n++;
+X  XtSetArg(args[n], XtNfromVert, NULL);
+X  n++;
+X  XtSetArg(args[n], XtNhorizDistance, 5);
+X  n++;
+X  XtSetArg(args[n], XtNvertDistance, 5);
+X  n++;
+X  XtSetArg(args[n], XtNwidth, 24);
+X  n++;
+X  XtSetArg(args[n], XtNheight, 32);
+X  n++;
+X  mbgpix = GetColors("NavyBlue", default_cmap, BP);
+X  XtSetArg(args[n], XtNbackground, slate_grey);
+X  n++;
+X  XtSetArg(args[n], XtNforeground, mfgpix);
+X  n++;
+X  XtSetArg(args[n], XtNfont, mfontstruct);
+X  n++;
+X
+X  title[2] = 0;
+X  for (j = 0; j < 10; j++)
+X    {
+X      for(i = 0; i < 36; i += 2)
+X	{
+X	  title[0] = table[j][i];
+X	  title[1] = table[j][i+1];
+X	  if (title[0] != ' ')
+X	    {
+X	      elements[k] = XtCreateWidget(title, commandWidgetClass,
+X					   MainW, args, n);
+X	      XtAddCallback(elements[k], XtNcallback, element_choice, k);
+X	      XtRealizeWidget(elements[k]);
+X	      XtManageChild(elements[k]);
+X	      k++;
+X	      horiz_offset += 26;
+X	      XtSetArg(args[2], XtNhorizDistance, horiz_offset);
+X	    }
+X	  else
+X	    {
+X	      horiz_offset += 26;
+X	      XtSetArg(args[2], XtNhorizDistance, horiz_offset);
+X	    }
+X	}
+X      horiz_offset = 0;
+X      XtSetArg(args[0], XtNfromHoriz, NULL);
+X      XtSetArg(args[1], XtNfromVert, elements[k-1]);
+X      XtSetArg(args[2], XtNhorizDistance, 5);
+X      XtSetArg(args[3], XtNvertDistance, 0);
+X    }
+X
+X  XtSetArg(args[0], XtNfromHoriz, NULL);
+X  XtSetArg(args[1], XtNfromVert, NULL);
+X  XtSetArg(args[2], XtNhorizDistance, 160);
+X  XtSetArg(args[3], XtNvertDistance, 5);
+X  XtSetArg(args[4], XtNwidth, 49);
+X  XtSetArg(args[5], XtNheight, 32);
+X  XtSetArg(args[6], XtNbackground, red);
+X  XtSetArg(args[7], XtNforeground, white);
+X  XtSetArg(args[9], XtNborderColor, red);
+X  
+X  quit_button = XtCreateManagedWidget("Quit", commandWidgetClass, MainW,
+X				      args, n + 1);
+X  XtRealizeWidget(quit_button);
+X  XtAddCallback(quit_button, XtNcallback, quit, 0);
+X}
+X
+Xstatic destroy_info;
+X
+Xvoid element_choice(w, element, event)
+XWidget w;
+Xint element;
+XXEvent *event;
+X{
+X  Widget element_info, ok_button, help_button;
+X  Arg args[20];
+X  char *data_buf;
+X  void ok(), help();
+X
+X  destroy_info = 0;
+X
+X  data_buf = (char *)malloc(1000);
+X
+X  element_info = XtVaCreateManagedWidget("Element Info",formWidgetClass, MainW,
+X				       XtNfromHoriz, NULL,
+X				       XtNfromVert, NULL,
+X				       XtNwidth, 200,
+X				       XtNheight, 250,
+X				       XtNvertDistance, 60,
+X				       XtNhorizDistance, 240,
+X				       XtNbackground, mbgpix,
+X				       XtNforeground, mfgpix,
+X				       XtNfont, mfontstruct,
+X				       XtNborderColor, slate_grey, NULL);
+X  display_info(element_info, element);
+X
+X  ok_button = XtVaCreateManagedWidget("Done", commandWidgetClass, element_info,
+X				    XtNfromHoriz, NULL,
+X				    XtNfromVert, NULL,
+X				    XtNwidth, 40,
+X				    XtNheight, 32,
+X				    XtNvertDistance, 210,
+X				    XtNhorizDistance, 100,
+X				    XtNbackground, slate_grey,
+X				    XtNforeground, mfgpix,
+X				    XtNfont, mfontstruct,
+X				    XtNborderColor, mbgpix, NULL);
+X
+X  XtAddCallback(ok_button, XtNcallback, ok, 0);
+X
+X  help_button = XtVaCreateManagedWidget("Help", commandWidgetClass,
+X					element_info,
+X					XtNfromHoriz, NULL,
+X					XtNfromVert, NULL,
+X					XtNwidth, 40,
+X					XtNheight, 32,
+X					XtNvertDistance, 210,
+X					XtNhorizDistance, 60,
+X					XtNbackground, slate_grey,
+X					XtNforeground, mfgpix,
+X					XtNfont, mfontstruct,
+X					XtNborderColor, mbgpix, NULL);
+X  XtAddCallback(help_button, XtNcallback, help, 0);
+X
+X  while (!destroy_info && !done)
+X    {
+X      XtNextEvent(&theEvent);
+X      XtDispatchEvent(&theEvent);
+X      if (theEvent.type == Expose)
+X	display_info(element_info, element);
+X    }
+X  XtDestroyWidget(element_info);
+X  free(data_buf);
+X}
+X
+Xvoid ok(w, client_data, call_data)
+XWidget w;
+XXtPointer client_data, call_data;
+X{
+X  destroy_info = 1;
+X}
+X
+Xvoid quit(w, client_data, call_data)
+XWidget w;
+XXtPointer client_data;
+XXtPointer call_data;
+X{
+X  done = 1;
+X}
+X
+Xstatic unsigned destroy_help = 1;
+Xstatic Widget help_window;
+X
+Xvoid help(w, client_data, call_data)
+XWidget w;
+XXtPointer client_data, call_data;
+X{
+X  if (!destroy_help)
+X    {
+X      XtDestroyWidget(help_window);
+X      destroy_help = 1;
+X    }
+X  else
+X    {
+X      destroy_help = 0;
+X
+X      help_window = XtVaCreateManagedWidget("Element Info",formWidgetClass,
+X					    MainW,
+X					    XtNfromHoriz, NULL,
+X					    XtNfromVert, NULL,
+X					    XtNwidth, 200,
+X					    XtNheight, 250,
+X					    XtNvertDistance, 60,
+X					    XtNhorizDistance, 40,
+X					    XtNbackground, mbgpix,
+X					    XtNforeground, mfgpix,
+X					    XtNfont, mfontstruct,
+X					    XtNborderColor, slate_grey, NULL);
+X      display_help(help_window);
+X      
+X      while (!destroy_info && !done && !destroy_help)
+X	{
+X	  XtNextEvent(&theEvent);
+X	  XtDispatchEvent(&theEvent);
+X	  if(theEvent.type == Expose)
+X	    display_help();
+X	}
+X      XtDestroyWidget(help_window);
+X      destroy_help = 1;
+X    }
+X}
+X
+Xdisplay_help(w)
+XWidget w;
+X{
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 10 + mfontheight, "Number", 6);
+X  XDrawString(p_disp, XtWindow(w), BigGC,
+X	      100 - XTextWidth(BigFont, "Sy", 2) / 2, 110 + mfontheight,
+X	      "Sy", 2);
+X  XDrawString(p_disp, XtWindow(w), theGC, 
+X	      190 - XTextWidth(mfontstruct, "Mass", 4),
+X	      10 + mfontheight, "Mass", 4);
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 60 + mfontheight, "BP", 2);
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 100 + mfontheight, "MP", 2);
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 140 + mfontheight, "Density", 7);
+X
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      185 - XTextWidth(mfontstruct, "Atomic", 6),
+X	      55 + mfontheight, "Atomic", 6);
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, "Radius", 6),
+X	      55 + 2 * mfontheight, "Radius", 6);
+X
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      185 - XTextWidth(mfontstruct, "Covalent", 8),
+X	      95 + mfontheight, "Covalent", 8);
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, "Radius", 6),
+X	      95 + 2 * mfontheight, "Radius", 6);
+X
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      185 - XTextWidth(mfontstruct, "Atomic", 6),
+X	      135 + mfontheight, "Atomic", 6);
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, "Volume", 6),
+X	      135 + 2 * mfontheight, "Volume", 6);
+X
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      100 - XTextWidth(mfontstruct, "Name", 4) / 2,
+X	      190 + mfontheight, "Name", 4);
+X}
+X
+Xdisplay_info(w, element)
+XWidget w;
+Xunsigned element;
+X{
+X  char *temp_buf, *temp2;
+X
+X  temp_buf = (char *)malloc(100);
+X
+X  sprintf(temp_buf, "%d", p_table[element].atomic_number);
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 10 + mfontheight, temp_buf,
+X	    strlen(temp_buf));
+X
+X  sprintf(temp_buf, "%s", p_table[element].symbol);
+X  temp2 = strchr(temp_buf, ' ');
+X  *temp2 = 0;
+X  XDrawString(p_disp, XtWindow(w), BigGC,
+X	      100 - XTextWidth(BigFont, temp_buf, strlen(temp_buf)) / 2,
+X	      110 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  sprintf(temp_buf, "%1.4lf", p_table[element].atomic_mass);
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, temp_buf, strlen(temp_buf)),
+X	      10 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  if (p_table[element].boiling_pt > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].boiling_pt);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 60 + mfontheight, temp_buf,
+X	      strlen(temp_buf));
+X
+X  if (p_table[element].melting_pt > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].melting_pt);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 100 + mfontheight, temp_buf,
+X	      strlen(temp_buf));
+X
+X
+X  if (p_table[element].density > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].density);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC, 10, 140 + mfontheight, temp_buf,
+X	      strlen(temp_buf));
+X
+X  if (p_table[element].atomic_radius > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].atomic_radius);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, temp_buf, strlen(temp_buf)),
+X	      60 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  if (p_table[element].covalent_radius > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].covalent_radius);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, temp_buf, strlen(temp_buf)),
+X	      100 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  if (p_table[element].atomic_volume > 0.0)
+X    sprintf(temp_buf, "%.2lf", p_table[element].atomic_volume);
+X  else
+X    strcpy(temp_buf, "--");
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      190 - XTextWidth(mfontstruct, temp_buf, strlen(temp_buf)),
+X	      140 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  strcpy(temp_buf, p_table[element].name);
+X  temp2 = strchr(temp_buf, ' ');
+X  *temp2 = 0;
+X  XDrawString(p_disp, XtWindow(w), theGC,
+X	      100 - XTextWidth(mfontstruct, temp_buf, strlen(temp_buf)) / 2,
+X	      190 + mfontheight, temp_buf, strlen(temp_buf));
+X
+X  free(temp_buf);
+X}
+END_OF_FILE
+  if test 9996 -ne `wc -c <'table.c'`; then
+    echo shar: \"'table.c'\" unpacked with wrong size!
+  fi
+  # end of 'table.c'
+fi
+if test -f 'version.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.h'\"
+else
+  echo shar: Extracting \"'version.h'\" \(104 characters\)
+  sed "s/^X//" >'version.h' <<'END_OF_FILE'
+X/**
+X *
+X *  This is a moderately useless file that contains only one thing:
+X *
+X**/
+X
+X#define VERSION	1.11
+END_OF_FILE
+  if test 104 -ne `wc -c <'version.h'`; then
+    echo shar: \"'version.h'\" unpacked with wrong size!
+  fi
+  # end of 'version.h'
+fi
+if test -f 'xpt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xpt.c'\"
+else
+  echo shar: Extracting \"'xpt.c'\" \(1291 characters\)
+  sed "s/^X//" >'xpt.c' <<'END_OF_FILE'
+X/**
+X *
+X *  xpt -- An X Periodic Table
+X *
+X * Written by Joel P. Lord 03/05/93
+X *
+X *    This software is available for free distribution,
+X * under the condition that this not be removed from the
+X * source code.
+X *
+X**/
+X
+X#define MAIN
+X#include <stdio.h>
+X#include "xpt.h"
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X  Arg args[20];
+X  int n = 0;
+X  XGCValues gcv;
+X
+X  toplevel = XtInitialize("xpt", "X Periodic Table",
+X			  NULL, 0, &argc, argv);
+X
+X  p_disp = XtDisplay(toplevel);
+X
+X  mfontstruct = (XFontStruct *)GetFont(HELV_MEDIUM_12);
+X  BigFont = (XFontStruct *)GetFont(HELV_BOLD_24);
+X  mfontheight = mfontstruct->max_bounds.ascent +
+X    mfontstruct->max_bounds.descent;
+X
+X  init_colors();
+X
+X  XtSetArg(args[n], XtNfont, mfontstruct);
+X  n++;
+X  XtSetArg(args[n], XtNheight, 320);
+X  n++;
+X  XtSetArg(args[n], XtNwidth, 480);
+X  n++;
+X  XtSetArg(args[n], XtNbackground, mbgpix);
+X  n++;
+X  XtSetArg(args[n], XtNforeground, mfgpix);
+X  n++;
+X
+X  MainW = XtCreateManagedWidget("Xpt", formWidgetClass, toplevel, args, n);
+X
+X  XtRealizeWidget(toplevel);
+X
+X  theGC = (GC)CreateGC(XtWindow(MainW), mfontstruct, mfgpix, mbgpix);
+X  BigGC = (GC)CreateGC(XtWindow(MainW), BigFont, mfgpix, mbgpix);
+X
+X  init_table();
+X
+X  done = 0;
+X
+X  while (!done)
+X    {
+X      XtNextEvent(&theEvent);
+X      XtDispatchEvent(&theEvent);
+X    }
+X}
+END_OF_FILE
+  if test 1291 -ne `wc -c <'xpt.c'`; then
+    echo shar: \"'xpt.c'\" unpacked with wrong size!
+  fi
+  # end of 'xpt.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

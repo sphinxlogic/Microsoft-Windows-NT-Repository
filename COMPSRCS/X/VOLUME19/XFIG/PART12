@@ -1,0 +1,2457 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i124:  xfig - Draw amd manipulate objects in an X-Window, Part12/27
+Message-ID: <1993May21.021454.6090@sparky.imd.sterling.com>
+X-Md4-Signature: d918b7d3d1facbd33d2a9e0cf9e7eeef
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:14:54 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 124
+Archive-name: xfig/part12
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 12 (of 27)."
+# Contents:  u_bound.c u_redraw.c u_undo.c w_print.c
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:05:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'u_bound.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_bound.c'\"
+else
+echo shar: Extracting \"'u_bound.c'\" \(16661 characters\)
+sed "s/^X//" >'u_bound.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "u_bound.h"
+X
+X#define		Ninety_deg		M_PI_2
+X#define		One_eighty_deg		M_PI
+X#define		Two_seventy_deg		(M_PI + M_PI_2)
+X#define		Three_sixty_deg		(M_PI + M_PI)
+X#define		half(z1 ,z2)		((z1+z2)/2.0)
+X
+X/* macro which rounds DOWN the coordinates depending on point positioning mode */
+X#define		floor_coords(x) \
+X    if (cur_pointposn != P_ANY) { \
+X	    tmp_t = ((x) + 1) % posn_rnd[cur_pointposn]; \
+X	    (x) = (x) - tmp_t; \
+X	}
+X
+X/* macro which rounds UP the coordinates depending on point positioning mode */
+X#define		ceil_coords(x) \
+X    if (cur_pointposn != P_ANY) { \
+X	    (x) = (x) + posn_rnd[cur_pointposn]; \
+X	    tmp_t = (x)%posn_rnd[cur_pointposn]; \
+X	    (x) = (x) - tmp_t - 1; \
+X	}
+X
+Xstatic void	points_bound();
+Xstatic void	int_spline_bound();
+Xstatic void	normal_spline_bound();
+Xstatic int	tmp_t;
+X
+Xarc_bound(arc, xmin, ymin, xmax, ymax)
+X    F_arc	   *arc;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    float	    alpha, beta;
+X    double	    dx, dy, radius;
+X    int		    bx, by, sx, sy;
+X    int		    half_wd;
+X
+X    dx = arc->point[0].x - arc->center.x;
+X    dy = arc->center.y - arc->point[0].y;
+X    alpha = atan2(dy, dx);
+X    if (alpha < 0.0)
+X	alpha += Three_sixty_deg;
+X    /* compute_angle returns value between 0 to 2PI */
+X
+X    radius = sqrt((double) (dx * dx + dy * dy));
+X
+X    dx = arc->point[2].x - arc->center.x;
+X    dy = arc->center.y - arc->point[2].y;
+X    beta = atan2(dy, dx);
+X    if (beta < 0.0)
+X	beta += Three_sixty_deg;
+X
+X    bx = max2(arc->point[0].x, arc->point[1].x);
+X    bx = max2(arc->point[2].x, bx);
+X    by = max2(arc->point[0].y, arc->point[1].y);
+X    by = max2(arc->point[2].y, by);
+X    sx = min2(arc->point[0].x, arc->point[1].x);
+X    sx = min2(arc->point[2].x, sx);
+X    sy = min2(arc->point[0].y, arc->point[1].y);
+X    sy = min2(arc->point[2].y, sy);
+X
+X    if (arc->direction == 1) {	/* counter clockwise */
+X	if (alpha > beta) {
+X	    if (alpha <= 0 || 0 <= beta)
+X		bx = (int) (arc->center.x + radius + 1.0);
+X	    if (alpha <= Ninety_deg || Ninety_deg <= beta)
+X		sy = (int) (arc->center.y - radius - 1.0);
+X	    if (alpha <= One_eighty_deg || One_eighty_deg <= beta)
+X		sx = (int) (arc->center.x - radius - 1.0);
+X	    if (alpha <= Two_seventy_deg || Two_seventy_deg <= beta)
+X		by = (int) (arc->center.y + radius + 1.0);
+X	} else {
+X	    if (0 <= beta && alpha <= 0)
+X		bx = (int) (arc->center.x + radius + 1.0);
+X	    if (Ninety_deg <= beta && alpha <= Ninety_deg)
+X		sy = (int) (arc->center.y - radius - 1.0);
+X	    if (One_eighty_deg <= beta && alpha <= One_eighty_deg)
+X		sx = (int) (arc->center.x - radius - 1.0);
+X	    if (Two_seventy_deg <= beta && alpha <= Two_seventy_deg)
+X		by = (int) (arc->center.y + radius + 1.0);
+X	}
+X    } else {			/* clockwise	 */
+X	if (alpha > beta) {
+X	    if (beta <= 0 && 0 <= alpha)
+X		bx = (int) (arc->center.x + radius + 1.0);
+X	    if (beta <= Ninety_deg && Ninety_deg <= alpha)
+X		sy = (int) (arc->center.y - radius - 1.0);
+X	    if (beta <= One_eighty_deg && One_eighty_deg <= alpha)
+X		sx = (int) (arc->center.x - radius - 1.0);
+X	    if (beta <= Two_seventy_deg && Two_seventy_deg <= alpha)
+X		by = (int) (arc->center.y + radius + 1.0);
+X	} else {
+X	    if (0 <= alpha || beta <= 0)
+X		bx = (int) (arc->center.x + radius + 1.0);
+X	    if (Ninety_deg <= alpha || beta <= Ninety_deg)
+X		sy = (int) (arc->center.y - radius - 1.0);
+X	    if (One_eighty_deg <= alpha || beta <= One_eighty_deg)
+X		sx = (int) (arc->center.x - radius - 1.0);
+X	    if (Two_seventy_deg <= alpha || beta <= Two_seventy_deg)
+X		by = (int) (arc->center.y + radius + 1.0);
+X	}
+X    }
+X    half_wd = arc->thickness / 2;
+X    *xmax = bx + half_wd;
+X    *ymax = by + half_wd;
+X    *xmin = sx - half_wd;
+X    *ymin = sy - half_wd;
+X}
+X
+Xcompound_bound(compound, xmin, ymin, xmax, ymax)
+X    F_compound	   *compound;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    F_arc	   *a;
+X    F_ellipse	   *e;
+X    F_compound	   *c;
+X    F_spline	   *s;
+X    F_line	   *l;
+X    F_text	   *t;
+X    int		    bx, by, sx, sy, first = 1;
+X    int		    llx, lly, urx, ury;
+X
+X    for (a = compound->arcs; a != NULL; a = a->next) {
+X	arc_bound(a, &sx, &sy, &bx, &by);
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    for (c = compound->compounds; c != NULL; c = c->next) {
+X	sx = c->nwcorner.x;
+X	sy = c->nwcorner.y;
+X	bx = c->secorner.x;
+X	by = c->secorner.y;
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    for (e = compound->ellipses; e != NULL; e = e->next) {
+X	ellipse_bound(e, &sx, &sy, &bx, &by);
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    for (l = compound->lines; l != NULL; l = l->next) {
+X	line_bound(l, &sx, &sy, &bx, &by);
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    for (s = compound->splines; s != NULL; s = s->next) {
+X	spline_bound(s, &sx, &sy, &bx, &by);
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    for (t = compound->texts; t != NULL; t = t->next) {
+X	int    dum;
+X	text_bound_actual(t, t->angle, &sx, &sy, &bx, &by, 
+X			  &dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X	if (first) {
+X	    first = 0;
+X	    llx = sx;
+X	    lly = sy;
+X	    urx = bx;
+X	    ury = by;
+X	} else {
+X	    llx = min2(llx, sx);
+X	    lly = min2(lly, sy);
+X	    urx = max2(urx, bx);
+X	    ury = max2(ury, by);
+X	}
+X    }
+X
+X    /* round the corners to the current positioning grid */
+X    floor_coords(llx);
+X    floor_coords(lly);
+X    ceil_coords(urx);
+X    ceil_coords(ury);
+X    *xmin = llx;
+X    *ymin = lly;
+X    *xmax = urx;
+X    *ymax = ury;
+X}
+X
+X/* basically, use the code for drawing the ellipse to find its bounds */
+X/* From James Tough (see u_draw.c: angle_ellipse() */
+X/* include the bounds for the markers (even though we don't know if they 
+X   are on or off now */
+X
+Xellipse_bound(e, xmin, ymin, xmax, ymax)
+X    F_ellipse	   *e;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X	int	    half_wd;
+X	double	    c1, c2, c3, c4, c5, c6, v1, cphi, sphi, cphisqr, sphisqr;
+X	double	    xleft, xright, d, asqr, bsqr;
+X	int	    yymax, yy=0;
+X	float	    xcen, ycen, a, b; 
+X
+X	xcen = e->center.x;
+X	ycen = e->center.y;
+X	a = e->radiuses.x;
+X	b = e->radiuses.y;
+X	if (a==0 || b==0)
+X		{
+X		*xmin = *xmax = xcen;
+X		*ymin = *ymax = ycen;
+X		return;
+X		}
+X
+X	cphi = cos((double)e->angle);
+X	sphi = sin((double)e->angle);
+X	cphisqr = cphi*cphi;
+X	sphisqr = sphi*sphi;
+X	asqr = a*a;
+X	bsqr = b*b;
+X	
+X	c1 = (cphisqr/asqr)+(sphisqr/bsqr);
+X	c2 = ((cphi*sphi/asqr)-(cphi*sphi/bsqr))/c1;
+X	c3 = (bsqr*cphisqr) + (asqr*sphisqr);
+X	yymax = sqrt(c3);
+X	c4 = a*b/c3;
+X	c5 = 0;
+X	v1 = c4*c4;
+X	c6 = 2*v1;
+X	c3 = c3*v1-v1;
+X	/* odd first points */
+X	*xmin = *ymin =  100000;
+X	*xmax = *ymax = -100000;
+X	if (yymax % 2) {
+X		d = sqrt(c3);
+X		*xmin = min2(*xmin,xcen-d);
+X		*xmax = max2(*xmax,xcen+d);
+X		*ymin = min2(*ymin,ycen);
+X		*ymax = max2(*ymax,ycen);
+X		c5 = c2;
+X		yy=1;
+X	}
+X	while (c3>=0) {
+X		d = sqrt(c3);
+X		xleft = c5-d;
+X		xright = c5+d;                        
+X		*xmin = min2(*xmin,xcen+xleft);
+X		*xmax = max2(*xmax,xcen+xleft);
+X		*ymax = max2(*ymax,ycen+yy);
+X		*xmin = min2(*xmin,xcen+xright);
+X		*xmax = max2(*xmax,xcen+xright);
+X		*ymax = max2(*ymax,ycen+yy);
+X		*xmin = min2(*xmin,xcen-xright);
+X		*xmax = max2(*xmax,xcen-xright);
+X		*ymin = min2(*ymin,ycen-yy);
+X		*xmin = min2(*xmin,xcen-xleft);
+X		*xmax = max2(*xmax,xcen-xleft);
+X		*ymin = min2(*ymin,ycen-yy);
+X		c5+=c2;
+X		v1+=c6;
+X		c3-=v1;
+X		yy=yy+1;
+X	}
+X	/* for simplicity, just add half the line thickness to xmax and ymax
+X	   and subtract half from xmin and ymin */
+X	half_wd = e->thickness/2;
+X	*xmax += half_wd;
+X	*ymax += half_wd;
+X	*xmin -= half_wd;
+X	*ymin -= half_wd;
+X	/* now include the markers because they could be outside the bounds of 
+X	   the ellipse (+/-3 is (roughly) half the size of the markers (5)) */
+X	*xmax = max2(*xmax, max2(e->start.x, e->end.x)+3);
+X	*ymax = max2(*ymax, max2(e->start.y, e->end.y)+3);
+X	*xmin = min2(*xmin, min2(e->start.x, e->end.x)-3);
+X	*ymin = min2(*ymin, min2(e->start.y, e->end.y)-3);
+X}
+X
+Xline_bound(l, xmin, ymin, xmax, ymax)
+X    F_line	   *l;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    points_bound(l->points, (l->thickness / 2), xmin, ymin, xmax, ymax);
+X}
+X
+Xspline_bound(s, xmin, ymin, xmax, ymax)
+X    F_spline	   *s;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    if (int_spline(s)) {
+X	int_spline_bound(s, xmin, ymin, xmax, ymax);
+X    } else {
+X	normal_spline_bound(s, xmin, ymin, xmax, ymax);
+X    }
+X}
+X
+Xstatic void
+Xint_spline_bound(s, xmin, ymin, xmax, ymax)
+X    F_spline	   *s;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    F_point	   *p1, *p2;
+X    F_control	   *cp1, *cp2;
+X    float	    x0, y0, x1, y1, x2, y2, x3, y3, sx1, sy1, sx2, sy2;
+X    float	    tx, ty, tx1, ty1, tx2, ty2;
+X    float	    sx, sy, bx, by;
+X    int		    half_wd;
+X
+X    half_wd = s->thickness / 2;
+X    p1 = s->points;
+X    sx = bx = p1->x;
+X    sy = by = p1->y;
+X    cp1 = s->controls;
+X    for (p2 = p1->next, cp2 = cp1->next; p2 != NULL;
+X	 p1 = p2, cp1 = cp2, p2 = p2->next, cp2 = cp2->next) {
+X	x0 = p1->x;
+X	y0 = p1->y;
+X	x1 = cp1->rx;
+X	y1 = cp1->ry;
+X	x2 = cp2->lx;
+X	y2 = cp2->ly;
+X	x3 = p2->x;
+X	y3 = p2->y;
+X	tx = half(x1, x2);
+X	ty = half(y1, y2);
+X	sx1 = half(x0, x1);
+X	sy1 = half(y0, y1);
+X	sx2 = half(sx1, tx);
+X	sy2 = half(sy1, ty);
+X	tx2 = half(x2, x3);
+X	ty2 = half(y2, y3);
+X	tx1 = half(tx2, tx);
+X	ty1 = half(ty2, ty);
+X
+X	sx = min2(x0, sx);
+X	sy = min2(y0, sy);
+X	sx = min2(sx1, sx);
+X	sy = min2(sy1, sy);
+X	sx = min2(sx2, sx);
+X	sy = min2(sy2, sy);
+X	sx = min2(tx1, sx);
+X	sy = min2(ty1, sy);
+X	sx = min2(tx2, sx);
+X	sy = min2(ty2, sy);
+X	sx = min2(x3, sx);
+X	sy = min2(y3, sy);
+X
+X	bx = max2(x0, bx);
+X	by = max2(y0, by);
+X	bx = max2(sx1, bx);
+X	by = max2(sy1, by);
+X	bx = max2(sx2, bx);
+X	by = max2(sy2, by);
+X	bx = max2(tx1, bx);
+X	by = max2(ty1, by);
+X	bx = max2(tx2, bx);
+X	by = max2(ty2, by);
+X	bx = max2(x3, bx);
+X	by = max2(y3, by);
+X    }
+X    *xmin = round(sx) - half_wd;
+X    *ymin = round(sy) - half_wd;
+X    *xmax = round(bx) + half_wd;
+X    *ymax = round(by) + half_wd;
+X}
+X
+Xstatic void
+Xnormal_spline_bound(s, xmin, ymin, xmax, ymax)
+X    F_spline	   *s;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    F_point	   *p;
+X    float	    cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4;
+X    float	    x1, y1, x2, y2, sx, sy, bx, by;
+X    float	    px, py, qx, qy;
+X    int		    half_wd;
+X
+X    half_wd = s->thickness / 2;
+X    p = s->points;
+X    x1 = p->x;
+X    y1 = p->y;
+X    p = p->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx1 = (x1 + x2) / 2.0;
+X    cy1 = (y1 + y2) / 2.0;
+X    cx2 = (cx1 + x2) / 2.0;
+X    cy2 = (cy1 + y2) / 2.0;
+X    if (closed_spline(s)) {
+X	x1 = (cx1 + x1) / 2.0;
+X	y1 = (cy1 + y1) / 2.0;
+X    }
+X    sx = min2(x1, cx2);
+X    sy = min2(y1, cy2);
+X    bx = max2(x1, cx2);
+X    by = max2(y1, cy2);
+X
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x1 = x2;
+X	y1 = y2;
+X	x2 = p->x;
+X	y2 = p->y;
+X	cx4 = (x1 + x2) / 2.0;
+X	cy4 = (y1 + y2) / 2.0;
+X	cx3 = (x1 + cx4) / 2.0;
+X	cy3 = (y1 + cy4) / 2.0;
+X	cx2 = (cx4 + x2) / 2.0;
+X	cy2 = (cy4 + y2) / 2.0;
+X
+X	px = min2(cx2, cx3);
+X	py = min2(cy2, cy3);
+X	qx = max2(cx2, cx3);
+X	qy = max2(cy2, cy3);
+X
+X	sx = min2(sx, px);
+X	sy = min2(sy, py);
+X	bx = max2(bx, qx);
+X	by = max2(by, qy);
+X    }
+X    if (closed_spline(s)) {
+X	*xmin = round(sx) - half_wd;
+X	*ymin = round(sy) - half_wd;
+X	*xmax = round(bx) + half_wd;
+X	*ymax = round(by) + half_wd;
+X    } else {
+X	*xmin = round(min2(sx, x2)) - half_wd;
+X	*ymin = round(min2(sy, y2)) - half_wd;
+X	*xmax = round(max2(bx, x2)) + half_wd;
+X	*ymax = round(max2(by, y2)) + half_wd;
+X    }
+X}
+X
+X/* This procedure calculates the bounding box for text that is displayed
+X   horizontally or vertically (all text on the canvas in otherwords)
+X   Use text_bound_actual() to decide whether or not text would be off
+X   the PRINTED page (if rotated) */
+X
+Xtext_bound(t, xmin, ymin, xmax, ymax)
+X    F_text	   *t;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    int		    length, dx, dy, mx, my, dum;
+X    double	    angle;
+X
+X    angle = t->angle;
+X    /* fix the angle to one of four - 0, 90, 180 or 270 */
+X    if (angle < M_PI_2 - 0.001)
+X	angle = 0.0;
+X    else if (angle < M_PI - 0.001)
+X	angle = M_PI_2;
+X    else if (angle < 3*M_PI_2 - 0.001)
+X	angle = M_PI;
+X    else
+X	angle = 3*M_PI_2;
+X    text_bound_actual(t, angle, xmin, ymin, xmax, ymax,
+X		  &dum, &dum, &dum, &dum, &dum, &dum, &dum, &dum);
+X}
+X
+X/* this procedure calculates the bouding box for text ASSUMING that it 
+X   will be DISPLAYED rotated (if it has any rotation angle).
+X   The actual corners of the rectangle are returned in (rx1,ry1)...(rx4,ry4)
+X   The min and max x and y are returned in (xmin, ymin) (xmax, ymax)
+X*/
+X
+Xtext_bound_actual(t, angle, xmin, ymin, xmax, ymax, 
+X		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4)
+X    F_text	   *t;
+X    double	    angle;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X    int		   *rx1,*ry1, *rx2,*ry2, *rx3,*ry3, *rx4,*ry4;
+X{
+X    int		    h, l;
+X    int		    x1,y1, x2,y2, x3,y3, x4,y4;
+X    double	    cost, sint;
+X    double	    lcost, lsint, hcost, hsint;
+X
+X    l = text_length(t);
+X    h = t->height;
+X    cost = cos((double)angle);
+X    sint = sin((double)angle);
+X    lcost = round(l*cost);
+X    lsint = round(l*sint);
+X    hcost = round(h*cost);
+X    hsint = round(h*sint);
+X    x1 = t->base_x;
+X    y1 = t->base_y;
+X    if (t->type == T_CENTER_JUSTIFIED) {
+X	x1 = t->base_x - round((l/2)*cost);
+X	y1 = t->base_y + round((l/2)*sint);
+X	x2 = x1 + lcost;
+X	y2 = y1 - lsint;
+X    }
+X    else if (t->type == T_RIGHT_JUSTIFIED) {
+X	x1 = t->base_x - lcost;
+X	y1 = t->base_y + lsint;
+X	x2 = t->base_x;
+X	y2 = t->base_y;
+X    }
+X    else {
+X	x2 = x1 + lcost;
+X	y2 = y1 - lsint;
+X    }
+X    x4 = x1 - hsint;
+X    y4 = y1 - hcost;
+X    x3 = x2 - hsint;
+X    y3 = y2 - hcost;
+X
+X    *xmin = min2(x1,min2(x2,min2(x3,x4)));
+X    *xmax = max2(x1,max2(x2,max2(x3,x4)));
+X    *ymin = min2(y1,min2(y2,min2(y3,y4)));
+X    *ymax = max2(y1,max2(y2,max2(y3,y4)));
+X    *rx1=x1; *ry1=y1;
+X    *rx2=x2; *ry2=y2;
+X    *rx3=x3; *ry3=y3;
+X    *rx4=x4; *ry4=y4;
+X}
+X
+X/* this procedure calculates the union of the two types of bounding boxes */
+X/* this is usually called by the redisplay code which needs the bounding
+X   rectangle if the user is displaying the textoutline */
+X
+Xtext_bound_both(t, xmin, ymin, xmax, ymax,
+X		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4)
+X    F_text	  *t;
+X    int		  *xmin, *ymin, *xmax, *ymax;
+X    int		   *rx1,*ry1, *rx2,*ry2, *rx3,*ry3, *rx4,*ry4;
+X{
+X    int		   xmin1, ymin1, xmax1, ymax1;
+X    int		   xmin2, ymin2, xmax2, ymax2;
+X    int		   dum;
+X    text_bound_actual(t, t->angle, &xmin1, &ymin1, &xmax1, &ymax1, 
+X		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4);
+X    text_bound(t, &xmin2, &ymin2, &xmax2, &ymax2);
+X    *xmin = min2(xmin1,xmin2);
+X    *xmax = max2(xmax1,xmax2);
+X    *ymin = min2(ymin1,ymin2);
+X    *ymax = max2(ymax1,ymax2);
+X}
+X
+Xstatic void
+Xpoints_bound(points, half_wd, xmin, ymin, xmax, ymax)
+X    F_point	   *points;
+X    int		    half_wd;
+X    int		   *xmin, *ymin, *xmax, *ymax;
+X{
+X    int		    bx, by, sx, sy;
+X    F_point	   *p;
+X
+X    bx = sx = points->x;
+X    by = sy = points->y;
+X    for (p = points->next; p != NULL; p = p->next) {
+X	sx = min2(sx, p->x);
+X	sy = min2(sy, p->y);
+X	bx = max2(bx, p->x);
+X	by = max2(by, p->y);
+X    }
+X    *xmin = sx - half_wd;
+X    *ymin = sy - half_wd;
+X    *xmax = bx + half_wd;
+X    *ymax = by + half_wd;
+X}
+X
+Xint
+Xoverlapping(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2)
+X    int		    xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2;
+X{
+X    if (xmin1 < xmin2)
+X	if (ymin1 < ymin2)
+X	    return (xmax1 >= xmin2 && ymax1 >= ymin2);
+X	else
+X	    return (xmax1 >= xmin2 && ymin1 <= ymax2);
+X    else if (ymin1 < ymin2)
+X	return (xmin1 <= xmax2 && ymax1 >= ymin2);
+X    else
+X	return (xmin1 <= xmax2 && ymin1 <= ymax2);
+X}
+END_OF_FILE
+if test 16661 -ne `wc -c <'u_bound.c'`; then
+    echo shar: \"'u_bound.c'\" unpacked with wrong size!
+fi
+# end of 'u_bound.c'
+fi
+if test -f 'u_redraw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_redraw.c'\"
+else
+echo shar: Extracting \"'u_redraw.c'\" \(14201 characters\)
+sed "s/^X//" >'u_redraw.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X#include "w_zoom.h"
+X
+X/*
+X * Support for rendering based on correct object depth.	 A simple depth based
+X * caching scheme; anything more will require major surgery on the object
+X * data structures that will percolate throughout program.
+X *
+X * One ``counts'' structure for each object type at each nesting depth from 0
+X * to MAXDEPTH - 1.  We track both the number of objects per type per depth,
+X * as well as the number of objects drawn so far per type per depth to cut
+X * down on search loop overhead.
+X */
+X
+Xstruct counts {
+X    unsigned	    num_arcs;	/* # arcs at this depth */
+X    unsigned	    num_lines;	/* # lines at this depth */
+X    unsigned	    num_ellipses;	/* # ellipses at this depth */
+X    unsigned	    num_splines;/* # splines at this depth */
+X    unsigned	    num_texts;	/* # texts at this depth */
+X    unsigned	    cnt_arcs;	/* count of arcs drawn at this depth */
+X    unsigned	    cnt_lines;	/* count of lines drawn at this depth */
+X    unsigned	    cnt_ellipses;	/* count of ellipses drawn at this
+X					 * depth */
+X    unsigned	    cnt_splines;/* count of splines drawn at this depth */
+X    unsigned	    cnt_texts;	/* count of texts drawn at this depth */
+X};
+X
+X/*
+X * The array of ``counts'' structures.	All objects at depth >= MAXDEPTH are
+X * accounted for in the counts[MAXDEPTH] entry.
+X */
+X
+Xstruct counts	counts[MAXDEPTH + 1];
+X
+X/*
+X * Function to clear the array of object counts prior to each redraw.
+X */
+X
+Xstatic void
+Xclearcounts()
+X{
+X    register struct counts *cp;
+X
+X    for (cp = &counts[0]; cp <= &counts[MAXDEPTH]; ++cp) {
+X	cp->num_arcs = 0;
+X	cp->num_lines = 0;
+X	cp->num_ellipses = 0;
+X	cp->num_splines = 0;
+X	cp->num_texts = 0;
+X	cp->cnt_arcs = 0;
+X	cp->cnt_lines = 0;
+X	cp->cnt_ellipses = 0;
+X	cp->cnt_splines = 0;
+X	cp->cnt_texts = 0;
+X    }
+X}
+X
+Xunsigned int	max_depth;
+X
+Xredisplay_objects(objects)
+X    F_compound	   *objects;
+X{
+X    int		    depth;
+X
+X    if (objects == NULL)
+X	return;
+X
+X    /*
+X     * Clear object counts, and then get the max. depth of any object from
+X     * the max. depths of each object type in the top level compound.
+X     */
+X
+X    clearcounts();
+X    max_depth = max2(compound_depths(objects->compounds),
+X		  max2(text_depths(objects->texts),
+X		       spline_depths(objects->splines)));
+X    max_depth = max2(arc_depths(objects->arcs),
+X		     max2(line_depths(objects->lines),
+X			  max2(ellipse_depths(objects->ellipses),
+X			       max_depth)));
+X
+X    /*
+X     * A new outer loop, executing once per depth level from max_depth down
+X     * to 0 (negative depths are not supported).  The code inside the loop is
+X     * the original code for redisplay_objects.
+X     */
+X
+X    for (depth = max_depth; depth >= 0; --depth) {
+X	redisplay_arcobject(objects->arcs, depth);
+X	redisplay_compoundobject(objects->compounds, depth);
+X	redisplay_ellipseobject(objects->ellipses, depth);
+X	redisplay_lineobject(objects->lines, depth);
+X	redisplay_splineobject(objects->splines, depth);
+X	redisplay_textobject(objects->texts, depth);
+X    }
+X
+X    /*
+X     * Point markers and compounds, not being ``real objects'', are handled
+X     * outside the depth loop.
+X     */
+X
+X    /* show the markers if they are on */
+X    toggle_markers_in_compound(objects);
+X}
+X
+X/*
+X * Find the maximum depth of any arc, recording the number of arcs per each
+X * level along the way.
+X */
+X
+Xint
+Xarc_depths(arcs)
+X    F_arc	   *arcs;
+X{
+X    int		    maxdepth = 0;
+X    F_arc	   *fp;
+X
+X    for (fp = arcs; fp != NULL; fp = fp->next) {
+X	if (maxdepth < fp->depth)
+X	    maxdepth = fp->depth;
+X
+X	++counts[min2(fp->depth, MAXDEPTH)].num_arcs;
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Find the maximum depth of any line, recording the number of lines per each
+X * level along the way.
+X */
+X
+Xint
+Xline_depths(lines)
+X    F_line	   *lines;
+X{
+X    int		    maxdepth = 0;
+X    F_line	   *fp;
+X
+X    for (fp = lines; fp != NULL; fp = fp->next) {
+X	if (maxdepth < fp->depth)
+X	    maxdepth = fp->depth;
+X
+X	++counts[min2(fp->depth, MAXDEPTH)].num_lines;
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Find the maximum depth of any ellipse, recording the number of ellipses
+X * per each level along the way.
+X */
+X
+Xint
+Xellipse_depths(ellipses)
+X    F_ellipse	   *ellipses;
+X{
+X    int		    maxdepth = 0;
+X    F_ellipse	   *fp;
+X
+X    for (fp = ellipses; fp != NULL; fp = fp->next) {
+X	if (maxdepth < fp->depth)
+X	    maxdepth = fp->depth;
+X
+X	++counts[min2(fp->depth, MAXDEPTH)].num_ellipses;
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Find the maximum depth of any spline, recording the number of splines per
+X * each level along the way.
+X */
+X
+Xint
+Xspline_depths(splines)
+X    F_spline	   *splines;
+X{
+X    int		    maxdepth = 0;
+X    F_spline	   *fp;
+X
+X    for (fp = splines; fp != NULL; fp = fp->next) {
+X	if (maxdepth < fp->depth)
+X	    maxdepth = fp->depth;
+X
+X	++counts[min2(fp->depth, MAXDEPTH)].num_splines;
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Find the maximum depth of any text, recording the number of texts per each
+X * level along the way.
+X */
+X
+Xint
+Xtext_depths(texts)
+X    F_text	   *texts;
+X{
+X    int		    maxdepth = 0;
+X    F_text	   *fp;
+X
+X    for (fp = texts; fp != NULL; fp = fp->next) {
+X	if (maxdepth < fp->depth)
+X	    maxdepth = fp->depth;
+X
+X	++counts[min2(fp->depth, MAXDEPTH)].num_texts;
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Find the maximum depth of any of the objects contained in the compound.
+X */
+X
+Xint
+Xcompound_depths(compounds)
+X    F_compound	   *compounds;
+X{
+X    int		    maxdepth = 0;
+X    F_compound	   *fp;
+X
+X    for (fp = compounds; fp != NULL; fp = fp->next) {
+X	maxdepth = max2(compound_depths(fp->compounds),
+X		      max2(text_depths(fp->texts),
+X			   max2(spline_depths(fp->splines),
+X				maxdepth)));
+X	maxdepth = max2(arc_depths(fp->arcs),
+X			max2(line_depths(fp->lines),
+X			     max2(ellipse_depths(fp->ellipses),
+X				  maxdepth)));
+X    }
+X    return maxdepth;
+X}
+X
+X/*
+X * Redisplay a list of arcs.  Only display arcs of the correct depth.
+X * For each arc drawn, update the count for the appropriate depth in
+X * the counts array.
+X */
+X
+Xredisplay_arcobject(arcs, depth)
+X    F_arc	   *arcs;
+X    int		    depth;
+X{
+X    F_arc	   *arc;
+X    struct counts  *cp = &counts[min2(depth, MAXDEPTH)];
+X
+X    arc = arcs;
+X    while (arc != NULL && cp->cnt_arcs < cp->num_arcs) {
+X	if (depth == arc->depth) {
+X		draw_arc(arc, PAINT);
+X		++cp->cnt_arcs;
+X	    }
+X	arc = arc->next;
+X    }
+X}
+X
+X/*
+X * Redisplay a list of ellipses.  Only display ellipses of the correct depth
+X * For each ellipse drawn, update the count for the
+X * appropriate depth in the counts array.
+X */
+X
+Xredisplay_ellipseobject(ellipses, depth)
+X    F_ellipse	   *ellipses;
+X    int		    depth;
+X{
+X    F_ellipse	   *ep;
+X    struct counts  *cp = &counts[min2(depth, MAXDEPTH)];
+X
+X
+X    ep = ellipses;
+X    while (ep != NULL && cp->cnt_ellipses < cp->num_ellipses) {
+X	if (depth == ep->depth) {
+X		draw_ellipse(ep, PAINT);
+X		++cp->cnt_ellipses;
+X	    }
+X	ep = ep->next;
+X    }
+X}
+X
+X/*
+X * Redisplay a list of lines.  Only display lines of the correct depth.
+X * For each line drawn, update the count for the appropriate
+X * depth in the counts array.
+X */
+X
+Xredisplay_lineobject(lines, depth)
+X    F_line	   *lines;
+X    int		    depth;
+X{
+X    F_line	   *lp;
+X    struct counts  *cp = &counts[min2(depth, MAXDEPTH)];
+X
+X
+X    lp = lines;
+X    while (lp != NULL && cp->cnt_lines < cp->num_lines) {
+X	if (depth == lp->depth) {
+X		draw_line(lp, PAINT);
+X		++cp->cnt_lines;
+X	    }
+X	lp = lp->next;
+X    }
+X}
+X
+X/*
+X * Redisplay a list of splines.	 Only display splines of the correct depth
+X * For each spline drawn, update the count for the
+X * appropriate depth in the counts array.
+X */
+X
+Xredisplay_splineobject(splines, depth)
+X    F_spline	   *splines;
+X    int		    depth;
+X{
+X    F_spline	   *spline;
+X    struct counts  *cp = &counts[min2(depth, MAXDEPTH)];
+X
+X    spline = splines;
+X    while (spline != NULL && cp->cnt_splines < cp->num_splines) {
+X	if (depth == spline->depth) {
+X		draw_spline(spline, PAINT);
+X		++cp->cnt_splines;
+X	    }
+X	spline = spline->next;
+X    }
+X}
+X
+X/*
+X * Redisplay a list of texts.  Only display texts of the correct depth.	 For
+X * each text drawn, update the count for the appropriate depth in the counts
+X * array.
+X */
+X
+Xredisplay_textobject(texts, depth)
+X    F_text	   *texts;
+X    int		    depth;
+X{
+X    F_text	   *text;
+X    struct counts  *cp = &counts[min2(depth, MAXDEPTH)];
+X
+X    text = texts;
+X    while (text != NULL && cp->cnt_texts < cp->num_texts) {
+X	if (depth == text->depth) {
+X	    draw_text(text, PAINT);
+X	    ++cp->cnt_texts;
+X	}
+X	text = text->next;
+X    }
+X}
+X
+X/*
+X * Redisplay a list of compounds at a current depth.  Basically just farm the
+X * work out to the objects contained in the compound.
+X */
+X
+Xredisplay_compoundobject(compounds, depth)
+X    F_compound	   *compounds;
+X    int		    depth;
+X{
+X    F_compound	   *c;
+X
+X    for (c = compounds; c != NULL; c = c->next) {
+X	redisplay_arcobject(c->arcs, depth);
+X	redisplay_compoundobject(c->compounds, depth);
+X	redisplay_ellipseobject(c->ellipses, depth);
+X	redisplay_lineobject(c->lines, depth);
+X	redisplay_splineobject(c->splines, depth);
+X	redisplay_textobject(c->texts, depth);
+X    }
+X}
+X
+X/*
+X * Redisplay the entire drawing.
+X */
+Xredisplay_canvas()
+X{
+X    redisplay_region(0, 0, CANVAS_WD, CANVAS_HT);
+X}
+X
+Xredisplay_region(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    set_temp_cursor(wait_cursor);
+X    /* kludge so that markers are redrawn */
+X    xmin -= 8;
+X    ymin -= 8;
+X    xmax += 8;
+X    ymax += 8;
+X    set_clip_window(xmin, ymin, xmax, ymax);
+X    clear_canvas();
+X    redisplay_objects(&objects);
+X    reset_clip_window();
+X    reset_cursor();
+X}
+X
+Xredisplay_zoomed_region(xmin, ymin, xmax, ymax)
+X    int		    xmin, ymin, xmax, ymax;
+X{
+X    redisplay_region(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax));
+X}
+X
+Xredisplay_ellipse(e)
+X    F_ellipse	   *e;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    ellipse_bound(e, &xmin, &ymin, &xmax, &ymax);
+X    redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X}
+X
+Xredisplay_ellipses(e1, e2)
+X    F_ellipse	   *e1, *e2;
+X{
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X
+X    ellipse_bound(e1, &xmin1, &ymin1, &xmax1, &ymax1);
+X    ellipse_bound(e2, &xmin2, &ymin2, &xmax2, &ymax2);
+X    redisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2);
+X}
+X
+Xredisplay_arc(a)
+X    F_arc	   *a;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    arc_bound(a, &xmin, &ymin, &xmax, &ymax);
+X    redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X}
+X
+Xredisplay_arcs(a1, a2)
+X    F_arc	   *a1, *a2;
+X{
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X
+X    arc_bound(a1, &xmin1, &ymin1, &xmax1, &ymax1);
+X    arc_bound(a2, &xmin2, &ymin2, &xmax2, &ymax2);
+X    redisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2);
+X}
+X
+Xredisplay_spline(s)
+X    F_spline	   *s;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    spline_bound(s, &xmin, &ymin, &xmax, &ymax);
+X    redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X}
+X
+Xredisplay_splines(s1, s2)
+X    F_spline	   *s1, *s2;
+X{
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X
+X    spline_bound(s1, &xmin1, &ymin1, &xmax1, &ymax1);
+X    spline_bound(s2, &xmin2, &ymin2, &xmax2, &ymax2);
+X    redisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2);
+X}
+X
+Xredisplay_line(l)
+X    F_line	   *l;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    line_bound(l, &xmin, &ymin, &xmax, &ymax);
+X    redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X}
+X
+Xredisplay_lines(l1, l2)
+X    F_line	   *l1, *l2;
+X{
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X
+X    line_bound(l1, &xmin1, &ymin1, &xmax1, &ymax1);
+X    line_bound(l2, &xmin2, &ymin2, &xmax2, &ymax2);
+X    redisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2);
+X}
+X
+Xredisplay_compound(c)
+X    F_compound	   *c;
+X{
+X    redisplay_zoomed_region(c->nwcorner.x, c->nwcorner.y,
+X			    c->secorner.x, c->secorner.y);
+X}
+X
+Xredisplay_compounds(c1, c2)
+X    F_compound	   *c1, *c2;
+X{
+X    redisplay_regions(c1->nwcorner.x, c1->nwcorner.y,
+X		      c1->secorner.x, c1->secorner.y,
+X		      c2->nwcorner.x, c2->nwcorner.y,
+X		      c2->secorner.x, c2->secorner.y);
+X}
+X
+Xredisplay_text(t)
+X    F_text	   *t;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    int		    dum;
+X
+X    if (appres.textoutline) {
+X	text_bound_both(t, &xmin, &ymin, &xmax, &ymax,
+X			&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X    } else {
+X	text_bound(t, &xmin, &ymin, &xmax, &ymax);
+X    }
+X    redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X}
+X
+Xredisplay_texts(t1, t2)
+X    F_text	   *t1, *t2;
+X{
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X    int		    dum;
+X
+X    if (appres.textoutline) {
+X	text_bound_both(t1, &xmin1, &ymin1, &xmax1, &ymax1,
+X			&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X	text_bound_both(t2, &xmin2, &ymin2, &xmax2, &ymax2,
+X			&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X    } else {
+X	text_bound(t1, &xmin1, &ymin1, &xmax1, &ymax1);
+X	text_bound(t2, &xmin2, &ymin2, &xmax2, &ymax2);
+X    }
+X    redisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2);
+X}
+X
+Xredisplay_regions(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2)
+X    int		    xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2;
+X{
+X    if (xmin1 == xmin2 && ymin1 == ymin2 && xmax1 == xmax2 && ymax1 == ymax2) {
+X	redisplay_zoomed_region(xmin1, ymin1, xmax1, ymax1);
+X	return;
+X    }
+X    /* below is easier than sending clip rectangle array to X */
+X    if (overlapping(xmin1, ymin1, xmax1, ymax1, xmin2, ymin2, xmax2, ymax2)) {
+X	redisplay_zoomed_region(min2(xmin1, xmin2), min2(ymin1, ymin2),
+X				max2(xmax1, xmax2), max2(ymax1, ymax2));
+X    } else {
+X	redisplay_zoomed_region(xmin1, ymin1, xmax1, ymax1);
+X	redisplay_zoomed_region(xmin2, ymin2, xmax2, ymax2);
+X    }
+X}
+END_OF_FILE
+if test 14201 -ne `wc -c <'u_redraw.c'`; then
+    echo shar: \"'u_redraw.c'\" unpacked with wrong size!
+fi
+# end of 'u_redraw.c'
+fi
+if test -f 'u_undo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_undo.c'\"
+else
+echo shar: Extracting \"'u_undo.c'\" \(17567 characters\)
+sed "s/^X//" >'u_undo.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X/**************** IMPORTS ****************/
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_list.h"
+X#include "u_undo.h"
+X#include "w_setup.h"
+X
+X/*************** EXPORTS *****************/
+X
+X/*
+X * Object_tails *usually* points to the last object in each linked list in
+X * objects.  The exceptions occur when multiple objects are added to a figure
+X * (e.g. file read, break compound, undo delete region).  In these cases,
+X * the added objects are appended to the object lists (and saved_objects is
+X * set up to point to the new objects) but object_tails is not changed.
+X * This speeds up a subsequent undo operation which need only set
+X * all the "next" fields of objects pointed to by object_tails to NULL.
+X */
+X
+XF_compound	saved_objects = {0, { 0, 0 }, { 0, 0 }, 
+X				NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+XF_compound	object_tails = {0, { 0, 0 }, { 0, 0 }, 
+X				NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+X
+X/*************** LOCAL *****************/
+X
+Xstatic int	last_object;
+Xstatic int	last_action = F_NULL;
+Xstatic F_pos	last_position, new_position;
+Xstatic int	last_arcpointnum;
+Xstatic F_point *last_prev_point, *last_selected_point, *last_next_point;
+Xstatic F_linkinfo *last_links;
+Xstatic int	last_linkmode;
+X
+Xvoid
+Xundo()
+X{
+X    switch (last_action) {
+X	case F_ADD:
+X	undo_add();
+X	break;
+X    case F_DELETE:
+X	undo_delete();
+X	break;
+X    case F_MOVE:
+X	undo_move();
+X	break;
+X    case F_CHANGE:
+X	undo_change();
+X	break;
+X    case F_GLUE:
+X	undo_glue();
+X	break;
+X    case F_BREAK:
+X	undo_break();
+X	break;
+X    case F_LOAD:
+X	undo_load();
+X	break;
+X    case F_SCALE:
+X	undo_scale();
+X	break;
+X    case F_ADD_POINT:
+X	undo_addpoint();
+X	break;
+X    case F_DELETE_POINT:
+X	undo_deletepoint();
+X	break;
+X    case F_ADD_ARROW_HEAD:
+X	undo_add_arrowhead();
+X	break;
+X    case F_DELETE_ARROW_HEAD:
+X	undo_delete_arrowhead();
+X	break;
+X    case F_CONVERT:
+X	undo_convert();
+X	break;
+X    default:
+X	put_msg("Nothing to UNDO");
+X	return;
+X    }
+X    put_msg("Undo complete");
+X}
+X
+Xundo_addpoint()
+X{
+X    if (last_object == O_POLYLINE)
+X	linepoint_deleting(saved_objects.lines, last_prev_point,
+X			   last_selected_point);
+X    else
+X	splinepoint_deleting(saved_objects.splines, last_prev_point,
+X			     last_selected_point);
+X}
+X
+Xundo_deletepoint()
+X{
+X    last_action = F_NULL;	/* to avoid doing a clean-up during adding */
+X
+X    if (last_object == O_POLYLINE)
+X	linepoint_adding(saved_objects.lines, last_prev_point,
+X			 last_selected_point, last_next_point);
+X    else
+X	splinepoint_adding(saved_objects.splines, last_prev_point,
+X			   last_selected_point, last_next_point);
+X    last_next_point = NULL;
+X}
+X
+Xundo_break()
+X{
+X    cut_objects(&objects, &object_tails);
+X    list_add_compound(&objects.compounds, saved_objects.compounds);
+X    last_action = F_GLUE;
+X    toggle_markers_in_compound(saved_objects.compounds);
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X}
+X
+Xundo_glue()
+X{
+X    list_delete_compound(&objects.compounds, saved_objects.compounds);
+X    tail(&objects, &object_tails);
+X    append_objects(&objects, saved_objects.compounds, &object_tails);
+X    last_action = F_BREAK;
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    toggle_markers_in_compound(saved_objects.compounds);
+X    if (cur_mode != F_GLUE && cur_mode != F_BREAK)
+X	set_tags(saved_objects.compounds, 0);
+X}
+X
+Xundo_convert()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	spline_2_line(saved_objects.splines);
+X	break;
+X    case O_SPLINE:
+X	line_2_spline(saved_objects.lines);
+X	break;
+X    }
+X}
+X
+Xundo_add_arrowhead()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	delete_linearrow(saved_objects.lines,
+X			 last_prev_point, last_selected_point);
+X	break;
+X    case O_SPLINE:
+X	delete_splinearrow(saved_objects.splines,
+X			   last_prev_point, last_selected_point);
+X	break;
+X    case O_ARC:
+X	delete_arcarrow(saved_objects.arcs, last_arcpointnum);
+X	break;
+X    default:
+X	return;
+X    }
+X    last_action = F_DELETE_ARROW_HEAD;
+X}
+X
+Xundo_delete_arrowhead()
+X{
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	add_linearrow(saved_objects.lines,
+X		      last_prev_point, last_selected_point);
+X	break;
+X    case O_SPLINE:
+X	add_splinearrow(saved_objects.splines,
+X			last_prev_point, last_selected_point);
+X	break;
+X    case O_ARC:
+X	add_arcarrow(saved_objects.arcs, last_arcpointnum);
+X	break;
+X    default:
+X	return;
+X    }
+X    last_action = F_ADD_ARROW_HEAD;
+X}
+X
+X/*
+X * saved_objects.xxxx contains a pointer to the original object,
+X * saved_objects.xxxx->next points to the changed object.
+X */
+X
+Xundo_change()
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    F_compound	    swp_comp;
+X
+X    last_action = F_NULL;	/* to avoid a clean-up during "unchange" */
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	new_l = saved_objects.lines;	/* the original */
+X	old_l = saved_objects.lines->next;	/* the changed object */
+X	change_line(old_l, new_l);
+X	redisplay_lines(new_l, old_l);
+X	break;
+X    case O_ELLIPSE:
+X	new_e = saved_objects.ellipses;
+X	old_e = saved_objects.ellipses->next;
+X	change_ellipse(old_e, new_e);
+X	redisplay_ellipses(new_e, old_e);
+X	break;
+X    case O_TEXT:
+X	new_t = saved_objects.texts;
+X	old_t = saved_objects.texts->next;
+X	change_text(old_t, new_t);
+X	redisplay_texts(new_t, old_t);
+X	break;
+X    case O_SPLINE:
+X	new_s = saved_objects.splines;
+X	old_s = saved_objects.splines->next;
+X	change_spline(old_s, new_s);
+X	redisplay_splines(new_s, old_s);
+X	break;
+X    case O_ARC:
+X	new_a = saved_objects.arcs;
+X	old_a = saved_objects.arcs->next;
+X	change_arc(old_a, new_a);
+X	redisplay_arcs(new_a, old_a);
+X	break;
+X    case O_COMPOUND:
+X	new_c = saved_objects.compounds;
+X	old_c = saved_objects.compounds->next;
+X	change_compound(old_c, new_c);
+X	redisplay_compounds(new_c, old_c);
+X	break;
+X    case O_ALL_OBJECT:
+X	swp_comp = objects;
+X	objects = saved_objects;
+X	saved_objects = swp_comp;
+X	new_c = &objects;
+X	old_c = &saved_objects;
+X	set_action_object(F_CHANGE, O_ALL_OBJECT);
+X	set_modifiedflag();
+X	redisplay_zoomed_region(0, 0, CANVAS_WD, CANVAS_HT);
+X	break;
+X    }
+X}
+X
+X/*
+X * When a single object is created, it is appended to the appropriate list
+X * in objects.	It is also placed in the appropriate list in saved_objects.
+X *
+X * When a number of objects are created (usually by reading them in from
+X * a file or undoing a remove-all action), they are appended to the lists in
+X * objects and also saved in saved_objects.  The pointers in object_tails
+X * will be set to point to the last members of the lists in objects prior to
+X * the appending.
+X *
+X * Note: The read operation will set the pointers in object_tails while the
+X * remove-all operation will zero pointers in objects.
+X */
+X
+Xundo_add()
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	list_delete_line(&objects.lines, saved_objects.lines);
+X	redisplay_line(saved_objects.lines);
+X	break;
+X    case O_ELLIPSE:
+X	list_delete_ellipse(&objects.ellipses, saved_objects.ellipses);
+X	redisplay_ellipse(saved_objects.ellipses);
+X	break;
+X    case O_TEXT:
+X	list_delete_text(&objects.texts, saved_objects.texts);
+X	redisplay_text(saved_objects.texts);
+X	break;
+X    case O_SPLINE:
+X	list_delete_spline(&objects.splines, saved_objects.splines);
+X	redisplay_spline(saved_objects.splines);
+X	break;
+X    case O_ARC:
+X	list_delete_arc(&objects.arcs, saved_objects.arcs);
+X	redisplay_arc(saved_objects.arcs);
+X	break;
+X    case O_COMPOUND:
+X	list_delete_compound(&objects.compounds, saved_objects.compounds);
+X	redisplay_compound(saved_objects.compounds);
+X	break;
+X    case O_ALL_OBJECT:
+X	cut_objects(&objects, &object_tails);
+X	compound_bound(&saved_objects, &xmin, &ymin, &xmax, &ymax);
+X	redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X	break;
+X    }
+X    last_action = F_DELETE;
+X}
+X
+Xundo_delete()
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	list_add_line(&objects.lines, saved_objects.lines);
+X	redisplay_line(saved_objects.lines);
+X	break;
+X    case O_ELLIPSE:
+X	list_add_ellipse(&objects.ellipses, saved_objects.ellipses);
+X	redisplay_ellipse(saved_objects.ellipses);
+X	break;
+X    case O_TEXT:
+X	list_add_text(&objects.texts, saved_objects.texts);
+X	redisplay_text(saved_objects.texts);
+X	break;
+X    case O_SPLINE:
+X	list_add_spline(&objects.splines, saved_objects.splines);
+X	redisplay_spline(saved_objects.splines);
+X	break;
+X    case O_ARC:
+X	list_add_arc(&objects.arcs, saved_objects.arcs);
+X	redisplay_arc(saved_objects.arcs);
+X	break;
+X    case O_COMPOUND:
+X	list_add_compound(&objects.compounds, saved_objects.compounds);
+X	redisplay_compound(saved_objects.compounds);
+X	break;
+X    case O_ALL_OBJECT:
+X	compound_bound(&saved_objects, &xmin, &ymin, &xmax, &ymax);
+X	append_objects(&objects, &saved_objects, &object_tails);
+X	redisplay_zoomed_region(xmin, ymin, xmax, ymax);
+X    }
+X    last_action = F_ADD;
+X}
+X
+Xundo_move()
+X{
+X    int		    dx, dy;
+X    int		    xmin1, ymin1, xmax1, ymax1;
+X    int		    xmin2, ymin2, xmax2, ymax2;
+X    int		    dum;
+X
+X    dx = last_position.x - new_position.x;
+X    dy = last_position.y - new_position.y;
+X    switch (last_object) {
+X    case O_POLYLINE:
+X	line_bound(saved_objects.lines, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_line(saved_objects.lines, dx, dy);
+X	line_bound(saved_objects.lines, &xmin2, &ymin2, &xmax2, &ymax2);
+X	adjust_links(last_linkmode, last_links, dx, dy, 0, 0, 1.0, 1.0, 0);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_ELLIPSE:
+X	ellipse_bound(saved_objects.ellipses, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_ellipse(saved_objects.ellipses, dx, dy);
+X	ellipse_bound(saved_objects.ellipses, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_TEXT:
+X	if (appres.textoutline) {
+X		text_bound_both(saved_objects.texts, &xmin1, &ymin1, &xmax1, &ymax1,
+X			&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X		translate_text(saved_objects.texts, dx, dy);
+X		text_bound_both(saved_objects.texts, &xmin2, &ymin2, &xmax2, &ymax2,
+X			&dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X	} else {
+X		text_bound(saved_objects.texts, &xmin1, &ymin1, &xmax1, &ymax1);
+X		translate_text(saved_objects.texts, dx, dy);
+X		text_bound(saved_objects.texts, &xmin2, &ymin2, &xmax2, &ymax2);
+X	}
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_SPLINE:
+X	spline_bound(saved_objects.splines, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_spline(saved_objects.splines, dx, dy);
+X	spline_bound(saved_objects.splines, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_ARC:
+X	arc_bound(saved_objects.arcs, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_arc(saved_objects.arcs, dx, dy);
+X	arc_bound(saved_objects.arcs, &xmin2, &ymin2, &xmax2, &ymax2);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    case O_COMPOUND:
+X	compound_bound(saved_objects.compounds, &xmin1, &ymin1, &xmax1, &ymax1);
+X	translate_compound(saved_objects.compounds, dx, dy);
+X	compound_bound(saved_objects.compounds, &xmin2, &ymin2, &xmax2, &ymax2);
+X	adjust_links(last_linkmode, last_links, dx, dy, 0, 0, 1.0, 1.0, 0);
+X	redisplay_regions(xmin1, ymin1, xmax1, ymax1,
+X			  xmin2, ymin2, xmax2, ymax2);
+X	break;
+X    }
+X    swap_newp_lastp();
+X}
+X
+Xundo_load()
+X{
+X    F_compound	    temp;
+X    char	    ctemp[128];
+X
+X    temp = objects;
+X    objects = saved_objects;
+X    saved_objects = temp;
+X    strcpy(ctemp, cur_filename);
+X    update_cur_filename(save_filename);
+X    strcpy(save_filename, ctemp);
+X    redisplay_canvas();
+X    set_modifiedflag();
+X    last_action = F_LOAD;
+X}
+X
+Xundo_scale()
+X{
+X    float	    scalex, scaley;
+X
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    draw_compoundelements(saved_objects.compounds, ERASE);
+X    scalex = ((float) (last_position.x - fix_x)) / (new_position.x - fix_x);
+X    scaley = ((float) (last_position.y - fix_y)) / (new_position.y - fix_y);
+X    scale_compound(saved_objects.compounds, scalex, scaley, fix_x, fix_y);
+X    draw_compoundelements(saved_objects.compounds, PAINT);
+X    mask_toggle_compoundmarker(saved_objects.compounds);
+X    swap_newp_lastp();
+X}
+X
+Xswap_newp_lastp()
+X{
+X    int		    t;		/* swap new_position and last_position	*/
+X
+X    t = new_position.x;
+X    new_position.x = last_position.x;
+X    last_position.x = t;
+X    t = new_position.y;
+X    new_position.y = last_position.y;
+X    last_position.y = t;
+X}
+X
+X/*
+X * Clean_up should be called before committing a user's request. Clean_up
+X * will attempt to free all the allocated memories which resulted from
+X * delete/remove action.  It will set the last_action to F_NULL.  Thus this
+X * routine should be before set_action_object(). if they are to be called in
+X * the same routine.
+X */
+Xclean_up()
+X{
+X    if (last_action == F_CHANGE) {
+X	switch (last_object) {
+X	case O_ARC:
+X	    saved_objects.arcs->next = NULL;
+X	    free_arc(&saved_objects.arcs);
+X	    break;
+X	case O_COMPOUND:
+X	    saved_objects.compounds->next = NULL;
+X	    free_compound(&saved_objects.compounds);
+X	    break;
+X	case O_ELLIPSE:
+X	    saved_objects.ellipses->next = NULL;
+X	    free_ellipse(&saved_objects.ellipses);
+X	    break;
+X	case O_POLYLINE:
+X	    saved_objects.lines->next = NULL;
+X	    free_line(&saved_objects.lines);
+X	    break;
+X	case O_SPLINE:
+X	    saved_objects.splines->next = NULL;
+X	    free_spline(&saved_objects.splines);
+X	    break;
+X	case O_TEXT:
+X	    saved_objects.texts->next = NULL;
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	}
+X    } else if (last_action == F_DELETE) {
+X	switch (last_object) {
+X	case O_ARC:
+X	    free_arc(&saved_objects.arcs);
+X	    break;
+X	case O_COMPOUND:
+X	    free_compound(&saved_objects.compounds);
+X	    break;
+X	case O_ELLIPSE:
+X	    free_ellipse(&saved_objects.ellipses);
+X	    break;
+X	case O_POLYLINE:
+X	    free_line(&saved_objects.lines);
+X	    break;
+X	case O_SPLINE:
+X	    free_spline(&saved_objects.splines);
+X	    break;
+X	case O_TEXT:
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	case O_ALL_OBJECT:
+X	    free_arc(&saved_objects.arcs);
+X	    free_compound(&saved_objects.compounds);
+X	    free_ellipse(&saved_objects.ellipses);
+X	    free_line(&saved_objects.lines);
+X	    free_spline(&saved_objects.splines);
+X	    free_text(&saved_objects.texts);
+X	    break;
+X	}
+X    } else if (last_action == F_DELETE_POINT) {
+X	free((char *) last_selected_point);
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X	last_next_point = NULL;
+X    } else if (last_action == F_ADD_POINT) {
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X    } else if (last_action == F_LOAD) {
+X	free_arc(&saved_objects.arcs);
+X	free_compound(&saved_objects.compounds);
+X	free_ellipse(&saved_objects.ellipses);
+X	free_line(&saved_objects.lines);
+X	free_spline(&saved_objects.splines);
+X	free_text(&saved_objects.texts);
+X    } else if (last_action == F_GLUE) {
+X	saved_objects.compounds = NULL;
+X    } else if (last_action == F_BREAK) {
+X	free((char *) saved_objects.compounds);
+X	saved_objects.compounds = NULL;
+X    } else if (last_action == F_ADD || last_action == F_MOVE) {
+X	saved_objects.arcs = NULL;
+X	saved_objects.compounds = NULL;
+X	saved_objects.ellipses = NULL;
+X	saved_objects.lines = NULL;
+X	saved_objects.splines = NULL;
+X	saved_objects.texts = NULL;
+X	free_linkinfo(&last_links);
+X    } else if (last_action == F_CONVERT) {
+X	saved_objects.splines = NULL;
+X	saved_objects.lines = NULL;
+X    } else if (last_action == F_ADD_ARROW_HEAD ||
+X	       last_action == F_DELETE_ARROW_HEAD) {
+X	saved_objects.splines = NULL;
+X	saved_objects.lines = NULL;
+X	saved_objects.arcs = NULL;
+X	last_prev_point = NULL;
+X	last_selected_point = NULL;
+X    }
+X    last_action = F_NULL;
+X}
+X
+Xset_latestarc(arc)
+X    F_arc	   *arc;
+X{
+X    saved_objects.arcs = arc;
+X}
+X
+Xset_latestobjects(objects)
+X    F_compound	   *objects;
+X{
+X    saved_objects = *objects;
+X}
+X
+Xset_latestcompound(compound)
+X    F_compound	   *compound;
+X{
+X    saved_objects.compounds = compound;
+X}
+X
+Xset_latestellipse(ellipse)
+X    F_ellipse	   *ellipse;
+X{
+X    saved_objects.ellipses = ellipse;
+X}
+X
+Xset_latestline(line)
+X    F_line	   *line;
+X{
+X    saved_objects.lines = line;
+X}
+X
+Xset_latestspline(spline)
+X    F_spline	   *spline;
+X{
+X    saved_objects.splines = spline;
+X}
+X
+Xset_latesttext(text)
+X    F_text	   *text;
+X{
+X    saved_objects.texts = text;
+X}
+X
+Xset_last_prevpoint(prev_point)
+X    F_point	   *prev_point;
+X{
+X    last_prev_point = prev_point;
+X}
+X
+Xset_last_selectedpoint(selected_point)
+X    F_point	   *selected_point;
+X{
+X    last_selected_point = selected_point;
+X}
+X
+Xset_last_nextpoint(next_point)
+X    F_point	   *next_point;
+X{
+X    last_next_point = next_point;
+X}
+X
+Xset_last_arcpointnum(num)
+X    int		    num;
+X{
+X    last_arcpointnum = num;
+X}
+X
+Xset_lastposition(x, y)
+X    int		    x, y;
+X{
+X    last_position.x = x;
+X    last_position.y = y;
+X}
+X
+Xset_newposition(x, y)
+X    int		    x, y;
+X{
+X    new_position.x = x;
+X    new_position.y = y;
+X}
+X
+Xset_action(action)
+X    int		    action;
+X{
+X    last_action = action;
+X}
+X
+Xset_action_object(action, object)
+X    int		    action, object;
+X{
+X    last_action = action;
+X    last_object = object;
+X}
+X
+Xset_lastlinkinfo(mode, links)
+X    int		    mode;
+X    F_linkinfo	   *links;
+X{
+X    last_linkmode = mode;
+X    last_links = links;
+X}
+END_OF_FILE
+if test 17567 -ne `wc -c <'u_undo.c'`; then
+    echo shar: \"'u_undo.c'\" unpacked with wrong size!
+fi
+# end of 'u_undo.c'
+fi
+if test -f 'w_print.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_print.c'\"
+else
+echo shar: Extracting \"'w_print.c'\" \(14793 characters\)
+sed "s/^X//" >'w_print.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Brian V. Smith
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "figx.h"
+X#include "mode.h"
+X#include "resources.h"
+X#include "w_icons.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X
+Xextern String	text_translations;
+Xextern Widget	make_popup_menu();
+Xextern char    *panel_get_value();
+Xextern char     batch_file[];
+Xextern Boolean  batch_exists;
+Xextern char    *shell_protect_string();
+X
+X/* LOCAL */
+X
+Xstatic char    *orient_items[] = {
+X    "portrait ",
+X    "landscape"};
+X
+Xstatic char    *just_items[] = {
+X    "Centered  ",
+X    "Flush left"};
+X
+Xstatic void	orient_select();
+Xstatic Widget	orient_panel, orient_menu, orient_lab;
+X
+Xstatic void	just_select();
+Xstatic Widget	just_panel, just_menu, just_lab;
+X
+Xstatic Widget	print_panel, print_popup, dismiss, print, 
+X		printer_text, param_text, printer_lab, param_lab, clear_batch, print_batch, 
+X		mag_lab, print_w, mag_text, num_batch_lab, num_batch;
+Xstatic Position xposn, yposn;
+Xstatic String   prin_translations =
+X        "<Message>WM_PROTOCOLS: DismissPrin()\n";
+Xstatic void     print_panel_dismiss(), do_clear_batch();
+Xvoid		do_print(), do_print_batch();
+Xstatic XtActionsRec     prin_actions[] =
+X{
+X    {"DismissPrin", (XtActionProc) print_panel_dismiss},
+X    {"dismiss", (XtActionProc) print_panel_dismiss},
+X    {"print_batch", (XtActionProc) do_print_batch},
+X    {"clear_batch", (XtActionProc) do_clear_batch},
+X    {"print", (XtActionProc) do_print},
+X};
+X
+Xstatic void
+Xprint_panel_dismiss(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    XtPopdown(print_popup);
+X    XtSetSensitive(print_w, True);
+X}
+X
+Xstatic char	print_msg[] = "PRINT";
+X
+Xvoid
+Xdo_print(w)
+X    Widget	    w;
+X{
+X	DeclareArgs(1);
+X	float	    mag;
+X	char	   *printer_val;
+X	char	   *param_val;
+X	char	    cmd[100];
+X
+X	if (emptyfigure_msg(print_msg) && !batch_exists)
+X		return;
+X
+X	/* create popup panel if not already there so we have all the
+X	   resources necessary (e.g. printer name etc.) */
+X	if (!print_popup) 
+X		create_print_panel(w);
+X	mag = (float) atof(panel_get_value(mag_text)) / 100.0;
+X	if (mag <= 0.0)
+X	    mag = 1.0;
+X
+X	FirstArg(XtNstring, &printer_val);
+X	GetValues(printer_text);
+X	/* no printer name specified in resources, get PRINTER environment
+X	   var and put it into the widget */
+X	if (emptyname(printer_val)) {
+X		printer_val=getenv("PRINTER");
+X		FirstArg(XtNstring, printer_val);
+X		SetValues(printer_text);
+X	}
+X	FirstArg(XtNstring, &param_val);
+X	GetValues(param_text);
+X	if (batch_exists)
+X	    {
+X	    gen_print_cmd(cmd,batch_file,printer_val,param_val);
+X	    if (system(cmd) != 0)
+X		file_msg("Error during PRINT");
+X	    /* clear the batch file and the count */
+X	    do_clear_batch(w);
+X	    }
+X	else
+X	    {
+X	    print_to_printer(printer_val, mag, print_flushleft, param_val);
+X	    }
+X}
+X
+Xgen_print_cmd(cmd,file,printer,pr_params)
+X    char	   *cmd;
+X    char	   *file;
+X    char	   *printer;
+X    char	   *pr_params;
+X{
+X    if (emptyname(printer)) {	/* send to default printer */
+X#if defined(SYSV) || defined(SVR4)
+X	sprintf(cmd, "lp %s -oPS %s", 
+X		pr_params,
+X		shell_protect_string(file));
+X#else
+X	sprintf(cmd, "lpr %s -J %s %s",
+X		pr_params,
+X		shell_protect_string(file),
+X		shell_protect_string(file));
+X#endif
+X	put_msg("Printing figure on default printer in %s mode ...     ",
+X		print_landscape ? "LANDSCAPE" : "PORTRAIT");
+X    } else {
+X#if defined(SYSV) || defined(SVR4)
+X	sprintf(cmd, "lp %s, -d%s -oPS %s",
+X		pr_params,
+X		printer, 
+X		shell_protect_string(file));
+X#else
+X	sprintf(cmd, "lpr %s -J %s -P%s %s", 
+X		pr_params,
+X		shell_protect_string(file),
+X		printer,
+X		shell_protect_string(file));
+X#endif
+X	put_msg("Printing figure on printer %s in %s mode ...     ",
+X		printer, print_landscape ? "LANDSCAPE" : "PORTRAIT");
+X    }
+X    app_flush();		/* make sure message gets displayed */
+X}
+X
+Xstatic int num_batch_figures=0;
+Xstatic Boolean writing_batch=False;
+X
+Xvoid
+Xdo_print_batch(w)
+X    Widget	    w;
+X{
+X	DeclareArgs(1);
+X	float	    mag;
+X	FILE	   *infp,*outfp;
+X	char	    tmp_exp_file[32];
+X	char	    str[255];
+X
+X	if (writing_batch || emptyfigure_msg(print_msg))
+X		return;
+X
+X	/* set lock so we don't come here while still writing a file */
+X	/* this could happen if the user presses the button too fast */
+X	writing_batch = True;
+X
+X	/* make a temporary name to write the batch stuff to */
+X	sprintf(batch_file, "%s/%s%06d", TMPDIR, "xfig-batch", getpid());
+X	/* make a temporary name to write this figure to */
+X	sprintf(tmp_exp_file, "%s/%s%06d", TMPDIR, "xfig-exp", getpid());
+X	batch_exists = True;
+X	if (!print_popup) 
+X		create_print_panel(w);
+X	mag = (float) atof(panel_get_value(mag_text)) / 100.0;
+X	if (mag <= 0.0)
+X	    mag = 1.0;
+X
+X	print_to_file(tmp_exp_file, "ps", mag, print_flushleft);
+X	put_msg("Appending to batch file \"%s\" (%s mode) ... done",
+X		    batch_file, print_landscape ? "LANDSCAPE" : "PORTRAIT");
+X	app_flush();		/* make sure message gets displayed */
+X
+X	/* now append that to the batch file */
+X	if ((infp = fopen(tmp_exp_file, "r")) == NULL) {
+X		file_msg("Error during PRINT - can't open temporary file to read");
+X		return;
+X		}
+X	if ((outfp = fopen(batch_file, "a")) == NULL) {
+X		file_msg("Error during PRINT - can't open print file to append");
+X		return;
+X		}
+X	while (fgets(str,255,infp) != NULL)
+X		(void) fputs(str,outfp);
+X	fclose(infp);
+X	fclose(outfp);
+X	unlink(tmp_exp_file);
+X	/* count this batch figure */
+X	num_batch_figures++ ;
+X	/* and update the label widget */
+X	update_batch_count();
+X	/* we're done */
+X	writing_batch = False;
+X}
+X
+Xstatic void
+Xdo_clear_batch(w)
+X    Widget	    w;
+X{
+X	DeclareArgs(1);
+X  
+X	unlink(batch_file);
+X	batch_exists = False;
+X	num_batch_figures = 0;
+X	/* update the label widget */
+X	update_batch_count();
+X}
+X
+X/* update the label widget with the current number of figures in the batch file */
+X
+Xupdate_batch_count()
+X{
+X	String	    num[4];
+X	DeclareArgs(1);
+X
+X	sprintf(num,"%3d",num_batch_figures);
+X	FirstArg(XtNlabel,num);
+X	SetValues(num_batch);
+X	if (num_batch_figures) {
+X	    XtSetSensitive(clear_batch, True);
+X	    FirstArg(XtNlabel, "Print BATCH \nto Printer");
+X	    SetValues(print);
+X	} else {
+X	    XtSetSensitive(clear_batch, False);
+X	    FirstArg(XtNlabel, "Print FIGURE\nto Printer");
+X	    SetValues(print);
+X	}
+X}
+X
+Xstatic void
+Xorient_select(w, new_orient, garbage)
+X    Widget	    w;
+X    XtPointer	    new_orient, garbage;
+X{
+X    DeclareArgs(1);
+X
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(orient_panel);
+X    print_landscape = (int) new_orient;
+X}
+X
+Xstatic void
+Xjust_select(w, new_just, garbage)
+X    Widget	    w;
+X    XtPointer	    new_just, garbage;
+X{
+X    DeclareArgs(1);
+X
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(just_panel);
+X    print_flushleft = (new_just? True: False);
+X}
+X
+Xpopup_print_panel(w)
+X    Widget	    w;
+X{
+X    Widget	    image;
+X    Pixmap	    p;
+X    DeclareArgs(10);
+X    extern	    Atom wm_delete_window;
+X
+X    set_temp_cursor(wait_cursor);
+X    XtSetSensitive(w, False);
+X    if (!print_popup)
+X	create_print_panel(w);
+X    XtPopup(print_popup, XtGrabNone);
+X    (void) XSetWMProtocols(XtDisplay(print_popup), XtWindow(print_popup),
+X                           &wm_delete_window, 1);
+X    reset_cursor();
+X
+X}
+X
+Xcreate_print_panel(w)
+X    Widget	    w;
+X{
+X	Widget	    image;
+X	Pixmap	    p;
+X	DeclareArgs(10);
+X
+X	print_w = w;
+X	XtTranslateCoords(w, (Position) 0, (Position) 0, &xposn, &yposn);
+X
+X	FirstArg(XtNx, xposn);
+X	NextArg(XtNy, yposn + 50);
+X	NextArg(XtNtitle, "Xfig: Print menu");
+X	print_popup = XtCreatePopupShell("xfig_print_menu",
+X					 transientShellWidgetClass,
+X					 tool, Args, ArgCount);
+X        XtOverrideTranslations(print_popup,
+X                           XtParseTranslationTable(prin_translations));
+X        XtAppAddActions(tool_app, prin_actions, XtNumber(prin_actions));
+X
+X	print_panel = XtCreateManagedWidget("print_panel", formWidgetClass,
+X					    print_popup, NULL, ZERO);
+X
+X	p = XCreateBitmapFromData(tool_d, XtWindow(canvas_sw),
+X		      (char *) printer_ic.data, printer_ic.width, printer_ic.height);
+X
+X	FirstArg(XtNlabel, "   ");
+X	NextArg(XtNwidth, printer_ic.width);
+X	NextArg(XtNheight, printer_ic.height);
+X	NextArg(XtNbitmap, p);
+X	NextArg(XtNborderWidth, 0);
+X	NextArg(XtNinternalWidth, 0);
+X	NextArg(XtNinternalHeight, 0);
+X	NextArg(XtNresize, False);
+X	NextArg(XtNresizable, False);
+X	image = XtCreateManagedWidget("printer_image", labelWidgetClass,
+X				      print_panel, Args, ArgCount);
+X
+X	FirstArg(XtNlabel, "  Magnification%:");
+X	NextArg(XtNfromVert, image);
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	mag_lab = XtCreateManagedWidget("mag_label", labelWidgetClass,
+X					print_panel, Args, ArgCount);
+X
+X	FirstArg(XtNwidth, 40);
+X	NextArg(XtNfromVert, image);
+X	NextArg(XtNfromHoriz, mag_lab);
+X	NextArg(XtNeditType, "edit");
+X	NextArg(XtNstring, "100");
+X	NextArg(XtNinsertPosition, 3);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	mag_text = XtCreateManagedWidget("magnification", asciiTextWidgetClass,
+X					 print_panel, Args, ArgCount);
+X	XtOverrideTranslations(mag_text,
+X			       XtParseTranslationTable(text_translations));
+X
+X	FirstArg(XtNlabel, "     Orientation:");
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	NextArg(XtNfromVert, mag_text);
+X	orient_lab = XtCreateManagedWidget("orient_label", labelWidgetClass,
+X					   print_panel, Args, ArgCount);
+X
+X	FirstArg(XtNfromHoriz, orient_lab);
+X	NextArg(XtNfromVert, mag_text);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	orient_panel = XtCreateManagedWidget(orient_items[print_landscape],
+X					     menuButtonWidgetClass,
+X					     print_panel, Args, ArgCount);
+X	orient_menu = make_popup_menu(orient_items, XtNumber(orient_items),
+X				      orient_panel, orient_select);
+X
+X	FirstArg(XtNlabel, "   Justification:");
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	NextArg(XtNfromVert, orient_panel);
+X	just_lab = XtCreateManagedWidget("just_label", labelWidgetClass,
+X					 print_panel, Args, ArgCount);
+X
+X	FirstArg(XtNlabel, just_items[print_flushleft? 1 : 0]);
+X	NextArg(XtNfromHoriz, just_lab);
+X	NextArg(XtNfromVert, orient_panel);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNresizable, True);
+X	just_panel = XtCreateManagedWidget("justify",
+X					   menuButtonWidgetClass,
+X					   print_panel, Args, ArgCount);
+X	just_menu = make_popup_menu(just_items, XtNumber(just_items),
+X				    just_panel, just_select);
+X
+X
+X	FirstArg(XtNlabel, "         Printer:");
+X	NextArg(XtNfromVert, just_panel);
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	printer_lab = XtCreateManagedWidget("printer_label", labelWidgetClass,
+X					    print_panel, Args, ArgCount);
+X	/*
+X	 * don't SetValue the XtNstring so the user may specify the default
+X	 * printer in a resource, e.g.:	 *printer*string: at6
+X	 */
+X
+X	FirstArg(XtNwidth, 100);
+X	NextArg(XtNfromVert, just_panel);
+X	NextArg(XtNfromHoriz, printer_lab);
+X	NextArg(XtNeditType, "edit");
+X	NextArg(XtNinsertPosition, 0);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	printer_text = XtCreateManagedWidget("printer", asciiTextWidgetClass,
+X					     print_panel, Args, ArgCount);
+X
+X	XtOverrideTranslations(printer_text,
+X			       XtParseTranslationTable(text_translations));
+X
+X	FirstArg(XtNlabel, "Print Job Params:");
+X	NextArg(XtNfromVert, printer_text);
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	param_lab = XtCreateManagedWidget("job_params_label", labelWidgetClass,
+X					    print_panel, Args, ArgCount);
+X	/*
+X	 * don't SetValue the XtNstring so the user may specify the default
+X	 * job parameters in a resource, e.g.:	 *param*string: -K2
+X	 */
+X
+X	FirstArg(XtNwidth, 100);
+X	NextArg(XtNfromVert, printer_text);
+X	NextArg(XtNfromHoriz, param_lab);
+X	NextArg(XtNeditType, "edit");
+X	NextArg(XtNinsertPosition, 0);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	param_text = XtCreateManagedWidget("job_params", asciiTextWidgetClass,
+X					     print_panel, Args, ArgCount);
+X
+X	XtOverrideTranslations(param_text,
+X			       XtParseTranslationTable(text_translations));
+X
+X	FirstArg(XtNlabel, "Figures in batch:");
+X	NextArg(XtNfromVert, param_text);
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, 0);
+X	num_batch_lab = XtCreateManagedWidget("num_batch_label", labelWidgetClass,
+X					    print_panel, Args, ArgCount);
+X	FirstArg(XtNwidth, 30);
+X	NextArg(XtNlabel, "  0");
+X	NextArg(XtNfromVert, param_text);
+X	NextArg(XtNfromHoriz, num_batch_lab);
+X	NextArg(XtNjustify, XtJustifyLeft);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	num_batch = XtCreateManagedWidget("num_batch", labelWidgetClass,
+X					     print_panel, Args, ArgCount);
+X
+X	FirstArg(XtNlabel, "Dismiss");
+X	NextArg(XtNfromVert, num_batch);
+X	NextArg(XtNvertDistance, 10);
+X	NextArg(XtNhorizDistance, 6);
+X	NextArg(XtNheight, 30);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	dismiss = XtCreateManagedWidget("dismiss", commandWidgetClass,
+X				       print_panel, Args, ArgCount);
+X	XtAddEventHandler(dismiss, ButtonReleaseMask, (Boolean) 0,
+X			  (XtEventHandler)print_panel_dismiss, (XtPointer) NULL);
+X
+X	FirstArg(XtNlabel, "Print FIGURE\nto Printer");
+X	NextArg(XtNfromVert, num_batch);
+X	NextArg(XtNfromHoriz, dismiss);
+X	NextArg(XtNheight, 30);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNvertDistance, 10);
+X	NextArg(XtNhorizDistance, 6);
+X	print = XtCreateManagedWidget("print", commandWidgetClass,
+X				      print_panel, Args, ArgCount);
+X	XtAddEventHandler(print, ButtonReleaseMask, (Boolean) 0,
+X			  (XtEventHandler)do_print, (XtPointer) NULL);
+X
+X	FirstArg(XtNlabel, "Print FIGURE\nto Batch");
+X	NextArg(XtNfromVert, num_batch);
+X	NextArg(XtNfromHoriz, print);
+X	NextArg(XtNheight, 30);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNvertDistance, 10);
+X	NextArg(XtNhorizDistance, 6);
+X	print_batch = XtCreateManagedWidget("print_batch", commandWidgetClass,
+X				      print_panel, Args, ArgCount);
+X	XtAddEventHandler(print_batch, ButtonReleaseMask, (Boolean) 0,
+X			  (XtEventHandler)do_print_batch, (XtPointer) NULL);
+X
+X	FirstArg(XtNlabel, "Clear\nBatch");
+X	NextArg(XtNfromVert, num_batch);
+X	NextArg(XtNfromHoriz, print_batch);
+X	NextArg(XtNheight, 30);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNvertDistance, 10);
+X	NextArg(XtNhorizDistance, 6);
+X	clear_batch = XtCreateManagedWidget("clear_batch", commandWidgetClass,
+X				      print_panel, Args, ArgCount);
+X	XtAddEventHandler(clear_batch, ButtonReleaseMask, (Boolean) 0,
+X			  (XtEventHandler)do_clear_batch, (XtPointer) NULL);
+X
+X	XtInstallAccelerators(print_panel, dismiss);
+X	XtInstallAccelerators(print_panel, print_batch);
+X	XtInstallAccelerators(print_panel, clear_batch);
+X	XtInstallAccelerators(print_panel, print);
+X	update_batch_count();
+X}
+END_OF_FILE
+if test 14793 -ne `wc -c <'w_print.c'`; then
+    echo shar: \"'w_print.c'\" unpacked with wrong size!
+fi
+# end of 'w_print.c'
+fi
+echo shar: End of archive 12 \(of 27\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

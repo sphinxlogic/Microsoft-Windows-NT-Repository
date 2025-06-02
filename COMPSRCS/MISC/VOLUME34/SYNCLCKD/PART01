@@ -1,0 +1,926 @@
+Newsgroups: comp.sources.misc
+From: maffeis@ifi.unizh.ch (silvano maffeis)
+Subject: v34i106:  synclockd - Clock synchronization daemons, Part01/01
+Message-ID: <1993Jan11.042258.6500@sparky.imd.sterling.com>
+X-Md4-Signature: c466eaeea0d0faf084256a5ad9b9cd38
+Date: Mon, 11 Jan 1993 04:22:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: maffeis@ifi.unizh.ch (silvano maffeis)
+Posting-number: Volume 34, Issue 106
+Archive-name: synclockd/part01
+Environment: SunOS, IRIX, AIX, SYSV
+
+Here are two simple daemons for synchronizing clocks in a LAN in a
+fairly accurate way. The implemented synchronization algorithm is an
+adaptation of the Cristian's algorithm.  They work on SunOS 4, Amiga 
+Unix (SysV), IRIX 4.0.X, AIX 3.X and possibly other UNIXes as well.
+
+For more information consult the README file.
+Please inform me of useful enhancements you make to the daemons.
+
+Silvano Maffeis, maffeis@ifi.unizh.ch
+============================================================
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Makefile README getrtime.c synclockd.c synclockd.conf
+#   synservd.c
+# Wrapped by maffeis@sebastian on Wed Dec 16 15:26:19 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(1744 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# This is the Makefile for building the clock synchronisation daemons.
+X# Currently, we support SUNOS, Ultrix, Amiga Unix (SYSVR4) and AIX.
+X# This software should also work on other Unix flavors
+X# without or with only small adaptions.
+X#
+X# Author: Silvano Maffeis, maffeis@ifi.unizh.ch 1992
+X
+X
+X#CC=gcc
+XCC=cc
+X
+X# Some defaults
+XINSTALL = install
+X
+X# no extra flags necessary for SunOS 4
+X
+X# uncomment this for SYSV (Amiga)
+X#LDLIBS=-lbsd43	
+X#STD_DEFINES = -DSYSV
+X
+X# uncomment this for IRIX 4.0.X (SiliconGraphics)
+X#LDLIBS=-lsun
+X#STD_DEFINES = -DSYSV
+X#CCOPTIONS = -cckr
+X#INSTALL = /usr/bin/X11/bsdinst.sh
+X
+X# uncomment this for Ultrix
+X#STD_DEFINES = -DSYSV
+X
+X#uncomment this for AIX
+X#LDLIBS=-lbsd
+X#STD_DEFINES = -DSYSV
+X
+X# where binaries go:
+XBINDIR=/usr/local/etc
+X
+X# path of the config file:
+XCONF_FILE=/usr/local/etc/synclockd.conf
+X
+X# path of the log file:
+XLOG_FILE=/usr/local/etc/synclockd.log
+X
+X# add -DPORT=number to 'DEFINES=' below to hardcode a udp port number 
+X# and avoid using /etc/services
+X
+XDEFINES=-DCONF=\"$(CONF_FILE)\" -DLOG_FILE=\"$(LOG_FILE)\" #-DPORT=9000
+XCDEBUGFLAGS = -O
+XCCLDFLAGS=
+X
+X# ------------You probably need not edit below this line ----------------------
+X
+XCFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(DEFINES) $(STD_DEFINES)
+X
+Xall:		synclockd synservd
+X
+Xsynclockd:	synclockd.o getrtime.o
+X		$(CC) $(CCLDFLAGS) -o synclockd synclockd.o getrtime.o $(LDLIBS)
+X		rm -f synmon
+X		ln -s synclockd synmon
+X
+Xsynservd:	synservd.o
+X		$(CC) $(CCLDFLAGS) -o synservd synservd.o $(LDLIBS)
+X
+X
+Xinstall:	synclockd
+X		$(INSTALL) -m 1755 -s synclockd $(BINDIR)
+X		$(INSTALL) -m 1755 -s synservd $(BINDIR)
+X		rm -f $(BINDIR)/synmon
+X		ln -s $(BINDIR)/synclockd $(BINDIR)/synmon
+X		
+X
+Xclean:	
+X		rm -f core *.o *% *~
+X
+Xrealclean:	clean
+X		rm -f synclockd synservd cs synmon
+END_OF_FILE
+if test 1744 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(4392 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XAuthor
+X======
+XSilvano Maffeis, maffeis@ifi.unizh.ch, Oct 1992
+X
+XThis directory contains two daemons: synclockd, a simple but pretty accurate 
+Xclock synchronization daemon and synservd, the server-daemon for
+Xsynclockd. I think they work sufficiently exact to synchronize many 
+Xclient clocks in a LAN. 
+X
+Xsynclockd
+X=========
+Xsynopsis: synclockd [serverhost timeinterval]
+Xinvoked without arguments, synclockd reads its parameters from
+X/usr/local/etc/synservd.conf 
+X(or whatever path you specified in the Makefile)
+X
+XThe underlying time-synchronization method is based upon the
+Xassumption that the roundtrip delay of a UDP data packet in a LAN is made
+Xup by two almost identical parts. 
+X
+XThis is known as the basic Cristian's algorithm. One enhancement we make:
+XWhen the measured roundtrip delay is higher than the smallest one
+Xencountered so far, we discard the measured value and don't alterate 
+Xthe local clock.
+XThe smallest roundtrip value is corrected using a factor containing
+Xthe maximal amount two clocks can drift away from each other,
+Xwhich is 2*DRIFT. (If we would not make this correction, then no more 
+Xclock adjustments would be performed when the minimal roundtrip delay is
+Xreached.)
+X
+XSynclockd adjusts the local clock using adjtime(), hence
+Xguaranteeing an always monotonically increasing local time. 
+Xadjtime() just speeds up, resp. slows down the local
+Xclock by a few percents until the time value computed by our algorithm
+Xis reached. Therefore it initially can take some time till 
+Xclocks are synchronized.
+X
+Xsynservd
+X========
+XSince services like time, daytime, rdate(), rtime() are not accurate
+Xenough (these services usually provide a granularity of one second), the time 
+Xserver daemon synservd is also provided.
+Xsynservd listens on a udp socket for incoming synclockd requests and 
+Xreturns the local time as obtained from gettimeofday(2).
+X
+XA possible way for synchronizing several clients is to choose
+Xone host in the LAN known for his high availability and exact
+Xlocal time clock as time-server. A synclockd is started on every client.
+XA synservd is started only on the time-server host. (The time-server
+Xitself needs no synclockd in this case).
+X
+XMultiple LANs can be synchronized by realizing a hierarchy of
+Xtime-servers and time-clients.
+X
+Xsynmon
+X======
+Xsynmon is a simple monitor which helps in finding out how exact
+Xa client clock is synchronized with the server.
+X
+Xsynmon servername 5
+X
+XDisplays information about the synchronization process every 5
+Xseconds.
+X
+X
+XEXACTNESS
+X=========
+XThe maximal accurateness af the synchronization depends on the true
+Xexactness of gettimeofday(). For SPARCS running sunos 4, the logical 
+Xtick value is
+X1/100 of a second, and therefore you cannot believe the microsecond values
+Xreturned by gettimeofday(). 
+XThus, the difference of local to remote can be up to
+X1/99.999 seconds even when the daemons would provide for a 100%
+Xexact synchronization, which is impossible to achieve anyway.
+X
+X
+XINSTALLATION
+X============
+XInspect the Makefile and make changes if needed.
+XCompile the daemons by typing ``make''.
+X
+XYou then need an entry for the synchronization service in 
+X/etc/services:
+X
+Xutime           8500/udp                        # time synch daemon
+X
+Xsynclockd must run under root privileges since you must be superuser to
+Xuse adjtime(). The best way to start it
+Xis from the /etc/rc.local file of the client using something like:
+X
+X# synchronize local clock with host.foo.bar.edu every hour:
+X/usr/etc/synclockd host.foo.bar.edu 3600 &
+X
+Xor just
+X/usr/etc/synclockd &
+X
+XIn the latter case, the two parameters are read from a configuration file.
+X(something like /usr/local/etc/synclockd.conf. This filename is
+X specified in the Makefile). 
+Xhost.foo.bar.edu is the name of the time-server on which synservd runs.
+X
+X
+XSUGGESTED READING
+X=================
+X
+XA.S. Tanenbaum, "Modern Operating Systems", Chapter 11.1
+XD. Mills, Net Time Protocol (ntp), Articles on louie.udel.edu: pub/ntp/doc
+X
+X
+XBUGS:
+X=====
+X
+XThe daemons are used since a while over here to synchronize around
+X30 clients (Sparcs, Silicon Graphics, RS6000, DecStation,...) in a LAN. 
+XA client clock normally differs by only
+Xa few 0.001 sec from the server clock. We work with a synchronization
+Xinterval of 1800 sec.
+X
+XNevertheless, some bugs surely exist. If you find some, please report them.
+XPlease inform me of useful enhancements you make to the daemons.
+X
+XSilvano Maffeis, maffeis@ifi.unizh.ch
+X
+END_OF_FILE
+if test 4392 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'getrtime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getrtime.c'\"
+else
+echo shar: Extracting \"'getrtime.c'\" \(1236 characters\)
+sed "s/^X//" >'getrtime.c' <<'END_OF_FILE'
+X/* (C) Silvano Maffeis, maffeis@ifi.unizh.ch
+X * University of Zurich, Switzerland 1992
+X *
+X * getrtime.c: read time from remote host using udp	
+X */
+X
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/errno.h>
+X#include <netinet/in.h>
+X
+Xextern errno;
+X
+Xvoid sclose(s)
+X     int s;
+X{
+X  int save;
+X  
+X  save = errno;
+X  (void) close(s);
+X  errno = save;
+X}
+X
+Xgetrtime(addrp, timep)
+X     struct sockaddr_in *addrp;
+X     struct timeval *timep;
+X{
+X  int s;
+X  int res;
+X  char thetime[2*sizeof(long)];
+X  struct timeval *rtime = (struct timeval *)thetime;
+X  struct sockaddr_in from;
+X  int fromlen;
+X
+X  s = socket(AF_INET, SOCK_DGRAM, 0);
+X  if (s < 0) {
+X    return(-1);
+X  }
+X  addrp->sin_family = AF_INET;
+X  res = sendto(s, (char *)thetime, 2*sizeof(long), 0, 
+X	       (struct sockaddr *)addrp, sizeof(*addrp));
+X  if (res < 0) {
+X    sclose(s);
+X    return(-1);	
+X  }
+X  fromlen = sizeof(from);
+X  res = recvfrom(s, (char *)thetime, 2*sizeof(long), 0, 
+X		 (struct sockaddr *)&from, &fromlen);
+X  sclose(s);
+X  if (res < 0) {
+X    return(-1);	
+X  }
+X  if (res != sizeof(thetime)) {
+X    errno = EIO;
+X    return(-1);	
+X  }
+X  timep->tv_sec  = ntohl(rtime->tv_sec);
+X  timep->tv_usec = ntohl(rtime->tv_usec);
+X  return(0);
+X}
+X
+END_OF_FILE
+if test 1236 -ne `wc -c <'getrtime.c'`; then
+    echo shar: \"'getrtime.c'\" unpacked with wrong size!
+fi
+# end of 'getrtime.c'
+fi
+if test -f 'synclockd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'synclockd.c'\"
+else
+echo shar: Extracting \"'synclockd.c'\" \(9596 characters\)
+sed "s/^X//" >'synclockd.c' <<'END_OF_FILE'
+X/* (C) Silvano Maffeis, maffeis@ifi.unizh.ch             
+X * University of Zurich, Switzerland 1992            
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <values.h>
+X#include <malloc.h>
+X
+X#define DRIFT      0.00001    /* Drift of the hardware clock compared to "real time" */
+X#define MIN_RT	   1500       /* Shortest roundtrip measured in an ethernet lan      */
+X#define AVG_RT	   2500       /* Average roundtrip measured in an ethernet lan       */
+X#define SUSPICIOUS 100000     /* Log time deviations > SUSPICIOUS microsec           */
+X#define VERSION    "V1.0" 
+X
+X
+Xextern getrtime();
+X
+X
+X/* .......................globals.................................*/
+Xchar **Argv;
+Xextern char *sys_errlist[];
+Xextern int errno;
+Xshort synmon = 0;
+Xchar *host;
+Xchar *localHost;
+X/* ...............................................................*/
+X
+X/* log an event
+X */
+Xvoid LOG(str)
+X     char *str;
+X{
+X  FILE *logF;
+X  struct tm *tm; 
+X  struct timeval tv;
+X  char *date;
+X  
+X  if (gettimeofday(&tv, 0) < 0){
+X    fprintf(stderr, "%s: gettimeofday: %s\n", Argv[0], sys_errlist[errno]);    
+X    LOG("panic: gettimeofday failed!");
+X    exit(1);       
+X  };
+X  
+X  tm = localtime(&tv.tv_sec);
+X  date = (char*)malloc(25);
+X  strcpy(date, asctime(tm));
+X  date[24] = '\0';   /* overwrite '\n' */
+X  
+X  if(!synmon){
+X    logF = fopen(LOG_FILE, "a");
+X    if(logF == NULL){ free(date); return;}
+X    
+X    fprintf(logF, "%s: %s: %s\n", date, localHost, str); 
+X    fclose(logF);
+X    free(date);
+X  }
+X}
+X
+X/* 
+X * trap SIGINT:
+X */
+X#if defined(SYSV)
+Xvoid term_fcn(sig)
+X#else
+X     term_fcn(sig)
+X#endif SYSV
+X     int sig;
+X{
+X  if(signal(sig, SIG_IGN) == SIG_ERR){
+X    fprintf(stderr, "%s: term_fcn %s\n", Argv[0], sys_errlist[errno]);
+X    exit(1);
+X  }
+X  
+X  LOG("Got a kill signal!");
+X  
+X  exit(1);
+X}
+X
+X/*
+X * handle signals:
+X */
+Xint handle_sigs(){
+X  if(signal(SIGHUP, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGINT, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGQUIT, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGTERM, term_fcn) == SIG_ERR)
+X    return(0);
+X  
+X  return(1);
+X}
+X
+X/*
+X * read time of day:
+X */
+Xvoid  time_get(seconds, usecs)
+X     long *seconds;
+X     long *usecs;
+X{
+X  struct timeval tv;
+X  
+X  if (gettimeofday(&tv, 0) < 0){
+X    fprintf(stderr, "%s: gettimeofday: %s\n", Argv[0], sys_errlist[errno]);
+X    LOG("panic: gettimeofday failed!");
+X    exit(1);
+X  };
+X  *seconds = tv.tv_sec;
+X  *usecs   = tv.tv_usec;
+X}
+X
+X/*
+X * calculate roundtrip
+X * starttime must be <= endtime
+X */ 
+Xlong calc_roundtrip(start_s, start_u, end_s, end_u)
+X     long start_s;
+X     long start_u;
+X     long end_s;
+X     long end_u;
+X{
+X  
+X  end_s -= start_s;
+X  if ((end_u -= start_u) < 0) {
+X    end_u += 1000000;
+X    --end_s;
+X  }
+X  return(end_u + end_s * 1000000);
+X};
+X
+X/*
+X * calculate delta
+X * starttime can also be > endtime
+X */ 
+Xlong calc_delta(start_s, start_u, end_s, end_u)
+X     long start_s;
+X     long start_u;
+X     long end_s;
+X     long end_u;
+X{
+X  if(start_s < end_s || ( start_s == end_s && start_u < end_u ))
+X    return calc_roundtrip(start_s, start_u, end_s, end_u);
+X  
+X  return 0-calc_roundtrip(end_s, end_u, start_s, start_u);
+X};
+X
+X/*
+X * set up connection to remote hosts
+X */
+Xvoid init_connection(addrp)
+X     struct sockaddr_in *addrp;
+X{
+X  struct servent *servent;
+X  long address;
+X  struct hostent *ph;
+X  
+X  
+X  if(isdigit(host[0])){
+X    if((address=inet_addr(host))==-1){
+X      fprintf(stderr, "%s: invalid inet number %s\n", Argv[0], host);
+X      exit(1);
+X    }
+X    addrp->sin_addr.s_addr=address;
+X    addrp->sin_family=AF_INET;
+X  }
+X  else{
+X    addrp->sin_family = AF_INET;
+X    if((ph = gethostbyname(host)) == 0){
+X      fprintf(stderr, "%s: unknown host %s\n", Argv[0], host);
+X      exit(1);
+X    }
+X    bcopy(ph->h_addr, &addrp->sin_addr, ph->h_length);
+X  }
+X  
+X#ifndef PORT
+X  servent = getservbyname("utime", "udp");
+X  if(servent == NULL){
+X    fprintf(stderr, "%s: getservbyname: %s\n", Argv[0], sys_errlist[errno]);
+X    exit(1);
+X  };
+X  
+X  addrp->sin_port = htons(servent->s_port);
+X#else
+X  addrp->sin_port = htons(PORT);
+X#endif PORT
+X  
+X};
+X
+X/* read parameters from config file
+X */
+Xvoid loadParams(file, sleept)
+X     char *file;
+X     int *sleept;
+X{
+X  FILE *conf;
+X  static unsigned char is_loaded = 0;
+X  
+X  conf = fopen(file, "r");
+X  if(conf == NULL){
+X    if(is_loaded) return;
+X    
+X    fprintf(stderr, "%s: cannot open %s: %s\n", Argv[0], file,
+X	    sys_errlist[errno]);
+X    exit(1);
+X  };
+X  is_loaded = 1;
+X  
+X  if(fscanf(conf, "%s %d\n", host, sleept) != 2){
+X    fprintf(stderr, "%s: syntax error in %s\n", Argv[0], file);
+X    exit(1);
+X  };
+X  fclose(conf); 
+X}
+X
+Xshort rt_is_lower(rt, now_sec, now_usec)
+X     double rt;
+X     double now_sec;
+X     double now_usec;
+X{
+X  static double llast = -1.0;
+X  static double shortest = MAXDOUBLE;
+X  double elapsed, tmp;
+X  
+X  if(llast==-1.0) llast = now_sec * 1000000.0 + now_usec;
+X  
+X  elapsed = (now_sec * 1000000.0 + now_usec) - llast;
+X  
+X  if(synmon){
+X    printf("now = %0.f, %0.f\n", now_sec, now_usec);
+X    printf("last = %0.f\n", llast);
+X    if(shortest != MAXDOUBLE)
+X      printf("shortest roundtrip so far = %.0f usec\n", shortest);
+X    printf("last adjustement          = %.0f usec ago\n", elapsed);
+X  };
+X  
+X  tmp = now_sec*1000000.0 + now_usec;
+X  
+X  if(rt < shortest + 2*DRIFT * elapsed){
+X    shortest = rt;
+X    llast = tmp;
+X    return 1;
+X  }
+X  
+X  return 0;
+X}
+X
+X/******************************************************************************/
+Xmain(argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  struct sockaddr_in addr;
+X  struct timeval time, ltime, ntime;
+X  int ret;
+X  long start_sec, start_usec, end_sec, end_usec, rt, delta;
+X  int sleept;
+X  char buf[64], str[32];
+X  
+X  Argv = argv;
+X
+X  if(argc != 3 && argc != 1){
+X    fprintf(stderr, "usage: %s remotehost timeinterval\n", Argv[0]);
+X    exit(1);
+X  };
+X  
+X  if( argc == 1 ){
+X    host = (char*)malloc(64);
+X    loadParams(CONF, &sleept);
+X  }
+X  else{
+X    if(sscanf(Argv[2], "%d", &sleept) != 1){
+X      fprintf(stderr, "%s: parameter 2 must be an integer value\n", Argv[0]); 
+X      exit(1);
+X    };
+X    host = Argv[1];
+X  }
+X  
+X  localHost = (char*)malloc(64);
+X  gethostname(localHost, 64);
+X  
+X  if(strcmp(argv[0], "synmon") == 0) synmon = 1; 
+X  init_connection(&addr, host);
+X  
+X  sprintf(str, "synclockd %s started", VERSION);
+X  LOG(str);
+X  
+X  if(synmon){
+X    printf("remote host   = %s\n", host);
+X    printf("time interval = %d\n", sleept);
+X  }
+X  else
+X    handle_sigs();
+X  
+X  while(1){
+X    if(synmon)
+X      printf("\npolling %s:\n", host);
+X    
+X    time_get(&start_sec, &start_usec);
+X    ret = getrtime(&addr, &time);
+X    time_get(&end_sec, &end_usec);
+X    
+X    if(ret != 0){  /* rtimel timed stderr. Retry later */
+X      if(synmon) 
+X        fprintf(stderr, "%s: connection to %s timed out\n", Argv[0], host);
+X      else
+X	LOG("connection to time server timed out");
+X      sleep(sleept);
+X      continue;
+X    }
+X    
+X    ret = gettimeofday(&ltime, (struct timezone*)0);
+X    if(ret != 0){
+X      fprintf(stderr, "%s: gettimeofday: %s\n", Argv[0], sys_errlist[errno]);
+X      LOG("panic: gettimeofday failed!");
+X      exit(1);
+X    }
+X    
+X    rt = calc_roundtrip(start_sec, start_usec, end_sec, end_usec);
+X    
+X    /* 
+X     * since gettimeofday()'s _real_ exactness is around 1/60 second,
+X     * most rountripdelays in a LAN will become 0 if we rely on
+X     * gettimeofday().
+X     * Too small values ( < MIN_RT ) are corrected to AVG_RT. Both values
+X     * derive from measurements using an exact timer we undertook
+X     * in a Ethernet LAN.
+X     */
+X    if(rt < MIN_RT) rt = AVG_RT;
+X    
+X    /*
+X     * Next we look if the actual roundtrip is smaller than the corrected,
+X     * shortest roundtrip so far:
+X     * rt < rt_min + 2 * (1+DRIFT) * elapsed_time.
+X     * With rt being the actual roundtrip, rt_min the shortest roundtrip
+X     * encountered so far and the rest a parameter taking into
+X     * account the maximal drift of two clocks.
+X     */
+X    if( rt_is_lower((double)rt, (double)start_sec, (double)start_usec, synmon) ){
+X      if(synmon){ 
+X        printf("roundtrip is lower       : %ld usec\n", rt);
+X        printf("remote time: %ld sec, %ld usec\n", time.tv_sec, time.tv_usec);
+X        printf("local time : %ld sec, %ld usec\n", ltime.tv_sec, ltime.tv_usec);
+X      }
+X      
+X      /* compute time-delta between remote and local:
+X       * roundtrip/2 + remote - local .
+X       * If delta is positive, then speed up clock, else slow down.
+X       */
+X      delta =  rt/2 +  
+X      	calc_delta(ltime.tv_sec, ltime.tv_usec, time.tv_sec, time.tv_usec);
+X      
+X      if(delta != 0){
+X	
+X        ntime.tv_sec  = delta/1000000;
+X        ntime.tv_usec = delta - ntime.tv_sec * 1000000;
+X	
+X	if(!synmon){
+X          ret = adjtime(&ntime, 0);
+X          if(ret != 0){
+X            fprintf(stderr, "%s: adjtime: %s\n", Argv[0], sys_errlist[errno]);
+X	    LOG("panic: adjtime failed");
+X            exit(1);
+X          }
+X        }
+X	
+X	/* Look if the difference between local and remote clock
+X	 * is "suspiciously" high. If so, log it.
+X         */
+X	rt = calc_delta(time.tv_sec, time.tv_usec, ltime.tv_sec,
+X			ltime.tv_usec);
+X	
+X	if(abs(rt) > SUSPICIOUS){
+X	  sprintf(buf, "suspicious time difference: %ld", rt);
+X	  LOG(buf);
+X        }
+X      }
+X      
+X      if(synmon){
+X        printf("advancing local clock by %ld sec, %ld usec\n", 
+X	       ntime.tv_sec, ntime.tv_usec);
+X      }
+X    }  
+X    else 
+X      if(synmon)
+X	printf("roundtrip is *not* lower : %d usec\n", rt);
+X    
+X    sleep(sleept);
+X    
+X    /* allows to configure synclockd at runtime:
+X     */
+X    if(argc == 1)  
+X      loadParams(CONF, host, &sleept);
+X  }
+X}
+END_OF_FILE
+if test 9596 -ne `wc -c <'synclockd.c'`; then
+    echo shar: \"'synclockd.c'\" unpacked with wrong size!
+fi
+# end of 'synclockd.c'
+fi
+if test -f 'synclockd.conf' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'synclockd.conf'\"
+else
+echo shar: Extracting \"'synclockd.conf'\" \(26 characters\)
+sed "s/^X//" >'synclockd.conf' <<'END_OF_FILE'
+Xhost.foo.bar.edu   1800 
+X
+END_OF_FILE
+if test 26 -ne `wc -c <'synclockd.conf'`; then
+    echo shar: \"'synclockd.conf'\" unpacked with wrong size!
+fi
+# end of 'synclockd.conf'
+fi
+if test -f 'synservd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'synservd.c'\"
+else
+echo shar: Extracting \"'synservd.c'\" \(3072 characters\)
+sed "s/^X//" >'synservd.c' <<'END_OF_FILE'
+X/* (C) Silvano Maffeis, maffeis@ifi.unizh.ch             
+X * University of Zurich, Switzerland 1992            
+X *
+X * synservd.c: server daemon that listens on udp socket and quickly
+X *             returns the local time using gettimeofday().
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <sys/time.h>
+X
+X#define BUFFERSIZE sizeof(struct timeval)
+X
+Xextern errno;
+Xextern char *sys_errlist[];
+Xstruct sockaddr_in sin;
+Xint sock;
+Xchar  **Argv;
+X
+Xint setup_connection(){
+X  int s;
+X  int length;
+X  struct hostent *gethostbyname();
+X  struct servent *servent;
+X  
+X  s = socket(AF_INET, SOCK_DGRAM, 0);
+X  if (s < 0) {
+X    fprintf(stderr, "%s: opening udp socket\n", Argv[0]); 
+X    exit(1);
+X  }
+X  
+X  /* Connect socket using name specified by command line. */
+X  sin.sin_family = AF_INET;
+X  sin.sin_addr.s_addr = INADDR_ANY;
+X  
+X#ifndef PORT
+X  servent = getservbyname("utime", "udp");
+X  if(servent == NULL){
+X    fprintf(stderr, "%s: getservbyname: %s\n", Argv[0], sys_errlist[errno]);
+X    exit(1);
+X  };
+X  sin.sin_port = htons(servent->s_port);
+X#else
+X  sin.sin_port = htons(PORT);
+X#endif PORT
+X  
+X  if(bind(s, (struct sockaddr *) &sin, sizeof(sin)) < 0){
+X    fprintf(stderr, "%s: cannot bind\n", Argv[0]); 
+X    exit(1);
+X  }
+X  
+X  /* find socket# */
+X  
+X  length = sizeof(sin);
+X  if (getsockname(s, &sin, &length)) {
+X    fprintf(stderr, "%s: getsockname\n", Argv[0]); 
+X    exit(1);
+X  }
+X  fprintf(stderr, "Socket has port #%d\n", ntohs(sin.sin_port));
+X  
+X  listen(s, 5);
+X  return(s);
+X}
+X
+X#if defined(SYSV)
+Xvoid term_fcn(sig)
+X#else
+X     term_fcn(sig)   
+X#endif SYSV
+X     int sig;
+X{
+X  if(signal(sig, SIG_IGN) == SIG_ERR){
+X    fprintf(stderr, "%s: signal\n", Argv[0]); 
+X    exit(1);
+X  }
+X  
+X  fprintf(stderr, "%s: Got a kill signal!\n\n", Argv[0]);
+X  
+X  shutdown(sock,2); 
+X  close(sock);
+X  exit(1);
+X}
+X
+Xint handle_sigs(){
+X  if(signal(SIGHUP, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGINT, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGQUIT, SIG_IGN) == SIG_ERR)
+X    return(0);
+X  
+X  if(signal(SIGTERM, term_fcn) == SIG_ERR)
+X    return(0);
+X  
+X  return(1);
+X}
+X
+X
+Xmain(argc, argv)
+X     int argc;
+X     char *argv[];
+X{
+X  char in[BUFFERSIZE], out[BUFFERSIZE];
+X  struct timeval tv;
+X  struct sockaddr sa;
+X  int size = sizeof(sa);
+X  
+X  Argv = argv;
+X  
+X  if(! handle_sigs()){
+X    fprintf(stderr, "%s: handle sigs\n", Argv[0]); 
+X    exit(1);
+X  };
+X  
+X  sock=setup_connection();
+X  
+X  while(1){
+X    
+X    if (recvfrom(sock, in, BUFFERSIZE, 0, &sa, &size) < 0){
+X      fprintf(stderr, "%s: recvfrom udp socket\n", Argv[0]); 
+X      exit(1);
+X    };
+X    
+X    if (gettimeofday(&tv, 0) < 0){
+X      fprintf(stderr, "%s: gettimeofday: %s\n", Argv[0], sys_errlist[errno]);
+X      exit(1);
+X    };
+X    
+X    memcpy(out, &tv.tv_sec, sizeof(long));
+X    memcpy(&out[sizeof(long)], &tv.tv_usec, sizeof(long));
+X    
+X    if(sendto(sock, out, BUFFERSIZE, 0, &sa, size) < 0){
+X      fprintf(stderr, "%s: sendto udp socket\n", Argv[0]); 
+X      exit(1);
+X    };
+X  }
+X}
+X
+X
+END_OF_FILE
+if test 3072 -ne `wc -c <'synservd.c'`; then
+    echo shar: \"'synservd.c'\" unpacked with wrong size!
+fi
+# end of 'synservd.c'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+Silvano Maffeis       CS Dept. University of Zurich, Switzerland
+   RFC822: maffeis@ifi.unizh.ch            voice: +411 257 43 27
+   X.400: /S=maffeis/OU=ifi/O=unizh/PRMD=SWITCH/ADMD=ARCOM/C=CH/
+exit 0 # Just in case...

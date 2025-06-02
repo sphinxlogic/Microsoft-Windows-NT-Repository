@@ -1,0 +1,1078 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v38i064:  remind - A replacement for calendar, Patch07c/3
+Message-ID: <1993Jul22.213933.7824@sparky.sterling.com>
+X-Md4-Signature: 8725ced53aa37a4899abf050eb8c2c38
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 22 Jul 1993 21:39:33 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 38, Issue 64
+Archive-name: remind/patch07c
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.07.B
+# Wrapped by kent@sparky on Thu Jul 22 16:19:14 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 3)."'
+if test -f 'patch.07.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.07.B'\"
+else
+  echo shar: Extracting \"'patch.07.B'\" \(31602 characters\)
+  sed "s/^X//" >'patch.07.B' <<'END_OF_FILE'
+X***************
+X*** 1376,1381 ****
+X--- 1390,1426 ----
+X  
+X  /***************************************************************/
+X  /*                                                             */
+X+ /*  FFiledir                                                   */
+X+ /*                                                             */
+X+ /*  Return directory of current file                           */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FFiledir(void)
+X+ #else
+X+ static int FFiledir()
+X+ #endif
+X+ {
+X+    char TmpBuf[LINELEN];  /* Should be _POSIX_PATH_MAX ? */
+X+    char *s;
+X+ 
+X+ #ifdef __MSDOS__
+X+ #define PATHSEP '\\'
+X+ #else
+X+ #define PATHSEP '/'
+X+ #endif
+X+ 
+X+    strcpy(TmpBuf, FileName);
+X+    s = TmpBuf + strlen(TmpBuf) - 1;
+X+    if (s < TmpBuf) return RetStrVal(".");
+X+    while (s > TmpBuf && *s != PATHSEP) s--;
+X+    if (*s == PATHSEP) {
+X+          *s = 0;
+X+ 	 return RetStrVal(TmpBuf);
+X+    } else return RetStrVal(".");
+X+ }
+X+ /***************************************************************/
+X+ /*                                                             */
+X  /*  FAccess                                                    */
+X  /*                                                             */
+X  /*  The UNIX access() system call.                             */
+X***************
+X*** 1571,1576 ****
+X--- 1616,1622 ----
+X     int year, day, mon, jahr;
+X     int mout, dout;
+X     int ans, r;
+X+    int adarbehave;
+X  
+X     if (ARG(0).type != INT_TYPE || ARG(1).type != STR_TYPE) return E_BAD_TYPE;
+X     day = ARG(0).v.val;
+X***************
+X*** 1580,1591 ****
+X        return E_BAD_DATE;
+X     }
+X     if (Nargs == 2) {
+X!       r = GetNextHebrewDate(JulianToday, mon, day, 0, &ans);
+X        if (r) return r;
+X        RetVal.type = DATE_TYPE;
+X        RetVal.v.val = ans;
+X        return OK;
+X     }
+X     if (Nargs == 4) {
+X        if (ARG(3).type != INT_TYPE) return E_BAD_TYPE;
+X        jahr = ARG(3).v.val;
+X--- 1626,1644 ----
+X        return E_BAD_DATE;
+X     }
+X     if (Nargs == 2) {
+X!       r = GetNextHebrewDate(JulianToday, mon, day, 0, 0, &ans);
+X        if (r) return r;
+X        RetVal.type = DATE_TYPE;
+X        RetVal.v.val = ans;
+X        return OK;
+X     }
+X+    if (Nargs == 5) {
+X+       if (ARG(4).type != INT_TYPE) return E_BAD_TYPE;
+X+       adarbehave = ARG(4).v.val;
+X+       if (adarbehave < 0) return E_2LOW;
+X+       if (adarbehave > 2) return E_2HIGH;
+X+    } else adarbehave = 0;
+X+ 
+X     if (Nargs == 4) {
+X        if (ARG(3).type != INT_TYPE) return E_BAD_TYPE;
+X        jahr = ARG(3).v.val;
+X***************
+X*** 1599,1605 ****
+X  
+X     if (ARG(2).type == INT_TYPE) {
+X        year = ARG(2).v.val;
+X!       r = GetValidHebDate(year, mon, day, &mout, &dout, jahr);
+X        if (r) return r;
+X        r = HebToJul(year, mout, dout);
+X        if (r<0) return E_DATE_OVER;
+X--- 1652,1658 ----
+X  
+X     if (ARG(2).type == INT_TYPE) {
+X        year = ARG(2).v.val;
+X!       r = GetValidHebDate(year, mon, day, 0, &mout, &dout, jahr);
+X        if (r) return r;
+X        r = HebToJul(year, mout, dout);
+X        if (r<0) return E_DATE_OVER;
+X***************
+X*** 1607,1613 ****
+X        RetVal.type = DATE_TYPE;
+X        return OK;
+X     } else if (ARG(2).type == DATE_TYPE) {
+X!       r = GetNextHebrewDate(ARG(2).v.val, mon, day, jahr, &ans);
+X        if (r) return r;
+X        RetVal.v.val = ans;
+X        RetVal.type = DATE_TYPE;
+X--- 1660,1666 ----
+X        RetVal.type = DATE_TYPE;
+X        return OK;
+X     } else if (ARG(2).type == DATE_TYPE) {
+X!       r = GetNextHebrewDate(ARG(2).v.val, mon, day, jahr, adarbehave, &ans);
+X        if (r) return r;
+X        RetVal.v.val = ans;
+X        RetVal.type = DATE_TYPE;
+X***************
+X*** 1681,1684 ****
+X--- 1734,2008 ----
+X     RetVal.type = INT_TYPE;
+X     RetVal.v.val = y;
+X     return OK;
+X+ }
+X+ /****************************************************************/
+X+ /*                                                              */
+X+ /*  FEasterdate - calc. easter Sunday from a year.              */
+X+ /*                                                              */
+X+ /*    from The Art of Computer Programming Vol 1.               */
+X+ /*            Fundamental Algorithms                            */
+X+ /*    by Donald Knuth.                                          */
+X+ /*                                                              */
+X+ /* Donated by Michael Salmon - thanks!                          */
+X+ /*                                                              */
+X+ /* I haven't examined this in detail, but I *think* int         */
+X+ /* arithmetic is fine, even on 16-bit machines.                 */
+X+ /*                                                              */
+X+ /****************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FEasterdate(void)
+X+ #else
+X+ static int FEasterdate()
+X+ #endif
+X+ {
+X+    int y, m, d;
+X+    int g, c, x, z, e, n;
+X+    if (ARG(0).type == INT_TYPE) {
+X+       y = ARG(0).v.val;
+X+       if (y < BASE) return E_2LOW;
+X+       else if (y > BASE+YR_RANGE) return E_2HIGH;
+X+    } else if (ARG(0).type == DATE_TYPE) {
+X+       FromJulian(ARG(0).v.val, &y, &m, &d);  /* We just want the year */
+X+    } else return E_BAD_TYPE;
+X+ 
+X+    do {
+X+       g = (y % 19) + 1;  /* golden number */
+X+       c = (y / 100) + 1; /* century */
+X+       x = (3 * c)/4 - 12;        /* correction for non-leap year centuries */
+X+       z = (8 * c + 5)/25 - 5;    /* special constant for moon sync */
+X+       d = (5 * y)/4 - x - 10;    /* find sunday */
+X+       e = (11 * g + 20 + z - x) % 30;    /* calc epact */
+X+       if ( e < 0 ) e += 30;
+X+       if ( e == 24 || (e == 25 && g > 11)) e++;
+X+       n = 44 - e;                        /* find full moon */
+X+       if ( n < 21 ) n += 30;     /* after 21st */
+X+       d = n + 7 - (d + n)%7;     /* calc sunday after */
+X+       if (d <= 31) m = 2;
+X+       else
+X+       {
+X+          d = d - 31;
+X+          m = 3;
+X+       }
+X+ 
+X+       RetVal.type = DATE_TYPE;
+X+       RetVal.v.val = Julian(y, m, d);
+X+       y++; } while (ARG(0).type == DATE_TYPE && RetVal.v.val < ARG(0).v.val);
+X+ 
+X+    return OK;
+X+ }
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  FIsdst and FMinsfromutc                                    */
+X+ /*                                                             */
+X+ /*  Check whether daylight savings time is in effect, and      */
+X+ /*  get minutes from UTC.                                      */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ PRIVATE int FTimeStuff ARGS ((int wantmins));
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FIsdst(void)
+X+ #else
+X+ static int FIsdst()
+X+ #endif
+X+ {
+X+    return FTimeStuff(0);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FMinsfromutc(void)
+X+ #else
+X+ static int FMinsfromutc()
+X+ #endif
+X+ {
+X+    return FTimeStuff(1);
+X+ }
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FTimeStuff(int wantmins)
+X+ #else
+X+ static int FTimeStuff(wantmins)
+X+ int wantmins;
+X+ #endif
+X+ {
+X+    int jul, tim;
+X+    int mins, dst;
+X+ 
+X+    jul = JulianToday;
+X+    tim = 0;
+X+ 
+X+    if (Nargs >= 1) {
+X+       if (ARG(0).type != DATE_TYPE) return E_BAD_TYPE;
+X+       jul = ARG(0).v.val;
+X+       if (Nargs >= 2) {
+X+          if (ARG(1).type != TIM_TYPE) return E_BAD_TYPE;
+X+ 	 tim = ARG(1).v.val;
+X+       }
+X+    }
+X+ 
+X+    if (CalcMinsFromUTC(jul, tim, &mins, &dst)) return E_MKTIME_PROBLEM;
+X+    RetVal.type = INT_TYPE;
+X+    if (wantmins) RetVal.v.val = mins; else RetVal.v.val = dst;
+X+ 
+X+    return OK;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  Sunrise and sunset functions.                              */
+X+ /*                                                             */
+X+ /*  Algorithm from "Almanac for computers for the year 1978"   */
+X+ /*  by L. E. Doggett, Nautical Almanac Office, USNO.           */
+X+ /*                                                             */
+X+ /*  This code also uses some ideas found in programs written   */
+X+ /*  by Michael Schwartz and Marc T. Kaufman.                   */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #define PI 3.1415926536
+X+ #define DEGRAD (PI/180.0)
+X+ #define RADDEG (180.0/PI)
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int SunStuff(int rise, double cosz, int jul)
+X+ #else
+X+ static int SunStuff(rise, cosz, jul)
+X+ int rise;
+X+ double cosz;
+X+ int jul;
+X+ #endif
+X+ {
+X+    int year, mon, day;
+X+    int jan0;
+X+    int mins, hours;
+X+ 
+X+    double M, L, tanA, sinDelta, cosDelta, a, a_hr, cosH, t, H, T;
+X+    double latitude, longdeg, UT, local;
+X+ 
+X+ /* Get offset from UTC */
+X+    if (CalculateUTC) {
+X+       if (CalcMinsFromUTC(jul, 12*60, &mins, NULL)) {
+X+          Eprint(ErrMsg[E_MKTIME_PROBLEM]);
+X+ 	 return NO_TIME;
+X+       }
+X+    } else mins = MinsFromUTC;
+X+ 
+X+ /* Get latitude and longitude */
+X+    longdeg = (double) LongDeg + (double) LongMin / 60.0
+X+ 		      + (double) LongSec / 3600.0;
+X+ 
+X+    latitude = DEGRAD * ((double) LatDeg + (double) LatMin / 60.0
+X+ 		         + (double) LatSec / 3600.0);
+X+ 
+X+ 
+X+    FromJulian(jul, &year, &mon, &day);
+X+    jan0 = jul - Julian(year, 0, 1);
+X+ 
+X+ /* Following formula on page B6 exactly... */
+X+    t = (double) jan0;
+X+    if (rise) t += (6.0 + longdeg/15.0) / 24.0;
+X+    else      t += (18.0 + longdeg/15.0) / 24.0;
+X+ 
+X+ /* Mean anomaly of sun for 1978 ... how accurate for other years??? */
+X+    M = 0.985600 * t - 3.251;  /* In degrees */
+X+ 
+X+ /* Sun's true longitude */
+X+    L = M + 1.916*sin(DEGRAD*M) + 0.02*sin(2*DEGRAD*M) + 282.565;
+X+    if (L > 360.0) L -= 360.0;
+X+ 
+X+ /* Tan of sun's right ascension */
+X+    tanA = 0.91746 * tan(DEGRAD*L);
+X+    a = RADDEG * atan(tanA);
+X+ 
+X+ /* Move a into same quadrant as L */
+X+    if (0.0 <= L && L < 90.0) {
+X+       if (a < 0.0) a += 180.0;
+X+    } else if (90.0 <= L && L < 180.0) {
+X+       a += 180.0;
+X+    } else if (180.0 <= L && L < 270.0) {
+X+       a += 180.0;
+X+    } else {
+X+       if (a > 0.0) a += 180.0;
+X+    }
+X+ /*   if (fabs(a - L) > 90.0)
+X+       a += 180.0; */
+X+ 
+X+    if (a > 360.0)
+X+       a -= 360.0;
+X+    a_hr = a / 15.0;
+X+ 
+X+ /* Sine of sun's declination */
+X+    sinDelta = 0.39782 * sin(DEGRAD*L);
+X+    cosDelta = sqrt(1 - sinDelta*sinDelta);
+X+ 
+X+ /* Cosine of sun's local hour angle */
+X+    cosH = (cosz - sinDelta * sin(latitude)) / (cosDelta * cos(latitude));
+X+ 
+X+    if (cosH > 1.0 || cosH < -1.0) return NO_TIME;
+X+ 
+X+    H = RADDEG * acos(cosH);
+X+    if (rise) H = 360.0 - H;
+X+ 
+X+    T = H / 15.0 + a_hr - 0.065710*t - 6.620;
+X+    if (T >= 24.0) T -= 24.0;
+X+    else if (T < 0.0) T+= 24.0;
+X+ 
+X+    UT = T + longdeg / 15.0;
+X+ 
+X+ 
+X+    local = UT + (double) mins / 60.0;
+X+    if (local < 0.0) local += 24.0;
+X+    else if (local >= 24.0) local -= 24.0;
+X+ 
+X+    hours = (int) local;
+X+    mins = (int) ((local - hours) * 60.0);
+X+ 
+X+    return hours*60 + mins;
+X+ }
+X+ 
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  Sunrise and Sunset functions.                              */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FSun(int rise)
+X+ #else
+X+ static int FSun(rise)
+X+ int rise;
+X+ #endif
+X+ {
+X+    int jul = JulianToday;
+X+    static double cosz = -0.014543897;  /* for sunrise and sunset */
+X+    int r;
+X+ 
+X+    if (Nargs >= 1) {
+X+       if (ARG(0).type != DATE_TYPE) return E_BAD_TYPE;
+X+       jul = ARG(0).v.val;
+X+    }
+X+    
+X+    r = SunStuff(rise, cosz, jul);
+X+    if (r == NO_TIME) {
+X+       RetVal.v.val = 0;
+X+       RetVal.type = INT_TYPE;
+X+    } else {
+X+       RetVal.v.val = r;
+X+       RetVal.type = TIM_TYPE;
+X+    }
+X+    return OK;
+X+ }
+X+       
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FSunrise(void)
+X+ #else
+X+ static int FSunrise()
+X+ #endif
+X+ {
+X+    return FSun(1);
+X+ }
+X+ #ifdef HAVE_PROTOS
+X+ PRIVATE int FSunset(void)
+X+ #else
+X+ static int FSunset()
+X+ #endif
+X+ {
+X+    return FSun(0);
+X  }
+X*** ../p6/globals.h	Thu Apr 22 10:24:07 1993
+X--- ./globals.h	Mon Jun 28 12:29:31 1993
+X***************
+X*** 31,69 ****
+X  EXTERN	int	CurMon;
+X  EXTERN	int	CurYear;
+X  EXTERN  int	LineNo;
+X! EXTERN  char    FreshLine;
+X  EXTERN  char    LineBuffer[LINELEN];
+X  EXTERN  char    SubstBuffer[LINELEN];
+X  EXTERN  char    TokBuffer[TOKSIZE+1];
+X  EXTERN  INIT(   char    *MsgCommand, NULL);
+X! EXTERN  INIT(	char    ShowAllErrors, 0);
+X  EXTERN  INIT(	int     DebugFlag, 0);
+X! EXTERN  INIT(   char	DoCalendar, 0);
+X! EXTERN  INIT(   char    DoSimpleCalendar, 0);
+X! EXTERN  INIT(   char    PsCal, 0);
+X  EXTERN  INIT(   int     CalWidth, 80);
+X  EXTERN  INIT(   int     CalWeeks, 0);
+X  EXTERN  INIT(   int     CalMonths, 0);
+X! EXTERN  INIT(	char	Hush, 0);
+X! EXTERN  INIT(	char	NextMode, 0);
+X! EXTERN  INIT(	char	InfiniteDelta, 0);
+X! EXTERN  INIT(   char    RunDisabled, 0);
+X! EXTERN  INIT(   char    IgnoreOnce, 0);
+X  EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X! EXTERN  INIT(   char    SortByTime, 0);
+X! EXTERN  INIT(   char    SortByDate, 0);
+X  
+X  EXTERN	char	*InitialFile;
+X  EXTERN	int	FileAccessDate;
+X  
+X! #ifdef HAVE_QUEUED
+X! EXTERN  INIT(	char	DontFork, 0);
+X! EXTERN  INIT(	char	DontQueue, 0);
+X  EXTERN  INIT(   int     NumQueued, 0);
+X! EXTERN  INIT(   char    DontIssueAts, 0);
+X! EXTERN  INIT(   char    Daemon, 0);
+X! #endif
+X  
+X  EXTERN  INIT(   int     ScFormat, SC_AMPM);
+X  EXTERN  INIT(   int     MaxSatIter, 150);
+X  EXTERN  INIT(	char	*FileName, NULL);
+X--- 31,68 ----
+X  EXTERN	int	CurMon;
+X  EXTERN	int	CurYear;
+X  EXTERN  int	LineNo;
+X! EXTERN  int     FreshLine;
+X  EXTERN  char    LineBuffer[LINELEN];
+X  EXTERN  char    SubstBuffer[LINELEN];
+X  EXTERN  char    TokBuffer[TOKSIZE+1];
+X  EXTERN  INIT(   char    *MsgCommand, NULL);
+X! EXTERN  INIT(	int     ShowAllErrors, 0);
+X  EXTERN  INIT(	int     DebugFlag, 0);
+X! EXTERN  INIT(   int	DoCalendar, 0);
+X! EXTERN  INIT(   int     DoSimpleCalendar, 0);
+X! EXTERN  INIT(   int     PsCal, 0);
+X  EXTERN  INIT(   int     CalWidth, 80);
+X  EXTERN  INIT(   int     CalWeeks, 0);
+X  EXTERN  INIT(   int     CalMonths, 0);
+X! EXTERN  INIT(	int 	Hush, 0);
+X! EXTERN  INIT(	int 	NextMode, 0);
+X! EXTERN  INIT(	int 	InfiniteDelta, 0);
+X! EXTERN  INIT(   int     RunDisabled, 0);
+X! EXTERN  INIT(   int     IgnoreOnce, 0);
+X  EXTERN  INIT(   char    Banner[LINELEN], L_BANNER);
+X! EXTERN  INIT(   int     SortByTime, 0);
+X! EXTERN  INIT(   int     SortByDate, 0);
+X  
+X  EXTERN	char	*InitialFile;
+X  EXTERN	int	FileAccessDate;
+X  
+X! EXTERN  INIT(	int 	DontFork, 0);
+X! EXTERN  INIT(	int 	DontQueue, 0);
+X  EXTERN  INIT(   int     NumQueued, 0);
+X! EXTERN  INIT(   int     DontIssueAts, 0);
+X! EXTERN  INIT(   int     Daemon, 0);
+X  
+X+ 
+X  EXTERN  INIT(   int     ScFormat, SC_AMPM);
+X  EXTERN  INIT(   int     MaxSatIter, 150);
+X  EXTERN  INIT(	char	*FileName, NULL);
+X***************
+X*** 71,79 ****
+X  EXTERN  INIT(   int     NumIfs,    0);
+X  EXTERN  INIT(   unsigned int IfFlags,   0);
+X  EXTERN  INIT(   int     LastTriggerDate, 0);
+X! EXTERN  INIT(   char    LastTrigValid, 0);
+X  EXTERN  INIT(   int     LastTriggerTime, 0);
+X! EXTERN  INIT(   char    ShouldCache, 0);
+X  EXTERN  char    *CurLine;
+X  EXTERN  INIT(   int     NumTriggered, 0);
+X  EXTERN  int ArgC;
+X--- 70,78 ----
+X  EXTERN  INIT(   int     NumIfs,    0);
+X  EXTERN  INIT(   unsigned int IfFlags,   0);
+X  EXTERN  INIT(   int     LastTriggerDate, 0);
+X! EXTERN  INIT(   int     LastTrigValid, 0);
+X  EXTERN  INIT(   int     LastTriggerTime, 0);
+X! EXTERN  INIT(   int     ShouldCache, 0);
+X  EXTERN  char    *CurLine;
+X  EXTERN  INIT(   int     NumTriggered, 0);
+X  EXTERN  int ArgC;
+X***************
+X*** 81,86 ****
+X--- 80,97 ----
+X  EXTERN  INIT(   int     CalLines, CAL_LINES);
+X  EXTERN  INIT(   int     CalPad, 1);
+X  
+X+ /* Latitude and longitude */
+X+ EXTERN  INIT(	int	  LatDeg, LAT_DEG);
+X+ EXTERN  INIT(	int	  LatMin, LAT_MIN);
+X+ EXTERN  INIT(	int	  LatSec, LAT_SEC);
+X+ EXTERN  INIT(	int	  LongDeg, LONG_DEG);
+X+ EXTERN  INIT(	int	  LongMin, LONG_MIN);
+X+ EXTERN  INIT(	int	  LongSec, LONG_SEC);
+X+ 
+X+ /* UTC calculation stuff */
+X+ EXTERN  INIT(	int	  MinsFromUTC, 0);
+X+ EXTERN	INIT(	int	  CalculateUTC, 1);
+X+ EXTERN  INIT(   int	  FoldYear, 0);
+X  /* List of months */
+X  EXTERN	char	*MonthName[]
+X  #ifdef MK_GLOBALS
+X*** ../p6/hbcal.c	Mon May  3 11:34:29 1993
+X--- ./hbcal.c	Mon Jun 28 12:29:49 1993
+X***************
+X*** 48,53 ****
+X--- 48,57 ----
+X  #define JAHR_FORWARD  1
+X  #define JAHR_BACKWARD 2
+X  
+X+ #define ADAR2ADARB 0
+X+ #define ADAR2ADARA 1
+X+ #define ADAR2BOTH  2
+X+ 
+X  static char *HebMonthNames[] = {
+X     "Tishrey", "Heshvan", "Kislev", "Tevet", "Shvat", "Adar A", "Adar B",
+X     "Nisan", "Iyar", "Sivan", "Tamuz", "Av", "Elul", "Adar"};
+X***************
+X*** 324,334 ****
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int GetValidHebDate(int yin, int min, int din,
+X                             int *mout, int *dout, int jahr)
+X  #else
+X! int GetValidHebDate(yin, min, din, mout, dout, jahr)
+X! int yin, min, din, *mout, *dout, jahr;
+X  #endif
+X  {
+X     char *monlen;
+X--- 328,338 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int GetValidHebDate(int yin, int min, int din, int adarbehave,
+X                             int *mout, int *dout, int jahr)
+X  #else
+X! int GetValidHebDate(yin, min, din, adarbehave, mout, dout, jahr)
+X! int yin, min, din, adarbehave, *mout, *dout, jahr;
+X  #endif
+X  {
+X     char *monlen;
+X***************
+X*** 344,355 ****
+X        return E_BAD_DATE;
+X     }
+X  
+X-    /* Convert ADAR to ADAR-B */
+X-    if (min == ADAR) *mout = min = ADARB;
+X- 
+X     ylen = DaysInHebYear(yin);
+X     monlen = DaysInHebMonths(ylen);
+X  
+X     if (din <= monlen[min]) return OK;
+X  
+X     switch(jahr) {
+X--- 348,371 ----
+X        return E_BAD_DATE;
+X     }
+X  
+X     ylen = DaysInHebYear(yin);
+X     monlen = DaysInHebMonths(ylen);
+X  
+X+    /* Convert ADAR as necessary */
+X+    if (min == ADAR) {
+X+       switch(adarbehave) {
+X+          case ADAR2ADARA: if (monlen[ADARA]) *mout = min = ADARA;
+X+ 			  else		     *mout = min = ADARB;
+X+ 			  break;
+X+ 
+X+ 	 case ADAR2ADARB: *mout = min = ADARB; break;
+X+ 
+X+ 	 default:
+X+ 	    Eprint("GetValidHebDate: Bad adarbehave value %d", adarbehave);
+X+ 	    return E_SWERR;
+X+       }
+X+    }
+X+ 
+X     if (din <= monlen[min]) return OK;
+X  
+X     switch(jahr) {
+X***************
+X*** 418,443 ****
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int GetNextHebrewDate(int julstart, int hm, int hd, int jahr, int *ans)
+X  #else
+X! int GetNextHebrewDate(julstart, hm, hd, jahr, ans)
+X! int julstart, hm, hd, jahr, *ans;
+X  #endif
+X  {
+X     int r, yout, mout, dout, jul=1;
+X  
+X     /* I initialize jul above to stop gcc from complaining about
+X        possible use of uninitialized variable.  You can take it
+X        out if the small inefficiency really bothers you. */
+X  
+X     JulToHeb(julstart, &yout, &mout, &dout);
+X  
+X     r = 1;
+X     while(r) {
+X!       r = GetValidHebDate(yout, hm, hd, &mout, &dout, jahr);
+X        if (dout == -1) return r;
+X        if (r) {
+X!          yout++;
+X  	 continue;
+X        }
+X        jul = HebToJul(yout, mout, dout);
+X--- 434,471 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int GetNextHebrewDate(int julstart, int hm, int hd,
+X! 			     int jahr, int adarbehave, int *ans)
+X  #else
+X! int GetNextHebrewDate(julstart, hm, hd, jahr, adarbehave, ans)
+X! int julstart, hm, hd, jahr, adarbehave, *ans;
+X  #endif
+X  {
+X     int r, yout, mout, dout, jul=1;
+X+    int adarflag = adarbehave;
+X  
+X     /* I initialize jul above to stop gcc from complaining about
+X        possible use of uninitialized variable.  You can take it
+X        out if the small inefficiency really bothers you. */
+X  
+X+    /* If adarbehave == ADAR2BOTH, set adarflag to ADAR2ADARA for now */
+X+    if (adarbehave == ADAR2BOTH) adarflag = ADAR2ADARA;
+X+ 
+X     JulToHeb(julstart, &yout, &mout, &dout);
+X  
+X     r = 1;
+X     while(r) {
+X!       r = GetValidHebDate(yout, hm, hd, adarflag, &mout, &dout, jahr);
+X        if (dout == -1) return r;
+X        if (r) {
+X!          if (adarbehave == ADAR2BOTH && hm == ADAR) {
+X! 	    if (adarflag == ADAR2ADARA) {
+X! 	       adarflag = ADAR2ADARB;
+X!             } else {
+X! 	       adarflag = ADAR2ADARA;
+X! 	       yout++;
+X!             }
+X!          } else yout++;
+X  	 continue;
+X        }
+X        jul = HebToJul(yout, mout, dout);
+X***************
+X*** 444,450 ****
+X        if (jul < 0) return E_DATE_OVER;
+X        if (jul >= julstart) break;
+X        else {
+X!          yout++;
+X           r=1;  /* Force loop to continue */
+X        }
+X     }
+X--- 472,485 ----
+X        if (jul < 0) return E_DATE_OVER;
+X        if (jul >= julstart) break;
+X        else {
+X!          if (adarbehave == ADAR2BOTH && hm == ADAR) {
+X! 	    if (adarflag == ADAR2ADARA) {
+X! 	       adarflag = ADAR2ADARB;
+X!             } else {
+X! 	       adarflag = ADAR2ADARA;
+X! 	       yout++;
+X!             }
+X!          } else yout++;
+X           r=1;  /* Force loop to continue */
+X        }
+X     }
+X*** ../p6/init.c	Thu Apr 29 15:08:41 1993
+X--- ./init.c	Mon Jun 28 12:29:50 1993
+X***************
+X*** 61,67 ****
+X   *  -z[n]    = Daemon mode waking up every n (def 5) minutes.
+X   *  -bn      = Time format for cal (0, 1, or 2)
+X   *  -xn      = Max. number of iterations for SATISFY
+X!  *  -uname   = Run as user 'name' - only valid when run by root.
+X   *  -kcmd    = Run 'cmd' for MSG-type reminders instead of printing to stdout
+X   *  -iVAR=EXPR = Initialize and preserve VAR.
+X   *
+X--- 61,68 ----
+X   *  -z[n]    = Daemon mode waking up every n (def 5) minutes.
+X   *  -bn      = Time format for cal (0, 1, or 2)
+X   *  -xn      = Max. number of iterations for SATISFY
+X!  *  -uname   = Run as user 'name' - only valid when run by root.  If run
+X!  *             by non-root, changes environment but not effective uid.
+X   *  -kcmd    = Run 'cmd' for MSG-type reminders instead of printing to stdout
+X   *  -iVAR=EXPR = Initialize and preserve VAR.
+X   *
+X***************
+X*** 116,121 ****
+X--- 117,130 ----
+X     JulianToday = RealToday;
+X     FromJulian(JulianToday, &CurYear, &CurMon, &CurDay);
+X  
+X+ #if !defined(HAVE_QUEUED)
+X+    DontFork = 1;
+X+    DontQueue = 1;
+X+    NumQueued = 0;
+X+    DontIssueAts = 0;
+X+    Daemon = 0;
+X+ #endif
+X+ 
+X     /* Parse the command-line options */
+X     i = 1;
+X     while (i < argc) {
+X***************
+X*** 229,236 ****
+X  	    case 's':
+X  	    case 'S':
+X  	       DoSimpleCalendar = 1;
+X! 	       PARSENUM(CalMonths, arg);
+X! 	       if (!CalMonths) CalMonths = 1;
+X  	       break;
+X  
+X  	    case 'p':
+X--- 238,251 ----
+X  	    case 's':
+X  	    case 'S':
+X  	       DoSimpleCalendar = 1;
+X! 	       if (*arg == '+') {
+X! 	          arg++;
+X! 	          PARSENUM(CalWeeks, arg);
+X! 		  if (!CalWeeks) CalWeeks = 1;
+X!                } else {
+X!    	          PARSENUM(CalMonths, arg);
+X! 	          if (!CalMonths) CalMonths = 1;
+X!                }
+X  	       break;
+X  
+X  	    case 'p':
+X***************
+X*** 357,363 ****
+X--- 372,383 ----
+X        CurMon = m;
+X        CurDay = d;
+X        if (JulianToday != RealToday) IgnoreOnce = 1;
+X+ 
+X     }
+X+ /* Figure out the offset from UTC */
+X+    if (CalculateUTC)
+X+       (void) CalcMinsFromUTC(JulianToday, SystemTime()/60,
+X+ 			     &MinsFromUTC, NULL);
+X  }
+X  
+X  /***************************************************************/
+X***************
+X*** 384,390 ****
+X     fprintf(ErrFp, " -c[n]  Produce a calendar for n (default 1) months\n");
+X     fprintf(ErrFp, " -c+[n] Produce a calendar for n (default 1) weeks\n");
+X     fprintf(ErrFp, " -w[n[,p[,s]]]  Specify width, padding and spacing of calendar\n");
+X!    fprintf(ErrFp, " -s[n]  Produce 'simple calendar' for n (1) months\n");
+X     fprintf(ErrFp, " -p[n]  Same as -s, but input compatible with rem2ps\n");
+X     fprintf(ErrFp, " -v     Verbose mode\n");
+X     fprintf(ErrFp, " -o     Ignore ONCE directives\n");
+X--- 404,410 ----
+X     fprintf(ErrFp, " -c[n]  Produce a calendar for n (default 1) months\n");
+X     fprintf(ErrFp, " -c+[n] Produce a calendar for n (default 1) weeks\n");
+X     fprintf(ErrFp, " -w[n[,p[,s]]]  Specify width, padding and spacing of calendar\n");
+X!    fprintf(ErrFp, " -s[+][n] Produce 'simple calendar' for n (1) months (weeks)\n");
+X     fprintf(ErrFp, " -p[n]  Same as -s, but input compatible with rem2ps\n");
+X     fprintf(ErrFp, " -v     Verbose mode\n");
+X     fprintf(ErrFp, " -o     Ignore ONCE directives\n");
+X***************
+X*** 402,408 ****
+X     fprintf(ErrFp, " -x[n]  Iteration limit for SATISFY clause (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Run 'cmd' for MSG-type reminders\n");
+X     fprintf(ErrFp, " -g[d[d]] Sort reminders by date and time before issuing\n");
+X!    fprintf(ErrFp, "-ivar=val Initialize var to val and preserve var\n");
+X     exit(1);
+X  }
+X  
+X--- 422,428 ----
+X     fprintf(ErrFp, " -x[n]  Iteration limit for SATISFY clause (def=150)\n");
+X     fprintf(ErrFp, " -kcmd  Run 'cmd' for MSG-type reminders\n");
+X     fprintf(ErrFp, " -g[d[d]] Sort reminders by date and time before issuing\n");
+X!    fprintf(ErrFp, " -ivar=val Initialize var to val and preserve var\n");
+X     exit(1);
+X  }
+X  
+X***************
+X*** 436,445 ****
+X     static char *home, *shell, *username, *logname;
+X  
+X     myuid = getuid();
+X-    if (myuid) {
+X-       fprintf(ErrFp, "Remind: Only the super-user can use the '-u' option.\n");
+X-       exit(1);
+X-    }
+X  
+X     pwent = getpwnam(user);
+X  
+X--- 456,461 ----
+X***************
+X*** 448,459 ****
+X        exit(1);
+X     }
+X  
+X!    if (setgid(pwent->pw_gid)) {
+X        fprintf(ErrFp, "Remind: Could not change gid to %d\n", pwent->pw_gid);
+X        exit(1);
+X     }
+X  
+X!    if (setuid(pwent->pw_uid)) {
+X        fprintf(ErrFp, "Remind: Could not change uid to %d\n", pwent->pw_uid);
+X        exit(1);
+X     }
+X--- 464,475 ----
+X        exit(1);
+X     }
+X  
+X!    if (!myuid && setgid(pwent->pw_gid)) {
+X        fprintf(ErrFp, "Remind: Could not change gid to %d\n", pwent->pw_gid);
+X        exit(1);
+X     }
+X  
+X!    if (!myuid && setuid(pwent->pw_uid)) {
+X        fprintf(ErrFp, "Remind: Could not change uid to %d\n", pwent->pw_uid);
+X        exit(1);
+X     }
+X***************
+X*** 535,540 ****
+X--- 551,566 ----
+X     r=EvalExpr(&expr, &val);
+X     if (r) {
+X        fprintf(ErrFp, Err, ErrMsg[r]);
+X+       return;
+X+    }
+X+ 
+X+    if (*varname == '$') {
+X+       if (val.type != INT_TYPE) {
+X+          fprintf(ErrFp, Err, ErrMsg[E_BAD_TYPE]);
+X+ 	 return;
+X+       }
+X+       r=SetSysVar(varname+1, val.v.val);
+X+       if (r) fprintf(ErrFp, Err, ErrMsg[r]);
+X        return;
+X     }
+X  
+X*** ../p6/kall	Thu Apr 22 10:24:09 1993
+X--- ./kall	Mon Jun 28 12:30:15 1993
+X***************
+X*** 25,31 ****
+X  
+X  # NOTE:  You may have to modify the next line, since PS is non-portable.
+X  # The 'awk' command picks out the process IDs to pass them on to kill.
+X! 	rprocs=`ps cx | awk '{if(prog == $NF) print $1}' prog=$1 -`
+X  	if [ "$rprocs" != "" ]; then
+X  		msg="1"
+X  		echo -n "${me}: Sending $signal signal to $1 process(es)"
+X--- 25,31 ----
+X  
+X  # NOTE:  You may have to modify the next line, since PS is non-portable.
+X  # The 'awk' command picks out the process IDs to pass them on to kill.
+X! 	rprocs=`ps cx | awk '{if(prog == $NF && $1 != mypid) print $1}' prog=$1 mypid=$$ -`
+X  	if [ "$rprocs" != "" ]; then
+X  		msg="1"
+X  		echo -n "${me}: Sending $signal signal to $1 process(es)"
+X*** ../p6/main.c	Thu Apr 22 10:24:10 1993
+X--- ./main.c	Mon Jun 28 12:39:37 1993
+X***************
+X*** 30,38 ****
+X  
+X  #ifdef __MSDOS__
+X  #include <dos.h>
+X! # ifdef __MSC__
+X! # include <time.h>
+X! # endif
+X  #endif
+X  
+X  
+X--- 30,36 ----
+X  
+X  #ifdef __MSDOS__
+X  #include <dos.h>
+X! #include <time.h>
+X  #endif
+X  
+X  
+X***************
+X*** 92,98 ****
+X     /* Not doing a calendar.  Do the regular remind loop */
+X     DoReminders();
+X  
+X!    if (DebugFlag & DB_DUMP_VARS) DumpVarTable();
+X  
+X     if (!Hush) {
+X        if (DestroyOmitContexts())
+X--- 90,99 ----
+X     /* Not doing a calendar.  Do the regular remind loop */
+X     DoReminders();
+X  
+X!    if (DebugFlag & DB_DUMP_VARS) {
+X!       DumpVarTable();
+X!       DumpSysVarByName(NULL);
+X!    }
+X  
+X     if (!Hush) {
+X        if (DestroyOmitContexts())
+X***************
+X*** 482,488 ****
+X        if (err) return err;
+X     }
+X     if (!c) return E_EOLN;
+X!    if (c != '_' && !isalpha(c)) return E_BAD_ID;
+X     *out++ = c;
+X     *out = 0;
+X     len++;
+X--- 483,489 ----
+X        if (err) return err;
+X     }
+X     if (!c) return E_EOLN;
+X!    if (c != '$' && c != '_' && !isalpha(c)) return E_BAD_ID;
+X     *out++ = c;
+X     *out = 0;
+X     len++;
+X***************
+X*** 1048,1058 ****
+X     if ( (r=ParseToken(p, TokBuffer)) ) return r;
+X  
+X  /* Only allow RUN ON in top-level script */
+X!    if (StriEq(TokBuffer, "ON")) {
+X        if (TopLevel()) RunDisabled &= ~RUN_SCRIPT;
+X     }
+X  /* But allow RUN OFF anywhere */
+X!    else if (StriEq(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X     else return E_PARSE_ERR;
+X  
+X--- 1049,1059 ----
+X     if ( (r=ParseToken(p, TokBuffer)) ) return r;
+X  
+X  /* Only allow RUN ON in top-level script */
+X!    if (! StrCmpi(TokBuffer, "ON")) {
+X        if (TopLevel()) RunDisabled &= ~RUN_SCRIPT;
+X     }
+X  /* But allow RUN OFF anywhere */
+X!    else if (! StrCmpi(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X     else return E_PARSE_ERR;
+X  
+X***************
+X*** 1088,1090 ****
+X--- 1089,1164 ----
+X     return OK;
+X  }
+X  
+X+ /***************************************************************/
+X+ /*                                                             */
+X+ /*  CalcMinsFromUTC                                            */
+X+ /*                                                             */
+X+ /*  Attempt to calculate the minutes from UTC for a specific   */
+X+ /*  date.                                                      */
+X+ /*                                                             */
+X+ /***************************************************************/
+X+ 
+X+ /* The array FoldArray[2][7] contains sample years which begin
+X+    on the specified weekday.  For example, FoldArray[0][2] is a
+X+    non-leapyear beginning on Wednesday, and FoldArray[1][5] is a
+X+    leapyear beginning on Saturday.  Used to fold back dates which
+X+    are too high for the standard Unix representation. 
+X+    NOTE:  This implies that you cannot set BASE > 2001!!!!! */
+X+ static int FoldArray[2][7] = {
+X+    {2001, 2002, 2003, 2009, 2010, 2005, 2006},
+X+    {2024, 2008, 2020, 2004, 2016, 2000, 2012}
+X+ };
+X+ 
+X+ #ifdef HAVE_PROTOS
+X+ PUBLIC int CalcMinsFromUTC(int jul, int tim, int *mins, int *isdst)
+X+ #else
+X+ int CalcMinsFromUTC(jul, tim, mins, isdst)
+X+ int jul, tim, *mins, *isdst;
+X+ #endif
+X+ {
+X+ 
+X+ /* Convert jul and tim to an Unix tm struct */
+X+    int yr, mon, day;
+X+    struct tm local, utc, *temp;
+X+    time_t loc_t, utc_t;
+X+ 
+X+    FromJulian(jul, &yr, &mon, &day);
+X+ 
+X+ /* If the year is greater than 2037, some Unix machines have problems.
+X+    Fold it back to a "similar" year and trust that the UTC calculations
+X+    are still valid... */
+X+    if (FoldYear && yr>2037) {
+X+       jul = Julian(yr, 0, 1);
+X+       yr = FoldArray[IsLeapYear(yr)][jul%7];
+X+    }
+X+    local.tm_sec = 0;
+X+    local.tm_min = tim % 60;
+X+    local.tm_hour = tim / 60;
+X+    local.tm_mday = day;
+X+    local.tm_mon = mon;
+X+    local.tm_year = yr-1900;
+X+    local.tm_isdst = -1;  /* We don't know whether or not dst is in effect */
+END_OF_FILE
+  if test 31602 -ne `wc -c <'patch.07.B'`; then
+    echo shar: \"'patch.07.B'\" unpacked with wrong size!
+  elif test -f 'patch.07.A' && test -f 'patch.07.C'; then
+    echo shar: Combining  \"'patch.07'\" \(117693 characters\)
+    cat 'patch.07.A' 'patch.07.B' 'patch.07.C' > 'patch.07'
+    if test 117693 -ne `wc -c <'patch.07'`; then
+      echo shar: \"'patch.07'\" combined with wrong size!
+    else
+      rm patch.07.A patch.07.B patch.07.C
+    fi
+  fi
+  # end of 'patch.07.B'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

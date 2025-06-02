@@ -1,0 +1,307 @@
+From: Michel Berkelaar <michel@es.ele.tue.nl>
+Subject: v02i021: lp_solve - linear problem solver, Part00/02
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Michel Berkelaar <michel@es.ele.tue.nl>
+Posting-number: Volume 2, Issue 21
+Archive-name: lp_solve/part00
+
+Environment: any Ansi C 
+	(needs lex and yacc or variants)
+
+Tested Environments:
+	Solbourne
+	Sun Sparc& 3/60, SunOS 4.1.1, gcc 1.38/1.39/2.0/2.1
+	XENIX 386 2.3.3, standard c compiler
+	Ultrix 4.2 Decstation 5000, system cc and gcc 2.1
+	Apollo DN3000, Domain OS 10.3.5, ANSI c compiler
+	Apollo DN10000, Domain OS 10.3, ANSI c compiler
+	HP9000-720, HP-UX 8.07, ANSI c compiler
+	RS-6000, AIX 3.2, cc        
+	CRAY Y-MP, UNICOS 7.0, cc        
+	IBM 3090, AIX/370 1.2.1
+	IBM RS/6000  530, AIX  3.1.5
+	IBM 3090 600J, AIX/370 1.2.1, `cc';
+	IBM RS/6000 Model 530, AIX 3.1.5,  'cc' and 'xlc'.
+
+Dates:
+	Submission Received: April 10 1992
+	Reviews Returned: June 10 1992
+	Revised Submission Received: June 23 1992
+	Accepted: July 29 1992
+	
+	
+Author's Summary:
+-----------------
+
+This package contains the ANSI C sources for a very efficient (mixed integer)
+linear problem solver. To compile without warnings, you need ANSI include
+files as well. Its base is a sparse matrix dual simplex LP solver.  MILP
+problems are solved with a branch-and-bound iteration over LP solutions.
+
+It uses a lex and yacc parser to read a human-friendly algebraic input format.
+
+The author has used the program to solve LP problems up to about 30000
+variables and 50000 constraints (on a 22 MFLOPS HP9000/750).
+
+
+Reviewers' Comments:
+--------------------
+
+[This program still has some small problems when building in some
+environments, and when running on some problems.  It is considered very
+valuable, however, so it is being posted now. - Mod.]
+
+
+lpsolver implements a branch and bound algorithm for mixed integer
+linear programming problems.  The software is written in ANSI C
+assuming a posix environment.  I had little trouble in compiling
+and running the code using gcc on a Sun Sparcstation.  Although I 
+have only tested the package on small example problems, it appears 
+to be reasonably robust and accurate in its solutions.  I would
+certainly recommend it to anyone with relatively small MILP's
+to solve.  It might also be useful in Operations Research courses.
+ 
+The software might also be good for larger problems, but I haven't
+been able to test this, since the package doesn't read problems 
+that have been written in the standard MPS format.  I hope that 
+the author will take the time to modify his package so that it 
+can also read problems in the MPS format.  
+...
+I would be more confident in the package if someone used it to solve the 
+problems in the MIPLIB test suite.  (These are available via FTP from 
+softlib.cs.rice.edu in MPS format.)  
+ 
+By all means, release the package as it now is-  it should work fine for 
+small problems, and might work well on larger problems.  
+ 
+--------------------------------------------------------------------
+
+I used XENIX 386 version 2.3.3, with the standard c compiler.
+Documentation said we need POSIX compliance, I'm not sure if XENIX is.
+I tried commenting out the variable length argument function
+(print_debug), and then it compiled but had unresolved externals...
+bcopy and bzero.  These appeared to be similar to memcpy and memset, so
+I defined macros for them.
+
+#define bcopy(x,y,z) memcpy(y,x,z)
+#define bzero(x,y) memset(x, 0, y)
+
+After this, I was able to link the program, and it tested successfully. 
+
+...
+The software is ambitious in scope, and if it works it will be a
+significant contribution.  The software compiled with minor
+modifications under XENIX.  The input format is very user friendly.  I
+had no problem running it on small problems, but when I tried running
+it on more involved problems it seemed to cough.  The bug in equality
+constraints may be more general than noted by the documentation.
+
+--------------------------------------------------------------------
+
+The package worked fine on medium size LP problems (100-500 continuous
+variables/ 10-50 integer variables).  In fact, I was quite impressed.
+However, on some large problems and some numerically unstable problems
+the package suffered from (mostly undetected roundoff error).  
+
+--------------------------------------------------------------------
+
+My overall conclusion is that this is a fairly useful package which
+does pretty much what it promises to do.  It would be nice if it were a
+little less idiosyncratic and buggy, but on the other hand I suspect
+its typical user won't mind dealing with it, given the apparently
+superior speed and generality of the implementation of the algorithm.
+
+--------------------------------------------------------------------
+Lp_solve is a numerical package for solving linear programming
+problems of the form:
+
+     Find the value of n-vector x that
+
+     maximizes    <a,x>
+
+     with constraints:
+
+		 Ax >= b
+
+where A is a constant m x n matrix, a is a constant n-vector and
+b is a constant m-vector.
+
+
+The above problem is solved by the standard simplex method.
+Additionally, all or some of the components of x can be
+constrainted to be integer; and then the simplex method is 
+iterated with a branch and bound search procedure.
+
+The package is useful for users that already understand linear
+programming problems.  For that set of users, I recommend this
+software.
+...
+There is still no description of the format for variables in the
+man pages, but this can be guessed by looking at the examples.
+
+I encountered a new problem with gcc on a sun sparc ipc, SunOS 4.1.1.
+...I used gcc2.2.2.  This version of gcc modifies Sun's <stdlib.h> so
+that malloc() is typed void* which eliminates the pointer type
+warnings...  However, Sun yacc put char* malloc() at the top of y.tab.c
+which clashes with the new declaration in stdlib.h and the compile of
+y.tab.c failed.  I removed the declarations of malloc() and realloc()
+from y.tab.c and it worked fine.  Another solution that works is to
+modify the Makefile to use bison,
+
+   YACC = bison -y
+   #YACC = yacc
+
+   ${YSOURCE} : lp.y
+	${YACC} lp.y
+
+
+This time I looked more closely at the "extremely simple
+problem" bug and find a serious problem.
+
+Consider the following two problems:
+
+$ lp_solve
+x-y ;
+x<=4 ; y >= -2 ;
+No solution
+
+$ lp_solve
+-x-y ;
+x >= -4 ; y >= -2 ;
+Value of objective function:                6
+x                       -4
+y                       -2
+
+
+These problems are essentially identical; the second is obtained from
+the first by the transformation x -> -x, i.e.  a mirror image
+relabeling of the x-axis.  It is baffling that lp_solve solves (2), but
+fails on (1).  As a user, I need to understand the class of problems
+for which lp_solve is not suitable.
+
+Some linear programming problems actually have no solution, but this is
+not the case in (1).  If the user must filter problems for which the
+internal algorithms fail, then the documentation needs to provide an
+exact mathematical description of the "extremely simple problems" that
+lp_solve cannot solve.
+
+--------------------------------------------------------------------
+
+This seems to be a well implemented package for solving large linear
+programs, with the added capability of forcing integrality on selected
+variables. There is a continuous stream of requests for such a program
+in the numerical analysis and computer theory  news groups. This should
+satisfy most of them.
+
+Of course, this program just scratches the surface of what can be done.
+A useful feature that could be added is sensitivity analysis.
+
+--------------------------------------------------------------------
+
+The lp_solver package is simple to build and simple to run.  It solves
+a large class of problems.  If your problem can be stated as the
+solution to a system of linear inequalities, with or without integer
+restrictions, then lp_solver is for you.
+
+"lp_solver" provides a modern, readable algorithm for solving linear
+programming problems.  This in itself is a useful contribution.
+Furthermore, "lp_solver" provides a very useful "input langauge"
+written in lex and yacc.  I found this approach made introductory
+use of the package much simpler and understandable.
+
+"lp_solver" is useful, no doubt about it.  A wider audience could be
+reached with better output analysis and presentation.  Also, more
+introductory documentation would allow the package to be accessible
+to novice usrs.
+
+--------------------------------------------------------------------
+
+lpsolver is a package for solving mixed integer linear programming
+problems.  It installs easily, provided you have an ANSI C compiler.
+According to the documentation it uses the Simplex method with sparse
+matrix techiniques.  For those people who are familiar with these
+types of problems, the documentation is probably adequate.  Since I
+don't solve LP problems as part of my job, I can't really comment on
+the ease of use of this software.
+...
+The problem here is that calloc() is declared on AIX/370 to return a
+void*, as is correct in ANSI C; instead it returns a char*.  By
+adding an appropriate cast to the definition of CALLOC() as well as
+MALLOC(), and by casting the two calls of realloc() in read.c,
+the build goes through fine.  The tests also looked OK.
+
+o On the RS/6000 I get
+
+	cc -O -c main.c
+Processing include file ./defines.h
+ 11    21 | #define abs(x)  ((x) < 0 ? -(x) : (x))
+    1506-236: (W) Macro name abs has been redefined.
+	cc -O -c solve.c
+Processing include file ./defines.h
+  1    21 | #define abs(x)  ((x) < 0 ? -(x) : (x))
+    1506-236: (W) Macro name abs has been redefined.
+	cc -O -c read.c
+Processing include file ./defines.h
+  1    21 | #define abs(x)  ((x) < 0 ? -(x) : (x))
+    1506-236: (W) Macro name abs has been redefined.
+	cc -O -c write.c
+Processing include file ./defines.h
+  1    21 | #define abs(x)  ((x) < 0 ? -(x) : (x))
+    1506-236: (W) Macro name abs has been redefined.
+File Line Column Message text
+  0    68    6 1506-132: (S) Illegal redeclaration of function, debug_print.
+    1506-163: (S) Error recovery not possible. Compilation ended.
+1254-004  The error code from the last failed command is 1.
+
+Make Quitting.
+
+  A '#undef abs' should remove the warning about abs. The second
+  problem arises due to the fact that __STDC__ isn't defined by 'cc',
+  so debug_print is prototyped in proto.h as:
+
+     void debug_print();
+
+  But in write.c it is defined as
+
+     void debug_print(char *format, ...);
+
+  This is not valid C code.  This all arises out of the authors
+  insistence on ANSI C.  He claims to only want to make this work for
+  ANSI C compliant compilers, yet he provides a macro, P, in proto.h
+  to bypass function prototypes if __STDC__ isn't predefined.  I find
+  this inconsistent.  If this is meant to run only on ANSI C compliant
+  compilers, why bypass prototypes?  If you're going to be bypassing
+  prototypes, I feel that the casts described in the previous bullet
+  should also be supplied.  Fixing this problem, the build with 'cc'
+  goes through and the tests also look OK.
+
+--------------------------------------------------------------------
+
+This package runs cleanly, and is the only one I know which is available
+over the net.  The input format is clear.  Integer problems run much
+more slowly than real ones, but this is the nature of the beast -- real
+LP is polynomial, and integer LP is NP-complete.
+
+The feature of printing the best solution found so far, initiated
+by issuing a ^C to the program, is very handy.  I would like to understand
+better the debugging (-d) and verbose (-v) output, but I suspect that
+would involve a thorough understanding of the algorithm.  This might
+be too much to ask of the author to explain.
+
+--------------------------------------------------------------------
+
+For my application, which is to use a linear program repeatedly to obtain
+an approximate solution to a quadratic (placement) problem, the data sets
+are large (sparse) arrays of small numbers, and this program "lp_solve"
+works quite well on this problem.  I have generated 100's of test examples
+of 100x100 sized matrices and compared the answers to those of another program
+using a different algorithm (called lapjv); "lp_solve" provided the best
+solutions and uncovered a bug apparently in my "lapjv" implementation.
+
+I had no problems installing or running lp_solve on a Sparc.
+
+
+
+exit 0 # Just in case...

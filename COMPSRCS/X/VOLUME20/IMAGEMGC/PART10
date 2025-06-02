@@ -1,0 +1,1738 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i066:  imagemagic - X11 image processing and display, Part10/38
+Message-ID: <1993Jul14.175519.1222@sparky.sterling.com>
+X-Md4-Signature: 8d8b0309544b48273cc98f2ccd1453af
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:55:19 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 66
+Archive-name: imagemagic/part10
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.10 (part 10 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/X.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/X.c'
+else
+echo 'x - continuing file ImageMagick/X.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/X.c' &&
+X  if ((clip_info.x+(int) clip_info.width) > display_width)
+X    {
+X      if (clip_info.x >= display_width)
+X        return((Image *) NULL);
+X      clip_info.width=display_width-clip_info.x;
+X    }
+X  display_height=DisplayHeight(display,XDefaultScreen(display));
+X  if ((clip_info.y+(int) clip_info.height) > display_height)
+X    {
+X      if (clip_info.y >= display_height)
+X        return((Image *) NULL);
+X      clip_info.height=display_height-clip_info.y;
+X    }
+X  clip_info.x-=x_offset;
+X  clip_info.y-=y_offset;
+X  /*
+X    Alert user we are about to get an X region by flashing a border.
+X  */
+X  graphic_context_value.function=GXinvert;
+X  graphic_context_value.line_width=WindowBorderWidth;
+X  graphic_context_value.subwindow_mode=IncludeInferiors;
+X  graphic_context=XCreateGC(display,window,GCFunction | GCLineWidth |
+X    GCSubwindowMode,&graphic_context_value);
+X  if (graphic_context != (GC) NULL)
+X    XHighlightRegion(display,window,graphic_context,&clip_info);
+X  /*
+X    Get window X image.
+X  */
+X  ximage=XGetImage(display,window,clip_info.x,clip_info.y,clip_info.width,
+X    clip_info.height,AllPlanes,ZPixmap);
+X  if (ximage == (XImage *) NULL)
+X    return((Image *) NULL);
+X  if (graphic_context != (GC) NULL)
+X    {
+X      /*
+X        Alert user we got the X region by flashing a border.
+X      */
+X      XHighlightRegion(display,window,graphic_context,&clip_info);
+X      XFreeGC(display,graphic_context);
+X    }
+X  number_colors=0;
+X  colors=(XColor *) NULL;
+X  if (window_attributes.colormap != (Colormap) NULL)
+X    {
+X      ColormapList
+X        *p;
+X
+X      /*
+X        Search colormap list for window colormap.
+X      */
+X      number_colors=window_attributes.visual->map_entries;
+X      for (p=colormap_list; p != (ColormapList *) NULL; p=p->next)
+X        if (p->colormap == window_attributes.colormap)
+X          break;
+X      if (p == (ColormapList *) NULL)
+X        {
+X          /*
+X            Get the window colormap.
+X          */
+X          colors=(XColor *) malloc(number_colors*sizeof(XColor));
+X          if (colors == (XColor *) NULL)
+X            {
+X              XDestroyImage(ximage);
+X              return((Image *) NULL);
+X            }
+X          if ((window_attributes.visual->class != DirectColor) &&
+X              (window_attributes.visual->class != TrueColor))
+X            for (i=0; i < number_colors; i++)
+X            {
+X              colors[i].pixel=i;
+X              colors[i].pad=0;
+X            }
+X          else
+X            {
+X              unsigned long
+X                blue,
+X                blue_bit,
+X                green,
+X                green_bit,
+X                red,
+X                red_bit;
+X
+X              /*
+X                DirectColor or TrueColor visual.
+X              */
+X              red=0;
+X              green=0;
+X              blue=0;
+X              red_bit=window_attributes.visual->red_mask &
+X                (~(window_attributes.visual->red_mask)+1);
+X              green_bit=window_attributes.visual->green_mask &
+X                (~(window_attributes.visual->green_mask)+1);
+X              blue_bit=window_attributes.visual->blue_mask &
+X                (~(window_attributes.visual->blue_mask)+1);
+X              for (i=0; i < number_colors; i++)
+X              {
+X                colors[i].pixel=red | green | blue;
+X                colors[i].pad=0;
+X                red+=red_bit;
+X                if (red > window_attributes.visual->red_mask)
+X                  red=0;
+X                green+=green_bit;
+X                if (green > window_attributes.visual->green_mask)
+X                  green=0;
+X                blue+=blue_bit;
+X                if (blue > window_attributes.visual->blue_mask)
+X                  blue=0;
+X              }
+X            }
+X          XQueryColors(display,window_attributes.colormap,colors,
+X           (int) number_colors);
+X          /*
+X            Append colormap to colormap list.
+X          */
+X          p=(ColormapList *) malloc(sizeof(ColormapList));
+X          p->colormap=window_attributes.colormap;
+X          p->colors=colors;
+X          p->next=colormap_list;
+X          colormap_list=p;
+X        }
+X      colors=p->colors;
+X    }
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("X");
+X  if (image == (Image *) NULL)
+X    {
+X      XDestroyImage(ximage);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert X image to MIFF format.
+X  */
+X  if ((window_attributes.visual->class != TrueColor) &&
+X      (window_attributes.visual->class != DirectColor))
+X    image->class=PseudoClass;
+X  image->columns=ximage->width;
+X  image->rows=ximage->height;
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      XDestroyImage(ximage);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  p=image->pixels;
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      register unsigned long
+X        color,
+X        index;
+X
+X      unsigned long
+X        blue_mask,
+X        blue_shift,
+X        green_mask,
+X        green_shift,
+X        red_mask,
+X        red_shift;
+X
+X      /*
+X        Determine shift and mask for red, green, and blue.
+X      */
+X      red_mask=window_attributes.visual->red_mask;
+X      red_shift=0;
+X      while ((red_mask & 0x01) == 0)
+X      {
+X        red_mask>>=1;
+X        red_shift++;
+X      }
+X      green_mask=window_attributes.visual->green_mask;
+X      green_shift=0;
+X      while ((green_mask & 0x01) == 0)
+X      {
+X        green_mask>>=1;
+X        green_shift++;
+X      }
+X      blue_mask=window_attributes.visual->blue_mask;
+X      blue_shift=0;
+X      while ((blue_mask & 0x01) == 0)
+X      {
+X        blue_mask>>=1;
+X        blue_shift++;
+X      }
+X      /*
+X        Convert X image to DirectClass packets.
+X      */
+X      if ((number_colors > 0) &&
+X          (window_attributes.visual->class == DirectColor))
+X        for (y=0; y < image->rows; y++)
+X        {
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            index=(pixel >> red_shift) & red_mask;
+X            p->red=(unsigned char) (colors[index].red >> 8);
+X            index=(pixel >> green_shift) & green_mask;
+X            p->green=(unsigned char) (colors[index].green >> 8);
+X            index=(pixel >> blue_shift) & blue_mask;
+X            p->blue=(unsigned char) (colors[index].blue >> 8);
+X            p->index=0;
+X            p->length=0;
+X            p++;
+X          }
+X        }
+X      else
+X        for (y=0; y < image->rows; y++)
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            color=(pixel >> red_shift) & red_mask;
+X            p->red=(unsigned char)
+X              ((((unsigned long) color*65535)/red_mask) >> 8);
+X            color=(pixel >> green_shift) & green_mask;
+X            p->green=(unsigned char)
+X              ((((unsigned long) color*65535)/green_mask) >> 8);
+X            color=(pixel >> blue_shift) & blue_mask;
+X            p->blue=(unsigned char)
+X              ((((unsigned long) color*65535)/blue_mask) >> 8);
+X            p->index=0;
+X            p->length=0;
+X            p++;
+X          }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      register unsigned short
+X        index;
+X
+X      /*
+X        Create colormap.
+X      */
+X      image->colors=number_colors;
+X      image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X      if (image->colormap == (ColorPacket *) NULL)
+X        {
+X          XDestroyImage(ximage);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[colors[i].pixel].red=colors[i].red >> 8;
+X        image->colormap[colors[i].pixel].green=colors[i].green >> 8;
+X        image->colormap[colors[i].pixel].blue=colors[i].blue >> 8;
+X      }
+X      /*
+X        Convert X image to PseudoClass packets.
+X      */
+X      for (y=0; y < image->rows; y++)
+X        for (x=0; x < image->columns; x++)
+X        {
+X          pixel=XGetPixel(ximage,x,y);
+X          index=(unsigned short) pixel;
+X          p->red=image->colormap[index].red;
+X          p->green=image->colormap[index].green;
+X          p->blue=image->colormap[index].blue;
+X          p->index=index;
+X          p->length=0;
+X          p++;
+X        }
+X      break;
+X    }
+X  }
+X  XDestroyImage(ximage);
+X  if (level != 0)
+X    {
+X      unsigned int
+X        number_children;
+X
+X      Window
+X        *children,
+X        parent;
+X
+X      /*
+X        Descend the window hierarchy and overlay with each subwindow image.
+X      */
+X      status=XQueryTree(display,window,&root_window,&parent,&children,
+X        &number_children);
+X      if ((status == True) && (number_children != 0))
+X        {
+X          Image
+X            *child_image;
+X
+X          /*
+X            Composite any children in back-to-front order.
+X          */
+X          for (i=0; i < number_children; i++)
+X          {
+X            child_image=XGetWindowImage(display,children[i],False,level+1);
+X            if (child_image != (Image *) NULL)
+X              {
+X                /*
+X                  Composite child window image.
+X                */
+X                XTranslateCoordinates(display,children[i],window,0,0,&x_offset,
+X                  &y_offset,&child);
+X                x_offset-=clip_info.x;
+X                if (x_offset < 0)
+X                  x_offset=0;
+X                y_offset-=clip_info.y;
+X                if (y_offset < 0)
+X                  y_offset=0;
+X                CompositeImage(image,ReplaceCompositeOp,child_image,x_offset,
+X                  y_offset);
+X                DestroyImage(child_image);
+X              }
+X          }
+X          XFree((void *) children);
+X        }
+X    }
+X  if (level <= 1)
+X    {
+X      ColormapList
+X        *next;
+X
+X      /*
+X        Free resources.
+X      */
+X      while (colormap_list != (ColormapList *) NULL)
+X      {
+X        next=colormap_list->next;
+X        (void) free((char *) colormap_list->colors);
+X        (void) free((char *) colormap_list);
+X        colormap_list=next;
+X      }
+X      if (image->class == PseudoClass)
+X        CompressColormap(image);
+X    }
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t W i n d o w I n f o                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetWindowInfo initializes the XWindowInfo structure.
+%
+%  The format of the XGetWindowInfo routine is:
+%
+%      XGetWindowInfo(display,visual_info,map_info,pixel_info,font_info,
+%        resource_info,window)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o visual_info: Specifies a pointer to a X11 XVisualInfo structure;
+%      returned from XGetVisualInfo.
+%
+%    o map_info: If map_type is specified, this structure is initialized
+%      with info from the Standard Colormap.
+%
+%    o pixel_info: Specifies a pointer to a XPixelInfo structure.
+%
+%    o font_info: Specifies a pointer to a XFontStruct structure.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%
+*/
+void XGetWindowInfo(display,visual_info,map_info,pixel_info,font_info,
+X  resource_info,window)
+Display
+X  *display;
+X
+XXVisualInfo
+X  *visual_info;
+X
+XXStandardColormap
+X *map_info;
+X
+XXPixelInfo
+X  *pixel_info;
+X
+XXFontStruct
+X  *font_info;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindowInfo
+X  *window;
+{
+X  /*
+X    Initialize window info.
+X  */
+X  window->screen=visual_info->screen;
+X  window->depth=visual_info->depth;
+X  window->visual_info=visual_info;
+X  window->map_info=map_info;
+X  window->pixel_info=pixel_info;
+X  window->font_info=font_info;
+X  window->cursor=XCreateFontCursor(display,XC_arrow);
+X  XRecolorCursor(display,window->cursor,&pixel_info->background_color,
+X    &pixel_info->foreground_color);
+X  window->busy_cursor=XCreateFontCursor(display,XC_watch);
+X  XRecolorCursor(display,window->busy_cursor,&pixel_info->background_color,
+X    &pixel_info->foreground_color);
+X  window->graphic_context=(GC) NULL;
+X  window->name=(char *) NULL;
+X  window->geometry=(char *) NULL;
+X  window->icon_name=(char *) NULL;
+X  window->icon_geometry=resource_info->icon_geometry;
+X  window->clip_geometry=(char *) NULL;
+X  window->flags=PSize;
+X  window->x=0;
+X  window->y=0;
+X  window->width=1;
+X  window->height=1;
+X  window->min_width=1;
+X  window->min_height=1;
+X  window->width_inc=1;
+X  window->height_inc=1;
+X  window->border_width=resource_info->border_width;
+X  window->graphic_context=pixel_info->graphic_context;
+X  window->highlight_context=pixel_info->highlight_context;
+X  window->immutable=True;
+X  window->mask=CWBackingStore | CWBackPixel | CWBackPixmap | CWBitGravity | 
+X    CWBorderPixel | CWColormap | CWCursor | CWDontPropagate | CWEventMask |
+X    CWOverrideRedirect | CWSaveUnder | CWWinGravity;
+X  window->attributes.background_pixel=pixel_info->background_color.pixel;
+X  window->attributes.background_pixmap=(Pixmap) NULL;
+X  window->attributes.backing_store=NotUseful;
+X  window->attributes.bit_gravity=ForgetGravity;
+X  window->attributes.border_pixel=pixel_info->border_color.pixel;
+X  window->attributes.colormap=map_info->colormap;
+X  window->attributes.cursor=window->cursor;
+X  window->attributes.do_not_propagate_mask=NoEventMask;
+X  window->attributes.event_mask=NoEventMask;
+X  window->attributes.override_redirect=False;
+X  window->attributes.save_under=False;
+X  window->attributes.win_gravity=NorthWestGravity;
+X  if (window->id == (Window) NULL)
+X    {
+X      window->id=(Window) NULL;
+X      window->ximage=(XImage *) NULL;
+X      window->pixmap=(Pixmap) NULL;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X H i g h l i g h t R e g i o n                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XHighlightRegion flashes a border on the X server around a region
+%  defined by highlight_info.
+%
+%  The format of the XHighlightRegion routine is:
+%
+%    XHighlightRegion(display,window,graphic_context,highlight_info)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a Window structure.
+%
+%    o graphic_context: Specifies a pointer to a GC structure.
+%
+%    o clip_info: Specifies a pointer to a RectangleInfo structure.  It
+%      contains the extents of any highlighting rectangle.
+%
+%
+*/
+static void XHighlightRegion(display,window,graphic_context,highlight_info)
+Display
+X  *display;
+X
+Window
+X  window;
+X
+GC
+X  graphic_context;
+X
+RectangleInfo
+X  *highlight_info;
+{
+X  static unsigned long
+X    plane_masks[8]=
+X    {
+X      0x01010101,
+X      0x02020203,
+X      0x04040405,
+X      0x08080809,
+X      0x10101011,
+X      0x20202021,
+X      0x40404041,
+X      0x80808081
+X    };
+X
+X  register int
+X    i;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  /*
+X    Flash a border around the region defined by highlight_info.
+X  */
+X  (void) XGetGCValues(display,graphic_context,GCPlaneMask,
+X    &graphic_context_value);
+X  for (i=0; i < 16; i++)
+X  {
+X    XSetPlaneMask(display,graphic_context,plane_masks[i & 0x07]);
+X    XDrawRectangle(display,window,graphic_context,highlight_info->x,
+X      highlight_info->y,highlight_info->width-1,highlight_info->height-1);
+X    XFlush(display);
+X    XDrawRectangle(display,window,graphic_context,highlight_info->x,
+X      highlight_info->y,highlight_info->width-1,highlight_info->height-1);
+X    XFlush(display);
+X  }
+X  /*
+X    Restore oginginal plane mask setting.
+X  */
+X  XSetPlaneMask(display,graphic_context,graphic_context_value.plane_mask);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e I m a g e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeImage creates an X11 image.  If the image size differs from
+%  the X11 image size, the image is first resized.
+%
+%  The format of the XMakeImage routine is:
+%
+%      status=XMakeImage(display,resource_info,window,image,width,height)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function XMakeImage returns True if the X image is
+%      successfully created.  False is returned is there is a memory shortage.
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%    o width: Specifies the width in pixels of the rectangular area to
+%      display.
+%
+%    o height: Specifies the height in pixels of the rectangular area to
+%      display.
+%
+%
+*/
+unsigned int XMakeImage(display,resource_info,window,image,width,height)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindowInfo
+X  *window;
+X
+Image
+X  *image;
+X
+unsigned int
+X  width,
+X  height;
+{
+X  Image
+X    *transformed_image;
+X
+X  int
+X    format;
+X
+X  XImage
+X    *ximage;
+X
+X  if ((window->width == 0) || (window->height == 0))
+X    return(False);
+X  /*
+X    Display busy cursor.
+X  */
+X  XDefineCursor(display,window->id,window->busy_cursor);
+X  XFlush(display);
+X  transformed_image=image;
+X  if (image != (Image *) NULL)
+X    {
+X      /*
+X        Apply user transforms to the image.
+X      */
+X      if (window->clip_geometry)
+X        {
+X          Image
+X            *clipped_image;
+X
+X          RectangleInfo
+X            clip_info;
+X
+X          /*
+X            Clip image.
+X          */
+X          (void) XParseGeometry(window->clip_geometry,&clip_info.x,&clip_info.y,
+X            &clip_info.width,&clip_info.height);
+X          transformed_image->orphan=True;
+X          clipped_image=ClipImage(transformed_image,&clip_info);
+X          transformed_image->orphan=False;
+X          if (transformed_image != image)
+X            DestroyImage(transformed_image);
+X          if (clipped_image == (Image *) NULL)
+X            return(False);
+X          transformed_image=clipped_image;
+X        }
+X      if ((width != transformed_image->columns) ||
+X          (height != transformed_image->rows))
+X        {
+X          Image
+X            *scaled_image;
+X
+X          /*
+X            Scale image.
+X          */
+X          transformed_image->orphan=True;
+X          scaled_image=ScaleImage(transformed_image,width,height);
+X          transformed_image->orphan=False;
+X          if (transformed_image != image)
+X            DestroyImage(transformed_image);
+X          if (scaled_image == (Image *) NULL)
+X            return(False);
+X          transformed_image=scaled_image;
+X        }
+X      width=transformed_image->columns;
+X      height=transformed_image->rows;
+X    }
+X  /*
+X    Create X image.
+X  */
+X  format=(window->depth == 1) ? XYBitmap : ZPixmap;
+X  ximage=XCreateImage(display,window->visual_info->visual,window->depth,format,
+X    0,(char *) NULL,width,height,XBitmapPad(display),0);
+X  if (ximage == (XImage *) NULL)
+X    {
+X      /*
+X        Unable to create X image.
+X      */
+X      XDefineCursor(display,window->id,window->cursor);
+X      return(False);
+X    }
+X  if (resource_info->debug)
+X    {
+X      (void) fprintf(stderr,"XImage:\n");
+X      (void) fprintf(stderr,"  width, height: %dx%d\n",ximage->width,
+X        ximage->height);
+X      (void) fprintf(stderr,"  format: %d\n",ximage->format);
+X      (void) fprintf(stderr,"  byte order: %d\n",ximage->byte_order);
+X      (void) fprintf(stderr,"  bitmap unit, bit order, pad: %d %d %d\n",
+X        ximage->bitmap_unit,ximage->bitmap_bit_order,ximage->bitmap_pad);
+X      (void) fprintf(stderr,"  depth: %d\n",ximage->depth);
+X      (void) fprintf(stderr,"  bytes per line: %d\n",ximage->bytes_per_line);
+X      (void) fprintf(stderr,"  bits per pixel: %d\n",ximage->bits_per_pixel);
+X      (void) fprintf(stderr,"  red, green, blue masks: 0x%lx 0x%lx 0x%lx\n",
+X        ximage->red_mask,ximage->green_mask,ximage->blue_mask);
+X    }
+X  /*
+X    Allocate X image pixel data.
+X  */
+X  if (ximage->format == XYBitmap)
+X    ximage->data=(char *)
+X      malloc(ximage->bytes_per_line*ximage->height*ximage->depth);
+X  else
+X    ximage->data=(char *) malloc(ximage->bytes_per_line*ximage->height);
+X  if (ximage->data == (char *) NULL)
+X    {
+X      /*
+X        Unable to allocate pixel data.
+X      */
+X      XDestroyImage(ximage);
+X      XDefineCursor(display,window->id,window->cursor);
+X      return(False);
+X    }
+X  if (window->ximage != (XImage *) NULL)
+X    XDestroyImage(window->ximage);
+X  window->ximage=ximage;
+X  if (image == (Image *) NULL)
+X    {
+X      XDefineCursor(display,window->id,window->cursor);
+X      return(True);
+X    }
+X  /*
+X    Convert runlength-encoded pixels to X image data.
+X  */
+X  if ((ximage->byte_order == LSBFirst) ||
+X      ((ximage->format == XYBitmap) && (ximage->bitmap_bit_order == LSBFirst)))
+X    XMakeImageLSBFirst(window,transformed_image,ximage);
+X  else
+X    XMakeImageMSBFirst(window,transformed_image,ximage);
+X  if (transformed_image != image)
+X    DestroyImage(transformed_image);
+X  /*
+X    Restore cursor.
+X  */
+X  XDefineCursor(display,window->id,window->cursor);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e I m a g e L S B F i r s t                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeImageLSBFirst initializes the pixel data of an X11 Image.
+%  The X image pixels are copied in least-significant bit and byte first
+%  order.  The server's scanline pad is respected.  Rather than using one or
+%  two general cases, many special cases are found here to help speed up the
+%  image conversion.
+%
+%  The format of the XMakeImageLSBFirst routine is:
+%
+%      XMakeImageLSBFirst(window,image,ximage)
+%
+%  A description of each parameter follows:
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%    o ximage: Specifies a pointer to a XImage structure;  returned from
+%      XCreateImage.
+%
+%
+*/
+static void XMakeImageLSBFirst(window,image,ximage)
+XXWindowInfo
+X  *window;
+X
+Image
+X  *image;
+X
+XXImage
+X  *ximage;
+{
+X  register int
+X    i,
+X    j,
+X    x;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  register unsigned long
+X    pixel;
+X
+X  unsigned int
+X    scanline_pad;
+X
+X  unsigned long
+X    *pixels;
+X
+X  pixels=window->pixel_info->pixels;
+X  p=image->pixels;
+X  q=(unsigned char *) ximage->data;
+X  x=0;
+X  if (ximage->format == XYBitmap)
+X    {
+X      register unsigned char
+X        background,
+X        bit,
+X        byte,
+X        foreground;
+X
+X      register unsigned short
+X        polarity;
+X
+X      /*
+X        Convert image to big-endian bitmap.
+X      */
+X      background=(Intensity(window->pixel_info->foreground_color) >
+X        Intensity(window->pixel_info->background_color) ? 1 : 0) << 7;
+X      foreground=(Intensity(window->pixel_info->background_color) >
+X        Intensity(window->pixel_info->foreground_color) ? 1 : 0) << 7;
+X      polarity=Intensity(image->colormap[0]) > Intensity(image->colormap[1]);
+X      scanline_pad=ximage->bytes_per_line-(ximage->width >> 3);
+X      bit=0;
+X      byte=0;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          byte>>=1;
+X          if (p->index == polarity)
+X            byte|=foreground;
+X          else
+X            byte|=background;
+X          bit++;
+X          if (bit == 8)
+X            {
+X              *q++=byte;
+X              bit=0;
+X              byte=0;
+X            }
+X          x++;
+X          if (x == ximage->width)
+X            {
+X              /*
+X                Advance to the next scanline.
+X              */
+X              if (bit != 0)
+X                *q=byte >> (8-bit);
+X              q+=scanline_pad;
+X              bit=0;
+X              byte=0;
+X              x=0;
+X            }
+X        }
+X        p++;
+X      }
+X    }
+X  else
+X    {
+X      XStandardColormap
+X        *map_info;
+X
+X      /*
+X        Convert image to little-endian color-mapped X image.
+X      */
+X      map_info=window->map_info;
+X      scanline_pad=ximage->bytes_per_line-
+X        ((ximage->width*ximage->bits_per_pixel) >> 3);
+X      if (window->pixel_info->colors != 0)
+X        switch (ximage->bits_per_pixel)
+X        {
+X          case 2:
+X          {
+X            register unsigned int
+X              nibble;
+X
+X            /*
+X              Convert to 2 bit color-mapped X image.
+X            */
+X            nibble=0;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index] & 0xf;
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                switch (nibble)
+X                {
+X                  case 0:
+X                  {
+X                    *q=(unsigned char) pixel;
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 1:
+X                  {
+X                    *q|=(unsigned char) (pixel << 2);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 2:
+X                  {
+X                    *q|=(unsigned char) (pixel << 4);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 3:
+X                  {
+X                    *q|=(unsigned char) (pixel << 6);
+X                    q++;
+X                    nibble=0;
+X                    break;
+X                  }
+X                }
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    nibble=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          case 4:
+X          {
+X            register unsigned int
+X              nibble;
+X
+X            /*
+X              Convert to 4 bit color-mapped X image.
+X            */
+X            nibble=0;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index] & 0xf;
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                switch (nibble)
+X                {
+X                  case 0:
+X                  {
+X                    *q=(unsigned char) pixel;
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 1:
+X                  {
+X                    *q|=(unsigned char) (pixel << 4);
+X                    q++;
+X                    nibble=0;
+X                    break;
+X                  }
+X                }
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    nibble=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          case 6:
+X          case 8:
+X          {
+X            /*
+X              Convert to 8 bit color-mapped X image.
+X            */
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index];
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                *q++=(unsigned char) pixel;
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          default:
+X          {
+X            register int
+X              k;
+X
+X            register unsigned int
+X              bytes_per_pixel;
+X
+X            unsigned char
+X              channel[sizeof(unsigned long)];
+X
+X            /*
+X              Convert to multi-byte color-mapped X image.
+X            */
+X            bytes_per_pixel=ximage->bits_per_pixel >> 3;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index];
+X              for (k=0; k < bytes_per_pixel; k++)
+X              {
+X                channel[k]=(unsigned char) pixel;
+X                pixel>>=8;
+X              }
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                for (k=0; k < bytes_per_pixel; k++)
+X                  *q++=channel[k];
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X        }
+X      else
+X        {
+X          /*
+X            Convert image to little-endian continuous-tone X image.
+X          */
+X          switch (ximage->bits_per_pixel)
+X          {
+X            case 2:
+X            {
+X              register unsigned int
+X                nibble;
+X
+X              /*
+X                Convert to contiguous 2 bit continuous-tone X image.
+X              */
+X              nibble=0;
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                pixel&=0xf;
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  switch (nibble)
+X                  {
+X                    case 0:
+X                    {
+X                      *q=(unsigned char) pixel;
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 1:
+X                    {
+X                      *q|=(unsigned char) (pixel << 2);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 2:
+X                    {
+X                      *q|=(unsigned char) (pixel << 4);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 3:
+X                    {
+X                      *q|=(unsigned char) (pixel << 6);
+X                      q++;
+X                      nibble=0;
+X                      break;
+X                    }
+X                  }
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      nibble=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            case 4:
+X            {
+X              register unsigned int
+X                nibble;
+X
+X              /*
+X                Convert to contiguous 4 bit continuous-tone X image.
+X              */
+X              nibble=0;
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                pixel&=0xf;
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  switch (nibble)
+X                  {
+X                    case 0:
+X                    {
+X                      *q=(unsigned char) pixel;
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 1:
+X                    {
+X                      *q|=(unsigned char) (pixel << 4);
+X                      q++;
+X                      nibble=0;
+X                      break;
+X                    }
+X                  }
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      nibble=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            case 6:
+X            case 8:
+X            {
+X              /*
+X                Convert to contiguous 8 bit continuous-tone X image.
+X              */
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  *q++=(unsigned char) pixel;
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            default:
+X            {
+X              if ((ximage->bits_per_pixel == 32) &&
+X                  (map_info->red_max == 255) &&
+X                  (map_info->green_max == 255) &&
+X                  (map_info->blue_max == 255) &&
+X                  (map_info->red_mult == 65536) &&
+X                  (map_info->green_mult == 256) &&
+X                  (map_info->blue_mult == 1))
+X                {
+X                  /*
+X                    Convert to 32 bit continuous-tone X image.
+X                  */
+X                  for (i=0; i < image->packets; i++)
+X                  {
+X                    for (j=0; j <= ((int) p->length); j++)
+X                    {
+X                      *q++=p->blue;
+X                      *q++=p->green;
+X                      *q++=p->red;
+X                      *q++=0;
+X                    }
+X                    p++;
+X                  }
+X                }
+X              else
+X                {
+X                  register int
+X                    k;
+X
+X                  register unsigned int
+X                    bytes_per_pixel;
+X
+X                  unsigned char
+X                    channel[sizeof(unsigned long)];
+X
+X                  /*
+X                    Convert to multi-byte continuous-tone X image.
+X                  */
+X                  bytes_per_pixel=ximage->bits_per_pixel >> 3;
+X                  for (i=0; i < image->packets; i++)
+X                  {
+X                    pixel=XStandardPixel(map_info,(*p),8);
+X                    for (k=0; k < bytes_per_pixel; k++)
+X                    {
+X                      channel[k]=(unsigned char) pixel;
+X                      pixel>>=8;
+X                    }
+X                    for (j=0; j <= ((int) p->length); j++)
+X                    {
+X                      for (k=0; k < bytes_per_pixel; k++)
+X                        *q++=channel[k];
+X                      x++;
+X                      if (x == ximage->width)
+X                        {
+X                          x=0;
+X                          q+=scanline_pad;
+X                        }
+X                    }
+X                    p++;
+X                  }
+X                }
+X              break;
+X            }
+X          }
+X        }
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X M a k e I m a g e M S B F i r s t                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XMakeImageMSBFirst initializes the pixel data of an X11 Image.
+%  The X image pixels are copied in most-significant bit and byte first order.
+%  The server's scanline pad is also resprected. Rather than using one or two
+%  general cases, many special cases are found here to help speed up the image
+%  conversion.
+%
+%  The format of the XMakeImageMSBFirst routine is:
+%
+%      XMakeImageMSBFirst(window,image,ximage)
+%
+%  A description of each parameter follows:
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%    o ximage: Specifies a pointer to a XImage structure;  returned from
+%      XCreateImage.
+%
+%
+*/
+static void XMakeImageMSBFirst(window,image,ximage)
+XXWindowInfo
+X  *window;
+X
+Image
+X  *image;
+X
+XXImage
+X  *ximage;
+{
+X  register int
+X    i,
+X    j,
+X    x;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  register unsigned long
+X    pixel;
+X
+X  unsigned int
+X    scanline_pad;
+X
+X  unsigned long
+X    *pixels;
+X
+X  pixels=window->pixel_info->pixels;
+X  p=image->pixels;
+X  q=(unsigned char *) ximage->data;
+X  x=0;
+X  if (ximage->format == XYBitmap)
+X    {
+X      register unsigned char
+X        background,
+X        bit,
+X        byte,
+X        foreground;
+X
+X      register unsigned short
+X        polarity;
+X
+X      /*
+X        Convert image to big-endian bitmap.
+X      */
+X      background=(Intensity(window->pixel_info->foreground_color) >
+X        Intensity(window->pixel_info->background_color));
+X      foreground=(Intensity(window->pixel_info->background_color) >
+X        Intensity(window->pixel_info->foreground_color));
+X      polarity=Intensity(image->colormap[0]) > Intensity(image->colormap[1]);
+X      scanline_pad=ximage->bytes_per_line-(ximage->width >> 3);
+X      bit=0;
+X      byte=0;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          byte<<=1;
+X          if (p->index == polarity)
+X            byte|=foreground;
+X          else
+X            byte|=background;
+X          bit++;
+X          if (bit == 8)
+X            {
+X              *q++=byte;
+X              bit=0;
+X              byte=0;
+X            }
+X          x++;
+X          if (x == ximage->width)
+X            {
+X              /*
+X                Advance to the next scanline.
+X              */
+X              if (bit != 0)
+X                *q=byte << (8-bit);
+X              q+=scanline_pad;
+X              bit=0;
+X              byte=0;
+X              x=0;
+X            }
+X        }
+X        p++;
+X      }
+X    }
+X  else
+X    {
+X      XStandardColormap
+X        *map_info;
+X
+X      /*
+X        Convert image to big-endian X image.
+X      */
+X      map_info=window->map_info;
+X      scanline_pad=ximage->bytes_per_line-
+X        ((ximage->width*ximage->bits_per_pixel) >> 3);
+X      if (window->pixel_info->colors != 0)
+X        switch (ximage->bits_per_pixel)
+X        {
+X          case 2:
+X          {
+X            register unsigned int
+X              nibble;
+X
+X            /*
+X              Convert to 2 bit color-mapped X image.
+X            */
+X            nibble=0;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index] & 0xf;
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                switch (nibble)
+X                {
+X                  case 0:
+X                  {
+X                    *q=(unsigned char) (pixel << 6);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 1:
+X                  {
+X                    *q|=(unsigned char) (pixel << 4);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 2:
+X                  {
+X                    *q|=(unsigned char) (pixel << 2);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 3:
+X                  {
+X                    *q|=(unsigned char) pixel;
+X                    q++;
+X                    nibble=0;
+X                    break;
+X                  }
+X                }
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    nibble=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          case 4:
+X          {
+X            register unsigned int
+X              nibble;
+X
+X            /*
+X              Convert to 4 bit color-mapped X image.
+X            */
+X            nibble=0;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index] & 0xf;
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                switch (nibble)
+X                {
+X                  case 0:
+X                  {
+X                    *q=(unsigned char) (pixel << 4);
+X                    nibble++;
+X                    break;
+X                  }
+X                  case 1:
+X                  {
+X                    *q|=(unsigned char) pixel;
+X                    q++;
+X                    nibble=0;
+X                    break;
+X                  }
+X                }
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    nibble=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          case 8:
+X          {
+X            /*
+X              Convert to 8 bit color-mapped X image.
+X            */
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index];
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                *q++=(unsigned char) pixel;
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X          default:
+X          {
+X            register int
+X              k;
+X
+X            register unsigned int
+X              bytes_per_pixel;
+X
+X            unsigned char
+X              channel[sizeof(unsigned long)];
+X
+X            /*
+X              Convert to 8 bit color-mapped X image.
+X            */
+X            bytes_per_pixel=ximage->bits_per_pixel >> 3;
+X            for (i=0; i < image->packets; i++)
+X            {
+X              pixel=pixels[p->index];
+X              for (k=bytes_per_pixel-1; k >= 0; k--)
+X              {
+X                channel[k]=(unsigned char) pixel;
+X                pixel>>=8;
+X              }
+X              for (j=0; j <= ((int) p->length); j++)
+X              {
+X                for (k=0; k < bytes_per_pixel; k++)
+X                  *q++=channel[k];
+X                x++;
+X                if (x == ximage->width)
+X                  {
+X                    x=0;
+X                    q+=scanline_pad;
+X                  }
+X              }
+X              p++;
+X            }
+X            break;
+X          }
+X        }
+X      else
+X        {
+X          /*
+X            Convert to big-endian continuous-tone X image.
+X          */
+X          switch (ximage->bits_per_pixel)
+X          {
+X            case 2:
+X            {
+X              register unsigned int
+X                nibble;
+X
+X              /*
+X                Convert to 4 bit continuous-tone X image.
+X              */
+X              nibble=0;
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                pixel&=0xf;
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  switch (nibble)
+X                  {
+X                    case 0:
+X                    {
+X                      *q=(unsigned char) (pixel << 6);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 1:
+X                    {
+X                      *q|=(unsigned char) (pixel << 4);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 2:
+X                    {
+X                      *q|=(unsigned char) (pixel << 2);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 3:
+X                    {
+X                      *q|=(unsigned char) pixel;
+X                      q++;
+X                      nibble=0;
+X                      break;
+X                    }
+X                  }
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      nibble=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            case 4:
+X            {
+X              register unsigned int
+X                nibble;
+X
+X              /*
+X                Convert to 4 bit continuous-tone X image.
+X              */
+X              nibble=0;
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                pixel&=0xf;
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  switch (nibble)
+X                  {
+X                    case 0:
+X                    {
+X                      *q=(unsigned char) (pixel << 4);
+X                      nibble++;
+X                      break;
+X                    }
+X                    case 1:
+X                    {
+X                      *q|=(unsigned char) pixel;
+X                      q++;
+X                      nibble=0;
+X                      break;
+X                    }
+X                  }
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      nibble=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            case 8:
+X            {
+X              /*
+X                Convert to 8 bit continuous-tone X image.
+X              */
+X              for (i=0; i < image->packets; i++)
+X              {
+X                pixel=XStandardPixel(map_info,(*p),8);
+X                for (j=0; j <= ((int) p->length); j++)
+X                {
+X                  *q++=(unsigned char) pixel;
+X                  x++;
+X                  if (x == ximage->width)
+X                    {
+X                      x=0;
+X                      q+=scanline_pad;
+X                    }
+X                }
+X                p++;
+X              }
+X              break;
+X            }
+X            default:
+X            {
+X              if ((ximage->bits_per_pixel == 32) &&
+X                  (map_info->red_max == 255) &&
+X                  (map_info->green_max == 255) &&
+X                  (map_info->blue_max == 255) &&
+X                  (map_info->red_mult == 65536) &&
+X                  (map_info->green_mult == 256) &&
+X                  (map_info->blue_mult == 1))
+X                {
+X                  /*
+X                    Convert to 32 bit continuous-tone X image.
+X                  */
+X                  for (i=0; i < image->packets; i++)
+X                  {
+X                    for (j=0; j <= ((int) p->length); j++)
+X                    {
+X                      *q++=0;
+X                      *q++=p->red;
+X                      *q++=p->green;
+X                      *q++=p->blue;
+X                    }
+X                    p++;
+X                  }
+X                }
+X              else
+X                {
+X                  register int
+X                    k;
+X
+X                  register unsigned int
+X                    bytes_per_pixel;
+X
+X                  unsigned char
+X                    channel[sizeof(unsigned long)];
+X
+X                  /*
+X                    Convert to multi-byte continuous-tone X image.
+X                  */
+X                  bytes_per_pixel=ximage->bits_per_pixel >> 3;
+X                  for (i=0; i < image->packets; i++)
+SHAR_EOF
+true || echo 'restore of ImageMagick/X.c failed'
+fi
+echo 'End of ImageMagick part 10'
+echo 'File ImageMagick/X.c is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

@@ -1,0 +1,2544 @@
+Newsgroups: comp.sources.misc
+From: casey@gauss.llnl.gov (Casey Leedom)
+Subject: v38i108:  lic - LLNL Line Integral Convolution, v1.2, Part05/10
+Message-ID: <1993Aug12.013850.14159@sparky.sterling.com>
+X-Md4-Signature: fa57ed27a0dfb0a6ea8b2945d6efcaa1
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 12 Aug 1993 01:38:50 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: casey@gauss.llnl.gov (Casey Leedom)
+Posting-number: Volume 38, Issue 108
+Archive-name: lic/part05
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lic.1.2/avs/LIC.c lic.1.2/doc/siggraph93/paper.ps.A
+# Wrapped by kent@sparky on Wed Aug 11 19:38:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 10)."'
+if test -f 'lic.1.2/avs/LIC.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.2/avs/LIC.c'\"
+else
+  echo shar: Extracting \"'lic.1.2/avs/LIC.c'\" \(14330 characters\)
+  sed "s/^X//" >'lic.1.2/avs/LIC.c' <<'END_OF_FILE'
+X/*
+X * $Header: /d/sisal/a/casey/tmp/lic/avs/RCS/LIC.c,v 1.18 1993/08/11 17:25:35 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+X    static char rcsid[] = "$Header: /d/sisal/a/casey/tmp/lic/avs/RCS/LIC.c,v 1.18 1993/08/11 17:25:35 casey Exp $";
+X    static char copyright[] =
+X	"Copyright (c) 1993 The Regents of the University of California.\n"
+X	"All rights reserved.\n";
+X#endif
+X
+X
+X/*
+X * AVS coroutine module interface to the LIC library.  Only handles
+X * two-dimensional input and output fields.
+X */
+X
+X
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <errno.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include <time.h>
+X#include <sys/times.h>
+X#include <sys/types.h>
+X
+X#include <math.h>
+X
+X#include <avs/avs.h>
+X#include <avs/field.h>
+X
+X#include <lic.h>
+X
+X
+X#ifndef M_PI
+X#   define M_PI  3.141592653589793116
+X#endif
+X
+X
+X#ifdef OUTPUT_INTERMEDIATE_RESULTS
+X    AVSfield_char *OutputImage;
+X#endif
+X
+X
+X#define LIC_ANIMATION_FRAMES	10	/* number of frames in an animation */
+X
+X
+X/*
+X * Local support routines.
+X */
+Xstatic int  DescribeModule(void);
+Xstatic void UpdateStatus(double percent);
+Xstatic void ReportError(const char *message);
+X
+X
+Xint
+Xmain(int argc, char *argv[])
+X    /*
+X     * LIC AVS coroutine module main.
+X     */
+X{
+X    long clk_tck = sysconf(_SC_CLK_TCK);
+X
+X    /*
+X     * Tell AVS who and what we are.
+X     */
+X    AVScorout_init(argc, argv, DescribeModule);
+X
+X    /*
+X     * Loop forever waiting on module inputs and parameter changes.  For each
+X     * loop where both inputs are available, run LIC over them with the
+X     * current parameters.
+X     */
+X    while (TRUE)
+X    {
+X	float           ncells;
+X	int             p;
+X	LIC            *LICinstance;
+X
+X	/*
+X	 * AVS interface input parameters.
+X	 */
+X	AVSfield_char  *itexture, *oimage;
+X	AVSfield_float *ifield;
+X	int             length;
+X	float          *frequency;
+X	int             Vlength;
+X	int             Vspeed;
+X	char           *filter_name, *normalization_name;
+X	int             animate;
+X	int             Dr, Dg, Db, Da;
+X
+X	/*
+X	 * Decoded AVS parameters and dummy placeholder.
+X	 */
+X	char           *dummy;
+X	LIC_Filter      filter;
+X	int             normalization;
+X
+X	/* Wait for either a parameter change or input change */
+X	AVScorout_wait();
+X
+X	/* Fetch the module inputs */
+X	(void)AVScorout_input(&itexture, &ifield,
+X			      &dummy, &filter_name,
+X			      &dummy, &normalization_name,
+X			      &dummy, &length, &frequency, &Vlength, &Vspeed,
+X			      &dummy, &animate,
+X			      &dummy, &Dr, &Dg, &Db, &Da,
+X			      &dummy);
+X
+X
+X	/* decode filter type -- BOX is the default */
+X	if (strcmp(filter_name, "Box") == 0)
+X	    filter = LIC_Box;
+X	else if (strcmp(filter_name, "Ripple") == 0)
+X	    filter = LIC_Ripple;
+X	else if (strcmp(filter_name, "Ramp") == 0)
+X	    filter = LIC_Ramp;
+X	else if (strcmp(filter_name, "Selection") == 0)
+X	    filter = LIC_Select;
+X	else
+X	    filter = LIC_Box;
+X
+X	/* decode normalization type -- VARIABLE is the default */
+X	if (strcmp(normalization_name, "Variable") == 0)
+X	    normalization = LIC_VARIABLE;
+X	else if (strcmp(normalization_name, "Fixed") == 0)
+X	    normalization = LIC_FIXED;
+X	else
+X	    normalization = LIC_VARIABLE;
+X
+X	if (AVSparameter_changed("Filter type"))
+X	{
+X	    /* change visibility of interface options based on filter type */
+X	    if (filter == LIC_Ripple)
+X	    {
+X		AVSparameter_visible("Frequency",                TRUE);
+X		AVSparameter_visible("Variable speed filtering", TRUE);
+X		AVSparameter_visible("Animate",                  TRUE);
+X	    }
+X	    else
+X	    {
+X		AVSparameter_visible("Frequency",                FALSE);
+X		AVSparameter_visible("Variable speed filtering", FALSE);
+X		AVSparameter_visible("Animate",                  FALSE);
+X	    }
+X	}
+X
+X	/* Don't really compute until we have both our input streams */
+X	if (itexture == NULL  || ifield == NULL)
+X	    continue;
+X
+X	ncells = MAXX(ifield) * MAXY(ifield);
+X
+X	/*
+X	 * Allocate space for output image, label it and set its extents.
+X	 */
+X	{
+X	    int dims[2];
+X	    float min_extent[2], max_extent[2];
+X
+X	    dims[0] = MAXX(ifield);
+X	    dims[1] = MAXY(ifield);
+X	    oimage = (AVSfield_char *)
+X		AVSdata_alloc("field 2D 4-vector 2-space byte", dims);
+X	    AVSfield_set_labels((AVSfield *)oimage, "alpha;red;green;blue", ";");
+X	    min_extent[0] = 0.0;
+X	    max_extent[0] = (float) MAXX(oimage) - 1.0;
+X	    min_extent[1] = 0.0;
+X	    max_extent[1] = (float) MAXY(oimage) - 1.0;
+X	    AVSfield_set_extent((AVSfield *)oimage, min_extent, max_extent);
+X#	    ifdef OUTPUT_INTERMEDIATE_RESULTS
+X		OutputImage = oimage;
+X#	    endif
+X	}
+X
+X	/*
+X	 * Allow animation if and only if using the ripple filter ...
+X	 */
+X	animate = animate && (filter == LIC_Ripple);
+X
+X	/*
+X	 * Create an instance of the Line Integral Convolver object
+X	 */
+X	LICinstance =
+X	    LIC_Create(itexture->data, MAXX(itexture), MAXY(itexture), 1,
+X		       ifield->data,   MAXX(ifield),   MAXY(ifield),   1,
+X		       oimage->data,
+X		       filter,
+X		       normalization,
+X		       FALSE,
+X		       (double)length,
+X		       (double)*frequency,
+X		       Vlength,
+X		       Vspeed && (filter == LIC_Ripple),
+X		       Dr, Dg, Db, Da,
+X		       UpdateStatus,
+X		       ReportError);
+X
+X
+X	/*
+X	 * Loop over all the phases if the animate flag is true
+X	 * else only do one iteration with p == 0.
+X	 */
+X	for (p = 0; animate ? p < LIC_ANIMATION_FRAMES : p == 0; p++)
+X	{
+X#if defined(HAS_OLD_TIMES)
+X	    time_t     t0;
+X#endif
+X	    clock_t    t0_clk, tN_clk;
+X	    struct tms t0_tms, tN_tms;
+X	    double     wall, cpu;
+X	    char       PerformanceString[256];
+X
+X	    LIC_ChangePhase(LICinstance, (double)p/LIC_ANIMATION_FRAMES * 2*M_PI);
+X
+X	    /*
+X	     * Build integral tables here so the build isn't computed as part
+X	     * of time to compute the image.
+X	     */
+X	    LIC_BuildIntegralTables(LICinstance);
+X
+X	    /*
+X	     * Set the LIC performance counters to zero and grab the start
+X	     * time.
+X	     */
+X	    LICinstance->TotalLoopCount = 0;
+X	    LICinstance->TotalLength    = 0;
+X#if defined(HAS_OLD_TIMES)
+X	    t0 = time(NULL);
+X#endif
+X	    t0_clk = times(&t0_tms);
+X
+X	    /*
+X	     * Do the Line Integral Convolutions over the entire input data set
+X	     */
+X	    LIC_ComputeImage(LICinstance);
+X
+X	    /*
+X	     * Grab termination time and output performance statistics.
+X	     */
+X	    tN_clk = times(&tN_tms);
+X#if defined(HAS_OLD_TIMES)
+X	    wall   = (double)(time(NULL)       - t0);
+X#else
+X	    wall   = (double)(tN_clk           - t0_clk          )/clk_tck;
+X#endif
+X	    cpu    = (double)(tN_tms.tms_utime - t0_tms.tms_utime)/clk_tck;
+X	    if (wall == 0.0)
+X		wall = 1.0e-6;
+X	    if (cpu == 0.0)
+X		cpu  = 1.0e-6;
+X	    sprintf(PerformanceString,
+X		    "Performance statistics\n"
+X		    "--------------------------------\n"
+X		    "Iteration = %d\n"
+X		    "CPU utilization = %d%%\n"
+X		    "CPU time (seconds) = %.2f\n"
+X		    "Cells processed per second = %.2f\n"
+X		    "Ave loop count = %.2f\n"
+X		    "Ave length = %.2f\n",
+X		    p,
+X		    (int)(cpu/wall*100),
+X		    cpu,
+X		    ncells / cpu,
+X		    (float)LICinstance->TotalLoopCount / ncells / 2,
+X		    (float)LICinstance->TotalLength    / ncells / 2);
+X	    AVSmodify_parameter("Performance stats", AVS_VALUE,
+X				PerformanceString, 0, 0);
+X
+X	    /* Flush AVS's output port */
+X	    AVScorout_output(oimage);
+X	}
+X
+X	/*
+X	 * Destroy the LIC object, free the output image memory and loop
+X	 * back for another round of watching our inputs and parameters ...
+X	 */
+X	LIC_Destroy(LICinstance);
+X	AVSdata_free("field", (char *)oimage);
+X    }
+X    /*NOTREACHED*/
+X}
+X
+X
+Xstatic int
+XDescribeModule(void)
+X    /*
+X     * AVS LIC coroutine module description.
+X     */
+X{
+X    AVSset_module_name("LIC", MODULE_MAPPER);
+X
+X    /*
+X     * Create ports for the required input and output fields.
+X     */
+X    AVScreate_input_port("Input Texture", "field 4-vector byte", OPTIONAL);
+X    AVScreate_input_port("Input Field", "field 2D 2-vector float", OPTIONAL);
+X    AVScreate_output_port("Output Image", "field 2D 4-vector 2-space byte");
+X
+X    /*
+X     * Create input parameters to widgets.
+X     * -----------------------------------
+X     */
+X
+X    /*
+X     * Basic filter type and normalization.
+X     */
+X    AVSadd_parameter("Label 1", "string_block", "Filter type", 0, 0);
+X    AVSadd_parameter("Filter type", "choice", "Box", "Box!Ripple!Ramp!Select", "!");
+X    AVSadd_parameter("Label 2", "string_block", "Normalization type", 0, 0);
+X    AVSadd_parameter("Normalization type", "choice", "Variable",
+X		     "Fixed!Variable", "!");
+X
+X    /*
+X     * Filter control: length, frequency, variable length and variable speed.
+X     */
+X    AVSadd_parameter("Label 3", "string_block", "Filter control", 0, 0);
+X    AVSadd_parameter("Length", "integer", 10, 0, 1000);
+X    AVSadd_float_parameter("Frequency", 3.0, 0.001, 100.0);
+X    AVSadd_parameter("Variable length filtering", "boolean", FALSE, FALSE,
+X		     TRUE);
+X    AVSadd_parameter("Variable speed filtering", "boolean", FALSE, FALSE,
+X		     TRUE);
+X
+X    /*
+X     * Animation control.
+X     */
+X    AVSadd_parameter("Label 4", "string_block", "Animation control", 0, 0);
+X    AVSadd_parameter("Animate", "boolean", FALSE, FALSE, TRUE);
+X
+X    /*
+X     * Default pixel value for zero vectors.
+X     */
+X    AVSadd_parameter("Label 5", "string_block", "Default pixel value", 0, 0);
+X    AVSadd_parameter("Red",   "integer", -1, -1, 255);
+X    AVSadd_parameter("Green", "integer", -1, -1, 255);
+X    AVSadd_parameter("Blue",  "integer", -1, -1, 255);
+X    AVSadd_parameter("Alpha", "integer", -1, -1, 255);
+X
+X    /*
+X     * Performance display.
+X     */
+X    AVSadd_parameter("Performance stats", "string_block",
+X		     "Performance statistics\n"
+X		     "-----------------------------",
+X		     0, 0);
+X
+X    /*
+X     * Create widgets and bind them to the above parameters.
+X     * -----------------------------------------------------
+X     */
+X
+X#define MM(widget, pos, vis, type) \
+X    " manipulator $Module:\"" widget "\"" \
+X    " -w " type " -p $Module -xy " pos " " vis "\n"
+X
+X#define MM_LABEL( widget, pos, vis) MM(widget, pos, vis, "textblock")
+X#define MM_RADIO( widget, pos, vis) MM(widget, pos, vis, "radio_buttons")
+X#define MM_TOGGLE(widget, pos, vis) MM(widget, pos, vis, "toggle")
+X#define MM_INT(   widget, pos, vis) MM(widget, pos, vis, "typein_integer")
+X#define MM_REAL(  widget, pos, vis) MM(widget, pos, vis, "typein_real")
+X
+X    AVSadd_parameter_prop(0, "layout", "string_block",
+X	"panel $Module -w panel -p \"Top Level Stack\" -wh 210,800 -xy 0,50\n"
+X	MM_LABEL ("Label 1",                   "10,12",   "-show")
+X	MM_RADIO ("Filter type",               "10,39",   "-show")
+X	MM_LABEL ("Label 2",                   "10,135",  "-show")
+X	MM_RADIO ("Normalization type",        "10,164",  "-show")
+X	MM_LABEL ("Label 3",                   "10,223",  "-show")
+X	MM_INT   ("Length",                    "10,248",  "-show")
+X	MM_REAL  ("Frequency",                 "150,248", "-hide")
+X	MM_TOGGLE("Variable length filtering", "10,274",  "-show")
+X	MM_TOGGLE("Variable speed filtering",  "10,299",  "-hide")
+X	MM_LABEL ("Label 4",                   "10,332",  "-show")
+X	MM_TOGGLE("Animate",                   "10,358",  "-hide")
+X	MM_LABEL ("Label 5",                   "10,397",  "-show")
+X	MM_INT   ("Red",                       "10,423",  "-show")
+X	MM_INT   ("Green",                     "10,449",  "-show")
+X	MM_INT   ("Blue",                      "10,475",  "-show")
+X	MM_INT   ("Alpha",                     "10,501",  "-show")
+X	MM_LABEL ("Performance stats",         "10,530",  "-show"));
+X
+X#undef MM_LABEL
+X#undef MM_RADIO
+X#undef MM_TOGGLE
+X#undef MM_INT
+X#undef MM_REAL
+X#undef MM
+X
+X    /*
+X     * The width and hieght should be controlled by the previous call,
+X     * but an AVS "layout" bug prevents this, so we do it by hand.
+X     */
+X
+X#define WH(param, w, h) \
+X    AVSadd_parameter_prop(param,  "width",  "integer", w); \
+X    AVSadd_parameter_prop(param,  "height", "integer", h);
+X
+X    WH(0,  4, 1);    WH(1,  2, 2);    WH(2,  4, 1);    WH(3,  3, 4);
+X    WH(4,  4, 1);    WH(5,  2, 1);    WH(6,  2, 1);    WH(7,  5, 1);
+X    WH(8,  5, 1);    WH(9,  4, 1);    WH(10, 3, 1);    WH(11, 4, 1);
+X    WH(12, 3, 1);    WH(13, 3, 1);    WH(14, 3, 1);    WH(15, 3, 1);
+X    WH(16, 4, 6);
+X
+X#undef WH
+X
+X    return(1);
+X}
+X
+X
+Xstatic void
+XUpdateStatus(double percent)
+X    /*
+X     * Update callback routine, used by LIC_Compute to keep the user
+X     * informed of computation progress.
+X     */
+X{
+X    char str[32];
+X
+X    sprintf(str, "Convolving  %6.2f%%", percent);
+X    AVSmodule_status(str, (int)percent);
+X
+X#   ifdef OUTPUT_INTERMEDIATE_RESULTS
+X	AVScorout_output(OutputImage);
+X#   endif
+X}
+X
+X
+Xstatic void
+XReportError(const char *message)
+X    /*
+X     * Report a LIC error by having AVS display it for us.
+X     */
+X{
+X	(void)AVSerror((char *)message);
+X}
+END_OF_FILE
+  if test 14330 -ne `wc -c <'lic.1.2/avs/LIC.c'`; then
+    echo shar: \"'lic.1.2/avs/LIC.c'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.2/avs/LIC.c'
+fi
+if test -f 'lic.1.2/doc/siggraph93/paper.ps.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.2/doc/siggraph93/paper.ps.A'\"
+else
+  echo shar: Extracting \"'lic.1.2/doc/siggraph93/paper.ps.A'\" \(47609 characters\)
+  sed "s/^X//" >'lic.1.2/doc/siggraph93/paper.ps.A' <<'END_OF_FILE'
+X%!
+X%%BoundingBox: (atend)
+X%%Pages: (atend)
+X%%DocumentFonts: (atend)
+X%%EndComments
+X%
+X% FrameMaker PostScript Prolog 3.0, for use with FrameMaker 3.0
+X% Copyright (c) 1986,87,89,90,91 by Frame Technology Corporation.
+X% All rights reserved.
+X%
+X% Known Problems:
+X%	Due to bugs in Transcript, the 'PS-Adobe-' is omitted from line 1
+X/FMversion (3.0) def 
+X% Set up Color vs. Black-and-White
+X	/FMPrintInColor systemdict /colorimage known
+X		systemdict /currentcolortransfer known or def
+X% Uncomment this line to force b&w on color printer
+X%   /FMPrintInColor false def
+X/FrameDict 195 dict def 
+Xsystemdict /errordict known not {/errordict 10 dict def
+X		errordict /rangecheck {stop} put} if
+X% The readline in 23.0 doesn't recognize cr's as nl's on AppleTalk
+XFrameDict /tmprangecheck errordict /rangecheck get put 
+Xerrordict /rangecheck {FrameDict /bug true put} put 
+XFrameDict /bug false put 
+Xmark 
+X% Some PS machines read past the CR, so keep the following 3 lines together!
+Xcurrentfile 5 string readline
+X00
+X0000000000
+Xcleartomark 
+Xerrordict /rangecheck FrameDict /tmprangecheck get put 
+XFrameDict /bug get { 
+X	/readline {
+X		/gstring exch def
+X		/gfile exch def
+X		/gindex 0 def
+X		{
+X			gfile read pop 
+X			dup 10 eq {exit} if 
+X			dup 13 eq {exit} if 
+X			gstring exch gindex exch put 
+X			/gindex gindex 1 add def 
+X		} loop
+X		pop 
+X		gstring 0 gindex getinterval true 
+X		} def
+X	} if
+X/FMVERSION {
+X	FMversion ne {
+X		/Times-Roman findfont 18 scalefont setfont
+X		100 100 moveto
+X		(FrameMaker version does not match postscript_prolog!)
+X		dup =
+X		show showpage
+X		} if
+X	} def 
+X/FMLOCAL {
+X	FrameDict begin
+X	0 def 
+X	end 
+X	} def 
+X	/gstring FMLOCAL
+X	/gfile FMLOCAL
+X	/gindex FMLOCAL
+X	/orgxfer FMLOCAL
+X	/orgproc FMLOCAL
+X	/organgle FMLOCAL
+X	/orgfreq FMLOCAL
+X	/yscale FMLOCAL
+X	/xscale FMLOCAL
+X	/manualfeed FMLOCAL
+X	/paperheight FMLOCAL
+X	/paperwidth FMLOCAL
+X/FMDOCUMENT { 
+X	array /FMfonts exch def 
+X	/#copies exch def
+X	FrameDict begin
+X	0 ne dup {setmanualfeed} if
+X	/manualfeed exch def
+X	/paperheight exch def
+X	/paperwidth exch def
+X	/yscale exch def
+X	/xscale exch def
+X	currenttransfer cvlit /orgxfer exch def
+X	currentscreen cvlit /orgproc exch def
+X	/organgle exch def /orgfreq exch def
+X	setpapername 
+X	manualfeed {true} {papersize} ifelse 
+X	{manualpapersize} {false} ifelse 
+X	{desperatepapersize} if
+X	end 
+X	} def 
+X	/pagesave FMLOCAL
+X	/orgmatrix FMLOCAL
+X	/landscape FMLOCAL
+X/FMBEGINPAGE { 
+X	FrameDict begin 
+X	/pagesave save def
+X	3.86 setmiterlimit
+X	/landscape exch 0 ne def
+X	landscape { 
+X		90 rotate 0 exch neg translate pop 
+X		}
+X		{pop pop}
+X		ifelse
+X	xscale yscale scale
+X	/orgmatrix matrix def
+X	gsave 
+X	} def 
+X/FMENDPAGE {
+X	grestore 
+X	pagesave restore
+X	end 
+X	showpage
+X	} def 
+X/FMFONTDEFINE { 
+X	FrameDict begin
+X	findfont 
+X	ReEncode 
+X	1 index exch 
+X	definefont 
+X	FMfonts 3 1 roll 
+X	put
+X	end 
+X	} def 
+X/FMFILLS {
+X	FrameDict begin
+X	array /fillvals exch def
+X	end 
+X	} def 
+X/FMFILL {
+X	FrameDict begin
+X	 fillvals 3 1 roll put
+X	end 
+X	} def 
+X/FMNORMALIZEGRAPHICS { 
+X	newpath
+X	0.0 0.0 moveto
+X	1 setlinewidth
+X	0 setlinecap
+X	0 0 0 sethsbcolor
+X	0 setgray 
+X	} bind def
+X	/fx FMLOCAL
+X	/fy FMLOCAL
+X	/fh FMLOCAL
+X	/fw FMLOCAL
+X	/llx FMLOCAL
+X	/lly FMLOCAL
+X	/urx FMLOCAL
+X	/ury FMLOCAL
+X/FMBEGINEPSF { 
+X	end 
+X	/FMEPSF save def 
+X	/showpage {} def 
+X	FMNORMALIZEGRAPHICS 
+X	[/fy /fx /fh /fw /ury /urx /lly /llx] {exch def} forall 
+X	fx fy translate 
+X	rotate
+X	fw urx llx sub div fh ury lly sub div scale 
+X	llx neg lly neg translate 
+X	} bind def
+X/FMENDEPSF {
+X	FMEPSF restore
+X	FrameDict begin 
+X	} bind def
+XFrameDict begin 
+X/setmanualfeed {
+X%%BeginFeature *ManualFeed True
+X	 statusdict /manualfeed true put
+X%%EndFeature
+X	} def
+X/max {2 copy lt {exch} if pop} bind def
+X/min {2 copy gt {exch} if pop} bind def
+X/inch {72 mul} def
+X/pagedimen { 
+X	paperheight sub abs 16 lt exch 
+X	paperwidth sub abs 16 lt and
+X	{/papername exch def} {pop} ifelse
+X	} def
+X	/papersizedict FMLOCAL
+X/setpapername { 
+X	/papersizedict 14 dict def 
+X	papersizedict begin
+X	/papername /unknown def 
+X		/Letter 8.5 inch 11.0 inch pagedimen
+X		/LetterSmall 7.68 inch 10.16 inch pagedimen
+X		/Tabloid 11.0 inch 17.0 inch pagedimen
+X		/Ledger 17.0 inch 11.0 inch pagedimen
+X		/Legal 8.5 inch 14.0 inch pagedimen
+X		/Statement 5.5 inch 8.5 inch pagedimen
+X		/Executive 7.5 inch 10.0 inch pagedimen
+X		/A3 11.69 inch 16.5 inch pagedimen
+X		/A4 8.26 inch 11.69 inch pagedimen
+X		/A4Small 7.47 inch 10.85 inch pagedimen
+X		/B4 10.125 inch 14.33 inch pagedimen
+X		/B5 7.16 inch 10.125 inch pagedimen
+X	end
+X	} def
+X/papersize {
+X	papersizedict begin
+X		/Letter {lettertray letter} def
+X		/LetterSmall {lettertray lettersmall} def
+X		/Tabloid {11x17tray 11x17} def
+X		/Ledger {ledgertray ledger} def
+X		/Legal {legaltray legal} def
+X		/Statement {statementtray statement} def
+X		/Executive {executivetray executive} def
+X		/A3 {a3tray a3} def
+X		/A4 {a4tray a4} def
+X		/A4Small {a4tray a4small} def
+X		/B4 {b4tray b4} def
+X		/B5 {b5tray b5} def
+X		/unknown {unknown} def
+X	papersizedict dup papername known {papername} {/unknown} ifelse get
+X	end
+X	/FMdicttop countdictstack 1 add def 
+X	statusdict begin stopped end 
+X	countdictstack -1 FMdicttop {pop end} for 
+X	} def
+X/manualpapersize {
+X	papersizedict begin
+X		/Letter {letter} def
+X		/LetterSmall {lettersmall} def
+X		/Tabloid {11x17} def
+X		/Ledger {ledger} def
+X		/Legal {legal} def
+X		/Statement {statement} def
+X		/Executive {executive} def
+X		/A3 {a3} def
+X		/A4 {a4} def
+X		/A4Small {a4small} def
+X		/B4 {b4} def
+X		/B5 {b5} def
+X		/unknown {unknown} def
+X	papersizedict dup papername known {papername} {/unknown} ifelse get
+X	end
+X	stopped 
+X	} def
+X/desperatepapersize {
+X	statusdict /setpageparams known
+X		{
+X		paperwidth paperheight 0 1 
+X		statusdict begin
+X		{setpageparams} stopped pop 
+X		end
+X		} if
+X	} def
+X/savematrix {
+X	orgmatrix currentmatrix pop
+X	} bind def
+X/restorematrix {
+X	orgmatrix setmatrix
+X	} bind def
+X/dmatrix matrix def
+X/dpi    72 0 dmatrix defaultmatrix dtransform
+X    dup mul exch   dup mul add   sqrt def
+X/freq dpi 18.75 div 8 div round dup 0 eq {pop 1} if 8 mul dpi exch div def
+X/sangle 1 0 dmatrix defaultmatrix dtransform exch atan def
+X/DiacriticEncoding [
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/.notdef /.notdef /.notdef /.notdef /space /exclam /quotedbl
+X/numbersign /dollar /percent /ampersand /quotesingle /parenleft
+X/parenright /asterisk /plus /comma /hyphen /period /slash /zero /one
+X/two /three /four /five /six /seven /eight /nine /colon /semicolon
+X/less /equal /greater /question /at /A /B /C /D /E /F /G /H /I /J /K
+X/L /M /N /O /P /Q /R /S /T /U /V /W /X /Y /Z /bracketleft /backslash
+X/bracketright /asciicircum /underscore /grave /a /b /c /d /e /f /g /h
+X/i /j /k /l /m /n /o /p /q /r /s /t /u /v /w /x /y /z /braceleft /bar
+X/braceright /asciitilde /.notdef /Adieresis /Aring /Ccedilla /Eacute
+X/Ntilde /Odieresis /Udieresis /aacute /agrave /acircumflex /adieresis
+X/atilde /aring /ccedilla /eacute /egrave /ecircumflex /edieresis
+X/iacute /igrave /icircumflex /idieresis /ntilde /oacute /ograve
+X/ocircumflex /odieresis /otilde /uacute /ugrave /ucircumflex
+X/udieresis /dagger /.notdef /cent /sterling /section /bullet
+X/paragraph /germandbls /registered /copyright /trademark /acute
+X/dieresis /.notdef /AE /Oslash /.notdef /.notdef /.notdef /.notdef
+X/yen /.notdef /.notdef /.notdef /.notdef /.notdef /.notdef
+X/ordfeminine /ordmasculine /.notdef /ae /oslash /questiondown
+X/exclamdown /logicalnot /.notdef /florin /.notdef /.notdef
+X/guillemotleft /guillemotright /ellipsis /.notdef /Agrave /Atilde
+X/Otilde /OE /oe /endash /emdash /quotedblleft /quotedblright
+X/quoteleft /quoteright /.notdef /.notdef /ydieresis /Ydieresis
+X/fraction /currency /guilsinglleft /guilsinglright /fi /fl /daggerdbl
+X/periodcentered /quotesinglbase /quotedblbase /perthousand
+X/Acircumflex /Ecircumflex /Aacute /Edieresis /Egrave /Iacute
+X/Icircumflex /Idieresis /Igrave /Oacute /Ocircumflex /.notdef /Ograve
+X/Uacute /Ucircumflex /Ugrave /dotlessi /circumflex /tilde /macron
+X/breve /dotaccent /ring /cedilla /hungarumlaut /ogonek /caron
+X] def
+X/ReEncode { 
+X	dup 
+X	length 
+X	dict begin 
+X	{
+X	1 index /FID ne 
+X		{def} 
+X		{pop pop} ifelse 
+X	} forall 
+X	0 eq {/Encoding DiacriticEncoding def} if 
+X	currentdict 
+X	end 
+X	} bind def
+X/graymode true def
+X	/bwidth FMLOCAL
+X	/bpside FMLOCAL
+X	/bstring FMLOCAL
+X	/onbits FMLOCAL
+X	/offbits FMLOCAL
+X	/xindex FMLOCAL
+X	/yindex FMLOCAL
+X	/x FMLOCAL
+X	/y FMLOCAL
+X/setpattern {
+X	 /bwidth  exch def
+X	 /bpside  exch def
+X	 /bstring exch def
+X	 /onbits 0 def  /offbits 0 def
+X	 freq sangle landscape {90 add} if 
+X		{/y exch def
+X		 /x exch def
+X		 /xindex x 1 add 2 div bpside mul cvi def
+X		 /yindex y 1 add 2 div bpside mul cvi def
+X		 bstring yindex bwidth mul xindex 8 idiv add get
+X		 1 7 xindex 8 mod sub bitshift and 0 ne
+X		 {/onbits  onbits  1 add def 1}
+X		 {/offbits offbits 1 add def 0}
+X		 ifelse
+X		}
+X		setscreen
+X	 {} settransfer
+X	 offbits offbits onbits add div FMsetgray
+X	/graymode false def
+X	} bind def
+X/grayness {
+X	FMsetgray
+X	graymode not {
+X		/graymode true def
+X		orgxfer cvx settransfer
+X		orgfreq organgle orgproc cvx setscreen
+X		} if
+X	} bind def
+X	/HUE FMLOCAL
+X	/SAT FMLOCAL
+X	/BRIGHT FMLOCAL
+X	/Colors FMLOCAL
+XFMPrintInColor 
+X	
+X	{
+X	/HUE 0 def
+X	/SAT 0 def
+X	/BRIGHT 0 def
+X	% array of arrays Hue and Sat values for the separations [HUE BRIGHT]
+X	/Colors   
+X	[[0    0  ]    % black
+X	 [0    0  ]    % white
+X	 [0.00 1.0]    % red
+X	 [0.37 1.0]    % green
+X	 [0.60 1.0]    % blue
+X	 [0.50 1.0]    % cyan
+X	 [0.83 1.0]    % magenta
+X	 [0.16 1.0]    % comment / yellow
+X	 ] def
+X      
+X	/BEGINBITMAPCOLOR { 
+X		BITMAPCOLOR} def
+X	/BEGINBITMAPCOLORc { 
+X		BITMAPCOLORc} def
+X	/BEGINBITMAPTRUECOLOR { 
+X		BITMAPTRUECOLOR } def
+X	/BEGINBITMAPTRUECOLORc { 
+X		BITMAPTRUECOLORc } def
+X	/K { 
+X		Colors exch get dup
+X		0 get /HUE exch store 
+X		1 get /BRIGHT exch store
+X		  HUE 0 eq BRIGHT 0 eq and
+X			{1.0 SAT sub setgray}
+X			{HUE SAT BRIGHT sethsbcolor} 
+X		  ifelse
+X		} def
+X	/FMsetgray { 
+X		/SAT exch 1.0 exch sub store 
+X		  HUE 0 eq BRIGHT 0 eq and
+X			{1.0 SAT sub setgray}
+X			{HUE SAT BRIGHT sethsbcolor} 
+X		  ifelse
+X		} bind def
+X	}
+X	
+X	{
+X	/BEGINBITMAPCOLOR { 
+X		BITMAPGRAY} def
+X	/BEGINBITMAPCOLORc { 
+X		BITMAPGRAYc} def
+X	/BEGINBITMAPTRUECOLOR { 
+X		BITMAPTRUEGRAY } def
+X	/BEGINBITMAPTRUECOLORc { 
+X		BITMAPTRUEGRAYc } def
+X	/FMsetgray {setgray} bind def
+X	/K { 
+X		pop
+X		} def
+X	}
+Xifelse
+X/normalize {
+X	transform round exch round exch itransform
+X	} bind def
+X/dnormalize {
+X	dtransform round exch round exch idtransform
+X	} bind def
+X/lnormalize { 
+X	0 dtransform exch cvi 2 idiv 2 mul 1 add exch idtransform pop
+X	} bind def
+X/H { 
+X	lnormalize setlinewidth
+X	} bind def
+X/Z {
+X	setlinecap
+X	} bind def
+X	/fillvals FMLOCAL
+X/X { 
+X	fillvals exch get
+X	dup type /stringtype eq
+X	{8 1 setpattern} 
+X	{grayness}
+X	ifelse
+X	} bind def
+X/V { 
+X	gsave eofill grestore
+X	} bind def
+X/N { 
+X	stroke
+X	} bind def
+X/M {newpath moveto} bind def
+X/E {lineto} bind def
+X/D {curveto} bind def
+X/O {closepath} bind def
+X	/n FMLOCAL
+X/L { 
+X 	/n exch def
+X	newpath
+X	normalize
+X	moveto 
+X	2 1 n {pop normalize lineto} for
+X	} bind def
+X/Y { 
+X	L 
+X	closepath
+X	} bind def
+X	/x1 FMLOCAL
+X	/x2 FMLOCAL
+X	/y1 FMLOCAL
+X	/y2 FMLOCAL
+X	/rad FMLOCAL
+X/R { 
+X	/y2 exch def
+X	/x2 exch def
+X	/y1 exch def
+X	/x1 exch def
+X	x1 y1
+X	x2 y1
+X	x2 y2
+X	x1 y2
+X	4 Y 
+X	} bind def
+X/RR { 
+X	/rad exch def
+X	normalize
+X	/y2 exch def
+X	/x2 exch def
+X	normalize
+X	/y1 exch def
+X	/x1 exch def
+X	newpath
+X	x1 y1 rad add moveto
+X	x1 y2 x2 y2 rad arcto
+X	x2 y2 x2 y1 rad arcto
+X	x2 y1 x1 y1 rad arcto
+X	x1 y1 x1 y2 rad arcto
+X	closepath
+X	16 {pop} repeat
+X	} bind def
+X/C { 
+X	grestore
+X	gsave
+X	R 
+X	clip
+X	} bind def
+X	/FMpointsize FMLOCAL
+X/F { 
+X	FMfonts exch get
+X	FMpointsize scalefont
+X	setfont
+X	} bind def
+X/Q { 
+X	/FMpointsize exch def
+X	F 
+X	} bind def
+X/T { 
+X	moveto show
+X	} bind def
+X/RF { 
+X	rotate
+X	0 ne {-1 1 scale} if
+X	} bind def
+X/TF { 
+X	gsave
+X	moveto 
+X	RF
+X	show
+X	grestore
+X	} bind def
+X/P { 
+X	moveto
+X	0 32 3 2 roll widthshow
+X	} bind def
+X/PF { 
+X	gsave
+X	moveto 
+X	RF
+X	0 32 3 2 roll widthshow
+X	grestore
+X	} bind def
+X/S { 
+X	moveto
+X	0 exch ashow
+X	} bind def
+X/SF { 
+X	gsave
+X	moveto
+X	RF
+X	0 exch ashow
+X	grestore
+X	} bind def
+X/B { 
+X	moveto
+X	0 32 4 2 roll 0 exch awidthshow
+X	} bind def
+X/BF { 
+X	gsave
+X	moveto
+X	RF
+X	0 32 4 2 roll 0 exch awidthshow
+X	grestore
+X	} bind def
+X/G { 
+X	gsave
+X	newpath
+X	normalize translate 0.0 0.0 moveto 
+X	dnormalize scale 
+X	0.0 0.0 1.0 5 3 roll arc 
+X	closepath fill
+X	grestore
+X	} bind def
+X/A { 
+X	gsave
+X	savematrix
+X	newpath
+X	2 index 2 div add exch 3 index 2 div sub exch 
+X	normalize 2 index 2 div sub exch 3 index 2 div add exch 
+X	translate 
+X	scale 
+X	0.0 0.0 1.0 5 3 roll arc 
+X	restorematrix
+X	stroke
+X	grestore
+X	} bind def
+X	/x FMLOCAL
+X	/y FMLOCAL
+X	/w FMLOCAL
+X	/h FMLOCAL
+X	/xx FMLOCAL
+X	/yy FMLOCAL
+X	/ww FMLOCAL
+X	/hh FMLOCAL
+X	/FMsaveobject FMLOCAL
+X	/FMoptop FMLOCAL
+X	/FMdicttop FMLOCAL
+X/BEGINPRINTCODE { 
+X	/FMdicttop countdictstack 1 add def 
+X	/FMoptop count 4 sub def 
+X	/FMsaveobject save def
+X	userdict begin 
+X	/showpage {} def 
+X	FMNORMALIZEGRAPHICS 
+X	3 index neg 3 index neg translate
+X	} bind def
+X/ENDPRINTCODE {
+X	count -1 FMoptop {pop pop} for 
+X	countdictstack -1 FMdicttop {pop end} for 
+X	FMsaveobject restore 
+X	} bind def
+X/gn { 
+X	0 
+X	{	46 mul 
+X		cf read pop 
+X		32 sub 
+X		dup 46 lt {exit} if 
+X		46 sub add 
+X		} loop
+X	add 
+X	} bind def
+X	/str FMLOCAL
+X/cfs { 
+X	/str sl string def 
+X	0 1 sl 1 sub {str exch val put} for 
+X	str def 
+X	} bind def
+X/ic [ 
+X	0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0223
+X	0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0223
+X	0
+X	{0 hx} {1 hx} {2 hx} {3 hx} {4 hx} {5 hx} {6 hx} {7 hx} {8 hx} {9 hx}
+X	{10 hx} {11 hx} {12 hx} {13 hx} {14 hx} {15 hx} {16 hx} {17 hx} {18 hx}
+X	{19 hx} {gn hx} {0} {1} {2} {3} {4} {5} {6} {7} {8} {9} {10} {11} {12}
+X	{13} {14} {15} {16} {17} {18} {19} {gn} {0 wh} {1 wh} {2 wh} {3 wh}
+X	{4 wh} {5 wh} {6 wh} {7 wh} {8 wh} {9 wh} {10 wh} {11 wh} {12 wh}
+X	{13 wh} {14 wh} {gn wh} {0 bl} {1 bl} {2 bl} {3 bl} {4 bl} {5 bl} {6 bl}
+X	{7 bl} {8 bl} {9 bl} {10 bl} {11 bl} {12 bl} {13 bl} {14 bl} {gn bl}
+X	{0 fl} {1 fl} {2 fl} {3 fl} {4 fl} {5 fl} {6 fl} {7 fl} {8 fl} {9 fl}
+X	{10 fl} {11 fl} {12 fl} {13 fl} {14 fl} {gn fl}
+X	] def
+X	/sl FMLOCAL
+X	/val FMLOCAL
+X	/ws FMLOCAL
+X	/im FMLOCAL
+X	/bs FMLOCAL
+X	/cs FMLOCAL
+X	/len FMLOCAL
+X	/pos FMLOCAL
+X/ms { 
+X	/sl exch def 
+X	/val 255 def 
+X	/ws cfs 
+X	/im cfs 
+X	/val 0 def 
+X	/bs cfs 
+X	/cs cfs 
+X	} bind def
+X400 ms 
+X/ip { 
+X	is 
+X	0 
+X	cf cs readline pop 
+X	{	ic exch get exec 
+X		add 
+X		} forall 
+X	pop 
+X	
+X	} bind def
+X/wh { 
+X	/len exch def 
+X	/pos exch def 
+X	ws 0 len getinterval im pos len getinterval copy pop
+X	pos len 
+X	} bind def
+X/bl { 
+X	/len exch def 
+X	/pos exch def 
+X	bs 0 len getinterval im pos len getinterval copy pop
+X	pos len 
+X	} bind def
+X/s1 1 string def
+X/fl { 
+X	/len exch def 
+X	/pos exch def 
+X	/val cf s1 readhexstring pop 0 get def
+X	pos 1 pos len add 1 sub {im exch val put} for
+X	pos len 
+X	} bind def
+X/hx { 
+X	3 copy getinterval 
+X	cf exch readhexstring pop pop 
+X	} bind def
+X	/h FMLOCAL
+X	/w FMLOCAL
+X	/d FMLOCAL
+X	/lb FMLOCAL
+X	/bitmapsave FMLOCAL
+X	/is FMLOCAL
+X	/cf FMLOCAL
+X/wbytes { 
+X	dup 
+X	8 eq {pop} {1 eq {7 add 8 idiv} {3 add 4 idiv} ifelse} ifelse
+X	} bind def
+X/BEGINBITMAPBWc { 
+X	1 {} COMMONBITMAPc
+X	} bind def
+X/BEGINBITMAPGRAYc { 
+X	8 {} COMMONBITMAPc
+X	} bind def
+X/BEGINBITMAP2BITc { 
+X	2 {} COMMONBITMAPc
+X	} bind def
+X/COMMONBITMAPc { 
+X	/r exch def
+X	/d exch def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/lb w d wbytes def 
+X	sl lb lt {lb ms} if 
+X	/bitmapsave save def 
+X	r                    
+X	/is im 0 lb getinterval def 
+X	ws 0 lb getinterval is copy pop 
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{ip} image 
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BEGINBITMAPBW { 
+X	1 {} COMMONBITMAP
+X	} bind def
+X/BEGINBITMAPGRAY { 
+X	8 {} COMMONBITMAP
+X	} bind def
+X/BEGINBITMAP2BIT { 
+X	2 {} COMMONBITMAP
+X	} bind def
+X/COMMONBITMAP { 
+X	/r exch def
+X	/d exch def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/bitmapsave save def 
+X	r                    
+X	/is w d wbytes string def
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{cf is readhexstring pop} image
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X	/proc1 FMLOCAL
+X	/proc2 FMLOCAL
+X	/newproc FMLOCAL
+X/Fmcc {
+X    /proc2 exch cvlit def
+X    /proc1 exch cvlit def
+X    /newproc proc1 length proc2 length add array def
+X    newproc 0 proc1 putinterval
+X    newproc proc1 length proc2 putinterval
+X    newproc cvx
+X} bind def
+X/ngrayt 256 array def
+X/nredt 256 array def
+X/nbluet 256 array def
+X/ngreent 256 array def
+X	/gryt FMLOCAL
+X	/blut FMLOCAL
+X	/grnt FMLOCAL
+X	/redt FMLOCAL
+X	/indx FMLOCAL
+X	/cynu FMLOCAL
+X	/magu FMLOCAL
+X	/yelu FMLOCAL
+X	/k FMLOCAL
+X	/u FMLOCAL
+X/colorsetup {
+X	currentcolortransfer
+X	/gryt exch def
+X	/blut exch def
+X	/grnt exch def
+X	/redt exch def
+X	0 1 255 {
+X		/indx exch def
+X		/cynu 1 red indx get 255 div sub def
+X		/magu 1 green indx get 255 div sub def
+X		/yelu 1 blue indx get 255 div sub def
+X		/k cynu magu min yelu min def
+X		/u k currentundercolorremoval exec def
+X		nredt indx 1 0 cynu u sub max sub redt exec put
+X		ngreent indx 1 0 magu u sub max sub grnt exec put
+X		nbluet indx 1 0 yelu u sub max sub blut exec put
+X		ngrayt indx 1 k currentblackgeneration exec sub gryt exec put
+X	} for
+X	{255 mul cvi nredt exch get}
+X	{255 mul cvi ngreent exch get}
+X	{255 mul cvi nbluet exch get}
+X	{255 mul cvi ngrayt exch get}
+X	setcolortransfer
+X	{pop 0} setundercolorremoval
+X	{} setblackgeneration
+X	} bind def
+X	/tran FMLOCAL
+X/fakecolorsetup {
+X	/tran 256 string def
+X	0 1 255 {/indx exch def 
+X		tran indx
+X		red indx get 77 mul
+X		green indx get 151 mul
+X		blue indx get 28 mul
+X		add add 256 idiv put} for
+X	currenttransfer
+X	{255 mul cvi tran exch get 255.0 div}
+X	exch Fmcc settransfer
+X} bind def
+X/BITMAPCOLOR { 
+X	/d 8 def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/bitmapsave save def 
+X	colorsetup
+X	/is w d wbytes string def
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{cf is readhexstring pop} {is} {is} true 3 colorimage 
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BITMAPCOLORc { 
+X	/d 8 def
+X	gsave
+X	translate rotate scale /h exch def /w exch def
+X	/lb w d wbytes def 
+X	sl lb lt {lb ms} if 
+X	/bitmapsave save def 
+X	colorsetup
+X	/is im 0 lb getinterval def 
+X	ws 0 lb getinterval is copy pop 
+X	/cf currentfile def 
+X	w h d [w 0 0 h neg 0 h] 
+X	{ip} {is} {is} true 3 colorimage
+X	bitmapsave restore 
+X	grestore
+X	} bind def
+X/BITMAPTRUECOLORc { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        
+X        /is w string def
+X        
+X        ws 0 w getinterval is copy pop 
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        {ip} {gip} {bip} true 3 colorimage
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPTRUECOLOR { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        /is w string def
+X        /gis w string def
+X        /bis w string def
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        { cf is readhexstring pop } 
+X        { cf gis readhexstring pop } 
+X        { cf bis readhexstring pop } 
+X        true 3 colorimage 
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPTRUEGRAYc { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        
+X        /is w string def
+X        
+X        ws 0 w getinterval is copy pop 
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        {ip gip bip w gray} image
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/ww FMLOCAL
+X/r FMLOCAL
+X/g FMLOCAL
+X/b FMLOCAL
+X/i FMLOCAL
+X/gray { 
+X        /ww exch def
+X        /b exch def
+X        /g exch def
+X        /r exch def
+X        0 1 ww 1 sub { /i exch def r i get .299 mul g i get .587 mul
+X			b i get .114 mul add add r i 3 -1 roll floor cvi put } for
+X        r
+X        } bind def
+X/BITMAPTRUEGRAY { 
+X        gsave
+X        translate rotate scale /h exch def /w exch def
+X        /bitmapsave save def 
+X        /is w string def
+X        /gis w string def
+X        /bis w string def
+X        /cf currentfile def 
+X        w h 8 [w 0 0 h neg 0 h] 
+X        { cf is readhexstring pop 
+X          cf gis readhexstring pop 
+X          cf bis readhexstring pop w gray}  image
+X        bitmapsave restore 
+X        grestore
+X        } bind def
+X/BITMAPGRAY { 
+X	8 {fakecolorsetup} COMMONBITMAP
+X	} bind def
+X/BITMAPGRAYc { 
+X	8 {fakecolorsetup} COMMONBITMAPc
+X	} bind def
+X/ENDBITMAP {
+X	} bind def
+Xend 
+X	/ALDsave FMLOCAL
+X	/ALDmatrix matrix def ALDmatrix currentmatrix pop
+X/StartALD {
+X	/ALDsave save def
+X	 savematrix
+X	 ALDmatrix setmatrix
+X	} bind def
+X/InALD {
+X	 restorematrix
+X	} bind def
+X/DoneALD {
+X	 ALDsave restore
+X	} bind def
+X%%EndProlog
+X%%BeginSetup
+X(3.0) FMVERSION
+X1 1 612 792 0 1 21 FMDOCUMENT
+X0 0 /Helvetica-Bold FMFONTDEFINE
+X1 0 /Times-Roman FMFONTDEFINE
+X2 0 /Times-Bold FMFONTDEFINE
+X3 0 /Times-Italic FMFONTDEFINE
+X4 1 /Symbol FMFONTDEFINE
+X5 0 /AvantGarde-Book FMFONTDEFINE
+X6 0 /AvantGarde-BookOblique FMFONTDEFINE
+X7 0 /AvantGarde-DemiOblique FMFONTDEFINE
+X32 FMFILLS
+X0 0 FMFILL
+X1 0.1 FMFILL
+X2 0.3 FMFILL
+X3 0.5 FMFILL
+X4 0.7 FMFILL
+X5 0.9 FMFILL
+X6 0.97 FMFILL
+X7 1 FMFILL
+X8 <0f1e3c78f0e1c387> FMFILL
+X9 <0f87c3e1f0783c1e> FMFILL
+X10 <cccccccccccccccc> FMFILL
+X11 <ffff0000ffff0000> FMFILL
+X12 <8142241818244281> FMFILL
+X13 <03060c183060c081> FMFILL
+X14 <8040201008040201> FMFILL
+X16 1 FMFILL
+X17 0.9 FMFILL
+X18 0.7 FMFILL
+X19 0.5 FMFILL
+X20 0.3 FMFILL
+X21 0.1 FMFILL
+X22 0.03 FMFILL
+X23 0 FMFILL
+X24 <f0e1c3870f1e3c78> FMFILL
+X25 <f0783c1e0f87c3e1> FMFILL
+X26 <3333333333333333> FMFILL
+X27 <0000ffff0000ffff> FMFILL
+X28 <7ebddbe7e7dbbd7e> FMFILL
+X29 <fcf9f3e7cf9f3f7e> FMFILL
+X30 <7fbfdfeff7fbfdfe> FMFILL
+X%%EndSetup
+X%%Page: "1" 1
+X%%BeginPaperSize: Letter
+X%%EndPaperSize
+X612 792 0 FMBEGINPAGE
+X0 9 Q
+X0 X
+X0 K
+X(ABSTRACT) 54 560.71 T
+X1 F
+X-0.1 (Imaging vector \336elds has applications in science, art, image pro-) 63 550.67 P
+X1.2 (cessing and special ef) 54 540.67 P
+X1.2 (fects. An ef) 135.54 540.67 P
+X1.2 (fective new approach is to use) 179.45 540.67 P
+X1.04 (linear and curvilinear \336ltering techniques to locally blur textures) 54 530.67 P
+X0.26 (along a vector \336eld. This approach builds on several previous tex-) 54 520.67 P
+X0.25 (ture generation and \336ltering techniques[8, 9, 1) 54 510.67 P
+X0.25 (1, 14, 15, 17, 23]. It) 221.38 510.67 P
+X0.41 (is, however) 54 500.67 P
+X0.41 (, unique because it is local, one-dimensional and inde-) 95.49 500.67 P
+X1.04 (pendent of any prede\336ned geometry or texture. The technique is) 54 490.67 P
+X1.42 (general and capable of imaging arbitrary two- and three-dimen-) 54 480.67 P
+X0.37 (sional vector \336elds. The local one-dimensional nature of the algo-) 54 470.67 P
+X0.53 (rithm lends itself to highly parallel and ef) 54 460.67 P
+X0.53 (\336cient implementations.) 206.59 460.67 P
+X0.15 (Furthermore, the curvilinear \336lter is capable of rendering detail on) 54 450.67 P
+X1.2 (very intricate vector \336elds. Combining this technique with other) 54 440.67 P
+X-0.2 (rendering and image processing techniques \321 like periodic motion) 54 430.67 P
+X0.76 (\336ltering \321 results in richly informative and striking images. The) 54 420.67 P
+X(technique can also produce novel special ef) 54 410.67 T
+X(fects.) 210.08 410.67 T
+X2 F
+X3.8 (CR categories and subject descriptors:) 63 400.62 P
+X1 F
+X3.8 ( I.3.3 [Computer) 226.48 400.62 P
+X1.33 (Graphics]: Picture/Image generation; I.3.7 [Computer Graphics]:) 54 390.62 P
+X1.15 (Three-Dimensional Graphics and Realism; I.4.3 [Image Process-) 54 380.62 P
+X(ing]: Enhancement.) 54 370.62 T
+X1.12 (Keywords: convolution, \336ltering, rendering, visualization, tex-) 63 360.57 P
+X-0.19 (ture synthesis, \337ow \336elds, special ef) 54 350.57 P
+X-0.19 (fects, periodic motion \336ltering.) 182.97 350.57 P
+X0 F
+X(1.  INTRODUCTION) 54 333.52 T
+X1 F
+X-0.02 (Upon \336rst inspection, imaging vector \336elds appears to have lim-) 63 323.48 P
+X1.4 (ited application \321 con\336ned primarily to scienti\336c visualization.) 54 313.48 P
+X1.52 (However) 54 303.48 P
+X1.52 (, much of the form and shape in our environment is a) 86.58 303.48 P
+X0.88 (function of not only image intensity and color) 54 293.48 P
+X0.88 (, but also of direc-) 224.83 293.48 P
+X1.98 (tional information such as edges. Painters, sculptors, photogra-) 54 283.48 P
+X0.28 (phers, image processors[16] and computer graphics researchers[9]) 54 273.48 P
+X2.23 (have recognized the importance of direction in the process of) 54 263.48 P
+X0.9 (image creation and form. Hence, algorithms that can image such) 54 253.48 P
+X1.3 (directional information have wide application across both scien-) 54 243.48 P
+X(ti\336c and artistic domains.) 54 233.48 T
+X2.66 (Such algorithms should possess a number of desirable and) 63 223.43 P
+X1.53 (sometimes con\337icting properties including: accuracy) 54 213.43 P
+X1.53 (, locality of) 249.75 213.43 P
+X0.21 (calculation, simplicity) 54 203.43 P
+X0.21 (, controllability and generality) 133.52 203.43 P
+X0.21 (. Line Integral) 242.41 203.43 P
+X-0.16 (Convolution \050LIC\051 is a new technique that possesses many of these) 54 193.43 P
+X1.98 (properties. Its generality allows for the introduction of a com-) 54 183.43 P
+X1.95 (pletely new family of periodic motion \336lters which have wide) 317.29 561.43 P
+X1.07 (application \050see section 4.1\051. It represents a con\337uence of signal) 317.29 551.43 P
+X0.01 (and image processing and a variety of previous work done in com-) 317.29 541.43 P
+X(puter graphics and scienti\336c visualization.) 317.29 531.43 T
+X0 F
+X(2.  BACKGROUND) 317.29 513.08 T
+X1 F
+X0.18 (There are currently few techniques which image vector \336elds in) 326.29 501.73 P
+X-0.02 (a general manner) 317.29 491.73 P
+X-0.02 (. These techniques can be quite ef) 378.64 491.73 P
+X-0.02 (fective for visu-) 499.92 491.73 P
+X0.33 (alizing vector data. However) 317.29 481.73 P
+X0.33 (, they break down when operating on) 421.75 481.73 P
+X1.26 (very dense \336elds and do not generalize to other applications. In) 317.29 471.73 P
+X0.96 (particular) 317.29 461.73 P
+X0.96 (, lar) 351.37 461.73 P
+X0.96 (ge vector \336elds \050512x512 or greater\051 strain existing) 366.14 461.73 P
+X(algorithms.) 317.29 451.73 T
+X1.65 (Most vector visualization algorithms use spatial resolution to) 326.29 440.39 P
+X-0.11 (represent the vector \336eld. These include sampling the \336eld, such as) 317.29 430.39 P
+X1.93 (with stream lines[12] or particle traces, and using icons[19] at) 317.29 420.39 P
+X2.01 (every vector \336eld coordinate. Stream lines and particle tracing) 317.29 410.39 P
+X-0.21 (techniques depend critically on the placement of the \322streamers\323 or) 317.29 400.39 P
+X0.4 (the particle sources. Depending on their placement, eddies or cur-) 317.29 390.39 P
+X0.57 (rents in the data \336eld can be missed. Icons, on the other hand, do) 317.29 380.39 P
+X0.49 (not miss data, but use up a considerable amount of spatial resolu-) 317.29 370.39 P
+X(tion limiting their usefulness to small vector \336elds.) 317.29 360.39 T
+X1.4 (Another general approach is to generate textures via a vector) 326.29 349.04 P
+X1.29 (\336eld. V) 317.29 339.04 P
+X1.29 (an W) 344.55 339.04 P
+X1.29 (ijk\325) 364.69 339.04 P
+X1.29 (s) 376.68 339.04 P
+X3 F
+X1.29 (spot noise) 383.72 339.04 P
+X1 F
+X1.29 ( algorithm[23] uses a vector \336eld to) 421.22 339.04 P
+X0.7 (control the generation of bandlimited noise. The time complexity) 317.29 329.04 P
+X1.01 (of the two types of implementation techniques presented by V) 317.29 319.04 P
+X1.01 (an) 548.8 319.04 P
+X0.31 (W) 317.29 309.04 P
+X0.31 (ijk are relatively high. Furthermore the technique, by de\336nition,) 325.41 309.04 P
+X0.17 (depends heavily on the form of the texture \050spot noise\051 itself. Spe-) 317.29 299.04 P
+X-0.19 (ci\336cally) 317.29 289.04 P
+X-0.19 (, it does not easily generalize to other forms of textures that) 345.66 289.04 P
+X0.57 (might be better suited to a particular class of vector data \050such as) 317.29 279.04 P
+X(\337uid \337ow versus electromagnetic\051.) 317.29 269.04 T
+X1.5 (Reaction dif) 326.29 257.69 P
+X1.5 (fusion techniques[20, 24] also provide an avenue) 371.81 257.69 P
+X0.19 (for visualizing vector \336elds since the controlling dif) 317.29 247.69 P
+X0.19 (ferential equa-) 504.94 247.69 P
+X0.94 (tions are inherently vector in nature. It is possible to map vector) 317.29 237.69 P
+X1.6 (data onto these dif) 317.29 227.69 P
+X1.6 (ferential equations to come up with a vector) 388.08 227.69 P
+X0.28 (visualization technique. Here too however) 317.29 217.69 P
+X0.28 (, the time complexity of) 470.05 217.69 P
+X(these algorithms limit their general usefulness.) 317.29 207.69 T
+X2.59 (Three-dimensional vector \336elds can be visualized by three-) 326.29 196.35 P
+X3.01 (dimensional texture generation techniques such as texels and) 317.29 186.35 P
+X0.16 (hypertextures described in [1) 317.29 176.35 P
+X0.16 (1, 15]. Both techniques take a texture) 422.02 176.35 P
+X-0.16 (on a geometrically de\336ned surface and project the texture out some) 317.29 166.35 P
+X-0.18 (distance from the surface. By de\336nition these techniques are bound) 317.29 156.35 P
+X-0.12 (to the surface and do not compute an image for the entire \336eld as is) 317.29 146.35 P
+X0.75 (done by V) 317.29 136.35 P
+X0.75 (an W) 355.22 136.35 P
+X0.75 (ijk[23]. This is limiting in that it requires a priori) 374.82 136.35 P
+X0.99 (knowledge to place the surface. Like particle streams and vector) 317.29 126.35 P
+X1.56 (streamers these visualization techniques are critically dependent) 317.29 116.35 P
+X(on the placement of the sampling surface.) 317.29 106.35 T
+X-0.05 (The technique presented by Haeberli[9] for algorithmicly gener-) 326.29 95 P
+X0.31 (ating \322paintings\323 via vector) 317.29 85 P
+X0.31 (-like brush strokes can also be thought) 417.13 85 P
+X3.7 (of as a vector visualization technique. Craw\336s and Max[5]) 317.29 75 P
+X54 576 558 738 R
+X7 X
+XV
+X0 18 Q
+X0 X
+X(Imaging V) 74.57 726 T
+X(ector Fields Using Line Integral Convolution) 159.56 726 T
+X3 12 Q
+X(Brian Cabral) 273.85 690 T
+X(Leith \050Casey\051 Leedom*) 250.04 673 T
+X1 F
+X(Lawrence Livermore National Laboratory) 205.26 639 T
+X54 139.03 293.98 175.03 R
+X7 X
+XV
+X54 160.03 293.98 175.03 C
+X63 173.03 207 173.03 2 L
+X0.5 H
+X2 Z
+X0 X
+X0 K
+XN
+X0 0 612 792 C
+X1 8 Q
+X0 X
+X0 K
+X(* Authors\325 current e-mail addresses are:) 54 154.7 T
+X3 F
+X(cabral@llnl.gov) 184.11 154.7 T
+X1 F
+X( and) 236.56 154.7 T
+X3 F
+X(casey@gauss.llnl.gov) 60 145.7 T
+X1 F
+X(.) 129.02 145.7 T
+X54 72 293.98 126 C
+X54 72 293.98 126 R
+X7 X
+X0 K
+XV
+X0 0 612 792 C
+XFMENDPAGE
+X%%EndPage: "1" 2
+X%%Page: "2" 2
+X612 792 0 FMBEGINPAGE
+X1 9 Q
+X0 X
+X0 K
+X-0.13 (describe a three-dimensional variation on this in which blurred cyl-) 54 732 P
+X0.6 (inders represent three-dimensional brush strokes whose directions) 54 722 P
+X0.23 (and colors are controlled by a three-dimensional vector \336eld. Both) 54 712 P
+X2.33 (techniques represent a conceptual extension of traditional icon) 54 702 P
+X1.07 (placement, where the icons are more sophisticated shapes. How-) 54 692 P
+X2.52 (ever) 54 682 P
+X2.52 (, these techniques break down as the density of the \336eld) 69.11 682 P
+X(increases since they require spatial resolution to work.) 54 672 T
+X-0.13 (What is needed is a technique that can image dense vector \336elds,) 63 661.02 P
+X0.69 (is independent of both prede\336ned sampling placement constraints) 54 651.02 P
+X0.86 (and texture generation techniques and can work in two and three) 54 641.02 P
+X1.9 (dimensions. Such a technique would be very general and have) 54 631.02 P
+X(wide application.) 54 621.02 T
+X0 F
+X(3.  DDA CONVOLUTION) 54 603.05 T
+X1 F
+X0.48 (One approach is a generalization of traditional DDA line draw-) 63 592.07 P
+X0.19 (ing techniques[1] and the spatial convolution algorithms described) 54 582.07 P
+X0.81 (by V) 54 572.07 P
+X0.81 (an W) 71.53 572.07 P
+X0.81 (ijk[23] and Perlin[14]. Each vector in a \336eld is used to) 91.19 572.07 P
+X-0.03 (de\336ne a long, narrow) 54 562.07 P
+X-0.03 (, DDA generated \336lter kernel tangential to the) 129.7 562.07 P
+X-0.09 (vector and going in the positive and negative vector direction some) 54 552.07 P
+X1.41 (\336xed distance,) 54 542.07 P
+X3 F
+X1.41 (L) 110.98 542.07 P
+X1 F
+X1.41 (. A texture is then mapped one-to-one onto the) 115.98 542.07 P
+X1.68 (vector \336eld. The input texture pixels under the \336lter kernel are) 54 532.07 P
+X1.78 (summed, normalized by the length of the \336lter kernel,) 54 522.07 P
+X3 F
+X1.78 (2L) 265.97 522.07 P
+X1 F
+X1.78 (, and) 275.46 522.07 P
+X0.8 (placed in an output pixel image for the vector position. Figure 1,) 54 512.07 P
+X(illustrates this operation for a single vector in a \336eld.) 54 502.07 T
+X-0.03 (This ef) 63 491.1 P
+X-0.03 (fectively \336lters the underlying texture as a function of the) 88.02 491.1 P
+X1.01 (vector \336eld. The images in \336gure 2 are rendered using the DDA) 54 481.1 P
+X0.18 (convolution algorithm. On the left is a simple circular vector \336eld;) 54 471.1 P
+X-0.22 (to its right is the result of a computational \337uid dynamics code. The) 54 461.1 P
+X0.13 (input texture image in these examples is white noise. Although the) 54 451.1 P
+X0.02 (description above implies a box \336lter) 54 441.1 P
+X0.02 (, any arbitrary \336lter shape can) 187.29 441.1 P
+X0.03 (be used for the \336lter convolution kernel. It is important to note that) 54 431.1 P
+X0.11 (this algorithm is very sensitive to symmetry of the DDA algorithm) 54 421.1 P
+X0.13 (and \336lter) 54 411.1 P
+X0.13 (. If the algorithm weights the forward direction more than) 85.84 411.1 P
+X0.1 (the backward direction, the circular \336eld in \336gure 2 appears to spi-) 54 401.1 P
+X1.03 (ral inward implying a vortical behavior that is not present in the) 54 391.1 P
+X(vector \336eld.) 54 381.1 T
+X0 F
+X(3.1  LOCAL FIELD BEHA) 54 363.12 T
+X(VIOR) 158.2 363.12 T
+X1 F
+X0.81 (The DDA approach, while ef) 63 352.14 P
+X0.81 (\336cient, is inherently inaccurate. It) 170.66 352.14 P
+X2.46 (assumes that the local vector \336eld can be approximated by a) 54 342.14 P
+X0.85 (straight line. For points in vector \336elds where the local radius of) 317.29 587 P
+X0.54 (curvature is lar) 317.29 577 P
+X0.54 (ge, this assumption is valid. However) 372.12 577 P
+X0.54 (, where there) 509.53 577 P
+X-0.15 (are complex structures smaller than the length of the DDA line, the) 317.29 567 P
+X-0.14 (local radius of curvature is small and is not well approximated by a) 317.29 557 P
+X0.34 (straight line. In a sense, DDA convolution renders the vector \336eld) 317.29 547 P
+X1.44 (unevenly) 317.29 537 P
+X1.44 (, treating linear portions of the vector \336eld more accu-) 349.65 537 P
+X1.39 (rately than small scale vortices. While this graceful degradation) 317.29 527 P
+X0.46 (may be \336ne or even desirable for special ef) 317.29 517 P
+X0.46 (fects applications, it is) 475.53 517 P
+X0.34 (problematic for visualizing vector \336elds such as the ones in \336gure) 317.29 507 P
+X(2, since detail in the small scale structures is lost.) 317.29 497 T
+X0.07 (V) 326.29 485.88 P
+X0.07 (an W) 331.78 485.88 P
+X0.07 (ijk\325) 350.7 485.88 P
+X0.07 (s spot noise algorithm[23] also suf) 362.69 485.88 P
+X0.07 (fers from this prob-) 486.94 485.88 P
+X1.51 (lem since the spots are elliptically stretched along a line in the) 317.29 475.88 P
+X1.26 (direction of the local \336eld. If the ellipse major axis exceeds the) 317.29 465.88 P
+X1.17 (local length scale of the vector \336eld, the spot noise will inaccu-) 317.29 455.88 P
+X0.07 (rately represent the vector \336eld. An accurate measure of local \336eld) 317.29 445.88 P
+X1.01 (behavior would require a global analysis of the \336eld. Such tech-) 317.29 435.88 P
+X-0.14 (niques currently do not exist for arbitrary vector \336elds, would most) 317.29 425.88 P
+X2.24 (likely be expensive to calculate[13] and are an area of active) 317.29 415.88 P
+X(research[7].) 317.29 405.88 T
+X0 F
+X(4.  LINE INTEGRAL CONVOLUTION) 317.29 387.76 T
+X1 F
+X0.94 (The local behavior of the vector \336eld can be approximated by) 326.29 376.63 P
+X-0.01 (computing a local stream line that starts at the center of pixel \050) 317.29 366.63 P
+X3 F
+X-0.01 (x) 541.83 366.63 P
+X1 F
+X-0.01 (,) 545.82 366.63 P
+X3 F
+X-0.01 (y) 550.3 366.63 P
+X1 F
+X-0.01 (\051) 554.29 366.63 P
+X1.11 (and moves out in the positive and negative directions.) 317.29 356.63 P
+X1 7 Q
+X0.86 (1) 519.63 360.23 P
+X1 9 Q
+X1.11 ( The for-) 523.12 356.63 P
+X(ward coordinate advection is given by equation \0501\051.) 317.29 346.63 T
+X317.29 126 557.29 141 C
+X326.29 139 470.29 139 2 L
+X0.5 H
+X2 Z
+X0 X
+X0 K
+XN
+X0 0 612 792 C
+X1 6 Q
+X0 X
+X0 K
+X0.32 (1.) 317.29 123.87 P
+X1 8 Q
+X0.43 (V) 323.61 120.67 P
+X0.43 (ector \336eld lattice and image coordinates are usually speci\336ed in a left-) 328.49 120.67 P
+X-0.1 (handed coordinate system while vector components are usually speci\336ed in) 317.29 111.67 P
+X0.28 (a right-handed coordinate system. In this case, the) 317.29 102.67 P
+X3 F
+X0.28 (y) 481.62 102.67 P
+X1 F
+X0.28 (-component of the lat-) 485.17 102.67 P
+X-0.06 (tice coordinate in equation \0501\051 must be re\337ected about the vertical center of) 317.29 93.67 P
+X0.38 (the lattice to operate in a consistent coordinate system. This re\337ection has) 317.29 84.67 P
+X(been omitted to preserve simplicity of presentation.) 317.29 75.67 T
+X317.29 72 557.29 593 C
+X317.3 141 557.27 343.63 C
+X3 9 Q
+X0 X
+X0 K
+X(P) 347.44 331.08 T
+X1 7 Q
+X(0) 353.28 327.96 T
+X3 9 Q
+X(x) 376.1 331.08 T
+X1 F
+X(0) 389.52 331.08 T
+X(.) 394.01 331.08 T
+X(5) 396.26 331.08 T
+X3 F
+X(y) 405.25 331.08 T
+X1 F
+X(0) 418.68 331.08 T
+X(.) 423.17 331.08 T
+X(5) 425.42 331.08 T
+X4 F
+X(+) 411.49 331.08 T
+X(,) 400.76 331.08 T
+X(+) 382.34 331.08 T
+X(\050) 372.21 331.08 T
+X(\051) 430.3 331.08 T
+X(=) 361.28 331.08 T
+X3 F
+X(P) 347.6 300.72 T
+X3 7 Q
+X(i) 353.44 297.59 T
+X3 9 Q
+X(P) 369.32 300.72 T
+X3 7 Q
+X(i) 375.15 297.59 T
+X1 F
+X(1) 384.43 297.59 T
+X4 F
+X(-) 378.85 297.59 T
+X3 9 Q
+X(V) 404.11 309.31 T
+X(P) 421.52 309.31 T
+X3 7 Q
+X(i) 427.36 306.18 T
+X1 F
+X(1) 436.64 306.18 T
+X4 F
+X(-) 431.05 306.18 T
+X4 9 Q
+X(\050) 411.63 309.31 T
+X(\051) 446.52 309.31 T
+X3 F
+X(V) 404.11 294.52 T
+X(P) 421.52 294.52 T
+X3 7 Q
+X(i) 427.36 291.39 T
+X1 F
+X(1) 436.64 291.39 T
+X4 F
+X(-) 431.05 291.39 T
+X4 9 Q
+X(\050) 411.63 294.52 T
+X(\051) 446.52 294.52 T
+X(D) 458.3 300.72 T
+X3 F
+X(s) 464.33 300.72 T
+X3 7 Q
+X(i) 468.17 297.59 T
+X1 F
+X(1) 477.45 297.59 T
+X4 F
+X(-) 471.86 297.59 T
+X4 9 Q
+X(+) 390.18 300.72 T
+X(=) 359.88 300.72 T
+X416.52 305.67 416.52 315.46 2 L
+X0.33 H
+X0 Z
+XN
+X416.52 305.67 419.52 305.67 2 L
+XN
+X444.13 305.67 444.13 315.46 2 L
+XN
+X444.13 305.67 441.13 305.67 2 L
+XN
+X416.52 290.87 416.52 300.67 2 L
+XN
+X416.52 290.87 419.52 290.87 2 L
+XN
+X444.13 290.87 444.13 300.67 2 L
+XN
+X444.13 290.87 441.13 290.87 2 L
+XN
+X399.11 290.87 399.11 300.67 2 L
+XN
+X401.11 290.87 401.11 300.67 2 L
+XN
+X455.02 290.87 455.02 300.67 2 L
+XN
+X453.02 290.87 453.02 300.67 2 L
+XN
+X398.11 302.67 456.77 302.67 2 L
+XN
+X3 F
+X(V) 346.85 270.2 T
+X(P) 364.26 270.2 T
+X4 F
+X(\050) 354.37 270.2 T
+X(\051) 376.14 270.2 T
+X1 F
+X(t) 394.57 270.2 T
+X(h) 397.07 270.2 T
+X(e) 401.56 270.2 T
+X(v) 407.08 270.2 T
+X(e) 411.58 270.2 T
+X(c) 415.57 270.2 T
+X(t) 419.56 270.2 T
+X(o) 422.06 270.2 T
+X(r) 426.55 270.2 T
+X(f) 431.07 270.2 T
+X(r) 434.07 270.2 T
+X(o) 437.06 270.2 T
+X(m) 441.55 270.2 T
+X(t) 450.07 270.2 T
+X(h) 452.57 270.2 T
+X(e) 457.07 270.2 T
+X(i) 462.58 270.2 T
+X(n) 465.08 270.2 T
+X(p) 469.58 270.2 T
+X(u) 474.07 270.2 T
+X(t) 478.57 270.2 T
+X(v) 482.59 270.2 T
+X(e) 487.09 270.2 T
+X(c) 491.08 270.2 T
+X(t) 495.07 270.2 T
+X(o) 497.57 270.2 T
+X(r) 502.06 270.2 T
+X4 F
+X(=) 385.14 270.2 T
+X359.26 269.35 359.26 276.35 2 L
+XN
+X359.26 269.35 362.26 269.35 2 L
+XN
+X373.75 269.35 373.75 276.35 2 L
+XN
+X373.75 269.35 370.75 269.35 2 L
+XN
+X1 F
+X(f) 395.94 259.9 T
+X(i) 398.93 259.9 T
+X(e) 401.43 259.9 T
+X(l) 405.42 259.9 T
+X(d) 407.92 259.9 T
+X(a) 413.94 259.9 T
+X(t) 417.93 259.9 T
+X(l) 421.96 259.9 T
+X(a) 424.46 259.9 T
+X(t) 428.45 259.9 T
+X(t) 430.95 259.9 T
+X(i) 433.45 259.9 T
+X(c) 435.94 259.9 T
+X(e) 439.93 259.9 T
+X(p) 445.45 259.9 T
+X(o) 449.95 259.9 T
+X(i) 454.44 259.9 T
+X(n) 456.94 259.9 T
+X(t) 461.43 259.9 T
+X3 F
+X(P) 476.85 259.9 T
+X3 7 Q
+X(x) 482.68 256.77 T
+X3 9 Q
+X(P) 502.29 259.9 T
+X3 7 Q
+X(y) 508.12 256.77 T
+X4 9 Q
+X(,) 491.79 259.9 T
+X(\050) 466.96 259.9 T
+X(\051) 517.62 259.9 T
+X471.85 256.33 471.85 266.05 2 L
+XN
+X471.85 256.33 474.85 256.33 2 L
+XN
+X489.79 256.33 489.79 266.05 2 L
+XN
+X489.79 256.33 486.79 256.33 2 L
+XN
+X497.29 256.33 497.29 266.05 2 L
+XN
+X497.29 256.33 500.29 256.33 2 L
+XN
+X515.22 256.33 515.22 266.05 2 L
+XN
+X515.22 256.33 512.22 256.33 2 L
+XN
+X536.87 298.39 559.02 307.44 R
+X7 X
+XV
+X1 F
+X0 X
+X(\0501\051) 536.87 301.44 T
+X3 F
+X(s) 356.96 149.79 T
+X3 7 Q
+X(i) 360.8 146.66 T
+X4 9 Q
+X(D) 347.96 149.79 T
+X1 F
+X(m) 376.68 149.79 T
+X(i) 383.67 149.79 T
+X(n) 386.17 149.79 T
+X3 F
+X(s) 397.58 149.79 T
+X3 7 Q
+X(t) 401.42 146.66 T
+X(o) 403.9 146.66 T
+X(p) 407.93 146.66 T
+X3 9 Q
+X(s) 414.21 149.79 T
+X4 F
+X(,) 411.96 149.79 T
+X3 7 Q
+X(b) 418.05 146.09 T
+X(o) 422.08 146.09 T
+X(t) 426.11 146.09 T
+X(t) 428.6 146.09 T
+X(o) 431.08 146.09 T
+X(m) 435.11 146.09 T
+X3 9 Q
+X(s) 442.93 149.79 T
+X3 7 Q
+X(l) 446.77 146.66 T
+X(e) 449.25 146.66 T
+X(f) 452.89 146.66 T
+X(t) 455.38 146.66 T
+X4 9 Q
+X(,) 440.68 149.79 T
+X3 F
+X(s) 460.1 149.79 T
+X3 7 Q
+X(r) 463.94 146.66 T
+X(i) 467.2 146.66 T
+X(g) 469.68 146.66 T
+X(h) 473.71 146.66 T
+X(t) 477.74 146.66 T
+X4 9 Q
+X(,) 457.85 149.79 T
+X(\050) 393.69 149.79 T
+X(\051) 480.08 149.79 T
+X(=) 367.24 149.79 T
+X3 F
+X(s) 320.33 205.78 T
+X3 7 Q
+X(e) 324.17 202.65 T
+X4 9 Q
+X(\245) 348.41 236.08 T
+X1 F
+X(\021) 355.35 236.08 T
+X(i) 357.6 236.08 T
+X(f) 360.09 236.08 T
+X(\021) 363.09 236.08 T
+X3 F
+X(V) 366.86 236.08 T
+X1 F
+X(\021) 372.88 236.08 T
+X(|) 375.13 236.08 T
+X(|) 377.67 236.08 T
+X(\021) 379.47 236.08 T
+X3 F
+X(e) 383.25 236.08 T
+X1 F
+X(\021) 387.77 236.08 T
+X(\021) 390.02 236.08 T
+X(\021) 392.26 236.08 T
+X(\021) 394.51 236.08 T
+X(\021) 396.76 236.08 T
+X(\021) 399 236.08 T
+X(\021) 401.25 236.08 T
+X(\021) 403.5 236.08 T
+X(\021) 405.74 236.08 T
+X(\021) 407.99 236.08 T
+X(\021) 410.24 236.08 T
+X(\021) 412.48 236.08 T
+X(\021) 414.73 236.08 T
+X(\021) 416.98 236.08 T
+X(\021) 419.22 236.08 T
+X(\021) 421.47 236.08 T
+X(\021) 423.72 236.08 T
+X(0) 347.91 213.93 T
+X(\021) 352.94 213.93 T
+X(i) 355.18 213.93 T
+X(f) 357.68 213.93 T
+X(\021) 360.67 213.93 T
+X3 F
+X(P) 371.2 222.44 T
+X3 7 Q
+X(c) 377.04 219.31 T
+X3 9 Q
+X(P) 395.58 222.44 T
+X3 7 Q
+X(c) 401.41 219.31 T
+X4 9 Q
+X(-) 388.39 222.44 T
+X3 F
+X(V) 380.39 207.72 T
+X3 7 Q
+X(c) 386.23 204.59 T
+X1 9 Q
+X(0) 414.7 213.93 T
+X(\021) 419.72 213.93 T
+X(\021) 421.97 213.93 T
+X(\021) 424.22 213.93 T
+X4 F
+X(<) 407.52 213.93 T
+X3 F
+X(P) 354.67 192.5 T
+X3 7 Q
+X(c) 360.51 189.37 T
+X3 9 Q
+X(P) 379.05 192.5 T
+X3 7 Q
+X(c) 384.88 189.37 T
+X4 9 Q
+X(-) 371.86 192.5 T
+X3 F
+X(V) 363.86 177.78 T
+X3 7 Q
+X(c) 369.7 174.65 T
+X1 9 Q
+X(\021) 389.27 183.99 T
+X(o) 391.51 183.99 T
+X(t) 396.01 183.99 T
+X(h) 398.5 183.99 T
+X(e) 403 183.99 T
+X(r) 406.99 183.99 T
+X(w) 409.98 183.99 T
+X(i) 416.47 183.99 T
+X(s) 418.97 183.99 T
+X(e) 422.46 183.99 T
+X4 F
+X(\356) 342.71 176.55 T
+X(\357) 342.71 185.59 T
+X(\357) 342.71 194.71 T
+X(\355) 342.71 203.88 T
+X(\357) 342.71 213 T
+X(\357) 342.71 222.12 T
+X(\354) 342.71 231.2 T
+X(=) 331.77 205.78 T
+X366.2 218.87 366.2 228.59 2 L
+XN
+X366.2 218.87 369.2 218.87 2 L
+XN
+X384.14 218.87 384.14 228.59 2 L
+XN
+X384.14 218.87 381.14 218.87 2 L
+XN
+X365.2 215.87 404.27 215.87 2 L
+XN
+X349.67 188.93 349.67 198.65 2 L
+XN
+X349.67 188.93 352.67 188.93 2 L
+XN
+X367.61 188.93 367.61 198.65 2 L
+XN
+X367.61 188.93 364.61 188.93 2 L
+XN
+X348.67 185.93 387.73 185.93 2 L
+XN
+X1 F
+X(f) 426.5 204.95 T
+X(o) 429.49 204.95 T
+X(r) 433.98 204.95 T
+X3 F
+X(e) 443.89 204.95 T
+X(c) 452.38 204.95 T
+X4 F
+X(,) 447.88 204.95 T
+X(\050) 440.01 204.95 T
+X(\051) 456.76 204.95 T
+X3 F
+X(t) 491.79 225.78 T
+X(o) 494.82 225.78 T
+X(p) 499.84 225.78 T
+X(y) 508.83 225.78 T
+X4 F
+X(,) 504.33 225.78 T
+X(\050) 487.9 225.78 T
+X(\051) 513.22 225.78 T
+X3 F
+X(b) 484.26 212.14 T
+X(o) 489.28 212.14 T
+X(t) 494.3 212.14 T
+X(t) 497.33 212.14 T
+X(o) 500.36 212.14 T
+X(m) 505.38 212.14 T
+X(y) 516.37 212.14 T
+X4 F
+X(,) 511.87 212.14 T
+X(\050) 480.37 212.14 T
+X(\051) 520.75 212.14 T
+X3 F
+X(l) 491.53 198.5 T
+X(e) 494.55 198.5 T
+X(f) 499.07 198.5 T
+X(t) 502.1 198.5 T
+X(x) 509.1 198.5 T
+X4 F
+X(,) 504.6 198.5 T
+X(\050) 487.64 198.5 T
+X(\051) 513.48 198.5 T
+X3 F
+X(r) 488.26 184.86 T
+X(i) 492.29 184.86 T
+X(g) 495.32 184.86 T
+X(h) 500.34 184.86 T
+X(t) 505.36 184.86 T
+X(x) 512.36 184.86 T
+X4 F
+X(,) 507.86 184.86 T
+X(\050) 484.38 184.86 T
+X(\051) 516.74 184.86 T
+X(\356) 473.66 184.84 T
+X(\376) 525.76 184.84 T
+X(\357) 473.66 193.89 T
+X(\357) 525.76 193.89 T
+X(\355) 473.66 203.05 T
+X(\375) 525.76 203.05 T
+X(\357) 473.66 212.18 T
+X(\357) 525.76 212.18 T
+X(\354) 473.66 221.25 T
+X(\374) 525.76 221.25 T
+X(\316) 463.51 204.95 T
+X537.02 203.5 559.16 212.55 R
+X7 X
+XV
+X1 F
+X0 X
+X(\0502\051) 537.02 206.55 T
+X317.29 72 557.29 593 C
+X0 0 612 792 C
+X317.3 598.46 557.28 738 C
+X317.3 598.46 557.28 738 R
+X7 X
+X0 K
+XV
+X317.3 598.46 557.28 616.46 R
+XV
+X5 8 Q
+X0 X
+X(Figur) 317.3 611.13 T
+X(e 2: Cir) 335.4 611.13 T
+X(cular and turbulent \337uid dynamics vector \336elds) 362.12 611.13 T
+X(imaged using DDA convolution over white noise.) 317.3 602.13 T
+X318.02 621.72 556.56 737.28 R
+X7 X
+XV
+X0.1 H
+X2 Z
+X14 X
+XN
+X0 0 612 792 C
+X54 72 293.98 334.51 C
+X54 72 293.98 90 R
+X7 X
+X0 K
+XV
+X5 8 Q
+X0 X
+X(Figur) 54 84.67 T
+X(e 1: The mapping of a vector onto a DDA line and input) 72.09 84.67 T
+X(pixel \336eld generating a single output pixel.) 54 75.67 T
+X0 -5 -30 395 370 239.98 239.98 54 94.54 FMBEGINEPSF
+X%%BeginDocument: /home/u06/cabral/avs/data/final.paper/figure1.eps
+X%!PS-Adobe-3.0 EPSF-3.0
+X%%Creator: LIC
+X%%DocumentFonts: AvantGarde-Book
+X%%BoundingBox: -5 -30 395 370
+X%%Pages: 1
+X%%EndComments
+X%%EndProlog
+X%%Page: 1 1
+X
+Xgsave
+X/AvantGarde-Book findfont 25.0 scalefont setfont
+X
+X/Xrange 200.0 def
+X/Yrange 200.0 def
+X/Xmin   0.0   def
+X/Xmax   200.0 def
+X/Ymin   0.0   def
+X/Ymax   200.0 def
+X/dx     10.0  def
+X/dy     10.0  def
+X
+X/arrow
+X{
+X   gsave
+X   300 -300 scale
+X   translate
+X   atan neg rotate
+X   newpath
+X    0.0 0.0  moveto
+X    0.2 0.0  lineto
+X   -0.05 0.03  rlineto
+X    0.2 0.0   moveto
+X    -0.05 -0.03 rlineto
+X   0.0 setgray
+X   0.01 setlinewidth
+X   stroke
+X   grestore
+X} def
+X
+X/vector
+X{
+X   gsave
+X   300 -300 scale
+X   translate
+X   atan neg rotate
+X   newpath
+X    -0.3 0.0  moveto
+X     0.3 0.0  lineto
+X   0.0 setgray
+X   0.005 setlinewidth
+X   stroke
+X   grestore
+X} def
+X
+X/SetWorld
+X{
+X   144.0 Xrange div 72.0 Yrange div scale
+X} def
+X
+X/verticals
+X{
+X   newpath
+X   Xmin dx Xmax
+X   {
+X         Ymin moveto
+X     Xmax Ymax rlineto
+X   } for
+X   stroke
+X} def
+X
+X/horizontals
+X{
+X   newpath
+X   Ymin dy Ymax
+X   {
+X      dup moveto
+X      Xmax 0   rlineto
+X   } for
+X   stroke
+X} def
+X
+X/layer
+X{
+X   gsave
+X   0 exch translate
+X   verticals
+X   horizontals
+X   grestore
+X} def
+X
+X/outline
+X{
+X   gsave
+X   0 exch translate
+X   newpath
+X   0 0 moveto
+X   Xmax 0    rlineto
+X   Xmax Ymax rlineto
+X   Xmax neg 0    rlineto
+X   Xmax neg Ymax neg  rlineto
+X   stroke
+X   grestore
+X} def
+X
+X/graybox
+X{
+X   gsave
+X   newpath
+X   moveto
+X   dx 0  rlineto
+X   dx dy rlineto
+X   dx neg 0  rlineto
+X   dx neg dy neg  rlineto
+X   closepath
+X   setgray
+X   fill
+X   grestore
+X} def
+X
+X/dropline
+X{
+X   gsave
+X   newpath
+X   dy 2 div add exch
+X   dx add exch
+X   moveto
+X   0 -250  rlineto
+X   setgray
+X   stroke
+X   grestore
+X} def
+X
+X/randomlayer
+X{
+X   gsave
+X   0 exch translate
+X   31601 srand
+X   Ymin dy Ymax dy sub
+X   {
+X      dup
+X      dup dx 2 copy pop Xmax dx sub add
+X      {
+X         exch
+X	 rand 2 31 exp div
+X         0.5 mul 0.5 add
+X         3 1 roll
+X         graybox
+X         dup
+X      } for
+X   } for
+X   grestore
+X} def
+X
+X/graylayer
+X{
+X   gsave
+X   0 exch translate
+X   31601 srand
+X   Ymin dy Ymax dy sub
+X   {
+X      dup
+X      dup dx 2 copy pop Xmax dx sub add
+X      {
+X         exch
+X	 0.7
+X         3 1 roll
+X         graybox
+X         dup
+X      } for
+X   } for
+X   grestore
+X} def
+X
+X
+X/ddalayer
+X{
+X   gsave
+X   translate
+X  
+X   3 1 roll
+X   atan dup cos exch sin
+X   3 -1 roll
+X
+X   dup
+X   4 1 roll
+X
+X   /y1 5 1 roll mul neg 4 -1 roll exch truncate def
+X   /x1 3 1 roll mul neg truncate def
+X   /y2 y1  neg def
+X   /x2 x1  neg def
+X
+X   /yy y1 def
+X   /xx x1 1 sub def
+X
+X   /Dy y2 y1 sub abs def
+X   /Dx x2 x1 sub abs def
+X
+X   /e Dy 2 mul Dx sub def
+X
+X   1 1 Dx
+X   {
+X      0.4 xx dx mul yy dy mul dropline
+X
+X      0.65 xx dx mul yy dy mul graybox
+X     
+X      e 0 gt {/yy yy 1 add def
+X              /e 2 Dy mul 2 Dx mul sub e add def}
+X             {/e 2 Dy mul e add def} ifelse
+X      /xx xx 1 add def
+X   } for
+X
+X   grestore
+X} def
+X
+X/label
+X{
+X   gsave
+X   0.0 setgray
+X   3 1 roll
+X   moveto
+X   Xmax Ymax rmoveto
+X   0.5 1.0 scale
+X   show
+X   grestore
+X} def
+X
+X/centerline
+X{
+X   gsave
+X
+X   dup
+X   3 2 roll
+X   dup
+X   4 1 roll
+X   exch
+X
+X   0 setgray
+X   newpath
+X   moveto
+X   0 155 rlineto
+X   stroke
+X
+X   0.55 setgray
+END_OF_FILE
+  if test 47609 -ne `wc -c <'lic.1.2/doc/siggraph93/paper.ps.A'`; then
+    echo shar: \"'lic.1.2/doc/siggraph93/paper.ps.A'\" unpacked with wrong size!
+  elif test -f 'lic.1.2/doc/siggraph93/paper.ps.B' && test -f 'lic.1.2/doc/siggraph93/paper.ps.C'; then
+    echo shar: Combining  \"'lic.1.2/doc/siggraph93/paper.ps'\" \(170079 characters\)
+    cat 'lic.1.2/doc/siggraph93/paper.ps.A' 'lic.1.2/doc/siggraph93/paper.ps.B' 'lic.1.2/doc/siggraph93/paper.ps.C' > 'lic.1.2/doc/siggraph93/paper.ps'
+    if test 170079 -ne `wc -c <'lic.1.2/doc/siggraph93/paper.ps'`; then
+      echo shar: \"'lic.1.2/doc/siggraph93/paper.ps'\" combined with wrong size!
+    else 
+      rm lic.1.2/doc/siggraph93/paper.ps.A lic.1.2/doc/siggraph93/paper.ps.B lic.1.2/doc/siggraph93/paper.ps.C
+    fi
+  fi
+  # end of 'lic.1.2/doc/siggraph93/paper.ps.A'
+fi
+echo shar: End of archive 5 \(of 10\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

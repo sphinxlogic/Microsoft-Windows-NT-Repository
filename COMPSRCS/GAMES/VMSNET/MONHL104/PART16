@@ -1,0 +1,1417 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 16/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.034843.9521@klaava.Helsinki.FI>
+Date: 14 Jun 92 03:48:43 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1405
+
+Archieve-name: monster_helsinki_104/part16
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 16/32
+
+-+-+-+-+-+-+-+-+ START OF PART 16 -+-+-+-+-+-+-+-+
+X`009`009otherwise error_counter := error_counter +1;
+X`009    end;
+X         end;                    `032
+X         var_count := var_pointer; `123 remove all inner variables `125
+X         write_debug('%eval_atom LEAVE');
+X      end; `123 eval_atom `125
+X  `032
+X   var result: string_t;
+X       found: boolean;
+X   begin `123 exec_program `125
+X     write_debug('%exec_program');
+X     eval_count := 0;
+X     var_count := 0;
+X `032
+X     `123 ennaltam`228`228ritelt`228v`228t muuttujat: `125
+X     define_variable ('monster name');
+X     set_variable ('monster name',monster);
+X     define_variable ('player name');
+X     set_variable ('player name',myname);
+X
+X     if variable > '' then begin
+X        define_variable(variable);
+X        set_variable(variable,value)
+X     end;
+X
+X     if spell_name > '' then begin
+X`009define_variable('spell name');
+X`009set_variable('spell name',spell_name);
+X`009define_variable('summoner name');
+X`009set_variable('summoner name',summoner_name);
+X     end;
+X
+X     result := goto_label (label_name,found);
+X     1:`032
+X     exec_program := found
+Xend; `123 exec program `125
+X
+X`123 file_name moved to module DATABASE `125
+X
+X`091global`093
+Xfunction current_run: integer;
+Xbegin
+X  if not code_running then current_run := 0
+X  else current_run := pool`091current_buffer`093.current_program;
+Xend; `123 current_run `125
+X
+X`091global`093
+Xfunction monster_runnable(code: integer): boolean;
+Xbegin
+X   getheader(code);
+X   freeheader;
+X   monster_runnable := header.runnable;
+Xend;
+X
+X
+X`091global`093`032
+Xfunction monster_owner  (code: integer; class : integer := 0): atom_t;
+Xbegin `032
+X  write_debug ('%monster_owner');
+X  getheader(code);
+X  freeheader;
+X  case class of
+X    0: monster_owner := header.owner;
+X    1: monster_owner := header.author;
+X  end; `123 case `125
+Xend; `123 monster_owner `125
+X
+Xfunction x_monster_owner `123 (code: integer; class : integer := 0): atom_t
+V `125;
+Xbegin
+X  x_monster_owner := monster_owner(code,class);
+Xend; `123 x_monster_owner `125
+X
+X
+X`091global`093`032
+Xprocedure set_owner (code: integer; class : integer := 0; owner: atom_t);
+Xbegin `032
+X  write_debug ('%set_owner');
+X  getheader(code);
+X  case class of
+X    0: header.owner := owner;
+X    1: header.author := owner;
+X  end; `123 case `125
+X  putheader
+Xend; `123 set_owner `125
+X
+X`091global`093
+Xprocedure set_runnable(code: integer; value: boolean);
+Xbegin
+X  getheader(code);
+X  header.runnable := value;
+X  putheader
+Xend;
+X
+X`091global`093
+Xprocedure monsterpriv(code: integer);
+Xvar priv: boolean;
+Xbegin
+X  getheader(code);
+X  priv := not header.priv;
+X  header.priv := priv;
+X  putheader;
+X  if priv then writeln ('Monster/Hook is now privileged.')
+X  else writeln ('Monster/Hook is no longer privileged.');
+Xend;
+X
+X`091global`093
+Xprocedure set_flag(code: integer; flag: integer; turn_on: boolean);
+Xvar bit,old: unsigned;
+Xbegin
+X  write_debug('%set_flag');
+X  bit := flagtable`091flag`093.value;
+X  getheader(code);
+X  old := uint(header.flags);
+X  if turn_on then header.flags := int(uor(old,bit))
+X  else  header.flags := int(uand(old,unot(bit)));
+X  putheader;
+X  if turn_on and (old <> uint(header.flags)) then
+X    writeln(flagtable`091flag`093.on);
+X  if (not turn_on) and (old <> uint(header.flags)) then
+X    writeln(flagtable`091flag`093.off);
+Xend;
+X
+X`091global`093
+Xfunction get_flag(code: integer; flag: integer): boolean;
+Xvar bit: unsigned;
+Xbegin
+X  write_debug('%get_flag');
+X  bit := flagtable`091flag`093.value;
+X  getheader(code);
+X  freeheader;
+X  get_flag := uand(bit,uint(header.flags)) > 0;
+X
+Xend;
+X
+Xfunction x_get_flag `123 (code: integer; flag: integer): boolean `125;
+Xbegin
+X    x_get_flag := get_flag(code,flag);
+Xend;
+X
+X
+X`091global`093
+Xprocedure view_monster(code: integer);
+Xvar i: integer;
+X    pub,dis: atom_t;
+X    flag_typed: boolean;
+X    value: string_l;
+X
+Xbegin
+X
+X    flag_typed := false;
+X    if not lookup_class(pub,'public') then
+X`009writeln('%error #1 in view monster');
+X    if not lookup_class(dis,'disowned') then
+X`009writeln('%error #2 in view monster');
+X
+X
+X  getheader(code);
+X  freeheader;
+X
+X  writeln ('Monster/Hook statistics:');
+X  writeln;
+X  if header.owner = pub  then
+X    writeln ('Monster/Hook is public')
+X  else if header.owner = dis then
+X    writeln ('Monster/Hook is disowned')
+X  else writeln ('Owner:          ',class_out(header.owner));
+X  writeln ('Creation time:  ',header.ctime);
+X  if header.author <> '' then    `032
+X     writeln ('Author:         ',class_out(header.author));`032
+X  if header.wtime <> '' then
+X     writeln ('Load time:      ',header.wtime); `032
+X
+X  if header.running_id > '' then
+X    writeln ('Running under:  ',header.running_id);
+X  if header.runnable then writeln ('Code is runnable')
+X  else writeln ('Code is blocked');
+X  if header.priv then`032
+X     writeln ('Monster/Hook is privileged');
+X    for i := 1 to max_flag do begin
+X`009if uand (uint(header.flags),flagtable`091i`093.value) > 0 then`032
+X`009    value := flagtable`091i`093.on
+X`009else value := flagtable`091i`093.off;
+X`009if value > '' then begin
+X`009    if not flag_typed then writeln('Flags: ',value)
+X`009    else                   writeln('       ',value);
+X`009    flag_typed := true;
+X`009end;
+X    end;
+X
+X  writeln;                                   `032
+X  writeln ('Label             Run num.    Error count   Last run');
+X  for i := 1 to statmax do if header.stats`091i`093.lab > '' then`032
+X     with header.stats`091i`093 do`032
+X        writeln (substr(lab+'                ',1,17),
+X                 runcount:4,'        ',
+X                 errorcount:4,'          ',
+X                 lastrun);
+X  writeln
+Xend;
+X
+X
+X`091global`093
+Xfunction run_monster (monster_name: atom_t;
+X                      code: integer;
+X                      label_name: atom_t;
+X                      variable: atom_t;
+X                      value: string_t;
+X                      time: atom_t;
+X`009`009      spell: atom_t := '';
+X`009`009      summoner: atom_t := '' ): boolean;
+Xlabel 1;
+Xvar o_file: text;
+X    i,count,lb,temp: integer;
+X    ok: boolean;
+X    health,errorcode: integer;
+X    sys: atom_t;
+Xbegin                           `032
+X    run_monster := false;   `123 default value for error situation `125
+X  `032
+X    write_debug ('%run_monster.');
+X    if not lookup_class(sys,'system') then`032
+X`009writeln('%error in run_monster');
+X    if not code_running then begin
+X`009code_running := true;
+X`009getheader(code);
+X`009freeheader;
+X`009health := int_get_health(monster_name); `123 -1 = not monster `125
+X`009if debug then writeln('%run_monster - health: ',health);`032
+X`009if header.runnable and (health <> 0) then begin
+X`009    current_buffer := alloc_buffer(code);
+X
+X`009    with pool`091current_buffer`093 do begin `032
+X
+X`009`009`123 ladataan monsterin koodi `125
+X`009`009if (current_program <> code) or`032
+X`009`009    (current_version <> header.version) then begin
+X`009`009    if current_program <> 0 then clear_program (current_buffer);
+X`009`009    current_program := 0;
+X
+X`009`009    count := 0;  `032
+X`009`009    repeat
+X`009`009`009getheader(code);
+X`009`009`009if header.interlocker > '' then begin
+X`009`009`009    freeheader;
+X`009`009`009    write_debug ('%locking in run_monster');
+X`009`009`009    count := count +1 ;
+X`009`009`009    wait (1); `123 wait a second `125
+X`009`009`009    if count > 10 then begin
+X`009`009`009`009if debug then begin
+X`009`009`009`009    writeln ('%deadlock in run_monster.');
+X`009`009`009`009    writeln ('%deadlock will be ignored.');
+X`009`009`009`009end;
+X`009`009`009`009getheader(code);
+X`009`009`009`009header.interlocker := '';
+X`009`009`009    end;
+X`009`009`009end;
+X`009`009    until header.interlocker = '';
+X`009`009    header.interlocker := userid;
+X`009`009    putheader;
+X   `032
+X`009`009    open(o_file,file_name(code),old,error:=continue,
+X`009`009`009RECORD_LENGTH := string_length + 20);
+X`009`009    errorcode := status(o_file);
+X`009`009    if errorcode > 0 then begin
+X`009`009`009writeln ('%code file read failure in run_monster - possible dead
+Vlock.');
+X`009`009`009writeln ('% Error code (status): ',errorcode:1);
+X`009`009`009writeln ('% Notify monster manager.');
+X`009`009`009
+X
+X`009`009`009getheader(code);
+X`009`009`009header.interlocker := '';
+X`009`009`009putheader;
+X
+X`009`009`009goto 1
+X`009`009    end;
+X`009`009    read_program (o_file,current_buffer);
+X `009`009    current_program := code;
+X             `032
+X`009`009    getheader(code);
+X`009`009    header.interlocker := '';
+X`009`009    putheader;             `032
+X`009`009    current_version := header.version;
+X`009`009end;
+X`009    end; `123 with pool `125
+X
+X        ok := false;
+X        i := 0;
+X        while not ok and (i < 10) do
+X          case int_login(monster_name,false) of
+X              0: begin
+X                 writeln ('%serious error in run_monster. Notify Monster Man
+Vager.');
+X                 writeln ('% bad monster name');
+X                 goto 1
+X              end;
+X              1: ok := true;
+X              2,3: begin            `123 odotetetaan edllisen valmistumista
+V `125
+X                i := i+1;
+X                 wait(1);
+X                 checkevents(true)
+X              end;
+X              otherwise begin
+X                 writeln ('%serious error in run_monster. Notify Monster Man
+Vager.');
+X                 writeln ('% bad return from int_login');
+X
+X                 goto 1
+X              end;
+X          end; `123 case `125
+X         if not ok then`032
+X            case int_login(monster_name,true) of  `123 k`228ynistet`228`228n
+V pakolla `125
+X               0: begin
+X                  writeln ('%serious error in run_monster. Notify Monster Ma
+Vnager.');
+X                  writeln ('% bad monster name');
+X
+X                  goto 1
+X               end;
+X               1: ok := true;
+X               3: ok := false;                `123 k`228`228k `125
+X               otherwise begin `032
+X                  writeln ('%serious error in run_monster. Notify Monster Ma
+Vnager.');
+X                  writeln ('% bad return from int_login');
+X
+X                  goto 1
+X               end;
+X            end; `123 case `125
+X
+X         if ok then begin
+X
+X            getheader(code);
+X            header.running_id := userid;
+X     `032
+X            lb := 0;
+X            for i := 1 to statmax do if header.stats`091i`093.lab = '' then
+V lb := i;
+X            for i := 1 to statmax do`032
+X               if header.stats`091i`093.lab = label_name then lb := i;
+X
+X            if lb = 0 then begin
+X                        lb := 1;
+X                        header.stats`091lb`093.lab := label_name;
+X                        header.stats`091lb`093.errorcount := 0;
+X                        header.stats`091lb`093.runcount := 1
+X            end else if header.stats`091lb`093.lab = '' then begin
+X                        header.stats`091lb`093.lab := label_name;
+X                        header.stats`091lb`093.errorcount := 0;
+X                        header.stats`091lb`093.runcount := 1
+X            end else if header.stats`091lb`093.runcount < MaxInt then
+X`009       header.stats`091lb`093.runcount := header.stats`091lb`093.runcoun
+Vt +1;
+X`009    system_code := header.owner = sys;
+X            privilegion := header.priv or system_code;
+X            putheader;
+X`009   `032
+X`009    spell_mode := get_flag(code,CF_SPELL_MODE);
+X
+X            error_counter := 0;
+X`009    used_attack   := 0;
+X
+X`009    temp := int_get_experience(monster_name);
+X`009    if temp = -1 then begin
+X`009`009monster_level := 0;
+X`009`009attack_limit  := maxint;
+X`009    end else begin`032
+X`009`009monster_level := level(temp);
+X`009`009attack_limit  := leveltable`091monster_level`093.maxpower;
+X`009    end;
+X`009    if system_code then attack_limit := MaxInt;
+X
+X`009    if debug then begin
+X`009`009writeln('%run_monster - monster_level ',monster_level:1);
+X`009`009writeln('%run_monster - attack_limit  ',attack_limit:1);
+X`009    end;
+X           `032
+X            run_monster := exec_program (label_name,monster_name,
+X`009`009variable,value,current_buffer,spell,summoner);
+X
+X            getheader(code);
+X            header.running_id := '';
+X            if header.stats`091lb`093.errorcount < MaxInt - error_counter th
+Ven
+X               header.stats`091lb`093.errorcount := header.stats`091lb`093.e
+Vrrorcount +
+X                  error_counter
+X            else header.stats`091lb`093.errorcount := MaxInt;
+X            header.stats`091lb`093.lastrun := time;
+X            putheader;
+X                                                         `032
+X           int_logout(monster_name)
+X        end else run_monster := false;
+X     end else run_monster := false;   `123 if not header.runnable `125
+X     code_running := false;
+X  end else run_monster := false; `123 re_entrance `125
+X  1:
+Xend; `123 run monster `125
+X
+X`091global`093                            `032
+Xprocedure list_program(code: integer;
+X                       procedure print(l: string_t); len: integer := 80);
+Xlabel 1;
+Xvar o_file: text;
+X    count,errorcode: integer;
+Xbegin`032
+X    write_debug('%list_program.');
+X    getheader(code);
+X    freeheader;
+X
+X    current_buffer := alloc_buffer(code);
+X    with pool `091current_buffer`093 do begin
+X`009`123 ladataan monsterin koodi `125
+X`009if (current_program <> code) or`032
+X`009    (header.version <> current_version) then begin
+X`009    if current_program <> 0 then clear_program (current_buffer);
+X`009    current_program := 0;
+X
+X`009    count := 0;  `032
+X`009    repeat
+X`009`009getheader(code);
+X`009`009if header.interlocker > '' then begin
+X`009`009    freeheader;
+X`009`009    write_debug ('%locking in list_program');
+X`009`009    count := count +1 ;
+X`009`009    wait (1); `123 wait a second `125
+X`009`009    if count > 10 then begin
+X`009`009`009if debug then begin
+X`009`009`009    writeln ('%deadlock in list_program.');
+X`009`009`009    writeln ('%deadlock will be ignored.');
+X`009`009`009end;
+X`009`009`009getheader(code);
+X`009`009`009header.interlocker := '';
+X`009`009    end;
+X`009`009end;
+X`009    until header.interlocker = '';
+X`009    header.interlocker := userid;
+X`009    putheader;
+X  `032
+X`009    open(o_file,file_name(code),history := READONLY,
+X`009`009sharing := READONLY,error:=continue,`032
+X`009`009record_length := string_length +20);
+X`009    errorcode := status(o_file);
+X`009    if errorcode > 0 then begin
+X`009`009writeln ('%code file read failure in list_program.');
+X`009`009writeln ('%Try later. Error code (status): ',errorcode:1);
+X
+X`009`009getheader(code);
+X`009`009header.interlocker := '';
+X`009`009putheader;
+X
+X`009`009goto 1
+X`009    end;
+X`009    read_program (o_file,current_buffer);
+X`009    current_program := code;
+X             `032
+X`009    getheader(code);
+X`009    header.interlocker := '';
+X`009    putheader;             `032
+X`009    current_version := header.version;
+X`009end;
+X
+X`009print_program (current_buffer,print,len);
+X    end; `123 with `125
+X    1:
+Xend; `123 list_program `125
+X
+Xtype medium_t = varying `091 80 `093 of char;
+X                     `032
+X`091global`093
+Xprocedure load (code: integer; source: string_l;
+X                time: atom_t;`032
+X                author: atom_t;
+X`009`009def : string_l := '.MDL');
+X
+Xlabel 1;
+Xvar o_file,s_file: text;
+X    count,i,errorcode,s_errorcode: integer;
+Xbegin
+X    write_debug('%load');
+X`009open(s_file,source,old,error := continue,
+X`009    record_length := string_length +20,
+X`009    default := def );
+X`009s_errorcode := status(s_file);
+X`009if s_errorcode <= 0 then begin `032
+X`009    count := 0;  `032
+X`009    repeat`032
+X`009`009getheader(code);
+X`009`009if header.interlocker > '' then begin
+X`009`009    freeheader;
+X`009`009    write_debug ('%locking in load');
+X`009`009    count := count +1 ;
+X`009`009    wait (1);
+X`009`009    if count > 10 then begin
+X`009`009`009if debug then begin
+X`009`009`009    writeln ('%Deadlock in load. Deadlock will be ignored.');
+X`009`009`009end;
+X`009`009`009getheader(code);
+X`009`009`009header.interlocker := '';
+X`009`009    end; `123 count > 10 `125
+X`009`009end;
+X`009    until header.interlocker = '';
+X`009    header.interlocker := author;
+X`009    header.author := author;
+X`009    header.wtime := time;
+X`009    putheader;     `032
+X`009    if header.priv then writeln('Monster/Hook is no longer privileged.')
+V;
+X
+X`009    open(o_file,file_name(code),old,SHARING := NONE,ERROR := CONTINUE,
+X`009`009record_length := string_length +20);
+X`009    errorcode := status(o_file);
+X`009    if errorcode > 0 then begin
+X`009`009writeln ('%Can''t open code file. Try later.');
+X`009`009writeln ('% It''s really deadlocked.');
+X`009`009writeln ('% Error code (status): ',errorcode:1);
+X
+X`009`009getheader(code);
+X`009`009header.interlocker := '';
+X`009`009putheader;
+X      `032
+X`009`009close(s_file);
+X`009`009goto 1
+X`009    end; `032
+X
+X`009    current_buffer := alloc_buffer(code);
+X`009    parse (s_file,o_file);
+X                                                      `032
+X`009    getheader(code);
+X`009    header.version := (header.version +1) mod 100000;
+X`009    header.interlocker := '';
+X`009    header.runnable := TRUE;
+X`009    header.priv := FALSE;
+X`009    for i := 1 to statmax do header.stats`091i`093.lab := '';
+X`009    for i := 1 to statmax do header.stats`091i`093.runcount := 0;
+X`009    for i := 1 to statmax do header.stats`091i`093.errorcount := 0;
+X`009    for i := 1 to statmax do header.stats`091i`093.lastrun := '';
+X`009    putheader;
+X
+X`0091:
+X`009end else case s_errorcode of
+X`009    3: `123 PAS$K_FILNOTFOU `125 writeln('Error: File not found.');
+X`009    4: `123 PAS$K_INVFILSYN `125 writeln('Error: Illegal file name.');
+X`009    otherwise writeln('Error: (status) ',s_errorcode:1);
+X`009end; `123 case `125
+Xend; `123 load `125
+X
+X`091global`093                                `032
+Xprocedure delete_program (code: integer);
+Xlabel 1; `032
+Xvar fl: text;
+X    count,apu,errorcode: integer;
+Xbegin
+X  write_debug ('%delete_program');
+X  apu := code;
+X  count := 0;
+X  repeat
+X    open (fl,file_name(code),old,sharing:=NONE,error := continue,
+X          record_length := string_length +20);
+X    errorcode := status(fl);
+X    if errorcode > 0 then begin
+X       count := count +1;
+X       write_debug ('%collision in delete_program');
+X       if count > 10 then  begin
+X          if debug then begin
+X`009     writeln ('%Deadlock in delete_program.');
+X`009     writeln ('% Error code (status): ',errorcode:1);
+X`009  end;
+X          goto 1
+X       end;
+X       wait (0.2);      `123 collision is very rare in here `125
+X    end
+X  until errorcode <= 0;
+X  reset (fl);
+X  truncate(fl);
+X  close(fl);
+X1:
+Xend; `123 delete_program `125
+X
+X`091global`093    `032
+Xprocedure init_interpreter;
+Xvar i: integer;
+Xbegin    `032
+X    write_debug ('%init_interpreter');
+X    `123 alustetaan ohjelma puskuri `125
+X    for i := 1 to max_buffer do with pool`091i`093 do begin
+X`009used := 0;
+X`009current_program := 0;
+X`009current_version := 0;
+X`009time := 0;
+X    end;
+X
+Xend; `123 init_interpreter `125
+X
+X`091global`093        `032
+Xprocedure finish_interpreter;`009`123 not need yet `125
+Xbegin
+X  write_debug('%finish_interpreter');
+X
+Xend; `123 finish_interpreter `125
+X
+X`091global`093               `032
+Xprocedure create_program (hdr: integer; owner: atom_t; time: atom_t);
+Xvar i: integer;
+Xbegin
+X  write_debug('%create_program');
+X  delete_program(hdr); `123 truncate code file `125
+X  getheader(hdr);
+X  header.interlocker := '';
+X  header.runnable := FALSE;
+X  header.owner := owner;
+X  header.ctime := time;
+X  header.priv  := false;
+X  for i := 1 to statmax do header.stats`091i`093.lab := '';
+X  for i := 1 to statmax do header.stats`091i`093.runcount := 0;
+X  for i := 1 to statmax do header.stats`091i`093.errorcount := 0;
+X  for i := 1 to statmax do header.stats`091i`093.lastrun := '';
+X  header.author := '';
+X  header.wtime  := '';
+X  header.running_id := '';
+X  header.version    := 0;
+X  header.state      := '';
+X  header.flags`009    := 0;
+X  putheader;
+Xend; `123 create_program `125
+X           `032
+X`123 addheaders moved to module DATABASE `125
+X
+Xend. `123 end of module interpreter `125
+X                                     `032
+$ CALL UNPACK INTERPRETER.PAS;256 1888820432
+$ create/nolog 'f'
+X`091inherit ('global') `093
+Xmodule keys(input,output);
+X
+X`123
+X    This file contains the keys used in encrypting the player
+X    passwords. The file should be kept well protected.
+X`125
+X
+Xconst maxkeys = 10;
+Xtype`032
+X     keyarray = array`0911..maxkeys`093 of shortstring;
+X
+Xvar     mylog : `091external`093 integer;
+X
+X`009keys: keyarray := (
+X
+X'Kaupungin keskustaan',
+X'meneva juna saapuu e',
+X'dell`228`228n aalto kostea',
+X'ilmaa ja ontto humin',
+X'a. Se on tuskin puol',
+X'illaan, koska kello ',
+X'on yli kuusi illalla',
+X'ka liikenne on vilkk',`032
+X'aampi l`228hi`246iden suun',
+X'taan. Moni vaunussa '
+X
+X);
+X
+X`091global`093
+Xprocedure encrypt (var s: shortstring; code: integer := -1);
+Xvar i, l : integer;
+Xbegin
+X`009if code = -1 then code := mylog;
+X
+X`009l := (code mod maxkeys) + 1;
+X`009for i := 1 to s.length do
+X`009`009s`091i`093 := chr ((ord (s`091i`093) + ord (keys`091l`093`091i`093))
+V mod 256);
+Xend;
+X
+Xend. `123 end of module keys `125
+$ CALL UNPACK KEYS.PAS;2 4242112905
+$ create/nolog 'f'
+X`091inherit ('Global','Guts','Database','Cli','Privusers','Parser',
+X          'Custom','Queue','Interpreter')`093
+Xprogram monster(input,output);
+X
+X`123+
+XCOMPONENT: Main program
+X`032
+XPROGRAM DESCRIPTION:
+X`032
+X`009This is Monster, a multiuser adventure game system
+X`009where the players create the universe.
+X`032
+XAUTHORS:
+X`032
+X    Rich Skrenta`032
+X    Juha Laiho
+X    Antti Leino
+X    Kari Hurtta
+X
+X`032
+XCREATION DATE: (unknown) ?.??.1988
+X`032
+XDESIGN ISSUES:
+X`032
+X   `032
+X`032
+XVERSION:
+X`032
+X    Monster Helsinki 1.04
+X   `032
+X`032
+XMODIFICATION HISTORY:
+X`032
+X     Date     `124   Name  `124 Description
+X--------------+---------+---------------------------------------------------
+V----
+X    ??.3.1989 `124  Hurtta `124  Starting of Helsinki version of Monster
+X    12.2.1991 `124         `124  This comment header                   `032
+X    12.2.1991 `124         `124  Some help text replace with call command_he
+Vlp
+X    25.5.1992 `124`009`009`124  fix_owner: owner check for /FIX -subsystem
+X    13.6.1992 `124  Hurtta `124  Distributed as version 1.04
+X-`125
+X
+X
+X`123
+X`009This is Monster, a multiuser adventure game system
+X`009where the players create the universe.
+X
+X`009Written by Rich Skrenta at Northwestern University, 1988.
+X
+X`009`009skrenta@nuacc.acns.nwu.edu
+X`009`009skrenta@nuacc.bitnet
+X
+X`125
+X`123
+X
+X`009This version modified by
+X`009`009jlaiho@finuha.bitnet  (jlaiho@cc.Helsinki.FI)
+X`009`009leino@finuha.bitnet   (leino@cc.Helsinki.FI)
+X`009`009hurtta@finuha.bitnet  (hurtta@cc.Helsinki.FI)
+X`009Thanks for ready-to-run modifications to
+X`009`009dahlp@finabo.bitnet
+X`009`009leino@finuha.bitnet   (leino@cc.Helsinki.FI)
+X`009`009hurtta@finuha.bitnet  (hurtta@cc.Helsinki.FI)
+X`009Thanks for useful ideas to those who play Monster at finuh.
+X
+X`125
+X
+X`123 all functions in FINUHTIME.PAS moved to PRIVUSERS.PAS `125
+X
+X`123 all consts is moved to global.pas `125
+X
+X`123 all types is moved to global.pas `125
+X
+Xvar
+X
+X        `123 variables in privusers module are available with PRIVUSERS.PEN
+V `125
+X
+X`009oldcmd:`009string := '';`009`009`123 string for '.' command to do last c
+Vommand `125
+X
+X`009in_main_prompt : boolean := false;
+X`009`009    `123 if in main promp player can throw out monster immediatly `1
+V25
+X
+X
+X`009`123 GUTS.PAS exports old_promp,line and grab_next `125
+X
+X        `123 system_id, disowned_id and public_id moved to module CUSTOM `12
+V5
+X
+X
+X`009`123 inmem moved to DATABASE.PAS `125
+X
+X  `123`009starting : boolean := FALSE;`009`125  `123 Not yet entered the uni
+Vverse --
+X `009`009`009`009`009  hopefully a temporary hack
+X                                          by leino@finuh `125
+X
+X`009brief: boolean := FALSE;`009`123 brief/verbose descriptions `125
+X
+X`009rndcycle: integer;`009`009`123 integer for rnd_event `125
+X
+X`009`123 debug moved to GLOBAL.PAS `125
+X
+X`009ping_answered: boolean;`009`009  `123 flag for ping answers `125
+X`009`123 hiding moved to module CUSTOM `125
+X`009midnight_notyet: boolean := TRUE; `123 hasn't been midnight yet `125
+X`009first_puttoken: boolean := TRUE;  `123 flag for first place into world `
+V125
+X`009`123 logged_act moved to module CUSTOM `125
+X   `032
+X
+X`009cmds: array`0911..maxcmds`093 of shortstring := (
+X
+X`009`009'name',`009`009`123 setnam = 1`009`125
+X`009`009'help',`009`009`123 help = 2`009`125
+X`009`009'?',`009`009`123 quest = 3`009`125
+X`009`009'quit',`009`009`123 quit = 4`009`125
+X`009`009'look',`009`009`123 look = 5`009`125
+X`009`009'go',`009`009`123 go = 6`009`125
+X`009`009'form',`009`009`123 form = 7`009`125
+X`009`009'link',`009`009`123 link = 8`009`125
+X`009`009'unlink',`009`123 unlink = 9`009`125
+X`009`009'whisper',`009`123 c_whisper = 10`125
+X`009`009'poof',`009`009`123 poof = 11`009`125
+X`009`009'describe',`009`123 desc = 12`009`125
+X`009`009'dcl',          `123 c_dcl = 13   `125
+X`009`009'debug',`009`123 dbg = 14`009`125
+X`009`009'say',`009`009`123 say = 15`009`125
+X`009`009'scan',`009`009`123 c_scan = 16`009`125
+X`009`009'rooms',`009`123 c_rooms = 17`009`125
+X`009`009'system',`009`123 c_system = 18`009`125
+X`009`009'disown',`009`123 c_disown = 19`009`125
+X`009`009'claim',`009`123 c_claim = 20`009`125
+X`009`009'make',`009`009`123 c_create = 21`009`125
+X`009`009'public',`009`123 c_public = 22`009`125
+X`009`009'accept',`009`123 c_accept = 23`009`125
+X`009`009'refuse',`009`123 c_refuse = 24`009`125
+X`009`009'zap',`009`009`123 c_zap = 25`009`125
+X`009`009'hide',`009`009`123 c_hide = 26`009`125
+X`009`009'l',`009`009`123 c_l = 27`009`125
+X`009`009'north',`009`123 c_north = 28`009`125
+X`009`009'south',`009`123 c_south = 29`009`125
+X`009`009'east',`009`009`123 c_east = 30`009`125
+X`009`009'west',`009`009`123 c_west = 31`009`125
+X`009`009'up',`009`009`123 c_up = 32`009`125
+X`009`009'down',`009`009`123 c_down = 33`009`125
+X`009`009'n',`009`009`123 c_n = 34`009`125
+X`009`009's',`009`009`123 c_s = 35`009`125
+X`009`009'e',`009`009`123 c_e = 36`009`125
+X`009`009'w',`009`009`123 c_w = 37`009`125
+X`009`009'u',`009`009`123 c_u = 38`009`125
+X`009`009'd',`009`009`123 c_d = 39`009`125
+X`009`009'customize',`009`123 c_custom = 40`009`125
+X`009`009'who',`009`009`123 c_who = 41`009`125
+X`009`009'players',`009`123 c_players = 42`125
+X`009`009'search',`009`123 c_search = 43`009`125
+X`009`009'reveal',`009`123 c_unhide = 44`009`125
+X`009`009'punch',`009`123 c_punch = 45`009`125
+X`009`009'ping',`009`009`123 c_ping = 46`009`125
+X`009`009'health',`009`123 c_health = 47`009`125
+X`009`009'get',`009`009`123 c_get = 48`009`125
+X`009`009'drop',`009`009`123 c_drop = 49`009`125
+X`009`009'inventory',`009`123 c_inv = 50`009`125
+X`009`009'i',`009`009`123 c_i = 51`009`125
+X`009`009'self',`009`009`123 c_self = 52`009`125
+X`009`009'whois',`009`123 c_whois = 53`009`125
+X`009`009'duplicate',`009`123 c_duplicate = 54 `125
+X`009`009'score',`009`123 c_score = 55`009`125
+X`009`009'version',`009`123 c_version = 56`125
+X`009`009'objects',`009`123 c_objects = 57`125
+X`009`009'use',`009`009`123 c_use = 58`009`125
+X`009`009'wield',`009`123 c_wield = 59`009`125
+X`009`009'brief',`009`123 c_brief = 60`009`125
+X`009`009'wear',`009`009`123 c_wear = 61`009`125
+X`009`009'relink',`009`123 c_relink = 62`009`125
+X`009`009'unmake',`009`123 c_unmake = 63`009`125
+X`009`009'destroy',`009`123 c_destroy = 64`125
+X`009`009'show',`009`009`123 c_show = 65`009`125
+X`009`009'set',`009`009`123 c_set = 66`009`125
+X`009`009'bear',`009`009`123 c_monster = 67    `125
+X`009`009'erase',        `123 c_erase = 68`009    `125
+X`009`009'atmosphere',`009`123 c_atmospehere = 69 `125
+X`009`009'reset',`009`123 c_reset = 70 `125
+X`009`009'summon',       `123 c_summon = 71 `125
+X`009`009'spells',`009`123 c_spells = 72 `125
+X`009`009'monsters',`009`123 c_monsters = 73 `125
+X`009`009'list',`009`009`123 A_list = 74 `125
+X`009`009'create',`009`123 A_create = 75 `125
+X`009`009'delete',`009`123 A_delete = 76 `125
+X`009`009'',`009`009`123 77 `125
+X`009`009'',`009`009`123 78 `125
+X`009`009'',`009`009`123 79 `125
+X`009`009'',`009`009`123 80 `125
+X`009`009'',`009`009`123 81 `125
+X`009`009'',`009`009`123 82 `125
+X`009`009'',`009`009`123 83 `125
+X`009`009'',`009`009`123 84 `125
+X`009`009'',`009`009`123 85 `125
+X`009`009'',`009`009`123 86 `125
+X`009`009'',`009`009`123 87 `125
+X`009`009'',`009`009`123 88 `125
+X`009`009'',`009`009`123 89 `125
+X`009`009'',`009`009`123 90 `125
+X`009`009'',`009`009`123 91 `125
+X`009`009'',`009`009`123 92 `125
+X`009`009'',`009`009`123 93 `125
+X`009`009'',`009`009`123 94 `125
+X`009`009'',`009`009`123 95 `125
+X`009`009'',`009`009`123 96 `125
+X`009`009'',`009`009`123 97 `125
+X`009`009'',`009`009`123 98 `125
+X`009`009''`009`009`123 99 `125
+X
+X`009);
+X
+X`009`123 show moved to parser.pas `125
+X
+X`009numcmds: integer;`009`123 number of got main level commands there are `1
+V25
+X
+X`009`123 numshow moved to parser.pas `125
+X
+X`009`123 setkey moved to parser.pas `125
+X
+X`009`123 numset moved to parser.pas `125
+X
+X`009`123 direct moved to parser.pas `125
+X
+X`009spells: array`0911..maxspells`093 of string;`009  `123 names of spells `
+V125
+X`009numspells: integer;`009`009`123 number of spells there actually are `125
+X
+X`009done: `091global`093 boolean;`009`009`123 flag for QUIT `125
+X`009`123 userid moved to module CUSTOM `125
+X`009real_userid: veryshortstring;`009`123 real VMS userid `125
+X
+X`009`123 location moved to DATABASE.PAS `125
+X
+X`009hold_kind: array`0911..maxhold`093 of integer; `123 kinds of the objects
+V i'm
+X`009`009`009`009`009`009   holding `125
+X
+X`009`123 myslot moved to module CUSTOM `125
+X`009myevent: integer;`009`123 which point in event buffer we are at `125
+X`009`123 myname moved to module CUSTOM `125
+X
+X`009found_exit: array`0911..maxexit`093 of boolean;
+X`009`009`009`009`123 has exit i been found by the player? `125
+X
+X`009`123 mylog moved to DATABASE.PAS `125
+X
+X`009mywear: integer;`009`123 what I'm wearing `125
+X`009`123 mydisguise moved to module CUSTOM `125
+X`009mywield: integer;`009`123 weapon I'm wielding `125
+X`009myhealth: integer;`009`123 how well I'm feeling `125
+X`009myself: integer;`009`123 self description block `125
+X`009`123 myexperience moved to module CUSTOM `125
+X`009healthcycle: integer;`009`123 used in rnd_event to control how quickly a
+X`009`009`009`009  player heals `125
+X
+X`009`123 privs moved to module PARSER `125
+X`009`123 module GLOBAL exports leveltable `125
+X
+X`123 procedures in module CLI is available now with CLI.PEN `125
+X
+X`123 in module KEYS `125
+X
+X`091external`093
+Xprocedure encrypt(key: shortstring; n : integer := 0);
+Xexternal;
+X
+X`123 Routines in module QUEUE are declared in environment file QUEUE.PEN `12
+V5
+X`009`009
+X`123 Routines in module GUTS are declared in environment file GUTS.PEN `125
+X
+X`123 Routines in module INTERPRETER are declared in environment file`032
+X  INTERPRETER.PEN `125
+X
+X
+X`123 ----- `125
+Xprocedure xpoof(loc: integer); forward;
+X
+Xprocedure newlevel(oldlev,newlev: integer); forward;
+X
+Xprocedure prevlevel(oldlev,newlev: integer); forward;
+X
+Xprocedure do_exit(exit_slot: integer); forward;
+X
+X`123 function put_token declared as external in module CUSTOM `125
+X
+Xprocedure take_token(aslot, roomno: integer); forward;
+X
+Xprocedure maybe_drop; forward;                  `032
+X
+X`123 procedure do_program moved to module CUSTOM `125
+X
+Xfunction drop_everything(pslot: integer := 0): boolean;
+Xforward;
+X
+X`123 procedures do_y_altmsg, do_group1, do_group2 moved to module CUSTOM `12
+V5
+X       `032
+Xprocedure meta_run (label_name,variable: shortstring;
+X                    value: mega_string); forward;
+X
+Xprocedure meta_run_2 (label_name,variable: shortstring;
+X                    value: mega_string); forward;
+X
+X`123 procedure custom_hook moved to module CUSTOM `125
+X
+Xprocedure x_unwield; forward;
+Xprocedure x_unwear; forward;
+X
+Xprocedure leave_universe; forward;
+X
+X`123 function trim_filename moved to module CUSTOM `125
+X
+Xfunction play_allow: boolean; `123 check when database is open `125
+Xbegin
+X    play_allow := manager_priv or (userid = MM_userid)
+X`009`009    or not work_time;
+Xend;
+X
+X`123 function sysdate moved to module CUSTOM `125
+X         `032
+X`123 procedure gethere moved to module CUSTOM `125
+X
+X`123 alloc_X and delete_X routines moved to module CUSTOM `125
+X
+X`123 lowcase moved to parser.pas `125
+X
+X`123 lookup_spell reimplemented in module PARSER `125
+X
+X`123 alloc_general and delete_general moved to DATABASE.PAS `125
+X
+X`123 returns true if object N is in this room. if nohidden is true, not foun
+Vd
+X  hidden objects (hurtta@finuh) `125
+X
+Xfunction obj_here(n: integer; nohidden: boolean := false): boolean;
+Xvar
+X`009i: integer;
+X`009found: boolean;
+X
+Xbegin
+X    i := 1;
+X    found := false;
+X    while (i <= maxobjs) and (not found) do begin
+X`009if here.objs`091i`093 = n then begin
+X`009    if not nohidden then found := true
+X`009    else if here.objhide`091i`093 = 0 then found := true
+X`009    else i := i + 1;
+X`009end else i := i + 1;
+X    end;
+X    obj_here := found;
+Xend;
+X
+X`091global`093    `123 for PARSER module `125
+Xfunction player_here(id: integer; var slot: integer): boolean;
+X    `123 suppose that gethere and getpers have made `125
+Xvar i: integer;
+X    name: shortstring;
+Xbegin
+X    slot := 0;
+X    name := lowcase(pers.idents`091id`093);
+X    for i := 1 to maxpeople do
+X`009if here.people`091i`093.kind > 0 then
+X`009`009if lowcase(here.people`091i`093.name) = name then slot := i;
+X    player_here := slot > 0;
+Xend; `123 player_here `125
+X
+X
+X`123 returns true if object N is being held by the player (id slot)`125
+X
+Xfunction obj_hold(n: integer; slot: integer := 0): boolean;
+Xvar
+X`009i: integer;
+X`009found: boolean;
+X
+Xbegin
+X`009if slot = 0 then slot := myslot;
+X`009
+X`009if n = 0 then
+X`009`009obj_hold := false
+X`009else begin
+X`009`009i := 1;
+X`009`009found := false;
+X`009`009while (i <= maxhold) and (not found) do begin
+X`009`009`009if here.people`091slot`093.holding`091i`093 = n then
+X`009`009`009`009found := true
+X`009`009`009else
+X`009`009`009`009i := i + 1;
+X`009`009end;
+X`009`009obj_hold := found;
+X`009end;
+Xend;
+X
+X
+X
+X`123 return the slot of an object that is HERE `125
+Xfunction find_obj(objnum: integer): integer;
+Xvar
+X`009i: integer;
+X
+Xbegin
+X`009i := 1;
+X`009find_obj := 0;
+X`009while i <= maxobjs do begin
+X`009`009if here.objs`091i`093 = objnum then
+X`009`009`009find_obj := i;
+X`009`009i := i + 1;
+X`009end;
+Xend;
+X
+X
+X
+X
+X`123 similar to lookup_obj, but only returns true if the object is in
+X  this room or is being held by the player `125
+X`123 and s may be in the middle of the objact name -- Leino@finuh `125
+X
+Xfunction parse_obj (var pnum: integer;
+X`009`009`009s: string;
+X`009`009`009override: boolean := false): boolean;
+Xvar
+X`009i,poss,maybe,num: integer;
+X`009tmp: string;
+X`009found: boolean;
+X
+Xbegin
+X`009getobjnam;
+X`009freeobjnam;
+X`009getindex(I_OBJECT);
+X`009freeindex;
+X
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009found := false;
+X`009for i := 1 to indx.top do begin
+X`009`009if not(indx.free`091i`093) then begin
+X`009`009`009if s = objnam.idents`091i`093 then
+X`009`009`009`009num := i
+X`009`009`009else if ((index(objnam.idents`091i`093,s) = 1) or
+X`009`009`009`009(index(objnam.idents`091i`093,' '+s) > 0)) and
+X`009`009`009`009(obj_here(i) or obj_hold(i)) then begin
+X`009`009`009`009maybe := maybe + 1;
+X`009`009`009`009poss := i;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009found := obj_here(num) or obj_hold(num);
+X`009`009if found then
+X`009`009`009pnum := num;
+X`009`009parse_obj := found;
+X`009end else if maybe = 1 then begin
+X`009`009found := obj_here(poss) or obj_hold(poss);
+X`009`009if found then
+X`009`009`009pnum := poss;
+X`009`009parse_obj := found;
+X`009end else if maybe > 1 then begin
+X`009`009if lookup_obj (poss, s) then begin
+X`009`009`009found := obj_here(poss) or obj_hold(poss);
+X`009`009`009if found then
+X`009`009`009`009pnum := poss;
+X`009`009`009parse_obj := found;
+X`009`009end else parse_obj := false;
+X`009end else begin
+X`009`009parse_obj := false;
+X`009end;
+Xend;
+X
+X`123 functions parse_pers, is_owner, room_owner, can_alter and can_make move
+Vd to`032
+X  module CUSTOM `125
+X
+X`123 procedures nice_print, print_short print_line, print_desc and make_line
+X   moved to module CUSTOM `125
+X
+X`123
+XReturn n as the direction number if s is a valid alias for an exit
+X`125
+Xfunction lookup_alias(var n: integer; s: string): boolean;
+Xvar
+X`009i,poss,maybe,num: integer;
+X
+Xbegin
+X`009gethere;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to maxexit do begin
+X`009`009if s = here.exits`091i`093.alias then
+X`009`009`009num := i
+X`123`009`009else if index(here.exits`091i`093.alias,s) = 1 then begin
+X`009`009`009maybe := maybe + 1;
+X`009`009`009poss := i;
+X`009`009end;`009`009`009`009`125
+X`009end;
+X`009if num <> 0 then begin
+X`009`009n := num;
+X`009`009lookup_alias := true;
+X`123`009end else if maybe = 1 then begin
+X`009`009n := poss;
+X`009`009lookup_alias := true;
+X`009end else if maybe > 1 then begin
+X`009`009lookup_alias := false;`009`009`125
+X`009end else begin
+X`009`009lookup_alias := false;
+X`009end;
+Xend;
+X
+X`123 procedure exit_default moved to module CUSTOM `125
+X
+X`123
+XPrints out the exits here for DO_LOOK()
+X`125
+Xprocedure show_exits;
+Xvar
+X`009i: integer;
+X`009one: boolean;
+X`009cansee: boolean;
+X
+Xbegin
+X`009one := false;
+X`009for i := 1 to maxexit do begin
+X`009`009if (here.exits`091i`093.toloc <> 0) or `123 there is an exit `125
+X`009`009   (here.exits`091i`093.kind = 5) then begin `123 there could be an
+V exit `125
+X`009`009`009if (here.exits`091i`093.hidden = 0) or
+X`009`009`009   (found_exit`091i`093)`032
+X                        then cansee := true
+X`009`009`009else cansee := false;
+X
+X`009`009`009if here.exits`091i`093.kind = 6 then begin
+X`009`009`009`009`123 door kind only visible with object `125
+X`009`009`009`009if obj_hold( here.exits`091i`093.objreq ) then
+X`009`009`009`009`009cansee := true
+X`009`009`009`009else cansee := false;
+X`009`009`009end;
+X
+X`009`009`009if cansee then begin
+X`009`009`009`009if here.exits`091i`093.exitdesc = DEFAULT_LINE then begin
+X`009`009`009`009`009exit_default(i,here.exits`091i`093.kind);
+X`009`009`009`009`009`123 give it direction and type `125
+X`009`009`009`009`009one := true;
+X`009`009`009`009end else if here.exits`091i`093.exitdesc > 0 then begin
+X`009`009`009`009`009print_line(here.exits`091i`093.exitdesc);
+X`009`009`009`009`009one := true;
+X`009`009`009`009end;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009if one then writeln;
+Xend;
+X
+Xprocedure setevent;
+Xbegin
+X`009getevent;
+X`009freeevent;
+X`009myevent := event.point;
+Xend;
+X
+X`123 functions isnum and number moved to module CUSTOM `125
+X
+X`123 log_event moved to DATABASE.PAS `125
+X
+X`123 function log_name moved to module CUSTOM `125
+X
+Xfunction desc_action(theaction,thetarget: integer): string;
+Xvar s: string;
+Xbegin
+X`009case theaction of`009`123 use command mnemonics `125
+X`009`009look:      s:= ' looking around the room.';
+X`009`009form:      s:= ' creating a new room.';
+X`009`009desc:      s:= ' editing the description to this room.';
+X`009`009e_detail:  s := ' adding details to the room.';
+X`009`009c_custom:  s := ' customizing an exit here.';
+X`009`009e_custroom:s := ' customizing this room.';
+X`009`009e_program: s := ' customizing an object.';
+X`009`009c_self:`009   s := ' editing a self-description.';
+X`009`009e_usecrystal: s := ' hunched over a crystal orb, immersed in its glo
+Vw.';
+X`009`009link:`009   s := ' creating an exit here.';
+X`009`009c_system:  s := ' in system maintenance mode.';
+X                c_dcl:     s := ' executing dcl.';
+X`009`009e_custommonster: s := ' customizing a monster.';
+X`009`009e_customspell: s := ' customizing a spell.';
+X
+X`009`009otherwise s := ' here.'
+X`009end;
+X`009desc_action := s;
+Xend;
+X
+X`091global`093
+Xfunction protected(n: integer := 0): boolean;
+Xvar tmp: objectrec;`009`009`009`123 is this necessary ? `125
+Xbegin
+X`009protected := false;
+X`009if n = 0 then n := myslot;
+X`009tmp := obj;
+X`009if here.people`091n`093.wielding > 0 then begin
+X`009`009getobj(here.people`091n`093.wielding);
+X`009`009freeobj;
+X`009`009if obj.kind = O_MAGIC_RING then protected := true;
+X`009end;
+X`009if here.people`091n`093.act in `091e_detail,c_custom,
+X`009`009`009`009  e_custroom,e_program,
+X`009`009`009`009  c_self,c_system,c_dcl,
+X`009`009`009`009  e_custommonster,
+X`009`009`009`009  e_customspell`093 then
+X`009`009protected := true;
+X
+X`009obj := tmp;
+Xend;
+X
+X`123 ------- Stolen from MONSTER Version 3.0 -------------------------------
+V--- `125
+X
+Xprocedure do_s_announce (s:string);
+Xvar
+X   lcv : integer;
+Xbegin
+X    if (s<>'') and (s <> '?') then
+X`009for lcv :=1 to numevnts do
+X          log_event(0,E_ANNOUNCE,0,0,s,lcv)
+X    else writeln('Usage: w <message>');
+Xend; `123do_announce`125
+X
+Xprocedure do_s_shutdown (s:string);
+Xvar
+X   lcv : integer;
+Xbegin
+X      if (s<>'') and (s <> '?') then
+X`009for lcv :=1 to numevnts do
+X          log_event(0,E_SHUTDOWN,0,0,s,lcv)
+X      else writeln('Usage: d <message>')
+Xend; `123do_shutdown`125
+X
+X
+X`123 -----------------------------------------------------------------------
+V---- `125
+X
+X
+X`123
+Xuser procedure to designate an exit for acceptance of links
+X`125
+Xprocedure do_accept(s: string);
+Xlabel exit_label;
+Xvar
+X`009dir,owner: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009if s = '' then grab_line('Direction? ',s,eof_handler := leave);
+X
+X`009if lookup_dir(dir,s,true) then begin
+X`009`009if can_make(dir) then begin
+X`009`009`009getroom;
+X`009`009`009here.exits`091dir`093.kind := 5;
+X`009`009`009putroom;
+X
+X`009`009`009if exact_user(owner,here.owner) then
+X`009`009`009    add_counter(N_ACCEPT,owner);
+X
+X`009`009`009log_event(myslot,E_ACCEPT,0,0);
+X`009`009`009writeln('Someone will be able to make an exit ',direct`091dir`09
+V3,'.');
+X`009`009end;
+X`009end else
+X`009`009writeln('To allow others to make an exit, type ACCEPT <direction of
+V exit>.');
+X    exit_label:
+Xend;
+X
+X`123
+XUser procedure to refuse an exit for links
+XNote: may be unlink
+X`125
+Xprocedure do_refuse(s: string);
+Xlabel exit_label;
+Xvar
+X`009dir,owner: integer;
+X`009ok: boolean;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+Xbegin
+X`009if s = '' then grab_line('Direction? ',s,eof_handler := leave);
+X
+X`009if not(is_owner) then
+X`009`009`123 is_owner prints error message itself `125
+X`009else if lookup_dir(dir,s,true) then begin
+X`009`009getroom;
+X`009`009with here.exits`091dir`093 do begin
+X`009`009`009if (toloc = 0) and (kind = 5) then begin
+X`009`009`009`009kind := 0;
+X`009`009`009`009ok := true;
+X`009`009`009
+X`009`009`009    if exact_user(owner,here.owner) then
+X`009`009`009`009sub_counter(N_ACCEPT,owner);
++-+-+-+-+-+-+-+-  END  OF PART 16 +-+-+-+-+-+-+-+-

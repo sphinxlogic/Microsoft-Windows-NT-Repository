@@ -1,0 +1,654 @@
+Newsgroups: comp.sources.misc
+From: Christophe.Wolfhugel@grasp1.univ-lyon1.fr (Christophe Wolfhugel)
+Subject:  v28i103:  inpdos - inpaths for MS-DOS/unix, Part01/01
+Message-ID: <1992Mar14.224927.5633@sparky.imd.sterling.com>
+X-Md4-Signature: 5745bc3acbc7f610b2947e395c140fed
+Date: Sat, 14 Mar 1992 22:49:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Christophe.Wolfhugel@grasp1.univ-lyon1.fr (Christophe Wolfhugel)
+Posting-number: Volume 28, Issue 103
+Archive-name: inpdos/part01
+Environment: UNIX, MS-DOS, TurboC
+
+Here is the shar archive with the ms-dos/unix version of Brian Reid's 
+original inpaths statistical program.  I have named it 'inpdos' in 
+order to differentiate it from Brian's release.
+
+Default defines are set for MS-DOS. See the README and header of the
+C source code for more complete information.
+
+Chris
+----------snip----------snip----------snip----------snip----------snip--------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README inpdos.c
+# Wrapped by kent@sparky on Sat Mar 14 16:44:32 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1558 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis source code is the MS-DOS version of Brian Reid's inpaths program.
+XIt also works perfectly under Unix with the appropriate defines
+X(see the source code).
+X
+XThe name has been changed from inpaths to inpdos in order to avoid any
+Xconfusion with Brian Reid's official releases of the package.
+X
+XIn order to use this inpaths your newsspool must be a tree with one
+Xone numeric file per article (as it is stored by b/cnews on Unix boxes).
+X
+XThere already is a version of inpaths for some other Dos structures
+Xsuch as 'snews' which uses databases instead of on file per article.
+X
+XThe source code, patches if any, and future releases will very
+Xprobably be available in the anonymous ftp directory of host
+Xgrasp1.univ-lyon1.fr [134.214.100.25] in /pub/msdos/news.
+X
+XIf you have any questions, suggestions, remarks, feel free to contact
+Xme.
+X
+X        Christophe.Wolfhugel@grasp1.univ-lyon1.fr
+X
+X-------------------------------------------------------------------------
+X
+Xznews - request for co-developer
+X
+XThis is an announcement... I'm seeking for an MS-DOS (TC 2.0) developer
+Xwho would be interested to develop a newsreader using already made
+Xlow level interfaces for the newsspool and active, newsrc management.
+X
+XThe news database is in fact a virtual paging space of any space coupled
+Xwith an in core memory manager. Most low-level stuff is already ready
+Xand I also started a little bit a newsreader, but I'm too lazy
+X(and not really interested) to do a high level interface.
+X
+XSomeone volunteers?
+X
+XThe entire package will be distributed under the GNU Copyleft.
+X
+XChris
+END_OF_FILE
+  if test 1558 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'inpdos.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inpdos.c'\"
+else
+  echo shar: Extracting \"'inpdos.c'\" \(16915 characters\)
+  sed "s/^X//" >'inpdos.c' <<'END_OF_FILE'
+X/* inpaths.c -- track the paths of incoming news articles and prepare
+X *            in a format suitable for decwrl pathsurveys
+X *
+X *
+X * This program inputs a list of filenames of news articles, and outputs a
+X * data report which should be mailed to the decwrl Network Monitoring
+X * Project at address "pathsurvey@decwrl.dec.com". Please run it once a month
+X * if you can, in time so that the results arrive at decwrl by the 1st
+X * day of the month.
+X *
+X *
+X * Run it like this (Unix boxes):
+X *
+X *  cd /usr/spool/news
+X *  find . -type f -print | inpaths "yourhost" | mail pathsurvey@decwrl.dec.com
+X *
+X *  where "yourhost" is the host name of your computer, e.g. "decwrl".
+X *
+X * If running under MS-DOS (find is included):
+X *
+X *  cd c:\usr\spool\news
+X *  inpaths yourhost | mail pathsurvey@decwrl.dec.com
+X *
+X *  or redirect the output to a file and then mail it to the given address.
+X *
+X * The input to "inpaths" must be a list of the file names of news articles,
+X * relative to the spooling directory. "./news/config/2771" and
+X * "news/config/2771" are both legal inputs, but "/usr/spool/news/config/2771"
+X * is not.  * If you have some other way of generating a list of news file
+X * names, such as running a script over the history file, you can use that
+X * instead. Inpaths handles crossposting regardless of which technique
+X * you use.
+X *
+X * If you get an error message "no traffic found. Check $CWD", then the
+X * problem is most likely that the path names you are giving it are not
+X * relative to the spooling directory, e.g. you are feeding it lines like
+X * "/usr/spool/news/news/config/2771" instead of "./news/config/2771"
+X *
+X * There are 3 options: -s, -m, and -l for short, medium, and long report.
+X * The default is to produce a long report. If you are worried about mail
+X * expenses you can send a shorter report. The long report is typically
+X * about 50K bytes for a major site, and perhaps 25K bytes for a smaller
+X * site.
+X *
+X * Brian Reid
+X *      V1       Sep 1986
+X *      V2.4     May 1989
+X *      V2.4.1   Jan 1992
+X *
+X * Christophe Wolfhugel <wolf@grasp1.univ-lyon1.fr>
+X *      V2.4-DOS   Oct 1991
+X *      V2.4.1-DOS Feb 1992
+X *
+X * IMPORTANT, MS-DOS Users: when compiling use a compilation model with
+X * 32 bits data handling (medium is ok). Otherwise you will very probably
+X * get an out of memory error message. Floating point should be enabled.
+X * This DOS version seems to be able to handle about 10000 articles, I
+X * myself never tested on more that 3000.
+X *
+X * Special thanks to Mel Pleasant and Bob Thrush for significant help with
+X * portability bugs.
+X *
+X */
+X
+X/* if you are compiling on a USG machine (SysV, etc),
+X   please uncomment the following line: */
+X
+X/* #define SYSV         */
+X
+X/* if you are compiling on a MS-DOS machine (tested under Turbo C 2.0),
+X   please uncomment the following line: */
+X
+X#define MSDOS           /* */
+X
+X/* define if you wish to use the fast malloc() routine. This does not
+X   improve much performance on Unix boxes but is *highly* recommended
+X   under MS-DOS as it allows to handle much more articles with the
+X   savings done with this method. */
+X
+X#define FAST_MALLOC     /* */
+X
+X#ifdef MSDOS
+X# define VERSION "2.4-DOS"
+X# define VERBOSE                /* Verbose fast malloc on MS-DOS */
+X#else
+X# define VERSION "2.4"
+X#endif
+X#ifdef FAST_MALLOC
+X# define BLK_SIZE       (16*1024)
+X#else
+X# define mymalloc(s) malloc(s)
+X#endif
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#ifdef MSDOS
+X# include <dir.h>
+X# include <dos.h>
+X# include <string.h>
+X#endif
+X
+X#define HEADBYTES 1024
+X
+X#ifdef SYSV
+X    long time();
+X#else
+X    time_t time();
+X#endif
+X
+Xextern int exit();
+Xextern long coreleft();
+Xextern char *malloc();
+Xextern char *strcpy();
+X
+X#ifdef MSDOS
+Xextern unsigned _stklen=3*4096;         /* 4 Kb isn't enough */
+X
+Xchar tmpf[]="inXXXXXX";                 /* Both are used for the */
+XFILE *f;                                /* built-in find */
+X#endif
+X
+X#ifdef FAST_MALLOC
+X
+Xchar *mymalloc(long s)
+X{
+X   static char *ptr=NULL,*c;
+X   static long lg=0,i=0;
+X
+X   if (ptr==NULL || (lg+s)>(BLK_SIZE-1)) {
+X      ptr=malloc(BLK_SIZE); lg=0;
+X      if (ptr==NULL) {
+X         fprintf(stderr,"Not enough memory to process your newsspool.\n");
+X         fprintf(stderr,"That's really too bad, as you seem to be an\n");
+X         fprintf(stderr,"important site with valuable data :-).\n");
+X         exit(1);
+X      } /* endif */
+X   } /* endif */
+X   lg+=s; c=ptr; ptr+=s;
+X#ifdef VERBOSE
+X   fprintf(stderr,"#%04ld - lg %3ld - fr %6ld\n",++i,lg,coreleft()+BLK_SIZE-lg);
+X#endif
+X   return(c);
+X}
+X
+X#endif  /* FAST_MALLOC */
+X
+X#ifdef MSDOS
+X
+Xvoid reduce(char *s)
+X{
+X   char *cp;
+X   int i;
+X
+X   cp=s; s=strtok(s,".");
+X   while (s!=NULL) {
+X      for (i=0; i<8 && s[i]!=0; i++) {
+X         *cp++ = s[i];
+X      } /* endfor */
+X      if ((s=strtok(NULL,"."))!=NULL) *cp++ = '.';
+X   } /* endwhile */
+X   *cp = 0;
+X}
+X
+Xvoid recurse(char *s,char *t)
+X{
+X   struct ffblk ff;
+X   char cdir[96];
+X
+X   if (t!=NULL) sprintf(cdir,"%s/%s",s,t); else strcpy(cdir,s);
+X   if (findfirst("*",&ff,FA_DIREC)==-1) exit(0);
+X   do {
+X      if (ff.ff_name[0]!='.') {
+X         if (ff.ff_attrib==FA_DIREC) {
+X            chdir(ff.ff_name);
+X            recurse(cdir,ff.ff_name);
+X            chdir("..");
+X         } else {
+X            strlwr(cdir); strlwr(ff.ff_name);
+X            fprintf(f,"%s/%s\n",cdir,ff.ff_name);
+X         } /* endif */
+X      } /* endif */
+X   } while (findnext(&ff)==0);
+X}
+X
+Xvoid artList()
+X{
+X   mktemp(tmpf); f=fopen(tmpf,"w");
+X   recurse(".",NULL);
+X   fclose(f); freopen(tmpf,"r",stdin);
+X}
+X
+X#endif  /* MSDOS */
+X
+X/* this is index() or strchr() included here for portability */
+X
+Xchar *index(ptr,chr)
+Xchar *ptr,chr;
+X {
+X    do {if (*ptr==chr) return(ptr);} while (*ptr++);
+X    return ( (char *) NULL);
+X }
+X
+Xmain (argc,argv)
+X  int argc;
+X  char **argv;
+X {
+X    char linebuf[1024], jc, *lptr, *cp, *cp1, *cp2;
+X    char rightdelim;
+X    char *pathfield, *groupsfield;
+X    int crossposted;
+X    char artbuf[HEADBYTES], ngfilename[256];
+X    struct stat statbuf, *sbptr;
+X    char *scanlimit;
+X    char *hostname;
+X    char hostString[128];
+X    int needHost;
+X    static int passChar[256];
+X    int isopen,columns,verbose,totalTraffic;
+X    long nowtime,age,agesum;
+X    float avgAge;
+X
+X#ifndef MSDOS
+X        /* definitions for getopt */
+X    extern int optind;
+X    extern char *optarg;
+X#endif
+X
+X /* structure used to tally the traffic between two hosts */
+X    struct trec {
+X        struct trec *rlink;
+X        struct nrec *linkid;
+X        int tally;
+X    } ;
+X
+X /* structure to hold the information about a host */
+X    struct nrec {
+X        struct nrec *link;
+X        struct trec *rlink;
+X        char *id;
+X        long sentto; /* tally of articles sent to somebody from here */
+X    } ;
+X    struct nrec *hosthash[128], *hnptr, *list, *relay;
+X    struct trec *rlist;
+X    int i, article, gotbytes, c;
+X
+X    hostname = "unknown";
+X    verbose = 2;
+X#ifdef MSDOS
+X    for (i=1; i<argc; i++) {
+X       if (argv[i][0]!='-') break;
+X       switch (argv[i][1]) {
+X#else
+X    while (( c=getopt(argc, argv, "sml" )) != EOF)
+X       switch (c) {
+X#endif
+X          case 's': verbose=0; break;
+X          case 'm': verbose=1; break;
+X          case 'l': verbose=2; break;
+X          case '?': fprintf(stderr,
+X                    "usage: %s [-s] [-m] [-l] hostname\n",argv[0]);
+X                    exit(1);
+X       } /* endswitch */
+X#ifdef MSDOS
+X    } /* endfor */
+X    if (i<argc) {
+X        hostname = argv[i];
+X#else
+X    if (optind < argc) {
+X        hostname = argv[optind];
+X#endif
+X    } else {
+X        fprintf(stderr,"usage: %s [-s] [-m] [-l] `hostname`\n",argv[0]);
+X        exit(1);
+X    }
+X
+X    if (isatty(fileno(stderr))) {
+X        fprintf(stderr,"computing %s inpaths for host %s\n",
+X            verbose==0 ? "short" : (verbose==1 ? "medium" : "long"),hostname);
+X    }
+X
+X#ifdef MSDOS
+X    artList();          /* Find all articles */
+X#endif
+X
+X    for (i = 0; i<128; i++) hosthash[i] = (struct nrec *) NULL;
+X
+X/* precompute character types to speed up scan */
+X    for (i = 0; i<=255; i++) {
+X        passChar[i] = 0;
+X        if (isalpha(i) || isdigit(i)) passChar[i] = 1;
+X        if (i == '-' || i == '.' || i == '_') passChar[i] = 1;
+X    }
+X    totalTraffic = 0;
+X    nowtime = (long) time(0L);
+X    agesum = 0;
+X
+X    while (gets(linebuf) != (char *) NULL) {
+X        lptr = linebuf;
+X        isopen = 0;
+X
+X/* Skip blank lines */
+X        if (linebuf[0] == '\0') goto bypass;
+X
+X/* Skip files that do not have pure numeric names */
+X        i = strlen(lptr)-1;
+X        do {
+X            if (!isdigit(linebuf[i])) {
+X                if (linebuf[i]=='/') break;
+X                goto bypass;
+X            }
+X            i--;
+X        } while (i>=0);
+X
+X/* Open the file for reading */
+X        article = open(lptr, O_RDONLY);
+X        isopen = (article > 0);
+X        if (!isopen) goto bypass;
+X        sbptr = &statbuf;
+X        if (fstat(article, sbptr) == 0) {
+X
+X/* Record age of file in hours */
+X            age = (nowtime - statbuf.st_mtime) / 3600;
+X            agesum += age;
+X/* Reject names that are not ordinary files             */
+X#if defined(_POSIX_SOURCE) && defined(SYSV)
+X            if (! S_ISREG(statbuf.st_mode)) goto bypass;
+X#else
+X            if ((statbuf.st_mode & S_IFREG) == 0) goto bypass;
+X#endif
+X/* Pick the file name apart into an equivalent newsgroup name */
+X            if (*lptr == '.') {
+X                lptr++;
+X                if (*lptr == '/') lptr++;
+X            }
+X            cp = ngfilename;
+X            while (*lptr != 0) {
+X                if (*lptr == '/') *cp++ = '.';
+X                else *cp++ = *lptr;
+X                lptr++;
+X            }
+X            cp--; while (isdigit(*cp)) *cp-- = NULL;
+X            if (*cp == '.') *cp = NULL;
+X        } else goto bypass;
+X
+X/* Read in the first few bytes of the article; find the end of the header */
+X        gotbytes = read(article, artbuf, HEADBYTES);
+X        if (gotbytes < 10) goto bypass;
+X
+X/* Find "Path:" header field */
+X        pathfield = (char *) 0;
+X            groupsfield = (char *) 0;
+X        scanlimit = &artbuf[gotbytes];
+X        for (cp=artbuf; cp <= scanlimit; cp++) {
+X            if (*cp == '\n') break;
+X            if (pathfield && groupsfield) goto gotpath;
+X            if (strncmp(cp, "Path: ", 6) == 0) {
+X                pathfield = cp; goto nextgr;
+X            }
+X            if (strncmp(cp, "Newsgroups: ", 12) == 0) {
+X                groupsfield = cp; goto nextgr;
+X            }
+X   nextgr:
+X            while (*cp != '\n' && cp <= scanlimit) cp++;
+X        }
+X        if (groupsfield == (char *) 0 || (pathfield == (char *) 0))
+X            goto bypass;
+X
+Xgotpath: ;
+X
+X/* Determine the name of the newsgroup to which this is charged. It is not
+X   necessarily the name of the file in which we found it; rather, use the
+X   "Newsgroups:" field.                                                  */
+X
+X        crossposted = 0;
+X        groupsfield += 12;      /* skip 'Newsgroups: ' */
+X        while (*groupsfield == ' ') groupsfield++;
+X        cp= (char *) index(groupsfield,'\n');
+X        if (cp) {
+X            *cp = 0;
+X        } else {
+X  /* if this field is malformed, there is no point trying to process the
+X     entire message.
+X   */
+X           goto bypass;
+X        }
+X        cp=(char *) index(groupsfield,',');
+X        if (cp) {
+X            crossposted++;
+X            *cp = 0;
+X        }
+X
+X/* To avoid double-billing, only charge the newsgroup if the pathname matches
+X   the contents of the Newsgroups: field. This will also prevent picking up
+X   junk and control messages.
+X */
+X#ifdef MSDOS
+X        reduce(groupsfield);
+X#endif
+X        if (strcmp(ngfilename,groupsfield)) goto bypass;
+X
+X/* Extract all of the host names from the "Path:" field and put them in our
+Xhost table.                                                              */
+X        cp = pathfield;
+X        while (*cp != NULL && *cp != '\n') cp++;
+X        if (cp == NULL) {
+X            fprintf(stderr,"%s: end of Path line not in buffer.\n",lptr);
+X            goto bypass;
+X        }
+X
+X        totalTraffic++;
+X        *cp = 0;
+X        pathfield += 5; /* skip 'Path:' */
+X        cp1 = pathfield;
+X        relay = (struct nrec *) NULL;
+X        rightdelim = '!';
+X        while (cp1 < cp) {
+X            /* get next field */
+X            while (*cp1=='!') cp1++;
+X            cp2 = ++cp1;
+X            while (passChar[(int) (*cp2)]) cp2++;
+X
+X            rightdelim = *cp2; *cp2 = 0;
+X            if (rightdelim=='!' && *cp1 != (char) NULL) {
+X            /* see if already in the table */
+X                list = hosthash[*cp1];
+X                while (list != NULL) {
+X                    /*
+X                     * Attempt to speed things up here a bit.  Since we hash
+X                     * on the first char, we see if the second char is a match
+X                     * before calling strcmp()
+X                     */
+X                    if (list->id[1] == cp1[1] && !strcmp(list->id, cp1)) {
+X                        hnptr = list;
+X                        break;          /* I hate unnecessary goto's */
+X                    }
+X                    list = list->link;
+X                }
+X                if(list == NULL) {
+X                        /* get storage and splice in a new one */
+X                        hnptr = (struct nrec *) mymalloc(sizeof (struct nrec));
+X                        hnptr->id = (char *) strcpy(mymalloc(1+strlen(cp1)),cp1);
+X                        hnptr->link = hosthash[*cp1];
+X                        hnptr->rlink = (struct trec *) NULL;
+X                        hnptr->sentto = (long) 0;
+X                        hosthash[*cp1] = hnptr;
+X                }
+X            }
+X/*
+XAt this point "hnptr" points to the host record of the current host. If
+Xthere was a relay host, then "relay" points to its host record (the relay
+Xhost is just the previous host on the Path: line. Since this Path means
+Xthat news has flowed from host "hnptr" to host "relay", we want to tally
+Xone message in a data structure corresponding to that link. We will
+Xincrement the tally record that is attached to the source host "hnptr".
+X*/
+X
+X            if (relay != NULL && relay != hnptr) {
+X                rlist = relay->rlink;
+X                while (rlist != NULL) {
+X                    if (rlist->linkid == hnptr) goto have2;
+X                    rlist = rlist->rlink;
+X                }
+X                rlist = (struct trec *) mymalloc(sizeof (struct trec));
+X                rlist->rlink = relay->rlink;
+X                relay->rlink = rlist;
+X                rlist->linkid = hnptr;
+X                rlist->tally = 0;
+X
+X    have2:      rlist->tally++;
+X                hnptr->sentto++;
+X            }
+X
+X            cp1 = cp2;
+X            relay = hnptr;
+X            if (rightdelim == ' ' || rightdelim == '(') break;
+X        }
+Xbypass: if (isopen) close(article) ;
+X    }
+X/* Now dump the host table */
+X    if (!totalTraffic) {
+X        fprintf(stderr,"%s: error--no traffic found. Check $CWD.\n",argv[0]);
+X        exit(1);
+X    }
+X
+X    avgAge = ((double) agesum) / (24.0*(double) totalTraffic);
+X    printf("ZCZC begin inhosts %s %s %d %d %3.1f\n",
+X        VERSION,hostname,verbose,totalTraffic,avgAge);
+X    for (jc=0; jc<127; jc++) {
+X        list = hosthash[jc];
+X        while (list != NULL) {
+X            if (list->rlink != NULL) {
+X                if (verbose > 0 || (100*list->sentto > totalTraffic))
+X                    printf("%ld\t%s\n",list->sentto, list->id);
+X            }
+X            list = list->link;
+X        }
+X    }
+X    printf("ZCZC end inhosts %s\n",hostname);
+X
+X    printf("ZCZC begin inpaths %s %s %d %d %3.1f\n",
+X        VERSION,hostname,verbose,totalTraffic,avgAge);
+X    for (jc=0; jc<127; jc++) {
+X        list = hosthash[jc];
+X        while (list != NULL) {
+X            if (verbose > 1 || (100*list->sentto > totalTraffic)) {
+X                if (list->rlink != NULL) {
+X                    columns = 3+strlen(list->id);
+X                    sprintf(hostString,"%s H ",list->id);
+X                    needHost = 1;
+X                    rlist = list->rlink;
+X                    while (rlist != NULL) {
+X                        if (
+X                             (100*rlist->tally > totalTraffic)
+X                          || ((verbose > 1)&&(5000*rlist->tally>totalTraffic))
+X                           ) {
+X                            if (needHost) printf("%s",hostString);
+X                            needHost = 0;
+X                            relay = rlist->linkid;
+X                            if (columns > 70) {
+X                                printf("\n%s",hostString);
+X                                columns = 3+strlen(list->id);
+X                            }
+X                            printf("%d Z %s U ", rlist->tally, relay->id);
+X                            columns += 9+strlen(relay->id);
+X                        }
+X                        rlist = rlist->rlink;
+X                    }
+X                    if (!needHost) printf("\n");
+X                }
+X            }
+X            list = list->link;
+X        }
+X    }
+X    printf("ZCZC end inpaths %s\n",hostname);
+X    fclose(stdout);
+X#ifdef MSDOS
+X    unlink(tmpf);
+X#endif
+X    exit(0);
+X}
+END_OF_FILE
+  if test 16915 -ne `wc -c <'inpdos.c'`; then
+    echo shar: \"'inpdos.c'\" unpacked with wrong size!
+  fi
+  # end of 'inpdos.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,373 @@
+Newsgroups: comp.sources.x
+From: Norbert Jung <jung@dia.informatik.uni-stuttgart.de>
+Subject: v19i002:  xview-1.0 - cute GO'ish game, Patch01
+Message-ID: <1993Mar4.231322.16030@sparky.imd.sterling.com>
+X-Md4-Signature: 905c84e047c6f7e9ba3b4b4a6310ea1c
+Date: Thu, 4 Mar 1993 23:13:22 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: Norbert Jung <jung@dia.informatik.uni-stuttgart.de>
+Posting-number: Volume 19, Issue 2
+Archive-name: xview-1.0/patch01
+Environment: X11
+Patch-To: xvier-1.0: Volume 18, Issue 57-58
+
+
+Now there is support for 88open certified systems, contributed by Jo
+Stockley, and some speedups (full alpha-beta-window search for deep
+cut-offs)
+
+Thanks,
+	Norbert Jung
+
+diff -cr xvier-1.0/patchlevel.h xvier-1.1/patchlevel.h
+*** xvier-1.0/patchlevel.h	Fri Apr 10 12:57:54 1992
+--- xvier-1.1/patchlevel.h	Fri Jul 31 12:41:55 1992
+***************
+*** 1 ****
+! #define XVIER_VERSION "xvier Version 1.0"
+--- 1 ----
+! #define XVIER_VERSION "xvier Version 1.1"
+diff -cr xvier-1.0/vier.c xvier-1.1/vier.c
+*** xvier-1.0/vier.c	Tue Apr 21 10:54:28 1992
+--- xvier-1.1/vier.c	Fri Jul 31 12:41:56 1992
+***************
+*** 311,334 ****
+    }
+  }
+  
+! int comp_weiss(pos, lev, limit)
+! int pos, lev, limit;
+  {
+!   register int  h1, h2, i, j, *p;
+!   int   *frp, wert;
+!   struct oldv *sold;
+  
+    if (brett[pos] & W_WINS)
+      return 50000 - lev;
+    /* Zug fuer Weiss ausfuehren */
+    sold = sp;
+!   sp -> pos = frp = freip[pos];
+!   sp++ -> value = *frp;
+    sp -> pos = brett + pos;
+    sp++ -> value = brett[pos];
+    sp -> pos = &bewertung;
+    sp++ -> value = bewertung;
+!   *frp += columns;
+    brett[pos] |= WEISS;
+    p = pp[pos];
+    while ((h1 = *(p++)) >= 0) {
+--- 311,333 ----
+    }
+  }
+  
+! int comp_weiss(pos, lev, alpha, beta)
+! int pos, lev, alpha, beta;
+  {
+!   register int h1, h2, i, j, *p;
+!   register struct oldv *sold;
+  
+    if (brett[pos] & W_WINS)
+      return 50000 - lev;
+    /* Zug fuer Weiss ausfuehren */
+    sold = sp;
+!   sp -> pos = p = freip[pos];
+!   sp++ -> value = *p;
+    sp -> pos = brett + pos;
+    sp++ -> value = brett[pos];
+    sp -> pos = &bewertung;
+    sp++ -> value = bewertung;
+!   *p += columns;
+    brett[pos] |= WEISS;
+    p = pp[pos];
+    while ((h1 = *(p++)) >= 0) {
+***************
+*** 347,359 ****
+        bewertung += h2;
+      }
+    }
+!   h1 = -1;
+    for (i = 0; i < columns; i++) {
+      register int f = frei[i];
+  
+      if (f < row_col) {
+        if (brett[f] & S_WINS) {
+! 	wert = -49999 + lev;
+  	goto end;
+        }
+        if (brett[f] & W_WINS)
+--- 346,359 ----
+        bewertung += h2;
+      }
+    }
+!   h2 = h1 = -1;
+    for (i = 0; i < columns; i++) {
+      register int f = frei[i];
+  
+      if (f < row_col) {
++       h2 = 0;
+        if (brett[f] & S_WINS) {
+! 	beta = -49999 + lev;
+  	goto end;
+        }
+        if (brett[f] & W_WINS)
+***************
+*** 360,385 ****
+  	h1 = f;
+      }
+    }
+    if (h1 >= 0) {
+      level++;
+!     wert = comp_schwarz(h1, lev + 1, 100000);
+      level--;
+    } else if (lev >= level)
+!     wert = bewertung + s_zugzwang(40 - lev - zugstackp);
+    else {
+      register int    zw;
+  
+-     wert = 100000;
+      for (i = 0; i < columns; i++) {
+        j = frei[reihenfolge[i]];
+        if (j < row_col)
+! 	if ((zw = comp_schwarz (j, lev + 1, wert)) < wert)
+! 	  if ((wert = zw) <= limit)
+  	    break;
+        /* Schwarz wird wohl den fuer ihn guenstigsten Zug auswaehlen */
+      }
+-     if (wert == 100000)
+-       wert = 0;		/* unentschieden */
+    }
+   end:
+    while (sp != sold) {
+--- 360,386 ----
+  	h1 = f;
+      }
+    }
++   if (h2 < 0) {
++     beta = 0;	/* unentschieden */
++     goto end;
++   }
+    if (h1 >= 0) {
+      level++;
+!     beta = comp_schwarz(h1, lev + 1, alpha, beta);
+      level--;
+    } else if (lev >= level)
+!     beta = bewertung + s_zugzwang(40 - lev - zugstackp);
+    else {
+      register int    zw;
+  
+      for (i = 0; i < columns; i++) {
+        j = frei[reihenfolge[i]];
+        if (j < row_col)
+! 	if ((zw = comp_schwarz (j, lev + 1, alpha, beta)) < beta)
+! 	  if ((beta = zw) <= alpha)
+  	    break;
+        /* Schwarz wird wohl den fuer ihn guenstigsten Zug auswaehlen */
+      }
+    }
+   end:
+    while (sp != sold) {
+***************
+*** 386,412 ****
+      sp--;
+      *(sp -> pos) = sp -> value;
+    }
+!   return (wert);
+  }
+  
+! int comp_schwarz(pos, lev, limit)
+! int pos, lev, limit;
+  {
+!   register int  h1, h2, i, j, *p;
+!   int   *frp, wert;
+!   struct oldv *sold;
+  
+    if (brett[pos] & S_WINS)
+      return -50000 + lev;
+    /* Zug fuer Schwarz ausfuehren */
+    sold = sp;
+!   sp -> pos = frp = freip[pos];
+!   sp++ -> value = *frp;
+    sp -> pos = brett + pos;
+    sp++ -> value = brett[pos];
+    sp -> pos = &bewertung;
+    sp++ -> value = bewertung;
+!   *frp += columns;
+    brett[pos] |= SCHWARZ;
+    p = pp[pos];
+    while ((h1 = *(p++)) >= 0) {
+--- 387,412 ----
+      sp--;
+      *(sp -> pos) = sp -> value;
+    }
+!   return beta;
+  }
+  
+! int comp_schwarz(pos, lev, alpha, beta)
+! int pos, lev, alpha, beta;
+  {
+!   register int h1, h2, i, j, *p;
+!   register struct oldv *sold;
+  
+    if (brett[pos] & S_WINS)
+      return -50000 + lev;
+    /* Zug fuer Schwarz ausfuehren */
+    sold = sp;
+!   sp -> pos = p = freip[pos];
+!   sp++ -> value = *p;
+    sp -> pos = brett + pos;
+    sp++ -> value = brett[pos];
+    sp -> pos = &bewertung;
+    sp++ -> value = bewertung;
+!   *p += columns;
+    brett[pos] |= SCHWARZ;
+    p = pp[pos];
+    while ((h1 = *(p++)) >= 0) {
+***************
+*** 425,437 ****
+        bewertung -= h2;
+      }
+    }
+!   h1 = -1;
+    for (i = 0; i < columns; i++) {
+      register int f = frei[i];
+  
+      if (f < row_col) {
+        if (brett[f] & W_WINS) {
+! 	wert = 49999 - lev;
+  	goto end;
+        }
+        if (brett[f] & S_WINS)
+--- 425,438 ----
+        bewertung -= h2;
+      }
+    }
+!   h2 = h1 = -1;
+    for (i = 0; i < columns; i++) {
+      register int f = frei[i];
+  
+      if (f < row_col) {
++       h2 = 0;
+        if (brett[f] & W_WINS) {
+! 	alpha = 49999 - lev;
+  	goto end;
+        }
+        if (brett[f] & S_WINS)
+***************
+*** 438,462 ****
+  	h1 = f;
+      }
+    }
+    if (h1 >= 0) {
+      level++;
+!     wert = comp_weiss(h1, lev + 1, -100000);
+      level--;
+    } else if (lev >= level)
+!     wert = bewertung + w_zugzwang(40 - lev - zugstackp);
+    else {
+      register int    zw;
+  
+-     wert = -100000;
+      for (i = 0; i < columns; i++) {
+        j = frei[reihenfolge[i]];
+        if (j < row_col)
+! 	if ((zw = comp_weiss (j, lev + 1, wert)) > wert)
+! 	  if ((wert = zw) >= limit)
+  	    break;
+      }
+-     if (wert == -100000)
+-       wert = 0;		/* unentschieden */
+    }
+   end:
+    while (sp != sold) {
+--- 439,464 ----
+  	h1 = f;
+      }
+    }
++   if (h2 < 0) {
++     alpha = 0;	/* unentschieden */
++     goto end;
++   }
+    if (h1 >= 0) {
+      level++;
+!     alpha = comp_weiss(h1, lev + 1, alpha, beta);
+      level--;
+    } else if (lev >= level)
+!     alpha = bewertung + w_zugzwang(40 - lev - zugstackp);
+    else {
+      register int    zw;
+  
+      for (i = 0; i < columns; i++) {
+        j = frei[reihenfolge[i]];
+        if (j < row_col)
+! 	if ((zw = comp_weiss (j, lev + 1, alpha, beta)) > alpha)
+! 	  if ((alpha = zw) >= beta)
+  	    break;
+      }
+    }
+   end:
+    while (sp != sold) {
+***************
+*** 463,469 ****
+      sp--;
+      *(sp -> pos) = sp -> value;
+    }
+!   return (wert);
+  }
+  
+  int main(argc, argv)
+--- 465,471 ----
+      sp--;
+      *(sp -> pos) = sp -> value;
+    }
+!   return alpha;
+  }
+  
+  int main(argc, argv)
+***************
+*** 565,571 ****
+  	  register int zw;
+  	  
+  	  if ((j = frei[reihenfolge[i]]) < row_col)
+! 	    if ((zw = comp_schwarz (j, 0, wert + 1)) < wert) {
+  	      wert = zw;
+  	      same_n = 1;
+  	      same[0] = reihenfolge[i];
+--- 567,573 ----
+  	  register int zw;
+  	  
+  	  if ((j = frei[reihenfolge[i]]) < row_col)
+! 	    if ((zw = comp_schwarz (j, 0, -100000, wert + 1)) < wert) {
+  	      wert = zw;
+  	      same_n = 1;
+  	      same[0] = reihenfolge[i];
+diff -cr xvier-1.0/xvier.h xvier-1.1/xvier.h
+*** xvier-1.0/xvier.h	Thu Apr  9 17:12:51 1992
+--- xvier-1.1/xvier.h	Fri Jul 31 12:41:56 1992
+***************
+*** 8,10 ****
+--- 8,16 ----
+  #if defined(_IBMR2)
+  #define NO_FD_SET
+  #endif
++ 
++ /* changes from Jo Stockley (jo@88open.org) for 88open certified systems */
++ #if defined(m88k)
++ #define NO_GETDTABSIZE
++ #include <unistd.h>
++ #endif
+
+
++----------------------------------------------------------------------------+
+|Norbert Jung               BITNET: jung%dia%ifistg@unido.bitnet             |
+|Student 		     local: jung@dia                                 |
+|Universitaet Stuttgart       SMTP: jung@dia.informatik.uni-stuttgart.de     |
+|BR Deutschland	              X400: jung@dia.informatik.uni-stuttgart.dbp.de |
++----------------------------------------------------------------------------+
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

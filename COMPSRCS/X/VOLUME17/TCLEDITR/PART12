@@ -1,0 +1,1007 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i013: point text editor (TCL and TK), Part12/16
+Message-ID: <1992Mar18.141742.27468@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:17:42 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 13
+Archive-name: tcl-editor/part12
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 11 (of 15)."
+# Contents:  tclLib/makeBoxes.tcl
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:48 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'tclLib/makeBoxes.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/makeBoxes.tcl'\"
+else
+echo shar: Extracting \"'tclLib/makeBoxes.tcl'\" \(30790 characters\)
+sed "s/^X//" >'tclLib/makeBoxes.tcl' <<'END_OF_FILE'
+X#
+X#
+X# Make various dialog boxes
+X#
+X#
+proc HelpWindow {keyword} {
+X	global HelpDirectory
+X	set name $HelpDirectory/index.help
+X	if [file exists $name] {
+X 		set line [exec grep $keyword $name]
+X 		set name $HelpDirectory/[lindex $line 0]
+X 		if [file exists $name] {
+X			OpenWindow $name \
+X[lindex $line 1]x[lindex $line 2][lindex $line 3][lindex $line 4]
+X		} else {
+X			puts stderr "Cannot find help file $name"
+X		}
+X	} else {
+X		puts stderr "Cannot find help index file $name"
+X	}
+X}
+X
+proc GetSelectedKeyword {} {
+X	set sel [selection get]
+X	set kb [MakeKeywordBox]
+X	$kb.keyword insert 0 "$sel"
+X	FillKeywordBox $kb
+X}
+X
+proc MakeSearchOptionsBox {} {
+X	global raised
+X
+X	catch "destroy .sob"
+X
+X	toplevel .sob
+X	wm title .sob "Search Options"
+X	wm iconname .sob "Search Options"
+X
+X	label .sob.title -text "Change by typing a new value then Return" \
+X		-relief $raised
+X
+X	label .sob.l1 -text "Lines above a found string"
+X	entry .sob.lof -relief sunken
+X	.sob.lof insert 0 [Option get linesOverFind]
+X	bind .sob.lof <Any-Return> \
+X		"Option set linesOverFind \[.sob.lof get\]"
+X
+X	label .sob.l2 -text \
+X		"File pattern to use in looking for keywords in files"
+X	entry .sob.kp -relief sunken
+X	.sob.kp insert 0 "[Option get keywordPattern]"
+X	bind .sob.kp <Any-Return> \
+X		"Option set keywordPattern \[.sob.kp get\]"
+X	bind.entry .sob.lof .sob.kp
+X
+X	button .sob.close -text "Close" -relief raised \
+X		-command "destroy .sob"
+X
+X	pack append .sob \
+X		.sob.title {top fill} \
+X		.sob.l1 {top fill} \
+X		.sob.lof {top fill} \
+X		.sob.l2 {top fill} \
+X		.sob.kp {top fill} \
+X		.sob.close {top fill}
+X}
+X
+proc MakeOtherOptionsBox {} {
+X	global raised
+X
+X	catch "destroy .oob"
+X
+X	toplevel .oob
+X	wm title .oob "Other Point Options"
+X	wm iconname .oob "Other Point Options"
+X
+X	label .oob.title -text "Change by typing a new value then Return" \
+X		-relief $raised
+X
+X	label .oob.l1 -text "Format for the names of backup files"
+X	entry .oob.bnf -relief sunken
+X	.oob.bnf insert 0 "[Option get backupNameFormat]"
+X	bind .oob.bnf <Any-Return> "Option set backupNameFormat \[%W get\]"
+X
+X	label .oob.l2 -text "Default geometry for text windows"
+X	entry .oob.dtg -relief sunken
+X	.oob.dtg insert 0 "[Option get textGeometry]"
+X	bind .oob.dtg <Any-Return> "Option set textGeometry \[%W get\]"
+X
+X	label .oob.l3 -text "Default geometry for browser windows"
+X	entry .oob.bdg -relief sunken
+X	.oob.bdg insert 0 "[Option get browserGeometry]"
+X	bind .oob.bdg <Any-Return> "Option set browserGeometry \[%W get\]"
+X
+X	label .oob.l4 -text "Pattern for files in the file browser window"
+X	entry .oob.fp -relief sunken
+X	.oob.fp insert 0 "[Option get filePattern]"
+X	bind .oob.fp <Any-Return> "Option set filePattern \[%W get\]"
+X	bind.entry .oob.bnf .oob.dtg .oob.bdg .oob.fp
+X
+X	button .oob.close -text "Close" -relief raised -command "destroy .oob"
+X
+X	pack append .oob \
+X		.oob.title {top fill} \
+X		.oob.l1 {top fill} \
+X		.oob.bnf {top fill} \
+X		.oob.l2 {top fill} \
+X		.oob.dtg {top fill} \
+X		.oob.l3 {top fill} \
+X		.oob.bdg {top fill} \
+X		.oob.l4 {top fill} \
+X		.oob.fp {top fill} \
+X		.oob.close {top fill}
+X}
+X
+proc MakeVerifyBox {} {
+X	catch {destroy .VerifyBox}
+X	toplevel .VerifyBox -relief raised
+X	wm title .VerifyBox "Verify replacement"
+X	wm iconname .VerifyBox "Verify replacement"
+X	label .VerifyBox.label -text "Make this replacement?"
+X	button .VerifyBox.yes -text "Yes, replace" \
+X		-command {Option set returnString "y"}
+X	button .VerifyBox.no -text "No, do not replace" \
+X		-command {Option set returnString "n"}
+X	button .VerifyBox.noverify -text "Replace the rest with no verify" \
+X		-command {Option set returnString "v"}
+X	button .VerifyBox.cancel -text "Cancel replace" \
+X		-command {Option set returnString "c"}
+X	pack append .VerifyBox \
+X		.VerifyBox.label {top fill} \
+X		.VerifyBox.yes {top fill} \
+X		.VerifyBox.no {top fill} \
+X		.VerifyBox.noverify {top fill} \
+X		.VerifyBox.cancel {top fill}
+X}
+X
+X
+proc DoRegexReplace {name} {
+X	global verify inSelection doFast
+X
+X	set searchFor [$name.searchFor get]
+X	set replaceWith [$name.replaceWith get]
+X	set sel [Sel get]
+X	set begin [lindex $sel 0]
+X	set end [lindex $sel 1]
+X
+X	Undo begin
+X	if $verify {
+X		MakeVerifyBox
+X		set up "update"
+X	} else {
+X		if $doFast {
+X			RegexReplaceAll $searchFor $replaceWith $inSelection
+X			Undo end
+X			return
+X		} else {
+X			set up "noupdate"
+X		}
+X	}
+X	for {} {1} {} {
+X		set sucess [RegexSearch "$searchFor" forward {} $up]
+X		if {$sucess<0} break
+X		if {$inSelection && $sucess>$end} break
+X		if $verify {
+X			.VerifyBox.label configure \
+X				-text "Make this replacement?"
+X			WaitForReturnString
+X			set ret [Option get returnString]
+X			set doReplace [string compare $ret "n"]
+X			if {[string compare $ret "c"]==0}  break
+X			if {[string compare $ret "v"]==0} {
+X				set verify 0
+X				set up "noupdate"
+X			}
+X			.VerifyBox.label configure -text "Searching"
+X		} else {
+X			set doReplace 1
+X		}
+X		if $doReplace {
+X			set diffLengths \
+X				[RegexReplaceOne $searchFor $replaceWith]
+X			if $inSelection {
+X				set end [expr {$end + $diffLengths}]
+X			}
+X		}
+X	}
+X	Undo end
+X	catch {destroy .VerifyBox}
+X	Redraw
+X}
+X
+proc DoReplace {name} {
+X	global verify inSelection doFast
+X
+X	set searchFor [$name.searchFor get]
+X	set replaceWith [$name.replaceWith get]
+X	set sel [Sel get]
+X	set begin [lindex $sel 0]
+X	set end [lindex $sel 1]
+X	set diffLengths [expr {
+X		[string length $replaceWith] - [string length $searchFor]}]
+X
+X	Undo begin
+X	if $verify {
+X		MakeVerifyBox
+X		set up "update"
+X	} else {
+X		if $doFast {
+X			Replace $searchFor $replaceWith $inSelection
+X			Undo end
+X			return
+X		} else {
+X			set up "noupdate"
+X		}
+X	}
+X	for {} {1} {} {
+X		set sucess [Search "$searchFor" forward {} $up]
+X		if {$sucess<0} break
+X		if {$inSelection && $sucess>$end} break
+X		if $verify {
+X			.VerifyBox.label configure \
+X				-text "Make this replacement?"
+X			WaitForReturnString
+X			set ret [Option get returnString]
+X			set doReplace [string compare $ret "n"]
+X			if {[string compare $ret "c"]==0}  break
+X			if {[string compare $ret "v"]==0} {
+X				set verify 0
+X				set up "noupdate"
+X			}
+X			.VerifyBox.label configure -text "Searching"
+X		} else {
+X			set doReplace 1
+X		}
+X		if $doReplace {
+X			DeleteToScrap $up
+X			InsertString "$replaceWith" $up
+X			if $inSelection {
+X				set end [expr {$end + $diffLengths}]
+X			}
+X		}
+X	}
+X	Undo end
+X	catch {destroy .VerifyBox}
+X	Redraw
+X}
+X
+proc MakeRegexReplaceBox {} {
+X	global raised sunken verify inSelection doFast
+X
+X	toplevel .RegexReplaceBox -relief $raised
+X	wm title .RegexReplaceBox "Regex Search and Replace"
+X	wm iconname .RegexReplaceBox "Regex Search and Replace"
+X
+X	label .RegexReplaceBox.label1 -text "RE to search for:"
+X	label .RegexReplaceBox.label2 \
+X			-text "Special chars: . \[ \] \\\\ * + \\< \\> ^ $"
+X	entry .RegexReplaceBox.searchFor -relief $sunken
+X	bind.entry .RegexReplaceBox.searchFor
+X
+X	label .RegexReplaceBox.label3 -text "And replace it with:"
+X	label .RegexReplaceBox.label4 \
+X				-text "Special chars: & \\\\ \\1 \\2 ... \\9"
+X	entry .RegexReplaceBox.replaceWith -relief $sunken
+X	bind.entry .RegexReplaceBox.replaceWith
+X
+X	checkbutton .RegexReplaceBox.verify \
+X		-text "Verify each replacment                   "
+X	.RegexReplaceBox.verify select
+X
+X	checkbutton .RegexReplaceBox.doFast \
+X		-text "Use fast internal replace (if no verify)"
+X
+X	checkbutton .RegexReplaceBox.inSelection \
+X		-text "Replace within the selection only        "
+X
+X	button .RegexReplaceBox.begin -text "Begin replacing" \
+X				-command "DoRegexReplace .RegexReplaceBox"
+X
+X	button .RegexReplaceBox.close -text "Close" \
+X		-command {
+X			destroy .RegexReplaceBox
+X			catch {destroy .VerifyBox}
+X		}
+X
+X	pack append .RegexReplaceBox \
+X		.RegexReplaceBox.label1 { top fill } \
+X		.RegexReplaceBox.label2 { top fill } \
+X		.RegexReplaceBox.searchFor { top fill } \
+X		.RegexReplaceBox.label3 { top fill } \
+X		.RegexReplaceBox.label4 { top fill } \
+X		.RegexReplaceBox.replaceWith { top fill } \
+X		.RegexReplaceBox.verify { top fill } \
+X		.RegexReplaceBox.doFast { top fill } \
+X		.RegexReplaceBox.inSelection { top fill } \
+X		.RegexReplaceBox.begin { top fill } \
+X		.RegexReplaceBox.close { top fill }
+X}
+X
+proc MakeReplaceBox {} {
+X	global raised sunken verify inSelection doFast
+X
+X	toplevel .ReplaceBox -relief $raised
+X	wm title .ReplaceBox "Search and Replace"
+X	wm iconname .ReplaceBox "Search and Replace"
+X
+X	label .ReplaceBox.label1 -text "Search for:"
+X	entry .ReplaceBox.searchFor -relief $sunken
+X	bind.entry .ReplaceBox.searchFor
+X
+X	label .ReplaceBox.label2 -text "And replace it with:"
+X	entry .ReplaceBox.replaceWith -relief $sunken
+X	bind.entry .ReplaceBox.replaceWith
+X
+X	checkbutton .ReplaceBox.verify \
+X		-text "Verify each replacment                   "
+X	.ReplaceBox.verify select
+X
+X	checkbutton .ReplaceBox.doFast \
+X		-text "Use fast internal replace (if no verify)"
+X
+X	checkbutton .ReplaceBox.inSelection \
+X		-text "Replace within the selection only        "
+X
+X	button .ReplaceBox.begin -text "Begin replacing" \
+X					-command "DoReplace .ReplaceBox"
+X
+X	button .ReplaceBox.close -text "Close" \
+X		-command {
+X			destroy .ReplaceBox
+X			catch {destroy .VerifyBox}
+X		}
+X
+X	pack append .ReplaceBox \
+X		.ReplaceBox.label1 { top fill } \
+X		.ReplaceBox.searchFor { top fill } \
+X		.ReplaceBox.label2 { top fill } \
+X		.ReplaceBox.replaceWith { top fill} \
+X		.ReplaceBox.verify { top fill } \
+X		.ReplaceBox.doFast { top fill } \
+X		.ReplaceBox.inSelection { top fill } \
+X		.ReplaceBox.begin { top fill } \
+X		.ReplaceBox.close { top fill }
+X}
+X
+proc MakeModalEntry {title prompt okay cancel} {
+X	catch {destroy .ModalEntry}
+X	toplevel .ModalEntry -relief raised
+X	wm title .ModalEntry $title
+X	wm iconname .ModalEntry $title
+X	label .ModalEntry.label -text $prompt -borderwidth 25
+X	entry .ModalEntry.entry -relief sunken
+X	bind.entry .ModalEntry.entry
+X	bind .ModalEntry.entry <Any-Return> \
+X		{Option set returnString [.ModalEntry.entry get]
+X		 destroy .ModalEntry}
+X	frame .ModalEntry.buttons
+X	button .ModalEntry.buttons.okay -text $okay -pady 10 \
+X		-command {Option set returnString [.ModalEntry.entry get]
+X			  destroy .ModalEntry}
+X	button .ModalEntry.buttons.cancel -text $cancel -pady 10 \
+X		-command {Option set returnString "XXXcancelXXX"
+X			  destroy .ModalEntry}
+X	pack append .ModalEntry.buttons \
+X		.ModalEntry.buttons.okay {left expand fill} \
+X		.ModalEntry.buttons.cancel {right expand fill}
+X	pack append .ModalEntry \
+X		.ModalEntry.label {top fill} \
+X		.ModalEntry.entry {top fill} \
+X		.ModalEntry.buttons {top fill}
+X}
+X
+proc MakeModalYesNo {title prompt okay cancel} {
+X	global raised
+X	catch {destroy .ModalYesNo}
+X	toplevel .ModalYesNo -relief $raised
+X	wm title .ModalYesNo $title
+X	wm iconname .ModalYesNo $title
+X	label .ModalYesNo.label -text $prompt -borderwidth 35
+X	frame .ModalYesNo.buttons
+X	button .ModalYesNo.buttons.okay -text $okay -pady 10 \
+X		-command {Option set returnString "y"; destroy .ModalYesNo}
+X	button .ModalYesNo.buttons.cancel -text $cancel -pady 10 \
+X		-command {Option set returnString "n"; destroy .ModalYesNo}
+X	pack append .ModalYesNo.buttons \
+X		.ModalYesNo.buttons.okay {left expand fill} \
+X		.ModalYesNo.buttons.cancel {right expand fill}
+X	pack append .ModalYesNo \
+X		.ModalYesNo.label {top fill} \
+X		.ModalYesNo.buttons {top fill}
+X}
+X
+proc MakeMsgBox {msg} {
+X	global wcounter
+X
+X	set wcounter [expr $wcounter+1]
+X	set name [format ".mb%05d" $wcounter]
+X
+X	toplevel $name -class PtPopup -relief $raised -bd $bd
+X	wm title $name "Message"
+X	wm iconname $name "Message"
+X	message $name.msg -text "$msg"
+X	button $name.close -text "Close" -command "destroy $name"
+X
+X	pack append $name \
+X		$name.msg {top fill expand} \
+X		$name.close {bottom fill}
+X}
+X
+proc MakemmBox {} {
+X	catch {destroy .mmBox}
+X	toplevel .mmBox -relief raised
+X	wm title .mmBox "Mouse Menu Parameters"
+X	wm iconname .mmBox "Mouse Menu Parameters"
+X	label .mmBox.title -text "Set Mouse Menu Commands"
+X	frame .mmBox.frame -relief raised
+X	frame .mmBox.frame.dirs -relief raised
+X	label .mmBox.frame.dirs.no -text "No motion"
+X	label .mmBox.frame.dirs.n -text "North"
+X	label .mmBox.frame.dirs.e -text "East"
+X	label .mmBox.frame.dirs.s -text "South"
+X	label .mmBox.frame.dirs.w -text "West"
+X	pack append .mmBox.frame.dirs \
+X		.mmBox.frame.dirs.no {top fill} \
+X		.mmBox.frame.dirs.n {top fill} \
+X		.mmBox.frame.dirs.e {top fill} \
+X		.mmBox.frame.dirs.s {top fill} \
+X		.mmBox.frame.dirs.w {top fill}
+X	frame .mmBox.frame.titles -relief raised
+X	entry .mmBox.frame.titles.no -relief sunken
+X	.mmBox.frame.titles.no insert 0 "[Option get lmm1]"
+X	bind .mmBox.frame.titles.no <Any-Key-Return> \
+X		"Option set lmm1 \[.mmBox.frame.titles.no get\]"
+X	entry .mmBox.frame.titles.n -relief sunken
+X	bind .mmBox.frame.titles.n <Any-Key-Return> \
+X		"Option set lmm1n \[.mmBox.frame.titles.n get\]"
+X	entry .mmBox.frame.titles.e -relief sunken
+X	bind .mmBox.frame.titles.e <Any-Key-Return> \
+X		"Option set lmm1e \[.mmBox.frame.titles.e get\]"
+X	entry .mmBox.frame.titles.s -relief sunken
+X	bind .mmBox.frame.titles.s <Any-Key-Return> \
+X		"Option set lmm1s \[.mmBox.frame.titles.s get\]"
+X	entry .mmBox.frame.titles.w -relief sunken
+X	bind .mmBox.frame.titles.w <Any-Key-Return> \
+X		"Option set lmm1w \[.mmBox.frame.titles.e get\]"
+X	bind.entry .mmBox.frame.titles.no  .mmBox.frame.titles.no \
+X			.mmBox.frame.titles.no .mmBox.frame.titles.no
+X	pack append .mmBox.frame.titles \
+X		.mmBox.frame.titles.no {top fill} \
+X		.mmBox.frame.titles.n {top fill} \
+X		.mmBox.frame.titles.e {top fill} \
+X		.mmBox.frame.titles.s {top fill} \
+X		.mmBox.frame.titles.w {top fill}
+X	frame .mmBox.frame.cmds -relief raised
+X	entry .mmBox.frame.cmds.no -relief sunken
+X	bind .mmBox.frame.titles.no <Any-Key-Return> \
+X		{puts stdout "cmm1 str is [.mmBox.frame.titles.no get]"
+X		Option set cmm1 [.mmBox.frame.titles.no get]}
+X	entry .mmBox.frame.cmds.n -relief sunken
+X	bind .mmBox.frame.titles.n <Any-Key-Return> \
+X		"Option set cmm1n \[.mmBox.frame.titles.n get\]"
+X	entry .mmBox.frame.cmds.e -relief sunken
+X	bind .mmBox.frame.titles.e <Any-Key-Return> \
+X		"Option set cmm1e \[.mmBox.frame.titles.e get\]"
+X	entry .mmBox.frame.cmds.s -relief sunken
+X	bind .mmBox.frame.titles.s <Any-Key-Return> \
+X		"Option set cmm1s \[.mmBox.frame.titles.s get\]"
+X	entry .mmBox.frame.cmds.w -relief sunken
+X	bind .mmBox.frame.titles.w <Any-Key-Return> \
+X		"Option set cmm1w \[.mmBox.frame.titles.w get\]"
+X	bind.entry .mmBox.frame.titles.no  .mmBox.frame.titles.no \
+X			.mmBox.frame.titles.no .mmBox.frame.titles.no
+X	pack append .mmBox.frame.cmds \
+X		.mmBox.frame.cmds.no {top fill} \
+X		.mmBox.frame.cmds.n {top fill} \
+X		.mmBox.frame.cmds.e {top fill} \
+X		.mmBox.frame.cmds.s {top fill} \
+X		.mmBox.frame.cmds.w {top fill}
+X	pack append .mmBox.frame \
+X		.mmBox.frame.dirs {left fill} \
+X		.mmBox.frame.titles {left fill} \
+X		.mmBox.frame.cmds {right fill expand}
+X	button .mmBox.close -text "Close" -command {destroy .mmBox}
+X	pack append .mmBox \
+X		.mmBox.title {top fill } \
+X		.mmBox.frame {top fill} \
+X		.mmBox.close {bottom fill}
+X}
+X
+proc MakeUndoBox {} {
+X	catch {destroy .ub}
+X	toplevel .ub
+X	wm title .ub "Command History"
+X	wm iconname .ub "Command History"
+X	wm minsize .ub 0 0
+X	label .ub.title -text "Command History Box" -relief flat
+X	frame .ub.list -relief flat
+X	scrollbar .ub.list.scrollbar -relief sunken \
+X		-command ".ub.list.list view"
+X	listbox .ub.list.list -scroll ".ub.list.scrollbar set"  \
+X		-relief sunken -geometry 60x20
+X	pack append .ub.list \
+X		.ub.list.scrollbar {left fill} \
+X		.ub.list.list {right fill expand}
+X	frame .ub.buttons -relief raised
+X#I can't figure out what this was supposed to be for???
+X#	bind .ub.list.list <Any-Double-1> ".ub.list config -bg \[Sel escaped\]"
+X#
+X	button .ub.buttons.undo -text "Undo" -command "Undo 1"
+X	button .ub.buttons.redo -text "Redo" -command "Redo 1"
+X	button .ub.buttons.update -text "Update" -command "Undo update"
+X	button .ub.buttons.again -text "Again" -command "Again"
+X	button .ub.close -text "Close" -command "destroy .ub"
+X	pack append .ub.buttons \
+X		.ub.buttons.undo {left fill expand} \
+X		.ub.buttons.redo {left fill expand} \
+X		.ub.buttons.update {left fill expand} \
+X		.ub.buttons.again {right fill expand}
+X	pack append .ub \
+X		.ub.title {top fill} \
+X		.ub.list {top fill expand} \
+X		.ub.buttons {top fill} \
+X		.ub.close {bottom fill}
+X}
+X
+proc MakeColorBox {} {
+X	catch {destroy .cb}
+X	toplevel .cb
+X	wm title .cb "Select Text Colors"
+X	wm iconname .cb "Select Text Colors"
+X	wm minsize .cb 0 0
+X	label .cb.title -text "Color Selection Box" -relief flat \
+X		-borderwidth 5
+X	frame .cb.list -relief flat -borderwidth 40
+X	scrollbar .cb.list.scrollbar -relief sunken \
+X		-command ".cb.list.colors view"
+X	listbox .cb.list.colors -scroll ".cb.list.scrollbar set"  \
+X		-relief sunken -geometry 20x20
+X	.cb.list.colors insert 0 \
+aliceblue antiquewhite aquamarine aquamarine1 aquamarine2 \
+aquamarine3 aquamarine4 azure azure1 azure2 azure3 azure4 \
+beige bisque bisque1 bisque2 bisque3 bisque4 black \
+blanchedalmond blue blue1 blue2 blue3 blue4 \
+blueviolet brown brown1 brown2 brown3 brown4 burlywood \
+burlywood1 burlywood2 burlywood3 burlywood4 cadetblue cadetblue \
+chartreuse chartreuse1 chartreuse2 chartreuse3 chartreuse4 \
+chocolate chocolate1 chocolate2 chocolate3 chocolate4 coral \
+coral1 coral2 coral3 coral4 cornflowerblue cornsilk cornsilk1 \
+cornsilk2 cornsilk3 cornsilk4 cyan cyan1 cyan2 cyan3 cyan4 \
+darkgoldenrod darkgreen darkkhaki darkolivegreen darkorange \
+darkorchid darksalmon darkseagreen darkslateblue \
+darkslategray darkturquoise darkviolet darkgoldenrod \
+darkolivegreen3 darkolivegreen4 darkslategrey deeppink \
+deepskyblue dimgray dodgerblue firebrick firebrick1 \
+firebrick2 firebrick3 firebrick4 floralwhite forestgreen \
+gainsboro ghostwhite gold gold1 gold2 gold3 gold4 \
+goldenrod goldenrod1 goldenrod2 goldenrod3 goldenrod4 gray \
+gray0 gray1 gray10 gray100 gray11 gray12 gray13 gray14 \
+gray15 gray16 gray17 gray18 gray19 gray2 gray20 gray21 \
+gray22 gray23 gray24 gray25 gray26 gray27 gray28 gray29 \
+gray3 gray30 gray31 gray32 gray33 gray34 gray35 gray36 \
+gray37 gray38 gray39 gray4 gray40 gray41 gray42 gray43 \
+gray44 gray45 gray46 gray47 gray48 gray49 gray5 gray50 \
+gray51 gray52 gray53 gray54 gray55 gray56 gray57 gray58 \
+gray59 gray6 gray60 gray61 gray62 gray63 gray64 gray65 \
+gray66 gray67 gray68 gray69 gray7 gray70 gray71 gray72 \
+gray73 gray74 gray75 gray76 gray77 gray78 gray79 gray8 \
+gray80 gray81 gray82 gray83 gray84 gray85 gray86 gray87 \
+gray88 gray89 gray9 gray90 gray91 gray92 gray93 gray94 \
+gray95 gray96 gray97 gray98 gray99 greenyellow green green1 \
+green2 green3 green4 honeydew honeydew1 honeydew2 honeydew3 \
+honeydew4 hotpink indianred ivory ivory1 ivory2 ivory3 \
+ivory4 khaki khaki1 khaki2 khaki3 khaki4 lavenderblush \
+lavender lawngreen lemonchiffon lightblue lightcoral \
+lightcyan lightgoldenrodyellow lightgoldenrod lightgray \
+lightpink lightsalmon lightseagreen lightskyblue \
+lightslateblue lightslategray lightsteelblue lightyellow \
+lightyellow1 lightyellow2 lightyellow3 lightyellow4 \
+limegreen linen magenta magenta1 magenta2 magenta3 magenta4 \
+maroon maroon1 maroon2 maroon3 maroon4 mediumaquamarine \
+mediumblue mediumorchid mediumpurple mediumseagreen \
+mediumslateblue mediumspringgreen mediumturquoise \
+mediumvioletred midnightblue mintcream mistyrose moccasin \
+navajowhite navajowhite1 navajowhite2 navajowhite3 navajowhite4 \
+navyblue navy navyblue oldlace olivedrab orangered orange \
+orange1 orange2 orange3 orange4 orchid orchid1 orchid2 \
+orchid3 orchid4 palegoldenrod palegreen paleturquoise \
+palevioletred papayawhip peachpuff peru pink pink1 pink2 \
+pink3 pink4 plum plum1 plum2 plum3 plum4 powderblue purple \
+purple1 purple2 purple3 purple4 red red1 red2 red3 red4 \
+rosybrown royalblue saddlebrown salmon salmon1 salmon2 \
+salmon3 salmon4 sandybrown seagreen seashell seashell1 \
+seashell2 seashell3 seashell4 sienna sienna1 sienna2 sienna3 \
+sienna4 skyblue slateblue slategray slategrey slategrey \
+snow snow1 snow2 snow3 snow4 springgreen steelblue tan \
+tan1 tan2 tan3 tan4 thistle thistle1 thistle2 thistle3 \
+thistle4 tomato tomato1 tomato2 tomato3 tomato4 turquoise \
+turquoise1 turquoise2 turquoise3 turquoise4 violetred violet \
+wheat wheat1 wheat2 wheat3 wheat4 whitesmoke white \
+yellowgreen yellow yellow1 yellow2 yellow3 yellow4
+X	pack append .cb.list \
+X		.cb.list.scrollbar {left fill} \
+X		.cb.list.colors {right fill expand}
+X	frame .cb.buttons -relief raised
+X	bind .cb.list.colors <Any-Double-1> \
+X		".cb.list config -bg \[selection get\]"
+X	button .cb.buttons.norfore -text "Set normal foreground color" \
+X		-command "SetTextColor \[selection get\]"
+X	button .cb.buttons.norback -text "Set normal background color" \
+X		-command "SetTextColor \[selection get\] normal background"
+X	button .cb.buttons.selfore -text "Set selected foreground color" \
+X		-command "SetTextColor \[selection get\] selected"
+X	button .cb.buttons.selback -text "Set selected background color" \
+X		-command "SetTextColor \[selection get\] selected background"
+X	button .cb.buttons.close -text "Close" \
+X		-command "destroy .cb"
+X	pack append .cb.buttons \
+X		.cb.buttons.norfore {top fill} \
+X		.cb.buttons.norback {top fill} \
+X		.cb.buttons.selfore {top fill} \
+X		.cb.buttons.selback {top fill} \
+X		.cb.buttons.close {top fill}
+X	pack append .cb \
+X		.cb.title {top fill} \
+X		.cb.list {top fill expand} \
+X		.cb.buttons {bottom fill}
+X}
+X
+proc MakeCtagBox {} {
+X	catch {destroy .CtagBox}
+X	toplevel .CtagBox -relief raised
+X	wm title .CtagBox "Find C Tag"
+X	wm iconname .CtagBox "Find C Tag"
+X	label .CtagBox.label -text "C tag to search for:"
+X	entry .CtagBox.entry -relief sunken
+X	bind.entry .CtagBox.entry
+X	bind .CtagBox.entry <Any-Return> {CTag [.CtagBox.entry get]}
+X	button .CtagBox.enter -text "Find C tag" \
+X		-command { CTag [.CtagBox.entry get] }
+X	button .CtagBox.close -text "Close" -command "destroy .CtagBox"
+X	pack append .CtagBox \
+X		.CtagBox.label {top fill} \
+X		.CtagBox.entry {top fill} \
+X		.CtagBox.enter {top fill} \
+X		.CtagBox.close {top fill}
+X}
+X
+proc FillKeywordBox {kb} {
+X	set keyword [$kb.keyword get]
+X	set infiles [glob -nocomplain *.c *.h]
+X	set cmd [concat exec grep -l $keyword $infiles]
+X	set ok [catch {eval $cmd} outfiles]
+X	if {$ok!=0} {set outfiles "***No_Matches***"}
+X	catch {$kb.slist.filenames delete 0 end}
+X	foreach file $outfiles {
+X		$kb.slist.filenames insert end $file
+X	}
+X}
+X
+proc MakeKeywordBox {} {
+X	global wcounter raised sunken location1
+X
+X	set wcounter [expr $wcounter+1]
+X	set name [format ".kb%05d" $wcounter]
+X
+X	toplevel $name -relief $raised
+X	wm title $name "Keyword Search"
+X	wm iconname $name "Keyword Search"
+X	wm minsize $name 0 0
+X	label $name.label1 -text "Keyword to search for:"
+X
+X	entry $name.keyword -relief $sunken
+X	bind $name.keyword <Any-Return> "FillKeywordBox $name"
+X	bind.entry $name.keyword
+X
+X	frame $name.slist
+X	scrollbar $name.slist.scrollbar -relief sunken \
+X		-command "$name.slist.filenames view"
+X	listbox $name.slist.filenames -scroll "$name.slist.scrollbar set"  \
+X		-relief sunken
+X	bind $name.slist.filenames <Any-1> "
+X		set index \[%W nearest %y\]
+X		set item \[%W get \$index\]
+X		OpenWindow \$item \$location1
+X		set star \"*\"
+X		set item \$star\$item
+X		%W delete \$index
+X		%W insert \$index \$item
+X		Search {\[$name.keyword get\]} forward
+X	"
+X	pack append $name.slist \
+X		$name.slist.scrollbar {left fill} \
+X		$name.slist.filenames {right fill expand}
+X
+X	button $name.find -text "Find keyword in files" \
+X		-command "FillKeywordBox $name"
+X
+X	button $name.close -text "Close" -command "destroy $name"
+X
+X	pack append $name \
+X		$name.label1 {top fill} \
+X		$name.keyword {top fill} \
+X		$name.slist {top fill} \
+X		$name.find {top fill} \
+X		$name.close {top fill}
+X	return $name
+X}
+X
+proc MakeGotoBox {} {
+X	catch {destroy .GotoBox}
+X	toplevel .GotoBox -relief raised
+X	wm title .GotoBox "Go To Line"
+X	wm iconname .GotoBox "Go To Line"
+X	label .GotoBox.label -text "Line number to go to:"
+X	entry .GotoBox.entry -relief sunken
+X	bind.entry .GotoBox.entry
+X	bind .GotoBox.entry <Any-Return> {GotoLine [.GotoBox.entry get] lof}
+X	button .GotoBox.enter -text "Go to line" \
+X		-command {GotoLine [.GotoBox.entry get] lof}
+X	button .GotoBox.close -text "Close" -command "destroy .GotoBox"
+X	pack append .GotoBox \
+X		.GotoBox.label {top fill} \
+X		.GotoBox.entry {top fill} \
+X		.GotoBox.enter {top fill} \
+X		.GotoBox.close {top fill}
+X}
+X
+proc MakeDebugBox {} {
+X	catch {destroy .DebugBox}
+X	toplevel .DebugBox -relief raised
+X	wm title .DebugBox "Set Debug Variable"
+X	wm iconname .DebugBox "Set Debug Variable"
+X	label .DebugBox.label -text "Set value of `debug' to:"
+X	entry .DebugBox.entry -relief sunken
+X	bind.entry .DebugBox.entry
+X	bind .DebugBox.entry <Any-Return> \
+X		{Option set debug [.DebugBox.entry get]}
+X	button .DebugBox.enter -text "Set debug" \
+X		-command {Option set debug [.DebugBox.entry get]}
+X	button .DebugBox.close -text "Close" \
+X		-command "destroy .DebugBox"
+X	pack append .DebugBox \
+X		.DebugBox.label {top fill} \
+X		.DebugBox.entry {top fill} \
+X		.DebugBox.enter {top fill} \
+X		.DebugBox.close {top fill}
+X}
+X
+proc MakeAsciiBox {} {
+X	catch {destroy .AsciiBox}
+X	toplevel .AsciiBox -relief raised
+X	wm title .AsciiBox "Insert ASCII"
+X	wm iconname .AsciiBox "Insert ASCII"
+X	label .AsciiBox.label -text "Enter decimal ASCII character"
+X	entry .AsciiBox.entry -relief sunken
+X	bind.entry .AsciiBox.entry
+X	bind .AsciiBox.entry <Any-Return> {
+X		set ch [format "%c"  [.AsciiBox.entry get]]
+X		InsertString $ch
+X	}
+X	button .AsciiBox.enter -text "Enter character" \
+X		-command {InsertAscii [.AsciiBox.entry get]}
+X	button .AsciiBox.close -text "Close" \
+X		-command "destroy .AsciiBox"
+X	bind.entry .AsciiBox.entry
+X	pack append .AsciiBox \
+X		.AsciiBox.label {top fill} \
+X		.AsciiBox.entry {top fill} \
+X		.AsciiBox.enter {top fill} \
+X		.AsciiBox.close {top fill}
+X}
+X
+proc MakeAboutBox {} {
+X	catch {destroy .AboutBox}
+X	toplevel .AboutBox -relief raised
+X	wm title .AboutBox "About Point"
+X	wm iconname .AboutBox "About Point"
+X	message .AboutBox.msg -text "\
+Point -- An X Windows Text Editor \n\
+X             Version 1.3 \n\
+X            11 October 1991 \n\
+X\n\
+X                 by \n\
+X\n\
+Charles Crowley \n\
+Computer Science Department \n\
+University of New Mexico \n\
+Albuquerque, NM 87131 \n\
+X505-277-5446 \n\
+crowley@unmvax.cs.unm.edu"
+X	bind .AboutBox.msg <Any-Button> "destroy .AboutBox"
+X	bind .AboutBox.msg <Any-Key> "destroy .AboutBox"
+X	pack append .AboutBox .AboutBox.msg {top fill expand}
+X}
+X
+proc MakeQuitBox {} {
+X	catch {destroy .QuitBox}
+X	toplevel .QuitBox -relief raised
+X	wm title .QuitBox "Quit Point"
+X	wm iconname .QuitBox "Quit Point"
+X	label .QuitBox.label -text "*** There are unsaved files ***"
+X	button .QuitBox.SaveAndQuit \
+X		-text "Save unsaved files and quit Point" \
+X		-command "QuitPoint save"
+X	button .QuitBox.AskAndQuit \
+X		-text "Ask about each unsaved file and quit Point" \
+X		-command "QuitPoint ask"
+X	button .QuitBox.DiscardAndQuit \
+X		-text "Discard unsaved edits and quit Point" \
+X		-command "QuitPoint discard"
+X	button .QuitBox.CancelQuit -text "Do not quit Point" \
+X		-command "destroy .QuitBox"
+X	pack append .QuitBox \
+X		.QuitBox.label {top fill} \
+X		.QuitBox.SaveAndQuit {top fill} \
+X		.QuitBox.AskAndQuit {top fill} \
+X		.QuitBox.DiscardAndQuit {top fill} \
+X		.QuitBox.CancelQuit {top fill}
+X}
+X
+proc SearchBoxProc {} {
+X	global searchDirection reSearch
+X	set str [.Search.string get]
+X	if {$reSearch==1} {
+X		RegexSearch $str $searchDirection
+X	} else {
+X		Search $str $searchDirection
+X	}
+X}
+X
+proc MakeSearchBox {{regex normal}} {
+X	global searchDirection reSearch
+X	catch {destroy .Search}
+X	toplevel .Search -class "SearchWindow" -relief raised
+X	wm title .Search "String Search"
+X	wm iconname .Search "String Search"
+X	label .Search.label -text "Search string:"
+X	entry .Search.string -relief sunken
+X	bind.entry .Search.string
+X	bind .Search.string <Any-Return> {Search "[.Search.string get]" forward}
+X	checkbutton .Search.reSearch \
+X		-text "Regular expression search        " \
+X		-variable reSearch \
+X		-command { Option set ignoreCase $ignoreCase }
+X	label .Search.reExplain -text "(^,$,.,*,+,\[,\],\\ are special in REs)"
+X	if ![string compare $regex normal] {
+X		.Search.reSearch deselect
+X	} else {
+X		.Search.reSearch select
+X	}
+X	checkbutton .Search.ignoreCase \
+X		-text "Ignore case in search            " \
+X		-variable ignoreCase \
+X		-command { Option set ignoreCase $ignoreCase }
+X	set xx [Option get ignoreCase]
+X	if {$xx==1} {
+X		.Search.ignoreCase select
+X	} else {
+X		.Search.ignoreCase deselect
+X	}
+X	checkbutton .Search.findWholeWords \
+X		-text "Find whole words only            " \
+X		-variable findWholeWords \
+X		-command { Option set findWholeWords $findWholeWords }
+X	set xx [Option get findWholeWords]
+X	if {$xx==1} {
+X		.Search.findWholeWords select
+X	} else {
+X		.Search.findWholeWords deselect
+X	}
+X	checkbutton .Search.searchDirection \
+X		-text "Search backwards                 " \
+X		-variable searchDirection \
+X		-offvalue "forward" -onvalue "backward"
+X	frame .Search.buttons
+X	button .Search.buttons.search -text "Search" \
+X		-command SearchBoxProc
+X	button .Search.buttons.close -text "Close" \
+X		-command "destroy .Search"
+X	pack append .Search.buttons \
+X		.Search.buttons.search { left fill expand } \
+X		.Search.buttons.close { left fill expand }
+X	pack append .Search \
+X		.Search.label { top fill } \
+X		.Search.string { top fill } \
+X		.Search.reSearch { top fill } \
+X		.Search.reExplain { top fill } \
+X		.Search.ignoreCase { top fill } \
+X		.Search.findWholeWords { top fill } \
+X		.Search.searchDirection { top fill } \
+X		.Search.buttons { bottom fill }
+X}
+X
+proc MakeRebindWindow {} {
+X	global CmdName
+X	catch {destroy .rebind}
+X	toplevel .rebind
+X	wm title .rebind "Rebind Commands"
+X	wm iconname .rebind "Rebind Commands"
+X	# allow this box to be resized (to see more commands or jeys)
+X	wm minsize .rebind 0 0
+X	frame .rebind.upper
+X	frame .rebind.lower
+X	pack append .rebind \
+X		.rebind.upper {top fill}
+X		.rebind.lower {bottom fill}
+X	if ![info exists CmdInfo] {
+X		CreateCmdInfo
+X	}
+X	# set up the upper half of the window
+X	frame .rebind.upper.cmds
+X	message .rebind.upper.help -aspect 150 -justification left
+X	pack append .rebind.upper \
+X		.rebind.upper.cmds {left fill} \
+X		.rebind.upper.help {right fill}
+X	scrollbar .rebind.upper.cmds.scroll -orient vertical -width 15 \
+X		-command ".rebind.upper.cmds.list"
+X	colbox .rebind.upper.cmds.list \
+X				-scrollCommand ".rebind.upper.cmds.scroll set"
+X	foreach cmd $CmdName {
+X		.rebind.upper.cmds.list insert end $cmd
+X	}
+X	bind .rebind.upper.cmds.help <Button> UpdateRebindHelp
+X	# set up the lower half of the window
+X	frame .rebind.lower.keys
+X	frame .rebind.lower.buttons
+X	pack append .rebind.lowe \
+X		.rebind.lower.keys {left fill} \
+X		.rebind.lower.buttons {right fill}
+X	scrollbar .rebind.lower.keys.scroll -orient vertical -width 15 \
+X		-command ".rebind.lower.keys.list"
+X	colbox .rebind.lower.keys.list \
+X				-scrollCommand ".rebind.lower.keys.scroll set"
+X	.rebind.lower.keys.list insert end F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 \
+X		Home End PageUp PageDown
+X	button .rebind.lower.buttons.bind -command {
+X		set key [.rebind.lower.keys.list get \
+X				[lindex [.rebind.lower.keys.list sellimits] 0]]
+X		Rebind $key $command
+X	}
+X}
+X
+proc UpdateRebindHelp {} {
+X	set n [lindex "[.rebind.upper.cmds.list sellimits]" 0]
+X	.rebind.upper.cmds.help configure -text [lindex CmdInfo $n]
+X}
+X
+END_OF_FILE
+if test 30790 -ne `wc -c <'tclLib/makeBoxes.tcl'`; then
+    echo shar: \"'tclLib/makeBoxes.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/makeBoxes.tcl'
+fi
+echo shar: End of archive 11 \(of 15\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

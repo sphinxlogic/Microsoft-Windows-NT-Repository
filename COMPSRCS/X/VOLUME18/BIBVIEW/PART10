@@ -1,0 +1,1561 @@
+Path: uunet!decwrl!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: liebla@informatik.tu-muenchen.de (Armin Liebl)
+Newsgroups: comp.sources.x
+Subject: v18i108: bibview - BibTeX GUI, Part10/20
+Message-ID: <1992Aug27.161554.25644@msi.com>
+Date: 27 Aug 92 16:15:54 GMT
+References: <csx-18i099-bibview@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1548
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 108
+Archive-name: bibview/part10
+
+#!/bin/sh
+# this is part.10 (part 10 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ctl_open.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ctl_open.c'
+else
+echo 'x - continuing file ctl_open.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ctl_open.c' &&
+X		XtNx, x, XtNy, y, NULL);
+X   conDialog = XtVaCreateManagedWidget("confirmLoadBox",
+X	         dialogWidgetClass, conShell, 
+X		 XtNicon, questPixmap, NULL);
+X   conOKButton = XtVaCreateManagedWidget("ok",
+X	           commandWidgetClass, conDialog, NULL);
+X   conQuitButton = XtVaCreateManagedWidget("cancel",
+X	           commandWidgetClass, conDialog, NULL);
+X   XtAddCallback(conQuitButton, XtNcallback, cancelLoadCmd, conShell);
+X   XtAddCallback(conOKButton, XtNcallback, loadCmdOk, conShell);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   gbp = bp;
+X   XtPopup(conShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* cancelLoadCmd:                                                    */
+/*    Callback function for CANCEL button in confirm box             */
+/*********************************************************************/
+static void
+cancelLoadCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(shell);
+X   gbp = NULL;
+}
+X
+X
+/*********************************************************************/
+/* loadCmdOK:                                                        */
+/*    Callback function for OK button in confirm box                 */
+/*********************************************************************/
+static void
+loadCmdOk (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget) clientData;
+BibPtr bp;
+int status;
+X
+X   /* make new global data struct for bib file */
+X   if ((status = glbNewBibListEl(&bp)) != OK) {
+X      guwError(status);
+X      return;
+X   }
+X   strcpy(bp->filepath, gbp->filepath);
+X   strcpy(bp->filename, gbp->filename);
+X
+X   /* delete file in memory */
+X   if ((status = dbtDeleteTree(gbp->treeIdx)) != DBT_OK) {
+X      guwError(status);
+X   }
+X   if ((status = gubCloseBibWin(gbp)) != OK) {
+X      guwError(status);
+X   }
+X   gbp = NULL;
+X
+X   /* remove confirm box */
+X   XtPopdown(shell);
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   /* read file and reopen window */
+X   if ((status = bifFileRead(bp)) != BIF_OK) {
+X      gueOpenBibErrWin(bp, (int)status);   
+/*     glbDelBibListEl(bp); */
+X      return;
+X   }
+X   if ((status = gubOpenBibWin(bp)) != OK) {
+/*      glbDelBibListEl(bp);  */
+X      guwError(status);
+X      return;
+X   }
+X
+X   /* check cards, if option is on */
+X   if (cotAutoCheckBib()) 
+X      cseCheckBib(bp, False);      
+}
+X
+X
+SHAR_EOF
+echo 'File ctl_open.c is complete' &&
+chmod 0644 ctl_open.c ||
+echo 'restore of ctl_open.c failed'
+Wc_c="`wc -c < 'ctl_open.c'`"
+test 11442 -eq "$Wc_c" ||
+	echo 'ctl_open.c: original size 11442, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ctl_opt.c ==============
+if test -f 'ctl_opt.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ctl_opt.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ctl_opt.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ctl_opt.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ctl_opt.c                                               */
+/*                                                                   */
+/*             Options Control                                       */
+/*             -                                                     */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    12.08.91  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#define COT_OPT
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/SmeLine.h>
+#include "bibview.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel;
+extern Pixmap chkmarkPixmap;
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+X
+X
+/* exported variables */
+/* ------------------ */
+Boolean optionsStatus[OPT_MAX_OPTION] = {
+X   TRUE, TRUE, FALSE, TRUE 
+};
+X
+X
+/* local global variables */
+/* ---------------------- */
+X
+X
+/*********************************************************************/
+/* cotOptionIconOnDeskCmd:                                           */
+/*    Callback function for menu entry "icon on desktop"             */
+/*********************************************************************/
+void 
+cotOptionIconOnDeskCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp;
+X 
+X   if (optionsStatus[OPT_ICON_ON_DESKTOP]) { 
+X      /* reset: icons under wm control */
+X      XtVaSetValues(w, XtNleftBitmap, None, NULL);
+X      gubUnsetIconCoords(FALSE);
+X      bp = glbFirstBibListEl();
+X      while (bp != NULL) {
+X	 gulUnsetIconCoords(bp, FALSE);
+X	 gueUnsetIconCoords(bp, FALSE);
+X	 bp = glbNextBibListEl(bp);
+X      }  /* endwhile */
+X   }
+X   else { 
+X      /* set: icons under bibview control */
+X      XtVaSetValues(w, XtNleftBitmap, chkmarkPixmap, NULL);
+X      gubSetWindowCoords(TRUE);
+X      gubSetIconCoords(FALSE);
+X      bp = glbFirstBibListEl();
+X      while (bp != NULL) {
+X	 gulSetIconCoords(bp, FALSE);
+X	 gueSetIconCoords(bp, FALSE);
+X	 bp = glbNextBibListEl(bp);
+X      }  /* endwhile */
+X   }
+X   optionsStatus[OPT_ICON_ON_DESKTOP] = !optionsStatus[OPT_ICON_ON_DESKTOP];
+}
+X
+X
+/*********************************************************************/
+/* cotOptionsControl:                                                */
+/*    Callback function for all option menu entries                  */
+/*********************************************************************/
+void 
+cotOptionsControl (Widget w, XtPointer client_data, XtPointer call_data)
+{
+int pane_num = (int) client_data;
+X
+X   if (optionsStatus[pane_num]) 
+X      XtVaSetValues(w, 
+X                XtNleftBitmap, None,
+X                NULL);
+X    else 
+X        XtVaSetValues(w, 
+X                XtNleftBitmap, chkmarkPixmap,
+X                NULL);
+X    optionsStatus[pane_num] = !optionsStatus[pane_num];
+}
+X
+X
+SHAR_EOF
+chmod 0644 ctl_opt.c ||
+echo 'restore of ctl_opt.c failed'
+Wc_c="`wc -c < 'ctl_opt.c'`"
+test 4078 -eq "$Wc_c" ||
+	echo 'ctl_opt.c: original size 4078, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ctl_prt.c ==============
+if test -f 'ctl_prt.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ctl_prt.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ctl_prt.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ctl_prt.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ctl_prt.c                                               */
+/*                                                                   */
+/*             Print Control                                         */
+/*             - Print bibTeX File                                   */
+/*             - Print list                                          */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    18.02.92  HM   created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Cardinals.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Dialog.h>
+#include <X11/Xaw/Box.h>
+#include "FileNom.h"
+#include "bibview.h"
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+#define MAXTEX  5000
+X
+/* imported global variables */
+/* ------------------------- */
+extern XtAppContext app_context;
+extern Widget topLevel, mainMenu, desktop;
+extern Pixmap questPixmap;
+extern char *latexHeader, *latexFooter;
+X
+/* exported global variables */
+/* ------------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static void getFilename (CardListNode *lp);
+static void cancelGetFname (Widget w, XtPointer clientData, XtPointer callData);
+static void getFnameOk (Widget w, XtPointer clientData, XtPointer callData);
+static void getListFilename (BibPtr bp);
+static void cancelListGetFname (Widget w, XtPointer clientData, XtPointer callData);
+static void getListFnameOk (Widget w, XtPointer clientData, XtPointer callData);
+X
+X
+static Errcode printBegDoc (FILE *fp, String fname);
+static Errcode printEndDoc (FILE *fp);
+static Errcode printList   (FILE *fp, CardListNode *cl);
+static Errcode printCard   (FILE *fp, CardDataPtr cd);
+static void WriteLineToArray(char *inh);
+X
+X
+/* local global variables */
+/* ---------------------- */
+static char texline[MAXTEX];
+X
+X
+/*********************************************************************/
+/* cprPrintBibCmd:                                                   */
+/*    Callback function for command print in main menu               */
+/*********************************************************************/
+void 
+cprPrintBibCmd (Widget widget, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("printHead", cprPrintBib)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* cprPrintCmd:                                                      */
+/*    Callback function for command print in main menu               */
+/*********************************************************************/
+void 
+cprPrintCmd (Widget widget, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+Errcode status;
+X
+X   if ((status = cprPrintBib(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* cprPrintBib:                                                      */
+/*    Callback function for command print in main menu               */
+/*********************************************************************/
+Errcode
+cprPrintBib (BibPtr bp)
+{
+CardListNode *cl = NULL;
+char wcKey[] = ".";
+CardData *wcCard;
+Errcode status;
+X
+X   /* make list of all cards in src bib */
+X   if ((status = dbtMakeCard(&wcCard)) != DBT_OK) {
+X      return(status);
+X   }
+X   wcCard->mainkey = glbNewString(".");
+X   if ((status = dbtSearchList(bp->treeIdx, wcCard, &cl)) != DBT_OK) {
+X      return(status);
+X   }
+X
+X   getFilename(cl);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* cprPrintListCmd:                                                  */
+/*    Callback function for command print in list window             */
+/*********************************************************************/
+void 
+cprPrintListCmd(Widget widget, XtPointer clientData, XtPointer callData)
+{
+CardListNode *cl = (CardListNode *)clientData;
+X
+X   getFilename(cl);
+}
+X
+X
+/*********************************************************************/
+/* cprPrintList:                                                     */
+/*    Print a list of cards to file in LaTeX format                  */
+/*********************************************************************/
+Errcode
+cprPrintList (CardListNode *lp, String fname)
+{
+FILE *fp;
+Errcode status;
+char sysStr[2*MAX_FILEPATHLEN];
+X
+X   /* make .bak file of original */
+X   if (cotBackupBeforeSave()) {
+X      sprintf(sysStr, "rm -f %s.bak 2> /dev/null", fname);
+X      system(sysStr);
+X      sprintf(sysStr, "mv -f %s %s.bak 2> /dev/null", fname, fname);
+X      system(sysStr);
+X   }
+X
+X   if ((fp = fopen(fname, "w")) == NULL) 
+X      return(ERR_NO_OPEN_FILE);
+X   if (latexHeader != NULL) {
+X      fprintf(fp,"%s\n", latexHeader);
+X   }
+X   else {
+X     if ((status = printBegDoc(fp, fname)) != OK) {
+X	fclose(fp);
+X	return(status);
+X     }
+X   }
+X   if ((status = printList(fp, lp)) != OK) {
+X      fclose(fp);
+X      return(status);
+X   }
+X
+X   if (latexFooter != NULL) {
+X      fprintf(fp,"%s\n", latexFooter);
+X   }
+X   else {
+X     if ((status = printEndDoc(fp)) != OK) {
+X	fclose(fp);
+X	return(status);
+X     }
+X   }
+X
+X   fclose(fp);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* cprSaveListCmd:                                                   */
+/*    Callback function for command save in list window              */
+/*********************************************************************/
+void 
+cprSaveListCmd(Widget widget, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+X
+X   getListFilename(bp);
+}
+X
+/*********************************************************************/
+/* LOCAL FUNCTIONS                                                   */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* getFilename:                                                      */
+/*    Opens dialogbox for user to enter name of file                 */
+/*********************************************************************/
+static void
+getFilename (CardListNode *lp)
+{
+static Widget fsbShell, fsbBox, fsbLabel, fsbDialog;
+char fname[MAX_FILEPATHLEN];
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X
+X   fsbShell  = XtVaCreatePopupShell("fileSelectBoxShell",
+X                 topLevelShellWidgetClass, desktop,
+X                 XtNx, x, XtNy, y, NULL);
+X   fsbBox    = XtVaCreateManagedWidget("fileSelectBox",
+X		 boxWidgetClass, fsbShell, NULL);
+X   fsbLabel  = XtVaCreateManagedWidget("filePrintHead",
+X		 labelWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X   fsbDialog = XtVaCreateManagedWidget("fileSelectBox",
+X                 fileNominatorWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X
+X   XtAddCallback(fsbDialog, XtNcancelCallback, cancelGetFname, fsbShell);
+X   XtAddCallback(fsbDialog, XtNselectCallback, getFnameOk, lp);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   XtPopup(fsbShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* getListFilename:                                                  */
+/*    Opens dialogbox for user to enter name of file                 */
+/*********************************************************************/
+static void
+getListFilename (BibPtr bp)
+{
+static Widget fsbShell, fsbBox, fsbLabel, fsbDialog;
+char fname[MAX_FILEPATHLEN];
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X
+X   fsbShell  = XtVaCreatePopupShell("fileSelectBoxShell",
+X                 topLevelShellWidgetClass, desktop,
+X                 XtNx, x, XtNy, y, NULL);
+X   fsbBox    = XtVaCreateManagedWidget("fileSelectBox",
+X		 boxWidgetClass, fsbShell, NULL);
+X   fsbLabel  = XtVaCreateManagedWidget("fileListSaveHead",
+X		 labelWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X   fsbDialog = XtVaCreateManagedWidget("fileSelectBox",
+X                 fileNominatorWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X
+X
+X   XtAddCallback(fsbDialog, XtNcancelCallback, cancelListGetFname, fsbShell);
+X   XtAddCallback(fsbDialog, XtNselectCallback, getListFnameOk, (XtPointer)bp);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   XtPopup(fsbShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* cancelGetFname:                                                   */
+/*    Callback function for CANCEL button in filename box            */
+/*********************************************************************/
+static void
+cancelGetFname (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(shell);
+}
+X
+X
+/*********************************************************************/
+/* cancelListGetFname:                                               */
+/*    Callback function for CANCEL button in filename box            */
+/*********************************************************************/
+static void
+cancelListGetFname (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(shell);
+}
+X
+X
+/*********************************************************************/
+/* getFnameOk:                                                       */
+/*    Callback function for OK button in filename box                */
+/*********************************************************************/
+static void
+getFnameOk (Widget w, XtPointer clientData, XtPointer callData)
+{
+CardListNode *lp = (CardListNode *) clientData;
+char sysStr[2*MAX_FILEPATHLEN];
+String prtName;
+int status;
+X
+X   /* get filename and rename windows */
+X   prtName = (String)FileNominatorGetFileName(w);
+X
+X   /* remove file select box */
+X   XtPopdown(XtParent(XtParent(w)));
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   /* write out printfile to disk */
+X   if ((status = cprPrintList(lp, prtName)) != OK)
+X      guwError(status);
+X
+/* if ((status = dbtCardListDelete(&lp)) != OK)
+X      guwError(status);
+*/
+}
+X
+X
+X
+/*********************************************************************/
+/* getListFnameOk:                                                   */
+/*    Callback function for OK button in filename box                */
+/*********************************************************************/
+static void
+getListFnameOk (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+char sysStr[2*MAX_FILEPATHLEN];
+String prtName;
+int status;
+X
+X   /* get filename and rename windows */
+X   prtName = (String)FileNominatorGetFileName(w);
+X
+X   /* remove file select box */
+X   XtPopdown(XtParent(XtParent(w)));
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   /* make .bak file of original */
+X   if (cotBackupBeforeSave()) {
+X      sprintf(sysStr, "rm -f %s.bak 2> /dev/null", prtName);
+X      system(sysStr);
+X      sprintf(sysStr, "mv -f %s %s.bak 2> /dev/null", prtName, prtName);
+X      system(sysStr);
+X   }
+X
+X   /* write out printfile to disk */
+X   if ((status = bifFileListWrite(bp, bp->lw->cardLst, prtName)) != OK)
+X      guwError(status);
+}
+X
+/*********************************************************************/
+/* printBegDoc:                                                      */
+/*    Print begin of LaTeX file                                      */
+/*********************************************************************/
+static Errcode
+printBegDoc (FILE *fp, String fname)
+{
+#ifdef GERMAN
+X   fprintf(fp, "\\documentstyle[german]{article}\n");
+X   fprintf(fp, "\\begin{document}\n");
+X   fprintf(fp, "{\\large \\bf Inhalt der Datei %s -- \\today}\n", fname);
+#else
+X   fprintf(fp, "\\documentstyle{article}\n");
+X   fprintf(fp, "\\begin{document}\n");
+X   fprintf(fp, "{\\large \\bf Content of file %s -- \\today}\n", fname);
+#endif
+X   fprintf(fp, "\\begin{enumerate}\n"); 
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* printEndDoc:                                                      */
+/*    Print end   of LaTeX file                                      */
+/*********************************************************************/
+static Errcode
+printEndDoc (FILE *fp)
+{
+X   fprintf(fp, "\\end{enumerate}\n"); 
+X   fprintf(fp, "\\end{document}\n");
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* printList:                                                        */
+/*    Print list of cards to file                                    */
+/*********************************************************************/
+static Errcode
+printList (FILE *fp, CardListNode *list)
+{
+Errcode status;
+X
+X   while (list != NULL) {                 
+X      if ((status = printCard(fp, list->data)) != OK)
+X	 return(status);
+X      list = list->next; 
+X   }
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* printCard:                                                        */
+/*    Print list of cards to file                                    */
+/*********************************************************************/
+static Errcode
+printCard (FILE *fp, CardData *cd)
+{
+UserFld *hufield;
+X
+X   fprintf(fp, "\\item %s  %s\n", glbNewString(glbTypeToName(cd->cardtype)),
+X                                 cd->mainkey); 
+X   fprintf(fp, "\\begin{tabbing}\n");
+X   fprintf(fp, "AAAAAAAAAAAAAAAAAAAA\\= \\kill\n");
+X
+X   if (!glbIsStringEmpty(cd->category)) {
+X      WriteLineToArray(cd->category);
+X      fprintf(fp, "\\bf ADDRESS \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->address)) {
+X      WriteLineToArray(cd->address);
+X      fprintf(fp, "\\bf ADDRESS \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->annote)) {
+X      WriteLineToArray(cd->annote);
+X      fprintf(fp, "\\bf ANNOTE \\>  \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->author)) {
+X      WriteLineToArray(cd->author);
+X      fprintf(fp, "\\bf AUTHOR \\>  \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->booktitle)) {
+X      WriteLineToArray(cd->booktitle);
+X      fprintf(fp, "\\bf BOOKTITLE \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->chapter)) {
+X      WriteLineToArray(cd->chapter);
+X      fprintf(fp, "\\bf CHAPTER \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->edition)) {
+X      WriteLineToArray(cd->edition);
+X      fprintf(fp, "\\bf EDITION \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->editor)) {
+X      WriteLineToArray(cd->editor);
+X      fprintf(fp, "\\bf EDITON \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->howpublished)) {
+X      WriteLineToArray(cd->howpublished);
+X      fprintf(fp, "\\bf HOWPUBLISHED \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->institution)) {
+X      WriteLineToArray(cd->institution);
+X      fprintf(fp, "\\bf INSTITUTION \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->journal)) {
+X      WriteLineToArray(cd->journal);
+X      fprintf(fp, "\\bf JOURNAL \\> \\parbox[t]{25em}{%s} \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->key)) {
+X      WriteLineToArray(cd->key);
+X      fprintf(fp, "\\bf KEY \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->month)) {
+X      WriteLineToArray(cd->month);
+X      fprintf(fp, "\\bf MONTH \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->note)) {
+X      WriteLineToArray(cd->note);
+X      fprintf(fp, "\\bf NOTE \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->number)) {
+X      WriteLineToArray(cd->number);
+X      fprintf(fp, "\\bf NUMBER \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->organization)) {
+X      WriteLineToArray(cd->organization);
+X      fprintf(fp, "\\bf ORGANIZATION \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->pages)) {
+X      WriteLineToArray(cd->pages);
+X      fprintf(fp, "\\bf PAGES \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->publisher)) {
+X      WriteLineToArray(cd->publisher);
+X      fprintf(fp, "\\bf PUBLISHER \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->school)) {
+X      WriteLineToArray(cd->school);
+X      fprintf(fp, "\\bf SCHOOL \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->series)) {
+X      WriteLineToArray(cd->series);
+X      fprintf(fp, "\\bf SERIES \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->title)) {
+X      WriteLineToArray(cd->title);
+X      fprintf(fp, "\\bf TITLE \\>   \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->type)) {
+X      WriteLineToArray(cd->type);
+X      fprintf(fp, "\\bf TYPE \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->volume)) {
+X      WriteLineToArray(cd->volume);
+X      fprintf(fp, "\\bf VOLUME \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->year)) {
+X      WriteLineToArray(cd->year);
+X      fprintf(fp, "\\bf YEAR \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X   if (!glbIsStringEmpty(cd->crossref)) {
+X      WriteLineToArray(cd->crossref);
+X      fprintf(fp, "\\bf YEAR \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		  texline);
+X   }
+X
+X   /* print userdefined fields */
+X   hufield = cd->ufield;
+X   while (hufield != NULL) {
+X      WriteLineToArray(hufield->fldData);
+X      fprintf(fp, "\\bf %s \\>  \\parbox[t]{25em}{%s}  \\\\ \n",
+X		   hufield->fldName, texline);
+X      hufield = hufield->next;
+X   } 
+X   fprintf(fp, "\\end{tabbing}\n");
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* writeLineToArray:                                                 */
+/*                                                                   */
+/*********************************************************************/
+static void 
+WriteLineToArray (char *inh)
+{
+int idx;
+int makro = 2;    /* weder Makro, noch String */
+char *tmp;
+X
+X  idx = 0;
+X  while (*inh == ' ' || *inh == '\t' || *inh == '\n') {
+X    texline[idx] = *inh; 
+X    inh++;
+X    idx++;
+X  }
+X  if (*inh == '@') {
+X    texline[idx] = ' '; 
+X    makro = 1;
+X  }
+X  else {
+X    texline[idx] = '{'; 
+X    idx++;
+X    texline[idx] = *inh; 
+X    makro = 0;
+X  }
+X  idx++;
+X  inh++;
+X  while (*inh != '\0') {
+X    if (*inh == '@') {
+X      tmp = inh;
+X      tmp++;
+X      if (*tmp == '#') {                  /* KONKATENATION */
+X        if (makro == 1) {
+X                                          /* letzter Teil war ein MAKRO */ 
+X          texline[idx] = ' '; idx++; 
+X          texline[idx] = '\\'; idx++; 
+X          texline[idx] = '#'; idx++; 
+X          texline[idx] = ' '; idx++; 
+X          tmp++;
+X          while (*tmp == ' ' || *tmp == '\t' || *tmp == '\n') {
+X            texline[idx] = *tmp; 
+X            idx++;
+X            tmp++;
+X          }
+X          if (*tmp == '@') {              /* naechster Teil ist ein MAKRO */
+X            texline[idx] = ' '; idx++; 
+X            makro = 1;
+X          }
+X          else {
+X            texline[idx] = '{'; idx++; 
+X            texline[idx] = *tmp; 
+X            idx++;
+X                                          /* naechster Teil ist ein STRING */
+X            makro = 0;
+X          }
+X        }
+X        else if (makro == 0) {
+X                                          /* letzter Teil war ein STRING */ 
+X          texline[idx] = '}'; idx++; 
+X          texline[idx] = ' '; idx++; 
+X          texline[idx] = '\\'; idx++; 
+X          texline[idx] = '#'; idx++; 
+X          texline[idx] = ' '; idx++; 
+X          tmp++;
+X          while (*tmp == ' ' || *tmp == '\t' || *tmp == '\n') {
+X            texline[idx] = *tmp; 
+X            idx++;
+X            tmp++;
+X          }
+X          if (*tmp == '@') {              /* naechster Teil ist ein MAKRO */
+X            texline[idx] = ' '; idx++; 
+X            makro = 1;
+X          }
+X          else {
+X            texline[idx] = '{'; idx++; 
+X            texline[idx] = *tmp; 
+X            idx++;
+X            makro = 0;
+X          }
+X        }  /* else if makro == 0 */
+X        inh = tmp;
+X      }
+X      else {                              /* AFFE nicht schreiben */
+X        texline[idx] = ' '; idx++; 
+X        makro = 1;
+X      }
+X    }      /* if @ */
+X    else {
+X      texline[idx] = *inh; 
+X      idx++;
+X    }
+X    inh++;
+X  }  /* while */
+X  if (makro == 0) {
+X    texline[idx] = '}'; idx++; 
+X  }
+X  texline[idx] = ','; idx++; 
+X  texline[idx] = ' '; idx++; 
+X  texline[idx] = '\0'; idx++; 
+}
+X
+X
+SHAR_EOF
+chmod 0644 ctl_prt.c ||
+echo 'restore of ctl_prt.c failed'
+Wc_c="`wc -c < 'ctl_prt.c'`"
+test 22375 -eq "$Wc_c" ||
+	echo 'ctl_prt.c: original size 22375, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ctl_save.c ==============
+if test -f 'ctl_save.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ctl_save.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ctl_save.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ctl_save.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ctl_save.c                                              */
+/*                                                                   */
+/*             Close / Save Control                                  */
+/*             - Menu function Save                                  */
+/*             - Menu function Save as                               */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    18.02.92  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+/* #include <stdlib.h> */
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Cardinals.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Dialog.h>
+#include <X11/Xaw/Box.h>
+#include "FileNom.h"
+#include "bibview.h"
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern XtAppContext app_context;
+extern Widget topLevel, mainMenu, desktop;
+extern Pixmap questPixmap;
+X
+X
+/* exported global variables */
+/* ------------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static void confirmClose (BibPtr bp);
+static void closeCmdOk (Widget w, XtPointer clientData, XtPointer callData);
+static void cancelCloseCmd (Widget w, XtPointer clientData, XtPointer callData);
+static void getFilename (BibPtr bp);
+static void getFnameOk (Widget w, XtPointer clientData, XtPointer callData);
+static void cancelGetFname (Widget w, XtPointer clientData, XtPointer callData);
+static Errcode renameWindowTitles (BibPtr bp, String newName);
+X
+X
+/* local global variables */
+/* ---------------------- */
+static BibPtr gbp = NULL;
+X
+X
+X
+/*********************************************************************/
+/* csaQuitBibviewCmd:                                                */
+/*    Callback function for command quit in main file menu           */
+/*********************************************************************/
+void
+csaQuitBibviewCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bpold, bp;
+CardPtr cp;
+Boolean unsaved = FALSE;
+X
+X   /* close bibs first (checks for unsaved changes) */
+X   bp = glbFirstBibListEl();
+X   while (bp != NULL) {
+X      /* check for unsaved changes to cards and macros */
+X      cp = glbFirstCardListEl(bp);
+X      while (cp != NULL) {
+X	 if (cp->changed || gucStdFldsChanged(cp)) {
+X	    unsaved = TRUE;
+X	    break;
+X	 }
+X	 cp = glbNextCardListEl(bp, cp);
+X      }
+X      if (bp->mw && bp->mw->changed)
+X	 unsaved = TRUE;
+X      if (bp->changed)
+X	 unsaved = TRUE;
+X
+X      if (unsaved) {
+X         csaCloseBib(bp);
+X	 return;
+X      } 
+X      bpold = bp;
+X      bp = glbNextBibListEl(bp);
+X      glbDelBibListEl(bpold); 
+X   }
+X  
+X   exit(0);
+}
+X
+X
+/*********************************************************************/
+/* csaCloseBibCmd:                                                   */
+/*    Callback function for command close bib  in main menu          */
+/*********************************************************************/
+void
+csaCloseBibCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("closeHead", csaCloseBib)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* csaCloseCmd:                                                      */
+/*    Callback function for command close/quit in bib win menu       */
+/*********************************************************************/
+void
+csaCloseCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+X
+X   csaCloseBib(bp);
+}
+X
+X
+/*********************************************************************/
+/* csaCloseBib:                                                      */
+/*    Close bibliography file (ask if not saved)                     */
+/*********************************************************************/
+Errcode
+csaCloseBib (BibPtr bp)
+{
+CardPtr cp;
+char sysStr[2*MAX_FILEPATHLEN];
+Boolean unsaved = FALSE;
+Errcode status;
+X   
+X
+X   /* check for unsaved changes to cards and macros */
+X   cp = glbFirstCardListEl(bp);
+X   while (cp != NULL) {
+X      if (!cp->changed && !gucStdFldsChanged(cp)) {
+X	 gucCloseCardWin(cp);
+X	 cp = glbFirstCardListEl(bp);
+X      }
+X      else
+X	 unsaved = TRUE;
+X      cp = glbNextCardListEl(bp, cp);
+X   }
+X   if (bp->mw && bp->mw->changed)
+X      unsaved = TRUE;
+X
+X   /* if opened and unsaved cards found, reorder them */
+X   if (unsaved)
+X      gucCascade(bp);
+X
+X   /* confirm trashing unsaved cards or previous changes to bib */
+X   if (unsaved || bp->changed) {
+X      confirmClose(bp);
+X      return(OK);
+X   }
+X
+X   /* delete database tree */
+X   if ((status = dbtDeleteTree(bp->treeIdx)) != DBT_OK) {
+X      guwError(status);
+X      return(status);
+X   }
+X   if ((status = gubCloseBibWin(bp)) != OK) {
+X      guwError(status);
+X      return(status);
+X   }
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* csaSaveBibCmd:                                                    */
+/*    Callback function for command save in file menu                */
+/*********************************************************************/
+void
+csaSaveBibCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("saveHead", csaSaveBib)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* csaSaveCmd:                                                       */
+/*    Callback function for command save in bib window menu          */
+/*********************************************************************/
+void
+csaSaveCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+X
+X   csaSaveBib(bp);
+}
+X
+X
+/*********************************************************************/
+/* csaSaveBib:                                                       */
+/*    Save bibliography to disk                                      */
+/*********************************************************************/
+Errcode
+csaSaveBib (BibPtr bp)
+{
+char sysStr[2*MAX_FILEPATHLEN];
+int status;
+X
+X   /* check whether bib has a real name */
+X   if (strncmp(bp->filename, "noname", 6) == 0) {
+X      getFilename(bp);
+X      return(OK);
+X   }
+X
+X   /* make .bak file of original */
+X   if (cotBackupBeforeSave()) {
+X      sprintf(sysStr, "rm -f %s.bak 2> /dev/null", bp->filename);
+X      system(sysStr);
+X      sprintf(sysStr, "mv -f %s %s.bak 2> /dev/null", bp->filename, bp->filename);
+X      system(sysStr);
+X   }
+X
+X   /* write out file to disk */
+X   if ((status = bifFileWrite(bp)) != DBT_OK) {
+X      guwError(status);
+X      return(status);
+X   }
+X   bp->changed = FALSE;
+X   
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* csaSaveAsBibCmd:                                                  */
+/*    Callback function for command save as in file menu             */
+/*********************************************************************/
+void
+csaSaveAsBibCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("saveAsHead", csaSaveAsBib)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* csaSaveAsBib:                                                     */
+/*    Save bibliography under new name to disk                       */
+/*********************************************************************/
+Errcode
+csaSaveAsBib (BibPtr bp)
+{
+X   getFilename(bp);
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* LOCAL FUNCTIONS                                                   */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* confirmClose:                                                     */
+/*    Opens dialogbox for user to confirm closing without saving     */
+/*********************************************************************/
+static void
+confirmClose (BibPtr bp)
+{
+static Widget conShell, conDialog, conOKButton, conQuitButton;
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(bp->bw->bibdesk,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X   conShell = XtVaCreatePopupShell("confirmBibQuitShell",
+X	        transientShellWidgetClass, topLevel, 
+X		XtNx, x, XtNy, y, NULL);
+X   conDialog = XtVaCreateManagedWidget("confirmBibQuitBox",
+X	         dialogWidgetClass, conShell, 
+X		 XtNicon, questPixmap, NULL);
+X   conOKButton = XtVaCreateManagedWidget("ok",
+X	           commandWidgetClass, conDialog, NULL);
+X   conQuitButton = XtVaCreateManagedWidget("cancel",
+X	           commandWidgetClass, conDialog, NULL);
+X   XtAddCallback(conQuitButton, XtNcallback, cancelCloseCmd, conDialog);
+X   XtAddCallback(conOKButton, XtNcallback, closeCmdOk, conDialog);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   gbp = bp;
+X   XtPopup(conShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* cancelCloseCmd:                                                   */
+/*    Callback function for CANCEL button in confirm box             */
+/*********************************************************************/
+static void
+cancelCloseCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget dialog = XtParent((Widget)clientData);
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(dialog);
+X   gbp = NULL;
+}
+X
+X
+/*********************************************************************/
+/* closeCmdOk:                                                       */
+/*    Callback function for OK button in confirm box                 */
+/*********************************************************************/
+static void
+closeCmdOk (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget dialog = (Widget) clientData;
+char sysStr[2*MAX_FILEPATHLEN];
+int status;
+X
+X   /* remove file select box */
+X   XtPopdown(XtParent(dialog));
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   if ((status = dbtDeleteTree(gbp->treeIdx)) != DBT_OK) {
+X      guwError(status);
+X   }
+X   if ((status = gubCloseBibWin(gbp)) != OK) {
+X      guwError(status);
+X   }
+X   sprintf(sysStr, "rm -f %s %s 2> /dev/null", gbp->tempfile, gbp->macrofile);
+X   system(sysStr);
+X
+X   gbp = NULL;
+}
+X
+X
+/*********************************************************************/
+/* getFilename:                                                      */
+/*    Opens dialogbox for user to enter name of file                 */
+/*********************************************************************/
+static void
+getFilename (BibPtr bp)
+{
+static Widget fsbShell, fsbBox, fsbLabel, fsbDialog;
+char fname[MAX_FILEPATHLEN];
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X
+X   fsbShell  = XtVaCreatePopupShell("fileSelectBoxShell",
+X                 topLevelShellWidgetClass, desktop,
+X                 XtNx, x, XtNy, y, NULL);
+X   fsbBox    = XtVaCreateManagedWidget("fileSelectBox",
+X		 boxWidgetClass, fsbShell, NULL);
+X   fsbLabel  = XtVaCreateManagedWidget("fileRenameHead",
+X		 labelWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X   fsbDialog = XtVaCreateManagedWidget("fileSelectBox",
+X                 fileNominatorWidgetClass, fsbBox, 
+X		 XtNborderWidth, 0, NULL);
+X
+X   XtAddCallback(fsbDialog, XtNcancelCallback, cancelGetFname, fsbShell);
+X   XtAddCallback(fsbDialog, XtNselectCallback, getFnameOk, fsbDialog);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   gbp = bp;
+X   XtPopup(fsbShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* cancelGetFname:                                                   */
+/*    Callback function for CANCEL button in filename box            */
+/*********************************************************************/
+static void
+cancelGetFname (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(shell);
+X   gbp = NULL;
+}
+X
+X
+/*********************************************************************/
+/* getFnameOk:                                                       */
+/*    Callback function for OK button in filename box                */
+/*********************************************************************/
+static void
+getFnameOk (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget dialog = (Widget) clientData;
+char sysStr[2*MAX_FILEPATHLEN];
+String newName;
+int status;
+X
+X   /* get filename and rename windows */
+X   newName = (String)FileNominatorGetFileName(dialog);
+X   strcpy(gbp->filename, newName);
+X   strcpy(gbp->filepath, (String)FileNominatorGetFullFileName(dialog));
+X   if ((status = renameWindowTitles(gbp, newName)) != OK)
+X      guwError(status);
+X
+X   /* remove file select box */
+X   XtPopdown(XtParent(XtParent(dialog)));
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   /* make .bak file of original */
+X   if (cotBackupBeforeSave()) {
+X      sprintf(sysStr, "rm -f %s.bak 2> /dev/null", gbp->filename);
+X      system(sysStr);
+X      sprintf(sysStr, "mv -f %s %s.bak 2> /dev/null", gbp->filename, gbp->filename);
+X      system(sysStr);
+X   }
+X
+X   /* write out file to disk */
+X   if ((status = bifFileWrite(gbp)) != DBT_OK) {
+X      guwError(status);
+X      return;
+X   }
+X   gbp->changed = FALSE;
+X   gbp = NULL;
+}
+X
+X
+/*********************************************************************/
+/* renameWindowTitles:                                               */
+/*    Rename titles of all open windows of a bib                     */
+/*********************************************************************/
+static Errcode
+renameWindowTitles (BibPtr bp, String newName)
+{
+CardPtr cp;
+X
+X   strcpy(bp->filename, newName);
+X
+X   /* rename bib window */
+X   if (bp->bw->shellName)
+X      free(bp->bw->shellName);
+X   if ((bp->bw->shellName =
+X          (String) calloc(strlen(PROGNAME)+strlen(bp->filename)+4,
+X                          sizeof(char))) != NULL) {
+X      sprintf(bp->bw->shellName, "%s: %s", PROGNAME, bp->filename);
+X      XtVaSetValues(bp->bw->bibShell,
+X		    XtNtitle, bp->bw->shellName, 
+X		    XtNiconName, bp->filename, NULL);
+X   }
+X   else
+X      bp->bw->shellName = NULL;
+X
+X   /* rename card windows */
+X   cp = glbFirstCardListEl(bp);
+X   while (cp != NULL) {
+X      if (cp->cw->shellName)
+X          free(cp->cw->shellName);
+X      if ((cp->cw->shellName = (String)calloc(strlen(bp->filename) +
+X					strlen(glbTypeToName(cp->cd->cardtype))+4,
+X					sizeof(char))) != NULL) {
+X         sprintf(cp->cw->shellName, "%s: %s", bp->filename, glbTypeToName(cp->cd->cardtype));
+X         XtVaSetValues(cp->cw->cardShell,
+X		       XtNtitle, cp->cw->shellName, NULL);
+X      } /* endif */
+X      else
+X	 cp->cw->shellName = NULL;
+X      cp = glbNextCardListEl(gbp, cp);
+X   } /* endwhile */
+X
+X   /* rename list window */
+X   if (gulListWinExists(bp)) {
+X      if (bp->lw->shellName)
+X	    free(bp->lw->shellName);
+X      if ((bp->lw->shellName = (String)calloc(strlen(PROGNAME) +
+X                                              strlen(bp->filename)+10,
+X                                              sizeof(char))) != NULL) {
+X	 sprintf(bp->lw->shellName, "%s: List %s", PROGNAME, bp->filename);
+X         XtVaSetValues(bp->lw->lstShell,
+X		       XtNtitle, bp->lw->shellName, 
+X		       XtNiconName, bp->filename, NULL);
+X      } /* endif */
+X      else
+X	 bp->lw->shellName = NULL;
+X   } /* endif */
+X
+X   /* rename macro window */
+X   if (gueMacroWinExists(bp)) {
+X      if (bp->mw->shellName)
+X	    free(bp->mw->shellName);
+X
+X      if ((bp->mw->shellName = (String)calloc(strlen(PROGNAME) +
+X                                              strlen(bp->filename)+12,
+X                                              sizeof(char))) != NULL) {
+X	 sprintf(bp->mw->shellName, "%s: Macros %s", PROGNAME, bp->filename);
+X         XtVaSetValues(bp->mw->macShell,
+X		       XtNtitle, bp->mw->shellName, 
+X		       XtNiconName, bp->filename, NULL);
+X      } /* endif */
+X      else
+X	 bp->mw->shellName = NULL;
+X   } /* endif */
+X
+X   return(OK);
+}
+X
+X
+X
+SHAR_EOF
+chmod 0644 ctl_save.c ||
+echo 'restore of ctl_save.c failed'
+Wc_c="`wc -c < 'ctl_save.c'`"
+test 17577 -eq "$Wc_c" ||
+	echo 'ctl_save.c: original size 17577, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ctl_serv.c ==============
+if test -f 'ctl_serv.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ctl_serv.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ctl_serv.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ctl_serv.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ctl_serv.c                                              */
+/*                                                                   */
+/*             Services Control                                      */
+/*             - Menu function Check                                 */
+SHAR_EOF
+true || echo 'restore of ctl_serv.c failed'
+fi
+echo 'End of  part 10'
+echo 'File ctl_serv.c is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

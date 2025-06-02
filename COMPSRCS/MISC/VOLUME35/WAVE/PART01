@@ -1,0 +1,532 @@
+Newsgroups: comp.sources.misc
+From: kuru@jyu.fi (Esa Kuru puh.254206)
+Subject: v35i114:  wave - 3D-sird-image 24bit frame generator, Part01/01
+Message-ID: <1993Mar3.191618.20464@sparky.imd.sterling.com>
+X-Md4-Signature: 69bc7bef29c7535d008f96a264b9b311
+Date: Wed, 3 Mar 1993 19:16:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kuru@jyu.fi (Esa Kuru puh.254206)
+Posting-number: Volume 35, Issue 114
+Archive-name: wave/part01
+Environment: Sun, Amiga, 24bit
+
+This 3D-SIRD (Single-Image-Random-Dot) animation shows a sinewave
+generator in a plane. The waving plane can be seen behind or
+infront of the computer screen in all colours without glasses in 3D.
+If You are already familiar with SIRDs then it will ease 'seeing' it.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  wave.c wave.readme
+# Wrapped by kent@sparky on Wed Mar  3 13:09:34 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'wave.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wave.c'\"
+else
+  echo shar: Extracting \"'wave.c'\" \(13246 characters\)
+  sed "s/^X//" >'wave.c' <<'END_OF_FILE'
+X/* Single-Image-Random-Dot 3D-animation frame generator
+X * with
+X * - antialiasing
+X * - OUT.PPM 24-bit output
+X * with new previeously unknown:
+X *  - dithering pattern  (c) Esa Kuru (kuru@jyu.fi)
+X *    that enables 
+X *    a) changing of resolution of an already drawn picture afterwards 
+X *    b) colours and shades to be added to surfaces in the picture
+X *
+X * Copyright by Esa Kuru (the Author)
+X * Address: 
+X *   Aatoksenkatu 10 B 31
+X *   40720 Jyvaskyla
+X *   FINDLAND
+X *
+X * This code is freely distributable and released mainly on
+X * research purposes for 3-D vision enthusiasts.
+X * This comment must be kept within this program and within its
+X * modified versions unmodified. No part of this code may be
+X * sold in any format without my written and signed permission.
+X * This code may be modified on following conditions:
+X * - If you modify the code You must send the modified version
+X *   of this code directly to me, the author Esa Kuru 
+X *   (E-mail above is fine)
+X * - If You include any part of this or modified code to another program
+X *   (commercial, freely distributable, public-domain, share-ware
+X *   or whatever) then You must send all of the source files needed
+X *   to compile that program with an executable with all the gadgets
+X *   to run it (not the computer) and one free license for me to use 
+X *   that code. My contribution to Your product must be mentioned.
+X *
+X * This code is not quaranteed to do what it claims to do and the
+X * author is in no way responsible of any damage caused by
+X * running this program. WYSIWYG.
+X *
+X * Since I just have no time to include this to those Wonderful 
+X * public-domain or freely distributable and modifiable ray tracers
+X * I'm releasing this new feature for You programmers to do the
+X * job, thank You.
+X *
+X * My best wishes to Vesa Meskanen (the author of commercial ray-tracer 'REAL-3D')
+X * You ought to have answered my request for call back. Are You too proud or what? 
+X * Now I cannot wait for Your call forever, therefore I am releasing
+X * this code free for everyone. :-) Sorry. :--)
+X */
+X
+X/* History:
+X *	 5.1.1993 An initial version written in AREXX-language (Esa Kuru)
+X *	12.1.1993 First C-language version (Esa Kuru)
+X *	 	  I have successfully compiled this on SUN-Sparc-station with 
+X *		gcc -O2 wave.c -o wave -lm
+X *		  and with Amiga 3000/68040 with 18Mb RAM :
+X *		gcc -O2 wave.c -o wave -m68020 -m68881
+X *		  all double types converted to floats and stack set to 300000.
+X *	15.1.1993 Animation frame generation added and
+X *		  a random number seed initialization corrected.
+X *                This version is run by a script that alters framenumber
+X *		  in command line. (Esa Kuru)
+X *	Note:	  Currently this code doesn't handle perspective images
+X * 		  correctly although it gives 3D-sird-effect.
+X *		  Nor does this handle right and left eye colors
+X * 		  in incr, incg and incb statements correctly, but works.
+X *		  amp statement should be rewritten if included to another
+X *		  program (Esa Kuru)
+X *
+X *	Have fun! And don't loose Your sence of reality. :-)
+X */
+X 
+X/* That's about it and now the fun starts, the rest of the comments may be 
+X * removed if You like. Try to keep the code as portable as possible.
+X */
+X
+X/* maybe all of these includes are not necessary, figure out */
+X#include <ctype.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <time.h>
+X#include <math.h>
+X
+X/* PLANE is 3d-magic number
+X * rest of #defines relate to maximum picture size
+X * ROUNDS is needed to fill the picture with dithering pattern
+X */
+X#define PLANE 60
+X#define XMIN 0
+X#define YMIN 0
+X#define YYMAX 2000
+X#define XXMAX 2000
+X#define ROUNDS 64
+X
+X/* Antialias must be: AALIAS > 0, or division by zero error will occur.
+X * BUFLEN is the length of outputbuffer to a file.
+X */
+X#define AALIAS 10
+X#define BUFLEN 60000L
+X/* header is a part of ppm P6 header
+X */
+Xstatic char header[]={0x32,0x35,0x35,0x0a,0x00};
+X
+X/* rast[] contains the NEW dithering pattern that is based on 
+X * prime numbers in the sense that an integral over rast[]
+X * is always constant and rast[] is frequencymodulated by primes. 
+X * There may be different amplitudes, lengths or orders preferrably
+X * ascending or descending frequency modulation.
+X * I think there is no reason to hide or keep secret any of this information,
+X * one can always analyze a drawn picture by magnifying it enough.
+X */
+X
+Xstatic long rast[]={32,64,64,00,00,48,48,48,16,16,16,40,40,40,40,40,\
+X		24,24,24,24,24,24,24,36,36,36,36,36,36,36,28,28,28,28,\
+X		28,28,28,28,28,28,28,34,34,34,34,34,34,34,34,34,34,34,\
+X		34,34,31,31,31,31,31,31,31,31,31,31,31};
+Xchar out[BUFLEN];
+X
+X/* make this a subroutine! */
+Xmain(argc,argv)int argc;char *argv[];{
+X FILE *outf1;
+X long outptr=-1; /* buffer counter */
+X int t,xcenter,ycenter;
+X
+X/* rr - right red
+X * rg - right green
+X * rb - right blue
+X * lr - left red
+X * lg - left green
+X * lb - left blue
+X * cr - the average of rr and lr
+X * cg - the average of rg and lg
+X * cb - the average of rb and lb
+X */
+X
+X int y,yy,x,rr,rg,rb,lr,lg,lb,cr,cg,cb,i,aa;
+X int rp,gp,bp,xp,yp;
+X int XMAX,YMAX;
+X
+X/* Make these tables with calloc() or malloc() to keep this code
+X * portable with small Personal microcomputer systems. This version is a
+X * stack pig. (+3 in arrays is just to be sure...figure out!)
+X */ 
+X
+X float xposr[YYMAX+3],xposg[YYMAX+3],xposb[YYMAX+3];
+X float xx,amp,ftmp,incr,incg,incb,xr,xb,xg,pii;
+X float r[XXMAX+3],g[XXMAX+3],b[XXMAX+3];
+X
+X pii=(float)2.0*(float)acos(-1.00);
+X
+X/* initialize starting positions in left column for each colour separately
+X * but first dump a ppm file header and do the init stuff.
+X */
+X
+X for(i=0;i<5;i++){outptr++;out[outptr]=header[i];}  /* dump header */
+X (void) srand(time(NULL));			/* init random seed */
+X for(y=YMIN;y<YYMAX;y++){		/* init position tables */
+X  xposr[y]=(float)((rand()%111)-2*PLANE); /* constant 111 is not accurate */
+X  xposg[y]=(float)((rand()%111)-2*PLANE); /* find a better one */
+X  xposb[y]=(float)((rand()%111)-2*PLANE); /* find a better randomnumber generator */
+X }
+X
+X /* I'd like to see someone rewritten 'selectable' commandline parameters.
+X  */
+X
+X if(argc<4){
+X  (void) printf("Usage: %s <picture#> <xmax> <ymax>\n",argv[0]);
+X	(void) printf("0 <= picture# <= 30, 320 <= xmax <= %d, 200 <= ymax <= %d.\n",\
+X	XXMAX,YYMAX);
+X	(void) printf("%s is a 24-bit random-dot 'wave'-animation frame generator.\n",argv[0]);
+X	(void) printf("Outputfile is OUT.PPM\n");
+X	(void) printf("Executable is freely distributable.\n");
+X	(void) printf("Author: Esa Kuru (kuru@jyu.fi) 15.2.1993 \n");
+X	exit(10);
+X }
+X t=atoi(argv[1]); /* t - the time i.e. the number of frame */
+X XMAX=atoi(argv[2]);
+X YMAX=atoi(argv[3]);
+X
+X/* the next figures are tested to be all-right with current formulaes below.
+X */
+X
+X if((t<0)||(t>30)){
+X  (void) printf("Invalid parameter: picture# must be between 0...30 \n");exit(5);
+X }
+X if(XMAX<320){
+X  (void) printf("Invalid parameter: xmax too small.\n");exit(1);
+X }
+X if(XMAX>XXMAX){
+X  (void) printf("Invalid parameter; xmax too large.\n");exit(2);
+X }
+X if(YMAX<200){
+X  (void) printf("Invalid parameter: ymax too small.\n");exit(3);
+X }
+X if(YMAX>YYMAX){
+X  (void) printf("Invalid parameter: ymax too large.\n");exit(4);
+X }
+X/* make a filename selectable in one of commandline options 
+X */
+X if(NULL==(outf1=fopen("OUT.PPM","wb"))){
+X	(void) printf("Cannot open outfile: OUT.PPM");
+X	exit(20);
+X }
+X (void) fprintf(outf1,"P6\n%d %d\n",XMAX,YMAX);
+X fclose(outf1);                 /* These few lines are a dirty kludge and tells */
+X if(NULL==(outf1=fopen("OUT.PPM","awb"))){ /* about my ignorance of programming */
+X	(void) printf("Cannot open outfile: OUT.PPM\n"); /* in C */
+X  exit(30);
+X }
+X ycenter=(int)((YMAX-YMIN)/2.0);
+X xcenter=(int)((XMAX-XMIN)/2.0);
+X
+X for(y=-ycenter;y<ycenter;y++){		/* main loop: process all lines */ 
+X  for(x=-xcenter;x<xcenter;x++){	/* init background colors */
+X   xx=x+xcenter;			/* this loop could be well removed */
+X   rr=128;rg=128;rb=128;
+X   lr=128; 				/* define red for left eye */
+X   lg=128; 				/* define green for left eye */
+X   lb=128;				/* define blue for left eye */
+X   cr=(int)(rr+lr)/2.0; cg=(int)(rg+lg)/2.0; cb=(int)(rb+lb)/2.0;
+X   if(((int)xx>=XMIN)&&((int)xx<=XMAX)){ r[(int)xx]=(float)cr; 
+X		 	       g[(int)xx]=(float)cg; 
+X                               b[(int)xx]=(float)cb;
+X			    }
+X  }					/* end init background colors */
+X  for(i=1;(long)i<(long)ROUNDS;i++){ 		/* process all micropixels in a line */
+X   yy=y+ycenter;
+X   for(aa=0;aa<AALIAS;aa++){ 			/* process each pixel as antialiased */
+X    incr=(float)(((xposr[yy]+i)*AALIAS+aa)/(float)(AALIAS+1)); /* red start position */
+X    incg=(float)(((xposg[yy]+i)*AALIAS+aa)/(float)(AALIAS+1)); /* green start position */
+X    incb=(float)(((xposb[yy]+i)*AALIAS+aa)/(float)(AALIAS+1)); /* blue start position */
+X    ftmp= -xcenter-PLANE; xr=ftmp+incr; xg=ftmp+incg; xb=ftmp+incb;
+X
+X    while ((long)(xr)<(long)xcenter){			/* do calc red line */
+X     xx=xr+xcenter;
+X/*
+X * The next three while loops could be merged together and one of them
+X * could handle all colours in single loop. However it is interesting to
+X * note that if You put different functions within different while loops
+X * You can easily create transparent 3D-surfaces that have different
+X * base colour (anything You like) and different depths (=distances from screen).
+X * Note that amp is not pefect for any depth functions and may have
+X * to be corrected. incr,incg,incb should be updated in each of those 
+X * while loops if You want to create transparent surfaces.
+X * If You want to include this into a ray-tracer then the incr,incg,incb functions
+X * should call a raytracer and return the distance to the nearest viewable object
+X * a ray crosses within point (x,y). Amp should be modified to use correct
+X * shades 'rast[]'-dithering included.
+X * sin() is here the depth function that can be modified if You just want to
+X * play around. 
+X * It would be nice to have to sliders for additive and multiplicative
+X * dithering coefficients in amp function and not just constants.
+X * This affects to the randomness of the picture and to the clarity of 3D-effect.
+X */
+X/*   an alternative static pyramid-like function is commented here
+X */ 
+X/*     incr=((float)PLANE-((float)180.0-((float)abs(xr)+(float)abs(y)))/(float)18.0); 
+X*/						/* depth function (for red) */
+X  /*   if (incr>(float)PLANE)incr=(float)PLANE;
+X   */
+X     incr=(float)PLANE+sin(sqrt(xr*xr+y*y)/20.0+(float)t*pii/30.0)*2.0;
+X
+X     if (xx>0) {
+X      amp=(float)((255+((float)rast[i])*8-8*32)/(255.0+(xr*xr+y*y)/150)+ \
+X         ((float)rast[i])/64.0-32/64.0);
+X      if (amp<(float)(0.0))amp=(float)0.0;
+X      rr=128; lr=128; cr=(rr+lr)/2; x=(int)(xx);
+X      if((x>=XMIN) && (x<=XMAX))r[x]=(float)((float)(r[x])+(float)(cr)*amp);
+X     }
+X     xr=xr+incr;
+X    }						/* end calc red line */
+X
+X    while ((long)(xg)<(long)xcenter){			/* do calc green line */
+X     xx=xg+xcenter;
+X
+X
+X/*     incg=(float)PLANE+(((float)180.0-((float)abs(xg)+(float)abs(y)))/(float)18.0);
+X*/						/* depth function (for green) */
+X  /*   if (incg<(float)PLANE)incg=(float)PLANE;
+X   */
+X	incg=(float)PLANE+sin(sqrt(xg*xg+y*y)/20.0+(float)t*pii/30.0)*2.0;
+X 
+X     if (xx>0) {
+X      amp=(float)((255+(rast[i])*8-8*32)/(255.0+(xg*xg+y*y)/150)+(rast[i])/64-32/64);
+X      if (amp<0) amp=(float)0.0;
+X      rg=128; lg=128; cg=(rg+lg)/2; x=(int)(xx);
+X      if((x>=XMIN) && (x<XMAX))g[x]=(float)((float)(g[x])+(float)(cg)*amp);
+X     }
+X     xg=xg+incg;
+X    }						/* end calc green line */ 
+X
+X    while ((long)(xb)<(long)xcenter){			/* do calc blue line */
+X     xx=xb+xcenter;
+X
+X
+X  /*   incb=(float)PLANE; */			/* depth function (for blue) */
+X
+X     incb=(float)PLANE+sin(sqrt(xb*xb+y*y)/20.0+(float)t*pii/30.0)*2.0;
+X
+X     if (xx>0) {
+X      amp=(float)((255+(rast[i])*8-8*32)/(255.0+(xb*xb+y*y)/150)+(rast[i])/64-32/64);
+X      if (amp<0) amp=(float)0.0;
+X      rb=128; lb=128; cb=(rb+lb)/2; x=(int)(xx);
+X      if((x>=XMIN) && (x<XMAX))b[x]=(float)((float)(b[x])+(float)(cb)*amp);
+X     }
+X     xb=xb+incb;
+X    } 						/* end calc blue line */
+X   } 						/* end anti aliasing */
+X  }						/* end process mikropixels */
+X
+X/* The rest is an easy part of the program: 
+X * we just check that the pixel to be drawn into outputbuffer
+X * is within drawing boundaries and then we scale the colour to
+X * rp,gp,bp into allowable limits.
+X */
+X  x=-xcenter;
+X  while (x<xcenter){				/* draw line by line */
+X   xx=(int)(x+xcenter);
+X   yp=(int)(y+ycenter);xp=(int)(x+xcenter);
+X   if ((yp>=YMIN)&&(yp<=YMAX-1)){
+X    if ((xp>=XMIN)&&(xp<=XMAX-1)){
+X     rp=(int)(r[(int)xx]/(AALIAS+1));	/* calc anti-aliased color in xp */
+X     gp=(int)(g[(int)xx]/(AALIAS+1));
+X     bp=(int)(b[(int)xx]/(AALIAS+1));
+X     if (rp>255) {rp=255;}		/* color range must be 0..255 for r,g,b */
+X	else if (rp<0) rp=0;
+X     if (gp>255) {gp=255;}
+X	else if (gp<0) gp=0;
+X     if (bp>255) {bp=255;}
+X	else if (bp<0) bp=0;
+X     if ((long)outptr>(long)BUFLEN-6){
+X      (void) fwrite((void *) out,1,outptr+1,outf1);
+X      outptr=-1;
+X     }
+X     outptr++;
+X     out[outptr]=(char)rp;
+X     outptr++;
+X     out[outptr]=(char)gp;
+X     outptr++;
+X     out[outptr]=(char)bp;
+X    } 						/* end y-range ok */
+X   }						/* end x-range ok */
+X   x=x+1;					/* next horizontal pixel */
+X  } 						/* end draw line */
+X }						/* end main loop: process all lines */
+X (void) fwrite((void *) out,1,outptr+1,outf1);  /* dump partial buffer to a file */
+X fclose(outf1);
+X exit(0);
+X}/* main */
+END_OF_FILE
+  if test 13246 -ne `wc -c <'wave.c'`; then
+    echo shar: \"'wave.c'\" unpacked with wrong size!
+  fi
+  # end of 'wave.c'
+fi
+if test -f 'wave.readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wave.readme'\"
+else
+  echo shar: Extracting \"'wave.readme'\" \(4681 characters\)
+  sed "s/^X//" >'wave.readme' <<'END_OF_FILE'
+XWaveSIRDham.readme
+X
+XIntro
+X=====
+X
+XThis 3D-SIRD (Single-Image-Random-Dot) animation shows a sinewave 
+Xgenerator in a plane. The waving plane can be seen behind or 
+Xinfront of the computer screen in all colours without glasses in 3D.
+XIf You are already familiar with SIRDs then it will ease 'seeing' it.
+X
+X
+XABOUT WaveSIRDham.anim5
+X=======================
+X
+XHere the waving plane is gray and there is one lamp in Your
+X'forehead'.  Generally the picture is a bit noisy due to
+Xrandom-dot dithering that causes the '3D feeling'.
+XIf You wanted to have an ordinary ray-traced picture or 
+Xstereo-pair from same position and lightning then You wouldn't 
+Xsee nothing more than a gray plane and the light from a lamp 
+Xnear it, that is no depth perception of any kind.
+X
+X'anim5' in filename corresponds to the anim5 format. 
+X'ham' corresponds to Hold-And-Modify picture format widely known
+Xin Amiga community.
+XYou can play the animation on X-terminal (with xanim) 
+Xwith 256-colours.
+X
+X	xanim WaveSIRDham.anim5
+X
+XThat will give a glue of what is in it or even better it can be shown 
+Xon any Amiga (with expanded memory up to 2 Mb) 
+Xwith couple of thousands of colours
+X
+X	showanim -c WaveSIRDham.anim5
+X
+X(Please forget about the flickering borders)
+X
+XThe frames of this animation have been drawn by a short portable (6k) 
+XANSI-C program 'wave.c' and could easily be included in almost any ray-tracer
+Xprogram. The improved algorithm uses antialiasing, a new dithering pattern 
+Xthat allows rescaling, gray-levels and colours to co-operate with SIRDs.
+XEvery frame in this animation has been rescaled from 640x400 to 320x200
+Xto demonstrate the rescalability properties and to save space.
+XActually 'wave.c' is a dirty hack with commandline I/O.
+X
+X
+XPROs and CONs
+X=============
+XThis animation drawn by a specific algorithm has
+X
+X+ True 3D vision in all viewable colours without glasses on any monitor
+X  (looks almost as good as colour-holograms except holograms do not move)
+X+ Antialiasing smooths depth-levels
+X+ Re-scalability (to a certain limit) affects antialiasing in the
+X  manner than in ordinary 2D pictures.
+X+ inbuilt dithering in graphics conversions = in reducing colourplanes
+X+ no additional hardware required to wiev/play in 3D.
+X
+X- Annoying noise (that luckily can be controlled)
+X- You must keep Your head still to maintain 3D-vision.
+X- You may see the picture drawn on the screen (2D) and not 'behind' it 
+X  or infront of it (3D) unless You let Your sight slide to near infinity or
+X  somewhere between You and the screen while focusing on (or through) 
+X  the screen.
+X- long rendering times (unless You happen to have supercomputer)
+X
+X
+XApplications, possibilities
+X===========================
+X
+XNow we are interested (aren't we) in real-world applications, 
+Xsuch as computer-tomography fronts end in hospital environment, 
+Xray-traced scene viewers at home computers,
+Xaltitude presentations of maps on a computer-screen or on
+Xposters, or true 3D TV-commercials, logos or whole 3D-movies
+Xlow-cost software based 3D virtual-world displays,
+Xmolecular 3D-modelling etc.
+X
+XIf You want to test 3D-TV right away and are already familiar with
+Xseeing SIRDs then try this:
+XIf You have a professional single-frame video recorder at Your hands
+Xand a computer with 24-bit video-output jacket then You may test 
+Xthe high-resolution SIRD-anim on video.
+XThe separate 640x400 jpeg frames are available on ftp site 
+Xat phoenix.oulu.fi in directory pub/incoming/ in files: frame* 
+Xfor a while or so. 
+XThis WaveSIRDham.anim5.lha is FTP:able from nic.funet.fi (128.214.6.100)
+Xin directory pub/amiga/graphics/animations/3d with a WaveSIRDham.reamde
+Xfile.
+X
+XA very good introduction into seeing SIRD-images (if You don't)
+Xcan be found in sunsite.unc.edu via FTP and change to the directory 
+Xpub/academic/computer-science/virtual-reality/3d
+X
+XI'm still looking for a good anim-player for this kind of animations.
+XIf You can find a suitable one, please let me know.
+X
+XLet's keep discussion in Alt.3d newsgroup (if any).
+X
+XIf You have any comments, questions or suggestions then
+Xplease send e-mail to:
+X
+Xkuru@jyu.fi
+XEsa Kuru
+X
+XGood Luck!
+X+-----------------------------------------------+
+X!       The future is here to stay now in       !
+X!                                               !
+X!              ----            ----             !
+X!             /    /           /    \           !
+X!                 /           /     /           !
+X!             ---    ----    /     /            !
+X!               /           /     /             !
+X!         /    /           /     /              !
+X!         ----           -------                !
+X!                                               !
+X+-----------------------------------------------+
+X
+END_OF_FILE
+  if test 4681 -ne `wc -c <'wave.readme'`; then
+    echo shar: \"'wave.readme'\" unpacked with wrong size!
+  fi
+  # end of 'wave.readme'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

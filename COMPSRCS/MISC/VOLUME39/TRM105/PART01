@@ -1,0 +1,463 @@
+Newsgroups: comp.sources.misc
+From: tpaquette@ita.lgc.com (Trevor Paquette)
+Subject: v39i074:  trm105 - rm replacement, does remove and recover, Part01/01
+Message-ID: <1993Sep7.132715.3184@sparky.sterling.com>
+X-Md4-Signature: bae600b25630dcc25fab6f04e82301e8
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: tpaquette@ita.lgc.com
+Organization: Landmark/ITA
+Date: Tue, 7 Sep 1993 13:27:15 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tpaquette@ita.lgc.com (Trevor Paquette)
+Posting-number: Volume 39, Issue 74
+Archive-name: trm105/part01
+Environment: UNIX
+Supersedes: trm: Volume 39, Issue 59
+
+This fixes a bug removing files not located in the current working directory.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  trm
+# Wrapped by tpaquett@ita.lgc.com on Tue Aug 31 08:33:00 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'trm'\"
+else
+echo shar: Extracting \"'trm'\" \(11934 characters\)
+sed "s/^X//" >'trm' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X# Trevor's rm. Version 1.05
+X# 
+X#  It's 'rm' but more... It can handle removeing directories.. recovering
+X#  'removed' files and undoing the last 'remove'.. read on..
+X#
+X#  dont't forget to chmod 755 this file after installing it
+X#
+X#  trm file [file..]
+X#    will MOVE the named files to the $TRMTMP directory
+X#    If the file being moved already has a version under $TRMTMP then
+X#    the version number is incremented and the file is moved.
+X#        EX: trm gm.c      gm.c is currently not in TRMTMP)
+X#                          TRMTMP would now contail a file called gm.c,01
+X#                           This is the first version of gm.c under TRMTMP
+X#              
+X#            trm gm.c      there already is a 'gm.c' under TRMTMP. This
+X#			   file would be moved to gm.c,02. It is the second
+X#                          version of gm.c
+X#
+X#  trm  -list | -l  [file..]
+X#    will list the named files that are in the $TRMTMP directory
+X#      This will list all the versions of the named files.
+X#      If no file is given then the entire contents of TRMTMP are listed
+X#
+X#  trm  -recover | -rc  file [file..]
+X#    will recover the biggest version of the named files from the
+X#    $TRMTMP directory to `pwd`
+X#        EX: trm -rc gm.c     There is are two versions of gm.c in TRMTMP.
+X#			      gm.c,01 and gm.c,02. trm will grab gm.c,02
+X#			      and recover it as gm.c
+X#
+X#  trm  -undo | -un
+X#    will undo the last rm
+X#	 meaning you accidently removed a bunch of files and instead of
+X#        listing them one by one and recovering each.. this will do all of
+X#        them for you in one shot..
+X#        NOTE: THIS WILL NOT AUTOMAGICALLY PUT THE FILES BACK FROM WHENCE
+X#              THEY CAME. IT WILL PUT THE FILES TO `pwd`
+X#
+X#  trm  -listundo | -lun
+X#    will list the undo files
+X#
+X#  trm  -purge | -p  [file..]
+X#    will REMOVE ALL VERSIONS of the named files that are in the
+X#      $TRMTMP directory
+X#    [no files named will remove the $TRMTMP directory completly and then
+X#     remake it]
+X#
+X# ---------------------------------------------------------------------------
+X# Version 1.05  Aug 31 1993
+X#
+X# Bug Fix. grab the last part of the file to remove. ie:basename $file
+X#
+X# Version 1.04  Aug 26 1993
+X#
+X# Bug Fix. when removeing a dir that already exists it would try to use the last
+X#   entry in the dir as the version number.. bad. Use ls -1d, not ls -1
+X#
+X# Version 1.03  Aug  25 1993
+X#
+X#  Add version information.
+X#    Thanx to montanaro@ausable.crd.ge.com (Skip Montanaro) for this.
+X#    Removing a dir/file that already exists in $TRMTMP, will cause it
+X#    to be set to the next 'version' of that file. Recovering a file/dir
+X#    will grab the biggest version.
+X#  Add basename $0 for getting the program name
+X#
+X# Version 1.02  Aug  25 1993
+X#
+X#  Add short form options
+X#  Bug Fix. enclose TRMDEBUG in quotes wherever needed
+X#
+X# Version 1.01  Aug  23 1993
+X#
+X#   - add TRMDEBUG to set -x and -v for debugging
+X#   - add -purge option
+X#   - add check for moving a file ontop of existing one (ONLY if moved failed)
+X#
+X# Version 1.00  July 22 1993
+X#
+X#  Initial release
+X#
+X# ===========================================================================
+X#  How to Setup
+X# ===========================================================================
+X# I put the following in my .cshrc to create the trmlast and trmtmp
+X# variables for each shell, only if interactive
+X
+X# if ( $?prompt ) then 
+X#   # create trm variables
+X#   # NOTE: TRMLOCK is created in the .login
+X#   setenv TRMLAST $HOME/.trmtmp/.trmlast.`hostname`.$$
+X#   setenv TRMTMP  $HOME/.trmtmp
+X# fi
+X
+X# You may also want to put the following remove, recover and listing
+X# aliases in your .cshrc
+X
+X# alias	rm	'echo "Use trm instead"'
+X# alias	rc	'trm -recover \!*'
+X# alias	prc	'trm -purge \!*'
+X# alias	lsrc	'trm -list \!* | more'
+X# alias rcu	'trm -undo'
+X# alias	lsrcu	'trm -listundo | more'
+X
+X# ---------------------------------------------------------------------------
+X# I also put the following in my .login
+X
+X# # create recover directory.
+X# # Only the process on the machine that created the directory should be able
+X# # to remove it
+X# # NOTE: $TRMTMP and $TRMLAST are created in the .cshrc
+X# setenv TRMLOCK $HOME/.trmlock.`hostname`.$$
+X
+X# if !( -d $TRMTMP ) then
+X#    mkdir $TRMTMP
+X#    chmod 700 $TRMTMP
+X#    echo "$TRMTMP created at `date`. Lockfile is $TRMLOCK" > $TRMLOCK
+X# fi
+X
+X# ---------------------------------------------------------------------------
+X# I also put the following in my .logout
+X
+X# if ( -f $TRMLOCK ) then
+X#   /bin/rm -rf $TRMTMP
+X#   /bin/rm -f $TRMLOCK
+X# fi
+X
+X# ===========================================================================
+X# start of trm
+X# ===========================================================================
+X
+X# get program name
+Xprog=`basename $0`
+X
+X# setenv TRMDEBUG to 1 to display verbose debugging info
+Xif [ "$TRMDEBUG" = "1" ]; then
+X   set -x
+X   set -v
+Xfi
+X
+X# if $TRMTMP is not set then look under $home/.trmtmp
+Xif [ "$TRMTMP" = "" ]; then
+X   TRMTMP=$HOME/.trmtmp
+Xfi
+X
+X# make sure $TRMTMP is a directory
+Xif [ ! -d $TRMTMP ]; then
+X   echo $prog: ERROR: $TRMTMP is not a directory or does not exist
+X   exit 1
+Xfi
+X
+X# if no arguments passed then return
+Xif [ $# -eq 0 ]; then
+X  exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle listing
+X# ---------------------------------------------------------------------------
+Xif [ "$1" = "-list" -o "$1" = "-l" ]; then
+X
+X   # shift out -list from the arg list
+X   shift
+X
+X   # if no futher args then list the directory
+X   if [ $# -eq 0 ]; then
+X     ls -laug $TRMTMP
+X     exit 0
+X   fi
+X
+X   # cd to the directory and list each argument individually
+X   cd $TRMTMP
+X   for i in $*; do
+X     ls -laug $i,*
+X   done
+X
+X   exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle recover
+X# ---------------------------------------------------------------------------
+Xif [ "$1" = "-recover"  -o "$1" = "-rc" ]; then
+X
+X   # shift out -recover from the arg list
+X   shift
+X
+X   # if no futher args then exit
+X   if [ $# -eq 0 ]; then
+X     exit 0
+X   fi
+X
+X   # the destination directory is where you are now
+X   destdir=`pwd`
+X
+X   # cd to the TRMTMP directory
+X   cd $TRMTMP
+X
+X   # for each arg passed try to 'mv' it to the destination dir
+X   for i in $*; do
+X
+X     # get back the biggest version
+X     rev=`(ls -1d $TRMTMP/$i,* 2>/dev/null) |\
+X		sort |\
+X		tail -1 |\
+X		sed -e 's/.*,\([0-9]*\)/\1/'`
+X     
+X     /bin/mv -f $i,$rev $destdir/$i > /dev/null 2>&1
+X
+X     if [ $? != 0 ]; then
+X       # the move failed... 
+X
+X      # probably tried to remove a file that already exists in $TRMTMP
+X      if [ -d $destdir/$i ]; then
+X	echo $prog: ${i} already exists in $destdir as a dir, move if needed.
+X      elif [ -f $destdir/$i ]; then
+X        echo $prog: ${i} already exists in $destdir as a file, move if needed.
+X      elif [ -d $i ]; then
+X         # tried to move a directory.. most likely failure is trying to move
+X         # a directory across filesystems.. sooo lets tar up the whole thing
+X         # and then untar it in the destination directory
+X         tar -cBf - $i,$rev | ( cd $destdir ; tar -xBpf - )
+X	 mv $destdir/$i,$rev $destdir/$i
+X
+X	 # now remove the directory from $TRMTMP
+X         /bin/rm -rf $i,$rev
+X
+X       fi
+X     fi
+X   done
+X   exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle undo
+X# ---------------------------------------------------------------------------
+Xif [ "$1" = "-undo" -o "$1" = "-un" ]; then
+X
+X   # the destination directory is where you are now
+X   destdir=`pwd`
+X
+X   # cd to the TRMTMP directory
+X   cd $TRMTMP
+X
+X   # if $TRMLAST is not set then we have nothing to do
+X   if [ "$TRMLAST" = "" ]; then
+X     exit 0
+X   fi
+X
+X   # if $TRMLAST does not exist then we have nothing to do
+X   if [ ! -f $TRMLAST ]; then
+X     exit 0
+X   fi
+X
+X   # foreach file in the $TRMLAST list try to 'mv' it to the destination dir
+X   for i in `cat $TRMLAST`; do
+X
+X     # get back the biggest version
+X     rev=`(ls -1d $TRMTMP/$i,* 2>/dev/null) |\
+X		sort |\
+X		tail -1 |\
+X		sed -e 's/.*,\([0-9]*\)/\1/'`
+X     
+X     /bin/mv -f $i,$rev $destdir/$i > /dev/null 2>&1
+X
+X     if [ $? != 0 ]; then
+X       # the move failed... 
+X
+X      # probably tried to remove a file that already exists in $TRMTMP
+X      if [ -d $destdir/$i ]; then
+X	echo $prog: ${i} already exists in $destdir as a dir, move if needed.
+X      elif [ -f $destdir/$i ]; then
+X        echo $prog: ${i} already exists in $destdir as a file, move if needed.
+X      elif [ -d $i ]; then
+X         # tried to move a directory.. most likely failure is trying to move
+X         # a directory across filesystems.. sooo lets tar up the whole thing
+X         # and then untar it in the destination directory
+X         tar -cBf - $i,$rev | ( cd $destdir ; tar -xBpf - )
+X	 mv $destdir/$i,$rev $destdir/$i
+X
+X	 # now remove the directory from $TRMTMP
+X         /bin/rm -rf $i,$rev
+X
+X       fi
+X     fi
+X   done
+X
+X   # at this point we want to reset the $TRMLAST file list
+X   /bin/rm -f $TRMLAST
+X   echo > $TRMLAST
+X
+X   exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle listundo
+X# ---------------------------------------------------------------------------
+Xif [ "$1" = "-listundo" -o "$1" = "-lun" ]; then
+X
+X   # if $TRMLAST is not set then we have nothing to do
+X   if [ "$TRMLAST" = "" ]; then
+X     exit 0
+X   fi
+X
+X   # if $TRMLAST does not exist then we have nothing to do
+X   if [ ! -f $TRMLAST ]; then
+X     exit 0
+X   fi
+X
+X   # cat the $TRMLAST file
+X   cat $TRMLAST
+X
+X   exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle purge
+X# ---------------------------------------------------------------------------
+Xif [ "$1" = "-purge" -o "$1" = "-p" ]; then
+X
+X   # shift out -purge from the arg list
+X   shift
+X
+X   # if no futher args then remove $TRMTMP and remake it
+X   if [ $# -eq 0 ]; then
+X     /bin/rm -rf $TRMTMP
+X     mkdir $TRMTMP
+X     exit 0
+X   fi
+X
+X   # cd to the directory and remove each argument individually
+X   cd $TRMTMP
+X   for i in $*; do
+X     /bin/rm -rf $i,*
+X   done
+X
+X   exit 0
+Xfi
+X
+X# ---------------------------------------------------------------------------
+X# handle remove
+X# ---------------------------------------------------------------------------
+X
+X# at this point we want to reset the old $TRMLAST file list
+X if [ "$TRMLAST" != "" ]; then
+X   /bin/rm -f $TRMLAST
+X fi
+X
+Xfor i in $*; do
+X
+X  base=`basename $i`
+X  dir=`dirname $i`
+X
+X  # if the filename passed does not exist then echo what 'rm' would  
+X  # for now only deal with files and dirs..
+X  if [  ! -f $i  -a  ! -d $i  ]; then
+X     echo $prog: ${i}: No such file or directory
+X  else
+X    # figure out a version number to move the file to
+X    rev=`(ls -1d $TRMTMP/$base,* 2>/dev/null) |\
+X		sort |\
+X		tail -1 |\
+X		sed -e 's/.*,\([0-9]*\)/\1/'`
+X    if [ "$rev" = "" ] ; then
+X       rev=1;
+X    else
+X       rev=`expr $rev + 1`
+X    fi
+X    if [ "$rev" = "" ]; then
+X      rev=01
+X    fi
+X    rev=`echo $rev | awk '{if(length($1)==1){print 0$1}else{print $1}}'`
+X    if [ $rev -gt 99 ]; then
+X      echo $prog: ${i} already has 99 versions, staying at 99
+X      rev=99
+X    fi
+X
+X    # try to move the file to $TRMTMP
+X    /bin/mv -f $i $TRMTMP/$base,$rev > /dev/null 2>&1
+X
+X    if [ $? != 0 ]; then
+X      # the move failed
+X
+X      # probably tried to remove a file that already exists in $TRMTMP
+X      if [ -d $i ]; then
+X        # tried to move a directory.. most likely failure is trying to move
+X        # a directory across filesystems.. sooo lets tar up the whole thing
+X        # and then untar it in the $TRMTMP directory
+X	pd=`pwd`
+X	cd $dir
+X        tar -cBf - $base | ( cd $TRMTMP ; tar -xBf - ) > /dev/null 2>&1
+X	mv $TRMTMP/$base $TRMTMP/$base,$rev
+X
+X        # now remove the directory
+X        /bin/rm -rf $base
+X	cd $pd
+X      fi
+X
+X    fi
+X
+X    # at this point the 'remove' was succesfull. Add the filename to the
+X    # $TRMLAST file for possible undoing.
+X    if [ "$TRMLAST" != "" ]; then
+X      echo $i >> $TRMLAST
+X    fi
+X
+X  fi
+X
+Xdone
+X
+END_OF_FILE
+if test 11934 -ne `wc -c <'trm'`; then
+    echo shar: \"'trm'\" unpacked with wrong size!
+fi
+chmod +x 'trm'
+# end of 'trm'
+fi
+echo shar: End of shell archive.
+exit 0
+--
+Name : Trevor Paquette       | Landmark/ITA             |  _\___ Fahrvergnuegen
+Email: tpaquette@ita.lgc.com | Calgary, Alberta, Canada | /     \____
+Visitor from CyberSpace      | (403) 269-4669           |/ G60       \
+Renegade of Virtual Reality  | #include <disclaimer.h>  |\-O------O--/
+
+exit 0 # Just in case...

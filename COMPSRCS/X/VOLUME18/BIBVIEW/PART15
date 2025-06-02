@@ -1,0 +1,1358 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!pacific.mps.ohio-state.edu!linac!att!pacbell.com!mips!msi!dcmartin
+From: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Subject: v18i113: bibview - BibTeX GUI, Part15/20
+Message-ID: <1992Aug27.161744.25965@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i099-bibview@uunet.UU.NET>
+Date: Thu, 27 Aug 1992 16:17:44 GMT
+Approved: dcmartin@msi.com
+Lines: 1345
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 113
+Archive-name: bibview/part15
+
+#!/bin/sh
+# this is part.15 (part 15 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file gui_card.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 15; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping gui_card.c'
+else
+echo 'x - continuing file gui_card.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'gui_card.c' &&
+X   else if (cwp->edition && WidgetChanged(cwp->edition)) 
+X      return(TRUE);
+X   else if (cwp->editor && WidgetChanged(cwp->editor)) 
+X      return(TRUE);
+X   else if (cwp->howpublished && WidgetChanged(cwp->howpublished)) 
+X      return(TRUE);
+X   else if (cwp->institution && WidgetChanged(cwp->institution))
+X      return(TRUE);
+X   else if (cwp->journal && WidgetChanged(cwp->journal)) 
+X      return(TRUE);
+X   else if (cwp->key && WidgetChanged(cwp->key)) 
+X      return(TRUE);
+X   else if (cwp->month && WidgetChanged(cwp->month)) 
+X      return(TRUE);
+X   else if (cwp->note && WidgetChanged(cwp->note)) 
+X      return(TRUE);
+X   else if (cwp->number && WidgetChanged(cwp->number)) 
+X      return(TRUE);
+X   else if (cwp->organization && WidgetChanged(cwp->organization)) 
+X      return(TRUE);
+X   else if (cwp->pages && WidgetChanged(cwp->pages)) 
+X      return(TRUE);
+X   else if (cwp->publisher && WidgetChanged(cwp->publisher)) 
+X      return(TRUE);
+X   else if (cwp->school && WidgetChanged(cwp->school)) 
+X      return(TRUE);
+X   else if (cwp->series && WidgetChanged(cwp->series)) 
+X      return(TRUE);
+X   else if (cwp->title && WidgetChanged(cwp->title)) 
+X      return(TRUE);
+X   else if (cwp->type && WidgetChanged(cwp->type)) 
+X      return(TRUE);
+X   else if (cwp->volume && WidgetChanged(cwp->volume)) 
+X      return(TRUE);
+X   else if (cwp->year && WidgetChanged(cwp->year)) 
+X      return(TRUE);
+X   else if (cwp->category && WidgetChanged(cwp->category)) 
+X      return(TRUE);
+X   else if (cwp->crossref && WidgetChanged(cwp->crossref)) 
+X      return(TRUE);
+X   else if (cwp->mainkey && WidgetChanged(cwp->mainkey)) 
+X      return(TRUE);
+X   return(FALSE);
+}
+#undef WidgetChanged
+X
+X
+/*********************************************************************/
+/* gucSaveCardData:                                                  */
+/*    Save data from card window into new card                       */
+/*********************************************************************/
+Errcode
+gucSaveCardData (CardPtr cp)
+{
+Errcode status;
+CardType type;
+UserFld *ufield;
+String annotefield;
+X
+X   /* save reusable data */
+X   type = cp->cd->cardtype;
+X   if ((status = gucSaveUserFields(cp)) != OK)
+X      return(status);
+X   ufield = cp->cd->ufield;
+X   cp->cd->ufield = NULL;
+X
+X   annotefield = glbNewString(cp->cd->annote);
+X
+X   /* save annote field */
+X   /* delete old card data */
+X   dbtDeleteCard(&cp->cd);
+X
+X   if ((status = dbtMakeCard(&cp->cd)) != DBT_OK) 
+X      return(status);
+X
+X   /* build only widgets for specific card type */
+X   cp->cd->cardtype = type;
+X   cp->cd->ufield = ufield;
+X   if ((status = saveStdWidgetFlds(cp)) != OK)
+X      return(status);
+X   cp->cd->annote = annotefield;
+X   if ((status = (saveWidgetFunc[cp->cd->cardtype])(cp)) != OK)
+X      return(status);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucCloseCardCmd:                                                  */
+/*    Callback for quit command in card window                       */
+/*********************************************************************/
+void
+gucCloseCardCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+CardPtr cp = (CardPtr)clientData;
+Errcode status;
+X
+X   if ((status = gucCloseCardWin(cp)) != OK) {
+X      guwError(status);
+X   }
+}
+X
+X
+/*********************************************************************/
+/* gucCloseCardWin:                                                  */
+/*    Close card window                                              */
+/*********************************************************************/
+Errcode
+gucCloseCardWin (CardPtr cp)
+{
+BibPtr bp = (BibPtr)cp->bp;
+CardWidgetsPtr cwp = &cp->cw->ct.cw;
+X  
+X   if (cp->cd->annoteDisplayed == TRUE)
+X      {cp->cd->annoteDisplayed = FALSE;
+X       XtPopdown(cwp->annoteShell);
+X       }
+X   XtPopdown(cp->cw->cardShell);
+X   bp->noOfCardWins--;
+X   if (glbLastCardListEl(bp) == cp)
+X      bp->nextCardPos -= 1;
+X   free(cp->cw->shellName);
+X   free(cp->cw);
+X   glbDelCardListEl(bp, cp);
+X   if (glbFirstCardListEl(bp) == NULL)
+X      bp->nextCardPos = 0;
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucOpenUserFields:                                                */
+/*    Extend editable fields in current window with user fields      */
+/*********************************************************************/
+Errcode
+gucOpenUserFields (CardPtr cp)
+{
+Widget card = cp->cw->cardDesk;		/* parent widget */
+UserFld **root, *cup;                   /* ptr to user fields */
+UserFld *up1, *up;
+UserFld newUserFld;
+ListNode *udp;
+Widget prevWidget;
+Boolean found;
+Dimension dheight, min;
+Errcode status;
+int i;
+X
+X   root = &cp->cd->ufield;
+X   cup = cp->cd->ufield;
+X
+X   XawPanedSetRefigureMode(cp->cw->cardWin, False);
+X
+X   /* save current dimensions of shell for later resize */
+X   XtVaGetValues(cp->cw->cardShell,
+X		 XtNheight, &cp->cw->height,
+X		 XtNwidth,  &cp->cw->width,
+X		 XtNborderWidth, &cp->cw->borderWidth, NULL);
+X
+X   /* keep old desktop same size while user defs are shown */
+X   XtVaGetValues(cp->cw->cardDesk, 
+X		 XtNheight, &dheight, 
+X		 XtNmin, &min, NULL);
+X   XtVaSetValues(cp->cw->cardDesk,
+X		 XtNmin, dheight, NULL);
+X
+X   /* create neu widgets for user def fields */
+X   cp->cw->usrFldVport = XtVaCreateWidget("userFldVport",
+X			   viewportWidgetClass, cp->cw->cardWin, 
+X			   XtNshowGrip, True, 
+X			   XtNallowVert, True, NULL);
+X   cp->cw->usrFldDesk  = XtVaCreateWidget("userFldDesk",
+X			   formWidgetClass, cp->cw->usrFldVport, 
+X			   NULL);
+X   cp->cw->usrFldHead  = XtVaCreateManagedWidget("userFldHead",
+X			   labelWidgetClass, cp->cw->usrFldDesk,
+X			   XtNleft, XtChainLeft,
+X			   XtNtop, XtChainTop, NULL);
+X   prevWidget = cp->cw->usrFldHead;
+X
+X   /* open already existing fields first */
+X   up = cup;
+X   while (up != NULL) {
+X      up->fldLabel =    XtVaCreateManagedWidget("userFieldL", 
+X			     asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			     XtNstring, up->fldName,
+X			     XtNfromVert, prevWidget,
+X			     XtNleft, XtChainLeft, NULL);
+X      up->fldText  =    XtVaCreateManagedWidget("userField", 
+X			     asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			     XtNstring, up->fldData,
+X			     XtNfromVert, prevWidget,
+X			     XtNfromHoriz, up->fldLabel, NULL);
+X      XtAddCallback(XawTextGetSource(up->fldText),
+X		    XtNcallback, ccdSetChangeFlag, (XtPointer)cp);
+X      prevWidget = up->fldText;
+X      up = up->next;
+X   } /* endwhile */
+X      
+X   /* open default fields not opened already */
+X   udp = userDefFlds[cp->cd->cardtype];
+X   while (udp != NULL) {
+X      up1 = cup;
+X      found = FALSE;
+X      while (up1 != NULL) {
+X	 if (strcmp(up1->fldName, udp->data) == 0) {
+X	    found = TRUE;
+X	    break;
+X	 }
+X	 up1 = up1->next;
+X      }
+X
+X      if (!found) {
+X         newUserFld.fldName = glbNewString(udp->data);
+X         newUserFld.fldData = "";
+X	 newUserFld.fldLabel = XtVaCreateManagedWidget("userFieldL", 
+X			     asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			     XtNstring, udp->data,
+X			     XtNfromVert, prevWidget,
+X			     XtNleft, XtChainLeft, NULL);
+X	 newUserFld.fldText  = XtVaCreateManagedWidget("userField", 
+X			     asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			     XtNstring, newUserFld.fldData,
+X			     XtNfromVert, prevWidget,
+X			     XtNfromHoriz, newUserFld.fldLabel, NULL);
+X	 XtAddCallback(XawTextGetSource(newUserFld.fldText),
+X		       XtNcallback, ccdSetChangeFlag, (XtPointer)cp);
+X         prevWidget = newUserFld.fldText;
+X         if ((status = dbtAppendUserFld(root, &newUserFld)) != DBT_OK)
+X	    guwError(status);
+X      }
+X      udp = udp->next;
+X   }
+X
+X   /* open MAX_NEW_USER_FLDS fields for any input */
+X   for (i = 0; i < MAX_NEW_USERDEF_FLDS; i++) {
+X      newUserFld.fldName = "";
+X      newUserFld.fldData = "";
+X      newUserFld.fldLabel = XtVaCreateManagedWidget("userFieldL", 
+X			  asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			  XtNstring, newUserFld.fldName,
+X			  XtNfromVert, prevWidget,
+X			  XtNleft, XtChainLeft, NULL);
+X      newUserFld.fldText  = XtVaCreateManagedWidget("userField", 
+X			  asciiTextWidgetClass, cp->cw->usrFldDesk, 
+X			  XtNstring, newUserFld.fldData,
+X			  XtNfromVert, prevWidget,
+X			  XtNfromHoriz, newUserFld.fldLabel, NULL);
+X      XtAddCallback(XawTextGetSource(newUserFld.fldText),
+X		    XtNcallback, ccdSetChangeFlag, (XtPointer)cp);
+X      prevWidget = newUserFld.fldText;
+X      if ((status = dbtAppendUserFld(root, &newUserFld)) != DBT_OK)
+X	 guwError(status);
+X   }
+X
+X   XtManageChild(cp->cw->usrFldDesk);
+X   XtManageChild(cp->cw->usrFldVport);
+X   XawPanedSetRefigureMode(cp->cw->cardWin, True);
+X   cp->extended = TRUE;
+X   return(OK);
+}
+X
+/*********************************************************************/
+/* gucCloseUserFields:                                               */
+/*    Remove user fields from card window                            */
+/*********************************************************************/
+Errcode
+gucCloseUserFields (CardPtr cp)
+{
+CardWinPtr cw = cp->cw;
+Errcode status;
+X
+X   if ((status = gucSaveUserFields(cp)) != OK)
+X      guwError(status);
+X
+X   cp->extended = FALSE;
+X   /* XawPanedSetRefigureMode(cw->cardWin, False); */
+X   XtVaSetValues(cw->cardDesk,
+X		 XtNmin, 1, NULL);
+X   XtDestroyWidget(cw->usrFldVport);
+X   XtResizeWidget(cw->cardShell, cw->width, cw->height, cw->borderWidth);
+X   /* XawPanedSetRefigureMode(cw->cardWin, True); */
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucSaveUserFields:                                                */
+/*    Save data in user fields to card (temp or real)                */
+/*********************************************************************/
+Errcode
+gucSaveUserFields (CardPtr cp)
+{
+UserFld newFld, *tfield = NULL, *up;
+Errcode status;
+String str;
+X
+X   if (!cp->extended)
+X      return(OK);
+X
+X   up = cp->cd->ufield;
+X   while (up != NULL) {
+X      XtVaGetValues(up->fldLabel, XtNstring, &str, NULL);
+X      if (glbIsStringEmpty(str)) {
+X	 up = up->next;
+X	 continue;
+X      }
+X      newFld.fldLabel = up->fldLabel;
+X      newFld.fldText = up->fldText;
+X      if ((newFld.fldName = glbNewString(str)) == NULL)
+X	 return(ERR_NOMALLOC);
+X      XtVaGetValues(up->fldText, XtNstring, &str, NULL);
+X      if ((newFld.fldData = glbNewString(str)) == NULL)
+X	 return(ERR_NOMALLOC);
+X      if ((status = dbtAppendUserFld(&tfield, &newFld)) != DBT_OK)
+X	 guwError(status);
+X      up = up->next;
+X   } /* endwhile */
+X
+X   dbtDeleteAllUserFld(&cp->cd->ufield);
+X   cp->cd->ufield = tfield;
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucCascadeCmd:                                                    */
+/*    Callback for cascade command                                   */
+/*********************************************************************/
+void
+gucCascadeCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+Errcode status;
+X
+X   if ((status = gucCascade(bp)) != OK) 
+X      guwError(status);
+X   if ((status = gueCascade(bp)) != OK)
+X      guwError(status);
+X   if ((status = gulCascade(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* gucCascade:                                                       */
+/*    Layout card windows of a bibliography                          */
+/*********************************************************************/
+Errcode
+gucCascade (BibPtr bp)
+{
+X   gucSetWindowCoords(bp, FALSE);
+X   if (cotIconizeOnDesktop())
+X      gucSetIconCoords(bp, FALSE);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucSetWindowCoords:                                               */
+/*    Set positions of card windows                                  */
+/*********************************************************************/
+Errcode
+gucSetWindowCoords (BibPtr bp, Boolean calcOnly)
+{
+CardPtr cp;
+int i;
+X
+X   cp = glbFirstCardListEl(bp);
+X   for (i = 1; i <= bp->noOfCardWins; i++) {
+X      calcNextCardWinPos(bp->bw->bibdesk, i, &cp->cw->winX, &cp->cw->winY);
+X      if (!calcOnly) {
+X         XtVaSetValues(cp->cw->cardShell,
+X                       XtNx, cp->cw->winX,
+X		       XtNy, cp->cw->winY, NULL);
+X	 if (XtIsRealized(cp->cw->cardShell)) {
+X	    XRaiseWindow(XtDisplay(cp->cw->cardShell),
+X			 XtWindow(cp->cw->cardShell));
+X	 }
+X      } /* endif */
+X      cp = glbNextCardListEl(bp, cp);
+X   } /* endfor */
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucSetIconCoords:                                                 */
+/*    Set positions of card window icons                             */
+/*********************************************************************/
+Errcode
+gucSetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+CardPtr cp;
+int curIcon = 0;
+X 
+X   if ((cp = glbFirstCardListEl(bp)) != NULL) {
+X      calcNextCardIconPos(bp->bw->bibdesk, curIcon, &cp->cw->iconX, &cp->cw->iconY);
+X      if (!calcOnly) {
+X         XtVaSetValues(cp->cw->cardShell,
+X		       XtNiconX, cp->cw->iconX,
+X		       XtNiconY, cp->cw->iconY, NULL);
+X      }
+X
+X      while ((cp = glbNextCardListEl(bp, cp)) != NULL) {
+X         curIcon++;
+X         calcNextCardIconPos(bp->bw->bibdesk, curIcon, &cp->cw->iconX, &cp->cw->iconY);
+X         if (!calcOnly) {
+X            XtVaSetValues(cp->cw->cardShell,
+X		          XtNiconX, cp->cw->iconX,
+X		          XtNiconY, cp->cw->iconY, NULL);
+X         }
+X      }  /* endwhile */
+X   } /* endif */
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* gucUnsetIconCoords:                                               */
+/*    Unset positions of card window icons                           */
+/*********************************************************************/
+Errcode
+gucUnsetIconCoords (BibPtr bp, Boolean calcOnly)
+{
+CardPtr cp;
+X 
+X   if ((cp = glbFirstCardListEl(bp)) != NULL) {
+X      cp->cw->iconX = cp->cw->iconY = -1;
+X      if (!calcOnly) {
+X         XtVaSetValues(cp->cw->cardShell,
+X		       XtNiconX, cp->cw->iconX,
+X		       XtNiconY, cp->cw->iconY, NULL);
+X      }
+X
+X      while ((cp = glbNextCardListEl(bp, cp)) != NULL) {
+X         cp->cw->iconX = cp->cw->iconY = -1;
+X         if (!calcOnly) {
+X            XtVaSetValues(cp->cw->cardShell,
+X		          XtNiconX, cp->cw->iconX,
+X		          XtNiconY, cp->cw->iconY, NULL);
+X         }
+X      }  /* endwhile */
+X   } /* endif */
+X
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* LOCAL FUNCTIONS                                                   */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* calcNextCardWinPos:                                               */
+/*    Calculate coords of next card window                           */
+/*********************************************************************/
+static Errcode
+calcNextCardWinPos (Widget desk, int n, Position *x, Position *y)
+{
+Dimension dwidth, dheight;
+X
+X   XtVaGetValues(desk,
+X		 XtNwidth, &dwidth,
+X		 XtNheight, &dheight, NULL);
+X   XtTranslateCoords(desk,
+X		     (n+1) * (Position)CARDWIN_MARGIN,
+X		     (n+1) * (Position)CARDWIN_MARGIN,
+X		     x, y);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* calcNextCardIconPos:                                              */
+/*    Calculate coords of next card window icon                      */
+/*********************************************************************/
+static Errcode
+calcNextCardIconPos (Widget desk, int curIcon, Position *x, Position *y)
+{
+Position curX, curY;
+Dimension dwidth, dheight;
+X
+X   if (curIcon == 0) { /* position 1st bibwin */
+X      curX = 1;
+X      curY = CARD_ICON_MARGIN;
+X      XtTranslateCoords(desk,
+X		       curX, curY,
+X		       x, y);
+X   }
+X   else {  /* position icon after curIcon */
+X      curX = curIcon * (CARD_ICON_MARGIN + CARD_ICON_WIDTH);
+X      curY = CARD_ICON_MARGIN;
+X      XtTranslateCoords(desk,
+X		       curX, curY,
+X		       x, y);
+X   }
+}
+X
+X
+/*********************************************************************/
+/* createStdWidgetFlds:                                              */
+/*    Creates widgets for card type article                          */
+/*********************************************************************/
+static void
+createStdWidgetFlds (BibPtr bp, CardPtr cp)
+{
+CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cwp->mainkeyL = 	XtVaCreateManagedWidget("mainkeyLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNtop, XtChainTop, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->mainkey = 	XtVaCreateManagedWidget("mainkey", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->mainkey,
+X		  	  XtNtop, XtChainTop, 
+X		  	  XtNfromHoriz, cwp->mainkeyL, NULL);
+X   cwp->crossrefL = 	XtVaCreateManagedWidget("crossrefLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNtop, XtChainTop, 
+X		   	  XtNfromHoriz, cwp->mainkey, NULL);
+X   cwp->crossref = 	XtVaCreateManagedWidget("crossref", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->crossref,
+X		  	  XtNtop, XtChainTop, 
+X		  	  XtNfromHoriz, cwp->crossrefL, NULL);
+X   cwp->keyL = 	XtVaCreateManagedWidget("keyLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->mainkey, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->key = 	XtVaCreateManagedWidget("key", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->key,
+X		  	  XtNfromVert, cwp->mainkey,
+X		  	  XtNfromHoriz, cwp->keyL, NULL);
+X   cwp->categoryL = 	XtVaCreateManagedWidget("categoryLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->crossref,
+X		  	  XtNfromHoriz, cwp->key, NULL);
+X   cwp->category = 	XtVaCreateManagedWidget("category", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->category,
+X		  	  XtNfromVert, cwp->crossref,
+X		  	  XtNfromHoriz, cwp->categoryL, NULL);
+}
+X
+X
+/*********************************************************************/
+/* CreateArticleWidgets:                                             */
+/*    Creates widgets for card type article                          */
+/*********************************************************************/
+static void
+CreateArticleWidgets (BibPtr bp, CardPtr cp)
+{
+CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->title, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->journalL = 	XtVaCreateManagedWidget("journalLabel", 
+X	             	  labelWidgetClass, card, 
+X		     	  XtNfromVert, cwp->author,
+X		     	  XtNleft, XtChainLeft, NULL);
+X   cwp->journal = 	XtVaCreateManagedWidget("journal", 
+X	            	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		    	  XtNstring, cdp->journal, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNfromHoriz, cwp->journalL, NULL);
+X   cwp->pagesL = 	XtVaCreateManagedWidget("pagesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->journal,
+X		     	  XtNleft, XtChainLeft, NULL);
+X   cwp->pages = 	XtVaCreateManagedWidget("pages",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->pages, 
+X		   	  XtNfromVert, cwp->journal,
+X		   	  XtNfromHoriz, cwp->pagesL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->pages,
+X		     	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->pages,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->volumeL = 	XtVaCreateManagedWidget("volumeLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->volume = 	XtVaCreateManagedWidget("volume",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->volume, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->volumeL, NULL);
+X   cwp->numberL = 	XtVaCreateManagedWidget("numberLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		  	  XtNfromHoriz, cwp->volume, NULL);
+X   cwp->number = 	XtVaCreateManagedWidget("number",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->number, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->numberL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->volume,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->volume,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+X
+/*********************************************************************/
+/* CreateBookWidgets:                                                */
+/*    Creates widgets for card type book                             */
+/*********************************************************************/
+static void
+CreateBookWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->title, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->editorL = 	XtVaCreateManagedWidget("editorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->editor = 	XtVaCreateManagedWidget("editor", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->editor, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->editorL, NULL);
+X   cwp->publisherL = 	XtVaCreateManagedWidget("publisherLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->editor, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->publisher = 	XtVaCreateManagedWidget("publisher", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->publisher, 
+X		   	  XtNfromVert, cwp->editor, 
+X		   	  XtNfromHoriz, cwp->publisherL, NULL);
+X   cwp->addressL = 	XtVaCreateManagedWidget("addressLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->publisher, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->address = 	XtVaCreateManagedWidget("address", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->address, 
+X		   	  XtNfromVert, cwp->publisher, 
+X		   	  XtNfromHoriz, cwp->addressL, NULL);
+X   cwp->seriesL = 	XtVaCreateManagedWidget("seriesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->address, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->series = 	XtVaCreateManagedWidget("series", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->series, 
+X		   	  XtNfromVert, cwp->address, 
+X		   	  XtNfromHoriz, cwp->seriesL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->series,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->series,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->series,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->series,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->volumeL = 	XtVaCreateManagedWidget("volumeLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->volume = 	XtVaCreateManagedWidget("volume",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->volume, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->volumeL, NULL);
+X   cwp->editionL = 	XtVaCreateManagedWidget("editionLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		  	  XtNfromHoriz, cwp->volume, NULL);
+X   cwp->edition = 	XtVaCreateManagedWidget("edition",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->edition, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->editionL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->volume,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->volume,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+/*********************************************************************/
+/* CreateBookletWidgets:                                             */
+/*    Creates widgets for card type booklet                          */
+/*********************************************************************/
+static void
+CreateBookletWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->title, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->howpublishedL =	XtVaCreateManagedWidget("howpublishedLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->howpublished = 	XtVaCreateManagedWidget("howpublished", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->howpublished, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->howpublishedL, NULL);
+X   cwp->addressL = 	XtVaCreateManagedWidget("addressLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->howpublished, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->address = 	XtVaCreateManagedWidget("address", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->address, 
+X		   	  XtNfromVert, cwp->howpublished, 
+X		   	  XtNfromHoriz, cwp->addressL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->address,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->address,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->address,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->address,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+X
+/*********************************************************************/
+/* CreateConferenceWidgets:                                          */
+/*    Creates widgets for card type conference                       */
+/*********************************************************************/
+static void
+CreateConferenceWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->booktitleL = 	XtVaCreateManagedWidget("booktitleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->booktitle = 	XtVaCreateManagedWidget("booktitle", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->booktitle, 
+X		    	  XtNfromVert, cwp->title, 
+X		  	  XtNfromHoriz, cwp->booktitleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->booktitle, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->booktitle, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->editorL = 	XtVaCreateManagedWidget("editorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->editor = 	XtVaCreateManagedWidget("editor", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->editor, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->editorL, NULL);
+X   cwp->organizationL =	XtVaCreateManagedWidget("organizationLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->editor, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->organization = 	XtVaCreateManagedWidget("organization", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->organization, 
+X		   	  XtNfromVert, cwp->editor, 
+X		   	  XtNfromHoriz, cwp->organizationL, NULL);
+X   cwp->publisherL = 	XtVaCreateManagedWidget("publisherLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->organization, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->publisher = 	XtVaCreateManagedWidget("publisher", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->publisher, 
+X		   	  XtNfromVert, cwp->organization, 
+X		   	  XtNfromHoriz, cwp->publisherL, NULL);
+X   cwp->addressL = 	XtVaCreateManagedWidget("addressLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->publisher, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->address = 	XtVaCreateManagedWidget("address", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->address, 
+X		   	  XtNfromVert, cwp->publisher, 
+X		   	  XtNfromHoriz, cwp->addressL, NULL);
+X   cwp->pagesL = 	XtVaCreateManagedWidget("pagesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->address,
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->pages = 	XtVaCreateManagedWidget("pages",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->pages, 
+X		   	  XtNfromVert, cwp->address,
+X		   	  XtNfromHoriz, cwp->pagesL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->pages,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->pages,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+X
+/*********************************************************************/
+/* CreateInbookWidgets:                                              */
+/*    Creates widgets for card type inbook                           */
+/*********************************************************************/
+static void
+CreateInbookWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->title, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->editorL = 	XtVaCreateManagedWidget("editorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->editor = 	XtVaCreateManagedWidget("editor", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->editor, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->editorL, NULL);
+X   cwp->chapterL = 	XtVaCreateManagedWidget("chapterLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->editor, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->chapter = 	XtVaCreateManagedWidget("chapter", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->chapter, 
+X		   	  XtNfromVert, cwp->editor, 
+X		   	  XtNfromHoriz, cwp->chapterL, NULL);
+X   cwp->pagesL = 	XtVaCreateManagedWidget("pagesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->chapter, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->pages = 	XtVaCreateManagedWidget("pages", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->pages, 
+X		   	  XtNfromVert, cwp->chapter, 
+X		   	  XtNfromHoriz, cwp->pagesL, NULL);
+X   cwp->publisherL = 	XtVaCreateManagedWidget("publisherLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->pages, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->publisher = 	XtVaCreateManagedWidget("publisher", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->publisher, 
+X		   	  XtNfromVert, cwp->pages, 
+X		   	  XtNfromHoriz, cwp->publisherL, NULL);
+X   cwp->addressL = 	XtVaCreateManagedWidget("addressLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->publisher, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->address = 	XtVaCreateManagedWidget("address", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->address, 
+X		   	  XtNfromVert, cwp->publisher, 
+X		   	  XtNfromHoriz, cwp->addressL, NULL);
+X   cwp->seriesL = 	XtVaCreateManagedWidget("seriesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->address, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->series = 	XtVaCreateManagedWidget("series", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->series, 
+X		   	  XtNfromVert, cwp->address, 
+X		   	  XtNfromHoriz, cwp->seriesL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->series,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->series,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->series,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->series,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->volumeL = 	XtVaCreateManagedWidget("volumeLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->volume = 	XtVaCreateManagedWidget("volume",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->volume, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->volumeL, NULL);
+X   cwp->editionL = 	XtVaCreateManagedWidget("editionLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		  	  XtNfromHoriz, cwp->volume, NULL);
+X   cwp->edition = 	XtVaCreateManagedWidget("edition",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->edition, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->editionL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->volume,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->volume,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+/*********************************************************************/
+/* CreateIncollectionWidgets:                                        */
+/*    Creates widgets for card type incollection                     */
+/*********************************************************************/
+static void
+CreateIncollectionWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->booktitleL = 	XtVaCreateManagedWidget("booktitleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->booktitle = 	XtVaCreateManagedWidget("booktitle", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->booktitle, 
+X		    	  XtNfromVert, cwp->title, 
+X		  	  XtNfromHoriz, cwp->booktitleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->booktitle, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->booktitle, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->editorL = 	XtVaCreateManagedWidget("editorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->editor = 	XtVaCreateManagedWidget("editor", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->editor, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->editorL, NULL);
+X   cwp->publisherL = 	XtVaCreateManagedWidget("publisherLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->editor, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->publisher = 	XtVaCreateManagedWidget("publisher", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->publisher, 
+X		   	  XtNfromVert, cwp->editor, 
+X		   	  XtNfromHoriz, cwp->publisherL, NULL);
+X   cwp->addressL = 	XtVaCreateManagedWidget("addressLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->publisher, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->address = 	XtVaCreateManagedWidget("address", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->address, 
+X		   	  XtNfromVert, cwp->publisher, 
+X		   	  XtNfromHoriz, cwp->addressL, NULL);
+X   cwp->chapterL = 	XtVaCreateManagedWidget("chapterLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->address,
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->chapter = 	XtVaCreateManagedWidget("chapter",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->chapter, 
+X		   	  XtNfromVert, cwp->address,
+X		   	  XtNfromHoriz, cwp->chapterL, NULL);
+X   cwp->pagesL = 	XtVaCreateManagedWidget("pagesLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->chapter,
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->pages = 	XtVaCreateManagedWidget("pages",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->pages, 
+X		   	  XtNfromVert, cwp->chapter,
+X		   	  XtNfromHoriz, cwp->pagesL, NULL);
+X   cwp->monthL = 	XtVaCreateManagedWidget("monthLabel", 
+X	           	  labelWidgetClass, card, 
+X		   	  XtNfromVert, cwp->pages,
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->month = 	XtVaCreateManagedWidget("month", 
+X	          	  asciiTextWidgetClass, card, 
+X		  	  XtNstring, cdp->month, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->monthL, NULL);
+X   cwp->yearL = 	XtVaCreateManagedWidget("yearLabel", 
+X	          	  labelWidgetClass, card, 
+X		  	  XtNfromVert, cwp->pages,
+X		  	  XtNfromHoriz, cwp->month, NULL);
+X   cwp->year = 		XtVaCreateManagedWidget("year", 
+X	         	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		 	  XtNstring, cdp->year, 
+X		 	  XtNfromVert, cwp->pages,
+X		 	  XtNfromHoriz, cwp->yearL, NULL);
+X   cwp->noteL = 	XtVaCreateManagedWidget("noteLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->month,
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->note = 		XtVaCreateManagedWidget("note",
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->note, 
+X		   	  XtNfromVert, cwp->month,
+X		   	  XtNfromHoriz, cwp->noteL, NULL);
+}
+X
+/*********************************************************************/
+/* CreateInproceedingsWidgets:                                       */
+/*    Creates widgets for card type inproceedings                    */
+/*********************************************************************/
+static void
+CreateInproceedingsWidgets (BibPtr bp, CardPtr cp)
+{
+X CardWidgetsPtr cwp = &cp->cw->ct.cw;	/* ptr to widget ids */
+X CardDataPtr cdp = cp->cd;		/* ptr to real card data */
+X CardDataPtr cbp = &cp->cw->ct.buf;	/* ptr to text buffers */
+X Widget card = cp->cw->cardFlds;		/* parent widget */
+X
+X   cdp->annoteDisplayed = FALSE;
+X   cdp->annoteChanged = FALSE;
+X   cwp->titleL = 	XtVaCreateManagedWidget("titleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->category, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->title = 	XtVaCreateManagedWidget("title", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->title, 
+X		    	  XtNfromVert, cwp->category, 
+X		  	  XtNfromHoriz, cwp->titleL, NULL);
+X   cwp->booktitleL = 	XtVaCreateManagedWidget("booktitleLabel", 
+X	           	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->title, 
+X		   	  XtNleft, XtChainLeft, NULL);
+X   cwp->booktitle = 	XtVaCreateManagedWidget("booktitle", 
+X	          	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		  	  XtNstring, cdp->booktitle, 
+X		    	  XtNfromVert, cwp->title, 
+X		  	  XtNfromHoriz, cwp->booktitleL, NULL);
+X   cwp->authorL = 	XtVaCreateManagedWidget("authorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->booktitle, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->author = 	XtVaCreateManagedWidget("author", 
+X	           	  asciiTextWidgetClass, card, 
+X			  XtNborderWidth, 2,
+X		   	  XtNstring, cdp->author, 
+X		   	  XtNfromVert, cwp->booktitle, 
+X		   	  XtNfromHoriz, cwp->authorL, NULL);
+X   cwp->editorL = 	XtVaCreateManagedWidget("editorLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->author, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->editor = 	XtVaCreateManagedWidget("editor", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->editor, 
+X		   	  XtNfromVert, cwp->author, 
+X		   	  XtNfromHoriz, cwp->editorL, NULL);
+X   cwp->organizationL =	XtVaCreateManagedWidget("organizationLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->editor, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->organization = 	XtVaCreateManagedWidget("organization", 
+X	           	  asciiTextWidgetClass, card, 
+X		   	  XtNstring, cdp->organization, 
+X		   	  XtNfromVert, cwp->editor, 
+X		   	  XtNfromHoriz, cwp->organizationL, NULL);
+X   cwp->publisherL = 	XtVaCreateManagedWidget("publisherLabel", 
+X	            	  labelWidgetClass, card, 
+X		    	  XtNfromVert, cwp->organization, 
+X		    	  XtNleft, XtChainLeft, NULL);
+X   cwp->publisher = 	XtVaCreateManagedWidget("publisher", 
+X	           	  asciiTextWidgetClass, card, 
+SHAR_EOF
+true || echo 'restore of gui_card.c failed'
+fi
+echo 'End of  part 15'
+echo 'File gui_card.c is continued in part 16'
+echo 16 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

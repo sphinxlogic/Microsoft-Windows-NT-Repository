@@ -1,0 +1,2409 @@
+Newsgroups: comp.sources.misc
+From: iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE (Iain Lea)
+Subject:  v28i050:  tin - threaded full screen newsreader v1.1, Part06/11
+Message-ID: <1992Feb18.043750.13156@sparky.imd.sterling.com>
+X-Md4-Signature: a6bccca19a5ebc1b81f7bd661d0be7f2
+Date: Tue, 18 Feb 1992 04:37:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE (Iain Lea)
+Posting-number: Volume 28, Issue 50
+Archive-name: tin/part06
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 23, Issue 15-23
+
+#!/bin/sh
+# this is tin.shar.06 (part 6 of tin1.1)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file main.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping main.c'
+else
+echo 'x - continuing file main.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'main.c' &&
+X				update = TRUE;
+X				break;
+X
+X			case 'u':
+X				update = TRUE;
+X				break;
+X
+X			case 'U':
+X				update_fork = TRUE;
+X				update = TRUE;
+X				break;
+X
+X			case 'v':
+X				verbose = TRUE;
+X				break;
+X
+X			case 'z':
+X				start_any_unread = TRUE;
+X				update = TRUE;
+X				break;
+X
+X			case 'Z':
+X				check_any_unread = TRUE;
+X				update = TRUE;
+X				break;
+X
+X			case 'h':
+X			case '?':
+X			default:
+X				usage (progname);
+X				exit (1);
+X		}
+X	}
+X
+X	if (! update) {
+X		printf ("%s\n", cvers);
+X		fflush (stdout);
+X	}
+X
+X	hash_init ();
+X	for (i = 0; i < TABLE_SIZE; i++) {
+X		group_hash[i] = -1;
+X	}
+X
+X	nntp_startup ();				/* if -r connect to nntp server */
+X	created = read_active ();		/* load the active file into active[] */
+X
+X	if (optind < argc) {
+X		while (optind < argc) {
+X			if (add_group (argv[optind], TRUE) < 0) {
+X				error_message (txt_not_in_active_file, argv[optind]);
+X			}
+X			optind++;
+X		}
+X	} else {
+X		backup_newsrc ();
+X		read_newsrc (TRUE);
+X		mark_unthreaded_groups ();
+X	}
+X
+X	if (kill_articles) {		/* read in users kill file */
+X		read_kill_file ();
+X	}
+X	
+X	/*
+X	 *  log name of user and start time to central logfile
+X	 */
+X	log_user ();
+X
+X	/*
+X	 *  check/start if any new/unread articles
+X	 */
+X	start_groupnum = check_for_any_new_news (check_any_unread, start_any_unread);
+X
+X	/*
+X	 *  mail any new articles to specified user
+X	 *  or
+X	 *  save any new articles to savedir structure for later reading
+X	 */
+X	save_or_mail_new_news ();
+X	
+X	/*
+X	 *  update index files
+X	 */
+X	update_index_files ();
+X	
+X	if (! InitScreen ()) {
+X		error_message (txt_screen_init_failed, progname);
+X		exit (1);
+X	}
+X
+X	cmd_line = FALSE;
+X	ScreenSize (&LINES, &COLS);		/* screen size from termcap entry */
+X	Raw (TRUE);
+X
+X	set_win_size (&LINES, &COLS);	/* screen size doing ioctl() call */
+X
+X	if (notify_new_groups && ! created) {	/* check for new groups */
+X		notify_groups ();
+X	}
+X
+X	if (created_rcdir && update == FALSE) {
+X		show_intro_page (FALSE);		
+X	}
+X	
+#ifdef READ_CHAR_HACK
+X	setbuf (stdin, 0);
+#endif
+X
+X	selection_index (start_groupnum);
+X
+X	tin_done (0);
+}
+X
+/*
+X * usage
+X */
+X
+void usage (progname)
+X	char *progname;
+{
+X	error_message ("%s A threaded Netnews reader.\n", cvers);
+X	error_message ("Usage: %s [options] [newsgroups]", progname);
+X	error_message ("  -c       mark all news as read in subscribed newsgroups (batch mode)", (char *) 0);
+X	error_message ("  -d dir   directory to use when saving news [default=%s]", savedir);
+X	error_message ("  -f file  subscribed to newsgroups file [default=%s]", newsrc);
+X	error_message ("  -h       help", (char *) 0);
+X	error_message ("  -H       help information about %s", progname);
+X	error_message ("  -m dir   mailbox directory [default=%s]", maildir);
+X	error_message ("  -M user  mail new news to specified user (batch mode)", (char *) 0);
+X	error_message ("  -n       notify user if any new newsgroups were created since last session", (char *) 0);
+X	error_message ("  -p file  print program with options [default=%s]", DEFAULT_PRINTER);
+X	error_message ("  -r       read news remotely from default NNTP server", (char *) 0);
+X	error_message ("  -R       read news saved by -S option (not yet implemented)", (char *) 0);
+X	error_message ("  -s dir   spool directory [default=%s]", SPOOLDIR);
+X	error_message ("  -S       save new news for later reading (batch mode)", (char *) 0);
+X	error_message ("  -u       update index files (batch mode)", (char *) 0);
+X	error_message ("  -U       update index files in the background while reading news", (char *) 0);
+X	error_message ("  -v       verbose output for -c -M -S -u and -Z options (batch mode)", (char *) 0);
+X	error_message ("  -z       start if any unread news", (char *) 0);
+X	error_message ("  -Z       return status indicating if any unread news (batch mode)", (char *) 0);
+X	error_message ("\nMail bug reports/comments to %s", BUG_REPORT_ADDRESS);
+}
+X
+/*
+X *  check/start if any new/unread articles
+X */
+X
+int check_for_any_new_news (check_any_unread, start_any_unread)
+X	int check_any_unread;
+X	int start_any_unread;
+{
+X	int i;
+X	
+X	if (check_any_unread) {
+X		i = check_start_save_any_news (CHECK_ANY_NEWS);
+X		exit (i);
+X	} else if (start_any_unread) {
+X		i = check_start_save_any_news (START_ANY_NEWS);
+X		if (i == -1) {		/* no new/unread news so exit */
+X			exit (0);
+X		}
+X		update = FALSE;
+X		return i;
+X	}
+}
+X
+/*
+X *  mail any new articles to specified user
+X *  or
+X *  save any new articles to savedir structure for later reading
+X */
+X
+void save_or_mail_new_news ()
+{
+X	int i;
+X	
+X	if (mail_news || save_news) {
+X		i = catchup;			/* set catchup to FALSE */
+X		catchup = FALSE;
+X		do_update ();
+X		catchup = i;			/* set catchup to previous value */
+X		if (mail_news) {
+X			check_start_save_any_news (MAIL_ANY_NEWS);
+X		} else {
+X			check_start_save_any_news (SAVE_ANY_NEWS);
+X		}
+X		tin_done (0);
+X	}
+}
+X
+/*
+X *  update index files
+X */
+X
+void update_index_files ()
+{
+X	if (update || update_fork) {
+X		COLS = DEFAULT_COLS;			/* set because curses has not started */ 
+X		if (update_fork) {
+X			catchup = FALSE;			/* turn off msgs when running forked */ 
+X			verbose = FALSE;
+X			if (fork () == 0) {			/* fork child to update indexes in background */
+X				nntp_startup ();		/* connect server if we are using nntp */
+X				thread_arts = FALSE;	/* stop threading to run faster */
+X				do_update ();
+X				nntp_finish ();			/* connect server if we are using nntp */
+X				exit (0);
+X			}
+X			update = FALSE;
+X		} else {
+X			thread_arts = FALSE;	/* stop threading to run faster */
+X			do_update ();
+X			exit (0);
+X		}
+X	}
+}
+X
+/*
+X *  display page of general info. for first time user.
+X */
+X
+void show_intro_page ()
+{
+X	if (cmd_line) {
+X		printf ("%s", cvers); 	
+X	} else {
+X		ClearScreen ();
+X		center_line (0, TRUE, cvers); 	
+X	}
+X
+X	printf ("\n\nWelcome to tin, a full screen threaded Netnews reader. It can read news locally\n");
+X	printf ("(ie. <spool>/news) or remotely (-r option) from a NNTP  (Network News Transport\n");
+X	printf ("Protocol) server. tin -h lists the available command line options.\n\n");
+X
+X	printf ("It has four newsreading levels,  the newsgroup selection page,  the group index\n");
+X	printf ("page, the thread listing page and the article viewer. Help is available at each\n");
+X	printf ("level by pressing the 'h' command.\n\n");
+X
+X	printf ("Move up/down by using the terminal arrow keys or 'j' and 'k'.  Use PgUp/PgDn or\n");
+X	printf ("Ctrl-U and Ctrl-D to page up/down. Enter a newsgroup by pressing RETURN.\n\n");
+X
+X	printf ("Articles, threads, tagged articles or articles matching a pattern can be mailed\n");
+X	printf ("('m' command), printed ('o' command), saved ('s' command), piped ('|' command).\n");
+X	printf ("Use the 'w' command  to post  a news  article,  the 'f'/'F' commands to  post a\n");
+X	printf ("follow-up  to  an existing  news article and the 'r'/'R' commands to  reply via\n");
+X	printf ("mail to an existing news articles author.  The 'M' command allows the operation\n");
+X	printf ("of tin to be configured via a menu.\n\n");
+X
+X	printf ("For more in depth information please read  the supplied manual page and README.\n\n");
+X	printf ("Please send bug reports/comments to the programs author with the 'B' command.\n");
+X	fflush (stdout);
+X
+X	if (! cmd_line) {
+X		continue_prompt ();
+X	}
+}
+X
+SHAR_EOF
+echo 'File main.c is complete' &&
+chmod 0600 main.c ||
+echo 'restore of main.c failed'
+Wc_c="`wc -c < 'main.c'`"
+test 11249 -eq "$Wc_c" ||
+	echo 'main.c: original size 11249, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= memory.c ==============
+if test -f 'memory.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping memory.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting memory.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'memory.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : memory.c
+X *  Author    : R.Skrenta / I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 04-11-91
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Rich Skrenta & Iain Lea
+X *	            You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+int active_num = 0;
+int article_num = 0;
+int *my_group;					/* .newsrc --> active[] */
+int *unread;					/* highest art read in group */
+long *base;
+struct group_t *active;			/* active file */
+struct article_t *arts;
+X
+/*
+X *  Dynamic table management
+X *  These settings are memory conservative:  small initial allocations
+X *  and a 50% expansion on table overflow.  A fast vm system with
+X *  much memory might want to start with higher initial allocations
+X *  and a 100% expansion on overflow, especially for the arts[] array.
+X */
+X
+void init_alloc ()
+{
+X	if (active_num) {	/* initial alloc */
+X		max_active = active_num;
+X	} else {
+X		max_active = DEFAULT_ACTIVE_NUM;
+X	}
+X
+X	active = (struct group_t *) my_malloc ((unsigned) sizeof(*active) * max_active);
+X	my_group = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X	unread = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X
+X	if(article_num) {	/* initial alloc */
+X		max_art = article_num;
+X	} else {
+X		max_art = DEFAULT_ARTICLE_NUM;
+X	}
+X
+X	arts = (struct article_t *) my_malloc ((unsigned) sizeof(*arts) * max_art);
+X	base = (long *) my_malloc ((unsigned) sizeof(long) * max_art);
+X
+X	max_kill = DEFAULT_KILL_NUM;
+X	
+X	killf = (struct kill_t *) my_malloc ((unsigned) sizeof(*killf) * max_kill);
+X
+X	max_save = DEFAULT_SAVE_NUM;
+X	
+X	save = (struct save_t *) my_malloc ((unsigned) sizeof(*save) * max_save);
+X
+X	screen = (struct screen_t *) 0;
+}
+X
+X
+void expand_art()
+{
+X	max_art += max_art / 2;		/* increase by 50% */
+X
+X	arts = (struct article_t *) my_realloc ((char *) arts, (unsigned) sizeof(*arts) * max_art);
+X	base = (long *) my_realloc ((char *) base, (unsigned) sizeof(long) * max_art);
+}
+X
+X
+void free_art_array ()
+{
+X	register int i;
+X
+X	for (i=0 ; i < top ; i++) {
+X		arts[i].artnum = 0L;
+X		arts[i].thread = ART_EXPIRED;
+X		arts[i].inthread = FALSE;
+X		arts[i].unread = ART_UNREAD;
+X		arts[i].tagged = FALSE;
+X		if (arts[i].part != (char *) 0) {
+X			free ((char *) arts[i].part);
+X			arts[i].part = (char *) 0;
+X		}
+X		if (arts[i].patch != (char *) 0) {
+X			free ((char *) arts[i].patch);
+X			arts[i].patch = (char *) 0;
+X		}
+X	}
+}
+X
+X
+void expand_active()
+{
+X	max_active += max_active / 2;		/* increase by 50% */
+X
+X	active = (struct group_t *) my_realloc((char *) active,
+X						(unsigned) sizeof(*active) * max_active);
+X	my_group = (int *) my_realloc((char *) my_group, (unsigned) sizeof(int) * max_active);
+X	unread = (int *) my_realloc((char *) unread, (unsigned) sizeof(int) * max_active);
+}
+X
+X
+void expand_kill()
+{
+X	max_kill += max_kill / 2;		/* increase by 50% */
+X
+X	killf = (struct kill_t *) my_realloc((char *) killf, (unsigned) sizeof(struct kill_t) * max_kill);
+}
+X
+X
+void expand_save()
+{
+X	max_save += max_save / 2;		/* increase by 50% */
+X
+X	save = (struct save_t *) my_realloc((char *) save, (unsigned) sizeof(struct save_t) * max_save);
+}
+X
+X
+void init_screen_array (allocate)
+X	int allocate;
+{
+X	int i;
+X
+X	if (allocate) {
+X		screen = (struct screen_t *) my_malloc((unsigned) sizeof(*screen) * LINES);
+X
+X		for (i=0 ; i < LINES ; i++) {
+X			screen[i].col = (char *) my_malloc ((unsigned) COLS+1);
+X		}
+X	} else {
+X		if (screen != (struct screen_t *) 0) {
+X			for (i=0 ; i < LINES ; i++) {
+X				if (screen[i].col != (char *) 0) {
+X					free ((char *) screen[i].col);
+X					screen[i].col = (char *) 0;
+X				}
+X			}	
+X
+X			free ((char *) screen);
+X			screen = (struct screen_t *) 0;
+X		}
+X	}
+}
+X
+X
+void free_all_arrays ()
+{
+X	register int i;
+X
+X	hash_reclaim ();
+X	
+X	init_screen_array (FALSE);
+X
+X	free_art_array ();
+X
+X	if (my_group != (int *) 0) {
+X		free ((char *) my_group);
+X		my_group = (int *) 0;
+X	}
+X
+X	if (unread != (int *) 0) {
+X		free ((char *) unread);
+X		unread = (int *) 0;
+X	}
+X
+X	if (base != (long *) 0) {
+X		free ((char *) base);
+X		base = (long *) 0;
+X	}
+X
+X	if (killf != (struct kill_t *) 0) {
+X		free_kill_array ();
+X		if (killf != (struct kill_t *) 0) {
+X			free ((char *) killf);
+X			killf = (struct kill_t *) 0;
+X		}
+X	}
+X
+X	if (save != (struct save_t *) 0) {
+X		free_save_array ();
+X		if (save != (struct save_t *) 0) {
+X			free ((char *) save);
+X			save = (struct save_t *) 0;
+X		}
+X	}
+X
+X	if (active != (struct group_t *) 0) {
+X		for (i=0 ; i < max_active ; i++) {
+X			if (active[i].name != (char *) 0) {
+X				free ((char *) active[i].name);
+X				active[i].name = (char *) 0;
+X			}
+X		}
+X		if (active != (struct group_t *) 0) {
+X			free ((char *) active);
+X			active = (struct group_t *) 0;
+X		}
+X	}
+X
+X	if (arts != (struct article_t *) 0) {
+X		free ((char *) arts);
+X		arts = (struct article_t *) 0;
+X	}
+}
+X
+X
+void free_kill_array ()
+{
+X	int i;
+X	
+X	for (i=0 ; i < kill_num ; i++) {
+X		if (killf[i].kill_subj != (char *) 0) {
+X			free ((char *) killf[i].kill_subj);
+X			killf[i].kill_subj = (char *) 0;
+X		}
+X		if (killf[i].kill_from != (char *) 0) {
+X			free ((char *) killf[i].kill_from);
+X			killf[i].kill_from = (char *) 0;
+X		}
+X	}
+}
+X
+X
+/*
+X *  reset save list array to 0 and free's all its allocated memory
+X */
+X 
+void free_save_array ()
+{
+X	int i;
+X	
+X	for (i=0 ; i < save_num ; i++) {
+X		if (save[i].subject != (char *) 0) {
+X			free ((char *) save[i].subject);
+X			save[i].subject = (char *) 0;
+X		}
+X		if (save[i].archive != (char *) 0) {
+X			free ((char *) save[i].archive);
+X			save[i].archive = (char *) 0;
+X		}
+X		if (save[i].dir != (char *) 0) {
+X			free ((char *) save[i].dir);
+X			save[i].dir = (char *) 0;
+X		}
+X		if (save[i].file != (char *) 0) {
+X			free ((char *) save[i].file);
+X			save[i].file = (char *) 0;
+X		}
+X		if (save[i].part != (char *) 0) {
+X			free ((char *) save[i].part);
+X			save[i].part = (char *) 0;
+X		}
+X		if (save[i].patch != (char *) 0) {
+X			free ((char *) save[i].patch);
+X			save[i].patch = (char *) 0;
+X		}
+X		save[i].index   = -1;
+X		save[i].saved   = FALSE;
+X		save[i].is_mailbox = FALSE;
+X	}
+X	
+X	save_num = 0;
+}
+X
+X
+char *my_malloc (size)
+X	unsigned size;
+{
+X	char *p;
+X
+X	if ((p = (char *) calloc (1, (int) size)) == NULL) {
+X		error_message (txt_out_of_memory, progname);
+X		exit (1);
+X	}
+X	return p;
+}
+X
+X
+char *my_realloc (p, size)
+X	char *p;
+X	unsigned size;
+{
+X	if (! p) {
+X		p = (char *) calloc (1, (int) size);
+X	} else {
+X		p = (char *) realloc (p, (int) size);
+X	}
+X
+X	if (! p) {
+X		error_message (txt_out_of_memory, progname);
+X		exit (1);
+X	}
+X	return p;
+}
+SHAR_EOF
+chmod 0600 memory.c ||
+echo 'restore of memory.c failed'
+Wc_c="`wc -c < 'memory.c'`"
+test 6571 -eq "$Wc_c" ||
+	echo 'memory.c: original size 6571, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= misc.c ==============
+if test -f 'misc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping misc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting misc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'misc.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : misc.c
+X *  Author    : R.Skrenta / I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 15-12-91
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Rich Skrenta & Iain Lea
+X *	            You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+static char *mailbox_name = (char *) 0;
+static int  mailbox_size;
+X
+X
+void asfail(file, line, cond)
+X	char	*file;
+X	int	line;
+X	char	*cond;
+{
+X	fprintf(stderr, "%s: assertion failure: %s (%d): %s\n",progname,file,line,cond);
+X	fflush (stderr);
+X	exit(1);
+}
+X
+X
+void copy_fp (fp_ip, fp_op, prefix)
+X	FILE *fp_ip;
+X	FILE *fp_op;
+X	char *prefix;
+{
+X	extern int errno;
+X	char buf[8192];
+X
+X	if (prefix == (char *) 0) {
+X		while (fgets (buf, sizeof (buf), fp_ip) != NULL) {
+X			if (fprintf (fp_op, "%s", buf) == EOF) {
+X				sprintf (msg, "Error: fprintf() failed in copy_fp(). errno=%d", errno);
+X				error_message (msg, (char *) 0);
+X			}
+X		}
+X	} else {
+X		while (fgets (buf, sizeof (buf), fp_ip) != NULL) {
+X			if (fprintf (fp_op, "%s%s", prefix, buf) == EOF) {
+X				sprintf (msg, "Error: fprintf() failed in copy_fp(). errno=%d", errno);
+X				error_message (msg, (char *) 0);
+X			}
+X		}
+X	}
+}
+X
+X
+char *get_val (env, def)
+X	char *env;		/* Environment variable we're looking for	*/
+X	char *def;		/* Default value if no environ value found	*/
+{
+X	char *ptr;
+X
+X	if ((ptr = (char *) getenv(env)) != NULL)
+X		return (ptr);
+X	else
+X		return (def);
+}
+X
+X
+int invoke_editor (nam)
+X	char *nam;
+{
+X	char buf[LEN];
+X	char *my_editor;
+X	static char editor[LEN];
+X	static int first = TRUE;
+X
+X	if (first) {
+X		my_editor = (char *) getenv ("VISUAL");
+X
+X		strcpy (editor, my_editor != NULL ? my_editor : get_val ("EDITOR", DEFAULT_EDITOR));
+X		first = FALSE;
+X	}
+X
+#ifdef NO_START_LINE
+X	sprintf (buf, "%s %s", editor, nam);
+#else
+X	sprintf (buf, "%s +%d %s", editor, start_line_offset, nam);
+#endif
+X
+X	printf ("%s", buf);
+X	return invoke_cmd (buf);
+}
+X
+X
+void shell_escape ()
+{
+X	char shell[LEN];
+X	char *p;
+X
+#ifdef SIGTSTP
+X	SIGTYPE (*susp)();
+#endif
+X
+X	sprintf (msg, txt_shell_escape, default_shell_command);
+X	
+X	if (! prompt_string (msg, shell))
+X		strcpy (shell, get_val ("SHELL", DEFAULT_SHELL));
+X
+X	for (p = shell; *p && (*p == ' ' || *p == '\t'); p++)
+X		continue;
+X
+X	if (*p) {
+X		my_strncpy (default_shell_command, p, LEN);
+X	} else {
+X		if (default_shell_command[0]) {
+X			my_strncpy (shell, default_shell_command, LEN);
+X		} else {
+X			strcpy (shell, get_val ("SHELL", DEFAULT_SHELL));
+X		}
+X		p = shell;
+X	}
+X
+X	ClearScreen ();
+X	sprintf (msg, "Shell Command (%s)", p);
+X	center_line (0, TRUE, msg);
+X	MoveCursor (INDEX_TOP, 0);
+X	
+X	EndWin ();
+X	Raw (FALSE);
+X
+X	set_real_uid_gid ();
+X
+#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		susp = signal (SIGTSTP, SIG_DFL);
+#endif
+X
+X	system (p);
+X
+#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		signal (SIGTSTP, susp);
+#endif
+X
+X	set_tin_uid_gid ();
+X
+X	Raw (TRUE);
+X	InitWin ();
+X
+X	mail_setup ();
+X
+X	continue_prompt ();
+X
+X	if (draw_arrow_mark) {
+X		ClearScreen ();
+X	}
+}
+X
+X
+void tin_done (ret)
+X	int ret;
+{
+X	char group_path[LEN], *p;
+X	int ask = TRUE;
+X	register int i, j;
+X	
+X	/*
+X	 * check if any groups were read & ask if they should marked read
+X	 */
+X	if (catchup_read_groups) {
+X		for (i = 0 ; i < group_top ; i++) {
+X			if (active[my_group[i]].read) {
+X				if (ask) {
+X					if (prompt_yn (LINES, "Catchup all groups entered during this session? (y/n): ", 'n')) {
+X						ask = FALSE;
+X						thread_arts = FALSE;	/* speeds up index loading */
+X					} else {
+X						break;
+X					}
+X				}
+X				sprintf (msg, "Catchup %s...", active[my_group[i]].name);
+X				wait_message (msg);
+X				strcpy (group_path, active[my_group[i]].name);
+X				for (p = group_path; *p; p++) {
+X					if (*p == '.') {
+X						*p = '/';
+X					}
+X				}
+X				index_group (active[my_group[i]].name, group_path);
+X				for (j = 0; j < top; j++) {
+X					arts[j].unread = ART_READ;
+X				}
+X				update_newsrc (active[my_group[i]].name, my_group[i], FALSE);
+X			}
+X		}
+X	}
+X	nntp_finish ();			/* disconnect from NNTP server */
+X	free_all_arrays ();		/* deallocate all arrays */
+X	ClearScreen ();
+X	EndWin ();
+X	Raw (FALSE);
+X	exit (ret);
+}
+X
+/*
+X *  Load the active file into active[] and create copy of active ~/.tin/active
+X */
+X
+int read_active ()
+{
+X	FILE *fp;
+X	char *p, *q, *r;
+X	char buf[LEN];
+X	char moderated;
+X	int created, i;
+X	long h;
+X	
+X	num_active = 0;
+X
+X	if ((fp = open_active_fp ()) == NULL) {
+X		if (compiled_with_nntp) {
+X			printf ("Cannot open %s. Try %s -r to read news via NNTP.\n",
+X				active_file, progname);
+X		} else {
+X			printf (txt_cannot_open, active_file);
+X			putchar ('\n');
+X		}
+X		fflush (stdout);
+X		exit (1);
+X	}
+X
+X	if (read_news_via_nntp && update == FALSE) {
+X		wait_message (txt_reading_active_file);
+X	}
+X	
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		for (p = buf; *p && *p != ' '; p++)
+X			continue;
+X		if (*p != ' ') {
+X			error_message (txt_bad_active_file, buf);
+X			continue;
+X		}
+X		*p++ = '\0';
+X
+X		if (num_active >= max_active)
+X			expand_active ();
+X
+X		h = hash_groupname (buf);
+X
+X		if (group_hash[h] == -1) {
+X			group_hash[h] = num_active;
+X		} else {				/* hash linked list chaining */
+X			for (i=group_hash[h]; active[i].next >= 0; i=active[i].next) {
+X				if (strcmp(active[i].name, buf) == 0) {
+X					goto read_active_continue;		/* kill dups */
+X				}
+X			}
+X			if (strcmp(active[i].name, buf) == 0)
+X				goto read_active_continue;
+X			active[i].next = num_active;
+X		}
+X
+X		for (q = p; *q && *q != ' '; q++)
+X			continue;
+X		if (*q != ' ') {
+X			error_message (txt_bad_active_file, buf);
+X			continue;
+X		}
+X		*q++ = '\0';
+X
+X		for (r = q; *r && *r != '\n'; r++) {
+X			if (*r == 'y' || *r == 'm') {
+X				moderated = *r;
+X				break;
+X			}
+X		}
+X
+X		active[num_active].name = str_dup (buf);
+X		active[num_active].max = (long) atol (p);
+X		active[num_active].min = (long) atol (q);
+X		active[num_active].moderated = moderated;
+X		active[num_active].next = -1;			/* hash chaining */
+X		active[num_active].flag = UNSUBSCRIBED;	/* not in my_group[] yet */
+X		active[num_active].read = FALSE;		/* read/unread */
+X		active[num_active].thread = TRUE;		/* thread articles */
+X
+X		num_active++;
+X
+read_active_continue:;
+X
+X	}
+X	fclose (fp);
+X
+X	/*
+X	 *  exit if active file is empty
+X	 */
+X	if (! num_active) {
+X		error_message ("%s contains no newsgroups. Exiting.", active_file);
+X		exit (1);
+X	}
+X
+X	/*
+X	 *  create backup of LIBDIR/active for use by -n option to notify new groups 
+X	 */
+X	created = backup_active (TRUE);
+X
+X	debug_print_active ();
+X
+X	return (created);
+}
+X
+/*
+X *  Mark any groups in my_group[] that are in ~/.tin/unthread so they
+X *  will not be threaded
+X */
+X 
+void mark_unthreaded_groups ()
+{
+X	FILE *fp;
+X	char buf[LEN];
+X	int i;
+X	long h;
+X
+X	set_real_uid_gid ();
+X	
+X	if ((fp = fopen (unthreadfile, "r")) == NULL) {
+X		error_message (txt_cannot_open, unthreadfile);
+X		set_tin_uid_gid ();
+X		return;
+X	}
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		buf[strlen (buf)-1] = '\0'; 
+X		h = hash_groupname (buf);
+X
+X		if (debug) {
+X			printf ("Unthreading %s...\n", buf);
+X		}
+X
+X		if ((i = group_hash[h]) >= 0) {
+X			active[i].thread = FALSE;
+X		} else {
+X			for (i=group_hash[h]; active[i].next >= 0; i=active[i].next) {
+X				if (strcmp (active[i].name, buf) == 0) {
+X					active[i].thread = FALSE;
+X					break;
+X				}
+X			}
+X		}
+X	}
+X	fclose (fp);
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  create ~/.tin/active from LIBDIR/active if it does not exist 
+X */
+X
+int backup_active (create)
+X	int create;
+{
+X	char buf[LEN];
+X	FILE *fp;
+X	int created = FALSE;
+X	int i;
+X	struct stat sb;
+X	
+X	set_real_uid_gid ();
+X	
+X	sprintf (buf, "%s/active", rcdir);
+X	
+X	if (create) {
+X		if (stat (buf, &sb) != -1) {
+X			goto backup_active_done;
+X		}
+X	}
+X	
+X	if ((fp = fopen (buf, "w")) != NULL) {
+X		for (i = 0; i < num_active ; i++) {	/* for each group */
+X			fprintf (fp, "%s\n", active[i].name);
+X		}
+X		fclose (fp);
+X		chmod (buf, 0644);
+X		created = TRUE;
+X	}
+X
+backup_active_done:
+X	set_tin_uid_gid ();
+X	return (created);
+}
+X
+X
+#ifdef USE_MKDIR
+mkdir (path, mode)
+X	char *path;
+X	int mode;
+{
+X	char buf[LEN];
+X	struct stat sb;
+X
+X	sprintf(buf, "mkdir %s", path);
+X	if (stat (path, &sb) == -1) {
+X		system (buf);
+X		chmod (path, mode);
+X	}
+}
+#endif
+X
+X
+long hash_groupname (buf)		/* hash group name for fast lookup later */
+X	char *buf;
+{
+X	unsigned long h;
+X	unsigned char *t = (unsigned char *) buf;
+X
+X	h = *t++;
+X	while (*t)
+X		h = ((h << 1) ^ *t++) % TABLE_SIZE;
+X
+X	return h;
+}
+X
+X
+void rename_file (old_filename, new_filename)
+X	char *old_filename;
+X	char *new_filename;
+{	
+X	char buf[LEN];
+X	
+X	unlink (new_filename);
+X	if (link (old_filename, new_filename) == 1) {
+X		sprintf (buf, txt_rename_error, old_filename, new_filename);
+X		error_message (buf, "TWO");
+X		return;
+X	}
+X	if (unlink (old_filename) == -1) {
+X		sprintf (buf, txt_rename_error, old_filename, new_filename);
+X		error_message (buf, "THREE");
+X		return;
+X	}
+}
+X
+X
+char *str_dup (str)
+X	char *str;
+{
+X	char *dup = (char *) 0;
+X
+X	assert (str != (char *) 0);
+X	
+X	if (str) {
+X		dup = my_malloc (strlen (str)+1);
+X		strcpy (dup, str);
+X	}
+X	return dup;
+}
+X
+X
+int invoke_cmd (nam)
+X	char *nam;
+{
+X	int ret;
+X
+#ifdef SIGTSTP
+X	SIGTYPE (*susp)();
+#endif
+X
+X	EndWin ();
+X	Raw (FALSE);
+X	set_real_uid_gid ();
+X
+#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		susp = signal(SIGTSTP, SIG_DFL);
+#endif
+X
+X	ret = system (nam);
+X
+#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		signal (SIGTSTP, susp);
+#endif
+X
+X	set_tin_uid_gid ();
+X
+X	Raw (TRUE);
+X	InitWin ();
+X
+X	return ret == 0;
+}
+X
+X
+void draw_percent_mark (cur_num, max_num)
+X	int cur_num;
+X	int max_num;
+{
+X	char buf[32];
+X	int percent = 0;
+X
+X	if (NOTESLINES <= 0) {
+X		return;
+X	}
+X
+X	if (cur_num <= 0 && max_num <= 0) {
+X		return;
+X	}
+X		
+X	percent = cur_num * 100 / max_num;
+X	sprintf (buf, "%s(%d%%) [%d/%d]", txt_more, percent, cur_num, max_num);
+X	MoveCursor (LINES, (COLS - (int) strlen (buf))-(1+BLANK_PAGE_COLS));
+X	StartInverse ();	
+X	printf ("%s", buf);
+X	fflush (stdout);
+X	EndInverse ();
+}
+X
+X
+void set_real_uid_gid ()
+{
+#if defined(BSD) && ! defined(SINIX)
+X	if (setreuid (tin_uid, real_uid) == -1) {
+X		error_message ("Error setreuid(real) failed", (char *) 0);
+X	}
+X	if (setregid (tin_gid, real_gid) == -1) {
+X		error_message ("Error setregid(real) failed", (char *) 0);
+X	}
+#else
+X	if (setuid (real_uid) == -1) {
+X		error_message ("Error setuid(real) failed", (char *) 0);
+X	}
+X	if (setgid (real_gid) == -1) {
+X		error_message ("Error setgid(real) failed", (char *) 0);
+X	}
+#endif
+}
+X
+X
+void set_tin_uid_gid ()
+{
+#if defined(BSD) && ! defined(SINIX)
+X	if (setreuid (real_uid, tin_uid) == -1) {
+X		error_message ("Error setreuid(tin) failed", (char *) 0);
+X	}
+X	if (setregid (real_gid, tin_gid) == -1) {
+X		error_message ("Error setregid(tin) failed", (char *) 0);
+X	}
+#else
+X	if (setuid (tin_uid) == -1) {
+X		error_message ("Error setuid(tin) failed", (char *) 0);
+X	}
+X	if (setgid (tin_gid) == -1) {
+X		error_message ("Error setgid(tin) failed", (char *) 0);
+X	}
+#endif
+}
+X
+X
+void notify_groups ()
+{
+X	char buf[LEN];
+X	FILE *fp;
+X	int group_not_found;
+X	int i, j, index;
+X	int num = 0;
+X	int update_old_active = FALSE;
+X	struct notify_t {
+X		char name[LEN];
+X		int len;
+X	} *old_active;
+X	
+X	set_real_uid_gid ();
+X	
+X	sprintf (buf, "%s/active", rcdir);
+X	
+X	if ((fp = fopen (buf, "r")) == NULL) {
+X		error_message (txt_cannot_open, buf);
+X		goto notify_groups_done;
+X	}
+X
+X	Raw (FALSE);
+X	
+X	printf ("Checking active list for new newsgroups...");
+X	fflush (stdout);
+X	
+X	old_active = (struct notify_t *) my_malloc ((unsigned) sizeof (struct notify_t) * num_active);
+X	if (old_active == (struct notify_t *) 0) {
+X		error_message (txt_out_of_memory, progname);
+X		goto notify_groups_done;
+X	}
+X	
+X	while (fgets (old_active[num].name, sizeof (old_active[num].name), fp) != NULL) {
+X		old_active[num].len = strlen (old_active[num].name)-1;
+X		old_active[num].name[old_active[num].len] = '\0';
+X		num++;
+X		if (num == num_active) {
+X			break;
+X		}
+X	}
+X
+X	for (i = 0 ; i < num_active ; i++) {	
+X		group_not_found = TRUE;
+X		for (j=0; j < num ; j++) {
+X			if (strncmp (old_active[j].name, active[i].name, old_active[j].len) == 0) {
+X				group_not_found = FALSE;		/* found it so read in next group */
+X				break;
+X			}
+X		}
+X
+X		if (group_not_found) {
+/*
+&& strlen (active[i].name) == old_active[j].len) {
+*/
+X			update_old_active = TRUE;
+X			printf ("\r\nSubscribe to %s (y/n): ", active[i].name);
+X			fflush (stdout);
+X			scanf ("%s", buf);
+X			if (buf[0] == 'y') {
+X				index = add_group (active[i].name, TRUE);
+X				subscribe (active[my_group[index]].name, ':',
+X					my_group[index], FALSE);
+X			}
+X			printf ("Checking...");
+X			fflush (stdout);
+X		}
+X	}
+X	fclose (fp);
+X
+X	if (old_active != (struct notify_t *) 0) {
+X		free ((char *) old_active);
+X		old_active = (struct notify_t *) 0;
+X	}
+X
+X	Raw (TRUE);
+X
+X	/*
+X	 *  write active[] to ~/.tin/active
+X	 */
+X	if (update_old_active) {
+X		backup_active (FALSE);
+X	}
+X
+notify_groups_done:
+X	set_tin_uid_gid ();
+}
+X
+X
+void basename (dirname, program)
+X	char *dirname;		/* argv[0] */
+X	char *program;		/* progname is returned */
+{
+X	int i;
+X	
+X	strcpy (program, dirname);
+X	
+X	for (i=(int) strlen (dirname)-1 ; i ; i--) {
+X		if (dirname[i] == '/') {
+X			strcpy (program, dirname+(i+1));
+X			break;
+X		}
+X	}
+}
+X
+X
+/*
+X *  Record size of mailbox so we can detect if new mail has arrived
+X */
+X
+void mail_setup ()
+{
+X	struct stat buf;
+X
+X	mailbox_name = get_val ("MAIL", mailbox);
+X
+X	if (stat (mailbox_name, &buf) >= 0) {
+X		mailbox_size = buf.st_size;
+X	} else {
+X		mailbox_size = 0;
+X	}
+}
+X
+/*
+X *  Return TRUE if new mail has arrived
+X */
+X
+int mail_check ()
+{
+X	struct stat buf;
+X
+X	if (mailbox_name != (char *) 0 &&
+X		stat(mailbox_name, &buf) >= 0 &&
+X		mailbox_size < buf.st_size) {
+X		return TRUE;
+X	}
+X
+X	return FALSE;
+}
+X
+/*
+X *  Parse various From: lines into the component mail addresses and
+X *  real names
+X */
+X
+void parse_from (str, addr, name)
+X	char *str;
+X	char *addr;
+X	char *name;
+{
+X	register int c;
+X	register char *cp, *ncp;
+X	int gotlt, lastsp, level;
+X
+X	gotlt = 0;
+X	lastsp = 0;
+X	cp = addr;
+X	ncp = name;
+X	while (*str == ' ')
+X		++str;
+X	while (c = *str++)
+X		switch (c) {
+X		case '(':
+X			ncp = name;
+X			level = 1;
+X			while (*str != '\0' && level) {
+X				switch (c = *str++) {
+X				case '(':
+X					*ncp++ = c;
+X					level++;
+X					break;
+X				case ')':
+X					level--;
+X					if (level > 0)
+X						*ncp++ = c;
+X					break;
+X				default:
+X					*ncp++ = c;
+X					break;
+X				}
+X			}
+X			if (*str)
+X				str++;
+X			lastsp = 0;
+X			break;
+X		case ' ':
+X			if (str[0] == 'a' && str[1] == 't' && str[2] == ' ')
+X				str += 3, *cp++ = '@';
+X			else if (str[0] == '@' && str[1] == ' ')
+X				str += 2, *cp++ = '@';
+X			else
+X				lastsp = 1;
+X			if (ncp > name)
+X				*ncp++ = ' ';
+X			break;
+X		case '<':
+X			cp = addr;
+X			gotlt++;
+X			lastsp = 0;
+X			break;
+X		case '>':
+X			if (gotlt)
+X				goto done;
+X			/* FALL THROUGH CASE */
+X		default:
+X			if (lastsp) {
+X				lastsp = 0;
+X				*cp++ = ' ';
+X			}
+X			*cp++ = c;
+X			if (! gotlt)
+X				*ncp++ = c;
+X			break;
+X		}
+done:
+X	*cp = 0;
+X	while (ncp>name && ncp[-1]==' ')
+X		--ncp;
+X	*ncp = 0;
+X	if (*addr == '@') {
+X		char buf [512];
+X
+X		strcpy (buf, addr);
+X		strcpy (addr, "root");
+X		strcat (addr, buf);
+X	}
+}
+X
+/*
+X *  Convert a string to a long, only look at first n characters
+X */
+X
+long my_atol (s, n)
+X	char *s;
+X	int n;
+{
+X	long ret = 0;
+X
+X	while (*s && n--) {
+X		if (*s >= '0' && *s <= '9')
+X			ret = ret * 10 + (*s - '0');
+X		else
+X			return -1;
+X		s++;
+X	}
+X
+X	return ret;
+}
+X
+/*
+X *  Return a pointer into s eliminating any leading Re:'s.  Example:
+X *
+X *	  Re: Reorganization of misc.jobs
+X *	  ^   ^
+X */
+X
+char *eat_re (s)
+X	char *s;
+{
+X
+X	while (*s == 'r' || *s == 'R') {
+X		if ((*(s+1) == 'e' || *(s+1) == 'E')) {
+X			if (*(s+2) == ':')
+X				s += 3;
+X			else if (*(s+2) == '^' && isdigit(*(s+3)) && *(s+4) == ':')
+X				s += 5;			/* hurray nn */
+X			else
+X				break;
+X		} else
+X			break;
+X		while (*s == ' ')
+X			s++;
+X	}
+X
+X	return s;
+}
+X
+/*
+X *  Hash the subjects (after eating the Re's off) for a quicker
+X *  thread search later.  We store the hashes for subjects in the
+X *  index file for speed.
+X */
+X
+long hash_s (s)
+X	char *s;
+{
+X	long h = 0;
+X	unsigned char *t = (unsigned char *) s;
+X
+X	while (*t)
+X		h = h * 64 + *t++;
+X
+X	return h;
+}
+X
+/*
+X *  strncpy that stops at a newline and null terminates
+X */
+X
+void my_strncpy(p, q, n)
+X	char *p;
+X	char *q;
+X	int n;
+{
+X	while (n--) {
+X		if (! *q || *q == '\n')
+X			break;
+X		*p++ = *q++;
+X	}
+X	*p = '\0';
+}
+X
+X
+int untag_all_articles ()
+{
+X	int untagged = FALSE;
+X	register int i;
+X
+X	for (i=0 ; i < top ; i++) {
+X		if (arts[i].tagged) {
+X			arts[i].tagged = FALSE;
+X			untagged = TRUE;
+X		}
+X	}
+X	num_of_tagged_files = 0;
+X
+X	return (untagged);
+}
+X
+X
+/*
+X * ANSI C strstr () - Uses Boyer-Moore algorithm. Downloaded from net.
+X */
+X 
+char *str_str (text, pattern, patlen)
+X	char *text;
+X	char *pattern;
+X	int patlen;
+{
+X	register unsigned char *p, *t;
+X	register int i, p1, j, *delta;
+X	int deltaspace[256];
+X	int textlen;
+X
+X	textlen = strlen (text);
+X
+X	/* algorithm fails if pattern is empty */
+X	if ((p1 = patlen) == 0)
+X		return (text);
+X
+X	/* code below fails (whenever i is unsigned) if pattern too long */
+X	if (p1 > textlen)
+X		return (NULL);
+X
+X	/* set up deltas */
+X	delta = deltaspace;
+X	for (i = 0; i <= 255; i++)
+X		delta[i] = p1;
+X	for (p = (unsigned char *) pattern, i = p1; --i > 0;)
+X		delta[*p++] = i;
+X
+X	/*
+X	 * From now on, we want patlen - 1.
+X	 * In the loop below, p points to the end of the pattern,
+X	 * t points to the end of the text to be tested against the
+X	 * pattern, and i counts the amount of text remaining, not
+X	 * including the part to be tested.
+X	 */
+X	p1--;
+X	p = (unsigned char *) pattern + p1;
+X	t = (unsigned char *) text + p1;
+X	i = textlen - patlen;
+X	for (;;) {
+X		if (*p == *t && memcmp((p - p1), (t - p1), p1) == 0)
+X			return ((char *)t - p1);
+X		j = delta[*t];
+X		if (i < j)
+X			break;
+X		i -= j;
+X		t += j;
+X	}
+X	return (NULL);
+}
+X
+X
+void get_author (thread, respnum, str)
+X	int thread;
+X	int respnum;
+X	char *str;
+{	
+X	extern int threaded_on_subject;
+X	int author;
+X	int len_from = max_from;
+X	
+X	if (thread) {
+X		if (threaded_on_subject) {
+X			len_from = max_subj+max_from;
+X		} else {
+X			len_from = max_from;
+X		}
+X		author = SHOW_FROM_BOTH;
+X	} else {
+X		author = show_author;
+X	}
+X
+X	switch (author) {
+X		case SHOW_FROM_ADDR:
+X			my_strncpy (str, arts[respnum].from, len_from);
+X			break;
+X		case SHOW_FROM_NAME:
+X			my_strncpy (str, arts[respnum].name, len_from);
+X			break;
+X		case SHOW_FROM_BOTH:
+X			if (arts[respnum].name != arts[respnum].from) { 
+X				sprintf (msg, "%s (%s)", arts[respnum].name, arts[respnum].from);
+X				my_strncpy (str, msg, len_from);
+X			} else { 
+X				my_strncpy (str, arts[respnum].from, len_from);
+X			}
+X			break;
+X	}
+}
+X
+X
+void toggle_inverse_video ()
+{
+X	inverse_okay = !inverse_okay;
+X	if (inverse_okay) {
+#ifndef USE_INVERSE_HACK	
+X		draw_arrow_mark = FALSE;
+#endif		
+X		info_message (txt_inverse_on);
+X	} else {
+X		draw_arrow_mark = TRUE;
+X		info_message (txt_inverse_off);
+X	}
+}
+X
+X
+int get_arrow_key ()
+{
+X	int ch;
+X	
+X	ch = ReadCh ();
+X	if (ch == '[' || ch == 'O')
+X		ch = ReadCh();
+X	switch (ch) {
+X		case 'A':
+X		case 'D':
+X		case 'i':
+X			return KEYMAP_UP;
+X
+X		case 'B':
+X		case 'C':
+X			return KEYMAP_DOWN;
+X
+X		case 'I':		/* ansi  PgUp */
+X		case 'V':		/* at386 PgUp */
+X		case 'S':		/* 97801 PgUp */
+X		case 'v':		/* emacs style */
+X			return KEYMAP_PAGE_UP;
+X
+X		case 'G':		/* ansi  PgDn */
+X		case 'U':		/* at386 PgDn */
+X		case 'T':		/* 97801 PgDn */
+X			return KEYMAP_PAGE_DOWN;
+X
+X		case 'H':		/* at386  Home */
+X			return KEYMAP_HOME;
+X					
+X		case 'F':		/* ansi  End */
+X		case 'Y':		/* at386  End */
+X			return KEYMAP_END;
+X
+X		default:
+X			return KEYMAP_UNKNOWN;
+X	}
+}
+SHAR_EOF
+chmod 0600 misc.c ||
+echo 'restore of misc.c failed'
+Wc_c="`wc -c < 'misc.c'`"
+test 19128 -eq "$Wc_c" ||
+	echo 'misc.c: original size 19128, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= newsrc.c ==============
+if test -f 'newsrc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping newsrc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting newsrc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'newsrc.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : newsrc.c
+X *  Author    : R.Skrenta / I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 15-12-91
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Rich Skrenta & Iain Lea
+X *	            You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+X
+/*
+X * make a backup of users .newsrc in case of the bogie man
+X */
+X
+void backup_newsrc ()
+{
+X	char buf[8192];
+X	FILE *fp_newsrc, *fp_backup;
+X	
+X	set_real_uid_gid ();
+X
+X	if ((fp_newsrc = fopen (newsrc, "r")) != NULL) {
+X		sprintf (buf, "%s/.oldnewsrc", homedir);
+X		unlink (buf);	/* because rn makes a link of .newsrc -> .oldnewsrc */
+X		if ((fp_backup = fopen (buf, "w")) != NULL) {
+X			while (fgets (buf, sizeof (buf), fp_newsrc) != NULL) {
+X				fputs (buf, fp_backup);
+X			}
+X			fclose (fp_backup);
+X		}
+X		fclose (fp_newsrc);
+X	}
+X
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Read $HOME/.newsrc into my_group[]. my_group[] ints point to
+X *  active[] entries.  Sub_only determines  whether we just read
+X *  subscribed groups or all of them.
+X */
+X
+void read_newsrc (sub_only)
+X	int sub_only;		/* TRUE=subscribed groups only, FALSE=all groups */
+{
+X	char c, *p, buf[8192];
+X	char old_groups[LEN];
+X	FILE *fp, *fp_old;
+X	int i;
+X	int remove_old_groups = FALSE;
+X
+X	group_top = 0;
+X
+X	set_real_uid_gid ();
+X	
+X	if ((fp = fopen (newsrc, "r")) == NULL) {  /* attempt to make a .newsrc */
+X		for (i = 0; i < num_active; i++) {
+X			if (group_top >= max_active) {
+X				expand_active ();
+X			}
+X			my_group[group_top] = i;
+X			active[i].flag = 0;
+X			unread[group_top] = -1;
+X			group_top++;
+X		}
+X		write_newsrc ();
+X		return;
+X	}
+X
+X	sprintf (old_groups, "%s/.newsrc.%d", homedir, getpid ());
+X
+X	while (fgets (buf, sizeof buf, fp) != NULL) {
+X		p = buf;
+X		while (*p && *p != '\n' && *p != ' ' && *p != ':' && *p != '!')
+X			p++;
+X		c = *p;
+X		*p++ = '\0';
+X
+X		if (c == '!' && sub_only)
+X			continue;		/* unsubscribed */
+X
+#ifdef XXX
+X		if (strncmp ("options ", buf, 8) == 0)
+X			continue;		/* options line */
+#endif
+X
+X		if ((i = add_group (buf, FALSE)) < 0) {
+X			if (! remove_old_groups) {
+X				if ((fp_old = fopen (old_groups, "w")) == NULL) {
+X					error_message (txt_cannot_open, old_groups);
+X				    continue;
+X				}
+X				remove_old_groups = TRUE;
+X			}
+X		    fprintf (fp_old, "%s\n", buf);
+X		    continue;
+X		}
+X
+X		if (c != '!')		/* if we're subscribed to it */
+X			active[my_group[i]].flag |= SUBSCRIBED;
+X
+X		unread[i] = parse_unread (p, my_group[i]);
+X	}
+X	fclose (fp);
+X
+X	/*
+X	 *  rewrite newsrc to get rid of any non-existant groups 
+X	 */
+X	if (remove_old_groups) {
+X		fclose (fp_old);
+X		rewrite_newsrc ();
+X	}
+X
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Write a new newsrc from my_group[] and active[] mygroup if
+X *  rewriting to get rid of groups that don't exist any longer. Used
+X *  to a create a new .newsrc if there isn't one already, or when
+X *  the newsrc is reset.
+X */
+X
+void write_newsrc ()
+{
+X	FILE *fp;
+X	int i;
+X
+X	set_real_uid_gid ();
+X
+X	if ((fp = fopen (newsrc, "w")) == NULL) {
+X		set_tin_uid_gid ();
+X		return;
+X	}
+X
+X	wait_message (txt_creating_newsrc);
+X
+X	for (i=0 ; i < num_active ; i++) {
+X		fprintf (fp, "%s! \n", active[i].name);
+X	}
+X
+X	fclose (fp);
+X
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Rewrite newsrc to get rid of groups that don't exist any longer.
+X */
+X
+void rewrite_newsrc ()
+{
+X	char buf[8192], old[LEN];
+X	char old_groups[LEN];
+X	FILE *fp, *fp_old, *fp_new;
+X	int found_old_group, len;	
+X
+X	set_real_uid_gid ();
+X
+X	sprintf (old_groups, "%s/.newsrc.%d", homedir, getpid ());
+X
+X	if ((fp = fopen (newsrc, "r")) == NULL)
+X		goto removed_old_groups_done;
+X
+X	if ((fp_old = fopen (old_groups, "r")) == NULL)
+X		goto removed_old_groups_done;
+X
+X	if ((fp_new = fopen (newnewsrc, "w")) == NULL)
+X		goto removed_old_groups_done;
+X
+X	while (fgets (buf, sizeof buf, fp) != NULL) {			/* read group from newsrc */
+X		rewind (fp_old);
+X		found_old_group = FALSE;	
+X		while (fgets (old, sizeof old, fp_old) != NULL) {	/* read group from oldgroups */
+X			len = strlen (old)-1;
+X			if ((buf[len] == ':' || buf[len] == '!') &&
+X				strncmp (buf, old, len) == 0) {
+X				old[len] = '\0';
+X			    fprintf (stderr, txt_not_in_active_file, old);
+X			    fprintf (stderr, ". Deleting.\r\n");
+X				fflush (stderr);
+X				found_old_group = TRUE;	
+X			}
+X		}
+X		if (! found_old_group) {
+X			fprintf (fp_new, "%s", buf);
+X		}
+X	}
+X	
+X	fclose (fp);
+X	fclose (fp_old);
+X	fclose (fp_new);
+X
+X	rename_file (newnewsrc, newsrc);
+X
+removed_old_groups_done:
+X	unlink (old_groups);
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Load the sequencer rang lists and mark arts[] according to the
+X *  .newsrc info for a particular group.  i.e.  rec.arts.comics: 1-94,97
+X */
+X
+void read_newsrc_line (group)
+X	char *group;
+{
+X	FILE *fp;
+X	char buf[8192];
+X	char *p;
+X
+X	if ((fp = fopen (newsrc, "r")) == NULL)
+X		return;
+X
+X	while (fgets (buf, sizeof buf, fp) != NULL) {
+X		p = buf;
+X		while (*p && *p != '\n' && *p != ' ' && *p != ':' && *p != '!')
+X			p++;
+X		*p++ = '\0';
+X		if (strcmp (buf, group) != 0)
+X			continue;
+X		parse_seq (p);
+X		break;
+X	}
+X
+X	fclose (fp);
+}
+X
+/*
+X *  For our current group, update the sequencer information in .newsrc
+X */
+X
+void update_newsrc (group, groupnum, mark_unread)
+X	char *group;
+X	int groupnum;			/* index into active[] for this group */
+X	int mark_unread;
+{
+X	FILE *fp;
+X	FILE *newfp;
+X	char buf[8192];
+X	char *p;
+X	char c;
+X
+X	set_real_uid_gid ();
+X
+X	if ((newfp = fopen (newnewsrc, "w")) == NULL)
+X		goto update_done;
+X
+X	if ((fp = fopen (newsrc, "r")) != NULL) {
+X		while (fgets (buf, sizeof buf, fp) != NULL) {
+X			for (p = buf; *p; p++)
+X				if (*p == '\n') {
+X					*p = '\0';
+X					break;
+X				}
+X
+X			p = buf;
+X			while (*p && *p != ' ' && *p != ':' && *p != '!')
+X					p++;
+X			c = *p;
+X			if (c != '\0')
+X				*p++ = '\0';
+X
+X			if (c != '!' && c != ' ')
+X				c = ':';
+X
+X			if (strcmp (buf, group) == 0) {
+X				if (mark_unread) {
+X					fprintf (newfp, "%s%c\n", buf, c);
+X				} else {
+X					fprintf (newfp, "%s%c ", buf, c);
+X					print_seq (newfp, groupnum);
+X					fprintf (newfp, "\n");
+X				}
+X			} else
+X				fprintf (newfp, "%s%c%s\n", buf, c, p);
+X		}
+X		fclose (fp);
+X	}
+X
+X	fclose (newfp);
+X	rename_file (newnewsrc, newsrc);
+X
+update_done:
+X	set_tin_uid_gid ();
+}
+X
+/*
+X *  Subscribe/unsubscribe to a group in .newsrc.  ch should either be
+X *  '!' to unsubscribe or ':' to subscribe.  num is the group's index
+X *  in active[].
+X */
+X
+void subscribe (group, ch, num, out_seq)
+X	char *group;
+X	char ch;
+X	int num;
+X	int out_seq;				/* output sequencer info? */
+{
+X	FILE *fp;
+X	FILE *newfp;
+X	char buf[8192];
+X	char *p;
+X	char c;
+X	int gotit = FALSE;
+X
+X	if (ch == '!')
+X		active[num].flag &= ~SUBSCRIBED;
+X	else
+X		active[num].flag |= SUBSCRIBED;
+X
+X	set_real_uid_gid ();
+X
+X	if ((newfp = fopen (newnewsrc, "w")) == NULL)
+X		goto subscribe_done;
+X
+X	if ((fp = fopen (newsrc, "r")) != NULL) {
+X		while (fgets (buf, sizeof buf, fp) != NULL) {
+X			if (strncmp ("options ", buf, 8) == 0) {
+X				fprintf (newfp, buf);
+X			} else {
+X				for (p = buf; *p; p++) {
+X					if (*p == '\n') {
+X						*p = '\0';
+X						break;
+X					}
+X				}	
+X
+X				p = buf;
+X				while (*p && *p != ' ' && *p != ':' && *p != '!')
+X						p++;
+X				c = *p;
+X				if (c != '\0')
+X					*p++ = '\0';
+X
+X				if (c != '!')
+X					c = ':';
+X
+X				if (strcmp (buf, group) == 0) {
+X					fprintf (newfp, "%s%c%s\n", buf, ch, p);
+X					gotit = TRUE;
+X				} else {
+X					fprintf (newfp, "%s%c%s\n", buf, c, p);
+X				}
+X			}
+X		}
+X		fclose (fp);
+X	}
+X
+X	if (! gotit) {
+X		if (out_seq) {
+X			fprintf (newfp, "%s%c ", group, ch);
+X			print_seq (newfp, num);
+X			fprintf (newfp, "\n");
+X		} else
+X			fprintf (newfp, "%s%c\n", group, ch);
+X	}
+X
+X	fclose (newfp);
+X	rename_file (newnewsrc, newsrc);
+X
+subscribe_done:
+X	set_tin_uid_gid ();
+}
+X
+X
+void reset_newsrc ()
+{
+X	FILE *fp;
+X	FILE *newfp;
+X	char buf[8192];
+X	char *p;
+X	char c;
+X	int i;
+X
+X	set_real_uid_gid ();
+X
+X	if ((newfp = fopen (newnewsrc, "w")) == NULL)
+X		goto update_done;
+X
+X	if ((fp = fopen (newsrc, "r")) != NULL) {
+X		while (fgets (buf, sizeof (buf), fp) != NULL) {
+X			for (p = buf; *p && *p != '\n'; p++)
+X				continue;
+X			*p = '\0';
+X
+X			p = buf;
+X			while (*p && *p != ' ' && *p != ':' && *p != '!')
+X					p++;
+X			c = *p;
+X			if (c != '\0')
+X				*p++ = '\0';
+X
+X			if (c != '!')
+X				c = ':';
+X
+X			fprintf (newfp, "%s%c\n", buf, c);
+X		}
+X		fclose (fp);
+X	}
+X
+X	fclose (newfp);
+X	rename_file (newnewsrc, newsrc);
+X
+update_done:
+X	set_tin_uid_gid ();
+X
+X	for (i = 0; i < group_top; i++)
+X		unread[i] = -1;
+}
+X
+X
+void delete_group (group)
+X	char *group;
+{
+X	FILE *fp;
+X	FILE *newfp;
+X	char buf[8192];
+X	char *p;
+X	char c;
+X	int gotit = FALSE;
+X	FILE *del;
+X
+X	set_real_uid_gid ();
+X
+X	if ((newfp = fopen (newnewsrc, "w")) == NULL)
+X		goto del_done;
+X
+X	if ((del = fopen (delgroups, "a+")) == NULL)
+X		goto del_done;
+X
+X	if ((fp = fopen (newsrc, "r")) != NULL) {
+X		while (fgets (buf, sizeof (buf), fp) != NULL) {
+X			for (p = buf; *p && *p != '\n'; p++)
+X				continue;
+X			*p = '\0';
+X
+X			p = buf;
+X			while (*p && *p != ' ' && *p != ':' && *p != '!')
+X					p++;
+X			c = *p;
+X			if (c != '\0')
+X				*p++ = '\0';
+X
+X			if (c != '!')
+X				c = ':';
+X
+X			if (strcmp (buf, group) == 0) {
+X				fprintf (del, "%s%c%s\n", buf, c, p);
+X				gotit = TRUE;
+X			} else
+X				fprintf (newfp, "%s%c%s\n", buf, c, p);
+X		}
+X		fclose (fp);
+X	}
+X
+X	fclose (newfp);
+X
+X	if (! gotit)
+X		fprintf (del, "%s! \n", group);
+X
+X	fclose (del);
+X	rename_file (newnewsrc, newsrc);
+X
+del_done:
+X	set_tin_uid_gid ();
+}
+X
+X
+int undel_group ()
+{
+X	FILE *del;
+X	FILE *newfp;
+X	FILE *fp;
+X	char buf[2][8192];
+X	char *p;
+X	int which = 0;
+X	long h;
+X	extern int cur_groupnum;
+X	int i, j;
+X	char c;
+X
+X	set_real_uid_gid ();
+X
+X	if ((del = fopen(delgroups, "r")) == NULL) {
+X		set_tin_uid_gid ();
+X		return FALSE;
+X	}
+X
+X	unlink(delgroups);
+X	
+X	if ((newfp = fopen(delgroups, "w")) == NULL) {
+X		set_tin_uid_gid ();
+X		return FALSE;
+X	}
+X
+X	buf[0][0] = '\0';
+X	buf[1][0] = '\0';
+X
+X	while (fgets(buf[which], sizeof (buf[which]), del) != NULL) {
+X		which = !which;
+X		if (*buf[which])
+X			fputs(buf[which], newfp);
+X	}
+X
+X	fclose(del);
+X	fclose(newfp);
+X	which = !which;
+X
+X	if (!*buf[which]) {
+X		set_tin_uid_gid ();
+X		return FALSE;
+X	}
+X
+X	for (p = buf[which]; *p && *p != '\n'; p++)
+X		continue;
+X	*p = '\0';
+X
+X	p = buf[which];
+X	while (*p && *p != ' ' && *p != ':' && *p != '!')
+X		p++;
+X	c = *p;
+X	if (c != '\0')
+X		*p++ = '\0';
+X
+X	if (c != '!')
+X		c = ':';
+X
+X	h = hash_groupname (buf[which]);
+X
+X	for (i = group_hash[h]; i >= 0; i = active[i].next) {
+X		if (strcmp(buf[which], active[i].name) == 0) {
+X			for (j = 0; j < group_top; j++)
+X				if (my_group[j] == i) {
+X					set_tin_uid_gid ();
+X					return j;
+X				}
+X
+X			active[i].flag &= ~UNSUBSCRIBED;   /* mark that we got it */
+X			if (c != '!')
+X				active[i].flag |= SUBSCRIBED;
+X
+X			if (group_top >= max_active)
+X				expand_active();
+X			group_top++;
+X			for (j = group_top; j > cur_groupnum; j--) {
+X				my_group[j] = my_group[j-1];
+X				unread[j] = unread[j-1];
+X			}
+X			my_group[cur_groupnum] = i;
+X			unread[cur_groupnum] = parse_unread(p, i);
+X
+X			if ((fp = fopen(newsrc, "r")) == NULL) {
+X				set_tin_uid_gid ();
+X				return FALSE;
+X			}
+X			if ((newfp = fopen(newnewsrc, "w")) == NULL) {
+X				fclose(fp);
+X				set_tin_uid_gid ();
+X				return FALSE;
+X			}
+X			i = 0;
+X			while (fgets(buf[!which], sizeof (buf[!which]), fp) != NULL) {
+X				for (p = buf[!which]; *p && *p != '\n'; p++)
+X					continue;
+X				*p = '\0';
+X
+X				p = buf[!which];
+X				while (*p && *p!=' ' && *p != ':' && *p != '!')
+X					p++;
+X				c = *p;
+X				if (c != '\0')
+X					*p++ = '\0';
+X
+X				if (c != '!')
+X					c = ':';
+X
+X				while (i < cur_groupnum) {
+X					if (strcmp(buf[!which],
+X					  active[my_group[i]].name) == 0) {
+X						fprintf(newfp, "%s%c%s\n",
+X							buf[!which], c, p);
+X						goto foo_cont;
+X					}
+X					i++;
+X				}
+X				fprintf(newfp, "%s%c%s\n", buf[which], c, p);
+X				fprintf(newfp, "%s%c%s\n", buf[!which], c, p);
+X				break;
+foo_cont:;
+X			}
+X
+X			while (fgets (buf[!which], sizeof (buf[!which]), fp) != NULL)
+X				fputs (buf[!which], newfp);
+X
+X			fclose (newfp);
+X			fclose (fp);
+X			rename_file (newnewsrc, newsrc);
+X			set_tin_uid_gid ();
+X			return TRUE;
+X		}
+X	}
+X	set_tin_uid_gid ();
+X
+X	return FALSE;
+}
+X
+X
+void mark_group_read (group, groupnum)
+X	char *group;
+X	int groupnum;			/* index into active[] for this group */
+{
+X	FILE *fp;
+X	FILE *newfp;
+X	char buf[8192];
+X	char *p;
+X	char c;
+X
+X	if (active[groupnum].max < 2)
+X		return;
+X
+X	set_real_uid_gid ();
+X
+X	if ((newfp = fopen (newnewsrc, "w")) == NULL)
+X		goto mark_group_read_done;
+X
+X	if ((fp = fopen (newsrc, "r")) != NULL) {
+X		while (fgets(buf, sizeof (buf), fp) != NULL) {
+X			for (p = buf; *p; p++)
+X				if (*p == '\n') {
+X					*p = '\0';
+X					break;
+X				}
+X
+X			p = buf;
+X			while (*p && *p != ' ' && *p != ':' && *p != '!')
+X					p++;
+X			c = *p;
+X			if (c != '\0')
+X				*p++ = '\0';
+X
+X			if (c != '!')
+X				c = ':';
+X
+X			if (strcmp (buf, group) == 0) {
+X				fprintf (newfp, "%s%c 1-%ld\n", buf, c, active[groupnum].max);
+X			} else
+X				fprintf(newfp, "%s%c%s\n", buf, c, p);
+X		}
+X		fclose (fp);
+X	}
+X
+X	fclose (newfp);
+X	rename_file (newnewsrc, newsrc);
+X
+mark_group_read_done:
+X	set_tin_uid_gid ();
+}
+X
+X
+void parse_seq(s)
+X	char *s;
+{
+X	long low, high;
+X	int i;
+X
+X	while (*s) {
+X		while (*s && (*s < '0' || *s > '9'))
+X			s++;
+X
+X		if (*s && *s >= '0' && *s <= '9') {
+X			low = (long) atol (s);
+X			while (*s && *s >= '0' && *s <= '9')
+X				s++;
+X			if (*s == '-') {
+X				s++;
+X				high = (long) atol (s);
+X				while (*s && *s >= '0' && *s <= '9')
+X					s++;
+X			}  else
+X				high = low;
+X
+X			for (i = 0; i < top; i++)
+X				if (arts[i].artnum >= low && arts[i].artnum <= high)
+X					arts[i].unread = ART_READ;
+X		}
+X	}
+}
+X
+X
+int parse_unread (s, groupnum)
+X	char *s;
+X	int groupnum;			/* index for group in active[] */
+{
+X	long low, high;
+X	long last_high;
+X	int sum = 0;
+X	int gotone = FALSE;
+X	int n;
+X
+/*
+X *  Read the first range from the .newsrc sequencer information.  If the
+X *  top of the first range is higher than what the active file claims is
+SHAR_EOF
+true || echo 'restore of newsrc.c failed'
+fi
+echo 'End of tin1.1 part 6'
+echo 'File newsrc.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea
+EMAIL  iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE
+SNAIL  Bruecken Strasse 12, 8500 Nuernberg 90, Germany
+PHONE  +49-911-331963 (home)  +49-911-3089-407 (work)
+-- 
+ Dr. med. dipl.-math Dieter Becker           Tel.: (0 / +49) 6841 - 16 3046
+ Medizinische Universitaets- und Poliklinik  Fax.: (0 / +49) 6841 - 16 3369
+ Innere Medizin III                         
+ D - 6650 Homburg / Saar                     Email: becker@med-in.uni-sb.de
+exit 0 # Just in case...

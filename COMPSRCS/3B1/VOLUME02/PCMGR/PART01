@@ -1,0 +1,1862 @@
+Path: comp-sources-3b1
+From: davegalaxia.network23.com (David H. Brierley)
+Subject:  v02i017:  pcmgr: replacement status and window manager, Part01/03
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 6c85d2cd 702496d8 dea7b359 4ab2f9dd
+
+Submitted-by: davegalaxia.network23.com (David H. Brierley)
+Posting-number: Volume 2, Issue 17
+Archive-name: pcmgr/part01
+
+This is the replacement for the status manager (smgr) and the window
+manager (wmgr) that I have alluded to several times in the past.  I
+would probably still consider this software to be at the beta-test
+level, but the program is pretty solid and well tested.  In it's basic
+form, I have been running this software for almost 3 years on my 3b1.
+During that time it has undergone sporadic development to incorporate
+things like the /dev/error processing and the pcal alarm handling.
+
+Read the README and INSTALL files for all the sordid details, try out
+the program on your machine, and send me any suggestions you have for
+making it better.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 3)."
+# Contents:  INSTALL MANIFEST Makefile README config.dist display.c
+#   getid.c pcmgr.c pcmgr.h
+# Wrapped by dave@galaxia on Tue Jul 14 21:15:42 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+echo shar: Extracting \"'INSTALL'\" \(1456 characters\)
+sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+XInstallation instructions for the pcmgr program.
+X
+X0. Read the README file before proceeding.
+X
+X1. Copy config.dist to config.h
+X
+X2. Edit config.h to select the compile time options which best
+X   suit your likings.
+X
+X3. Edit Makefile to make sure everything is correct for your system.
+X
+X4. Type make.
+X
+X5. Install the pcmgr binary either in /etc or in /etc/daemons.
+X
+X6. Edit the /etc/rc file so that the wmgr and smgr are no longer
+X   started.  It is also recommended that you not run the phmgr
+X   program.  Make sure that a cron program is being started, either
+X   the standard cron that comes with the system or one of the
+X   replacement cron programs.  If you installed pcmgr in the
+X   /etc/daemons directory then no further changes are required.  If
+X   you installed pcmgr in the /etc/directory, add a line to the rc
+X   file to start the program.  No command line arguments are required
+X   and an ampersand at the end of the line is not required either.
+X
+X7. Double check the changes you have just made to /etc/rc.
+X
+X8. Triple check the changes.  This is very important because if you
+X   screw this up you could have problems rebooting your machine.
+X
+X9. Reboot the machine.
+X
+X10. Go back and read the README file again.
+X
+X
+XI will admit that step number 6 is a vague blob and it could probably
+Xbe done a lot nicer.  On the other hand, if you are not comfortable
+Xwith editing the /etc/rc file then you probably should have someone
+Xhelp you with this step anyway.
+END_OF_FILE
+if test 1456 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+fi
+# end of 'INSTALL'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(530 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X INSTALL                    1	
+X MANIFEST                   1	
+X Makefile                   1	
+X README                     1	
+X config.dist                1	
+X display.c                  1	
+X getid.c                    1	
+X hotkey.c                   2	
+X loadavgd.c                 2	
+X pcmgr.c                    1	
+X pcmgr.h                    1	
+X subr.c                     2	
+X sysinfo.c                  3	
+X windows.c                  2	
+END_OF_FILE
+if test 530 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(1759 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X##########################################################################
+X# Makefile for pcmgr program                                             #
+X# Copyright 1992 David H. Brierley, All rights reserved                  #
+X##########################################################################
+X
+X# Configuration Section
+X
+X# this programs requires an ANSI C compiler
+X# compile time options are controlled by editing the config.h file
+XCC	= gcc
+XOPTIMIZE= # -O
+XDEBUG	= # -g
+XCFLAGS	= -fpcc-struct-return -fstrength-reduce $(OPTIMIZE) $(DEBUG)
+X
+X# on my system, -lgnu contain the gnulib stuff, -ltam contains the 3.51m
+X# version of the tam routines, and -lutmp contain the 3.51m version of
+X# the getutent routines.  modify as appropriate for your system.
+XLIBS	= -lgnu -ltam -lutmp
+X
+X# link using ccc to get the shared library.  alternatives are using gcc
+X# with the -shlib option or using ld directly.
+XLD	= ccc
+XLDFLAGS	=
+X
+X# --- End of user configurable items ---
+X
+XPCMGR	= pcmgr.o display.o getid.o hotkey.o subr.o sysinfo.o windows.o
+X
+Xpcmgr:	$(PCMGR)
+X	$(LD) $(LDFLAGS) $(PCMGR) $(LIBS)
+X	mv a.out $@
+X
+Xloadavgd: loadavgd.o
+X	$(LD) $(LDFLAGS) loadavgd.o $(LIBS)
+X	mv a.out $@
+X
+X$(PCMGR): config.h pcmgr.h
+X
+X# pcmgr.h must be rebuilt if you change the arguments to any procedure or
+X# if you add or delete a procedure. this is normally only used if you are
+X# doing active development of the code.  this target has no dependencies
+X# and thus will never be built by default.  if it needs to be built, gcc
+X# should complain violently because the function prototypes will be wrong.
+Xpcmgr.h:
+X	mkptypes -A `echo $(PCMGR) | sed -e 's/\.o/.c/g'` > temp.h
+X	if cmp -s pcmgr.h temp.h; then rm temp.h; else mv temp.h pcmgr.h; fi
+X
+Xclean:
+X	rm -f $(PCMGR) pcmgr loadavgd.o loadavgd core
+END_OF_FILE
+if test 1759 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(12740 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XREADME file for "pcmgr" program.
+X
+XWritten by David H. Brierley, with a few bits and pieces borrowed from others.
+XAppropriate credit is noted in the individual source files.
+X
+XCopyright 1992 David H. Brierley, All rights reserved.
+X
+X(copyright obviously does not apply to those source modules which were written
+Xby other people.)
+X
+X
+XThis is the "pcmgr" program.  It's purpose is to manage the windows and status
+Xlines on a PC7300/3B1 computer.  It replaces most of the functions of the "wmgr"
+Xand "smgr" programs.  The one function that I know of that it is not intended to
+Xreplace is the "cron" function.  For that you should either use the cron program
+Xthat is supplied with the machine or get one of the replacement cron programs.
+X(I personally use the cron replacement program that was written by Paul Vixie)
+X
+XThis program also incorporates the functionality of the "hotkey" program which
+Xwas written by me and released several years back, and the "sysinfo" program
+Xwhich was originally written by Lenny Tropiano.
+X
+XThis program utilizes the entire top status line and registers for control of
+Xthe various function keys.  As a result, it should not be run in conjunction
+Xwith the phone manager (phmgr) or any other program which attempts to write on
+Xthe top status line.
+X
+XThe following description of the program operation assumes that all of the
+Xdefault options were selected at compile time.  Read the config.dist file for
+Xinformation about customizing the appearance and operation of this program.
+X
+X
+X********** The displays:  **********
+X
+XThe top status line is split into three primary sections.  The center section
+Xcontains the current date and time.  The section to the left of this contains
+Xthe current window number and the title of that window.  For example, as I am
+Xediting this file the status line contains the following information:  "w2 Edit:
+XREADME".  To the right of the date will be a series of icons.  The first icon
+Xwill look like an envelope and will cause the mail program to be run when you
+Xclick on it with the mouse.  I recommend getting the "email" program for this
+Xpurpose.  The next icon will be a box that contains the word "login:".  Clicking
+Xon this icon will cause a new full-screen window with a login prompt to be
+Xcreated.  The "window" program, which was posted to the old unix-pc.sources
+Xgroup, is used to create this window.  If you need a copy of "window" let me
+Xknow and I will send it to you.  The next icon on the display will look like a
+Xsmall calendar (if you use your imagination), and clicking on it will cause the
+X"pcal" program to be run.  If there are any messages to be displayed (see
+Xbelow), next there will be a box with the word "Msgs" in it.  Clicking on this
+Xbox will cause your messages to be displayed.  Finally, to the far right of the
+Xscreen will be a box containing the letter F. If you have more than one
+Xpartition mounted, clicking on this icon will control which partition is
+Xdisplayed on the bottom status line.  This icon can also be configured to
+Xdisplay a list of user definable functions.
+X
+XThe next to the bottom line displays a list of what users are logged in, how
+Xmany mail messages each logged in user has, what the current "load average" is
+X(requires use of the "loadavgd" program, a copy of which is supplied with this
+Xprogram), and the length of time that the system has been up.
+X
+XThe very bottom line contains information about the currently selected file
+Xsystem, as well as information about currently available swap space and memory.
+XThe file system information includes the number of blocks and inodes for the
+Xfile system, either the amount used or the amount free.  These numbers are then
+Xfollowed by either the total number of blocks and inodes or a percentage.  Refer
+Xto config.h for information on how to select these options.
+X
+XThe next release of this program will probably contain options for a variety of
+Xdisplay formats on the bottom status lines.
+X
+X
+X********* Using the mouse **********
+X
+XThe pcmgr uses all three of the mouse buttons to perform different actions.
+XMouse button presses are only recognized when the mouse pointer is located in
+Xthe status line at the top of the screen.
+X
+XButton 1 (left button):  pressing B1 when the mouse pointer is positioned over
+Xone of the icons will cause the action indicated by that icon to be performed.
+XIf the mouse pointer is not located over one of the icons, the bell will be
+Xrung.
+X
+XButton 2 (middle button):  pressing B2 will toggle the visibility of the mouse
+Xpointer.  This only affects the mouse pointer visibility while the mouse pointer
+Xis positioned on the status line.  If you move the mouse pointer into one of the
+Xwindows then mouse pointer visibility is controlled by that window.  Mouse
+Xpointer visibility is turned on by default.  Making the mouse pointer
+Xinvisible seems to speed up various screen functions such as scrolling and
+Xredraw.  This can be very helpful when you are using the modem to dial into
+Xanother system.
+X
+XButton 3 (right button):  pressing B3 will cause a menu of user defined
+Xfunctions to be displayed.  User defined functions are described below under the
+Xheading "hotkey operations".  The displayed list of functions will also include
+Xentries for reading mail, creating a login window, and reading messages.
+X
+X
+X********** Mouse pointer bitmap **********
+X
+XWhen the mouse pointer is located in the status line, the shape will change from
+Xthe default arrow shape so a small rectangular box.  This is done for two
+Xreasons.  First, it makes the pointer bitmap fit completely within the status
+Xline.  Second, it makes it visibly apparrent as to whether or not the mouse
+Xpointer is at the very edge of the window or actually positioned on the status
+Xline.
+X
+X
+X********** Keyboard special key processing **********
+X
+XSince the pcmgr program is intended to replace the wmgr and smgr programs, it
+Xwas designed to process the various special keyboard commands that were
+Xpreviously processed by those two programs.  In particular, it supports the
+Xfollowing special keys by performing the action indicated:
+X
+XSuspd, Rsume - pressing either Suspd or Rsume will cause a list of currently
+Xavailable windows to be displayed, with the currently active window being
+Xhiglighted as the default choice.  You may then use the arrow keys to directly
+Xselect any window to become the new active window.
+X
+Xs-Suspd, s-Rsume - pressing either shift-Suspd or shift-Rsume will cause either
+Xthe next window in the list or the previous window in the list to become the new
+Xactive window.  s-Suspd selects the previous window and s-Rsume selects the next
+Xwindow.  The list of available windows is always maintained in window number
+Xorder.
+X
+XMsg, s-Msg - pressing either Msg or shift-Msg will cause any currently available
+Xmessages to be displayed.
+X
+Xs-Print - pressing shift-Print will invoke the "sprint" program to produce a
+Xscreen dump.  A couple of times when I was testing this the printed screen
+Xdump included the small "please wait" window that is created by sprint.  I'm
+Xnot sure why this happened and I was not able to reliably reproduce the
+Xerror in an effort to fix it.  It's possible that it is related to system
+Xloading.
+X
+Xs-F1 thru s-F8 - all shifted function keys perform the user defined function
+Xthat has been associated with them.  Refer to the section below labeled "hotkey
+Xoperations".
+X
+X
+X********** Messages **********
+X
+XThe pcmgr program reads and processes all records that are written to the
+X/dev/error device.  All records read are written out to the log file,
+X/usr/adm/errfile.  Records which conform to the format written by the eprintf()
+Xprocedure are parsed for possible display or other action.  Records which
+Xcontain a type field of S (system), P (popup), or D (display) are added to a
+Xqueue of messages to be displayed when you press the Msg button.  The action
+Xcode of the message is ingored with the exception of code L (logfile).  The L
+Xaction code simply records the message in the standard log file, multiple log
+Xfiles are not supported.
+X
+XRecords of type C (calendar) which also have an action code of E (exec) are
+Xadded to a list of calendar alarms.  When the specified time is reached the pcal
+Xprogram will be run, using the arguments specified in the text field of the
+Xrecord.
+X
+XUnlike the original smgr program, the pcmgr program is very paranoid about the
+Xcontents of the records read from /dev/error.  This is the reason that the
+Xaction code is ignored in the various messages.  The standard eprintf() format
+Xspecifies that if the action code is E (exec) then the text field contains a
+Xcommand to be executed.  Since the smgr program is not normally noted for being
+Xoverly security conscious, one would presume that this capability represents a
+Xsecurity hole large enough to drive several large trucks through.  The pcmgr
+Xprogram is so paranoid that the only program it will allow to the executed is
+X"/usr/bin/pcal" and even then it does not trust the command line arguments
+Xspecified in the record.
+X
+X
+X********** Program security **********
+X
+XSince I was just talking about security holes, I should mention what steps I
+Xhave taken in regard to security.  As I mentioned above, random programs may not
+Xbe executed simply by writing a properly formatted message to /dev/error.  The
+Xlogging feature of /dev/error is limited to only one file so that the worst a
+Xuser can do is use up all the disk space (but they can do that other ways just
+Xas easily).  When programs are to be executed due to clicking on one of the
+Xicons (mail or pcal), care is taken to determine the uid and gid of the
+Xcurrently active user and switch to that uid before doing the exec().  The
+Xcurrent directory is also changed to be the home directory of the currently
+Xactive user.  If there is no active user, i.e. no-one is logged in but you click
+Xon the mail icon, then no action is taken.  These precautions are also taken
+Xwhen using the "hotkey" feature.  All told, I have taken what I feel are
+Xreasonable measures to insure that this program will not compromise the security
+Xof your system.  I even made sure I never used the gets() routine.
+X
+X
+X********** Hotkey Operations **********
+X
+XThe shifted function keys are processed as special user-defined "hotkeys".
+XEach user of the machine is allowed to create a file which gives a list of
+Xkey numbers, what size window is to be created when the key is pressed, and
+Xwhat command is to be executed in that window.  The format of the file is
+Xlisted below.  The uid and gid will be set to that of the currently active
+Xuser, the current directory will be set to the users home directory, and the
+Xenvironment variables HOME and LOGNAME will be set to the appropriate
+Xvalues.
+X
+XThe key bindings for the "hotkey" operations are stored in a file called
+X".hotkey" in each users home directory.
+X
+XThere can be as many entries as desired in the binding file but there are
+Xonly eight function keys across the top of the keyboard.  Entries numbered
+Xone through eight will be available simply by pressing the shifted function
+Xkeys, all other entries will only be available via the function menu (mouse
+Xbutton B3).
+X
+X
+X********** Format of hotkey binding file **********
+X
+XEach line of the hotkey binding file has the following format:
+X
+Xnumber,rows,cols;name command options
+X
+XEach entry must consist of only one line, although the lines may be up to
+X256 characters long.  The elements of each line are defined as follows:
+X
+Xnumber	= key number, each entry must have a unique key number, number 1
+X	through 8 are bound to the shifted function keys.
+X
+Xrows,cols = the size of the window to be created, specifying a size of 24,80
+X	causes a borderless full screen window to be created.
+X
+Xname	= an optional name for this entry, if no name is specified the name
+X	will be set to the first word of the command, if the name is omitted
+X	the semi-colon should also be omitted, the name field is only used
+X	when displaying the menu of user-defined functions
+X
+XThe remainder of the line specify the command to be run and any options to
+Xbe passed to that command.  The command will be run by first trying to use
+Xthe execvp() routine and then by using "sh -c".  This allows you to specify
+Xcommands without using full pathnames, provided they can be located using
+Xthe default system search PATH as defined by "/etc/rc".
+X
+X
+X
+X********** **********
+X
+XWell, that's everything that I can think of that you should need to know to
+Xbe able to use the pcmgr program.  As is always the case with any program
+Xyou get from usenet, the definitive answers to all of your questions are
+Xincluded in the source code.  If you have questions that require looking at
+Xthe source code to answer, please email them to me so that I can include
+Xthem in the next release of these notes.
+X
+XDavid H. Brierley
+Xdave@galaxia.network23.com
+END_OF_FILE
+if test 12740 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'config.dist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.dist'\"
+else
+echo shar: Extracting \"'config.dist'\" \(6515 characters\)
+sed "s/^X//" >'config.dist' <<'END_OF_FILE'
+X/*
+X * pcmgr program configuration file.
+X *
+X * Read through this file carefully and decide if you need to make any changes
+X * to the items indicated.  There are several #define items that are either
+X * defined or undefined and are used to control the operation of the program.
+X * These are usually marked "define this if you want ...".  There are also
+X * several #define items that define data files.  You might want to change
+X * these to conform to any local standards you have developed.
+X *
+X * As a general rule, you should not change any of the #define items that
+X * have values associated with them, unless the comments explicitly tell you
+X * to change them.  Also (and hopefully this is obvious), do not change any of
+X * the structure definitions.
+X *
+X * This file should probably be split into two pieces, one containing things
+X * you can change and one containing things you cant change.  Maybe in the
+X * next release.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X * @(#) config.dist: version 2.1 7/14/92 21:12:16
+X */
+X
+X/*
+X * define SYNC_MINUTE if you want the updates to be synced on the minute, or
+X * undefine it to simply wait 60 seconds between updates
+X */
+X#define		SYNC_MINUTE
+X
+X/*
+X * Define the length of time (in seconds) before old calendar alarms are
+X * discarded.  Normally, calendar alarms are saved up until the user is
+X * logged in to receive them.  By setting this to a small number, alarms
+X * are discarded quickly.  Setting to a really large number will effectively
+X * keep them around forever (or until the user logs in to receive them).
+X * Recommended possible values: 1 day or 1 hour.
+X */
+X#define	DISCARD_TIME	((24 * 60) * 60)	/* one day */
+X/*efine DISCARD_TIME	((01 * 60) * 60)	/* one hour */
+X
+X/*
+X * Define the hotkey data structure.
+X */
+X#define H_NAME_MAX	32
+X#define H_CMD_MAX	256
+X
+Xstruct hotkey {
+X    struct hotkey  *h_next;
+X    int             h_key;
+X    int             h_height;
+X    int             h_width;
+X    char            h_name[H_NAME_MAX + 1];
+X    char            h_cmd[H_CMD_MAX];
+X};
+Xtypedef struct hotkey HotKey;
+X
+X/*
+X * Mouse location code meanings
+X */
+X#define		DO_NOTHING	0
+X#define		DO_LOGIN	10
+X#define		DO_EMAIL	11
+X#define		DO_CALNDR	12
+X#define		DO_MSGS		13
+X#define		DO_TOGGLE	20
+X#define		DO_MENU		30
+X
+X/*
+X * If you want the F button on the top line to display a menu of commands to
+X * be run (as defined by hotkey functions) then define DO_FBUTTON to be the
+X * same as DO_MENU.  On the other hand, if you want the F button to cycle
+X * through the list of mounted file systems then define it to something else.
+X * If the F button is defined as bringing up the function menu then the "Msg"
+X * key is used to sycle through the list of mounted file systems.  Normally
+X * the "Msg" key is used to display your messages.
+X */
+X#undef		DO_FBUTTON	DO_MENU	/* function menu */
+X#define		DO_FBUTTON	31	/* filesystem cycle */
+X
+X/*
+X * Define position and size of master window
+X */
+X#define		W_XPOS		0
+X#define		W_YPOS		0
+X#define		W_WIDTH		(9 * 80)
+X#define		W_HEIGHT	(12 * 1)
+X
+X/*
+X * Definitions of structures used to hold info about who is logged on.
+X */
+Xstruct U_Info {
+X    char            name[9];
+X    int             dev_no;
+X    int             uid;
+X    int             gid;
+X    int             access;
+X};
+Xtypedef struct U_Info U_Info;
+X
+Xstruct W_Info {
+X    int             access;
+X    int             uid;
+X};
+Xtypedef struct W_Info W_Info;
+X
+X/*
+X * Structure definition for message queue read from /dev/error
+X */
+Xstruct emsg {
+X    int	            mtype;
+X    int             mact;
+X    int             alrm_date;
+X    int             alrm_time;
+X    char           *muser;
+X    char           *mtext;
+X    struct emsg    *mnext;
+X};
+X
+X/*
+X * Definitions related to processing the /dev/error device
+X */
+X
+X#define		DEV_ERROR	"/dev/error"
+X#define		ERR_LOGFILE	"/usr/adm/errfile"
+X
+X
+X/*
+X * the following define one less than the lowest window number and one more
+X * than the highest window number.
+X */
+X#define		MIN_WINDOW	0
+X#define		MAX_WINDOW	13
+X
+X/*
+X * Define the program to be run to create a new login window
+X */
+X#ifndef		WINDOW_PROG
+X#define		WINDOW_PROG	"/usr/local/bin/window"
+X#endif
+X
+X/*
+X * Define the various alarm levels.  If the indicated value is exceeded then
+X * that portion of the display will be highlighted.  Note that all values
+X * except MAX_LOAD_AVG represent values which the associated item is not
+X * allowed to drop below.  Note also that the block and inode levels are
+X * based on percentages of free space, irregardless of the value selected for
+X * SHOW_DISK_FREE in the section below.  Note also that the values for free
+X * disk space and free inodes are based on percentages regardless of whether
+X * or not you select the SHOW_DISK_TOTALS option in the section below.
+X */
+X#define	MAX_LOAD_AVG	1.0	/* maximum allowed load average */
+X#define MIN_BLK_PCT	7.5	/* minimum percent of free disk space */
+X#define MIN_INO_PCT	10.0	/* minimum percent of free inodes */
+X#define MIN_SWAP	500	/* minimum amount of free swap space */
+X#define MIN_FREE	500	/* minimum amount of free memory */
+X
+X/*
+X * The normal info displayed about the file system is the number of blocks
+X * used and the percent of blocks used.  To display the number of blocks free
+X * instead, define SHOW_DISK_FREE.  To also display the total number of
+X * blocks, define SHOW_DISK_TOTALS.  This option can be used with or without
+X * the SHOW_DISK_FREE option.  If the SHOW_DISK_TOTALS option is selected
+X * then the percentages will not be printed.
+X * 
+X * The display also includes information about the number of inodes and both of
+X * these options are also applied to that information.
+X */
+X#define	SHOW_DISK_FREE		/* define this to display free space */
+X#undef	SHOW_DISK_TOTALS	/* define this to display totals */
+X
+X/*
+X * If the PICKY_SLK_TEST option is defined then the slk lines will be
+X * subjected to farily extensive testing before they are over-written with
+X * the current status info.  The default test is that the second slk line
+X * is scanned for the string "blks" surrounded by blanks.  If both the
+X * PICKY_SLK_TEST option and the STANDARD_SLK_TEST option are disabled then
+X * no tests will be performed on the slk lines.
+X *
+X * It is recommended that you define STANDARD_SLK_TEST and leave PICKY_SLK_TEST
+X * undefined.  This gives you a reasonable amount of protection against having
+X * the slk lines overwritten when they are being used by another program but
+X * minimizes the amount of processing required.
+X */
+X#define	STANDARD_SLK_TEST	/* standard slk tests */
+X#undef	PICKY_SLK_TEST		/* picky tests */
+END_OF_FILE
+if test 6515 -ne `wc -c <'config.dist'`; then
+    echo shar: \"'config.dist'\" unpacked with wrong size!
+fi
+# end of 'config.dist'
+fi
+if test -f 'display.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.c'\"
+else
+echo shar: Extracting \"'display.c'\" \(9253 characters\)
+sed "s/^X//" >'display.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X *
+X * Program: pcmgr
+X * Module:  display
+X *
+X * This module contains routines for displaying the status line across the
+X * top of the screen.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X *-------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) display.c: version 2.1 7/14/92 21:12:20";
+X
+Xchar           *day_names[] = {
+X    "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+X};
+X
+Xchar           *month_names[] = {
+X    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+X};
+X
+X/*
+X * WARNING: if the size or location of the various icons changes,
+X * the parse_mouse routine must also be changed.  This includes the
+X * size and shape of the mouse pointer icon.
+X */
+X
+X/* array ARRAY contains a picture */
+X/*     48 pixels wide  */
+X/* and 12 pixels high. */
+X/* for wrastop calls use the following options: */
+X/* srcwidth = 6, width = 48, and height = 12.  */
+X
+Xstatic unsigned short loginpat[36] = {
+X    0xffff, 0xffff, 0x0003, 0x0001, 0x0000, 0x0002, 0x0011, 0x0008,
+X    0x0002, 0x0011, 0x0000, 0x0002, 0xe791, 0x13c9, 0x0002, 0x2491,
+X    0x1249, 0x0002, 0x2491, 0x0249, 0x0002, 0xe491, 0x1249, 0x0002,
+X    0x0791, 0x1249, 0x0002, 0xe001, 0x0001, 0x0002, 0x0001, 0x0000,
+X    0x0002, 0xffff, 0xffff, 0x0003
+X};
+X
+X/* array ARRAY contains a picture */
+X/*     48 pixels wide  */
+X/* and 12 pixels high. */
+X/* for wrastop calls use the following options: */
+X/* srcwidth = 6, width = 48, and height = 12.  */
+X
+Xstatic unsigned short envelope[36] = {
+X    0xffff, 0xffff, 0x0003, 0x0007, 0x8000, 0x0003, 0x0039, 0x7000,
+X    0x0002, 0x01c1, 0x0e00, 0x0002, 0x0e01, 0x01c0, 0x0002, 0x7001,
+X    0x0038, 0x0002, 0x8001, 0x0007, 0x0002, 0x0001, 0x0000, 0x0002,
+X    0x0001, 0x0000, 0x0002, 0x0001, 0x0000, 0x0002, 0x0001, 0x0000,
+X    0x0002, 0xffff, 0xffff, 0x0003
+X};
+X
+X/* array ARRAY contains a picture */
+X/*     48 pixels wide  */
+X/* and 12 pixels high. */
+X/* for wrastop calls use the following options: */
+X/* srcwidth = 6, width = 48, and height = 12.  */
+X
+Xstatic unsigned short calndr_pat[36] = {
+X	0xfffc,	0xffff,	0x0000,	0x0004,	0x8000,	0x0000,	0x0004,	0x8000,
+X	0x0000,	0xfffc,	0xffff,	0x0000,	0x4444,	0x8888,	0x0000,	0xfffc,
+X	0xffff,	0x0000,	0x4444,	0x8888,	0x0000,	0xfffc,	0xffff,	0x0000,
+X	0x4444,	0x8888,	0x0000,	0xfffc,	0xffff,	0x0000,	0x4444,	0x8888,
+X	0x0000,	0xfffc,	0xffff,	0x0000 	
+X};
+X
+X/* array ARRAY contains a picture */
+X/*     48 pixels wide  */
+X/* and 12 pixels high. */
+X/* for wrastop calls use the following options: */
+X/* srcwidth = 6, width = 48, and height = 12.  */
+X
+Xstatic unsigned short msgs_pat[36] = {
+X    0xffff, 0xffff, 0x0003, 0x0001, 0x0000, 0x0002, 0x0001, 0x0000,
+X    0x0002, 0x0361, 0x0000, 0x0002, 0xf3e1, 0x0f3c, 0x0002, 0x12a1,
+X    0x0124, 0x0002, 0xf2a1, 0x0f24, 0x0002, 0x8221, 0x083c, 0x0002,
+X    0xf221, 0x0f20, 0x0002, 0x0001, 0x003c, 0x0002, 0x0001, 0x0000,
+X    0x0002, 0xffff, 0xffff, 0x0003
+X};
+X
+X/* no_msgs is an array of the same size as msgs_pat but with */
+X/* all of the cells set to 0.  it is used to blank out the */
+X/* display area */
+X
+Xstatic unsigned short no_msgs[36] = {
+X    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+X    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+X    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+X    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+X    0x0000, 0x0000, 0x0000, 0x0000
+X};
+X
+X/* array ARRAY contains a picture */
+X/*     32 pixels wide  */
+X/* and 12 pixels high. */
+X/* for wrastop calls use the following options: */
+X/* srcwidth = 4, width = 32, and height = 12.  */
+X
+Xstatic unsigned short fbutton[24] = {
+X    0xe000, 0x1fff, 0x2000, 0x7000, 0x2000, 0x70fc, 0x2000, 0x70fc,
+X    0x2000, 0x700c, 0x2000, 0x703c, 0x2000, 0x703c, 0x2000, 0x700c,
+X    0x2000, 0x700c, 0x2000, 0x7000, 0xe000, 0x7fff, 0xc000, 0x7fff
+X};
+X
+Xvoid
+Xinit_mouse (int visible, int flags)
+X{
+X    int             n;
+X    static struct umdata umdata;
+X    static struct icon mouse_icon;
+X
+X    umdata.um_flags = flags;
+X    umdata.um_x = 0;
+X    umdata.um_y = 0;
+X    umdata.um_w = WINWIDTH;
+X    umdata.um_h = WINHEIGHT;
+X    /* set up mouse icon */
+X
+X    /*
+X     * WARNING: if the size or location of the various icons changes, the
+X     * parse_mouse routine must also be changed.  This includes the size and
+X     * shape of the mouse pointer icon.
+X     */
+X    mouse_icon.ic_fc.fc_hs = 32;
+X    mouse_icon.ic_fc.fc_vs = 4;
+X    mouse_icon.ic_fc.fc_ha = -20;
+X    mouse_icon.ic_fc.fc_va = 0;
+X    mouse_icon.ic_fc.fc_hi = 0;
+X    mouse_icon.ic_fc.fc_vi = 0;
+X    for (n = 1; n < 64; n += 2) {
+X	mouse_icon.ic_raster[n] = (visible == 0) ? 0 : 0xff00;
+X    }
+X    umdata.um_icon = &mouse_icon;
+X    (void) ioctl (0, WIOCSETMOUSE, &umdata);
+X
+X}
+X
+X
+X/*ARGSUSED*/
+Xint
+Xdisplay (int code)
+X{
+X    int             wd;
+X    int             fd;
+X    static struct utdata utdata;
+X    char            label[WTXTLEN + 1];
+X    static char     buffer[90];
+X    char           *bptr;
+X    unsigned int    nbuf;
+X    time_t          now;
+X    unsigned int    then;
+X    struct tm      *tm;
+X    int             hour;
+X    static int      old_win = -1;
+X    static char     old_label[WTXTLEN + 1];
+X    static int      old_day = -1;
+X    extern int      errno;
+X    extern int      win_number;
+X    extern int      redraw_all;
+X
+X    (void) alarm (0);
+X    sync ();
+X
+X    /*
+X     * Check if there are any messages on /dev/error.  This is done before
+X     * updating the display so because a pending message could potentially
+X     * cause the msg icon to be displayed.
+X     */
+X    rd_dev_error ();
+X
+X    /*
+X     * WARNING: if the size or location of the various icons changes, the
+X     * parse_mouse routine must also be changed.  This includes the size and
+X     * shape of the mouse pointer icon.
+X     */
+X    if (redraw_all) {
+X	(void) wrastop (1, envelope, 6, 0, 0,
+X			0, 0, 470, 0, 48, 12,
+X			SRCSRC, DSTSRC, 0);
+X	(void) wrastop (1, loginpat, 6, 0, 0,
+X			0, 0, 510, 0, 48, 12,
+X			SRCSRC, DSTSRC, 0);
+X	(void) wrastop (1, calndr_pat, 6, 0, 0,
+X			0, 0, 550, 0, 48, 12,
+X			SRCSRC, DSTSRC, 0);
+X
+X	/*
+X	 * The Msgs icon is only displayed if there are messages for the
+X	 * current user.
+X	 */
+X	if (msg_count ()) {
+X	    (void) write (1, "\007", 1);	/* beep at the user */
+X	    (void) wrastop (1, msgs_pat, 6, 0, 0,
+X			    0, 0, 590, 0, 48, 12,
+X			    SRCSRC, DSTSRC, 0);
+X	}
+X	else {
+X	    (void) wrastop (1, no_msgs, 6, 0, 0,
+X			    0, 0, 590, 0, 48, 12,
+X			    SRCSRC, DSTSRC, 0);
+X	}
+X	(void) wrastop (1, fbutton, 4, 0, 0,
+X			0, 0, 686, 0, 32, 12,
+X			SRCSRC, DSTSRC, 0);
+X    }
+X
+X    /*
+X     * Check for calendar alarms
+X     */
+X    check_alarms ();
+X
+X    wd = ioctl (0, WIOCGCURR, NULL);
+X    if ((wd > 0) && (wd != win_number)) {
+X	(void) sprintf (buffer, "/dev/w%d", wd);
+X	label[0] = '\0';
+X	if ((fd = open (buffer, 0)) != -1) {
+X	    utdata.ut_num = WTXTUSER;
+X	    if (ioctl (fd, WIOCGETTEXT, &utdata) != -1) {
+X		(void) strncpy (label, utdata.ut_text, WTXTLEN);
+X		label[WTXTLEN] = '\0';
+X	    }
+X	    if (label[0] == '\0') {
+X		utdata.ut_num = WTXTLABEL;
+X		if (ioctl (fd, WIOCGETTEXT, &utdata) != -1) {
+X		    (void) strncpy (label, utdata.ut_text, WTXTLEN);
+X		    label[WTXTLEN] = '\0';
+X		}
+X	    }
+X	    if (label[0] == '\0') {
+X		(void) strcpy (label, "Unknown Contents");
+X	    }
+X	    (void) close (fd);
+X	}
+X	else {
+X	    (void) sprintf (label, "%s, errno=%d", buffer, errno);
+X	}
+X    }
+X    else {
+X	(void) strcpy (label, "No window selected");
+X    }
+X
+X    now = time (0);
+X    tm = localtime (&now);
+X    hour = (tm -> tm_hour) % 12;
+X    if (hour == 0) {
+X	hour = 12;
+X    }
+X
+X    bptr = buffer;
+X    if (redraw_all || (wd != old_win) || strcmp (label, old_label)) {
+X	(void) sprintf (bptr,
+X			"%sw%d %-28.28s",
+X			"\033[;H",
+X			(wd > 0) ? wd : 0,
+X			label);
+X	old_win = wd;
+X	(void) strcpy (old_label, label);
+X	bptr += strlen (bptr);
+X    }
+X    if (redraw_all || (old_day != tm -> tm_wday)) {
+X	(void) sprintf (bptr,
+X			"%s%s %s %2d",
+X			"\033[;33H",
+X			day_names[tm -> tm_wday],
+X			month_names[tm -> tm_mon],
+X			tm -> tm_mday);
+X	old_day = tm -> tm_wday;
+X	bptr += strlen (bptr);
+X    }
+X    (void) sprintf (bptr,
+X		    "%s%2d:%02d %s",
+X		    "\033[;44H",
+X		    hour,
+X		    tm -> tm_min,
+X		    (tm -> tm_hour >= 12) ? "pm" : "am");
+X    nbuf = strlen (buffer);
+X    (void) write (1, buffer, nbuf);
+X    redraw_all = 0;
+X    if (wd > 0) {
+X	info_process ();
+X    }
+X
+X#ifdef	SYNC_MINUTE
+X    now = time (0);
+X    then = 60 - (now % 60);
+X    if (then < 30) {
+X	then = 30;
+X    }
+X#else
+X    then = 60;
+X#endif
+X
+X    (void) alarm (then);
+X    (void) signal (SIGALRM, display);
+X    return (0);
+X
+X}
+END_OF_FILE
+if test 9253 -ne `wc -c <'display.c'`; then
+    echo shar: \"'display.c'\" unpacked with wrong size!
+fi
+# end of 'display.c'
+fi
+if test -f 'getid.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getid.c'\"
+else
+echo shar: Extracting \"'getid.c'\" \(7240 characters\)
+sed "s/^X//" >'getid.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X *
+X * Program: pcmgr
+X * Module:  getid.c
+X *
+X * This module contains routines for determining who the currently active
+X * user is.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X *-------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) getid.c: version 2.1 7/14/92 21:12:25";
+X
+Xint
+Xget_user_id (int *user_uid, int *user_gid)
+X{
+X    struct utmp     ut_record;
+X    U_Info          users[32];
+X    W_Info          wd_info[MAX_WINDOW + 1];
+X    int             w_major_dev;
+X    int             num_users;
+X    int             which_user;
+X    int             fd;
+X    struct passwd  *pw;
+X    struct passwd  *getpwnam ();
+X    int             n;
+X    int             rc;
+X    int             wd;
+X    char            wdev[32];
+X    struct stat     sbuf;
+X
+X    if ((fd = open (UTMP_FILE, 0)) == -1) {
+X	return (-1);
+X    }
+X
+X    num_users = 0;
+X    while (1) {
+X	rc = read (fd, (char *) &ut_record, sizeof (ut_record));
+X	if (rc != sizeof (ut_record)) {
+X	    break;
+X	}
+X	if (ut_record.ut_type == USER_PROCESS && ut_record.ut_line[0] == 'w') {
+X	    (void) strncpy (users[num_users].name, ut_record.ut_name, 8);
+X	    users[num_users].name[8] = '\0';
+X	    ut_record.ut_line[8] = '\0';
+X	    users[num_users].dev_no = atoi (ut_record.ut_line + 1);
+X	    pw = getpwnam (users[num_users].name);
+X	    if (pw != NULL) {
+X		users[num_users].uid = pw -> pw_uid;
+X		users[num_users].gid = pw -> pw_gid;
+X	    }
+X	    else {
+X		users[num_users].uid = -1;
+X		users[num_users].gid = -1;
+X	    }
+X	    users[num_users].access = ut_record.ut_time;
+X#ifdef	    TEST
+X	    printf ("add '%s', uid=%d, gid=%d, ut_time=%d, dev=%d\n",
+X		    users[num_users].name, users[num_users].uid,
+X		    users[num_users].gid, users[num_users].access,
+X		    users[num_users].dev_no);
+X#endif
+X	    ++num_users;
+X	}
+X    }
+X    (void) close (fd);
+X
+X    if (num_users == 0) {
+X	return (-1);
+X    }
+X
+X    if (num_users == 1) {
+X	*user_uid = users[0].uid;
+X	*user_gid = users[0].gid;
+X	return (0);
+X    }
+X
+X    for (wd = 0; wd <= MAX_WINDOW; ++wd) {
+X	wd_info[wd].access = 0;
+X    }
+X
+X    w_major_dev = -1;
+X    for (wd = 1; wd <= MAX_WINDOW; ++wd) {
+X	(void) sprintf (wdev, "/dev/w%d", wd);
+X	if (stat (wdev, &sbuf) == -1) {
+X	    continue;
+X	}
+X	wd_info[wd].access = sbuf.st_atime;
+X	wd_info[wd].uid = -1;
+X	w_major_dev = major (sbuf.st_rdev);
+X#ifdef  TEST
+X	printf ("w%d, st_atime = %d, st_dev=%04x, st_rdev=%04x\n",
+X		wd, sbuf.st_atime, sbuf.st_dev, sbuf.st_rdev);
+X#endif
+X    }
+X
+X    if (w_major_dev == -1) {
+X	return (-1);
+X    }
+X
+X#ifdef TEST
+X    printf ("calling find_dev_uid, major_dev = %d\n", w_major_dev);
+X#endif
+X    if (find_dev_uid (wd_info, w_major_dev) == -1) {
+X	return (-1);
+X    }
+X
+X    for (wd = 1; wd <= MAX_WINDOW; ++wd) {
+X#ifdef	TEST
+X	printf ("wd=%d, uid=%d, access=%d\n",
+X		wd, wd_info[wd].uid, wd_info[wd].access);
+X#endif
+X	for (n = 0; n < num_users; ++n) {
+X	    if (users[n].uid != wd_info[wd].uid) {
+X		continue;
+X	    }
+X	    if (wd_info[wd].access > users[n].access) {
+X		users[n].access = wd_info[wd].access;
+X	    }
+X	}
+X    }
+X
+X    for (n = 0; n < num_users; ++n) {
+X	wd = users[n].dev_no;
+X	if (wd_info[wd].access > users[n].access) {
+X	    users[n].access = wd_info[wd].access;
+X	}
+X    }
+X
+X    which_user = 0;
+X    for (n = 1; n < num_users; ++n) {
+X	if (users[n].access > users[which_user].access) {
+X	    which_user = n;
+X	}
+X    }
+X
+X    *user_uid = users[which_user].uid;
+X    *user_gid = users[which_user].gid;
+X
+X    return (0);
+X
+X}
+X
+X/*
+X * the find_dev_uid routine is absed in part on the sadc program written by
+X * Mark H. Colburn (mark@jhereg.mn.org).
+X */
+X
+Xstruct nlist    sysadr[] = {
+X    {"proc", 0, 0, 0, 0, 0},
+X    {"", 0, 0, 0, 0, 0}
+X};
+X
+X#define procadr		(sysadr[0].n_value)
+X
+Xint             fd_kmem;	/* file handle for /dev/kmem */
+Xint             fd_mem;		/* file handle for /dev/mem */
+Xstruct proc     proc_list[NPROCMAX];	/* the proc table */
+X
+Xint
+Xfind_dev_uid (W_Info wd_info[], int wd_major)
+X{
+X    int             nproc;
+X    int             wmajor;
+X    int             wminor;
+X    struct user     u_area;
+X    struct proc    *p;
+X
+X    if (fdu_init () == -1) {
+X	return (-1);
+X    }
+X
+X    nproc = read_proc_table ();
+X    for (p = proc_list; nproc; --nproc, ++p) {
+X	if (read_user (p, &u_area)) {
+X	    wmajor = major (u_area.u_ttyd);
+X	    wminor = minor (u_area.u_ttyd);
+X#ifdef	    TEST
+X	    printf ("proc: u_ttyd=%04x, major=%d, minor=%d, uid=%d, ruid=%d\n",
+X		u_area.u_ttyd, wmajor, wminor, u_area.u_uid, u_area.u_ruid);
+X#endif
+X	    if (wmajor != wd_major) {
+X		continue;
+X	    }
+X	    wd_info[wminor].uid = u_area.u_ruid;
+X	}
+X    }
+X    (void) close (fd_kmem);
+X    (void) close (fd_mem);
+X    return (0);
+X
+X}
+X
+X
+X/*
+X * fdu_init - handle miscellaneous initializations
+X */
+X
+Xint
+Xfdu_init (void)
+X{
+X    /* open the kernel memory */
+X    if ((fd_kmem = open ("/dev/kmem", O_RDONLY)) == -1)
+X	return (-1);
+X
+X    if ((fd_mem = open ("/dev/mem", O_RDONLY)) == -1)
+X	return (-1);
+X
+X    /* get addresses of various kernel structures from /unix */
+X    if (nlist ("/unix", sysadr) == -1)
+X	return (-1);
+X
+X    kmemread (procadr, (char *) &procadr, sizeof (procadr));
+X    return (0);
+X
+X}
+X
+X
+X/*
+X * read_proc_table
+X */
+X
+Xint
+Xread_proc_table (void)
+X{
+X    long            vaddr;	/* address of kernel var structure */
+X    unsigned int    sz_proc;
+X    struct var      v_area;	/* kernel var structure */
+X
+X    /*
+X     * read all of the information that we need for statistics out of the
+X     * kernel space.  For some of these items, it means that we will have to
+X     * read the data twice, since they are only pointers to the real items.
+X     */
+X
+X    vaddr = (long) syslocal (SYSL_KADDR, SLA_V);
+X    kmemread (vaddr, (char *) &v_area, (long) sizeof (v_area));
+X
+X    /* compute the current table sizes */
+X    sz_proc = ((long) v_area.ve_proc - procadr);
+X    kmemread (procadr, (char *) proc_list, sz_proc);
+X
+X    return (sz_proc / sizeof (struct proc));
+X
+X}
+X
+Xvoid
+Xkmemread (long kmadr, char *dptr, unsigned int nbytes)
+X{
+X    (void) lseek (fd_kmem, kmadr, 0);
+X    (void) read (fd_kmem, dptr, nbytes);
+X}
+X
+Xvoid
+Xmemread (long kmadr, char *dptr, unsigned int nbytes)
+X{
+X    (void) lseek (fd_mem, kmadr, 0);
+X    (void) read (fd_mem, dptr, nbytes);
+X}
+X
+Xint
+Xread_user (struct proc * p, struct user * u)
+X{
+X    long            upage;
+X
+X    if (!p -> p_stat ||
+X	p -> p_stat == SIDL ||
+X	p -> p_stat == SZOMB)
+X	return 0;
+X
+X    if (!(p -> p_flag & SLOAD)) {
+X	return 0;
+X    }
+X
+X    upage = (long) ctob (p -> p_addr[0]);
+X
+X    /* copy in the user structure */
+X    memread (upage + U_OFFSET, (char *) u, sizeof (struct user));
+X
+X    return (1);
+X
+X}
+END_OF_FILE
+if test 7240 -ne `wc -c <'getid.c'`; then
+    echo shar: \"'getid.c'\" unpacked with wrong size!
+fi
+# end of 'getid.c'
+fi
+if test -f 'pcmgr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pcmgr.c'\"
+else
+echo shar: Extracting \"'pcmgr.c'\" \(9026 characters\)
+sed "s/^X//" >'pcmgr.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X *
+X * Program: pcmgr
+X * Module:  pcmgr.c
+X *
+X * This module contains the main program and a few routines related to
+X * mouse and keyboard input processing.
+X *
+X * Copyright 1992 David H. Brierley, All rights reserved.
+X *-------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <time.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <status.h>
+X#include <utmp.h>
+X#include <pwd.h>
+X#include <sys/stat.h>
+X#include <nlist.h>
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <sys/wd.h>
+X#include <track.h>
+X#include <tam.h>
+X#include <menu.h>
+X#include <kcodes.h>
+X#include <errno.h>
+X#include <sys/sysinfo.h>
+X#include <sys/var.h>
+X#include <sys/syslocal.h>
+X#include <sys/file.h>
+X#include <sys/text.h>
+X#include <sys/tune.h>
+X#include <sys/user.h>
+X#include <sys/vmmac.h>
+X#include <sys/sysmacros.h>
+X
+X#include "config.h"
+X#include "pcmgr.h"
+X
+Xstatic char    *Sccs_Id = "@(#) pcmgr.c: version 2.1 7/14/92 21:12:41";
+X
+X#ifdef	DEBUG
+X#include <syslog.h>
+X#endif
+X
+X/*
+X * Global variables.
+X */
+Xint             win_number = -1; /* window number of status bar */
+Xint             mouse_visible;	/* is the mouse pointer visible */
+Xint             redraw_all = 1; /* complete redraw of status line */
+X
+Xint
+Xmain (int argc, char *argv[])
+X{
+X    int             key;
+X    char            buffer[32];
+X    char            w_name[32];
+X    int             nbytes;
+X    int             n;
+X    int             wd;
+X    int             fd;
+X    int             oldwd;
+X
+X    if (fork () != 0) {
+X	exit (0);
+X    }
+X    (void) setpgrp ();
+X#ifdef	DEBUG
+X    (void) openlog ("pcmgr", LOG_PID | LOG_TIME, 0);
+X#endif
+X
+X    wd = mk_window ();
+X
+X    for (n = 0; n < _NFILE; ++n) {
+X	if (n != wd) {
+X	    (void) close (n);
+X	}
+X    }
+X
+X    while (wd != 0) {
+X	(void) close (0);
+X	n = fcntl (wd, F_DUPFD, 0);
+X	if (n != -1) {
+X	    (void) close (wd);
+X	    wd = n;
+X	}
+X    }
+X    (void) dup (0);
+X    (void) dup (0);
+X    winit ();
+X    (void) wcreate (0, 0, 1, 80, NBORDER);
+X
+X    oldwd = ioctl (0, WIOCGPREV, NULL);
+X    if ((oldwd != -1) && (oldwd != win_number)) {
+X	(void) sprintf (w_name, "/dev/w%d", oldwd);
+X	if ((fd = open (w_name, 0)) != -1) {
+X	    (void) ioctl (fd, WIOCSELECT, NULL);
+X	    (void) close (fd);
+X	}
+X    }
+X
+X    mouse_visible = 1;
+X    init_mouse (mouse_visible, MSDOWN | MSIN);
+X    init_sysinfo ();
+X    display (SIGALRM);
+X    init_kmap ();
+X
+X    (void) signal (SIGHUP, SIG_IGN);
+X    (void) signal (SIGINT, SIG_IGN);
+X    (void) signal (SIGTERM, SIG_IGN);
+X    (void) signal (SIGWIND, do_sigwind);
+X    (void) signal (SIGCLD, SIG_IGN);
+X
+X    while (1) {
+X	nbytes = read (0, buffer, 32);
+X	if (nbytes == -1) {
+X	    continue;
+X	}
+X	/*
+X	 * Figure out what key the user pressed.
+X	 */
+X	key = chk_kmap (buffer, nbytes);
+X#ifdef	DEBUG
+X	(void) syslog (LOG_DEBUG, "key press: key = %d", key);
+X#endif
+X	switch (key) {
+X	/* one of the mouse buttons was pressed */
+X	case Mouse:
+X	    if ((wd = ioctl (0, WIOCGPREV, NULL)) != -1 && wd != win_number) {
+X		(void) sprintf (w_name, "/dev/w%d", wd);
+X		if ((fd = open (w_name, 0)) != -1) {
+X		    (void) ioctl (fd, WIOCSELECT, NULL);
+X		    (void) close (fd);
+X		}
+X	    }
+X	    /*
+X	     * Figure out which mouse button the user pressed and what
+X	     * action is to be performed.
+X	     */
+X	    switch (parse_mouse (buffer)) {
+X	    case DO_NOTHING:
+X		(void) write (1, "\007", 1);
+X		redraw_all = 1;
+X		break;
+X	    case DO_LOGIN:
+X		make_login ();
+X		break;
+X	    case DO_EMAIL:
+X		run_email ();
+X		break;
+X	    case DO_CALNDR:
+X		run_calndr (NULL);
+X		break;
+X	    case DO_MSGS:
+X		show_msgs ();
+X		break;
+X	    case DO_TOGGLE:
+X		mouse_visible = 1 - mouse_visible;
+X		break;
+X	    case DO_FBUTTON:
+X#if		(DO_FBUTTON == DO_MENU)
+X		function_menu ();
+X		break;
+X#else
+X		cycle_fs ();
+X		break;
+X#endif
+X	    case DO_MENU:
+X		function_menu ();
+X		break;
+X	    }
+X	    init_mouse (mouse_visible, MSDOWN | MSIN);
+X	    break;
+X	/*
+X	 * One of the functions keys was pressed.  Call the hotkey routine.
+X	 */
+X	case s_F1:
+X	case s_F2:
+X	case s_F3:
+X	case s_F4:
+X	case s_F5:
+X	case s_F6:
+X	case s_F7:
+X	case s_F8:
+X	    /*
+X	     * map keypress into 1 thru 8
+X	     */
+X	    do_hotkey ((key - s_F1) + 1);
+X	    break;
+X	/*
+X	 * Suspd and Rsume bring up the list of windows
+X	 */
+X	case Suspd:
+X	case Rsume:
+X	    window_menu ();
+X	    break;
+X	/*
+X	 * shift Suspd and Rsume cycle through the window list
+X	 */
+X	case s_Suspd:
+X	    cycle_window (-1);
+X	    break;
+X	case s_Rsume:
+X	    cycle_window (1);
+X	    break;
+X	/*
+X	 * Msg button pressed.  Depending on the configuration options
+X	 * selected this either displays the users messages or cycles
+X	 * through the list of mounted filesystems.
+X	 */
+X	case Msg:
+X#if	    (DO_FBUTTON == DO_MENU)
+X	    cycle_fs ();
+X	    break;
+X#else
+X	    show_msgs ();
+X	    break;
+X#endif
+X	/*
+X	 * shift-Print. Do a screen dump.
+X	 */
+X	case s_Print:
+X	    do_sprint ();
+X	    break;
+X	}
+X	display (SIGALRM);
+X    }
+X
+X    /* the above loop should never terminate. */
+X    return(1);
+X
+X}
+X
+Xstruct kmap {
+X    int             kcode;
+X    int             kvlen;
+X    char            kvalue[8];
+X};
+X
+Xstatic struct kmap kmap[] = {
+X    {Mouse, 0, ""},
+X    {s_F1, 0, ""},
+X    {s_F2, 0, ""},
+X    {s_F3, 0, ""},
+X    {s_F4, 0, ""},
+X    {s_F5, 0, ""},
+X    {s_F6, 0, ""},
+X    {s_F7, 0, ""},
+X    {s_F8, 0, ""},
+X    {Suspd, 0, ""},
+X    {s_Suspd, 0, ""},
+X    {Rsume, 0, ""},
+X    {s_Rsume, 0, ""},
+X    {s_Print, 0, ""},
+X    {Msg, 0, ""},
+X    {s_Msg, 0, ""},
+X    {0, 0, ""}
+X};
+X
+Xvoid
+Xinit_kmap (void)
+X{
+X    int             n;
+X    char           *x;
+X
+X    for (n = 0; kmap[n].kcode != 0; ++n) {
+X	x = kcodemap (kmap[n].kcode);
+X	if (x == NULL) {
+X#ifdef	    DEBUG
+X	    (void) syslog (LOG_DEBUG, "kcodemap(%d) == NULL", kmap[n].kcode);
+X#endif
+X	}
+X	else {
+X	    (void) strcpy (kmap[n].kvalue, kcodemap (kmap[n].kcode));
+X	}
+X	kmap[n].kvlen = strlen (kmap[n].kvalue);
+X#ifdef	DEBUG
+X	(void) syslog (LOG_DEBUG, "kmap: code=%d, len=%d, value='%s'",
+X		       kmap[n].kcode, kmap[n].kvlen, kmap[n].kvalue);
+X#endif
+X    }
+X
+X}
+X
+Xint
+Xchk_kmap (char *buf, int count)
+X{
+X    int             n;
+X
+X    for (n = 0; kmap[n].kcode != 0; ++n) {
+X	if (count < kmap[n].kvlen) {
+X	    continue;
+X	}
+X	if (strncmp (buf, kmap[n].kvalue, kmap[n].kvlen) == 0) {
+X	    return (kmap[n].kcode);
+X	}
+X    }
+X
+X    /* kludge for Msg key */
+X    if ((count == 1) && (buf[0] == '\032')) {
+X	return (Msg);
+X    }
+X
+X#ifdef	DEBUG
+X    (void) syslog (LOG_DEBUG, "unknown keypress: '%s', count=%d", buf, count);
+X#endif
+X    return (-1);
+X
+X}
+X
+Xint
+Xparse_mouse (char *buf)
+X{
+X    static int      xpos;
+X    static int      ypos;
+X    static char     button;
+X    static char     reason;
+X
+X    if (sscanf (buf, "%*c[?%d;%d;%c;%c", &xpos, &ypos, &button, &reason) != 4) {
+X	return (DO_NOTHING);
+X    }
+X
+X    button -= '0';		/* convert char to number */
+X
+X    /*
+X     * Left button pressed?
+X     */
+X    if (button & 4) {
+X	/*
+X	 * Examine the mouse x-position and determine if the use has clicked on
+X	 * one of the special labels at the right of the window.
+X	 */
+X#ifdef	DEBUG
+X	(void) syslog (LOG_DEBUG, "parse_mouse: xpos = %d", xpos);
+X#endif
+X	if ((xpos > 466) && (xpos < 492)) {
+X	    return (DO_EMAIL);
+X	}
+X	if ((xpos > 506) && (xpos < 532)) {
+X	    return (DO_LOGIN);
+X	}
+X	if ((xpos > 546) && (xpos < 572)) {
+X	    return (DO_CALNDR);
+X	}
+X	if ((xpos > 586) && (xpos < 612)) {
+X	    return (DO_MSGS);
+X	}
+X	if ((xpos > 694) && (xpos < 706)) {
+X	    return (DO_FBUTTON);
+X	}
+X	return (DO_NOTHING);
+X    }
+X
+X    /*
+X     * Middle button pressed?
+X     */
+X    if (button & 2) {
+X	return (DO_TOGGLE);
+X    }
+X
+X    /*
+X     * Right button pressed?
+X     */
+X    if (button & 1) {
+X	return (DO_MENU);
+X    }
+X
+X    return (-1);
+X
+X}
+X
+Xint
+Xmk_window (void)
+X{
+X    int             wd;
+X    int             fd;
+X    int             xnum;
+X    struct uwdata   uwdata;
+X    struct utdata   utdata;
+X    struct termio   tty;
+X    struct stat     sbuf;
+X
+X    win_number = -1;
+X    wd = -1;
+X    while (1) {
+X	fd = open ("/dev/window", 2);
+X	if (fd == -1) {
+X	    if (win_number == -1) {
+X		exit (1);
+X	    }
+X	    break;
+X	}
+X	if (fstat (fd, &sbuf) != -1) {
+X	    xnum = minor (sbuf.st_rdev);
+X	    if (xnum > win_number) {
+X		win_number = xnum;
+X		wd = fd;
+X	    }
+X	}
+X    }
+X
+X    if (ioctl (wd, WIOCGETD, &uwdata) != -1) {
+X	uwdata.uw_x = W_XPOS;
+X	uwdata.uw_y = W_YPOS;
+X	uwdata.uw_width = W_WIDTH;
+X	uwdata.uw_height = W_HEIGHT;
+X	uwdata.uw_uflags = NBORDER;
+X	(void) ioctl (wd, WIOCSETD, &uwdata);
+X    }
+X
+X    utdata.ut_num = WTXTUSER;
+X    (void) strcpy (utdata.ut_text, "Status Manager");
+X    (void) ioctl (wd, WIOCSETTEXT, &utdata);
+X
+X    (void) ioctl (wd, WIOCPGRP, NULL);
+X    (void) ioctl (wd, WIOCSYS, SYSWMGR);
+X    (void) ioctl (wd, WIOCSYS, SYSPMGR);
+X    (void) ioctl (wd, WIOCSYS, SYSSMGR);
+X
+X    if (ioctl (wd, TCGETA, &tty) != -1) {
+X	tty.c_lflag = 0;
+X	tty.c_cc[VMIN] = 1;
+X	tty.c_cc[VTIME] = 0;
+X	(void) ioctl (wd, TCSETA, &tty);
+X    }
+X
+X    return (wd);
+X
+X}
+X
+Xint
+Xdo_sigwind (int code)
+X{
+X
+X    if (ioctl (0, WIOCGCURR, NULL) == win_number) {
+X	init_mouse (mouse_visible, MSDOWN | MSIN);
+X    }
+X
+X    (void) signal (code, do_sigwind);
+X    return (0);
+X
+X}
+END_OF_FILE
+if test 9026 -ne `wc -c <'pcmgr.c'`; then
+    echo shar: \"'pcmgr.c'\" unpacked with wrong size!
+fi
+# end of 'pcmgr.c'
+fi
+if test -f 'pcmgr.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pcmgr.h'\"
+else
+echo shar: Extracting \"'pcmgr.h'\" \(1754 characters\)
+sed "s/^X//" >'pcmgr.h' <<'END_OF_FILE'
+X
+X/* pcmgr.c */
+Xint main(int argc, char *argv[]);
+Xvoid init_kmap(void);
+Xint chk_kmap(char *buf, int count);
+Xint parse_mouse(char *buf);
+Xint mk_window(void);
+Xint do_sigwind(int code);
+X
+X/* display.c */
+Xvoid init_mouse(int visible, int flags);
+Xint display(int code);
+X
+X/* getid.c */
+Xint get_user_id(int *user_uid, int *user_gid);
+Xint find_dev_uid(W_Info wd_info[], int wd_major);
+Xint fdu_init(void);
+Xint read_proc_table(void);
+Xvoid kmemread(long kmadr, char *dptr, unsigned int nbytes);
+Xvoid memread(long kmadr, char *dptr, unsigned int nbytes);
+Xint read_user(struct proc *p, struct user *u);
+X
+X/* hotkey.c */
+Xvoid do_hotkey(int code);
+XHotKey *read_keyfile(char *filename);
+Xvoid free_list(HotKey *head);
+XHotKey *insert(HotKey *head, int key, int hgt, int width, char *cmd, char *cmd_name);
+Xvoid function_menu(void);
+X
+X/* subr.c */
+Xvoid make_login(void);
+Xvoid cycle_window(int dir);
+Xvoid rd_dev_error(void);
+Xvoid trap_alarm(int sig);
+Xvoid parse_ebuffer(char *buf);
+Xvoid parse_cal_trigger(char *buf, int *adate, int *atime);
+Xvoid write_to_log(long pid, char *buf);
+Xvoid insert_msg(int type, int action, int adate, int atime, char *user, char *text);
+Xint msg_count(void);
+Xvoid show_msgs(void);
+Xvoid check_alarms(void);
+Xvoid setenv(char *name, char *value);
+X
+X/* sysinfo.c */
+Xvoid init_sysinfo(void);
+Xvoid info_process(void);
+Xvoid open_current_window(void);
+Xvoid filestatus(void);
+Xvoid cycle_fs(void);
+Xvoid read_mtab(void);
+Xvoid uptime(char *buf);
+Xvoid mailcheck(char *buf);
+Xvoid loadaverage(char *lbuf);
+Xlong memory(void);
+Xint slktest(void);
+Xvoid count_users(char *buf);
+Xlong page(void);
+Xvoid highlight(char *start, char *end);
+X
+X/* windows.c */
+Xvoid window_menu(void);
+Xchar *msave(char *str);
+Xvoid run_email(void);
+Xvoid run_calndr(char *buf);
+Xvoid do_sprint(void);
+END_OF_FILE
+if test 1754 -ne `wc -c <'pcmgr.h'`; then
+    echo shar: \"'pcmgr.h'\" unpacked with wrong size!
+fi
+# end of 'pcmgr.h'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

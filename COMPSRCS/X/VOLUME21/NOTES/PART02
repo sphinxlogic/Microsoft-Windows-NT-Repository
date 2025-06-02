@@ -1,0 +1,1009 @@
+Newsgroups: comp.sources.x
+From: bob@snuffy.penfield.ny.us (Bob Smith)
+Subject: v21i015:  notes - an X11R5 note pad based on the Athena Widget set, Part02/02
+Message-ID: <1993Oct20.200512.22880@sparky.sterling.com>
+X-Md4-Signature: cd33f4eff02b812805a3dab0d48c81ce
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Fuzzball Widget Factory
+Date: Wed, 20 Oct 1993 20:05:12 GMT
+Approved: chris@sterling.com
+
+Submitted-by: bob@snuffy.penfield.ny.us (Bob Smith)
+Posting-number: Volume 21, Issue 15
+Archive-name: notes/part02
+Environment: X11R5
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  callbacks.c
+# Wrapped by bob@snuffy on Sun Sep 19 21:37:44 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'callbacks.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'callbacks.c'\"
+else
+echo shar: Extracting \"'callbacks.c'\" \(22566 characters\)
+sed "s/^X//" >'callbacks.c' <<'END_OF_FILE'
+X/*
+X * callbacks.c
+X *
+X * notes - by Bob Smith <bob@snuffy.dracut.ma.us>
+X */
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X
+X#include <X11/IntrinsicP.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Shell.h>
+X
+X#include <X11/Xaw/Box.h>
+X#include <X11/Xaw/Cardinals.h>
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/List.h>
+X#include <X11/Xaw/AsciiText.h>
+X
+X#include "notes.h"
+X
+X
+X/*
+X * external variables
+X */
+X/* in main.c */
+Xextern XtAppContext app_con;
+Xextern Widget toplevel;
+Xextern Widget **Notes;
+Xextern char **Titles;
+X
+X
+X/*
+X * external functions
+X */
+Xvoid sensitize_start_button();
+X
+X
+X/*
+X * forward declarations
+X */
+Xvoid show_list(), destroy_list();
+X
+X
+X/*
+X * null ()
+X * just a stub to redirect some actions to when you don't really
+X * want anything to happen -- used by the input dialogs to keep
+X * carriage return, newline, and tab from doing anything
+X */
+Xvoid
+Xnull(widget, client_data, call_data)
+X     Widget widget;
+X     XtPointer client_data, call_data;
+X{
+X}
+X
+X
+X/*
+X * quit ()
+X * self explanatory
+X */
+Xvoid
+Xquit(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	XtDestroyApplicationContext(app_con);
+X	exit(0);
+X}
+X
+X
+X/*
+X * desensitize_all ()
+X */
+Xstatic void
+Xdesensitize_all(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget w, button;
+X	int i;
+X	XWindowAttributes atribs;
+X
+X	w = XtNameToWidget(toplevel, "*Notes");
+X	if (w) {
+X		button = XtNameToWidget(w, "*new_button");
+X		XtVaSetValues(button, XtNsensitive, False, NULL);
+X		button = XtNameToWidget(w, "*dismiss_button");
+X		XtVaSetValues(button, XtNsensitive, False, NULL);
+X		button = XtNameToWidget(w, "*save_button");
+X		XtVaSetValues(button, XtNsensitive, False, NULL);
+X		button = XtNameToWidget(w, "*quit_button");
+X		XtVaSetValues(button, XtNsensitive, False, NULL);
+X		button = XtNameToWidget(w, "*list");
+X		XtVaSetValues(button, XtNsensitive, False, NULL);
+X	}
+X
+X	i = 0;
+X	while (Notes[i]) {
+X		XGetWindowAttributes(XtDisplay(*Notes[i]),
+X			XtWindow(*Notes[i]), &atribs);
+X		if (atribs.map_state != IsUnmapped) {
+X			button = XtNameToWidget(*Notes[i], "*dismiss_button");
+X			XtVaSetValues(button, XtNsensitive, False, NULL);
+X			button = XtNameToWidget(*Notes[i], "*title_button");
+X			XtVaSetValues(button, XtNsensitive, False, NULL);
+X			button = XtNameToWidget(*Notes[i], "*clear_button");
+X			XtVaSetValues(button, XtNsensitive, False, NULL);
+X			button = XtNameToWidget(*Notes[i], "*delete_button");
+X			XtVaSetValues(button, XtNsensitive, False, NULL);
+X			button = XtNameToWidget(*Notes[i], "*select_button");
+X			XtVaSetValues(button, XtNsensitive, False, NULL);
+X		}
+X		i++;
+X	}
+X}
+X
+X
+X/*
+X * sensitize_all ()
+X */
+Xstatic void
+Xsensitize_all(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget w, button;
+X	int i;
+X	XWindowAttributes atribs;
+X
+X	w = XtNameToWidget(toplevel, "*Notes");
+X	if (w) {
+X		button = XtNameToWidget(w, "*new_button");
+X		XtVaSetValues(button, XtNsensitive, True, NULL);
+X		button = XtNameToWidget(w, "*dismiss_button");
+X		XtVaSetValues(button, XtNsensitive, True, NULL);
+X		button = XtNameToWidget(w, "*save_button");
+X		XtVaSetValues(button, XtNsensitive, True, NULL);
+X		button = XtNameToWidget(w, "*quit_button");
+X		XtVaSetValues(button, XtNsensitive, True, NULL);
+X		button = XtNameToWidget(w, "*list");
+X		XtVaSetValues(button, XtNsensitive, True, NULL);
+X	}
+X
+X	i = 0;
+X	while (Notes[i]) {
+X		XGetWindowAttributes(XtDisplay(*Notes[i]),
+X			XtWindow(*Notes[i]), &atribs);
+X		if (atribs.map_state != IsUnmapped) {
+X			button = XtNameToWidget(*Notes[i], "*dismiss_button");
+X			XtVaSetValues(button, XtNsensitive, True, NULL);
+X			button = XtNameToWidget(*Notes[i], "*title_button");
+X			XtVaSetValues(button, XtNsensitive, True, NULL);
+X			button = XtNameToWidget(*Notes[i], "*clear_button");
+X			XtVaSetValues(button, XtNsensitive, True, NULL);
+X			button = XtNameToWidget(*Notes[i], "*delete_button");
+X			XtVaSetValues(button, XtNsensitive, True, NULL);
+X			button = XtNameToWidget(*Notes[i], "*select_button");
+X			XtVaSetValues(button, XtNsensitive, True, NULL);
+X		}
+X		i++;
+X	}
+X}
+X
+X
+X/*
+X * destroy_widget ()
+X * used by a number of the popups to get rid of themselves --
+X * the assumption is that the button being pressed is 2 levels
+X * deep into the popup we want to destroy - hence the
+X * usage of XtGrandParent
+X */
+Xvoid
+Xdestroy_widget(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	XtPopdown(XtGrandParent(widget));
+X	XtDestroyWidget(XtGrandParent(widget));
+X}
+X
+X
+X/*
+X * save_callback ()
+X * just a callback to get to write_notefile
+X */
+Xstatic void
+Xsave_callback(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	write_notefile();
+X}
+X
+X
+X/*
+X * confirm_clear_note ()
+X * clear the note widget if confirm is pressed in the dialog box
+X */
+Xstatic void
+Xconfirm_clear_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	XtVaSetValues((Widget) client_data, XtNstring, NULL, NULL);
+X}
+X
+X
+X/*
+X * clear_note ()
+X * put up a dialog asking if you really want to clear the
+X * associated note
+X */
+Xstatic void
+Xclear_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget note = (Widget) client_data;
+X	Widget popup, form, prompt;
+X	Widget confirm_button, filler_box, cancel_button;
+X	Dimension note_w, popup_w;
+X	Position x, y;
+X
+X	popup = XtCreatePopupShell("Clear Note",
+X		transientShellWidgetClass, toplevel,
+X		NULL, ZERO);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, popup,
+X		NULL, ZERO);
+X
+X	prompt = XtVaCreateManagedWidget("prompt",
+X		labelWidgetClass, form,
+X		XtNlabel, "Clear this note?",
+X		XtNborderWidth, 0,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X
+X	confirm_button = XtVaCreateManagedWidget("confirm_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Confirm",
+X		XtNwidth, 64,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(confirm_button, confirm_clear_note, note);
+X		AddCallback(confirm_button, destroy_widget, NULL);
+X		AddCallback(confirm_button, sensitize_all, NULL);
+X
+X	filler_box = XtVaCreateManagedWidget("filler_box",
+X		boxWidgetClass, form,
+X		XtNwidth, 64,
+X		XtNborderWidth, 0,
+X		XtNfromHoriz, confirm_button,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	cancel_button = XtVaCreateManagedWidget("cancel_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Cancel",
+X		XtNwidth, 64,
+X		XtNfromHoriz, filler_box,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainRight,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(cancel_button, destroy_widget, NULL);
+X		AddCallback(cancel_button, sensitize_all, NULL);
+X
+X	XtRealizeWidget(popup);
+X
+X	XtVaGetValues(XtGrandParent(note), XtNwidth, &note_w, NULL);
+X	XtVaGetValues(popup, XtNwidth, &popup_w, NULL);
+X	XtTranslateCoords(XtGrandParent(note), (note_w - popup_w)/2, 0, &x, &y);
+X	XtVaSetValues(popup, XtNx, x, XtNy, y, NULL);
+X
+X	XtPopup(popup, XtGrabNone);
+X}
+X
+X
+X/*
+X * confirm_delete_note ()
+X * delete the associated note -- unalloc_note does the real work
+X */
+Xstatic void
+Xconfirm_delete_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	XtPopdown((Widget) client_data);
+X	XtDestroyWidget((Widget) client_data);
+X
+X	if (widget = XtNameToWidget(toplevel, "*Notes")) {
+X		XtPopdown(widget);
+X		XtDestroyWidget(widget);
+X	}
+X
+X	unalloc_note((Widget) client_data);
+X
+X	if (widget)
+X		show_list();
+X
+X}
+X
+X
+X/*
+X * delete_note ()
+X * put up a dialog asking if you really want to delete the
+X * associated note
+X */
+Xstatic void
+Xdelete_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget note = (Widget) client_data;
+X	Widget popup, form, prompt;
+X	Widget confirm_button, filler_box, cancel_button;
+X	Dimension note_w, popup_w;
+X	Position x, y;
+X
+X	popup = XtCreatePopupShell("Destroy Note",
+X		transientShellWidgetClass, toplevel,
+X		NULL, ZERO);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, popup,
+X		NULL, ZERO);
+X
+X	prompt = XtVaCreateManagedWidget("prompt",
+X		labelWidgetClass, form,
+X		XtNlabel, "Destroy this note?",
+X		XtNborderWidth, 0,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X
+X	confirm_button = XtVaCreateManagedWidget("confirm_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Confirm",
+X		XtNwidth, 64,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(confirm_button, confirm_delete_note, note);
+X		AddCallback(confirm_button, destroy_widget, NULL);
+X		AddCallback(confirm_button, sensitize_all, NULL);
+X
+X	filler_box = XtVaCreateManagedWidget("filler_box",
+X		boxWidgetClass, form,
+X		XtNwidth, 64,
+X		XtNborderWidth, 0,
+X		XtNfromHoriz, confirm_button,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	cancel_button = XtVaCreateManagedWidget("cancel_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Cancel",
+X		XtNwidth, 64,
+X		XtNfromHoriz, filler_box,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainRight,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(cancel_button, destroy_widget, NULL);
+X		AddCallback(cancel_button, sensitize_all, NULL);
+X
+X	XtRealizeWidget(popup);
+X
+X	XtVaGetValues(note, XtNwidth, &note_w, NULL);
+X	XtVaGetValues(popup, XtNwidth, &popup_w, NULL);
+X	XtTranslateCoords(note, (note_w - popup_w)/2, 0, &x, &y);
+X	XtVaSetValues(popup, XtNx, x, XtNy, y, NULL);
+X
+X	XtPopup(popup, XtGrabNone);
+X}
+X
+X
+X/*
+X * confirm_new_title ()
+X * change the title of associated note
+X */
+Xstatic void
+Xconfirm_new_title(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget w;
+X	String str;
+X	int i;
+X
+X	XtVaGetValues(XtNameToWidget(XtGrandParent(widget), "*input"),
+X		XtNstring, &str, NULL);
+X
+X	if (strlen(str)) {
+X		i = 0;
+X		while (Notes[i]) {
+X			if ((Widget) client_data == *Notes[i]) {
+X				Titles[i] = (char *) realloc(Titles[i], strlen(str)+1);
+X				if (!Titles[i])
+X					die("Realloc in confirm_new_title failed.");
+X				strcpy(Titles[i], str);
+X				XtVaSetValues((Widget) client_data, XtNtitle, str, NULL);
+X				(void) sort_titles(0);
+X				w = XtNameToWidget(toplevel, "*Notes*list");
+X				if (w)
+X					XawListChange(w, Titles, 0, 0, False);
+X				break;
+X			}
+X			i++;
+X		}
+X	}
+X}
+X
+X
+X/*
+X * new_title ()
+X * put up a prompt asking for a new title for the
+X * associated note
+X */
+Xstatic void
+Xnew_title(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget popup, form, prompt, input;
+X	Widget confirm_button, filler_box, cancel_button;
+X	Dimension client_w, popup_w;
+X	Position x, y;
+X	String str;
+X
+X	popup = XtCreatePopupShell("Change Title",
+X		transientShellWidgetClass, toplevel,
+X		NULL, ZERO);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, popup,
+X		NULL, ZERO);
+X
+X	prompt = XtVaCreateManagedWidget("prompt",
+X		labelWidgetClass, form,
+X		XtNlabel, "Enter new title",
+X		XtNborderWidth, 0,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X
+X	XtVaGetValues((Widget) client_data, XtNtitle, &str, NULL);
+X
+X	input = XtVaCreateManagedWidget("input",
+X		asciiTextWidgetClass, form,
+X		XtNstring, str,
+X		XtNwidth, 202,
+X		XtNeditType, XawtextEdit,
+X		XtNjustify, XtJustifyLeft,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	confirm_button = XtVaCreateManagedWidget("confirm_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Confirm",
+X		XtNwidth, 64,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(confirm_button, confirm_new_title, client_data);
+X		AddCallback(confirm_button, destroy_widget, NULL);
+X		AddCallback(confirm_button, sensitize_all, NULL);
+X
+X	/* filler_box's only purpose is to provide spacing... */
+X	filler_box = XtVaCreateManagedWidget("filler_box",
+X		boxWidgetClass, form,
+X		XtNwidth, 64,
+X		XtNborderWidth, 0,
+X		XtNfromHoriz, confirm_button,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	cancel_button = XtVaCreateManagedWidget("cancel_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Cancel",
+X		XtNwidth, 64,
+X		XtNfromHoriz, filler_box,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainRight,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(cancel_button, destroy_widget, NULL);
+X		AddCallback(cancel_button, sensitize_all, NULL);
+X
+X	XtRealizeWidget(popup);
+X
+X	XtVaGetValues((Widget) client_data, XtNwidth, &client_w, NULL);
+X	XtVaGetValues(popup, XtNwidth, &popup_w, NULL);
+X	XtTranslateCoords((Widget) client_data, (client_w - popup_w)/2, 0, &x, &y);
+X	XtVaSetValues(popup, XtNx, x, XtNy, y, NULL);
+X
+X	XtPopup(popup, XtGrabNone);
+X}
+X
+X
+X/*
+X * confirm_new_note ()
+X * create a new note -- alloc_new_note does the bulk
+X * of the work
+X */
+Xstatic void
+Xconfirm_new_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	String str;
+X	int i;
+X
+X	XtVaGetValues((Widget) client_data, XtNstring, &str, NULL);
+X
+X	if (strlen(str)) {
+X		i = alloc_new_note(str);
+X		destroy_list();
+X		show_list();
+X		XtPopup(*Notes[i], XtGrabNone);
+X	}
+X}
+X
+X
+X/*
+X * new_note ()
+X * put up a dialog asking for the title of a new note
+X */
+Xstatic void
+Xnew_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget popup, form, prompt, input;
+X	Widget confirm_button, filler_box, cancel_button;
+X	Dimension top_w, popup_w;
+X	Position x, y;
+X
+X	popup = XtCreatePopupShell("New Note",
+X		transientShellWidgetClass, toplevel,
+X		NULL, ZERO);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, popup,
+X		NULL, ZERO);
+X
+X	prompt = XtVaCreateManagedWidget("prompt",
+X		labelWidgetClass, form,
+X		XtNlabel, "Enter title of new note",
+X		XtNborderWidth, 0,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X
+X	input = XtVaCreateManagedWidget("input",
+X		asciiTextWidgetClass, form,
+X		XtNwidth, 202,
+X		XtNeditType, XawtextEdit,
+X		XtNjustify, XtJustifyLeft,
+X		XtNfromVert, prompt,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	confirm_button = XtVaCreateManagedWidget("confirm_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Confirm",
+X		XtNwidth, 64,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(confirm_button, confirm_new_note, input);
+X		AddCallback(confirm_button, destroy_widget, NULL);
+X		AddCallback(confirm_button, sensitize_all, NULL);
+X
+X	/* filler_box's only purpose is to provide spacing... */
+X	filler_box = XtVaCreateManagedWidget("filler_box",
+X		boxWidgetClass, form,
+X		XtNwidth, 64,
+X		XtNborderWidth, 0,
+X		XtNfromHoriz, confirm_button,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	cancel_button = XtVaCreateManagedWidget("cancel_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Cancel",
+X		XtNwidth, 64,
+X		XtNfromHoriz, filler_box,
+X		XtNfromVert, input,
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainRight,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(cancel_button, destroy_widget, NULL);
+X		AddCallback(cancel_button, sensitize_all, NULL);
+X
+X	XtRealizeWidget(popup);
+X
+X	XtVaGetValues(toplevel, XtNwidth, &top_w, NULL);
+X	XtVaGetValues(popup, XtNwidth, &popup_w, NULL);
+X	XtTranslateCoords(toplevel, (top_w - popup_w)/2, 0, &x, &y);
+X	XtVaSetValues(popup, XtNx, x, XtNy, y, NULL);
+X
+X	XtPopup(popup, XtGrabNone);
+X}
+X
+X
+X/*
+X * dismiss_show_note ()
+X * unmap a note from the display -- note it does not destroy
+X * the note widget
+X */
+Xstatic void 
+Xdismiss_show_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	XtPopdown(XtGrandParent(widget));
+X	XtUnmapWidget(XtGrandParent(widget));
+X}
+X
+X
+X/*
+X * show_note ()
+X * map a note to the display
+X */
+Xstatic void
+Xshow_note(widget, client_data, call_data)
+X     Widget widget;
+X     XtPointer client_data, call_data;
+X{
+X	XawListReturnStruct *item = (XawListReturnStruct*) call_data;
+X	Widget w;
+X	XWindowAttributes atribs;
+X
+X	w = *Notes[item->list_index];
+X	XGetWindowAttributes(XtDisplay(w), XtWindow(w), &atribs);
+X
+X	if (atribs.map_state == IsUnmapped)
+X		XtPopup(w, XtGrabNone);
+X	else
+X		XRaiseWindow(XtDisplay(w), XtWindow(w));
+X}
+X
+X
+X/*
+X * select_note ()
+X */
+Xstatic void
+Xselect_note(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget w = (Widget) client_data;
+X	Display *d;
+X	String str;
+X
+X	d = XtDisplay(XtGrandParent(widget));
+X	XtVaGetValues(w, XtNstring, &str, NULL);
+X	if (strlen(str)) {
+X		XawTextSetSelection(w, 0, strlen(str));
+X		XStoreBytes(d, str, strlen(str));
+X	}
+X}
+X
+X
+X/*
+X * make_note_widget ()
+X * dynamically allocate a widget, create a new note, and
+X * return a pointer to the widget -- remember that it's a
+X * pointer, not a widget itself
+X */
+XWidget *
+Xmake_note_widget(title, x, y, w, h, text)
+X	char *title, *text;
+X	int x, y, w, h;
+X{
+X	Widget *popup, form, note;
+X	Widget dismiss_button, title_button, clear_button, delete_button;
+X	Widget select_button;
+X
+X	popup = (Widget *) malloc(sizeof(Widget));
+X	if (!popup)
+X		die("Malloc in make_note_widget failed.");
+X
+X	*popup = XtVaCreatePopupShell(title,
+X		transientShellWidgetClass, toplevel,
+X		XtNx, x, XtNy, y, NULL);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, *popup,
+X		NULL, ZERO);
+X
+X	dismiss_button = XtVaCreateManagedWidget("dismiss_button",
+X		commandWidgetClass, form,
+X		XtNlabel, "Dismiss",
+X		XtNwidth, 64,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(dismiss_button, dismiss_show_note, NULL);
+X
+X	note = XtVaCreateManagedWidget("note",
+X		asciiTextWidgetClass, form,
+X		XtNfromVert, dismiss_button,
+X		XtNstring, text,
+X		XtNwidth, w,
+X		XtNheight, h,
+X		XtNscrollVertical, XawtextScrollAlways,
+X		XtNeditType, XawtextEdit,
+X		XtNwrap, XawtextWrapLine,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X
+X	title_button = XtVaCreateManagedWidget("title_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, dismiss_button,
+X		XtNlabel, "Title",
+X		XtNwidth, 64,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(title_button, desensitize_all, NULL);
+X		AddCallback(title_button, new_title, *popup);
+X
+X	clear_button = XtVaCreateManagedWidget("clear_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, title_button,
+X		XtNlabel, "Clear",
+X		XtNwidth, 64,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(clear_button, desensitize_all, NULL);
+X		AddCallback(clear_button, clear_note, note);
+X
+X	delete_button = XtVaCreateManagedWidget("delete_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, clear_button,
+X		XtNlabel, "Destroy",
+X		XtNwidth, 64,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(delete_button, desensitize_all, NULL);
+X		AddCallback(delete_button, delete_note, *popup);
+X
+X	select_button = XtVaCreateManagedWidget("select_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, delete_button,
+X		XtNlabel, "Select",
+X		XtNwidth, 64,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(select_button, select_note, note);
+X
+X	XtRealizeWidget(*popup);
+X
+X	return popup;
+X}
+X
+X
+X/*
+X * destroy_list ()
+X * this destroy_list is called by confirm_new_note
+X */
+Xvoid
+Xdestroy_list()
+X{
+X	Widget w;
+X
+X	w = XtNameToWidget(toplevel, "*Notes");
+X	if (w) {
+X		XtPopdown(w);
+X		XtDestroyWidget(w);
+X	}
+X}
+X
+X
+X/*
+X * show_list ()
+X * desensitize the toplevel startup button and put up
+X * the list of notes
+X */
+Xvoid
+Xshow_list(widget, client_data, call_data)
+X	Widget widget;
+X	XtPointer client_data, call_data;
+X{
+X	Widget popup, form, list;
+X	Widget dismiss_button, new_button, save_button, quit_button;
+X	Dimension top_w, popup_w;
+X	Position x, y;
+X
+X	popup = XtCreatePopupShell("Notes",
+X		transientShellWidgetClass, toplevel,
+X		NULL, ZERO);
+X
+X	form = XtCreateManagedWidget("form",
+X		formWidgetClass, popup,
+X		NULL, ZERO);
+X
+X	new_button = XtVaCreateManagedWidget("new_button",
+X		commandWidgetClass, form,
+X		XtNwidth, 64,
+X		XtNlabel, "New",
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainLeft,
+X		NULL);
+X		AddCallback(new_button, desensitize_all, NULL);
+X		AddCallback(new_button, new_note, NULL);
+X
+X	dismiss_button = XtVaCreateManagedWidget("dismiss_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, new_button,
+X		XtNwidth, 64,
+X		XtNlabel, "Dismiss",
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(dismiss_button, destroy_widget, NULL);
+X		AddCallback(dismiss_button, sensitize_start_button, NULL);
+X
+X	save_button = XtVaCreateManagedWidget("save_button",
+X		commandWidgetClass, form,
+X		XtNfromHoriz, dismiss_button,
+X		XtNwidth, 64,
+X		XtNlabel, "Save",
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainTop,
+X		XtNleft, XawChainRight,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(save_button, save_callback, NULL);
+X
+X	list = XtVaCreateManagedWidget("list",
+X		listWidgetClass, form,
+X		XtNfromVert, dismiss_button,
+X		XtNwidth, 3*64+2*4+2*2,
+X		XtNlist, Titles,
+X		XtNtop, XawChainTop,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(list, show_note, NULL);
+X
+X	quit_button = XtVaCreateManagedWidget("quit_button",
+X		commandWidgetClass, form,
+X		XtNfromVert, list,
+X		XtNwidth, 3*64+2*4+2*2,
+X		XtNlabel, "Quit",
+X		XtNtop, XawChainBottom,
+X		XtNbottom, XawChainBottom,
+X		XtNleft, XawChainLeft,
+X		XtNright, XawChainRight,
+X		NULL);
+X		AddCallback(quit_button, quit, NULL);
+X
+X	XtRealizeWidget(popup);
+X
+X	XtVaGetValues(toplevel, XtNwidth, &top_w, NULL);
+X	XtVaGetValues(popup, XtNwidth, &popup_w, NULL);
+X	XtTranslateCoords(toplevel, (top_w - popup_w)/2, 0, &x, &y);
+X	XtVaSetValues(popup, XtNx, x, XtNy, y, NULL);
+X
+X	XtPopup(popup, XtGrabNone);
+X}
+END_OF_FILE
+if test 22566 -ne `wc -c <'callbacks.c'`; then
+    echo shar: \"'callbacks.c'\" unpacked with wrong size!
+fi
+# end of 'callbacks.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+* Bob Smith          + mx: bob@snuffy.penfield.ny.us      *
+* 838 Harmon Rd.     + uucp: ur-valhalla!snuffy!bob       *
+* Penfield, NY 14526 + office|voice mail: +1 716 724-6186 *
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

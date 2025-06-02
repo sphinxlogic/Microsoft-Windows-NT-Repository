@@ -1,0 +1,540 @@
+Newsgroups: comp.sources.misc
+From: slantin@eis.calstate.edu (Sam Lantinga)
+Subject: v37i094:  newing - interface for your program, Part03/03
+Message-ID: <1993May29.183612.27707@sparky.imd.sterling.com>
+X-Md4-Signature: fce430e7d32cd99a4cde92b0917ed52c
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Calif State Univ/Electronic Information Services
+Date: Sat, 29 May 1993 18:36:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: slantin@eis.calstate.edu (Sam Lantinga)
+Posting-number: Volume 37, Issue 94
+Archive-name: newing/part03
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  COPYRIGHT Configure alias.c startup.c utmp.c
+# Wrapped by kent@sparky on Sat May 29 13:21:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 3)."'
+if test -f 'COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'COPYRIGHT'\"
+else
+  echo shar: Extracting \"'COPYRIGHT'\" \(942 characters\)
+  sed "s/^X//" >'COPYRIGHT' <<'END_OF_FILE'
+X			COPYRIGHT ALERT
+X
+XSTANDARD DISCLAIMER:
+X	No guarantee is stated or implied as to the functionality
+Xof this software, or its fitness for any purpose.  No responsibility
+Xis taken for any damage occurring as a result of using this software.
+X
+XCOPYRIGHT:
+X	The newing package, consisting of the following files:
+X
+XCOPYRIGHT	cmds.c		ile.c		newing.h	tty.c
+XConfigure	config.c	mem.c		newing.hlp	utmp.c
+XINSTALL		help-err.c	misc.c		startup.c
+Xalias.c		history.c	newing.c	trigger.c
+X
+Xare under a Shareware Copyright held by Sam Lantinga as of May 6, 1993.
+X
+X	A Shareware Copyright means that you are free to use or 
+Xdistribute any part of this package on the condition that no intent
+Xof exchanging money is held by any party, and that no money is ever
+Xexchanged, and upon the condition that this document accompanies the 
+Xexchange.  The intent of a Shareware Copyright is to allow anyone 
+Xfree access to source code if they so desire.
+X
+X	-Sam Lantinga	5/6/93
+END_OF_FILE
+  if test 942 -ne `wc -c <'COPYRIGHT'`; then
+    echo shar: \"'COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'COPYRIGHT'
+fi
+if test -f 'Configure' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Configure'\"
+else
+  echo shar: Extracting \"'Configure'\" \(510 characters\)
+  sed "s/^X//" >'Configure' <<'END_OF_FILE'
+X#!/bin/sh
+X#  Script to configure the newing package 
+X#  Shareware Copyright by Sam Lantinga	5/6/93
+X
+XCFLAGS=
+XMAKE="echo \"Done.  Type 'make' to build\"" 
+X
+Xecho "Making configuration..."
+X
+Xwhile [ $# -gt 0 ]
+X  do case $1 in
+X       -d) CFLAGS=-DDEBUG
+X           echo "Configuring for debug mode."
+X           shift;;
+X       -m) MAKE=make
+X           shift;;
+X        *)  echo "Usage: Configure [-d] [-m]"
+X            exit;;
+X     esac
+Xdone
+X
+Xcc $CFLAGS -o config config.c
+Xif ./config
+X  then eval $MAKE
+Xfi
+Xrm -f config
+X
+END_OF_FILE
+  if test 510 -ne `wc -c <'Configure'`; then
+    echo shar: \"'Configure'\" unpacked with wrong size!
+  fi
+  chmod +x 'Configure'
+  # end of 'Configure'
+fi
+if test -f 'alias.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alias.c'\"
+else
+  echo shar: Extracting \"'alias.c'\" \(2803 characters\)
+  sed "s/^X//" >'alias.c' <<'END_OF_FILE'
+X
+X/* alias.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	"newing.h"
+X
+X#define MAXALIASES	10		/* The maximum number of aliasas */
+X
+Xstatic struct alias {
+X	char *name;
+X	char *def;
+X	} aliases[MAXALIASES];
+X
+Xchar alias_error[BUFSIZ];
+X
+Xstatic int have_aliased=0;
+X
+X
+X/* Print out the history buffers on standard output */
+X
+Xvoid showaliases()
+X{
+X	int i;
+X
+X	if ( ! have_aliased )
+X	{
+X		printf("No aliases have been defined.\r\n");
+X		return;
+X	}
+X
+X	printf("Aliases:\r\n");
+X	for ( i=0; i<MAXALIASES; ++i )
+X	{
+X		if ( aliases[i].name == NULL )
+X			continue;
+X		printf("\t%s:\t%s\r\n", aliases[i].name, aliases[i].def);
+X	}
+X}
+X
+X
+X/* Add a new alias definition */
+X
+Xint add_alias(name, definition)
+Xchar *name;
+Xchar *definition;
+X{
+X	int i;
+X
+X	if ( ! have_aliased )
+X	{
+X		for ( i=0; i<MAXALIASES; ++i )
+X			aliases[i].name=NULL;
+X		have_aliased=1;
+X	}
+X
+X	for ( i=0; i<MAXALIASES; ++i )
+X	{
+X		/* Add the new alias */
+X		if ( aliases[i].name == NULL )
+X		{
+X			if ( (aliases[i].name=myalloc(strlen(name)+1))
+X								== NULL )
+X			{
+X				sprintf(alias_error, "Malloc error");
+X				return(-1);
+X			}
+X
+X			if ( (aliases[i].def=myalloc(strlen(definition)+1))
+X								== NULL )
+X			{
+X				(void) myfree(aliases[i].name);
+X				sprintf(alias_error, "Malloc error");
+X				return(-1);
+X			}
+X
+X			strcpy(aliases[i].name, name);
+X			strcpy(aliases[i].def, definition);
+X			return(0);
+X		}
+X
+X		if ( strcmp(name, aliases[i].name) == 0 )
+X		{
+X			printf("Replacing existing alias: %s\r\n", name);
+X
+X			(void) myfree(aliases[i].name);
+X			(void) myfree(aliases[i].def);
+X
+X			if ( (aliases[i].name=myalloc(strlen(name)+1))
+X								== NULL )
+X			{
+X				sprintf(alias_error, "Malloc error");
+X				return(-1);
+X			}
+X
+X			if ( (aliases[i].def=myalloc(strlen(definition)+1))
+X								== NULL )
+X			{
+X				(void) myfree(aliases[i].name);
+X				sprintf(alias_error, "Malloc error");
+X				return(-1);
+X			}
+X
+X			strcpy(aliases[i].name, name);
+X			strcpy(aliases[i].def, definition);
+X			return(0);
+X		}
+X	}
+X
+X	/* We ran out of aliases */
+X	sprintf(alias_error, "Too many aliases");
+X	return(-1);
+X}
+X
+X
+X/* Remove an alias */
+X
+Xint del_alias(name)
+Xchar *name;
+X{
+X	int i;
+X
+X	if ( ! have_aliased )
+X	{
+X		sprintf(alias_error, "No aliases have been defined");
+X		return(-1);
+X	}
+X
+X	for ( i=0; i<MAXALIASES; ++i )
+X	{
+X		if ( aliases[i].name && strcmp(aliases[i].name, name) == 0 )
+X		{
+X			(void) myfree(aliases[i].name);
+X			(void) myfree(aliases[i].def);
+X
+X			aliases[i].name=NULL;
+X			return(0);
+X		}
+X	}
+X
+X	/* We couldn't find the alias */
+X	sprintf(alias_error, "Can't find alias");
+X	return(-1);
+X}
+X	
+X
+X/* Return the definition for an alias name, or NULL if the name
+X   couldn't be found */
+X
+Xchar *getalias(name)
+Xchar *name;
+X{
+X	int i;
+X
+X	if ( ! have_aliased )
+X		return(NULL);
+X
+X	for ( i=0; i<MAXALIASES; ++i )
+X	{
+X		if ( aliases[i].name && strcmp(aliases[i].name, name) == 0 )
+X			return(aliases[i].def);
+X	}
+X	return(NULL);
+X}
+END_OF_FILE
+  if test 2803 -ne `wc -c <'alias.c'`; then
+    echo shar: \"'alias.c'\" unpacked with wrong size!
+  fi
+  # end of 'alias.c'
+fi
+if test -f 'startup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'startup.c'\"
+else
+  echo shar: Extracting \"'startup.c'\" \(1933 characters\)
+  sed "s/^X//" >'startup.c' <<'END_OF_FILE'
+X
+X/* startup.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<ctype.h>
+X#include	"newing.h"
+X
+X#define STARTDIR	getenv("HOME")
+X#define STARTUP		".newingrc"
+X
+Xvoid init_rc(label, fd)
+Xchar *label;
+Xint fd;
+X{
+X	char buf[BUFSIZ], *bufptr;
+X	char initpath[BUFSIZ], escape_str[BUFSIZ];
+X	FILE *newingrc;
+X	int i, len, sleepy, nomatch=1;
+X
+X	sprintf(initpath, "%s/%s", STARTDIR, STARTUP);
+X
+X	if ( (newingrc=fopen(initpath, "r")) == NULL )
+X	{
+X		fprintf(stderr, "Can't open ");
+X		perror(initpath);
+X		fprintf(stderr, "\r");
+X		return;  /* the .newingrc file isn't readable. */
+X	}
+X
+X	if ( flag.verbose )
+X		printf("Reading from .newingrc\r\n"); 
+X
+X	/* Find the starting label. */
+X	while ( (bufptr=fgets(buf, BUFSIZ-1, newingrc)) != NULL )
+X	{
+X		if ( buf[0] != '\t' && buf[0] != '#' )
+X		{  /* We have a label, see if it matches. */
+X			for ( i=0; (buf[i]!=':' && buf[i]!='\n'); ++i );
+X			/* at end of label, null terminate */
+X			buf[i]='\0';
+X			if ( strcmp(buf, label) == 0 )
+X				break;
+X		}
+X	}
+X
+X	if ( ! bufptr )
+X	{
+X		fprintf(stderr, "Label \"%s\" not found in .newingrc\r\n",
+X 									label);
+X		(void) fclose(newingrc);
+X		return;
+X	}
+X
+X	while ( (bufptr=fgets(buf, BUFSIZ-1, newingrc)) != NULL )
+X	{
+X		if ( *bufptr == '\n' || *bufptr == '#' )
+X			continue;
+X		else if ( *bufptr != '\t' )
+X			break;
+X
+X		/* initialize settings */
+X		++bufptr;
+X		sleepy=1;   /* Don't overload the exec'ed child. */
+X
+X		/* Skip a comment */
+X		if ( *bufptr == '#' )
+X			continue;
+X
+X		/* Get the time to sleep if any. */
+X		for ( i=1; isdigit(buf[i]); ++i );
+X		if ( buf[i] == ' ' )
+X		{
+X			buf[i]='\0';
+X			bufptr=(&buf[i+1]);
+X			sleepy=atoi(&buf[1]);
+X		}
+X
+X		/* map newlines to carriage returns */
+X		len=strlen(buf);
+X
+X		if ( *bufptr == '*' )
+X		{  /* Perform an escape */
+X			++bufptr, buf[len-1]='\0';
+X			read_escape(bufptr);
+X		}
+X		else /* Send to the program */
+X		{
+X			sleep(sleepy);
+X
+X			buf[len-1]='\r';
+X			writen(fd, bufptr, strlen(bufptr));
+X		}
+X	}
+X	(void) fclose(newingrc);
+X	return;
+X}
+END_OF_FILE
+  if test 1933 -ne `wc -c <'startup.c'`; then
+    echo shar: \"'startup.c'\" unpacked with wrong size!
+  fi
+  # end of 'startup.c'
+fi
+if test -f 'utmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utmp.c'\"
+else
+  echo shar: Extracting \"'utmp.c'\" \(2566 characters\)
+  sed "s/^X//" >'utmp.c' <<'END_OF_FILE'
+X
+X/*  utmp.c    Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<sys/types.h>
+X#include	<utmp.h>
+X#include	<fcntl.h>
+X#include	"newing.h"
+X
+X#ifdef DEBUG
+X#undef  UTMP_FILE
+X#define UTMP_FILE  "/tmp/utmp"
+X#else
+X#ifndef UTMP_FILE
+X#define UTMP_FILE  "/etc/utmp"
+X#endif /* UTMP_FILE */
+X#endif /* DEBUG */
+X
+X/* This utmp function was adapted from pty's logs.c  */
+X
+Xint utmp(line, name, date, cleanup)
+Xchar *line;
+Xchar name[];
+Xlong date;
+Xint cleanup;
+X{
+X	struct utmp ut;
+X	struct utmp xt;
+X	char *lineptr;
+X	int fd, found=0;
+X
+X	if ( (fd=open(UTMP_FILE, O_RDWR)) < 0 )
+X	{
+X		if ( flag.verbose )
+X		{
+X			fprintf(stderr, "Can't open %s: ", UTMP_FILE);
+X			perror("");
+X			fprintf(stderr, "\r");
+X		}
+X		return(-1);
+X	}
+X
+X	/* Initialize the utmp structure */
+X	d_zero((char *)&ut, sizeof(struct utmp));
+X
+X	/* Get the ttyxy form of the tty pathname if possible. */
+X	if ( *line == '/' )
+X	{
+X		for ( lineptr=(line+1); *lineptr; ++lineptr )
+X		{
+X			if ( *lineptr == '/' )
+X				break;
+X		}
+X		if ( *lineptr == '/' )
+X			++lineptr;
+X	}
+X	else
+X		lineptr=line;
+X
+X	(void) strncpy(ut.ut_line, lineptr, sizeof(ut.ut_line));
+X
+X	if ( cleanup )
+X	{
+X		ut.ut_name[0]='\0';
+X#ifdef USER_PROCESS
+X		ut.ut_type = DEAD_PROCESS;
+X#endif
+X	}
+X	else
+X	{
+X#ifdef USER_PROCESS
+X		ut.ut_type = USER_PROCESS;
+X		ut.ut_pid = getpid();
+X#endif
+X		strncpy(ut.ut_name, name, sizeof(ut.ut_name));
+X	}
+X	ut.ut_time=date;
+X
+X#ifdef HAVE_UTHOST
+X	ut.ut_host[0]='\0';
+X#endif
+X
+X	while (read(fd,(char *) &xt, sizeof(xt)) == sizeof(xt))
+X 	{
+X  		if (strncmp(xt.ut_line, ut.ut_line, sizeof(xt.ut_line)) == 0)
+X  	  	{
+X			found=1;
+X			lseek(fd, -(long)sizeof(struct utmp), 1);
+X     			break;
+X    		}
+X  	}
+X
+X	/* Add a new entry to the utmp file if we can't find our entry */
+X	if ( (!found) && (!cleanup) )
+X  	{ /* Reopen to avoid a race with other end-of-utmp entries. */
+X   		(void) close(fd);
+X   		if ( (fd=open(UTMP_FILE, (O_RDWR|O_APPEND))) < 0 )
+X     			return -1;
+X  	}
+X
+X 	if (write(fd, (char *) &ut, sizeof(ut)) < sizeof(ut))
+X  	{
+X   		(void) close(fd);
+X   		return -1;
+X  	}
+X 	return(close(fd));
+X}
+X
+X
+X/* Fill the utinfo structure with all sorts of interesting info */
+X
+Xextern char tty_name[];		/* From tty.c */
+X
+Xvoid init_utinfo()
+X{
+X	struct passwd *pw;
+X	char *lineptr;
+X
+X	utinfo.cpid=getpid();
+X	utinfo.pgrp=getpgrp();
+X
+X	if ( dosuid )
+X		utinfo.euid=dosuid->pw_uid;
+X	else
+X		utinfo.euid=getuid();
+X	strncpy(utinfo.tty, tty_name, 18);
+X
+X	if ( dosuid )
+X		strncpy(utinfo.name, dosuid->pw_name, 10);
+X	else if ( (pw=(struct passwd *)getpwuid(utinfo.euid)) != NULL )
+X		strncpy(utinfo.name, pw->pw_name, 10);
+X	else
+X		strncpy(utinfo.name, atoi(utinfo.euid), 10);
+X	return;
+X}
+END_OF_FILE
+  if test 2566 -ne `wc -c <'utmp.c'`; then
+    echo shar: \"'utmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'utmp.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

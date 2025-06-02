@@ -1,0 +1,1762 @@
+From: Adam Bryant <adb@cs.bu.edu>
+Subject: v02i039: cextract - (Ver. 1.7) C prototyper/header file generator, Part01/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Adam Bryant <adb@cs.bu.edu>
+Posting-number: Volume 2, Issue 39
+Archive-name: cextract/part01
+Supersedes: cextract: Volume 1, Issue 4-8
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 5)."
+# Contents:  INSTALL INSTALL.VMS MANIFEST MANIFEST.BAK Makefile
+#   Makefile.dist README TODO build.com cextdoc.1 cextrc.5
+#   newbuild.com patchlevel.h proto.h xtract.h
+# Wrapped by adb@csa on Fri Oct 30 16:20:35 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+echo shar: Extracting \"'INSTALL'\" \(2868 characters\)
+sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+XVMS sites should see the file INSTALL.VMS for installation
+Xinstructions.
+X
+XThe installation of the program is pretty simple:
+X
+X   - Read through this INSTALL file.
+X   - Read and edit the Makefile.
+X   - Type "make".
+X   - You might want to remove any old configuration files that are on
+X	the system, to allow defaults to be installed properly.
+X   - Test the program to be sure it works.  This can be done by
+X	typing "make test" which will run a test using its own code.
+X	[The system configuration file will be installed, if there is
+X	not already one in place.  You will need to have permission to
+X	create this file, so you might need to do this as "root".]
+X   - Type "make install" to install the binary, cextdoc link and
+X	to generate the system configuration file (if not already done).
+X   - Type "make install.man" to install the manual pages.
+X   - If necessary, edit the system configuration file for your site.
+X
+X  NOTE: As stated above, when the system configuration file is
+X   installed, you will need permission to write to whatever
+X   location was chosen for it.  So, it is likely that you will
+X   need to run the "make test" or "make install" as root, or have
+X   write permission to the directory where the file will be
+X   placed.
+X
+XFor those systems with a non-standard C preprocesser or for those of
+Xyou who want to be especially thorough:
+X
+X	- You might need to edit the values of CPP and CPP_COMMENT in
+X	  the Makefile.  These should be set to whatever C
+X	  preprocessor you can get, preferably one that leaves
+X	  comments intact, and the flag that leaves them intact.
+X
+XAfter you are done with the installation of the binary and
+Xdocumentation, you might want to take a look at the "cextrc" manual
+Xpage and edit the system configuration file for your system.  The
+Xlocation and name of this header file is determined by the setting
+Xof "SYSRC" in the Makefile.  A default one should already have been
+Xbuilt for your system with the "make install" or "make test"
+Xcommands.
+X
+XThis file can hold the default options you wish to implement (probably
+Xbased on the default system compiler), as well as any system-dependent
+Xreplacements due to "#define"s.
+X
+XTo determine what kind of things might need replacing, you can look at
+Xthe standard header files on your system, searching for things which
+Xyou had considered a "typedef" but which were really "#define"
+Xsequences.  The one noticeable one on my Sun is:
+X
+X#define FILE struct _iobuf
+X
+XSince I found that FILE was defined like this on most systems, I made
+Xsure to automatically build the replacement into the default
+Xconfiguration file.  The varargs system also uses a similiar
+Xmechanism, so I made sure to handle that as well.
+X
+XIf you get any error messages or warnings, please let me know.  If you
+Xhave any problems at all, or even just a friendly suggestion, feel
+Xfree to send me mail about it.
+X
+XAdam Bryant
+Xadb@bu.edu
+END_OF_FILE
+if test 2868 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+fi
+# end of 'INSTALL'
+fi
+if test -f 'INSTALL.VMS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL.VMS'\"
+else
+echo shar: Extracting \"'INSTALL.VMS'\" \(3374 characters\)
+sed "s/^X//" >'INSTALL.VMS' <<'END_OF_FILE'
+XOkay, so, I have to assume that you somehow got the unix shar files
+Xunpacked.  If you got some warnings about "wc" not being found, then
+Xyou can ignore them, since that is a unix program which was just trying
+Xto do "checksums".  [hopefully everything unpacked okay :-)]
+X
+XNow, the way to build the programs is simple:
+X
+X - first take a look at the xtract.h file and determine if any of the
+X   settings need adjusting.  Pay careful attention to the following
+X   definitions:
+X
+X        CEXTDOC_NAME      - name of the documentation extraction program
+X        CONFIG_FILE       - name of the configuration file
+X        SYS_CONFIG        - location of the global system configuration file
+X	CPP		  - the C preprocessor to handle the "#define"s
+X	CPP_COMMENT	  - the flag to tell the C preprocessor not to
+X			    strip the comments out.
+X
+X   It should be possible to change them on the command line, using the
+X   newbuild.com file, instead of build.com, but I have not been able
+X   to test it.
+X
+X - @build (or @newbuild) or just compile and then link the main.c and
+X   parse.c files.
+X
+XNote that on VMS systems that I have heard about the C compilers do
+Xnot have support for retaining the comments after preprocessing. So,
+Xthe cextdoc program and the cextract comment functions are pretty
+Xuseless on VMS systems.  [I have had reports that the GNU C
+Xpreprocessor works on VMS systems, so you might want to grab that and
+Xuse that.  You could probably make good use of it normally anyway.]
+X
+XI have provided a VMS help file to give a documentation method for
+Xnormal VMS users.  It is the file:
+X
+X  cextract.hlp
+X
+XYou might also want to look at the text files:
+X
+X  cextract.doc cextrc.doc
+X
+Xsince even though they are the documentation for a normal Unix system,
+Xthey do document most everything in the VMS version as well.  The
+X".hlp" file should be more than enough, though.
+X
+XAnyway, you can now place the binary wherever you want.  You can also
+Xcopy it into "cextdoc" (or whatever you set CEXTDOC_NAME to) and
+Xthereby obtain a program with the documentation extractor as the
+Xdefault mode.  [It checks the name as it is called]
+X
+XIn order to simplify access to the program(s), you will need to define
+Xa foreign command using:
+X
+X      cextract == "$the_disc:[the_directory]cextract"
+X
+XWhere "the_disc" and "the_directory" have the values for where you
+Xplaced the binary.  I suppose that line can be added to your LOGIN.COM
+Xfile.
+X
+XYou might consider building a system configuration file, using the
+X"/SYSTEM-BUILD" qualifier.  You could then edit it to your taste,
+Xhaving it contain any default options you might wish to have, as well
+Xas any "replace" commands which your system might need.
+X
+XTo determine what kind of things might need replacing, you can look at
+Xthe standard header files on your system, searching for things which
+Xyou had considered a "typedef" but which were really "#define"
+Xsequences.  The one noticable one on my Sun is:
+X
+X#define FILE struct _iobuf
+X
+XSince I found that FILE was defined like this on most systems, I made
+Xsure to automatically build the replacement into /SYSTEM-BUILD
+Xprocess.  The varargs system also uses a similiar mechanism, so I made
+Xsure to handle that as well.
+X
+XIf you get any error messages or warnings, please let me know.  If you
+Xhave any problems at all, or even just a friendly suggestion, feel
+Xfree to send me mail about it.
+X
+XAdam Bryant
+Xadb@bu.edu
+X
+X
+END_OF_FILE
+if test 3374 -ne `wc -c <'INSTALL.VMS'`; then
+    echo shar: \"'INSTALL.VMS'\" unpacked with wrong size!
+fi
+# end of 'INSTALL.VMS'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(778 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X INSTALL                    1	
+X INSTALL.VMS                1	
+X MANIFEST                   1	
+X MANIFEST.BAK               1	
+X Makefile                   1	
+X Makefile.dist              1	
+X README                     1	
+X TODO                       1	
+X build.com                  1	
+X cextdoc.1                  1	
+X cextract.1                 2	
+X cextract.doc               2	
+X cextract.hlp               2	
+X cextrc.5                   1	
+X cextrc.doc                 2	
+X io.c                       4	
+X main.c                     3	
+X newbuild.com               1	
+X parse.c                    5	
+X patchlevel.h               1	
+X proto.h                    1	
+X xtract.h                   1	
+END_OF_FILE
+if test 778 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'MANIFEST.BAK' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST.BAK'\"
+else
+echo shar: Extracting \"'MANIFEST.BAK'\" \(716 characters\)
+sed "s/^X//" >'MANIFEST.BAK' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X INSTALL                    1	
+X INSTALL.VMS                1	
+X MANIFEST                   1	
+X Makefile                   1	
+X README                     1	
+X TODO                       1	
+X build.com                  1	
+X cextdoc.1                  1	
+X cextract.1                 2	
+X cextract.doc               2	
+X cextract.hlp               2	
+X cextrc.5                   1	
+X cextrc.doc                 1	
+X io.c                       4	
+X main.c                     3	
+X newbuild.com               1	
+X parse.c                    5	
+X patchlevel.h               1	
+X proto.h                    1	
+X xtract.h                   1	
+END_OF_FILE
+if test 716 -ne `wc -c <'MANIFEST.BAK'`; then
+    echo shar: \"'MANIFEST.BAK'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST.BAK'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(5871 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X#	This Makefile is for the cextract/cextdoc program.  If
+X#	you should experience any problems please send mail to:
+X#
+X#			adb@bu.edu
+X#
+X
+X#	Adjust anything as needed
+X
+X#	shell used by make [some make versions need this]
+XSHELL	= /bin/sh
+X
+X#	compiler to build programs with
+XCC	= gcc
+X
+X#	C preprocessor, if you don't wish to use the default.
+X#	[this line can usually be left commented out]
+X#CPPFLG	= -DCPP=\"/lib/cpp\"
+X
+X#	Flag to tell the C preprocessor to not strip out comments,
+X#	if the default value is not correct.
+X#	[this line can usually be left commented out]
+X#CPPCMT	= -DCPP_COMMENTS=\"-C\"
+X
+X#	If your system does not support pipes (have the "popen()"
+X#	function), you should uncomment this line.  [You might need to
+X#	carefully look at the definitions of PIPETMP_FMT and
+X#	PIPEOUT_FMT in xtract.h]
+X#PIPFLG	= -DNO_POPEN
+X
+X#	Compiler options, such as '-O' for cc
+X#	 or '-O -g -Wall -ansi' for GNU compilers
+XCOPTS	= -O -g -Wall -ansi
+X
+X#	sequence to get rid of ${RM} error messages [blank to see them]
+XNULL	= 2>/dev/null
+X
+X#	System information flags; give the proper settings for your
+X#	machine.  You can also add:
+X#
+X#		-DSETBUFFER	if your system has setbuffer(3S)
+X#				and you wish to use it, in the (slim?)
+X#				hope of increasing performance.
+X#
+X#		-DNO_PERROR	if your system does not have the
+X#				perror(3) function.
+X#
+X#SYSFLG	= -DBSD			# Most BSD derivatives
+X#SYSFLG	= -DSYSV		# Most SysV derivatives
+XSYSFLG	= -DSYSV -DBSD		# Sun OS 4.1
+X#SYSFLG	= -DSYSV -DAIX		# IBM AIX operating systems
+X#SYSFLG	= -DSYSV -DSGI		# Silicon Graphics machines
+X#SYSFLG	= -DBSD -DULTRIX	# Digital Ultrix systems
+X#SYSFLG	= -DSYSV -DCLIX		# Intergraph Clix operating systems
+X#SYSFLG	= -DHPUX		# Hewlett Packard HPUX systems
+X#SYSFLG	= -DSYSV -DXENIX	# Xenix SysV systems
+X#SYSFLG	= -DBSD -DXENIX		# Xenix BSD systems (?)
+X#SYSFLG	= -DVAXC -DVMS		# Digital VAX VMS machines
+X#SYSFLG = -DBSD -U__STDC__	# Apollo sites aren't really ANSI (?)
+X
+X#	final location of the executable
+XBINDIR	= /usr/local/bin
+X
+X#	prefix directory, such as "/mnt". usually left blank
+XDESTDIR	=
+X
+X#	settings for the manual pages, change as desired
+XMANDIR	= /usr/local/man/man
+XM1TAG	= 1
+XM1DIR	= ${MANDIR}${M1TAG}
+XM5TAG	= 5
+XM5DIR	= ${MANDIR}${M5TAG}
+X
+X#	name of the cextractor program
+XCXTRACT	= cextract
+X
+X#	name of the documentation extractor
+XDOCTRG	= cextdoc
+X
+X#	name of the cextrc configuration file
+XRCFILE	= .cextrc
+X
+X#	full path and name for the system level configuration file
+XSYSRC	= /usr/local/lib/cext.config
+X
+X#	== List of miscellaneous commands needed by make ==
+X#
+X#	check for the existence of a directory
+XTESTDIR	= test -d
+X#	create a new directory
+XMKDIR	= mkdir
+X#	install a file (used in INSTBIN and INSTMAN settings)
+XINSTALL	= install
+X#	echo any arguments to the standard output
+XECHO	= echo
+X#	string editor
+XSED	= sed
+X#	search for any differences between two files
+XDIFF	= diff
+X#	produce readable ASCII from roff "man" source
+XNROFF	= nroff -man
+X#	remove any files [-f flag means to override permissions]
+XRM	= /bin/rm -f
+X
+X#	command to install the binaries
+XINSTBIN	= ${INSTALL} -s
+X
+X#	command to install the manual pages
+XINSTMAN	= ${INSTALL} -m 444
+X
+X#	set permission on the configuration file after installation
+XCHMOD	= chmod 644
+X
+X#	this command is used to create the "cextdoc" program.
+X#	[If a symbolic link is available, use that, so it need
+X#	 not be remade each time.  Otherwise use a normal hard link,
+X#	 or just 'cp'.]
+XLINK	= ln -s
+X
+X#
+X#===== end of configurables
+X#
+X
+X#	list of object files
+XCXTOBJS	= main.o parse.o io.o
+X
+X#	command to build everything
+Xall:	${CXTRACT}
+X	@${ECHO} all targets done
+X
+X#	install the binary
+Xinstall:	${CXTRACT} ${SYSRC}
+X	${TESTDIR} ${DESTDIR}${BINDIR} || ${MKDIR} ${DESTDIR}${BINDIR}
+X	${INSTBIN} ${CXTRACT} ${DESTDIR}${BINDIR}
+X	-(cd ${DESTDIR}${BINDIR}; ${RM} ${DOCTRG} ${NULL}; ${LINK} ${CXTRACT} ${DOCTRG})
+X
+X#	install the manual pages
+Xinstall.man:	cextract.tman cextrc.tman cextdoc.tman
+X	${TESTDIR} ${DESTDIR}${M1DIR} || ${MKDIR} ${DESTDIR}${M1DIR}
+X	${TESTDIR} ${DESTDIR}${M5DIR} || ${MKDIR} ${DESTDIR}${M5DIR}
+X	${INSTMAN} cextract.tman ${DESTDIR}${M1DIR}/cextract.${M1TAG}
+X	${INSTMAN} cextdoc.tman ${DESTDIR}${M1DIR}/cextdoc.${M1TAG}
+X	${INSTMAN} cextrc.tman ${DESTDIR}${M5DIR}/cextrc.${M5TAG}
+X
+X#	build up the documentation
+Xdocs:	cextract.tman cextrc.tman
+X	${NROFF} cextract.tman > cextract.doc
+X	${NROFF} cextrc.tman > cextrc.doc
+X
+Xcextract.tman:	cextract.1 tmp.sed
+X	${SED} -f tmp.sed cextract.1 > cextract.tman
+X
+Xcextrc.tman:	cextrc.5 tmp.sed
+X	${SED} -f tmp.sed cextrc.5 > cextrc.tman
+X
+Xcextdoc.tman:	cextdoc.1 tmp.sed
+X	${SED} -f tmp.sed cextdoc.1 > cextdoc.tman
+X
+Xtmp.sed:
+X	${ECHO} "s;SYSCXTRC;${SYSRC};g" > tmp.sed
+X	${ECHO} "s;NORMRC;${RCFILE};g" >> tmp.sed
+X	${ECHO} "s;CDOCNAME;${DOCTRG};g" >> tmp.sed
+X
+X${SYSRC}:	${CXTRACT}
+X	@${ECHO} "Building new system wide configuration file"
+X	./${CXTRACT} -B
+X	${CHMOD} ${SYSRC}
+X
+X#	Cleaning things up
+Xclean:
+X	${RM} *.o *~ \#* ${NULL}
+X
+X#	Really clean things up
+Xclobber:	clean
+X	${RM} ${CXTRACT} testproto.h tmp.sed cextract.tman ${NULL}
+X	${RM} cextdoc.tman cextrc.tman ${NULL}
+X
+X#	Build the header file
+Xproto:	
+X	${CXTRACT} -o proto.h -H_proto_h_ -S +CFacPZ main.c io.c parse.c
+X
+X#
+Xtest:	${CXTRACT} ${SYSRC}
+X	./${CXTRACT} -o testproto.h -H_proto_h_ -S +CFacPZ main.c io.c parse.c
+X	@${ECHO} ===
+X	@${ECHO} === The only output from the following command should show
+X	@${ECHO} === two date strings at line 5 of both files.
+X	@${ECHO} ===
+X	@${ECHO} === Errors from make can be ignored if this is the case.
+X	@${ECHO} === 
+X	-${DIFF} proto.h testproto.h
+X
+X#
+X#	define flags for the compilation
+XCFLAGS	= -DSYS_CONFIG=\"${SYSRC}\" -DCONFIG_FILE=\"${RCFILE}\" -DCEXTDOC_NAME=\"${DOCTRG}\" ${CPPFLG} ${CPPCMT} ${PIPFLG}
+X
+X#
+X#	Rules and dependencies for this Makefile
+X#
+X.c.o:	$<
+X	${CC} ${SYSFLG} ${COPTS} ${CFLAGS} -c $*.c
+X
+X#	The prototype extraction program
+X${CXTRACT}:	${CXTOBJS}
+X	${CC} ${COPTS} -o ${CXTRACT} ${CXTOBJS}
+X
+X#
+X#	Added dependencies
+X${CXTOBJS}:	xtract.h proto.h
+X
+X#
+END_OF_FILE
+if test 5871 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'Makefile.dist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.dist'\"
+else
+echo shar: Extracting \"'Makefile.dist'\" \(5821 characters\)
+sed "s/^X//" >'Makefile.dist' <<'END_OF_FILE'
+X#
+X#	This Makefile is for the cextract/cextdoc program.  If
+X#	you should experience any problems please send mail to:
+X#
+X#			adb@bu.edu
+X#
+X
+X#	Adjust anything as needed
+X
+X#	shell used by make [some make versions need this]
+XSHELL	= /bin/sh
+X
+X#	compiler to build programs with
+XCC	= cc
+X
+X#	C preprocessor, if you don't wish to use the default.
+X#	[this line can usually be left commented out]
+X#CPPFLG	= -DCPP=\"/lib/cpp\"
+X
+X#	Flag to tell the C preprocessor to not strip out comments,
+X#	if the default value is not correct.
+X#	[this line can usually be left commented out]
+X#CPPCMT	= -DCPP_COMMENTS=\"-C\"
+X
+X#	If your system does not support pipes (have the "popen()"
+X#	function), you should uncomment this line.  [You might need to
+X#	carefully look at the definitions of PIPETMP_FMT and
+X#	PIPEOUT_FMT in xtract.h]
+X#PIPFLG	= -DNO_POPEN
+X
+X#	Compiler options, such as '-O' for cc
+X#	 or '-O -g -Wall -ansi' for GNU compilers
+XCOPTS	= -O
+X
+X#	sequence to get rid of ${RM} error messages [blank to see them]
+XNULL	= 2>/dev/null
+X
+X#	System information flags; give the proper settings for your
+X#	machine.  You can also add:
+X#
+X#		-DSETBUFFER	if your system has setbuffer(3S)
+X#				and you wish to use it, in the (slim?)
+X#				hope of increasing performance.
+X#
+X#		-DNO_PERROR	if your system does not have the
+X#				perror(3) function.
+X#
+X#SYSFLG	= -DBSD			# Most BSD derivatives
+X#SYSFLG	= -DSYSV		# Most SysV derivatives
+XSYSFLG	= -DSYSV -DBSD		# Sun OS 4.1
+X#SYSFLG	= -DSYSV -DAIX		# IBM AIX operating systems
+X#SYSFLG	= -DSYSV -DSGI		# Silicon Graphics machines
+X#SYSFLG	= -DBSD -DULTRIX	# Digital Ultrix systems
+X#SYSFLG	= -DSYSV -DCLIX		# Intergraph Clix operating systems
+X#SYSFLG	= -DHPUX		# Hewlett Packard HPUX systems
+X#SYSFLG	= -DSYSV -DXENIX	# Xenix SysV systems
+X#SYSFLG	= -DBSD -DXENIX		# Xenix BSD systems (?)
+X#SYSFLG	= -DVAXC -DVMS		# Digital VAX VMS machines
+X#SYSFLG = -DBSD -U__STDC__	# Apollo sites aren't really ANSI (?)
+X
+X#	final location of the executable
+XBINDIR	= /usr/local/bin
+X
+X#	prefix directory, such as "/mnt". usually left blank
+XDESTDIR	=
+X
+X#	settings for the manual pages, change as desired
+XMANDIR	= /usr/man/man
+XM1TAG	= 1
+XM1DIR	= ${MANDIR}${M1TAG}
+XM5TAG	= 5
+XM5DIR	= ${MANDIR}${M5TAG}
+X
+X#	name of the cextractor program
+XCXTRACT	= cextract
+X
+X#	name of the documentation extractor
+XDOCTRG	= cextdoc
+X
+X#	name of the cextrc configuration file
+XRCFILE	= .cextrc
+X
+X#	full path and name for the system level configuration file
+XSYSRC	= /usr/local/lib/cext.config
+X
+X#	== List of miscellaneous commands needed by make ==
+X#
+X#	check for the existence of a directory
+XTESTDIR	= test -d
+X#	create a new directory
+XMKDIR	= mkdir
+X#	install a file (used in INSTBIN and INSTMAN settings)
+XINSTALL	= install
+X#	echo any arguments to the standard output
+XECHO	= echo
+X#	string editor
+XSED	= sed
+X#	search for any differences between two files
+XDIFF	= diff
+X#	produce readable ASCII from roff "man" source
+XNROFF	= nroff -man
+X#	remove any files [-f flag means to override permissions]
+XRM	= /bin/rm -f
+X
+X#	command to install the binaries
+XINSTBIN	= ${INSTALL} -s
+X
+X#	command to install the manual pages
+XINSTMAN	= ${INSTALL} -m 444
+X
+X#	set permission on the configuration file after installation
+XCHMOD	= chmod 644
+X
+X#	this command is used to create the "cextdoc" program.
+X#	[If a symbolic link is available, use that, so it need
+X#	 not be remade each time.  Otherwise use a normal hard link,
+X#	 or just 'cp'.]
+XLINK	= ln -s
+X
+X#
+X#===== end of configurables
+X#
+X
+X#	list of object files
+XCXTOBJS	= main.o parse.o io.o
+X
+X#	command to build everything
+Xall:	${CXTRACT}
+X	@${ECHO} all targets done
+X
+X#	install the binary
+Xinstall:	${CXTRACT} ${SYSRC}
+X	${TESTDIR} ${DESTDIR}${BINDIR} || ${MKDIR} ${DESTDIR}${BINDIR}
+X	${INSTBIN} ${CXTRACT} ${DESTDIR}${BINDIR}
+X	-(cd ${DESTDIR}${BINDIR}; ${RM} ${DOCTRG} ${NULL}; ${LINK} ${CXTRACT} ${DOCTRG})
+X
+X#	install the manual pages
+Xinstall.man:	cextract.tman cextrc.tman cextdoc.tman
+X	${TESTDIR} ${DESTDIR}${M1DIR} || ${MKDIR} ${DESTDIR}${M1DIR}
+X	${TESTDIR} ${DESTDIR}${M5DIR} || ${MKDIR} ${DESTDIR}${M5DIR}
+X	${INSTMAN} cextract.tman ${DESTDIR}${M1DIR}/cextract.${M1TAG}
+X	${INSTMAN} cextdoc.tman ${DESTDIR}${M1DIR}/cextdoc.${M1TAG}
+X	${INSTMAN} cextrc.tman ${DESTDIR}${M5DIR}/cextrc.${M5TAG}
+X
+X#	build up the documentation
+Xdocs:	cextract.tman cextrc.tman
+X	${NROFF} cextract.tman > cextract.doc
+X	${NROFF} cextrc.tman > cextrc.doc
+X
+Xcextract.tman:	cextract.1 tmp.sed
+X	${SED} -f tmp.sed cextract.1 > cextract.tman
+X
+Xcextrc.tman:	cextrc.5 tmp.sed
+X	${SED} -f tmp.sed cextrc.5 > cextrc.tman
+X
+Xcextdoc.tman:	cextdoc.1 tmp.sed
+X	${SED} -f tmp.sed cextdoc.1 > cextdoc.tman
+X
+Xtmp.sed:
+X	${ECHO} "s;SYSCXTRC;${SYSRC};g" > tmp.sed
+X	${ECHO} "s;NORMRC;${RCFILE};g" >> tmp.sed
+X	${ECHO} "s;CDOCNAME;${DOCTRG};g" >> tmp.sed
+X
+X${SYSRC}:	${CXTRACT}
+X	@${ECHO} "Building new system wide configuration file"
+X	./${CXTRACT} -B
+X	${CHMOD} ${SYSRC}
+X
+X#	Cleaning things up
+Xclean:
+X	${RM} *.o *~ \#* ${NULL}
+X
+X#	Really clean things up
+Xclobber:	clean
+X	${RM} ${CXTRACT} testproto.h tmp.sed cextract.tman cextrc.tman ${NULL}
+X
+X#	Build the header file
+Xproto:	
+X	${CXTRACT} -o proto.h -H_proto_h_ -S +CFacPZ main.c io.c parse.c
+X
+X#
+Xtest:	${CXTRACT} ${SYSRC}
+X	./${CXTRACT} -o testproto.h -H_proto_h_ -S +CFacPZ main.c io.c parse.c
+X	@${ECHO} ===
+X	@${ECHO} === The only output from the following command should show
+X	@${ECHO} === two date strings at line 5 of both files.
+X	@${ECHO} ===
+X	@${ECHO} === Errors from make can be ignored if this is the case.
+X	@${ECHO} === 
+X	-${DIFF} proto.h testproto.h
+X
+X#
+X#	define flags for the compilation
+XCFLAGS	= -DSYS_CONFIG=\"${SYSRC}\" -DCONFIG_FILE=\"${RCFILE}\" -DCEXTDOC_NAME=\"${DOCTRG}\" ${CPPFLG} ${CPPCMT} ${PIPFLG}
+X
+X#
+X#	Rules and dependencies for this Makefile
+X#
+X.c.o:	$<
+X	${CC} ${SYSFLG} ${COPTS} ${CFLAGS} -c $*.c
+X
+X#	The prototype extraction program
+X${CXTRACT}:	${CXTOBJS}
+X	${CC} ${COPTS} -o ${CXTRACT} ${CXTOBJS}
+X
+X#
+X#	Added dependencies
+X${CXTOBJS}:	xtract.h proto.h
+X
+X#
+END_OF_FILE
+if test 5821 -ne `wc -c <'Makefile.dist'`; then
+    echo shar: \"'Makefile.dist'\" unpacked with wrong size!
+fi
+# end of 'Makefile.dist'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(7026 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis package is cextract, version 1, patchlevel 7.  This is the second
+Xofficial release and is being distributed through the newsgroup
+Xcomp.sources.reviewed, with the first version [1.2] being released
+Xthere as well.
+X
+XSee the file INSTALL for installing on Unix systems or the file
+XINSTALL.VMS for installing on VMS systems.
+X
+XThe cextract/cextdoc program is copyright 1992 by Adam Bryant.
+X
+XThe code is freely distributable and there are no restrictions other
+Xthan the fact that it not be used for monetary gain and that copyright
+Xnotices must be kept intact.
+X
+XThe program may be used to generate proprietary source code or
+Xdocumentation, but its own source code may not be used as a part of
+Xany proprietary programs.
+X
+XAll of the output created by cextract and cextdoc programs should be
+Xcovered by the copyright notices for the source code which was read to
+Xcreate the output, since it is really a derivative work based on that
+Xsource code.
+X
+X-=-=-=-=-
+X
+XThis package contains a C prototype extractor.
+X
+Xcextract is ideal for generating header files for large multi-file C
+Xprograms, and will provide an automated method for generating all of
+Xthe prototypes for all of the functions in such a program.
+X
+Xcextract also functions as a rudimentary documentation extractor,
+Xgenerating a sorted list of all functions and their locations.
+X
+X-=-=-=-=-
+X
+XThe basic method I used in this program involves the following steps:
+X
+X    1)  Send the file to the C preprocessor.
+X    2)  Parse the output from the C preprocessor.
+X    3)  Isolate any function declaration sequence.
+X    4)  Determine if the parameter list is empty, contains
+X        a list of K&R C style declarations, or contains a
+X        list of ANSI C style declarations.
+X    5a) If the list is empty, then store a "(void)" for
+X        that function.
+X    5b) If it is a K&R declaration, traverse both the
+X        variable list and the declaration portion,
+X        associating matched pairs and providing default
+X        "int" type if needed.  Check for replacement
+X        matches and remove variable names if desired.
+X    5c) If the declaration is ANSI, separate into the
+X        declaration sequences and perform any replacements
+X        and/or variable name removals.
+X    6)  Store the list of functions, with associated
+X        declaration strings.
+X    7)  Store the formatted function output, in the
+X        appropriate order, in one or two memory locations
+X        [Two for dual output, one otherwise].  This step
+X        can be performed after all files have been parsed,
+X        if needed.
+X    8)  After all files have been parsed and the results
+X        stored, the results are sent to the final output
+X        location, either the standard output or a file.
+X
+X-=-=-=-=-
+X
+XThe main advantages that I find with this program over other
+Xprototyping programs:
+X
+X  - smaller.  [You can distribute it with your own packages so that
+X    other programmers can rebuild your header files.]
+X
+X  - fully written in C.  [You don't need a lex or yacc compiler
+X    to get this going.]
+X
+X  - more portable.  [As far as I know, it only requires that
+X    the system has a C preprocessor for it to work.]  I have even
+X    provided support for VMS systems, although I wish the compiler
+X    on that system allowed the comments to be retained.  [Using the
+X    GNU C preprocessor on such systems is supposed to work, though.]
+X
+X  - reads either ANSI or K&R C code and outputs either K&R or
+X    ANSI [or both!] function definitions.
+X
+X  - can catch all #define statements within the parameter list
+X    and replace before output, if needed.  [such as
+X    "#define FILE struct _iobuf"]  This feature is provided to
+X    account for adjustments caused by the C preprocessor.
+X
+X  - automatically catches and replaces FILE and varargs stuff.
+X
+X  - has a built in documentation extraction program.
+X
+X  - supports configuration files and the automatic generation of such
+X    files.
+X
+X-=-=-=-=-
+X
+XLikely disadvantages:
+X
+X  - it is not a fully implemented compiler, so it might not
+X    complain if it is reading invalid C code.
+X
+X  - might barf on extremely complex code.
+X
+X  - could probably be a little faster.  [any speed up
+X    suggestions are welcome]
+X
+X  - with heavily conditional (#ifdef'ed) code, it might not be
+X    able to generate a "generic" header file which would work for
+X    all possible code permutations.
+X
+X  - isn't fully C++ compatible.
+X
+X-=-=-=-=-
+X
+XList of changes from version 1.2 to version 1.6:
+X
+X  o Updated the documentation to handle the new features.
+X  o Fixed bug which made functions with comments in a parameter list to
+X     be skipped.
+X  o Added support for the CPP definition within the Makefile and
+X     it is now possible to change the preprocessor at runtime.
+X  o Changed the "#ifdef __STDC__" to "#if __STDC__".
+X  o Wrote a configuration file generation system.
+X  o Check for duplicate replace commands and definition options.
+X  o Swapped my use of the CFLAGS and COPTS definitions in the Makefile.
+X  o Fixed problems with the 'Q' flag parsing.
+X  o Automatically create the system configuration file on a "make install".
+X  o Fixed problems with the NO_OPEN option being VMS specific.
+X  o Fixed problems with the replacement of types.
+X  o Fixed bug tagging on an extra "int" unnecessarily.
+X  o Allow any style of text inside the brackets and parenthesis in the
+X    variable declaration lists.
+X  o Fixed typos in the font error messages. [% --> %%]
+X  o Automatically remove the "register" from the parameter lists.
+X  o Added an option to provide compact output of the ANSI and K&R prototypes.
+X  o Added support for // single line C++ style comments.
+X
+X-=-=-=-=-
+X
+XIf you have any problems, or suggestions, please feel free to get in
+Xtouch with me.
+X
+XAdam Bryant
+Xadb@bu.edu
+X
+X-=-=-=-=-
+X
+XHOW I USE IT:
+X
+X  - I use this program myself in support of a project written
+X    in over 60,000 lines of C code.
+X
+X  - Within my main header file, I have lines similar to*:
+X
+X#ifndef __CEXTRACT__
+X#include "proto.h"
+X#endif /* __CEXTRACT__ */
+X
+X  - In my Makefile, I have an entries similar to:
+X
+X#
+X#	list of all files in the program
+XCFILS	= a.c b.c c.c d.c e.c
+X
+X#
+X#	build the new prototype file
+Xproto:
+X	cextract +CaFPSc -o proto.h ${CFILS}
+X
+X  - and then all I need do is type "make proto" and I get an
+X    automatically updated header file listing all of my functions.
+X
+X* The "#ifndef __CEXTRACT__" sequence is there so that I can
+X  rebuild the header file even if it was somehow destroyed.
+X
+XADDITIONAL NOTES:
+X
+X  - If you are concerned with type promotion at your site, you may
+X    make use of the "replace" function.  For example, adding the
+X    following lines to a configuration file will handle a number of
+X    type promotions:
+X
+X         replace type "char" with "int"
+X         replace type "unsigned char" with "unsigned int"
+X         replace type "float" with "double"
+X
+X  - While the documentation extractor might not be ideal for full
+X    production specs, it can be a useful step in an automatic generation
+X    process, especially if the comments preceding each function are
+X    adequately descriptive.
+X
+END_OF_FILE
+if test 7026 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'TODO'\"
+else
+echo shar: Extracting \"'TODO'\" \(1518 characters\)
+sed "s/^X//" >'TODO' <<'END_OF_FILE'
+XThis file lists possible future enhancements:
+X
+X  - Get it to properly handle a function which returns a structure
+X    or structure pointer where the structure is declared along with
+X    the function.  [Ack... who programs like that anyway? :-)]
+X
+X    Example:
+X       extern struct play {int field;} *play(void) { ... } /* etc. */
+X
+X    [It should already handle structures within the parameter list.]
+X
+X  - Get it working on any systems it is not working on, such as IBM PCs.
+X    [Patches welcome!]
+X
+X  - Find some way to improve the I/O speed.  Perhaps through the use
+X    of another method for reading from the pipe?
+X
+X  - Capture variables and structures as well as functions.
+X
+X  - Enhance the documentation extraction portion.
+X
+X  - Get it to work with C++ code as well as C.
+X
+X  - Provide automatic generation of conditional header files.  [This
+X    would probably be quite tricky as well as require multiple
+X    passes ==> slooooow.]
+X
+X  - Use the standard command argument parsing routines on VMS systems.
+X
+X  - Better memory management for the buffers and string storage space.
+X    The arbitrary arrays just don't cut it anymore.
+X
+X  - Provide option of taking first comment within a function instead
+X    of first comment before a function.
+X
+X  - Provide support for very strange functional declarations.
+X    [Pointers to functions with functions as parameters, far pointers, etc.]
+X
+X  - Handle far pointers, looking into ANSI C specs on this.
+X
+X  - Provide a flag to insert a copyright notice into headers automatically.
+X
+END_OF_FILE
+if test 1518 -ne `wc -c <'TODO'`; then
+    echo shar: \"'TODO'\" unpacked with wrong size!
+fi
+# end of 'TODO'
+fi
+if test -f 'build.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'build.com'\"
+else
+echo shar: Extracting \"'build.com'\" \(283 characters\)
+sed "s/^X//" >'build.com' <<'END_OF_FILE'
+X$!
+X$! Quickie VMS .com file to build under VMS.
+X$!
+X$! Written by John Carr (jrcarr@iup.bitnet)
+X$! modified by Adam Bryant (adb@bu.edu)
+X$! 
+X$ cc main,parse,io
+X$!
+X$! Options decrease .exe file size by 2/3
+X$!
+X$ link/exe=cextract main,parse,io, sys$input/opt
+Xsys$share:vaxcrtl.exe/share
+END_OF_FILE
+if test 283 -ne `wc -c <'build.com'`; then
+    echo shar: \"'build.com'\" unpacked with wrong size!
+fi
+# end of 'build.com'
+fi
+if test -f 'cextdoc.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cextdoc.1'\"
+else
+echo shar: Extracting \"'cextdoc.1'\" \(56 characters\)
+sed "s/^X//" >'cextdoc.1' <<'END_OF_FILE'
+X.so man1/cextract.1
+X.\" use the cextract(1) manual page
+END_OF_FILE
+if test 56 -ne `wc -c <'cextdoc.1'`; then
+    echo shar: \"'cextdoc.1'\" unpacked with wrong size!
+fi
+# end of 'cextdoc.1'
+fi
+if test -f 'cextrc.5' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cextrc.5'\"
+else
+echo shar: Extracting \"'cextrc.5'\" \(7576 characters\)
+sed "s/^X//" >'cextrc.5' <<'END_OF_FILE'
+X.TH CEXTRC 5 "3 September 1992"
+X.SH NAME
+Xcextrc \- C prototype/documentation extractor customization file format
+X.SH SYNOPSIS
+X.B NORMRC
+X.SH DESCRIPTION
+XThe programs \fIcextract\fR(1) and \fICDOCNAME\fR(1) extract function
+Xprototypes from C source code and create header and documentation
+Xfiles respectively.  The \fINORMRC\fR customization files allow users
+Xto specify which options are set for those programs, without having to
+Xalways use the command line.
+X.sp
+XThe configuration files are read prior to the parsing of the command
+Xline options, as well as whenever the `-q' flag is encountered.
+X.SH FORMAT
+XThe file should be a normal text file, with each customization command
+Xon a separate line.  Blank lines and any line beginning with a `#'
+Xwill be ignored.
+X.sp
+XAny command preceded by the string "doc-only " will only be used in
+Xdocumentation mode, and any command preceded by "extract-only " will
+Xonly be used in extraction mode.
+X.sp
+XCommands which are preceded by either a `!' or the string "no-" or
+X"no" will be interpreted as disabling that option, if appropriate.
+X.SH COMMANDS
+XThe full list of configuration commands is given below.
+X.IP ansi-code
+XIf dual-output and merge-output modes are not enabled, produce output
+Xin ANSI C format, with full prototyping.  This command does not do
+Xanything when used in documentation mode.
+X.IP break-after-types
+X.IP break-types
+XWhen enabled, a newline will be inserted between the function type and
+Xthe function name in the function declarations.
+X.IP comments
+X.IP yank-comments
+XExtract the comment immediately before the function definition, and
+Xdisplay it upon output.
+X.IP "config-file: \fIfile\fR"
+XRead in the specified file and parse it for configuration commands.
+X.IP "cpp-program: \fIprogram\fR"
+XSpecify which program is to be used as a C preprocessor.  This program
+Xshould resolve all C defines and while, hopefully, leaving the comments
+Xintact.
+X.IP doc-mode
+XEnable documentation mode with normal text output.  This is the
+Xdefault setting for \fICDOCNAME\fR(1).
+X.IP "define: \fIexpression\fR"
+XPass the specified expression to the C preprocessor with a "-D" string
+Xprepended to it.  This command is equivalent to the `-D' command line
+Xoption.
+X.IP dual-output
+XProvide output in both ANSI and K&R C formats, separated by an
+X"#if __STDC__" ... "#else" ... "#endif" construct.  This command does
+Xnot do anything when used in documentation mode or if the merge-output
+Xoption is enabled.
+X.IP externs
+XPrepend an "extern" to each function description upon output.
+X.IP extract-mode
+XEnable extraction mode and generate output which can be used as a C
+Xheader file defining the prototypes for all of the functions which are
+Xencountered.  The is the default mode for \fIcextract\fR(1).
+X.IP first-comments
+XInclude in the output the initial comment encountered in each file.
+X.IP filename
+X.IP prepend-filename
+XIf the "first-comments" option is enabled, prepend the name of each
+Xfile to the output of initial comments.
+X.IP "font % ##"
+XAssign a troff font "##" to a given font type `%', when using troff
+Xdocumentation mode.  The possible font types are `1' or `t', `2'
+Xor `c', `3' or `n', and `4' or `p' for the title, comment, name, and
+Xparameter list respectively.  The troff font "##" is a normal one or
+Xtwo character troff font, such as "CO" for Courier Oblique.
+X.IP "header-string: \fIstring\fR"
+XWhen in extraction mode, enclose the output within preprocessor
+Xdirectives testing for the definition of \fIstring\fR.  This method is
+Xused with many system header files, to insure that they are not
+X"#include"d more than once.  If this option is not used, the output
+Xwill be enclosed within a "#ifndef __CEXTRACT__", "#endif /*
+X__CEXTRACT__ */" sequence instead.
+X.IP "include: \fIdirectory\fR"
+XPass the specified directory to the C preprocessor with a "-I" string
+Xprepended to it.  This command is equivalent to the `-I' command-line
+Xoption.
+X.IP merge-output
+XMerge the ANSI and K&R output into a single line of output to make it
+Xtake up less space.  A macro is used to expand the parameter list for
+XANSI compilers.  This option overrides both the dual-output and
+Xansi-code options.  There is no affect if the documentation mode is
+Xenabled.
+X.IP multi-comments
+X.IP multiple-comments
+XWhen extracting comments, assume that consecutive comments are
+Xactually one single comment.  This allows people that place comment
+Xdelimiters at the beginning and end of each line to have their
+Xcomments properly captured.
+X.IP "output-file: \fIoutfile\fR"
+XStore the output in the specified file.
+X.IP replace
+XReplace the first string which matches a variable, type, or both
+X(as selected) with the second string.   The format is:
+X.br
+X	replace [all/type/variable] "\fIstring1\fR" "\fIstring2\fR"
+X.br
+XFor example, on Sun machines, the automatic "FILE" replacement could
+Xbe accomplished using a command like:
+X.br
+X	replace type "struct _iobuf" "FILE"
+X.br
+XHowever, this should not need to be entered by the average user since
+Xit is handled automatically by \fIcextract\fR(1), as is the varargs
+Xsystem.
+X.IP remove-names
+X.IP discard-names
+XRemove variable names from the prototype list prior to output.
+X.IP roff-mode
+X.IP troff-mode
+XEnable documentation mode with troff -ms format output.  This option
+Xis overridden by the doc-mode or extract-mode options.
+X.IP show-all
+X.IP show-anyway
+XWhen output is K&R C, display prototypes in comments.  When
+Xdual-output is enabled, display comments and prototypes in both
+Xsections; otherwise, display comments and prototypes only in the ANSI
+XC portion.  This option does nothing in documentation mode. 
+X.IP single-comments
+XWhen extracting comments from a file, take only one comment,
+Xdiscarding all preceding comments.  This option is the reverse of the
+Xmulti-comments option.
+X.IP sort-all
+XAlphabetically sort all of the functions from all of the files before
+Xgenerating output.
+X.IP sort-by-files
+XFor each file processed, sort all of the functions prior to output.
+X.IP statics
+X.IP "statics: none"
+X.IP "statics: any"
+X.IP "statics: only"
+XSelect the method for how static functions should be treated.  If
+X"none" is selected, statics will be ignored.  If "only" is selected,
+Xnon-static functions will be ignored.  Finally, "any" indicates that
+Xall functions will be extracted.  If no selection is made, it will be
+Xthe same as selecting "any" or (with a preceding `!') "none".
+X.IP "tab-width: \fIwidth\fR"
+XSet the tab width to be an integer number \fIwidth\fR.  This works
+Xonly during documentation generation.
+X.IP "undefine: \fIname\fR"
+XUndefine any previously defined macro.  If none is encountered, pass
+Xthe specified expression to the C preprocessor with a "-U" string
+Xprepended to it.  This command is equivalent to the `-U' command-line
+Xoption.
+X.IP "wrap-parameters: #"
+XIf the length of the parameter list for a function would cause it to
+Xexceed a given number of columns [72 by default], a newline will be
+Xinserted in place of a space character, so that the function will not
+Xexceed that given length.  The optional number after the command will
+Xoverride a negation prefix if encountered.
+X.SH FILES
+X.IP "SYSCXTRC, $HOME/NORMRC, NORMRC"
+Xconfiguration files.
+X.SH VMS
+XConfiguration files are also supported under VMS.  The default
+Xconfiguration files for VMS systems are sys$library:cext.cnf,
+Xsys$login:cext.cnf, and cext.cnf.
+X.sp
+XSince the VMS C compiler strips out comments, the documentation mode
+Xand comment options are not very useful.  Using the GNU C preprocessor
+Xinstead might be a possible solution.
+X.SH SEE ALSO
+Xcextract(1), CDOCNAME(1)
+X.SH AUTHOR
+X.nf
+XAdam Bryant
+Xadb@bu.edu
+X.sp
+Xinitial VMS port by John Carr
+Xjrcarr@iup.bitnet
+END_OF_FILE
+if test 7576 -ne `wc -c <'cextrc.5'`; then
+    echo shar: \"'cextrc.5'\" unpacked with wrong size!
+fi
+# end of 'cextrc.5'
+fi
+if test -f 'newbuild.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newbuild.com'\"
+else
+echo shar: Extracting \"'newbuild.com'\" \(360 characters\)
+sed "s/^X//" >'newbuild.com' <<'END_OF_FILE'
+X$!
+X$! Quickie VMS .com file to build under VMS.
+X$!
+X$! Written by John Carr (jrcarr@iup.bitnet)
+X$! modified by Adam Bryant (adb@bu.edu)
+X$! 
+X$ cc main,parse,io/def= -
+X(SYS_CONFIG="""sys$library:cext.cnf""",CONFIG_FILE="""cext.cnf""")
+X$!
+X$! Options decrease .exe file size by 2/3
+X$!
+X$ link/exe=cextract main,parse,io, sys$input/opt
+Xsys$share:vaxcrtl.exe/share
+X$!
+END_OF_FILE
+if test 360 -ne `wc -c <'newbuild.com'`; then
+    echo shar: \"'newbuild.com'\" unpacked with wrong size!
+fi
+# end of 'newbuild.com'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(21 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 7
+END_OF_FILE
+if test 21 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'proto.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'proto.h'\"
+else
+echo shar: Extracting \"'proto.h'\" \(5485 characters\)
+sed "s/^X//" >'proto.h' <<'END_OF_FILE'
+X/*
+X *   This file was automatically generated by version 1.7 of cextract.
+X *   Manual editing not recommended.
+X *
+X *   Created: Fri Oct 30 15:57:04 1992
+X */
+X#ifndef _proto_h_
+X#define _proto_h_
+X#if __STDC__
+X#define PL_(x) x
+X#else
+X#define PL_(x) ( )
+X#endif /* __STDC__ */
+X
+X/* main.c:
+X *
+X * The purpose of this program is to extract the function descriptions
+X * (prototypes) from C source code.  It also provides for the creation
+X * of documentation based on those prototypes.
+X *
+X * The specific reason for the creation of this program was to
+X * provide a method for automatically creating header files to
+X * describe all of the functions to be used within a multi-file
+X * program.
+X *
+X * This file makes use of code in the companion files parse.c and io.c.
+X *
+X * Copyright (c) 1990, 1991, 1992 by Adam Bryant
+X *
+X * See Copyright notice in the file parse.c or in the manual page.
+X *
+X */
+X
+X/* quick function to copy a "string" */
+Xextern int copy_str PL_(( char *o_str, char *in_str ));
+X
+X/* return FALSE if character is not a normal part of a filename */
+Xextern int fname_char PL_(( int ch ));
+X
+X/* retrieve the value of a global option */
+Xextern int get_option PL_(( Optype which ));
+X
+X/* control program flow and command line options */
+Xextern int main PL_(( int argc, char **argv ));
+X
+X/* output filter from the parsing routines */
+Xextern void out_char PL_(( int type, int outch ));
+X
+X/* transmit the currently stored comment to the output file */
+Xextern void send_first_comment PL_(( char *begin_str ));
+X
+X/* set the value of a global option */
+Xextern void set_option PL_(( Optype which, int how, int value ));
+X
+X/* show all of the settings */
+Xextern void show_settings PL_(( void ));
+X
+X/* show the usage for the program */
+Xextern void show_usage PL_(( void ));
+X
+X/* show the version of the program */
+Xextern void show_version PL_(( void ));
+X
+X/* io.c:
+X *
+X * cextract input/output routines.
+X *
+X * Copyright (c) 1992 by Adam Bryant
+X *
+X * See the Copyright notice in the file parse.c or in the manual page.
+X *
+X */
+X
+X/* close up the "pipe" */
+Xextern int close_input PL_(( FILE *stream ));
+X
+X/* close up properly; sending out final output */
+Xextern void cxt_close PL_(( void ));
+X
+X/* read in all configuration files */
+Xextern void do_config PL_(( void ));
+X
+X/* send a system error message */
+Xextern void err_msg PL_(( char *estr ));
+X
+X/* routine to check return value of fputs */
+Xextern void fput_string PL_(( char *outstr, FILE *filep ));
+X
+X/* quickie function to distinquish proper switches */
+Xextern int is_switch PL_(( int ch ));
+X
+X/* return pointer to string containing the date */
+Xextern char * mach_time PL_(( void ));
+X
+X/* does the string match a minimum number of characters */
+Xextern int minmatch_str PL_(( char *str_in, char *str_base, int num ));
+X
+X/* function to open a "pipe" to the input */
+Xextern FILE * open_input PL_(( char *pname, char *modestr ));
+X
+X/* output given function prototype */
+Xextern void out_proto PL_(( int omode, P_PROTO f_ptr, int mode, int do_comments ));
+X
+X/* call the external routine out_char() and send out all characters */
+Xextern void out_str PL_(( int omode, char *str ));
+X
+X/* determine the configuration command, exit if invalid */
+Xextern void parse_cmd PL_(( char *cmd_str, int set_val, int cmd_line ));
+X
+X/* function to parse the configuration file */
+Xextern void parse_config PL_(( char *conf_fname ));
+X
+X/* output results of entire file search */
+Xextern void send_file PL_(( void ));
+X
+X/* send a message that their was a syntax error */
+Xextern void syntax_err PL_(( char *estr ));
+X
+X/* search for expanded value of the varargs setup */
+Xextern int vargs_find PL_(( void ));
+X
+X/* parse.c:
+X *
+X * main parsing routines for the cextract/cextdoc programs.
+X * Also includes a number of generic routines applicable to both.
+X *
+X * These routines provide the methods used to extract comments,
+X * prototypes and function names from C source files.
+X *
+X * Copyright (c) 1990, 1991, 1992 by Adam Bryant
+X *
+X * The only restrictions on the use of these routines is that they not
+X * be used for monetary gain, and that this copyright notice be left
+X * intact.
+X *
+X * Note:  These programs may be freely used to extract code and/or
+X *        documentation at proprietary/corporate sites, as long as the
+X *        actual source code is not used within any proprietary code.
+X *
+X *        The generated output (header) files are distributable in any
+X *        manner desired as they are based on the scanned source code,
+X *        not my program.
+X */
+X
+X/* add a new macro to the macro list */
+Xextern void add_macro PL_(( int select, char *str ));
+X
+X/* add a new substitution macro to the substitution list */
+Xextern void add_subst PL_(( int type, int select, char *f_str, char *t_str ));
+X
+X/* initialize the page for troff output, if needed */
+Xextern void init_roff PL_(( int omode ));
+X
+X/* go through the file extracting functions */
+Xextern void parse_file PL_(( void ));
+X
+X/* remove the top item on the stack */
+Xextern void pop_proto PL_(( void ));
+X
+X/* check preprocessor statement for line numbering changes */
+Xextern int preprocessor_check PL_(( void ));
+X
+X/* if the matching definition is in the list, remove it */
+Xextern int removed_macro PL_(( int select, char *str ));
+X
+X/* sort the list of functions and their prototypes */
+Xextern void sort_proto PL_(( void ));
+X
+X/* compare two strings considering cases the same */
+Xextern int str_test PL_(( char *s1, char *s2 ));
+X
+X/* remove any preceding and trailing spaces */
+Xextern void trim_str PL_(( char *str ));
+X
+X#undef PL_
+X#endif /* _proto_h_ */
+END_OF_FILE
+if test 5485 -ne `wc -c <'proto.h'`; then
+    echo shar: \"'proto.h'\" unpacked with wrong size!
+fi
+# end of 'proto.h'
+fi
+if test -f 'xtract.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xtract.h'\"
+else
+echo shar: Extracting \"'xtract.h'\" \(8013 characters\)
+sed "s/^X//" >'xtract.h' <<'END_OF_FILE'
+X/* header for routines and structures storing C function prototypes */
+X
+X/* system header files */
+X#ifdef SGI
+X/* I hate having to do this! */
+X#if __STDC__
+X#ifndef __EXTENSIONS__
+X#define __EXTENSIONS__
+X#endif /* __EXTENSIONS__ */
+X#ifndef _POSIX_SOURCE
+X#define _POSIX_SOURCE
+X#endif /* _POSIX_SOURCE */
+X#endif /* __STDC__ */
+X#endif /* SGI */
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <time.h>
+X#ifdef _POSIX_SOURCE
+X#include <stdlib.h>
+X#endif /* _POSIX_SOURCE_ */
+X#if __STDC__ 
+X#ifndef VMS
+X#include <unistd.h>
+X#endif /* VMS */
+X#endif /* __STDC__ */
+X
+X/* patchlevel information */
+X#include "patchlevel.h"
+X
+X/* === start of system configurations === */
+X
+X/*
+X * This option is enabled if a VMS compiler doesn't have "popen()"
+X * command to open a pipe to a system command; this is standard
+X * Unix I/O function.
+X */
+X#ifdef VAXC
+X#define NO_POPEN	/* use a hack to get a "pipe" command */
+X#endif /* VAXC */
+X
+X/*
+X * This definition checks for a failure by the "system()" function.
+X */
+X#ifdef VAXC
+X#define SYSCMD_FAILED	0	/* if system() fails, it returns a zero? */
+X#else
+X#define SYSCMD_FAILED	-1	/* if system() fails, it returns a -1 */
+X#endif /* VAXC */
+X
+X/* the command to perform the C preprocessing (full path best) */
+X#ifndef CPP
+X#ifndef VMS
+X#define CPP "/lib/cpp"
+X#else
+X#define CPP "cc"
+X#endif /* VMS */
+X#endif /* CPP */
+X
+X/* flag to CPP to retain comments */
+X#ifndef VAXC
+X#define CPP_COMMENTS "-C"
+X#else
+X#define CPP_COMMENTS ""
+X#endif /* VAXC */
+X
+X/* an sprintf format statement with 1 %d to build a temporary file */
+X#ifndef TMPFILE_FMT
+X#ifndef VMS
+X#define TMPFILE_FMT	"/tmp/.cxtprs.%d"
+X#else
+X#define TMPFILE_FMT	"sys$scratch:cxtprs.%d"
+X#endif /* VMS */
+X#endif /* TMPFILE_FMT */
+X
+X/* same thing, but only needed for systems without the popen() command */
+X#ifdef NO_POPEN
+X#ifndef PIPETMP_FMT
+X#ifndef VMS
+X#define PIPETMP_FMT	"/tmp/.cxtpip.%d"
+X#else
+X#define PIPETMP_FMT	"sys$scratch:cxtpip.%d"
+X#endif /* VMS */
+X#endif /* PIPETMP_FMT */
+X#endif /* NO_POPEN */
+X
+X/* how to generate the output to a temp file if there is no popen() */
+X/* note:  need two %s entries:  first = command, second = outfile */
+X#ifdef NO_POPEN
+X#ifndef PIPEOUT_FMT
+X#ifndef VMS
+X#define PIPEOUT_FMT "%s > %s"
+X#else
+X#define PIPEOUT_FMT "%s /preprocess=%s"
+X#endif /* VMS */
+X#endif /* PIPEOUT_FMT */
+X#endif /* NO_POPEN */
+X
+X/* the name for the documentation builder */
+X#ifndef CEXTDOC_NAME
+X#define CEXTDOC_NAME "cextdoc"
+X#endif /* CEXTDOC_NAME */
+X
+X/* the name for the configuration file */
+X#ifndef CONFIG_FILE
+X#ifndef VMS
+X#define CONFIG_FILE	".cextrc"
+X#else
+X#define CONFIG_FILE	"cext.cnf"
+X#endif /* VMS */
+X#endif /* CONFIG_FILE */
+X
+X/* full path to any possible system configuration file */
+X#ifndef SYS_CONFIG
+X#ifndef VMS
+X#define SYS_CONFIG	"/usr/local/lib/cext.config"
+X#else
+X#define SYS_CONFIG	"sys$library:cext.cnf"
+X#endif /* VMS */
+X#endif /* SYS_CONFIG */
+X
+X/* directory separator on the system */
+X#ifndef DIR_SEPARATOR
+X#ifdef VMS
+X#define DIR_SEPARATOR	""
+X#else
+X#ifdef MS_DOS
+X#define DIR_SEPARATOR	"\\"
+X#else
+X#define DIR_SEPARATOR	"/"
+X#endif /* MS_DOS */
+X#endif /* VMS */
+X#endif /* DIR_SEPARATOR */
+X
+X/* commands to C processor and Switch on invocation line */
+X#ifndef DEF_LEADER
+X#ifndef VAXC
+X#define DEF_LEADER	"-D"
+X#else
+X#define DEF_LEADER	"/define="
+X#endif /* VAXC */
+X#endif /* DEF_LEADER */
+X
+X#ifndef UNDEF_LEADER
+X#ifndef VAXC
+X#define UNDEF_LEADER	"-U"
+X#else
+X#define UNDEF_LEADER	"/undefine="
+X#endif /* VAXC */
+X#endif /* UNDEF_LEADER */
+X
+X#ifndef INC_LEADER
+X#ifndef VAXC
+X#define INC_LEADER	"-I"
+X#else
+X#define INC_LEADER	"/include="
+X#endif /* VAXC */
+X#endif /* INC_LEADER */
+X
+X/* === end of system configurations === */
+X
+X/* structure for prototype storage */
+Xtypedef struct s_proto {
+X  char *name;		/* name of the function */
+X  char *ftype;		/* type of the function */
+X  char *fname;		/* name of file where located */
+X  char *plist;		/* ANSI format prototype list */
+X  char *comment;	/* comment associated with function */
+X  struct s_proto *next;
+X} S_PROTO, *P_PROTO;
+X
+X/* structure definition for holding macros */
+Xtypedef struct s_macro {
+X  char *m_str;		/* storage for the macro element */
+X  struct s_macro *next;	/* pointer to next macro element */
+X  char usewhen;		/* indicator of when it is to be used */
+X} S_MACRO, *P_MACRO;
+X
+X/* structure definition for substitutions */
+Xtypedef struct s_subst {
+X  char *from_str;	/* the string to substitute for */
+X  char *to_str;		/* the string to substitute with */
+X  char submode;		/* indicator of substitution type */
+X  char usewhen;		/* indicator of when it is to be used */
+X  struct s_subst *next;	/* pointer to the next string */
+X} S_SUBST, *P_SUBST;
+X
+X/* pseudo boolean definitions */
+X#ifndef TRUE
+X#define TRUE	(1)
+X#define FALSE	(0)
+X#endif
+X
+X/* the list of substitution types */
+X#define SUBST_FULL	1	/* replace both variable type and name */
+X#define SUBST_TYPE	2	/* replace for match with type only */
+X#define SUBST_NAME	3	/* replace for complete name match only */
+X
+X/* now declare the variable space */
+Xextern P_SUBST subst_list;
+X
+X/* list of options flags */
+Xtypedef enum e_opts {
+X  OPT_COMMENTS, OPT_FIRSTCOMMENT, OPT_SINGLECOMMENTS, OPT_PREPEND,
+X  OPT_EXTERNS, OPT_STATICMODE, OPT_WRAPPOINT, OPT_TYPEWRAP,
+X  OPT_SHOWANYWAY, OPT_STDCUSE, OPT_BOTHUSE, OPT_SORTMODE,
+X  OPT_TABWIDTH, OPT_NONAMES, OPT_COMPACT
+X} Optype;
+X
+X/* how many different options are there? */
+X#define OPT_NUMBER	15
+X
+X/* modes of output */
+X#define MODE_ANSI	0
+X#define MODE_COMMENT	1
+X#define MODE_OLDC	2
+X
+X/* modes of sorting */
+X#define SORT_NONE	0
+X#define SORT_FILE	1
+X#define SORT_ALL	2
+X
+X/* different documentation modes */
+X#define DOC_NORMAL	0
+X#define DOC_ROFF	1
+X#define DOC_NONE	2
+X
+X/* different static modes */
+X#define NO_STATICS	0
+X#define ONLY_STATICS	1
+X#define ANY_STATICS	2
+X
+X/* the number of characters allocated for parsing */
+X#define MAX_SIZE 100000
+X#define MID_SIZE 4000
+X#define FNAME_SIZE 256
+X
+X/* structure for the internal temporary storage */
+Xtypedef struct s_bufdata {
+X  char data[MID_SIZE + 1];	/* work with 1,000 characters at a time */
+X  struct s_bufdata *next;	/* to the next element */
+X} S_BUFDATA, *P_BUFDATA;
+X
+X#ifdef SETBUFFER
+X/* allocation for buffering */
+X#define BUFFER_SIZE	20480	/* 20 kilobytes of buffering */
+X#endif /* SETBUFFER */
+X
+X/* set the version information */
+X#define VERSION	1
+X
+X/* quickie macro for variable component recognition */
+X#define id_char(x)	(isalnum(x) || (x == '_'))
+X
+X/* call in the file with the prototypes */
+X#ifndef __CEXTRACT__
+X#include "proto.h"
+X#endif /* __CEXTRACT__ */
+X
+X/* data that should be defined */
+Xextern char prog_name[FNAME_SIZE];
+X
+X/* system functions */
+X#if defined(SYSV) || !defined(BSD)
+X#include <string.h>
+X#define index strchr
+X#else
+X#include <strings.h>
+X#endif /* SYSV */
+X#ifdef VAXC
+X#define unlink remove
+X#endif /* VAXC */
+X
+X#ifdef XENIX
+X/* Provide a strstr() replacement on Xenix sites */
+X#define NO_STRSTR
+X#endif /* XENIX */
+X
+X/* I don't want to see this on SunOS */
+X#ifdef BSD
+X#ifdef SYSV
+X#ifndef toupper
+Xextern int toupper();
+X#endif /* toupper */
+Xextern int fprintf(), sscanf();
+Xextern int _flsbuf(), _filbuf();
+Xextern void perror();
+Xextern long time();
+Xextern int fputs(), fclose(), pclose();
+X#ifdef SETBUFFER
+Xextern void setbuffer();
+X#endif /* SETBUFFER */
+X#endif /* SYSV */
+X#endif /* BSD */
+X
+X/* options for different parsing methods */
+Xextern int global_opts[2][OPT_NUMBER];
+Xextern int doc_extract, cfg_switch;
+X
+X/* variables for keeping track of things */
+Xextern int start_block, files_parsed, total_out, dont_space;
+X
+X/* storage */
+Xextern FILE *fpin;
+Xextern P_MACRO macro_list, last_macro;
+Xextern P_PROTO proto_list;
+Xextern char file_name[], start_comment[], cfg_file[], tmp_str[];
+X
+X/* various fonts for documentation troff formats */
+Xextern char ft_title[3], ft_comment[3], ft_name[3], ft_plist[3];
+X
+X/* other data declarations */
+Xextern P_BUFDATA tempbuf[2];
+Xextern char cur_cfg_file[FNAME_SIZE], header_string[MID_SIZE];
+X#ifdef SETBUFFER
+Xextern char outbuffer[BUFFER_SIZE], inbuffer[BUFFER_SIZE];
+X#endif /* SETBUFFER */
+Xextern FILE *fpout;
+Xextern char output_file[2][MID_SIZE];
+Xextern char cpp_prog[MID_SIZE], errout_filename[MID_SIZE];
+Xextern int out_filenum, line_count;
+END_OF_FILE
+if test 8013 -ne `wc -c <'xtract.h'`; then
+    echo shar: \"'xtract.h'\" unpacked with wrong size!
+fi
+# end of 'xtract.h'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

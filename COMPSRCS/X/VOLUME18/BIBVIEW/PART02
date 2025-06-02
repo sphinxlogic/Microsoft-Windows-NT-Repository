@@ -1,0 +1,1653 @@
+Path: uunet!dtix!darwin.sura.net!mips!msi!dcmartin
+From: liebla@informatik.tu-muenchen.de (Armin Liebl)
+Newsgroups: comp.sources.x
+Subject: v18i100: bibview - BibTeX GUI, Part02/20
+Message-ID: <1992Aug27.161348.25167@msi.com>
+Date: 27 Aug 92 16:13:48 GMT
+References: <csx-18i099-bibview@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1640
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 100
+Archive-name: bibview/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ComboBoP.h continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ComboBoP.h'
+else
+echo 'x - continuing file ComboBoP.h'
+sed 's/^X//' << 'SHAR_EOF' >> 'ComboBoP.h' &&
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ComboBoP.h                                              */
+/*                                                                   */
+/*             - Combo Box Widget                                    */
+/*               Text widget with selection list                     */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    11.22.91  HM   created                                         */
+/*                                                                   */
+/*  Copyright 1991 Martin, Urban                                     */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+X
+#ifndef ComboBoxP_h
+#define ComboBoxP_h
+X
+#include "ComboBo.h"
+X
+#define XtCSelectMenu "SelectMenu"
+#define XtCShowDotFiles "ShowDotFiles"
+#define XtCBellLevel "BellLevel"
+#define XtCName "Name"           /* NEU: Label fuer Eingabefeld */
+#define XtCRcList "RcList"       /* NEU: LISTE */
+X
+X
+typedef struct {
+X    /* resources */
+X    XtCallbackList      select_callback;
+X    String              select_menu;
+X    XtCallbackList      cancel_callback;
+X    Dimension           margin;
+X    int                 number_rows;
+X    Boolean             show_dot_files;
+X    int                 bell_level;
+X    String              name;        /* NEU */
+X    RcListNode          *rclist;     /* NEU */
+X 
+X    /* private data */
+X    Widget              viewport_widget;
+X    Widget              list_widget;
+X    Widget		filename_widget;
+X    Widget              select_widget;
+X    Widget              path_widget;
+X    Widget		cancel_widget;	
+X    Widget              name_widget;    /* NEU */
+X    Widget              shell_widget;
+X    String              *listList;
+X    char                currentDir[MAXPATHLEN];
+X    Boolean             watchingChanges;
+X    ComboBoxStruct nomination;
+} ComboBoxPart;
+X
+typedef struct _ComboBoxRec {
+X    CorePart		core;
+X    ComboBoxPart	comboBox;
+} ComboBoxRec;
+X
+typedef struct {
+X    XtPointer		extension;
+} ComboBoxClassPart;
+X
+typedef struct _ComboBoxClassRec {
+X    CoreClassPart	        core_class;
+X    ComboBoxClassPart	comboBox_class;
+} ComboBoxClassRec, *ComboBoxClass;
+X
+extern ComboBoxClassRec comboBoxClassRec;
+X
+#endif /* ComboBoxP_h */
+X
+SHAR_EOF
+echo 'File ComboBoP.h is complete' &&
+chmod 0644 ComboBoP.h ||
+echo 'restore of ComboBoP.h failed'
+Wc_c="`wc -c < 'ComboBoP.h'`"
+test 2925 -eq "$Wc_c" ||
+	echo 'ComboBoP.h: original size 2925, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= FileNom.c ==============
+if test -f 'FileNom.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping FileNom.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting FileNom.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'FileNom.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  FileNom.c                                               */
+/*                                                                   */
+/*             - File Selection Box                                  */
+/*               Adapted and modified Widget from aXe editor         */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    11.22.91  HM   created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN	                                     */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+/*
+X * Copyright 1991 The University of Newcastle upon Tyne
+X * 
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation for any purpose other than its commercial exploitation
+X * is hereby granted without fee, provided that the above copyright
+X * notice appear in all copies and that both that copyright notice and
+X * this permission notice appear in supporting documentation, and that
+X * the name of The University of Newcastle upon Tyne not be used in
+X * advertising or publicity pertaining to distribution of the software
+X * without specific, written prior permission. The University of
+X * Newcastle upon Tyne makes no representations about the suitability of
+X * this software for any purpose. It is provided "as is" without express
+X * or implied warranty.
+X * 
+X * THE UNIVERSITY OF NEWCASTLE UPON TYNE DISCLAIMS ALL WARRANTIES WITH
+X * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+X * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF
+X * NEWCASTLE UPON TYNE BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+X * USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+X * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X * 
+X * Author:  Jim Wight (j.k.wight@newcastle.ac.uk)
+X *          Computing Laboratory, University of Newcastle upon Tyne, UK
+X */
+X
+#include <X11/IntrinsicP.h>	
+#include <X11/StringDefs.h>	
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/Viewport.h>
+#include <X11/Xaw/List.h>
+#include <X11/Xaw/Scrollbar.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xos.h>
+X
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <errno.h>
+#ifndef HAVE_DIR
+#include <dirent.h>
+#else
+#include <sys/dir.h>
+#define dirent direct
+#endif
+#include <stdio.h>
+X
+extern char *getenv();
+X
+#include "FileNomP.h"
+X
+#define Offset(field) XtOffsetOf(FileNominatorRec, fileNominator.field)
+X
+static XtResource resources[] = {
+X    {XtNselectCallback, XtCCallback, XtRCallback, sizeof(XtCallbackList),
+X	 Offset(select_callback), XtRCallback, (XtPointer) NULL},
+X    {XtNselectMenu, XtCSelectMenu, XtRString, sizeof(String),
+X	 Offset(select_menu), XtRString, (XtPointer) NULL},
+X    {XtNcancelCallback, XtCCallback, XtRCallback, sizeof(XtCallbackList),
+X	 Offset(cancel_callback), XtRCallback, (XtPointer) NULL},
+X    {XtNmargin, XtCMargin, XtRDimension, sizeof(Dimension),
+X	 Offset(margin), XtRImmediate, (XtPointer) 10},
+X    {XtNnumberRows, XtCNumberStrings, XtRInt, sizeof(int),
+X	 Offset(number_rows), XtRImmediate, (XtPointer) 12},
+X    {XtNshowDotFiles, XtCShowDotFiles, XtRBoolean, sizeof(Boolean),
+X	 Offset(show_dot_files), XtRImmediate, (XtPointer) True},
+X    {XtNbellLevel, XtCBellLevel, XtRInt, sizeof(int),
+X	 Offset(bell_level), XtRImmediate, (XtPointer) 100},
+};
+X
+#undef Offset
+X
+#define Child(w,child) (((FileNominatorWidget) w)->fileNominator.child)
+#define List(w) (((FileNominatorWidget) w)->fileNominator.listList)
+#define Rows(w) (((FileNominatorWidget) w)->fileNominator.number_rows)
+#define CurrentDir(w) (((FileNominatorWidget) w)->fileNominator.currentDir)
+#define WatchingChanges(w) (((FileNominatorWidget) w)->fileNominator.watchingChanges)
+#define Nomination(w) (((FileNominatorWidget) w)->fileNominator.nomination)
+#define ShowDotFiles(w) (((FileNominatorWidget) w)->fileNominator.show_dot_files)
+#define BellLevel(w) (((FileNominatorWidget) w)->fileNominator.bell_level)
+X
+static char pathTranslations[] =
+X    "<BtnDown>:reset() MakeMenu() XawPositionSimpleMenu(menu) MenuPopup(menu)";
+X
+static char listTranslations[] =
+X    "<Btn1Up>(2):         Set() Nominate() Unset()\n\
+X     <Btn1Down>,<Btn1Up>: Set() Notify() \n\
+X     <Btn2Up>:            Set() Notify() Nominate() Unset()";
+X
+static char filenameTranslations[] =
+X     "<Key>Return: Nominate() \n\
+X      <Key>Escape: ToggleDotFiles()";
+X
+static char selectTranslations[] =
+X    "<Btn1Up>: Nominate() unset()";
+X
+static char selectMenuTranslations[] =
+X    "<Btn3Down>: XawPositionSimpleMenu(selectMenu) MenuPopup(selectMenu)";
+X
+static void MakeMenu(), Nominate(), ToggleDotFiles();
+X
+static XtActionsRec pathActions[] = {
+X    "MakeMenu", MakeMenu,
+X    "Nominate", Nominate,
+X    "ToggleDotFiles", ToggleDotFiles,
+};
+X
+static void                     CancelCallback();
+static void                     ChangeDir();
+static void                     SelectDir();
+static void                     FillWindow();
+static void                     ReplaceFilename();
+static void                     AsciiSourceChanged();
+static void                     WatchForChanges();
+static void                     DontWatchForChanges();
+static void                     CollapsePath();
+X
+static void Initialize(), PositionChildren(), Realize(), Destroy();
+X
+FileNominatorClassRec fileNominatorClassRec = {
+X    /* Core class part */
+X  {
+X    /* superclass	     */	(WidgetClass) &widgetClassRec,
+X    /* class_name	     */ "FileNominator",
+X    /* widget_size	     */ sizeof(FileNominatorRec),
+X    /* class_initialize      */ NULL,
+X    /* class_part_initialize */ NULL,
+X    /* class_inited          */	FALSE,
+X    /* initialize	     */	Initialize,
+X    /* initialize_hook       */	NULL,
+X    /* realize		     */	Realize,
+X    /* actions		     */	NULL,
+X    /* num_actions	     */	0,
+X    /* resources	     */	resources,
+X    /* num_resources	     */	XtNumber(resources),
+X    /* xrm_class	     */	NULLQUARK,
+X    /* compress_motion	     */	TRUE,
+X    /* compress_exposure     */	XtExposeCompressMultiple,
+X    /* compress_enterleave   */	TRUE,
+X    /* visible_interest	     */	FALSE,
+X    /* destroy		     */	Destroy,
+X    /* resize		     */	PositionChildren,
+X    /* expose		     */	NULL,
+X    /* set_values	     */	NULL,
+X    /* set_values_hook       */	NULL,			
+X    /* set_values_almost     */	XtInheritSetValuesAlmost,  
+X    /* get_values_hook       */	NULL,
+X    /* accept_focus	     */	NULL,
+X    /* version		     */	XtVersion,
+X    /* callback offsets      */	NULL,
+X    /* tm_table              */	NULL,
+X    /* query_geometry	     */	XtInheritQueryGeometry,
+X    /* display_accelerator   */	NULL,
+X    /* extension	     */	NULL,
+X  },
+X   /* FileNominator class part */
+X  {
+X    /* extension	     */	NULL,
+X  }
+};
+X
+WidgetClass fileNominatorWidgetClass = (WidgetClass) &fileNominatorClassRec;
+X
+static void
+CalculateSize(fnw, width, height)
+X    FileNominatorWidget fnw;
+X    Dimension *width, *height;
+{
+X    int file_width = Child(fnw,filename_widget)->core.width +
+X	2 * Child(fnw,filename_widget)->core.border_width;
+X    int select_width = Child(fnw,select_widget)->core.width + 
+X	2 * Child(fnw,select_widget)->core.border_width + fnw->fileNominator.margin +
+X	    Child(fnw,cancel_widget)->core.width +
+X		2 * Child(fnw,cancel_widget)->core.border_width +
+X		    Child(fnw,path_widget)->core.width +
+X	2 * Child(fnw,path_widget)->core.border_width + fnw->fileNominator.margin;
+X
+X    int max;
+X
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	max = select_width - 4 * (Child(fnw,select_widget)->core.border_width) >
+X	    file_width - 2 * Child(fnw,filename_widget)->core.border_width ?
+X		select_width - 4 * (Child(fnw,select_widget)->core.border_width) :
+X		    file_width - 2 * Child(fnw,filename_widget)->core.border_width;
+X    }
+X    else
+X    {
+X	max = select_width > file_width ? select_width : file_width;
+X    }
+X
+X    *width = max + 2 * fnw->fileNominator.margin;
+X    *height = Child(fnw,viewport_widget)->core.height +
+X	    Child(fnw,filename_widget)->core.height +
+X		Child(fnw,select_widget)->core.height +
+X		    4 * fnw->fileNominator.margin;
+X
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	*height += 2 * (Child(fnw,filename_widget)->core.border_width);
+X    }
+X    else
+X    {
+X	*height += 2 * (Child(fnw,filename_widget)->core.border_width +
+X		       Child(fnw,viewport_widget)->core.border_width +
+X		       Child(fnw,select_widget)->core.border_width);
+X    }
+}
+X
+static void
+PositionChildren(fnw)
+X    FileNominatorWidget fnw;
+{
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	XtConfigureWidget(Child(fnw,filename_widget),
+X			  0, 0,
+X			  fnw->core.width,
+X			  fnw->core.height -
+X			  Child(fnw,viewport_widget)->core.height -
+X			  2 * Child(fnw,viewport_widget)->core.border_width -
+X			  Child(fnw,select_widget)->core.height,
+X			  0);
+X    }
+X    else
+X    {
+X          XtConfigureWidget(Child(fnw,filename_widget),
+X		      fnw->fileNominator.margin,
+X		      fnw->fileNominator.margin,
+X	              fnw->core.width -
+X                      2 * fnw->fileNominator.margin -
+X                      2 * Child(fnw,filename_widget)->core.border_width,
+X		      fnw->core.height -
+X		      2 * Child(fnw,filename_widget)->core.border_width -
+X		      Child(fnw,viewport_widget)->core.height -
+X		      2 * Child(fnw,viewport_widget)->core.border_width -
+X		      Child(fnw,select_widget)->core.height -
+X		      2 * Child(fnw,select_widget)->core.border_width -
+X		      4 * fnw->fileNominator.margin,
+X		      Child(fnw,filename_widget)->core.border_width);
+X      }
+X
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	XtConfigureWidget(Child(fnw,viewport_widget),
+X			  -(Child(fnw,viewport_widget)->core.border_width),
+X			  Child(fnw,filename_widget)->core.height,
+X			  fnw->core.width,
+X			  Child(fnw,viewport_widget)->core.height,
+X			  Child(fnw,viewport_widget)->core.border_width);
+X    }
+X    else
+X    {
+X	XtConfigureWidget(Child(fnw,viewport_widget),
+X                          fnw->fileNominator.margin,
+X			  fnw->core.height -
+X			  Child(fnw,select_widget)->core.height -
+X			  2 * Child(fnw,select_widget)->core.border_width -
+X			  Child(fnw,viewport_widget)->core.height -
+X			  2 * Child(fnw,viewport_widget)->core.border_width -
+X			  2 * fnw->fileNominator.margin,
+X			  fnw->core.width -
+X			  2 * fnw->fileNominator.margin -
+X			  2 * Child(fnw,viewport_widget)->core.border_width,
+X			  Child(fnw,viewport_widget)->core.height,
+X			  Child(fnw,viewport_widget)->core.border_width);
+X    }
+X
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	XtMoveWidget(Child(fnw,select_widget), -1,
+X		     fnw->core.height -
+X		     Child(fnw,select_widget)->core.height - 1);
+X    }
+X    else
+X    {
+X	XtMoveWidget(Child(fnw,select_widget), fnw->fileNominator.margin,
+X		     fnw->core.height -
+X		     fnw->fileNominator.margin -
+X		     2 * Child(fnw,select_widget)->core.border_width -
+X		     Child(fnw,select_widget)->core.height);
+X    }
+X	
+X
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	XtMoveWidget(Child(fnw,path_widget),
+X		     Child(fnw,select_widget)->core.width,
+X		     fnw->core.height -
+X		     Child(fnw,select_widget)->core.height - 1);
+X    }
+X    else
+X    {
+X	XtMoveWidget(Child(fnw,path_widget),
+X		     Child(fnw,select_widget)->core.width +
+X		     2 * Child(fnw,select_widget)->core.border_width +
+X		     2 * fnw->fileNominator.margin,
+X		     fnw->core.height -
+X		     fnw->fileNominator.margin -
+X		     2 * Child(fnw,select_widget)->core.border_width -
+X		     Child(fnw,select_widget)->core.height);
+X    }
+X    
+X    if (fnw->fileNominator.margin == 0)
+X    {
+X	XtMoveWidget(Child(fnw,cancel_widget), 
+X		     Child(fnw,select_widget)->core.width +
+X		     Child(fnw,path_widget)->core.width +
+X		     Child(fnw,select_widget)->core.border_width,
+X		     fnw->core.height -
+X		     Child(fnw,select_widget)->core.height - 1);
+X    }
+X    else
+X    {
+X	XtMoveWidget(Child(fnw,cancel_widget), 
+X		     Child(fnw,path_widget)->core.width +
+X		     2 * Child(fnw,path_widget)->core.border_width +
+X		     Child(fnw,select_widget)->core.width +
+X		     2 * Child(fnw,select_widget)->core.border_width +
+X		     3 * fnw->fileNominator.margin,
+X		     fnw->core.height -
+X		     fnw->fileNominator.margin -
+X		     2 * Child(fnw,select_widget)->core.border_width -
+X		     Child(fnw,select_widget)->core.height);
+X    }
+}
+X
+/* ARGSUSED */
+static void
+Initialize(req, new, args, num_args)
+X    Widget req, new;
+X    ArgList args;
+X    Cardinal *num_args;
+{
+X    FileNominatorWidget fnw = (FileNominatorWidget) new;
+X    Widget sMenu, menuEntry;
+X    String menuList, p, q;
+X
+X    List(new) = NULL;
+X    Nomination(new).directoryPart = NULL;
+X    Nomination(new).filenamePart = NULL;
+#ifdef SYSV
+X    (void) getcwd(CurrentDir(new), MAXPATHLEN);
+#else    
+X    (void) getwd(CurrentDir(new));
+#endif
+X    if (CurrentDir(new)[strlen(CurrentDir(new)) - 1] != '/')
+X    {
+X	strcat(CurrentDir(new), "/");
+X    }
+X    WatchingChanges(new) = False;
+X
+X    Child(fnw,viewport_widget)
+X	= XtVaCreateWidget("viewport", viewportWidgetClass, new,
+X			   XtNallowVert, True,
+X			   NULL);
+X
+X    Child(fnw,list_widget) =
+X	XtVaCreateManagedWidget("list", listWidgetClass, Child(fnw,viewport_widget),
+X				XtNdefaultColumns, 1,
+X				XtNforceColumns, True,
+X				NULL);
+X    XtOverrideTranslations(Child(fnw,list_widget),
+X			   XtParseTranslationTable(listTranslations));
+X    XtAddCallback(Child(fnw,list_widget), XtNcallback, ReplaceFilename, NULL); 
+X    FillWindow(fnw);
+X
+X    Child(fnw,filename_widget)
+X	= XtVaCreateWidget("filename", asciiTextWidgetClass, new,
+X			   XtNeditType, XawtextEdit,
+X			   NULL);
+X    XtOverrideTranslations(Child(fnw,filename_widget),
+X			   XtParseTranslationTable(filenameTranslations));
+X    
+X    XtSetKeyboardFocus(new, Child(fnw,filename_widget));
+X    WatchForChanges(fnw);
+X
+X    Child(fnw,select_widget)
+X	= XtVaCreateWidget("select", commandWidgetClass, new,
+X                           XtNlabel,  "OK",
+X			   NULL);
+X    XtOverrideTranslations(Child(fnw,select_widget),
+X			   XtParseTranslationTable(selectTranslations));
+X    if (fnw->fileNominator.select_menu)
+X    {
+X	sMenu = XtVaCreatePopupShell("selectMenu",
+X				     simpleMenuWidgetClass, Child(fnw,select_widget),
+X				     NULL);
+X	menuList = XtNewString(fnw->fileNominator.select_menu);
+X	p = menuList;
+X	for (p = menuList;  (q = (char *)index(p, ':'));  p = q + 1)
+X	{
+X	    *q = '\0';
+X	    menuEntry = XtVaCreateManagedWidget(p,
+X						smeBSBObjectClass, sMenu,
+X						NULL);
+X	    XtAddCallback(menuEntry, XtNcallback, SelectDir, NULL);
+X	}
+X	menuEntry = XtVaCreateManagedWidget(p,
+X					    smeBSBObjectClass, sMenu,
+X					    NULL);
+X	XtAddCallback(menuEntry, XtNcallback, SelectDir, NULL);
+X	XtVaSetValues(sMenu,
+X		      XtNpopupOnEntry, menuEntry,
+X		      NULL);
+X    
+X	XtOverrideTranslations(Child(fnw,select_widget),
+X			      XtParseTranslationTable(selectMenuTranslations));
+X    
+X	XtFree(menuList);
+X    }
+X
+#ifdef GERMAN
+X    Child(fnw,path_widget)
+X	= XtVaCreateWidget("path", menuButtonWidgetClass, new,
+X                           XtNlabel,  "Pfad",
+X			   NULL);
+#else    
+X    Child(fnw,path_widget)
+X	= XtVaCreateWidget("path", menuButtonWidgetClass, new,
+X                           XtNlabel,  "Path",
+X			   NULL);
+#endif    
+X    XtOverrideTranslations(Child(fnw,path_widget),
+X			   XtParseTranslationTable(pathTranslations));
+X    XtAppAddActions(XtWidgetToApplicationContext(new),
+X		    pathActions, XtNumber(pathActions));
+X    XawSimpleMenuAddGlobalActions(XtWidgetToApplicationContext(new));
+X
+#ifdef GERMAN
+X    Child(fnw,cancel_widget)
+X	= XtVaCreateWidget("cancel", commandWidgetClass, new,
+X                             XtNlabel,  "Abbruch",
+X                             NULL);
+#else    
+X    Child(fnw,cancel_widget)
+X	= XtVaCreateWidget("cancel", commandWidgetClass, new,
+X                             XtNlabel,  "Cancel",
+X                             NULL);
+#endif    
+X    XtAddCallback(Child(fnw,cancel_widget), XtNcallback, CancelCallback, NULL); 
+X
+X    CalculateSize(fnw, &fnw->core.width, &fnw->core.height);
+X    PositionChildren(fnw);
+}
+X
+static void 
+Realize(w, valueMask, attributes)
+X    Widget w;
+X    XtValueMask *valueMask;
+X    XSetWindowAttributes *attributes;
+{
+X    (*fileNominatorWidgetClass->core_class.superclass->core_class.realize)
+X	(w, valueMask, attributes);
+X
+X    XtRealizeWidget(Child(w,viewport_widget));
+X    XtRealizeWidget(Child(w,list_widget));
+X    XtRealizeWidget(Child(w,filename_widget));
+X    XtRealizeWidget(Child(w,select_widget));
+X    XtRealizeWidget(Child(w,path_widget));
+X    XtRealizeWidget(Child(w,cancel_widget));
+X
+X    XMapSubwindows(XtDisplay(w), XtWindow(w));
+}
+X
+static void Destroy(w)
+X    Widget w;
+{
+X    int idx;
+X    FileNominatorWidget fnw = (FileNominatorWidget) w;
+X    XtDestroyWidget(Child(fnw,list_widget));
+X    XtDestroyWidget(Child(fnw,viewport_widget));
+X    XtDestroyWidget(Child(fnw,filename_widget));
+X    XtDestroyWidget(Child(fnw,select_widget));
+X    XtDestroyWidget(Child(fnw,path_widget));
+X    XtDestroyWidget(Child(fnw,cancel_widget));
+X
+X    idx = 0;
+X    while (List(fnw)[idx])
+X    {
+X	XtFree(List(fnw)[idx++]);
+X    }
+X    XtFree(List(fnw)[idx]);
+X    XtFree((char *)List(fnw));
+X
+X    XtFree(Nomination(fnw).directoryPart);
+X    XtFree(Nomination(fnw).filenamePart);
+}
+X
+/* ARGSUSED */
+static void 
+CancelCallback(w, client_data, call_data)
+X     Widget w;
+X     XtPointer client_data, call_data;
+{
+X    XtCallCallbacks(XtParent(w), XtNcancelCallback, NULL);
+}
+X
+/* ARGSUSED */
+static void
+DestroyMenu(w, client_data, call_data)
+X     Widget w;
+X     XtPointer client_data, call_data;
+{
+X    XtDestroyWidget(w);
+}
+X
+/* ARGSUSED */
+static void
+MakeMenu(w, event, params, num_params)
+X     Widget w;
+X     XEvent *event;
+X     String *params;
+X     Cardinal *num_params;
+{
+X    FileNominatorWidget fnw = (FileNominatorWidget) XtParent(w);
+X    String menuName;
+X    Widget menu, menuEntry;
+X    char *where, *p1, *p2;
+X    int menuItem = 1, len;
+X
+X    XtVaGetValues(w,
+X		  XtNmenuName, &menuName,
+X		  NULL);
+X    
+X    menu = XtVaCreatePopupShell(menuName,
+X				simpleMenuWidgetClass, w,
+X				NULL);
+X    XtAddCallback(menu, XtNpopdownCallback, DestroyMenu, NULL);
+X
+X    where = XtNewString(CurrentDir(fnw));
+X    menuEntry = XtVaCreateManagedWidget("/",
+X					smeBSBObjectClass, menu, NULL);
+X    XtAddCallback(menuEntry, XtNcallback, ChangeDir, (XtPointer) menuItem++);
+X    p1 = where + 1;
+X    len = strlen(where);
+X    while (p1 < &where[len])
+X    {
+X	if (!(p2 = (char *)index(p1, '/')))
+X	{
+X	    p2 = &where[len];
+X	}
+X	*p2 = '\0';
+X	menuEntry = XtVaCreateManagedWidget(p1,
+X					    smeBSBObjectClass, menu, NULL);
+X	XtAddCallback(menuEntry, XtNcallback, ChangeDir,
+X		      (XtPointer) menuItem++);
+X	p1 = p2 + 1;
+X    }
+X    
+X    XtVaSetValues(menu,
+X		  XtNpopupOnEntry, menuEntry,
+X		  NULL);
+X    
+X    XtFree(where);
+}
+X
+static void
+ChangeDirectory(fnw, position)
+X     FileNominatorWidget fnw;
+X     int position;
+{
+X    String p;
+X    int m;
+X
+X    if (position > 0)
+X    {
+X	p = CurrentDir(fnw);
+X	for (m = 0;  m < position;  ++m)
+X	{
+X	    while(*p++ != '/')
+X		;
+X	}
+X	*p = '\0';
+X    }
+X
+X    XtVaSetValues(Child(fnw, filename_widget),
+X		  XtNstring, "",
+X		  NULL);
+X
+X    FillWindow(fnw);
+X
+X    PositionChildren(fnw);
+}
+X	 
+/* ARGSUSED */
+static void
+ChangeDir(w, client_data, call_data)
+X     Widget w;
+X     XtPointer client_data, call_data;
+{
+X    FileNominatorWidget fnw
+X        = (FileNominatorWidget) XtParent(XtParent(XtParent(w)));
+X
+X    ChangeDirectory(fnw, (int) client_data);
+}
+X
+/* ARGSUSED */
+static void
+SelectDir(w, client_data, call_data)
+X     Widget w;
+X     XtPointer client_data, call_data;
+{
+X    FileNominatorWidget fnw
+X        = (FileNominatorWidget) XtParent(XtParent(XtParent(w)));
+X    String label;
+X
+X    XtVaGetValues(w,
+X		  XtNlabel, &label,
+X		  NULL);
+X
+X    XtVaSetValues(Child(fnw,filename_widget),
+X		  XtNstring, label,
+X		  NULL);
+X
+X    Nominate(Child(fnw,select_widget), NULL, NULL, NULL);
+}
+X
+/* ARGSUSED */
+static void
+Nominate(w, event, params, num_params)
+X     Widget w;
+X     XEvent *event;
+X     String *params;
+X     Cardinal *num_params;
+{
+X    FileNominatorWidget fnw;
+X    char *nomination, *home, selection[MAXPATHLEN], *newPath, *r;
+X    struct stat fstats;
+X    int status, len;
+X
+X    if (XtIsSubclass(w, listWidgetClass))
+X    {
+X	fnw = (FileNominatorWidget) XtParent(XtParent(w));
+X    }
+X    else
+X    {
+X	fnw = (FileNominatorWidget) XtParent(w);
+X    }
+X    
+X    XtVaGetValues(Child(fnw,filename_widget),
+X		  XtNstring, &nomination,
+X		  NULL);
+X
+X    selection[0] = '\0';
+X    if (*nomination == '/')
+X    {
+X	strcpy(selection, nomination);
+X    }
+X    else if (*nomination == '~' && (home = getenv("HOME")))
+X    {
+X	strcpy(selection, home);
+X	strcat(selection, &nomination[1]);
+X    }
+X    else
+X    {
+X	if (strlen(CurrentDir(fnw)) > 1)
+X	{
+X	    strcpy(selection, CurrentDir(fnw));
+X	}
+X	strcat(selection, "/");
+X	strcat(selection, nomination);
+X    }
+X
+X    len = strlen(selection);
+X    if (len != 0)
+X    {
+X	newPath = (char *) XtMalloc(len + 2);
+X	CollapsePath(selection, newPath);
+X	status = stat(newPath, &fstats);
+X	if (status != -1 && fstats.st_mode & S_IFDIR)
+X	{
+X	    if (access(newPath, R_OK) == 0)
+X	    {
+X		if (newPath[strlen(newPath) - 1] != '/')
+X		{
+X		    strcat(newPath, "/");
+X		}
+X		strcpy(CurrentDir(fnw), newPath);
+X		ChangeDirectory(fnw, 0);
+X	    }
+X	    else
+X	    {
+X		XBell(XtDisplay(fnw), BellLevel(fnw));
+X	    }
+X	}
+X	else if (status == 0 || (status == -1 && errno == ENOENT))
+X	{
+X	    status = access(newPath, R_OK | W_OK);
+X	    r = (char *)rindex(newPath, '/');
+X	    XtFree(Nomination(fnw).filenamePart);
+X	    Nomination(fnw).filenamePart = XtNewString(r + 1);
+X	    Nomination(fnw).filenameStatus = (status == 0) ? status : errno;
+X	    *(r + 1) = '\0';
+X	    XtFree(Nomination(fnw).directoryPart);
+X	    status = access(newPath, R_OK);
+X	    if (strcmp(newPath, CurrentDir(fnw)) != 0 && status == 0)
+X	    {
+X		strcpy(CurrentDir(fnw), newPath);
+X		ChangeDirectory(fnw, 0);
+X		Nomination(fnw).directoryPart = XtNewString(CurrentDir(fnw));
+X	    }
+X	    else
+X	    {
+X		Nomination(fnw).directoryPart = XtNewString(newPath);
+X	    }
+X	    Nomination(fnw).directoryStatus = (status == 0) ? status : errno;
+X	    XtCallCallbacks((Widget) fnw, XtNselectCallback,
+X			                        (XtPointer) &Nomination(fnw));
+X	}
+X	else
+X	{
+X            XBell(XtDisplay(fnw), BellLevel(fnw));
+X	}
+X	XtFree(newPath);
+X    }
+}
+X
+static void
+FillWindow(fnw)
+X     Widget fnw;
+{
+X    XFontStruct *font;
+X    Dimension height, internalHeight, rowSpacing;
+X    int num, newNum, idx;
+X    struct dirent **namelist;
+X    extern int alphasort();
+X    char buf[MAXPATHLEN], *bp;
+X    String name;
+X    struct stat fstats;
+X
+X    num = scandir(CurrentDir(fnw), &namelist, (int(*)())0, alphasort);
+X    if (num <= 0)
+X    {
+X	return;
+X    }
+X
+X    if (List(fnw))
+X    {
+X        idx = 0;
+X        while (List(fnw)[idx])
+X        {
+X            XtFree(List(fnw)[idx++]);
+X        }
+X	XtFree(List(fnw)[idx]);
+X	XtFree((char *)List(fnw));
+X    }
+X    List(fnw) = (String *) XtMalloc((num + 1) * sizeof(String));
+X
+X    strcpy(buf, CurrentDir(fnw));
+X    strcat(buf, "/");
+X    bp = buf + strlen(buf);
+X    for(idx = 0, newNum = 0; idx < num;  idx++)
+X    {
+X	name = namelist[idx]->d_name;
+X	if (ShowDotFiles(fnw) || (!ShowDotFiles(fnw) &&
+X				  (*name != '.' 
+X				  || ((strcmp(name, ".") == 0) ||
+X				      (strcmp(name, "..") == 0)))))
+X	{
+X	    List(fnw)[newNum] = XtMalloc(strlen(name) + 2);
+X	    strcpy(List(fnw)[newNum], name);
+X	    strcpy(bp, name);
+X	    (void) stat(buf, &fstats);
+X	    if (fstats.st_mode & S_IFDIR)
+X	    {
+X		strcat(List(fnw)[newNum], "/");
+X	    }
+X	    ++newNum;
+X	}
+X    }
+X
+X    for(idx = 0; idx < num;  idx++)
+X    {
+X	XtFree((char *)namelist[idx]);
+X    }
+X    XtFree((char *)namelist);
+X
+X    List(fnw)[newNum] = NULL;
+X
+X    XtVaGetValues(Child(fnw,list_widget),
+X                  XtNfont, &font,
+X                  XtNinternalHeight, &internalHeight,
+X		  XtNrowSpacing, &rowSpacing,
+X                  NULL);
+X
+X    height = Rows(fnw) * (font->max_bounds.ascent +
+X		     font->max_bounds.descent + rowSpacing) -
+X			 rowSpacing + 2 * internalHeight; 
+X
+X    XtVaSetValues(Child(fnw,viewport_widget),
+X                  XtNheight, height,
+X                  NULL);
+X
+X    XawListChange(Child(fnw,list_widget), List(fnw), newNum, -1, True);
+}
+X
+/* ARGSUSED */
+static void
+ToggleDotFiles(w, event, params, num_params)
+X     Widget w;
+X     XEvent *event;
+X     String *params;
+X     Cardinal *num_params;
+{
+X    Widget fnw = XtParent(w);
+X    Boolean showDotFiles;
+X
+X    XtVaGetValues(fnw,
+X		  XtNshowDotFiles, &showDotFiles,
+X		  NULL);
+X
+X    XtVaSetValues(fnw,
+X		  XtNshowDotFiles, !showDotFiles,
+X		  NULL);
+X
+X    XtVaSetValues(w,
+X		  XtNstring, "./",
+X		  NULL);
+X
+X    Nominate(Child(fnw,select_widget), NULL, NULL, NULL);
+}
+X
+/* ARGSUSED */
+static void
+ReplaceFilename(w, client_data, call_data)
+X     Widget w;
+X     XtPointer client_data, call_data;
+{
+X    FileNominatorWidget fnw
+X	= (FileNominatorWidget) XtParent(XtParent(w));
+X
+X    XawListReturnStruct *list = XawListShowCurrent(Child(fnw,list_widget));
+X
+X    XtVaSetValues(Child(fnw,filename_widget),
+X		  XtNstring, list->string,
+X		  NULL);
+X
+X    XawTextSetInsertionPoint(Child(fnw,filename_widget),
+X			     (XawTextPosition) strlen(list->string));
+X
+X    WatchForChanges(fnw);
+}
+X
+/* ARGSUSED */
+static void
+AsciiSourceChanged(w, client_data, call_data)
+Widget w;
+XXtPointer client_data, call_data;
+{
+X    FileNominatorWidget fnw = (FileNominatorWidget) client_data;
+X
+X    DontWatchForChanges(fnw);
+X
+X    XawListUnhighlight(Child(fnw,list_widget));
+}
+X
+static void
+WatchForChanges(fnw)
+X     Widget fnw;
+{
+X    if (!WatchingChanges(fnw))
+X    {
+X	XtAddCallback(XawTextGetSource(Child(fnw,filename_widget)), XtNcallback,
+X		      AsciiSourceChanged, (XtPointer) fnw);
+X
+X	WatchingChanges(fnw) = True;
+X    }
+}
+X
+static void
+DontWatchForChanges(fnw)
+X     Widget fnw;
+{
+X    XtRemoveCallback(XawTextGetSource(Child(fnw,filename_widget)), XtNcallback,
+X		     AsciiSourceChanged, (XtPointer) fnw);
+X
+X    WatchingChanges(fnw) = False;
+}
+X
+static void 
+CollapsePath(in, out)
+X     char *in, *out;
+{
+X    char *p = in, *q = out, *pend = p + strlen(p);
+X    
+X    while (p < pend)
+X    {
+X	if (*p != '/')
+X	{
+X	    *q++ = *p++;
+X	}
+X	else if (p + 1 < pend && *(p + 1) == '/')
+X	{
+X	    ++p;
+X	}
+X	else if ( (p + 2 == pend && *(p + 1) == '.') || 
+X		  (p + 2 < pend && *(p + 1) == '.' && *(p + 2) == '/') )
+X	{
+X	    p += 2;
+X	}
+X	else if ( (p + 3 == pend && *(p + 1) == '.' && *(p + 2) == '.') ||
+X		 (p + 3 < pend && *(p + 1) == '.'
+X		                      && *(p + 2) == '.' && *(p + 3) == '/') )
+X	{
+X	    while (q > out && *--q != '/')
+X		;
+X	    p += 3;
+X	}
+X	else
+X	{
+X	    *q++ = *p++;
+X	}
+X    }
+X    if (q == out)
+X    {
+X	*q++ = '/';
+X    }
+X
+X    while (q > out)
+X    {
+X	if (*--q != '/')
+X	    break;
+X    }
+X    *++q = '\0';
+}
+X
+String
+FileNominatorGetDirectory(fnw)
+X     Widget fnw;
+{
+X    if (XtIsSubclass(fnw, fileNominatorWidgetClass))
+X    {
+X	return CurrentDir(fnw);
+X    }
+X    else
+X    {
+X	return NULL;
+X    }
+}
+X
+String
+FileNominatorGetFileName(fnw)
+Widget fnw;
+{
+X    String newName;
+X
+X    if (XtIsSubclass(fnw, fileNominatorWidgetClass))
+X    {
+X    
+X      FileNominatorStruct data =  Nomination(fnw);
+X
+X      if (data.directoryStatus == 0)
+X      {
+X	newName = XtMalloc(strlen(data.filenamePart) + 1);
+X	strcpy(newName, data.filenamePart);
+X        return newName;
+X      }
+X    }
+X    else
+X    {
+X	return NULL;
+X    }
+}
+X
+String
+FileNominatorGetFullFileName(fnw)
+X     Widget fnw;
+{
+X    String newName;
+X
+X    if (XtIsSubclass(fnw, fileNominatorWidgetClass))
+X    {
+X    
+X      FileNominatorStruct data =  Nomination(fnw);
+X
+X      if (data.directoryStatus == 0)
+X      {
+X	newName = XtMalloc(strlen(data.directoryPart)
+X			   + strlen(data.filenamePart) + 1);
+X	strcpy(newName, data.directoryPart);
+X	strcat(newName, data.filenamePart);
+X        return newName;
+X      }
+X    }
+X    else
+X    {
+X	return NULL;
+X    }
+}
+X
+X
+void
+FileNominatorSetDirectory(fnw, dir)
+X     Widget fnw;
+X     String dir;
+{
+X    if (!XtIsSubclass(fnw, fileNominatorWidgetClass))
+X    {
+X	return;
+X    }
+X
+X    /* Should do more checks */
+X    strcpy(CurrentDir(fnw), dir);
+X    if (dir[strlen(dir) - 1] != '/')
+X    {
+X	strcat(CurrentDir(fnw), "/");
+X    }
+X
+X    ChangeDirectory(fnw, 0);
+}
+SHAR_EOF
+chmod 0644 FileNom.c ||
+echo 'restore of FileNom.c failed'
+Wc_c="`wc -c < 'FileNom.c'`"
+test 28730 -eq "$Wc_c" ||
+	echo 'FileNom.c: original size 28730, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= FileNom.h ==============
+if test -f 'FileNom.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping FileNom.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting FileNom.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'FileNom.h' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  FileNom.h                                               */
+/*                                                                   */
+/*             - File Selection Box                                  */
+/*               Adapted and modified Widget from aXe editor         */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    11.22.91  HM   created                                         */
+/*                                                                   */
+/*  Copyright 1991 Martin, Urban                                     */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+/*
+X * Copyright 1991 The University of Newcastle upon Tyne
+X * 
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation for any purpose other than its commercial exploitation
+X * is hereby granted without fee, provided that the above copyright
+X * notice appear in all copies and that both that copyright notice and
+X * this permission notice appear in supporting documentation, and that
+X * the name of The University of Newcastle upon Tyne not be used in
+X * advertising or publicity pertaining to distribution of the software
+X * without specific, written prior permission. The University of
+X * Newcastle upon Tyne makes no representations about the suitability of
+X * this software for any purpose. It is provided "as is" without express
+X * or implied warranty.
+X * 
+X * THE UNIVERSITY OF NEWCASTLE UPON TYNE DISCLAIMS ALL WARRANTIES WITH
+X * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+X * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF
+X * NEWCASTLE UPON TYNE BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+X * USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+X * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X * 
+X * Author:  Jim Wight (j.k.wight@newcastle.ac.uk)
+X *          Computing Laboratory, University of Newcastle upon Tyne, UK
+X */
+X
+X
+#ifndef FileNominator_h
+#define FileNominator_h
+X
+#define XtNselectCallback "selectCallback"
+#define XtNselectMenu "selectMenu"
+#define XtNcancelCallback "cancelCallback"
+#define XtNmargin "margin"
+#define XtNnumberRows "numberRows"
+#define XtNshowDotFiles "showDotFiles"
+#define XtNbellLevel "bellLevel"
+X
+extern WidgetClass fileNominatorWidgetClass;
+X
+typedef struct _FileNominatorRec *FileNominatorWidget;
+typedef struct {
+X    String  directoryPart;
+X    int     directoryStatus;
+X    String  filenamePart;
+X    int     filenameStatus;
+} FileNominatorStruct;
+X
+String FileNominatorGetDirectory();
+String FileNominatorGetFileName();
+String FileNominatorGetFullFileName();
+void   FileNominatorSetDirectory();
+X
+#endif /* FileNominator_h */
+SHAR_EOF
+chmod 0644 FileNom.h ||
+echo 'restore of FileNom.h failed'
+Wc_c="`wc -c < 'FileNom.h'`"
+test 3548 -eq "$Wc_c" ||
+	echo 'FileNom.h: original size 3548, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= FileNomP.h ==============
+if test -f 'FileNomP.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping FileNomP.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting FileNomP.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'FileNomP.h' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  FileNomP.c                                              */
+/*                                                                   */
+/*             - File Selection Box                                  */
+/*               Adapted and modified Widget from aXe editor         */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    11.22.91  HM   created                                         */
+/*                                                                   */
+/*  Copyright 1991 Martin, Urban                                     */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+/*
+X * Copyright 1991 The University of Newcastle upon Tyne
+X * 
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation for any purpose other than its commercial exploitation
+X * is hereby granted without fee, provided that the above copyright
+X * notice appear in all copies and that both that copyright notice and
+X * this permission notice appear in supporting documentation, and that
+X * the name of The University of Newcastle upon Tyne not be used in
+X * advertising or publicity pertaining to distribution of the software
+X * without specific, written prior permission. The University of
+X * Newcastle upon Tyne makes no representations about the suitability of
+X * this software for any purpose. It is provided "as is" without express
+X * or implied warranty.
+X * 
+X * THE UNIVERSITY OF NEWCASTLE UPON TYNE DISCLAIMS ALL WARRANTIES WITH
+X * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+X * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF
+X * NEWCASTLE UPON TYNE BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+X * USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+X * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X * 
+X * Author:  Jim Wight (j.k.wight@newcastle.ac.uk)
+X *          Computing Laboratory, University of Newcastle upon Tyne, UK
+X */
+X
+X
+#ifndef FileNominatorP_h
+#define FileNominatorP_h
+X
+#include "FileNom.h"
+X
+#define XtCSelectMenu "SelectMenu"
+#define XtCShowDotFiles "ShowDotFiles"
+#define XtCBellLevel "BellLevel"
+X
+typedef struct {
+X    /* resources */
+X    XtCallbackList      select_callback;
+X    String              select_menu;
+X    XtCallbackList      cancel_callback;
+X    Dimension           margin;
+X    int                 number_rows;
+X    Boolean             show_dot_files;
+X    int                 bell_level;
+X    
+X    /* private data */
+X    Widget              viewport_widget;
+X    Widget              list_widget;
+X    Widget		filename_widget;
+X    Widget              select_widget;
+X    Widget              path_widget;
+X    Widget		cancel_widget;	
+X    String              *listList;
+X    char                currentDir[MAXPATHLEN];
+X    Boolean             watchingChanges;
+X    FileNominatorStruct nomination;
+} FileNominatorPart;
+X
+typedef struct _FileNominatorRec {
+X    CorePart		core;
+X    FileNominatorPart	fileNominator;
+} FileNominatorRec;
+X
+typedef struct {
+X    XtPointer		extension;
+} FileNominatorClassPart;
+X
+typedef struct _FileNominatorClassRec {
+X    CoreClassPart	        core_class;
+X    FileNominatorClassPart	fileNominator_class;
+} FileNominatorClassRec, *FileNominatorClass;
+X
+extern FileNominatorClassRec fileNominatorClassRec;
+X
+#endif /* FileNominatorP_h */
+X
+SHAR_EOF
+chmod 0644 FileNomP.h ||
+echo 'restore of FileNomP.h failed'
+Wc_c="`wc -c < 'FileNomP.h'`"
+test 4158 -eq "$Wc_c" ||
+	echo 'FileNomP.h: original size 4158, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Imakefile ==============
+if test -f 'Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Imakefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Imakefile' &&
+#
+# bibView
+#
+#
+X
+SYS_LIBRARIES = -lm
+CDEBUGFLAGS = 
+X
+#ifdef HPArchitecture
+DEFINES = -D_HPUX_SOURCE
+SYS_LIBRARIES = -lm
+CDEBUGFLAGS = 
+CC = cc -Aa 
+#else
+CCOPTIONS =
+CFLAGS = 
+CC = gcc -fstrength-reduce -fpcc-struct-return
+#endif /* HPArchitecture */
+X
+LOCAL_LIBRARIES = -lc $(XAWLIB) $(XMULIB) $(XTOOLLIB) $(XLIB)
+DEPLIBS = $(DEPXLIB)
+X
+SRCS=	bibview.c FileNom.c gui_main.c ctl_open.c ctl_opt.c\
+X	gui_bibl.c gui_help.c ctl_srch.c gui_widg.c ctl_save.c\
+X	gui_list.c gui_card.c ctl_card.c ctl_serv.c\
+X	db_tree.c bib_file.c globdata.c bib_flex.c\
+X	ComboBo.c rc_file.c ctl_prt.c gui_edit.c
+OBJS=	bibview.o FileNom.o gui_main.o ctl_open.o ctl_opt.o\
+X	gui_bibl.o gui_help.o ctl_srch.o gui_widg.o ctl_save.o\
+X	gui_list.o gui_card.o ctl_card.o ctl_serv.o\
+X	db_tree.o bib_file.o globdata.o bib_flex.o\
+X	ComboBo.o rc_file.o ctl_prt.o gui_edit.o
+X
+PROGRAMS = bibview
+all::  $(PROGRAMS)
+X
+ComplexProgramTarget(bibview)
+X
+SHAR_EOF
+chmod 0640 Imakefile ||
+echo 'restore of Imakefile failed'
+Wc_c="`wc -c < 'Imakefile'`"
+test 905 -eq "$Wc_c" ||
+	echo 'Imakefile: original size 905, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and </tmp/IIf.a02095>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit hp.cf to change
+X
+# platform:  $XConsortium: hp.cf,v 1.47 91/07/28 22:39:35 rws Exp $
+X
+# operating system:  HP-UX 8.05
+X
+# we have shared libs
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = $(BINDIR)/bsdinst
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -o
+X         LINTOPTS = -ax
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv -f
+X               CP = cp
+X
+X               RM = rm -f
+X            TROFF = psroff
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES = -DSYSV
+X      STD_DEFINES = -DSYSV
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X           MFLAGS = -$(MAKEFLAGS)
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF =
+X
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X      CDEBUGFLAGS = +O1 -Wp,-H200000
+X        CCOPTIONS =
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = hp.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/lib
+X           BINDIR = /usr/bin/X11
+X          INCROOT = /usr/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+SHAR_EOF
+true || echo 'restore of Makefile failed'
+fi
+echo 'End of  part 2'
+echo 'File Makefile is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

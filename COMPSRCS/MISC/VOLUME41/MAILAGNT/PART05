@@ -1,0 +1,1539 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i005:  mailagent - Flexible mail filtering and processing package, v3.0, Part05/26
+Message-ID: <1993Dec2.133626.18103@sparky.sterling.com>
+X-Md4-Signature: 16910566830c6f663d514e73a1d6f7a0
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:36:26 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 5
+Archive-name: mailagent/part05
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/pl/actions.pl.01 agent/test/filter/list.t
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 26)."'
+if test -f 'agent/pl/actions.pl.01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/actions.pl.01'\"
+else
+  echo shar: Extracting \"'agent/pl/actions.pl.01'\" \(49987 characters\)
+  sed "s/^X//" >'agent/pl/actions.pl.01' <<'END_OF_FILE'
+X;# $Id: actions.pl,v 3.0 1993/11/29 13:48:33 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: actions.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:33  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X#
+X# Implementation of filtering commands
+X#
+X
+X# The "LEAVE" command
+X# Leave a copy of the message in the mailbox. Returns (mbox, failed_status)
+Xsub leave {
+X	local($mailbox) = &mailbox_name;	# Incomming mailbox filename
+X	&add_log("starting LEAVE") if $loglvl > 15;
+X	&save($mailbox);					# Propagate return status
+X}
+X
+X# The "SAVE" command
+X# Save a message in a folder. Returns (mbox, failed_status). If the folder
+X# already exists and has the 'x' bit set, then is is understood as an external
+X# hook and mailhook is invoked. If the folder name begins with '+', it is
+X# handled as an MH folder. If the folder is actually a directory, then message
+X# is saved in an individual file, much like an MH folder.
+Xsub save {
+X	local($mailbox) = @_;			# Where mail should be saved
+X	local($failed) = 0;				# Printing status
+X	unless ($mailbox) {				# Empty mailbox (e.g. SAVE %1 with no match)
+X		&add_log("WARNING empty folder name, using mailbox") if $loglvl > 5;
+X		$mailbox = &mailbox_name;
+X	}
+X	&add_log("starting SAVE $mailbox") if $loglvl > 15;
+X	if ($mailbox =~ s/^\+//) {		# MH folder?
+X		$failed = &mh'save($mailbox);
+X	} elsif (-d $mailbox) {			# A directory hook
+X		$failed = &mh'savedir($mailbox);
+X	} elsif (-x $mailbox) {			# Folder hook
+X		$failed = &save_hook;		# Deliver to program
+X	} else {						# Saving to a normal folder
+X		# Uncompress folders if necessary. The restore routine will perform
+X		# the necessary checks and return immediately if no compression is
+X		# wanted for that particular folder. However, we can avoid the overhead
+X		# of calling this routine (and loading it when using dataloading) if
+X		# the 'compress' configuration parameter is missing.
+X		&compress'restore($mailbox) if $cf'compress;
+X		$failed = &save_folder($mailbox);
+X	}
+X	&add_log("ERROR could not save mail in $mailbox") if $failed && $loglvl;
+X	&emergency_save if $failed;
+X	($mailbox, $failed);			# Where save was made and failure status
+X}
+X
+X# Called by &save when folder is a regular one (i.e. not a hook).
+Xsub save_folder {
+X	local($mailbox) = @_;			# Where mail should be saved
+X	local($amount);					# Amount of bytes written
+X	local($failed);
+X	if (open(MBOX, ">>$mailbox")) {
+X
+X		&mbox_lock($mailbox);		# Lock mailbox, now have exclusive access
+X		local($size) = -s $mailbox;	# Initial mailbox size
+X
+X		# If MMDF-style mailboxes are allowed, then the saving routine will
+X		# try to determine what kind of folder it is delivering to and choose
+X		# the right format. Otherwise, standard Unix format is assumed.
+X		if ($cf'mmdf =~ /on/i) {	# MMDF-style allowed
+X			# Save to mailbox, selecting the right format (UNIX vs MMDF)
+X			($failed, $amount) = &mmdf'save(*MBOX, $mailbox);
+X		} else {
+X			# Save to UNIX folder
+X			($failed, $amount) = &mmdf'save_unix(*MBOX);
+X		}
+X
+X		# Because we might write over NFS, and because we might have had to
+X		# force fate to get a lock, it is wise to make sure the folder has the
+X		# right size, which would tend to indicate the mail made it to the
+X		# buffer cache, if not to the disk itself.
+X		local($should) = $size + $amount;	# Computed new size for mailbox
+X		local($new_size) = -s $mailbox;		# Last write was flushed to disk
+X		&add_log("ERROR $mailbox has $new_size bytes (should have $should)")
+X			if $new_size != $should && $loglvl;
+X		$failed = 1 if $new_size != $should;
+X
+X		# Finally, release the lock on the mailbox and close the file. If the
+X		# closing operation fails for whatever reason, the routine will return
+X		# a 1, so $failed will be set. Of course, "normally" it should not
+X		# fail at that point, since the mail was previously flushed.
+X		$failed |= &mbox_unlock($mailbox);	# Will close file
+X
+X	} else {
+X		&add_log("SYSERR open: $!") if $loglvl;
+X		if (-f "$mailbox") {
+X			&add_log("ERROR cannot append to $mailbox") if $loglvl;
+X		} else {
+X			&add_log("ERROR cannot create $mailbox") if $loglvl;
+X		}
+X		$failed = 1;
+X	}
+X	$failed;		# Propagate failure status
+X}
+X
+X# Called by &save when folder is a hook.
+X# Return command failure status.
+Xsub save_hook {
+X	local($failed) = &hook'process($mailbox);
+X	&add_log("HOOKED [$mfile]") if !$failed && $loglvl > 2;
+X	$failed;				# Propagate failure status
+X}
+X
+X# The "PROCESS" command
+X# The body of the message is expected to be in $Header{'Body'}
+Xsub process {
+X	local($subj) =			$Header{'Subject'};
+X	local($msg_id) =		$Header{'Message-Id'};
+X	local($sender) =		$Header{'Reply-To'};
+X	local($to) =			$Header{'To'};
+X	local($bad) = "";		# No bad commands
+X	local($pack) = "auto";	# Default packing mode for sending files
+X	local($ncmd) = 0;		# Number of valid commands we have found
+X	local($dest) = "";		# Destination (where to send answers)
+X	local(@cmd);			# Array of all commands
+X	local(%packmode);		# Records pack mode for each command
+X	local($error) = 0;		# Error report code
+X	local(@body);			# Body of message
+X
+X	&add_log("starting PROCESS") if $loglvl > 15;
+X
+X	# If no @PATH directive was found, use $sender as a return path
+X	$dest = $Userpath;				# Set by an @PATH
+X	$dest = $sender unless $dest;
+X	# Remove the <> if any (e.g. path derived from Return-Path)
+X	$dest =~ /<(.*)>/ && ($dest = $1);
+X
+X	# Debugging purposes
+X	&add_log("@PATH was '$Userpath' and sender was '$sender'") if $loglvl > 18;
+X	&add_log("computed destination: $dest") if $loglvl > 15;
+X
+X	# Copy body of message in an array, one line per entry
+X	@body = split(/\n/, $Header{'Body'});
+X
+X	# The command file contains the authorized commands
+X	if ($#command < 0) {			# Command file not processed yet
+X		open(COMMAND, "$cf'comfile") || &fatal("No command file!");
+X		while (<COMMAND>) {
+X			chop;
+X			$command{$_} = 1;
+X		}
+X		close(COMMAND);
+X	}
+X
+X	line: foreach (@body) {
+X		# Built-in commands
+X		if (/^@PACK\s*(.*)/) {		# Pack mode
+X			$pack = $1 if $1 ne '';
+X			$pack = "" if ($pack =~ /[=$^&*([{}`\\|;><?]/);
+X		}
+X		s/^[ \t]@SH/@SH/;	# allow one blank only
+X		if (/^@SH/) {
+X			s/\\!/!/g;		# if uucp address, un-escape `!'
+X			if (/[=\$^&*([{}`\\|;><?]/) {
+X				s/^@SH/bad command:/;	# space after ":" will be added
+X				$bad .= $_ . "\n";
+X				next line;
+X			}
+X			# Some useful substitutions
+X			s/@SH[ \t]*//;				# Allow leading blanks
+X			s/ PATH/ $dest/; 			# PATH is a macro
+X			s/^mial(\w*)/mail\1/;		# Common mis-spellings
+X			s/^mailpath/mailpatch/;
+X			s/^mailist/maillist/;
+X			# Now fetch command's name (first symbol)
+X			if (/^([^ \t]+)[ \t]/) {
+X				$first = $1;
+X			} else {
+X				$first = $_;
+X			}
+X			if (!$command{$first}) {	# if un-authorized cmd
+X				s/^/unknown cmd: /;		# needs a space after ":"
+X				$bad .= $_ . "\n";
+X				next line;
+X			}
+X			$packmode{$_} = $pack;		# packing mode for this command
+X			push(@cmd, $_);				# record command
+X		}
+X	}
+X
+X	# ************* Check with authoritative file ****************
+X
+X	# Do not continue if an error occurred, in which case the mail will remain
+X	# in the queue and will be processed later on.
+X	return $error if $error || $dest eq '';
+X
+X	# Now we are sure the mail we proceed is for us
+X	$sender = "<someone>" if $sender eq '';
+X	$ncmd = $#cmd + 1;
+X	if ($ncmd > 1) {
+X		&add_log("$ncmd commands for $sender") if $loglvl > 11;
+X	} elsif ($ncmd == 1) {
+X		&add_log("1 command for $sender") if $loglvl > 11;
+X	} else {
+X		&add_log("no command for $sender") if $loglvl > 11;
+X	}
+X	foreach $fullcmd (@cmd) {
+X		$cmdfile = "/tmp/mess.cmd$$";
+X		open(CMD,">$cmdfile");
+X		# For our children
+X		print CMD "jobnum=$jobnum export jobnum\n";
+X		print CMD "fullcmd=\"$fullcmd\" export fullcmd\n";
+X		print CMD "pack=\"$packmode{$fullcmd}\" export pack\n";
+X		print CMD "path=\"$dest\" export path\n";
+X		print CMD "sender=\"$sender\" export sender\n";
+X		print CMD "set -x\n";
+X		print CMD "$fullcmd\n";
+X		close CMD;
+X		$fullcmd =~ /^[ \t]*(\w+)/;		# extract first word
+X		$cmdname = $1;		# this is the command name
+X		$trace = "$cf'tmpdir/trace.cmd$$";
+X		$pid = fork;						# We fork here
+X		$pid = -1 unless defined $pid;
+X		if ($pid == 0) {
+X			open(STDOUT, ">$trace");		# Where output goes
+X			open(STDERR, ">&STDOUT");		# Make it follow pipe
+X			exec '/bin/sh', "$cmdfile";		# Don't use sh -c
+X		} elsif ($pid == -1) {
+X			# Set the error report code, and the mail will remain in queue
+X			# for later processing. Any @RR in the message will be re-executed
+X			# but it is not really important. In fact, this is going to be
+X			# a feature, not a bug--RAM.
+X			$error = 1;
+X			&add_log("ERROR cannot fork: $!") if $loglvl > 0;
+X			open(MAILER,"|$cf'sendmail $cf'mailopt $dest $cf'user");
+X			print MAILER <<EOM;
+XTo: $dest
+XSubject: $cmdname not executed
+X$MAILER
+X
+XYour command was: $fullcmd
+X
+XIt was not executed because I could not fork. Sigh !
+X(Kernel report: $!)
+X
+XThe command has been left in a queue and will be processed again
+Xas soon as possible, so it is useless to resend it.
+X
+X-- mailagent speaking for $cf'user
+XEOM
+X			close MAILER;
+X			if ($?) {
+X				&add_log("ERROR cannot report failure") if $loglvl;
+X			}
+X			return $error;		# Abort processing now--mail remains in queue
+X		} else {
+X			wait();
+X			if ($?) {
+X				open(MAILER,"|$cf'sendmail $cf'mailopt $dest $cf'user");
+X				print MAILER <<EOM;
+XTo: $dest
+XSubject: $cmdname returned a non-zero status
+X$MAILER
+X
+XYour command was: $fullcmd
+XIt produced the following output and failed:
+X
+XEOM
+X				if (open(TRACE, "$trace")) {
+X					while (<TRACE>) {
+X						print MAILER;
+X					}
+X					close TRACE;
+X				} else {
+X					print MAILER "** SORRY - NOT AVAILABLE **\n";
+X					&add_log("ERROR cannot dump trace") if $loglvl;
+X				}
+X				print MAILER "\n-- mailagent speaking for $cf'user\n";
+X				close MAILER;
+X				if ($?) {
+X					&add_log("ERROR cannot report failure") if $loglvl;
+X				}
+X				&add_log("FAILED $fullcmd") if $loglvl > 1;
+X			} else {
+X				&add_log("OK $fullcmd") if $loglvl > 5;
+X			}
+X		}
+X		unlink $cmdfile, $trace;
+X	}
+X
+X	if ($bad) {
+X		open(MAILER,"|$cf'sendmail $cf'mailopt $dest $cf'user");
+X		chop($bad);			# Remove trailing new-line
+X		print MAILER <<EOM;
+XTo: $dest
+XSubject: the following commands were not executed
+X$MAILER
+X
+X$bad
+X
+XIf $cf'name can figure out what you wanted, he may do it anyway.
+X
+X-- mailagent speaking for $cf'user
+XEOM
+X		close MAILER;
+X		if ($?) {
+X			&add_log("ERROR unable to mail back bad commands from $sender")
+X				if $loglvl;
+X		}
+X		&add_log("bad commands from $sender") if $loglvl > 5;
+X	}
+X
+X	&add_log("all done for $sender") if $loglvl > 11;
+X	$error;		# Return error report (0 for ok)
+X}
+X
+X# The "MACRO" command
+Xsub macro {
+X	$_[0] =~ s/^\s*-([rdp]+)//;		# Remove options
+X	local($opt) = $1;
+X	local($replace) = $opt =~ /r/;	# Replace existing macro
+X	local($delete) = $opt =~ /d/;	# Delete macro
+X	local($pop) = $opt =~ /p/;		# Pop macro
+X	$_[0] =~ s/^\s+//;				# Trim leading spaces
+X	local($args) = $_[0];			# name = (value, type)
+X	local($name);					# Macro's name
+X	if ($delete || $pop) {			# Macro is to be deleted or popped
+X		($name) = $args =~ /(\S+)/;	# Get first "word"
+X		&usrmac'pop($name) if $pop;	# Pop last value, delete if last
+X		&usrmac'delete($name) if $delete;
+X		return ($name, $pop ? 'popped' : 'deleted');	# Propagate action
+X	}
+X	# There are two formats for the macro command. The first format uses the
+X	# 'name = (val, type)' template and can be used to specify any kind of
+X	# macro (see usrmac.pl). The other form is name ..., where ... is any
+X	# kind of string --including spaces-- which will be used as a SCALAR
+X	# value. Of course, that string cannot take the '= (val, type)' format.
+X	local($val);					# Macro's value
+X	local($type) = 'SCALAR';		# Assume scalar type
+X	if ($args =~ /(\S+)\s*=\s*\(\s*(.*),\s*(\w+)\s*\)\s*/) {
+X		($name, $val, $type) = ($1, $2, $3);
+X	} else {
+X		($name, $val) = $args =~ /(\S+)\s+(.*)/;	# SCALAR type assumed
+X	}
+X	&usrmac'new($name, $val, $type) if $replace;
+X	&usrmac'push($name, $val, $type) unless $replace;
+X	($name, $replace ? 'replaced' : 'pushed');		# Propagate action
+X}
+X
+X# The "MESSAGE" command
+Xsub message {
+X	local($msg) = @_;			# Vacation message to be sent back
+X	local(@head) = (
+X		"To: %r (%N)",
+X		"Subject: Re: %R"
+X	);
+X	local($to) = '%r';				# Recipient is macro %r
+X	&macros_subst(*to);				# Evaluate it so we can give it to mailer
+X	&send_message($msg, *head, $to);
+X}
+X
+X# The "NOTIFY" command
+Xsub notify {
+X	local($msg, $address) = @_;
+X	# Any address included withing "" means addresses are stored in a file
+X	$address = &complete_list($address, 'address');
+X	$address =~ s/%/%%/g;	# Protect all '%' (subject to macro substitution)
+X	local($to) = $address;	# For the To: line...
+X	$to =~ s/\s+/, /g;		# Addresses separated by ',' on the To: line
+X	local(@head) = (
+X		"To: $to",
+X		"Subject: %s (notification)"
+X	);
+X	&send_message($msg, *head, $address);
+X}
+X
+X# Send a given message to somebody, as specified in the given header
+X# The message and the header are subject to macro substitution.
+X# Usually, when using sendmail, the -t option could be used to parse header
+X# and obtain the recipients. However, the mailer being configurable, we cannot
+X# assume it will understand -t. Therefore, the recipients must be specified.
+Xsub send_message {
+X	local($msg, *header, $recipients) = @_;	# Message to send, header, where
+X	unless (-f "$msg") {
+X		&add_log("ERROR cannot find message $msg") if $loglvl > 0;
+X		return 1;
+X	}
+X	unless (open(MSG, "$msg")) {
+X		&add_log("ERROR cannot open message $msg") if $loglvl > 0;
+X		return 1;
+X	}
+X	unless (open(MAILER,"|$cf'sendmail $cf'mailopt $recipients")) {
+X		&add_log("ERROR cannot run $cf'sendmail to send message: $!")
+X			if $loglvl;
+X		return 1;
+X	}
+X
+X	# Construction of value for the %T macro
+X	local($macro_T);			# Default value of macro %T is overwritten
+X	local($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime, $mtime,
+X		$ctime,$blksize,$blocks) = stat($msg);
+X	local($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+X			localtime($mtime);
+X	local($this_year) = (localtime(time))[5];
+X	# Do not put the year in %T if it is the same as the current one.
+X	++$mon;						# Month in the range 1-12
+X	if ($this_year != $year) {
+X		$macro_T = sprintf("%.2d/%.2d/%.2d", $year, $mon, $mday);
+X	} else {
+X		$macro_T = sprintf("%.2d/%.2d", $mon, $mday);
+X	}
+X
+X	# Header construction. If the file contains a header at the top, it is
+X	# added to the one we already have by default. Identical fields are
+X	# overwritten with the one found in the file.
+X	if (&header_found($msg)) {	# Top of message is a header
+X		local(@newhead);		# New header is constructed here
+X		local($field);
+X		while (<MSG>) {			# Read the header then
+X			last if /^$/;		# End of header
+X			chop;
+X			push(@newhead, $_);
+X			if (/^([\w\-]+):/) {
+X				$field = $1;
+X				@head = grep(!/^$field:/, @head);	# Field is overwritten
+X			}
+X		}
+X		foreach (@newhead) {
+X			push(@head, $_);
+X		}
+X	}
+X	push(@head, $FILTER);		# Avoid loops: replying to ourselves or whatever
+X	foreach $line (@head) {
+X		&macros_subst(*line);	# In-place macro substitutions
+X		print MAILER "$line\n";	# Write header
+X	}
+X	print MAILER "\n";			# Header separated from body
+X	# Now write the body
+X	local($tmp);				# Because of a bug in perl 4.0 PL19
+X	while ($tmp = <MSG>) {
+X		next if $tmp =~ /^$/ && $. == 1;	# Escape sequence to protect header
+X		&macros_subst(*tmp);		# In-place macro substitutions
+X		print MAILER $tmp;			# Write message line
+X	}
+X
+X	# Close pipe and check status
+X	close MSG;
+X	close MAILER;
+X	local($status) = $?;
+X	unless ($status) {
+X		if ($loglvl > 2) {
+X			local($dest) = $head[0];	# The To: header line
+X			($dest) = $dest =~ m|^To:\s+(.*)|;
+X			&add_log("SENT message to $dest");
+X		}
+X	} else {
+X		&add_log("ERROR could not mail back $msg") if $loglvl > 1;
+X	}
+X	$status;		# 0 for success
+X}
+X
+X# The "FORWARD" command
+Xsub forward {
+X	local($addresses) = @_;			# Address(es) mail should be forwarded to
+X	local($address) = &email_addr;	# Address of user
+X	# Any address included withing "" is in fact a file name where actual
+X	# forwarding addresses are found.
+X	$addresses =
+X		&complete_list($addresses, 'address');	# Process "include-requests"
+X	unless (open(MAILER,"|$cf'sendmail $cf'mailopt $addresses")) {
+X		&add_log("ERROR cannot run $cf'sendmail to forward message: $!")
+X			if $loglvl;
+X		return 1;
+X	}
+X	local(@addr) = split(' ', $addresses);
+X	print MAILER &header'format("Resent-From: $address"), "\n";
+X	local($to) = "Resent-To: " . join(', ', @addr);
+X	print MAILER &header'format($to), "\n";
+X	# Protect Sender: and Resent-: lines in the original message
+X	foreach (split(/\n/, $Header{'Head'})) {
+X		next if /^From\s+(\S+)/;
+X		s/^Sender:\s*(.*)/Prev-Sender: $1/;
+X		s/^Resent-([\w\-]+):\s*(.*)/Prev-Resent-$1: $2/;
+X		print MAILER $_, "\n";
+X	}
+X	print MAILER $FILTER, "\n";
+X	print MAILER "\n";
+X	print MAILER $Header{'Body'};
+X	close MAILER;
+X	local($failed) = $?;		# Status of forwarding
+X	if ($failed) {
+X		&add_log("ERROR could not forward to $addresses") if $loglvl > 1;
+X	}
+X	$failed;		# 0 for success
+X}
+X
+X# The "BOUNCE" command
+Xsub bounce {
+X	local($addresses) = @_;			# Address(es) mail should be bounced to
+X	# Any address included withing "" is in fact a file name where actual
+X	# bouncing addresses are found.
+X	$addresses =
+X		&complete_list($addresses, 'address');	# Process "include-requests"
+X	unless (open(MAILER,"|$cf'sendmail $cf'mailopt $addresses")) {
+X		&add_log("ERROR cannot run $cf'sendmail to bounce message: $!")
+X			if $loglvl;
+X		return 1;
+X	}
+X	# Protect Sender: lines in the original message
+X	foreach (split(/\n/, $Header{'Head'})) {
+X		next if /^From\s+(\S+)/;
+X		s/^Sender:\s*(.*)/Prev-Sender: $1/;
+X		print MAILER $_, "\n";
+X	}
+X	print MAILER $FILTER, "\n";
+X	print MAILER "\n";
+X	print MAILER $Header{'Body'};
+X	close MAILER;
+X	local($failed) = $?;		# Status of forwarding
+X	if ($failed) {
+X		&add_log("ERROR could not bounce to $addresses") if $loglvl > 1;
+X	}
+X	$failed;		# 0 for success
+X}
+X
+X# The "POST" command
+Xsub post {
+X	# Option parsing: a -l restricts distribution to local
+X	local($localdist) = 0;
+X	$localdist = 1 if ($_[0] =~ s/^\s*-l\s+//);
+X	local($newsgroups) = @_;		# Newsgroup(s) mail should be posted to
+X	local($address) = &email_addr;	# Address of user
+X	unless (open(NEWS,"|$cf'sendnews $cf'newsopt -h")) {
+X		&add_log("ERROR cannot run $cf'sendnews to post message: $!")
+X			if $loglvl;
+X		return 1;
+X	}
+X	&add_log("distribution of posting is local")
+X		if $loglvl > 18 && $localdist;
+X	# Protect Sender: lines in the original message and clean-up header
+X	local($last_was_header);		# Set to true when header is skipped
+X	foreach (split(/\n/, $Header{'Head'})) {
+X		s/^Sender:\s*(.*)/Prev-Sender: $1/;
+X		next if /^From\s/;					# First From line...
+X		if (
+X			/^To:/ ||
+X			/^Cc:/ ||
+X			/^Apparently-To:/ ||
+X			/^Distribution:/ ||				# No mix-up, please
+X			/^X-Mailer:/ ||					# Mailer identification
+X			/^Newsgroups:/ ||				# Reply from news reader
+X			/^Return-Receipt-To:/ ||		# Sendmail's acknowledgment
+X			/^Received:/ ||					# We want to remove received
+X			/^Errors-To:/ ||				# Error report redirection
+X			/^Resent-[\w-]*:/				# Resent tags
+X		) {
+X			$last_was_header = 1;			# Mark we discarded the line
+X			next;							# Line is skipped
+X		}
+X		next if /^\s/ && $last_was_header;	# Skip removed header continuations
+X		$last_was_header = 0;				# We decided to keep header line
+X		print NEWS $_, "\n";
+X	}
+X	# If no subject is present, fake one to make inews happy
+X	unless (defined($Header{'Subject'}) && $Header{'Subject'} ne '') {
+X		&add_log("WARNING no subject, faking one") if $loglvl > 5;
+X		print NEWS "Subject: <none>\n";
+X	}
+X	# Any address included withing "" means addresses are stored in a file
+X	$newsgroups = &complete_list($newsgroups, 'newsgroup');
+X	$newsgroups =~ s/\s/,/g;	# Cannot have spaces between them
+X	$newsgroups =~ tr/,/,/s;	# Squash down consecutive ','
+X	print NEWS "Newsgroups: $newsgroups\n";
+X	print NEWS "Distribution: local\n" if $localdist;
+X	print NEWS $FILTER, "\n";	# Avoid loops: inews may forward to sendmail
+X	print NEWS "\n";
+X	print NEWS $Header{'Body'};
+X	close NEWS;
+X	local($failed) = $?;		# Status of forwarding
+X	if ($failed) {
+X		&add_log("ERROR could not post to $newsgroups") if $loglvl > 1;
+X	}
+X	$failed;		# 0 for success
+X}
+X
+X# The "APPLY" command
+Xsub apply {
+X	local($rulefile) = @_;
+X	# Prepare new environment for apply_rules
+X	local($ever_saved) = 0;
+X	local($ever_matched) = 0;
+X	# Now call apply_rules, with no statistics recorded, propagating the
+X	# current mode we are in and using an alternate rule fule.
+X	local($saved, $matched) =
+X		&rules'alternate($rulefile, 'apply_rules', $wmode, 0);
+X	if (!defined($saved)) {
+X		&add_log("ERROR could not apply rule file $rulefile") if $loglvl > 1;
+X		return (1, 0);	# Notify failure
+X	}
+X	# Since APPLY will fail when no save, warn the user
+X	if (!$matched) {
+X		&add_log("NOTICE no match in $rulefile") if $loglvl > 6;
+X	} else {
+X		&add_log("NOTICE no save in $rulefile") if !$saved && $loglvl > 6;
+X	}
+X	(0, $saved);		# Mail was correctly filtered, but was it saved?
+X}
+X
+X# The "SPLIT" command
+X# This routine is RFC-934 compliant and will correctly burst digests produced
+X# with this RFC in mind. For instance, MH produces RFC-934 style digest.
+X# However, in order to reliably split non RFC-934 digest, some extra work is
+X# performed to ensure a meaningful output.
+Xsub split {
+X	# Option parsing: a -i splits "inplace", i.e. acts as a saving if the split
+X	# is fully successful. A -d discards the leading part. A -q queues messsages
+X	# instead of filling them into a folder.
+X	$_[0] =~ s/^\s*-([adeiw]+)//;	# Remove options
+X	local($opt) = $1;
+X	local($inplace) = $opt =~ /i/;	# Inplace (original marked saved)
+X	local($discard) = $opt =~ /d/;	# Discard digest leading part
+X	local($empty) = $opt =~ /e/;	# Discard leading digest only if empty
+X	local($watch) = $opt =~ /w/;	# Watch digest closely
+X	local($annotate) = $opt =~ /a/;	# Annotate items with X-Digest-To: field
+X	$_[0] =~ s/^\s+//;				# Trim leading spaces
+X	local($folder) = $_[0];		# Folder to save messages
+X	local(@leading);			# Leading part of the digest
+X	local(@header);				# Looked ahead header
+X	local($found_header) = 0;	# True when header digest was found
+X	local($look_header) = 0;	# True when we are looking for a mail header
+X	local($found_end) = 0;		# True when end of digest found
+X	local($valid);				# Return value from header checking package
+X	local($failed) = 0;			# Queuing status for each mail item
+X	local(@body);				# Body of extracted mail
+X	local($item) = 0;			# Count digest items found
+X	local($not_rfc934) = 0;		# Is digest RFC-934 compliant?
+X	local($digest_to);			# Value of the X-Digest-To: field
+X	local($_);
+X	# If item annotation is requested, then each item will have a X-Digest-To:
+X	# field added, which lists both the To: and Cc: fields of the original
+X	# digest message.
+X	if ($annotate) {			# Annotation requested
+X		$digest_to = $Header{'Cc'};
+X		$digest_to = ', ' . $digest_to if $digest_to;
+X		$digest_to = 'X-Digest-To: ' . $Header{'To'} . $digest_to;
+X		$digest_to = &header'format($digest_to);
+X	}
+X	# Start digest parsing. According to RFC-934, we could only look for a
+X	# single '-' as encapsulation boundary, but for safety we look for at least
+X	# three consecutive ones.
+X	foreach (split(/\n/, $Header{'All'})) {
+X		push(@leading, $_) unless $found_header;
+X		push(@body, $_) if $found_header;
+X		if (/^---/) {			# Start looking for mail header
+X			$look_header = 1;	# Focus on mail headers now
+X			# We are withing the body of a digest and we've just reached
+X			# what may be the end of a message, or the end of the leading part.
+X			@header = ();		# Reset look ahead buffer
+X			&header'reset;		# Reset header checking package
+X			next;
+X		}
+X		next unless $look_header;
+X		# Record lines we find, but skip possible blank lines after dash.
+X		# Note that RFC-934 does not make spaces compulsory after each
+X		# encapsulation boundary (EB) but they are allowed nonetheless.
+X		next if /^\s*$/ && 0 == @header;
+X		$found_end = 0;			# Maybe it's not garbage after all...
+X		$valid = &header'valid($_);
+X		if ($valid == 0) {		# Not a valid header
+X			$look_header = 0;	# False alert
+X			$found_end = 1;		# Garbage after last EB is to be ignored
+X			if ($watch) {
+X				# Strict RFC-934: if an EB is followed by something which does
+X				# not prove to be a valid header but looked like one, enough
+X				# to have some lines collected into @header, then signal it.
+X				++$not_rfc934 unless 0 == @header;
+X			} else {
+X				# Don't be too scrict. If what we have found so far *may be* a
+X				# header, then yes, it's not RFC-934. Otherwise let it go.
+X				++$not_rfc934 if $header'maybe;
+X			}
+X			next;
+X		} elsif ($valid == 1) {	# Still in header
+X			push(@header, $_);	# Record header lines
+X			next;
+X		}
+X		# Coming here means we reached the end of a valid header
+X		push(@header, $digest_to) if $annotate;
+X		push(@header, '');		# Blank header line
+X		if (!$found_header) {
+X			if ($empty) {
+X				$failed |= &save_mail(*leading, $folder)
+X					unless &empty_body(*leading) || $discard;
+X			} else {
+X				$failed |= &save_mail(*leading, $folder) unless $discard;
+X			}
+X			undef @leading;		# Not needed any longer
+X			$item++;			# So that 'save_mail' starts logging items
+X		}
+X		# If there was already a mail being collected, save it now, because
+X		# we are sure it is followed by a valid mail.
+X		$failed |= &save_mail(*body, $folder) if $found_header;
+X		$found_header = 1;		# End of header -> this is truly a digest
+X		$look_header = 0;		# We found our header
+X		&header'clean(*header);	# Ensure minimal set of header
+X		@body = @header;		# Copy headers in mail body for next message
+X	}
+X
+X	return -1 unless $found_header;	# Message was not in digest format
+X
+X	# Save last message, making sure to add a final dash line if digest did
+X	# not have one: There was one if $look_header is true. There was also
+X	# one if $found_end is true.
+X	push(@body, '---') unless $look_header || $found_end;
+X
+X	# If the -w option was used, we look closely at the supposed trailing
+X	# garbage. If the length is greater than 100 characters, then maybe we
+X	# are missing something here...
+X	if ($watch) {
+X		local($idx) = $#body;
+X		$_ = $body[$idx];			# Get last line
+X		@header = ();				# Reset "garbage collector"
+X		unless (/^---/) {			# Do not go on if end of digest truly found
+X			for (; $idx >= 0; $idx--) {
+X				$_ = $body[$idx];
+X				last if /^---/;		# Reached end of presumed trailing garbage
+X				unshift(@header, $_);
+X			}
+X		}
+X	}
+X
+X	# Now save last message
+X	$failed |= &save_mail(*body, $folder);
+X
+X	# If we collected something into @header and if it is big enough, save it
+X	# as a trailing message.
+X	if ($watch && length(join('', @header)) > 100) {
+X		&add_log("NOTICE [$mfile] has trailing garbage...") if $loglvl > 6;
+X		@body = @header;			# Copy saved garbage
+X		@header = ();				# Now build final garbage headers
+X		$header[0] = 'Subject: ' . $Header{'Subject'} . ' (trailing garbage)';
+X		$header[1] = $digest_to if $annotate;
+X		&header'clean(*header);		# Build other headers
+X		unshift(@body, '') unless $body[0] =~ s/^\s*$//;	# Ensure EOH
+X		foreach (@body) {
+X			push(@header, $_);
+X		}
+X		push(@header, '---');
+X		$failed |= &save_mail(*header, $folder);
+X	}
+X
+X	$failed + 0x2 * $inplace + 0x4 * ($folder =~ /^\s*$/)
+X		+ 0x8 * ($not_rfc934 > 0);
+X}
+X
+X# The "RUN" command and its friends
+X# Start a shell command and mail any output back to the user. The program is
+X# invoked from within the home directory.
+Xsub shell_command {
+X	local($program, $input, $feedback) = @_;
+X	unless (chdir $cf'home) {
+X		&add_log("WARNING cannot chdir to $cf'home: $!") if $loglvl > 5;
+X	}
+X	$program =~ s/^\s*~/$cf'home/;	# ~ substitution
+X	$program =~ s/\b~/$cf'home/g;	# ~ substitution as first letter in word
+X	$SIG{'PIPE'} = 'popen_failed';	# Protect against naughty program
+X	$SIG{'ALRM'} = 'alarm_clock';	# Protect against loops
+X	alarm 3600;						# At most one hour of processing
+X	eval '&execute_command($program, $input, $feedback)';
+X	alarm 0;						# Disable alarm timeout
+X	$SIG{'PIPE'} = 'emergency';		# Restore initial value
+X	$SIG{'ALRM'} = 'DEFAULT';		# Restore default behaviour
+X	if ($@ =~ /^failed/) {			# Something went wrong?
+X		&add_log("ERROR couldn't run '$program'") if $loglvl > 0;
+X		return 1;					# Failed
+X	} elsif ($@ =~ /^aborted/) {	# Writing to program failed
+X		&add_log("WARNING pipe closed by '$program'") if $loglvl > 5;
+X		return 1;					# Failed
+X	} elsif ($@ =~ /^feedback/) {	# Feedback failed
+X		&add_log("WARNING no feedback occurred") if $loglvl > 5;
+X		return 1;					# Failed
+X	} elsif ($@ =~ /^alarm/) {		# Timeout
+X		&add_log("WARNING time out received") if $loglvl > 5;
+X		return 1;					# Failed
+X	} elsif ($@ =~ /^non-zero/) {	# Program returned non-zero status
+X		&add_log("WARNING program returned non-zero status") if $loglvl > 5;
+X		return 1;
+X	} elsif ($@) {
+X		&add_log("ERROR $@") if $loglvl > 0;
+X		return 1;					# Failed
+X	}
+X	0;			# Everything went fine
+X}
+X
+X# Abort execution of command when popen() fails or program dies abruptly
+Xsub popen_failed {
+X	unlink "$trace" if -f "$trace";
+X	die "$error\n";
+X}
+X
+X# When an alarm call is received, we should be in the 'execute_command'
+X# routine. The $pid variable holds the pid number of the process to be killed.
+Xsub alarm_clock {
+X	if ($trace ne '' && -f "$trace") {		# We come from execute_command
+X		local($status) = "terminated";		# Process was terminated
+X		if (kill "SIGTERM", $pid) {			# We could signal our child
+X			sleep 30;						# Give child time to die
+X			unless (kill "SIGTERM", $pid) {	# Child did not die yet ?
+X				unless (kill "SIGKILL", $pid) {
+X					&add_log("ERROR could not kill process $pid: $!")
+X						if $loglvl > 1;
+X				} else {
+X					$status = "killed";
+X					&add_log("KILLED process $pid") if $loglvl > 4;
+X				}
+X			} else {
+X				&add_log("TERMINATED process $pid") if $loglvl > 4;
+X			}
+X		} else {
+X			$status = "unknwon";			# Process died ?
+X			&add_log("ERROR coud not signal process $pid: $!")
+X				if $loglvl > 1;
+X		}
+X		&mail_back;					# Mail back any output we have so far
+X		unlink "$trace";			# Remove output of command
+X	}
+X	die "alarm call\n";				# Longjmp to shell_command
+X}
+X
+X# Execute the command, ran in an eval to protect against SIGPIPE signals
+Xsub execute_command {
+X	local($program, $input, $feedback) = @_;
+X	local($trace) = "$cf'tmpdir/trace.run$$";	# Where output goes
+X	local($error) = "failed";				# Error reported by popen_failed
+X	pipe(READ, WRITE);						# Open a pipe
+X	local($ppid) = $$;						# Pid of parent process
+X	local($pid) = fork;						# We fork here
+X	$pid = -1 unless defined $pid;
+X	if ($pid == 0) {						# Child process
+X		alarm 0;
+X		close WRITE;						# The child reads from pipe
+X		open(STDIN, "<&READ");				# Redirect stdin to pipe
+X		close READ if $input == $NO_INPUT;	# Close stdin if needed
+X		unless (open(STDOUT, ">$trace")) {	# Where output goes
+X			&add_log("WARNING couldn't create $trace") if $loglvl > 5;
+X			if ($feedback == $FEEDBACK) {	# Need trace if feedback
+X				kill 'SIGPIPE', $ppid;		# Parent still waiting
+X				exit 1;
+X			}
+X		}
+X		open(STDERR, ">&STDOUT");			# Make it follow pipe
+X		exec "$program";					# Run the program now
+X		&add_log("ERROR couldn't exec '$program': $!") if $loglvl > 1;
+X		kill 'SIGPIPE', $ppid;				# Parent still waiting
+X		exit 1;
+X	} elsif ($pid == -1) {
+X		&add_log("ERROR couldn't fork: $!") if $loglvl;
+X		return;
+X	}
+X	close READ;								# The parent writes to its child
+X	# In case 'sleep' is inplemented using an alarm call, take precautions...
+X	local($remaining) = alarm 0;			# Stop alarm, save remaining time
+X	sleep 2;								# Let the child initialize
+X	alarm $remaining;						# Restore alarm clock
+X	$error = "aborted";						# Error reported by popen_failed
+X	select(WRITE);
+X	$| = 1;									# Hot pipe wanted
+X	select(STDOUT);
+X	# Now feed the program with the mail
+X	if ($input == $BODY_INPUT) {			# Pipes body
+X		print WRITE $Header{'Body'};
+X	} elsif ($input == $MAIL_INPUT) {		# Pipes the whole mail
+X		print WRITE $Header{'All'};
+X	} elsif ($input == $HEADER_INPUT) {		# Pipes the header
+X		print WRITE $Header{'Head'};
+X	}
+X	close WRITE;							# Close input, before waiting!
+X	wait();									# Wait for our child
+X	local($status) = $? ? "failed" : "ok";
+X	if ($?) {
+X		# Log execution failure and return to shell_command via die if some
+X		# feedback was to be done.
+X		&add_log("ERROR execution failed for '$program'") if $loglvl > 1;
+X		if ($feedback == $FEEDBACK) {		# We wanted feedback
+X			&mail_back;						# Mail back any output
+X			unlink "$trace";				# Remove output of command
+X			die "feedback\n";				# Longjmp to shell_command
+X		}
+X	}
+X	&handle_output;			# Take appropriate action with command output
+X	unlink "$trace";		# Remove output of command
+X	die "non-zero status\n" unless $status eq 'ok';
+X}
+X
+X# If no feedback is wanted, simply mail the output of the commands to the
+X# user. However, in case of feedback, we have to update the values of
+X# %Header in the entries 'All', 'Body' and 'Head'. Note that the other
+X# header fields are left untouched. Only a RESYNC can synchronize them
+X# (this makes sense only for a FEED command, of course).
+X# Uses $feedback from execute_command
+Xsub handle_output {
+X	if ($feedback == $NO_FEEDBACK) {
+X		&mail_back;						# Mail back any output
+X	} elsif ($feedback == $FEEDBACK) {
+X		&feed_back;						# Feed result back into %Header
+X	}
+X}
+X
+X# Mail back the contents of the trace file (output of program), if not empty.
+X# Uses some local variables from execute_command
+Xsub mail_back {
+X	local($size) = -s "$trace";				# Size of output
+X	return unless $size;					# Nothing to be done if no output
+X	local($std_input);						# Standard input used
+X	$std_input = "none" if $input == $NO_INPUT;
+X	$std_input = "mail body" if $input == $BODY_INPUT;
+X	$std_input = "whole mail" if $input == $MAIL_INPUT;
+X	$std_input = "header" if $input == $HEADER_INPUT;
+X	local($program_name) = $program =~ m|^(\S+)|;
+X	open(MAILER,"|$cf'sendmail $cf'mailopt $cf'user");
+X	print MAILER <<EOM;
+XTo: $cf'user
+XSubject: Output of your '$program_name' command ($status)
+X$MAILER
+X
+XYour command was: $program
+XInput: $std_input
+XStatus: $status
+X
+XIt produced the following output:
+X
+XEOM
+X	unless (open(TRACE, "$trace")) {
+X		&add_log("ERROR couldn't reopen $trace") if $loglvl > 1;
+X		print MAILER "*** SORRY -- NOT AVAILABLE ***\n";
+X	} else {
+X		while (<TRACE>) {
+X			print MAILER;
+X		}
+X		close TRACE;
+X	}
+X	close MAILER;
+X	unless ($?) {
+X		&add_log("SENT output of '$program_name' to $cf'user ($size bytes)")
+X			if $loglvl > 2;
+X	} else {
+X		&add_log("ERROR couldn't send $size bytes to $cf'user") if $loglvl;
+X	}
+X}
+X
+X# Feed back output of a command in the %Header data structure.
+X# Uses some local variables from execute_command
+Xsub feed_back {
+X	unless (open(TRACE, "$trace")) {
+X		&add_log("ERROR couldn't feed back from $trace: $!") if $loglvl > 1;
+X		unlink "$trace";				# Maybe I should leave it around
+X		die "feedback\n";				# Return to shell_command
+X	}
+X	local($temp) = ' ' x 2000;			# Temporary storage (pre-extended)
+X	$temp = '';
+X	if ($input == $BODY_INPUT) {		# We have to feed back the body only
+X		while (<TRACE>) {
+X			s/^From\s/>From$1/;			# Protect potentially dangerous lines
+X			$temp .= $_;
+X		}
+X	} else {
+X		local($head) = ' ' x 500;		# Pre-extend header
+X		$head = '';
+X		while (<TRACE>) {
+X			if (1../^$/) {
+X				$head .= $_ unless /^$/;
+X			} else {
+X				s/^From\s/>From$1/;		# Protect potentially dangerous lines
+X				$temp .= $_;
+X			}
+X		}
+X		$Header{'Head'} = $head;
+X	}
+X	close TRACE;
+X	$Header{'Body'} = $temp unless $input == $HEADER_INPUT;
+X	$Header{'All'} = $Header{'Head'} . "\n" . $Header{'Body'};
+X}
+X
+X# Feed output back into $Back variable (used by BACK command). Typically, the
+X# BACK command is used with RUN, though any other command is allowed (but does
+X# not always make sense).
+X# NB: This routine:
+X#  - Is never called explicitely but via a type glob through *handle_output
+X#  - Uses some local variables from execute_command
+Xsub xeq_back {
+X	unless (open(TRACE, "$trace")) {
+X		&add_log("ERROR couldn't feed back from $trace: $!") if $loglvl > 1;
+X		unlink "$trace";				# Maybe I should leave it around
+X		die "feedback\n";				# Return to shell_command
+X	}
+X	while (<TRACE>) {
+X		chop;
+X		next if /^\s*$/;
+X		$Back .= $_ . '; ';				# Replace \n by ';' separator
+X	}
+X	close TRACE;
+X}
+X
+X# The "RESYNC" command
+X# Resynchronizes the %Header entries by reparsing the 'All' entry
+Xsub header_resync {
+X	# Clean up all the non-special entries
+X	foreach $key (keys %Header) {
+X		next if $Pseudokey{$key};		# Skip pseudo-header entries
+X		delete $Header{$key};
+X	}
+X	# There is some code duplication with parse_mail()
+X	local($lines) = 0;
+X	local($first_from);						# First From line records sender
+X	local($last_header);					# Current normalized header field
+X	local($in_header) = 1;					# Bug in the range operator
+X	local($value);							# Value of current field
+X	foreach (split(/\n/, $Header{'All'})) {
+X		if ($in_header) {					# Still in header of message
+X			$in_header = 0 if /^$/;			# End of header
+X			if (/^\s/) {					# It is a continuation line
+X				s/^\s+/ /;					# Swallow multiple spaces
+X				$Header{$last_header} .= "\n$_" if $last_header ne '';
+X			} elsif (/^([\w-]+):\s*(.*)/) {	# We found a new header
+X				$value = $2;				# Bug in perl 4.0 PL19
+X				$last_header = &header'normalize($1);
+X				# Multiple headers like 'Received' are separated by a new-
+X				# line character. All headers end on a non new-line.
+X				if ($Header{$last_header} ne '') {
+X					$Header{$last_header} .= "\n$value";
+X				} else {
+X					$Header{$last_header} .= $value;
+X				}
+X			} elsif (/^From\s+(\S+)/) {		# The very first From line
+X				$first_from = $1;
+X			}
+X		} else {
+X			$lines++;						# One more line in body
+X		}
+X	}
+X	&header_check($first_from, $lines);	# Sanity checks
+X}
+X
+X# The "STRIP" and "KEEP" commands (case insensitive)
+X# Removes or keeps some headers and update the Header structure
+Xsub alter_header {
+X	local($headers, $action) = @_;
+X	$headers =
+X		&complete_list($headers, 'header');	# Process "file-inclusion"
+X	local(@list) = split(/\s/, $headers);
+X	local(@head) = split(/\n/, $Header{'Head'});
+X	local(@newhead);				# The constructed header
+X	local($last_was_altered) = 0;	# Set to true when header is altered
+X	local($matched);				# Did any header matched ?
+X	local($line);					# Original header line
+X
+X	foreach $h (@list) {			# Prepare patterns
+X		$h =~ s/:$//;				# Remove trailing ':' if any
+X		$h = &perl_pattern($h);		# Headers specified by shell patterns
+X	}
+X
+X	foreach (@head) {
+X		if (/^From\s/) {			# First From line...
+X			push(@newhead, $_);		# Keep it anyway
+X			next;
+X		}
+X		$line = $_;					# Save original
+X		# Make sure header field name is normalized before attempting a match
+X		s/^([\w-]+):/&header'normalize($1).':'/e;
+X		unless (/^\s/) {			# If not a continuation line
+X			$last_was_altered = 0;	# Reset header alteration flag
+X			$matched = 0;			# Assume no match
+X			foreach $h (@list) {	# Loop over to-be-altered lines
+X				if (/^$h:/i) {		# We found a line to be removed/kept
+X					$matched = 1;
+X					last;
+X				}
+X			}
+X			$last_was_altered = $matched;
+X			next if $matched && $action == $HD_SKIP;
+X			next if !$matched && $action == $HD_KEEP;
+X		}
+X		if ($action == $HD_SKIP) {
+X			next if /^\s/ && $last_was_altered;		# Skip header continuations
+X		} else {									# Action is $HD_KEEP
+X			next if /^\s/ && !$last_was_altered;	# Header was not kept
+X		}
+X		push(@newhead, $line);		# Add line to the new header
+X	}
+X	$Header{'Head'} = join("\n", @newhead) . "\n";
+X	$Header{'All'} = $Header{'Head'} . "\n" . $Header{'Body'};
+X}
+X
+X# The "ANNOTATE" command
+Xsub annotate_header {
+X	local($field, $value, $date) = @_;	# Field, value and date flag.
+X	if ($value eq '' && $date ne '') {	# No date and no value for field!
+X		&add_log("WARNING no value for '$field' annotation") if $loglvl > 5;
+X		return 1;
+X	}
+X	if ($field eq '') {				# No field specified!
+X		&add_log("WARNING no field specified for annotation") if $loglvl > 5;
+X		return 1;
+X	}
+X	local($annotation) = '';		# Annotation made
+X	$annotation = "$field: " . &header'fake_date . "\n" unless $date;
+X	$annotation .= &header'format("$field: $value") . "\n" if $value;
+X	$Header{'Head'} .= $annotation;
+X	$Header{'All'} = $Header{'Head'} . "\n" . $Header{'Body'};
+X	0;
+X}
+X
+X# The "TR" and "SUBST" commands
+Xsub alter_value {
+X	local($variable, $op) = @_;	# Variable and operation to performed
+X	local($lvalue);				# Perl variable to be modified
+X	local($extern);				# Lvalue used for persistent variables
+X
+X	# We may modify a variable or a backreference (not read-only as in perl)
+X	if ($variable =~ s/^#://) {
+X		$extern = &extern'val($variable);	# Fetch external value
+X		$lvalue = '$extern';				# Modify this variable
+X	} elsif ($variable =~ s/^#//) {
+X		$lvalue = '$Variable{\''.$variable.'\'}';
+X	} elsif ($variable =~ /^\d\d?$/) {
+X		$variable = int($variable) - 1;
+X		$lvalue = '$Backref[' . $variable . ']';
+X	} else {
+X		&add_log("ERROR incorrect variable name '$variable'") if $loglvl > 1;
+X		return 1;
+X	}
+X
+X	# Let perl do the work
+X	&add_log("running $lvalue =~ $op") if $loglvl > 19;
+X	eval $lvalue . " =~ $op";
+X	&add_log("ERROR operation $op failed: $@") if $@ && $loglvl > 1;
+X
+X	# If an external (persistent) variable was used, update its value now,
+X	# unless the operation failed, in which case the value is not modified.
+X	&extern'set($variable, $extern) if $@ eq '' && $lvalue eq '$extern';
+X
+X	$@ eq '' ? 0 : 1;			# Failure status
+X}
+X
+X# The "PERL" command
+Xsub perl {
+X	local($script) = @_;	# Location of perl script
+X	local($failed) = '';	# Assume script did not fail
+X	undef @_;				# No visible args for functions in script
+X
+X	unless (chdir $cf'home) {
+X		&add_log("WARNING cannot chdir to $cf'home: $!") if $loglvl > 5;
+X	}
+X
+X	# Set up the @ARGV array, by parsing the $script variable with &shellwords.
+X	# Note that the @ARGV array is held in the main package, but since the
+X	# mailagent makes no use of it at this point, there is no need to save its
+X	# value before clobbering it.
+X	require 'shellwords.pl';
+X	eval '@ARGV = &shellwords($script)';
+X	if (chop($@)) {				# There was an unmatched quote
+X		$@ =~ s/^U/u/;
+X		&add_log("ERROR $@") if $loglvl > 1;
+X		&add_log("ERROR cannot run PERL $script") if $loglvl > 2;
+X		return 1;
+X	}
+X
+X	unless (open(PERL, $ARGV[0])) {
+X		&add_log("ERROR cannot open perl script $ARGV[0]: $!") if $loglvl > 1;
+X		return 1;
+X	}
+X
+X	# Fetch the perl script in memory, within a block to really localize $/
+X	local($body) = ' ' x (-s PERL);
+X	{
+X		local($/) = undef;
+X		$body = <PERL>;		# Slurp whole file into pre-extended variable
+X	}
+X	close(PERL);
+X	local(@saved) = @INC;	# Save INC array (perl library location path)
+X	local(%saved) = %INC;	# Save already required files
+X
+X	# Run the perl script in special package
+X	unshift(@INC, $privlib);	# Files first searched for in mailagent's lib
+X	package mailhook;			# -- entering in mailhook --
+X	&interface'new;				# Signal new script being loaded
+X	&hook'initvar('mailhook');	# Initialize convenience variables
+X	eval $'body;				# Load, compile and execute within mailhook
+X	&interface'reset;			# Clear the mailhook package if no more pending
+X	package main;				# -- reverting to main --
+X	@INC = @saved;				# Restore INC array
+X	%INC = %saved;				# In case script has required some other files
+X
+X	# If the script died with an 'OK' error message, then it meant 'exit 0'
+X	# but also wanted the exit to be trapped. The &exit function is provided
+X	# for that purpose.
+X	if (chop($@)) {
+X		if ($@ =~ /^OK/) {
+X			$@ = '';
+X			&add_log("script exited with status 0") if $loglvl > 18;
+X		}
+X		elsif ($@ =~ /^Exit (\d+)/) {
+X			$@ = '';
+X			$failed = "exited with status $1";
+X		}
+X		elsif ($@ =~ /^Status (\d+)/) {		# A REJECT, RESTART or ABORT
+X			$@ = '';
+X			$cont = $1;						# This will modify control flow
+X			&add_log("script ended with a control '$cont'") if $loglvl > 18;
+X		}
+X		else {
+X			$@ =~ s/ in file \(eval\)//;
+X			&add_log("ERROR $@") if $loglvl;
+X			$failed = "execution aborted";
+X		}
+X		&add_log("ERROR perl failed ($failed)") if $loglvl > 1 && $failed;
+X	}
+X	$failed ? 1 : 0;
+X}
+X
+X# The "REQUIRE" command
+Xsub require {
+X	local($file, $package) = @_;	# File to load, package to put it in
+X	$package = 'newcmd' if $package eq '';	# Use newcmd if no package
+X	$file =~ s/^\s*~/$cf'home/;		# ~ substitution
+X	# Note that the dynload package records files being loaded into a H table,
+X	# and "requiring" two times the same file in the *same* package will be
+X	# a no-op, returning the same status as the first time.
+X	local($ok) = &dynload'load($package, $file);
+X	$file = &tilda($file);			# Replace home directory with a nice ~
+X	unless (defined $ok) {
+X		&add_log("ERROR cannot load $file in package $package");
+X		return 1;		# Require failed
+X	}
+X	unless ($ok) {
+X		&add_log("ERROR cannot parse $file into package $package");
+X		return 1;		# Require failed
+X	}
+X	0;		# Success
+X}
+X
+X
+X# Modify control flow within automaton by calling a non-existant function
+X# &perform, which has been dynamically bound to one of the do_* functions.
+X# The REJECT, RESTART and ABORT actions share the following options and
+X# arguments. If followed by -t (resp. -f), then the action only takes place
+X# when the last recorded command status is true (resp. false, i.e. failure).
+X# If a mode is present as an argument, the the state of the automaton is
+X# changed to that mode prior alteration of the control flow.
+Xsub alter_flow {
+X	$_[0] =~ s/^\s*\w+//;			# Remove command name
+X	$_[0] =~ s/^\s*-([tf]+)//;		# Remove options
+X	local($opt) = $1;
+X	local($true) = $opt =~ /t/;		# Perform only if $lastcmd is 0
+X	local($false) = $opt =~ /f/;	# Perform only if $lastcmd recorded failure
+X	$_[0] =~ s/^\s+//;				# Trim leading spaces
+X	local($mode) = $_[0];			# New mode we eventually change to
+X	# Variable $lastcmd comes from xeqte(), $wmode comes from analyze_mail().
+X	return 0 if $true && $lastcmd != 0;
+X	return 0 if $false && $lastcmd == 0;
+X	if ($mode ne '') {
+X		$wmode = $mode;
+X		&add_log("entering new state $wmode") if $loglvl > 6;
+X	}
+X	&perform;						# This was dynamically bound
+X}
+X
+X# Perform a "REJECT"
+Xsub do_reject {
+X	$cont = $FT_REJECT;			# Reject ($cont defined in run_command)
+X	&add_log("REJECTED [$mfile] in state $wmode") if $loglvl > 4;
+X	0;
+X}
+X
+X# Perform a "RESTART"
+Xsub do_restart {
+X	$cont = $FT_RESTART;		# Restart ($cont defined in run_command)
+X	&add_log("RESTARTED [$mfile] in state $wmode") if $loglvl > 4;
+X	0;
+X}
+X
+X# Perform an "ABORT"
+Xsub do_abort {
+X	$cont = $FT_ABORT;			# Abort filtering ($cont defined in run_command)
+X	&add_log("ABORTED [$mfile] in state $wmode") if $loglvl > 4;
+X	0;
+X}
+X
+X# Given a list of items separated by white spaces, return a new list of
+X# items, but with "include-request" processed.
+Xsub complete_list {
+X	local(@addr) = split(' ', $_[0]);	# Original list
+X	local($type) = $_[1];				# Type of item (header, address, ...)
+X	local(@result);						# Where result list is built
+X	local($filename);					# Name of include file
+X	local($_);
+X	foreach $addr (@addr) {
+X		if ($addr !~ /^"/) {			# Item not enclosed within ""
+X			push(@result, $addr);		# Kept as-is
+X		} else {
+X			# Load items from file whose name is given between "quotes"
+X			push(@result, &include_file($addr, $type));
+X		}
+X	}
+X	join(' ', @result);		# Return space separated items
+X}
+X
+X# Save digest mail into a folder, or queue it if no folder is provided
+X# Uses the variable '$item' from 'split' to log items.
+Xsub save_mail {
+X	local(*array, $folder) = @_;	# Where mail is and where to put it
+X	local($length) = 0;				# Length of the digest item
+X	local($mbox, $failed, $log_message);
+X	local($_);
+X	# Go back to the previous dash line, removing it from the body part
+X	# (it's only a separator). In the process, we also remove any looked ahead
+X	# header which belongs to the next digest item.
+X	do {
+X		$_ = pop(@array);			# Remove what belongs to next digest item
+X	} while !/^---/;
+X	# It is recommended in RFC-934 that all leading EB be escaped by a leading
+X	# '- ' sequence, to allow nested forwarding. However, since the message
+X	# we are dealing with might not be RFC-934 compliant, we are only removing
+X	# the leading '- ' if it is followed by a '-'. We also use the loop to
+X	# escape all potentially dangerous From lines.
+X	local($last_was_space);
+X	foreach (@array) {
+X		s/^From\s+(\S+)/>From $1/ if $last_was_space;
+X		s/^- -/-/;					# This is the EB escape in RFC-934
+X		$last_was_space = /^$/;		# From is dangerous after blank line
+X	}
+X	# Now @array holds the whole digest item
+X	if ($folder =~ /^\s*$/) {		# No folder means we have to queue message
+X		$failed = &qmail(*array);
+X		$log_message = 'mailagent\'s queue';
+X		foreach (@array) {
+X			$length += length($_) + 1;	# No trailing new-lines
+X		}
+X	} else {
+X		# Looks like we have to save the message in a folder. I cannot really
+X		# ask for a local variable named %Header because emergency routines
+X		# use it to save mail (they expect the whole mail in $Header{'All'}).
+X		# However, if something goes wrong, we'll get back to the filter main
+X		# loop and a LEAVE (default action) will be executed, taking the
+X		# current values from 'Head' and 'Body'. Hence the following:
+X
+X		local(%NHeader);
+X		$NHeader{'All'} = $Header{'All'};
+X		local(*Header) = *NHeader;	# From now on, we really work on %NHeader
+X		local($in_header) = 1;		# True while in message header
+X		local($first_from);			# First From line
+X
+X		# Fill in %Header strcuture, which is expected by save(): header in
+X		# entry 'Head' and body in entry 'Body'.
+X		foreach (@array) {
+X			if ($in_header) {
+X				$in_header = 0 if /^$/;
+X				next if /^$/;
+X				$Header{'Head'} .= $_ . "\n";
+X				$first_from = $_ if /^From\s+\S+/;
+X				next;
+X			}
+X			$Header{'Body'} .= $_ . "\n";
+X		}
+X		$Header{'Head'} = "$FAKE_FROM\n" .  $Header{'Head'} unless $first_from;
+X
+X		# Now save into folder
+X		($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_APPEND);
+X
+X		# Keep track in the logfile of the length of the digest item.
+X		$length = length($Header{'Head'}) + length($Header{'Body'}) + 1;
+X	}
+X	if ($failed) {
+X		if ($loglvl > 2) {
+X			local($s) = $length == 1 ? '' : 's';
+X			&add_log("ERROR unable to save #$item ($length byte$s)") if $item;
+X			&add_log("ERROR unable to save preamble ($length byte$s)")
+X				unless $item;
+X		}
+X	} else {
+X		if ($loglvl > 7) {
+X			local($s) = $length == 1 ? '' : 's';
+X			&add_log("SPLIT #$item in $log_message ($length byte$s)") if $item;
+X			&add_log("SPLIT preamble in $log_message ($length byte$s)")
+X				unless $item;
+X		}
+X	}
+X	++$item if $item;		# Count items, but not preamble (done by 'split')
+X	$failed;				# Propagate failure status
+X}
+X
+END_OF_FILE
+  if test 49987 -ne `wc -c <'agent/pl/actions.pl.01'`; then
+    echo shar: \"'agent/pl/actions.pl.01'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/actions.pl.01'
+fi
+if test -f 'agent/test/filter/list.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/list.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/list.t'\" \(2014 characters\)
+  sed "s/^X//" >'agent/test/filter/list.t' <<'END_OF_FILE'
+X# This tests mathching on list selectors like To or Newsgroups.
+X
+X# $Id: list.t,v 3.0 1993/11/29 13:50:01 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: list.t,v $
+X# Revision 3.0  1993/11/29  13:50:01  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+X
+Xfor ($i = 1; $i <= 8; $i++) {
+X	unlink "$user.$i";
+X}
+X
+X&add_header('X-Tag: list');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user.1" || print "2\n";
+Xunlink "$user.1";
+X
+X&replace_header('To: uunet!eiffel.com!max, other@max.com');
+X`$cmd`;
+X$? == 0 || print "3\n";
+X-f "$user.2" || print "4\n";
+Xunlink "$user.2";
+X
+X&replace_header('To: root@eiffel.com (Super User), max <other@max.com>');
+X`$cmd`;
+X$? == 0 || print "5\n";
+X-f "$user.3" || print "6\n";
+Xunlink "$user.3";
+X
+X# Following is illeaal in RFC-822: should be "root@eiffel.com" <maxime>
+X&replace_header('To: riot@eiffel.com (Riot Manager), root@eiffel.com <maxime>');
+X`$cmd`;
+X$? == 0 || print "7\n";
+X-f "$user.4" || print "8\n";
+Xunlink "$user.4";
+X
+X&replace_header('To: other, me, riotintin@eiffel.com, and, so, on');
+X`$cmd`;
+X$? == 0 || print "9\n";
+X-f "$user.5" || print "10\n";
+Xunlink "$user.5";
+X
+X&replace_header('To: other, me, chariot@eiffel.com, and, so, on');
+X`$cmd`;
+X$? == 0 || print "11\n";
+X-f "$user.6" || print "12\n";
+Xunlink "$user.6";
+X
+X&replace_header('To: other, me, abricot@eiffel.com, and, so, on');
+X&add_header('Newsgroups: comp.lang.perl, news.groups, news.lists');
+X`$cmd`;
+X$? == 0 || print "13\n";
+X-f "$user.7" || print "14\n";
+Xunlink "$user.7";
+X
+X&replace_header('Newsgroups: comp.lang.perl, news.groups, news.answers');
+X`$cmd`;
+X$? == 0 || print "15\n";
+X-f "$user.8" || print "16\n";
+Xunlink "$user.8";
+X
+Xunlink 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 2014 -ne `wc -c <'agent/test/filter/list.t'`; then
+    echo shar: \"'agent/test/filter/list.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/list.t'
+fi
+echo shar: End of archive 5 \(of 26\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

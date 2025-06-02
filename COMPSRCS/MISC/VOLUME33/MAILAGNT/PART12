@@ -1,0 +1,1641 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v33i104:  mailagent - Rule Based Mail Filtering, Part12/17
+Message-ID: <1992Nov20.230705.26840@sparky.imd.sterling.com>
+X-Md4-Signature: e5665db0878c39b02fda39df5ae49249
+Date: Fri, 20 Nov 1992 23:07:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 33, Issue 104
+Archive-name: mailagent/part12
+Environment: Perl, Sendmail, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  agent/files/agenthelp agent/filter/environ.c
+#   agent/filter/logfile.c agent/pl/eval.pl agent/pl/header.pl
+#   agent/pl/interface.pl agent/pl/parse.pl agent/test/cmd/split.t
+#   agent/test/option/c.t
+# Wrapped by kent@sparky on Wed Nov 18 22:42:28 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 17)."'
+if test -f 'agent/files/agenthelp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/agenthelp'\"
+else
+  echo shar: Extracting \"'agent/files/agenthelp'\" \(6402 characters\)
+  sed "s/^X//" >'agent/files/agenthelp' <<'END_OF_FILE'
+XThe purpose of the mail agent is to enable me answer some of your
+Xrequests, even if it's early in the morning and I've just gone to bed ! :-)
+X
+XFor instance, you need Larry Wall's patch program or Rich Salz's cshar.
+XI have them and I use them in my own kits.  So you may ask me to send them
+Xto you.  Of course, you could send me a mail saying "Please, could you
+Xsend me the cshar distribution kit ?", but I certainly won't be able to do
+Xit at once , either because I am not there when the mail arrives, or
+Xbecause someone else asked before you...
+X
+XWith the mail agent, there are no problems. You simply (!) send me a mail
+Xof the following form:
+X
+X	Subject: Command
+X	@SH maildist =DEST= cshar 3.0
+X
+Xand you will get version 3.0 of cshar.
+X
+X
+XHere are the possible commands:
+X
+X	- mailhelp PATH
+X		# sends some help
+X
+X	- maillist PATH
+X		# sends a list of what is available
+X
+X	- mailpatch PATH SYSTEM VERSION LIST
+X		# sends patches for a system
+X
+X	- maildist PATH SYSTEM VERSION
+X		# sends a whole distribution kit (latest patchlevel)
+X
+Xwhere PATH is a return path FROM ME TO YOU either in Internet notation
+Xor in bang notation from some well-known host.  As far as you are
+Xconcerned, it appears to be =DEST=.
+X
+XPATH may be omitted for mailhelp and maillist, in which case the return
+Xaddress found in the mail header will be used.
+X
+XSYSTEM is the system's name and VERSION is the version number.  For
+Xsystems that are not maintained, the version number has no sense and
+Xthus may be omitted (for maildist). A '-' stands for the latest version.
+X
+XThe LIST for mailpatch is the number of one or more patches you need,
+Xseparated by spaces, commas, and/or hyphens. For instance:
+X
+X	2,3 4-7,10-
+X
+Xasks for patches 2 and 3, then 4 to 7, and from 10 to the end, while
+X
+X	-5 10 11
+X
+Xrequests patches up to 5, then 10 and 11.
+X
+X
+XCommands must be preceded by the token "@SH" at the beginning of a line.
+XDo not put spaces/tabs in front of "@SH".  In the mail examples I give,
+XI do put one, but it is only for clarity purpose.
+X
+XIn the same way, the line "Subject: Command" must be left-justified.
+XNote that the subject of the mail does not need to be "Command", as long
+Xas you put the "Subject: Command" line in the body of your message,
+Xbefore your commands. You may use either "Command" or "command".
+X
+XOnce the "Subject: Command" line appears in your mail, either in the
+Xheader or in the body, you may put as many commands as necessary.
+XFor example:
+X
+X	Subject: Command
+X
+X	@SH maillist =DEST=
+X	@SH maildist =DEST= cshar 3.0
+X
+X
+XIf you are in doubt of what is the return path, you may put "PATH" or a
+Xsingle '-' instead of your address, and the mail agent will replace it
+Xwith the return path it finds in the mail header.  In case you do not
+Xtrust your mail headers, you may force the return path with the "@PATH"
+Xcommand.  The mail agent reads the whole message before actually
+Xprocessing it, so the location of this command does not really matters.
+XHere is an example:
+X
+X	Subject: Command
+X
+X	@SH mailhelp
+X	@SH mailpatch - kit 2.0 4,5
+X	@PATH =DEST=
+X
+X
+XWhen you ask for files to be sent, the mail agent makes shell archives or
+Xkit archives, depending on the amount of bytes that are to be returned.
+XIf it exceeds an arbitrary-fixed limit of =MAXSIZE= bytes, files are sent
+Xas kit archives.  Otherwise, they will be sent as shell archives provided
+Xthat no file is greater than the maximum allowed for a single shell
+Xarchive.  This is called the "auto" packing mode.
+X
+XThe "@PACK" command forces the distribution mode, which is "auto" by
+Xdefault. The specified packing mode is used, until another "@PACK"
+Xcommand is found. Valid parameters are "auto", "kit" and "shar".
+XNote that forcing mode to "shar" may well result in a failure if one
+Xof the files to be sent is bigger than the maximum size allowed for a
+Xshell-archive (around 50000 bytes). However, the mail agent does its
+Xbest: it will split large files and uuencode non-ASCII ones.
+X
+XWhen you use maildist, please do not request for "shar" mode, as "kit" will
+Xbe more efficient and safer. Note that when the packing mode is "auto" and
+Xthe mailagent has to kit the files, a minikit is included. Hence you may
+Xunkit the distribution even if you do not have kit. But it will always be
+Xsimpler with kit anyway.
+X
+X"Kit" is a binary tar-mailer that you must own in order to unkit
+Xthe kit archives which do not include a 'minikit'. If you do not have it,
+Xsend me the following mail:
+X
+X	Subject: Command
+X	@SH maildist =DEST= kit -
+X
+Xand you will get the latest release of "kit".
+X
+XHere is another example that uses the "@PACK" request (the following
+Xpackage names, revision numbers and patchlevels are here for the purpose
+Xof demonstration only. Reality may -- and often will -- be completely
+Xdifferent):
+X
+X	Subject: Command
+X
+X	-- Set the return path, so that we can use '-' without fear.
+X	@PATH =DEST=
+X	-- Request patches for kit 2.0, sent in "auto" packing mode.
+X	-- Note that the '-' actually stands for the return path.
+X	-- We could also have said:
+X	--     @SH mailpatch =DEST= kit 2.0 3-
+X	-- but as long as we have more than one command in the file,
+X	-- it would be cumbersome to repeat the address each time.
+X	@SH mailpatch - kit 2.0 3-
+X	-- Force packing mode to "shar", as we don't want to kit 'kit'.
+X	-- We don't know what the latest version is, so we put a '-'.
+X	-- Maildist will send the version at its highest patchlevel.
+X	@PACK shar
+X	@SH maildist - kit -
+X	-- Kit is more reliable and will greatly reduce the amount of
+X	-- transmitted data (typical gain is 50% for sources).
+X	@PACK kit
+X	-- We want version 2.0 for dist and nothing else.
+X	@SH maildist - dist 2.0
+X	-- Request all patches for the latest version of matrix
+X	@SH mailpatch - matrix - 1-
+X
+X
+XA nice thing with the mail agent is that you can ask for a receipt, in
+Xorder to be sure that I received your mail.  You may do so by placing
+Xthe "@RR" command at the beginning of any line in the body of your
+Xmessage.  A receipt will then be sent to the return path extracted from
+Xthe header.  You may force the receipt to be sent to a given address by
+Xgiving it after the @RR token.  Saying "@RR PATH" or "@RR -" is possible
+Xbut not very different from a single "@RR" !!
+X
+XHere are valid requests:
+X
+X	@RR
+X	@RR =DEST=
+X	@RR login@cpu.domain.top
+X
+XNote that no "Subject: Command" line is necessary for that, so you may
+Xask for receipts in every mail.
+X
+X
+XIf this help file is not clear enough, or if you have suggestions/questions,
+Xfeel free to ask me.
+END_OF_FILE
+  if test 6402 -ne `wc -c <'agent/files/agenthelp'`; then
+    echo shar: \"'agent/files/agenthelp'\" unpacked with wrong size!
+  fi
+  # end of 'agent/files/agenthelp'
+fi
+if test -f 'agent/filter/environ.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/environ.c'\"
+else
+  echo shar: Extracting \"'agent/filter/environ.c'\" \(6195 characters\)
+  sed "s/^X//" >'agent/filter/environ.c' <<'END_OF_FILE'
+X/*
+X
+X ######  #    #  #    #     #    #####    ####   #    #           ####
+X #       ##   #  #    #     #    #    #  #    #  ##   #          #    #
+X #####   # #  #  #    #     #    #    #  #    #  # #  #          #
+X #       #  # #  #    #     #    #####   #    #  #  # #   ###    #
+X #       #   ##   #  #      #    #   #   #    #  #   ##   ###    #    #
+X ######  #    #    ##       #    #    #   ####   #    #   ###     ####
+X
+X	Environment setting.
+X*/
+X
+X/*
+X * $Id: environ.c,v 2.9 92/07/14 16:48:04 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	environ.c,v $
+X * Revision 2.9  92/07/14  16:48:04  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include "hash.h"
+X#include <stdio.h>
+X
+X#ifdef I_STRING
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#endif
+X
+X#define ENV_VARS	200				/* An average number of environment vars */
+X#define MAX_STRING	4096			/* Maximum size for an environment value */
+X
+X/* The environment is stored as an associative array: the key is the variable's
+X * name, and we store the value as the associated value, of course. This is
+X * not suitable for direct passing to a child, but it eases the environment
+X * modifications.
+X */
+Xprivate struct htable henv;			/* The associative array for env */
+X
+Xextern char *malloc();				/* Memory allocation */
+Xextern char *strsave();				/* String saving */
+X
+Xpublic void print_env(fd, envp)
+XFILE *fd;
+Xchar **envp;
+X{
+X	/* Print the environment held in 'envp' on file 'fd'. This is mainly
+X	 * intended for debug purposes.
+X	 */
+X
+X	while (*envp)
+X		fprintf(fd, "%s\n", *envp++);
+X}
+X
+Xpublic int init_env(envp)
+Xchar **envp;
+X{
+X	/* Initializes the associative array with the current environment. Returns
+X	 * 0 if ok, -1 if failed due to a lack of memory.
+X	 */
+X
+X	char env_line[MAX_STRING + 1];	/* The environment line */
+X	char *ptr;						/* Pointer inside env_line */
+X	char *env;						/* The current environment line */
+X
+X	if (-1 == ht_create(&henv, ENV_VARS))
+X		return -1;					/* Cannot create H table */
+X
+X	while (env = *envp++) {
+X		strncpy(env_line, env, MAX_STRING);
+X		ptr = index(env_line, '=');
+X		if (ptr == (char *) 0) {
+X			add_log(6, "WARNING bad environment line");
+X			continue;
+X		}
+X		*ptr = '\0';				/* Before '=' lies the key */
+X		if ((char *) 0 == ht_put(&henv, env_line, ptr + 1)) {
+X			add_log(4, "ERROR cannot record environment any more");
+X			return -1;
+X		}
+X	}
+X
+X	return 0;	/* Ok */
+X}
+X
+Xpublic int append_env(key, value)
+Xchar *key;
+Xchar *value;
+X{
+X	/* Appends 'value' at the end of the environment variable 'key', if it
+X	 * already exits, otherwise create it with that value.
+X	 * Returns 0 for success, -1 for failure.
+X	 */
+X	
+X	char env_line[MAX_STRING + 1];	/* Then environment line */
+X	char *cval;						/* Current value */
+X
+X	cval = ht_value(&henv, key);
+X	if (cval == (char *) 0) {
+X		if ((char *) 0 == ht_put(&henv, key, value)) {
+X			add_log(1, "ERROR cannot insert environment variable '%s'", key);
+X			return -1;				/* Insertion failed */
+X		}
+X		return 0;					/* Insertion ok */
+X	}
+X
+X	strncpy(env_line, cval, MAX_STRING);
+X	if (strlen(env_line) + strlen(value) > MAX_STRING) {
+X		add_log(1, "ERROR cannot append to environment variable '%s'", key);
+X		return -1;
+X	}
+X	strcat(env_line, value);
+X	if ((char *) 0 == ht_force(&henv, key, env_line)) {
+X		add_log(1, "ERROR cannot update environment variable '%s'", key);
+X		return -1;
+X	}
+X
+X	return 0;	/* Ok */
+X}
+X
+Xpublic int prepend_env(key, value)
+Xchar *key;
+Xchar *value;
+X{
+X	/* Prepends 'value' at the head of the environment variable 'key', if it
+X	 * already exits, otherwise create it with that value.
+X	 * Returns 0 for success, -1 for failure.
+X	 */
+X	
+X	char env_line[MAX_STRING + 1];	/* Then environment line */
+X	char *cval;						/* Current value */
+X
+X	cval = ht_value(&henv, key);
+X	if (cval == (char *) 0) {
+X		if ((char *) 0 == ht_put(&henv, key, value)) {
+X			add_log(1, "ERROR cannot insert environment variable '%s'", key);
+X			return -1;				/* Insertion failed */
+X		}
+X		return 0;					/* Insertion ok */
+X	}
+X
+X	strncpy(env_line, value, MAX_STRING);
+X	if (strlen(env_line) + strlen(cval) > MAX_STRING) {
+X		add_log(1, "ERROR cannot prepend to environment variable '%s'", key);
+X		return -1;
+X	}
+X	strcat(env_line, cval);
+X	if ((char *) 0 == ht_force(&henv, key, env_line)) {
+X		add_log(1, "ERROR cannot update environment variable '%s'", key);
+X		return -1;
+X	}
+X
+X	return 0;	/* Ok */
+X}
+X
+Xpublic int set_env(key, value)
+Xchar *key;
+Xchar *value;
+X{
+X	/* Set environment value 'key' and return 0 for success, -1 for failure. */
+X
+X	char env_line[MAX_STRING + 1];	/* Then environment line */
+X	char *cval;						/* Current value */
+X
+X	cval = ht_value(&henv, key);
+X	if (cval == (char *) 0) {
+X		if ((char *) 0 == ht_put(&henv, key, value)) {
+X			add_log(1, "ERROR cannot insert environment variable '%s'", key);
+X			return -1;				/* Insertion failed */
+X		}
+X		return 0;					/* Insertion ok */
+X	}
+X
+X	if ((char *) 0 == ht_force(&henv, key, value)) {
+X		add_log(1, "ERROR cannot update environment variable '%s'", key);
+X		return -1;
+X	}
+X
+X	return 0;	/* Ok */
+X}
+X
+Xpublic char **make_env()
+X{
+X	/* Create the environment pointer suitable for the execle() system call.
+X	 * Return a null pointer if there is not enough memory to create the
+X	 * environment.
+X	 */
+X
+X	char env_line[MAX_STRING + 1];	/* The environment line */
+X	char **envp;					/* The environment pointer returned */
+X	char **ptr;						/* Pointer in the environment */
+X	int nb_line;					/* Number of lines */
+X
+X	nb_line = ht_count(&henv) + 1;	/* Envp ends with a null pointer */
+X	if (nb_line == 0) {
+X		add_log(6, "NOTICE environment is empty");
+X		return (char **) 0;
+X	}
+X	envp = (char **) malloc(nb_line * sizeof(char *));
+X	if (envp == (char **) 0)
+X		fatal("out of memory");
+X	
+X	if (-1 == ht_start(&henv))
+X		fatal("environment H table botched");
+X	
+X	ptr = envp;
+X	for (ptr = envp; --nb_line > 0; (void) ht_next(&henv), ptr++) {
+X		sprintf(env_line, "%s=%s", ht_ckey(&henv), ht_cvalue(&henv));
+X		*ptr = strsave(env_line);
+X		if (*ptr == (char *) 0)
+X			fatal("no more memory for environment");
+X	}
+X
+X	*ptr = (char *) 0;				/* Environment is NULL terminated */
+X
+X	return envp;					/* Pointer to new environment */
+X}
+X
+END_OF_FILE
+  if test 6195 -ne `wc -c <'agent/filter/environ.c'`; then
+    echo shar: \"'agent/filter/environ.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/environ.c'
+fi
+if test -f 'agent/filter/logfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/logfile.c'\"
+else
+  echo shar: Extracting \"'agent/filter/logfile.c'\" \(5659 characters\)
+  sed "s/^X//" >'agent/filter/logfile.c' <<'END_OF_FILE'
+X/*
+X
+X #        ####    ####   ######     #    #       ######           ####
+X #       #    #  #    #  #          #    #       #               #    #
+X #       #    #  #       #####      #    #       #####           #
+X #       #    #  #  ###  #          #    #       #        ###    #
+X #       #    #  #    #  #          #    #       #        ###    #    #
+X ######   ####    ####   #          #    ######  ######   ###     ####
+X
+X	Handles logging facilities.
+X*/
+X
+X/*
+X * $Id: logfile.c,v 2.9 92/07/14 16:48:22 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	logfile.c,v $
+X * Revision 2.9  92/07/14  16:48:22  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include <stdio.h>
+X#include <sys/types.h>
+X
+X#ifdef I_TIME
+X# include <time.h>
+X#endif
+X#ifdef I_SYSTIME
+X# include <sys/time.h>
+X#endif
+X#ifdef I_SYSTIMEKERNEL
+X# define KERNEL
+X# include <sys/time.h>
+X# undef KERNEL
+X#endif
+X
+X#define MAX_STRING	1024			/* Maximum length for logging string */
+X
+Xprivate FILE *logfile = (FILE *) 0;	/* File pointer used for logging */
+Xshared int loglvl = 20;				/* Logging level */
+Xprivate char *logname;				/* Name of the logfile in use */
+Xprivate void expand();				/* Run the %m %e expansion on the string */
+Xprivate int add_error();			/* Prints description of error in errno */
+Xprivate int add_errcode();			/* Print the symbolic error name */
+X
+Xpublic char *progname = "ram";	/* Program name */
+Xpublic Pid_t progpid = 0;		/* Program PID */
+X
+Xextern Time_t time();			/* Time in seconds since the Epoch */
+Xextern char *malloc();			/* Memory allocation */
+Xextern char *strsave();			/* Save string in memory */
+Xextern int errno;				/* System error report variable */
+X
+X/* VARARGS2 */
+Xpublic void add_log(level, format, arg1, arg2, arg3, arg4, arg5)
+Xint level;
+Xchar *format;
+Xint arg1, arg2, arg3, arg4, arg5;
+X{
+X	/* Add logging informations at specified level. Note that the arguments are
+X	 * declared as 'int', but it should work fine, even when we give doubles,
+X	 * because they will be pased "as is" to fprintf. Maybe I should use
+X	 * vfprintf when it is available--RAM.
+X	 * The only magic string substitution which occurs is the '%m', which is
+X	 * replaced by the error message, as given by errno and '%e' which gives
+X	 * the symbolic name of the error (if available, otherwise the number).
+X	 * The log file must have been opened with open_log() before add_log calls.
+X	 */
+X
+X	struct tm *ct;				/* Current time (pointer to static data) */
+X	Time_t clock;				/* Number of seconds since the Epoch */
+X	char buffer[MAX_STRING];	/* Buffer which holds the expanded %m string */
+X
+X	if (loglvl < level)			/* Logging level is not high enough */
+X		return;
+X
+X	if (logfile == (FILE *) 0)	/* Logfile not opened for whatever reason */
+X		return;
+X
+X	clock = time((Time_t *) 0);	/* Number of seconds */
+X	ct = localtime(&clock);		/* Get local time from amount of seconds */
+X	expand(format, buffer);		/* Expansion of %m and %e into buffer */
+X
+X	fprintf(logfile, "%d/%.2d/%.2d %.2d:%.2d:%.2d %s[%d]: ",
+X		ct->tm_year, ct->tm_mon + 1, ct->tm_mday,
+X		ct->tm_hour, ct->tm_min, ct->tm_sec,
+X		progname, progpid);
+X
+X	fprintf(logfile, buffer, arg1, arg2, arg3, arg4, arg5);
+X	putc('\n', logfile);
+X	fflush(logfile);
+X}
+X
+Xpublic int open_log(name)
+Xchar *name;
+X{
+X	/* Open log file 'name' for logging. If a previous log file was opened,
+X	 * it is closed before. The routine returns -1 in case of error.
+X	 */
+X	
+X	if (logfile != (FILE *) 0)
+X		fclose(logfile);
+X	
+X	logfile = fopen(name, "a");		/* Append to existing file */
+X	logname = strsave(name);		/* Save file name */
+X
+X	if (logfile == (FILE *) 0)
+X		return -1;
+X	
+X	return 0;
+X}
+X
+Xpublic void close_log()
+X{
+X	/* Close log file */
+X
+X	if (logfile != (FILE *) 0)
+X		fclose(logfile);
+X
+X	logfile = (FILE *) 0;
+X}
+X
+Xpublic void set_loglvl(level)
+Xint level;
+X{
+X	/* Set logging level to 'level' */
+X
+X	loglvl = level;
+X}
+X
+Xprivate void expand(from, to)
+Xchar *from;
+Xchar *to;
+X{
+X	/* The string held in 'from' is copied into 'to' and every '%m' is expanded
+X	 * into the error message deduced from the value of errno.
+X	 */
+X
+X	int len;							/* Length of substituted text */
+X
+X	while (*to++ = *from)
+X		if (*from++ == '%')
+X			switch (*from) {
+X			case 'm':					/* %m is the English description */
+X				len = add_error(to - 1);
+X				to += len - 1;
+X				from++;
+X				break;
+X			case 'e':					/* %e is the symbolic error code */
+X				len = add_errcode(to - 1);
+X				to += len - 1;
+X				from++;
+X				break;
+X			}
+X}
+X
+Xprivate int add_error(where)
+Xchar *where;
+X{
+X	/* Prints a description of the error code held in 'errno' into 'where' if
+X	 * it is available, otherwise simply print the error code number.
+X	 */
+X
+X#ifdef SYSERRLIST
+X	extern int sys_nerr;					/* Size of sys_errlist[] */
+X	extern char *sys_errlist[];				/* Maps error code to string */
+X#endif
+X
+X#ifdef STRERROR
+X	sprintf(where, "%s", strerror(errno));
+X#else
+X#ifdef SYSERRLIST
+X	sprintf(where, "%s", strerror(errno));	/* Macro defined by Configure */
+X#else
+X	sprintf(where, "error #%d", errno);
+X#endif
+X#endif
+X
+X	return strlen(where);
+X}
+X
+Xprivate int add_errcode(where)
+Xchar *where;
+X{
+X	/* Prints the symbolic description of the error code heldin in 'errno' into
+X	 * 'where' if possible. Otherwise, prints the error number.
+X	 */
+X	
+X#ifdef SYSERRNOLIST
+X	extern int sys_nerrno;					/* Size of sys_errnolist[] */
+X	extern char *sys_errnolist[];			/* Error code to symbolic name */
+X#endif
+X
+X#ifdef SYSERRNOLIST
+X	if (errno < 0 || errno >= sys_nerrno)
+X		sprintf(where, "UNKNOWN");
+X	else
+X		sprintf(where, "%s", sys_errnolist[errno]);
+X#else
+X		sprintf(where, "%d", errno);
+X#endif
+X
+X	return strlen(where);
+X}
+X
+END_OF_FILE
+  if test 5659 -ne `wc -c <'agent/filter/logfile.c'`; then
+    echo shar: \"'agent/filter/logfile.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/logfile.c'
+fi
+if test -f 'agent/pl/eval.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/eval.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/eval.pl'\" \(6192 characters\)
+  sed "s/^X//" >'agent/pl/eval.pl' <<'END_OF_FILE'
+X;# $Id: eval.pl,v 2.9 92/07/14 16:49:53 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	eval.pl,v $
+X;# Revision 2.9  92/07/14  16:49:53  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+X#
+X# The built-in expression interpreter
+X#
+X
+X# Initialize the interpreter
+Xsub init_interpreter {
+X	do set_priorities();	# Fill in %Priority
+X	do set_functions();		# Fill in %Function
+X	$macro_T = "the Epoch";	# Default value for %T macro substitution
+X}
+X
+X# Priorities for operators -- magic numbers :-)
+X# An operator with higher priority will evaluate before another with a lower
+X# one. For instance, given the priorities listed hereinafter, a && b == c
+X# would evaluate as a && (b == c).
+Xsub set_priorities {
+X	$Priority{'&&'} = 4;
+X	$Priority{'||'} = 3;
+X	$Priority{'>='} = 6;
+X	$Priority{'<='} = 6;
+X	$Priority{'<'}  = 6;
+X	$Priority{'>'}  = 6;
+X	$Priority{'=='} = 6;
+X	$Priority{'!='} = 6;
+X	$Priority{'='}  = 6;
+X	$Priority{'/='} = 6;
+X}
+X
+X# Perl functions handling operators
+Xsub set_functions {
+X	$Function{'&&'} = 'f_and';			# Boolean AND
+X	$Function{'||'} = 'f_or';			# Boolean OR
+X	$Function{'>='} = 'f_ge';			# Greater or equal
+X	$Function{'<='} = 'f_le';			# Lesser or equal
+X	$Function{'<'}  = 'f_lt';			# Lesser than
+X	$Function{'>'}  = 'f_gt';			# Greader than
+X	$Function{'=='} = 'f_eq';			# Equality
+X	$Function{'!='} = 'f_ne';			# Difference (not equality)
+X	$Function{'='}  = 'f_match';		# Pattern matching
+X	$Function{'/='} = 'f_nomatch';		# Pattern matching (no match)
+X}
+X
+X# Print error messages -- asssumes $unit and $. correctly set.
+Xsub error {
+X	do add_log("ERROR @_") if $loglvl > 1;
+X}
+X
+X# Add a value on the stack, modified by all the monadic operators.
+X# We use the locals @val and @mono from eval_expr.
+Xsub push_val {
+X	local($val) = shift(@_);
+X	while ($#mono >= 0) {
+X		# Cheat... the only monadic operator is '!'.
+X		pop(@mono);
+X		$val = !$val;
+X	}
+X	push(@val, $val);
+X}
+X
+X# Execute a stacked operation, leave result in stack.
+X# We use the locals @val and @op from eval_expr.
+X# If the value stack holds only one operand, do nothing.
+Xsub execute {
+X	return unless $#val > 0;
+X	local($op) = pop(@op);			# The operator
+X	local($val2) = pop(@val);		# Right value in algebraic notation
+X	local($val1) = pop(@val);		# Left value in algebraic notation
+X	local($func) = $Function{$op};	# Function to be called
+X	do macros_subst(*val1);			# Expand macros
+X	do macros_subst(*val2);
+X	push(@val, eval("do $func($val1, $val2)") ? 1: 0);
+X}
+X
+X# Given an operator, either we add it in the stack @op, because its
+X# priority is lower than the one on top of the stack, or we first execute
+X# the stacked operations until we reach the end of stack or an operand
+X# whose priority is lower than ours.
+X# We use the locals @val and @op from eval_expr.
+Xsub update_stack {
+X	local($op) = shift(@_);		# Operator
+X	if (!$Priority{$op}) {
+X		do error("illegal operator $op");
+X		return;
+X	} else {
+X		if ($#val < 0) {
+X			do error("missing first operand for '$op' (diadic operator)");
+X			return;
+X		}
+X		# Because of a bug in perl 4.0 PL19, I'm using a loop construct
+X		# instead of a while() modifier.
+X		while (
+X			$Priority{$op[$#op]} > $Priority{$op}	# Higher priority op
+X			&& $#val > 0							# At least 2 values
+X		) {
+X			do execute();	# Execute an higer priority stacked operation
+X		}
+X		push(@op, $op);		# Everything at higher priority has been executed
+X	}
+X}
+X
+X# This is the heart of our little interpreter. Here, we evaluate
+X# a logical expression and return its value.
+Xsub eval_expr {
+X	local(*expr) = shift(@_);	# Expression to parse
+X	local(@val) = ();			# Stack of values
+X	local(@op) = ();			# Stack of diadic operators
+X	local(@mono) =();			# Stack of monadic operators
+X	local($tmp);
+X	$_ = $expr;
+X	while (1) {
+X		s/^\s+//;				# Remove spaces between words
+X		# A perl statement <<command>>
+X		if (s/^<<//) {
+X			if (s/^(.*)>>//) {
+X				do push_val((system
+X					('perl','-e', "if ($1) {exit 0;} else {exit 1;}"
+X					))? 0 : 1);
+X			} else {
+X				do error("incomplete perl statement");
+X			}
+X		}
+X		# A shell statement <command>
+X		elsif (s/^<//) {
+X			if (s/^(.*)>//) {
+X				do push_val((system
+X					("if $1 >/dev/null 2>&1; then exit 0; else exit 1; fi"
+X					))? 0 : 1);
+X			} else {
+X				do error("incomplete shell statement");
+X			}
+X		}
+X		# The '(' construct
+X		elsif (s/^\(//) {
+X			do push_val(do eval_expr(*_));
+X			# A final '\' indicates an end of line
+X			do error("missing final parenthesis") if !s/^\\//;
+X		}
+X		# Found a ')' or end of line
+X		elsif (/^\)/ || /^$/) {
+X			s/^\)/\\/;						# Signals: left parenthesis found
+X			$expr = $_;						# Remove interpreted stuff
+X			do execute() while $#val > 0;	# Executed stacked operations
+X			while ($#op >= 0) {
+X				$_ = pop(@op);
+X				do error("missing second operand for '$_' (diadic operator)");
+X			}
+X			return $val[0];
+X		}
+X		# Diadic operators
+X		elsif (s/^(\|\||&&|>=|<=|>|<|==|!=|=|\/=)//) {
+X			do update_stack($1);
+X		}
+X		# Unary operator '!'
+X		elsif (s/^!//) {
+X			push(@mono,'!');
+X		}
+X		# Everything else is a value which stands for itself (atom)
+X		elsif (s/^([\w'"%]+)//) {
+X			do push_val($1);
+X		}
+X		# Syntax error
+X		else {
+X			print "Syntax error: remaining is >>>$_<<<\n";
+X			$_ = "";
+X		}
+X	}
+X}
+X
+X# Call eval_expr and check that everything is ok (e.g. the stack must be empty)
+Xsub evaluate {
+X	local($val);					# Value returned
+X	local(*expr) = shift(@_);		# Expression to be parsed
+X	while ($expr) {
+X		$val = do eval_expr(*expr);		# Expression will be modified
+X		print "extra closing parenthesis ignored.\n" if $expr =~ s/^\\\)*//;
+X		$expr = $val . $expr if $expr ne '';
+X	}
+X	$val;
+X}
+X
+X#
+X# Boolean functions used by the interpreter. They all take two arguments
+X# and return 0 if false and 1 if true.
+X#
+X
+Xsub f_and { $_[0] && $_[1]; }		# Boolean AND
+Xsub f_or { $_[0] || $_[1]; }		# Boolean OR
+Xsub f_ge { $_[0] >= $_[1]; }		# Greater or equal
+Xsub f_le { $_[0] <= $_[1]; }		# Lesser or equal
+Xsub f_lt { $_[0] < $_[1]; }			# Lesser than
+Xsub f_gt { $_[0] > $_[1]; }			# Greater than
+Xsub f_eq { "$_[0]" eq "$_[1]"; }	# Equal
+Xsub f_ne { "$_[0]" ne "$_[1]"; }	# Not equal
+Xsub f_match { $_[0] =~ /$_[1]/; }	# Pattern matches
+Xsub f_nomatch { $_[0] !~ /$_[1]/; }	# Pattern does not match
+X
+END_OF_FILE
+  if test 6192 -ne `wc -c <'agent/pl/eval.pl'`; then
+    echo shar: \"'agent/pl/eval.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/eval.pl'
+fi
+if test -f 'agent/pl/header.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/header.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/header.pl'\" \(6416 characters\)
+  sed "s/^X//" >'agent/pl/header.pl' <<'END_OF_FILE'
+X;# $Id: header.pl,v 2.9.1.2 92/08/26 13:12:31 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	header.pl,v $
+X;# Revision 2.9.1.2  92/08/26  13:12:31  ram
+X;# patch8: random clean up
+X;# 
+X;# Revision 2.9.1.1  92/08/02  16:10:59  ram
+X;# patch2: added routines for normalization and formatting
+X;# 
+X;# Revision 2.9  92/07/14  16:50:06  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+Xpackage header;
+X
+X# This package implements a header checker. To initialize it, call 'reset'.
+X# Then, call 'valid' with a header line and the function returns 0 if the
+X# line is not part of a header (which means all the lines seen since 'reset'
+X# are not part of a mail header). If the line may still be part of a header,
+X# returns 1. Finally, -1 is returned at the end of the header.
+X
+Xsub init {
+X	# Main header fields which should be looked at when parsing a mail header
+X	%Mailheader = (
+X		'From', 1,
+X		'To', 1,
+X		'Subject', 1,
+X		'Date', 1,
+X	);
+X}
+X
+X# Reset header checking status
+Xsub reset {
+X	&init unless $init_done++;		# Initialize private data
+X	$last_was_header = 0;			# Previous line was not a header
+X	$maybe = 0;						# Do we have a valid part of header?
+X	$line = 0;						# Count number of lines in header
+X}
+X
+X# Is the current line still part of a valid header ?
+Xsub valid {
+X	local($_) = @_;
+X	return 1 if $last_was_header && /^\s/;	# Continuation line
+X	return -1 if /^$/;						# End of header
+X	$last_was_header = /^([\w\-]+):/ ? 1 : 0;
+X	# Activate $maybe when essential parts of a valid mail header are found
+X	# Any client can check 'maybe' to see if what has been parsed so far would
+X	# be a valid RFC-822 header, even though syntactically correct.
+X	$maybe |= $Mailheader{$1} if $last_was_header;
+X	$last_was_header = /^From\s+\S+/
+X		unless $last_was_header || $line;	# First line may be special
+X	++$line;								# One more line
+X	$last_was_header;						# Are we still inside header?
+X}
+X
+X# Produce a warning header field about a specific item
+Xsub warning {
+X	local($field, $added) = @_;
+X	local($warning);
+X	local(@field) = split(' ', $field);
+X	$warning = 'X-Filter-Note: ';
+X	if ($added && @field == 1) {
+X		$warning .= "Previous line added at ";
+X	} elsif ($added && @field > 1) {
+X		$field = join(', ', @field);
+X		$field =~ s/^(.*), (.*)/$1 and $2/;
+X		$warning .= "Headers $field added at ";
+X	} else {
+X		$warning .= "Parsing error in original previous line at ";
+X	}
+X	$warning .= &main'domain_addr;
+X	$warning;
+X}
+X
+X# Make sure header contains vital fields. The header is held in an array, on
+X# a line basis with final new-line chopped. The array is modified in place,
+X# setting defaults from the %Header array (if defined, which is the case for
+X# digests mails) or using local defaults.
+Xsub clean {
+X	local(*array) = @_;					# Array holding the header
+X	local($added) = '';					# Added fields
+X
+X	$added .= &check(*array, 'From', $cf'user, 1);
+X	$added .= &check(*array, 'To', $cf'user, 1);
+X	$added .= &check(*array, 'Date', &fake_date, 0);
+X	$added .= &check(*array, 'Subject', '<none>', 1);
+X
+X	&push(*array, &warning($added, 1)) if $added ne '';
+X}
+X
+X# Check presence of specific field and use value of %Header as a default if
+X# available and if '$use_header' is set, otherwise use the provided value.
+X# Return added field or a null string if nothing is done.
+Xsub check {
+X	local(*array, $field, $default, $use_header) = @_;
+X	local($faked);						# Faked value to be used
+X	if ($use_header) {
+X		$faked = (defined $'Header{$field}) ? $'Header{$field} : $default;
+X	} else {
+X		$faked = $default;
+X	}
+X
+X	# Try to locate field in header
+X	local($_);
+X	foreach (@array) {
+X		return '' if /^$field:/;
+X	}
+X
+X	&push(*array, "$field: $faked");
+X	$field . ' ';
+X}
+X
+X# Push header line at the end of the array, without assuming any final EOH line
+Xsub push {
+X	local(*array, $line) = @_;
+X	local($last) = pop(@array);
+X	push(@array, $last) if $last ne '';	# There was no EOH
+X	push(@array, $line);				# Insert header line
+X	push(@array, '') if $last eq '';	# Restore EOH
+X}
+X
+X# Compute a valid date field suitable for mail header
+Xsub fake_date {
+X	require 'ctime.pl';
+X	local($date) = &'ctime(time);
+X	# Traditionally, MTAs add a ',' right after week day
+X	$date =~ s/^(\w+)(\s)/$1,$2/;
+X	chop($date);					# Ctime adds final new-line
+X	$date;
+X}
+X
+X# Normalizes header: every first letter is uppercase, the remaining of the
+X# word being lowercased, as in This-Is-A-Normalized-Header. Note that RFC-822
+X# does not impose such a formatting.
+Xsub normalize {
+X	local($field_name) = @_;			# Header to be normalized
+X	$field_name =~ s/(\w+)/\u\L$1/g;
+X	$field_name;						# Return header name with proper case
+X}
+X
+X# Format header field to fit into 78 columns, each continuation line being
+X# indented by 8 chars. Returns the new formatted header string.
+Xsub format {
+X	local($field) = @_;			# Field to be formatted
+X	local($tmp);				# Buffer for temporary formatting
+X	local($new) = '';			# Constructed formatted header
+X	local($kept);				# Length of current line
+X	local($len) = 78;			# Amount of characters kept
+X	local($cont) = ' ' x 8;		# Continuation lines starts with 8 spaces
+X	# Format header field, separating lines on ',' or space.
+X	while (length($field) > $len) {
+X		$tmp = substr($field, 0, $len);		# Keep first $len chars
+X		$tmp =~ s/^(.*)([,\s]).*/$1$2/;		# Cut at last space or ,
+X		$kept = length($tmp);				# Amount of chars we kept
+X		$tmp =~ s/\s*$//;					# Remove trailing spaces
+X		$tmp =~ s/^\s*//;					# Remove leading spaces
+X		$new .= $cont if $new;				# Continuation starts with 8 spaces
+X		$len = 70;							# Account continuation for next line
+X		$new .= "$tmp\n";
+X		$field = substr($field, $kept, 9999);
+X	}
+X	$new .= $cont if $new;					# Add 8 chars if continuation
+X	$new .= $field;							# Remaining information on one line
+X}
+X
+X# Scan the head of a file and try to determine whether there is a mail
+X# header at the beginning or not. Return true if a header was found.
+Xsub main'header_found {
+X	local($file) = @_;
+X	local($correct) = 1;				# Were all the lines from top correct ?
+X	local($_);
+X	open(FILE, $file) || return 0;		# Don't care to report error
+X	&reset;								# Initialize header checker
+X	while (<FILE>) {					# While still in a possible header
+X		last if /^$/;					# Exit if end of header reached
+X		$correct = &valid($_);			# Check line validity
+X		last unless $correct;			# No, not a valid header
+X	}
+X	close FILE;
+X	$correct;
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 6416 -ne `wc -c <'agent/pl/header.pl'`; then
+    echo shar: \"'agent/pl/header.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/header.pl'
+fi
+if test -f 'agent/pl/interface.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/interface.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/interface.pl'\" \(5290 characters\)
+  sed "s/^X//" >'agent/pl/interface.pl' <<'END_OF_FILE'
+X;# $Id: interface.pl,v 2.9.1.3 92/11/10 10:14:02 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	interface.pl,v $
+X;# Revision 2.9.1.3  92/11/10  10:14:02  ram
+X;# patch12: perl command interface changed to return boolean success
+X;# 
+X;# Revision 2.9.1.2  92/11/01  15:50:39  ram
+X;# patch11: fixed English typo
+X;# 
+X;# Revision 2.9.1.1  92/08/26  13:14:28  ram
+X;# patch8: created
+X;# 
+X;# 
+X;# This is for people who, like me, are perl die-hards :-). It simply provides
+X;# a simple perl interface for hook scripts and PERL commands. Instead of
+X;# writing 'COMMAND with some arguments;' in the filter rule file, you may say
+X;# &command('with some arguments') in the perl script. Big deal! Well, at least
+X;# that brings you some other nice features from perl itself ;-).
+X;#
+X#
+X# Perl interface with the filter actions
+X#
+X
+Xpackage mailhook;
+X
+Xsub abort		{ &interface'dispatch; }
+Xsub annotate	{ &interface'dispatch; }
+Xsub assign		{ &interface'dispatch; }
+Xsub back		{ &interface'dispatch; }
+Xsub begin		{ &interface'dispatch; }
+Xsub bounce		{ &interface'dispatch; }
+Xsub delete		{ &interface'dispatch; }
+Xsub feed		{ &interface'dispatch; }
+Xsub forward		{ &interface'dispatch; }
+Xsub give		{ &interface'dispatch; }
+Xsub keep		{ &interface'dispatch; }
+Xsub leave		{ &interface'dispatch; }
+Xsub message		{ &interface'dispatch; }
+Xsub nop			{ &interface'dispatch; }
+Xsub notify		{ &interface'dispatch; }
+Xsub once		{ &interface'dispatch; }
+Xsub pass		{ &interface'dispatch; }
+Xsub perl		{ &interface'dispatch; }
+Xsub pipe		{ &interface'dispatch; }
+Xsub post		{ &interface'dispatch; }
+Xsub process		{ &interface'dispatch; }
+Xsub purify		{ &interface'dispatch; }
+Xsub queue		{ &interface'dispatch; }
+Xsub record		{ &interface'dispatch; }
+Xsub reject		{ &interface'dispatch; }
+Xsub restart		{ &interface'dispatch; }
+Xsub resync		{ &interface'dispatch; }
+Xsub run			{ &interface'dispatch; }
+Xsub save		{ &interface'dispatch; }
+Xsub select		{ &interface'dispatch; }
+Xsub split		{ &interface'dispatch; }
+Xsub store		{ &interface'dispatch; }
+Xsub strip		{ &interface'dispatch; }
+Xsub subst		{ &interface'dispatch; }
+Xsub tr			{ &interface'dispatch; }
+Xsub unique		{ &interface'dispatch; }
+Xsub vacation	{ &interface'dispatch; }
+Xsub write		{ &interface'dispatch; }
+X
+X# A perl filtering script should call &exit and not exit directly.
+Xsub exit { 
+X	local($code) = @_;
+X	die "OK\n" unless $code;
+X	die "Exit $code\n";
+X}
+X
+Xpackage interface;
+X
+X# Perload OFF
+X# (Cannot be dynamically loaded as it uses the caller() function)
+X
+X# The dispatch routine is really simple. We compute the name of our caller,
+X# prepend it to the argument and call run_command to actually run the command.
+X# Upon return, if we get anything but a continue status, we simply die with
+X# an 'OK' string, which will be a signal to the routine monitoring the execution
+X# that nothing wrong happened.
+Xsub dispatch {
+X	local($args) = join(' ', @_);			# Arguments for the command
+X	local($name) = (caller(1))[3];			# Function which called us
+X	local($status);							# Continuation status
+X	$name =~ s/^\w+'//;						# Strip leading package name
+X	&'add_log("calling '$name $args'") if $'loglvl > 18;
+X	$status = &'run_command("$name $args");	# Case does not matter
+X
+X	# The status propagation is the only thing we have to deal with, as this
+X	# is handled within run_command. All other variables which are meaningful
+X	# for the filter are dynamically bound to function called before in the
+X	# stack, hence they are modified directly from within the perl script.
+X
+X	die "Status $status\n" unless $status == $'FT_CONT;
+X
+X	# Return the status held in $lastcmd, unless the command does not alter
+X	# the status significantly, in which case we return success. Note that
+X	# this is in fact a boolean success status, so 1 means success, whereas
+X	# $lastcmd records a failure status.
+X
+X	$name =~ tr/a-z/A-Z/;					# Stored upper-cased
+X	$'Nostatus{$name} ? 1 : !$lastcmd;		# Propagate status
+X}
+X
+X# Perload ON
+X
+X$in_perl = 0;					# Number of nested perl evaluations
+X
+X# Record entry in new perl evaluation
+Xsub new {
+X	++$in_perl;					# Add one evalution level
+X}
+X
+X# Reset an empty mailhook package by undefining all its symbols.
+X# (Warning: heavy wizardry used here -- look at perl's manpage for recipe.)
+Xsub reset {
+X	return if --$in_perl > 0;	# Do nothing if pending evals remain
+X	&'add_log("undefining variables from mailhook") if $'loglvl > 11;
+X	local($key, $val);			# Key/value from perl's symbol table
+X	# Loop over perl's symbol table for the mailhook package
+X	while (($key, $val) = each(%_mailhook)) {
+X		local(*entry) = $val;	# Get definitions of current slot
+X		undef $entry unless length($key) == 1 && $key !~ /^\w/;
+X		undef @entry;
+X		undef %entry unless $key =~ /^_/ || $key eq 'header';
+X		undef &entry if &valid($key);
+X		$_mailhook{$key} = *entry;	# Commit our changes
+X	}
+X}
+X
+X# Return true if the function may safely be undefined
+Xsub valid {
+X	local($fun) = @_;			# Function name
+X	return 0 if $fun eq 'exit';	# This function is a convenience
+X	# We cannot undefine a filter function, which are listed (upper-cased) in
+X	# the %main'Filter table.
+X	return 1 unless length($fun) == ($fun =~ tr/a-z/A-Z/);
+X	return 1 unless $'Filter{$fun};
+X	0;
+X}
+X	
+Xpackage main;
+X
+END_OF_FILE
+  if test 5290 -ne `wc -c <'agent/pl/interface.pl'`; then
+    echo shar: \"'agent/pl/interface.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/interface.pl'
+fi
+if test -f 'agent/pl/parse.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/parse.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/parse.pl'\" \(5848 characters\)
+  sed "s/^X//" >'agent/pl/parse.pl' <<'END_OF_FILE'
+X;# $Id: parse.pl,v 2.9.1.1 92/08/26 13:17:47 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	parse.pl,v $
+X;# Revision 2.9.1.1  92/08/26  13:17:47  ram
+X;# patch8: created by extraction from analyze.pl
+X;# patch8: parsing can now be done on header only
+X;# 
+X;# 
+X#
+X# Parsing mail
+X#
+X
+X# Parse the mail and fill-in the Header associative array. The special entries
+X# All, Body and Head respectively hold the whole message, the body and the
+X# header of the message.
+Xsub parse_mail {
+X	local($file_name) = shift(@_);	# Where mail is stored ("" for stdin)
+X	local($head_only) = shift(@_);	# Optional parameter: parse only header
+X	local($last_header) = "";		# Name of last header (for continuations)
+X	local($first_from) = "";		# The first From line in mails
+X	local($lines) = 0;				# Number of lines in the body
+X	local($length) = 0;				# Length of body, in bytes
+X	local($last_was_nl) = 1;		# True when last line was a '\n' (1 for EOH)
+X	local($fd) = STDIN;				# Where does the mail come from ?
+X	local($value);					# Value of current field line
+X	local($_);
+X	undef %Header;					# Reset the all structure holding message
+X
+X	if ($file_name ne '') {			# Mail spooled in a file
+X		unless(open(MAIL, $file_name)) {
+X			&add_log("ERROR cannot open $file_name: $!");
+X			return;
+X		}
+X		$fd = MAIL;
+X	}
+X	$Userpath = "";					# Reset path from possible previous @PATH 
+X
+X	# Pre-extend 'All', 'Body' and 'Head'
+X	$Header{'All'} = ' ' x 5000;
+X	$Header{'Body'} = ' ' x 4500;
+X	$Header{'Head'} = ' ' x 500;
+X	$Header{'All'} = '';
+X	$Header{'Body'} = '';
+X	$Header{'Head'} = '';
+X
+X	do add_log ("parsing mail") if $loglvl > 18;
+X	while (<$fd>) {
+X		$Header{'All'} .= $_;
+X		if (1../^$/) {						# EOH is a blank line
+X			next if /^$/;					# Skip EOH marker
+X			$Header{'Head'} .= $_;			# Record line in header
+X
+X			if (/^\s/) {					# It is a continuation line
+X				s/^\s+/ /;					# Swallow multiple spaces
+X				chop;						# Remove final new-line
+X				$Header{$last_header} .= "\n$_" if $last_header ne '';
+X				do add_log("WARNING bad continuation in header, line $.")
+X					if $last_header eq '' && $loglvl > 4;
+X			} elsif (/^([\w-]+):\s*(.*)/) {	# We found a new header
+X				# Guarantee only one From: header line. If multiple From: are
+X				# found, keep the last one.
+X				# Multiple headers like 'Received' are separated by a new-
+X				# line character. All headers end on a non new-line.
+X				# Case is normalized before recording, so apparently-to will
+X				# be recorded as Apparently-To but header is not changed.
+X				$value = $2;				# Bug in perl 4.0 PL19
+X				$last_header = &header'normalize($1);	# Normalize case
+X				if ($last_header eq 'From' && defined $Header{$last_header}) {
+X					$Header{$last_header} = $value;
+X					do add_log("WARNING duplicate From in header, line $.")
+X						if $loglvl > 4;
+X				} elsif ($Header{$last_header} ne '') {
+X					$Header{$last_header} .= "\n$value";
+X				} else {
+X					$Header{$last_header} .= $value;
+X				}
+X			} elsif (/^From\s+(\S+)/) {		# The very first From line
+X				$first_from = $1;
+X			}
+X
+X		} else {
+X			last if $head_only;		# Stop parsing if only header wanted
+X			$lines++;								# One more line in body
+X			$length += length($_);					# Update length of message
+X			s/^From(\s)/>From$1/ if $last_was_nl;	# Escape From keyword
+X			$last_was_nl = /^$/;					# Keep track of single '\n'
+X			$Header{'Body'} .= $_;
+X			chop;
+X			# Deal with builtin commands
+X			if (s/^@(\w+)\s*//) {					# A builtin command ?
+X				local($subroutine) = $Builtin{$1};
+X				&$subroutine($_) if $subroutine;
+X			}
+X		}
+X	}
+X	close MAIL if $file_name ne '';
+X	&header_check($first_from, $lines);	# Sanity checks
+X}
+X
+X# Now do some sanity checks:
+X# - if there is no From: header, fill it in with the first From
+X# - if there is no To: but an Apparently-To:, copy it also as a To:
+X#
+X# We guarantee the following header entries:
+X#   From:         the value of the From field
+X#   To:           to whom the mail was sent
+X#   Lines:        number of lines in the message
+X#   Length:       number of bytes in the message
+X#   Reply-To:     the address we may use to reply
+X#   Sender:       the actual sender, even if same as From
+X
+Xsub header_check {
+X	local($first_from, $lines) = @_;	# First From line, number of lines
+X	unless (defined $Header{'From'}) {
+X		&add_log("WARNING no From: field, assuming $first_from") if $loglvl > 4;
+X		$Header{'From'} = $first_from;
+X	}
+X
+X	# There is usually one Apparently-To line per address. Remove all new lines
+X	# in the header line and replace them with ','.
+X	$* = 1;
+X	$Header{'Apparently-To'} =~ s/\n/,/g;	# Remove new-lines
+X	$* = 0;
+X	$Header{'Apparently-To'} =~ s/,$/\n/;	# Restore last new-line
+X
+X	# If no To: field, then maybe there is an Apparently-To: instead. If so,
+X	# make them identical. Otherwise, assume the mail was directed to the user.
+X	if (!$Header{'To'} && $Header{'Apparently-To'}) {
+X		$Header{'To'} = $Header{'Apparently-To'};
+X	}
+X	unless ($Header{'To'}) {
+X		do add_log("WARNING no To: field, assuming $cf'user") if $loglvl > 4;
+X		$Header{'To'} = $cf'user;
+X	}
+X
+X	# Set number of lines in body, unless there is already a Lines:
+X	# header in which case we trust it. Same for Length.
+X	$Header{'Lines'} = $lines unless defined($Header{'Lines'});
+X	$Header{'Length'} = $length unless defined($Header{'Length'});
+X
+X	# If there is no Reply-To: line, then take the return path, if any.
+X	# Otherwise use the address found in From.
+X	if (!$Header{'Reply-To'}) {
+X		local($tmp) = $Header{'Return-Path'};
+X		$tmp =~ /<(.*)>/ && ($tmp = $1);		# Remove the <> in path
+X		$Header{'Reply-To'} = $tmp if $tmp;
+X		$Header{'Reply-To'} = (&parse_address($Header{'From'}))[0] unless $tmp;
+X	}
+X
+X	# Unless there is already a sender line, fake one using From field
+X	if (!$Header{'Sender'}) {
+X		$Header{'Sender'} = $first_from;
+X	}
+X}
+X
+END_OF_FILE
+  if test 5848 -ne `wc -c <'agent/pl/parse.pl'`; then
+    echo shar: \"'agent/pl/parse.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/parse.pl'
+fi
+if test -f 'agent/test/cmd/split.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/split.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/split.t'\" \(6055 characters\)
+  sed "s/^X//" >'agent/test/cmd/split.t' <<'END_OF_FILE'
+X# The SPLIT command
+Xdo '../pl/cmd.pl';
+X
+X&add_header('X-Tag: digest #2');
+X&make_digest;
+X
+X# First time, normal split: one (empty) header plus 3 digest items.
+X# A single 'SPLIT here' is run
+X&add_header('X-Tag: split #1', 'digest');
+X`cp digest mail`;
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";			# Was not split in-place, but also saved
+X-f 'here' || print "3\n";			# Where digest was split...
+X&get_log(4, 'here');				# Slurp folder in @log
+X&check_log('^X-Tag: digest #1', 5) == 2 || print "6\n";
+X&check_log('^X-Tag: digest #2', 7) == 2 || print "8\n";
+X&check_log('^X-Tag: digest #3', 9) == 2 || print "10\n";
+X&check_log('^X-Tag: split #1', 11) == 2 || print "12\n";
+X&check_log('^X-Filter-Note:', 13) == 2 || print "14\n";
+Xunlink 'here';
+X
+X# Seconde time: a single 'SPLIT -id here' is run
+X&replace_header('X-Tag: split #2', 'digest');
+X`cp digest mail`;
+X`$cmd`;
+X$? == 0 || print "15\n";
+X-f "$user" && print "16\n";			# Was not split in-place, but in folder
+X-f 'here' || print "17\n";			# Where digest was split...
+X&get_log(18, 'here');				# Slurp folder in @log
+X&check_log('^X-Tag: digest #1', 19) == 1 || print "20\n";
+X&check_log('^X-Tag: digest #2', 21) == 1 || print "22\n";
+X&check_log('^X-Tag: digest #3', 23) == 1 || print "24\n";
+X&not_log('^X-Tag: split #2', 25);	# Header was deleted by -d
+X&check_log('^X-Filter-Note:', 26) == 2 || print "27\n";
+X&check_log('^X-Digest-To:', 84) == 3 || print "85\n";
+Xunlink 'here';
+X
+X# Third time: a single 'SPLIT -iew here' is run
+X&replace_header('X-Tag: split #3', 'digest');
+X`cp digest mail`;
+X`$cmd`;
+X$? == 0 || print "28\n";
+X-f "$user" && print "29\n";			# Was not split in-place, but in folder
+X-f 'here' || print "30\n";			# Where digest was split...
+X&get_log(31, 'here');				# Slurp folder in @log
+X&check_log('^X-Tag: digest #1', 32) == 1 || print "33\n";
+X&check_log('^X-Tag: digest #2', 34) == 1 || print "35\n";
+X&check_log('^X-Tag: digest #3', 36) == 1 || print "37\n";
+X&not_log('^X-Tag: split #3', 38);	# Header was deleted by -e
+X&check_log('^X-Filter-Note:', 39) == 3 || print "40\n";	# Trailing garbage...
+X&check_log('anticonstitutionellement', 41) == 1 || print "42\n";
+Xunlink 'here';
+X
+X# Fourth time: a single 'SPLIT -iew' is run. All the digest items will still
+X# be saved in 'here' because they all bear a X-Tag: header. The trailing
+X# garbage will not match anything and will be left in the mailbox.
+X&replace_header('X-Tag: split #4', 'digest');
+X`cp digest mail`;
+X`$cmd`;
+X$? == 0 || print "43\n";
+X-f "$user" || print "44\n";			# That must be the trailing garbage
+X-f 'here' || print "45\n";			# Where digest was split...
+X&get_log(46, 'here');				# Slurp folder in @log
+X&check_log('^X-Tag: digest #1', 47) == 1 || print "48\n";
+X&check_log('^X-Tag: digest #2', 49) == 1 || print "50\n";
+X&check_log('^X-Tag: digest #3', 51) == 1 || print "52\n";
+X&not_log('^X-Tag: split #3', 53);	# Header was deleted by -e
+X&check_log('^X-Filter-Note:', 54) == 2 || print "55\n";	# No trailing garbage...
+X&not_log('anticonstitutionellement', 56);
+X&get_log(57, "$user");
+X&check_log('anticonstitutionellement', 58) == 1 || print "59\n";
+X&check_log('^X-Filter-Note:', 60) == 1 || print "61\n";
+Xunlink 'here', "$user";
+X
+X# Fifth time: a single 'SPLIT -iew here', but this time header is not empty...
+X# Besides, there will be an empty message between encapsulation boundaries
+X# and we want to make sure SPLIT deals correctly with it. Trailing garbage
+X# is removed.
+Xopen(MAIL, ">mail");
+Xclose MAIL;
+X&make_digest('Not empty digest header');
+X`cp digest mail`;
+X&add_header('X-Tag: split #5');
+X`$cmd`;
+X$? == 0 || print "62\n";
+X-f 'here' || print "63\n";			# Where digest was split...
+X&get_log(64, 'here');				# Slurp folder in @log
+X&check_log('^X-Tag: digest #1', 65) == 1 || print "66\n";
+X&check_log('^X-Tag: digest #3', 67) == 1 || print "68\n";
+X&not_log('^X-Tag: digest #2', 69);	# Empty second message
+X&not_log('Mailagent-Test-Suite', 70);	# No trailing garbage
+X&check_log('^X-Filter-Note:', 71) == 2 || print "72\n";
+X&check_log('^From ', 73) == 4 || print "74\n";	# One built up for last item
+X&check_log('^Message-Id:', 75) == 1 || print "76\n";
+X&check_log('^>From', 80) == 2 || print "81\n";
+X&check_log('^From which', 82) == 1 || print "83\n";
+X
+X# Sixth time: mail is not in digest format.
+X`cp ../mail .`;
+X$? == 0 || print "77\n";		# Fool guard for myself
+X&add_header('X-Tag: split #5');
+X`$cmd`;
+X$? == 0 || print "78\n";
+X-f 'here' || print "79\n";		# Where mail was saved (not in digest format)
+X
+Xunlink 'mail', 'here', 'digest';
+X# Last is 85
+Xprint "0\n";
+X
+X# Build digest out of mail
+Xsub make_digest {
+X	local($msg) = @_;		# Optional, first line in header
+X	&get_log(100, 'mail');	# Slurp mail in @log
+X	open(DIGEST, ">digest");
+X	print DIGEST <<EOH;
+XReceived: from eiffel.eiffel.com by lyon.eiffel.com (5.61/1.34)
+X	id AA25370; Fri, 10 Jul 92 23:48:30 -0700
+XReceived: by eiffel.eiffel.com (4.0/SMI-4.0)
+X	id AA27809; Fri, 10 Jul 92 23:45:14 PDT
+XDate: Fri, 10 Jul 92 23:45:14 PDT
+XFrom: root@eiffel.com (Postmaster)
+XMessage-Id: <9207110645.AA27809@eiffel.eiffel.com>
+XTo: postmaster@eiffel.com
+XSubject: Mail Report - 10/07
+X
+X$msg
+X----------------------------------------------
+XFrom ram Sun Jul 12 18:20:27 PDT 1992
+XFrom: ram
+XSubject: Notice
+XX-Tag: digest #1
+X
+XJust to tell you there was no digest header... unless $msg set
+X
+X----
+X
+XEOH
+X	print DIGEST @log;
+X	print DIGEST <<'EOM';
+X----
+XFrom: ram
+XX-Tag: digest #3
+X
+XFrom line should be >escaped.
+XAnother message with a really minimum set of header!!
+XFrom which should NOT be
+X
+XFrom escaped again...
+X----
+X
+XEOM
+X	if ($msg eq '') {
+X		print DIGEST <<'EOM';
+XThis is trailing garbage. I will use the SPLIT command with the '-w'
+Xoption and this will be saved is a separate mail with the subject
+Xtaken from that of the whole digest, with the words (trailing garbage)
+Xappended to it... This token, "anticonstitutionellement " will make
+Xit obvious for grep -- it's the longest word in French, and it means
+Xthe government is not doing its job, roughly speaking :-).
+XEOM
+X	} else {
+X		print DIGEST <<'EOM';
+XEnd of digest Mailagent-Test-Suite
+X**********************************
+XEOM
+X	}
+X	close DIGEST;
+X}
+X
+END_OF_FILE
+  if test 6055 -ne `wc -c <'agent/test/cmd/split.t'`; then
+    echo shar: \"'agent/test/cmd/split.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/split.t'
+fi
+if test -f 'agent/test/option/c.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/option/c.t'\"
+else
+  echo shar: Extracting \"'agent/test/option/c.t'\" \(486 characters\)
+  sed "s/^X//" >'agent/test/option/c.t' <<'END_OF_FILE'
+X# -c : specify alternate configuration file
+Xdo '../pl/init.pl';
+X$output = `cat ../mail | $mailagent -c foo 2>&1`;
+X$? != 0 || print "1\n";		# Cannot open config file
+X$* = 1;
+X$output =~ /^\*\*.*not processed/ || print "2\n";
+Xchdir '../out';
+X$user = $ENV{'USER'};
+Xunlink "$user";
+X`cp .mailagent alternate`;
+X$output = `$mailagent -c alternate /dev/null 2>/dev/null`;
+X$? == 0 || print "3\n";
+X$output eq '' || print "4\n";
+X-s "$user" || print "5\n";
+Xunlink "$user", 'alternate';
+Xprint "0\n";
+END_OF_FILE
+  if test 486 -ne `wc -c <'agent/test/option/c.t'`; then
+    echo shar: \"'agent/test/option/c.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/option/c.t'
+fi
+echo shar: End of archive 12 \(of 17\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 17 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

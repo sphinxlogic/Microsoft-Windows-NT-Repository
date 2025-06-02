@@ -1,0 +1,1825 @@
+Newsgroups: comp.sources.misc
+From: Guido van Rossum <guido@cwi.nl>
+Subject:  v30i086: radio2.0 - Broadcast FM/AM over Local Area Network, Part02/02
+Message-ID: <1992Jun28.184938.5142@sparky.imd.sterling.com>
+X-Md4-Signature: 3b71f3a866642368edce5aef0e026d55
+Date: Sun, 28 Jun 1992 18:49:38 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Guido van Rossum <guido@cwi.nl>
+Posting-number: Volume 30, Issue 86
+Archive-name: radio2.0/part02
+Environment: Sun, SGI, NeXT
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  broadcast.c broadcast.man checkradio.py radio.c
+#   ttytuner.py
+# Wrapped by guido@voorn.cwi.nl on Wed Jun 10 13:30:32 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'broadcast.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'broadcast.c'\"
+else
+echo shar: Extracting \"'broadcast.c'\" \(9693 characters\)
+sed "s/^X//" >'broadcast.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X******************************************************************/
+X
+X/* Broadcast audio packets over UPD.
+X   Standard input should be an audio source, e.g., /dev/audio,
+X   or -- at CWI -- a pipeline like "rsh voorn ~guido/tmp/ship2sun".
+X
+X   Command line options:
+X
+X   -b ipaddr	IP address to broadcast to; may be repeated
+X		(default broadcast on local net)
+X   -c port	listen to this control port (default 54319)
+X   -d		debug output
+X   -n		no silence detection
+X   -t           time output; use when input is faster than realtime
+X		(e.g., read from a file file)
+X   -p port	broadcast to this port number (default 54321)
+X   -N name	station name (default your username)
+X   -L file	log file (default /ufs/<username>/CDlog)
+X   -P file	program file (default /ufs/<username>/CD)
+X*/
+X
+X#ifdef sun
+X#define SUNHACKS /* define this for SunOS */
+X#endif
+X
+X#define BCASTCTLPORT      54319
+X#define RADIOCTLPORT      54320
+X#define RCVPORT           54321
+X#define SENDPORT          54318
+X#define INFOPORT	  54317
+X
+X#define SAMPLINGRATE	  8000
+X#define BUFFERSIZE        1400
+X#define CTLPKTSIZE        100
+X#define INFOFREQ	  ((30*SAMPLINGRATE) / BUFFERSIZE)
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <stdlib.h>
+X#include <fcntl.h>
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <sys/time.h>
+X#include <sys/stat.h>
+X
+Xextern long time();
+X
+X#ifdef SUNHACKS
+X#include <sys/sockio.h>		/* For SIOCGIF* */
+X#include <net/if.h>		/* For struct if* */
+X#endif
+X
+X#ifdef REMHDR
+X#include <multimedia/libaudio.h>
+X#include <multimedia/audio_filehdr.h>
+X#endif
+X
+X#ifdef NeXT
+X#include <sound/sound.h>
+X#endif
+X
+Xextern int optind;
+Xextern char * optarg;
+X
+Xchar *progname;
+Xchar infostring[CTLPKTSIZE];
+Xstruct timeval zerotime;
+Xstruct timeval tstart;
+Xint pdebug = 0;
+X
+X#define NBCADDR 10		/* Max number of broadcast addresses */
+Xint nbcaddr = 0;		/* Number of broadcast address options */
+Xstruct sockaddr_in bcaddr[NBCADDR];	/* Broadcast addresses */
+Xstruct sockaddr_in infoaddr[NBCADDR];	/* Ditto for info messages */
+X
+Xint port = RCVPORT;
+Xchar *name = 0;
+Xchar *logfile = 0;
+Xchar *programfile = 0;
+Xchar *user;
+X
+Xlong packetcount = 0;
+Xint transmitting = 1;
+X
+Xchar *
+Xwhoami()
+X{
+X	char *user = getenv("LOGNAME");
+X	if (user == NULL) {
+X		user = getenv("USER");
+X		if (user == NULL)
+X			user = "???";
+X	}
+X	return user;
+X}
+X
+Xint
+Xmakeinfo()
+X{
+X	FILE *fp;
+X	int n;
+X	struct stat s;
+X	long age;
+X
+X	if (stat(programfile, &s) >= 0)
+X		age = time((long*)0) - s.st_mtime;
+X	else
+X		age = -1;
+X	sprintf(infostring, "radio:S:%s:%d:%d:%s:%ld:",
+X		name, port, transmitting, logfile, age);
+X	n = strlen(infostring);
+X	fp = fopen(programfile, "r");
+X	if (fp != NULL) {
+X		fgets(infostring + n, sizeof infostring - n, fp);
+X		fclose(fp);
+X		n = strlen(infostring);
+X		if (infostring[n-1] == '\n')
+X			infostring[--n] = '\0';
+X	}
+X	return n;
+X}
+X
+Xvoid
+Xsendinfo(s, addr, addrsize)
+X	int s; /* Socket */
+X	struct sockaddr *addr;
+X	int addrsize;
+X{
+X	int n = makeinfo();
+X	if (sendto(s, infostring, n, 0, addr, addrsize) < 0)
+X		perror("sendto in sendinfo");
+X}
+X
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	char *broadcastaddr = NULL;
+X	char buf[BUFFERSIZE];
+X	int on = 1;
+X	int i;
+X	int s, ctls;
+X	int c;
+X	int timing = 0;
+X	fd_set inputav;
+X	struct sockaddr_in locsin;
+X	struct sockaddr_in ctlsin;
+X	int ctlsinsize;
+X	int ctlport = BCASTCTLPORT;
+X	int noisy = 0;
+X
+X	progname = argv[0];
+X
+X/* Always change these two macros and the following switch together! */
+X#define OPTIONS "b:c:dnp:tL:N:P:"
+X#define USAGE	"usage: %s [-b broadcastaddr] ... [-c ctlport] [-d] [-n] [-p port] [-t]\n\t[-N name] [-L logfile] [-P programfile]\n"
+X
+X	while ((c = getopt(argc, argv, OPTIONS)) != EOF) {
+X		switch (c) {
+X		default:
+X		case '?':
+X			fprintf(stderr, USAGE, progname);
+X			exit(2);
+X		case 'b':
+X			if (nbcaddr >= NBCADDR) {
+X				fprintf(stderr,
+X					"%s: too many -b options (max %d)\n",
+X					progname, NBCADDR);
+X				exit(2);
+X			}
+X			if (setipaddr(optarg, &bcaddr[nbcaddr]) < 0) {
+X				fprintf(stderr,
+X					"%s: bad broadcast address '%s'\n",
+X					progname, broadcastaddr);
+X				exit(2);
+X			}
+X			nbcaddr++;
+X			break;
+X		case 'c':
+X			ctlport = atoi(optarg);
+X			break;
+X		case 'd':
+X			pdebug = 1;
+X			break;
+X		case 'n':
+X			noisy = 1;
+X			break;
+X		case 'p':
+X			port = atoi(optarg);
+X			break;
+X		case 't':
+X			timing = 1;
+X			break;
+X		case 'L':
+X			logfile = optarg;
+X			break;
+X		case 'N':
+X			name = optarg;
+X			break;
+X		case 'P':
+X			programfile = optarg;
+X			break;
+X		}
+X	}
+X
+X	user = whoami();
+X	if (logfile == 0) {
+X		static char logbuf[100];
+X		sprintf(logbuf, "/ufs/%s/CDlog", user);
+X		logfile = logbuf;
+X	}
+X	if (name == 0)
+X		name = user;
+X	if (programfile == 0) {
+X		static char programbuf[100];
+X		sprintf(programbuf, "/ufs/%s/CD", user);
+X		programfile = programbuf;
+X	}
+X
+X	s = opensock("data", (char *)NULL, SENDPORT, (char *)NULL, 0, 1);
+X
+X	if (nbcaddr == 0) {
+X		configure(s, &bcaddr[0]);
+X		nbcaddr = 1;
+X	}
+X
+X	for (i = 0; i < nbcaddr; i++) {
+X		bcaddr[i].sin_port = htons(port);
+X		bcaddr[i].sin_family = AF_INET;
+X		infoaddr[i] = bcaddr[i];
+X		infoaddr[i].sin_port = htons(INFOPORT);
+X	}
+X
+X	ctls = opensock("control", (char *)NULL, ctlport, (char *)NULL, 0, 0);
+X
+X	if(timing) {
+X#ifdef REMHDR
+X		Audio_hdr hp;
+X		(void) audio_read_filehdr(0, &hp, NULL, NULL);
+X#endif
+X#ifdef NeXT
+X		SNDSoundStruct s;
+X
+X		(void) fread((void *)&s, sizeof(SNDSoundStruct), 1, stdin);
+X
+X#endif
+X		gettimeofday(&tstart, 0);
+X	}
+X
+X	for (;;) {
+X		int n = fread(buf, 1, BUFFERSIZE, stdin);
+X		if (n <= 0) {
+X			if (n < 0)
+X				perror("fread");
+X			break;
+X		}
+X		if(timing)
+X			waiting(SAMPLINGRATE, BUFFERSIZE);
+X		if (!noisy && silent(buf, n)) {
+X			if (transmitting) {
+X				if (pdebug)
+X					fprintf(stderr, "start silence\n");
+X				transmitting = 0;
+X			}
+X		}
+X		else {
+X			if (!transmitting) {
+X				if (pdebug)
+X					fprintf(stderr, "end silence\n");
+X				packetcount = 0;
+X				transmitting = 1;
+X			}
+X			for (i = 0; i < nbcaddr; i++) {
+X				/* Send data packets to all bcast ports */
+X				if (sendto(s, buf, n, 0, &bcaddr[i],
+X					   sizeof bcaddr[i]) != n) {
+X					perror("sendto");
+X				}
+X			}
+X			if (packetcount % INFOFREQ == 0) {
+X				/* Send info packets to all info ports
+X				   and to all bcast ports */
+X				if (pdebug)
+X					fprintf(stderr, "sending info\n");
+X				for (i = 0; i < nbcaddr; i++) {
+X					sendinfo(s, &infoaddr[i],
+X						 sizeof infoaddr[i]);
+X					sendinfo(s, &bcaddr[i],
+X						 sizeof bcaddr[i]);
+X				}
+X			}
+X			if (pdebug) {
+X				if(packetcount % 8 == 0) {
+X					fprintf(stderr, "%ld packets sent\n",
+X						packetcount);
+X				}
+X			}
+X			packetcount++;
+X		}
+X		if (ctls >= 0) {
+X			FD_ZERO(&inputav);
+X			FD_SET(ctls, &inputav);
+X			if (select(ctls+1, &inputav, 0, 0, &zerotime) == 1) {
+X				ctlsinsize = sizeof(ctlsin);
+X				n = recvfrom(ctls, buf, BUFFERSIZE, 0,
+X					     &ctlsin, &ctlsinsize);
+X				if (n < 0) {
+X					perror("recvfrom");
+X					exit(1);
+X				}
+X				if (n >= 7 &&
+X				    strncmp(buf, "radio:s", 7) == 0) {
+X					sendinfo(ctls, &ctlsin, ctlsinsize);
+X				}
+X				else {
+X					fprintf(stderr,
+X						"%s: Funny ctl message\n",
+X						progname);
+X				}
+X			}
+X		}
+X	}
+X
+X	exit(0);
+X}
+X
+Xconfigure(s, addr_ret)
+X	int s;
+X	struct sockaddr_in *addr_ret;
+X{
+X#ifdef SUNHACKS
+X	char buf[BUFSIZ];
+X	struct ifconf ifc;
+X	struct ifreq ifreq;
+X
+X	ifc.ifc_len = sizeof(buf);
+X	ifc.ifc_buf = buf;
+X	if (ioctl(s, SIOCGIFCONF, (char *)&ifc) < 0) {
+X		perror("ioctl SIOCGIFCONF");
+X		exit(1);
+X	}
+X	ifreq = *ifc.ifc_req;
+X	if (ioctl(s, SIOCGIFBRDADDR, (char *)&ifreq) < 0) {
+X		perror("ioctl SIOCGIFBRDADDR");
+X		exit(1);
+X	}
+X	* (struct sockaddr *) addr_ret = ifreq.ifr_broadaddr;
+X#else
+X	addr_ret->sin_addr.s_addr = INADDR_BROADCAST;
+X#endif
+X}
+X
+X/*
+X * routine to sleep between consecutive packets
+X */
+X
+Xwaiting(rate, data)
+X	int rate;
+X	int data;
+X{
+X	static int bytes = 0; /* packets already sent */
+X
+X	struct timeval tnow;
+X	int tsleep;
+X
+X	bytes += data;
+X	gettimeofday(&tnow, 0);
+X
+X	tsleep =  ((double) bytes/(double) rate) * 1000000
+X		- ((tnow.tv_sec - tstart.tv_sec) * 1000000
+X                    + tnow.tv_usec - tstart.tv_usec);
+X	if (tsleep > 0) {
+X		struct timeval t;
+X
+X		t.tv_sec = tsleep / 1000000;
+X		t.tv_usec = tsleep % 1000000;
+X		(void) select(0, NULL, NULL, NULL, &t);
+X	}
+X}
+X
+X/*
+X * Silence detection.
+X * You may have to play with these parameters.
+X * Our input is rather noisy, hence we have a rather high threshold.
+X */
+X
+X#define DEADTIME (20*SAMPLINGRATE) /* After this much silence we cut off */
+X#define THRESHOLD 75 /* Max silent U-LAW value (after normalization) */
+X
+Xsilent(buf, n)
+X	register char *buf;
+X	register int n;
+X{
+X	static int dead = DEADTIME; /* State */
+X	register int abs;
+X
+X	dead += n;
+X	while (--n >= 0) {
+X		abs = 127 - ((*buf++) & 127);
+X		if (abs > THRESHOLD) {
+X			dead = 0;
+X			return 0;
+X		}
+X	}
+X	return (dead > DEADTIME);
+X}
+END_OF_FILE
+if test 9693 -ne `wc -c <'broadcast.c'`; then
+    echo shar: \"'broadcast.c'\" unpacked with wrong size!
+fi
+# end of 'broadcast.c'
+fi
+if test -f 'broadcast.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'broadcast.man'\"
+else
+echo shar: Extracting \"'broadcast.man'\" \(6157 characters\)
+sed "s/^X//" >'broadcast.man' <<'END_OF_FILE'
+X.TH BROADCAST 1
+X.SH NAME
+Xbroadcast \- send audio UDP packets to be received by radio
+X.SH SYNOPSIS
+X.B broadcast
+X[
+X.BI "\-b " addr
+X] ... [
+X.BI "\-c " port
+X] [
+X.BI \-d
+X] [
+X.BI \-n
+X]
+X          [
+X.BI "\-p " port
+X] [
+X.BI \-t
+X]
+X          [
+X.BI "\-L " logfile
+X] [
+X.BI "-N " name
+X] [
+X.BI "\P " programfile
+X]
+X.SH DESCRIPTION
+X.I Broadcast
+Xreads audio data in U-LAW format (8000 samples/second, 1 byte/sample,
+Xlogarithmically encoded) from standard input, chops it up into packets
+Xof 1400 bytes each, and transmits these as UDP broadcast packets.
+XOn a typical ethernet, this uses about 1 percent of the net available
+Xbandwith (less than 6 packets per second).
+XThe program
+X.IR radio (1)
+Xlistens for these packets, reassembles them and makes the encoded
+Xsound audible, given suitable hardware.
+X.PP
+XIt is possible to use multiple transmission stations (each identified
+Xby a different UDP port), and to transmit to multiple connected
+Xsubnets simultaneously, as long as the gateways let UDP broadcast
+Xpackets through.
+XEach transmission station should run on a different host though.
+X.SH OPTIONS
+X.TP 10
+X.BI "\-b " addr
+XIP address to send to (default broadcast on local net).
+XThe address may be a host name (for unicast) or an IP multicast
+Xaddress (last byte 0 or 255).
+XMore than one
+X.B \-b
+Xoption may be given; the data is sent to each address.
+X.TP 10
+X.BI "\-c " port
+XUse this UDP port number as control port (default 54320).
+XNormally you never need to change this; the control port is used by
+Xoptional ``tuner'' software (not distributed).
+X.TP 10
+X.B \-d
+XTurn on debugging (a message on stderr for each 8 packets sent).
+X.TP 10
+X.B \-n
+XNo silence suppression.
+XNormally, when the input contains more than 20 seconds of silence,
+Xoutput packets are suppressed until some noise is detected again.
+XThis option turns off that feature.
+X.TP 10
+X.BI "\-p " port
+XTransmit to this UDP port number (default 54321).
+X.TP 10
+X.B \-t
+XWhen the input is faster than real time, e.g., read from a file, this
+Xoption ensures that the packets are sent out at the correct rate (8000
+Xbytes/sec).
+XNormally, it is presumed that the standard input takes care of this.
+X.TP 10
+X.BI "\-L " logfile
+XThe filename of the file where recent program information is logged.
+XTypically, each time the current program information is changed it is
+Xalso appended to this file.
+XDefault is /ufs/<username>/CDlog.
+X.TP 10
+X.BI "\-N " name
+XThe name of the station.
+XDefault the current username.
+X.TP 10
+X.BI "\-P " programfile
+XThe name of the file where current program information is kept (one line).
+XTypically, this file contains three colon-separated fields:
+Xperformer, composer, and title, where the composer field is only used
+Xfor classical music.
+XDefault is /ufs/<username>/CD.
+X.SH TYPICAL USAGE
+XDue to the different interface to audio input hardware on different
+Xsystems, transmissions are started differently on different platforms.
+X.PP
+XTo start transmissions on Sun Sparcs, run this command (probably in
+Xthe background, once you've debugged your audio setup):
+X.IP
+Xbroadcast -p \fIport\fP </dev/audio
+X.PP
+XYou must connect a mono audio source to the machine using a standard
+Xcable provided by Sun.
+XControl the input gain with
+X.IR x_gaintool (1)
+Xor
+X.IP gaintool (1)
+X(these programs can be found in /usr/demo/SOUND in SunOS 4.1).
+X.PP
+XThis command start transmissions on SGI IRIX:
+X.IP
+Xrecordulaw | broadcast -p \fIport\fP
+X.PP
+XConnect a stereo audio source to the machine using a standard walkman
+Xjack.
+XIf you're using an early 4D/35, check that you have audio hardware and
+Xsoftware installed -- the output from hinv will tell you this.
+XControl the the input gain with
+X.IR apanel (1).
+X.PP
+XOn the NeXT you start transmissions as follows:
+X.IP
+Xsndulaw | broadcast -p \fIport\fP
+X.PP
+XThis takes input from the microphone; you may also connect an audio
+Xsource to the microphone input (probably needs some attenuation to get
+Xthe impedance right).
+X.SH FORWARDING
+XIf nets A and B are connected by a gateway that blocks UDP broadcasts
+Xbut lets normal packets through, you can set up a forwarding station
+Xas follows.
+XAssume A.1 is the host on net A where broadcasts originate, A.0 is the
+Xbroadcast address for net A, host B.1 is the forwarding host on net B,
+Xand B.0 is net B's broadcast address.
+X(You will have to specify IP broadcast addresses in the decimal
+X.I ddd.ddd.ddd.ddd
+Xformat; usually the broadcast address for a net is the same as the IP
+Xaddress for hosts on that net with the last byte changed to 0 or 255.)
+XOn host A.1, run
+X.I broadcast
+Xas follows:
+X.IP
+Xbroadcast -b A.0 -b B.1
+X.PP
+XOn host B.1, run this pipeline:
+X.IP
+Xradio -l B.1 -r A.1 -f | broadcast -b B.0
+X.PP
+XNow all hosts on nets A and B can listen to the broadcasts from host
+XA.1, at the cost of 100% extra (unicast) packets on both nets.
+X.PP
+XIf the gateway lets UDP broadcast packets through, no forwarding is
+Xnecessary; running ``broadcast -b A.0 -b B.0'' on host A.1 is
+Xsufficient.
+X.SH AUTHOR
+XGuido van Rossum
+X.SH VERSION
+XThis manual page documents broadcast version 2.0, patchlevel 0.
+X.SH SEE ALSO
+Xradio(1)
+X.SH BUGS
+XShould use multicast when available.
+X.SH COPYRIGHT
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+END_OF_FILE
+if test 6157 -ne `wc -c <'broadcast.man'`; then
+    echo shar: \"'broadcast.man'\" unpacked with wrong size!
+fi
+# end of 'broadcast.man'
+fi
+if test -f 'checkradio.py' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'checkradio.py'\"
+else
+echo shar: Extracting \"'checkradio.py'\" \(8719 characters\)
+sed "s/^X//" >'checkradio.py' <<'END_OF_FILE'
+X# /***********************************************************
+X# Copyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+X# Netherlands.
+X# 
+X#                         All Rights Reserved
+X# 
+X# Permission to use, copy, modify, and distribute this software and its 
+X# documentation for any purpose and without fee is hereby granted, 
+X# provided that the above copyright notice appear in all copies and that
+X# both that copyright notice and this permission notice appear in 
+X# supporting documentation, and that the names of Stichting Mathematisch
+X# Centrum or CWI not be used in advertising or publicity pertaining to
+X# distribution of the software without specific, written prior permission.
+X# 
+X# STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X# FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+X# FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+X# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+X# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X# 
+X# ******************************************************************/
+X
+X# Continuously check radio transmissions on one or more ports.
+X# After an idea of Behr de Ruiter.
+X#
+X# usage: checkradio [-t] [port] ...
+X#
+X# Ports are given as command line arguments, default is radio's default.
+X# Shorthands 1..99 can be used as for radio's -p argument.
+X#
+X# With the -t option, repeatedly print status for each port argument.
+X# Without -t, pop up a GL window displaying the CD file if there is noise.
+X
+X# For best results, use /ufs/guido/bin/sgi/python to execute this.
+X# Don't make the file executable; then dynamic loading of audioop fails!
+X
+X# XXX To do:
+X# - need an option to suppress looping when using -t
+X# - need a `status only' option that sets exit status only
+X# - DELAY and LOOP should be under control of command line options
+X# - add options to specify font, colors and so on
+X# - optionally tune radio to the first station transmitting noise
+X# - should listen to info packets instead
+X# - move the symbolic constants and some subroutines to separate modules
+X
+X
+Ximport sys
+Ximport socket
+Ximport audioop
+Ximport string
+Ximport time
+Ximport os
+Xfrom stat import *
+Xfrom SOCKET import *
+Ximport getopt
+X
+X
+X# Parametrizations
+X
+XCTL_PORT = 54319			# control port
+XPORT_OFFSET = 54320			# port offset if 1 <= port <= 99
+XDEF_PORT = 54321			# default port (if no args)
+XLOOP = 15				# listen for this many tenths seconds
+XDELAY = 10				# seconds between successive tries
+XLIMIT = 256				# silence threshold
+XBUFSIZE = 1500				# read buffer size
+X
+X
+X# Status constants returned by checkport()
+X
+XTUNED = 'already tuned in'
+XBINDFAILURE = 'bind failure'
+XDEAD = 'not transmitting'
+XSILENT = 'transmitting silence'
+XNOISY = 'transmitting'
+X
+X
+X# Main program
+X
+Xdef main():
+X	try:
+X		optlist, args = getopt.getopt(sys.argv[1:], 'tx:y:')
+X	except getopt.error:
+X		sys.stdout = sys.stderr
+X		print 'usage: checkradio',
+X		print '[-x xorg] [-y yorg] [-t] [port] ...'
+X		print '-x xorg, -y yorg: left top origin of window',
+X		print '(negative values: right bottom)'
+X		print '-t: tty mode output (looping), no window'
+X		sys.exit(2)
+X	#
+X	do_win = 1
+X	x, y = 140, 4
+X	for opt, arg in optlist:
+X		if opt == '-t':
+X			do_win = 0
+X		elif opt == '-x':
+X			x = int(eval(arg))
+X		elif opt == '-y':
+X			y = int(eval(arg))
+X	#
+X	ports = []
+X	for arg in args:
+X		p = int(eval(arg))
+X		if 1 <= p <= 99:
+X			p = p + PORT_OFFSET
+X		ports.append(p)
+X	if not ports:
+X		ports.append(DEF_PORT)
+X	#
+X	if do_win:
+X		wincode(ports, (x, y))
+X	else:
+X		ttycode(ports)
+X
+X
+X# Code for tty version
+X
+Xdef ttycode(ports):
+X	while 1:
+X		for p in ports:
+X			print 'port', p, ':',
+X			sys.stdout.flush()
+X			status, sender = checkport(p)
+X			if status in (NOISY, SILENT):
+X				cdname = getinfostring(p, sender)
+X				if cdname:
+X					status = status + ': ' + cdname
+X			print status
+X		time.sleep(DELAY)
+X
+Xdef getinfostring(port, sender):
+X	name, port, transmitting, logfile, age, contents = \
+X		getinfo(port, sender)
+X	if 0 <= age < 99999:
+X		contents = contents + ' (' + formatage(age) + ')'
+X	return contents
+X
+Xdef formatage(age):
+X	if age < 60: return `age` + ' sec'
+X	if age < 3600: return `age/60` + ' min'
+X	if age < 24*3600: return `age/3600` + ' hrs'
+X	return `age/(24*3600)` + ' days'
+X
+X
+X# Code for GL window version
+X
+X# Parameters
+Xtimer_rate = 60 # Seconds
+Xcolor_choices = [95, 94, 93, 92, 91, 90, 89, 88]
+X
+Xdef wincode(ports, org):
+X	if len(ports) > 1:
+X		sys.stderr.write('warning: only the first port arg is used\n')
+X	port = ports[0]
+X	import gl, GL, DEVICE, fm
+X	#gl.foreground()
+X	fh = fm.findfont('Helvetica').scalefont(8)
+X	fh.setfont()
+X	str, age = getinfopair(port)
+X	# Always create the window initially -- to initialize gl
+X	wid = createwin(org, fh, str)
+X	gl.qdevice(DEVICE.TIMER1)
+X	gl.noise(DEVICE.TIMER1, timer_rate*60) # 60th of a second
+X	while 1:
+X		dev, val = gl.qread()
+X		if dev == DEVICE.REDRAW:
+X			redraw_window(wid, str, age)
+X		elif dev == DEVICE.TIMER1:
+X			oldstr = str
+X			str, age = getinfopair(port)
+X			if str <> oldstr:
+X				if wid > 0:
+X					org = currentorg(org)
+X					deletewin(wid)
+X					wid = -1
+X				if str:
+X					wid = createwin(org, fh, str)
+X			elif wid > 0:
+X				redraw_window(wid, str, age)
+X
+Xdef currentorg((oldx, oldy)):
+X	import gl, GL
+X	x, y = gl.getorigin()
+X	if oldx >= 0 and oldy >= 0: return (oldx, oldy)
+X	xsize, ysize = gl.getsize()
+X	xmax = gl.getgdesc(GL.GD_XPMAX)
+X	ymax = gl.getgdesc(GL.GD_YPMAX)
+X	if oldx < 0:
+X		x = (x + xsize) - (xmax+1)
+X		if x >= 0: x = -1
+X	if oldy < 0:
+X		y = (y + ysize) - (ymax+1)
+X		if y >= 0: y = -1
+X	return x, y
+X
+Xdef redraw_window(wid, str, age):
+X	import gl, GL, fm
+X	mins = age/60 # Convert to minutes
+X	
+X	gl.color(color_choices[min(max(0, mins/9), len(color_choices)-1)])
+X	gl.clear()
+X	
+X	gl.color(GL.BLACK)
+X
+X	xsize, ysize = gl.getsize()
+X	gl.bgnclosedline()
+X	gl.v2i(0, 0)
+X	gl.v2i(0, ysize-1)
+X	gl.v2i(xsize-1, ysize-1)
+X	gl.v2i(xsize-1, 0)
+X	gl.endclosedline()
+X
+X	gl.cmov2i(4, 4)
+X	fm.prstr(str)
+X
+Xdef createwin((x, y), fh, str):
+X	import gl, GL, DEVICE
+X	gl.noborder()
+X	xsize = fh.getstrwidth(str) + 7
+X	ysize = 16
+X	if x < 0 or y < 0:
+X		xmax = gl.getgdesc(GL.GD_XPMAX)
+X		ymax = gl.getgdesc(GL.GD_YPMAX)
+X		if x < 0: x = x + (xmax+1) - xsize
+X		if y < 0: y = y + (ymax+1) - ysize
+X	gl.prefposition(x, x + xsize, y, y + ysize)
+X	wid = gl.winopen('checkradio')
+X	gl.qenter(DEVICE.REDRAW, wid)
+X	return wid
+X
+Xdef deletewin(wid):
+X	import gl, GL, DEVICE
+X	gl.winclose(wid)
+X
+Xdef getinfopair(port):
+X	state, sender = checkport(port)
+X	if state not in (NOISY, SILENT):
+X		return '', 99999
+X	name, port, transmitting, logfile, age, contents = \
+X		getinfo(port, sender)
+X	return contents, age
+X
+X
+X# Common code
+X
+Xdef checkport(port):
+X	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+X	try:
+X		s.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1)
+X	except socket.error:
+X		print 'warning: cannot set socket option SO_REUSEPORT'
+X	try:
+X		s.bind('', port)
+X	except socket.error, msg:
+X		if msg == (114, 'Address already in use'):
+X			return TUNED, msg
+X		else:
+X			return BINDFAILURE, msg
+X	transmitting = 0
+X	noise = 0
+X	sender = None
+X	for i in range(LOOP):
+X		if i: time.millisleep(100)
+X		while s.avail():
+X			data, sender = s.recvfrom(BUFSIZE)
+X			if data[:6] == 'radio:': continue
+X			transmitting = 1
+X			lindata = audioop.ulaw2lin(data, 2)
+X			n = audioop.max(lindata, 2)
+X			if n > LIMIT:
+X				noise = n
+X				break
+X		if noise: break
+X	s.close()
+X	if not transmitting:
+X		return DEAD, sender
+X	if not noise:
+X		return SILENT, sender
+X	return NOISY, sender
+X
+Xdef getinfo(port, sender):
+X	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+X	s.sendto('radio:s', (sender[0], CTL_PORT))
+X	for i in range(LOOP):
+X		time.millisleep(100)
+X		while s.avail():
+X			data, realsender = s.recvfrom(BUFSIZE)
+X			if data[:7] == 'radio:S':
+X				return decodeinfo(data)
+X
+Xdef decodeinfo(data):
+X	fields = string.splitfields(data, ':')
+X	name = fields[2]
+X	port = eval(fields[3])
+X	if fields[4:]:
+X		transmitting = eval(fields[4])
+X		logfile = fields[5]
+X		age = eval(fields[6])
+X		contents = string.joinfields(fields[7:], ':')
+X	else:
+X		transmitting = -1
+X		programfile = '/ufs/' + name + '/CD'
+X		logfile = programfile + 'log'
+X		age = getage(programfile)
+X		if age == None:
+X			age = -1
+X		contents = getcontents(programfile)
+X		if contents == None:
+X			contents = '???'
+X	return name, port, transmitting, logfile, age, contents
+X	return None
+X
+Xdef getcontents(filename):
+X	try:
+X		f = open(filename, 'r')
+X	except IOError:
+X		return None
+X	res = f.readline()
+X	f.close()
+X	return string.strip(res)
+X
+Xdef getage(filename):
+X	try:
+X		st = os.stat(filename)
+X	except os.error:
+X		return None
+X	return time.time() - st[ST_MTIME]
+X
+X
+X# Call the main program
+X
+Xtry:
+X	main()
+Xexcept KeyboardInterrupt:
+X	print
+X	print '[Interrupt]'
+END_OF_FILE
+if test 8719 -ne `wc -c <'checkradio.py'`; then
+    echo shar: \"'checkradio.py'\" unpacked with wrong size!
+fi
+# end of 'checkradio.py'
+fi
+if test -f 'radio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'radio.c'\"
+else
+echo shar: Extracting \"'radio.c'\" \(11127 characters\)
+sed "s/^X//" >'radio.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X******************************************************************/
+X
+X/* Receive audio UDP packets transmitted by broadcast.
+X
+X   Command line options:
+X
+X   -p port	tune to this port number (default 54321)
+X                (port numbers 1..99 are shorthands for 54321 and up)
+X   -v volume	output volume (range 0-100; default unchanged)
+X		(you can auso use [x_]gaintool or a similar tool to
+X		set the output volume etc.)
+X   -c port	use this control port (default 54320)
+X   -s		'secure' mode: don't listen to the control port
+X   -f		work as a filter: send output to stdout instead of
+X		directly to the audio hardware
+X   -l addr	listen only for packets to <arg> ip address
+X   -r addr	listen only for packets from <arg>
+X   -d		debug packets
+X   -n           noninterruptable -- by default radio will be interruptable
+X		by other sound outputting programs, hoping they do not
+X		take too long.  This option turns off that feature.
+X*/
+X
+X#define BCASTCTLPORT      54319
+X#define RADIOCTLPORT      54320
+X#define RCVPORT           54321
+X#define SENDPORT          54318
+X
+X#define BUFFERSIZE        1400
+X#define CTLPKTSIZE        100
+X
+X#ifdef sgi
+X#define USE_AL
+X#endif
+X#ifdef sun
+X#define USE_SUN
+X#endif
+X#ifdef NeXT
+X#define USE_NX
+X#endif
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <stdlib.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X#include <netdb.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X
+X#ifdef USE_AL
+X#include <audio.h>
+X#include "libst.h"
+X
+Xlong savestate[] = {
+X	AL_OUTPUT_RATE, 0,
+X	AL_LEFT_SPEAKER_GAIN, 0,
+X	AL_RIGHT_SPEAKER_GAIN, 0,
+X};
+X
+XALport aport;
+X
+Xvoid cleanup_handler();
+X#endif /* USE_AL */
+X
+X#ifdef USE_SUN
+X#include <stropts.h>
+X#include <sun/audioio.h>
+X
+X#define AUDIO_IODEV     "/dev/audio"
+X#define AUDIO_CTLDEV    "/dev/audioctl"
+X
+Xint interruptable = 1;
+Xint actlfd = -1;
+X
+Xvoid sigpoll_handler();
+X#endif /* USE_SUN */
+X  
+X#ifdef USE_NX
+X#include <sound/sound.h>
+X#define NUM_BUFFER 10
+XSNDSoundStruct *snd[NUM_BUFFER];
+X#endif /* USE_NX */
+X
+X/* getopt() interface */
+Xextern int optind;
+Xextern char * optarg;
+X
+X/* Globals */
+Xint pausing = 0; /* Flag set when pausing */
+Xint ofd = -1; /* Output file descriptor */
+Xint volume = -1; /* -v parameter */
+X
+X/* Forward functions */
+Xvoid open_speaker();
+Xvoid close_speaker();
+X
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	int receiveport = RCVPORT;
+X	int ctlport = RADIOCTLPORT;
+X	char buf[BUFFERSIZE];
+X	int s, ctls, curs;
+X	struct sockaddr from;
+X	int fromlen;
+X	int c;
+X	int filter = 0;
+X	int nfds;
+X	fd_set inputset;
+X	int n;
+X	int pdebug = 0;
+X	char *localname = (char *) NULL;
+X	char *remotename = (char *) NULL;
+X#ifdef USE_AL
+X	short obuf[BUFFERSIZE];
+X	int i;
+X#endif /* USE_AL */
+X#ifdef USE_NX
+X	int akt_buf;
+X#endif
+X
+X/* Always change these two macros together! */
+X#define OPTIONS "c:dfl:np:r:sv:"
+X#define USAGE "usage: %s [-c ctlport] [-d] [-f] [-l localhost] [-n] [-p port]\n\t[-r remotehost] [-s] [-v volume(0-100)]\n"
+X
+X	while ((c = getopt(argc, argv, OPTIONS)) != EOF) {
+X		switch (c) {
+X		case '?':
+X			fprintf(stderr, USAGE, argv[0]);
+X			exit(2);
+X		case 'p':
+X			receiveport = atoi(optarg);
+X			if (0 < receiveport && receiveport < 100)
+X				receiveport += RCVPORT-1;
+X			break;
+X		case 'c':
+X			ctlport = atoi(optarg);
+X			break;
+X		case 'l':
+X			localname = optarg;
+X			break;
+X		case 'r':
+X			remotename = optarg;
+X			break;
+X		case 'd':
+X			pdebug = 1;
+X			break;
+X#ifdef USE_SUN
+X		case 'n':
+X			interruptable = 0;
+X			break;
+X#endif /* USE_SUN */
+X		case 's':
+X			ctlport = -1;
+X			break;
+X		case 'f':
+X			filter = 1;
+X			break;
+X		case 'v':
+X			volume = atoi(optarg);
+X			break;
+X		}
+X	}
+X
+X	if (filter) {
+X		ofd = fileno(stdout);
+X	}
+X	else {
+X		open_speaker();
+X	}
+X
+X	if (ctlport >= 0)
+X		ctls = opensock("control", (char *)NULL, ctlport,
+X				(char *)NULL, 0, 0);
+X	else
+X		ctls = -1;
+X
+X	s = opensock("data", localname, receiveport, remotename, SENDPORT, 0);
+X
+X	for (;;) {
+X		/*
+X		** Wait until one of the sockets becomes ready
+X		*/
+X		nfds = (s > ctls ? s : ctls) + 1;
+X		FD_ZERO(&inputset);
+X		FD_SET(s, &inputset);
+X		if (ctls >= 0)
+X			FD_SET(ctls, &inputset);
+X		while (select(nfds, &inputset, 0, 0, 0) < 1) {
+X			if(errno != EINTR) {
+X				perror("select");
+X				exit(1);
+X			}
+X		}
+X		if (ctls >= 0 && FD_ISSET(ctls, &inputset))
+X			curs = ctls;
+X		else if (FD_ISSET(s, &inputset))
+X			curs = s;
+X		/*
+X		** Read, and check for control packet
+X		*/
+X		fromlen = sizeof(from);
+X		n = recvfrom(curs, buf, BUFFERSIZE, 0, &from, &fromlen);
+X		if (n <= 0) {
+X			if (n == 0)
+X				continue; /* Ignore empty packets */
+X			perror("read");
+X			break;
+X		}
+X		if (pdebug) {
+X			if(pdebug == 8) {
+X				fprintf(stderr, "8 packets received\n");
+X				pdebug = 1;
+X			}
+X			else
+X				pdebug++;
+X		}
+X		if ( n <= CTLPKTSIZE ) {
+X			/*
+X			** It looks like a control packet. Check it.
+X			*/
+X			buf[n] = '\0';
+X			if (strncmp(buf, "radio:", 6) == 0) {
+X				if (pdebug)
+X					fprintf(stderr, "control packet\n");
+X				switch(buf[6]) {
+X				case 'e':		/* Echo */
+X					buf[6] = 'E';
+X					sendto(curs, buf, n, 0,
+X					       &from, fromlen);
+X					break;
+X				case 'S':	/* Status from broadcast */
+X					if (pdebug)
+X						fprintf(stderr,
+X							"Status %s\n", buf);
+X					break;
+X				case 't':		/* Tune */
+X					if (curs != ctls) {
+X						if (pdebug)
+X						  fprintf(stderr,
+X						    "radio: illegal tune\n");
+X						break;
+X					}
+X#ifdef USE_SUN
+X					if (!filter) {
+X						(void) ioctl(ofd, I_FLUSH,
+X							     FLUSHW);
+X					}
+X#endif /* USE_SUN */
+X					receiveport = atoi(buf+8);
+X					close(s);
+X					s = opensock("new data", localname,
+X						     receiveport, remotename,
+X						     SENDPORT, 0);
+X					break;
+X				case 'i':		/* Info */
+X					sprintf(buf, "radio:I:%d:%d",
+X						!pausing, receiveport);
+X					sendto(curs, buf, strlen(buf), 0,
+X					       &from, fromlen);
+X					break;
+X#ifndef USE_NX /* XXX I don't know how to close_speaker() on the NeXT */
+X				case 'p':		/* Pause */
+X				case '0': /* Backward compatibility */
+X					if (!filter && !pausing) {
+X						close_speaker();
+X						pausing = 1;
+X					}
+X					break;
+X				case 'c':		/* Continue */
+X				case '1': /* Backward compatibility */
+X					if (pausing) {
+X						open_speaker();
+X						pausing = 0;
+X					}
+X					break;
+X#endif
+X				default:
+X					if (pdebug)
+X						fprintf(stderr,
+X						  "radio: illegal cmd '%c'\n",
+X						  buf[6]);
+X				}
+X			}
+X			else if (pdebug) {
+X				fprintf(stderr,
+X					"radio: ill-formatted command\n");
+X			}
+X		}
+X		else if (!pausing) {
+X#ifdef USE_AL
+X			if (!filter) {
+X				for (i = 0; i < n; i++)
+X					obuf[i] = st_ulaw_to_linear(buf[i]);
+X				ALwritesamps(aport, obuf, (long)n);
+X			}
+X			else
+X#endif /* USE_AL */
+X#ifdef USE_NX
+X			if (!filter) {
+X				int dummy;
+X				char *ptr;
+X				
+X				(void) SNDGetDataPointer(snd[akt_buf], &ptr,
+X							 &dummy, &dummy);
+X				
+X				SNDWait(akt_buf+1);
+X				memcpy(ptr, buf, n);
+X				snd[akt_buf] -> dataSize = n;
+X				SNDStartPlaying(snd[akt_buf],
+X						akt_buf+1, 5, 0, 0, 0);
+X				akt_buf = (akt_buf + 1) % NUM_BUFFER;
+X			}
+X			else
+X#endif/* USE_NX */
+X			if (write(ofd, buf, n) != n) {
+X				perror("write");
+X				break;
+X			}
+X		}
+X	}
+X
+X	exit(0);
+X}
+X
+X#ifdef USE_AL
+X
+Xvoid open_speaker()
+X{
+X	ALconfig config;
+X	long pvbuf[6];
+X	
+X	/* Fetch the original state */
+X	ALgetparams(AL_DEFAULT_DEVICE, savestate,
+X		    sizeof(savestate) / sizeof(long));
+X	
+X	/* Set signal handlers */
+X	signal(SIGINT, cleanup_handler);
+X	signal(SIGTERM, cleanup_handler);
+X	
+X	/* Set the device to 8000 Hz */
+X	pvbuf[0] = AL_OUTPUT_RATE;
+X	pvbuf[1] = AL_RATE_8000;
+X	
+X	/* Maybe also set the volume */
+X	if (volume >= 0) {
+X		pvbuf[2] = AL_LEFT_SPEAKER_GAIN;
+X		pvbuf[3] = volume*255/100;
+X		pvbuf[4] = AL_RIGHT_SPEAKER_GAIN;
+X		pvbuf[5] = volume*255/100;
+X		ALsetparams(AL_DEFAULT_DEVICE, pvbuf, 6L);
+X	}
+X	else
+X		ALsetparams(AL_DEFAULT_DEVICE, pvbuf, 2L);
+X	
+X	/* Configure and open an SGI audio port */
+X	config = ALnewconfig();
+X	ALsetchannels(config, AL_MONO);
+X	ALsetwidth(config, AL_SAMPLE_16);
+X	ALsetqueuesize(config, 16000); /* 2 seconds slop */
+X	aport = ALopenport("radio", "w", config);
+X	if (aport == NULL) {
+X		perror("ALopenport");
+X		exit(1);
+X	}
+X}
+X
+Xvoid close_speaker()
+X{
+X	ALcloseport(aport);
+X	aport = NULL;
+X}
+X
+Xvoid cleanup_handler(sig)
+X	int sig;
+X{
+X	signal(sig, SIG_DFL);
+X	ALsetparams(AL_DEFAULT_DEVICE, savestate,
+X		    sizeof(savestate) / sizeof(long));
+X	kill(getpid(), sig);
+X}
+X
+X#endif /* USE_AL */
+X
+X
+X#ifdef USE_SUN
+X
+Xvoid open_speaker()
+X{	
+X	audio_info_t info;
+X
+X	/* Write to AUDIO_IODEV */
+X	if ((ofd = open(AUDIO_IODEV, O_WRONLY)) < 0) {
+X		perror(AUDIO_IODEV);
+X		exit(1);
+X	}
+X
+X	/* Set the volume */
+X	if (volume >= 0) {
+X		AUDIO_INITINFO(&info);
+X		info.play.gain = (AUDIO_MAX_GAIN * volume) / 100;
+X		if (ioctl(ofd, AUDIO_SETINFO, &info))
+X			perror("volume setting");
+X	}
+X
+X	/* We need to open the audio control port to detect
+X	   if someone else wants to output to /dev/audio.
+X	   If this fails (e.g., in SunOS 4.0), print a message
+X	   but don't exit. */
+X	if (interruptable) {
+X		if ((actlfd = open(AUDIO_CTLDEV, O_RDWR)) < 0) {
+X			perror(AUDIO_CTLDEV);
+X		}
+X		else if (ioctl(actlfd, I_SETSIG, S_MSG) < 0) {
+X			perror("I_SETSIG");
+X		}
+X		else if (signal(SIGPOLL, sigpoll_handler) < 0) {
+X			perror("signal(SIGPOLL)");
+X			exit(1);
+X		}
+X	}
+X}
+X
+Xvoid close_speaker()
+X{
+X	(void) ioctl(ofd, I_FLUSH, FLUSHW);
+X	close(ofd);
+X	close(actlfd);
+X	ofd = actlfd = -1;
+X}
+X
+Xvoid sigpoll_handler()
+X{
+X	audio_info_t ap;
+X
+X	if (ioctl(actlfd, AUDIO_GETINFO, &ap) < 0) {
+X		perror("AUDIO_GETINFO");
+X	}
+X	else if (ap.play.waiting) {
+X		(void) ioctl(ofd, I_FLUSH, FLUSHW);
+X		close(ofd);
+X		/* The open() call blocks until we can use the device again */
+X		if ((ofd = open(AUDIO_IODEV, O_WRONLY)) < 0) {
+X			perror(AUDIO_IODEV);
+X			exit(1);
+X		}
+X		ap.play.waiting = 0;
+X		if (ioctl(actlfd, AUDIO_SETINFO, &ap) < 0) {
+X			perror("AUDIO_SETINFO");
+X		}
+X	}
+X}
+X
+X#endif /*USE_SUN*/
+X
+X
+X#ifdef USE_NX
+X
+Xvoid open_speaker()
+X{
+X	int akt_buf;
+X	int err;
+X
+X	/* Alloc NUM_BUFFER Sounds */
+X	for( akt_buf = NUM_BUFFER; akt_buf > 0; akt_buf--) {
+X		if (err = SNDAlloc(&snd[akt_buf-1], BUFFERSIZE,
+X				   SND_FORMAT_MULAW_8,
+X				   SND_RATE_CODEC, 1, 4)) {
+X			fprintf(stderr, "init: %s\n", SNDSoundError(err));
+X			exit(1);
+X		}
+X	}
+X	akt_buf = 0;
+X}
+X
+Xvoid close_speaker()
+X{
+X	/* XXX how to do this? */
+X}
+X
+X#endif /* USE_NX */
+END_OF_FILE
+if test 11127 -ne `wc -c <'radio.c'`; then
+    echo shar: \"'radio.c'\" unpacked with wrong size!
+fi
+# end of 'radio.c'
+fi
+if test -f 'ttytuner.py' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ttytuner.py'\"
+else
+echo shar: Extracting \"'ttytuner.py'\" \(6996 characters\)
+sed "s/^X//" >'ttytuner.py' <<'END_OF_FILE'
+X#!/usr/local/python
+X
+X# /***********************************************************
+X# Copyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+X# Netherlands.
+X# 
+X#                         All Rights Reserved
+X# 
+X# Permission to use, copy, modify, and distribute this software and its 
+X# documentation for any purpose and without fee is hereby granted, 
+X# provided that the above copyright notice appear in all copies and that
+X# both that copyright notice and this permission notice appear in 
+X# supporting documentation, and that the names of Stichting Mathematisch
+X# Centrum or CWI not be used in advertising or publicity pertaining to
+X# distribution of the software without specific, written prior permission.
+X# 
+X# STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X# FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+X# FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+X# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+X# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X# 
+X# ******************************************************************/
+X
+X# A tuner to control radio programs, by Jack Jansen.
+X
+Ximport sys
+Ximport os
+Ximport time
+Ximport socket
+Ximport time
+Ximport string
+Ximport getopt
+Xfrom stat import ST_MTIME
+X
+X
+XRADIOCTLPORT=54320
+XTRANSMITTERCTLPORT=54319
+XCTLWS=socket.gethostname()
+X
+X# The list of networks to broadcast on, when looking for radio
+X# stations. This should somehow be gotten differently.
+X#
+XMCASTLIST = ['192.16.184.0', '192.16.191.0', '192.16.201.255']
+X# MCASTLIST = ['192.16.201.255']
+X
+Xclass struct(): pass
+Xinfo = struct()
+X
+X#
+X# sendsock - send a message (and get optional reply)
+X#
+Xdef sendsock(host, port, msg, needrepl):
+X    try:
+X	host = socket.gethostbyname(host)
+X	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+X	s.sendto(msg, (host,port))
+X	if needrepl:
+X	    # Loop for max. 2.5 seconds waiting for a reply
+X	    i = 0
+X	    while i < 5 and not s.avail():
+X		time.millisleep(500)
+X		i = i + 1
+X	    if not s.avail():
+X		print 'Radio program not responding'
+X		return ''
+X	    return s.recv(500)
+X    except socket.error:
+X	print 'Incorrect radio settings'
+X	if needrepl:
+X	    return ''
+X	else:
+X	    return
+X#
+X# sendmulti - send a multicast message (and get replies)
+X#
+Xdef sendmulti(mcastlist, port, msg):
+X    rv = []
+X    try:
+X	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+X	s.allowbroadcast(1)
+X	for host in mcastlist:
+X	    s.sendto(msg, (host,port))
+X	# Loop for max. 2.5 seconds waiting for a reply
+X	i = 0
+X	while i < 25:
+X	    time.millisleep(100)
+X	    i = i + 1
+X	    if s.avail():
+X		rv.append(s.recv(500))
+X    except socket.error:
+X	print 'Incorrect mcast settings'
+X    return rv
+X#
+X# getstationinfo - Return playlist, current and playing time (in minutes).
+X# Returns a triple (playlist-filename, current record, playing time)
+X#
+Xdef getstationinfo(info):
+X    name = info[0]
+X    if len(info) > 3:
+X	playlist = info[3]
+X    else:
+X	playlist = '/ufs/' + name + '/CDlog'
+X    if len(info) > 5:
+X	since = eval(info[4])
+X	cur = string.joinfields(info[5:], ':')
+X    else:
+X	curfn = '/ufs/' + name + '/CD'
+X	try:
+X	    curf = open(curfn,'r')
+X	    cur = curf.readline()
+X	    curf.close()
+X	except IOError:
+X	    cur = '???'
+X	if cur[-1:] == '\n':
+X	    cur = cur[:-1]
+X	try:
+X	    sb = os.stat(curfn)
+X	    since = time.time() - sb[ST_MTIME]
+X	except os.error:
+X	    since = -1
+X    if since >= 0: since = since / 60 # Convert to minutes
+X    if since < 0:
+X	str = '??'
+X    elif since < 60:
+X	str = `since` + ' mins'
+X    else:
+X	since = since / 60
+X	if since < 24:
+X	    str = `since` + ' hrs'
+X	else:
+X	    str = `since / 24` + ' days'
+X    return playlist, cur, str
+X
+X#
+X# updateinfo - Update one of the views with info on station 'name'
+X#
+Xdef printinfo(info):
+X    name = info[0]
+X    print 'Station '+ name + ':'
+X    print '\tPort               ' + `info[1]`
+X    if name == '' or name[:3] == '???':
+X	print '\tNo information on station'
+X    else:
+X	try:
+X	    p, c, t = getstationinfo(info)
+X	except IOError:
+X	    return
+X	if c <> '' and c <> '???':
+X	    print '\tCurrently playing: ' + c
+X	if t <> '??':
+X	    print '\tSince:             ' + t
+X	if p <> '':
+X	    print '\tPlaylist in file:  ' + p
+X
+X#
+X# getstations - Return an array of (stationname, stationport)
+X# listing all available stations.
+X#
+Xdef getstations():
+X    stations = []
+X    raw = sendmulti(MCASTLIST, TRANSMITTERCTLPORT, 'radio:s')
+X    for i in raw:
+X	if i[:7] == 'radio:S':
+X	    fields = string.splitfields(i,':')[2:]
+X	    fields[1] = string.atoi(fields[1])
+X	    stations.append(fields)
+X	else:
+X	    print 'Funny reply from transmitter:', i[:7]
+X    return stations
+X
+X#
+X# getcurstation - Return (name,port) for station to which radio
+X# on workstation ws is currently tuned to.
+X#
+Xdef getcurstation(stationlist, ws, port):
+X    rv = sendsock(ws, port, 'radio:i', 1)
+X    if rv == '':
+X	return ('',0)
+X    if rv[0:8] <> 'radio:I:':
+X	print 'Illegal reply from radio:',rv
+X	return ('',0)
+X    # Remove optional pause field
+X    rv = rv[8:]
+X    rv = string.splitfields(rv,':')
+X    rv = rv[len(rv)-1]
+X    tport = string.atoi(rv)
+X    for i in stationlist:
+X	if i[1] == tport:
+X	    return i
+X    return ('???(port '+`tport`+')' ,tport)
+X
+Xdef main():
+X    radio_port = RADIOCTLPORT
+X    radio_ws = CTLWS
+X    try:
+X	optlist, args = getopt.getopt(sys.argv[1:], 'w:p:lLcPC')
+X	mode = ''
+X	for o, a in optlist:
+X	    if o == '-w':
+X		radio_ws = a
+X	    elif o == '-p':
+X		radio_port = string.atoi(a)
+X	    elif mode == '':
+X		mode = o[1]
+X	    else:
+X		raise getopt.error
+X	if len(args) + len(mode) <> 1:
+X	    raise getopt.error
+X    except getopt.error:
+X	print 'Usage: '+sys.argv[0]+' [options] command'
+X	print 'Options:'
+X	print '\t-w ws\tControl radio on workstation ws'
+X	print '\t-p port\tControl radio on port port'
+X	print 'Command:'
+X	print '\t-l\tList names of active stations'
+X	print '\t-L\tList names and info of active stations'
+X	print '\t-c\tList info on current station'
+X	print '\t-P\tTemporarily suspend radio, freeing port'
+X	print '\t-C\tContinue radio'
+X	print '\tstation\tTune to new station'
+X	sys.exit(1)
+X	
+X    #
+X    # First, do pause/continue command.
+X    #
+X    if mode == 'P':
+X	sendsock(radio_ws, radio_port, 'radio:0', 0)
+X	sys.exit(0)
+X    if mode == 'C':
+X	sendsock(radio_ws, radio_port, 'radio:1', 0)
+X	sys.exit(0)
+X    #
+X    # And list of new stations
+X    #
+X    stations = getstations()
+X    #
+X    # Set info for current station
+X    #
+X    if mode == '' or mode == 'c':
+X	cn = getcurstation(stations,radio_ws, radio_port)
+X    if mode == 'l':
+X	for i in stations:
+X	    print i[0]
+X    elif mode == 'L':
+X	for i in stations:
+X	    printinfo(i)
+X    elif mode == 'c':
+X	printinfo(cn)
+X    else:
+X	for i in range(len(stations)):
+X	    if stations[i][0] == args[0]:
+X		sendsock(radio_ws, radio_port, \
+X				'radio:t:' + `stations[i][1]`, 0)
+X		sys.exit(0)
+X	print 'No such station: ', args[0]
+X	
+X	
+X
+Xmain()
+X
+X# Local variables:
+X# py-indent-offset: 4
+X# end:
+END_OF_FILE
+if test 6996 -ne `wc -c <'ttytuner.py'`; then
+    echo shar: \"'ttytuner.py'\" unpacked with wrong size!
+fi
+chmod +x 'ttytuner.py'
+# end of 'ttytuner.py'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

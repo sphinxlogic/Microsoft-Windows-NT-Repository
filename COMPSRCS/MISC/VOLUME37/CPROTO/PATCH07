@@ -1,0 +1,1233 @@
+Newsgroups: comp.sources.misc
+From: cthuang@zerosan.canrem.COM (Chin Huang)
+Subject: v37i087:  cproto - generate C function prototypes v3, Patch07
+Message-ID: <1993May29.171218.14144@sparky.imd.sterling.com>
+X-Md4-Signature: be5918f72f118f7f6951d2dd169dec61
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Reply-To: cthuang%zerosan@canrem.com
+Organization: Sterling Software
+Date: Sat, 29 May 1993 17:12:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cthuang@zerosan.canrem.COM (Chin Huang)
+Posting-number: Volume 37, Issue 87
+Archive-name: cproto/patch07
+Environment: UNIX, MS-DOS, getopt, lex, yacc
+Patch-To: cproto: Volume 29, Issue 61-62
+
+This patch brings cproto to version 3 patchlevel 7.  It fixes a bug that
+caused the program to incorrectly scan string literals in some cases.
+Some of the options have also been rearranged into a more orthogonal
+set.  Read the CHANGES file for details.  Thanks to the following people
+for their suggestions and bug reports:
+
+    Steve Kunkee <kunkee@STLHP41>
+    "Ozan Yigit" <oz@sis.yorku.ca>
+    metcalf@catfish.LCS.MIT.EDU (Chris Metcalf)
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  patch7
+# Wrapped by cthuang@zerosan.UUCP on Tue May 25 22:14:31 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f patch7 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"patch7\"
+else
+echo shar: Extracting \"patch7\" \(32109 characters\)
+sed "s/^X//" >patch7 <<'END_OF_patch7'
+Xdiff  -c2 old/CHANGES new/CHANGES
+X*** old/CHANGES	Tue Dec 01 21:03:42 1992
+X--- new/CHANGES	Tue May 25 21:11:18 1993
+X***************
+X*** 1,4 ****
+X--- 1,28 ----
+X  Version 3
+X  
+X+ Patchlevel 7
+X+ 
+X+ - Fix: The processing of string literals is now more robust.
+X+ 
+X+ - Removed the -f4 option which generated prototypes like
+X+ 
+X+ 	int main P_((int argc, char **argv));
+X+ 
+X+   Use the -m option now to put a guard macro around the prototype
+X+   parameter list.  Use the -m option together with -f3 (which is the
+X+   default) to produce the same output as the old -f4 option.  The option
+X+   to set the guard macro name is now -M.
+X+ 
+X+ - Comments in prototype parameter lists are now disabled by default.
+X+   Use the -c option now to output these comments.
+X+ 
+X+ - Can now process #include directives in which the file is specified with
+X+   a #define macro.
+X+ 
+X+ - Now does not convert function definitions that take the formal
+X+   parameter va_alist from <varargs.h>.
+X+ 
+X+ - Now recognizes the GNU C modifiers __const and __inline__.
+X+ 
+X  Patchlevel 6
+X  
+Xdiff  -c2 old/config.h new/config.h
+X*** old/config.h	Sat Nov 28 23:27:44 1992
+X--- new/config.h	Tue May 25 21:48:48 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: config.h 3.5 1992/11/29 04:27:30 cthuang Exp $
+X   *
+X   * cproto configuration and system dependencies
+X--- 1,3 ----
+X! /* $Id: config.h 3.6 1993/05/26 01:48:42 cthuang Exp $
+X   *
+X   * cproto configuration and system dependencies
+X***************
+X*** 4,8 ****
+X   */
+X  
+X! /* Borland C predefines __MSDOS__ */
+X  #ifdef __MSDOS__
+X  #ifndef MSDOS
+X--- 4,8 ----
+X   */
+X  
+X! /* Borland C++ for MS-DOS predefines __MSDOS__ */
+X  #ifdef __MSDOS__
+X  #ifndef MSDOS
+X***************
+X*** 11,17 ****
+X--- 11,29 ----
+X  #endif
+X  
+X+ /* Borland C++ for OS/2 predefines __OS2__ */
+X+ #ifdef __OS2__
+X+ #ifndef OS2
+X+ #define OS2
+X+ #endif
+X+ #endif
+X+ 
+X  /* Turbo C preprocessor */
+X  #ifdef TURBO_CPP
+X  #define CPP "cpp -P-"
+X+ #else
+X+ #ifdef OS2
+X+ #define popen _popen
+X+ #define pclose _pclose
+X+ #endif
+X  #endif
+X  
+X***************
+X*** 43,47 ****
+X  #endif
+X  
+X! #if __STDC__ || defined(MSDOS)
+X  #include <stdlib.h>
+X  #include <string.h>
+X--- 55,59 ----
+X  #endif
+X  
+X! #if __STDC__ || defined(MSDOS) || defined(OS2)
+X  #include <stdlib.h>
+X  #include <string.h>
+Xdiff  -c2 old/cproto.1 new/cproto.1
+X*** old/cproto.1	Sat Nov 28 23:34:08 1992
+X--- new/cproto.1	Tue May 25 21:36:04 1993
+X***************
+X*** 1,3 ****
+X! .\" $Id: cproto.1 3.7 1992/11/29 04:34:05 cthuang Exp $
+X  .\"
+X  .de EX		\"Begin example
+X--- 1,3 ----
+X! .\" $Id: cproto.1 3.8 1993/05/26 01:34:15 cthuang Exp $
+X  .\"
+X  .de EX		\"Begin example
+X***************
+X*** 14,18 ****
+X  .if t .sp .5
+X  ..
+X! .TH CPROTO 1 "October 24, 1992"
+X  .SH NAME
+X  cproto \- generate C function prototypes and convert function definitions
+X--- 14,18 ----
+X  .if t .sp .5
+X  ..
+X! .TH CPROTO 1 "May 24, 1993"
+X  .SH NAME
+X  cproto \- generate C function prototypes and convert function definitions
+X***************
+X*** 96,100 ****
+X  Set the style of generated function prototypes where
+X  .I n
+X! is a number from 0 to 4.
+X  For example, consider the function definition
+X  .EX
+X--- 96,100 ----
+X  Set the style of generated function prototypes where
+X  .I n
+X! is a number from 0 to 3.
+X  For example, consider the function definition
+X  .EX
+X***************
+X*** 119,123 ****
+X  int main(int argc, char *argv[]);
+X  .EE
+X! A value of 4 produces prototypes guarded by a macro:
+X  .EX
+X  int main P_((int argc, char *argv[]));
+X--- 119,131 ----
+X  int main(int argc, char *argv[]);
+X  .EE
+X! .TP
+X! .B \-c
+X! The parameter comments in the prototypes generated by
+X! the \-f1 and \-f2 options are omitted by default.
+X! Use this option to enable the output of these comments.
+X! .TP
+X! .B \-m
+X! Put a macro around the parameter list of every generated prototype.
+X! For example:
+X  .EX
+X  int main P_((int argc, char *argv[]));
+X***************
+X*** 124,139 ****
+X  .EE
+X  .TP
+X! .B \-c
+X! Omit the parameter comments in the prototypes generated by
+X! the \-f1 and \-f2 options.
+X! This option also omits the comments naming the source files from which
+X! the prototypes were generated.
+X! .TP
+X! .BI \-m name
+X! Set the name of the macro used to guard prototypes when option \-f4 is selected.
+X  The default is "P_".
+X  .TP
+X  .B \-d
+X! Omit the definition of the prototype macro named by the \-m option.
+X  .TP
+X  .B \-p
+X--- 132,142 ----
+X  .EE
+X  .TP
+X! .BI \-M name
+X! Set the name of the macro used to surround prototype parameter lists
+X! when option \-m is selected.
+X  The default is "P_".
+X  .TP
+X  .B \-d
+X! Omit the definition of the prototype macro used by the \-m option.
+X  .TP
+X  .B \-p
+X***************
+X*** 256,259 ****
+X--- 259,264 ----
+X  The environment variable CPROTO is scanned for
+X  a list of options in the same format as the command line options.
+X+ Options given on the command line override any corresponding
+X+ environment option.
+X  .SH BUGS
+X  If an untagged struct, union or enum declaration appears in
+Xdiff  -c2 old/cproto.c new/cproto.c
+X*** old/cproto.c	Sat Nov 28 23:27:52 1992
+X--- new/cproto.c	Tue May 25 21:36:46 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: cproto.c 3.7 1992/11/29 04:27:49 cthuang Exp $
+X   *
+X   * C function prototype generator and function definition converter
+X--- 1,3 ----
+X! /* $Id: cproto.c 3.8 1993/05/26 01:36:41 cthuang Exp $
+X   *
+X   * C function prototype generator and function definition converter
+X***************
+X*** 4,8 ****
+X   */
+X  #ifndef lint
+X! static char rcsid[] = "$Id: cproto.c 3.7 1992/11/29 04:27:49 cthuang Exp $";
+X  #endif
+X  #include <stdio.h>
+X--- 4,8 ----
+X   */
+X  #ifndef lint
+X! static char rcsid[] = "$Id: cproto.c 3.8 1993/05/26 01:36:41 cthuang Exp $";
+X  #endif
+X  #include <stdio.h>
+X***************
+X*** 39,42 ****
+X--- 39,45 ----
+X  FuncDefStyle func_style = FUNC_NONE;
+X  
+X+ /* If TRUE, put guard macro around prototype parameters */
+X+ boolean proto_macro = FALSE;
+X+ 
+X  /* Name of macro to guard prototypes */
+X  char *macro_name = "P_";
+X***************
+X*** 46,50 ****
+X  
+X  /* If TRUE, output comments in prototypes */
+X! boolean proto_comments = TRUE;
+X  
+X  /* Conditional compilation directive output in front of function definitions */
+X--- 49,56 ----
+X  
+X  /* If TRUE, output comments in prototypes */
+X! boolean proto_comments = FALSE;
+X! 
+X! /* If TRUE, output comments naming source files */
+X! boolean file_comments = TRUE;
+X  
+X  /* Conditional compilation directive output in front of function definitions */
+X***************
+X*** 231,237 ****
+X      fputs("  -a, -t           Convert function definitions to ANSI or traditional style\n", stderr);
+X      fputs("  -b               Rewrite function definitions in both styles\n", stderr);
+X!     fputs("  -c               Omit comments in generated prototypes\n", stderr);
+X      fputs("  -e               Output \"extern\" keyword before global declarations\n", stderr);
+X!     fputs("  -f n             Set function prototype style (0 to 4)\n", stderr);
+X      fputs("  -p               Disable formal parameter promotion\n", stderr);
+X      fputs("  -q               Disable include file read failure messages\n", stderr);
+X--- 237,243 ----
+X      fputs("  -a, -t           Convert function definitions to ANSI or traditional style\n", stderr);
+X      fputs("  -b               Rewrite function definitions in both styles\n", stderr);
+X!     fputs("  -c               Enable comments in prototype parameters\n", stderr);
+X      fputs("  -e               Output \"extern\" keyword before global declarations\n", stderr);
+X!     fputs("  -f n             Set function prototype style (0 to 3)\n", stderr);
+X      fputs("  -p               Disable formal parameter promotion\n", stderr);
+X      fputs("  -q               Disable include file read failure messages\n", stderr);
+X***************
+X*** 238,242 ****
+X      fputs("  -s               Output static declarations\n", stderr);
+X      fputs("  -v               Output variable declarations\n", stderr);
+X!     fputs("  -m name          Set name of prototype macro\n", stderr);
+X      fputs("  -d               Omit prototype macro definition\n", stderr);
+X      fputs("  -P template      Set prototype format template \" int f (a, b)\"\n", stderr);
+X--- 244,249 ----
+X      fputs("  -s               Output static declarations\n", stderr);
+X      fputs("  -v               Output variable declarations\n", stderr);
+X!     fputs("  -m               Put macro around prototype parameters\n", stderr);
+X!     fputs("  -M name          Set name of prototype macro\n", stderr);
+X      fputs("  -d               Omit prototype macro definition\n", stderr);
+X      fputs("  -P template      Set prototype format template \" int f (a, b)\"\n", stderr);
+X***************
+X*** 297,301 ****
+X  #endif
+X  
+X!     while ((c = getopt(argc, argv, "aB:bC:cD:dE:eF:f:I:m:P:pqstU:Vv")) != EOF) {
+X  	switch (c) {
+X  	case 'I':
+X--- 304,308 ----
+X  #endif
+X  
+X!     while ((c = getopt(argc, argv, "aB:bC:cD:dE:eF:f:I:mM:P:pqstU:Vv")) != EOF) {
+X  	switch (c) {
+X  	case 'I':
+X***************
+X*** 323,327 ****
+X  	    break;
+X  	case 'c':
+X! 	    proto_comments = FALSE;
+X  	    break;
+X  	case 'd':
+X--- 330,334 ----
+X  	    break;
+X  	case 'c':
+X! 	    proto_comments = TRUE;
+X  	    break;
+X  	case 'd':
+X***************
+X*** 387,394 ****
+X  	case 'f':
+X  	    proto_style = atoi(optarg);
+X! 	    if (proto_style < 0 || proto_style > PROTO_MACRO)
+X  		usage();
+X  	    break;
+X  	case 'm':
+X  	    macro_name = optarg;
+X  	    break;
+X--- 394,404 ----
+X  	case 'f':
+X  	    proto_style = atoi(optarg);
+X! 	    if (proto_style < 0 || proto_style > PROTO_ANSI)
+X  		usage();
+X  	    break;
+X  	case 'm':
+X+ 	    proto_macro = TRUE;
+X+ 	    break;
+X+ 	case 'M':
+X  	    macro_name = optarg;
+X  	    break;
+X***************
+X*** 431,435 ****
+X      process_options(&argc, &argv);
+X  
+X!     if (proto_style == PROTO_MACRO && define_macro) {
+X  	printf("#if __STDC__ || defined(__cplusplus)\n");
+X  	printf("#define %s(s) s\n", macro_name);
+X--- 441,445 ----
+X      process_options(&argc, &argv);
+X  
+X!     if (proto_macro && define_macro) {
+X  	printf("#if __STDC__ || defined(__cplusplus)\n");
+X  	printf("#define %s(s) s\n", macro_name);
+X***************
+X*** 444,448 ****
+X  	    proto_style = PROTO_NONE;
+X  	    variables_out = FALSE;
+X! 	    proto_comments = FALSE;
+X  	}
+X  	process_file(stdin, "stdin");
+X--- 454,458 ----
+X  	    proto_style = PROTO_NONE;
+X  	    variables_out = FALSE;
+X! 	    file_comments = FALSE;
+X  	}
+X  	process_file(stdin, "stdin");
+X***************
+X*** 484,488 ****
+X      }
+X  
+X!     if (proto_style == PROTO_MACRO && define_macro) {
+X  	printf("\n#undef %s\n", macro_name);
+X      }
+X--- 494,498 ----
+X      }
+X  
+X!     if (proto_macro && define_macro) {
+X  	printf("\n#undef %s\n", macro_name);
+X      }
+Xdiff  -c2 old/cproto.h new/cproto.h
+X*** old/cproto.h	Sat Nov 28 23:27:46 1992
+X--- new/cproto.h	Tue May 25 21:36:26 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: cproto.h 3.6 1992/11/29 04:27:30 cthuang Exp $
+X   *
+X   * Declarations for C function prototype generator
+X--- 1,3 ----
+X! /* $Id: cproto.h 3.7 1993/05/26 01:36:04 cthuang Exp $
+X   *
+X   * Declarations for C function prototype generator
+X***************
+X*** 92,96 ****
+X  #define PROTO_ABSTRACT		2	/* comment out parameter names */
+X  #define PROTO_ANSI		3	/* ANSI C prototype */
+X- #define PROTO_MACRO		4	/* macro around parameters */
+X  typedef int PrototypeStyle;
+X  
+X--- 92,95 ----
+X***************
+X*** 125,131 ****
+X--- 124,132 ----
+X  extern PrototypeStyle proto_style;
+X  extern FuncDefStyle func_style;
+X+ extern boolean proto_macro;
+X  extern boolean define_macro;
+X  extern char *macro_name;
+X  extern boolean proto_comments;
+X+ extern boolean file_comments;
+X  extern boolean quiet;
+X  extern char *func_directive;
+Xdiff  -c2 old/grammar.y new/grammar.y
+X*** old/grammar.y	Sat Nov 28 23:27:42 1992
+X--- new/grammar.y	Tue May 25 21:48:44 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: grammar.y 3.7 1992/11/29 04:27:30 cthuang Exp $
+X   *
+X   * yacc grammar for C function prototype generator
+X--- 1,3 ----
+X! /* $Id: grammar.y 3.8 1993/05/26 01:48:42 cthuang Exp $
+X   *
+X   * yacc grammar for C function prototype generator
+X***************
+X*** 8,12 ****
+X  %token <text> '(' '*'
+X  	/* identifiers that are not reserved words */
+X! 	T_IDENTIFIER T_TYPEDEF_NAME
+X  
+X  	/* storage class */
+X--- 8,12 ----
+X  %token <text> '(' '*'
+X  	/* identifiers that are not reserved words */
+X! 	T_IDENTIFIER T_TYPEDEF_NAME T_DEFINE_NAME
+X  
+X  	/* storage class */
+X***************
+X*** 92,95 ****
+X--- 92,98 ----
+X  static SymbolTable *typedef_names;
+X  
+X+ /* table of define names */
+X+ static SymbolTable *define_names;
+X+ 
+X  /* table of type qualifiers */
+X  static SymbolTable *type_qualifiers;
+X***************
+X*** 196,200 ****
+X  	    if (strcmp($1->text, $1->name) != 0)
+X  		flags &= ~(DS_CHAR | DS_SHORT | DS_FLOAT);
+X! 	    new_symbol(typedef_names, $1->name, flags);
+X  	    free_declarator($1);
+X  	}
+X--- 199,203 ----
+X  	    if (strcmp($1->text, $1->name) != 0)
+X  		flags &= ~(DS_CHAR | DS_SHORT | DS_FLOAT);
+X! 	    new_symbol(typedef_names, $1->name, NULL, flags);
+X  	    free_declarator($1);
+X  	}
+X***************
+X*** 205,209 ****
+X  	    if (strcmp($3->text, $3->name) != 0)
+X  		flags &= ~(DS_CHAR | DS_SHORT | DS_FLOAT);
+X! 	    new_symbol(typedef_names, $3->name, flags);
+X  	    free_declarator($3);
+X  	}
+X--- 208,212 ----
+X  	    if (strcmp($3->text, $3->name) != 0)
+X  		flags &= ~(DS_CHAR | DS_SHORT | DS_FLOAT);
+X! 	    new_symbol(typedef_names, $3->name, NULL, flags);
+X  	    free_declarator($3);
+X  	}
+X***************
+X*** 346,349 ****
+X--- 349,359 ----
+X  	    new_decl_spec(&$$, $1.text, $1.begin, DS_NONE);
+X  	}
+X+ 	| T_TYPEDEF_NAME
+X+ 	{
+X+ 	    Symbol *s;
+X+ 	    s = find_symbol(typedef_names, $1.text);
+X+ 	    if (s != NULL)
+X+ 		new_decl_spec(&$$, $1.text, $1.begin, s->flags);
+X+ 	}
+X  	| struct_or_union_specifier
+X  	| enum_specifier
+X***************
+X*** 355,367 ****
+X  	    new_decl_spec(&$$, $1.text, $1.begin, DS_NONE);
+X  	}
+X! 	| T_TYPEDEF_NAME
+X  	{
+X! 	    /* A typedef name is actually a type specifier, but since the
+X! 	     * typedef symbol table also stores #define names, this production
+X! 	     * is here so the <pointer> nonterminal will scan #define names.
+X  	     */
+X  	    Symbol *s;
+X! 	    s = find_symbol(typedef_names, $1.text);
+X! 	    new_decl_spec(&$$, $1.text, $1.begin, s->flags);
+X  	}
+X  	;
+X--- 365,377 ----
+X  	    new_decl_spec(&$$, $1.text, $1.begin, DS_NONE);
+X  	}
+X! 	| T_DEFINE_NAME
+X  	{
+X! 	    /* This rule allows the <pointer> nonterminal to scan #define
+X! 	     * names as if they were type modifiers.
+X  	     */
+X  	    Symbol *s;
+X! 	    s = find_symbol(define_names, $1.text);
+X! 	    if (s != NULL)
+X! 		new_decl_spec(&$$, $1.text, $1.begin, s->flags);
+X  	}
+X  	;
+X***************
+X*** 665,669 ****
+X  %%
+X  
+X! #ifdef MSDOS
+X  #include "lex_yy.c"
+X  #else
+X--- 675,679 ----
+X  %%
+X  
+X! #if defined(MSDOS) || defined(OS2)
+X  #include "lex_yy.c"
+X  #else
+X***************
+X*** 688,692 ****
+X      static char *keywords[] = {
+X  	"const", "volatile", "interrupt",
+X! #ifdef MSDOS
+X  	"cdecl", "far", "huge", "near", "pascal",
+X  	"_cdecl", "_export", "_far", "_fastcall", "_fortran", "_huge",
+X--- 698,702 ----
+X      static char *keywords[] = {
+X  	"const", "volatile", "interrupt",
+X! #if defined(MSDOS) || defined(OS2)
+X  	"cdecl", "far", "huge", "near", "pascal",
+X  	"_cdecl", "_export", "_far", "_fastcall", "_fortran", "_huge",
+X***************
+X*** 696,700 ****
+X  	"__inline", "__interrupt", "__loadds", "__near", "__pascal",
+X  	"__saveregs", "__segment", "__stdcall", "__syscall",
+X! 	"__cs", "__ds", "__es", "__ss", "__seg",
+X  #endif
+X      };
+X--- 706,714 ----
+X  	"__inline", "__interrupt", "__loadds", "__near", "__pascal",
+X  	"__saveregs", "__segment", "__stdcall", "__syscall",
+X! #ifdef OS2
+X! 	"__far16",
+X! #endif
+X! #else
+X! 	"__const", "__inline__",
+X  #endif
+X      };
+X***************
+X*** 704,708 ****
+X      type_qualifiers = new_symbol_table();
+X      for (i = 0; i < sizeof(keywords)/sizeof(keywords[0]); ++i) {
+X! 	new_symbol(type_qualifiers, keywords[i], DS_NONE);
+X      }
+X  }
+X--- 718,722 ----
+X      type_qualifiers = new_symbol_table();
+X      for (i = 0; i < sizeof(keywords)/sizeof(keywords[0]); ++i) {
+X! 	new_symbol(type_qualifiers, keywords[i], NULL, DS_NONE);
+X      }
+X  }
+X***************
+X*** 725,729 ****
+X  	    if (*s == 'l' || *s == 'y')
+X  		BEGIN LEXYACC;
+X! #ifdef MSDOS
+X  	    if (*s == 'L' || *s == 'Y')
+X  		BEGIN LEXYACC;
+X--- 739,743 ----
+X  	    if (*s == 'l' || *s == 'y')
+X  		BEGIN LEXYACC;
+X! #if defined(MSDOS) || defined(OS2)
+X  	    if (*s == 'L' || *s == 'Y')
+X  		BEGIN LEXYACC;
+X***************
+X*** 734,737 ****
+X--- 748,752 ----
+X      included_files = new_symbol_table();
+X      typedef_names = new_symbol_table();
+X+     define_names = new_symbol_table();
+X      inc_depth = -1;
+X      curly = 0;
+X***************
+X*** 740,746 ****
+X      yyin = infile;
+X      include_file(name, func_style != FUNC_NONE);
+X!     if (proto_comments)
+X  	printf("/* %s */\n", cur_file_name());
+X      yyparse();
+X      free_symbol_table(typedef_names);
+X      free_symbol_table(included_files);
+X--- 755,762 ----
+X      yyin = infile;
+X      include_file(name, func_style != FUNC_NONE);
+X!     if (file_comments)
+X  	printf("/* %s */\n", cur_file_name());
+X      yyparse();
+X+     free_symbol_table(define_names);
+X      free_symbol_table(typedef_names);
+X      free_symbol_table(included_files);
+Xdiff  -c2 old/lex.l new/lex.l
+X*** old/lex.l	Tue Dec 01 21:04:42 1992
+X--- new/lex.l	Tue May 25 21:36:16 1993
+X***************
+X*** 1,4 ****
+X  %{
+X! /* $Id: lex.l 3.9 1992/12/02 02:04:35 cthuang Exp $
+X   *
+X   * Lexical analyzer for C function prototype generator
+X--- 1,4 ----
+X  %{
+X! /* $Id: lex.l 3.10 1993/05/26 01:36:04 cthuang Exp $
+X   *
+X   * Lexical analyzer for C function prototype generator
+X***************
+X*** 34,38 ****
+X  DIGIT		[0-9]
+X  ID		{LETTER}({LETTER}|{DIGIT})*
+X! STRING		\"(\\\"|[^"])*\"
+X  QUOTED		({STRING}|\'(\\\'|[^'\n])*\'|\\.)
+X  
+X--- 34,38 ----
+X  DIGIT		[0-9]
+X  ID		{LETTER}({LETTER}|{DIGIT})*
+X! STRING		\"(\\.|\\\n|[^"\\])*\"
+X  QUOTED		({STRING}|\'(\\\'|[^'\n])*\'|\\.)
+X  
+X***************
+X*** 56,76 ****
+X  
+X  <CPP1>define{WS}+{ID}	{
+X! 			    save_text();
+X! 			    sscanf(yytext, "define %s", buf);
+X! 			    get_cpp_directive();
+X! 			    new_symbol(typedef_names, buf, DS_EXTERN);
+X! 			}
+X  
+X- <CPP1>include{WS}*\"[^"]+\"     {
+X  			    save_text();
+X! 			    sscanf(yytext, "include \"%[^\"]\"", buf);
+X! 			    get_cpp_directive();
+X! 			    do_include(buf, FALSE);
+X  			}
+X! <CPP1>include{WS}*\<[^>]+\>	{
+X  			    save_text();
+X! 			    sscanf(yytext, "include <%[^>]>", buf);
+X! 			    get_cpp_directive();
+X! 			    do_include(buf, TRUE);
+X  			}
+X  
+X--- 56,81 ----
+X  
+X  <CPP1>define{WS}+{ID}	{
+X! 			    char name[MAX_TEXT_SIZE], value[MAX_TEXT_SIZE];
+X  
+X  			    save_text();
+X! 			    sscanf(yytext, "define %s", name);
+X! 			    get_cpp_directive(buf, sizeof(buf));
+X! 			    sscanf(buf, "%s", value);
+X! 			    new_symbol(define_names, name, value, DS_NONE);
+X  			}
+X! 
+X! <CPP1>include{WS}*	{
+X  			    save_text();
+X! 			    get_cpp_directive(buf, sizeof(buf));
+X! 			    if (buf[0] != '"' && buf[0] != '<') {
+X! 				Symbol *sym = find_symbol(define_names, buf);
+X! 				if (sym != NULL && sym->value != NULL) {
+X! 				    strcpy(buf, sym->value);
+X! 				} else {
+X! 				    buf[0] = '\0';
+X! 				}
+X! 			    }
+X! 			    if (buf[0] != '\0')
+X! 				do_include(buf);
+X  			}
+X  
+X***************
+X*** 96,100 ****
+X  			}
+X  
+X! <CPP1>. 		{ save_text(); get_cpp_directive(); }
+X  
+X  <INITIAL>"("		{ save_text_offset(); return '('; }
+X--- 101,105 ----
+X  			}
+X  
+X! <CPP1>. 		{ save_text(); get_cpp_directive(NULL, 0); }
+X  
+X  <INITIAL>"("		{ save_text_offset(); return '('; }
+X***************
+X*** 156,159 ****
+X--- 161,166 ----
+X  			    else if (find_symbol(typedef_names, yytext) != NULL)
+X  				return T_TYPEDEF_NAME;
+X+ 			    else if (find_symbol(define_names, yytext) != NULL)
+X+ 				return T_DEFINE_NAME;
+X  			    else
+X  				return T_IDENTIFIER;
+X***************
+X*** 290,302 ****
+X  }
+X  
+X! /* Scan rest of preprocessor directive.
+X   */
+X  static void
+X! get_cpp_directive ()
+X  {
+X-     static char cont_trigraph[] = { '?', '?', '/', '\0' };
+X      char c, lastc[4];
+X      
+X      lastc[0] = lastc[1] = lastc[2] = lastc[3] = '\0';
+X  
+X      while ((c = input()) != 0) {
+X--- 297,313 ----
+X  }
+X  
+X! /* Scan rest of preprocessor directive.  If <dest> is not NULL, then store
+X!  * the text in the buffer pointed to by <dest> having size <n>.
+X   */
+X  static void
+X! get_cpp_directive (dest, n)
+X! char *dest;		/* buffer to store directive text */
+X! unsigned n;		/* size of buffer to store directive text */
+X  {
+X      char c, lastc[4];
+X      
+X      lastc[0] = lastc[1] = lastc[2] = lastc[3] = '\0';
+X+     if (dest != NULL)
+X+ 	*dest = '\0';
+X  
+X      while ((c = input()) != 0) {
+X***************
+X*** 303,310 ****
+X  	if (cur_file->convert)
+X  	    fputc(c, cur_file->tmp_file);
+X  	switch (c) {
+X  	case '\n':
+X  	    cur_file->line_num++;
+X! 	    if (lastc[2] != '\\' && strcmp(lastc, cont_trigraph) != 0) {
+X  		BEGIN INITIAL;
+X  		return;
+X--- 314,322 ----
+X  	if (cur_file->convert)
+X  	    fputc(c, cur_file->tmp_file);
+X+ 
+X  	switch (c) {
+X  	case '\n':
+X  	    cur_file->line_num++;
+X! 	    if (lastc[2] != '\\' && strcmp(lastc, "?\?/") != 0) {
+X  		BEGIN INITIAL;
+X  		return;
+X***************
+X*** 319,322 ****
+X--- 331,340 ----
+X  	lastc[1] = lastc[2];
+X  	lastc[2] = c;
+X+ 
+X+ 	if (dest != NULL && n > 1) {
+X+ 	    *dest++ = c;
+X+ 	    *dest = '\0';
+X+ 	    --n;
+X+ 	}
+X      }
+X  }
+X***************
+X*** 509,518 ****
+X   */
+X  static void
+X! do_include (filename, stdinc)
+X! char *filename; 	/* file to include */
+X! boolean stdinc; 	/* TRUE if file name specified with angle brackets */
+X  {
+X!     char path[MAX_TEXT_SIZE];
+X      int i;
+X      FILE *fp;
+X  
+X--- 527,538 ----
+X   */
+X  static void
+X! do_include (file_spec)
+X! char *file_spec; 	/* path surrounded by "" or <> */
+X  {
+X!     int stdinc; 	/* 1 = path surrounded by <> */
+X!     char file[MAX_TEXT_SIZE], path[MAX_TEXT_SIZE];
+X!     char match, *s;
+X      int i;
+X+     unsigned n;
+X      FILE *fp;
+X  
+X***************
+X*** 523,536 ****
+X      }
+X  
+X!     sprintf(path, stdinc ? "<%s>" : "\"%s\"", filename);
+X      if (find_symbol(included_files, path) != NULL)
+X  	return;
+X!     new_symbol(included_files, path, 0);
+X  
+X      for (i = stdinc != 0; i < num_inc_dir; ++i) {
+X  	if (strlen(inc_dir[i]) == 0) {
+X! 	    strcpy(path, filename);
+X  	} else {
+X! 	    sprintf(path, "%s/%s", inc_dir[i], filename);
+X  	}
+X  	if ((fp = fopen(path, "r")) != NULL) {
+X--- 543,571 ----
+X      }
+X  
+X!     if (file_spec[0] == '"') {
+X! 	match = '"';
+X! 	stdinc = 0;
+X!     } else if (file_spec[0] == '<') {
+X! 	match = '>';
+X! 	stdinc = 1;
+X!     } else {
+X! 	return;
+X!     }
+X!     s = strchr(file_spec+1, match);
+X!     n = (s != NULL) ? (unsigned)(s - file_spec - 1) : 0;
+X!     strncpy(file, file_spec+1, n);
+X!     file[n] = '\0';
+X! 
+X!     /* Do nothing if the file was already included. */
+X!     sprintf(path, stdinc ? "<%s>" : "\"%s\"", file);
+X      if (find_symbol(included_files, path) != NULL)
+X  	return;
+X!     new_symbol(included_files, path, NULL, DS_NONE);
+X  
+X      for (i = stdinc != 0; i < num_inc_dir; ++i) {
+X  	if (strlen(inc_dir[i]) == 0) {
+X! 	    strcpy(path, file);
+X  	} else {
+X! 	    sprintf(path, "%s/%s", inc_dir[i], file);
+X  	}
+X  	if ((fp = fopen(path, "r")) != NULL) {
+X***************
+X*** 543,547 ****
+X      if (!quiet) {
+X  	put_error();
+X! 	fprintf(stderr, "cannot read file %s\n", filename);
+X      }
+X  }
+X--- 578,582 ----
+X      if (!quiet) {
+X  	put_error();
+X! 	fprintf(stderr, "cannot read file %s\n", file_spec);
+X      }
+X  }
+Xdiff  -c2 old/Makefile.bc new/Makefile.bc
+X*** old/Makefile.bc	Sat Nov 28 23:27:32 1992
+X--- new/Makefile.bc	Tue May 25 21:36:04 1993
+X***************
+X*** 1,3 ****
+X! # $Id: Makefile.bc 3.1 1992/03/03 10:45:53 cthuang Exp $
+X  #
+X  # Borland C++ makefile for C prototype generator
+X--- 1,3 ----
+X! # $Id: Makefile.bc 3.2 1993/05/26 01:34:15 cthuang Exp $
+X  #
+X  # Borland C++ makefile for C prototype generator
+X***************
+X*** 10,14 ****
+X  YACC = yacc
+X  CC = bcc
+X! CFLAGS = -mc $(DEFINES)
+X  LIBS = \bc\lib\wildargs.obj
+X  
+X--- 10,14 ----
+X  YACC = yacc
+X  CC = bcc
+X! CFLAGS = -mc $(DEFINES) -w-pin -w-pro
+X  LIBS = \bc\lib\wildargs.obj
+X  
+X***************
+X*** 50,65 ****
+X  
+X  shar:
+X- 	rmcr $(DIST1) $(DIST2)
+X- 	rmcr $(DIST3) $(DIST4)
+X  	shar $(DIST1) $(DIST2) >cproto.sh1
+X  	shar $(DIST3) $(DIST4) >cproto.sh2
+X  
+X- inscr:
+X- 	inscr $(DIST1) $(DIST2)
+X- 	inscr $(DIST3) $(DIST4)
+X- 
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.obj: config.h cproto.h symbol.h
+X  popen.obj: config.h cproto.h
+X  semantic.obj: config.h cproto.h symbol.h semantic.h
+X--- 50,59 ----
+X  
+X  shar:
+X  	shar $(DIST1) $(DIST2) >cproto.sh1
+X  	shar $(DIST3) $(DIST4) >cproto.sh2
+X  
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.obj: config.h cproto.h
+X  popen.obj: config.h cproto.h
+X  semantic.obj: config.h cproto.h symbol.h semantic.h
+Xdiff  -c2 old/Makefile.msc new/Makefile.msc
+X*** old/Makefile.msc	Sat Nov 28 23:27:36 1992
+X--- new/Makefile.msc	Tue May 25 21:36:12 1993
+X***************
+X*** 1,3 ****
+X! # $Id: Makefile.msc 3.4 1992/11/29 04:27:30 cthuang Exp $
+X  #
+X  # Microsoft C makefile for C prototype generator
+X--- 1,3 ----
+X! # $Id: Makefile.msc 3.5 1993/05/26 01:36:04 cthuang Exp $
+X  #
+X  # Microsoft C makefile for C prototype generator
+X***************
+X*** 51,66 ****
+X  
+X  shar:
+X- 	rmcr $(DIST1) $(DIST2)
+X- 	rmcr $(DIST3) $(DIST4)
+X  	shar $(DIST1) $(DIST2) >cproto.sh1
+X  	shar $(DIST3) $(DIST4) >cproto.sh2
+X  
+X- inscr:
+X- 	inscr $(DIST1) $(DIST2)
+X- 	inscr $(DIST3) $(DIST4)
+X- 
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.obj: config.h cproto.h symbol.h
+X  popen.obj: config.h cproto.h
+X  semantic.obj: config.h cproto.h symbol.h semantic.h
+X--- 51,60 ----
+X  
+X  shar:
+X  	shar $(DIST1) $(DIST2) >cproto.sh1
+X  	shar $(DIST3) $(DIST4) >cproto.sh2
+X  
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.obj: config.h cproto.h
+X  popen.obj: config.h cproto.h
+X  semantic.obj: config.h cproto.h symbol.h semantic.h
+Xdiff  -c2 old/Makefile.uni new/Makefile.uni
+X*** old/Makefile.uni	Sat Nov 28 23:27:36 1992
+X--- new/Makefile.uni	Tue May 25 21:36:12 1993
+X***************
+X*** 1,3 ****
+X! # $Id: Makefile.uni 3.5 1992/06/10 20:56:00 cthuang Exp $
+X  #
+X  # UNIX makefile for C prototype generator
+X--- 1,3 ----
+X! # $Id: Makefile.uni 3.6 1993/05/26 01:34:15 cthuang Exp $
+X  #
+X  # UNIX makefile for C prototype generator
+X***************
+X*** 47,51 ****
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.o: config.h cproto.h symbol.h
+X  semantic.o: config.h cproto.h symbol.h semantic.h
+X  strstr.o: config.h
+X--- 47,51 ----
+X  # DO NOT DELETE THIS LINE -- make depend depends on it.
+X  
+X! cproto.o: config.h cproto.h
+X  semantic.o: config.h cproto.h symbol.h semantic.h
+X  strstr.o: config.h
+Xdiff  -c2 old/patchlev.h new/patchlev.h
+X*** old/patchlev.h	Tue Dec 01 09:52:28 1992
+X--- new/patchlev.h	Wed Dec 02 21:16:22 1992
+X***************
+X*** 1 ****
+X! #define PATCHLEVEL 6
+X--- 1 ----
+X! #define PATCHLEVEL 7
+Xdiff  -c2 old/semantic.c new/semantic.c
+X*** old/semantic.c	Sat Nov 28 23:27:56 1992
+X--- new/semantic.c	Tue May 25 21:36:50 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: semantic.c 3.7 1992/11/29 04:27:49 cthuang Exp $
+X   *
+X   * Semantic actions executed by the parser of the
+X--- 1,3 ----
+X! /* $Id: semantic.c 3.8 1993/05/26 01:36:41 cthuang Exp $
+X   *
+X   * Semantic actions executed by the parser of the
+X***************
+X*** 519,524 ****
+X      fputs(s, outf);
+X  
+X!     if (where == FUNC_PROTO && proto_style == PROTO_MACRO &&
+X!      declarator == func_declarator) {
+X  	fprintf(outf, " %s(", macro_name);
+X      }
+X--- 519,523 ----
+X      fputs(s, outf);
+X  
+X!     if (where == FUNC_PROTO && declarator == func_declarator && proto_macro) {
+X  	fprintf(outf, " %s(", macro_name);
+X      }
+X***************
+X*** 529,534 ****
+X      fputs(t, outf);
+X  
+X!     if (where == FUNC_PROTO && proto_style == PROTO_MACRO &&
+X!      declarator == func_declarator) {
+X  	fputc(')', outf);
+X      }
+X--- 528,532 ----
+X      fputs(t, outf);
+X  
+X!     if (where == FUNC_PROTO && declarator == func_declarator && proto_macro) {
+X  	fputc(')', outf);
+X      }
+X***************
+X*** 608,616 ****
+X  }
+X  
+X! /* Generate a prototype for a function that uses varargs by replacing the
+X!  * "va_alist" parameter with an empty parameter list.
+X   */
+X! static void
+X! check_varargs (declarator)
+X  Declarator *declarator;
+X  {
+X--- 606,613 ----
+X  }
+X  
+X! /* Return TRUE if the function uses varargs.
+X   */
+X! static int
+X! uses_varargs (declarator)
+X  Declarator *declarator;
+X  {
+X***************
+X*** 617,626 ****
+X      Parameter *p;
+X  
+X!     if ((p = declarator->params.first) != NULL && p->next == NULL &&
+X! 	strcmp(p->declarator->name, "va_alist") == 0)
+X!     {
+X! 	free_param_list(&declarator->params);
+X! 	declarator->params.first = NULL;
+X!     }
+X  }
+X  
+X--- 614,619 ----
+X      Parameter *p;
+X  
+X!     return (p = declarator->params.first) != NULL && p->next == NULL &&
+X! 	strcmp(p->declarator->name, "va_alist") == 0;
+X  }
+X  
+X***************
+X*** 673,678 ****
+X  
+X      func_declarator = declarator->head;
+X      check_void_param(func_declarator);
+X-     check_varargs(func_declarator);
+X      set_param_decl_spec(func_declarator);
+X  
+X--- 666,678 ----
+X  
+X      func_declarator = declarator->head;
+X+     if (uses_varargs(func_declarator)) {
+X+ 	/* Generate a prototype for a function that uses varargs by replacing
+X+ 	 * the "va_alist" parameter with an empty parameter list.
+X+ 	 */
+X+ 	free_param_list(&func_declarator->params);
+X+ 	func_declarator->params.first = NULL;
+X+     }
+X+ 
+X      check_void_param(func_declarator);
+X      set_param_decl_spec(func_declarator);
+X  
+X***************
+X*** 737,743 ****
+X      int comment_len, n;
+X  
+X!     /* Do nothing if the function is already defined in the desired style. */
+X      func_declarator = declarator->head;
+X!     if (func_declarator->func_def == func_style)
+X  	return;
+X  
+X--- 737,746 ----
+X      int comment_len, n;
+X  
+X!     /* Do nothing if the function is already defined in the desired style
+X!      * or if the function uses varargs.
+X!      */
+X      func_declarator = declarator->head;
+X!     if (func_declarator->func_def == func_style ||
+X! 	uses_varargs(func_declarator))
+X  	return;
+X  
+Xdiff  -c2 old/symbol.c new/symbol.c
+X*** old/symbol.c	Sat Nov 28 23:28:00 1992
+X--- new/symbol.c	Tue May 25 21:36:54 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: symbol.c 3.2 1992/11/29 04:27:49 cthuang Exp $
+X   *
+X   * Implements a symbol table abstract data type.
+X--- 1,3 ----
+X! /* $Id: symbol.c 3.3 1993/05/26 01:36:41 cthuang Exp $
+X   *
+X   * Implements a symbol table abstract data type.
+X***************
+X*** 39,42 ****
+X--- 39,43 ----
+X  	    next = sym->next;
+X  	    free(sym->name);
+X+ 	    free(sym->value);
+X  	    free(sym);
+X  	    sym = next;
+X***************
+X*** 98,104 ****
+X   */
+X  Symbol *
+X! new_symbol (symtab, name, flags)
+X  SymbolTable *symtab;	/* symbol table */
+X  char *name;		/* symbol name */
+X  int flags;		/* symbol attributes */
+X  {
+X--- 99,106 ----
+X   */
+X  Symbol *
+X! new_symbol (symtab, name, value, flags)
+X  SymbolTable *symtab;	/* symbol table */
+X  char *name;		/* symbol name */
+X+ char *value;		/* symbol value */
+X  int flags;		/* symbol attributes */
+X  {
+X***************
+X*** 109,117 ****
+X  	sym = (Symbol *)xmalloc(sizeof(Symbol));
+X  	sym->name = xstrdup(name);
+X- 	sym->flags = flags;
+X  	i = hash(name);
+X  	sym->next = symtab->bucket[i];
+X  	symtab->bucket[i] = sym;
+X      }
+X      return sym;
+X  }
+X--- 111,122 ----
+X  	sym = (Symbol *)xmalloc(sizeof(Symbol));
+X  	sym->name = xstrdup(name);
+X  	i = hash(name);
+X  	sym->next = symtab->bucket[i];
+X  	symtab->bucket[i] = sym;
+X+     } else {
+X+ 	free(sym->value);
+X      }
+X+     sym->value = (value != NULL) ? xstrdup(value) : NULL;
+X+     sym->flags = flags;
+X      return sym;
+X  }
+Xdiff  -c2 old/symbol.h new/symbol.h
+X*** old/symbol.h	Sat Nov 28 23:27:48 1992
+X--- new/symbol.h	Tue May 25 21:36:40 1993
+X***************
+X*** 1,3 ****
+X! /* $Id: symbol.h 3.3 1992/03/14 11:57:48 cthuang Exp $
+X   *
+X   * A symbol table is a collection of string identifiers stored in a
+X--- 1,3 ----
+X! /* $Id: symbol.h 3.4 1993/05/26 01:36:04 cthuang Exp $
+X   *
+X   * A symbol table is a collection of string identifiers stored in a
+X***************
+X*** 10,14 ****
+X      struct symbol *next;	/* next symbol in list */
+X      char *name; 		/* name of symbol */
+X!     unsigned short flags;	/* symbol attributes */
+X  } Symbol;
+X  
+X--- 10,15 ----
+X      struct symbol *next;	/* next symbol in list */
+X      char *name; 		/* name of symbol */
+X!     char *value;		/* value of symbol (for defines) */
+X!     short flags;		/* symbol attributes */
+X  } Symbol;
+X  
+END_OF_patch7
+if test 32109 -ne `wc -c <patch7`; then
+    echo shar: \"patch7\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of shell archive.
+exit 0
+
+-- 
+Chin Huang  cthuang%zerosan@canrem.com  chin.huang@canrem.com
+
+exit 0 # Just in case...

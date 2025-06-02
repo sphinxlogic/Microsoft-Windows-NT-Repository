@@ -1,0 +1,904 @@
+From: aem@aber.ac.uk (Alec David Muffett)
+Newsgroups: comp.sources.misc
+Subject: v28i114: crack - The Unix Password Cracker, version 4.1, Part05/05
+Message-ID: <1992Mar18.143933.24081@aber.ac.uk>
+Date: 18 Mar 92 14:39:33 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: 40197e049e95f9f15ad937ab62008026
+
+Submitted-by: aem@aber.ac.uk (Alec David Muffett)
+Posting-number: Volume 28, Issue 114
+Archive-name: crack/part05
+Environment: UNIX
+Supersedes: crack: Volume 25, Issue 5-9
+
+#! /bin/sh
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 5)."
+# Contents:  Docs/readme.txt
+# Wrapped by aem@aberfa on Wed Mar 18 14:08:39 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Docs/readme.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Docs/readme.txt'\"
+else
+echo shar: Extracting \"'Docs/readme.txt'\" \(30990 characters\)
+sed "s/^X//" >'Docs/readme.txt' <<'END_OF_FILE'
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X                    "Crack Version 4.1"
+X            A Sensible Password Checker for Unix
+X
+X
+X                     Alec D.E. Muffett
+X
+X                   Unix Software Engineer
+X                   Aberystwyth, Wales, UK
+X      (aem@aber.ac.uk or alec_muffett@hicom.lut.ac.uk)
+X
+X
+X                          ABSTRACT
+X
+X          Crack is a freely available program  designed
+X     to   find   standard   Unix   eight-character  DES
+X     encrypted passwords  by  standard  guessing  tech-
+X     niques outlined below.  It is written to be flexi-
+X     ble, configurable and fast, and to be able to make
+X     use  of  several  networked hosts via the Berkeley
+X     rsh program (or similar), where possible.
+X
+X
+X
+X1.  Statement of Intent
+X
+XThis package is meant as a proving device to  aid  the  con-
+Xstruction  of  secure  computer systems.  Users of Crack are
+Xadvised that they may get severly hassled  by  authoritarian
+Xtype sysadmin dudes if they run Crack without proper author-
+Xisation.
+X
+X2.  Introduction to Version 4.0
+X
+XCrack is now into it's fourth version, and has been reworked
+Xextensively  to provide extra functionality, and the purpose
+Xof this release is to consolidate as much of this new  func-
+Xtionality into as small a package as possible.  To this end,
+XCrack may appear to be less configurable: it has been  writ-
+Xten on the assumption that you run a fairly modern Unix, one
+Xwith BSD functionality, and then patched in order to run  on
+Xother systems.
+X
+XThis, surprisingly enough, has led to neater code,  and  has
+Xmade  possible the introduction of greater flexibility which
+Xsupercedes many of the options that could be  configured  in
+Xearlier  versions  of  Crack.  In the same vein, some of the
+Xolder options are now mandatory.  These,  such  as  feedback
+Xmode  and  CRACK_PRINTOUT are no longer supported as options
+Xand probably never will be again.  There is just  a  lot  of
+Xwastage  in not running with them, and too many dependencies
+Xin other functions to bother programming around them.
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 2 -
+X
+X
+XThe user interface is basically identical  to  the  previous
+Xversions,  although  some  people have asked about providing
+XX-windows GUI's to Crack, I think it would  be  a  waste  of
+Xtime to do so. Crack has far less options than your ordinary
+Xversion of /bin/ls.
+X
+X3.  Introduction to Version 4.1
+X
+XVersion 4.1 of the Crack program is an attempt to extend the
+Xfeatures  introduced  in v4.0 and provide hooks for external
+Xlibraries such  as  Michael  Glad's  wonderful  UFC  crypt()
+Ximplementation,  which (on some platforms) can outperform my
+Xfcrypt() by a factor of 3.  I have also been  burdened  with
+Xthe  task of making Crack's memory handling bombproof (hah!)
+Xin the vague hope that it will survive running out of memory
+Xon small machines.[1]
+X
+XThe extensions that I mention above regard the  addition  of
+Xextra primitives to the dictionary processing language which
+Xpermit the production of more concise dictionaries  contain-
+Xing  words,  more  of which are likely to be passwords.  The
+Xidea is to gain efficiency by removing  some  of  the  dross
+Xfrom the generated dictionaries.
+X
+XCrack should (generally) be more  disk-space  efficient  now
+Xthat  the  program  can  spot  dictionaries  which have been
+Xcompressed using compress or pack and will  uncompress  them
+Xon  the  fly  as  necessary  (using  zcat  or  pcat  respec-
+Xtively).[2]
+X
+X4.  Crack Methodology - Part 1: Internals
+X
+XCrack takes as its input a  series  of  password  files  and
+Xsource  dictionaries.  It merges the dictionaries, turns the
+Xpassword files into a sorted list, and  generates  lists  of
+Xpossible passwords from the merged dictionary or from infor-
+Xmation gleaned about users from the password file.  It  does
+X_________________________
+X  [1] - or even on large ones. Brian Tompsett  at  Hull
+Xtweaked  Crack  v3.3  until  it could run to completion
+Xafter filling the swapspace on each  of  a  network  of
+XSparcStation2's.  Due  to restructuring work on v4.0, I
+Xhave had to  write  my  own  sorting  algorithm  &  re-
+Ximplement  all of his tweaks from scratch, and can only
+Xhope that I have emulated  the  bombproofness  of  this
+Xdesirable (?) functionality.
+X  [2] Note to people who are short on memory  or  swap:
+Xdo  remember  that to do this Crack will have to fork()
+X(via popen()) and might not be able to create  the  un-
+Xcompressing  process.  Hence, if you intend to swaplock
+Xyour machine, don't compress the  dictionaries.  Switch
+Xthis off by editing the Crack shellscript.
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 3 -
+X
+X
+Xnot attempt to remedy the problem of allowing users to  have
+Xguessable  passwords,  and it should NOT be used in place of
+Xgetting a really good, secure passwd program replacement.[3]
+X
+XThe above paragraphs define the purpose of Crack, and embody
+Xa  great  deal of hard work, screams of Eureka!, drunkeness,
+Xand a fair amount of swearing too.  There is a lot of think-
+Xing, philosophy, and empirical guesswork behind the way that
+XCrack attacks password files, and although it  is  not  per-
+Xfect,  I  certainly hope that Crack will out-do most of it's
+Xcompetitors.
+X
+XCrack works by making many individual passes over the  pass-
+Xword  entries  that  you  supply to it.  Each pass generates
+Xpassword guesses based upon a sequence of rules, supplied to
+Xthe  program  by  the  user.  The  rules  are specified in a
+Xsimplistic   language   in   the   files   gecos.rules   and
+Xdicts.rules, to be found in the Scripts directory.  The dis-
+Xtinction between these two files will be made clear later.
+X
+XThe rules are written as a simple string of characters, with
+Xone  rule  to a line.  Blank lines, and comment lines begin-
+Xning with a hash character #  are  ignored.   Trailing  whi-
+Xtespace  is  also ignored.  The instructions in the rule are
+Xfollowed from left to right, and are applied to the diction-
+Xary  words one by one, as the words are loaded.  Some simple
+Xpattern matching primitives are provided for selection  pur-
+Xposes,  so  that  if  the dictionary word does not match the
+Xpattern, it is ignored.  This  saves  on  time  and  memory.
+XBefore  carrying  on,  I  suggest  that  you  browse through
+XScripts/dicts.rules, take a look at the  rules  supplied  as
+Xdefaults, and try to work out what they do.
+X
+XThe rules are stored in two different  files  for  two  dif-
+Xferent  purposes.   Rules in Scripts/gecos.rules are applied
+Xto data generated by Crack from the  pw_gecos  and  pw_gecos
+Xentries  of  the user's password entry.  The data fed to the
+Xgecos rules for the user aem, who  is  Alec  David  Muffett,
+XSystems  would be: aem, Alec, David, Muffett, Systems, and a
+Xseries of permutations of those  words,  either  re-ordering
+Xthe  words  and  joining them together (eg: AlecMuffett), or
+Xmaking up new words based on initial  letters  of  one  word
+Xtaken with the rest of another (eg: AMuffett).[4]
+X
+XThe entire set of rules in gecos.rules is applied to each of
+X_________________________
+X  [3] See the end of ths document for more  information
+Xabout passwd replacements.
+X  [4] - and ASystems and DSystems, and MSystems, etc...
+Xbecause  Crack  does  not  differentiate.  Hence,  care
+Xshould be taken to check for redundancy when adding new
+Xrules, so as not to waste time during the gecos pass.
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 4 -
+X
+X
+Xthese words, which creates many more permutations and combi-
+Xnations,  all  of which are tested.  Hence testing the pass-
+Xword gecos information under Crack v4.0  and  upwards  takes
+Xsomewhat   longer  than  previously,  but  it  is  far  more
+Xthorough.
+X
+X
+XAfter a pass has been made over  the  data  based  on  gecos
+Xinformation,  Crack  makes  further passes over the password
+Xdata using successive rules from the Scripts/dicts.rules  by
+Xloading  the  whole  of Dicts/bigdict file into memory, with
+Xthe rule being applied to each word from  that  file.   This
+Xgenerates a resident dictionary, which is sorted and uniqued
+Xso as to prevent wasting time on repetition. After each pass
+Xis  completed, the memory used by the resident dictionary is
+Xfreed up, and (hopefully) re-used when the  next  dictionary
+Xis loaded.
+X
+XThe Dicts/bigdict dictionary is created by Crack by merging,
+Xsorting,  and uniq'ing the source dictionaries, which are to
+Xbe found in the directory DictSrc  and  which  may  also  be
+Xnamed  in  the Crack shellscript, via the $STDDICT variable.
+X(The default value of $STDDICT is /usr/dict/words).
+X
+XThe file DictSrc/bad_pws.dat is a dictionary which is  meant
+Xto  provide  many  of  those common but non-dictionary pass-
+Xwords, such as 12345678 or qwerty.
+X
+XIf you wish to provide a dictionary of your own,  just  copy
+Xit  into  the  DictSrc  directory (use compress on it if you
+Xwish to save space; Crack will unpack it  whilst  generating
+Xthe  big  dictionary)  and  then  delete the contents of the
+XDicts directory by running Scripts/spotless.  Your new  dic-
+Xtionary will be merged in on the next run. For more informa-
+Xtion on dictionary attacks, see the excellent  paper  called
+X"Foiling  the  Cracker:  A  Survey  of, and Improvements to,
+XPassword  Security"  by   Daniel   Klein,   available   from
+Xftp.sei.cmu.edu  in  ~/pub/dvk/passwd.*.   Also, please read
+Xthe APPENDIX file supplied with this distribution.[5]
+X
+XHaving described the method of cracking, perhaps  we  should
+Xnow  investigate  the algorithm used to overlay the cracking
+Xmechanism.
+X
+X
+X
+X_________________________
+X  [5] Extra dictionaries (those detailed in Dan Klein's
+Xpaper)   can   be   obtained  via  anonymous  FTP  from
+Xftp.uu.net (137.39.1.9) as ~/pub/dictionaries.tar.Z; or
+Xcheck  an Archie database for other possible sources of
+Xdictionaries.
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 5 -
+X
+X
+X5.  Crack Methodology - Part 2: Feedback Filters
+X
+XAs is stated above, Crack permutes  and  loads  dictionaries
+Xdirectly   into  memory,  sorts  and  uniques  them,  before
+Xattempting to use each of the words  as  a  guess  for  each
+Xusers'  password.  If Crack correctly guesses a password, it
+Xmarks the user as done and does not waste  further  time  on
+Xtrying to break that users password.
+X
+XOnce Crack has finished a dictionary  pass,  it  sweeps  the
+Xlist  of  users looking for the passwords it has cracked. It
+Xstores the cracked passwords in both plaintext and encrypted
+Xforms in a feedback file in the directory Runtime.  Feedback
+Xfiles have names of the form Runtime/F*.
+X
+XThe purpose of this is so that, when Crack is next  invoked,
+Xit  may recognise passwords that it has successfully cracked
+Xbefore, and filter them  from  the  input  to  the  password
+Xcracker.  This  provides  an instant list of crackable users
+Xwho have not changed their passwords  since  the  last  time
+XCrack was run. This list appears in a file with name out* in
+Xthe $CRACK_OUT directory, or on stdout, if  foreground  mode
+Xis invoked (see Options, below).
+X
+XIn a similar vein, when a Crack run terminates normally,  it
+Xwrites out to the feedback file all encrypted passwords that
+Xit has NOT succeeded in cracking.  Crack  will  then  ignore
+Xall of these passwords next time you run it.
+X
+XObviously, this is not desirable if  you  frequently  change
+Xyour  dictionaries  or  rules, and so there is a script pro-
+Xvided,  Scripts/mrgfbk  which  sorts  your  feedback  files,
+Xmerges  them  into one, and optionally removes all traces of
+X'uncrackable' passwords, so that your  next  Crack  run  can
+Xhave  a  go  at  passwords  it has not succeeded in breaking
+Xbefore.
+X
+XMrgfbk is invoked automatically if you run Scripts/spotless.
+X
+X6.  Crack Methodology - Part 3: Execution and Networking
+X
+XEach time Crack is invoked, whether  networked  or  not,  it
+Xgenerates  a diefile with a name of the form Runtime/D* (for
+Xnetwork cracks, this file is generated by RCrack, and is  of
+Xthe  form  Runtime/DR* which points to a real diefile, named
+XRuntime/RD* - see below for details).
+X
+XThese diefiles contain debugging information about the  job,
+Xand are generated so that all the jobs on the entire network
+Xcan be called quickly by invoking Scripts/plaster.  Diefiles
+Xdelete themselves after they have been run.
+X
+XAs you will read in the sections below, Crack has a -network
+Xoption:   This   is  designed  to  be  a  simple  method  of
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 6 -
+X
+X
+Xautomatically spreading the load of  password  cracking  out
+Xover  several  machines on a network, preferably if they are
+Xconnected by some form of networked filestore.
+X
+XWhen Crack -network is invoked, it filters its input in  the
+Xordinary  way,  and  then splits its load up amongst several
+Xmachines    which    are    specified    in     the     file
+XScripts/network.conf.
+X
+XThis file contains a series  of  hostnames,  power  ratings,
+Xflags,  etc,  relevant  to  the  running  of  Crack  on each
+Xmachine.  Crack then calls Scripts/RCrack  to  use  the  rsh
+Xcommand  (or  similar)  to  invoke Crack on the other hosts.
+XSee the RCrack script, and the example network.conf file for
+Xdetails.
+X
+X7.  Installation
+X
+XCrack is one of those most  unusual  of  beasties,  a  self-
+Xinstalling  program.  Some people have complained about this
+Xapparent weirdness, but it has  grown  up  with  Crack  ever
+Xsince  the  earliest  network  version,  when I could not be
+Xbothered to log into several different machines with several
+Xdifferent   architectures,   just  in  order  to  build  the
+Xbinaries. Once the necessary configuration options have been
+Xset,  the  executables  are  created via make by running the
+XCrack shellscript .
+X
+XCrack's configuration lies in two  files,  the  Crack  shell
+Xscript,  which contains all the installation specific confi-
+Xguration data, and the file Sources/conf.h,  which  contains
+Xconfiguration options specific to various binary platforms.
+X
+XIn  the  Crack  shellscript,  you  will  have  to  edit  the
+XCRACK_HOME  variable  to  the  correct value.  This variable
+Xshould be set to an absolute path name  (names  relative  to
+X~username  are  OK,  so  long  as you have some sort of csh)
+Xthrough which the directory containing Crack may be accessed
+Xon  ALL  the  machines that Crack will be run on. There is a
+Xsimilar  variable  CRACK_OUT  which  specifies  where  Crack
+Xshould  put  its output files - by default, this is the same
+Xas $CRACK_HOME.
+X
+XYou will also have to edit the file Sources/conf.h and  work
+Xout which switches to enable.  Each #define has a small note
+Xexplaining its purpose.  Where I have been  in  doubt  about
+Xthe portability of certain library functions, usually I have
+Xre-written it, so you should be OK.  Let  me  know  of  your
+Xproblems, if you have any.
+X
+XIf you will be using Crack -network you will  then  have  to
+Xgenerate  a  Scripts/network.conf file. This contains a list
+Xof hostnames to rsh to, what their binary  type  is  (useful
+Xwhen   running   a   network   Crack  on  several  different
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 7 -
+X
+X
+Xarchitectures), a guesstimate of their relative power  (take
+Xyour  slowest machine as unary, and measure all others rela-
+Xtive to it), and a list of per-host flags to  add  to  those
+Xspecified on the Crack command line, when calling that host.
+XThere is an example of such a file provided in  the  Scripts
+Xdirectory - take a look at it.
+X
+XIf ever you wish to specify a more precise figure as to  the
+Xrelative  power  of  your  machines,  or you are simply at a
+Xloss, play with the command make tests in  the  source  code
+Xdirectory.    This  can  provide  you  with  the  number  of
+Xfcrypt()s that your machine can do per second,  which  is  a
+Xnumber that you can plug into your network.conf as a measure
+Xof your machines' power (after  rounding  the  value  to  an
+Xinteger).
+X
+X8.  Usage
+X
+XOkay, so, let's assume  that  you  have  edited  your  Crack
+Xscript,  and  your Sources/conf.h file, where do you go from
+Xhere ?
+X
+X
+XCrack [options] [bindir] /etc/passwd [...other passwd files]
+X
+XCrack -network [options] /etc/passwd [...other passwd files]
+X
+X
+XWhere bindir is the optional name of the directory where you
+Xwant  the binaries installed.  This is useful where you want
+Xto be able to run versions of  Crack  on  several  different
+Xarchitectures.  If  bindir does not exist, a warning will be
+Xissued, and the directory created.
+X
+X     Note: bindir defaults to the name generic  if  not
+X     supplied.
+X
+X
+XNotes for  Yellow  Pages  (NIS)  Users:  I  have  occasional
+Xqueries  about  how  to get Crack running from a YP password
+Xfile.  There are several methods, but by far the simplest is
+Xto generate a passwd format file by running:-
+X
+X                  ypcat passwd > passwd.yp
+X
+Xand then running Crack on this file.
+X
+X9.  Options
+X
+X-f   Runs Crack in foreground mode, ie: the password cracker
+X     is  not backgrounded, and messages appear on stdout and
+X     stderr as you would expect.  This option is only really
+X     useful  for very small password files, or when you want
+X     to put a wrapper script around Crack.
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 8 -
+X
+X
+X     Foreground mode is disabled if you  try  running  Crack
+X     -network  -f on the command line, because of the insen-
+X     sibility of rshing to several machines in turn, waiting
+X     for  each  one  to finish before calling the next. How-
+X     ever, please read the section  about  Network  Cracking
+X     without NFS/RFS, below.
+X
+X-v   Sets verbose mode, whereby Crack will print every guess
+X     it is trying on a per-user basis.  This is a very quick
+X     way of flooding your filestore, but useful if you think
+X     something is going wrong.
+X
+X-m   Sends mail to any user  whose  password  you  crack  by
+X     invoking  Scripts/nastygram  with  their username as an
+X     argument.  The reason for using the script is so that a
+X     degree of flexibility in the format of the mail message
+X     is supplied; ie: you don't have to  recompile  code  in
+X     order to change the message.[6]
+X
+X-nvalue
+X     Sets the process to be nice()ed to value, so, for exam-
+X     ple,  the  switch -n19 sets the Crack process to run at
+X     the lowest priority.
+X
+X-network
+X     Throws Crack into network mode, in which it  reads  the
+X     Scripts/network.conf file, splits its input into chunks
+X     which are sized according to the power  of  the  target
+X     machine,  and  calls  rsh to run Crack on that machine.
+X     Options for Crack running on the target machine may  be
+X     supplied  on  the  command line (eg: verbose or recover
+X     mode), or in the network.conf file if they  pertain  to
+X     specific hosts (eg: nice() values).
+X
+X-r<pointfile>
+X     This is only for use  when  running  in  recover  mode.
+X     When  a  running  Crack  starts pass 2, it periodically
+X     saves its state in a pointfile, with a name of the form
+X     Runtime/P.*  This file can be used to recover where you
+X     were should a  host  crash.   Simply  invoke  Crack  in
+X     exactly  the  same  manner  as  the last time, with the
+X     addition of the -r switch,  (eg:  -rRuntime/Pfred12345)
+X_________________________
+X  [6] I'm uncertain about the wisdom of mailing someone
+Xlike this.  If someone browses your cracked user's mail
+Xsomehow, it's like a great big neon  sign  pointing  at
+Xthe  user  saying "This Is A Crackable Account - Go For
+XIt!".  Not to mention the false sense  of  security  it
+Xengenders  in  the  System Manager that he's "informed"
+Xthe user to change his  password.   What  if  the  user
+Xdoesn't  log  on  for 3 months? However, so many people
+Xhave wired it into their own versions of Crack, I  sup-
+Xpose it must be provided... AEM
+X<1b>9
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 9 -
+X
+X
+X     switch.  Crack will startup and read the file, and jump
+X     to  roughly  where  it left off.  If you are cracking a
+X     very large password file, this can save oodles of  time
+X     after a crash.
+X
+X     If you were running a network Crack, then the jobs will
+X     again  be spawned onto all the machines of the original
+X     Crack.  The program will then check that the host it is
+X     running   on  is  the  same  as  is  mentioned  in  the
+X     pointfile.  If it is not, it will quietly  die.   Thus,
+X     assuming that you supply the same input data and do not
+X     change your network.conf file,  Crack  should  pick  up
+X     where  it  left off.  This is a bit inelegant, but it's
+X     better than nothing at the moment.
+X
+X     The method of  error  recovery  outlined  above  causes
+X     headaches  for  users who want to do multiprocessing on
+X     parallel architectures.  Crack is in no  way  parallel,
+X     and  because  of the way it's structured (reading stdin
+X     from shellscript frontends) it is a pain to divide  the
+X     work amongst several processes via fork()ing.
+X
+X     The hack solution to get several copies of  Crack  run-
+X     ning  on one machine with n processors at the moment is
+X     to insert n copies  of  the  entry  for  your  parallel
+X     machine  into the Scripts/network.conf file. If you use
+X     the -r option in these circumstances however, you  will
+X     get n copies of the recovered process running, only one
+X     of them will have the correct input data.
+X
+X     The old solution to this problem (see old documentation
+X     if  you  are interested) has been negated by the intro-
+X     duction of feedback mode, so the best bet in this  par-
+X     ticular  situation  is to wait until the other jobs are
+X     done (and have written out lists of  uncrackable  pass-
+X     words),  and then re-start the jobs from scratch.  Any-
+X     one whose password was not cracked  on  the  first  run
+X     will be ignored on the second, if they have not changed
+X     it since.  This is inelegant, but it's the best  I  can
+X     do in the limited time available.
+X
+X10.  Support Scripts
+X
+XThe Scripts directory contains a small number of support and
+Xutility  scripts,  some  of which are designed to help Crack
+Xusers check their progress.  Briefly, the most  useful  ones
+Xare:-
+X
+XScripts/shadmrg
+X     This is a small (but  hopefully  readable)  script  for
+X     merging  /etc/passwd  and /etc/shadow on System V style
+X     shadow password systems.  It produces the  merged  data
+X     to stdout, and will need redirecting into a file before
+X     Crack can work on it.  The script is meant to be fairly
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 10 -
+X
+X
+X     lucid,  on the grounds that I worry that there are many
+X     shadowing schemes out there, and perhaps not  all  have
+X     the same data format.
+X
+X     I have not wired this facility into the  Crack  command
+X     itself because the world does NOT revolve around System
+X     V yet, regardless of what some  people  would  have  me
+X     believe,  and I believe that the lack of direct support
+X     for NIS outlined above, sets a  precedent.   There  are
+X     just  too  many  incompatibilities  in  shadow password
+X     schemes for me to hardwire anything.
+X
+XScripts/plaster
+X     which is named after a dumb joke, but is a simple fron-
+X     tend  to  the Runtime/D* diefiles that each copy of the
+X     password cracker  generates.  Invoking  Scripts/plaster
+X     will  kill  off  all copies of the password cracker you
+X     are running, over the network or otherwise.
+X
+XScripts/status
+X     This script rshes to  each  machine  mentioned  in  the
+X     Scripts/network.conf  file,  and provides some informa-
+X     tion about processes and uptime on that machine.   This
+X     is  useful when you want to find out just how well your
+X     password crackers are getting on during a  Crack  -net-
+X     work.
+X
+XScripts/{clean,spotless}
+X     These are really just frontends to a makefile. Invoking
+X     Scripts/clean  tidies  up the Crack home directory, and
+X     removes probably unwanted files, but  leaves  the  pre-
+X     processed  dictionary bigdict intact.  Scripts/spotless
+X     does the same as Scripts/clean but obliterates  bigdict
+X     and  old  output files too, and compresses the feedback
+X     files into one.
+X
+XScripts/nastygram
+X     This is the shellscript that is invoked by the password
+X     cracker  to send mail to users who have guessable pass-
+X     words, if the -m option is used. Edit it at  your  lei-
+X     sure to suit your system.
+X
+XScripts/guess2fbk
+X     This script takes your  out*  files  as  arguments  and
+X     reformats  the  'Guessed'  lines  into a slightly messy
+X     feedback file, suitable for storing with the others.
+X
+X     An occasion where this might be  useful  is  when  your
+X     cracker  has  guessed  many peoples passwords, and then
+X     died for some reason (a crash?) before writing out  the
+X     guesses to a feedback file.  Running
+X
+X             Scripts/guess2fbk out* >> Runtime/F.new
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 11 -
+X
+X
+X     will save the work that has been done.
+X
+X11.  Network Cracking without NFS/RFS
+X
+XFor those users who have some form of rsh  command,  but  do
+Xnot  have  a  a  networked  filestore running between hosts,
+Xthere is now a solution which will allow you to do networked
+Xcracking, proposed to me by Brian Tompsett at Hull.  Person-
+Xally, I consider the idea to be potty, but it fills in miss-
+Xing functionality in a wonderfully tacky manner.
+X
+XFrom the documentation above, you will note that Crack  will
+Xundo  the -f (output in foreground) option, if it is invoked
+Xwith the -network switch at the same time (see  the  Options
+Xsection  above).  This is true, but it does not apply if you
+Xspecify -f option in the network.conf file.
+X
+XThe practical upshot of doing this is that remote copies  of
+XCrack  can  be  made  to read from stdin and write to stdout
+Xover a network link, and thus remote  processing  is  accom-
+Xplished.   I  have  tweaked  Crack in such a way, therefore,
+Xthat if the -f option is specified amongst  the  crack-flags
+Xof  a  host  in  the network.conf, rather than backgrounding
+Xitself on the remote host, the rsh command on the server  is
+Xbackgrounded, and output is written directly to the files on
+Xthe server's filestore.
+X
+XThere are restrictions upon this  method,  mostly  involving
+Xthe number of processes that a user may run on the server at
+Xany one time, and that you will  have  to  collect  feedback
+Xoutput  together  manually  (dropping  it  into  the Runtime
+Xdirectory on the server).  However, it works. Also,  if  you
+Xtry  to use rsh as another user, you will suffer problems if
+Xrsh insists on reading something from your terminal  (eg:  a
+Xpassword  for  the  remote account).  Also, recovering using
+Xcheckpointing goes out the window  unless  you  specify  the
+Xname of the pointfile as it is named on the remote machine.
+X
+X12.  UFC Support and notes on fast crypt() implementations
+X
+XThe stdlib version of the crypt() subroutine  is  incredibly
+Xslow.   It is a massive bottleneck to the execution of Crack
+Xand on typical platforms that you get at universities, it is
+Xrare to find a machine which will achieve more than 50 stan-
+Xdard crypt() s per second.   On  low-end  diskless  worksta-
+Xtions,  you may expect 2 or 3 per second.  It was this slow-
+Xness of the crypt() algorithm which originally supplied much
+Xof the security Unix needed.[7]
+X
+X_________________________
+X  [7] See: "Password Security, A Case History"  by  Bob
+XMorris & Ken Thomson, in the Unix Programmer Docs.
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 12 -
+X
+X
+XThere are now many implementations  of  faster  versions  of
+Xcrypt()  to  be found on the network.  The one supplied with
+XCrack v3.2 and upwards is called fcrypt().   It  was  origi-
+Xnally written in May 1986 by Robert Baldwin at MIT, and is a
+Xgood version of the crypt() subroutine.  I received  a  copy
+Xfrom Icarus Sparry at Bath University, who had made a couple
+Xof portability enhancements to the code.
+X
+XI rewrote most of the tables and the KeySchedule  generating
+Xalgorithm  in  the original fdes-init.c to knock 40% off the
+Xexecution overhead of fcrypt()  in  the  form  that  it  was
+Xshipped  to  me.   I inlined a bunch of stuff, put it into a
+Xsingle file, got  some  advice  from  Matt  Bishop  and  Bob
+XBaldwin  [both  of whom I am greatly indebted to] about what
+Xto do to the xform() routine  and  to  the  fcrypt  function
+Xitself,  and  tidied  up some algorithms.  I have also added
+Xmore lookup tables and reduced several  formula  for  faster
+Xuse.   Fcrypt() is now barely recognisable as being based on
+Xits former incarnation, and it is 3x faster.
+X
+XOn a DecStation 5000/200, fcrypt() is about 16 times  faster
+Xthan  the  standard  crypt (your mileage may vary with other
+Xarchitectures and compilers).  This speed puts fcrypt() into
+Xthe "moderately fast" league of crypt implementations.
+X
+XAmongst other crypt  implementations  available  is  UFC  by
+XMichael  Glad.   UFC-crypt is a version of the crypt subrou-
+Xtine which  is  optimised  for  machines  with  32-bit  long
+Xintegers  and  generally outperforms my fcrypt() by a factor
+Xof between 1 and 3, for a tradeoff of  large  memory  usage,
+Xand memory-cache unfriendliness.  Hooks for even more optim-
+Xised assembler versions of crypt()  are  also  provided  for
+Xsome  platforms  (Sun,  HP, ...).  Getting UFC to work on 16
+Xbit architectures is nearly impossible.
+X
+XHowever, on most architectures,  UFC  generates  a  stunning
+Xincrease  in  the power of Crack, and so, from v4.1 onwards,
+XCrack is written to automatically make use of UFC if it  can
+Xfind  it.   All  that you have to do is to obtain a suitable
+Xcopy of UFC (preferably a version which mentions that it  is
+Xcompatible  with  Crack v4.1, and unpack it into a directory
+Xcalled ufc-crypt in $CRACK_HOME, and then  delete  your  old
+Xbinaries.   UFC  will then be detected, compiled, tested and
+Xused in preference to fcrypt() by the Crack  program,  wher-
+Xever possible.
+X
+X13.  Conclusions
+X
+XWhat can be done about brute force attacks on your  password
+Xfile ?
+X
+XYou must get  a  drop-in  replacement  for  the  passwd  and
+Xyppasswd  commands; one which will stop people from choosing
+Xbad  passwords  in  the  first  place.   There  are  several
+X
+X
+X
+X                       March 3, 1992
+X
+X
+X
+X
+X
+X                           - 13 -
+X
+X
+Xprograms  to  do  this;  Matt  Bishop's  passwd+  and  Clyde
+XHoover's npasswd program are good examples which are  freely
+Xavailable.   Consult  an Archie database for more details on
+Xwhere you can get them from.
+X
+XIt would be nice if an organisation (such as CERT?) could be
+Xpersuaded  to  supply  skeletons of sensible passwd commands
+Xfor the public good, as  well  as  an  archive  of  security
+Xrelated utilities[8] on top of the excellent COPS.  However,
+Xfor Unix security to improve on a global scale, we will also
+Xrequire pressure on the vendors, so that programs are  writ-
+Xten correctly from the beginning.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X_________________________
+X  [8] COPS  is  available  for   anonymous   FTP   from
+Xcert.sei.cmu.edu (128.237.253.5) in ~/cops
+X
+X
+X
+X
+X                       March 3, 1992
+X
+X
+END_OF_FILE
+if test 30990 -ne `wc -c <'Docs/readme.txt'`; then
+    echo shar: \"'Docs/readme.txt'\" unpacked with wrong size!
+fi
+# end of 'Docs/readme.txt'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

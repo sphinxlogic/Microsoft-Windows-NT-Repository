@@ -1,0 +1,1665 @@
+Newsgroups: comp.sources.misc
+From: bart@zigzag.z-code.com (Bart Schaefer)
+Subject:  v32i102:  mush - Mail User's Shell, Patch05b/3
+Message-ID: <1992Oct16.141335.6872@sparky.imd.sterling.com>
+X-Md4-Signature: 887782b73a72f6f74abd4268fff88cc2
+Date: Fri, 16 Oct 1992 14:13:35 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bart@zigzag.z-code.com (Bart Schaefer)
+Posting-number: Volume 32, Issue 102
+Archive-name: mush/patch05b
+Environment: UNIX
+Patch-To: mush: Volume 18, Issue 58-79
+
+This is Part 02 of Official Patch #5 for Mush 7.2.  To apply this patch,
+save this message to a file in your mush source directory and type:
+
+	patch -N -p1 < file
+
+See Part 01 for a description of the changes in this patch.  You can apply
+the two parts in any order, but you must apply both parts before applying
+the additional Apollo patches that are included in Part 01.
+
+Prereq: "2/2/92"
+*** 7.2.4/version.h	Sun Feb  2 14:08:19 1992
+--- 7.2.5/version.h	Wed Oct 14 00:05:07 1992
+***************
+*** 1,7 ****
+  /* @(#)version.h	(c) Copyright 1989, 1990, 1991 (Dan Heller) */
+  
+  #define MUSHNAME	"Mail User's Shell"
+! #define RELEASE_DATE	"2/2/92"
+  #define RELEASE		7
+  #define REVISION	"2"
+! #define PATCHLEVEL	4
+--- 1,7 ----
+  /* @(#)version.h	(c) Copyright 1989, 1990, 1991 (Dan Heller) */
+  
+  #define MUSHNAME	"Mail User's Shell"
+! #define RELEASE_DATE	"10/14/92"
+  #define RELEASE		7
+  #define REVISION	"2"
+! #define PATCHLEVEL	5
+*** 7.2.4/addrs.c	Wed Nov 13 00:53:20 1991
+--- 7.2.5/addrs.c	Sat Aug 22 11:46:57 1992
+***************
+*** 188,194 ****
+  char *addr;
+  char *naddr;
+  {
+!     char *i, *r, *at;
+      char s[BUFSIZ], t[BUFSIZ];
+      int anglebrace = 0;
+  
+--- 188,194 ----
+  char *addr;
+  char *naddr;
+  {
+!     char *i, *r, *at = NULL;
+      char s[BUFSIZ], t[BUFSIZ];
+      int anglebrace = 0;
+  
+***************
+*** 201,208 ****
+  	    return NULL;
+  	/* Skip any leading double-quoted comment. */
+  	if (*i == '"') {
+! 	    if ((i = index(i + 1, '"')) && (*i == '\0' || *(++i) == '\0'))
+! 		    return NULL;
+  	}
+  	/* Skip any more whitespace. */
+  	while (*i && index(" \t", *i))
+--- 201,209 ----
+  	    return NULL;
+  	/* Skip any leading double-quoted comment. */
+  	if (*i == '"') {
+! 	    at = i;
+! 	    if (!(i = index(i + 1, '"')) || *(++i) == '\0')
+! 		return NULL;
+  	}
+  	/* Skip any more whitespace. */
+  	while (*i && index(" \t", *i))
+***************
+*** 214,219 ****
+--- 215,222 ----
+  	    if (*(++i) == '\0')
+  		return NULL;
+  	    ++anglebrace;
++ 	} else if ((*i == '@' || *i == '!') && at) {
++ 	    i = at; /* The "comment" was actually a quoted token */
+  	}
+  	/*
+  	 * Look for a route.  A route is a comma-separated set of @-tagged
+***************
+*** 713,719 ****
+  		(void) strcpy(p2, login);
+  		(void) reverse(tmp);
+  		if (!lcase_strncmp(tmp, addr, (len = strlen(tmp))) &&
+! 			(!addr[len] || addr[len] == '!')) {
+  		    Debug("\t%s\n", reverse(addr));
+  		    rm_me = TRUE;
+  		}
+--- 716,723 ----
+  		(void) strcpy(p2, login);
+  		(void) reverse(tmp);
+  		if (!lcase_strncmp(tmp, addr, (len = strlen(tmp))) &&
+! 			(!addr[len] || addr[len] == '!' ||
+! 			addr[len] == '.' && index(p2, '!'))) {
+  		    Debug("\t%s\n", reverse(addr));
+  		    rm_me = TRUE;
+  		}
+***************
+*** 930,936 ****
+  	    *p = '<';
+  	}
+  	if (!(p2 = index(p+1, '>'))) {
+! 	    wprint("Warning! Malformed address: \"%s\"\n", str);
+  	    return NULL;
+  	}
+  	if (addr) {
+--- 934,941 ----
+  	    *p = '<';
+  	}
+  	if (!(p2 = index(p+1, '>'))) {
+! 	    if (name || addr)
+! 		wprint("Warning! Malformed address: \"%s\"\n", str);
+  	    return NULL;
+  	}
+  	if (addr) {
+***************
+*** 956,962 ****
+  		    *name++ = p[1];
+  	    }
+  	    if (p_cnt) {
+! 		wprint("Warning! Malformed name: \"%s\"\n", name);
+  		return NULL;
+  	    }
+  	}
+--- 961,968 ----
+  		    *name++ = p[1];
+  	    }
+  	    if (p_cnt) {
+! 		if (name || addr)
+! 		    wprint("Warning! Malformed name: \"%s\"\n", name);
+  		return NULL;
+  	    }
+  	}
+***************
+*** 986,993 ****
+  	}
+  	while (comment) {
+  	    if (c == '"' && !(p = index(p+1, '"')) ||
+! 		c == '(' && !(p = any(p+1, "()"))) {
+! 		wprint("Warning! Malformed address: \"%s\"\n", str);
+  		return NULL;
+  	    }
+  	    if (*p == '(') /* loop again on parenthesis. quote ends loop */
+--- 992,1000 ----
+  	}
+  	while (comment) {
+  	    if (c == '"' && !(p = index(p+1, '"')) ||
+! 		    c == '(' && !(p = any(p+1, "()"))) {
+! 		if (name || addr)
+! 		    wprint("Warning! Malformed address: \"%s\"\n", str);
+  		return NULL;
+  	    }
+  	    if (*p == '(') /* loop again on parenthesis. quote ends loop */
+***************
+*** 1001,1007 ****
+  	 */
+  	if ((p2 = any(p+1, "<,")) && *p2 == '<') {
+  	    if (!(p = index(p2, '>'))) {
+! 		wprint("Warning! Malformed address: \"%s\"\n", str);
+  		return NULL;
+  	    }
+  	    if (addr = beg_addr) { /* reassign addr and compare to null */
+--- 1008,1015 ----
+  	 */
+  	if ((p2 = any(p+1, "<,")) && *p2 == '<') {
+  	    if (!(p = index(p2, '>'))) {
+! 		if (name || addr)
+! 		    wprint("Warning! Malformed address: \"%s\"\n", str);
+  		return NULL;
+  	    }
+  	    if (addr = beg_addr) { /* reassign addr and compare to null */
+*** 7.2.4/bind.c	Sat Dec  7 16:51:57 1991
+--- 7.2.5/bind.c	Sat Aug 22 11:46:56 1992
+***************
+*** 1,7 ****
+  /* bind.c */
+  
+- #include "bindings.h"
+  #include "mush.h"
+  
+  extern char *c_macro();
+  static un_bind();
+--- 1,7 ----
+  /* bind.c */
+  
+  #include "mush.h"
++ #include "bindings.h"
+  
+  extern char *c_macro();
+  static un_bind();
+*** 7.2.4/command2.c	Sun Dec 15 10:03:34 1991
+--- 7.2.5/command2.c	Sat Aug 22 11:46:58 1992
+***************
+*** 145,150 ****
+--- 145,151 ----
+  int n;
+  char **argv;
+  {
++     static int new;
+      char **envp, **last;
+  
+      if (n != 2 || !strcmp(argv[1], "-?"))
+***************
+*** 152,157 ****
+--- 153,182 ----
+  
+      n = strlen(argv[1]);
+      for (last = environ; *last; last++);
++ 
++     /* Allocate a copy of the environment so we can free() strings we unset */
++     if (new == 0) {
++ 	if (!(envp = (char **)calloc((last - environ) + 1, sizeof(char *)))) {
++ 	    error("Unsetenv: out of memory");
++ 	    return -1;
++ 	}
++ 	while (environ[new]) {
++ 	    envp[new] = savestr(environ[new]);
++ 	    if (!envp[new++]) {
++ 		error("Unsetenv: out of memory");
++ 		free_vec(envp);
++ 		new = 0;
++ 		return -1;
++ 	    }
++ 	}
++ 	environ = envp;
++ 	last = &envp[new];
++ 	new = 1;
++     }
++ 
++     if (last == environ) /* Empty environment? */
++ 	return 0;
++ 
+      last--;
+  
+      for (envp = environ; envp <= last; envp++) {
+*** 7.2.4/commands.c	Wed Nov 13 01:25:17 1991
+--- 7.2.5/commands.c	Sat Aug 22 12:15:06 1992
+***************
+*** 103,108 ****
+--- 103,111 ----
+      register char *p = x? *argv : NULL;
+      register long flg = 0;
+      extern FILE *ed_fp;
++ #ifdef SUNTOOL
++     SIGRET (*oldint)(), (*oldquit)();
++ #endif /* SUNTOOL */
+  
+      if (x && *++argv && !strcmp(*argv, "-?"))
+  	return help(0, "readmsg", cmd_help);
+***************
+*** 169,186 ****
+  	if (isoff(glob_flags, IS_PIPE))
+  	    set_msg_bit(list, current_msg);
+      }
+      current_msg = 0;
+!     for (x = 0; x < msg_cnt; x++)
+  	if (msg_bit(list, x)) {
+  	    current_msg = x;
+  #ifdef SUNTOOL
+  	    if (istool > 1) {
+  		read_mail(NO_ITEM, 0, NO_EVENT);
+! 		return 0;
+  	    }
+  #endif /* SUNTOOL */
+  	    display_msg(x, flg);
+  	}
+      return 0;
+  }
+  
+--- 172,200 ----
+  	if (isoff(glob_flags, IS_PIPE))
+  	    set_msg_bit(list, current_msg);
+      }
++ #ifdef SUNTOOL
++     if (istool > 1)
++ 	on_intr();
++ #endif /* SUNTOOL */
+      current_msg = 0;
+!     for (x = 0; x < msg_cnt && isoff(glob_flags, WAS_INTR); x++)
+  	if (msg_bit(list, x)) {
++ 	    if (current_msg > 0 && istool > 1 && isoff(flg, NO_PAGE) &&
++ 		    c_more("Type RETURN for next message, q to quit:") == 'q')
++ 		break;
+  	    current_msg = x;
+  #ifdef SUNTOOL
+  	    if (istool > 1) {
+  		read_mail(NO_ITEM, 0, NO_EVENT);
+! 		break;
+  	    }
+  #endif /* SUNTOOL */
+  	    display_msg(x, flg);
+  	}
++ #ifdef SUNTOOL
++     if (istool > 1)
++ 	off_intr();
++ #endif /* SUNTOOL */
+      return 0;
+  }
+  
+*** 7.2.4/config.h-dist	Sun Feb  2 14:03:44 1992
+--- 7.2.5/config.h-dist	Sat Aug 22 11:46:46 1992
+***************
+*** 74,79 ****
+--- 74,89 ----
+  /* mail delivery system macros and defines... */
+  
+  /*
++  * For POP3_SUPPORT, define this.  Mush will act as a POP-3 client,
++  * periodically calling the server on the machine described by the
++  * environment variable MAILHOST to pick up new mail.
++  */
++ /* #define POP3_SUPPORT /**/
++ #ifdef POP3_SUPPORT
++ #define HOMEMAIL
++ #endif /* POP3_SUPPORT */
++ 
++ /*
+   * If you are using MMDF, define MMDF here.
+   */
+  /* #define MMDF /**/
+*** 7.2.4/curs_io.c	Thu May 16 18:28:43 1991
+--- 7.2.5/curs_io.c	Sun Sep 20 14:14:37 1992
+***************
+*** 33,41 ****
+  
+  tty_settings()
+  {
+!     savetty();
+  
+! #ifdef SYSV
+      eofc = _tty.c_cc[VEOF];
+  #else
+  #ifdef BSD
+--- 33,44 ----
+  
+  tty_settings()
+  {
+!     int is_tty = isatty(0);
+  
+!     if (is_tty)
+! 	savetty();
+! 
+! #if defined(SYSV) || defined(AIX)
+      eofc = _tty.c_cc[VEOF];
+  #else
+  #ifdef BSD
+***************
+*** 46,52 ****
+  	eofc = CTRL('D');
+  #endif /* SYSV */
+  
+!     if (!isatty(0)) {
+  	del_line = CTRL('U');
+  	del_char = CTRL('H');
+      } else {
+--- 49,55 ----
+  	eofc = CTRL('D');
+  #endif /* SYSV */
+  
+!     if (!is_tty) {
+  	del_line = CTRL('U');
+  	del_char = CTRL('H');
+      } else {
+***************
+*** 55,60 ****
+--- 58,64 ----
+      }
+  
+  #ifdef TIOCGLTC
++ #ifndef AIX	/* Just in case */
+  #ifndef AUX	/* AUX defines TIOCGLTC but doesn't use it */
+      if (ioctl(0, TIOCGLTC, &ltchars) != -1) {
+  	del_word = ltchars.t_werasc;
+***************
+*** 62,67 ****
+--- 66,72 ----
+  	lit_next = ltchars.t_lnextc;
+      } else
+  #endif /* AUX */
++ #endif /* AIX */
+  #endif /* TIOCGLTC */
+      {
+  	del_word = CTRL('W');
+*** 7.2.4/curses.c	Tue Mar  3 10:46:01 1992
+--- 7.2.5/curses.c	Sat Aug 22 11:46:55 1992
+***************
+*** 1,9 ****
+  /* @(#)curses.c	(c) copyright 3/18/87 (Dan Heller) */
+  
+  /* curses.c -- routine to deal with the curses interface */
+- #ifdef CURSES
+  
+  #include "mush.h"
+  #include "bindings.h"
+  
+  curses_init(argc, argv)
+--- 1,9 ----
+  /* @(#)curses.c	(c) copyright 3/18/87 (Dan Heller) */
+  
+  /* curses.c -- routine to deal with the curses interface */
+  
+  #include "mush.h"
++ #ifdef CURSES
+  #include "bindings.h"
+  
+  curses_init(argc, argv)
+***************
+*** 804,809 ****
+--- 804,810 ----
+  scrn_line(line, buf)
+  char *buf;
+  {
++ #ifndef AIX
+  #ifndef A_CHARTEXT
+      (void) strncpy(buf, stdscr->_y[line], COLS-1);
+      buf[COLS-1] = 0; /* strncpy does not null terminate */
+***************
+*** 815,820 ****
+--- 816,824 ----
+  	    break;
+      buf[n] = '\0';
+  #endif /* A_CHARTEXT */
++ #else /* AIX */
++     (void) strncpy(buf, compose_hdr(n_array[line-1]), COLS - 1);
++ #endif /* AIX */
+  }
+  
+  /*
+*** 7.2.4/file.c	Thu Jan 30 20:50:48 1992
+--- 7.2.5/file.c	Sat Aug 22 11:46:56 1992
+***************
+*** 402,412 ****
+  	c = *p, *p = 0;
+  	/* See if it's a file.  This doesn't get written back
+  	 * onto "buf" since it is supposed to be extracted anyway.
+! 	 * The check for '@' in names beginning with '/' is to
+  	 * avoid mis-identifying X.400 addresses as file names.
+  	 */
+  	if (force || *file == '+' || *file == '~' ||
+! 		*file == '|' || *file == '/' && !index(file, '@')) {
+  	    int isdir;
+  	    /* open either "file" or &file[1] */
+  	    if (*file == '|') {
+--- 402,414 ----
+  	c = *p, *p = 0;
+  	/* See if it's a file.  This doesn't get written back
+  	 * onto "buf" since it is supposed to be extracted anyway.
+! 	 * The check for '=' in names beginning with '/' is to
+  	 * avoid mis-identifying X.400 addresses as file names.
++ 	 *
++ 	 * \052 is a * for broken compilers that would do a comment.
+  	 */
+  	if (force || *file == '+' || *file == '~' ||
+! 		*file == '|' || *file == '/' && !glob(file, "/?*=*?/\052")) {
+  	    int isdir;
+  	    /* open either "file" or &file[1] */
+  	    if (*file == '|') {
+*** 7.2.4/hdrs.c	Wed Nov 13 01:27:59 1991
+--- 7.2.5/hdrs.c	Sat Aug 22 11:46:49 1992
+***************
+*** 614,622 ****
+  reply_to(n, all, buf)
+  char buf[];
+  {
+!     register char *p = NULL, *p2, *b = buf, *field;
+      char line[256], name[256], addr[256], *unscramble_addr();
+  
+      if (field = do_set(set_options, "reply_to_hdr")) {
+  #ifndef MSG_SEPARATOR
+  	if (!*field)
+--- 614,624 ----
+  reply_to(n, all, buf)
+  char buf[];
+  {
+!     register char *p = NULL, *p2 = NULL, *b = buf, *field;
+      char line[256], name[256], addr[256], *unscramble_addr();
+  
++     name[0] = addr[0] = '\0';
++ 
+      if (field = do_set(set_options, "reply_to_hdr")) {
+  #ifndef MSG_SEPARATOR
+  	if (!*field)
+***************
+*** 643,666 ****
+      }
+      if (p || (!p && ((p = header_field(n, field = "reply-to")) ||
+  		    (p = header_field(n, field = "from")) ||
+! 		    (p = header_field(n, field = "return-path")))))
+  	skipspaces(0);
+!     else if (!p) {
+! #ifndef MSG_SEPARATOR
+  DoFrom:
+  	field = "from_";
+  	/* if all else fails, then get the first token in "From" line */
+  	if (p2 = msg_get(n, line, sizeof line))
+  	    p = index(p2, ' ');
+! 	else
+  	    return "";
+  	skipspaces(1);
+! 	if (p2 = index(p, ' '))
+  	    *p2 = 0;
+! 	(void) unscramble_addr(p, line); /* p is safely recopied to line */
+! 	p = line;
+  #else /* MSG_SEPARATOR */
+  	wprint("Warning: unable to find who msg %d is from!\n", n+1);
+  #endif /* MSG_SEPARATOR */
+      }
+      (void) get_name_n_addr(p, name, addr);
+--- 645,683 ----
+      }
+      if (p || (!p && ((p = header_field(n, field = "reply-to")) ||
+  		    (p = header_field(n, field = "from")) ||
+! 		    (p = header_field(n, field = "return-path"))))) {
+  	skipspaces(0);
+!     } else if (!p) {
+  DoFrom:
+  	field = "from_";
++ #ifndef MSG_SEPARATOR
+  	/* if all else fails, then get the first token in "From" line */
+  	if (p2 = msg_get(n, line, sizeof line))
+  	    p = index(p2, ' ');
+! 	if (!p2 || !p)
+  	    return "";
+  	skipspaces(1);
+! 	/* Extra work to handle quoted tokens */
+! 	while (p2 = any(p, "\" ")) {
+! 	    if (*p2 == '"') {
+! 		if (p2 = index(p2 + 1, '"'))
+! 		    p2++;
+! 		else
+! 		    return "";
+! 	    } else
+! 		break;
+! 	}
+! 	if (p2)
+  	    *p2 = 0;
+! 	if (!unscramble_addr(p, line)) { /* p is safely recopied to line */
+! 	    p2 = addr;
+! 	    goto BrokenFrom;
+! 	} else
+! 	    p2 = NULL;
+  #else /* MSG_SEPARATOR */
+  	wprint("Warning: unable to find who msg %d is from!\n", n+1);
++ 	p2 = addr;
++ 	goto BrokenFrom;
+  #endif /* MSG_SEPARATOR */
+      }
+      (void) get_name_n_addr(p, name, addr);
+***************
+*** 675,685 ****
+  	 * Check Resent-From: if the address came from the from_ line, else
+  	 * check From:, and finally Sender: or Name:.
+  	 */
+  	if (!lcase_strncmp(field, "from_", -1) &&
+  		(p = header_field(n, "resent-from")) ||
+  		    (p = header_field(n, "from")) ||
+! 		    (p = header_field(n, "sender")))
+! 	    (void) get_name_n_addr(p, name, NULL);
+  	if (!name[0] && (p = header_field(n, "name")))
+  	    (void) strcpy(name, p);
+  	if (name[0]) {
+--- 692,705 ----
+  	 * Check Resent-From: if the address came from the from_ line, else
+  	 * check From:, and finally Sender: or Name:.
+  	 */
++ BrokenFrom:
+  	if (!lcase_strncmp(field, "from_", -1) &&
+  		(p = header_field(n, "resent-from")) ||
+  		    (p = header_field(n, "from")) ||
+! 		    (p = header_field(n, "sender"))) {
+! 	    /* p2 is either NULL or addr (BrokenFrom) */
+! 	    (void) get_name_n_addr(p, name, p2);
+! 	}
+  	if (!name[0] && (p = header_field(n, "name")))
+  	    (void) strcpy(name, p);
+  	if (name[0]) {
+***************
+*** 743,752 ****
+      if (!*p)
+  	if (p2) /* take_me_off() was not done */
+  	    (void) strcpy(buf, login);
+! 	else if (index(name, '"'))
+! 	    (void) sprintf(buf, "<%s> (%s)", addr, name);
+! 	else
+! 	    (void) sprintf(buf, "\"%s\" <%s>", name, addr);
+      return buf;
+  }
+  
+--- 763,776 ----
+      if (!*p)
+  	if (p2) /* take_me_off() was not done */
+  	    (void) strcpy(buf, login);
+! 	else {
+! 	    if (!*name)
+! 		(void) sprintf(buf, "<%s>", addr);
+! 	    else if (index(name, '"'))
+! 		(void) sprintf(buf, "<%s> (%s)", addr, name);
+! 	    else
+! 		(void) sprintf(buf, "\"%s\" <%s>", name, addr);
+! 	}
+      return buf;
+  }
+  
+*** 7.2.4/init.c	Thu Jan 30 00:14:42 1992
+--- 7.2.5/init.c	Sat Aug 22 13:36:35 1992
+***************
+*** 73,94 ****
+  	(void) add_option(&set_options, argv);
+      }
+  
+  #ifdef HOMEMAIL
+      strdup(spoolfile, sprintf(buf, "%s/%s", home, MAILFILE));
+  #else /* HOMEMAIL */
+      if ((p = getenv("MAIL")) && *p)
+  	strdup(spoolfile, p);
+      else
+  	strdup(spoolfile, sprintf(buf, "%s/%s", MAILDIR, login));
+  #endif /* HOMEMAIL */
+      mailfile = "";
+  
+-     if (realname && *buf) {
+- 	/* realname has already been copied to buf */
+- 	argv[0] = "realname";
+- 	argv[2] = buf;
+- 	(void) add_option(&set_options, argv);
+-     }
+      crt = 24;
+      screen = 18;
+      wrapcolumn = 0; /* Default is no wrap */
+--- 73,97 ----
+  	(void) add_option(&set_options, argv);
+      }
+  
++     if (realname && *buf) {
++ 	/* realname has already been copied to buf */
++ 	argv[0] = "realname";
++ 	argv[2] = buf;
++ 	(void) add_option(&set_options, argv);
++     }
++ 
+  #ifdef HOMEMAIL
+      strdup(spoolfile, sprintf(buf, "%s/%s", home, MAILFILE));
+  #else /* HOMEMAIL */
++ #ifdef ENV_MAIL
+      if ((p = getenv("MAIL")) && *p)
+  	strdup(spoolfile, p);
+      else
++ #endif /* ENV_MAIL */
+  	strdup(spoolfile, sprintf(buf, "%s/%s", MAILDIR, login));
+  #endif /* HOMEMAIL */
+      mailfile = "";
+  
+      crt = 24;
+      screen = 18;
+      wrapcolumn = 0; /* Default is no wrap */
+***************
+*** 101,118 ****
+  	if (ourname = (char **)calloc((unsigned)2, sizeof (char *)))
+  	    strdup(ourname[0], ourhost);
+      } else {
+! 	int n = 0;
+  	cnt = 2; /* 1 for ourhost and 1 for NULL terminator */
+! 	for (p = hp->h_name; p && *p; p = hp->h_aliases[n++])
+! 	    if (strcmp(ourhost, p)) /* if host name is different */
+! 		cnt++;
+! 	if (ourname = (char **)calloc((unsigned)cnt, sizeof (char *))) {
+! 	    ourname[--cnt] = NULL;
+! 	    for (p = hp->h_name; p && *p && n >= 0; p = hp->h_aliases[--n])
+! 		if (strcmp(ourhost, p)) /* if host name is different */
+! 		    ourname[--cnt] = savestr(p);
+! 	    strdup(ourname[0], ourhost); /* cnt better be 0! */
+! 	}
+      }
+  #else
+  #ifdef SYSV
+--- 104,125 ----
+  	if (ourname = (char **)calloc((unsigned)2, sizeof (char *)))
+  	    strdup(ourname[0], ourhost);
+      } else {
+! 	int n = -1;
+  	cnt = 2; /* 1 for ourhost and 1 for NULL terminator */
+! 
+!         for (p = hp->h_name; p && *p; p = hp->h_aliases[++n])
+!             if (strcmp(ourhost, p)) /* if host name is different */
+!                 cnt++;
+! 
+!         if (ourname = (char **)malloc((unsigned)cnt * sizeof (char *))) {
+!             n = -1;
+!             cnt = 0;
+!             ourname[cnt++] = savestr(ourhost);
+!             for (p = hp->h_name; p && *p; p = hp->h_aliases[++n])
+!                 if (strcmp(ourhost, p)) /* if host name is different */
+!                     ourname[cnt++] = savestr(p);
+!             ourname[cnt++] = NULL;
+!         }
+      }
+  #else
+  #ifdef SYSV
+*** 7.2.4/lock.c	Sun Feb  2 19:43:53 1992
+--- 7.2.5/lock.c	Sun Oct 11 18:14:56 1992
+***************
+*** 32,39 ****
+   * permission on /usr/mail).  Instead, we need an external program that
+   * can be setgid, which mush then runs to create and remove lock files.
+   * Compiling this file with -DDOT_LOCK -DLOCK_PROG added to your CFLAGS
+!  * will generate such a program.
+   *
+   * For mush purposes, you should hardwire the DOLOCK_PATH to the full path
+   * name of the installed executable.  This helps prevent malicious users
+   * from substituting a different program.
+--- 32,41 ----
+   * permission on /usr/mail).  Instead, we need an external program that
+   * can be setgid, which mush then runs to create and remove lock files.
+   * Compiling this file with -DDOT_LOCK -DLOCK_PROG added to your CFLAGS
+!  * will generate such a program:
+   *
++  *	cc -o dotlock -DDOT_LOCK -DLOCK_PROG lock.c xcreat.c
++  *
+   * For mush purposes, you should hardwire the DOLOCK_PATH to the full path
+   * name of the installed executable.  This helps prevent malicious users
+   * from substituting a different program.
+***************
+*** 129,135 ****
+      SIGRET (*oldint)(), (*oldquit)();
+  
+  #ifndef LOCK_PROG
+! #ifdef SYSV
+      /* Only the spoolfile needs to be dot_locked -- other files are
+       * handled by lock_fopen, below.  To avoid collisions with 14-char
+       * file name limits, we allow dot_locking ONLY of the spoolfile.
+--- 131,137 ----
+      SIGRET (*oldint)(), (*oldquit)();
+  
+  #ifndef LOCK_PROG
+! #if defined(SYSV) && !defined(HPUX) && !defined(IRIX4)
+      /* Only the spoolfile needs to be dot_locked -- other files are
+       * handled by lock_fopen, below.  To avoid collisions with 14-char
+       * file name limits, we allow dot_locking ONLY of the spoolfile.
+***************
+*** 139,145 ****
+  #ifdef SVR2
+      return lock_proc(filename, DOLOCKIT);
+  #endif /* SVR2 */
+! #endif /* SYSV */
+  #ifdef BSD
+      setregid(rgid, sgid);
+  #else /* BSD */
+--- 141,147 ----
+  #ifdef SVR2
+      return lock_proc(filename, DOLOCKIT);
+  #endif /* SVR2 */
+! #endif /* SYSV && !HPUX && !IRIX4 */
+  #ifdef BSD
+      setregid(rgid, sgid);
+  #else /* BSD */
+***************
+*** 152,158 ****
+      (void) sprintf(buf, "%s.lock", filename);
+  #endif /* M_XENIX */
+      on_intr();
+!     while ((lockfd = open(buf, O_CREAT|O_WRONLY|O_EXCL, 0444)) == -1) {
+  	if (errno != EEXIST) {
+  	    error("unable to lock %s", filename);
+  	    break;
+--- 154,160 ----
+      (void) sprintf(buf, "%s.lock", filename);
+  #endif /* M_XENIX */
+      on_intr();
+!     while ((lockfd = xcreat(buf, 0444)) == -1) {
+  	if (errno != EEXIST) {
+  	    error("unable to lock %s", filename);
+  	    break;
+***************
+*** 208,214 ****
+  	    return 0;
+  	(void) strcpy(buf, p);
+      }
+! #ifdef SYSV
+      if (strncmp(spoolfile, buf, strlen(spoolfile)) != 0)
+  	return 0;
+  #ifdef SVR2
+--- 210,216 ----
+  	    return 0;
+  	(void) strcpy(buf, p);
+      }
+! #if defined(SYSV)  && !defined(HPUX) && !defined(IRIX4)
+      if (strncmp(spoolfile, buf, strlen(spoolfile)) != 0)
+  	return 0;
+  #ifdef SVR2
+***************
+*** 216,222 ****
+      *p = 0;
+      return lock_proc(buf, UNLOCKIT);
+  #endif /* SVR2 */
+! #endif /* SYSV */
+  #else /* LOCK_PROG */
+      errno = 0;
+  #endif /* !LOCK_PROG */
+--- 218,224 ----
+      *p = 0;
+      return lock_proc(buf, UNLOCKIT);
+  #endif /* SVR2 */
+! #endif /* SYSV && !HPUX && !IRIX4 */
+  #else /* LOCK_PROG */
+      errno = 0;
+  #endif /* !LOCK_PROG */
+*** 7.2.4/loop.c	Wed Nov 13 09:58:26 1991
+--- 7.2.5/loop.c	Sat Aug 22 11:46:54 1992
+***************
+*** 859,867 ****
+  
+      while (*str && b < sizeof buf - 1) {
+  	if (*str == '~' && (str == start || isspace(*(str-1)))) {
+! 	    register char *p = any(str, " \t"), *tmp;
+  	    int x = 1;
+! 	    if (p)
+  		*p = 0;
+  	    tmp = getpath(str, &x);
+  	    /* if error, print message and return 0 */
+--- 859,872 ----
+  
+      while (*str && b < sizeof buf - 1) {
+  	if (*str == '~' && (str == start || isspace(*(str-1)))) {
+! 	    register char *p, *tmp;
+  	    int x = 1;
+! 	    /* Is it ever possible to have a user name start with tilde?
+! 	     * On the assumption it isn't, recur in case of ~$foo or ~/$foo
+! 	     */
+! 	    if (str[1] != '~' && variable_expand(&str[1]) == 0)
+! 		return 0;
+! 	    if (p = any(str, " \t"))
+  		*p = 0;
+  	    tmp = getpath(str, &x);
+  	    /* if error, print message and return 0 */
+***************
+*** 869,880 ****
+  		wprint("%s: %s\n", str, tmp);
+  		return 0;
+  	    }
+! 	    b += Strcpy(buf+b, tmp);
+! 	    if (p)
+! 		*p = ' ', str = p;
+! 	    else
+! 		str += strlen(str);
+  	    expanded = 1;
+  	}
+  	/* if single-quotes, just copy byte by byte, char by char ... */
+  	if ((buf[b] = *str++) == '\'' && !inquotes) {
+--- 874,888 ----
+  		wprint("%s: %s\n", str, tmp);
+  		return 0;
+  	    }
+! 	    /* Use strncat instead of strncpy to get \0 terminator */
+! 	    buf[b] = 0; /* Just in case */
+! 	    b += strlen(strncat(buf + b, tmp, sizeof buf - 1 - b));
+! 	    if (p && b < sizeof buf - 1) {
+! 		*p = ' ';
+! 		b += strlen(strncat(buf + b, p, sizeof buf - 1 - b));
+! 	    }
+  	    expanded = 1;
++ 	    break;
+  	}
+  	/* if single-quotes, just copy byte by byte, char by char ... */
+  	if ((buf[b] = *str++) == '\'' && !inquotes) {
+***************
+*** 895,908 ****
+  	    struct expand expansion;
+  	    expansion.orig = str - 1;
+  	    if (varexp(&expansion)) {
+! 		b += Strcpy(&buf[b], expansion.exp);
+  		xfree(expansion.exp);
+  		str = expansion.rest;
+  		expanded = 1;
+  	    } else
+  		return 0;
+! 	} else if (!inquotes && buf[b] == ';') {
+! 	    while (buf[++b] = *str++)
+  		;
+  	    b++;
+  	    break;
+--- 903,917 ----
+  	    struct expand expansion;
+  	    expansion.orig = str - 1;
+  	    if (varexp(&expansion)) {
+! 		b += Strcpy(&buf[b],
+! 			    quoteit(expansion.exp, inquotes? '"' : 0, FALSE));
+  		xfree(expansion.exp);
+  		str = expansion.rest;
+  		expanded = 1;
+  	    } else
+  		return 0;
+! 	} else if (!inquotes && (buf[b] == ';' || buf[b] == '|')) {
+! 	    while ((buf[++b] = *str++) && b < sizeof buf - 2)
+  		;
+  	    b++;
+  	    break;
+*** 7.2.4/mail.c	Mon Mar  2 20:59:14 1992
+--- 7.2.5/mail.c	Sat Aug 22 11:46:48 1992
+***************
+*** 1236,1246 ****
+      if (isoff(flags, VERBOSE) && debug < 3)
+  	switch (fork_pid = fork()) {
+  	    case  0:  /* the child will send the letter. ignore signals */
+! #if defined(SYSV) && !defined(AUX)
+  		if (setpgrp() == -1)
+! #else /* !SYSV || AUX */
+  		if (setpgrp(0, getpid()) == -1)
+! #endif /* SYSV && !AUX */
+  		    error("setpgrp");
+  		/* NOTE: No special case needed for tool here because
+  		 * this is the sending child -- it's going to pclose()
+--- 1236,1246 ----
+      if (isoff(flags, VERBOSE) && debug < 3)
+  	switch (fork_pid = fork()) {
+  	    case  0:  /* the child will send the letter. ignore signals */
+! #if defined(SYSV) && !defined(AUX) && !defined(IRIX4)
+  		if (setpgrp() == -1)
+! #else /* !SYSV || AUX || IRIX4 */
+  		if (setpgrp(0, getpid()) == -1)
+! #endif /* SYSV && !AUX || IRIX4 */
+  		    error("setpgrp");
+  		/* NOTE: No special case needed for tool here because
+  		 * this is the sending child -- it's going to pclose()
+*** 7.2.4/main.c	Wed Jan 29 23:34:31 1992
+--- 7.2.5/main.c	Mon Sep 21 10:32:25 1992
+***************
+*** 71,76 ****
+--- 71,79 ----
+      /* check for any mail at all and exit if we're not continuing */
+      if (!n) {
+  	struct stat statb;
++ #ifdef POP3_SUPPORT
++ 	popgetmail(); /*Load mailbox with new mail, if any*/
++ #endif /* POP3_SUPPORT*/
+  	if (stat(spoolfile, &statb) || statb.st_size == 0) {
+  	    (void) printf("No mail for %s.\n", login);
+  	    exit(0);
+***************
+*** 200,206 ****
+      turnoff(glob_flags, IS_SENDING); /* no longer sending mail; running shell */
+  
+      if (ison(glob_flags, REDIRECT)
+! 	    && (!Flags.src_file || !Flags.src_n_exit)) {
+  	puts("You can't redirect input unless you're sending mail.");
+  	puts("If you want to run a shell with redirection, use \"-i\"");
+  	cleanup(0);
+--- 203,209 ----
+      turnoff(glob_flags, IS_SENDING); /* no longer sending mail; running shell */
+  
+      if (ison(glob_flags, REDIRECT)
+! 	    && (!Flags.src_file || !Flags.src_n_exit) && !hdrs_only) {
+  	puts("You can't redirect input unless you're sending mail.");
+  	puts("If you want to run a shell with redirection, use \"-i\"");
+  	cleanup(0);
+***************
+*** 270,275 ****
+--- 273,279 ----
+      }
+  
+      if (hdrs_only) {
++ 	(void) mail_status(0);
+  	(void) sprintf(buf, "headers %s", hdrs_only);
+  	if (argv = make_command(buf, TRPL_NULL, &argc))
+  	    (void) do_hdrs(argc, argv, NULL);
+***************
+*** 287,298 ****
+  	    cleanup(0);
+      }
+  
+  #ifdef SUNTOOL
+      if (istool) {
+  	char buf[16];
+  	n = 0;
+! 	if (time_out < 30)
+! 	    time_out = 30;
+  	turnoff(glob_flags, IGN_SIGS);
+  	(void) do_hdrs(0, DUBL_NULL, NULL);
+  	timerclear(&(mail_timer.it_interval));
+--- 291,308 ----
+  	    cleanup(0);
+      }
+  
++ #ifdef POP3_SUPPORT
++     if (time_out < MIN_TIME_OUT)
++ 	time_out = MIN_TIME_OUT;
++ #endif /* POP3_SUPPORT */
+  #ifdef SUNTOOL
+      if (istool) {
+  	char buf[16];
+  	n = 0;
+! #ifndef POP3_SUPPORT
+! 	if (time_out < MIN_TIME_OUT)
+! 	    time_out = MIN_TIME_OUT;
+! #endif /* POP3_SUPPORT */
+  	turnoff(glob_flags, IGN_SIGS);
+  	(void) do_hdrs(0, DUBL_NULL, NULL);
+  	timerclear(&(mail_timer.it_interval));
+*** 7.2.4/misc.c	Fri Feb 14 07:51:54 1992
+--- 7.2.5/misc.c	Sat Aug 22 11:46:47 1992
+***************
+*** 413,418 ****
+--- 413,419 ----
+  char *buf;
+  {
+      static FILE *pp;
++     static SIGRET (*oldchld)();
+      static int cnt, len;
+      static u_long save_echo_flag;
+  #ifdef SUNTOOL
+***************
+*** 511,520 ****
+  	    echo_on();
+  	    if (!(pp = popen(buf, "w")))
+  		error(buf);
+  	}
+      } else if (!buf) {
+! 	if (pp && pp != stdout)
+  	    (void) pclose(pp);
+  	pp = NULL_FILE;
+  	if (save_echo_flag) {
+  	    echo_on();
+--- 512,525 ----
+  	    echo_on();
+  	    if (!(pp = popen(buf, "w")))
+  		error(buf);
++ 	    else /* Don't reap popen()'s child */
++ 		oldchld = signal(SIGCHLD, SIG_DFL);
+  	}
+      } else if (!buf) {
+! 	if (pp && pp != stdout) {
+  	    (void) pclose(pp);
++ 	    (void) signal(SIGCHLD, oldchld);
++ 	}
+  	pp = NULL_FILE;
+  	if (save_echo_flag) {
+  	    echo_on();
+*** 7.2.4/msgs.c	Sun Feb  2 13:59:14 1992
+--- 7.2.5/msgs.c	Sat Aug 22 11:46:51 1992
+***************
+*** 8,13 ****
+--- 8,14 ----
+  u_long flg;
+  {
+      char buf[32], *pager = NULL;
++     int intro = TRUE;
+  
+      if (ison(msg[n].m_flags, DELETE) && !do_set(set_options, "show_deleted")) {
+  	print("Message %d deleted; ", n+1);
+***************
+*** 31,37 ****
+  #ifdef MSG_SEPARATOR
+      turnon(flg, NO_SEPARATOR);
+  #endif /* MMDF */
+!     if (!istool && isoff(flg, NO_PAGE) &&
+  	    crt < msg[n].m_lines && isoff(flg, M_TOP)) {
+  	if (!(pager = do_set(set_options, "pager")))
+  	    pager = DEF_PAGER;
+--- 32,44 ----
+  #ifdef MSG_SEPARATOR
+      turnon(flg, NO_SEPARATOR);
+  #endif /* MMDF */
+!     if (ison(msg[n].m_flags, METAMAIL) && isoff(flg, NO_PAGE) &&
+! 	    (pager = do_set(set_options, "metamail"))) {
+! 	intro = FALSE;
+! 	turnoff(flg, NO_HEADER);
+! 	turnoff(flg, M_TOP);
+! 	turnon(flg, NO_IGNORE);
+!     } else if (!istool && isoff(flg, NO_PAGE) &&
+  	    crt < msg[n].m_lines && isoff(flg, M_TOP)) {
+  	if (!(pager = do_set(set_options, "pager")))
+  	    pager = DEF_PAGER;
+***************
+*** 38,46 ****
+  	if (!*pager || !strcmp(pager, "internal"))
+  	    pager = NULL; /* default to internal pager if pager set to "" */
+      }
+!     (void) do_pager(pager, TRUE); /* start pager */
+!     (void) do_pager(sprintf(buf, "Message #%d (%d lines)\n",
+! 		     n+1, msg[n].m_lines), FALSE);
+      (void) copy_msg(n, NULL_FILE, flg, NULL);
+      (void) do_pager(NULL, FALSE); /* end pager */
+  }
+--- 45,54 ----
+  	if (!*pager || !strcmp(pager, "internal"))
+  	    pager = NULL; /* default to internal pager if pager set to "" */
+      }
+!     (void) do_pager(pager, intro? 1 : -1); /* start pager */
+!     if (intro)
+! 	(void) do_pager(sprintf(buf, "Message #%d (%d lines)\n",
+! 				 n+1, msg[n].m_lines), FALSE);
+      (void) copy_msg(n, NULL_FILE, flg, NULL);
+      (void) do_pager(NULL, FALSE); /* end pager */
+  }
+***************
+*** 505,514 ****
+  	 * bogus "new mail" messages from the shell.
+  	 */
+  #ifdef POSIX_UTIME
+! 	struct utimbuf times;
+  	(void) fflush(mail_fp); /* just in case */
+! 	times.modtime = time(&times.actime) - 2;
+! 	times.ausec = times.modusec = 0;
+  #else /* !POSIX_UTIME */
+  	long times[2];
+  	(void) fflush(mail_fp); /* just in case */
+--- 513,522 ----
+  	 * bogus "new mail" messages from the shell.
+  	 */
+  #ifdef POSIX_UTIME
+! 	struct utimbuf times[1];
+  	(void) fflush(mail_fp); /* just in case */
+! 	times[0].modtime = time(&times[0].actime) - 2;
+! 	times[0].ausec = times[0].modusec = 0;
+  #else /* !POSIX_UTIME */
+  	long times[2];
+  	(void) fflush(mail_fp); /* just in case */
+***************
+*** 828,839 ****
+  #ifndef MSG_SEPARATOR
+  	turnoff(glob_flags, WARNING);
+  	if (!strncmp(buf, "From ", 5)) {
+  	    p = buf + 5;	/* skip "From " */
+  	    skipspaces(0);
+! 	    p = any(p, " \t");	/* skip the address */
+  	} else
+! 	    p = buf;
+! 	if (p > buf && (p = parse_date(p + 1)) && strcpy(date, p))
+  #else /* MSG_SEPARATOR */
+  	if (!strncmp(buf, MSG_SEPARATOR, strlen(MSG_SEPARATOR)))
+  #endif /* MSG_SEPARATOR */
+--- 836,852 ----
+  #ifndef MSG_SEPARATOR
+  	turnoff(glob_flags, WARNING);
+  	if (!strncmp(buf, "From ", 5)) {
++ 	    /* skip the address to find the date */
+  	    p = buf + 5;	/* skip "From " */
+  	    skipspaces(0);
+! 	    if ((p = any(p, " \t")) && (p = parse_date(p + 1)) ||
+! 		    /* Try once more the hard way */
+! 		    (p = get_name_n_addr(buf + 5, NULL, NULL)) &&
+! 		    (p = parse_date(p + 1)))
+! 		(void) strcpy(date, p);
+  	} else
+! 	    p = NULL;
+! 	if (p)
+  #else /* MSG_SEPARATOR */
+  	if (!strncmp(buf, MSG_SEPARATOR, strlen(MSG_SEPARATOR)))
+  #endif /* MSG_SEPARATOR */
+***************
+*** 897,905 ****
+  		 */
+  		while (fgets(buf, sizeof (buf), fp) && (*buf != '\n')) {
+  		    p = buf;
+  		    if (!strncmp(buf, "Date:", 5))
+  			strdup(msg[cnt].m_date_sent, parse_date(p+5));
+! 		    if (!strncmp(buf, "Priority:", 9)) {
+  			for (p += 9 ; *p != '\n'; p++) {
+  			    if (!isalpha(*p) || upper(*p) > 'A' + MAX_PRIORITY)
+  				continue;
+--- 910,935 ----
+  		 */
+  		while (fgets(buf, sizeof (buf), fp) && (*buf != '\n')) {
+  		    p = buf;
++ #ifdef MMDF
++ 		    /* MMDF might keep the From_ line, so check for it */
++ 		    if (!msg[cnt].m_date_recv && !strncmp(buf, "From ", 5)) {
++ 			p = buf + 5;	/* skip "From " */
++ 			skipspaces(0);
++ 			if ((p = any(p, " \t")) && (p = parse_date(p + 1)) ||
++ 				/* Try once more the hard way */
++ 				(p = get_name_n_addr(buf + 5, NULL, NULL)) &&
++ 				(p = parse_date(p + 1)))
++ 			    strdup(msg[cnt].m_date_recv, p);
++ 		    } else
++ #endif /* MMDF */
+  		    if (!strncmp(buf, "Date:", 5))
+  			strdup(msg[cnt].m_date_sent, parse_date(p+5));
+! 		    else if (!msg[cnt].m_date_sent &&
+! 			    !strncmp(buf, "Resent-Date:", 12))
+! 			msg[cnt].m_date_sent = savestr(parse_date(p+12));
+! 		    else if (!strncmp(buf, "Content-Type:", 13))
+! 			turnon(msg[cnt].m_flags, METAMAIL);
+! 		    else if (!strncmp(buf, "Priority:", 9)) {
+  			for (p += 9 ; *p != '\n'; p++) {
+  			    if (!isalpha(*p) || upper(*p) > 'A' + MAX_PRIORITY)
+  				continue;
+***************
+*** 906,913 ****
+  			    turnon(msg[cnt].m_flags,
+  				M_PRIORITY(upper(*p) - 'A' + 1));
+  			}
+! 		    }
+! 		    if (get_status &&
+  			    !(get_status = strncmp(p, "Status:", 7))) {
+  			/* new mail should not have a Status: field! */
+  			turnon(msg[cnt].m_flags, OLD);
+--- 936,942 ----
+  			    turnon(msg[cnt].m_flags,
+  				M_PRIORITY(upper(*p) - 'A' + 1));
+  			}
+! 		    } else if (get_status &&
+  			    !(get_status = strncmp(p, "Status:", 7))) {
+  			/* new mail should not have a Status: field! */
+  			turnon(msg[cnt].m_flags, OLD);
+*** 7.2.4/mush.h	Sun Feb  2 13:50:50 1992
+--- 7.2.5/mush.h	Sun Sep 20 14:12:32 1992
+***************
+*** 30,36 ****
+  
+  #else /* CURSES */
+  #include <stdio.h>
+! #if defined(SYSV) && defined(USG)
+  #include <termio.h>
+  #endif /* SYSV && USG */
+  #endif /* CURSES */
+--- 30,36 ----
+  
+  #else /* CURSES */
+  #include <stdio.h>
+! #if defined(SYSV) && defined(USG) || defined(AIX)
+  #include <termio.h>
+  #endif /* SYSV && USG */
+  #endif /* CURSES */
+***************
+*** 166,172 ****
+  #endif /* TIOCSETN */
+  
+  /* for system-V machines that run termio */
+! #if defined(SYSV) && defined(USG)
+  #ifdef crmode
+  #undef crmode
+  #undef nocrmode
+--- 166,172 ----
+  #endif /* TIOCSETN */
+  
+  /* for system-V machines that run termio */
+! #if defined(SYSV) && defined(USG) || defined(AIX)
+  #ifdef crmode
+  #undef crmode
+  #undef nocrmode
+***************
+*** 209,217 ****
+  #define crmode()   ((iscurses) ? cbreak() : cbrkon())
+  #define nocrmode() ((iscurses) ? nocbreak() : cbrkoff())
+  #endif /* CURSES */
+! #endif /* SYSV && USG */
+  
+! #if !defined(USG)
+  #ifndef CURSES
+  /* if curses is not defined, simulate the same tty based macros */
+  typedef struct sgttyb SGTTY;
+--- 209,217 ----
+  #define crmode()   ((iscurses) ? cbreak() : cbrkon())
+  #define nocrmode() ((iscurses) ? nocbreak() : cbrkoff())
+  #endif /* CURSES */
+! #endif /* SYSV && USG || AIX */
+  
+! #if !defined(USG) && !defined(AIX)
+  #ifndef CURSES
+  /* if curses is not defined, simulate the same tty based macros */
+  typedef struct sgttyb SGTTY;
+***************
+*** 368,374 ****
+  #define skipdigits(n)     for(p += (n); isdigit(*p); ++p)
+  #define ismsgnum(c)       (isdigit(c)||c=='.'||c=='^'||c=='$'||c=='*')
+  #define skipmsglist(n)\
+!     for(p += (n); ismsgnum(*p) || index(" \t,-{`}", *p); ++p)\
+  	if (*p != '`' || !p[1]) {;} else do ++p; while (*p && *p != '`')
+  
+  /* define a macro to declare unsigned-long bits */
+--- 368,374 ----
+  #define skipdigits(n)     for(p += (n); isdigit(*p); ++p)
+  #define ismsgnum(c)       (isdigit(c)||c=='.'||c=='^'||c=='$'||c=='*')
+  #define skipmsglist(n)\
+!     for(p += (n); *p && (ismsgnum(*p) || index(" \t,-{`}", *p)); p += !!*p)\
+  	if (*p != '`' || !p[1]) {;} else do ++p; while (*p && *p != '`')
+  
+  /* define a macro to declare unsigned-long bits */
+***************
+*** 430,441 ****
+  #define REPLIED		ULBIT(17) /* Messages that have been replied to */
+  #define NEW_SUBJECT	ULBIT(18) /* new subject regardless of $ask (mail -s) */
+  #define SAVED		ULBIT(19) /* when message has been saved */
+- #ifdef MSG_SEPARATOR
+  #define NO_SEPARATOR	ULBIT(20) /* don't include message separator lines */
+! #endif /* MSG_SEPARATOR */
+  
+! #define M_PRIORITY(n)	ULBIT(21+(n))
+! /* It is possible to reset MAX_PRIORITY to as high as 10 */
+  #define MAX_PRIORITY	5
+  
+  #define	MAXMSGS_BITS	MAXMSGS/sizeof(char)	/* number of bits for bitmap */
+--- 430,440 ----
+  #define REPLIED		ULBIT(17) /* Messages that have been replied to */
+  #define NEW_SUBJECT	ULBIT(18) /* new subject regardless of $ask (mail -s) */
+  #define SAVED		ULBIT(19) /* when message has been saved */
+  #define NO_SEPARATOR	ULBIT(20) /* don't include message separator lines */
+! #define METAMAIL	ULBIT(21) /* message can display with "metamail" */
+  
+! #define M_PRIORITY(n)	ULBIT(22+(n))
+! /* It is possible to reset MAX_PRIORITY to as high as 9 */
+  #define MAX_PRIORITY	5
+  
+  #define	MAXMSGS_BITS	MAXMSGS/sizeof(char)	/* number of bits for bitmap */
+***************
+*** 590,598 ****
+  #ifdef TIOCGLTC
+  struct ltchars ltchars;			/* tty character settings */
+  #endif /* TIOCGLTC */
+! #ifdef BSD /* (TIOCGETC) */
+  struct tchars  tchars;			/* more tty character settings */
+! #endif /* BSD (TIOCGETC) */
+  
+  #ifdef CURSES
+  
+--- 589,597 ----
+  #ifdef TIOCGLTC
+  struct ltchars ltchars;			/* tty character settings */
+  #endif /* TIOCGLTC */
+! #if defined(BSD) && !defined(AIX) /* (TIOCGETC) */
+  struct tchars  tchars;			/* more tty character settings */
+! #endif /* BSD && !AIX (TIOCGETC) */
+  
+  #ifdef CURSES
+  
+***************
+*** 610,615 ****
+--- 609,627 ----
+  void
+      mac_flush();	/* Abandon macro processing (on error) */
+  
++ #if defined(SUNTOOL) || defined(POP3_SUPPORT)
++ #ifdef POP3_SUPPORT
++ #define MIN_TIME_OUT	(15 * 60)	/* 15 min. checks */
++ extern void popchkmail();
++ extern void popgetmail();
++ #else
++ #define MIN_TIME_OUT	30		/* 30 sec. checks */
++ #endif /* POP3_SUPPORT */
++ 
++ int
++     time_out;		/* time out interval to wait for new mail */
++ #endif /* SUNTOOL || POP3_SUPPORT */
++ 
+  #ifdef SUNTOOL
+  void
+      timeout_cursors(), do_file_dir(), toggle_mail_items(), ok_box(),
+***************
+*** 624,630 ****
+      blank[128];		/* use to clear to end of line */
+  
+  int
+-     time_out,		/* time out interval to wait for new mail */
+      is_iconic;		/* set if the mushview window is iconic. */
+  
+  Notify_value
+--- 636,641 ----
+*** 7.2.4/options.c	Thu May  3 12:40:56 1990
+--- 7.2.5/options.c	Thu Oct  1 13:11:42 1992
+***************
+*** 91,100 ****
+  	    fix_word_flag(&args[0]);
+  DoNext:
+  	    switch (args[0][next]) {
+! #ifdef SUNTOOL
+  		case 'T' :
+  		    if (args[1])
+  			args++;
+  		case 't' :
+  		    /* Note: we won't ever get here if started as
+  		     * "mushtool" or "mushview" because istool is true.
+--- 91,104 ----
+  	    fix_word_flag(&args[0]);
+  DoNext:
+  	    switch (args[0][next]) {
+! #if defined(SUNTOOL) || defined(POP3_SUPPORT)
+  		case 'T' :
+  		    if (args[1])
+  			args++;
++ #ifdef POP3_SUPPORT
++ 		    break;
++ #endif /* POP3_SUPPORT */
++ #ifdef SUNTOOL
+  		case 't' :
+  		    /* Note: we won't ever get here if started as
+  		     * "mushtool" or "mushview" because istool is true.
+***************
+*** 105,110 ****
+--- 109,115 ----
+  		    return TRUE;
+  		    /* break; */
+  #endif /* SUNTOOL */
++ #endif /* SUNTOOL || POP3_SUPPORT */
+  		case 'S' :
+  		    turnon(glob_flags, DO_SHELL);
+  		    n = TRUE;
+***************
+*** 301,314 ****
+  		turnon(flags->flg, VERBOSE);
+  		break;
+  #endif /* VERBOSE_ARG */
+! #ifdef SUNTOOL
+  	    case 'T':
+! 		if ((time_out = atoi(*(*argvp))) <= 29)
+! 		    time_out = 30;
+  		look_again = FALSE;
+  		/* -T implies -t */
+  	    case 't': istool = 1;
+  #endif /* SUNTOOL */
+  	    case 'S': turnon(glob_flags, DO_SHELL);
+  	    when 'n':
+  		if ((*argvp)[0][2] == '!') {
+--- 306,324 ----
+  		turnon(flags->flg, VERBOSE);
+  		break;
+  #endif /* VERBOSE_ARG */
+! #if defined(SUNTOOL) || defined(POP3_SUPPORT)
+  	    case 'T':
+! 		if ((time_out = atoi(*(*argvp))) < MIN_TIME_OUT)
+! 		    time_out = MIN_TIME_OUT;
+  		look_again = FALSE;
++ #ifdef POP3_SUPPORT
++ 		break;
++ #endif /* POP3_SUPPORT */
++ #ifdef SUNTOOL
+  		/* -T implies -t */
+  	    case 't': istool = 1;
+  #endif /* SUNTOOL */
++ #endif /* SUNTOOL || POP3_SUPPORT */
+  	    case 'S': turnon(glob_flags, DO_SHELL);
+  	    when 'n':
+  		if ((*argvp)[0][2] == '!') {
+*** 7.2.4/pick.c	Wed Nov 20 23:42:33 1991
+--- 7.2.5/pick.c	Mon Sep  7 09:56:57 1992
+***************
+*** 74,80 ****
+      head_cnt = tail_cnt = -1;
+      match_priority = 0;
+      icase = before = after = search_from = search_subj = search_to = xflg = 0;
+!     mdy[0] = mdy[1] = search_hdr[0] = 0;
+      while (*argv && *++argv && (**argv == '-' || **argv == '+'))
+  	if (**argv == '+' || isdigit(argv[0][1])) {
+  	    if (**argv == '+')
+--- 74,80 ----
+      head_cnt = tail_cnt = -1;
+      match_priority = 0;
+      icase = before = after = search_from = search_subj = search_to = xflg = 0;
+!     pattern[0] = mdy[0] = mdy[1] = search_hdr[0] = 0;
+      while (*argv && *++argv && (**argv == '-' || **argv == '+'))
+  	if (**argv == '+' || isdigit(argv[0][1])) {
+  	    if (**argv == '+')
+***************
+*** 166,172 ****
+  	return -1;
+      }
+      if (!mdy[1]) {
+- 	pattern[0] = 0;
+  	(void) argv_to_string(pattern, argv);
+  	if (pattern[0] == '\0' && match_priority == 0 &&
+  		head_cnt + tail_cnt < 0) {
+--- 166,171 ----
+*** 7.2.4/setopts.c	Thu Nov 21 10:06:23 1991
+--- 7.2.5/setopts.c	Wed Oct 14 00:03:24 1992
+***************
+*** 604,609 ****
+--- 604,690 ----
+      return 0;
+  }
+  
++ char *
++ quoteit(str, in_quotes, fix_vars)
++ char *str;
++ int in_quotes;	/* Type of quote the string is in, if any */
++ int fix_vars;	/* Variables will be expanded, so quote $ */
++ {
++ #define other_quote(x) ((x == '"')? '\'' : '"')
++     static char *buf;
++     static int bufsiz;
++     char *s = str, *d;
++     int len = str? strlen(str) : 0, was_magic = FALSE;
++ 
++     if (!len)
++ 	return str;
++     if (bufsiz < 2 * len) {
++ 	xfree(buf);
++ 	buf = malloc(bufsiz = 2 * len);
++     }
++     if (!buf)
++ 	return NULL;
++     for (d = buf; *d = *s; d++, s++) {
++ 	if ((*s == '\'' || *s == '"') &&
++ 		(was_magic || in_quotes != other_quote(*s))) {
++ 	    if (was_magic) {
++ 		if (*s == '\'')
++ 		    continue;
++ 		/* else '"' */
++ 		++d;
++ 		was_magic = FALSE;
++ 	    }
++ 	    if (in_quotes == *s)
++ 		*d++ = *s;
++ 	    *d = other_quote(*s);
++ 	    *++d = *s;
++ 	    *++d = other_quote(*s);
++ 	    if (in_quotes == *s)
++ 		*++d = *s;
++ 	} else if (*s == '$' && fix_vars && (was_magic || in_quotes != '\'')) {
++ 	   if (was_magic || in_quotes == '"') {
++ 		*d++ = '"';
++ 		was_magic = FALSE;
++ 	    }
++ 	    *d = '\'';
++ 	    *++d = *s;
++ 	    *++d = '\'';
++ 	    if (in_quotes == '"')
++ 		*++d = in_quotes;
++ 	} else if (fix_vars && isspace(*s)) {
++ 	    /* backslash-newline may get stripped when fix_vars */
++ 	    if (*s == '\n' || *s == '\r') {
++ 		*d = '\\';
++ 		*++d = *s;
++ 		*++d = ' ';	/* XXX not perfect, but ... */
++ 	    } else if (!was_magic && !in_quotes) {
++ 		*d = '"';
++ 		*++d = *s;
++ 		was_magic = TRUE;
++ 	    }
++ 	} else if (!in_quotes && index("#;|~", *s)) {
++ 	    if (*s == '~' && !fix_vars) {
++ 		/* !fix_vars implies !fix_tildes */
++ 		if (was_magic) {
++ 		    *d = '"';
++ 		    *++d = *s;
++ 		    was_magic = FALSE;
++ 		}
++ 	    } else if (!was_magic && (s == str || *s != '~')) {
++ 		*d = '"';
++ 		*++d = *s;
++ 		was_magic = TRUE;
++ 	    }
++ 	}
++     }
++     if (was_magic) {
++ 	*d = '"';
++ 	*++d = '\0';
++     }
++     return buf;
++ #undef other_quote
++ }
++ 
+  save_list(title, list, command, equals, fp)
+  struct options *list;
+  register char *command, *title, equals;
+***************
+*** 634,640 ****
+  		else
+  		    quote = "'";
+  	    (void) fputc(equals? equals: ' ', fp);
+! 	    (void) fprintf(fp, "%s%s%s", quote, opts->value, quote);
+  	}
+  	(void) fputc('\n', fp);
+      }
+--- 715,724 ----
+  		else
+  		    quote = "'";
+  	    (void) fputc(equals? equals: ' ', fp);
+! 	    (void) fprintf(fp, "%s%s%s",
+! 			    quote,
+! 			    quoteit(opts->value, quote, TRUE),
+! 			    quote);
+  	}
+  	(void) fputc('\n', fp);
+      }
+***************
+*** 661,668 ****
+  	    quote = "\"";
+  	else
+  	    quote = "'";
+! 	(void) fprintf(fp, "%s %s%s%s", command, quote,
+! 			ctrl_strcpy(buf, opts->m_str, TRUE), quote);
+  	if (equals && map_func_names[opts->m_cmd].m_str)
+  	    (void) fprintf(fp, " %s", map_func_names[opts->m_cmd].m_str);
+  	if (opts->x_str && *opts->x_str) {
+--- 745,754 ----
+  	    quote = "\"";
+  	else
+  	    quote = "'";
+! 	(void) fprintf(fp, "%s %s%s%s", command,
+! 		    quote,
+! 		    quoteit(ctrl_strcpy(buf, opts->m_str, TRUE), quote, TRUE),
+! 		    quote);
+  	if (equals && map_func_names[opts->m_cmd].m_str)
+  	    (void) fprintf(fp, " %s", map_func_names[opts->m_cmd].m_str);
+  	if (opts->x_str && *opts->x_str) {
+***************
+*** 670,677 ****
+  		quote = "\"";
+  	    else
+  		quote = "'";
+! 	    (void) fprintf(fp, " %s%s%s", quote,
+! 			ctrl_strcpy(buf, opts->x_str, TRUE), quote);
+  	}
+  	(void) fputc('\n', fp);
+      }
+--- 756,765 ----
+  		quote = "\"";
+  	    else
+  		quote = "'";
+! 	    (void) fprintf(fp, " %s%s%s",
+! 		    quote,
+! 		    quoteit(ctrl_strcpy(buf, opts->x_str, TRUE), quote, TRUE),
+! 		    quote);
+  	}
+  	(void) fputc('\n', fp);
+      }
+*** 7.2.4/signals.c	Sun Feb  2 14:07:38 1992
+--- 7.2.5/signals.c	Sat Aug 22 11:46:50 1992
+***************
+*** 418,424 ****
+   */
+  check_new_mail()
+  {
+!     int 	   ret_value;
+  
+      if (ret_value = mail_size()) {
+  #ifdef SUNTOOL
+--- 418,435 ----
+   */
+  check_new_mail()
+  {
+!     int ret_value;
+! #ifdef POP3_SUPPORT
+!     static long last_check = -1;  /* We checked at startup */
+! 
+!     if (last_check < 0)
+! 	last_check = time((long *)0);
+!     
+!     if (istool || time((long *)0) - last_check > time_out) {
+! 	popchkmail();
+! 	last_check = time((long *)0);
+!     }
+! #endif /* POP3_SUPPORT */
+  
+      if (ret_value = mail_size()) {
+  #ifdef SUNTOOL
+
+-- 
+Bart Schaefer                                     schaefer@zigzag.z-code.com
+Z-Code Software Corp.                             schaefer@z-code.com
+
+exit 0 # Just in case...

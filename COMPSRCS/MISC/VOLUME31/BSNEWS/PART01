@@ -1,0 +1,1814 @@
+Newsgroups: comp.sources.misc
+From: ron@mlfarm.com (Ronald Florence)
+Subject:  v31i069:  bsnews - Bootstrap News v2.2, Part01/01
+Message-ID: <1992Aug2.021730.7438@sparky.imd.sterling.com>
+X-Md4-Signature: 5ac5ac35b9f96d6730c2647302267394
+Date: Sun, 2 Aug 1992 02:17:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ron@mlfarm.com (Ronald Florence)
+Posting-number: Volume 31, Issue 69
+Archive-name: bsnews/part01
+Environment: Unix, Xenix; partial on ms-dos, Amiga, Atari, Coherent
+Supersedes: bsnews: Volume 22, Issue 106
+
+Bootstrap News is a collection of programs which enable a leaf node to
+take a limited news feed and post articles to Usenet.  News articles
+are spooled in Unix-mail-format files, where they can be read,
+printed, forwarded, replied-to, or saved.  The distribution provides a
+news-reader, news-poster, checknews, uudecode for binary and graphics
+files, and daemons to unpack and expire news received via uux or mail.
+Version 2.2 provides bug fixes for weird date commands, maverick compilers, 
+and error messages.
+
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile Problems Readme bsnews.h.S bsnews.man.S
+#   checknews.c config expire.S init.c mail.ed makefile.pc myname.c
+#   pn.S readnews.S rnews.c uudecode.c uurec.S whatami.sh
+# Wrapped by kent@sparky on Sat Aug  1 21:06:12 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3182 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile for bsnews
+X# copyright 1991 Ronald Florence  
+X# @(#) version 2.2 (ron@mlfarm.com, 23 Jul 1992)
+X
+X# ----- For Unix systems, edit the following defines, as needed. -----
+X
+X# Mail reader, with the option used to name the spool file.
+XREADER = elm -f
+X
+X# The uucp nodename of your news feed.
+XFEED = BigNode
+X
+X# User to notify, via mail, for news problems.
+XNOTIFY = postmaster
+X
+X# Where is compress on your system?
+XCOMPDIR = /usr/bin
+X
+X# The directory and suffix for unformatted man pages.
+XMANDIR = /usr/man/manl
+XMANEXT = l
+X
+X# The first line of a Bourne Shell script. 
+X# The contortions in the first definition are to get a #! /bin/sh.
+X# Use the second definition for Xenix.
+XSTARTSCRIPT = `echo 'X!' | tr X '\043'`
+X# STARTSCRIPT = :
+X
+X# Add -DNICE=4 (+/-) to run rnews at a lower priority
+X# Add -DVERBOSE for reports of articles spooled
+X# Add -DUNAME for System V with uname()
+X# Add -DGETHOSTNAME for BSD with gethostname()
+X# Add -DIAM=\"yournodename\" to hardcode your node name
+X# Add -DBSD for index() instead of strchr()
+XOPTIONS =
+X
+X# ----- You may want to change these. -----
+X
+X# NEWSDIR - directory for news spools.
+X# NEWSLIB - directory for news configuration files.
+X# BIN - the owner of news programs.
+X# BINDIR - directory for news binaries.
+X# JUNK - the default news spool.
+X
+XCC = gcc
+XNEWSDIR = /usr/spool/news
+XNEWSLIB = /usr/lib/news
+XBIN = bin
+XBINDIR = /usr/bin
+XJUNK = bsnews
+X
+X# ----- You shouldn't need to make changes below here. -----
+X
+XCFLAGS = -O $(OPTIONS) -DCompdir=\"$(COMPDIR)\" -DNotify=\"$(NOTIFY)\"
+XPGMS = rnews uurec pn checknews readnews expire uudecode
+XFILES = newsdir config bsnews.man
+X
+XSRCS = Readme Makefile makefile.pc bsnews.h.S bsnews.man.S checknews.c\
+X       config expire.S init.c mail.ed myname.c readnews.S rnews.c pn.S\
+X       uudecode.c uurec.S whatami.sh Problems
+XSHELL = /bin/sh
+X
+Xbsnews:	install 
+X
+Xmail-bsnews: fix-pn install
+X
+Xinstall: $(PGMS) $(FILES)
+X	chgrp $(BIN) $(PGMS) 
+X	chown $(BIN) $(PGMS) 
+X	chmod 544 expire
+X	chmod 555 readnews pn checknews
+X	chmod 6555 rnews uurec
+X	cp config $(NEWSLIB)/config
+X	mv $(PGMS) $(BINDIR)
+X	mv bsnews.man $(MANDIR)/bsnews.$(MANEXT)
+X	[ -x $(BINDIR)/uudecode ] || mv uudecode $(BINDIR)
+X
+Xfix-pn: pn
+X	ed - pn < mail.ed
+X
+Xwhatami: 
+X	@sh whatami.sh
+X
+Xbsnews.h bsnews.man expire readnews pn uurec: Makefile
+X	rm -f $@
+X	sed -e 's|%NEWSLIB%|$(NEWSLIB)|g' \
+X	    -e 's/%STARTSCRIPT%/'"$(STARTSCRIPT)"'/' \
+X	    -e 's|BigNode|$(FEED)|' \
+X	    -e 's|%NEWSDIR%|$(NEWSDIR)|g' \
+X	    -e 's|%READER%|$(READER)|g'   \
+X	    -e 's|%JUNK%|$(JUNK)|g' $@.S > $@
+X	chmod 444 $@   
+X
+Xnewsdir: 
+X	[ -d $(NEWSDIR) ] || mkdir $(NEWSDIR)
+X	chown $(BIN) $(NEWSDIR)
+X	chgrp $(BIN) $(NEWSDIR)
+X
+Xchecknews.o init.o rnews.o:	bsnews.h
+X
+Xcheckname: myname.c Makefile bsnews.h
+X	$(CC) $(CFLAGS) -DCHECKNAME myname.c -o checkname
+X	@rm -f myname.o
+X	@./checkname
+X
+Xchecknews: checknews.o init.o 
+X	$(CC) -o checknews checknews.o init.o
+X
+Xrnews:  checkname rnews.o myname.o init.o
+X	$(CC) -o rnews rnews.o myname.o init.o
+X
+Xman:	bsnews.man
+X#	gtroff -man bsnews.man | grops | pageview - &
+X	nroff -man bsnews.man | more
+X
+Xdos amiga:
+X	make -f makefile.pc $@
+X
+Xshar bsnews.shar: $(SRCS)
+X	shar -a $(SRCS) > bsnews.shar
+X
+Xclean:
+X	rm -f $(PGMS) *.o bsnews.man checkname bsnews.h
+X
+END_OF_FILE
+  if test 3182 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'Problems' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Problems'\"
+else
+  echo shar: Extracting \"'Problems'\" \(8392 characters\)
+  sed "s/^X//" >'Problems' <<'END_OF_FILE'
+X
+X			PROBLEMS AND SOLUTIONS
+X		      Bsnews 2.2 (Bootstrap News)
+X		    copyright 1991 Ronald Florence
+X
+X
+X1.  I'm on a multi-user system.  How do I keep other users from
+X    deleting news articles with the `d' command in their mail readers?
+X
+XA.  The owner of news is defined in the Makefile as `bin', although it
+X    could be a pseudo-user like `news'.  The news programs and spools
+X    are owned by this user.  Unless you have an unusual umask set for
+X    the owner of news, the spools will be created and written with 644
+X    permissions.  Anyone can read news; only the owner of the spools
+X    can delete or write them.
+X
+X
+X2.  I'm on a single-user system.  I'd like to be able to delete the
+X    news articles as I read them instead of using expire.
+X
+XA.  Become the owner of news:
+X	% chown your-id rnews uurec /usr/spool/news
+X	% cd /usr/spool/news
+X	% chown your-id *
+X
+X
+X3.  The expire command doesn't work.
+X
+XA.  Expire may need to be run setuid to the owner of news.  Try:
+X	% chown owner-of-news expire
+X	% chmod 6555 expire 
+X    On systems like Xenix which do not support setuid for shell
+X    scripts, run expire from the owner-of-news crontab (if your system
+X    has crontabs), or use a cron entry like:
+X	30 2 * * *	su -c owner-of-news expire 5
+X
+X
+X4.  We're changing our news subscriptions to add/subtract newsgroups.
+X    Do I have to rebuild bsnews?
+X
+XA.  No.  Just edit config to include the new newsgroups and add any
+X    local spools you want.
+X
+X
+X5.  I'm running bsnews under ms-dos.  The command `rnews *.nws'
+X    doesn't work to unpack the news.
+X
+XA.  The newest version of rnews reads stdin only.  Use `rnews < batch'
+X    for each news batch.
+X
+X
+X6.  My config file includes:
+X	comp.unix		unix
+X	comp.unix.questions	questions
+X	alt.flame		flame
+X    The comp.unix.questions articles end up in the `unix' spool
+X    instead of the `questions' spool.
+X
+XA.  List comp.unix.questions before comp.unix in your config file.
+X    The newsgroup parsing engine looks for the first match.
+X
+X
+X7.  Sometimes rnews bails out before it finishes unpacking the news.
+X
+XA.  Get version 2.2 from a comp.sources.misc archive.
+X
+X
+X8.  When I try to build bsnews, the Make breaks on [whatami, expire,
+X    pn] because my fgrep lacks the -s option.
+X
+XA.  Get version 2.2 from a comp.sources.misc archive.
+X
+X
+X9.  Rnews sometimes truncates articles, pn gets the date and message
+X    ID wrong, expire doesn't work, and uurec gets the dates wrong.
+X
+X    Running AIX?  Get version 2.2 of bsnews from a
+X    comp.sources.misc.archive.
+X
+X
+X10. After expire runs, the checknews command in my .login reports
+X    new news when there is no new news.
+X
+XA.  BSD versions of the touch command cannot set an arbitrary time.
+X    Expire will use /usr/5bin/touch on a BSD system to get around
+X    this.  If you have a version of touch that will reset the time,
+X    change expire to find it.  
+X
+X
+X11. I don't want my news in separate spools.  I'd rather have all of
+X    the news in one big spool.
+X
+XA.  Use a blank config file, or no config file.
+X
+X
+X12. I want articles from oddball newsgroups to be spooled in
+X    /usr/spool/news/other instead of /usr/spool/news/bsnews.
+X
+XA.  Add lines to your config file for the oddball newsgroups:
+X	oddball.group		other
+X	another.odd.group	other
+X    Or rebuild bsnews with JUNK in the Makefile (or in bsnews.h on an
+X    ms-dos system) set to the name you want for the default spool.
+X
+X
+X13. How does bsnews work?  
+X
+XA.  Full-scale news systems like B-News and C-News unpack news into
+X    individual articles, one per file, in a hierarchical file system
+X    that corresponds to the newsgroup name structure.  For simplicity,
+X    and to enable the use of a mail reader for news, bsnews stores
+X    articles in user-configured Unix-mail-format (each article begins
+X    with the line `From user@site date') spools.
+X
+X    The rnews program unpacks news batches that arrive via a uux
+X    command from an upstream host, creating the required initial
+X    header with the date of arrival at your site.  On Unix systems
+X    rnews is executed automatically by uuxqt.
+X
+X    Uurec parses articles that arrive from an upstream host via mail,
+X    adding the required initial header.  Uurec is run automatically if
+X    you have sendmail or execmail, or it can be run periodically by
+X    cron with /usr/spool/mail/rnews as input.
+X
+X    Checknews compares the latest modification (write) time on the
+X    news spools to the time on a sentinel file ($HOME/.lastnews) to
+X    determine whether news has arrived since you last read the spools.
+X    Each user on a multi-user system has a separate .lastnews file.
+X    Checknews is normally used in the .profile or .login file to
+X    inform the user of new news at login time.
+X
+X    Expire parses the initial headers of news articles in the spools
+X    and deletes those older than the expiration interval.  It is
+X    normally run nightly by cron.
+X
+X    Pn is a simple news poster that sends an article to your newsfeed
+X    via uux or mail.
+X
+X    Readnews is a shell wrapper for the mail reader, which allows you
+X    to read news groups by their local or Usenet name, or to read all
+X    newsgroups with news.  Readnews also sets the sentinel to record
+X    which news you have read.
+X
+X
+X14. Articles I post with pn don't show up in news here.
+X
+XA.  Make this change to pn:
+X	*** 57,62 ****
+X	--- 57,63 ----
+X	  while read yn
+X	    do case $yn in
+X	      y*|Y*) uux - -r $Hostname!rnews < $Tmpart
+X	+ 	   rnews < $Tmpart
+X		   echo "Posted!"
+X		   break ;;
+X	      n*|N*) echo "Article cancelled!"
+X
+X
+X15. Pn isn't much of a news poster.  I want to be able to post
+X    follow-up articles, with attributions and quoted material and
+X    those fancy headers.
+X
+XA.  Get post.icn from a comp.sources.misc archive.  Post.icn has all
+X    the features you want, and is compatible with bsnews (as well as
+X    B-News or C-News).  Post.icn is written in Icon.  If you don't
+X    have Icon for your system, you can get it from the University of
+X    Arizona. 
+X
+X
+X16. How do I feed the news we get to another site?
+X
+XA.  Junk bsnews and get B-News or C-News.
+X
+X
+X17. I'd like to know how many articles were unpacked to each spool.
+X
+XA.  Set the -DVERBOSE flag in the OPTIONS in your Makefile.  
+X
+X
+X18. When we get a huge batch of news, the system slows down too much
+X    while it is unpacking news.
+X
+XA.  Set -DNICE=some-number in the OPTIONS in your Makefile.    
+X
+X
+X19. What is a good mail reader to use in readnews?
+X
+XA.  Users tell me that elm works well with bsnews.  Other mail
+X    readers, like BSD Mail, work fine too.
+X
+X
+X20. How do I [reply-to, forward, print, save] a news article?
+X
+XA.  The same way you reply-to, forward, print, or save an email
+X    message.  Bsnews is as versatile, or as crippled, as your mail
+X    reader.
+X
+X
+X21. I'm running bsnews on a non-Unix system.  How do I use the
+X    [expire, uurec, readnews, pn, checknews] program?  How do I get my
+X    news to unpack automatically?
+X
+XA.  The first four programs are Unix shell scripts.  If you have awk
+X    or gawk for your system, you can probably adapt the expire and
+X    uurec programs.  The post.icn newsposter (see question 14) will
+X    work on ms-dos and probably on an Atari, Amiga or other systems
+X    with Icon, and is more versatile than pn.  Checknews could be
+X    adapted for other systems by making appropriate changes to the
+X    stats structure.
+X
+X    Unpacking news depends on your uucp workalike (uupc): some can
+X    execute uux commands like rnews.  If your uucp workalike can only
+X    do mail, you will have to unpack news manually.
+X
+X
+X22. I don't have gawk or nawk.  Where can I get the version of expire
+X    that uses old awk?
+X
+XA.  You have an old version of bsnews.  The shell scripts in the
+X    newest version (2.2) run with old awk.
+X
+X
+X23. The shell scripts execute under the wrong shell on my system!
+X
+XA.  The shell scripts are written for the Bourne shell.  If you are
+X    running on a Xenix system, comment out the first definition of
+X    STARTSCRIPT in the Makefile and uncomment STARTSCRIPT = :.
+X
+X
+X24. Are any updates or improvements planned for bsnews?  I'd like to
+X    be on the mailing list.
+X
+XA.  Future improvements and updates are up to the users.  I wrote the
+X    programs for friends who get newsfeeds from us.  I've never used
+X    bsnews myself and don't plan to do any more work on it.
+X
+X
+X25. Thanks for bsnews.  It's a great news system for a small site
+X    like mine.
+X
+XA.  You're welcome.
+X
+X
+X
+X
+X@(#) version 2.2 (ron@mlfarm.com, 23 July 1992)
+END_OF_FILE
+  if test 8392 -ne `wc -c <'Problems'`; then
+    echo shar: \"'Problems'\" unpacked with wrong size!
+  fi
+  # end of 'Problems'
+fi
+if test -f 'Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Readme'\"
+else
+  echo shar: Extracting \"'Readme'\" \(5394 characters\)
+  sed "s/^X//" >'Readme' <<'END_OF_FILE'
+Xbsnews - Bootstrap News
+Xcopyright 1991 Ronald Florence
+X@(#) version 2.2 (ron@mlfarm.com, 22 Jul 1992)
+X
+XBootstrap News is a collection of programs which enable a leaf node to
+Xtake a limited news feed and post articles to Usenet.  News articles
+Xare spooled in Unix-mail-format files, where they can be read,
+Xprinted, forwarded, replied-to, or saved.  The distribution provides a
+Xnews-reader, news-poster, checknews, uudecode for binary and graphics
+Xfiles, and daemons to unpack and expire news received via uux or mail.
+XBsnews after version 2.0 includes multiple, user-configurable news
+Xspools, and simplified configuration with a `make whatami' script.
+XVersion 2.2 provides bug fixes for weird date commands, maverick
+Xcompilers, and error messages.
+X
+XBsnews has been tested on BSD and SystemV Unix, including Xenix.
+XPortions can be built on ms-dos, Amiga, Atari, and Coherent systems
+Xrunning uucp workalikes.  Bsnews is not a substitute for B-News or
+XC-News.  if your news needs include feeding articles to downstream
+Xnodes, or if your news subscription is more than a few dozen news
+Xgroups, you should probably install a full news package.
+X
+XConfiguration:
+X
+X   Edit the file `config' to provide local spool names for the
+X   newsgroups you will be receiving.  You can assign several
+X   newsgroups to the same spool.  If there are no entries in config,
+X   or if you receive an article from a newsgroup which is not listed
+X   in the config file, the article will be spooled in a default spool
+X   (see JUNK in the Makefile).  If your news subscriptions change, you
+X   can edit config without recompiling the bsnews programs.
+X
+XTo install bsnews on a Unix system:
+X
+X1. Do `make whatami', then edit the Makefile defines for READER, FEED,
+X   NOTIFY, COMPDIR, MANDIR, MANEXT, STARTSCRIPT, and OPTIONS to suit
+X   your system.  You may want to change NEWSLIB, NEWSDIR, CC, BIN, or
+X   JUNK.  On most systems you will need to be a privileged user to
+X   install bsnews.
+X
+X2. If your news feed sends you news via uux (rnews), do `make'.  Check
+X   to see that rnews is in the uucp permissions file in /usr/lib/uucp,
+X   and tell your news feed to send you a compressed, batched feed.
+X   Rnews will also unpack uncompressed batches or single articles.
+X
+X   If your news feed uses sendnews to send you news articles via mail,
+X   do `make mail-bsnews'.  Create a sendmail or execmail alias for
+X   rnews (rnews: |/usr/bin/uurec), or use cron to run uurec with
+X   /usr/spool/mail/rnews as input.
+X
+X3. Create a daily cron entry for `expire n', where n is the expiration
+X   period for news.  
+X
+X	30 2 * * *	/usr/bin/expire 5
+X
+X   News spools can grow quickly; expiration after 3-7 days is typical.
+X   Single-user sites can ignore this step and use the delete command
+X   in the news-reader to expire news.
+X
+XUsing bsnews on Unix systems:
+X
+X   Use readnews to read your news.  With no arguments readnews will
+X   read all spools with news; you can specify newsgroups to read by
+X   their local or Usenet names.  Pipe articles containing uuencoded
+X   material (`begin filemode filename') through uudecode.
+X
+X   Add checknews to your .profile or .login for notification of new
+X   news when you log in.  If the touch command on your system cannot
+X   set an arbitrary time, checknews may incorrectly report new news
+X   after expire runs.
+X
+X   Before you post to Usenet, you should test the pn news poster on a
+X   newsgroup with limited distribution, and read the file "Standard
+X   for Interchange of USENET Messages," available in newsgroup
+X   news.announce.newusers or from your news feed.  For a more
+X   versatile newsposter, see `post' in the comp.sources.misc archives.
+X
+XTo install bsnews on a non-Unix system:
+X
+X1. Change CC and CFLAGS in makefile.pc to suit your C compiler.  Copy
+X   bsnews.h.S to bsnews.h, and edit the NOTUNIX defines for Configdir,
+X   Newsdir, Junk, and IAM in bsnews.h.  Do `make dos' or `make amiga',
+X   and install config in the directory specified in bsnews.h.
+X
+X2. If your uucp workalike cannot execute rnews with the incoming news
+X   batches as input, have your news feed install a batch command file
+X   for your system:
+X
+X       :
+X       #! /bin/sh
+X       # yoursys.cmd
+X       News=/tmp/`date '+%d%H%M%S'`.nws
+X       cat > $News
+X       uucp -rC $News yoursys!~/
+X       rm $News
+X
+X   After each poll of your host, run rnews with the *.nws files in
+X   your public directory as input.  You will need 16-bit compress for
+X   compressed news batches.
+X
+XUsing bsnews on non-Unix systems: 
+X
+X   Read your news by doing the equivalent of `mail -f spoolname' for
+X   the news spools.  Use `uudecode < article' or `uudecode article'
+X   for articles containing encoded material.  The pn newsposter,
+X   readnews, and the expire, uurec, and checknews daemons do not run
+X   on non-Unix systems.
+X
+XI'd like to thank Joel Tenenbaum (joel@purvid.purchase.edu) for
+Xbuilding beta-versions of bsnews on Xenix, SGI Unix, Amiga, AIX, and
+Xms-dos systems; Brice Weisman (72067.122@compuserve.com) for the idea
+Xof multiple news spools and for testing the ms-dos delivery scheme;
+Xand the many users who have found bugs or made suggestions.
+X
+XPermission is hereby granted for unlimited non-commercial use of these
+Xprograms, on condition that the copyright notices are left intact and
+Xany modifications to the source code are noted as such.  No warranty
+Xof any kind is implied or granted for this material.
+X
+XRonald Florence			
+Xron@mlfarm.com
+X
+END_OF_FILE
+  if test 5394 -ne `wc -c <'Readme'`; then
+    echo shar: \"'Readme'\" unpacked with wrong size!
+  fi
+  # end of 'Readme'
+fi
+if test -f 'bsnews.h.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsnews.h.S'\"
+else
+  echo shar: Extracting \"'bsnews.h.S'\" \(853 characters\)
+  sed "s/^X//" >'bsnews.h.S' <<'END_OF_FILE'
+X/*
+X * bsnews.h
+X * copyright 1991 Ronald Florence
+X * @(#) version 2.1 (ron@mlfarm.com, 15 Sep 1991)
+X */
+X
+X#define Maxgroup	50
+X
+X#ifdef NOTUNIX
+X
+X	/* For non-Unix systems, please define the full path of your */
+X	/* config file, the directory for news spools including the */
+X	/* final path separator, the name of the default news spool, */
+X	/* and the uucp name of your node. */
+X
+X#define Configfile	"\\uupc\\bin\\config"
+X#define Newsdir		"\\uupc\\news\\"
+X#define Junk		"bsnews"
+X#define IAM		"nowhere"
+X#else
+X
+X	/* For Unix this information is configured by the Makefile. */
+X
+X#define Configfile	"%NEWSLIB%/config"
+X#define Newsdir		"%NEWSDIR%/"
+X#define Junk		"%JUNK%"
+X#endif
+X
+X#include <stdio.h>
+X
+X#ifdef BSD
+X#define strchr		index
+X#endif
+X
+Xtypedef struct {
+X  char *usenet, *local;
+X  int  len, found;
+X} Group;
+X
+X#ifndef INIT
+Xextern
+X#endif
+XGroup *newsgroup[Maxgroup];
+END_OF_FILE
+  if test 853 -ne `wc -c <'bsnews.h.S'`; then
+    echo shar: \"'bsnews.h.S'\" unpacked with wrong size!
+  fi
+  # end of 'bsnews.h.S'
+fi
+if test -f 'bsnews.man.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bsnews.man.S'\"
+else
+  echo shar: Extracting \"'bsnews.man.S'\" \(2947 characters\)
+  sed "s/^X//" >'bsnews.man.S' <<'END_OF_FILE'
+X.\" man page for bsnews (Bootstrap News)
+X.\" Copyright 1991 Ronald Florence
+X.\" @(#) version 2.2 (ron@mlfarm.com, 23 Jul 1992)
+X.\"
+X.TH BSNEWS LOCAL "23 Jul 1992"
+X.SH NAME
+Xrnews \- processes news articles received via uux
+X
+Xuurec \- processes news articles received via mail
+X
+Xchecknews \- a daemon to monitor the arrival of new news
+X
+Xexpire \- expires articles from the news spool
+X
+Xpn \- a simple news poster
+X
+Xreadnews \- a news reader
+X
+Xuudecode
+X.SH SYNOPSIS
+X.B rnews 
+X< 
+X.I news-batch 
+X.br
+X.B uurec 
+X< 
+X.I article
+X.br
+X.B checknews
+X.br
+X.B expire 
+X.I n
+X.br
+X.B pn
+X.br
+X.B readnews
+X[
+X.IR spool(s) " | " newsgroup(s)
+X]
+X.br
+X.B uudecode 
+X< 
+X.I encoded-article
+X.br
+X.B uudecode 
+X.I encoded-article
+X.SH DESCRIPTION
+X.PP
+X.I Bsnews 
+X(Bootstrap News) is a collection of programs which enable a leaf node
+Xto take a limited news feed and post articles to Usenet, without
+Xinstalling a full news package.
+X.PP
+X.I Rnews 
+Xprocesses individual news articles, batched, or batched and compressed
+Xnews sent from a remote system via uux.  The articles are spooled in
+XUnix-mail-format news spools, with RFC 822 compliant headers.  An
+Xinitial
+X.I From
+Xheader is supplied with the email address of the poster and the date
+Xof arrival at the system.  A compile-time option enables verbose
+Xreports of the number of articles spooled in each news group as the
+Xnews is unpacked.
+X.PP
+X.I Uurec
+Xspools news articles received in sendnews format (each line prefixed
+Xwith an
+X.IR N )
+Xfrom a remote system.
+X.PP
+X.IR Checknews ,
+Xin the
+X.I .login
+Xor 
+X.I .profile
+Xfile, notifies the user at login time of new news on the spools.
+X.PP
+X.I Expire
+Xis run by cron to expire news from the news spools after
+X.I n
+Xdays.  
+X.PP
+X.I Pn 
+Xis a simple news poster, configured by the bsnews Makefile to post
+Xarticles via uux or mail.  
+X.I Pn 
+Xqueries interactively for the newsgroup(s) and subject, puts the user
+Xin an editor (default
+X.IR vi ),
+Xto compose the article, and a pager (default
+X.IR more )
+Xto proof the article before posting.  The
+X.SM EDITOR
+Xand
+X.SM PAGER 
+Xenvironmental variables can be used to change the defaults.
+X.PP
+X.I Readnews 
+Xadapts a Unix mail reader
+X.RI ( elm , 
+X.IR Mail ,
+Xetc.) for reading news.  If no newsgroups or local spools are named on
+Xthe command line, 
+X.I readnews
+Xwill read all spools with news.  News articles can be read, printed,
+Xforwarded, saved, replied-to, and (on a single-user system) deleted,
+Xusing mailer commands.
+X.PP
+X.I Uudecode
+Xis a simple decoder for the protocol used to post binary or graphics
+Xfiles.  Uuencoded material can be recognized from the ``begin
+X.I filemode
+Xfilename'' initial line.
+X.SH FILES
+X.if t .ta 2.5i
+X.if n .ta 3.5i
+X%NEWSDIR%/*	news spools
+X.br
+X%NEWSDIR%/%JUNK%	default news spool
+X.br
+X%NEWSLIB%/config	configuration file
+X.br
+X$HOME/.lastnews	sentinel file for checknews
+X.SH BUGS
+XOn 
+X.SM BSD
+Xsystems without /usr/5bin/touch, 
+X.I checknews
+Xmay incorrectly report new news after
+X.I expire 
+Xhas run.
+X.SH AUTHOR
+XRonald Florence (ron\s-2@\s0mlfarm.com).
+X
+END_OF_FILE
+  if test 2947 -ne `wc -c <'bsnews.man.S'`; then
+    echo shar: \"'bsnews.man.S'\" unpacked with wrong size!
+  fi
+  # end of 'bsnews.man.S'
+fi
+if test -f 'checknews.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'checknews.c'\"
+else
+  echo shar: Extracting \"'checknews.c'\" \(926 characters\)
+  sed "s/^X//" >'checknews.c' <<'END_OF_FILE'
+X/*
+X * checknews.c - checks for bootstrap news
+X * copyright 1991 Ronald Florence 
+X * @(#) version 2.1 (ron@mlfarm.com, 23 Aug 1991)
+X */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "bsnews.h"
+X
+X#define bye(s)	   puts(s), exit(1)
+X
+Xmain()
+X{
+X  struct stat nt, lt;
+X  char newsmarker[80], *getenv(), *malloc();
+X  int ngroups, got = 0, i;
+X
+X  ngroups = init();
+X  if (!strcpy(newsmarker, getenv("HOME")))
+X    bye("checknews: cannot find $HOME.");
+X  strcat(newsmarker, "/.lastnews");
+X  if (stat(newsmarker, &lt) == -1)
+X    lt.st_mtime = 0;
+X  for (i = 0; i <= ngroups; i++)
+X    if (stat(newsgroup[i]->local, &nt) == 0 && nt.st_mtime > lt.st_mtime)
+X      {
+X	if (!got)
+X	  {
+X	    printf("%-25s%s\n", "New news", "Local spool");
+X	    printf("%-25s%s\n", "--------", "-----------");
+X	  }
+X	printf("%-25s%s\n", newsgroup[i]->usenet, newsgroup[i]->local);
+X	got++;
+X      }
+X  if (!got)
+X    printf("No news is good news.\n");
+X  exit(0);
+X}
+END_OF_FILE
+  if test 926 -ne `wc -c <'checknews.c'`; then
+    echo shar: \"'checknews.c'\" unpacked with wrong size!
+  fi
+  # end of 'checknews.c'
+fi
+if test -f 'config' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config'\"
+else
+  echo shar: Extracting \"'config'\" \(439 characters\)
+  sed "s/^X//" >'config' <<'END_OF_FILE'
+X# config - configuration file for bsnews
+X#
+X# Lines beginning with `#' are comments.
+X# More than one newsgroup can be assigned to a spool.
+X#
+X# newsgroup		local-spool-name
+X
+Xalt.flame		flamethrowers
+Xcomp.emacs		emacs
+Xcomp.lang.icon		icon
+Xcomp.sources.unix	unix.src
+Xcomp.sys.sgi		sgi
+Xcomp.unix.cray		cray
+Xcomp.unix.xenix.sco	xenix
+Xrec.music.classical	classical.music
+Xrec.sport.football.pro	proball
+Xsci.astro		astro
+Xtalk.origins		flamethrowers
+END_OF_FILE
+  if test 439 -ne `wc -c <'config'`; then
+    echo shar: \"'config'\" unpacked with wrong size!
+  fi
+  # end of 'config'
+fi
+if test -f 'expire.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'expire.S'\"
+else
+  echo shar: Extracting \"'expire.S'\" \(2286 characters\)
+  sed "s/^X//" >'expire.S' <<'END_OF_FILE'
+X%STARTSCRIPT% /bin/sh
+X# expire - expires bsnews spool
+X# copyright 1991 Ronald Florence 
+X# @(#) version 2.2 (ron@mlfarm.com, 21 Jul 1992)
+X#
+X# A version for gawk or nawk would be cleaner; this is portable.
+X
+XNewsdir=%NEWSDIR%/
+XConfig=%NEWSLIB%/config
+XJunk=%JUNK%
+X
+X# Test the touch command.  Only SysV touch will reset the date.
+X
+XTouch=touch
+X[ -x /usr/5bin/touch ] && Touch=/usr/5bin/touch
+Xif $Touch 2>&1 | fgrep '[-amc]' > /dev/null; then
+X  :
+Xelse 
+X  Touch=true
+Xfi
+X
+Xwhile [ $# -gt 0 ]
+X  do
+X    case $1 in
+X      -e|-E) shift;;
+X          *) exp=`expr $1 : "-*[eE]*\([0-9]*\)"`; break;;
+X    esac
+X  done
+X[ -z "$exp" ] && { echo "usage: $0 days"; exit; }
+X
+X# Get the local spool names from config (if it exists) and add Junk.
+X
+Xif [ -r $Config ]; then
+X  spool=`sed -n "s/^[^#][^	]*[ 	]*\(.*\)[ 	]*.*/\1/p" $Config`
+Xelse
+X  spool=''
+Xfi
+Xspool="$spool $Junk"
+X
+X# Now expire the spools, one at at time, resetting
+X# the timestamp if the  touch command works.
+X
+Xfor i in $spool
+X  do
+X    [ -w $Newsdir$i ] || continue
+X    Tmp=/tmp/expire.$$
+X    Time=/tmp/time.$$
+X    trap 'rm -f $Tmp $Time' 1 2 3 15
+X
+X    awk '
+X      BEGIN {
+X	month["Jan"] = 1
+X	month["Feb"] = 2
+X	month["Mar"] = 3
+X	month["Apr"] = 4
+X	month["May"] = 5
+X	month["Jun"] = 6
+X	month["Jul"] = 7
+X	month["Aug"] = 8
+X	month["Sep"] = 9
+X	month["Oct"] = 10
+X	month["Nov"] = 11
+X	month["Dec"] = 12
+X	expired = 0
+X	df = split ("'"`date`"'", now)
+X	split("31 28 31 30 31 30 31 31 30 31 30 31", days)
+X	n = (now[df] - 1901) * 365 + int((now[df] - 1901) / 4)
+X	if (now[df] % 4 == 0)
+X	  days[2]++
+X	for (i = 1; i < month[now[2]]; i++)
+X	  n += days[i]
+X	zap = n + now[3]
+X      }  
+X
+X      /^From / && expired == 0 { 
+X	n = ($7 - 1901) * 365 + int(($7 - 1901) / 4)
+X	for (i = 1; i < month[$4]; i++)
+X	  n += days[i]
+X	if (n + $5 > zap - expd)
+X	  expired = 1
+X      }
+X      expired == 1 { print $0 > Tmp }
+X
+X      END { 
+X	n=split(ls_l, ls)
+X	split(ls[n-1], time, ":")
+X	printf "%02d%02d%02d%02d\n", month[ls[n-3]], ls[n-2], time[1], time[2]
+X      }
+X      ' expd="$exp" ls_l="`ls -l $Newsdir$i`" Tmp="$Tmp" $Newsdir$i > $Time
+X
+X# Move the spool first, then touch, in case tmp is
+X# on a different file system from the news spools.
+X    if [ -s $Tmp ]; then
+X      mv $Tmp $Newsdir$i
+X      $Touch `cat $Time` $Newsdir$i
+X    else
+X      rm $Newsdir$i $Tmp
+X    fi
+X    rm -f $Time
+Xdone
+Xexit 0
+X
+END_OF_FILE
+  if test 2286 -ne `wc -c <'expire.S'`; then
+    echo shar: \"'expire.S'\" unpacked with wrong size!
+  fi
+  # end of 'expire.S'
+fi
+if test -f 'init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'init.c'\"
+else
+  echo shar: Extracting \"'init.c'\" \(1022 characters\)
+  sed "s/^X//" >'init.c' <<'END_OF_FILE'
+X/*
+X * init.c
+X * copyright 1991 Ronald Florence 
+X * @(#) version 2.1 (ron@mlfarm.com, 23 Aug 1991)
+X */
+X
+X#define INIT
+X#include "bsnews.h"
+X
+Xchar  *malloc();
+X
+Xinit()
+X{
+X  FILE *cf;
+X  char buffer[256], nbuf[80], lbuf[80];
+X  int i = 0;
+X
+X  if (cf = fopen(Configfile, "r"))
+X    while (fgets(buffer, sizeof(buffer), cf) != NULL)
+X      {
+X	if (i > Maxgroup - 2)
+X	  {
+X	    fputs("Too many newsgroups.\n", stderr);
+X	    exit(1);
+X	  }
+X	if (*buffer != '#' && sscanf(buffer, "%s %s", nbuf, lbuf) >= 2)
+X	  (void) fill_struct(i++, nbuf, lbuf);
+X      }
+X  (void) fill_struct(i, "various newsgroups", Junk);
+X  return i;
+X}
+X
+X
+Xfill_struct(n, nbuf, lbuf)
+X     int  n;
+X     char *nbuf, *lbuf;
+X{
+X  newsgroup[n] = (Group *)malloc(sizeof(Group));
+X  newsgroup[n]->len = strlen(nbuf);
+X  newsgroup[n]->usenet = malloc(newsgroup[n]->len + 1);
+X  newsgroup[n]->local = malloc(sizeof(Newsdir) + strlen(lbuf) + 1);
+X  strcpy(newsgroup[n]->usenet, nbuf);
+X  strcpy(newsgroup[n]->local, Newsdir);
+X  strcat(newsgroup[n]->local, lbuf);
+X  newsgroup[n]->found = 0;
+X}
+X
+END_OF_FILE
+  if test 1022 -ne `wc -c <'init.c'`; then
+    echo shar: \"'init.c'\" unpacked with wrong size!
+  fi
+  # end of 'init.c'
+fi
+if test -f 'mail.ed' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mail.ed'\"
+else
+  echo shar: Extracting \"'mail.ed'\" \(74 characters\)
+  sed "s/^X//" >'mail.ed' <<'END_OF_FILE'
+X/uux/s/uux - -r \($H.*ws\) \(< $T.*t\)/sed 's\/\^\/N\/' \2 | mail \1/
+Xw
+Xq
+END_OF_FILE
+  if test 74 -ne `wc -c <'mail.ed'`; then
+    echo shar: \"'mail.ed'\" unpacked with wrong size!
+  fi
+  # end of 'mail.ed'
+fi
+if test -f 'makefile.pc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.pc'\"
+else
+  echo shar: Extracting \"'makefile.pc'\" \(519 characters\)
+  sed "s/^X//" >'makefile.pc' <<'END_OF_FILE'
+X# makefile.pc
+X# Auxiliary makefile for non-Unix systems.
+X# Copyright 1991 Ronald Florence
+X# @(#) version 2.11 (ron@mlfarm.com, 4 Oct 1991)
+X
+X# Your C compiler.
+XCC = cc
+X
+X# Add -DVERBOSE for reports of articles spooled,
+X# Change the flag for defines from -D  to -d  for Amiga/Lattice
+XCFLAGS = -O -DNOTUNIX -DVERBOSE
+X
+XSRCS = rnews.c myname.c init.c
+X
+Xdos:	$(SRCS) bsnews.h 
+X	$(CC) -DMSDOS $(CFLAGS) $(SRCS)
+X	$(CC) -DMSDOS $(CFLAGS) uudecode.c
+X
+Xamiga:	$(SRCS) bsnews.h 
+X	$(CC) $(CFLAGS) $(SRCS)
+X	$(CC) $(CFLAGS) uudecode.c
+X
+X
+END_OF_FILE
+  if test 519 -ne `wc -c <'makefile.pc'`; then
+    echo shar: \"'makefile.pc'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.pc'
+fi
+if test -f 'myname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'myname.c'\"
+else
+  echo shar: Extracting \"'myname.c'\" \(1589 characters\)
+  sed "s/^X//" >'myname.c' <<'END_OF_FILE'
+X/*
+X * myname.c
+X * copyright 1991 Ronald Florence 
+X * @(#) version 2.1 (ron@mlfarm.com, 30 Aug 1991)
+X */
+X
+X#include "bsnews.h"
+X
+X#ifdef CHECKNAME
+Xmain()
+X{
+X  char *myname();
+X
+X  fprintf(stderr, "\nIf your node name is not `%s' ", myname());
+X  fprintf(stderr, "check the OPTIONS in your Makefile.\n\n");
+X  exit(0);
+X}
+X#endif
+X
+X
+Xchar *myname()
+X{
+X#ifdef IAM
+X  return (IAM);
+X}
+X#else
+X#ifdef UNAME
+X#include <sys/utsname.h>
+X
+X  static struct utsname utn;
+X
+X  (void) uname(&utn);
+X  return(utn.nodename);
+X}
+X#else  /* not UNAME */
+X  static char nodename[64];
+X
+X#ifdef GETHOSTNAME
+X  extern int gethostname();
+X
+X  (void) gethostname(nodename, (int) sizeof(nodename));
+X  nodename[sizeof(nodename)] = 0;
+X  return(nodename);
+X}
+X#else   /* not GETHOSTNAME */
+X
+X  FILE *whoami;
+X
+X  char *cp, *strchr(), *strpbrk();
+X
+X  if ((whoami = fopen("/etc/whoami", "r")) || 
+X      (whoami = fopen("/etc/systemid", "r"))) 
+X    {
+X      fgets(nodename, sizeof(nodename), whoami);
+X      fclose(whoami);
+X      if (cp = strchr(nodename, '\n'))
+X	*cp = '\0';
+X      return(nodename);
+X    }
+X  if ((whoami = fopen("/usr/include/whoami.h", "r")) != 0) 
+X    {
+X      while (!feof(whoami)) 
+X	{
+X	  char	buf[100];
+X	  
+X	  if (fgets(buf, 100, whoami) == 0)
+X	    break;
+X	  if (sscanf(buf, "#define sysname \"%[^\"]\"", nodename))
+X	    break;
+X	}
+X      fclose(whoami);
+X      return (nodename);
+X    }
+X  if ((whoami = popen("uuname -l", "r")) != 0) 
+X    {
+X      fgets(nodename, sizeof(nodename), whoami);
+X      pclose(whoami);
+X      if (cp = strpbrk(nodename, " \n"))
+X	*cp = '\0';
+X      return (nodename);
+X    }
+X  return("unknown");
+X}
+X#endif
+X#endif
+X#endif
+END_OF_FILE
+  if test 1589 -ne `wc -c <'myname.c'`; then
+    echo shar: \"'myname.c'\" unpacked with wrong size!
+  fi
+  # end of 'myname.c'
+fi
+if test -f 'pn.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pn.S'\"
+else
+  echo shar: Extracting \"'pn.S'\" \(1411 characters\)
+  sed "s/^X//" >'pn.S' <<'END_OF_FILE'
+X%STARTSCRIPT% /bin/sh
+X# pn - news poster for bootstrap news 
+X# Copyright 1989, 1991 Ronald Florence 
+X# @(#) version 2.2 (ron@mlfarm.com, 21 Jul 1992)
+X
+XHostname=BigNode
+Xeditor=${EDITOR:-vi}
+Xpager=${PAGER:-more}
+XDate="`set \`TZ=GMT0 date\`
+X  case $5 in
+X    19*) date -u '+%a %h %d %T %Z %Y' ;;
+X    GMT) echo $* ;;
+X      *) date -u ;;
+X  esac`"
+Xset $Date
+XDatestr="$3 $2 `expr $6 % 100` $4 $5"
+XID=`echo "$6$2$3.$4" | tr -d "\072"`
+XSys=`uuname -l | tr -d "\012\040"`
+XDomain=''
+X[ -x /usr/bin/domainname ] && Domain=`domainname`
+X[ -z "$Domain" ] && Domain=UUCP
+XUser=`logname`
+XName=`sed -n "s/^$User:.*:.*:.*:\(.*\):.*:.*$/\1/p" /etc/passwd`
+XSig=$HOME/.signature
+X
+Xif echo "zip\c" | fgrep "c" > /dev/null; then
+X  c=''
+X  n='-n'
+Xelse
+X  c='\c'
+X  n=''
+Xfi
+Xecho $n "Newsgroups: $c"
+Xread Groups
+Xecho $n "Subject: $c"
+Xread Subject
+X
+XTmpart=/tmp/newsart.$$
+Xtrap 'rm -f $Tmpart' 1 2 3 15
+X
+Xcat > $Tmpart <<EOH
+XPath: $Sys!$User
+XFrom: $User@$Sys.$Domain ($Name)
+XNewsgroups: $Groups
+XSubject: $Subject
+XMessage-ID: <$ID@$Sys.$Domain>
+XDate: $Datestr
+X
+X
+XEOH
+X
+X$editor +8 $Tmpart
+Xclear
+X[ -r $Sig ] && (echo ""; echo "--" ; cat $Sig) >> $Tmpart
+X$pager $Tmpart
+Xecho ""
+Xecho $n "Post this article to all of usenet? $c"
+Xwhile read yn
+X  do case $yn in
+X    y*|Y*) uux - -r $Hostname!rnews < $Tmpart
+X	   echo "Posted!"
+X	   break ;;
+X    n*|N*) echo "Article cancelled!"
+X	   break ;;
+X        *) echo $n "Yes or no? $c" ;;
+X    esac
+X  done
+Xrm -f $Tmpart
+END_OF_FILE
+  if test 1411 -ne `wc -c <'pn.S'`; then
+    echo shar: \"'pn.S'\" unpacked with wrong size!
+  fi
+  # end of 'pn.S'
+fi
+if test -f 'readnews.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readnews.S'\"
+else
+  echo shar: Extracting \"'readnews.S'\" \(753 characters\)
+  sed "s/^X//" >'readnews.S' <<'END_OF_FILE'
+X%STARTSCRIPT% /bin/sh
+X# readnews - news reader for bootstrap news
+X# copyright 1991 Ronald Florence 
+X# @(#) version 2.2 (ron@mlfarm.com, 23 Jul 1992)
+X
+XNewsdir=%NEWSDIR%/
+XReader="%READER%"
+XConfig=%NEWSLIB%/config
+X
+Xtrap '(echo ""; echo "$0: $HOME/.lastnews has not been updated."; exit)' 1 2 3 
+X
+Xif [ $# -eq 0 ] 
+X  then for i in `ls $Newsdir`
+X    do
+X      [ -r $Newsdir$i ] && $Reader $Newsdir$i
+X    done
+Xelse for spool in $*
+X  do
+X    if [ -r $Newsdir$spool ]
+X      then $Reader $Newsdir$spool
+X    elif [ -r $Config ]
+X      then 
+X        local=`sed -n "s/^$spool[ 	]*\(.*\)[ 	]*.*/\1/p" $Config`
+X        [ -r "$Newsdir$local" ] && $Reader "$Newsdir$local"
+X    else 
+X      echo "$0: cannot find $Config"
+X      exit 1
+X    fi
+X  done
+Xfi
+X
+Xtouch $HOME/.lastnews
+END_OF_FILE
+  if test 753 -ne `wc -c <'readnews.S'`; then
+    echo shar: \"'readnews.S'\" unpacked with wrong size!
+  fi
+  # end of 'readnews.S'
+fi
+if test -f 'rnews.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rnews.c'\"
+else
+  echo shar: Extracting \"'rnews.c'\" \(5507 characters\)
+  sed "s/^X//" >'rnews.c' <<'END_OF_FILE'
+X/*
+X * rnews.c 
+X * copyright 1991 Ronald Florence
+X * @(#) version 2.2 (ron@mlfarm.com, 23 Jul 1992)
+X */
+X
+X#include <time.h>
+X#include "bsnews.h"
+X
+X#ifdef MSDOS
+X#include <fcntl.h>
+Xchar *dosgets();
+X#define fgets		dosgets
+X#define Readmode	"rb"
+X#define Writemode	"wb"
+X#else
+X#define Readmode	"r"
+X#define Writemode	"w"
+X#endif
+X
+X#define bye(s)		perror(s), exit(1)
+X
+X#ifndef Compdir
+X#define Compdir		"/usr/bin"
+X#endif
+X
+X
+Xchar  *iam, notify[80], dcomp[80], tmpnews[20], *mktemp(), *strcat();
+Xlong  time();
+XFILE  *cf, *nf;
+Xint   ngroups;
+X
+Xmain()
+X{
+X  extern char   *myname();
+X  int i;
+X  register  c;
+X  int	new = 0, n;
+X  char  buf[BUFSIZ];
+X
+X#ifdef NOTUNIX
+X#ifdef MSDOS
+X  setmode(fileno(stdin), O_BINARY);
+X#endif
+X#define pclose		fclose
+X  sprintf(tmpnews, "%08.8lX.Z", time((long *) 0));
+X  sprintf(dcomp, "compress -d %s", tmpnews);
+X#else
+X  sprintf(notify, "mail %s", Notify);
+X  strcpy(tmpnews, "/tmp/news.XXXXXX");
+X  mktemp(tmpnews);
+X  sprintf(dcomp, "%s/compress -dc > %s", Compdir, tmpnews);
+X#ifdef NICE
+X  if ((i = nice(0)) < NICE)
+X    (void) nice(NICE - i);
+X#endif 
+X#endif
+X
+X  iam = myname();
+X  ngroups = init();
+X  while (fgets(buf, BUFSIZ, stdin) != NULL)
+X    {
+X      if (!strncmp(buf, "#! ", 3))
+X	{
+X	  if (!strncmp(buf+3, "cunbatch", 8))
+X				/* A compressed batch: for Unix pipe to */
+X				/* uncompress;  for others, we'll open */
+X				/* a temp file (BINARY mode for ms-dos). */
+X	    {
+X#ifdef NOTUNIX
+X	      if (!(cf = fopen(tmpnews, Writemode)))
+X		bye(tmpnews);
+X#else
+X	      if (!(cf = popen(dcomp, "w")))
+X		bye(dcomp);
+X#endif
+X	      while ((c = getchar()) != EOF)
+X		putc(c, cf);
+X	      pclose(cf);
+X#ifdef NOTUNIX
+X	      tmpnews[8] = '\0';
+X	      if (system(dcomp))
+X		bye(dcomp);
+X#endif
+X				/* Reopen the uncompressed batch as */
+X				/* stdin, using BINARY mode for ms-dos */
+X	      if ((cf = freopen(tmpnews, Readmode, stdin)) == NULL)
+X		bye(tmpnews);
+X	      continue;
+X	    }
+X	  else if (sscanf(buf+3, "rnews %d", &n) == 1)
+X				/* The byte count for each article in */
+X				/* a batch includes the \n, but not */
+X				/* the ms-dos \r that might be there. */
+X	    {
+X	      for (c = 0, new = 0; c < n; new++)
+X		{
+X		  if (fgets(buf, BUFSIZ, stdin) == NULL)
+X		    break;
+X		  c += strlen(buf);
+X		  (void) parse_line(buf, new);
+X		}
+X	      continue;
+X	    }
+X	}
+X      else			/* unbatched news */
+X	(void) parse_line(buf, new++);
+X    }
+X  unlink(tmpnews);
+X
+X#ifdef VERBOSE
+X  for (i = 0; i <= ngroups; i++)
+X    if (newsgroup[i]->found)
+X      printf("%4d  %-25s%s\n", newsgroup[i]->found,
+X	     newsgroup[i]->usenet, newsgroup[i]->local);
+X#endif
+X  exit(0);
+X}
+X
+X
+Xparse_line(buf, cont)
+X     char *buf;
+X     int  cont;
+X{
+X  static int h, eoh = 0, pipe = 0;
+X  int    i, got;
+X  static char *hold[20], from[256];
+X  char   *sp, *ep, *ctime(), *malloc(), *strchr(), *strtok();
+X  long   clock;
+X
+X  if (!cont) 
+X    h = 0;
+X  if (h >= 0)
+X				/* Allocate a pointer to hold each */
+X				/* header, until we have the From */
+X				/* address and the newsgroup. */
+X    {
+X      hold[h] = malloc(strlen(buf) + 1);
+X      strcpy(hold[h++], buf);
+X      if (!strncmp(buf, "From: ", 6))
+X				/* Parse the email address in either */
+X				/* format: Joe Blow <jb@blowhard.edu> */
+X				/* or jb@blowhard.edu (Joe Blow) */
+X	{
+X	  if (sp = strchr(buf, '<'))
+X	    {
+X	      sp++;
+X	      ep = strchr(buf, '>');
+X	    }
+X	  else
+X	    {
+X	      sp = &buf[6];
+X	      ep = strchr(buf, '(');
+X	    }
+X	  if (ep == NULL)
+X	    ep = strchr(buf, '\n');
+X	  *ep = '\0';
+X	  strcpy(from, sp);
+X	  eoh++;
+X	}
+X      if (!strncmp(buf, "Newsgroups: ", 12))
+X				/* If none of the newsgroups in the */
+X				/* config file is named, write the */
+X				/* article to the default spool. */
+X	{
+X	  got = 0;
+X	  if (nf)
+X	    {
+X	      if (pipe)
+X		{
+X		  pclose(nf);
+X		  pipe = 0;
+X		}
+X	      else
+X		fclose(nf);
+X	    }
+X	  sp = strtok(buf, " ");
+X	  while (!got && (sp = strtok(0, ", ")))
+X	    {
+X	      for (i = 0; i < ngroups; i++)
+X		if (!strncmp(newsgroup[i]->usenet, sp, newsgroup[i]->len))
+X		  {
+X		    got++;
+X		    break;
+X		  }
+X	    }
+X	  if (!(nf = fopen(newsgroup[i]->local, "a")))
+X	    {
+X#ifndef NOTUNIX
+X	      if ((nf = popen(notify, "w")))
+X		{
+X		  pipe = 1;
+X		  fprintf(nf, "Subject: rnews: problem opening %s\n", 
+X			  newsgroup[i]->local);
+X		}
+X	      else
+X#endif
+X		bye(newsgroup[i]->local);
+X	    }
+X	  newsgroup[i]->found++;
+X	  eoh++;
+X	}
+X      if (eoh == 2 || *buf == '\n')
+X	{
+X				/* A bogus article w/o a newsgroup? */
+X	  if (eoh < 2) 
+X	    {
+X#ifndef NOTUNIX
+X	      if ((nf = popen(notify, "w")))
+X		{
+X		  pipe = 1;
+X		  fprintf(nf, "Subject: rnews: bogus news article?\n");
+X		}
+X	      else
+X		{
+X#endif
+X		  nf = stderr;
+X		  fprintf(nf, "\n* BOGUS NEWS ARTICLE *");
+X		}
+X#ifndef NOTUNIX
+X	    }
+X#endif
+X				/* Build the initial mail-file header. */
+X	  time(&clock);
+X	  fprintf(nf, "\n\nFrom %s %s", from, ctime(&clock));
+X	  for (i = 0; i < h; i++)
+X	    {
+X				/* Add the local name to the path */
+X	      if (!strncmp(hold[i], "Path: ", 6))
+X		fprintf(nf, "Path: %s!%s", iam, &hold[i][6]);
+X	      else
+X		fputs(hold[i], nf);
+X	      free(hold[i]);
+X	    }
+X	  h = -1;
+X	  eoh = 0;
+X	}
+X    }
+X  else
+X    {
+X      if (!strncmp(buf, "From ", 5))
+X	putc('>', nf);
+X      fputs(buf, nf);
+X    }
+X}
+X
+X
+X				/* An fgets that filters out the \r in */
+X				/* an ms-dos line-ending -- yucch! */
+X#ifdef MSDOS
+Xchar *dosgets(s, n, iop)
+X     char  *s;
+X     int   n;
+X     register  FILE  *iop;
+X{
+X  register  c;
+X  register  char  *p;
+X	
+X  p = s;
+X  while (--n > 0 && (c = getc(iop)) != EOF)  
+X    {
+X      if (c != '\r')
+X        *p++ = c;
+X      if (c == '\n')
+X	break;
+X    }
+X  if (c == EOF && p == s)
+X    return NULL;
+X  *p = '\0';  
+X  return s;
+X}
+X#endif
+END_OF_FILE
+  if test 5507 -ne `wc -c <'rnews.c'`; then
+    echo shar: \"'rnews.c'\" unpacked with wrong size!
+  fi
+  # end of 'rnews.c'
+fi
+if test -f 'uudecode.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uudecode.c'\"
+else
+  echo shar: Extracting \"'uudecode.c'\" \(1013 characters\)
+  sed "s/^X//" >'uudecode.c' <<'END_OF_FILE'
+X/*
+X * uudecode.c
+X * copyright 1991 Ronald Florence
+X * @(#) version 2.1 (ron@mlfarm.com, 6 Sep 1991)
+X */
+X
+X#include <stdio.h>
+X
+X#define DEC(c)	(((c) - ' ') & 077)
+X#define Err(s)	perror(s), exit(1)
+X
+X#ifdef MSDOS
+X#define Writemode	"wb"
+X#else
+X#define Writemode	"w"
+X#endif
+X
+Xmain(argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  int n, i;
+X  char dest[128], buf[128], inb[4];
+X
+X  if (argc > 1 && !freopen(*++argv, "r", stdin))
+X    Err(*argv);
+X
+X  while (fgets(buf, sizeof(buf), stdin) != NULL)
+X    if (sscanf(buf, "begin %o %s\n", &n, dest) == 2)
+X      break;
+X  if (!freopen(dest, Writemode, stdout))
+X    Err(dest);
+X
+X#ifndef NOTUNIX
+X  chmod(dest, n);
+X#endif
+X
+X  while ((n = getchar()) != EOF && (n = DEC(n)))  
+X    {
+X      while (n > 0) 
+X	{
+X	  for (i = 0; i <= 3; i++)
+X	    inb[i] = DEC(getchar());
+X	  if (n-- > 0) 
+X	    putchar(inb[0] << 2 | inb[1] >> 4);
+X	  if (n-- > 0) 
+X	    putchar(inb[1] << 4 | inb[2] >> 2);
+X	  if (n-- > 0) 
+X	    putchar(inb[2] << 6 | inb[3]);
+X	}
+X      while (getchar() != '\n')
+X	;
+X    }
+X  exit(0);
+X}
+END_OF_FILE
+  if test 1013 -ne `wc -c <'uudecode.c'`; then
+    echo shar: \"'uudecode.c'\" unpacked with wrong size!
+  fi
+  # end of 'uudecode.c'
+fi
+if test -f 'uurec.S' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uurec.S'\"
+else
+  echo shar: Extracting \"'uurec.S'\" \(1324 characters\)
+  sed "s/^X//" >'uurec.S' <<'END_OF_FILE'
+X%STARTSCRIPT% /bin/sh
+X# uurec - bootstrap news by mail 
+X# copyright 1991 Ronald Florence  
+X# @(#) version 2.2 (ron@mlfarm.com, 21 Jul 1992)
+X#
+X# A version for gawk or nawk would be cleaner; this is portable.
+X
+XNewsdir=%NEWSDIR%/
+XConfig=%NEWSLIB%/config
+XJunk=%JUNK%
+X
+Xawk '
+X  BEGIN { 
+X	  df = split ("'"`date`"'", now)
+X	  date = now[1] " " now[2] " " now[3] " " now[4] " " now[df]
+X	  header = -1
+X        }
+X  FILENAME ~ /config$/ {
+X		         if ( $0 !~ /^#/ && NF == 2 )
+X		           spool[$1] = $2
+X 		          next 
+X	               }
+X  $0 !~ /^N/  { next }
+X  header == -1 && $0 ~ /^N/  { header = 1 }
+X  header == 0   { 
+X		  if ( $0 ~ /^NFrom / )
+X		     printf ">" >> out
+X		  print substr($0, 2) >> out
+X		  next 
+X                }
+X  $1 ~ /^NPath:/ { hold[header++] = "Path: " node "!" $2; next }
+X		 { hold[header++] = substr($0, 2) }
+X  $1 ~ /^NFrom:/ { from = $2 }
+X  $1 ~ /^NNewsgroups:/  { 
+X			  n = split($2, ng, ",")
+X			  for (group in spool)
+X			    for (i = 1; i <= n; i++)
+X		              if (ng[i] == group)
+X			        { out = newsdir spool[group]; break }
+X			}
+X  $1 !~ /^N.*:/ { 
+X		  print "\nFrom " from " " date >> out
+X		  for (i = 1; i < header - 1; i++) 
+X		    print hold[i] >> out
+X		  print substr($0, 2) >> out
+X		  header = 0  
+X         	} 
+X  ' newsdir="$Newsdir" node="`uuname -l`" out="$Newsdir$Junk" $Config -
+X
+END_OF_FILE
+  if test 1324 -ne `wc -c <'uurec.S'`; then
+    echo shar: \"'uurec.S'\" unpacked with wrong size!
+  fi
+  # end of 'uurec.S'
+fi
+if test -f 'whatami.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'whatami.sh'\"
+else
+  echo shar: Extracting \"'whatami.sh'\" \(2517 characters\)
+  sed "s/^X//" >'whatami.sh' <<'END_OF_FILE'
+X:
+X#! /bin/sh
+X# whatami.sh
+X# copyright 1991 Ronald Florence
+X# @(#) version 2.2 (ron@mlfarm.com, 23 Jul 1992)
+X
+Xsys="looks unusual."
+Xeflag=
+Xlib=*libc.a
+Xlibdir=bogus
+Xcompdir=missing
+Xmandir=?
+Xmanext=?
+XTouch=touch
+XStartscript=
+X
+Xecho ""
+Xecho "This may take a minute..."
+X
+Xfor i in /usr/lib/386 /lib/386 /usr/lib /lib /usr/local/lib
+Xdo
+X  [ -f $i/$lib ] && { libdir=$i; break; }
+Xdone
+X
+Xfor i in /u/bin /usr/lbin /usr/local/bin /usr/ucb /usr/bin /bin
+Xdo
+X  [ -x $i/compress ] && compdir=$i
+Xdone
+X
+Xfor i in manl mann local/man1 local man.LOCAL man1
+Xdo
+X  [ -d /usr/man/$i ] && { mandir=/usr/man/$i; break; }
+Xdone
+X
+Xcase $mandir in
+X  *manl) manext=l ;;
+X  *mann) manext=n ;;
+X  *local|*LOCAL) manext=LOCAL ;;
+X  *1) manext=1 ;;
+Xesac
+X
+Xif [ -f /etc/systemid ]; then
+X  sys="looks like Xenix."
+X  site=`sed 1q /etc/systemid`
+X  Startscript=":"
+Xelif [ -f /etc/whoami ]; then
+X  sys="has /etc/whoami."
+X  site=`sed 1q /etc/whoami`
+Xelif [ -f /usr/include/whoami.h ]; then
+X  sys="has /usr/include/whoami.h."
+X  site=`sed -n "s/.*sysname[ 	]*\([^ 	]*\).*/\1/p" /usr/include/whoami.h`
+Xelif [ -f /usr/include/sys/utsname.h ]; then
+X  sys="has uname."
+X  site=`uname -n`
+X  eflag="-DUNAME"
+Xelif [ "$libdir" != "bogus" ]; then
+X  nm $libdir/$lib | fgrep gethostname > /dev/null && {
+X    sys="has gethostname()."
+X    site=`hostname`
+X    eflag=-DGETHOSTNAME
+X  }
+Xelse
+X  site=`uuname -l | tr -d "\012\040"`
+X  [ -z "$site" ] || sys="has a working uuname."
+Xfi
+X
+X[ $libdir != "bogus" ] && nm $libdir/$lib | fgrep strchr > /dev/null ||
+X    eflag="$eflag -DBSD"
+X
+Xecho ""
+Xecho "Your system $sys"
+X[ "$compdir" = "missing" ] && 
+X  echo "You need compress for a compressed news feed."
+X[ "$mandir" = "?" ] && 
+X  echo "Not sure where to install the man page on your system."
+X[ -x /usr/5bin/touch ] && Touch=/usr/5bin/touch
+Xif $Touch 2>&1 | fgrep '[-amc]' > /dev/null; then
+X  :
+Xelse
+X  echo "The $Touch command on your system cannot set an arbitrary time; the"
+X  echo "checknews command may incorrectly report new news after expire runs."
+Xfi
+Xif [ -z "$site" ]; then 
+X  echo "I can't find your nodename.  Try"
+X  eflag="$eflag -DIAM=\\\"yournodename\\\""
+Xelse
+X  echo "If your nodename is \`$site', try"
+Xfi
+Xecho "the following changes in the Makefile:"
+Xecho ""
+Xecho "OPTIONS = $eflag"
+Xecho "COMPDIR = $compdir"
+Xecho "MANDIR = $mandir"
+Xecho "MANEXT = $manext"
+X[ -n "$Startscript" ] && echo "STARTSCRIPT = $Startscript"
+Xecho ""
+Xecho "You may want to change these recommendations or add to the OPTIONS."
+Xecho "Please remember to edit READER, FEED, and NOTIFY in the Makefile."
+Xexit 0
+END_OF_FILE
+  if test 2517 -ne `wc -c <'whatami.sh'`; then
+    echo shar: \"'whatami.sh'\" unpacked with wrong size!
+  fi
+  # end of 'whatami.sh'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

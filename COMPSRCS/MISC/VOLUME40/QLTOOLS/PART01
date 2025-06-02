@@ -1,0 +1,1139 @@
+Newsgroups: comp.sources.misc
+From: beppe@maya.dei.unipd.it (Giuseppe Zanetti (beppe)
+Subject: v40i127:  qltools - read QL files on PC, Unix and Mac, Part01/01
+Message-ID: <1993Nov14.025013.29430@sparky.sterling.com>
+X-Md4-Signature: 275236bdd79713e82931aa9f3ad9327c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: BBS-MAYA-Padua University-Italy
+Date: Sun, 14 Nov 1993 02:50:13 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: beppe@maya.dei.unipd.it (Giuseppe Zanetti (beppe)
+Posting-number: Volume 40, Issue 127
+Archive-name: qltools/part01
+Environment: QL, PC, UNIX, Mac
+
+This is the new version of QLtools, a program that reads QL floppies on a
+MS-DOS, UNIX or MAC platform. QL is a microcomputer from Sinclair ltd.
+
+Giuseppe Zanetti
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  qltools.1.6 qltools.1.6/changes qltools.1.6/copyrigh
+#   qltools.1.6/examples qltools.1.6/format qltools.1.6/qltools.c
+#   qltools.1.6/qltools.man qltools.1.6/readme qltools.1.6/viewall.sh
+# Wrapped by kent@sparky on Tue Nov  9 20:40:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test ! -d 'qltools.1.6' ; then
+    echo shar: Creating directory \"'qltools.1.6'\"
+    mkdir 'qltools.1.6'
+fi
+if test -f 'qltools.1.6/changes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/changes'\"
+else
+  echo shar: Extracting \"'qltools.1.6/changes'\" \(3496 characters\)
+  sed "s/^X//" >'qltools.1.6/changes' <<'END_OF_FILE'
+XChanges from 1.0 to 1.1
+X=======================
+X
+X- There are a couple of bugs corrected: (tanks to Paul Foley)
+X
+X   1) When a file is deleted, QDOS only sets the top byte of the info
+X      in the map to 0xFD.
+X      1.0 assumes the entire 12 bit entry is set to 0xFDF, but the final F
+X      will probably not be there unless that block has never been used.
+X
+X   2) 1.0 use read_block0() to read in the map block, but it assumes the
+X      map block is 3 sectors long, in sectors 0, 3 and 6.  This is normally
+X      the case, but it _can_ be changed (there is an 84-track formatting
+X      program around that forces 4 sector allocation blocks).  All you can
+X      guarantee is that the first sector will be sector 0.  What I would
+X      suggest is to load in sector 0, get the info in the first 96 bytes and
+X      then use the general read_block() routine to read the entire map.
+X
+X   3) #define for Maximum allocation block, since if allocation block was >3
+X      this cause a "core dump".
+X
+X   4) Another #define for Maximum number of sectors (not ever 1440).
+X
+X   5) Use the "allocblock" variable for allocation blocksnumber (refer to 2)).
+X
+X   6) Check for unexistent sectors in a file.
+X
+X   7) Check if the disk is a QL disk (1.0 simply dump)
+X
+XI think there are some bugs with 3) and 4) and 5), but I cannot try the code
+X(I have never seen any of these disks).
+X
+XChanges from 1.1 to 1.2
+X=======================
+X
+X   1) A little bug: now argfnum is a long int (problems with Turbo C)
+X
+X   2) MS-DOS support !!!
+X
+X   3) A bug with lwrd, now return a unsigned long int and is a new function.
+X
+X   4) Eh eh eh a bug in the name of my city (Padova and NOT Pdaova :-)
+X
+XChanges from 1.2 to 1.3
+X=======================
+X
+X   1) MS-DOS is a brain damnaged system. Stdout was opened with CR/LF
+X      conversion and this cause damnages of binaries.
+X
+X   2) Corrected a bug in floppy reset under MS-DOS.
+X
+XChanges from 1.3 to 1.4
+X=======================
+X
+X   1) "bleod" and "byeod" now are unsigned integers.
+X
+X   2) "wrd()" take a unsigned char pointer and return a unsigned int. There
+X      are some problems with directories. Now in wrd() are some type
+X      conversions.
+X
+XChanges from 1.4 to 1.5
+X=======================
+X
+X   1) Apple Mac adaption by Roberto Avanzi <gandalf@sabrina.dei.unipd.it>
+X
+X   2) patches by Scott Telford <st@epcc.edinburgh.ac.uk>
+X      - Improved error messages
+X      - Qdos level 2 device subdirectories (file type 255) are now
+X        recognised in the directory listing (indicated by a "->" like
+X        the level 2 WSTAT.
+X      - Unrecognised file types have their type number printed.
+X      - Empty directory entries (length=0) are skipped in the directory
+X        listing.
+X
+XChanges from 1.5 to 1.6
+X=======================
+X
+X   1) Corrected a bug in the memory allocation of pdir. Now malloc
+X      allocate the right size of memory (blocks of 512*allocblocks and not
+X      of 512 bytes !)
+X
+X   2) A new switch -s for a short listing with only filenames. This is very
+X      usefull for obtaining file names in scripts in a Unix environment.
+X
+X      example:
+X                  # this program convert every file in a QL disk
+X
+X                  for i in `qltools $device -s`
+X                  do
+X                          qltools $device $i > $i
+X                  done
+X
+X--
+X       (c)1992 by Giuseppe Zanetti
+X
+X       Giuseppe Zanetti
+X       via Vergani, 11 - 35031 Abano Terme (Padova) ITALY
+X       e-mail: beppe@sabrina.dei.unipd.it
+X
+X       This is copyrighted software, but freely distributable.
+X
+X
+END_OF_FILE
+  if test 3496 -ne `wc -c <'qltools.1.6/changes'`; then
+    echo shar: \"'qltools.1.6/changes'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/changes'
+fi
+if test -f 'qltools.1.6/copyrigh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/copyrigh'\"
+else
+  echo shar: Extracting \"'qltools.1.6/copyrigh'\" \(1389 characters\)
+  sed "s/^X//" >'qltools.1.6/copyrigh' <<'END_OF_FILE'
+X/*
+X *       Copyright (c)1992 by Giuseppe Zanetti
+X *
+X *       Giuseppe Zanetti
+X *       via Vergani, 11 - 35031 Abano Terme (Padova) ITALY
+X *       e-mail: beppe@sabrina.dei.unipd.it
+X *
+X *       This is copyrighted software, but freely distributable.
+X *
+X * Permission to use, copy, modify, distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of Giuseppe Zanetti not be used in
+X * advertising or publicity pertaining to distribution of the software without
+X * specific, written prior permission.  Giuseppe Zanetti makes no
+X * representations about the suitability of this software for any purpose.
+X * It is provided "as is" without express or implied warranty.
+X *
+X * GIUSEPPE ZANETTI DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+X * EVENT SHALL GIUSEPPE ZANETTI BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+X * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+X * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * $Header$
+X */
+END_OF_FILE
+  if test 1389 -ne `wc -c <'qltools.1.6/copyrigh'`; then
+    echo shar: \"'qltools.1.6/copyrigh'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/copyrigh'
+fi
+if test -f 'qltools.1.6/examples' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/examples'\"
+else
+  echo shar: Extracting \"'qltools.1.6/examples'\" \(907 characters\)
+  sed "s/^X//" >'qltools.1.6/examples' <<'END_OF_FILE'
+XQltools: examples of use
+X
+XNOTE: In my Linux box (freddy) the 3"1/2 720K floppy drive is /dev/fd0H720
+X
+X- Listing a ql floppy directory
+X
+Xqltools /dev/fd0H720 -d
+X
+X- Read the 5th file in the directory to console
+X
+Xqltools /dev/fd0H720 -n5
+X
+X- Read the file named "abcd_c" to console
+X
+Xqltools /dev/fd0H720 abcd_c
+X
+X- Read a file with pause (under unix only)
+X
+Xqltools /dev/fd0H720 my_file_txt | more
+X
+X- Copy a file named "test_doc" to a unix file
+X
+Xqltools /dev/fd0H720 test_doc > test_doc
+X
+X- Read a disk map
+X
+Xqltools /dev/fd0H720 -m
+X
+X- List disk info
+X
+Xqltools /dev/fd0H720 -i
+X
+X- Read some files under UNIX (a trick with the UNIX shell)
+X
+Xfor i in file1 file2 file3 file4 file5
+Xdo
+X	qltools /dev/fd0H720 $i > $i
+Xdone
+X
+X- Making a disk image under UNIX and use it as a QL floppy image
+X
+Xdd if=/dev/fd0H720 of=image
+X
+Xqltools image -d
+X
+X- Using a UNIX shell variable for the floppy name
+X
+Xflp1=/dev/fd0H720
+X
+Xqltools $flp1 -d
+X
+END_OF_FILE
+  if test 907 -ne `wc -c <'qltools.1.6/examples'`; then
+    echo shar: \"'qltools.1.6/examples'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/examples'
+fi
+if test -f 'qltools.1.6/format' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/format'\"
+else
+  echo shar: Extracting \"'qltools.1.6/format'\" \(3546 characters\)
+  sed "s/^X//" >'qltools.1.6/format' <<'END_OF_FILE'
+XQL disks Format by Paul Foley
+X
+X	What exactly do you want to know?  I don't know about the
+X3.2MB format, but I can tell you about 720k.  Allocation blocks are 3
+Xsectors long (normally.  This can be changed) and the block 0
+X(consisting of sectors 0, 3 and 6 of side 0 on cylinder 0) contains
+Xthe mapping info.  The first 96 bytes are used as follows:
+X       OFFSET  SIZE		   VALUE
+X	$00	.L		$514C3541
+X	$04	10 bytes	disk label
+X	$0E	.W		random number (created by FORMAT)
+X	$10	.L		#writes to this disk
+X	$14	.W		#free sectors
+X	$16	.W		#good sectors
+X	$18	.W		total sectors
+X	$1A	.W		#sectors per track (9)
+X	$1C	.W		#sectors per cylinder (18 for DS)
+X	$1E	.W		number of cylinders (80)
+X	$20	.W		size of allocation block (3)
+X	$22	.W		block number for end-of-directory
+X	$24	.W		byte number of end-of-directory
+X	$26	.W		sector offset/cylinder
+X	$28	18 bytes	logical-to-physical sector mapping table
+X	$3A	18 bytes	physical-to-logical sector mapping table
+X	$4C	20 bytes	unused
+X
+XThe rest of the block consists of pairs of 12-bit values (24 bits for
+Xeach block on a fully formatted, 80 track, double sided disk) the
+Xfirst of which contains the file number which that block belongs to,
+Xthe seconds holds the position of this block within that file.  Some
+Xspecial file numbers are used for the mapping block itself ($F80),
+Xunused blocks ($FDF), bad blocks ($FEF) and non-existant blocks ($FFF)
+Xand the block-number of unused, bad and non-existant blocks is always
+X$FFF (but when a file is deleted, only the top byte is set to $FD)
+Xthe map is $F80 000 - it consists of one block!  The directory
+Xis file number $000, and all other files have numbers corresponding to
+Xtheir positions in the directory (file $001 is the first, $002 is the
+Xsecond, etc.)
+X	The "logical-to-physical sector mapping table" contains a byte
+Xfor each sector on a cylinder (18) corresponding to the physical
+Xsector number (0 to 8, with the MSB set for sectors on side 1) for
+Xeach logical file sector.  This table is always "0 3 6 128 131 134 1 4
+X7 129 132 135 2 5 8 130 133 136" (unless someone has changed it)
+Xmeaning sectors 0, 3, 6 of side 0 are used first, then sectors 0, 3, 6
+Xof side 1, then sectors 1, 4, 7 of side 0, etc.  _BUT_ the sector
+Xnumber is offset by an amount depending on the cylinder number (the
+Xnumbers above are correct for cylinder 0, but the "sector
+Xoffset/track" value is added (mod 9) for each cylinder.  This value is
+Xusually 5, so the table values are correct again at cylinder 9)
+X	The "physical-to-logical sector mapping table" contains 9
+Xentries for each side of the disk, containing the logical sector
+Xnumbers of the physical sectors on the disk.  It is "0 6 12 1 7 13 2 8
+X14" for side 0 and "3 9 15 4 1 16 5 11 17" for side 1 (that is, for
+Xside 0, phys. sector 0 contains log. sector 0, phys. sector 1 contains
+Xlog. sector 6, ...) again, this is affected by the "sector
+Xoffset/track".
+X
+X	The directory consists of 64 '0's ($30 bytes, not $00 bytes.
+XI don't know what they're for) followed by a 64 byte entry for each
+Xfile, in the following format:
+X       OFFSET  SIZE		   USE
+X	$00	.L		file length
+X	$04	.B		unused
+X	$05	.B		file type
+X	$06	.L		dataspace (for exec'able programs)
+X	$0A	.L		unused
+X	$0E	.W		length of file name
+X	$10	36 bytes	file name
+X	$34	.L		file update date
+X	$38	.L		unused.  Supposed to be reference date.
+X	$3C	.L		unused.  Supposed to be backup date.
+X
+XThe first 64 bytes in the first block of each file contains a copy of
+Xthe directory entry, but most of the information in it is not correct
+X(the name is OK, though)
+X
+X	Hope that helps.
+X
+X							- Paul
+X
+END_OF_FILE
+  if test 3546 -ne `wc -c <'qltools.1.6/format'`; then
+    echo shar: \"'qltools.1.6/format'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/format'
+fi
+if test -f 'qltools.1.6/qltools.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/qltools.c'\"
+else
+  echo shar: Extracting \"'qltools.1.6/qltools.c'\" \(10550 characters\)
+  sed "s/^X//" >'qltools.1.6/qltools.c' <<'END_OF_FILE'
+X/*
+X
+XQLTOOLS 
+X
+XRead a QL floppy disk
+X
+X(c)1992 by Giuseppe Zanetti
+X
+XGiuseppe Zanetti
+Xvia Vergani, 11 - 35031 Abano Terme (Padova) ITALY
+Xe-mail: beppe@sabrina.dei.unipd.it
+X
+X*/
+X
+X#define VERSION     "1.6,  Jan 31 1992"
+X
+X/* Maximum allocation block (normally 3) */
+X
+X#define MAXALB		6
+X
+X/* Maximum number of sectors (norm. 1440) */
+X
+X#define MAXSECT		2880
+X
+X#include <stdio.h>
+X
+X#ifdef THINK_C
+X#include "console.h"
+X#include <string.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifdef MSDOS
+X#include <bios.h>
+X#include <dos.h>    /* for delay    */
+X#include <io.h>     /* for setmode  */
+X#include <fcntl.h>  /* for O_BINARY */
+X#define	RESET	0
+X#define LAST	1
+X#define READ	2
+X#define	WRITE	3
+X#define VERIFY	4
+X#define FORMAT	5
+X#endif
+X
+X/* this line is neccessary since stdio.h in SUN 4.0 do not define it */
+X
+X#ifndef SEEK_SET
+X#define SEEK_SET	0
+X#endif
+X
+XFILE *f;
+Xstatic unsigned char b[512*MAXALB];
+Xstatic unsigned char b0[512*MAXALB];
+Xstatic unsigned char ltp[18];
+Xstatic unsigned char ptl[18];
+Xstatic unsigned int bleod;
+Xstatic unsigned int byeod;
+Xstatic unsigned char *pdir;
+X
+Xstatic unsigned int convtable[MAXSECT];
+X
+X#ifdef MSDOS
+Xstatic unsigned int drive;
+Xstatic unsigned int conv_side[MAXSECT];
+Xstatic unsigned int conv_sector[MAXSECT];
+Xstatic unsigned int conv_track[MAXSECT];
+X#endif
+X
+X
+Xstatic int gsides,gtracks,gsectors,goffset,allocblock;
+X
+Xunsigned int wrd(wp)
+Xunsigned char *wp;
+X{
+X    unsigned int r;
+X
+X    r= ((unsigned int) *(wp))*256 + (unsigned int) *(wp+1);
+X
+X    return r;
+X}
+X
+Xunsigned long int lwrd(p)
+Xunsigned char *p;
+X{
+X    unsigned long int r,h,l;
+X
+X    h=(unsigned long int) *(p)*256 + *(p+1);
+X    l=(unsigned long int) *(p+2)*256 + *(p+3);
+X
+X
+X    r = (unsigned long int) (h * 65536 + l);
+X
+X    return(r);
+X}
+X
+Xvoid cat_file(fnum)
+Xlong int fnum;
+X{
+X	long int flen,file,blk;
+X	int i,s,c,start,end;
+X	char buffer[512*MAXALB];
+X	unsigned char *base;
+X	int ok;
+X
+X#ifdef MSDOS
+X    setmode(fileno(stdout),O_BINARY);
+X#endif
+X
+X    flen=lwrd(pdir+fnum*64);    /* with the header */
+X
+X	for (s=0;s<=flen/(512*allocblock);s++)
+X	{
+X		ok=0;
+X
+X        	for (i=0;i<(wrd(b0+28)*wrd(b0+30))/wrd(b0+32);i++)
+X        	{
+X			base=b0+0x4C+20+i*allocblock;
+X			file=(int) (*(base) * 0x10) + (int) ((*(base+1) >> 4) & 0x0F) ;
+X			blk= (*(base+1) & 0x0F)*0x100 + *(base+2);
+X 
+X			if (file == fnum)
+X			{
+X				if (blk == s)
+X				{
+X					read_block(buffer,i);
+X
+X					start=0; if (s==0) start=64;
+X					end=512*allocblock; if (s==(flen/(512*allocblock))) end=flen % (512*allocblock);
+X
+X                    for(c=start;c<end;c++) printf("%c",*(buffer+c));
+X
+X					ok=1;
+X				}
+X			}
+X		}
+X
+X		if (!ok)
+X		{
+X			fprintf(stderr,"\n\nBlock #%i of file #%i not found\n\n",s,fnum);
+X
+X			if (s==0) fprintf(stderr,"I think this file was erased\n\n");
+X
+X#ifdef MSDOS
+X    setmode(fileno(stdout),O_BINARY);
+X#endif
+X
+X			exit(1);
+X		}
+X	}
+X
+X#ifdef MSDOS
+X    setmode(fileno(stdout),O_BINARY);
+X#endif
+X
+X}
+X
+Xvoid usage(error)
+Xchar *error;
+X{
+X	fprintf(stderr,"error %s\n\n",error);
+X
+X#ifdef MSDOS
+X    fprintf(stderr,"Usage: qltools [a:|b:] -[options] [filename]\n\n");
+X#else
+X    fprintf(stderr,"Usage: qltools diskimage -[options] [filename]\n\n");
+X#endif
+X
+X	fprintf(stderr,"options:\n\n");
+X	fprintf(stderr,"-d      list directory\n");
+X	fprintf(stderr,"-s      list short directory\n");
+X	fprintf(stderr,"-i      list info\n");
+X	fprintf(stderr,"-m      list disk map\n");
+X	fprintf(stderr,"-c      list conversion table of sectors\n");
+X	fprintf(stderr,"-nFN    output file number FN in the directory listing\n\n");
+X
+X#ifdef MSDOS
+X    fprintf(stderr,"QLTOOLS for MS-DOS (version ");
+X    fprintf(stderr,VERSION);
+X    fprintf(stderr,")\n\n");
+X#else
+X    fprintf(stderr,"diskimage is either a file with the image of a QL format disk\n");
+X    fprintf(stderr,"or a Unix device with a QL disk inserted in it (/dev/fd...)\n\n");
+X    fprintf(stderr,"QLTOOLS for UNIX (version: ");
+X    fprintf(stderr,VERSION);
+X    fprintf(stderr,")\n\n");
+X#endif
+X
+X	fprintf(stderr,"Giuseppe Zanetti\n");
+X    fprintf(stderr,"via Vergani, 11 - 35031 Abano Terme (Padova) ITALY\n");
+X	fprintf(stderr,"e-mail: beppe@sabrina.dei.unipd.it\n");
+X	exit(1);
+X}
+X
+X
+Xvoid print_info()
+X{
+X	int i;
+X
+X	printf("Disk ID          : ");
+X
+X	for (i=0;i<4;i++)
+X	{
+X		printf("%c",b0[i]);
+X	}
+X	printf("\n");
+X
+X	printf("Disk Label       : ");
+X
+X	for (i=0;i<10;i++)
+X	{
+X		printf("%c",b0[4+i]);
+X	}
+X	printf("\n");
+X
+X	printf("sectors per track: %i\n",gsectors);
+X	printf("sectors per cyl. : %i\n",wrd(b0+28));
+X	printf("number of cylind.: %i\n",gtracks);
+X	printf("allocation block : %i\n",allocblock);
+X	printf("sector offset/cyl: %i\n",goffset);
+X
+X	printf("free sectors     : %i\n",wrd(b0+20));
+X	printf("good sectors     : %i\n",wrd(b0+22));
+X	printf("total sectors    : %i\n",wrd(b0+24));
+X
+X    printf("directory is     : %u sectors and %u bytes\n",bleod,byeod);
+X
+X	printf("\nlogical-to-physical sector mapping table:\n\n");
+X	for (i=0;i<18;i++) printf("%u ",ltp[i]);
+X	printf("\n");
+X
+X	printf("\nphysical-to-logical sector mapping table:\n\n");
+X	for (i=0;i<18;i++) printf("%u ",ptl[i]);
+X	printf("\n");
+X}
+X
+Xvoid print_dir(shortflag)
+Xint shortflag;
+X{
+X	int d,i;
+X	char c;
+X
+X	if (!shortflag)
+X	{
+X		for (i=0;i<10;i++)
+X	        {
+X	                printf("%c",b0[4+i]);
+X	        }
+X	        printf("\n");
+X
+X		printf("%i/%i sectors.\n\n",wrd(b0+20),wrd(b0+22));
+X	}
+X
+X	for (d=64;d <512*bleod+byeod;d+=64)
+X	{
+X		if(lwrd(pdir+d)==0)
+X			continue;
+X
+X		if (!shortflag)
+X		{
+X			printf("%3i : ",d/64);
+X		}
+X
+X		for (i=0;i<wrd(pdir+d+14);i++)
+X		{
+X			c=*(pdir+d+16+i);
+X
+X			printf("%c",c);
+X		}
+X
+X		if (!shortflag)
+X		{
+X			for(i=0;i<38-wrd(pdir+d+14);i++) printf(" ");
+X
+X			switch(*(pdir+d+5))
+X			{
+X				case 0: printf("          "); break;
+X				case 1: printf("Exec      "); break;
+X				case 2: printf("Rel       "); break;
+X				case 255:printf("->        "); break;
+X				default:printf("(type %3d)",*(pdir+d+5)); break;
+X			}
+X
+X		        printf("    %ld",lwrd(pdir+d) - 64);
+X		}
+X
+X		printf("\n");
+X	}
+X}
+X
+Xvoid make_convtable(verbose)
+Xint verbose;
+X{
+X	int i,si,tr,se,ls,ps,uxs;
+X
+X	if (verbose)
+X	{
+X		printf("\nCONVERSION TABLE\n\n");
+X		printf("logic\ttrack\tside\tsector\tunix_dev\n\n");
+X	}
+X
+X	for(i=0;i<gtracks*gsectors*gsides;i++)
+X	{
+X		tr=i / (gsectors*gsides);
+X		ls=i % (gsectors*gsides);
+X
+X		ps = ltp[ls];
+X
+X		si=(ps & 0x80) != 0;
+X
+X		ps &= 0x7F;
+X
+X		ps += goffset*tr;
+X		se = ps % gsectors;
+X
+X		uxs = tr*gsectors*gsides+gsectors*si+se;
+X
+X		convtable[i] = uxs;
+X
+X#ifdef MSDOS
+Xconv_side[i]=si;
+Xconv_sector[i]=se;
+Xconv_track[i]=tr;
+X#endif
+X
+X		if (verbose)
+X		{
+X			printf("%i\t%i\t%i\t%i\t%i\n",i,tr,si,se,uxs);
+X		}
+X	}
+X}
+X
+Xint read_block(p,num)
+Xchar *p;
+Xint num;
+X{
+X	int i;
+X	int r=0;
+X
+X	for(i=0;i<allocblock;i++)
+X	{
+X
+X#ifdef MSDOS
+X		/* biosdisk(RESET, drive , 0, 0, 0, 0, p+512*i); */
+X        biosdisk(READ, drive ,conv_side[num*allocblock+i],conv_track[num*allocblock+i],1+conv_sector[num*allocblock+i],1,p+512*i);
+X#else
+X		fseek(f,(512*convtable[num*allocblock+i]),SEEK_SET);
+X		r += fread(p+512*i,512,1,f);
+X#endif
+X
+X	}
+X
+X	return(r);
+X}
+X
+Xint read_block0(argconv)
+Xint argconv;
+X{
+X	int i;
+X
+X#ifdef MSDOS
+X
+X    int status;
+X
+X    /* reset the disk */
+X
+X    status = biosdisk(READ, drive, 0, 10, 1, 1, b0);
+X
+X    /* door change signal ? */
+X
+X    if (status == 0x06) status = biosdisk(READ, drive, 0, 0, 1, 1, b0);
+X
+X    status = biosdisk(RESET, drive , 0, 0, 0, 0, b0);
+X
+X    if (status != 0) fprintf(stderr,"Disk not ready (continuing...)\n");
+X
+X    /* read block 0 */
+X
+X    biosdisk(READ, drive ,0,0,1,1,b0);
+X#else
+X	fseek(f,0,SEEK_SET);
+X	fread(b0,512,1,f);
+X#endif
+X
+X	/* is this a QL disk ? */
+X
+X	if ((*(b0) != 'Q') || (*(b0+1) != 'L'))
+X	{
+X		fprintf(stderr,"\nNot a QL disk !!!\n\n");
+X		exit(1);
+X	}
+X
+X	/* read ptl and ptl tables */
+X
+X	for (i=0;i<18;i++)
+X	{
+X		ltp[i] = *(b0+40+i);
+X		ptl[i] = *(b0+58+i);
+X	}
+X
+X	gsides=2;
+X	gtracks=wrd(b0+30);
+X	gsectors=wrd(b0+26);
+X	goffset=wrd(b0+38);
+X	bleod=wrd(b0+34);
+X	byeod=wrd(b0+36);
+X	allocblock=wrd(b0+32);
+X
+X	make_convtable(argconv);
+X
+X	read_block(b0,0);
+X
+X	return(0);
+X}
+X
+Xlong int match_file(fname)
+Xchar *fname;
+X{
+X	int d,i,match,len;
+X	long int r=0L;
+X	char c;
+X
+X	len=strlen(fname);
+X
+X	for (d=64;d <512*bleod+byeod;d+=64)
+X	{
+X		match=1;
+X
+X		if (wrd(pdir+d+14) == len)
+X		{
+X			for (i=0;i<len;i++)
+X			{
+X				c=*(pdir+d+16+i);
+X
+X				if (c != fname[i]) match=0;
+X			}
+X
+X			if (match)
+X			{
+X				r=d/64;
+X				break;
+X			}
+X		}
+X	}
+X
+X	return(r);
+X}
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar * argv[];
+X{
+X	int i;
+X	unsigned long int finfofile, finfoblk;
+X	unsigned char *base;
+X
+X	int argdir,arginfo,argfnum,argmap,argconv,argshort;
+X	char argfname[255];
+X
+X#ifdef THINK_C
+X	argc=ccommand(&argv);
+X#endif
+X
+X	argdir=arginfo=argfnum=argmap=argconv=argshort=0;
+X	strcpy(argfname,"");
+X
+X	if (argc < 2)
+X	{
+X		usage("too few parameters");
+X	}
+X
+X	for(i=2;i<argc;i++)
+X	{
+X        if ( (argv[i][0] == '-') || (argv[i][0] == '/') )
+X		{
+X			switch(argv[i][1])
+X			{
+X				case 'd': argdir=1; break;
+X				case 's': argdir=1; argshort=1; break;
+X				case 'i': arginfo=1; break;
+X				case 'm': argmap=1; break;
+X				case 'c': argconv=1; break;
+X				case 'n': argfnum=atol(argv[i]+2); break;
+X				default: usage("bad option"); break;
+X			}
+X		}
+X		else
+X		{
+X			strcpy(argfname,argv[i]);
+X		}
+X	}
+X
+X#ifdef MSDOS
+X	if (argv[1][1] != ':')
+X	{
+X		fprintf(stderr,"Bad drive %s\n",argv[1]);
+X		usage("Bad drive: use a: or b:");
+X	}
+X
+X	switch(argv[1][0])
+X	{
+X		case 'a':
+X		case 'A': drive=0; break;
+X
+X		case 'b':
+X		case 'B': drive=1; break;
+X
+X		default: usage("Bad drive: use a: or b:"); break;
+X	}
+X#else
+X	f=fopen(argv[1],"rb");
+X
+X	if (f==NULL)
+X	{
+X		usage("bad image file or device");
+X	}
+X#endif
+X
+X	read_block0(argconv);
+X
+X	pdir=(unsigned char *) malloc(512*allocblock*(bleod+1));
+X
+X	/* read the directory map */
+X
+X	if (argmap)
+X	{
+X		printf("\nblock\tfile\tpos\n\n");
+X	}
+X
+X	for (i=0;i<(wrd(b0+28)*wrd(b0+30))/wrd(b0+32);i++)
+X	{
+X		base=b0+0x4C+20+i*allocblock;
+X
+X		finfofile= (unsigned long int) (*(base) * 0x10) + (unsigned long int) ((*(base+1) >> 4) & 0x0F) ;
+X		finfoblk= (*(base+1) & 0x0F)*0x100 + *(base+2);
+X
+X
+X		if (finfofile == 0x00)
+X		{
+X            read_block(pdir+512*allocblock*finfoblk,i);
+X		}
+X
+X		if (argmap)
+X		{
+X			printf("%d\t%ld\t%ld\t",i,finfofile,finfoblk);
+X
+X			if ((*(base) & 0xFD) == 0xFD)
+X			{
+X				printf("erased ");
+X			}
+X
+X			switch(finfofile)
+X			{
+X				case 0x000: printf("directory %i\n",finfoblk); break;
+X				case 0xF80: printf("map\n"); break;
+X				case 0xFDF: printf("unused\n"); break;
+X				case 0xFEF: printf("bad\n"); break;
+X				case 0xFFF: printf("not existent\n"); break;
+X				default: printf("\n"); break;
+X			}
+X
+X		}
+X	}
+X
+X	if (arginfo) print_info();
+X	if (argdir) print_dir(argshort);
+X	if (argfnum != 0) cat_file((long int)argfnum);
+X	if (strcmp(argfname,"") != 0)
+X	{
+X		argfnum=match_file(argfname);
+X
+X		if (argfnum == 0)
+X		{
+X			fprintf(stderr,"file not found\n");
+X			exit(2);
+X		}
+X
+X	cat_file((long int)argfnum);
+X	}
+X
+X#ifdef MSDOS
+X#else
+X	fclose(f);
+X#endif
+X
+X	return (0);
+X}
+X
+END_OF_FILE
+  if test 10550 -ne `wc -c <'qltools.1.6/qltools.c'`; then
+    echo shar: \"'qltools.1.6/qltools.c'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/qltools.c'
+fi
+if test -f 'qltools.1.6/qltools.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/qltools.man'\"
+else
+  echo shar: Extracting \"'qltools.1.6/qltools.man'\" \(1247 characters\)
+  sed "s/^X//" >'qltools.1.6/qltools.man' <<'END_OF_FILE'
+X
+XQLTOOLS(1)                                                 QLTOOLS(1)
+X
+XNAME
+X       Qltools - a tool for manipulating QL files
+X
+XSYNOPSIS
+X       qltools diskimage [-dimc] [-nNF] [filename]
+X
+XDESCRIPTION
+X       Qltools is a public domain collection of programs to allow
+X       Unix  systems  to  list  and read files on an  Sinclair QL
+X       filesystem (typically  a  diskette or a image of a disk).
+X
+X       options:
+X
+X       -d      list directory
+X       -i      list info
+X       -m      list disk map
+X       -c      list conversion table of sectors
+X       -nFN    output file number FN in the directory listing
+X
+X       diskimage is either a file with the image of a QL format disk
+X       or a unix device with a ql disk inserted in it (/dev/fd...)
+X
+X       Under Unix you can obtain a disk image with:
+X
+X       dd if=/dev/fd of=imagefile
+X
+XNOTE
+X       MS-DOS version is included, but there are some changes in the syntax.
+X       Please do qltools.exe without parameters for the help screen.
+X
+XBUGS
+X       My english !
+X
+XAUTHOR
+X       (c)1992 by Giuseppe Zanetti
+X
+X       Giuseppe Zanetti
+X       via Vergani, 11 - 35031 Abano Terme (Padova) ITALY
+X       e-mail: beppe@sabrina.dei.unipd.it
+X
+X       This is copyrighted software, but freely distributable.
+X
+X
+END_OF_FILE
+  if test 1247 -ne `wc -c <'qltools.1.6/qltools.man'`; then
+    echo shar: \"'qltools.1.6/qltools.man'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/qltools.man'
+fi
+if test -f 'qltools.1.6/readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/readme'\"
+else
+  echo shar: Extracting \"'qltools.1.6/readme'\" \(2668 characters\)
+  sed "s/^X//" >'qltools.1.6/readme' <<'END_OF_FILE'
+X** what is qltools ? **
+X
+X       This is qltools, a simple tool for manipulating QL files.
+X
+X** compiling qltools **
+X
+X       cc -o qltools qltools.c
+X
+X       under MSDOS and Turbo C: tcc -DMSDOS -o qltools qltools.c
+X
+X** development **
+X
+XQltools was developed under linux 0.98, the free OS for i386 with gcc 2.2.2,
+Xthe gnu c compiler (also free). I use only PD and shareware software and
+Xhave not any problem. Since some software is better than some commercial
+Xsoftware. A reliable "pubblic domain workstation" costs only the money for the
+Xhardware and is comparable with a commercial system.
+X
+X** porting **
+X
+XSince qltools is a portable program. It compile ok under:
+X
+X       - linux (0.96c and gcc 2.2.2, 0.98pl1 and gcc 2.2.2d)
+X
+X       - SUN 4 (Sparc Station 2, SLC and IPC, SparcServer 830 Multiprocessor)
+X
+X       - HP9000/825 under HP/UX 7.00 and HP/UX 8.00
+X
+X       - MS-DOS 5.0 and Turbo C++ 1.00
+X
+X       and, but not compiled myself:
+X
+X       - NeXT
+X
+X       - RS3000
+X
+X       - It compiles ok also on the Macintosh platform under the Think C
+X         environment provided you use libraries compiled with 4 byte ints
+X         and the 4 byte int option turned on (Roberto Avanzi).
+X
+X         (for Mac related questions ask Roberto Avanzi at the e-mail address
+X         <gandalf@sabrina.dei.unipd.it>
+X
+X       - A amiga port is possible with a BSD compatibility box and a raw
+X         drive device.
+X
+X                                               Giuseppe Zanetti
+X
+X** Tanks **
+X
+X        Tanks to all QL users that encourage me and help me !!!
+X        (Please, write to me if you are a contributor but your name is not here)
+X
+X        - Tank'you to Paul Foley for the support and the documentation.
+X
+X        - Think C (Apple Mac) adaption:
+X          Roberto Avanzi <gandalf@sabrina.dei.unipd.it>
+X          via Luigi Balzan 12 - 45100 Rovigo ITALY
+X
+X        - qltools 1.4 patches:
+X          Scott Telford <st@epcc.edinburgh.ac.uk>
+X          - Improved error messages
+X          - Qdos level 2 device subdirectories (file type 255) are now
+X            recognised in the directory listing (indicated by a "->" like
+X            the level 2 WSTAT.
+X          - Unrecognised file types have their type number printed.
+X          - Empty directory entries (length=0) are skipped in the directory
+X            listing.
+X
+X        - support and distribution
+X          Davide Santachiara (ERGON DEVELOPMENT)
+X
+X** my english **
+X
+X          is very very bad ! Sorry !
+X
+X--
+X
+X       (c)1992 by Giuseppe Zanetti
+X
+X       Giuseppe Zanetti
+X       via Vergani, 11 - 35031 Abano Terme (Padova) ITALY
+X       e-mail: beppe@sabrina.dei.unipd.it
+X
+X       This is copyrighted software, but freely distributable.
+X
+X
+END_OF_FILE
+  if test 2668 -ne `wc -c <'qltools.1.6/readme'`; then
+    echo shar: \"'qltools.1.6/readme'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/readme'
+fi
+if test -f 'qltools.1.6/viewall.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qltools.1.6/viewall.sh'\"
+else
+  echo shar: Extracting \"'qltools.1.6/viewall.sh'\" \(188 characters\)
+  sed "s/^X//" >'qltools.1.6/viewall.sh' <<'END_OF_FILE'
+X# Please personalize this script for your system
+X
+XDEV=/dev/fd0H720
+X
+Xfor i in `qltools $DEV -s`
+Xdo
+X	echo -n $i:
+X	read yn
+X
+X	if [ $yn = y ]
+X	then
+X		qltools $DEV $i | strings | more
+X	fi
+Xdone
+X
+END_OF_FILE
+  if test 188 -ne `wc -c <'qltools.1.6/viewall.sh'`; then
+    echo shar: \"'qltools.1.6/viewall.sh'\" unpacked with wrong size!
+  fi
+  # end of 'qltools.1.6/viewall.sh'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

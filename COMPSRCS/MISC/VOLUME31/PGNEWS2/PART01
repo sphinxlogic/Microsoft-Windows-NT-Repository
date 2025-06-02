@@ -1,0 +1,392 @@
+Newsgroups: comp.sources.misc
+From: mcgough@wrdis01.af.mil (Jeffrey B. McGough)
+Subject:  v31i088:  pgnews2 - Perl NNTP client to save articles into mailbox, Part01/01
+Message-ID: <1992Aug18.214422.27596@sparky.imd.sterling.com>
+X-Md4-Signature: f9884adb7bb2536de34a9c639faf15ce
+Date: Tue, 18 Aug 1992 21:44:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mcgough@wrdis01.af.mil (Jeffrey B. McGough)
+Posting-number: Volume 31, Issue 88
+Archive-name: pgnews2/part01
+Environment: Perl, NNTP
+Supersedes: pgnews: Volume 31, Issue 39
+
+This is version 2.0 of pgnews, a PERL NNTP client that grabs news articles 
+by newsgroup from a specified NNTP server and and saves them to a specified 
+file in mailbox format.
+
+Pgnews needs a file named .pgnews to read its newsgroup, last message, and 
+savefile from.  .pgnews format is:
+
+    newsgroup number savefile
+
+Example:
+comp.unix.wizards 7800 cuw
+comp.unix.shell 3203 cus
+comp.unix.questions 546 cuq
+
+comp.unix.wizards will be saved to file cuw in mailbox format starting 
+at article 7800 etc.
+
+The additions to this version are:
+  Make the From_ line more rfc976 compliant for mailers like ELM...  This 
+  was supplied by Chris Sherman sherman@unx.sas.com...  Thanks Chris...
+
+  Added -h option to allow command line specification of NNTP server.
+  Thanks to Barry Hassler...
+
+  Added $VERSION, no it doesn't do anything it just hangs around [:^)
+
+  Added 15 minute timeout to the select stuff so that it would not
+  hang on a dead socket...
+
+Exception:
+While actually slurping up the article the select does not work???  Barry
+Hassler seems to think that at that point PERL has already sucked the whole 
+thing into its own memory buffers...  Leaving nothing for the select to work 
+on.  Care to comment Larry??? Larry did comment... (Thanks) Barry is correct.
+The way around this is to use sysread or recv and parse the line ourselves...
+(I'm giving it some thought...) [:^)   Anyway I have commented out that 
+particular select until we can get some kind of work around... any takers [:^)
+
+Jeffrey B. McGough
+
+--- pgnews below ---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  pgnews
+# Wrapped by mcgough@wrdis01 on Mon Jul 27 14:17:14 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'pgnews' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pgnews'\"
+else
+echo shar: Extracting \"'pgnews'\" \(8260 characters\)
+sed "s/^X//" >'pgnews' <<'END_OF_FILE'
+X#!/usr/local/bin/perl 
+X#/****************************************************
+X#*****************************************************
+X#**
+X#** SOURCE NAME | pgnews, (Perl Get News)
+X#**             | 
+X#**    SYNOPSIS | pgnews [-h hostname]
+X#**             | 
+X#** DESCRIPTION | pgnews goes to a specified NNTP server
+X#**             | and retrieves news articles by newsgroup
+X#**             | and saves them to a specified file in
+X#**             | mailbox format.
+X#**             | Please see the NOTES section.
+X#**             | 
+X#**     CHANGES | Programmer:         Date:     Reason/Comments
+X#**             | Jeffrey B. McGough  09-05-91  initial
+X#**             | Jeffrey B. McGough  09-06-91  Added select (see FIXES)
+X#**             | Jeffrey B. McGough  10-06-91  Fixed erronious end of article
+X#**             | Jeffrey B. McGough  07-09-92  Fixed dup article bug
+X#**             | Jeffrey B. McGough  07-13-92  (See FIXES)
+X#**             | Jeffrey B. McGough  07-27-92  VERSION 2.0 (See FIXES)
+X#**             | 
+X#**       NOTES | Pgnews needs a file named .pgnews to read
+X#**             | its newsgroup, last message, and savefile from.
+X#**             | .pgnews format is:
+X#**             | newsgroup number savefile
+X#**             | Example:
+X#**             | comp.unix.wizards 7800 cuw
+X#**             | comp.unix.shell 3203 cus
+X#**             | comp.unix.questions 546 cuq
+X#**             | 
+X#**             | comp.unix.wizards will be saved to file cuw in
+X#**             | mailbox format starting at article 7800 etc.
+X#**             | 
+X#**       FIXES | 09-06-91: added select on S to keep the client
+X#**             | from getting out of sync.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 10-06-91: Fixed an overlooked END of ARTICLE
+X#**             | bug... Thanks to a member(s) of the issos
+X#**             | group at Ohio State.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 07-09-92: Fixed a duplicate article bug
+X#**             | pointed out to me by kenr@bridge.cc.rochester.edu
+X#**             | and gort@bridge.cc.rochester.edu. Thanks
+X#**             | for the help with the fix.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 07-13-92: Added code to take a -h option
+X#**             | for a host to use as a server...
+X#**             | Thanks to Barry Hassler...
+X#**             | Added code written by sherman@unx.sas.com
+X#**             | to make the header From_ line more RFC976
+X#**             | compatable for the ELM mailer...
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 07-27-92: Added 15 minute timeout to the
+X#**             | select stuff. Just in case the server goes
+X#**             | away we won't sit around forever listening
+X#**             | to a dead connection...
+X#**             | Exception to the time out:
+X#**             | While in the loop where we slurp up the
+X#**             | article from the server, the select will not
+X#**             | work...
+X#**             | A friend of mine (Barry Hassler) seems to think
+X#**             | that at that point Perl has already sucked
+X#**             | the whole thing into its own buffers...
+X#**             | Care to comment Larry?
+X#**             | Anyway I commented out that select. If anyone
+X#**             | has any ideas please let me know...
+X#**             | Went ahead and built VERSION 2.0
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#****************************************************/
+X
+Xrequire 'sys/socket.ph'; # The way I coded the sockets is this necessary?
+X
+X$VERSION = '2.0';
+X
+X$port = 119; # For NNTP
+X# HOSTNAME for the server...
+X#$host = 'localhost';
+X$host = 'emory.mathcs.emory.edu';
+X# Pack format...
+X$sockaddr = 'S n a4 x8';
+X
+X$DOMAIN = 2;
+X$STYLE = 1;
+X
+Xwhile ($arg = shift(@ARGV))
+X{
+X	if ($arg =~ /-.*h/)
+X	{
+X		$host=shift(@ARGV);
+X		if ($host eq "")
+X		{
+X			printf ("Need host name after -h\n");
+X			exit 1;
+X		}
+X		next;
+X	}
+X
+X	printf "Unknown option: '%s'\n", $arg;
+X	exit 1;
+X}
+X
+X
+X$newsfile = '.pgnews';
+X$nnewsfile = '.pgnews.new';
+X
+X$rin = $rout = '';
+X
+X($name, $aliases, $proto) = getprotobyname('tcp');
+X($name, $aliases, $type, $len, $hostaddr) = gethostbyname($host);
+X
+X$sock = pack($sockaddr, $DOMAIN, $port, $hostaddr);
+X
+Xsocket(S, $DOMAIN, $STYLE, $proto) || die $!;
+Xconnect(S, $sock) || die $!;
+Xselect(S); $| = 1; select(STDOUT);
+X#set up for select
+Xvec($rin, fileno(S), 1) = 1;
+X#this select will block until the server gives us something.
+X$nfound = select($rout=$rin, undef, undef, 900);
+Xif ($nfound == 0)
+X{
+X	print "Socket timed out...";
+X	exit 1;
+X}
+X$_ = <S>; #Read one line to see if we got a good connection.
+Xif ($_ !~ /^2../)
+X{
+X	print;
+X	die "Service unavailable";
+X}
+Xopen(GRP, "< $newsfile") || die "Could not open $newsfile: $!";
+Xopen(NGRP, "> $nnewsfile") || die "Could not open $nnewsfile: $!";
+Xselect(NGRP); $| = 1; select(STDOUT);
+Xwhile(<GRP>)
+X{
+X	chop;
+X	($grp, $lgot, $file) = split;
+X	print(S "group $grp\n");
+X	#this select will block until the server gives us something.
+X	$nfound = select($rout=$rin, undef, undef, 900);
+X	if ($nfound == 0)
+X	{
+X		print "Socket timed out...";
+X		exit 1;
+X	}
+X	$_ = <S>; #Make sure the group change worked...
+X	($stat, $num, $first, $last) = split;
+X	if( $stat !~ /^2../ )
+X	{
+X		print;
+X		warn "Bad group";
+X		print(NGRP "$grp $lgot $file\n");
+X		next;
+X	}
+X	# good group open output file...
+X	open(OUTFILE, ">>$file") || die "Could not open $file";
+X
+X	if ( $first > $lgot )
+X	{
+X		$lgot = $first;
+X	}
+X	if ( $lgot <= $last )
+X	{
+X		foreach $art ($lgot..$last)
+X		{
+X			print(S "article $art\n");
+X			#this select will block until the server gives us something.
+X			$nfound = select($rout=$rin, undef, undef, 900);
+X			if ($nfound == 0)
+X			{
+X				print "Socket timed out...";
+X				exit 1;
+X			}
+X			$_ = <S>; #get error if one exists
+X			if($_ !~ /^2../)
+X			{
+X				print;
+X				warn "No article by that number";
+X			}
+X			else
+X			{
+X# We now slurp the whole article into the array article...
+X# HMMM is this good or bad...
+X# It gives me the WILLIES   [:^)    Jeffrey B. McGough
+X				@article = ();
+X				do
+X				{
+X# The next few lines have been commented out because they don't work
+X# JBM 07-27-92
+X#					$nfound = select($rout=$rin, undef, undef, 900);
+X#					if ($nfound == 0)
+X#					{
+X#						print "Socket timed out...";
+X#						exit 1;
+X#					}
+X					$lgot = $art;
+X					$_ = <S>;
+X					s/\r//;
+X					if( $_ ne ".\n")
+X					{
+X						s/^\.//;
+X						push(@article,$_);
+X						s/^\./../;
+X					}	
+X					else
+X					{
+X						push(@article,"\n");
+X					}
+X				} until $_ eq ".\n";
+X				# replace the Path: with a from line
+X				splice(@article, 0, 1, &from_line(@article));
+X				print OUTFILE @article;
+X			}
+X		}	
+X	}
+X	else
+X	{
+X		$lgot -= 1;
+X	}
+X	close(OUTFILE);
+X	$lgot += 1;
+X	print(NGRP "$grp $lgot $file\n");
+X}
+Xclose(NGRP);
+Xclose(GRP);
+Xsystem("mv $nnewsfile $newsfile");
+Xprint( S "quit\n");
+Xclose(S);
+X
+X# We parse through @article to build a more proper From_ line
+Xsub from_line
+X{
+X
+X	local(@article) = @_;
+X
+X	local($header) = $true;		# we are in the header of the mail
+X	local($date,$month,$year,$time,$day);
+X
+X	for (@article)
+X	{
+X		if ($header == $true)
+X		{
+X			if (/^Path: ([^ \n]+)/)
+X			{
+X				$path = $1;
+X			}
+X			elsif (/^Date: /)
+X			{
+X				if (/^Date: (\d*) (\D*) (\d*) (\S*)/) 
+X				{
+X					$date = $1;
+X					$month = $2;
+X					$year = $3; 
+X					$time = $4;
+X				}
+X				elsif (/^Date: (\D*), (\d*) (\D*) (\d*) (\S*)/)
+X				{
+X					$day = $1;
+X					$date = $2;
+X					$month = $3;
+X					$year = $4; 
+X					$time = $5;
+X				}
+X				$year =~ s/^([0-9])([0-9])$/19$1$2/;	# convert 2 digit year to 4 
+X				if ($day eq "")
+X				{
+X					$day = &day_of_week($month,$date,$year);
+X				}
+X			}
+X			$header = $false if /^\n$/;
+X		}
+X	}
+X	$from_line = sprintf("From %s %s %s %2s %s %s %s\n",
+X		$path, $day, $month, $date, $time, $year);
+X	return($from_line);
+X}
+X
+X# This gives us the day of week from the date...
+Xsub day_of_week
+X{
+X	local($month,$date,$year) = @_;
+X	local($day);
+X
+X
+X	if ($month <= 2)
+X	{ 
+X		$month += 12;
+X		$year--;
+X	}
+X
+X	$day = ($date + $month * 2 + int(($month + 1) * 6 / 10) + $year + 
+X		int($year / 4) - int($year / 100) + int($year / 400) + 2) % 7;
+X
+X	if ($day == 0)
+X	{
+X 		$day = 7;
+X	}
+X
+X	return (NULL, Sun, Mon, Tue, Wed, Thu, Fri, Sat, Sun)[$day];
+X}
+END_OF_FILE
+if test 8260 -ne `wc -c <'pgnews'`; then
+    echo shar: \"'pgnews'\" unpacked with wrong size!
+fi
+chmod +x 'pgnews'
+# end of 'pgnews'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+Lator,                                       We cheat the other guy,
+                                             and pass the savings on to you.
+Jeffrey B. McGough
+WR-ALC UNIX Systems Administrator                    (mcgough@wrdis01.af.mil)
+
+exit 0 # Just in case...

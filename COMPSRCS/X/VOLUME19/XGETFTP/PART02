@@ -1,0 +1,1724 @@
+Newsgroups: comp.sources.x
+From: salim@tigger.cs.colorado.edu (Salim Alam)
+Subject: v19i023:  xgetftp - Friendly anonymous ftp tool, Part02/04
+Message-ID: <1993Mar10.164824.21368@sparky.imd.sterling.com>
+X-Md4-Signature: 0f18b40b60975db2b05e23a6e8df909b
+Date: Wed, 10 Mar 1993 16:48:24 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: salim@tigger.cs.colorado.edu (Salim Alam)
+Posting-number: Volume 19, Issue 23
+Archive-name: xgetftp/part02
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 4)."
+# Contents:  control.c control.h file_cache.c file_cache.h ftp.c ftp.h
+# Wrapped by salim@anchor on Mon Mar  8 14:05:48 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'control.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'control.c'\"
+else
+echo shar: Extracting \"'control.c'\" \(19375 characters\)
+sed "s/^X//" >'control.c' <<'END_OF_FILE'
+X/**************************************************************************
+X * MODULE:
+X *  control
+X *
+X * DESCRIPTION:
+X *  Provides a high-level interface to the ftp and cache modules.
+X *  Basically, this is the module that will provide all the functionality
+X *  to the user-interface.
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X * 
+X * MODIFICATION LOG:
+X *  93.02.15 S.A. - ctrl_delete_cache now reloads directory info from the
+X *                  server.  also slightly rewrote ctrl_start_session to
+X *		    allow code reuse.
+X *  93.02.03 S.A. - Better error handling: ctrl_start_session, ctrl_down_dir
+X *		    and read_directory.
+X *  92.12.29 S.A. - Better handling of login.  Added ctrl_delete_file_cache.
+X *		    Better handling of "response_stream" -- allows main prog.
+X *		    to arbirarily specify where most responses go.
+X *  92.12.16 S.A. - Fixed file view bug.  Better cleanup of /tmp.
+X *		    Added ctrl_delete_cache function.
+X *  92.12.11 S.A. - Added function to query name of item in cache.  
+X *		    Now also check user prefs to see how much caching
+X *		    should be done.
+X *  92.12.09 S.A. - Using "/tmp" for temporary files now :)  Added dir
+X *		    caching support.
+X *  92.12.01 S.A. - Added directory retrieval and new file view routine.  
+X *  92.11.24 S.A. - Added mods to handle X-based I/O.
+X *  92.10.27 S.A. - Changed use of InitFunc & CreateFunc. Added function
+X *		    ftp_set_type.  Also now use the type field in struct
+X *		    fileinfo to check for correctness of commands.
+X *
+X **************************************************************************/
+X
+X#include <X11/Xos.h>
+X#include <stdio.h>
+X#include <sys/stat.h>
+X#include <malloc.h>
+X#include "ftp.h"
+X#include "cache.h"
+X#include "file_cache.h"
+X#include "control.h"
+X#include "prefs.h"
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#define FALSE 0
+X#endif
+X
+X#define XGETFTP
+X#ifdef XGETFTP
+X#define INBUFSIZE 1024
+X#include <X11/Intrinsic.h>
+Xextern XtAppContext app_context;
+X#endif
+X
+X
+X/*
+X * exported variables
+X */
+Xint ftp_curr_type = -1;
+Xint x_data_done = 1;
+X
+X
+X/*
+X * global vars
+X */
+Xstatic InitFunc   F_init_str;
+Xstatic CreateFunc F_add_str;
+X
+X
+X
+X/*
+X * useful internal functions
+X */
+Xint read_directory(char *path, cacheinfo_ptr *plevel, cacheinfo_ptr prev);
+Xvoid x_get_data(FILE *, int *, XtInputId *);
+Xchar *server_get_root(void);
+X
+X
+X/********************** login/logout functions ***************************/
+X
+Xint ctrl_login(char *host, char *user, char *pass)
+X/*
+X * Connect to the server whose name is "host" and log in.  If
+X * user and pass are specified, they will be used to log into a
+X * user account, else the user "anonymous" will be used.
+X *
+X * Success returns TRUE, failure returns FALSE.  
+X * Fatal errors may occur, in which case there is no return.
+X */
+X{
+X    /*
+X     * Connect to the server.
+X     */
+X    if (!ftp_init_conn(host))
+X    {
+X	fprintf(stderr, "ctrl_login: cannot connect to '%s'\n", host);
+X	return FALSE;
+X    }
+X
+X    if (ftp_get_response(response_stream) >= 300)
+X    {
+X	fprintf(stderr, "ctrl_login: cannot connect to '%s'\n", host);
+X	return FALSE;
+X    }
+X
+X    /*
+X     * Try to log in
+X     */
+X    if (!user)
+X    {
+X	user = "anonymous";
+X	pass = "guest";
+X    }
+X
+X    if (ftp_send_command("USER %s", user) >= 400)
+X    {
+X	fprintf(stderr, "ctrl_login: cannot login as '%s'\n", user);
+X	return FALSE;
+X    }
+X
+X    if (ftp_send_command("PASS %s", pass) >= 400)
+X    {
+X	fprintf(stderr, "ctrl_login: invalid password\n");
+X	return FALSE;
+X    }
+X
+X
+X    /*
+X     * Initialize File Cache
+X     */
+X    fc_set_root_dir(host);
+X
+X    return TRUE;
+X}
+X
+X
+X
+Xvoid ctrl_logout(void)
+X{
+X    ftp_close_conn();
+X    ftp_curr_type = -1;
+X    x_data_done = 1;
+X    cache_free_levels(&toplevel);
+X}
+X
+X
+Xint ctrl_start_session(InitFunc init_str, CreateFunc add_str)
+X{
+X    char *s;
+X    int i;
+X
+X    /*
+X     * save values for init_str and add_str
+X     */
+X    F_init_str = init_str;
+X    F_add_str  = add_str;
+X
+X    /* set type to IMAGE */
+X    ctrl_set_type(typIMAGE);
+X
+X    /*
+X     * If we're using previous directory cache, load it
+X     */
+X    cache_set_root("");
+X    if (user_prefs.reuse_dir && ctrl_load_cache())
+X    {
+X#ifdef DEBUG
+X	fprintf(stderr, "Reusing directory cache.\n");
+X#endif
+X	goto done;
+X    }
+X
+X
+X    /*
+X     * Otherwise, query server for info....
+X     */
+X    if ( (s=server_get_root()) == NULL )
+X	return FALSE;
+X
+X    cache_set_root(s);
+X
+X
+X    /*
+X     * get listing of root dir
+X     */
+X    if (!read_directory(s, &toplevel, NULL))
+X    {
+X	fprintf(stderr, "ctrl_start_session: can't read root dir!\n");
+X	return FALSE;
+X    }
+X
+Xdone:
+X    currlevel = toplevel;
+X
+X    /*
+X     * create outgoing data using add_str
+X     */
+X    init_str(toplevel->num_entries);
+X
+X    for (i=0; i < toplevel->num_entries; i++)
+X    {
+X	add_str(toplevel->entry_arr[i].line);
+X    }
+X
+X    return TRUE;
+X}
+X
+X
+X/********************** directory movement *******************************/
+X
+Xint ctrl_down_dir(int index)
+X/*
+X * This function attempts to traverse the directory tree at the entry
+X * specified by "index".  If that directory has been cached, it will
+X * use the cached version, otherwise it will bring in the contents of
+X * the directory remotely and cache it.  F_init_str is called once,
+X * and then F_add_str is called for each entry.
+X *
+X * If "index" does not specify a directory then the function will
+X * immediately return FALSE, otherwise it will return TRUE after
+X * processing the directory as described above.  The function may also
+X * return FALSE if it cannot read a new directory from the server.
+X */
+X{
+X    int i;
+X    char *path;
+X
+X    /*
+X     * check to see if it is a directory
+X     */
+X    if (currlevel->entry_arr[index].type != fitypDIRECTORY)
+X	return FALSE;
+X
+X    /*
+X     * check for cached directory
+X     */
+X    if (currlevel->entry_arr[index].next_level)
+X    {
+X	cache_next_dir(currlevel->entry_arr[index].name);
+X	currlevel = currlevel->entry_arr[index].next_level;
+X    }
+X    else
+X    /*
+X     * otherwise, load in the needed level
+X     */
+X    {
+X	path = cache_make_filename(currlevel->entry_arr[index].name);
+X	cache_next_dir(currlevel->entry_arr[index].name);
+X	if (!read_directory(path, &(currlevel->entry_arr[index].next_level),
+X		currlevel))
+X	{
+X	    fprintf(stderr, "ctrl_down_dir: can't read directory!\n");
+X	    free(path);
+X    	    cache_prev_dir();
+X	    return FALSE;
+X	}
+X	currlevel = currlevel->entry_arr[index].next_level;
+X	free(path);
+X    }
+X
+X    /*
+X     * create outgoing data 
+X     */
+X    F_init_str(currlevel->num_entries);
+X    for (i=0; i < currlevel->num_entries; i++)
+X    {
+X	F_add_str(currlevel->entry_arr[i].line);
+X    }
+X
+X    return TRUE;
+X}
+X
+X
+X
+Xint ctrl_up_dir(void)
+X{
+X    int i;
+X
+X    /*
+X     * check current level
+X     */
+X    if (!currlevel->prev_level)
+X    {
+X	fprintf(stderr,"ctrl_down_dir: already at top level.\n");
+X	return FALSE;
+X    }
+X
+X    /*
+X     * create outgoing data
+X     */
+X    cache_prev_dir();
+X    currlevel = currlevel->prev_level;
+X
+X    F_init_str(currlevel->num_entries);
+X    for (i=0; i < currlevel->num_entries; i++)
+X    {
+X	F_add_str(currlevel->entry_arr[i].line);
+X    }
+X
+X    return TRUE;
+X}
+X
+X
+X/********************** ftp control **************************************/
+X
+Xvoid ctrl_set_type(int type)
+X/*
+X * Set type to either ascii or binary
+X */
+X{
+X    int code;
+X    char typec;
+X
+X    if (ftp_curr_type == type)
+X	return;
+X
+X    typec = (type == typASCII)? 'A' : 'I';
+X
+X    if ((code=ftp_send_command("TYPE %c", typec)) >= 300)
+X    {
+X	fprintf(stderr, "set_type: cant set type.\n");
+X    }
+X
+X    ftp_get_all_responses(code, response_stream);
+X    ftp_curr_type = type;
+X}
+X
+X
+X
+Xint ctrl_get_selection(char *path, int index, char *newname)
+X/*
+X * This function gets the file or directory specfied by "index".
+X * "path" is the retrieval path in the local file system, or 
+X * the current directory if NULL.  If "index" specifies a normal
+X * file and newname is not NULL, then the incoming file is renamed
+X * to "newname".
+X *
+X * Returns TRUE for success, FALSE otherwise.
+X */
+X{
+X    switch (currlevel->entry_arr[index].type)
+X    {
+X      case fitypFILE:
+X	return ctrl_get_file(path, index, newname);
+X	break;
+X
+X      case fitypDIRECTORY:
+X	return ctrl_get_directory(path, index);
+X	break;
+X
+X      default:
+X	return FALSE;
+X	break;
+X    }
+X}
+X
+X
+Xint ctrl_get_directory(char *path, int index)
+X/*
+X * This function gets the directory indicated by "index".  "Path" is
+X * the path in the local file system where the incoming directory 
+X * should be retrieved into.  If "Path" is NULL, it is assumed to be
+X * the current directory.
+X *
+X * Returns TRUE if success, FALSE otherwise.
+X */
+X{
+X    int i;
+X    int len;
+X    char *local_path;
+X    char *name;
+X    struct stat stat_buf;
+X
+X    /*
+X     * check file type
+X     */
+X    if (currlevel->entry_arr[index].type != fitypDIRECTORY)
+X	return FALSE;
+X
+X    /*
+X     * create a local path
+X     */
+X    name = currlevel->entry_arr[index].name;
+X    len = (path? strlen(path)+1 : 0) + strlen(name) + 1 ;
+X    local_path = (char *) malloc(len+1);
+X
+X    if (path)
+X    {
+X    	strcpy(local_path, path);
+X	if (path[strlen(path)-1] != '/')
+X	    strcat(local_path, "/");
+X    }
+X    else
+X	local_path[0] = '\0';
+X
+X    strcat(local_path, name);
+X
+X   
+X    /*
+X     * create local directory, if needed
+X     */
+X     if (stat(local_path, &stat_buf) < 0)
+X     /* assume that directory does not exist */
+X     {
+X	if (mkdir(local_path, 0700) < 0)
+X	{
+X	    fprintf(stderr, "ctrl_get_directory: couldn't make `%s`\n",
+X		local_path);
+X	    return FALSE;
+X	}
+X     }
+X     else
+X     /* check to make sure it is a directory */
+X     {
+X	if (!S_ISDIR(stat_buf.st_mode))
+X	{
+X	    fprintf(stderr, "ctrl_get_directory: '%s' is not a dir.\n",
+X		local_path);
+X	    return FALSE;
+X	}
+X     }
+X
+X#ifdef DEBUG
+X    printf("ctrl_get_directory: getting '%s' -> '%s'\n", 
+X	currlevel->entry_arr[index].name, local_path);
+X#endif
+X
+X
+X    /*
+X     * go down directory and get everything recursively
+X     */
+X    if (!ctrl_down_dir(index))
+X    {
+X	ctrl_up_dir();
+X	return FALSE;
+X    }
+X
+X    for (i=0; i <  currlevel->num_entries; i++)
+X    {
+X	ctrl_get_selection(local_path, i, NULL);
+X    }
+X
+X    ctrl_up_dir();
+X
+X    return TRUE;
+X}
+X
+X
+X
+Xint  ctrl_get_file(char *path, int index, char *newname)
+X/*
+X * This function gets the file indicated by "index".  "Path" is
+X * the path for the directory that the file is to be retreived in,
+X * or current directory if NULL.  "newname", if not NULL, indicates
+X * a different name for the incoming file.
+X *
+X * Returns TRUE if success, FALSE otherwise.
+X */
+X{
+X    int len;
+X    int code;
+X    char *local_path;
+X    char *rem_path;
+X    char *name;
+X    FILE *fp;
+X
+X    /*
+X     * check file type
+X     */
+X    if (currlevel->entry_arr[index].type != fitypFILE)
+X	return FALSE;
+X
+X    /*
+X     * create fully-qualified remote name
+X     */
+X    rem_path = cache_make_filename(currlevel->entry_arr[index].name);
+X
+X    /*
+X     * create a local filename (with optional path)
+X     */
+X    name = (newname? newname : currlevel->entry_arr[index].name);
+X
+X    len = (path? strlen(path)+1 : 0) + strlen(name) + 1 ;
+X    local_path = (char *) malloc(len+1);
+X
+X    if (path)
+X    {
+X    	strcpy(local_path, path);
+X	if (path[strlen(path)-1] != '/')
+X	    strcat(local_path, "/");
+X    }
+X    else
+X	local_path[0] = '\0';
+X
+X    strcat(local_path, name);
+X
+X#ifdef DEBUG
+X    printf("ctrl_get_file: getting '%s' -> '%s'\n", 
+X	currlevel->entry_arr[index].name, local_path);
+X#endif
+X
+X    /*
+X     * if local file already exists.... 
+X     */
+X
+X    /*     ------- to do -------         */
+X
+X
+X    /*
+X     * open local file, get data from remote file
+X     */
+X    if ( (fp = fopen(local_path, "w")) == NULL )
+X    {
+X	fprintf(stderr, "ctrl_get_file: can't open '%s' for writing.\n",
+X	    local_path);
+X	return FALSE;
+X    }
+X
+X    ftp_init_dataconn();
+X
+X    if ((code=ftp_send_command("RETR %s", rem_path)) >= 300)
+X    {
+X	fprintf(stderr, "ctrl_get_file: error in RETR.\n");
+X    	ftp_get_all_responses(code, response_stream);
+X    	free(rem_path);
+X	return FALSE;
+X    }
+X    else
+X    {
+X#ifdef XGETFTP
+X	if (!x_data_done)
+X	    fprintf(stderr, "x_data_done already being used!\n");
+X	x_data_done = 0;
+X#endif
+X    	ftp_get_data(fp);
+X    }
+X
+X#ifdef XGETFTP
+X    while (!x_data_done)
+X	XtAppProcessEvent(app_context, XtIMAll);
+X#endif
+X
+X    ftp_get_all_responses(code, response_stream);
+X    free(rem_path);
+X  
+X    fflush(fp);
+X    fclose(fp);
+X
+X    return TRUE;
+X}
+X
+X/************************** file cache interaction ***********************/
+X
+XFILE * ctrl_view_file(int index)
+X/*
+X * If the file specified by index is a normal file, this function will
+X * either retrieve the file from the remote host or from the file cache,
+X * open it for reading, and return a pointer to the open file.  If the
+X * file is not cached, the file will be cached.  
+X *
+X * Returns a pointer to an open file on success, or NULL otherwise.
+X */
+X{
+X    FILE *fp = NULL;
+X    char *rem_path = NULL;
+X    char *cache_path = NULL;
+X    char *new_name = NULL;
+X    char *complete_name = NULL;
+X    struct stat stat_buf;
+X
+X    /*
+X     * check file type
+X     */
+X    if (currlevel->entry_arr[index].type != fitypFILE)
+X	return NULL;
+X
+X    /*
+X     * Create path and name of the local file, depending on
+X     * whether the user wants to cache it or not.
+X     */
+X    rem_path = cache_make_filename("");
+X
+X    if (user_prefs.cache_view)
+X    {
+X    	cache_path = fc_make_cache_path(rem_path);
+X
+X    	complete_name = malloc( strlen(cache_path) + 
+X	    strlen(currlevel->entry_arr[index].name) + 2);
+X
+X    	sprintf(complete_name, "%s/%s", cache_path, 
+X	    currlevel->entry_arr[index].name);
+X    }
+X    else
+X    {
+X	cache_path = (char *) malloc(10);
+X	strcpy(cache_path, "/tmp");
+X	new_name = (char *) malloc(50);
+X	sprintf(new_name, "xgetftpVIEW%ld", getpid());
+X	complete_name = malloc(strlen(cache_path) + strlen(new_name) + 2);
+X	sprintf(complete_name, "%s/%s", cache_path, new_name);
+X    }
+X
+X    free ( rem_path );
+X
+X
+X    /*
+X     * Check actual cache to see if file present.  This only happens
+X     * if the user preferences "cache_view" and "reuse_view" are set.
+X     *
+X     */
+X    if (user_prefs.cache_view && user_prefs.reuse_view &&
+X	(stat(complete_name, &stat_buf)==0))
+X    {
+X	if (S_ISREG(stat_buf.st_mode))
+X	{
+X#ifdef DEBUG
+X	    fprintf(stderr, "Reusing cached file\n");
+X#endif
+X	    currlevel->entry_arr[index].fCached = 1;
+X	}
+X    }
+X
+X
+X    /*
+X     * Get and cache the file, depending on user prefs
+X     *
+X     */
+X    if (user_prefs.cache_view && currlevel->entry_arr[index].fCached == 0)
+X    {
+X	fc_mkdir_path(cache_path);
+X
+X	if (!ctrl_get_file(cache_path, index, NULL))
+X	    goto done;
+X
+X	currlevel->entry_arr[index].fCached = 1;
+X    } 
+X    else if (!user_prefs.cache_view)
+X    {
+X	if (!ctrl_get_file(cache_path, index, new_name))
+X	    goto done;
+X    }
+X
+X
+X    /*
+X     * open the file and return pointer
+X     */
+X    fp = fopen(complete_name, "r");
+X
+Xdone:
+X    if (cache_path)    free (cache_path);
+X    if (complete_name) free (complete_name);
+X    if (new_name)      free (new_name);
+X
+X    return fp;
+X}
+X
+Xvoid ctrl_delete_file_cache(void)
+X{
+X    fc_delete_cache();
+X}
+X
+X
+X/************************** dir cache interaction ************************/
+X
+Xvoid ctrl_save_cache(void)
+X{
+X    char *cache_path;
+X
+X    cache_path = fc_make_cache_path("DIRCACHE");
+X    cache_save_cache(cache_path);
+X    free(cache_path);
+X}
+X
+Xint ctrl_load_cache(void)
+X{
+X    char *cache_path;
+X    int res;
+X
+X    cache_path = fc_make_cache_path("DIRCACHE");
+X    res = cache_load_cache(cache_path);
+X    free(cache_path);
+X    return res;
+X}
+X
+Xint ctrl_delete_cache(void)
+X/*
+X * Deletes all cached directory information and attempts to reload
+X * info from the server.  Returns TRUE if successful, FALSE otherwise.
+X *
+X * NOTE: The caller should disconnect upon a FALSE return since currently
+X *       there is no easy recovery.... should allow recovery in future
+X *       versions.
+X */
+X{
+X    int i;
+X    char *s;
+X    char *cache_path;
+X
+X    /*
+X     * Get rid of all cached data
+X     */
+X    cache_path = fc_make_cache_path("DIRCACHE");
+X    unlink(cache_path);
+X    free(cache_path);
+X    cache_free_levels(&toplevel);
+X
+X
+X    /*
+X     * Reload top level directory info from server
+X     *
+X     * NOTE: Most of this is cut-n-pasted directly from ctrl_start_session
+X     *
+X     */
+X    if ( (s=server_get_root()) == NULL )
+X	return FALSE;
+X
+X    cache_set_root(s);
+X
+X    if (!read_directory(s, &toplevel, NULL))
+X	return FALSE;
+X
+X    currlevel = toplevel;
+X
+X    F_init_str(toplevel->num_entries);
+X    for (i=0; i < toplevel->num_entries; i++)
+X    {
+X	F_add_str(toplevel->entry_arr[i].line);
+X    }
+X
+X    return TRUE;
+X}
+X
+X
+X/************************** misc functions *******************************/
+X
+Xchar *server_get_root(void)
+X/*
+X * This function issues a "PWD" command to the ftp server and receives
+X * and parses the response to get the root directory on the server.
+X * Returns a pointer to the string with the root if successful, or NULL
+X * if an error occurs.
+X */
+X{
+X    FILE *tmpfile;
+X    FILE *old_stream;
+X    char *s, *t;
+X    char filename[100];
+X    static char root[100];
+X
+X    sprintf(filename, "/tmp/xgetftpROOT%ld", getpid());
+X    if ( (tmpfile = fopen(filename, "w+")) == NULL )
+X    {
+X	fprintf(stderr, "server_get_root: can't open '%s'.\n", filename);
+X	return NULL;
+X    }
+X
+X    old_stream = response_stream;
+X    response_stream = tmpfile;
+X
+X    if (ftp_send_command("PWD") >= 300)
+X    {
+X	fprintf(stderr, "server_get_root: cant get PWD\n");
+X	unlink(filename);
+X	response_stream = old_stream;
+X	return NULL;
+X    }
+X
+X    response_stream = old_stream;
+X
+X    fseek(tmpfile, 0, 0);
+X    fgets(root, 98, tmpfile);
+X
+X    s = root;
+X    while (*s && *s++ !='"');
+X    t = s;
+X    while (*t && *++t !='"');
+X    *t = '\0';
+X    fclose(tmpfile);
+X
+X#ifdef DEBUG
+X    printf("server_get_root on: root = '%s'\n", s);
+X#endif
+X
+X    return s;
+X}
+X
+X
+Xchar *ctrl_get_item_name(int item)
+X/*
+X * This function returns a string that specifies the complete path of
+X * the selected item.   If item < 0, then the complete path of the
+X * current directory is returned.
+X *
+X * Returns a string (which should be freed later by caller), or NULL
+X * if the item number is too large.
+X *
+X */
+X{
+X    char * curr_path = NULL;
+X
+X    if (item < 0)
+X    	curr_path = cache_make_filename("");
+X    else if (item < currlevel->num_entries)
+X	curr_path = cache_make_filename(currlevel->entry_arr[item].name);
+X
+X    return curr_path;
+X}
+X
+X
+X
+Xvoid x_get_data(FILE *fdout, int *fid, XtInputId *id)
+X/* data input callback */
+X{
+X    unsigned char buf[INBUFSIZE];
+X    int nbytes;
+X
+X    nbytes = read(*fid, buf, INBUFSIZE);
+X
+X    if (nbytes)
+X    {
+X	write(fileno(fdout), buf, nbytes);	
+X    }
+X    else
+X    /* EOF reached */
+X    {
+X	x_data_done = 1;
+X	XtRemoveInput(*id);
+X	close(*fid);
+X    }
+X}
+X
+X
+Xint read_directory(char *path, cacheinfo_ptr *plevel, cacheinfo_ptr prev)
+X{
+X    char filename[100];
+X    FILE *tmpfile;
+X    int code;
+X
+X#ifdef DEBUG
+X    printf("read_directory: Reading from path: '%s'\n", path);
+X#endif
+X
+X    ftp_init_dataconn();
+X    sprintf(filename, "/tmp/xgetftpLISTING%ld", getpid());
+X    if ( (tmpfile = fopen(filename, "w")) == NULL )
+X    {
+X	fprintf(stderr, "read_directory: can't open '%s'.\n", filename);
+X	return FALSE;
+X    }
+X
+X    if ((code=ftp_send_command("LIST %s", path)) >= 300)
+X    {
+X	fprintf(stderr, "read_directory: can't get LIST.\n");
+X	unlink(filename);
+X	return FALSE;
+X    }
+X
+X#ifdef XGETFTP
+X    if (!x_data_done)
+X	fprintf(stderr, "x_data_done already being used!\n");
+X    x_data_done = 0;
+X#endif
+X
+X    ftp_get_data(tmpfile);
+X
+X#ifdef XGETFTP
+X    while (!x_data_done)
+X	XtAppProcessEvent(app_context, XtIMAll);
+X#endif
+X
+X    ftp_get_all_responses(code, response_stream);
+X    fclose(tmpfile);
+X
+X    cache_init_level(plevel, prev, filename);
+X#ifdef DEBUG
+X    cache_print_level(*plevel);
+X#endif
+X
+X    unlink(filename);
+X    return TRUE;
+X}
+X
+END_OF_FILE
+if test 19375 -ne `wc -c <'control.c'`; then
+    echo shar: \"'control.c'\" unpacked with wrong size!
+fi
+# end of 'control.c'
+fi
+if test -f 'control.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'control.h'\"
+else
+echo shar: Extracting \"'control.h'\" \(1310 characters\)
+sed "s/^X//" >'control.h' <<'END_OF_FILE'
+X/************************************************************************
+X * HEADER:
+X *  control
+X ***********************************************************************/
+X
+X/*
+X * FTP Type definitions
+X */
+X#define typASCII	0
+X#define typIMAGE	1
+X
+Xextern int ftp_curr_type;
+X
+X
+X/*
+X * CreateFunc is a pointer to a function that takes a string
+X * and returns a void.  This function will be called once for
+X * every string in a given directory.  It should have an internal
+X * state that keeps track of the strings. 
+X *
+X * InitFunc allocates the memory needed.  Its parameter is the
+X * number of items that will need to be created.
+X *
+X */
+Xtypedef void (*CreateFunc) (char *);
+Xtypedef void (*InitFunc) (int);
+X
+X/*
+X * Prototypes
+X */
+Xint
+Xctrl_login(char *host, char *user, char *pass);
+X
+Xint
+Xctrl_start_session(InitFunc init_str, CreateFunc add_str);
+X
+Xint
+Xctrl_down_dir(int index);
+X
+Xint
+Xctrl_up_dir(void);
+X
+Xvoid
+Xctrl_set_type(int);
+X
+Xint 
+Xctrl_get_selection(char *path, int index, char *newname);
+X
+Xint 
+Xctrl_get_file(char *path, int index, char *newname);
+X
+XFILE *
+Xctrl_view_file(int index);
+X
+Xint 
+Xctrl_get_directory(char *path, int index);
+X
+Xvoid
+Xctrl_logout(void);
+X
+Xvoid 
+Xctrl_save_cache(void);
+X
+Xint
+Xctrl_load_cache(void);
+X
+Xint
+Xctrl_delete_cache(void);
+X
+Xchar *
+Xctrl_get_item_name(int item);
+X
+Xvoid
+Xctrl_delete_file_cache(void);
+X
+END_OF_FILE
+if test 1310 -ne `wc -c <'control.h'`; then
+    echo shar: \"'control.h'\" unpacked with wrong size!
+fi
+# end of 'control.h'
+fi
+if test -f 'file_cache.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'file_cache.c'\"
+else
+echo shar: Extracting \"'file_cache.c'\" \(4853 characters\)
+sed "s/^X//" >'file_cache.c' <<'END_OF_FILE'
+X/***************************************************************************
+X *
+X * MODULE:
+X *  file cache
+X *
+X * DESCRIPTION
+X *  Provides functions used to maintain a cache of files "Viewed" by
+X *  xgetftp.
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X *
+X * MODIFICATION LOG:
+X *  92.12.29 S.A. - Added file cache delete function
+X *
+X **************************************************************************/
+X
+X#include <stdio.h>
+X#include <X11/Xos.h>
+X#include <sys/stat.h>
+X#include <malloc.h>
+X#include <stdlib.h> 
+X#include <dirent.h>
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#define FALSE 0
+X#endif
+X
+X#define PRIVATE static
+X
+X
+X/*
+X * Private global variables
+X */
+X
+X#define DEFAULT_CACHE_DIR ".xgetftpcachedir"
+X
+XPRIVATE char * cache_root;
+X
+X
+X
+Xvoid fc_set_root_dir(char *hostname)
+X/*
+X * This function determines the directory in the user's filespace
+X * where the cache hierarchy should be organized.  First the env
+X * variable XGETFTPCACHEDIR is checked --- if available, it will be
+X * used.  Otherwise, the env var HOME will be looked up and the directory
+X * $HOME/.xgetftpcachedir will be used.  If the HOME var cannot be found,
+X * the current working directory will be used.
+X *
+X * After determining the cache directory, this function saves the name
+X * of the host and appends it to the cache directory path.  All files
+X * cached in this session will now be cached here.
+X *
+X */
+X{
+X    int len;
+X    char *tmp_str;
+X
+X  
+X    /*
+X     * Create cache root
+X     */
+X    if (tmp_str = getenv("XGETFTPCACHEDIR"))
+X    {
+X	len = strlen(tmp_str);
+X	cache_root = malloc(len + strlen(hostname) + 2);
+X	if (tmp_str[len] == '/')
+X	    sprintf(cache_root, "%s%s", tmp_str, hostname);
+X	else
+X	    sprintf(cache_root, "%s/%s", tmp_str, hostname);
+X    }
+X    else if (tmp_str = getenv("HOME"))
+X    {
+X        len = strlen(tmp_str) + strlen(DEFAULT_CACHE_DIR) + 2;
+X        cache_root = malloc ( len + strlen(hostname) );
+X        sprintf(cache_root, "%s/%s/%s", tmp_str, DEFAULT_CACHE_DIR, hostname);
+X    }
+X    else
+X    {
+X	tmp_str = (char *) getcwd(NULL, 256);
+X        len = strlen(tmp_str) + strlen(DEFAULT_CACHE_DIR) + 2;
+X        cache_root = malloc ( len + strlen(hostname) );
+X        sprintf(cache_root, "%s/%s/%s", tmp_str, DEFAULT_CACHE_DIR, hostname);
+X    }
+X
+X#ifdef DEBUG
+X        fprintf(stderr, "Cache root = '%s'\n", cache_root);
+X#endif
+X
+X}
+X
+X
+X
+X
+Xchar * fc_make_cache_path(char *rem_path)
+X/*
+X * Given the remote path for a file (NOT including the file name), this
+X * function appends the remote path to the cache_root and returns a pointer
+X * to the complete path.  Memory is allocated, so the pointer returned should
+X * be eventually freed by the caller.
+X *
+X */
+X{
+X    char *complete_path;
+X
+X    complete_path = malloc(strlen(rem_path) + strlen(cache_root) + 2);
+X
+X    if (rem_path[0] == '/')
+X    	sprintf(complete_path, "%s%s", cache_root, rem_path);
+X    else
+X    	sprintf(complete_path, "%s/%s", cache_root, rem_path);
+X
+X    return complete_path;
+X}
+X
+X
+X
+Xint fc_mkdir_path(char *path)
+X/*
+X * Given a complete path in the user's file system, this function makes
+X * sure that all the directories in the path are present.  This function
+X * will call "mkdir" to create any needed directories.
+X *
+X * Returns TRUE for success, FALSE otherwise.
+X *
+X */
+X{
+X    char *s;
+X    struct stat stat_buf;
+X
+X    /*
+X     * First, check the complete path at once
+X     */
+X    if (stat(path, &stat_buf) == 0)    
+X    {
+X	if (!S_ISDIR(stat_buf.st_mode))
+X	{
+X	    fprintf(stderr, "ctrl_get_directory: '%s' is not a dir.\n",
+X		path);
+X	    return FALSE;
+X	}
+X	return TRUE;
+X    }
+X
+X
+X    /*
+X     * Now check component-wise
+X     */
+X    s = path;
+X    while (*s)
+X    {
+X	while ((*s) && (*s != '/')) s++;
+X	if (*s == '/')
+X	/* check component */
+X	{
+X	    *s = '\0';
+X#ifdef DEBUG
+X	    fprintf(stderr,"fc_mkdir_path: Checking '%s'\n", path);
+X#endif
+X	    if (stat(path, &stat_buf) < 0)
+X	    /* assume file didn't exist */
+X	    {
+X#ifdef DEBUG
+X		fprintf(stderr,"fc_mkdir_path: Making '%s'\n", path);
+X#endif
+X		if (mkdir(path, 0700) < 0)
+X		{
+X		     fprintf(stderr, "fc_mkdir_path: couldn't make `%s`\n",
+X			path);
+X		     return FALSE;
+X		}
+X	    }
+X	    else
+X	    /* check to make sure this is a dir */
+X	    {
+X		if (!S_ISDIR(stat_buf.st_mode))
+X		{
+X		    fprintf(stderr, "ctrl_get_directory: '%s' is not a dir.\n",
+X			path);
+X		    return FALSE;
+X		}
+X	    }
+X	    *s = '/';
+X	    s++;
+X	} /* while */
+X
+X    } /* while */
+X}
+X
+X
+Xint fc_delete_cache(void)
+X/*
+X * Deletes the file viewed cache
+X */
+X{
+X    DIR *dir;
+X    struct dirent * entry;
+X    char command_str[255];
+X
+X    if ( (dir = opendir(cache_root)) == NULL )
+X	return FALSE;
+X
+X    while ( (entry = readdir(dir)) != NULL )
+X    {
+X	if ( (strcmp(entry->d_name, ".")==0) ||
+X	     (strcmp(entry->d_name, "..")==0) ||
+X	     (strcmp(entry->d_name, "DIRCACHE")==0) )
+X	    continue;
+X
+X	sprintf(command_str, "/bin/rm -rf %s/%s", cache_root, entry->d_name);
+X
+X	system(command_str);
+X    }
+X
+X    closedir(dir);
+X}
+X
+END_OF_FILE
+if test 4853 -ne `wc -c <'file_cache.c'`; then
+    echo shar: \"'file_cache.c'\" unpacked with wrong size!
+fi
+# end of 'file_cache.c'
+fi
+if test -f 'file_cache.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'file_cache.h'\"
+else
+echo shar: Extracting \"'file_cache.h'\" \(331 characters\)
+sed "s/^X//" >'file_cache.h' <<'END_OF_FILE'
+X/***************************************************************************
+X *
+X * HEADER:
+X *  file cache
+X *
+X **************************************************************************/
+X
+Xvoid
+Xfc_set_root_dir(char *hostname);
+X
+Xchar * 
+Xfc_make_cache_path(char *rem_path);
+X
+Xint
+Xfc_mkdir_path(char *path);
+X
+Xint
+Xfc_delete_cache(void);
+X
+END_OF_FILE
+if test 331 -ne `wc -c <'file_cache.h'`; then
+    echo shar: \"'file_cache.h'\" unpacked with wrong size!
+fi
+# end of 'file_cache.h'
+fi
+if test -f 'ftp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.c'\"
+else
+echo shar: Extracting \"'ftp.c'\" \(8569 characters\)
+sed "s/^X//" >'ftp.c' <<'END_OF_FILE'
+X/*=========================================================================
+X * MODULE:
+X *  "ftp"
+X *
+X * DESCRIPTION:
+X *  Provides a FTP interface for a client program.  
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X *
+X * MODIFICATION LOG:
+X *  93.01.14 S.A. - fixed return bug in ftp_init_conn
+X *  92.12.29 S.A. - ftp_init_conn now handles some errors more gracefully.
+X *		    also, better use of "reponse_stream".
+X *  92.12.01 S.A. - fixed response bug by making buffer larger
+X *  92.11.24 S.A. - adding functionality to allow X-based I/O
+X *  92.10.28 S.A. - ftp_get_response : better multi-line response handling.
+X *=======================================================================*/
+X
+X#include <X11/Xos.h>
+X#include <stdio.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <errno.h>
+X#include <stdarg.h>
+X
+X/* Special stuff for X-based I/O */
+X#define XGETFTP
+X
+X#ifdef XGETFTP
+X#include <X11/Intrinsic.h>
+Xextern void x_get_data(caddr_t, int *, XtInputId *);
+Xextern XtAppContext app_context;
+X#endif
+X
+X
+X/* telnet codes */
+X#define tcSE 	240
+X#define tcNOP	241
+X#define tcDM	242
+X#define tcBRK	243
+X#define tcIP	244
+X#define tcAO	245
+X#define tcAYT	246
+X#define tcEC	247
+X#define tcEL	248
+X#define tcGA	249
+X#define tcSB	250
+X#define tcWILL	251
+X#define tcWONT	252
+X#define tcDO	253
+X#define tcDONT	254
+X#define tcIAC	255
+X
+X/* other misc defines */
+X#define typeASCII		0
+X#define typeIMAGE		1
+X#define FTP_SERVER_PORTNUM	21	/* hardcoded, for now 		*/
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#define FALSE 0
+X#endif
+X
+X#define PRIVATE static
+X#define UC(b) (((int)b)&0xff)
+X#define err_die(z) {perror(z); exit(1);}
+X
+X#define RESP_BUFSIZE		256	/* buffer size, for a response line */
+X
+X/*
+X * Exported Variables
+X */
+XFILE *response_stream = stdout;
+X
+X
+X/*
+X * Global Variables
+X */
+XPRIVATE FILE *responsefp;	/* response stream			*/
+XPRIVATE FILE *commandfp;	/* command stream			*/
+XPRIVATE FILE *datainfp;		/* data input stream			*/
+XPRIVATE FILE *dataoutfp;	/* data output stream			*/
+XPRIVATE int sd_ctrl;		/* socket descr. for control connection */
+XPRIVATE int sd_data;		/* socket descr. for initial data conn.	*/
+XPRIVATE struct sockaddr_in ctrl_addr; /* address for server		*/
+XPRIVATE struct sockaddr_in my_addr;   /* address for client		*/
+XPRIVATE int  type;		/* Image or Ascii			*/
+X
+X
+Xint ftp_init_conn(char *hostname)
+X/*
+X * Attempts a connection to the FTP port on the remote server "hostname".
+X * Hostname _must_ be a name, not an IP number. 
+X *
+X * Dies if any serious errors encountered.
+X *
+X * Returns TRUE on success, FALSE otherwise.
+X */
+X{
+X    int len;
+X    struct hostent *hp;
+X
+X    /*
+X     * open primary socket connection 
+X     */
+X    if ((sd_ctrl = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+X	err_die("ftp_init_conn ctrl socket");
+X
+X    /*
+X     * find description of host & set up it's address
+X     *
+X     * NOTE: only actual names are allowed here.. no provision
+X     *       for checking numbers...
+X     */
+X    if ((hp = gethostbyname(hostname)) == 0)
+X    {
+X	close(sd_ctrl);
+X	return FALSE;
+X    }
+X
+X    bzero((char *)&ctrl_addr, sizeof(ctrl_addr));
+X    bcopy(hp->h_addr, &ctrl_addr.sin_addr, hp->h_length);
+X    ctrl_addr.sin_family = AF_INET;
+X    ctrl_addr.sin_port = htons(FTP_SERVER_PORTNUM);
+X
+X    /*
+X     * establish a connection
+X     */
+X    if (connect(sd_ctrl, (struct sockaddr *)&ctrl_addr, sizeof(ctrl_addr)) < 0)
+X    {
+X	close(sd_ctrl);
+X	return FALSE;
+X    }
+X
+X    /*
+X     * open stream descriptors, to make variable arg handling
+X     * easy.
+X     */
+X    responsefp = fdopen(sd_ctrl, "r");
+X    commandfp  = fdopen(sd_ctrl, "w");
+X
+X
+X    /*
+X     * find out about client's port
+X     */
+X    len = sizeof(my_addr);
+X    if (getsockname(sd_ctrl, (struct sockaddr *)&my_addr, &len) < 0)
+X	err_die("ftp_init_data getsockname my_addr");
+X
+X    return TRUE;
+X}
+X
+X
+X
+Xint ftp_send_command(char *fmt, ...)
+X/*
+X * Sends a command to the server.  The input parameters are in a
+X * "printf" form --- ie, a format specification string, followed
+X * by a variable number of arguments.
+X *
+X * After sending command, gets the appropriate number of responses
+X * from the server.  Gets a SINGLE response from the server and
+X * returns the response code.
+X *
+X * For multiple-response commands, further responses need to be
+X * checked for by the server.
+X */ 
+X{
+X    va_list ap;
+X
+X#ifdef DEBUG
+X    fprintf(stderr,"Sending: ");
+X    va_start(ap, fmt);
+X    vfprintf(stderr, fmt, ap);
+X    va_end(ap);
+X    fprintf(stderr, "\n");
+X#endif
+X
+X    va_start(ap, fmt);
+X    vfprintf(commandfp, fmt, ap);
+X    va_end(ap);
+X    fprintf(commandfp, "\r\n");
+X    (void) fflush(commandfp);
+X
+X    return (ftp_get_response(response_stream));
+X}
+X
+X
+X
+Xint ftp_get_response(FILE *fdout)
+X/*
+X * Gets a single response from the server thru the command connection.
+X * Multiple-line responses are handled.  The complete text of the
+X * responses are written to the file fdout, which should be open and
+X * ready for writing.  ALL TELNET CONTROLS ARE IGNORED.
+X *
+X * The response code is returned.
+X */
+X{
+X    int code, test_code = 0;
+X    char continue_flag;
+X    char line[RESP_BUFSIZE];
+X
+X    fgets(line, RESP_BUFSIZE-2, responsefp);
+X    fprintf(fdout, line);
+X#ifdef DEBUG
+X    if (strchr(line,tcIAC) != NULL)
+X	fprintf(stderr,"<ignoring Telnet IAC>\n");
+X#endif
+X
+X    continue_flag = line[3];
+X    line[3] = '\0';
+X    code = atoi(line);
+X
+X    if (continue_flag == '-')
+X    {
+X	while (test_code != code)
+X	{
+X	    fgets(line, RESP_BUFSIZE-2, responsefp);
+X	    fprintf(fdout, line);
+X	    if (line[3] == '-') continue;
+X	    line[3] = '\0';
+X	    test_code = atoi(line);
+X	}
+X    }
+X
+X    fflush(fdout);
+X    return code;
+X}
+X
+X
+X
+Xint ftp_get_next_response(int oldcode, FILE *fdout)
+X/*
+X * Given the previous response code, gets any expected responses
+X * from the server.  If no more expected responses, returns -1,
+X * else returns the code for the response it got.
+X */
+X{
+X    if ( ((int) (oldcode/100.0))  == 1 )
+X	return (ftp_get_response(fdout));
+X    else
+X	return -1;
+X}
+X
+X
+X
+Xvoid ftp_get_all_responses(int code, FILE *fdout)
+X/*
+X * Gets all further remaining responses from the server.  If
+X * code is equal to 0, then an initial response will get gotten
+X * from the server;  otherwise, code will be assumed to be the
+X * result of a previous ftp_get_response command.
+X */
+X{
+X    int nextcode = code;
+X
+X    if (code == 0)
+X	nextcode = ftp_get_response(fdout);
+X
+X    while ( (nextcode=ftp_get_next_response(nextcode,fdout)) > 0 ) ;
+X}
+X
+X
+X
+Xint ftp_init_dataconn(void)
+X/*
+X * Creates a new port for data connections, and sends a PORT command
+X * to the server. Starts listening on the newly created port.
+X *
+X * All errors are fatal!  Return is positive integer.
+X */
+X{
+X    int len, result;
+X    struct sockaddr_in data_addr;
+X    char *p, *a;
+X
+X
+X    /*
+X     * create a new port & start listening
+X     */
+X    data_addr = my_addr;
+X    data_addr.sin_port = 0;	/* system picks a port */
+X
+X    if ( (sd_data = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+X	err_die("ftp_init_dataconn data socket");
+X  
+X    if (bind(sd_data, (struct sockaddr *)&data_addr, sizeof(data_addr)) < 0)
+X	err_die("ftp_init_dataconn bind");
+X
+X    len = sizeof(data_addr);
+X    if (getsockname(sd_data, (struct sockaddr *)&data_addr, &len) < 0)
+X	err_die("ftp_init_dataconn getsockname");
+X
+X    listen(sd_data, 5);
+X
+X    /*
+X     * send PORT command to server
+X     */
+X    p = (char *)&data_addr.sin_port;
+X    a = (char *)&data_addr.sin_addr;
+X
+X    result = ftp_send_command("PORT %d,%d,%d,%d,%d,%d",
+X	UC(a[0]),UC(a[1]),UC(a[2]),UC(a[3]),UC(p[0]),UC(p[1]) );
+X
+X    return result;
+X}
+X
+X
+X
+Xint ftp_get_data(FILE *fdout)
+X/*
+X * Gets a file from the data connection.  The data port should be listening
+X * for an incoming connection.  The data file is written to the stream fdout,
+X * which should already be open and ready for writing. A stream data
+X * connection mode is assumed.
+X *
+X * Returns void.
+X */
+X{
+X    int fromlen = 0;
+X    int c, s;
+X
+X    /*
+X     * Establish a connection with server data port
+X     */
+X    s = accept(sd_data, (struct sockaddr *)NULL, &fromlen);
+X    datainfp = fdopen(s, "r");
+X
+X#ifdef XGETFTP
+X    /*
+X     * Set up Xt routines for getting input.  x_get_data is
+X     * an external function that must be provided.
+X     */
+X    XtAppAddInput(app_context, s, (XtPointer) XtInputReadMask, 
+X	(XtInputCallbackProc) x_get_data, (XtPointer) fdout);
+X#else
+X    /*
+X     * Read in & echo the input
+X     */
+X    while ((c = getc(datainfp)) != EOF)
+X	(void) putc(c, fdout);
+X
+X    close(s);
+X#endif
+X
+X}
+X
+X
+X
+Xint ftp_put_data(FILE *fdout)
+X/* stub */
+X{
+X    fprintf(stderr, "STUB ftp_put_data called!\n");
+X}
+X
+X
+X
+Xvoid ftp_close_conn(void)
+X/*
+X * Close the connection to the ftp server
+X */
+X{
+X    close(sd_ctrl);
+X    close(sd_data);
+X}
+END_OF_FILE
+if test 8569 -ne `wc -c <'ftp.c'`; then
+    echo shar: \"'ftp.c'\" unpacked with wrong size!
+fi
+# end of 'ftp.c'
+fi
+if test -f 'ftp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.h'\"
+else
+echo shar: Extracting \"'ftp.h'\" \(631 characters\)
+sed "s/^X//" >'ftp.h' <<'END_OF_FILE'
+X/*=========================================================================
+X * HEADER:
+X *  "ftp"
+X *=======================================================================*/
+X
+X/*
+X * Exported variables
+X */
+X
+Xextern FILE *response_stream;	/* where the response should go --
+X				   normally it should go to stdout */
+X
+X
+X/*
+X * Function prototypes.
+X */
+X
+Xint
+Xftp_init_conn(char *hostname);
+X
+Xint
+Xftp_send_command(char *fmt, ...);
+X
+Xint
+Xftp_get_response(FILE *fdout);
+X
+Xint
+Xftp_get_next_response(int oldcode, FILE *fdout);
+X
+Xint
+Xftp_init_dataconn(void);
+X
+Xint
+Xftp_get_data(FILE *fdout);
+X
+Xint
+Xftp_put_data(FILE *fdout);
+X
+Xvoid
+Xftp_close_conn(void);
+END_OF_FILE
+if test 631 -ne `wc -c <'ftp.h'`; then
+    echo shar: \"'ftp.h'\" unpacked with wrong size!
+fi
+# end of 'ftp.h'
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

@@ -1,0 +1,1928 @@
+Newsgroups: comp.sources.misc
+From: moore@cs.utk.edu (Keith Moore)
+Subject: v36i010:  port-lpr - "portable" lpr client for UNIX, VMS, Part01/03
+Message-ID: <csm-v36i010=port-lpr.222043@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 20f5886da7deaaf70c2c3d2e026734ed
+Date: Fri, 12 Mar 1993 04:21:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: moore@cs.utk.edu (Keith Moore)
+Posting-number: Volume 36, Issue 10
+Archive-name: port-lpr/part01
+Environment: UNIX w/TCP, VMS w/either TCP or DECnet.
+
+This is a standalone lpr client that can be used to submit print jobs
+over a network to a machine that runs a Berkeley-style lpd server.
+The code is reasonably portable (not just to UNIX) and attempts to
+compensate for the differences in the way text files are stored on
+various systems.
+
+It might be useful, for instance:
+
+- on a UNIX machine that doesn't support printing to remote
+  Berkeley-style print queues, or
+
+- on a UNIX machine that *does* support printing to remote Berkeley-style
+  print queues, but that doesn't have any remote printers, or
+
+- to print files to a UNIX print queue from a VAX/VMS machine, either over
+  TCP/IP or DECnet.  A gateway from DECnet-based lpr protocol to TCP-based
+  lpr protocol is supplied, but you must have a UNIX box that speaks the
+  DECnet protocol in order to use this.
+
+One of the major problems with porting lpr to non-UNIX systems is the
+fact that the lpr protocol requires that the client determine the size
+of a file to be printed, as it would be stored on UNIX, before sending
+the file.  This program accomplishes this by reading the entire file
+into memory before transmitting it to the print server.  This allows
+this lpr client to work on non-UNIX systems that store files in a
+different format, but it cannot print any file that is too big to fit
+in memory.
+
+port-lpr is (almost) freely redistributable under the terms of the GNU
+General Public License.
+
+Enjoy!
+
+Keith Moore
+moore@cs.utk.edu
+----cut here----%<----------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README common.h lpr.c lpr.cat lpr.man
+# Wrapped by kent@sparky on Thu Mar 11 21:55:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(9710 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is something I threw together to allow various non-BSD systems to
+Xprint over the network to print queues on BSD-style systems (like
+XSunOS and Ultrix and...). 
+X
+XBasically, it's a standalone clone of the BSD "lpr" command -- like
+XBSD lpr but it doesn't need a print spooler on the local machine.
+XIt's useful when you want a machine to be able to spool jobs to remote
+Xprinter queues, but don't have a BSD-compatible spooler on your
+Xsystem.  It's also even if you *do* have BSD lpr on your system --
+Xthere's no need to set up and maintain a local print spooler on a
+X"client" machine that has no printers directly attached.
+X
+XIf you are running UNIX, you have to have a Berkeley-style TCP
+Ximplementation on your machine (with socket(), bind() and that sort of
+Xstuff), and access to an Berkeley lpd server somewhere on the network.
+X
+XThis program also runs on VMS systems using either TCP or DECnet.
+XSeveral different TCP stacks are supported.  The DECnet support
+Xincludes a gateway that runs on a DECnet-capable UNIX host (either a
+XSun running SunLink DNI or a DEC machine running DECnet-Ultrix), and
+Xconverts between lpr-over-TCP to lpr-over-DECnet.
+X
+XAt one time or another, I have tested the lpr program on SCO ODT 1.0,
+XSunOS 4.1, Ultrix 3.x, Ultrix 4.x, 4.3 BSD, an IBM RS/6000 running AIX
+X3.x, and on a Stardent Titan running some variant of SysV.  It also
+Xworks on VAX/VMS 5.4 with UCX TCP and DECnet.  (I got it to compile
+Xand link on a machine with an old version of WIN/TCP, but I couldn't
+Xfully test it because I don't have privileged access to that machine.)
+XThe dnet-lpr gateway program has been tested on a Sun/3 running SunOS
+X4.1 and SunLink DNI 6.0, a Sparc running SunLink DNI 7.0, and a
+XDecStation 5000 running Ultrix 4.2 and DECnet-Ultrix.
+X
+XI have used SunOS and Ultrix machines as printer servers, but I would
+Xexpect this program to work with any lpd server running 4.2BSD or
+X4.3BSD-derived code.
+X
+X* No Warranty:
+X
+XREAD THIS BEFORE INSTALLING THIS CODE ON ANY MACHINE:
+X
+XThere is NO WARRANTY for this software, not even for merchantability
+Xnor for fitness for any particular purpose.  Anyone who installs or uses
+Xthis software, does so entirely at his or her own risk.  The author
+Xwill not be responsible for any ill consequences of the installation
+Xor use of this software, no matter how terrible.
+X
+X* Copyright, use and redistribution:
+X
+XThe source code for this program is Copyright 1990, 1991 by Keith Moore
+X
+XUse of this program and distribution of the code in either source or
+Xcompiled binary form are governed by the GNU General Public License, 
+XVersion 2.  See the file LICENSE for details.
+X
+X* Compiling on UNIX:
+X
+XOn many UNIX systems you can simply type "make".
+X
+XOn UNIX, if your C compiler does not define the macro "unix", add a
+X"CFLAGS=-Dunix" to the "make" command line, like so:
+X
+X	make CFLAGS=-Dunix
+X
+XIf you have SunLink DNI or DECnet-Ultrix and want to compile the
+Xdecnet lpd gateway, type "make dnet-lpd-gw".
+X
+X* Compiling on VMS:
+X
+XIf you have DEC/MMS, type
+X
+Xmms ucxlpr.exe		to make lpr for UCX
+Xmms winlpr.exe		to make lpr for WIN/TCP
+Xmms dnetlpr.exe		to make lpr for DECnet (requires a gateway)
+X
+XIf you use some other "make" clone besides DEC/MMS, then you may have
+Xto make small changes to the DESCRIP.MMS file and rename it to
+Xsomething like MAKEFILE.
+X
+XIf you don't have DEC/MMS or some flavor of "make", do the following:
+X
+Xcc/debug lpr.c
+Xcc/debug DRIVER.c
+Xlink lpr,DRIVER,LIBRARY/lib
+X
+Xwhere DRIVER and LIBRARY are chosen from the following, based on whether
+Xyou are using UCX TCP, Wollongong TCP, or DECnet:
+X
+XTransport	DRIVER		LIBRARY
+XUCX TCP		vms-ucx-tcp	sys$library:ucx$ipc.olb
+XWIN/TCP		vms-win-tcp	twg$tcp:[netdist.lib]twglib.olb
+XDECnet		vms-decnet	(not needed)
+X
+X* UNIX Installation:
+X
+XOn UNIX, "make install" should do the trick to install the lpr
+Xprogram.  (NOTE:: make install creates a set-uid program.  See below
+Xunder IMPORTANT NOTES for details.)  You may have to edit the Makefile
+Xto change the installation directory.  Install the man page by hand,
+Xif your system supports these.  The file "lpr.cat" is a preformatted
+Xman page, in case your system does not support nroff.  If your system
+Xhas a man command, you may be able to copy the lpr.cat file into an
+Xappropriate directory with an appropriate name so that "man lpr" will
+Xwork.
+X
+Xlpr expects a file named /etc/LPD_SERVER that contains the host name
+Xof a machine that has a working BSD-style line printer daemon.
+XFailing this, it checks the environment variable LPD_SERVER for the
+Xprinter server host, so users can override the system default.  Either
+Xof these can be manually overriden with the -S command line option.
+XHowever the print server is specified, the client machine must have
+Xpermission to print on the server's print queues.  Generally this is
+Xdone by editing either /etc/hosts.lpd or /etc/hosts.equiv on the
+Xserver.
+X
+X* VMS Installation:
+X
+XTo run lpr on VMS, copy the appropriate binary (UCXLPR.EXE,
+XWINLPR.EXE, or DNETLPR.EXE) to an appropriate directory and define a
+XDCL symbol to point to it, e.g.:
+X
+Xlpr == "$some$system$directory:[some.sub.directory]ucxlpr.exe"
+X
+XYou may need to install the image with privileges; see below.
+X
+Xafter which it works almost, but not quite, just like on UNIX.
+XUnfortunately, the VAX C library is really brain dead, so wildcards do
+Xnot work, the entire command line is lower cased, and you can't have
+Xembedded spaces in file names.  (The effect of the last restriction is
+Xthat you can't use lpr to print a file on a remote DECnet node if you
+Xdon't have proxy access to that machine.)  If someone wants to
+Xcontribute a CLD based front end for this program, I'll be happy to
+Xinclude it in a future release.
+X
+XOn VMS, the logical name LPD_SERVER must be defined to point to the
+Xname of the host acting as a print server (for TCP, this is the
+XInternet domain name of the server; for DECnet, it's the DECnet node
+Xname of the machine where the gateway runs).  This can either be
+Xdefined by the user or as a system-wide logical name.
+X
+XTo do the equivalent of lprm or lpq on VMS, define symbols like the
+Xfollowing:
+X
+Xlpq == "$some$system$directory:[some.sub.directory]ucxlpr.exe -showqueue"
+Xlprm == "$some$system$directory:[some.sub.directory]ucxlpr.exe -remove"
+X
+X* Installation of the DECnet lpr gateway on SunOS:
+X
+X(You must be running SunLink DNI to do this:)
+X
+X"make install-gw" will install the dnet-lpd-gw program in an
+Xappropriate directory.  You might need to edit the Makefile, however,
+Xif /usr/sunlink/dni is not an appropriate directory on your machine.
+X"dnet-lpd-gw" is also installed set-uid to root.
+X
+XThe dnet-lpd-gw program should be installed so that it will be run
+Xwith an remote DECnet client tries to connect to object 223.  On Sun
+Xsystems, do this by editing the file /usr/sunlink/dni/dniserver.reg
+Xand adding a line like the following:
+X
+X223     DNETLPD /usr/sunlink/dni/dnet-lpd-gw
+X
+X(Currently, the number 223 is wired into vms-decnet.c.  This may
+Xchange at some point.)  "make install-gw" will copy dnet-lpd-gw to the
+X/usr/sunlink/dni directory and install it with appropriate
+Xpermissions.
+X
+X* Installation of the DECnet lpr gateway on Ultrix:
+X
+X(You have to be running DECnet-Ultrix to do this:)
+X
+XBecome root and use the "ncp" program to define the DNETLPD object as follows:
+X
+X# ncp
+Xncp>clear object dnetlpd
+Xncp>set object dnetlpd
+XNumber :  223
+XFile :  /usr/local/lib/dnet-lpd-gw
+XDefault User :  daemon
+XType :  sequenced packet
+XAccept :  deferred
+Xncp> ^D
+X
+X(Note: you can set the "default user" to "root" instead of "daemon",
+Xin which case dnet-lpd-gw need not be set-uid to root.  The set-uid
+Xapproach is probably safer in this case.)
+X
+X* IMPORTANT NOTES: 
+X
+XOn UNIX, the program is installed set-uid to root, which is necessary
+Xso that lpr can bind to a privileged TCP port.  This should not
+Xpresent a security risk since the first thing that the program does is
+Xto create the socket and bind it to the privileged port, after which
+Xit immediately disables its special privileges.  All file opens,
+Xreads, etc., are then done with the invoking user's normal privileges.
+X
+XOn VMS, similar concerns apply if using TCP -- the program must be
+X"installed" as a privileged image with the INSTALL utility.  UCX TCP
+Xrequires either BYPASS or SYSPRV privilege in order to allow lpr to
+Xbind to a privileged port.  With UCX TCP, you also have to INSTALL the
+XUCX shared library -- VMS will not allow a privileged program to make
+Xcalls to a library that is not installed.  I'm not sure offhand what
+Xprivileges WIN/TCP requires.  Anyway, immediately after successfully
+Xbinding to a privileged port, (and before reading any files) the lpr
+Xprogram turns off all image-installed privileges, so it's as safe as I
+Xknow how to make it.
+X
+XFor VMS systems using a DECnet-based lpr, no privileged installation
+Xis required (assuming your users have NETMBX privilege), but the
+XUNIX-based server does have to be installed set-uid to root.  If when
+Xusing lpr over DECnet you get the message "your host does not have
+Xline printer access", you need to put "localhost" or the hostname of
+Xthe print server in the print server machine's /etc/hosts.lpd file.
+XYou may then have to kill and restart lpd on the server to get it to
+Xrecognize the changed /etc/hosts.lpd file.
+X
+X* Miscellaneous:
+X
+XThe UNIX Makefile has rules to generate this package in various
+Xformats to allow it to be moved from system to system.  Of special
+Xinterest is the rule for "make port-lpr.vms", which creates a VMS .COM
+Xfile that extracts itself when run in an empty VMS directory.
+X
+XSorry, there's no special HELP file for lpr on VMS.  Perhaps someone
+Xwill contribute one.
+X
+XIf you find bugs and can supply fixes, please let me know and I'll try
+Xand have the fixes incorporated into a future release.
+X
+XKeith Moore
+Xmoore@cs.utk.edu
+END_OF_FILE
+  if test 9710 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'common.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'common.h'\"
+else
+  echo shar: Extracting \"'common.h'\" \(498 characters\)
+  sed "s/^X//" >'common.h' <<'END_OF_FILE'
+X#ifdef MAIN_PROGRAM
+X#define STORAGE_CLASS
+X#else
+X#define STORAGE_CLASS extern
+X#endif
+X
+XSTORAGE_CLASS char hostname[512];	/* name of this host */
+XSTORAGE_CLASS char username[100];	/* name of user submitting job */
+XSTORAGE_CLASS char email_address[512];	/* submitting user's email address */
+XSTORAGE_CLASS int debug;		/* true if we want debugging output */
+XSTORAGE_CLASS int max_net_read;		/* max # of bytes to read at a time */
+XSTORAGE_CLASS int max_net_write;	/* max # of bytes to write at a time */
+END_OF_FILE
+  if test 498 -ne `wc -c <'common.h'`; then
+    echo shar: \"'common.h'\" unpacked with wrong size!
+  fi
+  # end of 'common.h'
+fi
+if test -f 'lpr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lpr.c'\"
+else
+  echo shar: Extracting \"'lpr.c'\" \(25038 characters\)
+  sed "s/^X//" >'lpr.c' <<'END_OF_FILE'
+X/*
+X * "lpr" program for systems that don't have lpd but can talk to a system
+X * that does using TCP or DECnet
+X *
+X * Copyright (C) 1990, 1991 Keith Moore
+X
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License, Version 1,
+X * as published by the Free Software Foundation.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program; if not, write to the Free Software
+X * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Written by Keith Moore, December 1990
+X * Email: moore@cs.utk.edu (Internet)	moore@utkvx (BITNET)
+X * Snail: Box 16320 / Knoxville TN  37996 / USA
+X */
+X
+X/* TO DO:
+X * - send troff font names
+X * - add support for /etc/printcap files.
+X * - special hacks for Imagen and/or PostScript printers (maybe)
+X * - support -i (indent) and -w (page width) options
+X * - handle huge files too big to read into memory (UNIX systems only)
+X * - recognize ditroff, raster, cifplot, and FORTRAN output files (maybe)
+X * - handle multiple lpd servers -- try each until we find one that's up.
+X * - allow printer names of the form printer@host or host::printer,
+X * - add an option to specify job-id (for use when using this program
+X *   as the back-end to another print spooling system -- you can keep the
+X *   job-ids the same on both systems if you're lucky).
+X * - add an option to wait until the job is actually printed -- this is
+X *   not easy to do but is very useful when this program is being used
+X *   as the back-end to another kind of print spooler.
+X */
+X
+X/*
+X * #define MAIN_PROGRAM here so common.h will allocate storage for the
+X * variables defined there instead of making them external references.
+X */
+X
+X#define MAIN_PROGRAM
+X#include "common.h"
+X#include "patchlevel.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#ifdef unix
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#define EXIT_OK 0
+X#define EXIT_FAIL 1
+X#endif
+X
+X#ifdef vms
+X#include <types.h>
+X#include <stat.h>
+X#define EXIT_OK 0
+X#define EXIT_FAIL 2
+X#endif
+X
+X#define VERSION 1
+X
+X/*
+X * options...not all of which are supported
+X */
+Xchar *printer;			/* name of remote print queue */
+Xchar *lpd_server;		/* name of the remote printer server */
+Xchar file_type = '?';		/* kind of file to be printed */
+Xchar *title = NULL;		/* page headings for pr */
+Xchar *jobtitle = NULL;		/* job name */
+Xchar *jobclass = NULL;		/* job class */
+Xint num_copies = 1;		/* number of copies to print */
+Xint indent = 0;			/* # of spaces to indent */
+Xint page_width = 72;		/* page width for pr */
+Xchar *fontnames[4];		/* names of troff fonts */
+Xint lflag = 0;			/* if lpq, list in long format */
+Xint rflag = 0;			/* if 1, remove file after spooling */
+Xint mflag = 0;			/* if 1, send mail on completion */
+Xint hflag = 0;			/* if 1, omit burst page */
+X
+X/* debug option flag is declared in common.h */
+X
+X#define min(a,b) ((a) < (b) ? (a) : (b))
+Xchar *getenv ();
+Xchar *calloc ();
+Xchar *realloc ();
+Xchar *strrchr ();
+X
+X/*
+X * debugging routines
+X */
+X
+Xvoid
+Xdump_buf (fp, prefix, buf, size)
+XFILE *fp; char *prefix; char *buf; unsigned size;
+X{
+X    if (size > 0)
+X	fprintf (fp, "%s", prefix);
+X    while (size > 0){
+X        if (*buf >= ' ' && *buf <= '~')
+X            putc (*buf, fp);
+X        else if (*buf == '\n') {
+X            fprintf (fp, "\\n");
+X	    if (size > 1)
+X		fprintf (fp, "\n%*s", strlen (prefix), "");
+X	}
+X	else
+X            fprintf (fp, "\\%03o", *buf & 0xff);
+X        ++buf;
+X        --size;
+X    }
+X    fprintf (fp, "\n");
+X}
+X
+X
+Xint
+Xx_read (fd, buf, size)
+Xint fd; char *buf; unsigned size;
+X{
+X    int nread = read (fd, (char *) buf, size);
+X    if (debug)
+X	dump_buf (stderr, "<<<", buf, nread);
+X    return nread;
+X}
+X
+Xint
+Xx_write (fd, buf, size)
+Xint fd; char *buf; unsigned size;
+X{
+X    if (debug)
+X	dump_buf (stderr, ">>>", buf, size);
+X    return write (fd, (char *) buf, size);
+X}
+X
+Xint
+Xy_write (fd, buf, size)
+Xint fd; char *buf; unsigned size;
+X{
+X    if (debug)
+X	fprintf (stderr, ">>> (%d bytes)\n", size);
+X    return write (fd, (char *) buf, size);
+X}
+X
+X
+X/*
+X * parse an option with an optional argument (which may be NULL)
+X * return 1 if optional argument used, else 0
+X * (one of these days I'll start using getopt())
+X */
+Xint
+Xreal_option (opt, arg)
+Xchar *opt; char *arg;
+X{
+X    if (opt[1] && opt[2] == '\0') {
+X	/* single letter options */
+X	switch (opt[1]) {
+X	    /*
+X	     * file types
+X	     */
+X	case 'l':		/* text file with embedded control chars */
+X	    file_type = 'l';
+X	    lflag++;		/* or -l (long) option for lpq */
+X	    return 0;
+X	case 'f':		/* Fortran output file with carraige control */
+X	    file_type = 'r';
+X	    return 0;
+X	case 'c':		/* cifplot (Caltech Intermediate Form) file */
+X	case 'd':		/* TeX .dvi file */
+X	case 'g':		/* UNIX plot file */
+X	case 'n':		/* ditroff output file */
+X	case 'o':		/* PostScript file ??? */
+X	case 'p':		/* text file (add page headers using pr) */
+X	case 't':		/* C/A/T troff output file*/
+X	case 'v':		/* Versatec output file */
+X	    file_type = opt[1];
+X	    return 0;
+X	    /*
+X	     * job options
+X	     */
+X	case 'P':		/* -P printer */
+X	case 'q':		/* -q queue (same thing) */
+X	    printer = arg;
+X	    return 1;
+X	case 'S':		/* specify name of printer server */
+X	    lpd_server = arg;
+X	    return 1;
+X	case '#':		/* num copies */
+X	    if (arg && isdigit (*arg)) {
+X		num_copies = atoi (arg);
+X		return 1;
+X	    }
+X	    break;
+X	case 'C':		/* job class (default: local hostname) */
+X	    jobclass = arg;
+X	    return 1;
+X	case 'J':		/* job title (default: first file name) */
+X	    jobtitle = arg;
+X	    return 1;
+X	case 'i':		/* indent output (default: 8 chars) */
+X	    if (arg && isdigit (*arg)) {
+X		indent = atoi (arg);
+X		return 1;
+X	    }
+X	    else {
+X		indent = 8;
+X		return 0;
+X	    }
+X	case '1':		/* troff font names */
+X	case '2':
+X	case '3':
+X	case '4':
+X	    fontnames[opt[1]-'1']=arg;
+X	    return 1;
+X	case 'w':		/* cols -- page width for pr */
+X	    if (arg && isdigit (*arg)) {
+X		page_width = atoi (arg);
+X		return 1;
+X	    }
+X	case 'r':		/* remove file after spooling */
+X	    rflag = 1;
+X	    return 0;
+X	case 'm':		/* send mail upon completion */
+X	    mflag = 1;
+X	    return 0;
+X	case 'h':		/* don't print the burst page */
+X	    hflag = 1;
+X	    return 0;
+X	case 's':		/* don't copy file -- symlink it */
+X	    fprintf (stderr,
+X		     "lpr: The -s (symlink) option is not supported\n");
+X	    fprintf (stderr,
+X		     "All files will be copied to the remote server\n");
+X	    return 0;
+X	}
+X    }
+X    if (strcmp (opt, "-debug") == 0) {
+X	debug = 1;
+X	fprintf (stderr, "standalone lpr version %d.%d\n",
+X		 VERSION, PATCHLEVEL);
+X	return 0;
+X    }
+X    fprintf (stderr, "lpr: warning: illegal option %s\n", opt);
+X    return 0;
+X}
+X
+Xint
+Xoption (opt, optarg)
+Xchar *opt; char *optarg;
+X{
+X    /*
+X     * This hack is used to notice whether the argument for an option
+X     * is appended to the option itself (e.g. "-Pprinter" rather than
+X     * "-P" "printer".  If this is the case, and the option accepts an
+X     * argument, split the arg into two args and call real_option().
+X     * otherwise just pass our args to real_option().
+X     */
+X  
+X    if (opt[2] && strchr ("SP#CJTi1234qw", opt[1])) {
+X	char temp[3];
+X	temp[0] = '-';
+X	temp[1] = opt[1];
+X	temp[2] = '\0';
+X	real_option (temp, opt + 2);
+X	return 0;
+X    }
+X    else
+X	return real_option (opt, optarg);
+X}
+X
+X/*
+X * keep up with files to be deleted (for when using -r)
+X * This is so we don't delete files until we *know* that the job
+X * has been successfully submitted.
+X */
+X
+Xstruct delete_list {
+X    char *name;
+X    struct delete_list *next;
+X} *head = NULL;
+X
+Xvoid
+Xmark_for_delete (name)
+Xchar *name;
+X{
+X    struct delete_list *ptr = (struct delete_list *)
+X	calloc (1, sizeof (struct delete_list));
+X    if (!ptr) {
+X	perror ("calloc");
+X	return;
+X    }
+X    ptr->next = head;
+X    ptr->name = name;
+X    head = ptr;
+X}
+X
+Xvoid
+Xdelete_marked_files ()
+X{
+X    struct delete_list *ptr;
+X    for (ptr = head; ptr; ptr=ptr->next) {
+X	if (ptr->name)
+X	    if (unlink (ptr->name) < 0) {
+X		fprintf (stderr, "lpr: could not delete %s\n", ptr->name);
+X		perror ("unlink");
+X	    }
+X    }
+X}
+X
+X/*
+X * buffer management
+X */
+Xstruct buffer {
+X    char *ptr;			/* points to current append point */
+X    int size;			/* how big is the buffer now? */
+X    char text[1];		/* (extensible) array of bytes in the buffer */
+X};
+X
+X/*
+X * Create an empty buffer
+X */
+X
+Xstruct buffer *
+Xcreate_buffer (initial_size)
+Xunsigned int initial_size;
+X{
+X    struct buffer *buf;
+X
+X    if (initial_size <= 0)
+X	initial_size = 1000;
+X    if ((buf = (struct buffer *)
+X	 calloc (1, sizeof (struct buffer) + initial_size - 1)) == NULL)
+X	return NULL;
+X    buf->ptr = &(buf->text[0]);
+X    buf->size = initial_size;
+X    return buf;
+X}
+X
+X/*
+X * Ensure there is enough room in the buffer for "more" more bytes
+X */
+Xstruct buffer *
+Xenlarge_buffer (buf, more)
+Xstruct buffer *buf;
+Xint more;
+X{
+X    int offset = buf->ptr - &(buf->text[0]);
+X    int spaceleft = buf->size - offset;
+X
+X    if (more > spaceleft) {
+X	int newsize = sizeof (struct buffer) + (buf->size * 2) - 1;
+X	buf = (struct buffer *) realloc ((char *) buf, newsize);
+X	if (buf == NULL) {
+X	    perror ("enlarge_buffer(): realloc failed");
+X	    return NULL;
+X	}
+X	buf->ptr = &(buf->text[0]) + offset;
+X	buf->size = newsize;
+X    }
+X    return buf;
+X}
+X
+X/*
+X * Append up to max_size bytes from an open file to buffer
+X */
+X
+Xstruct buffer *
+Xread_file_into_buffer (buf, fd, max_size)
+Xstruct buffer *buf;
+Xint fd;
+Xunsigned max_size;
+X{
+X    int real_size = 0;
+X
+X    while (max_size > 0)  {
+X	int foo = min (max_size, max_net_read);
+X	if ((buf = enlarge_buffer (buf, foo)) == NULL)
+X	    return NULL;
+X	if ((foo = read (fd, buf->ptr, foo)) < 0)
+X	    return NULL;
+X	if (foo == 0)
+X	    break;
+X	buf->ptr += foo;
+X	max_size -= foo;
+X	real_size += foo;
+X    }
+X    return buf;
+X}
+X
+X/*
+X * Append a NUL-terminated string to the buffer
+X */
+X
+Xstruct buffer *
+Xappend_string_to_buffer (buf, string, length)
+Xstruct buffer *buf;
+Xchar *string;
+Xint length;
+X{
+X    if ((buf = enlarge_buffer (buf, length)) == NULL) {
+X	fprintf (stderr, "lpr: file too big to fit in memory\n");
+X	exit (EXIT_FAIL);
+X    }
+X    strncpy (buf->ptr, string, length);
+X    buf->ptr += length;
+X    return buf;
+X}
+X
+X/*
+X * Write out the entire contents of buffer to the file fd.
+X */
+X
+Xint
+Xsend_file_from_buffer (fd, buf)
+Xint fd; struct buffer *buf;
+X{
+X    char *wptr = buf->text;
+X    while (wptr < buf->ptr) {
+X	unsigned int foo = min (buf->ptr - wptr, max_net_write);
+X	if ((foo = y_write (fd, wptr, foo)) < 0)
+X	    return EOF;
+X	wptr += foo;
+X    }
+X    return 0;
+X}
+X
+X/*
+X * free up a buffer
+X */
+X
+Xvoid
+Xfree_buffer (buf)
+Xstruct buffer *buf;
+X{
+X    if (buf)
+X	cfree (buf);
+X}
+X
+Xint
+Xbuffer_size (buf)
+Xstruct buffer *buf;
+X{
+X    if (buf)
+X	return (buf->ptr - buf->text);
+X    return EOF;
+X}
+X
+X/*
+X * Look at a file buffer and guess what kind of file it is.  This is called
+X * when we aren't given an explicit file type option.
+X */
+X
+Xchar
+Xguess_file_type (buf, fname)
+Xstruct buffer *buf; char *fname;
+X{
+X    char *ptr = buf->text;
+X    if (ptr[0] == '%' && ptr[1] == '!')
+X	return 'f';		/* print PostScript as plain file */
+X    if (ptr[0] == '\367' && ptr[1] == 2) {
+X	fprintf (stderr, "lpr: %s is a TeX .dvi file, assuming -d\n", fname);
+X	return 'd';		/* TeX .dvi file */
+X    }
+X    if (ptr[0] == '\100' && ptr[1] == '\357')  {
+X	fprintf (stderr, "lpr: %s is a C/A/T troff output file, assuming -t\n",
+X		 fname);
+X	return 't';		/* C/A/T troff file */
+X    }
+X    return 'f';			/* default file type is plain file */
+X}
+X
+Xint
+Xcheck_for_bogus_file (buf, type, filename)
+Xstruct buffer *buf; char type; char *filename;
+X{
+X    char *ptr = buf->text;
+X
+X    if (buf->ptr == buf->text) {
+X	fprintf (stderr, "lpr: skipping zero-length file %s\n", filename);
+X	return EOF;
+X    }
+X	
+X    if (ptr[0] == '\037' && ptr[1] == '\235') {
+X	fprintf (stderr, "lpr: %s is a compressed file -- ignoring it\n",
+X		 filename);
+X	return EOF;
+X    }
+X    if (type == 'd') {
+X	if (ptr[0] == '\367' && ptr[1] == '\002') {
+X	    /* sometimes .dvi files have trailing NULs when they
+X	       shouldn't have.  Remove these from the buffer and
+X	       check that the .dvi file ends with a \337 byte. */
+X	    if (buf->ptr[-1] == '\0') {
+X		while (buf->ptr[-1] == '\0')
+X		    --(buf->ptr);
+X	    }
+X	    if (buf->ptr[-1] == '\337')
+X		return 0;
+X	}
+X	fprintf (stderr, "lpr: %s is not a valid .dvi file", filename);
+X	return EOF;
+X    }
+X    if (memcmp (ptr, "!<arch>\n", 8) == 0) {
+X	fprintf (stderr, "lpr: %s is a UNIX library archive -- ignoring it",
+X		 filename);
+X	return EOF;
+X    }
+X    return 0;
+X}
+X
+X
+X/*
+X * Send a command to the remote server and wait for a response.  Return
+X * the first byte of the response, or EOF on error.
+X */
+X
+Xint
+Xsend_command (fd, buf, size)
+Xint fd; char *buf; unsigned int size;
+X{
+X    char x[1];
+X    if (x_write (fd, buf, size) != size)
+X	return EOF;
+X    if (x_read (fd, x, 1) != 1)
+X	return EOF;
+X    return *x;
+X}
+X
+X
+X/*
+X * structure used to keep track of print jobs
+X */
+Xstruct job {
+X    int jobid;			/* integer job id 1-999 */
+X    int fd;			/* fd of lpd socket */
+X    int control_file_number;	/* current file number */
+X    int data_file_number;	/* data_file_number */
+X    struct buffer *cfile;	/* buffer to build control file */
+X};
+X
+X/*
+X * add a record to a control file
+X */
+Xvoid
+Xcontrol (job, cmd, arg)
+Xstruct job *job; char cmd; char *arg;
+X{
+X    char buf[512];
+X    sprintf (buf, "%c%s\n", cmd, arg);
+X    job->cfile = append_string_to_buffer (job->cfile, buf, strlen (buf));
+X}
+X
+X
+X/*
+X * create a print job.  Return a job ptr on success or NULL on error.
+X */
+Xstruct job *
+Xopen_job (queuename)
+Xchar *queuename;
+X{
+X    struct job *job;
+X    char buf[512];
+X    char x;
+X
+X    if ((job = (struct job *) calloc (1, sizeof (struct job))) == NULL)
+X	return NULL;
+X    /*
+X     * generate a job #.  Really, this should be maintained on a
+X     * per-(host,queue) basis, so we won't have naming conflicts.
+X     * for now, we just generate something pseudo-random.
+X     */
+X    job->jobid = time (0) % 1000;
+X    job->fd = open_lpd (lpd_server);
+X    if (job->fd  < 0) {
+X	free (job);
+X	return NULL;
+X    }
+X
+X    sprintf (buf, "\2%s\n", queuename);
+X    if ((x = send_command (job->fd, buf, strlen (buf))) != 0) {
+X	if (isprint (x)) {
+X	    int foo;
+X	    *buf = x;
+X	    foo = x_read (job->fd, buf+1, sizeof(buf)-1);
+X	    fprintf (stderr,
+X		     "lpr: server %s refused job with message:\n",
+X		     lpd_server);
+X	    fprintf (stderr, "%.*s", foo+1, buf);
+X	}
+X	else {
+X	    fprintf (stderr,
+X		     "lpr: server %s refused job for printer %s\n",
+X		     lpd_server, queuename);
+X	}
+X	close (job->fd);
+X	free (job);
+X	return NULL;
+X    }
+X
+X    job->control_file_number = 0;
+X    job->data_file_number = 0;
+X    job->cfile = create_buffer (1000);
+X
+X    control (job, 'H', hostname);
+X    control (job, 'P', username);
+X    if (hflag == 0) {
+X	control (job, 'J', jobtitle);
+X	control (job, 'C', jobclass);
+X    }
+X    control (job, 'L', username);
+X    if (title)
+X	control (job, 'T', title);
+X    if (mflag)
+X	control (job, 'M', email_address);
+X    return job;
+X}
+X
+Xvoid
+Xconcoct_file_name (c, job, str)
+Xchar c; struct job *job; char *str;
+X{
+X    int x = c == 'd' ? job->data_file_number++ : job->control_file_number++;
+X    sprintf (str, "%cf%c%03d%s", c,
+X	     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"[x],
+X	     job->jobid, hostname);
+X}
+X
+X/*
+X * Send a file to be printed.  Return 1 on success and 0 on error.
+X * (i.e. # of files sent). 
+X * print diagnostic messages to stderr as necessary
+X * If file == NULL, print standard input
+X */
+Xint
+Xsend_print_file (job, file, file_type)
+Xstruct job *job; char *file; char file_type;
+X{
+X    int estimated_size;		/* how big we think the file is */
+X    int max_size;		/* max size to print */
+X    int real_size;
+X    int fd = EOF;		/* fd of file */
+X    struct buffer *dfile = NULL; /* buffer to read file into */
+X    char *reason = NULL;	/* reason file xfer failed */
+X    char data_file_name[512];	/* name of temporary data file */
+X    char buf[512];
+X    int x;
+X    int i;
+X
+X    /*
+X     * open the file and find out how big it is
+X     * estimated_size is used to determine how much space to allocate.
+X     * max_size is used to decide how much to read in.  Under VMS
+X     * we don't ever want to read too much, because we might get
+X     * unwanted garbage at the end of a fixed-length record file.
+X     */
+X    if (file) {
+X	struct stat sbuf;	
+X	if (stat (file, &sbuf) < 0) {
+X	    perror (file);
+X	    return 0;
+X	}
+X	max_size = estimated_size = sbuf.st_size;
+X	if ((fd = open (file, 0)) < 0) {
+X	    perror (file);
+X	    return 0;
+X	}
+X    }
+X    else {
+X	struct stat sbuf;
+X	file = "standard input"; /* for page headers, error messages */
+X	estimated_size = 64000;
+X	max_size = 5*1024*1024;	/* 5 megabytes */
+X	fd = 0;
+X#ifdef unix
+X	/*
+X	 * UNIX-specific performance optimization:
+X	 * If standard input is an ordinary file, get size estimate
+X	 * with fstat()
+X	 */
+X	if (fstat (fd, &sbuf) < 0) {
+X	    if ((sbuf.st_mode & S_IFMT) == S_IFREG)
+X		estimated_size = sbuf.st_size;
+X	}
+X#endif
+X    }
+X
+X    /*
+X     * create a buffer and read the file into it.
+X     */
+X    concoct_file_name ('d', job, data_file_name);
+X    if ((dfile = create_buffer (estimated_size)) == NULL) {
+X        reason = "file too big to fit in memory";
+X	goto abort;
+X    }
+X    if ((dfile = read_file_into_buffer (dfile, fd, max_size)) == NULL) {
+X	reason = "error reading file";
+X	goto abort;
+X    }
+X
+X    /*
+X     * file transfer successful.  Add this file to the print job,
+X     * clean up, and return.
+X     */
+X    if (file_type == '?')
+X	file_type = guess_file_type (dfile, file);
+X    /*
+X     * check for bogus file formats.  Refuse to print anything that
+X     * is obviously bogus.
+X     */
+X    if (check_for_bogus_file (dfile, file_type, file))
+X	goto okay;
+X
+X    /*
+X     * transfer the file to the server, with error checking
+X     */
+X    sprintf (buf, "\3%d %s\n", buffer_size(dfile), data_file_name);
+X    if ((x = send_command (job->fd, buf, strlen (buf))) != 0) {
+X	switch (x) {
+X	case 1:
+X	    break;
+X	case 2:
+X	    reason = "not enough disk space on server (or file is too large)";
+X	    break;
+X	case EOF:
+X	    reason = "connection to printer server broken";
+X	    break;
+X	default:
+X	    if (isprint (x)) {
+X		*buf = x;
+X		x = x_read (job->fd, buf + 1, sizeof (buf) - 1);
+X		buf[x+1] = '\0';
+X		reason = buf;
+X	    }
+X	}
+X	goto abort;
+X    }
+X    if (send_file_from_buffer (job->fd, dfile) != 0)
+X	goto abort;
+X    if (send_command (job->fd, "", 1) < 0)
+X	goto abort;
+X
+X    if (file_type == 'p' && !title)
+X	control (job, 'P', file);
+X    for (i = 0; i < num_copies; ++i)
+X	control (job, file_type, data_file_name);
+X    control (job, 'U', data_file_name);
+X    control (job, 'N', file);
+X okay:
+X    free_buffer (dfile);
+X    close (fd);
+X    return 1;
+X
+X
+X    /*
+X     * file transfer failed.  print error message and clean up
+X     */
+X abort:
+X    fprintf (stderr, "lpr: unable to send file %s to print server %s\n",
+X	     file, lpd_server);
+X    if (reason)
+X	fprintf (stderr, "reason: %s\n", reason);
+X    if (dfile)
+X	free_buffer (dfile);
+X    if (fd > 0)
+X	close (fd);
+X    return 0;
+X}
+X
+X/*
+X * send the control file.  Return 0 on success, nonzero on error.
+X */
+Xsend_control_file (job)
+Xstruct job *job;
+X{
+X    char buf[512];
+X    char control_file_name[512];
+X
+X    concoct_file_name ('c', job, control_file_name);
+X    sprintf (buf, "\2%d %s\n", job->cfile->ptr - job->cfile->text,
+X	     control_file_name);
+X    if (send_command (job->fd, buf, strlen (buf)) < 0)
+X	return 1;
+X    if (send_file_from_buffer (job->fd, job->cfile) != 0)
+X	return 1;
+X    if (send_command (job->fd, "", 1) < 0)
+X	return 1;
+X    return 0;
+X}
+X
+X/*
+X * close a job normally and delete its resources
+X */
+Xint
+Xclose_job (job)
+Xstruct job *job;
+X{
+X    int x;
+X    if (job == NULL)
+X	return EOF;
+X    x = send_control_file (job);
+X    if (job->cfile)
+X	free_buffer (job->cfile);
+X    close (job->fd);
+X    cfree (job);
+X    return x;
+X}
+X
+X/*
+X * abort a job and delete its resources
+X */
+Xvoid
+Xabort_job (job)
+Xstruct job *job;
+X{
+X    if (job == NULL)
+X	return;
+X    x_write (job->fd, "\1\n", 2);
+X    close (job->fd);
+X    if (job->cfile)
+X	free_buffer (job->cfile);
+X    cfree (job);
+X}
+X
+X
+Xchar *
+Xget_lpd_server ()
+X{
+X    FILE *fp;
+X    static char *buf[512];
+X    
+X    if ((fp = fopen ("/etc/LPD_SERVER", "r")) == (FILE *) NULL)
+X	return NULL;
+X    if (fscanf (fp, " %511s", buf) != 1)
+X	return NULL;
+X    return (char *) buf;
+X}
+X
+X
+X/*
+X * Dummy main program exists to find out what name we are being called
+X * by (under UNIX, anyway) and act appropriately.  This program has
+X * multiple personalities...
+X */
+X
+Xmain (argc, argv)
+Xint argc; char **argv;
+X{
+X#ifdef unix
+X    char *progname = NULL;
+X    char *strrchr ();
+X#endif
+X    char *p;
+X
+X    /*
+X     * inherit some defaults from the environment
+X     */
+X
+X    printer = getenv ("PRINTER");
+X    if (printer == NULL)
+X	printer = "lp";
+X    lpd_server = getenv ("LPD_SERVER");
+X    if (lpd_server == NULL)
+X	lpd_server = get_lpd_server ();
+X
+X    sysdep ();
+X
+X#ifdef unix
+X    /*
+X     * look at the last component of the name we were invoked with
+X     * and determine how to behave.
+X     */
+X    progname = strrchr (argv[0], '/');
+X    if (progname == NULL)
+X	progname = argv[0];
+X    else
+X	progname++;
+X
+X    if (strcmp (progname, "lpq") == 0)
+X	return (lpq (argc, argv));
+X    else if (strcmp (progname, "lprm") == 0)
+X	return (lprm (argc, argv));
+X#endif
+X
+X    /*
+X     * if first argument is -remove or -delete, behave as lprm
+X     * if first argumetn is -showqueue, behave as lpq
+X     */
+X
+X    if (argc > 1) {
+X	if (strcmp (argv[1], "-remove") == 0)
+X	    return (lprm (argc-1, argv+1));
+X	else if (strcmp (argv[1], "-delete") == 0)
+X	    return (lprm (argc-1, argv+1));
+X	else if (strcmp (argv[1], "-showqueue") == 0)
+X	    return (lpq (argc-1, argv+1));
+X    }
+X
+X    return (lpr (argc, argv));
+X}
+X
+X/*
+X * queue one or more files for printing
+X */
+X
+Xlpr (argc, argv)
+Xint argc; char **argv;
+X{
+X    struct job *job = NULL;
+X    int i;
+X    int file_args = 0;
+X    int files_printed = 0;
+X
+X    jobclass = hostname;
+X    jobtitle = NULL;
+X
+X    for (i = 1; i < argc; ++i) {
+X	if (*argv[i] == '-')
+X	    i += option (argv[i], argv[i+1]);
+X	else {
+X	    if (!jobtitle) {
+X		char *ptr = strrchr (argv[i], '/');
+X		jobtitle = ptr ? ptr + 1 : argv[i];
+X	    }
+X	    if (job == NULL && (job = open_job (printer)) == NULL)
+X		exit (EXIT_FAIL);
+X	    file_args++;
+X	    if (send_print_file (job, argv[i], file_type)) {
+X		files_printed++;
+X		if (rflag)
+X		    mark_for_delete (argv[i]);
+X	    }
+X	}
+X    }
+X    if (file_args == 0) {
+X	if (!jobtitle)
+X	    jobtitle = "stdin";
+X	if ((job = open_job (printer)) == NULL)
+X	    exit (EXIT_FAIL);
+X	files_printed += send_print_file (job, 0, file_type);
+X    }
+X    if (files_printed > 0) {
+X	if (close_job (job)) {
+X	    delete_marked_files ();
+X	    exit (EXIT_OK);
+X	}
+X	else
+X	    exit (EXIT_FAIL);
+X    }
+X    else
+X	exit (EXIT_FAIL);
+X    exit (EXIT_OK);
+X}
+X
+X/*
+X * print contents of printer queue
+X * "lpq -l" prints in long format
+X */
+X
+Xlpq (argc, argv)
+Xint argc; char **argv;
+X{
+X    int i;
+X    char buf[512];
+X    int fd;
+X    int x;
+X
+X    for (i = 1; i < argc ; ++i) {
+X	if (*argv[i] == '-')
+X	    i += option (argv[i], argv[i+1]);
+X	else
+X	    break;
+X    }
+X
+X    if ((fd = open_lpd (lpd_server)) < 0)
+X	exit (EXIT_FAIL);
+X
+X    if (lflag)
+X	sprintf (buf, "\004%s", printer);
+X    else
+X	sprintf (buf, "\003%s", printer);
+X
+X    for (; i < argc; ++i) {
+X	strcat (buf, " ");
+X	strcat (buf, argv[i]);
+X    }
+X
+X    strcat (buf, "\n");
+X    if (x_write (fd, buf, strlen (buf)) != 0) {
+X	while ((x = x_read (fd, buf, sizeof buf)) > 0)
+X	    fwrite (buf, sizeof (char), x, stdout);
+X    }
+X    close (fd);
+X    return 0;
+X}
+X
+X/*
+X * remove jobs from queue
+X */
+X
+Xlprm (argc, argv)
+Xint argc; char **argv;
+X{
+X    int fd;
+X    int i;
+X    char buf[512];
+X    int x;
+X    int response_length = 0;
+X    int remove_all = 0;
+X
+X    for (i = 1; i < argc; ++i) {
+X	if (strcmp (argv[i], "-") == 0)
+X	    remove_all++;
+X	else if (*argv[i] == '-')
+X	    i += option (argv[i], argv[i+1]);
+X	else
+X	    break;
+X    }
+X
+X    if ((fd = open_lpd (lpd_server)) < 0)
+X	exit (EXIT_FAIL);
+X
+X    /*
+X     * If user asks to remove all queued files with "lprm -",
+X     * need to check to see if user is privileged to do so.
+X     * Allow root to remove all queued files, but any other
+X     * user will just remove his/her own queued files.
+X     * (remote server will only delete files queued by this system)
+X     *
+X     * "-all" is a magic user name which means delete all
+X     * entries from this system.
+X     */
+X    if (remove_all) {
+X#ifdef unix
+X	if (strcmp (username, "root") == 0)
+X	    sprintf (buf, "\005%s %s", printer, "-all");
+X	else
+X	    sprintf (buf, "\005%s %s %s", printer, username, username);
+X#else
+X	sprintf (buf, "\005%s %s %s", printer, username, username);
+X#endif
+X    }
+X    else {
+X	sprintf (buf, "\005%s %s", printer, username);
+X    }
+X
+X    for (; i < argc; ++i) {
+X	strcat (buf, " ");
+X	strcat (buf, argv[i]);
+X    }
+X    strcat (buf, "\n");
+X    if (x_write (fd, buf, strlen (buf)) != 0) {
+X	while ((x = x_read (fd, buf, sizeof buf)) > 0) {
+X	    fwrite (buf, sizeof (char), x, stdout);
+X	    response_length += x;
+X	}
+X    }
+X    close (fd);
+X
+X    /* If response_length is zero, assume the remove command failed.
+X       Otherwise we should have received some confirmation message */
+X
+X    if (response_length == 0)
+X	return 1;
+X    return 0;
+X}
+END_OF_FILE
+  if test 25038 -ne `wc -c <'lpr.c'`; then
+    echo shar: \"'lpr.c'\" unpacked with wrong size!
+  fi
+  # end of 'lpr.c'
+fi
+if test -f 'lpr.cat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lpr.cat'\"
+else
+  echo shar: Extracting \"'lpr.cat'\" \(4649 characters\)
+  sed "s/^X//" >'lpr.cat' <<'END_OF_FILE'
+X
+X
+X
+XLPR(1)                                                     LPR(1)
+X
+X
+XNAME
+X       lpr  -  ``standalone''  interface  to a remote BSD printer
+X       spooler
+X
+XSYNOPSIS
+X       lpr [ -job-option ... ] [ -file-option ...  ]  [  filename
+X       ... ]
+X       lprm [ -Pprinter ] [ -Sserver ] [ - ] args...
+X       lpq [ -Pprinter ] [ -Sserver ] [ -l ] args
+X
+XDESCRIPTION
+X       This  version of lpr is an interface to a remote BSD UNIX-
+X       style printer spooler that allows a user of a non-BSD UNIX
+X       system  to  print  files  on printers attached to a server
+X       that supports the BSD print spooler protocol.
+X
+X       When filenames are  supplied  on  the  command  line,  lpr
+X       prints  the named files.  If no filenames appear, standard
+X       input is printed according to the supplied options.
+X
+X       lprm removes the jobs specified in args  from  the  remote
+X       print  queue.   The  jobs  must  have been queued from the
+X       local host.  args consist  of  some  combination  of  user
+X       names  or  job numbers.  If no args are supplied, the cur-
+X       rently active job  is  deleted.   The  argument  ``-''  is
+X       interpreted to mean ``delete all print jobs queued by this
+X       user,'' or if invoked by root,  ``delete  all  print  jobs
+X       queued from this host.''
+X
+X       lpq  prints a listing of the jobs queued for that particu-
+X       lar printer.  The -l option prints a more verbose listing.
+X
+XENVIRONMENT
+X       If  the absence of an -Sserver option on the command line,
+X       lpr expects that the name of the print server is contained
+X       in the file /etc/LPD_SERVER.  Failing that, lpr will exam-
+X       ine the LPD_SERVER environment variable for the name of  a
+X       printer  server to which files are spooled.  If this vari-
+X       able does not exist, an error message is printed.
+X
+XOPTIONS
+X       Options fall into two general categories:  job options and
+X       file  options.   The  former  class  of options affects an
+X       entire print job.  The latter class affects only  specific
+X       files  and  can  be  overriden  for subsequent files.  For
+X       example, it is possible to print a troff file and a  plain
+X       text file in the same print job.
+X
+X       Options  that  require  arguments can be specified with or
+X       without intervening space between the option and the argu-
+X       ment.  Thus, either -Pprinter or -P printer will work.
+X
+X   Job options
+X       These  options  specify  parameters that affect the entire
+X
+X
+X
+X                          21 March 1991                         1
+X
+X
+X
+X
+X
+XLPR(1)                                                     LPR(1)
+X
+X
+X       print job.  These include:
+X
+X       -Cjobclass     Names the job class, which will  appear  on
+X                      the  job  banner  page.  By default this is
+X                      set to the local hostname.
+X
+X       -Jjobtitle     Names the job title, which will  appear  on
+X                      the  job  banner  page  when  printed.   By
+X                      default this is the name of the first  file
+X                      named on the command line.
+X
+X       -h             Tells  the  printer server to not print the
+X                      banner page.
+X
+X       -m             When the  print  job  completes,  have  the
+X                      printer  server  send a mail message to the
+X                      person  who  submitted   the   job.    This
+X                      requires  that  your  machine  be  able  to
+X                      receive  mail   addressed   to   your-user-
+X                      name@your-host-name   and  that  the  print
+X                      server be able to get it there.
+X
+X       -Pprinter      specifies  to  which  printer   (of   those
+X                      attached to the printer server) output will
+X                      be sent.
+X
+X       -qprinter      The -q option is  synonymous  with  the  -P
+X                      option.   This  option  is intended for use
+X                      with VMS systems that cannot distinguish -P
+X                      from  -p.  Since -p has another meaning, -q
+X                      is used on VMS to select the printer.   VMS
+X                      users can also type -Pprinter within double
+X                      quotes.
+X
+X       -r             specifies that the named files  are  to  be
+X                      removed  after being successfully transmit-
+X                      ted  to   the   remote   printer   spooler.
+X                      -Sserver  specifies  the Internet host name
+X                      or IP address of the printer server.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X                          21 March 1991                         2
+X
+X
+END_OF_FILE
+  if test 4649 -ne `wc -c <'lpr.cat'`; then
+    echo shar: \"'lpr.cat'\" unpacked with wrong size!
+  fi
+  # end of 'lpr.cat'
+fi
+if test -f 'lpr.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lpr.man'\"
+else
+  echo shar: Extracting \"'lpr.man'\" \(10080 characters\)
+  sed "s/^X//" >'lpr.man' <<'END_OF_FILE'
+X.TH LPR 1 "21 March 1991"
+X.SH NAME
+Xlpr \- ``standalone'' interface to a remote BSD printer spooler
+X.SH SYNOPSIS
+X.B lpr
+X[ 
+X.BI \- job-option
+X\&... ] [
+X.BI \- file-option
+X\&... ] [
+X.I filename
+X\&... ]
+X.br
+X.B lprm
+X[
+X.BI \-P printer
+X] [
+X.BI \-S server
+X] [
+X.B \-
+X]
+X.I args...
+X.br
+X.B lpq
+X[
+X.BI \-P printer
+X] [
+X.BI \-S server
+X] [
+X.B \-l
+X]
+X.I args
+X.SH DESCRIPTION
+XThis version of
+X.B lpr
+Xis an interface to a remote BSD UNIX-style printer spooler that allows
+Xa user of a non-BSD UNIX system to print files on printers attached to
+Xa server that supports the BSD print spooler protocol.
+X.PP
+XWhen 
+X.IR filename s
+Xare supplied on the command line, 
+X.B lpr
+Xprints the named files.  If no 
+X.IR filename s
+Xappear, standard input is printed according to the supplied options.
+X.PP
+X.B lprm
+Xremoves the jobs specified in \fIargs\fR from the remote print queue.
+XThe jobs must have been queued from the local host.  \fIargs\fR
+Xconsist of some combination of user names or job numbers.  If no
+X\fIargs\fR are supplied, the currently active job is deleted.  The
+Xargument ``\fB\-\fR'' is interpreted to mean ``delete all print jobs
+Xqueued by this user,'' or if invoked by root, ``delete all print jobs
+Xqueued from this host.''
+X.PP
+X.B lpq
+Xprints a listing of the jobs queued for that particular printer.  The
+X\fB\-l\fR option prints a more verbose listing.
+X.SH ENVIRONMENT
+XIf the absence of an
+X.BI -S server
+Xoption on the command line, 
+X.B lpr
+Xexpects that the name of the print server is contained in the file
+X.BR /etc/LPD_SERVER .
+XFailing that, 
+X.B lpr
+Xwill examine the
+X.B LPD_SERVER
+Xenvironment variable for the name of a printer server to which
+Xfiles are spooled.  If this variable does not exist, an error message
+Xis printed.
+X.SH OPTIONS
+XOptions fall into two general categories:  job options and file
+Xoptions.  The former class of options affects an entire print job.
+XThe latter class affects only specific files and can be overriden for
+Xsubsequent files.  For example, it is possible to print a troff file
+Xand a plain text file in the same print job.
+X.PP
+XOptions that require arguments can be specified with or without
+Xintervening space between the option and the argument.  Thus, either
+X.BI \-P printer
+Xor
+X.B \-P
+X.I printer
+Xwill work.
+X.SS Job options
+X.PP
+XThese options specify parameters that affect the entire print job.  
+XThese include:
+X.TP 15
+X.BI \-C jobclass
+XNames the job class, which will appear on the job banner page.  By default 
+Xthis is set to the local hostname.
+X.TP
+X.BI \-J jobtitle
+XNames the job title, which will appear on the job banner page when printed.  
+XBy default this is the name of the first file named on the command line.
+X.TP
+X.B \-h
+XTells the printer server to not print the banner page.
+X.TP
+X.B \-m
+XWhen the print job completes, have the printer server send a mail message
+Xto the person who submitted the job.  This requires that your machine be able 
+Xto receive mail addressed to 
+X.IR your-user-name @ your-host-name
+Xand that the print server be able to get it there.
+X.TP
+X.BI \-P printer
+Xspecifies to which printer (of those attached to the printer server)
+Xoutput will be sent.
+X.TP
+X.BI \-q printer
+XThe
+X.B \-q
+Xoption is synonymous with the
+X.B \-P
+Xoption.  This option is intended for use with VMS systems that cannot
+Xdistinguish 
+X.B \-P 
+Xfrom
+X.B \-p.  Since 
+X.B \-p 
+Xhas another meaning, 
+X.B \-q
+Xis used on
+XVMS to select the printer.  VMS users can also type 
+X.BI \-P printer
+Xwithin double quotes.
+X.TP
+X.B \-r
+Xspecifies that the named files are to be removed after being successfully 
+Xtransmitted to the remote printer spooler.
+X.BI \-S server
+Xspecifies the Internet host name or IP address of the printer server.
+X.TP
+X.TP
+X.B \-debug
+XShow messages sent to and from the server on the standard error output.
+XNot for the faint-of-heart.
+X.SS File options
+XThese options specify parameters that are particular to one or more of
+Xthe files to be printed.  These options pertain to any files that appear
+Xto the right of the option on the command line, but they may be
+Xoverriden by specifing a different option between files.
+X.PP
+XOnly one of the file-type options
+X.RB ( \-d ,
+X.BR \-f ,
+X.BR \-g ,
+X.BR \-l ,
+X.BR \-n ,
+X.BR \-o ,
+X.BR \-p ,
+X.BR \-t ,
+Xand
+X.BR \-v )
+Xapply to any given file.  Subsequent use of any of these options
+Xspecifies the type of each file that appears to the right of the
+Xoption, until another file-type option appears.
+X.PP
+XIn the absence of any file-type options, 
+X.B lpr
+X.ds tE \s-1T\s-1\dE\u\s+1X\s+1
+Xtries to figure out what kind of file is to be printed.  It can currently
+Xrecognize \*(tE DVI files, as well as C/A/T (``classic'')
+X.BR troff (1)
+Xand PostScript files beginning with ``%!''.  If the particular
+Xkind of file is not recognized, 
+X.B lpr
+Xassumes the file is an ordinary text file.
+X.TP 15
+X.BI \-# number
+XSpecifies the number of copies of each file to print.  Default is to
+Xprint one copy of each file.
+X.TP
+X.B \-d
+XFiles that follow this option are device-independent (DVI)
+Xfiles such as might be produced by \*(tE.
+X.TP
+X.B \-f
+XTells 
+X.B lpr
+Xto expect files in FORTRAN output format, where the first
+Xcharacter of each line determines how to handle the ``printer
+Xcarraige'' after each line
+X.RB ( SPACE =go 
+Xto next line, 
+X.RB `` + ''=overprint,
+Xetc.)  (Many print servers do not support this format.)
+X.TP
+X.B \-g
+XFiles that follow this option are expected to be in V7 UNIX 
+X.BR plot (5)
+Xformat.  (Very few print servers support this format.)
+X.TP
+X.B \-l
+XFiles that follow this option are ordinary text files, but which may
+Xcontain embedded control characters.  (Some printer servers reject
+Xfiles which contain too many control characters; this option overrides
+Xthat feature in order to allow users to make use of printer specific
+Xfeatures that require use of non-printable characters.)
+X.TP
+X.B \-n
+XTells 
+X.B lpr
+Xto expect files in device-independent troff 
+X.RB ( ditroff )
+Xformat.  (Many print servers do not support this format.)
+X.TP
+X.B \-o
+XTells 
+X.B lpr
+Xto expect PostScript\v'-.5'\(tm\v'.5' files.  This generally
+Xrequires that the printer itself speak PostScript.  (Many
+Xprinter servers do not grok
+X.BR \-o ,
+Xbut do accept PostScript files submitted as ``normal text'' files,
+Xinterpreting them as PostScript programs rather than ordinary text files.)
+X.TP
+X.B \-p
+XTells 
+X.B lpr
+Xthat subsequent files are ordinary text files, which should
+Xbe printed with page breaks and headers.
+X.TP
+X.B \-t
+XTells 
+X.B lpr
+Xto expect files generated for a C/A/T phototypesetter, such
+Xas are generated by old or ``classic'' 
+X.BR troff .
+X.TP
+X.B \-v
+XTells 
+X.B lpr
+Xto expect Versatec raster-format files, or files in the printer's
+Xnative format, whatever that is.  Many servers expect ``-v files'' to
+Xbe in Sun raster format.
+X.SH DIAGNOSTICS
+X.TP 5
+X.B "LPD_SERVER environment variable is not set"
+XThe environment variable 
+X.B LPD_SERVER
+Xmust be set to the name of the printer server.
+X.TP
+X.B "bind: cannot bind to privileged port"
+XEither no privileged ports are available (highly unlikely), or
+X.B lpr
+Xis not installed as a privileged program.  Tell your system manager to
+Xread the installation instructions again.
+X.TP
+X.B "can't find network address for \fIserver\fB"
+XAn attempt to determine the network address of the printer server
+Xfailed.  The server must be listed in the Internet name server, your
+Xsystem's 
+X.B /etc/hosts
+Xfile, or in the NIS hosts database, depending on which mechanism your
+Xsystem uses for translating host names to network addresses.
+X.TP
+X.B "\fIfilename\fB is a TeX .dvi file, assuming \-d"
+XThe named file begins and ends with the magic numbers used by \*(tE
+XDVI files, and will therefore be interpreted as such instead of spewing
+Xgarbage to the printer.
+X.TP
+X.B "\fIfilename\fB is a C/A/T troff output file, assuming \-t"
+XThe file begins with the magic number generated by C/A/T (``classic'')
+X.BR troff (1),
+Xand will therefore be interpreted as such.
+X.TP
+X.B "\fIfilename\fB is a UNIX library archive \-\- ignoring it"
+X.B lpr
+Xrefuses to print library archive files, since these usually contain
+Xnon-printable data.
+X.TP
+X.B "\fIfilename\fB is a compressed file \-\- ignoring it"
+XThe named file has been compressed with
+X.BR compress (1),
+Xand cannot be directly printed by
+X.BR lpr .
+XEither use
+X.BR uncompress (1)
+Xto restore the original file, or pipe the file through
+X.BR zcat (1).
+X.TP
+X.B "skipping zero length file \fIfilename\fR"
+X.B lpr
+Xoptimizes the printing of an empty file by skipping the file entirely,
+Xthus saving trees by not printing unwanted banner pages.
+X.TP
+X.B "\fIfilename\fB is not a valid .dvi file"
+XThe
+X.B \-d
+Xoption was specified, but the named file is not in DVI format.
+X.SH BUGS
+X.LP
+XThere is currently no way to delete a print job (analogous to the BSD
+X.B lprm
+Xcommand), nor to inquire on the status of the print queue (analogus to the BSD
+X.B lpq
+Xcommand).
+X.LP
+XThe protocol used by
+X.B lpr
+Xrequires that it know the exact size of a file before sending it to
+Xthe print spooler.  In order to compute the size of a file piped to
+Xstandard input, and in order to work on non-UNIX systems which cannot
+Xdetermine the exact size of a file,
+X.B lpr
+Xreads each file into memory (counting the bytes as it goes) before
+Xsending it to the spooler.  Therefore, files larger than available
+Xmemory cannot be printed.
+X.LP
+XNot all printers or print servers support all file types.  There is no
+Xagreement among the various spoolers as to how to treat the
+X.B \-v
+Xfile type.
+X.LP
+XThe
+X.BR \-T ,
+X.BR \-i ,
+X.BR \-s ,
+Xand 
+X.B \-w
+Xoptions of BSD
+X.B lpr
+Xare not supported.
+X.LP
+XJob numbers are just independently-generated random numbers between 0
+Xand 999, so conflicts between two jobs submitted on the same host are
+Xpossible.
+X.LP
+XThe VMS interface is crufty.  LPR on VMS should take VMS-style options,
+Xand return a reasonable error status, but it doesn't do that yet.
+X.SH SEE ALSO
+X.LP
+X.I Line printer daemon protocol, RFC1179.
+X.LP
+XDocumentation for the printer spooler you are using on the printer server.  
+XOn BSD UNIX and some other systems, see the man pages for
+X.BR lpq (1),
+X.BR lprm (1),
+X.BR lpc (8),
+Xand
+X.BR lpd (8).
+X.\"* (emacs file trailier)
+X.\" Local Variables:
+X.\" auto-fill-mode:t
+X.\" version-control:t
+X.\" paragraph-separate:"^\\."
+X.\" paragraph-start:"^\\."
+X.\" End:
+END_OF_FILE
+  if test 10080 -ne `wc -c <'lpr.man'`; then
+    echo shar: \"'lpr.man'\" unpacked with wrong size!
+  fi
+  # end of 'lpr.man'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

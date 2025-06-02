@@ -1,0 +1,2101 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i007:  dist-3.0 - Configure script generator and related tools, Part03/28
+Message-ID: <1993Aug18.183750.16817@sparky.sterling.com>
+X-Md4-Signature: 0a84d614d45697e8b17bcd520521feaf
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Wed, 18 Aug 1993 18:37:50 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 7
+Archive-name: dist-3.0/part03
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jmake/bindex.SH jmake/files/Jmake.rules
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:18 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 28)."'
+if test -f 'jmake/bindex.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmake/bindex.SH'\"
+else
+  echo shar: Extracting \"'jmake/bindex.SH'\" \(5483 characters\)
+  sed "s/^X//" >'jmake/bindex.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting bindex (with variable substitutions)"
+X$spitshell >bindex <<!GROK!THIS!
+X$startperl
+X!GROK!THIS!
+X$spitshell >>bindex <<'!NO!SUBS!'
+X	eval 'exec perl -S $0 "$@"'
+X		if $runnning_under_some_shell;
+X
+X# $Id: bindex.SH,v 3.0 1993/08/18 12:04:13 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# $Log: bindex.SH,v $
+X# Revision 3.0  1993/08/18  12:04:13  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+X$file = "files/Jmake.rules";
+X
+Xopen(INDEX, ">Index") || die "Cannot create Index.\n";
+Xopen(RULES, "$file") || die "Cannot open $file.\n";
+X
+Xprint INDEX
+X"[This Index is automatically generated from Jmake.rules file. Do not
+Xedit this file or your changes will be lost. Edit Jmake.rules instead.]
+X
+XThis file contains a listing of all the macros that can be used in a
+XJmakefile. Only a few of these should be used in the Jmakefile (they
+Xare the top-level macros). However, some low-level ones may be useful,
+Xbut it is up to you to make that decision. This explains why this file
+Xholds all the available macros for jmake.
+X
+XIn the following listing, the macros are separated by a line of dashes.
+XThe signature of the macro is given, then a small comment of what it
+Xdoes precedes the actual definition.
+X
+XLines preceded by '->' show the set of symbols defined when the macro is
+Xused. Initialization lines are shown as-is, i.e. have the form SYM = val
+Xwhile concatenation is shown by SYM += val (which means val is added to
+Xthe value of SYM).
+X
+XConditional lines are preceded by tests like (if SYM). This means the line
+Xis to be kept if and only if the symbol SYM is defined. Other internal
+Xrequests are not formatted yet.
+X
+X";
+X$inrule = 0;			# Not inside a rule at the beginning
+X$incomment = 0;			# Not inside a comment
+X$last_was_text = 0;		# Last line was not a rule text
+Xwhile (<RULES>) {
+X	$inrule || next unless /^\s\*\s(\w+)\s*:/;
+X	if ($inrule) {		# We are already in a rule
+X		if ($incomment) {
+X			if (m|^\s*\*/|) {	# End of comment
+X				$incomment = 0;
+X				$Comment{$current} .= "\n";
+X			} else {
+X				s/^\s*\*\s*//;	# Remove leading comment sign
+X				$Comment{$current} .= "    $_";
+X			}
+X			next;		# Anyway, go to next line
+X		}
+X		if (/^\s*$/) {		# Empty line = end of rule
+X			$inrule = 0;
+X			next;
+X		}
+X		# Here, we have to print the body of the rule, after some cleaning
+X		s/(@#|@@|@!)\\$//;		# Remove final continuations
+X		s/^(#define.*)\\/$1/;	# Remove single '\' on first rule line
+X		s/\|rule:\s*$/\n/;
+X		s/\|rule:\s+/    /;		# Remove rule markers
+X		s/\|rule://;
+X		s/%(\w+):\|skip/#ifdef $1/;		# Deal with ugly skip syntax
+X		s/\?(\w+):\|skip/#ifndef $1/;	# Deal with ugly skip syntax
+X		s/\-skip/#endif/;
+X		s/\?(\w+):/(if $1) /;	# Simple '?' test
+X		s/%(\w+):/(not $1) /;	# Simple '%' test
+X		s/\|suffix/.SUFFIXES:/;	# Make suffix command explicit
+X		s/\t/    /g;			# Expand all tabs to 4 chars
+X		s/\s*$/\n/;				# Remove any trailing space
+X		s|\^\^|/**/|;			# Restore ^^ to the more visual /**/
+X		if (/^$/) {				# If empty line
+X			$Index{$current} .= "\n" if $last_was_text;
+X			$last_was_text = 0;
+X			next;
+X		}
+X		if (/^[>+]/) {			# Special commands
+X			if (s/^>\s*//) {						# Wanted symbol
+X				chop;
+X				$Wants{$current} .= " $_";
+X			} elsif (/^\+\+\s*(\S+)\s*(.*)/) {		# Added symbol
+X				$Added{$current} .= "\t$1 += $2\n";
+X			} else {
+X				s/^\+\s*(.*)//;
+X				$Init{$current} .= "\t$1\n";
+X			}
+X			next;
+X		}
+X		if (s/^#define\s+//) {	# Definition of the rule
+X			chop;
+X			$Sig{$current} = $_;			# Signature of rule
+X		} else {
+X			$Index{$current} .= "    $_";	# Rule's body
+X			$last_was_text = 1;
+X		}
+X	} else {			# We've just entered a rule
+X		$current = $1;
+X		next if $current =~ /patch\d/;	# Skip RCS log messages
+X		$inrule = 1;
+X		$incomment = 1;	# We're still in the leading comment
+X		$Seen{$current} = 1;
+X		$last_was_text = 0;
+X	}
+X}
+Xclose RULES;
+X
+X# Now sort the rules in alphabetical order
+X
+Xprint INDEX '-' x 72, "\n";
+Xforeach $rule (sort(keys %Seen)) {
+X	print INDEX "$Sig{$rule}:\n";
+X	print INDEX $Comment{$rule};
+X	$line = $Wants{$rule};
+X	if (length($line)) {
+X		$line = "->$line.";
+X		$line = do format($line);
+X		print INDEX "$line\n";
+X	}
+X	$line = $Init{$rule};
+X	print INDEX "$line\n" if length($line);
+X	$line = $Added{$rule};
+X	print INDEX "$line\n" if length($line);
+X	$line = $Index{$rule};
+X	print INDEX $line;
+X	print INDEX "\n" if (length($line));
+X	print INDEX '-' x 72, "\n";
+X}
+X
+Xclose INDEX;
+X
+X# Format $_ to fit in 80 columns (70 + size of tabs)
+X# Long lines are split, and the all but the first are indented
+X# by two leading spaces. The whole thing is then indented by
+X# one tab.
+Xsub format {
+X	local($tmp);
+X	local($head) = '';
+X	local($_) = shift(@_);
+X	while (length($_) > 70) {
+X		$tmp = substr($_,0,70);
+X		$tmp =~ s/^(.*) .*/$1/;
+X		$head .= "\t$tmp\n";
+X		$_ = ' ' . substr($_,length($tmp),9999);
+X	}
+X	$head .= "\t$_\n";
+X}
+X!NO!SUBS!
+Xchmod 755 bindex
+X$eunicefix bindex
+END_OF_FILE
+  if test 5483 -ne `wc -c <'jmake/bindex.SH'`; then
+    echo shar: \"'jmake/bindex.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'jmake/bindex.SH'
+  # end of 'jmake/bindex.SH'
+fi
+if test -f 'jmake/files/Jmake.rules' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmake/files/Jmake.rules'\"
+else
+  echo shar: Extracting \"'jmake/files/Jmake.rules'\" \(46529 characters\)
+  sed "s/^X//" >'jmake/files/Jmake.rules' <<'END_OF_FILE'
+X;########################################################################
+X;# Jmake rules for building libraries, programs, scripts, and data files
+X;# $Id: Jmake.rules,v 3.0 1993/08/18 12:04:14 ram Exp $
+X
+X/*
+X *		   MACHINE-INDEPENDENT RULES -- DO NOT MODIFY
+X */
+X
+X/* $Id: Jmake.rules,v 3.0 1993/08/18 12:04:14 ram Exp $
+X *
+X *  Copyright (c) 1991-1993, Raphael Manfredi
+X *  
+X *  You may redistribute only under the terms of the Artistic Licence,
+X *  as specified in the README file that comes with the distribution.
+X *  You may reuse parts of this distribution only within the terms of
+X *  that same Artistic Licence; a copy of which may be found at the root
+X *  of the source tree for dist 3.0.
+X *
+X * $Log: Jmake.rules,v $
+X * Revision 3.0  1993/08/18  12:04:14  ram
+X * Baseline for dist 3.0 netwide release.
+X *
+X */
+X
+X/* Please, edit only with tabstops = 4 (":set ts=4" under vi) */
+X
+X/*
+X * AddedByConfigure:
+X *	Gives name of the files generated by Configure that can safely
+X *	be removed when a "make clobber" is issued. Not that it is useless
+X *	to name config.h or config.sh because these are already taken care
+X *	of by jmake.
+X */
+X#define AddedByConfigure(files) @!\
+X>RM @!\
+Xlocal_clobber::			@@\
+X	$(RM) files
+X
+X/*
+X * AddSuffix:
+X *	Adds a sufix to the .SUFFIXES: list.
+X */
+X#define AddSuffix(ext) @!\
+X|suffix ext
+X
+X
+X/*
+X * AllTarget:
+X *	Generate rules to build necessary things during make all.
+X */
+X#define AllTarget(depends)	@!\
+X>RM @!\
+Xall:: depends				@!\
+X							@!\
+Xlocal_realclean::			@@\
+X	$(RM) depends
+X
+X/*
+X * RemoveTargetProgram:
+X *	This is used in some other macros in order to remove the target
+X *	before starting its building (saves disk space).  There should be
+X *	no '@!' at the end of the '#define' line, because this macro is
+X *	used *inside* building rules.
+X */
+X#define RemoveTargetProgram(program) \
+X>RM @!\
+X>MV @@\
+X	$(RM) program @@\
+X	if test -f program; then $(MV) program program^^~; else exit 0; fi
+X
+X/*
+X * NormalProgramTarget:
+X *	Generate rules to compile and link the indicated program; since
+X *	it does not use any default object files, it may be used for
+X *	multiple programs in the same Jmakefile.
+X */
+X#define	NormalProgramTarget(program,sources,objects)	@!\
+X>CC @!\
+X>RM @!\
+X>JLDFLAGS @!\
+X>LIBS @!\
+X++OBJECTS objects @!\
+X++SOURCES sources @!\
+XNormalObjectRule()				@!\
+XAllTarget(program)				@!\
+X								@!\
+Xprogram: objects				@@\
+X	RemoveTargetProgram($@)		@@\
+X	$(CC) -o $@ objects $(JLDFLAGS) $(LIBS) @!\
+X
+X
+X/*
+X * SingleProgramTarget:
+X *	Obsolete version of NormalProgramTarget that doesn't have
+X *	deplibs.
+X */
+X#define	SingleProgramTarget(program,objects,libs)		\
+XNormalProgramTarget(program,objects,^^,libs)
+X
+X/*
+X * SimpleProgramTarget:
+X *	Generate rules for compiling and linking programs that only have
+X *	one C source file.  It should only be used in Jmakefiles that
+X *	describe a single program.
+X */
+X#define	SimpleProgramTarget(program)	@!\
+XNormalProgramTarget(program,program.c,program.o)
+X
+X
+X
+X/*
+X * ComplexProgramTarget:
+X *	Generate rules for compiling and linking the program specified by
+X *	$(OBJS) and $(SRCS), installing the program and its man page, and
+X *	generating dependencies.  It should only be used in Jmakefiles
+X *	that describe a single program.
+X */
+X#define	ComplexProgramTarget(program)	@!\
+X>CC @!\
+X>JLDFLAGS @!\
+X>LIBS @!\
+X>BINDIR @!\
+X>MANSRC @!\
+X++OBJECTS $(OBJS) @!\
+X++SOURCES $(SRCS) @!\
+XNormalObjectRule()					@!\
+XAllTarget(program)					@!\
+X									@!\
+Xprogram: $(OBJS)					@@\
+X	RemoveTargetProgram($@)			@@\
+X	$(CC) -o $@ $(OBJS) $(JLDFLAGS) $(LIBS) @!\
+X									@!\
+XInstallProgram(program,$(BINDIR))	@!\
+XInstallManPage(program,$(MANSRC))	@!\
+XDependTarget()						@!\
+XLintTarget()
+X
+X
+X/*
+X * ComplexProgramTarget_1:
+X *	Generate rules for compiling and linking the program specified by
+X *	$(OBJS1) and $(SRCS1), installing the program and its man page,
+X *	and generating dependencies for it and any programs described by
+X *	$(SRCS2) and $(SRCS3).  It should be used to build the primary
+X *	program in Jmakefiles that describe multiple programs.
+X */
+X#define	ComplexProgramTarget_1(program)	@!\
+X>CC @!\
+X>JLDFLAGS @!\
+X>LIBS @!\
+X>BINDIR @!\
+X>MANSRC @!\
+X++OBJECTS $(OBJS1) @!\
+X++SOURCES $(SRCS1) @!\
+XNormalObjectRule()					@!\
+XAllTarget(program)					@!\
+X									@!\
+Xprogram: $(OBJS1)					@@\
+X	RemoveTargetProgram($@)			@@\
+X	$(CC) -o $@ $(OBJS1) $(JLDFLAGS) $(LIBS) @!\
+X									@!\
+XInstallProgram(program,$(BINDIR))	@!\
+XInstallManPage(program,$(MANSRC))	@!\
+X									@!\
+XDependTarget()						@!\
+XLintTarget()
+X
+X
+X/*
+X * ComplexProgramTarget_2:
+X *	Generate rules for compiling and linking the program specified by
+X *	$(OBJS2) and $(SRCS2) and installing the program and man page.
+X *	It should be used to build the second program in Jmakefiles
+X *	describing more than one program.
+X */
+X#define	ComplexProgramTarget_2(program)	@!\
+X>CC @!\
+X>JLDFLAGS @!\
+X>LIBS @!\
+X>BINDIR @!\
+X>MANSRC @!\
+X++OBJECTS $(OBJS2) @!\
+X++SOURCES $(SRCS2) @!\
+XNormalObjectRule()					@!\
+XAllTarget(program)					@!\
+X									@!\
+Xprogram: $(OBJS2)					@@\
+X	RemoveTargetProgram($@)			@@\
+X	$(CC) -o $@ $(OBJS2) $(JLDFLAGS) $(LIBS) @!\
+X									@!\
+XInstallProgram(program,$(BINDIR))	@!\
+XInstallManPage(program,$(MANSRC))
+X
+X
+X/*
+X * ComplexProgramTarget_3:
+X *	Generate rules for compiling and linking the program specified by
+X *	$(OBJS3) and $(SRCS3) and installing the program and man page.  It
+X *	should be used to build the third program in Jmakefiles describing
+X *	more than one program.
+X */
+X#define	ComplexProgramTarget_3(program) @!\
+X>CC @!\
+X>JLDFLAGS @!\
+X>LIBS @!\
+X>BINDIR @!\
+X>MANSRC @!\
+X++OBJECTS $(OBJS3) @!\
+X++SOURCES $(SRCS3) @!\
+XNormalObjectRule()					@!\
+XAllTarget(program)					@!\
+X									@!\
+Xprogram: $(OBJS3)					@@\
+X	RemoveTargetProgram($@)			@@\
+X	$(CC) -o $@ $(OBJS3) $(JLDFLAGS) $(LIBS) @!\
+X									@!\
+XInstallProgram(program,$(BINDIR))	@!\
+XInstallManPage(program,$(MANSRC))
+X
+X
+X/*
+X * ComplexShellManualTarget:
+X *	Builds manual pages that are to be extracted from .SH files into
+X *	.$manext files.
+X */
+X#define ComplexShellManualTarget(manpages) @!\
+X>INSTALL @!\
+X>MANSRC @!\
+X>RM @!\
+X++MANPAGE manpages @!\
+X|once _ShellManualRule_		@!\
+X|rule:.SH.$manext:			@!\
+X|rule: /bin/sh $<			@!\
+X|rule:						@!\
+X-once						@!\
+XAddSuffix(.SH)				@!\
+XAddSuffix(.$manext)			@!\
+XAllTarget(manpages)			@!\
+X							@!\
+Xinstall.man::				@@\
+X	@if test "$(MANSRC)"; then \		@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		for file in manpages; do \		@@\
+X			(set -x; $(INSTALL) -c -m 444 $$file $(MANSRC)); \	@@\
+X		done; \				@@\
+X	else exit 0; fi			@!\
+X							@!\
+Xdeinstall.man::				@@\
+X	@if test "$(MANSRC)"; then \		@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		for file in manpages; do \		@@\
+X			(set -x; $(RM) $(MANSRC)/$$file); \	@@\
+X		done; \				@@\
+X	else exit 0; fi
+X
+X
+X/*
+X * Initialize:
+X *	Puts the line symbol = value in the initialization section of
+X *	Makefile.SH (the one that is subject to parameter substitutions).
+X */
+X#define Initialize(symbol,value) @!\
+X+symbol = value
+X
+X
+X/*
+X * InstallLibrary:
+X *	Generate rules to install the indicated library.
+X */
+X#define	InstallLibrary(libname,dest)	@!\
+X>RANLIB @!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: lib^^libname.a	@@\
+X	$(INSTALL) -c -m 444 lib^^libname.a dest		@@\
+X	$(RANLIB) dest/lib^^libname.a	@!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/lib^^libname.a
+X
+X
+X/*
+X * InstallSharedLibrary:
+X *	Generate rules to install the shared library.
+X */
+X#define	InstallSharedLibrary(libname,rev,dest)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: lib^^libname.so.rev 	@@\
+X	$(INSTALL) -c -m 444 lib^^libname.so.rev dest @!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/lib^^libname.so.rev
+X
+X
+X/*
+X * InstallSharedLibraryData:
+X *	Generate rules to install the shared library data
+X */
+X#define	InstallSharedLibraryData(libname,rev,dest)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: lib^^libname.sa.rev		@@\
+X	$(INSTALL) -c -m 444 lib^^libname.sa.rev dest @!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/lib^^libname.sa.rev
+X
+X
+X/*
+X * InstallLibraryAlias:
+X *	Generate rules to create a link from one library name to another
+X *	for the purposes of aliasing.
+X */
+X#define	InstallLibraryAlias(libname,alias,dest)	@!\
+X>LN @!\
+X>RM @!\
+Xinstall:: lib^^libname.a	@@\
+X	$(RM) lib^^alias.a		@@\
+X	-(cd dest; $(LN) lib^^libname.a lib^^alias.a) @!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/lib^^alias.a
+X
+X
+X/*
+X * InstallLintLibrary:
+X *	Generate rules to install the indicated lint library.
+X */
+X#define	InstallLintLibrary(libname,dest)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall.ln:: llib-l^^libname.ln	@@\
+X	$(INSTALL) -c -m 444 llib-l^^libname.ln dest @!\
+X							@!\
+Xdeinstall.ln::				@@\
+X	$(RM) dest/llib-l^^libname.ln
+X
+X
+X/*
+X * InstallManPageLong:
+X *	Generate rules to install the indicated manual page, giving it an
+X *	alternate name.  This is used for installing man pages whose base
+X *	name without the .man suffix would normally be longer than 8
+X *	characters (the limit for using source code control systems on
+X *	files systems with short file names).
+X */
+X#define	InstallManPageLong(file,destdir,dest)	@!\
+X>L @!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall.man:: file.man			@@\
+X	$(INSTALL) -c -m 444 file.man destdir/dest.$(L) @!\
+X								@!\
+Xdeinstall.man::					@@\
+X	$(RM) destdir/dest.$(L)		@!\
+X
+X
+X/*
+X * InstallManPage:
+X *	Generate rules to install the indicated manual page.
+X */
+X#define	InstallManPage(file,dest)	@!\
+XInstallManPageLong(file,dest,file)
+X
+X
+X/*
+X * InstallNonExec:
+X *	Generate rules to install a data file using any special
+X *  install flags.
+X */
+X#define	InstallNonExec(file,dest)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: file						@@\
+X	$(INSTALL) -c -m 444 file dest	@!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/file
+X
+X
+X/*
+X * InstallProgramWithFlags:
+X *	Generate rules to install an executable program using given
+X *	install flags.
+X */
+X#define InstallProgramWithFlags(program,dest,flags)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: program					@@\
+X	$(INSTALL) -c -s -m 555 flags program dest @!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/program
+X
+X
+X/*
+X * InstallProgram:
+X *	Generate rules to install an executable program using any special
+X *	install flags set in $(INSTALLFLAGS).
+X */
+X#define	InstallProgram(program,dest)	@!\
+XInstallProgramWithFlags(program,dest,^^)
+X
+X
+X/*
+X * InstallScriptWithFlags:
+X *	Generate rules to install an executable script using given
+X *	install flags.
+X */
+X#define InstallScriptWithFlags(script,dest,flags)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xinstall:: script					@@\
+X	$(INSTALL) -c -m 555 flags script dest @!\
+X							@!\
+Xdeinstall::					@@\
+X	$(RM) dest/script
+X
+X
+X/*
+X * InstallScript:
+X *	Generate rules to install an executable script using any special
+X *	install flags set in $(INSTALLFLAGS).
+X */
+X#define	InstallScript(script,dest)	@!\
+XInstallScriptWithFlags(script,dest,^^)
+X
+X
+X/*
+X * InstallScripts:
+X *	Generate rules to install all the scripts listed in the generated
+X *  $(SCRIPTS) and $(LSCRIPTS) macros.
+X */
+X#define	InstallScripts()	@!\
+X>SCRIPTDIR @!\
+X>INSTALL @!\
+X>RM @!\
+X|once _InstallScripts_		@!\
+Xinstall:: $(SCRIPTS) $(LSCRIPTS) @@\
+X	@for file in $(SCRIPTS) $(LSCRIPTS); do \	@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		(set -x; $(INSTALL) -c -m 555 $$file $(SCRIPTDIR)); \	@@\
+X	done					@!\
+X							@!\
+Xdeinstall::					@@\
+X	@for file in $(SCRIPTS) $(LSCRIPTS); do \	@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		(set -x; $(RM) $(SCRIPTDIR)/$$file); \	@@\
+X	done					@!\
+X-once
+X
+X/*
+X * InstallManScripts:
+X *	Generate rule to install/deinstall manual pages for scripts listed
+X *	in the automatically generated $(SCRIPTS) macro.
+X */
+X#define InstallManScripts()	@!\
+X>RM @!\
+X>INSTALL @!\
+X>MANSRC @!\
+X>L @!\
+X|once _InstallManScripts_	@!\
+X?NOMAN:|skip				@!\
+Xinstall.man::				@@\
+X	@if test "$(MANSRC)"; then \	@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		for file in $(SCRIPTS); do \	@@\
+X			(set -x; \		@@\
+X			$(INSTALL) -c -m 444 $$file.man $(MANSRC)/$$file.$(L)); \ @@\
+X		done; \					@@\
+X	else exit 0; fi			@!\
+X							@!\
+Xdeinstall.man::				@@\
+X	@if test "$(MANSRC)"; then \	@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		for file in $(SCRIPTS); do \	@@\
+X			(set -x; $(RM) $(MANSRC)/$$file.$(L)); \	@@\
+X		done; \					@@\
+X	else exit 0; fi			@!\
+X							@!\
+X-skip						@!\
+X-once
+X
+X
+X
+X/*
+X * LinkFileList:
+X *	Link a list of list of files from one place to another
+X */
+X#define LinkFileList(step,list,dir,sub)	@!\
+X>LN @!\
+Xstep:: list							@@\
+X	@case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X	echo "	cd" dir; cd dir; for i in list; do (set -x; $(LN) sub/$$i .); done
+X
+X
+X/*
+X * InstallMultipleDestFlags:
+X *	Generate rules to install multiple files at once during a particular
+X *	step in the build using a specific set of install flags. The `step'
+X *	must begin with "install".
+X */
+X#define InstallMultipleDestFlags(step,list,dest,flags)	@!\
+X>INSTALL @!\
+X>RM @!\
+Xstep:: list							@@\
+X	@case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X	for i in list; do \				@@\
+X		(set -x; $(INSTALL) -c flags $$i dest); \	@@\
+X	done							@!\
+X									@!\
+Xde^^step::						@@\
+X	@case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X	for i in list; do \				@@\
+X		(set -x; $(RM) dest/$$i); \	@@\
+X	done
+X
+X
+X/*
+X * InstallMultipleDest:
+X *	Generate rules to install multiple files at once during a particular
+X *	step in the build using any install flags set in $(INSTALLFLAGS).
+X */
+X#define InstallMultipleDest(step,list,dest)	@!\
+XInstallMultipleDestFlags(step,list,dest,$(INSTALLFLAGS))
+X
+X/*
+X * InstallMultiple:
+X *	Generate rules to install multiple files at once during the install
+X *	step of the build using any install flags set in $(INSTALLFLAGS).
+X */
+X#define	InstallMultiple(list,dest)	@!\
+XInstallMultipleDest(install,list,dest)
+X
+X
+X/*
+X * InstallMultipleFlags:
+X *	Generate rules to install multiple files at once during the
+X *	install step of the build using the given install flags.
+X */
+X#define InstallMultipleFlags(list,dest,flags)	@!\
+XInstallMultipleDestFlags(install,list,dest,flags)
+X
+X
+X/*
+X * InstallMultipleMan:
+X *	Generate rules to install a variety of manual pages
+X *	during the install.man step of the build.
+X */
+X#define InstallMultipleMan(list,dest)	@!\
+X>L @!\
+XInstallMultipleDest(install.$(L),list,dest)
+X
+X
+X/*
+X * DependDependency:
+X *	Generate rules to build the makedepend program.
+X */
+X#define DependDependency() 			@!\
+Xdepend:: TOPDIR/mkdep				@!\
+X									@!\
+XTOPDIR/mkdep:						@!\
+X?TOP: @echo "You have to run Configure first."; exit 1	@!\
+X%TOP: @echo "You have to run Configure in $(TOP) first."; exit 1
+X
+X
+X/*
+X * DependTarget:
+X *	Generate rules to compute dependencies for all files listed
+X *	in $(SOURCES) (automatically generated macro).
+X */
+X#define	DependTarget()				@!\
+X>MKDEP @!\
+X>SED @!\
+X>RM @!\
+X|once _DependTarget_				@!\
+XDependDependency()					@!\
+X									@!\
+Xdepend::							@@\
+X	($(SED) '/^# DO NOT DELETE/q' Makefile && \ @@\
+X	$(MKDEP) $(SOURCES) | \			@@\
+X	$(SED) 's/: \.\//: /; /\/usr\/include/d' \ @@\
+X	) > Makefile.new				@@\
+X	cp Makefile Makefile.bak		@@\
+X	cp Makefile.new Makefile		@@\
+X	$(RM) Makefile.new				@!\
+X									@!\
+X-once
+X
+X
+X/*
+X * CleanTarget:
+X *	Generate rules to remove any garbage files.
+X */
+X#define	CleanTarget()				@!\
+X>RM @!\
+X?SUBDIRS:clean: sub_clean local_clean				@!\
+X%SUBDIRS:clean: local_clean							@!\
+X?SUBDIRS:realclean: sub_realclean local_realclean	@!\
+X%SUBDIRS:realclean: local_realclean					@!\
+X?SUBDIRS:clobber: sub_clobber local_clobber			@!\
+X%SUBDIRS:clobber: local_clobber						@!\
+X									@!\
+Xlocal_clean:: 						@@\
+X	$(RM) core *~ *.o				@!\
+X									@!\
+Xlocal_realclean:: local_clean		@!\
+X?TOP: $(RM) -r UU					@!\
+X									@!\
+Xlocal_clobber:: local_realclean		@!\
+X%TOP: $(RM) Makefile config.sh		@!\
+X?TOP: $(RM) config.sh config.h		@!\
+X?TOP: $(RM) Makefile				@!\
+X
+X
+X/*
+X * TagsTarget:
+X *	Generate rules to compute tags files for C source code.
+X */
+X#define	TagsTarget()				@!\
+X>CTAGS @!\
+X>RM @!\
+Xtags::								@@\
+X	$(CTAGS) -w *.[ch]				@@\
+X	$(CTAGS) -xw *.[ch] > tags		@!\
+X									@!\
+Xlocal_clobber::						@@\
+X	$(RM) tags
+X
+X
+X
+X/*
+X * BuildMakefileSH:
+X *	Generate rules to build a Makefile.SH from an Jmakefile and any
+X *	special jmake flags.  This is generally done automatically by the
+X *	template or by any special Jmakefiles.
+X *	This function will simply touch Makefile.SH if no $(TOP)/.package
+X *	exists, assuming the Jmakefile is not in a production environment.
+X */
+X#define	BuildMakefileSH(jmakeflags)	@!\
+X>RM @!\
+X>MV @!\
+XMakefile.SH: Jmakefile 				@@\
+X	-@if test -f $(TOP)/.package; then \ @@\
+X		if test -f Makefile.SH; then \	@@\
+X			echo "	$(RM) Makefile.SH~; $(MV) Makefile.SH Makefile.SH~"; \ @@\
+X			$(RM) Makefile.SH~; $(MV) Makefile.SH Makefile.SH~; \	@@\
+X		fi; \						@@\
+X		echo "	$(JMAKE) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT)" jmakeflags; \ @@\
+X		$(JMAKE) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT) jmakeflags; \ @@\
+X	else touch $@; exit 0; fi
+X
+X
+X/*
+X * BuildMakefile:
+X *	Generate rules to build a Makefile from a Makefile.SH.
+X */
+X#define	BuildMakefile()	@!\
+XMakefile: Makefile.SH				@@\
+X	/bin/sh Makefile.SH
+X
+X
+X/*
+X * MakefileTarget:
+X *	Generate rules to build a normal Makefile.
+X */
+X#define MakefileTarget()		@!\
+XBuildMakefileSH(^^)				@!\
+XBuildMakefile()
+X
+X
+X/*
+X * NormalObjectRule:
+X *	Generate make rule to build usual object files.
+X */
+X#define	NormalObjectRule()			@!\
+X>CC @!\
+X>JCFLAGS @!\
+X|once _ObjectRule_					@!\
+X|rule:.c.o:							@!\
+X|rule: $(CC) -c $(JCFLAGS) $<		@!\
+X|rule:								@!\
+X-once
+X
+X/*
+X * NormalLibraryObjectRule:
+X *	Generate make rules to build "normal" objects.
+X */
+X#define	NormalLibraryObjectRule()	@!\
+X>CC @!\
+X>JCFLAGS @!\
+X>RM @!\
+X|once _ObjectRule_					@!\
+X|rule:.c.o:							@!\
+X|rule: $(RM) $@						@!\
+X|rule: $(CC) -c $(JCFLAGS) $<		@!\
+X|rule:								@!\
+X-once
+X
+X/*
+X * ProfiledLibraryObjectRule:
+X *	Generate make rules to build both profiled and "normal" objects.
+X */
+X#define	ProfiledLibraryObjectRule()	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::								@@\
+X	@if [ ! -d profiled ]; then mkdir profiled; else exit 0; fi	@!\
+X									@!\
+X|rule:.c.o:							@!\
+X|rule: $(RM) $@ profiled/$@			@!\
+X|rule: $(CC) -pg -c $(JCFLAGS) $*.c	@!\
+X|rule: $(MV) $*.o profiled/$*.o		@!\
+X|rule: $(CC) -c $(JCFLAGS) $*.c		@!\
+X|rule:								@!\
+Xlocal_clean:: 						@@\
+X	-@if [ -d profiled ]; then echo "	$(RM) profiled/?*.o"; \	@@\
+X		$(RM) profiled/?*.o; else exit 0; fi
+X
+X
+X/*
+X * DebuggedLibraryObjectRule:
+X *	Generate make rules to build both debuggable and "normal"
+X *	objects.
+X */
+X#define	DebuggedLibraryObjectRule()					@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X									@!\
+X|rule:.c.o:							@!\
+X|rule: $(RM) $@ debugger/$@			@!\
+X|rule: $(CC) -g -c $(JCFLAGS) $*.c	@!\
+X|rule: $(MV) $*.o debugger/$*.o		@!\
+X|rule: $(CC) -c $(JCFLAGS) $*.c		@!\
+X|rule:								@!\
+Xlocal_clean::						@@\
+X	-@if [ -d debugger ]; then echo "	$(RM) debugger/?*.o"; \ @@\
+X		$(RM) debugger/?*.o; else exit 0; fi
+X
+X
+X/*
+X * DebuggedAndProfiledLibraryOjbectRule:
+X *	Generate make rules to build debuggable, profiled, and "normal"
+X *	objects.
+X */
+X#define	DebuggedAndProfiledLibraryObjectRule()	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d profiled ]; then mkdir profiled; else exit 0; fi	@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X										@!\
+X|rule:.c.o:								@!\
+X|rule: $(RM) $@ profiled/$@ debugger/$@	@!\
+X|rule: $(CC) -pg -c $(JCFLAGS) $*.c		@!\
+X|rule: $(MV) $*.o profiled/$*.o			@!\
+X|rule: $(CC) -g -c $(JCFLAGS) $*.c		@!\
+X|rule: $(MV) $*.o debugger/$*.o			@!\
+X|rule: $(CC) -c $(JCFLAGS) $*.c			@!\
+X|rule:									@!\
+Xlocal_clean::							@@\
+X	-@if [ -d profiled ]; then echo "	$(RM) profiled/?*.o"; \ @@\
+X		$(RM) profiled/?*.o; else exit 0; fi	@@\
+X	-@if [ -d debugger ]; then echo "	$(RM) debugger/?*.o"; \ @@\
+X		$(RM) debugger/?*.o; else exit 0; fi
+X
+X
+X/*
+X * SharedLibraryObjectRule:
+X *	Generate make rules to build shared and "normal" object files.
+X */
+X#define SharedLibraryObjectRule()					@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::								@@\
+X	@if [ ! -d shared ]; then mkdir shared; else exit 0; fi		@!\
+X									@!\
+X|rule:.c.o:							@!\
+X|rule: $(RM) $@ shared/$@			@!\
+X|rule: $(CC) -pic -c $(SHAREDCODEDEF) $(SHLIBDEF) $(JCFLAGS) $*.c	@!\
+X|rule: $(MV) $*.o shared/$*.o		@!\
+X|rule: $(CC) -c $(SHLIBDEF) $(JCFLAGS) $*.c				@!\
+X|rule:								@!\
+Xlocal_clean::						@@\
+X	-@if [ -d shared ]; then echo "	$(RM) shared/?*.o"; \		@@\
+X		$(RM) shared/?*.o; else exit 0; fi
+X
+X/*
+X * SharedAndDebuggedLibraryObjectRule:
+X *	Generate make rules to build shared, debuggable, and "normal"
+X *	object files.
+X */
+X#define SharedAndDebuggedLibraryObjectRule()	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::										@@\
+X	@if [ ! -d shared ]; then mkdir shared; else exit 0; fi		@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X											@!\
+X|rule:.c.o:									@!\
+X|rule: $(RM) $@ shared/$@ debugger/$@		@!\
+X|rule: $(CC) -pic -c $(SHAREDCODEDEF) $(SHLIBDEF) $(JCFLAGS) $*.c	@!\
+X|rule: $(MV) $*.o shared/$*.o				@!\
+X|rule: $(CC) -g -c $(SHLIBDEF) $(JCFLAGS) $*.c	@!\
+X|rule: $(MV) $*.o debugger/$*.o				@!\
+X|rule: $(CC) -c $(SHLIBDEF) $(JCFLAGS) $*.c	@!\
+X|rule:										@!\
+Xlocal_clean:: 								@@\
+X	-@if [ -d shared ]; then echo "	$(RM) shared/?*.o"; \		@@\
+X		$(RM) shared/?*.o; else exit 0; fi	@@\
+X	-@if [ -d debugger ]; then echo "	$(RM) debugger/?*.o"; \ @@\
+X		$(RM) debugger/?*.o; else exit 0; fi
+X
+X/*
+X * SpecialSharedAndDebuggedObjectRule:
+X *	Generate rules to compile a file with special flags and to make
+X *	shared and debuggable versions.
+X */
+X#define	SpecialSharedAndDebuggedObjectRule(objs,depends,options)	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d shared ]; then mkdir shared; else exit 0; fi		@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X										@!\
+Xobjs:	depends							@@\
+X	$(RM) $@ shared/$@ debugger/$@		@@\
+X	$(CC) -pic -c $(SHAREDCODEDEF) $(SHLIBDEF) $(JCFLAGS) options $*.c @@\
+X	$(MV) $*.o shared/$*.o				@@\
+X	$(CC) -g -c $(SHLIBDEF) $(JCFLAGS) options $*.c			@@\
+X	$(MV) $*.o debugger/$*.o			@@\
+X	$(CC) -c $(SHLIBDEF) $(JCFLAGS) options $*.c
+X
+X/*
+X * SpecialSharedObjectRule:
+X *	Generate rules to compile a file with special flags and to make
+X *	shared and debuggable versions.
+X */
+X#define	SpecialSharedObjectRule(objs,depends,options)		@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d shared ]; then mkdir shared; else exit 0; fi		@!\
+X										@!\
+Xobjs:	depends							@@\
+X	$(RM) $@ shared/$@ 					@@\
+X	$(CC) -pic -c $(SHAREDCODEDEF) $(SHLIBDEF) $(JCFLAGS) options $*.c @@\
+X	$(MV) $*.o shared/$*.o				@@\
+X	$(CC) -c $(SHLIBDEF) $(JCFLAGS) options $*.c
+X
+X
+X/*
+X * SpecialObjectRule:
+X *	Generate rules to compile a file with special flags.
+X */
+X#define SpecialObjectRule(objs,depends,options)		@!\
+X>RM @!\
+X>CC @!\
+X>JCFLAGS @!\
+Xobjs:	depends							@@\
+X	$(RM) $@							@@\
+X	$(CC) -c $(JCFLAGS) options $*.c
+X
+X
+X/*
+X * SpecialProfiledObjectRule:
+X *	Generate rules to compile a file with special flags and to make a
+X *	profiled version.
+X */
+X#define	SpecialProfiledObjectRule(objs,depends,options)			@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d profiled ]; then mkdir profiled; else exit 0; fi	@!\
+X										@!\
+Xobjs:	depends							@@\
+X	$(RM) $@ profiled/$@				@@\
+X	$(CC) -pg -c $(JCFLAGS) options $*.c	@@\
+X	$(MV) $*.o profiled/$*.o			@@\
+X	$(CC) -c $(JCFLAGS) options $*.c
+X
+X
+X/*
+X * SpecialDebuggedObjectRule:
+X *	Generate rules to compile a file with special flags and to make a
+X *	debuggable version.
+X */
+X#define	SpecialDebuggedObjectRule(objs,depends,options)	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X										@!\
+Xobjs:	depends							@@\
+X	$(RM) $@ debugger/$@				@@\
+X	$(CC) -g -c $(JCFLAGS) options $*.c	@@\
+X	$(MV) $*.o debugger/$*.o			@@\
+X	$(CC) -c $(JCFLAGS) options $*.c
+X
+X
+X/*
+X * SpecialDebuggedAndProfiledObjectRule:
+X *	Generate rules to compile a file with special flags and to make
+X *	debuggable and profiled versions.
+X */
+X#define	SpecialDebuggedAndProfiledObjectRule(objs,depends,options)	@!\
+X>RM @!\
+X>CC @!\
+X>MV @!\
+X>JCFLAGS @!\
+Xall::									@@\
+X	@if [ ! -d profiled ]; then mkdir profiled; else exit 0; fi	@@\
+X	@if [ ! -d debugger ]; then mkdir debugger; else exit 0; fi	@!\
+X										@!\
+Xobjs:	depends							@@\
+X	$(RM) $@ profiled/$@ debugger/$@	@@\
+X	$(CC) -pg -c $(JCFLAGS) options $*.c	@@\
+X	$(MV) $*.o profiled/$*.o			@@\
+X	$(CC) -g -c $(JCFLAGS) options $*.c	@@\
+X	$(MV) $*.o debugger/$*.o			@@\
+X	$(CC) -c $(JCFLAGS) options $*.c
+X
+X
+X/*
+X * NormalLibraryTarget:
+X *	Generate rules to create a library. The 'srclist' and 'objlist'
+X *	parameters are added to SOURCES and OBJECTS macros. The 'srclist'
+X *	is not otherwise used by this rule, but is necessary for make depend.
+X */
+X#define	NormalLibraryTarget(libname,srclist,objlist)	@!\
+X>RM @!\
+X>AR @!\
+X>RANLIB @!\
+X++OBJECTS objlist @!\
+X++SOURCES srclist @!\
+XNormalLibraryObjectRule()		@!\
+XAllTarget(lib^^libname.a)		@!\
+X								@!\
+Xlib^^libname.a: objlist			@@\
+X	$(RM) $@					@@\
+X	$(AR) $@ objlist			@@\
+X	$(RANLIB) $@
+X
+X
+X/*
+X * NormalSharedLibraryTarget:
+X *	Generate rules to create a shared library; build it into a
+X *	different name so that the we don't hose people by having the
+X *	library gone for long periods.
+X */
+X#define NormalSharedLibraryTarget(libname,rev,solist)	@!\
+X>RM @!\
+X>LD @!\
+X>MV @!\
+XAllTarget(lib^^libname.so.rev)	@!\
+X									@!\
+Xlib^^libname.so.rev:  solist		@@\
+X	$(RM) $@~						@@\
+X	(cd shared; $(LD) -o ../$@~ -assert pure-text solist)		@@\
+X	$(RM) $@ 						@@\
+X	$(MV) $@~ $@
+X
+X/*
+X * NormalSharedLibraryDataTarget:
+X *	Generate rules to create shlib data file; build it into a
+X *	different name so that the we don't hose people by having the
+X *	library gone for long periods.
+X */
+X#define NormalSharedLibraryDataTarget(libname,rev,salist)	@!\
+X>RM @!\
+X>AR @!\
+X>RANLIB @!\
+XAllTarget(lib^^libname.sa.rev)	@!\
+X									@!\
+Xlib^^libname.sa.rev:  salist		@@\
+X	$(RM) $@						@@\
+X	$(AR) $@ salist					@@\
+X	$(RANLIB) $@
+X
+X
+X/*
+X * NormalLibraryTarget2:
+X *	Generate rules to create a library in two steps.  This is used to
+X *	create libraries with large numbers of files.
+X */
+X#define	NormalLibraryTarget2(libname,srclist,objlist1,objlist2)	@!\
+X>RM @!\
+X>AR @!\
+X>RANLIB @!\
+X++SOURCES srclist @!\
+X++OBJECTS objlist1 @!\
+X++OBJECTS objlist2 @!\
+XNormalLibraryObjectRule()			@!\
+XAllTarget(lib^^libname.a)			@!\
+X									@!\
+Xlib^^libname.a: objlist1 objlist2	@@\
+X	$(RM) $@						@@\
+X	$(AR) $@ objlist1				@@\
+X	$(AR) $@ objlist2				@@\
+X	$(RANLIB) $@
+X
+X
+X/*
+X * ProfiledLibraryTarget:
+X *	Generate rules to create a profiled library.
+X */
+X#define	ProfiledLibraryTarget(libname,srclist,objlist)	@!\
+X>RM @!\
+X>AR @!\
+X>RANLIB @!\
+X++SOURCES srclist @!\
+X++OBJECTS objlist @!\
+XAllTarget(lib^^libname^^_p.a)		@!\
+X									@!\
+Xlib^^libname^^_p.a: objlist			@@\
+X	$(RM) $@						@@\
+X	cd profiled; $(AR) ../$@ objlist	@@\
+X	$(RANLIB) $@
+X
+X
+X/*
+X * DebuggedLibraryTarget:
+X *	Generate rules to create a debuggable library.
+X */
+X#define	DebuggedLibraryTarget(libname,srclist,objlist)	@!\
+X>RM @!\
+X>AR @!\
+X>RANLIB @!\
+X++SOURCES srclist @!\
+X++OBJECTS objlist @!\
+XAllTarget(lib^^libname^^_d.a)		@!\
+X									@!\
+Xlib^^libname^^_d.a: objlist			@@\
+X	$(RM) $@							@@\
+X	cd debugger; $(AR) ../$@ objlist	@@\
+X	$(RANLIB) $@
+X
+X
+X/*
+X * AliasedLibraryTarget:
+X *	Generate rules to link one library to another.
+X */
+X#define	AliasedLibraryTarget(libname,alias)	@!\
+X>RM @!\
+X>LN @!\
+XAllTarget(lib^^alias.a)			@!\
+X								@!\
+Xlib^^alias.a: lib^^libname.a	@@\
+X	$(RM) $@					@@\
+X	$(LN) lib^^libname.a $@
+X
+X
+X/*
+X * PrelinkedRelocatableTarget:
+X *	Generate rules to produce a relocatable object file instead of a
+X *	library.
+X */
+X#define	PrelinkedRelocatableTarget(objname,objlist,libs)	@!\
+X>RM @!\
+X>LD @!\
+X>JLKFLAGS @!\
+XAllTarget(objname.o)				@!\
+X									@!\
+Xobjname.o: objlist					@@\
+X	$(RM) $@						@@\
+X	$(LD) $(JLKFLAGS) -r objlist -o $@ libs
+X
+X
+X/*
+X * NormalRelocatableTarget:
+X *	Generate rules to produce a relocatable object file instead of a
+X *	library.
+X */
+X#define	NormalRelocatableTarget(objname,objlist)	@!\
+X>RM @!\
+X>LD @!\
+X>JLKFLAGS @!\
+XAllTarget(objname.o)				@!\
+X									@!\
+Xobjname.o: objlist					@@\
+X	$(RM) $@						@@\
+X	$(LD) $(JLKFLAGS) -r objlist -o $@
+X
+X
+X/*
+X * ProfiledRelocatableTarget:
+X *	Generate rules to produce a profiled relocatable object file
+X *	instead of a library.
+X */
+X#define	ProfiledRelocatableTarget(objname,objlist)	@!\
+X>RM @!\
+X>LD @!\
+XAllTarget(objname^^_p.o)		@!\
+X								@!\
+Xobjname^^_p.o: objlist			@@\
+X	$(RM) $@					@@\
+X	$(LD) -X -r objlist -o $@
+X
+X
+X/*
+X * DebuggedRelocatableTarget:
+X *	Generate rules to produce a debuggable relocatable object file
+X *	instead of a library.
+X */
+X#define	DebuggedRelocatableTarget(objname,objlist)	@!\
+X>RM @!\
+X>LD @!\
+XAllTarget(objname^^_d.o)		@!\
+X								@!\
+Xobjname^^_d.o: objlist			@@\
+X	$(RM) $@					@@\
+X	$(LD) -X -r objlist -o $@
+X
+X/*
+X * LintLibraryTarget:
+X *	Generate rules to create a lint library.  Note that the lint
+X *	library is always forced to be newer than the library itself.
+X */
+X#define	LintLibraryTarget(libname,srclist)	@!\
+X>RM @!\
+X>LINT @!\
+Xlintlib:: llib-l^^libname.ln	@!\
+X								@!\
+Xllib-l^^libname.ln: srclist		@@\
+X	$(RM) $@					@@\
+X	$(LINT) $(LINTLIBFLAG)^^libname $(LINTFLAGS) srclist
+X
+X
+X/*
+X * NormalLintTarget:
+X *	Generate rules to lint a set of sources.
+X */
+X#define NormalLintTarget(srclist)	@!\
+X>LINT @!\
+Xlint:								@@\
+X	$(LINT) $(LINTFLAGS) srclist $(LINTLIBS)
+X
+X
+X/*
+X * LintTarget:
+X *	Generate rules to lint $(SOURCES) (automatically generated)
+X */
+X#define LintTarget()			@!\
+X|once _LintTarget_				@!\
+XNormalLintTarget($(SOURCES))	@!\
+X-once
+X
+X
+X/*
+X * LinkSourceFile:
+X *	Snag source file from some other directory
+X */
+X#define LinkSourceFile(src,dir)		@!\
+X>RM @!\
+X>LN @!\
+Xsrc:  dir/src			@@\
+X	$(RM) $@			@@\
+X	$(LN) $? $@			@!\
+X
+X
+X/*
+X * MakeSubincludesForBuild:
+X *	Make includes in sub directories.
+X */
+X#define MakeSubincludesForBuild(step,dir,srclist)	@!\
+X>RM @!\
+X>LN @!\
+Xstep::  dir srclist								@@\
+X	@-(list=`echo srclist | sed -e 's/[^ ]*\///g'`; \		@@\
+X		set -x; cd dir; $(RM) $$list)			@@\
+X	@for i in srclist; do \						@@\
+X		(set -x; cd dir; $(LN) ../$$i .); \		@@\
+X	done										@!\
+X												@!\
+XMakeDirectories(dir,dir)						@!\
+X												@!\
+Xlocal_realclean:: 								@@\
+X	@-(if [ -d dir ]; then \					@@\
+X		list=`echo srclist | sed -e 's/[^ ]*\///g'`; \		@@\
+X		set -x; cd dir; $(RM) $$list; else exit 0; fi)
+X
+X
+X/*
+X * CommonSubdirsRule:
+X *	Rule for making $(TARGET) in every subdirectory, with $(VERB) as
+X *	verbose message and $(FLAGS) as additional flags.
+X */
+X#define CommonSubdirsRule(dirs) @!\
+X>MAKE	@!\
+Xsubdirs: 						@@\
+X	@case '${MFLAGS}' in *[ik]*) set +e;; esac; \			@@\
+X	for i in dirs ;\					@@\
+X	do \								@@\
+X		(cd $$i ; echo $(VERB) "in $(DIR)$$i..."; \		@@\
+X			$(MAKE) $(MFLAGS) $(FLAGS) $(TARGET)); \		@@\
+X	done
+X	
+X
+X/*
+X * NamedTargetSubdirsRule:
+X *	Recursively make a series of steps in the specified directories.
+X */
+X#define NamedTargetSubdirsRule(dirs,name,verb,flags)	@!\
+X>MAKE @!\
+Xname::									@@\
+X	@case '${MFLAGS}' in *[ik]*) set +e;; esac; \		@@\
+X	for i in dirs ;\					@@\
+X	do \								@@\
+X		(cd $$i ; echo verb "in $(DIR)$$i..."; \	@@\
+X			$(MAKE) $(MFLAGS) flags name); \			@@\
+X	done
+X	
+X	
+X/*
+X * NamedTargetSubdirs:
+X *	Recursively make a series of steps.
+X */
+X#define NamedTargetSubdirs(name,verb,flags)		@!\
+X>MAKE	@!\
+Xname:: 							@@\
+X	@$(MAKE) subdirs TARGET=name VERB=verb FLAGS=flags
+X
+X
+X/*
+X * NamedCleanTargetSubdirs:
+X *	Recursively make a series of cleaning. We first clean the
+X *	subdirectories, in case the Makefile is removed by the
+X *	clean entry.
+X */
+X#define NamedCleanTargetSubdirs(name,verb,flags)		@!\
+X>MAKE	@!\
+Xsub_^^name:: 					@@\
+X	@$(MAKE) subdirs TARGET=name VERB=verb FLAGS=flags	@@\
+X	@echo "Back to $(CURRENT) for "name^^...
+X
+X
+X/*
+X * MakeSubdirs:
+X *	Generate rules to do makes in the given subdirectories.
+X */
+X#define MakeSubdirs() \
+XNamedTargetSubdirs(all,"Making all",^^)
+X
+X
+X/*
+X * DependDirs:
+X *	Generate rules to recursively compute dependencies as part of the
+X *	make depend step.
+X */
+X#define DependDirs(dirs) \
+XNamedTargetSubdirsRule(dirs,depend,"Depending",^^)
+X
+X
+X/*
+X * DependSubdirs:
+X *	Generate rules to recursively compute dependencies as part of the
+X *	make depend step.
+X */
+X#define DependSubdirs() \
+XDependDirs($(SUBDIRS))
+X
+X
+X/*
+X * InstallSubdirs:
+X *	Generate rules to recursively install and deinstall programs and
+X *	files.
+X */
+X#define InstallSubdirs() \
+XNamedTargetSubdirs(install,"Installing",^^) @!\
+XNamedTargetSubdirs(deinstall,"Deinstalling",^^)
+X
+X
+X/*
+X * InstallManSubdirs:
+X *	Generate rules to recursively install and deinstall manual pages.
+X */
+X#define InstallManSubdirs() \
+XNamedTargetSubdirs(install.man,"Installing man pages",^^) @!\
+XNamedTargetSubdirs(deinstall.man,"Deinstalling man pages",^^)
+X
+X
+X/*
+X * IncludesSubdirs:
+X *	Generate rules to recursively put include files in build
+X */
+X#define IncludesSubdirs() \
+XNamedTargetSubdirs(includes,including,^^)
+X
+X
+X/*
+X * CleanSubdirs:
+X *	Generate rules to recursively clean out garbage files.
+X */
+X#define CleanSubdirs() \
+XNamedCleanTargetSubdirs(clean,"Cleaning",^^)	@!\
+XNamedCleanTargetSubdirs(realclean,"Real cleaning",^^)	@!\
+XNamedCleanTargetSubdirs(clobber,"Clobbering",^^)
+X
+X
+X/*
+X * TagSubdirs:
+X *	Generate rules to recursively create tags files.
+X */
+X#define TagSubdirs(dirs) \
+XNamedTargetSubdirsRule(dirs,tag,"Tagging",^^)
+X
+X/*
+X * MakeLintSubdirs:
+X *	Generate rules to recursively lint directories as part of the
+X *	named step.
+X */
+X#define MakeLintSubdirs(dirs,target) \
+XNamedTargetSubdirsRule(dirs,target,"Linting",^^)
+X
+X
+X/*
+X * LintDirs:
+X *	Generate rules to recursively lint directories as part of the
+X *	make lint step.
+X */
+X#define LintDirs(dirs) \
+XMakeLintSubdirs(dirs,lint)
+X
+X
+X/*
+X * LintSubdirs:
+X *	Generate rules to recursively lint directories as part of the
+X *	make lint step.
+X */
+X#define LintSubdirs() \
+XLintDirs($(SUBDIRS))
+X
+X
+X/*
+X * MakeDirs:
+X *	Creates a set of directories, even if some directories in the path
+X *	do not already exist.There should be no '@!' at the end of the
+X *	'#define' line, because this macro is used *inside* building rules.
+X */
+X#define MakeDirs(dirs) \
+X>INSTALL @@\
+X	@for dir in dirs; do \		@@\
+X		case '${MFLAGS}' in *[i]*) set +e;; esac; \	@@\
+X		(set -x; $(INSTALL) -d $$dir); \	@@\
+X	done
+X
+X/*
+X * MakeDirectories:
+X *	Generate rules to create a hierarchy of directories.
+X */
+X#define MakeDirectories(step,dirs)		@!\
+Xstep::									@@\
+X	MakeDirs(dirs)
+X
+X
+X/*
+X * MakeInstallDirectories:
+X *	Generate a rule to create a set of directories at installation
+X *	time (removed by deinstall).
+X */
+X#define MakeInstallDirectories(dirs) @!\
+X>RM @!\
+Xinstall::				@@\
+X	MakeDirs(dirs)		@!\
+X						@!\
+Xdeinstall::				@@\
+X	$(RM) -r dirs
+X
+X
+X/*
+X * MakeLintLibSubdirs:
+X *	Generate rules to recursively create lint libraries.
+X */
+X#define MakeLintLibSubdirs(dirs)	@!\
+XMakeLintSubdirs(dirs,lintlib)
+X
+X
+X/*
+X * MakeMakeSubdirs:
+X *	Generate rules to recursively recreate target as part of the
+X *	specified step in the build.  This assumes Makefile.SH has
+X *	already been built (which is the case for a delivery), but does
+X *	not rely on the existence of a Makefile.
+X */
+X#define MakeMakeSubdirs(target)	@!\
+X>MAKE	@!\
+Xtarget::								@@\
+X	@case '${MFLAGS}' in *[ik]*) set +e;; esac; \	@@\
+X	for i in $(SUBDIRS);\				@@\
+X	do \								@@\
+X		echo "Making "target" in $(DIR)$$i..."; \	@@\
+X		(cd $$i || exit 1; \			@@\
+X		if test ! -f Makefile; then /bin/sh Makefile.SH; fi; \ @@\
+X		$(MAKE) $(MFLAGS) target) \	@@\
+X	done
+X
+X
+X/*
+X * MakeMakefilesSH:
+X *	Generate rules to recursively recreate target as part of the
+X *	specified step in the build.  If $(TOP) is set to an absolute
+X *	path, don't prepend the ../ prefix.  This makes running things
+X *	outside of the source tree to be much easier.
+X */
+X#define MakeMakefilesSH()		@!\
+X>MAKE	@!\
+XMakefiles.SH:: Makefile.SH				@@\
+X	@case '${MFLAGS}' in *[ik]*) set +e;; esac; \	@@\
+X	for i in $(SUBDIRS);\					@@\
+X	do \								@@\
+X		case "$(DIR)$$i/" in \								@@\
+X		^^*^^/^^*^^/^^*^^/^^*^^/) newtop=../../../..;; \	@@\
+X		^^*^^/^^*^^/^^*^^/) newtop=../../..;; \				@@\
+X		^^*^^/^^*^^/) newtop=../..;; \						@@\
+X		*^^/) newtop=..;; \									@@\
+X		esac; \												@@\
+X		case "$(TOP)" in \				@@\
+X		/^^*) newtop="$(TOP)" ;; \		@@\
+X		esac; \							@@\
+X		echo "Making Makefiles.SH in $(DIR)$$i..."; \	@@\
+X		(cd $$i || exit 1; $(MAKE) $(MFLAGS) -f ../Makefile \	@@\
+X		Makefile TOP=$$newtop CURRENT=$(DIR)$$i;\	 	@@\
+X		$(MAKE) $(MFLAGS) Makefiles.SH) \					@@\
+X	done
+X
+X
+X/*
+X * MakefileSubdirs:
+X *	Generate rules to create Makefiles.
+X */
+X#define MakefileSubdirs()		@!\
+XMakeMakeSubdirs(Makefiles)		@!\
+XMakeMakefilesSH()
+X
+X
+X/*
+X * CppScriptTarget:
+X *	Generate rules to create a shell script by running the input
+X *	through cpp.
+X */
+X#define CppScriptTarget(dst,src,defs,deplist)	@!\
+X>RM @!\
+X>CPP @!\
+Xdst::  src deplist						@@\
+X	$(RM) $@							@@\
+X	$(CPP) defs <src | \				@@\
+X		sed -e '/^#  *[0-9][0-9]*  *.*$$/d' >$@		@@\
+X	chmod a+x $@
+X
+X
+X/*
+X * MakeScriptFromCpp:
+X *	Generate rules to create a script from a file with a
+X *	.cpp suffix.
+X */
+X#define MakeScriptFromCpp(name,defs)	@!\
+XCppScriptTarget(name,name.cpp,defs,^^)
+X
+X
+X/*
+X * ShellScriptTarget:
+X *	Generate rules to create and install a set of scripts from
+X *	.SH files. Man pages derived from the name of the scripts are
+X *	also installed unless NoManPages() is specified.
+X */
+X#define ShellScriptTarget(scripts)	@!\
+X>RM @!\
+X++SCRIPTS scripts @!\
+XAllTarget(scripts)			@!\
+X							@!\
+X|expand s!scripts!			@!\
+X!s: !s^^.SH					@@\
+X	/bin/sh !s^^.SH			@!\
+X							@!\
+X-expand						@!\
+XInstallScripts()			@!\
+XInstallManScripts()
+X
+X
+X/*
+X * SimpleShellScriptTarget:
+X *	Generate rules to create a set of scripts from .SH files.
+X */
+X#define SimpleShellScriptTarget(scripts)	@!\
+X>RM @!\
+XAllTarget(scripts)			@!\
+X							@!\
+X|expand s!scripts!			@!\
+X!s: !s^^.SH					@@\
+X	/bin/sh !s^^.SH			@!\
+X							@!\
+X-expand
+X
+X
+X/*
+X * ShellScriptLongTarget:
+X *	Generate rules to create a set of scripts from .SH files where
+X *	the name of the generated file is different from the basename of
+X *	the .SH file (when, for instance, the total length with the .SH
+X *	extension would not leave enough space for RCS ,v extension).
+X */
+X#define ShellScriptLongTarget(basename,scriptname) @!\
+X>RM @!\
+X>MANSRC @!\
+X++LSCRIPTS scriptname @!\
+XAllTarget(scriptname)		@!\
+X							@!\
+Xscriptname: basename^^.SH	@@\
+X	/bin/sh basename^^.SH	@!\
+X							@!\
+XInstallScripts()			@!\
+X?NOMAN:|skip				@!\
+XInstallManPageLong(basename,$(MANSRC),scriptname)	@!\
+X-skip
+X
+X
+X/*
+X * ForceTarget:
+X *	The force target will force reconstruction of all the other
+X *	targets which include .FORCE in their own dependencies.
+X */
+X#define ForceTarget()	@!\
+X|once _force_			@!\
+X.FORCE:					@!\
+X						@!\
+X-once
+X
+X
+X/*
+X * RemoteTargetDependency:
+X *	A local target may rely on a remote dependency (e.g. a library)
+X *	made in a separate directory. This rule explicits the dependency
+X *	and forces a make of that dependency in the remote directory.
+X */
+X#define RemoteTargetDependency(target,directory,dependency) @!\
+X>MAKE @!\
+XForceTarget()							@!\
+X|once =directory/dependency=			@!\
+Xdirectory/dependency: .FORCE			@@\
+X	@echo "Checking "dependency" in "directory"..."	@@\
+X	cd directory; $(MAKE) dependency	@@\
+X	@echo "Continuing in $(CURRENT)..."	@!\
+X					@!\
+X-once				@!\
+Xtarget: directory/dependency	@!\
+X
+X
+X/*
+X * SetSubdirs:
+X *	Actually forces the definition of SUBDIRS, and lets the user
+X *	specify what the sub-directories are.  This will be added to the
+X *	customization part.
+X */
+X#define SetSubdirs(subdirs) @!\
+X>SUBDIRS @!\
+X+SUBDIRS = subdirs
+X
+X
+X/*
+X * NoManPages:
+X *	Actually forces the definition of NOMAN, which tells the jmake
+X *	program to not generate rules for installing manual pages.
+X */
+X#define NoManPages() @!\
+X>NOMAN
+X
+X
+X/*
+X * Expand:
+X *	This powerful macro expands the `rule' given a `pattern'. It
+X *	relies on a built-in command in jmake. The expansion is
+X *	documented in the short notes file that comes with jmake and
+X *	gives some insights on the internal syntax.
+X */
+X#define Expand(rule, pattern) @!\
+X|expand pattern @!\
+Xrule @!\
+X-expand
+X
+X
+X/*
+X * Lex and yacc stuff.
+X */
+X
+X/*
+X * YaccRule:
+X *	This is the rule which is used to build a .c file from a .y file.
+X */
+X#define YaccRule() @!\
+XAddSuffix(.y)					@!\
+X|once _YaccRule_				@!\
+X|rule:.y.c:						@!\
+X|rule: $(YACC) $(JYFLAGS) $<	@!\
+X|rule: $(MV) y.tab.c $@			@!\
+X|rule:							@!\
+X-once
+X
+X/*
+X * SimpleYaccTarget:
+X *	Declare a yacc base.y file to be used in the building of the
+X *	specified target program. The source file must be given without
+X *	its final .y extension. The name of the .c and .o will be
+X *	derived from the source file basename provided.
+X */
+X#define SimpleYaccTarget(program,base) @!\
+X>JYFLAGS @!\
+X>YACC @!\
+X>RM @!\
+X>MV @!\
+X++SOURCES base.y @!\
+X++OBJECTS base.o @!\
+XYaccRule()				@!\
+Xprogram: base.c			@!\
+X						@!\
+Xlocal_realclean::		@@\
+X	$(RM) base.c		@!\
+X
+X
+X/*
+X * ComplexYaccTarget:
+X *	Declare a yacc base.y file to be used in the building of the
+X *	specified target program. The source file must be given without
+X *	its final .y extension. The name of the .c and .o will be
+X *	derived from the source file basename provided.
+X *	The difference with SimpleYaccTarget is the identifying process
+X *	where all the 'yy' are replaced by the specified prefix.
+X */
+X#define ComplexYaccTarget(program,base,prefix) @!\
+X>JYFLAGS @!\
+X>YACC @!\
+X>RM @!\
+X>SED @!\
+X++SOURCES base.y @!\
+X++OBJECTS base.o @!\
+Xprogram: base.c			@!\
+X						@!\
+Xbase.c: base.y					@@\
+X	$(YACC) $(JYFLAGS) base.y	@@\
+X	$(SED) -e 's/yy\(.\)/prefix\1/g' < y.tab.c > base.c	@@\
+X	$(SED) -e 's/yy\(.\)/prefix\1/g' < y.tab.h > base.h	@@\
+X	$(RM) y.tab.c y.tab.h	@!\
+X							@!\
+Xlocal_realclean::		@@\
+X	$(RM) base.c		@!\
+X
+X
+X/*
+X * SimpleYaccInclude:
+X *	Declare that program will need an include file produced by
+X *	the output of yacc on base.y, which typically produces a file
+X *	named y.tab.h, which will be renamed as base.h.
+X *	The only problem is that the dependencies towards base.h have
+X *	to be manually given in the Jmakefile.
+X */
+X#define SimpleYaccInclude(base) @!\
+X>MV @!\
+X>RM @!\
+Xbase.h: base.c		@@\
+X	@if test -f y.tab.h; then \	@@\
+X		echo "	$(MV) y.tab.h $@"; \	@@\
+X		$(MV) y.tab.h $@; \		@@\
+X	else \						@@\
+X		exit 0; \				@@\
+X	fi							@!\
+X								@!\
+Xlocal_realclean::				@@\
+X	$(RM) base.h
+X
+X/*
+X * ComplexYaccInclude:
+X *	Declare that program will need an include file produced by
+X *	the output of yacc on base.y, which typically produces a file
+X *	named y.tab.h, which will be renamed as base.h.
+X *	The difference with SimpleYaccInclude is the identifying process
+X *	of the y.tab.h file where all 'yy' are renamed to prefix.
+X *	The only problem is that the dependencies towards base.h have
+X *	to be manually given in the Jmakefile.
+X */
+X#define ComplexYaccInclude(base,prefix) @!\
+X>RM @!\
+X>SED @!\
+X>CP @!\
+Xbase.h: base.c		@@\
+X	@if test -f y.tab.h; then \	@@\
+X		echo "	$(SED) -e 's/yy\(.\)/prefix\1/g' < y.tab.h > base.h"; \	@@\
+X		$(SED) -e 's/yy\(.\)/prefix\1/g' < y.tab.h > base.h; \	@@\
+X		echo "	$(RM) y.tab.h"; \	@@\
+X		$(RM) y.tab.h; \		@@\
+X	elif test -f base.h; then \ @@\
+X		echo "	$(CP) base.h base.ht"; \	@@\
+X		$(CP) base.h base.ht; \	@@\
+X		echo "	$(SED) -e 's/yy\(.\)/prefix\1/g' < base.ht > base.h"; \	@@\
+X		$(SED) -e 's/yy\(.\)/prefix\1/g' < base.ht > base.h; \	@@\
+X		echo "	$(RM) base.ht"; \ @@\
+X		$(RM) base.ht; \		@@\
+X	else \						@@\
+X		exit 0; \				@@\
+X	fi							@!\
+X								@!\
+Xlocal_realclean::				@@\
+X	$(RM) base.h
+X
+X
+X/*
+X * NormalYaccTarget:
+X *	Declare a yacc base.y file which should produce a base.c and
+X *	base.h file as derived from the output of yacc, to be used by
+X *	the specified program.
+X */
+X#define NormalYaccTarget(program,base) @!\
+XSimpleYaccTarget(program,base) @!\
+XSimpleYaccInclude(base)
+X
+X
+X/*
+X * IdentifiedYaccTarget:
+X *	Declare a yacc base.y file which should produce a base.c and
+X *	base.h file as derived from the output of yacc, to be used by
+X *	the specified program. The specified prefix is used to remplace
+X *	all the 'yy' in the generated file, for use when more than a
+X *	single parser is needed in one executable.
+X */
+X#define IdentifiedYaccTarget(program,base,prefix) @!\
+XComplexYaccTarget(program,base,prefix) @!\
+XComplexYaccInclude(base,prefix)
+X
+X
+X/*
+X * SimpleLexTarget:
+X *	This declares a lex base.l file which is to be ran through
+X *	lex to produce a base.c file.
+X */
+X#define SimpleLexTarget(program,base) @!\
+X>JLFLAGS @!\
+X>LEX @!\
+X>RM @!\
+X>MV @!\
+X++SOURCES base.l @!\
+X++OBJECTS base.o @!\
+X|once _LexRule_					@!\
+X|rule:.l.c:						@!\
+X|rule: $(LEX) $(JLFLAGS) $<		@!\
+X|rule: $(MV) lex.yy.c $@		@!\
+X|rule:							@!\
+X-once							@!\
+XAddSuffix(.l)			@!\
+Xprogram: base.c			@!\
+X						@!\
+Xlocal_realclean::		@@\
+X	$(RM) base.c		@!\
+X
+X
+X/*
+X * IdentifiedLexTarget:
+X *	This declares a lex base.l file which is to be ran through
+X *	lex to produce a base.c file. The prefix is used to replace
+X *	the 'yy', so that the lexical analyzer may be identified.
+X */
+X#define IdentifiedLexTarget(program,base,prefix) @!\
+X>JLFLAGS @!\
+X>LEX @!\
+X>RM @!\
+X>SED @!\
+X++SOURCES base.l @!\
+X++OBJECTS base.o @!\
+Xprogram: base.c			@!\
+X						@!\
+Xbase.c: base.l					@@\
+X	$(LEX) $(JLFLAGS) base.l	@@\
+X	$(SED) -e 's/yy\(.\)/prefix\1/g' < lex.yy.c > base.c	@@\
+X	$(RM) lex.yy.c				@!\
+X						@!\
+Xlocal_realclean::		@@\
+X	$(RM) base.c		@!\
+X
+X
+X/*
+X * NormalLexDependTarget:
+X *	Declare that program will need an include file produced by
+X *	the output of lex on base.l, which typically produces a file
+X *	named lex.yy.c which will be renamed as base.c. Besides, the
+X *	lexical analyzer needs the file parser.h produced by running
+X *	parser.y through yacc and renaming y.tab.h as parser.h.
+X */
+X#define NormalLexDependTarget(program,base,parser) @!\
+Xbase.o: parser.h	@!\
+X					@!\
+XSimpleLexTarget(program,base)
+X
+X
+X/*
+X * IdentifiedLexDependTarget:
+X *	Declare that program will need an include file produced by
+X *	the output of lex on base.l, which typically produces a file
+X *	named lex.yy.c which will be renamed as base.c. Besides, the
+X *	lexical analyzer needs the file parser.h produced by running
+X *	parser.y through yacc and renaming y.tab.h as parser.h.
+X *	The lexical analyzer is identified with the supplied prefix,
+X *	which replaces the regular 'yy' prefix in the symbol names.
+X */
+X#define IdentifiedLexDependTarget(program,base,parser,prefix) @!\
+Xbase.o: parser.h	@!\
+X					@!\
+XIdentifiedLexTarget(program,base,prefix)
+X
+X
+X/*
+X * NormalParserTarget:
+X *	Specify that program is using the lex/yacc combination to
+X *	produce a parser. The lexic and parser parameters are the
+X *	base name of the .l and .y file, respectively.
+X */
+X#define NormalParserTarget(program,lexic,parser) @!\
+XNormalLexDependTarget(program,lexic,parser) @!\
+XNormalYaccTarget(program,parser)
+X
+X
+X/*
+X * IdentifiedParserTarget:
+X *	Specify that program is using the lex/yacc combination to
+X *	produce a parser. The lexic and parser parameters are the
+X *	base name of the .l and .y file, respectively. The parser
+X *	produced is identified via its prefix, which replaces all
+X *	the normally supplied 'yy' prefix, hence making it possible
+X *	to have multiple parsers in a single executable.
+X */
+X#define IdentifiedParserTarget(program,lexic,parser,prefix) @!\
+XIdentifiedLexDependTarget(program,lexic,parser,prefix) @!\
+XIdentifiedYaccTarget(program,parser,prefix)
+X
+X
+END_OF_FILE
+  if test 46529 -ne `wc -c <'jmake/files/Jmake.rules'`; then
+    echo shar: \"'jmake/files/Jmake.rules'\" unpacked with wrong size!
+  fi
+  # end of 'jmake/files/Jmake.rules'
+fi
+echo shar: End of archive 3 \(of 28\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

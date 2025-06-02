@@ -1,0 +1,1938 @@
+Path: uunet!usc!cs.utexas.edu!swrinde!mips!msi!dcmartin
+From: eyckmans@imec.be
+Newsgroups: comp.sources.x
+Subject: v17i109: xautolock (patchlevel 8), Part01/01
+Message-ID: <1992Jun29.163106.9607@msi.com>
+Date: 29 Jun 92 16:31:06 GMT
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1926
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: eyckmans@imec.be
+Posting-number: Volume 17, Issue 109
+Archive-name: xautolock-8.0/part01
+ 
+This is patchlevel 8 of xautolock, the program which monitors console
+activity, and starts up a program of  your choice if nothing  happens
+during a certain time interval.  
+
+What's new?
+-----------
+
+ - It supports multiheaded displays.
+ - It now uses the X resource database.
+ - The copyright notice has been changed considerably.
+ - The notification margin and bell percentage can be specified by
+   the user.
+ - It no longer steals events from windowmanagers that use a pseudo
+   root window.
+ - It no longer needs to get pointer events, so the chances of it
+   messing up event propagation have become even smaller.
+ - It can be disabled or activated by moving the pointer into one
+   of the corners of the display. This is highly customizable.
+ - It can be disabled (and re-enabled) by sending it a SIGHUP.
+ - By default, it now closes stdout and stderr, so you no longer
+   get zillions of error messages if you manually lock your display.
+ - The code is has become more foolproof (patchlevel 7 users
+   will have a hard time recognizing it :-).
+
+
+What hasn't been done yet?
+--------------------------
+
+ - It still is contained in a single source file.
+
+
+Important
+---------
+
+Users of swm and tvtwm, (especially on Sparcs) are adviced to read
+the WARNING section in the README file.
+
+
+					      SDT & MCE
+ 
+8<------------------------------- CUT HERE ------------------------------------
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	Imakefile
+#	Makefile.std
+#	README
+#	patchlevel.h
+#	xautolock.c
+#	xautolock.man
+# This archive created: Fri May 15 17:56:28 1992
+export PATH; PATH=/bin:$PATH
+echo shar: extracting "'Imakefile'" '(498 characters)'
+if test -f 'Imakefile'
+then
+	echo shar: will not over-write existing file "'Imakefile'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Imakefile'
+X#
+X#  Uncomment this if your compiler supports prototypes.
+X#
+X#  PROTOTYPES = -DHasPrototypes
+X
+X#ifdef HasVoidSignalReturn
+X   VOIDSIGNAL = -DHasVoidSignalReturn
+X#endif /* HasVoidSignalReturn */
+X
+X#if SunOSPlatform == YES
+X#
+X#  Circumvent a bug in the sun4 optimizer
+X#
+X  CDEBUGFLAGS = -g
+X#endif /* SunOSPlatform */
+X
+X      DEFINES = $(PROTOTYPES) $(VOIDSIGNAL) 
+XSYS_LIBRARIES = -lX11 
+X         HDRS = patchlevel.h 
+X         SRCS = xautolock.c 
+X         OBJS = xautolock.o 
+X
+XSimpleProgramTarget(xautolock)
+SHAR_EOF
+if test 498 -ne "`wc -c < 'Imakefile'`"
+then
+	echo shar: error transmitting "'Imakefile'" '(should have been 498 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'Makefile.std'" '(494 characters)'
+if test -f 'Makefile.std'
+then
+	echo shar: will not over-write existing file "'Makefile.std'"
+else
+sed 's/^X//' << \SHAR_EOF > 'Makefile.std'
+X#
+X#  Edit these to suit your needs.
+X#
+X#  SystemV is only used to select between fork and vfork. It doesn't hurt
+X#  to have it defined to YES, but if your system has vfork, it's more
+X#  efficient to comment this stuff out.
+X#
+XDEFINES = -DSystemV=YES
+X
+XRM      = /bin/rm -f
+XCC      = cc
+XHDRS    = patchlevel.h
+XSRCS    = xautolock.c
+XOBJS    = xautolock.o
+X
+XLIBS    = -lX11
+X
+Xall:: xautolock
+X
+Xxautolock: $(OBJS) 
+X	$(RM) $@
+X	$(CC) $(DEFINES) -o $@ $(OBJS) $(LIBS) 
+X
+Xclean:
+X	$(RM) xautolock $(OBJS) core
+SHAR_EOF
+if test 494 -ne "`wc -c < 'Makefile.std'`"
+then
+	echo shar: error transmitting "'Makefile.std'" '(should have been 494 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'README'" '(4557 characters)'
+if test -f 'README'
+then
+	echo shar: will not over-write existing file "'README'"
+else
+sed 's/^X//' << \SHAR_EOF > 'README'
+X 
+XPURPOSE
+X=======
+X
+XXautolock is a program which monitors console activity, and starts up
+Xa program of  your choice if  nothing  happens  during a certain time
+Xinterval.  You can use this to automatically start up a screen locker
+Xin case you tend  to forget to do so  manually before having a coffee
+Xbreak.
+X
+X 
+XHARDWARE PLATFORMS
+X==================
+X
+XWe have used  xautolock  on the following hardware without problems :
+X
+XDECstation 3100 to 5500
+XHP Apollo 9000/4xx (Sr10)
+XSony News 1800
+XSparc II
+XVAXen (Ultrix)
+X
+XOther people have reported that it should also work on :
+X
+XSun386
+XIBM RS/6000
+XVAXstation 3100 
+X
+XAn  earlier  version also ran on  the following machinery,  but we no
+Xlonger have those, so testing it was a bit difficult :-). 
+X
+XSun 3/60
+XApollo 3000 to 4500
+X
+X 
+XHOW TO USE IT
+X=============
+X 
+XJust read the man page, it's really simple.
+X
+X
+XHOW IT WORKS
+X============
+X
+XWhen  xautolock  starts  executing,  it  traverses  the  window tree, 
+Xselects  SubstructureNotify  on all windows and adds each window to a
+Xtemporary list.  About +- 30 seconds later,  it scans this list,  and
+Xnow  asks for KeyPress events.  However,  it takes care to  interfere 
+Xas litle as possible  with  the event propagation mechanism.  This is
+Xthe reason for the delay between the moment  xautolock learns about a
+Xnew window (and consequently asks for  SubstructureNotify events) and
+Xthe moment it asks for KeyPress.  Whenever a new window is created, a
+Xsimilar process takes place.
+X
+XIn addition, xautolock issues a  QueryPointer  request once a second,
+Xin order to find out wether the pointer has moved.
+X
+XIf nothing happens within a user-specified period of time,  xautolock
+Xwill fire up a program  which is supposed  to lock the screen.  While
+Xthis program is running, xautolock itself remains on the look-out for
+Xuser interaction.
+X
+XIn contradiction  to what many people  believe,  this scheme does not
+Xcause a noticeable overhead. 
+X
+X
+XCOMPILING XAUTOLOCK
+X===================
+X
+XXautolock  should  compile  straight  out of  the box.  Just  do  the
+Xfollowing :
+X
+X 1 : Type 
+X
+X      xmkmf 
+X      make
+X      make install
+X      make clean 
+X
+X 2 : Have fun.
+X
+X 
+XKNOWN BUGS
+X==========
+X
+XIf,  when creating  a window,  an application  waits for more than 30
+Xseconds before calling XSelectInput (),  xautolock may interfere with
+Xthe  event propagation  mechanism.  In order to minimize  the risk of
+Xthis happening,  an extra delay of 20 seconds  has been inserted into
+Xthe   xautolock  initialization  sequence.   This  was  done  because
+Xxautolock is most likely to be started automatically when a user logs
+Xin, and that process can be rather time-consuming.
+X
+XXautolock  does not check whether the screenlocker specified actually
+Xis available.
+X
+XThe xautolock resources have no resource class.
+X
+XIf you can find others, please send e-mail to one of the authors.
+X
+X
+XWARNING
+X=======
+X
+XThere  is  a  bug  in  the  event management code  of some  X servers
+X(amongst  which  both  X11R4  and X11R5  on Sparc).  If you are using 
+Xpatchlevel  7  of  xautolock,  it is best to reset  the server before
+Xswitching to patchlevel 8.  If you fail to do so, an old patchlevel 7
+Xbug may still show up.  (Some keybaord events were being  hijacked by
+Xpatchlevel 7 of xautolock, particularly when using tvtwm). 
+X
+X
+XCOPYRIGHT
+X=========
+X 
+XCopyright 1990, 1992 by S. De Troch and MCE.
+X
+XPermission to use, copy, modify and distribute this software and the
+Xsupporting documentation without fee is hereby granted, provided that :
+X
+X 1 : Both the above copyright notice and this permission notice
+X     appear in all copies of both the software and the supporting
+X     documentation.
+X 2 : You don't make a profit out of it.
+X
+X 
+XDISCLAIMER
+X==========
+X
+XTHE AUTHORS  DISCLAIM  ALL WARRANTIES  WITH  REGARD TO THIS SOFTWARE,
+XINCLUDING  ALL IMPLIED WARRANTIES OF MERCHANTABILITY  AND FITNESS, IN
+XNO  EVENT  SHALL THEY   BE  LIABLE  FOR   ANY  SPECIAL,  INDIRECT  OR
+XCONSEQUENTIAL DAMAGES  OR ANY DAMAGES WHATSOEVER  RESULTING FROM LOSS
+XOF  USE,  DATA  OR  PROFITS,   WHETHER  IN  AN  ACTION  OF  CONTRACT,
+XNEGLIGENCE  OR   OTHER   TORTIOUS  ACTION,   ARISING  OUT  OF  OR  IN
+XCONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X 
+XAUTHORS
+X=======
+X
+XXautolock was conceived, written and performed by :
+X
+X Stefan De Troch             detroch@imec.be
+X Michel Eyckmans (MCE)       eyckmans@imec.be
+X
+X
+XACKNOWLEDGEMENTS
+X================
+X
+XSpecial thanks to :
+X
+X Kris Croes                  croes@imec.be
+X
+XAnd the patchlevel 8 beta testers :
+X
+X Paul D. Smith               paul_smith@dg.com
+X Brian                       brian@natinst.com
+SHAR_EOF
+if test 4557 -ne "`wc -c < 'README'`"
+then
+	echo shar: error transmitting "'README'" '(should have been 4557 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'patchlevel.h'" '(22 characters)'
+if test -f 'patchlevel.h'
+then
+	echo shar: will not over-write existing file "'patchlevel.h'"
+else
+sed 's/^X//' << \SHAR_EOF > 'patchlevel.h'
+X#define PATCHLEVEL  8
+SHAR_EOF
+if test 22 -ne "`wc -c < 'patchlevel.h'`"
+then
+	echo shar: error transmitting "'patchlevel.h'" '(should have been 22 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xautolock.c'" '(37774 characters)'
+if test -f 'xautolock.c'
+then
+	echo shar: will not over-write existing file "'xautolock.c'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xautolock.c'
+X/***************************************************************************
+X *
+X * xautolock
+X * =========
+X *
+X * Authors   :  S. De Troch (SDT)
+X *              M. Eyckmans (MCE)
+X *
+X * Date      :  22/07/90
+X *
+X * Comments  :
+X *
+X * Review    :  - 12/02/92 (MCE) :
+X *                . Hacked around a dxcalendar problem.
+X *              - 21/02/92 (MCE) :
+X *                . Major rewrite.
+X *              - 24/02/92 (MCE) :
+X *                . Removed an initialization bug.
+X *              - 25/02/92 (MCE) :
+X *                . Added code to detect multiple invocations.
+X *              - 06/03/92 (MCE) :
+X *                . Re-arranged the event loop in order to detect defunct
+X *                  children as soon as possible.
+X *              - 10/03/92 (SDT & MCE) :
+X *                . Added code to detect broken server connections.
+X *              - 24/03/92 (MCE) :
+X *                . Don't reset the time-out counter after receiving a
+X *                  synthetic or otherwise unexpected event.
+X *              - 15/04/92 (MCE) :
+X *                . Changed the default locker to "xlock 2>&- 1>&-".
+X *                . Fixed a couple of event mask bugs. (Thanks to
+X *                  jwz@lucid.com for running into these.)
+X *                . Corrected a property type bug in CheckConnection ().
+X *              - 20/04/92 (MCE) :
+X *                . Cut Main () into more managable pieces.
+X *                . Periodically call XQueryPointer ().
+X *              - 25/04/92 (MCE) :
+X *                . Added the `corners' feature. (Suggested by
+X *                  weisen@alw.nih.gov.)
+X *                . Fixed a problem with pseudo-root windows. (Thanks to
+X *                  sherman@unx.sas.com, nedwards@titan.trl.OZ.AU,
+X *                  dave@elxr.jpl.Nasa.Gov and tmcconne@sedona.intel.com
+X *                  for pointing out the problem and testing the patch.)
+X *                . Added `disable/enable on SIGHUP'. (Suggested by
+X *                  paul_smith@dg.com.)
+X *                . Added support for multiheaded displays. 
+X *              - 28/04/92 (MCE) :
+X *                . Use the X resource manager.
+X *              - 06/05/92 (MCE) :
+X *                . Fixed a few potential portability problems. (Thanks
+X *                  to paul_smith@dg.com again.)
+X *                . CheckConnection () now works properly on multiheaded
+X *                  displays. (Thanks to brian@natinst.com for testing
+X *                  the `multiheaded' feature.)
+X *                . Better version of Sleep().
+X *                . Recognize X resources for class "Xautolock".
+X *                . Don't update timer while sighupped.
+X *                . Switched to vfork () and execl ().
+X *                . New copyright notice.
+X *              - 11/05/92 (MCE) :
+X *                . Close stdout and stderr in stead of using "2>&- 1>&-".
+X *                  (Suggested by sinkwitz@ifi.unizh.ch.)
+X *                . Added "-noclose" for debugging. 
+X *
+X * -------------------------------------------------------------------------
+X *
+X * Please send bug reports to detroch@imec.be or eyckmans@imec.be.
+X *
+X * -------------------------------------------------------------------------
+X *
+X * Copyright 1990, 1992 by S. De Troch and MCE.
+X *
+X * Permission to use, copy, modify and distribute this software and the
+X * supporting documentation without fee is hereby granted, provided that :
+X *
+X *  1 : Both the above copyright notice and this permission notice
+X *      appear in all copies of both the software and the supporting
+X *      documentation.
+X *  2 : You don't make a profit out of it.
+X *
+X * THE AUTHORS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO
+X * EVENT SHALL THEY BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+X * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA
+X * OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+X * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X ***************************************************************************/
+X
+X
+X
+X/*
+X *  Have a guess what this does...
+X *  ==============================
+X *
+X *  Warning for swm & tvtwm users : xautolock should *not* be compiled
+X *  with vroot.h, because it needs to know the real root window.
+X */
+X#include <stdio.h>
+X#include <strings.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xresource.h>
+X#include <sys/types.h>
+X#include <sys/wait.h>
+X#include <signal.h>
+X#include <memory.h>
+X#include <math.h>
+X
+X#ifdef AIXV3	
+X#include <sys/m_wait.h>
+X#endif /* AIXV3 */
+X
+X#if !defined (news1800) && !defined (sun386)
+X
+X#include <stdlib.h>
+X
+X#ifndef apollo
+X#include <malloc.h>
+X#include <unistd.h>
+X#endif /* apollo */
+X
+X#endif /* !news1800 && !sun386 */
+X
+X#include "patchlevel.h"
+X
+X
+X
+X
+X/*
+X *  Usefull macros and customization stuff
+X *  ======================================
+X */
+X#ifdef HasPrototypes
+X#define PP(x)                      x
+X#else /* HasPrototypes */
+X#define PP(x)                      ()
+X#endif /* HasPrototypes */
+X
+X
+X#define FALSE                      0       /* as it says                   */
+X#define TRUE                       1       /* as it says                   */
+X
+X#define ALL_OK                     0       /* for use by exit ()           */
+X#define PROBLEMS                   1       /* for use by exit ()           */
+X#define BELL_PERCENT               40      /* as is says                   */
+X#define MIN_MINUTES                1       /* minimum number of minutes
+X					      before firing up the locker  */
+X#define MINUTES                    10      /* default ...                  */
+X#define MAX_MINUTES                60      /* maximum ...                  */
+X#define INITIAL_SLEEP              20      /* for machines on which the
+X			 	  	      login sequence takes forever */
+X#define INCREMENTAL_SLEEP          1       /* time step in seconds         */
+X#define CREATION_DELAY             30      /* should be > 10 and
+X				 	      < min (45,(MIN_MINUTES*30))  */
+X#define CORNER_SIZE                10      /* size in pixels of the
+X			  		      force-lock areas             */
+X#define CORNER_DELAY               5       /* number of seconds to wait
+X					      before forcing a lock        */
+X#define LOCKER                     "xlock" /* NEVER use the -root option!  */
+X#define CLASS                      "Xautolock"
+X			 	           /* as it says                   */
+X
+X#if SystemV == YES
+X#define vfork                      fork
+X#endif /* SystemV == YES */
+X
+X#define Main                       main
+X#define Min(a,b)                   (a < b ? a : b)
+X#define forever                    for (;;)
+X#define Output0(str)               (Void) fprintf (stdout, str)
+X#define Output1(str,arg1)          (Void) fprintf (stdout, str, arg1)
+X#define Output2(str,arg1,arg2)     (Void) fprintf (stdout, str, arg1, arg2)
+X#define Error0(str)                (Void) fprintf (stderr, str)
+X#define Error1(str,arg1)           (Void) fprintf (stderr, str, arg1)
+X#define Error2(str,arg1,arg2)      (Void) fprintf (stderr, str, arg1, arg2)
+X#define UpdateTimer(new_val)       if (!sighupped) timer = new_val
+X
+Xstatic void*                       ch_ptr;  /* this is dirty */
+X#define Skeleton(t,s)              (ch_ptr = (Void*) malloc ((unsigned) s), \
+X			 	      ch_ptr == (Void*) NULL                \
+X			   	    ?   (Error0 ("Out of memory.\n"),       \
+X			 	       (Void) exit (PROBLEMS),              \
+X			 	       (t*) NULL                            \
+X			 	      )                                     \
+X			    	    : (t*) ch_ptr                           \
+X	                           )                                        \
+X
+X#define New(type)                  Skeleton (type, sizeof (type))
+X#define NewArray(type,nof_elems)   Skeleton (type, sizeof (type) * nof_elems)
+X
+X
+X
+X
+X/*
+X *  New types
+X *  =========
+X */
+X#if defined (apollo) || defined (news1800)
+Xtypedef int                        (*XErrorHandler) PP((Display*,
+X						       XErrorEvent*));
+X#endif /* apollo || news1800 */
+X
+X#if defined (news1800) || defined (sun386)
+Xtypedef int                        pid_t;
+X#endif /* news1800  || sun386 */
+X
+X#define Void                       void     /* no typedef because of VAX */
+Xtypedef int                        Int;
+Xtypedef char                       Char;
+Xtypedef char*                      String;
+Xtypedef int                        Boolean;
+Xtypedef caddr_t                    Caddrt;
+Xtypedef unsigned long              Huge;
+X
+X#ifdef HasVoidSignalReturn
+X#define SigRet                     Void     /* no typedef because of VAX */
+X#else /* HasVoidSignalReturn */
+Xtypedef Int                        SigRet;
+X#endif /* HasVoidSignalReturn */
+X
+Xtypedef SigRet                     (*SigHandler) PP((/* OS dependent */));
+Xtypedef Boolean                    (*OptAction)  PP((Display*, String,
+X						     String));
+Xtypedef Void                       (*OptChecker) PP((Display*));
+X
+Xtypedef enum
+X	{
+X	  IGNORE,                                 /* ignore this corner  */
+X	  DONT_LOCK,                              /* never lock          */
+X	  FORCE_LOCK,                             /* lock immediately    */
+X	} CornerAction;
+X
+Xtypedef struct QueueItem_
+X	{
+X	  Window                   window;        /* as it says          */
+X	  Time                     creationtime;  /* as it says          */
+X	  struct QueueItem_*       next;          /* as it says          */
+X	  struct QueueItem_*       prev;          /* as it says          */
+X	} aQueueItem, *QueueItem;
+X
+Xtypedef struct Queue_
+X	{
+X	  struct QueueItem_*       head;          /* as it says          */
+X	  struct QueueItem_*       tail;          /* as it says          */
+X	} aQueue, *Queue;
+X
+Xtypedef struct Opt_
+X	{
+X	  String                   name;          /* as it says          */
+X	  XrmOptionKind            kind;          /* as it says          */
+X	  Caddrt                   value;         /* XrmOptionNoArg only */
+X	  OptAction                action;        /* as it says          */
+X	  OptChecker               checker;       /* as it says          */
+X	} anOpt, *Opt;
+X
+X
+X
+X
+X/*
+X *  Function declarations
+X *  =====================
+X */
+X#ifdef news1800
+Xextern Void*    malloc             PP((unsigned int));
+X#endif /* news1800 */
+X 
+Xstatic Void     Usage              PP((String, Int));
+Xstatic Void     Sleep              PP((Void));
+Xstatic Void     EvaluateCounter    PP((Display*));
+Xstatic Void     QueryPointer       PP((Display*));
+Xstatic Void     ProcessEvents      PP((Display*, Queue));
+Xstatic Queue    NewQueue           PP((Void));
+Xstatic Void     AddToQueue         PP((Queue, Window));
+Xstatic Void     ProcessQueue       PP((Queue, Display*, Time));
+Xstatic Void     SelectEvents       PP((Display*, Window, Boolean));
+Xstatic Void     CheckConnection    PP((Display*, String));
+Xstatic Int      FetchFalseAlarm    PP((Display*, XEvent));
+Xstatic Void     ProcessOpts        PP((Display*, Int, String*));
+Xstatic Boolean  TimeAction         PP((Display*, String, String));
+Xstatic Boolean  LockerAction       PP((Display*, String, String));
+Xstatic Boolean  CornersAction      PP((Display*, String, String));
+Xstatic Boolean  CornerSizeAction   PP((Display*, String, String));
+Xstatic Boolean  CornerDelayAction  PP((Display*, String, String));
+Xstatic Boolean  NotifyAction       PP((Display*, String, String));
+Xstatic Boolean  BellAction         PP((Display*, String, String));
+Xstatic Boolean  NoCloseAction      PP((Display*, String, String));
+Xstatic Boolean  HelpAction         PP((Display*, String, String));
+Xstatic Boolean  VersionAction      PP((Display*, String, String));
+Xstatic Boolean  GetPositive        PP((String, Int*));
+Xstatic Void     TimeChecker        PP((Display*));
+Xstatic Void     NotifyChecker      PP((Display*));
+Xstatic Void     CornerSizeChecker  PP((Display*));
+Xstatic Void     BellChecker        PP((Display*));
+Xstatic SigRet   DisableBySignal    PP((Void));
+X
+X
+X
+X
+X/*
+X *  Global variables
+X *  ================
+X */
+Xstatic Time          now = 0;               /* number of sleeps since we
+X		    			       started (not `Int')        */
+Xstatic Int           timer = 0;             /* as it says (not `Time')    */
+Xstatic String        locker = LOCKER;       /* as it says                 */
+Xstatic Int           time_limit = MINUTES;  /* as it says (not `Time')    */
+Xstatic Int           notify_margin;         /* as it says (not `Time')    */
+Xstatic Int           bell_percent = BELL_PERCENT;
+X					    /* as it says                 */
+Xstatic Int           corner_size = CORNER_SIZE;
+X					    /* as it says                 */
+Xstatic Int           corner_delay = CORNER_DELAY;
+X					    /* as it says (not `Time')    */
+Xstatic Boolean       sighupped = FALSE;     /* whether to ignore all
+X					       time-outs                  */
+Xstatic Boolean       notify_lock = FALSE;   /* whether to notify the user
+X				               before locking             */
+Xstatic CornerAction  corners[4] = { IGNORE, IGNORE, IGNORE, IGNORE };
+X	                                    /* default CornerActions      */
+Xstatic Boolean       close_output = TRUE;   /* whether to close stdout
+X                                               and stderr                 */
+Xstatic anOpt         options[] = 
+X     		     {
+X       		       {"help"       , XrmoptionNoArg   ,
+X        	        (Caddrt) ""  , HelpAction       , (OptChecker) NULL},
+X       		       {"version"    , XrmoptionNoArg   ,
+X        	        (Caddrt) ""  , VersionAction    , (OptChecker) NULL},
+X       		       {"locker"     , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, LockerAction     , (OptChecker) NULL},
+X       		       {"corners"    , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, CornersAction    , (OptChecker) NULL},
+X       		       {"cornersize" , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, CornerSizeAction , CornerSizeChecker},
+X       		       {"cornerdelay", XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, CornerDelayAction, (OptChecker) NULL},
+X       		       {"time"       , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, TimeAction       , TimeChecker      },
+X       		       {"notify"     , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, NotifyAction     , NotifyChecker    },
+X       		       {"bell"       , XrmoptionSepArg  ,
+X        	        (Caddrt) NULL, BellAction       , BellChecker      },
+X       		       {"noclose"    , XrmoptionNoArg   ,
+X        	        (Caddrt) ""  , NoCloseAction    , (OptChecker) NULL},
+X     		     };                     /* as it says, the order is
+X					       important                  */
+X
+X
+X
+X
+X/*
+X *  Command line argument related functions
+X *  =======================================
+X *
+X *  Support functions
+X *  -----------------
+X */
+Xstatic Boolean  GetPositive (arg, pos)
+XString  arg;  /* string to scan                  */
+XInt*    pos;  /* adress where to store the stuff */
+X
+X{
+X  Char  c;           /* dummy            */
+X  Int   old = *pos;  /* backup old value */
+X
+X
+X  if (   sscanf (arg, "%d%c", pos, &c) == 1
+X      && *pos >= 0
+X     )
+X  {
+X    return TRUE;
+X  }
+X  else
+X  {
+X    *pos = old;
+X    return FALSE;
+X  }
+X}
+X
+X
+X
+X/*
+X *  Action functions
+X *  ----------------
+X */
+X/*ARGSUSED*/
+Xstatic Boolean  HelpAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  Usage (name, ALL_OK);
+X
+X  return TRUE;  /* for lint and gcc */
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  VersionAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  Error2 ("%s : patchlevel %d\n", name, PATCHLEVEL);
+X  (Void) exit (ALL_OK);
+X
+X  return TRUE;  /* for lint and gcc */
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  CornerSizeAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  return GetPositive (arg, &corner_size);
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  CornerDelayAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  return GetPositive (arg, &corner_delay);
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  TimeAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  return GetPositive (arg, &time_limit);
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  NotifyAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  return notify_lock = GetPositive (arg, &notify_margin);
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  BellAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  return GetPositive (arg, &bell_percent);
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  NoCloseAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  close_output = FALSE;
+X  return TRUE;
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  LockerAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  locker = arg;
+X  return TRUE;
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Boolean  CornersAction (d, name, arg)
+XDisplay*  d;     /* display pointer */
+XString    name;  /* program name    */
+XString    arg;   /* argument value  */
+X
+X{
+X  Int  c;  /* loop counter */
+X
+X
+X  if (strlen (arg) == 4)
+X  {
+X    for (c = -1; ++c < 4; )
+X    {
+X      switch (arg[c])
+X      {
+X	case '0' :
+X	  corners[c] = IGNORE;
+X	  continue;
+X
+X	case '-' :
+X	  corners[c] = DONT_LOCK;
+X	  continue;
+X
+X	case '+' :
+X	  corners[c] = FORCE_LOCK;
+X	  continue;
+X
+X	default :
+X	  return FALSE;
+X      }
+X    }
+X
+X    return TRUE;
+X  }
+X  else
+X  {
+X    return FALSE;
+X  }
+X}
+X
+X
+X
+X/*
+X *  Consistency checkers
+X *  --------------------
+X */
+X/*ARGSUSED*/
+Xstatic Void  TimeChecker (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  if (time_limit < MIN_MINUTES)
+X  {
+X    Error1 ("Setting time to minimum value of %d minute(s).\n",
+X            time_limit = MIN_MINUTES);
+X  }
+X  else if (time_limit > MAX_MINUTES)
+X  {
+X    Error1 ("Setting time to maximum value of %d minute(s).\n",
+X            time_limit = MAX_MINUTES);
+X  }
+X
+X  time_limit *= 60; /* convert to seconds */
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Void  NotifyChecker (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  if (   notify_lock
+X      && notify_margin >= time_limit / 2
+X     )
+X  {
+X    Error1 ("Notification time set to %d seconds.\n",
+X            notify_margin = time_limit / 2);
+X  }
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Void  BellChecker (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  if (   bell_percent < 1
+X      || bell_percent > 100
+X     )
+X  {
+X    Error1 ("Bell percentage set to %d%%.\n",
+X	    bell_percent = BELL_PERCENT);
+X  }
+X}
+X
+X
+X/*ARGSUSED*/
+Xstatic Void  CornerSizeChecker (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  Int      s;                /* screen index   */
+X  Screen*  scr;              /* screen pointer */
+X  Int      max_corner_size;  /* as it says     */
+X  
+X
+X  for (max_corner_size = 32000, s = -1; ++s < ScreenCount (d); )
+X  {
+X    scr = ScreenOfDisplay (d, s);
+X
+X    if (   max_corner_size > WidthOfScreen (scr) / 4
+X	|| max_corner_size > HeightOfScreen (scr) / 4
+X       )
+X    {
+X      max_corner_size = Min (WidthOfScreen (scr), HeightOfScreen (scr)) / 4;
+X    }
+X  }
+X
+X  if (corner_size > max_corner_size)
+X  {
+X    Error1 ("Corner size set to %d pixels.\n",
+X	    corner_size = max_corner_size);
+X  }
+X}
+X
+X
+X
+X/*
+X *  Function for informing the user about syntax errors
+X *  ---------------------------------------------------
+X */
+Xstatic Void  Usage (prog_name, exit_code)
+XString  prog_name;  /* as it says */
+XInt     exit_code;  /* as it says */
+X
+X{
+X  String  blanks;  /* string full of blanks */
+X  size_t  len;     /* number of blanks      */
+X
+X
+X /*
+X  *  The relative overhead is enormous here, but who cares.
+X  *  I'm a perfectionist and Usage () doesn't return anyway.
+X  */
+X  len = strlen ("Usage : ") + strlen (prog_name) + 1;
+X  (Void) memset (blanks = NewArray (Char, len + 1), ' ', len);
+X  blanks[len] = '\0';
+X
+X
+X /*
+X  *  This is where the actual work gets done...
+X  */
+X  Error0 ("\n");
+X  Error1 ("Usage : %s ", prog_name);
+X  Error0 ("[-help][-version][-time minutes][-locker locker]\n");
+X  Error0 (blanks);
+X  Error0 ("[-notify margin][-bell percent][-corners xxxx]\n");
+X  Error0 (blanks);
+X  Error0 ("[-cornerdelay secs][-cornersize pixels][-noclose]\n");
+X
+X  Error0 ("\n");
+X  Error0 (" -help              : print this message and exit.\n");
+X  Error0 (" -version           : print version number and exit.\n");
+X  Error2 (" -time minutes      : time to lock screen [%d < minutes < %d].\n",
+X	                         MIN_MINUTES, MAX_MINUTES);
+X  Error0 (" -locker locker     : program used to lock.\n");
+X  Error0 (" -notify margin     : beep this many seconds before locking.\n");
+X  Error0 (" -bell percent      : loudness of the beep.\n");
+X  Error0 (" -corners xxxx      : corner actions (0, +, -) in this order :\n");
+X  Error0 ("                      topleft topright bottomleft bottomright\n");
+X  Error0 (" -cornerdelay secs  : time to lock screen in a `+' corner.\n");
+X  Error0 (" -cornersize pixels : size of corner areas.\n");
+X  Error0 (" -noclose           : do not close stdout and stderr.\n");
+X
+X  Error0 ("\n");
+X  Error0 ("Defaults :\n");
+X
+X  Error0 ("\n");
+X  Error1 ("  time        : %d minutes\n"  , MINUTES     );
+X  Error1 ("  locker      : %s\n"          , LOCKER      );
+X  Error0 ("  notify      : don't beep\n"                );
+X  Error0 ("  bell        : 40%%\n"                      );
+X  Error0 ("  corners     : 0000\n"                      );
+X  Error1 ("  cornerdelay : %d seconds\n"  , CORNER_DELAY);
+X  Error1 ("  cornersize  : %d pixels\n"   , CORNER_SIZE );
+X
+X  Error0 ("\n");
+X
+X  exit (exit_code);
+X}
+X
+X
+X
+X/*
+X *  Function for processing command line arguments
+X *  ----------------------------------------------
+X */
+Xstatic Void  ProcessOpts (d, argc, argv)
+XDisplay*  d;       /* display pointer     */
+XInt       argc;    /* number of arguments */
+XString    argv[];  /* array of arguments  */
+X
+X{
+X  Int                nof_options = sizeof (options) / sizeof (anOpt);
+X	                          /* number of supported options   */
+X  Int                j;           /* loop counter                  */
+X  Int                l;           /* temporary storage             */
+X  Char*              ptr;         /* temporary storage             */
+X  Char               buffer[80];  /* as it says                    */
+X  Char*              dummy;       /* as it says                    */
+X  XrmValue           value;       /* resource value container      */
+X  XrmOptionDescList  xoptions;    /* optionslist in Xlib format    */
+X  XrmDatabase        db = (XrmDatabase) NULL;
+X				  /* command line options database */
+X
+X
+X /*
+X  *  Beautify argv[0].
+X  */
+X  for (ptr = argv[0] + strlen (argv[0]) - 1; ptr >= argv[0]; ptr--)
+X  {
+X    if (*ptr == '/')
+X    {
+X      break;
+X    }
+X  }
+X
+X  argv[0] = ptr + 1;
+X
+X
+X /*
+X  *  Calling XGetDefault () on a dummy resource is the easiest 
+X  *  way to get both Xrm and d->db initialized.
+X  */
+X  (Void) XGetDefault (d, argv[0], "dummy");
+X
+X
+X /*
+X  *  Parse the command line options into a resource database. (The
+X  *  command line database and the resource file database are not
+X  *  merged, because we want to know where exactly each resource
+X  *  value came from.)
+X  */
+X  xoptions = NewArray (XrmOptionDescRec, nof_options);
+X
+X  for (j = -1; ++j < nof_options; )
+X  {
+X    l = strlen (options[j].name);
+X
+X    (Void) sprintf (xoptions[j].option = NewArray (Char, l + 2),
+X	            "-%s", options[j].name);
+X    (Void) sprintf (xoptions[j].specifier = NewArray (Char, l + 2),
+X	            ".%s", options[j].name);
+X    xoptions[j].argKind = options[j].kind;
+X    xoptions[j].value = options[j].value;
+X  }
+X
+X  XrmParseCommand (&db, xoptions, nof_options, argv[0], &argc, argv);
+X
+X  if (--argc)
+X  {
+X    Usage (argv[0], PROBLEMS);
+X  }
+X
+X  for (j = -1; ++j < nof_options; )
+X  {
+X    free (xoptions[j].option);
+X    free (xoptions[j].specifier);
+X  }
+X
+X  free (xoptions);
+X
+X
+X /*
+X  *  Call the action functions.
+X  */
+X  for (j = -1; ++j < nof_options; )
+X  {
+X    (Void) sprintf (buffer, "%s%s", argv[0], xoptions[j].specifier);
+X
+X    if (XrmGetResource (db, buffer, (String) NULL, &dummy, &value))
+X    {
+X      if (!(*(options[j].action)) (d, argv[0], value.addr))
+X      {
+X        Usage (argv[0], PROBLEMS); 
+X      }
+X    }
+X    else if (XrmGetResource (d->db, buffer, (String) NULL, &dummy, &value))
+X    {
+X      if (!(*(options[j].action)) (d, argv[0], value.addr))
+X      {
+X        Error2 ("Can't interprete \"%s\" for \"%s\", using default.\n", 
+X	        value.addr, buffer);
+X      }
+X    }
+X    else
+X    {
+X      (Void) sprintf (buffer, "%s%s", CLASS, xoptions[j].specifier);
+X
+X      if (   XrmGetResource (d->db, buffer, (String) NULL, &dummy, &value)
+X          && !(*(options[j].action)) (d, argv[0], value.addr)
+X         )
+X      {
+X        Error2 ("Can't interprete \"%s\" for \"%s\", using default.\n", 
+X	        value.addr, buffer);
+X      }
+X    }
+X  }
+X
+X
+X
+X /*
+X  *  Call the consistency checkers.
+X  */
+X  for (j = -1; ++j < nof_options; )
+X  {
+X    if (options[j].checker != (OptChecker) NULL)
+X    {
+X      (*(options[j].checker)) (d);
+X    }
+X  }
+X}
+X
+X
+X
+X
+X/*
+X *  Functions related to the window queue
+X *  =====================================
+X *
+X *  Function for creating a new queue
+X *  ---------------------------------
+X */
+Xstatic Queue  NewQueue ()
+X
+X{
+X  Queue  queue;  /* return value */
+X
+X
+X  queue = New (aQueue);
+X  queue->tail = New (aQueueItem);
+X  queue->head = New (aQueueItem);
+X
+X  queue->tail->next = queue->head;
+X  queue->head->prev = queue->tail;
+X  queue->tail->prev = queue->head->next = (QueueItem) NULL;
+X
+X  return queue;
+X}
+X
+X
+X
+X/*
+X *  Function for adding an item to a queue
+X *  --------------------------------------
+X */
+Xstatic Void  AddToQueue (queue, window)
+XQueue   queue;   /* as it says */
+XWindow  window;  /* as it says */
+X
+X{
+X  QueueItem  new;  /* new item */
+X
+X
+X  new = New (aQueueItem);
+X
+X  new->window = window;
+X  new->creationtime = now;
+X  new->next = queue->tail->next;
+X  new->prev = queue->tail;
+X  queue->tail->next->prev = new;
+X  queue->tail->next = new;
+X}
+X
+X
+X
+X/*
+X *  Function for processing those entries that are old enough
+X *  ---------------------------------------------------------
+X */
+Xstatic Void  ProcessQueue (queue, d, age)
+XQueue     queue;  /* as it says      */
+XDisplay*  d;      /* display pointer */
+XTime      age;    /* required age    */
+X
+X{
+X  QueueItem  current;  /* as it says */
+X
+X
+X  if (now > age)
+X  {
+X    current = queue->head->prev;
+X
+X    while (   current->prev
+X	   && current->creationtime + age < now
+X	  )
+X    {
+X      SelectEvents (d, current->window, False);
+X      current = current->prev;
+X      free (current->next);
+X    }
+X
+X    current->next = queue->head;
+X    queue->head->prev = current;
+X  }
+X}
+X
+X
+X
+X
+X/*
+X *  Functions related to (the lack of) user activity
+X *  ================================================
+X *
+X *  Function for processing the event queue
+X *  ---------------------------------------
+X */
+Xstatic Void  ProcessEvents (d, queue)
+XDisplay*  d;      /* display pointer */
+XQueue     queue;  /* as it says      */
+X
+X{
+X  XEvent  event;  /* as it says */
+X
+X
+X /*
+X  *  Read whatever is available for reading.
+X  */
+X  while (XPending (d))
+X  {
+X    if (XCheckMaskEvent (d, SubstructureNotifyMask, &event))
+X    {
+X      if (event.type == CreateNotify)
+X      {
+X	AddToQueue (queue, event.xcreatewindow.window);
+X      }
+X    }
+X    else
+X    {
+X      XNextEvent (d, &event);
+X    }
+X
+X
+X   /*
+X    *  Reset the counter if and only if the event is of one of
+X    *  the types we are expecting to get *and* was not generated by
+X    *  XSendEvent ().
+X    */
+X    if (   event.type == KeyPress
+X	&& !event.xany.send_event
+X       )
+X    {
+X      UpdateTimer (0);
+X    }
+X  }
+X
+X
+X /*
+X  *  Check the window queue for entries that are older than
+X  *  CREATION_DELAY seconds.
+X  */
+X  ProcessQueue (queue, d, (Time) CREATION_DELAY);
+X}
+X
+X
+X
+X/*
+X *  Function for monitoring pointer movements
+X *  -----------------------------------------
+X */
+Xstatic Void  QueryPointer (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  Window          dummy_w;            /* as it says                    */
+X  Int             dummy_c;            /* as it says                    */
+X  Mask            dummy_m;            /* as it says                    */
+X  Int             root_x;             /* as it says                    */
+X  Int             root_y;             /* as it says                    */
+X  Int             corner;             /* corner index                  */
+X  Int             i;                  /* loop counter                  */
+X  static Window   root;               /* root window the pointer is on */
+X  static Screen*  screen;             /* screen the pointer is on      */
+X  static Int      prev_root_x = -1;   /* as it says                    */
+X  static Int      prev_root_y = -1;   /* as it says                    */
+X  static Boolean  first_call = TRUE;  /* as it says                    */
+X
+X
+X /*
+X  *  Have a guess...
+X  */
+X  if (first_call)
+X  {
+X    first_call = FALSE;
+X    root = DefaultRootWindow (d);
+X    screen = ScreenOfDisplay (d, DefaultScreen (d));
+X  }
+X
+X
+X /*
+X  *  Find out whether the pointer has moved. Using XQueryPointer for this
+X  *  is gross, but it also is the only way never to mess up propagation
+X  *  of pointer events.
+X  *
+X  *  Remark : Unlike XNextEvent(), XPending () doesn't notice if the
+X  *           connection to the server is lost. For this reason, earlier
+X  *           versions of xautolock periodically called XNoOp (). But
+X  *           why not let XQueryPointer () do the job for us, since
+X  *           we now call it every INCREMENTAL_SLEEP seconds anyway?
+X  */
+X  if (!XQueryPointer (d, root, &root, &dummy_w, &root_x, &root_y,
+X		      &dummy_c, &dummy_c, &dummy_m))
+X  {
+X   /*
+X    *  Pointer has moved to another screen, so let's find out which one.
+X    */
+X    for (i = -1; ++i < ScreenCount (d); ) 
+X    {
+X      if (root == RootWindow (d, i)) 
+X      {
+X        screen = ScreenOfDisplay (d, i);
+X	break;
+X      }
+X    }
+X  }
+X
+X  if (   root_x == prev_root_x
+X      && root_y == prev_root_y
+X     )
+X  {
+X   /*
+X    *  If the pointer has not moved since the previous call and 
+X    *  is inside one of the 4 corners, we act according to the
+X    *  contents of the "corners" array.
+X    */
+X    if (   (corner = 0,
+X	       root_x <= corner_size
+X	    && root_y <= corner_size
+X	   )
+X	|| (corner++,
+X	       root_x >= WidthOfScreen  (screen) - corner_size - 1
+X	    && root_y <= corner_size
+X	   )
+X	|| (corner++,
+X	       root_x <= corner_size
+X	    && root_y >= HeightOfScreen (screen) - corner_size - 1
+X	   )
+X	|| (corner++,
+X	       root_x >= WidthOfScreen  (screen) - corner_size - 1
+X	    && root_y >= HeightOfScreen (screen) - corner_size - 1
+X	   )
+X       )
+X    {
+X      switch (corners[corner])
+X      {
+X	case FORCE_LOCK :
+X	  if (timer < time_limit - corner_delay + 2)
+X	  {
+X	    UpdateTimer (time_limit - corner_delay + 2);
+X	  }
+X	  break;
+X
+X	case DONT_LOCK :
+X	  UpdateTimer (0);
+X      }
+X    }
+X  }
+X  else
+X  {
+X    prev_root_x = root_x;
+X    prev_root_y = root_y;
+X    UpdateTimer (0);
+X  }
+X}
+X
+X
+X
+X/*
+X *  Function for deciding whether to lock
+X *  -------------------------------------
+X */
+Xstatic Void  EvaluateCounter (d)
+XDisplay*  d;  /* display pointer */
+X
+X{
+X  static pid_t  locker_pid = 0;  /* child pid  */
+X  static Time   prev_bell = 0;   /* as it says */
+X
+X
+X /*
+X  *  Find out whether we should do something special. This can
+X  *  be one (or more) of the following :
+X  *
+X  *   - Wait for the previous locker (if any).
+X  *   - Ring the bell, if we were asked to and are about to lock.
+X  *   - Start up a new locker if the time limit has been reached.
+X  */
+X  if (locker_pid)
+X  {
+X    union wait  status;  /* childs process status */
+X
+X
+X    if (!wait3 (&status, WNOHANG, (struct rusage*) NULL))
+X    {
+X      UpdateTimer (0);
+X    }
+X    else
+X    {
+X      locker_pid = 0;
+X    }
+X  }
+X
+X  if (   notify_lock
+X      && timer + notify_margin > time_limit
+X      && prev_bell < now - notify_margin - 1
+X     )
+X  {
+X    prev_bell = now;
+X    XBell (d, bell_percent);
+X    XSync (d, 0);
+X  }
+X
+X  if (timer > time_limit)
+X  {
+X    if (!locker_pid)
+X    {
+X      switch (locker_pid = vfork ())
+X      {
+X	case -1 :
+X	  locker_pid = 0;
+X	  break;
+X
+X	case 0 :
+X	  (Void) close (ConnectionNumber (d));
+X	  (Void) execl ("/bin/sh", "sh", "-c", locker, (String) NULL);
+X	  (Void) _exit (PROBLEMS);
+X
+X	default :
+X	  UpdateTimer (0);
+X      }
+X    }
+X  }
+X}
+X
+X
+X
+X
+X/*
+X *  Miscellaneous functions
+X *  =======================
+X *
+X *  X Error handler
+X *  ---------------
+X */
+X/*ARGSUSED*/
+Xstatic Int  FetchFalseAlarm (d, event)
+XDisplay*  d;      /* display pointer */
+XXEvent    event;  /* error event     */
+X
+X{
+X  return 0;
+X}
+X
+X
+X
+X/*
+X *  SIGHUP signal handler
+X *  ---------------------
+X */
+Xstatic SigRet  DisableBySignal ()
+X
+X{
+X /*
+X  *  The order in which things are done is rather important here.
+X  */
+X  UpdateTimer (0);
+X  sighupped = !sighupped;
+X  (Void) signal (SIGHUP, (SigHandler) DisableBySignal);
+X
+X#ifndef HasVoidSignalReturn 
+X  return 0;
+X#endif /* HasVoidSignalReturn */
+X}
+X
+X
+X
+X/*
+X *  Lazy function
+X *  -------------
+X */
+Xstatic Void  Sleep ()
+X
+X{
+X  Int  i;  /* loop counter */
+X
+X
+X  for (i = -1; ++i < INCREMENTAL_SLEEP; )
+X  {
+X    (Void) sleep (1);
+X    UpdateTimer (timer + 1);
+X    now++;
+X  }
+X}
+X
+X
+X
+X/*
+X *  Function for finding out whether another xautolock is already running
+X *  ---------------------------------------------------------------------
+X */
+Xstatic Void  CheckConnection (d, prog_name)
+XDisplay*  d;          /* display pointer */
+XString    prog_name;  /* as it says      */
+X
+X{
+X  pid_t   pid;        /* as it says              */
+X  Int     kill_val;   /* return value of kill () */
+X  Window  r;          /* root window             */
+X  Atom    property;   /* property atom           */
+X  Atom    type;       /* property type atom      */
+X  Int     format;     /* property format         */
+X  Huge    nof_items;  /* actual number of items  */
+X  Huge    after;      /* dummy                   */
+X  pid_t*  contents;   /* actual property value   */
+X
+X
+X  r = RootWindowOfScreen (ScreenOfDisplay (d, 0));
+X  property = XInternAtom (d, "XAUTOLOCK_SEMAPHORE_PID", False);
+X
+X  XGrabServer (d);
+X  XGetWindowProperty (d, r, property, 0L, 2L, False, AnyPropertyType,
+X		      &type, &format, &nof_items, &after,
+X		      (unsigned char**) &contents);
+X
+X  if (type == XA_INTEGER)
+X  {
+X   /*
+X    *  This breaks if the other xautolock is not 
+X    *  running on the same machine.
+X    */
+X    kill_val = kill (*contents, 0);
+X
+X    if (kill_val == 0)
+X    {
+X      Error2 ("%s is already running (PID %d).\n",
+X	      prog_name, *contents);
+X      (Void) exit (PROBLEMS);
+X    }
+X  }
+X
+X  pid = getpid ();
+X  XChangeProperty (d, r, property, XA_INTEGER, 8,
+X	           PropModeReplace, (Char*) &pid, sizeof (pid));
+X  XUngrabServer (d);
+X
+X  XFree ((Char*) contents);
+X}
+X
+X
+X
+X/*
+X *  Function for selecting events on a tree of windows
+X *  --------------------------------------------------
+X */
+Xstatic Void  SelectEvents (d, window, substructure_only)
+XDisplay*  d;                  /* display pointer   */
+XWindow    window;             /* window            */
+XBoolean   substructure_only;  /* as it says        */
+X
+X{
+X  Window             root;              /* root window of this window */
+X  Window             parent;            /* parent of this window      */
+X  Window*            children;          /* children of this window    */
+X  Int                nof_children = 0;  /* number of children         */
+X  Int                i;                 /* loop counter               */
+X  XWindowAttributes  attribs;           /* attributes of the window   */
+X
+X
+X /*
+X  *  Start by querying the server about parent and child windows.
+X  */
+X  if (!XQueryTree (d, window, &root, &parent, &children, &nof_children))
+X  {
+X    return;
+X  }
+X
+X
+X /*
+X  *  Build the appropriate event mask. The basic idea is that we don't
+X  *  want to interfere with the normal event propagation mechanism if
+X  *  we don't have to.
+X  */
+X  if (substructure_only)
+X  {
+X    XSelectInput (d, window, SubstructureNotifyMask);
+X  }
+X  else
+X  {
+X    if (parent == None)  /* the *real* rootwindow */
+X    {
+X      attribs.all_event_masks = 
+X      attribs.do_not_propagate_mask = KeyPressMask;
+X    }
+X    else if (XGetWindowAttributes (d, window, &attribs) == 0)
+X    {
+X      return;
+X    }
+X
+X    XSelectInput (d, window,   SubstructureNotifyMask
+X		             | (  (  attribs.all_event_masks
+X				   | attribs.do_not_propagate_mask)
+X				& KeyPressMask));
+X  }
+X
+X
+X /*
+X  *  Now do the same thing for all children.
+X  */
+X  for (i = -1; ++i < nof_children; )
+X  {
+X    SelectEvents (d, children[i], substructure_only);
+X  }
+X
+X  if (nof_children != 0)
+X  {
+X    XFree ((Char*) children);
+X  }
+X}
+X
+X
+X
+X/*
+X *  Main function
+X *  -------------
+X */
+XInt  Main (argc, argv)
+XInt     argc;    /* number of arguments */
+XString  argv[];  /* array of arguments  */
+X
+X{
+X  Display*  d;      /* display pointer */
+X  Window    r;      /* root window     */
+X  Int       s;      /* screen index    */
+X  Queue     queue;  /* as it says      */
+X
+X
+X /*
+X  *  Find out whether there actually is a server on the other side...
+X  */
+X  if (   (d = XOpenDisplay ((String) NULL))
+X      == (Display*) NULL
+X     )
+X  {
+X    (Void) exit (PROBLEMS);
+X  }
+X
+X
+X /*
+X  *  Some initializations.
+X  */
+X  ProcessOpts (d, argc, argv);
+X
+X  XSetErrorHandler ((XErrorHandler) FetchFalseAlarm);
+X  CheckConnection (d, argv[0]);
+X  (Void) signal (SIGHUP, (SigHandler) DisableBySignal);
+X
+X  XSync (d, 0);
+X  (Void) sleep (INITIAL_SLEEP);
+X
+X  queue = NewQueue ();
+X
+X  for (s = -1; ++s < ScreenCount (d); )
+X  {
+X    AddToQueue (queue, r = RootWindowOfScreen (ScreenOfDisplay (d, s)));
+X    SelectEvents (d, r, True);
+X  }
+X
+X  if (close_output)
+X  {
+X    (Void) fclose (stdout);
+X    (Void) fclose (stderr);
+X  }
+X
+X
+X /*
+X  *  Main event loop.
+X  */
+X  forever
+X  {
+X    Sleep ();
+X    ProcessEvents (d, queue);
+X    QueryPointer (d);
+X    EvaluateCounter (d);
+X  }
+X}
+SHAR_EOF
+if test 37774 -ne "`wc -c < 'xautolock.c'`"
+then
+	echo shar: error transmitting "'xautolock.c'" '(should have been 37774 characters)'
+fi
+fi # end of overwriting check
+echo shar: extracting "'xautolock.man'" '(5718 characters)'
+if test -f 'xautolock.man'
+then
+	echo shar: will not over-write existing file "'xautolock.man'"
+else
+sed 's/^X//' << \SHAR_EOF > 'xautolock.man'
+X.TH xautolock l
+X
+X
+X.SH NAME
+X
+Xxautolock \- locks X display after a period of inactivity
+X
+X
+X.SH SYNOPSIS 
+X
+X\fBxautolock\fR [\fB\-help\fR] [\fB\-version\fR] 
+X[\fB\-time\fR \fIminutes\fR] [\fB\-locker\fR \fIlocker\fR]
+X          [\fB\-notify \fImargin\fR] [\fB\-bell \fIpercent\fR]
+X[\fB\-corners\fR \fIxxxx\fR]
+X          [\fB\-cornerdelay\fR \fIsecs\fR]
+X[\fB\-cornersize\fR \fIpixels\fR] [\fB\-noclose\fR]
+X.br 
+X
+X
+X.SH DESCRIPTION 
+X
+XWhen xautolock is started, it monitors the user activity on the
+Xworkstation. When no activity is detected within \fIminutes\fR
+Xminutes, the screen is automatically locked, using the screen
+Xlocker specified with the \fI\-locker\fR option. xautolock is
+Xcapable of managing multiheaded displays.
+X
+XIn the presence of the \fI\-notify\fR option, a warning signal will
+Xbe issued \fImargin\fR seconds before starting the locker. The
+X\fI\-bell\fR option specifies the loudness of the signal in
+X\fIpercent\fR.
+X
+XYou can tell xautolock to take special actions when you move
+Xthe mouse into one of the corners of the display and leave it
+Xthere, by using the \fI\-corners\fR,
+X\fI\-cornerdelay\fR and \fI\-cornersize\fR
+Xoptions. This works as follows :
+X
+XThe \fIxxxx\fR argument to the \fI\-corners\fR option must consist
+Xof exactly 4 characters from the following set : '0', '+', '-'.
+XEach one of these specifies what xautolock should do when the mouse
+Xenters a small square area located in each of the corners of the
+Xscreen. The corners are considered in the
+Xfollowing order : top left, top right, bottom left, bottom right.
+XA '0' indicates that xautolock should ignore the corner.
+XA '+' indicates that xautolock should start the \fIlocker\fR 
+Xafter \fIsecs\fR seconds, unless the mouse is moved, or keyboard
+Xinput is received. A '-' indicates that xautolock not start the
+X\fIlocker\fR at all. The \fIpixels\fR argument specifies the
+Xsize in pixels of the corner areas.
+X
+XBy default xautolock closes stdout and stderr. This prevents the
+Xscreenlocker from writing error messages to these files in case
+Xyou manually lock your display. The \fI\-noclose\fR option causes
+Xxautolock not to close stdout and stderr. This can be used for
+Xdebugging.
+X
+XYou can also disable xautolock by sending it a SIGHUP
+Xsignal. When disabled, it will not attempt to start the
+Xscreenlocker. To re-enable it, send it another SIGHUP. This 
+Xmethod is preferable to using SIGSTOP and SIGCONT, because
+Xwhile SIGHUPped, xautolock will still be emptying its 
+Xevent queue.
+X
+X
+X.SH OPTIONS
+X
+X.TP 14
+X\fB\-help\fR
+XPrint a help message and exit.
+X.TP 
+X\fB\-version\fR
+XPrint the version number and exit.
+X.TP 
+X\fB\-time\fR
+XSpecifies the time-out interval. The default is 10 minutes,
+Xthe minimum is 1 minute and the maximum is 1 hour.
+X.TP 
+X\fB\-locker\fR
+XSpecifies the screen locker to be used. The default is
+X"xlock 2>&- 1>&-". Your PATH is used to locate the program.
+XNotice that if \fIlocker\fR contains several words, it must
+Xbe specified between quotes.
+X.TP 
+X\fB\-notify\fR
+XWarn the user \fImargin\fR seconds before locking. The
+Xdefault is not to warn the user.
+X.TP
+X\fB\-bell\fR
+XSpecifies the loudness of the notification signal. The default
+Xis 40 percent. This option is only usefull in conjunction with
+X\fI\-notify\fR.
+X.TP 
+X\fB\-corners\fR
+XDefine special actions to be taken when the mouse
+Xenters one of the corners of the display. The default is 0000,
+Xwhich means that no special actions are taken.
+X.TP 
+X\fB\-cornerdelay\fR
+XSpecifies the number of seconds to wait
+Xbefore reacting to a '+' corner. The default is 5 seonds.
+X.TP 
+X\fB\-cornersize\fR
+XSpecifies the size in pixels of the corner areas. The default is
+X10 pixels.
+X.TP 
+X\fB\-noclose\fR
+XDon't close stdout and stderr.
+X
+X
+X.SH RESOURCES
+X
+X.TP 14
+X.B time 
+XSpecifies the time out period.
+X.TP 14
+X.B locker 
+XSpecifies the screen locker. No quotes are needed, even if
+Xyour screen locker command contains several words.
+X.TP 14
+X.B notify 
+XSpecifies the notification margin.
+X.TP 14
+X.B bell 
+XSpecifies the notification loudness.
+X.TP 14
+X.B corners 
+XSpecifies the corner behaviour.
+X.TP 14
+X.B cornersize 
+XSpecifies the size of the corner areas.
+X.TP 14
+X.B cornerdelay 
+XSpecifies the delay of a '+' corner.
+X.TP 14
+X.B noclose 
+XDon't close stdout and stderr.
+X
+X.TP 0
+XResources can be specified in your \fI~/.Xdefaults\fR file either
+Xfor class \fIXautolock\fR, or for whatever name you renamed
+Xxautolock to. For example : if you have two copies of xautolock,
+Xone called "xfreeze", and one called "xmonitor", then both will
+Xunderstand the following :
+X
+X  Xautolock.corners: ++++
+X
+XIn addition, "xfreeze" will understand :
+X
+X  xfreeze.cornersize: 10
+X
+Xwhile "xmonitor" will understand :
+X
+X  xmonitor.cornersize: 5
+X
+X
+X.SH KNOWN\ BUGS 
+X
+Xxautolock does not check whether \fIlocker\fR is available.
+X
+XThe xautolock resources have no resource class. 
+X
+X
+X.SH COPYRIGHT
+X
+XCopyright 1990, 1992 by S. De Troch and MCE.
+X
+XPermission to use, copy, modify and distribute this software and the
+Xsupporting documentation without fee is hereby granted, provided that :
+X
+X 1 : Both the above copyright notice and this permission notice
+X     appear in all copies of both the software and the supporting
+X     documentation.
+X 2 : You don't make a profit out of it.
+X
+XTHE AUTHORS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO
+XEVENT SHALL THEY BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+XDAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA
+XOR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+XTORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+XPERFORMANCE OF THIS SOFTWARE.
+X
+X
+X.SH AUTHORS   
+X
+XStefan De Troch (detroch@imec.be),
+XMichel Eyckmans (eyckmans@imec.be).
+X
+X
+X.SH SPECIAL\ THANKS\ TO
+X
+XKris Croes (croes@imec.be).
+SHAR_EOF
+if test 5718 -ne "`wc -c < 'xautolock.man'`"
+then
+	echo shar: error transmitting "'xautolock.man'" '(should have been 5718 characters)'
+fi
+fi # end of overwriting check
+#	End of shell archive
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

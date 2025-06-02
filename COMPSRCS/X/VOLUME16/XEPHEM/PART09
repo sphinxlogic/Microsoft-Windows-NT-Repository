@@ -1,0 +1,1623 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i120: xephem - astronomical ephemeris program., Part09/24
+Message-ID: <1992Mar6.135407.2348@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:54:07 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 120
+Archive-name: xephem/part09
+
+# this is part.09 (part 9 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file risetmenu.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping risetmenu.c'
+else
+echo 'x - continuing file risetmenu.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'risetmenu.c' &&
+X	    str = XmStringCreate ("Toggle On/off", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 650); n++;
+X	    XtSetArg(args[n], XmNrecomputeSize, False); n++;
+X	    w = XmCreatePushButtonGadget (risetform_w, "RisetToggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, rm_toggle_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the help button */
+X	    str = XmStringCreate ("Help", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 1000); n++;
+X	    w = XmCreatePushButtonGadget (risetform_w, "RisetHelp", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, rm_help_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X	}
+X	
+X	if (XtIsManaged(risetform_w))
+X	    XtUnmanageChild (risetform_w);
+X	else {
+X	    XtManageChild (risetform_w);
+X	    rm_update (mm_get_now(), 1);
+X	    rm_set_buttons(rm_selecting);
+X	}
+}
+X
+/* used by main to set the initial state of the objects to be on. */
+rm_set_objs_on (mask)
+int mask;
+{
+X	objs_on = mask;
+}
+X
+/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+rm_selection_mode (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	rm_selecting += whether ? 1 : -1;
+X
+X	if (risetform_w && XtIsManaged(risetform_w))
+X	    if (whether && rm_selecting == 1     /* first one to want on */
+X		|| !whether && rm_selecting == 0 /* last one to want off */)
+X		rm_set_buttons (whether);
+}
+X
+/* go through all the buttons just pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+static
+rm_set_buttons (whether)
+int whether;
+{
+X	static Arg look_like_button[] = {
+X	    {XmNshadowThickness, (XtArgVal) 2},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNshadowThickness, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	FieldMap *fp;
+X
+X	for (fp = rm_field_map; fp < LFM; fp++)
+X	    if (whether && fp->how & PLT || !whether && fp->how & CHG)
+X		XtSetValues (fp->w,look_like_button,XtNumber(look_like_button));
+X	    else
+X		XtSetValues (fp->w,look_like_label,XtNumber(look_like_label));
+}
+X
+/* callback from any of the riset menu buttons being activated.
+X * if it's a CHGable field, ask op for a new setting.
+X */
+void
+rm_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X
+X	if (rm_selecting) {
+X	    plt_selection (fp);
+X	    lst_selection (fp);
+X	    srch_selection (fp);
+X	}
+}
+X
+/* callback from the "toggle on/off" push button.
+X * toggle each object on or off.
+X * basically we just force set all the planet buttons and let their callbacks
+X *   do the real work.
+X */
+static void
+rm_toggle_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p;
+X
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    int state = XmToggleButtonGadgetGetState (objs_w[p]);
+X	    XmToggleButtonGadgetSetState (objs_w[p], !state, True/*invoke cb*/);
+X	}
+}
+X
+/* callback from the Close button.
+X */
+void
+rm_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (risetform_w);
+}
+X
+/* callback from the Help button.
+X */
+void
+rm_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg[] = {
+"This view displays the rise, transit and set times and the rise and setting",
+"azimuths of each object. Rise and set events are defined when the upper limb",
+"of the object is at the horizon.",
+"",
+"The \"Adaptive\" model is an iteration based on altitude. The \"Standard\"",
+"model uses a nominal 32 arc minutes refraction correction."
+};
+X
+X	hlp_dialog ("Rise/Set Table", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+/* callback for the horizon model radiobox.
+X */
+void
+rm_hzn_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	if (t->set && hzn != (int)client) {
+X	    hzn = (int)client;
+X	    rm_update (mm_get_now(), 1);
+X	}
+}
+X
+static
+rm_erase_obj (p)
+int p;
+{
+X	FieldMap *fp;
+X	int r = bodyrow[p];
+X
+X	for (fp = rm_field_map; fp < LFM; fp++)
+X	    if (f2r(fp->id) == r)
+X		f_string (fp->w, "");
+}
+X
+/* callback for each of the object on/off toggle buttons.
+X */
+void
+rm_obj_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int p = (int)client;
+X
+X	if (t->set && !(objs_on & (1<<p))) {
+X	    objs_on |= 1<<p;
+X	    rm_compute (p, 1, mm_get_now());
+X	} else if (!t->set && (objs_on & (1<<p))) {
+X	    objs_on &= ~(1<<p);
+X	    rm_erase_obj (p);
+X	}
+}
+X
+/* called to recompute and fill in values for the menu.
+X * don't bother if it doesn't exist or is unmanaged now.
+X * TODO: when figure out how to leave loc unchanged, do this unmanaged.
+X */
+rm_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	int p;
+X	if (risetform_w && (how_much || XtIsManaged(risetform_w)))
+X	    for (p = nxtbody(-1); p != -1; p = nxtbody(p))
+X		if (objs_on & 1<<p)
+X		    rm_compute (p, how_much, np);
+}
+X
+X
+/* compute and print body info in riset menu format */
+static
+rm_compute (p, force, np)
+int p;		/* which body, as in astro.h/moreobjs.h defines */
+int force;	/* whether to print for sure or only if things have changed */
+Now *np;
+{
+X	static char plus[] = "+";
+X	double ltr, lts, ltt, azr, azs, altt;
+X	int row = bodyrow[p];
+X	int status;
+X	double tmp;
+X	int today_tup = 0;
+X
+X	/* always recalc OBJX and Y since we don't know it's the same object */
+X	if (!riset_cir (p, np, p==OBJX || p==OBJY, hzn,
+X		&ltr, &lts, &ltt, &azr, &azs, &altt, &status) && !force)
+X	    return;
+X
+X	rm_erase_obj (p);
+X
+X	if (status & RS_ERROR) {
+X	    /* can not find where body is! */
+X	    f_string (fw(row,C_RISETM), "Error");
+X	    return;
+X	}
+X	if (status & RS_CIRCUMPOLAR) {
+X	    /* body is up all day */
+X	    f_string (fw(row,C_RISETM), "CPolr");
+X	    if (status & RS_NOTRANS)
+X		f_string (fw(row,C_TRANSTM), "NoTrn");
+X	    else {
+X		f_mtime (fw(row,C_TRANSTM), ltt);
+X		if (status & RS_2TRANS)
+X		    f_string (fw(row,C_TRANSTM+TIME_WIDTH), plus);
+X		f_angle (fw(row,C_TRANSALT), altt);
+X	    }
+X	    f_string (fw(row,C_TUP), "24:00"); /*f_mtime() changes to 0:00 */
+X	    return;
+X	}
+X	if (status & RS_NEVERUP) {
+X	    /* body never up at all today */
+X	    f_string (fw(row,C_RISETM), "NvrUp");
+X	    f_mtime (fw(row,C_TUP), 0.0);
+X	    return;
+X	}
+X
+X	if (status & RS_NORISE) {
+X	    /* object does not rise as such today */
+X	    f_string (fw(row,C_RISETM), "NvrRs");
+X	    ltr = 0.0; /* for TUP */
+X	    today_tup = 1;
+X	} else {
+X	    f_mtime (fw(row,C_RISETM), ltr);
+X	    if (status & RS_2RISES) {
+X		/* object rises more than once today */
+X		f_string (fw(row,C_RISETM+TIME_WIDTH), plus);
+X	    }
+X	    f_angle (fw(row,C_RISEAZ), azr);
+X	}
+X
+X	if (status & RS_NOTRANS)
+X	    f_string (fw(row,C_TRANSTM), "NoTrn");
+X	else {
+X	    f_mtime (fw(row,C_TRANSTM), ltt);
+X	    if (status & RS_2TRANS)
+X		f_string (fw(row,C_TRANSTM+TIME_WIDTH), plus);
+X	    f_angle (fw(row,C_TRANSALT), altt);
+X	}
+X
+X	if (status & RS_NOSET) {
+X	    /* object does not set as such today */
+X	    f_string (fw(row,C_SETTM), "NvrSt");
+X	    lts = 24.0;	/* for TUP */
+X	    today_tup = 1;
+X	} else {
+X	    f_mtime (fw(row,C_SETTM), lts);
+X	    if (status & RS_2SETS)
+X		f_string (fw(row,C_SETTM+TIME_WIDTH), plus);
+X	    f_angle (fw(row,C_SETAZ), azs);
+X	}
+X
+X	tmp = lts - ltr;
+X	if (tmp < 0)
+X	    tmp = 24.0 + tmp;
+X	f_mtime (fw(row,C_TUP), tmp);
+X	if (today_tup)
+X	    f_string (fw(row,C_TUP+TIME_WIDTH), plus);
+}
+SHAR_EOF
+echo 'File risetmenu.c is complete' &&
+chmod 0644 risetmenu.c ||
+echo 'restore of risetmenu.c failed'
+Wc_c="`wc -c < 'risetmenu.c'`"
+test 23357 -eq "$Wc_c" ||
+	echo 'risetmenu.c: original size 23357, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sepmenu.c ==============
+if test -f 'sepmenu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping sepmenu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sepmenu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sepmenu.c' &&
+/* code to manage the stuff on the "separations" menu.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/RowColumn.h>
+#include "fieldmap.h"
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *strncpy();
+extern char *getenv();
+extern Now *mm_get_now();
+extern char *objname[];
+extern Widget toplevel_w;
+extern XmString str_width();
+#define	XtD	XtDisplay(toplevel_w)
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	14
+#define	NC	102
+X
+/* planet rows */
+#define	R_PLANTAB	(1)
+#define	R_SUN		(R_PLANTAB+1)
+#define	R_MOON		(R_PLANTAB+2)
+#define	R_MERCURY	(R_PLANTAB+3)
+#define	R_VENUS		(R_PLANTAB+4)
+#define	R_MARS		(R_PLANTAB+5)
+#define	R_JUPITER	(R_PLANTAB+6)
+#define	R_SATURN	(R_PLANTAB+7)
+#define	R_URANUS	(R_PLANTAB+8)
+#define	R_NEPTUNE	(R_PLANTAB+9)
+#define	R_PLUTO		(R_PLANTAB+10)
+#define	R_OBJX		(R_PLANTAB+11)
+#define	R_OBJY		(R_PLANTAB+12)
+#define	R_CONTROL	(R_PLANTAB+13)
+X
+#define	C_OBJ		1
+X
+/* menu 3 items */
+#define	C_SUN		5
+#define	C_MOON		13
+#define	C_MERCURY	21
+#define	C_VENUS		29
+#define	C_MARS		37
+#define	C_JUPITER	45
+#define	C_SATURN	53
+#define	C_URANUS	61
+#define	C_NEPTUNE	69
+#define	C_PLUTO		77
+#define	C_OBJX		85
+#define	C_OBJY		93
+X
+#define	SEP_WIDTH	6
+X
+static FieldMap sm_field_map[] = {
+X    {mkid(R_JUPITER,C_MARS), PLT, SEP_WIDTH, 0, "Jup.Mars"},
+X    {mkid(R_JUPITER,C_MERCURY), PLT, SEP_WIDTH, 0, "Jup.Merc"},
+X    {mkid(R_JUPITER,C_MOON), PLT, SEP_WIDTH, 0, "Jup.Moon"},
+X    {mkid(R_JUPITER,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Jup.Nep"},
+X    {mkid(R_JUPITER,C_OBJX), PLT, SEP_WIDTH, 0, "Jup.ObjX"},
+X    {mkid(R_JUPITER,C_OBJY), PLT, SEP_WIDTH, 0, "Jup.ObjY"},
+X    {mkid(R_JUPITER,C_PLUTO), PLT, SEP_WIDTH, 0, "Jup.Pluto"},
+X    {mkid(R_JUPITER,C_SATURN), PLT, SEP_WIDTH, 0, "Jup.Sat"},
+X    {mkid(R_JUPITER,C_SUN), PLT, SEP_WIDTH, 0, "Jup.Sun"},
+X    {mkid(R_JUPITER,C_URANUS), PLT, SEP_WIDTH, 0, "Jup.Uranus"},
+X    {mkid(R_JUPITER,C_VENUS), PLT, SEP_WIDTH, 0, "Jup.Ven"},
+X    {mkid(R_MARS,C_JUPITER), PLT, SEP_WIDTH, 0, "Mars.Jup"},
+X    {mkid(R_MARS,C_MERCURY), PLT, SEP_WIDTH, 0, "Mars.Merc"},
+X    {mkid(R_MARS,C_MOON), PLT, SEP_WIDTH, 0, "Mars.Moon"},
+X    {mkid(R_MARS,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Mars.Nep"},
+X    {mkid(R_MARS,C_OBJX), PLT, SEP_WIDTH, 0, "Mars.ObjX"},
+X    {mkid(R_MARS,C_OBJY), PLT, SEP_WIDTH, 0, "Mars.ObjY"},
+X    {mkid(R_MARS,C_PLUTO), PLT, SEP_WIDTH, 0, "Mars.Pluto"},
+X    {mkid(R_MARS,C_SATURN), PLT, SEP_WIDTH, 0, "Mars.Sat"},
+X    {mkid(R_MARS,C_SUN), PLT, SEP_WIDTH, 0, "Mars.Sun"},
+X    {mkid(R_MARS,C_URANUS), PLT, SEP_WIDTH, 0, "Mars.Uranus"},
+X    {mkid(R_MARS,C_VENUS), PLT, SEP_WIDTH, 0, "Mars.Ven"},
+X    {mkid(R_MERCURY,C_JUPITER), PLT, SEP_WIDTH, 0, "Merc.Jup"},
+X    {mkid(R_MERCURY,C_MARS), PLT, SEP_WIDTH, 0, "Merc.Mars"},
+X    {mkid(R_MERCURY,C_MOON), PLT, SEP_WIDTH, 0, "Merc.Moon"},
+X    {mkid(R_MERCURY,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Merc.Nep"},
+X    {mkid(R_MERCURY,C_OBJX), PLT, SEP_WIDTH, 0, "Merc.ObjX"},
+X    {mkid(R_MERCURY,C_OBJY), PLT, SEP_WIDTH, 0, "Merc.ObjY"},
+X    {mkid(R_MERCURY,C_PLUTO), PLT, SEP_WIDTH, 0, "Merc.Pluto"},
+X    {mkid(R_MERCURY,C_SATURN), PLT, SEP_WIDTH, 0, "Merc.Sat"},
+X    {mkid(R_MERCURY,C_SUN), PLT, SEP_WIDTH, 0, "Merc.Sun"},
+X    {mkid(R_MERCURY,C_URANUS), PLT, SEP_WIDTH, 0, "Merc.Uranus"},
+X    {mkid(R_MERCURY,C_VENUS), PLT, SEP_WIDTH, 0, "Merc.Ven"},
+X    {mkid(R_MOON,C_JUPITER), PLT, SEP_WIDTH, 0, "Moon.Jup"},
+X    {mkid(R_MOON,C_MARS), PLT, SEP_WIDTH, 0, "Moon.Mars"},
+X    {mkid(R_MOON,C_MERCURY), PLT, SEP_WIDTH, 0, "Moon.Merc"},
+X    {mkid(R_MOON,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Moon.Nep"},
+X    {mkid(R_MOON,C_OBJX), PLT, SEP_WIDTH, 0, "Moon.ObjX"},
+X    {mkid(R_MOON,C_OBJY), PLT, SEP_WIDTH, 0, "Moon.ObjY"},
+X    {mkid(R_MOON,C_PLUTO), PLT, SEP_WIDTH, 0, "Moon.Pluto"},
+X    {mkid(R_MOON,C_SATURN), PLT, SEP_WIDTH, 0, "Moon.Sat"},
+X    {mkid(R_MOON,C_SUN), PLT, SEP_WIDTH, 0, "Moon.Sun"},
+X    {mkid(R_MOON,C_URANUS), PLT, SEP_WIDTH, 0, "Moon.Uranus"},
+X    {mkid(R_MOON,C_VENUS), PLT, SEP_WIDTH, 0, "Moon.Ven"},
+X    {mkid(R_NEPTUNE,C_JUPITER), PLT, SEP_WIDTH, 0, "Nep.Jup"},
+X    {mkid(R_NEPTUNE,C_MARS), PLT, SEP_WIDTH, 0, "Nep.Mars"},
+X    {mkid(R_NEPTUNE,C_MERCURY), PLT, SEP_WIDTH, 0, "Nep.Merc"},
+X    {mkid(R_NEPTUNE,C_MOON), PLT, SEP_WIDTH, 0, "Nep.Moon"},
+X    {mkid(R_NEPTUNE,C_OBJX), PLT, SEP_WIDTH, 0, "Nep.ObjX"},
+X    {mkid(R_NEPTUNE,C_OBJY), PLT, SEP_WIDTH, 0, "Nep.ObjY"},
+X    {mkid(R_NEPTUNE,C_PLUTO), PLT, SEP_WIDTH, 0, "Nep.Pluto"},
+X    {mkid(R_NEPTUNE,C_SATURN), PLT, SEP_WIDTH, 0, "Nep.Sat"},
+X    {mkid(R_NEPTUNE,C_SUN), PLT, SEP_WIDTH, 0, "Nep.Sun"},
+X    {mkid(R_NEPTUNE,C_URANUS), PLT, SEP_WIDTH, 0, "Nep.Uranus"},
+X    {mkid(R_NEPTUNE,C_VENUS), PLT, SEP_WIDTH, 0, "Nep.Ven"},
+X    {mkid(R_OBJX,C_JUPITER), PLT, SEP_WIDTH, 0, "ObjX.Jup"},
+X    {mkid(R_OBJX,C_MARS), PLT, SEP_WIDTH, 0, "ObjX.Mars"},
+X    {mkid(R_OBJX,C_MERCURY), PLT, SEP_WIDTH, 0, "ObjX.Merc"},
+X    {mkid(R_OBJX,C_MOON), PLT, SEP_WIDTH, 0, "ObjX.Moon"},
+X    {mkid(R_OBJX,C_NEPTUNE), PLT, SEP_WIDTH, 0, "ObjX.Nep"},
+X    {mkid(R_OBJX,C_OBJY), PLT, SEP_WIDTH, 0, "ObjX.ObjY"},
+X    {mkid(R_OBJX,C_PLUTO), PLT, SEP_WIDTH, 0, "ObjX.Pluto"},
+X    {mkid(R_OBJX,C_SATURN), PLT, SEP_WIDTH, 0, "ObjX.Sat"},
+X    {mkid(R_OBJX,C_SUN), PLT, SEP_WIDTH, 0, "ObjX.Sun"},
+X    {mkid(R_OBJX,C_URANUS), PLT, SEP_WIDTH, 0, "ObjX.Uranus"},
+X    {mkid(R_OBJX,C_VENUS), PLT, SEP_WIDTH, 0, "ObjX.Ven"},
+X    {mkid(R_OBJY,C_JUPITER), PLT, SEP_WIDTH, 0, "ObjY.Jup"},
+X    {mkid(R_OBJY,C_MARS), PLT, SEP_WIDTH, 0, "ObjY.Mars"},
+X    {mkid(R_OBJY,C_MERCURY), PLT, SEP_WIDTH, 0, "ObjY.Merc"},
+X    {mkid(R_OBJY,C_MOON), PLT, SEP_WIDTH, 0, "ObjY.Moon"},
+X    {mkid(R_OBJY,C_NEPTUNE), PLT, SEP_WIDTH, 0, "ObjY.Nep"},
+X    {mkid(R_OBJY,C_OBJX), PLT, SEP_WIDTH, 0, "ObjY.ObjX"},
+X    {mkid(R_OBJY,C_PLUTO), PLT, SEP_WIDTH, 0, "ObjY.Pluto"},
+X    {mkid(R_OBJY,C_SATURN), PLT, SEP_WIDTH, 0, "ObjY.Sat"},
+X    {mkid(R_OBJY,C_SUN), PLT, SEP_WIDTH, 0, "ObjY.Sun"},
+X    {mkid(R_OBJY,C_URANUS), PLT, SEP_WIDTH, 0, "ObjY.Uranus"},
+X    {mkid(R_OBJY,C_VENUS), PLT, SEP_WIDTH, 0, "ObjY.Ven"},
+X    {mkid(R_PLUTO,C_JUPITER), PLT, SEP_WIDTH, 0, "Pluto.Jup"},
+X    {mkid(R_PLUTO,C_MARS), PLT, SEP_WIDTH, 0, "Pluto.Mars"},
+X    {mkid(R_PLUTO,C_MERCURY), PLT, SEP_WIDTH, 0, "Pluto.Merc"},
+X    {mkid(R_PLUTO,C_MOON), PLT, SEP_WIDTH, 0, "Pluto.Moon"},
+X    {mkid(R_PLUTO,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Pluto.Nep"},
+X    {mkid(R_PLUTO,C_OBJX), PLT, SEP_WIDTH, 0, "Pluto.ObjX"},
+X    {mkid(R_PLUTO,C_OBJY), PLT, SEP_WIDTH, 0, "Pluto.ObjY"},
+X    {mkid(R_PLUTO,C_SATURN), PLT, SEP_WIDTH, 0, "Pluto.Sat"},
+X    {mkid(R_PLUTO,C_SUN), PLT, SEP_WIDTH, 0, "Pluto.Sun"},
+X    {mkid(R_PLUTO,C_URANUS), PLT, SEP_WIDTH, 0, "Pluto.Uranus"},
+X    {mkid(R_PLUTO,C_VENUS), PLT, SEP_WIDTH, 0, "Pluto.Ven"},
+X    {mkid(R_SATURN,C_JUPITER), PLT, SEP_WIDTH, 0, "Sat.Jup"},
+X    {mkid(R_SATURN,C_MARS), PLT, SEP_WIDTH, 0, "Sat.Mars"},
+X    {mkid(R_SATURN,C_MERCURY), PLT, SEP_WIDTH, 0, "Sat.Merc"},
+X    {mkid(R_SATURN,C_MOON), PLT, SEP_WIDTH, 0, "Sat.Moon"},
+X    {mkid(R_SATURN,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Sat.Nep"},
+X    {mkid(R_SATURN,C_OBJX), PLT, SEP_WIDTH, 0, "Sat.ObjX"},
+X    {mkid(R_SATURN,C_OBJY), PLT, SEP_WIDTH, 0, "Sat.ObjY"},
+X    {mkid(R_SATURN,C_PLUTO), PLT, SEP_WIDTH, 0, "Sat.Pluto"},
+X    {mkid(R_SATURN,C_SUN), PLT, SEP_WIDTH, 0, "Sat.Sun"},
+X    {mkid(R_SATURN,C_URANUS), PLT, SEP_WIDTH, 0, "Sat.Uranus"},
+X    {mkid(R_SATURN,C_VENUS), PLT, SEP_WIDTH, 0, "Sat.Ven"},
+X    {mkid(R_SUN,C_JUPITER), PLT, SEP_WIDTH, 0, "Sun.Jup"},
+X    {mkid(R_SUN,C_MARS), PLT, SEP_WIDTH, 0, "Sun.Mars"},
+X    {mkid(R_SUN,C_MERCURY), PLT, SEP_WIDTH, 0, "Sun.Merc"},
+X    {mkid(R_SUN,C_MOON), PLT, SEP_WIDTH, 0, "Sun.Moon"},
+X    {mkid(R_SUN,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Sun.Nep"},
+X    {mkid(R_SUN,C_OBJX), PLT, SEP_WIDTH, 0, "Sun.ObjX"},
+X    {mkid(R_SUN,C_OBJY), PLT, SEP_WIDTH, 0, "Sun.ObjY"},
+X    {mkid(R_SUN,C_PLUTO), PLT, SEP_WIDTH, 0, "Sun.Pluto"},
+X    {mkid(R_SUN,C_SATURN), PLT, SEP_WIDTH, 0, "Sun.Sat"},
+X    {mkid(R_SUN,C_URANUS), PLT, SEP_WIDTH, 0, "Sun.Uranus"},
+X    {mkid(R_SUN,C_VENUS), PLT, SEP_WIDTH, 0, "Sun.Ven"},
+X    {mkid(R_URANUS,C_JUPITER), PLT, SEP_WIDTH, 0, "Uranus.Jup"},
+X    {mkid(R_URANUS,C_MARS), PLT, SEP_WIDTH, 0, "Uranus.Mars"},
+X    {mkid(R_URANUS,C_MERCURY), PLT, SEP_WIDTH, 0, "Uranus.Merc"},
+X    {mkid(R_URANUS,C_MOON), PLT, SEP_WIDTH, 0, "Uranus.Moon"},
+X    {mkid(R_URANUS,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Uranus.Nep"},
+X    {mkid(R_URANUS,C_OBJX), PLT, SEP_WIDTH, 0, "Uranus.ObjX"},
+X    {mkid(R_URANUS,C_OBJY), PLT, SEP_WIDTH, 0, "Uranus.ObjY"},
+X    {mkid(R_URANUS,C_PLUTO), PLT, SEP_WIDTH, 0, "Uranus.Pluto"},
+X    {mkid(R_URANUS,C_SATURN), PLT, SEP_WIDTH, 0, "Uranus.Sat"},
+X    {mkid(R_URANUS,C_SUN), PLT, SEP_WIDTH, 0, "Uranus.Sun"},
+X    {mkid(R_URANUS,C_VENUS), PLT, SEP_WIDTH, 0, "Uranus.Ven"},
+X    {mkid(R_VENUS,C_JUPITER), PLT, SEP_WIDTH, 0, "Ven.Jup"},
+X    {mkid(R_VENUS,C_MARS), PLT, SEP_WIDTH, 0, "Ven.Mars"},
+X    {mkid(R_VENUS,C_MERCURY), PLT, SEP_WIDTH, 0, "Ven.Merc"},
+X    {mkid(R_VENUS,C_MOON), PLT, SEP_WIDTH, 0, "Ven.Moon"},
+X    {mkid(R_VENUS,C_NEPTUNE), PLT, SEP_WIDTH, 0, "Ven.Nep"},
+X    {mkid(R_VENUS,C_OBJX), PLT, SEP_WIDTH, 0, "Ven.ObjX"},
+X    {mkid(R_VENUS,C_OBJY), PLT, SEP_WIDTH, 0, "Ven.ObjY"},
+X    {mkid(R_VENUS,C_PLUTO), PLT, SEP_WIDTH, 0, "Ven.Pluto"},
+X    {mkid(R_VENUS,C_SATURN), PLT, SEP_WIDTH, 0, "Ven.Sat"},
+X    {mkid(R_VENUS,C_SUN), PLT, SEP_WIDTH, 0, "Ven.Sun"},
+X    {mkid(R_VENUS,C_URANUS), PLT, SEP_WIDTH, 0, "Ven.Uranus"},
+X
+X    {mkid(R_PLANTAB,C_OBJ), 0, 0, "Ob"},
+X    {mkid(R_PLANTAB,C_SUN), 0, 0, " Sun"},
+X    {mkid(R_PLANTAB,C_MOON), 0, 0, "Moon"},
+X    {mkid(R_PLANTAB,C_MERCURY), 0, 0, "Merc"},
+X    {mkid(R_PLANTAB,C_VENUS), 0, 0, "Venus"},
+X    {mkid(R_PLANTAB,C_MARS), 0, 0, "Mars"},
+X    {mkid(R_PLANTAB,C_JUPITER), 0, 0, " Jup"},
+X    {mkid(R_PLANTAB,C_SATURN), 0, 0, " Sat"},
+X    {mkid(R_PLANTAB,C_URANUS), 0, 0, "Uranus"},
+X    {mkid(R_PLANTAB,C_NEPTUNE), 0, 0, " Nep"},
+X    {mkid(R_PLANTAB,C_PLUTO), 0, 0, "Pluto"},
+X    {mkid(R_PLANTAB,C_OBJX), 0, 0, "  X"},
+X    {mkid(R_PLANTAB,C_OBJY), 0, 0, "  Y"},
+};
+#define	NFM	(sizeof(sm_field_map)/sizeof(sm_field_map[0]))
+#define	LFM	(&sm_field_map[NFM])
+#define	fw(r,c)	(fm(r,c)->w)
+X
+static short bodyrow[NOBJ] = {
+X    R_MERCURY, R_VENUS, R_MARS, R_JUPITER, R_SATURN,
+X    R_URANUS, R_NEPTUNE, R_PLUTO, R_SUN, R_MOON, R_OBJX, R_OBJY
+};
+X
+/* table of screen cols for third menu format, given body #define ... */
+static short bodycol[NOBJ] = {
+X	C_MERCURY, C_VENUS, C_MARS, C_JUPITER, C_SATURN,
+X	C_URANUS, C_NEPTUNE, C_PLUTO, C_SUN, C_MOON, C_OBJX, C_OBJY
+};
+X
+static Widget sepform_w;
+static Widget objs_w[NOBJ];	/* object selector toggle buttons */
+static unsigned objs_on;	/* (1<<<OBJ>) when object is active */
+static int sm_selecting;        /* set while our fields are being selected */
+X
+#define	GEO_CEN		0
+#define	TOPO_CEN	1
+static int sep_centric = TOPO_CEN;	/* must match the initial True TB */
+X
+static FieldMap *
+fm(r,c)
+int r, c;
+{
+X	FieldMap *fp;
+X	int id = mkid(r,c);
+X
+X	for (fp = sm_field_map; fp < LFM; fp++)
+X	    if (fp->id == id)
+X		return (fp);
+X	printf ("fm: can't find id 0x%x (%d,%d)\n", id, r, c);
+X	exit (1);
+X	return(0);	/* for lint */
+}
+X
+/* method by which another module can access our field map.
+X * this is used by the search compiler.
+X */
+sm_getfieldmap (fmpp)
+FieldMap **fmpp;
+{
+X	*fmpp = sm_field_map;
+X	return (NFM);
+}
+X
+/* used by main to set the initial state of the objects to be on. */
+sm_set_objs_on (mask)
+int mask;
+{
+X	objs_on = mask;
+}
+X
+/* called when the sep menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+sm_manage ()
+{
+X	if (!sepform_w) {
+X	    void sm_activate_cb();
+X	    void sm_centric_cb();
+X	    void sm_obj_cb();
+X	    void sm_toggle_cb();
+X	    void sm_close_cb();
+X	    void sm_help_cb();
+X	    FieldMap *fp;
+X	    XmString str;
+X	    Arg args[20];
+X	    int i, n;
+X	    Widget rb_w, w;
+X
+X	    /* create the form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	    XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	    XtSetArg (args[n], XmNwidth, char_width()*NC); n++;
+X	    sepform_w = XmCreateFormDialog (toplevel_w, "Separation", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Separations Table"); n++;
+X	    XtSetValues (XtParent(sepform_w), args, n);
+X
+X	    /* establish the buttons and labels */
+X	    for (fp = sm_field_map; fp < LFM; fp++) {
+X		int free_str;
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, ypos(fp->id)); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, xpos(fp->id)); n++;
+X		free_str = 0;
+X		if (fp->prompt) {
+X		    str = XmStringCreate (fp->prompt,XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		} else if (fp->width) {
+X		    str = str_width (fp->width);
+X		    XtSetArg(args[n], XmNrecomputeSize, False); n++;
+X		} else {
+X		    str = XmStringCreate ("?",XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		}
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		if (fp->how) {
+X		    /* pushbutton */
+X		    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		    fp->w = XtCreateManagedWidget ("SepButton",
+X				xmPushButtonGadgetClass, sepform_w, args, n);
+X		    XtAddCallback (fp->w, XmNactivateCallback, sm_activate_cb,
+X									    fp);
+X		} else {
+X		    /* label */
+X		    fp->w = XtCreateManagedWidget ("SepLabel",
+X				    xmLabelGadgetClass, sepform_w, args, n);
+X		}
+X		if (free_str)
+X		    XmStringFree(str);
+X	    }
+X
+X	    /* make the object control toggle buttons */
+X	    for (i = 0; i < NOBJ; i++) {
+X		str = XmStringCreate (objname[i], XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNset, objs_on&(1<<i) ? True : False);n++;
+X		XtSetArg (args[n], XmNindicatorOn, False); n++;
+X		XtSetArg (args[n], XmNshadowThickness, 2); n++;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, r2ypos(bodyrow[i])); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, c2xpos(C_OBJ)); n++;
+X		objs_w[i] = XmCreateToggleButtonGadget (sepform_w, "SmObjs",
+X								    args, n);
+X		XtAddCallback(objs_w[i], XmNvalueChangedCallback, sm_obj_cb, i);
+X		XtManageChild (objs_w[i]);
+X		XmStringFree (str);
+X	    }
+X
+X	    /* make the close button */
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(1)); n++;
+X	    w = XmCreatePushButtonGadget (sepform_w, "SepClose", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, sm_close_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the geo/topo-centric control radio box */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 200); n++;
+X	    XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	    rb_w = XmCreateRadioBox (sepform_w, "CentricRadioBox", args, n);
+X	    XtManageChild (rb_w);
+X
+X	    str = XmStringCreate("Topocentric", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, sep_centric == TOPO_CEN); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "TopocentricTB", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback,sm_centric_cb,TOPO_CEN);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    str = XmStringCreate("Geocentric", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButtonGadget (rb_w, "GeocentricTB", args, n);
+X	    XtAddCallback(w, XmNvalueChangedCallback, sm_centric_cb, GEO_CEN);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the toggle on/off pushbutton */
+X	    str = XmStringCreate ("Toggle On/off", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 650); n++;
+X	    XtSetArg(args[n], XmNrecomputeSize, False); n++;
+X	    w = XmCreatePushButtonGadget (sepform_w, "SepToggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, sm_toggle_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the help pushbutton */
+X
+X	    str = XmStringCreate ("Help", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 1000); n++;
+X	    w = XmCreatePushButtonGadget (sepform_w, "SepHelp", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, sm_help_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X	}
+X	
+X	if (XtIsManaged(sepform_w))
+X	    XtUnmanageChild (sepform_w);
+X	else {
+X	    XtManageChild (sepform_w);
+X	    sm_update (mm_get_now(), 1);
+X	    sm_set_buttons(sm_selecting);
+X	}
+}
+X
+/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+sm_selection_mode (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	sm_selecting += whether ? 1 : -1;
+X
+X	if (sepform_w && XtIsManaged(sepform_w))
+X	    if (whether && sm_selecting == 1     /* first one to want on */
+X		|| !whether && sm_selecting == 0 /* last one to want off */)
+X		sm_set_buttons (whether);
+}
+X
+/* go through all the buttons just pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+sm_set_buttons (whether)
+int whether;
+{
+X	static Arg look_like_button[] = {
+X	    {XmNshadowThickness, (XtArgVal) 2},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNshadowThickness, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	FieldMap *fp;
+X
+X	for (fp = sm_field_map; fp < LFM; fp++)
+X	    if (whether && fp->how & PLT || !whether && fp->how & CHG)
+X		XtSetValues (fp->w,look_like_button,XtNumber(look_like_button));
+X	    else
+X		XtSetValues (fp->w,look_like_label,XtNumber(look_like_label));
+}
+X
+/* callback from any of the sep menu buttons being activated.
+X * if it's a CHGable field, ask op for a new setting.
+X */
+void
+sm_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X
+X	if (sm_selecting) {
+X	    plt_selection (fp);
+X	    lst_selection (fp);
+X	    srch_selection (fp);
+X	}
+}
+X
+/* callback from the "toggle on/off" push button.
+X * toggle each object on or off.
+X * basically we just force set all the planet buttons and let their callbacks
+X *   do the real work.
+X */
+static void
+sm_toggle_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p;
+X
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    int state = XmToggleButtonGadgetGetState (objs_w[p]);
+X	    XmToggleButtonGadgetSetState (objs_w[p], !state, True/*invoke cb*/);
+X	}
+}
+X
+/* callback from the Close button.
+X */
+void
+sm_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (sepform_w);
+}
+X
+/* callback from the Help
+X */
+void
+sm_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg[] = {
+"This table displays separations between each pair of objects. You may choose",
+"either a perspective from the center of the Earth, \"Geocentric\", or from",
+"your local location, \"Topocentric.\"",
+"",
+"It is advisable to use Geocentric separations for searching because it avoids",
+"the local non-monotonic behavior near the horizon due to refraction."
+};
+X
+X	hlp_dialog ("Separations Table", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+/* callback for the geo/topocentric model radiobox.
+X */
+void
+sm_centric_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	if (t->set && sep_centric != (int)client) {
+X	    sep_centric = (int)client;
+X	    sm_update (mm_get_now(), 1);
+X	}
+}
+X
+/* callback for each of the object on/off toggle buttons.
+X */
+void
+sm_obj_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int p = (int)client;
+X
+X	if (t->set && !(objs_on & (1<<p))) {
+X	    objs_on |= 1<<p;
+X	    sm_compute (p, 1, mm_get_now());
+X	} else if (!t->set && (objs_on & (1<<p))) {
+X	    objs_on &= ~(1<<p);
+X	    sm_erase_obj (p);
+X	}
+}
+X
+/* erase all the buttons in the row corresponding to object p */
+sm_erase_obj (p)
+int p;
+{
+X	FieldMap *fp;
+X	int r = bodyrow[p];
+X
+X	for (fp = sm_field_map; fp < LFM; fp++)
+X	    if (f2r(fp->id) == r)
+X		f_string (fp->w, "");
+}
+X
+/* called to recompute and fill in values for the sep menu.
+X * don't bother if it doesn't exist or is unmanaged now.
+X * TODO: when figure out how to leave loc unchanged, do this unmanaged.
+X */
+sm_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	int p;
+X	if (sepform_w && (how_much || XtIsManaged(sepform_w)))
+X	    for (p = nxtbody(-1); p != -1; p = nxtbody(p))
+X		if (objs_on & 1<<p)
+X		    sm_compute (p, how_much, np);
+}
+X
+/* print body info in third menu format. this may be either the geocentric
+X *   or topocentric angular separation between object p and each of the others.
+X *   the latter, of course, includes effects of refraction and so can change
+X *   quite rapidly near the time of each planets rise or set.
+X * for now, we don't save old values so we always redo everything and ignore
+X *  the "force" argument. this isn't that bad since body_cir() has memory and
+X *   will avoid most computations as we hit them again in the lower triangle.
+X * we are limited to only 5 columns per object. to make it fit, we display
+X *   degrees:minutes if less than 100 degrees, otherwise just whole degrees.
+X */
+/*ARGSUSED*/
+static
+sm_compute (p, force, np)
+int p;		/* which body, as in astro.h/moreobjs.h defines */
+int force;	/* whether to print for sure or only if things have changed */
+Now *np;
+{
+X	int row = bodyrow[p];
+X	Sky skyp, skyq;
+X	double spy, cpy, px, *qx, *qy;
+X	int wantx = objs_on & (1<<OBJX);
+X	int wanty = objs_on & (1<<OBJY);
+X	double as = plot_ison() || srch_ison() ? 0.0 : 60.0;
+X	int q;
+X
+X	(void) body_cir (p, as, np, &skyp);
+X	if (sep_centric == GEO_CEN) {
+X	    /* use ra for "x", dec for "y". */
+X	    spy = sin (skyp.s_dec);
+X	    cpy = cos (skyp.s_dec);
+X	    px = skyp.s_ra;
+X	    qx = &skyq.s_ra;
+X	    qy = &skyq.s_dec;
+X	} else {
+X	    /* use azimuth for "x", altitude for "y". */
+X	    spy = sin (skyp.s_alt);
+X	    cpy = cos (skyp.s_alt);
+X	    px = skyp.s_az;
+X	    qx = &skyq.s_az;
+X	    qy = &skyq.s_alt;
+X	}
+X	for (q = nxtbody(-1); q != -1; q = nxtbody(q))
+X	    if (q != p && (q != OBJX || wantx) && (q != OBJY || wanty)) {
+X		double sep;
+X		(void) body_cir (q, as, np, &skyq);
+X		sep = acos(spy*sin(*qy) + cpy*cos(*qy)*cos(px-*qx));
+X		f_angle (fw(row,bodycol[q]), sep);
+X	    }
+}
+SHAR_EOF
+chmod 0644 sepmenu.c ||
+echo 'restore of sepmenu.c failed'
+Wc_c="`wc -c < 'sepmenu.c'`"
+test 23823 -eq "$Wc_c" ||
+	echo 'sepmenu.c: original size 23823, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= sex_dec.c ==============
+if test -f 'sex_dec.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping sex_dec.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting sex_dec.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'sex_dec.c' &&
+#include <math.h>
+X
+/* given hours (or degrees), hd, minutes, m, and seconds, s, 
+X * return decimal hours (or degrees), *d.
+X * in the case of hours (angles) < 0, only the first non-zero element should
+X *   be negative.
+X */
+sex_dec (hd, m, s, d)
+int hd, m, s;
+double *d;
+{
+X	int sign = 1;
+X
+X	if (hd < 0) {
+X	    sign = -1;
+X	    hd = -hd;
+X	} else if (m < 0) {
+X	    sign = -1;
+X	    m = -m;
+X	} else if (s < 0) {
+X	    sign = -1;
+X	    s = -s;
+X	}
+X
+X	*d = (((double)s/60.0 + (double)m)/60.0 + (double)hd) * sign;
+}
+X
+/* given decimal hours (or degrees), d.
+X * return nearest hours (or degrees), *hd, minutes, *m, and seconds, *s, 
+X * each always non-negative; *isneg is set to 1 if d is < 0, else to 0.
+X */
+dec_sex (d, hd, m, s, isneg)
+double d;
+int *hd, *m, *s, *isneg;
+{
+X	double min;
+X
+X	if (d < 0) {
+X	    *isneg = 1;
+X	    d = -d;
+X	} else
+X	    *isneg = 0;
+X
+X	*hd = (int)d;
+X	min = (d - *hd)*60.;
+X	*m = (int)min;
+X	*s = (int)((min - *m)*60. + 0.5);
+X
+X	if (*s == 60) {
+X	    if ((*m += 1) == 60) {
+X		*hd += 1;
+X		*m = 0;
+X	    }
+X	    *s = 0;
+X	}
+X	/* no  negative 0's */
+X	if (*hd == 0 && *m == 0 && *s == 0)
+X	    *isneg = 0;
+}
+X
+/* insure 0 <= *v < r.
+X */
+range (v, r)
+double *v, r;
+{
+X	*v -= r*floor(*v/r);
+}
+SHAR_EOF
+chmod 0644 sex_dec.c ||
+echo 'restore of sex_dec.c failed'
+Wc_c="`wc -c < 'sex_dec.c'`"
+test 1183 -eq "$Wc_c" ||
+	echo 'sex_dec.c: original size 1183, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= skydome.c ==============
+if test -f 'skydome.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping skydome.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting skydome.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'skydome.c' &&
+/* code to manage the stuff on the sky dome display.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/DrawingA.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include <Xm/Scale.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *objname[];
+extern Now *mm_get_now();
+extern Widget toplevel_w;
+#define	XtD	XtDisplay(toplevel_w)
+X
+static Widget sdform_w;		/* main sky dome form dialog */
+static Widget sdda_w;		/* sky dome drawring area */
+static Widget picked_name_w;	/* display name of object if picked */
+static Widget objs_w[NOBJ];     /* object selection toggle buttons */
+X
+#define	TRAILS	1
+#define	BIGDOTS	2
+#define	NR	15
+#define	NC	36
+X
+static int trails;
+static int bigdots = 1;
+X
+/* use this string to make a label gadget appear empty.
+X * using "" seems to act like unmanaging it altogether!
+X */
+static char no_name[] = " ";
+X
+static unsigned int propts;	/* mask of (1<<obj) when it is on */
+X
+/* alt/az coordinates, and enough info to locate it on screen */
+typedef struct {
+X    double alt, az;	/* alt/az coords */
+X    int p;		/* object code */
+X    int sx, sy;		/* screen (window) coords */
+} DLoc;
+X
+static DLoc *points;	/* malloc'd set of points on screen now */
+static int npoints;	/* number of points */
+X
+X
+/* called when the sky dome view is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+sd_manage ()
+{
+X	if (!sdform_w) {
+X	    void sd_activate_cb();
+X	    void sd_close_cb();
+X	    void sd_da_exp_cb();
+X	    void sd_propts_cb();
+X	    void sd_toggle_cb();
+X	    Widget close_w;
+X	    Widget trails_w;
+X	    Widget toggle_w;
+X	    Widget w, pw;
+X	    Widget big_w;
+X	    Widget n_w, s_w, e_w, w_w;
+X	    XmString str;
+X	    Arg args[20];
+X	    int n;
+X	    int i, p;
+X
+X	    /* create form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	    XtSetArg (args[n], XmNwidth, NC*char_width()); n++;
+X	    XtSetArg (args[n], XmNheight, NR*char_height()); n++;
+X	    sdform_w = XmCreateFormDialog (toplevel_w, "SkyDome", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Sky Dome"); n++;
+X	    XtSetValues (XtParent(sdform_w), args, n);
+X
+X	    /* make the "close" push button */
+X
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    close_w = XmCreatePushButtonGadget (sdform_w, "SDClose", args, n);
+X	    XtAddCallback (close_w, XmNactivateCallback, sd_close_cb, 0);
+X	    XtManageChild (close_w);
+X	    XmStringFree (str);
+X
+X	    /* make the "big dots" toggle button */
+X
+X	    str = XmStringCreate("Big dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNset, bigdots); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, close_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    big_w = XmCreateToggleButtonGadget(sdform_w, "SDBigDots",args,n);
+X	    XmStringFree (str);
+X	    XtManageChild (big_w);
+X	    XtAddCallback(big_w, XmNvalueChangedCallback, sd_activate_cb,
+X								    BIGDOTS);
+X
+X	    /* "toggle on/off" push button */
+X
+X	    str = XmStringCreate("Toggle On/off", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    toggle_w = XmCreatePushButtonGadget (sdform_w, "SDToggle", args, n);
+X	    XtAddCallback (toggle_w, XmNactivateCallback, sd_toggle_cb, 0);
+X	    XtManageChild (toggle_w);
+X	    XmStringFree (str);
+X
+X	    /* make the "leave trails" toggle button */
+X
+X	    str = XmStringCreate("Leave trails", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, toggle_w); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    trails_w = XmCreateToggleButtonGadget(sdform_w, "SDTrails", args,n);
+X	    XmStringFree (str);
+X	    XtManageChild (trails_w);
+X	    XtAddCallback(trails_w, XmNvalueChangedCallback, sd_activate_cb,
+X									TRAILS);
+X
+X	    /* make the object selection buttons */
+X
+X	    for (i = 0, p = nxtbody(-1); p != -1; i++, p = nxtbody(p)) {
+X		str = XmStringCreate (objname[p], XmSTRING_DEFAULT_CHARSET);
+X		n = 0;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		XtSetArg (args[n], XmNset, propts & (1<<p) ? True : False); n++;
+X		XtSetArg (args[n], XmNindicatorOn, False); n++;
+X		XtSetArg (args[n], XmNshadowThickness, 2); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X		XtSetArg (args[n], XmNbottomWidget, big_w); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, i*100/NOBJ); n++;
+X		pw = XmCreateToggleButtonGadget (sdform_w, "SDPropts", args, n);
+X		XtAddCallback(pw, XmNvalueChangedCallback, sd_propts_cb, p);
+X		XtManageChild (pw);
+X		objs_w[p] = pw;
+X		XmStringFree (str);
+X	    }
+X
+X	    /* make the picked object label */
+X
+X	    str = XmStringCreate(no_name, XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, pw); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    picked_name_w = XmCreateLabelGadget (sdform_w, "SDPickedName",
+X								    args, n);
+X	    XtManageChild (picked_name_w);
+X	    XmStringFree (str);
+X
+X	    /* make the orientation labels */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    n_w = XmCreateLabelGadget (sdform_w, "North", args, n);
+X	    XtManageChild (n_w);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, 35); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    e_w = XmCreateLabelGadget (sdform_w, "E", args, n);
+X	    XtManageChild (e_w);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, 35); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    w_w = XmCreateLabelGadget (sdform_w, "W", args, n);
+X	    XtManageChild (w_w);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, picked_name_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    s_w = XmCreateLabelGadget (sdform_w, "South", args, n);
+X	    XtManageChild (s_w);
+X
+X	    /* make a drawing area for drawing the solar system */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNtopWidget, n_w); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, s_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNleftWidget, e_w); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNrightWidget, w_w); n++;
+X	    sdda_w = XmCreateDrawingArea (sdform_w, "SkyDomeMap", args, n);
+X	    XtAddCallback (sdda_w, XmNexposeCallback, sd_da_exp_cb, 0);
+X	    XtAddCallback (sdda_w, XmNresizeCallback, sd_da_exp_cb, 0);
+X	    XtAddCallback (sdda_w, XmNinputCallback, sd_da_exp_cb, 0);
+X	    XtManageChild (sdda_w);
+X	}
+X	
+X	if (XtIsManaged(sdform_w))
+X	    XtUnmanageChild (sdform_w);
+X	else {
+X	    XtManageChild (sdform_w);
+X	    sd_update (mm_get_now(), 1);
+X	}
+}
+X
+sd_set_objs_on(mask)
+int mask;
+{
+X	propts = mask;
+}
+X
+sd_ison()
+{
+X	return (sdform_w && XtIsManaged(sdform_w));
+}
+X
+/* called when we are to update our view.
+X * don't bother if we are unmanaged unless trails is on - in that case,
+X * compute the new locations but don't display them.
+X */
+sd_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	double as = how_much ? 0.0 : 3600.0;
+X	Sky sky;
+X	DLoc *lp;
+X	int up;
+X	int p;
+X
+X	up = sdform_w && XtIsManaged(sdform_w);
+X	if (!up && !trails)
+X	    return;
+X
+X	if (!trails) {
+X	    if (points)
+X		XtFree ((char*)points);
+X	    points = 0;
+X	    npoints = 0;
+X	}
+X
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    if ((p==OBJX || p==OBJY) && !obj_ison(p))
+X		continue;
+X	    (void) body_cir (p, as, np, &sky);
+X	    if (sky.s_alt <= 0.0)
+X		continue;
+X	    npoints++;
+X	    points = (DLoc *) XtRealloc ((char *)points, npoints*sizeof(DLoc));
+X	    lp = &points[npoints-1];
+X	    lp->alt = sky.s_alt;
+X	    lp->az = sky.s_az;
+X	    lp->p = p;
+X	}
+X
+X	if (up)
+X	    sd_all(!trails);
+X	    
+}
+X
+/* callback from the toggle buttons
+X */
+void
+sd_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int what = (int) client;
+X
+X	switch (what) {
+X	case TRAILS:
+X	    trails = XmToggleButtonGadgetGetState(w);
+X	    break;
+X	case BIGDOTS:
+X	    bigdots = XmToggleButtonGadgetGetState(w);
+X	    sd_all (1);
+X	    break;
+X	default:
+X	    printf ("unknown toggle button\n");
+X	    break;
+X	}
+}
+X
+/* callback from the toggle on/off button
+X */
+void
+sd_toggle_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p;
+X
+X	for (p = nxtbody(-1); p != -1; p = nxtbody(p)) {
+X	    int s = XmToggleButtonGadgetGetState(objs_w[p]);
+X	    if (s) propts &= ~(1<<p);
+X	    else   propts |= 1<<p;
+X	    XmToggleButtonGadgetSetState(objs_w[p], !s, False /*don't invoke*/);
+X	 }
+X	 sd_all (1);
+}
+X
+/* callback from the toggle buttons for each object.
+X * set the onoff flag in the points array for the planet whose code is in
+X * client, then redraw.
+X */
+void
+sd_propts_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int p = (int) client;
+X
+X	if (XmToggleButtonGadgetGetState(w))	propts |= 1<<p;
+X	else        				propts &= ~(1<<p);
+X	sd_all (1);
+}
+X
+/* callback from the Close button.
+X */
+void
+sd_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (sdform_w);
+}
+X
+/* expose (or reconfig) of sky dome drawing area.
+X * just redraw the scene to the current window size.
+X * also, input callback when picking a dot for identification.
+X */
+static void
+sd_da_exp_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	case XmCR_INPUT:
+X	    sd_identify (c->event);
+X	    return;
+X	default:
+X	    printf ("Unexpected sdda_w event. type=%d\n", c->reason);
+X	    return;
+X	}
+X
+X	/* have to be sure the entire background is cleared out, not just
+X	 * the horizon circle, since it probably has changed size now.
+X	 */
+X	XClearWindow (XtDisplay(w), XtWindow(w));
+X	sd_update (mm_get_now(), 1);
+}
+X
+/* a dot has been picked: find what it is and report it. */
+static
+sd_identify (ev)
+XXEvent *ev;
+{
+#define	PICKRANGE	36	/* sqr of dist allowed from pointer */
+X	int x, y, mind, mini;
+X	int i;
+X	char *name;
+X
+X	switch (ev->type) {
+X	case ButtonPress:
+X	    x = ((XButtonPressedEvent *)ev)->x;
+X	    y = ((XButtonPressedEvent *)ev)->y;
+X	    mini = -1;
+X	    for (i = 0; i < npoints; i++) {
+X	        if (propts & (1<<points[i].p)) {
+X		    int d = (x-points[i].sx)*(x-points[i].sx) +
+X					    (y-points[i].sy)*(y-points[i].sy);
+X		    if (mini < 0 || d < mind) {
+X			mini = i;
+X			mind = d;
+X		    }
+X		}
+X	    }
+X	    if (mini >= 0 && mind <= PICKRANGE) {
+X		extern char *obj_getname();
+X		static char *onames[] = {
+X		    /* NB: these must correspond to the astro/morobj defines */
+X		    "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+X		    "Uranus", "Neptune", "Pluto", "Sun", "Moon"
+X		};
+X		int p = points[mini].p;
+X		if (p >= MERCURY && p <= MOON)
+X		    name = onames[p];
+X		else if (p == OBJX || p == OBJY)
+X		    name = obj_getname(p);
+X		else
+X		    name = "?";
+X	    } else
+X		name = no_name;
+X	    f_string (picked_name_w, name);
+X	    break;
+X	}
+}
+X
+/* draw everything in the points array to the current screen size.
+X * redraw the background too if preclr is set.
+X */
+static
+sd_all(preclr)
+int preclr;
+{
+X	static GC sd_fgc, sd_bgc;
+X	unsigned int nx, ny;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	Display *dsp = XtDisplay(sdda_w);
+X	Window win = XtWindow(sdda_w);
+X	int i;
+X
+X	if (!sd_fgc) {
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X	    unsigned pixel;
+X
+X	    /* user set the foreground and background resources for the
+X	     * SkyDomeMap. we use these for our gc's in drawing the circle
+X	     * and the planets but reset the background to the rest of the
+X	     * region.
+X	     */
+X	    gcm = GCForeground;
+X	    get_something (sdda_w, XmNforeground, (char *)&gcv.foreground);
+X	    sd_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    get_something (sdda_w, XmNbackground, (char *)&gcv.foreground);
+X	    sd_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    get_something (sdform_w, XmNbackground, &pixel);
+X	    set_something (sdda_w, XmNbackground, pixel);
+X
+X	}
+X
+X	XGetGeometry (dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X
+X	if (preclr) {
+X	    /*XFillArc (dsp, win, sd_bgc, 0, 0, nx, ny, 0, 360*64);*/
+SHAR_EOF
+true || echo 'restore of skydome.c failed'
+fi
+echo 'End of  part 9'
+echo 'File skydome.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

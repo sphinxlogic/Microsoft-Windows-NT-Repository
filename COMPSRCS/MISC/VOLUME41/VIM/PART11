@@ -1,0 +1,1985 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v41i061:  vim - Vi IMitation editor, v2.0, Part11/25
+Message-ID: <1993Dec21.035009.28305@sparky.sterling.com>
+X-Md4-Signature: 432d0dab88c0af3a746dd3ab36d0ff13
+Keywords: utility, editor, vi, vim
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 21 Dec 1993 03:50:09 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 41, Issue 61
+Archive-name: vim/part11
+Environment: UNIX, AMIGA, MS-DOS
+Supersedes: vim: Volume 37, Issue 1-24
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 11 (of 25)."
+# Contents:  vim/src/fileio.c vim/src/storage.c
+# Wrapped by mool@oce-rd2 on Wed Dec 15 09:50:05 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/fileio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/fileio.c'\"
+else
+echo shar: Extracting \"'vim/src/fileio.c'\" \(22193 characters\)
+sed "s/^X//" >'vim/src/fileio.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * fileio.c: read from and write to a file
+X */
+X
+X/*
+X * special feature of this version: NUL characters in the file are
+X * replaced by newline characters in memory. This allows us to edit
+X * binary files!
+X */
+X
+X#ifdef MSDOS
+X# include <io.h>
+X#endif
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X#include "fcntl.h"
+X
+X#ifdef LATTICE
+X# include <proto/dos.h>		/* for Lock() and UnLock() */
+X#endif
+X
+Xstatic int	noendofline = FALSE;	/* Set to TRUE when last line has no
+X															EOL in binary mode */
+X
+X#define BUFSIZE 4096				/* size of normal write buffer */
+X#define SBUFSIZE 256				/* size of emergency write buffer */
+X
+Xstatic int  write_buf __ARGS((int, char *, int));
+Xstatic void do_mlines __ARGS((void));
+X
+X	void
+Xfilemess(name, s)
+X	char		*name;
+X	char		*s;
+X{
+X	smsg("\"%s\" %s", ((name == NULL) ? "" : name), s);
+X}
+X
+X/*
+X * Read lines from file 'fname' into the buffer after line 'from'.
+X *
+X * 1. We allocate blocks with m_blockalloc, as big as possible.
+X * 2. Each block is filled with characters from the file with a single read().
+X * 3. The lines are inserted in the buffer with appendline().
+X *
+X * (caller must check that fname != NULL)
+X */
+X	int
+Xreadfile(fname, sfname, from, newfile)
+X	char		   *fname;
+X	char		   *sfname;
+X	linenr_t		from;
+X	int				newfile;
+X{
+X#ifdef UNIX
+X	int 				fd = -1;
+X#else
+X	int 				fd;
+X#endif
+X	register u_char 	c;
+X	register linenr_t	lnum = from;
+X	register u_char 	*ptr = NULL;			/* pointer into read buffer */
+X	register u_char		*buffer = NULL;			/* read buffer */
+X	register long		size;
+X	register u_char		*p;
+X	long				filesize;
+X#define UNKNOWN		0x0fffffff					/* file size is unknown */
+X	linenr_t			linecnt = line_count;
+X	int					incomplete = FALSE; 	/* was the last line incomplete? */
+X	int 				error = 0;				/* read errors encountered */
+X	long				linerest = 0;			/* remaining characters in line */
+X	long				filerest;				/* remaining characters in file */
+X	int					firstpart = TRUE;		/* reading first part */
+X#ifdef UNIX
+X	int					perm;
+X#endif
+X	int					textmode = p_tx;		/* accept CR-LF for line break */
+X
+X	if (sfname == NULL)
+X		sfname = fname;
+X	/*
+X	 * Use the short filename whenever possible.
+X	 * Avoids problems with networks and when directory names are changed.
+X	 */
+X	if (!did_cd)
+X		fname = sfname;
+X
+X	if (bufempty())		/* special case: buffer has no lines */
+X		linecnt = 0;
+X
+X#ifdef UNIX
+X		/*
+X		 * On Unix it is possible to read a directory, so we have to
+X		 * check for it before the open().
+X		 */
+X	perm = getperm(fname);
+X#ifdef _POSIX_SOURCE
+X	if (perm >= 0 && !S_ISREG(perm))				/* not a regular file */
+X#else
+X	if (perm >= 0 && (perm & S_IFMT) != S_IFREG)	/* not a regular file */
+X#endif
+X	{
+X#ifdef _POSIX_SOURCE
+X		if (S_ISDIR(perm))
+X#else
+X		if ((perm & S_IFMT) == S_IFDIR)
+X#endif
+X			filemess(fname, "is a directory");
+X		else
+X			filemess(fname, "is not a file");
+X		return TRUE;
+X	}
+X#endif
+X
+X	if (
+X#ifdef UNIX
+X		!(perm & 0200) ||						/* root's way to check RO */
+X#endif
+X		(fd = open(fname, O_RDWR)) == -1)		/* cannot open r/w */
+X	{
+X		if ((fd = open(fname, O_RDONLY)) == -1) /* cannot open at all */
+X		{
+X#ifdef MSDOS
+X		/*
+X		 * The screen may be messed up by the "insert disk
+X		 * in drive b: and hit return" message
+X		 */
+X			updateScreen(CLEAR);
+X#endif
+X
+X#ifndef UNIX
+X		/*
+X		 * On MSDOS and Amiga we can't open a directory, check here.
+X		 */
+X			if (isdir(fname) > 0)
+X				filemess(fname, "is a directory");
+X			else
+X#endif
+X				if (newfile)
+X					filemess(fname, "[New File]");
+X
+X			return TRUE;
+X		}
+X		if (newfile)						/* set file readonly */
+X			p_ro = TRUE;
+X	}
+X	else if (newfile && !readonlymode)		/* set file not readonly */
+X		p_ro = FALSE;
+X
+X	if (newfile)
+X		noendofline = FALSE;
+X
+X	if ((filesize = lseek(fd, 0L, 2)) < 0)	/* get length of file */
+X		filesize = UNKNOWN;
+X	lseek(fd, 0L, 0);
+X
+X	filemess(fname, "");					/* show that we are busy */
+X
+X	for (filerest = filesize; !error && !got_int && filerest != 0; breakcheck())
+X	{
+X		/*
+X		 * We allocate as much space for the file as we can get, plus
+X		 * space for the old line, one NUL in front and one NUL at the tail.
+X		 * The amount is limited by the fact that read() only can read
+X		 * upto max_unsigned characters (and other things).
+X		 * If we don't know the file size, just get one Kbyte.
+X		 */
+X		if (filesize >= UNKNOWN)
+X			size = 1024;
+X		else if (filerest > 0xff00L)
+X			size = 0xff00L;
+X		else if (filerest < 10)
+X			size = 10;
+X		else
+X			size = filerest;
+X
+X		for ( ; size >= 10; size /= 2)
+X		{
+X			if ((buffer = (u_char *)m_blockalloc((u_long)(size + linerest + 4), FALSE))
+X						!= NULL)
+X				break;
+X		}
+X		if (buffer == NULL)
+X		{
+X			emsg(e_outofmem);
+X			error = 1;
+X			break;
+X		}
+X		buffer[0] = NUL;	/* make sure there is a NUL in front of the first line */
+X		++buffer;
+X		if (linerest)		/* copy characters from the previous buffer */
+X		{
+X			ptr -= linerest;
+X			memmove((char *)buffer, (char *)ptr, linerest);
+X			memset((char *)ptr, 1, linerest);	/* fill with non-NULs */
+X			ptr[linerest - 1] = NUL;			/* add a NUL on the end */
+X			free_line((char *)ptr);				/* free the space we don't use */
+X		}
+X		ptr = buffer + linerest;
+X		
+X		if ((size = (unsigned)read(fd, (char *)ptr, (size_t)size)) <= 0)
+X		{
+X			error = 2;
+X			break;
+X		}
+X		if (filesize >= UNKNOWN)			/* if we don't know the file size */
+X			filesize += size;				/* .. count the number of characters */
+X		else								/* .. otherwise */
+X			filerest -= size;				/* .. compute the remaining length */
+X
+X		/*
+X		 * when reading the first part of a file: guess EOL type
+X		 */
+X		if (firstpart && p_ta)
+X		{
+X			for (p = ptr; p < ptr + size; ++p)
+X				if (*p == NL)
+X				{
+X					if (p > ptr && p[-1] == CR)	/* found CR-NL */
+X						textmode = TRUE;
+X					else						/* found a single NL */
+X						textmode = FALSE;
+X						/* if editing a new file: may set p_tx */
+X					if (newfile && p_tx != textmode)
+X					{
+X						p_tx = textmode;
+X						paramchanged("tx");
+X					}
+X					break;
+X				}
+X		}
+X
+X		/*
+X		 * This loop is executed once for every character read.
+X		 * Keep it fast!
+X		 */
+X		--ptr;
+X		while (++ptr, --size >= 0)
+X		{
+X			if ((c = *ptr) != NUL && c != NL)	/* catch most common case */
+X				continue;
+X			if (c == NUL)
+X				*ptr = NL;		/* NULs are replaced by newlines! */
+X			else
+X			{
+X				*ptr = NUL;		/* end of line */
+X				if (textmode && ptr[-1] == CR)	/* remove CR */
+X					ptr[-1] = NUL;
+X				if (!appendline(lnum, (char *)buffer))
+X				{
+X					error = 1;
+X					break;
+X				}
+X				++lnum;
+X				buffer = ptr + 1;
+X			}
+X		}
+X		linerest = ptr - buffer;
+X		firstpart = FALSE;
+X	}
+X	if (lnum != from && !newfile)	/* added at least one line */
+X		CHANGED;
+X	if (error != 1 && linerest != 0)
+X	{
+X		/*
+X		 * If we get EOF in the middle of a line, note the fact and
+X		 * complete the line ourselves.
+X		 */
+X		incomplete = TRUE;
+X		if (newfile && p_bin)		/* remember for when writing */
+X			noendofline = TRUE;
+X		*ptr = NUL;
+X		if (!appendline(lnum, (char *)buffer))
+X			error = 1;
+X		else if (!newfile)
+X			CHANGED;
+X	}
+X	if (error == 2 && filesize >= UNKNOWN)	/* no error, just EOF encountered */
+X	{
+X		filesize -= UNKNOWN;
+X		error = 0;
+X	}
+X
+X	close(fd);
+X
+X#ifdef MSDOS		/* the screen may be messed up by the "insert disk
+X							in drive b: and hit return" message */
+X	updateScreen(CLEAR);
+X#endif
+X
+X	if (got_int)
+X	{
+X		filemess(fname, e_interr);
+X		return FALSE;			/* an interrupt isn't really an error */
+X	}
+X
+X	linecnt = line_count - linecnt;
+X	smsg("\"%s\" %s%s%s%s%ld line%s, %ld character%s",
+X			fname,
+X			p_ro ? "[readonly] " : "",
+X			incomplete ? "[Incomplete last line] " : "",
+X			error ? "[READ ERRORS] " : "",
+X#ifdef MSDOS
+X			textmode ? "" : "[notextmode] ",
+X#else
+X			textmode ? "[textmode] " : "",
+X#endif
+X			(long)linecnt, plural((long)linecnt),
+X			filesize, plural(filesize));
+X
+X	if (error && newfile)	/* with errors we should not write the file */
+X	{
+X		p_ro = TRUE;
+X		paramchanged("ro");
+X	}
+X
+X	u_clearline();		/* cannot use "U" command after adding lines */
+X
+X	if (newfile)		/* edit a new file: read mode from lines */
+X		do_mlines();
+X	if (from < line_count)
+X	{
+X		Curpos.lnum = from + 1;	/* put cursor at first new line */
+X		Curpos.col = 0;
+X	}
+X
+X	return FALSE;
+X}
+X
+X/*
+X * writeit - write to file 'fname' lines 'start' through 'end'
+X *
+X * We do our own buffering here because fwrite() is so slow.
+X *
+X * If forceit is true, we don't care for errors when attempting backups (jw).
+X * In case of an error everything possible is done to restore the original file.
+X * But when forceit is TRUE, we risk loosing it.
+X * When whole is TRUE and start == 1 and end == line_count, reset Changed.
+X */
+X	int
+Xwriteit(fname, sfname, start, end, append, forceit, whole)
+X	char			*fname;
+X	char			*sfname;
+X	linenr_t		start, end;
+X	int				append;
+X	int				forceit;
+X	int				whole;
+X{
+X	int 				fd;
+X	char			   *backup = NULL;
+X	register char	   *s;
+X	register u_char	   *ptr;
+X	register u_char		c;
+X	register int		len;
+X	register linenr_t	lnum;
+X	long				nchars;
+X	char				*errmsg = NULL;
+X	char				*buffer;
+X	char				smallbuf[SBUFSIZE];
+X	int					bufsize;
+X	long 				perm = -1;			/* file permissions */
+X	int					retval = TRUE;
+X	int					newfile = FALSE;	/* TRUE if file does not exist yet */
+X#ifdef UNIX
+X	struct stat			old;
+X	int					made_writable = FALSE;	/* 'w' bit has been set */
+X#endif
+X#ifdef AMIGA
+X	BPTR				flock;
+X#endif
+X
+X	if (fname == NULL || *fname == NUL)		/* safety check */
+X		return FALSE;
+X	if (sfname == NULL)
+X		sfname = fname;
+X	/*
+X	 * Use the short filename whenever possible.
+X	 * Avoids problems with networks and when directory names are changed.
+X	 */
+X	if (!did_cd)
+X		fname = sfname;
+X
+X	/*
+X	 * Disallow writing from .exrc and .vimrc in current directory for
+X	 * security reasons.
+X	 */
+X	if (secure)
+X	{
+X		secure = 2;
+X		emsg(e_curdir);
+X		return FALSE;
+X	}
+X
+X	if (exiting)
+X		settmode(0);			/* when exiting allow typahead now */
+X
+X	filemess(fname, "");		/* show that we are busy */
+X
+X	buffer = alloc(BUFSIZE);
+X	if (buffer == NULL)			/* can't allocate big buffer, use small one */
+X	{
+X		buffer = smallbuf;
+X		bufsize = SBUFSIZE;
+X	}
+X	else
+X		bufsize = BUFSIZE;
+X
+X#ifdef UNIX
+X		/* get information about original file (if there is one) */
+X	old.st_dev = old.st_ino = 0;
+X	if (stat(fname, &old))
+X		newfile = TRUE;
+X	else
+X	{
+X#ifdef _POSIX_SOURCE
+X		if (!S_ISREG(old.st_mode))      		/* not a file */
+X#else
+X		if ((old.st_mode & S_IFMT) != S_IFREG)	/* not a file */
+X#endif
+X		{
+X#ifdef _POSIX_SOURCE
+X			if (S_ISDIR(old.st_mode))
+X#else
+X			if ((old.st_mode & S_IFMT) == S_IFDIR)
+X#endif
+X				errmsg = "is a directory";
+X			else
+X				errmsg = "is not a file";
+X			goto fail;
+X		}
+X		perm = old.st_mode;
+X	}
+X/*
+X * If we are not appending, the file exists, and the 'writebackup' or
+X * 'backup' option is set, try to make a backup copy of the file.
+X */
+X	if (!append && perm >= 0 && (p_wb || p_bk) &&
+X					(fd = open(fname, O_RDONLY)) >= 0)
+X	{
+X		int				bfd, buflen;
+X		char			buf[BUFSIZE + 1], *wp;
+X		int				some_error = FALSE;
+X		struct stat		new;
+X
+X		new.st_dev = new.st_ino = 0;
+X
+X		/*
+X		 * Unix semantics has it, that we may have a writable file, 
+X		 * that cannot be recreated with a simple open(..., O_CREAT, ) e.g:
+X		 *  - the directory is not writable, 
+X		 *  - the file may be a symbolic link, 
+X		 *  - the file may belong to another user/group, etc.
+X		 *
+X		 * For these reasons, the existing writable file must be truncated and
+X		 * reused. Creation of a backup COPY will be attempted.
+X		 */
+X		if ((backup = modname(fname, ".bak")) == NULL)
+X		{
+X			some_error = TRUE;
+X			goto nobackup;
+X		}			
+X		if (!stat(backup, &new) &&
+X					new.st_dev == old.st_dev && new.st_ino == old.st_ino)
+X		{
+X			/*
+X			 * may happen when modname gave the same file back.
+X			 * E.g. silly link, or filename-length reached.
+X			 * If we don't check here, we either ruin the file when
+X			 * copying or erase it after writing. jw.
+X			 */
+X			errmsg = "Invalid backup file (use ! to override)";
+X			free(backup);
+X			backup = NULL;	/* there is no backup file to delete */
+X			goto nobackup;
+X		}
+X		remove(backup);		/* remove old backup, if present */
+X		if ((bfd = open(backup, O_WRONLY | O_CREAT, 0666)) < 0)
+X		{
+X			/* 
+X			 * oops, no write/create permission here?
+X			 * try again in p_bdir directory. 
+X			 */
+X			for (wp = fname + strlen(fname); wp >= fname; wp--)
+X				if (*wp == '/')
+X					break;
+X			++wp;
+X			sprintf(buf, "%s/%s", p_bdir, wp);
+X			free(backup);
+X			if ((backup = modname(buf, ".bak")) == NULL)
+X			{
+X				some_error = TRUE;
+X				goto nobackup;
+X			}
+X			if (!stat(backup, &new) &&
+X						new.st_dev == old.st_dev && new.st_ino == old.st_ino)
+X			{
+X				errmsg = "Invalid backup file (use ! to override)";
+X				free(backup);
+X				backup = NULL;	/* there is no backup file to delete */
+X				goto nobackup;
+X			}
+X			remove(backup);
+X			if ((bfd = open(backup, O_WRONLY | O_CREAT, 0666)) < 0)
+X			{
+X				free(backup);
+X				backup = NULL;	/* there is no backup file to delete */
+X				errmsg = "Can't make backup file (use ! to override)";
+X				goto nobackup;
+X			}
+X		}
+X		/* set file protection same as original file, but strip s-bit */
+X		setperm(backup, perm & 0777);
+X
+X		/* copy the file. */
+X		while ((buflen = read(fd, buf, BUFSIZE)) > 0)
+X		{
+X			if (write_buf(bfd, buf, buflen) == -1)
+X			{
+X				errmsg = "Can't write to backup file (use ! to override)";
+X				goto writeerr;
+X			}
+X		}
+Xwriteerr:
+X		close(bfd);
+X		if (buflen < 0)
+X			errmsg = "Can't read file for backup (use ! to override)";
+Xnobackup:
+X		close(fd);
+X	/* ignore errors when forceit is TRUE */
+X		if ((some_error || errmsg) && !forceit)
+X		{
+X			retval = FALSE;
+X			goto fail;
+X		}
+X		errmsg = NULL;
+X	}
+X		/* if forceit and the file was read-only: make it writable */
+X	if (forceit && (old.st_uid == getuid()) && perm >= 0 && !(perm & 0200))
+X 	{
+X		perm |= 0200;	
+X		setperm(fname, perm);
+X		made_writable = TRUE;
+X			/* if we are writing to the current file, readonly makes no sense */
+X		if (fname == Filename || fname == sFilename)
+X			p_ro = FALSE;
+X 	}
+X#else /* UNIX */
+X
+X/*
+X * If we are not appending, the file exists, and the 'writebackup' or
+X * 'backup' option is set, make a backup.
+X * Do not make any backup, if "writebackup" and "backup" are 
+X * both switched off. This helps when editing large files on
+X * almost-full disks. (jw)
+X */
+X	perm = getperm(fname);
+X	if (perm < 0)
+X		newfile = TRUE;
+X	else if (isdir(fname) > 0)
+X	{
+X		errmsg = "is a directory";
+X		goto fail;
+X	}
+X	if (!append && perm >= 0 && (p_wb || p_bk))
+X	{
+X		/*
+X		 * Form the backup file name - change path/fo.o.h to path/fo.o.h.bak
+X		 */
+X		backup = modname(fname, ".bak");
+X		if (backup == NULL)
+X		{
+X			if (!forceit)
+X				goto fail;
+X		}
+X		else
+X		{
+X			/*
+X			 * Delete any existing backup and move the current version to the backup.
+X			 * For safety, we don't remove the backup until the write has finished
+X			 * successfully. And if the 'backup' option is set, leave it around.
+X			 */
+X#ifdef AMIGA
+X			/*
+X			 * With MSDOS-compatible filesystems (crossdos, messydos) it is
+X			 * possible that the name of the backup file is the same as the
+X			 * original file. To avoid the chance of accidently deleting the
+X			 * original file (horror!) we lock it during the remove.
+X			 * This should not happen with ":w", because startscript() should
+X			 * detect this problem and set thisfile_sn, causing modname to
+X			 * return a correct ".bak" filename. This problem does exist with
+X			 * ":w filename", but then the original file will be somewhere else
+X			 * so the backup isn't really important. If autoscripting is off
+X			 * the rename may fail.
+X			 */
+X			flock = Lock((UBYTE *)fname, (long)ACCESS_READ);
+X#endif
+X			remove(backup);
+X#ifdef AMIGA
+X			if (flock)
+X				UnLock(flock);
+X#endif
+X			len = rename(fname, backup);
+X			if (len != 0)
+X			{
+X				if (forceit)
+X				{
+X					free(backup);	/* don't do the rename below */
+X					backup = NULL;
+X				}
+X				else
+X				{
+X					errmsg = "Can't make backup file (use ! to override)";
+X					goto fail;
+X				}
+X			}
+X		}
+X	}
+X#endif /* UNIX */
+X
+X		/* 
+X		 * We may try to open the file twice: If we can't write to the
+X		 * file and forceit is TRUE we delete the existing file and try to create
+X		 * a new one. If this still fails we may have lost the original file!
+X		 * (this may happen when the user reached his quotum for number of files).
+X		 * Appending will fail if the file does not exist and forceit is FALSE.
+X		 */
+X	while ((fd = open(fname, O_WRONLY | (append ?
+X					(forceit ? (O_APPEND | O_CREAT) : O_APPEND) :
+X					(O_CREAT | O_TRUNC)), 0666)) < 0)
+X 	{
+X		/*
+X		 * A forced write will try to create a new file if the old one is
+X		 * still readonly. This may also happen when the directory is
+X		 * read-only. In that case the remove() will fail.
+X		 */
+X		if (!errmsg)
+X		{
+X			errmsg = "Can't open file for writing";
+X			if (forceit)
+X			{
+X#ifdef UNIX
+X				/* we write to the file, thus it should be marked
+X													writable after all */
+X				perm |= 0200;		
+X				made_writable = TRUE;
+X				if (old.st_uid != getuid() || old.st_gid != getgid())
+X					perm &= 0777;
+X#endif /* UNIX */
+X				if (!append)		/* don't remove when appending */
+X					remove(fname);
+X				continue;
+X			}
+X		}
+X/*
+X * If we failed to open the file, we don't need a backup. Throw it away.
+X * If we moved or removed the original file try to put the backup in its place.
+X */
+X 		if (backup)
+X		{
+X#ifdef UNIX
+X			struct stat st;
+X
+X			/*
+X			 * There is a small chance that we removed the original, try
+X			 * to move the copy in its place.
+X			 * This won't work if the backup is in another file system!
+X			 * In that case we leave the copy around.
+X			 */
+X			if (stat(fname, &st) < 0)	/* file does not exist */
+X				rename(backup, fname);	/* put the copy in its place */
+X			if (stat(fname, &st) >= 0)	/* original file does exist */
+X				remove(backup);			/* throw away the copy */
+X#else
+X 			rename(backup, fname);	/* try to put the original file back */
+X#endif
+X		}
+X 		goto fail;
+X 	}
+X	errmsg = NULL;
+X
+X	if (end > line_count)
+X		end = line_count;
+X	len = 0;
+X	s = buffer;
+X	nchars = 0;
+X	for (lnum = start; lnum <= end; ++lnum)
+X	{
+X		/*
+X		 * The next while loop is done once for each character written.
+X		 * Keep it fast!
+X		 */
+X		ptr = (u_char *)nr2ptr(lnum) - 1;
+X		while ((c = *++ptr) != NUL)
+X		{
+X			if (c == NL)
+X				*s = NUL;		/* replace newlines with NULs */
+X			else
+X				*s = c;
+X			++s;
+X			if (++len != bufsize)
+X				continue;
+X			if (write_buf(fd, buffer, bufsize) == -1)
+X			{
+X				end = 0;				/* write error: break loop */
+X				break;
+X			}
+X			nchars += bufsize;
+X			s = buffer;
+X			len = 0;
+X		}
+X			/* write failed or last line has no EOL: stop here */
+X		if (end == 0 || (p_bin && lnum == line_count && noendofline))
+X			break;
+X		if (p_tx)		/* write CR-NL */
+X		{
+X			*s = CR;
+X			++s;
+X			if (++len == bufsize)
+X			{
+X				if (write_buf(fd, buffer, bufsize) == -1)
+X				{
+X					end = 0;				/* write error: break loop */
+X					break;
+X				}
+X				nchars += bufsize;
+X				s = buffer;
+X				len = 0;
+X			}
+X		}
+X		*s = NL;
+X		++s;
+X		if (++len == bufsize && end)
+X		{
+X			if (write_buf(fd, buffer, bufsize) == -1)
+X			{
+X				end = 0;				/* write error: break loop */
+X				break;
+X			}
+X			nchars += bufsize;
+X			s = buffer;
+X			len = 0;
+X		}
+X	}
+X	if (len && end)
+X	{
+X		if (write_buf(fd, buffer, len) == -1)
+X			end = 0;				/* write error */
+X		nchars += len;
+X	}
+X
+X	if (close(fd) != 0)
+X	{
+X		errmsg = "Close failed";
+X		goto fail;
+X	}
+X#ifdef UNIX
+X	if (made_writable)
+X		perm &= ~0200;			/* reset 'w' bit for security reasons */
+X#endif
+X	if (perm >= 0)
+X		setperm(fname, perm);	/* set permissions of new file same as old file */
+X
+X	if (end == 0)
+X	{
+X		errmsg = "write error (file system full?)";
+X		goto fail;
+X	}
+X
+X#ifdef MSDOS		/* the screen may be messed up by the "insert disk
+X							in drive b: and hit return" message */
+X	if (!exiting)
+X		updateScreen(CLEAR);
+X#endif
+X
+X	lnum -= start;		/* compute number of written lines */
+X	smsg("\"%s\"%s%s %ld line%s, %ld character%s",
+X			fname,
+X			newfile ? " [New File]" : " ",
+X#ifdef MSDOS
+X			p_tx ? "" : "[notextmode]",
+X#else
+X			p_tx ? "[textmode]" : "",
+X#endif
+X			(long)lnum, plural((long)lnum),
+X			nchars, plural(nchars));
+X	if (whole && start == 1 && end == line_count)	/* when written everything */
+X	{
+X		UNCHANGED;
+X		NotEdited = FALSE;
+X		startscript();		/* re-start auto script file */
+X	}
+X
+X	/*
+X	 * Remove the backup unless 'backup' option is set
+X	 */
+X	if (!p_bk && backup != NULL && remove(backup) != 0)
+X		emsg("Can't delete backup file");
+X	
+X	goto nofail;
+X
+Xfail:
+X#ifdef MSDOS		/* the screen may be messed up by the "insert disk
+X							in drive b: and hit return" message */
+X	updateScreen(CLEAR);
+X#endif
+Xnofail:
+X
+X	free((char *) backup);
+X	free(buffer);
+X
+X	if (errmsg != NULL)
+X	{
+X		filemess(fname, errmsg);
+X		retval = FALSE;
+X	}
+X	return retval;
+X}
+X
+X/*
+X * write_buf: call write() to write a buffer
+X */
+X	static int
+Xwrite_buf(fd, buf, len)
+X	int		fd;
+X	char	*buf;
+X	int		len;
+X{
+X	int		wlen;
+X
+X	while (len)
+X	{
+X		wlen = write(fd, buf, (size_t)len);
+X		if (wlen <= 0)				/* error! */
+X			return -1;
+X		len -= wlen;
+X		buf += wlen;
+X	}
+X	return 0;
+X}
+X
+X/*
+X * do_mlines() - process mode lines for the current file
+X *
+X * Returns immediately if the "ml" parameter isn't set.
+X */
+Xstatic void 	chk_mline __ARGS((linenr_t));
+X
+X	static void
+Xdo_mlines()
+X{
+X	linenr_t		lnum;
+X	int 			nmlines;
+X
+X	if (!p_ml || (nmlines = (int)p_mls) == 0)
+X		return;
+X
+X	for (lnum = 1; lnum <= line_count && lnum <= nmlines; ++lnum)
+X		chk_mline(lnum);
+X
+X	for (lnum = line_count; lnum > 0 && lnum > nmlines &&
+X							lnum > line_count - nmlines; --lnum)
+X		chk_mline(lnum);
+X}
+X
+X/*
+X * chk_mline() - check a single line for a mode string
+X */
+X	static void
+Xchk_mline(lnum)
+X	linenr_t lnum;
+X{
+X	register char	*s;
+X	register char	*e;
+X	char			*cs;			/* local copy of any modeline found */
+X	char			prev;
+X	int				end;
+X
+X	prev = ' ';
+X	for (s = nr2ptr(lnum); *s != NUL; ++s)
+X	{
+X		if (isspace(prev) && (strncmp(s, "vi:", (size_t)3) == 0 || strncmp(s, "ex:", (size_t)3) == 0 || strncmp(s, "vim:", (size_t)4) == 0))
+X		{
+X			do
+X				++s;
+X			while (s[-1] != ':');
+X			s = cs = strsave(s);
+X			if (cs == NULL)
+X				break;
+X			end = FALSE;
+X			while (end == FALSE)
+X			{
+X				while (*s == ' ' || *s == TAB)
+X					++s;
+X				if (*s == NUL)
+X					break;
+X				for (e = s; (*e != ':' || *(e - 1) == '\\') && *e != NUL; ++e)
+X					;
+X				if (*e == NUL)
+X					end = TRUE;
+X				*e = NUL;
+X				if (strncmp(s, "set ", (size_t)4) == 0) /* "vi:set opt opt opt: foo" */
+X				{
+X					doset(s + 4);
+X					break;
+X				}
+X				if (doset(s))		/* stop if error found */
+X					break;
+X				s = e + 1;
+X			}
+X			free(cs);
+X			break;
+X		}
+X		prev = *s;
+X	}
+X}
+END_OF_FILE
+if test 22193 -ne `wc -c <'vim/src/fileio.c'`; then
+    echo shar: \"'vim/src/fileio.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/fileio.c'
+# end of 'vim/src/fileio.c'
+fi
+if test -f 'vim/src/storage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/storage.c'\"
+else
+echo shar: Extracting \"'vim/src/storage.c'\" \(23385 characters\)
+sed "s/^X//" >'vim/src/storage.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * storage.c: allocation of lines and management of them
+X *
+X * part 1: storage allocation for the lines and blocks of the current file
+X * part 2: managing of the pointer blocks
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X
+X/***************************************************************************
+X * part 1: storage allocation for the lines and blocks of the current file *
+X ***************************************************************************/
+X
+X/*
+X * Memory is allocated in relatively large blocks. These blocks are linked
+X * in the allocated block list, headed by block_head. They are all freed
+X * when abandoning a file, so we don't have to free every single line. The
+X * list is kept sorted on memory address.
+X * block_alloc() allocates a block.
+X * m_blockfree() frees all blocks.
+X *
+X * The available chunks of memory are kept in free chunk lists. There is
+X * one free list for each block of allocated memory. The list is kept sorted
+X * on memory address.
+X * alloc_line() gets a chunk from the free lists.
+X * free_line() returns a chunk to the free lists.
+X * m_search points to the chunk before the chunk that was freed/allocated the
+X * last time.
+X * mb_current points to the b_head where m_search points into the free list.
+X *
+X *
+X *    block_head     /---> block #1     /---> block #2
+X *       mb_next ---/       mb_next ---/       mb_next ---> NULL
+X *       mb_info            mb_info            mb_info
+X *          |                  |                  |
+X *          V                  V                  V
+X *        NULL          free chunk #1.1      free chunk #2.1
+X *                             |                  |
+X *                             V                  V
+X *                      free chunk #1.2          NULL
+X *                             |
+X *                             V
+X *                            NULL
+X *
+X * When a single free chunk list would have been used, it could take a lot
+X * of time in free_line() to find the correct place to insert a chunk in the
+X * free list. The single free list would become very long when many lines are
+X * changed (e.g. with :%s/^M$//).
+X */
+X
+X	/*
+X	 * this blocksize is used when allocating new lines
+X	 * When reading files larger blocks are used (see fileio.c)
+X	 * on the Amiga the blocksize must not be a multiple of 256
+X	 * with MS-Dos the blocksize must be larger than 255
+X	 * For Unix it does not really matter
+X	 */
+X#define MEMBLOCKSIZE 2044
+X
+Xtypedef struct m_info info_t;
+X
+X/*
+X * There are two types of in-use memory chunks:
+X *	1. those that are allocated by readfile(). These are always preceded
+X *		by a NUL character and end in a NUL character. The chunk must not
+X *		contain other NUL characters. The preceding NUL is used to
+X *		determine the chunk type. The ending NUL is used to determine the
+X *		end of the chunk. The preceding NUL is not part of the chunk, the
+X *		ending NUL is. 
+X *  2. the other chunks have been allocated with alloc_line(). They are
+X *		preceded by a non-NUL character. This is used to determine the chunk
+X *		type. The non-NUL may be part of a size field or may be an extra 0xff
+X *		byte. The chunk always ends in a NUL character and may also contain
+X *		a NUL character. The size field contains the size of the chunk,
+X *		including the size field. The trailing NUL may be used by a possibly
+X *		follwing type 1 chunk. The preceding size, the optional 0xff and the
+X *		trailing NUL are all part of the chunk.
+X *
+X * When the chunk is not in-use it is preceded with the m_info structure.
+X * The m_next field links it in one of the free chunk lists. It must still
+X * end in a NUL byte, because it may be followed by a type 1 chunk!
+X *
+X * When in-use we must make sure there is a non-NUL byte in front of type
+X * 2 chunks.
+X *
+X * On the Amiga this means that the size must not be a multiple of 256.
+X * This is done by multiplying the size by 2 and adding one.
+X *
+X * On MS-DOS the size must be larger than 255. This is done by adding 256
+X * to the size.
+X *
+X * On Unix systems an extra 0xff byte is added. This costs 4 bytes because
+X * pointers must be kept long-aligned.
+X *
+X * On most unix systems structures have to be longword (32 or 64 bit) aligned.
+X * On most other systems they are short (16 bit) aligned.
+X */
+X
+X#ifdef UNIX
+X# define ALIGN_LONG		/* longword alignment and use filler byte */
+X# define ALIGN_SIZE (sizeof(long))
+X# define ALIGN_MASK (ALIGN_SIZE - 1)
+X#else
+X# ifdef AMIGA
+X#  define LOWBYTE		/* size must not be multiple of 256 */
+X# else
+X#  ifdef MSDOS
+X#   define HIGHBYTE		/* size must be larger than 255 */
+X#  else
+X	you must define something!
+X#  endif
+X# endif
+X#endif
+X
+X/*
+X * stucture used to link chunks in one of the free chunk lists.
+X */
+Xstruct m_info
+X{
+X#ifdef ALIGN_LONG
+X	u_long	 m_size;	/* size of the chunk (including m_info) */
+X#else
+X	u_short  m_size;	/* size of the chunk (including m_info) */
+X#endif
+X	info_t	*m_next;	/* pointer to next free chunk in the list */
+X};
+X
+X#ifdef ALIGN_LONG
+X	/* size of m_size + room for 0xff byte */
+X# define M_OFFSET (sizeof(u_long) * 2)
+X#else
+X	/* size of m_size */
+X# define M_OFFSET (sizeof(u_short))
+X#endif
+X
+X/*
+X * structure used to link blocks in the list of allocated blocks.
+X */
+Xstruct m_block
+X{
+X	struct m_block	*mb_next;	/* pointer to next allocated block */
+X	info_t			mb_info;	/* head of free chuck list for this block */
+X};
+X
+Xstatic struct m_block block_head = {NULL, {0, NULL}};
+X								/* head of allocated memory block list */
+X
+Xstatic info_t *m_search = NULL; 	/* pointer to chunk before previously
+X									   allocated/freed chunk */
+Xstatic struct m_block *mb_current = NULL;	/* block where m_search points in */
+X
+X/*
+X * Allocate a block of memory and link it in the allocated block list.
+X */
+X	char *
+Xm_blockalloc(size, message)
+X	u_long	size;
+X	int		message;
+X{
+X	struct m_block *p;
+X	struct m_block *mp, *next;
+X
+X	p = (struct m_block *)lalloc(size + sizeof(struct m_block), message);
+X	if (p != NULL)
+X	{
+X		 /* Insert the block into the allocated block list, keeping it
+X		 			sorted on address. */
+X		for (mp = &block_head; (next = mp->mb_next) != NULL && next < p; mp = next)
+X			;
+X		p->mb_next = next;				/* link in block list */
+X		mp->mb_next = p;
+X		p->mb_info.m_next = NULL;		/* clear free list */
+X		p->mb_info.m_size = 0;
+X		mb_current = p;					/* remember current block */
+X		m_search = NULL;
+X		p++;							/* return usable memory */
+X	}
+X	return (char *)p;
+X}
+X
+X/*
+X * free all allocated memory blocks
+X */
+X	void
+Xm_blockfree()
+X{
+X	struct m_block *p, *np;
+X
+X	for (p = block_head.mb_next; p != NULL; p = np)
+X	{
+X		np = p->mb_next;
+X		free((char *)p);
+X	}
+X	block_head.mb_next = NULL;
+X	m_search = NULL;
+X	mb_current = NULL;
+X}
+X
+X/*
+X * Free a chunk of memory which was
+X *  1. inserted with readfile(); these are preceded with a NUL byte
+X *  2. allocated with alloc_line(); these are preceded with a non-NUL byte
+X * Insert the chunk into the correct free list, keeping it sorted on address.
+X */
+X	void
+Xfree_line(ptr)
+X	char *ptr;
+X{
+X	register info_t		*next;
+X	register info_t		*prev, *curr;
+X	register info_t		*mp;
+X	long				len;
+X	struct m_block		*nextb;
+X
+X	if (ptr == NULL || ptr == IObuff)
+X		return;	/* illegal address can happen in out-of-memory situations */
+X
+X	if (*(ptr - 1) == NUL)		/* type 1 chunk: no size field */
+X	{
+X#ifdef ALIGN_LONG		/* use longword alignment */
+X		long c;
+X
+X		len = strlen(ptr) + 1;
+X		if ((c = ((long)ptr & ALIGN_MASK)) != 0)     /* lose some bytes */
+X		{
+X		    c = ALIGN_SIZE - c;
+X		    ptr += c;
+X		    len -= c;
+X		}
+X#else			/* use short (16 bit) alignment */
+X		len = strlen(ptr) + 1;
+X		if (len > 0xff00)		/* can't handle this large (cannot happen?) */
+X			len = 0xff00;
+X		if ((long)ptr & 1)					/* lose a byte */
+X		{
+X			++ptr;
+X			--len;
+X		}
+X#endif	/* ALIGN_LONG */
+X
+X		/* we must be able to store size, pointer and a trailing NUL */
+X		/* otherwise we can't fit it in the free list */
+X		if (len <= (long)sizeof(info_t))
+X			return;			/* these bytes are not used until you quit the file */
+X		mp = (info_t *)ptr;
+X		mp->m_size = len;
+X	}
+X#ifdef ALIGN_LONG
+X	else if ((*(ptr - 1) & 0xff) == 0xff)	/* type 2 chunk: has size field */
+X	{
+X		mp = (info_t *)(ptr - M_OFFSET);
+X	}
+X	else		/* illegal situation: there is no NUL or 0xff in front of the line */
+X	{
+X		emsg("Illegal chunk");
+X		return;
+X	}
+X#endif
+X#ifdef LOWBYTE
+X	else 			/* type 2 chunk: has size field */
+X	{
+X		mp = (info_t *)(ptr - M_OFFSET);
+X		mp->m_size >>= 1;
+X	}
+X#endif
+X#ifdef HIGHBYTE
+X	else 			/* type 2 chunk: has size field */
+X	{
+X		mp = (info_t *)(ptr - M_OFFSET);
+X		mp->m_size -= 256;
+X	}
+X#endif
+X
+X		/* find block where chunk could be a part off */
+X		/* if we change mb_current, m_search is set to NULL */
+X	if (mb_current == NULL || mp < (info_t *)mb_current)
+X	{
+X		mb_current = block_head.mb_next;
+X		m_search = NULL;
+X	}
+X	if ((nextb = mb_current->mb_next) != NULL && (info_t *)nextb < mp)
+X	{
+X		mb_current = nextb;
+X		m_search = NULL;
+X	}
+X	while ((nextb = mb_current->mb_next) != NULL && (info_t *)nextb < mp)
+X		mb_current = nextb;
+X
+X	curr = NULL;
+X	/* if mp is smaller than m_search->m_next we go to the start of the free list */
+X	if (m_search == NULL || mp < (m_search->m_next))
+X		next = &(mb_current->mb_info);
+X	else
+X		next = m_search;
+X	/*
+X	 * The following loop is executed very often.
+X	 * Therefore it has been optimized at the cost of readability.
+X	 * Keep it fast!
+X	 */
+X#ifdef SLOW_BUT_EASY_TO_READ
+X	do
+X	{
+X		prev = curr;
+X		curr = next;
+X		next = next->m_next;
+X	}
+X	while (mp > next && next != NULL);
+X#else
+X	do										/* first, middle, last */
+X	{
+X		prev = next->m_next;				/* curr, next, prev */
+X		if (prev == NULL || mp <= prev)
+X		{
+X			prev = curr;
+X			curr = next;
+X			next = next->m_next;
+X			break;
+X		}
+X		curr = prev->m_next;				/* next, prev, curr */
+X		if (curr == NULL || mp <= curr)
+X		{
+X			prev = next;
+X			curr = prev->m_next;
+X			next = curr->m_next;
+X			break;
+X		}
+X		next = curr->m_next;				/* prev, curr, next */
+X	}
+X	while (mp > next && next != NULL);
+X#endif
+X
+X/* if *mp and *next are concatenated, join them into one chunk */
+X	if ((char *)mp + mp->m_size == (char *)next)
+X	{
+X		mp->m_size += next->m_size;
+X		mp->m_next = next->m_next;
+X	}
+X	else
+X		mp->m_next = next;
+X
+X/* if *curr and *mp are concatenated, join them */
+X	if (prev != NULL && (char *)curr + curr->m_size == (char *)mp)
+X	{
+X		curr->m_size += mp->m_size;
+X		curr->m_next = mp->m_next;
+X		m_search = prev;
+X	}
+X	else
+X	{
+X		curr->m_next = mp;
+X		m_search = curr;	/* put m_search before freed chunk */
+X	}
+X}
+X
+X/*
+X * Allocate and initialize a new line structure with room for at least
+X * 'size' characters.
+X */
+X	char *
+Xalloc_line(size)
+X	register unsigned size;
+X{
+X	register info_t *mp, *mprev, *mp2;
+X	struct m_block	*mbp;
+X	int		 		size_align;
+X
+X/*
+X * Add room for size field, optional 0xff byte and trailing NUL byte.
+X * Adjust for minimal size (must be able to store info_t
+X * plus a trailing NUL, so the chunk can be released again)
+X */
+X	size += M_OFFSET + 1;
+X	if (size < sizeof(info_t) + 1)
+X	  size = sizeof(info_t) + 1;
+X
+X/*
+X * round size up for alignment
+X */
+X#ifdef ALIGN_LONG			/* use longword alignment */
+X	size_align = (size + ALIGN_MASK) & ~ALIGN_MASK;
+X#else /* ALIGN_LONG */	/* use short (16 bit) alignment */
+X	size_align = (size + 1) & ~1;
+X#endif	/* ALIGN_LONG */
+X
+X/* if m_search is NULL (uninitialized free list) we start at block_head */
+X	if (mb_current == NULL || m_search == NULL)
+X	{
+X		mb_current = &block_head;
+X		m_search = &(block_head.mb_info);
+X	}
+X
+X/* search for space in free list */
+X	mprev = m_search;
+X	mbp = mb_current;
+X	mp = m_search->m_next;
+X	if (mp == NULL)
+X	{
+X		if (mbp->mb_next)
+X			mbp = mbp->mb_next;
+X		else
+X			mbp = &block_head;
+X		mp = m_search = &(mbp->mb_info);
+X	}
+X	while (mp->m_size < size)
+X	{
+X		if (mp == m_search)		/* back where we started in free chunk list */
+X		{
+X			if (mbp->mb_next)
+X				mbp = mbp->mb_next;
+X			else
+X				mbp = &block_head;
+X			mp = m_search = &(mbp->mb_info);
+X			if (mbp == mb_current)	/* back where we started in block list */
+X			{
+X				int		n = (size_align > (MEMBLOCKSIZE / 4) ? size_align : MEMBLOCKSIZE);
+X
+X				mp = (info_t *)m_blockalloc((u_long)n, TRUE);
+X				if (mp == NULL)
+X					return (NULL);
+X#ifdef HIGHBYTE
+X				mp->m_size = n + 256;
+X#endif
+X#ifdef LOWBYTE
+X				mp->m_size = (n << 1) + 1;
+X#endif
+X#ifdef ALIGN_LONG
+X				mp->m_size = n;
+X				*((u_char *)mp + M_OFFSET - 1) = 0xff;
+X#endif
+X				free_line((char *)mp + M_OFFSET);
+X				mp = m_search;
+X				mbp = mb_current;
+X			}
+X		}
+X		mprev = mp;
+X		if ((mp = mp->m_next) == NULL)		/* at end of the list */
+X			mp = &(mbp->mb_info);			/* wrap around to begin */
+X	}
+X
+X/* if the chunk we found is large enough, split it up in two */
+X	if ((long)mp->m_size - size_align >= (long)(sizeof(info_t) + 1))
+X	{
+X		mp2 = (info_t *)((char *)mp + size_align);
+X		mp2->m_size = mp->m_size - size_align;
+X		mp2->m_next = mp->m_next;
+X		mprev->m_next = mp2;
+X		mp->m_size = size_align;
+X	}
+X	else					/* remove *mp from the free list */
+X	{
+X		mprev->m_next = mp->m_next;
+X	}
+X	m_search = mprev;
+X	mb_current = mbp;
+X
+X#ifdef HIGHBYTE
+X	mp->m_size += 256;
+X#endif
+X#ifdef LOWBYTE
+X	mp->m_size = (mp->m_size << 1) + 1;
+X#endif
+X	mp = (info_t *)((char *)mp + M_OFFSET);
+X#ifdef ALIGN_LONG
+X	*((u_char *)mp - 1) = 0xff;			/* mark type 2 chunk */
+X#endif
+X	*(char *)mp = NUL;					/* set the first byte to NUL */
+X
+X	return ((char *)mp);
+X}
+X
+X/*
+X * save_line(): allocate memory with alloc_line() and copy the
+X * string 'src' into it.
+X */
+X	char *
+Xsave_line(src)
+X	register char *src;
+X{
+X	register char *dst;
+X	register unsigned len;
+X
+X	len = strlen(src);
+X	if ((dst = alloc_line(len)) != NULL)
+X		memmove(dst, src, (size_t)(len + 1));
+X	return (dst);
+X}
+X
+X/******************************************
+X * part 2: managing of the pointer blocks *
+X ******************************************/
+X
+Xtypedef struct block block_t;
+X
+X#ifdef BLOCK_SIZE
+X# undef BLOCK_SIZE	/* for Linux: is in limits.h */
+X#endif
+X
+X#define BLOCK_SIZE 40
+X
+Xstruct block
+X{
+X	char	*b_ptr[BLOCK_SIZE];		/* pointers to the lines */
+X	char	 b_flags[BLOCK_SIZE];	/* see below */
+X	u_short  b_count;				/* current number of pointers in b_ptr */
+X	block_t *b_next;				/* pointer to next block */
+X	block_t *b_prev;				/* pointer to previous block */
+X};
+X
+X#define B_MARKED	0x01		/* mark for :global command */
+X
+Xstatic block_t *first_block;	/* pointer to first block in block list */
+Xstatic block_t *last_block;		/* pointer to last block in block list */
+X
+Xstatic block_t *curr_block;		/* block used by nr2ptr */
+Xstatic linenr_t curr_count;		/* first line number of block curr_block */
+Xstatic linenr_t curr_count_max;	/* curr_count + curr_block->b_count */
+X
+Xstatic block_t *alloc_block __ARGS((void));
+X
+X    static block_t *
+Xalloc_block()
+X{
+X	block_t *p;
+X
+X	p = (block_t *)(alloc_line((unsigned)sizeof(block_t)));
+X	if (p != NULL)
+X	{
+X		memset((char *)p, 0, sizeof(block_t));
+X	}
+X	return (p);
+X}
+X
+X/*
+X * filealloc() - construct an initial empty file buffer
+X */
+X	void
+Xfilealloc()
+X{
+X	first_block = last_block = alloc_block();
+X	if (first_block == NULL || (first_block->b_ptr[0] = alloc_line(0)) == NULL)
+X		getout(1);
+X	first_block->b_count = 1;
+X	Curpos.lnum = 1;
+X	Curswant = Curpos.col = 0;
+X	Topline = 1;
+X	Botline = 2;
+X	line_count = 1;
+X	curr_count = 0;
+X	clrallmarks();
+X	clrtags();
+X	UNCHANGED;
+X}
+X
+X/*
+X * freeall() - free the current buffer
+X *
+X * Free all lines in the current buffer.
+X */
+X	void
+Xfreeall()
+X{
+X	m_blockfree();
+X	line_count = 0;
+X	s_ins(0, 0, TRUE);	/* invalidate Line arrays */
+X	u_clearall();
+X}
+X
+X/*
+X * Get the pointer to the line 'nr'.
+X * This function is used a lot for sequential access (writeit, search),
+X * so that is what it is optimized for.
+X */
+X    char *
+Xnr2ptr(nr)
+X    register linenr_t nr;
+X{
+X	register linenr_t count = curr_count;
+X
+X	/*
+X	 * if we don't have a current block or the line is not in the current block,
+X	 * make the block containing the line the current block.
+X	 */
+X	if (count == 0 || nr >= curr_count_max || nr < count)
+X	{
+X		register block_t *bp = curr_block;
+X
+X		if (nr < 1 || nr > line_count)
+X		{
+X			emsg("nr2ptr: illegal nr");
+X			return (IObuff);	/* always return a valid ptr */
+X		}
+X
+X		/*
+X		 * three ways to find the pointer:
+X		 * 1. first pointer in the next block (fast for sequential access)
+X		 * 2. search forward
+X		 * 3. search backward
+X		 */
+X		if (count && nr == count + bp->b_count)		/* in next block */
+X		{
+X			count = nr;
+X			bp = bp->b_next;
+X		}
+X		else if (nr <= (count + line_count) / 2 ||
+X				(nr <= count && nr <= count / 2))
+X		{
+X													/* search forward */
+X			if (nr < count || count == 0)
+X			{
+X				count = 1;
+X				bp = first_block;
+X			}
+X			while (bp != NULL)
+X			{
+X				count += bp->b_count;
+X				if (nr < count)
+X				{
+X					count -= bp->b_count;
+X					break;
+X				}
+X				bp = bp->b_next;
+X			}
+X		}
+X		else
+X		{											/* search backward */
+X			if (nr < count)
+X				bp = bp->b_prev;
+X			else
+X			{
+X				bp = last_block;
+X				count = line_count + 1;
+X			}
+X			while (bp != NULL)
+X			{
+X				count -= bp->b_count;
+X				if (nr >= count)
+X					break;
+X				bp = bp->b_prev;
+X			}
+X		}
+X		
+X		if (bp == NULL)
+X		{
+X			emsg("nr2ptr: strorage corrupt");
+X			curr_count = 0;
+X			return (IObuff);
+X		}
+X		curr_count = count;
+X		curr_count_max = count + bp->b_count;
+X		curr_block = bp;
+X	}
+X	return (curr_block->b_ptr[nr - count]);
+X}
+X
+X/*
+X * pos2ptr: get pointer to position 'pos'
+X */
+X    char *
+Xpos2ptr(pos)
+X    FPOS	*pos;
+X{
+X	return (nr2ptr(pos->lnum) + pos->col);
+X}
+X
+X	char *
+XCurpos2ptr()
+X{
+X	return (nr2ptr(Curpos.lnum) + Curpos.col);
+X}
+X
+X/*
+X * set the B_MARKED flag for line 'lnum'
+X */
+X	void
+Xsetmarked(lnum)
+X	linenr_t lnum;
+X{
+X	nr2ptr(lnum);
+X	curr_block->b_flags[lnum - curr_count] |= B_MARKED;
+X}
+X
+X/*
+X * find the first line with its B_MARKED flag set
+X */
+X	linenr_t
+Xfirstmarked()
+X{
+X	register block_t	*bp;
+X	register linenr_t	lnum;
+X	register u_short	i;
+X
+X	for (bp = first_block, lnum = 1; bp != NULL; bp = bp->b_next)
+X		for (i = 0; i < bp->b_count; ++i, ++lnum)
+X			if (bp->b_flags[i] & B_MARKED)
+X			{
+X				bp->b_flags[i] &= ~B_MARKED;
+X				return lnum;
+X			}
+X	return (linenr_t) 0;
+X}
+X
+X/*
+X * clear all B_MARKED flags
+X */
+X	void
+Xclearmarked()
+X{
+X	register block_t	*bp;
+X	register int		i;
+X
+X	for (bp = first_block; bp != NULL; bp = bp->b_next)
+X		for (i = bp->b_count; --i >= 0; )
+X				bp->b_flags[i] &= ~B_MARKED;
+X}
+X
+X/*
+X * a pointer to a line is converted into a line number
+X * we start at line number 'start'
+X * this is a bit slow, but it is used for marks and undo only
+X */
+X	linenr_t
+Xptr2nr(ptr, start)
+X	char *ptr;
+X	linenr_t start;
+X{
+X	block_t *bp;
+X	register linenr_t nr;
+X	register char **pp;
+X	register int	i;
+X
+X	if (ptr == NULL)
+X		return (linenr_t)0;
+X
+X	if (start == 0)
+X	    start = 1;
+X	nr2ptr(start);	    /* set curr_block and curr_count */
+X
+X	for (nr = curr_count, bp = curr_block; bp != NULL; bp = bp->b_next)
+X		for (pp = bp->b_ptr, i = bp->b_count; --i >= 0; ++nr)
+X			if (*pp++ == ptr)
+X				return (nr);
+X	return (linenr_t)0;
+X}
+X
+X/*
+X * appendline: add a line
+X *	return TRUE when succesful
+X */
+X	int
+Xappendline(after, s)
+X	linenr_t	after;
+X	char		*s;
+X{
+X	register block_t	*bp;
+X	block_t 			*nbp;
+X	linenr_t			count;
+X	register int		i;
+X
+X	if (s == NULL)		/* don't insert NULL pointers! */
+X		return FALSE;
+X	if (after == 0) 	/* insert in front of first line */
+X	{
+X		bp = first_block;
+X		count = 1;
+X		if (bufempty()) 	/* simply replace dummy line */
+X		{
+X			free_line(bp->b_ptr[0]);
+X			bp->b_ptr[0] = s;
+X			return TRUE;
+X		}
+X		curr_count = 0; /* curr_block will become invalid */
+X	}
+X	else
+X	{
+X		(void)nr2ptr(after);	/* find block */
+X		bp = curr_block;
+X		count = curr_count;
+X	}
+X
+X	++line_count;
+X	i = bp->b_count;
+X	if (i < BLOCK_SIZE)			/* there is place in the current block */
+X/* move ptrs one place forward to make space for new one */
+X	{
+X		register char **pp;
+X		register char *fp;
+X
+X		pp = &(bp->b_ptr[i]);
+X		fp = &(bp->b_flags[i]);
+X		for (i += count - after - 1; --i >= 0; --pp, --fp)
+X		{
+X			*pp = *(pp - 1);
+X			*fp = *(fp - 1);
+X		}
+X		*pp = s;
+X		*fp = 0;
+X		++bp->b_count;
+X		++curr_count_max;
+X		return TRUE;
+X	}
+X
+X/* need to allocate a new block */
+X	nbp = alloc_block();
+X	if (nbp == NULL)
+X	{
+X		--line_count;
+X		free_line(s);
+X		return FALSE;
+X	}
+X
+X/* put new block in linked list */
+X	if (after == 0) /* put new block in front of linked list */
+X	{
+X		bp->b_prev = nbp;
+X		nbp->b_next = bp;
+X		first_block = nbp;
+X		nbp->b_ptr[0] = s;
+X		nbp->b_count = 1;
+X		return TRUE;
+X	}
+X
+X	/* insert new block in linked list after bp */
+X	nbp->b_next = bp->b_next;
+X	bp->b_next = nbp;
+X	nbp->b_prev = bp;
+X	if (nbp->b_next == NULL)
+X		last_block = nbp;
+X	else
+X		nbp->b_next->b_prev = nbp;
+X
+X	if (after - count + 1 == BLOCK_SIZE) /* put s in new block */
+X	{
+X		nbp->b_ptr[0] = s;
+X		nbp->b_count = 1;
+X		return TRUE;
+X	}
+X
+X	/* move some ptrs from full block to new block */
+X	{
+X		register int j = 0;
+X
+X		bp->b_count = after - count + 1;	/* number of ptrs remaining */
+X		i = BLOCK_SIZE - bp->b_count;		/* number of ptrs to be moved */
+X		nbp->b_count = i;
+X		while (--i >= 0)
+X		{
+X			j = bp->b_count + i;
+X			nbp->b_ptr[i] = bp->b_ptr[j];
+X			nbp->b_flags[i] = bp->b_flags[j];
+X		}
+X		bp->b_ptr[j] = s;
+X		bp->b_flags[j] = 0;
+X		++bp->b_count;
+X		curr_count_max = curr_count + bp->b_count;
+X	}
+X	return TRUE;
+X}
+X
+X/*
+X * delsline: delete line from storage
+X *
+X * the line is turned over to the caller
+X */
+X	char *
+Xdelsline(nr, delmarks)
+X	linenr_t	nr;
+X	int			delmarks;
+X{
+X	char	*ptr;
+X	register block_t	*bp;
+X	register char **pp;
+X	register char *fp;
+X	register int i;
+X
+X	if (nr < 1 || nr > line_count)
+X	{
+X		emsg("delsline: nr wrong");
+X		return (alloc_line(0));
+X	}
+X	ptr = nr2ptr(nr);
+X	if (delmarks)
+X		adjustmark(ptr, NULL);			/* remove marks for this line (slow!) */
+X	bp = curr_block;
+X	if (line_count == 1)	/* don't delete the last line in the file */
+X	{
+X		bp->b_ptr[0] = alloc_line(0);
+X		return (ptr);
+X	}
+X	--line_count;
+X
+X	/* move the rest of the ptrs in this block one down */
+X	pp = &(bp->b_ptr[nr - curr_count]);
+X	fp = &(bp->b_flags[nr - curr_count]);
+X	for (i = bp->b_count + curr_count - nr - 1; --i >= 0; ++pp, ++fp)
+X	{
+X		*pp = *(pp + 1);
+X		*fp = *(fp + 1);
+X	}
+X	if (--bp->b_count == 0) /* the block became empty, remove it from the list */
+X	{
+X		if (bp->b_prev == NULL)
+X			first_block = bp->b_next;
+X		else
+X			bp->b_prev->b_next = bp->b_next;
+X		if (bp->b_next == NULL)
+X			last_block = bp->b_prev;
+X		else
+X			bp->b_next->b_prev = bp->b_prev;
+X		free_line((char *)bp);
+X		curr_count = 0; /* curr_block invalid */
+X	}
+X	else
+X		--curr_count_max;
+X	return (ptr);
+X}
+X
+X/*
+X * replace the line "lnum" with the line "new".
+X * return the old line (which should be freed by the caller)
+X */
+X	char *
+Xreplaceline(lnum, new)
+X	linenr_t lnum;
+X	char *new;
+X{
+X	char *old;
+X
+X	old = nr2ptr(lnum);
+X	if (new == NULL || curr_count == 0)	/* we don't want NULL pointers in the list */
+X		return (alloc_line(0)); /* be friendly to the caller */
+X
+X	curr_block->b_ptr[lnum - curr_count] = new;
+X	curr_block->b_flags[lnum - curr_count] = 0;
+X	adjustmark(old, new);
+X	return (old);
+X}
+X
+X/*
+X * canincrease(n) - returns TRUE if the current line can be increased 'n'
+X * bytes
+X *
+X * This routine returns immediately if the requested space is available. If not,
+X * it attempts to allocate the space and adjust the data structures
+X * accordingly. If everything fails it returns FALSE.
+X */
+X	int
+Xcanincrease(n)
+X    int    n;
+X{
+X	register char	*old;
+X    register char	*new;		/* pointer to new space */
+X    register unsigned newsize;
+X
+X	old = nr2ptr(Curpos.lnum);
+X    newsize = strlen(old) + n;
+X
+X    new = alloc_line(newsize);
+X    if (new == NULL)
+X		return FALSE;
+X
+X    strcpy(new, old);
+X	adjustmark(old, new);
+X    free_line(old);
+X    curr_block->b_ptr[Curpos.lnum - curr_count] = new;
+X    curr_block->b_flags[Curpos.lnum - curr_count] = 0;
+X
+X    return TRUE;
+X}
+END_OF_FILE
+if test 23385 -ne `wc -c <'vim/src/storage.c'`; then
+    echo shar: \"'vim/src/storage.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/storage.c'
+# end of 'vim/src/storage.c'
+fi
+echo shar: End of archive 11 \(of 25\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+===============================================================================
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595473 | whatever will be accepted.
+
+exit 0 # Just in case...

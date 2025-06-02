@@ -1,0 +1,2129 @@
+Newsgroups: comp.sources.misc
+From: tasos@cs.bu.edu (Anastasios Kotsikonas)
+Subject:  v32i034:  re_strcmp - extened egrep pattern matching v1.0, Part01/01
+Message-ID: <1992Sep11.172404.18848@sparky.imd.sterling.com>
+X-Md4-Signature: b38f372e7bb07ba6376bc595f6249f5a
+Date: Fri, 11 Sep 1992 17:24:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tasos@cs.bu.edu (Anastasios Kotsikonas)
+Posting-number: Volume 32, Issue 34
+Archive-name: re_strcmp/part01
+Environment: UNIX
+
+In brief: compare a string against a regular expression. Regular expressions
+  may be egrep(1) style with additional support for ~ (logical NOT) and &
+  (logical AND).
+
+In detail:
+  Do pattern matching of two flavors: strict egrep(1), or extended egrep(1).
+  The main routine is re_strcmp() which takes a regular expression, a
+  string to match against, and a string specifying which of the matched
+  subparts are to be used to form a new string -- if this string is NULL no
+  such action is taken.
+
+  In extended mode, regular expressions may use the logical operators ~ (not),
+  & (and) and group expressions further with < and >.
+
+  It is possible to use the ls(1) style wild characters * and ?
+
+  It is also possible to turn off ed(1) style pattern matching (i.e. turn
+  off the meaning of [ ] { } etc.).
+
+  The system uses modified pattern matching routines written by Henry Spencer
+  (Copyright (c) 1986 by University of Toronto) -- actually only regerror.c
+  was modified. Many thanks and kudos to Henry for this wonderful piece of code.
+
+Enjoy!
+-----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile regerror.c regex.c regexp.c regexp.h
+#   regmagic.h regsub.c
+# Wrapped by kent@sparky on Fri Sep 11 12:19:04 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(59 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XFor a description of what this software does, read regex.c
+END_OF_FILE
+  if test 59 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1123 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# This is a modified Makefile from Henry Spencer's original.
+X# Things you might want to put in ENV and LENV:
+X# -Dvoid=int		compilers that don't do void
+X# -DCHARBITS=0377	compilers that don't do unsigned char
+X# -DSTATIC=extern	compilers that don't like "static foo();" as forward decl
+X# -DSTRCSPN		library does not have strcspn()
+X# -Dstrchr=index	library does not have strchr()
+X# -DERRAVAIL		have utzoo-compatible error() function and friends
+XENV=
+XLENV=
+X
+X# Things you might want to put in TEST:
+X# -DDEBUG		debugging hooks
+X# -I.			regexp.h from current directory, not /usr/include
+X# -Dtest		to run independetly
+XTEST=-I. -Dtest
+X
+X# Things you might want to put in PROF:
+X# -Dstatic='/* */'	make everything global so profiler can see it.
+X# -p			profiler
+XPROF=
+X
+XCC=cc
+XCFLAGS=-O $(ENV) $(TEST) $(PROF)
+XLINTFLAGS=$(LENV) $(TEST) -ha
+XLDFLAGS=
+X
+XOBJ=regexp.o regsub.o regex.o regerror.o
+XLSRC=regexp.c regsub.c regerror.c
+X
+Xall:	regex
+X
+Xregex:	$(OBJ)
+X	$(CC) $(LDFLAGS) $(OBJ) -o regex
+X
+Xregexp.o:	regexp.c regexp.h regmagic.h
+Xregsub.o:	regsub.c regexp.h regmagic.h
+Xregerror.o:	regerror.c
+Xregex.o:	regex.c regexp.h
+X
+Xclean:
+X	rm -f *.o regex
+END_OF_FILE
+  if test 1123 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'regerror.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regerror.c'\"
+else
+  echo shar: Extracting \"'regerror.c'\" \(263 characters\)
+  sed "s/^X//" >'regerror.c' <<'END_OF_FILE'
+X/*
+X  Tasos Kotsikonas (8/20/92): Changed function so that it stores the error
+X  message to a global variable.
+X*/
+X
+X#include <stdio.h>
+Xchar *regerr;
+X
+Xvoid
+Xregerror(s)
+Xchar *s;
+X{
+X  regerr = (char *) malloc ((strlen (s) + 1) * sizeof (char));
+X  strcpy (regerr, s);
+X}
+END_OF_FILE
+  if test 263 -ne `wc -c <'regerror.c'`; then
+    echo shar: \"'regerror.c'\" unpacked with wrong size!
+  fi
+  # end of 'regerror.c'
+fi
+if test -f 'regex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regex.c'\"
+else
+  echo shar: Extracting \"'regex.c'\" \(15430 characters\)
+  sed "s/^X//" >'regex.c' <<'END_OF_FILE'
+X/*
+X  Author: Tasos Kotsikonas (tasos@cs.bu.edu)
+X  Disclaimer: All proper disclaimers apply; these include death, damage of any
+X	      kind to anything and anyone, and this kind of legal garbage.
+X  Copying: You may copy, alter and redistribute this software as you see fit,
+X  	   but you may not sell it for profit.
+X
+X  Do pattern matching of two flavors: strict egrep(1), or extended egrep(1).
+X  If the symbol egrep is #define'd below, strict egrep(1) syntax is used.
+X
+X  The main routine is re_strcmp() which takes a regular expression, a
+X  string to match against, and a string specifying which of the matched
+X  subparts are to be used to form a new string -- if this string is NULL no
+X  such action is taken.
+X
+X  The new string is stored in the same space, so this string should be
+X  long enough not to cause memory overwrites. To be able to do this match
+X  substitution, the desired subparts of the regular expression should
+X  be enclosed in ( and ). Each subpart is referenced to as \n where n is
+X  a digit from 1 to 9.
+X
+X  For example, the following call:
+X
+X  strcpy (match, "\\2@\\1.UUCP");
+X  re_strcmp ("[^!@]*!([^!@.]*)!([^!@]*)@.*", "GATE!HOP!USER@UUCP.SOME.COM",
+X  	     match);
+X
+X  will return TRUE and store in 'match' "USER@HOP.UUCP". See the man page
+X  for Henry Spencer's routines included for more information.
+X
+X  In extended mode, regular expressions may use the logical operators ~ (not),
+X  & (and) and group expressions further with < and >. Because of the latter,
+X  < and > may not be used in the ed(1) sense (\< is the default in the
+X  context these routines were developed, and \> is useless in the same context).
+X  To use any of these characters literally, precede them with a backslash (\).
+X
+X  For example:
+X
+X  re_strcmp ("~<.*\.COM|.*\.EDU>&~TASOS*", "TASOS@FOO.US", NULL)
+X
+X  will return FALSE.
+X
+X  re_strcmp() returns TRUE on success, FALSE if no match was found, or
+X  -1 on error. In the latter case, the (char *) variable regerr contains the
+X  actual error message.
+X
+X  The system uses modified pattern matching routines written by Henry Spencer
+X  (Copyright (c) 1986 by University of Toronto) -- actually only regerror.c
+X  was modified. Many thanks and kudos to Henry for this wonderful piece of code.
+X
+X  It is possible to use the ls(1) style wild characters * and ? by altering
+X  the symbols START and QMARK below.
+X
+X  It is also possible to turn off ed(1) style pattern matching (i.e. turn
+X  off the meaning of [ ] { } etc.) by using the function escape_re() where
+X  marked with ###.
+X
+X  To test these routines compile with -Dtest and run independently as follows:
+X
+X		% cc -Dtest -I. regexp.c regsub.c regex.c regerror.c
+X		% a.out 'regular-expression' file
+X*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include "regexp.h"
+X
+X/*
+X#define egrep	Define it if you want to use strict egrep(1) regular expressions
+X*/
+X
+X#define MAXLENGTH	1024	/* Maximum length of each regular expression */
+X#define EOS		'\0'
+X
+Xint  re_strcmp (char *, char *, char *);
+X
+X#ifdef test
+Xint  main (int, char **);
+X#else
+Xextern void report_progress (FILE *, char *, int);
+Xextern FILE *report;
+X#endif
+X#ifndef egrep
+Xvoid escape_re (char *);
+Xchar *convert_re (char *);
+Xint  icp (int);
+Xint  push (int);
+Xint  pop (void);
+Xint  do_op (int, int, int);
+Xvoid pop_op (void);
+Xint  new_op (int);
+Xint  eval (void);
+Xint  isop (char *, char *);
+Xint  prevch (char *, char *);
+Xint  nextch (char *);
+X
+X#define STAR		"*"	/* If ".*" then the meaning is that of ls(1) */
+X#define QMARK		"?"	/* If "." then the meaning is that of ls(1) */
+X#define LGROUPCH	'<'	/* Avoid ( and ) */
+X#define RGROUPCH	'>'
+X#define OR		1	/* Operators should be > 0 */
+X#define AND		2
+X#define	NOT		3
+X#define LPAREN		4
+X#define RPAREN		5
+X
+Xtypedef struct _operator_stack {
+X  int op;
+X  int isp;	/* In-stack priority */
+X  struct _operator_stack *next, *prev;
+X} OPERATOR_STACK;
+X
+Xtypedef struct _operand_stack {
+X  int val;
+X  struct _operand_stack *next, *prev;
+X} OPERAND_STACK;
+X
+XOPERATOR_STACK *op_top;
+XOPERAND_STACK *val_top;
+Xint pliteral, literal, nliteral;
+X#endif
+X
+Xextern char *regerr;
+X
+X#ifdef test
+Xint main (int argc, char **argv)
+X{
+X  FILE *f;
+X  char s [1024], matches [1024];
+X  int match;
+X
+X  if (argc < 2)
+X    printf ("Usage: %s 'regular-expression' file\n", argv[0]), exit (1);
+X  if ((f = fopen (argv[2], "r")) == NULL)
+X    printf ("%s: ", argv[2]), fflush (stdout), perror (""), exit (1);
+X  while (!feof (f)) {
+X    memset (s, EOS, sizeof (s));
+X    fgets (s, sizeof (s) - 1, f);
+X    strcpy (matches, "\\2@\\1.UUCP");
+X    if ((match = re_strcmp (argv[1], s, matches)) > 0)
+X      printf ("MATCHES:%s\n", matches),
+X      printf ("%s", s);
+X    else if (match < 0)
+X      printf ("Error in regular expression\n"),
+X      exit (1);
+X  }
+X  fclose (f);
+X  exit (0);
+X}
+X#endif
+X
+X/*
+X  Check 'subject' againt the 'regexpr'. Return 1 on match, 0 if no match,
+X  or -1 on error. To negegate a regular expression precede it with '~';
+X  multiple regular expressions are separated by '|' or '&' (logical OR and
+X  AND) and may be grouped with LGROUPCH and RGROUPCH. To escape the key
+X  characters LGROUPCH * ? | & RGROUPCH use \.
+X*/
+X
+Xint re_strcmp (char *regexpr, char *subject, char *result)
+X{
+X  char *re, *readdr, s[MAXLENGTH], _re[MAXLENGTH], matches [1024];
+X  int op, i;
+X  regexp *cmp;
+X
+X  strcpy (s, regexpr);
+X#ifndef egrep
+X/*###		Do not escape ed(1) special characters.
+X  escape_re (s);
+X*/
+X  readdr = re = convert_re (s);
+X#else
+X  re = s;
+X#endif
+X  do {
+X#ifndef egrep
+X    if ((op = isop (re, readdr))) {
+X      if (new_op (op)) {
+X	eval ();	/* Empty stacks */
+X	return -1;
+X      }
+X      ++re;
+X    }
+X    else 
+X#endif
+X    {
+X      i = 0;
+X      while (*re != EOS && i < MAXLENGTH
+X#ifndef egrep
+X	     && !isop (re, readdr)
+X#endif
+X)
+X	_re [i++] = *re,
+X	++re;
+X      if (i == MAXLENGTH)	/* Overflow */
+X	return -1;
+X      _re [i] = EOS;
+X      if (! (cmp = (regexp *) regcomp (_re))) {
+X#ifndef test
+X	sprintf (s, "RE %s: %s\n", _re, regerr);
+X	report_progress (report, s, 1);
+X#else
+X        printf ("RE %s: %s\n", _re, regerr);
+X#endif
+X	free ((char *) regerr);
+X#ifndef egrep
+X	eval ();	/* Empty stacks */
+X	free ((char *) readdr);
+X#endif
+X        return -1;
+X      }
+X      if (regexec (cmp, subject)) {
+X	if (result)
+X	  regsub (cmp, result, matches),
+X	  strcpy (result, matches);
+X	free ((regexp *) cmp);
+X#ifndef egrep
+X	push (1);
+X#else
+X	return 1;
+X#endif
+X      }
+X      else {
+X	free ((regexp *) cmp);
+X#ifndef egrep
+X	push (0);
+X#else
+X	return 0;
+X#endif
+X      }
+X    }
+X  } while (*re != EOS);
+X#ifndef egrep
+X  free ((char *) readdr);
+X  return eval ();
+X#endif
+X}
+X
+X/*
+X  Scan 's' and escape the following characters: [ ] < > { } , ; . ^ $ + -
+X  for regular expression matching.
+X
+X  To be used if one does not want ed(1) style pattern matching. Currently, this
+X  function is unused.
+X*/
+X
+X#ifndef egrep
+Xvoid escape_re (char *s)
+X{
+X  char *r;
+X
+X  while (*s != EOS) {
+X    switch (*s) {
+X    case '[': case ']': case '<': case '>': case '+': case '-':
+X    case ';': case ',': case '.': case '^': case '$': case '{': case '}':
+X      r = s + strlen (s);       /* Start from the end */
+X      while (r != s)
+X        *(r + 1) = *r,
+X        --r;
+X      *(r + 1) = *r;
+X      *r = '\\';
+X      ++s;
+X      break;
+X    }
+X    ++s;
+X  }
+X}
+X
+X/*
+X  Possibly convert the wild characters * and ? to ed(1) regular expressions.
+X  Handle escaped characters.
+X*/
+X
+Xchar *convert_re (char *re)
+X{
+X  char *r, *b = re;
+X  int i = 0;
+X
+X  r = (char *) malloc (sizeof (char));
+X  while (*re != EOS) {
+X    prevch (re, b);	/* See if *re is literal */
+X    switch (*re) {
+X    case '\\':
+X      if (re != b && literal)
+X	r = (char *) realloc (r, (i + 2) * sizeof (char)),
+X	strncpy (r + i, "\\\\", 2),
+X	i += 2;
+X      break;
+X    case '?':		/* Match one character */
+X     if (re != b && literal)	/* Literal */
+X	r = (char *) realloc (r, (i + 1) * sizeof (char)),
+X	*(r + i) = *re,
+X	++i;
+X      else
+X	r = (char *) realloc (r, (i + strlen (QMARK)) * sizeof (char)),
+X	strncpy (r + i, QMARK, strlen (QMARK)),
+X	i += strlen (QMARK);
+X      break;
+X    case '*':		/* Match multiple characters */
+X      if (re != b && literal)	/* Literal */
+X	r = (char *) realloc (r, (i + 2) * sizeof (char)),
+X	strncpy (r + i, "\\*", 2),
+X	i += 2;
+X      else
+X	r = (char *) realloc (r, (i + strlen (STAR)) * sizeof (char)),
+X	strncpy (r + i, STAR, strlen (STAR)),
+X	i += strlen (STAR);
+X      break;
+X    default:
+X      if (re != b && literal)      /* carry over */
+X	r = (char *) realloc (r, (i + 2) * sizeof (char)),
+X	*(r + i) = *(re - 1),
+X	*(r + i + 1) = *re,
+X	i += 2;
+X      else
+X	r = (char *) realloc (r, (i + 1) * sizeof (char)),
+X	*(r + i) = *re,
+X	++i;
+X    }
+X    ++re;
+X  }
+X  r = (char *) realloc (r, (i + 1) * sizeof (char));
+X  *(r + i) = EOS;
+X  return r;
+X}
+X
+X/*
+X  Return the in-coming priority of an operator.
+X*/
+X
+Xint icp (int op)
+X{
+X  if (op == OR || op == AND) return 1;
+X  if (op == LPAREN || op == NOT) return 4;
+X  return 0;
+X}
+X
+X/*
+X  Push a new operand onto OPERAND_STACK.
+X*/
+X
+Xint push (int val)
+X{
+X  OPERAND_STACK *s;
+X
+X  s = (OPERAND_STACK *) malloc (sizeof (OPERAND_STACK));
+X  s->val = val;
+X  s->prev = val_top;
+X  s->next = NULL;
+X  if (val_top)
+X    val_top->next = s;
+X  val_top = s;
+X  return val;
+X}
+X
+X/*
+X  Pop an operand from OPERAND_STACK. Return 0 or 1, or -1 on error.
+X*/
+X
+Xint pop ()
+X{
+X  int val;
+X
+X  if (!val_top)	/* Empty stack */
+X    return -1;
+X  val = val_top->val;
+X  if (val_top->prev)
+X    val_top = val_top->prev,
+X    free ((OPERAND_STACK *) val_top->next),
+X    val_top->next = NULL;
+X  else
+X    free ((OPERAND_STACK *) val_top),
+X    val_top = NULL;
+X  return val;
+X}
+X
+X/*
+X  Perform a boolean operation and return the result, or -1 on error.
+X*/
+X
+Xint do_op (int op, int val1, int val2)
+X{
+X  if (val1 < 0 || val2 < 0)
+X    return -1;
+X  if (op == OR)
+X    return val1 | val2;
+X  if (op == AND)
+X    return val1 & val2;
+X  return !val1;
+X}
+X
+X/*
+X  Pop an operator. An operator will always be present.
+X*/
+X
+Xvoid pop_op ()
+X{
+X  OPERATOR_STACK *s;
+X
+X  s = op_top;
+X  free ((OPERATOR_STACK *) s);
+X  op_top = op_top->prev;
+X  if (op_top)
+X    op_top->next = NULL;
+X}
+X
+X/*
+X  Process a new operator: push it anyway, or push it after popping other
+X  operators with higher priority. Return -1 on error condition.
+X*/
+X
+Xint new_op (int op)
+X{
+X  OPERATOR_STACK *s;
+X  int res;
+X
+X  if (op < OR)
+X    return -1;
+X  if (op == RPAREN) {
+X    do {	/* Pop and process operators till LPAREN */
+X      if (!op_top)
+X	return -1;
+X      if (op_top->op != LPAREN) {
+X	if (op_top->op == OR || op_top->op == AND)
+X	  res = push (do_op (op_top->op, pop (), pop ()));
+X	else	/* NOT */
+X	  res = push (do_op (op_top->op, pop (), 0));
+X	if (res < 0)	/* Error with operands */
+X	  return res;
+X	pop_op ();	/* Pop processed operator */
+X	if (!op_top)
+X	  return -1;
+X      }
+X    } while (op_top->op != LPAREN);
+X    pop_op ();	/* LPAREN */
+X  }
+X  else {	/* Push new operator */
+X    while (op_top && op_top->isp >= icp (op)) {	/* Process op w/ > priority */
+X      if (op_top->op == OR || op_top->op == AND)
+X	res = push (do_op (op_top->op, pop (), pop ()));
+X      else    /* NOT */
+X	res = push (do_op (op_top->op, pop (), 0));
+X      if (res < 0)
+X	return res;
+X      pop_op ();
+X    }
+X    s = (OPERATOR_STACK *) malloc (sizeof (OPERATOR_STACK));
+X    s->op = op;
+X    if (op == OR) s->isp = 1;
+X    else if (op == AND) s->isp = 1;
+X    else if (op == NOT) s->isp = 2;
+X    else s->isp = 0;
+X    s->prev = op_top;
+X    s->next = NULL;
+X    if (op_top)
+X      op_top->next = s;
+X    op_top = s;
+X  }
+X  return 0;
+X}
+X
+X/*
+X  Process the remaining operators and values. Return -1 on error.
+X*/
+X
+Xint eval ()
+X{
+X  OPERATOR_STACK *op;
+X  OPERAND_STACK *val;
+X  int res;
+X
+X  if (!op_top && !val_top)
+X    return 0;
+X  while (op_top) {
+X    if (op_top->op != AND && op_top->op != OR && op_top->op != NOT) {
+X      if (op_top->op < OR || op_top->op > RPAREN)
+X#ifndef test
+X	report_progress (report, "Internal error: unexpected op", 1);
+X#else
+X	printf ("Internal error: unexpected op %d\n", op_top->op);
+X#endif
+X      return -1;
+X    }
+X    if (op_top->op == OR || op_top->op == AND)
+X      res = push (do_op (op_top->op, pop (), pop ()));
+X    else	/* NOT */
+X      res = push (do_op (op_top->op, pop (), 0));
+X    if (res < 0)
+X      return res;
+X    op = op_top;
+X    free ((OPERATOR_STACK *) op);
+X    op_top = op_top->prev;
+X  }
+X  if (!val_top) {
+X#ifndef test
+X    report_progress (report, "Internal error: empty operand stack", 1);
+X#else
+X    printf ("Internal error: empty operand stack\n");
+X#endif
+X    return -1;
+X  }
+X  return pop ();
+X}
+X
+X/*
+X  Return the operator id if indeed 's' points to an operator. Return -1
+X  on error.
+X*/
+X
+Xint isop (char *s, char *b)
+X{
+X  char pch, nch;
+X
+X  pch = prevch (s, b);
+X  if (literal) return 0;
+X  nch = nextch (s);
+X  if (*s == LGROUPCH)
+X    if ((pch == '|' || pch == '&' || pch == '~' || pch == LGROUPCH) &&
+X	!pliteral && ((nch != '|' && nch != '&' && nch != EOS) || nliteral))
+X      return LPAREN;
+X    else
+X      return -1;
+X  if (*s == RGROUPCH)
+X    if (((pch != '|' && pch != '&' && pch != '~') || pliteral) && !nliteral &&
+X	(nch == RGROUPCH || nch == '&' || nch == '|' || nch == EOS))
+X      return RPAREN;
+X    else
+X      return -1;
+X  if (*s == '~')
+X    if ((pch == LGROUPCH || pch == '|' || pch == '&' || pch == '~') &&
+X	!pliteral &&
+X	((nch != '|' && nch != '&' && nch != RGROUPCH && nch != EOS) ||
+X	 nliteral))
+X      return NOT;
+X    else
+X      return -1;
+X  if (*s == '|' || *s == '&')
+X    if (((pch != '~' && pch != '|' && pch != '&') || pliteral) &&
+X	((nch != '|' && nch != '&' && nch != RGROUPCH &&
+X	  nch != EOS) || nliteral))
+X      return (*s == '|' ? OR : AND);
+X    else
+X      return -1;
+X  return 0;
+X}
+X
+X/*
+X  Return the previous character from the current position in the
+X  string. Set 'pliteral' to 1 if that previous character is escaped with \ and
+X  'literal' to 1 if the current character is escaped with \.
+X  In the comments, ^ means "beginning of the string", ? matches any character
+X  except \, * matches absolutely any character and x is the current position.
+X*/
+X
+Xint prevch (char *s, char *b)
+X{
+X  return
+X    ((s) <= (b) ? 
+X     (pliteral = literal = 0, *(s)) : /* ^x */
+X     (((s) - 1) == (b) ? 
+X      (*((s) - 1) == '\\' ? (pliteral = !(literal = 1), *((s) - 1)) /* ^\x */
+X       : (pliteral = literal = 0, *((s) - 1))) /* ^?x */
+X      : (*(s) == '\\' ? 
+X	 (*((s) - 2) == '\\' ? (pliteral = !(literal = 0), *((s) - 1)) /* \*\ */
+X	  : (*((s) - 1) == '\\' ? (pliteral = !(literal = 1), *((s) - 2)) /* ?\\ */
+X	     : (pliteral = literal = 0, *((s) - 1)))) /* ??\ */
+X	 : (*((s) - 1) == '\\' ? 
+X	    (*((s) - 2) == '\\' ? 
+X	     (((s) - 2) == (b) ? (pliteral = !(literal = 0), *((s) - 1)) /* ^\\x */
+X	      : (*((s) - 3) == '\\' ? (pliteral = literal = 1,*((s) - 2)) /* \\\x */
+X		 : (pliteral = !(literal = 0), *((s) - 1)))) /* ?\\x */
+X	     : (((s) - 2) == (b) ? (pliteral = !(literal = 1),*((s) - 2)) /* ^?\x */
+X		: (*((s) - 3) == '\\' ? (pliteral = literal = 1, *((s) - 2)) /* \?\x */
+X		   : (pliteral = !(literal = 1),  *((s) - 2))))) /* ??\x */
+X	    : (*((s) - 2) == '\\' ? (pliteral = !(literal = 0),*((s) - 1)) /* \?x */
+X	       : (pliteral = literal = 0, *((s) - 1))))))); /* ??x */
+X}
+X
+X/*
+X  Return the next character from the current position. The current character
+X  is guarranteed not to be a literal. In the comments below * matches
+X  absolutely any character, ? matches anything but EOS, $ is the EOS and
+X  x marks the current position. Also set 'nliteral' to 1 if the next character
+X  is escaped with \.
+X*/
+X
+Xint nextch (char *s)
+X{
+X  return
+X    (*((s) + 1) == EOS ? (nliteral = 0, EOS) /* x$ */
+X     : (*((s) + 1) == '\\' ? 
+X	(*((s) + 2) == EOS ? (nliteral = 0, *((s) + 1)) /* x\$ */
+X	 : (nliteral = 1, *((s) + 2))) /* x\? */
+X	: (nliteral = 0, *((s) + 1)))); /* x* */
+X}
+X#endif
+END_OF_FILE
+  if test 15430 -ne `wc -c <'regex.c'`; then
+    echo shar: \"'regex.c'\" unpacked with wrong size!
+  fi
+  # end of 'regex.c'
+fi
+if test -f 'regexp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regexp.c'\"
+else
+  echo shar: Extracting \"'regexp.c'\" \(27614 characters\)
+  sed "s/^X//" >'regexp.c' <<'END_OF_FILE'
+X/*
+X * regcomp and regexec -- regsub and regerror are elsewhere
+X *
+X *	Copyright (c) 1986 by University of Toronto.
+X *	Written by Henry Spencer.  Not derived from licensed software.
+X *
+X *	Permission is granted to anyone to use this software for any
+X *	purpose on any computer system, and to redistribute it freely,
+X *	subject to the following restrictions:
+X *
+X *	1. The author is not responsible for the consequences of use of
+X *		this software, no matter how awful, even if they arise
+X *		from defects in it.
+X *
+X *	2. The origin of this software must not be misrepresented, either
+X *		by explicit claim or by omission.
+X *
+X *	3. Altered versions must be plainly marked as such, and must not
+X *		be misrepresented as being the original software.
+X *
+X * Beware that some of this code is subtly aware of the way operator
+X * precedence is structured in regular expressions.  Serious changes in
+X * regular-expression syntax might require a total rethink.
+X */
+X#include <stdio.h>
+X#include <regexp.h>
+X#include "regmagic.h"
+X
+X/*
+X * The "internal use only" fields in regexp.h are present to pass info from
+X * compile to execute that permits the execute phase to run lots faster on
+X * simple cases.  They are:
+X *
+X * regstart	char that must begin a match; '\0' if none obvious
+X * reganch	is the match anchored (at beginning-of-line only)?
+X * regmust	string (pointer into program) that match must include, or NULL
+X * regmlen	length of regmust string
+X *
+X * Regstart and reganch permit very fast decisions on suitable starting points
+X * for a match, cutting down the work a lot.  Regmust permits fast rejection
+X * of lines that cannot possibly match.  The regmust tests are costly enough
+X * that regcomp() supplies a regmust only if the r.e. contains something
+X * potentially expensive (at present, the only such thing detected is * or +
+X * at the start of the r.e., which can involve a lot of backup).  Regmlen is
+X * supplied because the test in regexec() needs it and regcomp() is computing
+X * it anyway.
+X */
+X
+X/*
+X * Structure for regexp "program".  This is essentially a linear encoding
+X * of a nondeterministic finite-state machine (aka syntax charts or
+X * "railroad normal form" in parsing technology).  Each node is an opcode
+X * plus a "next" pointer, possibly plus an operand.  "Next" pointers of
+X * all nodes except BRANCH implement concatenation; a "next" pointer with
+X * a BRANCH on both ends of it is connecting two alternatives.  (Here we
+X * have one of the subtle syntax dependencies:  an individual BRANCH (as
+X * opposed to a collection of them) is never concatenated with anything
+X * because of operator precedence.)  The operand of some types of node is
+X * a literal string; for others, it is a node leading into a sub-FSM.  In
+X * particular, the operand of a BRANCH node is the first node of the branch.
+X * (NB this is *not* a tree structure:  the tail of the branch connects
+X * to the thing following the set of BRANCHes.)  The opcodes are:
+X */
+X
+X/* definition	number	opnd?	meaning */
+X#define	END	0	/* no	End of program. */
+X#define	BOL	1	/* no	Match "" at beginning of line. */
+X#define	EOL	2	/* no	Match "" at end of line. */
+X#define	ANY	3	/* no	Match any one character. */
+X#define	ANYOF	4	/* str	Match any character in this string. */
+X#define	ANYBUT	5	/* str	Match any character not in this string. */
+X#define	BRANCH	6	/* node	Match this alternative, or the next... */
+X#define	BACK	7	/* no	Match "", "next" ptr points backward. */
+X#define	EXACTLY	8	/* str	Match this string. */
+X#define	NOTHING	9	/* no	Match empty string. */
+X#define	STAR	10	/* node	Match this (simple) thing 0 or more times. */
+X#define	PLUS	11	/* node	Match this (simple) thing 1 or more times. */
+X#define	OPEN	20	/* no	Mark this point in input as start of #n. */
+X			/*	OPEN+1 is number 1, etc. */
+X#define	CLOSE	30	/* no	Analogous to OPEN. */
+X
+X/*
+X * Opcode notes:
+X *
+X * BRANCH	The set of branches constituting a single choice are hooked
+X *		together with their "next" pointers, since precedence prevents
+X *		anything being concatenated to any individual branch.  The
+X *		"next" pointer of the last BRANCH in a choice points to the
+X *		thing following the whole choice.  This is also where the
+X *		final "next" pointer of each individual branch points; each
+X *		branch starts with the operand node of a BRANCH node.
+X *
+X * BACK		Normal "next" pointers all implicitly point forward; BACK
+X *		exists to make loop structures possible.
+X *
+X * STAR,PLUS	'?', and complex '*' and '+', are implemented as circular
+X *		BRANCH structures using BACK.  Simple cases (one character
+X *		per match) are implemented with STAR and PLUS for speed
+X *		and to minimize recursive plunges.
+X *
+X * OPEN,CLOSE	...are numbered at compile time.
+X */
+X
+X/*
+X * A node is one char of opcode followed by two chars of "next" pointer.
+X * "Next" pointers are stored as two 8-bit pieces, high order first.  The
+X * value is a positive offset from the opcode of the node containing it.
+X * An operand, if any, simply follows the node.  (Note that much of the
+X * code generation knows about this implicit relationship.)
+X *
+X * Using two bytes for the "next" pointer is vast overkill for most things,
+X * but allows patterns to get big without disasters.
+X */
+X#define	OP(p)	(*(p))
+X#define	NEXT(p)	(((*((p)+1)&0377)<<8) + *((p)+2)&0377)
+X#define	OPERAND(p)	((p) + 3)
+X
+X/*
+X * See regmagic.h for one further detail of program structure.
+X */
+X
+X
+X/*
+X * Utility definitions.
+X */
+X#ifndef CHARBITS
+X#define	UCHARAT(p)	((int)*(unsigned char *)(p))
+X#else
+X#define	UCHARAT(p)	((int)*(p)&CHARBITS)
+X#endif
+X
+X#define	FAIL(m)	{ regerror(m); return(NULL); }
+X#define	ISMULT(c)	((c) == '*' || (c) == '+' || (c) == '?')
+X#define	META	"^$.[()|?+*\\"
+X
+X/*
+X * Flags to be passed up and down.
+X */
+X#define	HASWIDTH	01	/* Known never to match null string. */
+X#define	SIMPLE		02	/* Simple enough to be STAR/PLUS operand. */
+X#define	SPSTART		04	/* Starts with * or +. */
+X#define	WORST		0	/* Worst case. */
+X
+X/*
+X * Global work variables for regcomp().
+X */
+Xstatic char *regparse;		/* Input-scan pointer. */
+Xstatic int regnpar;		/* () count. */
+Xstatic char regdummy;
+Xstatic char *regcode;		/* Code-emit pointer; &regdummy = don't. */
+Xstatic long regsize;		/* Code size. */
+X
+X/*
+X * Forward declarations for regcomp()'s friends.
+X */
+X#ifndef STATIC
+X#define	STATIC	static
+X#endif
+XSTATIC char *reg();
+XSTATIC char *regbranch();
+XSTATIC char *regpiece();
+XSTATIC char *regatom();
+XSTATIC char *regnode();
+XSTATIC char *regnext();
+XSTATIC void regc();
+XSTATIC void reginsert();
+XSTATIC void regtail();
+XSTATIC void regoptail();
+X#ifdef STRCSPN
+XSTATIC int strcspn();
+X#endif
+X
+X/*
+X - regcomp - compile a regular expression into internal code
+X *
+X * We can't allocate space until we know how big the compiled form will be,
+X * but we can't compile it (and thus know how big it is) until we've got a
+X * place to put the code.  So we cheat:  we compile it twice, once with code
+X * generation turned off and size counting turned on, and once "for real".
+X * This also means that we don't allocate space until we are sure that the
+X * thing really will compile successfully, and we never have to move the
+X * code and thus invalidate pointers into it.  (Note that it has to be in
+X * one piece because free() must be able to free it all.)
+X *
+X * Beware that the optimization-preparation code in here knows about some
+X * of the structure of the compiled regexp.
+X */
+Xregexp *
+Xregcomp(exp)
+Xchar *exp;
+X{
+X	register regexp *r;
+X	register char *scan;
+X	register char *longest;
+X	register int len;
+X	int flags;
+X	extern char *malloc();
+X
+X	if (exp == NULL)
+X		FAIL("NULL argument");
+X
+X	/* First pass: determine size, legality. */
+X	regparse = exp;
+X	regnpar = 1;
+X	regsize = 0L;
+X	regcode = &regdummy;
+X	regc(MAGIC);
+X	if (reg(0, &flags) == NULL)
+X		return(NULL);
+X
+X	/* Small enough for pointer-storage convention? */
+X	if (regsize >= 32767L)		/* Probably could be 65535L. */
+X		FAIL("regexp too big");
+X
+X	/* Allocate space. */
+X	r = (regexp *)malloc(sizeof(regexp) + (unsigned)regsize);
+X	if (r == NULL)
+X		FAIL("out of space");
+X
+X	/* Second pass: emit code. */
+X	regparse = exp;
+X	regnpar = 1;
+X	regcode = r->program;
+X	regc(MAGIC);
+X	if (reg(0, &flags) == NULL)
+X		return(NULL);
+X
+X	/* Dig out information for optimizations. */
+X	r->regstart = '\0';	/* Worst-case defaults. */
+X	r->reganch = 0;
+X	r->regmust = NULL;
+X	r->regmlen = 0;
+X	scan = r->program+1;			/* First BRANCH. */
+X	if (OP(regnext(scan)) == END) {		/* Only one top-level choice. */
+X		scan = OPERAND(scan);
+X
+X		/* Starting-point info. */
+X		if (OP(scan) == EXACTLY)
+X			r->regstart = *OPERAND(scan);
+X		else if (OP(scan) == BOL)
+X			r->reganch++;
+X
+X		/*
+X		 * If there's something expensive in the r.e., find the
+X		 * longest literal string that must appear and make it the
+X		 * regmust.  Resolve ties in favor of later strings, since
+X		 * the regstart check works with the beginning of the r.e.
+X		 * and avoiding duplication strengthens checking.  Not a
+X		 * strong reason, but sufficient in the absence of others.
+X		 */
+X		if (flags&SPSTART) {
+X			longest = NULL;
+X			len = 0;
+X			for (; scan != NULL; scan = regnext(scan))
+X				if (OP(scan) == EXACTLY && strlen(OPERAND(scan)) >= len) {
+X					longest = OPERAND(scan);
+X					len = strlen(OPERAND(scan));
+X				}
+X			r->regmust = longest;
+X			r->regmlen = len;
+X		}
+X	}
+X
+X	return(r);
+X}
+X
+X/*
+X - reg - regular expression, i.e. main body or parenthesized thing
+X *
+X * Caller must absorb opening parenthesis.
+X *
+X * Combining parenthesis handling with the base level of regular expression
+X * is a trifle forced, but the need to tie the tails of the branches to what
+X * follows makes it hard to avoid.
+X */
+Xstatic char *
+Xreg(paren, flagp)
+Xint paren;			/* Parenthesized? */
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char *br;
+X	register char *ender;
+X	register int parno;
+X	int flags;
+X
+X	*flagp = HASWIDTH;	/* Tentatively. */
+X
+X	/* Make an OPEN node, if parenthesized. */
+X	if (paren) {
+X		if (regnpar >= NSUBEXP)
+X			FAIL("too many ()");
+X		parno = regnpar;
+X		regnpar++;
+X		ret = regnode(OPEN+parno);
+X	} else
+X		ret = NULL;
+X
+X	/* Pick up the branches, linking them together. */
+X	br = regbranch(&flags);
+X	if (br == NULL)
+X		return(NULL);
+X	if (ret != NULL)
+X		regtail(ret, br);	/* OPEN -> first. */
+X	else
+X		ret = br;
+X	if (!(flags&HASWIDTH))
+X		*flagp &= ~HASWIDTH;
+X	*flagp |= flags&SPSTART;
+X	while (*regparse == '|') {
+X		regparse++;
+X		br = regbranch(&flags);
+X		if (br == NULL)
+X			return(NULL);
+X		regtail(ret, br);	/* BRANCH -> BRANCH. */
+X		if (!(flags&HASWIDTH))
+X			*flagp &= ~HASWIDTH;
+X		*flagp |= flags&SPSTART;
+X	}
+X
+X	/* Make a closing node, and hook it on the end. */
+X	ender = regnode((paren) ? CLOSE+parno : END);	
+X	regtail(ret, ender);
+X
+X	/* Hook the tails of the branches to the closing node. */
+X	for (br = ret; br != NULL; br = regnext(br))
+X		regoptail(br, ender);
+X
+X	/* Check for proper termination. */
+X	if (paren && *regparse++ != ')') {
+X		FAIL("unmatched ()");
+X	} else if (!paren && *regparse != '\0') {
+X		if (*regparse == ')') {
+X			FAIL("unmatched ()");
+X		} else
+X			FAIL("junk on end");	/* "Can't happen". */
+X		/* NOTREACHED */
+X	}
+X
+X	return(ret);
+X}
+X
+X/*
+X - regbranch - one alternative of an | operator
+X *
+X * Implements the concatenation operator.
+X */
+Xstatic char *
+Xregbranch(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char *chain;
+X	register char *latest;
+X	int flags;
+X
+X	*flagp = WORST;		/* Tentatively. */
+X
+X	ret = regnode(BRANCH);
+X	chain = NULL;
+X	while (*regparse != '\0' && *regparse != '|' && *regparse != ')') {
+X		latest = regpiece(&flags);
+X		if (latest == NULL)
+X			return(NULL);
+X		*flagp |= flags&HASWIDTH;
+X		if (chain == NULL)	/* First piece. */
+X			*flagp |= flags&SPSTART;
+X		else
+X			regtail(chain, latest);
+X		chain = latest;
+X	}
+X	if (chain == NULL)	/* Loop ran zero times. */
+X		(void) regnode(NOTHING);
+X
+X	return(ret);
+X}
+X
+X/*
+X - regpiece - something followed by possible [*+?]
+X *
+X * Note that the branching code sequences used for ? and the general cases
+X * of * and + are somewhat optimized:  they use the same NOTHING node as
+X * both the endmarker for their branch list and the body of the last branch.
+X * It might seem that this node could be dispensed with entirely, but the
+X * endmarker role is not redundant.
+X */
+Xstatic char *
+Xregpiece(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	register char op;
+X	register char *next;
+X	int flags;
+X
+X	ret = regatom(&flags);
+X	if (ret == NULL)
+X		return(NULL);
+X
+X	op = *regparse;
+X	if (!ISMULT(op)) {
+X		*flagp = flags;
+X		return(ret);
+X	}
+X
+X	if (!(flags&HASWIDTH) && op != '?')
+X		FAIL("*+ operand could be empty");
+X	*flagp = (op != '+') ? (WORST|SPSTART) : (WORST|HASWIDTH);
+X
+X	if (op == '*' && (flags&SIMPLE))
+X		reginsert(STAR, ret);
+X	else if (op == '*') {
+X		/* Emit x* as (x&|), where & means "self". */
+X		reginsert(BRANCH, ret);			/* Either x */
+X		regoptail(ret, regnode(BACK));		/* and loop */
+X		regoptail(ret, ret);			/* back */
+X		regtail(ret, regnode(BRANCH));		/* or */
+X		regtail(ret, regnode(NOTHING));		/* null. */
+X	} else if (op == '+' && (flags&SIMPLE))
+X		reginsert(PLUS, ret);
+X	else if (op == '+') {
+X		/* Emit x+ as x(&|), where & means "self". */
+X		next = regnode(BRANCH);			/* Either */
+X		regtail(ret, next);
+X		regtail(regnode(BACK), ret);		/* loop back */
+X		regtail(next, regnode(BRANCH));		/* or */
+X		regtail(ret, regnode(NOTHING));		/* null. */
+X	} else if (op == '?') {
+X		/* Emit x? as (x|) */
+X		reginsert(BRANCH, ret);			/* Either x */
+X		regtail(ret, regnode(BRANCH));		/* or */
+X		next = regnode(NOTHING);		/* null. */
+X		regtail(ret, next);
+X		regoptail(ret, next);
+X	}
+X	regparse++;
+X	if (ISMULT(*regparse))
+X		FAIL("nested *?+");
+X
+X	return(ret);
+X}
+X
+X/*
+X - regatom - the lowest level
+X *
+X * Optimization:  gobbles an entire sequence of ordinary characters so that
+X * it can turn them into a single node, which is smaller to store and
+X * faster to run.  Backslashed characters are exceptions, each becoming a
+X * separate node; the code is simpler that way and it's not worth fixing.
+X */
+Xstatic char *
+Xregatom(flagp)
+Xint *flagp;
+X{
+X	register char *ret;
+X	int flags;
+X
+X	*flagp = WORST;		/* Tentatively. */
+X
+X	switch (*regparse++) {
+X	case '^':
+X		ret = regnode(BOL);
+X		break;
+X	case '$':
+X		ret = regnode(EOL);
+X		break;
+X	case '.':
+X		ret = regnode(ANY);
+X		*flagp |= HASWIDTH|SIMPLE;
+X		break;
+X	case '[': {
+X			register int class;
+X			register int classend;
+X
+X			if (*regparse == '^') {	/* Complement of range. */
+X				ret = regnode(ANYBUT);
+X				regparse++;
+X			} else
+X				ret = regnode(ANYOF);
+X			if (*regparse == ']' || *regparse == '-')
+X				regc(*regparse++);
+X			while (*regparse != '\0' && *regparse != ']') {
+X				if (*regparse == '-') {
+X					regparse++;
+X					if (*regparse == ']' || *regparse == '\0')
+X						regc('-');
+X					else {
+X						class = UCHARAT(regparse-2)+1;
+X						classend = UCHARAT(regparse);
+X						if (class > classend+1)
+X							FAIL("invalid [] range");
+X						for (; class <= classend; class++)
+X							regc(class);
+X						regparse++;
+X					}
+X				} else
+X					regc(*regparse++);
+X			}
+X			regc('\0');
+X			if (*regparse != ']')
+X				FAIL("unmatched []");
+X			regparse++;
+X			*flagp |= HASWIDTH|SIMPLE;
+X		}
+X		break;
+X	case '(':
+X		ret = reg(1, &flags);
+X		if (ret == NULL)
+X			return(NULL);
+X		*flagp |= flags&(HASWIDTH|SPSTART);
+X		break;
+X	case '\0':
+X	case '|':
+X	case ')':
+X		FAIL("internal urp");	/* Supposed to be caught earlier. */
+X		break;
+X	case '?':
+X	case '+':
+X	case '*':
+X		FAIL("?+* follows nothing");
+X		break;
+X	case '\\':
+X		if (*regparse == '\0')
+X			FAIL("trailing \\");
+X		ret = regnode(EXACTLY);
+X		regc(*regparse++);
+X		regc('\0');
+X		*flagp |= HASWIDTH|SIMPLE;
+X		break;
+X	default: {
+X			register int len;
+X			register char ender;
+X
+X			regparse--;
+X			len = strcspn(regparse, META);
+X			if (len <= 0)
+X				FAIL("internal disaster");
+X			ender = *(regparse+len);
+X			if (len > 1 && ISMULT(ender))
+X				len--;		/* Back off clear of ?+* operand. */
+X			*flagp |= HASWIDTH;
+X			if (len == 1)
+X				*flagp |= SIMPLE;
+X			ret = regnode(EXACTLY);
+X			while (len > 0) {
+X				regc(*regparse++);
+X				len--;
+X			}
+X			regc('\0');
+X		}
+X		break;
+X	}
+X
+X	return(ret);
+X}
+X
+X/*
+X - regnode - emit a node
+X */
+Xstatic char *			/* Location. */
+Xregnode(op)
+Xchar op;
+X{
+X	register char *ret;
+X	register char *ptr;
+X
+X	ret = regcode;
+X	if (ret == &regdummy) {
+X		regsize += 3;
+X		return(ret);
+X	}
+X
+X	ptr = ret;
+X	*ptr++ = op;
+X	*ptr++ = '\0';		/* Null "next" pointer. */
+X	*ptr++ = '\0';
+X	regcode = ptr;
+X
+X	return(ret);
+X}
+X
+X/*
+X - regc - emit (if appropriate) a byte of code
+X */
+Xstatic void
+Xregc(b)
+Xchar b;
+X{
+X	if (regcode != &regdummy)
+X		*regcode++ = b;
+X	else
+X		regsize++;
+X}
+X
+X/*
+X - reginsert - insert an operator in front of already-emitted operand
+X *
+X * Means relocating the operand.
+X */
+Xstatic void
+Xreginsert(op, opnd)
+Xchar op;
+Xchar *opnd;
+X{
+X	register char *src;
+X	register char *dst;
+X	register char *place;
+X
+X	if (regcode == &regdummy) {
+X		regsize += 3;
+X		return;
+X	}
+X
+X	src = regcode;
+X	regcode += 3;
+X	dst = regcode;
+X	while (src > opnd)
+X		*--dst = *--src;
+X
+X	place = opnd;		/* Op node, where operand used to be. */
+X	*place++ = op;
+X	*place++ = '\0';
+X	*place++ = '\0';
+X}
+X
+X/*
+X - regtail - set the next-pointer at the end of a node chain
+X */
+Xstatic void
+Xregtail(p, val)
+Xchar *p;
+Xchar *val;
+X{
+X	register char *scan;
+X	register char *temp;
+X	register int offset;
+X
+X	if (p == &regdummy)
+X		return;
+X
+X	/* Find last node. */
+X	scan = p;
+X	for (;;) {
+X		temp = regnext(scan);
+X		if (temp == NULL)
+X			break;
+X		scan = temp;
+X	}
+X
+X	if (OP(scan) == BACK)
+X		offset = scan - val;
+X	else
+X		offset = val - scan;
+X	*(scan+1) = (offset>>8)&0377;
+X	*(scan+2) = offset&0377;
+X}
+X
+X/*
+X - regoptail - regtail on operand of first argument; nop if operandless
+X */
+Xstatic void
+Xregoptail(p, val)
+Xchar *p;
+Xchar *val;
+X{
+X	/* "Operandless" and "op != BRANCH" are synonymous in practice. */
+X	if (p == NULL || p == &regdummy || OP(p) != BRANCH)
+X		return;
+X	regtail(OPERAND(p), val);
+X}
+X
+X/*
+X * regexec and friends
+X */
+X
+X/*
+X * Global work variables for regexec().
+X */
+Xstatic char *reginput;		/* String-input pointer. */
+Xstatic char *regbol;		/* Beginning of input, for ^ check. */
+Xstatic char **regstartp;	/* Pointer to startp array. */
+Xstatic char **regendp;		/* Ditto for endp. */
+X
+X/*
+X * Forwards.
+X */
+XSTATIC int regtry();
+XSTATIC int regmatch();
+XSTATIC int regrepeat();
+X
+X#ifdef DEBUG
+Xint regnarrate = 0;
+Xvoid regdump();
+XSTATIC char *regprop();
+X#endif
+X
+X/*
+X - regexec - match a regexp against a string
+X */
+Xint
+Xregexec(prog, string)
+Xregister regexp *prog;
+Xregister char *string;
+X{
+X	register char *s;
+X	extern char *strchr();
+X
+X	/* Be paranoid... */
+X	if (prog == NULL || string == NULL) {
+X		regerror("NULL parameter");
+X		return(0);
+X	}
+X
+X	/* Check validity of program. */
+X	if (UCHARAT(prog->program) != MAGIC) {
+X		regerror("corrupted program");
+X		return(0);
+X	}
+X
+X	/* If there is a "must appear" string, look for it. */
+X	if (prog->regmust != NULL) {
+X		s = string;
+X		while ((s = strchr(s, prog->regmust[0])) != NULL) {
+X			if (strncmp(s, prog->regmust, prog->regmlen) == 0)
+X				break;	/* Found it. */
+X			s++;
+X		}
+X		if (s == NULL)	/* Not present. */
+X			return(0);
+X	}
+X
+X	/* Mark beginning of line for ^ . */
+X	regbol = string;
+X
+X	/* Simplest case:  anchored match need be tried only once. */
+X	if (prog->reganch)
+X		return(regtry(prog, string));
+X
+X	/* Messy cases:  unanchored match. */
+X	s = string;
+X	if (prog->regstart != '\0')
+X		/* We know what char it must start with. */
+X		while ((s = strchr(s, prog->regstart)) != NULL) {
+X			if (regtry(prog, s))
+X				return(1);
+X			s++;
+X		}
+X	else
+X		/* We don't -- general case. */
+X		do {
+X			if (regtry(prog, s))
+X				return(1);
+X		} while (*s++ != '\0');
+X
+X	/* Failure. */
+X	return(0);
+X}
+X
+X/*
+X - regtry - try match at specific point
+X */
+Xstatic int			/* 0 failure, 1 success */
+Xregtry(prog, string)
+Xregexp *prog;
+Xchar *string;
+X{
+X	register int i;
+X	register char **sp;
+X	register char **ep;
+X
+X	reginput = string;
+X	regstartp = prog->startp;
+X	regendp = prog->endp;
+X
+X	sp = prog->startp;
+X	ep = prog->endp;
+X	for (i = NSUBEXP; i > 0; i--) {
+X		*sp++ = NULL;
+X		*ep++ = NULL;
+X	}
+X	if (regmatch(prog->program + 1)) {
+X		prog->startp[0] = string;
+X		prog->endp[0] = reginput;
+X		return(1);
+X	} else
+X		return(0);
+X}
+X
+X/*
+X - regmatch - main matching routine
+X *
+X * Conceptually the strategy is simple:  check to see whether the current
+X * node matches, call self recursively to see whether the rest matches,
+X * and then act accordingly.  In practice we make some effort to avoid
+X * recursion, in particular by going through "ordinary" nodes (that don't
+X * need to know whether the rest of the match failed) by a loop instead of
+X * by recursion.
+X */
+Xstatic int			/* 0 failure, 1 success */
+Xregmatch(prog)
+Xchar *prog;
+X{
+X	register char *scan;	/* Current node. */
+X	char *next;		/* Next node. */
+X	extern char *strchr();
+X
+X	scan = prog;
+X#ifdef DEBUG
+X	if (scan != NULL && regnarrate)
+X		fprintf(stderr, "%s(\n", regprop(scan));
+X#endif
+X	while (scan != NULL) {
+X#ifdef DEBUG
+X		if (regnarrate)
+X			fprintf(stderr, "%s...\n", regprop(scan));
+X#endif
+X		next = regnext(scan);
+X
+X		switch (OP(scan)) {
+X		case BOL:
+X			if (reginput != regbol)
+X				return(0);
+X			break;
+X		case EOL:
+X			if (*reginput != '\0')
+X				return(0);
+X			break;
+X		case ANY:
+X			if (*reginput == '\0')
+X				return(0);
+X			reginput++;
+X			break;
+X		case EXACTLY: {
+X				register int len;
+X				register char *opnd;
+X
+X				opnd = OPERAND(scan);
+X				/* Inline the first character, for speed. */
+X				if (*opnd != *reginput)
+X					return(0);
+X				len = strlen(opnd);
+X				if (len > 1 && strncmp(opnd, reginput, len) != 0)
+X					return(0);
+X				reginput += len;
+X			}
+X			break;
+X		case ANYOF:
+X			if (*reginput == '\0' || strchr(OPERAND(scan), *reginput) == NULL)
+X				return(0);
+X			reginput++;
+X			break;
+X		case ANYBUT:
+X			if (*reginput == '\0' || strchr(OPERAND(scan), *reginput) != NULL)
+X				return(0);
+X			reginput++;
+X			break;
+X		case NOTHING:
+X			break;
+X		case BACK:
+X			break;
+X		case OPEN+1:
+X		case OPEN+2:
+X		case OPEN+3:
+X		case OPEN+4:
+X		case OPEN+5:
+X		case OPEN+6:
+X		case OPEN+7:
+X		case OPEN+8:
+X		case OPEN+9: {
+X				register int no;
+X				register char *save;
+X
+X				no = OP(scan) - OPEN;
+X				save = reginput;
+X
+X				if (regmatch(next)) {
+X					/*
+X					 * Don't set startp if some later
+X					 * invocation of the same parentheses
+X					 * already has.
+X					 */
+X					if (regstartp[no] == NULL)
+X						regstartp[no] = save;
+X					return(1);
+X				} else
+X					return(0);
+X			}
+X			break;
+X		case CLOSE+1:
+X		case CLOSE+2:
+X		case CLOSE+3:
+X		case CLOSE+4:
+X		case CLOSE+5:
+X		case CLOSE+6:
+X		case CLOSE+7:
+X		case CLOSE+8:
+X		case CLOSE+9: {
+X				register int no;
+X				register char *save;
+X
+X				no = OP(scan) - CLOSE;
+X				save = reginput;
+X
+X				if (regmatch(next)) {
+X					/*
+X					 * Don't set endp if some later
+X					 * invocation of the same parentheses
+X					 * already has.
+X					 */
+X					if (regendp[no] == NULL)
+X						regendp[no] = save;
+X					return(1);
+X				} else
+X					return(0);
+X			}
+X			break;
+X		case BRANCH: {
+X				register char *save;
+X
+X				if (OP(next) != BRANCH)		/* No choice. */
+X					next = OPERAND(scan);	/* Avoid recursion. */
+X				else {
+X					do {
+X						save = reginput;
+X						if (regmatch(OPERAND(scan)))
+X							return(1);
+X						reginput = save;
+X						scan = regnext(scan);
+X					} while (scan != NULL && OP(scan) == BRANCH);
+X					return(0);
+X					/* NOTREACHED */
+X				}
+X			}
+X			break;
+X		case STAR:
+X		case PLUS: {
+X				register char nextch;
+X				register int no;
+X				register char *save;
+X				register int min;
+X
+X				/*
+X				 * Lookahead to avoid useless match attempts
+X				 * when we know what character comes next.
+X				 */
+X				nextch = '\0';
+X				if (OP(next) == EXACTLY)
+X					nextch = *OPERAND(next);
+X				min = (OP(scan) == STAR) ? 0 : 1;
+X				save = reginput;
+X				no = regrepeat(OPERAND(scan));
+X				while (no >= min) {
+X					/* If it could work, try it. */
+X					if (nextch == '\0' || *reginput == nextch)
+X						if (regmatch(next))
+X							return(1);
+X					/* Couldn't or didn't -- back up. */
+X					no--;
+X					reginput = save + no;
+X				}
+X				return(0);
+X			}
+X			break;
+X		case END:
+X			return(1);	/* Success! */
+X			break;
+X		default:
+X			regerror("memory corruption");
+X			return(0);
+X			break;
+X		}
+X
+X		scan = next;
+X	}
+X
+X	/*
+X	 * We get here only if there's trouble -- normally "case END" is
+X	 * the terminating point.
+X	 */
+X	regerror("corrupted pointers");
+X	return(0);
+X}
+X
+X/*
+X - regrepeat - repeatedly match something simple, report how many
+X */
+Xstatic int
+Xregrepeat(p)
+Xchar *p;
+X{
+X	register int count = 0;
+X	register char *scan;
+X	register char *opnd;
+X
+X	scan = reginput;
+X	opnd = OPERAND(p);
+X	switch (OP(p)) {
+X	case ANY:
+X		count = strlen(scan);
+X		scan += count;
+X		break;
+X	case EXACTLY:
+X		while (*opnd == *scan) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	case ANYOF:
+X		while (*scan != '\0' && strchr(opnd, *scan) != NULL) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	case ANYBUT:
+X		while (*scan != '\0' && strchr(opnd, *scan) == NULL) {
+X			count++;
+X			scan++;
+X		}
+X		break;
+X	default:		/* Oh dear.  Called inappropriately. */
+X		regerror("internal foulup");
+X		count = 0;	/* Best compromise. */
+X		break;
+X	}
+X	reginput = scan;
+X
+X	return(count);
+X}
+X
+X/*
+X - regnext - dig the "next" pointer out of a node
+X */
+Xstatic char *
+Xregnext(p)
+Xregister char *p;
+X{
+X	register int offset;
+X
+X	if (p == &regdummy)
+X		return(NULL);
+X
+X	offset = NEXT(p);
+X	if (offset == 0)
+X		return(NULL);
+X
+X	if (OP(p) == BACK)
+X		return(p-offset);
+X	else
+X		return(p+offset);
+X}
+X
+X#ifdef DEBUG
+X
+XSTATIC char *regprop();
+X
+X/*
+X - regdump - dump a regexp onto stdout in vaguely comprehensible form
+X */
+Xvoid
+Xregdump(r)
+Xregexp *r;
+X{
+X	register char *s;
+X	register char op = EXACTLY;	/* Arbitrary non-END op. */
+X	register char *next;
+X	extern char *strchr();
+X
+X
+X	s = r->program + 1;
+X	while (op != END) {	/* While that wasn't END last time... */
+X		op = OP(s);
+X		printf("%2d%s", s-r->program, regprop(s));	/* Where, what. */
+X		next = regnext(s);
+X		if (next == NULL)		/* Next ptr. */
+X			printf("(0)");
+X		else 
+X			printf("(%d)", (s-r->program)+(next-s));
+X		s += 3;
+X		if (op == ANYOF || op == ANYBUT || op == EXACTLY) {
+X			/* Literal string, where present. */
+X			while (*s != '\0') {
+X				putchar(*s);
+X				s++;
+X			}
+X			s++;
+X		}
+X		putchar('\n');
+X	}
+X
+X	/* Header fields of interest. */
+X	if (r->regstart != '\0')
+X		printf("start `%c' ", r->regstart);
+X	if (r->reganch)
+X		printf("anchored ");
+X	if (r->regmust != NULL)
+X		printf("must have \"%s\"", r->regmust);
+X	printf("\n");
+X}
+X
+X/*
+X - regprop - printable representation of opcode
+X */
+Xstatic char *
+Xregprop(op)
+Xchar *op;
+X{
+X	register char *p;
+X	static char buf[50];
+X
+X	(void) strcpy(buf, ":");
+X
+X	switch (OP(op)) {
+X	case BOL:
+X		p = "BOL";
+X		break;
+X	case EOL:
+X		p = "EOL";
+X		break;
+X	case ANY:
+X		p = "ANY";
+X		break;
+X	case ANYOF:
+X		p = "ANYOF";
+X		break;
+X	case ANYBUT:
+X		p = "ANYBUT";
+X		break;
+X	case BRANCH:
+X		p = "BRANCH";
+X		break;
+X	case EXACTLY:
+X		p = "EXACTLY";
+X		break;
+X	case NOTHING:
+X		p = "NOTHING";
+X		break;
+X	case BACK:
+X		p = "BACK";
+X		break;
+X	case END:
+X		p = "END";
+X		break;
+X	case OPEN+1:
+X	case OPEN+2:
+X	case OPEN+3:
+X	case OPEN+4:
+X	case OPEN+5:
+X	case OPEN+6:
+X	case OPEN+7:
+X	case OPEN+8:
+X	case OPEN+9:
+X		sprintf(buf+strlen(buf), "OPEN%d", OP(op)-OPEN);
+X		p = NULL;
+X		break;
+X	case CLOSE+1:
+X	case CLOSE+2:
+X	case CLOSE+3:
+X	case CLOSE+4:
+X	case CLOSE+5:
+X	case CLOSE+6:
+X	case CLOSE+7:
+X	case CLOSE+8:
+X	case CLOSE+9:
+X		sprintf(buf+strlen(buf), "CLOSE%d", OP(op)-CLOSE);
+X		p = NULL;
+X		break;
+X	case STAR:
+X		p = "STAR";
+X		break;
+X	case PLUS:
+X		p = "PLUS";
+X		break;
+X	default:
+X		regerror("corrupted opcode");
+X		break;
+X	}
+X	if (p != NULL)
+X		(void) strcat(buf, p);
+X	return(buf);
+X}
+X#endif
+X
+X/*
+X * The following is provided for those people who do not have strcspn() in
+X * their C libraries.  They should get off their butts and do something
+X * about it; at least one public-domain implementation of those (highly
+X * useful) string routines has been published on Usenet.
+X */
+X#ifdef STRCSPN
+X/*
+X * strcspn - find length of initial segment of s1 consisting entirely
+X * of characters not from s2
+X */
+X
+Xstatic int
+Xstrcspn(s1, s2)
+Xchar *s1;
+Xchar *s2;
+X{
+X	register char *scan1;
+X	register char *scan2;
+X	register int count;
+X
+X	count = 0;
+X	for (scan1 = s1; *scan1 != '\0'; scan1++) {
+X		for (scan2 = s2; *scan2 != '\0';)	/* ++ moved down. */
+X			if (*scan1 == *scan2++)
+X				return(count);
+X		count++;
+X	}
+X	return(count);
+X}
+X#endif
+END_OF_FILE
+  if test 27614 -ne `wc -c <'regexp.c'`; then
+    echo shar: \"'regexp.c'\" unpacked with wrong size!
+  fi
+  # end of 'regexp.c'
+fi
+if test -f 'regexp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regexp.h'\"
+else
+  echo shar: Extracting \"'regexp.h'\" \(574 characters\)
+  sed "s/^X//" >'regexp.h' <<'END_OF_FILE'
+X/*
+X * Definitions etc. for regexp(3) routines.
+X *
+X * Caveat:  this is V8 regexp(3) [actually, a reimplementation thereof],
+X * not the System V one.
+X */
+X#define NSUBEXP  10
+Xtypedef struct regexp {
+X	char *startp[NSUBEXP];
+X	char *endp[NSUBEXP];
+X	char regstart;		/* Internal use only. */
+X	char reganch;		/* Internal use only. */
+X	char *regmust;		/* Internal use only. */
+X	int regmlen;		/* Internal use only. */
+X	char program[1];	/* Unwarranted chumminess with compiler. */
+X} regexp;
+X
+Xextern regexp *regcomp();
+Xextern int regexec();
+Xextern void regsub();
+Xextern void regerror();
+END_OF_FILE
+  if test 574 -ne `wc -c <'regexp.h'`; then
+    echo shar: \"'regexp.h'\" unpacked with wrong size!
+  fi
+  # end of 'regexp.h'
+fi
+if test -f 'regmagic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regmagic.h'\"
+else
+  echo shar: Extracting \"'regmagic.h'\" \(153 characters\)
+  sed "s/^X//" >'regmagic.h' <<'END_OF_FILE'
+X/*
+X * The first byte of the regexp internal "program" is actually this magic
+X * number; the start node begins in the second byte.
+X */
+X#define	MAGIC	0234
+END_OF_FILE
+  if test 153 -ne `wc -c <'regmagic.h'`; then
+    echo shar: \"'regmagic.h'\" unpacked with wrong size!
+  fi
+  # end of 'regmagic.h'
+fi
+if test -f 'regsub.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regsub.c'\"
+else
+  echo shar: Extracting \"'regsub.c'\" \(1961 characters\)
+  sed "s/^X//" >'regsub.c' <<'END_OF_FILE'
+X/*
+X * regsub
+X *
+X *	Copyright (c) 1986 by University of Toronto.
+X *	Written by Henry Spencer.  Not derived from licensed software.
+X *
+X *	Permission is granted to anyone to use this software for any
+X *	purpose on any computer system, and to redistribute it freely,
+X *	subject to the following restrictions:
+X *
+X *	1. The author is not responsible for the consequences of use of
+X *		this software, no matter how awful, even if they arise
+X *		from defects in it.
+X *
+X *	2. The origin of this software must not be misrepresented, either
+X *		by explicit claim or by omission.
+X *
+X *	3. Altered versions must be plainly marked as such, and must not
+X *		be misrepresented as being the original software.
+X */
+X#include <stdio.h>
+X#include <regexp.h>
+X#include "regmagic.h"
+X
+X#ifndef CHARBITS
+X#define	UCHARAT(p)	((int)*(unsigned char *)(p))
+X#else
+X#define	UCHARAT(p)	((int)*(p)&CHARBITS)
+X#endif
+X
+X/*
+X - regsub - perform substitutions after a regexp match
+X */
+Xvoid
+Xregsub(prog, source, dest)
+Xregexp *prog;
+Xchar *source;
+Xchar *dest;
+X{
+X	register char *src;
+X	register char *dst;
+X	register char c;
+X	register int no;
+X	register int len;
+X	extern char *strncpy();
+X
+X	if (prog == NULL || source == NULL || dest == NULL) {
+X		regerror("NULL parm to regsub");
+X		return;
+X	}
+X	if (UCHARAT(prog->program) != MAGIC) {
+X		regerror("damaged regexp fed to regsub");
+X		return;
+X	}
+X
+X	src = source;
+X	dst = dest;
+X	while ((c = *src++) != '\0') {
+X		if (c == '&')
+X			no = 0;
+X		else if (c == '\\' && '0' <= *src && *src <= '9')
+X			no = *src++ - '0';
+X		else
+X			no = -1;
+X
+X		if (no < 0) {	/* Ordinary character. */
+X			if (c == '\\' && (*src == '\\' || *src == '&'))
+X				c = *src++;
+X			*dst++ = c;
+X		}
+X		else if (prog->startp[no] != NULL && prog->endp[no] != NULL) {
+X			len = prog->endp[no] - prog->startp[no];
+X			(void) strncpy(dst, prog->startp[no], len);
+X			dst += len;
+X			if (len != 0 && *(dst-1) == '\0') {		/* strncpy hit NUL. */
+X				regerror("damaged match string");
+X				return;
+X			}
+X		}
+X	}
+X	*dst++ = '\0';
+X}
+END_OF_FILE
+  if test 1961 -ne `wc -c <'regsub.c'`; then
+    echo shar: \"'regsub.c'\" unpacked with wrong size!
+  fi
+  # end of 'regsub.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

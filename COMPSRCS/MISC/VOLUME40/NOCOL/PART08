@@ -1,0 +1,2468 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i138:  nocol - Network Monitoring System, Part08/26
+Message-ID: <1993Nov23.034816.5769@sparky.sterling.com>
+X-Md4-Signature: 6f081f53a48fd4176c41b3a52ea5f816
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 03:48:16 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 138
+Archive-name: nocol/part08
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/apps/snmp_vars.c
+#   nocol-3.0/src/cmu-snmp/include/parse.c
+#   nocol-3.0/src/cmu-snmp/snmplib/snmp.h
+# Wrapped by kent@sparky on Tue Nov  9 22:22:16 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c'\" \(46704 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c' <<'END_OF_FILE'
+X/*
+X * snmp_vars.c - return a pointer to the named variable.
+X *
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989, 1990 by Carnegie Mellon University
+X	Copyright 1989	TGV, Incorporated
+X
+X		      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the name of CMU and TGV not be used
+Xin advertising or publicity pertaining to distribution of the software
+Xwithout specific, written prior permission.
+X
+XCMU AND TGV DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+XINCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+XEVENT SHALL CMU OR TGV BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+XCONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+XUSE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+XOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+XPERFORMANCE OF THIS SOFTWARE.
+X******************************************************************/
+X
+X#define USE_NAME_AS_DESCRIPTION /*"se0" instead of text */
+X#define GATEWAY			/* MultiNet is always configured this way! */
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X/* #include <sys/time.h> */
+X#include <sys/param.h>
+X#include <sys/dir.h>
+X#include <sys/user.h>
+X#include <sys/proc.h>
+X#include <machine/pte.h>
+X#include <sys/vm.h>
+X#include <netinet/in.h>
+X#include <syslog.h>
+X#include <sys/ioctl.h>
+X#include <net/if.h>
+X#include <net/route.h>
+X#include <netinet/in_pcb.h>
+X#include <netinet/if_ether.h>
+X#include <netinet/in_systm.h>
+X#include <netinet/in_var.h>
+X#include <netinet/ip.h>
+X#include <netinet/ip_var.h>
+X#include <netinet/tcp.h>
+X#include <netinet/tcp_timer.h>
+X#include <netinet/tcp_var.h>
+X#include <netinet/tcp_fsm.h>
+X#include <netinet/udp.h>
+X#include <netinet/udp_var.h>
+X#include <netinet/ip_icmp.h>
+X#include <netinet/icmp_var.h>
+X#include <nlist.h>
+X#include <sys/protosw.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "mib.h"
+X#include "snmp_vars.h"
+X
+X
+X
+X#ifdef vax11c
+X#define ioctl socket_ioctl
+X#define perror socket_perror
+X#endif vax11c
+X
+Xextern char *Lookup_Device_Annotation();
+X
+Xstatic struct nlist nl[] = {
+X#define N_IPSTAT	0
+X	{ "_ipstat" },
+X#define N_IPFORWARDING	1
+X	{ "_ipforwarding" },
+X#define N_TCP_TTL	2
+X	{ "_tcp_ttl" },
+X#define N_UDPSTAT	3
+X	{ "_udpstat" },
+X#define N_IN_INTERFACES 4
+X	{ "_in_interfaces" },
+X#define N_ICMPSTAT	5
+X	{ "_icmpstat" },
+X#define N_IFNET		6
+X	{ "_ifnet" },
+X#define N_TCPSTAT	7
+X	{ "_tcpstat" },
+X#define N_TCB		8
+X	{ "_tcb" },
+X#define N_ARPTAB_SIZE	9
+X	{ "_arptab_size" },
+X#define N_ARPTAB       10
+X	{ "_arptab" },
+X#define N_IN_IFADDR    11
+X	{ "_in_ifaddr" },
+X#define N_BOOTTIME	12
+X	{ "_boottime" },
+X#ifdef ibm032
+X#define N_PROC		13
+X	{ "_proc" },
+X#define N_NPROC		14
+X	{ "_nproc" },
+X#define N_DMMIN		15
+X	{ "_dmmin" },
+X#define N_DMMAX		16
+X	{ "_dmmax" },
+X#define N_NSWAP		17
+X	{ "_nswap" },
+X#define N_USRPTMAP	18
+X	{ "_Usrptmap" },
+X#define N_USRPT		19
+X	{ "_usrpt" },
+X#endif
+X#ifdef ibm032
+X#define N_USERSIZE	20
+X	{ "_userSIZE" },
+X#endif
+X	0,
+X};
+X
+X/*
+X *	Each variable name is placed in the variable table, without the terminating
+X * substring that determines the instance of the variable.  When a string is found that
+X * is lexicographicly preceded by the input string, the function for that entry is
+X * called to find the method of access of the instance of the named variable.  If
+X * that variable is not found, NULL is returned, and the search through the table
+X * continues (it should stop at the next entry).  If it is found, the function returns
+X * a character pointer and a length or a function pointer.  The former is the address
+X * of the operand, the latter is a write routine for the variable.
+X *
+X * u_char *
+X * findVar(name, length, exact, var_len, write_method)
+X * oid	    *name;	    IN/OUT - input name requested, output name found
+X * int	    length;	    IN/OUT - number of sub-ids in the in and out oid's
+X * int	    exact;	    IN - TRUE if an exact match was requested.
+X * int	    len;	    OUT - length of variable or 0 if function returned.
+X * int	    write_method;   OUT - 1 if function, 0 if char pointer.
+X *
+X * writeVar(doSet, var_val, var_val_type, var_val_len, statP)
+X * int	    doSet;	    IN - 0 if only check of validity of operation
+X * u_char   *var_val;	    IN - input or output buffer space
+X * u_char   var_val_type;   IN - type of input buffer
+X * int	    var_val_len;    IN - input and output buffer len
+X * u_char   *statP;	    IN - pointer to local statistic
+X */
+X
+Xlong		long_return;
+Xu_char		return_buf[256]; /* nee 64 */
+X
+Xinit_snmp()
+X{
+X	nlist("/vmunix",nl);
+X	init_kmem("/dev/kmem");
+X	init_routes();
+X
+X}
+X
+Xstruct variable     variables[] = {
+X    /* these must be lexicographly ordered by the name field */
+X    {{MIB, 1, 1, 0},		9, STRING,  VERSION_DESCR, RWRITE, var_system },
+X    {{MIB, 1, 2, 0},		9, OBJID,   VERSION_ID, RONLY, var_system },
+X    {{MIB, 1, 3, 0},		9, TIMETICKS, UPTIME, RONLY, var_system },
+X    {{MIB, 2, 1, 0},		9, INTEGER, IFNUMBER, RONLY, var_system },
+X    {{MIB, 2, 2, 1, 1, 0xFF},  11, INTEGER, IFINDEX, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 2, 0xFF},  11, STRING,  IFDESCR, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 3, 0xFF},  11, INTEGER, IFTYPE, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 4, 0xFF},  11, INTEGER, IFMTU, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 5, 0xFF},  11, GAUGE,   IFSPEED, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 6, 0xFF},  11, STRING,  IFPHYSADDRESS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 7, 0xFF},  11, INTEGER, IFADMINSTATUS, RWRITE, var_ifEntry },
+X    {{MIB, 2, 2, 1, 8, 0xFF},  11, INTEGER, IFOPERSTATUS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 9, 0xFF},  11, TIMETICKS, IFLASTCHANGE, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 10, 0xFF}, 11, COUNTER, IFINOCTETS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 11, 0xFF}, 11, COUNTER, IFINUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 12, 0xFF}, 11, COUNTER, IFINNUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 13, 0xFF}, 11, COUNTER, IFINDISCARDS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 14, 0xFF}, 11, COUNTER, IFINERRORS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 15, 0xFF}, 11, COUNTER, IFINUNKNOWNPROTOS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 16, 0xFF}, 11, COUNTER, IFOUTOCTETS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 17, 0xFF}, 11, COUNTER, IFOUTUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 18, 0xFF}, 11, COUNTER, IFOUTNUCASTPKTS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 19, 0xFF}, 11, COUNTER, IFOUTDISCARDS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 20, 0xFF}, 11, COUNTER, IFOUTERRORS, RONLY, var_ifEntry },
+X    {{MIB, 2, 2, 1, 21, 0xFF}, 11, GAUGE,   IFOUTQLEN, RONLY, var_ifEntry },
+X    {{MIB, 3, 1, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, INTEGER,    ATIFINDEX, RONLY, var_atEntry },
+X    {{MIB, 3, 1, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, STRING,     ATPHYSADDRESS, RONLY, var_atEntry },
+X    {{MIB, 3, 1, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 16, IPADDRESS,  ATNETADDRESS, RONLY, var_atEntry },
+X    {{MIB, 4, 1, 0},	    9, INTEGER, IPFORWARDING, RONLY, var_ip },
+X    {{MIB, 4, 2, 0},	    9, INTEGER, IPDEFAULTTTL, RONLY, var_ip },
+X    {{MIB, 4, 3, 0},	    9, COUNTER, IPINRECEIVES, RONLY, var_ip },
+X    {{MIB, 4, 4, 0},	    9, COUNTER, IPINHDRERRORS, RONLY, var_ip },
+X    {{MIB, 4, 5, 0},	    9, COUNTER, IPINADDRERRORS, RONLY, var_ip },
+X    {{MIB, 4, 6, 0},	    9, COUNTER, IPFORWDATAGRAMS, RONLY, var_ip },
+X    {{MIB, 4, 7, 0},	    9, COUNTER, IPINUNKNOWNPROTOS, RONLY, var_ip },
+X    {{MIB, 4, 8, 0},	    9, COUNTER, IPINDISCARDS, RONLY, var_ip },
+X    {{MIB, 4, 9, 0},	    9, COUNTER, IPINDELIVERS, RONLY, var_ip },
+X    {{MIB, 4, 10, 0},	    9, COUNTER, IPOUTREQUESTS, RONLY, var_ip },
+X    {{MIB, 4, 11, 0},	    9, COUNTER, IPOUTDISCARDS, RONLY, var_ip },
+X    {{MIB, 4, 12, 0},	    9, COUNTER, IPOUTNOROUTES, RONLY, var_ip },
+X    {{MIB, 4, 13, 0},	    9, INTEGER, IPREASMTIMEOUT, RONLY, var_ip },
+X    {{MIB, 4, 14, 0},	    9, COUNTER, IPREASMREQDS, RONLY, var_ip },
+X    {{MIB, 4, 15, 0},	    9, COUNTER, IPREASMOKS, RONLY, var_ip },
+X    {{MIB, 4, 16, 0},	    9, COUNTER, IPREASMFAILS, RONLY, var_ip },
+X    {{MIB, 4, 17, 0},	    9, COUNTER, IPFRAGOKS, RONLY, var_ip },
+X    {{MIB, 4, 18, 0},	    9, COUNTER, IPFRAGFAILS, RONLY, var_ip },
+X    {{MIB, 4, 19, 0},	    9, COUNTER, IPFRAGCREATES, RONLY, var_ip },
+X    {{MIB, 4, 20, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPADADDR, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPADIFINDEX, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPADNETMASK, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 20, 1, 4, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPADBCASTADDR, RONLY, var_ipAddrEntry },
+X    {{MIB, 4, 21, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPROUTEDEST, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEIFINDEX, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC1, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 4, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC2, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 5, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC3, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 6, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEMETRIC4, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 7, 0xFF, 0xFF, 0xFF, 0xFF}, 14, IPADDRESS, IPROUTENEXTHOP, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 8, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTETYPE, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 9, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEPROTO, RONLY, var_ipRouteEntry },
+X    {{MIB, 4, 21, 1, 10, 0xFF, 0xFF, 0xFF, 0xFF}, 14, INTEGER,	IPROUTEAGE, RONLY, var_ipRouteEntry },
+X    {{MIB, 5, 1, 0},	    9, COUNTER, ICMPINMSGS, RONLY, var_icmp },
+X    {{MIB, 5, 2, 0},	    9, COUNTER, ICMPINERRORS, RONLY, var_icmp },
+X    {{MIB, 5, 3, 0},	    9, COUNTER, ICMPINDESTUNREACHS, RONLY, var_icmp },
+X    {{MIB, 5, 4, 0},	    9, COUNTER, ICMPINTIMEEXCDS, RONLY, var_icmp },
+X    {{MIB, 5, 5, 0},	    9, COUNTER, ICMPINPARMPROBS, RONLY, var_icmp },
+X    {{MIB, 5, 6, 0},	    9, COUNTER, ICMPINSRCQUENCHS, RONLY, var_icmp },
+X    {{MIB, 5, 7, 0},	    9, COUNTER, ICMPINREDIRECTS, RONLY, var_icmp },
+X    {{MIB, 5, 8, 0},	    9, COUNTER, ICMPINECHOS, RONLY, var_icmp },
+X    {{MIB, 5, 9, 0},	    9, COUNTER, ICMPINECHOREPS, RONLY, var_icmp },
+X    {{MIB, 5, 10, 0},	    9, COUNTER, ICMPINTIMESTAMPS, RONLY, var_icmp },
+X    {{MIB, 5, 11, 0},	    9, COUNTER, ICMPINTIMESTAMPREPS, RONLY, var_icmp },
+X    {{MIB, 5, 12, 0},	    9, COUNTER, ICMPINADDRMASKS, RONLY, var_icmp },
+X    {{MIB, 5, 13, 0},	    9, COUNTER, ICMPINADDRMASKREPS, RONLY, var_icmp },
+X    {{MIB, 5, 14, 0},	    9, COUNTER, ICMPOUTMSGS, RONLY, var_icmp },
+X    {{MIB, 5, 15, 0},	    9, COUNTER, ICMPOUTERRORS, RONLY, var_icmp },
+X    {{MIB, 5, 16, 0},	    9, COUNTER, ICMPOUTDESTUNREACHS, RONLY, var_icmp },
+X    {{MIB, 5, 17, 0},	    9, COUNTER, ICMPOUTTIMEEXCDS, RONLY, var_icmp },
+X    {{MIB, 5, 18, 0},	    9, COUNTER, ICMPOUTPARMPROBS, RONLY, var_icmp },
+X    {{MIB, 5, 19, 0},	    9, COUNTER, ICMPOUTSRCQUENCHS, RONLY, var_icmp },
+X    {{MIB, 5, 20, 0},	    9, COUNTER, ICMPOUTREDIRECTS, RONLY, var_icmp },
+X    {{MIB, 5, 21, 0},	    9, COUNTER, ICMPOUTECHOS, RONLY, var_icmp },
+X    {{MIB, 5, 22, 0},	    9, COUNTER, ICMPOUTECHOREPS, RONLY, var_icmp },
+X    {{MIB, 5, 23, 0},	    9, COUNTER, ICMPOUTTIMESTAMPS, RONLY, var_icmp },
+X    {{MIB, 5, 24, 0},	    9, COUNTER, ICMPOUTTIMESTAMPREPS, RONLY, var_icmp },
+X    {{MIB, 5, 25, 0},	    9, COUNTER, ICMPOUTADDRMASKS, RONLY, var_icmp },
+X    {{MIB, 5, 26, 0},	    9, COUNTER, ICMPOUTADDRMASKREPS, RONLY, var_icmp },
+X    {{MIB, 6, 1, 0},	    9, INTEGER, TCPRTOALGORITHM, RONLY, var_tcp },
+X    {{MIB, 6, 2, 0},	    9, INTEGER, TCPRTOMIN, RONLY, var_tcp },
+X    {{MIB, 6, 3, 0},	    9, INTEGER, TCPRTOMAX, RONLY, var_tcp },
+X    {{MIB, 6, 4, 0},	    9, INTEGER, TCPMAXCONN, RONLY, var_tcp },
+X    {{MIB, 6, 5, 0},	    9, COUNTER, TCPACTIVEOPENS, RONLY, var_tcp },
+X    {{MIB, 6, 6, 0},	    9, COUNTER, TCPPASSIVEOPENS, RONLY, var_tcp },
+X    {{MIB, 6, 7, 0},	    9, COUNTER, TCPATTEMPTFAILS, RONLY, var_tcp },
+X    {{MIB, 6, 8, 0},	    9, COUNTER, TCPESTABRESETS, RONLY, var_tcp },
+X    {{MIB, 6, 9, 0},	    9, GAUGE,	TCPCURRESTAB, RONLY, var_tcp },
+X    {{MIB, 6,10, 0},	    9, COUNTER, TCPINSEGS, RONLY, var_tcp },
+X    {{MIB, 6,11, 0},	    9, COUNTER, TCPOUTSEGS, RONLY, var_tcp },
+X    {{MIB, 6,12, 0},	    9, COUNTER, TCPRETRANSSEGS, RONLY, var_tcp },
+X    {{MIB, 6,13, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  20, INTEGER, TCPCONNSTATE, RONLY, var_tcp },
+X    {{MIB, 6,13, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  20, IPADDRESS, TCPCONNLOCALADDRESS, RONLY, var_tcp },
+X    {{MIB, 6,13, 1, 3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  20, INTEGER, TCPCONNLOCALPORT, RONLY, var_tcp },
+X    {{MIB, 6,13, 1, 4, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  20, IPADDRESS, TCPCONNREMADDRESS, RONLY, var_tcp },
+X    {{MIB, 6,13, 1, 5, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  20, INTEGER, TCPCONNREMPORT, RONLY, var_tcp },
+X    {{MIB, 7, 1, 0},	    9, COUNTER, UDPINDATAGRAMS, RONLY, var_udp },
+X    {{MIB, 7, 2, 0},	    9, COUNTER, UDPNOPORTS, RONLY, var_udp },
+X    {{MIB, 7, 3, 0},	    9, COUNTER, UDPINERRORS, RONLY, var_udp },
+X    {{MIB, 7, 4, 0},	    9, COUNTER, UDPOUTDATAGRAMS, RONLY, var_udp }
+X};
+X
+X
+X
+X
+X/*
+X * getStatPtr - return a pointer to the named variable, as well as it's
+X * type, length, and access control list.
+X *
+X * If an exact match for the variable name exists, it is returned.  If not,
+X * and exact is false, the next variable lexicographically after the
+X * requested one is returned.
+X *
+X * If no appropriate variable can be found, NULL is returned.
+X */
+Xu_char	*
+XgetStatPtr(name, namelen, type, len, acl, exact, access_method)
+X    oid		*name;	    /* IN - name of var, OUT - name matched */
+X    int		*namelen;   /* IN -number of sub-ids in name, OUT - subid-is in matched name */
+X    u_char	*type;	    /* OUT - type of matched variable */
+X    int		*len;	    /* OUT - length of matched variable */
+X    u_short	*acl;	    /* OUT - access control list */
+X    int		exact;	    /* IN - TRUE if exact match wanted */
+X    int		*access_method; /* OUT - 1 if function, 0 if char * */
+X{
+X
+X    register struct variable	*vp;
+X
+X    register int	x;
+X    register u_char	*access;
+X    int			result;
+X    register int	minlen;
+X    register oid	*name1, *name2;
+X
+X    for(x = 0, vp = variables; x < sizeof(variables)/sizeof(struct variable); vp++, x++){
+X	if (*namelen < (int)vp->namelen)
+X	    minlen = *namelen;
+X	else
+X	    minlen = (int)vp->namelen;
+X	name1 = name; name2 = vp->name;
+X	result = 0;
+X	while(minlen-- > 0){
+X	    if (*name1 < *name2){
+X		result = -1;
+X		break;
+X	    }
+X	    if (*name2++ < *name1++){
+X		result = 1;
+X		break;
+X	    }
+X	}
+X	if (result == 0){
+X	    if (*namelen < (int)vp->namelen)
+X		result = -1;	/* name1 shorter so it is "less" */
+X	    else if ((int)vp->namelen < *namelen)
+X		result = 1;
+X	    else
+X		result = 0;
+X	}
+X/*	result = compare(name, *namelen, vp->name, (int)vp->namelen); */
+X	if ((result < 0) || (exact && (result == 0))){
+X	    access = (*(vp->findVar))(vp, name, namelen, exact, len, access_method);
+X	    if (access != NULL)
+X		break;
+X	}
+X    }
+X    if (x == sizeof(variables)/sizeof(struct variable))
+X	return NULL;
+X
+X    /* vp now points to the approprate struct */
+X    *type = vp->type;
+X    *acl = vp->acl;
+X    return access;
+X}
+X
+X
+X
+Xint
+Xcompare(name1, len1, name2, len2)
+X    register oid	    *name1, *name2;
+X    register int	    len1, len2;
+X{
+X    register int    len;
+X
+X    /* len = minimum of len1 and len2 */
+X    if (len1 < len2)
+X	len = len1;
+X    else
+X	len = len2;
+X    /* find first non-matching byte */
+X    while(len-- > 0){
+X	if (*name1 < *name2)
+X	    return -1;
+X	if (*name2++ < *name1++)
+X	    return 1;
+X    }
+X    /* bytes match up to length of shorter string */
+X    if (len1 < len2)
+X	return -1;  /* name1 shorter, so it is "less" */
+X    if (len2 < len1)
+X	return 1;
+X    return 0;	/* both strings are equal */
+X}
+X
+Xchar version_descr[32] = "Unix 4.3BSD";
+Xoid version_id[] = {1, 3, 6, 1, 4, 1, 3, 1, 1};
+X
+Xu_char *
+Xvar_system(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    struct timeval now, boottime;
+X    extern int writeVersion();
+X
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long);	/* default length */
+X    switch (vp->magic){
+X	case VERSION_DESCR:
+X	    *var_len = strlen(version_descr);
+X	    *write_method = writeVersion;
+X	    return (u_char *)version_descr;
+X	case VERSION_ID:
+X	    *var_len = sizeof(version_id);
+X	    return (u_char *)version_id;
+X	case UPTIME:
+X	    klseek(nl[N_BOOTTIME].n_value);
+X	    klread((char *)&boottime, sizeof(boottime));
+X	    gettimeofday(&now, (struct timezone *)0);
+X	    long_return = (now.tv_sec - boottime.tv_sec) * 100
+X		    + (now.tv_usec - boottime.tv_usec) / 10000;
+X	    return (u_char *) &long_return;
+X	case IFNUMBER:
+X	    long_return = Interface_Scan_Get_Count();
+X	    return (u_char *) &long_return;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X#include <ctype.h>
+Xint
+XwriteVersion(doSet, var_val, var_val_type, var_val_len, statP)
+X   int      doSet;
+X   u_char   *var_val;
+X   u_char   var_val_type;
+X   int      var_val_len;
+X   u_char   *statP;
+X{
+X    int bigsize = 1000;
+X    u_char buf[sizeof(version_descr)], *cp;
+X    int count, size;
+X
+X    if (var_val_type != STRING){
+X	printf("not string\n");
+X	return FALSE;
+X    }
+X    if (var_val_len > sizeof(version_descr)-1){
+X	printf("bad length\n");
+X	return FALSE;
+X    }
+X    size = sizeof(buf);
+X    asn_parse_string(var_val, &bigsize, &var_val_type, (long *)buf, &size);
+X    for(cp = buf, count = 0; count < size; count++, cp++){
+X	if (!isprint(*cp)){
+X	    printf("not print %x\n", *cp);
+X	    return FALSE;
+X	}
+X    }
+X    buf[size] = 0;
+X    if (doSet){
+X	strcpy(version_descr, buf);
+X	
+X    }
+X    return TRUE;
+X}
+X
+X
+X
+Xu_char *
+Xvar_ifEntry(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    oid			newname[MAX_NAME_LEN];
+X    register int	interface;
+X    int result, count;
+X    static struct ifnet ifnet;
+X    static struct in_ifaddr in_ifaddr;
+X    static char Name[16];
+X    register char *cp;
+X
+X    bcopy((char *)vp->name, (char *)newname, (int)vp->namelen * sizeof(oid));
+X    /* find "next" interface */
+X    count = Interface_Scan_Get_Count();
+X    for(interface = 1; interface <= count; interface++){
+X	newname[10] = (oid)interface;
+X	result = compare(name, *length, newname, (int)vp->namelen);
+X	if ((exact && (result == 0)) || (!exact && (result < 0)))
+X	    break;
+X    }
+X    if (interface > count)
+X	return NULL;
+X
+X    bcopy((char *)newname, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long);
+X
+X    Interface_Scan_By_Index(interface, Name, &ifnet, &in_ifaddr);
+X    switch (vp->magic){
+X	case IFINDEX:
+X	    long_return = interface;
+X	    return (u_char *) &long_return;
+X	case IFDESCR:
+X#define USE_NAME_AS_DESCRIPTION
+X#ifdef USE_NAME_AS_DESCRIPTION
+X	    cp = Name;
+X#else  USE_NAME_AS_DESCRIPTION
+X	    cp = Lookup_Device_Annotation(Name, "snmp-descr");
+X	    if (!cp)
+X		cp = Lookup_Device_Annotation(Name, 0);
+X	    if (!cp) cp = Name;
+X#endif USE_NAME_AS_DESCRIPTION
+X	    *var_len = strlen(cp);
+X	    return (u_char *)cp;
+X	case IFTYPE:
+X#if 0
+X	    cp = Lookup_Device_Annotation(Name, "snmp-type");
+X	    if (cp) long_return = atoi(cp);
+X	    else
+X#endif
+X		long_return = 1;	/* OTHER */
+X	    return (u_char *) &long_return;
+X	case IFMTU: {
+X	    long_return = (long) ifnet.if_mtu;
+X	    return (u_char *) &long_return;
+X	}
+X	case IFSPEED:
+X#if 0
+X	    cp = Lookup_Device_Annotation(Name, "snmp-speed");
+X	    if (cp) long_return = atoi(cp);
+X	    else
+X#endif
+X	    long_return = 1;	/* OTHER */
+X	    return (u_char *) &long_return;
+X	case IFPHYSADDRESS:
+X#if 0
+X	    if (Lookup_Device_Annotation(Name, "ethernet-device")) {
+X		Interface_Get_Ether_By_Index(interface, return_buf);
+X		*var_len = 6;
+X		return(u_char *) return_buf;
+X	    } else {
+X		long_return = 0;
+X		return (u_char *) long_return;
+X	    }
+X#endif
+X		*var_len = 6;
+X		return (u_char *)return_buf;
+X	case IFADMINSTATUS:
+X	    long_return = ifnet.if_flags & IFF_RUNNING ? 1 : 2;
+X	    return (u_char *) &long_return;
+X	case IFOPERSTATUS:
+X	    long_return = ifnet.if_flags & IFF_UP ? 1 : 2;
+X	    return (u_char *) &long_return;
+X	case IFLASTCHANGE:
+X	    long_return = 0; /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFINOCTETS:
+X	    long_return = ifnet.if_ipackets * (ifnet.if_mtu / 2); /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFINUCASTPKTS:
+X	    long_return = ifnet.if_ipackets;
+X	    return (u_char *) &long_return;
+X	case IFINNUCASTPKTS:
+X	    long_return = 0; /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFINDISCARDS:
+X	    long_return = 0; /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFINERRORS:
+X	    return (u_char *) &ifnet.if_ierrors;
+X	case IFINUNKNOWNPROTOS:
+X	    long_return = 0; /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFOUTOCTETS:
+X	    long_return = ifnet.if_opackets * (ifnet.if_mtu / 2); /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFOUTUCASTPKTS:
+X	    long_return = ifnet.if_opackets;
+X	    return (u_char *) &long_return;
+X	case IFOUTNUCASTPKTS:
+X	    long_return = 0; /* XXX */
+X	    return (u_char *) &long_return;
+X	case IFOUTDISCARDS:
+X	    return (u_char *) &ifnet.if_snd.ifq_drops;
+X	case IFOUTERRORS:
+X	    return (u_char *) &ifnet.if_oerrors;
+X	case IFOUTQLEN:
+X	    return (u_char *) &ifnet.if_snd.ifq_len;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X/*
+X * Read the ARP table
+X */
+X
+Xu_char *
+Xvar_atEntry(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;	/* IN - pointer to variable entry that points here */
+X    register oid	    *name;	/* IN/OUT - input name requested, output name found */
+X    register int	    *length;	/* IN/OUT - length of input and output oid's */
+X    int			    exact;	/* IN - TRUE if an exact match was requested. */
+X    int			    *var_len;	/* OUT - length of variable or 0 if function returned. */
+X    int			    (**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    /*
+X     * object identifier is of form:
+X     * 1.3.6.1.2.1.3.1.1.1.interface.1.A.B.C.D,  where A.B.C.D is IP address.
+X     * Interface is at offset 10,
+X     * IPADDR starts at offset 12.
+X     */
+X    u_char		    *cp;
+X    oid			    *op;
+X    oid			    lowest[16];
+X    oid			    current[16];
+X    static char		    PhysAddr[6], LowPhysAddr[6];
+X    u_long		    Addr, LowAddr;
+X
+X    /* fill in object part of name for current (less sizeof instance part) */
+X
+X    bcopy((char *)vp->name, (char *)current, (int)(vp->namelen - 6) * sizeof(oid));
+X
+X    LowAddr = -1;      /* Don't have one yet */
+X    ARP_Scan_Init();
+X    for (;;) {
+X	if (ARP_Scan_Next(&Addr, PhysAddr) == 0) break;
+X	current[10] = 1;	/* IfIndex == 1 (ethernet???) XXX */
+X	current[11] = 1;
+X	cp = (u_char *)&Addr;
+X	op = current + 12;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X
+X	if (exact){
+X	    if (compare(current, 16, name, *length) == 0){
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		LowAddr = Addr;
+X		bcopy(PhysAddr, LowPhysAddr, sizeof(PhysAddr));
+X		break;	/* no need to search further */
+X	    }
+X	} else {
+X	    if ((compare(current, 16, name, *length) > 0) &&
+X		 ((LowAddr == -1) || (compare(current, 16, lowest, 16) < 0))){
+X		/*
+X		 * if new one is greater than input and closer to input than
+X		 * previous lowest, save this one as the "next" one.
+X		 */
+X		bcopy((char *)current, (char *)lowest, 16 * sizeof(oid));
+X		LowAddr = Addr;
+X		bcopy(PhysAddr, LowPhysAddr, sizeof(PhysAddr));
+X	    }
+X	}
+X    }
+X    if (LowAddr == -1) return(NULL);
+X
+X    bcopy((char *)lowest, (char *)name, 16 * sizeof(oid));
+X    *length = 16;
+X    *write_method = 0;
+X    switch(vp->magic){
+X	case ATIFINDEX:
+X	    *var_len = sizeof long_return;
+X	    long_return = 1; /* XXX */
+X	    return (u_char *)&long_return;
+X	case ATPHYSADDRESS:
+X	    *var_len = sizeof(LowPhysAddr);
+X	    return (u_char *)LowPhysAddr;
+X	case ATNETADDRESS:
+X	    *var_len = sizeof long_return;
+X	    long_return = LowAddr;
+X	    return (u_char *)&long_return;
+X	default:
+X	    ERROR("");
+X   }
+X   return NULL;
+X}
+X
+Xu_char *
+Xvar_ip(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;   /* IN - pointer to variable entry that points here */
+X    oid     *name;	    /* IN/OUT - input name requested, output name found */
+X    int     *length;	    /* IN/OUT - length of input and output oid's */
+X    int     exact;	    /* IN - TRUE if an exact match was requested. */
+X    int     *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int     (**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    int i;
+X    static struct ipstat ipstat;
+X
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long);	/* default length */
+X    /*
+X     *	Get the IP statistics from the kernel...
+X     */
+X
+X    klseek(nl[N_IPSTAT].n_value);
+X    klread((char *)&ipstat, sizeof (ipstat));
+X
+X    switch (vp->magic){
+X	case IPFORWARDING:
+X	    klseek(nl[N_IPFORWARDING].n_value);
+X	    klread((char *) &i, sizeof(i));
+X	    if (i) {
+X		klseek(nl[N_IN_INTERFACES].n_value);
+X		klread((char *) &i, sizeof(i));
+X		if (i > 1)
+X		    long_return = 1;		/* GATEWAY */
+X		else
+X		    long_return = 2;		/* GATEWAY configured as HOST */
+X	    } else {
+X		long_return = 2;	    /* HOST    */
+X	    }
+X	    return (u_char *) &long_return;
+X	case IPDEFAULTTTL:
+X	    /*
+X	     *	Allow for a kernel w/o TCP.
+X	     */
+X	    if (nl[N_TCP_TTL].n_value) {
+X		klseek(nl[N_TCP_TTL].n_value);
+X		klread((char *) &long_return, sizeof(long_return));
+X	    } else long_return = 60;	    /* XXX */
+X	    return (u_char *) &long_return;
+X	case IPINRECEIVES:
+X	    return (u_char *) &ipstat.ips_total;
+X	case IPINHDRERRORS:
+X	    long_return = ipstat.ips_badsum + ipstat.ips_tooshort +
+X			  ipstat.ips_toosmall + ipstat.ips_badhlen +
+X			  ipstat.ips_badlen;
+X	    return (u_char *) &long_return;
+X	case IPINADDRERRORS:
+X	    return (u_char *) &ipstat.ips_cantforward;
+X	case IPFORWDATAGRAMS:
+X	    return (u_char *) &ipstat.ips_forward;
+X	case IPINUNKNOWNPROTOS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPINDISCARDS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPINDELIVERS:
+X	    long_return = ipstat.ips_total -
+X			 (ipstat.ips_badsum + ipstat.ips_tooshort +
+X			  ipstat.ips_toosmall + ipstat.ips_badhlen +
+X			  ipstat.ips_badlen);
+X	    return (u_char *) &long_return;
+X	case IPOUTREQUESTS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPOUTDISCARDS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPOUTNOROUTES:
+X	    return (u_char *) &ipstat.ips_cantforward;
+X	case IPREASMTIMEOUT:
+X	    long_return = IPFRAGTTL;
+X	    return (u_char *) &long_return;
+X	case IPREASMREQDS:
+X	    return (u_char *) &ipstat.ips_fragments;
+X	case IPREASMOKS:
+X	    return (u_char *) &ipstat.ips_fragments;
+X	case IPREASMFAILS:
+X	    long_return = ipstat.ips_fragdropped + ipstat.ips_fragtimeout;
+X	    return (u_char *) &long_return;
+X	case IPFRAGOKS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPFRAGFAILS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case IPFRAGCREATES:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+Xu_char *
+Xvar_ipAddrEntry(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    register oid	*name;	    /* IN/OUT - input name requested, output name found */
+X    register int	*length;    /* IN/OUT - length of input and output oid's */
+X    int			exact;	    /* IN - TRUE if an exact match was requested. */
+X    int			*var_len;   /* OUT - length of variable or 0 if function returned. */
+X    int			(**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    /*
+X     * object identifier is of form:
+X     * 1.3.6.1.2.1.4.20.1.?.A.B.C.D,  where A.B.C.D is IP address.
+X     * IPADDR starts at offset 10.
+X     */
+X    oid			    lowest[14];
+X    oid			    current[14], *op;
+X    u_char		    *cp;
+X    int			    interface, lowinterface=0;
+X    static struct ifnet ifnet;
+X    static struct in_ifaddr in_ifaddr, lowin_ifaddr;
+X
+X    /* fill in object part of name for current (less sizeof instance part) */
+X
+X    bcopy((char *)vp->name, (char *)current, (int)(vp->namelen - 4) * sizeof(oid));
+X
+X    Interface_Scan_Init();
+X    for (;;) {
+X	if (Interface_Scan_Next(&interface, (char *)0, &ifnet, &in_ifaddr) == 0) break;
+X
+X	cp = (u_char *)&(((struct sockaddr_in *) &(in_ifaddr.ia_addr))->sin_addr.s_addr);
+X	op = current + 10;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X	*op++ = *cp++;
+X
+X	if (exact){
+X	    if (compare(current, 14, name, *length) == 0){
+X		bcopy((char *)current, (char *)lowest, 14 * sizeof(oid));
+X		lowinterface = interface;
+X		lowin_ifaddr = in_ifaddr;
+X		break;	/* no need to search further */
+X	    }
+X	} else {
+X	    if ((compare(current, 14, name, *length) > 0) &&
+X		 (!lowinterface || (compare(current, 14, lowest, 14) < 0))){
+X		/*
+X		 * if new one is greater than input and closer to input than
+X		 * previous lowest, save this one as the "next" one.
+X		 */
+X		lowinterface = interface;
+X		lowin_ifaddr = in_ifaddr;
+X		bcopy((char *)current, (char *)lowest, 14 * sizeof(oid));
+X	    }
+X	}
+X    }
+X    if (!lowinterface) return(NULL);
+X    bcopy((char *)lowest, (char *)name, 14 * sizeof(oid));
+X    *length = 14;
+X    *write_method = 0;
+X    *var_len = sizeof(long_return);
+X    switch(vp->magic){
+X	case IPADADDR:
+X	    return(u_char *) &((struct sockaddr_in *) &lowin_ifaddr.ia_addr)->sin_addr.s_addr;
+X	case IPADIFINDEX:
+X	    long_return = lowinterface;
+X	    return(u_char *) &long_return;
+X	case IPADNETMASK:
+X	    long_return = ntohl(lowin_ifaddr.ia_subnetmask);
+X	    return(u_char *) &long_return;
+X	case IPADBCASTADDR:
+X	    long_return = ntohl(((struct sockaddr_in *) &lowin_ifaddr.ia_addr)->sin_addr.s_addr) & 1;
+X	    return(u_char *) &long_return;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X
+Xu_char *
+Xvar_icmp(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    oid     *name;	    /* IN/OUT - input name requested, output name found */
+X    int     *length;	    /* IN/OUT - length of input and output oid's */
+X    int     exact;	    /* IN - TRUE if an exact match was requested. */
+X    int     *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int     (**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    register int i;
+X    static struct icmpstat icmpstat;
+X
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long); /* all following variables are sizeof long */
+X
+X    /*
+X     *	Get the UDP statistics from the kernel...
+X     */
+X
+X    klseek(nl[N_ICMPSTAT].n_value);
+X    klread((char *)&icmpstat, sizeof (icmpstat));
+X
+X    switch (vp->magic){
+X	case ICMPINMSGS:
+X	    long_return = icmpstat.icps_badcode + icmpstat.icps_tooshort +
+X			  icmpstat.icps_checksum + icmpstat.icps_badlen;
+X	    for (i=0; i <= ICMP_MAXTYPE; i++)
+X		long_return += icmpstat.icps_inhist[i];
+X	    return (u_char *)&long_return;
+X	case ICMPINERRORS:
+X	    long_return = icmpstat.icps_badcode + icmpstat.icps_tooshort +
+X			  icmpstat.icps_checksum + icmpstat.icps_badlen;
+X	    return (u_char *)&long_return;
+X	case ICMPINDESTUNREACHS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_UNREACH];
+X	case ICMPINTIMEEXCDS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_TIMXCEED];
+X	case ICMPINPARMPROBS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_PARAMPROB];
+X	case ICMPINSRCQUENCHS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_SOURCEQUENCH];
+X	case ICMPINREDIRECTS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_REDIRECT];
+X	case ICMPINECHOS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_ECHO];
+X	case ICMPINECHOREPS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_ECHOREPLY];
+X	case ICMPINTIMESTAMPS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_TSTAMP];
+X	case ICMPINTIMESTAMPREPS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_TSTAMPREPLY];
+X	case ICMPINADDRMASKS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_MASKREQ];
+X	case ICMPINADDRMASKREPS:
+X	    return (u_char *) &icmpstat.icps_inhist[ICMP_MASKREPLY];
+X	case ICMPOUTMSGS:
+X	    long_return = icmpstat.icps_oldshort + icmpstat.icps_oldicmp;
+X	    for (i=0; i <= ICMP_MAXTYPE; i++)
+X		long_return += icmpstat.icps_outhist[i];
+X	    return (u_char *)&long_return;
+X	case ICMPOUTERRORS:
+X	    long_return = icmpstat.icps_oldshort + icmpstat.icps_oldicmp;
+X	    return (u_char *)&long_return;
+X	case ICMPOUTDESTUNREACHS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_UNREACH];
+X	case ICMPOUTTIMEEXCDS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_TIMXCEED];
+X	case ICMPOUTPARMPROBS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_PARAMPROB];
+X	case ICMPOUTSRCQUENCHS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_SOURCEQUENCH];
+X	case ICMPOUTREDIRECTS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_REDIRECT];
+X	case ICMPOUTECHOS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_ECHO];
+X	case ICMPOUTECHOREPS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_ECHOREPLY];
+X	case ICMPOUTTIMESTAMPS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_TSTAMP];
+X	case ICMPOUTTIMESTAMPREPS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_TSTAMPREPLY];
+X	case ICMPOUTADDRMASKS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_MASKREQ];
+X	case ICMPOUTADDRMASKREPS:
+X	    return (u_char *) &icmpstat.icps_outhist[ICMP_MASKREPLY];
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+X
+Xu_char *
+Xvar_udp(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    oid     *name;	    /* IN/OUT - input name requested, output name found */
+X    int     *length;	    /* IN/OUT - length of input and output oid's */
+X    int     exact;	    /* IN - TRUE if an exact match was requested. */
+X    int     *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int     (**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    static struct udpstat udpstat;
+X
+X    if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	return NULL;
+X    bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X
+X    *length = vp->namelen;
+X    *write_method = 0;
+X    *var_len = sizeof(long);	/* default length */
+X    /*
+X     *	Get the IP statistics from the kernel...
+X     */
+X
+X    klseek(nl[N_UDPSTAT].n_value);
+X    klread((char *)&udpstat, sizeof (udpstat));
+X
+X    switch (vp->magic){
+X	case UDPINDATAGRAMS:
+X	case UDPNOPORTS:
+X	case UDPOUTDATAGRAMS:
+X	    long_return = 0;
+X	    return (u_char *) &long_return;
+X	case UDPINERRORS:
+X	    long_return = udpstat.udps_hdrops + udpstat.udps_badsum +
+X			  udpstat.udps_badlen;
+X	    return (u_char *) &long_return;
+X	default:
+X	    ERROR("");
+X    }
+X    return NULL;
+X}
+X
+Xu_char *
+Xvar_tcp(vp, name, length, exact, var_len, write_method)
+X    register struct variable *vp;    /* IN - pointer to variable entry that points here */
+X    oid     *name;	    /* IN/OUT - input name requested, output name found */
+X    int     *length;	    /* IN/OUT - length of input and output oid's */
+X    int     exact;	    /* IN - TRUE if an exact match was requested. */
+X    int     *var_len;	    /* OUT - length of variable or 0 if function returned. */
+X    int     (**write_method)(); /* OUT - 1 if function, 0 if char pointer. */
+X{
+X    int i;
+X    static struct tcpstat tcpstat;
+X    oid newname[MAX_NAME_LEN], lowest[MAX_NAME_LEN], *op;
+X    u_char *cp;
+X    int State, LowState;
+X    static struct inpcb inpcb, Lowinpcb;
+X
+X    /*
+X     *	Allow for a kernel w/o TCP
+X     */
+X
+X    if (nl[N_TCPSTAT].n_value == 0) return(NULL);
+X
+X    if (vp->magic < TCPCONNSTATE) {
+X	if (exact && (compare(name, *length, vp->name, (int)vp->namelen) != 0))
+X	    return NULL;
+X	bcopy((char *)vp->name, (char *)name, (int)vp->namelen * sizeof(oid));
+X
+X	*length = vp->namelen;
+X	*write_method = 0;
+X	*var_len = sizeof(long);    /* default length */
+X	/*
+X	 *  Get the TCP statistics from the kernel...
+X	 */
+X
+X	klseek(nl[N_TCPSTAT].n_value);
+X	klread((char *)&tcpstat, sizeof (tcpstat));
+X
+X	switch (vp->magic){
+X	    case TCPRTOALGORITHM:
+X		long_return = 4;	/* Van Jacobsen's algorithm */	/* XXX */
+X		return (u_char *) &long_return;
+X	    case TCPRTOMIN:
+X		long_return = TCPTV_MIN / PR_SLOWHZ * 1000;
+X		return (u_char *) &long_return;
+X	    case TCPRTOMAX:
+X		long_return = TCPTV_REXMTMAX / PR_SLOWHZ * 1000;
+X		return (u_char *) &long_return;
+X	    case TCPMAXCONN:
+X		long_return = -1;
+X		return (u_char *) &long_return;
+X	    case TCPACTIVEOPENS:
+X		return (u_char *) &tcpstat.tcps_connattempt;
+X	    case TCPPASSIVEOPENS:
+X		return (u_char *) &tcpstat.tcps_accepts;
+X	    case TCPATTEMPTFAILS:
+X		return (u_char *) &tcpstat.tcps_conndrops;
+X	    case TCPESTABRESETS:
+X		return (u_char *) &tcpstat.tcps_drops;
+X	    case TCPCURRESTAB:
+X		long_return = TCP_Count_Connections();
+X		return (u_char *) &long_return;
+X	    case TCPINSEGS:
+X		return (u_char *) &tcpstat.tcps_rcvtotal;
+X	    case TCPOUTSEGS:
+X		return (u_char *) &tcpstat.tcps_sndtotal;
+X	    case TCPRETRANSSEGS:
+X		return (u_char *) &tcpstat.tcps_sndrexmitpack;
+X	    default:
+X		ERROR("");
+X	}
+X    } else {	/* Info about a particular connection */
+X	bcopy((char *)vp->name, (char *)newname, (int)vp->namelen * sizeof(oid));
+X	/* find "next" connection */
+XAgain:
+XLowState = -1;	    /* Don't have one yet */
+X	TCP_Scan_Init();
+X	for (;;) {
+X	    if ((i = TCP_Scan_Next(&State, &inpcb)) < 0) goto Again;
+X	    if (i == 0) break;	    /* Done */
+X	    cp = (u_char *)&inpcb.inp_laddr.s_addr;
+X	    op = newname + 10;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    
+X	    newname[14] = ntohs(inpcb.inp_lport);
+X
+X	    cp = (u_char *)&inpcb.inp_faddr.s_addr;
+X	    op = newname + 15;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    *op++ = *cp++;
+X	    
+X	    newname[19] = ntohs(inpcb.inp_fport);
+X
+X	    if (exact){
+X		if (compare(newname, 20, name, *length) == 0){
+X		    bcopy((char *)newname, (char *)lowest, 20 * sizeof(oid));
+X		    LowState = State;
+X		    Lowinpcb = inpcb;
+X		    break;  /* no need to search further */
+X		}
+X	    } else {
+X		if ((compare(newname, 20, name, *length) > 0) &&
+X		     ((LowState < 0) || (compare(newname, 20, lowest, 20) < 0))){
+X		    /*
+X		     * if new one is greater than input and closer to input than
+X		     * previous lowest, save this one as the "next" one.
+X		     */
+X		    bcopy((char *)newname, (char *)lowest, 20 * sizeof(oid));
+X		    LowState = State;
+X		    Lowinpcb = inpcb;
+X		}
+X	    }
+X	}
+X	if (LowState < 0) return(NULL);
+X	bcopy((char *)lowest, (char *)name, (int)vp->namelen * sizeof(oid));
+X	*length = vp->namelen;
+X	*write_method = 0;
+X	*var_len = sizeof(long);
+X	switch (vp->magic) {
+X	    case TCPCONNSTATE: {
+X		static int StateMap[]={1, 2, 3, 4, 5, 8, 6, 10, 9, 7, 11};
+X		return (u_char *) &StateMap[LowState];
+X	    }
+X	    case TCPCONNLOCALADDRESS:
+X		return (u_char *) &Lowinpcb.inp_laddr.s_addr;
+X	    case TCPCONNLOCALPORT:
+X		long_return = ntohs(Lowinpcb.inp_lport);
+X		return (u_char *) &long_return;
+X	    case TCPCONNREMADDRESS:
+X		return (u_char *) &Lowinpcb.inp_faddr.s_addr;
+X	    case TCPCONNREMPORT:
+X		long_return = ntohs(Lowinpcb.inp_fport);
+X		return (u_char *) &long_return;
+X	}
+X    }
+X    return NULL;
+X}
+X
+X/*
+X *	Print INTERNET connections
+X */
+X
+Xstatic int TCP_Count_Connections()
+X{
+X	int Established;
+X	struct inpcb cb;
+X	register struct inpcb *prev, *next;
+X	struct inpcb inpcb;
+X	struct tcpcb tcpcb;
+X
+XAgain:	/*
+X	 *	Prepare to scan the control blocks
+X	 */
+X	Established = 0;
+X	klseek(nl[N_TCB].n_value);
+X	klread((char *)&cb, sizeof(struct inpcb));
+X	inpcb = cb;
+X	prev = (struct inpcb *) nl[N_TCB].n_value;
+X	/*
+X	 *	Scan the control blocks
+X	 */
+X	while (inpcb.inp_next != (struct inpcb *) nl[N_TCB].n_value) {
+X		next = inpcb.inp_next;
+X		klseek((caddr_t)next);
+X		klread((char *)&inpcb, sizeof (inpcb));
+X		if (inpcb.inp_prev != prev) {	    /* ??? */
+X			sleep(1);
+X			goto Again;
+X		}
+X		if (inet_lnaof(inpcb.inp_laddr) == INADDR_ANY) {
+X			prev = next;
+X			continue;
+X		}
+X		klseek((caddr_t)inpcb.inp_ppcb);
+X		klread((char *)&tcpcb, sizeof (tcpcb));
+X		if ((tcpcb.t_state == TCPS_ESTABLISHED) ||
+X		    (tcpcb.t_state == TCPS_CLOSE_WAIT))
+X		    Established++;
+X		prev = next;
+X	}
+X	return(Established);
+X}
+X
+X
+Xstatic struct inpcb inpcb, *prev;
+X
+Xstatic TCP_Scan_Init()
+X{
+X	klseek(nl[N_TCB].n_value);
+X	klread((char *)&inpcb, sizeof(inpcb));
+X	prev = (struct inpcb *) nl[N_TCB].n_value;
+X}
+X
+Xstatic int TCP_Scan_Next(State, RetInPcb)
+Xint *State;
+Xstruct inpcb *RetInPcb;
+X{
+X	register struct inpcb *next;
+X	struct tcpcb tcpcb;
+X
+X	if (inpcb.inp_next == (struct inpcb *) nl[N_TCB].n_value) {
+X	    return(0);	    /* "EOF" */
+X	}
+X
+X	next = inpcb.inp_next;
+X	klseek((caddr_t)next);
+X	klread((char *)&inpcb, sizeof (inpcb));
+X	if (inpcb.inp_prev != prev)	   /* ??? */
+X		return(-1); /* "FAILURE" */
+X	klseek((caddr_t)inpcb.inp_ppcb);
+X	klread((char *)&tcpcb, sizeof (tcpcb));
+X	*State = tcpcb.t_state;
+X	*RetInPcb = inpcb;
+X	prev = next;
+X	return(1);	/* "OK" */
+X}
+X
+Xstatic int arptab_size, arptab_current;
+Xstatic struct arptab *at=0;
+Xstatic ARP_Scan_Init()
+X{
+X	if (!at) {
+X	    klseek(nl[N_ARPTAB_SIZE].n_value);
+X	    klread((char *)&arptab_size, sizeof arptab_size);
+X
+X	    at = (struct arptab *) malloc(arptab_size * sizeof(struct arptab));
+X	}
+X
+X	klseek(nl[N_ARPTAB].n_value);
+X	klread((char *)at, arptab_size * sizeof(struct arptab));
+X	arptab_current = 0;
+X}
+X
+Xstatic int ARP_Scan_Next(IPAddr, PhysAddr)
+Xu_long *IPAddr;
+Xchar *PhysAddr;
+X{
+X	register struct arptab *atab;
+X
+X	while (arptab_current < arptab_size) {
+X		atab = &at[arptab_current++];
+X		if (!(atab->at_flags & ATF_COM)) continue;
+X		*IPAddr = atab->at_iaddr.s_addr;
+X		bcopy((char *)&atab->at_enaddr, PhysAddr, sizeof(atab->at_enaddr));
+X		return(1);
+X	}
+X	return(0);	    /* "EOF" */
+X}
+X
+X
+Xstatic struct ifnet *ifnetaddr, saveifnet, *saveifnetaddr;
+Xstatic struct in_ifaddr savein_ifaddr;
+Xstatic int saveIndex=0;
+Xstatic char saveName[16];
+X
+XInterface_Scan_Init()
+X{
+X	klseek(nl[N_IFNET].n_value);
+X	klread((char *)&ifnetaddr, sizeof ifnetaddr);
+X	saveIndex=0;
+X}
+X
+Xint Interface_Scan_Next(Index, Name, Retifnet, Retin_ifaddr)
+Xint *Index;
+Xchar *Name;
+Xstruct ifnet *Retifnet;
+Xstruct in_ifaddr *Retin_ifaddr;
+X{
+X	struct ifnet ifnet;
+X	struct in_ifaddr *ia, in_ifaddr;
+X	register char *cp;
+X	extern char *index();
+X
+X	while (ifnetaddr) {
+X	    /*
+X	     *	    Get the "ifnet" structure and extract the device name
+X	     */
+X	    klseek(ifnetaddr);
+X	    klread((char *)&ifnet, sizeof ifnet);
+X	    klseek((caddr_t)ifnet.if_name);
+X	    klread(saveName, 16);
+X	    saveName[15] = '\0';
+X	    cp = index(saveName, '\0');
+X	    *cp++ = ifnet.if_unit + '0';
+X	    *cp = '\0';
+X	    if (1 || strcmp(saveName,"lo0") != 0) {  /* XXX */
+X		/*
+X		 *  Try to find an addres for this interface
+X		 */
+X		klseek(nl[N_IN_IFADDR].n_value);
+X		klread((char *) &ia, sizeof(ia));
+X		while (ia) {
+X		    klseek(ia);
+X		    klread((char *) &in_ifaddr, sizeof(in_ifaddr));
+X		    if (in_ifaddr.ia_ifp == ifnetaddr) break;
+X		    ia = in_ifaddr.ia_next;
+X		}
+X
+X		ifnet.if_addrlist = (struct ifaddr *)ia;     /* WRONG DATA TYPE; ONLY A FLAG */
+X/*		ifnet.if_addrlist = (struct ifaddr *)&ia->ia_ifa;   */  /* WRONG DATA TYPE; ONLY A FLAG */
+X		if (Index)
+X		    *Index = ++saveIndex;
+X		if (Retifnet)
+X		    *Retifnet = ifnet;
+X		if (Retin_ifaddr)
+X		    *Retin_ifaddr = in_ifaddr;
+X		if (Name)
+X		    strcpy(Name, saveName);
+X		saveifnet = ifnet;
+X		saveifnetaddr = ifnetaddr;
+X		savein_ifaddr = in_ifaddr;
+X		ifnetaddr = ifnet.if_next;
+X		return(1);	/* DONE */
+X	    }
+X	    ifnetaddr = ifnet.if_next;
+X	}
+X	return(0);	    /* EOF */
+X}
+X
+Xstatic int Interface_Scan_By_Index(Index, Name, Retifnet, Retin_ifaddr)
+Xint Index;
+Xchar *Name;
+Xstruct ifnet *Retifnet;
+Xstruct in_ifaddr *Retin_ifaddr;
+X{
+X	int i;
+X
+X	if (saveIndex != Index) {	/* Optimization! */
+X	    Interface_Scan_Init();
+X	    while (Interface_Scan_Next(&i, Name, Retifnet, Retin_ifaddr)) {
+X		if (i == Index) break;
+X	    }
+X	    if (i != Index) return(-1);     /* Error, doesn't exist */
+X	} else {
+X	    if (Retifnet)
+X		*Retifnet = saveifnet;
+X	    if (Retin_ifaddr)
+X		*Retin_ifaddr = savein_ifaddr;
+X	    if (Name)
+X		strcpy(Name, saveName);
+X	}
+X	return(0);	/* DONE */
+X}
+X
+Xstatic int Interface_Count=0;
+X
+Xstatic int Interface_Scan_Get_Count()
+X{
+X	if (!Interface_Count) {
+X	    Interface_Scan_Init();
+X	    while (Interface_Scan_Next((int *)0, (char *)0, (struct ifnet *)0, (struct in_ifaddr *)0) != 0)
+X		Interface_Count++;
+X	}
+X	return(Interface_Count);
+X}
+X
+Xstatic int Interface_Get_Ether_By_Index(Index, EtherAddr)
+Xint Index;
+Xchar *EtherAddr;
+X{
+X	int i;
+X	struct arpcom arpcom;
+X
+X	if (saveIndex != Index) {	/* Optimization! */
+X	    Interface_Scan_Init();
+X	    while (Interface_Scan_Next(&i, (char *)0, (struct ifnet *)0, (struct in_ifaddr *)0)) {
+X		if (i == Index) break;
+X	    }
+X	    if (i != Index) return(-1);     /* Error, doesn't exist */
+X	}
+X
+X	/*
+X	 *  the arpcom structure is an extended ifnet structure which
+X	 *  contains the ethernet address.
+X	 */
+X	klseek(saveifnetaddr);
+X	klread((char *)&arpcom, sizeof arpcom);
+X	bcopy((char *)&arpcom.ac_enaddr, EtherAddr, sizeof(arpcom.ac_enaddr));
+X	return(0);	/* DONE */
+X}
+X
+END_OF_FILE
+  if test 46704 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmp_vars.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/parse.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/parse.c'\" \(22322 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/parse.c' <<'END_OF_FILE'
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X/*
+X * parse.c
+X */
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include "parse.h"
+X
+X/*
+X * This is one element of an object identifier with either an integer subidentifier,
+X * or a textual string label, or both.
+X * The subid is -1 if not present, and label is NULL if not present.
+X */
+Xstruct subid {
+X    int subid;
+X    char *label;
+X};
+X
+Xint Line = 1;
+X
+X/* types of tokens */
+X#define	CONTINUE    -1
+X#define LABEL	    1
+X#define SUBTREE	    2
+X#define SYNTAX	    3
+X#define OBJID	    4
+X#define OCTETSTR    5
+X#define INTEGER	    6
+X#define NETADDR	    7
+X#define	IPADDR	    8
+X#define COUNTER	    9
+X#define GAUGE	    10
+X#define TIMETICKS   11
+X#define OPAQUE	    12
+X#define NUL	    13
+X#define SEQUENCE    14
+X#define OF	    15	/* SEQUENCE OF */
+X#define OBJTYPE	    16
+X#define ACCESS	    17
+X#define READONLY    18
+X#define READWRITE   19
+X#define	WRITEONLY   20
+X#define NOACCESS    21
+X#define STATUS	    22
+X#define MANDATORY   23
+X#define OPTIONAL    24
+X#define OBSOLETE    25
+X#define RECOMMENDED 26
+X#define PUNCT	    27
+X#define EQUALS	    28
+X
+Xstruct tok {
+X	char *name;			/* token name */
+X	int len;			/* length not counting nul */
+X	int token;			/* value */
+X	int hash;			/* hash of name */
+X	struct tok *next;		/* pointer to next in hash table */
+X};
+X
+X
+Xstruct tok tokens[] = {
+X	{ "obsolete", sizeof ("obsolete")-1, OBSOLETE },
+X	{ "Opaque", sizeof ("Opaque")-1, OPAQUE },
+X	{ "recommended", sizeof("recommended")-1, RECOMMENDED }, 
+X	{ "optional", sizeof ("optional")-1, OPTIONAL },
+X	{ "mandatory", sizeof ("mandatory")-1, MANDATORY },
+X	{ "not-accessible", sizeof ("not-accessible")-1, NOACCESS },
+X	{ "write-only", sizeof ("write-only")-1, WRITEONLY },
+X	{ "read-write", sizeof ("read-write")-1, READWRITE },
+X	{ "TimeTicks", sizeof ("TimeTicks")-1, TIMETICKS },
+X	{ "OBJECTIDENTIFIER", sizeof ("OBJECTIDENTIFIER")-1, OBJID },
+X	/*
+X	 * This CONTINUE appends the next word onto OBJECT,
+X	 * hopefully matching OBJECTIDENTIFIER above.
+X	 */
+X	{ "OBJECT", sizeof ("OBJECT")-1, CONTINUE },
+X	{ "NetworkAddress", sizeof ("NetworkAddress")-1, NETADDR },
+X	{ "Gauge", sizeof ("Gauge")-1, GAUGE },
+X	{ "OCTETSTRING", sizeof ("OCTETSTRING")-1, OCTETSTR },
+X	{ "OCTET", sizeof ("OCTET")-1, -1 },
+X	{ "OF", sizeof ("OF")-1, OF },
+X	{ "SEQUENCE", sizeof ("SEQUENCE")-1, SEQUENCE },
+X	{ "NULL", sizeof ("NULL")-1, NUL },
+X	{ "IpAddress", sizeof ("IpAddress")-1, IPADDR },
+X	{ "INTEGER", sizeof ("INTEGER")-1, INTEGER },
+X	{ "Counter", sizeof ("Counter")-1, COUNTER },
+X	{ "read-only", sizeof ("read-only")-1, READONLY },
+X	{ "ACCESS", sizeof ("ACCESS")-1, ACCESS },
+X	{ "STATUS", sizeof ("STATUS")-1, STATUS },
+X	{ "SYNTAX", sizeof ("SYNTAX")-1, SYNTAX },
+X	{ "OBJECT-TYPE", sizeof ("OBJECT-TYPE")-1, OBJTYPE },
+X	{ "{", sizeof ("{")-1, PUNCT },
+X	{ "}", sizeof ("}")-1, PUNCT },
+X	{ "::=", sizeof ("::=")-1, EQUALS },
+X	{ NULL }
+X};
+X
+X#define	HASHSIZE	32
+X#define	BUCKET(x)	(x & 0x01F)
+X
+Xstruct tok	*buckets[HASHSIZE];
+X
+Xstatic
+Xhash_init()
+X{
+X	register struct tok	*tp;
+X	register char	*cp;
+X	register int	h;
+X	register int	b;
+X
+X	for (tp = tokens; tp->name; tp++) {
+X		for (h = 0, cp = tp->name; *cp; cp++)
+X			h += *cp;
+X		tp->hash = h;
+X		b = BUCKET(h);
+X		if (buckets[b])
+X			tp->next = buckets[b];
+X		buckets[b] = tp;
+X	}
+X}
+X
+X
+Xstatic char *
+XMalloc(num)
+X    unsigned num;
+X{
+X    char *cp;
+X    char *malloc();
+X    
+X    /* this is to fix (what seems to be) a problem with the IBM RT C library malloc */
+X    if (num < 16)
+X	num = 16;
+X    cp = malloc(num);
+X    return cp;
+X}
+X
+Xstatic
+Xprint_error(string, token)
+X    char *string;
+X    char *token;
+X{
+X    if (token)
+X	fprintf(stderr, "%s(%s): On or around line %d\n", string, token, Line);
+X    else
+X	fprintf(stderr, "%s: On or around line %d\n", string, Line);
+X}
+X
+X#ifdef TEST
+Xprint_subtree(tree, count)
+X    struct tree *tree;
+X    int count;
+X{
+X    struct tree *tp;
+X    int i;
+X
+X    for(i = 0; i < count; i++)
+X	printf("  ");
+X    printf("Children of %s:\n", tree->label);
+X    count++;
+X    for(tp = tree->child_list; tp; tp = tp->next_peer){
+X	for(i = 0; i < count; i++)
+X	    printf("  ");
+X	printf("%s\n", tp->label);
+X    }
+X    for(tp = tree->child_list; tp; tp = tp->next_peer){
+X	print_subtree(tp, count);
+X    }
+X}
+X#endif /* TEST */
+X
+X
+Xstatic struct tree *
+Xbuild_tree(nodes)
+X    struct node *nodes;
+X{
+X    struct node *np;
+X    struct tree *tp;
+X    
+X    /* build root node */
+X    tp = (struct tree *)Malloc(sizeof(struct tree));
+X    tp->parent = NULL;
+X    tp->next_peer = NULL;
+X    tp->child_list = NULL;
+X    tp->enums = NULL;
+X    strcpy(tp->label, "iso");
+X    tp->subid = 1;
+X    tp->type = 0;
+X    /* grow tree from this root node */
+X    do_subtree(tp, &nodes);
+X#ifdef TEST
+X    print_subtree(tp, 0);
+X#endif /* TEST */
+X    /* If any nodes are left, the tree is probably inconsistent */
+X    if (nodes){
+X	fprintf(stderr, "The mib description doesn't seem to be consistent.\n");
+X	fprintf(stderr, "Some nodes couldn't be linked under the \"iso\" tree.\n");
+X	fprintf(stderr, "these nodes are left:\n");
+X	for(np = nodes; np; np = np->next)
+X	    fprintf(stderr, "%s ::= { %s %d } (%d)\n", np->label, np->parent, np->subid,
+X		    np->type);
+X    }
+X    return tp;
+X}
+X
+X
+X/*
+X * Find all the children of root in the list of nodes.  Link them into the
+X * tree and out of the nodes list.
+X */
+Xstatic
+Xdo_subtree(root, nodes)
+X    struct tree *root;
+X    struct node **nodes;
+X{
+X    register struct tree *tp;
+X    struct tree *peer = NULL;
+X    register struct node *np;
+X    struct node *oldnp = NULL, *child_list = NULL, *childp = NULL;
+X    
+X    tp = root;
+X    /*
+X     * Search each of the nodes for one whose parent is root, and
+X     * move each into a separate list.
+X     */
+X    for(np = *nodes; np; np = np->next){
+X	if ((tp->label[0] == np->parent[0]) && !strcmp(tp->label, np->parent)){
+X	    if (child_list == NULL){
+X		child_list = childp = np;   /* first entry in child list */
+X	    } else {
+X		childp->next = np;
+X		childp = np;
+X	    }
+X	    /* take this node out of the node list */
+X	    if (oldnp == NULL){
+X		*nodes = np->next;  /* fix root of node list */
+X	    } else {
+X		oldnp->next = np->next;	/* link around this node */
+X	    }
+X	} else {
+X	    oldnp = np;
+X	}
+X    }
+X    if (childp)
+X	childp->next = 0;	/* re-terminate list */
+X    /*
+X     * Take each element in the child list and place it into the tree.
+X     */
+X    for(np = child_list; np; np = np->next){
+X	tp = (struct tree *)Malloc(sizeof(struct tree));
+X	tp->parent = root;
+X	tp->next_peer = NULL;
+X	tp->child_list = NULL;
+X	strcpy(tp->label, np->label);
+X	tp->subid = np->subid;
+X	switch(np->type){
+X	    case OBJID:
+X		tp->type = TYPE_OBJID;
+X		break;
+X	    case OCTETSTR:
+X		tp->type = TYPE_OCTETSTR;
+X		break;
+X	    case INTEGER:
+X		tp->type = TYPE_INTEGER;
+X		break;
+X	    case NETADDR:
+X		tp->type = TYPE_IPADDR;
+X		break;
+X	    case IPADDR:
+X		tp->type = TYPE_IPADDR;
+X		break;
+X	    case COUNTER:
+X		tp->type = TYPE_COUNTER;
+X		break;
+X	    case GAUGE:
+X		tp->type = TYPE_GAUGE;
+X		break;
+X	    case TIMETICKS:
+X		tp->type = TYPE_TIMETICKS;
+X		break;
+X	    case OPAQUE:
+X		tp->type = TYPE_OPAQUE;
+X		break;
+X	    case NUL:
+X		tp->type = TYPE_NULL;
+X		break;
+X	    default:
+X		tp->type = TYPE_OTHER;
+X		break;
+X	}
+X	tp->enums = np->enums;
+X	np->enums = NULL;	/* so we don't free them later */
+X	if (root->child_list == NULL){
+X	    root->child_list = tp;
+X	} else {
+X	    peer->next_peer = tp;
+X	}
+X	peer = tp;
+X	do_subtree(tp, nodes);	/* recurse on this child */
+X    }
+X    /* free all nodes that were copied into tree */
+X    for(np = child_list; np;){
+X	oldnp = np;
+X	np = np->next;
+X	free_node(oldnp);
+X    }
+X}
+X
+X
+X/*
+X * Takes a list of the form:
+X * { iso org(3) dod(6) 1 }
+X * and creates several nodes, one for each parent-child pair.
+X * Returns NULL on error.
+X */
+Xstatic int
+Xgetoid(fp, oid,  length)
+X    register FILE *fp;
+X    register struct subid *oid;	/* an array of subids */
+X    int length;	    /* the length of the array */
+X{
+X    register int count;
+X    int type;
+X    char token[64], label[32];
+X    register char *cp, *tp;
+X
+X    if ((type = get_token(fp, token)) != PUNCT){
+X	if (type == -1)
+X	    print_error("Unexpected EOF", (char *)NULL);
+X	else
+X	    print_error("Unexpected", token);
+X	return NULL;
+X    }
+X    if (*token != '{'){
+X	print_error("Unexpected", token);
+X	return NULL;
+X    }
+X    for(count = 0; count < length; count++, oid++){
+X	oid->label = 0;
+X	oid->subid = -1;
+X	if ((type = get_token(fp, token)) != LABEL){
+X	    if (type == -1){
+X		print_error("Unexpected EOF", (char *)NULL);
+X		return NULL;
+X	    }
+X	    else if (type == PUNCT && *token == '}'){
+X		return count;
+X	    } else {
+X		print_error("Unexpected", token);
+X		return NULL;
+X	    }
+X	}
+X	tp = token;
+X	if (!isdigit(*tp)){
+X	    /* this entry has a label */
+X	    cp = label;
+X	    while(*tp && *tp != '(')
+X		*cp++ = *tp++;
+X	    *cp = 0;
+X	    cp = (char *)Malloc((unsigned)strlen(label));
+X	    strcpy(cp, label);
+X	    oid->label = cp;
+X	    if (*tp == '('){
+X		/* this entry has a label-integer pair in the form label(integer). */
+X		cp = ++tp;
+X		while(*cp && *cp != ')')
+X		    cp++;
+X		if (*cp == ')')
+X		    *cp = 0;
+X		else {
+X		    print_error("No terminating parenthesis", (char *)NULL);
+X		    return NULL;
+X		}
+X		oid->subid = atoi(tp);
+X	    }
+X	} else {
+X	    /* this entry  has just an integer sub-identifier */
+X	    oid->subid = atoi(tp);
+X	}
+X    }
+X    return count;
+X
+X
+X}
+X
+Xstatic
+Xfree_node(np)
+X    struct node *np;
+X{
+X    struct enum_list *ep, *tep;
+X
+X    ep = np->enums;
+X    while(ep){
+X	tep = ep;
+X	ep = ep->next;
+X	free((char *)tep);
+X    }
+X    free((char *)np);
+X}
+X
+X/*
+X * Parse an entry of the form:
+X * label OBJECT IDENTIFIER ::= { parent 2 }
+X * The "label OBJECT IDENTIFIER" portion has already been parsed.
+X * Returns 0 on error.
+X */
+Xstatic struct node *
+Xparse_objectid(fp, name)
+X    FILE *fp;
+X    char *name;
+X{
+X    int type;
+X    char token[64];
+X    register int count;
+X    register struct subid *op, *nop;
+X    int length;
+X    struct subid oid[16];
+X    struct node *np, *root, *oldnp = NULL;
+X
+X    type = get_token(fp, token);
+X    if (type != EQUALS){
+X	print_error("Bad format", token);
+X	return 0;
+X    }
+X    if (length = getoid(fp, oid, 16)){
+X	np = root = (struct node *)Malloc(sizeof(struct node));
+X	/*
+X	 * For each parent-child subid pair in the subid array,
+X	 * create a node and link it into the node list.
+X	 */
+X	for(count = 0, op = oid, nop=oid+1; count < (length - 2); count++,
+X	    op++, nop++){
+X	    /* every node must have parent's name and child's name or number */
+X	    if (op->label && (nop->label || (nop->subid != -1))){
+X		strcpy(np->parent, op->label);
+X		if (nop->label)
+X		    strcpy(np->label, nop->label);
+X		if (nop->subid != -1)
+X		    np->subid = nop->subid;
+X		np ->type = 0;
+X		np->enums = 0;
+X		/* set up next entry */
+X		np->next = (struct node *)Malloc(sizeof(*np->next));
+X		oldnp = np;
+X		np = np->next;
+X	    }
+X	}
+X	np->next = (struct node *)NULL;
+X	/*
+X	 * The above loop took care of all but the last pair.  This pair is taken
+X	 * care of here.  The name for this node is taken from the label for this
+X	 * entry.
+X	 * np still points to an unused entry.
+X	 */
+X	if (count == (length - 2)){
+X	    if (op->label){
+X		strcpy(np->parent, op->label);
+X		strcpy(np->label, name);
+X		if (nop->subid != -1)
+X		    np->subid = nop->subid;
+X		else
+X		    print_error("Warning: This entry is pretty silly", token);
+X	    } else {
+X		free_node(np);
+X		if (oldnp)
+X		    oldnp->next = NULL;
+X		else
+X		    return NULL;
+X	    }
+X	} else {
+X	    print_error("Missing end of oid", (char *)NULL);
+X	    free_node(np);   /* the last node allocated wasn't used */
+X	    if (oldnp)
+X		oldnp->next = NULL;
+X	    return NULL;
+X	}
+X	/* free the oid array */
+X	for(count = 0, op = oid; count < length; count++, op++){
+X	    if (op->label)
+X		free(oid->label);
+X	    op->label = 0;
+X	}
+X	return root;
+X    } else {
+X	print_error("Bad object identifier", (char *)NULL);
+X	return 0;
+X    }
+X}
+X
+X/*
+X * Parses an asn type.  This structure is ignored by this parser.
+X * Returns NULL on error.
+X */
+Xstatic int
+Xparse_asntype(fp)
+X    FILE *fp;
+X{
+X    int type;
+X    char token[64];
+X
+X    type = get_token(fp, token);
+X    if (type != SEQUENCE){
+X	print_error("Not a sequence", (char *)NULL); /* should we handle this */
+X	return NULL;
+X    }
+X    while((type = get_token(fp, token)) != NULL){
+X	if (type == -1)
+X	    return NULL;
+X	if (type == PUNCT && (token[0] == '}' && token[1] == '\0'))
+X	    return -1;
+X    }
+X    print_error("Premature end of file", (char *)NULL);
+X    return NULL;
+X}
+X
+X/*
+X * Parses an OBJECT TYPE macro.
+X * Returns 0 on error.
+X */
+Xstatic struct node *
+Xparse_objecttype(fp, name)
+X    register FILE *fp;
+X    char *name;
+X{
+X    register int type;
+X    char token[64];
+X    int count, length;
+X    struct subid oid[16];
+X    char syntax[32];
+X    int nexttype;
+X    char nexttoken[64];
+X    register struct node *np;
+X    register struct enum_list *ep;
+X    register char *cp;
+X    register char *tp;
+X
+X    type = get_token(fp, token);
+X    if (type != SYNTAX){
+X	print_error("Bad format for OBJECT TYPE", token);
+X	return 0;
+X    }
+X    np = (struct node *)Malloc(sizeof(struct node));
+X    np->next = 0;
+X    np->enums = 0;
+X    type = get_token(fp, token);
+X    nexttype = get_token(fp, nexttoken);
+X    np->type = type;
+X    switch(type){
+X	case SEQUENCE:
+X	    strcpy(syntax, token);
+X	    if (nexttype == OF){
+X		strcat(syntax, " ");
+X		strcat(syntax, nexttoken);
+X		nexttype = get_token(fp, nexttoken);
+X		strcat(syntax, " ");
+X		strcat(syntax, nexttoken);
+X		nexttype = get_token(fp, nexttoken);
+X	    }
+X	    break;
+X	case INTEGER:
+X	    strcpy(syntax, token);
+X	    if (nexttype == PUNCT &&
+X		(nexttoken[0] == '{' && nexttoken[1] == '\0')) {
+X		/* if there is an enumeration list, parse it */
+X		while((type = get_token(fp, token)) != NULL){
+X		    if (type == -1){
+X			free_node(np);
+X			return 0;
+X		    }
+X		    if (type == PUNCT &&
+X			(token[0] == '}' && token[1] == '\0'))
+X			break;
+X		    if (type == 1){
+X			/* this is an enumerated label */
+X			if (np->enums == 0){
+X			    ep = np->enums = (struct enum_list *)
+X					Malloc(sizeof(struct enum_list));
+X			} else {
+X			    ep->next = (struct enum_list *)
+X					Malloc(sizeof(struct enum_list));
+X			    ep = ep->next;
+X			}
+X			ep->next = 0;
+X			/* a reasonable approximation for the length */
+X			ep->label = (char *)Malloc((unsigned)strlen(token));
+X			cp = ep->label;
+X			tp = token;
+X			while(*tp != '(' && *tp != 0)
+X			    *cp++ = *tp++;
+X			*cp = 0;
+X			if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL){
+X				print_error("Expected \"(\"", (char *)NULL);
+X				free_node(np);
+X				return 0;
+X			    }
+X			    tp = token;
+X			}
+X			if (*tp == '('){
+X			    tp++;
+X			} else {
+X			    print_error("Expected \"(\"", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL){
+X				print_error("Expected integer", token);
+X				free_node(np);
+X				return 0;
+X			    }
+X			    tp = token;
+X			}
+X
+X			cp = tp;
+X			if (!isdigit(*cp)){
+X			    print_error("Expected integer", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			while(isdigit(*tp) && *tp != 0)
+X			    tp++;
+X			if (*tp == ')')
+X			    *tp = '\0';	/* terminate number */
+X			else if (*tp == 0){
+X			    type = get_token(fp, token);
+X			    if (type != LABEL || *token != ')'){
+X				print_error("Expected \")\"", token);
+X				free_node(np);
+X				return 0;
+X			    }
+X			} else {
+X			    print_error("Expected \")\"", token);
+X			    free_node(np);
+X			    return 0;
+X			}
+X			ep->value = atoi(cp);
+X		    }
+X		}
+X		if (type == NULL){
+X		    print_error("Premature end of file", (char *)NULL);
+X		    free_node(np);
+X		    return 0;
+X		}
+X		nexttype = get_token(fp, nexttoken);
+X	    } else if (nexttype == LABEL && *nexttoken == '('){
+X		/* ignore the "constrained integer" for now */
+X		nexttype = get_token(fp, nexttoken);
+X	    }
+X	    break;
+X	case OBJID:
+X	case OCTETSTR:
+X	case NETADDR:
+X	case IPADDR:
+X	case COUNTER:
+X	case GAUGE:
+X	case TIMETICKS:
+X	case OPAQUE:
+X	case NUL:
+X	case LABEL:
+X	    strcpy(syntax, token);
+X	    break;
+X	default:
+X	    print_error("Bad syntax", token);
+X	    free_node(np);
+X	    return 0;
+X    }
+X    if (nexttype != ACCESS){
+X	print_error("Should be ACCESS", nexttoken);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != READONLY && type != READWRITE && type != WRITEONLY
+X	&& type != NOACCESS){
+X	print_error("Bad access type", nexttoken);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != STATUS){
+X	print_error("Should be STATUS", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != MANDATORY && type != OPTIONAL && type != OBSOLETE && type != RECOMMENDED){
+X	print_error("Bad status", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    type = get_token(fp, token);
+X    if (type != EQUALS){
+X	print_error("Bad format", token);
+X	free_node(np);
+X	return 0;
+X    }
+X    length = getoid(fp, oid, 16);
+X    if (length > 1 && length <= 16){
+X	/* just take the last pair in the oid list */
+X	if (oid[length - 2].label)
+X	    strncpy(np->parent, oid[length - 2].label, 32);
+X	strcpy(np->label, name);
+X	if (oid[length - 1].subid != -1)
+X	    np->subid = oid[length - 1].subid;
+X	else
+X	    print_error("Warning: This entry is pretty silly", (char *)NULL);
+X    } else {
+X	print_error("No end to oid", (char *)NULL);
+X	free_node(np);
+X	np = 0;
+X    }
+X    /* free oid array */
+X    for(count = 0; count < length; count++){
+X	if (oid[count].label)
+X	    free(oid[count].label);
+X	oid[count].label = 0;
+X    }
+X    return np;
+X}
+X
+X
+X/*
+X * Parses a mib file and returns a linked list of nodes found in the file.
+X * Returns NULL on error.
+X */
+Xstatic struct node *
+Xparse(fp)
+X    FILE *fp;
+X{
+X    char token[64];
+X    char name[32];
+X    int	type = 1;
+X    struct node *np, *root = NULL;
+X
+X    hash_init();
+X
+X    while(type != NULL){
+X	type = get_token(fp, token);
+X	if (type != LABEL){
+X	    if (type == NULL){
+X		return root;
+X	    }
+X	    print_error(token, "is a reserved word");
+X	    return NULL;
+X	}
+X	strncpy(name, token, 32);
+X	type = get_token(fp, token);
+X	if (type == OBJTYPE){
+X	    if (root == NULL){
+X		/* first link in chain */
+X		np = root = parse_objecttype(fp, name);
+X		if (np == NULL){
+X		    print_error("Bad parse of object type", (char *)NULL);
+X		    return NULL;
+X		}
+X	    } else {
+X		np->next = parse_objecttype(fp, name);
+X		if (np->next == NULL){
+X		    print_error("Bad parse of objecttype", (char *)NULL);
+X		    return NULL;
+X		}
+X	    }
+X	    /* now find end of chain */
+X	    while(np->next)
+X		np = np->next;
+X	} else if (type == OBJID){
+X	    if (root == NULL){
+X		/* first link in chain */
+X		np = root = parse_objectid(fp, name);
+X		if (np == NULL){
+X		    print_error("Bad parse of object id", (char *)NULL);
+X		    return NULL;
+X		}
+X	    } else {
+X		np->next = parse_objectid(fp, name);
+X		if (np->next == NULL){
+X		    print_error("Bad parse of object type", (char *)NULL);
+X		    return NULL;
+X		}
+X	    }
+X	    /* now find end of chain */
+X	    while(np->next)
+X		np = np->next;
+X	} else if (type == EQUALS){
+X	    type = parse_asntype(fp);
+X	} else if (type == NULL){
+X	    break;
+X	} else {
+X	    print_error("Bad operator", (char *)NULL);
+X	    return NULL;
+X	}
+X    }
+X#ifdef TEST
+X{
+X    struct enum_list *ep;
+X    
+X    for(np = root; np; np = np->next){
+X	printf("%s ::= { %s %d } (%d)\n", np->label, np->parent, np->subid,
+X		np->type);
+X	if (np->enums){
+X	    printf("Enums: \n");
+X	    for(ep = np->enums; ep; ep = ep->next){
+X		printf("%s(%d)\n", ep->label, ep->value);
+X	    }
+X	}
+X    }
+X}
+X#endif /* TEST */
+X    return root;
+X}
+X
+X/*
+X * Parses a token from the file.  The type of the token parsed is returned,
+X * and the text is placed in the string pointed to by token.
+X */
+Xstatic int
+Xget_token(fp, token)
+X    register FILE *fp;
+X    register char *token;
+X{
+X    static char last = ' ';
+X    register int ch;
+X    register char *cp = token;
+X    register int hash = 0;
+X    register struct tok *tp;
+X
+X    *cp = 0;
+X    ch = last;
+X    /* skip all white space */
+X    while(isspace(ch) && ch != -1){
+X	ch = getc(fp);
+X	if (ch == '\n')
+X	    Line++;
+X    }
+X    if (ch == -1)
+X	return NULL;
+X
+X    /*
+X     * Accumulate characters until white space is found.  Then attempt to match this
+X     * token as a reserved word.  If a match is found, return the type.  Else it is
+X     * a label.
+X     */
+X    do {
+X	if (!isspace(ch)){
+X	    hash += ch;
+X	    *cp++ = ch;
+X	    if (ch == '\n')
+X		Line++;
+X	} else {
+X	    last = ch;
+X	    *cp = '\0';
+X
+X	    for (tp = buckets[BUCKET(hash)]; tp; tp = tp->next) {
+X		if ((tp->hash == hash) && (strcmp(tp->name, token) == 0))
+X			break;
+X	    }
+X	    if (tp){
+X		if (tp->token == CONTINUE)
+X		    continue;
+X		return (tp->token);
+X	    }
+X
+X	    if (token[0] == '-' && token[1] == '-'){
+X		/* strip comment */
+X		while ((ch = getc(fp)) != -1)
+X		    if (ch == '\n'){
+X			Line++;
+X			break;
+X		    }
+X		if (ch == -1)
+X		    return NULL;
+X		last = ch;
+X		return get_token(fp, token);		
+X	    }
+X	    return LABEL;
+X	}
+X    
+X    } while ((ch = getc(fp)) != -1);
+X    return NULL;
+X}
+X
+Xstruct tree *
+Xread_mib(filename)
+X    char *filename;
+X{
+X    FILE *fp;
+X    struct node *nodes;
+X    struct tree *tree;
+X    struct node *parse();
+X
+X    fp = fopen(filename, "r");
+X    if (fp == NULL)
+X	return NULL;
+X    nodes = parse(fp);
+X    if (!nodes){
+X	fprintf(stderr, "Mib table is bad.  Exiting\n");
+X	exit(1);
+X    }
+X    tree = build_tree(nodes);
+X    fclose(fp);
+X    return tree;
+X}
+X
+X
+X#ifdef TEST
+Xmain(argc, argv)
+X    int argc;
+X    char *argv[];
+X{
+X    FILE *fp;
+X    struct node *nodes;
+X    struct tree *tp;
+X
+X    fp = fopen("mib.txt", "r");
+X    if (fp == NULL){
+X	fprintf(stderr, "open failed\n");
+X	return 1;
+X    }
+X    nodes = parse(fp);
+X    tp = build_tree(nodes);
+X    print_subtree(tp, 0);
+X    fclose(fp);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 22322 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/parse.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/parse.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/snmplib/snmp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.h'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.h'\" \(2082 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/snmplib/snmp.h' <<'END_OF_FILE'
+X/*
+X * Definitions for the Simple Network Management Protocol (RFC 1067).
+X *
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+X#define SNMP_PORT	    161
+X#define SNMP_TRAP_PORT	    162
+X
+X#define SNMP_MAX_LEN	    484
+X
+X#define SNMP_VERSION_1	    0
+X
+X#define GET_REQ_MSG	    (ASN_CONTEXT | ASN_CONSTRUCTOR | 0x0)
+X#define GETNEXT_REQ_MSG	    (ASN_CONTEXT | ASN_CONSTRUCTOR | 0x1)
+X#define GET_RSP_MSG	    (ASN_CONTEXT | ASN_CONSTRUCTOR | 0x2)
+X#define SET_REQ_MSG	    (ASN_CONTEXT | ASN_CONSTRUCTOR | 0x3)
+X#define TRP_REQ_MSG	    (ASN_CONTEXT | ASN_CONSTRUCTOR | 0x4)
+X
+X#define SNMP_ERR_NOERROR    (0x0)
+X#define SNMP_ERR_TOOBIG	    (0x1)
+X#define SNMP_ERR_NOSUCHNAME (0x2)
+X#define SNMP_ERR_BADVALUE   (0x3)
+X#define SNMP_ERR_READONLY   (0x4)
+X#define SNMP_ERR_GENERR	    (0x5)
+X
+X#define SNMP_TRAP_COLDSTART		(0x0)
+X#define SNMP_TRAP_WARMSTART		(0x1)
+X#define SNMP_TRAP_LINKDOWN		(0x2)
+X#define SNMP_TRAP_LINKUP		(0x3)
+X#define SNMP_TRAP_AUTHFAIL		(0x4)
+X#define SNMP_TRAP_EGPNEIGHBORLOSS	(0x5)
+X#define SNMP_TRAP_ENTERPRISESPECIFIC	(0x6)
+X
+END_OF_FILE
+  if test 2082 -ne `wc -c <'nocol-3.0/src/cmu-snmp/snmplib/snmp.h'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.h'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/snmplib/snmp.h'
+fi
+echo shar: End of archive 8 \(of 26\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

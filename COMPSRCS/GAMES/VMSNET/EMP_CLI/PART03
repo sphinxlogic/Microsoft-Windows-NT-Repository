@@ -1,0 +1,1799 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 3/8
+Message-ID: <1992Apr12.182117.15315@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:17 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1788
+
+Archive-name: empireclient_110/part3
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 3 -+-+-+-+-+-+-+-+
+X`009screen -> display `091 X + screen -> Xmax * Y `093 = ' ';
+X`009screen -> flags `091 X + screen -> Xmax * Y `093 = 0;
+X    `125
+X
+X    screen -> Xpos = 1;
+X    screen -> Ypos = screen -> Ymax;
+X
+X`125
+X
+Xstatic int screen_UPDATE_SPLIT(int X, int Y, int ATR, char *S, int len,
+X    int *split)
+X`123
+X    int needwrite = 1;
+X    int i;
+X    for ( i = 0; i < len; i++) `123
+X`009int atr = (ATR & SM_7BIT) ?`032
+X`009    (S`091i`093 & 128 ? ATR `124 SM_BOLD : ATR) : ATR;
+X`009int c = (ATR & SM_7BIT) ? (S`091i`093 & 127) : S`091i`093;
+X
+X`009int f = ( X+i <= screen_Xmax && Y <= screen_Ymax &&
+X`009`009(screen_display `091 X -1 + i + screen_Xmax *  (Y -1) `093 != c `124
+V`124
+X`009`009screen_flags `091 X -1 + i + screen_Xmax *  (Y -1) `093 != atr));
+X`009if (i && f != needwrite) `123
+X`009    *split = i;
+X`009    return needwrite;
+X`009`125
+X`009needwrite = f;`032
+X    `125
+X
+X    *split = len;
+X    return needwrite;
+X`125
+X
+Xstatic void screen_PUT_POSITION(struct screen_data *screen)`032
+X`123
+X    if (screen -> Ypos <= screen_Ymax && screen -> Xpos <= screen_Xmax)
+X`009screen_GOTO(screen -> Xpos,screen -> Ypos);
+X    else screen_GOTO(1,1);
+X`125
+X
+Xvoid screen_write(prompt_type P, int X, int Y, int ATR, char *S)
+X`123
+X    char tmp`091SBUFFER_LEN`093;
+X    struct screen_data *screen = prompts`091P`093.screen;
+X    int yes = prompts`091current_prompt`093.screen == screen;
+X    int len = strlen(S);
+X    int i,first = 0;
+X
+X    if ( X < 1 `124`124 X > screen -> Xmax `124`124
+X`009 Y < 1 `124`124 Y > screen -> Ymax ) return;
+X
+X    screen -> Xpos = X;
+X    screen -> Ypos = Y;
+X
+X    if (len > screen -> Xmax - X )`032
+X`009len = screen -> Xmax - X;
+X    if (len < 0) return;
+X
+X    first = 0;
+X    while (yes && first < len) `123
+X`009int split;
+X`009int need = screen_UPDATE_SPLIT(X + first,Y,ATR,`032
+X`009    S + first , len - first, &split);
+X
+X`009if (need && Y <= screen_Ymax && X + first <= screen_Xmax) `123
+X`009    screen_GOTO(X + first ,Y);
+X`009    strncpy(tmp,S+ first,split); tmp`091split`093 = '\0';
+X`009    if (screen_Xmax < X + first + split)`032
+X`009`009tmp`091screen_Xmax - X - first`093 = '\0';
+X`009    if (ATR & SM_7BIT) `123
+X`009`009char *C;
+X`009`009for (C = tmp; *C; C++) `123
+X`009`009    char foo`0912`093;
+X`009`009    foo`0910`093 = *C & 127;
+X`009`009    foo`0911`093 = '\0';
+X`009`009    screen_WRITE(*C & 128 ? ATR `124 SM_BOLD : ATR, foo);
+X`009`009`125
+X`009    `125 else screen_WRITE(ATR,tmp);
+X`009`125
+X`009first += split;
+X    `125
+X
+X    for ( i = 0; i < len; i++) `123
+X`009    screen -> display `091 screen -> Xpos -1 + i + screen -> Xmax *`032
+X`009`009(screen -> Ypos -1) `093`032
+X`009`009= ATR & SM_7BIT ? S`091i`093 & 127 : S`091i`093;
+X`009    screen -> flags `091 screen -> Xpos -1 + i + screen -> Xmax *`032
+X`009`009(screen -> Ypos -1) `093
+X`009       = ATR & SM_7BIT ? ( S`091i`093 & 128 ? ATR `124 SM_BOLD : ATR ) :
+V ATR;
+X    `125
+X
+X    screen -> Xpos += len;
+X    if (yes) screen_PUT_POSITION(screen);
+X
+X    flush_buffered();
+X`125
+X
+Xvoid screen_writeSA(prompt_type P, int ATR, char *S)
+X`123
+X    struct screen_data *screen = prompts`091P`093.screen;
+X    screen_scroll(P);
+X    screen_write(P,1,screen -> Ymax,ATR,S);
+X`125
+X
+X
+Xvoid screen_prompt(prompt_type P, int X, int Y)
+X`123
+X    if (!prompts`091P`093.screen) `123`032
+X`009write_line("Internal errror(screen_prompt): Not in screen mode",
+X`009    E_client,NULL);
+X`009if (P == P_command) quit_flag = 1;
+X`009else change_prompt(P_command);
+X    `125 else `123
+X`009screen_write(P,X,Y,0,"");
+X`009ask_prompt(P,NULL,dummy_handler,0);
+X    `125
+X`125
+X
+Xvoid screen_clear(prompt_type P, struct screen_data *screen)
+X`123
+X    int yes = prompts`091current_prompt`093.screen == screen;
+X    int X,Y;
+X
+X    prompts`091P`093.screen = screen;
+X    if (screen == NULL) `123
+X`009if (P == current_prompt && have_screen_mode)
+X`009    leave_screen_mode();
+X`009return;
+X    `125
+X
+X    screen -> Xmax = screen_page_width;
+X    screen -> Ymax = screen_page_len;
+X   `032
+X    if (screen -> display) free ((void *)(screen -> display));
+X    if (screen -> flags) free((void *)(screen -> flags));
+X    screen -> display = NULL;
+X    screen -> flags = NULL;
+X
+X    screen -> display = malloc(screen -> Xmax * screen -> Ymax);
+X    screen -> flags = malloc(screen -> Xmax * screen -> Ymax);
+X
+X
+X    if (!screen -> display `124`124 !screen -> flags) `123
+X`009if (screen -> display) free ((void *)(screen -> display));
+X`009if (screen -> flags) free((void *)(screen -> flags));
+X`009screen -> display = NULL;
+X`009screen -> flags = NULL;
+X
+X`009write_line("No memory for screen data",E_client,NULL);
+X`009prompts`091P`093.screen = NULL;
+X`009change_prompt(P_command);`009
+X`009return;
+X    `125
+X
+X    for (Y = 0; Y < screen -> Ymax; Y++)
+X`009for (X = 0; X < screen -> Xmax; X++) `123
+X`009    screen -> display `091 X + screen -> Xmax * Y `093 = ' ';
+X`009    screen -> flags `091 X + screen -> Xmax * Y `093   = 0;
+X`009`125
+X
+X    screen -> Xpos = 1;
+X    screen -> Ypos = 1;
+X
+X    if (P == current_prompt && have_screen_mode) screen_update();
+X    else if (P == current_prompt && !have_screen_mode) enter_screen_mode();
+X
+X`125
+X
+Xstatic void leave_screen_mode(void)
+X`123
+X`009write_buffered(SCREEN_CLEAR);
+X`009flush_buffered();
+X`009have_screen_mode = 0;
+X`009
+X`009if (screen_display) free ((void *)screen_display);
+X`009if (screen_flags) free((void *)screen_flags);
+X`009screen_display = NULL;
+X`009screen_flags = NULL;
+X
+X`125
+X
+Xstatic void enter_screen_mode(void)`032
+X`123
+X    int X,Y;
+X
+X    if (screen_display) free ((void *)screen_display);
+X    if (screen_flags) free((void *)screen_flags);
+X    screen_display = NULL;
+X    screen_flags = NULL;
+X
+X    read_screen_params();   /* if screen params have changed */
+X
+X    if (!screen_is_ansi) `123
+X`009write_line("Screen don't support ANSI codes",E_client,NULL);
+X`009change_prompt(P_command);`009
+X`009return;
+X    `125
+X
+X    screen_Xmax = screen_page_width;
+X    screen_Ymax = screen_page_len;
+X
+X    screen_display = (char *)malloc(screen_Xmax * screen_Ymax);
+X    screen_flags = (char *)malloc(screen_Xmax * screen_Ymax);
+X
+X    if (!screen_display `124`124 !screen_flags) `123
+X
+X`009write_line("No memory for screen data",E_client,NULL);
+X`009leave_screen_mode();
+X`009change_prompt(P_command);`009
+X`009return;
+X    `125
+X    for (Y = 0; Y < screen_Ymax; Y++)
+X`009for (X = 0; X < screen_Xmax; X++) `123
+X`009    screen_display `091 X + screen_Xmax * Y `093 = ' ';
+X`009    screen_flags `091 X + screen_Xmax * Y `093   = 0;
+X`009`125
+X
+X    write_buffered(SCREEN_CLEAR);
+X    have_screen_mode = 1;
+X    screen_cur_flags = 0;
+X    screen_cur_X = 1;
+X    screen_cur_Y = 1;
+X    screen_update();
+X
+X    return;
+X`125
+X
+X#ifdef SCREEN_MODE_TEST
+X
+Xstatic void SKH_up`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    screen_write(PR, 35, 10, 0, "UP    ");
+X`125
+X
+Xstatic void SKH_down`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    screen_write(PR, 35, 10,  0, "DOWN    ");
+X`125
+X
+Xstatic void SKH_left`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    screen_write(PR, 35, 10,  0, "LEFT    ");
+X`125
+X
+Xstatic void SKH_right`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    screen_write(PR, 35, 10, 0, "RIGHT    ");
+X`125
+X
+Xstatic void SKH_return`009(struct screen_data *screen,
+X`009prompt_type PR)
+X`123
+X    screen_write(PR, 35, 10, SM_BOLD, "CR    ");
+X`125
+X
+Xstatic void SKH_key(struct screen_data  *screen, prompt_type PR)
+X`123
+X    screen_write(PR,35,10,SM_REVERSE, prompts`091PR`093.command);
+X`125
+X
+X
+Xstatic void screen_mode_test (void)`032
+X`123
+X    static struct SK_entry K`091`093 =
+X    `123
+X`009`123 SK_up, SKH_up `125,
+X`009`123 SK_down, SKH_down `125,
+X`009`123 SK_left, SKH_left `125,
+X`009`123 SK_right, SKH_right `125,
+X`009`123 SK_return, SKH_return `125,
+X`009`123 SK_key, SKH_key `125,
+X
+X    `125;
+X    static struct screen_data D =
+X`009`123 0,0,0,0, NULL, NULL,`032
+X`009    sizeof(K)/sizeof(struct SK_entry), &K,
+X`009    20 `125;
+X   `032
+X    screen_clear(P_screen,&D);
+X    change_prompt(P_screen);
+X    screen_write(P_screen,30,1,SM_REVERSE, "SCREEN mode test");
+X    screen_prompt(P_screen,30,1);
+X`125
+X
+X#endif /* SCREEN_MODE_TEST */
+X
+X/* Routines for MORE **************************************************** */
+X
+Xstatic volatile int more_key_pressed = 0;
+Xstatic int prompt_delayed = 0;
+Xstatic volatile char more_key_buffer`0911+ESC_SIZE+1`093;
+X
+Xstatic volatile void more_ast(void);
+Xstatic volatile void more_itmast(void);
+X
+Xvolatile ReadDescriptor ItemList2`091`093 =
+X    `123 `123 0 , TRM$_ESCTRMOVR, ESC_SIZE, 0 `125,`009    /* 0 = size of es
+Vcape */
+X      `123 0 , TRM$_MODIFIERS, TRM$M_TM_ESCAPE `124`032
+X`009`009TRM$M_TM_NOECHO `124 TRM$M_TM_NOEDIT, 0 `125 /* 1 = modifiers */
+X    `125;
+X
+Xstatic void ask_more(void)
+X`123
+X    char buffer`091TERM_LEN`093;
+X    int status;
+X    int pros = 100;
+X    if (length_counter) pros = 100 * current_counter / length_counter;
+X
+X    if (have_screen_mode) leave_screen_mode();
+X
+X    if (HAVE_FROM_KBD) prompt_delayed = 1;
+X    suspend_prompt(1); /* DON'T FLUSH MORE */
+X
+X    if (use_history) `123
+X`009status = sys$qio(0, keychannel, IO$_READVBLK `124 IO$M_EXTEND,`032
+X`009    &iosb9, more_itmast, 0,`032
+X`009    more_key_buffer, sizeof (more_key_buffer)-1, 0, 0,`032
+X`009    ItemList2, sizeof(ItemList2));
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    print_more(length_counter - current_counter,0,1);
+X`009    clear_more();
+X`009    use_more = 0;
+X`009    write_VMS_error("Error putting IO$READVBLK `124 IO$M_EXTEND qio to k
+Veyboard.",status);
+X`009`125 else `123`009`009/* LF CR text ... */
+X`009    sprintf(buffer,"\n\rMORE %3d%% (%3d/%3d)",pros,current_counter,`032
+X`009    length_counter);
+X`009    put_screen(buffer,1,0);
+X`009    have_asked_more = 1;
+X`009`125
+X
+X
+X    `125 else `123
+X`009status = sys$qio(0, keychannel, IO$_READVBLK `124 IO$M_NOECHO,
+X`009`009    &iosb3, more_ast, 0, more_key_buffer,1, 0, 0, 0, 0);
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    print_more(length_counter - current_counter,0,1);
+X`009    clear_more();
+X`009    use_more = 0;
+X`009    write_VMS_error("Error putting IO$_READVBLK `124 IO$M_NOECHO qio to
+V keyboard.",status);
+X`009`125 else `123`009`009/* LF CR text ... */
+X`009    sprintf(buffer,"\n\rMORE %3d%% (%3d/%3d)",pros,current_counter,`032
+X`009    length_counter);
+X`009    put_screen(buffer,1,0);
+X`009    have_asked_more = 1;
+X`009`125
+X    `125
+X`125
+X
+X
+Xstatic volatile void more_ast(void)
+X`123
+X    int status;
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nmore_ast\n"); fflush(stderr);
+X#   endif
+X
+X    if (iosb3.trmoff < 1) `123
+X`009if (iosb3.cond == SS$_NORMAL) `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009`125 else if (iosb3.cond == SS$_ABORT) `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009`125 else `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009    put_error(E_vms,"Error reading from user",iosb3.cond);
+X`009`125
+X    `125 else `123
+X`009more_key_pressed = more_key_buffer`0910`093;
+X`009if (!more_key_pressed) more_key_pressed = '\r'; /* CR */
+X    `125
+X
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic volatile void more_itmast(void)
+X`123
+X    int status;
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nmore_itmast\n"); fflush(stderr);
+X#   endif
+X
+X    if (iosb9.trmoff + iosb9.trmsize < 1) `123
+X`009if (iosb9.cond == SS$_NORMAL) `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009`125 else if (iosb9.cond == SS$_ABORT) `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009`125 else `123
+X`009    more_key_pressed = '\r'; /* CR */
+X`009    put_error(E_vms,"Error reading from user",iosb9.cond);
+X`009`125
+X    `125 else if (iosb9.trmoff == 1) `123
+X`009more_key_pressed = more_key_buffer`0910`093;
+X`009if (!more_key_pressed) more_key_pressed = '\r'; /* CR */
+X    `125 else `123`009/* function key */
+X`009more_key_buffer`091iosb9.trmoff + iosb9.trmsize`093 = '\0';
+X`009if (!strcmp(more_key_buffer,"\002") `124`124
+X`009    !strcmp(more_key_buffer,"\033`091A") `124`124
+X`009    !strcmp(more_key_buffer,"\033OA")) more_key_pressed = 'p';
+X`009else if (!strcmp(more_key_buffer,"\033`091B") `124`124
+X`009    !strcmp(more_key_buffer,"\033OB")) more_key_pressed = ' ';
+X`009else more_key_pressed = '\r';
+X    `125
+X
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic void more_update(void)
+X`123
+X    char buffer`091TERM_LEN`093;
+X    int pros = 100;
+X    int flush = 0;
+X
+X    if (length_counter) pros = 100 * current_counter / length_counter;
+X
+X    if (have_asked_more) `123   /* CR text ... */
+X`009sprintf(buffer,"\rMORE %3d%% (%3d/%3d)",pros,current_counter,`032
+X`009    length_counter);
+X`009put_screen(buffer,1,0);
+X`009return;
+X    `125
+X
+X    if (!current_counter &&  length_counter >= more_page_len) `123
+X`009print_more(more_page_len,0,0);
+X`009ask_more();
+X    `125
+X`125
+X
+Xstatic void handle_more_key()
+X`123
+X    put_screen("\r                    \r",1,0);
+X    fflush(stdout);
+X    have_asked_more = 0;
+X
+X    /* BACKWARD */
+X    if (more_key_pressed == 'p' `124`124 more_key_pressed == 'P') `123
+X`009print_more(more_page_len,2*more_page_len,0);
+X`009more_key_pressed = 0;
+X`009ask_more();
+X`009return;
+X    `125
+X
+X    /* IN END */
+X    if (more_current == more_tail `124`124 more_key_pressed == 'q' `124`124
+X`009more_key_pressed == 'Q') `123
+X`009if (prompt_delayed) next_command(0);
+X`009prompt_delayed = 0;
+X`009clear_more();
+X`009more_key_pressed = 0;
+X`009return;
+X    `125
+X
+X    /* ONE LINE */
+X    if (more_key_pressed == '\r') `123
+X`009print_more(1,0,1);
+X`009more_key_pressed = 0;
+X`009ask_more();
+X`009return;
+X    `125
+X
+X    /* ONE PAGE */
+X    print_more(more_page_len,0,1);
+X    more_key_pressed = 0;
+X    ask_more();
+X    return;
+X`125
+X
+Xstatic int delay_prompt(void)
+X`123
+X    if (have_asked_more) `123
+X`009prompt_delayed = 1;
+X`009return;
+X    `125
+X
+X    print_more(length_counter,0,0);
+X    clear_more();
+X    next_command(0);
+X    prompt_delayed = 0;
+X`125
+X
+Xstatic void handle_moretimer(void)
+X`123
+X    if (have_asked_more) return;
+X
+X    if (length_counter >= more_page_len) more_update();
+X    else print_more(more_page_len,0,0);`032
+X`125
+X
+X
+Xvoid flush_message(void)    /* force output : called from empiretool */
+X`123
+X
+X    handle_moretimer();
+X
+X`125
+X
+X
+X/* WRITING to server **************************************************** */
+X
+X#   define DUMP_LINE_LEN 500
+Xstatic void write_command(char *s)
+X`123
+X    int l,status;
+X    char output`091DUMP_LINE_LEN+2`093;
+X    char buffer`091DUMP_LINE_LEN`093;
+X
+X    strcpy(output,s);
+X    strcat(output,"\n");
+X    l = strlen(output);
+X    status = send(channel, output, l, 0);
+X    if (status < 0) write_socket_error("Error sending to server");
+X`125
+X
+Xstatic void dump_to_server(char *filename)
+X`123
+X#   define MAX 4000
+X    FILE *fd;
+X    char buffer`091DUMP_LINE_LEN`093;
+X
+X    int count = 0;
+X    char last = '\0';
+X   `032
+X    if (*filename == '<') filename++;
+X    if (*filename == ' ') filename++;
+X
+X    fd = open_file(filename, F_NONE);
+X
+X    if (fd) `123
+X`009write_line("Input of command redirected from",E_client,
+X`009`009`009fgetname(fd,buffer));
+X
+X`009while(fgets(buffer,DUMP_LINE_LEN,fd) && count < MAX && !have_ctrlc) `123
+X`009    int l = strlen(buffer);
+X`009    int status = send(channel, buffer, l, 0);
+X`009    if (status < 0) `123
+X`009`009write_socket_error("Error sending to server");
+X`009`009break;
+X`009    `125 else `123
+X`009`009count += l;
+X`009`009last = buffer`091l-1`093;
+X`009    `125
+X`009`125
+X`009if (have_ctrlc) write_line("Input redirection canceled.",E_client,
+X`009`009fgetname(fd,buffer));
+X`009if (count >= MAX) write_line("Too long file for input. File truncated.",
+X`009`009E_client,fgetname(fd,buffer));
+X`009if (ferror(fd)) write_line("Readinf error from input file",E_client,
+X`009`009fgetname(fd,buffer));
+X`009close_file(&fd);
+X    `125
+X    if (last != '\n') write_command("");
+X    write_command(CTLD);
+X`125
+X
+X/* TIMESAVER ************************************************************* *
+V/
+X
+Xstatic int convert_time(char *time, quardword *clock)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    int status;
+X    $DESCRIPTOR(time_d,time);
+X    time_d.dsc$w_length = strlen(time);
+X
+X    status = sys$bintim(&time_d,clock);
+X    if (status != SS$_NORMAL) `123
+X`009sprintf(buffer,"Bad delta time %s",time);
+X`009write_VMS_error(buffer,status);
+X`009return 0;
+X    `125 else if (clock -> most >= 0) `123
+X`009sprintf(buffer,"Isn't delta time %s",time);
+X`009write_line(buffer,E_client,NULL);
+X`009return 0;
+X    `125 else return 1;
+X`125
+X
+Xstatic $DESCRIPTOR(list_time_buffer_d,"                                  ");
+X
+Xstatic char *list_time(quardword *clock)
+X`123
+X    int status;
+X    char *ptr;   `032
+X
+X    status = sys$asctim(0,&list_time_buffer_d,clock,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error convertin binary time",status);
+X`009return NULL;
+X    `125 else `123
+X`009list_time_buffer_d.dsc$a_pointer`091list_time_buffer_d.dsc$w_length`093
+V =`032
+X`009    '\0';
+X`009ptr = list_time_buffer_d.dsc$a_pointer;
+X`009while(*ptr == ' ') ptr++;`009    /* skip leading spaces */
+X`009return ptr;
+X    `125
+X`125
+X
+X#define TIMESAVER_ID 1
+X
+Xstatic volatile void timesaver_ast(void);
+X
+Xstatic void cancel_timesaver(void)
+X`123
+X    int status;
+X
+X    status = sys$cantim(TIMESAVER_ID,PSL$C_USER);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't cancel timesaver timer",status);
+X`009quit_flag = 1;
+X`009return;
+X    `125
+X`125
+X
+Xstatic void recycle_timesaver(void)
+X`123
+X    int status;
+X
+X    cancel_timesaver();
+X   `032
+X    status = sys$setimr(0,&timesaver_value,timesaver_ast,TIMESAVER_ID);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't activate timesaver's timer",status);
+X    `125
+X    else timesaver_launched = 0;
+X`125
+X
+Xstatic volatile void timesaver_ast(void)
+X`123
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\ntimsaver_ast\n"); fflush(stderr);
+X#   endif
+X
+X    timesaver_launched = 1;
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic char timesaver_prompt`091PROMPT_SIZE`093 = "";
+Xstatic char timesaver_command`091COMMAND_SIZE`093 = "";
+Xstatic char timesaver_country`091COMMAND_SIZE`093 = "";
+Xstatic char timesaver_pass`091COMMAND_SIZE`093 = "";
+X
+X/* MORETIMER ************************************************************ */
+X
+X#define MORETIMER_ID 2
+X
+Xstatic volatile void moretimer_ast(void);
+X
+Xstatic void cancel_moretimer(void)
+X`123
+X    int status;
+X
+X    status = sys$cantim(MORETIMER_ID,PSL$C_USER);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't cancel moretimer timer",status);
+X`009quit_flag = 1;
+X`009return;
+X    `125
+X`125
+X
+Xstatic void recycle_moretimer(void)
+X`123
+X    int status;
+X
+X    cancel_moretimer();
+X   `032
+X    status = sys$setimr(0,&moretimer_value,moretimer_ast,MORETIMER_ID);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't activate moretimer's timer",status);
+X    `125
+X    else moretimer_launched = 0;
+X`125
+X
+Xstatic volatile void moretimer_ast(void)
+X`123
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\moretimer_ast\n"); fflush(stderr);
+X#   endif
+X
+X    moretimer_launched = 1;
+X    sys$setef(EFLG);
+X`125
+X
+X/* UPDATETIMER ************************************************************
+V */
+X
+X#define UPDATETIMER_ID 3
+X
+Xstatic volatile void updatetimer_ast(void);
+X
+Xstatic void handle_updatetimer(void)
+X`123
+X    updatetimer_launched = 0;
+X    tool_update();
+X`125
+X
+Xvoid cancel_updatetimer(void)
+X`123
+X    int status;
+X
+X    status = sys$cantim(UPDATETIMER_ID,PSL$C_USER);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't cancel updatetimer timer",status);
+X`009quit_flag = 1;
+X`009return;
+X    `125
+X`125
+X
+Xstatic quardword updatetimer_value = `123 0, 0 `125;
+X
+Xvoid recycle_updatetimer(char *time)
+X`123
+X    int status;
+X
+X    cancel_moretimer();
+X
+X    if (!convert_time(time,&updatetimer_value)) `123
+X`009updatetimer_launched = 0;
+X`009return;
+X    `125
+X   `032
+X    status = sys$setimr(0,&updatetimer_value,updatetimer_ast,UPDATETIMER_ID)
+V;
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't activate updatetimer's timer",status);
+X    `125
+X    else updatetimer_launched = 0;
+X`125
+X
+Xstatic volatile void updatetimer_ast(void)
+X`123
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nupdatetimer_ast\n"); fflush(stderr);
+X#   endif
+X
+X    updatetimer_launched = 1;
+X    sys$setef(EFLG);
+X`125
+X
+X/* PIPE ***************************************************************** */
+X
+Xstatic volatile int reference_count(short d)
+X`123
+X    int item = DVI$_REFCNT;
+X    int result,status;
+X    status = lib$getdvi(&item,&d,0,&result,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009put_error(E_vms,"Can't get device information from channel", status);
+X`009return 0;
+X    `125 else return result;
+X`125
+X
+Xstatic $DESCRIPTOR(pipe_output_d,"EMPIRECLIENT_OUTPUT");
+Xstatic $DESCRIPTOR(pipe_input_d, "EMPIRECLIENT_INPUT");
+Xstatic short pipe_output_c = -1;
+Xstatic short pipe_input_c = -1;
+Xstatic int use_pipe = 0;
+Xstatic int pipe_prompt_delayed = 0;
+X
+Xvolatile int pipe_quit_status = 0;
+Xvolatile int pipe_ended = 0;
+X
+Xvolatile int pipe_close_input = 0; /* 1 = need; 2 = in operation */
+X`009`009`009`009   /* 3 = succeed */
+X
+Xvolatile int pipe_need_input = 0;
+Xvolatile int have_pipe_output = 0;  /* 1 = output; 2 = EOF */
+X
+Xvolatile void pipe_quit_ast(void);
+Xvolatile void pipe_input_ast(void);
+Xvolatile void pipe_output_ast(void);
+X
+Xvolatile char pipe_input_buffer`091ERROR_LEN`093 = "";
+Xvolatile char pipe_output_buffer`091ERROR_LEN`093 = "";
+X
+Xstatic void put_input_to_pipe(void);
+X
+Xstatic void add_to_pipe(char *line)
+X`123
+X    struct More_buffer *tmp = malloc(sizeof(struct More_buffer));
+X    if (tmp) `123
+X`009strncpy(tmp -> Line, line, ERROR_LEN);
+X`009tmp -> Line`091ERROR_LEN`093 = '\0';
+X`009tmp -> bit7 = 0; /* not in use */
+X`009tmp -> next = NULL;
+X`009tmp -> prev = pipe_tail;
+X`009if (!pipe_filler.next) pipe_filler.next = tmp;
+X`009pipe_tail -> next = tmp;
+X`009pipe_tail = tmp;
+X    `125
+X
+X    if (pipe_need_input) put_input_to_pipe();
+X`125
+X
+Xstatic unsigned long pipe_flags = CLI$M_NOWAIT + CLI$M_NOKEYPAD`032
+X`009/* + CLI$M_NOLOGNAM + CLI$M_NOCLISYM */ ;
+X
+Xstatic volatile void pipe_iclose_ast(void)
+X`123
+X    if (iosb6.cond == SS$_ABORT) `123
+X`009/* OK: pipe deleted */
+X    `125 else if (iosb6.cond != SS$_NORMAL)
+X`009put_error(E_vms,"Error closing pipe input mailbox.",iosb6.cond);
+X    else `123
+X`009if (pipe_id) pipe_close_input = 1;`009/* need again */
+X`009else pipe_close_input = 3;`009/* succesfully */
+X`009pipe_need_input = 1; /* put_input_to_pipe will proceed closing */
+X    `125
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic int eof_pipe_input(void)
+X`123
+X    int status;
+X    status = sys$qio(0, pipe_input_c, IO$_WRITEOF, &iosb6, pipe_iclose_ast,
+V 0,
+X`009`009     0, 0, 0, 0, 0, 0);
+X
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error putting IO$_WRITEOF qio to input mailbox",
+X`009    status);
+X    `125`009
+X`125
+X
+Xstatic int del_pipe_input(int del_only)
+X`123
+X    int status;
+X
+X    if (!del_only && reference_count(pipe_input_c) > 1 &&`032
+X`009pipe_close_input != 3) `123 /* not closed yet */
+X
+X`009status = sys$qiow(0, pipe_input_c, IO$_WRITEOF `124 IO$M_NOW, &iosb6,`03
+V2
+X`009`009     0, 0, 0, 0, 0, 0, 0, 0); /* WAITING */
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Error putting IO$_WRITEOF `124 IO$M_NOW qio to inpu
+Vt mailbox",
+X`009`009status);
+X`009`125`009
+X`009if (iosb6.cond != SS$_NORMAL) `123
+X`009    write_VMS_error("Error writing EOF to input mailbox",
+X`009`009iosb6.cond);
+X`009`125`009
+X    `125
+X
+X    status = sys$dassgn(pipe_input_c);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error deassign pipe input mailbox",status);
+X`009return 0;
+X    `125`009else `123`032
+X`009pipe_input_c = -1;
+X`009return 1;
+X    `125
+X`125
+X
+Xstatic int del_pipe_output(void)
+X`123
+X    int status;
+X    status = sys$dassgn(pipe_output_c);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error dassign pipe output mailbox",status);
+X`009return 0;
+X    `125`009else `123`032
+X`009pipe_output_c = -1;
+X`009return 1;
+X    `125
+X`125
+X
+Xstatic void terminate_pipe(void);
+X
+Xstatic void start_pipe(char *command)
+X`123
+X    int status;
+X
+X    $DESCRIPTOR(command_d,command);
+X    command_d.dsc$w_length = strlen(command);
+X
+X    if (pipe_id `124`124 pipe_input_c >= 0 `124`124 pipe_output_c >= 0) term
+Vinate_pipe();
+X    pipe_ended = 0;
+X    pipe_close_input = 0;
+X    pipe_prompt_delayed = 0;
+X    pipe_need_input = 0; /* TEMPORALY VALUE */
+X
+X    status = sys$crembx( 0, &pipe_input_c, sizeof(pipe_input_buffer)-1,`032
+X`009sizeof(pipe_input_buffer), 0xFFF, PSL$C_USER, &pipe_input_d);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't create mailbox for pipe's input",status);
+X`009return;
+X    `125
+X
+X    status = sys$crembx( 0, &pipe_output_c, sizeof(pipe_output_buffer)-1,`03
+V2
+X`009sizeof(pipe_output_buffer), 0xFFF, PSL$C_USER, &pipe_output_d);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't create mailbox for pipe's output",status);
+X`009del_pipe_input(1); /* deleting only */
+X`009return;
+X    `125
+X
+X    status = lib$spawn( &command_d, &pipe_input_d, &pipe_output_d, &pipe_fla
+Vgs,
+X`0090, &pipe_id, &pipe_quit_status, 0, pipe_quit_ast);
+X
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't create subprocess for pipe",status);
+X`009del_pipe_input(1); /* deleting only */
+X`009del_pipe_output();
+X`009return;
+X    `125
+X    pipe_need_input = 1;
+X    have_pipe_output = 0;
+X    use_pipe = 1;
+X
+X    status = sys$qio(0, pipe_output_c, IO$_READVBLK `124 IO$M_NORSWAIT,`032
+X`009`009     &iosb5, pipe_output_ast, 0,
+X                     pipe_output_buffer, sizeof(pipe_output_buffer)-1,`032
+X`009`009     0, 0, 0, 0);
+X
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error put IO$_READVBLK QIO `124 IO$M_NORSWAIT for readi
+Vng from pipe",status);
+X    `125
+X`125
+X
+Xstatic void pipe_delay_prompt(void)
+X`123
+X    if (pipe_output_c >= 0 && reference_count(pipe_output_c) > 1) `123
+X`009pipe_prompt_delayed = 1;
+X`009return;
+X    `125
+X
+X    if (USE_MORE) delay_prompt();
+X    else next_command(0);
+X    pipe_prompt_delayed = 0;
+X`125
+X
+Xstatic void pipe_return_prompt(void)
+X`123
+X    if (!pipe_prompt_delayed) return;
+X    if (USE_MORE) delay_prompt();
+X    else next_command(0);
+X    pipe_prompt_delayed = 0;
+X`125
+X
+Xstatic void put_input_to_pipe(void)
+X`123
+X    struct More_buffer *tmp = pipe_filler.next;
+X    int status,len;
+X
+X    if (pipe_input_c < 0) `123 /* mailbox no longer exist */
+X`009pipe_need_input = 0;
+X`009pipe_close_input = 0;
+X    `125 else if (reference_count(pipe_input_c) == 1 && pipe_close_input) `1
+V23   `032
+X`009/* no readers left */
+X`009del_pipe_input(0); `032
+X`009pipe_need_input = 0;
+X    `125 else if (pipe_close_input == 3) `123  /* OK ?? */
+X`009write_line("Some odd in put_input_to_pipe()",E_client,NULL);
+X`009del_pipe_input(0); `032
+X`009pipe_need_input = 0;
+X    `125 else if (pipe_close_input == 2) `123
+X`009/* is already in progress */
+X
+X    `125 else if (pipe_close_input == 1 && !tmp) `123
+X`009status = sys$qio(0, pipe_input_c, IO$_WRITEOF `124 IO$M_NORSWAIT,`032
+X`009`009     &iosb6, pipe_iclose_ast, 0,
+X`009`009     0, 0, 0, 0, 0, 0);
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Error putting IO$_WRITEOF `124 IO$M_NORSWAIT qio to
+V input mailbox",
+X`009`009status);
+X`009`125 else pipe_close_input = 2;`032
+X
+X    `125 else `123
+X`009if (!tmp) return; /* haven't input yet */
+X   `032
+X`009strcpy(pipe_input_buffer,tmp -> Line);
+X`009len = strlen(pipe_input_buffer);
+X`009status = sys$qio(0, pipe_input_c, IO$_WRITEVBLK `124 IO$M_NORSWAIT,`032
+X`009`009     &iosb4, pipe_input_ast, 0,
+X                     pipe_input_buffer, len, 0, 0, 0, 0);
+X
+X`009if (status != SS$_NORMAL)`032
+X`009    write_VMS_error("Can't put writing QIO for input of pipe",status);
+X`009else pipe_need_input = 0;
+X`009
+X`009pipe_filler.next = tmp -> next;
+X`009free(tmp);
+X    `125
+X`125
+X
+Xstatic volatile void pipe_input_ast(void)
+X`123
+X    char error_text`091ERROR_LEN`093;
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\npipe_input_ast\n"); fflush(stderr);
+X#   endif
+X
+X    if (iosb4.cond == SS$_ABORT) `123
+X`009/* OK : mailbox deleted */
+X    `125 else if (iosb4.cond != SS$_NORMAL) `123
+X`009put_error(E_vms,"Error writing input for pipe",iosb4.cond);
+X    `125
+X
+X    sys$setef(EFLG);
+X    pipe_need_input = 1; /* put_input_to_pipe() will check isn't mailbox yet
+V */
+X`125
+X
+Xstatic volatile void pipe_output_ast (void)
+X`123
+X    int status;
+X    char error_text`091ERROR_LEN`093 = "";
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\npipe_output_ast\n"); fflush(stderr);
+X#   endif
+X
+X    if (iosb5.cond == SS$_ENDOFFILE) `123
+X`009have_pipe_output = 2;
+X    `125 else if (iosb5.cond == SS$_ABORT) `123
+X`009/* OK - output deleted */
+X`009have_pipe_output = 2;
+X    `125 else if (iosb5.cond != SS$_NORMAL) `123
+X`009put_error(E_vms,"Error reading output from pipe",iosb5.cond);
+X    `125 else `123
+X`009have_pipe_output = 1;
+X`009pipe_output_buffer`091iosb5.count`093 = '\0';
+X    `125
+X
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic void write_pipe_output(void)
+X`123
+X    int status;
+X
+X    if (pipe_output_c < 0) `123  /* if mailbox deleted with some reason */
+X`009have_pipe_output = 0;
+X`009pipe_return_prompt();
+X`009return;
+X    `125
+X
+X    switch (have_pipe_output) `123
+X    case 2: `032
+X`009del_pipe_output();
+X`009have_pipe_output = 0;
+X`009pipe_return_prompt();
+X    break;
+X    case 1:
+X`009write_line(pipe_output_buffer,E_none,NULL);
+X`009have_pipe_output = 0;
+X
+X`009if (reference_count(pipe_output_c) == 1) `123 /* no writers */
+X`009    del_pipe_output();
+X`009    have_pipe_output = 0;
+X`009    pipe_return_prompt();
+X`009`125
+X`009else `123
+X`009    status = sys$qio(0, pipe_output_c, IO$_READVBLK `124 IO$M_NORSWAIT,`
+V032
+X`009`009    &iosb5, pipe_output_ast, 0,
+X`009`009    pipe_output_buffer, sizeof(pipe_output_buffer)-1,`032
+X`009`009    0, 0, 0, 0);
+X
+X`009    if (status != SS$_NORMAL) `123
+X`009`009write_VMS_error("Error put IO$_READVBLK `124 IO$M_NORSWAIT QIO for r
+Veading from pipe",
+X`009`009    status);
+X`009    `125
+X`009`125
+X    break;
+X    default:
+X`009write_line("Internal error (write_pipe_output())",E_client,NULL);
+X`009quit_flag = 1;
+X`009have_pipe_output = 0;
+X    break;
+X    `125
+X`125
+X
+Xstatic volatile void pipe_quit_ast(void)
+X`123
+X    char error_text`091ERROR_LEN`093;
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\npipe_quit_ast\n"); fflush(stderr);
+X#   endif
+X
+X    if (!(pipe_quit_status & 1))`032
+X`009put_error(E_vms,"Pipe terminated with error status",pipe_quit_status);
+X     else`032
+X`009put_error(E_vms,"Pipe terminated normally",pipe_quit_status);
+X    pipe_id = 0;
+X
+X    sys$setef(EFLG);
+X    pipe_ended = 1;
+X
+X`125
+X
+Xstatic void clear_pipe(void)
+X`123  `032
+X    struct More_buffer *tmp,*tmp2;
+X    for (tmp = pipe_filler.next; tmp; tmp = tmp2) `123
+X`009tmp2 = tmp -> next;
+X`009free(tmp);
+X    `125
+X    pipe_filler.next = NULL;
+X    pipe_tail = &pipe_filler;
+X`125
+X
+Xstatic int kill_pipe_process(void)`009/* if pressed ctrlc */
+X`123  `032
+X    int status;
+X
+X    if (have_ctrlc) write_line("Pipe operation canceled.",E_client,NULL);
+X    /* terminate_pipe() will be called when pipe process is actually killed
+V */
+X
+X    status = sys$delprc(&pipe_id,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error in killing pipe process.",status);
+X`009return 0;
+X    `125 else `123
+X`009write_line("Killing pipe process.",E_client,NULL);
+X`009return 1;
+X    `125
+X`125
+X
+Xstatic void terminate_pipe(void) /* called when pipe is actually killed */
+X`123`009`009`009`009 /* or when shutdowning pipe */
+X`009int status;
+X
+X`009clear_pipe();
+X`009use_pipe = 0;
+X
+X`009if (pipe_input_c >= 0)`032
+X`009    del_pipe_input(0); /* hangup (with wait) and deleting */
+X`009
+X`009if (pipe_output_c >= 0) del_pipe_output();
+X`009if (pipe_id) `123 /* if shutdowning pipe */
+X`009    if (kill_pipe_process()) pipe_id = 0;`032
+X`009`125
+X
+X`009pipe_ended = 0;
+X`009pipe_close_input = 0;
+X
+X`009pipe_return_prompt();
+X`125
+X
+X/* COMMAND LEVEL ******************************************************** */
+X
+Xchar empiretool_file`091FILE_NAME_LEN`093 = "";
+X
+X#define COMMAND_ESCAPE "$"
+X
+Xstatic char ACTION_prompt`091PROMPT_SIZE`093 = "";
+Xstatic int ACTION_echo_mode = 1;
+Xstatic int ACTION_main_prompt = 0;
+Xstatic data_scanner *ACTION_scanner = NULL;
+Xstatic command_handler *ACTION_handler = dummy_handler;
+Xstatic void login_empire_handler(void);
+Xstatic void command_loop_handler(void);
+Xstatic void timesaver_loop_handler(void);
+Xstatic void command_level_handler(void);
+X
+X/* CONST values for answer_query() */
+Xstatic char filler_1 = ' ';
+Xstatic char filler_2 = ' ';
+Xconst char *RS_CTND  = &filler_1;`009/* ctrld */
+Xconst char *RS_ABORT = &filler_2;`009/* abort */
+X
+Xstatic void start_command_level(void)
+X`123
+X    ask_prompt(P_command,
+X`009"Command> ",command_level_handler,1);
+X`125
+X
+Xstatic int FN_redraw(prompt_type PR) /* redraw screen on mode */
+X`123
+X    if (have_screen_mode) enter_screen_mode();
+X    return FN_REASK;
+X`125
+X
+Xstatic int FN_PF1(prompt_type PR)`009/* Go to command level */
+X`123
+X    if (PR != P_command) `123 /* notice: have_request = 0 */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_command);
+X`009return FN_IGNORE;
+X    `125 else return FN_REASK; /* reask current prompt (= P_command) */
+X`125
+X
+Xstatic int FN_PF2(prompt_type PR)`009/* Function key help */
+X`123
+X    int i;
+X    for(i = 0; i < sizeof(keys) / sizeof(struct TRM); i ++) `123
+X`009if (keys`091i`093.info) write_line(keys`091i`093.info,E_none,NULL);
+X    `125
+X    return FN_REASK;`009/* reask current prompt */
+X`125
+X
+Xstatic int FN_PF3(prompt_type PR) /* Switch between two prompt */
+X`123
+X    if ((PR != P_screen) && prompts`091P_screen`093.prompt_asked) `123`009
+V   `032
+X`009if (command_loop_handler == ACTION_handler && !ACTION_main_prompt) `123
+X`009    /* don't change */
+X`009    return FN_REASK;`009/* reask current promt (= P_server) */
+X`009`125
+X`009/* go to screen prompt */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_screen);
+X`009return FN_IGNORE;
+X    `125
+X    if ((PR == P_screen) && prompts`091P_tool`093.prompt_asked) `123
+X`009if (command_loop_handler == ACTION_handler && !ACTION_main_prompt) `123
+X`009    /* don't change */
+X`009    return FN_REASK;`009/* reask current promt (= P_server) */
+X`009`125
+X`009/* go to empiretool */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_tool);
+X`009return FN_IGNORE;
+X    `125
+X    if ((PR != P_command) && prompts`091P_command`093.prompt_asked) `123
+X`009/* go to command */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_command);
+X`009return FN_IGNORE;
+X    `125
+X    return FN_REASK;`009`009/* reask current prompt */
+X`125
+X
+Xstatic int FN_PF4(prompt_type PR) /* Switch between two prompt */
+X`123
+X    if ((PR == P_tool `124`124 PR == P_screen) && prompts`091P_server`093.pr
+Vompt_asked) `123`009   `032
+X`009/* go to session level */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_server);
+X`009return FN_IGNORE;
+X    `125
+X    if (PR == P_server && prompts`091P_tool`093.prompt_asked) `123
+X`009if (command_loop_handler == ACTION_handler && !ACTION_main_prompt) `123
+X`009    /* don't change */
+X`009    return FN_REASK;`009/* reask current promt (= P_server) */
+X`009`125
+X`009/* go to empiretool */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_tool);
+X`009return FN_IGNORE;
+X    `125
+X    return FN_REASK;`009`009/* reask current prompt */
+X`125
+X
+Xstatic void handle_ctrld(void);
+X
+Xstatic int FN_Z(prompt_type PR)`009`009/* Ctrl-Z */
+X`123
+X    if (PR == P_screen && prompts`091P_tool`093.prompt_asked) `123
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_tool);
+X`009return FN_IGNORE;
+X    `125
+X
+X    if (PR == P_tool `124`124 PR == P_screen) `123`009    /* go to commadn l
+Vevel */
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_command);
+X`009return FN_IGNORE;
+X    `125
+X    if (PR == P_server) `123
+X`009if (command_loop_handler == ACTION_handler && !ACTION_main_prompt) `123
+X`009    handle_ctrld();
+X`009    return FN_IGNORE;
+X`009`125
+X`009prompts`091PR`093.prompt_asked = 1; /* activate this again */
+X`009change_prompt(P_command);
+X`009return FN_IGNORE;
+X    `125
+X    write_line("Bye",E_client,NULL);
+X    quit_flag = 1;
+X    return FN_IGNORE;
+X`125
+X
+Xtypedef enum `123 CL_QUIT = 1 ,CL_CONT, CL_LIST, CL_SHOW, CL_MORE,
+X`009CL_TIMESAVER, CL_LOG, CL_BOLDFACE, CL_STRIP, CL_EMPIRETOOL,
+X`009CL_RESUME, CL_NO_EMPIRE_EOF, CL_EMPIRE_EOF, CL_HISTORY, CL_LAUNCH,
+X`009CL_MORETIMER, CL_START, CL_LOAD, CL_AUTOSET,`032
+X`009CL_UNSET_ET, CL_SET_ET,`032
+X#ifdef SCREEN_MODE_TEST
+X    CL_TEST,
+X#endif
+X
+X    `125 cl_def;
+X
+Xstatic struct CLST`123
+X`009char *command;
+X`009cl_def code;`032
+X`009char *info;
+X`009int have_args;
+X    `125 commands`091`093 =
+X    `123 `123 "quit", CL_QUIT,`009"Quits session",    0 `125,
+X      `123 "bye", CL_QUIT,`009`009"Quits session",    0 `125,
+X      `123 "continue", CL_CONT,`009"Continues session",0 `125,
+X      `123 "list", CL_LIST,`009"Command list",`009    0 `125,
+X      `123 "?", CL_LIST,`009`009"Command list",`009    0 `125,
+X      `123 "more", CL_MORE,`009"Activates pager",   1 `125,
+X      `123 "nomore", CL_MORE,`009"Disables pager",    0 `125,
+X      `123 "timesaver", CL_TIMESAVER,`009"Activates timesaver",`0091 `125,
+X      `123 "notimesaver", CL_TIMESAVER,`009"Disables timesaver",`0090 `125,
+X      `123 "moretimer", CL_MORETIMER,`009"Activates pager's (MORE) timeout",
+V 1 `125,
+X      `123 "nomoretimer", CL_MORETIMER,`009"Disables pager's (MORE) timeout"
+V, 0 `125,
+X      `123 "log", CL_LOG,`009`009"Chances log-file", 1 `125,
+X      `123 "nolog", CL_LOG,`009"Closes log-file",  0 `125,
+X      `123 "boldface", CL_BOLDFACE,"Boldfacing 8bit chars form servers outpu
+Vt",`0090 `125,
+X      `123 "strip", CL_STRIP,`009"Strips 8bit chars from servers output",`00
+V9`0090 `125,
+X      `123 "empiretool", CL_EMPIRETOOL,`009"Starts empiretool",`0091 `125,
+X      `123 "et", CL_EMPIRETOOL,`009"Starts empiretool",1 `125,
+X      `123 "start", CL_START,`009"Starts empiretool without dump",0 `125,
+X      `123 "load", CL_LOAD,`009"Starts empiretool from file",1 `125,
+X      `123 "resume", CL_RESUME,`009"Resumes empiretool",`009`0090 `125,
+X      `123 "empire_eof",CL_EMPIRE_EOF, "Enables empire eof: `094D",`0090 `12
+V5,
+X      `123 "noempire_eof",CL_NO_EMPIRE_EOF,"Disables empire eof: `094D", 0 `
+V125,
+X      `123 "history", CL_HISTORY,  "Activates command history",`0091 `125,
+X      `123 "nohistory", CL_HISTORY,"Disables command history",`0090 `125,
+X      `123 "autoset", CL_AUTOSET,`009"more + history + boldface/strip", 0 `1
+V25,
+X      `123 "launch", CL_LAUNCH,`009"Launches timesaver",`0090 `125,
+X      `123 "show", CL_SHOW,`009"Shows status",`009    0 `125,
+X      `123 "unset", CL_SET_ET,   "Unsets empiretool database file", 0 `125,
+X      `123 "set", CL_SET_ET,`009"Sets empiretool database file", 1 `125,
+X#ifdef SCREEN_MODE_TEST
+X      `123 "test", CL_TEST,`009NULL, 0 `125,
+X#endif
+X
+X`125;
+X
+X
+Xstatic void start_message(void)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    write_line("Empire Client for VMS",E_none,NULL);
+X    write_line("(c) Kari Hurtta (hurtta@cc.Helsinki.FI)",E_none,NULL);
+X    sprintf(buffer,"Empire Client version %s",EMPIRECLIENT_VERSION);
+X    write_line(buffer,E_none,NULL);
+X    sprintf(buffer,"              compiled at %s %s",
+X`009`009`009`009     EMPIRECLIENT_COMPILED_DATE,
+X`009`009`009`009     EMPIRECLIENT_COMPILED_TIME);
+X    write_line(buffer,E_none,NULL);
+X    sprintf(buffer,"Empire Tool version %s",EMPIRETOOL_VERSION);
+X    write_line(buffer,E_none,NULL);
+X    sprintf(buffer,"            compiled at %s %s",
+X`009`009`009`009     EMPIRETOOL_COMPILED_DATE,
+X`009`009`009`009     EMPIRETOOL_COMPILED_TIME);
+X    write_line(buffer,E_none,NULL);
+X`125
+X
+Xstatic flip_empire_eof(int flip)
+X`123
+X    no_empire_eof = !flip;
+X
+X    if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009print_more(length_counter,0,1);
+X`009clear_more();
+X`009have_asked_more = 0;
+X    `125
+X    cancel_prompt(); /* ACTIVATE CURRENT SETTING */
+X
+X    if (flip) write_line("Empire_eof activated.",E_none,NULL);
+X    else write_line("Empire_eof disabled",E_none,NULL);
+X`125
+X
+Xstatic void show_status(void)
+X`123
+X    char buffer`091ERROR_LEN`093,tmp`091ERROR_LEN`093;
+X    write_line("Empire Client status:",E_none,NULL);
+X    write_line("---------------------",E_none,NULL);
+X    start_message();
+X
+X    /* LOG-FILE */
+X    if (log_fd && fgetname(log_fd,tmp)) `123
+X`009`009      /*             I */
+X`009sprintf(buffer,"Log-file:        %s",tmp);
+X`009write_line(buffer,E_none,NULL);
+X    `125
+X    if (!log_fd) write_line("No log-file",E_none,NULL);
+X    /* CONNECTION */
+X    if (channel >= 0) write_line("Reading from server",E_none,NULL);
+X    else write_line("No reading from server",E_none,NULL);
+X    if (strlen(timesaver_country)) `123
+X`009sprintf(buffer,"Current country: %s",timesaver_country);
+X`009write_line(buffer,E_none,NULL);
+X    `125
+X    else write_line("No country specified",E_none,NULL);
+X    if (ACTION_handler == login_empire_handler)`032
+X`009    write_line("Mode:            login",E_none,NULL);
+X    else if (ACTION_handler == command_loop_handler)`032
+X`009    write_line("Mode:            session",E_none,NULL);
+X    else if (ACTION_handler == timesaver_loop_handler)
+X`009    write_line("Mode:            timesaver",E_none,NULL);
+X    else`032
+X`009    write_line("Unknown mode ",E_none,NULL);
+X    /* MORE */
+X    if (USE_MORE) `123
+X`009sprintf(buffer,"More:            %d lines, %d columns",
+X`009    more_page_len, term_len);
+X`009write_line(buffer,E_none,NULL);
+X    `125 else write_line("No more",E_none,NULL);  `032
+X    /* HIGH */
+X    if (use_high)
+X`009    write_line("8bit:            boldface",E_none,NULL);
+X    else`032
+X`009    write_line("8bit:            strip",E_none,NULL);
+X    /* TIMESAVER */
+X    if (use_timesaver) `123
+X`009sprintf(buffer,"Timesaver:       %s",list_time(&timesaver_value));
+X`009write_line(buffer,E_none,NULL);
+X    `125 else write_line("No timesaver",E_none,NULL);  `032
+X    /* MORETIMER */
+X    if (use_moretimer) `123
+X`009sprintf(buffer,"Pager's timeout: %s",list_time(&moretimer_value));
+X`009write_line(buffer,E_none,NULL);
+X    `125 else write_line("No timeout on pager",E_none,NULL);  `032
+X    /* EMPIRE EOF */
+X    if (no_empire_eof)
+X`009    write_line("`094D:              Normal edit key",E_none,NULL);
+X    else`032
+X`009    write_line("`094D:              Server's eof character",E_none,NULL)
+V;
+X    /* COMMAND HISTORY */
+X    if (use_history) `123
+X`009sprintf(buffer,"Command history: %d lines",history_size);
+X`009write_line(buffer,E_none,NULL);
+X    `125 else write_line("No command history",E_none,NULL);  `032
+X    /* SCREEN */
+X    sprintf(buffer,"Screen:          %d lines, %d columns, %s%s, %s, %s",
+X`009    screen_page_len, screen_page_width,
+X`009    screen_is_tt   ?  "terminal" : "noterminal",
+X`009    screen_is_file ? ", file" : "",
+X`009    screen_is_ansi ? "ansi" : "noansi",
+X`009    screen_is_dec  ? "VT100 (or better)" : "no VT100");
+X    write_line(buffer,E_none,NULL);
+X    /* EMPIRETOOL DATABASE */
+X    if( empiretool_file`0910`093) `123
+X`009sprintf(buffer,"Empiretool database: %s",empiretool_file);
+X`009write_line(buffer,E_none,NULL);
+X    `125 else write_line("No empiretool database",E_none,NULL);
+X`009`009 `032
+X`125
+X
+Xstatic void command_list(void)
+X`123
+X    const int min = 25;
+X    char buffer`091TERM_LEN`093;
+X    int i,n;
+X    write_line("List of commands:",E_none,NULL);
+X    for (i = 0; i < sizeof(commands)/sizeof(struct CLST); i++) `123
+X`009strcpy(buffer,commands`091i`093.command);
+X`009n = min - strlen(buffer);
+X`009if (n > 0) `123
+X`009    strncat(buffer,SPACES,n);
+X`009    buffer`091min`093 = '\0';
+X`009`125
+X`009strcat(buffer,commands`091i`093.info);
+X`009write_line(buffer,E_none,NULL);
+X    `125
+X`125
+X
+Xvoid parse_command(char *command, char *buffer1, char *buffer2)
+X`123
+X    char *space = strchr(command,' ');
+X    char *ptr;
+X
+X    strcpy(buffer1,command);
+X    buffer2`0910`093 = '\0';
+X
+X    if (space) `123
+X`009buffer1`091space-command`093 = '\0';`009`009/* cut command */
+X`009while (isspace(*space)) space++;`009/* skip spaces */
+X`009strcpy(buffer2,space);`009`009`009/* params */
+X    `125
+X    for (ptr = buffer1; *ptr; ptr++)
+X`009if(isupper(*ptr)) *ptr = tolower(*ptr);
+X`125
+X
+Xstatic void flip_more(char *Param)
+X`123
+X    int temp;
+X    char buffer1`091COMMAND_SIZE`093, buffer2`091COMMAND_SIZE`093;
+X
+X    if(!Param `124`124 !Param`0910`093) `123
+X`009if (!use_more) return;
+X`009clear_more();
+X`009use_more = 0;
+X`009write_line("Pager (MORE) deactivated.",E_none,NULL);
+X    `125 else `123
+X`009parse_command(Param, buffer1, buffer2);
+X`009   `032
+X`009if(sscanf(buffer1,"%d",&temp) == 1  && temp > 1)`032
+X`009    more_page_len = temp;
+X`009if(sscanf(buffer2,"%d",&temp) == 1 && temp > 1)`032
+X`009    term_len = temp;
+X   `032
+X`009use_more = 1;
+X
+X`009sprintf(buffer1,"Pager (MORE) activated: %d lines, %d rows",
+X`009    more_page_len,term_len);
+X`009write_line(buffer1,E_none,NULL);
+X    `125
+X`125
+X
+Xstatic void flip_history(char *Param)
+X`123
+X    int temp,hist=10;
+X    char buffer1`091COMMAND_SIZE`093;
+X
+X    if(!Param `124`124 !Param`0910`093) `123
+X`009if (!use_history) return;
+X`009activate_history(0);
+X`009write_line("Command history deactivated.",E_none,NULL);
+X    `125 else `123
+X`009   `032
+X`009if(sscanf(Param,"%d",&temp) == 1  && temp > 1) hist = temp;
+X
+X`009activate_history(hist);
+X`009if (!use_history) return; /* error ? */
+X
+X`009sprintf(buffer1,"Command history activated: %d lines",history_size);
+X`009write_line(buffer1,E_none,NULL);
+X    `125
+X`125
+X
+X
+Xstatic void flip_timesaver(char *Param)
+X`123
+X    static quardword temp = `123 0, 0 `125;
+X    char buffer1`091COMMAND_SIZE`093;
+X
+X    if(!Param `124`124 !Param`0910`093) `123
+X`009if (!use_timesaver) return;
+X`009cancel_timesaver();
+X`009use_timesaver = 0;
+X`009write_line("Timesaver deactivated.",E_none,NULL);
+X    `125 else `123
+X
+X`009if(convert_time(Param,&temp)) `123
+X`009    use_timesaver = 1;
+X`009    timesaver_value = temp;
+X
+X`009    if (ACTION_handler == command_loop_handler)`032
+X`009`009recycle_timesaver();
+X
+X`009    sprintf(buffer1,"Timesaver activated: %s",
+X`009`009list_time(&timesaver_value));
+X`009    write_line(buffer1,E_none,NULL);
+X`009`125
+X    `125
+X`125
+X
+Xstatic void flip_moretimer(char *Param)
+X`123
+X    static quardword temp = `123 0, 0 `125;
+X    char buffer1`091COMMAND_SIZE`093;
+X
+X    if(!Param `124`124 !Param`0910`093) `123
+X`009if (!use_moretimer) return;
+X`009cancel_moretimer();
+X`009use_moretimer = 0;
+X`009write_line("Pager's timeout deactivated.",E_none,NULL);
+X    `125 else `123
+X`009if(convert_time(Param,&temp)) `123
+X`009    use_moretimer = 1;
+X`009    moretimer_value = temp;
+X
+X`009    sprintf(buffer1,"Pager's timeout activated: %s",
+X`009`009list_time(&moretimer_value));
+X`009    write_line(buffer1,E_none,NULL);
+X`009`125
+X    `125
+X`125
+X
+Xstatic void set_ET_file(char *Param)
+X`123
+X    char buffer0`091FILE_NAME_LEN`093;
+X    if (!Param `124`124 !Param`0910`093) `123
+X`009write_line("Empiretool database file disabled.",E_none,NULL);
+X`009empiretool_file`0910`093 = '\0';
+X`009return;
+X    `125
+X
+X    if (have_file(Param,buffer0)) `123
+X`009char *tmp;
+X`009char buffer1`091COMMAND_SIZE`093;
+X`009if (tmp =  strrchr(buffer0,';')) *tmp = '\0';`032
+X`009strcpy(empiretool_file,buffer0);
+X`009sprintf(buffer1,"Empiretool database file is %s",empiretool_file);
+X`009write_line(buffer1,E_none,NULL);
+X    `125 else `123
+X`009FILE *tempfd = open_file(Param,F_WRITE);
+X`009if (tempfd) `123
+X`009    char buffer1`091COMMAND_SIZE`093;
+X`009    char *tmp;
+X
+X`009    fgetname(tempfd,buffer0);
+X`009    close_file(&tempfd);
+X
+X`009    write_line("Empiretool database file created:",
+X`009`009E_client,buffer0);
+X
+X`009    if (tmp =  strrchr(buffer0,';')) *tmp = '\0';`032
+X`009    strcpy(empiretool_file,buffer0);
+X`009    sprintf(buffer1,"Empiretool database file is %s",
+X`009`009empiretool_file);
+X`009    write_line(buffer1,E_none,NULL);
+X`009`125 else `123
+X`009    empiretool_file`0910`093 = '\0';
+X`009    write_line("Can't create empiretool database file:",
+X`009`009E_client,Param);
+X`009`125
+X    `125
+X
+X`125
+X
+Xstatic void flip_log(char *Param)
+X`123
+X    char filename`091FILE_NAME_LEN`093,buffer1`091COMMAND_SIZE`093;
+X
+X    if (log_fd) `123
+X`009filename`0910`093 = '\0';
+X`009fgetname(log_fd,filename);
+X`009close_file(&log_fd);
+X
+X`009sprintf(buffer1,"Log file %s closed.",filename);
+X`009write_line(buffer1,E_none,NULL);
+X    `125
+X
+X    if(!Param `124`124 !Param`0910`093)  return;
+X
+X    log_fd = open_file(Param,F_WRITE);
+X
+X    if(log_fd) `123
+X`009filename`0910`093 = '\0';
+X`009fgetname(log_fd,filename);
+X
+X`009sprintf(buffer1,"Log file %s opened.",filename);
+X`009write_line(buffer1,E_none,NULL);
+X    `125
+X`125
+X
+Xstatic void command_level_handler(void)
+X`123
+X    cl_def found = -1, match = -1;
+X    int fcounter = 0,i;
+X    int len;
+X    int reprompt = 0;
+X    char *command = prompts`091P_command`093.command;
+X    char cmd`091COMMAND_SIZE`093, args`091COMMAND_SIZE`093;
+X
+X    parse_command(command,cmd,args);   `032
+X    len = strlen(cmd);
+X
+X    if (len) `123
+X`009for (i = 0; i < sizeof(commands)/sizeof(struct CLST); i++) `123
+X`009    if (!strncmp(cmd,commands`091i`093.command,len)) `123
+X`009`009found = i;
+X`009`009fcounter++;
+X`009    `125
+X`009    if (!strcmp(cmd,commands`091i`093.command)) match = i;
+X`009`125
+X
+X`009if (match < 0 && !fcounter) `123
+X`009    write_line("Unknown command",E_client,cmd);
+X`009    reprompt = 1;
+X`009`125
+X`009if (match < 0 && fcounter >1) `123
+X`009    write_line("Ambiguous command",E_client,cmd);
+X`009    reprompt = 1;
+X`009`125
+X`009if (match < 0 && fcounter == 1) match = found;
+X
+X`009/* Check arguments */
+X`009if (match >= 0 && strlen(args) && !commands`091match`093.have_args) `123
+X`009    write_line("Command haven't argument(s)",E_client,args);
+X`009    match = -1;
+X`009    reprompt = 1;
+X`009`125
+X`009if (match >= 0 && !strlen(args) && commands`091match`093.have_args) `123
+X`009    write_line("Argument(s) required for command",E_client, NULL);
+X`009    match = -1;
+X`009    reprompt = 1;
+X`009`125
+X
+X`009if (match >=0) `123
+X`009    reprompt = 1;   /* default */
+X
+X`009    switch(commands`091match`093.code) `123
+X#ifdef SCREEN_MODE_TEST
+X`009    case CL_TEST:
+X`009`009screen_mode_test();
+X`009`009reprompt = 1;
+X`009    break;
+X#endif
+X`009    case CL_QUIT:
+X`009`009write_line("Bye",E_client,NULL);
+X`009`009reprompt = 0;
+X`009`009quit_flag = 1;
+X`009    break;
+X`009    case CL_CONT:
+X`009`009if (!prompts`091P_server`093.prompt_asked) `123
+X`009`009    write_line("Can't resume to session - no prompt",
+X`009`009`009E_client,NULL);
+X`009`009`125 else change_prompt(P_server);
+X`009    break;
+X`009    case CL_RESUME:
+X`009`009if (!prompts`091P_tool`093.prompt_asked) `123
+X`009`009    write_line("Can't resume empiretool - no prompt",
+X`009`009`009E_client,NULL);
+X`009`009`125 else change_prompt(P_tool);
+X`009    break;
+X`009    case CL_LIST:
+X`009`009command_list();
+X`009    break;
+X`009    case CL_SHOW:
+X`009`009show_status();
+X`009    break;
+X`009    case CL_MORE:
+X`009`009flip_more(args);
+X`009    break;
+X`009    case CL_AUTOSET:
+X`009`009read_screen_params();
+X`009`009autoset();
+X`009    break;
+X`009    case CL_HISTORY:
+X`009`009flip_history(args);
+X`009    break;
+X`009    case CL_LAUNCH:
+X`009`009if (ACTION_handler == timesaver_loop_handler)
+X`009`009    write_line("Timesaver allready launched - connection closed",
+X`009`009`009E_client,NULL);
+X`009`009else timesaver_launched = 1;
+X`009    break;
+X`009    case CL_TIMESAVER:
+X`009`009flip_timesaver(args);
+X`009    break;
+X`009    case CL_MORETIMER:
+X`009`009flip_moretimer(args);
+X`009    break;
+X`009    case CL_LOG:
+X`009`009flip_log(args);
+X`009    break;
+X`009    case CL_SET_ET:
+X`009`009set_ET_file(args);
+X`009    break;
+X`009    case CL_BOLDFACE:
+X`009`009use_high = 1;
+X`009`009write_line("8bit chars will be boldfaced.",E_none,NULL);
+X`009    break;
+X`009    case CL_STRIP:
+X`009`009use_high = 0;
+X`009`009write_line("8bit chars will be striped.",E_none,NULL);
+X`009    break;
++-+-+-+-+-+-+-+-  END  OF PART 3 +-+-+-+-+-+-+-+-

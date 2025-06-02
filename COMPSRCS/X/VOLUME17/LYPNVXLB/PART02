@@ -1,0 +1,1617 @@
+Newsgroups: comp.sources.x
+Path: uunet!usc!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Renaldo Recuerdo <rr@sco.COM>
+Subject: v17i049: Xlib only lyapunov, Part02/02
+Message-ID: <1992Apr1.144608.5211@msi.com>
+Originator: dcmartin@snoopy
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i048-lyapunov-xlib@uunet.UU.NET>
+Date: Wed, 1 Apr 1992 14:46:08 GMT
+Approved: dcmartin@msi.com
+Lines: 1604
+
+Submitted-by: Renaldo Recuerdo <rr@sco.COM>
+Posting-number: Volume 17, Issue 49
+Archive-name: lyapunov-xlib/part02
+
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file lyap.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping lyap.c'
+else
+echo 'x - continuing file lyap.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'lyap.c' &&
+X		   	init_color(); 
+X		   	XSetWindowColormap(dpy, canvas, cmap);
+X		   }
+X		   break;
+X	case 'w': if (numwheels > 0)
+X			numwheels--;
+X		   else
+X			numwheels = MAXWHEELS;
+X		   if (displayplanes > 1) {
+X		   	init_color(); 
+X		   	XSetWindowColormap(dpy, canvas, cmap);
+X		   }
+X		   break;
+X	case 'x': Clear(); break;
+X	case 'X': Destroy_frame(); break;
+X	case 'z': Cycle_frames(); redraw(exponents[frame], expind[frame], 1);
+X		  break;
+X	case 'Z': while (!XPending(dpy)) Cycle_frames(); 
+X		  redraw(exponents[frame], expind[frame], 1); break;
+X	case 'q':
+X	case 'Q': exit(0); break;
+X	case '?':
+X	case 'h':
+X	case 'H': print_help(); break;
+X	default:  break;
+X	}
+}
+X
+/* Here's where we index into a color map. After the Lyapunov exponent is
+X * calculated, it is used to determine what color to use for that point.
+X * I suppose there are a lot of ways to do this. I used the following :
+X * if it's non-negative then there's a reserved area at the lower range
+X * of the color map that i index into. The ratio of some "minimum exponent
+X * value" and the calculated value is used as a ratio of how high to index
+X * into this reserved range. Usually these colors are dark red (see init_color).
+X * If the exponent is negative, the same ratio (expo/minlyap) is used to index
+X * into the remaining portion of the colormap (which is usually some light
+X * shades of color or a rainbow wheel). The coloring scheme can actually make
+X * a great deal of difference in the quality of the picture. Different colormaps
+X * bring out different details of the dynamics while different indexing
+X * algorithms also greatly effect what details are seen. Play around with this.
+X */
+sendpoint(expo)
+double expo;
+{
+X	static int index;
+X	static double tmpexpo;
+X	extern double exp();
+X
+X	point.x++;
+X	tmpexpo = (negative) ? expo : -1.0 * expo;
+X	if (tmpexpo > 0) {
+X		if (displayplanes >1) {
+X		    index = (int)(tmpexpo*lowrange/maxexp);
+X		    index = (index % lowrange) + startcolor;
+X		}
+X		else
+X		    index = 0;
+X	}
+X	else {
+X		if (displayplanes >1) {
+X		    index = (int)(tmpexpo*numfreecols/minexp);
+X		    index = (index % numfreecols) + mincolindex;
+X		}
+X		else
+X		    index = 1;
+X	}
+X  	BufferPoint(dpy, canvas, index, point.x, point.y);
+X	if (save)
+X		exponents[frame][expind[frame]++] = expo;
+X	if (point.x >= width) {
+X		point.y++;
+X		point.x = 0;
+X		if (save) {
+X			b += b_inc;
+X			a = min_a;
+X		}
+X		if (point.y >= height)
+X			return FALSE;
+X		else
+X			return TRUE;
+X	}
+X	return TRUE;
+}
+X
+void 
+redisplay (w, event)
+Window          w;
+XXExposeEvent    *event;
+{
+X	/*
+X 	* Extract the exposed area from the event and copy
+X 	* from the saved pixmap to the window.
+X 	*/
+X	XCopyArea(dpy, pixmap, canvas, Data_GC[0], 
+X           event->x, event->y, event->width, event->height, 
+X           event->x, event->y);
+}
+X
+void
+resize()
+{
+X	Window r;
+X	int n, x, y;
+X	unsigned int bw, d, new_w, new_h;
+X	extern void Clear(), Redraw();
+X
+X	XGetGeometry(dpy,canvas,&r,&x,&y,&new_w,&new_h,&bw,&d);
+X	if ((new_w == width) && (new_h == height))
+X		return;
+X	width = new_w; height = new_h;
+X	XClearWindow(dpy, canvas);
+X	if (pixmap)
+X		XFreePixmap(dpy, pixmap);
+X	pixmap = XCreatePixmap(dpy, DefaultRootWindow(dpy), 
+X			width, height, DefaultDepth(dpy, screen));
+X	a_inc = a_range / (double)width;
+X	b_inc = b_range / (double)height;
+X	point.x = -1;
+X	point.y = 0;
+X	run = 1;
+X	a = rubber_data.p_min = min_a;
+X	b = rubber_data.q_min = min_b;
+X	rubber_data.p_max = max_a;
+X	rubber_data.q_max = max_b;
+X	freemem();
+X	setupmem();
+X        for (n=0;n<MAXFRAMES;n++)
+X	  if ((n <= maxframe) && (n != frame))
+X	      resized[n] = 1;
+X	InitBuffer();
+X	Clear();
+X	Redraw();
+}
+X
+void
+redraw(exparray, index, cont)
+double *exparray;
+int index, cont;
+{
+X	static int i;
+X	static int x_sav, y_sav;
+X
+X	x_sav = point.x;
+X	y_sav = point.y;
+X
+X	point.x = -1;
+X	point.y = 0;
+X
+X	save=0;
+X	for (i=0;i<index;i++)
+X		sendpoint(exparray[i]);
+X	save=1;
+X	
+X	if (cont) {
+X		point.x = x_sav;
+X		point.y = y_sav;
+X	}
+X	else {
+X		a = point.x * a_inc + min_a;
+X		b = point.y * b_inc + min_b;
+X	}
+X	FlushBuffer();
+}
+X
+void
+Redraw() 
+{
+X	FlushBuffer();
+X        point.x = -1;
+X        point.y = 0;
+X	run = 1;
+X        a = min_a;
+X        b = min_b;
+X	expind[frame] = 0;
+X	resized[frame] = 0;
+}
+X
+/* Store color pics in PPM format and monochrome in PGM */
+void
+save_to_file() 
+{
+X	FILE *outfile;
+X	unsigned char c;
+X	XImage *ximage;
+X	static int i,j;
+X	struct Colormap {
+X		unsigned char red;
+X		unsigned char green;
+X		unsigned char blue;
+X	};
+X	struct Colormap *colormap=NULL;
+X
+X	if (colormap)
+X		free(colormap);
+X	if ((colormap=
+X		(struct Colormap *)malloc(sizeof(struct Colormap)*maxcolor))
+X			== NULL) {
+X		fprintf(stderr,"Error malloc'ing colormap array\n");
+X		exit(-1);
+X	}
+X	outfile = fopen(outname,"w");
+X	if(!outfile) {
+X		perror(outname);
+X		exit(-1);
+X	}
+X
+X	ximage=XGetImage(dpy, pixmap, 0, 0, width, height, AllPlanes, XYPixmap);
+X
+X	if (displayplanes > 1) {
+X		for (i=0;i<maxcolor;i++) {
+X			colormap[i].red=(unsigned char)(Colors[i].red >> 8);
+X			colormap[i].green=(unsigned char)(Colors[i].green >> 8);
+X			colormap[i].blue =(unsigned char)(Colors[i].blue >> 8);
+X		}
+X		fprintf(outfile,"P%d %d %d\n",6,width,height);
+X	}
+X	else
+X		fprintf(outfile,"P%d %d %d\n",5,width,height);
+X	fprintf(outfile,"# settle=%d  dwell=%d start_x=%f\n",settle,dwell,
+X				start_x);
+X	fprintf(outfile,"# min_a=%f  a_rng=%f  max_a=%f\n",min_a,a_range,max_a);
+X	fprintf(outfile,"# min_b=%f  b_rng=%f  max_b=%f\n",min_b,b_range,max_b);
+X	if (Rflag)
+X 		fprintf(outfile,"# pseudo-random forcing\n");
+X 	else if (force) {
+X 		fprintf(outfile,"# periodic forcing=");
+X 		for (i=0;i<maxindex;i++) {
+X 			fprintf(outfile,"%d",forcing[i]);
+X 		}
+X 		fprintf(outfile,"\n");
+X 	}
+X 	else
+X 		fprintf(outfile,"# periodic forcing=01\n");
+X 	if (Force) {
+X 		fprintf(outfile,"# function forcing=");
+X 		for (i=0;i<funcmaxindex;i++) {
+X 			fprintf(outfile,"%d",Forcing[i]);
+X 		}
+X 		fprintf(outfile,"\n");
+X 	}
+X	fprintf(outfile,"%d\n",numcolors-1);
+X
+X	for (j=0;j<height;j++)
+X	    for (i=0;i<width;i++) {
+X		c = (unsigned char)XGetPixel(ximage,i,j);
+X		if (displayplanes > 1)
+X		    fwrite((char *)&colormap[c],sizeof colormap[0],1,outfile);
+X		else
+X		    fwrite((char *)&c,sizeof c,1,outfile);
+X	    }
+X	fclose(outfile);
+}
+X
+void
+recalc() 
+{
+X	static int i, index, x, y;
+X	
+X	minexp = maxexp = 0.0;
+X	x = y = 0;
+X	for (i=0;i<expind[frame];i++) {
+X		if (exponents[frame][i] < minexp)
+X			minexp = exponents[frame][i];
+X		if (exponents[frame][i] > maxexp)
+X			maxexp = exponents[frame][i];
+X	}
+}
+X
+void
+Clear() 
+{
+X     	XClearWindow(dpy, canvas);
+X	XCopyArea(dpy, canvas, pixmap, Data_GC[0], 
+X        		0, 0, width, height, 0, 0);
+X	InitBuffer();
+}
+X
+void
+show_defaults() 
+{
+X
+X	printf("Width=%d  Height=%d  numcolors=%d  settle=%d  dwell=%d\n",
+X		width,height,numcolors,settle,dwell);
+X	printf("min_a=%f  a_range=%f  max_a=%f\n", min_a,a_range,max_a);
+X	printf("min_b=%f  b_range=%f  max_b=%f\n", min_b,b_range,max_b);
+X	printf("minlyap=%f  minexp=%f  maxexp=%f\n", minlyap,minexp,maxexp);
+X	exit(0);
+}
+X
+void
+CreateXorGC()
+{
+X	XGCValues values;
+X
+X	values.foreground = foreground;
+X	values.line_style = LineSolid;
+X	values.function = GXxor;
+X	RubberGC = XCreateGC(dpy, DefaultRootWindow(dpy),
+X	      GCForeground | GCBackground | GCFunction | GCLineStyle, &values);
+}
+X
+void 
+StartRubberBand(w, data, event)
+Window w;
+image_data_t *data;
+XXEvent *event;
+{
+X	XPoint corners[5];
+X	extern void SetupCorners();
+X
+X	nostart = 0;
+X	data->rubber_band.last_x = data->rubber_band.start_x = event->xbutton.x;
+X	data->rubber_band.last_y = data->rubber_band.start_y = event->xbutton.y;
+X	SetupCorners(corners, data);
+X	XDrawLines(dpy, canvas, RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+}
+X
+void
+SetupCorners(corners, data)
+XXPoint *corners;
+image_data_t *data;
+{
+X	corners[0].x = data->rubber_band.start_x;
+X	corners[0].y = data->rubber_band.start_y;
+X	corners[1].x = data->rubber_band.start_x;
+X	corners[1].y = data->rubber_band.last_y;
+X	corners[2].x = data->rubber_band.last_x;
+X	corners[2].y = data->rubber_band.last_y;
+X	corners[3].x = data->rubber_band.last_x;
+X	corners[3].y = data->rubber_band.start_y;
+X	corners[4] = corners[0];
+}
+X
+void 
+TrackRubberBand(w, data, event)
+Window w;
+image_data_t *data;
+XXEvent *event;
+{
+X	XPoint corners[5];
+X	int xdiff, ydiff, diff;
+X	extern void SetupCorners();
+X
+X	if (nostart)
+X		return;
+X	SetupCorners(corners, data);
+X	XDrawLines(dpy, canvas, RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X	ydiff = event->xbutton.y - data->rubber_band.start_y;
+X	xdiff = event->xbutton.x - data->rubber_band.start_x;
+X	data->rubber_band.last_x = data->rubber_band.start_x + xdiff;
+X	data->rubber_band.last_y = data->rubber_band.start_y + ydiff;
+X	if (data->rubber_band.last_y < data->rubber_band.start_y ||
+X	    data->rubber_band.last_x < data->rubber_band.start_x)
+X	{
+X		data->rubber_band.last_y = data->rubber_band.start_y;
+X		data->rubber_band.last_x = data->rubber_band.start_x;
+X	}
+X	SetupCorners(corners, data);
+X	XDrawLines(dpy, canvas, RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+}
+X
+void 
+EndRubberBand(w, data, event)
+Window w;
+image_data_t *data;
+XXEvent *event;
+{
+X	XPoint corners[5];
+X	XPoint top, bot;
+X	double delta, diff;
+X	extern void set_new_params(), SetupCorners();
+X
+X	nostart = 1;
+X	SetupCorners(corners, data);
+X	XDrawLines(dpy, canvas, RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X	if (data->rubber_band.start_x >= data->rubber_band.last_x ||
+X	    data->rubber_band.start_y >= data->rubber_band.last_y)
+X		return;
+X	top.x = data->rubber_band.start_x;
+X	bot.x = data->rubber_band.last_x;
+X	top.y = data->rubber_band.start_y;
+X	bot.y = data->rubber_band.last_y;
+X	diff = data->q_max - data->q_min;
+X	delta = (double)top.y / (double)height;
+X	data->q_min += diff * delta;
+X	delta = (double)(height - bot.y) / (double)height;
+X	data->q_max -= diff * delta;
+X	diff = data->p_max - data->p_min;
+X	delta = (double)top.x / (double)width;
+X	data->p_min += diff * delta;
+X	delta = (double)(width - bot.x) / (double)width;
+X	data->p_max -= diff * delta;
+X	fflush(stdout);
+X	set_new_params(w, data);
+}
+X
+void
+set_new_params(w, data)
+Window w;
+image_data_t *data;
+{
+X	extern void Clear();
+X
+X	frame = (maxframe + 1) % MAXFRAMES;
+X	if (frame > maxframe)
+X		maxframe = frame;
+X	a_range = data->p_max - data->p_min;
+X	b_range = data->q_max - data->q_min;
+X        a_minimums[frame] = min_a = data->p_min;
+X        b_minimums[frame] = min_b = data->q_min;
+X        a_inc = a_range / (double)width;
+X        b_inc = b_range / (double)height;
+X        point.x = -1;
+X        point.y = 0;
+X	run = 1;
+X        a = min_a;
+X        b = min_b;
+X        a_maximums[frame] = max_a = data->p_max;
+X        b_maximums[frame] = max_b = data->q_max;
+X	expind[frame] = 0;;
+X	Clear();
+}
+X
+void
+go_down() 
+{
+X	static int i;
+X	
+X	frame++;
+X	if (frame > maxframe)
+X		frame = 0;
+X	jumpwin();
+}
+X
+void
+go_back() 
+{
+X	static int i;
+X	
+X	frame--;
+X	if (frame < 0)
+X		frame = maxframe;
+X	jumpwin();
+}
+X
+jumpwin()
+{
+X	rubber_data.p_min = min_a = a_minimums[frame];
+X	rubber_data.q_min = min_b = b_minimums[frame];
+X	rubber_data.p_max = max_a = a_maximums[frame];
+X	rubber_data.q_max = max_b = b_maximums[frame];
+X	a_range = max_a - min_a;
+X	b_range = max_b - min_b;
+X        a_inc = a_range / (double)width;
+X        b_inc = b_range / (double)height;
+X        point.x = -1;
+X        point.y = 0;
+X        a = min_a;
+X        b = min_b;
+X	Clear();
+X	if (resized[frame])
+X		Redraw();
+X	else
+X		redraw(exponents[frame], expind[frame], 0);
+}
+X
+void
+go_init() 
+{
+X	static int i;
+X	
+X	frame = 0;
+X	jumpwin();
+}
+X
+Destroy_frame()
+{
+X	static int i;
+X
+X	for (i=frame; i<maxframe; i++) {
+X		exponents[frame] = exponents[frame+1];
+X		expind[frame] = expind[frame+1];
+X		a_minimums[frame] = a_minimums[frame+1];
+X		b_minimums[frame] = b_minimums[frame+1];
+X		a_maximums[frame] = a_maximums[frame+1];
+X		b_maximums[frame] = b_maximums[frame+1];
+X	}
+X	maxframe--;
+X	go_back();
+}
+X
+void
+InitBuffer()
+{
+X	int i;
+X
+X	for (i = 0 ; i < maxcolor; ++i)
+X		Points.npoints[i] = 0;
+}
+X
+void
+BufferPoint(display, window, color, x, y)
+Display *display;
+Window window;
+int color;
+int x, y;
+{
+X	if (Points.npoints[color] == MAXPOINTS)
+X	{
+X		XDrawPoints(display, window, Data_GC[color],
+X		    Points.data[color], Points.npoints[color], CoordModeOrigin);
+X		XDrawPoints(display, pixmap, Data_GC[color],
+X		    Points.data[color], Points.npoints[color], CoordModeOrigin);
+X		Points.npoints[color] = 0;
+X	}
+X	Points.data[color][Points.npoints[color]].x = x;
+X	Points.data[color][Points.npoints[color]].y = y;
+X	++Points.npoints[color];
+}
+X
+void
+FlushBuffer()
+{
+X	int color;
+X
+X	for (color = 0; color < maxcolor; ++color)
+X		if (Points.npoints[color])
+X		{
+X		    XDrawPoints(dpy, canvas, Data_GC[color],
+X			    Points.data[color], Points.npoints[color],
+X			    CoordModeOrigin);
+X		    XDrawPoints(dpy, pixmap, Data_GC[color],
+X			    Points.data[color], Points.npoints[color],
+X			    CoordModeOrigin);
+X		    Points.npoints[color] = 0;
+X		}
+}
+X
+void
+print_help() 
+{
+X    printf("During run-time, interactive control can be exerted via : \n");
+X    printf("Mouse buttons allow rubber-banding of a zoom box\n");
+X    printf("< halves the 'dwell', > doubles the 'dwell'\n");
+X    printf("[ halves the 'settle', ] doubles the 'settle'\n");
+X    printf("D flushes the drawing buffer\n");
+X    printf("e or E recalculates color indices\n");
+X    printf("f or F saves exponents to a file\n");
+X    printf("h or H or ? displays this message\n");
+X    printf("i decrements, I increments the stripe interval\n");
+X    printf("KJMN increase/decrease minimum negative exponent\n");
+X    printf("m increments the map index, changing maps\n");
+X    printf("p or P reverses the colormap for negative/positive exponents\n");
+X    printf("r redraws without recalculating\n");
+X    printf("R redraws, recalculating with new dwell and settle values\n");
+X    printf("s or S spins the colorwheel\n");
+X    printf("u pops back up to the last zoom\n");
+X    printf("U pops back up to the first picture\n");
+X    printf("v or V displays the values of various settings\n");
+X    printf("w decrements, W increments the color wheel index\n");
+X    printf("x or X clears the window\n");
+X    printf("q or Q exits\n");
+}
+X
+void
+print_values() 
+{
+X    static int i;
+X
+X    printf("\nminlyap=%f minexp=%f maxexp=%f\n",minlyap,minexp,maxexp);
+X    printf("width=%d height=%d\n",width,height);
+X    printf("settle=%d  dwell=%d start_x=%f\n",settle,dwell, start_x);
+X    printf("min_a=%f  a_rng=%f  max_a=%f\n",min_a,a_range,max_a);
+X    printf("min_b=%f  b_rng=%f  max_b=%f\n",min_b,b_range,max_b);
+X    if (Rflag)
+X 	printf("pseudo-random forcing\n");
+X    else if (force) {
+X	printf("periodic forcing=");
+X 	for (i=0;i<maxindex;i++)
+X 		printf("%d",forcing[i]);
+X 	printf("\n");
+X    }
+X    else
+X 	printf("periodic forcing=01\n");
+X    if (Force) {
+X 	printf("function forcing=");
+X 	for (i=0;i<funcmaxindex;i++) {
+X 		printf("%d",Forcing[i]);
+X 	}
+X 	printf("\n");
+X    }
+X    printf("numcolors=%d\n",numcolors-1);
+}
+X
+freemem()
+{
+X	static int i;
+X
+X        for (i=0;i<MAXFRAMES;i++)
+X                free(exponents[i]);
+}
+X
+setupmem()
+{
+X	static int i;
+X
+X        for (i=0;i<MAXFRAMES;i++) {
+X                if((exponents[i]=
+X                    (double *)malloc(sizeof(double)*width*height))==NULL){
+X                    fprintf(stderr,"Error malloc'ing exponent array.\n");
+X                    exit(-1);
+X                }
+X        }
+}
+X
+setforcing()
+{
+X	static int i;
+X	extern double drand48();
+X
+X        for (i=0;i<MAXINDEX;i++)
+X		forcing[i] = (drand48() > prob) ? 0 : 1;
+}
+SHAR_EOF
+echo 'File lyap.c is complete' &&
+chmod 0644 lyap.c ||
+echo 'restore of lyap.c failed'
+Wc_c="`wc -c < 'lyap.c'`"
+test 40245 -eq "$Wc_c" ||
+	echo 'lyap.c: original size 40245, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= lyap.h ==============
+if test -f 'lyap.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping lyap.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting lyap.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'lyap.h' &&
+/*
+X *	@(#) lyap.h
+X */
+/*
+X *	Written by Ron Record (rr@sco.com) 03 Sep 1991.
+X */
+X
+#include "patchlevel.h"
+#include <assert.h>
+#include <math.h>
+#include <memory.h>
+#include <stdio.h>
+#include <X11/Xlib.h> 
+#include <X11/StringDefs.h> 
+#include <X11/keysym.h> 
+#include <X11/cursorfont.h> 
+#include <X11/Xutil.h>
+#include <X11/Xatom.h>
+X
+#define ABS(a)	(((a)<0) ? (0-(a)) : (a) )
+#define Min(x,y) ((x < y)?x:y)
+#define Max(x,y) ((x > y)?x:y)
+X
+#ifdef SIXTEEN_COLORS
+#define MAXPOINTS  128
+#define MAXFRAMES 4
+#define MAXCOLOR 16
+int maxcolor=16, startcolor=0, color_offset=0, mincolindex=1;
+int dwell=50, settle=25;
+int width=128, height=128, xposition=128, yposition=128;
+#else
+#define MAXPOINTS  256
+#define MAXFRAMES 8
+#define MAXCOLOR 256
+int maxcolor=256, startcolor=17, color_offset=96, mincolindex=33;
+int dwell=100, settle=50;
+int width=256, height=256, xposition=256, yposition=256;
+#endif
+X
+#ifndef TRUE
+#define TRUE 1
+#define FALSE 0
+#endif
+X
+int bottom, screen;
+Display*	dpy;
+char*		displayname = 0;
+X
+extern double log();
+extern double fabs();
+extern long time();
+extern int optind;
+extern char *optarg;
+X
+unsigned long foreground, background;
+X
+Window canvas;
+X
+void     resize();
+void     redisplay();
+void     quit();
+void     Spin();
+void     start_iterate();
+void     stop_iterate();
+void	 show_defaults();
+void	 StartRubberBand();
+void	 TrackRubberBand();
+void	 EndRubberBand();
+void	 CreateXorGC();
+void	 InitBuffer();
+void	 BufferPoint();
+void	 FlushBuffer();
+X
+typedef struct {
+X	int x, y;
+} xy_t;
+X
+typedef struct {
+X	int start_x, start_y;
+X	int last_x, last_y;
+X	} rubber_band_data_t;
+X
+typedef struct {
+X	Cursor band_cursor;
+X	double p_min, p_max, q_min, q_max;
+X	rubber_band_data_t rubber_band;
+X	} image_data_t;
+X
+typedef struct points_t {
+X	XPoint data[MAXCOLOR][MAXPOINTS];
+X	int npoints[MAXCOLOR];
+X	} points_t;
+X
+points_t Points;
+image_data_t rubber_data;
+X
+#ifndef TRUE
+#define TRUE 1
+#define FALSE 0
+#endif
+X
+GC Data_GC[MAXCOLOR], RubberGC;
+X
+#define MAXINDEX 64
+#define FUNCMAXINDEX 16
+#define MAXWHEELS 7
+#define NUMMAPS 5
+X
+typedef double (*PFD)();
+X
+double logistic(), circle(), leftlog(), rightlog(), doublelog();
+double dlogistic(), dcircle(), dleftlog(), drightlog(), ddoublelog();
+PFD map, deriv;
+PFD Maps[NUMMAPS] = { logistic, circle, leftlog, rightlog, doublelog };
+PFD Derivs[NUMMAPS] = { dlogistic, dcircle, dleftlog, drightlog, ddoublelog };
+X
+int aflag=0, bflag=0, wflag=0, hflag=0, Rflag=0;
+double pmins[NUMMAPS] = { 2.0, 0.0, 0.0, 0.0, 0.0 };
+double pmaxs[NUMMAPS] = { 4.0, 1.0, 6.75, 6.75, 16.0 };
+double amins[NUMMAPS] = { 2.0, 0.0, 0.0, 0.0, 0.0 };
+double aranges[NUMMAPS] = { 2.0, 1.0, 6.75, 6.75, 16.0 };
+double bmins[NUMMAPS] = { 2.0, 0.0, 0.0, 0.0, 0.0 };
+double branges[NUMMAPS] = { 2.0, 1.0, 6.75, 6.75, 16.0 };
+X
+int   forcing[MAXINDEX] = { 0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,
+X			0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,
+X			0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1 };
+int   Forcing[FUNCMAXINDEX] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
+X
+int   maxindex = MAXINDEX;
+int   funcmaxindex = FUNCMAXINDEX;
+double	min_a=2.0, min_b=2.0, a_range=2.0, b_range=2.0, minlyap=1.0;
+double  max_a=4.0, max_b=4.0;
+double  start_x=0.65, lyapunov, a_inc, b_inc, a, b;
+int	numcolors=16, numfreecols, displayplanes, lowrange;
+xy_t	point, velocity;
+Pixmap  pixmap;
+Colormap cmap;
+XXColor	Colors[MAXCOLOR];
+double  *exponents[MAXFRAMES];
+double  a_minimums[MAXFRAMES], b_minimums[MAXFRAMES];
+double  a_maximums[MAXFRAMES], b_maximums[MAXFRAMES];
+double  minexp, maxexp, prob=0.5;
+int     expind[MAXFRAMES]={0}, resized[MAXFRAMES]={0};
+int	numwheels=MAXWHEELS, force=0, Force=0, negative=1;
+int     rgb_max=65000, nostart=1, stripe_interval=7;
+int	save=1, show=0, useprod=1, spinlength=256, savefile=0;
+int	maxframe=0, frame=0, dorecalc=0, mapindex=0, run=1;
+char	*outname="lyap.out";
+SHAR_EOF
+chmod 0644 lyap.h ||
+echo 'restore of lyap.h failed'
+Wc_c="`wc -c < 'lyap.h'`"
+test 3798 -eq "$Wc_c" ||
+	echo 'lyap.h: original size 3798, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= lyap.man ==============
+if test -f 'lyap.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping lyap.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting lyap.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'lyap.man' &&
+.TH LYAP 6X
+.SH NAME
+lyap \- display an array of Lyapunov exponents graphically
+.SH SYNOPSIS
+.in +8n
+.ti -8n
+\fIlyap\fR
+[-BLps][-W width][-H height][-o filename][-a 
+\fIn\fR ]
+[-b 
+\fIn\fR ]
+[-w 
+\fIn\fR ]
+[-h 
+\fIn\fR ]
+[-i xstart]
+[-M 
+\fIn\fR ]
+[-R 
+\fIp\fR ]
+[-S 
+\fIn\fR ]
+[-D 
+\fIn\fR ]
+[-F string][-f string][-r 
+\fIn\fR ]
+[-O 
+\fIn\fR ]
+[-C 
+\fIn\fR ]
+[-c 
+\fIn\fR ]
+[-m 
+\fIn\fR ]
+[-x xpos]
+[-y ypos]
+.in -8n
+.SH DESCRIPTION
+\fIlyap\fR
+generates and graphically displays an array of Lyapunov exponents for a 
+variety of iterated periodically forced non-linear maps of the unit interval.
+.SH OPTIONS
+.TP 8
+-C \fIn\fP
+Specifies the minimum color index to be used for negative exponents
+.TP
+-D \fIn\fP
+Specifies the "dwell" or number of iterations over which to average in order
+to calculate the Lyapunov exponent. Default is 400.
+.TP
+-B 
+Causes the stop, go, spin and quit buttons to be displayed.
+.TP
+-H \fIn\fP
+Specifies the height of the window. Default is 256.
+.TP
+-L 
+Indicates use log(x) + log(y) rather than log(xy).
+.TP
+-M \fIr\fP
+Specifies the real value to compare exponent values to for indexing into
+a color wheel. The default value is 1.0.
+.TP
+-O \fIn\fP
+Specifies the minimum color index to be used for positive exponents
+.TP
+-R \fIp\fP
+Specifies pseudo-random forcing with probability \fIp\fP of using parameter
+value 'a'.
+.TP
+-S \fIn\fP
+Specifies the "settle" or number of iterations prior to the beginning of
+the calculation of the Lyapunov exponent. Default is 200.
+.TP
+-W \fIn\fP
+Specifies the width of the window. Default is 256.
+.TP
+-a \fIr\fP
+Specifies the real value to use as the minimum parameter value of the 
+horizontal axis. Default is 3.0 for the logistic map.
+.TP
+-b \fIn\fP
+Specifies the real value to use as the minimum parameter value of the 
+vertical axis. Default is 3.0 for the logistic map.
+.TP
+-c \fIn\fP
+Selects one of six different color wheels to use. The default color
+wheel is a rainbow palette.
+.TP
+-F \fI10101010\fP
+Specifies the "Function" forcing function to use. The example above would 
+alternate between iterating the circle and logistic maps. An argument of
+"-F 2323" would alternate between left and right logistic maps. The default
+is to only use the single specified map (see the description of -m).
+.TP
+-f \fIabbabaab\fP
+Specifies the forcing function to use. The default is to alternate between
+the "a" parameter and the "b" parameter.
+.TP
+-h \fIr\fP
+Specifies the real value to be used as the range over which the vertical
+parameter values vary. The default is 1.0.
+.TP
+-i \fIr\fP
+Specifies the real value of the initial condition to use. Default is 0.05.
+.TP
+-m \fIn\fP
+Selects between available non-linear maps of the unit interval. A value of
+0 specifies the logistic map. A value of 1, the circle map. A value of 2,
+the left-logistic. A value of 3, the right-logistic. A value of 4, the
+double-logistic. The default is 0, the logistic map.
+.TP
+-o \fIfilename\fP
+Specifies the output filename to be used. If the -o option is given, this
+file will automatically be written out at the completion of the drawing.
+If it is not specified, a default filename of lyap.out is used and only
+written if the 'f' or 'F' keys are pressed during a run. The format of the
+output file is PPM for color and PGM for monochrom. The parameters used to
+calculate the picture are included as comments at the beginning of the output
+file.
+.TP
+-p
+Switches color indices for negative and positive exponents. Generally,
+causes negative exponents to be displayed in more detail while darkening
+and narrowing the color range for positive exponents. This can be toggled
+during runtime by pressing the 'p' key.
+.TP
+-r \fIn\fP
+Specifies the maximum rgb value to be used. Default is 35000.
+.TP
+-s \fIn\fP
+Specifies the length of the color wheel spin.
+.TP
+-u
+Produces a usage message.
+.TP
+-v 
+Prints out the various values to be used and exits.
+.TP
+-w \fIr\fP
+Specifies the real value to be used as the range over which the horizontal
+parameter values vary. The default is 1.0.
+.TP
+-x \fIn\fP
+Specifies the x screen coordinate of the window (default is 256).
+.TP
+-y \fIn\fP
+Specifies the y screen coordinate of the window (default is 256).
+.sp 2
+.SH NOTES
+.sp
+During display, pressing any mouse button allows you to select the area to
+be investigated with the mouse. The upper left hand corner of the desired
+area is the location of the cursor when the button is pressed. The lower
+right hand corner is specified by the cursor when the button is released.
+.sp 2
+Use of the keys 
+\fIbBeEfFkKjJmnrRsSwWxXqQ\fP
+indicates:
+.sp
+.ti 10
+(<) Halve dwell value.
+.ti 10
+(>) Double dwell value.
+.ti 10
+([) Halve settle value.
+.ti 10
+(]) Double settle value.
+.ti 10
+(B or b) Toggle button display on/off
+.ti 10
+(E or e) Recalculate the indices into the color wheel using a different method
+.ti 10
+(F or f) Save current screen to ouput file (not yet implemented)
+.ti 10
+(H or h or ?) Display brief help message
+.ti 10
+(i) Decrement the interval between stripes for the striped color map.
+.ti 10
+(I) Increment the interval between stripes for the striped color map.
+.ti 10
+(K) Decrease value exponents are compared against by 0.05.
+.ti 10
+(J) Increase value exponents are compared against by 0.05.
+.ti 10
+(M) Decrease value exponents are compared against by 0.005.
+.ti 10
+(N) Increase value exponents are compared against by 0.005.
+.ti 10
+(m) Increment the map index, changing the map to be iterated.
+.ti 10
+(P or p) Toggle positive/negative exponent display.
+.ti 10
+(r) Redraw the window using previously calculated exponents.
+.ti 10
+(R) Redraw the window using the newly set dwell and/or settle values.
+.ti 10
+(S) Spin the color wheel
+.ti 10
+(s) Halve the length of the spin and spin the color wheel
+.ti 10
+(u) Go up to the window just prior to the most recent zoom.
+.ti 10
+(U) Go all the way up to the original window.
+.ti 10
+(V or v) Display values of various parameters currently in use
+.ti 10
+(W or w) Use next color map.
+.ti 10
+(X or x) Clear window
+.ti 10
+(Q or q) quit
+.sp 2
+.SH AUTHOR
+.nf
+X        Ronald Joe Record
+X     The Santa Cruz Operation 
+X          P.O. Box 1900
+X       Santa Cruz, CA 95061
+X            rr@sco.com
+.fi
+.sp 2
+.SH ACKNOWLEDGEMENTS
+.PP
+The algorithm was taken from the September 1991 Scientific American article
+by A. K. Dewdney who gives credit to Mario Markus of the Max Planck Institute
+for its creation. Additional information and ideas were gleaned from the
+discussion on alt.fractals involving Stephen Hall, Ed Kubaitis, Dave Platt
+and Baback Moghaddam. Assistance with colormaps and spinning color wheels
+and X was gleaned from Hiram Clawson. Rubber banding code was adapted from
+an existing Mandelbrot program written by Stacey Campbell.
+SHAR_EOF
+chmod 0644 lyap.man ||
+echo 'restore of lyap.man failed'
+Wc_c="`wc -c < 'lyap.man'`"
+test 6696 -eq "$Wc_c" ||
+	echo 'lyap.man: original size 6696, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.1 ==============
+if test ! -d 'params'; then
+    echo 'x - creating directory params'
+    mkdir 'params'
+fi
+if test -f 'params/asharpe.1' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.1 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.1' &&
+/usr/games/X11/lyap -a3.75 -b3.299999 -w0.05 -h0.05 -D200 -S100 -fabaabbaaabbb -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.1 ||
+echo 'restore of params/asharpe.1 failed'
+Wc_c="`wc -c < 'params/asharpe.1'`"
+test 91 -eq "$Wc_c" ||
+	echo 'params/asharpe.1: original size 91, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.2 ==============
+if test -f 'params/asharpe.2' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.2 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.2 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.2' &&
+/usr/games/X11/lyap -a3.8 -b3.2 -h.05 -w.05 -fbbbbbaaaaa
+SHAR_EOF
+chmod 0644 params/asharpe.2 ||
+echo 'restore of params/asharpe.2 failed'
+Wc_c="`wc -c < 'params/asharpe.2'`"
+test 57 -eq "$Wc_c" ||
+	echo 'params/asharpe.2: original size 57, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.3 ==============
+if test -f 'params/asharpe.3' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.3 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.3 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.3' &&
+/usr/games/X11/lyap -a 3.4 -b 3.04 -w .5 -h .5 -f abbbbbbbbb -W640 -H480 -S500 -D1000
+SHAR_EOF
+chmod 0644 params/asharpe.3 ||
+echo 'restore of params/asharpe.3 failed'
+Wc_c="`wc -c < 'params/asharpe.3'`"
+test 86 -eq "$Wc_c" ||
+	echo 'params/asharpe.3: original size 86, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.4 ==============
+if test -f 'params/asharpe.4' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.4 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.4 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.4' &&
+/usr/games/X11/lyap -a3.5 -b3.0 -w0.2 -h0.2 -D600 -S300 -faaabbbab -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.4 ||
+echo 'restore of params/asharpe.4 failed'
+Wc_c="`wc -c < 'params/asharpe.4'`"
+test 79 -eq "$Wc_c" ||
+	echo 'params/asharpe.4: original size 79, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.5 ==============
+if test -f 'params/asharpe.5' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.5 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.5 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.5' &&
+/usr/games/X11/lyap -a3.55667 -b3.2 -h.05 -w.05 -fbbbbbaaaaa -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.5 ||
+echo 'restore of params/asharpe.5 failed'
+Wc_c="`wc -c < 'params/asharpe.5'`"
+test 73 -eq "$Wc_c" ||
+	echo 'params/asharpe.5: original size 73, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.6 ==============
+if test -f 'params/asharpe.6' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.6 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.6 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.6' &&
+/usr/games/X11/lyap -a3.79 -b3.22 -h.02999 -w.02999 -fbbbbbaaaaa -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.6 ||
+echo 'restore of params/asharpe.6 failed'
+Wc_c="`wc -c < 'params/asharpe.6'`"
+test 77 -eq "$Wc_c" ||
+	echo 'params/asharpe.6: original size 77, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.7 ==============
+if test -f 'params/asharpe.7' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.7 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.7 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.7' &&
+/usr/games/X11/lyap -a3.7999 -b3.299999 -w0.2 -h0.2 -D300 -S150 -fabaabbaaabbb -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.7 ||
+echo 'restore of params/asharpe.7 failed'
+Wc_c="`wc -c < 'params/asharpe.7'`"
+test 91 -eq "$Wc_c" ||
+	echo 'params/asharpe.7: original size 91, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.8 ==============
+if test -f 'params/asharpe.8' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.8 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.8 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.8' &&
+/usr/games/X11/lyap -a3.89 -b3.22 -h.028 -w.02999 -fbbbbbaaaaa -S600 -D1000 -H480 -W640
+SHAR_EOF
+chmod 0644 params/asharpe.8 ||
+echo 'restore of params/asharpe.8 failed'
+Wc_c="`wc -c < 'params/asharpe.8'`"
+test 88 -eq "$Wc_c" ||
+	echo 'params/asharpe.8: original size 88, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/asharpe.9 ==============
+if test -f 'params/asharpe.9' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/asharpe.9 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/asharpe.9 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/asharpe.9' &&
+/usr/games/X11/lyap -a3.2 -b3.7 -w0.05 -h.005 -f abbbbaa -H700 -W800 -o asharpe9.out &
+SHAR_EOF
+chmod 0644 params/asharpe.9 ||
+echo 'restore of params/asharpe.9 failed'
+Wc_c="`wc -c < 'params/asharpe.9'`"
+test 87 -eq "$Wc_c" ||
+	echo 'params/asharpe.9: original size 87, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/circle-12 ==============
+if test -f 'params/circle-12' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/circle-12 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/circle-12 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/circle-12' &&
+X
+/usr/games/X11/lyap -f aaaaaabbbbbb -m 1 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/circle-12 ||
+echo 'restore of params/circle-12 failed'
+Wc_c="`wc -c < 'params/circle-12'`"
+test 81 -eq "$Wc_c" ||
+	echo 'params/circle-12: original size 81, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/circle-12test ==============
+if test -f 'params/circle-12test' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/circle-12test (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/circle-12test (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/circle-12test' &&
+X
+./lyap -f aaaaaabbbbbb -m 1 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/circle-12test ||
+echo 'restore of params/circle-12test failed'
+Wc_c="`wc -c < 'params/circle-12test'`"
+test 68 -eq "$Wc_c" ||
+	echo 'params/circle-12test: original size 68, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/circle-2 ==============
+if test -f 'params/circle-2' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/circle-2 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/circle-2 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/circle-2' &&
+X
+/usr/games/X11/lyap -m 1 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/circle-2 ||
+echo 'restore of params/circle-2 failed'
+Wc_c="`wc -c < 'params/circle-2'`"
+test 65 -eq "$Wc_c" ||
+	echo 'params/circle-2: original size 65, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/circle-4 ==============
+if test -f 'params/circle-4' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/circle-4 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/circle-4 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/circle-4' &&
+X
+/usr/games/X11/lyap -f abbb -m 1 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/circle-4 ||
+echo 'restore of params/circle-4 failed'
+Wc_c="`wc -c < 'params/circle-4'`"
+test 73 -eq "$Wc_c" ||
+	echo 'params/circle-4: original size 73, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/circle-8 ==============
+if test -f 'params/circle-8' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/circle-8 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/circle-8 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/circle-8' &&
+X
+/usr/games/X11/lyap -f abbabaab -m 1 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/circle-8 ||
+echo 'restore of params/circle-8 failed'
+Wc_c="`wc -c < 'params/circle-8'`"
+test 77 -eq "$Wc_c" ||
+	echo 'params/circle-8: original size 77, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/manray ==============
+if test -f 'params/manray' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/manray (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/manray (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/manray' &&
+/usr/games/X11/lyap -f abbabaab -D 800 -S 200 -W 400 -H 350 -M -0.85 -x 0.05 -a 3.91 -w 0.0899999999 -b 3.28 -h 0.35 &
+SHAR_EOF
+chmod 0644 params/manray ||
+echo 'restore of params/manray failed'
+Wc_c="`wc -c < 'params/manray'`"
+test 119 -eq "$Wc_c" ||
+	echo 'params/manray: original size 119, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/period-12 ==============
+if test -f 'params/period-12' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/period-12 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/period-12 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/period-12' &&
+X
+/usr/games/X11/lyap -f aaaaaabbbbbb -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/period-12 ||
+echo 'restore of params/period-12 failed'
+Wc_c="`wc -c < 'params/period-12'`"
+test 76 -eq "$Wc_c" ||
+	echo 'params/period-12: original size 76, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/period-2 ==============
+if test -f 'params/period-2' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/period-2 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/period-2 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/period-2' &&
+X
+/usr/games/X11/lyap -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/period-2 ||
+echo 'restore of params/period-2 failed'
+Wc_c="`wc -c < 'params/period-2'`"
+test 60 -eq "$Wc_c" ||
+	echo 'params/period-2: original size 60, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/period-4 ==============
+if test -f 'params/period-4' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/period-4 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/period-4 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/period-4' &&
+X
+/usr/games/X11/lyap -f abbb -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/period-4 ||
+echo 'restore of params/period-4 failed'
+Wc_c="`wc -c < 'params/period-4'`"
+test 68 -eq "$Wc_c" ||
+	echo 'params/period-4: original size 68, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/period-8 ==============
+if test -f 'params/period-8' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/period-8 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/period-8 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/period-8' &&
+X
+/usr/games/X11/lyap -f abbabaab -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/period-8 ||
+echo 'restore of params/period-8 failed'
+Wc_c="`wc -c < 'params/period-8'`"
+test 72 -eq "$Wc_c" ||
+	echo 'params/period-8: original size 72, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/skewed-12 ==============
+if test -f 'params/skewed-12' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/skewed-12 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/skewed-12 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/skewed-12' &&
+X
+/usr/games/X11/lyap -m 2 -f aaaaaabbbbbb -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/skewed-12 ||
+echo 'restore of params/skewed-12 failed'
+Wc_c="`wc -c < 'params/skewed-12'`"
+test 81 -eq "$Wc_c" ||
+	echo 'params/skewed-12: original size 81, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/skewed-2 ==============
+if test -f 'params/skewed-2' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/skewed-2 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/skewed-2 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/skewed-2' &&
+X
+/usr/games/X11/lyap -m 2 -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/skewed-2 ||
+echo 'restore of params/skewed-2 failed'
+Wc_c="`wc -c < 'params/skewed-2'`"
+test 65 -eq "$Wc_c" ||
+	echo 'params/skewed-2: original size 65, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/skewed-4 ==============
+if test -f 'params/skewed-4' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/skewed-4 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/skewed-4 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/skewed-4' &&
+X
+/usr/games/X11/lyap -m 2 -f abbb -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/skewed-4 ||
+echo 'restore of params/skewed-4 failed'
+Wc_c="`wc -c < 'params/skewed-4'`"
+test 73 -eq "$Wc_c" ||
+	echo 'params/skewed-4: original size 73, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= params/skewed-8 ==============
+if test -f 'params/skewed-8' -a X"$1" != X"-c"; then
+	echo 'x - skipping params/skewed-8 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting params/skewed-8 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'params/skewed-8' &&
+X
+/usr/games/X11/lyap -m 2 -f abbabaab  -D 400 -S 200 -W 256 -H 256 -M -0.85 &
+SHAR_EOF
+chmod 0644 params/skewed-8 ||
+echo 'restore of params/skewed-8 failed'
+Wc_c="`wc -c < 'params/skewed-8'`"
+test 78 -eq "$Wc_c" ||
+	echo 'params/skewed-8: original size 78, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+X
+#ifndef PATCHLEVEL_H
+#define PATCHLEVEL_H
+X
+#define LYAP_PATCHLEVEL 4
+X
+#define LYAP_VERSION "#(@) lyap 2.3 2/20/92"
+#endif
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 123 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 123, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= tags ==============
+if test -f 'tags' -a X"$1" != X"-c"; then
+	echo 'x - skipping tags (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting tags (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tags' &&
+ABS	lyap.h	/^#define ABS(a)	(((a)<0) ? (0-(a)) : (a) )$/
+BufferPoint	lyap.c	/^BufferPoint(display, window, color, x, y)$/
+Clear	lyap.c	/^Clear() $/
+CreateXorGC	lyap.c	/^CreateXorGC()$/
+Cycle_frames	lyap.c	/^Cycle_frames()$/
+Destroy_frame	lyap.c	/^Destroy_frame()$/
+EndRubberBand	lyap.c	/^void $/
+FlushBuffer	lyap.c	/^FlushBuffer()$/
+Getkey	lyap.c	/^Getkey(event)$/
+InitBuffer	lyap.c	/^InitBuffer()$/
+Max	lyap.h	/^#define Max(x,y) ((x > y)?x:y)$/
+Min	lyap.h	/^#define Min(x,y) ((x < y)?x:y)$/
+Mlyap	lyap.c	/^main(ac, av)$/
+Redraw	lyap.c	/^Redraw() $/
+SetupCorners	lyap.c	/^SetupCorners(corners, data)$/
+Spin	lyap.c	/^Spin(w)$/
+StartRubberBand	lyap.c	/^void $/
+TrackRubberBand	lyap.c	/^void $/
+check_params	lyap.c	/^check_params(mapnum, parnum)$/
+circle	lyap.c	/^circle(x, r)			\/* sin() hump or sorta like the cir/
+complyap	lyap.c	/^complyap()$/
+dcircle	lyap.c	/^dcircle(x, r)			\/* derivative of the "sin() hump" /
+ddoublelog	lyap.c	/^ddoublelog(x, r)		\/* derivative of the double logi/
+dleftlog	lyap.c	/^dleftlog(x, r)			\/* derivative of the left skewed /
+dlogistic	lyap.c	/^dlogistic(x, r)			\/* the derivative of logistic ma/
+doublelog	lyap.c	/^doublelog(x, r)			\/* double logistic *\/$/
+drightlog	lyap.c	/^drightlog(x, r)			\/* derivative of the right skewe/
+freemem	lyap.c	/^freemem()$/
+go_back	lyap.c	/^go_back() $/
+go_down	lyap.c	/^go_down() $/
+go_init	lyap.c	/^go_init() $/
+hls2rgb	hls2rgb.c	/^void hls2rgb( hue_light_sat, rgb )$/
+hue_value	hls2rgb.c	/^static double hue_value( n1, n2, hue )$/
+init_canvas	lyap.c	/^init_canvas()$/
+init_color	lyap.c	/^init_color()$/
+init_data	lyap.c	/^init_data()$/
+jumpwin	lyap.c	/^jumpwin()$/
+leftlog	lyap.c	/^leftlog(x, r)			\/* left skewed logistic *\/$/
+logistic	lyap.c	/^logistic(x, r)			\/* the familiar logistic map *\/$/
+main_event	lyap.c	/^main_event()$/
+parseargs	lyap.c	/^parseargs(ac, av)$/
+print_help	lyap.c	/^print_help() $/
+print_values	lyap.c	/^print_values() $/
+recalc	lyap.c	/^recalc() $/
+redisplay	lyap.c	/^void $/
+redraw	lyap.c	/^redraw(exparray, index, cont)$/
+resize	lyap.c	/^resize()$/
+rightlog	lyap.c	/^rightlog(x, r)			\/* right skewed logistic *\/$/
+save_to_file	lyap.c	/^save_to_file() $/
+sendpoint	lyap.c	/^sendpoint(expo)$/
+set_new_params	lyap.c	/^set_new_params(w, data)$/
+setforcing	lyap.c	/^setforcing()$/
+setupmem	lyap.c	/^setupmem()$/
+show_defaults	lyap.c	/^show_defaults() $/
+usage	lyap.c	/^usage()$/
+SHAR_EOF
+chmod 0644 tags ||
+echo 'restore of tags failed'
+Wc_c="`wc -c < 'tags'`"
+test 2381 -eq "$Wc_c" ||
+	echo 'tags: original size 2381, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= testit ==============
+if test -f 'testit' -a X"$1" != X"-c"; then
+	echo 'x - skipping testit (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting testit (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'testit' &&
+X
+./lyap -S 4 -D 8 -W 128 -H 120
+X
+SHAR_EOF
+chmod 0644 testit ||
+echo 'restore of testit failed'
+Wc_c="`wc -c < 'testit'`"
+test 33 -eq "$Wc_c" ||
+	echo 'testit: original size 33, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

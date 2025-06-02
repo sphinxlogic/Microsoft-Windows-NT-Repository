@@ -1,0 +1,1416 @@
+Path: uunet!mcsun!chsun!pega!dr_who
+From: dr_who@pegasus.ch (Sysop of PEGASUS)
+Newsgroups: vmsnet.sources.games
+Subject: SPCEMP.C   PArt 04/06
+Message-ID: <1993Jun7.093222.125@pegasus.ch>
+Date: 7 Jun 93 09:32:22 +0200
+Organization: Pegasus BBS, Switzerland
+Lines: 1406
+Xref: uunet vmsnet.sources.games:737
+
+----> START OF PART 4 <----
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+battle_stage()
+{
+int z,z2,x;
+char ostring[80],zstring[80];
+unsigned long a_dsend,a_csend,a_ssend,ad_lost,ac_lost,as_lost;
+unsigned long f_send,s_send,c_send,y_send,sf_send;
+unsigned long f_lost,s_lost,c_lost,y_lost,sf_lost;
+unsigned long ed_lost,es_lost,ec_lost,ey_lost,em_lost,esf_lost,ea_lost;
+unsigned long ewin,ywin,pcap,pcap2;
+unsigned long erat,rat;
+unsigned long fmax;
+double cpercent;
+double mval;
+unsigned long tchance;
+long bonus=0;
+long rubbed=0;
+
+if(sol_work==1) 
+	{
+	printf("\nYour armed forces refuse to fight since you didn't pay them");
+	printf("enough.\n");
+	return;
+	}
+
+player[pn].protection = 0;
+
+if(!((player[pn].soldiers>0)||(player[pn].fighters>0)||(player[pn].cruisers>0))) 
+	return;
+
+printf("\nYour armed forces want to know who they should attack this round...\n");
+
+if(getplayer()!=FALSE) 
+	{
+	if((player[epn].governp<=0)&&(player[epn].foodp<=0)&&(player[epn].orep<=0)&&(player[epn].tradep<=0)&&(player[epn].tourismp<=0)&&(player[epn].defensep<=0)) 
+		{
+		printf("\nThis player has no planets. You can't attack him!\n");
+		battle_stage();
+		return;
+		}
+	if(player[epn].protection>0) 
+		{
+		printf("\nThat player is still under protection.  Attack someone else.\n");
+		battle_stage();
+		return;
+		}
+	printf("\nAre you sure you want to attack %s? [y/N] ",player[epn].player);
+	gets(ostring);
+	ostring[0]=toupper(ostring[0]);
+	if(ostring[0]!='Y') 
+		{
+		battle_stage();
+		return;
+		}
+	f_send=0;
+	s_send=0;
+	c_send=0;
+	y_send=0;
+	sf_send=0;
+
+	attacking=FALSE;
+
+	if(player[pn].soldiers>0) 
+		{
+		do
+		 {
+		  printf("Send how many infantry troops (Maximum of %ld): ",player[pn].soldiers);
+		  gets(ostring);
+		  if(strlen(ostring)!=1) 
+			sscanf(ostring,"%ld",&s_send);
+		 }
+		while(s_send>player[pn].soldiers);
+		}
+
+	if( (player[pn].fighters>0) && (player[pn].carriers>0) ) 
+		{
+		do
+		 {
+		  printf("You have %ld carriers, and each may carry 100 fighters.\n",player[pn].carriers);
+		  fmax = (player[pn].carriers * 100);
+		  if( fmax > player[pn].fighters ) 
+			fmax = player[pn].fighters;
+		  printf("Send how many X-Wing fighters (Maximum of %ld): ",fmax);
+		  gets(ostring);
+		  if(strlen(ostring)!=1) 
+			sscanf(ostring,"%ld",&f_send);
+		 }
+		while(f_send>player[pn].fighters);
+		}
+	
+	if((player[pn].ywings>0)&&(player[pn].tech_level>4)) 
+		{
+		do
+		 {
+		  printf("Send how many Y-Wing fighters (Maximum of %ld): ",player[pn].ywings);
+		  gets(ostring);
+		  if(strlen(ostring)!=1) 
+			sscanf(ostring,"%ld",&y_send);
+		 }
+		while(y_send>player[pn].ywings);
+		}
+	
+	if((player[pn].cruisers>0)&&(player[pn].tech_level>0)) 
+		{
+		do
+		 {
+		  printf("Send how many cruisers (Maximum of %ld): ",player[pn].cruisers);
+		  gets(ostring);
+		  if(strlen(ostring)!=1) 
+			sscanf(ostring,"%ld",&c_send);
+		 }
+		while(c_send>player[pn].cruisers);
+		}
+	if((player[pn].starfighters>0)&&(player[pn].tech_level>70-(race[player[pn].race].knowledge*3))) 
+		{
+		do
+		 {
+		  printf("Send how many Imperial Starfighters (Maximum of %ld): ",player[pn].starfighters);
+		  gets(ostring);
+		  if(strlen(ostring)!=1) 
+			sscanf(ostring,"%ld",&sf_send);
+		 }
+		while(sf_send>player[pn].starfighters);
+		}
+
+
+	printf("\nYour army's morale is %s.\n",harmony_level(1,player[pn].morale));
+
+	/* Base calculations */
+
+	ywin = y_send*3 + c_send*4 + f_send*2 + s_send + player[pn].defensep*20 + player[pn].starfighters*10;
+	ewin = player[epn].ywings*4 + player[epn].cruisers*4 + player[epn].defense*2 + player[epn].soldiers + player[epn].defensep*22 + 50 + player[epn].starfighters*10;
+	if (player[epn].tech_level>10)
+		ewin=ewin+(player[epn].defense*3);
+	if (player[epn].tech_level>20)
+		ewin=ewin+(player[epn].defense*3);
+
+
+	/* Soldiers vs. other weapons adjustment. */
+
+	if(s_send < (c_send+f_send+y_send+sf_send*100)) 
+		ywin = ywin - ((c_send+f_send+y_send)-s_send-(sf_send*8));
+	if(player[epn].soldiers < (player[epn].cruisers+player[epn].defense+player[epn].ywings+player[epn].starfighters*100)) 
+		ewin = ewin - ((player[epn].cruisers+player[epn].defense+player[epn].ywings)-player[epn].soldiers-(player[epn].starfighters*8));
+
+	/* Mutual defense forces adjustment */
+/*****
+	if(e_team_num!=0) 
+		{
+		a_ssend=team[player[z].team_num].team_soldiers;
+		a_csend=team[player[z].team_num].team_cruisers;
+		a_dsend=team[player[z].team_num].team_defense;
+		if(a_ssend>0L) a_ssend = a_ssend/team[player[z].team_num].members;
+		if(a_csend>0L) a_ssend = a_csend/team[player[z].team_num].members;
+		if(a_dsend>0L) a_ssend = a_dsend/team[player[z].team_num].members;
+		if((a_ssend>0L)&&(a_csend>0L)&&(a_dsend>0L)) 
+			{
+			sendmessage("Defense forces from your enemy's alliance arrive!",1);
+			ewin = ewin + (a_csend*4L) + (a_dsend*2L) + (a_ssend);
+			}
+		}
+*****/
+	/* Morale adjustment */
+
+	mval = (100 + player[pn].morale) * 0.01;
+	if(mval<0.5) mval = 0.5;
+	if(mval>2.0) mval = 2.0;
+	ywin = ywin * mval;
+	ywin =( ywin * ((race[player[pn].race].strength+race[player[pn].race].knowledge)))/10;   /*RACE*/
+
+	/* death-star adjustments - each makes the army 10 % stronger */
+	ywin =  ((10+player[pn].deathstars)*ywin)/10;
+
+	mval = (100 + player[epn].morale) * 0.01;
+	if(mval<0.5) mval = 0.5;
+	if(mval>2.0) mval = 2.0;
+	ewin = ewin * mval;
+	ewin = (ewin * ((race[player[epn].race].strength+race[player[epn].race].knowledge)))/10;   /*RACE*/
+
+	/* death-star adjustments - each makes the army 10 % stronger */
+	ewin =  ((10+player[pn].deathstars)*ewin)/10;
+
+	/* Element of chance calculation */
+
+	if(ewin<1) ewin=1;
+	if(ywin<1) ywin=1;
+
+	if(ywin>ewin) 
+		{
+		cpercent =  ewin / ywin / 5.0;
+		tchance = cpercent * ywin;
+		} 
+	 else 
+		{
+		cpercent =  ywin / ewin / 5.0;
+		tchance = cpercent * ewin;
+		}
+	if(tchance>32767) tchance=32767;
+	if(tchance<1) tchance=1;
+
+	ewin = ewin + rnd(tchance+1);
+	ywin = ywin + rnd(tchance+1);
+
+	printf("\nYour forces are off to battle.");
+	for(z2=0; z2<5; z2++) 
+		{
+		for (x=90000;x!=0;x--);  /*** ? ***/
+		printf(" .");
+		}
+
+	printf(" .\n");
+
+	/* Resolution */
+
+	if(ywin>ewin) 
+		{
+		printf("\nYou were victorious!\n");
+		player_msg(1,"");
+		news(1,""); 
+		erat = 6;
+		rat  = 7;
+		player[pn].score_modifier = player[pn].score_modifier + 500;
+		player[pn].morale = player[pn].morale + 1;
+
+		player[epn].score_modifier = player[epn].score_modifier - 100;
+		if(player[epn].health>-2)
+			player[epn].health = player[epn].health - 1;
+		if(player[epn].health>10)
+			player[epn].health = player[epn].health - 1;
+		} 
+	  else 
+		{
+		printf("\nYou lost...\n");
+		if(s_send<50)
+		{
+			printf("It was stupid to attack someone with less then 50 troops...\n\n");
+			player[pn].morale = player[pn].morale-1;
+			player[pn].harmony = player[pn].harmony-2;
+
+			player[epn].morale = player[epn].morale+1;
+		}
+		player_msg(2,"");
+		news(2,""); 
+		erat = 7;
+		rat  = 6;
+		player[pn].morale = player[pn].morale - 1;
+		player[pn].score_modifier = player[pn].score_modifier - 100;
+
+		player[epn].morale = player[epn].morale + 1;
+		player[epn].score_modifier = player[epn].score_modifier + 200;
+	}
+
+	if(ywin>(ewin*16)) 
+		{ 
+		erat = 3; 
+		rat = 16; 
+		}
+        else
+	if(ywin>(ewin*8)) 
+		{ 
+		erat = 4; 
+		rat = 12; 
+		}
+        else
+	if(ywin>(ewin*2)) 
+		{ 
+		erat = 5; 
+		rat = 8; 
+		}
+        else
+	if(ewin>(ywin*16)) 
+		{ 
+		rat = 3; 
+		erat = 16; 
+		}
+        else
+	if(ewin>(ywin*8)) 
+		{
+		rat = 4; 
+		erat = 12; 
+		}
+        else
+	if(ewin>(ywin*2)) 
+		{
+		rat = 5; 
+		erat = 8; 
+		}
+
+	s_lost=0;
+	f_lost=0;
+	c_lost=0;
+	y_lost=0;
+	sf_lost=0;
+	em_lost=0;
+	ed_lost=0;
+	ec_lost=0;
+	es_lost=0;
+	ey_lost=0;
+	esf_lost=0;
+	ea_lost=0;
+	as_lost=0;
+	ac_lost=0;
+	ad_lost=0;
+
+	if(s_send>0) 
+		s_lost = s_send/rat;
+	if(f_send>0) 
+		f_lost = f_send/rat;
+	if(c_send>0) 
+		c_lost = c_send/rat;
+	if(y_send>0) 
+		y_lost = y_send/rat;
+	if(sf_send>0) 
+		sf_lost = sf_send/rat;
+
+	if(player[epn].defense>0) ed_lost = player[epn].defense/erat;
+	if((ed_lost>f_send)&&(f_send<200)) ed_lost=f_send;
+	if(player[epn].cruisers>0) ec_lost = player[epn].cruisers/erat;
+	if((ec_lost>c_send)&&(c_send<200)) ec_lost=c_send;
+	if(player[epn].soldiers>0) es_lost = player[epn].soldiers/erat;
+	if((es_lost>s_send)&&(s_send<200)) es_lost=s_send;
+	if(player[epn].ywings>0) em_lost = player[epn].missiledefense/rat;
+	if((ey_lost>y_send)&&(y_send<200)) es_lost=y_send;
+	if(player[epn].starfighters>0) esf_lost = player[epn].starfighters/erat;
+	if((esf_lost>sf_send)&&(sf_send<200)) esf_lost=sf_send;
+
+	if(player[epn].agents>0) ea_lost = player[epn].agents/10;
+
+	player[pn].soldiers    = player[pn].soldiers     - s_lost;
+	player[pn].fighters    = player[pn].fighters     - f_lost;
+	player[pn].cruisers    = player[pn].cruisers     - c_lost;
+	player[pn].ywings      = player[pn].ywings       - y_lost;
+	player[pn].starfighters= player[pn].starfighters - sf_lost;
+
+	player[epn].defense     = player[epn].defense     - ed_lost;
+	player[epn].cruisers    = player[epn].cruisers    - ec_lost;
+	player[epn].soldiers    = player[epn].soldiers    - es_lost;
+	player[epn].ywings      = player[epn].ywings      - ey_lost;
+	player[epn].starfighters= player[epn].starfighters - esf_lost;
+	player[epn].agents      = player[epn].agents      - ea_lost;
+/*
+	if((a_ssend>0)&&(a_csend>0)&&(a_dsend>0)) 
+		{
+		team[player[z].team_num].team_soldiers=0L;
+		team[player[z].team_num].team_cruisers=0L;
+		team[player[z].team_num].team_defense=0L;
+		for(x=0; x!=26; x++) 
+			{
+			if(player[x].team_num==player[z].team_num) 
+				{
+				if(player[x].team_defense>0L) 
+					{
+					ad_lost = ad_lost + player[x].steam_defense/erat;
+					player[x].team_defense = player[x].team_defense - player[x].team_defense/erat;
+					team[player[z].team_num].team_defense = team[player[z].team_num].team_defense + player[x].team_defense;
+					ac_lost = ac_lost + player[x].team_cruisers/erat;
+					player[x].team_cruisers = player[x].team_cruisers - player[x].team_cruisers/erat;
+					team[player[z].team_num].team_cruisers = team[player[z].team_num].team_cruisers + player[x].team_cruisers;
+					as_lost = as_lost + player[x].team_soldiers/erat;
+					player[x].team_soldiers = player[x].team_soldiers - player[x].team_soldiers/erat;
+					team[player[z].team_num].team_soldiers = team[player[z].team_num].team_soldiers + player[x].team_soldiers;
+					}
+				}
+			}
+		}
+*/ /*** ? ***/
+
+	printf("\n                              DESTRUCTION REPORT\n");
+	printf(" ---------------------------------------------------------------------------\n");
+	printf("|             | Soldier | X-Wing | Y-Wing | Cruiser | Starfighter | Defense |\n");
+	printf("|---------------------------------------------------------------------------|\n");
+	printf("| YOU LOST    | %7ld | %6ld | %6ld |  %6ld |     %7ld |  -----  |\n",s_lost,f_lost,y_lost,c_lost,sf_lost);
+	printf("|---------------------------------------------------------------------------|\n");
+	printf("| ENEMY LOST  | %7ld | ------ | %6ld |  %6ld |     %7ld |  %6ld |\n",es_lost,ey_lost,ec_lost,esf_lost,ed_lost);
+	printf(" ---------------------------------------------------------------------------\n");
+	printf("              | ENEMY AGENTS KILLED IN BATTLE: %4ld |\n",ea_lost);
+	printf("               -------------------------------------\n");
+
+/*	printf("You lost %ld soldiers, %ld x-wings, ",s_lost,f_lost);
+	if(player[pn].tech_level>0)
+		printf("%ld cruisers, ",c_lost);
+	if(player[pn].tech_level>4)
+		printf("and %ld y-wings ",y_lost);
+	if(player[pn].tech_level>70-(race[player[pn].race].knowledge*3))
+		printf("\nand %ld Imperial Starfighters",sf_lost);
+	printf(".\n");
+
+	printf("Your enemy lost %ld soldiers, %ld defense stations, ",es_lost,ed_lost);
+	if(player[pn].tech_level>0)
+		printf("%ld cruisers, ",ec_lost);
+	if(player[pn].tech_level>4)
+		printf("\nand %ld y-wings ",ey_lost);
+	if(player[pn].tech_level>70-(race[player[pn].race].knowledge*3))
+		printf("\nand %ld Imperial Starfighters",esf_lost);
+ 
+	printf(".\n");
+*/
+	printf("\n");
+
+/*
+	if((a_ssend>0)&&(a_csend>0)&&(a_dsend>0)) 
+		printf("Your enemy's alliance lost %ld soldiers, %ld defense stations, and %ld cruisers.\n",as_lost,ad_lost,ac_lost);
+*/
+	if(ywin>ewin) 
+		{
+		pcap = 0;
+
+		if(player[epn].defensep>0) 
+			{
+			pcap2 = player[epn].defensep/10 + 1;
+			player[epn].defensep = player[epn].defensep - pcap2;
+			if(player[epn].defensep<0) 
+				player[epn].defensep=0;
+			pcap = pcap + pcap2;
+			}
+		if(player[epn].orep>0) 
+			{
+			pcap2 = player[epn].orep/10 + 1;
+			player[epn].orep = player[epn].orep - pcap2;
+			if(player[epn].orep<0) 
+				player[epn].orep=0;
+			pcap = pcap + pcap2;
+			}
+		if(player[epn].foodp>0) 
+			{
+			pcap2 = player[epn].foodp/10 + 1;
+			player[epn].foodp = player[epn].foodp - pcap2;
+			if(player[epn].foodp<0) 
+				player[epn].foodp=0;
+			pcap = pcap + pcap2;
+			}
+		if(player[epn].tradep>0) 
+			{
+			pcap2 = player[epn].governp/10 + 1;
+			player[epn].tradep = player[epn].tradep - pcap2;
+			if(player[epn].tradep<0) 
+				player[epn].tradep=0;
+			pcap = pcap + pcap2;
+			}
+		if(player[epn].tourismp>0) 
+			{
+			pcap2 = player[epn].governp/10 + 1;
+			player[epn].tourismp = player[epn].tourismp - pcap2;
+			if(player[epn].tourismp<0) 
+				player[epn].tourismp=0;
+			pcap = pcap + pcap2;
+			}
+		if(player[epn].governp>0) 
+			{
+			pcap2 = player[epn].governp/10 + 1;
+			player[epn].governp = player[epn].governp - pcap2;
+			if(player[epn].governp<0) 
+				player[epn].governp=0;
+			pcap = pcap + pcap2;
+			}
+
+		if(player[epn].acredits>10000) 
+			{
+			rubbed=(player[epn].acredits/10)+1;
+			if(rubbed>1000000)
+				rubbed=1000000;
+			player[pn].acredits = player[pn].acredits + rubbed;
+			player[epn].acredits = player[epn].acredits - rubbed;
+			if(player[epn].acredits<0) 
+				player[epn].acredits=0;
+			}
+		if(player[epn].missiledefense>0)
+			player[epn].missiledefense=player[epn].missiledefense-(player[epn].missiledefense/10);
+
+
+		put_datas(pn);
+		printf("You captured %ld planets !\n",pcap);
+
+		if(rubbed>0)
+			printf("You got also %ld credits from %s's bank account !\n",rubbed,player[epn].player);
+
+		if((player[epn].governp<=0)&&(player[epn].foodp<=0)&&(player[epn].orep<=0)&&(player[epn].tradep<=0)&&(player[epn].tourismp<=0)&&(player[epn].defensep<=0)) 
+			{
+			printf("\nYou have crushed your enemy!\n");
+			bonus=player[pn].governp*30000;
+			printf("You got a special bonus of %ld credits!\n",bonus);
+			if(player[epn].acredits>0)
+				{
+				player[pn].acredits=player[pn].acredits+player[epn].acredits;
+				printf("You get also the money of %s`s bank-account (%ld credits)\n",player[epn].player,player[epn].acredits);
+				}
+			news(3,""); 
+			player[pn].morale = player[pn].morale + 2;
+			player[pn].harmony = player[pn].harmony + 1;
+			player[pn].credits= player[pn].credits + bonus;
+			e_points(2); 
+			/*
+			if(e_team_num==pn) 
+				{ 
+				dissolve_team(e_team_num);
+				}
+			  else 
+				if(player[z].team_num!=0) 
+					team[player[z].team_num].members--;
+			*/ /*** ? ***/
+			} 
+
+		giveplanets(pcap);
+		}
+	put_datas(epn);
+	}
+}
+
+/********************************************************************/
+
+bank_menu()
+{
+cls();
+printf("\n\n%s\n",BankName);
+printf("-------------------------------------------------------\n");
+printf(" Your account status : %d\n",player[pn].acredits);
+printf(" Credits Cash        : %d\n",player[pn].credits);
+printf("\n1) Put in some money\n");
+printf("2) Take out some money\n");
+printf("3) Transfer money to another account \n");
+printf("   -> limited to %ld credits each day \n",max_transfer);
+printf("------------------------------------[0] for Mainmenu---\n\n");
+}
+
+/********************************************************************/
+
+bank_stage()
+{
+char ostring[80];
+long n=0;
+
+bank_menu();
+
+do 
+{
+ printf("Which would you like to do ? [?] BankMenu  ");
+ gets(ostring);
+ sscanf(ostring,"%d",&n);
+ if(strlen(ostring)<1)
+	n=0; 
+ if(ostring[0]=='?') 
+	{
+        bank_menu();
+	n=255; 
+	}
+ if((n>0)&&(n<4)) 
+   {
+   if(n==1)
+	{
+	printf("How much do you want to put in ?");
+ 	gets(ostring);
+ 	sscanf(ostring,"%d",&n);
+	if ((n>player[pn].credits)||(n<0))
+		printf("You cant put in %ld credits !\n",n);
+	else
+		{
+		player[pn].acredits=player[pn].acredits+n;
+		player[pn].credits=player[pn].credits-n;
+		}
+	}
+   if(n==2)	
+	{
+	printf("How much do you want to take out ?");
+ 	gets(ostring);
+ 	sscanf(ostring,"%d",&n);
+	if (n>player[pn].acredits)
+		printf("You dont have as much money !\n");
+	else
+		{
+		if(n<0)
+			printf("Do you want to cheat ?\n");
+		else
+			{
+			player[pn].acredits=player[pn].acredits-n;
+			player[pn].credits=player[pn].credits+n;
+			}
+		}
+	}
+   if(n==3)	
+	{
+	if(player[pn].acredits==0)
+		printf("You don't have money on your bank account !\n");
+	else
+		{
+		if (getplayer()==TRUE)
+			{
+			printf("How much do you want to transfer ?");
+ 			gets(ostring);
+ 			sscanf(ostring,"%d",&n);
+			if ((n>max_transfer)||(n<0))
+				printf("Money Transfer limited to %ld credits !\n",max_transfer);
+			else
+				{
+				sprintf(ostring,"credits to %s",player[epn].player);
+				if (check_stringinfile("SPCEMP:NEWS.TXT",ostring)==TRUE) 
+					printf("This Player allready received some money today. \n");
+				else
+					{
+					if (n>player[pn].acredits)
+						printf("You dont have as much money !\n");
+					else
+						{
+						player[pn].acredits=player[pn].acredits-n;
+						player[epn].acredits=player[epn].acredits+n;
+						put_datas(epn);
+						sprintf(ostring," %ld ",n);
+						player_msg(20,ostring);
+						news(20,ostring);
+						}
+					}	
+				}
+			}
+		}
+	}
+   }
+} while (n!=0);
+
+printf("\n");
+}
+
+/********************************************************************/
+
+option_menu()
+{
+cls();
+printf("\n\nOption menu\n");
+printf("--------------------------------------------------\n");
+if(lottery_turn!=0)
+ {
+  printf("1) Buy a lottery ticket\n");
+  printf("2) View Lottery\n");
+ }
+printf("3) Change tax\n");
+printf("\n9) Change terminal(emulation)\n");
+printf("-------------------------------[0] for Mainmenu---\n\n");
+}
+
+/********************************************************************/
+
+option_stage()
+{
+char ostring[80];
+int lottery_count=0;
+long n=0;
+FILE *fp;
+
+option_menu();
+
+do 
+{
+ printf("Which would you like to do ? [?] OptionMenu  ");
+ gets(ostring);
+ sscanf(ostring,"%d",&n);
+ if(strlen(ostring)<1)
+	n=0; 
+ if(ostring[0]=='?') 
+	{
+        option_menu();
+	n=255; 
+	}
+ if((n>0)&&(n<10)) 
+   {
+   if((n==1)&&(lottery_turn!=0))
+	{
+	n=0;
+	printf("How many tickets do you want to buy ? Max [%d] ",(player[pn].credits/1000));
+ 	gets(ostring);
+ 	sscanf(ostring,"%d",&n);
+	if ((n*1000)>player[pn].credits)
+		printf("You dont have as much money !\n");
+	else
+	  if(n>0)
+		{
+		player[pn].credits=player[pn].credits-(n*1000);
+                if (check_file("SPCEMP:LOTTERY.USER")==FALSE)
+                  fp=fopen("SPCEMP:LOTTERY.USER","w");
+		 else
+                  fp=fopen("SPCEMP:LOTTERY.USER","a");
+                sprintf(ostring,"%-26s %-18ld",player[pn].player,n);
+                fprintf(fp,"%s\n",ostring);
+                printf("You buy %d lottery tickets.\n",n);
+                fclose(fp);
+		}
+	n=1;
+	}
+   if((n==2)&&(lottery_turn!=0))
+	{
+        if (check_file("SPCEMP:LOTTERY.DAT")==TRUE)
+         {
+          fp=fopen("SPCEMP:LOTTERY.DAT","r");
+             fgets(ostring,60,fp);
+             sscanf(ostring,"%d",&lottery_count);
+          fclose(fp);
+          if((lottery_turn-lottery_count)==1)
+            printf("Next lottery will be tomorrow.\n\n");
+           else
+            printf("Next lottery will be in %d days.\n\n",(lottery_turn-lottery_count));
+          printf("Username                   Tickets\n");
+          printf("----------------------------------\n");
+	  display_file("SPCEMP:LOTTERY.USER",NO_MORE);
+         }
+	}
+   if(n==3)
+	{
+         n=player[pn].tax;
+	 do {
+         	printf("How much tax do you want (5-15) ? [%d%%] at the moment ",player[pn].tax);
+         	gets(ostring);
+         	sscanf(ostring,"%d",&n);
+	    } while ((n<5)||(n>15));
+          if(n==player[pn].tax)
+           printf("Leave tax unchanged.\n");
+          else
+           printf("Change the tax to %d%%.\n",n);
+         player[pn].harmony=player[pn].harmony+player[pn].tax-n;
+         player[pn].tax=n;
+         n=3;
+	}
+/*   if(n==8)  Don't work !!!
+	{
+         def_stage();
+        }
+*/
+   if(n==9)
+	{
+         n=player[pn].terminal;
+         printf("Witch terminal(emulation) do you prefer ? ");
+         switch(n) {
+           case 0 : {
+		     printf("ASCII");
+		     break;
+		    }
+           case 1 : {
+		     printf("ANSI(DEC)");
+		     break;
+		    }
+           case 2 : {
+                     printf("ANSI(IBM)");
+		     break;
+		    }
+             }
+         printf(" now.\n0=ASCII 1=ANSI(DEC) 2=ANSI(IBM) [RETURN]=Unchanged : ");
+         gets(ostring);
+         sscanf(ostring,"%d",&n);
+         if(n==player[pn].terminal)
+           printf("Leave terminal unchanged.\n");
+          else
+           {
+           printf("Change the terminal to ");
+           switch(n) {
+             case 0 : {
+		       printf("ASCII");
+		       break;
+		      }
+             case 1 : {
+		       printf("ANSI(DEC)");
+		       break;
+		      }
+             case 2 : {
+                       printf("ANSI(IBM)");
+		       break;
+		      }
+             }
+           printf(".\n");
+           }
+         player[pn].terminal=n;
+         n=9;
+	}
+   }
+} while (n!=0);
+
+printf("\n");
+}
+
+/********************************************************************/
+/********************************************************************/
+
+team_menu()
+{
+printf("\n\nAlliances -- THIS STUFF IS NOT YET INCLUDED -- \n");
+printf("--------------------------------------------------\n");
+if(player[pn].team_num==0) 
+	printf("You are not a member of any alliance.\n");
+else
+	printf("You are a member of the %s alliance.\n",player[pn].teamname);
+if(player[pn].teamleader==TRUE)
+	printf("You are the leader of that alliance.\n");
+printf("\n");
+
+printf("1) List alliances\n");
+if(player[pn].team_num==0)
+	{
+	printf("2) Start new alliance\n");
+	printf("3) Join an alliance\n");
+	}
+else
+	printf("4) Withdraw from alliance\n");
+printf("\n");
+if(player[pn].team_num!=0)
+	{
+	printf("5) Info on your alliance\n");
+	printf("6) Review defense forces\n");
+	}
+if(player[pn].teamleader==TRUE)
+	{
+	printf("7) Expell empire from alliance\n");
+	printf("8) Dissolve alliance\n");
+	}
+printf("-------------------------------[0] to continue----\n\n");
+}
+
+/********************************************************************/
+team_round()
+{
+char ostring[80];
+char zstring[80];
+int x,n;
+unsigned long putin;
+
+team_menu();
+
+do 
+{
+ printf("Which would you like to do? [?] for List ");
+ gets(ostring);
+ sscanf(ostring,"%d",&n);
+ if(strlen(ostring)<1)
+	n=0; 
+ if(ostring[0]=='?')
+	team_menu();
+
+ if((n>0)&&(n<12)) 
+	{
+	if(n==1)
+		{
+		display_file("SPCEMP:teams.dat",NO_MORE);
+		}
+	if((n==2)&&(player[pn].team_num==0))
+		{
+		printf("Start new alliance\n");
+		}
+	if((n==3)&&(player[pn].team_num==0))
+		{
+		printf("Join an alliance\n");
+		}
+	if((n==4)&&(player[pn].team_num!=0))
+		{
+		printf("Withdraw from alliance\n");
+		}
+	if((n==5)&&(player[pn].team_num!=0))
+		{
+		printf("Info on your alliance\n");
+		}
+	if((n==6)&&(player[pn].team_num!=0))
+		{
+		printf("Review defense forces\n");
+		}
+	if((n==7)&&(player[pn].teamleader==TRUE))
+		{
+		printf("Expell empire from alliance\n");
+		}
+	if((n==8)&&(player[pn].teamleader==TRUE))
+		{
+		printf("Dissolve alliance\n");
+		}
+	}
+} 
+while (n!=0);
+
+printf("\n");
+
+/*
+if(player[pn].team_num==0)
+
+	sendmessage("\r\nAlliance round\r\n-------- -----",1);
+
+	if(player[pn].team_num==0) {
+		sendmessage("\r\nYou are not a member of any alliance.\r\n",1);
+	} else {
+		if(pn!=player[pn].team_num) {
+			sprintf(ostring,"\r\nYou are a member of the %s alliance.\r\n",team[player[pn].team_num].name);
+			sendmessage(ostring,1);
+		} else {
+			sprintf(ostring,"\r\nYou are the leader of the %s alliance.\r\n",team[player[pn].team_num].name);
+			sendmessage(ostring,1);
+			for(x=0; x!=26; x++) {
+				if(player[x].team_apply==pn) {
+					player[x].team_apply = 0;
+					sprintf(ostring,"%s would like to join your alliance.",player[x].pname);
+					sendmessage(ostring,1);
+					DROP;
+					if((boolean("\r\nLet him join?",2)==1)) {
+						DROP;
+						player[x].team_num = pn;
+						team[pn].members++;
+						player_msg(x,pn,7);
+						news(x,pn,7);
+					} else {
+						player_msg(x,pn,10);
+					}
+				}
+			}
+		}
+	}
+
+	choices:
+	DROP;
+	sendmessage("",1);
+	if( (player[pn].team_num!=0) && (player[pn].team_num==pn) ) {
+		sendmessage("[D]issolve alliance",1);
+		sendmessage("[E]xpell empire from alliance",1);
+	}
+	if(player[pn].team_num!=0)
+		sendmessage("[I]nfo on your alliance",1);
+	if(player[pn].team_num==0)
+		sendmessage("[J]oin an alliance",1);
+	sendmessage("[L]ist existing alliances",1);
+	sendmessage("[Q]uit",1);
+	if(player[pn].team_num!=0)
+		sendmessage("[R]eview defense forces",1);
+	if(player[pn].team_num==0)
+		sendmessage("[S]tart a new alliance",1);
+	if( (player[pn].team_num!=0) && (player[pn].team_num!=pn) )
+		sendmessage("[W]ithdraw from alliance",1);
+	sendmessage("",1);
+
+	DROP;
+	hotkey("Choice: ",ostring);
+	DROP;
+	ostring[0]=toupper(ostring[0]);
+	switch(ostring[0]) {
+		case 'D':
+			if(!( (player[pn].team_num!=0) && (player[pn].team_num==pn) )) goto choices;
+			sendmessage("Dissolve alliance\r\n",1);
+			DROP;
+			if((boolean("Are you sure?",2)==1)) {
+				DROP;
+				dissolve_team(pn);
+			}
+			break;
+		case 'E':
+			if(!( (player[pn].team_num!=0) && (player[pn].team_num==pn) )) goto choices;
+			sendmessage("Expell empire from alliance",1);
+			x=getplayer(1);
+			if(x==-1) break;
+			DROP;
+			if((boolean("Are you sure?",2)==1)) {
+				DROP;
+				news(x,pn,12);
+				player_msg(x,pn,12);
+				player[x].team_num=0;
+				player[x].team_apply=0;
+				player[x].defense = player[pn].defense + player[pn].team_defense;
+				player[x].soldiers = player[pn].soldiers + player[pn].team_soldiers;
+				player[x].cruisers = player[pn].cruisers + player[pn].team_cruisers;
+				team[pn].members--;
+			}
+			break;
+		case 'I':
+			if(player[pn].team_num==0) goto choices;
+			sendmessage("Info on your alliance",1);
+			show_team(player[pn].team_num);
+			break;
+		case 'J':
+			if(player[pn].team_num!=0) goto choices;
+			sendmessage("Join an alliance\r\n",1);
+			if(player[pn].team_apply!=0) {
+				sendmessage("You have already applied to join an alliance.",1);
+				DROP;
+				if((boolean("Revoke your application?",2)==2)) goto choices;
+			}
+			relist: list_alliances();
+			prompt("\r\nWhich alliance do you wish to join? ",ostring,4);
+			DROP;
+			sscanf(ostring,"%d",&x);
+			if((x<1)||(x>25)) break;
+			if(team[x].members<1) {
+				sendmessage("\r\nThat is not an alliance.\r\n",1);
+				goto relist;
+			}
+			player[pn].team_apply=x;
+			sendmessage("\r\nThe leader of the alliance will review your application.\r\n",1);
+			break;
+		case 'L':
+			sendmessage("List existing alliances",1);
+			list_alliances();
+			break;
+		case 'Q':
+			sendmessage("Quit",1);
+			return;
+			break;
+		case 'R':
+			if(player[pn].team_num==0) goto choices;
+			sendmessage("Review defense forces",1);
+			show_team(player[pn].team_num);
+			player[pn].soldiers = player[pn].soldiers + player[pn].team_soldiers;
+			team[player[pn].team_num].team_soldiers = team[player[pn].team_num].team_soldiers - player[pn].team_soldiers;
+			player[pn].team_soldiers=0L;
+			player[pn].defense = player[pn].defense + player[pn].team_defense;
+			team[player[pn].team_num].team_defense = team[player[pn].team_num].team_defense - player[pn].team_defense;
+			player[pn].team_defense=0L;
+			player[pn].cruisers = player[pn].cruisers + player[pn].team_cruisers;
+			team[player[pn].team_num].team_cruisers = team[player[pn].team_num].team_cruisers - player[pn].team_cruisers;
+			player[pn].team_cruisers=0L;
+			sendmessage("",1);
+
+			redoit1: sprintf(zstring,"How many of your soldier troops would you like to put in? (max %ld) ",player[pn].soldiers);
+			prompt(zstring,ostring,19);
+			DROP;
+			sscanf(ostring,"%ld",&putin);
+			if(putin>player[pn].soldiers) goto redoit1;
+			player[pn].team_soldiers=putin;
+			team[player[pn].team_num].team_soldiers=putin;
+			player[pn].soldiers=player[pn].soldiers-putin;
+
+			redoit2: sprintf(zstring,"How many of your defense stations would you like to put in? (max %ld) ",player[pn].defense);
+			prompt(zstring,ostring,19);
+			DROP;
+			sscanf(ostring,"%ld",&putin);
+			if(putin>player[pn].defense) goto redoit2;
+			player[pn].team_defense=putin;
+			team[player[pn].team_num].team_defense=putin;
+			player[pn].defense=player[pn].defense-putin;
+
+			redoit3: sprintf(zstring,"How many of your cruisers would you like to put in? (max %ld) ",player[pn].cruisers);
+			prompt(zstring,ostring,19);
+			DROP;
+			sscanf(ostring,"%ld",&putin);
+			if(putin>player[pn].cruisers) goto redoit1;
+			player[pn].team_cruisers=putin;
+			team[player[pn].team_num].team_cruisers=putin;
+			player[pn].cruisers=player[pn].cruisers-putin;
+
+			sendmessage("",1);
+			break;
+
+		case 'S':
+			if(player[pn].team_num!=0) goto choices;
+			sendmessage("Start new alliance",1);
+			prompt("\r\nWhat shall you call your alliance? ",team[pn].name,19);
+			DROP;
+			strtoup(team[pn].name);
+			player[pn].team_num=pn;
+			player[pn].team_apply=0;
+			team[pn].members=1;
+			team[pn].team_defense=0L;
+			team[pn].team_soldiers=0L;
+			team[pn].team_cruisers=0L;
+			break;
+		case 'W':
+			if(!( (player[pn].team_num!=0) && (player[pn].team_num!=pn) )) goto choices;
+			sendmessage("Withdraw from alliance",1);
+			if((boolean("Are you sure?",2)==1)) {
+				DROP;
+				news(player[pn].team_num,pn,8);
+				team[player[pn].team_num].members--;
+				player[pn].team_num=0;
+				player[pn].team_apply=0;
+				player[pn].defense = player[pn].defense + player[pn].team_defense;
+				player[pn].soldiers = player[pn].soldiers + player[pn].team_soldiers;
+				player[pn].cruisers = player[pn].cruisers + player[pn].team_cruisers;
+			}
+			break;
+		default: goto choices; break;
+
+	}
+	goto choices;
+*/
+}
+
+/********************************************************************/
+dissolve_team(int z)
+{
+/*
+int x;
+
+	news(z,z,9);
+	team[z].members=0;
+	for(x=0; x!=26; x++) {
+			if(player[x].team_num==z) {
+			player[x].team_num=0;
+			player[x].team_apply=0;
+			player[x].defense = player[x].defense + player[z].team_defense;
+			player[x].soldiers = player[x].soldiers + player[z].team_soldiers;
+			player[x].cruisers = player[x].cruisers + player[z].team_cruisers;
+		}
+	}
+*/
+}
+
+/********************************************************************/
+int getplayer()
+{
+time_t current_time;
+double diffsec;
+long   newmoves;
+long   diffhours;
+
+do
+  {
+	printf("Which player ([ENTER]=Cancel/?=List)");
+	gets(player[epn].player);
+	strtoup(player[epn].player);
+
+	if(player[epn].player[0]=='?')
+		display_users();
+	if(strcmp(player[epn].player,player[pn].player)==0)
+		{
+		printf("\n\nYou can't do that to yourself !!! \n");
+		player[epn].player[0]='?';
+		player[epn].player[1]='\0';
+		}
+	if((check_player(player[epn].player)==TRUE)&&(strlen(player[epn].player)>3))
+		{
+		get_datas(epn);
+
+		current_time = time (&current_time);
+		diffsec      = difftime(current_time,player[epn].last_time);
+		diffhours    = diffsec/(60*60);
+
+		if(diffhours>((24*3)-1))
+			{
+			printf("\n\n Your enemy lost his protection because he did not play for more than 3 days.\n");
+			player[epn].protection=0;
+			put_datas(epn);
+			}
+
+		if(player[epn].protection>0)
+			{
+			printf("%s is still under protection !\n",player[epn].player);
+			strcpy(player[epn].player,"N");
+			}
+		else 	
+			{
+			put_datas(pn);
+			return(TRUE);
+			}
+		}
+	if(strlen(player[epn].player)<1)
+		{
+		strcpy(player[epn].player,"NOBODY");
+		return(FALSE);
+		}
+	if(strlen(player[epn].player)>2)
+		printf("Pardon ?\n");
+  } while (player[epn].player[0]!=0);
+
+return(FALSE);
+}
+
+/********************************************************************/
+rest()
+{
+long deserters,pop_migration;
+float pval;
+
+if(player[pn].soldiers>0) 
+	{
+	if(player[pn].morale<-5) {
+		deserters = player[pn].soldiers/(-1 * player[pn].morale );
+		printf("%ld troops of soldiers have deserted.\n",deserters);
+		player[pn].soldiers = player[pn].soldiers - deserters;
+	}
+}
+
+if((player[pn].population>50)&&(player[pn].population<32000)) 
+	{
+	pval = player[pn].harmony * 0.01;
+	if(pval<-0.25) 
+		pval = -0.25;
+	if(pval>0.25) 
+		pval = 0.25;
+	if(pval<0.0) 
+		pval = pval - 1.0;
+	if(pval>0.0) 
+		pval = pval + 1.0;
+	pop_migration = ((rnd(player[pn].population/25)) * pval);
+	pop_migration = pop_migration + pop_increase;
+	player[pn].population = player[pn].population + pop_migration;
+	if(pop_migration>0)
+		printf("\nYour population increased by %d million.\n",pop_migration);
+	if(pop_migration==0)
+		printf("\nYour population remains unchanged.\n");
+	if(pop_migration<0)
+		printf("\nYour population decreased by %d million.\n",(pop_migration*-1));
+	}
+
+strife(player[pn].harmony);
+}
+
+/********************************************************************/
+strife(long h)
+{
+long sc;
+long x;
+
+if(h>-3) return;
+sc = h + ((-1) * rnd((h*-1)));
+x=0;
+while((x<1)||(x>3)) 
+	x = rnd(4);
+if(sc<-16) 
+	{ 
+	x=x+6; 
+	}
+else
+if(sc<-9) 
+	{ 
+	x=x+3; 
+	}
+
+switch(x) {
+	case 1:
+	printf("\nStudent protesters wreak havok in major cities.\n");
+	break;
+	case 2:
+	printf("\nA high ranking official in your government was recently assassinated.\n");
+	break;
+	case 3:
+	printf("\nPrisons become overpopulated with political prisoners.\n");
+	break;
+	case 4:
+	printf("\nCivil strife errupts at frontier planets.\n");
+	player[pn].morale = player[pn].morale - 1;
+	break;
+	case 5:
+	printf("\nRebels confront military in scattered skirmishes.\n");
+	player[pn].morale = player[pn].morale - 1;
+	break;
+	case 6:
+	if(player[pn].governp>0) {
+		printf("\nAnti-matter bomb detonated by rebels on a governing planet.\n");
+		player[pn].governp = player[pn].governp - 1;
+	}
+	break;
+	case 7:
+	case 8:
+	case 9:
+	printf("\nCivil war breaks out across your empire!");
+	printf("\nYour empire is torn in half!\n");
+	player[pn].harmony = 0;
+	player[pn].morale = -3;
+	player[pn].protection = player[pn].protection + 2; /*VMS SPECIAL*/
+	player[pn].tech_level = 0;
+	player[pn].health = -1;
+	if(player[pn].soldiers>0) 
+		player[pn].soldiers = player[pn].soldiers/2;
+	if(player[pn].defensep>0) 
+		player[pn].defensep = player[pn].defensep/2;
+	if(player[pn].fighters>0) 
+		player[pn].fighters = player[pn].fighters/2;
+	if(player[pn].carriers>0) 
+		player[pn].carriers = player[pn].carriers/2;
+	if(player[pn].pilots>0) 
+		player[pn].pilots = player[pn].pilots/2;
+	if(player[pn].orep>0) 
+		player[pn].freighters = player[pn].freighters/2;
+	if(player[pn].orep>0) 
+		player[pn].orep = player[pn].orep/2;
+	if(player[pn].foodp>0) 
+		player[pn].foodp = player[pn].foodp/2;
+	if(player[pn].tradep>0) 
+		player[pn].tradep = player[pn].tradep/2;
+	if(player[pn].foodp>0) 
+		player[pn].tourismp = player[pn].tourismp/2;
+	if(player[pn].governp>0) 
+		player[pn].governp = player[pn].governp/2;
+	if(player[pn].acredits>0) 
+		player[pn].acredits = player[pn].acredits/3;
+	player[pn].population = player[pn].population/2 + 1;
+	player[pn].food = (11 * player[pn].population);
+	if((player[pn].governp+player[pn].foodp+player[pn].orep+player[pn].defensep+player[pn].tradep+player[pn].tourismp)==0)
+		{
+		remove_player();
+		news(51,"");
+		printf("\n\nYour citizens did not like your ruling style !\n");
+		printf("Some terrorists entered your room and killed you, when you were sleeping. \n");
+		printf("You may start again. \n\n");
+		player[pn].moves=0;
+		press_return();
+		put_datas(pn);
+		exit(0);
+		}
+	else
+		news(6,"");
+	break;
+	}
+}
+
+/********************************************************************/
+player_msg(int msg,char string[80])
+{
+char ostring[80],zstring[80];
+
+sprintf(zstring,"SPCEMP_PLAYERS:MSG_%s.TXT",player[epn].player);
+
+switch(msg) 
+	{
+	case 1: sprintf(ostring,"%s defeated you!",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 2:	sprintf(ostring,"You repelled an attack from %s!",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 4: sprintf(ostring,"%s tried to steal your Starfighters or Freighters with the result \n               that you got some of his now!",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 5: sprintf(ostring,"%s spied on you!",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 7: sprintf(ostring,"%s accepted your application.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 10:sprintf(ostring,"%s rejected your application.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 11:sprintf(ostring,"%s: %s",player[pn].player,string);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 12:sprintf(ostring,"You were expelled from the %s alliance.",player[pn].teamname);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 20:sprintf(ostring,"%s transferd %s credits to your account.",player[pn].player,string);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 41:sprintf(ostring,"%s tried to steal your Freighters !",player[pn].player,player[epn].player);
+		optlog(ostring,zstring);
+		break;
+	case 40:sprintf(ostring,"%s tried to steal your Y-Wing-Fighters !",player[pn].player,player[epn].player);
+		optlog(ostring,zstring);
+		break;
+	case 46:sprintf(ostring,"%s stole %s of your Freighters !",player[pn].player,string,player[epn].player);
+		optlog(ostring,zstring);
+		break;
+	case 45:sprintf(ostring,"%s stole %s of your Y-Wing-Fighters !",player[pn].player,string,player[epn].player);
+		optlog(ostring,zstring);
+		break;
+	case 102:sprintf(ostring,"An Anti-Matter Bomb from %s exploded and \n destroyed 1 Government Planet.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 103:sprintf(ostring,"%s, sent missiles and destroyed 30 %% of your citizen.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 104:sprintf(ostring,"%s, sent missiles and destroyed 100 %% of your foodproduction units.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 105:sprintf(ostring,"%s, sent missiles and destroyed 50 %% of your army.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 106:sprintf(ostring,"%s, sent missiles and destroyed 50 %% of your Gov. Planets .",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 108:sprintf(ostring,"You got a traitor from %s under your soilders.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 109:sprintf(ostring,"You got a mole from %s under your citizen.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	case 153:sprintf(ostring,"You repelled a thermonuclear missile attack from %s.",player[pn].player);
+		optlog(ostring,zstring);
+		break;
+	case 154:sprintf(ostring,"You repelled a chemical missile attack from %s.",player[pn].player);
+		optlog(ostring,zstring);
+		break;
+	case 155:sprintf(ostring,"You repelled a convetional missile attack from %s.",player[pn].player);
+		optlog(ostring,zstring);
+		break;
+	case 156:sprintf(ostring,"You repelled a anti-matter missile attack from %s.",player[pn].player);
+		optlog(ostring,zstring);
+		break;
+	case 201:sprintf(ostring,"%s throw you down from the uridium throne.",player[pn].player);
+		optlog(ostring,zstring);
+                page(player[epn].player,ostring);
+		break;
+	}
+}
+
+
+----> END OF PART 4 <----
+-- 
+      Internet: Dr_who@pegasus.ch         __
+      Phone   : ++41-71-71 70 42         ///
+      FAX     : ++41-71-71 27 87    __  ///    "I'M THE DOCTORE BECAUSE 
+                                    \\\///      IT'S FUN FUN FUN ! "
+     BBS Phone: ++41-71-71 55 77     \XX/       - TOM BAKER 
+      X.25    : +228 4752 1 2574        

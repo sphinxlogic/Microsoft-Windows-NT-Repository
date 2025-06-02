@@ -1,0 +1,1659 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i077:  imagemagic - X11 image processing and display, Part21/38
+Message-ID: <1993Jul14.231854.21892@sparky.sterling.com>
+X-Md4-Signature: 0b8747843f0f2df19ca118352736fc20
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:18:54 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 77
+Archive-name: imagemagic/part21
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.21 (part 21 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/compress.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 21; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/compress.c'
+else
+echo 'x - continuing file ImageMagick/compress.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/compress.c' &&
+X      {
+X        /*
+X          Add string.
+X        */
+X        OutputCode(last_code);
+X        table[next_index].prefix=last_code;
+X        table[next_index].suffix=pixels[i];
+X        table[next_index].next=table[last_code].next;
+X        table[last_code].next=next_index;
+X        next_index++;
+X        /*
+X          Did we just move up to next bit width?
+X          */
+X        if ((next_index >> code_width) != 0)
+X          {
+X            code_width++;
+X            if (code_width > 12)
+X              {
+X                /*
+X                  Did we overflow the max bit width?
+X                */
+X                code_width--;
+X                OutputCode(LZWClr);
+X                for (index=0; index < 256; index++)
+X                {
+X                  table[index].prefix=(-1);
+X                  table[index].suffix=index;
+X                  table[index].next=(-1);
+X                }
+X                next_index=LZWEod+1;
+X                code_width=9;
+X              }
+X            }
+X          last_code=pixels[i];
+X      }
+X  }
+X  /*
+X    Flush tables.
+X  */
+X  OutputCode(last_code);
+X  OutputCode(LZWEod);
+X  if (number_bits != 0)
+X    PrintByte(accumulator >> 24);
+X  (void) free(table);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   L Z W E n c o d e I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function LZWEncodeImage compresses an image via LZW-coding.
+%
+%  The format of the LZWEncodeImage routine is:
+%
+%      status=LZWEncodeImage(image,data_size)
+%
+%  A description of each parameter follows:
+%
+%    o status:  Function LZWEncodeImage returns True if all the pixels are
+%      compressed without error, otherwise False.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int LZWEncodeImage(image,data_size)
+Image
+X  *image;
+X
+unsigned int
+X  data_size;
+{
+#define MaxCode(number_bits)  ((1 << (number_bits))-1)
+#define MaxHashTable  5003
+#define MaxLZWBits  12
+#define MaxLZWTable  (1 << MaxLZWBits)
+#define LZWOutputCode(code) \
+{ \
+X  /*  \
+X    Emit a code. \
+X  */ \
+X  if (bits > 0) \
+X    datum|=((long) code << bits); \
+X  else \
+X    datum=(long) code; \
+X  bits+=number_bits; \
+X  while (bits >= 8)  \
+X  { \
+X    /*  \
+X      Add a character to current packet. \
+X    */ \
+X    byte_count++; \
+X    packet[byte_count]=(unsigned char) (datum & 0xff); \
+X    if (byte_count >= 255) \
+X      { \
+X        packet[0]=(unsigned char) byte_count++; \
+X        (void) fwrite((char *) packet,1,byte_count,image->file); \
+X        byte_count=0; \
+X      } \
+X    datum>>=8; \
+X    bits-=8; \
+X  } \
+X  if (free_code > max_code)  \
+X    { \
+X      number_bits++; \
+X      if (number_bits == MaxLZWBits) \
+X        max_code=MaxLZWTable; \
+X      else \
+X        max_code=MaxCode(number_bits); \
+X    } \
+}
+X
+X  int
+X    bits,
+X    byte_count,
+X    next_pixel,
+X    number_bits;
+X
+X  long
+X    datum;
+X
+X  register int
+X    displacement,
+X    i,
+X    j,
+X    k;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  short
+X    clear_code,
+X    end_of_information_code,
+X    free_code,
+X    *hash_code,
+X    *hash_prefix,
+X    index,
+X    max_code,
+X    waiting_code;
+X
+X  unsigned char
+X    *packet,
+X    *hash_suffix;
+X
+X  /*
+X    Allocate encoder tables.
+X  */
+X  packet=(unsigned char *) malloc(256*sizeof(unsigned char));
+X  hash_code=(short *) malloc(MaxHashTable*sizeof(short));
+X  hash_prefix=(short *) malloc(MaxHashTable*sizeof(short));
+X  hash_suffix=(unsigned char *) malloc(MaxHashTable*sizeof(unsigned char));
+X  if ((packet == (unsigned char *) NULL) || (hash_code == (short *) NULL) ||
+X      (hash_prefix == (short *) NULL) ||
+X      (hash_suffix == (unsigned char *) NULL))
+X    return(False);
+X  /*
+X    Initialize LZW encoder.
+X  */
+X  number_bits=data_size;
+X  max_code=MaxCode(number_bits);
+X  clear_code=((short) 1 << (data_size-1));
+X  end_of_information_code=clear_code+1;
+X  free_code=clear_code+2;
+X  byte_count=0;
+X  datum=0;
+X  bits=0;
+X  for (i=0; i < MaxHashTable; i++)
+X    hash_code[i]=0;
+X  LZWOutputCode(clear_code);
+X  /*
+X    Encode pixels.
+X  */
+X  p=image->pixels;
+X  waiting_code=p->index;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X    {
+X      /*
+X        Probe hash table.
+X      */
+X      index=p->index & 0xff;
+X      k=(int) ((int) index << (MaxLZWBits-8))+waiting_code;
+X      if (k >= MaxHashTable)
+X        k-=MaxHashTable;
+X      if (hash_code[k] > 0)
+X        {
+X          if ((hash_prefix[k] == waiting_code) && (hash_suffix[k] == index))
+X            {
+X              waiting_code=hash_code[k];
+X              continue;
+X            }
+X          if (k == 0)
+X            displacement=1;
+X          else
+X            displacement=MaxHashTable-k;
+X          next_pixel=False;
+X          for ( ; ; )
+X          {
+X            k-=displacement;
+X            if (k < 0)
+X              k+=MaxHashTable;
+X            if (hash_code[k] == 0)
+X              break;
+X            if ((hash_prefix[k] == waiting_code) && (hash_suffix[k] == index))
+X              {
+X                waiting_code=hash_code[k];
+X                next_pixel=True;
+X                break;
+X              }
+X          }
+X          if (next_pixel == True)
+X            continue;
+X        }
+X      LZWOutputCode(waiting_code);
+X      if (free_code < MaxLZWTable)
+X        {
+X          hash_code[k]=free_code++;
+X          hash_prefix[k]=waiting_code;
+X          hash_suffix[k]=index;
+X        }
+X      else
+X        {
+X          /*
+X            Fill the hash table with empty entries.
+X          */
+X          for (k=0; k < MaxHashTable; k++)
+X            hash_code[k]=0;
+X          /*
+X            Reset compressor and issue a clear code.
+X          */
+X          free_code=clear_code+2;
+X          LZWOutputCode(clear_code);
+X          number_bits=data_size;
+X          max_code=MaxCode(number_bits);
+X        }
+X      waiting_code=index;
+X    }
+X    p++;
+X  }
+X  /*
+X    Flush out the buffered code.
+X  */
+X  LZWOutputCode(waiting_code);
+X  LZWOutputCode(end_of_information_code);
+X  if (bits > 0)
+X    {
+X      /*
+X        Add a character to current packet.
+X      */
+X      byte_count++;
+X      packet[byte_count]=(unsigned char) (datum & 0xff);
+X      if (byte_count >= 255)
+X        {
+X          packet[0]=(unsigned char) byte_count++;
+X          (void) fwrite((char *) packet,1,byte_count,image->file);
+X          byte_count=0;
+X        }
+X    }
+X  /*
+X    Flush accumulated data.
+X  */
+X  if (byte_count > 0)
+X    {
+X      packet[0]=(unsigned char) byte_count++;
+X      (void) fwrite((char *) packet,1,byte_count,image->file);
+X      byte_count=0;
+X    }
+X  /*
+X    Free encoder memory.
+X  */
+X  (void) free((char *) hash_suffix);
+X  (void) free((char *) hash_prefix);
+X  (void) free((char *) hash_code);
+X  (void) free((char *) packet);
+X  if (i < image->packets)
+X    return(False);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   P a c k b i t s E n c o d e I m a g e                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function PackbitsEncodeImage compresses an image via Macintosh pack bits
+%  encoding.
+%
+%  The format of the PackbitsEncodeImage routine is:
+%
+%      status=PackbitsEncodeImage(image,scanline,packbits)
+%
+%  A description of each parameter follows:
+%
+%    o status:  Function PackbitsEncodeImage returns True if all the pixels are
+%      compressed without error, otherwise False.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o scanline: A pointer to an array of characters to pack.
+%
+%    o packbits: A pointer to an array of characters where the packed
+%      characters are stored.
+%
+%
+*/
+unsigned int PackbitsEncodeImage(image,scanline,packbits)
+Image
+X  *image;
+X
+unsigned char
+X  *scanline,
+X  *packbits;
+{
+#define MaxCount  128
+#define MaxPackBitsRunlength  128
+X
+X  int
+X    count,
+X    number_packets,
+X    repeat_count,
+X    runlength;
+X
+X  register int
+X    i;
+X
+X  register unsigned char
+X    *p,
+X    *q;
+X
+X  unsigned char
+X    index;
+X
+X  /*
+X    Pack scanline.
+X  */
+X  count=0;
+X  runlength=0;
+X  p=scanline+(image->columns-1);
+X  q=packbits;
+X  index=(*p);
+X  for (i=image->columns-1; i >= 0; i--)
+X  {
+X    if (index == *p)
+X      runlength++;
+X    else
+X      {
+X        if (runlength < 3)
+X          while (runlength > 0)
+X          {
+X            *q++=index;
+X            runlength--;
+X            count++;
+X            if (count == MaxCount)
+X              {
+X                *q++=MaxCount-1;
+X                count-=MaxCount;
+X              }
+X          }
+X        else
+X          {
+X            if (count > 0)
+X              *q++=count-1;
+X            count=0;
+X            while (runlength > 0)
+X            {
+X              repeat_count=runlength;
+X              if (repeat_count > MaxPackBitsRunlength)
+X                repeat_count=MaxPackBitsRunlength;
+X              *q++=index;
+X              *q++=257-repeat_count;
+X              runlength-=repeat_count;
+X            }
+X          }
+X        runlength=1;
+X      }
+X    index=(*p);
+X    p--;
+X  }
+X  if (runlength < 3)
+X    while (runlength > 0)
+X    {
+X      *q++=index;
+X      runlength--;
+X      count++;
+X      if (count == MaxCount)
+X        {
+X          *q++=MaxCount-1;
+X          count-=MaxCount;
+X        }
+X    }
+X  else
+X    {
+X      if (count > 0)
+X        *q++=count-1;
+X      count=0;
+X      while (runlength > 0)
+X      {
+X        repeat_count=runlength;
+X        if (repeat_count > MaxPackBitsRunlength)
+X          repeat_count=MaxPackBitsRunlength;
+X        *q++=index;
+X        *q++=257-repeat_count;
+X        runlength-=repeat_count;
+X      }
+X    }
+X  if (count > 0)
+X    *q++=count-1;
+X  /*
+X    Write the number of and the packed packets.
+X  */
+X  number_packets=q-packbits;
+X  if ((image->columns-1) > 250)
+X    {
+X      MSBFirstWriteShort((unsigned short) number_packets,image->file);
+X      number_packets+=2;
+X    }
+X  else
+X    {
+X      index=number_packets;
+X      (void) fputc((char) index,image->file);
+X      number_packets++;
+X    }
+X  while (q != packbits)
+X  {
+X    q--;
+X    (void) fputc((char) *q,image->file);
+X  }
+X  return(number_packets);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Q D e c o d e I m a g e                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QDecodeImage uncompresses an image via Q-coding.
+%
+%  The format of the QDecodeImage routine is:
+%
+%      count=QDecodeImage(compressed_pixels,pixels,number_columns,number_rows)
+%
+%  A description of each parameter follows:
+%
+%    o count:  The QDecodeImage routine returns this integer value.  It is
+%      the actual number of pixels created by the decompression process.
+%
+%    o compressed_pixels:  The address of a byte (8 bits) array of compressed
+%      pixel data.
+%
+%    o pixels:  The address of a byte (8 bits) array of pixel data created by
+%      the uncompression process.  The number of bytes in this array
+%      must be at least equal to the number columns times the number of rows
+%      of the source pixels.
+%
+%    o number_columns:  An integer value that is the number of columns or
+%      width in pixels of your source image.
+%
+%    o number_rows:  An integer value that is the number of rows or
+%      heigth in pixels of your source image.
+%
+%
+*/
+unsigned int QDecodeImage(compressed_pixels,pixels,number_columns,number_rows)
+unsigned char
+X  *compressed_pixels,
+X  *pixels;
+X
+unsigned int
+X  number_columns,
+X  number_rows;
+{
+X  int
+X    decision,
+X    i,
+X    prediction,
+X    row;
+X
+X  register int
+X    column,
+X    magnitude,
+X    sign,
+X    state,
+X    value;
+X
+X  register ScanlinePacket
+X    *cs,
+X    *ls;
+X
+X  register unsigned char
+X    *p;
+X
+X  ScanlinePacket
+X    *scanline;
+X
+X  for (i=0; i < MaxContextStates; i++)
+X  {
+X    probability_estimate[i]=0;
+X    more_probable[i]=0;
+X    less_probable[i]=1;
+X  }
+X  /*
+X    Allocate scanline for row values and states
+X  */
+X  scanline=(ScanlinePacket *)
+X    malloc((2*(number_columns+1)*sizeof(ScanlinePacket)));
+X  if (scanline == (ScanlinePacket *) NULL)
+X    {
+X      Warning("unable to compress image, unable to allocate memory",
+X        (char *) NULL);
+X      exit(1);
+X    }
+X  cs=scanline;
+X  for (i=0; i < 2*(number_columns+1); i++)
+X  {
+X    cs->pixel=0;
+X    cs->state=ZeroState;
+X    cs++;
+X  }
+X  interval=MinimumIntervalD;
+X  p=pixels;
+X  q=compressed_pixels+1;
+X  /*
+X    Add a new unsigned char of compressed data to the Code register.
+X  */
+X  code=(int) (*q) << 16;
+X  if ((*q++) == 0xff)
+X    code+=((int) (*q) << 9)+0x02;
+X  else
+X    code+=((*q) << 8)+0x01;
+X  code<<=4;
+X  code+=(interval << 16);
+X  /*
+X    Decode each image scanline.
+X  */
+X  for (row=0; row < number_rows; row++)
+X  {
+X    ls=scanline+(number_columns+1)*((row+0) % 2);
+X    cs=scanline+(number_columns+1)*((row+1) % 2);
+X    for (column=0; column < number_columns; column++)
+X    {
+X      prediction=(int) cs->pixel-(int) ls->pixel;
+X      ls++;
+X      prediction+=(int) ls->pixel;
+X      state=statistics[cs->state][ls->state];
+X      cs++;
+X      cs->state=ZeroState;
+X      /*
+X        Branch for zero code value
+X      */
+X      Decode(state,&decision);
+X      if (decision == No)
+X        value=0;
+X      else
+X        {
+X          /*
+X            Decode sign information
+X          */
+X          state++;
+X          Decode(state,&decision);
+X          if (decision == Yes)
+X            sign=(-1);
+X          else
+X            {
+X              sign=1;
+X              state++;
+X            }
+X          state++;
+X          /*
+X            Branch for value=+-1
+X          */
+X          Decode(state,&decision);
+X          if (decision == No)
+X            value=1;
+X          else
+X            {
+X              /*
+X                Establish magnitude of value.
+X              */
+X              magnitude=2;
+X              state=100;
+X              Decode(state,&decision);
+X              while (decision != No)
+X              {
+X                if (state < 107)
+X                  state++;
+X                magnitude<<=1;
+X                Decode(state,&decision);
+X              }
+X              /*
+X                Code remaining bits.
+X              */
+X              state+=7;
+X              value=1;
+X              magnitude>>=2;
+X              if (magnitude != 0)
+X                {
+X                  Decode(state,&decision);
+X                  state+=6;
+X                  value=(value << 1) | decision;
+X                  magnitude>>=1;
+X                  while (magnitude != 0)
+X                  {
+X                    Decode(state,&decision);
+X                    value=(value << 1) | decision;
+X                    magnitude>>=1;
+X                  }
+X                }
+X              value++;
+X            }
+X          if (value > LowerBound)
+X            if (value <= UpperBound)
+X              cs->state=
+X                (sign < ZeroState ? SmallPostitiveState : SmallNegativeState);
+X            else
+X              cs->state=
+X                (sign < ZeroState ? LargePostitiveState : LargeNegativeState);
+X          if (sign < 0)
+X            value=(-value);
+X        }
+X      cs->pixel=(unsigned char) (value+prediction);
+X      *p++=cs->pixel;
+X    }
+X  }
+X  (void) free((char *) scanline);
+X  return((unsigned int) (p-pixels));
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Q E n c o d e I m a g e                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QEncodeImage compresses an image via q-coding.  QEncodeImage uses
+%  a simple predictive method.  The predictor combines three neighboring
+%  samples (A, B, and C) to form a prediction of the sample X:
+%
+%    C B
+%    A X
+%
+%  The prediction formula is A + B - C.  The prediction is subtracted from
+%  from the actual sample X and the difference is encoded by an arithmetic
+%  entropy coding method.
+%
+%  The format of the QEncodeImage routine is:
+%
+%      count=QEncodeImage(pixels,compressed_pixels,number_columns,number_rows)
+%
+%  A description of each parameter follows:
+%
+%    o count:  The QEncodeImage routine returns this integer value.  It is
+%      the actual number of compressed pixels created by the compression
+%      process.
+%
+%    o pixels:  The address of a byte (8 bits) array of pixel data.
+%
+%    o compressed_pixels:  The address of a byte (8 bits) array of pixel data
+%      created by the compression process.  The number of bytes in this array
+%      must be at least equal to the number columns times the number of rows
+%      of the source pixels to allow for the possibility that no compression
+%      is possible.  The actual number of bytes used is reflected by the
+%      count parameter.
+%
+%    o number_columns:  An integer value that is the number of columns or
+%      width in pixels of your source image.
+%
+%    o number_rows:  An integer value that is the number of rows or
+%      heigth in pixels of your source image.
+%
+%
+%
+*/
+unsigned int QEncodeImage(pixels,compressed_pixels,number_columns,number_rows)
+unsigned char
+X  *pixels,
+X  *compressed_pixels;
+X
+unsigned int
+X  number_columns,
+X  number_rows;
+{
+X  int
+X    i,
+X    prediction,
+X    row;
+X
+X  register int
+X    column,
+X    magnitude,
+X    sign,
+X    state,
+X    value;
+X
+X  register ScanlinePacket
+X    *cs,
+X    *ls;
+X
+X  register unsigned char
+X    *p;
+X
+X  ScanlinePacket
+X    *scanline;
+X
+X  void
+X    Flush();
+X
+X  for (i=0; i < MaxContextStates; i++)
+X  {
+X    probability_estimate[i]=0;
+X    more_probable[i]=0;
+X  }
+X  /*
+X    Allocate scanline for row values and states.
+X  */
+X  scanline=(ScanlinePacket *)
+X    malloc((2*(number_columns+1)*sizeof(ScanlinePacket)));
+X  if (scanline == (ScanlinePacket *) NULL)
+X    {
+X      Warning("unable to compress image, unable to allocate memory",
+X        (char *) NULL);
+X      exit(1);
+X    }
+X  cs=scanline;
+X  for (i=0; i < 2*(number_columns+1); i++)
+X  {
+X    cs->pixel=0;
+X    cs->state=ZeroState;
+X    cs++;
+X  }
+X  interval=MinimumIntervalE;
+X  p=pixels;
+X  q=compressed_pixels;
+X  (*q)++;
+X  code=0x00180000;
+X  /*
+X    Encode each scanline.
+X  */
+X  for (row=0; row < number_rows; row++)
+X  {
+X    ls=scanline+(number_columns+1)*((row+0) % 2);
+X    cs=scanline+(number_columns+1)*((row+1) % 2);
+X    for (column=0; column < number_columns; column++)
+X    {
+X      prediction=(int) cs->pixel-(int) ls->pixel;
+X      ls++;
+X      prediction+=(int) ls->pixel;
+X      state=statistics[cs->state][ls->state];
+X      cs++;
+X      cs->pixel=(*p++);
+X      cs->state=ZeroState;
+X      value=(int) cs->pixel-prediction;
+X      Encode(state,(value == 0 ? No : Yes));
+X      if (value != 0)
+X        {
+X          /*
+X            Code sign information
+X          */
+X          state++;
+X          sign=(value < 0 ? -1 : 1);
+X          Encode(state,(sign >= 0 ? No : Yes));
+X          if (sign < 0)
+X            value=(-value);
+X          else
+X            state++;
+X          state++;
+X          value--;
+X          /*
+X            Branch for code=+-1
+X          */
+X          Encode(state,(value == 0 ? No : Yes));
+X          if (value != 0)
+X            {
+X              /*
+X                Establish magnitude of value.
+X              */
+X              state=100;
+X              magnitude=2;
+X              while (value >= magnitude)
+X              {
+X                Encode(state,Yes);
+X                if (state < 107)
+X                  state++;
+X                magnitude<<=1;
+X              }
+X              Encode(state,No);
+X              /*
+X                Code remaining bits
+X              */
+X              state+=7;
+X              magnitude>>=2;
+X              if (magnitude != 0)
+X                {
+X                  Encode(state,((magnitude & value) == 0 ? No : Yes));
+X                  state+=6;
+X                  magnitude>>=1;
+X                  while (magnitude != 0)
+X                  {
+X                    Encode(state,((magnitude & value) == 0 ? No : Yes));
+X                    magnitude>>=1;
+X                  }
+X                }
+X            }
+X          if (value >= LowerBound)
+X            if (value < UpperBound)
+X              cs->state=
+X                (sign < ZeroState ? SmallPostitiveState : SmallNegativeState);
+X            else
+X              cs->state=
+X                (sign < ZeroState ? LargePostitiveState : LargeNegativeState);
+X        }
+X    }
+X  }
+X  Flush();
+X  (void) free((char *) scanline);
+X  return((unsigned int) (q-compressed_pixels));
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R u n l e n g t h D e c o d e I m a g e                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RunlengthDecodeImage unpacks the packed image pixels into
+%  runlength-encoded pixel packets.  The packed image pixel memory is then
+%  freed.
+%
+%  The format of the RunlengthDecodeImage routine is:
+%
+%      status=RunlengthDecodeImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function RunlengthDecodeImage return True if the image is
+%      decoded.  False is returned if there is an error occurs.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int RunlengthDecodeImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned long
+X    count;
+X
+X  if (image->packed_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to unpack pixels","no packed image pixels");
+X      return(False);
+X    }
+X  /*
+X    Allocate pixels.
+X  */
+X  if (image->pixels != (RunlengthPacket *) NULL)
+X    (void) free((char *) image->pixels);
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to unpack pixels","memory allocation failed");
+X      return(False);
+X    }
+X  /*
+X    Unpack the packed image pixels into runlength-encoded pixel packets.
+X  */
+X  p=image->packed_pixels;
+X  q=image->pixels;
+X  count=0;
+X  if (image->class == DirectClass)
+X    {
+X      register int
+X        alpha;
+X
+X      alpha=image->alpha;
+X      if (image->compression == RunlengthEncodedCompression)
+X        for (i=0; i < image->packets; i++)
+X        {
+X          q->red=(*p++);
+X          q->green=(*p++);
+X          q->blue=(*p++);
+X          q->index=(unsigned short) (alpha ? (*p++) : 0);
+X          q->length=(*p++);
+X          count+=(q->length+1);
+X          q++;
+X        }
+X      else
+X        for (i=0; i < image->packets; i++)
+X        {
+X          q->red=(*p++);
+X          q->green=(*p++);
+X          q->blue=(*p++);
+X          q->index=(unsigned short) (alpha ? (*p++) : 0);
+X          q->length=0;
+X          count++;
+X          q++;
+X        }
+X    }
+X  else
+X    {
+X      register unsigned short
+X        index;
+X
+X      if (image->compression == RunlengthEncodedCompression)
+X        {
+X          if (image->colors <= 256)
+X            for (i=0; i < image->packets; i++)
+X            {
+X              index=(*p++);
+X              q->red=image->colormap[index].red;
+X              q->green=image->colormap[index].green;
+X              q->blue=image->colormap[index].blue;
+X              q->index=index;
+X              q->length=(*p++);
+X              count+=(q->length+1);
+X              q++;
+X            }
+X          else
+X            for (i=0; i < image->packets; i++)
+X            {
+X              index=(*p++) << 8;
+X              index|=(*p++);
+X              q->red=image->colormap[index].red;
+X              q->green=image->colormap[index].green;
+X              q->blue=image->colormap[index].blue;
+X              q->index=index;
+X              q->length=(*p++);
+X              count+=(q->length+1);
+X              q++;
+X            }
+X        }
+X      else
+X        if (image->colors <= 256)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            count++;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=(*p++) << 8;
+X            index|=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            count++;
+X            q++;
+X          }
+X    }
+X  /*
+X    Free packed pixels memory.
+X  */
+X  (void) free((char *) image->packed_pixels);
+X  image->packed_pixels=(unsigned char *) NULL;
+X  /*
+X    Guarentee the correct number of pixel packets.
+X  */
+X  if (count > (image->columns*image->rows))
+X    {
+X      Warning("insufficient image data in file",image->filename);
+X      return(False);
+X    }
+X  else
+X    if (count < (image->columns*image->rows))
+X      {
+X        Warning("too much image data in file",image->filename);
+X        return(False);
+X      }
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R u n l e n g t h E n c o d e I m a g e                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RunlengthEncodeImage packs the runlength-encoded pixel packets
+%  into the minimum number of bytes.
+%
+%  The format of the RunlengthEncodeImage routine is:
+%
+%      status=RunlengthEncodeImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function RunlengthEncodeImage return True if the image is
+%      packed.  False is returned if an error occurs.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int RunlengthEncodeImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned long
+X    count,
+X    packets;
+X
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to pack pixels","no image pixels");
+X      return(False);
+X    }
+X  /*
+X    Runlength-encode only if it consumes less memory than no compression.
+X  */
+X  if (image->compression == RunlengthEncodedCompression)
+X    if (image->class == DirectClass)
+X      {
+X        if (image->packets >= ((image->columns*image->rows*3) >> 2))
+X          image->compression=NoCompression;
+X      }
+X    else
+X      if (image->packets >= ((image->columns*image->rows) >> 1))
+X        image->compression=NoCompression;
+X  /*
+X    Determine packed packet size.
+X  */
+X  if (image->class == PseudoClass)
+X    {
+X      image->packet_size=1;
+X      if (image->colors > 256)
+X        image->packet_size++;
+X    }
+X  else
+X    {
+X      image->packet_size=3;
+X      if (image->alpha)
+X        image->packet_size++;
+X    }
+X  if (image->compression == RunlengthEncodedCompression)
+X    image->packet_size++;
+X  /*
+X    Allocate packed pixel memory.
+X  */
+X  if (image->packed_pixels != (unsigned char *) NULL)
+X    (void) free((char *) image->packed_pixels);
+X  packets=image->packets;
+X  if (image->compression != RunlengthEncodedCompression)
+X    packets=image->columns*image->rows;
+X  image->packed_pixels=(unsigned char *)
+X    malloc((unsigned int) packets*image->packet_size*sizeof(unsigned char));
+X  if (image->packed_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to pack pixels","memory allocation failed");
+X      return(False);
+X    }
+X  /*
+X    Packs the runlength-encoded pixel packets into the minimum number of bytes.
+X  */
+X  p=image->pixels;
+X  q=image->packed_pixels;
+X  count=0;
+X  if (image->class == DirectClass)
+X    {
+X      register int
+X        alpha;
+X
+X      alpha=image->alpha;
+X      if (image->compression == RunlengthEncodedCompression)
+X        for (i=0; i < image->packets; i++)
+X        {
+X          *q++=p->red;
+X          *q++=p->green;
+X          *q++=p->blue;
+X          if (alpha)
+X            *q++=(unsigned char) p->index;
+X          *q++=p->length;
+X          count+=(p->length+1);
+X          p++;
+X        }
+X      else
+X        for (i=0; i < image->packets; i++)
+X        {
+X          for (j=0; j <= ((int) p->length); j++)
+X          {
+X            *q++=p->red;
+X            *q++=p->green;
+X            *q++=p->blue;
+X            if (alpha)
+X              *q++=(unsigned char) p->index;
+X          }
+X          count+=(p->length+1);
+X          p++;
+X        }
+X    }
+X  else
+X    if (image->compression == RunlengthEncodedCompression)
+X      {
+X        if (image->colors <= 256)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            *q++=(unsigned char) p->index;
+X            *q++=p->length;
+X            count+=(p->length+1);
+X            p++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            *q++=(unsigned char) (p->index >> 8);
+X            *q++=(unsigned char) p->index;
+X            *q++=p->length;
+X            count+=(p->length+1);
+X            p++;
+X          }
+X      }
+X    else
+X      if (image->colors <= 256)
+X        for (i=0; i < image->packets; i++)
+X        {
+X          for (j=0; j <= ((int) p->length); j++)
+X            *q++=(unsigned char) p->index;
+X          count+=(p->length+1);
+X          p++;
+X        }
+X      else
+X        {
+X          register unsigned char
+X            xff00,
+X            xff;
+X
+X          for (i=0; i < image->packets; i++)
+X          {
+X            xff00=(unsigned char) (p->index >> 8);
+X            xff=(unsigned char) p->index;
+X            for (j=0; j <= ((int) p->length); j++)
+X            {
+X              *q++=xff00;
+X              *q++=xff;
+X            }
+X            count+=(p->length+1);
+X            p++;
+X          }
+X        }
+X  /*
+X    Guarentee the correct number of pixel packets.
+X  */
+X  if (count < (image->columns*image->rows))
+X    {
+X      Warning("insufficient image data in",image->filename);
+X      return(False);
+X    }
+X  else
+X    if (count > (image->columns*image->rows))
+X      {
+X        Warning("too much image data in",image->filename);
+X        return(False);
+X      }
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S U N D e c o d e I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function SUNDecodeImage unpacks the packed image pixels into
+%  runlength-encoded pixel packets.
+%
+%  The format of the SUNDecodeImage routine is:
+%
+%      status=SUNDecodeImage(compressed_pixels,pixels,number_columns,
+%        number_rows)
+%
+%  A description of each parameter follows:
+%
+%    o status:  Function SUNDecodeImage returns True if all the pixels are
+%      uncompressed without error, otherwise False.
+%
+%    o compressed_pixels:  The address of a byte (8 bits) array of compressed
+%      pixel data.
+%
+%    o pixels:  The address of a byte (8 bits) array of pixel data created by
+%      the uncompression process.  The number of bytes in this array
+%      must be at least equal to the number columns times the number of rows
+%      of the source pixels.
+%
+%    o number_columns:  An integer value that is the number of columns or
+%      width in pixels of your source image.
+%
+%    o number_rows:  An integer value that is the number of rows or
+%      heigth in pixels of your source image.
+%
+%
+*/
+unsigned int SUNDecodeImage(compressed_pixels,pixels,number_columns,number_rows)
+unsigned char
+X  *compressed_pixels,
+X  *pixels;
+X
+unsigned int
+X  number_columns,
+X  number_rows;
+{
+X  register int
+X    count;
+X
+X  register unsigned char
+X    *p,
+X    *q;
+X
+X  unsigned char
+X    byte;
+X
+X  p=compressed_pixels;
+X  q=pixels;
+X  while ((q-pixels) <= (number_columns*number_rows))
+X  {
+X    byte=(*p++);
+X    if (byte != 128)
+X      *q++=byte;
+X    else
+X      {
+X        /*
+X          Runlength-encoded packet: <count><byte>
+X        */
+X        count=(*p++);
+X        if (count > 0)
+X          byte=(*p++);
+X        while (count >= 0)
+X        {
+X          *q++=byte;
+X          count--;
+X        }
+X     }
+X  }
+X  return(True);
+}
+SHAR_EOF
+echo 'File ImageMagick/compress.c is complete' &&
+chmod 0644 ImageMagick/compress.c ||
+echo 'restore of ImageMagick/compress.c failed'
+Wc_c="`wc -c < 'ImageMagick/compress.c'`"
+test 68487 -eq "$Wc_c" ||
+	echo 'ImageMagick/compress.c: original size 68487, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/compress.h ==============
+if test -f 'ImageMagick/compress.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/compress.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/compress.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/compress.h' &&
+/*
+X  Compress utility routines.
+*/
+extern unsigned int
+X  BMPDecodeImage _Declare((unsigned char *,unsigned char *,unsigned int,
+X    unsigned int)),
+X  HuffmanEncodeImage _Declare((Image *)),
+X  LZWDecodeImage _Declare((Image *)),
+X  LZWEncodeFilter _Declare((FILE *,unsigned char *,unsigned int)),
+X  LZWEncodeImage _Declare((Image *,unsigned int)),
+X  PackbitsEncodeImage _Declare((Image *,unsigned char *,unsigned char *)),
+X  QDecodeImage _Declare((unsigned char *,unsigned char *,unsigned int,
+X    unsigned int)),
+X  QEncodeImage _Declare((unsigned char *,unsigned char *,unsigned int,
+X    unsigned int)),
+X  RunlengthDecodeImage _Declare((Image *)),
+X  RunlengthEncodeImage _Declare((Image *)),
+X  SUNDecodeImage _Declare((unsigned char *,unsigned char *,unsigned int,
+X    unsigned int));
+SHAR_EOF
+chmod 0644 ImageMagick/compress.h ||
+echo 'restore of ImageMagick/compress.h failed'
+Wc_c="`wc -c < 'ImageMagick/compress.h'`"
+test 784 -eq "$Wc_c" ||
+	echo 'ImageMagick/compress.h: original size 784, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/display.c ==============
+if test -f 'ImageMagick/display.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/display.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/display.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/display.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%             DDDD   IIIII  SSSSS  PPPP   L       AAA   Y   Y                 %
+%             D   D    I    SS     P   P  L      A   A   Y Y                  %
+%             D   D    I     SSS   PPPP   L      AAAAA    Y                   %
+%             D   D    I       SS  P      L      A   A    Y                   %
+%             DDDD   IIIII  SSSSS  P      LLLLL  A   A    Y                   %
+%                                                                             %
+%                                                                             %
+%          Display Machine Independent File Format Image via X11.             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Display is a machine architecture independent image processing
+%  and display program.  It can display any image in the MIFF format on
+%  any workstation display running X.  Display first determines the
+%  hardware capabilities of the workstation.  If the number of unique
+%  colors in the image is less than or equal to the number the workstation
+%  can support, the image is displayed in an X window.  Otherwise the
+%  number of colors in the image is first reduced to match the color
+%  resolution of the workstation before it is displayed.
+%
+%  This means that a continuous-tone 24 bits-per-pixel image can display on a
+%  8 bit pseudo-color device or monochrome device.  In most instances the
+%  reduced color image closely resembles the original.  Alternatively, a
+%  monochrome or pseudo-color image can display on a continuous-tone 24
+%  bits-per-pixel device.
+%
+%  The Display program command syntax is:
+%
+%  Usage: display [options ...] file [ [options ...] file ...]
+%
+%  Where options include:
+%    -backdrop           display image centered on a backdrop
+%    -clip geometry      preferred size and location of the clipped image
+%    -colormap type      Shared or Private
+%    -colors value       preferred number of colors in the image
+%    -colorspace type    GRAY, RGB, XYZ, YCbCr, YIQ, or YUV
+%    -compress type      RunlengthEncoded or QEncoded
+%    -delay seconds      display the next image after pausing
+%    -density geometry   vertical and horizonal density of the image
+%    -display server     display image to this X server
+%    -dither             apply Floyd/Steinberg error diffusion to image
+%    -enhance            apply a digital filter to enhance a noisy image
+%    -gamma value        level of gamma correction
+%    -geometry geometry  preferred size and location of the image window
+%    -interlace type     NONE, LINE, or PLANE
+%    -inverse            apply color inversion to image
+%    -map type           display image using this Standard Colormap
+%    -monochrome         transform image to black and white
+%    -noise              reduce noise with a noise peak elimination filter
+%    -normalize          tranform image to span the full the range of colors
+%    -page geometry      size and location of the Postscript page
+%    -quality value      JPEG quality setting
+%    -reflect            reverse image scanlines
+%    -rotate degrees     apply Paeth rotation to the image
+%    -scale geometry     preferred size factors of the image
+%    -scene value        image scene number
+%    -treedepth value    depth of the color classification tree
+%    -update seconds     detect when image file is modified and redisplay
+%    -verbose            print detailed information about the image
+%    -visual type        display image using this visual type
+%    -window id          display image to background of this window
+%    -write filename     write image to a file
+%
+%  In addition to those listed above, you can specify these standard X
+%  resources as command line options:  -background, -bordercolor,
+%  -borderwidth, -font, -foreground, -iconGeometry, -iconic, -name, or
+%  -title.
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example, specify +compress to store the image as uncompressed.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. ps:image) or specify the
+%  image type as the filename suffix (i.e. image.ps).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%  Buttons:
+%    1    press and drag to select a command from a pop-up menu
+%    2    press and drag to define a region of the image to clip
+%    3    press and drag to define a region of the image to magnify
+%
+%  Keyboard accelerators:
+%    i    display information about the image
+%    r    reflect the image scanlines
+%    /    rotate the image 90 degrees clockwise
+%    \    rotate the image 90 degrees counter-clockwise
+%    <    half the image size
+%    >    double the image size
+%    o    restore the image to its original size
+%    a    annotate the image with text
+%    c    composite image with another
+%    l    load an image from a file
+%    w    write the image to a file
+%    n    display the next image
+%    p    display the previous image
+%    q    discard all images and exit program
+%    1-9  change the level of magnification
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "X.h"
+X
+/*
+X  State declarations.
+*/
+#define ControlState  0x0001
+#define DefaultState  0x0000
+#define EscapeState  0x0002
+#define ExitState  0x0004
+#define ImageMappedState  0x0008
+#define InfoMappedState  0x0010
+#define LastImageState  0x0020
+#define MagnifyMappedState  0x0040
+#define NextImageState  0x0080
+#define PanMappedState  0x0100
+#define ReconfigureImageState  0x0200
+#define UpdateColormapState  0x0400
+#define UpdateConfigurationState  0x0800
+X
+/*
+X  Global declarations.
+*/
+char
+X  *client_name;
+X
+/*
+X  Forward declarations.
+*/
+static Cursor
+X  XMakeMagnifyCursor _Declare((Display *,Colormap,Window,char *,char *));
+X
+static Image
+X  *XImageWindowCommand _Declare((Display *,XResourceInfo *,XWindows *,
+X    KeySym,Image **,unsigned long *)),
+X  *XLoadImageWindow _Declare((Display *,XResourceInfo *,XWindows *,Image *)),
+X  *XTileImageWindow _Declare((Display *,XResourceInfo *,XWindows *,Image *,
+X    XEvent *));
+X
+static unsigned int
+X  XConfigureImageWindow _Declare((Display *,XResourceInfo *,XWindows *,
+X    unsigned int,unsigned int,Image *)),
+X  XReflectImageWindow _Declare((Display *,XWindows *,Image **)),
+X  XRotateImageWindow _Declare((Display *,XWindows *,unsigned int,Image **)),
+X  XWriteImageWindow _Declare((Display *,XResourceInfo *,XWindows *,Image **));
+X
+static void
+X  XDrawPanRectangle _Declare((Display *,XWindows *)),
+X  XMagnifyImageWindow _Declare((Display *,XResourceInfo *,XWindows *,XEvent *)),
+X  XMakeMagnifyImage _Declare((Display *,XResourceInfo *,XWindows *)),
+X  XMakePanImage _Declare((Display *,XResourceInfo *,XWindows *,Image *)),
+X  XPanImageWindow _Declare((Display *,XWindows *,XEvent *)),
+X  XMagnifyWindowCommand _Declare((Display *,XResourceInfo *,XWindows *,KeySym)),
+X  XSetClipGeometry _Declare((Display *,XWindows *,RectangleInfo *,Image *));
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",client_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Usage displays the program command syntax.
+%
+%  The format of the Usage routine is:
+%
+%      Usage(terminate)
+%
+%  A description of each parameter follows:
+%
+%    o terminate: A value other than zero is returned if the program is to
+SHAR_EOF
+true || echo 'restore of ImageMagick/display.c failed'
+fi
+echo 'End of ImageMagick part 21'
+echo 'File ImageMagick/display.c is continued in part 22'
+echo 22 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

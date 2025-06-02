@@ -1,0 +1,2603 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i023:  xvi - portable multi-window vi-like editor, Part14/18
+Message-ID: <1992Oct24.172505.2306@sparky.imd.sterling.com>
+X-Md4-Signature: a5250c1c495f2b1e0480fec378fce6b3
+Date: Sat, 24 Oct 1992 17:25:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 23
+Archive-name: xvi/part14
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/map.c xvi/src/misccmds.c xvi/src/msdos_c.c
+#   xvi/src/sunback.c xvi/src/tos.c
+# Wrapped by kent@sparky on Thu Oct 22 09:03:44 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 18)."'
+if test -f 'xvi/src/map.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/map.c'\"
+else
+  echo shar: Extracting \"'xvi/src/map.c'\" \(10435 characters\)
+  sed "s/^X//" >'xvi/src/map.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)map.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    map.c
+X* module function:
+X    Keyboard input/pushback routines, "map" command.
+X
+X    Note that we provide key mapping through a different interface,
+X    so that cursor key mappings etc do not show up to the user.
+X    This works by having a two-stage process; first keymapping is
+X    done, and then the result is fed through the normal mapping
+X    process. The intent of the keymapping stage is to convert
+X    machine-local keys into a standard form.
+X
+X* bug:
+X    If a map fails, we just pass all characters which had already
+X    been accepted, plus the character which caused the mismatch,
+X    straight through. This is not quite correct because we might
+X    have got a good match starting at the very next character, i.e.
+X    if we have mapped
+X
+X    	foo	to	bar
+X
+X    and get input "ffoo", then the seconf 'f' will cause the map to
+X    fail and both characters will go through, and so the whole thing
+X    will pass through unmapped.
+X
+X    The only way around this problem is to introduce another flexbuf
+X    on the input side of the keymap stage, to give us somewhere to
+X    put all characters after the first, when a map fails. I.e. in the
+X    case above, we would pass the first 'f' through to the "mp_dest"
+X    flexbuf, and stuff any characters after that into "mp_src".
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * This is the fundamental structure type which is used
+X * to hold mappings from one string to another.
+X */
+Xtypedef struct map {
+X    struct map	    *m_next;
+X    char	    *m_lhs;		/* lhs of map */
+X    char	    *m_rhs;		/* rhs of map */
+X    unsigned int    m_same;		/* no characters same as next map */
+X} Map;
+X
+X/*
+X * This structure holds a current position while scanning a map list.
+X * It is also effectively used to form a chain of mapping structures,
+X * interconnected with flexbufs.
+X */
+Xtypedef struct mpos {
+X    Map		*mp_map;
+X    int		mp_index;
+X    Flexbuf	*mp_src;
+X    Flexbuf	*mp_dest;
+X} Mpos;
+X
+X/*
+X * Two mapping structures exist; one for "map", and one for "map!".
+X */
+Xstatic	Map	*cmd_map = NULL;
+Xstatic	Map	*ins_map = NULL;
+Xstatic	Map	*key_map = NULL;
+X
+X/*
+X * This is the position in cmd_map/ins_map when we are waiting for
+X * the next character. When not waiting, mp_map is NULL (as at start).
+X * Also stores flexbuf pointers for input and output at each stage.
+X */
+Xstatic	Flexbuf	getcbuff;
+Xstatic	Flexbuf inputbuff;
+Xstatic	Mpos	npos = { NULL, 0, &inputbuff,	&getcbuff };
+Xstatic	Mpos	kpos = { NULL, 0, NULL,		&inputbuff };
+X
+X/*
+X * This is used for "display" mode; it records the current map which
+X * is being displayed. It is used by show_map().
+X */
+Xstatic	Map	*curmap;
+Xstatic	char	*show_map P((void));
+X
+Xstatic	void	mapthrough P((void));
+Xstatic	bool_t	process_map P((int, Mpos *));
+Xstatic	void	calc_same P((Map *));
+Xstatic	void	map_failed P((Mpos *));
+Xstatic	void	insert_map P((Map **, char *, char *, bool_t));
+Xstatic	void	delete_map P((Map **, char *));
+X
+X/*VARARGS1*/
+X/*PRINTFLIKE*/
+Xvoid
+Xstuff
+X#ifdef	__STDC__
+X    (char *format, ...)
+X#else /* not __STDC__ */
+X    (format, va_alist)
+X    char	*format;
+X    va_dcl
+X#endif
+X{
+X    va_list	argp;
+X
+X    VA_START(argp, format);
+X    (void) vformat(npos.mp_dest, format, argp);
+X    va_end(argp);
+X}
+X
+Xint
+Xmap_getc()
+X{
+X    return(flexempty(npos.mp_dest) ? EOF : flexpopch(npos.mp_dest));
+X}
+X
+Xvoid
+Xmap_char(c)
+Xregister int	c;
+X{
+X    /*
+X     * Send the input character through the keymap list.
+X     */
+X    if (kpos.mp_map == NULL) {
+X    	kpos.mp_map = key_map;
+X	kpos.mp_index = 0;
+X    }
+X    if (process_map(c, &kpos) == FALSE) {
+X	/*
+X	 * Send resulting output through the normal map list.
+X	 */
+X	kpos.mp_map = NULL;
+X	mapthrough();
+X    }
+X}
+X
+X/*
+X * Process any characters in the input buffer through the
+X * cmd_map/ins_map lists into the output buffer, whence
+X * characters go into the editor itself.
+X */
+Xstatic void
+Xmapthrough()
+X{
+X    while (!flexempty(npos.mp_src)) {
+X	if (npos.mp_map == NULL) {
+X	    if (State == NORMAL) {
+X		npos.mp_map = cmd_map;
+X	    } else if (State == INSERT || State == REPLACE) {
+X		npos.mp_map = ins_map;
+X	    }
+X	    npos.mp_index = 0;
+X	}
+X
+X	if (process_map(flexpopch(npos.mp_src), &npos) == FALSE) {
+X	    npos.mp_map = NULL;
+X	}
+X    }
+X}
+X
+X/*
+X * Process the given character through the maplist pointed to
+X * by the given position. Returns TRUE if we should continue,
+X * or FALSE if this attempt at mapping has terminated (either
+X * due to success or definite failure).
+X */
+Xstatic bool_t
+Xprocess_map(c, pos)
+Xregister int	c;
+Xregister Mpos	*pos;
+X{
+X    register Map	*tmp;
+X    register int	ind;
+X
+X    ind = pos->mp_index;
+X    for (tmp = pos->mp_map; tmp != NULL; tmp = tmp->m_next) {
+X	if (tmp->m_lhs[ind] == c) {
+X	    if (tmp->m_lhs[ind + 1] == '\0') {
+X		/*
+X		 * Found complete match. Insert the result into
+X		 * the appropriate output buffer, according to
+X		 * whether "remap" is set or not.
+X		 */
+X		(void) lformat((Pb(P_remap) && pos->mp_src != NULL) ?
+X			    pos->mp_src : pos->mp_dest, "%s", tmp->m_rhs);
+X		return(FALSE);
+X	    } else {
+X		/*
+X		 * Found incomplete match,
+X		 * keep going.
+X		 */
+X		pos->mp_map = tmp;
+X		pos->mp_index++;
+X	    }
+X	    return(TRUE);
+X	}
+X
+X	/*
+X	 * Can't move on to next map entry unless the m_same
+X	 * field is sufficient that the match so far would
+X	 * have worked.
+X	 */
+X	if (tmp->m_same < ind) {
+X	    break;
+X	}
+X    }
+X
+X    map_failed(pos);
+X
+X    /*
+X     * Don't forget to re-stuff the character we have just received.
+X     */
+X    (void) flexaddch(pos->mp_dest, c);
+X    return(FALSE);
+X}
+X
+Xvoid
+Xmap_timeout()
+X{
+X    if (kpos.mp_map != NULL) {
+X	map_failed(&kpos);
+X	mapthrough();
+X    } else {
+X    	map_failed(&npos);
+X    }
+X}
+X
+Xbool_t
+Xmap_waiting()
+X{
+X    return(kpos.mp_map != NULL || npos.mp_map != NULL);
+X}
+X
+X/*
+X * This routine is called when a timeout has occurred.
+X */
+Xstatic void
+Xmap_failed(pos)
+XMpos	*pos;
+X{
+X    register char	*cp;
+X    register Flexbuf	*fbp;
+X    register int	i;
+X
+X    if (pos->mp_map != NULL) {
+X	fbp = pos->mp_dest;
+X	for (i = 0, cp = pos->mp_map->m_lhs; i < pos->mp_index; i++) {
+X	    (void) flexaddch(fbp, cp[i]);
+X	}
+X	pos->mp_map = NULL;
+X    }
+X}
+X
+X/*
+X * Insert the key map lhs as mapping into rhs.
+X */
+Xvoid
+Xxvi_keymap(lhs, rhs)
+Xchar	*lhs;
+Xchar	*rhs;
+X{
+X    insert_map(&key_map, lhs, rhs, FALSE);
+X}
+X
+X/*
+X * Insert the entry "lhs" as mapping into "rhs".
+X */
+Xvoid
+Xxvi_map(argc, argv, exclam, inter)
+Xint	argc;
+Xchar	*argv[];
+Xbool_t	exclam;
+Xbool_t	inter;
+X{
+X    switch (argc) {
+X    case 2:				/* valid input */
+X	if (argv[0][0] == '\0') {
+X	    if (inter) {
+X		show_message(curwin, "Usage: map lhs rhs");
+X	    }
+X	    return;
+X	}
+X	insert_map(exclam ? &ins_map : &cmd_map, argv[0], argv[1], inter);
+X	break;
+X
+X    case 0:
+X	curmap = exclam ? ins_map : cmd_map;
+X	disp_init(curwin, show_map, (int) curwin->w_ncols, FALSE);
+X	break;
+X
+X    default:
+X	if (inter) {
+X	    show_message(curwin, "Wrong number of arguments to map");
+X	}
+X    }
+X}
+X
+Xstatic void
+Xinsert_map(maplist, left, right, interactive)
+XMap		**maplist;
+Xchar		*left;
+Xchar		*right;
+Xbool_t		interactive;
+X{
+X    char	*lhs;			/* saved lhs of map */
+X    char	*rhs;			/* saved rhs of map */
+X    Map		*mptr;			/* new map element */
+X    Map		**p;			/* used for loop to find position */
+X    int		rel;
+X
+X    lhs = strsave(left);
+X    if (lhs == NULL || (rhs = strsave(right)) == NULL) {
+X	if (interactive) {
+X	    show_message(curwin, "no memory for that map");
+X	}
+X	return;
+X    }
+X
+X    mptr = (Map *) alloc(sizeof(Map));
+X    if (mptr == NULL) {
+X	free(lhs);
+X	free(rhs);
+X	return;
+X    }
+X
+X    mptr->m_lhs = lhs;
+X    mptr->m_rhs = rhs;
+X
+X    p = maplist;
+X    if ((*p) == NULL || strcmp((*p)->m_lhs, lhs) > 0) {
+X	/*
+X	 * Either there are no maps yet, or the one
+X	 * we want to enter should go at the start.
+X	 */
+X	mptr->m_next = *p;
+X	*p = mptr;
+X	calc_same(mptr);
+X    } else if (strcmp((*p)->m_lhs, lhs) == 0) {
+X	/*
+X	 * We need to replace the rhs of the first map.
+X	 */
+X	free(lhs);
+X	free((char *) mptr);
+X	free((*p)->m_rhs);
+X	(*p)->m_rhs = rhs;
+X	calc_same(*p);
+X    } else {
+X	for ( ; (*p) != NULL; p = &((*p)->m_next)) {
+X	    /*
+X	     * Set "rel" to +ve if the next element is greater
+X	     * than the current one, -ve if it is less, or 0
+X	     * if they are the same (if the lhs is the same).
+X	     */
+X	    rel = ((*p)->m_next == NULL) ? 1 :
+X		strcmp((*p)->m_next->m_lhs, lhs);
+X
+X	    if (rel >= 0) {
+X		if (rel > 0) {
+X		    /*
+X		     * The right place to insert
+X		     * the new map.
+X		     */
+X		    mptr->m_next = (*p)->m_next;
+X		    (*p)->m_next = mptr;
+X		    calc_same(*p);
+X		    calc_same(mptr);
+X		} else /* rel == 0 */ {
+X		    /*
+X		     * The lhs of the new map is identical
+X		     * to that of an existing map.
+X		     * Replace the old rhs with the new.
+X		     */
+X		    free(lhs);
+X		    free((char *) mptr);
+X		    mptr = (*p)->m_next;
+X		    free(mptr->m_rhs);
+X		    mptr->m_rhs = rhs;
+X		    calc_same(mptr);
+X		}
+X		return;
+X	    }
+X	}
+X    }
+X}
+X
+Xvoid
+Xxvi_unmap(argc, argv, exclam, inter)
+Xint	argc;
+Xchar	*argv[];
+Xbool_t	exclam;
+Xbool_t	inter;
+X{
+X    int	count;
+X
+X    if (argc < 1) {
+X	if (inter) {
+X	    show_message(curwin, "But what do you want me to unmap?");
+X	}
+X	return;
+X    }
+X
+X    for (count = 0; count < argc; count++) {
+X	delete_map(exclam ? &ins_map : &cmd_map, argv[count]);
+X    }
+X}
+X
+Xstatic void
+Xdelete_map(maplist, lhs)
+XMap	**maplist;
+Xchar	*lhs;
+X{
+X    Map	*p;
+X
+X    p = *maplist;
+X    if (p != NULL && strcmp(p->m_lhs, lhs) == 0) {
+X	*maplist = p->m_next;
+X    } else {
+X	for (; p != NULL; p = p->m_next) {
+X	    if (p->m_next != NULL && strcmp(lhs, p->m_next->m_lhs) == 0) {
+X		Map	*tmp;
+X
+X		tmp = p->m_next;
+X		p->m_next = p->m_next->m_next;
+X		free(tmp->m_lhs);
+X		free(tmp->m_rhs);
+X		free((char *) tmp);
+X		calc_same(p);
+X	    }
+X	}
+X    }
+X}
+X
+Xstatic void
+Xcalc_same(mptr)
+XMap	*mptr;
+X{
+X    register char	*a, *b;
+X
+X    mptr->m_same = 0;
+X    if (mptr->m_next != NULL) {
+X	for (a = mptr->m_lhs, b = mptr->m_next->m_lhs; *a == *b; a++, b++) {
+X	    mptr->m_same++;
+X	}
+X    }
+X}
+X
+Xstatic char *
+Xshow_map()
+X{
+X    static Flexbuf	buf;
+X
+X    /*
+X     * Have we reached the end?
+X     */
+X    if (curmap == NULL) {
+X	return(NULL);
+X    }
+X
+X    flexclear(&buf);
+X    (void) lformat(&buf, "%-18.18s %-s", curmap->m_lhs, curmap->m_rhs);
+X    curmap = curmap->m_next;
+X    return flexgetstr(&buf);
+X}
+END_OF_FILE
+  if test 10435 -ne `wc -c <'xvi/src/map.c'`; then
+    echo shar: \"'xvi/src/map.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/map.c'
+fi
+if test -f 'xvi/src/misccmds.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/misccmds.c'\"
+else
+  echo shar: Extracting \"'xvi/src/misccmds.c'\" \(11158 characters\)
+  sed "s/^X//" >'xvi/src/misccmds.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)misccmds.c	2.2 (Chris & John Downey) 8/28/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    misccmds.c
+X* module function:
+X    Miscellaneous functions.
+X
+X    This module will probably get hacked later and split
+X    up more sensibly.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Add a blank line above or below the current line.
+X * Returns TRUE for success, FALSE for failure to get memory.
+X *
+X * The single boolean parameter tells us whether to split the
+X * current line at the cursor position, or just to open a new
+X * line leaving the current one intact.
+X */
+Xbool_t
+Xopenfwd(split_line)
+Xbool_t	split_line;
+X{
+X    Line		*l;		/* pointer to newly allocated line */
+X    register Posn	*oldposn;
+X    register Line	*oldline;
+X    register char	*otext;
+X
+X    oldposn = curwin->w_cursor;
+X    oldline = oldposn->p_line;
+X    otext = oldline->l_text;
+X
+X    /*
+X     * First find space for new line.
+X     *
+X     * By asking for as much space as the prior line had we make sure
+X     * that we'll have enough space for any auto-indenting.
+X     */
+X    l = newline(strlen(otext) + SLOP);
+X    if (l == NULL)
+X	return(FALSE);
+X
+X    /*
+X     * Link the new line into the list.
+X     */
+X    repllines(curwin, oldline->l_next, 0L, l);
+X
+X    /*
+X     * Do auto-indent.
+X     */
+X    if (Pb(P_autoindent)) {
+X	*l->l_text = '\0';
+X	indentchars = set_indent(l, get_indent(oldline));
+X    } else {
+X	indentchars = 0;
+X    }
+X
+X    /*
+X     * If we're in insert mode, we need to move the remainder of the
+X     * current line onto the new line. Otherwise the new line is left
+X     * blank.
+X     */
+X    if (split_line) {
+X	char	*s;
+X
+X	s = otext + oldposn->p_index;
+X
+X	replchars(curwin, l, indentchars, 0, s);
+X	replchars(curwin, oldline, oldposn->p_index, strlen(s), "");
+X    }
+X
+X    /*
+X     * Move cursor to the new line.
+X     */
+X    move_cursor(curwin, l, indentchars);
+X    move_window_to_cursor(curwin);
+X    cursupdate(curwin);
+X    update_buffer(curbuf);
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * Add a blank line above the current line.
+X * Returns TRUE for success, FALSE for failure to get memory.
+X */
+Xbool_t
+Xopenbwd()
+X{
+X    Line		*l;
+X    register Line	*oldline;
+X    register char	*otext;
+X
+X    oldline = curwin->w_cursor->p_line;
+X    otext = oldline->l_text;
+X
+X    /*
+X     * First find space for new line.
+X     */
+X    l = newline(strlen(otext) + SLOP);
+X    if (l == NULL)
+X	return(FALSE);
+X
+X    /*
+X     * Link the new line into the list.
+X     */
+X    repllines(curwin, oldline, 0L, l);
+X
+X    /*
+X     * Do auto-indent.
+X     */
+X    if (Pb(P_autoindent)) {
+X	*l->l_text = '\0';
+X	indentchars = set_indent(l, get_indent(oldline));
+X    } else {
+X	indentchars = 0;
+X    }
+X
+X    /*
+X     * Ensure the cursor is pointing at the right line.
+X     */
+X    move_cursor(curwin, l, indentchars);
+X    move_window_to_cursor(curwin);
+X    cursupdate(curwin);
+X    update_buffer(curbuf);
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * Count the number of lines between the two given lines.
+X * If the two given lines are the same, the return value
+X * is 1, not 0; i.e. the count is inclusive.
+X *
+X * Note that this function has been changed to give the
+X * correct number of lines, even if they are ordered wrongly.
+X * This change is backwards-compatible with the old version.
+X */
+Xlong
+Xcntllines(pbegin, pend)
+XLine		*pbegin;
+Xregister Line	*pend;
+X{
+X    register Line	*lp;
+X    register long	lnum;
+X    bool_t		swapped = FALSE;
+X
+X    /*
+X     * Ensure correct ordering.
+X     */
+X    if (later(pbegin, pend)) {
+X	lp = pbegin;
+X	pbegin = pend;
+X	pend = lp;
+X	swapped = TRUE;
+X    }
+X
+X    for (lnum = 1, lp = pbegin; lp != pend; lp = lp->l_next) {
+X	lnum++;
+X    }
+X
+X    if (swapped)
+X	lnum = - lnum;
+X
+X    return(lnum);
+X}
+X
+X/*
+X * plines(lp) - return the number of physical screen lines taken by line 'lp'.
+X */
+Xlong
+Xplines(win, lp)
+XXviwin	*win;
+XLine	*lp;
+X{
+X    register long	col;
+X    register char	*s;
+X
+X    s = lp->l_text;
+X
+X    if (*s == '\0')		/* empty line */
+X	return(1);
+X
+X    /*
+X     * If list mode is on, then the '$' at the end of
+X     * the line takes up one extra column.
+X     */
+X    col = Pb(P_list) ? 1 : 0;
+X
+X    if (Pb(P_number)) {
+X	col += NUM_SIZE;
+X    }
+X
+X    for ( ; *s != '\0'; s++) {
+X	col += vischar(*s, (char **) NULL, (int) col);
+X    }
+X
+X    {
+X	register int	row;
+X	register int	columns;
+X
+X	columns = win->w_ncols;
+X	for (row = 1; col > columns; ) {
+X	    row++;
+X	    col -= columns;
+X	}
+X	return row;
+X    }
+X}
+X
+X/*
+X * Count the number of physical lines between the two given lines.
+X *
+X * This routine is like cntllines(), except that:
+X *	it counts physical rather than logical lines
+X *	it always returns the absolute number of physical lines
+X *	it is non-inclusive
+X *	if the physical line count for a group of lines is greater
+X *	than or equal to rows * 2, we just return rows * 2; we assume
+X *	the caller isn't interested in the exact number.
+X */
+Xlong
+Xcntplines(win, pbegin, pend)
+XXviwin		*win;
+XLine		*pbegin;
+Xregister Line	*pend;
+X{
+X    register Line	*lp;
+X    register long	physlines;
+X    unsigned		toomuch;
+X
+X    /*
+X     * Ensure correct ordering.
+X     */
+X    if (later(pbegin, pend)) {
+X	lp = pbegin;
+X	pbegin = pend;
+X	pend = lp;
+X    }
+X
+X    toomuch = win->w_nrows * 2;
+X    for (physlines = 0, lp = pbegin; lp != pend; lp = lp->l_next) {
+X	physlines += plines(win, lp);
+X	if (physlines >= toomuch)
+X	    break;
+X    }
+X
+X    return(physlines);
+X}
+X
+X/*
+X * gotoline(buffer, n) - return a pointer to line 'n' in the given buffer
+X *
+X * Returns the first line of the file if n is 0.
+X * Returns the last line of the file if n is beyond the end of the file.
+X */
+XLine *
+Xgotoline(b, n)
+XBuffer			*b;
+Xregister unsigned long	n;
+X{
+X    if (n == 0) {
+X	return(b->b_file);
+X    } else {
+X	register Line	*lp;
+X
+X	for (lp = b->b_file; --n > 0 && lp->l_next != b->b_lastline;
+X							lp = lp->l_next) {
+X	    ;
+X	}
+X	return(lp);
+X    }
+X}
+X
+Xint
+Xget_indent(lp)
+Xregister Line	*lp;
+X{
+X    register char   *text;
+X    register int    indent;
+X    register int    ts = Pn(P_tabstop);	/* synonym for efficiency */
+X
+X    if (lp == NULL || (text = lp->l_text) == NULL) {
+X	show_error(curwin, "Internal error: get_indent(NULL)");
+X	return 0;
+X    }
+X
+X    for (indent = 0; *text != '\0' && (*text == ' ' || *text == '\t');
+X    								text++) {
+X	indent += *text == ' ' ? 1 : ts - indent % ts;
+X    }
+X    return indent;
+X}
+X
+X/*
+X * Set number of columns of leading whitespace on line, regardless of
+X * what was there before, & return number of characters (not columns)
+X * used.
+X */
+Xint
+Xset_indent(lp, indent)
+XLine		*lp;
+Xregister int	indent;
+X{
+X    register char	*cp;		/* temp char pointer for loops */
+X    register int	ntabs;		/* number of tabs to use */
+X    unsigned		nnew;		/* no of chars used in old line */
+X    unsigned		nold;		/* no of chars used in new version */
+X    char		*newstr;	/* allocated string for new indent */
+X
+X    if (lp == NULL || lp->l_text == NULL) {
+X	show_error(curwin, "Internal error: set_indent(0)");
+X	return(0);
+X    }
+X
+X    /*
+X     * Find out how many tabs we need, & how many spaces.
+X     */
+X    for (ntabs = 0; indent >= Pn(P_tabstop); ntabs++)
+X	indent -= Pn(P_tabstop);
+X
+X    /*
+X     * Find out how many characters were used for initial
+X     * whitespace in the current (old) line.
+X     */
+X    for (cp = lp->l_text; *cp == ' ' || *cp == '\t'; cp++) {
+X	;
+X    }
+X    nold = cp - lp->l_text;
+X
+X    /*
+X     * "nnew" is the number of characters we will use
+X     * for indentation in the new version of the line.
+X     */
+X    nnew = ntabs + indent;
+X
+X    /*
+X     * Get some space, and place into it the string of tabs
+X     * and spaces which will form the new indentation.
+X     * If no space available, return nold as we have not
+X     * changed the line; this is the correct action.
+X     */
+X    newstr = alloc((unsigned) nnew + 1);
+X    if (newstr == NULL)
+X	return(nold);
+X
+X    cp = newstr;
+X    while (ntabs-- > 0)
+X	*cp++ = '\t';
+X    while (indent-- > 0)
+X	*cp++ = ' ';
+X    *cp = '\0';
+X
+X    /*
+X     * Finally, replace the old with the new.
+X     */
+X    replchars(curwin, lp, 0, (int) nold, newstr);
+X
+X    free(newstr);
+X
+X    return(nnew);
+X}
+X
+X/*
+X * tabinout(inout, start, finish)
+X *
+X * "inout" is either '<' or '>' to indicate left or right shift.
+X */
+Xvoid
+Xtabinout(inout, start, finish)
+Xint	inout;
+XLine	*start;
+XLine	*finish;
+X{
+X    Line	*lp;
+X    long	nlines = 0;
+X
+X    if (!start_command(curwin)) {
+X	return;
+X    }
+X
+X    finish = finish->l_next;
+X
+X    for (lp = start; lp != finish; lp = lp->l_next) {
+X	register char *p;
+X
+X	/*
+X	 * Find out whether it's a blank line (either
+X	 * empty or containing only spaces & tabs).
+X	 * If so, just remove all whitespace from it.
+X	 */
+X	for (p = lp->l_text; *p && (*p == '\t' || *p == ' '); p++)
+X	    ;
+X	if (*p == '\0') {
+X	    if (p > lp->l_text) {
+X		replchars(curwin, lp, 0, p - lp->l_text, "");
+X	    }
+X	} else if (inout == '<') {
+X	    int oldindent = get_indent(lp);
+X
+X	    (void) set_indent(lp, (oldindent <= Pn(P_shiftwidth) ?
+X				    0 : oldindent - Pn(P_shiftwidth)));
+X	} else {
+X	    (void) set_indent(lp, get_indent(lp) + Pn(P_shiftwidth));
+X	}
+X
+X	nlines++;
+X    }
+X
+X    end_command(curwin);
+X
+X    if (nlines > Pn(P_report)) {
+X	show_message(curwin, "%ld lines %ced", nlines, inout);
+X    }
+X}
+X
+X/*
+X * Construct a vector of pointers into each word in
+X * the given string. Intervening whitespace will be
+X * converted to null bytes.
+X *
+X * Returned vector is constructed in allocated space,
+X * and so must be freed after use.
+X *
+X * An extra NULL pointer is always allocated for safety.
+X *
+X * If memory cannot be allocated, or if there are no
+X * words in the given string, or if it is a NULL ptr,
+X * then the returned values will be 0 and NULL.
+X *
+X * The "whites" argument is a pointer to an array of
+X * characters which are to be considered as whitespace.
+X */
+Xvoid
+Xmakeargv(str, argcp, argvp, whites)
+Xchar	*str;
+Xint	*argcp;
+Xchar	***argvp;
+Xchar	*whites;
+X{
+X    int		argc;
+X    char	**argv;
+X    int		argv_size;
+X
+X    *argcp = 0;
+X    *argvp = NULL;
+X
+X    if (str == NULL)
+X	return;
+X
+X    /*
+X     * Scan past initial whitespace.
+X     */
+X    while (*str != '\0' && strchr(whites, *str) != NULL) {
+X	if (*str == '\\' && strchr(whites, str[1]) != NULL) {
+X	    str++;
+X	}
+X	str++;
+X    }
+X    if (*str == '\0')
+X	return;
+X
+X    argv = (char **) alloc(sizeof(char *) * 8);
+X    if (argv == NULL)
+X	return;
+X    argv_size = 8;
+X    argc = 0;
+X
+X    do {
+X	if (argc >= (argv_size - 1)) {
+X	    argv_size += 8;
+X	    argv = (char **) realloc((char *) argv,
+X				(unsigned) argv_size * sizeof(char *));
+X	    if (argv == NULL)
+X		return;
+X	}
+X
+X	argv[argc++] = str;
+X
+X	while (*str != '\0' && strchr(whites, *str) == NULL) {
+X	    if (*str == '\\' && strchr(whites, str[1]) != NULL) {
+X		char	*p;
+X
+X		/*
+X		 * What a hack. Copy the rest of the string
+X		 * down by one byte to remove the backslash.
+X		 * Don't forget to copy the null byte.
+X		 */
+X		for (p = str + 1; (*(p-1) = *p) != '\0'; p++)
+X		    ;
+X	    }
+X	    str++;
+X	}
+X	while (*str != '\0' && strchr(whites, *str) != NULL)
+X	    *str++ = '\0';
+X
+X    } while (*str != '\0');
+X
+X    argv[argc] = NULL;
+X
+X    *argvp = argv;
+X    *argcp = argc;
+X}
+END_OF_FILE
+  if test 11158 -ne `wc -c <'xvi/src/misccmds.c'`; then
+    echo shar: \"'xvi/src/misccmds.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/misccmds.c'
+fi
+if test -f 'xvi/src/msdos_c.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/msdos_c.c'\"
+else
+  echo shar: Extracting \"'xvi/src/msdos_c.c'\" \(10422 characters\)
+  sed "s/^X//" >'xvi/src/msdos_c.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)msdos_c.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    msdos_c.c
+X* module function:
+X    System interface routines for MS-DOS.
+X
+X    The system interface consists of this module & msdos_a.asm;
+X    the terminal interface for IBM PC compatibles consists of
+X    ibmpc_a.asm & ibmpc_c.c. Some comments on the demarcation
+X    between system interface and terminal interface modules are in
+X    the source.ms document.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#ifdef __ZTC__
+X    /*
+X     * Zortech 3.0 has a really stupid method of specifying
+X     * filename expansion on the command line.
+X     */
+X#   ifdef WILDCARDS
+X	WILDCARDS
+X#   endif /* WILDCARDS */
+X
+X    /*
+X     * Set default stack size. This seems a reasonable compromise.
+X     */
+X    unsigned _stack = 20480;
+X#endif		/* __ZTC__ */
+X
+Xvoid
+Xignore_signals(void)
+X{
+X    msdsignal(&kbdintr);
+X}
+X
+Xvoid
+Xsys_init(void)
+X{
+X    char	*sh;
+X
+X    /*
+X     * Set up a default value for Ps(P_shell). This can be overridden
+X     * by xvi_startup() (in startup.c) if %SHELL% is defined, or if a
+X     * value is given explicitly in the startup
+X     * script.
+X     *
+X     * %COMSPEC% should always be defined on MS-DOS. The system can't
+X     * really run without it.
+X     */
+X    if ((sh = getenv("COMSPEC")) != NULL) {
+X	set_param(P_shell, sh);
+X    }
+X    tty_open(&Rows, &Columns);
+X    sys_startv();
+X}
+X
+Xstatic	enum {
+X	m_SYS = 0,
+X	m_VI
+X}	curmode;
+X
+X/*
+X * Set up video state for editor.
+X */
+Xvoid
+Xsys_startv(void)
+X{
+X    if (curmode == m_SYS) {
+X	tty_startv();
+X	set_colour(Pn(P_colour));
+X	curmode = m_VI;
+X    }
+X}
+X
+X/*
+X * Restore video state to what it was when we started.
+X */
+Xvoid
+Xsys_endv(void)
+X{
+X    if (curmode == m_VI) {
+X	tty_goto(Rows - 1, 0);
+X	set_colour(Pn(P_systemcolour));
+X	erase_line();
+X	tty_endv();
+X	/*
+X	 * tty_endv() is responsible for calling
+X	 * flush_output().
+X	 */
+X	curmode = m_SYS;
+X    }
+X}
+X
+Xvoid
+Xsys_exit(int r)
+X{
+X    sys_endv();
+X    tty_close();
+X    exit(r);
+X}
+X
+X#ifndef W_OK
+X#	define	F_OK	0
+X#	define	W_OK	2
+X#endif
+X
+X/*
+X * Returns TRUE if file does not exist or exists and is writeable.
+X */
+Xbool_t
+Xcan_write(char* file)
+X{
+X#ifdef __ZTC__
+X    struct FIND	*p;
+X
+X    p = findfirst(file, FA_HIDDEN | FA_SYSTEM | FA_DIREC);
+X
+X    return(p == NULL ||
+X       (p->attribute & (FA_RDONLY | FA_HIDDEN | FA_SYSTEM | FA_DIREC)) == 0);
+X#else	/* __ZTC__ */
+X    return access(file, F_OK) != 0 || access(file, W_OK) == 0;
+X#endif	/* __ZTC__ */
+X}
+X
+X#ifndef __ZTC__
+X
+X/*
+X * The Zortech library has this anyway.
+X */
+Xvoid
+Xsleep(n)
+Xunsigned	n;
+X{
+X    /*
+X     * This works with Microsoft C.
+X     */
+X    time_t	start = time((time_t*) 0);
+X
+X    flush_output();
+X    while (time((time_t*) 0) < start + n)
+X	;
+X}
+X
+X#endif /* not __ZTC__ */
+X
+Xvoid
+Xdelay()
+X{
+X    clock_t start = clock();
+X
+X    flush_output();
+X    while (clock() < start + CLK_TCK / 5)
+X	;
+X}
+X
+X/*
+X * This function is only used by tempfname(). It constructs a filename
+X * suffix based on an index number.
+X *
+X * The suffix ".$$$" is commonly used for temporary file names on
+X * MS-DOS & OS/2 systems. We also use the sequence ".$$1", ".$$2" ...
+X * ".fff" (all digits are hexadecimal).
+X */
+Xstatic char * near
+Xhexsuffix(i)
+Xunsigned	i;
+X{
+X    static char	suffix [] = ".$$$";
+X    static char	hextab [] = "0123456789abcdef";
+X    char*		sp = &suffix[3];
+X
+X    while (sp > suffix) {
+X	if (i > 0) {
+X	    *sp-- = hextab [i & 0xf];
+X	    i >>= 4;
+X	} else {
+X	    *sp-- = '$';
+X	}
+X    }
+X    return suffix;
+X}
+X
+X/*
+X * Construct unique name for temporary file, to be used as a backup
+X * file for the named file.
+X */
+Xchar*
+Xtempfname(srcname)
+Xchar		*srcname;
+X{
+X    char	*srctail,
+X		*srcdot,
+X		*endp,
+X		*retp;
+X    unsigned	indexnum = 0;
+X    unsigned	baselen;
+X
+X    srctail = srcdot = NULL;
+X    endp = srcname;
+X
+X    while (*endp) {
+X	switch (*endp++) {
+X	case '\\':
+X	case '/':
+X	    srctail = endp;
+X	    srcdot = (char*) 0;
+X	    continue;
+X	case '.':
+X	    srcdot = endp - 1;
+X	}
+X    }
+X
+X    if (srctail == NULL) {
+X	/*
+X	 * We haven't found any directory separators ('/' or '\\').
+X	 */
+X	srctail = srcname;
+X	/*
+X	 * Check to see if there's a disk drive name. If there
+X	 * is, skip over it.
+X	 */
+X	if (*srcname && is_alpha(*srcname) && srcname[1] == ':') {
+X	    srctail = &srcname[2];
+X	}
+X    }
+X
+X    /*
+X     * There isn't a dot in the trailing part of the filename:
+X     * just add it at the end.
+X     */
+X    if (srcdot == NULL) {
+X	srcdot = endp;
+X    }
+X
+X    /*
+X     * Don't make name too long.
+X     */
+X    if (srcdot - srctail > MAXNAMLEN - 4)
+X	srcdot = srctail + MAXNAMLEN - 4;
+X    if (srcdot - srcname > MAXPATHLEN - 4)
+X	srcdot = srcname + MAXPATHLEN - 4;
+X    baselen = srcdot - srcname;
+X    /*
+X     * Allocate space for new temporary file name ...
+X     */
+X    if ((retp = alloc(baselen + 5)) == NULL)
+X	return NULL;
+X    if (baselen > 0)
+X	(void) memcpy(retp, srcname, baselen);
+X    do {
+X	/*
+X	 * Keep trying this until we get a unique file name.
+X	 */
+X	strcpy(&retp[baselen], hexsuffix(indexnum++));
+X    } while (exists(retp));
+X    return retp;
+X}
+X
+X/*
+X * Fake out a pipe by writing output to temp file, running a process with
+X * i/o redirected from this file to another temp file, and then reading
+X * the second temp file back in.
+X */
+Xbool_t
+Xsys_pipe(cmd, writefunc, readfunc)
+Xchar	*cmd;
+Xint	(*writefunc) P((FILE *));
+Xlong	(*readfunc) P((FILE *));
+X{
+X    char	*temp1;
+X    FILE	*fp;
+X    bool_t	retval;
+X
+X    /*
+X     * Create first temporary file ...
+X     */
+X    if ((temp1 = tempfname("xvi_out")) == NULL ||
+X    				(fp = fopen(temp1, "w")) == NULL) {
+X	retval = FALSE;
+X    } else {
+X	char	*temp2 = NULL;
+X	int	savcon;
+X	int	fd1 = -1,
+X		fd2 = -1;
+X
+X	/*
+X	 * ... then write to it & close it ...
+X	 */
+X	(void) (*writefunc)(fp);
+X	(void) fclose(fp);
+X
+X	/*
+X	 * ... then re-open it for reading, open second one
+X	 * for writing & re-arrange file descriptors.
+X	 *
+X	 * Note that we assume that the editor's standard
+X	 * input, output & error files are the same device,
+X	 * since I can't imagine how any of them could
+X	 * usefully be redirected to anything else.
+X	 */
+X
+X#ifndef O_BINARY
+X#	define O_BINARY 0
+X#endif
+X#ifndef O_EXCL
+X#	define O_EXCL 0
+X#endif
+X	if (
+X	    (savcon = dup(0)) < 3
+X	    ||
+X	    (fd1 = open(temp1, O_RDONLY | O_BINARY)) < 3
+X	    ||
+X	    (temp2 = tempfname("xvi_in")) == NULL 
+X	    ||
+X	    (fd2 = open(temp2, O_WRONLY|O_CREAT|O_EXCL|O_BINARY, 0600)) < 3
+X	) {
+X	    retval = FALSE;
+X	} else {
+X	    (void) dup2(fd1, 0);
+X	    (void) dup2(fd2, 1);
+X	    (void) dup2(fd2, 2);
+X
+X	    (void) close(fd1);
+X	    (void) close(fd2);
+X	    fd1 = fd2 = -1;
+X
+X	    /*
+X	     * Run the command.
+X	     */
+X	    (void) system(cmd);
+X
+X	    /*
+X	     * Restore our standard input, output & error
+X	     * files.
+X	     */
+X	    (void) dup2(savcon, 0);
+X	    (void) dup2(savcon, 1);
+X	    (void) dup2(savcon, 2);
+X
+X	    /*
+X	     * Now read from the second temporary file,
+X	     * close it, & we're done.
+X	     */
+X	    if ((fp = fopen(temp2, "r")) == NULL) {
+X		retval = FALSE;
+X	    } else {
+X		(void) (*readfunc)(fp);
+X		(void) fclose(fp);
+X		retval = TRUE;
+X	    }
+X	}
+X	/*
+X	 * Clean up.
+X	 */
+X	if (temp2) {
+X	    (void) remove(temp2);
+X	    free(temp2);
+X	}
+X	if (savcon > 2)
+X	    (void) close(savcon);
+X	if (fd1 > 2)
+X	    (void) close(fd1);
+X	if (fd2 > 2)
+X	    (void) close(fd2);
+X    }
+X
+X    if (temp1) {
+X	(void) remove(temp1);
+X	free(temp1);
+X    }
+X
+X    return(retval);
+X}
+X
+X#if 0
+X
+X/*
+X * The following functions are untested because neither of us has
+X * access to an MS-DOS compiler at the moment.
+X */
+X
+X/*
+X * Expand environment variables in filename.
+X */
+X
+X#define VMETACHAR	'$'
+X
+Xstatic char * near
+Xvexpand(name)
+X    char		*name;
+X{
+X    static Flexbuf	b;
+X    register char	*p1, *p2;
+X
+X    if ((p2 = strchr(name, VMETACHAR)) == (char *) NULL) {
+X	return name;
+X    }
+X    flexclear(&b);
+X    p1 = name;
+X    while (*p1) {
+X	register int	c;
+X	register char	*val;
+X	Flexbuf		vname;
+X
+X	while (p1 < p2) {
+X	    (void) flexaddch(&b, *p1++);
+X	}
+X	flexnew(&vname);
+X	for (p2++; (c = *p2) != '\0' && (is_alnum(c) || c == '_'); p2++) {
+X	    (void) flexaddch(&vname, c);
+X	}
+X	if (!flexempty(&vname)
+X	    &&
+X	    (val = getenv(flexgetstr(&vname))) != (char *) NULL) {
+X	    while ((c = *val++) != '\0') {
+X		(void) flexaddch(&b, c);
+X	    }
+X	    p1 = p2;
+X	}
+X	flexdelete(&vname);
+X	if ((p2 = strchr(p1, VMETACHAR) == (char *) NULL) {
+X	    while ((c = *p1) != '\0') {
+X		(void) flexaddch(&b, c);
+X		p1++;
+X	    }
+X	}
+X    }
+X    return flexgetstr(&b);
+X}
+X
+Xstatic struct dstat	info;
+X
+Xchar *
+Xfexpand(name)
+X    char		*name;
+X{
+X    static Flexbuf	newname;
+X    char		*lastdelim;
+X    bool_t		has_meta;
+X    register char	*p;
+X
+X    has_meta = FALSE;
+X    lastdelim = (char *) NULL;
+X    for (name = p = vexpand(name); *p; p++) {
+X	switch (*p) {
+X	    case ':':
+X	    case '\\':
+X	    case '/':
+X		lastdelim = p;
+X		/*
+X		 * DOS only understands metacharacters in the file's
+X		 * base name, not in any directory names.
+X		 */
+X		has_meta = FALSE;
+X		continue;
+X	    case '*':
+X	    case '?':
+X		has_meta = TRUE;
+X		continue;
+X	}
+X    }
+X    if (!has_meta) {
+X	return name;
+X    }
+X    if (statfirst(name, &info, dst_HIDDEN | dst_SYSTEM | dst_DIR) != 0) {
+X	return name;
+X    }
+X    flexclear(&newname);
+X    for (;;) {
+X	register int	c;
+X
+X	if (lastdelim) {
+X	    for (p = name; p <= lastdelim;) {
+X		if (!flexaddch(&newname, *p++)) {
+X		    break;
+X		}
+X	    }
+X	}
+X	for (p = dst_BASENAME(info);
+X	     p < &dst_LAST(info) && (c = *p++) != '\0';) {
+X	    /*
+X	     * DOS gives us the file's base name in nasty CAPITAL
+X	     * LETTERS, so we convert them to lower-case here.
+X	     */
+X	    if (!flexaddch(&newname, is_upper(c) ? to_lower(c) : (c))) {
+X		break;
+X	    }
+X	}
+X	/*
+X	 * Note the order of events here; we only append a ' ' to
+X	 * newname if there's still at least one more file name to
+X	 * append after it.
+X	 */
+X	if (statnext(&info) != 0) {
+X	    break;
+X	}
+X	if (!flexaddch(&newname, ' ')) {
+X	    break;
+X	}
+X    }
+X    if (flexempty(&newname)) {
+X	return name;
+X    }
+X    return flexgetstr(&newname);
+X}
+X
+Xbool_t
+Xexists(name)
+X    char * name;
+X{
+X    return statfirst(name, &info, dst_HIDDEN | dst_SYSTEM | dst_DIR) == 0;
+X}
+X
+Xbool_t
+Xcan_write(name)
+X    char * name;
+X{
+X    return statfirst(name, &info, dst_HIDDEN | dst_SYSTEM | dst_DIR) != 0 ||
+X	   (info.dst_mode &
+X	    (dst_READONLY | dst_HIDDEN | dst_SYSTEM | dst_DIR)) == 0;
+X}
+X
+X#endif	/* 0 */
+END_OF_FILE
+  if test 10422 -ne `wc -c <'xvi/src/msdos_c.c'`; then
+    echo shar: \"'xvi/src/msdos_c.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/msdos_c.c'
+fi
+if test -f 'xvi/src/sunback.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/sunback.c'\"
+else
+  echo shar: Extracting \"'xvi/src/sunback.c'\" \(10695 characters\)
+  sed "s/^X//" >'xvi/src/sunback.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *sccsid = "@(#)sunback.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    sunback.c
+X* module function:
+X    Terminal interface module for SunView: module for linking to
+X    main program.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Exported.
+X */
+Xunsigned int	Rows = 0;			 /* screen dimensions */
+Xunsigned int	Columns = 0;
+X
+X/*
+X * These are used to optimize output.
+X */
+Xstatic	int	real_row, real_col;
+Xstatic	int	virt_row, virt_col;
+Xstatic	bool_t	optimize;
+X
+X#define NO_COLOUR	-1
+X
+Xstatic int	old_colour = NO_COLOUR;
+X
+X/*
+X * Update real cursor position.
+X *
+X * SunView can be painfully slow, at least on Sun 3's and 386i's, but
+X * it's difficult to know the best way of optimizing it. The number of
+X * characters sent to the display probably isn't really significant,
+X * because it isn't a terminal. The things that take the most time are
+X * more likely to be calculations (especially divisions &
+X * multiplications) & manipulating bit maps. The bitmap for a single
+X * character has to be xor'ed twice for each cursor movement, since
+X * terminal subwindows use a reverse video block cursor.
+X */
+X#define MAXCMOVES	3	/*
+X				 * This is a guess at the probable
+X				 * maximum number of individual cursor
+X				 * movements that's worthwhile to
+X				 * avoid the calculations involved in
+X				 * an absolute goto.
+X				 */
+X#ifndef ABS
+X#	define ABS(n) ((n) < 0 ? -(n) : (n))
+X#endif
+X
+Xstatic void
+Xxyupdate()
+X{
+X    int hdisp,	/* horizontal (rightward) displacement wanted */
+X	vdisp,	/* vertical (downward) displacement wanted */
+X	ahdisp,	/* absolute horizontal displacement wanted */
+X	avdisp,	/* absolute vertical displacement wanted */
+X	homedisp;	/* total displacement from home position */
+X
+X    if (optimize) {
+X	if (virt_col == real_col && virt_row == real_row)
+X	    /*
+X	     * Nothing to do.
+X	     */
+X	    return;
+X	} else {
+X	    hdisp = virt_col - real_col;
+X	    vdisp = virt_row - real_row;
+X	    ahdisp = ABS(hdisp);
+X	    avdisp = ABS(vdisp);
+X	}
+X    }
+X    homedisp = virt_row + virt_col;
+X    /*
+X     * Is it worth sending a cursor home sequence?
+X     */
+X    if (homedisp < MAXCMOVES && (!optimize || homedisp < avdisp + ahdisp)) {
+X	fputs("\033[H", stdout);
+X	real_row = real_col = 0;
+X	ahdisp = hdisp = virt_col;
+X	avdisp = vdisp = virt_row;
+X	optimize = TRUE;
+X    }
+X    if (optimize) {
+X	/*
+X	 * Is it worth sending a carriage return?
+X	 */
+X	if (hdisp < 0 && virt_col < ahdisp && virt_col < MAXCMOVES) {
+X	    putc('\r', stdout);
+X	    real_col = 0;
+X	    ahdisp = hdisp = virt_col;
+X	}
+X	if (hdisp == 0 && vdisp == 0) {
+X	    /*
+X	     * We're already there, so there's nothing to do.
+X	     */
+X	    return;
+X	}
+X	/*
+X	 * Calculate total absolute displacement to see
+X	 * whether it's worthwhile doing any of this.
+X	 */
+X	if (ahdisp + avdisp <= MAXCMOVES) {
+X	    for (; real_col < virt_col; real_col++)
+X		/*
+X		 * Do non-destructive spaces.
+X		 */
+X		fputs("\033[C", stdout);
+X	    for (; real_col > virt_col; real_col--)
+X		/*
+X		 * Do backspaces.
+X		 */
+X		putc('\b', stdout);
+X	    for (; real_row < virt_row; real_row++)
+X		/*
+X		 * Go down.
+X		 */
+X		putc('\n', stdout);
+X	    for (; real_row > virt_row; real_row--)
+X		/*
+X		 * Go up.
+X		 */
+X		fputs("\033[A", stdout);
+X	    return;
+X	}
+X	/*
+X	 * It isn't worthwhile. Give up & send an absolute
+X	 * goto.
+X	 */
+X    }
+X    fprintf(stdout, "\033[%d;%dH", virt_row + 1, virt_col + 1);
+X    real_row = virt_row;
+X    real_col = virt_col;
+X    optimize = TRUE;
+X}
+X
+X/*
+X * Flush any pending output, including cursor position.
+X */
+Xvoid
+Xflush_output()
+X{
+X    xyupdate();
+X    (void) fflush(stdout);
+X}
+X
+X/*
+X * Put out a "normal" character, updating the cursor position.
+X */
+Xvoid
+Xoutchar(c)
+Xregister int	c;
+X{
+X    xyupdate();
+X    putc(c, stdout);
+X    if (++virt_col >= Columns) {
+X	virt_col = 0;
+X	if (++virt_row >= Rows)
+X	    --virt_row;
+X	real_row = virt_row;
+X    }
+X    real_col = virt_col;
+X}
+X
+X/*
+X * Put out a "normal" string, updating the cursor position.
+X */
+Xvoid
+Xoutstr(s)
+Xregister char	*s;
+X{
+X    xyupdate();
+X    for (; *s; s++)
+X    {
+X	putc(*s, stdout);
+X	if (++virt_col >= Columns)
+X	{
+X	    virt_col = 0;
+X	    if (++virt_row >= Rows)
+X		--virt_row;
+X	}
+X    }
+X    real_row = virt_row;
+X    real_col = virt_col;
+X}
+X
+X/*
+X * Beep at the user.
+X */
+Xvoid
+Xalert()
+X{
+X    putc('\007', stdout);
+X    (void) fflush(stdout);
+X}
+X
+X/*
+X * Get a hexadecimal number from the front end process.
+X */
+Xstatic
+Xhexnumber()
+X{
+X    register int x;
+X
+X    x = 0;
+X    for (;;) {
+X	register int c;
+X
+X	c = inch(0);
+X	if (c == ';')
+X	    return x;
+X	if (!is_xdigit(c))
+X	    return -1;
+X	x = (x << 4) | hex_to_bin(c);
+X    }
+X}
+X
+X/*
+X * Get single character or control sequence from front-end process.
+X * The following control sequences are understood:
+X *
+X * Sequence			Meaning
+X *
+X * PREFIXCHAR 'k'		up arrow key pressed
+X * PREFIXCHAR 'j'		down arrow key pressed
+X * PREFIXCHAR '\b'		left arrow key pressed
+X * PREFIXCHAR ' '		right arrow key pressed
+X * PREFIXCHAR CTRL('F')		page down key pressed
+X * PREFIXCHAR CTRL('B')		page up key pressed
+X * PREFIXCHAR 'H'		home key pressed
+X * PREFIXCHAR 'L'		end key pressed
+X * PREFIXCHAR PREFIXCHAR	PREFIXCHAR pressed
+X * PREFIXCHAR 'p' hexnum ';' hexnum ';'
+X *				mouse button pressed at row & column
+X *				specified by the digits.
+X * PREFIXCHAR 'm' hexnum ';' hexnum ';' hexnum ';' hexnum ';'
+X *				mouse dragged with middle button held
+X *				down. Numbers give starting row &
+X *				column, then ending row & column, in
+X *				that order.
+X *
+X * PREFIXCHAR is currently control-R. A `hexnum' is 0 or more
+X * hexadecimal digits.
+X *
+X * Any other process run in the same tty subwindow (with the ":!" or
+X * "sh" commands) will also receive the same sequences for the events
+X * shown, but using control-R as a prefix should be reasonably safe.
+X *
+X * The sequence for mouse clicks is dealt with by mouseposn().
+X */
+Xint
+Xinchar(timeout)
+Xlong	timeout;
+X{
+X    for (;;) {
+X	register int	c;
+X
+X	if ((c = inch(timeout)) == PREFIXCHAR) {
+X	/*
+X	 * This looks like the beginning of a control sequence.
+X	 */
+X	    switch (c = inch(0)) {
+X		case PREFIXCHAR:
+X		    return PREFIXCHAR;
+X		case CTRL('B'): case CTRL('F'):
+X		case 'H': case 'L':
+X		case '\b': case ' ':
+X		case 'j': case 'k':
+X		    /*
+X		     * This looks like a function
+X		     * key.
+X		     */
+X		    if (State == NORMAL) {
+X			return c;
+X		    } else {
+X			alert();
+X			continue;
+X		    }
+X		case 'm':
+X		{
+X		    unsigned row1, row2, col1, col2;
+X
+X		    /*
+X		     * Even if we aren't in normal
+X		     * mode here, we have to call
+X		     * hexnumber() to eat all the
+X		     * hex. digits we should be
+X		     * getting.
+X		     */
+X		    if (
+X			(row1 = hexnumber()) >= 0
+X			&&
+X			(row2 = hexnumber()) >= 0
+X			&&
+X			(col1 = hexnumber()) >= 0
+X			&&
+X			(col2 = hexnumber()) >= 0
+X			&&
+X			State == NORMAL
+X		    ) {
+X			mousedrag(row1, row2, col1, col2);
+X		    }
+X		    continue;
+X		}
+X		case 'p':
+X		{
+X		    unsigned row, col;
+X
+X		    /*
+X		     * Even if we aren't in normal
+X		     * mode here, we have to call
+X		     * hexnumber() to eat all the
+X		     * hex. digits we should be
+X		     * getting.
+X		     */
+X		    if (
+X			(row = hexnumber()) >= 0
+X			&&
+X			(col = hexnumber()) >= 0
+X			&&
+X			State == NORMAL
+X		    ) {
+X			mouseclick(row, col);
+X		    }
+X		    continue;
+X		}
+X		default:
+X		    continue;
+X	    }
+X	} else if (c == CTRL('Z') && State == NORMAL) {
+X	    /*
+X	     * This isn't reasonable. Job control isn't
+X	     * available here because this process wasn't
+X	     * started from a shell (it was started by the
+X	     * SunView Notifier). They can always use
+X	     * another window to run commands.
+X	     */
+X	    alert();
+X	    continue;
+X	} else {	/* It's just a normal character. */
+X	    return c;
+X	}
+X    }
+X}
+X
+Xstatic time_t	starttime;
+X
+X/*
+X * Initialise the terminal interface.
+X *
+X * This must be done before any screen-based i/o is performed.
+X */
+Xvoid
+Xtty_open(prows, pcolumns)
+Xunsigned int *prows,
+X	     *pcolumns;
+X{
+X    /*
+X     * If sys_startv() hasn't already got valid values for the
+X     * window size from its TIOCGWINSZ ioctl, something is
+X     * seriously wrong with SunOS.
+X     */
+X    Rows = *prows;
+X    Columns = *pcolumns;
+X
+X    (void) time(&starttime);
+X
+X#ifdef sparc
+X    /*
+X     * Unfortunately, this implementation still doesn't give us
+X     * scrolling windows, but SparcStations are fast enough that
+X     * it doesn't really matter.
+X     */
+X    set_param(P_jumpscroll, js_OFF, (char **) NULL);
+X#endif
+X
+X    {
+X	/*
+X	 * These escape sequences may be generated by the
+X	 * arrow keys, depending on how the defaults database
+X	 * has been set up. All other function keys (page up,
+X	 * page down, etc.) should be received as function
+X	 * keys & handled appropriately by the front end
+X	 * process.
+X	 */
+X	static char *mapargs[] = {
+X	    "\033[A",	"k",
+X	    "\033[B",	"j",
+X	    "\033[C",	"l",
+X	    "\033[D",	"h",
+X	    NULL
+X	};
+X	char **argp;
+X
+X	for (argp = mapargs; *argp != NULL; argp += 2) {
+X	    xvi_keymap(argp[0], argp[1]);
+X	}
+X    }
+X}
+X
+Xvoid
+Xtty_startv()
+X{
+X    old_colour = NO_COLOUR;
+X    optimize = FALSE;
+X}
+X
+X/*
+X * Set terminal into the mode it was in when we started.
+X */
+Xvoid
+Xtty_endv()
+X{
+X    flush_output();
+X}
+X
+X/*
+X * Tell front end process to quit.
+X */
+Xvoid
+Xtty_close()
+X{
+X    time_t	stayuptime, now;
+X
+X    /*
+X     * If we're immediately crashing with an error message, give
+X     * them a chance (5 seconds) to read it.
+X     */
+X    stayuptime = starttime + 5;
+X    if ((now = time((time_t *) 0)) < stayuptime)
+X	sleep(stayuptime - now);
+X    write(3, "q", 1);
+X}
+X
+Xvoid
+Xtty_goto(row, col)
+Xint	row, col;
+X{
+X    virt_row = row;
+X    virt_col = col;
+X}
+X
+X/*
+X * Erase the entire current line.
+X */
+Xvoid
+Xerase_line()
+X{
+X    xyupdate();
+X    fputs("\033[K", stdout);
+X}
+X
+X/*
+X * Insert one line.
+X */
+Xvoid
+Xinsert_line()
+X{
+X    xyupdate();
+X    fputs("\033[L", stdout);
+X}
+X
+X/*
+X * Delete one line.
+X */
+Xvoid
+Xdelete_line()
+X{
+X    xyupdate();
+X    fputs("\033[M", stdout);
+X}
+X
+X/*
+X * Erase display (may optionally home cursor).
+X */
+Xvoid
+Xerase_display()
+X{
+X    putc('\f', stdout);
+X    optimize = FALSE;
+X    old_colour = NO_COLOUR;
+X}
+X
+X/*
+X * Set the specified colour. Just does standout/standend mode for now.
+X *
+X * Colour mapping is as follows:
+X *
+X *	0	(default systemcolour)	normal
+X *	1	(default colour)	normal
+X *	2	(default statuscolour)	reverse video
+X */
+Xvoid
+Xset_colour(c)
+Xint	c;
+X{
+X    if (c == 1) {
+X	c = 0;
+X    } else if (c > 2) {
+X	c = 2;
+X    }
+X    if (c != old_colour) {
+X	xyupdate();
+X	fputs((c ? "\033[7m" : "\033[m"), stdout);
+X	old_colour = c;
+X    }
+X}
+X
+X/*
+X * Insert the given character at the cursor position.
+X */
+Xvoid
+Xinschar(c)
+Xchar	c;
+X{
+X    xyupdate();
+X    fputs("\033[@", stdout);
+X    outchar(c);
+X}
+END_OF_FILE
+  if test 10695 -ne `wc -c <'xvi/src/sunback.c'`; then
+    echo shar: \"'xvi/src/sunback.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/sunback.c'
+fi
+if test -f 'xvi/src/tos.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/tos.c'\"
+else
+  echo shar: Extracting \"'xvi/src/tos.c'\" \(7890 characters\)
+  sed "s/^X//" >'xvi/src/tos.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)tos.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    Portable version of UNIX "vi" editor, with extensions.
+X* module name:
+X    tos.c
+X* module function:
+X    System interface module for the Atari ST.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X    Atari port modified by Steve Found for LATTICE C V5.0
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#include <osbind.h>
+X
+X/*
+X * The following buffer is used to work around a bug in TOS. It appears that
+X * unread console input can cause a crash, but only if console output is
+X * going on. The solution is to always grab any unread input before putting
+X * out a character. The following buffer holds any characters read in this
+X * fashion. The problem can be easily produced because we can't yet keep
+X * up with the normal auto-repeat rate in insert mode.
+X */
+X#define IBUFSZ	128
+X
+Xstatic	long	inbuf[IBUFSZ];		/* buffer for unread input */
+Xstatic	long	*inptr = inbuf;		/* where to put next character */
+X
+X/*
+X * These are globals which are set by the OS-specific module,
+X * and used for various purposes throughout the rest of xvi.
+X */
+Xint	Rows;				/* Number of Rows and Columns */
+Xint	Columns;			/* in the current window. */
+X
+Xstatic	char	tmpbuff[L_tmpnam];
+Xstatic	char	*logscreen;
+X
+X/*
+X * inchar() - get a character from the keyboard
+X *
+X * Certain special keys are mapped to values above 0x80. These
+X * mappings are defined in keymap.h. If the key has a non-zero
+X * ascii value, it is simply returned. Otherwise it may be a
+X * special key we want to map.
+X *
+X * The ST has a bug involving keyboard input that seems to occur
+X * when typing quickly, especially typing capital letters. Sometimes
+X * a value of 0x02540000 is read. This doesn't correspond to anything
+X * on the keyboard, according to my documentation. My solution is to
+X * loop when any unknown key is seen. Normally, the bell is rung to
+X * indicate the error. If the "bug" value is seen, we ignore it completely.
+X *
+X * "timeout" parameter not handled at the moment.
+X */
+Xint
+Xinchar(timeout)
+Xlong	timeout;
+X{
+X    int		k, s;
+X
+X    for (;;) {
+X	long c;
+X
+X	/*
+X	 * Get the next input character, either from the input
+X	 * buffer or directly from TOS.
+X	 */
+X	if (inptr != inbuf) {	/* input in the buffer, use it */
+X	    long	*p;
+X
+X	    c = inbuf[0];
+X	    /*
+X	     * Shift everything else in the buffer down. This
+X	     * would be cleaner if we used a circular buffer,
+X	     * but it really isn't worth it.
+X	     */
+X	    inptr--;
+X	    for (p = inbuf; p < inptr ;p++)
+X		*p = *(p+1);
+X	} else {
+X	    c = Crawcin();
+X	}
+X
+X	k = (c & 0xFF);
+X	s = (c >> 16) & 0xFF;
+X	if (k != 0)
+X	    break;
+X
+X	switch (s) {
+X
+X	case 0x62: k = K_HELP; break;
+X	case 0x61: k = K_UNDO; break;
+X	case 0x52: k = K_INSERT; break;
+X	case 0x47: k = K_HOME; break;
+X	case 0x48: k = K_UARROW; break;
+X	case 0x50: k = K_DARROW; break;
+X	case 0x4b: k = K_LARROW; break;
+X	case 0x4d: k = K_RARROW; break;
+X	case 0x29: k = K_CGRAVE; break; /* control grave accent */
+X
+X	/*
+X	 * Occurs due to a bug in TOS.
+X	 */
+X	case 0x54:
+X	    break;
+X
+X	/*
+X	 * Add the function keys here later if we put in support
+X	 * for macros.
+X	 */
+X
+X	default:
+X	    k = 0;
+X	    alert();
+X	    break;
+X	}
+X
+X	if (k != 0) {
+X	    break;
+X	}
+X    }
+X    return(k);
+X}
+X
+X/*
+X * get_inchars - snarf away any pending console input
+X *
+X * If the buffer overflows, we discard what's left and ring the bell.
+X */
+Xstatic void
+Xget_inchars()
+X{
+X    while (Cconis()) {
+X	if (inptr >= &inbuf[IBUFSZ]) {	/* no room in buffer? */
+X	    Crawcin();		/* discard the input */
+X	    alert();			/* and sound the alarm */
+X	} else {
+X	    *inptr++ = Crawcin();
+X	}
+X    }
+X}
+X
+Xvoid
+Xoutchar(c)
+Xchar	c;
+X{
+X    get_inchars();
+X    Cconout((short)c);
+X}
+X
+Xvoid
+Xoutstr(s)
+Xregister char	*s;
+X{
+X    get_inchars();
+X    Cconws(s);
+X}
+X
+X#define BGND	0
+X#define TEXT	1
+X
+X/*
+X * vbeep() - visual bell
+X */
+Xstatic void
+Xvbeep()
+X{
+X    int		text, bgnd;		/* text and background colors */
+X    long	l;
+X
+X    text = Setcolor(TEXT, -1);
+X    bgnd = Setcolor(BGND, -1);
+X
+X    Setcolor(TEXT, (short) bgnd);		/* swap colors */
+X    Setcolor(BGND, (short) text);
+X
+X    for (l=0; l < 5000 ;l++)	/* short pause */
+X	;
+X
+X    Setcolor(TEXT, (short) text);		/* restore colors */
+X    Setcolor(BGND, (short) bgnd);
+X}
+X
+Xvoid
+Xalert()
+X{
+X    if (Pb(P_vbell))
+X	vbeep();
+X    else
+X	outchar('\007');
+X}
+X
+Xbool_t
+Xcan_write(file)
+Xchar	*file;
+X{
+X    if (access(file, 0) == -1 || access(file, 2) == 0) {
+X	return(TRUE);
+X    } else {
+X	return(FALSE);
+X    }
+X}
+X
+X/*
+X * remove(file) - remove a file
+X * I don't know whether success is detectable here - cmd.
+X */
+X#ifndef LATTICE
+Xbool_t
+Xremove(file)
+Xchar	*file;
+X{
+X    Fdelete(file);
+X    return(TRUE);
+X}
+X#endif
+X
+Xvoid
+Xsys_init()
+X{
+X    logscreen = (char *) Logbase();
+X    if (Getrez() == 0)
+X	Columns = 40;		/* low resolution */
+X    else
+X	Columns = 80;		/* medium or high */
+X
+X    Rows = 25;
+X
+X    Cursconf(1, NULL);
+X}
+X
+Xvoid
+Xsys_startv()
+X{
+X}
+X
+Xvoid
+Xsys_endv()
+X{
+X}
+X
+Xvoid
+Xsys_exit(r)
+Xint	r;
+X{
+X    tty_goto(25, 0);
+X    outchar('\n');
+X    exit(r);
+X}
+X
+Xvoid
+Xtty_goto(r, c)
+Xint	r, c;
+X{
+X    outstr("\033Y");
+X    outchar(r + ' ');
+X    outchar(c + ' ');
+X}
+X
+X/*
+X * System calls or library routines missing in TOS.
+X */
+X
+Xvoid
+Xsleep(n)
+Xunsigned	n;
+X{
+X    int		k;
+X
+X    k = Tgettime();
+X    while (Tgettime() <= k + n)
+X	;
+X}
+X
+Xvoid
+Xdelay()
+X{
+X    long	n;
+X
+X    for (n = 0; n < 8000; n++)
+X	;
+X}
+X
+X#ifndef LATTICE
+Xint
+Xsystem(cmd)
+Xchar	*cmd;
+X{
+X    char	arg[1];
+X
+X    arg[0] = '\0';		/* no arguments passed to the shell */
+X
+X    if (Pexec(0, cmd, arg, 0L) < 0) {
+X	return(-1);
+X    } else {
+X	return(0);
+X    }
+X}
+X#endif
+X
+X#ifdef	MEGAMAX
+Xchar *
+Xstrchr(s, c)
+Xchar	*s;
+Xint	c;
+X{
+X    do {
+X	if (*s == c)
+X	    return(s);
+X    } while (*s++);
+X
+X    return(NULL);
+X}
+X#endif /* MEGAMAX */
+X
+X/*
+X * getenv() - get a string from the environment
+X *
+X * Both Alcyon and Megamax are missing getenv(). This routine works for
+X * both compilers and with the Beckemeyer and Gulam shells. With gulam,
+X * the env_style variable should be set to either "mw" or "gu".
+X */
+X#ifndef LATTICE
+Xchar *
+Xgetenv(name)
+Xchar	*name;
+X{
+X    extern long	_base;
+X    char	*envp, *p;
+X
+X    envp = *((char **) (_base + 0x2c));
+X
+X    for ( ; *envp; envp += strlen(envp) + 1) {
+X	if (strncmp(envp, name, strlen(name)) == 0) {
+X	    p = envp + strlen(name);
+X	    if (*p++ == '=')
+X		return(p);
+X	}
+X    }
+X    return(NULL);
+X}
+X#endif
+X
+X/*
+X * Set the specified colour. Just does standout/standend mode for now.
+X * Optimisation here to avoid setting standend when we aren't in
+X * standout; assumes calling routines are well-behaved (i.e. only do
+X * screen movement in P_colour) or some terminals will write garbage
+X * all over the screen.
+X */
+Xvoid
+Xset_colour(c)
+Xint	c;
+X{
+X    static int	oldc = -1;
+X
+X    if (c == oldc)
+X	return;
+X
+X    if (c != 0)
+X	outstr("\033p");
+X    else
+X	outstr("\033q");
+X
+X    oldc = c;
+X}
+X
+X/*
+X * tempfname - Create a temporary file name.
+X */
+Xchar *
+Xtempfname(srcname)
+Xchar *srcname;
+X{
+X    return(tmpnam(tmpbuff));
+X}
+X
+X#ifndef ABS
+X#	define ABS(n) ((n) < 0 ? -(n) : (n))
+X#endif
+X
+X/*
+X * Scroll the ST Monochrome screen.
+X */
+Xvoid
+Xst_scroll(start, end, nlines)
+Xunsigned start, end;
+Xint nlines;
+X{
+X    char *s, *e, *d;
+X    char *s2;
+X    size_t bytes, clr_bytes;
+X
+X    if (ABS(nlines) > (end + 1 - start) || nlines == 0)
+X	return;
+X
+X    invis_cursor();
+X
+X    if (nlines > 0) {
+X	d = logscreen + (start * 1280);
+X	s = d + (nlines * 1280);
+X	s2 = d + bytes;
+X    } else /* (nlines < 0) */ {
+X	nlines = -nlines;
+X	s2 = s = logscreen + (start * 1280);
+X	d = s + (nlines * 1280);
+X    }
+X
+X    /*
+X     * Move the appropriate lines up or down.
+X     */
+X    bytes = (end + 1 - start - nlines) * 1280;
+X    memmove(d, s, bytes);
+X
+X    /*
+X     * Clear the ones left behind.
+X     */
+X    clr_bytes = ((end + 1 - start) * 1280) - bytes;
+X    (void) memset(s2, 0, clr_bytes);
+X
+X    vis_cursor();
+X}
+END_OF_FILE
+  if test 7890 -ne `wc -c <'xvi/src/tos.c'`; then
+    echo shar: \"'xvi/src/tos.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/tos.c'
+fi
+echo shar: End of archive 14 \(of 18\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

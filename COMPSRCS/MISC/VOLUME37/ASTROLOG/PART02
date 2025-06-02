@@ -1,0 +1,1555 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i071:  astrolog - Generation of astrology charts v3.05, Part02/12
+Message-ID: <1993May19.061500.11129@sparky.imd.sterling.com>
+X-Md4-Signature: 05a3209533d8348841f1646b0d3eb70d
+Date: Wed, 19 May 1993 06:15:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 71
+Archive-name: astrolog/part02
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 12)."
+# Contents:  data.c driver.c
+# Wrapped by pul@hardy on Sun May 16 22:23:15 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'data.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'data.c'\"
+else
+echo shar: Extracting \"'data.c'\" \(19299 characters\)
+sed "s/^X//" >'data.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: data.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X
+X/*
+X*******************************************************************************
+X** Global variables
+X*******************************************************************************
+X*/
+X
+Xint total        = TOTAL;
+Xint aspects      = DEFAULT_ASPECTS;
+Xint universe     = 0;
+Xint centerplanet = 1;
+Xint housesystem  = DEFAULT_SYSTEM;
+Xint ansi         = FALSE;
+Xint divisions    = DIVISIONS;
+Xint smartcusp    = FALSE;
+Xint column80     = FALSE;
+Xint todisplay    = 0;
+Xint exdisplay    = 0;
+Xint operation    = 0;
+Xint relation  = 0;        /* What relationship chart are we doing, if any? */
+Xint interpret = FALSE;    /* Is -I switch in effect?                       */
+Xint progress  = FALSE;    /* Are we doing a -p progressed chart?           */
+Xint multiplyfactor = 1;   /* Value passed to -x switch.                    */
+Xint onasc     = 0;        /* Value passed to -1 or -2 switch.              */
+Xint wheelrows = 4;        /* Number of rows per house to use for -w wheel. */
+Xint graphstep = 5;        /* Latitude step rate passed to -L switch.       */
+Xint autom     = FALSE;    /* Do we need to prompt user for chart info?     */
+Xreal progday = 365.25;    /* Day value passed to -pd switch.               */
+Xreal defzone = DEFAULT_ZONE;
+Xreal deflong = DEFAULT_LONG;
+Xreal deflat  = DEFAULT_LAT;
+Xreal modulus = DEGREES;
+Xchar *filename, *filename2, string[STRING*2];
+X
+Xreal SD = 0.0, Mon, Day, Yea, Tim, Zon, Lon, Lat, Mon2, Yea2, Delta = 0.0,
+X  M = 3.0, D = 20.0, Y = 1993.0, F = 6.43, X = 8.0, L5 = 122.20, LA = 47.36,
+X  T, JD, Jdp;
+X
+X
+X/*
+X*******************************************************************************
+X** Global arrays
+X*******************************************************************************
+X*/
+X
+Xreal planet[TOTAL+1], planetalt[TOTAL+1], house[SIGNS+1], ret[TOTAL+1],
+X  spacex[BASE+1], spacey[BASE+1], spacez[BASE+1], force[TOTAL+1];
+Xgridstruct PTR grid = NULL;
+Xbyte inhouse[TOTAL+1], inhouse1[TOTAL+1], inhouse2[TOTAL+1];
+Xint starname[STARS+1], objectansi[TOTAL+1];
+X
+X/* Restriction status of each object, as specified with -R switch. */
+X
+Xbyte ignore[TOTAL+1] = {
+X  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                /* Planets  */
+X  0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                   /* Minors   */
+X  0, 0, 0, 0,                                     /* Cusps    */
+X  0, 0, 0, 0, 0, 0, 0, 0,                         /* Uranians */
+X  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  /* Stars    */
+X  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+X
+Xbyte ignore2[TOTAL+1] = {
+X  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,                /* Planets  */
+X  0, 0, 0, 0, 0, 0, 0, 0, 0, 0,                   /* Minors   */
+X  0, 0, 0, 0,                                     /* Cusps    */
+X  0, 0, 0, 0, 0, 0, 0, 0,                         /* Uranians */
+X  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,  /* Stars    */
+X  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+X
+X
+X/*
+X*******************************************************************************
+X** Table data
+X*******************************************************************************
+X*/
+X
+Xchar *appname = APPNAME;
+X
+Xchar *signname[] = {"",
+X  "Aries", "Taurus", "Gemini", "Cancer", "Leo",
+X  "Virgo", "Libra", "Scorpio",
+X  "Sagittarius", "Capricorn", "Aquarius", "Pisces"};
+X
+Xchar *signabbrev[] = {"",
+X  "Ar", "Ta", "Ge", "Cn", "Le", "Vi", "Li", "Sc", "Sg", "Cp", "Aq", "Pi"};
+X
+Xchar *signenglish[] = {"",
+X  "Ram", "Bull", "Twins", "Crab", "Lion", "Virgin",
+X  "Scales", "Scorpion", "Archer", "Sea-Goat", "Water-Bearer", "Fishes"};
+X
+Xchar *housetradition[] = {"",
+X  "Personality", "Money", "Communication", "Home",
+X  "Children", "Servants", "Marriage", "Death",
+X  "Long Journeys Over Water", "Career", "Friends", "Troubles"};
+X
+Xchar *objectname[] = {
+X  "Earth", "Sun", "Moon", "Mercury", "Venus", "Mars",    /* Planets   */
+X  "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto",
+X  "Chiron", "Ceres", "Pallas", "Juno", "Vesta",          /* Asteroids */
+X  "Node", "Fortune", "Midheaven", "Ascendant", "Vertex", /* Others    */
+X  "11th Cusp", "12th Cusp", "2nd Cusp", "3rd Cusp",      /* Cusps     */
+X  "Cupido", "Hades", "Zeus", "Kronos",                   /* Uranians  */
+X  "Apollo", "Admetos", "Vulkanus", "Poseidon",
+X
+X  "Achernar", "Polaris", "Zeta Retic.", "Pleiades",      /* Stars     */
+X  "Aldebaran", "Capella", "Rigel", "Bellatrix", "Alnath",
+X  "Orion", "Betelgeuse", "Menkalinan", "Murzim", "Canopus",
+X  "Alhena", "Sirius", "Adara", "Wezen", "Castor",
+X  "Procyon", "Pollux", "Suhail", "Avior", "Miaplacidus",
+X  "Alphard", "Regulus", "Dubhe", "Acrux", "Gacrux",
+X  "Becrux", "Alioth", "Spica", "Alkaid", "Agena",
+X  "Arcturus", "Kentaurus", "Antares", "Shaula", "Sargas",
+X  "Australis", "Vega", "Altair", "Peacock", "Deneb",
+X  "Alnair", "Fomalhaut", "Andromeda"};
+X
+Xchar *systemname[] = {
+X  "Placidus", "Koch", "Equal", "Campanus", "Meridian",
+X  "Regiomontanus", "Porphyry", "Morinus", "Topocentric", "Null"};
+X
+Xchar *aspectname[] = {"",
+X  "Conjunct", "Opposite", "Square", "Trine", "Sextile",
+X  "Inconjunct", "Semisextile", "Semisquare", "Sesquiquadrate",
+X  "Quintile", "Biquintile",
+X  "Semiquintile", "Septile", "Novile",
+X  "Binovile", "Biseptile", "Triseptile", "Quatronovile"};
+X
+Xchar *aspectabbrev[] = {"   ",
+X  "Con", "Opp", "Squ", "Tri", "Sex",
+X  "Inc", "SSx", "SSq", "Ses", "Qui", "BQn",
+X  "SQn", "Sep", "Nov", "BNv", "BSp", "TSp", "QNv"};
+X
+Xchar *aspectglyph[] = {"",
+X  "Circle with extending line", "Two circles joined by line",
+X  "Quadrilateral", "Triangle", "Six pointed asterisk",
+X  "'K' rotated right", "'K' rotated left", "Acute angle",
+X  "Square with extending lines", "Letter 'Q'", "'+' over '-'",
+X  "'-' over '+'", "Number '7'", "Number '9'", "'9' under Roman 'II'",
+X  "'7' under Roman 'II'", "'7' under Roman 'III'", "'9' under Roman 'IV'"};
+X
+Xreal aspectangle[ASPECTS+1] = {0,
+X  0.0, 180.0, 90.0, 120.0, 60.0, 150.0, 30.0, 45.0, 135.0, 72.0, 144.0,
+X  36.0, DEGREES/7.0, 40.0, 80.0, 720.0/7.0, 1080.0/7.0, 160.0};
+X
+Xreal aspectorb[ASPECTS+1] = {0,
+X  7.0, 7.0, 7.0, 7.0, 6.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0,
+X  1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+X
+Xreal planetorb[OBJECTS+1] = {0,
+X  360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0,
+X  360.0, 360.0, 360.0, 360.0, 360.0, 2.0, 2.0, 360.0, 360.0, 2.0};
+X
+Xreal planetadd[OBJECTS+1] = {0,
+X  1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+X  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+X
+Xint ruler1[OBJECTS+1]
+X  = {0, 5, 4,  3,  7,  1,  9, 10, 11, 12, 8,  12, 2, 6, 7, 8,11,12,10, 1, 7};
+Xint ruler2[OBJECTS+1]
+X  = {0, 0, 0,  6,  2,  8, 12, 11,  0,  0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+Xint  exalt[OBJECTS+1]
+X  = {0, 1, 2, 11, 12, 10,  4,  7,  8,  9, 6,   4, 4,10, 5,11, 6, 9, 7,10,12};
+X
+X  /* This little array is the reverse of the ruler arrays: */
+X  /* Here, given a sign, return what planet rules it.      */
+Xint rules[SIGNS+1] = {0, 5, 4, 3, 2, 1, 3, 4, 10, 6, 7, 8, 9};
+X
+Xint mainansi[] = {BLACK, WHITE, LTGRAY, DKGRAY, YELLOW, MAGENTA, DKBLUE};
+Xint rainbowansi[] = {WHITE,
+X  RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PURPLE};
+Xint elemansi[] = {RED, YELLOW, GREEN, BLUE};
+Xint aspectansi[] = {WHITE,
+X  YELLOW, BLUE, RED, GREEN, CYAN,
+X  MAGENTA, MAGENTA, ORANGE, ORANGE, DKCYAN, DKCYAN,
+X  DKCYAN, MAROON, PURPLE, PURPLE, MAROON, MAROON, PURPLE};
+X
+Xchar *element[] = {"Fire", "Earth", "Air", "Water"};
+Xchar *mode[] = {"Cardinal", "Fixed", "Mutuable"};
+X
+Xchar *post[] = {"",
+X  "st", "nd", "rd", "th", "th", "th", "th", "th", "th", "th", "th", "th"};
+X
+Xchar *monthname[] = {"",
+X  "January", "February", "March", "April", "May", "June",
+X  "July", "August", "September", "October", "November", "December"};
+X
+Xchar *dayname[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
+X  "Thursday", "Friday", "Saturday"};
+X
+X/* Influence information used by ChartInfluence() follows. The influence of */
+X/* a planet in its ruling or exalting sign or house is tacked onto the last */
+X/* two positions of the object and house influence array, respectively.     */
+X
+X  /* The inherent strength of each planet - */
+Xreal objectinf[] = {0, 30, 25, 10, 10, 10, 10, 10, 10, 10, 10,
+X                      5, 5, 5, 5, 5, 5, 5, 15, 20, 5,
+X                      20, 10};
+X
+X  /* The inherent strength of each house - */
+Xreal houseinf[]  = {0, 20, 0, 0, 10, 0, 0, 5, 0, 0, 15, 0, 0,
+X                      15, 5};
+X
+X  /* The inherent strength in each aspect - */
+Xreal aspectinf[] = {0.0, 1.0, 0.8, 0.8, 0.6, 0.6, 0.4, 0.4, 0.2, 0.2,
+X                      0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
+X
+X
+X/*
+X*******************************************************************************
+X** Object calculation tables
+X*******************************************************************************
+X*/
+X
+Xbyte errorcount[PLANETS+1] = {0, 0, 0, 0, 0, 0, 11, 5, 4, 4, 4};
+X
+Xreal planetdata[] = {
+X358.4758,35999.0498,-.0002,.01675,-.4E-4,0,1,101.2208,1.7192,.00045,0,0,0,0,0,
+X0, /* Earth/Sun */
+X102.2794,149472.515,0,.205614,.2E-4,0,.3871,28.7538,.3703,.0001,47.1459,1.1852,
+X0.0002,7.009,.00186,0, /* Mercury */
+X212.6032,58517.8039,.0013,.00682,-.5E-4,0,.7233,54.3842,.5082,-.14E-2,75.7796,
+X0.8999,.4E-3,3.3936,.1E-2,0, /* Venus */
+X319.5294,19139.8585,.2E-3,.09331,.9E-4,0,1.5237,285.4318,1.0698,.1E-3,48.7864,
+X0.77099,0,1.8503,-.7E-3,0, /* Mars */
+X
+X225.4928,3033.6879,0,.04838,-.2E-4,0,5.2029,273.393,1.3383,0,99.4198,1.0583,0,
+X1.3097,-.52E-2,0, /* Jupiter */
+X-.001,-.0005,.0045,.0051,581.7,-9.7,-.0005,2510.7,-12.5,-.0026,1313.7,-61.4,
+X0.0013,2370.79,-24.6,-.0013,3599.3,37.7,-.001,2574.7,31.4,-.00096,6708.2,
+X-114.5,-.0006,5499.4,-74.97,-.0013,1419,54.2,.0006,6339.3,-109,.0007,4824.5,
+X-50.9,.0020,-.0134,.0127,-.0023,676.2,.9,.00045,2361.4,174.9,.0015,1427.5,
+X-188.8,.0006,2110.1,153.6,.0014,3606.8,-57.7,-.0017,2540.2,121.7,-.00099,
+X6704.8,-22.3,-.0006,5480.2,24.5,.00096,1651.3,-118.3,.0006,6310.8,-4.8,.0007,
+X4826.6,36.2, /* Jupiter error */
+X
+X174.2153,1223.50796,0,.05423,-.2E-3,0,9.5525,338.9117,-.3167,0,112.8261,.8259,
+X0,2.4908,-.0047,0, /* Saturn */
+X-.0009,.0037,0,.0134,1238.9,-16.4,-.00426,3040.9,-25.2,.0064,1835.3,36.1,
+X-.0153,610.8,-44.2,-.0015,2480.5,-69.4,-.0014,.0026,0,.0111,1242.2,78.3,-.0045,
+X3034.96,62.8,-.0066,1829.2,-51.5,-.0078,640.6,24.2,-.0016,2363.4,-141.4,.0006,
+X-.0002,0,-.0005,1251.1,43.7,.0005,622.8,13.7,.0003,1824.7,-71.1,.0001,2997.1,
+X78.2, /* Saturn error */
+X
+X74.1757,427.2742,0,.04682,.00042,0,19.2215,95.6863,2.0508,0,73.5222,.5242,0,
+X0.7726,.1E-3,0, /* Uranus */
+X-.0021,-.0159,0,.0299,422.3,-17.7,-.0049,3035.1,-31.3,-.0038,945.3,60.1,-.0023,
+X1227,-4.99,.0134,-.02186,0,.0317,404.3,81.9,-.00495,3037.9,57.3,.004,993.5,
+X-54.4,-.0018,1249.4,79.2,-.0003,.0005,0,.0005,352.5,-54.99,.0001,3027.5,54.2,
+X-.0001,1150.3,-88, /* Uranus error */
+X
+X30.13294,240.45516,0,.00913,-.00127,0,30.11375,284.1683,-21.6329,0,130.68415,
+X1.1005,0,1.7794,-.0098,0, /* Neptune */
+X0.1832,-.6718,.2726,-.1923,175.7,31.8,.0122,542.1,189.6,.0027,1219.4,178.1,
+X-.00496,3035.6,-31.3,-.1122,.166,-.0544,-.00496,3035.3,58.7,.0961,177.1,-68.8,
+X-.0073,630.9,51,-.0025,1236.6,78,.00196,-.0119,.0111,.0001,3049.3,44.2,-.0002,
+X893.9,48.5,.00007,1416.5,-25.2, /* Neptune error */
+X
+X229.781,145.1781,0,.24797,.002898,0,39.539,113.5366,.2086,0,108.944,1.3739,0,
+X17.1514,-.0161,0, /* Pluto */
+X-.0426,.073,-.029,.0371,372,-331.3,-.0049,3049.6,-39.2,-.0108,566.2,318.3,
+X0.0003,1746.5,-238.3,-.0603,.5002,-.6126,.049,273.97,89.97,-.0049,3030.6,61.3,
+X0.0027,1075.3,-28.1,-.0007,1402.3,20.3,.0145,-.0928,.1195,.0117,302.6,-77.3,
+X0.00198,528.1,48.6,-.0002,1000.4,-46.1, /* Pluto error */
+X
+X34.6127752,713.5756219,0,.382270369,-.004694073,0,13.66975144,337.407213,
+X2.163306646,0,208.1482658,1.247724355,0,6.911179715,.011236955,0, /* Chiron */
+X108.2925,7820.36556,0,.0794314,0,0,2.7672273,71.0794444,0,0,80.23555556,
+X1.3960111,0,10.59694444,0,0, /* Ceres */
+X106.6641667,7806.531667,0,.2347096,0,0,2.7704955,310.166111,0,0,172.497222,
+X1.39601111,0,34.81416667,0,0, /* Pallas Athena */
+X267.685,8256.081111,0,.2562318,0,0,2.6689897,245.3752778,0,0,170.137777,
+X1.396011111,.0003083333,13.01694444,0,0, /* Juno */
+X138.7733333,9924.931111,0,.0902807,0,0,2.360723,149.6386111,0,0,103.2197222,
+X1.396011111,.000308333,7.139444444,0,0, /* Vesta */
+X
+X104.5959,138.5369,0,0,0,0,40.99837, 0,0,0,0,0,0,0,0,0, /* Cupido */
+X337.4517,101.2176,0,0,0,0,50.667443,0,0,0,0,0,0,0,0,0, /* Hades */
+X104.0904,80.4057, 0,0,0,0,59.214362,0,0,0,0,0,0,0,0,0, /* Zeus */
+X17.7346, 70.3863, 0,0,0,0,64.816896,0,0,0,0,0,0,0,0,0, /* Kronos */
+X138.0354,62.5,    0,0,0,0,70.361652,0,0,0,0,0,0,0,0,0, /* Apollo */
+X-8.678,  58.3468, 0,0,0,0,73.736476,0,0,0,0,0,0,0,0,0, /* Admetos */
+X55.9826, 54.2986, 0,0,0,0,77.445895,0,0,0,0,0,0,0,0,0, /* Vulkanus */
+X165.3595,48.6486, 0,0,0,0,83.493733,0,0,0,0,0,0,0,0,0  /* Poseidon */
+X};
+X
+Xreal starbright[] = {0,
+X  0.46, 2.02, 5.24, 5.09, 0.85, 0.08, 0.12, 1.64, 1.65, 1.70,
+X  0.50, 1.90, 1.98,-0.72, 1.93,-1.46, 1.50, 1.84, 1.59, 0.38,
+X  1.14, 1.78, 1.86, 1.68, 1.98, 1.35, 1.79, 1.58, 1.63, 1.25,
+X  1.77, 0.98, 1.86, 0.61,-0.04,-0.01, 0.96, 1.63, 1.87, 1.85,
+X  0.03, 0.77, 1.94, 1.25, 1.74, 1.16, 4.61};
+X
+Xreal stardata[] = {
+X 1,37,42.9,-57,14,12,   2,31,50.5, 89,15,51,   3,17,46.1,-62,34,32,
+X 3,49,11.1, 24, 8,12,   4,35,55.2, 16,30,33,   5,16,41.3, 45,59,53,
+X 5,14,32.2, -8,12, 6,   5,25, 7.8,  6,20,59,   5,26,17.5, 28,36,27,
+X 5,36,12.7, -1,12, 7,   5,55,10.3,  7,24,25,   5,59,31.7, 44,56,51,
+X 6,22,41.9,-17,57,22,   6,23,57.2,-52,41,44,   6,37,42.7, 16,23,57,
+X 6,45, 8.9,-16,42,58,   6,58,37.5,-28,58,20,   7, 8,23.4,-26,23,35,
+X 7,34,35.9, 31,53,18,   7,39,18.1,  5,13,30,   7,45,18.9, 28, 1,34,
+X 8, 9,31.9,-47,20,12,   8,22,30.8,-59,30,34,   9,13,12.1,-69,43, 2,
+X 9,27,35.2, -8,39,31,  10, 8,22.3, 11,58, 2,  11, 3,43.6, 61,45, 3,
+X12,26,35.9,-63, 5,56,  12,31, 9.9,-57, 6,47,  12,47,43.3,-59,41,19,
+X12,54, 1.7, 55,57,35,  13,25,11.5,-11, 9,41,  13,47,32.3, 49,18,48,
+X14, 3,49.4,-60,22,22,  14,15,39.6, 19,10,57,  14,39,36.2,-60,50, 7,
+X16,29,24.4,-26,25,55,  17,33,36.4,-37, 6,13,  17,37,19.0,-42,59,52,
+X18,24,10.3,-34,23, 5,  18,36,56.2, 38,47, 1,  19,50,46.9,  8,52, 6,
+X20,25,38.8,-56,44, 7,  20,41,25.8, 45,16,49,  22, 8,13.9,-46,57,40,
+X22,57,39.0,-29,37,20,   0,42, 7.0, 41,16, 0};
+X
+X
+X/*
+X*******************************************************************************
+X** Core interpretation tables
+X*******************************************************************************
+X*/
+X
+Xchar *mindpart[] = {"",
+X  "spirit, ego, image of self, and sense of aliveness",
+X  "emotional nature, moods, feelings, and caring tendencies",
+X  "thoughts, intellect, and communicative activity",
+X  "creativity, tendencies for affection and calmness, and relationship needs",
+X  "will, energy, activity, and aggressive, assertive tendencies",
+X  "enthusiastic, faithful, wise, expansive, spontaneous nature",
+X  "part of mind that is disciplined, respectful, and solitary",
+X  "individuality, desires for change, and tendency to go against social norms",
+X  "intuitive, spiritual, compassionate, psychic nature",
+X  "destiny, and capacity to transform the self and the outer world",
+X  "ability to help, heal, and teach others, and where one has much experience",
+X  "tendency to direct energy to instinctive, creative, reproductive goals",
+X  "tendency to direct energy away from emotional and into mental pursuits",
+X  "tendency to give away individual power for the benefit of a relationship",
+X  "capacity to direct creative energy into personal or devotional goals",
+X  "karmic goals, and best direction of evolutionary growth",
+X  "place where opportunity and success can be found",
+X  "view as seen in the eyes of others, reputation, and social standing",
+X  "personality and outward appearance, as projected to the world",
+X  "karmic fate and method of reception of energies"};
+X
+Xchar *description[] = {"",
+X  "forceful, energetic, direct, courageous",
+X  "practical, often skeptical and stubborn",
+X  "inquisitive, witty, perceptive, adaptable",
+X  "introspective, emotional, protective",
+X  "proud, gregarious, dramatic, dignified",
+X  "analytical, critical, modest, helpful",
+X  "affectionate, tolerant, often indecisive, appreciates beauty",
+X  "penetrating, suspicious, introspective",
+X  "jovial, open minded, loves freedom",
+X  "industrious, practical, disciplined",
+X  "progressive, erratic, revolutionary, idealistic, humanitarian, inventive",
+X  "imaginative, other worldly, impressionable"};
+X
+Xchar *desire[] = {"",
+X  "seeks adventure and challenge",
+X  "loves serenity and inner peace",
+X  "seeks out information",
+X  "wants inner and outer security",
+X  "desires self expression",
+X  "works toward perfection",
+X  "seeks balance, relationship, and calmness",
+X  "desires to transform and remove outer masks",
+X  "seeks meaning and new experience",
+X  "works for solitude and personal integrity",
+X  "desires individuality",
+X  "seeks transcendence of self"};
+X
+Xchar *lifearea[] = {"",
+X  "establishment of personal identity",
+X  "self image, self worth, and material security",
+X  "communicating to and receiving from the environment",
+X  "imagination, fantasies, inner feelings, and domestic life",
+X  "finding joy, pleasure, and creative expression",
+X  "work and feeling talented and useful",
+X  "personal relationships and intimacy",
+X  "sex, death, the occult, and other hard to grasp topics",
+X  "changes, exploration, and the breaking of routine",
+X  "career, social stature, and destiny",
+X  "the future, life goals, and association with friends and groups",
+X  "things that disrupt or cause disassociation with the personality"};
+X
+Xchar *interact[] = {"",
+X  "is %sconnected and fused together with",
+X  "%sopposes and creates tension with",
+X  "is %sin conflict with",
+X  "is %sin harmony with",
+X  "has %sopportunity for growth, exchange, and harmony in relation with",
+X  "is %sdifferent from",
+X  "%sgets new perspectives in relation with",
+X  "%screates internal friction with",
+X  "%screates internal agitation with",
+X  "%screatively relates externally with",
+X  "%screatively relates internally with"};
+X
+Xchar *therefore[] = {"",
+X  "Both parts are prominent in their psyche", "Balance is needed",
+X  "Adaptation is required by both sides", "", "",
+X  "They can often relate in a discordant way", "", "", "", "", ""};
+X
+X/* Modifier array makes the interpretation stronger for narrower orbs. */
+X
+Xchar *modifier[3][11] = {{"always ", "always ", "irreconcilably ",
+X  "always ", "much ", "completely ", "often ", "often ", "often ", "often ",
+X  "often "}, {"", "", "", "", "", "", "", "", "", "", ""}, {"somewhat ",
+X  "somewhat ", "somewhat ", "somewhat ", "some ", "somewhat ", "sometimes ",
+X  "sometimes ", "sometimes ", "sometimes ", "sometimes "}};
+X
+X/* data.c */
+END_OF_FILE
+if test 19299 -ne `wc -c <'data.c'`; then
+    echo shar: \"'data.c'\" unpacked with wrong size!
+fi
+# end of 'data.c'
+fi
+if test -f 'driver.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'driver.c'\"
+else
+echo shar: Extracting \"'driver.c'\" \(35459 characters\)
+sed "s/^X//" >'driver.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: driver.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+Xchar *filenameout, **extralines;
+Xint prog = FALSE, extracount = 0;
+X
+X
+X/*
+X*******************************************************************************
+X** Option processing
+X*******************************************************************************
+X*/
+X
+X/* Print out a command switch or keypress info line to the screen, as done  */
+X/* with the -H switch or 'H' key in a graphic window. This is just printing */
+X/* out the string, except in Ansi mode we set the proper colors: Red for    */
+X/* header lines, Green for individual switches or keys, and White for the   */
+X/* rest of the line telling what it does. We also prefix each switch with   */
+X/* either Unix's '-' or PC's '/', whichever is appropriate for the system.  */
+X
+Xvoid Prints(string)
+Xchar *string;
+X{
+X  int dash;
+X  char c;
+X
+X  dash = string[1];
+X  AnsiColor(*string != ' ' ? RED : (dash == '_' || dash == 'P' ? GREEN : -1));
+X  while ((c = *string) && c != ':' &&
+X    (dash != 'P' || (c != ' ' || *(string+1) != 't'))) {
+X    if (c != '_')
+X      putchar(c);
+X    else
+X      putchar(DASH);
+X    string++;
+X    }
+X  if (*string)
+X    putchar(*string++);
+X  AnsiColor(-1);
+X  while (c = *string)
+X    {
+X    if (c != '_')
+X      putchar(c);
+X    else
+X      putchar(DASH);
+X    string++;
+X    }
+X  putchar('\n');
+X}
+X
+X
+X/* Print a list of every command switch that can be passed to the program, */
+X/* and a description of what it does. This is what the -H switch prints.   */
+X
+Xvoid DisplaySwitches()
+X{
+X  sprintf(string, "%s command switches (version %s) (%s):", appname, VERSION,
+X    DATE);
+X  Prints(string);
+X  Prints(" _H: Display this help list.");
+X  Prints(" _H0: Display names of zodiac signs and houses.");
+X  Prints(" _O: Display available planets and other celestial objects.");
+X  Prints(" _O0: Like _O but ignore object restrictions.");
+X  Prints(" _A: Display available aspects, their angles, and present orbs.");
+X  Prints(" _I0: Display meanings of signs, houses, planets, and aspects.\n");
+X  Prints("Switches which determine the type of chart to display:");
+X  Prints(" _v: Display list of object positions (chosen by default).");
+X  Prints(" _v0: Like _v but express velocities as absolute degree speed.");
+X  Prints(" _w [<rows>]: Display chart in a graphic house wheel format.");
+X  Prints(" _w0 [..]: Like _w but reverse order of objects in houses 4..9.");
+X  Prints(" _g: Display aspect and midpoint grid among planets.");
+X  Prints(" _g0: Like _g but flag aspect configurations (e.g. Yod's) too.");
+X  Prints(" _g0: For comparison charts, show midpoints instead of aspects.");
+X  Prints(" _ga: Like _g but indicate applying instead of difference orbs.");
+X  Prints(" _m: Display all object midpoints in sorted zodiac order.");
+X  Prints(" _m0: Like _m but list aspects ordered by influence instead.");
+X  Prints(" _Z: Display planet locations with respect to the local horizon.");
+X#ifdef GRAPH
+X  Prints(" _Z0: For graphics charts, like _Z but have a polar center.");
+X#endif
+X  Prints(" _S: Display x,y,z coordinate positions of planets in space.");
+X  Prints(" _j: Display astrological influences of each object in chart.");
+X  Prints(" _j0: Like _j but include influences of each sign as well.");
+X  Prints(" _L [<step>]: Display astro-graph locations of planetary angles.");
+X  Prints(" _L0 [..]: Like _L but display list of latitude crossings too.");
+X  Prints(" _d: Print all aspects and changes occurring in a day.");
+X  Prints(" _dm: Like _d but print all aspects for the entire month.");
+X  Prints(" _dp <month> <year>: Print aspects within progressed chart.");
+X  Prints(" _E: Display planetary ephemeris for given month.");
+X  Prints(" _Ey: Display planetary ephemeris for entire year.");
+X  Prints(" _e: Print all options for chart (i.e. _v_w_g0_m_Z_S_j0_L0_d_E).");
+X  Prints(
+X    " _T <month> <year>: Compute all transits to natal planets in month.");
+X  Prints(
+X    " _Tp <month> <year>: Compute progressions in month for chart.");
+X  Prints(" _T[p]y: <year>: Compute transits/progressions for entire year.");
+X#ifdef TIME
+X  Prints(" _Tn[y]: Compute transits to natal planets for current time now.");
+X#endif
+X  Prints(" _I: Print interpretation of selected charts.\n");
+X  Prints("Switches which affect how the chart parameters are obtained:");
+X#ifdef TIME
+X  Prints(" _n: Compute chart for this exact moment using current time.");
+X  Prints(" _n[d,m,y]: Compute chart for start of current day, month, year.");
+X#endif
+X  Prints(" _a <month> <date> <year> <time> <zone> <long> <lat>:");
+X  Prints("     Compute chart automatically given specified data.");
+X  Prints(" _z: Assume Daylight time (change default zone appropriately).");
+X  Prints(" _z <zone>: Change the default time zone (for _d_q_T_E options).");
+X  Prints(" _l <long> <lat>: Change the default longitude & latitude.");
+X  Prints(" _q <month> <date> <year> <time>: Compute chart with defaults.");
+X  Prints(" _qd <month> <date> <year>: Compute chart for noon on date.");
+X  Prints(" _qm <month> <year>: Compute chart for first of month.");
+X  Prints(" _qy <year>: Compute chart for first day of year.");
+X  Prints(" _i <file>: Compute chart based on info in file.");
+X  Prints(" _o <file> [..]: Write parameters of current chart to file.");
+X  Prints(" _o0 <file> [..]: Like _o but output planet/house positions.\n");
+X  Prints("Switches which affect what information is used in a chart:");
+X  Prints(" _R [<obj1> [<obj2> ..]]: Restrict specific bodies from displays.");
+X  Prints(" _R0 [<obj1> ..]: Like _R but restrict everything first.");
+X  Prints(" _R[C,u,U]: Restrict all minor cusps, all uranians, or stars.");
+X  Prints(" _RT[0,C,u,U] [..]: Restrict transiting planets in _T lists.");
+X  Prints(" _C: Include non-angular house cusps in charts.");
+X  Prints(" _u: Include transneptunian/uranian bodies in charts.");
+X  Prints(" _U: Include locations of fixed background stars in charts.");
+X  Prints(" _U[z,l,n,b]: Order by azimuth, altitude, name, or brightness.");
+X  Prints(" _A <0-18>: Specify the number of aspects to use in charts.");
+X  Prints(" _Ao <aspect> <orb>: Specify maximum orb for an aspect.");
+X  Prints(" _Am <planet> <orb>: Specify maximum orb allowed to a planet.");
+X  Prints(" _Ad <planet> <orb>: Specify orb addition given to a planet.\n");
+X  Prints("Switches which affect how a chart is computed:");
+X  Prints(" _c <value>: Select a different default system of houses.");
+X  Prints("     (0 = Placidus, 1 = Koch, 2 = Equal, 3 = Campanus,");
+X  Prints("     4 = Meridian, 5 = Regiomontanus, 6 = Porphry, 7 = Morinus,");
+X  Prints("     8 = Topocentric, 9 = None.)");
+X  Prints(" _s: Compute a sidereal instead of the normal tropical chart.");
+X  Prints(" _s0: Display locations as right ascension instead of degrees.");
+X  Prints(" _h [<objnum>]: Compute positions centered on specified object.");
+X  Prints(" _p <month> <day> <year>: Cast 2ndary progressed chart for date.");
+X  Prints(" _p0 <month> <day> <year>: Cast solar arc chart for date.");
+X#ifdef TIME
+X  Prints(" _p[0]n: Cast progressed chart based on current date now.");
+X#endif
+X  Prints(" _pd <days>: Set no. of days to progress / day (default 365.25).");
+X  Prints(" _x <1-360>: Cast harmonic chart based on specified factor.");
+X  Prints(" _1 [<objnum>]: Cast chart with specified object on Ascendant.");
+X  Prints(" _2 [<objnum>]: Cast chart with specified object on Midheaven.");
+X  Prints(" _3: Display objects in their zodiac decan positions.");
+X  Prints(" _f: Display houses as sign positions (flip them).");
+X  Prints(" _G: Display houses based on geographic location only.");
+X  Prints(" _F <objnum> <sign> <deg>: Force object's position to be value.");
+X  Prints(" _+ [<days>]: Cast chart for specified no. of days in the future.");
+X  Prints(" _- [<days>]: Cast chart for specified no. of days in the past.\n");
+X  Prints("Switches for relationship and comparison charts:");
+X  Prints(" _r <file1> <file2>: Compute a relationship synastry chart.");
+X  Prints(" _rc <file1> <file2>: Compute a composite chart.");
+X  Prints(" _rm <file1> <file2>: Compute a time space midpoint chart.");
+X  Prints(" _rd <file1> <file2>: Print number of days between files' dates.");
+X  Prints(" _rb <file1> <file2>: Display biorhythm for file1 at time file2.");
+X  Prints(" _r0 <file1> <file2>: Keep the charts separate in comparison.");
+X#ifdef TIME
+X  Prints(" _t <file>: Display current house transits for particular chart.");
+X  Prints(" _t[b,d] <file>: Print biorhythm/datediff for current time now.");
+X#endif
+X  Prints("\nSwitches to access graphics options:");
+X  Prints(" _k: Display text charts using Ansi characters and color.");
+X
+X  /* If graphics features are compiled in, call an additional procedure to */
+X  /* display the command switches offered dealing with the graphics stuff. */
+X
+X#ifdef GRAPH
+X  XDisplaySwitches();
+X#endif
+X}
+X
+X
+X/* Print out a list of the various objects - planets, asteroids, house     */
+X/* cusps, stars - recognized by the program, and their index values. This  */
+X/* is displayed when the -O switch is invoked. For some objects, display   */
+X/* additional information, e.g. ruling signs for planets, brightnesses and */
+X/* positions in the sky for fixed stars, etc.                              */
+X
+Xvoid PrintObjects(all)
+Xint all;
+X{
+X  int i, j;
+X  real Off;
+X
+X  if (!(operation & DASHC))
+X    for (i = C_LO; i <= C_HI; i++)    /* Set up restrictions properly: Minor */
+X      ignore[i] = TRUE;               /* cusps and uranians included only if */
+X  if (!(operation & DASHu))           /* -C and -u switches are in effect.   */
+X    for (i = U_LO; i <= U_HI; i++)
+X      ignore[i] = TRUE;
+X  printf("%s planets and objects:\n", appname);
+X  printf("No. Name       Rule Co-Rule Fall Co-Fall Exalt Debilitate\n\n");
+X  for (i = 1; i <= BASE; i++) if (all || !ignore[i]) {
+X    AnsiColor(objectansi[i]);
+X    printf("%2d %-12s", i, objectname[i]);
+X    if (i <= OBJECTS) {                      /* Print rulerships, etc */
+X      if (ruler1[i]) {                       /* for the planets.      */
+X        j = ruler2[i];
+X        printf("%c%c%c  %c%c%c     ", SIGNAM(ruler1[i]),
+X          j ? signname[j][0] : ' ', j ? signname[j][1] : ' ',
+X          j ? signname[j][2] : ' ');
+X        printf("%c%c%c  %c%c%c     ", SIGNAM(Mod12(ruler1[i]+6)),
+X          j ? signname[Mod12(j+6)][0] : ' ',
+X          j ? signname[Mod12(j+6)][1] : ' ',
+X          j ? signname[Mod12(j+6)][2] : ' ');
+X        printf("%c%c%c   %c%c%c", SIGNAM(exalt[i]),
+X          SIGNAM(Mod12(exalt[i]+6)));
+X      }
+X    } else if (i <= C_HI)
+X      printf("Minor House Cusp #%d", i-OBJECTS);
+X    else
+X      printf("Uranian #%d", i-U_LO+1);
+X    putchar('\n');
+X  }
+X
+X  /* Now, if -U in effect, read in and display stars in specified order. */
+X
+X  if (all || universe) {
+X    Off = ProcessInput(TRUE);
+X    CastStar(operation & DASHs ? 0.0 : -Off);
+X    for (i = S_LO; i <= S_HI; i++) if (all | !ignore[i]) {
+X      j = BASE+starname[i-BASE];
+X      AnsiColor(objectansi[j]);
+X      printf("%2d %-12s", i, objectname[j]);
+X      printf("Star #%2d    ", i-BASE);
+X      PrintMinute(planet[j]);
+X      printf("  ");
+X      PrintAltitude(planetalt[j]);
+X      printf(" %5.2f\n", starbright[j-BASE]);
+X    }
+X  }
+X}
+X
+X
+X/* Print out a list of all the aspects recognized by the program, and info  */
+X/* about them: their names, index numbers, degree angles, present orbs, and */
+X/* the description of their glyph. This gets displayed when the -A switch   */
+X/* is invoked (without any argument).                                       */
+X
+Xvoid PrintAspects()
+X{
+X  int i;
+X
+X  printf("%s aspects:\nNo. Name         Abbrev. Angle    Orb", appname);
+X  printf("          Description of glyph\n\n");
+X  for (i = 1; i <= ASPECTS; i++) {
+X    AnsiColor(aspectansi[i]);
+X    printf("%2d %-15s(%s) %6.2f +/- %1.0f degrees - %s\n", i, aspectname[i],
+X      aspectabbrev[i], aspectangle[i], aspectorb[i], aspectglyph[i]);
+X  }
+X}
+X
+X
+X/* Print out a list of the 12 signs and houses of the zodiac, and their    */
+X/* standard and traditional names, as done when the -H0 switch is invoked. */
+X
+Xvoid PrintSigns()
+X{
+X  int i;
+X
+X  printf("%s signs and houses:\n", appname);
+X  printf("Sign        English name      House Traditional name\n\n");
+X  for (i = 1; i <= SIGNS; i++) {
+X    AnsiColor(elemansi[i-1 & 3]);
+X    printf("%-12sthe %-14s%2d%s  House of %s\n", signname[i], signenglish[i],
+X      i, post[i], housetradition[i]);
+X  }
+X}
+X
+X
+X/* Read in a set of default program values used in the program, such as */
+X/* present location, time zone, the system of houses to use, the number */
+X/* of aspects and what orbs to use, and so on. These values are always  */
+X/* read in at the beginning of program execution.                       */
+X
+X/* The NEXTDEFAULT macro means to skip all comments in the file until we   */
+X/* reach the beginning of the next set of data, delimited with a '=' sign. */
+X
+X#define NEXTDEFAULT while(getc(data) != '=');
+X
+Xint InputDefaults()
+X{
+X  FILE *data;
+X  char name[STRING];
+X  int i, j;
+X
+X  filename = DEFAULT_INFOFILE;     /* First lets open the info file.      */
+X  data = fopen(filename, "r");     /* Look for file in current directory. */
+X  if (data == NULL) {
+X    sprintf(name, "%s%s", DEFAULT_DIR, filename);   /* Look for file in   */
+X    data = fopen(name, "r");                        /* default directory. */
+X    if (data == NULL)          /* If file not found anywhere, then forget */
+X      return FALSE;            /* it and use the compile time defaults.   */
+X  }
+X  fscanf(data, "%s", name); fscanf(data, "%s", name);
+X  if (name[0] != '3' || name [1] != '.' || name[2] != '0' ||
+X    (name[3] != '0' && name[3] != '5')) {
+X    fprintf(stderr, "%s: Bad information in default parameter file '%s'.\n",
+X      appname, filename);
+X    fprintf(stderr,
+X      "Delete this file or obtain one compatible with current version.\n");
+X    Terminate(1);
+X  }
+X  NEXTDEFAULT; fscanf(data, "%lf", &defzone);        /* Time zone    */
+X  NEXTDEFAULT; fscanf(data, "%lf", &deflong);        /* Longitude    */
+X  NEXTDEFAULT; fscanf(data, "%lf", &deflat);         /* Latitude     */
+X  NEXTDEFAULT; fscanf(data, "%d",  &aspects);        /* # of aspects   */
+X  NEXTDEFAULT; fscanf(data, "%d",  &housesystem);    /* House type     */
+X  NEXTDEFAULT; fscanf(data, "%d",  &ansi);           /* Ansi text?     */
+X  NEXTDEFAULT; fscanf(data, "%d",  &divisions);      /* For -d and -T. */
+X  NEXTDEFAULT; fscanf(data, "%d",  &wheelrows);      /* For -w charts. */
+X  NEXTDEFAULT; fscanf(data, "%d",  &smartcusp);      /* Logical -T display?  */
+X  NEXTDEFAULT; fscanf(data, "%d",  &column80);       /* Clip text at col 80? */
+X  NEXTDEFAULT;
+X  for (i = 1; i <= OBJECTS; i++) {         /* Object restrictions         */
+X    fscanf(data, "%d", &j);
+X    ignore[i] = j > 0;
+X  }
+X  NEXTDEFAULT;
+X  for (i = 1; i <= OBJECTS; i++) {         /* Transit object restrictions */
+X    fscanf(data, "%d", &j);
+X    ignore2[i] = j > 0;
+X  }
+X  NEXTDEFAULT;
+X  for (i = 1; i <= ASPECTS; i++)           /* Orbs for aspects  */
+X    fscanf(data, "%lf", &aspectorb[i]);
+X  NEXTDEFAULT;
+X  for (i = 1; i <= OBJECTS; i++)           /* Orbs for planets  */
+X    fscanf(data, "%lf", &planetorb[i]);
+X  NEXTDEFAULT;
+X  for (i = 1; i <= OBJECTS; i++)           /* Extra planet orbs */
+X    fscanf(data, "%lf", &planetadd[i]);
+X  NEXTDEFAULT; fscanf(data, "%lf", &objectinf[OBJECTS+1]);   /* Rules sign  */
+X  NEXTDEFAULT; fscanf(data, "%lf", &objectinf[OBJECTS+2]);   /* Exalts in   */
+X  NEXTDEFAULT; fscanf(data, "%lf",  &houseinf[SIGNS+1]);     /* Rules house */
+X  NEXTDEFAULT; fscanf(data, "%lf",  &houseinf[SIGNS+2]);     /* Exalts in   */
+X  NEXTDEFAULT;
+X  for (i = 1; i <= OBJECTS; i++)
+X    fscanf(data, "%lf", &objectinf[i]);    /* Influence of each object */
+X  for (i = 1; i <= SIGNS; i++)
+X    fscanf(data, "%lf", &houseinf[i]);     /* Influence of each house  */
+X  for (i = 1; i <= ASPECTS; i++)
+X    fscanf(data, "%lf", &aspectinf[i]);    /* Influence of each aspect */
+X  fclose(data);
+X  return TRUE;
+X}
+X
+X
+X/* Take the current chart information, and write it out to the file   */
+X/* as indicated by the -o switch. This is only executed at the end of */
+X/* program execution if the -o switch is in effect.                   */
+X
+Xvoid OutputData()
+X{
+X  FILE *data;
+X  int i, j;
+X  real k;
+X
+X  data = fopen(filenameout, "w");    /* Create and open the file for output. */
+X  if (data == NULL) {
+X    fprintf(stderr, "%s: File %s can not be created.\n", appname, filenameout);
+X    Terminate(1);
+X  }
+X  if (!(operation & DASHo0)) {
+X
+X    /* Write the chart information to the file. */
+X
+X    if (Mon < 1) {
+X      fprintf(stderr, "\n%s: Can't output chart with no time/space to file.\n",
+X        appname);
+X      fclose(data);
+X      Terminate(1);
+X    }
+X    fprintf(data, "%.0f\n%.0f\n%.0f\n%.2f\n%.2f\n%.2f\n%.2f\n",
+X      Mon, Day, Yea, Tim, Zon, Lon, Lat);
+X  } else {
+X
+X    /* However, if the -o0 switch is in effect, then write the actual */
+X    /* positions of the planets and houses to the file instead.       */
+X
+X    for (i = 1; i <= OBJECTS; i++) {
+X      j = (int) planet[i];
+X      fprintf(data, "%c%c%c: %2d %2d %10.7f\n", OBJNAM(i),
+X        j%30, j/30+1, FRACT(planet[i])*60.0);                /* Position */
+X      k = planetalt[i];
+X      fprintf(data, "[%c]: %3d %12.8f\n",                    /* Altitude */
+X        ret[i] >= 0.0 ? 'D' : 'R', (int)(Sgn(k)*
+X        floor(dabs(k))), (k-(real)(int)k)*60.0);        /* Retrograde? */
+X    }
+X    for (i = 1; i <= SIGNS/2; i++) {   /* Write first six cusp positions */ 
+X      j = (int) house[i];
+X      fprintf(data, "H_%c: %2d %2d %10.7f\n",
+X        'a'+i-1, j%30, j/30+1, FRACT(house[i])*60.0);
+X    }
+X  }
+X
+X  /* Now write any extra strings that were on the command line after the -o */
+X  /* specification but before the next switch, to the file as comments.     */
+X
+X  for (i = 1; i < extracount; i++) {
+X    extralines++;
+X    fprintf(data, "%s\n", extralines[1]);
+X  }
+X  fclose(data);
+X}
+X
+X
+X/* Initialize an Ansi color array with the color to print each object in. */
+X
+Xvoid InitColors()
+X{
+X  int i;
+X
+X  objectansi[0] = elemansi[1];
+X  for (i = 1; i <= 10; i++)
+X    objectansi[i] = elemansi[(ruler1[i]-1)%4];
+X  for (i = 11; i <= 15; i++)
+X    objectansi[i] = MAGENTA;
+X  for (i = 16; i <= 20; i++)
+X    objectansi[i] = DKCYAN;
+X  objectansi[18] = elemansi[1]; objectansi[19] = elemansi[0];
+X  objectansi[21] = elemansi[2]; objectansi[22] = elemansi[3];
+X  objectansi[23] = elemansi[1]; objectansi[24] = elemansi[2];
+X  for (i = U_LO; i <= U_HI; i++)
+X    objectansi[i] = PURPLE;
+X  for (i = S_LO; i <= S_HI; i++)
+X    objectansi[i] = starbright[i-BASE] < 1.0 ? ORANGE : MAROON;
+X}
+X
+X
+X/* This is the dispatch procedure for the entire program. After all the   */
+X/* command switches have been processed, this routine is called to        */
+X/* actually call the various routines to generate and display the charts. */
+X
+Xvoid Action()
+X{
+X  int i;
+X
+X  AnsiColor(-1);
+X
+X  /* First let's adjust the restriction status of the minor cusps, uranians, */
+X  /* and fixed stars based on whether -C, -u, and -U switches are in effect. */
+X
+X  if (!(operation & DASHC))
+X    for (i = C_LO; i <= C_HI; i++)
+X      ignore[i] = TRUE;
+X  if (!(operation & DASHu))
+X    for (i = U_LO; i <= U_HI; i++)
+X      ignore[i] = TRUE;
+X  if (!universe)
+X    for (i = S_LO; i <= S_HI; i++)
+X      ignore[i] = TRUE;
+X
+X  if (Delta != 0.0) {                   /* If -+ or -- switches in effect   */
+X    JD = MdyToJulian(M, D+Delta, Y);    /* then add the specified delta     */
+X    JulianToMdy(JD, &M, &D, &Y);        /* value to date before proceeding. */
+X  }
+X
+X    /* Here we either do a normal chart or some kind of relationship chart. */
+X
+X  if (!relation) {
+X    if (!autom)            /* If chart information not in memory yet, */
+X      InputData("tty");    /* then prompt the user for the time, etc. */
+X    Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X    CastChart(TRUE);
+X  } else
+X    CastRelation();
+X#ifdef GRAPH
+X  if (operation & DASHX)    /* If any of the X window switches in effect, */
+X    XAction();              /* then go make a graphics chart...           */
+X  else
+X#endif
+X    PrintChart(prog);       /* Otherwise print chart on text screen.      */
+X
+X  if (operation & DASHo)    /* If -o switch in effect, then write */
+X    OutputData();           /* the chart information to a file.   */
+X}
+X
+X
+X/* This routine is called by the main program to actually prompt the user */
+X/* for the command switches and parameters, to be entered one by one in   */
+X/* the same format as they would be on a Unix command line. This is only  */
+X/* executed for those non-Unix systems which don't allow passing of the   */
+X/* command line to the program. The result of this routine is passed back */
+X/* to the main program which then processes it just like in a Unix        */
+X/* system. (Not very graceful, but it works and gets the job done.)       */
+X
+X#ifndef SWITCHES
+X#define MAXSWITCHES 30
+Xint InputSwitches(argv)
+Xchar argv[MAXSWITCHES][12];
+X{
+X  int argc = 0;
+X
+X  AnsiColor(WHITE);
+X  printf("** %s version %s (%s) **\n", appname, VERSION, ADDRESS);
+X  AnsiColor(-1);
+X  printf("Enter all switch parameters below. (Enter %cH for help.)\n", DASH);
+X  printf("Press return after each switch or number parameter input.\n");
+X  printf("Input a '.' on a line by itself when done.\n\n");
+X  do {
+X    argc++;
+X    printf("Input parameter string #%2d: ", argc);
+X    if (gets(argv[argc]) == (char *) NULL) {
+X      printf("\n%s terminated.\n", appname);
+X      Terminate(2);
+X    }
+X  } while (argc < MAXSWITCHES && (argv[argc][0] != '.' ||
+X      argv[argc][1] != 0));
+X  putchar('\n');
+X  return argc;
+X}
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Main program
+X*******************************************************************************
+X*/
+X
+X/* The main program, the starting point for Astrolog, follows. This section */
+X/* basically consists of looping through and processing each switch on the  */
+X/* command line, before actually calling a routine to do the neat stuff.    */
+X
+Xint main(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  int pos, i;
+X  real k;
+X  char cpos, *c;
+X#ifdef TIME
+X  struct tm curtime;
+X  long curtimer;
+X#endif
+X#ifndef SWITCHES
+X  char strings[MAXSWITCHES][12];
+X  char *pointers[MAXSWITCHES];
+X#endif
+X
+X  InputDefaults();
+X#ifndef SWITCHES
+X  for (i = 0; i < MAXSWITCHES; i++)
+X    pointers[i] = strings[i];
+X  argc = InputSwitches(strings);
+X  argv = pointers;
+X#endif
+X  InitColors();
+X
+X  argc--; argv++;
+X  while (argc) {
+X    pos  = 1 + (argv[0][0] == '-' || argv[0][0] == '/');
+X    cpos = argv[0][pos];
+X    switch (argv[0][pos-1]) {
+X    case 'H':
+X      if (cpos != '0')
+X        DisplaySwitches();
+X      else
+X        PrintSigns();
+X      Terminate(0);
+X    case 'O':
+X      PrintObjects(cpos == '0');
+X      Terminate(0);
+X    case 'R':
+X      if (cpos == 'T') {
+X        c = (char PTR)ignore2;
+X        pos++;
+X        cpos = argv[0][pos];
+X      } else
+X        c = (char PTR)ignore;
+X      if (cpos == '0')
+X        for (i = 1; i <= total; i++)
+X          c[i] = TRUE;
+X      else if (cpos == 'C')
+X        for (i = C_LO; i <= C_HI; i++)
+X          c[i] = !c[i];
+X      else if (cpos == 'u')
+X        for (i = U_LO; i <= U_HI; i++)
+X          c[i] = !c[i];
+X      else if (cpos == 'U')
+X        for (i = S_LO; i <= S_HI; i++)
+X          c[i] = !c[i];
+X      else if (argc <= 1 || (!atoi(argv[1]))) {
+X        for (i = 11; i <= 15; i++)
+X          c[i] = !c[i];
+X        c[17] = !c[17]; c[20] = !c[20];
+X      }
+X      while (argc > 1 && (i = atoi(argv[1])))
+X        if (i < 1 || i > total)
+X          BadVal("R", i);
+X        else {
+X          c[i] = !c[i];
+X          argc--; argv++;
+X        }
+X      break;
+X    case 'u':
+X      operation ^= DASHu;
+X      break;
+X    case 'U':
+X      if (cpos == 'n' || cpos == 'b' || cpos == 'z' || cpos == 'l')
+X        universe = cpos;
+X      else
+X        universe = !universe;
+X      break;
+X    case 'C':
+X      operation ^= DASHC;
+X      break;
+X    case 'A':
+X      if (argc <= 1) {
+X        PrintAspects();
+X        Terminate(0);
+X      }
+X      if (cpos != 'o' && cpos != 'm' && cpos != 'd') {
+X        aspects = atoi(argv[1]);
+X        if (aspects < 0 || aspects > ASPECTS)
+X          BadVal("A", aspects);
+X        argc--; argv++;
+X      } else {
+X        if (argc <= 2)
+X          TooFew("A");
+X        i = atoi(argv[1]);
+X        if (i < 1 || i > (cpos == 'o' ? ASPECTS : OBJECTS)) {
+X          fprintf(stderr, "%s: Value %d passed to switch -A%c out of range.\n",
+X            appname, i, cpos);
+X          Terminate(1);
+X        }
+X        k = atof(argv[2]);
+X        if (k < -360.0 || k > 360.0) {
+X          fprintf(stderr,
+X            "%s: Value %.0f passed to switch -A%c out of range.\n",
+X            appname, k, cpos);
+X          Terminate(1);
+X        }
+X        if (cpos == 'm')
+X          planetorb[i] = k;
+X        else if (cpos == 'd')
+X          planetadd[i] = k;
+X        else
+X          aspectorb[i] = k;
+X        argc -= 2; argv += 2;
+X      }
+X      break;
+X    case 's':
+X      if (cpos != '0')
+X        operation ^= DASHs;
+X      else
+X        operation ^= DASHs0;
+X      break;
+X    case 'h':
+X      if (argc > 1 && (centerplanet = atoi(argv[1]))) {
+X        argc--; argv++;
+X      } else
+X        centerplanet = 1;
+X      if (centerplanet < 0 || centerplanet == 2 || (centerplanet >= THINGS &&
+X        centerplanet < U_LO) || centerplanet > U_HI)
+X        BadVal("h", centerplanet);
+X      c = objectname[0];
+X      objectname[0] = objectname[centerplanet];
+X      objectname[centerplanet] = c;
+X      if (centerplanet < 2)
+X        centerplanet = 1-centerplanet;
+X      break;
+X    case 'c':
+X      if (argc <= 1)
+X        TooFew("c");
+X      housesystem = atoi(argv[1]);
+X      if (housesystem < 0 || housesystem >= SYSTEMS)
+X        BadVal("c", housesystem);
+X      argc--; argv++;
+X      break;
+X    case 'x':
+X      if (argc <= 1)
+X        TooFew("x");
+X      multiplyfactor = atoi(argv[1]);
+X      if (multiplyfactor < 1 || multiplyfactor > DEGREES)
+X        BadVal("x", multiplyfactor);
+X      argc--; argv++;
+X      break;
+X    case '1':
+X      if (argc > 1 && (onasc = atoi(argv[1]))) {
+X        argc--; argv++;
+X      } else
+X        onasc = 1;
+X      if (onasc < 1 || onasc > TOTAL)
+X        BadVal("1", onasc);
+X      break;
+X    case '2':
+X      if (argc > 1 && (onasc = atoi(argv[1]))) {
+X        argc--; argv++;
+X      } else
+X        onasc = 1;
+X      if (onasc < 1 || onasc > TOTAL)
+X        BadVal("2", onasc);
+X      onasc = -onasc;
+X      break;
+X    case 'f':
+X      operation ^= DASHf;
+X      break;
+X    case '3':
+X      operation ^= DASH3;
+X      break;
+X    case 'G':
+X      operation ^= DASHG;
+X      break;
+X    case 'p':
+X      if (cpos == '0') {
+X        operation |= DASHp0;
+X        cpos = (argv[0][++pos]);
+X      }
+X      progress = TRUE;
+X#ifdef TIME
+X      if (cpos == 'n') {
+X        curtimer = (long) time((long *) 0);
+X        curtime = *localtime(&curtimer);
+X        Mon = (real) curtime.tm_mon + 1.0;
+X        Day = (real) curtime.tm_mday;
+X        Yea = (real) curtime.tm_year + 1900.0;
+X        Jdp = MdyToJulian(Mon, Day, Yea);
+X        break;
+X      }
+X#endif
+X      if (cpos == 'd') {
+X        if (argc <= 1)
+X          TooFew("pd");
+X        progday = atof(argv[1]);
+X        if (progday == 0.0)
+X          BadVal2("pd", progday);
+X        argc--; argv++;
+X        break;
+X      }
+X      if (argc <= 3)
+X        TooFew("p");
+X      Mon = atof(argv[1]);
+X      if (Mon < 1.0 || Mon > 12.0)
+X        BadVal2("p", Mon);
+X      Day = atof(argv[2]);
+X      Yea = atof(argv[3]);
+X      if (Day < 1.0 || Day > (real)DayInMonth((int)Mon, (int)Yea))
+X        BadVal2("p", Day);
+X      Jdp = MdyToJulian(Mon, Day, Yea);
+X      argc -= 3; argv += 3;
+X      break;
+X    case 'F':
+X      if (argc <= 3)
+X        TooFew("F");
+X      i = atoi(argv[1]);
+X      if (i < 1 || i > TOTAL)
+X        BadVal("F", i);
+X      force[i] = atof(argv[2])*30.0-30.0+DecToDeg(atof(argv[3]));
+X      if (force[i] < 0.0 || force[i] >= DEGREES)
+X        BadVal2("F", force[i]);
+X      else
+X        force[i] += DEGREES;
+X      argc -= 3; argv += 3;
+X      break;
+X    case '+':
+X      if (argc > 1 && (k = atof(argv[1])) != 0.0) {
+X        argc--; argv++;
+X        Delta += k;
+X      } else
+X        Delta += 1.0;
+X      break;
+X    case '-': case '\0':
+X      if (argc > 1 && (k = atof(argv[1])) != 0.0) {
+X        argc--; argv++;
+X        Delta -= k;
+X      } else
+X        Delta -= 1.0;
+X      break;
+X    case 'v':
+X      if (cpos == '0')
+X        exdisplay ^= DASHv0;
+X      todisplay ^= DASHv;
+X      break;
+X    case 'w':
+X      if (cpos == '0')
+X        exdisplay ^= DASHw0;
+X      if (argc > 1 && (i = atoi(argv[1]))) {
+X        wheelrows = i;
+X        argc--; argv++;
+X      }
+X      if (wheelrows < 1 || wheelrows > WHEELROWS)
+X        BadVal("w", wheelrows);
+X      todisplay ^= DASHw;
+X      break;
+X    case 'g':
+X      if (cpos == '0')
+X        exdisplay ^= DASHg0;
+X      else if (cpos == 'a') {
+X        exdisplay ^= DASHga;
+X        if (argv[0][pos+1] == '0')
+X          exdisplay ^= DASHg0;
+X      }
+X      todisplay ^= DASHg;
+X      break;
+X    case 'm':
+X      if (cpos == '0')
+X        exdisplay ^= DASHm0;
+X      todisplay ^= DASHm;
+X      break;
+X    case 'Z':
+X      if (cpos == '0')
+X        exdisplay ^= DASHZ0;
+X      todisplay ^= DASHZ;
+X      break;
+X    case 'S':
+X      todisplay ^= DASHS;
+X      break;
+X    case 'j':
+X      if (cpos == '0')
+X        exdisplay ^= DASHj0;
+X      todisplay ^= DASHj;
+X      break;
+X    case 'L':
+X      if (cpos == '0')
+X        exdisplay ^= DASHL0;
+X      if (argc > 1 && (i = atoi(argv[1]))) {
+X        graphstep = i;
+X        argc--; argv++;
+X      }
+X      if (graphstep < 1 || 160%graphstep > 0)
+X        BadVal("L", graphstep);
+X      todisplay ^= DASHL;
+X      break;
+X    case 'd':
+X      if (cpos == 'p') {
+X        if (argc <= 2)
+X          TooFew("dp");
+X        prog = TRUE;
+X        exdisplay ^= DASHdm;
+X        Mon2 = atof(argv[1]);
+X        Yea2 = atof(argv[2]);
+X        if (Mon2 < 0.0 || Mon2 > 12.0)
+X          BadVal2("dp", Mon2);
+X        argc -= 2; argv += 2;
+X      } else if (cpos == 'm')
+X        exdisplay ^= DASHdm;
+X#ifdef X11
+X      else if (cpos == 'i') {
+X        if (argc <= 1)
+X          TooFew("display");
+X        dispname = argv[1];
+X      }
+X#endif
+X      todisplay ^= DASHd;
+X      break;
+X    case 'E':
+X      if (cpos == 'y')
+X        exdisplay ^= DASHEy;
+X      todisplay ^= DASHE;
+X      break;
+X    case 'T':
+X#ifdef TIME
+X      if (cpos == 'n') {
+X        curtimer = (long) time((long *) 0);
+X        curtime = *localtime(&curtimer);
+X        todisplay ^= DASHT;
+X        if (argv[0][pos+1] == 'y')
+X          Mon2 = 0.0;
+X        else {
+X          Mon2 = (real) curtime.tm_mon + 1.0;
+X          if (Mon2 < 1.0 || Mon2 > 12.0)
+X            BadVal2("Tn", Mon2);
+X        }
+X        Yea2 = (real) curtime.tm_year + 1900.0;
+X        break;
+X      }
+X#endif
+X      if (i = cpos == 'p')
+X        prog = TRUE;
+X      i = (argv[0][pos+i] == 'y');
+X      if (argc <= 2-i)
+X        TooFew("T");
+X      todisplay ^= DASHT;
+X      if (i)
+X        Mon2 = 0.0;
+X      else {
+X        Mon2 = atof(argv[1]);
+X        if (Mon2 < 1.0 || Mon2 > 12.0)
+X          BadVal2("T", Mon2);
+X      }
+X      Yea2 = atof(argv[2-i]);
+X      argc -= 2-i; argv += 2-i;
+X      break;
+X    case 'e':
+X      todisplay ^= DASHe;
+X      exdisplay ^= DASHg0 | DASHj0 | DASHL0;
+X      break;
+X    case 'I':
+X      if (cpos == '0') {
+X        ChartLocation(TRUE);
+X        ChartGrid(TRUE);
+X        Terminate(0);
+X      }
+X      interpret = !interpret;
+X      break;
+X#ifdef TIME
+X    case 'n':
+X      InputData("now");
+X      if (cpos == 'd')
+X        F = 0.0;
+X      else if (cpos == 'm') {
+X        D = 1.0; F = 0.0;
+X      } else if (cpos == 'y') {
+X        M = D = 1.0; F = 0.0;
+X      }
+X      break;
+X#endif
+X    case 'l':
+X      if (argc <= 2)
+X        TooFew("l");
+X      deflong = atof(argv[1]);
+X      deflat  = atof(argv[2]);
+X      if (deflong < -180.0 || deflong > 180.0)
+X        BadVal2("l", deflong);
+X      if (deflat < -90 || deflat > 90)
+X        BadVal2("l", deflat);
+X      argc -= 2; argv += 2;
+X      break;
+X    case 'z':
+X      if (argc <= 1 || (atoi(argv[1]) == 0 && argv[1][0] != '0'))
+X        defzone--;
+X      else {
+X        defzone = atof(argv[1]);
+X        if (defzone < -24.0 || defzone > 24.0)
+X          BadVal2("z", defzone);
+X        argc--; argv++;
+X      }
+X      break;
+X    case 'a':
+X      if (argc <= 7)
+X        TooFew("a");
+X      autom = TRUE;
+X      M = atof(argv[1]); D = atof(argv[2]); Y = atof(argv[3]);
+X      F = atof(argv[4]); X = atof(argv[5]);
+X      L5 = atof(argv[6]); LA = atof(argv[7]);
+X      if (M < 1.0 || M > 12.0)
+X        BadVal2("a", M);
+X      if (D < 1.0 || D > (real)DayInMonth((int)M, (int)Y))
+X        BadVal2("a", D);
+X      if (F < -2.0 || F > 24.0)
+X        BadVal2("a", F);
+X      if (X < -24.0 || X > 24.0)
+X        BadVal2("a", M);
+X      if (L5 < -180.0 || L5 > 180.0)
+X        BadVal2("a", L5);
+X      if (LA < -90 || LA > 90)
+X        BadVal2("a", LA);
+X      argc -= 7; argv += 7;
+X      break;
+X    case 'q':
+X      i = (cpos == 'd') + 2*(cpos == 'm') + 3*(cpos == 'y');
+X      if (argc <= 4-i)
+X        TooFew("q");
+X      autom = TRUE;
+X      M = i > 2 ? 1.0 : atof(argv[1]);
+X      D = i > 1 ? 1.0 : atof(argv[2-(i>2)]); Y = atof(argv[4-i-(i<1)]);
+X      F = i == 0 ? atof(argv[4]) : (i > 1 ? 0.0 : 12.0);
+X      X = defzone; L5 = deflong; LA = deflat;
+X      if (M < 1.0 || M > 12.0)
+X        BadVal2("q", M);
+X      if (D < 1.0 || D > (real)DayInMonth((int)M, (int)Y))
+X        BadVal2("q", D);
+X      if (F < -2.0 || F > 24.0)
+X        BadVal2("q", F);
+X      argc -= 4-i; argv += 4-i;
+X      break;
+X    case 'i':
+X      if (argc <= 1)
+X        TooFew("i");
+X      InputData(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case 'o':
+X      if (argc <= 1)
+X        TooFew("o");
+X      if (cpos == '0')
+X        operation ^= DASHo0;
+X      operation ^= DASHo;
+X      filenameout = argv[1];
+X      extralines = argv;
+X      do {
+X        argc--; argv++;
+X        extracount++;
+X      } while (argc > 1 && (argv[1][0] != '-' || argv[1][0] != '/'));
+X      break;
+X    case 'r':
+X      if (argc <= 2)
+X        TooFew("r");
+X      if (cpos == 'c')
+X        relation = DASHrc;
+X      else if (cpos == 'm')
+X        relation = DASHrm;
+X      else if (cpos == 'd')
+X        relation = DASHrd;
+X      else if (cpos == 'b')
+X        relation = DASHrb;
+X      else if (cpos == '0')
+X        relation = DASHr0;
+X      else
+X        relation = DASHr;
+X      filename = argv[1]; filename2 = argv[2];
+X      argc -= 2; argv += 2;
+X      break;
+X#ifdef TIME
+X    case 't':
+X      if (argc <= 1)
+X        TooFew("t");
+X      if (cpos == 'd')
+X        relation = DASHrd;
+X      else if (cpos == 'b')
+X        relation = DASHrb;
+X      else
+X        relation = DASHr0;
+X      filename = argv[1]; filename2 = "now";
+X      argc--; argv++;
+X      break;
+X#endif
+X    case 'k':
+X      ansi = !ansi;
+X      break;
+X#ifdef GRAPH
+X    case 'X':
+X      i = XProcess(argc, argv, pos);
+X      operation |= DASHX;
+X      argc -= i; argv += i;
+X      break;
+X#endif
+X    default:
+X      fprintf(stderr, "%s: Unknown switch '%s'\n", appname, argv[0]);
+X      Terminate(1);
+X    }
+X    argc--; argv++;
+X  }
+X  Action();
+X  Terminate(0);
+X}
+X
+X/* driver.c */
+END_OF_FILE
+if test 35459 -ne `wc -c <'driver.c'`; then
+    echo shar: \"'driver.c'\" unpacked with wrong size!
+fi
+# end of 'driver.c'
+fi
+echo shar: End of archive 2 \(of 12\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

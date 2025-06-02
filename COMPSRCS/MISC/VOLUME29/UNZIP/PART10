@@ -1,0 +1,1689 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i040:  unzip - Info-ZIP's portable UnZip v4.2, Part10/12
+Message-ID: <1992Apr3.063346.29189@sparky.imd.sterling.com>
+X-Md4-Signature: 1ed40bf265a4e8152deea0772169eba1
+Date: Fri, 3 Apr 1992 06:33:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 40
+Archive-name: unzip/part10
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  AMIGA/utime.c ATARI/AtariST.pat History.420
+#   MSDOS/makefile.cr.uu MSDOS/makefile.uu OS2/dosname.c OS2/ship.dif
+#   VMS/crypt/make_unzip_gcc.com match.c unreduce.c unshrink.c
+# Wrapped by kent@sparky on Mon Mar 30 01:45:55 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 12)."'
+if test -f 'AMIGA/utime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AMIGA/utime.c'\"
+else
+  echo shar: Extracting \"'AMIGA/utime.c'\" \(3993 characters\)
+  sed "s/^X//" >'AMIGA/utime.c' <<'END_OF_FILE'
+X/* utime.c */
+X
+X#include <string.h>
+X#include <time.h>
+X#include <errno.h>
+X
+X#include <exec/types.h>
+X#include <exec/memory.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X
+Xextern LONG sendpkt(struct MsgPort *,LONG,LONG[],LONG);
+X
+Xextern int _OSERR;
+X
+X#ifndef SUCCESS
+X#define SUCCESS (-1L)
+X#define FAILURE 0L
+X#endif
+X
+Xint utime(char *file, time_t timep[]);
+X
+Xint utime(file,timep)
+Xchar *file;
+Xtime_t timep[];
+X{
+X
+X    struct DateStamp date;
+X    struct MsgPort *taskport;
+X    struct FileLock *dirlock, *lock;
+X    struct FileInfoBlock *fib;
+X
+X    LONG argv[4];
+X    UBYTE *ptr;
+X    long ret;
+X
+X/*  timep[1] -= timezone;   */
+X
+X    date.ds_Days = timep[1] / 86400;
+X    date.ds_Minute = (timep[1] - (date.ds_Days * 86400))/60;
+X    date.ds_Tick = ( timep[1] - (date.ds_Days * 86400) -
+X                                (date.ds_Minute * 60)
+X                   ) * TICKS_PER_SECOND;
+X    date.ds_Days -= ((8*365+2));
+X
+X    if( !(taskport = (struct MsgPort *)DeviceProc(file)) )
+X    {
+X        errno = ESRCH;          /* no such process */
+X        _OSERR = IoErr();
+X        return(-1);
+X    }
+X
+X    if( !(lock = (struct FileLock *)Lock(file,SHARED_LOCK)) )
+X    {
+X        errno = ENOENT;         /* no such file */
+X        _OSERR = IoErr();
+X        return(-1);
+X    }
+X
+X    if( !(fib = (struct FileInfoBlock *)AllocMem(
+X        (long)sizeof(struct FileInfoBlock),MEMF_PUBLIC|MEMF_CLEAR)) )
+X    {
+X        errno = ENOMEM;         /* insufficient memory */
+X        UnLock((BPTR)lock);
+X        return(-1);
+X    }
+X
+X    if( Examine((BPTR)lock,fib)==FAILURE )
+X    {
+X        errno = EOSERR;         /* operating system error */
+X        _OSERR = IoErr();
+X        UnLock((BPTR)lock);
+X        FreeMem((char *)fib,(long)sizeof(*fib));
+X        return(-1);
+X    }
+X
+X    dirlock = (struct FileLock *)ParentDir((BPTR)lock);
+X    ptr = (UBYTE *)AllocMem(64L,MEMF_PUBLIC);
+X    strcpy((ptr+1),fib->fib_FileName);
+X    *ptr = strlen(fib->fib_FileName);
+X    FreeMem((char *)fib,(long)sizeof(*fib));
+X    UnLock((BPTR)lock);
+X
+X    /* now fill in argument array */
+X
+X    argv[0] = NULL;
+X    argv[1] = (LONG)dirlock;
+X    argv[2] = (LONG)&ptr[0] >> 2;
+X    argv[3] = (LONG)&date;
+X
+X    errno = ret = sendpkt(taskport,34L,argv,4L);
+X
+X    FreeMem(ptr,64L);
+X    UnLock((BPTR)dirlock);
+X
+X    return(0);
+X
+X} /* utime() */
+X/*  sendpkt.c
+X *  by A. Finkel, P. Lindsay, C. Sheppner
+X *  returns Res1 of the reply packet
+X */
+X/*
+X#include <exec/types.h>
+X#include <exec/memory.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X*/
+X
+XLONG sendpkt(pid,action,args,nargs)
+Xstruct MsgPort *pid;            /* process identifier (handler message port) */
+XLONG action,                    /* packet type (desired action)              */
+X     *args,                     /* a pointer to argument list                */
+X     nargs;                     /* number of arguments in list               */
+X{
+X
+X    struct MsgPort *replyport;
+X    struct StandardPacket *packet;
+X    LONG count, *pargs, res1;
+X
+X    replyport = (struct MsgPort *)CreatePort(0L,0L);
+X    if( !replyport ) return(NULL);
+X
+X    packet = (struct StandardPacket *)AllocMem(
+X            (long)sizeof(struct StandardPacket),MEMF_PUBLIC|MEMF_CLEAR);
+X    if( !packet )
+X    {
+X        DeletePort(replyport);
+X        return(NULL);
+X    }
+X
+X    packet->sp_Msg.mn_Node.ln_Name  = (char *)&(packet->sp_Pkt);
+X    packet->sp_Pkt.dp_Link          = &(packet->sp_Msg);
+X    packet->sp_Pkt.dp_Port          = replyport;
+X    packet->sp_Pkt.dp_Type          = action;
+X
+X    /* copy the args into the packet */
+X    pargs = &(packet->sp_Pkt.dp_Arg1);      /* address of 1st argument */
+X    for( count=0; count<nargs; count++ )
+X        pargs[count] = args[count];
+X
+X    PutMsg(pid,(struct Message *)packet);   /* send packet */
+X
+X    WaitPort(replyport);
+X    GetMsg(replyport);
+X
+X    res1 = packet->sp_Pkt.dp_Res1;
+X
+X    FreeMem((char *)packet,(long)sizeof(*packet));
+X    DeletePort(replyport);
+X
+X    return(res1);
+X
+X} /* sendpkt() */
+END_OF_FILE
+  if test 3993 -ne `wc -c <'AMIGA/utime.c'`; then
+    echo shar: \"'AMIGA/utime.c'\" unpacked with wrong size!
+  fi
+  # end of 'AMIGA/utime.c'
+fi
+if test -f 'ATARI/AtariST.pat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ATARI/AtariST.pat'\"
+else
+  echo shar: Extracting \"'ATARI/AtariST.pat'\" \(5779 characters\)
+  sed "s/^X//" >'ATARI/AtariST.pat' <<'END_OF_FILE'
+X*** mapname.c.orig	Fri Feb  7 22:56:19 1992
+X--- mapname.c	Fri Feb  7 23:06:32 1992
+X***************
+X*** 209,215 ****
+X--- 209,219 ----
+X  #ifdef MACOS
+X                      strcat(cdp, ":");
+X  #else /* !MACOS */
+X+ #if	ATARI_ST
+X+                     strcat(cdp, "\\");
+X+ #else  /* !ATARI_ST */
+X                      strcat(cdp, "/");
+X+ #endif /* ?ATARI_ST */
+X  #endif /* ?MACOS */
+X  #endif /* ?VMS */
+X                  }               /***** FALL THROUGH to ':' case  **** */
+X*** unzip.c.orig	Fri Feb  7 22:56:20 1992
+X--- unzip.c	Fri Feb  7 23:17:06 1992
+X***************
+X*** 119,124 ****
+X--- 119,131 ----
+X  byte *stack;
+X  #else
+X  byte suffix_of[HSIZE + 1];      /* also s-f length_nodes (smaller) */
+X+ #if	ATARI_ST
+X+ /* now this is the third time I had to fix this...
+X+  * does NOBODY understand that you C_A_N_N_O_T reuse a byte array
+X+  * for anything of larger type because of possible alignment problems?
+X+  */
+X+ int	HadToAlignStackElseItCrashed;
+X+ #endif
+X  byte stack[HSIZE + 1];          /* also s-f distance_nodes (smaller) */
+X  #endif
+X  
+X*** unzip.h.orig	Fri Feb  7 22:56:21 1992
+X--- unzip.h	Sat Feb  8 00:47:55 1992
+X***************
+X*** 27,34 ****
+X  #  if defined(THINK_C) || defined(MPW) /* for Macs */
+X  #    include <stddef.h>
+X  #  else
+X! #    include <sys/types.h> /* off_t, time_t, dev_t, ... */
+X! #    include <sys/stat.h>  /* Everybody seems to need this. */
+X  #  endif
+X  #endif                   /*   This include file defines
+X                            *     #define S_IREAD 0x0100  (owner may read)
+X--- 27,39 ----
+X  #  if defined(THINK_C) || defined(MPW) /* for Macs */
+X  #    include <stddef.h>
+X  #  else
+X! #    ifdef ATARI_ST
+X! #      include <stddef.h>
+X! #      define __STDC__ 1 /* see note below */
+X! #    else
+X! #      include <sys/types.h> /* off_t, time_t, dev_t, ... */
+X! #      include <sys/stat.h>  /* Everybody seems to need this. */
+X! #    endif
+X  #  endif
+X  #endif                   /*   This include file defines
+X                            *     #define S_IREAD 0x0100  (owner may read)
+X***************
+X*** 71,76 ****
+X--- 76,95 ----
+X      And now, our MS-DOS and OS/2 corner:
+X    ---------------------------------------------------------------------------*/
+X  
+X+ /*
+X+  * How comes poor little Atari ST 's playing with these boys of the 'hood ?
+X+  *
+X+  * For everybody: TURBO C for the Atari ST also defines __TURBOC__
+X+  *                You (yes YOU!!) may NOT RELY ON __TURBOC__ to tell
+X+  *                that this is MSDOS or whatever!
+X+  */
+X+ #ifdef ATARI_ST
+X+ /* KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE    */
+X+ #undef __TURBOC__
+X+ #endif
+X+ 
+X+ /* FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME FIXME  */
+X+ /*       vvvvvv    */
+X  #ifdef __TURBOC__
+X  #  define DOS_OS2             /* Turbo C under DOS, MSC under DOS or OS2    */
+X  #  include <sys/timeb.h>      /* for structure ftime                        */
+X***************
+X*** 123,132 ****
+X  #    ifdef MTS
+X  #      include <sys/file.h>     /* MTS uses this instead of fcntl.h */
+X  #    else
+X! #      include <fcntl.h>
+X  #    endif
+X  #  endif
+X  #endif
+X  /*
+X   *   fcntl.h (above):   This include file defines
+X   *                        #define O_BINARY 0x8000  (no cr-lf translation)
+X--- 142,162 ----
+X  #    ifdef MTS
+X  #      include <sys/file.h>     /* MTS uses this instead of fcntl.h */
+X  #    else
+X!      /*
+X!       * FIXME:
+X!       *
+X!       * Again, just by not being VMS, V7 or MTS, the little Atari ST
+X!       * winds up here (and everybody else too). WHOEVER NEEDS this stuff,
+X!       * DECLARE YOURSELF and DONT rely on this kind of negative logic!
+X!       */
+X! #      ifndef ATARI_ST
+X!          /* KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE KLUDGE    */
+X! #        include <fcntl.h>
+X! #      endif
+X  #    endif
+X  #  endif
+X  #endif
+X+ 
+X  /*
+X   *   fcntl.h (above):   This include file defines
+X   *                        #define O_BINARY 0x8000  (no cr-lf translation)
+X***************
+X*** 159,164 ****
+X--- 189,203 ----
+X      And finally, some random extra stuff:
+X    ---------------------------------------------------------------------------*/
+X  
+X+ /* FIXME:
+X+  *
+X+  * As used by Turbo C (at least for the Atari ST),
+X+  * __STDC__ means that the compiler has been RESTRICTED to standard ANSI C.
+X+  *
+X+  * What we want here is: do we have a compiler which has ANSI C prototypes
+X+  * and includes.
+X+  * So better use somthing like: ANSI_C or so...
+X+  */
+X  #ifdef __STDC__
+X  #  include <stdlib.h>      /* standard library prototypes, malloc(), etc. */
+X  #  include <string.h>      /* defines strcpy, strcmp, memcpy, etc. */
+X***************
+X*** 169,174 ****
+X--- 208,245 ----
+X  #endif
+X  
+X  
+X+ /* Incidently, for Turbo C on the Atari ST we just order the following items:
+X+  */
+X+ #if ATARI_ST
+X+ #  include <time.h>
+X+ /* the following includes are really specific for Turbo C 2.0 !!      */
+X+ #  include <ext.h>      /* this gives us stat()                         */
+X+ #  include <tos.h>      /* OS specific functions (Fdup)                 */
+X+ #  define MSDOS         1               /* from here on. */
+X+ #  define DOS_OS2       1               /* from here on. */
+X+ #  define __TURBOC__    1               /* from here on. */
+X+ /*
+X+  * FIXME:
+X+  * Although the Atari ST (MC68000) and Turbo C use 16 bit ints,
+X+  * we have to use NOTINT16, since its an high-endian, and therefore
+X+  * we cannot read the intel little-endian structs.
+X+  * For that reason, NOTINT16 is another misnomer.
+X+  */
+X+ #  define NOTINT16      1
+X+ 
+X+ #  ifndef S_IFMT
+X+ #  define S_IFMT        (S_IFCHR|S_IFREG|S_IFDIR)
+X+ #  endif
+X+ 
+X+ #  ifndef O_BINARY
+X+ #  define O_BINARY 0
+X+ #  endif
+X+ 
+X+ /* replace dup by corresponding tos function  */
+X+ #  define       dup             Fdup
+X+ #  define       mkdir           Dcreate
+X+ 
+X+ #endif
+X  
+X  
+X  
+END_OF_FILE
+  if test 5779 -ne `wc -c <'ATARI/AtariST.pat'`; then
+    echo shar: \"'ATARI/AtariST.pat'\" unpacked with wrong size!
+  fi
+  # end of 'ATARI/AtariST.pat'
+fi
+if test -f 'History.420' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'History.420'\"
+else
+  echo shar: Extracting \"'History.420'\" \(4666 characters\)
+  sed "s/^X//" >'History.420' <<'END_OF_FILE'
+XUnZip version 4.2, 20 March 1992
+X
+XNew features, you betcha:
+X
+X - directories now created by default (was only with "-d" option); new "-j"
+X    option to junk directory names [CN]
+X - "-n" option for never overwriting existing files (opposite of -o) [CN]
+X - "-u" option (update: at last!) from Kai Uwe Rommel, just like zip's
+X    update option, but in reverse
+X - "-f" option (freshen) to complement -u; VMS support for both [CN]
+X - option to rename extracted file if already exists (another much-wanted
+X    improvement!) [Kai]
+X - option to set "-n" (never overwrite) in middle of processing zipfile [CN]
+X - (uncompressed) symbolic links extracted under Unix [Mark Adler]
+X - international date formats for DOS, OS/2 [Jon Saxton]
+X - trailing ^Z now removed with -a option under Unix/VMS/etc. [CN]
+X - decryption (uses existing crypt.c from zip 1.0) [big thanks to Mark and
+X    Jean-loup!]
+X - OS/2:  longnames now saved into EA DATA. SF on FAT disk [Kai Uwe Rommel]
+X - OS/2 2.0:  IBM C Set/2 and GNU C/emx 32-bit compilers supported [Kai]
+X - OS/2, MS-DOS:  "-b" option (blanks) to allow writing of filenames with
+X    blanks (like EA DATA. SF, above) on FAT disks [CN]
+X - Mac:  Aztec C port; new makefiles for Aztec C and MPW C [Antoine Verheijen]
+X - Amiga:  several compilers supported (possibly--not tested) [Paul Wells,
+X    Georg Sassen]
+X - Atari:  patches to UnZip 4.1 + support files [Martin Schulz]
+X - VMS:  new makefile command files for GNU C [Mike Freeman]
+X - VMS:  major improvements to handling of VMS file attributes [Igor
+X    Mandrichenko]
+X - major restructuring of extraction code, prompted by rename and VMS patches
+X    [CN, Igor Mandrichenko]
+X - usage info goes to stdout if just "unzip" specified; otherwise to stderr
+X    as before (allows redirection under MS-DOS) [CN]
+X - testing info with quiet flag (unzip -tq) identifies zipfile being tested and
+X    reports number of files skipped--for background or batch processing [CN]
+X - several new systems supported, including Minix (type "make list") [various]
+X - new ZipInfo [CN] and Ship [Mark] utility programs
+X - new (but incomplete) COPYING and CONTRIBS files to give credit where
+X    credit due (let us know if you're not in there and should be).
+X - assorted other new files (like BUGS, so you know what's still screwed up :-)
+X
+XBugs fixed:
+X
+X - HP, others:  FILENAME_MAX=14, not 256 or whatever:  paths truncated [CN,
+X    with much prodding from Jean-loup Gailly :-) ]
+X - VMS:  filenames longer than 31 characters get truncated? [seems to have
+X    gotten fixed by itself, or else side effect from FILENAME_MAX]
+X - check expected offset vs. actual and compensate (bogus MacBinary headers,
+X    etc.); indicate file transfer errors [CN, Jean-loup]
+X - ifdef sco, skip <param.h> (redefinitions) [CN]
+X - ifdef typedef byte:  some systems (just Bull?) have predefined [CN]
+X - Unix:  blanks no longer converted to underlines [CN, Mark]
+X - DOS (& OS/2?):  fatal write error if file to be unzipped is read-only [Kai?]
+X - DOS (& OS/2?):  if out of disk space, unzip hangs hard [CN, usually works:
+X    see comments in BUGS, however!]
+X - DOS:  decryption with Borland C was broken [David Kirschbaum]
+X - DOS & OS/2:  dos2unix() was not used; commented out [David]
+X - decryption key was doubly defined [David]
+X - file creation (actually deletion) error if file exists but not owned by us;
+X    try unlinking, report error [Cliff Stanford]
+X - VMS:  MMS file needs an odd space [Joel Aycock]
+X - PK signature strings encoded so unzip executable doesn't look like a zipfile
+X    [CN]
+X - Makefile and code simplified to remove non-NOTINT16 stuff (fewer false bug
+X    reports that way) [CN]
+X - changed all ?? and ??? comments to avoid possible ANSI trigraph warnings
+X    (except one string in zipinfo.c) [CN]
+X - Turbo C++ 1.0:  fixed problem with missing _MAX_PATH [CN]
+X
+X==================
+X
+XThese changes occurred in various versions, from 4.10a to 4.10x and 4.20a to
+X4.20x.  UnZip 4.11 was an incomplete (and somewhat incorrect) beta version.
+XAnyway, I have no idea what versions correspond to what features (except that
+Xdecryption appeared in 4.20n); it's not particularly relevant, since they
+Xwere all internal versions anyway.
+X
+XMore important is the fact that this list undoubtedly leaves out many bug-
+Xfixes and even some features which have been added; apologies to anyone who
+Xmay inadvertently been slighted.  Let us know, eh?  It's been too long...
+X
+XGreg Roelofs (a.k.a. Cave Newt)
+X
+X==================
+X
+XAnd now, over to our fearless coordinator, David "Death on Skis" Kirschbaum:
+X
+XHelloooo, David...Earth to David...yoooo hooooo....   Hmmm...must be out for
+Xthe moment.  We'll check back in with him for the next release!
+END_OF_FILE
+  if test 4666 -ne `wc -c <'History.420'`; then
+    echo shar: \"'History.420'\" unpacked with wrong size!
+  fi
+  # end of 'History.420'
+fi
+if test -f 'MSDOS/makefile.cr.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/makefile.cr.uu'\"
+else
+  echo shar: Extracting \"'MSDOS/makefile.cr.uu'\" \(4938 characters\)
+  sed "s/^X//" >'MSDOS/makefile.cr.uu' <<'END_OF_FILE'
+Xbegin 644 MSDOS/makefile.cr
+XM(R @36%K969I;&4N1$]3(" @($UA:V5F:6QE(&9O<B!5;EII<" T+G@L('5S
+XM:6YG($UI8W)O<V]F="!#($-O;7!I;&5R(#4N, T*(R @(%MC<GEP=%T@(" @
+XM(" @(&%N9"!-:6-R;W-O9G0@34%+12 T+C R("AO<B!L871E<B!V97)S:6]N
+XM<RDL(&]R($)O<FQA;F0-"B,@("!;;F\@:6YF;&%T95T@("!4=7)B;R!#(#(N
+XM,"X@($-O;6UE;G0O=6YC;VUM96YT('1H92!A<'!R;W!R:6%T92!S96-T:6]N
+XM<PT*(R @(" @(" @(" @(" @(" @(&)E;&]W(&%N9"]O<B!E9&ET('1H92!)
+XM;F-L=61E(&%N9"!,:6)R87)Y('!A=&AS+"!I9B -"B,@(" @(" @(" @(" @
+XM(" @("!N96-E<W-A<GDN("!&;W(@0F]R;&%N9"!#*RL@=7-E('1H92!N97=E
+XM<B!P<F]J96-T(&9I;&5S#0HC(" @(" @(" @(" @(" @(" @=VAI8V@@87)E
+XM(&%L<V\@:6YC;'5D960@*&)U="!R96%D('1H92!C;VUM96YT<R!I;B!#;VYT
+XM96YT<RDN#0HC#0HC(" @(" @(" @(" @(" @(" @57-E<G,@;V8@35-#(#8N
+XM,"!A;F0@3DU!2T4@<VAO=6QD('5S92!T:&4@<F5G=6QA<B!M86ME9FEL90T*
+XM(R @(" @(" @(" @(" @(" @(&)Y('1Y<&EN9R B;FUA:V4@;7-C7V1O<R(@
+XM;W(@(FYM86ME(&US8U]O<S(B+@T*(PT*(R @3F]T97,Z(" H,2D@56YC;VUM
+XM96YT('1H92!A<'!R;W!R:6%T92!C;VUP:6QE<B]/4R!O<'1I;VYS(&)E;&]W
+XM+@T*(R @(" @(" @(" H,BD@0VAA;F=E('1H92!V87)I;W5S($-&3$%'4R!A
+XM<R!A<'!R;W!R:6%T92!F;W(@>6]U<B!E;G9I<F]N;65N= T*(R @(" @(" @
+XM(" @(" @86YD(&QI8G)A<FEE<RX-"B,@(" @(" @(" @(" @($9O<B!-4T,Z
+XM(" M05,@<W!E8VEF:65S('-M86QL+6UO9&5L(&QI8G)A<GDL(&%N9" M1S(@
+XM96YA8FQE<PT*(R @(" @(" @(" @(" @.# R.#8@:6YS=')U8W1I;VYS+B @
+XM475I8VM#('5S97,@=&AE(&UE9&EU;2!M96UO<GD@;6]D96PL(&%S#0HC(" @
+XM(" @(" @(" @("!)(')E8V%L;" H+4%-(&%N9"]O<B M<6,I+B @5&AE(")!
+XM3$PZ(B!T87)G970@:7,@=7-E9"!B>2!-4T,-"B,@(" @(" @(" @(" @(#8N
+XM,"!W:71H(&]L9"!-04M%+B @6T)O($MU;&QM87)=#0HC(" @(" @(" @("@S
+XM*2!296YA;64@=&AI<R!F:6QE('1O(")U;GII<"(@;VX@82!$3U,@<WES=&5M
+XM.R!T>7!I;F<@(FUA:V4-"B,@(" @(" @(" @(" @('5N>FEP(B!W:71H($U3
+XM0R H;W(@(FUA:V4@+69U;GII<"(@=VET:"!40RD@=&AE;B!B=6EL9',-"B,@
+XM(" @(" @(" @(" @('5N>FEP+F5X92X-"B,-"B,@($=R96<@4F]E;&]F<PT*
+XM(PT*#0HC(R,C(R,C(R,C(R,C(R,C(R,C(R,-"B,@34%#4D\@1$5&24Y)5$E/
+XM3E,@(PT*(R,C(R,C(R,C(R,C(R,C(R,C(R,C#0H-"B,@0F]R;&%N9"!#*RL@
+XM,BXP(&9O<B!-4RU$3U,Z#0HC("TM+2TM+2TM+2TM+2TM+2TM+2TM+2T-"B,@
+XM8F-C(&ES('5S=6%L;'D@8V]N9FEG=7)E9"!W:71H("U)(&%N9" M3"!S970@
+XM87!P<F]P<FEA=&5L>2XN+@T*(R!#0R ](&)C8PT*(R!#1DQ!1U,@/2 M;7,@
+XM+4\@+5H@+41#4EE05 T*(R!)3D-,(#T@(RU)8SI<8F]R;&%N9%QI;F-L=61E
+XM#0HC($Q$(#T@8F-C#0HC($Q$1DQ!1U,@/2 M;7,@(RU,8SI<8F]R;&%N9%QL
+XM:6(-"B,@3$1&3$%'4S(@/0T*#0HC(%1U<F)O($,@,BXP(&9O<B!-4RU$3U,Z
+XM#0HC("TM+2TM+2TM+2TM+2TM+2TM+2TM+2T-"B,@=&-C(&ES('5S=6%L;'D@
+XM8V]N9FEG=7)E9"!W:71H("U)(&%N9" M3"!S970@87!P<F]P<FEA=&5L>2XN
+XM+@T*(R!#0R ]('1C8PT*(R!#1DQ!1U,@/2 M;7,@+4\@+5H@+41#4EE05 T*
+XM(R!)3D-,(#T@(RU)8SI<='5R8F]C7&EN8VQU9&4-"B,@3$0@/2!T8V,-"B,@
+XM3$1&3$%'4R ]("UM<R C+4QC.EQT=7)B;V-<;&EB#0HC($Q$1DQ!1U,R(#T-
+XM"@T*(R!-4T,@9F]R($U3+41/4SH-"B,@+2TM+2TM+2TM+2TM+2T-"D-#(#T@
+XM8VP-"D-&3$%'4R ]("U!4R M3W@@+4<R("U$0U)94%0@(",@861D("U&4&DX
+XM-R!I9B!C;W!R;V-E<W-O<B!I;G-T86QL960-"DE.0TP@/0T*3$0@/2!L:6YK
+XM#0I,1$9,04=3(#T@+TY/20T*3$1&3$%'4S(@/2 L)"H[#0H-"B,@35-#('=I
+XM=&@@4T1+(&9O<B!/4R\R.B @(" @(",@=&AI<R!T87)G970@;F\@;&]N9V5R
+XM('-U<'!O<G1E9#H@('5S92!-86ME9FEL90T*(R M+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2T@(" @(" @(R H:68@>6]U($U54U0@=7-E('1H:7,@=&%R9V5T+"!A
+XM9&0@9&]S;F%M92YO8FH-"B,@0T,@/2!C;" @(" @(" @(" @(" @(" @(" @
+XM(",@("!T;R!/0DI3(&%N9"!T:&4@9&5P96YD96YC:65S(&QI;F4@8F5L;W<I
+XM#0HC($-&3$%'4R ]("U!4R M3W@@+4<R("U$3U,R("U$0U)94%0-"B,@24Y#
+XM3" ]("U)8SI<;35<:6YC;'5D92 @(" @(",@9F]R(&5X86UP;&4-"B,@3$0@
+XM/2!L:6YK#0HC($Q$1DQ!1U,@/2 O3D])#0HC(%)-(#T@9&5L#0HC($Q)0D,@
+XM/2!C.EQM-5QL:6)<<%QS;&EB8V4-"B,@3$E"1" ](&,Z7&TU7&QI8EQD;W-C
+XM86QL<RYL:6(-"B,@3$E"02 ](&,Z7&TU7&QI8EQA<&DN;&EB#0H-"D]"2E,@
+XM/2!U;GII<"YO8FH@8W)Y<'0N;V)J(&5X=')A8W0N;V)J(&9I;&5?:6\N;V)J
+XM(&UA<&YA;64N;V)J(&UA=&-H+F]B:EP-"B @(" @("!M:7-C+F]B:B!U;FEM
+XM<&QO9"YO8FH@=6YR961U8V4N;V)J('5N<VAR:6YK+F]B:@T*#0H-"B,C(R,C
+XM(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C#0HC
+XM($)!4TE#($-/35!)3$4@24Y35%)50U1)3TY3($%.1"!$15!%3D1%3D-)15,@
+XM(PT*(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C
+XM(R,C(R,-"@T*04Q,"3H@=6YZ:7 N97AE#0H-"BYC+F]B:CH-"B @(" @(" @
+XM)"A#0RD@+6,@)"A#1DQ!1U,I("0H24Y#3"D@)"HN8PT*#0IU;GII<"YO8FHZ
+XM(" @(" @=6YZ:7 N8R!U;GII<"YH#0H-"F-R>7!T+F]B:CH@(" @("!C<GEP
+XM="YC('5N>FEP+F@@>FEP+F@-"@T*97AT<F%C="YO8FHZ(" @(&5X=')A8W0N
+XM8R!U;GII<"YH#0H-"F9I;&5?:6\N;V)J.B @("!F:6QE7VEO+F,@=6YZ:7 N
+XM: T*#0IM87!N86UE+F]B:CH@(" @;6%P;F%M92YC('5N>FEP+F@-"@T*;6%T
+XM8V@N;V)J.B @(" @(&UA=&-H+F,@=6YZ:7 N: T*#0IM:7-C+F]B:CH@(" @
+XM(" @;6ES8RYC('5N>FEP+F@-"@T*=6YI;7!L;V0N;V)J.B @('5N:6UP;&]D
+XM+F,@=6YZ:7 N: T*#0IU;G)E9'5C92YO8FHZ(" @=6YR961U8V4N8R!U;GII
+XM<"YH#0H-"G5N<VAR:6YK+F]B:CH@("!U;G-H<FEN:RYC('5N>FEP+F@-"@T*
+XM(R!$3U,Z#0HC("TM+0T*=6YZ:7 N97AE.B @(" @)"A/0DI3*0T*(" @(" @
+XM(" D*$Q$*2 D*$Q$1DQ!1U,I("0H3T)*4RD@)"A,1$9,04=3,BD-"@T*(R!/
+XM4R\R.@T*(R M+2TM#0HC('5N>FEP=&UP+F5X93H@("0H3T)*4RD-"B,@(" @
+XM(" @(" D*$Q$*2 D*$Q$1DQ!1U,I("0H3T)*4RDL("0J+F5X92PL)"A,24)#
+XM*2LD*$Q)0D0I.PT*(PT*(R!U;GII<"YE>&4Z(" @("!U;GII<'1M<"YE>&4-
+XM"B,@(" @(" @("!B:6YD('5N>FEP=&UP+F5X92 D*$Q)0D0I("0H3$E"02D@
+XM+6\@=6YZ:7 N97AE#0HC(" @(" @(" @)"A232D@=6YZ:7!T;7 N97AE#0HC
+XM(" @(" @(" @)"A232D@*BYO8FH-"B,@(" @(" @(" D*%)-*2 J+FUA< T*
+X!&B @
+X 
+Xend
+END_OF_FILE
+  if test 4938 -ne `wc -c <'MSDOS/makefile.cr.uu'`; then
+    echo shar: \"'MSDOS/makefile.cr.uu'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'MSDOS/makefile.cr.uu'\"
+    cat MSDOS/makefile.cr.uu | uudecode
+    if [ -f MSDOS/makefile.cr.uu ]; then
+       rm MSDOS/makefile.cr.uu
+    fi
+  fi
+  # end of 'MSDOS/makefile.cr.uu'
+fi
+if test -f 'MSDOS/makefile.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/makefile.uu'\"
+else
+  echo shar: Extracting \"'MSDOS/makefile.uu'\" \(4815 characters\)
+  sed "s/^X//" >'MSDOS/makefile.uu' <<'END_OF_FILE'
+Xbegin 644 MSDOS/makefile
+XM(R @36%K969I;&4N1$]3(" @($UA:V5F:6QE(&9O<B!5;EII<" T+G@L('5S
+XM:6YG($UI8W)O<V]F="!#($-O;7!I;&5R(#4N, T*(R @(%MN;R!C<GEP=%T@
+XM(" @(&%N9"!-:6-R;W-O9G0@34%+12 T+C R("AO<B!L871E<B!V97)S:6]N
+XM<RDL(&]R($)O<FQA;F0-"B,@("!;;F\@:6YF;&%T95T@("!4=7)B;R!#(#(N
+XM,"X@($-O;6UE;G0O=6YC;VUM96YT('1H92!A<'!R;W!R:6%T92!S96-T:6]N
+XM<PT*(R @(" @(" @(" @(" @(" @(&)E;&]W(&%N9"]O<B!E9&ET('1H92!)
+XM;F-L=61E(&%N9"!,:6)R87)Y('!A=&AS+"!I9B -"B,@(" @(" @(" @(" @
+XM(" @("!N96-E<W-A<GDN("!&;W(@0F]R;&%N9"!#*RL@=7-E('1H92!N97=E
+XM<B!P<F]J96-T(&9I;&5S#0HC(" @(" @(" @(" @(" @(" @=VAI8V@@87)E
+XM(&%L<V\@:6YC;'5D960@*&)U="!R96%D('1H92!C;VUM96YT<R!I;B!#;VYT
+XM96YT<RDN#0HC#0HC(" @(" @(" @(" @(" @(" @57-E<G,@;V8@35-#(#8N
+XM,"!A;F0@3DU!2T4@<VAO=6QD('5S92!T:&4@<F5G=6QA<B!M86ME9FEL90T*
+XM(R @(" @(" @(" @(" @(" @(&)Y('1Y<&EN9R B;FUA:V4@;7-C7V1O<R(@
+XM;W(@(FYM86ME(&US8U]O<S(B+@T*(PT*(R @3F]T97,Z(" H,2D@56YC;VUM
+XM96YT('1H92!A<'!R;W!R:6%T92!C;VUP:6QE<B]/4R!O<'1I;VYS(&)E;&]W
+XM+@T*(R @(" @(" @(" H,BD@0VAA;F=E('1H92!V87)I;W5S($-&3$%'4R!A
+XM<R!A<'!R;W!R:6%T92!F;W(@>6]U<B!E;G9I<F]N;65N= T*(R @(" @(" @
+XM(" @(" @86YD(&QI8G)A<FEE<RX-"B,@(" @(" @(" @(" @($9O<B!-4T,Z
+XM(" M05,@<W!E8VEF:65S('-M86QL+6UO9&5L(&QI8G)A<GDL(&%N9" M1S(@
+XM96YA8FQE<PT*(R @(" @(" @(" @(" @.# R.#8@:6YS=')U8W1I;VYS+B @
+XM475I8VM#('5S97,@=&AE(&UE9&EU;2!M96UO<GD@;6]D96PL(&%S#0HC(" @
+XM(" @(" @(" @("!)(')E8V%L;" H+4%-(&%N9"]O<B M<6,I+B @5&AE(")!
+XM3$PZ(B!T87)G970@:7,@=7-E9"!B>2!-4T,-"B,@(" @(" @(" @(" @(#8N
+XM,"!W:71H(&]L9"!-04M%+B @6T)O($MU;&QM87)=#0HC(" @(" @(" @("@S
+XM*2!296YA;64@=&AI<R!F:6QE('1O(")U;GII<"(@;VX@82!$3U,@<WES=&5M
+XM.R!T>7!I;F<@(FUA:V4-"B,@(" @(" @(" @(" @('5N>FEP(B!W:71H($U3
+XM0R H;W(@(FUA:V4@+69U;GII<"(@=VET:"!40RD@=&AE;B!B=6EL9',-"B,@
+XM(" @(" @(" @(" @('5N>FEP+F5X92X-"B,-"B,@($=R96<@4F]E;&]F<PT*
+XM(PT*#0HC(R,C(R,C(R,C(R,C(R,C(R,C(R,-"B,@34%#4D\@1$5&24Y)5$E/
+XM3E,@(PT*(R,C(R,C(R,C(R,C(R,C(R,C(R,C#0H-"B,@0F]R;&%N9"!#*RL@
+XM,BXP(&9O<B!-4RU$3U,Z#0HC("TM+2TM+2TM+2TM+2TM+2TM+2TM+2T-"B,@
+XM8F-C(&ES('5S=6%L;'D@8V]N9FEG=7)E9"!W:71H("U)(&%N9" M3"!S970@
+XM87!P<F]P<FEA=&5L>2XN+@T*0T,@/2!B8V,-"D-&3$%'4R ]("UM<R M3R M
+XM6@T*24Y#3" ](",M26,Z7&)O<FQA;F1<:6YC;'5D90T*3$0@/2!B8V,-"DQ$
+XM1DQ!1U,@/2 M;7,@(RU,8SI<8F]R;&%N9%QL:6(-"DQ$1DQ!1U,R(#T-"@T*
+XM(R!4=7)B;R!#(#(N,"!F;W(@35,M1$]3.@T*(R M+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM#0HC('1C8R!I<R!U<W5A;&QY(&-O;F9I9W5R960@=VET:" M22!A
+XM;F0@+4P@<V5T(&%P<')O<')I871E;'DN+BX-"B,@0T,@/2!T8V,-"B,@0T9,
+XM04=3(#T@+6US("U/("U:#0HC($E.0TP@/2 C+4EC.EQT=7)B;V-<:6YC;'5D
+XM90T*(R!,1" ]('1C8PT*(R!,1$9,04=3(#T@+6US(",M3&,Z7'1U<F)O8UQL
+XM:6(-"B,@3$1&3$%'4S(@/0T*#0HC($U30R!F;W(@35,M1$]3.@T*(R M+2TM
+XM+2TM+2TM+2TM+0T*(T-#(#T@8VP-"B-#1DQ!1U,@/2 M05,@+4]X("U',B @
+XM(" @(" @(R!A9&0@+490:3@W(&EF(&-O<')O8V5S<V]R(&EN<W1A;&QE9 T*
+XM(TE.0TP@/0T*(TQ$(#T@;&EN:PT*(TQ$1DQ!1U,@/2 O3D])#0HC3$1&3$%'
+XM4S(@/2 L)"H[#0H-"B,@35-#('=I=&@@4T1+(&9O<B!/4R\R.B @(" C('1H
+XM:7,@=&%R9V5T(&ES(&YO(&QO;F=E<B!S=7!P;W)T960Z("!U<V4@36%K969I
+XM;&4-"B,@+2TM+2TM+2TM+2TM+2TM+2TM+2TM(" @(" C("AI9B!Y;W4@3553
+XM5"!U<V4@=&AI<R!T87)G970L(&%D9"!D;W-N86UE+F]B:B!T;PT*(R!#0R ]
+XM(&-L(" @(" @(" @(" @(" @(" @(",@("!/0DI3(&%N9"!T:&4@9&5P96YD
+XM96YC:65S(&QI;F4@8F5L;W<I#0HC($-&3$%'4R ]("U!4R M3W@@+4<R("U$
+XM3U,R#0HC($E.0TP@/2 M26,Z7&TU7&EN8VQU9&4@(" @(R!F;W(@97AA;7!L
+XM90T*(R!,1" ](&QI;FL-"B,@3$1&3$%'4R ]("].3TD-"B,@4DT@/2!D96P-
+XM"B,@3$E"0R ](&,Z7&TU7&QI8EQP7'-L:6)C90T*(R!,24)$(#T@8SI<;35<
+XM;&EB7&1O<V-A;&QS+FQI8@T*(R!,24)!(#T@8SI<;35<;&EB7&%P:2YL:6(-
+XM"@T*3T)*4R ]('5N>FEP+F]B:B!E>'1R86-T+F]B:B!F:6QE7VEO+F]B:B!M
+XM87!N86UE+F]B:B!M871C:"YO8FI<#0H@(" @(" @;6ES8RYO8FH@=6YI;7!L
+XM;V0N;V)J('5N<F5D=6-E+F]B:B!U;G-H<FEN:RYO8FH-"@T*#0HC(R,C(R,C
+XM(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(PT*(R!"
+XM05-)0R!#3TU024Q%($E.4U1254-424].4R!!3D0@1$5014Y$14Y#2453(",-
+XM"B,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C
+XM(R,C#0H-"D%,3 DZ('5N>FEP+F5X90T*#0HN8RYO8FHZ#0H@(" @(" @("0H
+XM0T,I("UC("0H0T9,04=3*2 D*$E.0TPI("0J+F,-"@T*=6YZ:7 N;V)J.B @
+XM(" @('5N>FEP+F,@=6YZ:7 N: T*#0IE>'1R86-T+F]B:CH@(" @97AT<F%C
+XM="YC('5N>FEP+F@-"@T*9FEL95]I;RYO8FHZ(" @(&9I;&5?:6\N8R!U;GII
+XM<"YH#0H-"FUA<&YA;64N;V)J.B @("!M87!N86UE+F,@=6YZ:7 N: T*#0IM
+XM871C:"YO8FHZ(" @(" @;6%T8V@N8R!U;GII<"YH#0H-"FUI<V,N;V)J.B @
+XM(" @("!M:7-C+F,@=6YZ:7 N: T*#0IU;FEM<&QO9"YO8FHZ(" @=6YI;7!L
+XM;V0N8R!U;GII<"YH#0H-"G5N<F5D=6-E+F]B:CH@("!U;G)E9'5C92YC('5N
+XM>FEP+F@-"@T*=6YS:')I;FLN;V)J.B @('5N<VAR:6YK+F,@=6YZ:7 N: T*
+XM#0H-"B,@1$]3.@T*(R M+2T-"G5N>FEP+F5X93H@(" @("0H3T)*4RD-"B @
+XM(" @(" @)"A,1"D@)"A,1$9,04=3*2 D*$]"2E,I("0H3$1&3$%'4S(I#0H-
+XM"B,@3U,O,CH-"B,@+2TM+0T*(R!U;GII<'1M<"YE>&4Z(" D*$]"2E,I#0HC
+XM(" @(" @(" @)"A,1"D@)"A,1$9,04=3*2 D*$]"2E,I+" D*BYE>&4L+"0H
+XM3$E"0RDK)"A,24)$*3L-"B,-"B,@=6YZ:7 N97AE.B @(" @=6YZ:7!T;7 N
+XM97AE#0HC(" @(" @(" @8FEN9"!U;GII<'1M<"YE>&4@)"A,24)$*2 D*$Q)
+XM0D$I("UO('5N>FEP+F5X90T*(R @(" @(" @("0H4DTI('5N>FEP=&UP+F5X
+XM90T*(R @(" @(" @("0H4DTI("HN;V)J#0HC(" @(" @(" @)"A232D@*BYM
+X%87 -"AH@
+X 
+Xend
+END_OF_FILE
+  if test 4815 -ne `wc -c <'MSDOS/makefile.uu'`; then
+    echo shar: \"'MSDOS/makefile.uu'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'MSDOS/makefile.uu'\" 
+    cat MSDOS/makefile.uu | uudecode 
+    if [ -f MSDOS/makefile.uu ]; then 
+       rm MSDOS/makefile.uu
+    fi
+  fi
+  # end of 'MSDOS/makefile.uu'
+fi
+if test -f 'OS2/dosname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OS2/dosname.c'\"
+else
+  echo shar: Extracting \"'OS2/dosname.c'\" \(3577 characters\)
+  sed "s/^X//" >'OS2/dosname.c' <<'END_OF_FILE'
+X/* Unix/HPFS filename translation for FAT file systems */
+X/*  (with special unzip modifications:  sflag) */
+X
+X/* Author: Kai Uwe Rommel */
+X
+X#include "unzip.h"
+X
+X
+Xextern int sflag;  /* user wants to allow blanks (e.g., "EA DATA. SF") */
+X
+Xvoid ChangeNameForFAT(char *name)
+X{
+X  char *src, *dst, *next, *ptr, *dot, *start;
+X  static char invalid[] = ":;,=+\"[]<>| \t";
+X
+X  if ( isalpha(name[0]) && (name[1] == ':') )
+X    start = name + 2;
+X  else
+X    start = name;
+X
+X  src = dst = start;
+X  if ( (*src == '/') || (*src == '\\') )
+X    src++, dst++;
+X
+X  while ( *src )
+X  {
+X    for ( next = src; *next && (*next != '/') && (*next != '\\'); next++ );
+X
+X    for ( ptr = src, dot = NULL; ptr < next; ptr++ )
+X      if ( *ptr == '.' )
+X      {
+X        dot = ptr; /* remember last dot */
+X        *ptr = '_';
+X      }
+X
+X    if ( dot == NULL )
+X      for ( ptr = src; ptr < next; ptr++ )
+X        if ( *ptr == '_' )
+X          dot = ptr; /* remember last _ as if it were a dot */
+X
+X    if ( dot && (dot > src) &&
+X         ((next - dot <= 4) ||
+X          ((next - src > 8) && (dot - src > 3))) )
+X    {
+X      if ( dot )
+X        *dot = '.';
+X
+X      for ( ptr = src; (ptr < dot) && ((ptr - src) < 8); ptr++ )
+X        *dst++ = *ptr;
+X
+X      for ( ptr = dot; (ptr < next) && ((ptr - dot) < 4); ptr++ )
+X        *dst++ = *ptr;
+X    }
+X    else
+X    {
+X      if ( dot && (next - src == 1) )
+X        *dot = '.';           /* special case: "." as a path component */
+X
+X      for ( ptr = src; (ptr < next) && ((ptr - src) < 8); ptr++ )
+X        *dst++ = *ptr;
+X    }
+X
+X    *dst++ = *next; /* either '/' or 0 */
+X
+X    if ( *next )
+X    {
+X      src = next + 1;
+X
+X      if ( *src == 0 ) /* handle trailing '/' on dirs ! */
+X        *dst = 0;
+X    }
+X    else
+X      break;
+X  }
+X
+X  for ( src = start; *src != 0; ++src )
+X    if ( (strchr(invalid, *src) != NULL) ||
+X         ((*src == ' ') && !sflag) )  /* allow spaces if user wants */
+X        *src = '_';
+X}
+X
+X
+Xint IsFileNameValid(char *name)
+X{
+X  HFILE hf;
+X#ifdef __32BIT__
+X  ULONG uAction;
+X#else
+X  USHORT uAction;
+X#endif
+X
+X  switch( DosOpen(name, &hf, &uAction, 0, 0, FILE_OPEN,
+X                  OPEN_ACCESS_READONLY | OPEN_SHARE_DENYNONE, 0) )
+X  {
+X  case ERROR_INVALID_NAME:
+X  case ERROR_FILENAME_EXCED_RANGE:
+X    return FALSE;
+X  case NO_ERROR:
+X    DosClose(hf);
+X  default:
+X    return TRUE;
+X  }
+X}
+X
+X
+Xtypedef struct
+X{
+X  ULONG cbList;               /* length of value + 22 */
+X#ifdef __32BIT__
+X  ULONG oNext;
+X#endif
+X  BYTE fEA;                   /* 0 */
+X  BYTE cbName;                /* length of ".LONGNAME" = 9 */
+X  USHORT cbValue;             /* length of value + 4 */
+X  BYTE szName[10];            /* ".LONGNAME" */
+X  USHORT eaType;              /* 0xFFFD for length-preceded ASCII */
+X  USHORT eaSize;              /* length of value */
+X  BYTE szValue[CCHMAXPATH];
+X}
+XFEALST;
+X
+X
+Xint SetLongNameEA(char *name, char *longname)
+X{
+X  EAOP eaop;
+X  FEALST fealst;
+X
+X#ifndef __32BIT__
+X  if ( _osmode == DOS_MODE )
+X    return 0;
+X#endif
+X
+X  eaop.fpFEAList = (PFEALIST) &fealst;
+X  eaop.fpGEAList = NULL;
+X  eaop.oError = 0;
+X
+X  strcpy(fealst.szName, ".LONGNAME");
+X  strcpy(fealst.szValue, longname);
+X
+X  fealst.cbList  = sizeof(fealst) - CCHMAXPATH + strlen(fealst.szValue);
+X  fealst.cbName  = (BYTE) strlen(fealst.szName);
+X  fealst.cbValue = sizeof(USHORT) * 2 + strlen(fealst.szValue);
+X
+X#ifdef __32BIT__
+X  fealst.oNext   = 0;
+X#endif
+X  fealst.fEA     = 0;
+X  fealst.eaType  = 0xFFFD;
+X  fealst.eaSize  = strlen(fealst.szValue);
+X
+X  return DosSetPathInfo(name, FIL_QUERYEASIZE,
+X                        (PBYTE) &eaop, sizeof(eaop), 0
+X#ifndef __32BIT__
+X                       , 0
+X#endif
+X                       );
+X}
+END_OF_FILE
+  if test 3577 -ne `wc -c <'OS2/dosname.c'`; then
+    echo shar: \"'OS2/dosname.c'\" unpacked with wrong size!
+  fi
+  # end of 'OS2/dosname.c'
+fi
+if test -f 'OS2/ship.dif' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OS2/ship.dif'\"
+else
+  echo shar: Extracting \"'OS2/ship.dif'\" \(4118 characters\)
+  sed "s/^X//" >'OS2/ship.dif' <<'END_OF_FILE'
+Xdiff -cb unzip/ship.c unzip-2/ship.c
+X*** unzip/ship.c	Wed Jan 29 15:17:28 1992
+X--- unzip-2/ship.c	Wed Mar 11 23:02:22 1992
+X***************
+X*** 26,31 ****
+X--- 26,36 ----
+X  #  endif /* MAILX */
+X  #endif /* sgi */
+X  
+X+ #ifdef __IBMC__		/* IBM C Set/2 (32-bit) for OS/2 2.0 */
+X+ #  define MSDOS
+X+ #  define mktemp tmpnam
+X+ #endif /* __IBMC__ */
+X+ 
+X  #ifdef VMS
+X  #  define TMPNAME "_SXXXXXX."
+X  #  define MAILCMD "mail %s /subj=\"%s %s%s\" \"%s\""
+X***************
+X*** 43,50 ****
+X--- 48,59 ----
+X  #  endif /* ?MAILX */
+X  #  ifdef MSDOS
+X  #    define PATHCUT '\\'
+X+ #    define RBMODE "rb"
+X+ #    define WBMODE "wb"
+X  #  else /* !MSDOS */
+X  #    define PATHCUT '/'
+X+ #    define RBMODE "r"
+X+ #    define WBMODE "w"
+X  #  endif /* ?MSDOS */
+X  #endif /* ?VMS */
+X  
+X***************
+X*** 257,272 ****
+X  #endif /* ?MSDOS */
+X  
+X  
+X- /* Define MSVMS if either MSDOS or VMS defined */
+X- #ifdef MSDOS
+X- #  define MSVMS
+X- #else /* !MSDOS */
+X- #  ifdef VMS
+X- #    define MSVMS
+X- #  endif /* VMS */
+X- #endif /* ?MSDOS */
+X- 
+X- 
+X  /* Define void, voidp, and extent (size_t) */
+X  #include <stdio.h>
+X  #ifdef MODERN
+X--- 266,271 ----
+X***************
+X*** 317,334 ****
+X  #endif /* ?MODERN */
+X  
+X  
+X- /* Fine tuning */
+X- #ifndef MSDOS
+X- #   define BSZ 8192   /* Buffer size for files */
+X- #else /* !MSDOS */
+X- #   define BSZ 4096   /* Keep precious NEAR space */
+X-     /* BSZ can't be 8192 even for compact model because of 64K limitation
+X-      * in im_lmat.c. If you run out of memory when processing a large number
+X-      * files, use the compact model and reduce BSZ to 2048 here and in
+X-      * im_lm.asm.
+X-      */
+X- #endif /* ?MSDOS */
+X- 
+X  /* end of tailor.h */
+X  
+X  #ifdef MODERN
+X--- 316,321 ----
+X***************
+X*** 390,396 ****
+X  char mpspc[9];          /* prealloced space for prefix */
+X  char *mprefix = mpspc;  /* identification for this mailing */
+X  char *mdest;            /* mail destination */
+X! char mname[10];         /* temporary file name if mailing */
+X  ulg ccnt;               /* count of bytes read or written */
+X  int noisy = 1;          /* false to inhibit informational messages */
+X  
+X--- 377,383 ----
+X  char mpspc[9];          /* prealloced space for prefix */
+X  char *mprefix = mpspc;  /* identification for this mailing */
+X  char *mdest;            /* mail destination */
+X! char mname[64];         /* temporary file name if mailing */
+X  ulg ccnt;               /* count of bytes read or written */
+X  int noisy = 1;          /* false to inhibit informational messages */
+X  
+X***************
+X*** 544,554 ****
+X  {
+X    cfile *c;             /* allocated cfile structure */
+X  
+X- #ifdef MSDOS
+X-   /* Set file mode to binary for MSDOS systems */
+X-   setmode(fileno(f), O_BINARY);
+X- #endif /* MSDOS */
+X- 
+X    /* Allocate and fill structure */
+X    if ((c = (cfile *)malloc(sizeof(cfile))) != NULL)
+X    {
+X--- 531,536 ----
+X***************
+X*** 1039,1045 ****
+X            err(SE_OVER, r);
+X          }
+X  #endif /* !VMS */
+X!         else if ((f = fopen(r, "w")) == NULL)
+X            err(SE_FULL, r);
+X          if ((c = chook(f)) == NULL)
+X            err(SE_MEM, "");
+X--- 1021,1027 ----
+X            err(SE_OVER, r);
+X          }
+X  #endif /* !VMS */
+X!         else if ((f = fopen(r, WBMODE)) == NULL)
+X            err(SE_FULL, r);
+X          if ((c = chook(f)) == NULL)
+X            err(SE_MEM, "");
+X***************
+X*** 1149,1154 ****
+X--- 1131,1141 ----
+X    /* No subject prefix yet */
+X    *mprefix = 0;
+X  
+X+ #ifdef MSDOS
+X+   if ( argc == 1 && isatty(0) )
+X+     help();
+X+ #endif
+X+ 
+X    /* See if help requested */
+X    if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "-?") == 0))
+X      help();
+X***************
+X*** 1249,1255 ****
+X          else                            /* arg is file to ship */
+X          {
+X            s = 0;
+X!           if ((f = fopen(argv[r], "r")) == NULL)
+X              err(SE_FIND, argv[r]);
+X            if (mail && !*mprefix)
+X            {
+X--- 1236,1242 ----
+X          else                            /* arg is file to ship */
+X          {
+X            s = 0;
+X!           if ((f = fopen(argv[r], RBMODE)) == NULL)
+X              err(SE_FIND, argv[r]);
+X            if (mail && !*mprefix)
+X            {
+END_OF_FILE
+  if test 4118 -ne `wc -c <'OS2/ship.dif'`; then
+    echo shar: \"'OS2/ship.dif'\" unpacked with wrong size!
+  fi
+  # end of 'OS2/ship.dif'
+fi
+if test -f 'VMS/crypt/make_unzip_gcc.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/crypt/make_unzip_gcc.com'\"
+else
+  echo shar: Extracting \"'VMS/crypt/make_unzip_gcc.com'\" \(1658 characters\)
+  sed "s/^X//" >'VMS/crypt/make_unzip_gcc.com' <<'END_OF_FILE'
+X$ !
+X$ !		"Makefile" for VMS versions of unzip and zipinfo
+X$ !			(version:  crypt + no inflate)
+X$ !
+X$ ! Find out current disk and directory
+X$ !
+X$ my_name = f$env("procedure")
+X$ here = f$parse(my_name,,,"device") + f$parse(my_name,,,"directory")
+X$ set verify	! like "echo on", eh?
+X$ !
+X$ ! Do unzip:
+X$ !
+X$ gcc /undef=__STDC__ /def=(CRYPT) unzip
+X$ gcc /undef=__STDC__ /def=(CRYPT) crypt
+X$ gcc /undef=__STDC__ /def=(CRYPT) extract
+X$ gcc /undef=__STDC__ /def=(CRYPT) file_io
+X$ gcc /undef=__STDC__ /def=(CRYPT) 	mapname
+X$ gcc /undef=__STDC__ /def=(CRYPT) match
+X$ gcc /undef=__STDC__ /def=(CRYPT) misc
+X$ gcc /undef=__STDC__ /def=(CRYPT) unimplod
+X$ gcc /undef=__STDC__ /def=(CRYPT) unreduce
+X$ gcc /undef=__STDC__ /def=(CRYPT) unshrink
+X$ gcc /undef=__STDC__ /def=(CRYPT) vms
+X$ gcc /undef=__STDC__ /def=(CRYPT) VMSmunch
+X$ link unzip,crypt,extract,file_io,mapname,match,misc,-
+X	unimplod,unreduce,unshrink,vms,VMSmunch,-
+X gnu_cc:[000000]gcclib.olb/lib,-
+X sys$input:/opt
+X sys$share:vaxcrtl.exe/shareable
+X! Next line:  put a similar line (full pathname for unzip.exe) in login.com.
+X! Remember to include leading "$" before disk name.
+X$ unzip == "$''here'unzip.exe"		! set up symbol to use unzip
+X$ !
+X$ ! Do zipinfo:
+X$ !
+X$ gcc /undef=__STDC__ zipinfo
+X$ rename misc.c misc_.c;*
+X$ gcc /undef=__STDC__ /def=(ZIPINFO) misc_
+X$ rename misc_.c misc.c;*
+X$ link zipinfo,match,misc_,VMSmunch,-
+X gnu_cc:[000000]gcclib.olb/lib,-
+Xsys$input:/opt
+X sys$share:vaxcrtl.exe/shareable
+X! Next line:  put a similar line (full pathname for unzip.exe) in login.com.
+X! Remember to include leading "$" before disk name.
+X$ zipinfo == "$''here'zipinfo.exe"	! set up symbol to use zipinfo
+X$ set noverify
+END_OF_FILE
+  if test 1658 -ne `wc -c <'VMS/crypt/make_unzip_gcc.com'`; then
+    echo shar: \"'VMS/crypt/make_unzip_gcc.com'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/crypt/make_unzip_gcc.com'
+fi
+if test -f 'match.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'match.c'\"
+else
+  echo shar: Extracting \"'match.c'\" \(4603 characters\)
+  sed "s/^X//" >'match.c' <<'END_OF_FILE'
+X/*--------------------------------------------------------------------------
+X
+X  match.c
+X
+X  The match() routine recursively compares a string to a "pattern" (regular
+X  expression), returning TRUE if a match is found or FALSE if not.  This
+X  version is specifically for use with unzip.c:  it leaves the case (upper,
+X  lower, or mixed) of the string alone, but converts any uppercase characters
+X  in the pattern to lowercase if indicated by the global var pInfo->lcflag
+X  (which is to say, string is assumed to have been converted to lowercase
+X  already, if such was necessary).
+X
+X  --------------------------------------------------------------------------
+X
+X  Copyrights:  see accompanying file "COPYING" in UnZip source distribution.
+X
+X  --------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X/*******************/
+X/*  Match Defines  */
+X/*******************/
+X
+X#define ASTERISK        '*'     /* The '*' metacharacter */
+X#define QUESTION        '?'     /* The '?' metacharacter */
+X#define BACK_SLASH      '\\'    /* The '\' metacharacter */
+X#define LEFT_BRACKET    '['     /* The '[' metacharacter */
+X#define RIGHT_BRACKET   ']'     /* The ']' metacharacter */
+X#define EOS             '\000'  /* end-of-string */
+X
+X#define IS_OCTAL(ch)    (ch >= '0' && ch <= '7')
+X
+X
+X
+X/********************/
+X/*  Match Typedefs  */
+X/********************/
+X
+Xtypedef short int BOOLEAN;
+X
+X
+X
+X/*************************************/
+X/*  Match Local Function Prototypes  */
+X/*************************************/
+X
+Xstatic BOOLEAN do_list __((register char *string, char *pattern));
+Xstatic void list_parse __((char **patp, char *lowp, char *highp));
+Xstatic char nextch __((char **patp));
+X
+X
+X
+X
+X
+X/**********************/
+X/*  Function match()  */
+X/**********************/
+X
+Xint match(string, pattern)
+Xchar *string;
+Xchar *pattern;
+X{
+X    register int ismatch;
+X
+X    ismatch = FALSE;
+X    switch (*pattern) {
+X    case ASTERISK:
+X        pattern++;
+X        do {
+X            ismatch = match(string, pattern);
+X        }
+X        while (!ismatch && *string++ != EOS);
+X        break;
+X    case QUESTION:
+X        if (*string != EOS)
+X            ismatch = match(++string, ++pattern);
+X        break;
+X    case EOS:
+X        if (*string == EOS)
+X            ismatch = TRUE;
+X        break;
+X    case LEFT_BRACKET:
+X        if (*string != EOS)
+X            ismatch = do_list(string, pattern);
+X        break;
+X    case BACK_SLASH:
+X        pattern++;
+X    default:
+X        if (*string == ((pInfo->lcflag && isupper(*pattern))?
+X            tolower(*pattern) : *pattern)) {
+X            string++;
+X            pattern++;
+X            ismatch = match(string, pattern);
+X        } else
+X            ismatch = FALSE;
+X        break;
+X    }
+X    return (ismatch);
+X}
+X
+X
+X
+X
+X
+X/************************/
+X/*  Function do_list()  */
+X/************************/
+X
+Xstatic BOOLEAN do_list(string, pattern)
+Xregister char *string;
+Xchar *pattern;
+X{
+X    register BOOLEAN ismatch;
+X    register BOOLEAN if_found;
+X    register BOOLEAN if_not_found;
+X    auto char lower;
+X    auto char upper;
+X
+X    pattern++;
+X    if (*pattern == '!') {
+X        if_found = FALSE;
+X        if_not_found = TRUE;
+X        pattern++;
+X    } else {
+X        if_found = TRUE;
+X        if_not_found = FALSE;
+X    }
+X    ismatch = if_not_found;
+X    while (*pattern != ']' && *pattern != EOS) {
+X        list_parse(&pattern, &lower, &upper);
+X        if (*string >= lower && *string <= upper) {
+X            ismatch = if_found;
+X            while (*pattern != ']' && *pattern != EOS)
+X                pattern++;
+X        }
+X    }
+X
+X    if (*pattern++ != ']') {
+X        printf("Character class error\n");
+X        exit(1);
+X    } else if (ismatch)
+X        ismatch = match(++string, pattern);
+X
+X    return (ismatch);
+X}
+X
+X
+X
+X
+X
+X/***************************/
+X/*  Function list_parse()  */
+X/***************************/
+X
+Xstatic void list_parse(patp, lowp, highp)
+Xchar **patp;
+Xchar *lowp;
+Xchar *highp;
+X{
+X    *lowp = nextch(patp);
+X    if (**patp == '-') {
+X        (*patp)++;
+X        *highp = nextch(patp);
+X    } else
+X        *highp = *lowp;
+X}
+X
+X
+X
+X
+X
+X/***********************/
+X/*  Function nextch()  */
+X/***********************/
+X
+Xstatic char nextch(patp)
+Xchar **patp;
+X{
+X    register char ch;
+X    register char chsum;
+X    register int count;
+X
+X    ch = *(*patp)++;
+X    if (ch == '\\') {
+X        ch = *(*patp)++;
+X        if (IS_OCTAL(ch)) {
+X            chsum = 0;
+X            for (count = 0; count < 3 && IS_OCTAL(ch); count++) {
+X                chsum *= 8;
+X                chsum += ch - '0';
+X                ch = *(*patp)++;
+X            }
+X            (*patp)--;
+X            ch = chsum;
+X        }
+X    }
+X    return (ch);
+X}
+END_OF_FILE
+  if test 4603 -ne `wc -c <'match.c'`; then
+    echo shar: \"'match.c'\" unpacked with wrong size!
+  fi
+  # end of 'match.c'
+fi
+if test -f 'unreduce.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unreduce.c'\"
+else
+  echo shar: Extracting \"'unreduce.c'\" \(5041 characters\)
+  sed "s/^X//" >'unreduce.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  unreduce.c
+X
+X  The Reducing algorithm is actually a combination of two distinct algorithms.
+X  The first algorithm compresses repeated byte sequences, and the second al-
+X  gorithm takes the compressed stream from the first algorithm and applies a
+X  probabilistic compression method.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X/**************************************/
+X/*  UnReduce Defines, Typedefs, etc.  */
+X/**************************************/
+X
+X#define DLE    144
+X
+Xtypedef byte f_array[64];       /* for followers[256][64] */
+X
+Xstatic void LoadFollowers __((void));
+X
+X
+X
+X/*******************************/
+X/*  UnReduce Global Variables  */
+X/*******************************/
+X
+Xf_array *followers = (f_array *) prefix_of;     /* shared work space */
+Xbyte Slen[256];
+Xint factor;
+X
+Xint L_table[] =
+X{0, 0x7f, 0x3f, 0x1f, 0x0f};
+X
+Xint D_shift[] =
+X{0, 0x07, 0x06, 0x05, 0x04};
+Xint D_mask[] =
+X{0, 0x01, 0x03, 0x07, 0x0f};
+X
+Xint B_table[] =
+X{8, 1, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5,
+X 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6,
+X 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+X 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7,
+X 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+X 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+X 8, 8, 8, 8};
+X
+X
+X
+X
+X
+X/*************************/
+X/*  Function unReduce()  */
+X/*************************/
+X
+Xvoid unReduce()
+X /* expand probabilistically reduced data */
+X{
+X    register int lchar;
+X    int nchar;
+X    int ExState;
+X    int V;
+X    int Len;
+X
+X    factor = lrec.compression_method - 1;
+X    ExState = 0;
+X    lchar = 0;
+X    LoadFollowers();
+X
+X    while (((outpos + outcnt) < ucsize) && (!zipeof)) {
+X        if (Slen[lchar] == 0)
+X            READBIT(8, nchar)   /* ; */
+X        else {
+X            READBIT(1, nchar);
+X            if (nchar != 0)
+X                READBIT(8, nchar)       /* ; */
+X            else {
+X                int follower;
+X                int bitsneeded = B_table[Slen[lchar]];
+X                READBIT(bitsneeded, follower);
+X                nchar = followers[lchar][follower];
+X            }
+X        }
+X        /* expand the resulting byte */
+X        switch (ExState) {
+X
+X        case 0:
+X            if (nchar != DLE)
+X                OUTB(nchar)     /*;*/
+X            else
+X                ExState = 1;
+X            break;
+X
+X        case 1:
+X            if (nchar != 0) {
+X                V = nchar;
+X                Len = V & L_table[factor];
+X                if (Len == L_table[factor])
+X                    ExState = 2;
+X                else
+X                    ExState = 3;
+X            } else {
+X                OUTB(DLE);
+X                ExState = 0;
+X            }
+X            break;
+X
+X        case 2:{
+X                Len += nchar;
+X                ExState = 3;
+X            }
+X            break;
+X
+X        case 3:{
+X                register int i = Len + 3;
+X                int offset = (((V >> D_shift[factor]) &
+X                               D_mask[factor]) << 8) + nchar + 1;
+X                longint op = (outpos + outcnt) - offset;
+X
+X                /* special case- before start of file */
+X                while ((op < 0L) && (i > 0)) {
+X                    OUTB(0);
+X                    op++;
+X                    i--;
+X                }
+X
+X                /* normal copy of data from output buffer */
+X                {
+X                    register int ix = (int) (op % OUTBUFSIZ);
+X
+X                    /* do a block memory copy if possible */
+X                    if (((ix + i) < OUTBUFSIZ) &&
+X                        ((outcnt + i) < OUTBUFSIZ)) {
+X                        memcpy(outptr, &outbuf[ix], i);
+X                        outptr += i;
+X                        outcnt += i;
+X                    }
+X                    /* otherwise copy byte by byte */
+X                    else
+X                        while (i--) {
+X                            OUTB(outbuf[ix]);
+X                            if (++ix >= OUTBUFSIZ)
+X                                ix = 0;
+X                        }
+X                }
+X
+X                ExState = 0;
+X            }
+X            break;
+X        }
+X
+X        /* store character for next iteration */
+X        lchar = nchar;
+X    }
+X}
+X
+X
+X
+X
+X
+X/******************************/
+X/*  Function LoadFollowers()  */
+X/******************************/
+X
+Xstatic void LoadFollowers()
+X{
+X    register int x;
+X    register int i;
+X
+X    for (x = 255; x >= 0; x--) {
+X        READBIT(6, Slen[x]);
+X        for (i = 0; (byte) i < Slen[x]; i++) {
+X            READBIT(8, followers[x][i]);
+X        }
+X    }
+X}
+END_OF_FILE
+  if test 5041 -ne `wc -c <'unreduce.c'`; then
+    echo shar: \"'unreduce.c'\" unpacked with wrong size!
+  fi
+  # end of 'unreduce.c'
+fi
+if test -f 'unshrink.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unshrink.c'\"
+else
+  echo shar: Extracting \"'unshrink.c'\" \(4365 characters\)
+  sed "s/^X//" >'unshrink.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  unshrink.c
+X
+X  Shrinking is a Dynamic Lempel-Ziv-Welch compression algorithm with partial
+X  clearing.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X/*************************************/
+X/*  UnShrink Defines, Globals, etc.  */
+X/*************************************/
+X
+X/*      MAX_BITS        13   (in unzip.h; defines size of global work area)  */
+X#define INIT_BITS       9
+X#define FIRST_ENT       257
+X#define CLEAR           256
+X#define GetCode(dest)   READBIT(codesize,dest)
+X
+Xstatic void partial_clear __((void));   /* local prototype */
+X
+Xint codesize, maxcode, maxcodemax, free_ent;
+X
+X
+X
+X
+X/*************************/
+X/*  Function unShrink()  */
+X/*************************/
+X
+Xvoid unShrink()
+X{
+X    register int code;
+X    register int stackp;
+X    int finchar;
+X    int oldcode;
+X    int incode;
+X
+X
+X    /* decompress the file */
+X    codesize = INIT_BITS;
+X    maxcode = (1 << codesize) - 1;
+X    maxcodemax = HSIZE;         /* (1 << MAX_BITS) */
+X    free_ent = FIRST_ENT;
+X
+X    for (code = maxcodemax; code > 255; code--)
+X        prefix_of[code] = -1;
+X
+X    for (code = 255; code >= 0; code--) {
+X        prefix_of[code] = 0;
+X        suffix_of[code] = code;
+X    }
+X
+X    GetCode(oldcode);
+X    if (zipeof)
+X        return;
+X    finchar = oldcode;
+X
+X    OUTB(finchar);
+X
+X    stackp = HSIZE;
+X
+X    while (!zipeof) {
+X        GetCode(code);
+X        if (zipeof)
+X            return;
+X
+X        while (code == CLEAR) {
+X            GetCode(code);
+X            switch (code) {
+X
+X            case 1:{
+X                    codesize++;
+X                    if (codesize == MAX_BITS)
+X                        maxcode = maxcodemax;
+X                    else
+X                        maxcode = (1 << codesize) - 1;
+X                }
+X                break;
+X
+X            case 2:
+X                partial_clear();
+X                break;
+X            }
+X
+X            GetCode(code);
+X            if (zipeof)
+X                return;
+X        }
+X
+X
+X        /* special case for KwKwK string */
+X        incode = code;
+X        if (prefix_of[code] == -1) {
+X            stack[--stackp] = finchar;
+X            code = oldcode;
+X        }
+X        /* generate output characters in reverse order */
+X        while (code >= FIRST_ENT) {
+X            if (prefix_of[code] == -1) {
+X                stack[--stackp] = finchar;
+X                code = oldcode;
+X            } else {
+X                stack[--stackp] = suffix_of[code];
+X                code = prefix_of[code];
+X            }
+X        }
+X
+X        finchar = suffix_of[code];
+X        stack[--stackp] = finchar;
+X
+X
+X        /* and put them out in forward order, block copy */
+X        if ((HSIZE - stackp + outcnt) < OUTBUFSIZ) {
+X            memcpy(outptr, &stack[stackp], HSIZE - stackp);
+X            outptr += HSIZE - stackp;
+X            outcnt += HSIZE - stackp;
+X            stackp = HSIZE;
+X        }
+X        /* output byte by byte if we can't go by blocks */
+X        else
+X            while (stackp < HSIZE)
+X                OUTB(stack[stackp++]);
+X
+X
+X        /* generate new entry */
+X        code = free_ent;
+X        if (code < maxcodemax) {
+X            prefix_of[code] = oldcode;
+X            suffix_of[code] = finchar;
+X
+X            do
+X                code++;
+X            while ((code < maxcodemax) && (prefix_of[code] != -1));
+X
+X            free_ent = code;
+X        }
+X        /* remember previous code */
+X        oldcode = incode;
+X    }
+X}
+X
+X
+X/******************************/
+X/*  Function partial_clear()  */
+X/******************************/
+X
+Xstatic void partial_clear()
+X{
+X    register int pr;
+X    register int cd;
+X
+X    /* mark all nodes as potentially unused */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++)
+X        prefix_of[cd] |= 0x8000;
+X
+X    /* unmark those that are used by other nodes */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++) {
+X        pr = prefix_of[cd] & 0x7fff;    /* reference to another node? */
+X        if (pr >= FIRST_ENT)    /* flag node as referenced */
+X            prefix_of[pr] &= 0x7fff;
+X    }
+X
+X    /* clear the ones that are still marked */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++)
+X        if ((prefix_of[cd] & 0x8000) != 0)
+X            prefix_of[cd] = -1;
+X
+X    /* find first cleared node as next free_ent */
+X    cd = FIRST_ENT;
+X    while ((cd < maxcodemax) && (prefix_of[cd] != -1))
+X        cd++;
+X    free_ent = cd;
+X}
+END_OF_FILE
+  if test 4365 -ne `wc -c <'unshrink.c'`; then
+    echo shar: \"'unshrink.c'\" unpacked with wrong size!
+  fi
+  # end of 'unshrink.c'
+fi
+echo shar: End of archive 10 \(of 12\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+
+exit 0 # Just in case...

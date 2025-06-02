@@ -1,0 +1,1884 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i116: xephem - astronomical ephemeris program., Part05/24
+Message-ID: <1992Mar6.135302.2111@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:53:02 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 116
+Archive-name: xephem/part05
+
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file mainmenu.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping mainmenu.c'
+else
+echo 'x - continuing file mainmenu.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'mainmenu.c' &&
+X		    if (--*ac <= 0) usage("-d but no database file");
+X		    obj_setdbfilename (*++*av);
+X		    break;
+X		case 'h': /* set alternate help file name */
+X		    if (--*ac <= 0) usage("-h but no help file");
+X		    hlp_setfilename (*++*av);
+X		    break;
+X		default:
+X		    usage("Bad - option");
+X		}
+X	}
+}
+X
+/* process the field specs from the command line.
+X * if trouble call usage() (which exits).
+X */
+static
+read_fieldargs (ac, av)
+int ac;		/* number of such specs */
+char *av[];	/* array of strings in form <field_name value> */
+{
+X	while (--ac >= 0) {
+X	    char *fs = *av++;
+X	    if (crack_fieldset (fs) < 0) {
+X		char why[NC];
+X		(void) sprintf (why, "Bad command line spec: %.*s",
+X							sizeof(why)-26, fs);
+X		usage (why);
+X	    }
+X	}
+}
+X
+/* handy function to return the next planet in the order in which they are
+X * displayed in the lower half of the screen.
+X * input is a given planet, return is the next planet.
+X * if input is not legal, then first planet is returned; when input is the
+X * last planet, then -1 is returned.
+X * typical usage is something like:
+X *   for (p = nxtbody(-1); p != -1; p = nxtbody(p))
+X */
+nxtbody(p)
+int p;
+{
+X	static short nxtpl[NOBJ] = {
+X	    VENUS, MARS, JUPITER, SATURN, URANUS,
+X	    NEPTUNE, PLUTO, OBJX, MOON, MERCURY, OBJY, -1
+X	};
+X
+X	if (p < MERCURY || p >= NOBJ)
+X	    return (SUN);
+X	else
+X	    return (nxtpl[p]);
+}
+X
+/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+mm_selection_mode (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	mm_selecting += whether ? 1 : -1;
+X
+X	if (whether && mm_selecting == 1     /* first one to want on */
+X	    || !whether && mm_selecting == 0 /* last one to want off */)
+X	    mm_set_buttons (whether);
+}
+X
+/* go through all the buttons just pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+static
+mm_set_buttons (whether)
+int whether;
+{
+X	static Arg look_like_button[] = {
+X	    {XmNshadowThickness, (XtArgVal) 2},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNshadowThickness, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	FieldMap *fp;
+X
+X	for (fp = mm_field_map; fp < LFM; fp++)
+X	    if (whether) {
+X		if (fp->how & PLT)
+X		    XtSetValues (fp->w, look_like_button,
+X						XtNumber(look_like_button));
+X		else
+X		    XtSetValues (fp->w, look_like_label,
+X						XtNumber(look_like_label));
+X	    } else {
+X		if (fp->how & CHG)
+X		    XtSetValues (fp->w, look_like_button,
+X						XtNumber(look_like_button));
+X		else
+X		    XtSetValues (fp->w, look_like_label,
+X						XtNumber(look_like_label));
+X	    }
+}
+X
+/* callback from any of the main menu buttons being activated.
+X * if it's a CHGable field, ask op for a new setting.
+X */
+void
+mm_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X
+X	if (mm_selecting) {
+X	    if (fp->how & PLT) {
+X		plt_selection (fp);
+X		lst_selection (fp);
+X		srch_selection (fp);
+X	    }
+X	} else {
+X	    if (fp->how & CHG)
+X		prompt (fp);
+X	}
+}
+X
+/* function called from the interval timer used to implement the
+X * auto repeat feature.
+X */
+void
+mm_timer_cb (client, id)
+caddr_t client;
+XXtIntervalId *id;
+{
+X	int waited_so_far = (int)client + 1;
+X
+X	mm_interval_id = 0;
+X
+X	if (waited_so_far < spause)
+X	    mm_interval_id = XtAppAddTimeOut (xe_app, 1000, mm_timer_cb,
+X							    waited_so_far);
+X	else
+X	    mm_go();
+}
+X
+/* callback from the main "go" button being armed.
+X * if we are looping (as evidenced by an active timer) then stop, else go.
+X */
+void
+mm_go_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	if (mm_interval_id != 0) {
+X	    XtRemoveTimeOut (mm_interval_id);
+X	    mm_interval_id = 0;
+X	    redraw_screen (1);
+X	    print_idle();
+X	} else {
+X	    if (nstep > 1)
+X		print_running();
+X	    mm_go();
+X	}
+}
+X
+/* update all fields.
+X */
+mm_go()
+{
+X	int srchdone;
+X
+X	/* increment time only if op didn't change cirumstances */
+X	if (!newcir)
+X	    inc_mjd (&now, tminc);
+X
+X	nstep -= 1;
+X
+X	/* recalculate everything and update all the fields */
+X	redraw_screen(newcir);
+X	mm_newcir(0);
+X
+X	/* let searching functions change tminc and check for done */
+X	srchdone = srch_eval (mjd, &tminc) < 0;
+X	print_tminc(0); /* to show possibly new search increment */
+X
+X	/* update plot and listing files, now that all fields are up
+X	 * to date and search function has been evaluated.
+X	 */
+X	plot();
+X	listing();
+X
+X	/* stop loop to allow op to change parameters:
+X	 * if a search evaluation converges (or errors out),
+X	 * or if steps are done,
+X	 * or if op hits any key.
+X	 */
+X	newcir = 0;
+X	if (srchdone || nstep <= 0) {
+X
+X	    /* update screen with the current stuff if stopped during
+X	     * unattended plotting or listing since last redraw_screen()
+X	     * didn't.
+X	     */
+X	    if ((plot_ison() || listing_ison()) && nstep > 0)
+X		redraw_screen (1);
+X
+X	    /* return nstep to default of 1 */
+X	    if (nstep <= 0) {
+X		nstep = 1;
+X		print_nstep (0);
+X	    }
+X	    print_idle();
+X	} else {
+X	    mm_interval_id =
+X		XtAppAddTimeOut (xe_app, spause > 0 ? 1000 : 0, mm_timer_cb, 0);
+X	}
+}
+X
+/* a way for anyone to know what now is */
+Now *
+mm_get_now()
+{
+X	return (&now);
+}
+X
+/* draw all the stuff on the managed menus.
+X * if how_much == 0 then just update fields that need it;
+X * if how_much == 1 then redraw all fields;
+X */
+redraw_screen (how_much)
+int how_much;
+{
+X
+#define	ANYTHING_ISON	(plot_ison()		\
+X			    || listing_ison()	\
+X			    || jm_ison()	\
+X			    || ss_ison()	\
+X			    || sd_ison()	\
+X			    || aa_ison()	\
+X			    || m_ison()		\
+X			)
+X	/* print the single-step message if this is the last loop */
+X	if (nstep < 1)
+X	    print_updating();
+X
+X	/* if just updating changed fields while plotting or listing
+X	 * unattended then suppress most screen updates except
+X	 * always show nstep to show plot loops to go and
+X	 * always show tminc to show search convergence progress.
+X	 */
+X	print_nstep(how_much);
+X	print_tminc(how_much);
+X	print_spause(how_much);
+X	if (how_much == 0 && nstep > 0 && spause == 0)
+X	    f_off();
+X
+X	/* print all the time-related fields */
+X	mm_now (how_much);
+X
+X	mm_twilight (how_much);
+X
+X	/* print stuff on other menus */
+X	dm_update (&now, how_much);
+X	rm_update (&now, how_much);
+X	sm_update (&now, how_much);
+X	jm_update (&now, how_much);
+X	ss_update (&now, how_much);
+X	sd_update (&now, how_much);
+X	aa_update (&now, how_much);
+X	m_update (&now, how_much);
+X
+X	f_on();
+}
+X
+static
+print_tminc(force)
+int force;
+{
+X	static double last = -123.456;	/* anything unlikely */
+X
+X	if (force || tminc != last) {
+X	    if (tminc == RTC)
+X		f_string (fw(R_STPSZ,C_STPSZV), " RT CLOCK");
+X	    else if (fabs(tminc) >= 24.0)
+X		f_double (fw(R_STPSZ,C_STPSZV), "%6.4g dy", tminc/24.0);
+X	    else
+X		f_signtime (fw(R_STPSZ,C_STPSZV), tminc);
+X	    last = tminc;
+X	}
+}
+X
+static
+print_updating()
+{
+X	print_status ("Updating...");
+}
+X
+static
+print_idle()
+{
+X	print_status ("Make changes as desired or select Update to run.");
+X	f_string (go_w, "Update");
+}
+X
+static
+print_running()
+{
+X	print_status ("Running... select Stop to stop.");
+X	f_string (go_w, "Stop");
+}
+X
+static
+print_status (s)
+char *s;
+{
+X	static char *last_s;
+X
+X	if (s != last_s) {
+X	    f_string (status_w, s);
+X	    XFlush (XtD);
+X	    last_s = s;
+X	}
+}
+X
+static
+print_nstep(force)
+int force;
+{
+X	static int last;
+X
+X	if (force || nstep != last) {
+X	    char buf[16];
+X	    (void) sprintf (buf, "%8d", nstep);
+X	    f_string (fw(R_NSTEP,C_NSTEPV), buf);
+X	    last = nstep;
+X	}
+}
+X
+static
+print_spause(force)
+int force;
+{
+X	static int last;
+X
+X	if (force || spause != last) {
+X	    char buf[16];
+X	    (void) sprintf (buf, "%8d", spause);
+X	    f_string (fw(R_PAUSE,C_PAUSEV), buf);
+X	    last = spause;
+X	}
+}
+X
+/* read in ephem's configuration file, if any.
+X * if errors in file, call usage() (which exits).
+X * if use -c, require it; else try $EPHEMCFG and ephem.cfg but don't
+X *   complain if can't find these since, after all, one is not required.
+X * skip all lines that doesn't begin with an alpha char.
+X */
+mm_readcfg()
+{
+X	char buf[128];
+X	FILE *fp;
+X	char *fn;
+X
+X	/* open the config file. 
+X	 * only REQUIRED if used -c option.
+X	 * if succcessful, fn points to file name.
+X	 */
+X	if (cfgfile) {
+X	    fn = cfgfile;
+X	    fp = fopen (fn, "r");
+X	    if (!fp) {
+X		(void) sprintf (buf, "Can not open %s", fn);
+X		usage (buf);	/* does not return */
+X	    }
+X	} else {
+X	    fn = getenv ("EPHEMCFG");
+X	    if (!fn)
+X		fn = cfgdef;
+X	}
+X	fp = fopen (fn, "r");
+X	if (!fp)
+X	    return;	/* oh well; after all, it's not required */
+X
+X	while (fgets (buf, sizeof(buf), fp)) {
+X	    if (!isalpha(buf[0]))
+X		continue;
+X	    buf[strlen(buf)-1] = '\0';		/* discard trailing \n */
+X	    if (crack_fieldset (buf) < 0) {
+X		char why[NC];
+X		(void) sprintf (why, "Bad field spec in %s: %s\n", fn, buf);
+X		usage (why);
+X	    }
+X	}
+X	(void) fclose (fp);
+}
+X
+/* process a field spec in buf, either from config file or argv.
+X * return 0 if recognized ok, else -1.
+X */
+static
+crack_fieldset (buf)
+char *buf;
+{
+#define	ARRAY_SIZ(a)	(sizeof(a)/sizeof((a)[0]))
+#define	MAXKW		6	/* longest keyword, not counting trailing 0 */
+X	/* N.B. index of item is its case value, below.
+X	 * N.B. if add an item, keep it no longer than MAXKW chars.
+X	 */
+X	static char keywords[][MAXKW+1] = {
+X	    /*  0 */	"LAT",
+X	    /*  1 */	"LONG",
+X	    /*  2 */	"UT",
+X	    /*  3 */	"UD",
+X	    /*  4 */	"TZONE",
+X	    /*  5 */	"TZNAME",
+X	    /*  6 */	"HEIGHT",
+X	    /*  7 */	"NSTEP",
+X	    /*  8 */	"PAUSE",
+X	    /*  9 */	"STPSZ",
+X	    /* 10 */	"TEMP",
+X	    /* 11 */	"PRES",
+X	    /* 12 */	"EPOCH",
+X	    /* 13 */	"JD",
+X	    /* 14 */	"OBJX",
+X	    /* 15 */	"OBJY",
+X	    /* 16 */	"PROPTS",
+X	    /* 17 */	"MENU"
+X	};
+X	int i;
+X	int l;
+X
+X	for (i = 0; i < ARRAY_SIZ(keywords); i++)
+X	    if (strncmp (keywords[i], buf, l = strlen(keywords[i])) == 0) {
+X		buf += l+1;	/* skip keyword and its subsequent delimiter */
+X		break;
+X	    }
+X
+X	switch (i) {
+X	case 0:  (void) chg_fld (buf, fm(R_LAT,C_LATV)); break;
+X	case 1:  (void) chg_fld (buf, fm(R_LONG,C_LONGV)); break;
+X	case 2:  (void) chg_fld (buf, fm(R_UT,C_UTV)); break;
+X	case 3:  (void) chg_fld (buf, fm(R_UD,C_UD)); break;
+X	case 4:  (void) chg_fld (buf, fm(R_TZONE,C_TZONEV)); break;
+X	case 5:  (void) chg_fld (buf, fm(R_TZN,C_TZN)); break;
+X	case 6:  (void) chg_fld (buf, fm(R_HEIGHT,C_HEIGHTV)); break;
+X	case 7:  (void) chg_fld (buf, fm(R_NSTEP,C_NSTEPV)); break;
+X	case 8:  (void) chg_fld (buf, fm(R_PAUSE,C_PAUSEV)); break;
+X	case 9:  (void) chg_fld (buf, fm(R_STPSZ,C_STPSZV)); break;
+X	case 10: (void) chg_fld (buf, fm(R_TEMP,C_TEMPV)); break;
+X	case 11: (void) chg_fld (buf, fm(R_PRES,C_PRESV)); break;
+X	case 12: (void) chg_fld (buf, fm(R_EPOCH,C_EPOCHV)); break;
+X	case 13: (void) chg_fld (buf, fm(R_JD,C_JDV)); break;
+X	case 14: (void) obj_filelookup (OBJX, buf); break;
+X	case 15: (void) obj_filelookup (OBJY, buf); break;
+X	case 16:
+X	    if (buf[-1] != '+')
+X		oppl = 0;
+X	    while (*buf)
+X		switch (*buf++) {
+X		case 'S': oppl |= (1<<SUN); break;
+X		case 'M': oppl |= (1<<MOON); break;
+X		case 'e': oppl |= (1<<MERCURY); break;
+X		case 'v': oppl |= (1<<VENUS); break;
+X		case 'm': oppl |= (1<<MARS); break;
+X		case 'j': case 'J': oppl |= (1<<JUPITER); break;
+X		case 's': oppl |= (1<<SATURN); break;
+X		case 'u': oppl |= (1<<URANUS); break;
+X		case 'n': oppl |= (1<<NEPTUNE); break;
+X		case 'p': oppl |= (1<<PLUTO); break;
+X		case 'x': oppl |= (1<<OBJX); break;
+X		case 'y': oppl |= (1<<OBJY); break;
+X		}
+X	    break;
+X	case 17:
+X	    do {
+X		if (strncmp (buf, "DATA", 4) == 0) {
+X		    dm_manage();
+X		    buf += 4;
+X		}
+X		else if (strncmp (buf, "RISET", 5) == 0) {
+X		    rm_manage();
+X		    buf += 5;
+X		}
+X		else if (strncmp (buf, "SEP", 3) == 0) {
+X		    sm_manage();
+X		    buf += 3;
+X		}
+X		else if (strncmp (buf, "JUP", 3) == 0) {
+X		    jm_manage();
+X		    buf += 3;
+X		}
+X		else if (strncmp (buf, "MOON", 4) == 0) {
+X		    m_manage();
+X		    buf += 4;
+X		}
+X		else if (strncmp (buf, "ALTAZ", 5) == 0) {
+X		    aa_manage();
+X		    buf += 5;
+X		}
+X		else if (strncmp (buf, "DOME", 4) == 0) {
+X		    sd_manage();
+X		    buf += 4;
+X		}
+X		else if (strncmp (buf, "SOLSYS", 6) == 0) {
+X		    ss_manage();
+X		    buf += 6;
+X		}
+X		else
+X		    usage ("Bad MENU option"); /* exits */
+X
+X	    } while (*buf++);	/* skip any delimiter */
+X	    break;
+X	default:
+X	    return (-1);
+X	}
+X	return (0);
+}
+X
+/* react to the field at *fp according to the string input at bp.
+X * crack the buffer and update the corresponding (global) variable(s)
+X * or do whatever a pick at that field should do.
+X * return 1 if we change a field that invalidates any of the times or
+X * to update all related fields.
+X */
+static
+chg_fld (bp, fp)
+char *bp;
+FieldMap *fp;
+{
+X	int deghrs = 0, mins = 0, secs = 0;
+X	int new = 0;
+X
+X	/* switch on just the row/col portion */
+X	switch (fp->id) {
+X	case mkid (R_JD, C_JDV):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else
+X		mjd = atof(bp) - 2415020L;
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_UD, C_UD):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		if (decimal_year(bp)) {
+X		    double y = atof (bp);
+X		    year_mjd (y, &mjd);
+X		} else {
+X		    double day, newmjd0;
+X		    int month, year;
+X		    mjd_cal (mjd, &month, &day, &year); /* init with now */
+X		    f_sscandate (bp, &month, &day, &year);
+X		    cal_mjd (month, day, year, &newmjd0);
+X		    /* if don't give a fractional part to days
+X		     * then retain current hours.
+X		     */
+X		    if ((long)day == day)
+X			mjd = newmjd0 + mjd_hr(mjd)/24.0;
+X		    else
+X			mjd = newmjd0;
+X		}
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_UT, C_UTV):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double newutc = (mjd-mjd_day(mjd)) * 24.0;
+X		f_dec_sexsign (newutc, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &newutc);
+X		mjd = mjd_day(mjd) + newutc/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_LD, C_LD):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		if (decimal_year(bp)) {
+X		    double y = atof (bp);
+X		    year_mjd (y, &mjd);
+X		    mjd += tz/24.0;
+X		} else {
+X		    double day, newlmjd0;
+X		    int month, year;
+X		    mjd_cal (mjd-tz/24.0, &month, &day, &year); /* now */
+X		    f_sscandate (bp, &month, &day, &year);
+X		    cal_mjd (month, day, year, &newlmjd0);
+X		    /* if don't give a fractional part to days
+X		     * then retain current hours.
+X		     */
+X		    if ((long)day == day)
+X			mjd = newlmjd0 + mjd_hr(mjd-tz/24.0)/24.0;
+X		    else
+X			mjd = newlmjd0;
+X		    mjd += tz/24.0;
+X		}
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_LT, C_LT):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double newlt = (mjd-mjd_day(mjd)) * 24.0 - tz;
+X		range (&newlt, 24.0);
+X		f_dec_sexsign (newlt, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &newlt);
+X		mjd = mjd_day(mjd-tz/24.0) + (newlt + tz)/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_LST, C_LSTV):
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double lst, utc;
+X		now_lst (&now, &lst);
+X		f_dec_sexsign (lst, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &lst);
+X		lst -= radhr(lng); /* convert to gst */
+X		range (&lst, 24.0);
+X		gst_utc (mjd_day(mjd), lst, &utc);
+X		mjd = mjd_day(mjd) + utc/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case mkid (R_TZN, C_TZN):
+X	    (void) strncpy (tznm, bp, sizeof(tznm)-1);
+X	    new = 1;
+X	    break;
+X	case mkid (R_TZONE, C_TZONEV):
+X	    f_dec_sexsign (tz, &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &tz);
+X	    new = 1;
+X	    break;
+X	case mkid (R_LONG, C_LONGV):
+X	    f_dec_sexsign (-raddeg(lng), &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &lng);
+X	    lng = degrad (-lng); 		/* want - radians west */
+X	    new = 1;
+X	    break;
+X	case mkid (R_LAT, C_LATV):
+X	    f_dec_sexsign (raddeg(lat), &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &lat);
+X	    lat = degrad (lat);
+X	    new = 1;
+X	    break;
+X	case mkid (R_HEIGHT, C_HEIGHTV):
+X	    if (sscanf (bp, "%lf", &height) == 1) {
+X		height /= 2.093e7; /*convert ft to earth radii above sea level*/
+X		new = 1;
+X	    }
+X	    break;
+X	case mkid (R_NSTEP, C_NSTEPV):
+X	    (void) sscanf (bp, "%d", &nstep);
+X	    print_nstep (0);
+X	    break;
+X	case mkid (R_PAUSE, C_PAUSEV):
+X	    (void) sscanf (bp, "%d", &spause);
+X	    print_spause (0);
+X	    break;
+X	case mkid (R_TEMP, C_TEMPV):
+X	    if (sscanf (bp, "%lf", &temp) == 1) {
+X		temp = 5./9.*(temp - 32.0);	/* want degs C */
+X		new = 1;
+X	    }
+X	    break;
+X	case mkid (R_PRES, C_PRESV):
+X	    if (sscanf (bp, "%lf", &pressure) == 1) {
+X		pressure *= 33.86;		/* want mBar */
+X		new = 1;
+X	    }
+X	    break;
+X	case mkid (R_EPOCH, C_EPOCHV):
+X	    if (bp[0] == 'e' || bp[0] == 'E')
+X		epoch = EOD;
+X	    else {
+X		double e;
+X		e = atof(bp);
+X		year_mjd (e, &epoch);
+X	    }
+X	    new = 1;
+X	    break;
+X	case mkid (R_STPSZ, C_STPSZV):
+X	    if (bp[0] == 'r' || bp[0] == 'R')
+X		tminc = RTC;
+X	    else {
+X		char lastc = bp[strlen(bp)-1];
+X		if (lastc == 'd' || lastc == 'D') {
+X		    /* ends in d so treat as a number of days */
+X		    double x;
+X		    if (sscanf (bp, "%lf", &x) == 1)
+X			tminc = x * 24.0;
+X		} else if (lastc == 's' || lastc == 'S') {
+X		    /* ends in s so treat as a number of sidereal days */
+X		    double x;
+X		    if (sscanf (bp, "%lf", &x) == 1)
+X			tminc = x * 24.0 * SIDRATE;
+X		} else {
+X		    if (tminc == RTC)
+X			deghrs = mins = secs = 0;
+X		    else
+X			f_dec_sexsign (tminc, &deghrs, &mins, &secs);
+X		    f_sscansex (bp, &deghrs, &mins, &secs);
+X		    sex_dec (deghrs, mins, secs, &tminc);
+X		}
+X	    }
+X	    print_tminc(0);
+X	    set_t0 (&now);
+X	    break;
+X	default:
+X	    printf ("chg_fld: unknown id: 0x%x\n", fp->id);
+X	    exit (1);
+X	}
+X
+X	return (new);
+}
+X
+/* use typed OK to a prompt for fp. get his new value and use it */
+static void
+prompt_ok_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X	char *text;
+X	
+X	get_xmstring(w, XmNtextString, &text);
+X	if (chg_fld (text, fp)) {
+X	    mm_now (1);
+X	    mm_newcir(1);
+X	    newcir = 1;
+X	}
+X	XtDestroyWidget (w);
+X	XtFree (text);
+}
+X
+/* put up a prompt dialog to ask about fp */
+static
+prompt (fp)
+FieldMap *fp;
+{
+X	Widget w, sw;
+X	XmString str, title;
+X	Arg args[20];
+X	int n;
+X	
+X	str = XmStringCreateLtoR (fp->prompt, XmSTRING_DEFAULT_CHARSET);
+X	title = XmStringCreateSimple ("xephem Prompt");
+X	n = 0;
+X	XtSetArg(args[n], XmNselectionLabelString, str);  n++;
+X	XtSetArg(args[n], XmNdialogTitle, title);  n++;
+X	sw = XmCreatePromptDialog(toplevel_w, "MainPrompt", args, n);
+X	XmStringFree (str);
+X	XmStringFree (title);
+X
+X	w = XmSelectionBoxGetChild (sw, XmDIALOG_HELP_BUTTON);
+X	XtUnmanageChild (w);
+X
+X	XtAddCallback (sw, XmNokCallback, prompt_ok_cb, fp);
+X	XtManageChild (sw);
+X	w = XmSelectionBoxGetChild (sw, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+}
+X
+/* print all the time/date/where related stuff: the Now structure.
+X * print in a nice order, based on the field locations, as much as possible.
+X */
+mm_now (all)
+int all;
+{
+X	char buf[32];
+X	double lmjd = mjd - tz/24.0;
+X	double jd = mjd + 2415020L;
+X	double tmp;
+X
+X	(void) sprintf (buf, "%-3.3s", tznm);
+X	f_string (fw(R_TZN,C_TZN), buf);
+X	f_time (fw(R_LT,C_LT), mjd_hr(lmjd));
+X	f_date (fw(R_LD,C_LD), lmjd);
+X
+X	f_time (fw(R_UT,C_UTV), mjd_hr(mjd));
+X	f_date (fw(R_UD,C_UD), mjd);
+X
+X	(void) sprintf (buf, "%14.5f", jd);
+X	(void) flog_log (fw(R_JD,C_JDV), jd, buf);
+X	f_string (fw(R_JD,C_JDV), buf);
+X
+X	now_lst (&now, &tmp);
+X	f_time (fw(R_LST,C_LSTV), tmp);
+X
+X	if (all) {
+X	    f_gangle (fw(R_LAT,C_LATV), lat);
+X	    f_gangle (fw(R_LONG,C_LONGV), -lng);	/* + west */
+X
+X	    tmp = height * 2.093e7;	/* want to see ft, not earth radii */
+X	    (void) sprintf (buf, "%5g ft", tmp);
+X	    (void) flog_log (fw(R_HEIGHT,C_HEIGHTV), tmp, buf);
+X	    f_string (fw(R_HEIGHT,C_HEIGHTV), buf);
+X
+X	    tmp = 9./5.*temp + 32.0; 	/* want to see degrees F, not C */
+X	    (void) sprintf (buf, "%6g F", tmp);
+X	    (void) flog_log (fw(R_TEMP,C_TEMPV), tmp, buf);
+X	    f_string (fw(R_TEMP,C_TEMPV), buf);
+X
+X	    tmp = pressure / 33.86;	/* want to see in. Hg, not mBar */
+X	    (void) sprintf (buf, "%5.2f in", tmp);
+X	    (void) flog_log (fw(R_PRES,C_PRESV), tmp, buf);
+X	    f_string (fw(R_PRES,C_PRESV), buf);
+X
+X	    f_signtime (fw(R_TZONE,C_TZONEV), tz);
+X
+X	    if (epoch == EOD)
+X		f_string (fw(R_EPOCH,C_EPOCHV), "(OfDate)");
+X	    else {
+X		mjd_year (epoch, &tmp);
+X		f_double (fw(R_EPOCH,C_EPOCHV), "%8.1f", tmp);
+X	    }
+X	}
+X
+X	/* print the calendar for local day, if new month/year.  */
+X	mm_calendar (all);
+}
+X
+/* display dawn/dusk/length-of-night times.
+X */
+mm_twilight (force)
+int force;
+{
+X	double dusk, dawn;
+X	double tmp;
+X	int status;
+X
+X	if (!twilight_cir (&now, &dawn, &dusk, &status) && !force)
+X	    return;
+X
+X	f_mtime (fw(R_DAWN,C_DAWNV), dawn);
+X	f_mtime (fw(R_DUSK,C_DUSKV), dusk);
+X	tmp = dawn - dusk; range (&tmp, 24.0);
+X	f_mtime (fw(R_LON,C_LONV), tmp);
+}
+X
+mm_newcir (y)
+int y;
+{
+X	static char ncmsg[] = "NEW CIRCUMSTANCES";
+X	static char nomsg[] = "                 ";
+X	static int last_y = -1;
+X
+X	if (y != last_y) {
+X	    f_string (newcir_w, y ? ncmsg : nomsg);
+X	    last_y = y;
+X	}
+}
+X
+static
+mm_calendar (force)
+int force;
+{
+X	static char *mnames[] = {
+X	    "January", "February", "March", "April", "May", "June",
+X	    "July", "August", "September", "October", "November", "December"
+X	};
+X	static int last_m, last_y;
+X	static double last_tz = -100;
+X	char cal[CAL_ROWS][CAL_COLS+1];
+X	int m, y;
+X	double d;
+X	int f, nd;
+X	int r;
+X	double jd0;
+X
+X	/* get local m/d/y. do nothing if still same month and not forced. */
+X	mjd_cal (mjd_day(mjd-tz/24.0), &m, &d, &y);
+X	if (m == last_m && y == last_y && tz == last_tz && !force || !f_ison())
+X	    return;
+X	last_m = m;
+X	last_y = y;
+X	last_tz = tz;
+X
+X	/* find day of week of first day of month */
+X	cal_mjd (m, 1.0, y, &jd0);
+X	mjd_dow (jd0, &f);
+X	if (f < 0) {
+X	    /* can't figure it out - too hard before Gregorian */
+X	    for (r = CAL_ROWS; --r >= 0; )
+X		cal[r][0] = '\0';
+X	} else {
+X	    /* print header */
+X	    (void) sprintf (cal[0], "%s %4d", mnames[m-1], y); /* X centers */
+X	    strcpy (cal[1], "Su Mo Tu We Th Fr Sa");
+X
+X	    /* find number of days in this month */
+X	    mjd_dpm (jd0, &nd);
+X
+X	    /* print the calendar */
+X	    for (r = 0; r < CAL_ROWS-2; r++) {
+X		char row[7*3+1], *rp = row;
+X		int c;
+X		for (c = 0; c < 7; c++) {
+X		    int i = r*7+c;
+X		    if (i < f || i >= f + nd)
+X			(void) sprintf (rp, "   ");
+X		    else
+X			(void) sprintf (rp, "%2d ", i-f+1);
+X		    rp += 3;
+X		}
+X		*--rp = '\0'; /* don't want last blank */
+X		strcpy (cal[r+2], row);
+X	    }
+X	}
+X
+X	/* over print the new and full moons for this month.
+X	 * TODO: don't really know which dates to use here (see moonnf())
+X	 *   so try several to be fairly safe. have to go back to 4/29/1988
+X	 *   to find the full moon on 5/1 for example.
+X	 */
+X	mm_nfmoon (cal, jd0-3, tz, m, f);
+X	mm_nfmoon (cal, jd0+15, tz, m, f);
+X
+X	for (r = 0; r < CAL_ROWS; r++)
+X	    f_string(cal_w[r], cal[r]);
+}
+X
+static
+mm_nfmoon (cal, jd, tzone, m, f)
+char cal[CAL_ROWS][CAL_COLS+1];
+double jd, tzone;
+int m, f;
+{
+X	static char nms[] = "NM", fms[] = "FM";
+X	double dm;
+X	int mm, ym;
+X	double jdn, jdf;
+X	int di;
+X
+X	moonnf (jd, &jdn, &jdf);
+X	mjd_cal (jdn-tzone/24.0, &mm, &dm, &ym);
+X	if (m == mm) {
+X	    di = dm + f - 1;
+X	    strncpy (&cal[2+di/7][3*(di%7)], nms, 2); /* don't add a '\0' */
+X	}
+X	mjd_cal (jdf-tzone/24.0, &mm, &dm, &ym);
+X	if (m == mm) {
+X	    di = dm + f - 1;
+X	    strncpy (&cal[2+di/7][3*(di%7)], fms, 2); /* don't add a '\0' */
+X	}
+}
+SHAR_EOF
+echo 'File mainmenu.c is complete' &&
+chmod 0644 mainmenu.c ||
+echo 'restore of mainmenu.c failed'
+Wc_c="`wc -c < 'mainmenu.c'`"
+test 36543 -eq "$Wc_c" ||
+	echo 'mainmenu.c: original size 36543, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= moon.c ==============
+if test -f 'moon.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping moon.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting moon.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'moon.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* given the mjd, find the geocentric ecliptic longitude, lam, and latitude,
+X * bet, and horizontal parallax, hp for the moon.
+X * N.B. series for long and lat are good to about 10 and 3 arcseconds. however,
+X *   math errors cause up to 100 and 30 arcseconds error, even if use double.
+X *   why?? suspect highly sensitive nature of difference used to get m1..6.
+X * N.B. still need to correct for nutation. then for topocentric location
+X *   further correct for parallax and refraction.
+X */
+moon (mjd, lam, bet, hp)
+double mjd;
+double *lam, *bet, *hp;
+{
+X	double t, t2;
+X	double ld;
+X	double ms;
+X	double md;
+X	double de;
+X	double f;
+X	double n;
+X	double a, sa, sn, b, sb, c, sc, e, e2, l, g, w1, w2;
+X	double m1, m2, m3, m4, m5, m6;
+X
+X	t = mjd/36525.;
+X	t2 = t*t;
+X
+X	m1 = mjd/27.32158213;
+X	m1 = 360.0*(m1-(long)m1);
+X	m2 = mjd/365.2596407;
+X	m2 = 360.0*(m2-(long)m2);
+X	m3 = mjd/27.55455094;
+X	m3 = 360.0*(m3-(long)m3);
+X	m4 = mjd/29.53058868;
+X	m4 = 360.0*(m4-(long)m4);
+X	m5 = mjd/27.21222039;
+X	m5 = 360.0*(m5-(long)m5);
+X	m6 = mjd/6798.363307;
+X	m6 = 360.0*(m6-(long)m6);
+X
+X	ld = 270.434164+m1-(.001133-.0000019*t)*t2;
+X	ms = 358.475833+m2-(.00015+.0000033*t)*t2;
+X	md = 296.104608+m3+(.009192+.0000144*t)*t2;
+X	de = 350.737486+m4-(.001436-.0000019*t)*t2;
+X	f = 11.250889+m5-(.003211+.0000003*t)*t2;
+X	n = 259.183275-m6+(.002078+.000022*t)*t2;
+X
+X	a = degrad(51.2+20.2*t);
+X	sa = sin(a);
+X	sn = sin(degrad(n));
+X	b = 346.56+(132.87-.0091731*t)*t;
+X	sb = .003964*sin(degrad(b));
+X	c = degrad(n+275.05-2.3*t);
+X	sc = sin(c);
+X	ld = ld+.000233*sa+sb+.001964*sn;
+X	ms = ms-.001778*sa;
+X	md = md+.000817*sa+sb+.002541*sn;
+X	f = f+sb-.024691*sn-.004328*sc;
+X	de = de+.002011*sa+sb+.001964*sn;
+X	e = 1-(.002495+7.52e-06*t)*t;
+X	e2 = e*e;
+X
+X	ld = degrad(ld);
+X	ms = degrad(ms);
+X	n = degrad(n);
+X	de = degrad(de);
+X	f = degrad(f);
+X	md = degrad(md);
+X
+X	l = 6.28875*sin(md)+1.27402*sin(2*de-md)+.658309*sin(2*de)+
+X	    .213616*sin(2*md)-e*.185596*sin(ms)-.114336*sin(2*f)+
+X	    .058793*sin(2*(de-md))+.057212*e*sin(2*de-ms-md)+
+X	    .05332*sin(2*de+md)+.045874*e*sin(2*de-ms)+.041024*e*sin(md-ms);
+X	l = l-.034718*sin(de)-e*.030465*sin(ms+md)+.015326*sin(2*(de-f))-
+X	    .012528*sin(2*f+md)-.01098*sin(2*f-md)+.010674*sin(4*de-md)+
+X	    .010034*sin(3*md)+.008548*sin(4*de-2*md)-e*.00791*sin(ms-md+2*de)-
+X	    e*.006783*sin(2*de+ms);
+X	l = l+.005162*sin(md-de)+e*.005*sin(ms+de)+.003862*sin(4*de)+
+X	    e*.004049*sin(md-ms+2*de)+.003996*sin(2*(md+de))+
+X	    .003665*sin(2*de-3*md)+e*.002695*sin(2*md-ms)+
+X	    .002602*sin(md-2*(f+de))+e*.002396*sin(2*(de-md)-ms)-
+X	    .002349*sin(md+de);
+X	l = l+e2*.002249*sin(2*(de-ms))-e*.002125*sin(2*md+ms)-
+X	    e2*.002079*sin(2*ms)+e2*.002059*sin(2*(de-ms)-md)-
+X	    .001773*sin(md+2*(de-f))-.001595*sin(2*(f+de))+
+X	    e*.00122*sin(4*de-ms-md)-.00111*sin(2*(md+f))+.000892*sin(md-3*de);
+X	l = l-e*.000811*sin(ms+md+2*de)+e*.000761*sin(4*de-ms-2*md)+
+X	     e2*.000704*sin(md-2*(ms+de))+e*.000693*sin(ms-2*(md-de))+
+X	     e*.000598*sin(2*(de-f)-ms)+.00055*sin(md+4*de)+.000538*sin(4*md)+
+X	     e*.000521*sin(4*de-ms)+.000486*sin(2*md-de);
+X	l = l+e2*.000717*sin(md-2*ms);
+X	*lam = ld+degrad(l);
+X	range (lam, 2*PI);
+X
+X	g = 5.12819*sin(f)+.280606*sin(md+f)+.277693*sin(md-f)+
+X	    .173238*sin(2*de-f)+.055413*sin(2*de+f-md)+.046272*sin(2*de-f-md)+
+X	    .032573*sin(2*de+f)+.017198*sin(2*md+f)+.009267*sin(2*de+md-f)+
+X	    .008823*sin(2*md-f)+e*.008247*sin(2*de-ms-f);
+X	g = g+.004323*sin(2*(de-md)-f)+.0042*sin(2*de+f+md)+
+X	    e*.003372*sin(f-ms-2*de)+e*.002472*sin(2*de+f-ms-md)+
+X	    e*.002222*sin(2*de+f-ms)+e*.002072*sin(2*de-f-ms-md)+
+X	    e*.001877*sin(f-ms+md)+.001828*sin(4*de-f-md)-e*.001803*sin(f+ms)-
+X	    .00175*sin(3*f);
+X	g = g+e*.00157*sin(md-ms-f)-.001487*sin(f+de)-e*.001481*sin(f+ms+md)+
+X	     e*.001417*sin(f-ms-md)+e*.00135*sin(f-ms)+.00133*sin(f-de)+
+X	     .001106*sin(f+3*md)+.00102*sin(4*de-f)+.000833*sin(f+4*de-md)+
+X	     .000781*sin(md-3*f)+.00067*sin(f+4*de-2*md);
+X	g = g+.000606*sin(2*de-3*f)+.000597*sin(2*(de+md)-f)+
+X	    e*.000492*sin(2*de+md-ms-f)+.00045*sin(2*(md-de)-f)+
+X	    .000439*sin(3*md-f)+.000423*sin(f+2*(de+md))+
+X	    .000422*sin(2*de-f-3*md)-e*.000367*sin(ms+f+2*de-md)-
+X	    e*.000353*sin(ms+f+2*de)+.000331*sin(f+4*de);
+X	g = g+e*.000317*sin(2*de+f-ms+md)+e2*.000306*sin(2*(de-ms)-f)-
+X	    .000283*sin(md+3*f);
+X	w1 = .0004664*cos(n);
+X	w2 = .0000754*cos(c);
+X	*bet = degrad(g)*(1-w1-w2);
+X
+X	*hp = .950724+.051818*cos(md)+.009531*cos(2*de-md)+.007843*cos(2*de)+
+X	      .002824*cos(2*md)+.000857*cos(2*de+md)+e*.000533*cos(2*de-ms)+
+X	      e*.000401*cos(2*de-md-ms)+e*.00032*cos(md-ms)-.000271*cos(de)-
+X	      e*.000264*cos(ms+md)-.000198*cos(2*f-md);
+X	*hp = *hp+.000173*cos(3*md)+.000167*cos(4*de-md)-e*.000111*cos(ms)+
+X	     .000103*cos(4*de-2*md)-.000084*cos(2*md-2*de)-
+X	     e*.000083*cos(2*de+ms)+.000079*cos(2*de+2*md)+.000072*cos(4*de)+
+X	     e*.000064*cos(2*de-ms+md)-e*.000063*cos(2*de+ms-md)+
+X	     e*.000041*cos(ms+de);
+X	*hp = *hp+e*.000035*cos(2*md-ms)-.000033*cos(3*md-2*de)-
+X	     .00003*cos(md+de)-.000029*cos(2*(f-de))-e*.000029*cos(2*md+ms)+
+X	     e2*.000026*cos(2*(de-ms))-.000023*cos(2*(f-de)+md)+
+X	     e*.000019*cos(4*de-ms-md);
+X	*hp = degrad(*hp);
+}
+SHAR_EOF
+chmod 0644 moon.c ||
+echo 'restore of moon.c failed'
+Wc_c="`wc -c < 'moon.c'`"
+test 5143 -eq "$Wc_c" ||
+	echo 'moon.c: original size 5143, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= moonmenu.c ==============
+if test -f 'moonmenu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping moonmenu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting moonmenu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'moonmenu.c' &&
+/* code to manage the stuff on the moon display.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/DrawingA.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+/* get the small moonbit map and its dimension defines.
+X * moon is roughly centered within the map, with a radius of some 200 pixels.
+X * exact values set by trial and error.
+X */
+#include "smallfm.xbm"
+#define	MRAD	191				/* radius of moon image */
+#define	TOPMAR	(smallfm_height/2 - MRAD + 2)	/* top margin */
+#define	LEFTMAR	(smallfm_width/2 - MRAD)	/* left margin */
+X
+#define	NSTARS	100		/* number background stars in graphical view */
+X
+extern Now *mm_get_now();
+extern Widget toplevel_w;
+X
+static Widget mform_w;		/* main moon form dialog */
+static Widget mda_w;		/* moon drawring area */
+static Widget eshine_w;		/* whether we want to show earthshine */
+static Widget mapvw_w;		/* toggle button that selects which view */
+X
+#define	MAPVW_W	(smallfm_width+20)
+#define	MAPVW_H	(smallfm_height+40)
+X
+/* called when the moon view is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+m_manage ()
+{
+X	if (!mform_w) {
+X	    void m_eshine_cb();
+X	    void m_mapvw_cb();
+X	    void m_close_cb();
+X	    void m_da_exp_cb();
+X	    Widget w;
+X	    Widget frame_w;
+X	    Widget close_w;
+X	    XmString str;
+X	    Arg args[20];
+X	    int n;
+X
+X	    /* create and set size of form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNunitType, XmPIXELS); n++;
+X	    XtSetArg (args[n], XmNheight, MAPVW_W); n++;
+X	    XtSetArg (args[n], XmNwidth, MAPVW_H); n++;
+X	    XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNhorizontalSpacing, 5); n++;
+X	    XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    mform_w = XmCreateFormDialog (toplevel_w, "MoonForm", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Moon View"); n++;
+X	    XtSetValues (XtParent(mform_w), args, n);
+X
+X	    /* make the earthshine toggle button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 35); n++;
+X	    eshine_w = XmCreateToggleButtonGadget(mform_w, "MEShine", args, n);
+X	    set_xmstring (eshine_w, XmNlabelString, "Earthshine");
+X	    XtAddCallback (eshine_w, XmNvalueChangedCallback, m_eshine_cb, 0);
+X	    XtManageChild (eshine_w);
+X	    XmToggleButtonGadgetSetState (eshine_w, True, False);
+X
+X	    /* make the view option toggle button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    mapvw_w = XmCreateToggleButtonGadget(mform_w, "MMapView", args, n);
+X	    set_xmstring (mapvw_w, XmNlabelString, "Bitmap View");
+X	    XtAddCallback (mapvw_w, XmNvalueChangedCallback, m_mapvw_cb, 0);
+X	    XtManageChild (mapvw_w);
+X	    XmToggleButtonGadgetSetState (mapvw_w, True, False);
+X
+X	    /* make the close button */
+X
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    close_w = XmCreatePushButtonGadget (mform_w, "MClose", args, n);
+X	    XtAddCallback (close_w, XmNactivateCallback, m_close_cb, 0);
+X	    XtManageChild (close_w);
+X	    XmStringFree (str);
+X
+X	    /* make a frame for the drawing area */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, close_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	    frame_w = XmCreateFrame (mform_w, "MoonFrame", args, n);
+X	    XtManageChild (frame_w);
+X
+X	    /* make a drawing area in the frame for the sky */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmarginWidth, 0); n++;
+X	    XtSetArg (args[n], XmNmarginHeight, 0); n++;
+X	    mda_w = XmCreateDrawingArea (frame_w, "MoonDA", args, n);
+X	    XtManageChild (mda_w);
+X	    XtAddCallback (mda_w, XmNexposeCallback, m_da_exp_cb, 0);
+X	    XtAddCallback (mda_w, XmNresizeCallback, m_da_exp_cb, 0);
+X	}
+X	
+X	if (XtIsManaged(mform_w))
+X	    XtUnmanageChild (mform_w);
+X	else {
+X	    XtManageChild (mform_w);
+X	    /* let the initial expose do the drawing */
+X	}
+}
+X
+m_ison()
+{
+X	return (mform_w && XtIsManaged(mform_w));
+}
+X
+m_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	if (!mform_w || !XtIsManaged(mform_w))
+X	    return;
+X
+X	m_draw (how_much);
+X	    
+}
+X
+/* callback from the Close button.
+X */
+static void
+m_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (mform_w);
+}
+X
+/* callback from the Map view toggle button.
+X */
+static void
+m_mapvw_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	if (XmToggleButtonGadgetGetState(mapvw_w)) {
+X	    /* turning on map so insure a good initial size at least */
+X	    Arg args[20];
+X	    int n;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNwidth, MAPVW_W); n++;
+X	    XtSetArg (args[n], XmNheight, MAPVW_H); n++;
+X	    XtSetValues (mform_w, args, n);
+X	}
+X
+X	m_draw (1);
+}
+X
+/* callback from the earthshine toggle button.
+X */
+static void
+m_eshine_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	m_draw (1);
+}
+X
+/* expose (or reconfig) of moon drawing area.
+X * just redraw the scene to the current window size.
+X */
+static void
+m_da_exp_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected mda_w event. type=%d\n", c->reason);
+X	    return;
+X	}
+X
+X	m_draw (1);
+}
+X
+/* draw moon, always if force or scene has changed.
+X */
+static
+m_draw (force)
+int force;
+{
+X	static double last_el;
+X	Now *np;
+X	Sky sky;
+X	double el;
+X
+X	/* get new elongation */
+X	np = mm_get_now();
+X	(void) body_cir (MOON, 3600.0, np, &sky);
+X	el = degrad(sky.s_elong);
+X
+X	/* don't bother if not forcing and hasn't changed 1 degree */
+X	if (!force && fabs (el - last_el) < degrad(1))
+X	    return;
+X	last_el = el;
+X
+X	if (XmToggleButtonGadgetGetState(mapvw_w)) {
+X	    /* want map view */
+X	    XtManageChild (eshine_w);
+X	    m_draw_mapview (el);
+X	} else {
+X	    /* want graphical view */
+X	    XtUnmanageChild (eshine_w);
+X	    m_draw_grview (el);
+X	}
+}
+X
+/* version that draws moon using genuine bitmap image. */
+static
+m_draw_mapview (el)
+double el;
+{
+X	static GC m_fgc;
+X	Display *dsp = XtDisplay (mda_w);
+X	Window win = XtWindow (mda_w);
+X	double cosel;
+X	XImage *xim;
+X	unsigned char *m;
+X	int y;	/* y coord: 0 is center, up is + */
+X	int earthshine = XmToggleButtonGadgetGetState(eshine_w);
+X
+X	if (!m_fgc) {
+X	    /* make gc from MoonDA colors
+X	     */
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X
+X	    gcm = GCForeground | GCBackground;
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.background);
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.foreground);
+X
+X	    m_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	/* make a copy so we can darken some of it */
+X	m = (unsigned char *)XtMalloc(smallfm_width*smallfm_height/8);
+X	memcpy (m, smallfm_bits, smallfm_width*smallfm_height/8);
+X
+X	cosel = cos(el);
+X	for (y = MRAD; y > -MRAD; y--) {
+X	    int lx, rx;	/* left and right edge of scan line to darken */
+X	    int r, c;	/* X row/col coords */
+X	    lx = -sqrt((double)(MRAD*MRAD - y*y));
+X	    rx = -lx * cosel;
+X	    if (el < 0) {
+X		int tmp = rx;
+X		rx = -lx;
+X		lx = -tmp;
+X	    }
+X	    r = TOPMAR + MRAD - y;
+X	    for (c = LEFTMAR + MRAD + lx; c < LEFTMAR + MRAD + rx; c++)
+X		if (!earthshine || (c & 3) != 3 || (y & 3) != 3)
+X		    m[r*smallfm_width/8 + c/8] |= (1 << (c%8)); /* 1 is bkgnd */
+X	}
+X
+X	xim = XCreateImage (dsp, XDefaultVisual (dsp, 0),
+X	    /* depth */		1,
+X	    /* format */	XYBitmap, 
+X	    /* offset */	0,
+X	    /* data */		m,
+X	    /* width */		smallfm_width, 
+X	    /* height */	smallfm_height,
+X	    /* pad */		8,
+X	    /* bpl */		0);
+X
+X
+X	XPutImage (dsp, win, m_fgc, xim, 0, 0, 0, 0,
+X					    smallfm_width, smallfm_height);
+X	XDestroyImage (xim);	/* also frees m */
+}
+X
+/* version that draws moon using just simple graphics */
+static
+m_draw_grview (el)
+double el;
+{
+X	static GC m_fgc, m_bgc;
+X	static XPoint *stars;
+X	static int last_w, last_h;
+X	Display *dsp = XtDisplay (mda_w);
+X	Window win = XtWindow (mda_w);
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	unsigned w, h;		/* actual size of drawing area window */
+X	unsigned nx, ny;	/* width and height of moon ellipse */
+X	int la1, la2, ta1, ta2; /* limb and terminator start and extent */
+X	int wid;		/* distance from meridian to terminator */
+X	int xb, yb;		/* x and y borders, eg, (w-nx)/2 */
+X	Pixmap pm;
+X
+X	if (!m_fgc) {
+X	    /* make gcs from MoonDA colors
+X	     */
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X
+X	    gcm = GCForeground | GCBackground;
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.foreground);
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.background);
+X	    m_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.foreground);
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.background);
+X	    m_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X
+X	/* get size of window now and make a fresh pixmap to match.
+X	 * we draw the scene in the pixmap then copy it to the window.
+X	 * otherwise, you can see it drawing and it flashes and looks ugly.
+X	 */
+X	XGetGeometry (dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X	pm = XCreatePixmap (dsp, win, w, h, d);
+X	XFillRectangle (dsp, pm, m_bgc, 0, 0, w, h);
+X
+X	/* set moon ellipse portion within drawing window here as desired.
+X	 * this code sets it to match the map view.
+X	 */
+X	nx = MRAD*w/(MRAD+LEFTMAR);
+X	ny = MRAD*h/(MRAD+TOPMAR);
+X
+X	xb = (w - nx)/2;
+X	yb = (h - ny)/2;
+X
+X	la1 = el >= 0.0 ? -90*64 : 90*64;
+X	la2 = 180*64;
+X	wid = fabs(nx/2*cos(el))+0.5;
+X	ta1 = el >= PI/2 || (el <= 0 && el >= -PI/2) ? 90*64 : -90*64;
+X	ta2 = 180*64;
+X
+X	/* dsp, win, gc, x, y, w, h, start_ang, ang_extent */
+X	/* draw the lit hemisphere to the limb */
+X	XFillArc (dsp, pm, m_fgc, xb, yb, nx, ny, la1, la2);
+X
+X	/* draw the portion from the terminator to the meridian */
+X	if (la1 < 0 && ta1 < 0 || la1 > 0 && ta1 > 0) {
+X	    /* crescent, so draw in background color */
+X	    XFillArc (dsp, pm, m_bgc, nx/2-wid+xb, yb, 2*wid, ny, ta1, ta2);
+X	} else {
+X	    /* gibbous, so draw in foreground color */
+X	    XFillArc (dsp, pm, m_fgc, nx/2-wid+xb, yb, 2*wid, ny, ta1, ta2);
+X	}
+X
+X	/* add in the background stars */
+X	if (!stars || last_w != w || last_h != h) {
+X	    /* sprinkle NSTARS stars outside the moon's ellipse.
+X	     */
+X	    int i;
+X	    if (stars)
+X		XtFree ((char *)stars);
+X	    stars = (XPoint *) XtMalloc (NSTARS * sizeof(XPoint));
+X	    for (i = 0; i < NSTARS; ) {
+X		double hh = ny/2;
+X		double hw = nx/2;
+X		x = ((rand() >> 2) & 0xfff) * (w-1) / 0xfff;
+X		y = ((rand() >> 2) & 0xfff) * (h-1) / 0xfff;
+X		/* compare the candidate y with the y on the ellipse at the
+X		 * candidate x to decide whether to draw the point.
+X		 */
+#	        define SQR(x)	((x)*(x))
+X		if (SQR(y-h/2) > SQR(hh) - SQR(hh)*SQR(x-w/2)/SQR(hw)) {
+X		    stars[i].x = x;
+X		    stars[i].y = y;
+X		    i++;
+X		}
+X	    }
+X	}
+X	XDrawPoints (dsp, pm, m_fgc, stars, NSTARS, CoordModeOrigin);
+X
+X	XCopyArea (dsp, pm, win, m_fgc, 0, 0, w, h, 0, 0);
+X	XFreePixmap (dsp, pm);
+X
+X	last_w = w;
+X	last_h = h;
+}
+SHAR_EOF
+chmod 0644 moonmenu.c ||
+echo 'restore of moonmenu.c failed'
+Wc_c="`wc -c < 'moonmenu.c'`"
+test 12318 -eq "$Wc_c" ||
+	echo 'moonmenu.c: original size 12318, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= moonnf.c ==============
+if test -f 'moonnf.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping moonnf.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting moonnf.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'moonnf.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+#define	unw(w,z)	((w)-floor((w)/(z))*(z))
+X
+/* given a modified Julian date, mjd, return the mjd of the new
+X * and full moons about then, mjdn and mjdf.
+X * TODO: exactly which ones does it find? eg:
+X *   5/28/1988 yields 5/15 and 5/31
+X *   5/29             6/14     6/29
+X */
+moonnf (mjd, mjdn, mjdf)
+double mjd;
+double *mjdn, *mjdf;
+{
+X	int mo, yr;
+X	double dy;
+X	double mjd0;
+X	double k, tn, tf, t;
+X
+X	mjd_cal (mjd, &mo, &dy, &yr);
+X	cal_mjd (1, 0., yr, &mjd0);
+X	k = (yr-1900+((mjd-mjd0)/365))*12.3685;
+X	k = floor(k+0.5);
+X	tn = k/1236.85;
+X	tf = (k+0.5)/1236.85;
+X	t = tn;
+X	m (t, k, mjdn);
+X	t = tf;
+X	k += 0.5;
+X	m (t, k, mjdf);
+}
+X
+static
+m (t, k, mjd)
+double t, k;
+double *mjd;
+{
+X	double t2, a, a1, b, b1, c, ms, mm, f, ddjd;
+X
+X	t2 = t*t;
+X	a = 29.53*k;
+X	c = degrad(166.56+(132.87-9.173e-3*t)*t);
+X	b = 5.8868e-4*k+(1.178e-4-1.55e-7*t)*t2+3.3e-4*sin(c)+7.5933E-1;
+X	ms = 359.2242+360*unw(k/1.236886e1,1)-(3.33e-5+3.47e-6*t)*t2;
+X	mm = 306.0253+360*unw(k/9.330851e-1,1)+(1.07306e-2+1.236e-5*t)*t2;
+X	f = 21.2964+360*unw(k/9.214926e-1,1)-(1.6528e-3+2.39e-6*t)*t2;
+X	ms = unw(ms,360);
+X	mm = unw(mm,360);
+X	f = unw(f,360);
+X	ms = degrad(ms);
+X	mm = degrad(mm);
+X	f = degrad(f);
+X	ddjd = (1.734e-1-3.93e-4*t)*sin(ms)+2.1e-3*sin(2*ms)
+X		-4.068e-1*sin(mm)+1.61e-2*sin(2*mm)-4e-4*sin(3*mm)
+X		+1.04e-2*sin(2*f)-5.1e-3*sin(ms+mm)-7.4e-3*sin(ms-mm)
+X		+4e-4*sin(2*f+ms)-4e-4*sin(2*f-ms)-6e-4*sin(2*f+mm)
+X		+1e-3*sin(2*f-mm)+5e-4*sin(ms+2*mm);
+X	a1 = (long)a;
+X	b = b+ddjd+(a-a1);
+X	b1 = (long)b;
+X	a = a1+b1;
+X	b = b-b1;
+X	*mjd = a + b;
+}
+SHAR_EOF
+chmod 0644 moonnf.c ||
+echo 'restore of moonnf.c failed'
+Wc_c="`wc -c < 'moonnf.c'`"
+test 1557 -eq "$Wc_c" ||
+	echo 'moonnf.c: original size 1557, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= nutation.c ==============
+if test -f 'nutation.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping nutation.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting nutation.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'nutation.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* given the modified JD, mjd, find the nutation in obliquity, *deps, and
+X * the nutation in longitude, *dpsi, each in radians.
+X */
+nutation (mjd, deps, dpsi)
+double mjd;
+double *deps, *dpsi;
+{
+X	static double lastmjd = -10000, lastdeps, lastdpsi;
+X	double ls, ld;	/* sun's mean longitude, moon's mean longitude */
+X	double ms, md;	/* sun's mean anomaly, moon's mean anomaly */
+X	double nm;	/* longitude of moon's ascending node */
+X	double t, t2;	/* number of Julian centuries of 36525 days since
+X			 * Jan 0.5 1900.
+X			 */
+X	double tls, tnm, tld;	/* twice above */
+X	double a, b;	/* temps */
+X
+X	if (mjd == lastmjd) {
+X	    *deps = lastdeps;
+X	    *dpsi = lastdpsi;
+X	    return;
+X	}
+X	    
+X	t = mjd/36525.;
+X	t2 = t*t;
+X
+X	a = 100.0021358*t;
+X	b = 360.*(a-(long)a);
+X	ls = 279.697+.000303*t2+b;
+X
+X	a = 1336.855231*t;
+X	b = 360.*(a-(long)a);
+X	ld = 270.434-.001133*t2+b;
+X
+X	a = 99.99736056000026*t;
+X	b = 360.*(a-(long)a);
+X	ms = 358.476-.00015*t2+b;
+X
+X	a = 13255523.59*t;
+X	b = 360.*(a-(long)a);
+X	md = 296.105+.009192*t2+b;
+X
+X	a = 5.372616667*t;
+X	b = 360.*(a-(long)a);
+X	nm = 259.183+.002078*t2-b;
+X
+X	/* convert to radian forms for use with trig functions.
+X	 */
+X	tls = 2*degrad(ls);
+X	nm = degrad(nm);
+X	tnm = 2*nm;
+X	ms = degrad(ms);
+X	tld = 2*degrad(ld);
+X	md = degrad(md);
+X
+X	/* find delta psi and eps, in arcseconds.
+X	 */
+X	lastdpsi = (-17.2327-.01737*t)*sin(nm)+(-1.2729-.00013*t)*sin(tls)
+X		   +.2088*sin(tnm)-.2037*sin(tld)+(.1261-.00031*t)*sin(ms)
+X		   +.0675*sin(md)-(.0497-.00012*t)*sin(tls+ms)
+X		   -.0342*sin(tld-nm)-.0261*sin(tld+md)+.0214*sin(tls-ms)
+X		   -.0149*sin(tls-tld+md)+.0124*sin(tls-nm)+.0114*sin(tld-md);
+X	lastdeps = (9.21+.00091*t)*cos(nm)+(.5522-.00029*t)*cos(tls)
+X		   -.0904*cos(tnm)+.0884*cos(tld)+.0216*cos(tls+ms)
+X		   +.0183*cos(tld-nm)+.0113*cos(tld+md)-.0093*cos(tls-ms)
+X		   -.0066*cos(tls-nm);
+X
+X	/* convert to radians.
+X	 */
+X	lastdpsi = degrad(lastdpsi/3600);
+X	lastdeps = degrad(lastdeps/3600);
+X
+X	lastmjd = mjd;
+X	*deps = lastdeps;
+X	*dpsi = lastdpsi;
+}
+SHAR_EOF
+chmod 0644 nutation.c ||
+echo 'restore of nutation.c failed'
+Wc_c="`wc -c < 'nutation.c'`"
+test 2011 -eq "$Wc_c" ||
+	echo 'nutation.c: original size 2011, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= obj.c ==============
+if test -f 'obj.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping obj.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting obj.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'obj.c' &&
+/* code to manage the stuff on the "objx/y" menu.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <X11/cursorfont.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/LabelG.h>
+#include <Xm/List.h>
+#include <Xm/PushBG.h>
+#include <Xm/SelectioB.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/SeparatoG.h>
+#include <Xm/RowColumn.h>
+#include "fieldmap.h"
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *getenv();
+extern Widget toplevel_w;
+extern Now *mm_get_now();
+X
+#define	MAXDBLINE	256	/* longest allowable database file line */
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	23	/* initial number of rows */
+#define	NC	60	/* initial number of columns */
+#define	TBLW	30	/* fixed width of left tabular section */
+X
+/* first row of the object-specific fields */
+#define	FIRST_ROW	7
+X
+/* define a code for each member in each object type struct.
+X * making them globally unique avoids a nested switch on fp->type.
+X * making them sequencial might encourage the compiler to make a jmp table.
+X */
+#define	F_NAME		1
+#define	F_RA		2
+#define	F_DEC		3
+#define	F_MAG		4
+#define	F_EPOCH		5
+#define	F_SIZE		6
+X
+#define	E_NAME		7
+#define	E_INC		8
+#define	E_LAN		9
+#define	E_AOP		10
+#define	E_A		11
+#define	E_N		12
+#define	E_E		13
+#define	E_M		14
+#define	E_CEPOCH	15
+#define	E_EPOCH		16
+#define	E_M1		17
+SHAR_EOF
+true || echo 'restore of obj.c failed'
+fi
+echo 'End of  part 5'
+echo 'File obj.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,223 @@
+Newsgroups: comp.sources.misc
+From: mcgough@wrdis01.af.mil (Jeffrey B. McGough)
+Subject:  v31i039:  pgnews - Perl NNTP client to save articles into mailbox, Part01/01
+Message-ID: <1992Jul14.214733.1957@sparky.imd.sterling.com>
+X-Md4-Signature: c6345e9e9b47ead8f1fa0da4885f3a92
+Date: Tue, 14 Jul 1992 21:47:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mcgough@wrdis01.af.mil (Jeffrey B. McGough)
+Posting-number: Volume 31, Issue 39
+Archive-name: pgnews/part01
+Environment: Perl, NNTP
+
+This is pgnews, a PERL NNTP client that grabs news articles by newsgroup 
+from a specified NNTP server and and saves them to a specified file in 
+mailbox format.
+
+Pgnews needs a file named .pgnews to read its newsgroup, last message, and 
+savefile from.  .pgnews format is:
+
+    newsgroup number savefile
+
+Example:
+comp.unix.wizards 7800 cuw
+comp.unix.shell 3203 cus
+comp.unix.questions 546 cuq
+
+comp.unix.wizards will be saved to file cuw in mailbox format starting 
+at article 7800 etc.
+
+My thanks to kenr@bridge.cc.rochester.edu and gort@bridge.cc.rochester.edu
+for help with the bug fixes...
+
+------ cut ----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  pgnews
+# Wrapped by mcgough@wrdis01 on Fri Jul 10 13:33:52 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'pgnews' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pgnews'\"
+else
+echo shar: Extracting \"'pgnews'\" \(4527 characters\)
+sed "s/^X//" >'pgnews' <<'END_OF_FILE'
+X#! /usr/bin/perl
+X#/****************************************************
+X#*****************************************************
+X#**
+X#** SOURCE NAME | pgnews, (Perl Get News)
+X#**             | 
+X#**    SYNOPSIS | pgnews
+X#**             | 
+X#** DESCRIPTION | pgnews goes to a specified NNTP server
+X#**             | and retrieves news articles by newsgroup
+X#**             | and saves them to a specified file in
+X#**             | mailbox format.
+X#**             | Please see the NOTES section.
+X#**             | 
+X#**     CHANGES | Programmer:         Date:     Reason/Comments
+X#**             | Jeffrey B. McGough  09-05-91  initial
+X#**             | Jeffrey B. McGough  09-06-91  Added select (see FIXES)
+X#**             | Jeffrey B. McGough  10-06-91  Fixed erronious end of article
+X#**             | Jeffrey B. McGough  07-09-92  Fixed dup article bug
+X#**             | 
+X#**       NOTES | Pgnews needs a file named .pgnews to read
+X#**             | its newsgroup, last message, and savefile from.
+X#**             | .pgnews format is:
+X#**             | newsgroup number savefile
+X#**             | Example:
+X#**             | comp.unix.wizards 7800 cuw
+X#**             | comp.unix.shell 3203 cus
+X#**             | comp.unix.questions 546 cuq
+X#**             | 
+X#**             | comp.unix.wizards will be saved to file cuw in
+X#**             | mailbox format starting at article 7800 etc.
+X#**             | 
+X#**       FIXES | 09-06-91: added select on S to keep the client
+X#**             | from getting out of sync.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 10-06-91: Fixed an overlooked END of ARTICLE
+X#**             | bug... Thanks to a member(s) of the issos
+X#**             | group at Ohio State.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#**             | 07-09-92: Fixed a duplicate article bug
+X#**             | pointed out to me by kenr@bridge.cc.rochester.edu
+X#**             | and gort@bridge.cc.rochester.edu. Thanks
+X#**             | for the help with the fix.
+X#**             | Jeffrey B. McGough  mcgough@wrdis01.af.mil
+X#**             | 
+X#****************************************************/
+X
+Xrequire 'sys/socket.ph'; # The way I coded the sockets is this necessary?
+X
+X$port = 119; # For NNTP
+X# HOSTNAME for the server...
+X#$host = 'localhost';
+X$host = 'emory.mathcs.emory.edu';
+X# Pack format...
+X$sockaddr = 'S n a4 x8';
+X
+X$DOMAIN = 2;
+X$STYLE = 1;
+X
+X$newsfile = '.pgnews';
+X$nnewsfile = '.pgnews.new';
+X
+X$rin = $rout = '';
+X
+X($name, $aliases, $proto) = getprotobyname('tcp');
+X($name, $aliases, $type, $len, $hostaddr) = gethostbyname($host);
+X
+X$sock = pack($sockaddr, $DOMAIN, $port, $hostaddr);
+X
+Xsocket(S, $DOMAIN, $STYLE, $proto) || die $!;
+Xconnect(S, $sock) || die $!;
+Xselect(S); $| = 1; select(STDOUT);
+X#set up for select
+Xvec($rin, fileno(S), 1) = 1;
+X#this select will block until the server gives us something.
+Xselect($rout=$rin, undef, undef, undef);
+X$_ = <S>; #Read one line to see if we got a good connection.
+Xif ($_ !~ /^2../)
+X{
+X	print;
+X	die "Service unavailable";
+X}
+Xopen(GRP, "< $newsfile") || die "Could not open $newsfile: $!";
+Xopen(NGRP, "> $nnewsfile") || die "Could not open $nnewsfile: $!";
+Xselect(NGRP); $| = 1; select(STDOUT);
+Xwhile(<GRP>)
+X{
+X	chop;
+X	($grp, $lgot, $file) = split;
+X	print(S "group $grp\n");
+X	#this select will block until the server gives us something.
+X	select($rout=$rin, undef, undef, undef);
+X	$_ = <S>; #Make sure the group change worked...
+X	($stat, $num, $first, $last) = split;
+X	if( $stat !~ /^2../ )
+X	{
+X		print;
+X		warn "Bad group";
+X		print(NGRP "$grp $lgot $file\n");
+X		next;
+X	}
+X	# good group open output file...
+X	open(OUTFILE, ">>$file") || die "Could not open $file";
+X
+X	if ( $first > $lgot )
+X	{
+X		$lgot = $first;
+X	}
+X	if ( $lgot <= $last )
+X	{
+X		foreach $art ($lgot..$last)
+X		{
+X			print(S "article $art\n");
+X			#this select will block until the server gives us something.
+X			select($rout=$rin, undef, undef, undef);
+X			$_ = <S>; #get error if one exists
+X			if($_ !~ /^2../)
+X			{
+X				print;
+X				warn "No article by that number";
+X			}
+X			else
+X			{
+X				do
+X				{
+X					$lgot = $art;
+X					$_ = <S>;
+X					s/^Path:/From/;
+X					s/\r//;
+X					if( $_ ne ".\n")
+X					{
+X						s/^\.//;
+X						print OUTFILE;
+X						s/^\./../;
+X					}	
+X					else
+X					{
+X						print OUTFILE "\n";
+X					}
+X				} until $_ eq ".\n";
+X			}
+X		}	
+X	}
+X	else
+X	{
+X		$lgot -= 1;
+X	}
+X	close(OUTFILE);
+X	$lgot += 1;
+X	print(NGRP "$grp $lgot $file\n");
+X}
+Xclose(NGRP);
+Xclose(GRP);
+Xsystem("mv $nnewsfile $newsfile");
+Xprint( S "quit\n");
+Xclose(S);
+END_OF_FILE
+if test 4527 -ne `wc -c <'pgnews'`; then
+    echo shar: \"'pgnews'\" unpacked with wrong size!
+fi
+chmod +x 'pgnews'
+# end of 'pgnews'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+Lator,                                       We cheat the other guy,
+                                             and pass the savings on to you.
+Jeffrey B. McGough
+WR-ALC UNIX Systems Administrator                    (mcgough@wrdis01.af.mil)
+
+exit 0 # Just in case...

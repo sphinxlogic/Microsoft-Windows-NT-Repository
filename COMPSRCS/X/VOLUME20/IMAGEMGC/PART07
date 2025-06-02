@@ -1,0 +1,1624 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i063:  imagemagic - X11 image processing and display, Part07/38
+Message-ID: <1993Jul14.175413.997@sparky.sterling.com>
+X-Md4-Signature: 8690027fe2568fd3f40dce984e5c2a77
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:54:13 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 63
+Archive-name: imagemagic/part07
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.07 (part 7 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/xtp/xtp.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 7; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/xtp/xtp.c'
+else
+echo 'x - continuing file ImageMagick/xtp/xtp.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/xtp/xtp.c' &&
+%
+%  Function SignalChild is called if the status of the child process changes.
+%
+%  The format of the SignalChild routine is:
+%
+%    SignalChild()
+%
+%
+*/
+static void SignalChild()
+{
+X  char
+X    message[2048];
+X
+X  int
+X    process_status;
+X
+X  while (waitpid((pid_t) NULL,&process_status,WNOHANG) > 0);
+X  (void) sprintf(message,"child died, status %x",process_status);
+X  Error(message,(char *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Usage displays the program usage;
+%
+%  The format of the Usage routine is:
+%
+%      Usage()
+%
+%
+*/
+static void Usage()
+{
+X  char
+X    **p;
+X
+X  static char
+X    *options[]=
+X    {
+X      "-binary                retrieve files as binary",
+X      "-exclude expression    exclude files that match the expression",
+X      "-directory expression  list file names that match the expression",
+X      "-ident password        specifies password",
+X      "-port number           port number of FTP server",
+X      "-print expression      print files that match the expression",
+X      "-prune                 do not recursively search for files",
+X      "-retrieve expression   retrieve files that match the expression",
+X      "-send expression       send files that match the expression",
+X      "-timeout seconds       specifies maximum seconds of XTP session",
+X      "-user name             identify yourself to the remote FTP server",
+X      "-verbose               show all responses from the remote server",
+X      NULL
+X    };
+X  (void) fprintf(stderr,
+X    "Usage: %s [-options ...] <host/ip address> [ <home directory> ]\n",
+X    client_name);
+X  (void) fprintf(stderr,"\nWhere options include:\n");
+X  for (p=options; *p; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W a i t                                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Wait reads a line of output from the remote FTP server.
+%
+%  The format of the Wait() routine is:
+%
+%    (response=Wait())
+%
+%  A description of each parameter follows:
+%
+%    o response:  Function Wait returns this pointer to the output obtained
+%      from the remote FTP server.
+%
+%
+*/
+static char *Wait()
+{
+X  register char
+X    *p;
+X
+X  static char
+X    buffer[1024],
+X    *q;
+X
+X  static char
+X    line[1024];
+X
+X  static int
+X    count=0;
+X
+X  status=0;
+X  p=line;
+X  do
+X  {
+X    if (count <= 0)
+X      {
+X        /*
+X          The buffer is empty;  read output from the remote FTP server.
+X        */
+X        count=read(master,buffer,sizeof(buffer));
+X        q=buffer;
+X        if (count <= 0)
+X          {
+X            if (p == line)
+X              return((char *) NULL);
+X            break;
+X          }
+X      }
+X    count--;
+X    *p=(*q++);
+X    if (*p == '\n')
+X      break;
+X    p++;
+X    if ((p-line) >= 5)
+X      if (!strncmp(p-5,"ftp> ",5))
+X        if (count == 0)
+X          return((char *) NULL);
+X  } while (p < (line+sizeof(line)));
+X  *p='\0';
+X  if (isdigit(*line))
+X    status=atoi(line)/100;
+X  return(line);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   m a i n                                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+register char
+X  **argv;
+{
+#include <pwd.h>
+X
+X  char
+X    command[2048],
+X    *home_directory,
+X    *host_info,
+X    *host_name,
+X    *ident,
+X    *port,
+X    *send_expression,
+X    *user;
+X
+X  int
+X    binary,
+X    child,
+X    process_status;
+X
+X  register char
+X    *p,
+X    *response;
+X
+X  struct sigaction
+X    action;
+X
+X  unsigned int
+X    prune,
+X    timeout,
+X    verbose;
+X
+X  /*
+X    Initialize program variables.
+X  */
+X  client_name=argv[0];
+X  binary=False;
+X  directory_expression=(RegularExpression *) NULL;
+X  exclude_expression=(RegularExpression *) NULL;
+X  ident=(char *) NULL;
+X  port=(char *) NULL;
+X  print_expression=(RegularExpression *) NULL;
+X  prune=False;
+X  retrieve_expression=(RegularExpression *) NULL;
+X  send_expression=(char *) NULL;
+X  timeout=0;
+X  user=(char *) NULL;
+X  verbose=False;
+X  /*
+X    Parse command line arguments.
+X  */
+X  for (p=(*argv++); *argv && (**argv == '-'); argv++)
+X    switch (argv[0][1])
+X    {
+X      case 'b':
+X      {
+X        binary=True;
+X        break;
+X      }
+X      case 'd':
+X      {
+X        directory_expression=CompileRegularExpression(*++argv);
+X        if (!directory_expression)
+X          exit(1);
+X        break;
+X      }
+X      case 'e':
+X      {
+X        exclude_expression=CompileRegularExpression(*++argv);
+X        if (!exclude_expression)
+X          exit(1);
+X        break;
+X      }
+X      case 'i':
+X      {
+X        ident=(*++argv);
+X        break;
+X      }
+X      case 'p':
+X      {
+X        if (strncmp("port",*argv+1,2) == 0)
+X          port=(*++argv);
+X        else
+X          if (strncmp("prune",*argv+1,3) == 0)
+X            prune=(**argv == '-');
+X          else
+X            {
+X              print_expression=CompileRegularExpression(*++argv);
+X              if (!print_expression)
+X                exit(1);
+X            }
+X        break;
+X      }
+X      case 'r':
+X      {
+X        retrieve_expression=CompileRegularExpression(*++argv);
+X        if (!retrieve_expression)
+X          exit(1);
+X        break;
+X      }
+X      case 's':
+X      {
+X        send_expression=(*++argv);
+X        break;
+X      }
+X      case 't':
+X      {
+X        timeout=atoi(*++argv);
+X        break;
+X      }
+X      case 'u':
+X      {
+X        user=(*++argv);
+X        break;
+X      }
+X      case 'v':
+X      {
+X        verbose=True;
+X        break;
+X      }
+X      default:
+X      {
+X        Error("unrecognized option",(char *) NULL);
+X        break;
+X      }
+X    }
+X  if ((argc < 2) || (*argv == (char *) NULL))
+X    Usage();
+X  host_name=argv[0];
+X  home_directory=argv[1];
+X  if ((directory_expression == (RegularExpression *) NULL) &&
+X      (print_expression == (RegularExpression *) NULL) &&
+X      (retrieve_expression == (RegularExpression *) NULL) &&
+X      (send_expression == (char *) NULL))
+X    directory_expression=CompileRegularExpression("");
+X  if ((ident == (char *) NULL) && (user == (char *) NULL))
+X    {
+X      static char
+X        name[2048];
+X
+X      struct passwd
+X        *user_info;
+X
+X      /*
+X        Identify user as user@host.domain.
+X      */
+X      user_info=getpwuid(geteuid());
+X      if (user_info == (struct passwd *) NULL)
+X        (void) strcpy(name,"anonymous");
+X      else
+X        (void) strcpy(name,user_info->pw_name);
+X      p=name+strlen(name);
+X      *p++='@';
+X      (void) gethostname(p,64);
+X      while (*p)
+X        p++;
+X      *p++='.';
+X      (void) getdomainname(p,64);
+X      user="anonymous";
+X      ident=name;
+X    }
+X  else
+X    if (ident == (char *) NULL)
+X      ident=(char *) GetPassword("Password: ");
+X    else
+X      if (user == (char *) NULL)
+X        user="anonymous";
+X  host_info=GetHostInfo(host_name);
+X  if (host_info == (char *) NULL)
+X    Error("unknown host",host_name);
+X  if (home_directory == (char *) NULL)
+X    (void) fprintf(stdout,"%s\n",host_info);
+X  else
+X    (void) fprintf(stdout,"%s %s\n",host_info,home_directory);
+X  (void) GetPseudoTerminal();
+X  /*
+X    Connect and logon to host.
+X  */
+X  action.sa_handler=SignalChild;
+X  (void) sigemptyset(&action.sa_mask);
+X  action.sa_flags=0;
+X  (void) sigaction(SIGCHLD,&action,(struct sigaction *) NULL);
+X  if (timeout != 0)
+X    (void) alarm(timeout/10);  /* enable login timer. */
+X  child=fork();
+X  if (child < 0)
+X    Error("unable to fork",(char *) NULL);
+X  if (child == 0)
+X    ExecuteFtp(host_name,port);
+X  while ((response=Wait()))
+X    if (verbose)
+X      (void) fprintf(stderr,"%s\n",response);
+X  (void) sprintf(command,"user %s %s\n",user,ident);
+X  (void) write(master,command,strlen(command));
+X  while ((response=Wait()))
+X  {
+X    if (verbose)
+X      (void) fprintf(stderr,"%s\n",response);
+X    if (status == 5)
+X      Error(response,user);
+X  }
+X  if (timeout != 0)
+X    (void) alarm(timeout);  /* enable session timer. */
+X  if (home_directory != (char *) NULL)
+X    {
+X      /*
+X        Change remote working directory.
+X      */
+X      (void) sprintf(command,"cd %s\n",home_directory);
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X      {
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X        if (status == 5)
+X          Error("no such directory",home_directory);
+X      }
+X      (void) strcpy(command,"pwd\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X    }
+X  if (binary)
+X    {
+X      /*
+X        Set file transfer type.
+X      */
+X      (void) strcpy(command,"binary\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X      (void) strcpy(command,"type\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X    }
+X  if (retrieve_expression != (RegularExpression *) NULL)
+X    {
+X      /*
+X        Ensure retrieved files are unique.
+X      */
+X      (void) strcpy(command,"runique\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X    }
+X  if (send_expression == (char *) NULL)
+X    ProcessRequest(prune,verbose);
+X  else
+X    {
+X      /*
+X        Process send request.
+X      */
+X      (void) strcpy(command,"glob on\n");
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if (verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X      (void) sprintf(command,"mput %s\n",send_expression);
+X      (void) write(master,command,strlen(command));
+X      while ((response=Wait()))
+X        if ((status == 5) || verbose)
+X          (void) fprintf(stderr,"%s\n",response);
+X    }
+X  (void) strcpy(command,"quit\n");
+X  (void) write(master,command,strlen(command));
+X  /*
+X    Wait for child to finish.
+X  */
+X  action.sa_handler=SIG_DFL;
+X  (void) sigemptyset(&action.sa_mask);
+X  action.sa_flags=0;
+X  (void) sigaction(SIGCHLD,&action,(struct sigaction *) NULL);
+X  (void) waitpid(child,&process_status,WNOHANG);
+X  (void) close(master);
+X  (void) free((char *) directory_expression);
+X  (void) free((char *) exclude_expression);
+X  (void) free((char *) print_expression);
+X  (void) free((char *) retrieve_expression);
+X  return(status < 0);
+}
+SHAR_EOF
+echo 'File ImageMagick/xtp/xtp.c is complete' &&
+chmod 0644 ImageMagick/xtp/xtp.c ||
+echo 'restore of ImageMagick/xtp/xtp.c failed'
+Wc_c="`wc -c < 'ImageMagick/xtp/xtp.c'`"
+test 41691 -eq "$Wc_c" ||
+	echo 'ImageMagick/xtp/xtp.c: original size 41691, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/xtp/xtp.h ==============
+if test -f 'ImageMagick/xtp/xtp.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/xtp/xtp.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/xtp/xtp.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/xtp/xtp.h' &&
+/*
+X  Include declarations
+*/
+#include <stdio.h>
+#if __STDC__ || defined(sgi) || defined(_AIX)
+#include <stdlib.h>
+#else
+#ifndef vms
+#include <malloc.h>
+#include <memory.h>
+#endif
+#endif
+#include <ctype.h>
+#include <math.h>
+#include <string.h>
+X
+/*
+X  Define declarations for the Display program.
+*/
+#if __STDC__ || defined(sgi) || defined(_AIX)
+#define _Declare(formal_parameters) formal_parameters
+#else
+#define const 
+#define _Declare(formal_parameters) ()
+#endif
+#define False  0
+#define True  1
+#define Warning(message,qualifier)  \
+{  \
+X  (void) fprintf(stderr,"%s: %s",client_name,message);  \
+X  if (qualifier != (char *) NULL)  \
+X    (void) fprintf(stderr," (%s)",qualifier);  \
+X  (void) fprintf(stderr,".\n");  \
+}
+X
+#ifndef lint
+static char 
+X  Version[]="@(#)ImageMagick 2.1 92/10/10 cristy@dupont.com";
+#endif
+SHAR_EOF
+chmod 0644 ImageMagick/xtp/xtp.h ||
+echo 'restore of ImageMagick/xtp/xtp.h failed'
+Wc_c="`wc -c < 'ImageMagick/xtp/xtp.h'`"
+test 819 -eq "$Wc_c" ||
+	echo 'ImageMagick/xtp/xtp.h: original size 819, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/xtp/xtp.man ==============
+if test -f 'ImageMagick/xtp/xtp.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/xtp/xtp.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/xtp/xtp.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/xtp/xtp.man' &&
+.ad l
+.nh
+.TH XTP 1 "10 October 1992"
+.SH NAME
+xtp - file transfer program
+.SH SYNOPSIS
+.B "xtp"
+[ \fI-options\fP ... ] \fI<host/ip address>\fP [ \fI<home directory>\fP ]
+.SH DESCRIPTION
+.PP
+.I Xtp
+is a utility for retrieving, listing, or printing files from a remote
+network site, or sending files to a remote network site.
+.I xtp
+performs most of the same functions as the \fBftp\fP program, but does
+not require any interactive commands.  You simply specify the file transfer
+task on the command line and \fBxtp\fP performs the task automatically.
+.SH EXAMPLES
+.PP
+To retrieve file display.tar.Z from host wizard.dupont.com, use:
+.PP
+.B
+X     xtp -binary -retrieve display.tar.Z wizard.dupont.com
+.PP
+To retrieve all the files from directory \fIpublic/documents\fP from host
+wizard.dupont.com, use:
+.PP
+X     xtp -binary -retrieve documents/ wizard.dupont.com public
+.PP
+.SH OPTIONS
+.TP
+.B "-binary"
+retrieve files as binary.
+.TP
+.B "-exclude \fIexpression\fP"
+exclude files that match the \fIregular expression\fP.
+.TP
+.B "-directory \fIexpression\fP"
+list the names of files and their attributes that match the
+\fIregular expression\fP.
+.TP
+.B "-ident \fIpassword\fP"
+specifies password.
+.TP
+.B "-port \fInumber\fP"
+If no port number is specified, \fBxtp\fP attempts to contact a FTP server
+at the default port.  Otherwise, the specfied port number is used.
+.TP
+.B "-print \fIexpression\fP"
+print files that match the \fIregular expression\fP.
+.TP
+.B "-prune"
+do not recursively search for files.
+.TP
+.B "-retrieve \fIexpression\fP"
+retrieve files that match the \fIregular expression\fP.
+X
+Retrieved files are stored on your local host directory as the full
+name of the retrieved file.  For example, if the retrieved file is
+named \fBdocuments/xtp.man\fP on the remote FTP server, it will appear
+in your home directory as \fBdocuments/xtp.man\fP.
+.TP
+.B "-send \fIexpression\fP"
+send files that match the \fIregular expression\fP.
+.TP
+.B "-timeout \fIseconds\fP"
+specifies the maximum seconds to complete your remote FTP server request.
+If this time expires, the program terminates.  The program also terminates if
+one tenth of this value is exceeded while logging onto the remote FTP
+server.
+.TP
+.B "-user \fIname\fP"
+identify yourself to the remote FTP server.
+X
+If \fB-user\fP is specified but not \fB-ident\fP, the password is obtained
+from you interactively.
+.TP
+.B "-verbose"
+show all responses from the remote server.
+.PP
+If neither \fB-print\fP, \fB-retrieve\fP, or \fB-send\fP are specified
+on the command line, a directory of files is listed for the remote
+network host.
+.PP
+\fBxtp\fP recursively descends the directory hierarchy from the home
+directory. Some remote hosts may have thousands of files causing a
+significant delay satisfying your request.  This can be wasteful if the
+files you are interested in reside in a known directory.  You can
+reduce the searching required by specifying \fI<home directory>\fP on
+the command line.  This limits the filename search to the specified
+directory and any of its subdirectories.  Alternatively, \fB-prune\fP
+restricts the search to the home directory only.
+.PP
+If only the program name is specified on the command line, the program command
+syntax and options are listed.
+.SH REGULAR EXPRESSIONS
+A \fIregular expression\fP is zero or more branches, separated by
+\fB|\fP.  It matches anything that matches one of the branches.
+.PP
+A branch is zero or more pieces, concatenated.  It matches a match for
+the first, followed by a match for the second, etc.
+.PP
+A piece is an atom possibly followed by \fB*\fP, \fB+\fP, or \fB?\fP.
+An atom followed by \fB*\fP matches a sequence of 0 or more matches of
+the atom.  An atom followed by \fB+\fP matches a sequence of 1 or more
+matches of the atom.  An atom followed by \fB?\fP matches a match of
+the atom, or the null pattern.
+.PP
+An atom is a \fIregular expression\fP in parentheses (matching a match
+for the \fIregular expression\fP), a range (see below), \fB.\fP
+(matching any single character), \fB^\fP (matching the null pattern at
+the beginning of the input pattern), \fB$\fP (matching the null pattern
+at the end of the input pattern), a \fB\'\fP followed by a single
+character (matching that character), or a single character with no
+other significance (matching that character).
+.PP
+A range is a sequence of characters enclosed in \fB[]\fP.  It normally
+matches any single character from the sequence.  If the sequence begins
+with \fB^\fP, it matches any single character not from the rest of the
+sequence.  If two characters in the sequence are separated by \fB-\fP,
+this is shorthand for the full list of ASCII characters between them
+(e.g.  \fB[0-9]\fP matches any decimal digit). To include a literal
+\fB]\fP in the sequence, make it the first character (following a
+possible \fB^\fP).  To include a literal \fB-\fP, make it the first or
+last character.
+.SH SEE ALSO
+.B
+ftp(1C)
+.SH COPYRIGHT
+Copyright 1993 E. I. Dupont de Nemours & Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. Dupont de Nemours
+& Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. Dupont de Nemours & Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. Dupont de Nemours & Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. Dupont de Nemours & Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of this software.
+.SH ACKNOWLEDGEMENTS
+Steve Singles, University of Delaware, for the initial implementation of
+this program.
+.PP
+Henry Spencer, University of Toronto, for the implementation of the
+\fIregular expression\fP interpreter and the text in \fBREGULAR
+EXPRESSIONS\fP.
+.SH AUTHOR
+John Cristy, E.I. DuPont De Nemours & Company Incorporated
+X
+X
+SHAR_EOF
+chmod 0644 ImageMagick/xtp/xtp.man ||
+echo 'restore of ImageMagick/xtp/xtp.man failed'
+Wc_c="`wc -c < 'ImageMagick/xtp/xtp.man'`"
+test 6440 -eq "$Wc_c" ||
+	echo 'ImageMagick/xtp/xtp.man: original size 6440, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/images/README ==============
+if test ! -d 'ImageMagick/images'; then
+    echo 'x - creating directory ImageMagick/images'
+    mkdir 'ImageMagick/images'
+fi
+if test -f 'ImageMagick/images/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/images/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/images/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/images/README' &&
+The aquarium image was rendered with rayshade from a script written 
+by kilian@cray.com and Jerome A. Farm.
+X
+Image `montage.miff' was created with this command:
+X
+X  montage -colors 256 -title "Image Montage" -geometry 128x128+5+5 \
+X    -frame -borderwidth 10 -bordercolor SlateGray -highlight LightGray \
+X    dna.miff swan.miff aquarium.miff montage.miff
+SHAR_EOF
+chmod 0644 ImageMagick/images/README ||
+echo 'restore of ImageMagick/images/README failed'
+Wc_c="`wc -c < 'ImageMagick/images/README'`"
+test 354 -eq "$Wc_c" ||
+	echo 'ImageMagick/images/README: original size 354, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/ChangeLog ==============
+if test -f 'ImageMagick/ChangeLog' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/ChangeLog (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/ChangeLog (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/ChangeLog' &&
+ImageMagick 2.3.3
+X
+X  o Fixed numereous small errors in the ImageMagick manual pages.
+X
+X  o convert(1) can now scale an image as it converts it.
+X
+X  o ImageMagick can now read and write ZSoft IBM PC Paintbrush images.
+X
+X  o ImageMagick now can write as well as read the X: format.
+X
+X
+ImageMagick 2.3.2
+X
+X  o Added a frame option to montage(1) to put an ornamental border
+X    around each image tile.
+X
+X  o On HP-SUX 9.0 there is a compiler bug.  Try compiling image.c without
+X    optimization to prevent a bus error with montage(1).
+X
+X  o A warning was not being properly generated on a write error
+X    (thanks to zins@forwiss.uni-erlangen.de).
+X
+X  o New '-page' option to set the size and location for a Postscript page.
+X
+X  o Use '-update' with display(1) to automatically updates the image
+X    being displayed when it is modified (thanks to lustig@dupont.com).
+X
+X  o Made several window attributes changes in display(1) and animate(1) to
+X    make the windows more server friendly and efficient.
+X
+X  o ImageMagick can now read and write Microsoft Windows bitmap images
+X    (thanks to Eric.Adams@dseg.ti.com for bug alert).
+X
+X  o ImageMagick can now read and write Postscript Level II.
+X
+X  o ImageMagick can now read and write SGI RGB images (thanks to
+X    mossip@vizlab.rutgers.edu for bug alert).
+X
+X  o Setting -delay with display(1) will cause the images to loop
+X    continuously (suggested by muller@mafalda.inria.fr).
+X
+X  o Image rotations of 270 degrees would sometimes produce a
+X    segmentation fault on HP's.
+X
+X  o GIF files written with ImageMagick 2.3.1 were unreadable
+X    (thanks to mjensen@bbn.com).
+X
+X  o GIF files with multiple images would sometimes cause program to
+X    core dump (thanks to mjensen@bbn.com).
+X
+X  o Added -undercolor to mogrify(1) to control undercolor removal and
+X    black generation on CMYK images.
+X
+X  o Converting to the XWD format would sometimes dump core (thanks to
+X    kairys@bastar.enet.dec.com).
+X
+X  o X resources now work correctly when clients are invoked with full
+X    pathname, i.e. /usr/local/bin/display (thanks to respl@mi.uib.no).
+X
+X  o The delay in animate(1) now defaults to 8 milliseconds (thanks to
+X    respl@mi.uib.no).
+X
+X  o ImageMagick did not read MIFF images with large image directories
+X    correctly.
+X
+X  o Increased the default panning window size from 64x64 to 96x96.
+X
+X  o display(1) now retains proper input focus when using -backdrop.
+X
+X  o ImageMagick automatically compresses/uncompresses images that end
+X    with '.z' with gzip/gunzip.
+X
+X  o ImageMagick can now write Macintosh PICT image files.
+X
+X  o ImageMagick can now read and write Truevision TARGA image files.
+X
+X  o You can now trim off one pixel from any side of an image within
+X    display(1) by using <ctrl> and one of the arrow keys (thanks to
+X    tennyson@raptor.com).
+X
+X  o Image Pixmaps in display(1) are now used only if the X resource
+X    `usePixmap' is set to True.
+X
+X  o New segment(1) program.  See SYNOPSIS for details.
+X
+X  o ImageMagick now compiles properly on the Digitial Alpha (OSF1) and
+X    the HP with HPUX.
+X
+ImageMagick 2.3.1
+X
+X  o You can now change the color of the X constant image with -bordercolor:
+X
+X      display -bordercolor red xc:
+X
+X  o Color reduction to monochrome with dithering is improved (thanks
+X    to mutz@kodak.com).
+X
+X  o Added EPS as a file type for Encapsulated Postscript.
+X
+X  o Minor improvements to Postscript output.
+X
+X  o Removed program XtoPS(1).  Equivalent functionality with import(1):
+X
+X      import image.ps
+X      import images.eps
+X
+X  o The 'Info' command in animate(1) did not always reflect the proper
+X    image scene.
+X
+X  o animate(1) sometimes displayed images with the wrong colormap on
+X    TrueColor or DirectColor visuals.
+X
+X  o Popup windows were enlarged to make them easier to see.
+X
+X  o Added a menu command to display(1) to load an image interactively
+X    (suggested by fouts@dallas.sgi.com).
+X
+X  o montage was not allocating enough memory for it's directory (thanks to
+X    fouts@dallas.sgi.com).
+X
+X
+ImageMagick 2.3
+X
+X  o Added -descend option to import(1).  Obtain image by descending window
+X    hierarchy reading each subwindow and its colormap.  The final image is
+X    guarenteed to have the correct colors.
+X
+X  o If pen color matched background color any annotations would not appear
+X    (thanks to dws@ssec.wisc.edu).
+X
+X  o Thanks to jacobsd@solar.cor2.epa.gov:
+X
+X      . mogrify now recognizes '-' as stdin and stdout.
+X      . PPM, PGM, and PBM image types are now recognized.
+X      . PPM, PGM, and PBM images were not always scaled correctly.
+X
+X  o The -density option is no longer ignored when creating Postscript images.
+X
+X  o The -quality option is now recognized by display and montage.
+X
+X  o ImageMagick can now read and write VIFF images.
+X
+X  o SUN raster files were now properly read and written on the CRAY.
+X
+X  o Popup queries can now be edited when the pointer is in the popup window.
+X
+X  o Added -stereo option to combine program.
+X
+X  o Removed MIFFtoSTEREO source.
+X
+X  o Magnify window now includes pixel value with RGB color value for windows
+X    whose depth is 12 or less.
+X
+X  o On occasion images were incorrectly identified as XWD.
+X
+X  o On occasion images with alpha data were being incorrectly runlength-encoded.
+X
+X  o Sometimes icon's had a private colormap.  Icon's now use a shared colormap.
+X  
+X  o Keyboard accelerators did not work with -backdrop option.
+X
+X  o Add new utility: combine-- combine images to create new images using
+X    digital compositing operators.
+X
+X  o xtp failed under Solaris 2.1.
+X
+X  o I486 compiler complained about includes within a function body of
+X    xtp/network.c (thanks to glenn@physics.su.OZ.AU).
+X
+X  o I486 compiler complained about XWDfile.h being included twice (ReadXWD &
+X    WriteXWD) (thanks to glenn@physics.su.OZ.AU)
+X
+ImageMagick 2.2.4
+X
+X  o time between images did not always match the value specified on
+X    -delay.
+X
+X  o Sped up and reduced memory requirement of dithering.
+X
+X  o GIF images were corrupted on SVR4 (thanks to glenn@physics.su.OZ.AU).
+X
+ImageMagick 2.2.3
+X
+X  o Non-color reduced images were being written even though the color
+X    reduction option was specified (-colors).  This affected images written
+X    as AVS, CMYK, and RGB.
+X
+X  o Modified various sources to reduce lint warnings.
+X
+X
+ImageMagick 2.2.2
+X
+X  o Dithering did not work properly on the Cray (due to right shift problem).
+X
+X  o In most cases dithering requires 1/2 as much memory as previously.
+X
+X  o Dithering was sped up by ~15%.
+X
+X  o Occasionally the quantization error was reported incorrectly.
+X
+X
+ImageMagick 2.2.1
+X
+X  o The number of colors reported with the -verbose option was on
+X    occasion incorrect.
+X
+X  o Color quantization was improved and in some cases sped up ~10%.
+X
+X  o Cleaned up image rotation code.
+X
+X  o Added -shear to mogrify options.
+X
+X  o Added a file type of HISTOGRAM to convert.
+X
+X  o Sometimes PBM image files did not have the correct number of bytes.
+X
+X  o Color reduced PPM images were being written at the full color resolution.
+X
+X  o Keypresses are no longer accepted during image configuration.
+X
+X  o Red, green, and blue values of a X constant image were set to the
+X    red intensity of the background color.
+X
+X  o Clipped images did not show up correctly in the panning icon.
+X
+X  o `animate' no longer shows images out-of-order if the image scene number is
+X    absent (thanks to kent@oddjob.uchicago.edu).
+X
+X  o ImageMagick now recognizes the X resource class with the first letter
+X    of the client capitalized, i.e. 'Display.Visual: default' (thanks to
+X    dws@ssec.wisc.edu).
+X
+X
+ImageMagick 2.2
+X
+X  o When displaying a composite MIFF image created with `montage',
+X    button 3 no longer displays a magnify window.  Instead the
+X    tile at the mouse location is displayed.  When the tile image is
+X    exited, the composite image reappears.  This is effectively a
+X    visual image directory.
+X
+X  o `montage' has a new gravity option for placing an image within
+X    a tile of the composite, i.e. CenterGravity.
+X
+X  o `montage' has a new compose option for specifying which composite
+X     operation to use.
+X
+X  o `montage' creates composite images with the `montage' keyword.
+X
+X  o Updated MIFF manual page to reflect 'montage' image header
+X    keyword.
+X
+X  o Add -colormap to `mogrify.'  Use to color reduce an image to
+X    a set of colors you choose.
+X
+X  o Some compilers have read-only strings.   ImageMagick no longer
+X    writes on read-only strings.
+X
+X  o For colormapped X servers, the color reduction has been sped up by
+X    trading image quality for processing time.  See the README for
+X    details.
+X
+X  o Latin1Upper was declared wrong in X.h.
+X
+X  o Added unistd.h to display.h for strict ANSI compilers.
+X
+X  o Changed long to time_t for calls to C time routine.
+X
+X  o Multi-part GIF's can now be displayed or animated.
+X
+X  o Fixed segmentation fault when reading multi-part images with
+X    animate, montage, or mogrify.
+X
+X  o Multi-part MIFF images have the correct file name now.
+X
+X  o An expose event for the Magnify window may occur before it is
+X    mapped.  This caused display to fail on Solburne and HP's.
+X
+X  o Using `-colorspace gray' with 'convert' correctly produces
+X    grayscale images.
+X
+X  o Images are sorted by intensity for shared colormapped visuals.
+X    Some intensity intervals are made "more popular".  This gives better
+X    image results when sharing colors with other applications.
+X
+X  o All utilities correctly read multi-part TIFF images.
+X
+X  o Image pixmap was not being updated correctly when pan icon appears
+X    (thanks to dws@ssec.wisc.edu).
+X
+X  o Fixed ANSI warning on image composite code.
+X
+X  o Panning uses a pixmap for faster panning speed.
+X
+X  o Rotate.c now uses a table to force range limits.
+X
+X  o range table in quantize.c is allocated from the heap instead of
+X    the stack.
+X
+X  o adjusted the sensitivity for automatic dithering.  Some JPEG images
+X    were not being dithered.
+X
+X
+ImageMagick 2.0
+X
+X  o Dirk Wetzel <wetzel@forwiss.uni-erlangen.de> fixed the select statement
+X    in animate.c.
+X
+X  o Eric Haines <erich@eye.com> fixed ReadRLEImage in decode.c.  It previously
+X    did not check to see if the background color was present in the image.
+SHAR_EOF
+chmod 0644 ImageMagick/ChangeLog ||
+echo 'restore of ImageMagick/ChangeLog failed'
+Wc_c="`wc -c < 'ImageMagick/ChangeLog'`"
+test 10067 -eq "$Wc_c" ||
+	echo 'ImageMagick/ChangeLog: original size 10067, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/Imakefile ==============
+if test -f 'ImageMagick/Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/Imakefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/Imakefile' &&
+#
+#  Imakefile for display, animate, montage, and import.
+#
+#  Copyright 1993 E. I. du Pont de Nemours & Company
+#
+#  Permission to use, copy, modify, distribute, and sell this software and
+#  its documentation for any purpose is hereby granted without fee,
+#  provided that the above Copyright notice appear in all copies and that
+#  both that Copyright notice and this permission notice appear in
+#  supporting documentation, and that the name of E. I. du Pont de Nemours
+#  & Company not be used in advertising or publicity pertaining to
+#  distribution of the software without specific, written prior
+#  permission.  E. I. du Pont de Nemours & Company makes no representations
+#  about the suitability of this software for any purpose.  It is provided
+#  "as is" without express or implied warranty.
+#
+#  E. I. du Pont de Nemours & Company disclaims all warranties with regard
+#  to this software, including all implied warranties of merchantability
+#  and fitness, in no event shall E. I. du Pont de Nemours & Company be
+#  liable for any special, indirect or consequential damages or any
+#  damages whatsoever resulting from loss of use, data or profits, whether
+#  in an action of contract, negligence or other tortious action, arising
+#  out of or in connection with the use or performance of this software.
+#
+X
+#include "Magick.tmpl"
+X
+#define PassCDebugFlags CDEBUGFLAGS=DefaultCDebugFlags
+X
+MagickObjects= X.o image.o shear.o quantize.o colors.o signature.o decode.o\
+X  encode.o compress.o utility.o PreRvIcccm.o
+X
+SRCS= display.c X.c image.c shear.c quantize.c colors.c signature.c decode.c \
+X  encode.c compress.c utility.c PreRvIcccm.c
+OBJS= display.o $(MagickObjects)
+AnimateObjects= animate.o $(MagickObjects)
+ImportObjects= import.o $(MagickObjects)
+MontageObjects= montage.o $(MagickObjects)
+X
+PROGRAMS= display animate montage import
+X
+AllTarget($(PROGRAMS))
+X
+ComplexProgramTarget(display)
+NormalProgramTarget(animate,$(AnimateObjects), , , )
+InstallProgram(animate,$(BINDIR))
+InstallManPage(animate,$(MANDIR))
+NormalProgramTarget(montage,$(MontageObjects), , , )
+InstallProgram(montage,$(BINDIR))
+InstallManPage(montage,$(MANDIR))
+NormalProgramTarget(import,$(ImportObjects), , , )
+InstallProgram(import,$(BINDIR))
+InstallManPage(import,$(MANDIR))
+X
+#define InstallMyManPage(file,destdir,suffix)                           @@\
+install.man:: file.man                                                  @@\
+X	$(INSTALL) -c $(INSTMANFLAGS) file.man $(DESTDIR)destdir/file.suffix
+X
+InstallMyManPage(quantize,$(MANSOURCEPATH)5,5)
+InstallMyManPage(miff,$(MANSOURCEPATH)5,5)
+X
+#define IHaveSubdirs
+X
+SUBDIRS= utilities xtp
+X
+MakeSubdirs($(SUBDIRS))
+DependSubdirs($(SUBDIRS))
+SHAR_EOF
+chmod 0644 ImageMagick/Imakefile ||
+echo 'restore of ImageMagick/Imakefile failed'
+Wc_c="`wc -c < 'ImageMagick/Imakefile'`"
+test 2673 -eq "$Wc_c" ||
+	echo 'ImageMagick/Imakefile: original size 2673, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/Magick.tmpl ==============
+if test -f 'ImageMagick/Magick.tmpl' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/Magick.tmpl (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/Magick.tmpl (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/Magick.tmpl' &&
+#ifndef XCOMM
+#define XCOMM #
+#endif
+X
+XXCOMM ImageMagick Imakefile info.  This contains any special redefinitions.
+XXCOMM
+XXCOMM Copyright 1993 E. I. du Pont de Nemours & Company
+XXCOMM
+XXCOMM Permission to use, copy, modify, distribute, and sell this software and
+XXCOMM its documentation for any purpose is hereby granted without fee,
+XXCOMM provided that the above Copyright notice appear in all copies and that
+XXCOMM both that Copyright notice and this permission notice appear in
+XXCOMM supporting documentation, and that the name of E. I. du Pont de Nemours
+XXCOMM & Company not be used in advertising or publicity pertaining to
+XXCOMM distribution of the software without specific, written prior
+XXCOMM permission.  E. I. du Pont de Nemours & Company makes no representations
+XXCOMM about the suitability of this software for any purpose.  It is provided
+XXCOMM "as is" without express or implied warranty.
+XXCOMM
+XXCOMM E. I. du Pont de Nemours & Company disclaims all warranties with regard
+XXCOMM to this software, including all implied warranties of merchantability
+XXCOMM and fitness, in no event shall E. I. du Pont de Nemours & Company be
+XXCOMM liable for any special, indirect or consequential damages or any
+XXCOMM damages whatsoever resulting from loss of use, data or profits, whether
+XXCOMM in an action of contract, negligence or other tortious action, arising
+XXCOMM out of or in connection with the use or performance of this software.
+X
+XXCOMM If you have JPEG or TIFF, define HasJPEG or HasTIFF or both.  Make sure
+XXCOMM the path names are correct.  See README for more details.
+XXCOMM
+XXCOMM #define HasTIFF
+XXCOMM #define HasJPEG
+X
+#ifdef HasJPEG
+JPEG_DEFINES= -DHasJPEG
+JPEG_INCLUDES= -I$(TOP)/jpeg
+JPEG_LIBRARIES= -L$(TOP)/jpeg -ljpeg
+#endif
+X
+#ifdef HasTIFF
+TIFF_DEFINES= -DHasTIFF
+TIFF_INCLUDES= -I$(TOP)/tiff/libtiff
+TIFF_LIBRARIES= -L$(TOP)/tiff/libtiff -ltiff
+#endif
+X
+XXCOMM Might need extra libraries for xtp to link correctly.
+XXCOMM
+XXCOMM  EXTRA_LOAD_FLAGS= -lnsl
+X
+DEFINES= $(JPEG_DEFINES) $(JPEG_INCLUDES) $(TIFF_DEFINES) $(TIFF_INCLUDES)
+LOCALDIR=/usr/local/bin
+SYS_LIBRARIES= $(XLIB) $(JPEG_LIBRARIES) $(TIFF_LIBRARIES) -lm
+SHAR_EOF
+chmod 0644 ImageMagick/Magick.tmpl ||
+echo 'restore of ImageMagick/Magick.tmpl failed'
+Wc_c="`wc -c < 'ImageMagick/Magick.tmpl'`"
+test 2134 -eq "$Wc_c" ||
+	echo 'ImageMagick/Magick.tmpl: original size 2134, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/Make.com ==============
+if test -f 'ImageMagick/Make.com' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/Make.com (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/Make.com (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/Make.com' &&
+$!
+$! Make ImageMagick X image utilities for VMS.
+$!
+$
+$define/nolog X11 decw$include:
+$define/nolog sys sys$library:
+$link_options="/nodebug/notraceback"
+$define/nolog lnk$library sys$library:vaxcrtl
+$
+$if ((p1.nes."").and.(p1.nes."display")) then goto SkipDisplay
+$write sys$output "Making Display..."
+$call Make display
+$call Make X
+$call Make image
+$call Make shear
+$call Make quantize
+$call Make colors
+$call Make signature
+$call Make compress
+$call Make decode
+$call Make encode
+$call Make utility
+$call Make PreRvIcccm
+$
+$link'link_options' display,X,image,shear,quantize,colors,signature, -
+X  compress,decode,encode,utility,PreRvIcccm,sys$input:/opt
+sys$share:decw$xlibshr.exe/share
+$
+$display:==$'f$environment("default")'display
+$write sys$output "..symbol DISPLAY defined."
+$
+$SkipDisplay:
+$if ((p1.nes."").and.(p1.nes."import")) then goto SkipImport
+$write sys$output "Making Import..."
+$call Make import
+$call Make X
+$call Make image
+$call Make shear
+$call Make quantize
+$call Make colors
+$call Make signature
+$call Make compress
+$call Make decode
+$call Make encode
+$call Make utility
+$call Make PreRvIcccm
+$
+$link'link_options' import,X,image,shear,quantize,colors,signature,compress, -
+X  decode,encode,utility,PreRvIcccm,sys$input:/opt
+sys$share:decw$xlibshr.exe/share
+$
+$import:==$'f$environment("default")'import
+$write sys$output "..symbol IMPORT defined."
+$SkipImport:
+$
+$if ((p1.nes."").and.(p1.nes."animate")) then goto SkipAnimate
+$write sys$output "Making Animate..."
+$call Make animate
+$call Make X
+$call Make image
+$call Make shear
+$call Make quantize
+$call Make colors
+$call Make signature
+$call Make compress
+$call Make decode
+$call Make encode
+$call Make utility
+$call Make PreRvIcccm
+$
+$link'link_options' animate,X,image,shear,quantize,colors,signature, -
+X  compress,decode,encode,utility,PreRvIcccm,sys$input:/opt
+sys$share:decw$xlibshr.exe/share
+$
+$animate:==$'f$environment("default")'animate
+$write sys$output "..symbol ANIMATE defined."
+$
+$SkipAnimate:
+$if ((p1.nes."").and.(p1.nes."montage")) then goto SkipMontage
+$write sys$output "Making Montage..."
+$call Make montage
+$call Make X
+$call Make image
+$call Make shear
+$call Make quantize
+$call Make colors
+$call Make compress
+$call Make decode
+$call Make encode
+$call Make utility
+$call Make PreRvIcccm
+$
+$link'link_options' montage,X,image,shear,quantize,colors,signature, -
+X  compress,decode,encode,utility,PreRvIcccm,sys$input:/opt
+sys$share:decw$xlibshr.exe/share
+$
+$montage:==$'f$environment("default")'montage
+$write sys$output "..symbol MONTAGE defined."
+$
+$SkipMontage:
+$type sys$input
+X
+Use this command to specify which X server to contact:
+X
+X  $set display/create/node=node_name::
+X
+This can be done automatically from your LOGIN.COM with the following 
+command:
+X
+X  $if (f$trnlmn("sys$rem_node").nes."") then -
+X  $  set display/create/node='f$trnlmn("sys$rem_node")'
+$write sys$output "Making in [.utilities]"
+$set default [.utilities]
+$@make
+$exit
+$
+$Make: subroutine
+$!
+$! A very primitive "make" (or MMS) hack for DCL.
+$!
+$if (p1.eqs."") then exit
+$source_file=f$search(f$parse(p1,".c"))
+$if (source_file.nes."")
+$  then
+$    object_file=f$parse(source_file,,,"name")+".obj"
+$    object_file=f$search( object_file )
+$    if (object_file.nes."") 
+$      then
+$        object_time=f$file_attribute(object_file,"cdt")
+$        source_time=f$file_attribute(source_file,"cdt")
+$        if (f$cvtime(object_time).lts.f$cvtime(source_time)) then -
+$          object_file=""
+$      endif
+$    if (object_file.eqs."") 
+$      then
+$        write sys$output "Compiling ",p1
+$        cc/nodebug/optimize 'source_file'
+$      endif
+$  endif
+$exit
+$endsubroutine
+SHAR_EOF
+chmod 0644 ImageMagick/Make.com ||
+echo 'restore of ImageMagick/Make.com failed'
+Wc_c="`wc -c < 'ImageMagick/Make.com'`"
+test 3648 -eq "$Wc_c" ||
+	echo 'ImageMagick/Make.com: original size 3648, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/Makefile ==============
+if test -f 'ImageMagick/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/Makefile' &&
+#
+#  Generic makefile for display, animate, montage, and import for
+#  computers that do not have xmkmf.
+#
+#  Copyright 1993 E. I. du Pont de Nemours & Company
+#
+#  Permission to use, copy, modify, distribute, and sell this software and
+#  its documentation for any purpose is hereby granted without fee,
+#  provided that the above Copyright notice appear in all copies and that
+#  both that Copyright notice and this permission notice appear in
+#  supporting documentation, and that the name of E. I. du Pont de Nemours
+#  & Company not be used in advertising or publicity pertaining to
+#  distribution of the software without specific, written prior
+#  permission.  E. I. du Pont de Nemours & Company makes no representations
+#  about the suitability of this software for any purpose.  It is provided
+#  "as is" without express or implied warranty.
+#
+#  E. I. du Pont de Nemours & Company disclaims all warranties with regard
+#  to this software, including all implied warranties of merchantability
+#  and fitness, in no event shall E. I. du Pont de Nemours & Company be
+#  liable for any special, indirect or consequential damages or any
+#  damages whatsoever resulting from loss of use, data or profits, whether
+#  in an action of contract, negligence or other tortious action, arising
+#  out of or in connection with the use or performance of this software.
+#
+X
+#
+# Uncomment the following lines if you have the JPEG or TIFF libraries.
+# See README for more details.
+#
+#TOP= .
+#JPEG_DEFINES= -DHasJPEG
+#JPEG_INCLUDES= -I$(TOP)/jpeg
+#JPEG_LIBRARIES= -L$(TOP)/jpeg -ljpeg
+#TIFF_DEFINES= -DHasTIFF
+#TIFF_INCLUDES= -I$(TOP)/tiff/libtiff
+#TIFF_LIBRARIES= -L$(TOP)/tiff/libtiff -ltiff
+X
+XXLIB= -L/usr/lib/X11R5 -lX11
+X
+CC= cc -O -I/usr/include/X11R5
+DESTDIR= /usr/bin/X11
+INSTALL = install -c
+RM= /bin/rm -f
+X
+DEFINES= $(JPEG_DEFINES) $(JPEG_INCLUDES) $(TIFF_DEFINES) $(TIFF_INCLUDES)
+SYS_LIBRARIES= $(XLIB) $(JPEG_LIBRARIES) $(TIFF_LIBRARIES) -lm
+X
+MagickObjects= X.o image.o shear.o quantize.o colors.o signature.o decode.o\
+X  encode.o compress.o utility.o PreRvIcccm.o
+X
+DisplayObjects= display.o $(MagickObjects)
+AnimateObjects= animate.o $(MagickObjects)
+ImportObjects= import.o $(MagickObjects)
+MontageObjects= montage.o $(MagickObjects)
+X
+PROGRAMS= display animate montage import
+X
+CFLAGS= $(DEFINES)
+X
+all: $(PROGRAMS)
+X
+display: $(DisplayObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(DisplayObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) display
+X
+install:: display
+X	$(INSTALL) display $(DESTDIR)
+X
+animate: $(AnimateObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(AnimateObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) animate
+X
+install:: animate
+X	$(INSTALL) animate $(DESTDIR)
+X
+montage: $(MontageObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(MontageObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) montage
+X
+install:: montage
+X	$(INSTALL) montage $(DESTDIR)
+X
+import: $(ImportObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(ImportObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) import
+X
+install:: import
+X	$(INSTALL) import $(DESTDIR)
+X
+clean::
+X	$(RM) *.ln *.bak *.o core errs ,* *~ *.a .emacs_* make.log MakeOut
+SHAR_EOF
+chmod 0644 ImageMagick/Makefile ||
+echo 'restore of ImageMagick/Makefile failed'
+Wc_c="`wc -c < 'ImageMagick/Makefile'`"
+test 3027 -eq "$Wc_c" ||
+	echo 'ImageMagick/Makefile: original size 3027, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/Manifest.ps ==============
+if test -f 'ImageMagick/Manifest.ps' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/Manifest.ps (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/Manifest.ps (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/Manifest.ps' &&
+%!PS-Adobe-2.0 EPSF-2.0
+%%Title: (Directory map of ImageMagick)
+%%Creator: pstree, (C) 1990 Gisle Aas, NR
+%%DocumentFonts: Times-Roman
+%%BoundingBox: 60 82 305 742
+60.0 0 translate
+/s {show} bind def
+/m {moveto} bind def
+/Times-Roman findfont 10 scalefont setfont
+0.1 setlinewidth
+90 732 m(ChangeLog)s
+90 722 m(Imakefile)s
+90 712 m(Magick.tmpl)s
+90 702 m(Make.com)s
+90 692 m(Makefile)s
+90 682 m(Manifest.ps)s
+90 672 m(PreRvIcccm.c)s
+90 662 m(PreRvIcccm.h)s
+90 652 m(README)s
+90 642 m(SYNOPSIS)s
+90 632 m(X.c)s
+90 622 m(X.h)s
+90 612 m(XWDFile.h)s
+90 602 m(animate.c)s
+90 592 m(animate.h)s
+90 582 m(animate.man)s
+90 572 m(colors.c)s
+90 562 m(compress.c)s
+90 552 m(compress.h)s
+90 542 m(decode.c)s
+90 532 m(display.c)s
+90 522 m(display.h)s
+90 512 m(display.man)s
+90 502 m(encode.c)s
+90 492 m(image.c)s
+90 482 m(image.h)s
+180 472 m(README)s
+180 462 m(aquarium.miff)s
+180 452 m(dna.miff)s
+180 442 m(montage.miff)s
+180 432 m(swan.miff)s
+90 452 m(images)s
+(images) stringwidth pop 91.0 add 455.3 m
+[ 475.3 465.3 455.3 445.3 435.3]
+{gsave 176.0 exch lineto stroke grestore} forall
+90 422 m(import.c)s
+90 412 m(import.man)s
+90 402 m(miff.man)s
+90 392 m(montage.c)s
+90 382 m(montage.man)s
+90 372 m(quantize.c)s
+90 362 m(quantize.man)s
+180 352 m(Makefile)s
+180 342 m(README)s
+180 332 m(dna.script)s
+90 342 m(scenes)s
+(scenes) stringwidth pop 91.0 add 345.3 m
+[ 355.3 345.3 335.3]
+{gsave 176.0 exch lineto stroke grestore} forall
+90 322 m(shear.c)s
+90 312 m(signature.c)s
+180 302 m(Imakefile)s
+180 292 m(Make.com)s
+180 282 m(Makefile)s
+180 272 m(combine.c)s
+180 262 m(combine.man)s
+180 252 m(convert.c)s
+180 242 m(convert.man)s
+180 232 m(mogrify.c)s
+180 222 m(mogrify.man)s
+180 212 m(segment.c)s
+180 202 m(segment.man)s
+90 252 m(utilities)s
+(utilities) stringwidth pop 91.0 add 255.3 m
+[ 305.3 295.3 285.3 275.3 265.3 255.3 245.3 235.3 225.3 215.3 205.3]
+{gsave 176.0 exch lineto stroke grestore} forall
+90 192 m(utility.c)s
+90 182 m(utility.h)s
+180 172 m(Imakefile)s
+180 162 m(Makefile)s
+180 152 m(README)s
+180 142 m(get)s
+180 132 m(network.c)s
+180 122 m(regular.c)s
+180 112 m(regular.h)s
+180 102 m(xtp.c)s
+180 92 m(xtp.h)s
+180 82 m(xtp.man)s
+90 127 m(xtp)s
+(xtp) stringwidth pop 91.0 add 130.3 m
+[ 175.3 165.3 155.3 145.3 135.3 125.3 115.3 105.3 95.3 85.3]
+{gsave 176.0 exch lineto stroke grestore} forall
+0 430 m(ImageMagick)s
+(ImageMagick) stringwidth pop 1.0 add 432.8 m
+[ 735.3 725.3 715.3 705.3 695.3 685.3 675.3 665.3 655.3 645.3 635.3 625.3 615.3 605.3 595.3 585.3 575.3 565.3 555.3 545.3 535.3 525.3 515.3 505.3 495.3 485.3 455.3 425.3 415.3 405.3 395.3 385.3 375.3 365.3 345.3 325.3 315.3 255.3 195.3 185.3 130.3]
+SHAR_EOF
+true || echo 'restore of ImageMagick/Manifest.ps failed'
+fi
+echo 'End of ImageMagick part 7'
+echo 'File ImageMagick/Manifest.ps is continued in part 8'
+echo 8 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

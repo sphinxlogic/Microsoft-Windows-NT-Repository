@@ -1,0 +1,1006 @@
+Path: uunet!uunet!dtix!darwin.sura.net!gatech!swrinde!mips!msi!dcmartin
+From: nathan@inmos.co.uk (Nathan Sidwell)
+Newsgroups: comp.sources.x
+Subject: v18i076: xmris version 2.00, Patch1, Part05/05
+Message-ID: <1992Jul29.181143.15766@msi.com>
+Date: 29 Jul 92 18:11:43 GMT
+References: <csx-18i072-xmris@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 993
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Nathan Sidwell <nathan@inmos.co.uk>
+Posting-number: Volume 18, Issue 76
+Archive-name: xmris/patch1.05
+Patch-To: xmris: Volume XXX, Issue XXX
+
+#!/bin/sh
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file patch.v2.00 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping patch.v2.00'
+else
+echo 'x - continuing file patch.v2.00'
+sed 's/^X//' << 'SHAR_EOF' >> 'patch.v2.00' &&
+X  					  
+X  	  XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	  if(isupper(chr))
+! 	    chr = tolower(chr);
+! 	  if(chr == 'p' && pausable)
+! 	    paused++;
+! 	  else if(paused && chr == ' ')
+! 	    player.motionevent = paused = 0;
+! 	  else if((paused || !pausable) && chr == 'q')
+X  	    {
+! 	      paused = 0;
+! 	      quit = 1;
+X  	    }
+! 	  else if(global.state > 5)
+! 	    player.keyboard = player.button = 1;
+! 	  else if(!paused && player.keyboard)
+! 	    {
+! 	      int       index;
+! 					
+! 	      for(index = 5; index--;)
+! 		if(chr == keystrokes[index])
+! 		  {
+! 		    if(index == 4)
+! 		      player.button = 1;
+X  		    else
+! 		      player.pressed |= 1 << index;
+! 		    break;
+! 		  }
+! 	    }
+X  	  break;
+X  	}
+X  	/*}}}*/
+--- 654,696 ----
+X  	 * a control key. If so, then we set the relevant pressed bit.
+X  	 */
+X  	{
+X  	  KeySym    symbol;
+! 	  char      chr;
+! 	  XComposeStatus  status;
+! 	  unsigned  index;
+X  					  
+X  	  XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	  if(!global.key)
+X  	    {
+! 	      global.key = symbol;
+! 	      if(global.state == MODE_KEY_DEF)
+! 		paused = 0;
+X  	    }
+! 	  if(global.state != MODE_KEY_DEF)
+! 	    for(index = KEYS; index--;)
+! 	      if(symbol == keystrokes[index])
+! 		{
+! 		  if(index == KEY_ICONIZE)
+! 		    XIconifyWindow(display.display, display.window, 
+! 			display.screen);
+! 		  else if(index == KEY_PAUSE && pausable)
+! 		    paused++;
+! 		  else if(index == KEY_THROW)
+! 		    if(paused)
+! 		      paused = 0;
+X  		    else
+! 		      player.button = 1;
+! 		  else if((paused || !pausable) && index == KEY_QUIT)
+! 		    {
+! 		      paused = 0;
+! 		      quit = 1;
+! 		    }
+! 		  else if(index == KEY_KEYBOARD && global.state == MODE_DEMO)
+! 		    player.button = 2;
+! 		  else if(index < 4)
+! 		    player.pressed |= 1 << index;
+! 		  break;
+! 		}
+X  	  break;
+X  	}
+X  	/*}}}*/
+***************
+*** 674,727 ****
+X  	 * the controlling direction key. If so, then we stop
+X  	 */
+X  	{
+! 	  if(player.keyboard)
+! 	    {
+! 	      char      chr;
+! 	      KeySym    symbol;
+! 	      XComposeStatus status;
+! 	      unsigned  index;
+! 					    
+! 	      XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	      if(isupper(chr))
+! 		chr = tolower(chr);
+! 	      for(index = 5; index--;)
+! 		if(chr == keystrokes[index])
+! 		  {
+! 		    if(index == 4)
+! 		      player.button = 0;
+! 		    else
+! 		      player.pressed &= ~(1 << index);
+! 		    break;
+! 		  }
+! 	      break;
+! 	    }
+! 	}
+! 	/*}}}*/
+! 	/*{{{  case MotionNotify:*/
+! 	case MotionNotify:
+! 	/*
+! 	 * for mouse motion, we save the coordinate and process the
+! 	 * final one only
+! 	 */
+! 	{
+! 	  player.raw_mouse.x = event.xmotion.x;
+! 	  player.raw_mouse.y = event.xmotion.y;
+! 	  player.motionevent = 1;
+X  	  break;
+X  	}
+X  	/*}}}*/
+- 	/*{{{  case ButtonPress:*/
+- 	case ButtonPress:
+- 	  if(!player.keyboard)
+- 	    player.button = 1;
+- 	  break;
+- 	/*}}}*/
+- 	/*{{{  case ButtonRelease:*/
+- 	case ButtonRelease:
+- 	  if(!player.keyboard && player.throw)
+- 	    player.button = 0;
+- 	  break;
+- 	/*}}}*/
+X  	/*{{{  case Expose:*/
+X  	case Expose:
+X  	  refresh_window();
+--- 701,726 ----
+X  	 * the controlling direction key. If so, then we stop
+X  	 */
+X  	{
+! 	  char      chr;
+! 	  KeySym    symbol;
+! 	  XComposeStatus status;
+! 	  unsigned  index;
+! 							    
+! 	  XLookupString(&event.xkey, &chr, 1, &symbol, &status);
+! 	  if(symbol == global.key)
+! 	    global.key = 0;
+! 	  for(index = KEY_THROW + 1; index--;)
+! 	    if(symbol == keystrokes[index])
+! 	      {
+! 		if(index == KEY_THROW)
+! 		  player.button = 0;
+! 		else
+! 		  player.pressed &= ~(1 << index);
+! 		break;
+! 	      }
+X  	  break;
+X  	}
+X  	/*}}}*/
+X  	/*{{{  case Expose:*/
+X  	case Expose:
+X  	  refresh_window();
+***************
+*** 744,775 ****
+X  	    paused++;
+X  	  break;
+X  	/*}}}*/
+! 	default:
+X  	  break;
+X        }
+-       /*{{{  started to pause?*/
+-       if(paused == 1)
+- 	{
+- 	  char const *text = "Space to continue, Q to quit";
+- 	  TEXT      info;
+- 	  unsigned  length;
+- 		
+- 	  paused++;
+- 	  length = strlen(text);
+- 	  text_size(text, length, &info);
+- 	  add_background(0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+- 	  XFillRectangle(display.display, display.copy, GCN(GC_CLEAR),
+- 	      0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT);
+- 	  XDrawImageString(display.display, display.copy, GCN(GC_TEXT),
+- 	      WINDOW_WIDTH / 2 - info.width / 2,
+- 	      PIXELY(CELLS_DOWN, CELL_HEIGHT / 2) +
+- 	      (info.ascent - info.descent) / 2, text, length);
+- 	  XCopyArea(display.display, display.copy, display.window, GCN(GC_COPY),
+- 	      0, PIXELY(CELLS_DOWN, 0), WINDOW_WIDTH, CELL_HEIGHT,
+- 	      0, PIXELY(CELLS_DOWN, 0));
+- 	  XSync(display.display, False);
+- 	}
+-       /*}}}*/
+X      }
+X    /*}}}*/
+X    return quit;
+--- 743,763 ----
+X  	    paused++;
+X  	  break;
+X  	/*}}}*/
+! 	/*{{{  case EnterNotify:*/
+! 	case EnterNotify:
+! 	  XSetInputFocus(display.display, display.window, 
+! 	      RevertToParent, event.xcrossing.time);
+! 	  outside = 0;
+X  	  break;
++ 	/*}}}*/
++ 	/*{{{  case LeaveNotify:*/
++ 	case LeaveNotify:
++ 	  outside = 1;
++ 	  if(pausable)
++ 	    paused++;
++ 	  break;
++ 	/*}}}*/
+X        }
+X      }
+X    /*}}}*/
+X    return quit;
+***************
+*** 791,795 ****
+--- 779,798 ----
+X    bits = ((seed >> 3) ^ seed) & 0xFF;
+X    seed = (seed >> 8) | (bits << 23);
+X    return bits;
++ }
++ /*}}}*/
++ /*{{{  int xio_error(dptr)*/
++ static int xio_error FUNCARGLIST((dptr))
++ Display *dptr FUNCARGTERM
++ {
++   static before = 0;
++   
++   if(!before)
++     {
++       before = 1;
++       release_resources();
++     }
++   exit(0);
++   return 0;
+X  }
+X  /*}}}*/
+Only in exp.v2.00: xmris.def
+diff -c -r exp.v1.01/xmris.h exp.v2.00/xmris.h
+*** exp.v1.01/xmris.h	Fri Jul 24 09:55:59 1992
+--- exp.v2.00/xmris.h	Fri Jul 24 13:43:05 1992
+***************
+*** 1,21 ****
+! /*{{{  (C) 1992 Nathan Sidwell*/
+! /*****************************************************************************
+! 			X M R I S V1.01
+! 			---------------
+! 		    (C) 1992 Nathan Sidwell
+! 
+! This program is copyright (C) 1992 Nathan Sidwell. This software and documentation
+! is in the public domain. Permission is granted to distribute and compile
+! verbatim copies of this software for non-commercial, non-profit use,
+! without fee. The software may be modified, provided that both the above copyright
+! notice and this permission notice appear.
+! 
+! No guarantee is given as to the robustness or suitability of this
+! software for your computer.
+! 
+! Nathan Sidwell  INMOS UK |                 | nathan@inmos.co.uk       DoD#0390
+! *****************************************************************************/
+! /*}}}*/
+X  #include "patchlevel.h"
+X  #ifndef EXTERN
+X  #define EXTERN extern
+--- 1,4 ----
+! /* (C) 1992 Nathan Sidwell */
+X  #include "patchlevel.h"
+X  #ifndef EXTERN
+X  #define EXTERN extern
+***************
+*** 46,52 ****
+X  #ifndef DATE
+X  #define DATE "July 1992"
+X  #endif /* DATE */
+! #define memmove memcpy /* K&R doesn't have memmove, but memcpy is a superset */
+X  #endif /* __STDC__ */
+X  /*}}}*/
+X  /*{{{  include*/
+--- 29,36 ----
+X  #ifndef DATE
+X  #define DATE "July 1992"
+X  #endif /* DATE */
+! /* K&R doesn't have memmove, but memcpy is a superset */
+! #define memmove(to, from, len) memcpy(to, from, len)
+X  #endif /* __STDC__ */
+X  /*}}}*/
+X  /*{{{  include*/
+***************
+*** 55,64 ****
+--- 39,66 ----
+X  #include <stdio.h>
+X  #include <assert.h>
+X  #include <string.h>
++ #include <errno.h>
+X  #include <ctype.h>
+X  #include <X11/Xlib.h>
+X  #include <X11/Xutil.h>
++ #include <X11/keysym.h>
+X  /*}}}*/
++ /*{{{  no memmove?*/
++ #ifdef USEBCOPY
++ #undef memmove
++ #define memmove(to, from, len) bcopy(from, to, len)
++ #else
++ #ifdef USEMEMCPY
++ #undef memmove
++ #define memmove(to, from, len) memcpy(to, from, len)
++ #endif /* USEMEMCPY */
++ #endif /* !USEBCOPY */
++ /*}}}*/
++ /*{{{  file lock functions*/
++ #include <unistd.h>
++ #define lock_file(stream) lockf(fileno(stream), F_LOCK, 0L)
++ #define unlock_file(stream) lockf(fileno(stream), F_ULOCK, 0L)
++ /*}}}*/
+X  /*{{{  defines*/
+X  /*{{{  board sizes*/
+X  #define CELLS_ACROSS  12  /* size of the board */
+***************
+*** 96,101 ****
+--- 98,104 ----
+X  #define FRAME_RATE    37000
+X  #endif
+X  #define ZOOM_RATE (FRAME_RATE / 4)
++ #define SCORE_RATE (FRAME_RATE / 4)
+X  /*}}}*/
+X  /*{{{  font name*/
+X  #ifndef FONT_NAME
+***************
+*** 102,107 ****
+--- 105,146 ----
+X  #define FONT_NAME "-*-courier-*-r-*-*-18-*-*-*-*-*-*-*"
+X  #endif
+X  /*}}}*/
++ /*{{{  score file*/
++ #ifndef SCORE_FILE
++ #define SCORE_FILE NULL
++ #else
++ #define HIGH_SCORE_FILE 1
++ #endif
++ /*}}}*/
++ /*{{{  key symbols*/
++ #ifndef KEYSYM_UP
++ #define KEYSYM_UP XK_apostrophe
++ #endif
++ #ifndef KEYSYM_DOWN
++ #define KEYSYM_DOWN XK_slash
++ #endif
++ #ifndef KEYSYM_LEFT
++ #define KEYSYM_LEFT XK_z
++ #endif
++ #ifndef KEYSYM_RIGHT
++ #define KEYSYM_RIGHT XK_x
++ #endif
++ #ifndef KEYSYM_THROW
++ #define KEYSYM_THROW XK_space
++ #endif
++ #ifndef KEYSYM_PAUSE
++ #define KEYSYM_PAUSE XK_p
++ #endif
++ #ifndef KEYSYM_QUIT
++ #define KEYSYM_QUIT XK_q
++ #endif
++ #ifndef KEYSYM_ICONIZE
++ #define KEYSYM_ICONIZE XK_i
++ #endif
++ #ifndef KEYSYM_KEY
++ #define KEYSYM_KEY XK_k
++ #endif
++ /*}}}*/
+X  /*{{{  game gender*/
+X  #ifndef GAME_GENDER
+X  #define GAME_GENDER (random() & 1)
+***************
+*** 122,127 ****
+--- 161,167 ----
+X  #define BALL_EY         (CELL_HEIGHT / 2)
+X  #define ZOOM_X          VEL_X                 /* how fast the zoom is */
+X  #define ZOOM_Y          VEL_Y
++ #define STEP_OFF        1                     /* steps taken for granted */
+X  /*}}}*/
+X  /*{{{  ball stuff*/
+X  #define BALL_EXPLODE    (BOARD_WIDTH / BALL_EX) /* how much we explode */
+***************
+*** 150,158 ****
+X  #define PUSH_TURN_PROB    64    /* muncher turns around when pushing */
+X  #define GO_MUNCH_DELAY    16    /* pause when we start munching */
+X  #define STOP_MUNCH_DELAY  16    /* pause when we stop munching */
+X  /*}}}*/
+X  /*{{{  xtra & drone*/
+! #define XTRA_INC_PROB     2     /* next xtra monster is selected */
+X  #define XTRA_BIRTH_DELAY  ((CELL_WIDTH + GAP_WIDTH) / VEL_X + 4)    /* pause while giving birth to drones */
+X  #define XTRA_CONT_OFF_PROB 16   /* that xtra stops continuing */
+X  #define NEXT_XTRA_PROB    1     /* probability that the extra changes */
+--- 190,199 ----
+X  #define PUSH_TURN_PROB    64    /* muncher turns around when pushing */
+X  #define GO_MUNCH_DELAY    16    /* pause when we start munching */
+X  #define STOP_MUNCH_DELAY  16    /* pause when we stop munching */
++ #define PANIC_UP_COUNT    (CELL_HEIGHT / VEL_Y / 2)
+X  /*}}}*/
+X  /*{{{  xtra & drone*/
+! #define XTRA_INC_PROB     4     /* next xtra monster is selected */
+X  #define XTRA_BIRTH_DELAY  ((CELL_WIDTH + GAP_WIDTH) / VEL_X + 4)    /* pause while giving birth to drones */
+X  #define XTRA_CONT_OFF_PROB 16   /* that xtra stops continuing */
+X  #define NEXT_XTRA_PROB    1     /* probability that the extra changes */
+***************
+*** 182,187 ****
+--- 223,236 ----
+X      (&board[(CY) * CELL_STRIDE + (CX) + CELL_LEFT + CELL_TOP * CELL_STRIDE])
+X  /*}}}*/
+X  /*{{{  structs*/
++ /*{{{  typedef struct Title*/
++ typedef struct Title
++ /* title text */
++ {
++   char const *text;       /* the text */
++   unsigned  index;        /*  key index */
++ } TITLE;
++ /*}}}*/
+X  /*{{{  typedef struct Cell*/
+X  typedef struct Cell
+X  /* information about 1 cell on the board */
+***************
+*** 200,205 ****
+--- 249,262 ----
+X    int       y;
+X  } COORD;
+X  /*}}}*/
++ /*{{{  typedef struct Size*/
++ typedef struct Size
++ /* general size store */
++ {
++   unsigned  x;
++   unsigned  y;
++ } SIZE;
++ /*}}}*/
+X  /*{{{  typedef struct Sprite*/
+X  typedef struct Sprite
+X  /* sprite definition */
+***************
+*** 206,214 ****
+X  {
+X    char *image_bits;           /* image bitmap */
+X    char *mask_bits;            /* mask bitmap */
+!   unsigned  width;            /* width of sprite */
+!   unsigned  height;           /* height of sprite */
+!   COORD     expected;         /* expected size */
+X    unsigned  copy;             /* generated from this sprite */
+X    unsigned  reflect;          /* reflection 1 = v axis, 2 = h axis */
+X    Pixmap    image;            /* image pixmap */
+--- 263,270 ----
+X  {
+X    char *image_bits;           /* image bitmap */
+X    char *mask_bits;            /* mask bitmap */
+!   SIZE      size;             /* size of sprite */
+!   SIZE      expected;         /* expected size */
+X    unsigned  copy;             /* generated from this sprite */
+X    unsigned  reflect;          /* reflection 1 = v axis, 2 = h axis */
+X    Pixmap    image;            /* image pixmap */
+***************
+*** 238,244 ****
+X  /* area to update from back to copy to window */
+X  {
+X    COORD   place;  /* top left area */
+!   COORD   size;   /* size of area */
+X  } BACKGROUND;
+X  /*}}}*/
+X  /*{{{  typedef struct Score*/
+--- 294,300 ----
+X  /* area to update from back to copy to window */
+X  {
+X    COORD   place;  /* top left area */
+!   SIZE    size;   /* size of area */
+X  } BACKGROUND;
+X  /*}}}*/
+X  /*{{{  typedef struct Score*/
+***************
+*** 300,318 ****
+X  /*{{{  typedef struct Apple_Size*/
+X  typedef struct Apple_Size
+X  {
+!   COORD size;
+!   COORD offset;
+X  } APPLE_SIZE;
+X  /*}}}*/
+- /*{{{  typedef struct Text*/
+- typedef struct Text
+- /* how we say text sizes */
+- {
+-   int       ascent;
+-   int       descent;
+-   int       width;
+- } TEXT;
+- /*}}}*/
+X  /*{{{  typedef struct Monster*/
+X  typedef struct Monster
+X  /* monster information */
+--- 356,365 ----
+X  /*{{{  typedef struct Apple_Size*/
+X  typedef struct Apple_Size
+X  {
+!   SIZE    size;
+!   COORD   offset;
+X  } APPLE_SIZE;
+X  /*}}}*/
+X  /*{{{  typedef struct Monster*/
+X  typedef struct Monster
+X  /* monster information */
+***************
+*** 349,354 ****
+--- 396,402 ----
+X    unsigned  cont;     /* continue */
+X    unsigned  chew;     /* chewing */
+X    unsigned  count;    /* counter */
++   unsigned  panic;    /* help I'm about to be squashed */
+X    unsigned  shot;     /* has been shot */
+X    unsigned  cycle;    /* image cycler */
+X    unsigned  image;    /* which image to display */
+***************
+*** 370,376 ****
+X    Colormap  colormap; /* color map for display */
+X    Window    root;     /* its root window */
+X    Window    window;   /* game window */
+!   int       depth;    /* bitplanes */
+X    unsigned  long black; /* black pixel index */
+X    unsigned  long white; /* white pixel index */
+X    unsigned  long xor;   /* black xor white */
+--- 418,424 ----
+X    Colormap  colormap; /* color map for display */
+X    Window    root;     /* its root window */
+X    Window    window;   /* game window */
+!   unsigned  depth;    /* bitplanes */
+X    unsigned  long black; /* black pixel index */
+X    unsigned  long white; /* white pixel index */
+X    unsigned  long xor;   /* black xor white */
+***************
+*** 389,394 ****
+--- 437,446 ----
+X  {
+X    char const *name;   /* name of font */
+X    Font      font;     /* font handle */
++   unsigned  width;    /* width of a character */
++   int       ascent;   /* max ascent */
++   int       descent;  /* max descent */
++   int       center;   /* center offset to add */
+X  } font;
+X  /*}}}*/
+X  EXTERN CELL board[(CELLS_DOWN + CELL_TOP * 2) * CELL_STRIDE];
+***************
+*** 421,451 ****
+X  /*{{{  player*/
+X  EXTERN struct
+X  /* player specific information
+!  * note, the playe place info is stored as monster 0
+X   */
+X  {
+X    unsigned  screen;     /* current screen number */
+X    unsigned  score;      /* our score */
+X    unsigned  lives;      /* lives we have left (including on screen) */
+-   COORD     mouse;      /* mouse destination square */
+X    unsigned  throw;      /* throw the ball */
+X    unsigned  button;     /* throw button state */
+-   unsigned  mouse_dir;  /* mouse direction */
+X    unsigned  next_dir;   /* direction at next intersection */
+X    unsigned  pressed;    /* keys we have pressed */
+X    unsigned  bashed;     /* we bashed into a wall */
+X    BALL      old_ball;   /* what was the ball */
+X    BALL      ball;       /* ball information */
+-   unsigned  keyboard;   /* use keyboard */
+X    unsigned  cherry;     /* consecutive cherry count */
+X    unsigned  distance;   /* distance to next cherry */
+-   COORD     raw_mouse;  /* the raw mouse input */
+X    unsigned  old_pressed; /* old keys pressed */
+-   unsigned  motionevent; /* the mouse moved */
+X  } player;
+X  /*}}}*/
+! EXTERN unsigned long seed; /* random number seed */
+! EXTERN char const *game_name; /* name of the game */
+X  /*{{{  global*/
+X  EXTERN struct
+X  {
+--- 473,499 ----
+X  /*{{{  player*/
+X  EXTERN struct
+X  /* player specific information
+!  * note, the player place info is stored as monster 0
+X   */
+X  {
+X    unsigned  screen;     /* current screen number */
+X    unsigned  score;      /* our score */
+X    unsigned  lives;      /* lives we have left (including on screen) */
+X    unsigned  throw;      /* throw the ball */
+X    unsigned  button;     /* throw button state */
+X    unsigned  next_dir;   /* direction at next intersection */
+X    unsigned  pressed;    /* keys we have pressed */
+X    unsigned  bashed;     /* we bashed into a wall */
+X    BALL      old_ball;   /* what was the ball */
+X    BALL      ball;       /* ball information */
+X    unsigned  cherry;     /* consecutive cherry count */
+X    unsigned  distance;   /* distance to next cherry */
+X    unsigned  old_pressed; /* old keys pressed */
+X  } player;
+X  /*}}}*/
+! EXTERN unsigned long seed;      /* random number seed */
+! EXTERN char const *game_name;   /* name of the game */
+! EXTERN char const *score_file;  /* score file */
+X  /*{{{  global*/
+X  EXTERN struct
+X  {
+***************
+*** 458,469 ****
+X  			     * 2 - xtras & drone running around
+X  			     * 3 - done xtras
+X  			     * 4 - end game
+! 			     * 5 - extra life
+X  			     * 6 - demo
+! 			     * 7 - high scores
+! 			     * 8 - history
+X  			     */
+X    unsigned  missed;         /* missed interrupt count */
+X  } global;
+X  /*}}}*/
+X  /*{{{  extra*/
+--- 506,520 ----
+X  			     * 2 - xtras & drone running around
+X  			     * 3 - done xtras
+X  			     * 4 - end game
+! 			     * 5 - mid game demo
+X  			     * 6 - demo
+! 			     * 7 - defining keys
+X  			     */
++ #define MODE_GAME_DEMO 5
++ #define MODE_DEMO      6
++ #define MODE_KEY_DEF   7
+X    unsigned  missed;         /* missed interrupt count */
++   KeySym    key;            /*  last key pressed */
+X  } global;
+X  /*}}}*/
+X  /*{{{  extra*/
+***************
+*** 568,581 ****
+X  extern APPLE_SIZE const apple_sizes[6];
+X  #define BOARDS 10
+X  extern BOARD const boards[BOARDS];
+! extern char keystrokes[5];
+X  extern COORD const ball_hold[16];
+X  extern COORD const ball_throw[8];
+! extern int const ball_dir[8];
+! extern int const player_dies[8];
+! extern char const *title_text[];
+X  #define SQUISH_SCORES 7
+! extern int const squish_scores[SQUISH_SCORES];
+X  /*}}}*/
+X  /*{{{  prototypes*/
+X  /*{{{  apple*/
+--- 619,640 ----
+X  extern APPLE_SIZE const apple_sizes[6];
+X  #define BOARDS 10
+X  extern BOARD const boards[BOARDS];
+! /*{{{  keys*/
+! #define KEY_THROW     4
+! #define KEY_PAUSE     5
+! #define KEY_QUIT      6
+! #define KEY_ICONIZE   7
+! #define KEY_KEYBOARD  8
+! #define KEYS          9
+! extern KeySym keystrokes[KEYS];
+! /*}}}*/
+X  extern COORD const ball_hold[16];
+X  extern COORD const ball_throw[8];
+! extern unsigned const ball_dir[8];
+! extern unsigned const player_dies[8];
+! extern TITLE const title_text[];
+X  #define SQUISH_SCORES 7
+! extern unsigned const squish_scores[SQUISH_SCORES];
+X  /*}}}*/
+X  /*{{{  prototypes*/
+X  /*{{{  apple*/
+***************
+*** 583,610 ****
+X  extern int apple_stop PROTOARGLIST((MONSTER *, CELL *));
+X  extern void apple_under PROTOARGLIST((MONSTER *, CELL *));
+X  extern void move_apples PROTOARGLIST((void));
+X  extern APPLE *spawn_apple PROTOARGLIST((int, int, int, int));
+X  /*}}}*/
+X  /*{{{  create*/
+X  extern void create_resources PROTOARGLIST((int, char **));
+! extern void create_xtra_monster PROTOARGLIST((int));
+! extern void draw_extra_letter PROTOARGLIST((int));
+X  extern void release_resources PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  demo*/
+X  extern int demo_mode PROTOARGLIST((void));
+X  extern void extra_life PROTOARGLIST((void));
+X  extern void show_history PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  draw*/
+! extern void add_background PROTOARGLIST((int, int, int, int));
+X  extern void bounding_box PROTOARGLIST((int, int, unsigned, unsigned));
+! extern void draw_center PROTOARGLIST((int));
+X  extern void draw_extra PROTOARGLIST((void));
+X  extern void new_board PROTOARGLIST((void));
+X  extern void refresh_window PROTOARGLIST((void));
+X  extern void show_updates PROTOARGLIST((void));
+- extern void text_size PROTOARGLIST((char const *, unsigned, TEXT *));
+X  extern void zoom_board PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  monster*/
+--- 642,672 ----
+X  extern int apple_stop PROTOARGLIST((MONSTER *, CELL *));
+X  extern void apple_under PROTOARGLIST((MONSTER *, CELL *));
+X  extern void move_apples PROTOARGLIST((void));
++ extern void panic_monsters PROTOARGLIST((int, int, CELL *));
+X  extern APPLE *spawn_apple PROTOARGLIST((int, int, int, int));
+X  /*}}}*/
+X  /*{{{  create*/
+X  extern void create_resources PROTOARGLIST((int, char **));
+! extern void create_xtra_monster PROTOARGLIST((unsigned));
+! extern void draw_extra_letter PROTOARGLIST((unsigned));
+! extern void read_xdefaults PROTOARGLIST((void));
+X  extern void release_resources PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  demo*/
+X  extern int demo_mode PROTOARGLIST((void));
+X  extern void extra_life PROTOARGLIST((void));
++ extern void high_score PROTOARGLIST((unsigned, unsigned));
++ extern void init_scores PROTOARGLIST((void));
+X  extern void show_history PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  draw*/
+! extern void add_background PROTOARGLIST((int, int, unsigned, unsigned));
+X  extern void bounding_box PROTOARGLIST((int, int, unsigned, unsigned));
+! extern void draw_center PROTOARGLIST((unsigned));
+X  extern void draw_extra PROTOARGLIST((void));
+X  extern void new_board PROTOARGLIST((void));
+X  extern void refresh_window PROTOARGLIST((void));
+X  extern void show_updates PROTOARGLIST((void));
+X  extern void zoom_board PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  monster*/
+***************
+*** 612,618 ****
+X  extern void fall_monsters PROTOARGLIST((void));
+X  extern void move_monsters PROTOARGLIST((void));
+X  extern void new_xtra PROTOARGLIST((void));
+! extern MONSTER *spawn_monster PROTOARGLIST((int, int, int, int, int, int, int));
+X  /*}}}*/
+X  /*{{{  move*/
+X  extern unsigned choose_direction PROTOARGLIST((unsigned));
+--- 674,680 ----
+X  extern void fall_monsters PROTOARGLIST((void));
+X  extern void move_monsters PROTOARGLIST((void));
+X  extern void new_xtra PROTOARGLIST((void));
+! extern MONSTER *spawn_monster PROTOARGLIST((unsigned, unsigned, unsigned, int, int, int, int));
+X  /*}}}*/
+X  /*{{{  move*/
+X  extern unsigned choose_direction PROTOARGLIST((unsigned));
+***************
+*** 625,630 ****
+--- 687,693 ----
+X  /*}}}*/
+X  /*{{{  player*/
+X  extern void bounce_ball PROTOARGLIST((void));
++ extern void killed_player PROTOARGLIST((void));
+X  extern void move_player PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  timer*/
+***************
+*** 635,644 ****
+X  extern void timer_wait PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  xmris*/
+! extern void add_score PROTOARGLIST((int, int, int));
+X  extern void calc_distances PROTOARGLIST((void));
+X  extern void fatal_error PROTOARGLIST((char const *, ...));
+! extern int itoa PROTOARGLIST((char *, int, int));
+X  extern int main PROTOARGLIST((int, char **));
+X  extern int process_xevents PROTOARGLIST((int));
+X  extern unsigned random PROTOARGLIST((void));
+--- 698,707 ----
+X  extern void timer_wait PROTOARGLIST((void));
+X  /*}}}*/
+X  /*{{{  xmris*/
+! extern void add_score PROTOARGLIST((unsigned, int, int));
+X  extern void calc_distances PROTOARGLIST((void));
+X  extern void fatal_error PROTOARGLIST((char const *, ...));
+! extern unsigned itoa PROTOARGLIST((char *, unsigned, unsigned));
+X  extern int main PROTOARGLIST((int, char **));
+X  extern int process_xevents PROTOARGLIST((int));
+X  extern unsigned random PROTOARGLIST((void));
+diff -c -r exp.v1.01/xmris.man exp.v2.00/xmris.man
+*** exp.v1.01/xmris.man	Fri Jul 24 09:55:55 1992
+--- exp.v2.00/xmris.man	Fri Jul 24 13:43:01 1992
+***************
+*** 56,74 ****
+X  continues towards the previous destination, before turning towards the
+X  new one. Mouse control is not that accurate for fine control of the
+X  gnome (I don't use it). Keyboard control is by 'z' and 'x' for left and
+! right, and '\'' and '/' for up and down. The ball is thrown with the
+X  space bar. Pressing more than one key, will turn the gnome
+X  appropriately at the next intersection, so you can go round corners by
+X  pressing the new direction key before releasing the old one. If you try
+X  to go in a direction not possible, the gnome will move towards the
+X  nearest intersection or in the direction it was going, depending on how
+! near to an intersection it was.
+X  .PP
+! The game can be paused by iconifying it (when your boss walks in), or
+! by pressing 'p'. When de-iconified, the game remains paused. To
+X  continue press space. When paused, you can abort the game by pressing
+X  'q'. If the game is displaying the demo screens, 'q' will quit the game
+X  entirely.
+X  .SH OPTIONS
+X  .TP 4
+X  .B \-help
+--- 56,88 ----
+X  continues towards the previous destination, before turning towards the
+X  new one. Mouse control is not that accurate for fine control of the
+X  gnome (I don't use it). Keyboard control is by 'z' and 'x' for left and
+! right, and '\'' and '/' for up and down, (but these can be changed).
+! The ball is thrown with the
+X  space bar. Pressing more than one key, will turn the gnome
+X  appropriately at the next intersection, so you can go round corners by
+X  pressing the new direction key before releasing the old one. If you try
+X  to go in a direction not possible, the gnome will move towards the
+X  nearest intersection or in the direction it was going, depending on how
+! near to an intersection it was. As an example suppose you're going left
+! and want to go up at the next intersection, the sequence would be
+X  .PP
+! .nf
+!         left pressed, because that's the way you're going
+!         up pressed, before the intersection
+!         left released, when you've gon round the corner
+! .fi
+! .PP
+! The game can be paused by iconizing it (when your boss walks in), or
+! moving the pointer out of the window, or
+! by pressing 'p'. When de-iconizied, the game remains paused. To
+X  continue press space. When paused, you can abort the game by pressing
+X  'q'. If the game is displaying the demo screens, 'q' will quit the game
+X  entirely.
++ .PP
++ The keys can be changed by using the 'k' key. Each direction control is
++ prompted for and you can select a new key by pressing it. Space will keep
++ the current key (except for throw). You cannot map one key onto two
++ functions, xmris will wait until you give an unambigous set of keys.
+X  .SH OPTIONS
+X  .TP 4
+X  .B \-help
+***************
+*** 96,104 ****
+--- 110,154 ----
+X  The gender of the game is taken from the program name (mris or msit)
+X  but may be over ridden by these two switches. The game is known as Mr
+X  Is because the arcade game was masculine.
++ .TP 4
++ .B \-scores \fIscore-file\fP
++ Use a different score file. This will override the
++ default and the one found in your Xdefaults.
+X  .PP
+X  The argument list is also fed to XSetStandardProperties, I don't know what
+X  this does.
++ .SH X DEFAULTS
++ Xmris reads the X defaults for changes to the setup. Xdefault items start
++ with 'Xmris'. The following items are used.
++ .TP 4
++ .B up, down, left, right, throw
++ These are the keynames for the direction control keys. The defaults are
++ Apostrophe, Slash, z, x and Space. If the keyname is unknown, the default
++ will be used, no warning is given.
++ .TP 4
++ .B pause, quit, iconize, keyboard
++ These are the keynames for the other keys. The defaults are p, q, i and k.
++ .TP 4
++ .B font
++ The name of the text font to use (over ridden by -fn command line arg).
++ .TP 4
++ .B scores
++ The name of the high score file.
++ .PP
++ To always use the arrow keys, the following will work
++ .PP
++ .nf
++         Xmris.up:       Up
++         Xmris.down:     Down
++         Xmris.left:     Left
++         Xmris.right:    Right
++ .fi
++ .SH FILES
++ .TP 4
++ .B .../xmris.scores
++ The high score file. The directory is system dependent, and may be
++ changed by Xdefaults or command line argument. This file must exist
++ to be used, (by touching it), and writable to by xmris.
+X  .SH SEE ALSO
+X  xchomp(6)
+X  .SH BUGS
+***************
+*** 105,116 ****
+X  .PP
+X  The game is always in black and white, I haven't got round to doing
+X  colour sprites yet, so the -bw argument is superfluous.
+- .PP
+- The -iconic argument has no effect. (I don't know how to get it to work.)
+- .PP
+- Fatal XIO errors are not handled gracefully. Quiting the game by using
+- your window manager results in big error message. I don't know how to
+- trap this.
+X  .PP
+X  The program was written with a folding editor, it might be hard to find
+X  your way around without one.
+--- 155,160 ----
+Common subdirectories: exp.v1.01/bitmaps/apple and exp.v2.00/bitmaps/apple
+Common subdirectories: exp.v1.01/bitmaps/board and exp.v2.00/bitmaps/board
+Common subdirectories: exp.v1.01/bitmaps/chomp and exp.v2.00/bitmaps/chomp
+Common subdirectories: exp.v1.01/bitmaps/drone and exp.v2.00/bitmaps/drone
+Common subdirectories: exp.v1.01/bitmaps/icon and exp.v2.00/bitmaps/icon
+Common subdirectories: exp.v1.01/bitmaps/munch and exp.v2.00/bitmaps/munch
+Common subdirectories: exp.v1.01/bitmaps/normal and exp.v2.00/bitmaps/normal
+Common subdirectories: exp.v1.01/bitmaps/player and exp.v2.00/bitmaps/player
+Common subdirectories: exp.v1.01/bitmaps/prize and exp.v2.00/bitmaps/prize
+Common subdirectories: exp.v1.01/bitmaps/xtra and exp.v2.00/bitmaps/xtra
+SHAR_EOF
+echo 'File patch.v2.00 is complete' &&
+chmod 0644 patch.v2.00 ||
+echo 'restore of patch.v2.00 failed'
+Wc_c="`wc -c < 'patch.v2.00'`"
+test 222994 -eq "$Wc_c" ||
+	echo 'patch.v2.00: original size 222994, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xmris.def ==============
+if test -f 'xmris.def' -a X"$1" != X"-c"; then
+	echo 'x - skipping xmris.def (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xmris.def (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xmris.def' &&
+XXmris.up:			Up
+XXmris.down:			Down
+XXmris.left:			Left
+XXmris.right:			Right
+XXmris.throw:			space
+XXmris.pause:			p
+XXmris.quit:			q
+XXmris.iconize:			i
+XXmris.keyboard:			k
+XXmris.font:			-*-courier-*-r-*-*-18-*-*-*-*-*-*-*
+XXmris.scores:			/u/nathan/games/xmris.scores
+SHAR_EOF
+chmod 0644 xmris.def ||
+echo 'restore of xmris.def failed'
+Wc_c="`wc -c < 'xmris.def'`"
+test 262 -eq "$Wc_c" ||
+	echo 'xmris.def: original size 262, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

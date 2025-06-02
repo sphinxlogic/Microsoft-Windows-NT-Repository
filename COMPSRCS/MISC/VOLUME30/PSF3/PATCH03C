@@ -1,0 +1,1992 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject:  v30i052:  psf3 - Postscript print filter system, Patch03c/4
+Message-ID: <1992Jun14.201849.2297@sparky.imd.sterling.com>
+X-Md4-Signature: 925bb3d15705aaf12d1bcf6df0b74e84
+Date: Sun, 14 Jun 1992 20:18:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 30, Issue 52
+Archive-name: psf3/patch03c
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+*** net/psfdoub.c	Sun Apr 19 13:33:28 1992
+--- psfdoub.c	Tue Jun  2 02:18:47 1992
+***************
+*** 10,20 ****
+  *	The basic algorithm for "print_book()"  was based on a routine written	*
+  *	by Tom Neff (tneff@well.uucp) named "book" which printed 5.5x8.5 		*
+  *	double sided on an HP LaserJet.											*
+  ****************************************************************************/
+  /*
+!  * $Id: psfdoub.c,v 3.3 1992/02/07 15:10:57 ajf Exp ajf $
+   *
+  */
+  /*	psfdoub prints simple reverse order or double sided.
+  
+  	if the printer is "Normal", i.e. stacks face down, then psf
+--- 10,20 ----
+  *	The basic algorithm for "print_book()"  was based on a routine written	*
+  *	by Tom Neff (tneff@well.uucp) named "book" which printed 5.5x8.5 		*
+  *	double sided on an HP LaserJet.											*
+  ****************************************************************************/
+  /*
+!  * $Id: psfdoub.c,v 3.4 1992/02/24 06:48:59 ajf Exp ajf $
+   *
+  */
+  /*	psfdoub prints simple reverse order or double sided.
+  
+  	if the printer is "Normal", i.e. stacks face down, then psf
+***************
+*** 268,278 ****
+  	else
+  		order_command = NULL;
+  
+  	if (reverse_requested  &&  side != 0)
+  	{	fprintf (stderr, "Cannot print double sided or book in reverse order.\n");
+! 		exit (1);
+  	}
+  
+  	if (side == 3  &&  nslots < 2)
+  	{	fprintf (stderr, "Cannot use -3: only one output tray\n");
+  		usage();
+--- 268,278 ----
+  	else
+  		order_command = NULL;
+  
+  	if (reverse_requested  &&  side != 0)
+  	{	fprintf (stderr, "Cannot print double sided or book in reverse order.\n");
+! 		exit (DISCARD_JOB);
+  	}
+  
+  	if (side == 3  &&  nslots < 2)
+  	{	fprintf (stderr, "Cannot use -3: only one output tray\n");
+  		usage();
+***************
+*** 293,317 ****
+  	{	if ((output_fp = fopen (env_fname, "wt")) == NULL)
+  #else
+  	{	if ((output_fp = fopen (env_fname, "w")) == NULL)
+  #endif
+  		{	fprintf (stderr, "Cannot open output file %s\n", env_fname);
+! 			exit (1);
+  		}
+  	}
+  	else
+  		output_fp = stdout;
+  
+  	if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  	{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 		exit (1);
+  	}
+  	
+  	if ((input_fp = fopen(in_fname, "r")) == NULL)
+  	{
+  		fprintf(stderr, "%s: Error opening %s!\n", pgmname, in_fname);
+! 		exit (1);
+  	}
+  	(void)	signal (SIGINT, catch);		/*	for lpd quit */
+  	read_control (input_fp);
+  	get_prologue ();
+  	if (reverse_order  &&  side == 0)
+--- 293,317 ----
+  	{	if ((output_fp = fopen (env_fname, "wt")) == NULL)
+  #else
+  	{	if ((output_fp = fopen (env_fname, "w")) == NULL)
+  #endif
+  		{	fprintf (stderr, "Cannot open output file %s\n", env_fname);
+! 			exit (DISCARD_JOB);
+  		}
+  	}
+  	else
+  		output_fp = stdout;
+  
+  	if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  	{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 		exit (DISCARD_JOB);
+  	}
+  	
+  	if ((input_fp = fopen(in_fname, "r")) == NULL)
+  	{
+  		fprintf(stderr, "%s: Error opening %s!\n", pgmname, in_fname);
+! 		exit (DISCARD_JOB);
+  	}
+  	(void)	signal (SIGINT, catch);		/*	for lpd quit */
+  	read_control (input_fp);
+  	get_prologue ();
+  	if (reverse_order  &&  side == 0)
+***************
+*** 319,329 ****
+  	else if (bookwork)
+  		print_book ();
+  	else
+  		print_double ();
+  	get_trailer ();
+! 	exit (0);
+  }
+  
+  /****************************************************************************
+  *	read_control()															*
+  *	Read the control information at the end of the file for the page 		*
+--- 319,329 ----
+  	else if (bookwork)
+  		print_book ();
+  	else
+  		print_double ();
+  	get_trailer ();
+! 	exit (JOB_IS_DONE);
+  }
+  
+  /****************************************************************************
+  *	read_control()															*
+  *	Read the control information at the end of the file for the page 		*
+***************
+*** 360,370 ****
+  	*/
+  	fseek (fp, -50L, 2);
+  	fread (tail, 50, 1, fp);
+  	if ((i = tscan (tail, "%PsfPtr:")) == -1)
+  	{	fprintf (stderr, "%s: File is not in psf book format\n", pgmname);
+! 		exit (1);
+  	}
+  	psfloc = atol (tail + i + 9);		/*	beginning  of psf information */
+  	fseek (fp, psfloc, 0);
+  	
+  	fgets (scale, 99, fp);
+--- 360,370 ----
+  	*/
+  	fseek (fp, -50L, 2);
+  	fread (tail, 50, 1, fp);
+  	if ((i = tscan (tail, "%PsfPtr:")) == -1)
+  	{	fprintf (stderr, "%s: File is not in psf book format\n", pgmname);
+! 		exit (DISCARD_JOB);
+  	}
+  	psfloc = atol (tail + i + 9);		/*	beginning  of psf information */
+  	fseek (fp, psfloc, 0);
+  	
+  	fgets (scale, 99, fp);
+***************
+*** 607,617 ****
+  	printf ("                -2 = print side 2 only\n");
+  	printf ("                -3 = print both sides in one pass\n");
+  	printf ("                -v = reverse page order\n");
+  	printf ("          -u f.def = use this .def file\n");
+  	printf ("              file = print this file\n");
+! 	exit (0);
+  }
+  
+  void trim (s)					/*	trim trailing blanks  and \n */
+  char	*s;
+  {	int many;
+--- 607,617 ----
+  	printf ("                -2 = print side 2 only\n");
+  	printf ("                -3 = print both sides in one pass\n");
+  	printf ("                -v = reverse page order\n");
+  	printf ("          -u f.def = use this .def file\n");
+  	printf ("              file = print this file\n");
+! 	exit (DISCARD_JOB);
+  }
+  
+  void trim (s)					/*	trim trailing blanks  and \n */
+  char	*s;
+  {	int many;
+***************
+*** 632,644 ****
+  
+  void catch (signo)
+  int	signo;
+  {
+  		fprintf (output_fp, "%c", 0x04);
+! 		exit (0);
+  }
+  bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (1);
+  }
+  
+--- 632,644 ----
+  
+  void catch (signo)
+  int	signo;
+  {
+  		fprintf (output_fp, "%c", 0x04);
+! 		exit (DISCARD_JOB);
+  }
+  bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (DISCARD_JOB);
+  }
+  
+*** net/psflpd.DEF	Sun Apr 19 13:33:16 1992
+--- psflpd.DEF	Tue Jun  2 02:19:12 1992
+***************
+*** 8,14 ****
+  *psflpd psource -2xnE			# source listings, 2-up, portrait
+  *psflpd post -z2xnE			# postscript source listings, 2-up
+  *psflpd plegal -g legal			# standard print, legal paper
+  *psflpd pspread -g legal -p 8 -w	# big spreadsheets: legal,8pt,landscape
+  #
+! # printer definition for psf and friends (no comments allowed after *printer)
+  #
+--- 8,20 ----
+  *psflpd psource -2xnE			# source listings, 2-up, portrait
+  *psflpd post -z2xnE			# postscript source listings, 2-up
+  *psflpd plegal -g legal			# standard print, legal paper
+  *psflpd pspread -g legal -p 8 -w	# big spreadsheets: legal,8pt,landscape
+  #
+! # if a serial printer is used, allow reading printer messages
+! # with the "-a" option.  A typical example might be:
+! #
+! # *psflpd serial -a -2xnE		# serial printer, 2-up, portrait
+! #
+! # default printer definition for psf and friends 
+! # (no comments allowed after *printer)
+  #
+*** net/psfmail.c	Sun Apr 19 13:32:22 1992
+--- psfmail.c	Tue Jun  2 02:18:46 1992
+***************
+*** 9,19 ****
+  *	Modify the code if you wish to have various headers ignored for print.	*
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  /*
+!  * $Id: psfmail.c,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+   *
+  */
+  
+  #include <stdio.h>
+  #include <string.h>
+--- 9,19 ----
+  *	Modify the code if you wish to have various headers ignored for print.	*
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  /*
+!  * $Id: psfmail.c,v 3.4 1992/02/24 06:48:59 ajf Exp ajf $
+   *
+  */
+  
+  #include <stdio.h>
+  #include <string.h>
+***************
+*** 37,47 ****
+  	FILE	*input_fp;
+  
+  	outfp = stdout;
+  	pgmname = argv[0];	
+  	ignore_garbage = 1;
+! 	if (strcmp (argv[1], "-") == 0)
+  		usage();
+  	while ((i = getopt(argc, argv, "s-")) != -1)
+  	{	switch (i)
+  		{
+  		case 's':
+--- 37,47 ----
+  	FILE	*input_fp;
+  
+  	outfp = stdout;
+  	pgmname = argv[0];	
+  	ignore_garbage = 1;
+! 	if (argc > 1  &&  strcmp (argv[1], "-") == 0)
+  		usage();
+  	while ((i = getopt(argc, argv, "s-")) != -1)
+  	{	switch (i)
+  		{
+  		case 's':
+*** net/psfproto.h	Sun Apr 19 13:33:17 1992
+--- psfproto.h	Tue Jun  2 02:18:51 1992
+***************
+*** 1,10 ****
+--- 1,24 ----
+  #ifdef __STDC__
+  /* psf.c */
+  int main(int argc, char *argv[]);
++ void create_fork(void);
++ void write_accounting(long pages_printed, int log_exit);
++ void time_stamp(void);
++ void expire(char *s);
++ int getc_from_printer(void);
++ void abort_job(void);
++ void abort_exit(void);
++ void request_pagecount(int cancel);
++ long get_page_count(void);
++ void wait_for_eoj(int c);
++ measure *locate_pagetype(char *desired, int printerr);
++ double cvt_unit(char *which);
+  void scale_factors(void);
+  void prologue(void);
++ void set_tray(int set_paper_tray);
++ void set_bin(int set_paper_bin);
+  void showpage(int end_of_file);
+  void set_frame(void);
+  void set_y_coord(void);
+  void put_top(void);
+  void process_file(void);
+***************
+*** 14,44 ****
+  void start_file(void);
+  void terminate_printer(void);
+  void draw_cross(void);
+  void set_clip_path(int x1, int y1, int x2, int y2);
+  void output_book(char *bookfile);
+  int tscan(char s[], char t[]);
+  void get_time(char *t);
+  int compare(char *a, char *b);
+  int partial_compare(char *a, char *b);
+- int comparen(char *a, char *b, int n);
+- int endcompare(char *a, char *b);
+  void trim(char *s);
+  void bad_file(void);
+  int xtoi(int c);
+  void catch(int signo);
+  void replacement_fonts(void);
+  int otoi(char *s);
+  void usage(void);
+  void size_display(void);
+- void output_trouble(int);
+- double cvt_unit (char *y);
+  #else
+  /* psf.c */
+  int main();
+  void scale_factors();
+  void prologue();
+  void showpage();
+  void set_frame();
+  void set_y_coord();
+  void put_top();
+  void process_file();
+--- 28,70 ----
+  void start_file(void);
+  void terminate_printer(void);
+  void draw_cross(void);
+  void set_clip_path(int x1, int y1, int x2, int y2);
+  void output_book(char *bookfile);
++ char *nexttok(char *ss, char *q);
+  int tscan(char s[], char t[]);
+  void get_time(char *t);
+  int compare(char *a, char *b);
+  int partial_compare(char *a, char *b);
+  void trim(char *s);
+  void bad_file(void);
+  int xtoi(int c);
+  void catch(int signo);
++ void output_trouble(int rc);
+  void replacement_fonts(void);
+  int otoi(char *s);
+  void usage(void);
+  void size_display(void);
+  #else
+  /* psf.c */
+  int main();
++ void create_fork();
++ void write_accounting();
++ void time_stamp();
++ void expire();
++ int getc_from_printer();
++ void abort_job();
++ void abort_exit();
++ void request_pagecount();
++ long get_page_count();
++ void wait_for_eoj();
++ measure *locate_pagetype();
++ double cvt_unit();
+  void scale_factors();
+  void prologue();
++ void set_tray();
++ void set_bin();
+  void showpage();
+  void set_frame();
+  void set_y_coord();
+  void put_top();
+  void process_file();
+***************
+*** 48,69 ****
+  void start_file();
+  void terminate_printer();
+  void draw_cross();
+  void set_clip_path();
+  void output_book();
+  int tscan();
+  void get_time();
+  int compare();
+  int partial_compare();
+- int comparen();
+- int endcompare();
+  void trim();
+  void bad_file();
+  int xtoi();
+  void catch();
+  void replacement_fonts();
+  int otoi();
+  void usage();
+  void size_display();
+- void output_trouble();
+- double cvt_unit();
+  #endif
+--- 74,93 ----
+  void start_file();
+  void terminate_printer();
+  void draw_cross();
+  void set_clip_path();
+  void output_book();
++ char *nexttok();
+  int tscan();
+  void get_time();
+  int compare();
+  int partial_compare();
+  void trim();
+  void bad_file();
+  int xtoi();
+  void catch();
++ void output_trouble();
+  void replacement_fonts();
+  int otoi();
+  void usage();
+  void size_display();
+  #endif
+*** net/psfunix.LP	Sun Apr 19 13:32:16 1992
+--- psfunix.LP	Tue Jun  2 02:19:03 1992
+***************
+*** 1,12 ****
+  :
+! # $Id: psfunix.LP,v 3.1 1991/11/27 06:02:58 ajf Exp ajf $
+  #  Postscript serial or parallel printer using psf filters
+  #
+  #	"make scripts" will use sed to replace "BINARY" with
+  #		the binary library directory name such as /local/bin.
+  
+  # The following parameters are passed from "lp" at print time.
+  
+  printer=`basename $0`
+  request=$1
+  name=$2
+--- 1,15 ----
+  :
+! # $Id: psfunix.LP,v 3.5 1992/06/02 08:16:01 ajf Exp ajf $
+  #  Postscript serial or parallel printer using psf filters
+  #
+  #	"make scripts" will use sed to replace "BINARY" with
+  #		the binary library directory name such as /local/bin.
+  
++ # If page accounting is desired, modify the code at the end
++ # of this script.
++ 
+  # The following parameters are passed from "lp" at print time.
+  
+  printer=`basename $0`
+  request=$1
+  name=$2
+***************
+*** 107,115 ****
+--- 110,122 ----
+  while	[ "$copies" -gt 0 ]
+  do
+  	for file in $files
+  	do
+  		BINARY/psffilter -g PAGETYPE $options "$file" <$file 2>&1
++ #
++ # 		OPTIONAL: enable accounting and read/write access to serial printer
++ #
++ #		BINARY/psffilter -g PAGETYPE -y "$user" -Y "$sysid" -a -A /usr/spool/lp/logs/psfacct $options "$file" <$file 2>/usr/spool/lp/logs/psferror
+  	done
+  	copies=`expr $copies - 1`
+  done
+  exit 0
+*** net/table.c	Sun Apr 19 13:33:30 1992
+--- table.c	Tue Jun  2 02:18:50 1992
+***************
+*** 6,16 ****
+  *																		*
+  *	Scans the Adobe *.ppd files for specific parametric lines.			*
+  *	Tony FIeld,   tony@ajfcal.cuc.ab.ca								`	*
+  ************************************************************************/
+  /*
+!  * $Id: table.c,v 3.3 1992/02/07 15:10:57 ajf Exp ajf $
+   *
+  */
+  
+  /*	Usage:    table files.ppd ...  destination.dir
+  
+--- 6,16 ----
+  *																		*
+  *	Scans the Adobe *.ppd files for specific parametric lines.			*
+  *	Tony FIeld,   tony@ajfcal.cuc.ab.ca								`	*
+  ************************************************************************/
+  /*
+!  * $Id: table.c,v 3.5 1992/06/02 08:16:01 ajf Exp ajf $
+   *
+  */
+  
+  /*	Usage:    table files.ppd ...  destination.dir
+  
+***************
+*** 37,46 ****
+--- 37,47 ----
+  statusdict begin a4tray end
+    595   842    10     8   585   813
+  B5
+  statusdict begin b5tray end
+    516   729    18     7   482   702
++ *duplex									<-- marker for duplex
+  *order									<-- marker for output order
+  											from DefaultOutputOrder or
+  											OutputOrder
+  Normal									<-- default output order
+  statusdict begin 0 setoutputtray end	<-- set to normal
+***************
+*** 69,78 ****
+--- 70,80 ----
+  #include <stdio.h>
+  #include <string.h>
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <ctype.h>
++ #include "ctp.h"
+  
+  char	nickname[200];
+  struct pdef
+  {
+  	char	name[500];
+***************
+*** 85,94 ****
+--- 87,98 ----
+  {	char	bydefault[100];
+  	char	normal[150];
+  	char	reverse[150];
+  } order;
+  
++ char	duplex[500];
++ 
+  char	*malloc();
+  char	pname[100];
+  struct pdef printer[40], pblank;
+  int		nprinter = 0;
+  char	*fonts[100];
+***************
+*** 95,104 ****
+--- 99,131 ----
+  char	*slots[10];
+  int		nfonts=0;
+  int		nslots=0;
+  void	trim();
+  
++ struct sizes
++ {	char	name[50];
++ 	int		wide;
++ 	int		high;
++ } ;
++ 
++ struct sizes lookfor[] =
++ {	{"executive",  522,   756},
++ 	{"tabloid",    792,  1224},
++ 	{"statement",  396,   612},
++ 	{"note",       612,   792},
++ 	{"ledger",    1224,   792},
++ 	{"b5",         516,   729},
++ 	{"b4",         729,  1032},
++ 	{"a5",         420,   595},
++ 	{"a4small",    595,   842},
++ 	{"a4",         595,   842},
++ 	{"a3",         842,  1190},
++ 	{"legal",      612,  1008},
++ 	{"letter",     612,   792},
++ 	{"\0",           0,      0}
++ } ;
++ 
+  main (argc,argv)
+  int 	argc;
+  char	*argv[];
+  {
+  	char	*fname;
+***************
+*** 116,126 ****
+  	if (isdir (destdir) != 1)
+  		usage ();
+  
+  	for (i = 1;  i < argc;  i++)
+  	{	if ((fp_in = fopen (argv[i], "r")) != NULL)
+! 		{
+  			for (j = 0;  j < nprinter;  j++)
+  				printer[j] = pblank;
+  			
+  			for (j = 0;  j < nfonts;  j++)
+  				free (fonts[j]);
+--- 143,153 ----
+  	if (isdir (destdir) != 1)
+  		usage ();
+  
+  	for (i = 1;  i < argc;  i++)
+  	{	if ((fp_in = fopen (argv[i], "r")) != NULL)
+! 		{	fprintf (stderr, "%s\n", argv[i]);
+  			for (j = 0;  j < nprinter;  j++)
+  				printer[j] = pblank;
+  			
+  			for (j = 0;  j < nfonts;  j++)
+  				free (fonts[j]);
+***************
+*** 161,178 ****
+  	char	which[500];
+  
+  	order.bydefault[0] = 0;
+  	order.normal[0] = 0;
+  	order.reverse[0] = 0;
+  	
+  	while (fgets (s, 999, fp_in) != NULL)
+  	{	trim (s);
+  	
+  		if (strncmp (s, "*PageSize", 9) == 0)
+  		{
+  			n = ptype (s, which);
+! 			gettext (s, printer[n].set);
+  		}
+  		else if (strncmp (s, "*NickName:", 10) == 0)
+  		{
+  			gettext (s, nickname);
+  		}
+--- 188,206 ----
+  	char	which[500];
+  
+  	order.bydefault[0] = 0;
+  	order.normal[0] = 0;
+  	order.reverse[0] = 0;
++ 	duplex[0] = 0;
+  	
+  	while (fgets (s, 999, fp_in) != NULL)
+  	{	trim (s);
+  	
+  		if (strncmp (s, "*PageSize", 9) == 0)
+  		{
+  			n = ptype (s, which);
+! 			getmultitext (fp_in, s, printer[n].set);
+  		}
+  		else if (strncmp (s, "*NickName:", 10) == 0)
+  		{
+  			gettext (s, nickname);
+  		}
+***************
+*** 192,202 ****
+  			gettext (s, order.reverse);
+  		}
+  		else if (strncmp (s, "*PaperTray", 10) == 0)
+  		{
+  			n = ptype (s, which);
+! 			gettext (s, printer[n].tray);
+  		}
+  		else if (strncmp (s, "*InputSlot", 10) == 0)
+  		{
+  			getmultitext (fp_in, s, which);
+  			if (*which)
+--- 220,230 ----
+  			gettext (s, order.reverse);
+  		}
+  		else if (strncmp (s, "*PaperTray", 10) == 0)
+  		{
+  			n = ptype (s, which);
+! 			getmultitext (fp_in, s, printer[n].tray);
+  		}
+  		else if (strncmp (s, "*InputSlot", 10) == 0)
+  		{
+  			getmultitext (fp_in, s, which);
+  			if (*which)
+***************
+*** 219,228 ****
+--- 247,260 ----
+  			n = ptype (s, which);
+  			sscanf (strchr (s, '"') + 1, "%d %d", &a, &b);
+  			printer[n].sx = a;
+  			printer[n].sy = b;
+  		}
++ 		else if (strncmp (s, "*Duplex True:", 13) == 0)
++ 		{
++ 			getmultitext (fp_in, s, duplex);
++ 		}
+  	}
+  }
+  
+  
+  ptype (s, which)
+***************
+*** 311,328 ****
+  }
+  
+  
+  display (fp_out)
+  FILE	*fp_out;
+! {	char	pn[100], *p;
+! 	int		i;
+  	
+  	fprintf (fp_out, "*printer\n");
+  	fprintf (fp_out, "%s\n", nickname);
+  	fprintf (fp_out, "*paper %d\n", nprinter);
+  	for (i = 0;  i < nprinter;  i++)
+! 	{
+  		fprintf (fp_out, "%s\n%s\n", printer[i].name, printer[i].set);
+  		fprintf (fp_out, "%5d %5d %5d %5d %5d %5d\n",
+  			printer[i].sx, printer[i].sy,
+  			printer[i].lx, printer[i].ly, printer[i].ux, printer[i].uy);
+  
+--- 343,387 ----
+  }
+  
+  
+  display (fp_out)
+  FILE	*fp_out;
+! {	char	pn[100], *p, newpg[200];
+! 	int		i, j;
+  	
+  	fprintf (fp_out, "*printer\n");
+  	fprintf (fp_out, "%s\n", nickname);
+  	fprintf (fp_out, "*paper %d\n", nprinter);
+  	for (i = 0;  i < nprinter;  i++)
+! 	{	if (printer[i].sx + printer[i].sy == 0)
+! 		{	/* must be a specification for physical page size.
+! 				we better guess.
+! 			*/
+! 			for (j = 0;  lookfor[j].name[0];  j++)
+! 			{	strcpy (newpg, lookfor[j].name);
+! 				if (compare (printer[i].name, newpg) == 0)
+! 				{	printer[i].sx = lookfor[j].wide;
+! 					printer[i].sy = lookfor[j].high;
+! 					fprintf (stderr, "\tusing default size: %s %d %d \n", 
+! 						printer[i].name,  printer[i].sx, printer[i].sy);
+! 					break;
+! 				}
+! 				else
+! 				{	strcat (newpg, ".transverse");
+! 					if (compare (printer[i].name, newpg) == 0)
+! 					{	printer[i].sx = lookfor[j].high;
+! 						printer[i].sy = lookfor[j].wide;
+! 						fprintf (stderr, "\tusing default size: %s %d %d \n", 
+! 							printer[i].name,  printer[i].sx, printer[i].sy);
+! 						break;
+! 					}
+! 				}
+! 			}
+! 		}
+! 		if (printer[i].sx + printer[i].sy == 0)
+! 			fprintf (stderr, "\tunknown paper size: %s %d %d \n", 
+! 				printer[i].name,  printer[i].sx, printer[i].sy);
+  		fprintf (fp_out, "%s\n%s\n", printer[i].name, printer[i].set);
+  		fprintf (fp_out, "%5d %5d %5d %5d %5d %5d\n",
+  			printer[i].sx, printer[i].sy,
+  			printer[i].lx, printer[i].ly, printer[i].ux, printer[i].uy);
+  
+***************
+*** 340,350 ****
+  			printer[i].uy - printer[i].ly + 1);
+  */
+  
+  	}
+  
+! 	
+  	if (order.normal[0]  ||  order.reverse[0])
+  		fprintf (fp_out, "*order 3\n");
+  	else
+  		fprintf (fp_out, "*order 1\n");
+  	fprintf (fp_out, "%s\n", order.bydefault);
+--- 399,413 ----
+  			printer[i].uy - printer[i].ly + 1);
+  */
+  
+  	}
+  
+! 	if (duplex[0])
+! 	{	fprintf (fp_out, "*duplex 1\n");
+! 		fprintf (fp_out, "%s\n", duplex);
+! 	}
+! 
+  	if (order.normal[0]  ||  order.reverse[0])
+  		fprintf (fp_out, "*order 3\n");
+  	else
+  		fprintf (fp_out, "*order 1\n");
+  	fprintf (fp_out, "%s\n", order.bydefault);
+***************
+*** 475,479 ****
+--- 538,554 ----
+  	fprintf (stderr, "   where   f.ppd    = source .ppd files\n");
+  	fprintf (stderr, "           dest.dir = desination directory for .def files\n");
+  	exit (1);
+  }			
+  	
++ int compare (a,b)				/*	case insensitive compare */
++ char	*a, *b;
++ {	int	aa, bb;
++ 
++ 	while (*a)
++ 	{	aa = *a++;
++ 		bb = *b++;
++ 		if (UCCHAR (aa)  !=  UCCHAR (bb))
++ 			return (UCCHAR(aa) - UCCHAR(bb));
++ 	}
++ 	return (UCCHAR (*a) - UCCHAR (*b));
++ }
+*** net/defs/aps08522.def	Sun Apr 19 13:31:25 1992
+--- ./defs/aps08522.def	Wed Apr  1 21:37:44 1992
+***************
+*** 1,47 ****
+  *printer
+  APS-PS PIP with APS-6/108
+  *paper 13
+  Letter
+  letter
+!     0     0     0     1   612   792
+  Legal
+  legal
+!     0     0     0     1   612  1008
+  Note
+  note
+!     0     0     0     1   612   792
+  Ledger
+  ledger
+!     0     0     1     0  1224   792
+  Tabloid
+  11x17
+!     0     0     0     1   792  1224
+  A3
+  a3
+!     0     0     0     1   842  1191
+  A4
+  a4
+!     0     0     0     1   595   842
+  A5
+  a5
+!     0     0     0     1   420   595
+  B5
+  b5
+!     0     0     0     1   498   709
+  Letter.Transverse
+  Letter
+!     0     0     1     0   612   792
+  A4.Transverse
+  A4
+!     0     0     1     0   595   842
+  A5.Transverse
+  A5
+!     0     0     1     0   420   595
+  B5.Transverse
+  B5
+!     0     0     1     0   498   710
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+--- 1,47 ----
+  *printer
+  APS-PS PIP with APS-6/108
+  *paper 13
+  Letter
+  letter
+!   612   792     0     1   612   792
+  Legal
+  legal
+!   612  1008     0     1   612  1008
+  Note
+  note
+!   612   792     0     1   612   792
+  Ledger
+  ledger
+!  1224   792     1     0  1224   792
+  Tabloid
+  11x17
+!   792  1224     0     1   792  1224
+  A3
+  a3
+!   842  1190     0     1   842  1191
+  A4
+  a4
+!   595   842     0     1   595   842
+  A5
+  a5
+!   420   595     0     1   420   595
+  B5
+  b5
+!   516   729     0     1   498   709
+  Letter.Transverse
+  Letter
+!   792   612     1     0   612   792
+  A4.Transverse
+  A4
+!   842   595     1     0   595   842
+  A5.Transverse
+  A5
+!   595   420     1     0   420   595
+  B5.Transverse
+  B5
+!   729   516     1     0   498   710
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+*** net/defs/aps12522.def	Sun Apr 19 13:31:04 1992
+--- ./defs/aps12522.def	Wed Apr  1 21:37:44 1992
+***************
+*** 1,29 ****
+  *printer
+  APS-PS PIP with LZR 1200
+  *paper 7
+  Letter
+  letter
+!     0     0     0     1   612   792
+  Legal
+  legal
+!     0     0     0     1   612  1008
+  Note
+  note
+!     0     0     0     1   612   792
+  A3
+  a3
+!     0     0     0     1   842  1191
+  A4
+  a4
+!     0     0     0     1   595   842
+  A5
+  a5
+!     0     0     0     1   420   595
+  B5
+  b5
+!     0     0     0     1   498   709
+  *order 1
+  
+  *fonts 4
+  Courier
+  Helvetica
+--- 1,29 ----
+  *printer
+  APS-PS PIP with LZR 1200
+  *paper 7
+  Letter
+  letter
+!   612   792     0     1   612   792
+  Legal
+  legal
+!   612  1008     0     1   612  1008
+  Note
+  note
+!   612   792     0     1   612   792
+  A3
+  a3
+!   842  1190     0     1   842  1191
+  A4
+  a4
+!   595   842     0     1   595   842
+  A5
+  a5
+!   420   595     0     1   420   595
+  B5
+  b5
+!   516   729     0     1   498   709
+  *order 1
+  
+  *fonts 4
+  Courier
+  Helvetica
+*** net/defs/aps26522.def	Sun Apr 19 13:31:25 1992
+--- ./defs/aps26522.def	Wed Apr  1 21:37:44 1992
+***************
+*** 1,38 ****
+  *printer
+  APS-PS PIP with LZR 2600
+  *paper 10
+  Letter
+  statusdict begin lettertray end
+!     0     0    20    16   591   775
+  Legal
+  statusdict begin legaltray end
+!     0     0    18    19   593   990
+  Ledger
+  statusdict begin ledgertray end
+!     0     0    18    16  1205   775
+  Statement
+  statusdict begin statementtray end
+!     0     0    22    19   374   594
+  Tabloid
+  statusdict begin 11x17tray end
+!     0     0    16    19   775  1206
+  A3
+  statusdict begin a3tray end
+!     0     0    18    21   823  1170
+  A4
+  statusdict begin a4tray end
+!     0     0    18    18   576   823
+  A5
+  statusdict begin a5tray end
+!     0     0    18    19   401   577
+  B4
+  statusdict begin b4tray end
+!     0     0    19    15   709  1017
+  B5
+  statusdict begin b5tray end
+!     0     0    20    19   495   709
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+--- 1,38 ----
+  *printer
+  APS-PS PIP with LZR 2600
+  *paper 10
+  Letter
+  statusdict begin lettertray end
+!   612   792    20    16   591   775
+  Legal
+  statusdict begin legaltray end
+!   612  1008    18    19   593   990
+  Ledger
+  statusdict begin ledgertray end
+!  1224   792    18    16  1205   775
+  Statement
+  statusdict begin statementtray end
+!   396   612    22    19   374   594
+  Tabloid
+  statusdict begin 11x17tray end
+!   792  1224    16    19   775  1206
+  A3
+  statusdict begin a3tray end
+!   842  1190    18    21   823  1170
+  A4
+  statusdict begin a4tray end
+!   595   842    18    18   576   823
+  A5
+  statusdict begin a5tray end
+!   420   595    18    19   401   577
+  B4
+  statusdict begin b4tray end
+!   729  1032    19    15   709  1017
+  B5
+  statusdict begin b5tray end
+!   516   729    20    19   495   709
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+*** net/defs/aps80522.def	Sun Apr 19 13:31:26 1992
+--- ./defs/aps80522.def	Wed Apr  1 21:37:44 1992
+***************
+*** 1,47 ****
+  *printer
+  APS-PS PIP with APS-6/80
+  *paper 13
+  Letter
+  letter
+!     0     0     0     1   612   792
+  Legal
+  legal
+!     0     0     0     1   612  1008
+  Note
+  note
+!     0     0     0     1   612   792
+  Ledger
+  ledger
+!     0     0     1     0  1224   792
+  Tabloid
+  11x17
+!     0     0     0     1   792  1224
+  A3
+  a3
+!     0     0     0     1   842  1191
+  A4
+  a4
+!     0     0     0     1   595   842
+  A5
+  a5
+!     0     0     0     1   420   595
+  B5
+  b5
+!     0     0     0     1   498   709
+  Letter.Transverse
+  Letter
+!     0     0     1     0   612   792
+  A4.Transverse
+  A4
+!     0     0     1     0   595   842
+  A5.Transverse
+  A5
+!     0     0     1     0   420   595
+  B5.Transverse
+  B5
+!     0     0     1     0   498   710
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+--- 1,47 ----
+  *printer
+  APS-PS PIP with APS-6/80
+  *paper 13
+  Letter
+  letter
+!   612   792     0     1   612   792
+  Legal
+  legal
+!   612  1008     0     1   612  1008
+  Note
+  note
+!   612   792     0     1   612   792
+  Ledger
+  ledger
+!  1224   792     1     0  1224   792
+  Tabloid
+  11x17
+!   792  1224     0     1   792  1224
+  A3
+  a3
+!   842  1190     0     1   842  1191
+  A4
+  a4
+!   595   842     0     1   595   842
+  A5
+  a5
+!   420   595     0     1   420   595
+  B5
+  b5
+!   516   729     0     1   498   709
+  Letter.Transverse
+  Letter
+!   792   612     1     0   612   792
+  A4.Transverse
+  A4
+!   842   595     1     0   595   842
+  A5.Transverse
+  A5
+!   595   420     1     0   420   595
+  B5.Transverse
+  B5
+!   729   516     1     0   498   710
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+*** net/defs/clb8r514.def	Sun Apr 19 13:31:47 1992
+--- ./defs/clb8r514.def	Wed Apr  1 21:37:45 1992
+***************
+*** 20,29 ****
+--- 20,31 ----
+  statusdict begin lettertray lettersmall end
+    612   792    31    31   583   761
+  LegalSmall
+  statusdict begin legaltray legalsmall end
+    612  1008    63    43   546   966
++ *duplex 1
++ statusdict begin /duplexmode true store end
+  *order 1
+  Normal
+  *fonts 14
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/cnlbp8r1.def	Sun Apr 19 13:31:48 1992
+--- ./defs/cnlbp8r1.def	Wed Apr  1 21:37:45 1992
+***************
+*** 20,29 ****
+--- 20,31 ----
+  statusdict begin lettertray lettersmall end
+    612   792    31    31   583   761
+  LegalSmall
+  statusdict begin legaltray legalsmall end
+    612  1008    63    43   546   966
++ *duplex 1
++ statusdict begin /duplexmode true store end
+  *order 1
+  Normal
+  *fonts 14
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/dplz9601.def	Sun Apr 19 13:31:49 1992
+--- ./defs/dplz9601.def	Wed Apr  1 21:37:45 1992
+***************
+*** 1,38 ****
+  *printer
+  Dataproducts LZR 960 v2010.106
+  *paper 10
+  Letter
+! 
+!   612   792    12   810   614   795
+  Legal
+! 
+!   612  1008    12   810   614   795
+  A4
+! 
+!   595   842    12   810   614   795
+  Executive
+! 
+!   522   756    12   810   614   795
+  B5
+! 
+!   516   729    12   810   614   795
+  Statement
+! 
+!   396   612    12   810   614   795
+  Comm10
+! 
+!   297   684    11   810   614   795
+  Monarch
+! 
+!   279   540    11   810   614   795
+  DL
+! 
+!   312   624    11   810   614   795
+  C5
+! 
+!   459   649    11   810   614   795
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+--- 1,38 ----
+  *printer
+  Dataproducts LZR 960 v2010.106
+  *paper 10
+  Letter
+! 2 dict dup /PageSize [612 792] put dup /ImagingBBox null put setpagedevice
+!   612   792    12 19311     0     0
+  Legal
+! 2 dict dup /PageSize [612 1008] put dup /ImagingBBox null put setpagedevice
+!   612  1008    12 19311     0     0
+  A4
+! 2 dict dup /PageSize [595 842] put dup /ImagingBBox null put setpagedevice
+!   595   842    12 19311     0     0
+  Executive
+! 2 dict dup /PageSize [522 756] put dup /ImagingBBox null put setpagedevice
+!   522   756    12 19311     0     0
+  B5
+! 2 dict dup /PageSize [516 729] put dup /ImagingBBox null put setpagedevice
+!   516   729    12 19311     0     0
+  Statement
+! 2 dict dup /PageSize [396 612] put dup /ImagingBBox null put setpagedevice
+!   396   612    12 19311     0     0
+  Comm10
+! 2 dict dup /PageSize [297 684] put dup /ImagingBBox null put setpagedevice
+!   297   684    11 19311     0     0
+  Monarch
+! 2 dict dup /PageSize [279 540] put dup /ImagingBBox null put setpagedevice
+!   279   540    11 19311     0     0
+  DL
+! 2 dict dup /PageSize [312 624] put dup /ImagingBBox null put setpagedevice
+!   312   624    11 19311     0     0
+  C5
+! 2 dict dup /PageSize [459 649] put dup /ImagingBBox null put setpagedevice
+!   459   649    11 19311     0     0
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/epl3kf21.def	Sun Apr 19 13:32:07 1992
+--- ./defs/epl3kf21.def	Wed Apr  1 21:37:45 1992
+***************
+*** 25,35 ****
+  LetterSmall
+  statusdict begin lettertray end lettersmall
+      0     0    30    30   582   762
+  A4Small
+  statusdict begin a4tray end a4small
+!     0     0    31    31   559   811
+  GLT
+  statusdict begin glttray end
+    576   756    12    13   572   744
+  GLG
+  statusdict begin glgtray end
+--- 25,35 ----
+  LetterSmall
+  statusdict begin lettertray end lettersmall
+      0     0    30    30   582   762
+  A4Small
+  statusdict begin a4tray end a4small
+!   595   842    31    31   559   811
+  GLT
+  statusdict begin glttray end
+    576   756    12    13   572   744
+  GLG
+  statusdict begin glgtray end
+*** net/defs/epl3kf51.def	Sun Apr 19 13:32:18 1992
+--- ./defs/epl3kf51.def	Wed Apr  1 21:37:45 1992
+***************
+*** 25,35 ****
+  LetterSmall
+  statusdict begin lettertray end lettersmall
+      0     0    30    30   582   762
+  A4Small
+  statusdict begin a4tray end a4small
+!     0     0    31    31   559   811
+  GLT
+  statusdict begin glttray end
+    576   756    12    13   572   744
+  GLG
+  statusdict begin glgtray end
+--- 25,35 ----
+  LetterSmall
+  statusdict begin lettertray end lettersmall
+      0     0    30    30   582   762
+  A4Small
+  statusdict begin a4tray end a4small
+!   595   842    31    31   559   811
+  GLT
+  statusdict begin glttray end
+    576   756    12    13   572   744
+  GLG
+  statusdict begin glgtray end
+*** net/defs/epl75523.def	Sun Apr 19 13:31:50 1992
+--- ./defs/epl75523.def	Wed Apr  1 21:37:45 1992
+***************
+*** 34,44 ****
+  LetterSmall
+  
+      0     0    28    33   580   764
+  A4Small
+  
+!     0     0    24    27   561   807
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+--- 34,44 ----
+  LetterSmall
+  
+      0     0    28    33   580   764
+  A4Small
+  
+!   595   842    24    27   561   807
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/hp3si523.def	Sun Apr 19 13:31:50 1992
+--- ./defs/hp3si523.def	Wed Apr  1 21:37:45 1992
+***************
+*** 20,29 ****
+--- 20,31 ----
+  statusdict /monarcenvelopetray get exec
+    279   540    18    19   263   522
+  Envelope.312.624
+  statusdict /dlenvelopetray get exec
+    312   624    18    19   294   605
++ *duplex 1
++ true statusdict /setduplexmode get exec
+  *order 3
+  Normal
+  0 statusdict /setoutputtray get exec
+  1 statusdict /setoutputray get exec
+  *fonts 13
+*** net/defs/hp_3d522.def	Sun Apr 19 13:31:51 1992
+--- ./defs/hp_3d522.def	Wed Apr  1 21:37:45 1992
+***************
+*** 12,25 ****
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! 
+    297   684    18    19   278   666
+  Envelope.279.540
+! 
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+--- 12,25 ----
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! statusdict begin com10envelopetray end
+    297   684    18    19   278   666
+  Envelope.279.540
+! statusdict begin monarcenvelopetray end
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+***************
+*** 26,35 ****
+--- 26,37 ----
+  statusdict begin c5envelopetray end
+    459   649    18    19   440   630
+  B5
+  
+    516   728    18    19   505   513
++ *duplex 1
++ statusdict begin true setduplexmode end
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/hpiid522.def	Sun Apr 19 13:31:53 1992
+--- ./defs/hpiid522.def	Wed Apr  1 21:37:45 1992
+***************
+*** 12,25 ****
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! 
+    297   684    18    19   278   666
+  Envelope.279.540
+! 
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+--- 12,25 ----
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! statusdict begin com10envelopetray end
+    297   684    18    19   278   666
+  Envelope.279.540
+! statusdict begin monarcenvelopetray end
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+***************
+*** 26,35 ****
+--- 26,37 ----
+  statusdict begin c5envelopetray end
+    459   649    18    19   440   630
+  B5
+  
+    516   728    18    19   505   513
++ *duplex 1
++ statusdict begin true setduplexmode end
+  *order 1
+  Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/hpiii522.def	Sun Apr 19 13:31:31 1992
+--- ./defs/hpiii522.def	Wed Apr  1 21:37:45 1992
+***************
+*** 12,25 ****
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! 
+    297   684    18    19   278   666
+  Envelope.279.540
+! 
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+--- 12,25 ----
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! statusdict begin com10envelopetray end
+    297   684    18    19   278   666
+  Envelope.279.540
+! statusdict begin monarcenvelopetray end
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+*** net/defs/hpiip522.def	Sun Apr 19 13:31:54 1992
+--- ./defs/hpiip522.def	Wed Apr  1 21:37:45 1992
+***************
+*** 12,25 ****
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! 
+    297   684    18    19   278   666
+  Envelope.279.540
+! 
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+--- 12,25 ----
+    522   756    18    19   501   738
+  A4
+  statusdict begin a4tray end
+    595   842    18    19   578   824
+  Envelope.297.684
+! statusdict begin com10envelopetray end
+    297   684    18    19   278   666
+  Envelope.279.540
+! statusdict begin monarcenvelopetray end
+    279   540    18    19   259   522
+  Envelope.312.624
+  statusdict begin dlenvelopetray end
+    312   624    18    19   294   605
+  Envelope.459.649
+*** net/defs/hplj_3d1.def	Sun Apr 19 13:31:54 1992
+--- ./defs/hplj_3d1.def	Wed Apr  1 21:37:45 1992
+***************
+*** 1,35 ****
+  *printer
+  HP LaserJet IIID PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 
+!   612   792    18   649   440   630
+  Legal
+! 
+!   612  1008    18   649   440   630
+  A4
+! 
+!   595   842    18   649   440   630
+  Comm10
+! 
+!   297   684    18   649   440   630
+  Monarch
+! 
+!   279   540    18   649   440   630
+  DL
+! 
+!   312   624    18   649   440   630
+  C5
+! 
+!   460   649    18   649   440   630
+  Executive
+! 
+!   522   756    18   649   440   630
+  B5
+  
+!   516   729    18   649   440   630
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+--- 1,35 ----
+  *printer
+  HP LaserJet IIID PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 2 dict dup /PageSize [612 792] put dup /ImagingBBox null put setpagedevice
+!   612   792    18 2147480084     0     0
+  Legal
+! 2 dict dup /PageSize [612 1008] put dup /ImagingBBox null put setpagedevice
+!   612  1008    18 2147480084     0     0
+  A4
+! 2 dict dup /PageSize [595 842] put dup /ImagingBBox null put setpagedevice
+!   595   842    18 2147480084     0     0
+  Comm10
+! 2 dict dup /PageSize [297 684] put dup /ImagingBBox null put setpagedevice
+!   297   684    18 2147480084     0     0
+  Monarch
+! 2 dict dup /PageSize [279 540] put dup /ImagingBBox null put setpagedevice
+!   279   540    18 2147480084     0     0
+  DL
+! 2 dict dup /PageSize [312 624] put dup /ImagingBBox null put setpagedevice
+!   312   624    18 2147480084     0     0
+  C5
+! 2 dict dup /PageSize [460 649] put dup /ImagingBBox null put setpagedevice
+!   460   649    18 2147480084     0     0
+  Executive
+! 2 dict dup /PageSize [522 756] put dup /ImagingBBox null put setpagedevice
+!   522   756    18 2147480084     0     0
+  B5
+  
+!   516   729    18 2147480084     0     0
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/hplj_3p1.def	Sun Apr 19 13:31:55 1992
+--- ./defs/hplj_3p1.def	Wed Apr  1 21:37:45 1992
+***************
+*** 1,35 ****
+  *printer
+  HP LaserJet IIIP PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 
+!   612   792    18   756   440   630
+  Legal
+! 
+!   612  1008    18   756   440   630
+  A4
+! 
+!   595   842    18   756   440   630
+  Comm10
+! 
+!   297   684    18   756   440   630
+  Monarch
+! 
+!   279   540    18   756   440   630
+  DL
+! 
+!   312   624    18   756   440   630
+  C5
+! 
+!   460   649    18   756   440   630
+  Executive
+! 
+!   522   756    18   756   440   630
+  B5
+  
+!   516   729    18   756   440   630
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+--- 1,35 ----
+  *printer
+  HP LaserJet IIIP PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 2 dict dup /PageSize [612 792] put dup /ImagingBBox null put setpagedevice
+!   612   792    18    10  1024 4270376
+  Legal
+! 2 dict dup /PageSize [612 1008] put dup /ImagingBBox null put setpagedevice
+!   612  1008    18    10  1024 4270376
+  A4
+! 2 dict dup /PageSize [595 842] put dup /ImagingBBox null put setpagedevice
+!   595   842    18    10  1024 4270376
+  Comm10
+! 2 dict dup /PageSize [297 684] put dup /ImagingBBox null put setpagedevice
+!   297   684    18    10  1024 4270376
+  Monarch
+! 2 dict dup /PageSize [279 540] put dup /ImagingBBox null put setpagedevice
+!   279   540    18    10  1024 4270376
+  DL
+! 2 dict dup /PageSize [312 624] put dup /ImagingBBox null put setpagedevice
+!   312   624    18    10  1024 4270376
+  C5
+! 2 dict dup /PageSize [460 649] put dup /ImagingBBox null put setpagedevice
+!   460   649    18    10  1024 4270376
+  Executive
+! 2 dict dup /PageSize [522 756] put dup /ImagingBBox null put setpagedevice
+!   522   756    18    10  1024 4270376
+  B5
+  
+!   516   729    18    10  1024 4270376
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/hplj__31.def	Sun Apr 19 13:31:32 1992
+--- ./defs/hplj__31.def	Wed Apr  1 21:37:45 1992
+***************
+*** 1,35 ****
+  *printer
+  HP LaserJet III PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 
+!   612   792    18   756   440   630
+  Legal
+! 
+!   612  1008    18   756   440   630
+  A4
+! 
+!   595   842    18   756   440   630
+  Comm10
+! 
+!   297   684    18   756   440   630
+  Monarch
+! 
+!   279   540    18   756   440   630
+  DL
+! 
+!   312   624    18   756   440   630
+  C5
+! 
+!   460   649    18   756   440   630
+  Executive
+! 
+!   522   756    18   756   440   630
+  B5
+  
+!   516   729    18   756   440   630
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+--- 1,35 ----
+  *printer
+  HP LaserJet III PostScript Cartridge Plus v2010.118
+  *paper 9
+  Letter
+! 2 dict dup /PageSize [612 792] put dup /ImagingBBox null put setpagedevice
+!   612   792    18 19311     1     0
+  Legal
+! 2 dict dup /PageSize [612 1008] put dup /ImagingBBox null put setpagedevice
+!   612  1008    18 19311     1     0
+  A4
+! 2 dict dup /PageSize [595 842] put dup /ImagingBBox null put setpagedevice
+!   595   842    18 19311     1     0
+  Comm10
+! 2 dict dup /PageSize [297 684] put dup /ImagingBBox null put setpagedevice
+!   297   684    18 19311     1     0
+  Monarch
+! 2 dict dup /PageSize [279 540] put dup /ImagingBBox null put setpagedevice
+!   279   540    18 19311     1     0
+  DL
+! 2 dict dup /PageSize [312 624] put dup /ImagingBBox null put setpagedevice
+!   312   624    18 19311     1     0
+  C5
+! 2 dict dup /PageSize [460 649] put dup /ImagingBBox null put setpagedevice
+!   460   649    18 19311     1     0
+  Executive
+! 2 dict dup /PageSize [522 756] put dup /ImagingBBox null put setpagedevice
+!   522   756    18 19311     1     0
+  B5
+  
+!   516   729    18 19311     1     0
+  *order 1
+   Normal
+  *fonts 13
+  AvantGarde-Book
+  AvantGarde-Demi
+*** net/defs/l100_425.def	Sun Apr 19 13:31:32 1992
+--- ./defs/l100_425.def	Wed Apr  1 21:37:46 1992
+***************
+*** 34,44 ****
+  Letter.Transverse
+  Letter
+    792   612     0     0   611   792
+  A4.Transverse
+  
+!     0     0     0     0   595   841
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+--- 34,44 ----
+  Letter.Transverse
+  Letter
+    792   612     0     0   611   792
+  A4.Transverse
+  
+!   842   595     0     0   595   841
+  *order 1
+  Normal
+  *fonts 4
+  Courier
+  Helvetica
+*** net/defs/tkphzr21.def	Sun Apr 19 13:31:17 1992
+--- ./defs/tkphzr21.def	Wed Apr  1 21:37:47 1992
+***************
+*** 1,22 ****
+  *printer
+  Tektronix Phaser II PXi v2010.116
+  *paper 5
+  Letter
+! 2 dict dup /PageSize [612 792] put
+    612   792    13    76   596   710
+  Legal
+! 2 dict dup /PageSize [612 1008] put
+    612  1008    13   111   596   889
+  A4
+! 2 dict dup /PageSize [595 842] put
+    595   842    14    77   581   761
+  A4.Special
+! 2 dict dup /PageSize [595 1008] put
+    595  1008    14    84   581   919
+  A4.Special.Short
+! 
+    595  1008    14   109   581   888
+  *order 1
+  
+  *fonts 14
+  AvantGarde-Book
+--- 1,22 ----
+  *printer
+  Tektronix Phaser II PXi v2010.116
+  *paper 5
+  Letter
+! 2 dict dup /PageSize [612 792] putdup /ImagingBBox null put setpagedevice
+    612   792    13    76   596   710
+  Legal
+! 2 dict dup /PageSize [612 1008] putdup /ImagingBBox null put setpagedevice
+    612  1008    13   111   596   889
+  A4
+! 2 dict dup /PageSize [595 842] putdup /ImagingBBox null put setpagedevice
+    595   842    14    77   581   761
+  A4.Special
+! 2 dict dup /PageSize [595 1008] putdup /ImagingBBox null put setpagedevice
+    595  1008    14    84   581   919
+  A4.Special.Short
+! 2 dict dup /PageSize [595 1008] put dup /ImagingBBox null put setpagedevice
+    595  1008    14   109   581   888
+  *order 1
+  
+  *fonts 14
+  AvantGarde-Book
+*** net/defs/tkphzr31.def	Sun Apr 19 13:32:11 1992
+--- ./defs/tkphzr31.def	Wed Apr  1 21:37:48 1992
+***************
+*** 1,70 ****
+  *printer
+  Tektronix Phaser III PXi v2010.116
+  *paper 21
+  Letter
+! 2 dict dup /PageSize [612 792] put
+    612   792    21    15   597   776
+  Legal
+! 2 dict dup /PageSize [612 1008] put
+    612  1008    15    21   596   993
+  Tabloid
+! 2 dict dup /PageSize [792 1224] put
+    792  1224    15    21   776  1209
+  TabloidExtra
+! 2 dict dup /PageSize [864 1296] put
+    864  1296    15    21   847  1281
+  A4
+! 2 dict dup /PageSize [595 842] put
+    595   842    21    15   580   826
+  A4.3
+! 2 dict dup /PageSize [281 595] put
+    281   595    15    21   266   580
+  A3
+! 2 dict dup /PageSize [842 1190] put
+    842  1190    15    21   826  1175
+  4x6
+! 2 dict dup /PageSize [288 432] put
+    288   432    15    21   271   417
+  5x7
+! 2 dict dup /PageSize [360 504] put
+    360   504    15    21   344   489
+  A5
+! 2 dict dup /PageSize [420 595] put
+    420   595    15    21   404   580
+  A6
+! 2 dict dup /PageSize [297 420] put
+    297   420    15    21   281   405
+  ISOB4
+! 2 dict dup /PageSize [709 1001] put
+    709  1001    15    21   694   986
+  ISOB5
+! 2 dict dup /PageSize [499 709] put
+    499   709    15    21   483   694
+  ISOB6
+! 2 dict dup /PageSize [354 499] put
+    354   499    15    21   339   484
+  Compliment
+! 2 dict dup /PageSize [283 595] put
+    283   595    15    21   268   580
+  Comm10
+! 2 dict dup /PageSize [297 684] put
+    297   684    15    21   281   669
+  C6
+! 2 dict dup /PageSize [323 459] put
+    323   459    15    21   306   444
+  DL
+! 2 dict dup /PageSize [312 624] put
+    312   624    15    21   296   609
+  A4.3Envelope
+! 2 dict dup /PageSize [312 624] put
+    312   624    15    21   296   609
+  A4.2Envelope
+! 2 dict dup /PageSize [459 624] put
+    459   624    15    21   442   609
+  A4Envelope
+! 2 dict dup /PageSize [624 918] put
+    624   918    15    21   607   903
+  *order 1
+  
+  *fonts 14
+  AvantGarde-Book
+--- 1,70 ----
+  *printer
+  Tektronix Phaser III PXi v2010.116
+  *paper 21
+  Letter
+! 2 dict dup /PageSize [612 792] putdup /ImagingBBox null putsetpagedevice
+    612   792    21    15   597   776
+  Legal
+! 2 dict dup /PageSize [612 1008] putdup /ImagingBBox null putsetpagedevice
+    612  1008    15    21   596   993
+  Tabloid
+! 2 dict dup /PageSize [792 1224] putdup /ImagingBBox null putsetpagedevice
+    792  1224    15    21   776  1209
+  TabloidExtra
+! 2 dict dup /PageSize [864 1296] putdup /ImagingBBox null putsetpagedevice
+    864  1296    15    21   847  1281
+  A4
+! 2 dict dup /PageSize [595 842] putdup /ImagingBBox null putsetpagedevice
+    595   842    21    15   580   826
+  A4.3
+! 2 dict dup /PageSize [281 595] putdup /ImagingBBox null putsetpagedevice
+    281   595    15    21   266   580
+  A3
+! 2 dict dup /PageSize [842 1190] putdup /ImagingBBox null putsetpagedevice
+    842  1190    15    21   826  1175
+  4x6
+! 2 dict dup /PageSize [288 432] putdup /ImagingBBox null putsetpagedevice
+    288   432    15    21   271   417
+  5x7
+! 2 dict dup /PageSize [360 504] putdup /ImagingBBox null putsetpagedevice
+    360   504    15    21   344   489
+  A5
+! 2 dict dup /PageSize [420 595] putdup /ImagingBBox null putsetpagedevice
+    420   595    15    21   404   580
+  A6
+! 2 dict dup /PageSize [297 420] putdup /ImagingBBox null putsetpagedevice
+    297   420    15    21   281   405
+  ISOB4
+! 2 dict dup /PageSize [709 1001] putdup /ImagingBBox null putsetpagedevice
+    709  1001    15    21   694   986
+  ISOB5
+! 2 dict dup /PageSize [499 709] putdup /ImagingBBox null putsetpagedevice
+    499   709    15    21   483   694
+  ISOB6
+! 2 dict dup /PageSize [354 499] putdup /ImagingBBox null putsetpagedevice
+    354   499    15    21   339   484
+  Compliment
+! 2 dict dup /PageSize [283 595] putdup /ImagingBBox null putsetpagedevice
+    283   595    15    21   268   580
+  Comm10
+! 2 dict dup /PageSize [297 684] putdup /ImagingBBox null putsetpagedevice
+    297   684    15    21   281   669
+  C6
+! 2 dict dup /PageSize [323 459] putdup /ImagingBBox null putsetpagedevice
+    323   459    15    21   306   444
+  DL
+! 2 dict dup /PageSize [312 624] putdup /ImagingBBox null putsetpagedevice
+    312   624    15    21   296   609
+  A4.3Envelope
+! 2 dict dup /PageSize [312 624] putdup /ImagingBBox null putsetpagedevice
+    312   624    15    21   296   609
+  A4.2Envelope
+! 2 dict dup /PageSize [459 624] putdup /ImagingBBox null putsetpagedevice
+    459   624    15    21   442   609
+  A4Envelope
+! 2 dict dup /PageSize [624 918] putdup /ImagingBBox null putsetpagedevice
+    624   918    15    21   607   903
+  *order 1
+  
+  *fonts 14
+  AvantGarde-Book
+
+exit 0 # Just in case...

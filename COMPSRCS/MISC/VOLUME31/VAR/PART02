@@ -1,0 +1,667 @@
+Newsgroups: comp.sources.misc
+From: tlhouns@srv.pacbell.com (Lee Hounshell)
+Subject:  v31i092:  var - a C++ string class library, Part02/02
+Message-ID: <1992Aug21.155040.28983@sparky.imd.sterling.com>
+X-Md4-Signature: 4bbd0505512aaef7d77793d0c8f8be7d
+Date: Fri, 21 Aug 1992 15:50:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tlhouns@srv.pacbell.com (Lee Hounshell)
+Posting-number: Volume 31, Issue 92
+Archive-name: var/part02
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile Misc.C Misc.H demo.C var.H
+# Wrapped by kent@sparky on Fri Aug 21 10:47:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1102 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X############################################################################
+X#       make - compiles the C++ library (libvar.a) 
+X#       make clean - removes all .o files generated in these procedures
+X#       make clobber - removes all libraries, cleans up .o's
+X############################################################################
+X
+X
+X# from the two below, pick the operating system closest to yours:
+XINCDIRS = -I.
+X
+XSYS	= SUN
+XCC	= CC
+XCFLAGS	= -O $(INCDIRS)
+XARFLAGS	= rv
+X
+X
+Xis_bsd	= test $(SYS) = SUN
+X
+Xall:	libvar.a
+X
+XC++FILES = var.C Misc.C
+XINS_HFILES = var.H Misc.H
+XHFILES   =	$(INS_HFILES)
+X
+XOBJECTS = ${C++FILES:.C=.o}
+X
+Xlibvar.a:	$(OBJECTS)
+X		ar $(ARFLAGS) $@ $?
+X		if $(is_bsd) ; then ranlib $@; fi
+X
+X$(OBJECTS):	$(HFILES)
+X	
+X
+Xclean:	
+X		rm -f *.o a.out core $(OBJECTS)
+X		cd demo; $(MAKE) clean
+X
+Xclobber:	clean
+X		rm -fr $(DOTAS)
+X		cd demo; $(MAKE) clobber
+X
+X#####
+X#####
+X#.SUFFIXES: .o .C .C~ .c .c~
+X.SUFFIXES: .o .C .C~
+X.C~.C:
+X	-cd $(<D); $(GET) $(GFLAGS) $(<F)
+X.C.c:
+X	$(CC) $(CFLAGS) -Fc $*.C > $*.c
+X.C.o:
+X	$(CC) $(CFLAGS) -c $*.C
+X.C~.o:
+X	-cd $(<D); $(GET) $(GFLAGS) $(<F)
+X	$(CC) $(CFLAGS) -c $*.C
+X
+END_OF_FILE
+  if test 1102 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'Misc.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Misc.C'\"
+else
+  echo shar: Extracting \"'Misc.C'\" \(5782 characters\)
+  sed "s/^X//" >'Misc.C' <<'END_OF_FILE'
+X// 
+X// NAME:	MISC.C
+X//
+X// PURPOSE:	generalized functions for C++ class library routines
+X// AUTHOR:	Lee Hounshell
+X//
+X
+X#include <stdlib.h>
+X#include <stream.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include "Misc.H"
+X
+X
+X// =============================================================================
+X// stuff thet jes' be here 'cause i wuz be 2 lazy 2 done drop it sumplace else, Mazza!
+X// =============================================================================
+X
+X
+X// -----------------------------------------------------------------------------
+X// convert an integer into an ascii string.  return a pointer to that string.
+X//
+Xchar *itoa(const int foo)
+X{
+X    static char int_buf[28];
+X    sprintf(int_buf, "%d", foo);
+X    return int_buf;
+X}
+X
+X
+X// convert an unsigned integer into an ascii string.  return a pointer to that string.
+X//
+Xchar *uitoa(const unsigned int foo)
+X{
+X    static char int_buf[28];
+X    sprintf(int_buf, "%u", foo);
+X    return int_buf;
+X}
+X
+X
+X// convert a long into an ascii string.  return a pointer to that string.
+X//
+X#ifdef HP
+Xchar *ltoa(long foo)
+X#else
+Xchar *ltoa(const long foo)
+X#endif
+X{
+X    static char long_buf[28];
+X    sprintf(long_buf, "%ld", foo);
+X    return long_buf;
+X}
+X
+X
+X// convert an unsigned long into an ascii string.  return a pointer to that string.
+X//
+X#ifdef HP
+Xchar *ultoa(unsigned long foo)
+X#else
+Xchar *ultoa(const unsigned long foo)
+X#endif
+X{
+X    static char long_buf[28];
+X    sprintf(long_buf, "%lu", foo);
+X    return long_buf;
+X}
+X
+X
+X// convert a double into an ascii string.  return a pointer to that string.
+X// truncate any extra zeros after the decimal point.
+X//
+Xchar *dtoa(const double foo)
+X{
+X    static char double_buf[28];
+X    sprintf(double_buf, "%lf", foo);
+X    char *ptr;
+X    for (ptr = double_buf; *ptr; ++ptr) {
+X	if (*ptr == '.') {
+X	    // we may need to truncate zeroes
+X	    ptr = double_buf + (strlen(double_buf) - 1);
+X	    while (*ptr == '0') {
+X		*ptr-- = 0;
+X	    }
+X	    if (*ptr == '.') {
+X		*ptr = 0;
+X	    }
+X	    break;
+X	}
+X    }
+X    return double_buf;
+X}
+X
+X
+X// convert an ascii string to a double
+X//
+Xdouble atod(char * foo)
+X{
+X    double d = 0;
+X    if (!foo || !*foo) {
+X	return d;
+X    }
+X    if (!isdigit(*foo)) {
+X	if (*foo != '-' && *foo != '+') {
+X	    return d;
+X	}
+X	if (!isdigit(*(foo + 1))) {
+X	    return d;
+X	}
+X    }
+X    sscanf(foo, "%lf", &d);
+X    return d;
+X}
+X
+X// -----------------------------------------------------------------------------
+X
+X// convert a 24-hour time (hhmm) into LMOS string format (hhmmZ - where Z is 'A' or 'P')
+X//
+Xchar *ltoTime(const long date24)
+X{
+X    static char time_buf[6];
+X    *time_buf = 0;
+X    if (date24 != 0L) {
+X	long minute = date24 % 100;
+X	long hour = (date24 - minute) / 100;
+X	char ampm = 'A';
+X	if (hour >= 12) {
+X	    ampm = 'P';
+X	    if (hour > 12) hour -= 12;
+X	}
+X	sprintf(time_buf, "%02d%02d%c", hour, minute, ampm);
+X	return time_buf;
+X    }
+X}
+X
+X
+X// -----------------------------------------------------------------------------
+X// scan input until the desired character is found
+X//
+Xistream & look_for(istream &in, char c)
+X{
+X    int input = 0;
+X    if (getenv("INPUT_DEBUG") != NULL) {
+X	cerr << "Debug: looking for input character '" << c << "'" << endl;
+X    }
+X    while (input != c && input != EOF) {
+X	input = in.get();
+X	if (getenv("INPUT_DEBUG") != NULL) {
+X	    cerr << input;
+X	}
+X    }
+X    return in;
+X}
+X
+X
+X// -----------------------------------------------------------------------------
+X// this function is used by lots of other classes for I/O, also.
+X// it really is a sort of "general-purpose," non-class-specific routine
+X// i use it for extracting class memebers from a saved object
+X//
+Xvoid scan_string(istream &in, char *ptr, int size)
+X{
+X    char buffer[3];
+X    char *input;
+X    if (size) --size;
+X    if (getenv("INPUT_DEBUG") != NULL) {
+X	cerr << "Debug: scanning for string (length=" << size << ")" << endl;
+X    }
+X    if (ptr != NULL) {
+X	input = ptr;
+X    }
+X    else {
+X	input = buffer;
+X    }
+X    *input = 0;
+X    look_for(in, '\'');				// find first quote
+X    int endflag = 0;
+X    int count = 0;
+X    while (1) {
+X	int ch;
+X	if ((ch = in.get()) == EOF) {
+X	    if (getenv("INPUT_DEBUG") != NULL) {
+X		cerr << "debug: scan_string(): unexpected EOF found" << endl;
+X	    }
+X	    *input = 0;
+X	    break;
+X	}
+X	*input = ch;
+X	if (getenv("INPUT_DEBUG") != NULL) {
+X	    cerr << *input;
+X	}
+X	if (*input == '\n' && endflag) {	// all done!
+X	    *input = 0;
+X	    if (getenv("INPUT_DEBUG") != NULL) {
+X		cerr << "\nDebug: scan_string() found: '" << ptr << "'" << endl;
+X	    }
+X	    break;				// found end of string
+X	}
+X	if (count >= size) {			// string is too big for buffer
+X	    if (getenv("INPUT_DEBUG") != NULL) {
+X		cerr << "\nDebug: scan_string() size exceeded - truncating string" << endl;
+X	    }
+X	    if (ch != '\'') {
+X		look_for(in, '\'');		// skip to last quote
+X	    }
+X	    endflag = 1;
+X	    continue;
+X	}
+X	if (ptr != NULL && endflag) {		// possibly found end of string
+X	    *(input+1) = *input;
+X	    *input = '\'';
+X	    ++input;
+X	    ++count;
+X	}
+X	if ((endflag = (*input == '\'')) == 0) {// got a close quote??
+X	    if (*ptr) ++input;
+X	    ++count;
+X	}
+X    }
+X}
+X
+X
+X// these functions are also used by other classes for I/O.
+X// they keep track of "indent" levels for printing objects with inheritance
+X
+Xstatic int no_tab_stops = 0;
+X
+X
+X// -----------------------------------------------------------------------------
+X//
+Xostream & Tab(ostream &out)
+X{
+X    out << "\n";
+X    for (int i = 0; i < no_tab_stops; ++i) {
+X	out << "    ";				// really one-half a tab stop
+X    }
+X    return out;
+X}
+X
+X
+X// -----------------------------------------------------------------------------
+X//
+Xostream & Inc(ostream &out)
+X{
+X    ++no_tab_stops;
+X    return Tab(out);
+X}
+X
+X
+X// -----------------------------------------------------------------------------
+X//
+Xostream & Dec(ostream &out)
+X{
+X    --no_tab_stops;
+X    return Tab(out);
+X}
+X
+END_OF_FILE
+  if test 5782 -ne `wc -c <'Misc.C'`; then
+    echo shar: \"'Misc.C'\" unpacked with wrong size!
+  fi
+  # end of 'Misc.C'
+fi
+if test -f 'Misc.H' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Misc.H'\"
+else
+  echo shar: Extracting \"'Misc.H'\" \(712 characters\)
+  sed "s/^X//" >'Misc.H' <<'END_OF_FILE'
+X// 
+X// NAME:	MISC.H
+X//
+X// PURPOSE:	generalized functions for C++ class library routines
+X// AUTHOR:	Lee Hounshell
+X//
+X
+X#ifndef MISC_H
+X#define MISC_H
+X
+X#include <stream.h>
+X
+X    char *itoa(const int foo);
+X    char *uitoa(const unsigned int foo);
+X
+X#ifdef HP
+X    char *ltoa(long foo);
+X    char *ultoa(unsigned long foo);
+X#else
+X    char *ltoa(const long foo);
+X    char *ultoa(const unsigned long foo);
+X#endif
+X
+X    char *dtoa(const double foo);
+X    double atod(char * foo);
+X    char *ltoTime(const long date24);
+X    istream & look_for(istream &in, char c);
+X    void scan_string(istream &in, char *ptr, int size);
+X    ostream & Tab(ostream &out);
+X    ostream & Inc(ostream &out);
+X    ostream & Dec(ostream &out);
+X
+X#endif
+X
+END_OF_FILE
+  if test 712 -ne `wc -c <'Misc.H'`; then
+    echo shar: \"'Misc.H'\" unpacked with wrong size!
+  fi
+  # end of 'Misc.H'
+fi
+if test -f 'demo.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demo.C'\"
+else
+  echo shar: Extracting \"'demo.C'\" \(815 characters\)
+  sed "s/^X//" >'demo.C' <<'END_OF_FILE'
+X#include	<stdlib.h>
+X#include	<stream.h>
+X#include	<var.H>
+X
+Xmain ()
+X{
+X	var value;				// declare an "untyped" var
+X	value = "hello world";			// initialize it
+X	cout << value << endl;			// output "hello world"
+X	value = value(3, value.length() - 6);	// substring example
+X	cout << value << endl;			// output "lo wo"
+X	value = 35;				// assignment of int
+X	value += 42.375;			// add 42.375 to present value
+X	cout << value << endl;			// output "77.375"
+X	cout << value.format("formatted output example %05d of value") << endl;
+X	cout << value.format("multiple outputs #1=%d, #2=%9.2f of value") << endl;
+X	value.null(2);				// truncate string
+X	value += " sunset strip";		// concatenate a string
+X	cout << value.format("%s") << endl;	// output "77 sunset strip"
+X	cout << value[3] << value[4] << value[5] << endl; // output "sun"
+X}
+X
+END_OF_FILE
+  if test 815 -ne `wc -c <'demo.C'`; then
+    echo shar: \"'demo.C'\" unpacked with wrong size!
+  fi
+  # end of 'demo.C'
+fi
+if test -f 'var.H' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'var.H'\"
+else
+  echo shar: Extracting \"'var.H'\" \(8731 characters\)
+  sed "s/^X//" >'var.H' <<'END_OF_FILE'
+X//
+X// NAME:	var.H
+X//
+X// PURPOSE:	C++ Generic "Universal Variable" Class Library Header File
+X// AUTHOR:	Lee Hounshell
+X//
+X
+X#ifndef VAR_H
+X#define VAR_H
+X
+X#include	"string.h"
+X
+X// -----------------------------------------------------------------------------
+X//
+Xclass varsize {
+X    // dummy class needed for var constructor of specific size that
+X    // doesn't conflict with the var integer type constructor
+X    public:
+X	// Constructors & Destructors
+X	varsize(int sz);				// constructor
+X	int size;					// size of var
+X};
+X
+Xclass subvar;
+X
+X// -----------------------------------------------------------------------------
+X//
+Xclass var {
+X
+X    public:
+X	// Standard Interface
+X	const var & type(void) const;			// who am i
+X
+X	// Constructors & Destructors
+X	var(void);					// constructor
+X	var(const varsize &);				// constructor
+X	var(const char *);				// constructor
+X	var(const char);				// constructor
+X	var(const short);				// constructor
+X	var(const unsigned short);			// constructor
+X	var(const int);					// constructor
+X	var(const unsigned int);			// constructor
+X	var(const long);				// constructor
+X	var(const unsigned long);			// constructor
+X	var(const double);				// constructor
+X	var(const var &);				// copy constructor
+X	~var(void);					// destructor
+X
+X	// Operators
+X	var & operator = (const char *);		// assignment
+X        var & operator = (const var &);			// assignment
+X        char & operator [] (const int);			// indexing
+X        subvar & operator () (int, int) const;		// substring
+X        subvar & operator () (const int) const;		// substring
+X        friend ostream & operator << (ostream &, const var &); // output
+X        friend istream & operator >> (istream &, var &); // input
+X	friend class subvar;				// substring
+X
+X	// More Operators (used for arithmetic type extension)
+X	var & operator = (const char);			// assignment
+X	var & operator = (const short);			// assignment
+X	var & operator = (const unsigned short);	// assignment
+X	var & operator = (const int);			// assignment
+X	var & operator = (const unsigned int);		// assignment
+X	var & operator = (const long);			// assignment
+X	var & operator = (const unsigned long);		// assignment
+X	var & operator = (const double);		// assignment
+X
+X	// Casting Operators
+X	operator char * (void) const;			// type conversion
+X	operator double (void) const;			// type conversion
+X
+X	// Assignment Operators
+X        var & operator ++ (void);			// increment (pre-index only)
+X        var & operator -- (void);			// decrement (pre-index only)
+X        var operator ! (void) const;			// not
+X
+X        var operator + (const var &) const;		// addition OR concatenation
+X        var operator - (const var &) const;		// subtraction
+X        var operator * (const var &) const;		// multiplication
+X        var operator / (const var &) const;		// division
+X        var operator % (const var &) const;		// remainder
+X
+X        var & operator += (const var &);		// addition OR concatenation
+X        var & operator -= (const var &);		// subtraction
+X        var & operator *= (const var &);		// multiplication
+X        var & operator /= (const var &);		// division
+X        var & operator %= (const var &);		// remainder
+X
+X        var & operator += (const char &);		// addition OR concatenation
+X        var & operator += (const char *);		// addition OR concatenation
+X        var & operator -= (const char *);		// subtraction
+X        var & operator *= (const char *);		// multiplication
+X        var & operator /= (const char *);		// division
+X        var & operator %= (const char *);		// remainder
+X
+X        var & operator += (const double);		// addition OR concatenation
+X        var & operator -= (const double);		// subtraction
+X        var & operator *= (const double);		// multiplication
+X        var & operator /= (const double);		// division
+X        var & operator %= (const double);		// remainder
+X
+X	friend var operator + (const char *, const var &); // addition OR concatenation
+X	friend var operator - (const char *, const var &); // subtraction
+X	friend var operator * (const char *, const var &); // multiplication
+X	friend var operator / (const char *, const var &); // division
+X	friend var operator % (const char *, const var &); // remainder
+X	friend var operator + (const var &, const char *); // addition OR concatenation
+X	friend var operator - (const var &, const char *); // subtraction
+X	friend var operator * (const var &, const char *); // multiplication
+X	friend var operator / (const var &, const char *); // division
+X	friend var operator % (const var &, const char *); // remainder
+X
+X	friend var operator + (const var &, const double); // addition OR concatenation
+X	friend var operator - (const var &, const double); // subtraction
+X	friend var operator * (const var &, const double); // multiplication
+X	friend var operator / (const var &, const double); // division
+X	friend var operator % (const var &, const double); // remainder
+X	friend var operator + (const double, const var &); // addition OR concatenation
+X	friend var operator - (const double, const var &); // subtraction
+X	friend var operator * (const double, const var &); // multiplication
+X	friend var operator / (const double, const var &); // division
+X	friend var operator % (const double, const var &); // remainder
+X
+X	// Equality Operators
+X        int operator == (const var &) const;		// equality
+X        int operator != (const var &) const;		// inequality
+X        int operator < (const var &) const;		// less than
+X        int operator > (const var &) const;		// greater than
+X        int operator <= (const var &) const;		// less than or equal
+X        int operator >= (const var &) const;		// greater than or equal
+X
+X	friend int operator == (const var &, const char *); // equality
+X	friend int operator != (const var &, const char *); // inequality
+X	friend int operator < (const var &, const char *);  // less than
+X	friend int operator > (const var &, const char *);  // greater than
+X	friend int operator <= (const var &, const char *); // less than or equal
+X	friend int operator >= (const var &, const char *); // greater than or equal
+X	friend int operator == (const char *, const var &); // equality
+X	friend int operator != (const char *, const var &); // inequality
+X	friend int operator < (const char *, const var &);  // less than
+X	friend int operator > (const char *, const var &);  // greater than
+X	friend int operator <= (const char *, const var &); // less than or equal
+X	friend int operator >= (const char *, const var &); // greater than or equal
+X
+X	friend int operator == (const var &, const double); // equality
+X	friend int operator != (const var &, const double); // inequality
+X	friend int operator < (const var &, const double);  // less than
+X	friend int operator > (const var &, const double);  // greater than
+X	friend int operator <= (const var &, const double); // less than or equal
+X	friend int operator >= (const var &, const double); // greater than or equal
+X	friend int operator == (const double, const var &); // equality
+X	friend int operator != (const double, const var &); // inequality
+X	friend int operator < (const double, const var &);  // less than
+X	friend int operator > (const double, const var &);  // greater than
+X	friend int operator <= (const double, const var &); // less than or equal
+X	friend int operator >= (const double, const var &); // greater than or equal
+X
+X	// Custom Interface
+X	void null(int);					// "null" out string
+X	void changesize(int);				// change allocated memory
+X	int length(void) const;				// length of string
+X	const char * vartype(void) const;		// name of this var type
+X	void change_type(const char *);			// change var type
+X	int is_string(void) const;			// test var type
+X	int is_double(void) const;			// test var type
+X	int is_long(void) const;			// test var type
+X	int strchr(const char) const;			// strchr(char) index
+X	int strrchr(const char) const;			// strrchr(char) index
+X	var & concat(const var &);			// concatenation
+X	var & format(const char *);			// set output format
+X	void print(ostream &) const;			// output
+X	void read(istream &);				// input
+X
+X	static int save_me;				// cntrl object input
+X	static int save_it(const int save_flag = var::save_me); // input ctrl
+X
+X    protected:
+X
+X    private:
+X	int	numcheck(const char *) const;		// determine is_numeric value
+X
+X	static	const var ctype;			// for type() function
+X	short	fixed;					// 1=fixed data type
+X	short	is_numeric;				// 0=string, 1=short/int/long, 2=float/double
+X	int	data_str_len;				// length of allocated "string"
+X	int	data_str_end;				// index to current "end" of string
+X	char	*data_str;				// for "string" data
+X	char	*format_str;				// the input/output format string
+X
+X};
+X
+X
+Xclass subvar : public var {
+X    public:
+X        var & operator = (const var &);			// substring replacement
+X	var		*varptr;
+X	unsigned	offset;
+X	unsigned	length;
+X};
+X
+X#endif
+X
+END_OF_FILE
+  if test 8731 -ne `wc -c <'var.H'`; then
+    echo shar: \"'var.H'\" unpacked with wrong size!
+  fi
+  # end of 'var.H'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

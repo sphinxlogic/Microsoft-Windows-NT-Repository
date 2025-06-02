@@ -1,0 +1,1279 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki, Delta from 1.04 to 1.05 - part 2/7
+Message-ID: <1992Jun30.200629.11291@klaava.Helsinki.FI>
+Date: 30 Jun 92 20:06:29 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1268
+
+Archive-name: monster_helsinki_104_to_105/delta2
+Environment: VMS, Pascal
+Author: Kari.Hurtta@Helsinki.FI
+
+-+-+-+-+-+-+-+-+ START OF PART 2 -+-+-+-+-+-+-+-+
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to maxdetail do begin
+X`009`009if s = here.detail`091i`093 then
+X`009`009`009num := i
+X`009`009else if index(here.detail`091i`093,s) = 1 then begin
+X`009`009`009maybe := maybe + 1;
+X`009`009`009poss := i;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009n := num;
+X`009`009lookup_detail := true;
+X`009end else if maybe = 1 then begin
+X`009`009n := poss;
+X`009`009lookup_detail := true;
+X`009end else if maybe > 1 then begin
+X`009`009lookup_detail := false;
+X`009end else begin
+X`009`009lookup_detail := false;
+X-  643,  752
+X`123
+XUser describe procedure.  If no s then describe the room
+X
+XKnown problem: if two people edit the description to the same room one of th
+Veir
+X`009description blocks could be lost.
+XThis is unlikely to happen unless the Monster Manager tries to edit a
+Xdescription while the room's owner is also editing it.
+X`125
+X`091global`093 PROCEDURE do_describe(s: string);
+Xvar
+X`009i: integer;
+X`009newdsc: integer;
+X
+Xbegin
+X`009gethere;
+X`009if checkhide then begin
+X`009if s = '' then begin `123 describe this room `125
+X`009`009if desc_allowed then begin
+X`009`009`009log_action(desc,0);
+X`009`009`009writeln('`091 Editing the primary room description `093');
+X`009`009`009newdsc := here.primary;
+X`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009getroom;
+X`009`009`009`009here.primary := newdsc;
+X`009`009`009`009putroom;
+X`009`009`009end;
+X`009`009`009log_event(myslot,E_EDITDONE,0,0);
+X`009`009end;
+X`009end else begin`123 describe a detail of this room `125
+X`009`009if length(s) > veryshortlen then
+X`009`009`009writeln('Your detail keyword can only be ',veryshortlen:1,' char
+Vacters.')
+X`009`009else if desc_allowed then begin
+X`009`009`009if not(lookup_detail(i,s)) then
+X`009`009`009if not(alloc_detail(i,s)) then begin
+X`009`009`009`009writeln('You have used all ',maxdetail:1,' details.');
+X`009`009`009`009writeln('To delete a detail, DESCRIBE <the detail> and delet
+Ve all the text.');
+X`009`009`009end;
+X`009`009`009if i <> 0 then begin
+X`009`009`009`009log_action(e_detail,0);
+X`009`009`009`009writeln('`091 Editing detail "',here.detail`091i`093,'" of t
+Vhis room `093');
+X`009`009`009`009newdsc := here.detaildesc`091i`093;
+X`009`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.detaildesc`091i`093 := newdsc;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end;
+X`009`009`009`009log_event(myslot,E_DONEDET,0,0);
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`123`009clear_command;`009`125
+X-  756,  878
+X`123 return TRUE if the player is allowed to program the object n
+X  if checkpub is true then obj_owner will return true if the object in
+X  question is public `125
+X
+X`091global`093 function obj_owner(n: integer;checkpub: boolean := FALSE):boo
+Vlean;
+Xbegin
+X`009getobjown;
+X`009freeobjown;
+X`009if (objown.idents`091n`093 = userid) or`032
+X`009    (owner_priv and (objown.idents`091n`093 <> system_id)) or
+X`009    manager_priv then begin `123 minor change by leino@finuha `125
+X`009`009`009`009    `123 and hurtta@finuh `125
+X`009`009obj_owner := true;
+X`009end else if (objown.idents`091n`093 = public_id) and (checkpub) then beg
+Vin
+X`009`009obj_owner := true;
+X`009end else begin
+X`009`009obj_owner := false;
+X-  882,  906
+X`091global`093 function parse_pers(var pnum: integer;s: string): boolean;
+Xvar
+X`009persnum: integer;
+X`009i,poss,maybe,num: integer;
+X`009pname: string;
+X
+Xbegin
+X`009gethere;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to maxpeople do begin
+X`123`009`009if here.people`091i`093.username <> '' then begin`009`125
+X
+X`009`009if here.people`091i`093.kind > 0 then begin
+X`009`009`009pname := lowcase(here.people`091i`093.name);
+X
+X`009`009`009if s = pname then
+X`009`009`009`009num := i
+X`009`009`009else if index(pname,s) = 1 then begin
+X`009`009`009`009maybe := maybe + 1;
+X`009`009`009`009poss := i;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009persnum := num;
+X`009`009parse_pers := true;
+X`009end else if maybe = 1 then begin
+X`009`009persnum := poss;
+X`009`009parse_pers := true;
+X`009end else if maybe > 1 then begin
+X`009`009persnum := 0;
+X`009`009parse_pers := false;
+X`009end else begin
+X`009`009persnum := 0;
+X`009`009parse_pers := false;
+X`009end;
+X`009if persnum > 0 then begin
+X`009`009if here.people`091persnum`093.hiding > 0 then
+X`009`009`009parse_pers := false
+X`009`009else begin
+X`009`009`009parse_pers := true;
+X`009`009`009pnum := persnum;
+X`009`009end;
+X-  910,  926
+X`091global`093 function lookup_level(var n: integer;s:string): boolean;
+Xvar
+X`009i,poss,maybe,num: integer;
+Xbegin
+X`009n := 0;
+X`009s := lowcase(s);
+X`009i := 1;
+X`009maybe := 0;
+X`009num := 0;
+X`009for i := 1 to levels do begin
+X`009`009if s = lowcase (leveltable`091i`093.name) then
+X`009`009`009num := i
+X`009`009else if index(lowcase (leveltable`091i`093.name),s) = 1 then begin
+X`009`009`009maybe := maybe + 1;
+X`009`009`009poss := i;
+X`009`009end;
+X`009end;
+X`009if num <> 0 then begin
+X`009`009n := num;
+X`009`009lookup_level := true;
+X`009end else if maybe = 1 then begin
+X`009`009n := poss;
+X`009`009lookup_level := true;
+X`009end else if maybe > 1 then begin
+X`009`009lookup_level := false;
+X`009end else begin
+X`009`009lookup_level := false;
+X`009end;
+Xend; `123 lookup_level `125
+X
+X
+X`123 custom ROOM -----------------------------------------------------------
+V---- `125
+X
+X
+Xfunction room_nameinuse(num: integer; newname: string): boolean;
+Xvar
+X`009dummy: integer;
+X
+Xbegin
+X`009if exact_room(dummy,newname) then begin
+X`009`009if dummy = num then
+X`009`009`009room_nameinuse := false
+X`009`009else
+X`009`009`009room_nameinuse := true;
+X`009end else
+X`009`009room_nameinuse := false;
+Xend;
+X
+X
+X
+Xprocedure do_rename(param: string);
+Xlabel exit_label;
+Xvar
+X`009dummy: integer;
+X`009newname: string;
+X-  935,  944
+Xbegin
+X`009gethere;
+X`009if param > '' then newname := param
+X`009else begin
+X`009`009writeln('This room is named ',here.nicename);
+X`009`009writeln;
+X`009`009grab_line('New name? ',newname,eof_handler := leave);
+X`009end;
+X`009if (newname = '') or (newname = '**') then
+X`009`009writeln('No changes.')
+X`009else if length(newname) > shortlen then
+X`009`009writeln('Please limit your room name to ',shortlen:1,' characters.')
+X`009else if room_nameinuse(location,newname) then
+X`009`009writeln(newname,' is not a unique room name.')
+X`009else begin
+X`009`009getroom;
+X`009`009here.nicename := newname;
+X`009`009putroom;
+X
+X`009`009getnam;
+X`009`009nam.idents`091location`093 := lowcase(newname);
+X`009`009putnam;
+X`009`009writeln('Room name updated.');
+X-  949,  972
+X
+Xfunction obj_nameinuse(objnum: integer; newname: string): boolean;
+Xvar
+X`009dummy: integer;
+X
+Xbegin
+X`009if exact_obj(dummy,newname) then begin
+X`009`009if dummy = objnum then
+X`009`009`009obj_nameinuse := false
+X`009`009else
+X`009`009`009obj_nameinuse := true;
+X`009end else
+X`009`009obj_nameinuse := false;
+Xend;
+X
+X
+Xprocedure do_objrename(objnum: integer; param: string);
+Xlabel exit_label;
+Xvar
+X`009newname: string;
+X`009s: string;
+X-  980, 1016
+Xbegin
+X`009getobj(objnum);
+X`009freeobj;
+X
+X`009if param > '' then newname := param
+X`009else begin
+X`009`009writeln('This object is named ',obj.oname);
+X`009`009writeln;
+X`009`009grab_line('New name? ',newname,eof_handler := leave);
+X`009end;
+X`009if (newname = '') or (newname = '**') then
+X`009`009writeln('No changes.')
+X`009else if length(newname) > shortlen then
+X`009`009writeln('Please limit your object name to ',shortlen:1,' characters.
+V')
+X`009else if obj_nameinuse(objnum,newname) then
+X`009`009writeln(newname,' is not a unique object name.')
+X`009else begin
+X`009`009getobj(objnum);
+X`009`009obj.oname := newname;
+X`009`009putobj;
+X
+X`009`009getobjnam;
+X`009`009objnam.idents`091objnum`093 := lowcase(newname);
+X`009`009putobjnam;
+X`009`009writeln('Object name updated.');
+X`009end;
+X    exit_label:
+Xend;
+X
+X
+X
+Xprocedure view_room;
+Xvar
+X`009s: string;
+X- 1021, 1028
+X`009getnam;
+X`009freenam;
+X`009getobjnam;
+X`009freeobjnam;
+X
+X`009with here do begin
+X`009`009writeln('Room:        ',nicename);
+X`009`009case nameprint of
+X`009`009`0090: writeln('Room name not printed');
+X`009`009`0091: writeln('"You''re in" precedes room name');
+X`009`009`0092: writeln('"You''re at" precedes room name');
+X`009`009`0093: writeln('"You''re in the" precedes room name');
+X`009`009`0094: writeln('"You''re at the" precedes room name');
+X`009`009`0095: writeln('"You''re in a" precedes room name');
+X`009`009`0096: writeln('"You''re at a" precedes room name');
+X`009`009`0097: writeln('"You''re in an" precedes room name');
+X`009`009`0098: writeln('"You''re at an" precedes room name');
+X`009`009`009otherwise writeln('Room name printing is damaged.');
+X`009`009end;
+X
+X`009`009writeln('Room owner:    ',class_out(owner));
+X
+X`009`009if primary = 0 then
+X`009`009`009writeln('There is no primary description')
+X`009`009else
+X`009`009`009writeln('There is a primary description');
+X
+X`009`009if secondary = 0 then
+X`009`009`009writeln('There is no secondary description')
+X`009`009else
+X`009`009`009writeln('There is a secondary description');
+X
+X`009`009case which of
+X`009`009`0090: writeln('Only the primary description will print');
+X`009`009`0091: writeln('Only the secondary description will print');
+X`009`009`0092: writeln('Both the primary and secondary descriptions will pri
+Vnt');
+X`009`009`0093: begin
+X`009`009`009`009writeln('The primary description will print, followed by the
+V seconary description');
+X`009`009`009`009writeln('if the player is holding the magic object');
+X`009`009`009   end;
+X`009`009`0094: begin
+X`009`009`009`009writeln('If the player is holding the magic object, the seco
+Vndary description will print');
+X`009`009`009`009writeln('Otherwise, the primary description will print');
+X`009`009`009   end;
+X`009`009`009otherwise writeln('The way the room description prints is damage
+Vd');
+X`009`009end;
+X
+X`009`009writeln;
+X`009`009if magicobj = 0 then
+X`009`009`009writeln('There is no magic object for this room')
+X`009`009else
+X`009`009`009writeln('The magic object for this room is the ',objnam.idents`0
+V91magicobj`093,'.');
+X
+X`009`009if objdrop = 0 then
+X`009`009`009writeln('Dropped objects remain here')
+X`009`009else begin
+X`009`009`009writeln('Dropped objects go to ',nam.idents`091objdrop`093,'.');
+X`009`009`009if objdesc = 0 then
+X`009`009`009`009writeln('Dropped.')
+X`009`009`009else
+X`009`009`009`009print_line(objdesc);
+X`009`009`009if objdest = 0 then
+X`009`009`009`009writeln('Nothing is printed when object "bounces in" to targ
+Vet room')
+X`009`009`009else
+X`009`009`009`009print_line(objdest);
+X`009`009end;
+X`009`009writeln;
+X`009`009if trapto = 0 then
+X`009`009`009writeln('There is no trapdoor set')
+X`009`009else
+X`009`009`009writeln('The trapdoor sends players ',direct`091trapto`093,
+X`009`009`009`009' with a chance factor of ',trapchance:1,'%');
+X
+X`009`009if hook > 0 then writeln ('There is a hook in this room.');
+X`009`009for i := 1 to maxdetail do begin
+X`009`009`009if length(detail`091i`093) > 0 then begin
+X`009`009`009`009write('Detail "',detail`091i`093,'" ');
+X`009`009`009`009if detaildesc`091i`093 > 0 then
+X`009`009`009`009`009writeln('has a description')
+X`009`009`009`009else
+X`009`009`009`009`009writeln('has no description');
+X`009`009`009end;
+X`009`009end;
+X`009`009writeln;
+X- 1032, 1036
+X
+X`091global`093 procedure custom_room;
+Xlabel exit_label;
+Xvar
+X`009done: boolean;
+X`009prompt,param: string;
+X`009n: integer;
+X`009s: string;
+X`009newdsc: integer;
+X`009bool: boolean;
+X`009prevloc: integer;
+X- 1040, 1042
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X- 1047, 1090
+X`009log_action(e_custroom,0);
+X`009writeln;
+X`009writeln('Customizing this room');
+X`009writeln('If you would rather be customizing an exit, type CUSTOM <direct
+Vion of exit>');
+X`009writeln('If you would rather be customizing an object, type CUSTOM <obje
+Vct name>');
+X`009writeln;
+X`009done := false;
+X`009prompt := 'Custom> ';
+X
+X`009repeat
+X`009`009repeat
+X`009`009`009grab_line(prompt,s,eof_handler := leave);
+X`009`009`009param := slead(s);
+X`009`009`009s := bite(param);
+X`009`009until length(s) > 0;`009`009
+X`009`009s := lowcase(s);`009`009
+X`009`009case s`0911`093 of
+X`009`009`009'c': begin
+X`009`009`009`009gethere;
+X`009`009`009`009n := here.hook;
+X`009`009`009`009prevloc := location;
+X`009`009`009`009custom_hook(n,here.owner,
+X`009`009`009`009    trim_filename(here.nicename));
+X`009`009`009`009if (prevloc <> location) then begin
+X`009`009`009`009`009writeln('You can no longer customize this room.');
+X                                        done := true;
+X`009`009`009`009end else begin
+X                   `009`009`009getroom;
+X`009`009`009`009`009here.hook := n;
+X`009`009`009`009`009putroom
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009`009'e','q': done := true;
+X`009`009`009'?','h': command_help('*room help*');
+X`009`009`009'r': do_rename (param);
+X`009`009`009'v': view_room;
+X`123dir trapdoor goes`125`009't': begin
+X`009`009`009`009if param > '' then s := param
+X`009`009`009`009else grab_line('What direction does the trapdoor exit throug
+Vh? ',
+X`009`009`009`009    s,eof_handler := leave);
+X`009`009`009`009if length(s) > 0 then begin
+X`009`009`009`009`009if lookup_dir(n,s) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.trapto := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009`009writeln('Room updated.');
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('No such direction.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No changes.');
+X`009`009`009     end;
+X`123chance`125`009`009'f': begin
+X`009`009`009`009if param > '' then s := param
+X`009`009`009`009else begin
+X`009`009`009`009`009writeln('Enter the chance that in any given minute the p
+Vlayer will fall through');
+X`009`009`009`009`009writeln('the trapdoor (0-100) :');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009grab_line('? ',s,eof_handler := leave);
+X`009`009`009`009end;
+X`009`009`009`009if isnum(s) then begin
+X`009`009`009`009`009n := number(s);
+X`009`009`009`009`009if n in `0910..100`093 then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.trapchance := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('Out of range.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No changes.');
+X`009`009`009     end;
+X`009`009`009's': begin
+X`009`009`009`009newdsc := here.secondary;
+X`009`009`009`009writeln('`091 Editing the secondary room description `093');
+X`009`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.secondary := newdsc;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009`009'i': begin
+X`009`009`009`009newdsc := here.exitfail;
+X`009`009`009`009writeln('`091 Editing th default exit failure  description `
+V093');
+X`009`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.exitfail := newdsc;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009 `009'p': begin
+X`123 same as desc `125`009`009newdsc := here.primary;
+X`009`009`009`009writeln('`091 Editing the primary room description `093');
+X`009`009`009`009if edit_desc(newdsc) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.primary := newdsc;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009`009'o': begin
+X`009`009`009`009writeln('Enter the line that will be printed when someone dr
+Vops an object here:');
+X`009`009`009`009writeln('If dropped objects do not stay here, you may use a
+V # for the object name.');
+X`009`009`009`009writeln('Right now it says:');
+X`009`009`009`009if here.objdesc = 0 then
+X`009`009`009`009`009writeln('Dropped. `091default`093')
+X`009`009`009`009else
+X`009`009`009`009`009print_line(here.objdesc);
+X
+X`009`009`009`009n := here.objdesc;
+X`009`009`009`009make_line(n);
+X`009`009`009`009getroom;
+X`009`009`009`009here.objdesc := n;
+X`009`009`009`009putroom;
+X`009`009`009     end;
+X`009  `009`009'x': begin
+X`009`009`009`009writeln('Enter a line that will be randomly shown.');
+X`009`009`009`009writeln('Right now it says:');
+X`009`009`009`009if here.rndmsg = 0 then
+X`009`009`009`009`009writeln('`091none defined`093')
+X`009`009`009`009else
+X`009`009`009`009`009print_line(here.rndmsg);
+X
+X`009`009`009`009n := here.rndmsg;
+X`009`009`009`009make_line(n);
+X`009`009`009`009getroom;
+X`009`009`009`009here.rndmsg := n;
+X`009`009`009`009putroom;
+X`009`009`009     end;
+X`123alternate mystery msg`125`009'a': do_y_altmsg;`032
+X`123bounced in desc`125`009'b': begin
+X`009`009`009`009writeln('Enter the line that will be displayed in the room w
+Vhere an object really');
+X`009`009`009`009writeln('goes when an object dropped here "bounces" there:')
+V;
+X`009`009`009`009writeln('Place a # where the object name should go.');
+X`009`009`009`009writeln;
+X`009`009`009`009writeln('Right now it says:');
+X`009`009`009`009if here.objdest = 0 then
+X`009`009`009`009`009writeln('Something has bounced into the room.')
+X`009`009`009`009else
+X`009`009`009`009`009print_line(here.objdest);
+X
+X`009`009`009`009n := here.objdest;
+X`009`009`009`009make_line(n);
+X`009`009`009`009getroom;
+X`009`009`009`009here.objdest := n;
+X`009`009`009`009putroom;
+X`009`009`009     end;
+X`123visual links`125`009`009'1': do_group1;
+X`009`009`009'2': do_group2;
+X`009`009`009'm': begin
+X`009`009`009`009getobjnam;
+X`009`009`009`009freeobjnam;
+X`009`009`009`009if param > '' then s := param
+X`009`009`009`009else begin
+X`009`009`009`009`009if here.magicobj = 0 then
+X`009`009`009`009`009`009writeln('There is currently no magic object for this
+V room.')
+X`009`009`009`009`009else
+X`009`009`009`009`009`009writeln(objnam.idents`091here.magicobj`093,
+X`009`009`009`009`009`009`009' is currently the magic object for this room.')
+V;
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009grab_line('New magic object? ',s,
+X`009`009`009`009`009    eof_handler := leave);
+X`009`009`009`009end;
+X`009`009`009`009if s = '' then
+X`009`009`009`009`009writeln('No changes.')
+X`009`009`009`009else if lookup_obj(n,s) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.magicobj := n;
+X`009`009`009`009`009putroom;
+X`009`009`009`009`009writeln('Room updated.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No such object found.');
+X`009`009`009     end;
+X`009`009`009'g': begin
+X`009`009`009`009getnam;
+X`009`009`009`009freenam;
+X`009`009`009`009if param > '' then s := param
+X`009`009`009`009else begin
+X`009`009`009`009`009if here.objdrop = 0 then
+X`009`009`009`009`009`009writeln('Objects dropped fall here.')
+X`009`009`009`009`009else
+X`009`009`009`009`009`009writeln('Objects dropped fall in ',nam.idents`091her
+Ve.objdrop`093,'.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('Enter * for `091this room`093:');
+X`009`009`009`009`009grab_line('Room dropped objects go to? ',
+X`009`009`009`009`009    s,eof_handler := leave);
+X`009`009`009`009end;
+X`009`009`009`009if s = '' then
+X`009`009`009`009`009writeln('No changes.')
+X`009`009`009`009else if s = '*' then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.objdrop := 0;
+X`009`009`009`009`009putroom;
+X`009`009`009`009`009writeln('Room updated.');
+X`009`009`009`009end else if lookup_room(n,s) then begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.objdrop := n;
+X`009`009`009`009`009putroom;
+X`009`009`009`009`009writeln('Room updated.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No such room found.');
+X`009`009`009     end;
+X`009`009`009'd': begin
+X`009`009`009`009writeln('Print room descriptions how?');
+X`009`009`009`009writeln;
+X`009`009`009`009writeln('0)  Print primary (main) description only `091defau
+Vlt`093');
+X`009`009`009`009writeln('1)  Print only secondary description.');
+X`009`009`009`009writeln('2)  Print both primary and secondary descriptions t
+Vogether.');
+X`009`009`009`009writeln('3)  Print primary description first; then print sec
+Vondary description only if');
+X`009`009`009`009writeln('    the player is holding the magic object for this
+V room.');
+X`009`009`009`009writeln('4)  Print secondary if holding the magic obj; print
+V primary otherwise');
+X`009`009`009`009writeln;
+X`009`009`009`009grab_line('? ',s,eof_handler := leave);
+X`009`009`009`009if isnum(s) then begin
+X`009`009`009`009`009n := number(s);
+X`009`009`009`009`009if n in `0910..4`093 then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.which := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009`009writeln('Room updated.');
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('Out of range.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No changes.');
+X
+X`009`009`009     end;
+X`009`009`009'n': begin
+X`009`009`009`009writeln('How would you like the room name to print?');
+X`009`009`009`009writeln;
+X`009`009`009`009writeln('0) No room name is shown');
+X`009`009`009`009writeln('1) "You''re in ..."');
+X`009`009`009`009writeln('2) "You''re at ..."');
+X`009`009`009`009writeln('3) "You''re in the ..."');
+X`009`009`009`009writeln('4) "You''re at the ..."');
+X`009`009`009`009writeln('5) "You''re in a ..."');
+X`009`009`009`009writeln('6) "You''re at a ..."');
+X`009`009`009`009writeln('7) "You''re in an ..."');
+X`009`009`009`009writeln('8) "You''re at an ..."');
+X`009`009`009`009writeln;
+X`009`009`009`009grab_line('? ',s,eof_handler := leave);
+X`009`009`009`009if isnum(s) then begin
+X`009`009`009`009`009n := number(s);
+X`009`009`009`009`009if n in `0910..8`093 then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.nameprint := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('Out of range.');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln('No changes.');
+X`009`009`009     end;
+X`009`009`009otherwise writeln('Bad command, type ? for a list');
+X`009`009end;
+X`009until done;
+X`009exit_label:
+X`009log_event(myslot,E_ROOMDONE,0,0);
+Xend;
+X
+X`123 custom EXIT -----------------------------------------------------------
+V--- `125
+X
+X`091global`093 procedure exit_default(dir, kind: integer);
+Xbegin
+X`009case kind of
+X`0091: writeln('There is a passage leading ',direct`091dir`093,'.');
+X`0092: writeln('There is a locked door leading ',direct`091dir`093,'.');
+X`0095:`009case dir of
+X`009`009`009north,south,east,west:
+X`009`009`009`009writeln('A note on the ',direct`091dir`093,' wall says "Your
+V exit here."');
+X`009`009`009up: writeln('A note on the ceiling says "Your exit here."');
+X`009`009`009down: writeln('A note on the floor says "Your exit here."');
+X`009`009end;
+X`009otherwise writeln('There is an exit: ',direct`091dir`093);
+X- 1094, 1102
+Xprocedure analyze_exit(dir: integer);
+Xvar
+X`009s: string;
+X
+Xbegin
+X`009writeln;
+X`009getnam;
+X`009freenam;
+X`009getobjnam;
+X`009freeobjnam;
+X`009with here.exits`091dir`093 do begin
+X`009`009s := alias;
+X`009`009if s = '' then
+X`009`009`009s := '(no alias)'
+X`009`009else
+X`009`009`009s := '(alias ' + s + ')';
+X`009`009if here.exits`091dir`093.reqalias then
+X`009`009`009s := s + ' (required)'
+X`009`009else
+X`009`009`009s := s + ' (not required)';
+X
+X`009`009if toloc <> 0 then
+X`009`009`009writeln('The ',direct`091dir`093,' exit ',s,' goes to ',nam.iden
+Vts`091toloc`093)
+X`009`009else
+X`009`009`009writeln('The ',direct`091dir`093,' exit goes nowhere.');
+X`009`009if hidden <> 0 then
+X`009`009`009writeln('Concealed.');
+X`009`009write('Exit type: ');
+X`009`009case kind of
+X`009`009`0090: writeln('no exit.');
+X`009`009`0091: writeln('Open passage.');
+X`009`009`0092: writeln('Door, object required to pass.');
+X`009`009`0093: writeln('No passage if holding object.');
+X`009`009`0094: writeln('Randomly fails');
+X`009`009`0095: writeln('Potential exit.');
+X`009`009`0096: writeln('Only exists while holding the required object.');
+X`009`009`0097: writeln('Timed exit');
+X`009`009end;
+X`009`009if objreq = 0 then
+X`009`009`009writeln('No required object.')
+X`009`009else
+X`009`009`009writeln('Required object is: ',objnam.idents`091objreq`093);
+X
+X`009`009writeln;
+X`009`009if exitdesc = DEFAULT_LINE then
+X`009`009`009exit_default(dir,kind)
+X`009`009else
+X`009`009`009print_line(exitdesc);
+X
+X`009`009if success = 0 then
+X`009`009`009writeln('(no success message)')
+X`009`009else
+X`009`009`009print_desc(success);
+X
+X`009`009if fail = DEFAULT_LINE then begin
+X`009`009`009if kind = 5 then
+X`009`009`009`009writeln('There isn'' an exit there yet.')
+X`009`009`009else
+X`009`009`009`009writeln('You can''t that.');
+X`009`009end else
+X`009`009`009print_desc(fail);
+X
+X`009`009if comeout = DEFAULT_LINE then
+X`009`009`009writeln('# has come into the room from ',direct`091dir`093)
+X`009`009else
+X`009`009`009print_desc(comeout);
+X`009`009if goin = DEFAULT_LINE then
+X`009`009`009writeln('# has gone ',direct`091dir`093)
+X`009`009else
+X`009`009`009print_desc(goin);
+X
+X`009`009writeln;
+X`009`009if autolook then
+X`009`009`009writeln('LOOK automatically done after exit used')
+X`009`009else
+X`009`009`009writeln('LOOK supressed on exit use');
+X`009`009if reqverb then
+X`009`009`009writeln('The alias is required to be a verb for exit use')
+X`009`009else
+X`009`009`009writeln('The exit can be used with GO or as a verb');
+X`009end;
+X`009writeln;
+X- 1106, 1110
+Xprocedure get_key(dir: integer; param: string := '');
+Xlabel exit_label;
+Xvar
+X`009s: string;
+X- 1115, 1116
+X`009writeln('EXIT - no changes.');
+X`009goto exit_label;
+X    end;
+X
+X
+Xbegin
+X`009getobjnam;
+X`009freeobjnam;
+X`009if param > '' then s := param
+X`009else begin
+X`009`009if here.exits`091dir`093.objreq = 0 then
+X`009`009`009writeln('Currently there is no key set for this exit.')
+X`009`009else
+X`009`009`009writeln(objnam.idents`091here.exits`091dir`093.objreq`093,' is t
+Vhe current key for this exit.');
+X`009`009writeln('Enter * for `091no key`093');
+X`009`009writeln;
+X`009
+X`009`009grab_line('What object is the door key? ',s,
+X`009`009    eof_handler := leave);
+X`009end;
+X`009if length(s) > 0 then begin
+X`009`009if s = '*' then begin
+X`009`009`009getroom;
+X`009`009`009here.exits`091dir`093.objreq := 0;
+X`009`009`009putroom;
+X`009`009`009writeln('Exit updated.');
+X`009`009end else if lookup_obj(n,s) then begin
+X`009`009`009getroom;
+X`009`009`009here.exits`091dir`093.objreq := n;
+X`009`009`009putroom;
+X`009`009`009writeln('Exit updated.');
+X`009`009end else
+X`009`009`009writeln('There is no object by that name.');
+X`009end else
+X`009`009writeln('No changes.');
+X    exit_label:
+Xend;
+X
+Xprocedure custom_exit(dirnam: string);
+Xlabel exit_label;
+Xvar
+X`009prompt: string;
+X`009done : boolean;
+X`009s,param: string;
+X`009dir,n: integer;
+X
+X    procedure leave;
+X    begin
+X`009writeln('EXIT - no changes.');
+X`009log_event(myslot,E_CUSTDONE,0,0);
+X`009goto exit_label;
+X- 1120, 1308
+X`009if lookup_dir(dir,dirnam) then begin
+X`009   if can_alter(dir) then begin
+X
+X`009`009log_action(c_custom,0);
+X
+X`009`009writeln('Customizing ',direct`091dir`093,' exit');
+X`009`009writeln('If you would rather be customizing this room, type CUSTOM w
+Vith no arguments');
+X`009`009writeln('If you would rather be customizing an object, type CUSTOM <
+Vobject name>');
+X`009`009writeln('If you would rather be customizing a monster, type CUSTOM <
+Vmonster name>');
+X`009`009writeln;
+X`009`009writeln('Type ** for any line to leave it unchanged.');
+X`009`009writeln('Type return for any line to select the default.');
+X`009`009writeln;
+X`009`009writev(prompt,'Custom ',direct`091dir`093,'> ');
+X`009`009done := false;
+X`009`009repeat
+X`009`009`009repeat
+X`009`009`009`009grab_line(prompt,s,eof_handler := leave);
+X`009`009`009`009param := slead(s);
+X`009`009`009`009s := bite(param);
+X`009`009`009until length(s) > 0;
+X`009`009`009s := lowcase(s);
+X`009`009`009case s`0911`093 of
+X`009`009`009`009'?','h': command_help('*custom help*');
+X`009`009`009`009'q','e': done := true;
+X`009`009`009`009'k': get_key(dir,param);
+X`009`009`009`009'c': begin
+X`009`009`009`009`009writeln('Type the description that a player will see whe
+Vn the exit is found.');
+X`009`009`009`009`009writeln('Make no text for description to unconceal the e
+Vxit.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('`091 Editing the "hidden exit found" descriptio
+Vn `093');
+X`009  `009`009`009`009n := here.exits`091dir`093.hidden;
+X`009`009`009`009`009if edit_desc(n) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.hidden := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`123req alias`125`009`009`009'r': begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.exits`091dir`093.reqalias :=
+X`009`009`009`009`009`009not(here.exits`091dir`093.reqalias);
+X`009`009`009`009`009putroom;
+X
+X`009`009`009`009`009if here.exits`091dir`093.reqalias then
+X`009`009`009`009`009`009writeln('The alias for this exit will be required to
+V reference it.')
+X`009`009`009`009`009else
+X`009`009`009`009`009`009writeln('The alias will not be required to reference
+V this exit.');
+X`009`009`009`009     end;
+X`123req verb`125`009`009`009'x': begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.exits`091dir`093.reqverb :=
+X`009`009`009`009`009`009not(here.exits`091dir`093.reqverb);
+X`009`009`009`009`009putroom;
+X
+X`009`009`009`009`009if here.exits`091dir`093.reqverb then
+X`009`009`009`009`009`009writeln('The exit name will be required to be used a
+Vs a verb to use the exit')
+X`009`009`009`009`009else
+X`009`009`009`009`009`009writeln('The exit name may be used with GO or as a v
+Verb to use the exit');
+X`009`009`009`009     end;
+X`123autolook`125`009`009`009'l': begin
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.exits`091dir`093.autolook :=
+X`009`009`009`009`009`009not(here.exits`091dir`093.autolook);
+X`009`009`009`009`009putroom;
+X
+X`009`009`009`009`009if here.exits`091dir`093.autolook then
+X`009`009`009`009`009`009writeln('A LOOK will be done after the player travel
+Vs through this exit.')
+X`009`009`009`009`009else
+X`009`009`009`009`009`009writeln('The automatic LOOK will not be done when a
+V player uses this exit.');
+X`009`009`009`009     end;
+X`009`009`009`009'a': begin
+X`009`009`009`009`009if param > '' then s := param
+X`009  `009`009`009`009else grab_line('Alternate name for the exit? ',
+X`009`009`009`009`009    s,eof_handler := leave);
+X`009`009`009`009`009if length(s) > veryshortlen then
+X`009`009`009`009`009`009writeln('Your alias must be less than ',veryshortlen
+V:1,' characters.')
+X`009`009`009`009`009else begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.alias := lowcase(s);
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`009`009`009`009'v': analyze_exit(dir);
+X`009`009`009`009't': begin
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('Select the type of your exit:');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('0) No exit');
+X`009`009`009`009`009writeln('1) Open passage');
+X`009`009`009`009`009writeln('2) Door (object required to pass)');
+X`009`009`009`009`009writeln('3) No passage if holding key');
+X`009`009`009`009`009if special_priv then `123 minor change by leino@finuha `
+V125
+X`009`009`009`009`009`009writeln('4) exit randomly fails');
+X`009`009`009`009`009writeln('6) Exit exists only when holding object');
+X`009`009`009`009`009if special_priv then `123 minor change by leino@finuha `
+V125
+X`009`009`009`009`009`009writeln('7) exit opens/closes invisibly every minute
+V');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009grab_line('Which type? ',s,
+X`009`009`009`009`009    eof_handler := leave);
+X`009`009`009`009`009if isnum(s) then begin
+X`009`009`009`009`009`009n := number(s);
+X`009`009`009`009`009`009if ((n in `0914,7`093) and special_priv)
+X`009`009`009`009`009`009or (n in `0910..3,6`093) then begin `123 minor hack
+V by jlaiho@finuha `125
+X`009`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009`009here.exits`091dir`093.kind := n;
+X`009`009`009`009`009`009`009putroom;
+X`009`009`009`009`009`009`009writeln('Exit type updated.');
+X`009`009`009`009`009`009`009writeln;
+X`009`009`009`009`009`009`009if n in `0912,6`093 then
+X`009`009`009`009`009`009`009`009get_key(dir);
+X`009`009`009`009`009`009end else
+X`009`009`009`009`009`009`009writeln('Bad exit type.');
+X`009`009`009`009`009end else
+X`009`009`009`009`009`009writeln('Exit type not changed.');
+X`009`009`009`009     end;
+X`009`009`009`009'f': begin
+X`009`009`009`009`009writeln('The failure description will print if the playe
+Vr attempts to go through the');
+X`009`009`009`009`009writeln('the exit but cannot for any reason.');
+X`009`009`009`009`009writeln;
+X`009  `009`009`009`009writeln('`091 Editing the exit failure description `09
+V3');
+X
+X`009`009`009`009`009n := here.exits`091dir`093.fail;
+X`009`009`009`009`009if edit_desc(n) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.fail := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`009`009`009`009'i': begin
+X`009`009`009`009`009writeln('Edit the description that other players see whe
+Vn someone goes into');
+X`009`009`009`009`009writeln('the exit.  Place a # where the player''s name s
+Vhould appear.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('`091 Editing the exit "go in" description `093'
+V);
+X`009`009`009`009`009n := here.exits`091dir`093.goin;
+X`009`009`009`009`009if edit_desc(n) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.goin := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`009`009`009`009'o': begin
+X`009`009`009`009`009writeln('Edit the description that other players see whe
+Vn someone comes out of');
+X`009`009`009`009`009writeln('the exit.  Place a # where the player''s name s
+Vhould appear.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('`091 Editing the exit "come out of" description
+V `093');
+X`009`009`009`009`009n := here.exits`091dir`093.comeout;
+X`009`009`009`009`009if edit_desc(n) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.comeout := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`123 main exit desc `125`009`009'd': begin
+X`009`009`009`009`009writeln('Enter a one line description of the exit.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009n := here.exits`091dir`093.exitdesc;
+X`009`009`009`009`009make_line(n);
+X`009`009`009`009`009getroom;
+X`009`009`009`009`009here.exits`091dir`093.exitdesc := n;
+X`009`009`009`009`009putroom;
+X`009`009`009`009     end;
+X`009`009`009`009's': begin
+X`009`009`009`009`009writeln('The success description will print when the pla
+Vyer goes through the exit.');
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('`091 Editing the exit success description `093'
+V);
+X
+X`009`009`009`009`009n := here.exits`091dir`093.success;
+X`009`009`009`009`009if edit_desc(n) then begin
+X`009`009`009`009`009`009getroom;
+X`009`009`009`009`009`009here.exits`091dir`093.success := n;
+X`009`009`009`009`009`009putroom;
+X`009`009`009`009`009end;
+X`009`009`009`009     end;
+X`009`009`009`009otherwise writeln('-- Bad command, type ? for a list');
+X`009`009`009end;
+X`009`009until done;
+X`009   end else
+X`009`009writeln('You are not allowed to alter that exit.');
+X
+X`009`009log_event(myslot,E_CUSTDONE,0,0);
+X`009end else writeln('Unknown direction.');
+X    exit_label:
+X
+Xend;
+X
+X`091global`093 PROCEDURE do_custom(dirnam: string);
+Xvar`009n: integer;
+X`009t: o_type;
+X`009fi,ta: string; `123 first and tail `125
+Xbegin
+X    gethere;
+X    if checkhide then begin
+X`009ta := dirnam;
+X`009fi := bite(ta);
+X
+X`009if length(dirnam) = 0 then begin
+X`009    if is_owner(location,TRUE) then
+X`009`009custom_room
+X`009    else begin
+X`009`009writeln('You are not the owner of this room; you cannot customize it
+V.');
+X`009`009writeln('However, you may be able to customize some of the exits.  T
+Vo customize an');
+X`009`009writeln('exit, type CUSTOM <direction of exit>');
+X`009    end;
+X`009end else if lookup_dir(n,dirnam) then`032
+X`009    custom_exit(dirnam)
+X`009else if lookup_type(t,fi,pl := FALSE) then begin
+X`009    case t of`032
+X`009`009t_none: writeln('%Error in DO_CUSTOM. Notify Monster Manager.');
+X`009`009t_room: begin
+X`009`009    if ta > '' then writeln('You can only custom this room.')
+X`009`009    else if is_owner(location,TRUE) then custom_room
+X`009`009    else writeln('You are not the owner of this room; you cannot cus
+Vtomize it.');
+X`009`009end;
+X`009`009t_object: do_program(ta);
+X`009`009t_spell:  writeln('Use SET SPELL <spell name> to customize spell.');
+X`009`009t_monster: custom_monster(ta);
+X`009`009t_player: begin
+X`009`009    if manager_priv then writeln('Use SYSTEM to customize player.')
+X`009`009    else writeln('You can''t customize player.');
+X`009`009end;
+X`009    end; `123 case `125
+X`009end else if lookup_obj(n,dirnam) then
+X`123 if lookup_obj returns TRUE then dirnam is name of object to customize `
+V125
+X`009    do_program(dirnam)`009`123 customize the object `125
+X        else if lookup_pers(n,dirnam) then
+X`009    custom_monster(dirnam)
+X`009else begin
+X`009    writeln('To customize this room, type CUSTOM');
+X`009    writeln('To customize an exits, type CUSTOM <direction>');
+X`009    writeln('To customize an object, type CUSTOM <object name>');
+X`009    writeln('To customize a monster, type CUSTOM <monster name>');
+X`009end;
+X`123`009clear_command;`009`125
+X- 1312, 1490
+X`123 custom OBJECT ---------------------------------------------------------
+V---- `125
+X
+X
+X`123 support for do_program (customize an object)
+X  Give the player a list of kinds of object he's allowed to make his object
+X  and update it `125
+X
+Xprocedure prog_kind(objnum: integer);
+Xlabel exit_label;
+Xvar
+X`009n: integer;
+X`009s: string;
+X`009p: integer;
+X- 1499, 1520
+X`009writeln('Select the type of your object:');
+X`009writeln;
+X`009writeln(O_BLAND:3,`009'    Ordinary object (good for door keys)');
+X`009writeln(O_WEAPON:3,`009'    Weapon');
+X`009writeln(O_ARMOR:3,`009'    Armor');
+X`123`009writeln(O_THRUSTER:3,`009'    Exit thruster');`009`125
+X`009writeln(O_DISGUISE:3,`009'    Disguise');
+X`009writeln(O_BOOK:3,       '    Magic book.');
+X             `032
+X`009writeln(O_TRAP:3,`009'    Trap (bites if player fails to get it)'); `123
+V O_TRAP `125
+X`009if special_priv then begin `123 minor change by leino@finuha `125
+X`009`009writeln;
+X`123`009`009writeln(O_BAG:3,`009'    Bag');`009`125
+X`009`009writeln(O_CRYSTAL:3,`009'    Crystal Ball');
+X`123`009`009writeln(O_WAND:3,`009'    Wand of Power');`009`125
+X`123`009`009writeln(O_HAND:3,`009'    Hand of Glory');`009`125
+X`009`009writeln(O_TELEPORT_RING:3,'    Teleport Ring');
+X`009`009writeln(O_HEALTH_RING:3,'    Health Ring');
+X`009end;
+X`009writeln;
+X`009if wizard and special_priv then begin
+X`009`009writeln(O_MAGIC_RING:3,`009'    Magic Ring');
+X`009`009writeln;
+X`009end;
+X
+X`009grab_line('Which kind? ',s,eof_handler := leave);
+X
+X`009if isnum(s) then begin
+X`009`009n := number(s);
+X`009`009if (n >= 100) and (not special_priv)`032
+X`009`009`009or (n >= 200) and (not wizard) then
+X`009`009`009writeln('Out of range.')
+X`009`009else if n in `091O_BLAND,O_WEAPON,O_ARMOR,
+X`009`009`009O_DISGUISE,O_CRYSTAL,O_MAGIC_RING,
+X`009`009`009O_TELEPORT_RING,O_HEALTH_RING,
+X`009`009`009O_BOOK, O_TRAP`093 then begin
+X`009`009`009getobj(objnum);
+X`009`009`009`123 clear parms `125
+X`009`009`009for p := 1 to maxparm do obj.parms`091p`093 := 0;
+X                        obj.kind := n;
+X`009`009`009putobj;        `032
+X         `032
+X                        writeln('Object updated.');
+X`009`009end else
+X`009`009`009writeln('Out of range.');
+X- 1524, 1545
+X     `032
+X
+X`123 support for do_program (customize an object)
+X  Based on the kind it is allow the
+X  user to set the various parameters for the effects associated with that
+X  kind `125
+X
+XProcedure program_weapon (objnum: integer);
+Xlabel exit_label;
+XVar attack_power: Integer;
+X    required_experience: Integer;
+X    n,top,lev: integer;
+X    s: string;
+X- 1554, 1688
+X`123 getobj (objnum);
+X   freeobj;  `125   `123 prog_obj do this already `125
+X
+X   writeln ('Use 3 to edit failure attack message');
+X   writeln ('Use 4 to edit attack success message');
+X   writeln ('Use x to edit attack success message, what victim sees.');
+X   writeln ('Use 5 to edit attack success message, what others see.');
+X   writeln;
+X
+X   attack_power := obj.ap;
+X   required_experience := obj.exreq;
+X   lev := level(myexperience);
+X   top := leveltable`091lev`093.maxpower;
+X
+X   writeln ('Select attack power of this weapon: 0 - ',top:1);
+X   writeln ('Current attack power is ',attack_power:1);
+X   grab_line ('Power? ',s,eof_handler := leave);
+X   if isnum (s) then begin
+X     n := number (s);
+X     if (n >= 0) and (n <=top) then`032
+X       begin
+X         attack_power := n;`032
+X         getobj (objnum);
+X         obj.ap := attack_power;
+X         putobj;
+X         writeln ('Updated.');
+X
+X       end
+X     else writeln ('Out of range.'); `032
+X   end else writeln('No such power.');
+X   writeln;
+X
+X   writeln ('Select required experience to use this weapon: 0 - ',
+X      maxexperience:1);
+X   writeln ('Current required experience is ',required_experience:1);
+X   grab_line ('Experience? ',s,eof_handler := leave);
+X   if isnum (s) then begin
+X     n := number (s);
+X     if (n >=0) and (n <= maxexperience) then
+X       begin
+X         required_experience := n;
+X         getobj (objnum);
+X         obj.exreq := required_experience;
+X         putobj;
+X         writeln ('Updated.');
+X       end else writeln ('Out of range.');
+X   end else writeln ('No such experience.');
+X   writeln;
+X
+X    exit_label:
+X
+Xend;                                `032
+X
+XProcedure program_book (objnum: integer);
+Xlabel exit_label;
+XVar spell: Integer;
+X    required_experience: Integer;
+X    n: integer;
+X    s: string;
+X- 1696, 2050
+Xbegin
+X`123 getobj (objnum);
+X   freeobj;  `125   `123 prog_obj do this already `125
+X
+X   spell := obj.parms`091OP_SPELL`093;
+X   required_experience := obj.exreq;
+X   getspell_name;
+X   freespell_name;
+X
+X
+X   writeln ('Select spell for this magic book.');
+X
+X   if spell > 0 then`032
+X      writeln ('Current spell is ',spell_name.idents`091spell`093)
+X   else writeln('Current spell is <none>');
+X   grab_line ('Spell? ',s,eof_handler := leave);
+X   if lookup_spell(n,s) then begin
+X       if is_spell_owner(n,public_ok := true) then
+X       begin
+X         spell := n;`032
+X         getobj (objnum);
+X         obj.parms`091OP_SPELL`093 := spell;
+X         putobj;
+X         writeln ('Updated.');
+X       end
+X     else writeln ('You aren''t owner of this spell.'); `032
+X   end else writeln('No such spell.');
+X   writeln;
+X
+X   writeln ('Select required experience to use this magic book: 0 - ',
+X      maxexperience:1);
+X   writeln ('Current required experience is ',required_experience:1);
+X   grab_line ('Experience? ',s,eof_handler := leave);
+X   if isnum (s) then begin
+X     n := number (s);
+X     if (n >=0) and (n <= maxexperience) then
+X       begin
+X         required_experience := n;
+X         getobj (objnum);
+X         obj.exreq := required_experience;
++-+-+-+-+-+-+-+-  END  OF PART 2 +-+-+-+-+-+-+-+-

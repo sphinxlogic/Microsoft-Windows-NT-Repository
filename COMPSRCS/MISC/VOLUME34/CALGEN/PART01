@@ -1,0 +1,451 @@
+Newsgroups: comp.sources.misc
+From: tonyt@cimsim.berkeley.edu (Tony Tam)
+Subject:  v34i006:  calgen - postscript calendar generator, Part01/01
+Message-ID: <1992Dec6.042142.26137@sparky.imd.sterling.com>
+X-Md4-Signature: 604a5b283910c8e93bb8978f76075e92
+Date: Sun, 6 Dec 1992 04:21:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tonyt@cimsim.berkeley.edu (Tony Tam)
+Posting-number: Volume 34, Issue 6
+Archive-name: calgen/part01
+Environment: UNIX, PostScript
+
+During my spare time, I was playing around with the Postscript language and
+all I got out of it at the time was a postscript file that generated a calendar
+for any month of any year.
+
+Here is a file that outputs a nice calendar that you always wanted (smile). 
+unshar the text below to generate a file call 'calgen' and 'chmod +x calgen'.
+
+Type 'calgen' and it will output a postscript file with commands to draw 
+a nice calendar.  Try the nice graphics backgound with the '-g' option.
+
+Tony.
+--------<cut here>---------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  calgen
+# Wrapped by kent@sparky on Sun Nov 29 15:49:16 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'calgen' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'calgen'\"
+else
+  echo shar: Extracting \"'calgen'\" \(6621 characters\)
+  sed "s/^X//" >'calgen' <<'END_OF_FILE'
+X#! /bin/sh
+X# Tony Tam - 1991
+X#
+X# calgen - Version 1.0.6 3/2/91
+X# generate a calendar in postscript and send the output to the standard output
+X#
+X# To print it out: "calgen | lpr"
+X#
+X#Usage: calgen [-g #] [-h] [month] [year]
+X#
+X#	-h:		for help
+X#	-g [0-2]:	graphics to be used in background, 0 for none [0-2]
+X#	month:   	month of the calendar (optional) [1-12]
+X#	year:		year of the calendar, month has to be set also
+X#example:
+X#	calgen			; for the current month of the current year
+X#       calgen 11		; for November of the current year
+X#	calgen -g 1 4 1991	; for April 1991
+X#	calgen -g 2 4		; for April of the current year
+X#
+X#
+Xprint_usage () {
+X	echo "" >&2
+X	echo "Usage: `basename $0` [-g #] [-h] [month] [year]" >&2
+X	echo "" >&2
+X	echo "	-h:		for help"
+X	echo "	-g [0-2]:	graphics to be used in background, 0 for none [0-2]">&2
+X	echo "	month:   	month of the calendar (optional) [1-12]" >& 2
+X	echo "	year:		year of the calendar, month has to be set also" >&2
+X	echo "example:" >&2
+X	echo "	`basename $0`			; for the current month of the current year"
+X	echo "	`basename $0` 12		; for December  of the current year"
+X	echo "	`basename $0` -g 1 4 1991	; for April 1991"
+X	echo "	`basename $0` -g 2 4		; for April of the current year"
+X	echo "" >&2
+X	exit 1
+X}
+X
+XGRAPHICS="circles_round_round"
+X
+Xcase $1 in
+X	"-g")	
+X		case $2 in
+X			0)	GRAPHICS=""
+X				;;
+X			1)	GRAPHICS="circles_round_round"
+X				;;
+X			*)	GRAPHICS="sine_curve"	
+X				;;
+X		esac
+X		shift; shift
+X		;;
+X	"-h")
+X		print_usage;
+X		;;
+Xesac
+X
+X[ $# -gt 2 ] && {
+X	print_usage;
+X}
+X
+X
+X
+XMONTH=${1:-"`date +%m`"}
+XYEAR=${2:-"19`date +%y`"}
+X
+X([ $MONTH -gt 12 ] || [ $MONTH -lt 1 ]) && {
+X	echo "`basename $0`: illegal 'month' " >&2
+X	print_usage;
+X	exit 2
+X}
+X
+X[ "$YEAR" = "" ] && {
+X	echo "`basename $0`: illegal 'year' " >&2
+X	print_usage;
+X	exit 2
+X}
+X
+X#
+X# here is where we dive into postscript
+X#
+Xcat <<~~~~
+X%!PS-Adobe-1.0
+X% Written by Tony Tam - Nothing is copyrighted
+X%
+X% creates a nice looking calendar with date and month
+X%
+X
+X/end_month [ 31 28 31 30 31 30 31 31 30 31 30 31 ] def
+X/month_arr [ (January ${YEAR}) (February ${YEAR}) 
+X	     (March ${YEAR}) (April ${YEAR}) (May ${YEAR}) (June ${YEAR}) 
+X	     (July ${YEAR}) (August ${YEAR})
+X	     (September ${YEAR}) (October ${YEAR}) 
+X	     (November ${YEAR}) (December ${YEAR}) ] def
+X
+X/inch { 72 mul } def
+X
+X/x_max 8.5 inch   def		% max width of paper
+X/y_max 11 inch   def		% max height of paper
+X
+X
+X/dow {				% returns the day of the week
+X				% date, month, year
+X	/yr exch def
+X	/month exch def
+X	/date exch def
+X	month 2 le { 
+X		/month month 12 add def
+X		/yr yr 1 sub def
+X	} if
+X	/n1 month 1 add 26 mul 10 idiv def
+X	/n2 125 yr mul 100 idiv def
+X	/day date n1 add n2 add yr 100 idiv sub yr 400 idiv add 
+X             1 sub cvi 7 mod 1 add def
+X} def
+X
+X1 ${MONTH} ${YEAR} dow
+X/start_col day def 			% the column of the 1st of the month
+X/end_date end_month ${MONTH} 1 sub get def	% last day of the month
+X/month_str month_arr ${MONTH} 1 sub get def 		% need the parentheses
+X
+X% nice looking curve background curve
+X
+X/sine_curve
+X{
+X	gsave
+X
+X	/sineCurve
+X	{
+X		72 72 72 -72 288 0 curveto
+X	} def
+X
+X	x_max 2 div .5 inch add y_max 2 div translate
+X	.8 .8 scale
+X	.99 setgray
+X	3 setlinewidth
+X	newpath
+X	2 {
+X		24 {
+X		0 0 moveto
+X			sineCurve
+X			360 24 div rotate
+X		} repeat
+X		-1.0 1.0 scale
+X	} repeat
+X	stroke
+X
+X	1 setgray
+X	0 0 10 0 360 arc fill
+X	grestore
+X} def
+X
+X
+X/circles_round_round {
+X%%%% {x-center}{y-center} {radius} circle
+X/circle {
+X	0 360 arc 
+X} def
+X
+X/xMid x_max 2 div def
+X/yMid y_max 2 div def
+X
+XxMid yMid moveto
+Xgsave
+X/Radius 1 inch def
+X/Num 15 def
+X/Angle 360 Num div def
+X
+X.95 setgray
+Xnewpath
+XxMid yMid translate
+XNum {
+X	Radius 0 Radius circle		% draw the circle
+X	Angle rotate
+X} repeat
+Xstroke
+Xclosepath
+Xgrestore
+X} def				%% circles_round_round
+X
+X/font				% size, font (set the font)
+X{
+X    findfont exch scalefont setfont
+X} def 
+X
+X/x_value			% x value given a point
+X{
+X    pop
+X} def
+X
+X/y_value			% y value given a point
+X{
+X    exch
+X    pop
+X} def
+X
+X/center_text			% string
+X{
+X	dup
+X		currentpoint x_value
+X		exch
+X			1 setgray
+X			10 exch 0 exch ashow
+X			0 setgray
+X		currentpoint x_value
+X		exch
+X		sub
+X		dup
+X		neg
+X		0 rmoveto
+X		2
+X		div
+X		neg
+X		0
+X		rmoveto
+X
+X	/_str_ exch def
+X	currentpoint
+X	2 2 neg rmoveto
+X	.3 setgray
+X	_str_ 10 exch 0 exch ashow
+X	0 setgray
+X	moveto
+X	_str_ 10 exch 0 exch ashow
+X} def
+X
+X/landscape			% change to lanscape mode
+X{
+X     x_max 0 translate
+X     90 rotate
+X     x_max 			% save x_max
+X     /x_max y_max def
+X     /y_max exch def		% set y_max = x_max on stack
+X}   def
+X
+X/box				% draw a box given the corners	
+X{
+X	/y1 exch def
+X	/x1 exch def
+X	/y2 exch def
+X	/x2 exch def
+X
+X	newpath
+X	x1 y1 moveto
+X	x1 y2 lineto
+X	x2 y2 lineto
+X	x2 y1 lineto
+X	closepath
+X} def
+X
+X/fillbox { box gsave fill grestore } def
+X%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X% LET'S GET STARTED
+X%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X${GRAPHICS}
+X
+X/min_border {.5 inch .25 inch }  def
+X/max_border 
+X{
+X      x_max .5 inch sub 
+X      y_max 1.25 inch sub 
+X}  def
+X
+Xlandscape
+X
+Xgsave
+Xmin_border translate
+X
+X/border_y max_border y_value min_border y_value sub  def
+X/border_x max_border x_value min_border x_value sub  def
+X/hor_dist border_x 7 div  def
+X/ver_dist border_y 5 div  def
+X
+X
+X%box and date
+X
+X/date_show		% date, x, y 
+X{
+X	  .2 inch sub
+X	  exch
+X	  .22 inch sub
+X	  exch 
+X	moveto
+X	gsave
+X	  1 setgray
+X	  3 string cvs show
+X	grestore
+X} def
+X
+Xgsave
+X
+X.3 setgray
+X
+X16 /Times-Roman font
+X/_day_ 1 def
+X/_y border_y def
+X/first_col start_col def
+X
+X1 1 5 {
+X	hor_dist first_col mul hor_dist border_x 
+X	{
+X	     _day_ end_date le 
+X	     {
+X		/_x exch def
+X		  _x
+X		  _y
+X		  _x .25 inch sub
+X		  _y .25 inch sub
+X		fillbox
+X		stroke
+X
+X		_day_ _x _y date_show
+X		/_day_ _day_ 1 add def
+X	     } if
+X	} for
+X	/first_col 1 def
+X	/_y _y ver_dist sub def
+X} for	
+X
+X0 setgray
+X/_y border_y def
+Xhor_dist 
+Xhor_dist 
+Xhor_dist end_date _day_ sub 1 add mul {
+X
+X		/_x exch def
+X		  _x
+X		  _y
+X		  _x .25 inch sub
+X		  _y .25 inch sub
+X		fillbox
+X		stroke
+X
+X		_day_ _x _y date_show
+X		/_day_ _day_ 1 add def
+X} for
+X
+Xgrestore
+X
+X
+X% draw header
+X18 /Times-Roman font
+Xgsave
+X	gsave
+X		0 setgray
+X		30 /Times-Roman font
+X		border_x 2 div border_y 28 add moveto
+X		month_str center_text
+X	grestore
+X
+X	%%% top block
+X	   0 border_y 
+X	   border_x border_y 24 add
+X	box
+X	gsave fill grestore
+X	stroke
+X
+X	1 setgray
+X	hor_dist 2 div 9 sub border_y 2 add moveto
+X	hor_dist 12 sub 0 (SMTWTFS) ashow
+Xgrestore
+X      
+X
+X% vertical grids
+X
+X1 1 6 {
+X     hor_dist mul /__lnStart__ exch def
+X     __lnStart__ 0 moveto
+X     0 border_y rlineto stroke
+X  } for
+X
+X% horizontal grids
+X
+X1 1 4 {
+X     ver_dist mul /__lnStart__ exch def
+X     0 __lnStart__ moveto
+X     border_x 0 rlineto stroke
+X  } for
+X
+Xgrestore
+X
+X   min_border
+X   max_border
+Xbox
+Xstroke
+X
+Xshowpage
+X~~~~
+END_OF_FILE
+  if test 6621 -ne `wc -c <'calgen'`; then
+    echo shar: \"'calgen'\" unpacked with wrong size!
+  fi
+  chmod +x 'calgen'
+  # end of 'calgen'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

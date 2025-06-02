@@ -1,0 +1,376 @@
+Newsgroups: comp.sources.misc
+From: rick@digibd.com (Rick Richardson)
+Subject: v35i112:  hp4laser - LaserJet II-IV SYSV lp spooler interface for PCL or PS, Part01/01
+Message-ID: <1993Mar3.185614.19860@sparky.imd.sterling.com>
+X-Md4-Signature: d7ec740fb5b9ec3060de6055e893697a
+Date: Wed, 3 Mar 1993 18:56:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: rick@digibd.com (Rick Richardson)
+Posting-number: Volume 35, Issue 112
+Archive-name: hp4laser/part01
+Environment: HPLJ-IV, SYSV
+
+As usual, the lp model scripts you get with the various System V UNIXes are
+way behind the times.  Here's the latest version of our lp model to drive
+the HP LaserJet IV with the Adobe Postscript SIMMS.  Its been tested with
+the LJ IV, attached to a DigiBoard DigiFAX buffered parallel port, but
+it should work on a serial port or the dumb parallel port as well.  We
+happily print PCL and PS files to our printer, and the script takes care
+of switching the printer mode as needed.  We don't worry about whether
+the PCL files are binary or text, the script handles it.
+
+Also, you won't be able to use the postscript features, but it should be
+able to drive a LaserJet II or LaserJet III printer.  You are expected to
+adjust the CONFIGURATION SECTION of the script when you install it.
+
+Also note: I've provided -oraw, -og, and -otroff lp options for backwards
+compatibility with older lp models.  However, it is not necessary to use
+these options when sending binary PCL data to the printer.  This is because
+this script always runs the interface in "raw" mode.  An HP PCL escape
+sequence is used to tell the printer to convert newlines to CR+NL.  This
+baby is bulletproof!  Vendor supplied lp models typically use "stty" to
+do the NL conversion, which results in havoc for binary PCL streams unless
+the proper option is supplied.
+
+-Rick Richardson
+DigiBoard, Inc.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  hp4laser
+# Wrapped by rick@digibd on Thu Feb 25 11:50:39 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f hp4laser -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hp4laser\"
+else
+echo shar: Extracting \"hp4laser\" \(6649 characters\)
+sed "s/^X//" >hp4laser <<'END_OF_hp4laser'
+X# hp4laser:
+X#	lp model interface for HP LaserJet Series IIIsi and IV.
+X#
+X#	With the Adobe Postscript SIMM installed, this script will auto-detect
+X#	postscript files (by looking for %! as the first characters in the file,
+X#	and switch the printer mode as needed.
+X#
+X#	This script probably works fine with LJ II's and III's without
+X#	postscript support.  Set ps_simm=no in the CONFIGURATION SECTION.
+X#
+X#	See the CONFIGURATION SECTION below to adjust for your site.
+X#
+X#	Copyright 1993 Digi International.  All Rights Reserved.
+X#
+X#	Permission granted for non-commercial use without fee
+X#
+X# command arguments are:
+X#	request-id user-name title copies printer-options file1 [file2 ...]
+X#	$1         $2        $3    $4     $5
+X#
+X# options (lp -oXXX) are:
+X#	-otroff		#No cr/lf mapping (for JetRoff, etc.)
+X#	-oraw		#Same
+X#	-og		#Same (SCO's naming convention)
+X#	-oland		#Landscape orientation for unformatted text
+X#	-oport		#Portrait orientation for unformatted text
+X#	-o2on1		#Two pages on one page for unformatted text
+X#	-oi		#Indent 8 characters for unformatted text
+X#	-o17cpi		#17 CPI for unformatted text
+X#	-opcl		#Force use of PCL mode
+X#	-ops		#Force use of PS mode
+X#
+X#	-onobanner	Force no banner
+X#	-onofilebreak	Force no file break
+X# TODO:
+X#	-ocpi=pica	10 CPI
+X#	-ocpi=elite	12 CPI
+X#	-ocpi=		Other CPI
+X#	-olpi=		LPI
+X#	-olength=
+X#	-owidth=
+X#	-oindent=	Offset page by N characters
+X#
+X# Testing:
+X#	After configuring the stuff below, you can test this script without
+X#	actually installing it into the "lp" system with this typical command:
+X#
+X#		./hp4laser 9999 rick title 1 "" FILE > DEVICE
+X#
+X#	Where FILE is a file to print, and DEVICE is the device you use, e.g.
+X#	/dev/ttyi1A, /dev/lp0, or /dev/dfax0lp.  You have to be root.
+X#
+X# Installation:
+X#	To install this model as the interface script, do these commands:
+X#		/usr/lib/lpshut
+X#		/usr/lib/lpadmin -p ${name} -v ${dev} -m ${model}
+X#		/usr/lib/lpsched
+X#		lpstat -r
+X#		/usr/lib/accept ${name}
+X#		enable ${name}
+X#		/usr/lib/lpadmin -d${name}
+X#	Where ${name} is the name you want for your printer, ${dev} is the
+X#	device name, and ${model} is the name of this file.
+X#
+X
+X#
+X# BEGIN CONFIGURATION SECTION (adjust these as needed)
+X#
+Xspeed=parallel	#Serial interface speed (e.g. 38400), or "parallel"
+Xbanner=no	#Enable printing of banner page ("yes" or "no")
+Xps_simm="yes"	#Have Adobe Postscript SIMM installed ("yes" or "no")
+Xidlemode="pcl"	#Idle printer in "pcl" mode or "ps" mode (when ps_simm=yes)
+X#
+X# END CONFIGURATION SECTION
+X#
+X
+X#
+X#	Word perfect uses its own spooling system
+X#
+Xfor option in $5
+Xdo
+X	if [ $option = WP50 ]
+X	then
+X		/usr/wp/bin/wpp50 <$6
+X		exit 0
+X	fi
+Xdone
+X
+X#
+X#	Give names to the command line arguments
+X#
+Xprinter=`basename $0`
+Xrequest_id=$1
+Xuser_name=$2
+Xtitle="$3"
+Xcopies=$4
+Xoptions=$5
+Xshift 5
+Xfiles="$*"
+Xnfiles=$#
+X
+X#
+X#	If serial interface, set speed
+X#
+Xif [ "$speed" != "parallel" ]
+Xthen
+X	stty $speed clocal cs8 ixon ixoff -ixany -parenb onlcr -tabs -opost <&1
+Xfi
+X
+X#
+X#	Define some shorthand for PCL sequences
+X#
+XNORAW="\033&k2G"		#Translate LF to CR+LF and FF to CR+FF
+XRAW="\033&k0G"			#Do not translate CR, LF, or FF
+X
+XRESETJOB="\033E\033&l2A"	#Reset printer, eject if any printing on page,
+X				#Select letter paper by default
+XRESETPAGE="\033E"		#Reset printer, eject if any printing on page
+XPSMODE="\033%-12345X@PJL enter language=postscript\n"	# Switch to PS
+XPCLMODE="\033%-12345X@PJL enter language=pcl\n"		# Switch to PCL
+X
+X#
+X#	getarg <arg>:	given an <arg> of the form "x=y", return the "y"
+X#
+Xgetarg () {
+X	echo "`expr \"$1\" : \"^[^=]*=\(.*\)\"`"
+X}
+X
+X#
+X#	postscript <file>: if <file> is a Postscript file, return true
+X#
+Xpostscript () {
+X	if [ $ps_simm = no ]; then return 1; fi
+X	if [ $force = "pcl" ]; then return 1; fi
+X	if [ $force = "ps" ]; then return 0; fi
+X	#case "`sed -n '1s/\(..\).*/\1/p' $1`" in
+X	#%!)	return 0;;
+X	#?%)	return 0;;
+X	#*)	return 1;;
+X	#esac
+X	ctrl_d=`echo "\004\c"`
+X	read a <$1
+X	case "$a" in
+X	%!*)		return 0;;
+X	"$ctrl_d"%!*)	return 0;;
+X	*)		return 1;;
+X	esac
+X}
+X
+X#
+X#	Definition of the banner page for an HP printer
+X#
+Xpcl_banner () {
+X	PCOURIER=	# "\033&l66p2e7.6c66F"
+X	GRAY="\033*c2400a150b30g2P"
+X	TLOC="\033*p0x0Y"
+X	echo "$RESETJOB$NORAW$PCOURIER$TLOC$GRAY\n\n\n\n"
+X	banner "  $user_name"
+X	echo "\n"
+X	full_name=`grep "^$user_name:" /etc/passwd | line | cut -d: -f5`
+X	if [ -n "$full_name" ]
+X	then
+X		echo "                User: $full_name\n"
+X	else
+X		echo "\n"
+X	fi
+X	echo "                Request id: $request_id    Printer: $printer`\n"
+X	echo "                Options: $options\n"
+X	echo "                `date`"
+X	echo "\n"
+X	if [ -n "$title" ]
+X	then
+X		banner $title
+X	fi
+X	echo "$RESETJOB\c"
+X}
+X
+X#
+X#	Postscript banner page
+X#
+Xps_banner () {
+X	:
+X}
+X
+X#
+X#	Switch to PS mode
+X#
+Xps_mode () {
+X	echo "$PSMODE"
+X	echo "\r\004\c"
+X	echo "letter"	# Force inital paper selection to be letter
+X}
+X
+X#
+X#	Switch to HP mode
+X#
+Xpcl_mode () {
+X	echo "$PCLMODE\c"
+X	echo "$RESETJOB\c"
+X}
+X
+X#
+X#	Process user options
+X#
+Xraw=0
+Xorient=port
+Xcpi=10
+Xlpi=6
+Xindent=0
+Xlength=0
+Xwidth=0
+Xfilebreak=1
+Xtwo_on_one=0
+Xforce=no
+Xfor o in $options
+Xdo
+X	case $o in
+X	raw|troff|g)	raw=1;;
+X	land)		orient=land;;
+X	port)		orient=port;;
+X	17cpi)		cpi=16.66;;
+X	i)		indent=8;;
+X	2on1)		two_on_one=1;;
+X	cpi=pica)	cpi=10;;
+X	cpi=elite)	cpi=12;;
+X	cpi=*)		cpi=`getarg ${o}`;;
+X	indent=*)	indent=`getarg ${o}`;;
+X	length=*)	length=`getarg ${o}`;;
+X	width=*)	width=`getarg ${o}`;;
+X	lpi=*)		lpi=`getarg ${o}`;;
+X	nobanner)	banner=no;;
+X	nofilebreak)	filebreak=0;;
+X	ps)		force="ps";;
+X	pcl)		force="pcl";;
+X	esac
+Xdone
+X
+X#
+X#	Init the printer, set exit traps
+X#
+Xif [ $ps_simm = no ]; then
+X	# force PCL only operation
+X	PCLMODE=
+X	idlemode=pcl
+Xfi
+Xcase $idlemode in
+Xpcl)	cur_mode=pcl; pcl_mode; echo "$RESETJOB\c"
+X	trap 'pcl_mode; exit' 0 2 3 15
+X	;;
+Xps)	cur_mode=ps; ps_mode;
+X	trap 'ps_mode; exit' 0 2 3 15
+X	;;
+Xesac
+X
+X#
+X#	Get printer banner page out in portrait, courier
+X#
+Xif [ $banner = yes ]
+Xthen
+X	case $idlemode in
+X	pcl)	pcl_banner;;
+X	ps)	ps_banner;;
+X	esac
+Xfi
+X
+X#
+X#	Set variables to use when file is printed in PCL mode
+X#
+XSET=
+XSET="$SET\033(s${cpi}H"
+XSET="$SET\033&a${indent}L"
+Xif [ $raw = 1 ]; then CRMODE=$RAW; else CRMODE=$NORAW; fi
+Xif [ $orient = "land" ]; then
+X	SET="$SET\033&l1O\033(s16.66H\033&l5.4C\033&l6E\033&a0R\033&l66F"
+Xfi
+Xif [ $two_on_one = 1 ]; then
+X	SET="$SET\033&l1O\033(s16.66H\033&l5.4C\033&l6E\033&a0R\033&l66F"
+Xfi
+X
+X#
+X#	Loop for each copy, and then for each file
+X#
+Xcopy=1
+Xwhile [ $copy -le $copies ]
+Xdo
+X	for file in $files
+X	do
+X		if postscript $file
+X		then
+X			ps_mode
+X			cat $file
+X		else
+X			pcl_mode
+X			echo "$SET$CRMODE\c"
+X			if [ $two_on_one = 1 ]
+X			then
+X				cat "$file" | newform -i | \
+X					sed "s/^/| /" | pr -2 -w175 -t
+X			else
+X				cat "$file"
+X			fi
+X			if [ $filebreak = 1 ]; then echo "$RESETPAGE\c"; fi
+X		fi
+X	done
+X	copy=`expr $copy + 1`
+Xdone
+Xexit 0
+END_OF_hp4laser
+if test 6649 -ne `wc -c <hp4laser`; then
+    echo shar: \"hp4laser\" unpacked with wrong size!
+fi
+chmod +x hp4laser
+# end of overwriting check
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+Rick Richardson		Senior Staff Engineer	Investment advice for 1993-1996:
+DigiBoard, Inc.		Email: rick@digibd.com	Go long on Arkansas chicken
+6400 Flying Cloud Dr.	Fax:   (612) 943-0803	Go short on everything else
+Eden Prarie, MN 55344	Tel:   (612) 943-5383	<standard disclaimer>
+
+exit 0 # Just in case...

@@ -1,0 +1,1861 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i033:  xarchie - An X browser interface to Archie, v2.0.6, Part05/24
+Message-ID: <1993Jun15.223210.29837@sparky.imd.sterling.com>
+X-Md4-Signature: 03efa96246e74383a54d6b5f22c443e7
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:32:10 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 33
+Archive-name: xarchie/part05
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part05
+
+#!/bin/sh
+# this is Part.05 (part 5 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/Xarchie.ad.h continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/Xarchie.ad.h'
+else
+echo 'x - continuing file xarchie-2.0.6/Xarchie.ad.h'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/Xarchie.ad.h' &&
+"Xarchie.gray*Dialog*background:			gray90",
+"Xarchie.gray*Dialog*Command.background:		gray50",
+"Xarchie.gray*statusText*background:		gray55",
+"Xarchie.gray*viewSaveLabelText*background:	gray55",
+"Xarchie.gray*browserForm.background:		gray90",
+"Xarchie.gray*browserForm*Command.background:	gray90",
+"Xarchie.gray*browserForm*Paned*background:	gray90",
+"Xarchie.gray*List*background:			gray90",
+"Xarchie.gray*XfwfMultiList*highlightBackground:	gray20",
+"Xarchie.gray*XfwfMultiList*highlightForeground:	white",
+"Xarchie.gray*stringForm*Text*background:	gray80",
+"Xarchie.gray*stringForm*searchText*background:	gray80",
+"Xarchie.gray*helpForm*List.background:		gray90",
+"Xarchie.gray*helpForm*Text*background:		gray90",
+"Xarchie.gray*ftpTraceText*background:		gray55",
+SHAR_EOF
+echo 'File xarchie-2.0.6/Xarchie.ad.h is complete' &&
+chmod 0644 xarchie-2.0.6/Xarchie.ad.h ||
+echo 'restore of xarchie-2.0.6/Xarchie.ad.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/Xarchie.ad.h'`"
+test 32017 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/Xarchie.ad.h: original size 32017, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/about.c ==============
+if test -f 'xarchie-2.0.6/about.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/about.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/about.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/about.c' &&
+/*
+X * about.c : The "About xarchie" panel, with goofy display
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X * If either HAVE_RANDOM or HAVE_RAND are defined (config.h), the display
+X * is animated randomly, otherwise it just sits there.
+X * 13 May 1993: Fixed array bound error in popupAboutPanel().
+X *		Changed the way the version info is printed.
+X *		Changed style of animation (spare time killer).
+X */
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/Shell.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Label.h>
+#include <X11/Xaw/Command.h>
+#include "xarchie.h"
+#include "patchlevel.h"
+#include "about.xbm"
+#include "config.h"
+X
+#define TIMER_LENGTH 250	/* msec */
+X
+/*
+X * Functions defined here
+X */
+void initAboutActions();
+void popupAboutPanel();
+void setAboutShellState();
+X
+static void initAboutWidgets();
+static void aboutAction(),aboutDoneAction();
+static void drawFrame(),timeoutProc();
+X
+/*
+X * Data defined here:
+X */
+static Widget aboutShell;
+static Widget picture;
+static Window window;
+static XtIntervalId timer;
+static Boolean isPoppedUp;
+X
+static XtActionsRec actionTable[] = {
+X    { "about",		aboutAction },
+X    { "about-done",	aboutDoneAction },
+};
+X
+#define PTS_PER_LINE	3		/* maximum pts per line */
+#define LINES_PER_WAVE	6		/* total lines per wave */
+#define NUM_WAVES	4		/* number of different waves */
+#define NUM_FRAMES	4		/* number of anim frames per wave */
+X
+static XPoint points[NUM_WAVES][LINES_PER_WAVE][PTS_PER_LINE] = {
+X    { { {24,33}, { 4,0}, {0, 4} },
+X      { {22,30}, { 9,0}, {0, 8} },
+X      { {20,27}, {14,0}, {0,12} },
+X      { {18,24}, {19,0}, {0,16} },
+X      { {16,21}, {24,0}, {0,20} },
+X      { {14,18}, {29,0}, {0,24} } },
+X    { { {16,18}, { 1,0} },
+X      { {15,21}, { 3,0} },
+X      { {14,24}, { 5,0} },
+X      { {13,28}, { 7,0} },
+X      { {12,31}, { 9,0} },
+X      { {11,34}, {11,0} } },
+X    { { {42,22}, { 1, 1} },
+X      { {38,23}, { 3, 3} },
+X      { {34,24}, { 5, 5} },
+X      { {30,25}, { 7, 7} },
+X      { {26,26}, { 9, 9} },
+X      { {22,27}, {11,11} } },
+X    { { {43,46}, {0, 1} },
+X      { {40,45}, {0, 3} },
+X      { {37,44}, {0, 5} },
+X      { {34,43}, {0, 7} },
+X      { {31,42}, {0, 9} },
+X      { {28,41}, {0,11} } }
+};
+static int num[NUM_WAVES] = { 3, 2, 2, 2 };
+X
+static GC clearGC,setGC;
+static int wave,frame;
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+initAboutActions()
+{
+X    XtAppAddActions(appContext,actionTable,XtNumber(actionTable));
+X    wave = 0;
+X    frame = -1;		/* so we start with frame 0 of wave 0 */
+}
+X
+/*ARGSUSED*/
+static void
+aboutAction(w,event,params,num_params)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X    popupAboutPanel();
+}
+X
+/*ARGSUSED*/
+static void
+aboutDoneAction(w,event,params,num_params)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X    XtRemoveTimeOut(timer);
+X    isPoppedUp = False;
+X    XtPopdown(aboutShell);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+popupAboutPanel()
+{
+X    XGCValues values;
+X    Arg args[2];
+X    Pixel fg,bg;
+X
+X    if (isPoppedUp) {
+X	XRaiseWindow(display,XtWindow(aboutShell));
+X	return;
+X    }
+X    if (aboutShell == NULL) {
+X	initAboutWidgets();
+X	window = XtWindow(picture);
+X	XtSetArg(args[0],XtNforeground,&fg);
+X	XtSetArg(args[1],XtNbackground,&bg);
+X	XtGetValues(picture,args,2);
+X	values.function = GXcopy;
+X	values.foreground = fg;
+X	setGC = XCreateGC(display,root,GCFunction|GCForeground,&values);
+X	values.foreground = bg;
+X	clearGC = XCreateGC(display,root,GCFunction|GCForeground,&values);
+X    }
+X    isPoppedUp = True;
+X    XtPopup(aboutShell,XtGrabNone);
+#if defined(HAVE_RANDOM) || defined(HAVE_RAND)
+X    timer = XtAppAddTimeOut(appContext,(unsigned long)TIMER_LENGTH,
+X			    timeoutProc,NULL);
+#endif
+}
+X
+static void
+initAboutWidgets()
+{
+X    Pixmap bitmap;
+X    Widget form;
+X    Arg args[1];
+X    char buf[64];
+X
+X    bitmap = XCreateBitmapFromData(display,root,(char *)about_bits,
+X				   about_width,about_height);
+X    aboutShell = XtCreatePopupShell("aboutShell",topLevelShellWidgetClass,
+X				    toplevel,NULL,0);
+X    form = XtCreateManagedWidget("aboutForm",formWidgetClass,
+X				 aboutShell,NULL,0);
+#ifdef BETA
+X    sprintf(buf,"Xarchie %.1fb%d",VERSION,PATCHLEVEL);
+#else
+X    sprintf(buf,"Xarchie %.1f.%d",VERSION,PATCHLEVEL);
+#endif
+X    XtSetArg(args[0],XtNlabel,buf);
+X    (void)XtCreateManagedWidget("aboutLabel0",labelWidgetClass,form,args,1);
+X    (void)XtCreateManagedWidget("aboutLabel1",labelWidgetClass,form,NULL,0);
+X    (void)XtCreateManagedWidget("aboutLabel2",labelWidgetClass,form,NULL,0);
+X    XtSetArg(args[0],XtNbitmap,bitmap);
+X    picture = XtCreateManagedWidget("aboutLabel3",labelWidgetClass,
+X				    form,args,1);
+X    (void)XtCreateManagedWidget("aboutLabel4",labelWidgetClass,form,NULL,0);
+X    (void)XtCreateManagedWidget("aboutLabel5",labelWidgetClass,form,NULL,0);
+X    (void)XtCreateManagedWidget("aboutDoneButton",commandWidgetClass,
+X				form,NULL,0);
+X    XtRealizeWidget(aboutShell);
+X    (void)XSetWMProtocols(XtDisplay(aboutShell),XtWindow(aboutShell),
+X			  &WM_DELETE_WINDOW,1);
+}
+X
+/* This will never get called unless HAVE_RANDOM or HAVE_RAND is defined. */
+/*ARGSUSED*/
+static void
+timeoutProc(client_data,id)
+XXtPointer client_data;
+XXtIntervalId *id;
+{
+X    /* Clear old lines (after first call) */
+X    if (frame >= 0)
+X	drawFrame(clearGC);
+X    /* Compute next frame and/or wave */
+X    if (frame < NUM_FRAMES-1) {
+X	frame += 1;
+X    } else {
+#ifdef HAVE_RANDOM
+X	wave = random() % NUM_WAVES;
+#else
+#ifdef HAVE_RAND
+X	wave = rand() % NUM_WAVES;
+#endif
+#endif
+X	frame = 0;
+X    }
+X    /* Draw new lines */
+X    drawFrame(setGC);
+X    /* Reset timer */
+X    timer = XtAppAddTimeOut(appContext,(unsigned long)TIMER_LENGTH,
+X			    timeoutProc,NULL);
+}
+X
+/*
+X * Draw or clear the current frame of the current wave by drawing some of
+X * the lines.
+X */
+static
+void drawFrame(gc)
+GC gc;
+{
+X    int i,first,last;
+X
+X    switch (frame) {
+X      case 0:
+X	first = 0; last = 1; break;
+X      case 1:
+X	first = 0; last = 3; break;
+X      case 2:
+X	first = 2; last = 5; break;
+X      case 3:
+X	first = 4; last = 5; break;
+X    }
+X    for (i=first; i <= last; i++) {
+X	XDrawLines(display,window,gc,
+X		   points[wave][i],num[wave],CoordModePrevious);
+X    }
+}
+X
+void
+setAboutShellState(state)
+int state;
+{
+X    if (!isPoppedUp)
+X	return;
+X    switch (state) {
+X	case NormalState:
+X	    XtMapWidget(aboutShell);
+X	    timer = XtAppAddTimeOut(appContext,(unsigned long)TIMER_LENGTH,
+X				    timeoutProc,NULL);
+X	    break;
+X	case IconicState:
+X	    XtRemoveTimeOut(timer);
+X	    XtUnmapWidget(aboutShell);
+X	    break;
+X    }
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/about.c ||
+echo 'restore of xarchie-2.0.6/about.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/about.c'`"
+test 6460 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/about.c: original size 6460, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/about.h ==============
+if test -f 'xarchie-2.0.6/about.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/about.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/about.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/about.h' &&
+/*
+X * about.c : The "About xarchie" panel
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+extern void initAboutActions();
+extern void popupAboutPanel();
+extern void setAboutShellState();
+X
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/about.h ||
+echo 'restore of xarchie-2.0.6/about.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/about.h'`"
+test 208 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/about.h: original size 208, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/about.xbm ==============
+if test -f 'xarchie-2.0.6/about.xbm' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/about.xbm (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/about.xbm (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/about.xbm' &&
+#define about_width 64
+#define about_height 64
+static char about_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x90, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x28, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x50, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x90, 0x27, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0xf0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00, 0x00, 0xc0, 0xff, 0x00,
+X   0x00, 0x08, 0x40, 0x00, 0x00, 0x40, 0x80, 0x00, 0x00, 0xf8, 0x7f, 0x00,
+X   0x00, 0x40, 0x9e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0xa1, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x40, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x9e, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0xc0, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0xff, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xe0, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00,
+X   0x20, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xa0, 0xff, 0x7f, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0xa0, 0x55, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00,
+X   0xa0, 0xaa, 0x6a, 0x01, 0x00, 0x00, 0x00, 0x00, 0xa0, 0xfd, 0x5f, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0xa0, 0x06, 0x68, 0x01, 0x00, 0xc0, 0xff, 0x00,
+X   0xa0, 0xfd, 0x5f, 0x01, 0x00, 0x40, 0x80, 0x00, 0xa0, 0x26, 0x69, 0x01,
+X   0x00, 0x40, 0x9e, 0x00, 0xa0, 0x25, 0x59, 0x01, 0x00, 0x40, 0xa1, 0x00,
+X   0xa0, 0xfe, 0x6f, 0x01, 0x00, 0x40, 0xa1, 0x00, 0xa0, 0x05, 0x58, 0x01,
+X   0x00, 0x40, 0xa1, 0x00, 0xa0, 0xfe, 0x6f, 0x01, 0x00, 0x40, 0x9e, 0x00,
+X   0xa0, 0x55, 0x55, 0x01, 0x00, 0x40, 0x80, 0x00, 0xa0, 0xaa, 0x6a, 0x01,
+X   0x00, 0xc0, 0xff, 0x00, 0xa0, 0xff, 0x7f, 0x01, 0x00, 0x00, 0x00, 0x00,
+X   0x20, 0x00, 0x00, 0x01, 0x00, 0xc0, 0xff, 0x00, 0xe0, 0xff, 0xff, 0x01,
+X   0x00, 0x20, 0x00, 0x01, 0x00, 0xff, 0x3f, 0x00, 0x00, 0xe0, 0xff, 0x01,
+X   0xe0, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x02,
+X   0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+X   0xf0, 0xff, 0xff, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/about.xbm ||
+echo 'restore of xarchie-2.0.6/about.xbm failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/about.xbm'`"
+test 3278 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/about.xbm: original size 3278, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/actions.c ==============
+if test -f 'xarchie-2.0.6/actions.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/actions.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/actions.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/actions.c' &&
+/*
+X * actions.c : Widget action procedures
+X *
+X * Other modules also define actions, and call XtAppAddActions() when
+X * they are initialized.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 2 Nov 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include "xarchie.h"
+#include "browser.h"
+#include "types.h"
+#include "appres.h"
+#include "actions.h"
+#include "file-panel.h"
+#include "ftp-actions.h"
+#include "about.h"
+#ifdef HELP
+# include "help.h"
+#endif
+#include "query.h"
+#include "regex.h"
+#include "xutil.h"
+#include "stringdefs.h"
+#include "alert.h"
+#include "confirm.h"
+#include "debug.h"
+extern void abortDirsend();		/* dirsend.c */
+extern void ftpAbortTransfer();		/* ftp-actions.c */
+X
+/*
+X * Functions defined here
+X */
+void initActions();
+X
+static void quitAction();
+static void queryAction(),abortAction(),queryOrAbortAction();
+static void queryHostAction(),queryLocationAction();
+static void shiftDownAction(),shiftUpAction(),shiftTopAction();
+static void openAllAction(),openFilesAction(),openDirectoriesAction();
+static void getAction();
+X
+/*
+X * Data defined here:
+X */
+static XtActionsRec actionTable[] = {
+X    { "quit",			quitAction },
+X    { "query",			queryAction },
+X    { "abort",			abortAction },
+X    { "query-or-abort",		queryOrAbortAction },
+X    { "query-host",		queryHostAction },
+X    { "query-location",		queryLocationAction },
+X    { "browser-down",		shiftDownAction },
+X    { "browser-up",		shiftUpAction },
+X    { "browser-top",		shiftTopAction },
+X    { "browser-open-files",	openFilesAction },
+X    { "browser-open-directories",	openDirectoriesAction },
+X    { "browser-open-all",	openAllAction },
+X    { "ftp-get",		getAction },
+};
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+initActions()
+{
+X    XtAppAddActions(appContext,actionTable,XtNumber(actionTable));
+X    initFtpActions();
+X    initFilePanelActions();
+X    initAboutActions();
+#ifdef HELP
+X    initHelpActions();
+#endif
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+#define ACTION_PROC(NAME)	void NAME(w,event,params,num_params) \
+X					Widget w; \
+X					XEvent *event; \
+X					String *params; \
+X					Cardinal *num_params;
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(quitAction)
+{
+X    bye(0);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(queryAction)
+{
+X    char *s;
+X    int len;
+X    Boolean gif;
+X
+X    if (getBrowserState() != BROWSER_READY) {
+X	/* Don't do anything using popups since we could be in dirsend()
+X	   by now. */
+X	XBell(display,0);
+X	return;
+X    }
+X    if ((s=getWidgetString(searchText)) == NULL || *s == '\0') {
+X	alert0("No search term specified.");
+X	return;
+X    }
+#ifndef DONT_CATCH_GIFS
+X    len = strlen(s);
+X    gif = False;
+X    switch (appResources.searchType) {
+X	case GfExact:
+X	    gif = ((len > 4 &&
+X		    (!strcmp(s+len-4,".gif") || !strcmp(s+len-4,".GIF"))) ||
+X		   (len > 6 &&
+X		    (!strcmp(s+len-6,".gif.Z") || !strcmp(s+len-6,".GIF.Z"))));
+X	    break;
+X	case GfSubstr:
+X	case GfExactSubstr:
+X	case GfSubcase:
+X	case GfExactSubcase:
+X	    gif = (strstr(s,"gif") || strstr(s,"GIF"));
+X	    break;
+X	case GfRegexp:
+X	case GfExactRegexp:
+X	    gif = (re_comp(s) == NULL &&
+X		   (re_exec("@PrObAbLyNoTaFiLe@.gif") ||
+X		    re_exec("@PrObAbLyNoTaFiLe@.gif.Z")));
+X	    break;
+X    }
+X    if (gif) {
+X	if (!confirm0("Your search term will match GIFs. Do it anyway?"))
+X	    return;
+X	else if (appResources.niceLevel <= 0 &&
+X		 !confirm0("Really do it without increasing niceness?"))
+X	    return;
+X    }
+#endif /* DONT_CATCH_GIFS */
+X    /* We're about to do the query, so disable querying */
+X    setBrowserState(BROWSER_DIRSEND);
+X    queryItemAndParse(s);
+X    /* Re-enable querying */
+X    setBrowserState(BROWSER_READY);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(abortAction)
+{
+X    DEBUG0("abortAction...\n");
+X    XtSetSensitive(abortButton,False);
+X    switch (getBrowserState()) {
+X	case BROWSER_DIRSEND:
+X	    abortDirsend();
+X	    break;
+X	case BROWSER_FTP:
+X	    ftpAbortTransfer();
+X	    break;
+X    }
+X    DEBUG0("abortAction: done\n");
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(queryOrAbortAction)
+{
+X    DEBUG0("queryOrAbortAction...\n");
+X    if (getBrowserState() == BROWSER_READY)
+X	XtCallActionProc(toplevel,"query",NULL,NULL,0);
+X    else
+X	XtCallActionProc(toplevel,"abort",NULL,NULL,0);
+X    DEBUG0("queryOrAbortAction: done\n");
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(queryHostAction)
+{
+X    char *host;
+X
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    if ((host=getWidgetString(hostText)) == NULL || *host == '\0') {
+X	alert0("No host specified.");
+X	return;
+X    }
+X    /* We're about to do the query, so disable querying */
+X    setBrowserState(BROWSER_DIRSEND);
+X    queryHostAndParse(host);
+X    /* Re-enable querying */
+X    setBrowserState(BROWSER_READY);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(queryLocationAction)
+{
+X    char *host,*loc;
+X
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    if ((host=getWidgetString(hostText)) == NULL || *host == '\0') {
+X	alert0("No host specified.");
+X	return;
+X    }
+X    if ((loc=getWidgetString(locationText)) == NULL || *loc == '\0') {
+X	alert0("No host specified.");
+X	return;
+X    }
+X    /* We're about to do the query, so disable querying */
+X    setBrowserState(BROWSER_DIRSEND);
+X    queryLocationAndParse(host,loc);
+X    /* Re-enable querying */
+X    setBrowserState(BROWSER_READY);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(shiftDownAction)
+{
+X    shiftBrowserDown();
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(shiftUpAction)
+{
+X    shiftBrowserUp();
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(shiftTopAction)
+{
+X    shiftBrowserTop();
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(openAllAction)
+{
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    if (openBrowserAll() == 1)
+X	shiftBrowserDown();
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(openDirectoriesAction)
+{
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    if (openBrowserDirectories() == 1)
+X	shiftBrowserDown();
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(openFilesAction)
+{
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    openBrowserFiles();
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(getAction)
+{
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    DEBUG0("getAction...\n");
+X    ftpGetSelectedItems();
+X    DEBUG0("getAction: done\n");
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/actions.c ||
+echo 'restore of xarchie-2.0.6/actions.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/actions.c'`"
+test 6248 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/actions.c: original size 6248, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/actions.h ==============
+if test -f 'xarchie-2.0.6/actions.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/actions.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/actions.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/actions.h' &&
+/*
+X * actions.h : Definition of global action procedures
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 20 Oct 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#ifndef _ACTIONS_H
+#define _ACTIONS_H
+X
+extern void initActions();
+X
+#endif /* _ACTIONS_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/actions.h ||
+echo 'restore of xarchie-2.0.6/actions.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/actions.h'`"
+test 245 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/actions.h: original size 245, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/alert.c ==============
+if test -f 'xarchie-2.0.6/alert.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/alert.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/alert.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/alert.c' &&
+/*
+X * alert.c : Alert popup
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#include <X11/Intrinsic.h>
+#include "popups.h"
+X
+/*
+X * Functions defined here:
+X */
+void alert0(),alert1(),alert2();
+static void alertCallback();
+X
+/*
+X * Data defined here:
+X */
+static Widget alertShell;
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+alert0(str)
+char *str;
+{
+X    if (alertShell == NULL)
+X	alertShell = createPopup("alert",1,alertCallback);
+X    setPopupLabel(alertShell,"alert",str);
+X    popupMainLoop(alertShell);
+}
+X 
+void
+alert1(fmt,arg)
+char *fmt,*arg;
+{
+X    char buf[256];
+X
+X    sprintf(buf,fmt,arg);
+X    alert0(buf);
+}
+X
+void
+alert2(fmt,arg1,arg2)
+char *fmt,*arg1,*arg2;
+{
+X    char buf[256];
+X
+X    sprintf(buf,fmt,arg1,arg2);
+X    alert0(buf);
+}
+X
+/*ARGSUSED*/
+static void
+alertCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;		/* button number */
+XXtPointer call_data;
+{
+X    popupDone();
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/alert.c ||
+echo 'restore of xarchie-2.0.6/alert.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/alert.c'`"
+test 897 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/alert.c: original size 897, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/alert.h ==============
+if test -f 'xarchie-2.0.6/alert.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/alert.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/alert.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/alert.h' &&
+/*
+X * alert.h : External defs for alert functions
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef _ALERT_H
+#define _ALERT_H
+X
+extern void alert0(),alert1(),alert2();
+X
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/alert.h ||
+echo 'restore of xarchie-2.0.6/alert.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/alert.h'`"
+test 201 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/alert.h: original size 201, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/appres.h ==============
+if test -f 'xarchie-2.0.6/appres.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/appres.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/appres.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/appres.h' &&
+/*
+X * appres.h : External defs for files needing the application
+X *	resources.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 12 Nov 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#ifndef APP_RESOURCES_H
+#define APP_RESOURCES_H
+X
+#include "types.h"		/* for SearchType and SortType */
+X
+typedef struct _AppResources {
+X    SearchType	searchType;
+X    SortType	sortType;
+X    String	archieHost;
+X    int		numHosts;
+X    int		maxHits;
+X    int		offset;
+X    int		timeout;
+X    int		retries;
+X    int		niceLevel;
+X    String	ftpLocalDir;
+X    String	ftpType;
+X    Boolean	ftpPrompt;
+X    Boolean	ftpTrace;
+X    Boolean	ftpStrip;
+X    String	ftpMailAddress;
+X    int		debugLevel;
+X    Boolean	fileWriteOnePerLine;
+X    XFontStruct	*xarchieFont;
+X    XFontStruct	*xarchieBoldFont;
+X    String	hostWeights;
+X    Boolean	autoScroll;
+X    Boolean	pasteBuffer;
+X    String	visualType;
+X    Pixmap	defaultIcon;
+X    Pixmap	busyIcon;
+} AppResources;
+X
+extern AppResources appResources;
+X
+#endif /* APP_RESOURCES_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/appres.h ||
+echo 'restore of xarchie-2.0.6/appres.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/appres.h'`"
+test 972 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/appres.h: original size 972, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/archie.h ==============
+if test -f 'xarchie-2.0.6/archie.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/archie.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/archie.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/archie.h' &&
+/*
+X * archie.h : Definitions for the programmatic Prospero interface to Archie
+X *
+X *     Written by Brendan Kehoe (brendan@cs.widener.edu), 
+X *                George Ferguson (ferguson@cs.rochester.edu), and
+X *                Clifford Neuman (bcn@isi.edu).
+X */
+X
+/*
+X * Archie server (one of):   archie.sura.net
+X *			     archie.mcgill.ca
+X *                           archie.funet.fi
+X *                           archie.au
+X */
+#define ARCHIE_HOST "ARCHIE.SURA.NET"
+X
+/*
+X * Default value for max hits.  Note that this is normally different
+X * for different client implementations.  Doing so makes it easier to
+X * collect statistics on the use of the various clients.
+X */
+#ifdef VMS
+# define	MAX_HITS	98	/* VMS Client */
+#else
+# ifdef XARCHIE
+#  define	MAX_HITS	99	/* X Client */
+# else
+#  define	MAX_HITS	95	/* Normal client */
+# endif
+#endif
+X
+/*
+X * CLIENT_VERSION may be used to identify the version of the client if 
+X * distributed separately from the Prospero distribution.  The version
+X * command should then identify both the client version and the Prospero
+X * version identifiers.   
+X */
+#ifdef XARCHIE
+# define CLIENT_VERSION	"1.3-X"
+#else
+# define CLIENT_VERSION "1.2"
+#endif
+X
+/* Procedures from user/aquery.c */
+X
+/* archie_query(host,string,max_hits,offset,query_type,cmp_proc,flags) */
+extern VLINK archie_query(); 
+X
+/* defcmplink(p,q) and invdatecmplink(p,q)                             */
+extern int defcmplink();	/* Compare by host then by filename    */
+extern int invdatecmplink();	/* Compare links inverted by date      */
+X
+/* Definitions for the comparison procedures                           */
+#define AQ_DEFCMP	defcmplink
+#define AQ_INVDATECMP	invdatecmplink
+X
+/* Flags                                                               */
+#define AQ_NOSORT	0x01	/* Don't sort                          */
+#define AQ_NOTRANS	0x02	/* Don't translate Archie responses    */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/archie.h ||
+echo 'restore of xarchie-2.0.6/archie.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/archie.h'`"
+test 1882 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/archie.h: original size 1882, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/atalloc.c ==============
+if test -f 'xarchie-2.0.6/atalloc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/atalloc.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/atalloc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/atalloc.c' &&
+/*
+X * Copyright (c) 1989, 1990 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X * v1.1.2 - gf  11/02/91 - renamed ZERO() to BZERO() for X
+X */
+X
+#include <copyright.h>
+#include <stdio.h>
+X
+#include <pfs.h>
+#include "config.h"	/* gf */
+#include "stringdefs.h"	/* for correct definition of bzero, used by BZERO */
+X
+static PATTRIB	lfree = NULL;
+int		pattrib_count = 0;
+int		pattrib_max = 0;
+X
+/*
+X * atalloc - allocate and initialize vlink structure
+X *
+X *    ATALLOC returns a pointer to an initialized structure of type
+X *    PATTRIB.  If it is unable to allocate such a structure, it
+X *    returns NULL.
+X */
+PATTRIB
+atalloc()
+X    {
+X	PATTRIB	at;
+X	if(lfree) {
+X	    at = lfree;
+X	    lfree = lfree->next;
+X	}
+X	else {
+X	    at = (PATTRIB) malloc(sizeof(PATTRIB_ST));
+X	    if (!at) return(NULL);
+X	    pattrib_max++;
+X	}
+X
+X	pattrib_count++;
+X
+X	BZERO(at);
+X	/* Initialize and fill in default values; all items are
+X	   0 [or NULL] save precedence */
+X	at->precedence = ATR_PREC_OBJECT;
+X
+X	return(at);
+X    }
+X
+/*
+X * atfree - free a PATTRIB structure
+X *
+X *    ATFREE takes a pointer to a PATTRRIB structure and adds it to
+X *    the free list for later reuse.
+X */
+void
+atfree(at)
+X    PATTRIB	at;
+X    {
+X	if(at->aname) stfree(at->aname);
+X
+X	if((strcmp(at->avtype,"ASCII") == 0) && at->value.ascii) 
+X	    stfree(at->value.ascii);
+X	if((strcmp(at->avtype,"LINK") == 0) && at->value.link) 
+X	    vlfree(at->value.link);
+X	
+X	if(at->avtype) stfree(at->avtype);
+X
+X	at->next = lfree;
+X	at->previous = NULL;
+X	lfree = at;
+X	pattrib_count--;
+X    }
+X
+/*
+X * atlfree - free a PATTRIB structure
+X *
+X *    ATLFREE takes a pointer to a PATTRIB structure frees it and any linked
+X *    PATTRIB structures.  It is used to free an entrie list of PATTRIB
+X *    structures.
+X */
+void
+atlfree(at)
+X    PATTRIB	at;
+X    {
+X	PATTRIB	nxt;
+X
+X	while(at != NULL) {
+X	    nxt = at->next;
+X	    atfree(at);
+X	    at = nxt;
+X	}
+X    }
+X
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/atalloc.c ||
+echo 'restore of xarchie-2.0.6/atalloc.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/atalloc.c'`"
+test 1929 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/atalloc.c: original size 1929, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/browser.c ==============
+if test -f 'xarchie-2.0.6/browser.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/browser.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/browser.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/browser.c' &&
+/*
+X * browser.c : Device-independent browser routines
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 28 Apr 1993: Remove some bogus status0("Ready") calls.
+X */
+X
+#include <stdio.h>
+#include "stringdefs.h"
+#include "pfs.h"
+#include "db.h"
+#include "xtypes.h"
+#include "appres.h"
+#include "query.h"
+#include "actions.h"
+#include "browser.h"
+#include "selection.h"
+#include "display.h"
+#include "ftp-actions.h"
+#include "alert.h"
+#include "status.h"
+#include "debug.h"
+extern DbEntry *db;
+X
+/*
+X * Functions defined here:
+X */
+void resetBrowser();
+int paneDepth();
+void selectBrowserItem(),unselectBrowserItem();
+void displayEntries();
+void resortBrowser();
+int openBrowserAll(),openBrowserDirectories(),openBrowserFiles();
+void shiftBrowserDown(), shiftBrowserUp(), shiftBrowserTop();
+void setBrowserState();
+int getBrowserState();
+X
+static void clearInfoForDepth(),displayInfoForDepth();
+static void updateButtons(),resetParentEntries();
+static void openBrowserDirectory();
+X
+/*
+X * Data defined here:
+X */
+/*
+X * These are the parents of the heads of the lists being displayed in
+X * the browser panes.
+X */
+static DbEntry *parentEntries[MAX_DEPTH];
+X
+/*
+X * This is the index of the leftmost pane's contents in the previous arrays.
+X */
+static int currentRootDepth;
+X
+static int browserState;
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+resetBrowser()
+{
+X    clearBrowser();
+X    currentRootDepth = 0;
+X    resetSelections(0);
+X    resetParentEntries(0);
+X    setUpSensitive(0);
+X    setDownSensitive(0);
+}
+X
+int
+paneDepth(pane)
+int pane;
+{
+X    return(currentRootDepth+pane);
+}
+X
+#ifdef DEBUG
+/*ARGSUSED*/
+static void
+doPrint(dbp,list_index)
+DbEntry dbp;
+int list_index;
+{
+X    printf("%d ",list_index);
+}
+#endif
+X
+void
+selectBrowserItem(pane,item)
+int pane,item;
+{
+X    DbEntry *dbp;
+X    int depth;
+X    
+X    /* Adjust for shifted browser */
+X    depth = paneDepth(pane);
+#ifdef DEBUG
+X    fprintf(stderr,"selecting item %d, pane=%d, depth=%d\n",item,pane,depth);
+X    fprintf(stderr,"  before: selections[] = ");
+X    if (hasSelection(depth))
+X	forEachSelectedItemAtDepth(depth,doPrint);
+X    else
+X	fprintf(stderr,"None");
+X    fprintf(stderr,"\n");
+#endif
+X    if (isSelected(depth,item)) {
+X	DEBUG1("item %d already selected\n",item);
+X	return;
+X    }
+X    dbp = findEntryFromIndex(parentEntries[depth],item);
+X    DEBUG2("selected item is \"%s\"(%lx)\n",dbp->name,dbp);
+X    DEBUG1("clearing parents depth >= %d\n",depth+1);
+X    resetParentEntries(depth+1);
+X    DEBUG1("resetting selections for depth >= %d\n",depth+1);
+X    resetSelections(depth+1);
+X    DEBUG3("adding selection at depth %d = \"%s\"(%lx)\n",depth,dbp->name,dbp);
+X    addSelection(depth,dbp,item);
+X    DEBUG3("setting parentEntries[%d] = \"%s\"(%lx)\n",depth+1,dbp->name,dbp);
+X    parentEntries[depth+1] = dbp;
+X    DEBUG3("displaying entry \"%s\"(%lx) in pane %d\n",dbp->name,dbp,pane);
+X    /* Highlight the selected item */
+X    redrawSelectionsForPane(pane);
+X    /* Show selected info */
+X    displayInfoForDepth(depth);
+X    /* If we're not at the rightmost pane, then show the choices. */
+X    if (pane < NUM_BROWSER_PANES-1) {
+X	displayEntries(dbp,pane+1);
+X    }
+#ifdef DEBUG
+X    fprintf(stderr,"  after: selections[] = ");
+X    if (hasSelection(depth))
+X	forEachSelectedItemAtDepth(depth,doPrint);
+X    else
+X	fprintf(stderr,"None");
+X    fprintf(stderr,"\n");
+X    fprintf(stderr,"done selecting item\n");
+#endif
+}
+X
+void
+unselectBrowserItem(pane,item)
+int pane,item;
+{
+X     int depth,i;
+X    
+X    /* Adjust for shifted browser */
+X    depth = paneDepth(pane);
+#ifdef DEBUG
+X    fprintf(stderr,"unselecting item %d, pane=%d, depth=%d\n",item,pane,depth);
+X    fprintf(stderr,"  before: selections[] = ");
+X    if (hasSelection(depth))
+X	forEachSelectedItemAtDepth(depth,doPrint);
+X    else
+X	fprintf(stderr,"None");
+X    fprintf(stderr,"\n");
+#endif
+X    unhighlightBrowserItem(pane,item);
+X    /* Clear all panes below this one */
+X    for (i=NUM_BROWSER_PANES-1; i > pane; i--)
+X	clearBrowserPane(i);
+X    /* Clear all info including this one since de-selected */
+X    clearInfoForDepth(depth);
+X    DEBUG2("removing selection at depth %d = item %d\n",depth,item);
+X    removeSelection(depth,NULL,item);
+X    DEBUG1("clearing parents depth >= %d\n",depth+1);
+X    resetParentEntries(depth+1);
+#ifdef DEBUG
+X    printf("  after: selections[] = ");
+X    if (hasSelection(depth))
+X	forEachSelectedItemAtDepth(depth,doPrint);
+X    else
+X	printf("None");
+X    printf("\n");
+X    fprintf(stderr,"done deselecting item\n");
+#endif
+}
+X
+static void
+clearInfoForDepth(depth)
+int depth;
+{
+X    switch (depth) {
+X	case 0:	setHostText("");
+X		/* fall through */
+X	case 1:	setLocationText("");
+X		/* fall through */
+X	case 2:	setFileText("");
+X		setSizeText("");
+X		setModesText("");
+X		setDateText("");
+X		break;
+X    }
+X    DEBUG1("cleared info for depth %d\n",depth);
+}
+X
+static void
+displayInfoForDepth(depth)
+int depth;
+{
+X    SelectedItem *item;
+X    char buf[MAX_VPATH];
+X    int i;
+X
+X    DEBUG1("  display info for depth %d:\n",depth);
+X    if ((item=getSelection(0)) != NULL) {
+X	setHostText(item->entry->name);
+X	DEBUG1("    host: \"%s\"\n",item->entry->name);
+X    }
+X    /* Special case if location was selected */
+X    if (depth == 1) {
+X	if ((item=getSelection(1)) != NULL) {
+X	    setLocationText(item->entry->name);
+X	    DEBUG1("    loc: \"%s\"\n",item->entry->name);
+X	}
+X    } else {	/* Otherwise normal case, get location and file */
+X	strcpy(buf,"");
+X	for (i=1; i < depth; i++)
+X	    if ((item=getSelection(i)) != NULL) {
+X		(void)strcat(buf,item->entry->name);
+X		if (i < depth-1 &&
+X		    buf[strlen(buf)-1] != '/')
+X		    strcat(buf,"/");
+X	    }
+X	setLocationText(buf);
+X	DEBUG1("    loc: \"%s\"\n",buf);
+X	if ((item=getSelection(depth)) != NULL) {
+X	    setFileText(item->entry->name);
+#ifdef MSDOS
+X	    sprintf(buf,"%lu",item->entry->size);
+#else
+X	    sprintf(buf,"%d",item->entry->size);
+#endif
+X	    setSizeText(buf);
+X	    setModesText(item->entry->modes);
+X	    setDateText(item->entry->date);
+X	    DEBUG1("    file: \"%s\"\n",item->entry->name);
+X	}
+X    }
+}
+X
+void
+displayEntries(parent,pane)
+DbEntry *parent;
+int pane;
+{
+X    DbEntry *dbp;
+X    SelectedItem *sel;
+X    int i,depth;
+X
+X    depth = paneDepth(pane);
+X    if (parent == NULL) {
+X	fprintf(stderr,"DB error: attempt to display entries from NULL list");
+X	return;
+X    }
+X    DEBUG3("displaying parent \"%s\" in pane %d (depth %d)\n",
+X	   (parent?parent->name:"<NIL>"),pane,depth);
+X    /* Clear this and all subordinate panes */
+X    for (i=pane; i < NUM_BROWSER_PANES; i++) {
+X	DEBUG1("  clearing pane %d\n",i);
+X	clearBrowserPane(i);
+X    }
+X    /* Set the strings to be displayed in this pane */
+X    for (i=0, dbp=parent->entries; dbp != NULL; dbp=dbp->next) {
+X	DEBUG2("  item %d: \"%s\"\n",i,dbp->name);
+X	setBrowserItem(pane,i++,dbp->name);
+X    }
+X    /* If there's anything to display, display it */
+X    if (i > 0)
+X	redrawBrowserPane(pane);
+X    /* If there's only one thing then select it */
+X    if (i == 1) {
+X	DEBUG0("  solo -> select\n");
+X	addSelection(depth,parent->entries,0);
+X    }
+X    /* If there's something selected (either because we just selected the
+X       only thing or because we're scrolling left), then redo the
+X       highlighting and display the correct info. If we're not at the
+X       rightmost pane, then recusively draw the next pane. */
+X    if ((sel=getSelection(depth)) != NULL) {
+X	redrawSelectionsForPane(pane);
+X	displayInfoForDepth(depth);
+X	if (pane < NUM_BROWSER_PANES - 1)
+X	    displayEntries(sel->entry,pane+1);
+X    } else {
+X	/* Otherwise there's nothing selected here */
+X	clearInfoForDepth(depth);
+X    }
+X    /* Save which list is being displayed in the pane */
+X    parentEntries[paneDepth(pane)] = parent;
+X    /* Get the shift buttons right */
+X    updateButtons();
+}
+X
+static void
+updateButtons()
+{
+X    SelectedItem *sel;
+X
+X    setUpSensitive(currentRootDepth > 0);
+X    if ((sel=getSelection(currentRootDepth+NUM_BROWSER_PANES-1)) != NULL &&
+X	sel->entry->entries != NULL)
+X	setDownSensitive(1);
+X    else
+X	setDownSensitive(0);
+}
+X
+static void
+resetParentEntries(first)
+int first;
+{
+X    int i;
+X
+X    for (i=first; i < MAX_DEPTH; i++)
+X	parentEntries[i] = NULL;
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Resort the browser based on the appResources */
+X
+void
+resortBrowser()
+{
+X    /* Reset browser to leftmost position */
+X    DEBUG0("resortBrowser: resetting browser\n");
+X    resetBrowser();
+X    DEBUG0("resortBrowser: sorting entries\n");
+X    switch(appResources.sortType) {
+X	case GfName:
+X	    sortEntriesRecursively(db,cmpEntryNames);
+X	    break;
+X	case GfDate:
+X	    sortEntriesRecursively(db,cmpEntryDates);
+X	    break;
+X	case GfWeight:
+X	    sortEntriesRecursively(db,cmpEntryWeights);
+X	    break;
+X    }
+X    /* Display results in browser */
+X    DEBUG0("resortBrowser: displaying entries\n");
+X    displayEntries(db,0);
+X    DEBUG0("resortBrowser: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines to open (ie. expand) the browser */
+X
+static int numOpened;
+X
+/*
+X * Open any selected items in the browser. Return the number of items
+X * that were successfully opened.
+X */
+int
+openBrowserAll()
+{
+X    DEBUG1("openBrowserAll: depth = %d\n",currentRootDepth);
+X    if (!hasSelection(NUM_BROWSER_PANES-1)) {
+X	alert0("You must select something to open.");
+X	return(0);
+X    }
+X    numOpened = 0;
+X    /* Do the directories */
+X    forEachSelectedItem(openBrowserDirectory);
+X    /* Do the files */
+X    ftpOpenSelectedItems();
+X    DEBUG1("done openBrowserAll, returning %d\n",numOpened);
+X    return(numOpened);
+}
+X
+int
+openBrowserDirectories()
+{
+X    DEBUG1("openBrowserDirectories: depth = %d\n",currentRootDepth);
+X    if (!hasSelection(2)) {
+X	alert0("You must select a directory to open.");
+X	return(0);
+X    }
+X    numOpened = 0;
+X    forEachSelectedItem(openBrowserDirectory);
+X    status0("Ready");
+X    DEBUG1("done openBrowserDirectories, returning %d\n",numOpened);
+X    return(numOpened);
+}
+X
+int
+openBrowserFiles()
+{
+X    DEBUG1("openBrowserFiles: depth = %d\n",currentRootDepth);
+X    if (!hasSelection(2)) {
+X	alert0("You must select a file to open.");
+X	return(0);
+X    }
+X    numOpened = 0;
+X    ftpOpenSelectedItems();
+X    DEBUG1("done openBrowserFiles, returning %d\n",numOpened);
+X    return(numOpened);
+}
+X
+/*
+X * Open a selected item. Ignore any selections that aren't directories.
+X */
+/*ARGSUSED*/
+static void
+openBrowserDirectory(dbp,list_index)
+DbEntry *dbp;
+int list_index;
+{
+X    VLINK vl,links;
+X
+X    DEBUG1("openBrowserDirectory: \"%s\"\n",dbp->name);
+X    if (dbp->type != DB_DIRECTORY)
+X	return;
+X    if (dbp->entries == NULL) {
+X	/* It's not been expanded already... */
+X	if ((vl=dbp->vlink) == NULL) {
+X	    alert0("ERROR: NULL vlink to openBrowserDirectory!");
+X	    return;
+X	}
+X	/* Disable querying */
+X	setBrowserState(BROWSER_DIRSEND);
+X	DEBUG1("getting entries for \"%s\"\n",dbp->name);
+X	links = stringQuery(vl->host,vl->filename);
+X	DEBUG0("calling handleProsperoErrors\n");
+X	(void)handleProsperoErrors();
+X	if (links != NULL)
+X	    numOpened += 1;
+#ifdef DEBUG
+X	fprintf(stderr,"unprocessed results of stringQuery:\n");
+X	for (vl=links; vl != NULL; vl=vl->next)
+X	    fprintf(stderr,"  \"%s\"\n",vl->filename);
+X	fprintf(stderr,"calling parseStringQueryResults\n");
+#endif
+X	/* Process the results into the database */
+X	switch(appResources.sortType) {
+X	    case GfName:
+X		(void)parseStringQueryResults(dbp,links,cmpEntryNames);
+X		break;
+X	    case GfDate:
+X		(void)parseStringQueryResults(dbp,links,cmpEntryDates);
+X		break;
+X	    case GfWeight:
+X		(void)parseStringQueryResults(dbp,links,cmpEntryWeights);
+X		break;
+X	}
+X	/* Re-enable querying */
+X	setBrowserState(BROWSER_READY);
+X    }
+X    DEBUG0("done openBrowserDirectory\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines for shifting the browser up, down, top. */
+X
+void
+shiftBrowserDown()
+{
+X    DEBUG1("doing shiftDown, depth = %d\n",currentRootDepth);
+X    if (currentRootDepth >= MAX_DEPTH-1) {
+X	alert1("Browser only goes %d levels deep!",(char *)MAX_DEPTH);
+X	return;
+X    }
+X    if (parentEntries[currentRootDepth+1] == NULL) {
+X	alert0("Nothing to display below!");
+X	return;
+X    }
+X    currentRootDepth += 1;
+X    DEBUG1("currentRootDepth is now %d\n",currentRootDepth);
+X    displayEntries(parentEntries[currentRootDepth],0);
+X    DEBUG0("done shiftDown\n");
+}
+X
+void
+shiftBrowserUp()
+{
+X    DEBUG1("doing shiftUp, depth = %d\n",currentRootDepth);
+X    if (currentRootDepth == 0) {
+X	beep();
+X	return;
+X    }
+X    currentRootDepth -= 1;
+X    DEBUG1("currentRootDepth is now %d\n",currentRootDepth);
+X    displayEntries(parentEntries[currentRootDepth],0);
+X    DEBUG0("done shiftUp\n");
+}
+X
+void
+shiftBrowserTop()
+{
+X    DEBUG1("doing shiftTop, depth = %d\n",currentRootDepth);
+X    currentRootDepth = 0;
+X    DEBUG1("currentRootDepth is now %d\n",currentRootDepth);
+X    displayEntries(db,0);
+X    DEBUG0("done shiftTop\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines for getting/setting the state of the browser */
+/*
+X * Non-zero state => busy
+X */
+X
+void
+setBrowserState(state)
+int state;
+{
+X    setQuerySensitive(state == BROWSER_READY);
+X    setAbortSensitive(state != BROWSER_READY);
+X    browserState = state;
+}
+X
+int
+getBrowserState()
+{
+X    return(browserState);
+}
+X
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/browser.c ||
+echo 'restore of xarchie-2.0.6/browser.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/browser.c'`"
+test 12889 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/browser.c: original size 12889, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/browser.h ==============
+if test -f 'xarchie-2.0.6/browser.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/browser.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/browser.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/browser.h' &&
+/*
+X * browser.h : Device-independent browser defs
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef _BROWSER_H
+#define _BROWSER_H
+X
+#define NUM_BROWSER_PANES	3
+#define MAX_DEPTH		20
+X
+extern void initBrowser();
+extern void resetBrowser();
+extern int paneDepth();
+extern void selectBrowserItem(),unselectBrowserItem();
+extern void displayEntries();
+extern void resortBrowser();
+extern int openBrowserAll(),openBrowserDirectories(),openBrowserFiles();
+extern void shiftBrowserDown(),shiftBrowserUp(),shiftBrowserTop();
+X
+#define BROWSER_READY	0
+#define BROWSER_DIRSEND	1
+#define BROWSER_FTP	2
+X
+extern void setBrowserState();
+extern int getBrowserState();
+X
+#endif /* _BROWSER_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/browser.h ||
+echo 'restore of xarchie-2.0.6/browser.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/browser.h'`"
+test 701 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/browser.h: original size 701, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/busy.xbm ==============
+if test -f 'xarchie-2.0.6/busy.xbm' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/busy.xbm (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/busy.xbm (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/busy.xbm' &&
+#define busy_width 32
+#define busy_height 32
+static unsigned char busy_bits[] = {
+X   0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x80, 0x29, 0x19, 0xab, 0x8e,
+X   0xa9, 0xaa, 0xa8, 0x82, 0x91, 0x9b, 0xb8, 0x86, 0xa9, 0xaa, 0xa8, 0x82,
+X   0xa9, 0x2a, 0xab, 0x8e, 0x01, 0x00, 0x00, 0x80, 0xff, 0xff, 0xff, 0xff,
+X   0x01, 0x04, 0x20, 0x80, 0x03, 0x0c, 0x60, 0x80, 0x01, 0x04, 0x20, 0x80,
+X   0x03, 0x0c, 0x60, 0x80, 0x01, 0x04, 0x20, 0x80, 0x03, 0x0c, 0x60, 0x80,
+X   0x01, 0x04, 0x20, 0x80, 0x03, 0x0c, 0x60, 0x80, 0x01, 0x04, 0x20, 0x80,
+X   0x03, 0x0c, 0x60, 0x80, 0x01, 0x04, 0x20, 0x80, 0x03, 0x0c, 0x60, 0x80,
+X   0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x80, 0x1d, 0x00, 0x00, 0x80,
+X   0x01, 0x00, 0x00, 0x80, 0x3d, 0x00, 0x00, 0x80, 0x01, 0x00, 0x00, 0x80,
+X   0x1d, 0x00, 0x00, 0x80, 0x01, 0x00, 0x00, 0x80, 0x1d, 0x70, 0x80, 0x87,
+X   0x01, 0x00, 0x00, 0x80, 0xff, 0xff, 0xff, 0xff};
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/busy.xbm ||
+echo 'restore of xarchie-2.0.6/busy.xbm failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/busy.xbm'`"
+test 884 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/busy.xbm: original size 884, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/config.h ==============
+if test -f 'xarchie-2.0.6/config.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/config.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/config.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/config.h' &&
+/* config.h.  Generated automatically by configure.  */
+X
+#ifndef _CONFIG_H
+#define _CONFIG_H
+X
+/* Define if you have the ANSI C header files.  */
+#undef STDC_HEADERS
+X
+/* Define if you have <string.h>, otherwise assumes <strings.h> */
+#define HAVE_STRING_H 1
+X
+/* Define if you have memory.h, and string.h doesn't declare the
+X   mem* functions.  */
+#define HAVE_MEMORY_H 1
+X
+/* Adjust of your sys/param.h doesn't define MAXPATHLEN */
+#define HAVE_SYS_PARAM_H 1
+#ifndef HAVE_SYS_PARAM_H
+# define MAXPATHLEN 1024
+#endif
+X
+/* Define if your sys/time.h declares struct tm.  */
+#undef TM_IN_SYS_TIME
+X
+/* Define if your sys/types.h declares FD_SET.  */
+#define FD_SET_IN_SYS_TYPES_H 1
+/* Define if your sys/select.h declares FD_SET.  */
+#undef FD_SET_IN_SYS_SELECT_H
+/* Define if your sys/inet.h declares FD_SET.  */
+#undef FD_SET_IN_SYS_INET_H
+X
+/* Define if you have re_comp() and re_exec() */
+#define HAVE_RE_COMP 1
+/* Some systems use regcmp() and regex() instead (like AIX) */
+#undef HAVE_REGCMP
+X
+/* Define if you have strcasecmp() */
+#define HAVE_STRCASECMP 1
+X
+/* Define if you have random() */
+#define HAVE_RANDOM 1
+/* Some systems use rand() instead (like HPUX) */
+#define HAVE_RAND 1
+X
+/* Define if you have the ANSI function strerror() */
+#define HAVE_STRERROR 1
+X
+/* Define if you have errno (who doesn't)? */
+#define HAVE_ERRNO 1
+X
+/* Define if you have sys_errlist (not needed if you have strerror) */
+#define HAVE_SYS_ERRLIST 1
+X
+/* Define if you have getlogin() (who doesn't?) */
+#define HAVE_GETLOGIN 1
+X
+/* Define if you have getpwuid() defined in <pwd.h> */
+#define HAVE_GETPWUID 1
+X
+/* Define if you have strspn() */
+#define HAVE_STRSPN 1
+X
+/* Define this if you need -lresolv in your link line (used by imake) */
+#undef NEED_LRESOLV
+X
+#endif /*!_CONFIG_H*/
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/config.h ||
+echo 'restore of xarchie-2.0.6/config.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/config.h'`"
+test 1757 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/config.h: original size 1757, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/config.h.in ==============
+if test -f 'xarchie-2.0.6/config.h.in' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/config.h.in (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/config.h.in (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/config.h.in' &&
+X
+#ifndef _CONFIG_H
+#define _CONFIG_H
+X
+/* Define if you have the ANSI C header files.  */
+#undef STDC_HEADERS
+X
+/* Define if you have <string.h>, otherwise assumes <strings.h> */
+#undef HAVE_STRING_H
+X
+/* Define if you have memory.h, and string.h doesn't declare the
+X   mem* functions.  */
+#undef HAVE_MEMORY_H
+X
+/* Adjust of your sys/param.h doesn't define MAXPATHLEN */
+#undef HAVE_SYS_PARAM_H
+#ifndef HAVE_SYS_PARAM_H
+# define MAXPATHLEN 1024
+#endif
+X
+/* Define if your sys/time.h declares struct tm.  */
+#undef TM_IN_SYS_TIME
+X
+/* Define if your sys/types.h declares FD_SET.  */
+#undef FD_SET_IN_SYS_TYPES_H
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/config.h.in failed'
+fi
+echo 'End of xarchie-2.0.6 part 5'
+echo 'File xarchie-2.0.6/config.h.in is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

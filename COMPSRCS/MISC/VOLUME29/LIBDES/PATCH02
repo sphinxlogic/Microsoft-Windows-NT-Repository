@@ -1,0 +1,1247 @@
+From: eay@psych.psy.uq.oz.au (Eric Young)
+Newsgroups: comp.sources.misc
+Subject: v29i114: libdes - DES encryption library, Patch02
+Message-ID: <1992May14.103924.27723@aber.ac.uk>
+Date: 14 May 92 10:39:24 GMT
+Approved: aem@aber.ac.uk
+X-Md4-Signature: d08d5139a979171c837cf0dee3c78606
+
+Submitted-by: eay@psych.psy.uq.oz.au (Eric Young)
+Posting-number: Volume 29, Issue 114
+Archive-name: libdes/patch02
+Environment: UNIX
+Patch-To: libdes: Volume 29, Issue 43-46
+
+This patch fixes one bug.
+It also modifies libdes (and des(1) etc) so they can be compiled under MSDOS.
+It also finishes the modifications required for VMS.
+This should be the last patch (I hope :-).
+
+The bug is not realy a bug but a correction of an incompatability
+with MIT's libdes.
+The string_to_key function did not return the same key for strings
+longer than 8 characters as MIT's.  The problem with fixing this is
+that it will mean any files encrypted with the previous version of
+des -E that had a key longer than 8 characters will not be decrypted
+with des -D anymore :-(.  At least it compiles under MSDOS now :-).
+Be forwarned.
+
+to apply the patch, use
+patch -p1 <patch2
+
+NOTES
+- I have be notified that the string_to_key routine was different from
+  the MIT version for strings longer than 8 characters long.  I have
+  now made it the same as MIT's.  If you wish to keep the old version,
+  turn the OLD_STR_TO_KEY option on in the makefile.
+- I have added an option to compile with an alternative macro for the
+  inner loop of the DES routine.  It can provide either a speed up or
+  a slow down depending on the compiler/CPU combination.  It is a big
+  win on Sparcs using the sun compiler (The code is almost as fast as
+  that produced by gcc2 :-).
+- read_password.c modified so that echo is turned off when reading the
+  password under VMS.
+- The library and the support programs (des(1) destest etc.) can now be
+  compiled under MSDOS with either TURBO C v 2.0 or Microsoft C v 5.1.
+  I assume other compilers (and versions) will work but these are the
+  only MSDOS C compilers I have tested.  As has been pointed out by
+  various people, the filenames in this library are a bit long.  There is
+  not much I can do about this, so when moving the files to MSDOS just
+  truncate them to 8 characters.
+- One bug in des(1) that does not show up under unix (not zeroing a
+  Cblock).
+
+diff -c -r des.old/INSTALLATION des/INSTALLATION
+*** des.old/INSTALLATION	Wed May 13 12:36:43 1992
+--- des/INSTALLATION	Wed May 13 09:55:01 1992
+***************
+*** 1,6 ****
+  Check the CC and CFLAGS lines in the makefile
+  
+! If your C library does not suport the times(3) function, change the
+  #define TIMES to
+  #undef TIMES in speed.c
+  If it does, check the HZ value for the times(3) function.
+--- 1,6 ----
+  Check the CC and CFLAGS lines in the makefile
+  
+! If your C library does not support the times(3) function, change the
+  #define TIMES to
+  #undef TIMES in speed.c
+  If it does, check the HZ value for the times(3) function.
+***************
+*** 23,27 ****
+  des.man       in /usr/local/man/man1/des.1
+  des.h         in /usr/include/des.h
+  
+! des(1) should be compatable with sunOS's but I have been unable to
+  test it.
+--- 23,47 ----
+  des.man       in /usr/local/man/man1/des.1
+  des.h         in /usr/include/des.h
+  
+! des(1) should be compatible with sunOS's but I have been unable to
+  test it.
++ 
++ These routines can now be compiled under MSDOS.
++ I have successfully encrypted files using des(1) under MSDOS and then
++ decrypted the files on a SparcStation.
++ I have been able to compile and test the routines with
++ Microsoft C v 5.1 and Turbo C v 2.0.
++ The code in this library is in no way optimised for the 16bit
++ operation of MSDOS.  Microsoft C generates code that is 40% slower
++ than Turbo C's code.  I believe this is due to problems it has with
++ code generation with the 32bit shift operation in the IP and FP
++ sections.
++ 
++ For Turbo C v 2.0, make sure to define MSDOS, in the relevant menu.
++ 
++ There is now an alternative version of the D_ENCRYPT macro that can be
++ enabled with the -DALT_ECB option in the makefile.  This alternative
++ macro can make a +-%20 speed difference to the DES encryption speed,
++ depending on the compiler/CPU combinations.
++ It has its greatest effect on Sparc machines when using the sun compiler.
++ If in doubt, try enable/disable it and running speed.
+diff -c -r des.old/README des/README
+*** des.old/README	Wed May 13 12:36:44 1992
+--- des/README	Tue May  5 14:34:33 1992
+***************
+*** 3,9 ****
+  a fast implementation of crypt(3).
+  It also contains support routines to read keys from a terminal,
+  generate a random key, generate a key from an arbitary length string,
+! read/write from/to a file descriptor, and an implementation of
+  sunOS des(1) command for file encryption.
+  
+  The implementation was written so as to conform with the manual entry
+--- 3,9 ----
+  a fast implementation of crypt(3).
+  It also contains support routines to read keys from a terminal,
+  generate a random key, generate a key from an arbitary length string,
+! read/write encrypted data from/to a file descriptor, and an implementation of
+  sunOS des(1) command for file encryption.
+  
+  The implementation was written so as to conform with the manual entry
+diff -c -r des.old/VERSION des/VERSION
+*** des.old/VERSION	Wed May 13 12:36:44 1992
+--- des/VERSION	Wed May 13 09:54:06 1992
+***************
+*** 1,5 ****
+  Version 1.92 13/04/92 eay
+! 	Changed D_ENCRYPT so that the rotation of R occures outside of
+  	 the loop.  This required rotating all the longs in sp.h (now
+  	 called spr.h). Thanks to Richard Outerbridge <71755.204@CompuServe.COM>
+  	speed.c has been changed so it will work without SIGALRM.  If
+--- 1,25 ----
++ Patch2 posted to comp.sources.misc
++ Version 1.95 13/05/92 eay
++ 	Added an alternative version of the D_ENCRYPT macro in
++ 	ecb_encrypt and fcrypt.  Depending on the compiler, one version or the
++ 	other will be faster.
++ 
++ Version 1.94 05/05/92 eay
++ 	Fixed an incompatiblity between my string_to_key and the MIT
++ 	 version.  When the key is longer than 8 chars, I was wrapping
++ 	 with a different method.  To use the old version, define
++ 	 OLD_STR_TO_KEY in the makefile.  Thanks to
++ 	 viktor@newsu.shearson.com (Viktor Dukhovni).
++ 
++ Version 1.93 28/04/92 eay
++ 	Fixed the VMS mods so that echo is now turned off in
++ 	 read_password.  Thanks again to brennan@coco.cchs.su.oz.AU.
++ 	MSDOS support added.  The routines can be compiled with
++ 	 Turbo C (v2.0) and MSC (v5.1).  Make sure MSDOS is defined.
++ 
++ Patch1 posted to comp.sources.misc
+  Version 1.92 13/04/92 eay
+! 	Changed D_ENCRYPT so that the rotation of R occurs outside of
+  	 the loop.  This required rotating all the longs in sp.h (now
+  	 called spr.h). Thanks to Richard Outerbridge <71755.204@CompuServe.COM>
+  	speed.c has been changed so it will work without SIGALRM.  If
+***************
+*** 14,19 ****
+--- 34,40 ----
+  	Changed FILE *IN/*OUT to *DES_IN/*DES_OUT since it appears VMS
+  	does not like IN/OUT being used.
+  
++ Libdes posted to comp.sources.misc
+  Version 1.9 24/03/92 eay
+  	Now contains a fast small crypt replacement.
+  	Added des(1) command.
+diff -c -r des.old/des.c des/des.c
+*** des.old/des.c	Wed May 13 12:36:45 1992
+--- des/des.c	Tue Apr 28 12:32:12 1992
+***************
+*** 10,16 ****
+  #endif
+  #include "des.h"
+  
+! #if defined(__STDC__) || defined(VMS)
+  #include <string.h>
+  #define bcopy(f,t,n)	memcpy(t,f,(size_t)(n))
+  #define bzero(s,n)	memset(s,0,(size_t)(n))
+--- 10,16 ----
+  #endif
+  #include "des.h"
+  
+! #if defined(__STDC__) || defined(VMS) || defined(M_XENIX) || defined(MSDOS)
+  #include <string.h>
+  #define bcopy(f,t,n)	memcpy(t,f,(size_t)(n))
+  #define bzero(s,n)	memset(s,0,(size_t)(n))
+***************
+*** 18,24 ****
+--- 18,29 ----
+  #define index(s,c)	strchr(s,c)
+  #endif
+  
++ #ifdef MSDOS
++ /* Turbo C v 2.0 feof(FILE *) only works in text mode. :-(. */
++ #define feof(a)	((num == 0) || (num != BUFSIZE))
++ #endif
+  
++ #define BUFSIZE (8*1024)
+  #define VERIFY  1
+  #define KEYSIZ	8
+  #define KEYSIZB 1024 /* should hit tty line limit first :-) */
+***************
+*** 113,122 ****
+--- 118,131 ----
+  
+  	if (	(in != NULL) &&
+  		(out != NULL) &&
++ #ifndef MSDOS
+  		(stat(in,&ins) != -1) &&
+  		(stat(out,&outs) != -1) &&
+  		(ins.st_dev == outs.st_dev) &&
+  		(ins.st_ino == outs.st_ino))
++ #else /* MSDOS */
++ 		(strcmp(in,out) == 0))
++ #endif
+  			{
+  			fputs("input and output file are the same\n",stderr);
+  			exit(3);
+***************
+*** 145,150 ****
+--- 154,168 ----
+  		exit(5);
+  		}
+  
++ #ifdef MSDOS
++ 	/* This should set the file to binary mode. */
++ 	{
++ #include <fcntl.h>
++ 	setmode(fileno(DES_IN),O_BINARY);
++ 	setmode(fileno(DES_OUT),O_BINARY);
++ 	}
++ #endif
++ 
+  	doencryption();
+  	fclose(DES_IN);
+  	fclose(DES_OUT);
+***************
+*** 160,170 ****
+  
+  doencryption()
+  	{
+! 	char buf[1024*8+8];
+! 	char obuf[1024*8+8];
+  	des_key_schedule ks;
+  	char iv[8];
+! 	int i,j,k,l,ll,last,ex=0;
+  	des_cblock kk;
+  
+  	if (longk)
+--- 178,188 ----
+  
+  doencryption()
+  	{
+! 	static char buf[BUFSIZE+8];
+! 	static char obuf[BUFSIZE+8];
+  	des_key_schedule ks;
+  	char iv[8];
+! 	int num=0,i,j,k,l,ll,last,ex=0;
+  	des_cblock kk;
+  
+  	if (longk)
+***************
+*** 190,195 ****
+--- 208,215 ----
+  	des_set_key(kk,ks);
+  	bzero(key,sizeof(key));
+  	bzero(kk,sizeof(kk));
++ 	/* woops - A bug that does not showup under unix :-( */
++ 	bzero(iv,sizeof(iv));
+  
+  	l=1;
+  	/* first read */
+***************
+*** 197,203 ****
+  		{
+  		for (;;)
+  			{
+! 			l=fread(buf,1,1024*8,DES_IN);
+  			if (l < 0)
+  				{
+  				perror("read error");
+--- 217,223 ----
+  		{
+  		for (;;)
+  			{
+! 			num=l=fread(buf,1,BUFSIZE,DES_IN);
+  			if (l < 0)
+  				{
+  				perror("read error");
+***************
+*** 224,230 ****
+  				{
+  				des_cbc_encrypt(
+  					(des_cblock *)buf,(des_cblock *)obuf,
+! 					l,ks,(des_cblock *)iv,encrypt);
+  				if (l >= 8) bcopy(&(obuf[l-8]),iv,8);
+  				}
+  
+--- 244,250 ----
+  				{
+  				des_cbc_encrypt(
+  					(des_cblock *)buf,(des_cblock *)obuf,
+! 					(long)l,ks,(des_cblock *)iv,encrypt);
+  				if (l >= 8) bcopy(&(obuf[l-8]),iv,8);
+  				}
+  
+***************
+*** 248,254 ****
+  		for (;;)
+  			{
+  			if (ex) {
+! 				l=fread(buf,1,1024*8,DES_IN);
+  				ex=0;
+  				}
+  			if (l < 0)
+--- 268,274 ----
+  		for (;;)
+  			{
+  			if (ex) {
+! 				l=fread(buf,1,BUFSIZE,DES_IN);
+  				ex=0;
+  				}
+  			if (l < 0)
+***************
+*** 267,277 ****
+  				{
+  				des_cbc_encrypt(
+  					(des_cblock *)buf,(des_cblock *)obuf,
+! 					l,ks,(des_cblock *)iv,encrypt);
+  				if (l >= 8) bcopy(&(buf[l-8]),iv,8);
+  				}
+  
+! 			ll=fread(buf,1,1024*8,DES_IN);
+  			if (feof(DES_IN) && (ll == 0))
+  				{
+  				last=obuf[l-1];
+--- 287,297 ----
+  				{
+  				des_cbc_encrypt(
+  					(des_cblock *)buf,(des_cblock *)obuf,
+! 				 	(long)l,ks,(des_cblock *)iv,encrypt);
+  				if (l >= 8) bcopy(&(buf[l-8]),iv,8);
+  				}
+  
+! 			ll=fread(buf,1,BUFSIZE,DES_IN);
+  			if (feof(DES_IN) && (ll == 0))
+  				{
+  				last=obuf[l-1];
+diff -c -r des.old/des_local.h des/des_local.h
+*** des.old/des_local.h	Wed May 13 12:36:47 1992
+--- des/des_local.h	Wed May 13 09:33:02 1992
+***************
+*** 3,9 ****
+  #include <stdio.h>
+  #include "des.h"
+  
+! #if defined(__STDC__) || defined(VMS)
+  #include <string.h>
+  #define bcopy(b1,b2,len) memcpy(b2, b1, (size_t)(len))
+  #define bzero(b,len) memset(b, 0, (size_t)(len))
+--- 3,9 ----
+  #include <stdio.h>
+  #include "des.h"
+  
+! #if defined(__STDC__) || defined(VMS) || defined(M_XENIX) || defined(MSDOS)
+  #include <string.h>
+  #define bcopy(b1,b2,len) memcpy(b2, b1, (size_t)(len))
+  #define bzero(b,len) memset(b, 0, (size_t)(len))
+***************
+*** 11,20 ****
+--- 11,35 ----
+  #define index(s1,char) strchr(s1,char)
+  #endif
+  
++ #ifdef MSDOS
++ #define getpid() 2
++ #define RAND
++ extern int errno;
++ #endif
++ 
++ #ifdef RAND
++ #define random() rand()
++ #define srandom(s) srand(s)
++ #endif
++ 
++ #ifndef _AIX
+  typedef unsigned char uchar;
+  typedef unsigned short ushort;
++ #ifndef _HPUX
+  typedef unsigned int uint;
+  typedef unsigned long ulong;
++ #endif
++ #endif
+  
+  #define ITERATIONS 16
+  #define HALF_ITERATIONS 8
+diff -c -r des.old/ecb_encrypt.c des/ecb_encrypt.c
+*** des.old/ecb_encrypt.c	Wed May 13 12:36:48 1992
+--- des/ecb_encrypt.c	Wed May 13 09:56:25 1992
+***************
+*** 27,36 ****
+  	return(0);
+  	}
+  
+  #define D_ENCRYPT(L,R,S)	\
+  	u=(R^s[S  ]); \
+! 	t=(R^s[S+1]); \
+! 	t=(t>>4)|(t<<28); \
+  	L^=	des_SPtrans[1][(t    )&0x3f]| \
+  		des_SPtrans[3][(t>> 8)&0x3f]| \
+  		des_SPtrans[5][(t>>16)&0x3f]| \
+--- 27,53 ----
+  	return(0);
+  	}
+  
++ /* The changes to this macro may help or hinder, depending on the
++  * compiler and the achitecture.  gcc2 always seems to do well :-).  */
++ #ifdef ALT_ECB
++ #define D_ENCRYPT(L,R,S) \
++ 	u=((R^s[S  ])<<2);	\
++ 	t= R^s[S+1]; \
++ 	t=((t>>2)+(t<<30)); \
++ 	L^= \
++ 	*(ulong *)(des_SP+0x0100+((t    )&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0300+((t>> 8)&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0500+((t>>16)&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0700+((t>>24)&0xfc))+ \
++ 	*(ulong *)(des_SP+       ((u    )&0xfc))+ \
++   	*(ulong *)(des_SP+0x0200+((u>> 8)&0xfc))+ \
++   	*(ulong *)(des_SP+0x0400+((u>>16)&0xfc))+ \
++  	*(ulong *)(des_SP+0x0600+((u>>24)&0xfc));
++ #else /* original version */
+  #define D_ENCRYPT(L,R,S)	\
+  	u=(R^s[S  ]); \
+! 	t=R^s[S+1]; \
+! 	t=((t>>4)+(t<<28)); \
+  	L^=	des_SPtrans[1][(t    )&0x3f]| \
+  		des_SPtrans[3][(t>> 8)&0x3f]| \
+  		des_SPtrans[5][(t>>16)&0x3f]| \
+***************
+*** 39,44 ****
+--- 56,62 ----
+  		des_SPtrans[2][(u>> 8)&0x3f]| \
+  		des_SPtrans[4][(u>>16)&0x3f]| \
+  		des_SPtrans[6][(u>>24)&0x3f];
++ #endif
+  
+  	/* IP and FP
+  	 * The problem is more of a geometric problem that random bit fiddling.
+***************
+*** 88,93 ****
+--- 106,114 ----
+  int encrypt;
+  	{
+  	register ulong l,r,t,u;
++ #ifdef ALT_ECB
++ 	register uchar *des_SP=(uchar *)des_SPtrans;
++ #endif
+  	register int i;
+  	register ulong *s;
+  
+diff -c -r des.old/enc_read.c des/enc_read.c
+*** des.old/enc_read.c	Wed May 13 12:35:57 1992
+--- des/enc_read.c	Tue Apr 28 12:32:13 1992
+***************
+*** 7,12 ****
+--- 7,31 ----
+  extern int errno;
+  int des_rw_mode=DES_PCBC_MODE;
+  
++ /* Functions to convert from/to network byte order (big endian)
++  * for MSDOS (little endian) */
++ #ifdef MSDOS
++ #define NETCONV(name) \
++ ulong name(l) \
++ ulong l; \
++ 	{ \
++ 	ulong t; \
++ \
++ 	t=(l>>16)|(l<<16); \
++ 	t=((t<<8)&0xff00ff00)|((t>>8)&0x00ff00ff); \
++ 	return(t); \
++ 	}
++ 
++ NETCONV(htonl);
++ NETCONV(ntohl);
++ #endif
++ 
++ 
+  int des_enc_read(fd,buf,len,sched,iv)
+  int fd;
+  char *buf;
+diff -c -r des.old/fcrypt.c des/fcrypt.c
+*** des.old/fcrypt.c	Wed May 13 12:36:50 1992
+--- des/fcrypt.c	Wed May 13 10:24:23 1992
+***************
+*** 387,392 ****
+--- 387,412 ----
+   * modified stuff for crypt.
+   ******************************************************************/
+  
++ /* The changes to this macro may help or hinder, depending on the
++  * compiler and the achitecture.  gcc2 always seems to do well :-).  */
++ #ifdef ALT_ECB
++ #define D_ENCRYPT(L,R,S) \
++ 	v=(R^(R>>16)); \
++ 	u=(v&E0); \
++ 	v=(v&E1); \
++ 	u=((u^(u<<16))^R^s[S  ])<<2; \
++ 	t=(v^(v<<16))^R^s[S+1]; \
++ 	t=(t>>2)|(t<<30); \
++ 	L^= \
++ 	*(ulong *)(des_SP+0x0100+((t    )&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0300+((t>> 8)&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0500+((t>>16)&0xfc))+ \
++ 	*(ulong *)(des_SP+0x0700+((t>>24)&0xfc))+ \
++ 	*(ulong *)(des_SP+       ((u    )&0xfc))+ \
++   	*(ulong *)(des_SP+0x0200+((u>> 8)&0xfc))+ \
++   	*(ulong *)(des_SP+0x0400+((u>>16)&0xfc))+ \
++  	*(ulong *)(des_SP+0x0600+((u>>24)&0xfc));
++ #else /* original version */
+  #define D_ENCRYPT(L,R,S)	\
+  	v=(R^(R>>16)); \
+  	u=(v&E0); \
+***************
+*** 402,407 ****
+--- 422,428 ----
+  		SPtrans[2][(u>> 8)&0x3f]| \
+  		SPtrans[4][(u>>16)&0x3f]| \
+  		SPtrans[6][(u>>24)&0x3f];
++ #endif
+  
+  #define PERM_OP(a,b,t,n,m) ((t)=((((a)>>(n))^(b))&(m)),\
+  	(b)^=(t),\
+***************
+*** 498,503 ****
+--- 519,527 ----
+  ulong Eswap0,Eswap1;
+  	{
+  	register unsigned long l,r,t,u,v;
++ #ifdef ALT_ECB
++ 	register uchar *des_SP=(uchar *)SPtrans;
++ #endif
+  	register unsigned long *s;
+  	register int i,j;
+  	register unsigned long E0,E1;
+diff -c -r des.old/makefile des/makefile
+*** des.old/makefile	Wed May 13 12:36:52 1992
+--- des/makefile	Wed May 13 12:35:27 1992
+***************
+*** 1,7 ****
+  #CC=gcc
+! #CFLAGS= -O2
+  CC=cc
+! CFLAGS= -O
+  
+  LIBDIR=/usr/local/lib
+  BINDIR=/usr/local/bin
+--- 1,26 ----
++ # Version 1.94 has changed the strings_to_key function so that it is
++ # now compatible with MITs when the string is longer than 8 characters.
++ # If you wish to keep the old version, uncomment the following line.
++ # This will affect the -E/-D options on des(1).
++ #OPTS1= -DOLD_STR_TO_KEY
++ 
++ # This #define specifies the use of an alternative D_ENCRYPT macro in
++ # ecb_encrypt.  The choice of macro can make a %20 difference in the
++ # speed.  Unfortunatly the choise of the best macro appears to be very
++ # dependant on the compiler and the machine in question.
++ # For the following combinations use the ALT_ECB option.
++ # Sparc 2 (cc -O4), sun 3/260 (cc -O4)
++ # For the following combinations do not use the ALT_ECB option.
++ # Sparc 2 (gcc2 -O2), sun 3/260 (cc -O2), mvax2 (cc -O), MSDOS (Turbo Cv2)
++ # For other machines, experiment with changing the option and run
++ # ./speed to see which is faster.
++ #OPTS2= -DALT_ECB
++ 
++ OPTS= $(OPTS1) $(OPTS2)
+  #CC=gcc
+! #CFLAGS= -O2 $(OPTS)
+  CC=cc
+! CFLAGS= -O $(OPTS)
+  
+  LIBDIR=/usr/local/lib
+  BINDIR=/usr/local/bin
+***************
+*** 9,14 ****
+--- 28,34 ----
+  MANDIR=/usr/local/man
+  MAN1=1
+  MAN3=3
++ SHELL=/bin/sh
+  
+  OBJS=	cbc_cksum.o cbc_encrypt.o ecb_encrypt.o pcbc_encrypt.o \
+  	quad_cksum.o random_key.o read_password.o set_key.o string_to_key.o \
+diff -c -r des.old/read_password.c des/read_password.c
+*** des.old/read_password.c	Wed May 13 12:36:52 1992
+--- des/read_password.c	Tue Apr 28 12:32:13 1992
+***************
+*** 6,20 ****
+  #include <signal.h>
+  #include <setjmp.h>
+  #ifndef VMS
+  #include <sgtty.h>
+  #include <sys/ioctl.h>
+  #else /* VMS */
+! truct sgttyb {
+! 	unsigned char class, ttype;
+! 	unsigned short pgwid;
+! 	unsigned ttchr : 24;
+! 	unsigned char pglen;
+! 	unsigned int xchar;
+  	};
+  #endif
+  
+--- 6,29 ----
+  #include <signal.h>
+  #include <setjmp.h>
+  #ifndef VMS
++ #ifndef MSDOS
+  #include <sgtty.h>
+  #include <sys/ioctl.h>
++ #else /* MSDOS */
++ #define fgets(a,b,c) noecho_fgets(a,b,c)
++ #ifndef NSIG
++ #define NSIG 32
++ #endif
++ #endif
+  #else /* VMS */
+! #include <ssdef.h>
+! #include <iodef.h>
+! #include <ttdef.h>
+! #include <descrip.h>
+! struct IOSB {
+! 	short iosb$w_value;
+! 	short iosb$w_count;
+! 	long  iosb$l_info;
+  	};
+  #endif
+  
+***************
+*** 73,91 ****
+  char *prompt;
+  int verify;
+  	{
+  	struct sgttyb tty_orig,tty_new;
+  	int ok=0;
+  	char *p;
+  	int ps=0;
+  	FILE *tty;
+  
+  	if ((tty=fopen("/dev/tty","r")) == NULL)
+  		tty=stdin;
+  #ifdef TIOCGETP
+  	if (ioctl(fileno(tty),TIOCGETP,(char *)&tty_orig) == -1)
+  		return(-1);
+- #endif
+  	bcopy(&(tty_orig),&(tty_new),sizeof(tty_orig));
+  	if (setjmp(save))
+  		{
+  		ok=0;
+--- 82,125 ----
+  char *prompt;
+  int verify;
+  	{
++ #ifndef VMS
++ #ifndef MSDOS
+  	struct sgttyb tty_orig,tty_new;
++ #endif /* !MSDOS */
++ #else
++ 	struct IOSB iosb;
++ 	$DESCRIPTOR(terminal,"TT");
++ 	long tty_orig[3], tty_new[3];
++ 	long status;
++ 	unsigned short channel = 0;
++ #endif
+  	int ok=0;
+  	char *p;
+  	int ps=0;
+  	FILE *tty;
+  
++ #ifndef MSDOS
+  	if ((tty=fopen("/dev/tty","r")) == NULL)
+  		tty=stdin;
++ #else /* MSDOS */
++ 	if ((tty=fopen("con","r")) == NULL)
++ 		tty=stdin;
++ #endif /* MSDOS */
++ #ifndef VMS
+  #ifdef TIOCGETP
+  	if (ioctl(fileno(tty),TIOCGETP,(char *)&tty_orig) == -1)
+  		return(-1);
+  	bcopy(&(tty_orig),&(tty_new),sizeof(tty_orig));
++ #endif
++ #else /* VMS */
++ 	status = SYS$ASSIGN(&terminal,&channel,0,0);
++ 	if (status != SS$_NORMAL)
++ 		return(-1);
++ 	status=SYS$QIOW(0,channel,IO$_SENSEMODE,&iosb,0,0,tty_orig,12,0,0,0,0);
++ 	if ((status != SS$_NORMAL) || (iosb.iosb$w_value != SS$_NORMAL))
++ 		return(-1);
++ #endif
++ 
+  	if (setjmp(save))
+  		{
+  		ok=0;
+***************
+*** 93,103 ****
+--- 127,148 ----
+  		}
+  	pushsig();
+  	ps=1;
++ #ifndef VMS
++ #ifndef MSDOS
+  	tty_new.sg_flags &= ~ECHO;
++ #endif /* !MSDOS */
+  #ifdef TIOCSETP
+  	if (ioctl(fileno(tty),TIOCSETP,(char *)&tty_new) == -1)
+  		return(-1);
+  #endif
++ #else /* VMS */
++ 	tty_new[0] = tty_orig[0];
++ 	tty_new[1] = tty_orig[1] | TT$M_NOECHO;
++ 	tty_new[2] = tty_orig[2];
++ 	status = SYS$QIOW(0,channel,IO$_SETMODE,&iosb,0,0,tty_new,12,0,0,0,0);
++ 	if ((status != SS$_NORMAL) || (iosb.iosb$w_value != SS$_NORMAL))
++ 		return(-1);
++ #endif /* VMS */
+  	ps=2;
+  
+  	while (!ok)
+***************
+*** 135,145 ****
+--- 180,200 ----
+  error:
+  	fprintf(stderr,"\n");
+  	/* What can we do if there is an error? */
++ #ifndef VMS
+  #ifdef TIOCSETP
+  	if (ps >= 2) ioctl(fileno(tty),TIOCSETP,(char *)&tty_orig);
+  #endif
++ #else /* VMS */
++ 	if (ps >= 2)
++ 		status = SYS$QIOW(0,channel,IO$_SETMODE,&iosb,0,0
++ 			,tty_orig,12,0,0,0,0);
++ #endif /* VMS */
++ 	
+  	if (ps >= 1) popsig();
+  	if (stdin != tty) fclose(tty);
++ #ifdef VMS
++ 	status = SYS$DASSGN(channel);
++ #endif
+  	return(!ok);
+  	}
+  
+***************
+*** 163,165 ****
+--- 218,250 ----
+  	{
+  	longjmp(save,1);
+  	}
++ 
++ #ifdef MSDOS
++ static int noecho_fgets(buf,size,tty)
++ char *buf;
++ int size;
++ FILE *tty;
++ 	{
++ 	int i;
++ 	char *p;
++ 
++ 	p=buf;
++ 	for (;;)
++ 		{
++ 		if (size == 0)
++ 			{
++ 			*p='\0';
++ 			break;
++ 			}
++ 		size--;
++ 		i=getch();
++ 		if (i == '\r') i='\n';
++ 		*(p++)=i;
++ 		if (i == '\n')
++ 			{
++ 			*p='\0';
++ 			break;
++ 			}
++ 		}
++ 	}
++ #endif
+diff -c -r des.old/set_key.c des/set_key.c
+*** des.old/set_key.c	Wed May 13 12:36:06 1992
+--- des/set_key.c	Thu Apr 23 12:41:58 1992
+***************
+*** 168,174 ****
+  	return(0);
+  	}
+  
+! int key_sched(key,schedule)
+  des_cblock *key;
+  des_key_schedule schedule;
+  	{
+--- 168,174 ----
+  	return(0);
+  	}
+  
+! int des_key_sched(key,schedule)
+  des_cblock *key;
+  des_key_schedule schedule;
+  	{
+diff -c -r des.old/speed.c des/speed.c
+*** des.old/speed.c	Wed May 13 12:36:53 1992
+--- des/speed.c	Wed May 13 09:42:30 1992
+***************
+*** 2,16 ****
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  /* 06-Apr-92 Luke Brennan    Support for VMS and add extra signal calls */
+  
+  #define TIMES
+  
+  #include <stdio.h>
+  #include <signal.h>
+- #undef SIGALRM
+  #ifndef VMS
+  #include <time.h>
+  #include <sys/types.h>
+  #include <sys/times.h>
+  #else /* VMS */
+  #include <types.h>
+  struct tms {
+--- 2,19 ----
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  /* 06-Apr-92 Luke Brennan    Support for VMS and add extra signal calls */
+  
++ #ifndef MSDOS
+  #define TIMES
++ #endif
+  
+  #include <stdio.h>
+  #include <signal.h>
+  #ifndef VMS
+  #include <time.h>
+  #include <sys/types.h>
++ #ifdef TIMES
+  #include <sys/times.h>
++ #endif /* TIMES */
+  #else /* VMS */
+  #include <types.h>
+  struct tms {
+***************
+*** 36,42 ****
+  #define HZ ((double)CLK_TCK)
+  #endif
+  
+! #define BUFSIZE	(1024*8)
+  long run=0;
+  
+  #ifdef SIGALRM
+--- 39,45 ----
+  #define HZ ((double)CLK_TCK)
+  #endif
+  
+! #define BUFSIZE	((long)1024*8)
+  long run=0;
+  
+  #ifdef SIGALRM
+***************
+*** 57,65 ****
+  #define START	0
+  #define STOP	1
+  
+! double Time(s)
+  int s;
+  	{
+  #ifdef TIMES
+  	static struct tms tstart,tend;
+  
+--- 60,69 ----
+  #define START	0
+  #define STOP	1
+  
+! double Time_F(s)
+  int s;
+  	{
++ 	double ret;
+  #ifdef TIMES
+  	static struct tms tstart,tend;
+  
+***************
+*** 71,77 ****
+  	else
+  		{
+  		times(&tend);
+! 		return(((double)(tend.tms_utime-tstart.tms_utime))/HZ);
+  		}
+  #else /* !times() */
+  	static struct timeb tstart,tend;
+--- 75,82 ----
+  	else
+  		{
+  		times(&tend);
+! 		ret=((double)(tend.tms_utime-tstart.tms_utime))/HZ;
+! 		return((ret == 0.0)?1e-6:ret);
+  		}
+  #else /* !times() */
+  	static struct timeb tstart,tend;
+***************
+*** 85,92 ****
+  	else
+  		{
+  		ftime(&tend);
+! 		i=(long)tend.time-(long)tstart.time;
+! 		return(((double)(tend.time-tstart.time))+i/1000.0);
+  		}
+  #endif
+  	}
+--- 90,98 ----
+  	else
+  		{
+  		ftime(&tend);
+! 		i=(long)tend.millitm-(long)tstart.millitm;
+! 		ret=((double)(tend.time-tstart.time))+((double)i)/1000.0;
+! 		return((ret == 0.0)?1e-6:ret);
+  		}
+  #endif
+  	}
+***************
+*** 100,106 ****
+  	static unsigned char buf[BUFSIZE];
+  	static des_cblock key={0x12,0x34,0x56,0x78,0x9a,0xbc,0xde,0xf0};
+  	des_key_schedule sch;
+! 	int i,j,k,enc,cat=0,catfd;
+  	double d,a,b,c;
+  	long ca,cb,cc,cd;
+  
+--- 106,112 ----
+  	static unsigned char buf[BUFSIZE];
+  	static des_cblock key={0x12,0x34,0x56,0x78,0x9a,0xbc,0xde,0xf0};
+  	des_key_schedule sch;
+! 	int i,j,k,enc,catfd;
+  	double d,a,b,c;
+  	long ca,cb,cc,cd;
+  
+***************
+*** 115,130 ****
+  	count=10;
+  	do	{
+  		count*=2;
+! 		Time(START);
+  		for (i=count; i; i--)
+  			des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 		d=Time(STOP);
+  		} while (d <3);
+  	ca=count;
+  	cb=count*10;
+  	cc=count*10*8/BUFSIZE+1;
+  	cd=count/20+1;
+! 	printf("Doing set_key's %d times\n",ca);
+  #define COND(d)	(count != (d))
+  #define COUNT(d) (d)
+  #else
+--- 121,136 ----
+  	count=10;
+  	do	{
+  		count*=2;
+! 		Time_F(START);
+  		for (i=count; i; i--)
+  			des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 		d=Time_F(STOP);
+  		} while (d <3);
+  	ca=count;
+  	cb=count*10;
+  	cc=count*10*8/BUFSIZE+1;
+  	cd=count/20+1;
+! 	printf("Doing set_key's %ld times\n",ca);
+  #define COND(d)	(count != (d))
+  #define COUNT(d) (d)
+  #else
+***************
+*** 135,145 ****
+  	alarm(60);
+  #endif
+  
+! 	Time(START);
+  	for (count=0,run=1; COND(ca); count++)
+  		des_set_key(key,sch);
+! 	d=Time(STOP);
+! 	printf("%d set_key's in %.2f seconds\n",count,d);
+  	a=((double)COUNT(ca))/d;
+  
+  #ifdef SIGALRM
+--- 141,151 ----
+  	alarm(60);
+  #endif
+  
+! 	Time_F(START);
+  	for (count=0,run=1; COND(ca); count++)
+  		des_set_key(key,sch);
+! 	d=Time_F(STOP);
+! 	printf("%ld set_key's in %.2f seconds\n",count,d);
+  	a=((double)COUNT(ca))/d;
+  
+  #ifdef SIGALRM
+***************
+*** 146,173 ****
+  	printf("Doing des_ecb_encrypt's for 60 seconds\n");
+  	alarm(60);
+  #else
+! 	printf("Doing %d des_ecb_encrypt's\n",cb);
+  #endif
+! 	Time(START);
+  	for (count=0,run=1; COND(cb); count++)
+  		des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 	d=Time(STOP);
+! 	printf("%d des_ecb_encrypt's in %.2f second\n",count,d);
+  	b=((double)COUNT(cb)*8)/d;
+  
+  #ifdef SIGALRM
+! 	printf("Doing des_cbc_encrypt on %d byte blocks for 60 seconds\n",
+  		BUFSIZE);
+  	alarm(60);
+  #else
+! 	printf("Doing %d des_cbc_encrypt's on %d byte blocks\n",cc,BUFSIZE);
+  #endif
+! 	Time(START);
+  	for (count=0,run=1; COND(cc); count++)
+  		des_cbc_encrypt(buf,buf,BUFSIZE,&(sch[0]),
+  		&(key[0]),DES_ENCRYPT);
+! 	d=Time(STOP);
+! 	printf("%d des_cbc_encrypt's of %d byte blocks in %.2f second\n",
+  		count,BUFSIZE,d);
+  	c=((double)COUNT(cc)*BUFSIZE)/d;
+  
+--- 152,179 ----
+  	printf("Doing des_ecb_encrypt's for 60 seconds\n");
+  	alarm(60);
+  #else
+! 	printf("Doing %ld des_ecb_encrypt's\n",cb);
+  #endif
+! 	Time_F(START);
+  	for (count=0,run=1; COND(cb); count++)
+  		des_ecb_encrypt(buf,buf,&(sch[0]),DES_ENCRYPT);
+! 	d=Time_F(STOP);
+! 	printf("%ld des_ecb_encrypt's in %.2f second\n",count,d);
+  	b=((double)COUNT(cb)*8)/d;
+  
+  #ifdef SIGALRM
+! 	printf("Doing des_cbc_encrypt on %ld byte blocks for 60 seconds\n",
+  		BUFSIZE);
+  	alarm(60);
+  #else
+! 	printf("Doing %ld des_cbc_encrypt's on %ld byte blocks\n",cc,BUFSIZE);
+  #endif
+! 	Time_F(START);
+  	for (count=0,run=1; COND(cc); count++)
+  		des_cbc_encrypt(buf,buf,BUFSIZE,&(sch[0]),
+  		&(key[0]),DES_ENCRYPT);
+! 	d=Time_F(STOP);
+! 	printf("%ld des_cbc_encrypt's of %ld byte blocks in %.2f second\n",
+  		count,BUFSIZE,d);
+  	c=((double)COUNT(cc)*BUFSIZE)/d;
+  
+***************
+*** 175,191 ****
+  	printf("Doing crypt for 60 seconds\n");
+  	alarm(60);
+  #else
+! 	printf("Doing %d crypt's\n",cd);
+  #endif
+! 	Time(START);
+  	for (count=0,run=1; COND(cd); count++)
+  		crypt("testing1","ef");
+! 	d=Time(STOP);
+! 	printf("%d crypts in %.2f second\n",count,d);
+  	d=((double)COUNT(cd))/d;
+  
+! 	printf("set_key       per sec = %12.2f\n",a);
+! 	printf("DES ecb bytes per sec = %12.2f\n",b);
+! 	printf("DES cbc bytes per sec = %12.2f\n",c);
+! 	printf("crypt         per sec = %12.2f\n",d);
+  	}
+--- 181,197 ----
+  	printf("Doing crypt for 60 seconds\n");
+  	alarm(60);
+  #else
+! 	printf("Doing %ld crypt's\n",cd);
+  #endif
+! 	Time_F(START);
+  	for (count=0,run=1; COND(cd); count++)
+  		crypt("testing1","ef");
+! 	d=Time_F(STOP);
+! 	printf("%ld crypts in %.2f second\n",count,d);
+  	d=((double)COUNT(cd))/d;
+  
+! 	printf("set_key       per sec = %12.2f (%5.1fuS)\n",a,1.0e6/a);
+! 	printf("DES ecb bytes per sec = %12.2f (%5.1fuS)\n",b,8.0e6/b);
+! 	printf("DES cbc bytes per sec = %12.2f (%5.1fuS)\n",c,8.0e6/c);
+! 	printf("crypt         per sec = %12.2f (%5.1fuS)\n",d,1.0e6/d);
+  	}
+diff -c -r des.old/spr.h des/spr.h
+*** des.old/spr.h	Wed May 13 12:36:53 1992
+--- des/spr.h	Thu Apr 30 12:09:21 1992
+***************
+*** 1,4 ****
+! /* sp.h */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  static unsigned long des_SPtrans[8][64]={
+  /* nibble 0 */
+--- 1,4 ----
+! /* spr.h */
+  /* Copyright (C) 1992 Eric Young - see COPYING for more details */
+  static unsigned long des_SPtrans[8][64]={
+  /* nibble 0 */
+diff -c -r des.old/string_to_key.c des/string_to_key.c
+*** des.old/string_to_key.c	Wed May 13 12:36:03 1992
+--- des/string_to_key.c	Tue May  5 16:04:26 1992
+***************
+*** 8,18 ****
+--- 8,36 ----
+  	{
+  	des_key_schedule ks;
+  	int i,length;
++ 	register uchar j;
+  
+  	bzero(key,8);
+  	length=strlen(str);
++ #ifdef OLD_STR_TO_KEY
+  	for (i=0; i<length; i++)
+  		(*key)[i%8]^=(str[i]<<1);
++ #else /* MIT COMPATIBLE */
++ 	for (i=0; i<length; i++)
++ 		{
++ 		j=str[i];
++ 		if ((i%16) < 8)
++ 			(*key)[i%8]^=(j<<1);
++ 		else
++ 			{
++ 			/* Reverse the bit order 05/05/92 eay */
++ 			j=((j<<4)&0xf0)|((j>>4)&0x0f);
++ 			j=((j<<2)&0xcc)|((j>>2)&0x33);
++ 			j=((j<<1)&0xaa)|((j>>1)&0x55);
++ 			(*key)[7-(i%8)]^=j;
++ 			}
++ 		}
++ #endif
+  	des_set_odd_parity((des_cblock *)key);
+  	des_set_key((des_cblock *)key,ks);
+  	des_cbc_cksum((des_cblock *)str,(des_cblock *)key,(long)length,ks,
+diff -c -r des.old/times des/times
+*** des.old/times	Wed May 13 12:36:54 1992
+--- des/times	Wed May 13 09:41:53 1992
+***************
+*** 1,5 ****
+--- 1,11 ----
+  New version 1.92 - slight speedup.
+  
++ PA-RISC 1.1 HP 710, 16 MB memory, NFS mounted disks:
++ set_key       per sec =     38916.86
++ DES ecb bytes per sec =    505971.82
++ DES cbc bytes per sec =    515381.13
++ crypt         per sec =      2438.24
++ 
+  sun sparc 2 - gcc2 -O2
+  set_key       per sec =     21559.10
+  DES ecb bytes per sec =    305566.92
+***************
+*** 6,45 ****
+  DES cbc bytes per sec =    303497.50
+  crypt         per sec =      1410.48
+  
+  
+! Old version 1.90
+  
+! sun sparc 2 - gcc2 -O2
+! -rw-r-----  1 eay      wheel       25804 Mar 24 14:16 libdes.a
+! set_key       per sec =     21462.36
+! DES ecb bytes per sec =    289342.72
+! DES cbc bytes per sec =    288306.34
+! crypt         per sec =      1343.25
+  
+! sun sparc 2 - cc -O4
+! -rw-r-----  1 eay      wheel       27444 Mar 24 14:47 libdes.a
+! set_key       per sec =     20065.82
+! DES ecb bytes per sec =    240058.09
+! DES cbc bytes per sec =    240987.25
+! crypt         per sec =      1147.72
+  
+! sun 3/260 gcc -O2
+! -rw-r-----  1 eay      wheel       22540 Mar 25 07:30 libdes.a
+! set_key       per sec =      3305.00
+! DES ecb bytes per sec =     41326.80
+! DES cbc bytes per sec =     42421.17
+! crypt         per sec =       187.79
+  
+- sun 3/260 cc -O4
+- -rw-r-----  1 eay      wheel       23714 Mar 25 07:15 libdes.a
+- set_key       per sec =      2994.30
+- DES ecb bytes per sec =     31061.97
+- DES cbc bytes per sec =     31561.52
+- crypt         per sec =       148.66
+- 
+  From Robert Withrow <witr@rwwa.COM>
+  386/33 - cc -O
+- -rw-r--r--   1 root     other      32708 Apr  4 14:45 /usr/local/lib/libdes.a
+  set_key       per sec =      5475.44
+  DES ecb bytes per sec =     64527.52
+  DES cbc bytes per sec =     67086.06
+--- 12,44 ----
+  DES cbc bytes per sec =    303497.50
+  crypt         per sec =      1410.48
+  
++ RS/6000 model 320
++ set_key       per sec =     14371.93
++ DES ecb bytes per sec =    222231.26
++ DES cbc bytes per sec =    223926.79
++ crypt         per sec =       981.20
+  
+! 68030 HP400, 16 MB memory, local 660 MB disk
+! set_key       per sec =      5251.28
+! DES ecb bytes per sec =     56186.56
+! DES cbc bytes per sec =     58681.53
+! crypt         per sec =       276.15
+  
+! 80386/???mh MSDOS Turbo C v 2.0
+! set_key       per sec =       918.39
+! DES ecb bytes per sec =     15568.23
+! DES cbc bytes per sec =     15575.90
+! crypt         per sec =        74.67
+  
+! 8088/4.77mh MSDOS Turbo C v 2.0
+! set_key       per sec =        35.09
+! DES ecb bytes per sec =       563.63
+! crypt         per sec =         2.69
+  
+! libdes Version 1.90 (5% slower)
+  
+  From Robert Withrow <witr@rwwa.COM>
+  386/33 - cc -O
+  set_key       per sec =      5475.44
+  DES ecb bytes per sec =     64527.52
+  DES cbc bytes per sec =     67086.06
+exit 0 # Just in case...

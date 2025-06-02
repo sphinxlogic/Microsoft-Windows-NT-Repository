@@ -1,0 +1,2242 @@
+Newsgroups: comp.sources.misc
+From: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Subject: v35i069:  zsh - The Z Shell, version 2.3.1, Part19/22
+Message-ID: <1993Feb20.212847.29442@sparky.imd.sterling.com>
+X-Md4-Signature: 55c2db3c0602f107f9dd822082b6c794
+Date: Sat, 20 Feb 1993 21:28:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Posting-number: Volume 35, Issue 69
+Archive-name: zsh/part19
+Environment: UNIX
+Supersedes: zsh2.2: Volume 29, Issue 97-113
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  doc/intro.troff.02 help/setopt src/math.c src/table.c
+#   src/zle_hist.c
+# Wrapped by mattson@odin on Sat Feb  6 14:41:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 19 (of 22)."'
+if test -f 'doc/intro.troff.02' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/intro.troff.02'\"
+else
+  echo shar: Extracting \"'doc/intro.troff.02'\" \(9993 characters\)
+  sed "s/^X//" >'doc/intro.troff.02' <<'END_OF_FILE'
+XIn general, parameters with names in all lowercase are arrays;
+Xassignments to them take the form:
+X.Ds
+X\fIname\fR\fC=(\fR \fIelem\fR ...\ \fC)\fR
+X.De
+XParameters with names in all uppercase are strings.  If there is
+Xboth an array and a string version of the same parameter, the
+Xstring version is a colon-separated list, like \fBPATH\fR.
+X.PP
+X\fBHISTFILE\fR is the name of the history file, where the history
+Xis saved when a shell exits.
+X.Ds
+X% zsh
+Xphoenix% HISTFILE=/tmp/history
+Xphoenix% SAVEHIST=20
+Xphoenix% echo foo
+Xfoo
+Xphoenix% date
+XFri May 24 05:39:35 EDT 1991
+Xphoenix% uptime
+X  5:39am  up 4 days, 20:02,  40 users,  load average: 2.30, 2.20, 2.00
+Xphoenix% exit
+X% cat /tmp/history
+XHISTFILE=/tmp/history
+XSAVEHIST=20
+Xecho foo
+Xdate
+Xuptime
+Xexit
+X% HISTSIZE=3
+X% history
+X   28  rm /tmp/history
+X   29  HISTSIZE=3
+X   30  history
+X.De
+X.PP
+XIn zsh, if you say
+X.Ds
+X% >file
+X.DZ
+Xthe command \fCcat\fR is normally assumed:
+X.Ds
+X% >file
+Xfoo!    
+X^D
+X% cat file
+Xfoo!
+X.DZ
+XThus, you can view a file simply by typing:
+X.Ds
+X% <file
+Xfoo!
+X.DZ
+XHowever, this is not csh or sh compatible.  To correct this,
+Xchange the value of the parameter \fBNULLCMD\fR,
+Xwhich is \fCcat\fR by default.
+X.Ds
+X% NULLCMD=:
+X% >file
+X% ls -l file
+X-rw-r--r--  1 pfalstad        0 May 24 05:41 file
+X.DZ
+XIf \fCNULLCMD\fR is unset, the shell reports an error if no
+Xcommand is specified (like csh).
+X.Ds
+X% unset NULLCMD
+X% >file
+Xzsh: redirection with no command
+X.De
+XActually, \fBREADNULLCMD\fR is used whenever you have a null command
+Xreading input from a single file.  Thus, you can set \fBREADNULLCMD\fP
+Xto \fCmore\fP or \fCless\fP rather than \fCcat\fP.  Also, if you
+Xset \fBNULLCMD\fR to \fC:\fP for sh compatibility, you can still read
+Xfiles with \fC< file\fR if you leave \fBREADNULLCMD\fP set to \fCmore\fP.
+X.SH
+XPrompting
+X.PP
+XThe default prompt for zsh is:
+X.Ds
+Xphoenix% echo $PROMPT
+X%m%# 
+X.De
+XThe \fC%m\fR stands for the short form of the current hostname,
+Xand the \fC%#\fR stands for a \fC%\fR or a \fC#\fR, depending on whether
+Xthe shell is running as root or not.
+Xzsh supports many other control sequences
+Xin the \fBPROMPT\fR variable.
+X.Ds
+X% PROMPT='%/> '
+X/u/pfalstad/etc/TeX/zsh>
+X
+X% PROMPT='%~> '   
+X~/etc/TeX/zsh> 
+X
+X% PROMPT='%h %~> '
+X6 ~/etc/TeX/zsh> 
+X.DZ
+X\fC%h\fR represents the number of current history event.
+X.Ds
+X% PROMPT='%h %~ %M> '
+X10 ~/etc/TeX/zsh apple-gunkies.gnu.ai.mit.edu> 
+X
+X% PROMPT='%h %~ %m> '
+X11 ~/etc/TeX/zsh apple-gunkies> 
+X
+X% PROMPT='%h %t> '
+X12 6:11am> 
+X
+X% PROMPT='%n %w tty%l>'
+Xpfalstad Fri 24 ttyp0>
+X.DZ
+XAlso available is the \fBRPROMPT\fR parameter.
+XIf this is set, the shell puts a prompt on the \fIright\fR side
+Xof the screen.
+X.Ds
+X% RPROMPT='%t'
+X%                                                      6:14am
+X
+X% RPROMPT='%~'
+X%                                               ~/etc/TeX/zsh
+X
+X% PROMPT='%l %T %m[%h] ' RPROMPT=' %~'
+Xp0 6:15 phoenix[5]                              ~/etc/TeX/zsh
+X.DZ
+XThese special escape sequences can also be used with the
+X\fC-P\fR option to \fCprint\fR:
+X.Ds
+X% print -P %h tty%l
+X15 ttyp1
+X.De
+X.PP
+XThe \fBPOSTEDIT\fR parameter is printed whenever the editor exits.
+XThis can be useful for termcap tricks.  To highlight the prompt
+Xand command line while leaving command output unhighlighted, try this:
+X.Ds
+X% POSTEDIT=`echotc se`
+X% PROMPT='%S%% '
+X.De
+X.SH
+XLogin/logout watching
+X.PP
+XYou can specify login or logout events to monitor
+Xby setting the \fBwatch\fR variable.
+XNormally, this is done by specifying a list of usernames.
+X.Ds
+X% watch=( pfalstad subbarao sukthnkr egsirer )
+X.DZ
+XThe \fClog\fR command reports all people logged in
+Xthat you are watching for.
+X.Ds
+X% log
+Xpfalstad has logged on p0 from mickey.
+Xpfalstad has logged on p5 from mickey.
+X% \fR...\fC
+Xsubbarao has logged on p8 from phoenix.
+X% \fR...\fC
+Xsubbarao has logged off p8 from phoenix.
+X% \fR...\fC
+Xsukthnkr has logged on p8 from dew.
+X% \fR...\fC
+Xsukthnkr has logged off p8 from dew.
+X.DZ
+XIf you specify hostnames with an \fC@\fR prepended,
+Xthe shell will watch for all users logging in from
+Xthe specified host.
+X.Ds
+X% watch=( @mickey @phoenix )
+X% log
+Xdjthongs has logged on q2 from phoenix.
+Xpfalstad has logged on p0 from mickey.
+Xpfalstad has logged on p5 from mickey.
+X.DZ
+XIf you give a tty name with a \fC%\fR prepended, the shell
+Xwill watch for all users logging in on that tty.
+X.Ds
+X% watch=( %ttyp0 %console )
+X% log
+Xroot has logged on console from .
+Xpfalstad has logged on p0 from mickey.
+X.DZ
+XThe format of the reports may also be changed.
+X.Ds
+X% watch=( pfalstad gettes eps djthongs jcorr bdavis )
+X% log
+Xjcorr has logged on tf from 128.112.176.3:0.
+Xjcorr has logged on r0 from 128.112.176.3:0.
+Xgettes has logged on p4 from yo:0.0.
+Xdjthongs has logged on pe from grumpy:0.0.
+Xdjthongs has logged on q2 from phoenix.
+Xbdavis has logged on qd from BRUNO.
+Xeps has logged on p3 from csx30:0.0.
+Xpfalstad has logged on p0 from mickey.
+Xpfalstad has logged on p5 from mickey.
+X% WATCHFMT='%n on tty%l from %M'
+X% log
+Xjcorr on ttytf from 128.112.176.3:0.
+Xjcorr on ttyr0 from 128.112.176.3:0.
+Xgettes on ttyp4 from yo:0.0
+Xdjthongs on ttype from grumpy:0.0
+Xdjthongs on ttyq2 from phoenix.Princeto
+Xbdavis on ttyqd from BRUNO.pppl.gov
+Xeps on ttyp3 from csx30:0.0
+Xpfalstad on ttyp0 from mickey.Princeton
+Xpfalstad on ttyp5 from mickey.Princeton
+X% WATCHFMT='%n fm %m'
+X% log
+Xjcorr fm 128.112.176.3:0
+Xjcorr fm 128.112.176.3:0
+Xgettes fm yo:0.0
+Xdjthongs fm grumpy:0.0
+Xdjthongs fm phoenix
+Xbdavis fm BRUNO
+Xeps fm csx30:0.0
+Xpfalstad fm mickey
+Xpfalstad fm mickey
+X% WATCHFMT='%n %a at %t %w.'
+X% log
+Xjcorr logged on at 3:15pm Mon 20.
+Xjcorr logged on at 3:16pm Wed 22.
+Xgettes logged on at 6:54pm Wed 22.
+Xdjthongs logged on at 7:19am Thu 23.
+Xdjthongs logged on at 7:20am Thu 23.
+Xbdavis logged on at 12:40pm Thu 23.
+Xeps logged on at 4:19pm Thu 23.
+Xpfalstad logged on at 3:39am Fri 24.
+Xpfalstad logged on at 3:42am Fri 24.
+X.DZ
+XIf you have a \fC.friends\fR file in your home directory,
+Xa convenient way to make zsh watch for all your friends
+Xis to do this:
+X.Ds
+X% watch=( $(< ~/.friends) )
+X% echo $watch
+Xsubbarao maruchck root sukthnkr \fR...
+X.De
+XIf watch is set to \fCall\fR, then all users logging in or out
+Xwill be reported.
+X.SH
+XOptions
+X.PP
+XSome options have already been mentioned; here are a few more:
+X.Ds
+X% cd /
+X% setopt autocd
+X% bin
+X% pwd
+X/bin
+X% ../etc
+X% pwd
+X/etc
+X.DZ
+XUsing the \fIAUTOCD\fR option, you can simply type the name
+Xof a directory, and it will become the current directory.
+X.Ds
+X% setopt cdablevars
+X% foo=/tmp
+X% cd foo
+X/tmp
+X.De
+XWith \fICDABLEVARS\fR, if the argument to \fCcd\fR is the name of a
+Xparameter whose value is a valid directory, it will become
+Xthe current directory.
+X.PP
+X\fICORRECT\fR turns on spelling correction for commands,
+Xand the \fICORRECTALL\fR option turns on spelling correction
+Xfor all arguments.
+X.Ds
+X% setopt correct
+X% sl
+Xzsh: correct `sl' to `ls' [nyae]? y
+X% setopt correctall
+X% ls x.v11r4
+Xzsh: correct `x.v11r4' to `X.V11R4' [nyae]? n
+X/usr/princton/src/x.v11r4 not found
+X% ls /etc/paswd
+Xzsh: correct to `/etc/paswd' to `/etc/passwd' [nyae]? y
+X/etc/passwd
+X.De
+XIf you press \fCy\fR
+Xwhen the shell asks you if you want to correct a word, it will
+Xbe corrected.  If you press \fCn\fR, it will be left alone.
+XPressing \fCa\fR aborts the command, and pressing \fCe\fR brings the line
+Xup for editing again, in case you agree the word is spelled wrong
+Xbut you don't like the correction.
+X.PP
+XNormally, a quoted expression may contain a newline:
+X.Ds
+X% echo '
+X> foo
+X> '
+X
+Xfoo
+X
+X%
+X.DZ
+XWith \fICSHJUNKIEQUOTES\fR set, this is illegal, as it is
+Xin csh.
+X.Ds
+X% setopt cshjunkiequotes
+X% ls 'foo
+Xzsh: unmatched '
+X.DZ
+X\fIGLOBDOTS\fR lets files beginning with a \fC.\fR be matched without
+Xexplicitly specifying the dot.
+X.Ds
+X% ls -d *x*
+XMailboxes
+X% setopt globdots
+X% ls -d *x*
+X\&.exrc         .pnewsexpert  .xserverrc
+X\&.mushexpert   .xinitrc      Mailboxes
+X.DZ
+X\fIHISTIGNOREDUPS\fR prevents the current line from being
+Xsaved in the history if it is the same as the previous one;
+X\fIHISTIGNORESPACE\fR prevents the current line from being
+Xsaved if it begins with a space.
+X.Ds
+X% PROMPT='%h> '
+X39> setopt histignoredups
+X40> echo foo
+Xfoo
+X41> echo foo
+Xfoo
+X41> echo foo
+Xfoo
+X41> echo bar
+Xbar
+X42> setopt histignorespace
+X43>  echo foo
+Xfoo
+X43>  echo fubar
+Xfubar
+X43>  echo fubar
+Xfubar
+X.DZ
+X\fIIGNOREBRACES\fR turns off csh-style brace expansion.
+X.Ds
+X% echo x{y{z,a},{b,c}d}e
+Xxyze xyae xbde xcde
+X% setopt ignorebraces
+X% echo x{y{z,a},{b,c}d}e
+Xx{y{z,a},{b,c}d}e
+X.DZ
+X\fIIGNOREEOF\fR forces the user to type \fCexit\fR or \fClogout\fR,
+Xinstead of just pressing \fI^D\fP.
+X.Ds
+X% setopt ignoreeof
+X% ^D
+Xzsh: use 'exit' to exit.
+X.DZ
+X\fIINTERACTIVECOMMENTS\fR turns on interactive comments;
+Xcomments begin with a \fC#\fR.
+X.Ds
+X% setopt interactivecomments
+X% date # this is a comment
+XFri May 24 06:54:14 EDT 1991
+X.DZ
+X\fINOCLOBBER\fR prevents you from accidentally
+Xoverwriting an existing file.
+X.Ds
+X% setopt noclobber
+X% cat /dev/null >~/.zshrc
+Xzsh: file exists: /u/pfalstad/.zshrc
+X.DZ
+XIf you really do want to clobber a file, you can use the
+X\fC>!\fR operator.
+XTo make things easier in this case, the \fC>\fR is stored in
+Xthe history list as a \fC>!\fR:
+X.Ds
+X% cat /dev/null >! ~/.zshrc
+X% cat /etc/motd > ~/.zshrc
+Xzsh: file exists: /u/pfalstad/.zshrc
+X% !!
+Xcat /etc/motd >! ~/.zshrc
+X% \fR...
+X.DZ
+X\fIRCQUOTES\fR lets you use a more elegant method for including
+Xsingle quotes in a singly quoted string:
+X.Ds
+X% echo '"don'\e''t do that."'
+X"don't do that."
+X% echo '"don''t do that."'
+X"dont do that."
+X% setopt rcquotes
+X% echo '"don''t do that."'
+X"don't do that."
+X.De
+XFinally,
+X\fISUNKEYBOARDHACK\fR wins the award for the strangest option.
+XIf a line ends with \fC`\fR, and there are an odd number of them
+Xon the line, the shell will ignore the trailing \fC`\fR.  This
+Xis provided for keyboards whose RETURN key is too small,
+Xand too close to the \fC`\fR key.
+X.Ds
+X% setopt sunkeyboardhack
+X% date`
+XFri May 24 06:55:38 EDT 1991
+X.De
+X.SH
+XClosing Comments
+X.PP
+XI would be happy to receive mail
+Xif anyone has any tricks or ideas to add to this document, or
+Xif there are some points that could be made clearer or covered
+Xmore thoroughly.  Please notify me of any errors in this
+Xdocument.
+END_OF_FILE
+  if test 9993 -ne `wc -c <'doc/intro.troff.02'`; then
+    echo shar: \"'doc/intro.troff.02'\" unpacked with wrong size!
+  fi
+  # end of 'doc/intro.troff.02'
+fi
+if test -f 'help/setopt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help/setopt'\"
+else
+  echo shar: Extracting \"'help/setopt'\" \(11726 characters\)
+  sed "s/^X//" >'help/setopt' <<'END_OF_FILE'
+X     setopt [ +-options ] [ name ... ]
+X          Set the options for the shell.  All  options  specified
+X          either  with flags or by name are set.  If no arguments
+X          are supplied, the names of all  options  currently  set
+X          are  printed.   In option names, case is insignificant,
+X          and all underscore characters are ignored.
+X     unsetopt [ +-options ] [ name ... ]
+X          Unset the options for the shell.  All options specified
+X          either with flags or by name are unset.
+X
+X     The following options may be  set  upon  invocation  of  the
+X     shell, or with the set or setopt builtins:
+X          ALLEXPORT (-a)
+X               All parameters subsequently defined are  automati-
+X               cally exported.
+X          AUTO_CD (-J)
+X               If a command is not in the hash table,  and  there
+X               exists  an executable directory by that name, per-
+X               form the cd command to that directory.
+X          AUTOLIST (-9)
+X               Automatically list choices on an ambiguous comple-
+X               tion.
+X          AUTOMENU
+X               Automatically use menu completion if the  TAB  key
+X               is pressed repeatedly.
+X          AUTO_PUSHD (-N)
+X               Make cd act like pushd.
+X          AUTO_RESUME (-W)
+X               Treat single word simple commands without redirec-
+X               tion  as  candidates for resumption of an existing
+X               job.
+X          BGNICE (-6)
+X               Run all background jobs at a lower priority.  This
+X               option is set by default.
+X          BRACECCL
+X               Allow brace expansions of the form {a-zA-Z}, etc.
+X          CDABLEVARS (-T)
+X               If the argument to a cd command is  not  a  direc-
+X               tory,  but  a  parameter  exists  by the same name
+X               whose value begins with a /, try to change to  the
+X               directory specified by the parameter's value.
+X          CHASELINKS (-w)
+X               Resolve symbolic links to their true values.
+X          CORRECT (-0)
+X               Try to correct the spelling of commands.
+X          CORRECT_ALL (-O)
+X               Try to correct the spelling of all arguments in  a
+X               line.
+X          CSH_JUNKIE_LOOPS
+X               Allow loop bodies to take  the  form  "list;  end"
+X               instead of "do list; done".
+X          CSH_JUNKIE_QUOTES
+X               Complain if a quoted expression runs off  the  end
+X               of  a  line;  prevent quoted expressions from con-
+X               taining unescaped newlines.
+X          CSH_NULL_GLOB
+X               If  a  pattern  for  filename  generation  has  no
+X               matches,  delete  the  pattern  from  the argument
+X               list; do not report an error unless all  the  pat-
+X               terns  in  a  command  have no matches.  Overrides
+X               NULLGLOB.
+X          ERREXIT (-e)
+X               If a command has a non-zero exit  status,  execute
+X               the ERR trap, if set, and exit.
+X          EXTENDED_GLOB
+X               Treat the # and ^ characters as part  of  patterns
+X               for filename generation, etc.
+X          GLOB_COMPLETE
+X               Like MENU_COMPLETE, except that the  current  word
+X               is  expanded  using normal shell expansion instead
+X               of completion.  If no matches are found,  a  *  is
+X               added  to  the  end  of the word, and expansion is
+X               attempted again.
+X          GLOB_DOTS (-4)
+X               Do not require a leading . in  a  filename  to  be
+X               matched explicitly.
+X          HASH_CMDS
+X               Place the location of each  command  in  the  hash
+X               table  the  first  time  it  is executed.  If this
+X               option is unset, no path hashing will be  done  at
+X               all.
+X          HASH_DIRS
+X               Whenever a command is executed, hash the directory
+X               containing  it,  as  well  as all directories that
+X               occur earlier in  the  path.   Has  no  effect  if
+X               HASH_CMDS is unset.
+X          HASH_LIST_ALL
+X               Whenever a command completion is  attempted,  make
+X               sure  the  entire  command  path  is hashed first.
+X               This makes the first completion slower.
+X          HIST_IGNORE_DUPS (-h)
+X               Do not enter command lines into the  history  list
+X               if they are duplicates of the previous event.
+X          HIST_IGNORE_SPACE (-g)
+X               Do not enter command lines into the  history  list
+X               if they begin with a blank.
+X          HISTLIT (-j)
+X               Use literal (unparsed)  versions  of  the  history
+X               lines in the editor.
+X          HIST_NO_STORE
+X               Remove the history (fc -l) command from  the  his-
+X               tory when invoked.
+X          HIST_VERIFY
+X               Whenever the user enters a line with history  sub-
+X               stitution,   don't   execute  the  line  directly;
+X               instead, perform history substitution  and  reload
+X               the line into the editing buffer.
+X          IGNORE_BRACES (-I)
+X               Do not perform brace expansion.
+X          IGNOREEOF (-7)
+X               Do not exit on end-of-file.  Require  the  use  of
+X               exit or logout instead.
+X          INTERACTIVE (-i)
+X               This is an interactive shell.
+X          INTERACTIVE_COMMENTS (-k)
+X               Allow comments even in interactive shells.
+X          KSH_OPTION_PRINT
+X               Alters the way options settings are printed.
+X          LIST_TYPES (-X)
+X               When listing files that are possible  completions,
+X               show the type of each file with a trailing identi-
+X               fying mark.
+X          LOGIN (-l)
+X               This is a login shell.
+X          LONG_LIST_JOBS (-R)
+X               List jobs in the long format by default.
+X          MAIL_WARNING (-U)
+X               Print a warning message if a mail  file  has  been
+X               accessed since the shell last checked.
+X          MARKDIRS (-8)
+X               Append a trailing / to all directory names result-
+X               ing from filename generation (globbing).
+X          MENU_COMPLETE (-Y)
+X               On an ambiguous  completion,  instead  of  listing
+X               possibilities,  insert the first match.  Then when
+X               completion is requested again,  remove  the  first
+X               match  and  insert  the  second  match, etc.  When
+X               there are no more matches, go back  to  the  first
+X               one  again.   reverse-menu-complete may be used to
+X               loop through the list in the other direction.
+X          MENU_COMPLETE_BEEP
+X               Beep on an ambiguous menu completion.
+X          MONITOR (-m)
+X               Allow job control.  Set by default in  interactive
+X               shells.
+X          NO_BAD_PATTERN (-2)
+X               If a pattern  for  filename  generation  is  badly
+X               formed,  leave  it  unchanged in the argument list
+X               instead of printing an error.
+X          NO_BANG_HIST (-K)
+X               Do not perform textual history  substitution.   Do
+X               not treat the ! character specially.
+X          NOBEEP (-B)
+X               Do not beep.
+X          NO_CLOBBER (-1)
+X               Prevents > redirection  from  truncating  existing
+X               files.  >! may be used to truncate a file instead.
+X               Also prevents >> from creating files.  >>! may  be
+X               used instead.
+X          NO_EQUALS
+X               Don't perform = filename substitution.
+X          NOEXEC (-n)
+X               Read commands and check them  for  syntax  errors,
+X               but do not execute them.
+X          NOGLOB (-F)
+X               Disable filename generation.
+X          NO_HIST_BEEP
+X               Don't beep when an attempt is  made  to  access  a
+X               history entry which isn't there.
+X          NOHUP
+X               Don't send the HUP signal to running jobs when the
+X               shell exits.
+X          NO_LIST_BEEP
+X               Don't beep on an ambiguous completion.
+X          NO_NOMATCH (-3)
+X               If  a  pattern  for  filename  generation  has  no
+X               matches,  leave  it unchanged in the argument list
+X               instead of printing an error.
+X          NO_PROMPT_CR (-V)
+X               Don't print a carriage return just before printing
+X               a prompt in the line editor.
+X          NO_RCS (-f)
+X               Do not source the .zshenv, .zshrc, .zlogin,  .zlo-
+X               gout, or .zprofile files.
+X          NO_SHORT_LOOPS
+X               Disallow the short forms of for, select,  if,  and
+X               function constructs.
+X          NOTIFY (-5)
+X               Report the status of background jobs  immediately,
+X               rather  than  waiting until just before printing a
+X               prompt.
+X          NOUNSET (-u)
+X               Treat unset parameters as an error when substitut-
+X               ing.
+X          NULLGLOB (-G)
+X               If  a  pattern  for  filename  generation  has  no
+X               matches, delete the pattern from the argument list
+X               instead  of   reporting   an   error.    Overrides
+X               NO_NOMATCH.
+X          NUMERICGLOBSORT
+X               If numeric filenames are  matched  by  a  filename
+X               generation pattern, sort the filenames numerically
+X               rather than lexicographically.
+X          OVERSTRIKE
+X               Start up the line editor in overstrike mode.
+X          PATH_DIRS (-Q)
+X               Perform a path search even on command  names  with
+X               slashes  in  them.  Thus if "/usr/local/bin" is in
+X               the user's path, and  he  types  "X11/xinit",  the
+X               command  "/usr/local/bin/X11/xinit"  will  be exe-
+X               cuted (assuming it exists).
+X          PRINT_EXIT_VALUE (-C)
+X               Print the exit value  of  programs  with  non-zero
+X               exit status.
+X          PUSHD_IGNORE_DUPS
+X               Don't push multiple copies of the  same  directory
+X               onto the directory stack.
+X          PUSHD_MINUS
+X               See popd below.
+X          PUSHD_SILENT (-E)
+X               Do not print the directory stack  after  pushd  or
+X               popd.
+X          PUSHD_TO_HOME (-D)
+X               Have pushd with no arguments act like pushd $HOME.
+X          RC_EXPAND_PARAM (-P)
+X               See Parameter Expansion.
+X          RC_QUOTES
+X               Allow the character sequence '' to signify a  sin-
+X               gle quote within singly quoted strings.
+X          RECEXACT (-S)
+X               In completion, recognize  exact  matches  even  if
+X               they are ambiguous.
+X          RMSTARSILENT (-H)
+X               Do not query the user before executing "rm  *"  or
+X               "rm path/*".
+X          SHINSTDIN (-s)
+X               Read commands from the standard input.
+X          SH_WORD_SPLIT (-y)
+X               See Parameter Expansion.
+X          SINGLE_LINE_ZLE (-M)
+X               Use single-line command line  editing  instead  of
+X               multi-line.
+X          SUN_KEYBOARD_HACK (-L)
+X               If a line ends with a backquote, and there are  an
+X               odd  number  of backquotes on the line, ignore the
+X               trailing backquote.  This is useful on  some  key-
+X               boards  where the return key is too small, and the
+X               backquote key lies annoyingly close to it.
+X          VERBOSE (-v)
+X               Print shell input lines as they are read.
+X          XTRACE (-x)
+X               Print commands and their  arguments  as  they  are
+X               executed.
+X          ZLE (-Z)
+X               Use the zsh line editor.
+END_OF_FILE
+  if test 11726 -ne `wc -c <'help/setopt'`; then
+    echo shar: \"'help/setopt'\" unpacked with wrong size!
+  fi
+  # end of 'help/setopt'
+fi
+if test -f 'src/math.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/math.c'\"
+else
+  echo shar: Extracting \"'src/math.c'\" \(10353 characters\)
+  sed "s/^X//" >'src/math.c' <<'END_OF_FILE'
+X/*
+X *
+X * math.c - mathematical expression evaluation
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X
+Xstatic char *ptr;
+X
+Xtypedef int LV;
+X
+Xstatic long yyval;
+Xstatic LV yylval;
+X
+X/* nonzero means we are not evaluating, just parsing */
+X
+Xstatic int noeval = 0;
+X
+X/* != 0 means recognize unary plus, minus, etc. */
+X
+Xstatic int unary = 1;
+X
+Xvoid mathparse DCLPROTO((int));
+X
+X/* LR = left-to-right associativity
+X	RL = right-to-left associativity
+X	BOO = short-circuiting boolean */
+X
+X#define LR 0
+X#define RL 1
+X#define BOOL 2
+X
+X#define M_INPAR 0
+X#define M_OUTPAR 1
+X#define NOT 2
+X#define COMP 3
+X#define POSTPLUS 4
+X#define POSTMINUS 5
+X#define UPLUS 6
+X#define UMINUS 7
+X#define AND 8
+X#define XOR 9
+X#define OR 10
+X#define MUL 11
+X#define DIV 12
+X#define MOD 13
+X#define PLUS 14
+X#define MINUS 15
+X#define SHLEFT 16
+X#define SHRIGHT 17
+X#define LES 18
+X#define LEQ 19
+X#define GRE 20
+X#define GEQ 21
+X#define DEQ 22
+X#define NEQ 23
+X#define DAND 24
+X#define DOR 25
+X#define DXOR 26
+X#define QUEST 27
+X#define COLON 28
+X#define EQ 29
+X#define PLUSEQ 30
+X#define MINUSEQ 31
+X#define MULEQ 32
+X#define DIVEQ 33
+X#define MODEQ 34
+X#define ANDEQ 35
+X#define XOREQ 36
+X#define OREQ 37
+X#define SHLEFTEQ 38
+X#define SHRIGHTEQ 39
+X#define DANDEQ 40
+X#define DOREQ 41
+X#define DXOREQ 42
+X#define COMMA 43
+X#define EOI 44
+X#define PREPLUS 45
+X#define PREMINUS 46
+X#define NUM 47
+X#define ID 48
+X#define TOKCOUNT 49
+X
+X/* precedences */
+X
+Xstatic int prec[TOKCOUNT] = {
+X	1,137,2,2,2,
+X	2,2,2,4,5,
+X	6,7,7,7,8,
+X	8,3,3,9,9,
+X	9,9,10,10,11,
+X	12,12,13,13,14,
+X	14,14,14,14,14,
+X	14,14,14,14,14,
+X	14,14,14,15,200,
+X	2,2,0,0,
+X};
+X
+X#define TOPPREC 15
+X#define ARGPREC (15-1)
+X
+Xstatic int type[TOKCOUNT] = {
+X	LR,LR,RL,RL,RL,
+X	RL,RL,RL,LR,LR,
+X	LR,LR,LR,LR,LR,
+X	LR,LR,LR,LR,LR,
+X	LR,LR,LR,LR,BOOL,
+X	BOOL,LR,RL,RL,RL,
+X	RL,RL,RL,RL,RL,
+X	RL,RL,RL,RL,RL,
+X	BOOL,BOOL,RL,RL,RL,
+X	RL,RL,LR,LR,
+X};
+X
+X#define LVCOUNT 32
+X
+X/* list of lvalues (variables) */
+X
+Xstatic int lvc;
+Xstatic char *lvals[LVCOUNT];
+X
+Xint zzlex() /**/
+X{
+X	for(;;)
+X		switch (*ptr++)
+X			{
+X			case '+':
+X				if (*ptr == '+' && (unary || !ialnum(*ptr)))
+X					{
+X					ptr++;
+X					return (unary) ? PREPLUS : POSTPLUS;
+X					}
+X				if (*ptr == '=') { unary = 1; ptr++; return PLUSEQ; }
+X				return (unary) ? UPLUS : PLUS;
+X			case '-':
+X				if (*ptr == '-' && (unary || !ialnum(*ptr)))
+X					{
+X					ptr++;
+X					return (unary) ? PREMINUS : POSTMINUS;
+X					}
+X				if (*ptr == '=') { unary = 1; ptr++; return MINUSEQ; }
+X				return (unary) ? UMINUS : MINUS;
+X			case '(': unary = 1; return M_INPAR;
+X			case ')': return M_OUTPAR;
+X			case '!': if (*ptr == '=')
+X						{ unary = 1; ptr++; return NEQ; }
+X						return NOT;
+X			case '~': return COMP;
+X			case '&': unary = 1;
+X				if (*ptr == '&') { if (*++ptr == '=')
+X				{ ptr++; return DANDEQ; } return DAND; }
+X				else if (*ptr == '=') { ptr++; return ANDEQ; } return AND;
+X			case '|': unary = 1;
+X				if (*ptr == '|') { if (*++ptr == '=')
+X				{ ptr++; return DOREQ; } return DOR; }
+X				else if (*ptr == '=') { ptr++; return OREQ; } return OR;
+X			case '^': unary = 1;
+X				if (*ptr == '^') { if (*++ptr == '=')
+X				{ ptr++; return DXOREQ; } return DXOR; }
+X				else if (*ptr == '=') { ptr++; return XOREQ; } return XOR;
+X			case '*': unary = 1;
+X				if (*ptr == '=') { ptr++; return MULEQ; } return MUL;
+X			case '/': unary = 1;
+X				if (*ptr == '=') { ptr++; return DIVEQ; } return DIV;
+X			case '%': unary = 1;
+X				if (*ptr == '=') { ptr++; return MODEQ; } return MOD;
+X			case '<': unary = 1; if (*ptr == '<')
+X				{ if (*++ptr == '=') { ptr++; return SHLEFTEQ; } return SHLEFT; }
+X				else if (*ptr == '=') { ptr++; return LEQ; } return LES;
+X			case '>': unary = 1; if (*ptr == '>')
+X				{ if (*++ptr == '=') { ptr++; return SHRIGHTEQ; } return SHRIGHT; }
+X				else if (*ptr == '=') { ptr++; return GEQ; } return GRE;
+X			case '=': unary = 1; if (*ptr == '=') { ptr++; return DEQ; }
+X				return EQ;
+X			case '?': unary = 1; return QUEST;
+X			case ':': unary = 1; return COLON;
+X			case ',': unary = 1; return COMMA;
+X			case '\0': unary = 1; ptr--; return EOI;
+X			case '[': unary = 0;
+X				{ int base = zstrtol(ptr,&ptr,10);
+X					if (*ptr == ']') ptr++;
+X					yyval = zstrtol(ptr,&ptr,lastbase = base);
+X					return NUM; }
+X			case ' ': case '\t':
+X				break;
+X			default:
+X				if (idigit(*--ptr))
+X					{ unary = 0; yyval = zstrtol(ptr,&ptr,10); return NUM; }
+X				if (iident(*ptr) || *ptr == '$')
+X					{
+X					char *p,q;
+X
+X					if (*ptr == '$')
+X						ptr++;
+X					p = ptr;
+X					if (lvc == LVCOUNT)
+X						{
+X						zerr("too many identifiers (complain to author)",NULL,0);
+X						return EOI;
+X						}
+X					unary = 0;
+X					while(iident(*++ptr));
+X					q = *ptr;
+X					*ptr = '\0';
+X					lvals[yylval = lvc++] = ztrdup(p);
+X					*ptr = q;
+X					return ID;
+X					}
+X				return EOI;
+X			}
+X}
+X
+X/* the value stack */
+X
+X#define STACKSZ 100
+Xint mtok;			/* last token */
+Xint sp = -1;	/* stack pointer */
+Xstruct mathvalue {
+X	LV lval;
+X	long val;
+X	} stack[STACKSZ];
+X
+Xvoid push(val,lval)
+Xlong val;LV lval;
+X{
+X	if (sp == STACKSZ-1)
+X		zerr("stack overflow",NULL,0);
+X	else
+X		sp++;
+X	stack[sp].val = val;
+X	stack[sp].lval = lval;
+X}
+X
+Xlong getvar(s)
+XLV s;
+X{
+Xlong t;
+X
+X	if (!(t = getiparam(lvals[s])))
+X		return 0;
+X	return t;
+X}
+X
+Xlong setvar(s,v)
+XLV s;long v;
+X{
+X	if (s == -1 || s >= lvc)
+X		{
+X		zerr("lvalue required",NULL,0);
+X		return 0;
+X		}
+X	if (noeval)
+X		return v;
+X	setiparam(lvals[s],v);
+X	return v;
+X}
+X
+Xint notzero(a) /**/
+Xint a;
+X{
+X	if (a == 0)
+X		{
+X		zerr("division by zero",NULL,0);
+X		return 0;
+X		}
+X	return 1;
+X}
+X
+X#define pop2() { b = stack[sp--].val; a = stack[sp--].val; }
+X#define pop3() {c=stack[sp--].val;b=stack[sp--].val;a=stack[sp--].val;}
+X#define nolval() {stack[sp].lval= -1;}
+X#define pushv(X) { push(X,-1); }
+X#define pop2lv() { pop2() lv = stack[sp+1].lval; }
+X#define set(X) { push(setvar(lv,X),lv); }
+X
+Xvoid op(what) /**/
+Xint what;
+X{
+Xlong a,b,c;
+XLV lv;
+X
+X	if (sp < 0)
+X		{
+X		zerr("bad math expression: stack empty",NULL,0);
+X		return;
+X		}
+X	switch(what) {
+X		case NOT: stack[sp].val = !stack[sp].val; nolval(); break;
+X		case COMP: stack[sp].val = ~stack[sp].val; nolval(); break;
+X		case POSTPLUS: ( void ) setvar(stack[sp].lval,stack[sp].val+1); break;
+X		case POSTMINUS: ( void ) setvar(stack[sp].lval,stack[sp].val-1); break;
+X		case UPLUS: nolval(); break;
+X		case UMINUS: stack[sp].val = -stack[sp].val; nolval(); break;
+X		case AND: pop2(); pushv(a&b); break;
+X		case XOR: pop2(); pushv(a^b); break;
+X		case OR: pop2(); pushv(a|b); break;
+X		case MUL: pop2(); pushv(a*b); break;
+X		case DIV: pop2(); if (notzero(b)) pushv(a/b); break;
+X		case MOD: pop2(); if (notzero(b)) pushv(a%b); break;
+X		case PLUS: pop2(); pushv(a+b); break;
+X		case MINUS: pop2(); pushv(a-b); break;
+X		case SHLEFT: pop2(); pushv(a<<b); break;
+X		case SHRIGHT: pop2(); pushv(a>>b); break;
+X		case LES: pop2(); pushv((long)(a<b)); break;
+X		case LEQ: pop2(); pushv((long)(a<=b)); break;
+X		case GRE: pop2(); pushv((long)(a>b)); break;
+X		case GEQ: pop2(); pushv((long)(a>=b)); break;
+X		case DEQ: pop2(); pushv((long)(a==b)); break;
+X		case NEQ: pop2(); pushv((long)(a!=b)); break;
+X		case DAND: pop2(); pushv((long)(a&&b)); break;
+X		case DOR: pop2(); pushv((long)(a||b)); break;
+X		case DXOR: pop2(); pushv((long)((a&&!b)||(!a&&b))); break;
+X		case QUEST: pop3(); pushv((a)?b:c); break;
+X		case COLON: break;
+X		case EQ: b = stack[sp].val; sp -= 2; lv = stack[sp+1].lval;
+X			set(b); break;
+X		case PLUSEQ: pop2lv(); set(a+b); break;
+X		case MINUSEQ: pop2lv(); set(a-b); break;
+X		case MULEQ: pop2lv(); set(a*b); break;
+X		case DIVEQ: pop2lv(); if (notzero(b)) set(a/b); break;
+X		case MODEQ: pop2lv(); if (notzero(b)) set(a%b); break;
+X		case ANDEQ: pop2lv(); set(a&b); break;
+X		case XOREQ: pop2lv(); set(a^b); break;
+X		case OREQ: pop2lv(); set(a|b); break;
+X		case SHLEFTEQ: pop2lv(); set(a<<b); break;
+X		case SHRIGHTEQ: pop2lv(); set(a>>b); break;
+X		case DANDEQ: pop2lv(); set((long)(a&&b)); break;
+X		case DOREQ: pop2lv(); set((long)(a||b)); break;
+X		case DXOREQ: pop2lv(); set((long)((a&&!b)||(!a&&b))); break;
+X		case COMMA: b = stack[sp].val; sp -= 2; pushv(b); break;
+X		case PREPLUS: stack[sp].val = setvar(stack[sp].lval,
+X			stack[sp].val+1); break;
+X		case PREMINUS: stack[sp].val = setvar(stack[sp].lval,
+X			stack[sp].val-1); break;
+X		default: zerr("out of integers",NULL,0); exit(1);
+X	}
+X}
+X
+Xvoid bop(tk) /**/
+Xint tk;
+X{
+X	switch (tk) {
+X		case DAND: case DANDEQ: if (!stack[sp].val) noeval++; break;
+X		case DOR: case DOREQ: if (stack[sp].val) noeval++; break;
+X		};
+X}
+X
+Xlong mathevall(s,prek,ep) /**/
+Xchar *s;int prek;char **ep;
+X{
+Xint t0;
+X
+X	lastbase = -1;
+X	for (t0 = 0; t0 != LVCOUNT; t0++)
+X		lvals[t0] = NULL;
+X	lvc = 0;
+X	ptr = s;
+X	sp = -1;
+X	unary = 1;
+X	mathparse(prek);
+X	*ep = ptr;
+X	if (sp)
+X		zerr("bad math expression: unbalanced stack",NULL,0);
+X	for (t0 = 0; t0 != lvc; t0++)
+X		free(lvals[t0]);
+X	return stack[0].val;
+X}
+X
+Xlong matheval(s) /**/
+Xchar *s;
+X{
+Xchar *junk;
+Xlong x;
+X
+X	if (!*s)
+X		return 0;
+X	x = mathevall(s,TOPPREC,&junk);
+X	if (*junk)
+X		zerr("bad math expression: illegal character: %c",NULL,*junk);
+X	return x;
+X}
+X
+Xlong mathevalarg(s,ss) /**/
+Xchar *s;char **ss;
+X{
+Xlong x;
+X
+X	x = mathevall(s,ARGPREC,ss);
+X	if (mtok == COMMA)
+X		(*ss)--;
+X	return x;
+X}
+X
+X/* operator-precedence parse the string and execute */
+X
+Xvoid mathparse(pc) /**/
+Xint pc;
+X{
+X	if (errflag)
+X		return;
+X	mtok = zzlex();
+X	while (prec[mtok] <= pc)
+X		{
+X		if (errflag)
+X			return;
+X		if (mtok == NUM)
+X			push(yyval,-1);
+X		else if (mtok == ID)
+X			push(getvar(yylval),yylval);
+X		else if (mtok == M_INPAR)
+X			{
+X			mathparse(TOPPREC);
+X			if (mtok != M_OUTPAR)
+X				exit(1);
+X			}
+X		else if (mtok == QUEST)
+X			{
+X			int q = stack[sp].val;
+X			if (!q) noeval++;
+X			mathparse(prec[QUEST]-1);
+X			if (!q) noeval--; else noeval++;
+X			mathparse(prec[QUEST]);
+X			if (q) noeval--;
+X			op(QUEST);
+X			continue;
+X			}
+X		else
+X			{
+X			int otok = mtok,onoeval = noeval;
+X
+X			if (type[otok] == BOOL)
+X				bop(otok);
+X			mathparse(prec[otok]-(type[otok] != RL));
+X			noeval = onoeval;
+X			op(otok);
+X			continue;
+X			}
+X		mtok = zzlex();
+X		}
+X}
+X
+END_OF_FILE
+  if test 10353 -ne `wc -c <'src/math.c'`; then
+    echo shar: \"'src/math.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/math.c'
+fi
+if test -f 'src/table.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/table.c'\"
+else
+  echo shar: Extracting \"'src/table.c'\" \(6815 characters\)
+  sed "s/^X//" >'src/table.c' <<'END_OF_FILE'
+X/*
+X *
+X * table.c - linked lists and hash tables
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define TABLE_C
+X#include "zsh.h"
+X
+X/* get an empty linked list header */
+X
+XLklist newlist() /**/
+X{
+XLklist list;
+X 
+X	list = (Lklist) alloc(sizeof *list);
+X	list->first = 0;
+X	list->last = (Lknode) list;
+X	return list;
+X}
+X
+X/* get an empty hash table */
+X
+XHashtab newhtable(size) /**/
+Xint size;
+X{
+XHashtab ret;
+X 
+X	ret = (Hashtab) zcalloc(sizeof *ret);
+X	ret->hsize = size;
+X	ret->nodes = (Hashnode*) zcalloc(size*sizeof(Hashnode));
+X	return ret;
+X}
+X 
+X/* Peter Weinberger's hash function */
+X
+Xint hasher(s) /**/
+Xchar *s;
+X{
+Xunsigned hash = 0,g;
+X 
+X	for (; *s; s++) {
+X		hash = (hash << 4) + *s;
+X		if (g = hash & 0xf0000000) {
+X			hash ^= g;
+X			hash ^= g >> 24;
+X		}
+X	}
+X	return hash;
+X}
+X
+X/* add a node to a hash table */
+X
+Xvoid Addhnode(nam,dat,ht,freefunc,canfree) /**/
+Xchar *nam;vptr dat;Hashtab ht;FFunc freefunc;int canfree;
+X{
+Xint hval = hasher(nam) % ht->hsize;
+Xstruct hashnode **hp = ht->nodes+hval,*hn;
+X 
+X	for (; *hp; hp = &(*hp)->next)
+X		if (!strcmp((*hp)->nam,nam)) {
+X			if ((*hp)->canfree) free((*hp)->nam);
+X			hn = dat;
+X			hn->next = (*hp)->next;
+X			if (!freefunc) zerr("attempt to call NULL freefunc",NULL,0);
+X			else freefunc(*hp);
+X			*hp = hn;
+X			hn->nam = nam;
+X			hn->canfree = canfree;
+X			return;
+X		}
+X	hn = (Hashnode) dat;
+X	hn->nam = nam;
+X	hn->canfree = canfree;
+X	hn->next = ht->nodes[hval];
+X	ht->nodes[hval] = hn;
+X	if (++ht->ct == ht->hsize*4) expandhtab(ht);
+X}
+X
+X/* add a node to command hash table */
+X
+Xvoid addhcmdnode(nam,pnam) /**/
+Xchar *nam;char **pnam;
+X{
+Xint hval = hasher(nam) % cmdnamtab->hsize;
+Xstruct hashnode *hp = cmdnamtab->nodes[hval],*hn;
+XCmdnam cc;
+X 
+X	for (; hp; hp = hp->next) if (!strcmp(hp->nam,nam)) return;
+X	cc = (Cmdnam) zcalloc(sizeof *cc);
+X	cc->type = EXCMD;
+X	cc->u.nam = tricat(*pnam,"/",nam);
+X	cc->pcomp = pnam;
+X	hn = (Hashnode) cc;
+X	hn->nam = ztrdup(nam);
+X	hn->canfree = 1;
+X	hn->next = cmdnamtab->nodes[hval];
+X	cmdnamtab->nodes[hval] = hn;
+X	if (++cmdnamtab->ct == cmdnamtab->hsize*4) expandhtab(cmdnamtab);
+X}
+X
+X/* expand hash tables when they get too many entries */
+X
+Xvoid expandhtab(ht) /**/
+XHashtab ht;
+X{
+Xstruct hashnode **arr,**ha,*hn,*hp;
+Xint osize = ht->hsize,nsize = osize*8;
+X
+X	ht->hsize = nsize;
+X	arr = ht->nodes;
+X	ht->nodes = (Hashnode*) zcalloc(nsize*sizeof(struct hashnode *));
+X	for (ha = arr; osize; osize--,ha++)
+X		for (hn = *ha; hn; ) {
+X			hp = hn->next;
+X			Addhnode(hn->nam,(vptr)hn,ht,(FFunc) 0,hn->canfree);
+X			hn = hp;
+X		}
+X	free(arr);
+X}
+X
+X/* get an entry in a hash table */
+X
+Xvptr gethnode(nam,ht) /**/
+Xchar *nam;Hashtab ht;
+X{
+Xint hval = hasher(nam) % ht->hsize;
+Xstruct hashnode *hn = ht->nodes[hval];
+X 
+X	for (; hn; hn = hn->next) if (!strcmp(hn->nam,nam)) return (vptr)hn;
+X	return NULL;
+X}
+X 
+Xvoid freehtab(ht,freefunc) /**/
+XHashtab ht;FFunc freefunc;
+X{
+Xint val;
+Xstruct hashnode *hn,**hp = &ht->nodes[0],*next;
+X 
+X	for (val = ht->hsize; val; val--,hp++)
+X		for (hn = *hp; hn; ) {
+X			next = hn->next;
+X			if (hn->canfree) free(hn->nam);
+X			freefunc(hn);
+X			hn = next;
+X		}
+X	free(ht->nodes);
+X	free(ht);
+X}
+X
+X/* remove a hash table entry and return a pointer to it */
+X
+Xvptr remhnode(nam,ht) /**/
+Xchar *nam;Hashtab ht;
+X{
+Xint hval = hasher(nam) % ht->hsize;
+Xstruct hashnode *hn = ht->nodes[hval],*hp;
+X
+X	if (!hn) return NULL;
+X	if (!strcmp(hn->nam,nam)) {
+X		ht->nodes[hval] = hn->next;
+X		if (hn->canfree) free(hn->nam);
+X		ht->ct--;
+X		return (vptr)hn;
+X	}
+X	for (hp = hn, hn = hn->next; hn; hn = (hp = hn)->next)
+X		if (!strcmp(hn->nam,nam)) {
+X			hp->next = hn->next;
+X			if (hn->canfree) free(hn->nam);
+X			ht->ct--;
+X			return (vptr)hn;
+X		}
+X	return NULL;
+X}
+X
+X/* insert a node in a linked list after 'llast' */
+X
+Xvoid insnode(list,llast,dat) /**/
+XLklist list;Lknode llast;vptr dat;
+X{
+XLknode tmp;
+X 
+X	tmp = llast->next;
+X	llast->next = (Lknode) alloc(sizeof *tmp);
+X	llast->next->last = llast;
+X	llast->next->dat = dat;
+X	llast->next->next = tmp;
+X	if (tmp) tmp->last = llast->next;
+X	else list->last = llast->next;
+X}
+X
+Xvoid addnodeinorder(x,dat) /**/
+XLklist x; char *dat;
+X{
+XLknode y, l = NULL;
+Xint val = 123;
+X
+X	for (y = firstnode(x); y; incnode(y)) {
+X		if ((val = forstrcmp((char **) &y->dat, &dat)) >= 0) break;
+X		l = y;
+X	}
+X	if (!val) return;
+X	if (l == NULL) insnode(x, (Lknode) x, dat);
+X	else insnode(x, l, dat);
+X}
+X
+X
+X/* remove a node from a linked list */
+X
+Xvptr remnode(list,nd) /**/
+XLklist list;Lknode nd;
+X{
+Xvptr dat;
+X
+X	nd->last->next = nd->next;
+X	if (nd->next) nd->next->last = nd->last;
+X	else list->last = nd->last;
+X	dat = nd->dat;
+X	free(nd);
+X	return dat;
+X}
+X
+X/* remove a node from a linked list */
+X
+Xvptr uremnode(list,nd) /**/
+XLklist list;Lknode nd;
+X{
+Xvptr dat;
+X
+X	nd->last->next = nd->next;
+X	if (nd->next) nd->next->last = nd->last;
+X	else list->last = nd->last;
+X	dat = nd->dat;
+X	return dat;
+X}
+X
+X/* delete a character in a string */
+X
+Xvoid chuck(str) /**/
+Xchar *str;
+X{
+X	while (str[0] = str[1]) str++;
+X}
+X
+X/* get top node in a linked list */
+X
+Xvptr getnode(list) /**/
+XLklist list;
+X{
+Xvptr dat;
+XLknode node = list->first;
+X 
+X	if (!node)
+X		return NULL;
+X	dat = node->dat;
+X	list->first = node->next;
+X	if (node->next)
+X		node->next->last = (Lknode) list;
+X	else
+X		list->last = (Lknode) list;
+X	free(node);
+X	return dat;
+X}
+X
+X/* get top node in a linked list without freeing */
+X
+Xvptr ugetnode(list) /**/
+XLklist list;
+X{
+Xvptr dat;
+XLknode node = list->first;
+X 
+X	if (!node)
+X		return NULL;
+X	dat = node->dat;
+X	list->first = node->next;
+X	if (node->next)
+X		node->next->last = (Lknode) list;
+X	else
+X		list->last = (Lknode) list;
+X	return dat;
+X}
+X
+Xvoid freetable(tab,freefunc) /**/
+XLklist tab;FFunc freefunc;
+X{
+XLknode node = tab->first,next;
+X 
+X	while (node) {
+X		next = node->next;
+X		if (freefunc) freefunc(node->dat);
+X		free(node);
+X		node = next;
+X	}
+X	free(tab);
+X}
+X 
+Xchar *ztrstr(s,t) /**/
+Xchar *s;char *t;
+X{
+Xchar *p1,*p2;
+X 
+X	for (; *s; s++) {
+X		for (p1 = s, p2 = t; *p2; p1++,p2++)
+X			if (*p1 != *p2) break;
+X		if (!*p2) return (char *) s;
+X	}
+X	return NULL;
+X}
+X
+X/* insert a list in another list */
+X
+Xvoid inslist(l,where,x) /**/
+XLklist l;Lknode where;Lklist x;
+X{
+XLknode nx = where->next;
+X
+X	if (!l->first) return;
+X	where->next = l->first;
+X	l->last->next = nx;
+X	l->first->last = where;
+X	if (nx) nx->last = l->last;
+X	else x->last = l->last;
+X}
+X
+Xint countnodes(x) /**/
+XLklist x;
+X{
+XLknode y;
+Xint ct = 0;
+X
+X	for (y = firstnode(x); y; incnode(y),ct++);
+X	return ct;
+X}
+X
+END_OF_FILE
+  if test 6815 -ne `wc -c <'src/table.c'`; then
+    echo shar: \"'src/table.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/table.c'
+fi
+if test -f 'src/zle_hist.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/zle_hist.c'\"
+else
+  echo shar: Extracting \"'src/zle_hist.c'\" \(11190 characters\)
+  sed "s/^X//" >'src/zle_hist.c' <<'END_OF_FILE'
+X/*
+X *
+X * zle_hist.c - history editing
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+Xvoid toggleliteralhistory() /**/
+X{
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	lithist ^= 1;
+X	if (!(s = qgetevent(histline)))
+X		feep();
+X	else
+X		sethistline(STOUCP(s));
+X}
+X
+Xvoid uphistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) { mult = -mult; downhistory(); return; }
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	histline -= mult;
+X	if (!(s = qgetevent(histline)))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		histline += mult;
+X		}
+X	else
+X		sethistline(STOUCP(s));
+X}
+X
+Xvoid uplineorhistory() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; downlineorhistory(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	cs = findbol();
+X	while (mult) {
+X		if (!cs)
+X			break;
+X		cs--;
+X		cs = findbol();
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		uphistory();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid uplineorsearch() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; downlineorsearch(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	cs = findbol();
+X	while (mult) {
+X		if (!cs)
+X			break;
+X		cs--;
+X		cs = findbol();
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		historysearchbackward();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid downlineorhistory() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; uplineorhistory(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	while (mult) {
+X		int x = findeol();
+X		if (x == ll)
+X			break;
+X		cs = x+1;
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		downhistory();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid downlineorsearch() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; uplineorsearch(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	while (mult) {
+X		int x = findeol();
+X		if (x == ll)
+X			break;
+X		cs = x+1;
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		historysearchforward();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid acceptlineanddownhistory() /**/
+X{
+Xchar *s,*t;
+X
+X	if (!(s = qgetevent(histline+1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	pushnode(bufstack,t = ztrdup(s));
+X	for (; *t; t++)
+X		if (*t == HISTSPACE)
+X			*t = ' ';
+X	done = 1;
+X	stackhist = histline+1;
+X}
+X
+Xvoid downhistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) { mult = -mult; uphistory(); return; }
+X	histline += mult;
+X	if (!(s = qgetevent(histline)))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		histline -= mult;
+X		return;
+X		}
+X	sethistline(STOUCP(s));
+X}
+X
+Xstatic int histpos;
+X
+Xvoid historysearchbackward() /**/
+X{
+Xint t0,ohistline = histline;
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	if (lastcmd & ZLE_HISTSEARCH) t0 = histpos;
+X	else for (t0 = 0; line[t0] && iword(line[t0]); t0++);
+X	histpos = t0;
+X	for (;;)
+X		{
+X		histline--;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrncmp(s,UTOSCP(line),t0) && hstrcmp(s,UTOSCP(line)))
+X			break;
+X		}
+X	sethistline(STOUCP(s));
+X}
+X
+Xvoid historysearchforward() /**/
+X{
+Xint t0,ohistline = histline;
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	if (lastcmd & ZLE_HISTSEARCH) t0 = histpos;
+X	else for (t0 = 0; line[t0] && iword(line[t0]); t0++);
+X	histpos = t0;
+X	for (;;)
+X		{
+X		histline++;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrncmp(s,UTOSCP(line),t0) && hstrcmp(s,UTOSCP(line)))
+X			break;
+X		}
+X	sethistline(STOUCP(s));
+X}
+X
+Xvoid beginningofbufferorhistory() /**/
+X{
+X	if (findbol())
+X		cs = 0;
+X	else
+X		beginningofhistory();
+X}
+X
+Xvoid beginningofhistory() /**/
+X{
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	if (!(s = qgetevent(firsthist())))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		return;
+X		}
+X	histline = firsthist();
+X	sethistline(STOUCP(s));
+X}
+X
+Xvoid endofbufferorhistory() /**/
+X{
+X	if (findeol() != ll)
+X		cs = ll;
+X	else
+X		endofhistory();
+X}
+X
+Xvoid endofhistory() /**/
+X{
+X	if (histline == curhist) {
+X		if (unset(NOHISTBEEP)) feep();
+X	} else
+X		{
+X		histline = curhist;
+X		sethistline(STOUCP(curhistline));
+X		}
+X}
+X
+Xvoid insertlastword() /**/
+X{
+Xchar *s,*t;
+Xint len,z = lithist;
+X
+X	/* multiple calls will now search back through the history, pem */
+X	static char	*lastinsert;
+X	static int	lasthist, lastpos;
+X	int		evhist = curhist - 1;
+X
+X	if (lastinsert) {
+X	    int len = strlen(lastinsert);
+X	    int pos = cs;
+X	    if (	lastpos <= pos &&
+X			len == pos - lastpos &&
+X			strncmp(lastinsert, (char *) &line[lastpos], len) == 0) {
+X		evhist = --lasthist;
+X		cs = lastpos;
+X		foredel(pos-cs);
+X	    }
+X	    free(lastinsert);
+X	    lastinsert = NULL;
+X	}
+X	lithist = 0;
+X	if (!(s = qgetevent(evhist), lithist = z, s))
+X		{
+X		feep();
+X		return;
+X		}
+X	for (t = s+strlen(s); t > s; t--)
+X		if (*t == HISTSPACE)
+X			break;
+X	if (t != s)
+X		t++;
+X	lasthist = evhist;
+X	lastpos = cs;
+X	lastinsert = ztrdup(t);
+X	spaceinline(len = strlen(t));
+X	strncpy((char *) line+cs,t,len);
+X	cs += len;
+X}
+X
+Xchar *qgetevent(ev) /**/
+Xint ev;
+X{
+X	if (ev > curhist)
+X		return NULL;
+X	return ((ev == curhist) ? curhistline : quietgetevent(ev));
+X}
+X
+Xvoid pushline() /**/
+X{
+X	if (mult < 0) return;
+X	pushnode(bufstack,ztrdup(UTOSCP(line)));
+X	while (--mult)
+X		pushnode(bufstack,ztrdup(""));
+X	stackcs = cs;
+X	*line = '\0';
+X	ll = cs = 0;
+X}
+X
+Xvoid getline() /**/
+X{
+Xchar *s = getnode(bufstack);
+X
+X	if (!s)
+X		feep();
+X	else
+X		{
+X		int cc;
+X
+X		cc = strlen(s);
+X		spaceinline(cc);
+X		strncpy((char *) line+cs,s,cc);
+X		cs += cc;
+X		free(s);
+X		}
+X}
+X
+Xvoid historyincrementalsearchbackward() /**/
+X{
+X	doisearch(-1);
+X}
+X
+Xvoid historyincrementalsearchforward() /**/
+X{
+X	doisearch(1);
+X}
+X
+Xvoid doisearch(dir) /**/
+Xint dir;
+X{
+Xchar *s,*oldl;
+Xchar ibuf[256],*sbuf = ibuf+10;
+Xint sbptr = 0,ch,ohl = histline,ocs = cs;
+Xint nomatch,chequiv = 0;
+X
+X	strcpy(ibuf,"i-search: ");
+X	statusline = ibuf;
+X	oldl = ztrdup(UTOSCP(line));
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	for (;;)
+X		{
+X		nomatch = 0;
+X		if (sbptr > 1 || (sbptr == 1 && sbuf[0] != '^'))
+X			{
+X			int ohistline = histline;
+X
+X			for (;;)
+X				{
+X				char *t;
+X
+X				if (!(s = qgetevent(histline)))
+X					{
+X					feep();
+X					nomatch = 1;
+X					histline = ohistline;
+X					break;
+X					}
+X				if ((sbuf[0] == '^') ?
+X						(t = (hstrncmp(s,sbuf+1,sbptr-1)) ? NULL : s) :
+X						(t = hstrnstr(s,sbuf,sbptr)))
+X					if (!(chequiv && !hstrcmp(UTOSCP(line),s)))
+X						{
+X						sethistline(STOUCP(s));
+X						cs = t-s+sbptr-(sbuf[0] == '^');
+X						break;
+X						}
+X				histline += dir;
+X				}
+X			chequiv = 0;
+X			}
+X		refresh();
+X		if ((ch = getkey(1)) == -1)
+X			break;
+X		if (ch == 22 || ch == 17) {
+X			if ((ch = getkey(1)) == -1)
+X				break;
+X		} else if (ch == 24) { /* ^XS and ^XR */
+X			if ((ch = getkey(1)) == -1)
+X				break;
+X			if (ch != 's' && ch != 'r') {
+X				ungetkey(24);
+X				ungetkey(ch);
+X				break;
+X			}
+X			ungetkey(ch & 0x1f);
+X			continue;
+X		} else if (ch == 8 || ch == 127) {
+X			if (sbptr)
+X				sbuf[--sbptr] = '\0';
+X			else
+X				feep();
+X			histline = ohl;
+X			continue;
+X		} else if (ch == 7 || ch == 3) {
+X			setline(oldl);
+X			cs = ocs;
+X			histline = ohl;
+X			statusline = NULL;
+X			break;
+X		} else if (ch == 27)
+X			break;
+X		else if (ch == 10 || ch == 13) {
+X			ungetkey(ch);
+X			break;
+X		} else if (ch == 18) {
+X			ohl = (histline += (dir = -1));
+X			chequiv = 1;
+X			continue;
+X		} else if (ch == 19) {
+X			ohl = (histline += (dir = 1));
+X			chequiv = 1;
+X			continue;
+X		} else if (!(ch & 0x60)) {
+X			ungetkey(ch);
+X			break;
+X		}
+X		if (!nomatch && sbptr != 39 && !icntrl(ch)) {
+X			sbuf[sbptr++] = ch;
+X			sbuf[sbptr] = '\0';
+X		}
+X	}
+X	free(oldl);
+X	statusline = NULL;
+X}
+X
+Xvoid acceptandinfernexthistory() /**/
+X{
+Xint t0;
+Xchar *s,*t;
+X
+X	done = 1;
+X	for (t0 = histline-2;;t0--)
+X		{
+X		if (!(s = qgetevent(t0)))
+X			return;
+X		if (!hstrncmp(s,UTOSCP(line),ll))
+X			break;
+X		}
+X	if (!(s = qgetevent(t0+1)))
+X		return;
+X	pushnode(bufstack,t = ztrdup(s));
+X	for (; *t; t++)
+X		if (*t == HISTSPACE)
+X			*t = ' ';
+X	stackhist = t0+1;
+X}
+X
+Xvoid infernexthistory() /**/
+X{
+Xint t0;
+Xchar *s,*t;
+X
+X	if (!(t = qgetevent(histline-1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	for (t0 = histline-2;;t0--)
+X		{
+X		if (!(s = qgetevent(t0)))
+X			{
+X			feep();
+X			return;
+X			}
+X		if (!strcmp(s,t))
+X			break;
+X		}
+X	if (!(s = qgetevent(t0+1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	histline = t0+1;
+X	sethistline(STOUCP(s));
+X}
+X
+Xvoid vifetchhistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) return;
+X	if (histline == curhist) {
+X		if (!(lastcmd & ZLE_ARG)) {
+X			cs = ll;
+X			cs = findbol();
+X			return;
+X		}
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X	}
+X	if (!(lastcmd & ZLE_ARG)) mult = curhist;
+X	if (!(s = qgetevent(mult)))
+X		feep();
+X	else {
+X		histline = mult;
+X		sethistline(STOUCP(s));
+X	}
+X}
+X
+Xint getvisrchstr() /**/
+X{
+Xstatic char sbuf[80];
+Xint sptr = 1;
+X
+X	if (visrchstr)
+X		{
+X		free(visrchstr);
+X		visrchstr = NULL;
+X		}
+X	statusline = sbuf;
+X	sbuf[0] = c;
+X	sbuf[1] = '\0';
+X	while (sptr)
+X		{
+X		refresh();
+X		c = getkey(0);
+X		if (c == '\r' || c == '\n' || c == '\033')
+X			{
+X			visrchstr = ztrdup(sbuf+1);
+X			return 1;
+X			}
+X		if (c == '\b' || c == 127)
+X			{
+X			sbuf[--sptr] = '\0';
+X			continue;
+X			}
+X		if (sptr != 79)
+X			{
+X			sbuf[sptr++] = c;
+X			sbuf[sptr] = '\0';
+X			}
+X		}
+X	return 0;
+X}
+X
+Xvoid vihistorysearchforward() /**/
+X{
+X	visrchsense = 1;
+X	if (getvisrchstr())
+X		virepeatsearch();
+X}
+X
+Xvoid vihistorysearchbackward() /**/
+X{
+X	visrchsense = -1;
+X	if (getvisrchstr())
+X		virepeatsearch();
+X}
+X
+Xvoid virepeatsearch() /**/
+X{
+Xint ohistline = histline,t0;
+Xchar *s;
+X
+X	if (!visrchstr)
+X		{
+X		feep();
+X		return;
+X		}
+X	t0 = strlen(visrchstr);
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(UTOSCP(line));
+X		}
+X	for (;;)
+X		{
+X		histline += visrchsense;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrcmp(UTOSCP(line),s))
+X			continue;
+X		if (*visrchstr == '^')
+X			{
+X			if (!hstrncmp(s,visrchstr+1,t0-1))
+X				break;
+X			}
+X		else
+X			if (hstrnstr(s,visrchstr,t0))
+X				break;
+X		}
+X	sethistline(STOUCP(s));
+X}
+X
+Xvoid virevrepeatsearch() /**/
+X{
+X	visrchsense = -visrchsense;
+X	virepeatsearch();
+X	visrchsense = -visrchsense;
+X}
+X
+END_OF_FILE
+  if test 11190 -ne `wc -c <'src/zle_hist.c'`; then
+    echo shar: \"'src/zle_hist.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/zle_hist.c'
+fi
+echo shar: End of archive 19 \(of 22\).
+cp /dev/null ark19isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

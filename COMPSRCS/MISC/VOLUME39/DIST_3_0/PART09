@@ -1,0 +1,1773 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i013:  dist-3.0 - Configure script generator and related tools, Part09/28
+Message-ID: <1993Aug18.184222.17578@sparky.sterling.com>
+X-Md4-Signature: 1a4622d72164a64db413312b359794d5
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Wed, 18 Aug 1993 18:42:22 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 13
+Archive-name: dist-3.0/part09
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  bin/packinit.SH dist.man kit/makedist.man mcon/NOTES
+#   mcon/U/d_gethname.U mcon/pl/common.pl mcon/pl/eval.pl
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 28)."'
+if test -f 'bin/packinit.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bin/packinit.SH'\"
+else
+  echo shar: Extracting \"'bin/packinit.SH'\" \(8341 characters\)
+  sed "s/^X//" >'bin/packinit.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting bin/packinit (with variable substitutions)"
+Xcat >packinit <<!GROK!THIS!
+X# feed this into perl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: packinit.SH,v 3.0 1993/08/18 12:04:05 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# $Log: packinit.SH,v $
+X# Revision 3.0  1993/08/18  12:04:05  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+X\$orgname='$orgname';
+X\$myhostname='$myhostname';
+X\$mydomain='$mydomain';
+X\$nametype='$nametype';
+X!GROK!THIS!
+Xcat >>packinit <<'!NO!SUBS!'
+X
+Xprint <<EOM;
+X
+XThis program designates the current directory as the top level directory
+Xof a package on which you want to use the programs metaconfig, makedist,
+Xor the patch generation programs.  It will not damage the current directory
+Xin any way except to create a .package file.
+X
+XEOM
+X
+X$mypackver=3;	# Base revision number
+X
+Xif (-f '.package') {
+X	&readpackage;
+X	if ($packver > $mypackver) {
+X		die "This .package file was produced by a newer packinit than I am.\n".
+X		"Please find a packinit of version $packver or greater.\n";
+X	}
+X} elsif (-f '../.package' || -f '../../.package' || -f '../../../.package') {
+X	die "Run in top level directory only.\n";
+X}
+X
+X# Now set up to do reads with possible shell escape.
+Xsub myread {
+X	($rp,$dflt) = @_;
+X	$rp .= " [$dflt]";
+X	print "$rp ";
+X	$ans='!';
+X	while ($ans =~ /^!/) {
+X		$ans = <STDIN>;
+X		chop($ans);
+X		if ($ans eq '!') {
+X			system '/bin/sh';
+X			print "\n$rp ";
+X		} elsif ($ans =~ s/^!//) {
+X			system '/bin/sh', '-c', $ans;
+X			print "\n$rp ";
+X		}
+X	}
+X	$ans = $dflt if $ans eq '';
+X	$ans = '' if $ans eq 'none';
+X	$ans;
+X}
+X
+X$dflt = $package;
+X($dflt) = (`pwd | tr "[A-Z]" "[a-z]"` =~ m|.*/(.*)|) unless $package;
+X
+Xprint <<EOM;
+XYour package will be known by some name, which should be a single word.
+XGenerally it is the name of the chief executable program.
+X
+XEOM
+X$package = &myread('What is the name of your package?',$dflt);
+X
+Xif ($baserev ne '') {
+X	$dflt=$baserev;
+X} else {
+X	print "\n";
+X	$dflt='';
+X	print "Checking RCS files for current version...";
+X	@rcs = <RCS/*,v *,v>;
+X	$rcs = shift(@rcs);
+X	if (! -f $rcs) {
+X		$rcs = shift(@rcs);
+X		if (! -f $1) {
+X			print "I don't see any RCS files there (yet).";
+X			$dflt='1.1';
+X		}
+X	}
+X	$revs=0;
+X	if ($dflt eq '') {
+X		$rlog = `rlog $rcs`;
+X		($dflt) = ($rlog =~ /\nhead:\s*(\d+\.\d+)/);
+X		$rlog = `rlog -r$dflt.1- -r$dflt.2- -r$dflt.3- -r$dflt.4- $rcs`;
+X		($revs) = ($rlog =~ /selected revisions:\s*([\d.]+)/);
+X		$dflt='1.1' if $dflt eq '';
+X	}
+X
+X	print <<EOM;
+X
+XTo use the patch generating portion of the system, you must have RCS.  You
+Xmust begin with a freshly checked-in trunk revision (n.n) and choose a branch
+Xnumber for patches.  The trunk revision upon which the patch branch is based
+Xis called the base revision.
+X
+XEOM
+X
+X	if ($revs > 1) {
+X		print <<EOM;
+X(The current revision ($dflt) has branches--you may have to check in a new
+Xtrunk revision, or use patbase to mark the base revisions.)
+XEOM
+X		($first,$second) = split(/\./,$dflt);
+X		++$second;
+X		$dflt="$first.$second";
+X	}
+X}
+X
+Xprint "\n";
+X$foo = &myread('What is or will be the base revision number?', $dflt);
+Xif ($baserev ne $foo) {
+X	$baserev = $foo;
+X	$ftpdir = '';		# invalidate ftp directory on version change
+X}
+X
+Xprint "\n";
+X$dflt = ($patchbranch ne '' ? $patchbranch : 1);
+X$patchbranch =
+X	&myread('What branch number do you want to use for patches?', $dflt);
+X
+X$dflt = $copyright eq ' ' ? 'n' : 'y';
+Xprint <<EOM;
+X
+XIf you wish, you may use a generic copyright. This is appropriate if all
+Xyour source file have to be distributed under the same conditions. Using
+Xthis facility means you will not be able to change the copyright notice
+Xbetween patches (i.e. while in the same version number). All you need to
+Xdo is write a copyright file containing the proper copyright notice, and
+Xthen use @COPYRIGHT@ within your source code (before any RCS marker). That
+Xwill be extended to the full copyright, preserving any leading comment.
+X
+XEOM
+X$use_copyright = &myread('Do you wish to use a generic copyright?', $dflt);
+Xif ($use_copyright =~ /^y/i) {
+X	print "\n";
+X	$copyright = '' if $copyright eq ' ';	# They changed their mind!
+X	$dflt = $copyright || 'COPYRIGHT';
+X	$copyright = &myread('What file do you wish to store it in?', $dflt);
+X} else {
+X	$copyright = ' ';		# Remember they don't want it
+X}
+X	
+Xif ($use_copyright =~ /^y/i) {
+X	$ans = 'yes';			# Yes, use our own diff (have to expand copyright)
+X} else {
+X	print "\n";
+X	$dflt = ($mydiff eq '' ? 'n' : 'y');
+X	$ans = &myread(
+X	'Do you want to use your own diff (rather than rcsdiff -c) for patches?',
+X		$dflt);
+X}
+Xif ($ans =~ /^n/i) {
+X	$mydiff='';
+X} else {
+X	print "\n";
+X	$dflt = $mydiff || 'diff -c';
+X	$mydiff = &myread('What diff command do you want to use?', $dflt);
+X}
+X
+Xprint <<EOM;
+X
+XOver the lifetime of the $package package, people will want to request
+Xdistribution kits and patches.  In particular, automatically generated
+Xpatches will say where to get previous patches from.
+X
+XEOM
+X$logname = &getlogname;
+X$dflt = $maintname || &getfullname($logname);
+X$maintname = &myread('Who should requests be sent to (full name)?', $dflt);
+X
+Xprint <<EOM;
+X
+XNow you need to give a one-line network mailing address for $maintname.
+XIt does not need to be parseable by machine, but can be of the form:
+X
+X	{name1,name2,name3}!myhost!myname
+X
+X	or
+X
+X	myname@myhost.domain
+X
+XEOM
+X$dflt = $maintloc || "$logname@$myhostname$mydomain";
+X$maintloc = &myread('What is the network mailing address?', $dflt);
+X
+Xprint "\n";
+X$dflt = $ftpsite ? 'y' : 'n';
+X$ans = &myread(
+X	'Will you put patches where they can be acquired by anonymous FTP?',$dflt);
+Xif ($ans =~ /^n/i) {
+X	$ftpsite='';
+X} else {
+X	print "\n";
+X	$dflt = $ftpsite;
+X	($dflt = $maintloc) =~ s/.*@([^\s,()]*).*/$1/ unless $dflt;
+X	$ftpsite = &myread('What is the Internet sitename for that?',$dflt);
+X}
+X
+Xprint <<EOM;
+X
+XIf you have mailagent installed (posted in comp.sources.misc), you may choose
+Xto distribute patches via e-mail and have all the issued patches mention
+Xthis, as well as instructions telling how to get those (missing) patches.
+X
+XEOM
+X$dflt = $mailagent eq 'true' ? 'y' : 'n';
+X$mailagent = &myread(
+X	'Do you wish to let people retrieve patches via mailagent?', $dflt);
+X$mailagent = ($mailagent =~ /^y/i) ? 'true' : 'false';
+X
+Xprint "\n";
+X$dflt = $orgname || $ENV{'ORGANIZATION'};
+X$orgname = &myread('Organization:',$dflt);
+X$orgname = &tilda_expand($orgname);		# Can specify filename with ~user
+X
+Xprint "\n";
+X$dflt = $newsgroups || 'comp.sources.bugs';
+X$newsgroups = &myread('Newsgroup(s) to post patches to:', $dflt);
+X
+Xprint "\n";
+X$dflt = $recipients || 'source-archives@mirror.TMC.COM';
+X$recipients = &myread('Recipient(s) to send patches to:',$dflt);
+X
+Xif ($ftpsite) {
+X	print "\n";
+X	$dflt = $ftpdir || "/usr/spool/ftp/pub/$package.$baserev/patches";
+X	$ftpdir = &myread('FTP directory to copy patches to:',$dflt);
+X} else {
+X	$ftpdir = '';
+X}
+X
+Xprint "\nCreating .package...\n";
+Xopen(PACKAGE, '>.package') || die "Can't create .package";
+Xchop($date = `date`);
+Xprint PACKAGE <<EOF;
+X: This file was created by running packinit on $date.
+X: Do not hand edit; run packinit again if changes are to be made.
+Xpackver='$mypackver'
+X: Basic variables
+Xpackage=$package
+Xbaserev=$baserev
+Xpatchbranch=$patchbranch
+Xcopyright='$copyright'
+Xmydiff='$mydiff'
+Xmaintname='$maintname'
+Xmaintloc='$maintloc'
+Xftpsite='$ftpsite'
+Xorgname='$orgname'
+Xnewsgroups='$newsgroups'
+Xrecipients='$recipients'
+Xftpdir='$ftpdir'
+Xmailagent='$mailagent'
+X: Derivative variables -- do not change
+Xrevbranch=\"\$baserev.\$patchbranch\"
+XEOF
+X
+X!NO!SUBS!
+X$grep -v '^;#' ../pl/package.pl >>packinit
+X$grep -v '^;#' ../pl/logname.pl >>packinit
+X$grep -v '^;#' ../pl/fullname.pl >>packinit
+X$grep -v '^;#' ../pl/tilde.pl >>packinit
+Xchmod 755 packinit
+X$eunicefix packinit
+END_OF_FILE
+  if test 8341 -ne `wc -c <'bin/packinit.SH'`; then
+    echo shar: \"'bin/packinit.SH'\" unpacked with wrong size!
+  fi
+  # end of 'bin/packinit.SH'
+fi
+if test -f 'dist.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dist.man'\"
+else
+  echo shar: Extracting \"'dist.man'\" \(6538 characters\)
+  sed "s/^X//" >'dist.man' <<'END_OF_FILE'
+X''' $Id: dist.man,v 3.0 1993/08/18 12:04:07 ram Exp $
+X'''
+X'''  Copyright (c) 1991-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic Licence,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic Licence; a copy of which may be found at the root
+X'''  of the source tree for dist 3.0.
+X'''
+X''' $Log: dist.man,v $
+X''' Revision 3.0  1993/08/18  12:04:07  ram
+X''' Baseline for dist 3.0 netwide release.
+X'''
+X''' 
+X.TH DIST 1 ram
+X.SH NAME
+Xdist \- introduction to dist
+X.SH DESCRIPTION
+XThe \fIdist\fR package is a set of tools meant to ease the construction and
+Xmaintenance of portable software. There are four distinct parts in \fIdist\fR,
+Xand it is also meant to be used with two external products, which are
+Xpublicly available: \fImailagent\fR and \fIpatch\fR.
+X.PP
+XThe fist component is the \fIConfigure\fR script generator, which is a
+Xportability tool. It is automatically build up by \fImetaconfig\fR from your
+Xsources and a set of units. Ideally, the end-user receiving your source code
+Xwill simply have to read your README file, run the \fIConfigure\fR script
+X(which is self-documented), and then run \fImake\fR. Your package should then
+Xbuild cleanly on every UNIX platform.
+X.PP
+XThe second component is the \fIMakefile.SH\fR generator, which is a generic
+Xconfigured Makefile, reusing some of the information figured out by
+X.I Configure.
+XAlthough you may write your own Makefile and then use \fImakeSH\fR to transform
+Xit into a \fIMakefile.SH\fR, it is better to write a generic \fIJmakefile\fR
+Xdescription, which does not rely on a particular position within the source
+Xtree, and then use \fIjmake\fR to recursively build your Makefiles.
+X.PP
+XThe third component is the package generator, which is used when it's time
+Xto build up the shell archives used to distribute your program. Although you
+Xmay use your own archiving mechanism, the one included here knows about RCS
+Xfiles and will properly check out the lattest revisions, leaving your working
+Xfiles alone. The \fImakedist\fR program will also perform Copyright expansion,
+Xan useful feature when you share source files among more than one program,
+Xplaced under distinct  Copyright information.
+X.PP
+XThe fourth and latest component is the patch generator, used to make updates
+Xof your sources, which can later be applied on the original distribution by
+Xusing the \fIpatch\fR program.
+X.PP
+XBefore using any of the \fIdist\fR programs, you should probably identify your
+Xpackage by running the \fIpackinit\fR program, which will create
+Xa \fI.package\fR file in the top-level directory of your package.
+X.SH COMMANDS
+XThe \fIdist\fR package implements the following commands (those
+Xtagged as \fIlibrary\fR commands are to be found in the dist
+Xlibrary and should not be made publicly available in everyone's path):
+X.TP 15
+Xbindex
+Xbuilds the \fIIndex\fR file (library).
+X.PD 0
+X.TP
+Xjmake
+Xa Makefile.SH generator.
+X.TP
+Xjmkmf
+Xbootstraps top-level Makefile.SH file.
+X.TP
+Xkitsend
+Xsends distribution kits made by \fImakedist\fR.
+X.TP
+XmakeSH
+Xwraps existing scripts into a .SH file.
+X.TP
+Xmakedist
+Xbuilds up distribution kits.
+X.TP
+Xmakegloss
+Xbuilds the \fIGlossary\fR file (library).
+X.TP
+Xmanicheck
+Xchecks MANIFEST.new accuracy
+X.TP
+Xmanifake
+Xmakes MANIFEST.new out of an existing MANIFEST.
+X.TP
+Xmanilist
+Xbuilds MANIFEST.new reports.
+X.TP
+Xmetaconfig
+Xa Configure script generator.
+X.TP
+Xmetalint
+Xa metaconfig unit consistency checker.
+X.TP
+Xmetaxref
+Xa metaconfig cross-reference builder.
+X.TP
+Xpackinit
+Xinitializes a package (creates a  .package file).
+X.TP
+Xpat
+Xmain patch generator.
+X.TP
+Xpatbase
+Xresets patch base to current version.
+X.TP
+Xpatcil
+Xchecks new version in.
+X.TP
+Xpatclean
+Xremove working version of up-to-date files.
+X.TP
+Xpatcol
+Xchecks file out.
+X.TP
+Xpatdiff
+Xbuilds (contextual) diffs for the patch.
+X.TP
+Xpatftp
+Xcopies patches to public ftp directory.
+X.TP
+Xpatindex
+Xbuilds a patch index.
+X.TP
+Xpatmake
+Xputs diffs together into a patch.
+X.TP
+Xpatpost
+Xposts patch to some newsgroup.
+X.TP
+Xpatsend
+Xmails patch to some people.
+X.PD
+X.SH FILES
+X.PD 0
+X.TP 15
+X\&.MT
+XTemporary directory created by \fImetaconfig\fR and friends.
+X.TP
+X\&.newer
+XA list of files newer than \fIpatchlevel.h\fR, used by the patching tools.
+X.TP
+X\&.package
+XMain configuration file used by most of the dist tools to make them smart.
+X.TP
+XConfigure
+XThe generated configuration script.
+X.TP
+XGlossary
+XA list of all the known portability symbols known by \fImetaconfig\fR. This
+Xfile is located in the dist library directory.
+X.TP
+XI.fui
+XCross-reference file generated by \fImetaxref\fR, sorted by file, unit, item.
+X.TP
+XI.uif
+XCross-reference file generated by \fImetaxref\fR, sorted by unit, item, file.
+X.TP
+XIndex
+XA list of all the rules known by \fIjmake\fR. This file is located in the
+Xdist library directory.
+X.TP
+XJmakefile
+XGeneric makefile description used by \fIjmake\fR.
+X.TP
+XMANIFEST
+XList of all the files to be included in the distribution. Usually a copy (not
+Xa link) of MANIFEST.new.
+X.TP
+XMANIFEST.new
+XList of all the files to be taken into account by the dist tools.
+X.TP
+XMakefile.SH
+XThe generated configured makefile (via Jmakefile) or hand-generated Makefile
+Xmaking use of known metaconfig symbols.
+X.TP
+XObsolete
+XA list of obsolete symbol used and their new equivalents.
+X.TP
+XRCS
+XDirectory where RCS files are stored.
+X.TP
+XREADME
+XMain file explaining how to build your package.
+X.TP
+XU
+XPrivate unit directory.
+X.TP
+XWanted
+XFile used by \fImetaconfig\fR, listing all the symbols used by the sources.
+X.TP
+Xbugs
+XDirectory where patches are stored.
+X.TP
+Xcheck.extra
+XExtra files present in MANIFEST.new, generated by \fImanicheck\fR.
+X.TP
+Xcheck.want
+XMissing files from MANIFEST.new, generated by \fImanicheck\fR.
+X.TP
+Xconfig_h.SH
+XGenerated config.h template.
+X.TP
+Xhints
+XThis directory lists all the configuration hints for your package.
+X.TP
+Xpatchlevel.h
+XFile recording your package patch level, should not be part of MANIFEST.new,
+Xbut may be listed in MANIFEST, at your discretion.
+X.TP
+Xusers
+XFile recording the users of your package, generated by mailagent's \fIpackage\fR
+Xcommand (see the MailAuthor.U unit and mailagent 3.0).
+X.PD
+X.SH AUTHORS
+XBy chronological order:
+X.sp
+XLarry Wall <lwall@netlabs.com> (dist 2.0 in 1988)
+X.br
+XHarlan Stenn <harlan@mumps.pfcs.com> (worked on dist 3.0 1990-1992)
+X.br
+XRaphael Manfredi <ram@acri.fr> (dist 3.0 and integration 1991-1993)
+X.sp
+XPlease look at the \fICredits\fR file in the distribution source tree for a
+Xlist of all the known contributors.
+X.SH "SEE ALSO"
+Xjmake(1), metaconfig(1), pat(1).
+END_OF_FILE
+  if test 6538 -ne `wc -c <'dist.man'`; then
+    echo shar: \"'dist.man'\" unpacked with wrong size!
+  fi
+  # end of 'dist.man'
+fi
+if test -f 'kit/makedist.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kit/makedist.man'\"
+else
+  echo shar: Extracting \"'kit/makedist.man'\" \(4530 characters\)
+  sed "s/^X//" >'kit/makedist.man' <<'END_OF_FILE'
+X.rn '' }`
+X''' $Id: makedist.man,v 3.0 1993/08/18 12:04:31 ram Exp $
+X'''
+X'''  Copyright (c) 1991-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic Licence,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic Licence; a copy of which may be found at the root
+X'''  of the source tree for dist 3.0.
+X'''
+X''' $Log: makedist.man,v $
+X''' Revision 3.0  1993/08/18  12:04:31  ram
+X''' Baseline for dist 3.0 netwide release.
+X'''
+X''' 
+X.de Sh
+X.br
+X.ne 5
+X.PP
+X\fB\\$1\fR
+X.PP
+X..
+X.de Sp
+X.if t .sp .5v
+X.if n .sp
+X..
+X'''
+X'''     Set up \*(-- to give an unbreakable dash;
+X'''     string Tr holds user defined translation string.
+X'''     Bell System Logo is used as a dummy character.
+X'''
+X.ie n \{\
+X.tr \(*W-\*(Tr
+X.ds -- \(*W-
+X.if (\n(.H=4u)&(1m=24u) .ds -- \(*W\h'-12u'\(*W\h'-12u'-\" diablo 10 pitch
+X.if (\n(.H=4u)&(1m=20u) .ds -- \(*W\h'-12u'\(*W\h'-8u'-\" diablo 12 pitch
+X.ds L" ""
+X.ds R" ""
+X.ds L' '
+X.ds R' '
+X'br\}
+X.el\{\
+X.ds -- \(em\|
+X.tr \*(Tr
+X.ds L" ``
+X.ds R" ''
+X.ds L' `
+X.ds R' '
+X'br\}
+X.TH MAKEDIST 1 LOCAL
+X.SH NAME
+Xmakedist \- a distribution kit maker
+X.SH SYNOPSIS
+X.B makedist
+X[ \fB\-dhqvV\fR ] [ \fB\-c\fI dir\fR ]
+X[ \fB\-s\fI size\fR ] [\fB\-f \fImanifest\fR ]
+X.SH DESCRIPTION
+X.I Makedist
+Xis a rather simpleminded shar program that knows how to pack files
+Xinto multiple kits of approximately 50000 bytes each.
+XThe shar scripts produced assume very little about the target machine;
+Xthere is correspondingly little error checking done compared to other
+Xshar programs. Alternatively, with the \fB\-c\fR option, you can
+Xcreate a directory containing the whole source tree, and then pack it
+Xup using your own shell archiver.
+X.PP
+XIf you are using the copyright expansion feature (as determined by
+X\fIpackinit\fR), then you have to pack your distribution using this
+Xprogram to ensure the copyright is correctly set.
+X.PP
+XIn order to run \fImakedist\fR you have to do two things:
+X.IP 1) 4
+XCreate a .package file in the package's top-level directory by running
+X\fIpackinit\fR.
+XThis program will ask you about your package and remember what you tell
+Xit so that all the \fIdist\fR programs can be smart.
+X.IP 2) 4
+XCreate a MANIFEST.new file in your top-level directory that lists all the
+Xfiles in your package.
+XThe filename should be the first field on each line.
+XAfter some whitespace you can add a comment describing your file (briefly).
+X.PP
+XAfter running \fImakedist\fR,
+Xyou will have a set of kits in your top-level directory.
+XIf your package name is "foo", they will be named foo.kit1, foo.kit2, etc.
+XThe file created PACKLIST file is automatically added to the distribution and
+Xtells which files come with which kits.
+XIf you used the \fB\-c\fR option, you will end-up with a single directory
+Xinstead, containing the whole distribution, ready to be sent to the end-user.
+X.PP
+XIf a file is too large to be packed as-is in one archive, it will be
+Xautomatically split in smaller parts. Only the first 11 characters of the file
+Xwill be kept though, and \fImakedist\fR will abort if two distinct files are
+Xto be split and have the same 11 first characters in their names. The split
+Xfiles will automatically be reconstructed at the end of the archive extraction
+Xby runnning a script generated in PACKNOTES.
+X.SH OPTIONS
+XThe following options are handled by \fImakedist\fR:
+X.TP 10
+X.B \-c \fIdir\fR
+XTell \fImakedist\fR that the distribution should be copied (mirrored) in
+Xthe specified directory, instead of producing shell archives. Compatible with
+Xthe \fB\-q\fR option.
+X.TP
+X.B \-d
+XTurn on debug mode. Probably not useful.
+X.TP
+X\fB-f\fI file\fR
+XUse \fIfile\fR as manifest. By default, MANIFEST.new is used.
+X.TP
+X.B -h
+XPrint help message and exit.
+X.TP
+X.B -q
+XQuick production of the kits: the checked-out version of the files is used,
+Xinstead of using the RCS file to actually get the latest checked-in version.
+XThis will save some considerable time, but you have to be sure the checked-out
+Xversion is up-to-date or you might end up with an inconsistent package.
+X.TP
+X\fB\-s\fI size\fR
+XSet maximum kit size to \fIsize\fR bytes.
+X.TP
+X.B \-v
+XVerbose mode: trace kit building process or tree mirroring.
+X.TP
+X.B \-V
+XPrint version number and exit.
+X.SH AUTHORS
+XLarry Wall <lwall@netlabs.com> (version 2.0)
+X.br
+XRaphael Manfredi <ram@acri.fr>
+X.SH FILES
+XCreates ./$package.kit* unless \fB\-c\fR option is used.
+X.br
+XPACKLIST and PACKNOTES are also temporarily created.
+X.SH "SEE ALSO"
+Xmetaconfig(1), patcol(1).
+X.rn }` ''
+END_OF_FILE
+  if test 4530 -ne `wc -c <'kit/makedist.man'`; then
+    echo shar: \"'kit/makedist.man'\" unpacked with wrong size!
+  fi
+  # end of 'kit/makedist.man'
+fi
+if test -f 'mcon/NOTES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/NOTES'\"
+else
+  echo shar: Extracting \"'mcon/NOTES'\" \(6559 characters\)
+  sed "s/^X//" >'mcon/NOTES' <<'END_OF_FILE'
+XThis file shortly documents the built-in interpreter and other new
+Xfeatures from metaconfig.
+X
+XThe notion of "conditional unit" has been added.  In the ?MAKE:  line,
+Xeach unit whose name begins with a "+" will not be loaded in the
+XConfigure script unless its exact value is a mandatory.  The default
+Xvalue specified in ?DEF:  will be used instead.  If no ?DEF:  line is
+Xfound, then the symbol is initialized with a null default value.
+X
+XIn the config.h.SH file, only the necessary symbols are loaded.  Note
+Xthat the format in ?H:  line has changed.  It is no longer necessary to
+Xwrite ?H:?%1:  to get a line included in config.h.  First of all, the %1
+Xsymbol is not defined any more.  Secondly, the unit's name is now %< and
+Xit does not matter whether the name appears first in the ?MAKE:  line or
+Xnot.  Lastly, metaconfig can guess for itself whether to include a
+Xsymbol or not.
+X
+XSometimes, it is necessary to force a given value, because metaconfig is
+Xnot smart enough to guess 100% of the time.  See voidflags.U for an
+Xexample (look at the ?C: and ?H: lines and read the comments).
+X
+XThe Myread.U unit changed. It is now able to do variable substitutions,
+Xand it sets the prompt correctly if there is no supplied default. Thus,
+Xinstead of the old:
+X
+X	dflt=y
+X	rp="Question? [$dflt]"
+X	$echo $n "$rp $c"
+X	. myread
+X
+Xyou must now write:
+X
+X	dflt=y
+X	rp='Question?'
+X	. myread
+X
+Xand 'myread' will take care of echoing the question with the default
+Xput in square brakets.
+X
+XLikewise, question asking for filenames or pathnames may now use the Getfile.U
+Xunit to take care of all the burden. The presetting is the same as for myread
+Xand the answer is finally held in $ans. But the variable $fn must be set to
+Xindicate the type of file and enable/disable some of the sanity checks. See
+Xleading comments in Getfile.U. Here is a simple example to locate the active
+Xfile:
+X
+X	dflt='~news/lib'
+X	fn='l~:active'
+X	rp='Where is the active file?'
+X	. getfile
+X	active="$ans"
+X
+XThe user may answer the question by using ~substitution and giving only the
+Xdirectory where the active file is located (in which case getfile will try
+Xto locate a file named 'active' in that directory). A full path may also be
+Xgiven of course, if the basename of the file is not 'active'.
+X
+XThe units are now filtered by a built-in interpreter before getting
+Xloaded in Configure.  That way, a Configure script can be more or less
+Xtuned.  See d_gethname.U for a complex example.
+X
+XAll the interpreter commands start with a leading '@'.  Possible
+Xcommands include:
+X
+Xo if/elsif/else/end is the traditional conditional construct.
+Xo define <symbol> tells metaconfig the <symbol> is to be defined.
+X
+XExpressions in conditional constructs can include the &&, || and !
+Xoperator with same meaning as in the shell.  Backslash at the end of a
+Xline stands for the continuation character.  All the symbols in the
+Xexpression stands for themselves, and their value is true if they are
+Xdefined/wanted and false otherwise.
+X
+XIt is possible to include shell and perl test.  All the text enclosed in
+Xsingle brackets as {<text>} is expanded in a shell as
+X
+X	if <text> >/dev/null 2>&1; then exit 0; else exit 1; fi
+X
+Xwhereas text in double brackets as {{<text>}} is expanded in perl as
+X
+X	if (<text> {exit 0;} else {exit 1;}
+X
+Xand the exit status is used in the standard way to get a boolean value
+X(i.e 0 is true and everything else is false).  See Oldconfig.U for an
+Xexample.
+X
+XMetaconfig's interpreter has standard C operator priority, but you may
+Xforce the evaluation order with parenthesis.  A simple error recovery
+Xattempt is made, so that you should get meaningful error messages.
+X
+XThe simple test ?sym:  means "keep the remaining of the line iff the
+Xsymbol is defined" and %sym:  is the same for non-definedness.
+X
+XSome special symbols may be put in a unit and will get expanded,
+Xprovided the ?MAKE:  command line is 'wipe' and not 'add'.  Here are the
+Xavailable symbols:
+X
+X	<PACKAGENAME> is the name $package as found in .package
+X	<MAINTLOC> is the $maintloc variable as found in .pakcage
+X	<VERSION> is metaconfig's version number
+X	<PATCHLEVEL> is metaconfig's patchlevel
+X	<DATE> is the current frozen date as given by `date`
+X
+XA 'wipe'ed unit is passed through the interpreter too.
+X
+XIt is also possible to declare a symbol obsolete. A warning message
+Xwill be issued if the symbol is used and the Glossary mentions it.
+Xthe "Obsolete" clause. The syntax is:
+X
+X	?C:symbol (obsolete list):
+X	?S:symbol (obsolete list):
+X
+XIf metaconfig is used with the -o option, it will generate code to remap
+Xthose old symbols to the new ones, so the old code does not have to be changed
+Xright away. If you do not use -o, the Obsolete file will still be generated
+Xto warn you about obsolete symbols but no maping will be done.
+X
+XThe new ?W: line can be use to tie up the destiny of some symbols. The syntax
+Xis:
+X
+X	?W:shell symbols list:C symbol list
+X
+Xand the symbols in the shell list will be defined if one of the C symbols is.
+XFor instance, unit d_const.U uses the following:
+X
+X	?W:%<:const
+X
+Xso that any 'const' usage in the C code will have %< (the unit name) handled
+Xas a wanted symbol. In particular, this has the interesting side effect of
+Xloading the unit into Configure when the 'const' keyword is used.
+X
+XThis shell symbol list part may be left empty. For example unit i_time.U uses:
+X
+X	?W::timezone
+X
+Xfor its side effect: the symbol 'timezone' may now be part of the interpreter
+Xtests to conditionally load some code into Configure when struct timezone is
+Xused.
+X
+XC symbol aliasing can be used to let metaconfig know that the symbol comment
+Xis to be loaded in config_h.SH even when the main symbol is not used in C.
+XFor instance, d_const.U writes:
+X
+X	?C:HASCONST ~ %<:
+X
+Xso that the HASCONST hype is loaded iff the unit (%<) is wanted. This is why
+Xthe ?H: lines are also explicitely tied to the wanted-ness of the d_const
+Xsymbol, by writing:
+X
+X	?H:?%<:#$d_const HASCONST	/**/
+X	?H:?%<:#ifndef HASCONST
+X	?H:?%<:#define const
+X	?H:?%<:#endif
+X	?H:.
+X
+Xbecause we want all those lines to appear in config_h.SH as soon as the d_const
+Xunit is loaded into Configure.
+X
+XBecause of the new -s (silent) option of Configure, the important messages which
+Xare to appear even in silent mode must be written on file descriptor #4. Others
+Xwill simply not be echoed under -s. Note that all the questions and default
+Xanswers are written on #4. You should write:
+X
+X	echo " "
+X	echo "Checking to see if......" >&4
+X	.....
+X	echo "Yes, it does"
+X
+Xwhich will have the traditional behaviour unless -s is used, in which case only
+Xthe line
+X
+X	Checking to see if.....
+X
+Xwill echo on the terminal.
+END_OF_FILE
+  if test 6559 -ne `wc -c <'mcon/NOTES'`; then
+    echo shar: \"'mcon/NOTES'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/NOTES'
+fi
+if test -f 'mcon/U/d_gethname.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_gethname.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_gethname.U'\" \(7366 characters\)
+  sed "s/^X//" >'mcon/U/d_gethname.U' <<'END_OF_FILE'
+X?RCS: $Id: d_gethname.U,v 3.0 1993/08/18 12:06:11 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_gethname.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:06:11  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_gethname d_uname d_phostname aphostname: phostname cat \
+X	myhostname package d_portable Loc libc echo n c +i_whoami +usrinc \
+X	Myread Guess Oldconfig Csym
+X?MAKE:	-pick add $@ %<
+X?S:d_gethname:
+X?S:	This variable conditionally defines the HAS_GETHOSTNAME symbol, which
+X?S:	indicates to the C program that the gethostname() routine may be
+X?S:	used to derive the host name.
+X?S:.
+X?S:d_uname:
+X?S:	This variable conditionally defines the HAS_UNAME symbol, which
+X?S:	indicates to the C program that the uname() routine may be
+X?S:	used to derive the host name.
+X?S:.
+X?S:d_phostname:
+X?S:	This variable conditionally defines the PHOSTNAME symbol, which
+X?S:	contains the shell command which, when fed to popen(), may be
+X?S:	used to derive the host name.
+X?S:.
+X?S:aphostname:
+X?S:	Thie variable contains the command which can be used to compute the
+X?S:	host name. The command is fully qualified by its absolute path, to make
+X?S:	it safe when used by a process with super-user privileges.
+X?S:.
+X?C:HAS_GETHOSTNAME (GETHOSTNAME):
+X?C:	This symbol, if defined, indicates that the C program may use the
+X?C:	gethostname() routine to derive the host name.  See also HAS_UNAME
+X?C:	and PHOSTNAME.
+X?C:.
+X?C:HAS_UNAME (UNAME):
+X?C:	This symbol, if defined, indicates that the C program may use the
+X?C:	uname() routine to derive the host name.  See also HAS_GETHOSTNAME
+X?C:	and PHOSTNAME.
+X?C:.
+X?C:PHOSTNAME:
+X?C:	This symbol, if defined, indicates that the C program may use the
+X?C:	contents of PHOSTNAME as a command to feed to the popen() routine
+X?C:	to derive the host name.  See also HAS_GETHOSTNAME and HAS_UNAME.
+X?C:	Note that the command uses a fully qualified path, so that it is safe
+X?C:	even if used by a process with super-user privileges.
+X?C:.
+X?H:#$d_gethname HAS_GETHOSTNAME	/**/
+X?H:#$d_uname HAS_UNAME		/**/
+X?H:#$d_phostname PHOSTNAME "$aphostname"	/* How to get the host name */
+X?H:.
+X?T:file val call
+X?LINT:change i_whoami
+X: see how we will look up host name
+Xecho " "
+Xif false; then
+X	: dummy stub to allow use of elif
+X@if HAS_GETHOSTNAME
+Xelif set gethostname val -f d_gethname; eval $csym; $val; then
+X	echo 'gethostname() found.' >&4
+X	d_gethname="$define"
+X	call=gethostname
+X@end
+X@if HAS_UNAME
+Xelif set uname val -f d_uname; eval $csym; $val; then
+X	if xenix; then
+X		$cat <<'EOM'
+Xuname() was found, but you're running xenix, and older versions of xenix
+Xhave a broken uname(). If you don't really know whether your xenix is old
+Xenough to have a broken system call, use the default answer.
+X
+XEOM
+X		dflt=y
+X		case "$d_uname" in
+X		"$define") dflt=n;;
+X		esac
+X		rp='Is your uname() broken?'
+X		. ./myread
+X		case "$ans" in
+X		n*) d_uname="$define"; call=uname;;
+X		esac
+X	else
+X		echo 'uname() found.' >&4
+X		d_uname="$define"
+X		call=uname
+X	fi
+X@end
+Xfi
+Xcase "$d_gethname" in
+X'') d_gethname="$undef";;
+Xesac
+Xcase "$d_uname" in
+X'') d_uname="$undef";;
+Xesac
+X@if PHOSTNAME || MYHOSTNAME
+Xcase "$d_uname$d_gethname" in
+X*define*)
+X	dflt=n
+X	cat <<EOM
+X 
+XEvery now and then someone has a $call() that lies about the hostname
+Xbut can't be fixed for political or economic reasons.  If you wish, I can
+X@if MYHOSTNAME && PHOSTNAME
+Xpretend $call() isn't there and maybe compile in the hostname or
+Xcompute it from the '$phostname' command at run-time.
+X@elsif MYHOSTNAME
+Xpretend $call() isn't there and maybe compile in the hostname.
+X@elsif PHOSTNAME
+Xpretend $call() isn't there and maybe compute hostname at run-time
+Xthanks to the '$phostname' command.
+X@elsif WHOAMI
+Xget the hostname from whomai.h (provided you have one).
+X@else
+Xsimply ignore your host name and use someting like "noname" instead.
+X@end
+X
+XEOM
+X	rp="Shall I ignore $call() from now on?"
+X	. ./myread
+X	case "$ans" in
+X	y*) d_uname="$undef" d_gethname="$undef"; $echo $n "Okay...$c";;
+X	esac;;
+Xesac
+X@end
+X@if PHOSTNAME || aphostname
+X?X: Compute the full path name for the command
+Xcase "$phostname" in
+X'') aphostname='';;
+X*) case "$aphostname" in
+X	/*) ;;
+X	*) set X $phostname
+X		shift
+X		file=$1
+X		shift
+X		file=`./loc $file $file $pth`
+X		aphostname=`echo $file $*`
+X		;;
+X	esac
+X	;;
+Xesac
+X@end
+X@if PHOSTNAME && MYHOSTNAME
+Xcase "$d_uname$d_gethname" in
+X*define*) ;;
+X*)
+X	case "$phostname" in
+X	'') ;;
+X	*)
+X		$cat <<EOT
+X
+XThere is no gethostname() or uname() on this system.  You have two
+Xpossibilities at this point:
+X
+X1)  You can have your host name ($myhostname) compiled into $package, which
+X    lets $package start up faster, but makes your binaries non-portable, or
+X2)  you can have $package use a
+X	
+X	popen("$aphostname","r")
+X
+X    which will start slower but be more portable.
+X
+X@	if WHOAMI
+XOption 1 will give you the option of using whoami.h if you have one.
+X@	end
+XIf you want option 2 but with a different command, you can edit config.sh at
+Xthe end of this shell script.
+X
+XEOT
+X		case "$d_phostname" in
+X		"$define") dflt=n;;
+X		"$undef")  dflt=y;;
+X		'')
+X			case "$d_portable" in
+X			"$define") dflt=n ;;
+X			*) dflt=y ;;
+X			esac;;
+X		esac
+X		rp="Do you want your host name compiled in?"
+X		. ./myread
+X		case "$ans" in
+X		n*) d_phostname="$define" ;;
+X		*) aphostname=''; d_phostname="$undef";;
+X		esac;;
+X	esac
+X	case "$aphostname" in
+X	'')
+X@	if WHOAMI
+X		case "$i_whoami" in
+X		"$define")
+X			dflt=y
+X			$cat <<EOM
+X 
+XNo hostname function--you can either use the whoami.h file, which has this line:
+X
+X	`grep sysname $usrinc/whoami.h`
+X
+Xor you can have the name we came up with earlier ($myhostname) hardwired in.
+XEOM
+X			rp="Use whoami.h to get hostname?"
+X			. ./myread
+X			case "$ans" in
+X			n*) i_whoami="$undef";;
+X			esac
+X			;;
+X		"$undef")
+X			$cat <<EOM
+XNo hostname function and no whoami.h -- hardwiring "$myhostname".
+XEOM
+X			;;
+X		esac;;
+X@	else
+X		echo 'No hostname function -- hardwiring "'$myhostname'".' >&4;;
+X@	end
+X	esac;;
+Xesac
+X@elsif PHOSTNAME
+Xcase "$d_uname$d_gethname" in
+X*define*) ;;
+X*)
+X	case "$phostname" in
+X	'')
+X@	if WHOAMI
+X		case "$i_whoami" in
+X		"$define")
+X			$cat <<EOM
+X
+XNo hostname function--we'll use the whoami.h file, which has this line:
+X
+X	`grep sysname $usrinc/whoami.h`
+X
+XEOM
+X			;;
+X		*) echo "There will be no way for $package to get your hostname." >&4;;
+X		esac;;
+X@	else
+X		echo "There will be no way for $package to get your hostname." >&4;;
+X@	end
+X	*)
+X	echo "I'll use 'popen("'"'$aphostname'", "r")'"' to get your hostname." >&4
+X		;;
+X	esac;;
+Xesac
+X@elsif MYHOSTNAME
+Xcase "$d_uname$d_gethname" in
+X*define*) ;;
+X*)
+X@	if WHOAMI
+X	case "$i_whoami" in
+X	"$define")
+X		dflt=y
+X		$cat <<EOM
+X 
+XNo hostname function--you can either use the whoami.h file, which has this line:
+X
+X	`grep sysname $usrinc/whoami.h`
+X
+Xor you can have the name we came up with earlier ($myhostname) hardwired in.
+XEOM
+X		rp="Use whoami.h to get hostname?"
+X		. ./myread
+X		case "$ans" in
+X		n*) i_whoami="$undef";;
+X		esac
+X		;;
+X	"$undef")
+X		echo 'No whoami.h--hardwiring "'$myhostname'".' >&4;;
+X	esac;;
+X@	else
+X	echo 'Hardwiring "'$myhostname'".' >&4;;
+X@	end
+Xesac
+X@end
+Xcase "$d_phostname" in
+X'') d_phostname="$undef";;
+Xesac
+X
+END_OF_FILE
+  if test 7366 -ne `wc -c <'mcon/U/d_gethname.U'`; then
+    echo shar: \"'mcon/U/d_gethname.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_gethname.U'
+fi
+if test -f 'mcon/pl/common.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/pl/common.pl'\"
+else
+  echo shar: Extracting \"'mcon/pl/common.pl'\" \(8679 characters\)
+  sed "s/^X//" >'mcon/pl/common.pl' <<'END_OF_FILE'
+X;# $Id: common.pl,v 3.0 1993/08/18 12:10:19 ram Exp $
+X;#
+X;#  Copyright (c) 1991-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic Licence,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic Licence; a copy of which may be found at the root
+X;#  of the source tree for dist 3.0.
+X;#
+X;# $Log: common.pl,v $
+X;# Revision 3.0  1993/08/18  12:10:19  ram
+X;# Baseline for dist 3.0 netwide release.
+X;#
+X;# The list of all available units is held in @ARGV. We shall parse them and
+X;# extract the dependencies. A lot of global data structures are filled in
+X;# during this phase.
+X;#
+X;# The following two H tables are used to record each know symbol (i.e. a
+X;# symbol known by at least one unit), and also how many times this symbol is
+X;# found in the sources. If an entry for a given key is positive, then the
+X;# associated symbol (i.e. the key) is wanted and it will be written in the
+X;# Wanted file.
+X;#  %shmaster{'$sym'} records how many times '$sym' is found in a .SH file
+X;#  %cmaster{'SYM'} records how many times 'SYM' is found in a .c file
+X;#  %cwanted{'SYM'} records the set of necessary shell symbols needed for SYM
+X;#
+X;# This data structure records the initializations which are requires at the
+X;# beginning of a Configure script. The initialization only occurs when the
+X;# symbol is needed. Those symbols will appear in the produced config.sh file,
+X;# hence the name of "master" symbols.
+X;#  @Master records shell configuration symbols which will appear in config.sh
+X;#
+X;# The @Cond array records the conditional shell symbols, i.e. those whose
+X;# value may be defaulted. They will appear in the initialization section of
+X;# the Configure script with the default value if they are not otherwise used
+X;# but Configure needs a suitable value internally.
+X;#  @Cond records symbols which are flagged as conditional in the dependencies
+X;#  %hasdefault{'sym'} is true when the conditional 'sym' has a default value
+X;#
+X;# The %Obsolete array records the obsolecence for units or symbols. The key
+X;# ends with .U for units, otherwise it is a symbol. Unit's obsolescence is
+X;# flagged with a ?O: line (the line being the message which will be issued
+X;# when the unit is used) while symbol obsolecence is indicated on the leading
+X;# ?C: or ?S: line, between parenthesis. In that case, the value stored is the
+X;# new symbol which should be used insted.
+X;#  %Obsolete{'unit.U'} is a message to be printed when obsolete unit is used
+X;#  %Obsolete{'sym'} is the symbol to be used in place of the obsoleted 'sym'
+X;#
+X;# The $dependencies variable is used to record the dependencies extracted
+X;# from the units (?MAKE: line).
+X;#
+X;# During the dependency extraction. some files are produced in the .MT dir.
+X;#   Init.U records the initialization wanted
+X;#   Config_h.U records the informations which could go in config.h.SH
+X;#   Extern.U records the libraries and includes wanted by each symbol
+X;#
+X;# This file is shared by both metaconfig and metaxref
+X;#
+X# Initialize the extraction process by setting some variables.
+X# We return a string to be eval to do more customized initializations.
+Xsub init_extraction {
+X	open(INIT, ">$WD/.MT/Init.U") ||
+X		die "Can't create .MT/Init.U\n";
+X	open(CONF_H, ">$WD/.MT/Config_h.U") ||
+X		die "Can't create .MT/Config_h.U\n";
+X	open(EXTERN, ">$WD/.MT/Extern.U") ||
+X		die "Can't create .MT/Extern.U\n";
+X
+X	$c_symbol = '';				# Current symbol seen in ?C: lines
+X	$s_symbol = '';				# Current symbol seen in ?S: lines
+X	$condlist = '';				# List of conditional symbols
+X	$defined = '';				# List of defined symbols in the unit
+X	$body = '';					# No procedure to handle body
+X	$ending = '';				# No procedure to clean-up
+X}
+X
+X# End the extraction process
+Xsub end_extraction {
+X	close EXTERN;			# External dependencies (libraries, includes...)
+X	close CONF_H;			# C symbol definition template
+X	close INIT;				# Required initializations
+X
+X	print $dependencies if $opt_v;	# Print extracted dependencies
+X}
+X
+X# Process the ?MAKE: line
+Xsub p_make {
+X	local($_) = @_;
+X	local(@ary);					# Locally defined symbols
+X	local(@dep);					# Dependencies
+X	if (/^[\w ]*:/) {				# Main dependency rule
+X		s|^\s*||;					# Remove leading spaces
+X		$dependencies .= $_;		# Append to already existing dependencies
+X		chop;
+X		s/:(.*)//;
+X		@dep = split(' ', $1);			# Dependencies
+X		@ary = split(' ');				# Locally defined symbols
+X		$defined = join(' ', @ary);		# Symbols defined by this unit
+X		foreach $sym (@ary) {
+X			# Only sumbols starting with a lowercase letter are to
+X			# appear in config.sh, excepted the ones listed in Except.
+X			if ($sym =~ /^[a-z]/ || $Except{$sym}) {
+X				$shmaster{"\$$sym"} = undef;
+X				push(@Master,"?$unit:$sym=''\n");	# Initializations
+X			}
+X		}
+X		$condlist = '';				# List of conditional symbols
+X		foreach $sym (@dep) {
+X			if ($sym =~ /^\+[A-Za-z]/) {
+X				$sym =~ s|^\+||;
+X				$condlist .= "$sym ";
+X				push(@Cond, $sym) unless $condseen{$sym};
+X				$condseen{$sym}++;		# Conditionally wanted
+X			}
+X		}
+X		$dependencies .= "	-cond $condlist\n" if $condlist;
+X	} else {
+X		$dependencies .= $_;		# Building rules
+X	}
+X}
+X
+X# Process the ?O: line
+Xsub p_obsolete {
+X	local($_) = @_;
+X	$Obsolete{"$unit.U"} .= $_;		# Message(s) to print if unit is used
+X}
+X
+X# Process the ?S: lines
+Xsub p_shell {
+X	local($_) = @_;
+X	unless ($s_symbol) {
+X		if (/^(\w+).*:/) {
+X			$s_symbol = $1;
+X			print "  ?S: $s_symbol\n" if $opt_d;
+X		} else {
+X			warn "\"$file\", line $.: syntax error in ?S: construct.\n";
+X			$s_symbol = $unit;
+X			return;
+X		}
+X		# Deal with obsolete symbol list (enclosed between parenthesis)
+X		&record_obsolete("\$$_") if /\(/;
+X	}
+X	m|^\.\s*$| && ($s_symbol = '');		# End of comment
+X}
+X
+X# Process the ?C: lines
+Xsub p_c {
+X	local($_) = @_;
+X	unless ($c_symbol) {
+X		if (s/^(\w+)\s*~\s*(\S+)\s*(.*):/$1 $3:/) {
+X			# The ~ operator aliases the main C symbol to another symbol which
+X			# is to be used instead for definition in config.h. That is to say,
+X			# the line '?C:SYM ~ other:' would look for symbol 'other' instead,
+X			# and the documentation for symbol SYM would only be included in
+X			# config.h if 'other' were actually wanted.
+X			$c_symbol = $2;			# Alias for definition in config.h
+X			print "  ?C: $1 ~ $c_symbol\n" if $opt_d;
+X		} elsif (/^(\w+).*:/) {
+X			# Default behaviour. Include in config.h if symbol is needed.
+X			$c_symbol = $1;
+X			print "  ?C: $c_symbol\n" if $opt_d;
+X		} else {
+X			warn "\"$file\", line $.: syntax error in ?C: construct.\n";
+X			$c_symbol = $unit;
+X			return;
+X		}
+X		# Deal with obsolete symbol list (enclosed between parenthesis) and
+X		# make sure that list do not appear in config.h.SH by removing it.
+X		&record_obsolete("$_") if /\(/;
+X		s/\s*\(.*\)//;					# Get rid of obsolete symbol list
+X	}
+X	s|^(\w+)\s*|?$c_symbol:/* $1| ||						# Start of comment
+X	(s|^\.\s*$|?$c_symbol: */\n| && ($c_symbol = '', 1)) ||	# End of comment
+X	s|^(.*)|?$c_symbol: *$1|;								# Middle of comment
+X	&p_config("$_");					# Add comments to config.h.SH
+X}
+X
+X# Process the ?H: lines
+Xsub p_config {
+X	local($_) = @_;
+X	local($constraint);					# Constraint to be used for inclusion
+X	++$old_version if s/^\?%1://;		# Old version
+X	if (s/^\?(\w+)://) {				# Remove leading '?var:'
+X		$constraint = $1;				# Constraint is leading '?var'
+X	} else {
+X		$constraint = '';				# No constraint
+X	}
+X	if (/^#.*\$/) {						# Look only for cpp lines
+X		if (m|^#\$(\w+)\s+(\w+).*\$(\w+)|) {
+X			# Case: #$d_var VAR "$var"
+X			$constraint = $2 unless $constraint;
+X			print "  ?H: ($constraint) #\$$1 $2 \"\$$3\"\n" if $opt_d;
+X			$cmaster{$2} = undef;
+X			$cwanted{$2} = "$1\n$3";
+X		} elsif (m|^#\$define\s+(\w+)|) {
+X			# Case: #$define VAR
+X			$constraint = $1 unless $constraint;
+X			print "  ?H: ($constraint) #define $1\n" if $opt_d;
+X			$cmaster{$1} = undef;
+X			$cwanted{$1} = "define\n$unit";
+X		} elsif (m|^#\$(\w+)\s+(\w+)|) {
+X			# Case: #$d_var VAR
+X			$constraint = $2 unless $constraint;
+X			print "  ?H: ($constraint) #\$$1 $2\n" if $opt_d;
+X			$cmaster{$2} = undef;
+X			$cwanted{$2} = $1;
+X		} elsif (m|^#define\s+(\w+).*\$(\w+)|) {
+X			# Case: #define VAR "$var"
+X			$constraint = $1 unless $constraint;
+X			print "  ?H: ($constraint) #define $1 \"\$$2\"\n" if $opt_d;
+X			$cmaster{$1} = undef;
+X			$cwanted{$1} = $2;
+X		} else {
+X			$constraint = $unit unless $constraint;
+X			print "  ?H: ($constraint) $_" if $opt_d;
+X		}
+X	} else {
+X		print "  ?H: ($constraint) $_" if $opt_d;
+X	}
+X	# If not a single ?H:. line, add the leading constraint
+X	s/^\.// || s/^/?$constraint:/;
+X	print CONF_H;
+X}
+X
+Xsub p_ignore {}		# Ignore comment line
+Xsub p_lint {}		# Ignore lint directives
+Xsub p_visible {}	# No visible checking in metaconfig
+Xsub p_temp {}		# No temporary variable control
+X
+END_OF_FILE
+  if test 8679 -ne `wc -c <'mcon/pl/common.pl'`; then
+    echo shar: \"'mcon/pl/common.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/pl/common.pl'
+fi
+if test -f 'mcon/pl/eval.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/pl/eval.pl'\"
+else
+  echo shar: Extracting \"'mcon/pl/eval.pl'\" \(8071 characters\)
+  sed "s/^X//" >'mcon/pl/eval.pl' <<'END_OF_FILE'
+X;# $Id: eval.pl,v 3.0 1993/08/18 12:10:22 ram Exp $
+X;#
+X;#  Copyright (c) 1991-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic Licence,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic Licence; a copy of which may be found at the root
+X;#  of the source tree for dist 3.0.
+X;#
+X;# $Log: eval.pl,v $
+X;# Revision 3.0  1993/08/18  12:10:22  ram
+X;# Baseline for dist 3.0 netwide release.
+X;#
+X;# 
+X;# The built-in interpreter
+X;#
+Xpackage interpreter;
+X
+X# States used by our interpeter -- in sync with @Keep
+Xsub main'init_keep {
+X	# Status in which we keep lines -- $Keep[$status]
+X	@Keep = (0, 1, 1, 0, 1);
+X
+X	# Available status ($status)
+X	$SKIP = 0;
+X	$IF = 1;
+X	$ELSE = 2;
+X	$NOT = 3;
+X	$OUT = 4;
+X}
+X
+X# Priorities for operators -- magic numbers :-)
+Xsub main'init_priority {
+X	$Priority{'&&'} = 4;
+X	$Priority{'||'} = 3;
+X}
+X
+X# Initializes the state stack of the interpreter
+Xsub main'init_interp {
+X	@state = ();
+X	push(@state, $OUT);
+X}
+X
+X# Print error messages -- asssumes $unit and $. correctly set.
+Xsub error {
+X	warn "\"$main'file\", line $.: @_.\n";
+X}
+X
+X# If some states are still in the stack, warn the user
+Xsub main'check_state {
+X	do error("one statement pending") if $#state == 1;
+X	do error("$#state statements pending") if $#state > 1;
+X}
+X
+X# Add a value on the stack, modified by all the monadic operators.
+X# We use the locals @val and @mono from eval_expr.
+Xsub push_val {
+X	local($val) = shift(@_);
+X	while ($#mono >= 0) {
+X		# Cheat... the only monadic operator is '!'.
+X		pop(@mono);
+X		$val = !$val;
+X	}
+X	push(@val, $val);
+X}
+X
+X# Execute a stacked operation, leave result in stack.
+X# We use the locals @val and @op from eval_expr.
+X# If the value stack holds only one operand, do nothing.
+Xsub execute {
+X	return unless $#val > 0;
+X	local($op) = pop(@op);
+X	local($val1) = pop(@val);
+X	local($val2) = pop(@val);
+X	push(@val, eval("$val1 $op $val2") ? 1: 0);
+X}
+X
+X# Given an operator, either we add it in the stack @op, because its
+X# priority is lower than the one on top of the stack, or we first execute
+X# the stacked operations until we reach the end of stack or an operand
+X# whose priority is lower than ours.
+X# We use the locals @val and @op from eval_expr.
+Xsub update_stack {
+X	local($op) = shift(@_);		# Operator
+X	if (!$Priority{$op}) {
+X		do error("illegal operator $op");
+X		return;
+X	} else {
+X		if ($#val < 0) {
+X			do error("missing first operand for '$op' (diadic operator)");
+X			return;
+X		}
+X		# Because of the special behaviour of do-SUBR with the while modifier,
+X		# I'm using a while-BLOCK construct. I consider this to be a bug of perl
+X		# 4.0 PL19, although it is clearly documented in the man page.
+X		while (
+X			$Priority{$op[$#op]} > $Priority{$op}	# Higher priority op
+X			&& $#val > 0							# At least 2 values
+X		) {
+X			do execute();	# Execute an higher priority stacked operation
+X		}
+X		push(@op, $op);		# Everything at higher priority has been executed
+X	}
+X}
+X
+X# This is the heart of our little interpreter. Here, we evaluate
+X# a logical expression and return its value.
+Xsub eval_expr {
+X	local(*expr) = shift(@_);	# Expression to parse
+X	local(@val) = ();			# Stack of values
+X	local(@op) = ();			# Stack of diadic operators
+X	local(@mono) =();			# Stack of monadic operators
+X	local($tmp);
+X	$_ = $expr;
+X	while (1) {
+X		s/^\s+//;				# Remove spaces between words
+X		# The '(' construct
+X		if (s/^\(//) {
+X			do push_val(do eval_expr(*_));
+X			# A final '\' indicates an end of line
+X			do error("missing final parenthesis") if !s/^\\//;
+X		}
+X		# Found a ')' or end of line
+X		elsif (/^\)/ || /^$/) {
+X			s/^\)/\\/;						# Signals: left parenthesis found
+X			$expr = $_;						# Remove interpreted stuff
+X			do execute() while $#val > 0;	# Executed stacked operations
+X			while ($#op >= 0) {
+X				$_ = pop(@op);
+X				do error("missing second operand for '$_' (diadic operator)");
+X			}
+X			return $val[0];
+X		}
+X		# A perl statement '{{'
+X		elsif (s/^\{\{//) {
+X			if (s/^(.*)\}\}//) {
+X				do push_val((system
+X					('perl','-e', "if ($1) {exit 0;} else {exit 1;}"
+X					))? 0 : 1);
+X			} else {
+X				do error("incomplete perl statement");
+X			}
+X		}
+X		# A shell statement '{'
+X		elsif (s/^\{//) {
+X			if (s/^(.*)\}//) {
+X				do push_val((system
+X					("if $1 >/dev/null 2>&1; then exit 0; else exit 1; fi"
+X					))? 0 : 1);
+X			} else {
+X				do error("incomplete shell statement");
+X			}
+X		}
+X		# Operator '||' and '&&'
+X		elsif (s/^(\|\||&&)//) {
+X			do update_stack($1);
+X		}
+X		# Unary operator '!'
+X		elsif (s/^!//) {
+X			push(@mono,'!');
+X		}
+X		# Everything else is a test for a defined value
+X		elsif (s/^([\?%]?\w+)//) {
+X			$tmp = $1;
+X			# Test for wanted
+X			if ($tmp =~ s/^\?//) {
+X				do push_val(($main'symwanted{$tmp})? 1 : 0);
+X			}
+X			# Test for conditionally wanted
+X			elsif ($tmp =~ s/^%//) {
+X				do push_val(($main'condwanted{$tmp})? 1 : 0);
+X			}
+X			# Default: test for definition (see op @define)
+X			else {
+X				do push_val((
+X					$main'symwanted{$tmp} ||
+X					$main'cmaster{$tmp} ||
+X					$main'userdef{$tmp}) ? 1 : 0);
+X			}
+X		}
+X		# An error occured -- we did not recognize the expression
+X		else {
+X			s/^([^\s\(\)\{\|&!]+)//;	# Skip until next meaningful char
+X		}
+X	}
+X}
+X
+X# Given an expression in a '@' command, returns a boolean which is
+X# the result of the evaluation. Evaluate is collecting all the lines
+X# in the expression into a single string, and then calls eval_expr to
+X# really evaluate it.
+Xsub evaluate {
+X	local($val);			# Value returned
+X	local($expr) = "";		# Expression to be parsed
+X	chop;
+X	while (s/\\$//) {		# While end of line escaped
+X		$expr .= $_;
+X		$_ = <UNIT>;		# Fetch next line
+X		unless ($_) {
+X			do error("EOF in expression");
+X			last;
+X		}
+X		chop;
+X	}
+X	$expr .= $_;
+X	while ($expr ne '') {
+X		$val = do eval_expr(*expr);		# Expression will be modified
+X		# We return from eval_expr either when a closing parenthisis
+X		# is found, or when the expression has been fully analysed.
+X		do error("extra closing parenthesis ignored") if $expr ne '';
+X	} 
+X	$val;
+X}
+X
+X# Given a line, we search for commands (lines starting with '@').
+X# If there is no command in the line, then we return the boolean state.
+X# Otherwise, the command is analysed and a new state is computed.
+X# The returned value of interpret is 1 if the line is to be printed.
+Xsub main'interpret {
+X	local($value);
+X	local($status) = $state[$#state];		# Current status
+X	if (s|^\s*@\s*(\w+)\s*(.*)|$2|) {
+X		local($cmd) = $1;
+X		$cmd =~ y/A-Z/a-z/;		# Canonicalize to lower case
+X		# The 'define' command
+X		if ($cmd eq 'define') {
+X			chop;
+X			$userdef{$_}++ if $Keep[$status];
+X			return 0;
+X		}
+X		# The 'if' command
+X		elsif ($cmd eq 'if') {
+X			# We always evaluate, in order to find possible errors
+X			$value = do evaluate($_);
+X			if (!$Keep[$status]) {
+X				# We have to skip until next 'end'
+X				push(@state, $SKIP);		# Record structure
+X				return 0;
+X			}
+X			if ($value) {			# True
+X				push(@state, $IF);
+X				return 0;
+X			} else {				# False
+X				push(@state, $NOT);
+X				return 0;
+X			}
+X		}
+X		# The 'else' command
+X		elsif ($cmd eq 'else') {
+X			do error("expression after 'else' ignored")
+X				if (/\S/);
+X			$state[$#state] = $SKIP if $state[$#state] == $IF;
+X			return 0 if $state[$#state] == $SKIP;
+X			if ($state[$#state] == $OUT) {
+X				do error("unexpected 'else'");
+X				return 0;
+X			}
+X			$state[$#state] = $ELSE;
+X			return 0;
+X		}
+X		# The 'elsif' command
+X		elsif ($cmd eq 'elsif') {
+X			# We always evaluate, in order to find possible errors
+X			$value = do evaluate($_);
+X			$state[$#state] = $SKIP if $state[$#state] == $IF;
+X			return 0 if $state[$#state] == $SKIP;
+X			if ($state[$#state] == $OUT) {
+X				do error("unexpected 'elsif'");
+X				return 0;
+X			}
+X			if ($value) {			# True
+X				$state[$#state] = $IF;
+X				return 0;
+X			} else {				# False
+X				$state[$#state] = $NOT;
+X				return 0;
+X			}
+X		}
+X		# The 'end' command
+X		elsif ($cmd eq 'end') {
+X			do error("expression after 'end' ignored")
+X				if (/\S/);
+X			pop(@state);
+X			do error("unexpected 'end'") if $#state < 0;
+X			return 0;
+X		}
+X		# Unknown command
+X		else {
+X			do error("unknown command '$cmd'");
+X			return 0;
+X		}
+X	}
+X	$Keep[$status];
+X}
+X		
+Xpackage main;
+X
+END_OF_FILE
+  if test 8071 -ne `wc -c <'mcon/pl/eval.pl'`; then
+    echo shar: \"'mcon/pl/eval.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/pl/eval.pl'
+fi
+echo shar: End of archive 9 \(of 28\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

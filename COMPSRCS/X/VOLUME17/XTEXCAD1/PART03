@@ -1,0 +1,1967 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Subject: v17i067: TeXcad (X) version 1.2, Part03/10
+Message-ID: <1992Apr21.130820.2239@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i065-xtexcad-1.2@uunet.UU.NET>
+Date: Tue, 21 Apr 1992 13:08:20 GMT
+Approved: dcmartin@msi.com
+Lines: 1953
+
+Submitted-by: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Posting-number: Volume 17, Issue 67
+Archive-name: xtexcad-1.2/part03
+
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file graphics.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping graphics.c'
+else
+echo 'x - continuing file graphics.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'graphics.c' &&
+X			/* the global variable <shadow> decides, which shadow */
+X			/* will be drawn */
+X			left();
+X		}
+X		graph_action='D';
+X		print_head(graph_action);
+X		leave_translation();
+X		set_first();	
+X		break;	/* dashedBox terminated */
+X
+X	case 'F':	/* filledBox_curr points to incomplete structure */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard); 
+X		filledBox_curr->h = (float) x;
+X		filledBox_curr->v = (float) y;
+X		norm_rectangle(&filledBox_curr->x, &filledBox_curr->y,
+X			       &filledBox_curr->h, &filledBox_curr->v);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = filledBox_curr->x;
+X			a2 = filledBox_curr->y;
+X			zoomed2real(&a1, &a2);
+X			filledBox_curr->x = a1;
+X			filledBox_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = filledBox_curr->h;
+X			e2 = filledBox_curr->v;
+X			zoomed2real(&e1, &e2);
+X			filledBox_curr->h = e1;
+X			filledBox_curr->v = e2;
+X		}
+X		graph_action='F';
+X		print_head(graph_action);
+X		leave_translation();
+X		set_first();
+X		break;	/* filledBox terminated */
+X
+X	case 'C':	/* correct coordinates */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard); 
+X		valid_kreis_coords((int) kreis_curr->x, (int) kreis_curr->y, &x, &y, &r);
+X		/* kreis_curr points to incomplete srtucture */
+X		kreis_curr->h = (float) x;
+X		kreis_curr->v = (float) y;
+X		kreis_curr->radius = r;
+X		if (zoomed == True)
+X			zoomed2real(&kreis_curr->x, &kreis_curr->y);
+X		kreis_curr->next = NULL;
+X		graph_action='C';
+X		leave_translation();
+X		set_first();
+X		break;
+X
+X	case 'B':	/* correct coordinates */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard); 
+X		valid_disc_coords((int) disc_curr->x, (int) disc_curr->y, &x, &y, &r);
+X		/* disc_curr points to incomplete srtucture */
+X		disc_curr->h = (float) x;
+X		disc_curr->v = (float) y;
+X		disc_curr->radius = r;
+X		if (zoomed == True)
+X			zoomed2real(&disc_curr->x, &disc_curr->y);
+X		disc_curr->next = NULL;
+X		graph_action='B';
+X		leave_translation();
+X		set_first();
+X		break;
+X
+X	case 'O':	/* oval_curr points to incomplete structure */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard); 
+X		oval_curr->h = (float) x;
+X		oval_curr->v = (float) y;
+X		norm_rectangle(&oval_curr->x, &oval_curr->y,
+X			       &oval_curr->h, &oval_curr->v);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = oval_curr->x;
+X			a2 = oval_curr->y;
+X			zoomed2real(&a1, &a2);
+X			oval_curr->x = a1;
+X			oval_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = oval_curr->h;
+X			e2 = oval_curr->v;
+X			zoomed2real(&e1, &e2);
+X			oval_curr->h = e1;
+X			oval_curr->v = e2;
+X		}
+X		graph_action='O';
+X		print_head(graph_action);
+X		leave_translation();
+X		set_first();
+X		break;	/* oval terminated */
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+}
+X
+X
+X
+X
+X
+void
+enable_tracker()
+{
+X	/* Add to Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<MotionNotify> : track_it() \n";
+X	static XtActionsRec actions[80] = {{"track_it", track_it}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+}
+X
+X
+void
+disable_tracker()
+{
+X	/* Add to Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<MotionNotify> : dummy()\n";
+X	static XtActionsRec actions[80] = {{"dummy", dummy}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+}
+X
+X
+void
+track_it(int *x0, int *y0)
+{
+X	Display        *disp;
+X	Drawable        win;
+X	int             x, y, r, r2;
+X	float           x_old, y_old, h_old, v_old;
+X	unsigned int    mask;
+X
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X	if ((graph_action == 'N') || (graph_action == 'F') || 
+X            (graph_action == 'D') || (graph_action == 'O') ||
+X	    (graph_action == 'I'))
+X		snapPointerPosition(&x, &y, &mask);
+X	else
+X		PointerPosition(&x, &y, &mask);
+X
+X	/* rubber-band-effect */
+X	switch (graph_action)
+X	{
+X	case 'I':
+X		x_old = bezier_curr->ax;	/* get old coordinates (firstpress) */
+X		y_old = bezier_curr->ay;
+X
+X		h_old = bezier_curr->ex;
+X		v_old = bezier_curr->ey;
+X		if (h_old != -999)
+X			XDrawLine(disp, win, gc, (int) x_old, (int) y_old, (int) h_old, (int) v_old);
+X		/* old line deleted */
+X		/* -999 is an impossible coordinate and used as marker */
+X		bezier_curr->ex = (float) x;	/* save new coordinates */
+X		bezier_curr->ey = (float) y;
+X		/* draw new line */
+X		XDrawLine(disp, win, gc, (int) x_old, (int) y_old, x, y);	/* draw new */
+X		/* return coordinates */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'L':
+X		x_old = strich_curr->x;	/* get old coordinates (firstpress) */
+X		y_old = strich_curr->y;
+X
+X		h_old = strich_curr->h;
+X		v_old = strich_curr->v;
+X		if (h_old != -999)
+X			XDrawLine(disp, win, gc, (int) x_old, (int) y_old, (int) h_old, (int) v_old);
+X		/* old line deleted */
+X		/* -999 is an impossible coordinate and used as marker */
+X		valid_line_coords((int) x_old, (int) y_old, &x, &y);
+X		strich_curr->h = (float) x;	/* save new coordinates */
+X		strich_curr->v = (float) y;
+X		/* draw new line */
+X		XDrawLine(disp, win, gc, (int) x_old, (int) y_old, x, y);	/* draw new */
+X		/* return coordinates */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'V':
+X		x_old = pfeil_curr->x;	/* get old coordinates (firstpress) */
+X		y_old = pfeil_curr->y;
+X
+X		h_old = pfeil_curr->h;
+X		v_old = pfeil_curr->v;
+X		if (h_old != -999)
+X			XDrawLine(disp, win, gc, (int) x_old, (int) y_old, (int) h_old, (int) v_old);
+X		/* old line deleted */
+X		/* -999 is an impossible coordinate and used as marker */
+X		valid_vector_coords((int) x_old, (int) y_old, &x, &y);
+X		pfeil_curr->h = (float) x;	/* save new coordinates */
+X		pfeil_curr->v = (float) y;
+X		/* draw new line */
+X		XDrawLine(disp, win, gc, (int) x_old, (int) y_old, x, y);	/* draw new */
+X		/* return coordinates */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'N':	/* normate (x,y)-coordinates --> upper left corner.  */
+X		if (((framedBox_curr->h) != (float) x) || ((framedBox_curr->v) != (float) y))
+X		{	/* redraw is necessary !! */
+X			x_old = (framedBox_curr->x);
+X			y_old = (framedBox_curr->y);
+X			h_old = (framedBox_curr->h);
+X			v_old = (framedBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			if ((framedBox_curr->h) != -999)
+X				XDrawRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X					     (unsigned int) (h_old - x_old),
+X					    (unsigned int) (v_old - y_old));
+X			(framedBox_curr->h) = (float) x;
+X			(framedBox_curr->v) = (float) y;
+X			/* new line */
+X			x_old = (framedBox_curr->x);
+X			y_old = (framedBox_curr->y);
+X			h_old = (framedBox_curr->h);
+X			v_old = (framedBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			XDrawRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X				       (unsigned int) (h_old - x_old),
+X				       (unsigned int) (v_old - y_old));
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'D':	/* normate (x,y)-coordinates --> upper left corner.  */
+X		if (((dashedBox_curr->h) != (float) x) || ((dashedBox_curr->v) != (float) y))
+X		{	/* redraw is necessary !! */
+X			x_old = (dashedBox_curr->x);
+X			y_old = (dashedBox_curr->y);
+X			h_old = (dashedBox_curr->h);
+X			v_old = (dashedBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X			if ((dashedBox_curr->h) != -999)
+X				XDrawRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X					     (unsigned int) (h_old - x_old),
+X					    (unsigned int) (v_old - y_old));
+X			(dashedBox_curr->h) = (float) x;
+X			(dashedBox_curr->v) = (float) y;
+X			/* new line */
+X			x_old = (dashedBox_curr->x);
+X			y_old = (dashedBox_curr->y);
+X			h_old = (dashedBox_curr->h);
+X			v_old = (dashedBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			XDrawRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X				       (unsigned int) (h_old - x_old),
+X				       (unsigned int) (v_old - y_old));
+X			XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'F':	/* normate (x,y)-coordinates --> upper left corner.  */
+X		if (((filledBox_curr->h) != (float) x) || ((filledBox_curr->v) != (float) y))
+X		{	/* redraw is necessary !! */
+X			x_old = (filledBox_curr->x);
+X			y_old = (filledBox_curr->y);
+X			h_old = (filledBox_curr->h);
+X			v_old = (filledBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			if ((filledBox_curr->h) != -999)
+X				XFillRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X					     (unsigned int) (h_old - x_old),
+X					    (unsigned int) (v_old - y_old));
+X			(filledBox_curr->h) = (float) x;
+X			(filledBox_curr->v) = (float) y;
+X			/* new line */
+X			x_old = (filledBox_curr->x);
+X			y_old = (filledBox_curr->y);
+X			h_old = (filledBox_curr->h);
+X			v_old = (filledBox_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			XFillRectangle(disp, win, gc, (int) x_old, (int) y_old,
+X				       (unsigned int) (h_old - x_old),
+X				       (unsigned int) (v_old - y_old));
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'C':
+X		r2 = kreis_curr->radius;	/* old radius */
+X		x_old = kreis_curr->x;	/* get old coordinates (firstpress) */
+X		y_old = kreis_curr->y;
+X		valid_kreis_coords((int) x_old, (int) y_old, &x, &y, &r);
+X		if (r != r2)
+X		{	/* r is new radius *//* redraw is necessary !! */
+X			h_old = kreis_curr->h;
+X			if (zoomed == True)
+X				r2 = r2 * 10;
+X			if (h_old != -999)
+X				XDrawArc(disp, win, gc,
+X				     (int) (x_old) - r2, (int) (y_old) - r2,
+X					 (unsigned int) (r2 + r2), (unsigned int) (r2 + r2),
+X					 0, 360 * 64);
+X
+X			/* old line deleted */
+X			/*
+X			 * -999 is an impossible coordinate and used as
+X			 * marker
+X			 */
+X			kreis_curr->h = (float) x;	/* save new coordinates */
+X			kreis_curr->v = (float) y;
+X			kreis_curr->radius = r;
+X			if (zoomed == True)
+X				r = r * 10;
+X			/* draw new line */
+X			XDrawArc(disp, win, gc,
+X			(int) (x_old - (float) r), (int) (y_old - (float) r),
+X				 (unsigned int) (r + r), (unsigned int) (r + r), 0, 360 * 64);
+X			/* return coordinates */
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'B':
+X		r2 = disc_curr->radius;	/* old radius */
+X		x_old = disc_curr->x;	/* get old coordinates (firstpress) */
+X		y_old = disc_curr->y;
+X		valid_disc_coords((int) x_old, (int) y_old, &x, &y, &r);
+X		if (r != r2)
+X		{	/* r is new radius *//* redraw is necessary !! */
+X			h_old = disc_curr->h;
+X			if (zoomed == True)
+X				r2 = r2 * 10;
+X			if (h_old != -999)
+X				XFillArc(disp, win, gc,
+X				     (int) (x_old) - r2, (int) (y_old) - r2,
+X					 (unsigned int) (r2 + r2), (unsigned int) (r2 + r2),
+X					 0, 360 * 64);
+X
+X			/* old line deleted */
+X			/*
+X			 * -999 is an impossible coordinate and used as
+X			 * marker
+X			 */
+X			disc_curr->h = (float) x;	/* save new coordinates */
+X			disc_curr->v = (float) y;
+X			disc_curr->radius = r;
+X			if (zoomed == True)
+X				r = r * 10;
+X			/* draw new line */
+X			XFillArc(disp, win, gc,
+X			(int) (x_old - (float) r), (int) (y_old - (float) r),
+X				 (unsigned int) (r + r), (unsigned int) (r + r), 0, 360 * 64);
+X			/* return coordinates */
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	case 'O':	/* normate (x,y)-coordinates --> upper left corner.  */
+X		if (((oval_curr->h) != (float) x) || ((oval_curr->v) != (float) y))
+X		{	/* redraw is necessary !! */
+X			x_old = (oval_curr->x);
+X			y_old = (oval_curr->y);
+X			h_old = (oval_curr->h);
+X			v_old = (oval_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			if ((oval_curr->h) != -999)
+X				DrawOval((int) x_old, (int) y_old, (int) h_old, (int) v_old);
+X			(oval_curr->h) = (float) x;
+X			(oval_curr->v) = (float) y;
+X			/* new line */
+X			x_old = (oval_curr->x);
+X			y_old = (oval_curr->y);
+X			h_old = (oval_curr->h);
+X			v_old = (oval_curr->v);
+X			norm_rectangle(&x_old, &y_old, &h_old, &v_old);
+X			DrawOval((int) x_old, (int) y_old, (int) h_old, (int) v_old);
+X		}	/* redraw was necessary */
+X		(*x0) = x;
+X		(*y0) = y;
+X		break;
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+X
+}/* track_it */
+X
+X
+X
+void
+valid_kreis_coords(int x, int y, int *h, int *v, int *rad)
+{
+X	/*
+X	 * conclude from the coordinates, if the radius is correct (because
+X	 * limited)
+X	 */
+X	/* if not, return the correct values */
+X
+X	int             r, i, diameter, zoom;
+X	double          a, b;
+X	if (zoomed == True)
+X		zoom = 10;
+X	else
+X		zoom = 1;
+X	a = (*h) - x;
+X	b = (*v) - y;
+X	if (a < 0)
+X		a = a * (-1);
+X	if (b < 0)
+X		b = b * (-1);
+X	r = (int) sqrt((double) (a * a + b * b));
+X
+X	if (circle_diameter[0] == -1)
+X	{	/* no diameter restriction */
+X		(*rad) = r;
+X		if (zoomed == True)
+X		{
+X			a = (double) r;
+X			a = a / 10;
+X			if (a < 1.0)
+X				a = 1.0;
+X			(*rad) = (int) a;
+X		}
+X		return;
+X	}
+X	r += r;	/* r is  diameter */
+X
+X	i = 0;
+X	while (((circle_diameter[i]) != -1) && ((zoom * circle_diameter[i]) < r))
+X		i++;
+X
+X	if (i == 0)
+X		diameter = circle_diameter[i];
+X	else if (circle_diameter[i] == -1)
+X		diameter = circle_diameter[i - 1];
+X	else
+X	{
+X		/* circle_diameter[i]>=r */
+X		if ((r - (zoom * circle_diameter[i - 1])) < ((zoom * circle_diameter[i]) - r))
+X			diameter = circle_diameter[i - 1];
+X		else
+X			diameter = circle_diameter[i];
+X	}
+X
+X	/* <diameter> represents the correct LaTeX diameter */
+X
+X	r = (int) (0.5 * (float) diameter);	/* r is correct radius */
+X
+X	if (r < 1)
+X		r = 1;
+X
+X	(*rad) = r;
+X
+}
+X
+X
+void
+valid_disc_coords(int x, int y, int *h, int *v, int *rad)
+{
+X	/* see above */
+X
+X	int             r, i, diameter, zoom;
+X	double          a, b;
+X	if (zoomed == True)
+X		zoom = 10;
+X	else
+X		zoom = 1;
+X	a = (*h) - x;
+X	b = (*v) - y;
+X	if (a < 0)
+X		a = a * (-1);
+X	if (b < 0)
+X		b = b * (-1);
+X	r = (int) sqrt((double) (a * a + b * b));
+X
+X	if (disc_diameter[0] == -1)
+X	{	/* no diameter restriction */
+X		(*rad) = r;
+X		if (zoomed == True)
+X		{
+X			a = (double) r;
+X			a = a / 10;
+X			if (a < 1.0)
+X				a = 1.0;
+X			(*rad) = (int) a;
+X		}
+X		return;
+X	}
+X	r += r;	/* r is  diameter */
+X
+X	i = 0;
+X	while (((disc_diameter[i]) != -1) && ((zoom * disc_diameter[i]) < r))
+X		i++;
+X
+X	if (i == 0)
+X		diameter = disc_diameter[i];
+X	else if (disc_diameter[i] == -1)
+X		diameter = disc_diameter[i - 1];
+X	else
+X	{
+X		/* disc_diameter[i]>=r */
+X		if ((r - (zoom * disc_diameter[i - 1])) < ((zoom * disc_diameter[i]) - r))
+X			diameter = disc_diameter[i - 1];
+X		else
+X			diameter = disc_diameter[i];
+X	}
+X
+X	/* <diameter> represents the correct LaTeX diameter */
+X
+X	r = (int) (0.5 * (float) diameter);	/* r is correct radius */
+X
+X	if (r < 1)
+X		r = 1;
+X
+X
+X	(*rad) = r;
+X
+}
+X
+X
+X
+X
+X
+void
+dummy()
+{
+}
+X
+void
+leaving()
+{
+X	/* users had decided to leave without completion of action */
+X	int             i, x, y;
+X	Display        *disp;
+X	Drawable        win;
+X	char           *txt;
+X	int             zoom, rad;
+X
+X
+X
+X	if (zoomed == True)
+X		zoom = 10;
+X	else
+X		zoom = 1;
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X
+X	/* throw away the incomplete struct */
+X	switch (graph_action)
+X	{
+X	case 'I':	/* delete last line of bezier*/
+X		if (bezier_curr == bezier_start)
+X		{	/* first entry */
+X			if (bezier_curr->ex!=-999.0)
+X				XDrawLine(disp, win, gc, (int) bezier_curr->ax, (int) bezier_curr->ay,
+X					(int) bezier_curr->ex, (int) bezier_curr->ey);
+X			free(bezier_curr);	/* give memory back to system */
+X			bezier_curr = NULL;
+X			bezier_start = NULL;
+X		} else
+X		{
+X			for (bezier_marker = (struct fig6 *) bezier_start;
+X			     (bezier_marker->next != bezier_curr); bezier_marker = bezier_marker->next);
+X
+X			if (bezier_curr->ex!=-999.0)
+X				XDrawLine(disp, win, gc, (int) bezier_curr->ax, (int) bezier_curr->ay,
+X					(int) bezier_curr->ex, (int) bezier_curr->ey);
+X			free(bezier_curr);
+X			bezier_curr = bezier_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X	case 'L':	/* delete last line */
+X		if (strich_curr == strich_start)
+X		{	/* first entry */
+X			if (strich_curr->h!=-999.0)
+X				XDrawLine(disp, win, gc, (int) strich_curr->x, (int) strich_curr->y,
+X					(int) strich_curr->h, (int) strich_curr->v);
+X			free(strich_curr);	/* give memory back to system */
+X			strich_curr = NULL;
+X			strich_start = NULL;
+X		} else
+X		{
+X			for (strich_marker = (struct fig2 *) strich_start;
+X			     (strich_marker->next != strich_curr); strich_marker = strich_marker->next);
+X
+X			if (strich_curr->h!=-999.0)
+X				XDrawLine(disp, win, gc, (int) strich_curr->x, (int) strich_curr->y,
+X					(int) strich_curr->h, (int) strich_curr->v);
+X			free(strich_curr);
+X			strich_curr = strich_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X	case 'V':	/* delete last vector */
+X		if (pfeil_curr == pfeil_start)
+X		{	/* first entry */
+X			if (pfeil_curr->h!=-999.0)
+X				XDrawLine(disp, win, gc, (int) pfeil_curr->x, (int) pfeil_curr->y,
+X					  (int) pfeil_curr->h, (int) pfeil_curr->v);
+X			free(pfeil_curr);	/* give memory back to system */
+X			pfeil_curr = NULL;
+X			pfeil_start = NULL;
+X		} else
+X		{
+X			for (pfeil_marker = (struct fig2 *) pfeil_start;
+X			     (pfeil_marker->next != pfeil_curr); pfeil_marker = pfeil_marker->next);
+X			if (pfeil_curr->h!=-999.0)
+X				XDrawLine(disp, win, gc, (int) pfeil_curr->x, (int) pfeil_curr->y,
+X					  (int) pfeil_curr->h, (int) pfeil_curr->v);
+X			free(pfeil_curr);
+X			pfeil_curr = pfeil_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X	case 'N':	/* framed box: pointer was moved out of pboard ->
+X			 * cancel operation ! */
+X		norm_rectangle(&framedBox_curr->x, &framedBox_curr->y,
+X			       &framedBox_curr->h, &framedBox_curr->v);
+X		if (framedBox_curr == framedBox_start)
+X		{	/* first entry */
+X			XDrawRectangle(disp, win, gc, (int) framedBox_curr->x, (int) framedBox_curr->y,
+X				       (unsigned int) ((int) ((framedBox_curr->h) - (framedBox_curr->x))),
+X				       (unsigned int) ((int) ((framedBox_curr->v) - (framedBox_curr->y))));
+X			free(framedBox_curr);	/* give memory back to system */
+X			framedBox_curr = NULL;
+X			framedBox_start = NULL;
+X		} else
+X		{
+X			for (framedBox_marker = (struct fig3 *) framedBox_start;
+X			     (framedBox_marker->next != framedBox_curr); framedBox_marker = framedBox_marker->next);
+X			XDrawRectangle(disp, win, gc, (int) framedBox_curr->x, (int) framedBox_curr->y,
+X				       (unsigned int) ((int) ((framedBox_curr->h) - (framedBox_curr->x))),
+X				       (unsigned int) ((int) ((framedBox_curr->v) - (framedBox_curr->y))));
+X			free(framedBox_curr);
+X			framedBox_curr = framedBox_marker;	/* points to last
+X								 * complete struct */
+X		}
+X		break;
+X
+X	case 'D':	/* dashed box: pointer was moved out of pboard ->
+X			 * cancel operation ! */
+X		norm_rectangle(&dashedBox_curr->x, &dashedBox_curr->y,
+X			       &dashedBox_curr->h, &dashedBox_curr->v);
+X		XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X		if (dashedBox_curr == dashedBox_start)
+X		{	/* first entry */
+X			XDrawRectangle(disp, win, gc, (int) dashedBox_curr->x, (int) dashedBox_curr->y,
+X				       (unsigned int) ((int) ((dashedBox_curr->h) - (dashedBox_curr->x))),
+X				       (unsigned int) ((int) ((dashedBox_curr->v) - (dashedBox_curr->y))));
+X			free(dashedBox_curr);	/* give memory back to system */
+X			dashedBox_curr = NULL;
+X			dashedBox_start = NULL;
+X		} else
+X		{
+X			for (dashedBox_marker = (struct fig4 *) dashedBox_start;
+X			     (dashedBox_marker->next != dashedBox_curr); dashedBox_marker = dashedBox_marker->next);
+X			XDrawRectangle(disp, win, gc, (int) dashedBox_curr->x, (int) dashedBox_curr->y,
+X				       (unsigned int) ((int) ((dashedBox_curr->h) - (dashedBox_curr->x))),
+X				       (unsigned int) ((int) ((dashedBox_curr->v) - (dashedBox_curr->y))));
+X			free(dashedBox_curr);
+X			dashedBox_curr = dashedBox_marker;	/* points to last
+X								 * complete struct */
+X		}
+X		XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X		break;
+X
+X	case 'F':	/* filled box: pointer was moved out of pboard ->
+X			 * cancel operation ! */
+X		norm_rectangle(&filledBox_curr->x, &filledBox_curr->y,
+X			       &filledBox_curr->h, &filledBox_curr->v);
+X		if (filledBox_curr == filledBox_start)
+X		{	/* first entry */
+X			XFillRectangle(disp, win, gc, (int) filledBox_curr->x, (int) filledBox_curr->y,
+X				       (unsigned int) ((int) ((filledBox_curr->h) - (filledBox_curr->x))),
+X				       (unsigned int) ((int) ((filledBox_curr->v) - (filledBox_curr->y))));
+X			free(filledBox_curr);	/* give memory back to system */
+X			filledBox_curr = NULL;
+X			filledBox_start = NULL;
+X		} else
+X		{
+X			for (filledBox_marker = (struct fig2 *) filledBox_start;
+X			     (filledBox_marker->next != filledBox_curr); filledBox_marker = filledBox_marker->next);
+X			XFillRectangle(disp, win, gc, (int) filledBox_curr->x, (int) filledBox_curr->y,
+X				       (unsigned int) ((int) ((filledBox_curr->h) - (filledBox_curr->x))),
+X				       (unsigned int) ((int) ((filledBox_curr->v) - (filledBox_curr->y))));
+X			free(filledBox_curr);
+X			filledBox_curr = filledBox_marker;	/* points to last
+X								 * complete struct */
+X		}
+X		break;
+X
+X	case 'C':	/* delete last normal circle */
+X		if (kreis_curr == kreis_start)
+X		{	/* first entry */
+X			rad = zoom * (kreis_curr->radius);
+X			XDrawArc(disp, win, gc, (int) (kreis_curr->x) - rad,
+X				 (int) (kreis_curr->y) - rad,
+X				 (unsigned int) (rad + rad),
+X				 (unsigned int) (rad + rad),
+X				 0, 360 * 64);
+X			free(kreis_curr);	/* give memory back to system */
+X			kreis_curr = NULL;
+X			kreis_start = NULL;
+X		} else
+X		{
+X			for (kreis_marker = (struct fig2 *) kreis_start;
+X			     (kreis_marker->next != kreis_curr); kreis_marker = kreis_marker->next);
+X
+X			rad = zoom * (kreis_curr->radius);
+X			XDrawArc(disp, win, gc, (int) (kreis_curr->x) - rad,
+X				 (int) (kreis_curr->y) - rad,
+X				 (unsigned int) (rad + rad),
+X				 (unsigned int) (rad + rad),
+X				 0, 360 * 64);
+X			free(kreis_curr);
+X			kreis_curr = kreis_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X	case 'B':	/* delete last filled circle */
+X		if (disc_curr == disc_start)
+X		{	/* first entry */
+X			rad = zoom * (disc_curr->radius);
+X			XFillArc(disp, win, gc, (int) (disc_curr->x) - rad,
+X				 (int) (disc_curr->y) - rad,
+X				 (unsigned int) (rad + rad),
+X				 (unsigned int) (rad + rad),
+X				 0, 360 * 64);
+X			free(disc_curr);	/* give memory back to system */
+X			disc_curr = NULL;
+X			disc_start = NULL;
+X		} else
+X		{
+X			for (disc_marker = (struct fig2 *) disc_start;
+X			     (disc_marker->next != disc_curr); disc_marker = disc_marker->next);
+X
+X			rad = zoom * (disc_curr->radius);
+X			XFillArc(disp, win, gc, (int) (disc_curr->x) - rad,
+X				 (int) (disc_curr->y) - rad,
+X				 (unsigned int) (rad + rad),
+X				 (unsigned int) (rad + rad),
+X				 0, 360 * 64);
+X			free(disc_curr);
+X			disc_curr = disc_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X	case 'O':	/* oval: pointer was moved out of pboard -> cancel
+X			 * operation ! */
+X		norm_rectangle(&oval_curr->x, &oval_curr->y,
+X			       &oval_curr->h, &oval_curr->v);
+X		if (oval_curr == oval_start)
+X		{	/* first entry */
+X			DrawOval((int) oval_curr->x, (int) oval_curr->y,
+X				 (int) oval_curr->h, (int) oval_curr->v);
+X
+X			free(oval_curr);	/* give memory back to system */
+X			oval_curr = NULL;
+X			oval_start = NULL;
+X		} else
+X		{
+X			for (oval_marker = (struct fig1 *) oval_start;
+X			     (oval_marker->next != oval_curr); oval_marker = oval_marker->next);
+X			DrawOval((int) oval_curr->x, (int) oval_curr->y,
+X				 (int) oval_curr->h, (int) oval_curr->v);
+X			free(oval_curr);
+X			oval_curr = oval_marker;	/* points to last
+X							 * complete struct */
+X		}
+X		break;
+X
+X
+X	default:
+X		break;
+X
+X
+X		graph_action = '?';
+X
+X	}	/* switch */
+X
+X	/* throw away all translations */
+X	XtUninstallTranslations(pboard);
+X
+X	left();
+X
+}/* leaving */
+X
+X
+X
+void
+left(void)
+{
+X	headline(toplevel, titlename);
+X	graph_action = '?';
+}
+X
+X
+void
+norm_rectangle(float *x, float *y, float *h, float *v)
+{/* (x,y) and (h,v) are opposite (diagonal) coordinates  of a rectangle */
+X	/* this routine transforms (x,y) to the upper left... */
+X
+X	float           a1, a2;
+X	if (((*h) <= (*x)) && ((*v) <= (*y)))
+X	{
+X		a1 = (*x);
+X		a2 = (*y);
+X		(*x) = (*h);
+X		(*y) = (*v);
+X		(*h) = a1;
+X		(*v) = a2;
+X	} else if (((*h) >= (*x)) && ((*v) <= (*y)))
+X	{
+X		a1 = (*y);
+X		(*y) = (*v);
+X		(*v) = a1;
+X	} else if (((*h) <= (*x)) && ((*v) >= (*y)))
+X	{
+X		a1 = (*x);
+X		(*x) = (*h);
+X		(*h) = a1;
+X	}
+X	/*
+X	 * if ( ((*h)>=(*x)) && ((*v)>=(*y)) )  this is already the right
+X	 * case !
+X	 */
+}
+X
+X
+X
+void
+zoomed2real(float *x, float *y)
+{
+X	/*
+X	 * translates the coordinates of a zoomed screen into the
+X	 * corresponding real-ones
+X	 */
+X
+X	float           c,test;
+X
+X
+X	/* y coordinate translation */
+X
+X	c = ((float) y_A4_max - (*y)) / (*y);
+X	test=((float) (c + 1.0));
+X	test=(test==0) ? 0.0001 : test;
+X	(*y) = ((float) y_zoom_max + (c * (float) y_zoom_min)) / test;
+X
+X	/* x coordinate translation */
+X
+X	c = ((float) x_A4_max - (*x)) / (*x);
+X	test=((float) (c + 1.0));
+X	test=(test==0) ? 0.0001 : test;
+X	(*x) = ((float) x_zoom_max + c * (float) x_zoom_min) / test;
+X
+}
+X
+X
+X
+X
+X
+X
+X
+void
+real2zoomed(float *x, float *y)
+{
+X	/*
+X	 * this function transfers coordinates from within the zoom-area to
+X	 * the corresponding (zoomed) coordinates on the screen
+X	 */
+X
+X	float           c,test;
+X
+X
+X	/* y coordinate translation */
+X	test=((*y) - (float) y_zoom_min);
+X	test=(test==0) ? 0.0001 : test;
+X	c = ((float) y_zoom_max - (*y)) / test;
+X	
+X	test=(float) (c + 1.0);
+X	test=(test==0) ? 0.0001 : test;
+X	(*y) = ((float) y_A4_max) / test;
+X
+X	/* x coordinate translation */
+X
+X	test=((*x) - (float) x_zoom_min);
+X	test=(test==0) ? 0.0001 : test;
+X	c = ((float) x_zoom_max - (*x)) / test;
+X	
+X	test=(float) (c + 1.0);
+X	test=(test==0) ? 0.0001 : test;
+X	(*x) = ((float) x_A4_max) / test;
+X
+X
+X
+X
+}
+X
+X
+X
+X
+X
+X
+int
+ggt(int a, int b)
+{
+X	/* compute the biggest common divisor of a and b */
+X	/* (c) by Euklid  */
+X
+X	int             r;
+X	if (b != 0)
+X		for (r = 1; r != 0; r = (a % b), a = b, b = r);
+X
+X	return a;
+}
+X
+X
+void
+valid_length(int x, int y, int *x_ret, int *y_ret)
+{
+X	/* if the length of a line/vector is less than 10 points */
+X	/* the coordinates have to be adjusted. this is an option in */
+X	/* the settings-menu */
+X
+X	float           lambda;
+X	int             newh, newv;
+X	int             h = (*x_ret);
+X	int             v = (*y_ret);
+X	int             zm = (zoomed == True) ? 10 * line_length : line_length;
+X
+X
+X	/* disabled ? */
+X	if (line_length == 0)
+X		return;
+X
+X
+X	/* line shorter than 10 points ? */
+X	if ((abs(1 + x - h) >= zm))
+X		return;
+X
+X	if ((x == h) || (y == v))	/* there is no restriction at horiz.
+X					 * and vert. lines */
+X		return;
+X	else
+X	{
+X		newh = (h < x) ? (x - zm) : (x + zm);
+X
+X		lambda = (newh - x) / (h - x);
+X
+X		newv = y + lambda * (v - y);
+X	}
+X
+X
+X	(*x_ret) = newh;
+X	(*y_ret) = newv;
+X
+}
+X
+X
+void
+draw_vector_marker(float x, float y, float h, float v)
+{
+X	/* draws an arrow at the top of the line, given by the */
+X	/* the coordinates. */
+X
+X	Display        *disp;
+X	Drawable        win;
+X	float           betrag;
+X	float           a, b, c, d, lx, ly, rx, ry;
+X	XPoint          points[3];
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X
+X
+X	a = (h - x);
+X	b = (v - y);
+X	betrag = sqrt((double) (a * a + b * b));
+X
+X	a = a / betrag;
+X	b = b / betrag;
+X	/* vector |(a,b)|=1 */
+X
+X	/* reverse direction */
+X	a = a * (-1);
+X	b = b * (-1);
+X
+X	h = h + a;
+X	v = v + b;
+X
+X	/* knot point (c,d) */
+X	c = h + 10 * a;
+X	d = v + 10 * b;
+X
+X	a = a * (-1);
+X	rx = b;
+X	b = a;
+X	a = rx;
+X
+X	rx = c + 5 * a;
+X	ry = d + 5 * b;
+X
+X	a = a * (-1);
+X	b = b * (-1);
+X
+X	lx = c + 5 * a;
+X	ly = d + 5 * b;
+X
+X	points[0].x = (short) lx;
+X	points[0].y = (short) ly;
+X	points[1].x = (short) rx;
+X	points[1].y = (short) ry;
+X	points[2].x = (short) h;
+X	points[2].y = (short) v;
+X
+X	XFillPolygon(disp, win, gc, points, 3, Convex, CoordModeOrigin);
+X	/*
+X	 * XDrawLine(disp,win,gc,(int)lx,(int)ly,(int)rx,(int)ry);
+X	 * XDrawLine(disp,win,gc,(int)rx,(int)ry,(int)h,(int)v);
+X	 * XDrawLine(disp,win,gc,(int)h,(int)v,(int)lx,(int)ly);
+X	 */
+X
+X
+}
+X
+X
+X
+X
+int
+valid_vector_coords(int x_origin, int y_origin, int *x_ret, int *y_ret)
+{
+X	/*
+X	 * LaTeX supports only several arrow-slopes... this routine garantees
+X	 * correct LaTeX-slopes and, furthermore, dependent on different
+X	 * TeX-implementations, other (& unlimited) slopes, too .
+X	 */
+X	/* slope = y/x */
+X	/*
+X	 * input : 2 coordinates which represent the line output : 1
+X	 * (adjusted) coordinate
+X	 */
+X
+X	float           x, y;	/* real slope as fraction */
+X	float           h, v;	/* best approximating slope as fraction */
+X	int             i, sign;	/* sign indicates positive or
+X					 * negative slope */
+X	float           vgl, vgl2;	/* real slope */
+X	float           lambda1, lambda2;
+X	float           x_new, y_new;	/* (x_new,y_ret) or (x_ret,y_new) are
+X					 * the best new coordinates of the
+X					 * endpoint of the line */
+X
+X
+X	/* the minimum length is 10 points */
+X	/* correct it, if necessary ...call <valid_length> to do this... */
+X
+X	if (arrow_slope == 0)
+X	{	/* unlimited slope require no coordinate-modification */
+X		valid_length(x_origin, y_origin, x_ret, y_ret);
+X		return -1;
+X	}
+X	x = (float) (*x_ret - x_origin);
+X	y = (float) (*y_ret - y_origin);
+X
+X	/* exceptions: if slope is zero or infinite return directly */
+X	if ((x == 0) || (y == 0))
+X	{
+X		valid_length(x_origin, y_origin, x_ret, y_ret);
+X		return -2;
+X	}
+X	vgl = y / x;	/* the real (positive|negative) slope */
+X	sign = (vgl > 0) ? 1 : -1;
+X	if (vgl < 0)
+X		vgl = vgl * sign;
+X
+X	/* searching the table */
+X	for (i = 0; (a_slope[i][0] < vgl); i++);
+X	/*
+X	 * i points to the first element, which is equal to/bigger than 'vgl'
+X	 * ( or it points to the marker
+X	 */
+X	if (a_slope[i][0] == 999.0)
+X	{
+X		if (vgl > (float) (2 * arrow_slope))
+X		{
+X			*x_ret = x_origin;	/* slope is infinite */
+X			valid_length(x_origin, y_origin, x_ret, y_ret);
+X			return -3;
+X		} else
+X			i--;
+X	} else if (i == 0)
+X		if (vgl < (float) (0.5 * a_slope[0][0]))
+X		{
+X			*y_ret = y_origin;
+X			valid_length(x_origin, y_origin, x_ret, y_ret);
+X			return -4;
+X		}
+X	/* compute best approximating slope */
+X	if (i != 0)
+X		if ((vgl - a_slope[i - 1][0]) < (a_slope[i][0] - vgl))
+X			i--;
+X	/* i points to the best slope */
+X
+X
+X	/* compute new coordinates */
+X	/* it should be the nearest one to the original coordinate */
+X	/* see documentation... */
+X	h = (float) (a_slope[i][1] * sign);
+X	v = a_slope[i][2];
+X	vgl2 = a_slope[i][0];
+X
+X	/* compute new */
+X
+X	/* lambda first */
+X	lambda1 = x / h;
+X	lambda2 = y / v;
+X
+X	x_new = (float) x_origin + lambda2 * h;
+X	y_new = (float) y_origin + lambda1 * v;
+X
+X
+X	h = x_new - (float) (*x_ret);
+X	v = y_new - (float) (*y_ret);
+X	if (h < 0)
+X		h *= (-1);
+X	if (v < 0)
+X		v *= (-1);
+X	if (h < v)
+X		*x_ret = (int) x_new;
+X	else
+X		*y_ret = (int) y_new;
+X
+X	/* coordinates are corrected */
+X
+X	valid_length(x_origin, y_origin, x_ret, y_ret);
+X	return i;
+X
+}
+X
+X
+int
+valid_line_coords(int x_origin, int y_origin, int *x_ret, int *y_ret)
+{
+X	/*
+X	 * LaTeX supports only a small number of line-slopes... this routine
+X	 * garantees correct LaTeX-slopes and, furthermore, dependent on
+X	 * different TeX-implementations, other (& unlimited) slopes, too .
+X	 */
+X	/* slope = y/x */
+X	/*
+X	 * input : 2 coordinates which represent the vector output : 1
+X	 * (adjusted) coordinate
+X	 */
+X
+X	float           x, y;	/* real slope as fraction */
+X	float           h, v;	/* best approximating slope as fraction */
+X	int             i, sign;	/* sign indicates positive or
+X					 * negative slope */
+X	float           vgl, vgl2;	/* real slope */
+X	float           lambda1, lambda2;
+X	float           x_new, y_new;	/* (x_new,y_ret) or (x_ret,y_new) are
+X					 * the best new coordinates of the
+X					 * endpoint of the line */
+X
+X
+X	/* the minimum length is 10 points */
+X
+X
+X	if (line_slope == 0)
+X	{	/* unlimited slope require no coordinate-modification */
+X		valid_length(x_origin, y_origin, x_ret, y_ret);
+X		return -1;
+X	}
+X	x = (float) (*x_ret - x_origin);
+X	y = (float) (*y_ret - y_origin);
+X
+X	/* exceptions: if slope is zero or infinite return directly */
+X	if ((x == 0) || (y == 0))
+X	{
+X		valid_length(x_origin, y_origin, x_ret, y_ret);
+X		return -2;
+X	}
+X	vgl = y / x;	/* the real (positive|negative) slope */
+X	sign = (vgl > 0) ? 1 : -1;
+X	if (vgl < 0)
+X		vgl = vgl * sign;
+X
+X	/* searching the table */
+X	for (i = 0; (l_slope[i][0] < vgl); i++);
+X	/*
+X	 * i points to the first element, which is equal to/bigger than 'vgl'
+X	 * ( or it points to the marker
+X	 */
+X	if (l_slope[i][0] == 999.0)
+X	{
+X		if (vgl > (float) (2 * line_slope))
+X		{
+X			*x_ret = x_origin;	/* slope is infinite */
+X			valid_length(x_origin, y_origin, x_ret, y_ret);
+X			return -3;
+X		} else
+X			i--;
+X	} else if (i == 0)
+X		if (vgl < (float) (0.5 * l_slope[0][0]))
+X		{
+X			*y_ret = y_origin;
+X			valid_length(x_origin, y_origin, x_ret, y_ret);
+X			return -4;
+X		}
+X	/* compute best approximating slope */
+X	if (i != 0)
+X		if ((vgl - l_slope[i - 1][0]) < (l_slope[i][0] - vgl))
+X			i--;
+X	/* i points to the best slope */
+X
+X
+X	/* compute new coordinates */
+X	/* it should be the nearest one to the original coordinate */
+X	/* see documentation... */
+X	h = (float) (l_slope[i][1] * sign);
+X	v = l_slope[i][2];
+X	vgl2 = l_slope[i][0];
+X
+X	/* compute new */
+X
+X	/* lambda first */
+X	lambda1 = x / h;
+X	lambda2 = y / v;
+X
+X	x_new = (float) x_origin + lambda2 * h;
+X	y_new = (float) y_origin + lambda1 * v;
+X
+X
+X	h = x_new - (float) (*x_ret);
+X	v = y_new - (float) (*y_ret);
+X	if (h < 0)
+X		h *= (-1);
+X	if (v < 0)
+X		v *= (-1);
+X	if (h < v)
+X		*x_ret = (int) x_new;
+X	else
+X		*y_ret = (int) y_new;
+X
+X	/* coordinates are corrected */
+X
+X	valid_length(x_origin, y_origin, x_ret, y_ret);
+X	return i;
+}
+X
+X
+X
+void
+shorten(int *x, int *y)
+{
+X	int             divi;
+X	divi = ggt(*x, *y);
+X	(*x) /= divi;
+X	(*y) /= divi;
+}
+X
+X
+X
+X
+X
+void
+init_l_slope()
+{
+X	/* builds the line-slope-table */
+X
+X	int             x, y;
+X	float           r;
+X	l_slope[0][0] = 999.0;	/* init marker */
+X	for (x = line_slope; x != 0; x--)
+X		for (y = line_slope; y != 0; y--)
+X		{
+X			r = (float) x / (float) y;
+X			l_insert(r, y, x);
+X			r = (float) y / (float) x;
+X			l_insert(r, x, y);
+X		}
+X	/* slope-table for LaTeX' lines now prepared */
+X
+X
+X
+}
+X
+X
+void
+l_insert(float value, int x, int y)
+{
+X	/* insertion sort into the table */
+X
+X	int             i, j, k;
+X	/* kuerzen */
+X	shorten(&x, &y);
+X
+X	/* searching for insertion position */
+X	j = 0;
+X	while ((l_slope[j][0] != 999.0) && (l_slope[j][0] < value))
+X		j++;
+X	/*
+X	 * j is new insertion point; it may point to 999 or any value, bigger
+X	 * than 'value'
+X	 */
+X
+X	/* testing, if value already in table */
+X	if (l_slope[j][0] == value)
+X		return;	/* no entry */
+X
+X	/* searching for the end of the table */
+X	i = 0;
+X	if (l_slope[0][0] != 999.0)
+X		do
+X			i += 1;
+X		while (l_slope[i][0] != 999.0);
+X	/* i points to 999 */
+X
+X	/* insert data */
+X	l_slope[i + 1][0] = 999.0;
+X	for (k = i; k != j; k--)
+X	{
+X		l_slope[k][0] = l_slope[k - 1][0];
+X		l_slope[k][1] = l_slope[k - 1][1];
+X		l_slope[k][2] = l_slope[k - 1][2];
+X	}
+X	/* insert new data at j */
+X	l_slope[j][0] = value;
+X	l_slope[j][1] = x;
+X	l_slope[j][2] = y;
+}/* end */
+X
+X
+X
+X
+X
+X
+X
+X
+X
+void
+init_a_slope()
+{
+X	/* see above */
+X
+X	int             x, y;
+X	float           r;
+X	a_slope[0][0] = 999.0;	/* init marker */
+X	for (x = arrow_slope; x != 0; x--)
+X		for (y = arrow_slope; y != 0; y--)
+X		{
+X			r = (float) x / (float) y;
+X			a_insert(r, y, x);
+X			r = (float) y / (float) x;
+X			a_insert(r, x, y);
+X		}
+X	/* slope-table for LaTeX' arrows now prepared */
+X
+X
+}
+X
+X
+X
+void
+a_insert(float value, int x, int y)
+{
+X	/* see above */
+X
+X	int             i, j, k;
+X	/* kuerzen */
+X	shorten(&x, &y);
+X
+X	/* searching for insertion position */
+X	j = 0;
+X	while ((a_slope[j][0] != 999.0) && (a_slope[j][0] < value))
+X		j++;
+X	/*
+X	 * j is new insertion point; it may point to 999 or any value, bigger
+X	 * than 'value'
+X	 */
+X
+X	/* testing, if value already in table */
+X	if (a_slope[j][0] == value)
+X		return;	/* no entry */
+X
+X	/* searching for the end of the table */
+X	i = 0;
+X	if (a_slope[0][0] != 999.0)
+X		do
+X			i += 1;
+X		while (a_slope[i][0] != 999.0);
+X	/* i points to 999 */
+X
+X	/* insert data */
+X	a_slope[i + 1][0] = 999.0;
+X	for (k = i; k != j; k--)
+X	{
+X		a_slope[k][0] = a_slope[k - 1][0];
+X		a_slope[k][1] = a_slope[k - 1][1];
+X		a_slope[k][2] = a_slope[k - 1][2];
+X	}
+X	/* insert new data at j */
+X	a_slope[j][0] = value;
+X	a_slope[j][1] = x;
+X	a_slope[j][2] = y;
+}/* end */
+X
+X
+X
+X
+X
+X
+void
+graphics_init()
+{
+X
+X	make_GCcontext();	/* GC Kreiren */
+X
+X	init_l_slope();
+X	init_a_slope();
+}
+X
+X
+void
+set_zoom_window()
+{
+X	Widget          w;
+X	caddr_t         call_data;
+X	/* Add to Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[150] = "<MotionNotify> : frame_track() \n\
+X		        <Btn1Down> : zoom_it() \n\
+X			<LeaveWindow> : cancel_zoom()\n";
+X	static XtActionsRec actions[150] = {{"frame_track", frame_track},
+X	{"zoom_it", zoom_it},
+X	{"cancel_zoom", cancel_zoom}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+X	if (zoomed == True)
+X	{
+X		zoomed = False;
+X		refresh(w, point, call_data);	/* force refresh */
+X	}
+X	x_zoom_min = -999;
+}
+X
+X
+void
+frame_track(int *x0, int *y0)
+{
+X	/* tracks the zoom-frame */
+X
+X	Display        *disp;
+X	Drawable        win;
+X	int             x, y;
+X	unsigned int    mask;
+X
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X	PointerPosition(&x, &y, &mask);
+X
+X	if ((x != x_zoom_min) || (y != x_zoom_max))
+X	{	/* redraw of frame is necessary */
+X		if (x_zoom_min != -999)	/* delete last frame */
+X			XDrawRectangle(disp, win, gc, x_zoom_min, x_zoom_max, 60, 84);
+X		/* draw current frame */
+X		XDrawRectangle(disp, win, gc, x, y, 60, 84);
+X		x_zoom_min = x;
+X		x_zoom_max = y;
+X	}
+X	(*x0) = x;
+X	(*y0) = y;
+X
+}
+X
+void
+zoom_it()
+{
+X	/* zoom the area */
+X
+X	Display        *disp;
+X	Drawable        win;
+X	int             x, y;
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X	frame_track(&x, &y);
+X	zoomed = True;
+X	/* delete last frame */
+X	XDrawRectangle(disp, win, gc, x_zoom_min, x_zoom_max, 60, 84);
+X	/* set coordinates */
+X	/* 84x60 are the proportions of a DIN A4 page */
+X	if (x > 600 - 60)
+X		x = 540;
+X	if (y > (840 - 84))
+X		y = (840 - 84);
+X	x_zoom_min = x;
+X	x_zoom_max = x + 59;
+X	y_zoom_min = y;
+X	y_zoom_max = y + 83;
+X	/* terminate zoom */
+X	/* display zoomed graphics */
+X	show_zoomed_objects();
+X	graph_action = '?';
+X	/* uninstall zoom-translations */
+X	XtUninstallTranslations(pboard);
+X	left();
+X
+}
+X
+X
+X
+void
+clear_zoom()
+{
+X	int             x, y;
+X	x_zoom_min = -999;
+X	graph_action = '?';
+X	/* uninstall zoom-translations */
+X	XtUninstallTranslations(pboard);
+X
+}
+X
+X
+void
+cancel_zoom()
+{
+X	int             x, y;
+X	Display        *disp;
+X	Drawable        win;
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X	/* redraw last frame */
+X	frame_track(&x, &y);
+X	XDrawRectangle(disp, win, gc, x, y, 60, 84);
+X	clear_zoom();
+X	left();
+}
+X
+X
+X
+void
+refresh(Widget cmd, char id, caddr_t call_data)
+{
+X	/* refreshes the screen. May occur by an user request, but */
+X	/* usually by an expose event */
+X
+X	Display        *disp;
+X	Drawable        win;
+X
+X
+X	/* needed for correct cross painting... */
+X	h_cross = -999;
+X	v_cross = -999;
+X
+X	if ((zoomed == True) && (id != '.'))
+X	{
+X		/* refresh button was NOT pressed, it was NO forced refresh */
+X		/* it was an expose refresh */
+X		show_zoomed_objects();
+X		return;
+X	}
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X
+X	zoomed = False;
+X	/* clear window */
+X	XClearWindow(disp, win);
+X
+X	if (ruler == True)
+X		ruler_on();
+X
+X	if (raster == True)
+X		raster_on();
+X
+X	if (cross == True)
+X		draw_coords(cmd, (caddr_t) id, call_data);	/* dummy parameter */
+X
+X
+X	/* redraw objects */
+X
+X	/* bezier */
+X	if (bezier_start != NULL)
+X	{	/* min. 1 entry */
+X		bezier_marker = bezier_start;
+X		while (bezier_marker != bezier_curr)
+X		{
+X			DrawBezier(bezier_marker->ax,bezier_marker->ay,
+X			    	   bezier_marker->ex,bezier_marker->ey,
+X				   bezier_marker->sx,bezier_marker->sy);
+X			bezier_marker = bezier_marker->next;
+X		}
+X		/* last curve */
+X			DrawBezier(bezier_curr->ax,bezier_curr->ay,
+X			  	   bezier_curr->ex,bezier_curr->ey,
+X				   bezier_curr->sx,bezier_curr->sy);
+X	}	/* bezier curves */
+X
+X	/* lines */
+X	if (strich_start != NULL)
+X	{	/* min. 1 entry */
+X		strich_marker = strich_start;
+X		while (strich_marker != strich_curr)
+X		{
+X			XDrawLine(disp, win, gc, (int) strich_marker->x, (int) strich_marker->y,
+X			    (int) strich_marker->h, (int) strich_marker->v);
+X			strich_marker = strich_marker->next;
+X		}
+X		/* last line */
+X		XDrawLine(disp, win, gc, (int) strich_curr->x, (int) strich_curr->y,
+X			  (int) strich_curr->h, (int) strich_curr->v);
+X	}	/* lines */
+X	/* vectors */
+X	if (pfeil_start != NULL)
+X	{	/* min. 1 entry */
+X		pfeil_marker = pfeil_start;
+X		while (pfeil_marker != pfeil_curr)
+X		{
+X			XDrawLine(disp, win, gc, (int) pfeil_marker->x, (int) pfeil_marker->y,
+X			      (int) pfeil_marker->h, (int) pfeil_marker->v);
+X			draw_vector_marker(pfeil_marker->x, pfeil_marker->y,
+X					   pfeil_marker->h, pfeil_marker->v);
+X			pfeil_marker = pfeil_marker->next;
+X		}
+X		/* last line */
+X		XDrawLine(disp, win, gc, (int) pfeil_curr->x, (int) pfeil_curr->y,
+X			  (int) pfeil_curr->h, (int) pfeil_curr->v);
+X		draw_vector_marker(pfeil_curr->x, pfeil_curr->y, pfeil_curr->h, pfeil_curr->v);
+X	}	/* vectors */
+X	/* text */
+X	if (message_start != NULL)
+X	{	/* min. 1 entry */
+X		message_marker = message_start;
+X		while (message_marker != message_curr)
+X		{
+X			XDrawString(disp, win, gc, message_marker->x, message_marker->y,
+X				    message_marker->text, 1);
+X			message_marker = message_marker->next;
+X		}
+X		/* last text */
+X		XDrawString(disp, win, gc, message_curr->x, message_curr->y,
+X			    message_curr->text, 1);
+X	}	/* text */
+X	/* boxes */
+X	/* FRAMED */
+X	if (framedBox_start != NULL)
+X	{	/* min. 1 entry */
+X		framedBox_marker = framedBox_start;
+X		while (framedBox_marker != framedBox_curr)
+X		{
+X			XDrawRectangle(disp, win, gc, (int) framedBox_marker->x, (int) framedBox_marker->y,
+X				       (unsigned int) ((int) ((framedBox_marker->h) - (framedBox_marker->x))),
+X				       (unsigned int) ((int) ((framedBox_marker->v) - (framedBox_marker->y))));
+X
+X			print_box_text(framedBox_marker->textpos, framedBox_marker->x,
+X				   framedBox_marker->y, framedBox_marker->h,
+X			       framedBox_marker->v, framedBox_marker->text);
+X
+X			framedBox_marker = framedBox_marker->next;
+X		}
+X		/* last one */
+X		XDrawRectangle(disp, win, gc, (int) framedBox_curr->x, (int) framedBox_curr->y,
+X			       (unsigned int) ((int) ((framedBox_curr->h) - (framedBox_curr->x))),
+X			       (unsigned int) ((int) ((framedBox_curr->v) - (framedBox_curr->y))));
+X
+X		print_box_text(framedBox_curr->textpos, framedBox_curr->x,
+X			       framedBox_curr->y, framedBox_curr->h,
+X			       framedBox_curr->v, framedBox_curr->text);
+X
+X	}	/* framed */
+X	/* DASHED */
+X	if (dashedBox_start != NULL)
+X	{	/* min. 1 entry */
+X		XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X
+X		dashedBox_marker = dashedBox_start;
+X		while (dashedBox_marker != dashedBox_curr)
+X		{
+X			XDrawRectangle(disp, win, gc, (int) dashedBox_marker->x, (int) dashedBox_marker->y,
+X				       (unsigned int) ((int) ((dashedBox_marker->h) - (dashedBox_marker->x))),
+X				       (unsigned int) ((int) ((dashedBox_marker->v) - (dashedBox_marker->y))));
+X
+X			print_box_text(dashedBox_marker->textpos, dashedBox_marker->x,
+X				   dashedBox_marker->y, dashedBox_marker->h,
+X			       dashedBox_marker->v, dashedBox_marker->text);
+X
+X			dashedBox_marker = dashedBox_marker->next;
+X		}
+X		/* last one */
+X		XDrawRectangle(disp, win, gc, (int) dashedBox_curr->x, (int) dashedBox_curr->y,
+X			       (unsigned int) ((int) ((dashedBox_curr->h) - (dashedBox_curr->x))),
+X			       (unsigned int) ((int) ((dashedBox_curr->v) - (dashedBox_curr->y))));
+X
+X		print_box_text(dashedBox_curr->textpos, dashedBox_curr->x,
+X			       dashedBox_curr->y, dashedBox_curr->h,
+X			       dashedBox_curr->v, dashedBox_curr->text);
+X
+X		XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X
+X	}	/* dashed */
+X	/* FILLED */
+X	if (filledBox_start != NULL)
+X	{	/* min. 1 entry */
+X		filledBox_marker = filledBox_start;
+X		while (filledBox_marker != filledBox_curr)
+X		{
+X			/* fill it */
+X			XFillRectangle(disp, win, gc, (int) filledBox_marker->x,
+X				       (int) (filledBox_marker->y),
+X				       (unsigned int) ((filledBox_marker->h) - (filledBox_marker->x)),
+X				       (unsigned int) ((filledBox_marker->v) - (filledBox_marker->y)));
+X
+X			filledBox_marker = filledBox_marker->next;
+X		}
+X		/* last one */
+X		XFillRectangle(disp, win, gc, (int) filledBox_curr->x,
+X			       (int) (filledBox_curr->y),
+X		 (unsigned int) ((filledBox_curr->h) - (filledBox_curr->x)),
+X		(unsigned int) ((filledBox_curr->v) - (filledBox_curr->y)));
+X
+X	}	/* filled */
+X	/* circle */
+X	/* normal */
+X	if (kreis_start != NULL)
+X	{	/* min. 1 entry */
+X		kreis_marker = kreis_start;
+X		while (kreis_marker != kreis_curr)
+X		{
+X			XDrawArc(disp, win, gc, (int) (kreis_marker->x) - (kreis_marker->radius),
+X			   (int) (kreis_marker->y) - (kreis_marker->radius),
+X				 (unsigned int) ((kreis_marker->radius) + (kreis_marker->radius)),
+X				 (unsigned int) ((kreis_marker->radius) + (kreis_marker->radius)),
+X				 0, 360 * 64);
+X			kreis_marker = kreis_marker->next;
+X		}
+X		/* last circle */
+X		XDrawArc(disp, win, gc, (int) (kreis_curr->x) - (kreis_curr->radius),
+X			 (int) (kreis_curr->y) - (kreis_curr->radius),
+X		(unsigned int) ((kreis_curr->radius) + (kreis_curr->radius)),
+X		(unsigned int) ((kreis_curr->radius) + (kreis_curr->radius)),
+X			 0, 360 * 64);
+X	}	/* normal circle */
+X	/* filled */
+X	if (disc_start != NULL)
+X	{	/* min. 1 entry */
+X		disc_marker = disc_start;
+X		while (disc_marker != disc_curr)
+X		{
+X			XFillArc(disp, win, gc, (int) (disc_marker->x) - (disc_marker->radius),
+X			     (int) (disc_marker->y) - (disc_marker->radius),
+X				 (unsigned int) ((disc_marker->radius) + (disc_marker->radius)),
+X				 (unsigned int) ((disc_marker->radius) + (disc_marker->radius)),
+X				 0, 360 * 64);
+X			disc_marker = disc_marker->next;
+X		}
+X		/* last circle */
+X		XFillArc(disp, win, gc, (int) (disc_curr->x) - (disc_curr->radius),
+X			 (int) (disc_curr->y) - (disc_curr->radius),
+X		 (unsigned int) ((disc_curr->radius) + (disc_curr->radius)),
+X		 (unsigned int) ((disc_curr->radius) + (disc_curr->radius)),
+X			 0, 360 * 64);
+X	}	/* filled circle */
+X	/* oval */
+X	if (oval_start != NULL)
+X	{	/* min. 1 entry */
+X		oval_marker = oval_start;
+X		while (oval_marker != oval_curr)
+X		{
+X			DrawOval((int) oval_marker->x, (int) oval_marker->y,
+X				 (int) oval_marker->h, (int) oval_marker->v);
+X			oval_marker = oval_marker->next;
+X		}
+X		/* last circle */
+X		DrawOval((int) oval_curr->x, (int) oval_curr->y,
+X			 (int) oval_curr->h, (int) oval_curr->v);
+X
+X	}	/* oval circle */
+}
+X
+X
+X
+void
+show_zoomed_objects()
+{
+X	/* in case of zoom, rebuild screen. */
+X	/* this is a refresh to the zoomed-area */
+X
+X	Display        *disp;
+X	Drawable        win;
+X	float           a1, a2, e1, e2, rad;
+X	int             r;
+X
+X
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);		
+X
+X	XClearWindow(disp, win);
+X
+X	/* needed for correct cross painting... */
+X	h_cross = -999;
+X	v_cross = -999;
+X
+X	if (raster == True)
+X		raster_on();
+X	if (ruler == True)
+X		ruler_on();
+X	if (cross == True)
+X		draw_coords(pboard, (caddr_t) DUMMY, (caddr_t) DUMMY);
+X
+X	/* bezier */
+X	if (bezier_start != NULL)
+X	{	/* min. 1 entry */
+X		bezier_marker = bezier_start;
+X		while (bezier_marker != bezier_curr)
+X		{
+X			a1=bezier_marker->sx;
+X			a2=bezier_marker->sy;
+X			real2zoomed(&a1,&a2); /* sx,sy are expected to be in zoom-mode */
+X			DrawBezier(bezier_marker->ax,bezier_marker->ay,
+X			    	   bezier_marker->ex,bezier_marker->ey,
+X				   a1,a2);
+X			bezier_marker = bezier_marker->next;
+X		}
+X		/* last line */
+X		a1 = bezier_curr->sx;
+X		a2 = bezier_curr->sy;
+X		real2zoomed(&a1, &a2);
+X		DrawBezier(bezier_curr->ax,bezier_curr->ay,
+X			bezier_curr->ex,bezier_curr->ey,
+X			a1,a2);
+X	}	/* bezier curves */
+X
+X	/* lines */
+X	if (strich_start != NULL)
+X	{	/* min. 1 entry */
+X		strich_marker = strich_start;
+X		while (strich_marker != strich_curr)
+X		{
+X			a1 = strich_marker->x;
+X			a2 = strich_marker->y;
+X			e1 = strich_marker->h;
+X			e2 = strich_marker->v;
+X			real2zoomed(&a1, &a2);
+X			real2zoomed(&e1, &e2);
+X			XDrawLine(disp, win, gc, (int) a1, (int) a2, (int) e1, (int) e2);
+X			strich_marker = strich_marker->next;
+X		}
+X		/* last line */
+X		a1 = strich_curr->x;
+X		a2 = strich_curr->y;
+X		e1 = strich_curr->h;
+X		e2 = strich_curr->v;
+X		real2zoomed(&a1, &a2);
+X		real2zoomed(&e1, &e2);
+X		XDrawLine(disp, win, gc, (int) a1, (int) a2, (int) e1, (int) e2);
+X	}	/* lines */
+X	/* vectors */
+X	if (pfeil_start != NULL)
+X	{	/* min. 1 entry */
+X		pfeil_marker = pfeil_start;
+X		while (pfeil_marker != pfeil_curr)
+X		{
+X			a1 = pfeil_marker->x;
+X			a2 = pfeil_marker->y;
+X			e1 = pfeil_marker->h;
+X			e2 = pfeil_marker->v;
+X			real2zoomed(&a1, &a2);
+X			real2zoomed(&e1, &e2);
+X			XDrawLine(disp, win, gc, (int) a1, (int) a2, (int) e1, (int) e2);
+X			draw_vector_marker(a1, a2, e1, e2);
+X			pfeil_marker = pfeil_marker->next;
+X		}
+X		/* last vector */
+X		a1 = pfeil_curr->x;
+X		a2 = pfeil_curr->y;
+X		e1 = pfeil_curr->h;
+X		e2 = pfeil_curr->v;
+X		real2zoomed(&a1, &a2);
+X		real2zoomed(&e1, &e2);
+X		XDrawLine(disp, win, gc, (int) a1, (int) a2, (int) e1, (int) e2);
+X		draw_vector_marker(a1, a2, e1, e2);
+X	}	/* vectors */
+X	/* text */
+X	if (message_start != NULL)
+X	{	/* min. 1 entry */
+X		message_marker = message_start;
+SHAR_EOF
+true || echo 'restore of graphics.c failed'
+fi
+echo 'End of  part 3'
+echo 'File graphics.c is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

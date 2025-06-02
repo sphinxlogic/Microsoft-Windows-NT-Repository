@@ -1,0 +1,2910 @@
+Newsgroups: comp.sources.x
+Path: uunet!wupost!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i009: point text editor (TCL and TK), Part08/16
+Message-ID: <1992Mar18.141518.26956@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:15:18 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 9
+Archive-name: tcl-editor/part08
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 15)."
+# Contents:  fileio.c funcdecl.h windows.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:42 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'fileio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fileio.c'\"
+else
+echo shar: Extracting \"'fileio.c'\" \(18995 characters\)
+sed "s/^X//" >'fileio.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/fileio.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/file.h>
+X#ifdef uts
+X#include <fcntl.h>
+X#endif /* uts */
+X#include "pt.h"
+X
+X/* the open files */
+struct openFile *files;
+X
+extern struct diskBuffer *buffers;
+extern struct diskBuffer *bufHash[];
+extern nextBuffer;
+X
+void
+initFileio()
+X{
+X	extern char msgBuffer[];
+X	extern Piece freePList;
+X	extern struct piece pieceTable[];
+X	extern char *bufferSpace;
+X	extern int nBuffers;
+X	extern unsigned int piecesLeft;
+X	extern unsigned int bytesLeft;
+X	extern int maxFiles;
+X	extern int debug;
+X	
+X	register int i;
+X	unsigned int size;
+X	unsigned char *bs;
+X
+X	for(i = 0; i < maxFiles; i++) {
+X		files[i].origHandle = -1;
+X	}
+X
+X	/* set up the buffer hash scheme */
+X	for(i = 0; i < NBUFHASH; i++)
+X		bufHash[i] = NULL;
+X	nextBuffer = -1;
+X
+X	/* allocate the space (out of this address space) for the buffers */
+retryAllocation:
+X	size = BUFFERSIZE * nBuffers;
+X	bs = (unsigned char *)PtMalloc(size, "IO buffer");
+X	if( bs == NULL ) {
+X		/* if there is not enough space, try fewer buffers */
+X		if( nBuffers >= 25 ) {
+X			nBuffers -= 20;
+X			goto retryAllocation;
+X		}
+X		size -= 16*i;
+X		printf(
+X		    "NOT ENOUGH MEMORY! (%u bytes short) Use fewer buffers\n",
+X		    size);
+X		exit(1);
+X	}
+X
+X	/* set up each buffer header to the address of the */
+X	/* allocated buffer. Buffer i is at buffers[i].bufferAddress  */
+X	for(i = 0; i < nBuffers; i++) {
+X		buffers[i].handle = -1;
+X		buffers[i].bufferAddress = bs;
+X		bs += BUFFERSIZE;
+X	}
+X	
+X	/* set up the free piece list */
+X	freePList = NULL;
+X	piecesLeft = 0;
+X}
+X
+static void
+InitCommandHistory( ff )
+X	struct openFile *ff;
+X{
+X	/* initialize the command history */
+X	ff->cmdHistory = (struct changeItem *)
+X			PtMalloc( sizeof(struct changeItem), "change item" );
+X	ff->cmdHistory->type = CNULL;
+X
+X	/* be SURE that this change is not used */
+X	ff->cmdHistory->flags = CHANGE_WAS_UNDONE
+X				| FILE_WAS_CLOSED
+X				| BLOCK_UNDO_BEGIN;
+X
+X	/* make this the only item in the command history list */
+X	ff->cmdHistory->prev = NULL;
+X	ff->cmdHistory->next = NULL;
+X}
+X
+int
+getFileId(origName)
+X	char *origName;
+X{
+X	extern char msgBuffer[];
+X	extern char scratchFileName[];
+X	extern int addHandle;
+X	extern int readOnly;
+X	extern int maxFiles;
+X	extern int trace_file;
+X
+X	int fileNumber, origHandle;
+X	int freeFileId;
+X	Offset size;
+X	Piece pp;
+X	struct openFile *ff;
+X	char *fullFilename;
+X
+X	if( origName == NULL ) {
+X		scratchFileName[0] = '\0';
+X		fullFilename = &scratchFileName[0];
+X	} else
+X		fullFilename = makeFullPathname(origName);
+X
+X	/* find a free file structure */
+X	freeFileId = -1;
+X	for(fileNumber = 0; fileNumber < maxFiles; fileNumber++) {
+X		if( files[fileNumber].origHandle == -1 ) {
+X			if( freeFileId == -1 )
+X				freeFileId = fileNumber;
+X		} else if(
+X			strcmp(files[fileNumber].origName, fullFilename)
+X								== 0 ) {
+X			++(files[fileNumber].useCount);
+X			return fileNumber;
+X		}
+X	}
+X	if( freeFileId == -1 ) {
+X		msg("openFile: out of file structures", 3);
+X		return -1;
+X	} else
+X		fileNumber = freeFileId;
+X
+X	/* open the original file */
+X	ff = &files[fileNumber];
+X	strncpy(ff->origName, fullFilename, FILENAMESIZE);
+X	
+X	if( fullFilename[0] == '\0' ) {
+X		origHandle = addHandle;
+X	} else {
+X		origHandle = open(fullFilename, O_RDONLY, 0);
+X
+X		if( origHandle < 0 ) {
+X			sprintf(msgBuffer, "Cannot open %s",
+X				fullFilename);
+X			msg(msgBuffer, 3);
+X			return -1;
+X		}
+X	}
+X	ff->origHandle = origHandle;
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "# file id of %2d is file `%s'\n",
+X			fileNumber, fullFilename );
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X
+X	/* initialize the other fields */
+X	if( origHandle != addHandle ) {
+X		size = lseek(origHandle, 0L, 2);
+X		lseek(origHandle, 0L, 0);
+X	} else
+X		size = 0;
+X	ff->fileSize = size;
+X	ff->origFileSize = size;
+X	ff->isView = 0;
+X	ff->useCount = 1;
+X	ff->flags = 0;
+X	if( readOnly )
+X		ff->flags |= READ_ONLY;
+X	else if( origHandle == addHandle ) {
+X		ff->flags &= ~READ_ONLY;
+X	} else {
+X		/* check for read and write permissions (6 => RW) */
+X		/* edit in readOnly mode if the UNIX file permissions */
+X		/* do not allow writing the file */
+X		if( access(ff->origName, R_OK | W_OK) == 0)
+X			ff->flags &= ~READ_ONLY;
+X		else
+X			ff->flags |= READ_ONLY;
+X	}
+X
+X	/* initialize the piece table */
+X	pp = getFreePiece();
+X	pp->file = origHandle;
+X	pp->position = 0;
+X	pp->length = size;
+X	ff->pieceList = pp;
+X
+X	InitCommandHistory( ff );
+X
+X	/* initialize the optimization fields */
+X	ff->loLogPiece = 0;
+X	ff->hiLogPiece = size - 1;
+X	ff->logPiece = pp;
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X	ff->logBuf = NULL;
+X
+X	/*return the fileId */
+X	return fileNumber;
+X}
+X
+static void
+MakeBackups(ff, tempFile )
+X	struct openFile *ff;
+X	char *tempFile;
+X{
+X	extern int backupDepth;
+X	extern char *backupNameFormat;
+X	extern int backupByCopy;
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X
+X	int i, version;
+X	char *end, *f, *p, *q;
+X	char ch;
+X
+if( !(ff->flags&BAK_MADE) && backupDepth > 0 ) {
+X	p = textBuffer;		/* create backup file name here */
+X	f = backupNameFormat;	/* printf-like name format */
+X	while( 1 ) {
+X		ch = *f++;
+X		if( ch == '\0' )
+X			break;
+X		if( ch != '%' ) {
+X			*p++ = ch;
+X			continue;
+X		}
+X		ch = *f++;
+X		switch( ch ) {
+X
+X		case 'n':	/* original file name */
+X			q = ff->origName;
+X			while( 1 ) {
+X				ch = *q++;
+X				if( ch == '\0' )
+X					break;
+X				*p++ = ch;
+X			}
+X			break;
+X
+X		case 'b':	/* base name of original file */
+X			q = ff->origName;
+X			end = q + strlen(q) - 1;
+X			while( end > q && *end != '.' )
+X				--end;
+X			if( end == q )
+X				end = q + strlen(q);
+X			while( q < end )
+X				*p++ = *q++;
+X			break;
+X
+X		case 'v':	/* version number -- must be 1 to 9 */
+X			version = p - textBuffer;
+X			*p++ = '0';	/* placeholder */
+X			break;
+X		default:
+X			*p++ = ch;
+X			break;
+X		}
+X	}
+X	*p = '\0';
+X	/* if file p does not exist, this will return an error code but */
+X	/* is is cheaper just to do it than to ask if it exists first */
+X	/* delete the last backup */
+X	(void)unlink( textBuffer );
+X	strcpy( msgBuffer, textBuffer );
+X	/* move all the other existing backups down one slot */
+X	for(i = backupDepth - 1; i > 0; --i ) {
+X		textBuffer[version] = i + '0';
+X		msgBuffer[version] = i + 1 + '0';
+X		(void)rename( textBuffer, msgBuffer );
+X	}
+X#ifdef LATERLATER
+X	if( backupByCopy ) {
+X		sprintf( msgBuffer, "cp %s %s", ff->origName, textBuffer );
+X		(void)system(msgBuffer);
+X		/* OR
+X		Tcl_VarExec( mainBrowser->interp, "copy ", ff->origName,
+X							textBuffer, NULL );
+X		*/
+X	} else
+X#endif
+X		(void)rename(ff->origName, textBuffer);
+X	ff->flags |= BAK_MADE;
+X} else {
+X	if( unlink(ff->origName) ) {
+X		strcpy( textBuffer, ff->origName );
+X		p = tildefyFilename( textBuffer );
+X		sprintf(msgBuffer,
+X			"Delete of old version of %s failed; new version in %s",
+X			p, tempFile );
+X		msg(msgBuffer, 3);
+X	}
+X}
+if( rename(tempFile, ff->origName) ) {
+X	strcpy( textBuffer, ff->origName );
+X	p = tildefyFilename( textBuffer );
+X	sprintf(msgBuffer,
+X		"Rename of %s [new version] to %s [old version] failed",
+X		tempFile,p, textBuffer, tempFile );
+X	msg(msgBuffer, 3);
+X}
+X}
+X
+static void
+XFreeCommandHistory( ff )
+X	struct openFile *ff;
+X{
+X	struct changeItem * change, * change_to_free;
+X
+X	/* first find the end of the list */
+X	change = ff->cmdHistory;
+X	if( change == NULL )
+X		/* this should not happen */
+X		return;
+X	while( change->next != NULL )
+X		change = change->next;
+X
+X	/* now walk down the chain and free each one */
+X	while( change != NULL ) {
+X		change_to_free = change;
+X		change = change->prev;
+X		PtFree( (char *)change_to_free );
+X	}
+X	/* just to be neat */
+X	ff->cmdHistory = NULL;
+X}
+X
+void
+saveFile(w)
+X	struct window *w;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern struct openFile *files;
+X	extern int addHandle;
+X	extern int hypertextOn;
+X
+X	struct openFile *ff;
+X	char *p, *tempFile;
+X	int i;
+X	int fid;
+X	Offset size;
+X	Piece pp;
+X	struct stat statbuf;
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn && w->document != NULL )
+X		fid = w->realFileId;
+X	else
+X#endif
+X		fid = w->fileId;
+X	ff = &files[fid];
+X	
+X	/* Do not save if the file is read only */
+X	if( ff->flags & READ_ONLY ) {
+X		strcpy( textBuffer, ff->origName );
+X		p = tildefyFilename( textBuffer );
+X		sprintf( msgBuffer, "File %s is read only", p );
+X		msg(msgBuffer, 3);
+X		return;
+X	}
+X
+X	/* get a temporary name and write the new version of the file to it */
+X	tempFile = makeTempFor(ff->origName);
+X	strcpy( textBuffer, ff->origName );
+X	p = tildefyFilename( textBuffer );
+X	sprintf(msgBuffer, "Writing file %s [%ld bytes]...", p, ff->fileSize);
+X	msg(msgBuffer, 1);
+X
+X	if( !doWrite( fid, tempFile ) )
+X		return;
+X
+X	/* change the permissions on the new file to match the old one */
+X	i = stat( ff->origName, &statbuf );
+X	if( i != 0 ) {
+X		printf("Stat of %s failed\n", ff->origName);
+X	} else {
+X		chown( tempFile, statbuf.st_uid, statbuf.st_gid );
+X		chmod( tempFile, statbuf.st_mode );
+X	}
+X
+X	/* write out the message telling the user the file was written */
+X	strcpy( textBuffer, ff->origName );
+X	p = tildefyFilename( textBuffer );
+X	sprintf(msgBuffer, "%s written...%ld bytes", p, ff->fileSize);
+X	msg(msgBuffer, 1);
+X
+X	/* invalidate any buffers allocated to this open file */
+X	fidInvalid(ff->origHandle, fid);
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X
+X	/* reset the change flag */
+X	ff->flags &= ~IS_CHANGED;
+X	NewOpenList();
+X
+X	/* close the original file for this open file */
+X	if( ff->origHandle != addHandle ) {
+X		i = close(ff->origHandle);
+X		if( i != 0 ) {
+X			strcpy( textBuffer, ff->origName );
+X			tildefyFilename( textBuffer );
+X			p = (char *)sprintf(msgBuffer,
+X					"saveFile: close of %s failed, ret=%d", p, i);
+X			msg(msgBuffer, 1);
+X		}
+X	}
+X
+X	/* for now free the command history */
+X	/* LATERLATER: fix things up so we can keep the command history */
+X	/* even over a save.  It is just a matter of changing the */
+X	/* file you consider the original file */
+X	FreeCommandHistory( ff );
+X	InitCommandHistory( ff );
+X
+X	MakeBackups( ff, tempFile );
+X
+X	/* open it up again */
+X	if( ff->origHandle != addHandle )
+X		ff->origHandle = open(ff->origName, O_RDONLY, 0644);
+X
+X	/* re-initialize the other fields */
+X	size = lseek(ff->origHandle, 0L, 2);
+X	ff->fileSize = size;
+X	ff->origFileSize = size;
+X	lseek(ff->origHandle, 0L, 0);
+X	
+X	/* free all the pieces */
+X	freePieces(ff->pieceList);
+X
+X	/* re-initialize the piece table */
+X	pp = getFreePiece();
+X	ff->pieceList = pp;
+X	pp->file = ff->origHandle;
+X	pp->position = 0;
+X	pp->length = size;
+X
+X	/* re-initialize the optimization fields */
+X	ff->loLogPiece = 0;
+X	ff->hiLogPiece = size - 1;
+X	ff->logPiece = pp;
+X	ff->hiLogBuffer = -1L;
+X	ff->loLogBuffer = -1L;
+X	ff->logBuf = NULL;
+X
+X	/* redraw the banner to remove the file modified `*' */
+X	banner( w, 0 );	/* 0 ==> don't redo the slider */
+X}
+X
+void
+writeFile(w)
+X	struct window *w;
+X{
+X	extern struct openFile *files;
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern char * returnString;
+X
+X	sprintf( msgBuffer,
+X"MakeModalEntry {Save As} {Filename to write to} {Okay} {Cancel write}");
+X	(void)ExecTclCommand( msgBuffer );
+X	command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X	if( strcmp(returnString,"XXXcancelXXX")==0 ) {
+X	cancel:
+X		msg("Write file cancelled", 1);
+X		return;
+X	}
+X
+X	/* check if the file already exists */
+X	if( access(returnString, F_OK) == 0 ) {
+X		sprintf( msgBuffer,
+X			"MakeModalYesNo {%s} {%s %s %s} {%s} {%s}",
+X			"Write over file?",
+X			"File", returnString, "already exists.",
+X			"Write over it",
+X			"Cancel write" );
+X		(void)ExecTclCommand( textBuffer );
+X		command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X		if( returnString[0] != 'y' )
+X			goto cancel;
+X	}
+X
+X	sprintf(textBuffer, "Writing file %s [%ld bytes]...",
+X		msgBuffer, files[w->fileId].fileSize);
+X	msg(textBuffer, 1);
+X
+X	if( !doWrite(w->fileId, returnString) )
+X		return;
+X
+X	sprintf(textBuffer, "%s written...%ld bytes",
+X		returnString, files[w->fileId].fileSize);
+X	msg(textBuffer, 1);
+X}
+X
+int
+doWrite(fileId, tempFile)
+X	int fileId;
+X	char *tempFile;
+X{
+X	extern char msgBuffer[];
+X	extern int getSpanSize;
+X
+X	Offset cp, fSize;
+X	int fid, iBuffer, lineSize;
+X	unsigned char *firstByte;
+X	unsigned char *lastByte;
+X	unsigned char *sBuffer;
+X	unsigned int sizeOfBuffer;
+X
+fSize = fileSize(fileId);
+X
+X/* open the output file */
+fid = open(tempFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+if( fid < 0 ) {
+X	perror("Create temp file");
+X	sprintf( msgBuffer, "Could not create %s, ret=%d", tempFile, fid );
+X	msg(msgBuffer, 1);
+X	return 0;
+X}
+X
+X/* allocate the IO buffer */
+sizeOfBuffer = 8192;
+while( 1 ) {
+X	sBuffer = (unsigned char *)PtMalloc(sizeOfBuffer, "output buffer");
+X	if( sBuffer == NULL ) {
+X		extern char textBuffer[];
+X		/* try again with a buffer half as large */
+X		sizeOfBuffer >>= 1;
+X		if( sizeOfBuffer <= MSGBUFFERSIZE ) {
+X			sBuffer = (unsigned char *)textBuffer;
+X			break;
+X		}
+X		continue;
+X	} else
+X		break;
+X}
+X
+cp = 0;
+iBuffer = 0;
+while( 1 ) {
+X	/* special case for files of length 0 */
+X	if( fSize == 0 )
+X		fSize = 1;
+X	sprintf(msgBuffer, "File is %d%% written out",
+X		(int)( (100*cp) / fSize) );
+X	msg(msgBuffer, 0);
+X	if( getSpan(fileId, cp, &firstByte, &lastByte, 0) )
+X		break;
+X	lineSize = (int)(lastByte - firstByte + 1);
+getSpanSize += lineSize;
+X	cp = cp + lineSize;
+X
+X	if( (iBuffer+lineSize) > sizeOfBuffer ) {/* will it fit? */
+X		/* no, so write out the buffer to empty it */
+X		int writeRet = write(fid, sBuffer, iBuffer);
+X		if( writeRet < iBuffer ) {
+error:
+X			perror("write to temp file");
+X			PtFree((char *)sBuffer);
+X			/* avoid recursive calls if msg tries to write disk */
+printf("doWrite: trying to write %d bytes but only wrote %d bytes\n",
+X				iBuffer, writeRet);
+X			close(fid);
+X			unlink(tempFile);
+X			return 0;
+X		} else
+X			iBuffer = 0;
+X	}
+X	/* move lineSize bytes from firstByte to sBuffer+iBuffer */
+X	bcopy( firstByte, sBuffer + iBuffer, lineSize );
+X	iBuffer += lineSize;
+X}
+if( write(fid, sBuffer, iBuffer) < iBuffer )
+X	goto error;
+close(fid);
+X
+X/* all is ok */
+PtFree((char *)sBuffer);
+return 1;
+X}
+X
+char *
+makeTempFor(name)
+X	char *name;
+X{
+X	static char tname[64];
+X	register int len;
+X	int pathEnd;
+X	char ch;
+X
+X	len = 0;
+X	pathEnd = -1;
+X	while( 1 ) {
+X		if( (ch = name[len]) == '\0' )
+X			break;
+X		tname[len] = ch;
+X		switch( ch ) {
+X		case '/':
+X			pathEnd = len;
+X		}
+X		++len;
+X	}
+X	tname[pathEnd+1] = '\0';
+X	strcat(tname, "tempfile.pt");
+X	return &tname[0];
+X}
+X
+char *
+noWhiteSpace(fileName)
+X	register char *fileName;
+X{
+X	register int n;
+X
+X	if( fileName != NULL || fileName[0] == '\0' ) {
+X		/* eliminate white space around fileName */
+X
+X		/* first white space in the beginning */
+X		while( isspace(*fileName) )
+X			++fileName;
+X
+X		/* now white space at the end */
+X		n = strlen(fileName) - 1;
+X		while( isspace(fileName[n]) )
+X			--n;
+X		fileName[n+1] = '\0';
+X	}
+X	return fileName;
+X}
+X
+int
+makeName(s)
+X	register char *s;
+X{
+X	register int l;
+X	int nTries;
+X	char ch;
+X
+X	/* try to create a new name by changing the last letter */
+X	l = strlen(s) - 1;
+X	nTries = 0;
+X	ch = s[l];	/* save first character */
+X	if( isupper(ch) )
+X		ch = tolower(ch);
+X	while( access(s, 0) == 0 ) {
+X		/* the file name exists so try another */
+X		++nTries;
+X		if( s[l] == 'z' )
+X			s[l] = 'a';
+X		else
+X			++s[l];
+X		if( s[l] == ch )
+X			return -1;	/* could not find an unused name */
+X	}
+X	return nTries;
+X}
+X
+int
+getBaseName(s)
+X	char *s;
+X{
+X	int n;
+X
+X	n = strlen(s) - 1;
+X	while( 1 ) {
+X		if( s[n] == '/' )
+X			break;
+X		if( --n < 0 )
+X			break;
+X	}
+X	return n+1;
+X}
+X
+Offset
+fileSize(fileNumber)
+X	int fileNumber;
+X{
+X	return files[fileNumber].fileSize;
+X}
+X
+int
+closeFile(fileId, ask)
+X	int fileId, ask;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern struct changeItem scrapBuffer;
+X	extern int addHandle;
+X	extern int trace_file;
+X	extern char * returnString;
+X
+X	int i, writing;
+X	char *p, *tempFile;
+X	register struct openFile *ff;
+X
+X	if( fileId == -1 )
+X		return 0;
+X
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "# close file id %2d\n", fileId );
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X
+X	ff = &files[fileId];
+X
+X	/* check for 'files' that are really views */
+X	if( ff->isView )
+X		goto ViewOnly;
+X
+X	/* is this the last close? */
+X	if( --(ff->useCount) > 0 )
+X		return 0;
+X
+X	/* see if we need to write the file */
+X	writing = 1;
+X	/* has the file changed? */
+X	if( ff->pieceList->nextPiece == NULL
+X	 && ff->pieceList->file == ff->origHandle ) {
+X		if( ff->fileSize == ff->origFileSize ) 
+X			writing = 0;
+X	}
+X	if( ask == 2 )	/* quit and discard mode */
+X		writing = 0;
+X	/* do not write the messages file into itself */
+X	if( ff->origHandle == addHandle )
+X		writing = 0;
+X	/* see if we already saved these changes */
+X	if( !(ff->flags & IS_CHANGED) )
+X		writing = 0;
+X	if( writing && (ff->flags & READ_ONLY) ) {
+X		strcpy( textBuffer, ff->origName );
+X		p = tildefyFilename( textBuffer );
+X		sprintf( msgBuffer,
+X			"MakeModalYesNo {%s} {%s %s %s} {%s} {%s}",
+X			"Read only file",
+X			"File", p, "is read only but changed.",
+X			"Close file without writing",
+X			"Cancel close" );
+X		(void)ExecTclCommand( textBuffer );
+X		command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X		if( returnString[0] != 'y' )
+X			return -1;
+X		writing = 0;
+X	}
+X	if( writing ) {
+X		/* verify the write if ask is true */
+X		if( ask ) {
+X			strcpy( textBuffer, ff->origName );
+X			p = tildefyFilename( textBuffer );
+X		sprintf( msgBuffer,
+X			"MakeModalYesNo {%s} {%s %s %s} {%s} {%s}",
+X			"Save file?",
+X			"Save file", p, "?",
+X			"Yes, save the changes",
+X			"No, discard changes" );
+X		(void)ExecTclCommand( textBuffer );
+X		command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X			writing = (returnString[0] -= 'y');
+X		}
+X		if( writing ) {
+X			tempFile = makeTempFor(ff->origName);
+X			strcpy( textBuffer, ff->origName );
+X			p = tildefyFilename( textBuffer );
+X			sprintf(msgBuffer, "Writing file %s [%ld bytes]...",
+X				p, ff->fileSize);
+X			msg(msgBuffer, 1);
+X			if( doWrite(fileId, tempFile) == 0 )
+X				return -1;
+X			strcpy( textBuffer, ff->origName );
+X			p = tildefyFilename( textBuffer );
+X			sprintf(msgBuffer, "%s written...%ld bytes",
+X				p, ff->fileSize);
+X			msg(msgBuffer, 1);
+X		}
+X	}
+X
+X	/* do the close */
+X	if( ff->origHandle == -1 ) {
+X		strcpy( textBuffer, ff->origName );
+X		p = tildefyFilename( textBuffer );
+X		sprintf(msgBuffer, "closeFile: file %s is not open", p);
+X		msg(msgBuffer, 1);
+X		return 0;
+X	}
+X	
+X	/* see if the scrap points into this file */
+X	if( ff->origHandle == scrapBuffer.fileId && scrapBuffer.type == 0 )
+X		/* this call only copies the scrap text to the add file */
+X		/* it does not really do any insert (just using the code) */
+X		insScrap( 0, 0 );
+X
+X	/* invalidate any buffers allocated to this open file */
+X	if( ff->origHandle != addHandle )
+X		fidInvalid(ff->origHandle, fileId);
+X		
+X	/* free the command history items */
+X	FreeCommandHistory( ff );
+X	
+X	/* close the original file for this open file */
+X	if( ff->origHandle != addHandle ) {
+X		i = close(ff->origHandle);
+X		if( i != 0 ) {
+X			strcpy( textBuffer, ff->origName );
+X			p = tildefyFilename( textBuffer );
+X			sprintf(msgBuffer,
+X				"closeFile: close of %s failed, ret=%d", p, i);
+X			msg(msgBuffer, 1);
+X		}
+X	}
+X
+X	/* rename the saved file */
+X	if( writing == 1) {
+X		MakeBackups( ff, tempFile );
+X	}
+X
+ViewOnly:
+X	/* free all the pieces */
+X	freePieces(ff->pieceList);
+X
+X	/* indicate the file structure is free */
+X	ff->origHandle = -1;
+X
+X	return 0;	/* all ok */
+X}
+END_OF_FILE
+if test 18995 -ne `wc -c <'fileio.c'`; then
+    echo shar: \"'fileio.c'\" unpacked with wrong size!
+fi
+# end of 'fileio.c'
+fi
+if test -f 'funcdecl.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'funcdecl.h'\"
+else
+echo shar: Extracting \"'funcdecl.h'\" \(17878 characters\)
+sed "s/^X//" >'funcdecl.h' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/funcdecl.h,v 1.13 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#ifdef HYPERTEXT
+X/* in anaDialogs.c */
+PickListItem * GenerateIDList(
+X#ifdef ANSI_PROTOTYPES
+X	ID id_in, MagicNumber magic
+X#endif
+X);
+void FreeIDList(
+X#ifdef ANSI_PROTOTYPES
+X	PickListItem * itemList
+X#endif
+X);
+AttributeID PickAttribute(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+LinkID PickLink(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+BlockID PickBlock(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+XFileID PickFile(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+TextID PickText(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+MapID PickMap(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+ViewID PickView(
+X#ifdef ANSI_PROTOTYPES
+Document, char *
+X#endif
+X);
+X
+X/* in anaObjects.c */
+DBM * OpenObjects(
+X#ifdef ANSI_PROTOTYPES
+String
+X#endif
+X);
+void CloseObjects(
+X#ifdef ANSI_PROTOTYPES
+DBM *
+X#endif
+X);
+void DumpDB(
+X#ifdef ANSI_PROTOTYPES
+DBM *
+X#endif
+X);
+AnaObject GetObject(
+X#ifdef ANSI_PROTOTYPES
+DBM *, MagicNumber, ID, AllocationMode
+X#endif
+X);
+void PutObject(
+X#ifdef ANSI_PROTOTYPES
+DBM *, MagicNumber, AnaObject, ReleaseMode
+X#endif
+X);
+Block GetBlock(
+X#ifdef ANSI_PROTOTYPES
+DBM *, BlockID, AllocationMode
+X#endif
+X);
+void PutBlock(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Block, ReleaseMode
+X#endif
+X);
+Attribute GetAttribute(
+X#ifdef ANSI_PROTOTYPES
+DBM *, AttributeID, AllocationMode
+X#endif
+X);
+void PutAttribute(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Attribute, ReleaseMode
+X#endif
+X);
+Map GetMap(
+X#ifdef ANSI_PROTOTYPES
+DBM *, MapID, AllocationMode
+X#endif
+X);
+void PutMap(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Map, ReleaseMode
+X#endif
+X);
+XFile GetFile(
+X#ifdef ANSI_PROTOTYPES
+DBM *, FileID, AllocationMode
+X#endif
+X);
+void PutFile(
+X#ifdef ANSI_PROTOTYPES
+DBM *, File, ReleaseMode
+X#endif
+X);
+Text GetText(
+X#ifdef ANSI_PROTOTYPES
+DBM *, TextID, AllocationMode
+X#endif
+X);
+void PutText(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Text, ReleaseMode
+X#endif
+X);
+Link GetLink(
+X#ifdef ANSI_PROTOTYPES
+DBM *, LinkID, AllocationMode
+X#endif
+X);
+void PutLink(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Link, ReleaseMode
+X#endif
+X);
+View GetView(
+X#ifdef ANSI_PROTOTYPES
+DBM *, ViewID, AllocationMode
+X#endif
+X);
+void PutView(
+X#ifdef ANSI_PROTOTYPES
+DBM *, View, ReleaseMode
+X#endif
+X);
+Document GetDocument(
+X#ifdef ANSI_PROTOTYPES
+DBM *, DocumentID, AllocationMode
+X#endif
+X);
+void PutDocument(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, ReleaseMode
+X#endif
+X);
+Block CreateBlock(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *, AttributeID, Offset, FileID
+X#endif
+X);
+Attribute CreateAttribute(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *
+X#endif
+X);
+AttributeID LookupAttributeByName(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *
+X#endif
+X);
+Map CreateMap(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *
+X#endif
+X);
+MapID LookupMapByName(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *
+X#endif
+X);
+Link CreateLink(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *, AttributeID, BlockID, BlockID
+X#endif
+X);
+XFile CreateFile(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document document, char * name
+X#endif
+X);
+XFileID LookupFileByName(
+X#ifdef ANSI_PROTOTYPES
+DBM * db, Document, char *
+X#endif
+X);
+Text CreateText(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *
+X#endif
+X);
+View CreateView(
+X#ifdef ANSI_PROTOTYPES
+DBM *, Document, char *, BlockID, MapID, MapID, MapID
+X#endif
+X);
+Document CreateDocument(
+X#ifdef ANSI_PROTOTYPES
+DBM *, char *
+X#endif
+X);
+X
+X/* in anaSources.c */
+int GetRealSelection(
+X#ifdef ANSI_PROTOTYPES
+struct openFile *, int
+X#endif
+X);
+void InitHypertext(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void CloseHypertext(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void DumpPieces(
+X#ifdef ANSI_PROTOTYPES
+struct window *w
+X#endif
+X);
+void DumpRealPieces(
+X#ifdef ANSI_PROTOTYPES
+struct window *w
+X#endif
+X);
+void DumpTables(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void PrintPieceChain(
+X#ifdef ANSI_PROTOTYPES
+char *, Piece
+X#endif
+X);
+void SeparateBlockMarkers(
+X#ifdef ANSI_PROTOTYPES
+struct window *w
+X#endif
+X);
+Offset ReadBlockMarker(
+X#ifdef ANSI_PROTOTYPES
+int fid, Offset pos, BlockID * blockID,	unsigned int * flags
+X#endif
+X);
+Offset FindBlock(
+X#ifdef ANSI_PROTOTYPES
+BlockID blockID, int fid
+X#endif
+X);
+Offset SkipToEndOfBlock(
+X#ifdef ANSI_PROTOTYPES
+int fid, Offset pos, BlockID endBlockID
+X#endif
+X);
+void CreateViewPieceTable(
+X#ifdef ANSI_PROTOTYPES
+struct window *w, struct openFile *ff
+X#endif
+X);
+Offset ProcessOneBlock(
+X#ifdef ANSI_PROTOTYPES
+BlockID blockID, struct window *, Offset offset, Piece *, Piece *
+X#endif
+X);
+void CreateSpanPieces(
+X#ifdef ANSI_PROTOTYPES
+BlockID blockID, int fid, Offset begin, Offset end, Piece *, Piece *
+X#endif
+X);
+Offset CreatePieceTableForBlock(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset offset, Piece *, Piece *
+X#endif
+X);
+void FreeOldViewPieces(
+X#ifdef ANSI_PROTOTYPES
+X	struct openFile *ff;
+X#endif
+X);
+int CreateViewFile(
+X#ifdef ANSI_PROTOTYPES
+struct window *w
+X#endif
+X);
+void AddFileToDocument(
+X#ifdef ANSI_PROTOTYPES
+struct window *w
+X#endif
+X);
+int InsertBlock(
+X#ifdef ANSI_PROTOTYPES
+unsigned int n
+X#endif
+X);
+X#endif
+X
+X/* in browser.c */
+void ReduceUseCount(
+X#ifdef ANSI_PROTOTYPES
+XFileListData *
+X#endif
+X);
+void ptBrowserLetter(
+X#ifdef ANSI_PROTOTYPES
+int, XKeyEvent *, String *, Cardinal *
+X#endif
+X);
+void ChangeBrowserFontTo(
+X#ifdef ANSI_PROTOTYPES
+BrowserData *, char *
+X#endif
+X);
+void RaiseListWindow(
+X#ifdef ANSI_PROTOTYPES
+int n, char * geometry
+X#endif
+X);
+int listComp(
+X#ifdef ANSI_PROTOTYPES
+char *, char *
+X#endif
+X);
+void NewFilelist(
+X#ifdef ANSI_PROTOTYPES
+BrowserData *
+X#endif
+X);
+void CreateNewBrowser(
+X#ifdef ANSI_PROTOTYPES
+int, char * geometry
+X#endif
+X);
+void NewOpenList(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void CreateBigBrowser(
+X#ifdef ANSI_PROTOTYPES
+BrowserData *, char * geometry
+X#endif
+X);
+void CreateFilelist(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+X
+X/* in buffers.c */
+void unlink1(
+X#ifdef ANSI_PROTOTYPES
+struct diskBuffer *
+X#endif
+X);
+struct diskBuffer * getBuffer(
+X#ifdef ANSI_PROTOTYPES
+int, int
+X#endif
+X);
+void fidInvalid(
+X#ifdef ANSI_PROTOTYPES
+int, int
+X#endif
+X);
+int getFileByte(
+X#ifdef ANSI_PROTOTYPES
+int, Offset
+X#endif
+X);
+void ClearByteCache(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+int getCachedFileByte(
+X#ifdef ANSI_PROTOTYPES
+int, Offset
+X#endif
+X);
+int getSpan(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, unsigned char **, unsigned char **, int
+X#endif
+X);
+void writeChar(
+X#ifdef ANSI_PROTOTYPES
+int, Offset
+X#endif
+X);
+X
+X/* in cmdTable.c */
+int FindCommandInTable(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+int GetCommandNumber(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+char * CommandNumberToName(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+void AddPointCommands(
+X#ifdef ANSI_PROTOTYPES
+Tcl_Interp *
+X#endif
+X);
+X
+X/* in command.c */
+void ptSearchLetter(
+X#ifdef ANSI_PROTOTYPES
+int, XKeyEvent *, String *, Cardinal *
+X#endif
+X);
+void InitCommands(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+char * command(
+X#ifdef ANSI_PROTOTYPES
+PointCommand, char *, char *, char *, char *, char *, char *
+X#endif
+X);
+X
+X/* in copymove.c */
+void updateFile(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, Offset, int
+X#endif
+X);
+void updateTops(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, Offset, int
+X#endif
+X);
+void exchWithScrap(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void copyToScrap(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, Offset
+X#endif
+X);
+void insScrap(
+X#ifdef ANSI_PROTOTYPES
+int, int
+X#endif
+X);
+void copyMove(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, Offset, struct window *, Offset, int
+X#endif
+X);
+void copyPieces(
+X#ifdef ANSI_PROTOTYPES
+Piece, struct window *, Offset, Offset, int, int
+X#endif
+X);
+X
+X/* in cursor.c */
+int cursor(
+X#ifdef ANSI_PROTOTYPES
+char *, char *, int
+X#endif
+X);
+void doScreenUpdate(
+X#ifdef ANSI_PROTOTYPES
+int, int, int
+X#endif
+X);
+X
+X/* dialogs.c */
+int DialogBox(
+X#ifdef ANSI_PROTOTYPES
+char *, char *, char *, char *, char *, char *, int *, int
+X#endif
+X);
+X
+X/* in display.c */
+void drawWindowFast(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int, int, int, int
+X#endif
+X);
+void drawWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void banner(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int
+X#endif
+X);
+void SetSlider(
+X#ifdef ANSI_PROTOTYPES
+struct window *, long
+X#endif
+X);
+void fillWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int, int, int, int
+X#endif
+X);
+void DrawString(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void CheckForSelection(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+Offset fillLine(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, int, int, int, int, int
+X#endif
+X);
+X
+X/* in execcmd.c */
+void execCmd(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+X
+X/* in fileio.c */
+void initFileio(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+int getFileId(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+void saveFile(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void writeFile(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+int doWrite(
+X#ifdef ANSI_PROTOTYPES
+int, char *
+X#endif
+X);
+char * makeTempFor(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+Offset fileSize(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+int closeFile(
+X#ifdef ANSI_PROTOTYPES
+int, int
+X#endif
+X);
+X
+X/* findfiles.c */
+char * OldFindMatchingFiles(
+X#ifdef ANSI_PROTOTYPES
+char *, char *
+X#endif
+X);
+char * FindMatchingFiles(
+X#ifdef ANSI_PROTOTYPES
+char *, char *
+X#endif
+X);
+char * makeFullPathname(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+int striccmp(
+X#ifdef ANSI_PROTOTYPES
+char *, char *
+X#endif
+X);
+struct window * findFilenameWindow(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+X
+X/* in findpos.c */
+Offset xyToOffset(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int, int
+X#endif
+X);
+void OffsetToXY(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, int *, int *
+X#endif
+X);
+int OffsetToCol(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, Offset
+X#endif
+X);
+X
+X/* goto.c */
+void matchChar(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void doGoSel(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void doGoto(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int, int
+X#endif
+X);
+X
+X/* in help.c */
+int help(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+X
+X/* in inschar.c */
+void HandleKey(
+X#ifdef ANSI_PROTOTYPES
+int keysym, int state
+X#endif
+X);
+void insChar(
+X#ifdef ANSI_PROTOTYPES
+int c2, int update
+X#endif
+X);
+int doAutoIndent(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+X
+X/* in insdel.c */
+void insertChar(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+int delChar(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void DeleteViewChars(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+int deleteChars(
+X#ifdef ANSI_PROTOTYPES
+int, int, int
+X#endif
+X);
+X
+X/* keyword.c */
+void findKeyword(
+X#ifdef ANSI_PROTOTYPES
+char * keyword
+X#endif
+X);
+X
+X/* library.c */
+struct window * FindWindowByTkName(
+X#ifdef ANSI_PROTOTYPES
+char * name
+X#endif
+X);
+BrowserData * FindBrowserByTkName(
+X#ifdef ANSI_PROTOTYPES
+char * name
+X#endif
+X);
+int ConvertGeometrySpec(
+X#ifdef ANSI_PROTOTYPES
+char * geometry, int * x, int * y, int * width, int * height
+X#endif
+X);
+int indentToShowSelection(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+char * ExecTclCommand(
+X#ifdef ANSI_PROTOTYPES
+char * command
+X#endif
+X);
+int LineNumberOfSelection(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void FixName(
+X#ifdef ANSI_PROTOTYPES
+char *s
+X#endif
+X);
+char *tildefyFilename(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+char * findFile(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+char * PtMalloc(
+X#ifdef ANSI_PROTOTYPES
+int, char *
+X#endif
+X);
+void PtFree(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+int MarkTime(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void GetPointerPosition(
+X#ifdef ANSI_PROTOTYPES
+int *, int *
+X#endif
+X);
+int SupplySelectionToX(
+X#ifdef ANSI_PROTOTYPES
+ClientData clientData, int offset, char * buffer, int maxBytes
+X#endif
+X);
+void AssertSelectionOwnership(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+int getSelection(
+X#ifdef ANSI_PROTOTYPES
+char *, int, int
+X#endif
+X);
+int makeName(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+int getBaseName(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+void justifyLines(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+char * noWhiteSpace(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+X
+X/* in lines.c */
+Offset readLine(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, char *, int
+X#endif
+X);
+Offset nextLine(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, int *
+X#endif
+X);
+Offset prevLine(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, int *
+X#endif
+X);
+X
+X/* in main.c */
+int main(
+X#ifdef ANSI_PROTOTYPES
+unsigned int, char **
+X#endif
+X);
+X
+X/* in makeMenus.c */
+void MakeMouseMenuCursors(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+X
+X/* in makeWindow.c */
+void EnterAWindow(
+X#ifdef ANSI_PROTOTYPES
+int, struct window *, XEvent *
+X#endif
+X);
+void VScroll(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, int how, int y, int button
+X#endif
+X);
+int DoOneVScroll(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void HScroll(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, int which, int x, int button
+X#endif
+X);
+void MakeWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *, char * geometry
+X#endif
+X);
+X
+X/* in mouse.c */
+void InitMouse(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void Mouse(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, char * cmd, int x, int y
+X#endif
+X);
+X
+X/* in options.c */
+void InitOptions(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+char * GetPointOption(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+void SetPointOption(
+X#ifdef ANSI_PROTOTYPES
+char *, char *
+X#endif
+X);
+X
+X
+X/* in piece.c */
+Piece dupPieces(
+X#ifdef ANSI_PROTOTYPES
+Piece
+X#endif
+X);
+Piece getFreePiece(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void freePieces(
+X#ifdef ANSI_PROTOTYPES
+Piece
+X#endif
+X);
+Piece findPiece(
+X#ifdef ANSI_PROTOTYPES
+Offset, struct openFile *, Offset *
+X#endif
+X);
+X
+X/* in ptInit.c */
+void ptInit(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void msg(
+X#ifdef ANSI_PROTOTYPES
+char *, int
+X#endif
+X);
+X
+X/* in regex.c */
+char * re_comp(
+X#ifdef ANSI_PROTOTYPES
+char *pat
+X#endif
+X);
+int re_exec(
+X#ifdef ANSI_PROTOTYPES
+int fid, int cp, int end_cp, int *lines_passed, int reversed
+X#endif
+X);
+int re_match(
+X#ifdef ANSI_PROTOTYPES
+char *lp
+X#endif
+X);
+void RegexReplaceAll(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, char * searchFor, char * replaceWith, int inSelection
+X#endif
+X);
+int RegexReplaceOne(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, char * searchFor, char * replaceWith
+X#endif
+X);
+X
+X/* in repaint.c */
+void SetTextColor(
+X#ifdef ANSI_PROTOTYPES
+struct window *w, int normal, int foreground, char * colorName
+X#endif
+X);
+void CycleColors(
+X#ifdef ANSI_PROTOTYPES
+char **, char *
+X#endif
+X);
+void InitRedisplay(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void WorkspaceResized(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void repaint(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int, int, int, int
+X#endif
+X);
+X
+X/* replace.c */
+void replaceText(
+X#ifdef ANSI_PROTOTYPES
+struct window *, char * fromString, int inSelection
+X#endif
+X);
+void replaceTextAux(
+X#ifdef ANSI_PROTOTYPES
+struct window *, unsigned char *, unsigned char *, int, int
+X#endif
+X);
+X
+X/* in search.c */
+int searchFor(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, int searchMode, char * s, int update
+X#endif
+X);
+X
+X/* in select.c */
+void ExtendSelection(
+X#ifdef ANSI_PROTOTYPES
+Offset, int, int, Offset
+X#endif
+X);
+void drawSelection(
+X#ifdef ANSI_PROTOTYPES
+int
+X#endif
+X);
+void DrawSection(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, int, int, int, int
+X#endif
+X);
+void modeExtend(
+X#ifdef ANSI_PROTOTYPES
+struct window *, Offset, int, int, Offset
+X#endif
+X);
+Offset adjustSelMode(
+X#ifdef ANSI_PROTOTYPES
+Offset
+X#endif
+X);
+int XSelConvert(
+X#ifdef ANSI_PROTOTYPES
+int, Atom *, Atom *, Atom *, char * *, unsigned long *, int *
+X#endif
+X);
+void XSelLose(
+X#ifdef ANSI_PROTOTYPES
+int, Atom *
+X#endif
+X);
+X
+X/* spans.c */
+Offset searchSpans(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, Offset, char *, int, int *
+X#endif
+X);
+Offset searchReverseSpans(
+X#ifdef ANSI_PROTOTYPES
+int, Offset, Offset, char *, int, int *
+X#endif
+X);
+unsigned char * match1up(
+X#ifdef ANSI_PROTOTYPES
+unsigned char *, int, int, int
+X#endif
+X);
+unsigned char * match1dn(
+X#ifdef ANSI_PROTOTYPES
+unsigned char *, int, int, int
+X#endif
+X);
+unsigned char * match2dn(
+X#ifdef ANSI_PROTOTYPES
+unsigned char *, int, int
+X#endif
+X);
+int countnl(
+X#ifdef ANSI_PROTOTYPES
+unsigned char *, int
+X#endif
+X);
+X
+X/* stats.c */
+void PrintStats(
+X#ifdef ANSI_PROTOTYPES
+int fileId
+X#endif
+X);
+X
+X/* tags.c */
+void findCTag(
+X#ifdef ANSI_PROTOTYPES
+char * ctag
+X#endif
+X);
+X
+X/* tcl.c */
+int doPtCommand(
+X#ifdef ANSI_PROTOTYPES
+ClientData clientData, Tcl_Interp * interp, int argc, char *argv[]
+X#endif
+X);
+void AddPointCommands(
+X#ifdef ANSI_PROTOTYPES
+Tcl_Interp *
+X#endif
+X);
+void ptTcl(
+X#ifdef ANSI_PROTOTYPES
+int, XButtonEvent *, String *, Cardinal *
+X#endif
+X);
+X
+X/* undoredo.c */
+void initChanges(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+struct changeItem * GetCurrentChange(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff
+X#endif
+X);
+struct changeItem * GetNewChange(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff
+X#endif
+X);
+void RecordChange(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff, struct changeItem * new_change
+X#endif
+X);
+void redo(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff, int count
+X#endif
+X);
+void again(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff, int mostRecent
+X#endif
+X);
+void UpdateUndoList(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff
+X#endif
+X);
+void ShowUndos(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff
+X#endif
+X);
+void undo(
+X#ifdef ANSI_PROTOTYPES
+struct openFile * ff, int count
+X#endif
+X);
+void showChange(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+X
+X/* in userInput.c */
+void FixName(
+X#ifdef ANSI_PROTOTYPES
+char *
+X#endif
+X);
+void CommandHandler(
+X#ifdef ANSI_PROTOTYPES
+int, char *, char *
+X#endif
+X);
+void GetKeystrokes(
+X#ifdef ANSI_PROTOTYPES
+int, XKeyEvent *
+X#endif
+X);
+X
+X/* in windows.c */
+void initWindows(
+X#ifdef ANSI_PROTOTYPES
+void
+X#endif
+X);
+void MakeWindowActive(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+struct window * createWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, char * filename, char * geometry
+X#endif
+X);
+int closeWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int
+X#endif
+X);
+void topWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void ZoomWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *, int
+X#endif
+X);
+struct window * GetNewFile(
+X#ifdef ANSI_PROTOTYPES
+struct window * w, char * filename, char * geometry
+X#endif
+X);
+void doNewWindow(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+void bottomFile(
+X#ifdef ANSI_PROTOTYPES
+struct window *
+X#endif
+X);
+X
+END_OF_FILE
+if test 17878 -ne `wc -c <'funcdecl.h'`; then
+    echo shar: \"'funcdecl.h'\" unpacked with wrong size!
+fi
+# end of 'funcdecl.h'
+fi
+if test -f 'windows.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'windows.c'\"
+else
+echo shar: Extracting \"'windows.c'\" \(18315 characters\)
+sed "s/^X//" >'windows.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/windows.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <string.h>
+X#include "pt.h"
+X#include <stdio.h>
+X#include <sys/file.h>
+X#ifdef uts
+X#include <fcntl.h>
+X#endif
+X
+X/* the list of active windows, top to bottom */
+struct window *windowList = NULL;
+X
+X/* the active window */
+struct window *activeWindow = NULL;
+X
+extern struct openFile *files;
+X
+void
+initWindows()
+X{
+X	extern char charTable[];
+X
+X	charTable['\n'] = 1;
+X	charTable[BLOCK_EOF] = 2;
+X	charTable['\t'] = 3;
+X}
+X
+void
+MakeWindowActive( w )
+X	struct window *w;
+X{
+X	extern struct window *activeWindow;
+X
+X	if( w != activeWindow ) {
+X		/* remember the old active window */
+X		struct window *oldw = activeWindow;
+X
+X		activeWindow = w;
+X		banner( oldw, 0 );
+X		banner( w, 0 );
+X	}
+X}
+X
+struct window *
+createWindow( w, fileName, geometry )
+X	struct window * w;
+X	char * fileName;
+X	char * geometry;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern char msgBuffer[];
+X	extern int maxFiles;
+X	extern int debug;
+X	extern int autoZoom;
+X	extern char * textFont;
+X	extern int hypertextOn;
+X	extern Display *MainDisplay;
+X#ifdef HYPERTEXT
+X	extern DBM *currentDB;
+X	extern Document currentDocument;
+X#endif
+X	extern unsigned char beginMarkerChar;
+X	extern Tcl_Interp * interp;
+X	extern BrowserData * mainBrowser;
+X	extern Window MainWindow;
+X
+X	int createToo = (w == NULL);
+X	char * name;
+X
+X	if( createToo ) {	/* we need to create the window as well as */
+X				/* load the new file into it */
+X		w = (struct window *) PtMalloc( sizeof(struct window),
+X						"Window structure" );
+X	}
+X
+X	w->fileId = getFileId(fileName);
+X	w->realFileId = w->fileId;
+X	if( w->fileId == -1 ) {
+X		/* file not found, do not open the window */
+X		printf( "File %s not found\n", fileName );
+X		return NULL;
+X	}
+X#ifdef HYPERTEXT
+X	if( hypertextOn && getFileByte(w->fileId,0) == (int)beginMarkerChar ) {
+X		/* This is a hypertext file */
+X		extern MapID naturalMap;
+X		FileID fileID;
+X		unsigned int flags;
+X		BlockID blockID;
+X
+X		w->db = currentDB;
+X		w->document = currentDocument;
+X		fileID = LookupFileByName( w->db, w->document,
+X						files[w->fileId].origName );
+X		if( fileID == NullObject ) {
+X			printf(
+X"ERROR: could not find file %s. Displaying as an ordinary file\n",
+X				files[w->fileId].origName );
+X			goto ordinary_file;
+X		}
+X		w->file = GetFile( w->db, fileID, ALLOCATE );
+X
+X		/* get the inital view */
+X		w->view = NULL;	/* not using views yet */
+X
+X		/* get the maps from the initial view */
+X		w->blockMap = GetMap( w->db, naturalMap, ALLOCATE);
+X		if( w->blockMap == NULL ) {
+X			printf( "Cannot find natural map in database %s\n",
+X								fileName );
+X			return NULL;
+X		}
+X		/* Maybe later we can fetch these */
+X		w->fromLinkMap = NULL;
+X		w->toLinkMap = NULL;
+X
+X		/* get the initial block of the initial view */
+X		(void)ReadBlockMarker( w->fileId, 1, &blockID, &flags );
+X		w->block = GetBlock( w->db, blockID, ALLOCATE);
+X		if( w->block == NULL ) {
+X			printf( "Cannot find initial block in database %s\n",
+X								fileName );
+X			return NULL;
+X		}
+X
+X		/* Split up the file so that all block markers are in */
+X		/* separate pieces.  Other code depends on this to be true. */
+X		SeparateBlockMarkers( w );
+X
+X		/* fileId already copied to realFileId (above) */
+X		w->fileId = CreateViewFile( w );
+X	} else {
+X	ordinary_file:
+X		/* This is an ordinary file */
+X		w->db = NULL;
+X		w->document = NULL;
+X		w->view = NULL;
+X		w->block = NULL;
+X		w->blockMap = NULL;
+X		w->fromLinkMap = NULL;
+X		w->toLinkMap = NULL;
+X		w->file = NULL;
+X	}
+X#endif
+X
+X	w->posTopline = 0;
+X
+X	if( createToo ) {
+X		/* insert w into the doubly linked windowList */
+X		if( windowList == NULL ) {
+X			w->prevWindow = NULL;
+X			w->nextWindow = NULL;
+X			windowList = w;
+X		} else {
+X			windowList->prevWindow = w;
+X			w->prevWindow = NULL;
+X			w->nextWindow = windowList;
+X			windowList = w;
+X		}
+X	}
+X
+X	w->nameOffset = getBaseName(files[w->fileId].origName);
+X
+X	/* set the default window parameters */
+X	w->posBotline = 0;
+X	w->numTopline = 1;
+X	w->numBotline = -1;
+X	w->indent = 0;
+X	
+X	/* set up the last row cache */
+X	w->posCurLast = 0;
+X	w->lastPosTop = 0;
+X	w->rowCurLast = 0;
+X
+X	/* set up the margins */
+X	w->topMargin = 2;
+X	w->leftMargin = 4;
+X
+X	/* set up the font name */
+X	w->font.name = PtMalloc(strlen(textFont)+1, "font name");
+X	strcpy(w->font.name, textFont);
+X	/* height = 0 will ensure that the old font will not be reused */
+X	(w->font).height = 0;
+X	
+X	/* create the three GCs needed by each window */
+X	(w->font).gc_normal = XCreateGC(MainDisplay, MainWindow,
+X					0, NULL);
+X	(w->font).gc_selected = XCreateGC(MainDisplay, MainWindow,
+X					0, NULL);
+X	(w->font).gc_underline = XCreateGC(MainDisplay, MainWindow,
+X					0, NULL);
+X
+X	/* other setups */
+X	w->x_window_id = NULL;
+X	w->oldWidth = 0;
+X	w->closeInform = NULL;
+X	w->lineNumbers = 0;
+X	
+X	/* if there is a file in the window and there is not current */
+X	/* selection, then move the selection to the new window */
+X	if( w->fileId != -1 && selWindow == NULL ) {
+X		/* put the selection at the first char in this window */
+X		selWindow = w;
+X		selBegin = 0;
+X		selEnd = 0;
+X	}
+X
+X	if( createToo ) {
+X		w->screen_image = NULL;
+X		/* this will cause a call to WorkspaceResized on the */
+X		/* first expose event */
+X		w->nRows = 0;
+X		/*  create a text window */
+X		(void)ExecTclCommand( "update" );
+X		sprintf( msgBuffer, "TextWindow %s", geometry );
+X		name = ExecTclCommand( msgBuffer );
+X		w->tk_pathname = Tk_GetUid( name );
+X		w->tk_toplevel = Tk_NameToWindow( interp, w->tk_pathname,
+X						mainBrowser->tk_toplevel );
+X		sprintf( msgBuffer, "%s.VScrollAndText.Text", w->tk_pathname );
+X		w->tk_text = Tk_NameToWindow( interp, msgBuffer,
+X						w->tk_toplevel);
+X		w->x_window_id = Tk_WindowId( w->tk_text );
+X
+X		(void)ExecTclCommand( "update" );
+X
+X		/* zoom of necessary */
+X		if( autoZoom )
+X			ZoomWindow( w, 0 );
+X	}
+X
+X	/* make the new window the active window */
+X	MakeWindowActive( w );
+X
+X	/* update the list of open windows */
+X	NewOpenList();
+X
+X	return w;
+X}
+X
+int
+closeWindow(w, ask)
+X	register struct window *w;
+X	int ask;
+X{
+X	extern struct window *selWindow;
+X	extern struct window *activeWindow;
+X	extern Offset selBegin, selEnd;
+X	extern char msgBuffer[];
+X	extern int debug;
+X
+X	struct window * w_prev, * w_next;
+X
+X	/* first destroy the widget tree (the shell is the top) */
+X	
+X#ifdef HYPERTEXT
+X	/* free the objects and close the database */
+X	if( w->db != NULL ) {
+X		PutFile( w->db, w->file, RELEASE );
+X		PutBlock( w->db, w->block, RELEASE );
+X		PutMap( w->db, w->blockMap, RELEASE );
+X		PutView( w->db, w->view, RELEASE );
+X		PutDocument( w->db, w->document, RELEASE );
+X	}
+X#endif
+X
+X	if( closeFile(w->fileId, ask) == -1 )
+X		return -1;
+X
+X	/* unlink this window from the window list */
+X	w_prev = w->prevWindow;
+X	w_next = w->nextWindow;
+X	if( w_prev == NULL )
+X		windowList = w_next;
+X	else
+X		w_prev->nextWindow = w_next;
+X	if( w_next != NULL )
+X		w_next->prevWindow = w_prev;
+X	if( windowList == NULL )
+X		activeWindow = NULL;
+X
+X	/* is the selection in this window? */
+X	if( w == selWindow ) {
+X		/* move the selection to the top window */
+X		selWindow = windowList;
+X		if( selWindow != NULL ) {
+X			selBegin = 0;
+X			selEnd = selBegin;
+X		}
+X	}
+X
+X	/* is this the active window? */
+X	if( w == activeWindow ) {
+X		MakeWindowActive( selWindow );
+X	}
+X
+X	(void)ExecTclCommand( "update" );
+X	Tk_DestroyWindow( w->tk_toplevel );
+X	(void)ExecTclCommand( "update" );
+X
+X	/* free any allocated strings */
+X	if( w->closeInform != NULL ) {
+X		sprintf( msgBuffer, "catch {send %s %s}", w->closeInform,
+X							w->tk_pathname );
+X		(void)ExecTclCommand( msgBuffer );
+X		PtFree( w->closeInform );
+X	}
+X
+X	PtFree( w->font.name );
+X
+X	PtFree( w->screen_image );
+X
+X	PtFree( (char *)w );
+X
+X	/* update the list of open windows */
+X	NewOpenList();
+X
+X	return 0;
+X}
+X
+static int timerIsOn = 0;
+static Tk_TimerToken timer_token = NULL;
+int intervalRows = 0;
+int scrollDown = 0;
+struct window * scroll_window;
+X
+static void
+DoOneHScroll()
+X{
+X	extern int undoMotion;
+X	extern Display *MainDisplay;
+X
+X	struct fontDataStruct *font = &( scroll_window->font);
+X	int col1, col2, incr1, incr2, cols, wide;
+X
+X#ifdef LATERLATER
+X	if( undoMotion ) {
+X		/* record in the change history */
+X		thisChange = GetNewChange( ff );
+X		thisChange->type = CMOTION;
+X		thisChange->lineNumber = scroll_window->numTopline;
+X		thisChange->length = scroll_window->numTopline + intervalRows;
+X		thisChange->w = scroll_window;
+X		thisChange->flags = 0;
+X		RecordChange( ff, thisChange );
+X	}
+X#endif
+X	cols = intervalRows;
+X	wide = font->width;
+X	if( scrollDown ) {
+X		scroll_window->indent += cols;
+X		incr1 = cols * wide;
+X		incr2 = 0;
+X		col1 = (scroll_window->nCols) - cols;
+X		col2 = scroll_window->nCols - 1;
+X	} else {
+X		/* do not allow scrolling off the beginning */
+X		if( cols > scroll_window->indent )
+X			cols = scroll_window->indent;
+X		scroll_window->indent -= cols;
+X		incr1 = 0;
+X		incr2 = cols * wide;
+X		col1 = 0;
+X		col2 = cols - 1;
+X	}
+X	XCopyArea( MainDisplay, scroll_window->x_window_id,
+X		scroll_window->x_window_id, font->gc_normal,
+X		scroll_window->leftMargin + incr1, 0,
+X		(scroll_window->nCols - cols) * wide,
+X		Tk_Height(scroll_window->tk_toplevel),
+X		scroll_window->leftMargin + incr2, 0 );
+X	drawWindowFast(scroll_window, 0, scroll_window->nRows-1, col1, col2 );
+X}
+X
+X/*ARGSUSED*/
+static void
+repeatHScroll( clientData )
+X	ClientData clientData;
+X{
+X	DoOneHScroll();
+X	timer_token = Tk_CreateTimerHandler( 100, repeatHScroll, 0 );
+X}
+X
+void
+HScroll( w, how, x, button )
+X	struct window *w;
+X	int how;
+X	int x;
+X	int button;
+X{
+X	int top_unit;
+X
+X	/* how = 0 ==> tk scrolling */
+X	/* how = 1 ==> button press */
+X	/* how = 2 ==> button release */
+X	/* how = 3 ==> button motion */
+X
+X	scroll_window = w;
+X	switch( how ) {
+X	case 0:		/* Tk scrolling */
+X		top_unit = x;
+X		intervalRows = top_unit - (w->indent);
+X		break;
+X	case 1:		/* button press */
+X		intervalRows = (x - w->leftMargin) / (w->font).width;
+X		switch( button ) {
+X		case 1:
+X			scrollDown = 0;
+X			break;
+X		case 2:
+X			goto thumbing;
+X		case 3:
+X			scrollDown = 1;
+X			break;
+X		}
+X		if( !timerIsOn ) {
+X			DoOneHScroll();
+X			timer_token = Tk_CreateTimerHandler( 500,
+X							repeatHScroll, 0 );
+X			timerIsOn = 1;
+X		}
+X		break;
+X	case 2:		/* (left or right) button release */
+X		if( timerIsOn ) {
+X			timerIsOn = 0;
+X			Tk_DeleteTimerHandler( timer_token );
+X		}
+X		return;
+X	case 3:		/* (middle) button motion */
+X	thumbing:
+X		intervalRows = w->indent
+X				- (x - w->leftMargin) / (w->font).width;
+X		DoOneHScroll();
+X		break;
+X	}
+X
+X	/* always scroll at least one column */
+X	if( intervalRows < 1 )
+X		intervalRows = 1;
+X}
+X
+int
+DoOneVScroll()
+X{
+X	extern int undoMotion;
+X	extern Display *MainDisplay;
+X
+X	struct fontDataStruct *font = &(scroll_window->font);
+X	int fid = scroll_window->fileId;
+X	struct changeItem *thisChange;
+X	int rowsScrolled, high, incr1, incr2, row1, row2;
+X	struct openFile * ff = &files[fid];
+X	int copy_height;
+X
+X	if( undoMotion ) {
+X		/* record in the change history */
+X		thisChange = GetNewChange( ff );
+X		thisChange->type = CMOTION;
+X		thisChange->lineNumber = scroll_window->numTopline;
+X		thisChange->length = scroll_window->numTopline + intervalRows;
+X		thisChange->w = scroll_window;
+X		thisChange->flags = 0;
+X		RecordChange( ff, thisChange );
+X	}
+X
+X	rowsScrolled = intervalRows;
+X	high = font->height;
+X	copy_height = (scroll_window->nRows - intervalRows) * high;
+X	if( scrollDown ) {
+X		scroll_window->posTopline = nextLine( fid,
+X				scroll_window->posTopline, &rowsScrolled );
+X		scroll_window->numTopline += rowsScrolled;
+X		scroll_window->numBotline += rowsScrolled;
+X		incr1 = rowsScrolled * high;
+X		incr2 = 0;
+X		row1 = scroll_window->nRows - rowsScrolled;
+X		if( rowsScrolled < intervalRows )
+X			row1 = rowsScrolled + 1;
+X		row2 = scroll_window->nRows-1;
+X	} else {
+X		/* do not allow scrolling off the beginning */
+X		if( scroll_window->posTopline <= 0 )
+X			return 0;
+X		scroll_window->posTopline = prevLine( fid,
+X				scroll_window->posTopline, &rowsScrolled);
+X		scroll_window->numTopline -= rowsScrolled;
+X		scroll_window->numBotline -= rowsScrolled;
+X		row1 = intervalRows - rowsScrolled;
+X		if( row1 > 0 )
+X			copy_height += row1 * high;
+X		incr1 = 0;
+X		incr2 = rowsScrolled * high;
+X		row1 = 0;
+X		row2 = rowsScrolled - 1;
+X	}
+X	/* only copy if we can use part of the present window */
+X	if( intervalRows < scroll_window->nRows ) {
+X		XCopyArea( MainDisplay, scroll_window->x_window_id,
+X			scroll_window->x_window_id, font->gc_normal,
+X			0, scroll_window->topMargin + incr1,
+X			Tk_Width(scroll_window->tk_toplevel), copy_height,
+X			0, scroll_window->topMargin + incr2 );
+X		if( scrollDown && scroll_window->posBotline
+X					== fileSize(scroll_window->fileId) ) {
+X			XClearArea( MainDisplay, scroll_window->x_window_id,
+X				0, copy_height,
+X				Tk_Width(scroll_window->tk_text),
+X				Tk_Height(scroll_window->tk_text)-copy_height,
+X				False
+X			);
+X			return rowsScrolled;
+X		}
+X	} else {
+X		/* we went through the above calculations in order to get */
+X		/* posTopline, numTopline and numBotline updated */
+X		/* now fix up row1 and row2 */
+X		row1 = 0;
+X		row2 = scroll_window->nRows - 1;
+X	}
+X	drawWindowFast(scroll_window, row1, row2, 0, scroll_window->nCols-1 );
+X	return rowsScrolled;
+X}
+X
+X/*ARGSUSED*/
+static void
+repeatVScroll( clientData )
+X	ClientData clientData;
+X{
+X	(void)DoOneVScroll();
+X	timer_token = Tk_CreateTimerHandler( 100, repeatVScroll, 0 );
+X}
+X
+void
+VScroll( w, how, y, button )
+X	struct window *w;
+X	int how;
+X	int y;
+X	int button;
+X{
+X	/* how = 0 ==> tk scrolling */
+X	/* how = 1 ==> button press */
+X	/* how = 2 ==> button release */
+X	/* how = 3 ==> button motion */
+X	extern int button1ScrollsDown;
+X
+X	int row1, row;
+X	int fid = w->fileId;
+X	Offset cp, offset;
+X	int top_unit;
+X	int delta, inwindow;
+X	int scrollbar_height;
+X
+X	scroll_window = w;
+X	switch( how ) {
+X	case 0:		/* Tk scrolling */
+X		top_unit = y;
+X		inwindow = w->posBotline - w->posTopline;
+X		if( inwindow < 1 )
+X			inwindow = 1;
+X		delta = top_unit - w->posTopline;
+X		if( delta < 0 ) {
+X			delta = -delta;
+X			scrollDown = 0;
+X		} else
+X			scrollDown = 1;
+X		intervalRows = (w->nRows * delta) / inwindow;
+X		if( intervalRows < 1 )
+X			intervalRows = 1;
+X		(void)DoOneVScroll();
+X		break;
+X	case 1:		/* button press */
+X		intervalRows = (y - w->topMargin) / (w->font).height;
+X		/* always scroll at least one line */
+X		if( intervalRows < 1 )
+X			intervalRows = 1;
+X		switch( button ) {
+X		case 1:
+X			scrollDown = button1ScrollsDown;
+X			break;
+X		case 2:
+X			goto thumbing;
+X		case 3:
+X			scrollDown = 1 - button1ScrollsDown;
+X			break;
+X		}
+X		if( !timerIsOn ) {
+X			(void)DoOneVScroll();
+X			timer_token = Tk_CreateTimerHandler( 300,
+X							repeatVScroll, 0 );
+X			timerIsOn = 1;
+X		}
+X		break;
+X	case 2:		/* (left or right) button release */
+X		if( timerIsOn ) {
+X			timerIsOn = 0;
+X			Tk_DeleteTimerHandler( timer_token );
+X		}
+X		return;
+X	case 3:		/* (middle) button motion */
+X	thumbing:
+X		/* we get negative y values when the (grabbed) mouse goes */
+X		/* above the scroll bar area.  Consider them zero. */
+X		/* Also adjust for the case where the mouse pointer */
+X		/* moves below the scrollbar area. */
+X		scrollbar_height = Tk_Height(w->tk_text);
+X		if( y < 0 )
+X			y = 0;
+X		else if( y > scrollbar_height )
+X			y = scrollbar_height;
+X		cp = fileSize( fid );
+X		offset = (int)( ((double)y * cp) / scrollbar_height );
+X		if( offset > cp )
+X			offset = cp;
+X		cp = w->posTopline;
+X		row = w->numTopline;
+X		while( cp < offset ) {
+X			row1 = 1;
+X			cp = nextLine( fid, cp, &row1 );
+X			row += row1;
+X		}
+X		while( cp > offset ) {
+X			row1 = 1;
+X			cp = prevLine( fid, cp, &row1 );
+X			row -= row1;
+X		}
+X		intervalRows = row - w->numTopline;
+X		if( intervalRows == 0 )
+X			return;
+X		if( intervalRows < 0 ) {
+X			intervalRows = -intervalRows;
+X			scrollDown = 0;
+X		} else
+X			scrollDown = 1;
+X		(void)DoOneVScroll();
+X		break;
+X	}
+X}
+X
+X
+void
+topWindow(w)
+X	register struct window *w;
+X{
+X	MakeWindowActive( w );
+X}
+X
+void
+ZoomWindow( w, how )
+X	struct window *w;
+X	int how;
+X{
+X	extern int display_height;
+X	extern int display_width;
+X	extern Display *MainDisplay;
+X	extern int debug;
+X
+X	if( w->oldWidth == 0 ) {	/* not zoomed */
+X		/* first save the present geometry */
+X		w->oldX = Tk_X( w->tk_toplevel );
+X		w->oldY = Tk_Y( w->tk_toplevel );
+X		w->oldWidth = Tk_Width( w->tk_toplevel );
+X		w->oldHeight = Tk_Height( w->tk_toplevel );
+X
+X		/* now set up to zoomed geometry */
+X		Tk_MoveResizeWindow( w->tk_toplevel,
+X			(how ? 4 : w->oldX),
+X			3,
+X			(how ? display_width-8 : w->oldWidth),
+X			display_height-37
+X		);
+X	} else {	/* unzoom */
+X		/* restore the old geometry */
+X		Tk_MoveResizeWindow( w->tk_toplevel,
+X			w->oldX, w->oldY-25, w->oldWidth, w->oldHeight );
+X		/* set up so that it indicates not zoomed */
+X		w->oldWidth = 0;
+X	}
+X}
+X
+struct window *
+GetNewFile(w, fileName, geometry)
+X	struct window * w;
+X	char * fileName;
+X	char * geometry;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern char * returnString;
+X
+X	int n;
+X
+X	if( fileName == NULL ) {
+cancelWindow:
+X		msg("New file cancelled", 1);
+X		return NULL;
+X	}
+X	fileName = noWhiteSpace(fileName);
+X	strcpy(textBuffer, fileName);
+X	if( access(textBuffer, 0) == -1 ) {
+X		sprintf( msgBuffer,
+X			"MakeModalYesNo \"%s\" \"%s %s %s\" \"%s\" \"%s\"",
+X			"Create file?",
+X			"File", fileName, "does not exist.",
+X			"Create it",
+X			"Cancel new file" );
+X		(void)ExecTclCommand( msgBuffer );
+X		command( FWAITFORRETURNSTRING, "","","","","","");
+X		if( returnString[0] != 'y' ) {
+X			goto cancelWindow;
+X		}
+X		n = open(textBuffer, O_CREAT, 0644);
+X		if( n < 0 ) {
+X			sprintf(msgBuffer, "Cannot create %s: ", textBuffer);
+X			msg(msgBuffer, 1);
+X			goto cancelWindow;
+X		} else
+X			close(n);
+X	}
+X	return createWindow( w, textBuffer, geometry );
+X}
+X
+X
+struct window *
+XFindWindowByTkName( name )
+X	char * name;
+X{
+X	extern struct window * windowList;
+X
+X	struct window * w = windowList;
+X	Tk_Uid uid_of_name = Tk_GetUid( name );
+X
+X	while( w != NULL ) {
+X		if( w->tk_pathname == uid_of_name  )
+X			break;
+X		w = w->nextWindow;
+X	}
+X	return w;
+X}
+X
+void
+bottomFile( w )
+X	struct window *w;
+X{
+X	extern int debug;
+X
+X	Offset cp;
+X	int j;
+X	int i;
+X	int fid = w->fileId;
+X
+X	if( w == NULL )
+X		return;
+X	/* remember where we came from */
+X	w->rowLastline = w->numTopline;
+X	cp = w->posBotline;
+X
+X	/* find the last line of the file */
+X	i = 0;
+X	while( 1 ) {
+X		j = 1;
+X		cp = nextLine( fid, cp, &j );
+X		/* if j==0, we could not go down a line */
+X		/* so we are at the end */
+X		if( j == 0 )
+X			break;
+X		++i;
+X	}
+X	++i;	/* one more line so EOF mark shows */
+X
+X	/* now move the window down and redraw it */
+X	j = i;	/* since i is a register variable, we must use j here */
+X	w->posTopline = nextLine( fid, w->posTopline, &j );
+X	w->posBotline = cp;
+X	w->numTopline += j;
+X	w->numBotline += j;
+X	w->indent = 0;
+X	drawWindow(w);
+X}
+X
+END_OF_FILE
+if test 18315 -ne `wc -c <'windows.c'`; then
+    echo shar: \"'windows.c'\" unpacked with wrong size!
+fi
+# end of 'windows.c'
+fi
+echo shar: End of archive 7 \(of 15\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236
